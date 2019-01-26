@@ -65,41 +65,41 @@ uint8_t SwitchGetVirtual(uint8_t index)
 
 void SwitchProbe(void)
 {
+  if (uptime < 4) { return; }                           // Block GPIO for 4 seconds after poweron to workaround Wemos D1 / Obi RTS circuit
+
   uint8_t state_filter = Settings.switch_debounce / SWITCH_PROBE_INTERVAL;   // 5, 10, 15
   uint8_t force_high = (Settings.switch_debounce % 50) &1;                   // 51, 101, 151 etc
   uint8_t force_low = (Settings.switch_debounce % 50) &2;                    // 52, 102, 152 etc
 
   for (byte i = 0; i < MAX_SWITCHES; i++) {
     if (pin[GPIO_SWT1 +i] < 99) {
-      if (!((uptime < 4) && (0 == pin[GPIO_SWT1 +i]))) {  // Block GPIO0 for 4 seconds after poweron to workaround Wemos D1 RTS circuit
-        // Olimex user_switch2.c code to fix 50Hz induced pulses
-        if (1 == digitalRead(pin[GPIO_SWT1 +i])) {
+      // Olimex user_switch2.c code to fix 50Hz induced pulses
+      if (1 == digitalRead(pin[GPIO_SWT1 +i])) {
 
-          if (force_high) {                               // Enabled with SwitchDebounce x1
-            if (1 == switch_virtual[i]) {
-              switch_state_buf[i] = state_filter;         // With noisy input keep current state 1 unless constant 0
-            }
+        if (force_high) {                               // Enabled with SwitchDebounce x1
+          if (1 == switch_virtual[i]) {
+            switch_state_buf[i] = state_filter;         // With noisy input keep current state 1 unless constant 0
           }
+        }
 
-          if (switch_state_buf[i] < state_filter) {
-            switch_state_buf[i]++;
-            if (state_filter == switch_state_buf[i]) {
-              switch_virtual[i] = 1;
-            }
+        if (switch_state_buf[i] < state_filter) {
+          switch_state_buf[i]++;
+          if (state_filter == switch_state_buf[i]) {
+            switch_virtual[i] = 1;
           }
-        } else {
+        }
+      } else {
 
-          if (force_low) {                                // Enabled with SwitchDebounce x2
-            if (0 == switch_virtual[i]) {
-              switch_state_buf[i] = 0;                    // With noisy input keep current state 0 unless constant 1
-            }
+        if (force_low) {                                // Enabled with SwitchDebounce x2
+          if (0 == switch_virtual[i]) {
+            switch_state_buf[i] = 0;                    // With noisy input keep current state 0 unless constant 1
           }
+        }
 
-          if (switch_state_buf[i] > 0) {
-            switch_state_buf[i]--;
-            if (0 == switch_state_buf[i]) {
-              switch_virtual[i] = 0;
-            }
+        if (switch_state_buf[i] > 0) {
+          switch_state_buf[i]--;
+          if (0 == switch_state_buf[i]) {
+            switch_virtual[i] = 0;
           }
         }
       }
@@ -110,12 +110,18 @@ void SwitchProbe(void)
 
 void SwitchInit(void)
 {
+  if (my_module_flag.pullup) {
+    if (Settings.flag3.no_pullup) {
+      switch_no_pullup = 0xffff;
+    }
+  }
+
   switches_found = 0;
   for (byte i = 0; i < MAX_SWITCHES; i++) {
     lastwallswitch[i] = 1;  // Init global to virtual switch state;
     if (pin[GPIO_SWT1 +i] < 99) {
       switches_found++;
-      pinMode(pin[GPIO_SWT1 +i], (16 == pin[GPIO_SWT1 +i]) ? INPUT_PULLDOWN_16 : bitRead(switch_no_pullup, i) ? INPUT : INPUT_PULLUP);
+      pinMode(pin[GPIO_SWT1 +i], bitRead(switch_no_pullup, i) ? INPUT : ((16 == pin[GPIO_SWT1 +i]) ? INPUT_PULLDOWN_16 : INPUT_PULLUP));
       lastwallswitch[i] = digitalRead(pin[GPIO_SWT1 +i]);  // Set global now so doesn't change the saved power state on first switch check
     }
     switch_virtual[i] = lastwallswitch[i];
@@ -129,13 +135,14 @@ void SwitchInit(void)
 
 void SwitchHandler(byte mode)
 {
+  if (uptime < 4) { return; }                                  // Block GPIO for 4 seconds after poweron to workaround Wemos D1 / Obi RTS circuit
+
   uint8_t button = NOT_PRESSED;
   uint8_t switchflag;
   uint16_t loops_per_second = 1000 / Settings.switch_debounce;
 
   for (byte i = 0; i < MAX_SWITCHES; i++) {
     if ((pin[GPIO_SWT1 +i] < 99) || (mode)) {
-
 
       if (holdwallswitch[i]) {
         holdwallswitch[i]--;

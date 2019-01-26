@@ -621,6 +621,7 @@ void SettingsDefaultSet2(void)
   Settings.webserver = WEB_SERVER;
   Settings.weblog_level = WEB_LOG_LEVEL;
   strlcpy(Settings.web_password, WEB_PASSWORD, sizeof(Settings.web_password));
+  Settings.flag3.mdns_enabled = MDNS_ENABLED;
 
   // Button
 //  Settings.flag.button_restrict = 0;
@@ -975,7 +976,7 @@ void SettingsDelta(void)
     if (Settings.version < 0x06000002) {
       for (byte i = 0; i < MAX_SWITCHES; i++) {
         if (i < 4) {
-          Settings.switchmode[i] = Settings.ex_switchmode[i];
+          Settings.switchmode[i] = Settings.interlock[i];
         } else {
           Settings.switchmode[i] = SWITCH_MODE;
         }
@@ -1018,8 +1019,11 @@ void SettingsDelta(void)
       }
     }
     if (Settings.version < 0x06040105) {
-      Settings.flag3.mdns_enabled = 0;
+      Settings.flag3.mdns_enabled = MDNS_ENABLED;
       Settings.param[P_MDNS_DELAYED_START] = 0;
+    }
+    if (Settings.version < 0x0604010B) {
+      for (byte i = 0; i < MAX_INTERLOCKS; i++) { Settings.interlock[i] = 0; }
     }
 
     Settings.version = VERSION;
