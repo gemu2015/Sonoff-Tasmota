@@ -111,6 +111,7 @@ uint8_t light_wheel = 0;
 uint8_t light_subtype = 0;
 uint8_t light_device = 0;
 uint8_t light_power = 0;
+uint8_t light_old_power = 1;
 uint8_t light_update = 1;
 uint8_t light_wakeup_active = 0;
 uint8_t light_wakeup_dimmer = 0;
@@ -247,23 +248,23 @@ void AriluxRfHandler(void)
 
 void AriluxRfInit(void)
 {
-  if ((pin[GPIO_ARIRFRCV] < 99) && (pin[GPIO_LED2] < 99)) {
+  if ((pin[GPIO_ARIRFRCV] < 99) && (pin[GPIO_LED4] < 99)) {
     if (Settings.last_module != Settings.module) {
       Settings.rf_code[1][6] = 0;
       Settings.rf_code[1][7] = 0;
       Settings.last_module = Settings.module;
     }
     arilux_rf_received_value = 0;
-    digitalWrite(pin[GPIO_LED2], !bitRead(led_inverted, 1));  // Turn on RF
+    digitalWrite(pin[GPIO_LED4], !bitRead(led_inverted, 3));  // Turn on RF
     attachInterrupt(pin[GPIO_ARIRFRCV], AriluxRfInterrupt, CHANGE);
   }
 }
 
 void AriluxRfDisable(void)
 {
-  if ((pin[GPIO_ARIRFRCV] < 99) && (pin[GPIO_LED2] < 99)) {
+  if ((pin[GPIO_ARIRFRCV] < 99) && (pin[GPIO_LED4] < 99)) {
     detachInterrupt(pin[GPIO_ARIRFRCV]);
-    digitalWrite(pin[GPIO_LED2], bitRead(led_inverted, 1));  // Turn off RF
+    digitalWrite(pin[GPIO_LED4], bitRead(led_inverted, 3));  // Turn off RF
   }
 }
 #endif  // USE_ARILUX_RF
@@ -387,8 +388,8 @@ void LightInit(void)
       }
     }
     if (pin[GPIO_ARIRFRCV] < 99) {
-      if (pin[GPIO_LED2] < 99) {
-        digitalWrite(pin[GPIO_LED2], bitRead(led_inverted, 1));  // Turn off RF
+      if (pin[GPIO_LED4] < 99) {
+        digitalWrite(pin[GPIO_LED4], bitRead(led_inverted, 3));  // Turn off RF
       }
     }
   }
@@ -715,11 +716,12 @@ void LightRandomColor(void)
 void LightSetPower(void)
 {
 //  light_power = XdrvMailbox.index;
+  light_old_power = light_power;
   light_power = bitRead(XdrvMailbox.index, light_device -1);
   if (light_wakeup_active) {
     light_wakeup_active--;
   }
-  if (light_power) {
+  if (light_power && !light_old_power) {
     light_update = 1;
   }
   LightAnimate();
@@ -828,7 +830,10 @@ void LightAnimate(void)
           }
         }
       }
-      XdrvMailbox.index = light_device;
+
+      char *tmp_data = XdrvMailbox.data;
+      uint16_t tmp_data_len = XdrvMailbox.data_len;
+
       XdrvMailbox.data = (char*)cur_col;
       XdrvMailbox.data_len = sizeof(cur_col);
       if (XdrvCall(FUNC_SET_CHANNELS)) {
@@ -842,6 +847,8 @@ void LightAnimate(void)
       else if (light_type > LT_WS2812) {
         LightMy92x1Duty(cur_col[0], cur_col[1], cur_col[2], cur_col[3], cur_col[4]);
       }
+      XdrvMailbox.data = tmp_data;
+      XdrvMailbox.data_len = tmp_data_len;
     }
   }
 }
@@ -1196,7 +1203,7 @@ boolean LightCommand(void)
         if (LightColorEntry(color, strlen(color))) {
           Ws2812SetColor(idx, light_entry_color[0], light_entry_color[1], light_entry_color[2], light_entry_color[3]);
           idx++;
-          if (idx >= Settings.light_pixels) break;
+          if (idx > Settings.light_pixels) break;
         } else {
           break;
         }

@@ -1,4 +1,45 @@
-/* 6.4.1.5 20190103
+/* 6.4.1.11 20190124
+ * Remove command SetOption14 as it has been superseded by command Interlock
+ * Remove command SetOption63 as it has been superseded by command Interlock
+ * Add command Interlock 0 / 1 / 1,2 3,4 .. to control interlock ON/OFF and add up to 8 relays in 1 to 4 interlock groups (#5014)
+ *
+ * 6.4.1.10 20190121
+ * Fix Hass discovery of MHZ19(B) sensors (#4992)
+ * Fix Hass Software Watchdog exception during discovery (#4988)
+ * Add support for MAX44009 Ambient Light sensor (#4907)
+ *
+ * 6.4.1.9 20190115
+ * Add support for Mi LED Desk Lamp with rotary switch (#4887)
+ * Fix mDNS addService (#4938, #4951)
+ * Fix allowable MAX_RULE_VARS to 16 (#4933)
+ * Add (S)SerialSend3 escape sequence \x to allow hexadecimal byte value (#3560, #4947)
+ * Add SerialBridge command SSerialSend5 <hexdata>
+ *
+ * 6.4.1.8 20190107
+ * Change sonoff_template.h layout regarding optional module flags like ADC0
+ * Add command SetOption62 1 to force no Button/Switch pullup on dedicated modules. Currently only supported on Shelly2 (#4841)
+ * Fix Display exception 28 when JSON value is NULL received
+ * Fix Home Assistant Sensor Discovery Software Watchdog restart (#4831)
+ * Add support for OBI Power Socket 2 (#4829)
+ * Add support for YTF IR Bridge (#4855)
+ * Change web authentication (#4865)
+ * Add support for Digoo DG-SP202 Smart Socket with Energy monitoring (#4891)
+ * Add support for Smanergy KA10 Smart Wall Socket with Energy monitoring
+ * Add support for Luminea ZX2820 Smart Socket with Energy monitoring (#4921)
+ * Add define MDNS_ENABLE to control initial mDNS state (#4923)
+ * Add split interlock part 1 (#4910)
+ *
+ * 6.4.1.7 20190106
+ * Fix HLW8012, HJL01 and BL0937 based energy sensors low Power (below 10W) measurement regression from 6.4.1.6
+ * Add Power status functionality to LED2 when configured leaving LED1 for Link status indication
+ * Add no pull-up control to Shelly 2 module (default is pull-up, change GPIO2 to Switch3n for no pull-up) (#4841)
+ * Add 4 seconds startup delay to button control (#4829)
+ * Change button driver making it modular
+ *
+ * 6.4.1.6 20190105
+ * Add commands PowerCal, VoltageCal and CurrentCal for HLW8012, HJL01 and BL0937 based energy sensors
+ *
+ * 6.4.1.5 20190103
  * Remove command SetOption35 0-255 for mDNS start-up delay (#4793)
  * Add command SetOption55 0/1 to disable/enable mDNS (#4793)
  *
