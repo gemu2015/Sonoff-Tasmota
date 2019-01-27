@@ -19,71 +19,80 @@
 
 #ifdef USE_SOFTSPI
 #ifdef USE_DISPLAY
-#ifdef USE_DISPLAY_EPAPER29
+#ifdef USE_DISPLAY_EPAPER42
 
-#define XDSP_05                5
+#define XDSP_06                6
 
-#define COLORED                1
-#define UNCOLORED              0
+#define COLORED42              1
+#define UNCOLORED42            0
 
 // using font 8 is opional (num=3)
 // very badly readable, but may be useful for graphs
 #define USE_TINY_FONT
 
-#include <epd2in9.h>
+#include <epd4in2.h>
 #include <epdpaint.h>
 
 //unsigned char image[(EPD_HEIGHT * EPD_WIDTH) / 8];
 extern uint8_t *buffer;
 
-Epd *epd;
+Epd42 *epd42;
 
 /*********************************************************************************************/
 
-void EpdInitDriver29()
+void EpdInitDriver42()
 {
   if (!Settings.display_model) {
-    Settings.display_model = XDSP_05;
+    Settings.display_model = XDSP_06;
   }
 
-  if (XDSP_05 == Settings.display_model) {
+  if (XDSP_06 == Settings.display_model) {
 
     // allocate screen buffer
     if (buffer) free(buffer);
-    buffer=(unsigned char*)calloc((EPD_WIDTH * EPD_HEIGHT) / 8,1);
+    buffer=(unsigned char*)calloc((EPD_WIDTH42 * EPD_HEIGHT42) / 8,1);
     if (!buffer) return;
 
     // init renderer
-    epd  = new Epd(EPD_WIDTH,EPD_HEIGHT);
+    epd42  = new Epd42(EPD_WIDTH42,EPD_HEIGHT42);
 
-    // whiten display with full update, takes 3 seconds
-#ifdef USE_SOFTSPI
-    if  ((pin[GPIO_SSPI_CS]<99) && (pin[GPIO_SSPI_MOSI]<99) && (pin[GPIO_SSPI_SCLK]<99)){
-      epd->Begin(pin[GPIO_SSPI_CS],pin[GPIO_SSPI_MOSI],pin[GPIO_SSPI_SCLK]);
-    } else {
-      free(buffer);
-      return;
-    }
-#else
-    if ((pin[GPIO_SPI_CS]<99) && (pin[GPIO_SPI_MOSI]<99) && (pin[GPIO_SPI_CLK]<99)) {
-      epd->Begin(pin[GPIO_SPI_CS],pin[GPIO_SPI_MOSI],pin[GPIO_SPI_CLK]);
-    } else {
-      free(buffer);
-      return;
-    }
-#endif
+    #ifdef USE_SOFTSPI
+        if ((pin[GPIO_SSPI_CS]<99) && (pin[GPIO_SSPI_MOSI]<99) && (pin[GPIO_SSPI_SCLK]<99)) {
+          epd42->Begin(pin[GPIO_SSPI_CS],pin[GPIO_SSPI_MOSI],pin[GPIO_SSPI_SCLK]);
+        } else {
+          free(buffer);
+          return;
+        }
+    #else
+        if ((pin[GPIO_SPI_CS]<99) && (pin[GPIO_SPI_MOSI]<99) && (pin[GPIO_SPI_CLK]<99)) {
+          epd42->Begin(pin[GPIO_SPI_CS],pin[GPIO_SPI_MOSI],pin[GPIO_SPI_CLK]);
+        } else {
+          free(buffer);
+          return;
+        }
+    #endif
 
-    renderer = epd;
-    epd->Init(DISPLAY_INIT_FULL);
-    epd->Init(DISPLAY_INIT_PARTIAL);
+    renderer = epd42;
+
+    epd42->Init();
+
+    renderer->fillScreen(0);
+
+    // whiten display with full update, takes 4 seconds
+    epd42->Init(DISPLAY_INIT_FULL);
+
     renderer->DisplayInit(DISPLAY_INIT_MODE,Settings.display_size,Settings.display_rotate,Settings.display_font);
+
+    epd42->ClearFrame();
+    renderer->Updateframe();
+    delay(3000);
 
 #ifdef SHOW_SPLASH
     // Welcome text
-    renderer->setTextFont(1);
-    renderer->DrawStringAt(50, 50, (char*)(const char*)"Waveshare E-Paper Display!", COLORED,0);
+    renderer->setTextFont(2);
+    renderer->DrawStringAt(50, 140, (char*)(const char*)"Waveshare E-Paper!", COLORED42,0);
     renderer->Updateframe();
-    delay(1000);
+    delay(350);
     renderer->fillScreen(0);
 #endif
 
@@ -98,7 +107,7 @@ void EpdInitDriver29()
 
 #ifdef USE_DISPLAY_MODES1TO5
 
-void EpdRefresh29()  // Every second
+void EpdRefresh42()  // Every second
 {
   if (Settings.display_mode) {  // Mode 0 is User text
 
@@ -111,15 +120,15 @@ void EpdRefresh29()  // Every second
  * Interface
 \*********************************************************************************************/
 
-boolean Xdsp05(byte function)
+boolean Xdsp06(byte function)
 {
   boolean result = false;
 
   //if (spi_flg) {
     if (FUNC_DISPLAY_INIT_DRIVER == function) {
-      EpdInitDriver29();
+      EpdInitDriver42();
     }
-    else if (XDSP_05 == Settings.display_model) {
+    else if (XDSP_06 == Settings.display_model) {
 
       switch (function) {
         case FUNC_DISPLAY_MODEL:
@@ -128,7 +137,7 @@ boolean Xdsp05(byte function)
 
 #ifdef USE_DISPLAY_MODES1TO5
         case FUNC_DISPLAY_EVERY_SECOND:
-          EpdRefresh29();
+          EpdRefresh42();
           break;
 #endif  // USE_DISPLAY_MODES1TO5
       }
@@ -137,6 +146,6 @@ boolean Xdsp05(byte function)
   return result;
 }
 
-#endif  // USE_DISPLAY_EPAPER
+#endif  // USE_DISPLAY_EPAPER42
 #endif  // USE_DISPLAY
 #endif  // USE_SPI
