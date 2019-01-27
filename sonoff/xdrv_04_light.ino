@@ -58,11 +58,11 @@
 enum LightCommands {
   CMND_COLOR, CMND_COLORTEMPERATURE, CMND_DIMMER, CMND_LED, CMND_LEDTABLE, CMND_FADE,
   CMND_PIXELS, CMND_RGBWWTABLE, CMND_ROTATION, CMND_SCHEME, CMND_SPEED, CMND_WAKEUP, CMND_WAKEUPDURATION,
-  CMND_WHITE, CMND_WIDTH, CMND_CHANNEL, CMND_HSBCOLOR, CMND_UNDOCA };
+  CMND_WHITE, CMND_WIDTH, CMND_CHANNEL, CMND_HSBCOLOR, CMND_UNDOCA, CMND_LEDBAR };
 const char kLightCommands[] PROGMEM =
   D_CMND_COLOR "|" D_CMND_COLORTEMPERATURE "|" D_CMND_DIMMER "|" D_CMND_LED "|" D_CMND_LEDTABLE "|" D_CMND_FADE "|"
   D_CMND_PIXELS "|" D_CMND_RGBWWTABLE "|" D_CMND_ROTATION "|" D_CMND_SCHEME "|" D_CMND_SPEED "|" D_CMND_WAKEUP "|" D_CMND_WAKEUPDURATION "|"
-  D_CMND_WHITE "|" D_CMND_WIDTH "|" D_CMND_CHANNEL "|" D_CMND_HSBCOLOR "|UNDOCA" ;
+  D_CMND_WHITE "|" D_CMND_WIDTH "|" D_CMND_CHANNEL "|" D_CMND_HSBCOLOR "|UNDOCA" "|Ledbar";
 
 struct LRgbColor {
   uint8_t R, G, B;
@@ -841,7 +841,7 @@ void LightAnimate(void)
       }
 #ifdef USE_WS2812  // ************************************************************************
       else if (LT_WS2812 == light_type) {
-        Ws2812SetColor(0, cur_col[0], cur_col[1], cur_col[2], cur_col[3]);
+        Ws2812SetColor(0, cur_col[0], cur_col[1], cur_col[2], cur_col[3],true);
       }
 #endif  // USE_ES2812 ************************************************************************
       else if (light_type > LT_WS2812) {
@@ -1080,6 +1080,18 @@ boolean LightColorEntry(char *buffer, uint8_t buffer_length)
 }
 
 /********************************************************************************************/
+#ifdef USE_LEDBAR
+sint16_t ledbarval;
+const uint8_t off_colors[6][3]={{5,0,0},{5,1,0},{0,3,0},{2,3,0},{0,0,16},{0,0,64}};
+const uint8_t on_colors[6][3]={{255,100,100},{255,255,100},{100,255,100},{255,255,100},{100,100,255},{100,100,255}};
+//#define LEDBAR_RANGE Settings.ledbar_range
+//#define LEDBAR_STEPS Settings.ledbar_steps
+#define LEDBAR_RANGE ledbar_range
+#define LEDBAR_STEPS ledbar_steps
+sint16_t ledbar_range = -5000;
+uint8_t ledbar_steps = 5;
+#endif
+
 
 boolean LightCommand(void)
 {
@@ -1201,7 +1213,7 @@ boolean LightCommand(void)
       Ws2812ForceSuspend();
       for (char *color = strtok_r(XdrvMailbox.data, " ", &p); color; color = strtok_r(NULL, " ", &p)) {
         if (LightColorEntry(color, strlen(color))) {
-          Ws2812SetColor(idx, light_entry_color[0], light_entry_color[1], light_entry_color[2], light_entry_color[3]);
+          Ws2812SetColor(idx, light_entry_color[0], light_entry_color[1], light_entry_color[2], light_entry_color[3],true);
           idx++;
           if (idx > Settings.light_pixels) break;
         } else {
@@ -1213,6 +1225,111 @@ boolean LightCommand(void)
     }
     snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_COMMAND_INDEX_SVALUE, command, XdrvMailbox.index, Ws2812GetColor(XdrvMailbox.index, scolor));
   }
+  #ifdef USE_LEDBAR
+  else if ((CMND_LEDBAR == command_code) && (LT_WS2812 == light_type)) {
+    // ledbar  value => show value bar
+//#define STEP 2
+  uint8_t mflg=0;
+    if (XdrvMailbox.data_len > 0) {
+      uint16_t green=3;
+      uint16_t red=5;
+      uint16_t tick=0;
+      uint8_t index=0;
+      uint8_t steps=(Settings.light_pixels/2)/LEDBAR_STEPS;
+      uint16_t pixel;
+      // green nrm + tick, red nrm +tick, blue zero , blue value
+      uint8_t colors[6][3];
+
+
+      char *cp=XdrvMailbox.data;
+      if (*cp=='r') {
+        // enter ledbar range
+        mflg=1;
+        cp++;
+        if (*cp) {
+          LEDBAR_RANGE=CharToDouble(cp);
+        }
+      } else if (*cp=='s') {
+        // enter ledbar steps
+        mflg=2;
+        cp++;
+        if (*cp) {
+          LEDBAR_STEPS=CharToDouble(cp);
+        }
+      } else {
+        if (!light_power) {
+          memcpy(colors,off_colors,sizeof(colors));
+          /*
+        } else {
+          memcpy(colors,on_colors,sizeof(colors));
+        }
+        if (1) {
+        */
+          for (pixel=0; pixel<Settings.light_pixels/2; pixel++) {
+            // red
+            if (!tick) {
+              Ws2812SetColor(pixel+1,colors[0][0],colors[0][1],colors[0][2],0,false);
+            } else {
+              Ws2812SetColor(pixel+1,colors[1][0],colors[1][1],colors[1][2],0,false);
+            }
+            index+=1;
+            if (index>=steps) {
+              index=0;
+              tick=tick^01;
+            }
+          }
+
+          index=0;
+          tick=0;
+          for (pixel=Settings.light_pixels/2; pixel<Settings.light_pixels; pixel++) {
+            // green
+            if (!tick) {
+              Ws2812SetColor(pixel+1,colors[2][0],colors[2][1],colors[2][2],0,false);
+            } else {
+              Ws2812SetColor(pixel+1,colors[3][0],colors[3][1],colors[3][2],0,false);
+            }
+            index+=1;
+            if (index>=steps) {
+              index=0;
+              tick=tick^1;
+            }
+          }
+          ledbarval=XdrvMailbox.payload;
+          sint16_t bval=ledbarval;
+          if (LEDBAR_RANGE<0) bval=-bval;
+          sint16_t ledbar_max=abs(LEDBAR_RANGE);
+          sint16_t ledbar_min=-abs(LEDBAR_RANGE);
+          if (bval<ledbar_min) bval=ledbar_min;
+          if (bval>ledbar_max) bval=ledbar_max;
+          sint16_t actpos=((double)bval/(double)ledbar_max)*(double)(Settings.light_pixels/2);
+          if (bval==0) {
+            // zero position
+            Ws2812SetColor(Settings.light_pixels/2+1,colors[4][0],colors[4][1],colors[4][2],0,true);
+            Ws2812SetColor(Settings.light_pixels/2,colors[4][0],colors[4][1],colors[4][2],0,true);
+          } else {
+            uint16_t pos;
+            if (bval>0) {
+              // starts with 30
+              pos=Settings.light_pixels/2+actpos;
+              if (pos>Settings.light_pixels-1) pos=Settings.light_pixels-1;
+            } else {
+              // starts with 29
+              pos=Settings.light_pixels/2-1+actpos;
+              if (pos>Settings.light_pixels-1) pos=0;
+            }
+            // show current value
+            Ws2812SetColor(pos+1,colors[5][0],colors[5][1],colors[5][2],0,true);
+          }
+        }
+      }
+    }
+    if (mflg==1) {
+       snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_COMMAND_NVALUE, "LedBarRange", LEDBAR_RANGE);
+    } else if (mflg==2) {
+      snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_COMMAND_NVALUE, "LedBarSteps", LEDBAR_STEPS);
+    } else snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_COMMAND_NVALUE, command, ledbarval);
+  }
+#endif
   else if ((CMND_PIXELS == command_code) && (LT_WS2812 == light_type)) {
     if ((XdrvMailbox.payload > 0) && (XdrvMailbox.payload <= WS2812_MAX_LEDS)) {
       Settings.light_pixels = XdrvMailbox.payload;
