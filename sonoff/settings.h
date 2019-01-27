@@ -317,7 +317,10 @@ struct SYSCFG {
   uint16_t      mcp230xx_int_timer;        // 718
   uint8_t       rgbwwTable[5];             // 71A
 
-  byte          free_71F[117];             // 71F
+  byte          free_71F[114];             // 71F
+  uint8_t       ledbar_steps;              // 791
+  sint16_t      ledbar_range;              // 792
+
 
   uint32_t      drivers[3];                // 794
   uint32_t      monitors;                  // 7A0
