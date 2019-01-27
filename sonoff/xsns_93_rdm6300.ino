@@ -19,7 +19,7 @@
 
 #ifdef USE_RDM6300
 
-#define XSNS_41                          41
+#define XSNS_93                          93
 
 #define RDM6300_BAUDRATE 9600
 
@@ -144,7 +144,7 @@ void RDM6300_Show(void) {
  * Interface
 \*********************************************************************************************/
 
-boolean Xsns41(byte function)
+boolean Xsns93(byte function)
 {
   boolean result = false;
 
