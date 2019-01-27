@@ -32,7 +32,7 @@
 VL53L0X sensor;
 
 uint8_t vl53l0x_ready = 0;
-uint16_t distance;
+uint16_t vl53l0x_distance;
 uint16_t Vl53l0_buffer[5];
 uint8_t Vl53l0_index;
 uint8_t Vl53l0_cnt;
@@ -102,7 +102,7 @@ void Vl53l0Every_50MSecond() {
     }
     if (!flag) break;
   }
-  distance=tbuff[2];
+  vl53l0x_distance=tbuff[2];
 }
 
 void Vl53l0Show(boolean json)
@@ -112,10 +112,10 @@ void Vl53l0Show(boolean json)
   }
 
   if (json) {
-    snprintf_P(mqtt_data, sizeof(mqtt_data), PSTR("%s,\"VL53L0X\":{\"" D_JSON_DISTANCE "\":%d}"), mqtt_data, distance);
+    snprintf_P(mqtt_data, sizeof(mqtt_data), PSTR("%s,\"VL53L0X\":{\"" D_JSON_DISTANCE "\":%d}"), mqtt_data, vl53l0x_distance);
 #ifdef USE_WEBSERVER
   } else {
-    snprintf_P(mqtt_data, sizeof(mqtt_data), HTTP_SNS_VL53L0X, mqtt_data, distance);
+    snprintf_P(mqtt_data, sizeof(mqtt_data), HTTP_SNS_VL53L0X, mqtt_data, vl53l0x_distance);
 #endif
   }
 }
