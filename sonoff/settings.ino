@@ -795,6 +795,10 @@ void SettingsDefaultSet2(void)
     Settings.rgbwwTable[j] = 255;
   }
 
+  Settings.ledbar_steps = 5;
+  Settings.ledbar_range = -5000;
+
+
   memset(&Settings.drivers, 0xFF, 32);  // Enable all possible monitors, displays, drivers and sensors
 }
 

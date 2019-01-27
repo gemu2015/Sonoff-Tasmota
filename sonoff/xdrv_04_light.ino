@@ -1084,12 +1084,12 @@ boolean LightColorEntry(char *buffer, uint8_t buffer_length)
 sint16_t ledbarval;
 const uint8_t off_colors[6][3]={{5,0,0},{5,1,0},{0,3,0},{2,3,0},{0,0,16},{0,0,64}};
 const uint8_t on_colors[6][3]={{255,100,100},{255,255,100},{100,255,100},{255,255,100},{100,100,255},{100,100,255}};
-//#define LEDBAR_RANGE Settings.ledbar_range
-//#define LEDBAR_STEPS Settings.ledbar_steps
-#define LEDBAR_RANGE ledbar_range
-#define LEDBAR_STEPS ledbar_steps
-sint16_t ledbar_range = -5000;
-uint8_t ledbar_steps = 5;
+#define LEDBAR_RANGE Settings.ledbar_range
+#define LEDBAR_STEPS Settings.ledbar_steps
+//#define LEDBAR_RANGE ledbar_range
+//#define LEDBAR_STEPS ledbar_steps
+//sint16_t ledbar_range = -5000;
+//uint8_t ledbar_steps = 5;
 #endif
 
 
