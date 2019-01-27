@@ -154,35 +154,40 @@ char* subStr(char* dest, char* str, const char *delim, int index)
   return sub;
 }
 
-double CharToDouble(char *str)
-{
-  // simple ascii to double, because atof or strtod are too large
-  char strbuf[24];
-
-  strlcpy(strbuf, str, sizeof(strbuf));
-  char *pt;
-  double left = atoi(strbuf);
-  double right = 0;
-  short len = 0;
-  pt = strtok (strbuf, ".");
-  if (pt) {
-    pt = strtok (NULL, ".");
-    if (pt) {
-      right = atoi(pt);
-      len = strlen(pt);
-      double fac = 1;
-      while (len) {
-        fac /= 10.0;
-        len--;
-      }
-      // pow is also very large
-      //double fac=pow(10,-len);
-      right *= fac;
+// better char to double
+double CharToDouble(char *str) {
+    // simple ascii to double, because atof or strtod are too large
+    char strbuf[24];
+    strlcpy(strbuf, str, sizeof(strbuf));
+    char *pt=strbuf;
+    double left,right;
+    signed char sign=1;
+    if (*pt=='-') sign=-1;
+    if (*pt=='-' || *pt=='+') pt++;
+    if (*pt=='.') {
+        // .xxx notation
+        left=0;
+        goto gright;
     }
-  }
-  double result = left + right;
-  if (left < 0) { result = left - right; }
-  return result;
+    // get left part
+    left = atoi(pt);
+    // skip number
+    while (*pt>='0' && *pt<='9') pt++;
+    if (*pt=='.') {
+        // decimal part
+gright:
+        pt++;
+        right = atoi(pt);
+        while (*pt>='0' && *pt<='9') {
+            pt++;
+            right /= 10.0;
+        }
+    } else {
+        right=0;
+    }
+    double result = (left + right);
+    if (sign>=0) return result;
+    else return -result;
 }
 
 int TextToInt(char *str)
