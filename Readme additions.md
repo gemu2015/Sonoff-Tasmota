@@ -22,7 +22,6 @@ connect rec pin with level converter for ebus levels (read only mode)
 uses RX pin of serial port
 
 
-
 LedBar #define USE_LEDBAR
 ===================================================
 implements a LED bar display on WS2812 led chain to show values
@@ -43,9 +42,45 @@ TCS34725 #define USE_TCS34725
 ===================================================
 high dynamic lux and color temperatur
 
+PN532 #define USE_PN532_I2C
+===================================================
+RFID Reader connect to RX PIN
+this is an extended tasmota version with the "learn" option #define LEARN_TAGS
+you can learn tags and define master tags that enable learning or deleting of other tags
+the learn option can store up to 3000 tags when using external I2C eeprom AT24C256 #define USE_24C256
+otherwise with the ES8266 simulated eeprom about 30
+
+// current commands
+a relay mode time => wait for tag to learn
+A UID relay mode time => enter UID in list directly
+AM UID relay mode time => enter UID in list directly as a learning master
+AD UID relay mode time => enter UID in list directly as a deleting master
+d index delete tag of index
+D wait for tag to delete
+e erase tag list
+s index show list entry of index
+
+// for these commands the tag must be placed onto the reader
+// format a card to NDEF
+f => format to NDEF
+// reformat an NDEF card to Mifare
+fm =>reformat an NDEF tag to Mifare
+// add a new NDEF record
+n sector (1-15) type record => (up to 38 asci chars )
+type can be found on the net NDEF Type definitions
+n=new entry nu=update existing entry
+
+// write a block to Mifare card
+w blocknr 16 bytes of hex date without spaces
+// read a block from Mifare card
+r blocknr
+
 
 RDM6300 #define USE_RDM6300
 ===================================================
 RFID Reader connect to RX PIN
+sends TAG UID via MQTT
 
-+ various display drivers see doku 
+
+====================================
++ various display drivers see separate doku
