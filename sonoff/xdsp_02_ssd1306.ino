@@ -85,63 +85,43 @@ void SSD1306InitDriver()
 
 
 /*********************************************************************************************/
-
 #ifdef USE_DISPLAY_MODES1TO5
 
-char oled1306_screen_buffer[OLED_BUFFER_ROWS][OLED_BUFFER_COLS +1];
-
-void SSD1306PrintLogLine()
-{
-  uint8_t last_row = Settings.display_rows -1;
-
-  //oled->clearDisplay();
-  renderer->fillScreen(BLACK);
-  renderer->setTextSize(Settings.display_size);
-  renderer->setCursor(0,0);
-  for (byte i = 0; i < last_row; i++) {
-    strlcpy(oled_screen_buffer[i], oled_screen_buffer[i +1], sizeof(oled_screen_buffer[i]));
-    renderer->println(oled_screen_buffer[i]);
-  }
-
-  char *pch = strchr(disp_log_buffer[disp_log_buffer_ptr],'~');  // = 0x7E (~) Replace degrees character (276 octal)
-  if (pch != NULL) {
-    disp_log_buffer[disp_log_buffer_ptr][pch - disp_log_buffer[disp_log_buffer_ptr]] = '\370';  // = 0xF8
-  }
-  strlcpy(oled_screen_buffer[last_row], disp_log_buffer[disp_log_buffer_ptr], sizeof(oled_screen_buffer[last_row]));
-
-  // Fill with spaces
-  byte len = sizeof(oled_screen_buffer[last_row]) - strlen(oled_screen_buffer[last_row]);
-  if (len) {
-    memset(oled_screen_buffer[last_row] + strlen(oled_screen_buffer[last_row]), 0x20, len);
-    oled_screen_buffer[last_row][sizeof(oled_screen_buffer[last_row])-1] = 0;
-  }
-
-  snprintf_P(log_data, sizeof(log_data), PSTR(D_LOG_DEBUG "[%s]"), oled_screen_buffer[last_row]);
-  AddLog(LOG_LEVEL_DEBUG);
-
-  renderer->println(oled_screen_buffer[last_row]);
-  renderer->Updateframe();
-}
-
-void SSD1306PrintLog()
+void Ssd1306PrintLog(void)
 {
   disp_refresh--;
   if (!disp_refresh) {
     disp_refresh = Settings.display_refresh;
-    disp_log_buffer_active = (disp_log_buffer_idx != disp_log_buffer_ptr);
-    if (disp_log_buffer_active) {
-      SSD1306PrintLogLine();
-      DisplayLogBufferPtrInc();
+    if (!disp_screen_buffer_cols) { DisplayAllocScreenBuffer(); }
+
+    char* txt = DisplayLogBuffer('\370');
+    if (txt != NULL) {
+      uint8_t last_row = Settings.display_rows -1;
+
+      renderer->clearDisplay();
+      renderer->setTextSize(Settings.display_size);
+      renderer->setCursor(0,0);
+      for (byte i = 0; i < last_row; i++) {
+        strlcpy(disp_screen_buffer[i], disp_screen_buffer[i +1], disp_screen_buffer_cols);
+        renderer->println(disp_screen_buffer[i]);
+      }
+      strlcpy(disp_screen_buffer[last_row], txt, disp_screen_buffer_cols);
+      DisplayFillScreen(last_row);
+
+      snprintf_P(log_data, sizeof(log_data), PSTR(D_LOG_DEBUG "[%s]"), disp_screen_buffer[last_row]);
+      AddLog(LOG_LEVEL_DEBUG);
+
+      renderer->println(disp_screen_buffer[last_row]);
+      renderer->Updateframe();
     }
   }
 }
 
-void SSD1306Time()
+void Ssd1306Time(void)
 {
   char line[12];
 
-  //oled->clearDisplay();
-  renderer->fillScreen(BLACK);
+  renderer->clearDisplay();
   renderer->setTextSize(2);
   renderer->setCursor(0, 0);
   snprintf_P(line, sizeof(line), PSTR(" %02d" D_HOUR_MINUTE_SEPARATOR "%02d" D_MINUTE_SECOND_SEPARATOR "%02d"), RtcTime.hour, RtcTime.minute, RtcTime.second);  // [ 12:34:56 ]
@@ -151,18 +131,18 @@ void SSD1306Time()
   renderer->Updateframe();
 }
 
-void SSD1306Refresh()  // Every second
+void Ssd1306Refresh(void)  // Every second
 {
   if (Settings.display_mode) {  // Mode 0 is User text
     switch (Settings.display_mode) {
       case 1:  // Time
-        SSD1306Time();
+        Ssd1306Time();
         break;
       case 2:  // Local
       case 3:  // Local
       case 4:  // Mqtt
       case 5:  // Mqtt
-        SSD1306PrintLog();
+        Ssd1306PrintLog();
         break;
     }
   }
@@ -190,7 +170,7 @@ boolean Xdsp02(byte function)
           break;
 #ifdef USE_DISPLAY_MODES1TO5
         case FUNC_DISPLAY_EVERY_SECOND:
-          SSD1306Refresh();
+          Ssd1306Refresh();
           break;
 #endif  // USE_DISPLAY_MODES1TO5
       }
