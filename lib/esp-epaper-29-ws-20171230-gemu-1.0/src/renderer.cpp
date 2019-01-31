@@ -28,8 +28,10 @@
 #include "renderer.h"
 
 #define USE_EPD_FONTS
+//#define USE_ALL_EPD_FONTS
 //#define USE_GFX_FONTS
 #define USE_TINY_FONT
+
 
 uint8_t *buffer;
 
@@ -170,6 +172,27 @@ void Renderer::setTextFont(uint8_t f) {
 
 #endif
 
+#ifdef USE_ALL_EPD_FONTS
+  switch (font) {
+    case 1:
+      selected_font = &Font12;
+      break;
+    case 2:
+      selected_font = &Font24;
+      break;
+    case 3:
+      selected_font = &Font8;
+      break;
+    case 4:
+      selected_font = &Font16;
+      break;
+    case 5:
+      selected_font = &Font20;
+      break;
+    default:
+      font=0;
+  }
+#else
 #ifdef USE_EPD_FONTS
   if (1 == font) {
     selected_font = &Font12;
@@ -185,6 +208,8 @@ void Renderer::setTextFont(uint8_t f) {
   #endif
   }
 #endif
+#endif
+
 }
 
 
