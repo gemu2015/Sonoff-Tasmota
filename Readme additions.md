@@ -15,6 +15,9 @@ uses RX pin of serial port
 
 please note that the normal serial port is used
 
+now supports reading of more then one meter via special software serial
+(no wait irq driven)
+
 Also added an STL file for printing a housing for the Phototransistor
 (TEKT5400)
 
