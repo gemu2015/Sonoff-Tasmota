@@ -63,7 +63,7 @@ PN532 \#define USE\_PN532\_I2C
 
 ===================================================
 
-RFID Reader connect to RX PIN
+RFID Reader connect via I2C
 
 this is an extended tasmota version with the \"learn\" option \#define
 LEARN\_TAGS
