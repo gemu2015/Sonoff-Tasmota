@@ -17,7 +17,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifdef USE_SOFTSPI
+#ifdef USE_SPI
 #ifdef USE_DISPLAY
 #ifdef USE_DISPLAY_EPAPER29
 
@@ -57,7 +57,7 @@ void EpdInitDriver29()
     epd  = new Epd(EPD_WIDTH,EPD_HEIGHT);
 
     // whiten display with full update, takes 3 seconds
-#ifdef USE_SOFTSPI
+#ifdef USE_SPI
     if  ((pin[GPIO_SSPI_CS]<99) && (pin[GPIO_SSPI_MOSI]<99) && (pin[GPIO_SSPI_SCLK]<99)){
       epd->Begin(pin[GPIO_SSPI_CS],pin[GPIO_SSPI_MOSI],pin[GPIO_SSPI_SCLK]);
     } else {

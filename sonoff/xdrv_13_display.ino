@@ -1646,7 +1646,7 @@ boolean DisplayCommand()
 boolean Xdrv13(byte function)
 {
   boolean result = false;
-#ifdef USE_SOFTSPI
+#ifdef USE_SPI
   if (XdspPresent()) {
 #else
   if ((i2c_flg || spi_flg) && XdspPresent()) {

@@ -161,7 +161,7 @@ the possiblity that erased content is still slightly visible .
 To „whiten" the display it is therefore usefull to „full update" the
 display in regular intervals (e.g each hour)
 
-Defines =\> USE\_SPI , USE\_SOFTSPI, USE\_DISPLAY\_EPAPER29,
+Defines =\> USE\_SPI , USE\_DISPLAY\_EPAPER29,
 USE\_DISPLAY\_EPAPER42
 
 To unify the color interface on epaper 1 (white) is actually black and 0

@@ -17,7 +17,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifdef USE_SOFTSPI
+#ifdef USE_SPI
 #ifdef USE_DISPLAY
 #ifdef USE_DISPLAY_EPAPER42
 
@@ -56,7 +56,7 @@ void EpdInitDriver42()
     // init renderer
     epd42  = new Epd42(EPD_WIDTH42,EPD_HEIGHT42);
 
-    #ifdef USE_SOFTSPI
+    #ifdef USE_SPI
         if ((pin[GPIO_SSPI_CS]<99) && (pin[GPIO_SSPI_MOSI]<99) && (pin[GPIO_SSPI_SCLK]<99)) {
           epd42->Begin(pin[GPIO_SSPI_CS],pin[GPIO_SSPI_MOSI],pin[GPIO_SSPI_SCLK]);
         } else {
