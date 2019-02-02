@@ -135,7 +135,7 @@ t = time in minutes for total chart
 
 ymin = float chart minimum y
 
-ymax = float chat maximum y
+ymax = float chart maximum y
 
 icol = line indexcolor (only for color graphs)
 
@@ -190,8 +190,8 @@ ILI9488 driver
 
 This color display (480x320) also uses a 3 wire SPI interface. If you
 select the true SPI lines the driver uses hardware SPI else software
-SPI. (MOSI=GPIO13, SCLK=GPIO14,CS=GPIO15) the backpanel ist fixed in the
-driver at GPIO2 if not defined by gpio selector
+SPI. (MOSI=GPIO13, SCLK=GPIO14,CS=GPIO15) the backpanel on/off pin
+must be selected too
 
 You can NOT use GPIO16 for software spi!
 
@@ -322,12 +322,12 @@ The display dispatcher only does the class init call
 
 All other calls go to the Renderer class
 
-In black and white displays a local ram buffer must be allocated bevor
+In black and white displays a local ram buffer must be allocated before
 calling the driver
 
 This must be set to zero on character or TFT color displays.
 
-The GFX fonts can alternativly be used instead of the EPD fonts by
+The GFX proportional fonts can alternativly be used instead of the EPD fonts by
 selecting the fonts with \#define in the renderer driver file.
 
 Remark for the 400x300 epaper:
