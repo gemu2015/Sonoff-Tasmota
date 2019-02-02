@@ -128,6 +128,10 @@ uint8_t disp_screen_buffer_rows = 0;
 #ifdef USE_AWATCH
 #define MINUTE_REDUCT 4
 
+#ifndef pi
+#define pi 3.14159265359
+#endif
+
 // draw analog watch, just for fun
 void DrawAClock(uint16_t rad) {
     float frad=rad;
