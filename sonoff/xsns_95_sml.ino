@@ -652,6 +652,7 @@ gright:
 }
 
 // if more then 1 software serial, solution would be to enable each channel for x seconds
+// no longer needed because of irq driven no wait software serial
 #ifdef SML_SPECMODE
 #define SS_ATIME 5*10
 uint8_t active_meter;
