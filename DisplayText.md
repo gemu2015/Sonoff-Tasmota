@@ -161,8 +161,7 @@ the possiblity that erased content is still slightly visible .
 To „whiten" the display it is therefore usefull to „full update" the
 display in regular intervals (e.g each hour)
 
-Defines =\> USE\_SPI , USE\_DISPLAY\_EPAPER29,
-USE\_DISPLAY\_EPAPER42
+Defines =\> USE\_SPI , USE\_DISPLAY\_EPAPER29, USE\_DISPLAY\_EPAPER42
 
 To unify the color interface on epaper 1 (white) is actually black and 0
 (black) is white.
@@ -190,8 +189,8 @@ ILI9488 driver
 
 This color display (480x320) also uses a 3 wire SPI interface. If you
 select the true SPI lines the driver uses hardware SPI else software
-SPI. (MOSI=GPIO13, SCLK=GPIO14,CS=GPIO15) the backpanel on/off pin
-must be selected too
+SPI. (MOSI=GPIO13, SCLK=GPIO14,CS=GPIO15) the backpanel on/off pin must
+be selected too.
 
 You can NOT use GPIO16 for software spi!
 
@@ -289,6 +288,12 @@ W endon on System\#Boot do DisplayText \[f1x60y25\]Zweirichtungszaehler
 on System\#Boot do DisplayText \[f1x70y125\]Volleinspeisung - 24
 Stunden\[f1x330y180\] 3500 W endon
 
+// oled 128x64 show 24 hour graph of range 0-5000 watts house power
+
+rule1 on System\#Boot do DisplayText \[zG1064:0:0:128:40:1440:0:5000d\]
+endon on tele-OBIS\#Power\_curr do DisplayText
+\[g0:%value%ds1f0p8x25y45\]power: %value% W endon
+
 or distant sensors via a broker script or on the distant device via
 rules and WebSend
 
@@ -327,8 +332,8 @@ calling the driver
 
 This must be set to zero on character or TFT color displays.
 
-The GFX proportional fonts can alternativly be used instead of the EPD fonts by
-selecting the fonts with \#define in the renderer driver file.
+The GFX proportional fonts can alternativly be used instead of the EPD
+fonts by selecting the fonts with \#define in the renderer driver file.
 
 Remark for the 400x300 epaper:
 
