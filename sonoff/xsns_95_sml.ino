@@ -106,7 +106,7 @@ struct METER_DESC {
 #define COMBO3a 9
 
 // diesen Zähler auswählen
-#define METER EHZ363
+#define METER COMBO2
 
 //=====================================================
 // Einträge in Liste
