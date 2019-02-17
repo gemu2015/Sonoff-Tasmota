@@ -5,7 +5,7 @@ da durch die begrenzte Hardwareunterstützung das software serial nicht optimal 
 ist es mit der originalen TasmotaSerial nicht möglich 3 Zähler gleichzeitig abzufragen
 
 durch Modifikation des Tasmota Serial Drivers sollten jetzt auch mehr als 2 Zähler
-funktionieren. Dazu muss auch die TasmotaSerial-2.2.0 ebenfalls kopiert werden
+funktionieren. Dazu muss auch die TasmotaSerial-2.3.0 ebenfalls kopiert werden
 
 nur dieser Treiber wird in Zukunft weiterentwickelt
 die älteren werden nicht mehr unterstützt.
@@ -41,8 +41,7 @@ die älteren werden nicht mehr unterstützt.
 #define SML_BAUDRATE 9600
 
 // support für mehr als 2 Meter mit spezieller Tasmota Serial Version
-// dazu muss der neue Treiber => TasmotaSerial-2.2.0 ebenfalls kopiert werden
-//#define SPECIAL_SS
+// dazu muss der neue Treiber => TasmotaSerial-2.3.0 ebenfalls kopiert werden
 
 #include <TasmotaSerial.h>
 
@@ -52,7 +51,7 @@ die älteren werden nicht mehr unterstützt.
 // dazu muss z.B. in der user_config_override #define USE_SML_M angegeben werden
 // Als "Lesekopf" kann ein Fototransistor (z.B. TEKT5400 oder BPW78A) zwischen
 // Masse und dem ESP REC pin verwendet werden. Eventuell ist ein zusätzlicher
-// Pullup Widerstand zwischen REC und VCC 3.3 Volt erforderlich
+// Pullup Widerstand zwischen REC und VCC 3.3 Volt erforderlich (1-4.7kOhm)
 
 // max 23 Zeichen
 #if DMY_LANGUAGE==de-DE
@@ -313,10 +312,6 @@ const uint8_t meter[]=
 "3,=d 10 10 @1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
 "3,1-0:0.0.0*255(@#)," D_METERNR ",," DJ_METERNR ",0";
 
-#endif
-
-#if METERS_USED>1
-#define SPECIAL_SS
 #endif
 
 //=====================================================
