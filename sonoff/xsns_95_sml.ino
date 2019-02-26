@@ -958,7 +958,7 @@ void SML_Show(boolean json) {
           }
           // web ui export
           uint8_t i;
-          for (i=0;i<sizeof(tpowstr)-1;i++) {
+          for (i=0;i<sizeof(tpowstr)-2;i++) {
             if (*mp=='|' || *mp==0) break;
             tpowstr[i]=*mp++;
           }
