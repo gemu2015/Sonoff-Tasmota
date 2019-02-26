@@ -131,7 +131,7 @@ struct METER_DESC {
 // =d => differenz berechne Differenzwerte über die Zeit aus dem Ergebnis der Zeile
 // z.B. =d 3 10 berechnet die Differenz nach jeweils 10 Sekunden des Ergebnisses aus Zeile 3
 // damit kann z.B. der Momentanverbrauch aus dem Gesamtverbrauch berechnet werden, falls der Zähler das nicht direkt ausgibt
-// =h => html Text Zeile in WEBUI einfügen, diese Zeile zählt nicht bei Zeilenreferenzen
+// =h => html Text Zeile (max 30 Zeichen) in WEBUI einfügen, diese Zeile zählt nicht bei Zeilenreferenzen
 
 // der METER_DESC beschreibt die Zähler
 // METERS_USED muss auf die Anzahl der benutzten Zähler gesetzt werden
