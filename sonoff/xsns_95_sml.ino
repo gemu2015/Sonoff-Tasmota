@@ -550,9 +550,9 @@ int64_t value;
             value=((int32_t)(*cp<<24))|((int32_t)*(cp+1)<<16)|((int32_t)*(cp+2)<<8)|(*(cp+3));
             break;
         case 0x55:
-            // int32+1;
+            // int64; len 5
             cp++;
-            value=((int32_t)(*cp<<24))|((int32_t)*(cp+1)<<16)|((int32_t)*(cp+2)<<8)|(*(cp+3));
+            value=((int64_t)(*cp<<32))|((int64_t)*(cp+1)<<24)|((int64_t)*(cp+2)<<16)|((int64_t)*(cp+3)<<8)|(*(cp+4));
             break;
         case 0x58:
             // int64;
@@ -579,7 +579,7 @@ int64_t value;
             value=((uint64_t)*cp<<56)|((uint64_t)*(cp+1)<<48)|((uint64_t)*(cp+2)<<40)|((uint64_t)*(cp+3)<<32)|((uint64_t)*(cp+4)<<24)|((uint64_t)*(cp+5)<<16)|((uint64_t)*(cp+6)<<8)|(*(cp+7));
             break;
 
-          
+
 
         default:
           if (!(type&0xf0)) {
