@@ -534,7 +534,6 @@ int64_t value;
     type|=len-1;
     cp++;
     switch (type) {
-        case 0x51:
             // int8
             value=(signed char)*cp;
             break;
@@ -543,6 +542,9 @@ int64_t value;
             value=((int16_t)*cp<<8)|*(cp+1);
             break;
         case 0x53:
+            // int32; // len 3
+            value=((int32_t)*cp<<16)|((int32_t)*(cp+1)<<8)|(*(cp+3));
+            break;
         case 0x54:
             // int32;
             value=((int32_t)*cp<<24)|((int32_t)*(cp+1)<<16)|((int32_t)*(cp+2)<<8)|(*(cp+3));
@@ -552,11 +554,11 @@ int64_t value;
             cp++;
             value=((int32_t)*cp<<24)|((int32_t)*(cp+1)<<16)|((int32_t)*(cp+2)<<8)|(*(cp+3));
             break;
-
         case 0x58:
             // int64;
             value=((int64_t)*cp<<56)|((int64_t)*(cp+1)<<48)|((int64_t)*(cp+2)<<40)|((int64_t)*(cp+3)<<32)|((int64_t)*(cp+4)<<24)|((int64_t)*(cp+5)<<16)|((int64_t)*(cp+6)<<8)|(*(cp+7));
             break;
+
         case 0x61:
             // uint8;
             value=(unsigned char)*cp;
@@ -565,6 +567,9 @@ int64_t value;
             // uint16;
             value=((uint16_t)*cp<<8)|(*(cp+1));
             break;
+        case 0x63:
+            // uint32; // len 3
+            value=((uint16_t)*cp<<16)|((uint16_t)*(cp+1)<<8)|(*(cp+3));
         case 0x64:
             // uint32;
             value=((uint32_t)*cp<<24)|((uint32_t)*(cp+1)<<16)|((uint32_t)*(cp+2)<<8)|(*(cp+3));
@@ -573,6 +578,8 @@ int64_t value;
             // uint64;
             value=((uint64_t)*cp<<56)|((uint64_t)*(cp+1)<<48)|((uint64_t)*(cp+2)<<40)|((uint64_t)*(cp+3)<<32)|((uint64_t)*(cp+4)<<24)|((uint64_t)*(cp+5)<<16)|((uint64_t)*(cp+6)<<8)|(*(cp+7));
             break;
+
+            */
 
         default:
           if (!(type&0xf0)) {
