@@ -542,6 +542,7 @@ int64_t value;
             // int16;
             value=((int16_t)*cp<<8)|*(cp+1);
             break;
+        case 0x53:
         case 0x54:
             // int32;
             value=((int32_t)*cp<<24)|((int32_t)*(cp+1)<<16)|((int32_t)*(cp+2)<<8)|(*(cp+3));
