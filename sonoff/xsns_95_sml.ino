@@ -105,7 +105,7 @@ struct METER_DESC {
 #define COMBO3a 9
 
 // diesen Zähler auswählen
-#define METER COMBO2
+#define METER EHZ363
 
 //=====================================================
 // Einträge in Liste
@@ -338,7 +338,7 @@ TasmotaSerial *meter_ss[METERS_USED];
 uint8_t smltbuf[METERS_USED][SML_BSIZ];
 
 // meter nr as string
-#define METER_ID_SIZE 22
+#define METER_ID_SIZE 24
 char meter_id[METERS_USED][METER_ID_SIZE];
 
 #ifdef USE_MEDIAN_FILTER
@@ -570,6 +570,7 @@ int64_t value;
         case 0x63:
             // uint32; // len 3
             value=((uint16_t)*cp<<16)|((uint16_t)*(cp+1)<<8)|(*(cp+3));
+            break;
         case 0x64:
             // uint32;
             value=((uint32_t)*cp<<24)|((uint32_t)*(cp+1)<<16)|((uint32_t)*(cp+2)<<8)|(*(cp+3));
@@ -579,19 +580,29 @@ int64_t value;
             value=((uint64_t)*cp<<56)|((uint64_t)*(cp+1)<<48)|((uint64_t)*(cp+2)<<40)|((uint64_t)*(cp+3)<<32)|((uint64_t)*(cp+4)<<24)|((uint64_t)*(cp+5)<<16)|((uint64_t)*(cp+6)<<8)|(*(cp+7));
             break;
 
-
-
         default:
           if (!(type&0xf0)) {
-              // serial number => 24 bit - 24 bit
-              if (*cp==0x08) {
+              // octet string serial number, len variable
+              // could not find any info on how Hager encodes meter number
+              // my own 363 works , but others dont
+
+              if (len==9) {
+                // known haager coding serial number => 24 bit - 24 bit
                 cp++;
                 uint32_t s1,s2;
                 s1=*cp<<16|*(cp+1)<<8|*(cp+2);
                 cp+=4;
                 s2=*cp<<16|*(cp+1)<<8|*(cp+2);
-                sprintf(&meter_id[index][0],"%u-%u",s1,s2);
+                snprintf(&meter_id[index][0],METER_ID_SIZE,"%u-%u",s1,s2);
+              } else {
+                // unkonwn coding, simply give octet string
+                char *str=&meter_id[0][0];
+                for (type=0; type<len; type++) {
+                    sprintf(str,"%02x",*cp++);
+                    str+=2;
+                }
               }
+              return 0;
           } else {
             value=999999;
             scaler=0;
