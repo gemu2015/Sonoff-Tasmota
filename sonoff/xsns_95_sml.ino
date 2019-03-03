@@ -595,7 +595,7 @@ int64_t value;
                 s2=*cp<<16|*(cp+1)<<8|*(cp+2);
                 snprintf(&meter_id[index][0],METER_ID_SIZE,"%u-%u",s1,s2);
               } else {
-                // unkonwn coding, simply give octet string
+                // some meters give the "server-id"
                 char *str=&meter_id[0][0];
                 for (type=0; type<len-1; type++) {
                     sprintf(str,"%02x",*cp++);
