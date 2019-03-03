@@ -597,7 +597,7 @@ int64_t value;
               } else {
                 // unkonwn coding, simply give octet string
                 char *str=&meter_id[0][0];
-                for (type=0; type<len; type++) {
+                for (type=0; type<len-1; type++) {
                     sprintf(str,"%02x",*cp++);
                     str+=2;
                 }
