@@ -103,6 +103,8 @@ struct METER_DESC {
 #define COMBO3 7
 #define COMBO2 8
 #define COMBO3a 9
+#define Q3B_V1 10
+#define EHZ363_2 11
 
 // diesen Zähler auswählen
 #define METER EHZ363
@@ -312,6 +314,40 @@ const uint8_t meter[]=
 "3,=d 10 10 @1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
 "3,1-0:0.0.0*255(@#)," D_METERNR ",," DJ_METERNR ",0";
 
+#endif
+
+//=====================================================
+
+#if METER==Q3B_V1
+#define METERS_USED 1
+struct METER_DESC const meter_desc[METERS_USED]={
+[0]={0,'o',"OBIS"}};
+const uint8_t meter[]=
+"1,1-0:1.8.1*255(@1," D_TPWRIN ",KWh," DJ_TPWRIN ",4|"
+"1,=d 1 10 @1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
+"1,1-0:0.0.0*255(@#)," D_METERNR ",," DJ_METERNR ",0";
+#endif
+
+//=====================================================
+
+#if METER==EHZ363_2
+#define METERS_USED 1
+struct METER_DESC const meter_desc[METERS_USED]={
+[0]={0,'s',"SML"}};
+// 2 Richtungszähler EHZ SML 8 bit 9600 baud, binär
+const uint8_t meter[]=
+//0x77,0x07,0x01,0x00,0x01,0x08,0x00,0xff
+"1,77070100010800ff@1000," D_TPWRIN ",KWh," DJ_TPWRIN ",4|"
+//0x77,0x07,0x01,0x00,0x02,0x08,0x00,0xff
+"1,77070100020800ff@1000," D_TPWROUT ",KWh," DJ_TPWROUT ",4|"
+//0x77,0x07,0x01,0x00,0x01,0x08,0x01,0xff
+"1,77070100010801ff@1000," D_TPWRCURR1 ",KWh," DJ_TPWRCURR1 ",4|"
+//0x77,0x07,0x01,0x00,0x01,0x08,0x02,0xff
+"1,77070100010802ff@1000," D_TPWRCURR2 ",KWh," DJ_TPWRCURR2 ",4|"
+//0x77,0x07,0x01,0x00,0x10,0x07,0x00,0xff
+"1,77070100100700ff@1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
+//0x77,0x07,0x01,0x00,0x00,0x00,0x09,0xff
+"1,77070100000009ff@#," D_METERNR ",," DJ_METERNR ",0";
 #endif
 
 //=====================================================
