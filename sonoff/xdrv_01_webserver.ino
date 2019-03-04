@@ -1929,6 +1929,84 @@ String UrlEncode(const String& text)
 	return encoded;
 }
 
+
+#ifdef USE_SENDMAIL
+
+#include "sendemail.h"
+
+//SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const bool ssl);
+//SendEmail::send(const String& from, const String& to, const String& subject, const String& msg)
+
+// sendmail [server:user:passwd:from:to:subject] data
+
+int SendMail(char *buffer) {
+  uint16_t count;
+  char mserv[32];
+  char user[32];
+  char passwd[32];
+  char from[32];
+  char to[32];
+  char subject[32];
+
+  char *cp=strchr((const char *)buffer,'[');
+
+  if (!cp) return 1;
+  cp++;
+  for (count=0; count<sizeof(mserv)-1;count++) {
+    if (*cp==':') break;
+    mserv[count]=*cp++;
+  }
+  mserv[count]=0;
+
+  cp++;
+  for (count=0; count<sizeof(user)-1;count++) {
+    if (*cp==':') break;
+    user[count]=*cp++;
+  }
+  user[count]=0;
+
+  cp++;
+  for (count=0; count<sizeof(passwd)-1;count++) {
+    if (*cp==':') break;
+    passwd[count]=*cp++;
+  }
+  passwd[count]=0;
+
+  cp++;
+  for (count=0; count<sizeof(from)-1;count++) {
+    if (*cp==':') break;
+    from[count]=*cp++;
+  }
+  from[count]=0;
+
+  cp++;
+  for (count=0; count<sizeof(to)-1;count++) {
+    if (*cp==':') break;
+    to[count]=*cp++;
+  }
+  to[count]=0;
+
+  cp++;
+  for (count=0; count<sizeof(subject)-1;count++) {
+    if (*cp==']') break;
+    subject[count]=*cp++;
+  }
+  subject[count]=0;
+  cp++;
+
+  // TLS does crash because of memory problems
+  // so only plain SMTP works
+  SendEmail *mail = new SendEmail(mserv, 25,user,passwd, 100, false);
+
+  if (mail) {
+    mail->send(from,to,subject,cp);
+    delete mail;
+  }
+  return 0;
+}
+
+#endif
+
 int WebSend(char *buffer)
 {
   /* [sonoff] POWER1 ON                                               --> Sends http://sonoff/cm?cmnd=POWER1 ON
@@ -1937,13 +2015,14 @@ int WebSend(char *buffer)
    * [sonoff,admin:joker] /any/link/starting/with/a/slash.php?log=123 --> Sends http://sonoff/any/link/starting/with/a/slash.php?log=123
    */
 
+  int status = 1; // Wrong parameters
   char *host;
   char *port;
   char *user;
   char *password;
   char *command;
   uint16_t nport = 80;
-  int status = 1;                             // Wrong parameters
+
 
                                               // buffer = |  [  192.168.178.86  :  80  ,  admin  :  joker  ]    POWER1 ON   |
   host = strtok_r(buffer, "]", &command);     // host = |  [  192.168.178.86  :  80  ,  admin  :  joker  |, command = |    POWER1 ON   |
@@ -2022,8 +2101,18 @@ int WebSend(char *buffer)
 
 /*********************************************************************************************/
 
-enum WebCommands { CMND_WEBSERVER, CMND_WEBPASSWORD, CMND_WEBLOG, CMND_WEBREFRESH, CMND_WEBSEND, CMND_EMULATION };
-const char kWebCommands[] PROGMEM = D_CMND_WEBSERVER "|" D_CMND_WEBPASSWORD "|" D_CMND_WEBLOG "|" D_CMND_WEBREFRESH "|" D_CMND_WEBSEND "|" D_CMND_EMULATION ;
+#define D_CMND_SENDMAIL "SendMail"
+
+enum WebCommands { CMND_WEBSERVER, CMND_WEBPASSWORD, CMND_WEBLOG, CMND_WEBREFRESH, CMND_WEBSEND, CMND_EMULATION
+#ifdef USE_SENDMAIL
+, CMND_SENDMAIL
+#endif
+};
+const char kWebCommands[] PROGMEM = D_CMND_WEBSERVER "|" D_CMND_WEBPASSWORD "|" D_CMND_WEBLOG "|" D_CMND_WEBREFRESH "|" D_CMND_WEBSEND "|" D_CMND_EMULATION
+#ifdef USE_SENDMAIL
+"|" D_CMND_SENDMAIL
+#endif
+;
 const char kWebSendStatus[] PROGMEM = D_JSON_DONE "|" D_JSON_WRONG_PARAMETERS "|" D_JSON_CONNECT_FAILED "|" D_JSON_HOST_NOT_FOUND ;
 
 bool WebCommand(void)
@@ -2060,6 +2149,7 @@ bool WebCommand(void)
     if ((XdrvMailbox.payload > 999) && (XdrvMailbox.payload <= 10000)) { Settings.web_refresh = XdrvMailbox.payload; }
     snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_COMMAND_NVALUE, command, Settings.web_refresh);
   }
+
   else if (CMND_WEBSEND == command_code) {
     if (XdrvMailbox.data_len > 0) {
       uint8_t result = WebSend(XdrvMailbox.data);
@@ -2067,6 +2157,15 @@ bool WebCommand(void)
       snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_COMMAND_SVALUE, command, GetTextIndexed(stemp1, sizeof(stemp1), result, kWebSendStatus));
     }
   }
+#ifdef USE_SENDMAIL
+  else if (CMND_SENDMAIL == command_code) {
+    if (XdrvMailbox.data_len > 0) {
+      uint8_t result = SendMail(XdrvMailbox.data);
+      char stemp1[20];
+      snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_COMMAND_SVALUE, command, GetTextIndexed(stemp1, sizeof(stemp1), result, kWebSendStatus));
+    }
+  }
+#endif
 #ifdef USE_EMULATION
   else if (CMND_EMULATION == command_code) {
     if ((XdrvMailbox.payload >= EMUL_NONE) && (XdrvMailbox.payload < EMUL_MAX)) {
