@@ -1938,71 +1938,88 @@ String UrlEncode(const String& text)
 //SendEmail::send(const String& from, const String& to, const String& subject, const String& msg)
 
 // sendmail [server:user:passwd:from:to:subject] data
+// an s before s[...] indicates secure
 
-int SendMail(char *buffer) {
+uint16_t SendMail(char *buffer) {
   uint16_t count;
-  char mserv[32];
-  char user[32];
-  char passwd[32];
-  char from[32];
-  char to[32];
-  char subject[32];
+  char *params,*oparams;
+  char *mserv;
+  char *user;
+  char *passwd;
+  char *from;
+  char *to;
+  char *subject;
+  char *cmd;
+  char secure=0;
+  uint16_t status=1;
 
-  char *cp=strchr((const char *)buffer,'[');
+  while (*buffer==' ') buffer++;
 
-  if (!cp) return 1;
-  cp++;
-  for (count=0; count<sizeof(mserv)-1;count++) {
-    if (*cp==':') break;
-    mserv[count]=*cp++;
+  // copy params
+  oparams=(char*)calloc(strlen(buffer)+2,1);
+  if (!oparams) return 1;
+
+  params=oparams;
+
+  strcpy(params,buffer);
+
+  if (*params=='s') {
+      secure=1;
+      params++;
   }
-  mserv[count]=0;
 
-  cp++;
-  for (count=0; count<sizeof(user)-1;count++) {
-    if (*cp==':') break;
-    user[count]=*cp++;
+  if (*params!='[') {
+      goto exit;
   }
-  user[count]=0;
+  params++;
 
-  cp++;
-  for (count=0; count<sizeof(passwd)-1;count++) {
-    if (*cp==':') break;
-    passwd[count]=*cp++;
+  mserv=strtok(params,":");
+  if (!mserv) {
+      goto exit;
   }
-  passwd[count]=0;
 
-  cp++;
-  for (count=0; count<sizeof(from)-1;count++) {
-    if (*cp==':') break;
-    from[count]=*cp++;
+  user=strtok(NULL,":");
+  if (!user) {
+      goto exit;
   }
-  from[count]=0;
 
-  cp++;
-  for (count=0; count<sizeof(to)-1;count++) {
-    if (*cp==':') break;
-    to[count]=*cp++;
+  passwd=strtok(NULL,":");
+  if (!passwd) {
+      goto exit;
   }
-  to[count]=0;
 
-  cp++;
-  for (count=0; count<sizeof(subject)-1;count++) {
-    if (*cp==']') break;
-    subject[count]=*cp++;
+  from=strtok(NULL,":");
+  if (!from) {
+      goto exit;
   }
-  subject[count]=0;
-  cp++;
+
+  to=strtok(NULL,":");
+  if (!to) {
+      goto exit;
+  }
+
+  subject=strtok(NULL,"]");
+  if (!subject) {
+      goto exit;
+  }
+
+  cmd=subject+strlen(subject)+1;
 
   // TLS does crash because of memory problems
   // so only plain SMTP works
-  SendEmail *mail = new SendEmail(mserv, 25,user,passwd, 100, false);
+  SendEmail *mail;
+  if (secure) mail = new SendEmail(mserv, 465,user,passwd, 1000, true);
+  else mail = new SendEmail(mserv, 25,user,passwd, 1000, false);
 
   if (mail) {
-    mail->send(from,to,subject,cp);
+    bool result=mail->send(from,to,subject,cmd);
     delete mail;
+    if (result==true) status=0;
   }
-  return 0;
+
+exit:
+  if (oparams) free(oparams);
+  return status;
 }
 
 #endif
@@ -2022,7 +2039,6 @@ int WebSend(char *buffer)
   char *password;
   char *command;
   uint16_t nport = 80;
-
 
                                               // buffer = |  [  192.168.178.86  :  80  ,  admin  :  joker  ]    POWER1 ON   |
   host = strtok_r(buffer, "]", &command);     // host = |  [  192.168.178.86  :  80  ,  admin  :  joker  |, command = |    POWER1 ON   |

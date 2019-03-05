@@ -1,6 +1,6 @@
 #include "sendemail.h"
 
-//#define DEBUG_EMAIL_PORT Serial
+#define DEBUG_EMAIL_PORT Serial
 
 SendEmail::SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const bool ssl) :
     host(host), port(port), user(user), passwd(passwd), timeout(timeout), ssl(ssl), client((ssl) ? new WiFiClientSecure() : new WiFiClient())
@@ -135,6 +135,7 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
 
     client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
+  //DEBUG_EMAIL_PORT.println(user);
   DEBUG_EMAIL_PORT.println(buffer);
 #endif
     buffer = readClient();
@@ -150,6 +151,7 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
     buffer = b.encode(passwd);
     client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
+  //DEBUG_EMAIL_PORT.println(passwd);
   DEBUG_EMAIL_PORT.println(buffer);
 #endif
     buffer = readClient();
@@ -164,8 +166,10 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
 
   }
 
+  DEBUG_EMAIL_PORT.println("auth done");
+
   // smtp send mail
-  buffer = F("MAIL FROM:");
+  buffer = F("MAIL FROM: ");
   buffer += from;
   client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
@@ -179,7 +183,7 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
   {
     return false;
   }
-  buffer = F("RCPT TO:");
+  buffer = F("RCPT TO: ");
   buffer += to;
   client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
@@ -193,6 +197,8 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
   {
     return false;
   }
+
+
   buffer = F("DATA");
   client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
