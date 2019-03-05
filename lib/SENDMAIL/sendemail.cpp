@@ -2,13 +2,12 @@
 
 #define DEBUG_EMAIL_PORT Serial
 
-SendEmail::SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const bool ssl) :
-    host(host), port(port), user(user), passwd(passwd), timeout(timeout), ssl(ssl), client((ssl) ? new WiFiClientSecure() : new WiFiClient())
+SendEmail::SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const int auth_used, const bool ssl) :
+    host(host), port(port), user(user), passwd(passwd), timeout(timeout), ssl(ssl), auth_used(auth_used), client((ssl) ? new WiFiClientSecure() : new WiFiClient())
 {
 
 }
 
-//#define AUTH_PLAIN
 
 String SendEmail::readClient()
 {
@@ -75,7 +74,7 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
     //buffer = F("STARTTLS");
     //client->println(buffer);
 
-#ifdef AUTH_PLAIN
+if (auth_used==1) {
     // plain
     buffer = F("AUTH PLAIN");
     client->println(buffer);
@@ -113,7 +112,7 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
       return false;
     }
 
-#else
+} else {
 
     buffer = F("AUTH LOGIN");
     client->println(buffer);
@@ -162,14 +161,14 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
     {
       return false;
     }
-#endif
+}
 
   }
 
   DEBUG_EMAIL_PORT.println("auth done");
 
   // smtp send mail
-  buffer = F("MAIL FROM: ");
+  buffer = F("MAIL FROM:");
   buffer += from;
   client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
@@ -183,7 +182,7 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
   {
     return false;
   }
-  buffer = F("RCPT TO: ");
+  buffer = F("RCPT TO:");
   buffer += to;
   client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT

@@ -1950,7 +1950,7 @@ uint16_t SendMail(char *buffer) {
   char *to;
   char *subject;
   char *cmd;
-  char secure=0;
+  char secure=0,auth=0;
   uint16_t status=1;
 
   while (*buffer==' ') buffer++;
@@ -1965,6 +1965,11 @@ uint16_t SendMail(char *buffer) {
 
   if (*params=='s') {
       secure=1;
+      params++;
+  }
+
+  if (*params=='p') {
+      auth=1;
       params++;
   }
 
@@ -2007,9 +2012,10 @@ uint16_t SendMail(char *buffer) {
 
   // TLS does crash because of memory problems
   // so only plain SMTP works
+  // auth = 0 => AUTH LOGIN 1 => PLAIN LOGIN 
   SendEmail *mail;
-  if (secure) mail = new SendEmail(mserv, 465,user,passwd, 1000, true);
-  else mail = new SendEmail(mserv, 25,user,passwd, 1000, false);
+  if (secure) mail = new SendEmail(mserv, 465,user,passwd, 2000, auth, true);
+  else mail = new SendEmail(mserv, 25,user,passwd, 2000, auth, false);
 
   if (mail) {
     bool result=mail->send(from,to,subject,cmd);
