@@ -1940,7 +1940,21 @@ String UrlEncode(const String& text)
 // sendmail [server:user:passwd:from:to:subject] data
 // an s before s[...] indicates secure
 
-#define SEND_MAIL_MINRAM 20
+#define SEND_MAIL_MINRAM 20*1024
+
+extern "C" {
+#include <cont.h>
+  extern cont_t* g_pcont;
+}
+
+void DebugFreeMem(void)
+{
+  register uint32_t *sp asm("a1");
+
+  snprintf_P(log_data, sizeof(log_data), PSTR(D_LOG_DEBUG "FreeRam %d, FreeStack %d (%s)"),
+    ESP.getFreeHeap(), 4 * (sp - g_pcont->stack), XdrvMailbox.data);
+  Serial.println(log_data);
+}
 
 uint16_t SendMail(char *buffer) {
   uint16_t count;
@@ -1956,8 +1970,11 @@ uint16_t SendMail(char *buffer) {
   char secure=0,auth=0;
   uint16_t status=1;
 
+
 // this does not work as expected ???
-  uint16_t mem=ESP.getFreeHeap()/1024;
+  uint16_t mem=ESP.getFreeHeap();
+  DebugFreeMem();
+
   if (mem<SEND_MAIL_MINRAM) {
     return 5;
   }

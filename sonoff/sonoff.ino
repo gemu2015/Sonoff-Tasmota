@@ -1540,10 +1540,12 @@ void StopAllPowerBlink(void)
   }
 }
 
+char svalue[INPUT_BUFFER_SIZE];
+
 void ExecuteCommand(char *cmnd, int source)
 {
   char stopic[CMDSZ];
-  char svalue[INPUT_BUFFER_SIZE];
+  //char svalue[INPUT_BUFFER_SIZE];
   char *start;
   char *token;
 

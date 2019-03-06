@@ -1,6 +1,6 @@
 #include "sendemail.h"
 
-#define DEBUG_EMAIL_PORT Serial
+//#define DEBUG_EMAIL_PORT Serial
 
 SendEmail::SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const int auth_used, const bool ssl) :
     host(host), port(port), user(user), passwd(passwd), timeout(timeout), ssl(ssl), auth_used(auth_used), client((ssl) ? new WiFiClientSecure() : new WiFiClient())
@@ -13,7 +13,10 @@ String SendEmail::readClient()
 {
   String r = client->readStringUntil('\n');
   r.trim();
-  while (client->available()) r += client->readString();
+  while (client->available()) {
+    delay(0);
+    r += client->readString();
+  }
   return r;
 }
 
@@ -35,6 +38,7 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
   DEBUG_EMAIL_PORT.print(":");
   DEBUG_EMAIL_PORT.println(port);
 #endif
+
 
   if (!client->connect(host.c_str(), port))
   {
@@ -76,6 +80,7 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
 
 if (auth_used==1) {
     // plain
+#ifdef USE_PLAIN
     buffer = F("AUTH PLAIN");
     client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
@@ -111,6 +116,7 @@ if (auth_used==1) {
     {
       return false;
     }
+#endif
 
 } else {
 
@@ -165,7 +171,9 @@ if (auth_used==1) {
 
   }
 
+#ifdef DEBUG_EMAIL_PORT
   DEBUG_EMAIL_PORT.println("auth done");
+#endif
 
   // smtp send mail
   buffer = F("MAIL FROM:");
