@@ -137,7 +137,7 @@ sends TAG UID via MQTT
 
 sendmail #define USE_SENDMAIL
 
-usage => sendmail[smptserver:port:user:passw:from:to:subject] message
+usage => sendmail [smptserver:port:user:passw:from:to:subject] message
 
 send email with TLS on ports !=25 (on 25 without TLS)
 
