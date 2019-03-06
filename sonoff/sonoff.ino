@@ -1540,12 +1540,13 @@ void StopAllPowerBlink(void)
   }
 }
 
-char svalue[INPUT_BUFFER_SIZE];
-
 void ExecuteCommand(char *cmnd, int source)
 {
   char stopic[CMDSZ];
   //char svalue[INPUT_BUFFER_SIZE];
+  char *svalue=(char*)calloc(INPUT_BUFFER_SIZE+2,1);
+  if (!svalue) return;
+
   char *start;
   char *token;
 
@@ -1560,8 +1561,10 @@ void ExecuteCommand(char *cmnd, int source)
   snprintf_P(stopic, sizeof(stopic), PSTR("/%s"), (token == NULL) ? "" : token);
   token = strtok(NULL, "");
 //  snprintf_P(svalue, sizeof(svalue), (token == NULL) ? "" : token);  // Fails with command FullTopic home/%prefix%/%topic% as it processes %p of %prefix%
-  strlcpy(svalue, (token == NULL) ? "" : token, sizeof(svalue));       // Fixed 5.8.0b
+  //strlcpy(svalue, (token == NULL) ? "" : token, sizeof(svalue));       // Fixed 5.8.0b
+  strlcpy(svalue, (token == NULL) ? "" : token,INPUT_BUFFER_SIZE);       // Fixed 5.8.0b
   MqttDataHandler(stopic, (byte*)svalue, strlen(svalue));
+  if (svalue) free(svalue);
 }
 
 void PublishStatus(uint8_t payload)
