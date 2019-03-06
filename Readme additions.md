@@ -135,4 +135,20 @@ sends TAG UID via MQTT
 
 ====================================
 
+sendmail #define USE_SENDMAIL
+
+usage => sendmail[smptserver:port:user:passw:<from>:<to>:subject] message
+
+send email with TLS on ports !=25 (on 25 without TLS)
+
+uses a lot of ram (>20k) and crashes on to few ram. does therfore not work from WEB console but works in rules and serial monitor
+and about 70k flash
+
+example:
+
+sendmail [smtp.gmail.com:465:user:passwd:<misterx@gmail.com>:<missesx@gmail.com>:TASMOTA mail] Hallo TASMOTA
+
+
+
+
 \+ various display drivers see separate doku
