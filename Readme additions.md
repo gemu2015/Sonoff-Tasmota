@@ -141,8 +141,8 @@ usage => sendmail[smptserver:port:user:passw:from:to:subject] message
 
 send email with TLS on ports !=25 (on 25 without TLS)
 
-uses a lot of ram (>20k) and and 2 kb stack crashes on to few stack space. after some modification of stack use in Tasmota it now works in WEB console, rules and serial monitor
-and about 70k flash
+uses a lot of ram (>20k) and and 2 kb stack crashes on to few stack space. after some modification of stack use in Tasmota it now works in WEB console, rules and serial monitor  (RAM usage without TLS no problem, Arduino TLS has design problems)
+and about 70k flash (TLS lib!)
 
 example:
 
