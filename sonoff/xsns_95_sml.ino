@@ -575,24 +575,23 @@ int64_t value;
             break;
         case 0x52:
             // int16;
-            value=((int16_t)(*cp<<8))|*(cp+1);
+            value=((int16_t)*cp<<8)|*(cp+1);
             break;
         case 0x53:
             // int32; // len 3
-            value=((int32_t)(*cp<<16))|((int32_t)*(cp+1)<<8)|(*(cp+3));
+            value=((int32_t)*cp<<16)|((int32_t)*(cp+1)<<8)|(*(cp+2));
             break;
         case 0x54:
             // int32;
-            value=((int32_t)(*cp<<24))|((int32_t)*(cp+1)<<16)|((int32_t)*(cp+2)<<8)|(*(cp+3));
+            value=((int32_t)*cp<<24)|((int32_t)*(cp+1)<<16)|((int32_t)*(cp+2)<<8)|(*(cp+3));
             break;
         case 0x55:
             // int64; len 5
-            cp++;
-            value=((int64_t)(*cp<<32))|((int64_t)*(cp+1)<<24)|((int64_t)*(cp+2)<<16)|((int64_t)*(cp+3)<<8)|(*(cp+4));
+            value=((int64_t)*cp<<32)|((int64_t)*(cp+1)<<24)|((int64_t)*(cp+2)<<16)|((int64_t)*(cp+3)<<8)|(*(cp+4));
             break;
         case 0x58:
             // int64;
-            value=((int64_t)(*cp<<56))|((int64_t)*(cp+1)<<48)|((int64_t)*(cp+2)<<40)|((int64_t)*(cp+3)<<32)|((int64_t)*(cp+4)<<24)|((int64_t)*(cp+5)<<16)|((int64_t)*(cp+6)<<8)|(*(cp+7));
+            value=((int64_t)*cp<<56)|((int64_t)*(cp+1)<<48)|((int64_t)*(cp+2)<<40)|((int64_t)*(cp+3)<<32)|((int64_t)*(cp+4)<<24)|((int64_t)*(cp+5)<<16)|((int64_t)*(cp+6)<<8)|(*(cp+7));
             break;
 
         case 0x61:
