@@ -1940,10 +1940,13 @@ String UrlEncode(const String& text)
 // sendmail [server:user:passwd:from:to:subject] data
 // an s before s[...] indicates secure
 
+#define SEND_MAIL_MINRAM 20
+
 uint16_t SendMail(char *buffer) {
   uint16_t count;
   char *params,*oparams;
   char *mserv;
+  uint16_t port;
   char *user;
   char *passwd;
   char *from;
@@ -1952,6 +1955,12 @@ uint16_t SendMail(char *buffer) {
   char *cmd;
   char secure=0,auth=0;
   uint16_t status=1;
+
+// this does not work as expected ???
+  uint16_t mem=ESP.getFreeHeap()/1024;
+  if (mem<SEND_MAIL_MINRAM) {
+    return 5;
+  }
 
   while (*buffer==' ') buffer++;
 
@@ -1962,11 +1971,6 @@ uint16_t SendMail(char *buffer) {
   params=oparams;
 
   strcpy(params,buffer);
-
-  if (*params=='s') {
-      secure=1;
-      params++;
-  }
 
   if (*params=='p') {
       auth=1;
@@ -1982,6 +1986,13 @@ uint16_t SendMail(char *buffer) {
   if (!mserv) {
       goto exit;
   }
+
+  // port
+  user=strtok(NULL,":");
+  if (!user) {
+      goto exit;
+  }
+  port=atoi(user);
 
   user=strtok(NULL,":");
   if (!user) {
@@ -2012,10 +2023,11 @@ uint16_t SendMail(char *buffer) {
 
   // TLS does crash because of memory problems
   // so only plain SMTP works
-  // auth = 0 => AUTH LOGIN 1 => PLAIN LOGIN 
+  // auth = 0 => AUTH LOGIN 1 => PLAIN LOGIN
+  // 2 seconds timeout
   SendEmail *mail;
-  if (secure) mail = new SendEmail(mserv, 465,user,passwd, 2000, auth, true);
-  else mail = new SendEmail(mserv, 25,user,passwd, 2000, auth, false);
+  if (port!=25) mail = new SendEmail(mserv, port,user,passwd, 2000, auth, true);
+  else mail = new SendEmail(mserv, port,user,passwd, 2000, auth, false);
 
   if (mail) {
     bool result=mail->send(from,to,subject,cmd);
@@ -2183,8 +2195,13 @@ bool WebCommand(void)
   else if (CMND_SENDMAIL == command_code) {
     if (XdrvMailbox.data_len > 0) {
       uint8_t result = SendMail(XdrvMailbox.data);
-      char stemp1[20];
-      snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_COMMAND_SVALUE, command, GetTextIndexed(stemp1, sizeof(stemp1), result, kWebSendStatus));
+      if (result==5) {
+        // memory error
+        snprintf_P(mqtt_data, sizeof(mqtt_data), "{\"%s\":\"%s\"}", command, "memory error");
+      } else {
+        char stemp1[20];
+        snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_COMMAND_SVALUE, command, GetTextIndexed(stemp1, sizeof(stemp1), result, kWebSendStatus));
+      }
     }
   }
 #endif
