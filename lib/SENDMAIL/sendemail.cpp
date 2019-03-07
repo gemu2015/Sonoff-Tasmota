@@ -173,10 +173,6 @@ if (auth_used==1) {
 
   }
 
-#ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println("auth done");
-#endif
-
   // smtp send mail
   buffer = F("MAIL FROM:");
   buffer += from;
@@ -254,7 +250,7 @@ if (auth_used==1) {
   return true;
 }
 
-
+#ifdef USE_PLAIN
 void SendEmail::a3_to_a4(unsigned char * a4, unsigned char * a3) {
 	a4[0] = (a3[0] & 0xfc) >> 2;
 	a4[1] = ((a3[0] & 0x03) << 4) + ((a3[1] & 0xf0) >> 4);
@@ -293,3 +289,4 @@ int SendEmail::base64_encode(char *output, const char *input, int inputLen) {
 	output[encLen] = '\0';
 	return encLen;
 }
+#endif
