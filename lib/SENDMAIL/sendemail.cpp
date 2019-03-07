@@ -1,6 +1,7 @@
 #include "sendemail.h"
 
-//#define DEBUG_EMAIL_PORT Serial
+// enable serial debugging
+#define DEBUG_EMAIL_PORT Serial
 
 SendEmail::SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const int auth_used, const bool ssl) :
     host(host), port(port), user(user), passwd(passwd), timeout(timeout), ssl(ssl), auth_used(auth_used), client((ssl) ? new WiFiClientSecure() : new WiFiClient())
@@ -59,7 +60,8 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
 
 
   buffer = F("EHLO ");
-  buffer += client->localIP();
+  buffer += client->localIP().toString();
+
   client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
   DEBUG_EMAIL_PORT.println(buffer);
