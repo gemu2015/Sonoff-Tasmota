@@ -587,7 +587,6 @@ int64_t value;
             break;
         case 0x55:
             // int64; len 5
-            cp++;
             value=((int64_t)(*cp<<32))|((int64_t)*(cp+1)<<24)|((int64_t)*(cp+2)<<16)|((int64_t)*(cp+3)<<8)|(*(cp+4));
             break;
         case 0x58:
