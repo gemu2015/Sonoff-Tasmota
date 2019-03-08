@@ -664,40 +664,42 @@ uint8_t hexnibble(char chr) {
 
 uint8_t sb_counter;
 
-// better char to double
-double xCharToDouble(char *str) {
-    // simple ascii to double, because atof or strtod are too large
-    char strbuf[24];
-    strlcpy(strbuf, str, sizeof(strbuf));
-    char *pt=strbuf;
-    double left,right;
-    signed char sign=1;
-    if (*pt=='-') sign=-1;
-    if (*pt=='-' || *pt=='+') pt++;
-    if (*pt=='.') {
-        // .xxx notation
-        left=0;
-        goto gright;
+// because orig CharToDouble was defective
+// fixed in Tasmota  6.4.1.19 20190222
+double xCharToDouble(const char *str)
+{
+  // simple ascii to double, because atof or strtod are too large
+  char strbuf[24];
+
+  strlcpy(strbuf, str, sizeof(strbuf));
+  char *pt = strbuf;
+  while ((*pt != '\0') && isblank(*pt)) { pt++; }  // Trim leading spaces
+
+  signed char sign = 1;
+  if (*pt == '-') { sign = -1; }
+  if (*pt == '-' || *pt=='+') { pt++; }            // Skip any sign
+
+  double left = 0;
+  if (*pt != '.') {
+    left = atoi(pt);                               // Get left part
+    while (isdigit(*pt)) { pt++; }                 // Skip number
+  }
+
+  double right = 0;
+  if (*pt == '.') {
+    pt++;
+    right = atoi(pt);                              // Decimal part
+    while (isdigit(*pt)) {
+      pt++;
+      right /= 10.0;
     }
-    // get left part
-    left = atoi(pt);
-    // skip number
-    while (*pt>='0' && *pt<='9') pt++;
-    if (*pt=='.') {
-        // decimal part
-gright:
-        pt++;
-        right = atoi(pt);
-        while (*pt>='0' && *pt<='9') {
-            pt++;
-            right /= 10.0;
-        }
-    } else {
-        right=0;
-    }
-    double result = (left + right);
-    if (sign>=0) return result;
-    else return -result;
+  }
+
+  double result = left + right;
+  if (sign < 0) {
+    return -result;                                // Add negative sign
+  }
+  return result;
 }
 
 // if more then 1 software serial, solution would be to enable each channel for x seconds

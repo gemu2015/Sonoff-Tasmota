@@ -1,20 +1,23 @@
 #include "sendemail.h"
 
-//#define DEBUG_EMAIL_PORT Serial
+// enable serial debugging
+#define DEBUG_EMAIL_PORT Serial
 
-SendEmail::SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const bool ssl) :
-    host(host), port(port), user(user), passwd(passwd), timeout(timeout), ssl(ssl), client((ssl) ? new WiFiClientSecure() : new WiFiClient())
+SendEmail::SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const int auth_used, const bool ssl) :
+    host(host), port(port), user(user), passwd(passwd), timeout(timeout), ssl(ssl), auth_used(auth_used), client((ssl) ? new WiFiClientSecure() : new WiFiClient())
 {
 
 }
 
-//#define AUTH_PLAIN
 
 String SendEmail::readClient()
 {
   String r = client->readStringUntil('\n');
   r.trim();
-  while (client->available()) r += client->readString();
+  while (client->available()) {
+    delay(0);
+    r += client->readString();
+  }
   return r;
 }
 
@@ -37,6 +40,7 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
   DEBUG_EMAIL_PORT.println(port);
 #endif
 
+
   if (!client->connect(host.c_str(), port))
   {
 #ifdef DEBUG_EMAIL_PORT
@@ -56,7 +60,8 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
 
 
   buffer = F("EHLO ");
-  buffer += client->localIP();
+  buffer += client->localIP().toString();
+
   client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
   DEBUG_EMAIL_PORT.println(buffer);
@@ -75,8 +80,9 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
     //buffer = F("STARTTLS");
     //client->println(buffer);
 
-#ifdef AUTH_PLAIN
+if (auth_used==1) {
     // plain
+#ifdef USE_PLAIN
     buffer = F("AUTH PLAIN");
     client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
@@ -112,8 +118,9 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
     {
       return false;
     }
+#endif
 
-#else
+} else {
 
     buffer = F("AUTH LOGIN");
     client->println(buffer);
@@ -135,6 +142,7 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
 
     client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
+  //DEBUG_EMAIL_PORT.println(user);
   DEBUG_EMAIL_PORT.println(buffer);
 #endif
     buffer = readClient();
@@ -150,6 +158,7 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
     buffer = b.encode(passwd);
     client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
+  //DEBUG_EMAIL_PORT.println(passwd);
   DEBUG_EMAIL_PORT.println(buffer);
 #endif
     buffer = readClient();
@@ -160,7 +169,7 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
     {
       return false;
     }
-#endif
+}
 
   }
 
@@ -193,6 +202,8 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
   {
     return false;
   }
+
+
   buffer = F("DATA");
   client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
@@ -239,7 +250,7 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
   return true;
 }
 
-
+#ifdef USE_PLAIN
 void SendEmail::a3_to_a4(unsigned char * a4, unsigned char * a3) {
 	a4[0] = (a3[0] & 0xfc) >> 2;
 	a4[1] = ((a3[0] & 0x03) << 4) + ((a3[1] & 0xf0) >> 4);
@@ -278,3 +289,4 @@ int SendEmail::base64_encode(char *output, const char *input, int inputLen) {
 	output[encLen] = '\0';
 	return encLen;
 }
+#endif

@@ -16,12 +16,13 @@ class SendEmail
     const String passwd;
     const int timeout;
     const bool ssl;
+    const int auth_used;
     WiFiClient* client;
     String readClient();
     void a3_to_a4(unsigned char * a4, unsigned char * a3);
     int base64_encode(char *output, const char *input, int inputLen);
   public:
-   SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const bool ssl);
+   SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const int auth_used, const bool ssl);
    bool send(const String& from, const String& to, const String& subject, const String& msg);
    ~SendEmail() {client->stop(); delete client;}
 };

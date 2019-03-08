@@ -1938,71 +1938,151 @@ String UrlEncode(const String& text)
 //SendEmail::send(const String& from, const String& to, const String& subject, const String& msg)
 
 // sendmail [server:user:passwd:from:to:subject] data
+// an s before s[...] indicates secure
 
-int SendMail(char *buffer) {
+
+#if defined(ARDUINO_ESP8266_RELEASE_2_3_0) || defined(ARDUINO_ESP8266_RELEASE_2_4_0) || defined(ARDUINO_ESP8266_RELEASE_2_4_1)
+// All version before core 2.4.2
+// https://github.com/esp8266/Arduino/issues/2557
+
+extern "C" {
+#include <cont.h>
+  extern cont_t g_cont;
+}
+
+void DebugFreeMem(void)
+{
+  register uint32_t *sp asm("a1");
+
+//  snprintf_P(log_data, sizeof(log_data), PSTR(D_LOG_DEBUG "FreeRam %d, FreeStack %d, UnmodifiedStack %d (%s)"),
+//    ESP.getFreeHeap(), 4 * (sp - g_cont.stack), cont_get_free_stack(&g_cont), XdrvMailbox.data);
+
+  snprintf_P(log_data, sizeof(log_data), PSTR(D_LOG_DEBUG "FreeRam %d, FreeStack %d (%s)"),
+    ESP.getFreeHeap(), 4 * (sp - g_cont.stack), XdrvMailbox.data);
+  Serial.println(log_data);
+}
+
+#else
+// All version from core 2.4.2
+// https://github.com/esp8266/Arduino/pull/5018
+// https://github.com/esp8266/Arduino/pull/4553
+
+extern "C" {
+#include <cont.h>
+  extern cont_t* g_pcont;
+}
+
+void DebugFreeMem(void)
+{
+  register uint32_t *sp asm("a1");
+
+  snprintf_P(log_data, sizeof(log_data), PSTR(D_LOG_DEBUG "FreeRam %d, FreeStack %d (%s)"),
+    ESP.getFreeHeap(), 4 * (sp - g_pcont->stack), XdrvMailbox.data);
+  Serial.println(log_data);
+}
+
+#endif  // ARDUINO_ESP8266_RELEASE_2_x_x
+
+#define SEND_MAIL_MINRAM 22*1024
+
+uint16_t SendMail(char *buffer) {
   uint16_t count;
-  char mserv[32];
-  char user[32];
-  char passwd[32];
-  char from[32];
-  char to[32];
-  char subject[32];
+  char *params,*oparams;
+  char *mserv;
+  uint16_t port;
+  char *user;
+  char *passwd;
+  char *from;
+  char *to;
+  char *subject;
+  char *cmd;
+  char secure=0,auth=0;
+  uint16_t status=1;
 
-  char *cp=strchr((const char *)buffer,'[');
+  DebugFreeMem();
 
-  if (!cp) return 1;
-  cp++;
-  for (count=0; count<sizeof(mserv)-1;count++) {
-    if (*cp==':') break;
-    mserv[count]=*cp++;
+// this does not work as expected ???
+  uint16_t mem=ESP.getFreeHeap();
+  if (mem<SEND_MAIL_MINRAM) {
+    return 5;
   }
-  mserv[count]=0;
 
-  cp++;
-  for (count=0; count<sizeof(user)-1;count++) {
-    if (*cp==':') break;
-    user[count]=*cp++;
-  }
-  user[count]=0;
+  while (*buffer==' ') buffer++;
 
-  cp++;
-  for (count=0; count<sizeof(passwd)-1;count++) {
-    if (*cp==':') break;
-    passwd[count]=*cp++;
-  }
-  passwd[count]=0;
+  // copy params
+  oparams=(char*)calloc(strlen(buffer)+2,1);
+  if (!oparams) return 1;
 
-  cp++;
-  for (count=0; count<sizeof(from)-1;count++) {
-    if (*cp==':') break;
-    from[count]=*cp++;
-  }
-  from[count]=0;
+  params=oparams;
 
-  cp++;
-  for (count=0; count<sizeof(to)-1;count++) {
-    if (*cp==':') break;
-    to[count]=*cp++;
-  }
-  to[count]=0;
+  strcpy(params,buffer);
 
-  cp++;
-  for (count=0; count<sizeof(subject)-1;count++) {
-    if (*cp==']') break;
-    subject[count]=*cp++;
+  if (*params=='p') {
+      auth=1;
+      params++;
   }
-  subject[count]=0;
-  cp++;
+
+  if (*params!='[') {
+      goto exit;
+  }
+  params++;
+
+  mserv=strtok(params,":");
+  if (!mserv) {
+      goto exit;
+  }
+
+  // port
+  user=strtok(NULL,":");
+  if (!user) {
+      goto exit;
+  }
+  port=atoi(user);
+
+  user=strtok(NULL,":");
+  if (!user) {
+      goto exit;
+  }
+
+  passwd=strtok(NULL,":");
+  if (!passwd) {
+      goto exit;
+  }
+
+  from=strtok(NULL,":");
+  if (!from) {
+      goto exit;
+  }
+
+  to=strtok(NULL,":");
+  if (!to) {
+      goto exit;
+  }
+
+  subject=strtok(NULL,"]");
+  if (!subject) {
+      goto exit;
+  }
+
+  cmd=subject+strlen(subject)+1;
 
   // TLS does crash because of memory problems
   // so only plain SMTP works
-  SendEmail *mail = new SendEmail(mserv, 25,user,passwd, 100, false);
+  // auth = 0 => AUTH LOGIN 1 => PLAIN LOGIN
+  // 2 seconds timeout
+  SendEmail *mail;
+  if (port!=25) mail = new SendEmail(mserv, port,user,passwd, 2000, auth, true);
+  else mail = new SendEmail(mserv, port,user,passwd, 2000, auth, false);
 
   if (mail) {
-    mail->send(from,to,subject,cp);
+    bool result=mail->send(from,to,subject,cmd);
     delete mail;
+    if (result==true) status=0;
   }
-  return 0;
+
+exit:
+  if (oparams) free(oparams);
+  return status;
 }
 
 #endif
@@ -2022,7 +2102,6 @@ int WebSend(char *buffer)
   char *password;
   char *command;
   uint16_t nport = 80;
-
 
                                               // buffer = |  [  192.168.178.86  :  80  ,  admin  :  joker  ]    POWER1 ON   |
   host = strtok_r(buffer, "]", &command);     // host = |  [  192.168.178.86  :  80  ,  admin  :  joker  |, command = |    POWER1 ON   |
@@ -2161,8 +2240,13 @@ bool WebCommand(void)
   else if (CMND_SENDMAIL == command_code) {
     if (XdrvMailbox.data_len > 0) {
       uint8_t result = SendMail(XdrvMailbox.data);
-      char stemp1[20];
-      snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_COMMAND_SVALUE, command, GetTextIndexed(stemp1, sizeof(stemp1), result, kWebSendStatus));
+      if (result==5) {
+        // memory error
+        snprintf_P(mqtt_data, sizeof(mqtt_data), "{\"%s\":\"%s\"}", command, "memory error");
+      } else {
+        char stemp1[20];
+        snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_COMMAND_SVALUE, command, GetTextIndexed(stemp1, sizeof(stemp1), result, kWebSendStatus));
+      }
     }
   }
 #endif

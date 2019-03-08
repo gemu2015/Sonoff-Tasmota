@@ -262,6 +262,7 @@ bool RulesRuleMatch(byte rule_set, String &event, String &rule)
 
 /*******************************************************************************************/
 
+
 bool RuleSetProcess(byte rule_set, String &event_saved)
 {
   bool serviced = false;
@@ -331,16 +332,15 @@ bool RuleSetProcess(byte rule_set, String &event_saved)
       commands.replace(F("%sunset%"), String(GetSunMinutes(1)));
 #endif  // USE_TIMERS and USE_SUNRISE
 
-      char command[commands.length() +1];
-      snprintf(command, sizeof(command), commands.c_str());
+      //char command[commands.length() +1];
+      //snprintf(command, sizeof(command), commands.c_str());
 
-      snprintf_P(log_data, sizeof(log_data), PSTR("RUL: %s performs \"%s\""), event_trigger.c_str(), command);
+      snprintf_P(log_data, sizeof(log_data), PSTR("RUL: %s performs \"%s\""), event_trigger.c_str(), (char*)commands.c_str());
       AddLog(LOG_LEVEL_INFO);
 
 //      snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_COMMAND_SVALUE, D_CMND_RULE, D_JSON_INITIATED);
 //      MqttPublishPrefixTopic_P(RESULT_OR_STAT, PSTR(D_CMND_RULE));
-
-      ExecuteCommand(command, SRC_RULE);
+      ExecuteCommand((char*)commands.c_str(), SRC_RULE);
       serviced = true;
       if (stop_all_rules) { return serviced; }     // If BREAK was used, Stop execution of this rule set
     }
