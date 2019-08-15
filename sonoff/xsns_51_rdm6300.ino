@@ -1,5 +1,5 @@
 /*
-  xsns_50_rdm6300.ino - Support for RDM6300 NFC Tag Reader
+  xsns_51_rdm6300.ino - Support for RDM6300 NFC Tag Reader
 
   Copyright (C) 2019  Gerhard Mutz and Theo Arends
 
@@ -19,7 +19,7 @@
 
 #ifdef USE_RDM6300
 
-#define XSNS_50                          50
+#define XSNS_51                          51
 
 #define RDM6300_BAUDRATE 9600
 
@@ -154,7 +154,7 @@ void RDM6300_Show(void) {
  * Interface
 \*********************************************************************************************/
 
-bool Xsns50(byte function)
+bool Xsns51(byte function)
 {
   bool result = false;
 
