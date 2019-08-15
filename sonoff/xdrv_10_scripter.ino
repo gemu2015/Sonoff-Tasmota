@@ -3324,17 +3324,19 @@ bool ScriptMqttData(void)
           key1 = key1.substring(0, dot);
           if (!jsonData[key1][key2].success()) break;   //Failed to get the key/value, ignore this message.
           value = (const char *)jsonData[key1][key2];
-
+/*
           if (jsonData.is<char*>(key2)) {
             value="\""+value+"\"";
-          }
+          }*/
 
         } else {
           if (!jsonData[key1].success()) break;
           value = (const char *)jsonData[key1];
+/*
           if (jsonData.is<char*>(key1)) {
             value="\""+value+"\"";
           }
+          */
         }
       }
       value.trim();
@@ -3342,7 +3344,7 @@ bool ScriptMqttData(void)
       //Create an new event. Cannot directly call RulesProcessEvent().
       //snprintf_P(event_data, sizeof(event_data), PSTR("%s=%s"), event_item.Event.c_str(), value.c_str());
       char sbuffer[128];
-      snprintf_P(sbuffer, sizeof(sbuffer), PSTR(">%s=%s\n"), event_item.Event.c_str(), value.c_str());
+      snprintf_P(sbuffer, sizeof(sbuffer), PSTR(">%s=\"%s\"\n"), event_item.Event.c_str(), value.c_str());
       //toLog(sbuffer);
       execute_script(sbuffer);
     }
