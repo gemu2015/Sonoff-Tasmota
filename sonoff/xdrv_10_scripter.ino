@@ -3324,6 +3324,10 @@ bool ScriptMqttData(void)
           key1 = key1.substring(0, dot);
           if (!jsonData[key1][key2].success()) break;   //Failed to get the key/value, ignore this message.
           value = (const char *)jsonData[key1][key2];
+          /*
+          if (jsonData.is<char*>(value)) {
+          }
+          if ((*jo).is<char*>(vn)) {*/
         } else {
           if (!jsonData[key1].success()) break;
           value = (const char *)jsonData[key1];
