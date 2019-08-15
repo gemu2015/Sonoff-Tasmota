@@ -176,7 +176,7 @@ void hm17_sendcmd(uint8_t cmd) {
 }
 
 uint32_t ibeacon_add(struct IBEACON *ib) {
-  // keyfob starts with ffff
+  // keyfob starts with ffff, ibeacon has valid facid
   if (!strncmp(ib->MAC,"FFFF",4) || strncmp(ib->FACID,"00000000",8)) {
     for (uint32_t cnt=0;cnt<MAX_IBEACONS;cnt++) {
       if (!ibeacons[cnt].FLAGS) break;
