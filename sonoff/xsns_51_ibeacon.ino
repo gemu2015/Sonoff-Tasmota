@@ -96,6 +96,8 @@ void IBEACON_Init() {
 }
 
 void hm17_every_second(void) {
+  if (!IBEACON_Serial) return;
+
   if (hm17_found) {
     if (IB_UPDATE_TIME && (uptime%IB_UPDATE_TIME==0)) {
       //if (hm17_cmd!=99 && !hm17_scanning) {
@@ -340,8 +342,10 @@ void hm17_decode(void) {
 }
 
 void IBEACON_loop() {
-uint32_t difftime=millis()-hm17_lastms;
+
   if (!IBEACON_Serial) return;
+
+uint32_t difftime=millis()-hm17_lastms;
 
   while (IBEACON_Serial->available()) {
     hm17_lastms=millis();

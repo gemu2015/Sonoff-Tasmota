@@ -26,7 +26,7 @@
 #ifdef USE_SPI
 #ifdef USE_MORITZ
 
-#define CC100_CS USE_MORITZ
+#define CC100_CS 0
 
 #define XSNS_97 97
 
@@ -1354,7 +1354,7 @@ uint8_t spi_set=0;
 
   if (pin[GPIO_CC1101_CS]<99) {
     moritz_cs=pin[GPIO_CC1101_CS];
-  }
+  } else return;
 
   pinMode(moritz_cs, OUTPUT);
   digitalWrite(moritz_cs,1);
