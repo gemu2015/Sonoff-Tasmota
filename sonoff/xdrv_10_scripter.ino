@@ -2152,6 +2152,9 @@ exit:
 #define IF_NEST 8
 // execute section of scripter
 int16_t Run_Scripter(const char *type, int8_t tlen, char *js) {
+
+    if (tasm_cmd_activ && tlen>0) return 0;
+
     uint8_t vtype=0,sindex,xflg,floop=0,globvindex;
     int8_t globaindex;
     struct T_INDEX ind;
@@ -2165,9 +2168,6 @@ int16_t Run_Scripter(const char *type, int8_t tlen, char *js) {
       tlen=abs(tlen);
       check=1;
     }
-
-    if (tasm_cmd_activ) return 0;
-
 
     float *dfvar,*cv_count,cv_max,cv_inc;
     char *cv_ptr;
@@ -3324,19 +3324,9 @@ bool ScriptMqttData(void)
           key1 = key1.substring(0, dot);
           if (!jsonData[key1][key2].success()) break;   //Failed to get the key/value, ignore this message.
           value = (const char *)jsonData[key1][key2];
-/*
-          if (jsonData.is<char*>(key2)) {
-            value="\""+value+"\"";
-          }*/
-
         } else {
           if (!jsonData[key1].success()) break;
           value = (const char *)jsonData[key1];
-/*
-          if (jsonData.is<char*>(key1)) {
-            value="\""+value+"\"";
-          }
-          */
         }
       }
       value.trim();

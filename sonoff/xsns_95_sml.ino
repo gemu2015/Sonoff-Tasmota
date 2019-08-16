@@ -1660,6 +1660,7 @@ void SML_Init(void) {
     // use script definition
     if (script_meter) free(script_meter);
     script_meter=(uint8_t*)calloc(METER_DEF_SIZE,1);
+    if (!script_meter) return;
     uint8_t *tp=script_meter;
     uint16_t index=0;
     uint8_t section=0;
@@ -1732,8 +1733,8 @@ next_line:
       }
     }
     *tp=0;
-    //meter_desc_p=script_meter_desc;
-    //meter_p=script_meter;
+    meter_desc_p=script_meter_desc;
+    meter_p=script_meter;
   }
 #endif
 
@@ -1930,6 +1931,10 @@ bool XSNS_95_cmd(void) {
             }
           }
           snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_CNT, XSNS_95,"Counter",index,RtcSettings.pulse_counter[index-1]);
+      } else if (*cp=='r') {
+        // restart
+        snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_SML, XSNS_95,"restart",1);
+        SML_Init();
       } else {
         serviced=false;
       }
@@ -1955,7 +1960,6 @@ void SML_CounterSaveState(void) {
 
 // bei neuer Tasmota Version muss hier bool stehen statt boolean
 bool Xsns95(byte function) {
-//bool Xsns95(byte function) {
   bool result = false;
     switch (function) {
       case FUNC_INIT:

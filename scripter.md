@@ -49,7 +49,7 @@ memory is dynamically allocated as a result of the D section.
 copying a string to a number or reverse is supported   
 
 >**\>B**  
-executed on BOOT time  
+executed on BOOT time  and script save
 
 >**\>T**  
 executed on teleperiod time (**SENSOR** and **STATE**), get tele vars only in this section  
