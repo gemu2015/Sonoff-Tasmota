@@ -222,7 +222,7 @@ struct METER_DESC {
   uint8_t srcpin;
   uint8_t type;
   uint16_t flag;
-  uint16_t params;
+  int16_t params;
   char prefix[8];
 };
 
@@ -1620,6 +1620,9 @@ struct SML_COUNTER {
   uint8_t sml_cnt_debounce;
   uint8_t sml_cnt_old_state;
   uint32_t sml_cnt_last_ts;
+  uint32_t sml_counter_ltime;
+  uint16_t sml_debounce;
+
 #ifdef ANALOG_OPTO_SENSOR
   int16_t ana_curr;
   int16_t ana_max;
@@ -1631,8 +1634,12 @@ struct SML_COUNTER {
 
 
 void SML_CounterUpd(uint8_t index) {
-  RtcSettings.pulse_counter[index]++;
-  InjektCounterValue(sml_counters[index].sml_cnt_old_state,RtcSettings.pulse_counter[index]);
+  uint32_t ltime=millis()-sml_counters[index].sml_counter_ltime;
+  sml_counters[index].sml_counter_ltime=millis();
+  if (ltime>sml_counters[index].sml_debounce) {
+    RtcSettings.pulse_counter[index]++;
+    InjektCounterValue(sml_counters[index].sml_cnt_old_state,RtcSettings.pulse_counter[index]);
+  }
 }
 
 void SML_CounterUpd1(void) {
@@ -1772,10 +1779,11 @@ next_line:
             pinMode(meter_desc_p[meters].srcpin,INPUT);
           }
           // check for irq mode
-          if (!meter_desc_p[meters].params) {
+          if (meter_desc_p[meters].params<=0) {
             // init irq mode
             attachInterrupt(meter_desc_p[meters].srcpin, counter_callbacks[cindex], FALLING);
             sml_counters[cindex].sml_cnt_old_state=meters;
+            sml_counters[cindex].sml_debounce=-meter_desc_p[meters].params;
           }
           InjektCounterValue(meters,RtcSettings.pulse_counter[cindex]);
           cindex++;
@@ -1818,7 +1826,7 @@ uint32_t ctime=millis();
   for (meters=0; meters<meters_used; meters++) {
     if (meter_desc_p[meters].type=='c') {
       // poll for counters and debouce
-      if (meter_desc_p[meters].params) {
+      if (meter_desc_p[meters].params>0) {
         if (ctime-sml_counters[cindex].sml_cnt_last_ts>meter_desc_p[meters].params) {
           sml_counters[cindex].sml_cnt_last_ts=ctime;
 
@@ -1962,6 +1970,8 @@ void SML_CounterSaveState(void) {
   }
 }
 
+
+
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
@@ -2000,6 +2010,7 @@ bool Xsns95(byte function) {
         }
         break;
       case FUNC_SAVE_BEFORE_RESTART:
+      case FUNC_SAVE_AT_MIDNIGHT:
         SML_CounterSaveState();
         break;
     }
