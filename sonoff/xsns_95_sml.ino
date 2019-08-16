@@ -21,6 +21,9 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 ;WGS_COMBO
 >D
 
+>B
+->sensor95 r
+
 >M 3
 +1,1,c,0,10,H20
 +2,4,c,0,50,GAS
@@ -55,6 +58,9 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 ;EHZ161
 >D
 
+>B
+->sensor95 r
+
 >M 1
 +1,0,o,0,9600,OBIS
 
@@ -69,6 +75,9 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 
 ;EHZ363
 >D
+
+>B
+->sensor95 r
 
 >M 1
 +1,0,s,0,9600,SML
