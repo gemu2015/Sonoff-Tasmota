@@ -160,6 +160,7 @@ int16_t last_findex;
 uint8_t tasm_cmd_activ=0;
 uint8_t fast_script=0;
 uint32_t script_lastmillis;
+char *svd_sp;
 
 char *GetNumericResult(char *lp,uint8_t lastop,float *fp,JsonObject *jo);
 char *GetStringResult(char *lp,uint8_t lastop,char *cp,JsonObject *jo);
@@ -2155,7 +2156,7 @@ int16_t Run_Scripter(const char *type, int8_t tlen, char *js) {
 
     if (tasm_cmd_activ && tlen>0) return 0;
 
-    uint8_t vtype=0,sindex,xflg,floop=0,globvindex;
+    uint8_t vtype=0,sindex,xflg,floop=0,globvindex,fromscriptcmd=0;
     int8_t globaindex;
     struct T_INDEX ind;
     uint8_t operand,lastop,numeric=1,if_state[IF_NEST],if_exe[IF_NEST],if_result[IF_NEST],and_or,ifstck=0;
@@ -2508,7 +2509,14 @@ int16_t Run_Scripter(const char *type, int8_t tlen, char *js) {
                   lp++;
                   plen++;
                 }
-                Run_Scripter(slp,plen,0);
+                if (fromscriptcmd) {
+                  char *sp=glob_script_mem.scriptptr;
+                  glob_script_mem.scriptptr=svd_sp;
+                  Run_Scripter(slp,plen,0);
+                  glob_script_mem.scriptptr=sp;
+                } else {
+                  Run_Scripter(slp,plen,0);
+                }
                 lp=slp;
                 goto next_line;
             }
@@ -2651,6 +2659,7 @@ int16_t Run_Scripter(const char *type, int8_t tlen, char *js) {
               // called from cmdline
               lp++;
               section=1;
+              fromscriptcmd=1;
               goto startline;
             }
             if (!strncmp(lp,type,tlen)) {
@@ -3200,7 +3209,7 @@ void ScriptSaveSettings(void) {
 #endif
 
 void execute_script(char *script) {
-char *svd_sp=glob_script_mem.scriptptr;
+  svd_sp=glob_script_mem.scriptptr;
   strcat(script,"\n#");
   glob_script_mem.scriptptr=script;
   Run_Scripter(">",1,0);
