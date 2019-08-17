@@ -191,6 +191,10 @@ enum UserSelectablePins {
   GPIO_SOLAXX1_RX,     // Solax Inverter rx pin
   GPIO_ZIGBEE_TX,      // Zigbee Serial interface
   GPIO_ZIGBEE_RX,      // Zigbee Serial interface
+  GPIO_IBEACON_TX,     // HM17 IBEACON TX
+  GPIO_IBEACON_RX,     // HM17 IBEACON RX
+  GPIO_RDM6300_RX,     // RDM6300 RX
+  GPIO_CC1101_CS,      // CC1101 CS
   GPIO_SENSOR_END };
 
 // Programmer selectable GPIO functionality
@@ -662,6 +666,17 @@ const uint8_t kGpioNiceList[] PROGMEM = {
   GPIO_SOLAXX1_TX,     // Solax Inverter tx pin
   GPIO_SOLAXX1_RX,     // Solax Inverter rx pin
 #endif
+#ifdef USE_RDM6300
+  GPIO_RDM6300_RX,
+#endif
+#ifdef USE_IBEACON
+  GPIO_IBEACON_RX,
+  GPIO_IBEACON_TX,
+#endif
+#ifdef USE_MORITZ
+  GPIO_CC1101_CS,
+#endif
+
 };
 
 const uint8_t kModuleNiceList[] PROGMEM = {
