@@ -275,17 +275,18 @@ struct METER_DESC {
 // der METER_DESC beschreibt die Zähler
 // METERS_USED muss auf die Anzahl der benutzten Zähler gesetzt werden
 // entsprechend viele Einträge muss der METER_DESC dann haben (für jeden Zähler einen)
-// 1. srcpin der pin für den seriellen input 0 oder 3 => RX pin, ansonsten software serial GPIO pin
+// 1. srcpin der pin für den seriellen input normalerweise 3 => RX pin, ansonsten software serial GPIO pin
 // 2. type o=obis, s=sml, c=COUNTER (z.B. Gaszähler reed Kontakt)
 // 3. flag wenn 0 dann counter ohne Pullup, 1=mit Pullup, 2=beutze AD Konverter ADS1115 an i2c Schnittstelle
-// 4. params Baudrate bei serieller Schnittstelle, bei counter poll time in Millisekunden, wenn 0 dann Interrupt getrieben (nur bei Hardware entprellten Signalen) , bei ADS1115 Abtastrate
+// 4. params Baudrate bei serieller Schnittstelle, bei counter poll time in Millisekunden, wenn <0 dann Interrupt getrieben
+// die negative Zahl ist Entprellzeit in Millisekunden , bei ADS1115 Abtastrate
 // 5. json prefix max 7 Zeichen, kann im Prinzip frei gesetzt werden
 // dieses Prefix wird sowohl in der Web Anzeige als auch in der MQTT Nachricht vorangestellt
 
 #if METER==EHZ161_0
 #define METERS_USED 1
 struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={0,'o',0,SML_BAUDRATE,"OBIS"}};
+  [0]={3,'o',0,SML_BAUDRATE,"OBIS"}};
 const uint8_t meter[]=
 "1,1-0:1.8.0*255(@1," D_TPWRIN ",KWh," DJ_TPWRIN ",4|"
 "1,1-0:2.8.0*255(@1," D_TPWROUT ",KWh," DJ_TPWROUT ",4|"
@@ -302,7 +303,7 @@ const uint8_t meter[]=
 #if METER==EHZ161_1
 #define METERS_USED 1
 struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={0,'o',0,SML_BAUDRATE,"OBIS"}};
+  [0]={3,'o',0,SML_BAUDRATE,"OBIS"}};
 const uint8_t meter[]=
 "1,1-0:1.8.1*255(@1," D_TPWRIN ",KWh," DJ_TPWRIN ",4|"
 "1,1-0:2.8.1*255(@1," D_TPWROUT ",KWh," DJ_TPWROUT ",4|"
@@ -315,7 +316,7 @@ const uint8_t meter[]=
 #if METER==EHZ363
 #define METERS_USED 1
 struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={0,'s',0,SML_BAUDRATE,"SML"}};
+  [0]={3,'s',0,SML_BAUDRATE,"SML"}};
 // 2 Richtungszähler EHZ SML 8 bit 9600 baud, binär
 const uint8_t meter[]=
 //0x77,0x07,0x01,0x00,0x01,0x08,0x00,0xff
@@ -333,7 +334,7 @@ const uint8_t meter[]=
 #if METER==EHZH
 #define METERS_USED 1
 struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={0,'s',0,SML_BAUDRATE,"SML"}};
+  [0]={3,'s',0,SML_BAUDRATE,"SML"}};
 // 2 Richtungszähler EHZ SML 8 bit 9600 baud, binär
 // verbrauch total
 const uint8_t meter[]=
@@ -350,7 +351,7 @@ const uint8_t meter[]=
 #if METER==EDL300
 #define METERS_USED 1
 struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={0,'s',0,SML_BAUDRATE,"SML"}};
+  [0]={3,'s',0,SML_BAUDRATE,"SML"}};
 // 2 Richtungszähler EHZ SML 8 bit 9600 baud, binär
 // verbrauch total
 const uint8_t meter[]=
@@ -365,7 +366,7 @@ const uint8_t meter[]=
 #if METER==EBZD_G
 #define METERS_USED 1
 struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={0,'s',0,SML_BAUDRATE,"strom"}};
+  [0]={3,'s',0,SML_BAUDRATE,"strom"}};
 const uint8_t meter[]=
 //0x77,0x07,0x01,0x00,0x01,0x08,0x00,0xff
 "1,77070100010800ff@1000," D_TPWRIN ",KWh," DJ_TPWRIN ",4|"
@@ -387,7 +388,7 @@ const uint8_t meter[]=
 #if METER==Q3B
 #define METERS_USED 1
 struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={0,'s',0,SML_BAUDRATE,"SML"}};
+  [0]={3,'s',0,SML_BAUDRATE,"SML"}};
 const uint8_t meter[]=
 //0x77,0x07,0x01,0x00,0x01,0x08,0x01,0xff
 "1,77070100010800ff@1000," D_TPWRIN ",KWh," DJ_TPWRIN ",4|"
@@ -480,7 +481,7 @@ const uint8_t meter[]=
 #if METER==Q3B_V1
 #define METERS_USED 1
 struct METER_DESC const meter_desc[METERS_USED]={
-[0]={0,'o',0,SML_BAUDRATE,"OBIS"}};
+[0]={3,'o',0,SML_BAUDRATE,"OBIS"}};
 const uint8_t meter[]=
 "1,1-0:1.8.1*255(@1," D_TPWRIN ",KWh," DJ_TPWRIN ",4|"
 "1,=d 1 10 @1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
@@ -492,7 +493,7 @@ const uint8_t meter[]=
 #if METER==EHZ363_2
 #define METERS_USED 1
 struct METER_DESC const meter_desc[METERS_USED]={
-[0]={0,'s',0,SML_BAUDRATE,"SML"}};
+[0]={3,'s',0,SML_BAUDRATE,"SML"}};
 // 2 Richtungszähler EHZ SML 8 bit 9600 baud, binär
 const uint8_t meter[]=
 //0x77,0x07,0x01,0x00,0x01,0x08,0x00,0xff
@@ -1211,7 +1212,7 @@ void SML_Poll(void) {
     for (meters=0; meters<meters_used; meters++) {
       if (meter_desc_p[meters].type!='c') {
         // poll for serial input
-        if (!meter_desc_p[meters].srcpin || meter_desc_p[meters].srcpin==3) {
+        if (meter_desc_p[meters].srcpin==3) {
           while (Serial.available()) {
             // shift in
             for (count=0; count<SML_BSIZ-1; count++) {
@@ -1790,7 +1791,7 @@ next_line:
         }
     } else {
       // serial input, init
-      if (!meter_desc_p[meters].srcpin || meter_desc_p[meters].srcpin==3) {
+      if (meter_desc_p[meters].srcpin==3) {
         ClaimSerial();
         SetSerialBaudrate(meter_desc_p[meters].params);
       } else {
