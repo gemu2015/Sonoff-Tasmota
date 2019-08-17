@@ -1554,7 +1554,7 @@ void AddLogBuffer(uint32_t loglevel, uint8_t *buffer, uint32_t count)
 */
 /*
   strcpy_P(log_data, PSTR("DMP: "));
-  ToHex(buffer, count, log_data + strlen(log_data), sizeof(log_data) - strlen(log_data), ' ');
+  ToHex_P(buffer, count, log_data + strlen(log_data), sizeof(log_data) - strlen(log_data), ' ');
   AddLog(loglevel);
 */
   char hex_char[count * 3];
