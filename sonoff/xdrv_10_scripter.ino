@@ -947,9 +947,15 @@ char *isvar(char *lp, uint8_t *vtype,struct T_INDEX *tind,float *fp,char *sp,Jso
       }
       if (jo->success()) {
         char *subtype=strchr(vname,'#');
+        char *subtype2;
         if (subtype) {
           *subtype=0;
           subtype++;
+          subtype2=strchr(subtype,'#');
+          if (subtype2) {
+            *subtype2=0;
+            *subtype2++;
+          }
         }
         vn=vname;
         str_value = (*jo)[vn];
@@ -961,6 +967,23 @@ char *isvar(char *lp, uint8_t *vtype,struct T_INDEX *tind,float *fp,char *sp,Jso
               jo=&jobj1;
               str_value = (*jo)[vn];
               if ((*jo)[vn].success()) {
+                // 2. stage
+                if (subtype2) {
+                  JsonObject &jobj2=(*jo)[vn];
+                  if ((*jo)[vn].success()) {
+                    vn=subtype2;
+                    jo=&jobj2;
+                    str_value = (*jo)[vn];
+                    if ((*jo)[vn].success()) {
+                      goto skip;
+                    } else {
+                      goto chknext;
+                    }
+                  } else {
+                    goto chknext;
+                  }
+                }
+                // end
                 goto skip;
               }
             } else {
