@@ -179,12 +179,13 @@ uint32_t ibeacon_add(struct IBEACON *ib) {
   // keyfob starts with ffff, ibeacon has valid facid
   if (!strncmp(ib->MAC,"FFFF",4) || strncmp(ib->FACID,"00000000",8)) {
     for (uint32_t cnt=0;cnt<MAX_IBEACONS;cnt++) {
-      if (!ibeacons[cnt].FLAGS) break;
-      if (!strncmp(ibeacons[cnt].MAC,ib->MAC,12)) {
-        // exists
-        memcpy(ibeacons[cnt].RSSI,ib->RSSI,4);
-        ibeacons[cnt].TIME=0;
-        return 1;
+      if (ibeacons[cnt].FLAGS) {
+        if (!strncmp(ibeacons[cnt].MAC,ib->MAC,12)) {
+          // exists
+          memcpy(ibeacons[cnt].RSSI,ib->RSSI,4);
+          ibeacons[cnt].TIME=0;
+          return 1;
+        }
       }
     }
     for (uint32_t cnt=0;cnt<MAX_IBEACONS;cnt++) {

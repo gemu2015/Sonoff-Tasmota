@@ -1496,6 +1496,34 @@ chknext:
           fvar=strlen(glob_script_mem.script_ram);
           goto exit;
         }
+        if (!strncmp(vname,"sl(",3)) {
+          lp+=3;
+          char str[SCRIPT_MAXSSIZE];
+          lp=GetStringResult(lp,OPER_EQU,str,0);
+          lp++;
+          len=0;
+          fvar=strlen(str);
+          goto exit;
+        }
+        if (!strncmp(vname,"sb(",3)) {
+          lp+=3;
+          char str[SCRIPT_MAXSSIZE];
+          lp=GetStringResult(lp,OPER_EQU,str,0);
+          SCRIPT_SKIP_SPACES
+          float fvar1;
+          lp=GetNumericResult(lp,OPER_EQU,&fvar1,0);
+          SCRIPT_SKIP_SPACES
+          float fvar2;
+          lp=GetNumericResult(lp,OPER_EQU,&fvar2,0);
+          lp++;
+          len=0;
+          if (fvar1<0) {
+            fvar1=strlen(str)+fvar1;
+          }
+          memcpy(sp,&str[(uint8_t)fvar1],(uint8_t)fvar2);
+          sp[(uint8_t)fvar2] = '\0';
+          goto strexit;
+        }
         if (!strncmp(vname,"st(",3)) {
           lp+=3;
           char str[SCRIPT_MAXSSIZE];
