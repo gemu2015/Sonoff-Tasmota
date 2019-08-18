@@ -85,7 +85,7 @@ void SH1106InitDriver()
     renderer->setTextFont(0);
     renderer->setTextSize(2);
     renderer->setCursor(20,20);
-    renderer->println(F("Adafruit"));
+    renderer->println(F("SH1106"));
     renderer->Updateframe();
     renderer->DisplayOnff(1);
 #endif

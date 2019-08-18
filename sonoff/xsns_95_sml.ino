@@ -244,7 +244,7 @@ struct METER_DESC {
 #define EBZD_G 14
 
 // diesen Zähler auswählen
-#define METER WGS_COMBO
+#define METER EHZ161_1
 
 //=====================================================
 // Einträge in Liste
@@ -1952,6 +1952,7 @@ bool XSNS_95_cmd(void) {
       } else if (*cp=='r') {
         // restart
         snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_SML, XSNS_95,"restart",1);
+        SML_CounterSaveState();
         SML_Init();
       } else {
         serviced=false;

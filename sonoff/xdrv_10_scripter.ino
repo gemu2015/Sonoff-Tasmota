@@ -134,6 +134,7 @@ struct SCRIPT_MEM {
     uint8_t *vnp_offset;
     char *glob_snp; // string vars pointer
     char *scriptptr;
+    char *scriptptr_bu;
     char *script_ram;
     uint16_t script_size;
     uint8_t *script_pram;
@@ -160,7 +161,7 @@ int16_t last_findex;
 uint8_t tasm_cmd_activ=0;
 uint8_t fast_script=0;
 uint32_t script_lastmillis;
-char *svd_sp;
+
 
 char *GetNumericResult(char *lp,uint8_t lastop,float *fp,JsonObject *jo);
 char *GetStringResult(char *lp,uint8_t lastop,char *cp,JsonObject *jo);
@@ -242,6 +243,7 @@ char *script;
 
     glob_script_mem.max_ssize=SCRIPT_SVARSIZE;
     glob_script_mem.scriptptr=0;
+
     if (!*script) return -999;
 
     float fvalues[MAXVARS];
@@ -540,6 +542,7 @@ char *script;
 
     // store start of actual program here
     glob_script_mem.scriptptr=lp-1;
+    glob_script_mem.scriptptr_bu=glob_script_mem.scriptptr;
     return 0;
 
 }
@@ -2511,7 +2514,7 @@ int16_t Run_Scripter(const char *type, int8_t tlen, char *js) {
                 }
                 if (fromscriptcmd) {
                   char *sp=glob_script_mem.scriptptr;
-                  glob_script_mem.scriptptr=svd_sp;
+                  glob_script_mem.scriptptr=glob_script_mem.scriptptr_bu;
                   Run_Scripter(slp,plen,0);
                   glob_script_mem.scriptptr=sp;
                 } else {
@@ -3209,7 +3212,7 @@ void ScriptSaveSettings(void) {
 #endif
 
 void execute_script(char *script) {
-  svd_sp=glob_script_mem.scriptptr;
+  char *svd_sp=glob_script_mem.scriptptr;
   strcat(script,"\n#");
   glob_script_mem.scriptptr=script;
   Run_Scripter(">",1,0);
