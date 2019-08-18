@@ -94,7 +94,9 @@ special variables (read only):
 **med(n x)** = calculates a 5 value median filter of x (2 filters possible n=0,1)  
 **int(x)** = gets the integer part of x (like floor)  
 **hn(x)** = converts x (0..255) to a hex nibble string  
-**st(svar c n)** = stringtoken gets the n th substring of svar separated by c  
+**st(svar c n)** = stringtoken gets the n th substring of svar separated by c
+**sl(svar)** = gets the length of a string
+**sb(svar p n)** = gets a substring from svar at position p (if p<0 counts from end) and length n     
 **s(x)** = explicit conversion from number x to string  
 **mqtts** = state of mqtt disconnected=0, connected>0  
 **wifis** = state of wifi disconnected=0, connected>0  
@@ -188,7 +190,8 @@ and on the same line conditions may be bracketed  e.g. if ((a==b) and ((c==d) or
 >**#name** names a subroutine, subroutines are called with **=#name**  
 **#name(param)** names a subroutines with a parameter is called with **=#name(param)**  
 subroutines end with the next '#' or '>' line or break, may be nested  
-params can be numbers or strings and on mismatch are converted  
+params can be numbers or strings and on mismatch are converted
+**=(svar)** executes a script in a string variable  
 
 >**for var from to inc**  
 **next**  
