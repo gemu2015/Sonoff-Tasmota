@@ -62,7 +62,7 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 ->sensor95 r
 
 >M 1
-+1,0,o,0,9600,OBIS
++1,3,o,0,9600,OBIS
 
 -1,1-0:1.8.0*255(@1,Verbrauch,KWh,Total_in,4|
 -1,1-0:2.8.0*255(@1,Einspeisung,KWh,Total_out,4|
@@ -80,12 +80,24 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 ->sensor95 r
 
 >M 1
-+1,0,s,0,9600,SML
++1,3,s,0,9600,SML
 
 -1,77070100010800ff@1000,Verbrauch,KWh,Total_in,4|
 -1,77070100020800ff@1000,Einspeisung,KWh,Total_out,4|
 -1,77070100100700ff@1,Aktueller Verbrauch,W,Power_curr,0|
 -1,77070100000009ff@#,Zähler Nr,,Meter_number,0
+#
+
+;EHZ161_1
+>D
+
+>M 1
++1,3,o,0,9600,OBIS
+
+-1,1-0:1.8.1*255(@1,Verbrauch,KWh,Total_in,4|
+-1,1-0:2.8.1*255(@1,Einspeisung,KWh,Total_out,4|
+-1,=d 2 10 @1,Aktueller Verbrauch,W,Power_curr,0|
+-1,1-0:0.0.0*255(@#),Zähler Nr,, Meter_number,0
 #
 
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
