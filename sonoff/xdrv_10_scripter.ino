@@ -2522,6 +2522,13 @@ int16_t Run_Scripter(const char *type, int8_t tlen, char *js) {
                 }
                 lp=slp;
                 goto next_line;
+            } else if (!strncmp(lp,"=(",2)) {
+                lp+=2;
+                char str[128];
+                str[0]='>';
+                lp=GetStringResult(lp,OPER_EQU,&str[1],0);
+                lp++;
+                execute_script(str);
             }
 
             // check for variable result
@@ -3217,7 +3224,6 @@ void execute_script(char *script) {
   glob_script_mem.scriptptr=script;
   Run_Scripter(">",1,0);
   glob_script_mem.scriptptr=svd_sp;
-  Scripter_save_pvars();
 }
 #define D_CMND_SCRIPT "Script"
 #define D_CMND_SUBSCRIBE "Subscribe"
@@ -3252,6 +3258,7 @@ bool ScriptCommand(void) {
             if (XdrvMailbox.data[count]==';') XdrvMailbox.data[count]='\n';
           }
           execute_script(XdrvMailbox.data);
+          Scripter_save_pvars();
         }
       }
       return serviced;
