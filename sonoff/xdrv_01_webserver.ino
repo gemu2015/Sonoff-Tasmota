@@ -2494,8 +2494,6 @@ exit:
 
 #endif
 
-#define USE_WEBSEND_RESPONSE
-
 int WebSend(char *buffer)
 {
   // [sonoff] POWER1 ON                                               --> Sends http://sonoff/cm?cmnd=POWER1 ON
