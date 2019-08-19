@@ -2500,11 +2500,17 @@ int16_t Run_Scripter(const char *type, int8_t tlen, char *js) {
 #endif
 #endif
 
-            else if (!strncmp(lp,"=>",2) || !strncmp(lp,"->",2)) {
+            else if (!strncmp(lp,"=>",2) || !strncmp(lp,"->",2) || !strncmp(lp,"print",5)) {
                 // execute cmd
-                uint8_t sflag=0,svmqtt,swll;
-                if (*lp=='-') sflag=1;
-                lp+=2;
+                uint8_t sflag=0,pflg=0,svmqtt,swll;
+                if (*lp=='p') {
+                 pflg=1;
+                 lp+=5;
+                }
+                else {
+                  if (*lp=='-') sflag=1;
+                  lp+=2;
+                }
                 char *slp=lp;
                 SCRIPT_SKIP_SPACES
                 #define SCRIPT_CMDMEM 512
@@ -2527,8 +2533,9 @@ int16_t Run_Scripter(const char *type, int8_t tlen, char *js) {
                   Replace_Cmd_Vars(cmd,tmp,SCRIPT_CMDMEM/2);
                   //toSLog(tmp);
 
-                  if (!strncmp(tmp,"print",5)) {
-                    toLog(&tmp[5]);
+                  if (!strncmp(tmp,"print",5) || pflg) {
+                    if (pflg) toLog(tmp);
+                    else toLog(&tmp[5]);
                   } else {
                     if (!sflag) {
                       snprintf_P(log_data, sizeof(log_data), PSTR("Script: performs \"%s\""), tmp);

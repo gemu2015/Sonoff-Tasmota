@@ -141,7 +141,7 @@ a single percent sign must be given as **%%**
 
 **special** cmds:
 
->**=\> print** prints to info log for debugging  
+>**print** or **=\>print** prints to info log for debugging  
 
 to save code space nearly no error messages are provided. However it is taken care of that at least it should not crash on syntax errors.  
 if a variable does not exist a **???** is given on commands  
@@ -191,7 +191,7 @@ and on the same line conditions may be bracketed  e.g. if ((a==b) and ((c==d) or
 **#name(param)** names a subroutines with a parameter is called with **=#name(param)**  
 subroutines end with the next '#' or '>' line or break, may be nested  
 params can be numbers or strings and on mismatch are converted
-**=(svar)** executes a script in a string variable  
+**=(svar)** executes a script in a string variable (dynamic or self modifying code)  
 
 >**for var from to inc**  
 **next**  
