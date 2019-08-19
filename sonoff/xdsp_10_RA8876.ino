@@ -36,8 +36,8 @@
 #include <RA8876.h>
 #include <FT6236.h>
 
-TouchLocation pLoc;
-uint8_t ctouch_counter = 0;
+TouchLocation ra8876_pLoc;
+uint8_t ra8876_ctouch_counter = 0;
 
 #ifdef USE_TOUCH_BUTTONS
 extern VButton *buttons[];
@@ -117,21 +117,21 @@ void RA8876_MQTT(uint8_t count,const char *cp) {
 // check digitizer hit
 void FT5316Check() {
 uint16_t temp;
-ctouch_counter++;
-if (2 == ctouch_counter) {
+ra8876_ctouch_counter++;
+if (2 == ra8876_ctouch_counter) {
   // every 100 ms should be enough
-  ctouch_counter=0;
+  ra8876_ctouch_counter=0;
   // panel has 800x480
-  if (FT6236readTouchLocation(&pLoc,1)) {
-    pLoc.x=pLoc.x*RA8876_TFTWIDTH/800;
-    pLoc.y=pLoc.y*RA8876_TFTHEIGHT/480;
+  if (FT6236readTouchLocation(&ra8876_pLoc,1)) {
+    ra8876_pLoc.x=ra8876_pLoc.x*RA8876_TFTWIDTH/800;
+    ra8876_pLoc.y=ra8876_pLoc.y*RA8876_TFTHEIGHT/480;
     // did find a hit
 
     if (renderer) {
 
       // rotation not supported
-      pLoc.x=RA8876_TFTWIDTH-pLoc.x;
-      pLoc.y=RA8876_TFTHEIGHT-pLoc.y;
+      ra8876_pLoc.x=RA8876_TFTWIDTH-ra8876_pLoc.x;
+      ra8876_pLoc.y=RA8876_TFTHEIGHT-ra8876_pLoc.y;
 
       /*
       uint8_t rot=renderer->getRotation();
