@@ -156,7 +156,7 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 #define SPECIAL_SS
 
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-parameter"
+
 
 //#define DWS74_BUG
 
@@ -192,6 +192,25 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 
 #else
 // alle anderen Sprachen
+#undef D_TPWRIN
+#undef D_TPWROUT
+#undef D_TPWRCURR
+#undef D_TPWRCURR1
+#undef D_TPWRCURR2
+#undef D_TPWRCURR3
+#undef D_Strom_L1
+#undef D_Strom_L2
+#undef D_Strom_L3
+#undef D_Spannung_L1
+#undef D_Spannung_L2
+#undef D_Spannung_L3
+#undef D_METERNR
+#undef D_METERSID
+#undef D_GasIN
+#undef D_H2oIN
+#undef D_StL1L2L3
+#undef D_SpL1L2L3
+
 #define D_TPWRIN "Total-In"
 #define D_TPWROUT "Total-Out"
 #define D_TPWRCURR "Current-In/Out"
@@ -299,6 +318,7 @@ struct METER_DESC {
 // dieses Prefix wird sowohl in der Web Anzeige als auch in der MQTT Nachricht vorangestellt
 
 #if METER==EHZ161_0
+#undef METERS_USED
 #define METERS_USED 1
 struct METER_DESC const meter_desc[METERS_USED]={
   [0]={3,'o',0,SML_BAUDRATE,"OBIS"}};
@@ -316,6 +336,7 @@ const uint8_t meter[]=
 //=====================================================
 
 #if METER==EHZ161_1
+#undef METERS_USED
 #define METERS_USED 1
 struct METER_DESC const meter_desc[METERS_USED]={
   [0]={3,'o',0,SML_BAUDRATE,"OBIS"}};
@@ -329,6 +350,7 @@ const uint8_t meter[]=
 //=====================================================
 
 #if METER==EHZ363
+#undef METERS_USED
 #define METERS_USED 1
 struct METER_DESC const meter_desc[METERS_USED]={
   [0]={3,'s',0,SML_BAUDRATE,"SML"}};
@@ -347,6 +369,7 @@ const uint8_t meter[]=
 //=====================================================
 
 #if METER==EHZH
+#undef METERS_USED
 #define METERS_USED 1
 struct METER_DESC const meter_desc[METERS_USED]={
   [0]={3,'s',0,SML_BAUDRATE,"SML"}};
@@ -364,6 +387,7 @@ const uint8_t meter[]=
 //=====================================================
 
 #if METER==EDL300
+#undef METERS_USED
 #define METERS_USED 1
 struct METER_DESC const meter_desc[METERS_USED]={
   [0]={3,'s',0,SML_BAUDRATE,"SML"}};
@@ -379,6 +403,7 @@ const uint8_t meter[]=
 #endif
 
 #if METER==EBZD_G
+#undef METERS_USED
 #define METERS_USED 1
 struct METER_DESC const meter_desc[METERS_USED]={
   [0]={3,'s',0,SML_BAUDRATE,"strom"}};
@@ -401,6 +426,7 @@ const uint8_t meter[]=
 //=====================================================
 
 #if METER==Q3B
+#undef METERS_USED
 #define METERS_USED 1
 struct METER_DESC const meter_desc[METERS_USED]={
   [0]={3,'s',0,SML_BAUDRATE,"SML"}};
@@ -415,6 +441,7 @@ const uint8_t meter[]=
 
 #if METER==COMBO3
 // 3 Zähler Beispiel
+#undef METERS_USED
 #define METERS_USED 3
 
 struct METER_DESC const meter_desc[METERS_USED]={
@@ -443,6 +470,7 @@ const uint8_t meter[]=
 
 #if METER==COMBO2
 // 2 Zähler Beispiel
+#undef METERS_USED
 #define METERS_USED 2
 
 struct METER_DESC const meter_desc[METERS_USED]={
@@ -464,6 +492,7 @@ const uint8_t meter[]=
 #endif
 
 #if METER==COMBO3a
+#undef METERS_USED
 #define METERS_USED 3
 
 struct METER_DESC const meter_desc[METERS_USED]={
@@ -494,6 +523,7 @@ const uint8_t meter[]=
 //=====================================================
 
 #if METER==Q3B_V1
+#undef METERS_USED
 #define METERS_USED 1
 struct METER_DESC const meter_desc[METERS_USED]={
 [0]={3,'o',0,SML_BAUDRATE,"OBIS"}};
@@ -506,6 +536,7 @@ const uint8_t meter[]=
 //=====================================================
 
 #if METER==EHZ363_2
+#undef METERS_USED
 #define METERS_USED 1
 struct METER_DESC const meter_desc[METERS_USED]={
 [0]={3,'s',0,SML_BAUDRATE,"SML"}};
@@ -527,6 +558,7 @@ const uint8_t meter[]=
 
 // Beispiel für einen OBIS Stromzähler und einen Gaszähler + Wasserzähler
 #if METER==COMBO3b
+#undef METERS_USED
 #define METERS_USED 3
 struct METER_DESC const meter_desc[METERS_USED]={
   [0]={3,'o',0,SML_BAUDRATE,"OBIS"}, // harware serial RX pin
@@ -548,6 +580,7 @@ const uint8_t meter[]=
 
 
 #if METER==WGS_COMBO
+#undef METERS_USED
 #define METERS_USED 3
 
 struct METER_DESC const meter_desc[METERS_USED]={

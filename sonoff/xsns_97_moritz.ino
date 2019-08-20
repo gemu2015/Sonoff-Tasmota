@@ -1332,9 +1332,9 @@ struct MORITZ *mp;
 #define EEPROM_START_OFFSET 16384
 static Eeprom24C128_256 m_eeprom(EEPROM_ADDRESS);
 // eeprom.writeBytes(address, length, buffer);
-#define EEP_WRITE(A,B,C) m_eeprom.writeBytes(A,B,(uint8_t*)C);
+#define M_EEP_WRITE(A,B,C) m_eeprom.writeBytes(A,B,(uint8_t*)C);
 // eeprom.readBytes(address, length, buffer);
-#define EEP_READ(A,B,C) m_eeprom.readBytes(A,B,(uint8_t*)C);
+#define M_EEP_READ(A,B,C) m_eeprom.readBytes(A,B,(uint8_t*)C);
 #endif
 
 
@@ -1386,7 +1386,7 @@ uint8_t spi_set=0;
 
 void get_MLabel(uint8_t index, struct MORITZ *ml) {
   if (moritz_flags&MORITZ_EEPROM_FOUND) {
-    EEP_READ(EEPROM_START_OFFSET+(index*sizeof(MORITZ)),sizeof(MORITZ),(char*)ml);
+    M_EEP_READ(EEPROM_START_OFFSET+(index*sizeof(MORITZ)),sizeof(MORITZ),(char*)ml);
     //sprintf(log_data,"r:%d:%02x%02x%02x %s",index,ml->id[0],ml->id[1],ml->id[2],ml->label);
     //AddLog(LOG_LEVEL_INFO);
   } else {
@@ -1398,7 +1398,7 @@ void get_MLabel(uint8_t index, struct MORITZ *ml) {
 
 void put_MLabel(uint8_t index, struct MORITZ *ml) {
   if (moritz_flags&MORITZ_EEPROM_FOUND) {
-    EEP_WRITE(EEPROM_START_OFFSET+(index*sizeof(MORITZ)),sizeof(MORITZ),(char*)ml);
+    M_EEP_WRITE(EEPROM_START_OFFSET+(index*sizeof(MORITZ)),sizeof(MORITZ),(char*)ml);
     //sprintf(log_data,"w:%d:%02x%02x%02x %s",index,ml->id[0],ml->id[1],ml->id[2],ml->label);
     //AddLog(LOG_LEVEL_INFO);
   }
