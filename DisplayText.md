@@ -59,8 +59,8 @@ code
 B*p* = set background color (0,1) for black or white or 16 bit color
 code  
 Ci*p* or Bi*p* = set colors from index currently 0-18 see table below  
-w*p* = draws an analog watch with radius p  (#define USE_AWATCH)
-Pfilename: = display an rgb 16bit color image when sdcard file system is present
+w*p* = draws an analog watch with radius p  (#define USE_AWATCH)  
+Pfilename: = display an rgb 16bit color image when sdcard file system is present  
 
 *Buttons:*
 

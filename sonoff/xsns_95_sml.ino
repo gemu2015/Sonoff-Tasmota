@@ -155,6 +155,9 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 // speziellen angepassten Tasmota seriell Treiber benutzen
 #define SPECIAL_SS
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+
 //#define DWS74_BUG
 
 // diese Version verwendet den serial REC Pin des ESP, und zusätzliche GPIO
@@ -2030,5 +2033,7 @@ bool Xsns95(byte function) {
     }
   return result;
 }
+
+#pragma GCC diagnostic pop
 
 #endif  // USE_SML
