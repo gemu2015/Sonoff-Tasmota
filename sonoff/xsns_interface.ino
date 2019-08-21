@@ -809,21 +809,24 @@ const uint8_t kXsnsList[] = {
 #endif
 
 #ifdef XSNS_95
-  XSNS_95
+  XSNS_95,
 #endif
 
 #ifdef XSNS_96
-  XSNS_96
+  XSNS_96,
 #endif
 
 #ifdef XSNS_97
-  XSNS_97
+  XSNS_97,
 #endif
 
 #ifdef XSNS_98
-  XSNS_98
+  XSNS_98,
 #endif
 
+#ifdef XSNS_99
+  XSNS_99
+#endif
 };
 
 /*********************************************************************************************/
@@ -841,20 +844,22 @@ bool XsnsEnabled(uint32_t sns_index)
   return true;
 }
 
-char* XsnsSensorsAvailable(char* sensors)
+void XsnsSensorState(void)
 {
-  // Return string like [2,3,4,5,8,9,10,14,15,17,18,34]
-  sensors[0] = '\0';
+  ResponseAppend_P(PSTR("\""));  // Use string for enable/disable signal
   for (uint32_t i = 0; i < sizeof(kXsnsList); i++) {
 #ifdef XFUNC_PTR_IN_ROM
     uint32_t sensorid = pgm_read_byte(kXsnsList + i);
 #else
     uint32_t sensorid = kXsnsList[i];
 #endif
-    snprintf_P(sensors, LOGSZ, PSTR("%s%s%d"), sensors, (!i) ? "[" : ",", sensorid);
+    bool disabled = false;
+    if (sensorid < MAX_XSNS_DRIVERS) {
+      disabled = !bitRead(Settings.sensors[sensorid / 32], sensorid % 32);
+    }
+    ResponseAppend_P(PSTR("%s%s%d"), (i) ? "," : "", (disabled) ? "!" : "", sensorid);
   }
-  snprintf_P(sensors, LOGSZ, PSTR("%s]"), sensors);  // Max length is about 3 x 96 < LOGSZ
-  return sensors;
+  ResponseAppend_P(PSTR("\""));
 }
 
 /*********************************************************************************************\
@@ -865,13 +870,19 @@ bool XsnsNextCall(uint8_t Function, uint8_t &xsns_index)
 {
   xsns_index++;
   if (xsns_index == xsns_present) { xsns_index = 0; }
-#ifdef USE_DEBUG_DRIVER
-  while (!XsnsEnabled(xsns_index) && !xsns_index) {  // Perform at least first sensor (counter)
-    xsns_index++;
-    if (xsns_index == xsns_present) { xsns_index = 0; }
+
+#ifndef USE_DEBUG_DRIVER
+  if (FUNC_WEB_SENSOR == Function) {  // Skip web info for disabled sensors
+#endif
+    uint32_t max_disabled = xsns_present;
+    while (!XsnsEnabled(xsns_index) && max_disabled--) {  // Perform at least one sensor
+      xsns_index++;
+      if (xsns_index == xsns_present) { xsns_index = 0; }
+    }
+#ifndef USE_DEBUG_DRIVER
   }
 #endif
-//  WifiAddDelayWhenDisconnected();
+
   return xsns_func_ptr[xsns_index](Function);
 }
 
@@ -885,7 +896,7 @@ bool XsnsCall(uint8_t Function)
 
   for (uint32_t x = 0; x < xsns_present; x++) {
 #ifdef USE_DEBUG_DRIVER
-    if (XsnsEnabled(x)) {
+    if (XsnsEnabled(x)) {  // Skip disabled sensor in debug mode
 #endif
 
       if ((FUNC_WEB_SENSOR == Function) && !XsnsEnabled(x)) { continue; }  // Skip web info for disabled sensors
@@ -893,7 +904,6 @@ bool XsnsCall(uint8_t Function)
 #ifdef PROFILE_XSNS_SENSOR_EVERY_SECOND
       uint32_t profile_start_millis = millis();
 #endif  // PROFILE_XSNS_SENSOR_EVERY_SECOND
-//      WifiAddDelayWhenDisconnected();
       result = xsns_func_ptr[x](Function);
 
 #ifdef PROFILE_XSNS_SENSOR_EVERY_SECOND

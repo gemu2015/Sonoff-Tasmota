@@ -237,7 +237,7 @@ void TCS34725_Show(boolean json)
  * Interface
 \*********************************************************************************************/
 
-#define XSNS_98
+#define XSNS_98  98
 
 bool Xsns98(byte function)
 {

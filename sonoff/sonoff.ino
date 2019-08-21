@@ -631,8 +631,8 @@ void MqttShowState(void)
 
   for (uint32_t i = 1; i <= devices_present; i++) {
 #ifdef USE_LIGHT
-    if (i >= light_device) {
-      if (i == light_device)  { LightState(1); }    // call it only once
+    if ((LightDevice()) && (i >= LightDevice())) {
+      if (i == LightDevice())  { LightState(1); }    // call it only once
     } else {
 #endif
       ResponseAppend_P(PSTR(",\"%s\":\"%s\""), GetPowerDevice(stemp1, i, sizeof(stemp1), Settings.flag.device_index_enable), GetStateText(bitRead(power, i-1)));
@@ -854,7 +854,7 @@ void Every250mSeconds(void)
       if (200 == blinks) blinks = 0;                      // Disable blink
     }
   }
-  else if (Settings.ledstate &1) {
+  if (Settings.ledstate &1 && (pin[GPIO_LEDLNK] < 99 || !(blinks || restart_flag || ota_state_flag)) ) {
     bool tstate = power & Settings.ledmask;
     if ((SONOFF_TOUCH == my_module_type) || (SONOFF_T11 == my_module_type) || (SONOFF_T12 == my_module_type) || (SONOFF_T13 == my_module_type)) {
       tstate = (!power) ? 1 : 0;                          // As requested invert signal for Touch devices to find them in the dark

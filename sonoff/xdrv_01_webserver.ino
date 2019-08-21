@@ -48,7 +48,7 @@ enum UploadTypes { UPL_TASMOTA, UPL_SETTINGS, UPL_EFM8BB1 };
 
 static const char * HEADER_KEYS[] = { "User-Agent", };
 
-const char HTTP_HEAD[] PROGMEM =
+const char HTTP_HEADER[] PROGMEM =
   "<!DOCTYPE html><html lang=\"" D_HTML_LANGUAGE "\" class=\"\">"
   "<head>"
   "<meta charset='utf-8'>"
@@ -553,7 +553,7 @@ void StartWebserver(int type, IPAddress ipweb)
     WebServer->begin(); // Web server start
   }
   if (Web.state != type) {
-    AddLog_P2(LOG_LEVEL_INFO, PSTR(D_LOG_HTTP D_WEBSERVER_ACTIVE_ON " %s%s " D_WITH_IP_ADDRESS " %s"), my_hostname, (mdns_begun) ? ".local" : "", ipweb.toString().c_str());
+    AddLog_P2(LOG_LEVEL_INFO, PSTR(D_LOG_HTTP D_WEBSERVER_ACTIVE_ON " %s%s " D_WITH_IP_ADDRESS " %s"), my_hostname, (Wifi.mdns_begun) ? ".local" : "", ipweb.toString().c_str());
     rules_flag.http_init = 1;
   }
   if (type) { Web.state = type; }
@@ -753,7 +753,7 @@ void WSContentStart_P(const char* title, bool auth)
   if (title != nullptr) {
     char ctitle[strlen_P(title) +1];
     strcpy_P(ctitle, title);                       // Get title from flash to RAM
-    WSContentSend_P(HTTP_HEAD, Settings.friendlyname[0], ctitle);
+    WSContentSend_P(HTTP_HEADER, Settings.friendlyname[0], ctitle);
   }
 }
 
@@ -791,7 +791,7 @@ void WSContentSendStyle_P(const char* formatP, ...)
     bool sip = (static_cast<uint32_t>(WiFi.softAPIP()) != 0);
     WSContentSend_P(PSTR("<h4>%s%s (%s%s%s)</h4>"),    // sonoff.local (192.168.2.12, 192.168.4.1)
       my_hostname,
-      (mdns_begun) ? ".local" : "",
+      (Wifi.mdns_begun) ? ".local" : "",
       (lip) ? WiFi.localIP().toString().c_str() : "",
       (lip && sip) ? ", " : "",
       (sip) ? WiFi.softAPIP().toString().c_str() : "");
@@ -1780,7 +1780,7 @@ void HandleInformation(void)
   }
   WSContentSend_P(PSTR("}1}2&nbsp;"));  // Empty line
   WSContentSend_P(PSTR("}1" D_AP "%d " D_SSID " (" D_RSSI ")}2%s (%d%%)"), Settings.sta_active +1, Settings.sta_ssid[Settings.sta_active], WifiGetRssiAsQuality(WiFi.RSSI()));
-  WSContentSend_P(PSTR("}1" D_HOSTNAME "}2%s%s"), my_hostname, (mdns_begun) ? ".local" : "");
+  WSContentSend_P(PSTR("}1" D_HOSTNAME "}2%s%s"), my_hostname, (Wifi.mdns_begun) ? ".local" : "");
   if (static_cast<uint32_t>(WiFi.localIP()) != 0) {
     WSContentSend_P(PSTR("}1" D_IP_ADDRESS "}2%s"), WiFi.localIP().toString().c_str());
     WSContentSend_P(PSTR("}1" D_GATEWAY "}2%s"), IPAddress(Settings.ip_address[1]).toString().c_str());
@@ -2349,151 +2349,6 @@ String UrlEncode(const String& text)
 	return encoded;
 }
 
-#ifdef USE_SENDMAIL
-
-#include "sendemail.h"
-
-//SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const bool ssl);
-//SendEmail::send(const String& from, const String& to, const String& subject, const String& msg)
-// sendmail [server:port:user:passwd:from:to:subject] data
-// sendmail [*:*:*:*:*:to:subject] data uses defines from user_config
-// sendmail currently only works with core 2.4.2
-
-#define SEND_MAIL_MINRAM 19*1024
-
-uint16_t SendMail(char *buffer) {
-  uint16_t count;
-  char *params,*oparams;
-  char *mserv;
-  uint16_t port;
-  char *user;
-  char *pstr;
-  char *passwd;
-  char *from;
-  char *to;
-  char *subject;
-  char *cmd;
-  char secure=0,auth=0;
-  uint16_t status=1;
-  SendEmail *mail=0;
-
-  //DebugFreeMem();
-
-// return if not enough memory
-  uint16_t mem=ESP.getFreeHeap();
-  if (mem<SEND_MAIL_MINRAM) {
-    return 4;
-  }
-
-  while (*buffer==' ') buffer++;
-
-  // copy params
-  oparams=(char*)calloc(strlen(buffer)+2,1);
-  if (!oparams) return 1;
-
-  params=oparams;
-
-  strcpy(params,buffer);
-
-  if (*params=='p') {
-      auth=1;
-      params++;
-  }
-
-  if (*params!='[') {
-      goto exit;
-  }
-  params++;
-
-  mserv=strtok(params,":");
-  if (!mserv) {
-      goto exit;
-  }
-
-  // port
-  pstr=strtok(NULL,":");
-  if (!pstr) {
-      goto exit;
-  }
-
-#ifdef EMAIL_PORT
-  if (*pstr=='*') {
-    port=EMAIL_PORT;
-  } else {
-    port=atoi(pstr);
-  }
-#else
-  port=atoi(pstr);
-#endif
-
-  user=strtok(NULL,":");
-  if (!user) {
-      goto exit;
-  }
-
-  passwd=strtok(NULL,":");
-  if (!passwd) {
-      goto exit;
-  }
-
-  from=strtok(NULL,":");
-  if (!from) {
-      goto exit;
-  }
-
-  to=strtok(NULL,":");
-  if (!to) {
-      goto exit;
-  }
-
-  subject=strtok(NULL,"]");
-  if (!subject) {
-      goto exit;
-  }
-
-  cmd=subject+strlen(subject)+1;
-
-#ifdef EMAIL_USER
-  if (*user=='*') {
-    user=(char*)EMAIL_USER;
-  }
-#endif
-#ifdef EMAIL_PASSWORD
-  if (*passwd=='*') {
-    passwd=(char*)EMAIL_PASSWORD;
-  }
-#endif
-#ifdef EMAIL_SERVER
-  if (*mserv=='*') {
-    mserv=(char*)EMAIL_SERVER;
-  }
-#endif
-
-  // auth = 0 => AUTH LOGIN 1 => PLAIN LOGIN
-  // 2 seconds timeout
-  #define MAIL_TIMEOUT 2000
-  mail = new SendEmail(mserv, port,user,passwd, MAIL_TIMEOUT, auth);
-
-#ifdef EMAIL_FROM
-  if (*from=='*') {
-    from=(char*)EMAIL_FROM;
-  }
-#endif
-
-exit:
-  if (mail) {
-    bool result=mail->send(from,to,subject,cmd);
-    delete mail;
-    if (result==true) status=0;
-  }
-
-
-  if (oparams) free(oparams);
-  return status;
-}
-
-#endif
-
 int WebSend(char *buffer)
 {
   // [sonoff] POWER1 ON                                               --> Sends http://sonoff/cm?cmnd=POWER1 ON
@@ -2546,10 +2401,11 @@ int WebSend(char *buffer)
         if (http_code == HTTP_CODE_OK || http_code == HTTP_CODE_MOVED_PERMANENTLY) {
 #ifdef USE_WEBSEND_RESPONSE
           // Return received data to the user - Adds 900+ bytes to the code
-          String result = http.getString();   // File found at server - may need lot of ram or trigger out of memory!
+          const char* read = http.getString().c_str();  // File found at server - may need lot of ram or trigger out of memory!
           uint32_t j = 0;
-          for (uint32_t i = 0; i < result.length(); i++) {
-            char text = result.charAt(i);
+          char text = '.';
+          while (text != '\0') {
+            text = *read++;
             if (text > 31) {                  // Remove control characters like linefeed
               mqtt_data[j++] = text;
               if (j == sizeof(mqtt_data) -2) { break; }
@@ -2562,8 +2418,8 @@ extern uint8_t tasm_cmd_activ;
           // recursive call must be possible in this case
           tasm_cmd_activ=0;
           XdrvRulesProcess();
-#endif
-#endif
+#endif  // USE_SCRIPT
+#endif  // USE_WEBSEND_RESPONSE
         }
         status = 0;                           // No error - Done
       } else {
@@ -2605,18 +2461,11 @@ bool JsonWebColor(const char* dataBuf)
   return true;
 }
 
-#define D_CMND_SENDMAIL "sendmail"
-#define D_JSON_MEMORY_ERROR "memory error"
-
-
-const char kWebSendStatus[] PROGMEM = D_JSON_DONE "|" D_JSON_WRONG_PARAMETERS "|" D_JSON_CONNECT_FAILED "|" D_JSON_HOST_NOT_FOUND "|" D_JSON_MEMORY_ERROR;
+const char kWebSendStatus[] PROGMEM = D_JSON_DONE "|" D_JSON_WRONG_PARAMETERS "|" D_JSON_CONNECT_FAILED "|" D_JSON_HOST_NOT_FOUND ;
 
 const char kWebCommands[] PROGMEM = "|"  // No prefix
 #ifdef USE_EMULATION
   D_CMND_EMULATION "|"
-#endif
-#ifdef USE_SENDMAIL
-  D_CMND_SENDMAIL "|"
 #endif
   D_CMND_WEBSERVER "|" D_CMND_WEBPASSWORD "|" D_CMND_WEBLOG "|" D_CMND_WEBREFRESH "|" D_CMND_WEBSEND "|" D_CMND_WEBCOLOR "|" D_CMND_WEBSENSOR;
 
@@ -2624,10 +2473,6 @@ void (* const WebCommand[])(void) PROGMEM = {
 #ifdef USE_EMULATION
   &CmndEmulation,
 #endif
-#ifdef USE_SENDMAIL
-  &CmndSendmail,
-#endif
-
   &CmndWebServer, &CmndWebPassword, &CmndWeblog, &CmndWebRefresh, &CmndWebSend, &CmndWebColor, &CmndWebSensor };
 
 /*********************************************************************************************\
@@ -2653,18 +2498,6 @@ void CmndEmulation(void)
   ResponseCmndNumber(Settings.flag2.emulation);
 }
 #endif  // USE_EMULATION
-
-#ifdef USE_SENDMAIL
-void CmndSendmail(void)
-{
-  if (XdrvMailbox.data_len > 0) {
-      uint8_t result = SendMail(XdrvMailbox.data);
-      char stemp1[20];
-      ResponseCmndChar(GetTextIndexed(stemp1, sizeof(stemp1), result, kWebSendStatus));
-  }
-}
-#endif  // USE_SENDMAIL
-
 
 void CmndWebServer(void)
 {
@@ -2743,8 +2576,10 @@ void CmndWebSensor(void)
     if (XdrvMailbox.payload >= 0) {
       bitWrite(Settings.sensors[XdrvMailbox.index / 32], XdrvMailbox.index % 32, XdrvMailbox.payload &1);
     }
-    ResponseCmndIdxChar(GetStateText(bitRead(Settings.sensors[XdrvMailbox.index / 32], XdrvMailbox.index % 32)));
   }
+  Response_P(PSTR("{\"" D_CMND_WEBSENSOR "\":"));
+  XsnsSensorState();
+  ResponseJsonEnd();
 }
 
 /*********************************************************************************************\

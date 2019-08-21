@@ -36,8 +36,8 @@
 #include <RA8876.h>
 #include <FT6236.h>
 
-TouchLocation ra8876_pLoc;
-uint8_t ra8876_ctouch_counter = 0;
+TouchLocation pLoc;
+uint8_t ctouch_counter = 0;
 
 #ifdef USE_TOUCH_BUTTONS
 extern VButton *buttons[];
@@ -107,6 +107,7 @@ void RA8876_InitDriver()
   }
 }
 
+#ifdef USE_TOUCH_BUTTONS
 void RA8876_MQTT(uint8_t count,const char *cp) {
   snprintf_P(mqtt_data, sizeof(mqtt_data), PSTR("{\"" D_JSON_TIME "\":\"%s\""), GetDateAndTime(DT_LOCAL).c_str());
   snprintf_P(mqtt_data, sizeof(mqtt_data), PSTR("%s,\"RA8876\":{\"%s%d\":\"%d\"}}"), mqtt_data,cp,count+1,(buttons[count]->vpower&0x80)>>7);
@@ -116,21 +117,21 @@ void RA8876_MQTT(uint8_t count,const char *cp) {
 // check digitizer hit
 void FT5316Check() {
 uint16_t temp;
-ra8876_ctouch_counter++;
-if (2 == ra8876_ctouch_counter) {
+ctouch_counter++;
+if (2 == ctouch_counter) {
   // every 100 ms should be enough
-  ra8876_ctouch_counter=0;
+  ctouch_counter=0;
   // panel has 800x480
-  if (FT6236readTouchLocation(&ra8876_pLoc,1)) {
-    ra8876_pLoc.x=ra8876_pLoc.x*RA8876_TFTWIDTH/800;
-    ra8876_pLoc.y=ra8876_pLoc.y*RA8876_TFTHEIGHT/480;
+  if (FT6236readTouchLocation(&pLoc,1)) {
+    pLoc.x=pLoc.x*RA8876_TFTWIDTH/800;
+    pLoc.y=pLoc.y*RA8876_TFTHEIGHT/480;
     // did find a hit
 
     if (renderer) {
 
       // rotation not supported
-      ra8876_pLoc.x=RA8876_TFTWIDTH-ra8876_pLoc.x;
-      ra8876_pLoc.y=RA8876_TFTHEIGHT-ra8876_pLoc.y;
+      pLoc.x=RA8876_TFTWIDTH-pLoc.x;
+      pLoc.y=RA8876_TFTHEIGHT-pLoc.y;
 
       /*
       uint8_t rot=renderer->getRotation();
@@ -210,7 +211,7 @@ if (2 == ra8876_ctouch_counter) {
   }
 }
 }
-
+#endif  // USE_TOUCH_BUTTONS
 /*
 void testall() {
 ra8876->clearScreen(0);
@@ -408,7 +409,9 @@ bool Xdsp10(byte function)
         result = true;
         break;
       case FUNC_DISPLAY_EVERY_50_MSECOND:
+#ifdef USE_TOUCH_BUTTONS
         if (FT5316_found) FT5316Check();
+#endif
         break;
     }
   }
