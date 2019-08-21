@@ -29,30 +29,30 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 +2,4,c,0,50,GAS
 +3,3,s,0,9600,SML
 
--1,1-0:1.8.0*255(@10000,Zählerstand,cbm,Count,4|
--2,=h==================|
--2,1-0:1.8.0*255(@100,Zählerstand,cbm,Count,3|
--3,77070100010800ff@1000,Verbrauch,KWh,Total_in,3|
--3,=h==================|
--3,77070100100700ff@1,Aktueller Verbrauch,W,Power_curr,2|
--3,=h -------------------------------|
--3,=m 10+11+12 @100,Ströme L1+L2+L3,A,Curr_summ,2|
--3,=m 13+14+15/#3 @100,Spannung L1+L2+L3/3,V,Volt_avg,2|
--3,=h==================|
--3,77070100240700ff@1,Verbrauch P1,W,Power_p1,2|
--3,77070100380700ff@1,Verbrauch P2,W,Power_p2,2|
--3,770701004c0700ff@1,Verbrauch P3,W,Power_p3,2|
--3,=h -------------------------------|
--3,770701001f0700ff@100,Strom L1,A,Curr_p1,2|
--3,77070100330700ff@100,Strom L2,A,Curr_p2,2|
--3,77070100470700ff@100,Strom L3,A,Curr_p3,2|
--3,=h -------------------------------|
--3,77070100200700ff@100,Spannung L1,V,Volt_p1,2|
--3,77070100340700ff@100,Spannung L2,V,Volt_p2,2|
--3,77070100480700ff@100,Spannung L3,V,Volt_p3,2|
--3,=h==================|
--3,77070100000009ff@#,Service ID,,Meter_id,0|
--3,=h--------------------------------
+1,1-0:1.8.0*255(@10000,Zählerstand,cbm,Count,4
+2,=h==================
+2,1-0:1.8.0*255(@100,Zählerstand,cbm,Count,3
+3,77070100010800ff@1000,Verbrauch,KWh,Total_in,3
+3,=h==================
+3,77070100100700ff@1,Aktueller Verbrauch,W,Power_curr,2
+3,=h -------------------------------
+3,=m 10+11+12 @100,Ströme L1+L2+L3,A,Curr_summ,2
+3,=m 13+14+15/#3 @100,Spannung L1+L2+L3/3,V,Volt_avg,2
+3,=h==================
+3,77070100240700ff@1,Verbrauch P1,W,Power_p1,2
+3,77070100380700ff@1,Verbrauch P2,W,Power_p2,2
+3,770701004c0700ff@1,Verbrauch P3,W,Power_p3,2
+3,=h -------------------------------
+3,770701001f0700ff@100,Strom L1,A,Curr_p1,2
+3,77070100330700ff@100,Strom L2,A,Curr_p2,2
+3,77070100470700ff@100,Strom L3,A,Curr_p3,2
+3,=h -------------------------------
+3,77070100200700ff@100,Spannung L1,V,Volt_p1,2
+3,77070100340700ff@100,Spannung L2,V,Volt_p2,2
+3,77070100480700ff@100,Spannung L3,V,Volt_p3,2
+3,=h==================
+3,77070100000009ff@#,Service ID,,Meter_id,0
+3,=h--------------------------------
 #
 
 ;EHZ161
@@ -64,13 +64,13 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 >M 1
 +1,3,o,0,9600,OBIS
 
--1,1-0:1.8.0*255(@1,Verbrauch,KWh,Total_in,4|
--1,1-0:2.8.0*255(@1,Einspeisung,KWh,Total_out,4|
--1,1-0:21.7.0*255(@1,Verbrauch P1,W,Power_p1,0|
--1,1-0:41.7.0*255(@1,Verbrauch P2,W,Power_p2,0|
--1,1-0:61.7.0*255(@1,Verbrauch P3,W,Power_p3,0|
--1,=m 3+4+5 @1,Aktueller Verbrauch,W,Power_curr,0|
--1,1-0:0.0.0*255(@#),Zähler Nr,,Meter_number,0
+1,1-0:1.8.0*255(@1,Verbrauch,KWh,Total_in,4
+1,1-0:2.8.0*255(@1,Einspeisung,KWh,Total_out,4
+1,1-0:21.7.0*255(@1,Verbrauch P1,W,Power_p1,0
+1,1-0:41.7.0*255(@1,Verbrauch P2,W,Power_p2,0
+1,1-0:61.7.0*255(@1,Verbrauch P3,W,Power_p3,0
+1,=m 3+4+5 @1,Aktueller Verbrauch,W,Power_curr,0
+1,1-0:0.0.0*255(@#),Zähler Nr,,Meter_number,0
 #
 
 ;EHZ363
@@ -82,10 +82,10 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 >M 1
 +1,3,s,0,9600,SML
 
--1,77070100010800ff@1000,Verbrauch,KWh,Total_in,4|
--1,77070100020800ff@1000,Einspeisung,KWh,Total_out,4|
--1,77070100100700ff@1,Aktueller Verbrauch,W,Power_curr,0|
--1,77070100000009ff@#,Zähler Nr,,Meter_number,0
+1,77070100010800ff@1000,Verbrauch,KWh,Total_in,4
+1,77070100020800ff@1000,Einspeisung,KWh,Total_out,4
+1,77070100100700ff@1,Aktueller Verbrauch,W,Power_curr,0
+1,77070100000009ff@#,Zähler Nr,,Meter_number,0
 #
 
 ;EHZ161_1
@@ -94,10 +94,10 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 >M 1
 +1,3,o,0,9600,OBIS
 
--1,1-0:1.8.1*255(@1,Verbrauch,KWh,Total_in,4|
--1,1-0:2.8.1*255(@1,Einspeisung,KWh,Total_out,4|
--1,=d 2 10 @1,Aktueller Verbrauch,W,Power_curr,0|
--1,1-0:0.0.0*255(@#),Zähler Nr,, Meter_number,0
+1,1-0:1.8.1*255(@1,Verbrauch,KWh,Total_in,4
+1,1-0:2.8.1*255(@1,Einspeisung,KWh,Total_out,4
+1,=d 2 10 @1,Aktueller Verbrauch,W,Power_curr,0
+1,1-0:0.0.0*255(@#),Zähler Nr,, Meter_number,0
 #
 
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -1731,7 +1731,10 @@ void SML_Init(void) {
     uint8_t section=0;
     char *lp=glob_script_mem.scriptptr;
     while (lp) {
-      if (*lp=='#') break;
+      if (*lp=='#') {
+        if (*(tp-1)=='|') *(tp-1)=0;
+        break;
+      }
       if (!section) {
         if (*lp=='>' && *(lp+1)=='M') {
           lp+=2;
@@ -1772,12 +1775,15 @@ void SML_Init(void) {
           goto next_line;
         }
 
-        if (*lp=='-') {
+        if (*lp=='-' || isdigit(*lp)) {
           //toLogEOL(">>",lp);
           // add meters line -1,1-0:1.8.0*255(@10000,H2OIN,cbm,COUNTER,4|
-          lp++;
+          if (*lp=='-') lp++;
+          uint8_t mnum=strtol(lp,0,10);
+          if (mnum<1 || mnum>meters_used) goto next_line;
           while (1) {
             if (*lp==SCRIPT_EOL) {
+              if (*(tp-1)!='|') *tp++='|';
               goto next_line;
             }
             *tp++=*lp++;
