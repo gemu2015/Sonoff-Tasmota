@@ -256,7 +256,7 @@ struct METER_DESC {
   uint8_t srcpin;
   uint8_t type;
   uint16_t flag;
-  int16_t params;
+  int32_t params;
   char prefix[8];
 };
 
