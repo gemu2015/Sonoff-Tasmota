@@ -106,7 +106,8 @@ void RDM6300_ScanForTag() {
     memcpy(rdm_uid_str,&rdm_buffer[2],8);
     rdm_uid_str[9]=0;
 
-    Response_P(PSTR("{\"" D_JSON_TIME "\":\"%s\""), GetDateAndTime(DT_LOCAL).c_str());
+    //Response_P(PSTR("{\"" D_JSON_TIME "\":\"%s\""), GetDateAndTime(DT_LOCAL).c_str());
+    ResponseBeginTime();
     ResponseAppend_P(PSTR(",\"RDM6300\":{\"UID\":\"%s\"}}"), rdm_uid_str);
     MqttPublishPrefixTopic_P(TELE, PSTR(D_RSLT_SENSOR), Settings.flag.mqtt_sensor_retain);
 /*

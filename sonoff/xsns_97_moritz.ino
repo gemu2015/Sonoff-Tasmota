@@ -1171,8 +1171,7 @@ struct MORITZ *moritz_devices[MORITZ_MAX_DEVICES];
 #endif
 
 void moritz_mqtt(const char *hid,const char *type, char *payload) {
-  Response_P(PSTR("{\"" D_JSON_TIME "\":\"%s\""), GetDateAndTime(DT_LOCAL).c_str());
-
+  ResponseBeginTime();
 #ifdef USE_24C256
   struct MORITZ ml;
   fromhex(hid,ml.id,3);

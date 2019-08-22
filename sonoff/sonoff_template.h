@@ -191,9 +191,9 @@ enum UserSelectablePins {
   GPIO_SOLAXX1_RX,     // Solax Inverter rx pin
   GPIO_ZIGBEE_TX,      // Zigbee Serial interface
   GPIO_ZIGBEE_RX,      // Zigbee Serial interface
+  GPIO_RDM6300_RX,     // RDM6300 RX
   GPIO_IBEACON_TX,     // HM17 IBEACON TX
   GPIO_IBEACON_RX,     // HM17 IBEACON RX
-  GPIO_RDM6300_RX,     // RDM6300 RX
   GPIO_CC1101_CS,      // CC1101 CS
   GPIO_SENSOR_END };
 
@@ -266,6 +266,9 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_OLED_RESET "|"
   D_SENSOR_SOLAXX1_TX "|" D_SENSOR_SOLAXX1_RX "|"
   D_SENSOR_ZIGBEE_TXD "|" D_SENSOR_ZIGBEE_RXD "|"
+  D_SENSOR_RDM6300_RX "|"
+  D_SENSOR_IBEACON_TX "|" D_SENSOR_IBEACON_RX "|"
+  D_SENSOR_CC1101_CS "|"
   ;
 
 // User selectable ADC0 functionality
