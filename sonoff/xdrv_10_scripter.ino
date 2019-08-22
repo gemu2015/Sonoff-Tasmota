@@ -1059,6 +1059,12 @@ chknext:
           goto exit;
         }
         break;
+      case 'e':
+        if (!strncmp(vname,"epoch",5)) {
+          fvar=UtcTime();
+          goto exit;
+        }
+        break;
 #ifdef USE_SCRIPT_FATFS
       case 'f':
         if (!strncmp(vname,"fo(",3)) {
