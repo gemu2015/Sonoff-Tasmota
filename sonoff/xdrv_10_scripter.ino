@@ -1009,7 +1009,13 @@ char *isvar(char *lp, uint8_t *vtype,struct T_INDEX *tind,float *fp,char *sp,Jso
                 return lp+len;
               }
             } else {
-              if (fp) *fp=CharToFloat((char*)str_value);
+              if (fp) {
+                if (!strncmp(vn.c_str(),"Epoch",5)) {
+                  *fp=atoi(str_value)-(uint32_t)1546300800;
+                } else {
+                  *fp=CharToFloat((char*)str_value);
+                }
+              }
               *vtype=NUM_RES;
               tind->bits.constant=1;
               tind->bits.is_string=0;
@@ -1061,7 +1067,7 @@ chknext:
         break;
       case 'e':
         if (!strncmp(vname,"epoch",5)) {
-          fvar=UtcTime();
+          fvar=UtcTime()-(uint32_t)1546300800;
           goto exit;
         }
         break;
