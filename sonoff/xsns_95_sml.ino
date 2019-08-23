@@ -1508,7 +1508,7 @@ void SML_Immediate_MQTT(const char *mp,uint8_t index,uint8_t mindex) {
           // immediate mqtt
           dtostrfd(meter_vars[index],dp&0xf,tpowstr);
           ResponseBeginTime();
-          ResponseAppend_P(PSTR("\"%s\":{\"%s\":%s}}"),meter_desc_p[mindex].prefix,jname,tpowstr);
+          ResponseAppend_P(PSTR(",\"%s\":{\"%s\":%s}}"),meter_desc_p[mindex].prefix,jname,tpowstr);
           MqttPublishPrefixTopic_P(TELE, PSTR(D_RSLT_SENSOR), Settings.flag.mqtt_sensor_retain);
         }
       }
@@ -1974,15 +1974,14 @@ uint8_t parity=0;
 
 bool XSNS_95_cmd(void) {
   bool serviced = true;
-  const char S_JSON_SML[] = "{\"" D_CMND_SENSOR "%d\":%s:%d}";
-  const char S_JSON_CNT[] = "{\"" D_CMND_SENSOR "%d\":%s%d:%d}";
   if (XdrvMailbox.data_len > 0) {
       char *cp=XdrvMailbox.data;
       if (*cp=='d') {
         // set dump mode
         cp++;
         dump2log=atoi(cp);
-        snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_SML, XSNS_95,"dump_mode",dump2log);
+        ResponseBeginTime();
+        ResponseAppend_P(PSTR(",\"SML\":{\"CMD\":\"dump: %d\"}}"),dump2log);
       } else if (*cp=='c') {
           // set ounter
           cp++;
@@ -2002,10 +2001,12 @@ bool XSNS_95_cmd(void) {
               }
             }
           }
-          snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_CNT, XSNS_95,"Counter",index,RtcSettings.pulse_counter[index-1]);
+          ResponseBeginTime();
+          ResponseAppend_P(PSTR(",\"SML\":{\"CMD\":\"counter%d: %d\"}}"),index,RtcSettings.pulse_counter[index-1]);
       } else if (*cp=='r') {
         // restart
-        snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_SML, XSNS_95,"restart",1);
+        ResponseBeginTime();
+        ResponseAppend_P(PSTR(",\"SML\":{\"CMD\":\"restart\"}}"));
         SML_CounterSaveState();
         SML_Init();
       } else {
