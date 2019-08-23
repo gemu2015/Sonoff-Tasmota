@@ -3406,24 +3406,30 @@ bool ScriptMqttData(void)
         JsonObject& jsonData = jsonBuf.parseObject(sData);
         String key1 = event_item.Key;
         String key2;
+        String lkey;
         if (!jsonData.success()) break;       //Failed to parse JSON data, ignore this message.
         int dot;
         if ((dot = key1.indexOf('.')) > 0) {
           key2 = key1.substring(dot+1);
           key1 = key1.substring(0, dot);
+          lkey=key2;
           if (!jsonData[key1][key2].success()) break;   //Failed to get the key/value, ignore this message.
           value = (const char *)jsonData[key1][key2];
         } else {
           if (!jsonData[key1].success()) break;
           value = (const char *)jsonData[key1];
+          lkey=key1;
         }
       }
       value.trim();
-
-      //Create an new event. Cannot directly call RulesProcessEvent().
-      //snprintf_P(event_data, sizeof(event_data), PSTR("%s=%s"), event_item.Event.c_str(), value.c_str());
       char sbuffer[128];
-      snprintf_P(sbuffer, sizeof(sbuffer), PSTR(">%s=\"%s\"\n"), event_item.Event.c_str(), value.c_str());
+
+      if (!strncmp(lkey.c_str(),"Epoch",5)) {
+        uint32_t ep=atoi(value.c_str())-(uint32_t)1546300800;
+        snprintf_P(sbuffer, sizeof(sbuffer), PSTR(">%s=%d\n"), event_item.Event.c_str(),ep);
+      } else {
+        snprintf_P(sbuffer, sizeof(sbuffer), PSTR(">%s=\"%s\"\n"), event_item.Event.c_str(), value.c_str());
+      }
       //toLog(sbuffer);
       execute_script(sbuffer);
     }
