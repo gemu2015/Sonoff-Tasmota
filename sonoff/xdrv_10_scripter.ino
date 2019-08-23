@@ -52,7 +52,7 @@ keywords if then else endif, or, and are better readable for beginners (others m
 #define SCRIPT_MAXPERM (MAX_RULE_MEMS*10)-4/sizeof(float)
 #define MAX_SCRIPT_SIZE MAX_RULE_SIZE*MAX_RULE_SETS
 
-// offsets epoch readings by 1.1.2019 00:00:00 to fit into float with second resolution 
+// offsets epoch readings by 1.1.2019 00:00:00 to fit into float with second resolution
 #define EPOCH_OFFSET 1546300800
 
 enum {OPER_EQU=1,OPER_PLS,OPER_MIN,OPER_MUL,OPER_DIV,OPER_PLSEQU,OPER_MINEQU,OPER_MULEQU,OPER_DIVEQU,OPER_EQUEQU,OPER_NOTEQU,OPER_GRTEQU,OPER_LOWEQU,OPER_GRT,OPER_LOW,OPER_PERC,OPER_XOR,OPER_AND,OPER_OR,OPER_ANDEQU,OPER_OREQU,OPER_XOREQU,OPER_PERCEQU};
@@ -81,9 +81,11 @@ enum {SCRIPT_LOGLEVEL=1,SCRIPT_TELEPERIOD};
   LinkedList<MQTT_Subscription> subscriptions;
 #endif    //SUPPORT_MQTT_EVENT
 
+#ifdef USE_DISPLAY
 #ifdef USE_TOUCH_BUTTONS
 #include <renderer.h>
 extern VButton *buttons[MAXBUTTONS];
+#endif
 #endif
 
 typedef union {
@@ -1649,6 +1651,7 @@ chknext:
           if (sp) strlcpy(sp,Settings.mqtt_topic,glob_script_mem.max_ssize);
           goto strexit;
         }
+#ifdef USE_DISPLAY
 #ifdef USE_TOUCH_BUTTONS
         if (!strncmp(vname,"tbut[",5)) {
           GetNumericResult(vname+5,OPER_EQU,&fvar,0);
@@ -1664,6 +1667,7 @@ chknext:
           goto exit;
         }
 
+#endif
 #endif
         break;
       case 'u':
@@ -3402,6 +3406,7 @@ bool ScriptMqttData(void)
       //This topic is subscribed by us, so serve it
       serviced = true;
       String value;
+      String lkey;
       if (event_item.Key.length() == 0) {   //If did not specify Key
         value = sData;
       } else {      //If specified Key, need to parse Key/Value from JSON data
@@ -3409,7 +3414,6 @@ bool ScriptMqttData(void)
         JsonObject& jsonData = jsonBuf.parseObject(sData);
         String key1 = event_item.Key;
         String key2;
-        String lkey;
         if (!jsonData.success()) break;       //Failed to parse JSON data, ignore this message.
         int dot;
         if ((dot = key1.indexOf('.')) > 0) {
