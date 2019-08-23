@@ -17,9 +17,10 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+
 #ifdef USE_SPI
 #ifdef USE_DISPLAY
-#ifdef USE_DISPLAY_EPAPER_42
+#ifdef USE_DISPLAY_E_42
 
 #define XDSP_06                6
 
@@ -36,6 +37,7 @@
 extern uint8_t *buffer;
 
 Epd42 *epd42;
+
 
 /*********************************************************************************************/
 
@@ -123,11 +125,12 @@ void EpdRefresh42()  // Every second
 
 #endif  // USE_DISPLAY_MODES1TO5
 
+
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
 
-bool Xdsp06(byte function)
+bool Xdsp06(uint8_t function)
 {
   bool result = false;
 
@@ -150,6 +153,7 @@ bool Xdsp06(byte function)
     }
   return result;
 }
+
 
 #endif  // USE_DISPLAY_EPAPER42
 #endif  // USE_DISPLAY
