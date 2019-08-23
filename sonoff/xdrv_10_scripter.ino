@@ -52,6 +52,9 @@ keywords if then else endif, or, and are better readable for beginners (others m
 #define SCRIPT_MAXPERM (MAX_RULE_MEMS*10)-4/sizeof(float)
 #define MAX_SCRIPT_SIZE MAX_RULE_SIZE*MAX_RULE_SETS
 
+// offsets epoch readings by 1.1.2019 00:00:00 to fit into float with second resolution 
+#define EPOCH_OFFSET 1546300800
+
 enum {OPER_EQU=1,OPER_PLS,OPER_MIN,OPER_MUL,OPER_DIV,OPER_PLSEQU,OPER_MINEQU,OPER_MULEQU,OPER_DIVEQU,OPER_EQUEQU,OPER_NOTEQU,OPER_GRTEQU,OPER_LOWEQU,OPER_GRT,OPER_LOW,OPER_PERC,OPER_XOR,OPER_AND,OPER_OR,OPER_ANDEQU,OPER_OREQU,OPER_XOREQU,OPER_PERCEQU};
 enum {SCRIPT_LOGLEVEL=1,SCRIPT_TELEPERIOD};
 
@@ -1011,7 +1014,7 @@ char *isvar(char *lp, uint8_t *vtype,struct T_INDEX *tind,float *fp,char *sp,Jso
             } else {
               if (fp) {
                 if (!strncmp(vn.c_str(),"Epoch",5)) {
-                  *fp=atoi(str_value)-(uint32_t)1546300800;
+                  *fp=atoi(str_value)-(uint32_t)EPOCH_OFFSET;
                 } else {
                   *fp=CharToFloat((char*)str_value);
                 }
@@ -1067,7 +1070,7 @@ chknext:
         break;
       case 'e':
         if (!strncmp(vname,"epoch",5)) {
-          fvar=UtcTime()-(uint32_t)1546300800;
+          fvar=UtcTime()-(uint32_t)EPOCH_OFFSET;
           goto exit;
         }
         break;
@@ -3425,7 +3428,7 @@ bool ScriptMqttData(void)
       char sbuffer[128];
 
       if (!strncmp(lkey.c_str(),"Epoch",5)) {
-        uint32_t ep=atoi(value.c_str())-(uint32_t)1546300800;
+        uint32_t ep=atoi(value.c_str())-(uint32_t)EPOCH_OFFSET;
         snprintf_P(sbuffer, sizeof(sbuffer), PSTR(">%s=%d\n"), event_item.Event.c_str(),ep);
       } else {
         snprintf_P(sbuffer, sizeof(sbuffer), PSTR(">%s=\"%s\"\n"), event_item.Event.c_str(), value.c_str());
