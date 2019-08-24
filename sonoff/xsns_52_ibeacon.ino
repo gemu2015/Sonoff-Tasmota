@@ -19,7 +19,7 @@
 
 #ifdef USE_IBEACON
 
-#define IB_UPDATE_TIME_INTERVAL 10
+
 
 #define XSNS_52                       52
 
@@ -27,13 +27,22 @@
 
 #define HM17_BAUDRATE 9600
 
+#define IBEACON_DEBUG
+
 // keyfob expires after N seconds
 #define IB_TIMEOUT_INTERVAL 30
+// does a passive scan every N seconds
+#define IB_UPDATE_TIME_INTERVAL 10
 
 TasmotaSerial *IBEACON_Serial = nullptr;
 
 
-uint8_t hm17_found,hm17_cmd,hm17_debug=0,hm17_flag;
+uint8_t hm17_found,hm17_cmd,hm17_flag;
+
+#ifdef IBEACON_DEBUG
+uint8_t hm17_debug=0;
+#endif
+
 
 // 78 is max serial response
 #define HM17_BSIZ 128
@@ -102,7 +111,6 @@ void hm17_every_second(void) {
 
   if (hm17_found) {
     if (IB_UPDATE_TIME && (uptime%IB_UPDATE_TIME==0)) {
-      //if (hm17_cmd!=99 && !hm17_scanning) {
       if (hm17_cmd!=99) {
         if (hm17_flag&2) {
           ib_sendbeep();
@@ -138,7 +146,9 @@ void hm17_sbclr(void) {
 void hm17_sendcmd(uint8_t cmd) {
   hm17_sbclr();
   hm17_cmd=cmd;
+#ifdef IBEACON_DEBUG
   if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR("hm17cmd %d"),cmd);
+#endif
   switch (cmd) {
     case HM17_TEST:
       IBEACON_Serial->write("AT");
@@ -208,7 +218,9 @@ void hm17_decode(void) {
   switch (hm17_cmd) {
     case HM17_TEST:
       if (!strncmp(hm17_sbuffer,"OK",2)) {
+#ifdef IBEACON_DEBUG
         if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR("AT OK"));
+#endif
         hm17_sbclr();
         hm17_result=HM17_SUCESS;
         hm17_found=1;
@@ -216,42 +228,54 @@ void hm17_decode(void) {
       break;
     case HM17_ROLE:
       if (!strncmp(hm17_sbuffer,"OK+Set:1",8)) {
+#ifdef IBEACON_DEBUG
         if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR("ROLE OK"));
+#endif
         hm17_sbclr();
         hm17_result=HM17_SUCESS;
       }
       break;
     case HM17_IMME:
       if (!strncmp(hm17_sbuffer,"OK+Set:1",8)) {
+#ifdef IBEACON_DEBUG
         if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR("IMME OK"));
+#endif
         hm17_sbclr();
         hm17_result=HM17_SUCESS;
       }
       break;
     case HM17_IBEA:
       if (!strncmp(hm17_sbuffer,"OK+Set:1",8)) {
+#ifdef IBEACON_DEBUG
         if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR("IBEA OK"));
+#endif
         hm17_sbclr();
         hm17_result=HM17_SUCESS;
       }
       break;
     case HM17_SCAN:
         if (!strncmp(hm17_sbuffer,"OK+Set:5",8)) {
+#ifdef IBEACON_DEBUG
           if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR("SCAN OK"));
+#endif
           hm17_sbclr();
           hm17_result=HM17_SUCESS;
         }
         break;
     case HM17_RESET:
       if (!strncmp(hm17_sbuffer,"OK+RESET",8)) {
+#ifdef IBEACON_DEBUG
         if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR("RESET OK"));
+#endif
         hm17_sbclr();
         hm17_result=HM17_SUCESS;
       }
       break;
     case HM17_RENEW:
       if (!strncmp(hm17_sbuffer,"OK+RENEW",8)) {
+#ifdef IBEACON_DEBUG
         if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR("RENEW OK"));
+#endif
         hm17_sbclr();
         hm17_result=HM17_SUCESS;
       }
@@ -259,23 +283,31 @@ void hm17_decode(void) {
     case HM17_CON:
       if (!strncmp(hm17_sbuffer,"OK+CONNA",8)) {
         hm17_sbclr();
+#ifdef IBEACON_DEBUG
         if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR("CONNA OK"));
+#endif
         hm17_connecting=2;
         break;
       }
       if (!strncmp(hm17_sbuffer,"OK+CONNE",8)) {
         hm17_sbclr();
+#ifdef IBEACON_DEBUG
         if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR("CONNE ERROR"));
+#endif
         break;
       }
       if (!strncmp(hm17_sbuffer,"OK+CONNF",8)) {
         hm17_sbclr();
+#ifdef IBEACON_DEBUG
         if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR("CONNF ERROR"));
+#endif
         break;
       }
       if (hm17_connecting==2 && !strncmp(hm17_sbuffer,"OK+CONN",7)) {
         hm17_sbclr();
+#ifdef IBEACON_DEBUG
         if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR("CONN OK"));
+#endif
         hm17_connecting=3;
         hm17_sendcmd(HM17_TEST);
         hm17_connecting=0;
@@ -288,21 +320,29 @@ void hm17_decode(void) {
       if (!strncmp(hm17_sbuffer,"OK+DISCS",8)) {
         hm17_sbclr();
         hm17_result=1;
+#ifdef IBEACON_DEBUG
         if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR("DISCS OK"));
+#endif
         break;
       }
       if (!strncmp(hm17_sbuffer,"OK+DISCE",8)) {
         hm17_sbclr();
         hm17_result=HM17_SUCESS;
+#ifdef IBEACON_DEBUG
         if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR("DISCE OK"));
+#endif
         hm17_scanning=0;
         break;
       }
       if (!strncmp(hm17_sbuffer,"OK+NAME:",8)) {
         if (hm17_sbuffer[hm17_sindex-1]=='\n') {
           hm17_result=HM17_SUCESS;
-          if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR("NAME OK"));
-          if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR(">>%s"),&hm17_sbuffer[8]);
+#ifdef IBEACON_DEBUG
+          if (hm17_debug) {
+            AddLog_P2(LOG_LEVEL_INFO, PSTR("NAME OK"));
+            AddLog_P2(LOG_LEVEL_INFO, PSTR(">>%s"),&hm17_sbuffer[8]);
+          }
+#endif
           hm17_sbclr();
         }
         break;
@@ -310,8 +350,12 @@ void hm17_decode(void) {
       if (!strncmp(hm17_sbuffer,"OK+DIS0:",8)) {
         if (hm17_sindex==20) {
           hm17_result=HM17_SUCESS;
-          if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR("DIS0 OK"));
-          if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR(">>%s"),&hm17_sbuffer[8]);
+#ifdef IBEACON_DEBUG
+          if (hm17_debug) {
+            AddLog_P2(LOG_LEVEL_INFO, PSTR("DIS0 OK"));
+            AddLog_P2(LOG_LEVEL_INFO, PSTR(">>%s"),&hm17_sbuffer[8]);
+          }
+#endif
           hm17_sbclr();
         }
         break;
@@ -319,9 +363,13 @@ void hm17_decode(void) {
       if (!strncmp(hm17_sbuffer,"OK+DISC:",8)) {
         if (hm17_cmd==HM17_DISI) {
           if (hm17_sindex==78) {
-            if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR("DISC: OK"));
-            //OK+DISC:4C 000C0E:003 A9144081A8 3B16849611 862EC1005: 0B1CE7485D :4DB4E940F C0E:-078
-            if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR(">>%s"),&hm17_sbuffer[8]);
+#ifdef IBEACON_DEBUG
+            if (hm17_debug) {
+              AddLog_P2(LOG_LEVEL_INFO, PSTR("DISC: OK"));
+              //OK+DISC:4C 000C0E:003 A9144081A8 3B16849611 862EC1005: 0B1CE7485D :4DB4E940F C0E:-078
+              AddLog_P2(LOG_LEVEL_INFO, PSTR(">>%s"),&hm17_sbuffer[8]);
+            }
+#endif
             memcpy(ib.FACID,&hm17_sbuffer[8],8);
             memcpy(ib.UID,&hm17_sbuffer[8+8+1],32);
             memcpy(ib.MAJOR,&hm17_sbuffer[8+8+1+32+1],4);
@@ -337,7 +385,9 @@ void hm17_decode(void) {
             hm17_result=1;
           }
         } else {
+#ifdef IBEACON_DEBUG
           if (hm17_debug) AddLog_P2(LOG_LEVEL_INFO, PSTR(">>%s"),&hm17_sbuffer[8]);
+#endif
         }
         break;
       }
@@ -405,7 +455,7 @@ tT = sets timeout interval in seconds (after T seconds if tag is not detected se
 sending IBEACON_FFFF3D1B1E9D_RSSI with data 99 causes tag to beep (ID to be replaced with actual ID)
 
 *** debugging
-dx = sets debug mode to 0,1
+dx = sets debug mode to 0,1 (shows hm17 cmds + reactions in console)
 c  = clears sensor list
 s AT+xxx  = send native cmds to module
 e.g. s AT+CONFFFF3D1B1E9D connects to module with ID, then send s AT to disconnect which activates the beeper in the TAG
@@ -444,11 +494,14 @@ bool xsns52_cmd(void) {
       } else if (*cp=='c') {
         for (uint32_t cnt=0;cnt<MAX_IBEACONS;cnt++) ibeacons[cnt].FLAGS=0;
         snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_IBEACON1, XSNS_52,"clr list","");
-      } else if (*cp=='d') {
+      }
+#ifdef IBEACON_DEBUG
+      else if (*cp=='d') {
         cp++;
         if (*cp) hm17_debug=atoi(cp);
         snprintf_P(mqtt_data, sizeof(mqtt_data), S_JSON_IBEACON, XSNS_52,"debug",hm17_debug);
       }
+#endif
   } else {
     serviced=false;
   }
