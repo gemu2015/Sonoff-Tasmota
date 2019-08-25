@@ -396,7 +396,7 @@ void EBUS_Init(void) {
  * Interface
 \*********************************************************************************************/
 
-#define XSNS_94
+#define XSNS_94 94
 
 bool Xsns94(byte function) {
   bool result = false;
