@@ -124,7 +124,7 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 1,xxxx5017xxuu@b0:1,Solarpumpe,,Solarpump,0
 #
 
-  
+
 
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
@@ -691,7 +691,7 @@ TasmotaSerial *meter_ss[MAX_METERS];
 
 // serial buffers, bei einigen Zählern sollte man hier einen größeren Buffer definieren
 // z.B. 48
-#define SML_BSIZ 32
+#define SML_BSIZ 48
 uint8_t smltbuf[MAX_METERS][SML_BSIZ];
 
 // meter nr as string
