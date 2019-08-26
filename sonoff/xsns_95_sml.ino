@@ -102,7 +102,7 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 1,1-0:0.0.0*255(@#),Zähler Nr,, Meter_number,0
 #
 
-;wolff heizung
+;wolff
 >D
 
 >B
@@ -112,6 +112,7 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 +1,3,e,0,2400,EBUS
 
 1,xxxx0503xxxxxxxxxxxxxxxxss@1,Außentemperatur,C,Outsidetemp,1
+1,xxxx5014xxxxxxxxxxuu@1,Raumtemperatur,C,Roomtemp,1
 1,xxxx0503xxxxxxxxxxxxxxuu@1,Warmwasser,C,Warmwater,1
 1,xxxx0503xxxxxxxxxxuu@1,Heizkessel,C,Boiler,1
 1,03fe0503xxxxxxxxxxxxuu@1,Rücklauf,C,Returns,1
@@ -123,6 +124,7 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 1,xxxx5017xxuu@b0:1,Solarpumpe,,Solarpump,0
 #
 
+  
 
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
@@ -1881,6 +1883,11 @@ void SML_Init(void) {
   meters_used=METERS_USED;
   meter_desc_p=meter_desc;
   meter_p=meter;
+
+  for (uint32_t cnt=0;cnt<MAX_VARS;cnt++) {
+    meter_vars[cnt]=0;
+  }
+
 
 #ifdef USE_SCRIPT
   uint8_t meter_script=Run_Scripter(">M",-2,0);
