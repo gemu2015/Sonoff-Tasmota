@@ -10,6 +10,8 @@ funktionieren. Dazu muss auch die modifizierte TasmotaSerial-2.3.2 ebenfalls kop
 jetzt auch mit Unterstützung für Gas und Wasserzähler
 Zähler setzen mit Sensor95 c1 xxx, Sensor95 c2 xxx etc
 
+jetzt auch mit ebus decoder (Heizungsbus)
+
 nur dieser Treiber wird in Zukunft weiterentwickelt
 die älteren werden nicht mehr unterstützt.
 
@@ -99,6 +101,28 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 1,=d 2 10 @1,Aktueller Verbrauch,W,Power_curr,0
 1,1-0:0.0.0*255(@#),Zähler Nr,, Meter_number,0
 #
+
+;wolff heizung
+>D
+
+>B
+=>sensor95 r
+
+>M 1
++1,3,e,0,2400,EBUS
+
+1,xxxx0503xxxxxxxxxxxxxxxxss@1,Außentemperatur,C,Outsidetemp,1
+1,xxxx0503xxxxxxxxxxxxxxuu@1,Warmwasser,C,Warmwater,1
+1,xxxx0503xxxxxxxxxxuu@1,Heizkessel,C,Boiler,1
+1,03fe0503xxxxxxxxxxxxuu@1,Rücklauf,C,Returns,1
+1,03fe0503xxxxuu@1,Status,,Status,0
+1,03fe0503xxxxxxuu@b3:1,Brenner,,Burner,0
+
+1,xxxx5017xxxxxxuuuu@16,Solarkollektor,C,Collector,0
+1,xxxx5017xxxxxxxxxxuuuu@16,Solarspeicher,C,Solarstorage,0
+1,xxxx5017xxuu@b0:1,Solarpumpe,,Solarpump,0
+#
+
 
 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
@@ -1347,9 +1371,11 @@ void sml_shift_in(uint32_t meters,uint32_t shard) {
             //eBus_analyze();
             // XX0204UUSS@
             SML_Decode(meters);
+            //AddLog_P(LOG_LEVEL_INFO, PSTR("ebus block found"));
 						//ebus_set_timeout();
         } else {
             // crc error
+            //AddLog_P(LOG_LEVEL_INFO, PSTR("ebus crc error"));
         }
       }
       ebus_pos=0;
@@ -1510,7 +1536,7 @@ void SML_Decode(uint8_t index) {
     } else {
       // compare value
       uint8_t found=1;
-      double ebus_dval;
+      int32_t ebus_dval=99;
       while (*mp!='@') {
         if (meter_desc_p[mindex].type=='o' || meter_desc_p[mindex].type=='c') {
           if (*mp++!=*cp++) {
@@ -1530,14 +1556,19 @@ void SML_Decode(uint8_t index) {
             if (*mp=='x' && *(mp+1)=='x') {
               //ignore
               mp+=2;
+              cp++;
+            } else if (*mp=='u' && *(mp+1)=='u' && *(mp+2)=='u' && *(mp+3)=='u'){
+              uint16_t val = *cp|(*(cp+1)<<8);
+              ebus_dval=val;
+              mp+=4;
+              cp+=2;
             } else if (*mp=='u' && *(mp+1)=='u') {
-              uint8_t val = hexnibble(*mp++) << 4;
-              val |= hexnibble(*mp++);
+              uint8_t val = *cp++;
               ebus_dval=val;
               mp+=2;
-            } else if (*mp=='s' && *(mp+1)=='s') {
-              int8_t val = hexnibble(*mp++) << 4;
-              val |= hexnibble(*mp++);
+            }
+            else if (*mp=='s' && *(mp+1)=='s') {
+              int8_t val = *cp++;
               ebus_dval=val;
               mp+=2;
             } else {
@@ -1577,6 +1608,14 @@ void SML_Decode(uint8_t index) {
               dval=sml_getvalue(cp,mindex);
             }
           } else {
+            // ebus
+            if (*mp=='b') {
+              mp++;
+              uint8_t shift=*mp&7;
+              ebus_dval>>=shift;
+              ebus_dval&=1;
+              mp+=2;
+            }
             dval=ebus_dval;
           }
 #ifdef USE_MEDIAN_FILTER
