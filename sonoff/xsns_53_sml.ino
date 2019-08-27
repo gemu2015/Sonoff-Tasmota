@@ -1,134 +1,5 @@
 /*
->>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-EXPERIMENTAL VERSION  unterstützt im Prinzip mehrere Zähler
-da durch die begrenzte Hardwareunterstützung das software serial nicht optimal funktioniert
-ist es mit der originalen TasmotaSerial nicht möglich 3 Zähler gleichzeitig abzufragen
-
-durch Modifikation des Tasmota Serial Drivers sollten jetzt auch mehr als 2 Zähler
-funktionieren. Dazu muss auch die modifizierte TasmotaSerial-2.3.2 ebenfalls kopiert werden
-
-jetzt auch mit Unterstützung für Gas und Wasserzähler
-Zähler setzen mit Sensor95 c1 xxx, Sensor95 c2 xxx etc
-
-jetzt auch mit ebus decoder (Heizungsbus)
-
-nur dieser Treiber wird in Zukunft weiterentwickelt
-die älteren werden nicht mehr unterstützt.
-
-durch die Einführung des Script Editors war es möglich die Zählerdefintion in den Scripteditor zu verlagern.
-damit braucht man nur noch eine einzige Softwareversion und kann die Zählerdefintion beliebig im Scripteditor nachladen
-
-Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
-
-;WGS_COMBO
->D
-
->B
-->sensor95 r
-
->M 3
-+1,1,c,0,10,H20
-+2,4,c,0,50,GAS
-+3,3,s,0,9600,SML
-
-1,1-0:1.8.0*255(@10000,Zählerstand,cbm,Count,4
-2,=h==================
-2,1-0:1.8.0*255(@100,Zählerstand,cbm,Count,3
-3,77070100010800ff@1000,Verbrauch,KWh,Total_in,3
-3,=h==================
-3,77070100100700ff@1,Aktueller Verbrauch,W,Power_curr,2
-3,=h -------------------------------
-3,=m 10+11+12 @100,Ströme L1+L2+L3,A,Curr_summ,2
-3,=m 13+14+15/#3 @100,Spannung L1+L2+L3/3,V,Volt_avg,2
-3,=h==================
-3,77070100240700ff@1,Verbrauch P1,W,Power_p1,2
-3,77070100380700ff@1,Verbrauch P2,W,Power_p2,2
-3,770701004c0700ff@1,Verbrauch P3,W,Power_p3,2
-3,=h -------------------------------
-3,770701001f0700ff@100,Strom L1,A,Curr_p1,2
-3,77070100330700ff@100,Strom L2,A,Curr_p2,2
-3,77070100470700ff@100,Strom L3,A,Curr_p3,2
-3,=h -------------------------------
-3,77070100200700ff@100,Spannung L1,V,Volt_p1,2
-3,77070100340700ff@100,Spannung L2,V,Volt_p2,2
-3,77070100480700ff@100,Spannung L3,V,Volt_p3,2
-3,=h==================
-3,77070100000009ff@#,Service ID,,Meter_id,0
-3,=h--------------------------------
-#
-
-;EHZ161
->D
-
->B
-->sensor95 r
-
->M 1
-+1,3,o,0,9600,OBIS
-
-1,1-0:1.8.0*255(@1,Verbrauch,KWh,Total_in,4
-1,1-0:2.8.0*255(@1,Einspeisung,KWh,Total_out,4
-1,1-0:21.7.0*255(@1,Verbrauch P1,W,Power_p1,0
-1,1-0:41.7.0*255(@1,Verbrauch P2,W,Power_p2,0
-1,1-0:61.7.0*255(@1,Verbrauch P3,W,Power_p3,0
-1,=m 3+4+5 @1,Aktueller Verbrauch,W,Power_curr,0
-1,1-0:0.0.0*255(@#),Zähler Nr,,Meter_number,0
-#
-
-;EHZ363
->D
-
->B
-->sensor95 r
-
->M 1
-+1,3,s,0,9600,SML
-
-1,77070100010800ff@1000,Verbrauch,KWh,Total_in,4
-1,77070100020800ff@1000,Einspeisung,KWh,Total_out,4
-1,77070100100700ff@1,Aktueller Verbrauch,W,Power_curr,0
-1,77070100000009ff@#,Zähler Nr,,Meter_number,0
-#
-
-;EHZ161_1
->D
-
->M 1
-+1,3,o,0,9600,OBIS
-
-1,1-0:1.8.1*255(@1,Verbrauch,KWh,Total_in,4
-1,1-0:2.8.1*255(@1,Einspeisung,KWh,Total_out,4
-1,=d 2 10 @1,Aktueller Verbrauch,W,Power_curr,0
-1,1-0:0.0.0*255(@#),Zähler Nr,, Meter_number,0
-#
-
-;wolff
->D
-
->B
-=>sensor95 r
-
->M 1
-+1,3,e,0,2400,EBUS
-
-1,xxxx0503xxxxxxxxxxxxxxxxss@1,Außentemperatur,C,Outsidetemp,1
-1,xxxx5014xxxxxxxxxxuu@1,Raumtemperatur,C,Roomtemp,1
-1,xxxx0503xxxxxxxxxxxxxxuu@1,Warmwasser,C,Warmwater,1
-1,xxxx0503xxxxxxxxxxuu@1,Heizkessel,C,Boiler,1
-1,03fe0503xxxxxxxxxxxxuu@1,Rücklauf,C,Returns,1
-1,03fe0503xxxxuu@1,Status,,Status,0
-1,03fe0503xxxxxxuu@b3:1,Brenner,,Burner,0
-
-1,xxxx5017xxxxxxuuuu@16,Solarkollektor,C,Collector,0
-1,xxxx5017xxxxxxxxxxuuuu@16,Solarspeicher,C,Solarstorage,0
-1,xxxx5017xxuu@b0:1,Solarpumpe,,Solarpump,0
-#
-
-
-
->>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
-  xsns_95_sml.ino - SML smart meter interface for Sonoff-Tasmota
+  xsns_53_sml.ino - SML,OBIS,EBUS,RAW,COUNTER interface for Sonoff-Tasmota
 
   Created by Gerhard Mutz on 07.10.11.
   adapted for Tasmota
@@ -148,14 +19,12 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
   You should have received a copy of the GNU General Public License
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-  to doo:
-
 */
 
-#ifdef xUSE_SML_M
+#ifdef USE_SML_M
 //
 
-#define XSNS_95 95
+#define XSNS_53 53
 
 // Baudrate des D0 Ausgangs, sollte bei den meisten Zählern 9600 sein
 #define SML_BAUDRATE 9600
@@ -178,25 +47,15 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 
 #include <TasmotaSerial.h>
 
-// speziellen angepassten Tasmota seriell Treiber benutzen
+// use special no wait serial driver
 #define SPECIAL_SS
 
-#pragma GCC diagnostic push
-
-
+// addresse a bug in meter DWS74
 //#define DWS74_BUG
 
-// diese Version verwendet den serial REC Pin des ESP, und zusätzliche GPIO
-// pins als Software serial
-// und kann mit jeder aktuellen Version von Tasmota kombiniert werden
-// dazu muss z.B. in der user_config_override #define USE_SML_M angegeben werden
-// Als "Lesekopf" kann ein Fototransistor (z.B. TEKT5400 oder BPW78A) zwischen
-// Masse und dem ESP REC pin verwendet werden. Eventuell ist ein zusätzlicher
-// Pullup Widerstand zwischen REC und VCC 3.3 Volt erforderlich (1-4.7kOhm)
-
-// max 23 Zeichen
+// max 23 chars
 #if DMY_LANGUAGE==de-DE
-// deutsche Bezeichner
+// german web text
 #define D_TPWRIN "Verbrauch"
 #define D_TPWROUT "Einspeisung"
 #define D_TPWRCURR "Aktueller Verbrauch"
@@ -217,7 +76,7 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 #define D_SpL1L2L3 "Spannung L1+L2+L3/3"
 
 #else
-// alle anderen Sprachen
+// other languages (tbd)
 #undef D_TPWRIN
 #undef D_TPWROUT
 #undef D_TPWRCURR
@@ -258,8 +117,8 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 
 #endif
 
-// JSON Strings besser NICHT übersetzen
-// max 23 Zeichen
+// JSON Strings do not translate
+// max 23 char
 #define DJ_TPWRIN "Total_in"
 #define DJ_TPWROUT "Total_out"
 #define DJ_TPWRCURR "Power_curr"
@@ -286,7 +145,7 @@ struct METER_DESC {
   char prefix[8];
 };
 
-// Zählerliste , hier neue Zähler eintragen
+// meter list , enter new meters here
 //=====================================================
 #define EHZ161_0 1
 #define EHZ161_1 2
@@ -303,45 +162,9 @@ struct METER_DESC {
 #define WGS_COMBO 13
 #define EBZD_G 14
 
-// diesen Zähler auswählen
+// select this meter
 #define METER EHZ161_1
 
-//=====================================================
-// Einträge in Liste
-// erster Eintrag = laufende Zählernummer mit Komma getrennt
-// danach bis @ Zeichen => Sequenz von OBIS als ASCI, oder SML als HEX ASCI
-// Skalierungsfaktor (Divisor) (kann auch negativ sein oder kleiner 0 z.B. 0.1 => Ergebnis * 10)
-// statt des Skalierungsfaktors kann hier (nur in einer Zeile) ein # Zeichen stehen (OBIS, (SML Hager))
-// in diesem Fall wird ein String (keine Zahl) ausgelesen (z.B. Zähler ID)
-// nach dem # Zeichen muss ein Abschlusszeichen angegeben werden, also bei OBIS ein ) Zeichen
-// Name des Signals in WEBUI (max 23 Zeichen)
-// Einheit des Signals in WEBUI (max 7 Zeichen)
-// Name des Signals in MQTT Nachricht (max 23 Zeichen)
-// Anzahl der Nachkommastellen, wird hier 16 addiert wird sofort ein MQTT für diesen Wert ausgelöst, nicht erst bei teleperiod
-// Beispiel: => "1-0:2.8.0*255(@1,Einspeisung,KWh,Solar_Feed,4|"
-// in allen ausser der letzten Zeile muss ein | Zeichen am Ende der Zeile stehen.
-// Nur am Ende der letzen Zeile steht ein Semikolon.
-// max 16 Zeilen
-// =====================================================
-// steht in der Sequenz ein = Zeichen am Anfang kann folgender Eintrag definiert werden:
-// =m => mathe berechne Werte z.B. =m 3+4+5  addiert die Ergebnisse aus den Zeilen 3,4 und 5
-// + - / * werden unterstützt  das #Zeichen  bezeichnet eine Konstante  /#3 => geteilt durch 3
-// damit kann z.B. die Summe aus 3 Phasen berechnet werden
-// =d => differenz berechne Differenzwerte über die Zeit aus dem Ergebnis der Zeile
-// z.B. =d 3 10 berechnet die Differenz nach jeweils 10 Sekunden des Ergebnisses aus Zeile 3
-// damit kann z.B. der Momentanverbrauch aus dem Gesamtverbrauch berechnet werden, falls der Zähler das nicht direkt ausgibt
-// =h => html Text Zeile (max 30 Zeichen) in WEBUI einfügen, diese Zeile zählt nicht bei Zeilenreferenzen
-
-// der METER_DESC beschreibt die Zähler
-// METERS_USED muss auf die Anzahl der benutzten Zähler gesetzt werden
-// entsprechend viele Einträge muss der METER_DESC dann haben (für jeden Zähler einen)
-// 1. srcpin der pin für den seriellen input normalerweise 3 => RX pin, ansonsten software serial GPIO pin
-// 2. type o=obis, s=sml, c=COUNTER (z.B. Gaszähler reed Kontakt) e=ebus, r=raw binary
-// 3. flag wenn 0 dann counter ohne Pullup, 1=mit Pullup, 2=beutze AD Konverter ADS1115 an i2c Schnittstelle
-// 4. params Baudrate bei serieller Schnittstelle, bei counter poll time in Millisekunden, wenn <0 dann Interrupt getrieben
-// die negative Zahl ist Entprellzeit in Millisekunden , bei ADS1115 Abtastrate
-// 5. json prefix max 7 Zeichen, kann im Prinzip frei gesetzt werden
-// dieses Prefix wird sowohl in der Web Anzeige als auch in der MQTT Nachricht vorangestellt
 
 #if METER==EHZ161_0
 #undef METERS_USED
@@ -615,14 +438,14 @@ struct METER_DESC const meter_desc[METERS_USED]={
   [2]={3,'s',0,SML_BAUDRATE,"SML"}}; // SML harware serial RX pin
 
 const uint8_t meter[]=
-//----------------------------Wasserzähler--sensor95 c1------------------------------------
+//----------------------------Wasserzähler--sensor53 c1------------------------------------
 //"1,=h==================|"
 "1,1-0:1.8.0*255(@10000," D_H2oIN ",cbm," DJ_COUNTER ",4|"            // 1
-//----------------------------Gaszähler-----sensor95 c2------------------------------------
+//----------------------------Gaszähler-----sensor53 c2------------------------------------
 // bei gaszählern (countern) muss der Vergleichsstring so aussehen wie hier
 "2,=h==================|"
 "2,1-0:1.8.0*255(@100," D_GasIN ",cbm," DJ_COUNTER ",3|"              // 2
-//----------------------------Stromzähler-EHZ363W5--sensor95 d0----------------------------
+//----------------------------Stromzähler-EHZ363W5--sensor53 d0----------------------------
 "3,=h==================|"
 //0x77,0x07,0x01,0x00,0x01,0x08,0x00,0xff
 "3,77070100010800ff@1000," D_TPWRIN ",KWh," DJ_TPWRIN ",3|"         // 3  Zählerstand Total
@@ -661,23 +484,19 @@ const uint8_t meter[]=
 #endif
 
 
-// werte werden mit double zahlen gespeichert, da float wahrscheinlich nicht ausreichend
-// bei allen Zählern (theoretisch 64 bit möglich, float hat nur 32 bit )
-
-
+// this driver uses double because meter vars would not fit in float
 //=====================================================
 
-// median filter elimiert Ausreisser, braucht aber viel RAM und Rechenzeit
-// 672 bytes extra RAM bei MAX_VARS = 16
+// median filter eliminates outliers, but uses much RAM and CPU cycles
+// 672 bytes extra RAM with MAX_VARS = 16
 //#define USE_MEDIAN_FILTER
 
-// maximale Anzahl der möglichen Variablen, gegebenfalls anpassen
-// um möglichst viel RAM zu sparen sollte MAX_VARS der Anzahl der Zeilen
-// in der Defintion entsprechen, insbesondere bei Verwendung des Medianfilters.
+// max number of vars , may be adjusted
 #define MAX_VARS 16
+// max number of meters , may be adjusted
 #define MAX_METERS 5
 double meter_vars[MAX_VARS];
-// deltas berechnen
+// calulate deltas
 #define MAX_DVARS MAX_METERS*2
 double dvalues[MAX_DVARS];
 uint32_t dtimes[MAX_DVARS];
@@ -689,8 +508,7 @@ const uint8_t *meter_p;
 // software serial pointers
 TasmotaSerial *meter_ss[MAX_METERS];
 
-// serial buffers, bei einigen Zählern sollte man hier einen größeren Buffer definieren
-// z.B. 48
+// serial buffers, may be made larger depending on telegram lenght
 #define SML_BSIZ 48
 uint8_t smltbuf[MAX_METERS][SML_BSIZ];
 
@@ -737,7 +555,7 @@ double median(struct MEDIAN_FILTER* mf, double in) {
 #endif
 
 #ifdef ANALOG_OPTO_SENSOR
-// sensor über AD Konverter ADS1115 an i2c Bus
+// sensor over ADS1115 with i2c Bus
 uint8_t ads1115_up;
 
 // ads1115 driver
@@ -961,13 +779,6 @@ void ADS1115_init(void) {
 }
 
 #endif
-
-
-
-
-// dump to log zeigt serielle Daten zu Testzwecken in der Konsole an
-// muss aber für Normalbetrieb aus sein
-// dazu in Konsole sensor95 d1,d2,d3 .. bzw. d0 für Ein und Ausschalten der jeweiligen Zähler dumps angeben
 
 char sml_start;
 uint8_t dump2log=0;
@@ -1887,6 +1698,15 @@ uint8_t *script_meter;
 
 #define METER_DEF_SIZE 2000
 
+bool Gpio_used(uint8_t gpiopin) {
+  for (uint16_t i=0;i<GPIO_SENSOR_END;i++) {
+    if (pin[i]==gpiopin) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void SML_Init(void) {
   meters_used=METERS_USED;
   meter_desc_p=meter_desc;
@@ -1939,7 +1759,12 @@ void SML_Init(void) {
           lp+=2;
           if (index<1 || index>meters_used) goto next_line;
           index--;
-          script_meter_desc[index].srcpin=strtol(lp,&lp,10);
+          uint8_t srcpin=strtol(lp,&lp,10);
+          if (Gpio_used(srcpin)) {
+            AddLog_P(LOG_LEVEL_INFO, PSTR("gpio double define!"));
+            return;
+          }
+          script_meter_desc[index].srcpin=srcpin;
           if (*lp!=',') goto next_line;
           lp++;
           script_meter_desc[index].type=*lp;
@@ -2159,7 +1984,14 @@ uint8_t parity=0;
 }
 #endif
 
-bool XSNS_95_cmd(void) {
+
+// dump to log shows serial data on console
+// has to be off for normal use
+// in console sensor53 d1,d2,d3 .. or. d0 for normal use
+// set counter => sensor53 c1 xxxx
+// restart driver => sensor53 r
+
+bool XSNS_53_cmd(void) {
   bool serviced = true;
   if (XdrvMailbox.data_len > 0) {
       char *cp=XdrvMailbox.data;
@@ -2220,9 +2052,7 @@ void SML_CounterSaveState(void) {
  * Interface
 \*********************************************************************************************/
 
-
-// bei neuer Tasmota Version muss hier bool stehen statt boolean
-bool Xsns95(byte function) {
+bool Xsns53(byte function) {
   bool result = false;
     switch (function) {
       case FUNC_INIT:
@@ -2249,8 +2079,8 @@ bool Xsns95(byte function) {
         break;
 #endif  // USE_WEBSERVER
       case FUNC_COMMAND_SENSOR:
-        if (XSNS_95 == XdrvMailbox.index) {
-          result = XSNS_95_cmd();
+        if (XSNS_53 == XdrvMailbox.index) {
+          result = XSNS_53_cmd();
         }
         break;
       case FUNC_SAVE_BEFORE_RESTART:
@@ -2260,7 +2090,5 @@ bool Xsns95(byte function) {
     }
   return result;
 }
-
-#pragma GCC diagnostic pop
 
 #endif  // USE_SML
