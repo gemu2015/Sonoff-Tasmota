@@ -336,7 +336,7 @@ struct METER_DESC {
 // METERS_USED muss auf die Anzahl der benutzten Zähler gesetzt werden
 // entsprechend viele Einträge muss der METER_DESC dann haben (für jeden Zähler einen)
 // 1. srcpin der pin für den seriellen input normalerweise 3 => RX pin, ansonsten software serial GPIO pin
-// 2. type o=obis, s=sml, c=COUNTER (z.B. Gaszähler reed Kontakt)
+// 2. type o=obis, s=sml, c=COUNTER (z.B. Gaszähler reed Kontakt) e=ebus, r=raw binary
 // 3. flag wenn 0 dann counter ohne Pullup, 1=mit Pullup, 2=beutze AD Konverter ADS1115 an i2c Schnittstelle
 // 4. params Baudrate bei serieller Schnittstelle, bei counter poll time in Millisekunden, wenn <0 dann Interrupt getrieben
 // die negative Zahl ist Entprellzeit in Millisekunden , bei ADS1115 Abtastrate
@@ -1360,6 +1360,8 @@ void sml_shift_in(uint32_t meters,uint32_t shard) {
     smltbuf[meters][SML_BSIZ-1]=iob&0x7f;
   } else if (meter_desc_p[meters].type=='s') {
     smltbuf[meters][SML_BSIZ-1]=iob;
+  } else if (meter_desc_p[meters].type=='r') {
+    smltbuf[meters][SML_BSIZ-1]=iob;
   } else {
     if (iob==EBUS_SYNC) {
     	// should be end of telegramm
@@ -1553,7 +1555,7 @@ void SML_Decode(uint8_t index) {
               found=0;
             }
           } else {
-            // ebus
+            // ebus or raw
             // XXHHHHSSUU
             if (*mp=='x' && *(mp+1)=='x') {
               //ignore
@@ -1568,6 +1570,12 @@ void SML_Decode(uint8_t index) {
               uint8_t val = *cp++;
               ebus_dval=val;
               mp+=2;
+            }
+            else if (*mp=='s' && *(mp+1)=='s' && *(mp+2)=='s' && *(mp+3)=='s'){
+              int16_t val = *cp|(*(cp+1)<<8);
+              ebus_dval=val;
+              mp+=4;
+              cp+=2;
             }
             else if (*mp=='s' && *(mp+1)=='s') {
               int8_t val = *cp++;
@@ -1602,7 +1610,7 @@ void SML_Decode(uint8_t index) {
           }
         } else {
           double dval;
-          if (meter_desc_p[mindex].type!='e') {
+          if (meter_desc_p[mindex].type!='e' && meter_desc_p[mindex].type!='r') {
             // get numeric values
             if (meter_desc_p[mindex].type=='o' || meter_desc_p[mindex].type=='c') {
               dval=xCharToDouble((char*)cp);
@@ -1894,26 +1902,35 @@ void SML_Init(void) {
   if (meter_script==99) {
     // use script definition
     if (script_meter) free(script_meter);
-    script_meter=(uint8_t*)calloc(METER_DEF_SIZE,1);
-    if (!script_meter) return;
-    uint8_t *tp=script_meter;
+    uint8_t *tp=0;
     uint16_t index=0;
     uint8_t section=0;
     char *lp=glob_script_mem.scriptptr;
     while (lp) {
-      if (*lp=='#') {
-        if (*(tp-1)=='|') *(tp-1)=0;
-        break;
-      }
       if (!section) {
         if (*lp=='>' && *(lp+1)=='M') {
           lp+=2;
           meters_used=strtol(lp,0,10);
           section=1;
+          uint32_t mlen=METER_DEF_SIZE;
+          for (uint32_t cnt=0;cnt<METER_DEF_SIZE;cnt++) {
+            if (lp[cnt]=='#') {
+              mlen=cnt+3;
+              break;
+            }
+          }
+          if (mlen==METER_DEF_SIZE) return; // missing end #
+          script_meter=(uint8_t*)calloc(mlen,1);
+          if (!script_meter) return;
+          tp=script_meter;
           goto next_line;
         }
       }
       else {
+        if (*lp=='#') {
+          if (*(tp-1)=='|') *(tp-1)=0;
+          break;
+        }
         if (*lp=='+') {
           // add descriptor +1,1,c,0,10,H20
           //toLogEOL(">>",lp);
