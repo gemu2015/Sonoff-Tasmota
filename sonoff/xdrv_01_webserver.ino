@@ -2387,7 +2387,7 @@ uint16_t SendMail(char *buffer) {
 
   // copy params
   oparams=(char*)calloc(strlen(buffer)+2,1);
-  if (!oparams) return 1;
+  if (!oparams) return 4;
 
   params=oparams;
 
