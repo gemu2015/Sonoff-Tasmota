@@ -1,7 +1,21 @@
 /*********************************************************************************************\
+ * 6.6.0.9 20190828
+ * Change theoretical baudrate range to 300..19660500 bps in 300 increments (#6294)
+ * Add Full support of all protocols in IRremoteESP8266, to be used on dedicated-IR Tasmota version. Warning: +81k Flash when compiling with USE_IR_REMOTE_FULL
+ * Add compile time define USE_WS2812_HARDWARE to select hardware type WS2812, WS2812X, WS2813, SK6812, LC8812 or APA106 (DMA mode only)
+ *
+ * 6.6.0.8 20190827
+ * Add Tuya Energy monitoring by Shantur Rathore
+ * Add phase 1 Domoticz P1 Smart Meter support using energy sensors handled by xdrv_03_energy.ino based on an idea by pablozg
+ *   Add commands Tariff1 0..23 (start Off-Peak hour), Tariff2 0..23 (start Standard hour) and Tariff3 0/1 (Saturday and Sunday Off-Peak)
+ *
+ * 6.6.0.7 20190825
+ * Expand Settings area to 4k for future use
+ *
  * 6.6.0.6 20190819
  * Add I2C display driver for SH1106 oled by Gerhard Mutz
  * Add SPI display drivers for epaper 4.2 inch, ILI9488 TFT, SSD1351 Color oled and RA8876 TFT by Gerhard Mutz
+ * Add support for HM17 bluetooth LE passive scan of ibeacon devices by Gerhard Mutz
  *
  * 6.6.0.5 20190816
  * Add command WebSensor<sensor number> 0/1 to control display of sensor data in web GUI (#6085)

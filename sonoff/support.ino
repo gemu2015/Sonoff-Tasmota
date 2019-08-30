@@ -774,7 +774,7 @@ int GetStateNumber(char *state_text)
 
 void SetSerialBaudrate(int baudrate)
 {
-  Settings.baudrate = baudrate / 1200;
+  Settings.baudrate = baudrate / 300;
   if (Serial.baudRate() != baudrate) {
     if (seriallog_level) {
       AddLog_P2(LOG_LEVEL_INFO, PSTR(D_LOG_APPLICATION D_SET_BAUDRATE_TO " %d"), baudrate);
@@ -793,7 +793,7 @@ void ClaimSerial(void)
   AddLog_P(LOG_LEVEL_INFO, PSTR("SNS: Hardware Serial"));
   SetSeriallog(LOG_LEVEL_NONE);
   baudrate = Serial.baudRate();
-  Settings.baudrate = baudrate / 1200;
+  Settings.baudrate = baudrate / 300;
 }
 
 void SerialSendRaw(char *codes)
@@ -1557,7 +1557,7 @@ void AddLogBuffer(uint32_t loglevel, uint8_t *buffer, uint32_t count)
   ToHex_P(buffer, count, log_data + strlen(log_data), sizeof(log_data) - strlen(log_data), ' ');
   AddLog(loglevel);
 */
-  char hex_char[count * 3];
+  char hex_char[(count * 3) + 2];
   AddLog_P2(loglevel, PSTR("DMP: %s"), ToHex_P(buffer, count, hex_char, sizeof(hex_char), ' '));
 }
 

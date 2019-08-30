@@ -420,7 +420,7 @@
 //  #define USE_PN532_DATA_FUNCTION                // Add sensor40 command support for erase, setting data block content (+1k7 code, 388 bytes mem)
 //  #define USE_PN532_DATA_RAW                     // Allow DATA block to be used by non-alpha-numberic data (+ 80 bytes code, 48 bytes ram)
 //#define USE_RDM6300                              // Add support for RDM6300 125kHz RFID Reader (+0k8)
-#define USE_IBEACON                                // Add support for bluetooth LE passive scan of ibeacon devices (uses HM17 module) (+08k)
+//#define USE_IBEACON                              // Add support for bluetooth LE passive scan of ibeacon devices (uses HM17 module)
 
 // Power monitoring sensors -----------------------
 #define USE_ENERGY_MARGIN_DETECTION              // Add support for Energy Margin detection (+1k6 code)
@@ -450,6 +450,8 @@
   #define MAX31865_PTD_BIAS   0                 // To calibrate your not-so-good PTD
 
 // -- IR Remote features --------------------------
+//#define USE_IR_REMOTE_FULL                       // Activate all protocols from IRremoteESP8266
+                                                 // actovating this option will ignore all other USE_IR_REMOTE_* options and set them all to active
 #define USE_IR_REMOTE                            // Send IR remote commands using library IRremoteESP8266 and ArduinoJson (+4k3 code, 0k3 mem, 48 iram)
 //  #define USE_IR_SEND_AIWA                       // Support IRsend Aiwa protocol
   #define USE_IR_SEND_DISH                       // Support IRsend Dish protocol
@@ -485,8 +487,9 @@
 // ------------------------------------------------
 
 #define USE_WS2812                               // WS2812 Led string using library NeoPixelBus (+5k code, +1k mem, 232 iram) - Disable by //
-  #define USE_WS2812_CTYPE     NEO_GRB           // WS2812 Color type (NEO_RGB, NEO_GRB, NEO_BRG, NEO_RBG, NEO_RGBW, NEO_GRBW)
 //  #define USE_WS2812_DMA                         // DMA supports only GPIO03 (= Serial RXD) (+1k mem). When USE_WS2812_DMA is enabled expect Exceptions on Pow
+  #define USE_WS2812_HARDWARE  NEO_HW_WS2812     // Hardware type (NEO_HW_WS2812, NEO_HW_WS2812X, NEO_HW_WS2813, NEO_HW_SK6812, NEO_HW_LC8812, NEO_HW_APA106)
+  #define USE_WS2812_CTYPE     NEO_GRB           // Color type (NEO_RGB, NEO_GRB, NEO_BRG, NEO_RBG, NEO_RGBW, NEO_GRBW)
 
 #define USE_ARILUX_RF                            // Add support for Arilux RF remote controller (+0k8 code, 252 iram (non 2.3.0))
 

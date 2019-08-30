@@ -21,12 +21,11 @@
 #ifdef USE_TUYA_DIMMER
 
 #define XDRV_16                16
+#define XNRG_08                8
 
 #ifndef TUYA_DIMMER_ID
 #define TUYA_DIMMER_ID         0
 #endif
-
-#define TUYA_POWER_ID          1
 
 #define TUYA_CMD_HEARTBEAT     0x00
 #define TUYA_CMD_QUERY_PRODUCT 0x01
@@ -55,7 +54,9 @@ struct TUYA {
   uint8_t data_len = 0;                  // Data lenght of command
   int8_t wifi_state = -2;                // Keep MCU wifi-status in sync with WifiState()
   uint8_t heartbeat_timer = 0;           // 10 second heartbeat timer for tuya module
-
+#ifdef USE_ENERGY_SENSOR
+  uint32_t lastPowerCheckTime = 0;       // Time when last power was checked
+#endif // USE_ENERGY_SENSOR
   char *buffer = nullptr;                // Serial receive buffer
   int byte_counter = 0;                  // Index in serial receive buffer
 } Tuya;
@@ -139,6 +140,7 @@ bool TuyaSetPower(void)
 bool TuyaSetChannels(void)
 {
   LightSerialDuty(((uint8_t*)XdrvMailbox.data)[0]);
+  delay(20); // Hack when power is off and dimmer is set then both commands go too soon to Serial out.
   return true;
 }
 
@@ -149,10 +151,8 @@ void LightSerialDuty(uint8_t duty)
       if (duty < 25) { duty = 25; }  // dimming acts odd below 25(10%) - this mirrors the threshold set on the faceplate itself
     }
 
-    if (Settings.flag3.tuya_show_dimmer == 0) {
-      if(Settings.flag3.tuya_dimmer_range_255 == 0) {
-        duty = changeUIntScale(duty, 0, 255, 0, 100);
-      }
+    if (Settings.flag3.tuya_disable_dimmer == 0) {
+      duty = changeUIntScale(duty, 0, 255, 0, Settings.param[P_TUYA_DIMMER_MAX]);
       if (Tuya.new_dim != duty) {
         AddLog_P2(LOG_LEVEL_DEBUG, PSTR("TYA: Send dim value=%d (id=%d)"), duty, Settings.param[P_TUYA_DIMMER_ID]);
         TuyaSendValue(Settings.param[P_TUYA_DIMMER_ID], duty);
@@ -160,10 +160,8 @@ void LightSerialDuty(uint8_t duty)
     }
   } else {
     Tuya.ignore_dim = false;  // reset flag
-    if (Settings.flag3.tuya_show_dimmer == 0) {
-      if(Settings.flag3.tuya_dimmer_range_255 == 0) {
-        duty = changeUIntScale(duty, 0, 255, 0, 100);
-      }
+    if (Settings.flag3.tuya_disable_dimmer == 0) {
+      duty = changeUIntScale(duty, 0, 255, 0, Settings.param[P_TUYA_DIMMER_MAX]);
       AddLog_P2(LOG_LEVEL_DEBUG, PSTR("TYA: Send dim skipped value=%d"), duty);  // due to 0 or already set
     }
   }
@@ -213,20 +211,16 @@ void TuyaPacketProcess(void)
           ExecuteCommandPower(Tuya.buffer[6], Tuya.buffer[10], SRC_SWITCH);  // send SRC_SWITCH? to use as flag to prevent loop from inbound states from faceplate interaction
         }
       }
-      else if (Tuya.buffer[5] == 8) {  // dim packet
+      else if (Tuya.buffer[5] == 8) {  // Long value packet
 
-        AddLog_P2(LOG_LEVEL_DEBUG, PSTR("TYA: RX Dim State=%d"), Tuya.buffer[13]);
-        if (Settings.flag3.tuya_show_dimmer == 0) {
+        if (Settings.flag3.tuya_disable_dimmer == 0) {
           if (!Settings.param[P_TUYA_DIMMER_ID]) {
             AddLog_P2(LOG_LEVEL_DEBUG, PSTR("TYA: Autoconfiguring Dimmer ID %d"), Tuya.buffer[6]);
             Settings.param[P_TUYA_DIMMER_ID] = Tuya.buffer[6];
           }
           if (Settings.param[P_TUYA_DIMMER_ID] == Tuya.buffer[6]) {
-            if(Settings.flag3.tuya_dimmer_range_255 == 0) {
-              Tuya.new_dim = (uint8_t) Tuya.buffer[13];
-            } else {
-              Tuya.new_dim = changeUIntScale((uint8_t) Tuya.buffer[13], 0, 255, 0, 100);
-            }
+            AddLog_P2(LOG_LEVEL_DEBUG, PSTR("TYA: RX Dim State=%d"), Tuya.buffer[13]);
+            Tuya.new_dim = changeUIntScale((uint8_t) Tuya.buffer[13], 0, Settings.param[P_TUYA_DIMMER_MAX], 0, 100);
             if ((power || Settings.flag3.tuya_apply_o20) && (Tuya.new_dim > 0) && (abs(Tuya.new_dim - Settings.light_dimmer) > 1)) {
               Tuya.ignore_dim = true;
 
@@ -235,6 +229,28 @@ void TuyaPacketProcess(void)
             }
           }
         }
+
+#ifdef USE_ENERGY_SENSOR
+        if (Settings.param[P_TUYA_VOLTAGE_ID] == Tuya.buffer[6]) {
+          Energy.voltage = (float)(Tuya.buffer[12] << 8 | Tuya.buffer[13]) / 10;
+          AddLog_P2(LOG_LEVEL_DEBUG, PSTR("TYA: Rx ID=%d Voltage=%d"), Settings.param[P_TUYA_VOLTAGE_ID], (Tuya.buffer[12] << 8 | Tuya.buffer[13]));
+        } else if (Settings.param[P_TUYA_CURRENT_ID] == Tuya.buffer[6]) {
+          Energy.current = (float)(Tuya.buffer[12] << 8 | Tuya.buffer[13]) / 1000;
+          AddLog_P2(LOG_LEVEL_DEBUG, PSTR("TYA: Rx ID=%d Current=%d"), Settings.param[P_TUYA_CURRENT_ID], (Tuya.buffer[12] << 8 | Tuya.buffer[13]));
+        } else if (Settings.param[P_TUYA_POWER_ID] == Tuya.buffer[6]) {
+          Energy.active_power = (float)(Tuya.buffer[12] << 8 | Tuya.buffer[13]) / 10;
+          AddLog_P2(LOG_LEVEL_DEBUG, PSTR("TYA: Rx ID=%d Active_Power=%d"), Settings.param[P_TUYA_POWER_ID], (Tuya.buffer[12] << 8 | Tuya.buffer[13]));
+
+          if (Tuya.lastPowerCheckTime != 0 && Energy.active_power > 0) {
+            Energy.kWhtoday += (float)Energy.active_power * (Rtc.utc_time - Tuya.lastPowerCheckTime) / 36;
+            EnergyUpdateToday();
+          }
+          Tuya.lastPowerCheckTime = Rtc.utc_time;
+        } else if (Settings.param[P_TUYA_DIMMER_ID] != Tuya.buffer[6]){
+          AddLog_P2(LOG_LEVEL_DEBUG, PSTR("TYA: RX Unknown ID=%d"), Tuya.buffer[6]);
+        }
+#endif // USE_ENERGY_SENSOR
+
       }
       break;
 
@@ -291,7 +307,12 @@ bool TuyaModuleSelected(void)
     Settings.my_gp.io[3] = GPIO_TUYA_RX;
     restart_flag = 2;
   }
-  light_type = LT_SERIAL1;
+  if (Settings.flag3.tuya_disable_dimmer == 0) {
+    light_type = LT_SERIAL1;
+  } else {
+    light_type = LT_BASIC;
+  }
+
   return true;
 }
 
@@ -400,6 +421,34 @@ void TuyaSetWifiLed(void)
 
   TuyaSendCmd(TUYA_CMD_WIFI_STATE, &wifi_state, 1);
 }
+
+#ifdef USE_ENERGY_SENSOR
+/*********************************************************************************************\
+ * Energy Interface
+\*********************************************************************************************/
+
+int Xnrg08(uint8_t function)
+{
+  int result = 0;
+
+  if (TUYA_DIMMER == my_module_type) {
+    if (FUNC_PRE_INIT == function) {
+      if (!energy_flg) {
+        if (Settings.param[P_TUYA_POWER_ID] != 0) {
+          if (Settings.param[P_TUYA_CURRENT_ID] == 0) {
+            Energy.current_available = false;
+          }
+          if (Settings.param[P_TUYA_VOLTAGE_ID] == 0) {
+            Energy.voltage_available = false;
+          }
+          energy_flg = XNRG_08;
+        }
+      }
+    }
+  }
+  return result;
+}
+#endif  // USE_ENERGY_SENSOR
 
 /*********************************************************************************************\
  * Interface

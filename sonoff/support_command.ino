@@ -621,6 +621,9 @@ void CmndSetoption(void)
           if (18 == pindex) { // SetOption68 for multi-channel PWM, requires a reboot
             restart_flag = 2;
           }
+          if (15 == pindex) { // SetOption65 for tuya_disable_dimmer requires a reboot
+            restart_flag = 2;
+          }
         }
       }
       else {                   // SetOption32 .. 49
@@ -644,13 +647,17 @@ void CmndSetoption(void)
               LightUpdateColorMapping();
               break;
 #endif
-#if defined(USE_IR_REMOTE) && defined(USE_IR_RECEIVE)
+#if (defined(USE_IR_REMOTE) && defined(USE_IR_RECEIVE)) || defined(USE_IR_REMOTE_FULL)
             case P_IR_UNKNOW_THRESHOLD:
               IrReceiveUpdateThreshold();
               break;
 #endif
 #ifdef USE_TUYA_DIMMER
             case P_TUYA_RELAYS:
+            case P_TUYA_POWER_ID:
+            case P_TUYA_CURRENT_ID:
+            case P_TUYA_VOLTAGE_ID:
+            case P_TUYA_DIMMER_MAX:
               restart_flag = 2;  // Need a restart to update GUI
               break;
 #endif
@@ -954,12 +961,12 @@ void CmndSwitchDebounce(void)
 
 void CmndBaudrate(void)
 {
-  if (XdrvMailbox.payload > 1200) {
-    XdrvMailbox.payload /= 1200;  // Make it a valid baudrate
-    baudrate = XdrvMailbox.payload * 1200;
+  if (XdrvMailbox.payload >= 300) {
+    XdrvMailbox.payload /= 300;  // Make it a valid baudrate
+    baudrate = (XdrvMailbox.payload & 0xFFFF) * 300;
     SetSerialBaudrate(baudrate);
   }
-  ResponseCmndNumber(Settings.baudrate * 1200);
+  ResponseCmndNumber(Settings.baudrate * 300);
 }
 
 void CmndSerialSend(void)
