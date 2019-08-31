@@ -3576,15 +3576,32 @@ String ScriptUnsubscribe(const char * data, int data_len)
 #ifdef USE_SCRIPT_WEB_DISPLAY
 void ScriptWebShow(void) {
   uint8_t web_script=Run_Scripter(">W",-2,0);
-  if (meter_script==99) {
-    char *lp=glob_script_mem.section_ptr+1;
+  if (web_script==99) {
+    char line[128];
+    char tmp[128];
+    char *lp=glob_script_mem.section_ptr+2;
     while (lp) {
+      while (*lp==SCRIPT_EOL) {
+       lp++;
+      }
       if (!*lp || *lp=='#' || *lp=='>') {
           break;
       }
-      while (*lp==SCRIPT_EOL || *lp==' ') lp++;
-      // send this line to web
 
+      // send this line to web
+      memcpy(line,lp,sizeof(line));
+      line[sizeof(line)-1]=0;
+      char *cp=line;
+      for (uint32_t i=0; i<sizeof(line); i++) {
+        if (!*cp || *cp=='\n' || *cp=='\r') {
+          *cp=0;
+          break;
+        }
+        cp++;
+      }
+
+      Replace_Cmd_Vars(line,tmp,sizeof(tmp));
+      WSContentSend_PD(PSTR("{s}%s{e}"),tmp);
 
 next_line:
       if (*lp==SCRIPT_EOL) {
