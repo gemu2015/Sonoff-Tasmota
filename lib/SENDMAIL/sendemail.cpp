@@ -40,8 +40,8 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
   DEBUG_EMAIL_PORT.println(port);
 #endif
 
-//#ifdef ARDUINO_ESP8266_RELEASE_2_5_2
-#if 1
+#ifdef ARDUINO_ESP8266_RELEASE_2_5_2
+//#if 1
   client->setInsecure();
   bool mfln = client->probeMaxFragmentLength(host.c_str(), port, 512);
   DEBUG_EMAIL_PORT.printf("MFLN supported: %s\n", mfln ? "yes" : "no");

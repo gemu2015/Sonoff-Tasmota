@@ -1666,6 +1666,14 @@ struct SML_COUNTER {
 } sml_counters[MAX_COUNTERS];
 
 
+#ifndef ARDUINO_ESP8266_RELEASE_2_3_0       // Fix core 2.5.x ISR not in IRAM Exception
+void SML_CounterUpd(uint8_t index) ICACHE_RAM_ATTR;
+void SML_CounterUpd1(void) ICACHE_RAM_ATTR;
+void SML_CounterUpd2(void) ICACHE_RAM_ATTR;
+void SML_CounterUpd3(void) ICACHE_RAM_ATTR;
+void SML_CounterUpd4(void) ICACHE_RAM_ATTR;
+#endif  // ARDUINO_ESP8266_RELEASE_2_3_0
+
 void SML_CounterUpd(uint8_t index) {
   uint32_t ltime=millis()-sml_counters[index].sml_counter_ltime;
   sml_counters[index].sml_counter_ltime=millis();
@@ -1739,7 +1747,8 @@ void SML_Init(void) {
               break;
             }
           }
-          if (mlen==METER_DEF_SIZE) return; // missing end #
+          //if (mlen==METER_DEF_SIZE) return; // missing end #
+          mlen=METER_DEF_SIZE;
           script_meter=(uint8_t*)calloc(mlen,1);
           if (!script_meter) return;
           tp=script_meter;
