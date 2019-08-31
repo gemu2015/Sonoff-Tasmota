@@ -3616,6 +3616,49 @@ next_line:
 }
 #endif //USE_SCRIPT_WEB_DISPLAY
 
+#ifdef USE_SCRIPT_JSON_EXPORT
+void ScriptJsonAppend(void) {
+  uint8_t web_script=Run_Scripter(">J",-2,0);
+  if (web_script==99) {
+    char line[128];
+    char tmp[128];
+    char *lp=glob_script_mem.section_ptr+2;
+    while (lp) {
+      while (*lp==SCRIPT_EOL) {
+       lp++;
+      }
+      if (!*lp || *lp=='#' || *lp=='>') {
+          break;
+      }
+
+      // send this line to mqtt
+      memcpy(line,lp,sizeof(line));
+      line[sizeof(line)-1]=0;
+      char *cp=line;
+      for (uint32_t i=0; i<sizeof(line); i++) {
+        if (!*cp || *cp=='\n' || *cp=='\r') {
+          *cp=0;
+          break;
+        }
+        cp++;
+      }
+
+      Replace_Cmd_Vars(line,tmp,sizeof(tmp));
+      ResponseAppend_P(PSTR("%s"),tmp);
+
+next_line:
+      if (*lp==SCRIPT_EOL) {
+        lp++;
+      } else {
+        lp = strchr(lp, SCRIPT_EOL);
+        if (!lp) break;
+        lp++;
+      }
+    }
+  }
+}
+#endif //USE_SCRIPT_JSON_EXPORT
+
 
 /*********************************************************************************************\
  * Interface
@@ -3747,6 +3790,13 @@ bool Xdrv10(uint8_t function)
       ScriptWebShow();
       break;
 #endif //USE_SCRIPT_WEB_DISPLAY
+
+#ifdef USE_SCRIPT_JSON_EXPORT
+    case FUNC_JSON_APPEND:
+      ScriptJsonAppend();
+      break;
+#endif //USE_SCRIPT_JSON_EXPORT
+
 
   }
   return result;
