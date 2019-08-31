@@ -139,6 +139,7 @@ struct SCRIPT_MEM {
     uint8_t *vnp_offset;
     char *glob_snp; // string vars pointer
     char *scriptptr;
+    char *section_ptr;
     char *scriptptr_bu;
     char *script_ram;
     uint16_t script_size;
@@ -2752,7 +2753,10 @@ int16_t Run_Scripter(const char *type, int8_t tlen, char *js) {
             if (!strncmp(lp,type,tlen)) {
                 // found section
                 section=1;
-                if (check) return 99;
+                glob_script_mem.section_ptr=lp;
+                if (check) {
+                  return 99;
+                }
                 // check for subroutine
                 if (*type=='#') {
                   // check for parameter
@@ -3569,6 +3573,32 @@ String ScriptUnsubscribe(const char * data, int data_len)
 }
 #endif //     SUPPORT_MQTT_EVENT
 
+#ifdef USE_SCRIPT_WEB_DISPLAY
+void ScriptWebShow(void) {
+  uint8_t web_script=Run_Scripter(">W",-2,0);
+  if (meter_script==99) {
+    char *lp=glob_script_mem.section_ptr+1;
+    while (lp) {
+      if (!*lp || *lp=='#' || *lp=='>') {
+          break;
+      }
+      while (*lp==SCRIPT_EOL || *lp==' ') lp++;
+      // send this line to web
+
+
+next_line:
+      if (*lp==SCRIPT_EOL) {
+        lp++;
+      } else {
+        lp = strchr(lp, SCRIPT_EOL);
+        if (!lp) break;
+        lp++;
+      }
+    }
+}
+#endif //USE_SCRIPT_WEB_DISPLAY
+
+
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
@@ -3694,6 +3724,12 @@ bool Xdrv10(uint8_t function)
       result = ScriptMqttData();
       break;
 #endif    //SUPPORT_MQTT_EVENT
+#ifdef USE_SCRIPT_WEB_DISPLAY
+    case FUNC_WEB_SENSOR:
+      ScriptWebShow();
+      break;
+#endif //USE_SCRIPT_WEB_DISPLAY
+
   }
   return result;
 }

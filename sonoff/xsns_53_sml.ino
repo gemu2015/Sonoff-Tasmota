@@ -1756,7 +1756,7 @@ void SML_Init(void) {
         }
       }
       else {
-        if (*lp=='#') {
+        if (!*lp || *lp=='#' || *lp=='>') {
           if (*(tp-1)=='|') *(tp-1)=0;
           break;
         }
