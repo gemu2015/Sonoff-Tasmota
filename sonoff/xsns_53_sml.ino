@@ -26,31 +26,28 @@
 
 #define XSNS_53 53
 
-// Baudrate des D0 Ausgangs, sollte bei den meisten Zählern 9600 sein
+// default baudrate of D0 output
 #define SML_BAUDRATE 9600
 
-// sende dies alle N Sekunden, für Zähler die erst auf Anforderung etwas senden
+// send this every N seconds (for meters that only send data on demand)
 //#define SML_SEND_SEQ
 
 // debug counter input to led for counter1 and 2
 //#define DEBUG_CNT_LED1 2
 //#define DEBUG_CNT_LED1 2
 
-// use analog optical counter sensor with AD Converter ADS1115
+// use analog optical counter sensor with AD Converter ADS1115 (not yet)
 //#define ANALOG_OPTO_SENSOR
-// fototransistor mit pullup an A0, A1 des ADS1115 A3 and +3.3V
-// die pegel und die verstärkung können dann automatisch kalibriert werden
+// fototransistor with pullup at A0, A1 of ADS1115 A3 and +3.3V
+// level and amplification are automatically set
 
-
-// support für mehr als 2 Meter mit spezieller Tasmota Serial Version
-// dazu muss der modifizierte Treiber => TasmotaSerial-2.3.1 ebenfalls kopiert werden
 
 #include <TasmotaSerial.h>
 
 // use special no wait serial driver
 #define SPECIAL_SS
 
-// addresse a bug in meter DWS74
+// addresses a bug in meter DWS74
 //#define DWS74_BUG
 
 // max 23 chars
@@ -1740,15 +1737,14 @@ void SML_Init(void) {
           lp+=2;
           meters_used=strtol(lp,0,10);
           section=1;
-          uint32_t mlen=METER_DEF_SIZE;
-          for (uint32_t cnt=0;cnt<METER_DEF_SIZE;cnt++) {
-            if (lp[cnt]=='#') {
+          uint32_t mlen=0;
+          for (uint32_t cnt=0;cnt<METER_DEF_SIZE-1;cnt++) {
+            if (lp[cnt]=='\n' && lp[cnt+1]=='#') {
               mlen=cnt+3;
               break;
             }
           }
-          //if (mlen==METER_DEF_SIZE) return; // missing end #
-          mlen=METER_DEF_SIZE;
+          if (mlen==0) return; // missing end #
           script_meter=(uint8_t*)calloc(mlen,1);
           if (!script_meter) return;
           tp=script_meter;
