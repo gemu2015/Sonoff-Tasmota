@@ -3595,6 +3595,7 @@ next_line:
         lp++;
       }
     }
+  }
 }
 #endif //USE_SCRIPT_WEB_DISPLAY
 
