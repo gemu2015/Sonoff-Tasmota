@@ -197,6 +197,24 @@ Beispielscript für den WGS_COMBO, EHZ161, EHZ363 descriptor:
 // max 23 Zeichen
 #if DMY_LANGUAGE==de-DE
 // deutsche Bezeichner
+#undef D_TPWRIN
+#undef D_TPWROUT
+#undef D_TPWRCURR
+#undef D_TPWRCURR1
+#undef D_TPWRCURR2
+#undef D_TPWRCURR3
+#undef D_Strom_L1
+#undef D_Strom_L2
+#undef D_Strom_L3
+#undef D_Spannung_L1
+#undef D_Spannung_L2
+#undef D_Spannung_L3
+#undef D_METERNR
+#undef D_METERSID
+#undef D_GasIN
+#undef D_H2oIN
+#undef D_StL1L2L3
+#undef D_SpL1L2L3
 #define D_TPWRIN "Verbrauch"
 #define D_TPWROUT "Einspeisung"
 #define D_TPWRCURR "Aktueller Verbrauch"
