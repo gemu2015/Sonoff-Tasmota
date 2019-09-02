@@ -2045,12 +2045,12 @@ void SML_Check_Send(void) {
     if (script_meter_desc[cnt].trxpin>=0 && script_meter_desc[cnt].txmem) {
       if ((sml_250ms_cnt%script_meter_desc[cnt].tsecs)==0) {
         if (script_meter_desc[cnt].max_index>1) {
-          char *cp=SML_Get_Sequence(script_meter_desc[cnt].txmem,script_meter_desc[cnt].index);
           //AddLog_P2(LOG_LEVEL_INFO, PSTR(">> %s"),cp);
           script_meter_desc[cnt].index++;
           if (script_meter_desc[cnt].index>=script_meter_desc[cnt].max_index) {
             script_meter_desc[cnt].index=0;
           }
+          char *cp=SML_Get_Sequence(script_meter_desc[cnt].txmem,script_meter_desc[cnt].index);
           SML_Send_Seq(cnt,cp);
         } else {
           SML_Send_Seq(cnt,script_meter_desc[cnt].txmem);
