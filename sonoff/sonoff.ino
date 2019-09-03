@@ -30,9 +30,6 @@
 #include "sonoff_version.h"                 // Sonoff-Tasmota version information
 #include "sonoff.h"                         // Enumeration used in my_user_config.h
 #include "my_user_config.h"                 // Fixed user configurable options
-#ifdef USE_CONFIG_OVERRIDE
-  #include "user_config_override.h"         // Configuration overrides for my_user_config.h
-#endif
 #ifdef USE_MQTT_TLS
   #include <t_bearssl.h>                    // we need to include before "sonoff_post.h" to take precedence over the BearSSL version in Arduino
 #endif  // USE_MQTT_TLS
@@ -686,7 +683,6 @@ bool MqttShowSensor(void)
 #ifdef USE_SCRIPT_JSON_EXPORT
   XdrvCall(FUNC_JSON_APPEND);
 #endif
-
 
   bool json_data_available = (strlen(mqtt_data) - json_data_start);
   if (strstr_P(mqtt_data, PSTR(D_JSON_PRESSURE)) != nullptr) {
