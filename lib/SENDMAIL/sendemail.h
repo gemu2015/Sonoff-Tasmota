@@ -18,12 +18,12 @@ class SendEmail
     const int timeout;
     const bool ssl;
     const int auth_used;
-#ifdef ARDUINO_ESP8266_RELEASE_2_5_2
-//#if 1
+#ifndef ARDUINO_ESP8266_RELEASE_2_4_2
     // use bear ssl
   //  #include "WiFiClientSecureLightBearSSL.h"
   //  BearSSL::WiFiClientSecure_light *client;
-    BearSSL::WiFiClientSecure* client;
+    //BearSSL::WiFiClientSecure* client;
+    WiFiClientSecure* client;
 #else
     WiFiClient* client;
 #endif

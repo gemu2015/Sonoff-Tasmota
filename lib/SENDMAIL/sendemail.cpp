@@ -1,7 +1,7 @@
 #include "sendemail.h"
 
 // enable serial debugging
-#define DEBUG_EMAIL_PORT Serial
+//#define DEBUG_EMAIL_PORT Serial
 
 SendEmail::SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const int auth_used) :
     host(host), port(port), user(user), passwd(passwd), timeout(timeout), ssl(ssl), auth_used(auth_used), client(new WiFiClientSecure())
@@ -40,11 +40,12 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
   DEBUG_EMAIL_PORT.println(port);
 #endif
 
-#ifdef ARDUINO_ESP8266_RELEASE_2_5_2
-//#if 1
+#ifndef ARDUINO_ESP8266_RELEASE_2_4_2
   client->setInsecure();
   bool mfln = client->probeMaxFragmentLength(host.c_str(), port, 512);
+#ifdef DEBUG_EMAIL_PORT
   DEBUG_EMAIL_PORT.printf("MFLN supported: %s\n", mfln ? "yes" : "no");
+#endif
   if (mfln) {
       client->setBufferSizes(512, 512);
   }

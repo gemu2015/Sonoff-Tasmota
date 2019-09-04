@@ -1171,17 +1171,17 @@ struct MORITZ *moritz_devices[MORITZ_MAX_DEVICES];
 #endif
 
 void moritz_mqtt(const char *hid,const char *type, char *payload) {
-  ResponseBeginTime();
+
 #ifdef USE_24C256
   struct MORITZ ml;
   fromhex(hid,ml.id,3);
   if (find_MLabel(&ml) && ml.label[0]) {
-    ResponseAppend_P(PSTR(",\"MO_%s_%s\":{%s}}"),ml.label,type,payload);
+    ResponseTime_P(PSTR(",\"MO_%s_%s\":{%s}}"),ml.label,type,payload);
   } else {
-    ResponseAppend_P(PSTR(",\"MORITZ_%s_%s\":{%s}}"),hid,type,payload);
+    ResponseTime_P(PSTR(",\"MORITZ_%s_%s\":{%s}}"),hid,type,payload);
   }
 #else
-  ResponseAppend_P(PSTR(",\"MORITZ_%s_%s\":{%s}}"),hid,type,payload);
+  ResponseTime_P(PSTR(",\"MORITZ_%s_%s\":{%s}}"),hid,type,payload);
 #endif
 
   MqttPublishPrefixTopic_P(TELE, PSTR(D_RSLT_SENSOR), Settings.flag.mqtt_sensor_retain);
