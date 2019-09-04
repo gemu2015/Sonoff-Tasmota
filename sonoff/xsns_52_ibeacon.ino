@@ -27,7 +27,7 @@
 
 #define HM17_BAUDRATE 9600
 
-#define IBEACON_DEBUG
+//#define IBEACON_DEBUG
 
 // keyfob expires after N seconds
 #define IB_TIMEOUT_INTERVAL 30
@@ -547,8 +547,7 @@ void ibeacon_mqtt(const char *mac,const char *rssi) {
   memcpy(s_rssi,rssi,4);
   s_rssi[4]=0;
   int16_t n_rssi=atoi(s_rssi);
-  ResponseBeginTime();
-  ResponseAppend_P(PSTR(",\"" D_CMND_IBEACON "_%s\":{\"RSSI\":%d}}"),s_mac,n_rssi);
+  ResponseTime_P(PSTR(",\"" D_CMND_IBEACON "_%s\":{\"RSSI\":%d}}"),s_mac,n_rssi);
   MqttPublishPrefixTopic_P(TELE, PSTR(D_RSLT_SENSOR), Settings.flag.mqtt_sensor_retain);
 }
 

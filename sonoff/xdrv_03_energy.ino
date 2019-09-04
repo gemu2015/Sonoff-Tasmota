@@ -146,6 +146,23 @@ void EnergyUpdateToday(void)
   }
 }
 
+void EnergyUpdateTotal(float value, bool kwh)
+{
+  uint32_t multiplier = (kwh) ? 100000 : 100;  // kWh or Wh to deca milli Wh
+
+  if (0 == Energy.start_energy || (value < Energy.start_energy)) {
+    Energy.start_energy = value;  // Init after restart and handle roll-over if any
+//    RtcSettings.energy_kWhtotal = (unsigned long)(value * multiplier);
+//    Energy.kWhtoday = 0;
+//    RtcSettings.energy_kWhtoday = 0;
+  }
+  else if (value != Energy.start_energy) {
+    Energy.kWhtoday += (unsigned long)((value - Energy.start_energy) * multiplier);
+    Energy.start_energy = value;
+  }
+  EnergyUpdateToday();
+}
+
 /*********************************************************************************************/
 
 void Energy200ms(void)
@@ -297,10 +314,10 @@ void EnergyMarginCheck(void)
       } else {
         Energy.mplh_counter--;
         if (!Energy.mplh_counter) {
-          Response_P(PSTR("{\"" D_JSON_MAXPOWERREACHED "\":\"%d%s\"}"), energy_power_u, (Settings.flag.value_units) ? " " D_UNIT_WATT : "");
+          ResponseTime_P(PSTR(",\"" D_JSON_MAXPOWERREACHED "\":\"%d%s\"}"), energy_power_u, (Settings.flag.value_units) ? " " D_UNIT_WATT : "");
           MqttPublishPrefixTopic_P(STAT, S_RSLT_WARNING);
           EnergyMqttShow();
-          ExecuteCommandPower(1, POWER_OFF, SRC_MAXPOWER);
+          SetAllPower(POWER_ALL_OFF, SRC_MAXPOWER);
           if (!Energy.mplr_counter) {
             Energy.mplr_counter = Settings.param[P_MAX_POWER_RETRY] +1;
           }
@@ -320,11 +337,11 @@ void EnergyMarginCheck(void)
         if (Energy.mplr_counter) {
           Energy.mplr_counter--;
           if (Energy.mplr_counter) {
-            Response_P(PSTR("{\"" D_JSON_POWERMONITOR "\":\"%s\"}"), GetStateText(1));
+            ResponseTime_P(PSTR(",\"" D_JSON_POWERMONITOR "\":\"%s\"}"), GetStateText(1));
             MqttPublishPrefixTopic_P(RESULT_OR_STAT, PSTR(D_JSON_POWERMONITOR));
-            ExecuteCommandPower(1, POWER_ON, SRC_MAXPOWER);
+            RestorePower(true, SRC_MAXPOWER);
           } else {
-            Response_P(PSTR("{\"" D_JSON_MAXPOWERREACHEDRETRY "\":\"%s\"}"), GetStateText(0));
+            ResponseTime_P(PSTR(",\"" D_JSON_MAXPOWERREACHEDRETRY "\":\"%s\"}"), GetStateText(0));
             MqttPublishPrefixTopic_P(STAT, S_RSLT_WARNING);
             EnergyMqttShow();
           }
@@ -338,17 +355,17 @@ void EnergyMarginCheck(void)
     energy_daily_u = (uint16_t)(Energy.daily * 1000);
     if (!Energy.max_energy_state  && (RtcTime.hour == Settings.energy_max_energy_start)) {
       Energy.max_energy_state  = 1;
-      Response_P(PSTR("{\"" D_JSON_ENERGYMONITOR "\":\"%s\"}"), GetStateText(1));
+      ResponseTime_P(PSTR(",\"" D_JSON_ENERGYMONITOR "\":\"%s\"}"), GetStateText(1));
       MqttPublishPrefixTopic_P(RESULT_OR_STAT, PSTR(D_JSON_ENERGYMONITOR));
-      ExecuteCommandPower(1, POWER_ON, SRC_MAXENERGY);
+      RestorePower(true, SRC_MAXENERGY);
     }
     else if ((1 == Energy.max_energy_state ) && (energy_daily_u >= Settings.energy_max_energy)) {
       Energy.max_energy_state  = 2;
       dtostrfd(Energy.daily, 3, mqtt_data);
-      Response_P(PSTR("{\"" D_JSON_MAXENERGYREACHED "\":\"%s%s\"}"), mqtt_data, (Settings.flag.value_units) ? " " D_UNIT_KILOWATTHOUR : "");
+      ResponseTime_P(PSTR(",\"" D_JSON_MAXENERGYREACHED "\":\"%s%s\"}"), mqtt_data, (Settings.flag.value_units) ? " " D_UNIT_KILOWATTHOUR : "");
       MqttPublishPrefixTopic_P(STAT, S_RSLT_WARNING);
       EnergyMqttShow();
-      ExecuteCommandPower(1, POWER_OFF, SRC_MAXENERGY);
+      SetAllPower(POWER_ALL_OFF, SRC_MAXENERGY);
     }
   }
 #endif  // USE_ENERGY_POWER_LIMIT
@@ -359,9 +376,10 @@ void EnergyMarginCheck(void)
 void EnergyMqttShow(void)
 {
 // {"Time":"2017-12-16T11:48:55","ENERGY":{"Total":0.212,"Yesterday":0.000,"Today":0.014,"Period":2.0,"Power":22.0,"Factor":1.00,"Voltage":213.6,"Current":0.100}}
-  ResponseBeginTime();
   int tele_period_save = tele_period;
   tele_period = 2;
+  mqtt_data[0] = '\0';
+  ResponseAppendTime();
   EnergyShow(true);
   tele_period = tele_period_save;
   ResponseJsonEnd();
