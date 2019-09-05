@@ -616,26 +616,23 @@ void CmndSetoption(void)
 #endif  // USE_HOME_ASSISTANT
         }
       }
-      else if (1 == ptype) {   // SetOption50 .. 81
+      else if (1 == ptype) {     // SetOption50 .. 81
         if (XdrvMailbox.payload <= 1) {
           bitWrite(Settings.flag3.data, pindex, XdrvMailbox.payload);
-          if (5 == pindex) {   // SetOption55
+          if (5 == pindex) {     // SetOption55
             if (0 == XdrvMailbox.payload) {
               restart_flag = 2;  // Disable mDNS needs restart
             }
           }
-          if (10 == pindex) {  // SetOption60 enable or disable traditional sleep
+          if (10 == pindex) {    // SetOption60 enable or disable traditional sleep
             WiFiSetSleepMode();  // Update WiFi sleep mode accordingly
           }
-          if (18 == pindex) { // SetOption68 for multi-channel PWM, requires a reboot
-            restart_flag = 2;
-          }
-          if (15 == pindex) { // SetOption65 for tuya_disable_dimmer requires a reboot
+          if (18 == pindex) {    // SetOption68 for multi-channel PWM, requires a reboot
             restart_flag = 2;
           }
         }
       }
-      else {                   // SetOption32 .. 49
+      else {                     // SetOption32 .. 49
         uint32_t param_low = 0;
         uint32_t param_high = 255;
         switch (pindex) {
@@ -643,9 +640,6 @@ void CmndSetoption(void)
           case P_MAX_POWER_RETRY:
             param_low = 1;
             param_high = 250;
-            break;
-          case P_ex_TUYA_RELAYS:
-            param_high = 8;
             break;
         }
         if ((XdrvMailbox.payload >= param_low) && (XdrvMailbox.payload <= param_high)) {
@@ -662,10 +656,6 @@ void CmndSetoption(void)
               break;
 #endif
 #ifdef USE_TUYA_MCU
-//            case P_ex_TUYA_RELAYS:
-//            case P_ex_TUYA_POWER_ID:
-//            case P_ex_TUYA_CURRENT_ID:
-//            case P_ex_TUYA_VOLTAGE_ID:
             case P_TUYA_DIMMER_MAX:
               restart_flag = 2;  // Need a restart to update GUI
               break;
@@ -1268,6 +1258,10 @@ void CmndReset(void)
   case 2 ... 6:
     restart_flag = 210 + XdrvMailbox.payload;
     Response_P(PSTR("{\"" D_CMND_RESET "\":\"" D_JSON_ERASE ", " D_JSON_RESET_AND_RESTARTING "\"}"));
+    break;
+  case 99:
+    Settings.bootcount = 0;
+    ResponseCmndDone();
     break;
   default:
     ResponseCmndChar(D_JSON_ONE_TO_RESET);

@@ -2359,7 +2359,7 @@ String UrlEncode(const String& text)
 //SendEmail::send(const String& from, const String& to, const String& subject, const String& msg)
 // sendmail [server:port:user:passwd:from:to:subject] data
 // sendmail [*:*:*:*:*:to:subject] data uses defines from user_config
-// sendmail currently only works with core 2.4.2 and core_pre 2.6
+// sendmail currently only works with core 2.4.2
 
 #define SEND_MAIL_MINRAM 19*1024
 
@@ -2608,10 +2608,6 @@ bool JsonWebColor(const char* dataBuf)
   return true;
 }
 
-#define D_CMND_SENDMAIL "sendmail"
-#define D_JSON_MEMORY_ERROR "memory error"
-
-
 const char kWebSendStatus[] PROGMEM = D_JSON_DONE "|" D_JSON_WRONG_PARAMETERS "|" D_JSON_CONNECT_FAILED "|" D_JSON_HOST_NOT_FOUND "|" D_JSON_MEMORY_ERROR;
 
 const char kWebCommands[] PROGMEM = "|"  // No prefix
@@ -2660,9 +2656,9 @@ void CmndEmulation(void)
 void CmndSendmail(void)
 {
   if (XdrvMailbox.data_len > 0) {
-      uint8_t result = SendMail(XdrvMailbox.data);
-      char stemp1[20];
-      ResponseCmndChar(GetTextIndexed(stemp1, sizeof(stemp1), result, kWebSendStatus));
+    uint8_t result = SendMail(XdrvMailbox.data);
+    char stemp1[20];
+    ResponseCmndChar(GetTextIndexed(stemp1, sizeof(stemp1), result, kWebSendStatus));
   }
 }
 #endif  // USE_SENDMAIL
