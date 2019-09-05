@@ -1804,7 +1804,7 @@ void Restore_graph(uint8_t num, char *path) {
   if (!fp) return;
   char vbuff[32];
   char *cp=vbuff;
-  char buf[2];
+  uint8_t buf[2];
   uint8_t findex=0;
 
   for (uint32_t count=0;count<=gp->xs+4;count++) {
