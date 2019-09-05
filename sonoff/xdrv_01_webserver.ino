@@ -2359,7 +2359,7 @@ String UrlEncode(const String& text)
 //SendEmail::send(const String& from, const String& to, const String& subject, const String& msg)
 // sendmail [server:port:user:passwd:from:to:subject] data
 // sendmail [*:*:*:*:*:to:subject] data uses defines from user_config
-// sendmail currently only works with core 2.4.2
+// sendmail currently only works with core 2.4.2 and core_pre 2.6
 
 #define SEND_MAIL_MINRAM 19*1024
 
