@@ -1147,7 +1147,7 @@ uint8_t ebus_CalculateCRC( uint8_t *Data, uint16_t DataLen ) {
 
 void sml_shift_in(uint32_t meters,uint32_t shard) {
   uint32_t count;
-  if (meter_desc_p[meters].type!='e' && meter_desc_p[meters].type!='m') {
+  if (meter_desc_p[meters].type!='e' && meter_desc_p[meters].type!='m' && meter_desc_p[meters].type!='p') {
     // shift in
     for (count=0; count<SML_BSIZ-1; count++) {
       smltbuf[meters][count]=smltbuf[meters][count+1];
@@ -1165,6 +1165,13 @@ void sml_shift_in(uint32_t meters,uint32_t shard) {
     smltbuf[meters][mbus_pos] = iob;
     mbus_pos++;
     if (mbus_pos>=9) {
+      SML_Decode(meters);
+      mbus_pos=0;
+    }
+  } else if (meter_desc_p[meters].type=='p') {
+    smltbuf[meters][mbus_pos] = iob;
+    mbus_pos++;
+    if (mbus_pos>=7) {
       SML_Decode(meters);
       mbus_pos=0;
     }
@@ -1198,7 +1205,7 @@ void sml_shift_in(uint32_t meters,uint32_t shard) {
 		}
   }
   sb_counter++;
-  if (meter_desc_p[meters].type!='e' && meter_desc_p[meters].type!='m') SML_Decode(meters);
+  if (meter_desc_p[meters].type!='e' && meter_desc_p[meters].type!='m' && meter_desc_p[meters].type!='p') SML_Decode(meters);
 }
 
 
@@ -1383,12 +1390,32 @@ void SML_Decode(uint8_t index) {
               ebus_dval=val;
               mp+=2;
             }
-            else if (*mp=='f' && *(mp+1)=='f' && *(mp+2)=='f' && *(mp+3)=='f' && *(mp+4)=='f' && *(mp+5)=='f' && *(mp+6)=='f' && *(mp+7)=='f') {
+            else if (!strncmp(mp,"ffffffff",8)) {
               uint32_t val= (*(cp+0)<<24)|(*(cp+1)<<16)|(*(cp+2)<<8)|(*(cp+3)<<0);
               float *fp=(float*)&val;
               mbus_dval=*fp;
               mp+=8;
               cp+=4;
+            }
+            else if (!strncmp(mp,"eeeeee",6)) {
+              uint32_t val=(*(cp+0)<<16)|(*(cp+1)<<8)|(*(cp+2)<<0);
+              mbus_dval=val;
+              mp+=6;
+              cp+=3;
+            }
+            else if (!strncmp(mp,"vvvvvv",6)) {
+              uint32_t val=((*cp<<8)|*(cp+1)) + (*(cp+2)/10);
+              float *fp=(float*)&val;
+              mbus_dval=*fp;
+              mp+=6;
+              cp+=3;
+            }
+            else if (!strncmp(mp,"cccccc",6)) {
+              uint32_t val=((*cp<<8)|*(cp+1)) + (*(cp+2)/100);
+              float *fp=(float*)&val;
+              mbus_dval=*fp;
+              mp+=6;
+              cp+=3;
             }
             else {
               uint8_t val = hexnibble(*mp++) << 4;
@@ -1400,6 +1427,22 @@ void SML_Decode(uint8_t index) {
           }
         }
       }
+/*
+
+      case RESP_VOLTAGE:
+        *data = (float)(buffer[1] << 8) + buffer[2] + (buffer[3] / 10.0);    // 65535.x V
+        break;
+      case RESP_CURRENT:
+        *data = (float)(buffer[1] << 8) + buffer[2] + (buffer[3] / 100.0);   // 65535.xx A
+        break;
+      case RESP_POWER:
+        *data = (float)(buffer[1] << 8) + buffer[2];                         // 65535 W
+        break;
+      case RESP_ENERGY:
+        *data = (float)((uint32_t)buffer[1] << 16) + ((uint16_t)buffer[2] << 8) + buffer[3];  // 16777215 Wh
+        break;
+
+        */
       if (found) {
         // matches, get value
         mp++;
@@ -1419,7 +1462,7 @@ void SML_Decode(uint8_t index) {
           }
         } else {
           double dval;
-          if (meter_desc_p[mindex].type!='e' && meter_desc_p[mindex].type!='r' && meter_desc_p[mindex].type!='m') {
+          if (meter_desc_p[mindex].type!='e' && meter_desc_p[mindex].type!='r' && meter_desc_p[mindex].type!='m' && meter_desc_p[mindex].type!='p') {
             // get numeric values
             if (meter_desc_p[mindex].type=='o' || meter_desc_p[mindex].type=='c') {
               dval=xCharToDouble((char*)cp);
@@ -1442,9 +1485,15 @@ void SML_Decode(uint8_t index) {
               if (mb_index!=meter_desc_p[mindex].index) {
                 goto nextsect;
               }
-              uint16_t crc = MBUS_calculateCRC(&smltbuf[mindex][0],7);
-              if (lowByte(crc)!=smltbuf[mindex][7]) goto nextsect;
-              if (highByte(crc)!=smltbuf[mindex][8]) goto nextsect;
+              if (meter_desc_p[mindex].type=='m') {
+                uint16_t crc = MBUS_calculateCRC(&smltbuf[mindex][0],7);
+                if (lowByte(crc)!=smltbuf[mindex][7]) goto nextsect;
+                if (highByte(crc)!=smltbuf[mindex][8]) goto nextsect;
+              }
+              if (meter_desc_p[mindex].type=='p') {
+                uint8_t crc = SML_PzemCrc(&smltbuf[mindex][0],5);
+                if (crc!=smltbuf[mindex][6]) goto nextsect;
+              }
               dval=mbus_dval;
               //AddLog_P2(LOG_LEVEL_INFO, PSTR(">> %s"),mp);
               mp++;
@@ -1916,7 +1965,7 @@ next_line:
     } else {
       // serial input, init
 #ifdef SPECIAL_SS
-        if (meter_desc_p[meters].type=='m') {
+        if (meter_desc_p[meters].type=='m' || meter_desc_p[meters].type=='p') {
           meter_ss[meters] = new TasmotaSerial(meter_desc_p[meters].srcpin,meter_desc_p[meters].trxpin,1);
         } else {
           meter_ss[meters] = new TasmotaSerial(meter_desc_p[meters].srcpin,meter_desc_p[meters].trxpin,1,1);
@@ -2086,6 +2135,10 @@ void SML_Send_Seq(uint32_t meter,char *seq) {
     *ucp++=highByte(crc);
     slen+=4;
   }
+  if (script_meter_desc[meter].type=='p') {
+    *ucp++=SML_PzemCrc(sbuff,5);
+    slen++;
+  }
   meter_ss[meter]->write(sbuff,slen);
 }
 #endif // USE_SCRIPT
@@ -2107,6 +2160,11 @@ uint16_t MBUS_calculateCRC(uint8_t *frame, uint8_t num) {
   return crc;
 }
 
+uint8_t SML_PzemCrc(uint8_t *data, uint8_t len) {
+  uint16_t crc = 0;
+  for (uint32_t i = 0; i < len; i++) crc += *data++;
+  return (uint8_t)(crc & 0xFF);
+}
 /*
 // for odd parity init with 1
 uint8_t CalcEvenParity(uint8_t data) {
