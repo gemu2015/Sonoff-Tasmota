@@ -143,6 +143,7 @@ if (2 == ili9488_ctouch_counter) {
   ili9488_ctouch_counter=0;
   if (FT6236readTouchLocation(&ili9488_pLoc,1)) {
     // did find a hit
+    //AddLog_P2(LOG_LEVEL_INFO, PSTR(">> %d,%d"),ili9488_pLoc.x,ili9488_pLoc.y);
     if (renderer) {
       uint8_t rot=renderer->getRotation();
       switch (rot) {
