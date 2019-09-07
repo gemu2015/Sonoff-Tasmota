@@ -525,6 +525,8 @@ char meter_id[MAX_METERS][METER_ID_SIZE];
 #define EBUS_ESC    0xa9
 
 uint8_t sml_send_blocks;
+uint8_t sml_250ms_cnt;
+uint8_t sml_desc_cnt;
 
 #ifdef USE_MEDIAN_FILTER
 // median filter, should be odd size
@@ -1768,6 +1770,8 @@ void SML_Init(void) {
   meter_desc_p=meter_desc;
   meter_p=meter;
 
+  sml_desc_cnt=0;
+
   for (uint32_t cnt=0;cnt<MAX_VARS;cnt++) {
     meter_vars[cnt]=0;
   }
@@ -2068,16 +2072,12 @@ char *SML_Get_Sequence(char *cp,uint32_t index) {
   }
 }
 
-uint8_t sml_250ms_cnt;
-uint8_t sml_desc_cnt;
-
 void SML_Check_Send(void) {
   sml_250ms_cnt++;
   char *cp;
-  for (uint32_t cnt=0; cnt<meters_used; cnt++) {
+  for (uint32_t cnt=sml_desc_cnt; cnt<meters_used; cnt++) {
     if (script_meter_desc[cnt].trxpin>=0 && script_meter_desc[cnt].txmem) {
       if ((sml_250ms_cnt%script_meter_desc[cnt].tsecs)==0) {
-
         if (script_meter_desc[cnt].max_index>1) {
           script_meter_desc[cnt].index++;
           if (script_meter_desc[cnt].index>=script_meter_desc[cnt].max_index) {
@@ -2091,15 +2091,19 @@ void SML_Check_Send(void) {
           //SML_Send_Seq(cnt,cp);
           sml_desc_cnt++;
         }
-        if (sml_desc_cnt>=sml_send_blocks) {
-          sml_desc_cnt=0;
-        }
-        //if (cnt==sml_desc_cnt-1) {
         //AddLog_P2(LOG_LEVEL_INFO, PSTR(">> %s"),cp);
         SML_Send_Seq(cnt,cp);
+        if (sml_desc_cnt>=meters_used) {
+          sml_desc_cnt=0;
+        }
         break;
-        //}
       }
+    } else {
+      sml_desc_cnt++;
+    }
+
+    if (sml_desc_cnt>=meters_used) {
+      sml_desc_cnt=0;
     }
   }
 }
