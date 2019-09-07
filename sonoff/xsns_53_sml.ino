@@ -147,6 +147,8 @@ struct METER_DESC {
   uint8_t max_index;
 };
 
+
+
 // meter list , enter new meters here
 //=====================================================
 #define EHZ161_0 1
@@ -506,6 +508,7 @@ uint8_t meters_used;
 
 struct METER_DESC const *meter_desc_p;
 const uint8_t *meter_p;
+uint8_t meter_spos[MAX_METERS];
 
 // software serial pointers
 TasmotaSerial *meter_ss[MAX_METERS];
@@ -520,9 +523,7 @@ char meter_id[MAX_METERS][METER_ID_SIZE];
 
 #define EBUS_SYNC		0xaa
 #define EBUS_ESC    0xa9
-uint8_t ebus_pos;
-uint8_t mbus_pos;
-uint8_t pzem_pos;
+
 uint8_t sml_send_blocks;
 
 #ifdef USE_MEDIAN_FILTER
@@ -1162,49 +1163,44 @@ void sml_shift_in(uint32_t meters,uint32_t shard) {
   } else if (meter_desc_p[meters].type=='r') {
     smltbuf[meters][SML_BSIZ-1]=iob;
   } else if (meter_desc_p[meters].type=='m') {
-    smltbuf[meters][mbus_pos] = iob;
-    mbus_pos++;
-    if (mbus_pos>=9) {
+    smltbuf[meters][meter_spos[meters]] = iob;
+    meter_spos[meters]++;
+    if (meter_spos[meters]>=9) {
       SML_Decode(meters);
       meter_ss[meters]->flush();
-      mbus_pos=0;
+      meter_spos[meters]=0;
     }
   } else if (meter_desc_p[meters].type=='p') {
-    smltbuf[meters][pzem_pos] = iob;
-    pzem_pos++;
-    if (pzem_pos>=7) {
+    smltbuf[meters][meter_spos[meters]] = iob;
+    meter_spos[meters]++;
+    if (meter_spos[meters]>=7) {
       SML_Decode(meters);
       meter_ss[meters]->flush();
-      pzem_pos=0;
+      meter_spos[meters]=0;
     }
   } else {
     if (iob==EBUS_SYNC) {
     	// should be end of telegramm
       // QQ,ZZ,PB,SB,NN ..... CRC, ACK SYNC
-      if (ebus_pos>4+5) {
+      if (meter_spos[meters]>4+5) {
       	// get telegramm lenght
         uint8_t tlen=smltbuf[meters][4]+5;
         // test crc
         if (smltbuf[meters][tlen]=ebus_CalculateCRC(smltbuf[meters],tlen)) {
             ebus_esc(smltbuf[meters],tlen);
-            //eBus_analyze();
-            // XX0204UUSS@
             SML_Decode(meters);
-            //AddLog_P(LOG_LEVEL_INFO, PSTR("ebus block found"));
-						//ebus_set_timeout();
         } else {
             // crc error
             //AddLog_P(LOG_LEVEL_INFO, PSTR("ebus crc error"));
         }
       }
-      meter_ss[meters]->flush();
-      ebus_pos=0;
+      meter_spos[meters]=0;
       return;
     }
-		smltbuf[meters][ebus_pos] = iob;
-		ebus_pos++;
-		if (ebus_pos>=SML_BSIZ) {
-			ebus_pos=0;
+		smltbuf[meters][meter_spos[meters]] = iob;
+		meter_spos[meters]++;
+		if (meter_spos[meters]>=SML_BSIZ) {
+			meter_spos[meters]=0;
 		}
   }
   sb_counter++;
@@ -1776,6 +1772,9 @@ void SML_Init(void) {
     meter_vars[cnt]=0;
   }
 
+  for (uint32_t cnt=0;cnt<MAX_METERS;cnt++) {
+    meter_spos[cnt]=0;
+  }
 
 #ifdef USE_SCRIPT
 
@@ -1785,8 +1784,6 @@ void SML_Init(void) {
      script_meter_desc[cnt].txmem=0;
    }
   }
-
-
 
   uint8_t meter_script=Run_Scripter(">M",-2,0);
   if (meter_script==99) {
