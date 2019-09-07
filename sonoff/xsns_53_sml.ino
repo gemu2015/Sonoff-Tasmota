@@ -525,7 +525,7 @@ char meter_id[MAX_METERS][METER_ID_SIZE];
 #define EBUS_ESC    0xa9
 
 uint8_t sml_send_blocks;
-uint8_t sml_250ms_cnt;
+uint8_t sml_100ms_cnt;
 uint8_t sml_desc_cnt;
 
 #ifdef USE_MEDIAN_FILTER
@@ -1148,6 +1148,13 @@ uint8_t ebus_CalculateCRC( uint8_t *Data, uint16_t DataLen ) {
    return Crc;
 }
 
+void sml_empty_receiver(uint32_t meters) {
+  while (meter_ss[meters]->available()) {
+    meter_ss[meters]->read();
+  }
+}
+
+
 void sml_shift_in(uint32_t meters,uint32_t shard) {
   uint32_t count;
   if (meter_desc_p[meters].type!='e' && meter_desc_p[meters].type!='m' && meter_desc_p[meters].type!='p') {
@@ -1169,7 +1176,7 @@ void sml_shift_in(uint32_t meters,uint32_t shard) {
     meter_spos[meters]++;
     if (meter_spos[meters]>=9) {
       SML_Decode(meters);
-      meter_ss[meters]->flush();
+      sml_empty_receiver(meters);
       meter_spos[meters]=0;
     }
   } else if (meter_desc_p[meters].type=='p') {
@@ -1177,7 +1184,7 @@ void sml_shift_in(uint32_t meters,uint32_t shard) {
     meter_spos[meters]++;
     if (meter_spos[meters]>=7) {
       SML_Decode(meters);
-      meter_ss[meters]->flush();
+      sml_empty_receiver(meters);
       meter_spos[meters]=0;
     }
   } else {
@@ -2073,11 +2080,11 @@ char *SML_Get_Sequence(char *cp,uint32_t index) {
 }
 
 void SML_Check_Send(void) {
-  sml_250ms_cnt++;
+  sml_100ms_cnt++;
   char *cp;
   for (uint32_t cnt=sml_desc_cnt; cnt<meters_used; cnt++) {
     if (script_meter_desc[cnt].trxpin>=0 && script_meter_desc[cnt].txmem) {
-      if ((sml_250ms_cnt%script_meter_desc[cnt].tsecs)==0) {
+      if ((sml_100ms_cnt%script_meter_desc[cnt].tsecs)==0) {
         if (script_meter_desc[cnt].max_index>1) {
           script_meter_desc[cnt].index++;
           if (script_meter_desc[cnt].index>=script_meter_desc[cnt].max_index) {
@@ -2270,7 +2277,7 @@ bool Xsns53(byte function) {
         else SML_Poll();
         break;
 #ifdef USE_SCRIPT
-      case FUNC_EVERY_250_MSECOND:
+      case FUNC_EVERY_100_MSECOND:
         SML_Check_Send();
         break;
 #endif // USE_SCRIPT
