@@ -1848,7 +1848,7 @@ void SML_Init(void) {
           index--;
           uint8_t srcpin=strtol(lp,&lp,10);
           if (Gpio_used(srcpin)) {
-            AddLog_P(LOG_LEVEL_INFO, PSTR("gpio double define!"));
+            AddLog_P(LOG_LEVEL_INFO, PSTR("gpio rx double define!"));
             return;
           }
           script_meter_desc[index].srcpin=srcpin;
@@ -1873,6 +1873,10 @@ void SML_Init(void) {
           if (*lp==',') {
             lp++;
             script_meter_desc[index].trxpin=strtol(lp,&lp,10);
+            if (Gpio_used(script_meter_desc[index].trxpin)) {
+              AddLog_P(LOG_LEVEL_INFO, PSTR("gpio tx double define!"));
+              return;
+            }
             if (*lp!=',') goto next_line;
             lp++;
             script_meter_desc[index].tsecs=strtol(lp,&lp,10);
