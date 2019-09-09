@@ -1377,7 +1377,14 @@ void SML_Decode(uint8_t index) {
               //ignore
               mp+=2;
               cp++;
-            } else if (*mp=='u' && *(mp+1)=='u' && *(mp+2)=='u' && *(mp+3)=='u'){
+            } else if (!strncmp(mp,"uuuuuuuu",8)) {
+              uint32_t val= (cp[0]<<24)|(cp[1]<<16)|(cp[2]<<8)|(cp[3]<<0);
+              ebus_dval=val;
+              mbus_dval=val;
+              mp+=8;
+              cp+=4;
+            }
+            else if (*mp=='u' && *(mp+1)=='u' && *(mp+2)=='u' && *(mp+3)=='u'){
               uint16_t val = cp[0]|(cp[1]<<8);
               mbus_dval=val;
               ebus_dval=val;
