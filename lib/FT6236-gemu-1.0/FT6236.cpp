@@ -109,6 +109,8 @@ uint8_t FT6236readTouchAddr( uint8_t regAddr, uint8_t * pBuf, uint8_t len )
   return i;
 }
 
+void AddLog_P2(uint32_t loglevel, PGM_P formatP, ...);
+
 uint8_t FT6236readTouchLocation( TouchLocation * pLoc, uint8_t num )
 {
   uint8_t retVal = 0;
@@ -118,8 +120,11 @@ uint8_t FT6236readTouchLocation( TouchLocation * pLoc, uint8_t num )
   {
     if (!pLoc) break; // must have a buffer
     if (!num)  break; // must be able to take at least one
+    uint8_t mode = FT6236readTouchRegister(0);
     uint8_t status = FT6236readTouchRegister(2);
+    //AddLog_P2(2, PSTR(">>:%d - %d"), mode,status);
     static uint8_t tbuf[40];
+    if ((status & 0xf0) > 0) break; // no points detected
     if ((status & 0x0f) == 0) break; // no points detected
     uint8_t hitPoints = status & 0x0f;
     FT6236readTouchAddr( 0x03, tbuf, hitPoints*6);
