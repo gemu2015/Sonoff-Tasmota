@@ -1821,6 +1821,7 @@ void SML_Init(void) {
     uint8_t *tp=0;
     uint16_t index=0;
     uint8_t section=0;
+    uint8_t srcpin=0;
     char *lp=glob_script_mem.scriptptr;
     sml_send_blocks=0;
     while (lp) {
@@ -1838,7 +1839,9 @@ void SML_Init(void) {
           }
           if (mlen==0) return; // missing end #
           script_meter=(uint8_t*)calloc(mlen,1);
-          if (!script_meter) return;
+          if (!script_meter) {
+            goto dddef_exit;
+          }
           tp=script_meter;
           goto next_line;
         }
@@ -1852,20 +1855,18 @@ void SML_Init(void) {
           // add descriptor +1,1,c,0,10,H20
           //toLogEOL(">>",lp);
           lp++;
-          uint8_t index=*lp&7;
+          index=*lp&7;
           lp+=2;
           if (index<1 || index>meters_used) goto next_line;
           index--;
-          uint8_t srcpin=strtol(lp,&lp,10);
+          srcpin=strtol(lp,&lp,10);
           if (Gpio_used(srcpin)) {
             AddLog_P(LOG_LEVEL_INFO, PSTR("gpio rx double define!"));
 dddef_exit:
             if (script_meter) free(script_meter);
             script_meter=0;
             meters_used=METERS_USED;
-            meter_desc_p=meter_desc;
-            meter_p=meter;
-            return;
+            goto init10;
           }
           script_meter_desc[index].srcpin=srcpin;
           if (*lp!=',') goto next_line;
@@ -1958,6 +1959,7 @@ next_line:
   }
 #endif
 
+init10:
   typedef void (*function)();
   function counter_callbacks[] = {SML_CounterUpd1,SML_CounterUpd2,SML_CounterUpd3,SML_CounterUpd4};
   uint8_t cindex=0;
