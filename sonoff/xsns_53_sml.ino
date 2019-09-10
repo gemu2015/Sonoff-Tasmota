@@ -1414,7 +1414,7 @@ void SML_Decode(uint8_t index) {
               mp+=8;
               cp+=4;
             }
-            else if (!strncmp(mp,"FFFFFFFF",8)) {
+            else if (!strncmp(mp,"FFffFFff",8)) {
               // reverse word float
               uint32_t val= (cp[1]<<0)|(cp[0]<<8)|(cp[3]<<16)|(cp[2]<<24);
               float *fp=(float*)&val;
@@ -1858,6 +1858,11 @@ void SML_Init(void) {
           uint8_t srcpin=strtol(lp,&lp,10);
           if (Gpio_used(srcpin)) {
             AddLog_P(LOG_LEVEL_INFO, PSTR("gpio rx double define!"));
+dddef_exit:
+            if (script_meter) free(script_meter);
+            meters_used=METERS_USED;
+            meter_desc_p=meter_desc;
+            meter_p=meter;
             return;
           }
           script_meter_desc[index].srcpin=srcpin;
@@ -1884,7 +1889,7 @@ void SML_Init(void) {
             script_meter_desc[index].trxpin=strtol(lp,&lp,10);
             if (Gpio_used(script_meter_desc[index].trxpin)) {
               AddLog_P(LOG_LEVEL_INFO, PSTR("gpio tx double define!"));
-              return;
+              goto dddef_exit;
             }
             if (*lp!=',') goto next_line;
             lp++;
