@@ -1,7 +1,14 @@
 /*********************************************************************************************\
+ * 6.6.0.12 20190910
+ * Redesign command Tariff to now default to 0 (=disabled) and allowing to set both Standard Time (ST) and Daylight Savings Time (DST) start hour
+ *  Commands Tariff1 23 = Tariff1 ST, Tariff2 7 = Tariff2 ST, Tarriff3 22 = Tarrif1 DST, Tariff4 6 = Tariff2 DST, Tariff9 0/1 = Weekend toggle
+ *
  * 6.6.0.11 20190907
  * Change Settings crc calculation allowing short term backward compatibility
  * Add support for up to 4 INA226 Voltage and Current sensors by Steve Rogers (#6342)
+ * Change Improve reliability of TasmotaSerial at 115200 bauds and reduce IRAM usage for Stage/pre-2.6
+ * Add support for A4988 stepper-motor-driver-circuit by Tim Leuschner (#6370)
+ * Add support for Hiking DDS238-2 Modbus energy meter by Matteo Campanella (#6384)
  *
  * 6.6.0.10 20190905
  * Redesign Tuya support by Shantur Rathore (#6353)

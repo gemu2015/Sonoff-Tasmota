@@ -43,7 +43,7 @@ void PzemDcEverySecond(void)
   bool data_ready = PzemDcModbus->ReceiveReady();
 
   if (data_ready) {
-    uint8_t buffer[22];
+    uint8_t buffer[26];  // At least 5 + (2 * 8) = 21
 
     uint8_t error = PzemDcModbus->ReceiveBuffer(buffer, 8);
     AddLogBuffer(LOG_LEVEL_DEBUG_MORE, buffer, sizeof(buffer));
@@ -88,10 +88,8 @@ void PzemDcSnsInit(void)
 
 void PzemDcDrvInit(void)
 {
-  if (!energy_flg) {
-    if ((pin[GPIO_PZEM017_RX] < 99) && (pin[GPIO_PZEM0XX_TX] < 99)) {
-      energy_flg = XNRG_06;
-    }
+  if ((pin[GPIO_PZEM017_RX] < 99) && (pin[GPIO_PZEM0XX_TX] < 99)) {
+    energy_flg = XNRG_06;
   }
 }
 
@@ -99,22 +97,20 @@ void PzemDcDrvInit(void)
  * Interface
 \*********************************************************************************************/
 
-int Xnrg06(uint8_t function)
+bool Xnrg06(uint8_t function)
 {
-  int result = 0;
+  bool result = false;
 
-  if (FUNC_PRE_INIT == function) {
-    PzemDcDrvInit();
-  }
-  else if (XNRG_06 == energy_flg) {
-    switch (function) {
-      case FUNC_INIT:
-        PzemDcSnsInit();
-        break;
-      case FUNC_ENERGY_EVERY_SECOND:
-        if (uptime > 4) { PzemDcEverySecond(); }  // Fix start up issue #5875
-        break;
-    }
+  switch (function) {
+    case FUNC_ENERGY_EVERY_SECOND:
+      if (uptime > 4) { PzemDcEverySecond(); }  // Fix start up issue #5875
+      break;
+    case FUNC_INIT:
+      PzemDcSnsInit();
+      break;
+    case FUNC_PRE_INIT:
+      PzemDcDrvInit();
+      break;
   }
   return result;
 }

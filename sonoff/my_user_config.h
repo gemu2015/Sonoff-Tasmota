@@ -302,6 +302,7 @@
   //#define USE_SCRIPT_FATFS 4                     // Script: Add FAT FileSystem Support
 
 //  #define USE_EXPRESSION                         // Add support for expression evaluation in rules (+3k2 code, +64 bytes mem)
+//    #define SUPPORT_IF_STATEMENT                 // Add support for IF statement in rules (+4k2 code, -332 bytes mem)
 //  #define SUPPORT_MQTT_EVENT                     // Support trigger event with MQTT subscriptions (+3k5 code)
 
 // -- Optional modules ----------------------------
@@ -430,10 +431,13 @@
 #define USE_PZEM_AC                              // Add support for PZEM014,016 Energy monitor (+1k1 code)
 #define USE_PZEM_DC                              // Add support for PZEM003,017 Energy monitor (+1k1 code)
 #define USE_MCP39F501                            // Add support for MCP39F501 Energy monitor as used in Shelly 2 (+3k1 code)
-//#define USE_SDM120_2                             // Add support for Eastron SDM120-Modbus energy meter (+1k4 code)
+//#define USE_SDM120_2                             // Add support for Eastron SDM120-Modbus energy monitor (+1k1 code)
+  #define SDM120_SPEED         2400              // SDM120-Modbus RS485 serial speed (default: 2400 baud)
+//#define USE_DDS2382                              // Add support for Hiking DDS2382 Modbus energy monitor (+0k6 code)
+  #define DDS2382_SPEED        9600              // Hiking DDS2382 Modbus RS485 serial speed (default: 9600 baud)
 
 //#define USE_SDM120                               // Add support for Eastron SDM120-Modbus energy meter (+2k4 code)
-  #define SDM120_SPEED         2400              // SDM120-Modbus RS485 serial speed (default: 2400 baud)
+//  #define SDM120_SPEED         2400              // SDM120-Modbus RS485 serial speed (default: 2400 baud)
   #define USE_SDM220                             // Add extra parameters for SDM220 (+0k1 code)
 //#define USE_SDM630                               // Add support for Eastron SDM630-Modbus energy meter (+2k code)
   #define SDM630_SPEED         9600              // SDM630-Modbus RS485 serial speed (default: 9600 baud)
@@ -528,6 +532,7 @@
 #define USE_SM16716                              // Add support for SM16716 RGB LED controller (+0k7 code)
 
 //#define USE_HRE                                  // Add support for Badger HR-E Water Meter (+1k4 code)
+//#define USE_A4988_Stepper                        // Add support for A4988 stepper-motor-driver-circuit (+10k5 code)
 
 /*********************************************************************************************\
  * Debug features
