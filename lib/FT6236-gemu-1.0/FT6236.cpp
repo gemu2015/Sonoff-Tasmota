@@ -9,6 +9,8 @@
  * possible
  */
 
+ void AddLog_P2(uint32_t loglevel, PGM_P formatP, ...);
+
 uint8_t FT6236buf[FT6236_BUFFER_SIZE];
 uint8_t FT6236_i2c_addr = 0x38;
 uint8_t lenLibVersion = 0;
@@ -87,12 +89,14 @@ uint8_t FT6236readTouchRegister(uint8_t reg)
 {
   Wire.beginTransmission(FT6236_i2c_addr);
   Wire.write(reg);  // register 0
-  uint8_t retVal = Wire.endTransmission();
+  uint8_t retVal1 = Wire.endTransmission();
+  uint8_t retVal;
   uint8_t returned = Wire.requestFrom(FT6236_i2c_addr,uint8_t(1));    // request 6 uint8_ts from slave device #2
   if (Wire.available())
   {
     retVal = Wire.read();
   }
+  //AddLog_P2(2, PSTR(">>:%d - %d - %d"),retVal1,returned,retVal);
   return retVal;
 }
 
@@ -109,7 +113,7 @@ uint8_t FT6236readTouchAddr( uint8_t regAddr, uint8_t * pBuf, uint8_t len )
   return i;
 }
 
-void AddLog_P2(uint32_t loglevel, PGM_P formatP, ...);
+
 
 uint8_t FT6236readTouchLocation( TouchLocation * pLoc, uint8_t num )
 {
