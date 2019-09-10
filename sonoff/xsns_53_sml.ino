@@ -1415,7 +1415,8 @@ void SML_Decode(uint8_t index) {
               cp+=4;
             }
             else if (!strncmp(mp,"FFFFFFFF",8)) {
-              uint32_t val= (cp[0]<<0)|(cp[1]<<0)|(cp[2]<<16)|(cp[3]<<24);
+              // reverse word float
+              uint32_t val= (cp[1]<<0)|(cp[0]<<8)|(cp[3]<<16)|(cp[2]<<24);
               float *fp=(float*)&val;
               ebus_dval=*fp;
               mbus_dval=*fp;
