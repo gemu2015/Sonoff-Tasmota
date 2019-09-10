@@ -1817,6 +1817,7 @@ void SML_Init(void) {
   if (meter_script==99) {
     // use script definition
     if (script_meter) free(script_meter);
+    script_meter=0;
     uint8_t *tp=0;
     uint16_t index=0;
     uint8_t section=0;
@@ -1860,6 +1861,7 @@ void SML_Init(void) {
             AddLog_P(LOG_LEVEL_INFO, PSTR("gpio rx double define!"));
 dddef_exit:
             if (script_meter) free(script_meter);
+            script_meter=0;
             meters_used=METERS_USED;
             meter_desc_p=meter_desc;
             meter_p=meter;
