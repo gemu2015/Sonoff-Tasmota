@@ -71,7 +71,7 @@ uint16_t FT6236GetButtonMask(void) {
 
 void FT6236begin(uint8_t i2c_addr) {
  FT6236_i2c_addr=i2c_addr;
- Wire.begin(FT6236_i2c_addr);
+ Wire.begin();
  FT6236writeTouchRegister(0,FT6236_MODE_NORMAL);
  lenLibVersion = FT6236readTouchAddr(0x0a1, FT6236buf, 2 );
  firmwareId = FT6236readTouchRegister( 0xa6 );
@@ -124,7 +124,7 @@ uint8_t FT6236readTouchLocation( TouchLocation * pLoc, uint8_t num )
   {
     if (!pLoc) break; // must have a buffer
     if (!num)  break; // must be able to take at least one
-    uint8_t mode = FT6236readTouchRegister(0);
+    //uint8_t mode = FT6236readTouchRegister(0);
     uint8_t status = FT6236readTouchRegister(2);
     //AddLog_P2(2, PSTR(">>:%d - %d"), mode,status);
     static uint8_t tbuf[40];
