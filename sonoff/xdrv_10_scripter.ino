@@ -3735,6 +3735,7 @@ bool Xdrv10(uint8_t function)
       // assure permanent memory is 4 byte aligned
       { uint32_t ptr=(uint32_t)glob_script_mem.script_pram;
       ptr&=0xfffffffc;
+      ptr+=4;
       glob_script_mem.script_pram=(uint8_t*)ptr;
       glob_script_mem.script_pram_size-=4;
       }
