@@ -194,6 +194,14 @@ enum UserSelectablePins {
   GPIO_RDM6300_RX,     // RDM6300 RX
   GPIO_IBEACON_TX,     // HM17 IBEACON TX
   GPIO_IBEACON_RX,     // HM17 IBEACON RX
+  GPIO_A4988_DIR,      // A4988 direction pin
+  GPIO_A4988_STP,      // A4988 step pin
+  GPIO_A4988_ENA,      // A4988 enabled pin
+  GPIO_A4988_MS1,      // A4988 microstep pin1
+  GPIO_A4988_MS2,      // A4988 microstep pin2
+  GPIO_A4988_MS3,      // A4988 microstep pin3
+  GPIO_DDS2382_TX,     // DDS2382 Serial interface
+  GPIO_DDS2382_RX,     // DDS2382 Serial interface
   GPIO_CC1101_CS,      // CC1101 CS
   GPIO_SENSOR_END };
 
@@ -268,7 +276,9 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_ZIGBEE_TXD "|" D_SENSOR_ZIGBEE_RXD "|"
   D_SENSOR_RDM6300_RX "|"
   D_SENSOR_IBEACON_TX "|" D_SENSOR_IBEACON_RX "|"
-  D_SENSOR_CC1101_CS "|"
+  D_SENSOR_A4988_DIR "|" D_SENSOR_A4988_STP "|" D_SENSOR_A4988_ENA "|" D_SENSOR_A4988_MS1 "|" D_SENSOR_A4988_MS2 "|" D_SENSOR_A4988_MS3 "|"
+  D_SENSOR_DDS2382_TX "|" D_SENSOR_DDS2382_RX "|"
+  D_SENSOR_CC1101_CS "|"	  
   ;
 
 // User selectable ADC0 functionality
@@ -612,6 +622,10 @@ const uint8_t kGpioNiceList[] PROGMEM = {
   GPIO_SDM120_TX,      // SDM120 Serial interface
   GPIO_SDM120_RX,      // SDM120 Serial interface
 #endif
+#ifdef USE_DDS2382
+  GPIO_DDS2382_TX,     // DDS2382 Serial interface
+  GPIO_DDS2382_RX,     // DDS2382 Serial interface
+#endif
 #endif  // USE_ENERGY_SENSOR
 #ifndef USE_SDM120_2
 #ifdef USE_SDM120
@@ -690,6 +704,15 @@ const uint8_t kGpioNiceList[] PROGMEM = {
 #ifdef USE_HRE
   GPIO_HRE_CLOCK,
   GPIO_HRE_DATA,
+#endif
+#ifdef USE_A4988_Stepper
+  GPIO_A4988_DIR,     // A4988 direction pin
+  GPIO_A4988_STP,     // A4988 step pin
+  // folowing are not mandatory
+  GPIO_A4988_ENA,     // A4988 enabled pin
+  GPIO_A4988_MS1,     // A4988 microstep pin1
+  GPIO_A4988_MS2,     // A4988 microstep pin2
+  GPIO_A4988_MS3,     // A4988 microstep pin3
 #endif
 #ifdef USE_MORITZ
   GPIO_CC1101_CS,
