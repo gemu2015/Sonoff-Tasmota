@@ -3343,7 +3343,6 @@ bool ScriptCommand(void) {
             if (XdrvMailbox.data[count]==';') XdrvMailbox.data[count]='\n';
           }
           execute_script(XdrvMailbox.data);
-          Scripter_save_pvars();
         }
       }
       return serviced;
