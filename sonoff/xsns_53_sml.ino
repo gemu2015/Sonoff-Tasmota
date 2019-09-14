@@ -22,7 +22,6 @@
 */
 
 #ifdef USE_SML_M
-//
 
 #define XSNS_53 53
 
@@ -30,13 +29,14 @@
 #define SML_BAUDRATE 9600
 
 // send this every N seconds (for meters that only send data on demand)
+// not longer supported, use scripting instead
 //#define SML_SEND_SEQ
 
 // debug counter input to led for counter1 and 2
 //#define DEBUG_CNT_LED1 2
 //#define DEBUG_CNT_LED1 2
 
-// use analog optical counter sensor with AD Converter ADS1115 (not yet)
+// use analog optical counter sensor with AD Converter ADS1115 (not yet functional)
 //#define ANALOG_OPTO_SENSOR
 // fototransistor with pullup at A0, A1 of ADS1115 A3 and +3.3V
 // level and amplification are automatically set
@@ -44,7 +44,7 @@
 
 #include <TasmotaSerial.h>
 
-// use special no wait serial driver
+// use special no wait serial driver, should be always on
 #define SPECIAL_SS
 
 // addresses a bug in meter DWS74
@@ -147,8 +147,9 @@ struct METER_DESC {
   uint8_t max_index;
 };
 
-
-
+// this descriptor method is no longer supported
+// but still functional for simple meters
+// use scripting method instead
 // meter list , enter new meters here
 //=====================================================
 #define EHZ161_0 1
@@ -393,7 +394,7 @@ const uint8_t meter[]=
 #define METERS_USED 1
 struct METER_DESC const meter_desc[METERS_USED]={
 [0]={3,'s',0,SML_BAUDRATE,"SML",-1,1,0}};
-// 2 Richtungszähler EHZ SML 8 bit 9600 baud, binär
+// 2 direction meter EHZ SML 8 bit 9600 baud, binary
 const uint8_t meter[]=
 //0x77,0x07,0x01,0x00,0x01,0x08,0x00,0xff
 "1,77070100010800ff@1000," D_TPWRIN ",KWh," DJ_TPWRIN ",4|"
@@ -409,7 +410,7 @@ const uint8_t meter[]=
 "1,77070100000009ff@#," D_METERNR ",," DJ_METERNR ",0";
 #endif
 
-// Beispiel für einen OBIS Stromzähler und einen Gaszähler + Wasserzähler
+// example  OBIS power meter + gas and water counter
 #if METER==COMBO3b
 #undef METERS_USED
 #define METERS_USED 3
@@ -418,14 +419,14 @@ struct METER_DESC const meter_desc[METERS_USED]={
   [1]={14,'c',0,50,"Gas"}, // GPIO14 gas counter
   [2]={1,'c',0,10,"Wasser"}}; // water counter
 
-// 3 Zähler definiert
+// 3 meters defined
 const uint8_t meter[]=
 "1,1-0:1.8.1*255(@1," D_TPWRIN ",KWh," DJ_TPWRIN ",4|"
 "1,1-0:2.8.1*255(@1," D_TPWROUT ",KWh," DJ_TPWROUT ",4|"
 "1,=d 2 10 @1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
 "1,1-0:0.0.0*255(@#)," D_METERNR ",," DJ_METERNR ",0|"
 
-// bei gaszählern (countern) muss der Vergleichsstring so aussehen wie hier
+// with counters the comparison string must be exactly this string
 "2,1-0:1.8.0*255(@100," D_GasIN ",cbm," DJ_COUNTER ",2|"
 
 "3,1-0:1.8.0*255(@100," D_H2oIN ",cbm," DJ_COUNTER ",2";
@@ -437,8 +438,8 @@ const uint8_t meter[]=
 #define METERS_USED 3
 
 struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={1,'c',0,10,"H20",-1,1,0}, // GPIO1 Wasser Zähler
-  [1]={4,'c',0,50,"GAS",-1,1,0}, // GPIO4 gas Zähler
+  [0]={1,'c',0,10,"H20",-1,1,0}, // GPIO1 water counter
+  [1]={4,'c',0,50,"GAS",-1,1,0}, // GPIO4 gas counter
   [2]={3,'s',0,SML_BAUDRATE,"SML",-1,1,0}}; // SML harware serial RX pin
 
 const uint8_t meter[]=
@@ -494,6 +495,7 @@ const uint8_t meter[]=
 // median filter eliminates outliers, but uses much RAM and CPU cycles
 // 672 bytes extra RAM with MAX_VARS = 16
 // default compile on, but must be enabled by descriptor flag 16
+// may be undefined if RAM must be saved
 #define USE_SML_MEDIAN_FILTER
 
 // max number of vars , may be adjusted
