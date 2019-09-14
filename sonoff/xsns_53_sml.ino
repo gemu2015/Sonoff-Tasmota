@@ -493,7 +493,8 @@ const uint8_t meter[]=
 
 // median filter eliminates outliers, but uses much RAM and CPU cycles
 // 672 bytes extra RAM with MAX_VARS = 16
-//#define USE_SML_MEDIAN_FILTER
+// default compile on, but must be enabled by descriptor flag 16
+#define USE_SML_MEDIAN_FILTER
 
 // max number of vars , may be adjusted
 #define MAX_VARS 16
@@ -1514,7 +1515,11 @@ void SML_Decode(uint8_t index) {
 
           }
 #ifdef USE_SML_MEDIAN_FILTER
-          meter_vars[vindex]=sml_median(&sml_mf[vindex],dval);
+          if (meter_desc_p[mindex].flag&16) {
+            meter_vars[vindex]=sml_median(&sml_mf[vindex],dval);
+          } else {
+            meter_vars[vindex]=dval;
+          }
 #else
           meter_vars[vindex]=dval;
 #endif
@@ -1810,7 +1815,7 @@ void SML_Init(void) {
     if (script_meter_desc[cnt].txmem) {
      free(script_meter_desc[cnt].txmem);
      script_meter_desc[cnt].txmem=0;
-   }
+    }
   }
 
   uint8_t meter_script=Run_Scripter(">M",-2,0);
