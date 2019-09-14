@@ -493,7 +493,7 @@ const uint8_t meter[]=
 
 // median filter eliminates outliers, but uses much RAM and CPU cycles
 // 672 bytes extra RAM with MAX_VARS = 16
-//#define USE_MEDIAN_FILTER
+//#define USE_SML_MEDIAN_FILTER
 
 // max number of vars , may be adjusted
 #define MAX_VARS 16
@@ -528,16 +528,16 @@ uint8_t sml_send_blocks;
 uint8_t sml_100ms_cnt;
 uint8_t sml_desc_cnt;
 
-#ifdef USE_MEDIAN_FILTER
+#ifdef USE_SML_MEDIAN_FILTER
 // median filter, should be odd size
 #define MEDIAN_SIZE 5
-struct MEDIAN_FILTER {
+struct SML_MEDIAN_FILTER {
 double buffer[MEDIAN_SIZE];
 int8_t index;
 } sml_mf[MAX_VARS];
 
 // calc median
-double median(struct MEDIAN_FILTER* mf, double in) {
+double sml_median(struct SML_MEDIAN_FILTER* mf, double in) {
   double tbuff[MEDIAN_SIZE],tmp;
   uint8_t flag;
   mf->buffer[mf->index]=in;
@@ -1513,8 +1513,8 @@ void SML_Decode(uint8_t index) {
             }
 
           }
-#ifdef USE_MEDIAN_FILTER
-          meter_vars[vindex]=median(&sml_mf[vindex],dval);
+#ifdef USE_SML_MEDIAN_FILTER
+          meter_vars[vindex]=sml_median(&sml_mf[vindex],dval);
 #else
           meter_vars[vindex]=dval;
 #endif

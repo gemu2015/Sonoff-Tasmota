@@ -2045,6 +2045,8 @@ void Replace_Cmd_Vars(char *srcbuf,char *dstbuf,uint16_t dstsize) {
               if (isdigit(*cp)) {
                 dprec=*cp&0xf;
                 cp++;
+              } else {
+                dprec=glob_script_mem.script_dprec;
               }
               cp=isvar(cp,&vtype,&ind,&fvar,string,0);
               if (vtype!=VAR_NV) {
