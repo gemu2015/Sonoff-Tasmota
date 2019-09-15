@@ -3844,12 +3844,6 @@ bool Xdrv10(uint8_t function)
       WebServer->on("/" WEB_HANDLE_SCRIPT, HandleScriptConfiguration);
       WebServer->on("/ta",HTTP_POST, HandleScriptTextareaConfiguration);
 
-
-#ifdef USE_SCRIPT_WEB_DISPLAY
-      //WebServer->on("/" WEB_HANDLE_SCRIPT, HandleScriptWebShow);
-      //WebServer->on("/sv", Script_Check_HTML_Setvars);
-#endif
-
 #ifdef USE_SCRIPT_FATFS
       WebServer->on("/u3", HTTP_POST,[]() { WebServer->sendHeader("Location","/u3");WebServer->send(303);},script_upload);
       WebServer->on("/u3", HTTP_GET,ScriptFileUploadSuccess);
