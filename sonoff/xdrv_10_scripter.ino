@@ -3603,8 +3603,14 @@ void Script_Check_HTML_Setvars(void) {
 const char SCRIPT_MSG_SLIDER[] PROGMEM =
   "<div><span class='p'>%s</span><center><b>%s</b><span class='q'>%s</span></div>"
   "<div><input type='range' min='%d' max='%d' value='%d' onchange='seva(value,\"%s\")'></div>";
-const char SCRIPT_FUNCTION[] PROGMEM =
-  "<div><script>var %s;function _%s(p){la('&%s='+p)}</script></div>";
+
+const char SCRIPT_MSG_BUTTON[] PROGMEM =
+  "<div><button type='submit' onclick='seva(value,\"%s\")'>%s</button></div>";
+
+const char SCRIPT_MSG_CHKBOX[] PROGMEM =
+  "<div><b>%s</b><input type='checkbox' %s onchange='seva(value,\"%s\")'></div>";
+
+
 
 void ScriptWebShow(void) {
   uint8_t web_script=Run_Scripter(">W",-2,0);
@@ -3667,9 +3673,52 @@ void ScriptWebShow(void) {
           lp=GetStringResult(lp,OPER_EQU,right,0);
           SCRIPT_SKIP_SPACES
 
-          //WSContentSend_PD(SCRIPT_FUNCTION,vname,vname,vname);
-
           WSContentSend_PD(SCRIPT_MSG_SLIDER,left,mid,right,(uint32_t)min,(uint32_t)max,(uint32_t)val,vname);
+
+
+        } else if (!strncmp(line,"ck(",3)) {
+          char *lp=line+3;
+          char *slp=lp;
+          float val;
+          lp=GetNumericResult(lp,OPER_EQU,&val,0);
+          SCRIPT_SKIP_SPACES
+
+          char vname[16];
+          uint32_t cnt;
+          for (cnt=0;cnt<sizeof(vname)-1;cnt++) {
+            if (*slp==' ') {
+              break;
+            }
+            vname[cnt]=*slp++;
+          }
+          vname[cnt]=0;
+
+          char label[SCRIPT_MAXSSIZE];
+          lp=GetStringResult(lp,OPER_EQU,label,0);
+          char *cp;
+          if (val>0) {
+            cp="checked='checked'";
+          } else {
+            cp="";
+          }
+          WSContentSend_PD(SCRIPT_MSG_CHKBOX,label,cp,vname);
+
+/*
+          char ontxt[SCRIPT_MAXSSIZE];
+          lp=GetStringResult(lp,OPER_EQU,ontxt,0);
+          SCRIPT_SKIP_SPACES
+          char offtxt[SCRIPT_MAXSSIZE];
+          lp=GetStringResult(lp,OPER_EQU,offtxt,0);
+
+          char *cp;
+          if (val>0) {
+            cp=ontxt;
+          } else {
+            cp=offtxt;
+          }
+          //WSContentSend_PD(SCRIPT_MSG_BUTTON,vname,cp);
+          WSContentSend_PD(SCRIPT_MSG_CHKBOX,vname,vname,cp);
+          */
 
 
         } else {
