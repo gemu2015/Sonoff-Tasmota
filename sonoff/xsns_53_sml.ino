@@ -570,8 +570,8 @@ double sml_median_array(double *array,uint8_t len) {
 
 // calc median
 double sml_median(struct SML_MEDIAN_FILTER* mf, double in) {
-  double tbuff[MEDIAN_SIZE],tmp;
-  uint8_t flag;
+  //double tbuff[MEDIAN_SIZE],tmp;
+  //uint8_t flag;
   mf->buffer[mf->index]=in;
   mf->index++;
   if (mf->index>=MEDIAN_SIZE) mf->index=0;
