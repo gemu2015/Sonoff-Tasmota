@@ -3206,6 +3206,7 @@ void HandleScriptTextareaConfiguration(void) {
 }
 
 void HandleScriptConfiguration(void) {
+
     if (!HttpCheckPriviledgedAccess()) { return; }
 
     AddLog_P(LOG_LEVEL_DEBUG, S_LOG_HTTP, S_CONFIGURE_SCRIPT);
@@ -3581,9 +3582,29 @@ String ScriptUnsubscribe(const char * data, int data_len)
 #ifdef USE_SCRIPT_WEB_DISPLAY
 
 
+void Script_Check_HTML_Setvars(void) {
+
+  if (!HttpCheckPriviledgedAccess()) { return; }
+
+  if (WebServer->hasArg("sv")) {
+    String stmp = WebServer->arg("sv");
+    char cmdbuf[64];
+    char *cp=cmdbuf;
+    *cp++='>';
+    strncpy(cp,stmp.c_str(),sizeof(cmdbuf)-1);
+    char *cp1=strchr(cp,'_');
+    if (!cp1) return;
+    *cp1='=';
+    execute_script(cmdbuf);
+    //AddLog_P(LOG_LEVEL_INFO, S_LOG_HTTP,stmp.c_str());
+  }
+}
+
 const char SCRIPT_MSG_SLIDER[] PROGMEM =
-  "<div><span class='p'>%s</span><span class='q'>%s</span></div>"
-  "<div><input type='range' min='%d' max='%d' value='%d' onchange='%s(value)'></div>";
+  "<div><span class='p'>%s</span><center><b>%s</b><span class='q'>%s</span></div>"
+  "<div><input type='range' min='%d' max='%d' value='%d' onchange='seva(value,\"%s\")'></div>";
+const char SCRIPT_FUNCTION[] PROGMEM =
+  "<div><script>var %s;function _%s(p){la('&%s='+p)}</script></div>";
 
 void ScriptWebShow(void) {
   uint8_t web_script=Run_Scripter(">W",-2,0);
@@ -3622,8 +3643,19 @@ void ScriptWebShow(void) {
           lp=GetNumericResult(lp,OPER_EQU,&max,0);
           SCRIPT_SKIP_SPACES
           float val;
+          char *slp=lp;
           lp=GetNumericResult(lp,OPER_EQU,&val,0);
           SCRIPT_SKIP_SPACES
+
+          char vname[16];
+          uint32_t cnt;
+          for (cnt=0;cnt<sizeof(vname)-1;cnt++) {
+            if (*slp==' ') {
+              break;
+            }
+            vname[cnt]=*slp++;
+          }
+          vname[cnt]=0;
 
           char left[SCRIPT_MAXSSIZE];
           lp=GetStringResult(lp,OPER_EQU,left,0);
@@ -3635,10 +3667,18 @@ void ScriptWebShow(void) {
           lp=GetStringResult(lp,OPER_EQU,right,0);
           SCRIPT_SKIP_SPACES
 
-          WSContentSend_PD(SCRIPT_MSG_SLIDER,left,mid,right,min,max,val,"lb");
+          //WSContentSend_PD(SCRIPT_FUNCTION,vname,vname,vname);
+
+          WSContentSend_PD(SCRIPT_MSG_SLIDER,left,mid,right,(uint32_t)min,(uint32_t)max,(uint32_t)val,vname);
+
+
         } else {
           Replace_Cmd_Vars(line,tmp,sizeof(tmp));
-          WSContentSend_PD(PSTR("{s}%s{e}"),tmp);
+          if (tmp[0]=='@') {
+            WSContentSend_PD(PSTR("<div>%s</div>"),&tmp[1]);
+          } else {
+            WSContentSend_PD(PSTR("{s}%s{e}"),tmp);
+          }
         }
       }
       if (*lp==SCRIPT_EOL) {
@@ -3803,6 +3843,13 @@ bool Xdrv10(uint8_t function)
     case FUNC_WEB_ADD_HANDLER:
       WebServer->on("/" WEB_HANDLE_SCRIPT, HandleScriptConfiguration);
       WebServer->on("/ta",HTTP_POST, HandleScriptTextareaConfiguration);
+
+
+#ifdef USE_SCRIPT_WEB_DISPLAY
+      //WebServer->on("/" WEB_HANDLE_SCRIPT, HandleScriptWebShow);
+      //WebServer->on("/sv", Script_Check_HTML_Setvars);
+#endif
+
 #ifdef USE_SCRIPT_FATFS
       WebServer->on("/u3", HTTP_POST,[]() { WebServer->sendHeader("Location","/u3");WebServer->send(303);},script_upload);
       WebServer->on("/u3", HTTP_GET,ScriptFileUploadSuccess);
