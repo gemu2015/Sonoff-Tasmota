@@ -3579,6 +3579,12 @@ String ScriptUnsubscribe(const char * data, int data_len)
 #endif //     SUPPORT_MQTT_EVENT
 
 #ifdef USE_SCRIPT_WEB_DISPLAY
+
+
+const char SCRIPT_MSG_SLIDER[] PROGMEM =
+  "<div><span class='p'>%s</span><span class='q'>%s</span></div>"
+  "<div><input type='range' min='%d' max='%d' value='%d' onchange='%s(value)'></div>";
+
 void ScriptWebShow(void) {
   uint8_t web_script=Run_Scripter(">W",-2,0);
   if (web_script==99) {
@@ -3604,8 +3610,36 @@ void ScriptWebShow(void) {
           }
           cp++;
         }
-        Replace_Cmd_Vars(line,tmp,sizeof(tmp));
-        WSContentSend_PD(PSTR("{s}%s{e}"),tmp);
+        // check for input elements
+        if (!strncmp(line,"sl(",3)) {
+          // insert slider sl(min max var left mid right)
+          char *lp=line;
+          float min;
+          lp=GetNumericResult(lp+3,OPER_EQU,&min,0);
+          SCRIPT_SKIP_SPACES
+          // arg2
+          float max;
+          lp=GetNumericResult(lp,OPER_EQU,&max,0);
+          SCRIPT_SKIP_SPACES
+          float val;
+          lp=GetNumericResult(lp,OPER_EQU,&val,0);
+          SCRIPT_SKIP_SPACES
+
+          char left[SCRIPT_MAXSSIZE];
+          lp=GetStringResult(lp,OPER_EQU,left,0);
+          SCRIPT_SKIP_SPACES
+          char mid[SCRIPT_MAXSSIZE];
+          lp=GetStringResult(lp,OPER_EQU,mid,0);
+          SCRIPT_SKIP_SPACES
+          char right[SCRIPT_MAXSSIZE];
+          lp=GetStringResult(lp,OPER_EQU,right,0);
+          SCRIPT_SKIP_SPACES
+
+          WSContentSend_PD(SCRIPT_MSG_SLIDER,left,mid,right,min,max,val,"lb");
+        } else {
+          Replace_Cmd_Vars(line,tmp,sizeof(tmp));
+          WSContentSend_PD(PSTR("{s}%s{e}"),tmp);
+        }
       }
       if (*lp==SCRIPT_EOL) {
         lp++;

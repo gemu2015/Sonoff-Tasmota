@@ -576,7 +576,7 @@ double sml_median(struct SML_MEDIAN_FILTER* mf, double in) {
   mf->index++;
   if (mf->index>=MEDIAN_SIZE) mf->index=0;
 
-  return median_array(mf->buffer,MEDIAN_SIZE);
+  return sml_median_array(mf->buffer,MEDIAN_SIZE);
 /*
   // sort list and take median
   memmove(tbuff,mf->buffer,sizeof(tbuff));
