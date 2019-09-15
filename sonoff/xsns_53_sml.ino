@@ -539,6 +539,35 @@ double buffer[MEDIAN_SIZE];
 int8_t index;
 } sml_mf[MAX_VARS];
 
+
+double sml_median_array(double *array,uint8_t len) {
+      uint8_t ind[len];
+      uint8_t mind=0,index=0,flg;
+      double min=FLT_MAX;
+
+      for (uint8_t hcnt=0; hcnt<len/2+1; hcnt++) {
+          for (uint8_t mcnt=0; mcnt<len; mcnt++) {
+              flg=0;
+              for (uint8_t icnt=0; icnt<index; icnt++) {
+                  if (ind[icnt]==mcnt) {
+                      flg=1;
+                  }
+              }
+              if (!flg) {
+                  if (array[mcnt]<min) {
+                      min=array[mcnt];
+                      mind=mcnt;
+                  }
+              }
+          }
+          ind[index]=mind;
+          index++;
+          min=FLT_MAX;
+      }
+      return array[ind[len/2]];
+  }
+
+
 // calc median
 double sml_median(struct SML_MEDIAN_FILTER* mf, double in) {
   double tbuff[MEDIAN_SIZE],tmp;
@@ -546,6 +575,9 @@ double sml_median(struct SML_MEDIAN_FILTER* mf, double in) {
   mf->buffer[mf->index]=in;
   mf->index++;
   if (mf->index>=MEDIAN_SIZE) mf->index=0;
+
+  return median_array(mf->buffer,MEDIAN_SIZE);
+/*
   // sort list and take median
   memmove(tbuff,mf->buffer,sizeof(tbuff));
   for (byte ocnt=0; ocnt<MEDIAN_SIZE; ocnt++) {
@@ -561,6 +593,7 @@ double sml_median(struct SML_MEDIAN_FILTER* mf, double in) {
     if (!flag) break;
   }
   return tbuff[MEDIAN_SIZE/2];
+  */
 }
 #endif
 
