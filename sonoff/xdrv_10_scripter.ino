@@ -3625,10 +3625,10 @@ const char SCRIPT_MSG_BUTTON[] PROGMEM =
   "<div><button type='submit' onclick='seva(%d,\"%s\")'>%s</button></div>";
 
 const char SCRIPT_MSG_CHKBOX[] PROGMEM =
-  "<div><label><b>%s</b><input type='checkbox' %s onchange='seva(%d,\"%s\")'></label></div>";
+  "<div><center><label><b>%s</b><input type='checkbox' %s onchange='seva(%d,\"%s\")'></label></div>";
 
 const char SCRIPT_MSG_TEXTINP[] PROGMEM =
-  "<div><label><b>%s</b><input type='text' maxlength='32' value='%s' onchange='seva(value,\"%s\")'></label></div>";
+  "<div><center><label><b>%s</b><input type='text'  value='%s' style='width:200px' onchange='seva(value,\"%s\")'></label></div>";
 
 //<input onkeypress="if(event.key == 'Enter') {console.log('Test')}">
 //<input onBlur="if (this.value == '') { var field = this; setTimeout(function() { field.focus(); }, 0); }" type="text">
