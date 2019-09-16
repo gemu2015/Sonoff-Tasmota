@@ -3605,10 +3605,16 @@ const char SCRIPT_MSG_SLIDER[] PROGMEM =
   "<div><input type='range' min='%d' max='%d' value='%d' onchange='seva(value,\"%s\")'></div>";
 
 const char SCRIPT_MSG_BUTTON[] PROGMEM =
-  "<div><button type='submit' onclick='seva(value,\"%s\")'>%s</button></div>";
+  "<div><button type='submit' onclick='seva(%d,\"%s\")'>%s</button></div>";
 
 const char SCRIPT_MSG_CHKBOX[] PROGMEM =
-  "<div><b>%s</b><input type='checkbox' %s onchange='seva(value,\"%s\")'></div>";
+  "<div><b>%s</b><input type='checkbox' %s onchange='seva(%d,\"%s\")'></div>";
+
+const char SCRIPT_MSG_TEXTINP[] PROGMEM =
+  "<div><input type='text' maxlength='32' value='%s' onkeypress='seva(value,\"%s\")'></div>";
+
+
+//<input onkeypress="if(event.key == 'Enter') {console.log('Test')}">
 
 
 
@@ -3696,14 +3702,34 @@ void ScriptWebShow(void) {
           char label[SCRIPT_MAXSSIZE];
           lp=GetStringResult(lp,OPER_EQU,label,0);
           char *cp;
+          uint8_t uval;
           if (val>0) {
             cp="checked='checked'";
+            uval=0;
           } else {
             cp="";
+            uval=1;
           }
-          WSContentSend_PD(SCRIPT_MSG_CHKBOX,label,cp,vname);
+          WSContentSend_PD(SCRIPT_MSG_CHKBOX,label,cp,uval,vname);
 
-/*
+        } else if (!strncmp(line,"bu(",3)) {
+          char *lp=line+3;
+          char *slp=lp;
+          float val;
+          lp=GetNumericResult(lp,OPER_EQU,&val,0);
+          SCRIPT_SKIP_SPACES
+
+          char vname[16];
+          uint32_t cnt;
+          for (cnt=0;cnt<sizeof(vname)-1;cnt++) {
+            if (*slp==' ') {
+              break;
+            }
+            vname[cnt]=*slp++;
+          }
+          vname[cnt]=0;
+
+          SCRIPT_SKIP_SPACES
           char ontxt[SCRIPT_MAXSSIZE];
           lp=GetStringResult(lp,OPER_EQU,ontxt,0);
           SCRIPT_SKIP_SPACES
@@ -3711,17 +3737,36 @@ void ScriptWebShow(void) {
           lp=GetStringResult(lp,OPER_EQU,offtxt,0);
 
           char *cp;
+          uint8_t uval;
           if (val>0) {
             cp=ontxt;
+            uval=0;
           } else {
             cp=offtxt;
+            uval=1;
           }
-          //WSContentSend_PD(SCRIPT_MSG_BUTTON,vname,cp);
-          WSContentSend_PD(SCRIPT_MSG_CHKBOX,vname,vname,cp);
-          */
+          WSContentSend_PD(SCRIPT_MSG_BUTTON,uval,vname,cp);
 
+        } else if (!strncmp(line,"tx(",3)) {
+          char *lp=line+3;
+          char *slp=lp;
+          char str[SCRIPT_MAXSSIZE];
+          lp=ForceStringVar(lp,str);
 
-        } else {
+          char vname[16];
+          uint32_t cnt;
+          for (cnt=0;cnt<sizeof(vname)-1;cnt++) {
+            if (*slp==' ' || *slp==')') {
+              break;
+            }
+            vname[cnt]=*slp++;
+          }
+          vname[cnt]=0;
+
+          WSContentSend_PD(SCRIPT_MSG_TEXTINP,str,vname);
+
+        }
+        else {
           Replace_Cmd_Vars(line,tmp,sizeof(tmp));
           if (tmp[0]=='@') {
             WSContentSend_PD(PSTR("<div>%s</div>"),&tmp[1]);
