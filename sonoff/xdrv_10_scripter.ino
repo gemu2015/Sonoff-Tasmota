@@ -3589,14 +3589,31 @@ void Script_Check_HTML_Setvars(void) {
   if (WebServer->hasArg("sv")) {
     String stmp = WebServer->arg("sv");
     char cmdbuf[64];
+    memset(cmdbuf,0,sizeof(cmdbuf));
     char *cp=cmdbuf;
     *cp++='>';
     strncpy(cp,stmp.c_str(),sizeof(cmdbuf)-1);
     char *cp1=strchr(cp,'_');
     if (!cp1) return;
+    *cp1=0;
+    char vname[32];
+    strncpy(vname,cp,sizeof(vname));
     *cp1='=';
+    cp1++;
+
+    struct T_INDEX ind;
+    uint8_t vtype;
+    isvar(vname,&vtype,&ind,0,0,0);
+    if (vtype!=NUM_RES && vtype&STYPE) {
+      // string type must insert quotes
+      uint8_t tlen=strlen(cp1);
+      memmove(cp1+1,cp1,tlen);
+      *cp1='\"';
+      *(cp1+tlen+1)='\"';
+    }
+
+    //toLog(cmdbuf);
     execute_script(cmdbuf);
-    //AddLog_P(LOG_LEVEL_INFO, S_LOG_HTTP,stmp.c_str());
   }
 }
 
@@ -3608,15 +3625,24 @@ const char SCRIPT_MSG_BUTTON[] PROGMEM =
   "<div><button type='submit' onclick='seva(%d,\"%s\")'>%s</button></div>";
 
 const char SCRIPT_MSG_CHKBOX[] PROGMEM =
-  "<div><b>%s</b><input type='checkbox' %s onchange='seva(%d,\"%s\")'></div>";
+  "<div><label><b>%s</b><input type='checkbox' %s onchange='seva(%d,\"%s\")'></label></div>";
 
 const char SCRIPT_MSG_TEXTINP[] PROGMEM =
-  "<div><input type='text' maxlength='32' value='%s' onkeypress='seva(value,\"%s\")'></div>";
-
+  "<div><label><b>%s</b><input type='text' maxlength='32' value='%s' onchange='seva(value,\"%s\")'></label></div>";
 
 //<input onkeypress="if(event.key == 'Enter') {console.log('Test')}">
+//<input onBlur="if (this.value == '') { var field = this; setTimeout(function() { field.focus(); }, 0); }" type="text">
 
-
+void ScriptGetVarname(char *nbuf,char *sp, uint32_t blen) {
+uint32_t cnt;
+  for (cnt=0;cnt<blen-1;cnt++) {
+    if (*sp==' ' || *sp==')') {
+      break;
+    }
+    nbuf[cnt]=*sp++;
+  }
+  nbuf[cnt]=0;
+}
 
 void ScriptWebShow(void) {
   uint8_t web_script=Run_Scripter(">W",-2,0);
@@ -3660,14 +3686,7 @@ void ScriptWebShow(void) {
           SCRIPT_SKIP_SPACES
 
           char vname[16];
-          uint32_t cnt;
-          for (cnt=0;cnt<sizeof(vname)-1;cnt++) {
-            if (*slp==' ') {
-              break;
-            }
-            vname[cnt]=*slp++;
-          }
-          vname[cnt]=0;
+          ScriptGetVarname(vname,slp,sizeof(vname));
 
           char left[SCRIPT_MAXSSIZE];
           lp=GetStringResult(lp,OPER_EQU,left,0);
@@ -3690,14 +3709,7 @@ void ScriptWebShow(void) {
           SCRIPT_SKIP_SPACES
 
           char vname[16];
-          uint32_t cnt;
-          for (cnt=0;cnt<sizeof(vname)-1;cnt++) {
-            if (*slp==' ') {
-              break;
-            }
-            vname[cnt]=*slp++;
-          }
-          vname[cnt]=0;
+          ScriptGetVarname(vname,slp,sizeof(vname));
 
           char label[SCRIPT_MAXSSIZE];
           lp=GetStringResult(lp,OPER_EQU,label,0);
@@ -3720,14 +3732,7 @@ void ScriptWebShow(void) {
           SCRIPT_SKIP_SPACES
 
           char vname[16];
-          uint32_t cnt;
-          for (cnt=0;cnt<sizeof(vname)-1;cnt++) {
-            if (*slp==' ') {
-              break;
-            }
-            vname[cnt]=*slp++;
-          }
-          vname[cnt]=0;
+          ScriptGetVarname(vname,slp,sizeof(vname));
 
           SCRIPT_SKIP_SPACES
           char ontxt[SCRIPT_MAXSSIZE];
@@ -3752,18 +3757,14 @@ void ScriptWebShow(void) {
           char *slp=lp;
           char str[SCRIPT_MAXSSIZE];
           lp=ForceStringVar(lp,str);
+          SCRIPT_SKIP_SPACES
+          char label[SCRIPT_MAXSSIZE];
+          lp=GetStringResult(lp,OPER_EQU,label,0);
 
           char vname[16];
-          uint32_t cnt;
-          for (cnt=0;cnt<sizeof(vname)-1;cnt++) {
-            if (*slp==' ' || *slp==')') {
-              break;
-            }
-            vname[cnt]=*slp++;
-          }
-          vname[cnt]=0;
+          ScriptGetVarname(vname,slp,sizeof(vname));
 
-          WSContentSend_PD(SCRIPT_MSG_TEXTINP,str,vname);
+          WSContentSend_PD(SCRIPT_MSG_TEXTINP,label,str,vname);
 
         }
         else {
