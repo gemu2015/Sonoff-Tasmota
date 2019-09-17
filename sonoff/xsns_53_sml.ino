@@ -1750,6 +1750,7 @@ void SML_Show(boolean json) {
    }
 
 
+/*
 #ifdef USE_DOMOTICZ
   if (json && !tele_period) {
     char str[16];
@@ -1761,6 +1762,7 @@ void SML_Show(boolean json) {
     DomoticzSensor(DZ_CURRENT, str);  // Current
   }
 #endif  // USE_DOMOTICZ
+*/
 }
 
 struct SML_COUNTER {
