@@ -1665,6 +1665,7 @@ void LightState(uint8_t append)
   if (!append) {
     ResponseJsonEnd();
   }
+  XdrvRulesProcess();
 }
 
 void LightPreparePower(void)
