@@ -2734,6 +2734,7 @@ int16_t Run_Scripter(const char *type, int8_t tlen, char *js) {
                     char str[SCRIPT_MAXSSIZE];
                     lp=getop(lp,&lastop);
                     char *slp=lp;
+                    glob_script_mem.glob_error=0;
                     lp=GetStringResult(lp,OPER_EQU,str,jo);
                     if (!js && glob_script_mem.glob_error) {
                       // mismatch
