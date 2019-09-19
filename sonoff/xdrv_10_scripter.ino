@@ -3645,7 +3645,7 @@ const char SCRIPT_MSG_TEXTINP[] PROGMEM =
   "<div><center><label><b>%s</b><input type='text'  value='%s' style='width:200px'  onfocusin='pr(0)' onfocusout='pr(1)' onchange='seva(value,\"%s\")'></label></div>";
 
 const char SCRIPT_MSG_NUMINP[] PROGMEM =
-  "<div><center><label><b>%s</b><input type='number'  value='%s' min='%s' max='%s' step='%s' style='width:200px' onfocusin='pr(0)' onfocusout='pr(1)' onchange='seva(value,\"%s\")'></label></div>";
+  "<div><center><label><b>%s</b><input  min='%s' max='%s' step='%s' value='%s' type='number' style='width:200px' onfocusin='pr(0)' onfocusout='pr(1)' onchange='seva(value,\"%s\")'></label></div>";
 
 //<input onkeypress="if(event.key == 'Enter') {console.log('Test')}">
 //<input onBlur="if (this.value == '') { var field = this; setTimeout(function() { field.focus(); }, 0); }" type="text">
@@ -3792,7 +3792,7 @@ void ScriptWebShow(void) {
           lp=GetNumericResult(lp,OPER_EQU,&max,0);
           SCRIPT_SKIP_SPACES
           float step;
-          lp=GetNumericResult(lp,OPER_EQU,&max,0);
+          lp=GetNumericResult(lp,OPER_EQU,&step,0);
           SCRIPT_SKIP_SPACES
           float val;
           char *slp=lp;
@@ -3807,9 +3807,9 @@ void ScriptWebShow(void) {
           char vstr[16],minstr[16],maxstr[16],stepstr[16];
           dtostrfd(val,4,vstr);
           dtostrfd(min,4,minstr);
-          dtostrfd(max,4,stepstr);
-          dtostrfd(step,4,minstr);
-          WSContentSend_PD(SCRIPT_MSG_NUMINP,label,vstr,minstr,maxstr,stepstr,vname);
+          dtostrfd(max,4,maxstr);
+          dtostrfd(step,4,stepstr);
+          WSContentSend_PD(SCRIPT_MSG_NUMINP,label,minstr,maxstr,stepstr,vstr,vname);
 
         } else {
           Replace_Cmd_Vars(line,tmp,sizeof(tmp));
