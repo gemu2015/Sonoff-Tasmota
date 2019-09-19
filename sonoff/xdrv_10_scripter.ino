@@ -3642,7 +3642,10 @@ const char SCRIPT_MSG_CHKBOX[] PROGMEM =
   "<div><center><label><b>%s</b><input type='checkbox' %s onchange='seva(%d,\"%s\")'></label></div>";
 
 const char SCRIPT_MSG_TEXTINP[] PROGMEM =
-  "<div><center><label><b>%s</b><input type='text'  value='%s' style='width:200px' onchange='seva(value,\"%s\")'></label></div>";
+  "<div><center><label><b>%s</b><input type='text'  value='%s' style='width:200px'  onfocusin='pr(0)' onfocusout='pr(1)' onchange='seva(value,\"%s\")'></label></div>";
+
+const char SCRIPT_MSG_NUMINP[] PROGMEM =
+  "<div><center><label><b>%s</b><input type='number'  value='%s' min='%s' max='%s' step='%s' style='width:200px' onfocusin='pr(0)' onfocusout='pr(1)' onchange='seva(value,\"%s\")'></label></div>";
 
 //<input onkeypress="if(event.key == 'Enter') {console.log('Test')}">
 //<input onBlur="if (this.value == '') { var field = this; setTimeout(function() { field.focus(); }, 0); }" type="text">
@@ -3727,7 +3730,7 @@ void ScriptWebShow(void) {
 
           char label[SCRIPT_MAXSSIZE];
           lp=GetStringResult(lp,OPER_EQU,label,0);
-          char *cp;
+          const char *cp;
           uint8_t uval;
           if (val>0) {
             cp="checked='checked'";
@@ -3736,7 +3739,7 @@ void ScriptWebShow(void) {
             cp="";
             uval=1;
           }
-          WSContentSend_PD(SCRIPT_MSG_CHKBOX,label,cp,uval,vname);
+          WSContentSend_PD(SCRIPT_MSG_CHKBOX,label,(char*)cp,uval,vname);
 
         } else if (!strncmp(line,"bu(",3)) {
           char *lp=line+3;
@@ -3780,8 +3783,35 @@ void ScriptWebShow(void) {
 
           WSContentSend_PD(SCRIPT_MSG_TEXTINP,label,str,vname);
 
-        }
-        else {
+        } else if (!strncmp(line,"nm(",3)) {
+          char *lp=line;
+          float min;
+          lp=GetNumericResult(lp+3,OPER_EQU,&min,0);
+          SCRIPT_SKIP_SPACES
+          float max;
+          lp=GetNumericResult(lp,OPER_EQU,&max,0);
+          SCRIPT_SKIP_SPACES
+          float step;
+          lp=GetNumericResult(lp,OPER_EQU,&max,0);
+          SCRIPT_SKIP_SPACES
+          float val;
+          char *slp=lp;
+          lp=GetNumericResult(lp,OPER_EQU,&val,0);
+          SCRIPT_SKIP_SPACES
+          char vname[16];
+          ScriptGetVarname(vname,slp,sizeof(vname));
+
+          char label[SCRIPT_MAXSSIZE];
+          lp=GetStringResult(lp,OPER_EQU,label,0);
+
+          char vstr[16],minstr[16],maxstr[16],stepstr[16];
+          dtostrfd(val,4,vstr);
+          dtostrfd(min,4,minstr);
+          dtostrfd(max,4,stepstr);
+          dtostrfd(step,4,minstr);
+          WSContentSend_PD(SCRIPT_MSG_NUMINP,label,vstr,minstr,maxstr,stepstr,vname);
+
+        } else {
           Replace_Cmd_Vars(line,tmp,sizeof(tmp));
           if (tmp[0]=='@') {
             WSContentSend_PD(PSTR("<div>%s</div>"),&tmp[1]);
