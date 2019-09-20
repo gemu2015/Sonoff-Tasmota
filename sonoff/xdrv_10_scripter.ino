@@ -3637,19 +3637,32 @@ const char SCRIPT_MSG_SLIDER[] PROGMEM =
   "<div><input type='range' min='%d' max='%d' value='%d' onchange='seva(value,\"%s\")'></div>";
 
 const char SCRIPT_MSG_BUTTON[] PROGMEM =
-  "<div><button type='submit' onclick='seva(%d,\"%s\")'>%s</button></div>";
+  "<button type='submit' style=\"width:%d%%\" onclick='seva(%d,\"%s\")'>%s</button> ";
+
+const char xxSCRIPT_MSG_BUTTON[] PROGMEM =
+  "<td style='width:%d%%'><button onclick='seva(%d,\"%s\")';'>%s</button></td>";
 
 const char SCRIPT_MSG_CHKBOX[] PROGMEM =
   "<div><center><label><b>%s</b><input type='checkbox' %s onchange='seva(%d,\"%s\")'></label></div>";
 
 const char SCRIPT_MSG_TEXTINP[] PROGMEM =
-  "<div><center><label><b>%s</b><input type='text'  value='%s' style='width:200px'  onfocusin='pr(0)' onfocusout='pr(1)' onchange='seva(value,\"%s\")'></label></div>";
+  "<div><center><label><b>%s</b><input type='text'  value='%s' style='width:200px'  onfocusin='pr(0)' onfocusout='pr(1)' onchange='siva(value,\"%s\")'></label></div>";
 
 const char SCRIPT_MSG_NUMINP[] PROGMEM =
-  "<div><center><label><b>%s</b><input  min='%s' max='%s' step='%s' value='%s' type='number' style='width:200px' onfocusin='pr(0)' onfocusout='pr(1)' onchange='seva(value,\"%s\")'></label></div>";
+  "<div><center><label><b>%s</b><input  min='%s' max='%s' step='%s' value='%s' type='number' style='width:200px' onfocusin='pr(0)' onfocusout='pr(1)' onchange='siva(value,\"%s\")'></label></div>";
 
-//<input onkeypress="if(event.key == 'Enter') {console.log('Test')}">
-//<input onBlur="if (this.value == '') { var field = this; setTimeout(function() { field.focus(); }, 0); }" type="text">
+const char SCRIPT_MSG_BUT_START[] PROGMEM =
+//  "<table style='width:100%%'><tr>";
+  "<div>";
+
+
+const char SCRIPT_MSG_BUT_STOP[] PROGMEM =
+  "</div>";
+
+
+
+
+
 
 void ScriptGetVarname(char *nbuf,char *sp, uint32_t blen) {
 uint32_t cnt;
@@ -3744,32 +3757,46 @@ void ScriptWebShow(void) {
 
         } else if (!strncmp(line,"bu(",3)) {
           char *lp=line+3;
-          char *slp=lp;
-          float val;
-          lp=GetNumericResult(lp,OPER_EQU,&val,0);
-          SCRIPT_SKIP_SPACES
-
-          char vname[16];
-          ScriptGetVarname(vname,slp,sizeof(vname));
-
-          SCRIPT_SKIP_SPACES
-          char ontxt[SCRIPT_MAXSSIZE];
-          lp=GetStringResult(lp,OPER_EQU,ontxt,0);
-          SCRIPT_SKIP_SPACES
-          char offtxt[SCRIPT_MAXSSIZE];
-          lp=GetStringResult(lp,OPER_EQU,offtxt,0);
-
-          char *cp;
-          uint8_t uval;
-          if (val>0) {
-            cp=ontxt;
-            uval=0;
-          } else {
-            cp=offtxt;
-            uval=1;
+          uint8_t bcnt=0;
+          char *found=line;
+          while (bcnt<4) {
+            found=strstr(found,"bu(");
+            if (!found) break;
+            found+=3;
+            bcnt++;
           }
-          WSContentSend_PD(SCRIPT_MSG_BUTTON,uval,vname,cp);
+          uint8_t proz=100/bcnt;
+          if (bcnt>1) proz-=2;
+          WSContentSend_PD(SCRIPT_MSG_BUT_START);
+          for (uint32_t cnt=0;cnt<bcnt;cnt++) {
+            float val;
+            char *slp=lp;
+            lp=GetNumericResult(lp,OPER_EQU,&val,0);
+            SCRIPT_SKIP_SPACES
 
+            char vname[16];
+            ScriptGetVarname(vname,slp,sizeof(vname));
+
+            SCRIPT_SKIP_SPACES
+            char ontxt[SCRIPT_MAXSSIZE];
+            lp=GetStringResult(lp,OPER_EQU,ontxt,0);
+            SCRIPT_SKIP_SPACES
+            char offtxt[SCRIPT_MAXSSIZE];
+            lp=GetStringResult(lp,OPER_EQU,offtxt,0);
+
+            char *cp;
+            uint8_t uval;
+            if (val>0) {
+              cp=ontxt;
+              uval=0;
+            } else {
+              cp=offtxt;
+              uval=1;
+            }
+            WSContentSend_PD(SCRIPT_MSG_BUTTON,proz,uval,vname,cp);
+            lp+=4;
+          }
+          WSContentSend_PD(SCRIPT_MSG_BUT_STOP);
         } else if (!strncmp(line,"tx(",3)) {
           char *lp=line+3;
           char *slp=lp;

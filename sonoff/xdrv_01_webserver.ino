@@ -92,7 +92,7 @@ const char HTTP_SCRIPT_COUNTER[] PROGMEM =
   "wl(u);";
 
 const char HTTP_SCRIPT_ROOT[] PROGMEM =
-
+  "var rfsh=1;"
   "function la(p){"
     "var a='';"
     "if(la.arguments.length==1){"
@@ -114,9 +114,13 @@ const char HTTP_SCRIPT_ROOT[] PROGMEM =
     "}"
   "}"
 #ifdef USE_SCRIPT_WEB_DISPLAY
-  "var rfsh=1;"
   "function seva(par,ivar){"
     "la('&sv='+ivar+'_'+par);"
+  "}"
+  "function siva(par,ivar){"
+    "rfsh=1;"
+    "la('&sv='+ivar+'_'+par);"
+    "rfsh=0;"
   "}"
   "function pr(f){"
     "if (f) {"
