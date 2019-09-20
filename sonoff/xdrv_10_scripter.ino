@@ -3636,11 +3636,14 @@ const char SCRIPT_MSG_SLIDER[] PROGMEM =
   "<div><span class='p'>%s</span><center><b>%s</b><span class='q'>%s</span></div>"
   "<div><input type='range' min='%d' max='%d' value='%d' onchange='seva(value,\"%s\")'></div>";
 
-const char SCRIPT_MSG_BUTTON[] PROGMEM =
-  "<button type='submit' style=\"width:%d%%\" onclick='seva(%d,\"%s\")'>%s</button> ";
+const char SCRIPT_MSG_BUTTONa[] PROGMEM =
+  "<button type='submit' style=\"width:%d%%\" onclick='seva(%d,\"%s\")'>%s</button>";
 
-const char xxSCRIPT_MSG_BUTTON[] PROGMEM =
-  "<td style='width:%d%%'><button onclick='seva(%d,\"%s\")';'>%s</button></td>";
+const char SCRIPT_MSG_BUTTONb[] PROGMEM =
+  "<img width=\"%d%%\"><\img>";
+
+//const char xxSCRIPT_MSG_BUTTON[] PROGMEM =
+//  "<td style='width:%d%%'><button onclick='seva(%d,\"%s\")';'>%s</button></td>";
 
 const char SCRIPT_MSG_CHKBOX[] PROGMEM =
   "<div><center><label><b>%s</b><input type='checkbox' %s onchange='seva(%d,\"%s\")'></label></div>";
@@ -3654,7 +3657,6 @@ const char SCRIPT_MSG_NUMINP[] PROGMEM =
 const char SCRIPT_MSG_BUT_START[] PROGMEM =
 //  "<table style='width:100%%'><tr>";
   "<div>";
-
 
 const char SCRIPT_MSG_BUT_STOP[] PROGMEM =
   "</div>";
@@ -3793,7 +3795,13 @@ void ScriptWebShow(void) {
               cp=offtxt;
               uval=1;
             }
-            WSContentSend_PD(SCRIPT_MSG_BUTTON,proz,uval,vname,cp);
+            if (bcnt>1 && cnt==bcnt-1) {
+              proz+=2;
+            }
+            WSContentSend_PD(SCRIPT_MSG_BUTTONa,proz,uval,vname,cp);
+            if (bcnt>1 && cnt<bcnt-1) {
+              WSContentSend_PD(SCRIPT_MSG_BUTTONb,2);
+            }
             lp+=4;
           }
           WSContentSend_PD(SCRIPT_MSG_BUT_STOP);
