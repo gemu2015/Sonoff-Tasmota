@@ -3629,6 +3629,7 @@ void Script_Check_HTML_Setvars(void) {
 
     //toLog(cmdbuf);
     execute_script(cmdbuf);
+    Run_Scripter(">E",2,0);
   }
 }
 
