@@ -2295,12 +2295,10 @@ int16_t Run_Scripter(const char *type, int8_t tlen, char *js) {
         if (section) {
             // we are in section
             if (*lp=='>') {
-                section=0;
-                break;
+                return 0;
             }
             if (*lp=='#') {
-                section=0;
-                break;
+                return 0;
             }
             glob_script_mem.var_not_found=0;
 
@@ -2832,11 +2830,17 @@ int16_t Run_Scripter(const char *type, int8_t tlen, char *js) {
           lp++;
         } else {
           lp = strchr(lp, SCRIPT_EOL);
-          if (!lp) break;
+          if (!lp) {
+            if (section) {
+              return 0;
+            } else {
+              return -1;
+            }
+          }
           lp++;
         }
     }
-    return 0;
+    return -1;
 }
 
 uint8_t script_xsns_index = 0;
@@ -3321,6 +3325,36 @@ void ScriptSaveSettings(void) {
 
 #endif
 
+
+#ifdef USE_SCRIPT_SUB_COMMAND
+bool Script_SubCmd(void) {
+  if (!bitRead(Settings.rule_enabled, 0)) return false;
+
+  char cmdbuff[128];
+  char *cp=cmdbuff;
+  *cp++='#';
+  strcpy(cp,XdrvMailbox.topic);
+  uint8_t tlen=strlen(XdrvMailbox.topic);
+  cp+=tlen;
+  if (XdrvMailbox.index > 0) {
+    *cp++=XdrvMailbox.index|0x30;
+    tlen++;
+  }
+  if ((XdrvMailbox.payload>0) || (XdrvMailbox.data_len>0)) {
+    *cp++='(';
+    strncpy(cp,XdrvMailbox.data,XdrvMailbox.data_len);
+    cp+=XdrvMailbox.data_len;
+    *cp++=')';
+    *cp=0;
+  }
+  toLog(cmdbuff);
+  uint32_t res=Run_Scripter(cmdbuff,tlen+1,0);
+  //AddLog_P2(LOG_LEVEL_INFO,">>%d",res);
+  if (res) return false;
+  else return true;
+}
+#endif
+
 void execute_script(char *script) {
   char *svd_sp=glob_script_mem.scriptptr;
   strcat(script,"\n#");
@@ -3342,6 +3376,20 @@ bool ScriptCommand(void) {
 
   int command_code = GetCommandCode(command, sizeof(command), XdrvMailbox.topic, kScriptCommands);
   if (-1 == command_code) {
+#ifdef USE_SCRIPT_SUB_COMMAND
+    strlcpy(command,XdrvMailbox.topic,CMDSZ);
+    uint32_t pl=XdrvMailbox.payload;
+    char pld[64];
+    strlcpy(pld,XdrvMailbox.data,sizeof(pld));
+    if (Script_SubCmd()) {
+      if (pl>=0) {
+        Response_P(S_JSON_COMMAND_NVALUE, command, pl);
+      } else {
+        Response_P(S_JSON_COMMAND_SVALUE, command, pld);
+      }
+      return serviced;
+    }
+#endif
     serviced = false;  // Unknown command
   }
   else if ((CMND_SCRIPT == command_code) && (index > 0)) {
@@ -3366,15 +3414,15 @@ bool ScriptCommand(void) {
       return serviced;
     }
     snprintf_P (mqtt_data, sizeof(mqtt_data), PSTR("{\"%s\":\"%s\",\"Free\":%d}"),command, GetStateText(bitRead(Settings.rule_enabled,0)),glob_script_mem.script_size-strlen(glob_script_mem.script_ram));
-  #ifdef SUPPORT_MQTT_EVENT
+#ifdef SUPPORT_MQTT_EVENT
   } else if (CMND_SUBSCRIBE == command_code) {			//MQTT Subscribe command. Subscribe <Event>, <Topic> [, <Key>]
       String result = ScriptSubscribe(XdrvMailbox.data, XdrvMailbox.data_len);
       Response_P(S_JSON_COMMAND_SVALUE, command, result.c_str());
     } else if (CMND_UNSUBSCRIBE == command_code) {			//MQTT Un-subscribe command. UnSubscribe <Event>
       String result = ScriptUnsubscribe(XdrvMailbox.data, XdrvMailbox.data_len);
       Response_P(S_JSON_COMMAND_SVALUE, command, result.c_str());
-  #endif        //SUPPORT_MQTT_EVENT
-   }
+#endif        //SUPPORT_MQTT_EVENT
+  }
   return serviced;
 }
 
