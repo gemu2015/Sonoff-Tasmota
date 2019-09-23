@@ -3347,7 +3347,7 @@ bool Script_SubCmd(void) {
     *cp++=')';
     *cp=0;
   }
-  toLog(cmdbuff);
+  //toLog(cmdbuff);
   uint32_t res=Run_Scripter(cmdbuff,tlen+1,0);
   //AddLog_P2(LOG_LEVEL_INFO,">>%d",res);
   if (res) return false;
