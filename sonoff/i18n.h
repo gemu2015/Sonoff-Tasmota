@@ -175,6 +175,8 @@
 #define D_JSON_PV2_CURRENT "Pv2Current"
 #define D_JSON_PV2_POWER "Pv2Power"
 #define D_JSON_SOLAR_POWER "SolarPower"
+#define D_JSON_USAGE "Usage"
+#define D_JSON_EXPORT "Export"
 
 #define D_RSLT_ENERGY "ENERGY"
 #define D_RSLT_HASS_STATE "HASS_STATE"
@@ -452,7 +454,9 @@
 #define D_CMND_TUYA_MCU "TuyaMCU"
 
 // Commands xdrv_23_zigbee.ino
+#define D_CMND_ZIGBEE_PERMITJOIN "ZigbeePermitJoin"
 #define D_CMND_ZIGBEEZNPSEND "ZigbeeZNPSend"
+  #define D_JSON_ZIGBEE_STATUS "ZigbeeStatus"
   #define D_JSON_ZIGBEEZNPRECEIVED "ZigbeeZNPReceived"
   #define D_JSON_ZIGBEEZNPSENT "ZigbeeZNPSent"
   #define D_JSON_ZIGBEEZCLRECEIVED "ZigbeeZCLReceived"

@@ -113,7 +113,7 @@ const uint16_t SERIALLOG_TIMER = 600;       // Seconds to disable SerialLog
 const uint8_t OTA_ATTEMPTS = 5;             // Number of times to try fetching the new firmware
 
 const uint16_t INPUT_BUFFER_SIZE = 520;     // Max number of characters in (serial and http) command buffer
-const uint16_t FLOATSZ = 33;                // Max number of characters in float result from dtostrfd
+const uint16_t FLOATSZ = 16;                // Max number of characters in float result from dtostrfd (max 32)
 const uint16_t CMDSZ = 24;                  // Max number of characters in command
 const uint16_t TOPSZ = 100;                 // Max number of characters in topic string
 const uint16_t LOGSZ = 520;                 // Max number of characters in log
@@ -278,6 +278,8 @@ enum XsnsFunctions {FUNC_SETTINGS_OVERRIDE, FUNC_PIN_STATE, FUNC_MODULE_INIT, FU
                     FUNC_ENERGY_EVERY_SECOND, FUNC_ENERGY_RESET,
                     FUNC_RULES_PROCESS, FUNC_SERIAL, FUNC_FREE_MEM, FUNC_BUTTON_PRESSED,
                     FUNC_WEB_ADD_BUTTON, FUNC_WEB_ADD_MAIN_BUTTON, FUNC_WEB_ADD_HANDLER, FUNC_SET_CHANNELS};
+
+enum AddressConfigSteps { ADDR_IDLE, ADDR_RECEIVE, ADDR_SEND };
 
 enum CommandSource { SRC_IGNORE, SRC_MQTT, SRC_RESTART, SRC_BUTTON, SRC_SWITCH, SRC_BACKLOG, SRC_SERIAL, SRC_WEBGUI, SRC_WEBCOMMAND, SRC_WEBCONSOLE, SRC_PULSETIMER,
                      SRC_TIMER, SRC_RULE, SRC_MAXPOWER, SRC_MAXENERGY, SRC_OVERTEMP, SRC_LIGHT, SRC_KNX, SRC_DISPLAY, SRC_WEMO, SRC_HUE, SRC_RETRY, SRC_REMOTE, SRC_MAX };

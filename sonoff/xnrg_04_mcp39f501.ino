@@ -455,21 +455,18 @@ void McpParseData(void)
   mcp_line_frequency = McpExtractInt(mcp_buffer, 22, 2);
 
   if (Energy.power_on) {  // Powered on
-    Energy.frequency = (float)mcp_line_frequency / 1000;
-    Energy.voltage = (float)mcp_voltage_rms / 10;
-    Energy.active_power = (float)mcp_active_power / 100;
-    if (0 == Energy.active_power) {
-      Energy.current = 0;
+    Energy.data_valid[0] = 0;
+    Energy.frequency[0] = (float)mcp_line_frequency / 1000;
+    Energy.voltage[0] = (float)mcp_voltage_rms / 10;
+    Energy.active_power[0] = (float)mcp_active_power / 100;
+    if (0 == Energy.active_power[0]) {
+      Energy.current[0] = 0;
     } else {
-      Energy.current = (float)mcp_current_rms / 10000;
+      Energy.current[0] = (float)mcp_current_rms / 10000;
     }
   } else {  // Powered off
-    Energy.frequency = 0;
-    Energy.voltage = 0;
-    Energy.active_power = 0;
-    Energy.current = 0;
+    Energy.data_valid[0] = ENERGY_WATCHDOG;
   }
-  Energy.data_valid = 0;
 }
 
 /********************************************************************************************/
@@ -527,7 +524,7 @@ void McpSerialInput(void)
 
 void McpEverySecond(void)
 {
-  if (Energy.data_valid > ENERGY_WATCHDOG) {
+  if (Energy.data_valid[0] > ENERGY_WATCHDOG) {
     mcp_voltage_rms = 0;
     mcp_current_rms = 0;
     mcp_active_power = 0;

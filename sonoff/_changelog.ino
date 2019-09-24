@@ -1,10 +1,24 @@
 /*********************************************************************************************\
+ * 6.6.0.13 20190922
+ * Add command EnergyReset4 x,x to initialize total usage for two tarrifs
+ * Add command EnergyReset5 x,x to initialize total export (or production) for two tarrifs
+ * Add command Sensor34 8,0 and Sensor34 8,1 to disable/enable JSON message on weight change over 4 gram
+ * Add JSON array index support to rules evaluation allowing trigger on ENERGY#POWER[2]>0.60 from JSON ..,"Power":[0.00,0.68],.. (#6160)
+ *
  * 6.6.0.12 20190910
  * Redesign command Tariff to now default to 0 (=disabled) and allowing to set both Standard Time (ST) and Daylight Savings Time (DST) start hour
  *  Commands Tariff1 22,23 = Tariff1 (Off-Peak) ST,DST   Tariff2 (Standard) 6,7 = Tariff2 ST,DST   Tariff9 0/1 = Weekend toggle (1 = Off-Peak during weekend)
  * Change rename "Data" to "Hash" and limit to 32 bits when receiving UNKNOWN IR protocol (see DECODE_HASH from IRremoteESP8266)
  * Add command Gpios 255/All to show all available GPIO components (#6407)
  * Change JSON output format for commands Adc, Adcs, Modules, Gpio and Gpios from list to dictionary (#6407)
+ * Add Zigbee support phase 3 - support for Xiaomi lumi.weather air quality sensor, Osram mini-switch
+ * Change energy sensors for three phase/channel support
+ * Add support for Shelly 2.5 dual energy (#6160)
+ * Add initial support for up to three PZEM-014/-016 on serial modbus connection with addresses 1 (default), 2 and 3 (#2315)
+ * Add initial support for up to three PZEM-004T on serial connection with addresses x.x.x.1 (default), 2 and 3 (#2315)
+ * Add initial support for up to three PZEM-003/-017 on serial modbus connection with addresses 1 (default), 2 and 3 (#2315)
+ * Add driver USE_SDM630_2 as future replacement for USE_SDM630 - Pls test and report
+ * Add command ModuleAddress 1/2/3 to set Pzem module address when a single module is connected (#2315)
  *
  * 6.6.0.11 20190907
  * Change Settings crc calculation allowing short term backward compatibility

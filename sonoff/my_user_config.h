@@ -433,6 +433,8 @@
 #define USE_MCP39F501                            // Add support for MCP39F501 Energy monitor as used in Shelly 2 (+3k1 code)
 //#define USE_SDM120_2                             // Add support for Eastron SDM120-Modbus energy monitor (+1k1 code)
   #define SDM120_SPEED         2400              // SDM120-Modbus RS485 serial speed (default: 2400 baud)
+//#define USE_SDM630_2                             // Add support for Eastron SDM630-Modbus energy monitor (+0k6 code)
+  #define SDM630_SPEED         9600              // SDM630-Modbus RS485 serial speed (default: 9600 baud)
 //#define USE_DDS2382                              // Add support for Hiking DDS2382 Modbus energy monitor (+0k6 code)
   #define DDS2382_SPEED        9600              // Hiking DDS2382 Modbus RS485 serial speed (default: 9600 baud)
 
@@ -440,7 +442,7 @@
 //  #define SDM120_SPEED         2400              // SDM120-Modbus RS485 serial speed (default: 2400 baud)
   #define USE_SDM220                             // Add extra parameters for SDM220 (+0k1 code)
 //#define USE_SDM630                               // Add support for Eastron SDM630-Modbus energy meter (+2k code)
-  #define SDM630_SPEED         9600              // SDM630-Modbus RS485 serial speed (default: 9600 baud)
+//  #define SDM630_SPEED         9600              // SDM630-Modbus RS485 serial speed (default: 9600 baud)
 //#define USE_SOLAX_X1                             // Add support for Solax X1 series Modbus log info (+4k1 code)
   #define SOLAXX1_SPEED        9600              // Solax X1 Modbus RS485 serial speed (default: 9600 baud)
   #define SOLAXX1_PV2                            // Solax X1 using second PV
@@ -496,10 +498,10 @@
     #define IR_RCV_MIN_UNKNOWN_SIZE 6            // Set the smallest sized "UNKNOWN" message packets we actually care about (default 6, max 255)
 
 // -- Zigbee interface ----------------------------
-//#define USE_ZIGBEE                               // Enable serial communication with Zigbee CC2530 flashed with ZNP
-  #define USE_ZIGBEE_PANID  0x1A63               // arbitrary PAN ID for Zigbee network, must be unique in the home
+//#define USE_ZIGBEE                                // Enable serial communication with Zigbee CC2530 flashed with ZNP
+  #define USE_ZIGBEE_PANID  0x1A63                // arbitrary PAN ID for Zigbee network, must be unique in the home
   #define USE_ZIGBEE_EXTPANID 0xCCCCCCCCCCCCCCCCL // arbitrary extended PAN ID
-  #define USE_ZIGBEE_CHANNEL  0x00000800         // Zigbee Channel (11)
+  #define USE_ZIGBEE_CHANNEL  11                  // Zigbee Channel (11-26)
   #define USE_ZIGBEE_PRECFGKEY_L 0x0F0D0B0907050301L  // note: changing requires to re-pair all devices
   #define USE_ZIGBEE_PRECFGKEY_H 0x0D0C0A0806040200L  // note: changing requires to re-pair all devices
   #define USE_ZIGBEE_PERMIT_JOIN false           // don't allow joining by default
