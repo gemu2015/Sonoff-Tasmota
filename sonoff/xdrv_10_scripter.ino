@@ -3343,6 +3343,14 @@ void ScriptSaveSettings(void) {
 bool Script_SubCmd(void) {
   if (!bitRead(Settings.rule_enabled, 0)) return false;
 
+  if (tasm_cmd_activ) return false;
+
+  char command[CMDSZ];
+  strlcpy(command,XdrvMailbox.topic,CMDSZ);
+  uint32_t pl=XdrvMailbox.payload;
+  char pld[64];
+  strlcpy(pld,XdrvMailbox.data,sizeof(pld));
+
   char cmdbuff[128];
   char *cp=cmdbuff;
   *cp++='#';
@@ -3364,7 +3372,14 @@ bool Script_SubCmd(void) {
   uint32_t res=Run_Scripter(cmdbuff,tlen+1,0);
   //AddLog_P2(LOG_LEVEL_INFO,">>%d",res);
   if (res) return false;
-  else return true;
+  else {
+    if (pl>=0) {
+      Response_P(S_JSON_COMMAND_NVALUE, command, pl);
+    } else {
+      Response_P(S_JSON_COMMAND_SVALUE, command, pld);
+    }
+  }
+  return true;
 }
 #endif
 
@@ -3391,20 +3406,6 @@ bool ScriptCommand(void) {
 
   int command_code = GetCommandCode(command, sizeof(command), XdrvMailbox.topic, kScriptCommands);
   if (-1 == command_code) {
-#ifdef USE_SCRIPT_SUB_COMMAND
-    strlcpy(command,XdrvMailbox.topic,CMDSZ);
-    uint32_t pl=XdrvMailbox.payload;
-    char pld[64];
-    strlcpy(pld,XdrvMailbox.data,sizeof(pld));
-    if (Script_SubCmd()) {
-      if (pl>=0) {
-        Response_P(S_JSON_COMMAND_NVALUE, command, pl);
-      } else {
-        Response_P(S_JSON_COMMAND_SVALUE, command, pld);
-      }
-      return serviced;
-    }
-#endif
     serviced = false;  // Unknown command
   }
   else if ((CMND_SCRIPT == command_code) && (index > 0)) {
