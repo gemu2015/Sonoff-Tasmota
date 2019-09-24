@@ -3387,6 +3387,8 @@ bool ScriptCommand(void) {
   bool serviced = true;
   uint8_t index = XdrvMailbox.index;
 
+  if (tasm_cmd_activ) return false;
+
   int command_code = GetCommandCode(command, sizeof(command), XdrvMailbox.topic, kScriptCommands);
   if (-1 == command_code) {
 #ifdef USE_SCRIPT_SUB_COMMAND
