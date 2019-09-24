@@ -465,6 +465,10 @@ char *script;
         }
         namep++;
         index++;
+        if (index>255) {
+          free(glob_script_mem.script_mem);
+          return -5;
+        }
     }
 
     // copy string variables
