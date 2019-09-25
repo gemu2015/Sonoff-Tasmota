@@ -471,6 +471,8 @@ char *script;
           return -5;
         }
     }
+    // variables usage info
+    AddLog_P2(LOG_LEVEL_INFO, PSTR("Script: nv=%d, tv=%d, vns=%d, ram=%d"), nvars, svars, index, glob_script_mem.script_mem_size);
 
     // copy string variables
     char *cp1=glob_script_mem.glob_snp;
