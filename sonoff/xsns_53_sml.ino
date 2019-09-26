@@ -853,7 +853,7 @@ int16_t index=0,hcnt=0;
 uint32_t d_lastms;
 uint8_t dchars[16];
 
-  if (!SML_SAVAILABLE) return;
+  //if (!SML_SAVAILABLE) return;
 
   if (dump2log&8) {
     // combo mode
@@ -939,7 +939,7 @@ uint8_t dchars[16];
           }
         }
       }
-      if (index>0) {
+      if (index>2) {
         log_data[index]=0;
         AddLog(LOG_LEVEL_INFO);
       }
