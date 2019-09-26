@@ -41,6 +41,8 @@ keywords if then else endif, or, and are better readable for beginners (others m
 
 #define SCRIPT_DEBUG 0
 
+//#define EEP_SCRIPT_SIZE 8191
+
 #define MAXVARS 50
 #define MAXSVARS 5
 #define MAXNVARS MAXVARS-MAXSVARS
@@ -215,7 +217,11 @@ void RulesTeleperiod(void) {
 #include <Eeprom24C128_256.h>
 #define EEPROM_ADDRESS 0x50
 // strange bug, crashes with powers of 2 ??? 4096 crashes
+#ifndef EEP_SCRIPT_SIZE
 #define EEP_SCRIPT_SIZE 4095
+#endif
+
+
 static Eeprom24C128_256 eeprom(EEPROM_ADDRESS);
 // eeprom.writeBytes(address, length, buffer);
 #define EEP_WRITE(A,B,C) eeprom.writeBytes(A,B,(uint8_t*)C);
