@@ -950,10 +950,10 @@ uint8_t dchars[16];
             index+=3;
           }
         }
-        if (index>2) {
-          log_data[index]=0;
-          AddLog(LOG_LEVEL_INFO);
-        }
+      }
+      if (index>2) {
+        log_data[index]=0;
+        AddLog(LOG_LEVEL_INFO);
       }
     }
   }
