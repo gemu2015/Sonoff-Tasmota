@@ -41,10 +41,13 @@ keywords if then else endif, or, and are better readable for beginners (others m
 
 #define SCRIPT_DEBUG 0
 
-//#define EEP_SCRIPT_SIZE 8191
 
+#ifndef MAXVARS
 #define MAXVARS 50
+#endif
+#ifndef MAXSVARS
 #define MAXSVARS 5
+#endif
 #define MAXNVARS MAXVARS-MAXSVARS
 
 #define MAXFILT 5
@@ -64,7 +67,9 @@ enum {SCRIPT_LOGLEVEL=1,SCRIPT_TELEPERIOD};
 #ifdef USE_SCRIPT_FATFS
 #include <SPI.h>
 #include <SD.h>
+#ifndef FAT_SCRIPT_SIZE
 #define FAT_SCRIPT_SIZE 4096
+#endif
 #define FAT_SCRIPT_NAME "script.txt"
 #if USE_LONG_FILE_NAMES==1
 #warning ("FATFS long filenames not supported");
