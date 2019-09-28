@@ -97,7 +97,7 @@ const char kCompareOperators[] PROGMEM = "=\0>\0<\0|\0==!=>=<=";
 #ifdef USE_EXPRESSION
   #include <LinkedList.h>                 // Import LinkedList library
 
-  const char kExpressionOperators[] PROGMEM = "+-*/%^";
+  const char kExpressionOperators[] PROGMEM = "+-*/%^\0";
   #define EXPRESSION_OPERATOR_ADD         0
   #define EXPRESSION_OPERATOR_SUBTRACT    1
   #define EXPRESSION_OPERATOR_MULTIPLY    2
@@ -919,6 +919,10 @@ bool findNextNumber(char * &pNumber, float &value)
 {
   bool bSucceed = false;
   String sNumber = "";
+  if (*pNumber == '-') {
+    sNumber = "-";
+    pNumber++;
+  }
   while (*pNumber) {
     if (isdigit(*pNumber) || (*pNumber == '.')) {
       sNumber += *pNumber;
@@ -996,7 +1000,7 @@ bool findNextVariableValue(char * &pVarname, float &value)
 /*
  * Find next object in expression and evaluate it
  *     An object could be:
- *     - A float number start with a digit, like 0.787
+ *     - A float number start with a digit or minus, like 0.787, -3
  *     - A variable name, like VAR1, MEM3
  *     - An expression enclosed with a pair of round brackets, (.....)
  * Input:
@@ -1018,7 +1022,7 @@ bool findNextObjectValue(char * &pointer, float &value)
       pointer++;
       continue;
     }
-    if (isdigit(*pointer)) {      //This object is a number
+    if (isdigit(*pointer) || (*pointer) == '-') {      //This object is a number
       bSucceed = findNextNumber(pointer, value);
       break;
     } else if (isalpha(*pointer)) {     //Should be a variable like VAR12, MEM1
@@ -1027,7 +1031,7 @@ bool findNextObjectValue(char * &pointer, float &value)
     } else if (*pointer == '(') {     //It is a sub expression bracketed with ()
       char * closureBracket = findClosureBracket(pointer);        //Get the position of closure bracket ")"
       if (closureBracket != nullptr) {
-        value = evaluateExpression(pointer+1, closureBracket - pointer - 2);
+        value = evaluateExpression(pointer+1, closureBracket - pointer - 1);
         pointer = closureBracket + 1;
         bSucceed = true;
       }
@@ -1062,10 +1066,16 @@ bool findNextOperator(char * &pointer, int8_t &op)
       pointer++;
       continue;
     }
-    if (char *pch = strchr(kExpressionOperators, *pointer)) {      //If it is an operator
-      op = (int8_t)(pch - kExpressionOperators);
-      pointer++;
-      bSucceed = true;
+    op = EXPRESSION_OPERATOR_ADD;
+    const char *pch = kExpressionOperators;
+    char ch;
+    while ((ch = pgm_read_byte(pch++)) != '\0') {
+      if (ch == *pointer) {
+        bSucceed = true;
+        pointer++;
+        break;
+      }
+      op++;
     }
     break;
   }
@@ -1173,7 +1183,7 @@ float evaluateExpression(const char * expression, unsigned int len)
   for (int32_t priority = MAX_EXPRESSION_OPERATOR_PRIORITY; priority>0; priority--) {
     int index = 0;
     while (index < operators.size()) {
-      if (priority == kExpressionOperatorsPriorities[(operators.get(index))]) {     //need to calculate the operator first
+      if (priority == pgm_read_byte(kExpressionOperatorsPriorities + operators.get(index))) {     //need to calculate the operator first
         //get current object value and remove the next object with current operator
         va = calculateTwoValues(object_values.get(index), object_values.remove(index + 1), operators.remove(index));
         //Replace the current value with the result
@@ -1323,7 +1333,7 @@ bool findNextLogicObjectValue(char * &pointer, bool &value)
     } else if (*pointer == '(') {     //It is a sub expression bracketed with ()
       char * closureBracket = findClosureBracket(pointer);        //Get the position of closure bracket ")"
       if (closureBracket != nullptr) {
-        value = evaluateLogicalExpression(pointer+1, closureBracket - pointer - 2);
+        value = evaluateLogicalExpression(pointer+1, closureBracket - pointer - 1);
         pointer = closureBracket + 1;
         bSucceed = true;
       }
