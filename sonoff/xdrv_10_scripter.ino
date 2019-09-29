@@ -3364,7 +3364,7 @@ struct HUE_SCRIPT {
 
 
 const char SCRIPT_HUE_LIGHTS_STATUS_JSON1[] PROGMEM =
-  ",\"{sid}\":{\"state\":"
+  "{\"state\":"
   "{\"on\":{state},"
   "{light_status}"
   "\"alert\":\"none\","
@@ -3375,6 +3375,45 @@ const char SCRIPT_HUE_LIGHTS_STATUS_JSON1[] PROGMEM =
   "\"modelid\":\"LCT007\","
   "\"uniqueid\":\"{j2\","
   "\"swversion\":\"5.50.1.19085\"}";
+
+
+void Script_HueStatus(String *response, uint16_t hue_devs) {
+  *response+=FPSTR(SCRIPT_HUE_LIGHTS_STATUS_JSON1);
+  uint8_t pwr=glob_script_mem.fvars[hue_script[hue_devs].index[0]-1];
+  response->replace("{state}", (pwr ? "true" : "false"));
+  String light_status = "";
+  if (hue_script[hue_devs].index[1]>0) {
+    // bri
+    light_status += "\"bri\":";
+    light_status += String( (uint32_t)glob_script_mem.fvars[hue_script[hue_devs].index[1]-1] );
+    light_status += ",";
+  }
+  if (hue_script[hue_devs].index[2]>0) {
+    // hue
+    light_status += "\"hue\":";
+    light_status += String( (uint32_t)glob_script_mem.fvars[hue_script[hue_devs].index[2]-1] );
+    light_status += ",";
+  }
+  if (hue_script[hue_devs].index[3]>0) {
+    // sat
+    light_status += "\"sat\":";
+    light_status += String( (uint32_t)glob_script_mem.fvars[hue_script[hue_devs].index[3]-1] );
+    light_status += ",";
+  }
+  if (hue_script[hue_devs].index[4]>0) {
+    // ct
+    light_status += "\"ct\":";
+    light_status += String( (uint32_t)glob_script_mem.fvars[hue_script[hue_devs].index[4]-1] );
+    light_status += ",";
+  }
+
+  response->replace("{light_status}", light_status);
+  response->replace("{j1",hue_script[hue_devs].name);
+  response->replace("{j2", GetHueDeviceId(hue_devs<<8));
+}
+
+
+
 
 void Script_Check_Hue(String *response) {
   if (!bitRead(Settings.rule_enabled, 0)) return;
@@ -3475,39 +3514,10 @@ void Script_Check_Hue(String *response) {
         }
       }
       // append response
-      *response+=FPSTR(SCRIPT_HUE_LIGHTS_STATUS_JSON1);
-      uint8_t pwr=glob_script_mem.fvars[hue_script[hue_devs].index[0]-1];
-      response->replace("{state}", (pwr ? "true" : "false"));
-      String light_status = "";
-      if (hue_script[hue_devs].index[1]>0) {
-        // bri
-        light_status += "\"bri\":";
-        light_status += String( (uint32_t)glob_script_mem.fvars[hue_script[hue_devs].index[1]-1] );
-        light_status += ",";
+      if (response) {
+        *response+=",\""+String(EncodeLightId(hue_devs+devices_present+1))+"\":";
+        Script_HueStatus(response,hue_devs);
       }
-      if (hue_script[hue_devs].index[2]>0) {
-        // hue
-        light_status += "\"hue\":";
-        light_status += String( (uint32_t)glob_script_mem.fvars[hue_script[hue_devs].index[2]-1] );
-        light_status += ",";
-      }
-      if (hue_script[hue_devs].index[3]>0) {
-        // sat
-        light_status += "\"sat\":";
-        light_status += String( (uint32_t)glob_script_mem.fvars[hue_script[hue_devs].index[3]-1] );
-        light_status += ",";
-      }
-      if (hue_script[hue_devs].index[4]>0) {
-        // ct
-        light_status += "\"ct\":";
-        light_status += String( (uint32_t)glob_script_mem.fvars[hue_script[hue_devs].index[4]-1] );
-        light_status += ",";
-      }
-
-      response->replace("{light_status}", light_status);
-      response->replace("{j1",hue_script[hue_devs].name);
-      response->replace("{j2", GetHueDeviceId(hue_devs<<8));
-      response->replace("{sid}", String(EncodeLightId(hue_devs+devices_present+1)));
 
       hue_devs++;
     }
@@ -3519,7 +3529,7 @@ void Script_Check_Hue(String *response) {
       lp++;
     }
   }
-#if 1
+#if 0
   AddLog_P2(LOG_LEVEL_DEBUG, PSTR("Hue: %d"), hue_devs);
   toLog(">>>>");
   toLog(response->c_str());
@@ -3546,6 +3556,7 @@ void Script_Handle_Hue(String *path) {
 
   uint8_t device = DecodeLightId(atoi(path->c_str()));
   uint8_t index = device-devices_present-1;
+  AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR(">>>> index: %d"),index);
   if (WebServer->args()) {
     response = "[";
 
@@ -4357,6 +4368,7 @@ bool Xdrv10(uint8_t function)
       if (bitRead(Settings.rule_enabled, 0)) {
         Run_Scripter(">B",2,0);
         fast_script=Run_Scripter(">F",-2,0);
+        Script_Check_Hue(0);
       }
       break;
     case FUNC_EVERY_100_MSECOND:
