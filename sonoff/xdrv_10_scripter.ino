@@ -3369,7 +3369,7 @@ const char SCRIPT_HUE_LIGHTS_STATUS_JSON1[] PROGMEM =
   "{light_status}"
   "\"alert\":\"none\","
   "\"effect\":\"none\","
-  "\"reachable\":true}";
+  "\"reachable\":true}"
   ",\"type\":\"Extended color light\","
   "\"name\":\"{j1\","
   "\"modelid\":\"LCT007\","
@@ -3379,8 +3379,8 @@ const char SCRIPT_HUE_LIGHTS_STATUS_JSON1[] PROGMEM =
 void Script_Check_Hue(String *response) {
   if (!bitRead(Settings.rule_enabled, 0)) return;
 
-  uint8_t hue_script=Run_Scripter(">H",-2,0);
-  if (hue_script!=99) return;
+  uint8_t hue_script_found=Run_Scripter(">H",-2,0);
+  if (hue_script_found!=99) return;
 
   char line[128];
   char tmp[128];
@@ -3400,7 +3400,7 @@ void Script_Check_Hue(String *response) {
       // check this line
       memcpy(line,lp,sizeof(line));
       line[sizeof(line)-1]=0;
-      char *cp=line;
+      cp=line;
       for (uint32_t i=0; i<sizeof(line); i++) {
         if (!*cp || *cp=='\n' || *cp=='\r') {
           *cp=0;
@@ -3412,19 +3412,19 @@ void Script_Check_Hue(String *response) {
       // check for hue defintions
       // NAME, TYPE , vars
       cp=tmp;
-      cp=strstr(cp,',');
+      cp=strchr(cp,',');
       if (!cp) break;
       *cp=0;
       // copy name
       strlcpy(hue_script[hue_devs].name,tmp,HUE_DEV_NSIZE);
       cp++;
 
-      for (vindex=0;vindex<HUE_DEV_MVNUM;cnt++) {
-        strlcpy(hue_script[hue_devs].index[vindex]=0;
+      for (vindex=0;vindex<HUE_DEV_MVNUM;vindex++) {
+        hue_script[hue_devs].index[vindex]=0;
       }
       vindex=0;
       while (1) {
-        cp=strstr(cp,',');
+        cp=strchr(cp,',');
         if (!cp) break;
         // get vars, on,hue,sat,bri,ct,
         cp++;
@@ -3438,7 +3438,7 @@ void Script_Check_Hue(String *response) {
         if (vtype==VAR_NV) break;
         // found variable as result
         if (vtype==NUM_RES || (vtype&STYPE)==0) {
-          strlcpy(hue_script[hue_devs].index[vindex]=ind.index;
+          hue_script[hue_devs].index[vindex]=ind.index;
           vindex++;
           if (vindex>=HUE_DEV_MVNUM) break;
         } else {
@@ -3446,9 +3446,9 @@ void Script_Check_Hue(String *response) {
         }
       }
       // append response
-      response+=FPSTR(SCRIPT_HUE_LIGHTS_STATUS_JSON1);
-      uint8_t
-      response->replace("{state}", (uint8_t() ? "true" : "false");
+      //response+=FPSTR(SCRIPT_HUE_LIGHTS_STATUS_JSON1);
+
+      //response->replace("{state}", (uint8_t() ? "true" : "false");
 
     }
     if (*lp==SCRIPT_EOL) {
