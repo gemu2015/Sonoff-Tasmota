@@ -452,6 +452,13 @@ void HueGlobalConfig(String *path)
       response += ",\"";
     }
   }
+
+  #ifdef USE_SCRIPT
+  if (maxhue>devices_present) {
+      Script_Check_Hue(&response);
+  }
+  #endif
+
   response += F("},\"groups\":{},\"schedules\":{},\"config\":");
   HueConfigResponse(&response);
   response += "}";
@@ -497,9 +504,9 @@ void HueLights(String *path)
         response += ",\"";
       }
     }
-    #ifdef USE_SCRIPT
-      Script_Check_Hue(&response);
-    #endif
+#ifdef USE_SCRIPT
+    Script_Check_Hue(&response);
+#endif
     response += "}";
 
   }
@@ -507,6 +514,13 @@ void HueLights(String *path)
     path->remove(0,8);                               // Remove /lights/
     path->remove(path->indexOf("/state"));           // Remove /state
     device = DecodeLightId(atoi(path->c_str()));
+
+#ifdef USE_SCRIPT
+    if (device>devices_present) {
+      return Script_Handle_Hue(path);
+    }
+#endif
+
     if ((device < 1) || (device > maxhue)) {
       device = 1;
     }
@@ -680,6 +694,11 @@ void HueLights(String *path)
     response += F("{\"state\":");
     HueLightStatus1(device, &response);
     HueLightStatus2(device, &response);
+#ifdef USE_SCRIPT
+    if (device>devices_present) {
+      //Script_Check_Hue(&response);
+    }
+#endif
   }
   else {
     response = "{}";

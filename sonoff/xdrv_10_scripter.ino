@@ -3507,7 +3507,7 @@ void Script_Check_Hue(String *response) {
       response->replace("{light_status}", light_status);
       response->replace("{j1",hue_script[hue_devs].name);
       response->replace("{j2", GetHueDeviceId(hue_devs<<8));
-      response->replace("{sid}", String(EncodeLightId(hue_devs+8)));
+      response->replace("{sid}", String(EncodeLightId(hue_devs+devices_present+1)));
 
       hue_devs++;
     }
@@ -3519,12 +3519,104 @@ void Script_Check_Hue(String *response) {
       lp++;
     }
   }
-#if 0
+#if 1
   AddLog_P2(LOG_LEVEL_DEBUG, PSTR("Hue: %d"), hue_devs);
   toLog(">>>>");
   toLog(response->c_str());
   toLog(response->c_str()+LOGSZ);
 #endif
+}
+
+const char sHUE_LIGHT_RESPONSE_JSON[] PROGMEM =
+  "{\"success\":{\"/lights/{id/state/{cm\":{re}}";
+const char sHUE_ERROR_JSON[] PROGMEM =
+  "[{\"error\":{\"type\":901,\"address\":\"/\",\"description\":\"Internal Error\"}}]";
+
+
+// get alexa arguments
+void Script_Handle_Hue(String *path) {
+  String response;
+  int code = 200;
+  uint16_t tmp = 0;
+  uint16_t hue = 0;
+  uint8_t  sat = 0;
+  uint8_t  bri = 254;
+  uint16_t ct = 0;
+  bool resp = false;
+
+  uint8_t device = DecodeLightId(atoi(path->c_str()));
+  uint8_t index = device-devices_present-1;
+  if (WebServer->args()) {
+    response = "[";
+
+    StaticJsonBuffer<400> jsonBuffer;
+    JsonObject &hue_json = jsonBuffer.parseObject(WebServer->arg((WebServer->args())-1));
+    if (hue_json.containsKey("on")) {
+
+      response += FPSTR(sHUE_LIGHT_RESPONSE_JSON);
+      response.replace("{id", String(EncodeLightId(device)));
+      response.replace("{cm", "on");
+
+      bool on = hue_json["on"];
+      switch(on)
+      {
+        case false : glob_script_mem.fvars[hue_script[index].index[0]-1]=0;
+                     response.replace("{re", "false");
+                     break;
+        case true  : glob_script_mem.fvars[hue_script[index].index[0]-1]=1;
+                     response.replace("{re", "true");
+                     break;
+      }
+      resp = true;
+    }
+    if (hue_json.containsKey("bri")) {             // Brightness is a scale from 1 (the minimum the light is capable of) to 254 (the maximum). Note: a brightness of 1 is not off.
+      bri = hue_json["bri"];
+      if (254 <= bri) { bri = 255; }
+      if (resp) { response += ","; }
+      response += FPSTR(sHUE_LIGHT_RESPONSE_JSON);
+      response.replace("{id", String(device));
+      response.replace("{cm", "bri");
+      response.replace("{re", String(tmp));
+      glob_script_mem.fvars[hue_script[index].index[1]-1]=bri;
+      resp = true;
+    }
+    if (hue_json.containsKey("hue")) {             // The hue value is a wrapping value between 0 and 65535. Both 0 and 65535 are red, 25500 is green and 46920 is blue.
+      hue = hue_json["hue"];
+      if (resp) { response += ","; }
+      response += FPSTR(sHUE_LIGHT_RESPONSE_JSON);
+      response.replace("{id", String(device));
+      response.replace("{cm", "hue");
+      response.replace("{re", String(tmp));
+      glob_script_mem.fvars[hue_script[index].index[2]-1]=hue;
+      resp = true;
+    }
+    if (hue_json.containsKey("sat")) {             // Saturation of the light. 254 is the most saturated (colored) and 0 is the least saturated (white).
+      sat = hue_json["sat"];
+      if (resp) { response += ","; }
+      response += FPSTR(sHUE_LIGHT_RESPONSE_JSON);
+      response.replace("{id", String(device));
+      response.replace("{cm", "sat");
+      response.replace("{re", String(tmp));
+      glob_script_mem.fvars[hue_script[index].index[3]-1]=sat;
+      resp = true;
+    }
+    if (hue_json.containsKey("ct")) {  // Color temperature 153 (Cold) to 500 (Warm)
+      ct = hue_json["ct"];
+      if (resp) { response += ","; }
+      response += FPSTR(sHUE_LIGHT_RESPONSE_JSON);
+      response.replace("{id", String(device));
+      response.replace("{cm", "ct");
+      response.replace("{re", String(ct));
+      glob_script_mem.fvars[hue_script[index].index[4]-1]=ct;
+      resp = true;
+    }
+    response += "]";
+
+  } else {
+    response = FPSTR(sHUE_ERROR_JSON);
+  }
+  AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR(D_LOG_HTTP D_HUE " Result (%s)"), response.c_str());
+  WSSend(code, CT_JSON, response);
 }
 #endif
 
