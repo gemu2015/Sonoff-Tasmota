@@ -3352,6 +3352,129 @@ void ScriptSaveSettings(void) {
 #endif
 
 
+#ifdef USE_LIGHT
+
+#define HUE_DEV_MVNUM 5
+#define HUE_DEV_NSIZE 16
+struct HUE_SCRIPT {
+  char name[HUE_DEV_NSIZE];
+  uint8_t type;
+  uint8_t index[HUE_DEV_MVNUM];
+} hue_script[32];
+
+
+const char SCRIPT_HUE_LIGHTS_STATUS_JSON1[] PROGMEM =
+  ",\"{sid}\":"
+  "{\"on\":{state},"
+  "{light_status}"
+  "\"alert\":\"none\","
+  "\"effect\":\"none\","
+  "\"reachable\":true}";
+  ",\"type\":\"Extended color light\","
+  "\"name\":\"{j1\","
+  "\"modelid\":\"LCT007\","
+  "\"uniqueid\":\"{j2\","
+  "\"swversion\":\"5.50.1.19085\"}";
+
+void Script_Check_Hue(String *response) {
+  if (!bitRead(Settings.rule_enabled, 0)) return;
+
+  uint8_t hue_script=Run_Scripter(">H",-2,0);
+  if (hue_script!=99) return;
+
+  char line[128];
+  char tmp[128];
+  uint8_t hue_devs=0;
+  uint8_t vindex=0;
+  char *cp;
+  char *lp=glob_script_mem.section_ptr+2;
+  while (lp) {
+    SCRIPT_SKIP_SPACES
+    while (*lp==SCRIPT_EOL) {
+     lp++;
+    }
+    if (!*lp || *lp=='#' || *lp=='>') {
+        break;
+    }
+    if (*lp!=';') {
+      // check this line
+      memcpy(line,lp,sizeof(line));
+      line[sizeof(line)-1]=0;
+      char *cp=line;
+      for (uint32_t i=0; i<sizeof(line); i++) {
+        if (!*cp || *cp=='\n' || *cp=='\r') {
+          *cp=0;
+          break;
+        }
+        cp++;
+      }
+      Replace_Cmd_Vars(line,tmp,sizeof(tmp));
+      // check for hue defintions
+      // NAME, TYPE , vars
+      cp=tmp;
+      cp=strstr(cp,',');
+      if (!cp) break;
+      *cp=0;
+      // copy name
+      strlcpy(hue_script[hue_devs].name,tmp,HUE_DEV_NSIZE);
+      cp++;
+
+      for (vindex=0;vindex<HUE_DEV_MVNUM;cnt++) {
+        strlcpy(hue_script[hue_devs].index[vindex]=0;
+      }
+      vindex=0;
+      while (1) {
+        cp=strstr(cp,',');
+        if (!cp) break;
+        // get vars, on,hue,sat,bri,ct,
+        cp++;
+        while (*cp==' ') cp++;
+
+
+
+        struct T_INDEX ind;
+        uint8_t vtype;
+        isvar(cp,&vtype,&ind,0,0,0);
+        if (vtype==VAR_NV) break;
+        // found variable as result
+        if (vtype==NUM_RES || (vtype&STYPE)==0) {
+          strlcpy(hue_script[hue_devs].index[vindex]=ind.index;
+          vindex++;
+          if (vindex>=HUE_DEV_MVNUM) break;
+        } else {
+          break;
+        }
+      }
+      // append response
+      response+=FPSTR(SCRIPT_HUE_LIGHTS_STATUS_JSON1);
+      uint8_t
+      response->replace("{state}", (uint8_t() ? "true" : "false");
+
+    }
+    if (*lp==SCRIPT_EOL) {
+      lp++;
+    } else {
+      lp = strchr(lp, SCRIPT_EOL);
+      if (!lp) break;
+      lp++;
+    }
+  }
+
+//  *response += FPSTR(HUE_LIGHTS_STATUS_JSON1);
+
+//  *response += "\"bri\":30";
+/*
+  *response += ",\"2\": {\"state\":{\"on\": true,\"bri\": 254,\"reachable\":true}";
+  *response += ",\"type\":\"Extended color light\","
+  "\"name\":\"test\","
+  "\"modelid\":\"LCT007\","
+  "\"uniqueid\":\"abcdefg\","
+  "\"swversion\":\"5.50.1.19085\"}";*/
+
+  }
+#endif
+
+
 #ifdef USE_SCRIPT_SUB_COMMAND
 bool Script_SubCmd(void) {
   if (!bitRead(Settings.rule_enabled, 0)) return false;

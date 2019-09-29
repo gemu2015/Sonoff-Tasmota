@@ -497,7 +497,11 @@ void HueLights(String *path)
         response += ",\"";
       }
     }
+    #ifdef USE_SCRIPT
+      Script_Check_Hue(&response);
+    #endif
     response += "}";
+
   }
   else if (path->endsWith("/state")) {               // Got ID/state
     path->remove(0,8);                               // Remove /lights/
