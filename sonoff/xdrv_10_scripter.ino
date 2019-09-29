@@ -3364,7 +3364,7 @@ struct HUE_SCRIPT {
 
 
 const char SCRIPT_HUE_LIGHTS_STATUS_JSON1[] PROGMEM =
-  ",\"{sid}\":"
+  ",\"{sid}\":{\"state\":"
   "{\"on\":{state},"
   "{light_status}"
   "\"alert\":\"none\","
@@ -3417,7 +3417,8 @@ void Script_Check_Hue(String *response) {
       *cp=0;
       // copy name
       strlcpy(hue_script[hue_devs].name,tmp,HUE_DEV_NSIZE);
-      cp++;
+      *cp=',';
+      cp--;
 
       for (vindex=0;vindex<HUE_DEV_MVNUM;vindex++) {
         hue_script[hue_devs].index[vindex]=0;
@@ -3430,26 +3431,85 @@ void Script_Check_Hue(String *response) {
         cp++;
         while (*cp==' ') cp++;
 
-
-
-        struct T_INDEX ind;
-        uint8_t vtype;
-        isvar(cp,&vtype,&ind,0,0,0);
-        if (vtype==VAR_NV) break;
-        // found variable as result
-        if (vtype==NUM_RES || (vtype&STYPE)==0) {
-          hue_script[hue_devs].index[vindex]=ind.index;
-          vindex++;
-          if (vindex>=HUE_DEV_MVNUM) break;
+        vindex==0xff;
+        if (!strncmp(cp,"on=",3)) {
+          cp+=3;
+          vindex=0;
+        } else if (!strncmp(cp,"bri=",4)) {
+          cp+=4;
+          vindex=1;
+        } else if (!strncmp(cp,"hue=",4)) {
+          cp+=4;
+          vindex=2;
+        } else if (!strncmp(cp,"sat=",4)) {
+          cp+=4;
+          vindex=3;
+        } else if (!strncmp(cp,"ct=",3)) {
+          cp+=3;
+          vindex=4;
         } else {
+          // error
+          vindex==0xff;
           break;
+        }
+        if (vindex!=0xff) {
+          struct T_INDEX ind;
+          uint8_t vtype;
+          char vname[16];
+          for (uint32_t cnt=0;cnt<sizeof(vname)-1;cnt++) {
+            if (*cp==',' || *cp==0) {
+              vname[cnt]=0;
+              break;
+            }
+            vname[cnt]=*cp++;
+          }
+          isvar(vname,&vtype,&ind,0,0,0);
+          if (vtype!=VAR_NV) {
+            // found variable as result
+            if (vtype==NUM_RES || (vtype&STYPE)==0) {
+              hue_script[hue_devs].index[vindex]=glob_script_mem.type[ind.index].index+1;
+            } else {
+            //  break;
+            }
+          }
         }
       }
       // append response
-      //response+=FPSTR(SCRIPT_HUE_LIGHTS_STATUS_JSON1);
+      *response+=FPSTR(SCRIPT_HUE_LIGHTS_STATUS_JSON1);
+      uint8_t pwr=glob_script_mem.fvars[hue_script[hue_devs].index[0]-1];
+      response->replace("{state}", (pwr ? "true" : "false"));
+      String light_status = "";
+      if (hue_script[hue_devs].index[1]>0) {
+        // bri
+        light_status += "\"bri\":";
+        light_status += String( (uint32_t)glob_script_mem.fvars[hue_script[hue_devs].index[1]-1] );
+        light_status += ",";
+      }
+      if (hue_script[hue_devs].index[2]>0) {
+        // hue
+        light_status += "\"hue\":";
+        light_status += String( (uint32_t)glob_script_mem.fvars[hue_script[hue_devs].index[2]-1] );
+        light_status += ",";
+      }
+      if (hue_script[hue_devs].index[3]>0) {
+        // sat
+        light_status += "\"sat\":";
+        light_status += String( (uint32_t)glob_script_mem.fvars[hue_script[hue_devs].index[3]-1] );
+        light_status += ",";
+      }
+      if (hue_script[hue_devs].index[4]>0) {
+        // ct
+        light_status += "\"ct\":";
+        light_status += String( (uint32_t)glob_script_mem.fvars[hue_script[hue_devs].index[4]-1] );
+        light_status += ",";
+      }
 
-      //response->replace("{state}", (uint8_t() ? "true" : "false");
+      response->replace("{light_status}", light_status);
+      response->replace("{j1",hue_script[hue_devs].name);
+      response->replace("{j2", GetHueDeviceId(hue_devs<<8));
+      response->replace("{sid}", String(EncodeLightId(hue_devs+8)));
 
+      hue_devs++;
     }
     if (*lp==SCRIPT_EOL) {
       lp++;
@@ -3459,19 +3519,13 @@ void Script_Check_Hue(String *response) {
       lp++;
     }
   }
-
-//  *response += FPSTR(HUE_LIGHTS_STATUS_JSON1);
-
-//  *response += "\"bri\":30";
-/*
-  *response += ",\"2\": {\"state\":{\"on\": true,\"bri\": 254,\"reachable\":true}";
-  *response += ",\"type\":\"Extended color light\","
-  "\"name\":\"test\","
-  "\"modelid\":\"LCT007\","
-  "\"uniqueid\":\"abcdefg\","
-  "\"swversion\":\"5.50.1.19085\"}";*/
-
-  }
+#if 0
+  AddLog_P2(LOG_LEVEL_DEBUG, PSTR("Hue: %d"), hue_devs);
+  toLog(">>>>");
+  toLog(response->c_str());
+  toLog(response->c_str()+LOGSZ);
+#endif
+}
 #endif
 
 
