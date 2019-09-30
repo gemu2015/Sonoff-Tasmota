@@ -3394,7 +3394,7 @@ const char SCRIPT_HUE_LIGHTS_STATUS_JSON1[] PROGMEM =
   "\"alert\":\"none\","
   "\"effect\":\"none\","
   "\"reachable\":true}"
-  ",\"type\":\"Extended color light\","
+  ",\"type\":\"{type}\","
   "\"name\":\"{j1\","
   "\"modelid\":\"LCT007\","
   "\"uniqueid\":\"{j2\","
@@ -3443,6 +3443,14 @@ void Script_HueStatus(String *response, uint16_t hue_devs) {
   response->replace("{light_status}", light_status);
   response->replace("{j1",hue_script[hue_devs].name);
   response->replace("{j2", GetHueDeviceId(hue_devs<<8));
+
+  if (hue_script[hue_devs].type=='E') {
+    response->replace("{type}","Extended color light");
+  } else {
+    response->replace("{type}","color light");
+  }
+
+
 }
 
 void Script_Check_Hue(String *response) {
@@ -3486,8 +3494,10 @@ void Script_Check_Hue(String *response) {
       *cp=0;
       // copy name
       strlcpy(hue_script[hue_devs].name,tmp,HUE_DEV_NSIZE);
-      *cp=',';
-      cp--;
+      cp++;
+      while (*cp==' ') cp++;
+      // get type
+      hue_script[hue_devs].type=*cp;
 
       for (vindex=0;vindex<HUE_DEV_MVNUM;vindex++) {
         hue_script[hue_devs].index[vindex]=0;
@@ -3628,6 +3638,7 @@ void Script_Handle_Hue(String *path) {
     if (hue_json.containsKey("hue")) {             // The hue value is a wrapping value between 0 and 65535. Both 0 and 65535 are red, 25500 is green and 46920 is blue.
       tmp = hue_json["hue"];
       //hue = changeUIntScale(tmp, 0, 65535, 0, 359);
+      //tmp = changeUIntScale(hue, 0, 359, 0, 65535);
       hue=tmp;
       if (resp) { response += ","; }
       response += FPSTR(sHUE_LIGHT_RESPONSE_JSON);
