@@ -4101,7 +4101,7 @@ const char SCRIPT_MSG_BUTTONa_TBL[] PROGMEM =
   "<td style=\"width:%d%%\"><button type='submit' onclick='seva(%d,\"%s\")'>%s</button></td>";
 
 const char SCRIPT_MSG_BUTTONb[] PROGMEM =
-  "<img width=\"%d%%\"><\img>";
+  "<img width=\"%d%%\"></img>";
 
 const char SCRIPT_MSG_BUT_START[] PROGMEM =
   "<div>";
