@@ -3683,6 +3683,27 @@ void Script_Handle_Hue(String *path) {
       glob_script_mem.type[hue_script[index].vindex[1]].bits.changed=1;
       resp = true;
     }
+    if (hue_json.containsKey("xy")) {             // Saturation of the light. 254 is the most saturated (colored) and 0 is the least saturated (white).
+      float x, y;
+      x = hue_json["xy"][0];
+      y = hue_json["xy"][1];
+      const String &x_str = hue_json["xy"][0];
+      const String &y_str = hue_json["xy"][1];
+      uint8_t rr,gg,bb;
+      LightStateClass::XyToRgb(x, y, &rr, &gg, &bb);
+      LightStateClass::RgbToHsb(rr, gg, bb, &hue, &sat, nullptr);
+      if (resp) { response += ","; }
+      response += FPSTR(sHUE_LIGHT_RESPONSE_JSON);
+      response.replace("{id", String(device));
+      response.replace("{cm", "xy");
+      response.replace("{re", "[" + x_str + "," + y_str + "]");
+      glob_script_mem.fvars[hue_script[index].index[2]-1]=hue;
+      glob_script_mem.type[hue_script[index].vindex[2]].bits.changed=1;
+      glob_script_mem.fvars[hue_script[index].index[3]-1]=sat;
+      glob_script_mem.type[hue_script[index].vindex[3]].bits.changed=1;
+      resp = true;
+    }
+
     if (hue_json.containsKey("hue")) {             // The hue value is a wrapping value between 0 and 65535. Both 0 and 65535 are red, 25500 is green and 46920 is blue.
       tmp = hue_json["hue"];
       //hue = changeUIntScale(tmp, 0, 65535, 0, 359);
