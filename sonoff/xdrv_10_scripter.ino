@@ -3389,6 +3389,10 @@ void ScriptSaveSettings(void) {
 "swversion": "6.1.0.18912",
 "uniqueid": "xxx"
 }
+
+temperature ZLLTemperature
+lightlevel ZLLLightLevel
+presence ZLLPresence
 */
 
 #define HUE_DEV_MVNUM 5
@@ -3454,16 +3458,44 @@ void Script_HueStatus(String *response, uint16_t hue_devs) {
     light_status += ",";
   }
 
+  float temp;
+  switch (hue_script[hue_devs].type) {
+    case 'E':
+      response->replace("{type}","Extended color light");
+      break;
+    case 'S':
+      response->replace("{type}","color light");
+      break;
+    case 'T':
+      response->replace("{type}","ZLLTemperature");
+      temp=glob_script_mem.fvars[hue_script[hue_devs].index[2]-1];
+      light_status += "\"temperature\":";
+      light_status += String(temp*100);
+      light_status += ",";
+      break;
+    case 'L':
+      response->replace("{type}","ZLLLightLevel");
+      temp=glob_script_mem.fvars[hue_script[hue_devs].index[2]-1];
+      light_status += "\"lightlevel\":";
+      light_status += String(temp);
+      light_status += ",";
+      break;
+    case 'P':
+      response->replace("{type}","ZLLPresence");
+      temp=glob_script_mem.fvars[hue_script[hue_devs].index[0]-1];
+      light_status += "\"presence\":";
+      if (temp==0)light_status += "false";
+      else light_status += "true";
+      light_status += ",";
+      break;
+    default:
+      response->replace("{type}","color light");
+      break;
+  }
+
   response->replace("{light_status}", light_status);
   response->replace("{j1",hue_script[hue_devs].name);
   response->replace("{j2", GetHueDeviceId(hue_devs<<8));
-
-  if (hue_script[hue_devs].type=='E') {
-    response->replace("{type}","Extended color light");
-  } else {
-    response->replace("{type}","color light");
-  }
-
 
 }
 
@@ -3585,10 +3617,12 @@ void Script_Check_Hue(String *response) {
     }
   }
 #if 0
-  AddLog_P2(LOG_LEVEL_DEBUG, PSTR("Hue: %d"), hue_devs);
-  toLog(">>>>");
-  toLog(response->c_str());
-  toLog(response->c_str()+LOGSZ);
+  if (response) {
+    AddLog_P2(LOG_LEVEL_DEBUG, PSTR("Hue: %d"), hue_devs);
+    toLog(">>>>");
+    toLog(response->c_str());
+    toLog(response->c_str()+LOGSZ);
+  }
 #endif
 }
 
