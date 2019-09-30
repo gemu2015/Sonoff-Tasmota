@@ -3352,7 +3352,30 @@ void ScriptSaveSettings(void) {
 #endif
 
 
-#ifdef USE_LIGHT
+#if defined(USE_WEBSERVER) && defined(USE_EMULATION) && defined(USE_EMULATION_HUE) && defined(USE_LIGHT)
+
+/*
+"state": {
+"temperature": 2674,
+"lastupdated": "2017-08-04T12:13:04"
+},
+"config": {
+"on": true,
+"battery": 100,
+"reachable": true,
+"alert": "none",
+"ledindication": false,
+"usertest": false,
+"pending": []
+},
+"name": "Hue temperature sensor 1",
+"type": "ZLLTemperature",
+"modelid": "SML001",
+"manufacturername": "Philips",
+"swversion": "6.1.0.18912",
+"uniqueid": "xxx"
+}
+*/
 
 #define HUE_DEV_MVNUM 5
 #define HUE_DEV_NSIZE 16
@@ -3360,6 +3383,7 @@ struct HUE_SCRIPT {
   char name[HUE_DEV_NSIZE];
   uint8_t type;
   uint8_t index[HUE_DEV_MVNUM];
+  uint8_t vindex[HUE_DEV_MVNUM];
 } hue_script[32];
 
 
@@ -3385,25 +3409,34 @@ void Script_HueStatus(String *response, uint16_t hue_devs) {
   if (hue_script[hue_devs].index[1]>0) {
     // bri
     light_status += "\"bri\":";
-    light_status += String( (uint32_t)glob_script_mem.fvars[hue_script[hue_devs].index[1]-1] );
+    uint32_t bri=glob_script_mem.fvars[hue_script[hue_devs].index[1]-1];
+    if (bri > 254)  bri = 254;
+    if (bri < 1)    bri = 1;
+    light_status += String(bri);
     light_status += ",";
   }
   if (hue_script[hue_devs].index[2]>0) {
     // hue
+    uint32_t hue=glob_script_mem.fvars[hue_script[hue_devs].index[2]-1];
+    //hue = changeUIntScale(hue, 0, 359, 0, 65535);
     light_status += "\"hue\":";
-    light_status += String( (uint32_t)glob_script_mem.fvars[hue_script[hue_devs].index[2]-1] );
+    light_status += String(hue);
     light_status += ",";
   }
   if (hue_script[hue_devs].index[3]>0) {
     // sat
+    uint32_t sat=glob_script_mem.fvars[hue_script[hue_devs].index[3]-1] ;
+    if (sat > 254)  sat = 254;
+    if (sat < 1)    sat = 1;
     light_status += "\"sat\":";
-    light_status += String( (uint32_t)glob_script_mem.fvars[hue_script[hue_devs].index[3]-1] );
+    light_status += String(sat);
     light_status += ",";
   }
   if (hue_script[hue_devs].index[4]>0) {
     // ct
+    uint32_t ct=glob_script_mem.fvars[hue_script[hue_devs].index[4]-1];
     light_status += "\"ct\":";
-    light_status += String( (uint32_t)glob_script_mem.fvars[hue_script[hue_devs].index[4]-1] );
+    light_status += String(ct);
     light_status += ",";
   }
 
@@ -3411,9 +3444,6 @@ void Script_HueStatus(String *response, uint16_t hue_devs) {
   response->replace("{j1",hue_script[hue_devs].name);
   response->replace("{j2", GetHueDeviceId(hue_devs<<8));
 }
-
-
-
 
 void Script_Check_Hue(String *response) {
   if (!bitRead(Settings.rule_enabled, 0)) return;
@@ -3506,6 +3536,7 @@ void Script_Check_Hue(String *response) {
           if (vtype!=VAR_NV) {
             // found variable as result
             if (vtype==NUM_RES || (vtype&STYPE)==0) {
+              hue_script[hue_devs].vindex[vindex]=ind.index;
               hue_script[hue_devs].index[vindex]=glob_script_mem.type[ind.index].index+1;
             } else {
             //  break;
@@ -3556,7 +3587,7 @@ void Script_Handle_Hue(String *path) {
 
   uint8_t device = DecodeLightId(atoi(path->c_str()));
   uint8_t index = device-devices_present-1;
-  AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR(">>>> index: %d"),index);
+
   if (WebServer->args()) {
     response = "[";
 
@@ -3578,47 +3609,57 @@ void Script_Handle_Hue(String *path) {
                      response.replace("{re", "true");
                      break;
       }
+      glob_script_mem.type[hue_script[index].vindex[0]].bits.changed=1;
       resp = true;
     }
     if (hue_json.containsKey("bri")) {             // Brightness is a scale from 1 (the minimum the light is capable of) to 254 (the maximum). Note: a brightness of 1 is not off.
-      bri = hue_json["bri"];
+      tmp = hue_json["bri"];
+      bri=tmp;
       if (254 <= bri) { bri = 255; }
       if (resp) { response += ","; }
       response += FPSTR(sHUE_LIGHT_RESPONSE_JSON);
-      response.replace("{id", String(device));
+      response.replace("{id", String(EncodeLightId(device)));
       response.replace("{cm", "bri");
       response.replace("{re", String(tmp));
       glob_script_mem.fvars[hue_script[index].index[1]-1]=bri;
+      glob_script_mem.type[hue_script[index].vindex[1]].bits.changed=1;
       resp = true;
     }
     if (hue_json.containsKey("hue")) {             // The hue value is a wrapping value between 0 and 65535. Both 0 and 65535 are red, 25500 is green and 46920 is blue.
-      hue = hue_json["hue"];
+      tmp = hue_json["hue"];
+      //hue = changeUIntScale(tmp, 0, 65535, 0, 359);
+      hue=tmp;
       if (resp) { response += ","; }
       response += FPSTR(sHUE_LIGHT_RESPONSE_JSON);
-      response.replace("{id", String(device));
+      response.replace("{id", String(EncodeLightId(device)));
       response.replace("{cm", "hue");
       response.replace("{re", String(tmp));
       glob_script_mem.fvars[hue_script[index].index[2]-1]=hue;
+      glob_script_mem.type[hue_script[index].vindex[2]].bits.changed=1;
       resp = true;
     }
     if (hue_json.containsKey("sat")) {             // Saturation of the light. 254 is the most saturated (colored) and 0 is the least saturated (white).
-      sat = hue_json["sat"];
+      tmp = hue_json["sat"];
+      sat=tmp;
+      if (254 <= sat) { sat = 255; }
       if (resp) { response += ","; }
       response += FPSTR(sHUE_LIGHT_RESPONSE_JSON);
-      response.replace("{id", String(device));
+      response.replace("{id", String(EncodeLightId(device)));
       response.replace("{cm", "sat");
       response.replace("{re", String(tmp));
       glob_script_mem.fvars[hue_script[index].index[3]-1]=sat;
+      glob_script_mem.type[hue_script[index].vindex[3]].bits.changed=1;
       resp = true;
     }
     if (hue_json.containsKey("ct")) {  // Color temperature 153 (Cold) to 500 (Warm)
       ct = hue_json["ct"];
       if (resp) { response += ","; }
       response += FPSTR(sHUE_LIGHT_RESPONSE_JSON);
-      response.replace("{id", String(device));
+      response.replace("{id", String(EncodeLightId(device)));
       response.replace("{cm", "ct");
       response.replace("{re", String(ct));
       glob_script_mem.fvars[hue_script[index].index[4]-1]=ct;
+      glob_script_mem.type[hue_script[index].vindex[4]].bits.changed=1;
       resp = true;
     }
     response += "]";
@@ -3628,8 +3669,11 @@ void Script_Handle_Hue(String *path) {
   }
   AddLog_P2(LOG_LEVEL_DEBUG_MORE, PSTR(D_LOG_HTTP D_HUE " Result (%s)"), response.c_str());
   WSSend(code, CT_JSON, response);
+  if (resp) {
+    Run_Scripter(">E",2,0);
+  }
 }
-#endif
+#endif  // hue interface
 
 
 #ifdef USE_SCRIPT_SUB_COMMAND

@@ -453,12 +453,6 @@ void HueGlobalConfig(String *path)
     }
   }
 
-  #ifdef USE_SCRIPT
-  if (maxhue>devices_present) {
-      //Script_Check_Hue(&response);
-  }
-  #endif
-
   response += F("},\"groups\":{},\"schedules\":{},\"config\":");
   HueConfigResponse(&response);
   response += "}";
