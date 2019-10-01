@@ -3368,32 +3368,6 @@ void ScriptSaveSettings(void) {
 
 #if defined(USE_WEBSERVER) && defined(USE_EMULATION) && defined(USE_EMULATION_HUE) && defined(USE_LIGHT)
 
-/*
-"state": {
-"temperature": 2674,
-"lastupdated": "2017-08-04T12:13:04"
-},
-"config": {
-"on": true,
-"battery": 100,
-"reachable": true,
-"alert": "none",
-"ledindication": false,
-"usertest": false,
-"pending": []
-},
-"name": "Hue temperature sensor 1",
-"type": "ZLLTemperature",
-"modelid": "SML001",
-"manufacturername": "Philips",
-"swversion": "6.1.0.18912",
-"uniqueid": "xxx"
-}
-
-temperature ZLLTemperature
-lightlevel ZLLLightLevel
-presence ZLLPresence
-*/
 
 #define HUE_DEV_MVNUM 5
 #define HUE_DEV_NSIZE 16
@@ -3418,8 +3392,76 @@ const char SCRIPT_HUE_LIGHTS_STATUS_JSON1[] PROGMEM =
   "\"uniqueid\":\"{j2\","
   "\"swversion\":\"5.50.1.19085\"}";
 
+/*
+const char SCRIPT_HUE_LIGHTS_STATUS_JSON2[] PROGMEM =
+  "{\"state\":"
+  "{\"temperature\": 2674,"
+  "\"lastupdated\": \"2019-08-04T12:13:04\"},"
+  "\"config\": {"
+  "\"on\": true,"
+  "\"battery\": 100,"
+  "\"reachable\": true,"
+  "\"alert\": \"none\","
+  "\"ledindication\": false,"
+  "\"usertest\": false,"
+  "\"pending\": []"
+  "},"
+  "\"name\": \"{j1\","
+  "\"type\": \"ZLLTemperature\","
+  "\"modelid\": \"SML001\","
+  "\"manufacturername\": \"Philips\","
+  "\"swversion\": \"6.1.0.18912\","
+  "\"uniqueid\": \"{j2\"}";
+*/
+
+
+const char SCRIPT_HUE_LIGHTS_STATUS_JSON2[] PROGMEM =
+"{\"state\":{"
+"\"presence\":{state},"
+"\"lastupdated\":\"2017-10-01T12:37:30\""
+"},"
+"\"swupdate\":{"
+"\"state\":\"noupdates\","
+"\"lastinstall\": null"
+"},"
+"\"config\":{"
+"\"on\":true,"
+"\"battery\":100,"
+"\"reachable\":true,"
+"\"alert\":\"none\","
+"\"ledindication\":false,"
+"\"usertest\":false,"
+"\"sensitivity\":2,"
+"\"sensitivitymax\":2,"
+"\"pending\":[]"
+"},"
+"\"name\":\"{j1\","
+"\"type\":\"ZLLPresence\","
+"\"modelid\":\"SML001\","
+"\"manufacturername\":\"Philips\","
+"\"swversion\":\"6.1.0.18912\","
+"\"uniqueid\":\"{j2\""
+"}";
+
+/*
+  temperature ZLLTemperature
+  lightlevel ZLLLightLevel
+  presence ZLLPresence
+  */
+
+
 
 void Script_HueStatus(String *response, uint16_t hue_devs) {
+
+  if (hue_script[hue_devs].type=='P') {
+    *response+=FPSTR(SCRIPT_HUE_LIGHTS_STATUS_JSON2);
+    response->replace("{j1",hue_script[hue_devs].name);
+    response->replace("{j2", GetHueDeviceId(hue_devs));
+    uint8_t pwr=glob_script_mem.fvars[hue_script[hue_devs].index[0]-1];
+    response->replace("{state}", (pwr ? "true" : "false"));
+    return;
+  }
+
   *response+=FPSTR(SCRIPT_HUE_LIGHTS_STATUS_JSON1);
   uint8_t pwr=glob_script_mem.fvars[hue_script[hue_devs].index[0]-1];
   response->replace("{state}", (pwr ? "true" : "false"));
@@ -3495,7 +3537,7 @@ void Script_HueStatus(String *response, uint16_t hue_devs) {
 
   response->replace("{light_status}", light_status);
   response->replace("{j1",hue_script[hue_devs].name);
-  response->replace("{j2", GetHueDeviceId(hue_devs<<8));
+  response->replace("{j2", GetHueDeviceId(hue_devs));
 
 }
 
@@ -3628,6 +3670,10 @@ void Script_Check_Hue(String *response) {
 
 const char sHUE_LIGHT_RESPONSE_JSON[] PROGMEM =
   "{\"success\":{\"/lights/{id/state/{cm\":{re}}";
+
+const char sHUE_SENSOR_RESPONSE_JSON[] PROGMEM =
+  "{\"success\":{\"/lights/{id/state/{cm\":{re}}";
+
 const char sHUE_ERROR_JSON[] PROGMEM =
   "[{\"error\":{\"type\":901,\"address\":\"/\",\"description\":\"Internal Error\"}}]";
 
