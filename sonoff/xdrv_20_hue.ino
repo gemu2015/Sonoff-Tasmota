@@ -36,7 +36,7 @@ const char HUE_RESPONSE[] PROGMEM =
   "CACHE-CONTROL: max-age=100\r\n"
   "EXT:\r\n"
   "LOCATION: http://%s:80/description.xml\r\n"
-  "SERVER: Linux/3.14.0 UPnP/1.0 IpBridge/1.17.0\r\n"
+  "SERVER: Linux/3.14.0 UPnP/1.0 IpBridge/1.24.0\r\n"  // was 1.17
   "hue-bridgeid: %s\r\n";
 const char HUE_ST1[] PROGMEM =
   "ST: upnp:rootdevice\r\n"
