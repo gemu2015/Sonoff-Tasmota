@@ -2294,7 +2294,12 @@ bool XSNS_53_cmd(void) {
       if (*cp=='d') {
         // set dump mode
         cp++;
-        dump2log=atoi(cp);
+        uint8_t index=atoi(cp);
+        if ((index&7)>meters_used) index=1;
+        if (index>0 && meter_desc_p[(index&7)-1].type=='c') {
+          index=0;
+        }
+        dump2log=index;
         ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"dump: %d\"}}"),dump2log);
       } else if (*cp=='c') {
           // set ounter
