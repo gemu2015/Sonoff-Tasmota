@@ -4538,7 +4538,9 @@ bool Xdrv10(uint8_t function)
       if (bitRead(Settings.rule_enabled, 0)) {
         Run_Scripter(">B",2,0);
         fast_script=Run_Scripter(">F",-2,0);
+#if defined(USE_WEBSERVER) && defined(USE_EMULATION) && defined(USE_EMULATION_HUE) && defined(USE_LIGHT)
         Script_Check_Hue(0);
+#endif
       }
       break;
     case FUNC_EVERY_100_MSECOND:
