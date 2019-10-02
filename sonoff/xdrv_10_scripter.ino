@@ -3366,7 +3366,7 @@ void ScriptSaveSettings(void) {
 #endif
 
 
-#if defined(USE_WEBSERVER) && defined(USE_EMULATION) && defined(USE_EMULATION_HUE) && defined(USE_LIGHT)
+#if defined(USE_SCRIPT_HUE) && defined(USE_WEBSERVER) && defined(USE_EMULATION) && defined(USE_EMULATION_HUE) && defined(USE_LIGHT)
 
 
 #define HUE_DEV_MVNUM 5
@@ -3644,7 +3644,13 @@ void Script_Check_Hue(String *response) {
       }
       // append response
       if (response) {
-        *response+=",\""+String(EncodeLightId(hue_devs+devices_present+1))+"\":";
+        if (devices_present) {
+          *response+=",\"";
+        }
+        else {
+          if (hue_devs>0) *response+=",\"";
+        }
+        *response+=String(EncodeLightId(hue_devs+devices_present+1))+"\":";
         Script_HueStatus(response,hue_devs);
       }
 
@@ -3658,7 +3664,7 @@ void Script_Check_Hue(String *response) {
       lp++;
     }
   }
-#if 0
+#if 1
   if (response) {
     AddLog_P2(LOG_LEVEL_DEBUG, PSTR("Hue: %d"), hue_devs);
     toLog(">>>>");
@@ -4538,7 +4544,7 @@ bool Xdrv10(uint8_t function)
       if (bitRead(Settings.rule_enabled, 0)) {
         Run_Scripter(">B",2,0);
         fast_script=Run_Scripter(">F",-2,0);
-#if defined(USE_WEBSERVER) && defined(USE_EMULATION) && defined(USE_EMULATION_HUE) && defined(USE_LIGHT)
+#if defined(USE_SCRIPT_HUE) && defined(USE_WEBSERVER) && defined(USE_EMULATION) && defined(USE_EMULATION_HUE) && defined(USE_LIGHT)
         Script_Check_Hue(0);
 #endif
       }
