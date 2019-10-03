@@ -3444,6 +3444,25 @@ const char SCRIPT_HUE_LIGHTS_STATUS_JSON2[] PROGMEM =
 "}";
 
 /*
+
+
+Color Ligh
+Dimmable Light
+Color Temperature Light
+Extended Color Light
+On/Off light
+
+ZGPSwitch
+ZLLSwitch
+CLIPSwitch
+CLIPOpenClose
+CLIPPresence
+CLIPTemperature
+CLIPHumidity
+Daylight
+CLIPLightlevel
+
+
   temperature ZLLTemperature
   lightlevel ZLLLightLevel
   presence ZLLPresence
@@ -3502,11 +3521,20 @@ void Script_HueStatus(String *response, uint16_t hue_devs) {
 
   float temp;
   switch (hue_script[hue_devs].type) {
+    case 'c':
+      response->replace("{type}","Color Ligh"); // alexa ok
+      break;
+    case 'd':
+      response->replace("{type}","Dimmable Light"); // alexa NO
+      break;
+    case 't':
+      response->replace("{type}","Color Temperature Light"); // alexa NO
+      break;
     case 'E':
-      response->replace("{type}","Extended color light");
+      response->replace("{type}","Extended color light"); // alexa ok
       break;
     case 'S':
-      response->replace("{type}","color light");
+      response->replace("{type}","On/Off light"); // alexa ok
       break;
     case 'T':
       response->replace("{type}","ZLLTemperature");
