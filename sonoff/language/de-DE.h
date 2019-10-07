@@ -284,9 +284,10 @@
 
 #define D_LOGGING_PARAMETERS "Logging-Einstellungen"
 #define D_SERIAL_LOG_LEVEL "Seriell-Log Level"
+#define D_MQTT_LOG_LEVEL "Mqtt-Log Level"
 #define D_WEB_LOG_LEVEL "Web-Log Level"
 #define D_SYS_LOG_LEVEL "Sys-Log Level"
-#define D_MORE_DEBUG "More debug"
+#define D_MORE_DEBUG "Mehr Details"
 #define D_SYSLOG_HOST "Sys-Log Host"
 #define D_SYSLOG_PORT "Sys-Log Port"
 #define D_TELEMETRY_PERIOD "Telemetrieperiode"
@@ -617,6 +618,10 @@
 #define D_SENSOR_A4988_MS3     "A4988 MS3"
 #define D_SENSOR_DDS2382_TX    "DDS238-2 Tx"
 #define D_SENSOR_DDS2382_RX    "DDS238-2 Rx"
+#define D_SENSOR_DDSU666_TX    "DDSU666 Tx"
+#define D_SENSOR_DDSU666_RX    "DDSU666 Rx"
+#define D_SENSOR_SM2135_CLK    "SM2135 Clk"
+#define D_SENSOR_SM2135_DAT    "SM2135 Dat"
 
 // Units
 #define D_UNIT_AMPERE "A"

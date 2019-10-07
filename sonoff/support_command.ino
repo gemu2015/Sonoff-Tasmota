@@ -368,10 +368,10 @@ void CmndStatus(void)
   }
 
   if ((0 == payload) || (3 == payload)) {
-    Response_P(PSTR("{\"" D_CMND_STATUS D_STATUS3_LOGGING "\":{\"" D_CMND_SERIALLOG "\":%d,\"" D_CMND_WEBLOG "\":%d,\"" D_CMND_SYSLOG "\":%d,\""
+    Response_P(PSTR("{\"" D_CMND_STATUS D_STATUS3_LOGGING "\":{\"" D_CMND_SERIALLOG "\":%d,\"" D_CMND_WEBLOG "\":%d,\"" D_CMND_MQTTLOG "\":%d,\"" D_CMND_SYSLOG "\":%d,\""
                           D_CMND_LOGHOST "\":\"%s\",\"" D_CMND_LOGPORT "\":%d,\"" D_CMND_SSID "\":[\"%s\",\"%s\"],\"" D_CMND_TELEPERIOD "\":%d,\""
                           D_JSON_RESOLUTION "\":\"%08X\",\"" D_CMND_SETOPTION "\":[\"%08X\",\"%s\",\"%08X\"]}}"),
-                          Settings.seriallog_level, Settings.weblog_level, Settings.syslog_level,
+                          Settings.seriallog_level, Settings.weblog_level, Settings.mqttlog_level, Settings.syslog_level,
                           Settings.syslog_host, Settings.syslog_port, Settings.sta_ssid[0], Settings.sta_ssid[1], Settings.tele_period,
                           Settings.flag2.data, Settings.flag.data, ToHex_P((unsigned char*)Settings.param, PARAM8_SIZE, stemp2, sizeof(stemp2)), Settings.flag3.data);
     MqttPublishPrefixTopic_P(option, PSTR(D_CMND_STATUS "3"));
@@ -565,11 +565,24 @@ void CmndPowerOnState(void)
 void CmndPulsetime(void)
 {
   if ((XdrvMailbox.index > 0) && (XdrvMailbox.index <= MAX_PULSETIMERS)) {
-    if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload < 65536)) {
-      Settings.pulse_timer[XdrvMailbox.index -1] = XdrvMailbox.payload;  // 0 - 65535
-      SetPulseTimer(XdrvMailbox.index -1, XdrvMailbox.payload);
+    uint32_t items = 1;
+    if (!XdrvMailbox.usridx && !XdrvMailbox.data_len) {
+      items = MAX_PULSETIMERS;
+    } else {
+      if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload < 65536)) {
+        Settings.pulse_timer[XdrvMailbox.index -1] = XdrvMailbox.payload;  // 0 - 65535
+        SetPulseTimer(XdrvMailbox.index -1, XdrvMailbox.payload);
+      }
     }
-    Response_P(S_JSON_COMMAND_INDEX_NVALUE_ACTIVE_NVALUE, XdrvMailbox.command, XdrvMailbox.index, Settings.pulse_timer[XdrvMailbox.index -1], GetPulseTimer(XdrvMailbox.index -1));
+    mqtt_data[0] = '\0';
+    for (uint32_t i = 0; i < items; i++) {
+      uint32_t index = (1 == items) ? XdrvMailbox.index : i +1;
+      ResponseAppend_P(PSTR("%c\"%s%d\":{\"" D_JSON_SET "\":%d,\"" D_JSON_REMAINING "\":%d}"),
+        (i) ? ',' : '{',
+        XdrvMailbox.command, index,
+        Settings.pulse_timer[index -1], GetPulseTimer(index -1));
+    }
+    ResponseJsonEnd();
   }
 }
 
