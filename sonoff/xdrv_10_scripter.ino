@@ -3388,7 +3388,7 @@ const char SCRIPT_HUE_LIGHTS_STATUS_JSON1[] PROGMEM =
   "\"reachable\":true}"
   ",\"type\":\"{type}\","
   "\"name\":\"{j1\","
-  "\"modelid\":\"LCT007\","
+  "\"modelid\":\"{m1}\","
   "\"uniqueid\":\"{j2\","
   "\"swversion\":\"5.50.1.19085\"}";
 
@@ -3469,10 +3469,36 @@ CLIPLightlevel
   */
 
 
+/*
+
+case 'T':
+response->replace("{type}","ZLLTemperature");
+temp=glob_script_mem.fvars[hue_script[hue_devs].index[2]-1];
+light_status += "\"temperature\":";
+light_status += String(temp*100);
+light_status += ",";
+break;
+case 'L':
+response->replace("{type}","ZLLLightLevel");
+temp=glob_script_mem.fvars[hue_script[hue_devs].index[2]-1];
+light_status += "\"lightlevel\":";
+light_status += String(temp);
+light_status += ",";
+break;
+case 'P':
+response->replace("{type}","ZLLPresence");
+temp=glob_script_mem.fvars[hue_script[hue_devs].index[0]-1];
+light_status += "\"presence\":";
+if (temp==0)light_status += "false";
+else light_status += "true";
+light_status += ",";
+break;
+*/
+
 
 void Script_HueStatus(String *response, uint16_t hue_devs) {
 
-  if (hue_script[hue_devs].type=='P') {
+  if (hue_script[hue_devs].type=='p') {
     *response+=FPSTR(SCRIPT_HUE_LIGHTS_STATUS_JSON2);
     response->replace("{j1",hue_script[hue_devs].name);
     response->replace("{j2", GetHueDeviceId(hue_devs));
@@ -3521,45 +3547,29 @@ void Script_HueStatus(String *response, uint16_t hue_devs) {
 
   float temp;
   switch (hue_script[hue_devs].type) {
-    case 'c':
+    case 'C':
       response->replace("{type}","Color Ligh"); // alexa ok
+      response->replace("{m1","LST001");
       break;
-    case 'd':
+    case 'D':
       response->replace("{type}","Dimmable Light"); // alexa NO
+      response->replace("{m1","LWB004");
       break;
-    case 't':
+    case 'T':
       response->replace("{type}","Color Temperature Light"); // alexa NO
+      response->replace("{m1","LTW011");
       break;
     case 'E':
       response->replace("{type}","Extended color light"); // alexa ok
+      response->replace("{m1","LCT007");
       break;
     case 'S':
       response->replace("{type}","On/Off light"); // alexa ok
-      break;
-    case 'T':
-      response->replace("{type}","ZLLTemperature");
-      temp=glob_script_mem.fvars[hue_script[hue_devs].index[2]-1];
-      light_status += "\"temperature\":";
-      light_status += String(temp*100);
-      light_status += ",";
-      break;
-    case 'L':
-      response->replace("{type}","ZLLLightLevel");
-      temp=glob_script_mem.fvars[hue_script[hue_devs].index[2]-1];
-      light_status += "\"lightlevel\":";
-      light_status += String(temp);
-      light_status += ",";
-      break;
-    case 'P':
-      response->replace("{type}","ZLLPresence");
-      temp=glob_script_mem.fvars[hue_script[hue_devs].index[0]-1];
-      light_status += "\"presence\":";
-      if (temp==0)light_status += "false";
-      else light_status += "true";
-      light_status += ",";
+      response->replace("{m1","LCT007");
       break;
     default:
       response->replace("{type}","color light");
+      response->replace("{m1","LST001");
       break;
   }
 
@@ -3692,7 +3702,7 @@ void Script_Check_Hue(String *response) {
       lp++;
     }
   }
-#if 1
+#if 0
   if (response) {
     AddLog_P2(LOG_LEVEL_DEBUG, PSTR("Hue: %d"), hue_devs);
     toLog(">>>>");
