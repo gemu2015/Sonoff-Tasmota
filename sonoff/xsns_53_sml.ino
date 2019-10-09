@@ -1802,11 +1802,19 @@ void SML_CounterUpd4(void) ICACHE_RAM_ATTR;
 #endif  // ARDUINO_ESP8266_RELEASE_2_3_0
 
 void SML_CounterUpd(uint8_t index) {
-  uint32_t ltime=millis()-sml_counters[index].sml_counter_ltime;
-  sml_counters[index].sml_counter_ltime=millis();
-  if (ltime>sml_counters[index].sml_debounce) {
-    RtcSettings.pulse_counter[index]++;
-    InjektCounterValue(sml_counters[index].sml_cnt_old_state,RtcSettings.pulse_counter[index]);
+
+  uint8_t level=digitalRead(meter_desc_p[sml_counters[index].sml_cnt_old_state].srcpin);
+  if (!level) {
+    // falling edge
+    uint32_t ltime=millis()-sml_counters[index].sml_counter_ltime;
+    sml_counters[index].sml_counter_ltime=millis();
+    if (ltime>sml_counters[index].sml_debounce) {
+      RtcSettings.pulse_counter[index]++;
+      InjektCounterValue(sml_counters[index].sml_cnt_old_state,RtcSettings.pulse_counter[index]);
+    }
+  } else {
+    // rising edge
+    sml_counters[index].sml_counter_ltime=millis();
   }
 }
 
@@ -2040,7 +2048,7 @@ init10:
           // check for irq mode
           if (meter_desc_p[meters].params<=0) {
             // init irq mode
-            attachInterrupt(meter_desc_p[meters].srcpin, counter_callbacks[cindex], FALLING);
+            attachInterrupt(meter_desc_p[meters].srcpin, counter_callbacks[cindex], CHANGE);
             sml_counters[cindex].sml_cnt_old_state=meters;
             sml_counters[cindex].sml_debounce=-meter_desc_p[meters].params;
           }
