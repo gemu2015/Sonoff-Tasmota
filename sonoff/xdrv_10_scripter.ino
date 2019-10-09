@@ -593,7 +593,9 @@ void ws2812_set_array(float *array ,uint8_t len) {
 #define NTYPE 0
 #define STYPE 0x80
 
+#ifndef FLT_MAX
 #define FLT_MAX 99999999
+#endif
 
 float median_array(float *array,uint8_t len) {
     uint8_t ind[len];
@@ -2571,7 +2573,7 @@ int16_t Run_Scripter(const char *type, int8_t tlen, char *js) {
 #endif
 #endif
 
-            else if (!strncmp(lp,"=>",2) || !strncmp(lp,"->",2) || !strncmp(lp,"print",5)) {
+            else if (!strncmp(lp,"=>",2) || !strncmp(lp,"->",2) || !strncmp(lp,"+>",2) || !strncmp(lp,"print",5)) {
                 // execute cmd
                 uint8_t sflag=0,pflg=0,svmqtt,swll;
                 if (*lp=='p') {
@@ -2580,6 +2582,7 @@ int16_t Run_Scripter(const char *type, int8_t tlen, char *js) {
                 }
                 else {
                   if (*lp=='-') sflag=1;
+                  if (*lp=='+') sflag=2;
                   lp+=2;
                 }
                 char *slp=lp;
@@ -2609,18 +2612,21 @@ int16_t Run_Scripter(const char *type, int8_t tlen, char *js) {
                     else toLog(&tmp[5]);
                   } else {
                     if (!sflag) {
+                      tasm_cmd_activ=1;
                       snprintf_P(log_data, sizeof(log_data), PSTR("Script: performs \"%s\""), tmp);
                       AddLog(glob_script_mem.script_loglevel&0x7f);
+                    } else if (sflag==2) {
+                      // allow recursive call
                     } else {
+                      tasm_cmd_activ=1;
                       svmqtt=Settings.flag.mqtt_enabled;
                       swll=Settings.weblog_level;
                       Settings.flag.mqtt_enabled=0;
                       Settings.weblog_level=0;
                     }
-                    tasm_cmd_activ=1;
                     ExecuteCommand((char*)tmp, SRC_RULE);
                     tasm_cmd_activ=0;
-                    if (sflag) {
+                    if (sflag==1) {
                       Settings.flag.mqtt_enabled=svmqtt;
                       Settings.weblog_level=swll;
                     }
