@@ -2232,6 +2232,11 @@ void SML_Send_Seq(uint32_t meter,char *seq) {
     *ucp++=highByte(crc);
     slen+=4;
   }
+  if (script_meter_desc[meter].type=='o') {
+    for (uint32_t cnt=0;cnt<slen;cnt++) {
+      sbuff[cnt]|=(CalcEvenParity(sbuff[cnt])<<7);
+    }
+  }
   if (script_meter_desc[meter].type=='p') {
     *ucp++=0xc0;
     *ucp++=0xa8;
@@ -2267,7 +2272,7 @@ uint8_t SML_PzemCrc(uint8_t *data, uint8_t len) {
   for (uint32_t i = 0; i < len; i++) crc += *data++;
   return (uint8_t)(crc & 0xFF);
 }
-/*
+
 // for odd parity init with 1
 uint8_t CalcEvenParity(uint8_t data) {
 uint8_t parity=0;
@@ -2278,7 +2283,7 @@ uint8_t parity=0;
   }
   return parity;
 }
-*/
+
 
 
 // dump to log shows serial data on console
