@@ -539,6 +539,9 @@ double buffer[MEDIAN_SIZE];
 int8_t index;
 } sml_mf[MAX_VARS];
 
+#ifndef FLT_MAX
+#define FLT_MAX 99999999
+#endif
 
 double sml_median_array(double *array,uint8_t len) {
       uint8_t ind[len];
