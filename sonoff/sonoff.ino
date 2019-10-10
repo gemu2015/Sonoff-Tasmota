@@ -870,21 +870,6 @@ void Every100mSeconds(void)
       }
     }
   }
-
-  // Backlog
-  if (TimeReached(backlog_delay)) {
-    if (!BACKLOG_EMPTY && !backlog_mutex) {
-      backlog_mutex = true;
-#ifdef SUPPORT_IF_STATEMENT
-      ExecuteCommand((char*)backlog.shift().c_str(), SRC_BACKLOG);
-#else
-      ExecuteCommand((char*)backlog[backlog_pointer].c_str(), SRC_BACKLOG);
-      backlog_pointer++;
-      if (backlog_pointer >= MAX_BACKLOG) { backlog_pointer = 0; }
-#endif
-      backlog_mutex = false;
-    }
-  }
 }
 
 /*-------------------------------------------------------------------------------------------*\
@@ -1389,14 +1374,14 @@ void GpioInit(void)
   }
 #endif  // USE_I2C
 
-  devices_present = 1;
-
+  devices_present = 0;
   light_type = LT_BASIC;                     // Use basic PWM control if SetOption15 = 0
   if (XdrvCall(FUNC_MODULE_INIT)) {
     // Serviced
   }
   else if (YTF_IR_BRIDGE == my_module_type) {
     ClaimSerial();  // Stop serial loopback mode
+//    devices_present = 1;
   }
   else if (SONOFF_DUAL == my_module_type) {
     Settings.flag.mqtt_serial = 0;
@@ -1415,7 +1400,6 @@ void GpioInit(void)
   }
 
   if (!light_type) {
-    devices_present = 0;
     for (uint32_t i = 0; i < MAX_PWMS; i++) {     // Basic PWM control only
       if (pin[GPIO_PWM1 +i] < 99) {
         pwm_present = true;
@@ -1630,6 +1614,23 @@ void setup(void)
   XsnsCall(FUNC_INIT);
 }
 
+static void BacklogLoop()
+{
+  if (TimeReached(backlog_delay)) {
+    if (!BACKLOG_EMPTY && !backlog_mutex) {
+      backlog_mutex = true;
+#ifdef SUPPORT_IF_STATEMENT
+      ExecuteCommand((char*)backlog.shift().c_str(), SRC_BACKLOG);
+#else
+      ExecuteCommand((char*)backlog[backlog_pointer].c_str(), SRC_BACKLOG);
+      backlog_pointer++;
+      if (backlog_pointer >= MAX_BACKLOG) { backlog_pointer = 0; }
+#endif
+      backlog_mutex = false;
+    }
+  }
+}
+
 void loop(void)
 {
   uint32_t my_sleep = millis();
@@ -1644,6 +1645,7 @@ void loop(void)
 #ifdef ROTARY_V1
   RotaryLoop();
 #endif
+  BacklogLoop();
 
   if (TimeReached(state_50msecond)) {
     SetNextTimeInterval(state_50msecond, 50);

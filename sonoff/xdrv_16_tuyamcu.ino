@@ -469,8 +469,6 @@ bool TuyaModuleSelected(void)
 
   bool relaySet = false;
 
-  devices_present--;
-
   for (uint8_t i = 0 ; i < MAX_TUYA_FUNCTIONS; i++) {
     if ((Settings.tuya_fnid_map[i].fnid >= TUYA_MCU_FUNC_REL1 && Settings.tuya_fnid_map[i].fnid <= TUYA_MCU_FUNC_REL8 ) ||
     (Settings.tuya_fnid_map[i].fnid >= TUYA_MCU_FUNC_REL1_INV && Settings.tuya_fnid_map[i].fnid <= TUYA_MCU_FUNC_REL8_INV )) {

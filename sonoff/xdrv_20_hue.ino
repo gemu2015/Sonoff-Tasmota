@@ -36,7 +36,7 @@ const char HUE_RESPONSE[] PROGMEM =
   "CACHE-CONTROL: max-age=100\r\n"
   "EXT:\r\n"
   "LOCATION: http://%s:80/description.xml\r\n"
-  "SERVER: Linux/3.14.0 UPnP/1.0 IpBridge/1.17\r\n"
+  "SERVER: Linux/3.14.0 UPnP/1.0 IpBridge/1.24.0\r\n"  // was 1.17
   "hue-bridgeid: %s\r\n";
 const char HUE_ST1[] PROGMEM =
   "ST: upnp:rootdevice\r\n"
@@ -109,30 +109,6 @@ void HueRespondToMSearch(void)
 /*********************************************************************************************\
  * Hue web server additions
 \*********************************************************************************************/
-/*
-Okay, nun scheint es zu gehen, entscheidend war wohl die swversion und
-apiversion sowie das Hinzufügen der modelid im json:
-*/
-/*
-const char xHUE_DESCRIPTION_XML[] PROGMEM =
-"<?xml version=\"1.0\" ?><root xmlns=\"urn:schemas-upnp-org:device-1-0\"><specVersion><major>1</major><minor>0</minor></specVersion>"
-"<URLBase>http://{x1:80/</URLBase><device><deviceType>urn:schemas-upnp-org:device:Basic:1</deviceType>"
-"<friendlyName>Philips hue ({x1)</friendlyName><manufacturer>Royal Philips Electronics</manufacturer>"
-"<manufacturerURL>http://www.philips.com</manufacturerURL><modelDescription>Philips hue Personal Wireless Lighting</modelDescription>"
-"<modelName>Philips hue bridge 2018</modelName><modelNumber>929000226503</modelNumber><modelURL>http://www.meethue.com</modelURL>"
-"<serialNumber>a020a617d8b9</serialNumber><UDN>uuid:{x2</UDN>"
-"<presentationURL>index.html</presentationURL><iconList>"
-"<icon>    <mimetype>image/png</mimetype>    <height>48</height>    <width>48</width>    <depth>24</depth>    "
-"<url>hue_logo_0.png</url>  </icon>  <icon>    <mimetype>image/png</mimetype>    <height>120</height>    "
-"<width>120</width>    <depth>24</depth>    <url>hue_logo_3.png</url>  </icon></iconList></device></root>";
-
-
-const char HueConfigResponse_JSON[] PROGMEM =
-"{\"name\":\"Philips hue\",\"swversion\":\"1934129020\",\"bridgeid\":\"A020A6FFFE17D8B9\",\"portalservices\":false,\"linkbutton\":false,"
-"\"mac\":\"{ma\",\"dhcp\":true,\"ipaddress\":\"{ip\",\"netmask\":\"{ms\",\"gateway\":\"{gw\",\"apiversion\":\"1.34.0\","
-"\"localtime\":\"{dt\",\"timezone\":\"Europe/Berlin\",\"modelid\":\"BSB002\",\"whitelist\":{\"api\":{\"name\":\"clientname#devicename\"}},\"swupdate\":"
-"{\"text\":\"\",\"notify\":false,\"updatestate\":0,\"url\":\"\"}}";
-*/
 
 const char HUE_DESCRIPTION_XML[] PROGMEM =
   "<?xml version=\"1.0\"?>"
@@ -149,7 +125,7 @@ const char HUE_DESCRIPTION_XML[] PROGMEM =
 //    "<friendlyName>Philips hue ({x1)</friendlyName>"
     "<manufacturer>Royal Philips Electronics</manufacturer>"
     "<modelDescription>Philips hue Personal Wireless Lighting</modelDescription>"
-    "<modelName>Philips hue bridge 2015</modelName>"
+    "<modelName>Philips hue bridge 2012</modelName>"
     "<modelNumber>929000226503</modelNumber>"
     "<serialNumber>{x3</serialNumber>"
     "<UDN>uuid:{x2</UDN>"
@@ -189,9 +165,8 @@ const char HueConfigResponse_JSON[] PROGMEM =
      "\"last use date\":\"{dt\","
      "\"create date\":\"{dt\","
      "\"name\":\"Remote\"}},"
-   "\"swversion\":\"1934129020\","
-   "\"apiversion\":\"1.34.0\","
-   "\"modelid\":\"BSB002\","
+   "\"swversion\":\"01041302\","
+   "\"apiversion\":\"1.17.0\","
    "\"swupdate\":{\"updatestate\":0,\"url\":\"\",\"text\":\"\",\"notify\": false},"
    "\"linkbutton\":false,"
    "\"portalservices\":false"
@@ -220,13 +195,12 @@ String GetHueUserId(void)
 
 void HandleUpnpSetupHue(void)
 {
-  //AddLog_P(LOG_LEVEL_DEBUG, S_LOG_HTTP, PSTR(D_HUE_BRIDGE_SETUP));
+  AddLog_P(LOG_LEVEL_DEBUG, S_LOG_HTTP, PSTR(D_HUE_BRIDGE_SETUP));
   String description_xml = FPSTR(HUE_DESCRIPTION_XML);
   description_xml.replace("{x1", WiFi.localIP().toString());
   description_xml.replace("{x2", HueUuid());
   description_xml.replace("{x3", HueSerialnumber());
   WSSend(200, CT_XML, description_xml);
-  AddLog_P2(LOG_LEVEL_DEBUG, PSTR("Hue Setup xml: %s"),description_xml.c_str());
 }
 
 void HueNotImplemented(String *path)
@@ -253,7 +227,6 @@ void HueConfig(String *path)
   String response = "";
   HueConfigResponse(&response);
   WSSend(200, CT_JSON, response);
-  AddLog_P2(LOG_LEVEL_DEBUG, PSTR("Hue Setup json: %s"),response.c_str());
 }
 
 // device is forced to CT mode instead of HSB
@@ -489,7 +462,6 @@ void HueGlobalConfig(String *path)
   HueConfigResponse(&response);
   response += "}";
   WSSend(200, CT_JSON, response);
-  AddLog_P2(LOG_LEVEL_DEBUG, PSTR("Hue config json: %s"),response.c_str());
 }
 
 void HueAuthentication(String *path)
@@ -807,7 +779,7 @@ void HandleHueApi(String *path)
 
   if (path->endsWith("/invalid/")) {}                // Just ignore
   else if (!apilen) HueAuthentication(path);                  // New HUE App setup
-  else if (apilen==1 && path->endsWith("/")) HueAuthentication(path);      // New HUE App setup
+  else if (path->endsWith("/")) HueAuthentication(path);      // New HUE App setup
   else if (path->endsWith("/config")) HueConfig(path);
   else if (path->indexOf("/lights") >= 0) HueLights(path);
   else if (path->indexOf("/groups") >= 0) HueGroups(path);

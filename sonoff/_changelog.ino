@@ -1,4 +1,13 @@
 /*********************************************************************************************\
+ * 6.6.0.17 20191009
+ * Add command SetOption34 0..255 to set backlog delay. Default value is 200 (mSeconds) (#6562)
+ * Add command Gpio 255 to show physical GPIO configuration of all non-flash pins (#6407)
+ *
+ * 6.6.0.16 20191008
+ * Change PZEM004T default address mask from 0.0.0.x to 192.168.1.x for legacy reason (#6585)
+ * Fix PZEM004T, PZEMAC and PZEMDC autodetection (#6585)
+ * Change light drivers internals to ease management
+ *
  * 6.6.0.15 20191003
  * Change command PulseTime JSON message format and allow display of all pulsetimer information (#6519)
  * Add support for Chint DDSU666 Modbus energy meter by Pablo Zerón

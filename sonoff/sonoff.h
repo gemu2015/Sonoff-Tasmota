@@ -124,7 +124,7 @@ const uint16_t MIN_MESSZ = 893;             // Min number of characters in MQTT 
 const uint8_t SENSOR_MAX_MISS = 5;          // Max number of missed sensor reads before deciding it's offline
 
 const uint8_t MAX_BACKLOG = 30;             // Max number of commands in backlog
-const uint32_t MIN_BACKLOG_DELAY = 2;       // Minimal backlog delay in 0.1 seconds
+const uint32_t MIN_BACKLOG_DELAY = 200;     // Minimal backlog delay in mSeconds
 
 const uint32_t SOFT_BAUDRATE = 9600;        // Default software serial baudrate
 const uint32_t APP_BAUDRATE = 115200;       // Default serial baudrate
@@ -167,8 +167,6 @@ const uint32_t LOOP_SLEEP_DELAY = 50;       // Lowest number of milliseconds to 
 #define NEO_3LED               4            // Placeholder to test for 4 led types
 #define NEO_RGBW               5            // Neopixel RGBW leds
 #define NEO_GRBW               6            // Neopixel GRBW leds
-
-#define LT_SM16716             16           // Lights that use SM16716 will have this bit set in light_type
 
 #define RGB_REMAP_RGBW         0
 #define RGB_REMAP_RBGW         6
@@ -247,7 +245,7 @@ enum ButtonStates { PRESSED, NOT_PRESSED };
 
 enum Shortcuts { SC_CLEAR, SC_DEFAULT, SC_USER };
 
-enum SettingsParamIndex { P_HOLD_TIME, P_MAX_POWER_RETRY, P_ex_TUYA_DIMMER_ID, P_MDNS_DELAYED_START, P_BOOT_LOOP_OFFSET, P_RGB_REMAP, P_IR_UNKNOW_THRESHOLD,  // SetOption32 .. SetOption38
+enum SettingsParamIndex { P_HOLD_TIME, P_MAX_POWER_RETRY, P_BACKLOG_DELAY, P_MDNS_DELAYED_START, P_BOOT_LOOP_OFFSET, P_RGB_REMAP, P_IR_UNKNOW_THRESHOLD,  // SetOption32 .. SetOption38
                           P_CSE7766_INVALID_POWER, P_HOLD_IGNORE, P_ex_TUYA_RELAYS, P_OVER_TEMP,  // SetOption39 .. SetOption42
                           P_DIMMER_MAX,
                           P_ex_TUYA_VOLTAGE_ID, P_ex_TUYA_CURRENT_ID, P_ex_TUYA_POWER_ID,  // SetOption43 .. SetOption46
@@ -267,9 +265,7 @@ enum Ws2812Color { WS_RED, WS_GREEN, WS_BLUE };
 
 enum LightSubtypes { LST_NONE, LST_SINGLE, LST_COLDWARM, LST_RGB,   LST_RGBW, LST_RGBWC, LST_MAX=5 };   // Do not insert new fields
 enum LightTypes    { LT_BASIC, LT_PWM1,    LT_PWM2,      LT_PWM3,   LT_PWM4,  LT_PWM5,  LT_PWM6, LT_PWM7,
-                     LT_NU8,   LT_SERIAL1, LT_SERIAL2,   LT_WS2812, LT_RGBW,  LT_RGBWC, LT_NU14, LT_NU15 };  // Do not insert new fields
-
-enum LightSchemes {LS_POWER, LS_WAKEUP, LS_CYCLEUP, LS_CYCLEDN, LS_RANDOM, LS_MAX};
+                     LT_NU8,   LT_SERIAL1, LT_SERIAL2,   LT_RGB,    LT_RGBW,  LT_RGBWC, LT_NU14, LT_NU15 };  // Do not insert new fields
 
 enum XsnsFunctions {FUNC_SETTINGS_OVERRIDE, FUNC_PIN_STATE, FUNC_MODULE_INIT, FUNC_PRE_INIT, FUNC_INIT,
                     FUNC_LOOP, FUNC_EVERY_50_MSECOND, FUNC_EVERY_100_MSECOND, FUNC_EVERY_200_MSECOND, FUNC_EVERY_250_MSECOND, FUNC_EVERY_300_MSECOND, FUNC_EVERY_SECOND,
@@ -279,7 +275,7 @@ enum XsnsFunctions {FUNC_SETTINGS_OVERRIDE, FUNC_PIN_STATE, FUNC_MODULE_INIT, FU
                     FUNC_SET_POWER, FUNC_SET_DEVICE_POWER, FUNC_SHOW_SENSOR,
                     FUNC_ENERGY_EVERY_SECOND, FUNC_ENERGY_RESET,
                     FUNC_RULES_PROCESS, FUNC_SERIAL, FUNC_FREE_MEM, FUNC_BUTTON_PRESSED,
-                    FUNC_WEB_ADD_BUTTON, FUNC_WEB_ADD_MAIN_BUTTON, FUNC_WEB_ADD_HANDLER, FUNC_SET_CHANNELS};
+                    FUNC_WEB_ADD_BUTTON, FUNC_WEB_ADD_MAIN_BUTTON, FUNC_WEB_ADD_HANDLER, FUNC_SET_CHANNELS, FUNC_SET_SCHEME};
 
 enum AddressConfigSteps { ADDR_IDLE, ADDR_RECEIVE, ADDR_SEND };
 

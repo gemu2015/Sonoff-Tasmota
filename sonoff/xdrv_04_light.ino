@@ -31,12 +31,9 @@
  *  5          PWM5       RGBCW  yes        (H801, Arilux LC11)
  *  9          reserved          no
  * 10          reserved          yes
- * 11          +WS2812    RGB(W) no         (One WS2812 RGB or RGBW ledstrip)
+ * 11          +WS2812    RGB    no         (One WS2812 RGB or RGBW ledstrip)
  * 12          AiLight    RGBW   no
  * 13          Sonoff B1  RGBCW  yes
- * 19          SM16716    RGB    no
- * 20          SM16716+W  RGBW   no
- * 21          SM16716+CW RGBCW  yes
  *
  * light_scheme  WS2812  3+ Colors  1+2 Colors  Effect
  * ------------  ------  ---------  ----------  -----------------
@@ -55,7 +52,6 @@
  * 12            yes     no         no          Fire
  *
 \*********************************************************************************************/
-
 
 /*********************************************************************************************\
  *
@@ -128,21 +124,16 @@
 #define XDRV_04              4
 // #define DEBUG_LIGHT
 
+enum LightSchemes { LS_POWER, LS_WAKEUP, LS_CYCLEUP, LS_CYCLEDN, LS_RANDOM, LS_MAX };
+
 const uint8_t LIGHT_COLOR_SIZE = 25;   // Char array scolor size
-const uint8_t WS2812_SCHEMES = 7;      // Number of additional WS2812 schemes supported by xdrv_ws2812.ino
 
 const char kLightCommands[] PROGMEM = "|"  // No prefix
-#ifdef USE_WS2812
-  D_CMND_LED "|" D_CMND_PIXELS "|" D_CMND_ROTATION "|" D_CMND_WIDTH "|"
-#endif  // USE_WS2812
   D_CMND_COLOR "|" D_CMND_COLORTEMPERATURE "|" D_CMND_DIMMER "|" D_CMND_LEDTABLE "|" D_CMND_FADE "|"
   D_CMND_RGBWWTABLE "|" D_CMND_SCHEME "|" D_CMND_SPEED "|" D_CMND_WAKEUP "|" D_CMND_WAKEUPDURATION "|"
   D_CMND_WHITE "|" D_CMND_CHANNEL "|" D_CMND_HSBCOLOR "|UNDOCA" ;
 
 void (* const LightCommand[])(void) PROGMEM = {
-#ifdef USE_WS2812
-  &CmndLed, &CmndPixels, &CmndRotation, &CmndWidth,
-#endif  // USE_WS2812
   &CmndColor, &CmndColorTemperature, &CmndDimmer, &CmndLedTable, &CmndFade,
   &CmndRgbwwTable, &CmndScheme, &CmndSpeed, &CmndWakeup, &CmndWakeupDuration,
   &CmndWhite, &CmndChannel, &CmndHsbColor, &CmndUndocA };
@@ -258,6 +249,7 @@ struct LIGHT {
   uint8_t wakeup_dimmer = 0;
   uint8_t fixed_color_index = 1;
   uint8_t pwm_offset = 0;                 // Offset in color buffer
+  uint8_t max_scheme = LS_MAX -1;
 
   bool update = true;
   bool pwm_multi_channels = false;        // SetOption68, treat each PWM channel as an independant dimmer
@@ -1036,155 +1028,6 @@ uint16_t ledGamma(uint8_t v, uint16_t bits_out = 8) {
   return result;
 }
 
-#ifdef USE_ARILUX_RF
-/*********************************************************************************************\
- * Arilux LC11 Rf support stripped from RCSwitch library
-\*********************************************************************************************/
-
-const uint32_t ARILUX_RF_TIME_AVOID_DUPLICATE = 1000;  // Milliseconds
-
-const uint8_t ARILUX_RF_MAX_CHANGES = 51;              // Pulses (sync + 2 x 24 bits)
-const uint32_t ARILUX_RF_SEPARATION_LIMIT = 4300;      // Microseconds
-const uint32_t ARILUX_RF_RECEIVE_TOLERANCE = 60;       // Percentage
-
-struct ARILUX {
-  unsigned int rf_timings[ARILUX_RF_MAX_CHANGES];
-
-  unsigned long rf_received_value = 0;
-  unsigned long rf_last_received_value = 0;
-  unsigned long rf_last_time = 0;
-  unsigned long rf_lasttime = 0;
-
-  unsigned int rf_change_count = 0;
-  unsigned int rf_repeat_count = 0;
-
-  uint8_t rf_toggle = 0;
-} Arilux;
-
-#ifndef ARDUINO_ESP8266_RELEASE_2_3_0          // Fix core 2.5.x ISR not in IRAM Exception
-#ifndef USE_WS2812_DMA                         // Collides with Neopixelbus but solves RF misses
-void AriluxRfInterrupt(void) ICACHE_RAM_ATTR;  // As iram is tight and it works this way too
-#endif  // USE_WS2812_DMA
-#endif  // ARDUINO_ESP8266_RELEASE_2_3_0
-
-void AriluxRfInterrupt(void)
-{
-  unsigned long time = micros();
-  unsigned int duration = time - Arilux.rf_lasttime;
-
-  if (duration > ARILUX_RF_SEPARATION_LIMIT) {
-    if (abs(duration - Arilux.rf_timings[0]) < 200) {
-      Arilux.rf_repeat_count++;
-      if (Arilux.rf_repeat_count == 2) {
-        unsigned long code = 0;
-        const unsigned int delay = Arilux.rf_timings[0] / 31;
-        const unsigned int delayTolerance = delay * ARILUX_RF_RECEIVE_TOLERANCE / 100;
-        for (unsigned int i = 1; i < Arilux.rf_change_count -1; i += 2) {
-          code <<= 1;
-          if (abs(Arilux.rf_timings[i] - (delay *3)) < delayTolerance && abs(Arilux.rf_timings[i +1] - delay) < delayTolerance) {
-            code |= 1;
-          }
-        }
-        if (Arilux.rf_change_count > 49) {  // Need 1 sync bit and 24 data bits
-          Arilux.rf_received_value = code;
-        }
-        Arilux.rf_repeat_count = 0;
-      }
-    }
-    Arilux.rf_change_count = 0;
-  }
-  if (Arilux.rf_change_count >= ARILUX_RF_MAX_CHANGES) {
-    Arilux.rf_change_count = 0;
-    Arilux.rf_repeat_count = 0;
-  }
-  Arilux.rf_timings[Arilux.rf_change_count++] = duration;
-  Arilux.rf_lasttime = time;
-}
-
-void AriluxRfHandler(void)
-{
-  unsigned long now = millis();
-  if (Arilux.rf_received_value && !((Arilux.rf_received_value == Arilux.rf_last_received_value) && (now - Arilux.rf_last_time < ARILUX_RF_TIME_AVOID_DUPLICATE))) {
-    Arilux.rf_last_received_value = Arilux.rf_received_value;
-    Arilux.rf_last_time = now;
-
-    uint16_t hostcode = Arilux.rf_received_value >> 8 & 0xFFFF;
-    if (Settings.rf_code[1][6] == Settings.rf_code[1][7]) {
-      Settings.rf_code[1][6] = hostcode >> 8 & 0xFF;
-      Settings.rf_code[1][7] = hostcode & 0xFF;
-    }
-    uint16_t stored_hostcode = Settings.rf_code[1][6] << 8 | Settings.rf_code[1][7];
-
-    DEBUG_DRIVER_LOG(PSTR(D_LOG_RFR D_HOST D_CODE " 0x%04X, " D_RECEIVED " 0x%06X"), stored_hostcode, Arilux.rf_received_value);
-
-    if (hostcode == stored_hostcode) {
-      char command[33];
-      char value = '-';
-      command[0] = '\0';
-      uint8_t  keycode = Arilux.rf_received_value & 0xFF;
-      switch (keycode) {
-        case 1:  // Power On
-        case 3:  // Power Off
-          snprintf_P(command, sizeof(command), PSTR(D_CMND_POWER " %d"), (1 == keycode) ? 1 : 0);
-          break;
-        case 2:  // Toggle
-          Arilux.rf_toggle++;
-          Arilux.rf_toggle &= 0x3;
-          snprintf_P(command, sizeof(command), PSTR(D_CMND_COLOR " %d"), 200 + Arilux.rf_toggle);
-          break;
-        case 4:  // Speed +
-          value = '+';
-        case 7:  // Speed -
-          snprintf_P(command, sizeof(command), PSTR(D_CMND_SPEED " %c"), value);
-          break;
-        case 5:  // Scheme +
-          value = '+';
-        case 8:  // Scheme -
-          snprintf_P(command, sizeof(command), PSTR(D_CMND_SCHEME " %c"), value);
-          break;
-        case 6:  // Dimmer +
-          value = '+';
-        case 9:  // Dimmer -
-          snprintf_P(command, sizeof(command), PSTR(D_CMND_DIMMER " %c"), value);
-          break;
-        default: {
-          if ((keycode >= 10) && (keycode <= 21)) {
-            snprintf_P(command, sizeof(command), PSTR(D_CMND_COLOR " %d"), keycode -9);
-          }
-        }
-      }
-      if (strlen(command)) {
-        ExecuteCommand(command, SRC_LIGHT);
-      }
-    }
-  }
-  Arilux.rf_received_value = 0;
-}
-
-void AriluxRfInit(void)
-{
-  if ((pin[GPIO_ARIRFRCV] < 99) && (pin[GPIO_ARIRFSEL] < 99)) {
-    if (Settings.last_module != Settings.module) {
-      Settings.rf_code[1][6] = 0;
-      Settings.rf_code[1][7] = 0;
-      Settings.last_module = Settings.module;
-    }
-    Arilux.rf_received_value = 0;
-
-    digitalWrite(pin[GPIO_ARIRFSEL], 0);  // Turn on RF
-    attachInterrupt(pin[GPIO_ARIRFRCV], AriluxRfInterrupt, CHANGE);
-  }
-}
-
-void AriluxRfDisable(void)
-{
-  if ((pin[GPIO_ARIRFRCV] < 99) && (pin[GPIO_ARIRFSEL] < 99)) {
-    detachInterrupt(pin[GPIO_ARIRFRCV]);
-    digitalWrite(pin[GPIO_ARIRFSEL], 1);  // Turn off RF
-  }
-}
-#endif  // USE_ARILUX_RF
-
 /********************************************************************************************/
 
 void LightPwmOffset(uint32_t offset)
@@ -1224,11 +1067,11 @@ bool LightModuleInit(void)
     }
     light_type = LT_PWM2;
   }
-#ifdef USE_WS2812
-  if (!light_type && (pin[GPIO_WS2812] < 99)) {  // RGB led
-    light_type = LT_WS2812;
+
+  if (light_type > LT_BASIC) {
+    devices_present++;
   }
-#endif  // USE_WS2812
+
   // post-process for lights
   if (Settings.flag3.pwm_multi_channels) {
     uint32_t pwm_channels = (light_type & 7) > LST_MAX ? LST_MAX : (light_type & 7);
@@ -1236,22 +1079,14 @@ bool LightModuleInit(void)
     devices_present += pwm_channels - 1;  // add the pwm channels controls at the end
   }
 
-  return (light_type > 0);
+  return (light_type > LT_BASIC);
 }
 
 void LightInit(void)
 {
-  uint8_t max_scheme = LS_MAX -1;
-
   Light.device = devices_present;
   Light.subtype = (light_type & 7) > LST_MAX ? LST_MAX : (light_type & 7); // Always 0 - LST_MAX (5)
   Light.pwm_multi_channels = Settings.flag3.pwm_multi_channels;
-
-#if defined(USE_WS2812) && (USE_WS2812_CTYPE > NEO_3LED)
-  if (LT_WS2812 == light_type) {
-    Light.subtype++;  // from RGB to RGBW
-  }
-#endif
 
   if ((LST_SINGLE < Light.subtype) && Light.pwm_multi_channels) {
     // we treat each PWM channel as an independant one, hence we switch to
@@ -1283,25 +1118,8 @@ void LightInit(void)
       }
     }
   }
-#ifdef USE_WS2812  // ************************************************************************
-  else if (LT_WS2812 == light_type) {
-    Ws2812Init();
-    max_scheme = LS_MAX + WS2812_SCHEMES;
-  }
-#endif  // USE_WS2812 ************************************************************************
-/*
-  else {
-    light_pdi_pin = pin[GPIO_DI];
-    light_pdcki_pin = pin[GPIO_DCKI];
 
-    pinMode(light_pdi_pin, OUTPUT);
-    pinMode(light_pdcki_pin, OUTPUT);
-    digitalWrite(light_pdi_pin, LOW);
-    digitalWrite(light_pdcki_pin, LOW);
-
-    LightMy92x1Init();
-  }
-*/
+  uint32_t max_scheme = Light.max_scheme;
   if (Light.subtype < LST_RGB) {
     max_scheme = LS_POWER;
   }
@@ -1480,7 +1298,7 @@ void LightState(uint8_t append)
       if (Light.subtype >= LST_RGB) {
         ResponseAppend_P(PSTR(",\"" D_CMND_SCHEME "\":%d"), Settings.light_scheme);
       }
-      if (LT_WS2812 == light_type) {
+      if (Light.max_scheme > LS_MAX) {
         ResponseAppend_P(PSTR(",\"" D_CMND_WIDTH "\":%d"), Settings.light_width);
       }
       ResponseAppend_P(PSTR(",\"" D_CMND_FADE "\":\"%s\",\"" D_CMND_SPEED "\":%d,\"" D_CMND_LEDTABLE "\":\"%s\""),
@@ -1736,12 +1554,8 @@ void LightAnimate(void)
       case LS_RANDOM:
         LightRandomColor();
         break;
-#ifdef USE_WS2812  // ************************************************************************
       default:
-        if (LT_WS2812 == light_type) {
-          Ws2812ShowScheme(Settings.light_scheme -LS_MAX);
-        }
-#endif  // USE_WS2812 ************************************************************************
+        XlgtCall(FUNC_SET_SCHEME);
     }
   }
 
@@ -1860,11 +1674,6 @@ void LightAnimate(void)
       else if (XdrvCall(FUNC_SET_CHANNELS)) {
         // Serviced
       }
-#ifdef USE_WS2812  // ************************************************************************
-      else if (LT_WS2812 == light_type) {
-        Ws2812SetColor(0, cur_col[0], cur_col[1], cur_col[2], cur_col[3]);
-      }
-#endif  // USE_ES2812 ************************************************************************
       XdrvMailbox.data = tmp_data;
       XdrvMailbox.data_len = tmp_data_len;
     }
@@ -1879,10 +1688,11 @@ void calcGammaCTPwm(uint8_t cur_col[5], uint16_t cur_col_10bits[5]) {
   // channels for white are always the last two channels
   uint32_t cw1 = Light.subtype - 1;       // address for the ColorTone PWM
   uint32_t cw0 = Light.subtype - 2;       // address for the White Brightness PWM
-  cur_col[cw1] = changeUIntScale(cold, 0, cold + warm, 0, 255);   // 
+  // overall brightness
+  uint16_t pxBri = cur_col[cw0] + cur_col[cw1];
+  if (pxBri > 255) { pxBri = 255; }
+  cur_col[cw1] = changeUIntScale(cold, 0, cold + warm, 0, 255);   //
   cur_col_10bits[cw1] = changeUIntScale(cur_col[cw1], 0, 255, 0, 1023);
-  // now set channel 0 to overall brightness
-  uint8_t pxBri = light_state.getBriCT();
   // channel 0=intensity, channel1=temperature
   if (Settings.light_correction) { // gamma correction
     cur_col[cw0] = ledGamma(pxBri);
@@ -2168,76 +1978,11 @@ void CmndHsbColor(void)
   }
 }
 
-#ifdef USE_WS2812  //  ***********************************************************************
-void CmndLed(void)
-{
-  if ((LT_WS2812 == light_type) && (XdrvMailbox.index > 0) && (XdrvMailbox.index <= Settings.light_pixels)) {
-    if (XdrvMailbox.data_len > 0) {
-      char *p;
-      uint16_t idx = XdrvMailbox.index;
-      Ws2812ForceSuspend();
-      for (char *color = strtok_r(XdrvMailbox.data, " ", &p); color; color = strtok_r(nullptr, " ", &p)) {
-        if (LightColorEntry(color, strlen(color))) {
-          Ws2812SetColor(idx, Light.entry_color[0], Light.entry_color[1], Light.entry_color[2], Light.entry_color[3]);
-          idx++;
-          if (idx > Settings.light_pixels) { break; }
-        } else {
-          break;
-        }
-      }
-
-      Ws2812ForceUpdate();
-    }
-    char scolor[LIGHT_COLOR_SIZE];
-    ResponseCmndIdxChar(Ws2812GetColor(XdrvMailbox.index, scolor));
-  }
-}
-
-void CmndPixels(void)
-{
-  if (LT_WS2812 == light_type) {
-    if ((XdrvMailbox.payload > 0) && (XdrvMailbox.payload <= WS2812_MAX_LEDS)) {
-      Settings.light_pixels = XdrvMailbox.payload;
-      Settings.light_rotation = 0;
-      Ws2812Clear();
-      Light.update = true;
-    }
-    ResponseCmndNumber(Settings.light_pixels);
-  }
-}
-
-void CmndRotation(void)
-{
-  if (LT_WS2812 == light_type) {
-    if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload < Settings.light_pixels)) {
-      Settings.light_rotation = XdrvMailbox.payload;
-    }
-    ResponseCmndNumber(Settings.light_rotation);
-  }
-}
-
-void CmndWidth(void)
-{
-  if ((LT_WS2812 == light_type) && (XdrvMailbox.index > 0) && (XdrvMailbox.index <= 4)) {
-    if (1 == XdrvMailbox.index) {
-      if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload <= 4)) {
-        Settings.light_width = XdrvMailbox.payload;
-      }
-      ResponseCmndNumber(Settings.light_width);
-    } else {
-      if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload < 32)) {
-        Settings.ws_width[XdrvMailbox.index -2] = XdrvMailbox.payload;
-      }
-      ResponseCmndIdxNumber(Settings.ws_width[XdrvMailbox.index -2]);
-    }
-  }
-}
-#endif  // USE_WS2812 ************************************************************************
-
 void CmndScheme(void)
 {
   if (Light.subtype >= LST_RGB) {
-    uint32_t max_scheme = (LT_WS2812 == light_type) ? LS_MAX + WS2812_SCHEMES : LS_MAX -1;
+    uint32_t max_scheme = Light.max_scheme;
+
     if (1 == XdrvMailbox.data_len) {
       if (('+' == XdrvMailbox.data[0]) && (Settings.light_scheme < max_scheme)) {
         XdrvMailbox.payload = Settings.light_scheme + ((0 == Settings.light_scheme) ? 2 : 1);  // Skip wakeup
@@ -2420,20 +2165,15 @@ bool Xdrv04(uint8_t function)
     switch (function) {
       case FUNC_EVERY_50_MSECOND:
         LightAnimate();
-#ifdef USE_ARILUX_RF
-        if (pin[GPIO_ARIRFRCV] < 99) { AriluxRfHandler(); }
-#endif  // USE_ARILUX_RF
         break;
-#ifdef USE_ARILUX_RF
-      case FUNC_EVERY_SECOND:
-        if (10 == uptime) { AriluxRfInit(); }  // Needs rest before enabling RF interrupts
-        break;
-#endif  // USE_ARILUX_RF
       case FUNC_SET_POWER:
         LightSetPower();
         break;
       case FUNC_COMMAND:
         result = DecodeCommand(kLightCommands, LightCommand);
+        if (!result) {
+          result = XlgtCall(FUNC_COMMAND);
+        }
         break;
       case FUNC_PRE_INIT:
         LightInit();
