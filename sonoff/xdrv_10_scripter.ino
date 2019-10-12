@@ -3329,6 +3329,31 @@ void ScriptSaveSettings(void) {
     str.replace("\r\n","\n");
     str.replace("\r","\n");
 
+#ifdef SCRIPT_STRIP_COMMENTS
+    char *sp=(char*)str.c_str();
+    char *sp1=sp;
+    char *dp=sp;
+    while (*sp) {
+      while (*sp==' ') sp++;
+      sp1=sp;
+      sp=strchr(sp,'\n');
+      if (!sp) {
+        *dp=0;
+        break;
+      }
+      *sp=0;
+      if (*sp1!=';') {
+        uint8_t slen=strlen(sp1);
+        if (slen) {
+          strcpy(dp,sp1);
+          dp+=slen;
+          *dp++='\n';
+        }
+      }
+      sp++;
+    }
+#endif
+
     strlcpy(glob_script_mem.script_ram,str.c_str(), glob_script_mem.script_size);
 
 #ifdef USE_24C256
