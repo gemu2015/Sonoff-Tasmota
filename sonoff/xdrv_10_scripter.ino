@@ -2968,7 +2968,7 @@ const char HTTP_FORM_SCRIPT[] PROGMEM =
 const char HTTP_FORM_SCRIPT1[] PROGMEM =
     "<div style='text-align:right' id='charNum'> </div>"
     "<input style='width:3%%;' id='c%d' name='c%d' type='checkbox'%s><b>script enable</b><br/>"
-    "<br><textarea  id='t1' name='t1' rows='8' cols='80' maxlength='%d' style='font-size: 12pt' >";
+    "<br><textarea  id='t1' name='t1' onpaste='mypaste(value)' rows='8' cols='80' maxlength='%d' style='font-size: 12pt' >";
 
 
 const char HTTP_FORM_SCRIPT1b[] PROGMEM =
@@ -2986,6 +2986,10 @@ const char HTTP_FORM_SCRIPT1b[] PROGMEM =
     "}"
 
     "});"
+    "function mypaste(text) {"
+    //"alert(\"You pasted text!\"+text);"
+    //"eb('t1').value=\"hallo\";"
+    "}"
     "</script>";
 
 const char HTTP_SCRIPT_FORM_END[] PROGMEM =
@@ -3291,7 +3295,15 @@ void HandleScriptConfiguration(void) {
     WSContentStart_P(S_CONFIGURE_SCRIPT);
     WSContentSendStyle();
     WSContentSend_P(HTTP_FORM_SCRIPT);
+
+
+#ifdef SCRIPT_STRIP_COMMENTS
+    uint16_t ssize=glob_script_mem.script_size;
+    if (bitRead(Settings.rule_enabled, 1)) ssize*=2;
+    WSContentSend_P(HTTP_FORM_SCRIPT1,1,1,bitRead(Settings.rule_enabled,0) ? " checked" : "",ssize);
+#else
     WSContentSend_P(HTTP_FORM_SCRIPT1,1,1,bitRead(Settings.rule_enabled,0) ? " checked" : "",glob_script_mem.script_size);
+#endif
 
     // script is to larg for WSContentSend_P
     if (glob_script_mem.script_ram[0]) {
@@ -3334,15 +3346,16 @@ void ScriptSaveSettings(void) {
       char *sp=(char*)str.c_str();
       char *sp1=sp;
       char *dp=sp;
+      uint8_t flg=0;
       while (*sp) {
         while (*sp==' ') sp++;
         sp1=sp;
         sp=strchr(sp,'\n');
         if (!sp) {
-          *dp=0;
-          break;
+          flg=1;
+        } else {
+          *sp=0;
         }
-        *sp=0;
         if (*sp1!=';') {
           uint8_t slen=strlen(sp1);
           if (slen) {
@@ -3350,6 +3363,10 @@ void ScriptSaveSettings(void) {
             dp+=slen;
             *dp++='\n';
           }
+        }
+        if (flg) {
+          *dp=0;
+          break;
         }
         sp++;
       }
