@@ -2986,25 +2986,26 @@ const char HTTP_FORM_SCRIPT1b[] PROGMEM =
     "}"
     "});"
 
+#ifdef SCRIPT_STRIP_COMMENTS
     "textarea.addEventListener('paste',(event) =>{"
     "let paste = (event.clipboardData || window.clipboardData).getData('text');"
-    "paste = paste.toUpperCase();"
 
     "var out=\"\";"
-    //"var allLines = paste.split(/[^\r\n]+/g);"
     "var re=/\\r\\n|\\n\\r|\\n|\\r/g;"
-    "const allLines=paste.replace(re,\"\\n\").split(\"\\n\");"
+    "var allLines=paste.replace(re,\"\\n\").split(\"\\n\");"
 
     "allLines.forEach((line) => {"
-      "console.log(line);"
-      //"if(line.charAt(0)!=';'){"
-      //  "out+=line;"
-      //"}"
-    "})"
+      "if(line.length>0) {"
+        "if(line.charAt(0)!=';'){"
+          "out+=line+'\\n';"
+        "}"
+      "}"
+    "});"
 
     "event.preventDefault();"
-    "textarea.innerText=paste;"
+    "textarea.innerText=out;"
     "});"
+#endif
 
     "</script>";
 
@@ -3313,7 +3314,7 @@ void HandleScriptConfiguration(void) {
     WSContentSend_P(HTTP_FORM_SCRIPT);
 
 
-#ifdef SCRIPT_STRIP_COMMENTS
+#ifdef xSCRIPT_STRIP_COMMENTS
     uint16_t ssize=glob_script_mem.script_size;
     if (bitRead(Settings.rule_enabled, 1)) ssize*=2;
     WSContentSend_P(HTTP_FORM_SCRIPT1,1,1,bitRead(Settings.rule_enabled,0) ? " checked" : "",ssize);
@@ -3357,7 +3358,7 @@ void ScriptSaveSettings(void) {
     str.replace("\r\n","\n");
     str.replace("\r","\n");
 
-#ifdef SCRIPT_STRIP_COMMENTS
+#ifdef xSCRIPT_STRIP_COMMENTS
     if (bitRead(Settings.rule_enabled, 1)) {
       char *sp=(char*)str.c_str();
       char *sp1=sp;
@@ -3989,7 +3990,7 @@ bool ScriptCommand(void) {
         case 1: // On
           bitWrite(Settings.rule_enabled, index -1, XdrvMailbox.payload);
           break;
-#ifdef SCRIPT_STRIP_COMMENTS
+#ifdef xSCRIPT_STRIP_COMMENTS
         case 2:
           bitWrite(Settings.rule_enabled, 1,0);
           break;
