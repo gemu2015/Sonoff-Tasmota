@@ -3330,27 +3330,29 @@ void ScriptSaveSettings(void) {
     str.replace("\r","\n");
 
 #ifdef SCRIPT_STRIP_COMMENTS
-    char *sp=(char*)str.c_str();
-    char *sp1=sp;
-    char *dp=sp;
-    while (*sp) {
-      while (*sp==' ') sp++;
-      sp1=sp;
-      sp=strchr(sp,'\n');
-      if (!sp) {
-        *dp=0;
-        break;
-      }
-      *sp=0;
-      if (*sp1!=';') {
-        uint8_t slen=strlen(sp1);
-        if (slen) {
-          strcpy(dp,sp1);
-          dp+=slen;
-          *dp++='\n';
+    if (bitRead(Settings.rule_enabled, 1)) {
+      char *sp=(char*)str.c_str();
+      char *sp1=sp;
+      char *dp=sp;
+      while (*sp) {
+        while (*sp==' ') sp++;
+        sp1=sp;
+        sp=strchr(sp,'\n');
+        if (!sp) {
+          *dp=0;
+          break;
         }
+        *sp=0;
+        if (*sp1!=';') {
+          uint8_t slen=strlen(sp1);
+          if (slen) {
+            strcpy(dp,sp1);
+            dp+=slen;
+            *dp++='\n';
+          }
+        }
+        sp++;
       }
-      sp++;
     }
 #endif
 
@@ -3948,11 +3950,20 @@ bool ScriptCommand(void) {
   }
   else if ((CMND_SCRIPT == command_code) && (index > 0)) {
 
-    if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload < 2)) {
+    if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload < 4)) {
       switch (XdrvMailbox.payload) {
         case 0: // Off
         case 1: // On
-        bitWrite(Settings.rule_enabled, index -1, XdrvMailbox.payload);
+          bitWrite(Settings.rule_enabled, index -1, XdrvMailbox.payload);
+          break;
+#ifdef SCRIPT_STRIP_COMMENTS
+        case 2:
+          bitWrite(Settings.rule_enabled, 1,0);
+          break;
+        case 3:
+          bitWrite(Settings.rule_enabled, 1,1);
+          break;
+#endif
       }
     } else {
       if ('>' == XdrvMailbox.data[0]) {
