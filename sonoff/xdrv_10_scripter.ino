@@ -2968,8 +2968,8 @@ const char HTTP_FORM_SCRIPT[] PROGMEM =
 const char HTTP_FORM_SCRIPT1[] PROGMEM =
     "<div style='text-align:right' id='charNum'> </div>"
     "<input style='width:3%%;' id='c%d' name='c%d' type='checkbox'%s><b>script enable</b><br/>"
-    "<br><textarea  id='t1' name='t1' onpaste='mypaste(value)' rows='8' cols='80' maxlength='%d' style='font-size: 12pt' >";
-
+    "<br><textarea  id='t1' name='t1' rows='8' cols='80' maxlength='%d' style='font-size: 12pt' >";
+    //"<br><textarea  id='t1' name='t1' onpaste='mypaste(value)' rows='8' cols='80' maxlength='%d' style='font-size: 12pt' >";
 
 const char HTTP_FORM_SCRIPT1b[] PROGMEM =
     "</textarea>"
@@ -2984,12 +2984,28 @@ const char HTTP_FORM_SCRIPT1b[] PROGMEM =
     "}else{"
     "eb('charNum').innerHTML=ml-cl+' chars left';"
     "}"
-
     "});"
-    "function mypaste(text) {"
-    //"alert(\"You pasted text!\"+text);"
-    //"eb('t1').value=\"hallo\";"
-    "}"
+
+    "textarea.addEventListener('paste',(event) =>{"
+    "let paste = (event.clipboardData || window.clipboardData).getData('text');"
+    "paste = paste.toUpperCase();"
+
+    "var out=\"\";"
+    //"var allLines = paste.split(/[^\r\n]+/g);"
+    "var re=/\\r\\n|\\n\\r|\\n|\\r/g;"
+    "const allLines=paste.replace(re,\"\\n\").split(\"\\n\");"
+
+    "allLines.forEach((line) => {"
+      "console.log(line);"
+      //"if(line.charAt(0)!=';'){"
+      //  "out+=line;"
+      //"}"
+    "})"
+
+    "event.preventDefault();"
+    "textarea.innerText=paste;"
+    "});"
+
     "</script>";
 
 const char HTTP_SCRIPT_FORM_END[] PROGMEM =
