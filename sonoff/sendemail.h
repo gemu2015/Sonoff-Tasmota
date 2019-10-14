@@ -3,10 +3,12 @@
 
 //#define DEBUG_EMAIL_PORT
 
-#include <WiFiClient.h>
-#include <WiFiClientSecure.h>
+//#include <WiFiClient.h>
+//#include <WiFiClientSecure.h>
 #include <base64.h>
-#include <core_version.h>
+//#include <core_version.h>
+
+#include "WiFiClientSecureLightBearSSL.h"
 
 class SendEmail
 {
@@ -24,7 +26,8 @@ class SendEmail
     // use bear ssl
   //  #include "WiFiClientSecureLightBearSSL.h"
   //  BearSSL::WiFiClientSecure_light *client;
-    BearSSL::WiFiClientSecure* client;
+  //  BearSSL::WiFiClientSecure* client;
+    BearSSL::WiFiClientSecure_light *client;
     //WiFiClientSecure* client;
 #endif
     String readClient();

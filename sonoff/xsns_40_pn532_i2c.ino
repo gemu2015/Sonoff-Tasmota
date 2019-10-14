@@ -30,6 +30,7 @@
 // EEPROM MACROS
 #ifdef USE_24C256
 // i2c eeprom
+#undef MAX_TAGS
 #define MAX_TAGS 1000
 #include <Eeprom24C128_256.h>
 #define EEPROM_ADDRESS 0x50
@@ -42,6 +43,7 @@ static Eeprom24C128_256 eeprom(EEPROM_ADDRESS);
 #define EEP_SAVE()
 #else
 // esp eeprom simulator
+#undef MAX_TAGS
 #define MAX_TAGS 12
 #define EEP_WBYTES(A,B) TAG2EEPROM(A,B);
 #define EEP_RBYTES(A,B) EEPROM2TAG(A,B);
