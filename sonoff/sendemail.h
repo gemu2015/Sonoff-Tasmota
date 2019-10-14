@@ -24,11 +24,7 @@ class SendEmail
     WiFiClient* client;
 #else
     // use bear ssl
-  //  #include "WiFiClientSecureLightBearSSL.h"
-  //  BearSSL::WiFiClientSecure_light *client;
-  //  BearSSL::WiFiClientSecure* client;
     BearSSL::WiFiClientSecure_light *client;
-    //WiFiClientSecure* client;
 #endif
     String readClient();
     void a3_to_a4(unsigned char * a4, unsigned char * a3);

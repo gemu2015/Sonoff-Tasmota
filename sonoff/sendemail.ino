@@ -1,7 +1,7 @@
 #include "sendemail.h"
 
 // enable serial debugging
-#define DEBUG_EMAIL_PORT Serial
+//#define DEBUG_EMAIL_PORT Serial
 
 SendEmail::SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const int auth_used) :
     host(host), port(port), user(user), passwd(passwd), timeout(timeout), ssl(ssl), auth_used(auth_used), client(new BearSSL::WiFiClientSecure_light(1024,1024))
