@@ -1,3 +1,5 @@
+#ifdef USE_SENDMAIL
+
 #include "sendemail.h"
 
 // enable serial debugging
@@ -304,3 +306,5 @@ int SendEmail::base64_encode(char *output, const char *input, int inputLen) {
 	return encLen;
 }
 #endif
+
+#endif // USE_SENDMAIL
