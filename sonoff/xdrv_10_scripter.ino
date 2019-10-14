@@ -2974,90 +2974,74 @@ const char HTTP_FORM_SCRIPT1b[] PROGMEM =
     "</textarea>"
     "<script type='text/javascript'>"
     "eb('charNum').innerHTML='-';"
-    "var textarea=eb('t1');"
-    "textarea.addEventListener('input',function(){"
+    "var ta=eb('t1');"
+    "ta.addEventListener('keydown',function(e){"
+    "e = e || window.event;"
     "var ml=this.getAttribute('maxlength');"
     "var cl=this.value.length;"
     "if(cl>=ml){"
-    "eb('charNum').innerHTML='no more chars';"
+      "eb('charNum').innerHTML='no more chars';"
     "}else{"
-    "eb('charNum').innerHTML=ml-cl+' chars left';"
+      "eb('charNum').innerHTML=ml-cl+' chars left';"
     "}"
+
+#if 0
+    // catch shift ctrl v
+    "if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.which === 86) {"
+    // clipboard fails here
+      "var paste = window.clipboardData.getData('Text');"
+      //"var paste = e.view.clipboardData.getData('Text');"
+
+      "var out=\"\";"
+      "var re=/\\r\\n|\\n\\r|\\n|\\r/g;"
+      "var allLines=paste.replace(re,\"\\n\").split(\"\\n\");"
+      "allLines.forEach((line) => {"
+        "if(line.length>0) {"
+          "if(line.charAt(0)!=';'){"
+            "out+=line+'\\n';"
+          "}"
+        "}"
+      "});"
+      "alert(out);"
+    "}"
+#endif
+
+    "return true;"
     "});"
 
 
 // this works only once on a reloaded page
 #ifdef SCRIPT_STRIP_COMMENTS
-    "textarea.addEventListener('paste',(event) =>{"
-    "let paste = (event.clipboardData || window.clipboardData).getData('text');"
-    "var out=\"\";"
-    "var re=/\\r\\n|\\n\\r|\\n|\\r/g;"
-    "var allLines=paste.replace(re,\"\\n\").split(\"\\n\");"
 
-    "allLines.forEach((line) => {"
-      "if(line.length>0) {"
-        "if(line.charAt(0)!=';'){"
-          "out+=line+'\\n';"
+/*
+    "ta.addEventListener('paste',function(e){"
+      "let paste = (e.clipboardData || window.clipboardData).getData('text');"
+      "var out=\"\";"
+      "var re=/\\r\\n|\\n\\r|\\n|\\r/g;"
+      "var allLines=paste.replace(re,\"\\n\").split(\"\\n\");"
+      "allLines.forEach((line) => {"
+        "if(line.length>0) {"
+          "if(line.charAt(0)!=';'){"
+            "out+=line+'\\n';"
+          "}"
         "}"
-      "}"
-    "});"
+      "});"
 
-    //"alert(out);"
-    
+      "alert(out);"
+
     // this pastes the text on the wrong position ????
     //"const selection = Window.getSelection();"
     //"if (!selection.rangeCount) return false;"
     //"selection.deleteFromDocument();"
     //"selection.getRangeAt(0).insertNode(document.createTextNode(paste));"
 
-    "eb('t1').textContent=out;"
-    "event.preventDefault();"
+    //"eb('t1').textContent=out;"
+    //"event.preventDefault();"
+    "return true;"
+
     "});"
-
-/*
-
-//"copyToClipboard(out);"
-
-//"eb('t1').select();"
-//"document.execCommand(\"paste\");"
-
-    "function copyToClipboard(text) {"
-    "var ta=document.createElement(\"textarea\");"
-    "ta.textContent=text;"
-    "ta.style.position=\"fixed\";"
-    "document.body.appendChild(ta);"
-    "ta.select();"
-    "try {"
-      "return document.execCommand(\"cut\");"
-    "} catch (ex) {"
-      "console.warn(\"Copy to clipboard failed.\", ex);"
-      "return false;"
-    "} finally {"
-      "document.body.removeChild(ta);"
-    "}"
-    "}"
-    */
-/*
-    const copyToClipboard = str => {
-  const el = document.createElement('textarea');  // Create a <textarea> element
-  el.value = str;                                 // Set its value to the string that you want copied
-  el.setAttribute('readonly', '');                // Make it readonly to be tamper-proof
-  el.style.position = 'absolute';
-  el.style.left = '-9999px';                      // Move outside the screen to make it invisible
-  document.body.appendChild(el);                  // Append the <textarea> element to the HTML document
-  const selected =
-    document.getSelection().rangeCount > 0        // Check if there is any content selected previously
-      ? document.getSelection().getRangeAt(0)     // Store selection if found
-      : false;                                    // Mark as false to know no selection existed before
-  el.select();                                    // Select the <textarea> content
-  document.execCommand('copy');                   // Copy - only works as a result of a user action (e.g. click events)
-  document.body.removeChild(el);                  // Remove the <textarea> element
-  if (selected) {                                 // If a selection existed before copying
-    document.getSelection().removeAllRanges();    // Unselect everything on the HTML document
-    document.getSelection().addRange(selected);   // Restore the original selection
-  }
-};
 */
+
 #endif
 
     "</script>";
