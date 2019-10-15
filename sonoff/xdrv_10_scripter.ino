@@ -177,6 +177,10 @@ uint8_t fast_script=0;
 uint32_t script_lastmillis;
 
 
+#ifdef USE_BUTTON_EVENT
+int8_t script_button[MAX_KEYS];
+#endif
+
 char *GetNumericResult(char *lp,uint8_t lastop,float *fp,JsonObject *jo);
 char *GetStringResult(char *lp,uint8_t lastop,char *cp,JsonObject *jo);
 char *ForceStringVar(char *lp,char *dstr);
@@ -1062,6 +1066,18 @@ chknext:
           }
           goto exit;
         }
+#ifdef USE_BUTTON_EVENT
+        if (!strncmp(vname,"bt[",3)) {
+          // tasmota button state
+          GetNumericResult(vname+3,OPER_EQU,&fvar,0);
+          uint32_t index=fvar;
+          if (index<1 || index>MAX_KEYS) index=1;
+          fvar=script_button[index-1];
+          //script_button[index-1]=-1;
+          len++;
+          goto exit;
+        }
+#endif
         break;
       case 'c':
         if (!strncmp(vname,"chg[",4)) {
@@ -4626,6 +4642,12 @@ bool Xdrv10(uint8_t function)
       glob_script_mem.script_pram=(uint8_t*)Settings.mems[0];
       glob_script_mem.script_pram_size=MAX_RULE_MEMS*10;
 
+#ifdef USE_BUTTON_EVENT
+      for (uint32_t cnt=0;cnt<MAX_KEYS;cnt++) {
+        script_button[cnt]=-1;
+      }
+#endif
+
 #ifdef USE_24C256
 #ifndef USE_SCRIPT_FATFS
       if (i2c_flg) {
@@ -4751,14 +4773,28 @@ bool Xdrv10(uint8_t function)
 
 #ifdef USE_SCRIPT_JSON_EXPORT
     case FUNC_JSON_APPEND:
-      ScriptJsonAppend();
+      if (bitRead(Settings.rule_enabled, 0)) {
+        ScriptJsonAppend();
+      }
       break;
 #endif //USE_SCRIPT_JSON_EXPORT
 
+#ifdef USE_BUTTON_EVENT
+    case FUNC_BUTTON_PRESSED:
+      if (bitRead(Settings.rule_enabled, 0)) {
+        if (script_button[XdrvMailbox.index]!=XdrvMailbox.payload) {
+          script_button[XdrvMailbox.index]=XdrvMailbox.payload;
+          Run_Scripter(">b",2,0);
+        }
+      }
+      break;
+#endif
 
   }
   return result;
 }
+
+
 
 #endif  // Do not USE_RULES
 #endif  // USE_SCRIPT
