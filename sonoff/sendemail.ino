@@ -28,11 +28,15 @@ String SendEmail::readClient()
 
 bool SendEmail::send(const String& from, const String& to, const String& subject, const String& msg)
 {
-  if (!host.length())
-  {
-    return false;
+bool status=false;
+String buffer;
+
+  if (!host.length()) {
+    return status;
   }
-  client->setTimeout(timeout);
+  ESP.wdtFeed();
+
+  client->setTimeout(8000);
   // smtp connect
 #ifdef DEBUG_EMAIL_PORT
   SetSerialBaudrate(115200);
@@ -42,38 +46,26 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
   DEBUG_EMAIL_PORT.println(port);
 #endif
 
-#if defined(ARDUINO_ESP8266_RELEASE_2_3_0) || defined(ARDUINO_ESP8266_RELEASE_2_4_2)
-#else
-  //client->setInsecure();
-  /*
-  bool mfln = client->probeMaxFragmentLength(host.c_str(), port, 512);
-#ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.printf("MFLN supported: %s\n", mfln ? "yes" : "no");
-#endif
-  if (mfln) {
-      client->setBufferSizes(512, 512);
-  }*/
-#endif
 
-
-  if (!client->connect(host.c_str(), port))
-  {
+  if (!client->connect(host.c_str(), port)) {
 #ifdef DEBUG_EMAIL_PORT
       DEBUG_EMAIL_PORT.println("Connection failed: ");
       //DEBUG_EMAIL_PORT.println (client->getLastSSLError());
 #endif
-    return false;
+    goto exit;
   }
 
-  String buffer = readClient();
+  ESP.wdtFeed();
+
+  buffer = readClient();
 #ifdef DEBUG_EMAIL_PORT
   DEBUG_EMAIL_PORT.println(buffer);
 #endif
-  if (!buffer.startsWith(F("220")))
-  {
-    return false;
+  if (!buffer.startsWith(F("220"))) {
+    goto exit;
   }
 
+  ESP.wdtFeed();
 
   buffer = F("EHLO ");
   buffer += client->localIP().toString();
@@ -86,57 +78,14 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
 #ifdef DEBUG_EMAIL_PORT
   DEBUG_EMAIL_PORT.println(buffer);
 #endif
-  if (!buffer.startsWith(F("250")))
-  {
-    return false;
+  if (!buffer.startsWith(F("250"))) {
+    goto exit;
   }
-  if (user.length()>0  && passwd.length()>0 )
-  {
+  if (user.length()>0  && passwd.length()>0 ) {
 
     //buffer = F("STARTTLS");
     //client->println(buffer);
-
-if (auth_used==1) {
-    // plain
-#ifdef USE_PLAIN
-    buffer = F("AUTH PLAIN");
-    client->println(buffer);
-#ifdef DEBUG_EMAIL_PORT
-    DEBUG_EMAIL_PORT.println(buffer);
-#endif
-    buffer = readClient();
-#ifdef DEBUG_EMAIL_PORT
-    DEBUG_EMAIL_PORT.println(buffer);
-#endif
-    if (!buffer.startsWith(F("334")))
-    {
-      return false;
-    }
-
-    char plainAuth[100];
-    memset(plainAuth,sizeof(plainAuth),0);
-		plainAuth[0] = '\0';
-		strcpy(&plainAuth[1], user.c_str());
-		strcpy(&plainAuth[2+user.length()],passwd.c_str());
-		const char* pA = (const char*)&plainAuth;
-    char buf[100];
-		base64_encode(buf, pA, user.length()+passwd.length()+2);
-    client->println(buf);
-
-#ifdef DEBUG_EMAIL_PORT
-    DEBUG_EMAIL_PORT.println(buf);
-#endif
-    buffer = readClient();
-#ifdef DEBUG_EMAIL_PORT
-    DEBUG_EMAIL_PORT.println(buffer);
-#endif
-    if (!buffer.startsWith(F("235")))
-    {
-      return false;
-    }
-#endif
-
-} else {
+    ESP.wdtFeed();
 
     buffer = F("AUTH LOGIN");
     client->println(buffer);
@@ -149,7 +98,7 @@ if (auth_used==1) {
 #endif
     if (!buffer.startsWith(F("334")))
     {
-      return false;
+      goto exit;
     }
     base64 b;
     //buffer = user;
@@ -165,9 +114,8 @@ if (auth_used==1) {
 #ifdef DEBUG_EMAIL_PORT
   DEBUG_EMAIL_PORT.println(buffer);
 #endif
-    if (!buffer.startsWith(F("334")))
-    {
-      return false;
+    if (!buffer.startsWith(F("334"))) {
+      goto exit;
     }
     //buffer = this->passwd;
     //buffer = b.encode(buffer);
@@ -181,13 +129,12 @@ if (auth_used==1) {
 #ifdef DEBUG_EMAIL_PORT
   DEBUG_EMAIL_PORT.println(buffer);
 #endif
-    if (!buffer.startsWith(F("235")))
-    {
-      return false;
+    if (!buffer.startsWith(F("235"))) {
+      goto exit;
     }
-}
-
   }
+
+  ESP.wdtFeed();
 
   // smtp send mail
   buffer = F("MAIL FROM:");
@@ -200,9 +147,8 @@ if (auth_used==1) {
 #ifdef DEBUG_EMAIL_PORT
   DEBUG_EMAIL_PORT.println(buffer);
 #endif
-  if (!buffer.startsWith(F("250")))
-  {
-    return false;
+  if (!buffer.startsWith(F("250"))) {
+    goto exit;
   }
   buffer = F("RCPT TO:");
   buffer += to;
@@ -214,11 +160,11 @@ if (auth_used==1) {
 #ifdef DEBUG_EMAIL_PORT
   DEBUG_EMAIL_PORT.println(buffer);
 #endif
-  if (!buffer.startsWith(F("250")))
-  {
-    return false;
+  if (!buffer.startsWith(F("250"))) {
+    goto exit;
   }
 
+  ESP.wdtFeed();
 
   buffer = F("DATA");
   client->println(buffer);
@@ -229,9 +175,8 @@ if (auth_used==1) {
 #ifdef DEBUG_EMAIL_PORT
   DEBUG_EMAIL_PORT.println(buffer);
 #endif
-  if (!buffer.startsWith(F("354")))
-  {
-    return false;
+  if (!buffer.startsWith(F("354"))) {
+    goto exit;
   }
   buffer = F("From: ");
   buffer += from;
@@ -263,7 +208,12 @@ if (auth_used==1) {
 #ifdef DEBUG_EMAIL_PORT
   DEBUG_EMAIL_PORT.println(buffer);
 #endif
-  return true;
+
+  status=true;
+exit:
+
+  ESP.wdtFeed();
+  return status;
 }
 
 #ifdef USE_PLAIN
