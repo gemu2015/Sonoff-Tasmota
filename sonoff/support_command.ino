@@ -225,9 +225,7 @@ void CommandHandler(char* topicBuf, char* dataBuf, uint32_t data_len)
 
   if (mqtt_data[0] != '\0') {
      MqttPublishPrefixTopic_P(RESULT_OR_STAT, type);
-#ifdef USE_SCRIPT
      XdrvRulesProcess();
-#endif
   }
   fallback_topic_flag = false;
 }
@@ -700,21 +698,16 @@ void CmndSetoption(void)
         }
         if ((XdrvMailbox.payload >= param_low) && (XdrvMailbox.payload <= param_high)) {
           Settings.param[pindex] = XdrvMailbox.payload;
-          switch (pindex) {
 #ifdef USE_LIGHT
-            case P_RGB_REMAP:
-              LightUpdateColorMapping();
-              break;
+          if (P_RGB_REMAP == pindex) {
+            LightUpdateColorMapping();
+          }
 #endif
 #if (defined(USE_IR_REMOTE) && defined(USE_IR_RECEIVE)) || defined(USE_IR_REMOTE_FULL)
-            case P_IR_UNKNOW_THRESHOLD:
-              IrReceiveUpdateThreshold();
-              break;
-#endif
-            case P_DIMMER_MAX:
-              restart_flag = 2;  // Need a restart to update GUI
-              break;
+          if (P_IR_UNKNOW_THRESHOLD == pindex) {
+            IrReceiveUpdateThreshold();
           }
+#endif
         }
       }
     }

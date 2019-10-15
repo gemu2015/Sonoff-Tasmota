@@ -36,7 +36,7 @@ const char HUE_RESPONSE[] PROGMEM =
   "CACHE-CONTROL: max-age=100\r\n"
   "EXT:\r\n"
   "LOCATION: http://%s:80/description.xml\r\n"
-  "SERVER: Linux/3.14.0 UPnP/1.0 IpBridge/1.34.0\r\n"  // was 1.17
+  "SERVER: Linux/3.14.0 UPnP/1.0 IpBridge/1.24.0\r\n"  // was 1.17
   "hue-bridgeid: %s\r\n";
 const char HUE_ST1[] PROGMEM =
   "ST: upnp:rootdevice\r\n"
@@ -125,7 +125,7 @@ const char HUE_DESCRIPTION_XML[] PROGMEM =
 //    "<friendlyName>Philips hue ({x1)</friendlyName>"
     "<manufacturer>Royal Philips Electronics</manufacturer>"
     "<modelDescription>Philips hue Personal Wireless Lighting</modelDescription>"
-    "<modelName>Philips hue bridge 2015</modelName>"
+    "<modelName>Philips hue bridge 2012</modelName>"
     "<modelNumber>929000226503</modelNumber>"
     "<serialNumber>{x3</serialNumber>"
     "<UDN>uuid:{x2</UDN>"
@@ -166,7 +166,7 @@ const char HueConfigResponse_JSON[] PROGMEM =
      "\"create date\":\"{dt\","
      "\"name\":\"Remote\"}},"
    "\"swversion\":\"01041302\","
-   "\"apiversion\":\"1.34.0\","
+   "\"apiversion\":\"1.17.0\","
    "\"swupdate\":{\"updatestate\":0,\"url\":\"\",\"text\":\"\",\"notify\": false},"
    "\"linkbutton\":false,"
    "\"portalservices\":false"

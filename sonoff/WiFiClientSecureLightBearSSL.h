@@ -24,7 +24,6 @@
 
 #ifndef wificlientlightbearssl_h
 #define wificlientlightbearssl_h
-//#ifdef USE_MQTT_TLS
 #if defined(USE_MQTT_TLS) || defined (USE_SENDMAIL)
 #include <vector>
 #include "WiFiClient.h"

@@ -87,7 +87,7 @@
  *     survive a reboot and can be stored in flash - in saveSettings()
  *  .b Actual channel values are computed from RGB or CT combined with brightness.
  *     Range is still 0..255 (8 bits) - in getActualRGBCW()
- *  .c The 5 internal channels RGBWC are mapped to the actual channels supproted
+ *  .c The 5 internal channels RGBWC are mapped to the actual channels supported
  *     by the light_type: in calcLevels()
  *     1 channel  - 0:Brightness
  *     2 channels - 0:Coldwhite 1:Warmwhite
@@ -129,12 +129,12 @@ enum LightSchemes { LS_POWER, LS_WAKEUP, LS_CYCLEUP, LS_CYCLEDN, LS_RANDOM, LS_M
 const uint8_t LIGHT_COLOR_SIZE = 25;   // Char array scolor size
 
 const char kLightCommands[] PROGMEM = "|"  // No prefix
-  D_CMND_COLOR "|" D_CMND_COLORTEMPERATURE "|" D_CMND_DIMMER "|" D_CMND_LEDTABLE "|" D_CMND_FADE "|"
+  D_CMND_COLOR "|" D_CMND_COLORTEMPERATURE "|" D_CMND_DIMMER "|" D_CMND_DIMMER_RANGE "|" D_CMND_LEDTABLE "|" D_CMND_FADE "|"
   D_CMND_RGBWWTABLE "|" D_CMND_SCHEME "|" D_CMND_SPEED "|" D_CMND_WAKEUP "|" D_CMND_WAKEUPDURATION "|"
   D_CMND_WHITE "|" D_CMND_CHANNEL "|" D_CMND_HSBCOLOR "|UNDOCA" ;
 
 void (* const LightCommand[])(void) PROGMEM = {
-  &CmndColor, &CmndColorTemperature, &CmndDimmer, &CmndLedTable, &CmndFade,
+  &CmndColor, &CmndColorTemperature, &CmndDimmer, &CmndDimmerRange, &CmndLedTable, &CmndFade,
   &CmndRgbwwTable, &CmndScheme, &CmndSpeed, &CmndWakeup, &CmndWakeupDuration,
   &CmndWhite, &CmndChannel, &CmndHsbColor, &CmndUndocA };
 
@@ -420,6 +420,14 @@ class LightStateClass {
       getActualRGBCW(&channels[0], &channels[1], &channels[2], &channels[3], &channels[4]);
     }
 
+    void getChannelsRaw(uint8_t *channels) {
+      channels[0] = _r;
+      channels[1] = _g;
+      channels[2] = _b;
+      channels[3] = _wc;
+      channels[4] = _ww;
+    }
+
     void getHSB(uint16_t *hue, uint8_t *sat, uint8_t *bri) {
       if (hue) { *hue = _hue; }
       if (sat) { *sat = _sat; }
@@ -601,6 +609,16 @@ class LightStateClass {
       AddLog_P2(LOG_LEVEL_DEBUG_MORE, "LightStateClass::setHS RGB raw (%d %d %d) HS (%d %d) bri (%d)", _r, _g, _b, _hue, _sat, _briRGB);
 #endif
   }
+
+  // set all 5 channels at once, don't modify the values in ANY way
+  // Channels are: R G B CW WW
+  void setChannelsRaw(uint8_t *channels) {
+    _r = channels[0];
+    _g = channels[1];
+    _b = channels[2];
+    _wc = channels[3];
+    _ww = channels[4];
+}
 
   // set all 5 channels at once.
   // Channels are: R G B CW WW
@@ -838,14 +856,18 @@ public:
     AddLog_P2(LOG_LEVEL_DEBUG_MORE, "LightControllerClass::loadSettings light_type/sub (%d %d)",
       light_type, Light.subtype);
 #endif
-    // first try setting CW, if zero, it select RGB mode
-    _state->setCW(Settings.light_color[3], Settings.light_color[4], true);
-    _state->setRGB(Settings.light_color[0], Settings.light_color[1], Settings.light_color[2]);
-    if (!_pwm_multi_channels) {
+    if (_pwm_multi_channels) {
+      _state->setChannelsRaw(Settings.light_color);
+    } else {
+      // first try setting CW, if zero, it select RGB mode
+      _state->setCW(Settings.light_color[3], Settings.light_color[4], true);
+      _state->setRGB(Settings.light_color[0], Settings.light_color[1], Settings.light_color[2]);
+
       // only if non-multi channel
       // We apply dimmer in priority to RGB
       uint8_t bri = _state->DimmerToBri(Settings.light_dimmer);
       if (Settings.light_color[0] + Settings.light_color[1] + Settings.light_color[2] > 0) {
+        _state->setColorMode(LCM_RGB);
         _state->setBriRGB(bri);
       } else {
         _state->setBriCT(bri);
@@ -892,16 +914,13 @@ public:
   // calculate the levels for each channel
   void calcLevels() {
     uint8_t r,g,b,c,w,briRGB,briCT;
-    _state->getActualRGBCW(&r,&g,&b,&c,&w);
 
     if (_pwm_multi_channels) { // if PWM multi channel, no more transformation required
-      Light.current_color[0] = r;
-      Light.current_color[1] = g;
-      Light.current_color[2] = b;
-      Light.current_color[3] = c;
-      Light.current_color[4] = w;
+      _state->getChannelsRaw(Light.current_color);
       return;
     }
+
+    _state->getActualRGBCW(&r,&g,&b,&c,&w);
     briRGB = _state->getBriRGB();
     briCT = _state->getBriCT();
 
@@ -947,9 +966,7 @@ public:
   void saveSettings() {
     if (Light.pwm_multi_channels) {
       // simply save each channel
-      _state->getActualRGBCW(&Settings.light_color[0], &Settings.light_color[1],
-                             &Settings.light_color[2], &Settings.light_color[3],
-                             &Settings.light_color[4]);
+      _state->getChannelsRaw(Settings.light_color);
       Settings.light_dimmer = 100;    // arbitrary value, unused in this mode
     } else {
       uint8_t cm = _state->getColorMode();
@@ -979,13 +996,16 @@ public:
   // Channels are: R G B CW WW
   // Brightness is automatically recalculated to adjust channels to the desired values
   void changeChannels(uint8_t *channels) {
-    if (LST_COLDWARM == Light.subtype) {
+    if (Light.pwm_multi_channels) {
+      _state->setChannelsRaw(channels);
+    } else if (LST_COLDWARM == Light.subtype) {
       // remap channels 0-1 to 3-4 if cold/warm
       uint8_t remapped_channels[5] = {0,0,0,channels[0],channels[1]};
       _state->setChannels(remapped_channels);
     } else {
       _state->setChannels(channels);
     }
+
     saveSettings();
     calcLevels();
   }
@@ -2057,6 +2077,31 @@ void CmndDimmer(void)
   }
 }
 
+void CmndDimmerRange(void)
+{
+  if (XdrvMailbox.data_len > 0) {
+    char *p;
+    uint8_t i = 0;
+    uint16_t parm[2];
+    parm[0] = Settings.dimmer_hw_min;
+    parm[1] = Settings.dimmer_hw_max;
+    for (char *str = strtok_r(XdrvMailbox.data, ", ", &p); str && i < 2; str = strtok_r(nullptr, ", ", &p)) {
+      parm[i] = strtoul(str, nullptr, 0);
+      i++;
+    }
+
+    if (parm[0] < parm[1]) {
+      Settings.dimmer_hw_min = parm[0];
+      Settings.dimmer_hw_max = parm[1];
+    } else {
+      Settings.dimmer_hw_min = parm[1];
+      Settings.dimmer_hw_max = parm[0];
+    }
+    restart_flag = 2;
+  }
+  Response_P(PSTR("{\"" D_CMND_DIMMER_RANGE "\":{\"Min\":%d,\"Max\":%d}}"), Settings.dimmer_hw_min, Settings.dimmer_hw_max);
+}
+
 void CmndLedTable(void)
 {
   if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload <= 2)) {
@@ -2163,6 +2208,9 @@ bool Xdrv04(uint8_t function)
   }
   else if (light_type) {
     switch (function) {
+      case FUNC_SERIAL:
+        result = XlgtCall(FUNC_SERIAL);
+        break;
       case FUNC_EVERY_50_MSECOND:
         LightAnimate();
         break;

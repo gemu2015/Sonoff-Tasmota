@@ -206,6 +206,7 @@ enum UserSelectablePins {
   GPIO_DDSU666_RX,     // DDSU666 Serial interface
   GPIO_SM2135_CLK,     // SM2135 Clk
   GPIO_SM2135_DAT,     // SM2135 Dat
+  GPIO_DEEPSLEEP,      // Kill switch for deepsleep
   GPIO_CC1101_CS,      // CC1101 CS
   GPIO_SENSOR_END };
 
@@ -284,6 +285,7 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_DDS2382_TX "|" D_SENSOR_DDS2382_RX "|"
   D_SENSOR_DDSU666_TX "|" D_SENSOR_DDSU666_RX "|"
   D_SENSOR_SM2135_CLK "|" D_SENSOR_SM2135_DAT "|"
+  D_SENSOR_DEEPSLEEP "|"
   D_SENSOR_CC1101_CS "|"
   ;
 
@@ -740,6 +742,9 @@ const uint8_t kGpioNiceList[] PROGMEM = {
   GPIO_A4988_MS2,     // A4988 microstep pin2
   GPIO_A4988_MS3,     // A4988 microstep pin3
 #endif
+#ifdef USE_DEEPSLEEP
+  GPIO_DEEPSLEEP
+#endif
 #ifdef USE_MORITZ
   GPIO_CC1101_CS,
 #endif
@@ -768,12 +773,16 @@ const uint8_t kModuleNiceList[] PROGMEM = {
 #endif
   SONOFF_B1,           // Sonoff Light Bulbs
   SLAMPHER,
+#ifdef USE_SONOFF_SC
   SONOFF_SC,           // Sonoff Environmemtal Sensor
+#endif
 #ifdef USE_SONOFF_IFAN
   SONOFF_IFAN02,       // Sonoff Fan
   SONOFF_IFAN03,
 #endif
+#ifdef USE_SONOFF_RF
   SONOFF_BRIDGE,       // Sonoff Bridge
+#endif
   SONOFF_SV,           // Sonoff Development Devices
   SONOFF_DEV,
   CH1,                 // Relay Devices
