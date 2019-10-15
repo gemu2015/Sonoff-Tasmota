@@ -1073,7 +1073,6 @@ chknext:
           uint32_t index=fvar;
           if (index<1 || index>MAX_KEYS) index=1;
           fvar=script_button[index-1];
-          //script_button[index-1]=-1;
           len++;
           goto exit;
         }
