@@ -3012,35 +3012,35 @@ const char HTTP_FORM_SCRIPT1b[] PROGMEM =
 
 // this works only once on a reloaded page
 #ifdef SCRIPT_STRIP_COMMENTS
-
-/*
     "ta.addEventListener('paste',function(e){"
       "let paste = (e.clipboardData || window.clipboardData).getData('text');"
-      "var out=\"\";"
-      "var re=/\\r\\n|\\n\\r|\\n|\\r/g;"
-      "var allLines=paste.replace(re,\"\\n\").split(\"\\n\");"
-      "allLines.forEach((line) => {"
-        "if(line.length>0) {"
-          "if(line.charAt(0)!=';'){"
-            "out+=line+'\\n';"
+      "var ml=this.getAttribute('maxlength');"
+      "if(paste.length>=ml){"
+        "var out=\"\";"
+        "var re=/\\r\\n|\\n\\r|\\n|\\r/g;"
+        "var allLines=paste.replace(re,\"\\n\").split(\"\\n\");"
+        "allLines.forEach((line) => {"
+          "if(line.length>0) {"
+            "if(line.charAt(0)!=';'){"
+              "out+=line+'\\n';"
+            "}"
           "}"
-        "}"
-      "});"
+        "});"
+        "event.preventDefault();"
+        "eb('t1').textContent=out;"
+      "}"
 
-      "alert(out);"
-
+    //  "alert(out);"
     // this pastes the text on the wrong position ????
     //"const selection = Window.getSelection();"
     //"if (!selection.rangeCount) return false;"
     //"selection.deleteFromDocument();"
     //"selection.getRangeAt(0).insertNode(document.createTextNode(paste));"
 
-    //"eb('t1').textContent=out;"
-    //"event.preventDefault();"
-    "return true;"
+    //"return true;"
 
     "});"
-*/
+
 
 #endif
 
