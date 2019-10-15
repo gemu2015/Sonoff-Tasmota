@@ -2137,7 +2137,20 @@ void Replace_Cmd_Vars(char *srcbuf,char *dstbuf,uint16_t dstsize) {
               }
             }
         } else {
-            dstbuf[count]=*cp;
+            if (*cp=='\\') {
+              cp++;
+              if (*cp=='n') {
+                dstbuf[count]='\n';
+              } else if (*cp=='r') {
+                dstbuf[count]='\r';
+              } else if (*cp=='\\') {
+                dstbuf[count]='\\';
+              } else {
+                dstbuf[count]=*cp;
+              }
+            } else {
+              dstbuf[count]=*cp;
+            }
             if (*cp==0) {
                 break;
             }
