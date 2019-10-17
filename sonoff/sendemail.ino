@@ -34,9 +34,8 @@ String buffer;
   if (!host.length()) {
     return status;
   }
-  ESP.wdtFeed();
 
-  client->setTimeout(8000);
+  client->setTimeout(timeout);
   // smtp connect
 #ifdef DEBUG_EMAIL_PORT
   SetSerialBaudrate(115200);
@@ -55,8 +54,6 @@ String buffer;
     goto exit;
   }
 
-  ESP.wdtFeed();
-
   buffer = readClient();
 #ifdef DEBUG_EMAIL_PORT
   DEBUG_EMAIL_PORT.println(buffer);
@@ -64,8 +61,6 @@ String buffer;
   if (!buffer.startsWith(F("220"))) {
     goto exit;
   }
-
-  ESP.wdtFeed();
 
   buffer = F("EHLO ");
   buffer += client->localIP().toString();
@@ -85,7 +80,6 @@ String buffer;
 
     //buffer = F("STARTTLS");
     //client->println(buffer);
-    ESP.wdtFeed();
 
     buffer = F("AUTH LOGIN");
     client->println(buffer);
@@ -134,8 +128,6 @@ String buffer;
     }
   }
 
-  ESP.wdtFeed();
-
   // smtp send mail
   buffer = F("MAIL FROM:");
   buffer += from;
@@ -163,8 +155,6 @@ String buffer;
   if (!buffer.startsWith(F("250"))) {
     goto exit;
   }
-
-  ESP.wdtFeed();
 
   buffer = F("DATA");
   client->println(buffer);
@@ -212,49 +202,9 @@ String buffer;
   status=true;
 exit:
 
-  ESP.wdtFeed();
+  delay(0);
   return status;
 }
 
-#ifdef USE_PLAIN
-void SendEmail::a3_to_a4(unsigned char * a4, unsigned char * a3) {
-	a4[0] = (a3[0] & 0xfc) >> 2;
-	a4[1] = ((a3[0] & 0x03) << 4) + ((a3[1] & 0xf0) >> 4);
-	a4[2] = ((a3[1] & 0x0f) << 2) + ((a3[2] & 0xc0) >> 6);
-	a4[3] = (a3[2] & 0x3f);
-}
-
-int SendEmail::base64_encode(char *output, const char *input, int inputLen) {
-  const char* _b64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-	int i = 0, j = 0;
-	int encLen = 0;
-	unsigned char a3[3];
-	unsigned char a4[4];
-	while(inputLen--) {
-		a3[i++] = *(input++);
-		if(i == 3) {
-			a3_to_a4(a4, a3);
-			for(i = 0; i < 4; i++) {
-				output[encLen++] = _b64_alphabet[a4[i]];
-			}
-			i = 0;
-		}
-	}
-	if(i) {
-		for(j = i; j < 3; j++) {
-			a3[j] = '\0';
-		}
-		a3_to_a4(a4, a3);
-		for(j = 0; j < i + 1; j++) {
-			output[encLen++] = _b64_alphabet[a4[j]];
-		}
-		while((i++ < 3)) {
-			output[encLen++] = '=';
-		}
-	}
-	output[encLen] = '\0';
-	return encLen;
-}
-#endif
 
 #endif // USE_SENDMAIL
