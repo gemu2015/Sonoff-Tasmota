@@ -30,6 +30,8 @@ uint16_t SendMail(char *buffer) {
   char secure=0,auth=0;
   uint16_t status=1;
   SendEmail *mail=0;
+  uint16_t blen;
+  char *endcmd;
 
   //DebugFreeMem();
 
@@ -41,32 +43,32 @@ uint16_t SendMail(char *buffer) {
 
   while (*buffer==' ') buffer++;
 
+  if (*buffer!='[') {
+      goto exit;
+  }
+
+  buffer++;
+
+  endcmd=strchr(buffer,']');
+  if (!endcmd) {
+    goto exit;
+  }
+
   // copy params
-  uint16_t blen=strlen(buffer)+2;
-
-  oparams=(char*)calloc(blen,1);
+  blen=(uint32_t)endcmd-(uint32_t)buffer;
+  oparams=(char*)calloc(blen+2,1);
   if (!oparams) return 4;
+  params=oparams;
+  strncpy(oparams,buffer,blen+2);
+  oparams[blen]=0;
 
+  cmd=endcmd+1;
 
   #ifdef DEBUG_EMAIL_PORT
     SetSerialBaudrate(115200);
     DEBUG_EMAIL_PORT.print("mailsize: ");
     DEBUG_EMAIL_PORT.println(blen);
   #endif
-
-  params=oparams;
-
-  strcpy(params,buffer);
-
-  if (*params=='p') {
-      auth=1;
-      params++;
-  }
-
-  if (*params!='[') {
-      goto exit;
-  }
-  params++;
 
   mserv=strtok(params,":");
   if (!mserv) {
@@ -114,7 +116,6 @@ uint16_t SendMail(char *buffer) {
       goto exit;
   }
 
-  cmd=subject+strlen(subject)+1;
 
 #ifdef EMAIL_USER
   if (*user=='*') {
@@ -142,7 +143,7 @@ uint16_t SendMail(char *buffer) {
 
   // 2 seconds timeout
   #define MAIL_TIMEOUT 500
-  mail = new SendEmail(mserv, port,user,passwd, MAIL_TIMEOUT, auth);
+  mail = new SendEmail(mserv,port,user,passwd, MAIL_TIMEOUT, auth);
 
 #ifdef EMAIL_FROM
   if (*from=='*') {
@@ -191,7 +192,7 @@ String SendEmail::readClient() {
 
 //void SetSerialBaudrate(int baudrate);
 
-bool SendEmail::send(const String& from, const String& to, const String& subject, const String& msg)
+bool SendEmail::send(const String& from, const String& to, const String& subject, const char *msg)
 {
 bool status=false;
 String buffer;
@@ -352,11 +353,10 @@ String buffer;
   DEBUG_EMAIL_PORT.println(buffer);
 #endif
 
-  buffer = msg;
-  client->println(buffer);
+  client->println(msg);
   client->println('.');
 #ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println(buffer);
+  DEBUG_EMAIL_PORT.println(msg);
 #endif
 
   buffer = F("QUIT");
