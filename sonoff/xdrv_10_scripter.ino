@@ -2100,6 +2100,7 @@ void Replace_Cmd_Vars(char *srcbuf,char *dstbuf,uint16_t dstsize) {
     cp=srcbuf;
     struct T_INDEX ind;
     char string[SCRIPT_MAXSSIZE];
+    dstsize-=2;
     for (count=0;count<dstsize;count++) {
         if (*cp=='%') {
             cp++;
@@ -2121,8 +2122,11 @@ void Replace_Cmd_Vars(char *srcbuf,char *dstbuf,uint16_t dstsize) {
                 } else {
                     // string result
                 }
-                strcpy(&dstbuf[count],string);
-                count+=strlen(string)-1;
+                uint8_t slen=strlen(string);
+                if (count+slen<dstsize-1) {
+                  strcpy(&dstbuf[count],string);
+                  count+=slen-1;
+                }
                 cp++;
               } else {
                 strcpy(&dstbuf[count],"???");
@@ -2158,6 +2162,7 @@ void Replace_Cmd_Vars(char *srcbuf,char *dstbuf,uint16_t dstsize) {
             cp++;
         }
     }
+    dstbuf[count]=0;
 }
 
 void toLog(const char *str) {
@@ -2621,7 +2626,7 @@ int16_t Run_Scripter(const char *type, int8_t tlen, char *js) {
                 if (cmdmem) {
                   char *cmd=cmdmem;
                   uint16_t count;
-                  for (count=0; count<SCRIPT_CMDMEM/2-1; count++) {
+                  for (count=0; count<SCRIPT_CMDMEM/2-2; count++) {
                     //if (*lp=='\r' || *lp=='\n' || *lp=='}') {
                     if (!*lp || *lp=='\r' || *lp=='\n') {
                         cmd[count]=0;

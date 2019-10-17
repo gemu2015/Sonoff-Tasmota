@@ -5,17 +5,182 @@
 // enable serial debugging
 //#define DEBUG_EMAIL_PORT Serial
 
+//SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const bool ssl);
+//SendEmail::send(const String& from, const String& to, const String& subject, const String& msg)
+// sendmail [server:port:user:passwd:from:to:subject] data
+// sendmail [*:*:*:*:*:to:subject] data uses defines from user_config
+// sendmail currently only works with core 2.4.2
+//HW Watchdog 8.44 sec.
+//SW Watchdog 3.2 sec.
+
+#define SEND_MAIL_MINRAM 12*1024
+
+uint16_t SendMail(char *buffer) {
+  uint16_t count;
+  char *params,*oparams;
+  char *mserv;
+  uint16_t port;
+  char *user;
+  char *pstr;
+  char *passwd;
+  char *from;
+  char *to;
+  char *subject;
+  char *cmd;
+  char secure=0,auth=0;
+  uint16_t status=1;
+  SendEmail *mail=0;
+
+  //DebugFreeMem();
+
+// return if not enough memory
+  uint16_t mem=ESP.getFreeHeap();
+  if (mem<SEND_MAIL_MINRAM) {
+    return 4;
+  }
+
+  while (*buffer==' ') buffer++;
+
+  // copy params
+  uint16_t blen=strlen(buffer)+2;
+
+  oparams=(char*)calloc(blen,1);
+  if (!oparams) return 4;
+
+
+  #ifdef DEBUG_EMAIL_PORT
+    SetSerialBaudrate(115200);
+    DEBUG_EMAIL_PORT.print("mailsize: ");
+    DEBUG_EMAIL_PORT.println(blen);
+  #endif
+
+  params=oparams;
+
+  strcpy(params,buffer);
+
+  if (*params=='p') {
+      auth=1;
+      params++;
+  }
+
+  if (*params!='[') {
+      goto exit;
+  }
+  params++;
+
+  mserv=strtok(params,":");
+  if (!mserv) {
+      goto exit;
+  }
+
+  // port
+  pstr=strtok(NULL,":");
+  if (!pstr) {
+      goto exit;
+  }
+
+#ifdef EMAIL_PORT
+  if (*pstr=='*') {
+    port=EMAIL_PORT;
+  } else {
+    port=atoi(pstr);
+  }
+#else
+  port=atoi(pstr);
+#endif
+
+  user=strtok(NULL,":");
+  if (!user) {
+      goto exit;
+  }
+
+  passwd=strtok(NULL,":");
+  if (!passwd) {
+      goto exit;
+  }
+
+  from=strtok(NULL,":");
+  if (!from) {
+      goto exit;
+  }
+
+  to=strtok(NULL,":");
+  if (!to) {
+      goto exit;
+  }
+
+  subject=strtok(NULL,"]");
+  if (!subject) {
+      goto exit;
+  }
+
+  cmd=subject+strlen(subject)+1;
+
+#ifdef EMAIL_USER
+  if (*user=='*') {
+    user=(char*)EMAIL_USER;
+  }
+#endif
+#ifdef EMAIL_PASSWORD
+  if (*passwd=='*') {
+    passwd=(char*)EMAIL_PASSWORD;
+  }
+#endif
+#ifdef EMAIL_SERVER
+  if (*mserv=='*') {
+    mserv=(char*)EMAIL_SERVER;
+  }
+#endif //USE_SENDMAIL
+
+
+#ifdef DEBUG_EMAIL_PORT
+  DEBUG_EMAIL_PORT.println(mserv);
+  DEBUG_EMAIL_PORT.println(port);
+  DEBUG_EMAIL_PORT.println(user);
+  DEBUG_EMAIL_PORT.println(passwd);
+#endif
+
+  // 2 seconds timeout
+  #define MAIL_TIMEOUT 500
+  mail = new SendEmail(mserv, port,user,passwd, MAIL_TIMEOUT, auth);
+
+#ifdef EMAIL_FROM
+  if (*from=='*') {
+    from=(char*)EMAIL_FROM;
+  }
+#endif
+
+#ifdef DEBUG_EMAIL_PORT
+  DEBUG_EMAIL_PORT.println(from);
+  DEBUG_EMAIL_PORT.println(to);
+  DEBUG_EMAIL_PORT.println(subject);
+  DEBUG_EMAIL_PORT.println(cmd);
+#endif
+
+  if (mail) {
+    bool result=mail->send(from,to,subject,cmd);
+    delete mail;
+    if (result==true) status=0;
+  }
+
+exit:
+  if (oparams) free(oparams);
+  return status;
+}
+
+
+
+
 SendEmail::SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const int auth_used) :
     host(host), port(port), user(user), passwd(passwd), timeout(timeout), ssl(ssl), auth_used(auth_used), client(new BearSSL::WiFiClientSecure_light(1024,1024))
 {
 
 }
 
-
-
-String SendEmail::readClient()
-{
+String SendEmail::readClient() {
+  delay(0);
   String r = client->readStringUntil('\n');
+
   r.trim();
   while (client->available()) {
     delay(0);
@@ -44,7 +209,6 @@ String buffer;
   DEBUG_EMAIL_PORT.print(":");
   DEBUG_EMAIL_PORT.println(port);
 #endif
-
 
   if (!client->connect(host.c_str(), port)) {
 #ifdef DEBUG_EMAIL_PORT
@@ -187,12 +351,14 @@ String buffer;
 #ifdef DEBUG_EMAIL_PORT
   DEBUG_EMAIL_PORT.println(buffer);
 #endif
+
   buffer = msg;
   client->println(buffer);
   client->println('.');
 #ifdef DEBUG_EMAIL_PORT
   DEBUG_EMAIL_PORT.println(buffer);
 #endif
+
   buffer = F("QUIT");
   client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
@@ -202,7 +368,6 @@ String buffer;
   status=true;
 exit:
 
-  delay(0);
   return status;
 }
 
