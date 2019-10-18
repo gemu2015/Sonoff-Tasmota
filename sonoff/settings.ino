@@ -366,6 +366,8 @@ void SettingsSaveAll(void)
 
 void UpdateQuickPowerCycle(bool update)
 {
+  if (Settings.flag3.fast_power_cycle_disable) { return; }
+
   uint32_t pc_register;
   uint32_t pc_location = SETTINGS_LOCATION - CFG_ROTATES;
 
@@ -378,7 +380,7 @@ void UpdateQuickPowerCycle(bool update)
     } else {
       pc_register = 0xFFA55AB0 | counter;
       ESP.flashWrite(pc_location * SPI_FLASH_SEC_SIZE, (uint32*)&pc_register, sizeof(pc_register));
-//      AddLog_P2(LOG_LEVEL_DEBUG, PSTR("QPC: Flag %02X"), counter);  // Won't show as too early in power on sequence
+      AddLog_P2(LOG_LEVEL_DEBUG, PSTR("QPC: Flag %02X"), counter);
     }
   }
   else if (pc_register != 0xFFA55ABF) {
@@ -386,7 +388,7 @@ void UpdateQuickPowerCycle(bool update)
     // Assume flash is default all ones and setting a bit to zero does not need an erase
     ESP.flashEraseSector(pc_location);
     ESP.flashWrite(pc_location * SPI_FLASH_SEC_SIZE, (uint32*)&pc_register, sizeof(pc_register));
-//    AddLog_P2(LOG_LEVEL_DEBUG, PSTR("QPC: Reset"));  // Won't show as too early in power on sequence
+    AddLog_P2(LOG_LEVEL_DEBUG, PSTR("QPC: Reset"));
   }
 }
 
@@ -849,7 +851,7 @@ void SettingsDefaultSet2(void)
     Settings.rgbwwTable[j] = 255;
   }
 
-  Settings.novasds_period = WORKING_PERIOD;
+  Settings.novasds_startingoffset = STARTING_OFFSET;
 
   SettingsDefaultWebColor();
 
@@ -1102,7 +1104,7 @@ void SettingsDelta(void)
       Settings.param[P_RGB_REMAP] = RGB_REMAP_RGBW;
     }
     if (Settings.version < 0x06050003) {
-      Settings.novasds_period = WORKING_PERIOD;
+      Settings.novasds_startingoffset = STARTING_OFFSET;
     }
     if (Settings.version < 0x06050006) {
       SettingsDefaultWebColor();
@@ -1137,11 +1139,11 @@ void SettingsDelta(void)
 
     if (Settings.version < 0x0606000A) {
       uint8_t tuyaindex = 0;
-      if (Settings.param[P_BACKLOG_DELAY] > 0) {         // ex SetOption34
+      if (Settings.param[P_BACKLOG_DELAY] > 0) {             // ex SetOption34
         Settings.tuya_fnid_map[tuyaindex].fnid = 21;         // TUYA_MCU_FUNC_DIMMER - Move Tuya Dimmer Id to Map
         Settings.tuya_fnid_map[tuyaindex].dpid = Settings.param[P_BACKLOG_DELAY];
         tuyaindex++;
-      } else if (Settings.flag3.ex_tuya_disable_dimmer == 1) {  // ex SetOption65
+      } else if (Settings.flag3.fast_power_cycle_disable == 1) {  // ex SetOption65
         Settings.tuya_fnid_map[tuyaindex].fnid = 11;         // TUYA_MCU_FUNC_REL1 - Create FnID for Switches
         Settings.tuya_fnid_map[tuyaindex].dpid = 1;
         tuyaindex++;
@@ -1194,6 +1196,22 @@ void SettingsDelta(void)
         Settings.dimmer_hw_min = 10;
         Settings.dimmer_hw_max = Settings.param[P_ex_DIMMER_MAX];
       }
+    }
+    if (Settings.version < 0x06060014) {
+      // Clear unused parameters for future use
+      Settings.flag3.ex_tuya_dimmer_range_255 = 0;
+      Settings.flag3.ex_tuya_dimmer_min_limit = 0;
+      Settings.param[P_ex_TUYA_RELAYS] = 0;
+      Settings.param[P_ex_DIMMER_MAX] = 0;
+      Settings.param[P_ex_TUYA_VOLTAGE_ID] = 0;
+      Settings.param[P_ex_TUYA_CURRENT_ID] = 0;
+      Settings.param[P_ex_TUYA_POWER_ID] = 0;
+      Settings.ex_baudrate = 0;
+      Settings.ex_sbaudrate = 0;
+
+      Settings.flag3.fast_power_cycle_disable = 0;
+      Settings.energy_power_delta = Settings.ex_energy_power_delta;
+      Settings.ex_energy_power_delta = 0;
     }
 
     Settings.version = VERSION;

@@ -78,7 +78,7 @@ typedef union {                            // Restricted by MISRA-C Rule 18.4 bu
     uint32_t no_hold_retain : 1;           // bit 12 (v6.4.1.19) - SetOption62 - Don't use retain flag on HOLD messages
     uint32_t no_power_feedback : 1;        // bit 13 (v6.5.0.9)  - SetOption63 - Don't scan relay power state at restart
     uint32_t use_underscore : 1;           // bit 14 (v6.5.0.12) - SetOption64 - Enable "_" instead of "-" as sensor index separator
-    uint32_t ex_tuya_disable_dimmer : 1;   // bit 15 (v6.5.0.15) - SetOption65 - (Enable or Disable Tuya Serial Dimmer control) - free since 6.6.0.10
+    uint32_t fast_power_cycle_disable : 1; // bit 15 (v6.6.0.20) - SetOption65 - Disable fast power cycle detection for device reset
     uint32_t ex_tuya_dimmer_range_255 : 1;    // bit 16 (v6.6.0.1)  - SetOption66 - Enable or Disable Dimmer range 255 slider control
     uint32_t buzzer_enable : 1;            // bit 17 (v6.6.0.1)  - SetOption67 - Enable buzzer when available
     uint32_t pwm_multi_channels : 1;       // bit 18 (v6.6.0.3)  - SetOption68 - Enable multi-channels PWM instead of Color PWM
@@ -259,7 +259,7 @@ struct SYSCFG {
   int16_t       toffset[2];                // 30E
   uint8_t       display_font;              // 312
   char          state_text[4][11];         // 313
-  uint8_t       energy_power_delta;        // 33F
+  uint8_t       ex_energy_power_delta;     // 33F
   uint16_t      domoticz_update_timer;     // 340
   uint16_t      pwm_range;                 // 342
   unsigned long domoticz_relay_idx[MAX_DOMOTICZ_IDX];  // 344
@@ -348,7 +348,7 @@ struct SYSCFG {
   uint8_t       rgbwwTable[5];             // 71A
   uint8_t       user_template_base;        // 71F
   mytmplt       user_template;             // 720  29 bytes
-  uint8_t       novasds_period;            // 73D
+  uint8_t       novasds_startingoffset;    // 73D
   uint8_t       web_color[18][3];          // 73E
   uint16_t      display_width;             // 774
   uint16_t      display_height;            // 776
@@ -387,8 +387,9 @@ struct SYSCFG {
   uint16_t      dimmer_hw_min;             // E90
   uint16_t      dimmer_hw_max;             // E92
   uint32_t      deepsleep;                 // E94
+  uint16_t      energy_power_delta;        // E98
 
-  uint8_t       free_e98[352];             // E98
+  uint8_t       free_e9a[350];             // E9A
 
   uint32_t      cfg_timestamp;             // FF8
   uint32_t      cfg_crc32;                 // FFC
