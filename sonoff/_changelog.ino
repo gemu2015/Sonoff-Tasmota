@@ -9,6 +9,9 @@
  * Add rule support after every command execution like Fanspeed#Data=2 (#6636)
  * Fix handling of ligth channels when pwm_multichannel (Option68) is enabled
  * Add WebUI for multiple, independent PWM channels
+ * Remove default DS18B20 driver and only support define DS18x20 (#6647)
+ * Add support for PMS3003 dust particle sensor
+ * Change Sonoff L1 support by adding define USE_SONOFF_L1
  *
  * 6.6.0.17 20191009
  * Add command SetOption34 0..255 to set backlog delay. Default value is 200 (mSeconds) (#6562)

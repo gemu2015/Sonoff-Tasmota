@@ -315,7 +315,7 @@
 #define USE_TUYA_MCU                             // Add support for Tuya Serial MCU
   #define TUYA_DIMMER_ID       0                 // Default dimmer Id
 #define USE_ARMTRONIX_DIMMERS                    // Add support for Armtronix Dimmers (+1k4 code)
-#define USE_PS_16_DZ                             // Add support for PS-16-DZ Dimmer and Sonoff L1 (+2k code)
+#define USE_PS_16_DZ                             // Add support for PS-16-DZ Dimmer (+2k code)
 #define USE_SONOFF_IFAN                          // Add support for Sonoff iFan02 and iFan03 (+2k code)
 #define USE_BUZZER                               // Add support for a buzzer (+0k6 code)
 #define USE_ARILUX_RF                            // Add support for Arilux RF remote controller (+0k8 code, 252 iram (non 2.3.0))
@@ -330,6 +330,7 @@
 #define USE_MY92X1                               // Add support for MY92X1 RGBCW led controller as used in Sonoff B1, Ailight and Lohas
 #define USE_SM16716                              // Add support for SM16716 RGB LED controller (+0k7 code)
 #define USE_SM2135                               // Add support for SM2135 RGBCW led control as used in Action LSC (+0k6 code)
+#define USE_SONOFF_L1                            // Add support for Sonoff L1 led control
 
 // -- Counter input -------------------------------
 #define USE_COUNTER                              // Enable inputs as counter (+0k8 code)
@@ -338,7 +339,7 @@
 //#define USE_ADC_VCC                              // Display Vcc in Power status. Disable for use as Analog input on selected devices
 
 // -- One wire sensors ----------------------------
-#define USE_DS18x20                              // Optional for more than one DS18x20 sensors with id sort, single scan and read retry (+1k3 code)
+#define USE_DS18x20                              // Add support for DS18x20 sensors with id sort, single scan and read retry (+2k6 code)
 //  #define W1_PARASITE_POWER                      // Optimize for parasite powered sensors
 //  #define DS18B20_INTERNAL_PULLUP                // Use INPUT_PULLUP internal pullup resistor
 
@@ -427,8 +428,9 @@
   #define CO2_LOW              800               // Below this CO2 value show green light (needs PWM or WS2812 RG(B) led and enable with SetOption18 1)
   #define CO2_HIGH             1200              // Above this CO2 value show red light (needs PWM or WS2812 RG(B) led and enable with SetOption18 1)
 #define USE_PMS5003                              // Add support for PMS5003 and PMS7003 particle concentration sensor (+1k3 code)
-#define USE_NOVA_SDS                             // Add support for SDS011 and SDS021 particle concentration sensor (+0k7 code)
-  #define WORKING_PERIOD       5                 // Working period of the SDS Sensor, Takes a reading every X Minutes
+  //#define PMS_MODEL_PMS3003                      // Enable support of PMS3003 instead of PMS5003/PMS7003 (needs the USE_PMS5003 above)
+#define USE_NOVA_SDS                             // Add support for SDS011 and SDS021 particle concentration sensor (+1k5 code)
+  #define STARTING_OFFSET      30                // Turn on NovaSDS XX-seconds before tele_period is reached
 #define USE_SERIAL_BRIDGE                        // Add support for software Serial Bridge (+0k8 code)
 //#define USE_MP3_PLAYER                           // Use of the DFPlayer Mini MP3 Player RB-DFR-562 commands: play, volume and stop
   #define MP3_VOLUME           10                // Set the startup volume on init, the range can be 0..30(max)
@@ -440,7 +442,7 @@
 //#define USE_RDM6300                              // Add support for RDM6300 125kHz RFID Reader (+0k8)
 //#define USE_IBEACON                              // Add support for bluetooth LE passive scan of ibeacon devices (uses HM17 module)
 
-// Power monitoring sensors -----------------------
+// -- Power monitoring sensors --------------------
 #define USE_ENERGY_MARGIN_DETECTION              // Add support for Energy Margin detection (+1k6 code)
   #define USE_ENERGY_POWER_LIMIT                 // Add additional support for Energy Power Limit detection (+1k2 code)
 #define USE_PZEM004T                             // Add support for PZEM004T Energy monitor (+2k code)
@@ -455,15 +457,15 @@
   #define DDS2382_SPEED        9600              // Hiking DDS2382 Modbus RS485 serial speed (default: 9600 baud)
 //#define USE_DDSU666                              // Add support for Chint DDSU666 Modbus energy monitor (+0k6 code)
   #define DDSU666_SPEED        9600              // Chint DDSU666 Modbus RS485 serial speed (default: 9600 baud)
+//#define USE_SOLAX_X1                             // Add support for Solax X1 series Modbus log info (+3k1 code)
+  #define SOLAXX1_SPEED        9600              // Solax X1 Modbus RS485 serial speed (default: 9600 baud)
+  #define SOLAXX1_PV2                            // Solax X1 using second PV
 
 //#define USE_SDM120                               // Add support for Eastron SDM120-Modbus energy meter (+2k4 code)
 //  #define SDM120_SPEED         2400              // SDM120-Modbus RS485 serial speed (default: 2400 baud)
   #define USE_SDM220                             // Add extra parameters for SDM220 (+0k1 code)
 //#define USE_SDM630                               // Add support for Eastron SDM630-Modbus energy meter (+2k code)
 //  #define SDM630_SPEED         9600              // SDM630-Modbus RS485 serial speed (default: 9600 baud)
-//#define USE_SOLAX_X1                             // Add support for Solax X1 series Modbus log info (+4k1 code)
-  #define SOLAXX1_SPEED        9600              // Solax X1 Modbus RS485 serial speed (default: 9600 baud)
-  #define SOLAXX1_PV2                            // Solax X1 using second PV
 
 // -- Low level interface devices -----------------
 #define USE_DHT                                  // Add support for DHT11, AM2301 (DHT21, DHT22, AM2302, AM2321) and SI7021 Temperature and Humidity sensor (1k6 code)
@@ -524,7 +526,7 @@
   #define USE_ZIGBEE_PRECFGKEY_H 0x0D0C0A0806040200L  // note: changing requires to re-pair all devices
   #define USE_ZIGBEE_PERMIT_JOIN false           // don't allow joining by default
 
-// ------------------------------------------------
+// -- Other sensors/drivers -----------------------
 
 #define USE_SR04                                 // Add support for HC-SR04 ultrasonic devices (+1k code)
 
@@ -541,7 +543,9 @@
 //  #define USE_ALECTO_V2                          // Add support for decoding Alecto V2 sensors like ACH2010, WS3000 and DKW2012 weather stations using 868MHz RF sensor receiver (+1k7 code)
 
 //#define USE_HRE                                  // Add support for Badger HR-E Water Meter (+1k4 code)
-//#define USE_A4988_Stepper                        // Add support for A4988 stepper-motor-driver-circuit (+10k5 code)
+//#define USE_A4988_STEPPER                        // Add support for A4988/DRV8825 stepper-motor-driver-circuit (+10k5 code)
+
+// -- End of general directives -------------------
 
 /*********************************************************************************************\
  * Debug features

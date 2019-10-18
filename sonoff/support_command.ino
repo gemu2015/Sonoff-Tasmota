@@ -114,19 +114,9 @@ void ExecuteCommand(const char *cmnd, uint32_t source)
   memcpy(stopic+1, start, size);
   stopic[size+1] = '\0';
 
-#ifndef USE_SENDMAIL
   char svalue[strlen(pos) +1];   // pos point to the start of parameters
   strlcpy(svalue, pos, sizeof(svalue));
   CommandHandler(stopic, svalue, strlen(svalue));
-#else
-  char *svalue=(char*)malloc(strlen(pos) +1);
-  if (svalue) {
-    strlcpy(svalue, pos, strlen(pos) +1);
-    CommandHandler(stopic, svalue, strlen(svalue));
-    free(svalue);
-  }
-#endif
-
 }
 
 /********************************************************************************************/
