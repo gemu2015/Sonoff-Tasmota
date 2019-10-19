@@ -17,18 +17,20 @@
 #define SEND_MAIL_MINRAM 12*1024
 #endif
 
+#define xPSTR(a) a
+
 uint16_t SendMail(char *buffer) {
   uint16_t count;
   char *params,*oparams;
-  char *mserv;
+  const char *mserv;
   uint16_t port;
-  char *user;
-  char *pstr;
-  char *passwd;
-  char *from;
-  char *to;
-  char *subject;
-  char *cmd;
+  const char *user;
+  const char *pstr;
+  const char *passwd;
+  const char *from;
+  const char *to;
+  const char *subject;
+  const char *cmd;
   char secure=0,auth=0;
   uint16_t status=1;
   SendEmail *mail=0;
@@ -119,17 +121,17 @@ uint16_t SendMail(char *buffer) {
 
 #ifdef EMAIL_USER
   if (*user=='*') {
-    user=(char*)EMAIL_USER;
+    user=xPSTR(EMAIL_USER);
   }
 #endif
 #ifdef EMAIL_PASSWORD
   if (*passwd=='*') {
-    passwd=(char*)EMAIL_PASSWORD;
+    passwd=xPSTR(EMAIL_PASSWORD);
   }
 #endif
 #ifdef EMAIL_SERVER
   if (*mserv=='*') {
-    mserv=(char*)EMAIL_SERVER;
+    mserv=xPSTR(EMAIL_SERVER);
   }
 #endif //USE_SENDMAIL
 
@@ -146,7 +148,7 @@ uint16_t SendMail(char *buffer) {
 
 #ifdef EMAIL_FROM
   if (*from=='*') {
-    from=(char*)EMAIL_FROM;
+    from=xPSTR(EMAIL_FROM);
   }
 #endif
 
@@ -169,9 +171,7 @@ exit:
 
 
 SendEmail::SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const int auth_used) :
-    host(host), port(port), user(user), passwd(passwd), timeout(timeout), ssl(ssl), auth_used(auth_used), client(new BearSSL::WiFiClientSecure_light(1024,1024))
-{
-
+    host(host), port(port), user(user), passwd(passwd), timeout(timeout), ssl(ssl), auth_used(auth_used), client(new BearSSL::WiFiClientSecure_light(1024,1024)) {
 }
 
 String SendEmail::readClient() {
@@ -188,8 +188,7 @@ String SendEmail::readClient() {
 
 //void SetSerialBaudrate(int baudrate);
 
-bool SendEmail::send(const String& from, const String& to, const String& subject, const char *msg)
-{
+bool SendEmail::send(const String& from, const String& to, const String& subject, const char *msg) {
 bool status=false;
 String buffer;
 
