@@ -13,7 +13,7 @@
 //HW Watchdog 8.44 sec.
 //SW Watchdog 3.2 sec.
 
-#ifndef MAIL_TIMEOUT
+#ifndef SEND_MAIL_MINRAM
 #define SEND_MAIL_MINRAM 12*1024
 #endif
 
