@@ -5,11 +5,16 @@
 // enable serial debugging
 //#define DEBUG_EMAIL_PORT
 
-//SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const bool ssl);
-//SendEmail::send(const String& from, const String& to, const String& subject, const String& msg)
+// sendmail works only with server port 465 SSL and doesnt support STARTTLS (not supported in Arduino)
+// only a couple of mailservers support this (e.g. gmail,gmx,yahoo,freenetmail)
 // sendmail [server:port:user:passwd:from:to:subject] data
-// sendmail [*:*:*:*:*:to:subject] data uses defines from user_config
-// sendmail works with pre2.6
+// sendmail [*:*:*:*:*:to:subject] data uses defines from user_config_overwrite
+// #define EMAIL_USER "user"
+// #define EMAIL_PASSWORD "passwd"
+// #define EMAIL_FROM "<mr.x@gmail.com>"
+// #define EMAIL_SERVER "smtp.gmail.com"
+// #define EMAIL_PORT 465
+// sendmail works with pre2.6 using Light BearSSL
 //HW Watchdog 8.44 sec.
 //SW Watchdog 3.2 sec.
 
@@ -20,7 +25,6 @@
 #define xPSTR(a) a
 
 uint16_t SendMail(char *buffer) {
-  uint16_t count;
   char *params,*oparams;
   const char *mserv;
   uint16_t port;
@@ -31,13 +35,12 @@ uint16_t SendMail(char *buffer) {
   const char *to;
   const char *subject;
   const char *cmd;
-  char secure=0,auth=0;
+  char auth=0;
   uint16_t status=1;
   SendEmail *mail=0;
   uint16_t blen;
   char *endcmd;
 
-  //DebugFreeMem();
 
 // return if not enough memory
   uint16_t mem=ESP.getFreeHeap();
@@ -186,8 +189,6 @@ String SendEmail::readClient() {
   return r;
 }
 
-//void SetSerialBaudrate(int baudrate);
-
 bool SendEmail::send(const String& from, const String& to, const String& subject, const char *msg) {
 bool status=false;
 String buffer;
@@ -233,9 +234,6 @@ String buffer;
   }
   if (user.length()>0  && passwd.length()>0 ) {
 
-    //buffer = F("STARTTLS");
-    //client->println(buffer);
-
     buffer = F("AUTH LOGIN");
     client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
@@ -250,13 +248,10 @@ String buffer;
       goto exit;
     }
     base64 b;
-    //buffer = user;
-    //buffer = b.encode(buffer);
     buffer = b.encode(user);
 
     client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
-  //DEBUG_EMAIL_PORT.println(user);
   AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
     buffer = readClient();
@@ -266,12 +261,9 @@ String buffer;
     if (!buffer.startsWith(F("334"))) {
       goto exit;
     }
-    //buffer = this->passwd;
-    //buffer = b.encode(buffer);
     buffer = b.encode(passwd);
     client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
-  //DEBUG_EMAIL_PORT.println(passwd);
   AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
     buffer = readClient();
