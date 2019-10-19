@@ -3,7 +3,7 @@
 #include "sendemail.h"
 
 // enable serial debugging
-//#define DEBUG_EMAIL_PORT Serial
+#define DEBUG_EMAIL_PORT
 
 //SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const bool ssl);
 //SendEmail::send(const String& from, const String& to, const String& subject, const String& msg)
@@ -67,9 +67,7 @@ uint16_t SendMail(char *buffer) {
   cmd=endcmd+1;
 
   #ifdef DEBUG_EMAIL_PORT
-    SetSerialBaudrate(115200);
-    DEBUG_EMAIL_PORT.print("mailsize: ");
-    DEBUG_EMAIL_PORT.println(blen);
+    AddLog_P2(LOG_LEVEL_INFO, PSTR("mailsize: %d"),blen);
   #endif
 
   mserv=strtok(params,":");
@@ -137,10 +135,7 @@ uint16_t SendMail(char *buffer) {
 
 
 #ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println(mserv);
-  DEBUG_EMAIL_PORT.println(port);
-  DEBUG_EMAIL_PORT.println(user);
-  DEBUG_EMAIL_PORT.println(passwd);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s - %d - %s - %s"),mserv,port,user,passwd);
 #endif
 
   // 2 seconds timeout
@@ -156,10 +151,7 @@ uint16_t SendMail(char *buffer) {
 #endif
 
 #ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println(from);
-  DEBUG_EMAIL_PORT.println(to);
-  DEBUG_EMAIL_PORT.println(subject);
-  DEBUG_EMAIL_PORT.println(cmd);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s - %s - %s - %s"),from,to,subject,cmd);
 #endif
 
   if (mail) {
@@ -208,24 +200,19 @@ String buffer;
   client->setTimeout(timeout);
   // smtp connect
 #ifdef DEBUG_EMAIL_PORT
-  SetSerialBaudrate(115200);
-  DEBUG_EMAIL_PORT.print("Connecting: ");
-  DEBUG_EMAIL_PORT.print(host);
-  DEBUG_EMAIL_PORT.print(":");
-  DEBUG_EMAIL_PORT.println(port);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("Connecting: %s on port %d"),host.c_str(),port);
 #endif
 
   if (!client->connect(host.c_str(), port)) {
 #ifdef DEBUG_EMAIL_PORT
-      DEBUG_EMAIL_PORT.println("Connection failed: ");
-      //DEBUG_EMAIL_PORT.println (client->getLastSSLError());
+    AddLog_P(LOG_LEVEL_INFO, PSTR("Connection failed"));
 #endif
     goto exit;
   }
 
   buffer = readClient();
 #ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println(buffer);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
   if (!buffer.startsWith(F("220"))) {
     goto exit;
@@ -236,11 +223,11 @@ String buffer;
 
   client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println(buffer);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
   buffer = readClient();
 #ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println(buffer);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
   if (!buffer.startsWith(F("250"))) {
     goto exit;
@@ -253,11 +240,11 @@ String buffer;
     buffer = F("AUTH LOGIN");
     client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
-    DEBUG_EMAIL_PORT.println(buffer);
+    AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
     buffer = readClient();
 #ifdef DEBUG_EMAIL_PORT
-    DEBUG_EMAIL_PORT.println(buffer);
+    AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
     if (!buffer.startsWith(F("334")))
     {
@@ -271,11 +258,11 @@ String buffer;
     client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
   //DEBUG_EMAIL_PORT.println(user);
-  DEBUG_EMAIL_PORT.println(buffer);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
     buffer = readClient();
 #ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println(buffer);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
     if (!buffer.startsWith(F("334"))) {
       goto exit;
@@ -286,11 +273,11 @@ String buffer;
     client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
   //DEBUG_EMAIL_PORT.println(passwd);
-  DEBUG_EMAIL_PORT.println(buffer);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
     buffer = readClient();
 #ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println(buffer);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
     if (!buffer.startsWith(F("235"))) {
       goto exit;
@@ -302,11 +289,11 @@ String buffer;
   buffer += from;
   client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println(buffer);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
   buffer = readClient();
 #ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println(buffer);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
   if (!buffer.startsWith(F("250"))) {
     goto exit;
@@ -315,11 +302,11 @@ String buffer;
   buffer += to;
   client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println(buffer);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
   buffer = readClient();
 #ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println(buffer);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
   if (!buffer.startsWith(F("250"))) {
     goto exit;
@@ -328,11 +315,11 @@ String buffer;
   buffer = F("DATA");
   client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println(buffer);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
   buffer = readClient();
 #ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println(buffer);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
   if (!buffer.startsWith(F("354"))) {
     goto exit;
@@ -341,32 +328,32 @@ String buffer;
   buffer += from;
   client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println(buffer);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
   buffer = F("To: ");
   buffer += to;
   client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println(buffer);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
   buffer = F("Subject: ");
   buffer += subject;
   buffer += F("\r\n");
   client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println(buffer);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
 
   client->println(msg);
   client->println('.');
 #ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println(msg);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
 
   buffer = F("QUIT");
   client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
-  DEBUG_EMAIL_PORT.println(buffer);
+  AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
 
   status=true;
