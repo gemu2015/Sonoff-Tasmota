@@ -3,7 +3,7 @@
 #include "sendemail.h"
 
 // enable serial debugging
-#define DEBUG_EMAIL_PORT
+//#define DEBUG_EMAIL_PORT
 
 //SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const bool ssl);
 //SendEmail::send(const String& from, const String& to, const String& subject, const String& msg)
