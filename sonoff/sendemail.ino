@@ -9,11 +9,13 @@
 //SendEmail::send(const String& from, const String& to, const String& subject, const String& msg)
 // sendmail [server:port:user:passwd:from:to:subject] data
 // sendmail [*:*:*:*:*:to:subject] data uses defines from user_config
-// sendmail currently only works with core 2.4.2
+// sendmail works with pre2.6
 //HW Watchdog 8.44 sec.
 //SW Watchdog 3.2 sec.
 
+#ifndef MAIL_TIMEOUT
 #define SEND_MAIL_MINRAM 12*1024
+#endif
 
 uint16_t SendMail(char *buffer) {
   uint16_t count;
@@ -142,7 +144,9 @@ uint16_t SendMail(char *buffer) {
 #endif
 
   // 2 seconds timeout
+#ifndef MAIL_TIMEOUT
   #define MAIL_TIMEOUT 500
+#endif
   mail = new SendEmail(mserv,port,user,passwd, MAIL_TIMEOUT, auth);
 
 #ifdef EMAIL_FROM
