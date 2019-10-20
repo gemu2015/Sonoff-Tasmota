@@ -5,6 +5,7 @@
 ## Project files ######
 .pioenvs
 .piolibdeps
+.pio/libdeps
 .clang_complete
 .gcc-flags.json
 .cache
