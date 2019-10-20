@@ -207,6 +207,7 @@ enum UserSelectablePins {
   GPIO_SM2135_CLK,     // SM2135 Clk
   GPIO_SM2135_DAT,     // SM2135 Dat
   GPIO_DEEPSLEEP,      // Kill switch for deepsleep
+  GPIO_EXS_ENABLE,     // EXS MCU Enable
   GPIO_CC1101_CS,      // CC1101 CS
   GPIO_SENSOR_END };
 
@@ -285,7 +286,7 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_DDS2382_TX "|" D_SENSOR_DDS2382_RX "|"
   D_SENSOR_DDSU666_TX "|" D_SENSOR_DDSU666_RX "|"
   D_SENSOR_SM2135_CLK "|" D_SENSOR_SM2135_DAT "|"
-  D_SENSOR_DEEPSLEEP "|"
+  D_SENSOR_DEEPSLEEP "|" D_SENSOR_EXS_ENABLE "|"
   D_SENSOR_CC1101_CS "|"
   ;
 
@@ -394,6 +395,7 @@ enum SupportedModules {
   SYF05,
   SONOFF_L1,
   SONOFF_IFAN03,
+  EXS_DIMMER,
   MAXMODULE};
 
 #define USER_MODULE        255
@@ -574,6 +576,9 @@ const uint8_t kGpioNiceList[] PROGMEM = {
 #ifdef USE_TUYA_MCU
   GPIO_TUYA_TX,        // Tuya Serial interface
   GPIO_TUYA_RX,        // Tuya Serial interface
+#endif
+#ifdef USE_EXS_DIMMER
+  GPIO_EXS_ENABLE,     // EXS MCU Enable
 #endif
 #endif  // USE_LIGHT
 
@@ -808,6 +813,9 @@ const uint8_t kModuleNiceList[] PROGMEM = {
 #endif
 #ifdef USE_PS_16_DZ
   PS_16_DZ,
+#endif
+#ifdef USE_EXS_DIMMER
+  EXS_DIMMER,
 #endif
   H801,                // Light Devices
   MAGICHOME,
@@ -2126,6 +2134,27 @@ const mytmplt kModules[MAXMODULE] PROGMEM = {
      GPIO_LED1_INV,    // GPIO13 WIFI_CHK Blue Led on PCA (0 = On, 1 = Off) - Link and Power status
      GPIO_REL2,        // GPIO14 WIFI_O1 Relay 2 (0 = Off, 1 = On) controlling the fan
      GPIO_REL4,        // GPIO15 WIFI_O3 Relay 4 (0 = Off, 1 = On) controlling the fan
+     0, 0
+  },
+  { "EXS Dimmer",      // EXS_DIMMER - EX-Store WiFi Dimmer v4, two channel (ESP8266 w/ separate MCU dimmer)
+                       // https://ex-store.de/2-Kanal-RS232-WiFi-WLan-Dimmer-Modul-V4-fuer-Unterputzmontage-230V-3A
+                       // https://ex-store.de/2-Kanal-RS232-WiFi-WLan-Dimmer-Modul-V4-fuer-Unterputzmontage-230V-3A-ESP8266-V12-Stift-und-Buchsenleisten
+     0,
+     GPIO_TXD,         // GPIO01 MCU serial control
+     GPIO_LEDLNK,      // GPIO02 LED Link
+     GPIO_RXD,         // GPIO03 MCU serial control
+     GPIO_USER,        // GPIO04
+     GPIO_USER,        // GPIO05
+                       // GPIO06 (SD_CLK   Flash)
+                       // GPIO07 (SD_DATA0 Flash QIO/DIO/DOUT)
+                       // GPIO08 (SD_DATA1 Flash QIO/DIO/DOUT)
+     0,                // GPIO09 (SD_DATA2 Flash QIO or ESP8285)
+     0,                // GPIO10 (SD_DATA3 Flash QIO or ESP8285)
+                       // GPIO11 (SD_CMD   Flash)
+     GPIO_USER,        // GPIO12
+     GPIO_EXS_ENABLE,  // GPIO13 EXS MCU Enable
+     GPIO_USER,        // GPIO14
+     0,                // GPIO15
      0, 0
   }
 };
