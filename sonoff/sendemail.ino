@@ -7,13 +7,17 @@
 
 // sendmail works only with server port 465 SSL and doesnt support STARTTLS (not supported in Arduino)
 // only a couple of mailservers support this (e.g. gmail,gmx,yahoo,freenetmail)
-// sendmail [server:port:user:passwd:from:to:subject] data
+// sendmail [server:port:user:passwd:from:to:subject] body
 // sendmail [*:*:*:*:*:to:subject] data uses defines from user_config_overwrite
 // #define EMAIL_USER "user"
 // #define EMAIL_PASSWORD "passwd"
 // #define EMAIL_FROM "<mr.x@gmail.com>"
 // #define EMAIL_SERVER "smtp.gmail.com"
 // #define EMAIL_PORT 465
+// if email body consist of a single * and scripter is present
+// and a section >m is found, the lines in this section (until #) are sent
+// as email body
+
 // sendmail works with pre2.6 using Light BearSSL
 //HW Watchdog 8.44 sec.
 //SW Watchdog 3.2 sec.
@@ -170,7 +174,7 @@ exit:
   return status;
 }
 
-
+void script_send_email_body(BearSSL::WiFiClientSecure_light *client);
 
 
 SendEmail::SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const int auth_used) :
@@ -335,7 +339,15 @@ String buffer;
   AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
 #endif
 
+#ifdef USE_SCRIPT
+  if (*msg=='*' && *(msg+1)==0) {
+    script_send_email_body(client);
+  } else {
+    client->println(msg);
+  }
+#else
   client->println(msg);
+#endif
   client->println('.');
 #ifdef DEBUG_EMAIL_PORT
   AddLog_P2(LOG_LEVEL_INFO, PSTR("%s"),buffer.c_str());
