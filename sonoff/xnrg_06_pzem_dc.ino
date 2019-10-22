@@ -26,18 +26,20 @@
  * Based on:
  *   PZEM-003,017 docs Https://pan.baidu.com/s/1V9bDWj3RK2u6_fbBJ3GtqQ password rq37
  *
- * Hardware Serial will be selected if GPIO1 = [99 PZEM017 Rx] and GPIO3 = [62 PZEM0XX Tx]
+ * Hardware Serial will be selected if GPIO1 = [62 PZEM0XX Tx] and GPIO3 = [99 PZEM017 Rx]
 \*********************************************************************************************/
 
 #define XNRG_06                    6
 
-#define PZEM_DC_DEVICE_ADDRESS  0x01  // PZEM default address
+const uint8_t PZEM_DC_DEVICE_ADDRESS = 0x01;  // PZEM default address
+const uint32_t PZEM_DC_STABILIZE = 30;        // Number of seconds to stabilize configuration
 
 #include <TasmotaModbus.h>
 TasmotaModbus *PzemDcModbus;
 
 struct PZEMDC {
   float energy = 0;
+  float last_energy = 0;
   uint8_t send_retry = 0;
   uint8_t channel = 0;
   uint8_t address = 0;
@@ -65,7 +67,8 @@ void PzemDcEverySecond(void)
       Energy.data_valid[PzemDc.channel] = 0;
       if (8 == registers) {
 
-        //  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20
+        //           0     1     2     3     4     5     6     7           = ModBus register
+        //  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20  = Buffer index
         // 01 04 10 05 40 00 0A 00 0D 00 00 00 02 00 00 00 00 00 00 D6 29
         // Id Cc Sz Volt- Curre Power------ Energy----- HiAlm LoAlm Crc--
         Energy.voltage[PzemDc.channel] = (float)((buffer[3] << 8) + buffer[4]) / 100.0;                                               // 655.00 V
@@ -74,7 +77,12 @@ void PzemDcEverySecond(void)
 
         PzemDc.energy += (float)((buffer[13] << 24) + (buffer[14] << 16) + (buffer[11] << 8) + buffer[12]);             // 4294967295 Wh
         if (PzemDc.channel == Energy.phase_count -1) {
-          EnergyUpdateTotal(PzemDc.energy, false);
+          if (PzemDc.energy > PzemDc.last_energy) {  // Handle missed channel
+            if (uptime > PZEM_DC_STABILIZE) {
+              EnergyUpdateTotal(PzemDc.energy, false);
+            }
+            PzemDc.last_energy = PzemDc.energy;
+          }
           PzemDc.energy = 0;
         }
       }
@@ -97,7 +105,7 @@ void PzemDcEverySecond(void)
   }
   else {
     PzemDc.send_retry--;
-    if ((Energy.phase_count > 1) && (0 == PzemDc.send_retry) && (uptime < 30)) {
+    if ((Energy.phase_count > 1) && (0 == PzemDc.send_retry) && (uptime < PZEM_DC_STABILIZE)) {
       Energy.phase_count--;  // Decrement channels if no response after retry within 30 seconds after restart
     }
   }

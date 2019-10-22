@@ -20,15 +20,17 @@
 #ifdef USE_ENERGY_SENSOR
 #ifdef USE_PZEM004T
 /*********************************************************************************************\
- * PZEM004T - Energy
+ * PZEM-004T V1 and V2 - Energy
  *
  * Source: Victor Ferrer https://github.com/vicfergar/Sonoff-MQTT-OTA-Arduino
  * Based on: PZEM004T library https://github.com/olehs/PZEM004T
  *
- * Hardware Serial will be selected if GPIO1 = [63 PZEM004 Rx] and GPIO3 = [62 PZEM0XX Tx]
+ * Hardware Serial will be selected if GPIO1 = [62 PZEM0XX Tx] and GPIO3 = [63 PZEM004 Rx]
 \*********************************************************************************************/
 
 #define XNRG_03                  3
+
+const uint32_t PZEM_STABILIZE = 30;        // Number of seconds to stabilize configuration
 
 #include <TasmotaSerial.h>
 
@@ -58,6 +60,7 @@ TasmotaSerial *PzemSerial = nullptr;
 
 struct PZEM {
   float energy = 0;
+  float last_energy = 0;
   uint8_t send_retry = 0;
   uint8_t read_state = 0;  // Set address
   uint8_t phase = 0;
@@ -190,7 +193,12 @@ void PzemEvery250ms(void)
         case 4:  // Total energy as 99999Wh
           Pzem.energy += value;
           if (Pzem.phase == Energy.phase_count -1) {
-            EnergyUpdateTotal(Pzem.energy, false);
+            if (Pzem.energy > Pzem.last_energy) {  // Handle missed phase
+              if (uptime > PZEM_STABILIZE) {
+                EnergyUpdateTotal(Pzem.energy, false);
+              }
+              Pzem.last_energy = Pzem.energy;
+            }
             Pzem.energy = 0;
           }
           break;
@@ -224,7 +232,7 @@ void PzemEvery250ms(void)
   }
   else {
     Pzem.send_retry--;
-    if ((Energy.phase_count > 1) && (0 == Pzem.send_retry) && (uptime < 30)) {
+    if ((Energy.phase_count > 1) && (0 == Pzem.send_retry) && (uptime < PZEM_STABILIZE)) {
       Energy.phase_count--;  // Decrement phases if no response after retry within 30 seconds after restart
     }
   }

@@ -113,10 +113,10 @@ void GetFeatures(void)
   feature_drv1 |= 0x10000000;  // xdrv_11_knx.ino
 #endif
 #ifdef USE_WPS
-  feature_drv1 |= 0x20000000;  // support.ino
+  feature_drv1 |= 0x20000000;  // support.ino - removed with version 6.6.0.21
 #endif
 #ifdef USE_SMARTCONFIG
-  feature_drv1 |= 0x40000000;  // support.ino
+  feature_drv1 |= 0x40000000;  // support.ino - removed with version 6.6.0.21
 #endif
 #ifdef USE_ENERGY_POWER_LIMIT
   feature_drv1 |= 0x80000000;  // xdrv_03_energy.ino
@@ -477,8 +477,9 @@ void GetFeatures(void)
 #ifdef USE_EXS_DIMMER
   feature5 |= 0x00008000;  // xdrv_30_exs_dimmer.ino
 #endif
-
-//  feature5 |= 0x00010000;
+#ifdef USE_ARDUINO_SLAVE
+  feature5 |= 0x00010000;  // xdrv_31_arduino_slave.ino
+#endif
 //  feature5 |= 0x00020000;
 //  feature5 |= 0x00040000;
 //  feature5 |= 0x00080000;
