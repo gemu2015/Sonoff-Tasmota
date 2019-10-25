@@ -24,17 +24,14 @@
  * Function declarations
 \*********************************************************************************************/
 
-/*
+// Needed for core 2.3.0 compilation (#6721)
 #ifdef __cplusplus
 extern "C" {
 #endif
-
 #include "user_interface.h"
-
 #ifdef __cplusplus
 }
 #endif
-*/
 
 //#ifdef USE_KNX  // Enabling this will fail compilation. It has no impact if not used. (20180417)
 #include <esp-knx-ip.h>

@@ -70,6 +70,8 @@
 #include "settings.h"
 
 const char kSleepMode[] PROGMEM = "Dynamic|Normal";
+const char kPrefixes[] PROGMEM = D_CMND "|" D_STAT "|" D_TELE;
+const char kCodeImage[] PROGMEM = "sonoff|minimal|sensors|knx|basic|display|ir";
 
 // Global variables
 SerialConfig serial_config = SERIAL_8N1;    // Serial interface configuration 8 data bits, No parity, 1 stop bit
@@ -248,7 +250,8 @@ char* GetTopic_P(char *stopic, uint32_t prefix, char *topic, const char* subtopi
   snprintf_P(romram, sizeof(romram), subtopic);
   if (fallback_topic_flag || (prefix > 3)) {
     prefix &= 3;
-    fulltopic = FPSTR(kPrefixes[prefix]);
+    char stemp[11];
+    fulltopic = GetTextIndexed(stemp, sizeof(stemp), prefix, kPrefixes);
     fulltopic += F("/");
     fulltopic += mqtt_client;
     fulltopic += F("_fb");                    // cmnd/<mqttclient>_fb
@@ -260,7 +263,7 @@ char* GetTopic_P(char *stopic, uint32_t prefix, char *topic, const char* subtopi
     }
     for (uint32_t i = 0; i < 3; i++) {
       if ('\0' == Settings.mqtt_prefix[i][0]) {
-        snprintf_P(Settings.mqtt_prefix[i], sizeof(Settings.mqtt_prefix[i]), kPrefixes[i]);
+        GetTextIndexed(Settings.mqtt_prefix[i], sizeof(Settings.mqtt_prefix[i]), i, kPrefixes);
       }
     }
     fulltopic.replace(FPSTR(MQTT_TOKEN_PREFIX), Settings.mqtt_prefix[prefix]);
@@ -534,9 +537,10 @@ bool SendKey(uint32_t key, uint32_t device, uint32_t state)
     Response_P(PSTR("{\"%s%d\":{\"State\":%d}}"), (key) ? "Switch" : "Button", device, state);
     result = XdrvRulesProcess();
   }
-#ifdef USE_KNX
-  KnxSendButtonPower(key, device, state);
-#endif  // USE_KNX
+  int32_t payload_save = XdrvMailbox.payload;
+  XdrvMailbox.payload = key << 16 | state << 8 | device;
+  XdrvCall(FUNC_ANY_KEY);
+  XdrvMailbox.payload = payload_save;
   return result;
 }
 
