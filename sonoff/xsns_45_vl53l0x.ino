@@ -24,6 +24,11 @@
 #include "VL53L0X.h"
 VL53L0X sensor;
 
+#define VL53L0X_LONG_RANGE
+//#define VL53L0X_HIGH_SPEED
+#define VL53L0X_HIGH_ACCURACY
+#define VL53L0X_USE_MEDIAN
+
 uint8_t vl53l0x_ready = 0;
 uint16_t vl53l0x_distance;
 uint16_t Vl53l0_buffer[5];
@@ -57,6 +62,27 @@ void Vl53l0Detect()
   // fast as possible).  To use continuous timed mode
   // instead, provide a desired inter-measurement period in
   // ms (e.g. sensor.startContinuous(100)).
+
+
+#ifdef VL53L0X_LONG_RANGE
+  // lower the return signal rate limit (default is 0.25 MCPS)
+  sensor.setSignalRateLimit(0.1);
+  // increase laser pulse periods (defaults are 14 and 10 PCLKs)
+  sensor.setVcselPulsePeriod(VL53L0X::VcselPeriodPreRange, 18);
+  sensor.setVcselPulsePeriod(VL53L0X::VcselPeriodFinalRange, 14);
+#endif
+
+#ifdef VL53L0X_HIGH_SPEED
+  // reduce timing budget to 20 ms (default is about 33 ms)
+  sensor.setMeasurementTimingBudget(20000);
+#endif
+#ifdef VL53L0X_HIGH_ACCURACY
+  // increase timing budget to 200 ms
+  sensor.setMeasurementTimingBudget(200000);
+#endif
+
+
+
   sensor.startContinuous();
   vl53l0x_ready = 1;
 
@@ -71,7 +97,7 @@ const char HTTP_SNS_VL53L0X[] PROGMEM =
  "{s}VL53L0X " D_DISTANCE "{m}%d" D_UNIT_MILLIMETER "{e}"; // {s} = <tr><th>, {m} = </th><td>, {e} = </td></tr>
 #endif  // USE_WEBSERVER
 
-#define USE_VL_MEDIAN
+
 
 void Vl53l0Every_250MSecond() {
   uint16_t tbuff[5],tmp;
@@ -81,11 +107,11 @@ void Vl53l0Every_250MSecond() {
 
   // every 200 ms
   uint16_t dist = sensor.readRangeContinuousMillimeters();
-  if (dist==0 || dist>2000) {
+  if (dist==0 || dist>2500) {
     dist=9999;
   }
 
-#ifdef USE_VL_MEDIAN
+#ifdef VL53L0X_USE_MEDIAN
   // store in ring buffer
   Vl53l0_buffer[Vl53l0_index]=dist;
   Vl53l0_index++;
