@@ -1,5 +1,5 @@
 /*
-  xsns_99_vl53l0x.ino - VL53L0X
+  xsns_45_vl53l0x.ino - VL53L0X
 
   Copyright (C) 2018  Theo Arends and Gerhard Mutz
 
@@ -107,7 +107,7 @@ void Vl53l0Every_250MSecond() {
 
   // every 200 ms
   uint16_t dist = sensor.readRangeContinuousMillimeters();
-  if (dist==0 || dist>2500) {
+  if (dist==0 || dist>2000) {
     dist=9999;
   }
 
