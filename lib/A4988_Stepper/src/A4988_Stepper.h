@@ -40,9 +40,12 @@ class A4988_Stepper {
     void  setSPR  (int   howMany     );
     int   getSPR  (void              );
 
-    void  doMove  (long steps_to_move);
-    void  doRotate(long degrs_to_turn);
-    void  doTurn  (float howManyTimes);
+    void  setLimPIN(short whichPIN);
+    short getLimPIN(void);
+
+    long  doMove  (long steps_to_move);
+    long  doRotate(long degrs_to_turn);
+    long  doTurn  (float howManyTimes);
 
     void  enable  (void              );
     void  disable (void              );
@@ -68,6 +71,7 @@ class A4988_Stepper {
     short motor_ms3_pin;
 
     unsigned long last_time;  // timestamp of last pincycle of last step
+    short motor_lim_pin;
 };
 
 #endif

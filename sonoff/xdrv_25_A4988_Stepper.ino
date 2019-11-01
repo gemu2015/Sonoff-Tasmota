@@ -18,14 +18,9 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifdef USE_A4988_STEPPER
-/*********************************************************************************************\
- * A4988 Stepper motor driver circuit
-\*********************************************************************************************/
-
-#define XDRV_25                    25
-
+#ifdef USE_A4988_Stepper
 #include <A4988_Stepper.h>
+#define XDRV_25                    25
 
 short A4988_dir_pin = pin[GPIO_MAX];
 short A4988_stp_pin = pin[GPIO_MAX];
@@ -63,32 +58,38 @@ void A4988Init(void)
 }
 
 const char kA4988Commands[] PROGMEM = "Motor|" // prefix
-  "Move|Rotate|Turn|MIS|SPR|RPM";
+  "Move|Rotate|Turn|MIS|SPR|RPM|LimPIN";
 
-void (* const A4988Command[])(void) PROGMEM = {
-  &CmndDoMove,&CmndDoRotate,&CmndDoTurn,&CmndSetMIS,&CmndSetSPR,&CmndSetRPM};
+void (* const A4988Command[])(void) PROGMEM = { 
+  &CmndDoMove,&CmndDoRotate,&CmndDoTurn,&CmndSetMIS,&CmndSetSPR,&CmndSetRPM,&CmndSetLimPIN};
 
 void CmndDoMove(void) {
   if (XdrvMailbox.data_len > 0) {
+    long doneSteps = 0;
     long stepsPlease = strtoul(XdrvMailbox.data,nullptr,10);
-    myA4988->doMove(stepsPlease);
-    ResponseCmndDone();
+    doneSteps=myA4988->doMove(stepsPlease);
+    //ResponseCmndDone();
+    Response_P(PSTR("{\"Motor\":{\"Steps\":%i, \"Result\":\"OK\"}}"),doneSteps);
   }
 }
 
 void CmndDoRotate(void) {
   if (XdrvMailbox.data_len > 0) {
     long degrsPlease = strtoul(XdrvMailbox.data,nullptr,10);
-    myA4988->doRotate(degrsPlease);
-    ResponseCmndDone();
+      long doneSteps = 0;
+    doneSteps=myA4988->doRotate(degrsPlease);
+    //ResponseCmndDone();
+    Response_P(PSTR("{\"Motor\":{\"Steps\":%i, \"Result\":\"OK\"}}"),doneSteps);
   }
 }
 
 void CmndDoTurn(void) {
   if (XdrvMailbox.data_len > 0) {
     float turnsPlease = strtod(XdrvMailbox.data,nullptr);
-    myA4988->doTurn(turnsPlease);
-    ResponseCmndDone();
+    long doneSteps = 0;
+    doneSteps=myA4988->doTurn(turnsPlease);
+    //ResponseCmndDone();
+    Response_P(PSTR("{\"Motor\":{\"Steps\":%i, \"Result\":\"OK\"}}"),doneSteps);
   }
 }
 
@@ -97,6 +98,8 @@ void CmndSetMIS(void) {
     short newMIS = strtoul(XdrvMailbox.data,nullptr,10);
     myA4988->setMIS(newMIS);
     ResponseCmndDone();
+  } else {
+    Response_P(PSTR("{\"Motor\":{\"MIS\":%i, \"Result\":\"OK\"}}"),myA4988->getMIS());
   }
 }
 
@@ -105,6 +108,8 @@ void CmndSetSPR(void) {
     int newSPR = strtoul(XdrvMailbox.data,nullptr,10);
     myA4988->setSPR(newSPR);
     ResponseCmndDone();
+  } else {
+    Response_P(PSTR("{\"Motor\":{\"SPR\":%i, \"Result\":\"OK\"}}"),myA4988->getSPR());
   }
 }
 
@@ -113,6 +118,23 @@ void CmndSetRPM(void) {
     short newRPM = strtoul(XdrvMailbox.data,nullptr,10);
     myA4988->setRPM(newRPM);
     ResponseCmndDone();
+  } else {
+    Response_P(PSTR("{\"Motor\":{\"RPM\":%i, \"Result\":\"OK\"}}"),myA4988->getRPM());
+  }
+}
+
+void CmndSetLimPIN(void) {
+  if (XdrvMailbox.data_len > 0) {
+    short newLimPIN = strtoul(XdrvMailbox.data,nullptr,10);
+    myA4988->setLimPIN(newLimPIN);
+    ResponseCmndDone();
+  } else {
+    short LimPIN = myA4988->getLimPIN();
+    if (LimPIN < 99 ) {
+      Response_P(PSTR("{\"Motor\":{\"LimPIN\":%i, \"Result\":\"OK\"}}"),LimPIN);
+    } else {
+      Response_P(PSTR("{\"Motor\":{\"LimPIN\":\"none\", \"Result\":\"OK\"}}"));
+    }
   }
 }
 
@@ -135,4 +157,4 @@ bool Xdrv25(uint8_t function)
   return result;
 }
 
-#endif  // USE_A4988_STEPPER
+#endif

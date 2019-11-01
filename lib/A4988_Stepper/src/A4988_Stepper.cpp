@@ -36,6 +36,7 @@ A4988_Stepper::A4988_Stepper( int   m_spr
   motor_ms1_pin = m_ms1_pin;
   motor_ms2_pin = m_ms2_pin;
   motor_ms3_pin = m_ms3_pin;
+  motor_lim_pin = 99;
 
   adjustDelay();
   adjustPins();
@@ -80,6 +81,8 @@ void A4988_Stepper::adjustMicrosteps() {
    motor_delay = 60L * 1000L * 1000L / motor_SPR / motor_RPM / motor_MIS/2;
  }
 
+
+
 void A4988_Stepper::setMIS(short oneToSixteen) {
    motor_MIS = oneToSixteen;
    adjustMicrosteps();
@@ -108,6 +111,14 @@ int A4988_Stepper::getSPR(void) {
   return motor_SPR;
 }
 
+void A4988_Stepper::setLimPIN(short whichPIN){
+  motor_lim_pin = whichPIN;
+}
+
+short A4988_Stepper::getLimPIN(void) {
+  return motor_lim_pin;
+}
+
 void A4988_Stepper::enable(){
   if (motor_ena_pin < 99) {digitalWrite(motor_ena_pin, LOW);}
 }
@@ -116,10 +127,11 @@ void A4988_Stepper::disable(){
   if (motor_ena_pin < 99) {digitalWrite(motor_ena_pin, HIGH);}
 }
 
-void A4988_Stepper::doMove(long howManySteps)
+long A4988_Stepper::doMove(long howManySteps)
 {
   long steps_togo = abs(howManySteps);  // how many steps to take
   bool lastStepWasHigh = false;
+  int limpind = 0;
   digitalWrite(motor_dir_pin, howManySteps>0?LOW:HIGH);
   enable();
   while (steps_togo > 0) {
@@ -127,6 +139,10 @@ void A4988_Stepper::doMove(long howManySteps)
     unsigned long now = micros();
     // move if delay has passed:
     if (now - last_time >= motor_delay) {
+      if (motor_lim_pin<99) {
+        limpind=digitalRead((uint8_t)motor_lim_pin);
+        if (limpind>0) { break; }
+      }
       digitalWrite(motor_stp_pin, lastStepWasHigh?LOW:HIGH);
       lastStepWasHigh = !lastStepWasHigh;
       // remeber step-time
@@ -135,18 +151,23 @@ void A4988_Stepper::doMove(long howManySteps)
     }
   }
   disable();
+  return howManySteps-steps_togo;
 }
 
-void A4988_Stepper::doRotate(long howManyDegrees)
+long A4988_Stepper::doRotate(long howManyDegrees)
 { long  lSteps = 0;
+  long  rSteps = 0;
   lSteps = motor_SPR*motor_MIS*howManyDegrees/360;
-  doMove(lSteps);
+  rSteps = doMove(lSteps);
+  return rSteps;
 }
 
-void A4988_Stepper::doTurn(float howManyTimes)
+long A4988_Stepper::doTurn(float howManyTimes)
 { long lSteps = 0;
+  long  rSteps = 0;
   lSteps = howManyTimes*motor_SPR;
-  doMove(lSteps);
+  rSteps = doMove(lSteps);
+  return rSteps;
 }
 
 int A4988_Stepper::version(void)
