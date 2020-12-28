@@ -328,6 +328,8 @@ void Arduino_ST7789::commonInit(const uint8_t *cmdList) {
     displayInit(cmdList);
 }
 
+#if 1
+
 void Arduino_ST7789::setRotation(uint8_t m) {
 
   writecommand(ST7789_MADCTL);
@@ -366,6 +368,83 @@ void Arduino_ST7789::setRotation(uint8_t m) {
      break;
   }
 }
+
+#else
+
+void Arduino_ST7789::setRotation(uint8_t m) {
+
+// preset
+// colstart 40 (xstart)
+// rowstart 52 (ystart)
+
+
+  writecommand(ST7789_MADCTL);
+  rotation = m % 4; // can't be higher than 3
+  switch (rotation) {
+   case 0:
+      // Inverted portrait
+      // colstart = 53;
+      // rowstart = 40;
+     writedata(ST7789_MADCTL_MX | ST7789_MADCTL_MY | ST7789_MADCTL_RGB);
+
+    // _ystart = _rowstart;
+      if (_width==240 && _height==240) {
+        _xstart = _colstart;
+        _ystart = 80;
+      } else {
+        _xstart = 53;
+        _ystart = 40;
+      }
+     break;
+
+   case 1:
+    // Inverted landscape
+    // colstart = 40;
+    // rowstart = 52;
+     writedata(ST7789_MADCTL_MY | ST7789_MADCTL_MV | ST7789_MADCTL_RGB);
+
+    // _xstart = _rowstart;
+     if (_width==240 && _height==240) {
+       _ystart = _colstart;
+       _xstart = 80;
+     } else {
+       _xstart = 40;
+       _ystart = 52;
+     }
+     break;
+
+  case 2:
+      // Portrait
+      // colstart = 52;
+      // rowstart = 40;
+     writedata(ST7789_MADCTL_RGB);
+
+     if (_width==240 && _height==240) {
+       _xstart = _colstart;
+       _ystart = _rowstart;
+     } else {
+       _xstart = 52;
+       _ystart = 40;
+     }
+     break;
+
+   case 3:
+     // Landscape (Portrait + 90)
+     // colstart = 40;
+     // rowstart = 53;
+     writedata(ST7789_MADCTL_MX | ST7789_MADCTL_MV | ST7789_MADCTL_RGB);
+
+     if (_width==240 && _height==240) {
+       _ystart = _colstart;
+       _xstart = _rowstart;
+     } else {
+       _xstart = 40;
+       _ystart = 53;
+     }
+     break;
+  }
+}
+#endif
 
 void Arduino_ST7789::setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
   setAddrWindow_int(x0,y0,x1-1,y1-1);
