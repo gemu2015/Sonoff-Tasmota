@@ -328,123 +328,41 @@ void Arduino_ST7789::commonInit(const uint8_t *cmdList) {
     displayInit(cmdList);
 }
 
-/*
-
-switch (rotation) {
-    case 0: // Portrait
-#ifdef CGRAM_OFFSET
-      colstart = 52;
-      rowstart = 40;
-#endif
-      writedata(TFT_MAD_COLOR_ORDER);
-
-      _width  = _init_width;
-      _height = _init_height;
-      break;
-
-    case 1: // Landscape (Portrait + 90)
-#ifdef CGRAM_OFFSET
-      colstart = 40;
-      rowstart = 53;
-#endif
-      writedata(TFT_MAD_MX | TFT_MAD_MV | TFT_MAD_COLOR_ORDER);
-
-      _width  = _init_height;
-      _height = _init_width;
-      break;
-
-      case 2: // Inverter portrait
-#ifdef CGRAM_OFFSET
-       colstart = 53;
-       rowstart = 40;
-#endif
-      writedata(TFT_MAD_MX | TFT_MAD_MY | TFT_MAD_COLOR_ORDER);
-
-      _width  = _init_width;
-      _height = _init_height;
-       break;
-    case 3: // Inverted landscape
-#ifdef CGRAM_OFFSET
-      colstart = 40;
-      rowstart = 52;
-#endif
-      writedata(TFT_MAD_MV | TFT_MAD_MY | TFT_MAD_COLOR_ORDER);
-
-      _width  = _init_height;
-      _height = _init_width;
-      break;
-  }
-  */
 void Arduino_ST7789::setRotation(uint8_t m) {
-
-// preset
-// colstart 40 (xstart)
-// rowstart 52 (ystart)
-
 
   writecommand(ST7789_MADCTL);
   rotation = m % 4; // can't be higher than 3
   switch (rotation) {
    case 0:
-      // Inverted portrait
-      // colstart = 53;
-      // rowstart = 40;
      writedata(ST7789_MADCTL_MX | ST7789_MADCTL_MY | ST7789_MADCTL_RGB);
 
-    // _ystart = _rowstart;
-      if (_width==240 && _height==240) {
-        _xstart = _colstart;
-        _ystart = 80;
-      } else {
-        _xstart = 53;
-        _ystart = 40;
-      }
+     _xstart = _colstart;
+     _ystart = _rowstart;
+     if (_width==240 && _height==240) {
+       _ystart = 80; // I recommend to get rid of this override and fix it in Arduino_ST7789.h
+     }
      break;
-
    case 1:
-    // Inverted landscape
-    // colstart = 40;
-    // rowstart = 52;
      writedata(ST7789_MADCTL_MY | ST7789_MADCTL_MV | ST7789_MADCTL_RGB);
 
-    // _xstart = _rowstart;
+     _ystart = _colstart;
+     _xstart = _rowstart;
      if (_width==240 && _height==240) {
-       _ystart = _colstart;
-       _xstart = 80;
-     } else {
-       _xstart = 40;
-       _ystart = 52;
+       _xstart = 80; // I recommend to get rid of this override and fix it in Arduino_ST7789.h
      }
      break;
-
   case 2:
-      // Portrait
-      // colstart = 52;
-      // rowstart = 40;
      writedata(ST7789_MADCTL_RGB);
 
-     if (_width==240 && _height==240) {
-       _xstart = _colstart;
-       _ystart = _rowstart;
-     } else {
-       _xstart = 52;
-       _ystart = 40;
-     }
+     _xstart = _colstart;
+     _ystart = _rowstart;
      break;
 
    case 3:
-     // Landscape (Portrait + 90)
-     // colstart = 40;
-     // rowstart = 53;
      writedata(ST7789_MADCTL_MX | ST7789_MADCTL_MV | ST7789_MADCTL_RGB);
 
-     if (_width==240 && _height==240) {
-       _ystart = _colstart;
-       _xstart = _rowstart;
-     } else {
-       _xstart = 40;
-       _ystart = 53;
-     }
+     _ystart = _colstart;
+     _xstart = _rowstart;
      break;
   }
 }
@@ -624,8 +542,8 @@ void Arduino_ST7789::init(uint16_t width, uint16_t height) {
     _colstart = ST7789_240x240_XSTART;
     _rowstart = ST7789_240x240_YSTART;
   } else {
-    _colstart = 40;
-    _rowstart = 52;
+    _colstart = 53;
+    _rowstart = 40;
   }
   _height = height;
   _width = width;
