@@ -630,14 +630,6 @@ void Arduino_ST7789::init(uint16_t width, uint16_t height) {
       10,                     				// 10 ms delay
     ST7789_MADCTL , 1,  					// 4: Memory access ctrl (directions), 1 arg:
       0x00,                   				// Row addr/col addr, bottom to top refresh
-    ST7789_CASET  , 4,  					// 5: Column addr set, 4 args, no delay:
-      0x00, _xstart,          // XSTART = 0
-	  (_width+_xstart) >> 8,
-	  (_width+_xstart) & 0xFF,   // XEND = 240
-    ST7789_RASET  , 4,  					// 6: Row addr set, 4 args, no delay:
-      0x00, _ystart,          // YSTART = 0
-      (_height+_ystart) >> 8,
-	  (_height+_xstart) & 0xFF,	// YEND = 240
     ST7789_INVON ,   ST_CMD_DELAY,  		// 7: Inversion ON
       10,
     ST7789_NORON  ,   ST_CMD_DELAY,  		// 8: Normal display on, no args, w/delay
