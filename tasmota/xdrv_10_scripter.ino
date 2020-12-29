@@ -1269,7 +1269,7 @@ void Set_MFVal(uint8_t index, uint16_t bind, float val) {
           if (val < 0 || val >= maxind) val = 0;
           mflp->index = val;
         } else {
-          if (bind > 1 && bind <= maxind) {
+          if (bind >= 1 && bind <= maxind) {
             mflp->rbuff[bind-1] = val;
           }
         }
