@@ -578,7 +578,9 @@ float *Get_MFAddr(uint8_t index, uint16_t *len, uint16_t *ipos);
 int16_t Init_Scripter(void) {
 char *script;
 
+    int16_t err = 0;
     script = glob_script_mem.script_ram;
+    if (!*script) return -999;
 
     // scan lines for >DEF
     uint16_t lines = 0;
@@ -586,15 +588,56 @@ char *script;
     uint16_t svars = 0;
     uint16_t vars = 0;
     char *lp = script;
-    char vnames[MAXVARS*10];
-    char *vnames_p = vnames;
+    uint16_t imemsize = (MAXVARS*10) + 4;
+    uint8_t *imemptr = (uint8_t*)calloc(imemsize, 1);
+    if (!imemptr) {
+      return -7;
+    }
+
+    //ClaimSerial();
+    //SetSerialBaudrate(115200);
+    //Serial.printf("size %d\n",imemsize);
+    //Serial.printf("stack %d\n",GetStack());
+
+    //char vnames[MAXVARS*10];
+    char *vnames = (char*)imemptr;
+
     char *vnp[MAXVARS];
+    float fvalues[MAXVARS];
+    struct T_INDEX vtypes[MAXVARS];
+
+/*
+    uint32_t imemp = (uint32_t)imemptr;
+    imemp += (MAXVARS*10);
+    imemp = (imemp & 0xfffc) + 4;
+    Serial.printf(">1 %x\n",imemp);
+    char *vnp[MAXVARS];
+
+    //char **vnp = (char**)imemp;
+    imemp += (sizeof(char*)*MAXVARS);
+    imemp = (imemp & 0xfffc) + 4;
+    Serial.printf(">2 %x\n",imemp);
+
+    float fvalues[MAXVARS];
+    //float *fvalues = (float*)imemp;
+    imemp += (sizeof(float*)*MAXVARS);
+    imemp = (imemp & 0xfffc) + 4;
+    Serial.printf(">3 %x\n",imemp);
+
+    struct T_INDEX vtypes[MAXVARS];
+    //struct T_INDEX *vtypes = (struct T_INDEX*)imemp;
+*/
+
+    char *vnames_p = vnames;
     char **vnp_p = vnp;
+
     char strings[MAXSVARS*SCRIPT_MAXSSIZE];
+    char *snp[MAXSVARS];
+
     struct M_FILT mfilt[MAXFILT];
 
     char *strings_p = strings;
-    char *snp[MAXSVARS];
+
     char **snp_p = snp;
     uint8_t numperm = 0;
     uint8_t numflt = 0;
@@ -603,10 +646,6 @@ char *script;
     glob_script_mem.max_ssize = SCRIPT_SVARSIZE;
     glob_script_mem.scriptptr = 0;
 
-    if (!*script) return -999;
-
-    float fvalues[MAXVARS];
-    struct T_INDEX vtypes[MAXVARS];
     char init = 0;
     while (1) {
         // check line
@@ -674,6 +713,7 @@ char *script;
                     vtypes[vars].index = numflt;
                     numflt++;
                     if (numflt>MAXFILT) {
+                      if (imemptr) free(imemptr);
                       return -6;
                     }
                 } else {
@@ -699,6 +739,7 @@ char *script;
                     if (!vtypes[vars].bits.is_filter) vtypes[vars].index = nvars;
                     nvars++;
                     if (nvars>MAXNVARS) {
+                      if (imemptr) free(imemptr);
                       return -1;
                     }
                     if (vtypes[vars].bits.is_filter) {
@@ -731,11 +772,13 @@ char *script;
                     vtypes[vars].index = svars;
                     svars++;
                     if (svars>MAXSVARS) {
+                      if (imemptr) free(imemptr);
                       return -2;
                     }
                 }
                 vars++;
                 if (vars>MAXVARS) {
+                  if (imemptr) free(imemptr);
                   return -3;
                 }
             }
@@ -786,6 +829,7 @@ char *script;
     uint8_t *script_mem;
     script_mem = (uint8_t*)calloc(script_mem_size, 1);
     if (!script_mem) {
+      if (imemptr) free(imemptr);
       return -4;
     }
     glob_script_mem.script_mem = script_mem;
@@ -841,7 +885,6 @@ char *script;
     //memcpy(script_mem,strings,size);
     script_mem += size;
 
-
     // now must recalc memory offsets
     uint16_t index = 0;
 #ifdef SCRIPT_LARGE_VNBUFF
@@ -864,11 +907,13 @@ char *script;
         index++;
         if (index > MAXVNSIZ) {
           free(glob_script_mem.script_mem);
+          if (imemptr) free(imemptr);
           return -5;
         }
     }
+
     // variables usage info
-    AddLog_P(LOG_LEVEL_INFO, PSTR("Script: nv=%d, tv=%d, vns=%d, ram=%d"), nvars, svars, index, glob_script_mem.script_mem_size);
+  //  AddLog_P(LOG_LEVEL_INFO, PSTR("Script: nv=%d, tv=%d, vns=%d, ram=%d"), nvars, svars, index, glob_script_mem.script_mem_size);
 
     // copy string variables
     char *cp1 = glob_script_mem.glob_snp;
@@ -940,7 +985,6 @@ char *script;
       }
     }
 
-
 #ifdef USE_SCRIPT_FATFS
     if (!glob_script_mem.script_sd_found) {
 
@@ -985,8 +1029,10 @@ char *script;
     }
 #endif //USE_SCRIPT_GLOBVARS
 
-    return 0;
-
+    if (imemptr) {
+      free(imemptr);
+    }
+    return err;
 }
 
 #ifdef USE_SCRIPT_FATFS
@@ -6541,7 +6587,7 @@ void ScriptFullWebpage(void) {
       WSContentBegin(200, CT_HTML);
       ScriptWebShow('w');
       WSContentEnd();
-      Serial.printf("fwp update sv %s\n",stmp.c_str() );
+      //Serial.printf("fwp update sv %s\n",stmp.c_str() );
       return; //goto redraw;
 //    } else {
   //    Serial.printf("fwp update %s\n",stmp.c_str() );
@@ -6549,7 +6595,7 @@ void ScriptFullWebpage(void) {
 
     return;
   } else {
-    Serial.printf("fwp other %s\n",stmp.c_str() );
+    //Serial.printf("fwp other %s\n",stmp.c_str() );
   }
 
   WSContentBegin(200, CT_HTML);
@@ -6577,7 +6623,7 @@ void Script_Check_HTML_Setvars(void) {
 
   if (Webserver->hasArg("sv")) {
     String stmp = Webserver->arg("sv");
-    Serial.printf("fwp has arg dv %s\n", stmp.c_str());
+    //Serial.printf("fwp has arg dv %s\n", stmp.c_str());
     char cmdbuf[64];
     memset(cmdbuf, 0, sizeof(cmdbuf));
     char *cp = cmdbuf;
