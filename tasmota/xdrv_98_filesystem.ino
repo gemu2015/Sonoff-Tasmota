@@ -20,6 +20,7 @@
 /*
 this driver adds universal file system support for
 ESP8266 (sd card or littlfs on  > 1 M devices with special linker file e.g. eagle.flash.4m2m.ld)
+(makes no sense on 1M devices without sd card)
 and
 ESP32 (sd card or fatfile system)
 the sd card chip select is the standard SPI_CS or when not found SDCARD_CS_PIN
@@ -51,12 +52,6 @@ driver enabled by
 #include <SPI.h>
 #include <SD.h>
 #include <SDFAT.h>
-#undef FILE_WRITE
-#define FILE_WRITE "w"
-#undef FILE_READ
-#define FILE_READ "r"
-#undef FILE_APPEND
-#define FILE_APPEND "a"
 #else
 #include <SD.h>
 #include "FFat.h"
@@ -64,8 +59,8 @@ driver enabled by
 #include "SPIFFS.h"
 #endif
 
-#include <ESP8266WebServer.h>
-extern ESP8266WebServer *Webserver;
+#define UFS_FILE_WRITE "w"
+#define UFS_FILE_READ "r"
 
 // global file system pointer
 FS *ufsp;
@@ -311,7 +306,7 @@ void UFS_ListDir(char *path, uint8_t depth) {
   char format[12];
   sprintf(format, "%%-%ds", 24 - depth);
 
-  File dir = ufsp->open(path, FILE_READ);
+  File dir = ufsp->open(path, UFS_FILE_READ);
   if (dir) {
     dir.rewindDirectory();
     if (strlen(path)>1) {
@@ -383,7 +378,7 @@ uint8_t UFS_DownloadFile(char *file) {
       return 0;
     }
 
-    download_file = ufsp->open(file, FILE_READ);
+    download_file = ufsp->open(file, UFS_FILE_READ);
     if (!download_file) {
       AddLog_P(LOG_LEVEL_INFO, PSTR("could not open file"));
       return 0;
@@ -440,7 +435,7 @@ void UFS_Upload(void) {
     char npath[48];
     sprintf(npath, "%s/%s", ufs_path, upload.filename.c_str());
     ufsp->remove(npath);
-    ufs_upload_file = ufsp->open(npath, FILE_WRITE);
+    ufs_upload_file = ufsp->open(npath, UFS_FILE_WRITE);
     if (!ufs_upload_file) Web.upload_error = 1;
   } else if(upload.status == UPLOAD_FILE_WRITE) {
     if (ufs_upload_file) ufs_upload_file.write(upload.buf, upload.currentSize);
@@ -465,6 +460,8 @@ void UFSFileUploadSuccess(void) {
   WSContentStop();
 }
 
+#define D_UFSDIR "UFS directory"
+
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
@@ -482,7 +479,7 @@ bool Xdrv98(uint8_t function) {
 #ifdef USE_WEBSERVER
     case FUNC_WEB_ADD_BUTTON:
       if (ufs_type) {
-        WSContentSend_PD(UFS_WEB_DIR,"UFS directory");
+        WSContentSend_PD(UFS_WEB_DIR,D_UFSDIR);
       }
       break;
     case FUNC_WEB_ADD_HANDLER:
