@@ -1,5 +1,5 @@
 /*
-  xdrv_001_filesystem.ino - unified file system for Tasmota
+  xdrv_98_filesystem.ino - unified file system for Tasmota
 
   Copyright (C) 2020  Gerhard Mutz and Theo Arends
 
@@ -18,19 +18,26 @@
 */
 
 /*
-this driver adds universal file support for
-ESP8266 (sd card or littlfs on  > 1 M devices with special linker file)
+this driver adds universal file system support for
+ESP8266 (sd card or littlfs on  > 1 M devices with special linker file e.g. eagle.flash.4m2m.ld)
+and
 ESP32 (sd card or fatfile system)
 the sd card chip select is the standard SPI_CS or when not found SDCARD_CS_PIN
 initializes the FS System Pointer ufsp which can be used by all standard file system calls
 the only specific call is ufs_fsinfo() which gets the total size (0) and free size (1)
-a button is created in the setup section to show up the file directory to download an upload files
-the console calls support
+a button is created in the setup section to show up the file directory to download and upload files
+subdirectories are supported
 
-ufs fs info
-ufstype  get filesytem type 0=none 1=SD  2=Flashfile
-ufssize  total size in kB
-ufsfree  free size in kB
+console calls :
+
+ufs       fs info
+ufstype   get filesytem type 0=none 1=SD  2=Flashfile
+ufssize   total size in kB
+ufsfree   free size in kB
+
+driver enabled by
+
+#define USE_UFILESYS
 
 */
 
@@ -131,10 +138,12 @@ uint32_t result = 0;
     case UFS_TSDC:
 #ifdef ESP32
       if (sel == 0) {
-        result = SD.totalBytes()/1000;
+        result = SD.totalBytes();
       } else {
-        result = (SD.totalBytes() - SD.usedBytes())/1000;
+        result = (SD.totalBytes() - SD.usedBytes());
       }
+#else
+      // currently no support on esp8266
 #endif
       break;
     case UFS_TFAT:
@@ -142,22 +151,22 @@ uint32_t result = 0;
       FSInfo64 fsinfo;
       ufsp->info64(fsinfo);
       if (sel == 0) {
-        result = fsinfo.totalBytes/1000;
+        result = fsinfo.totalBytes;
       } else {
-        result = (fsinfo.totalBytes - fsinfo.usedBytes)/1000;
+        result = (fsinfo.totalBytes - fsinfo.usedBytes);
       }
 #else
       if (sel == 0) {
-        result = FFat.totalBytes()/1000;
+        result = FFat.totalBytes();
       } else {
-        result = FFat.freeBytes()/1000;
+        result = FFat.freeBytes();
       }
 #endif
       break;
     case UFS_TSPIFFS:
       break;
   }
-  return result;
+  return result / 10000;
 }
 
 #if USE_LONG_FILE_NAMES>0
