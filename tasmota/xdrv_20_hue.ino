@@ -1,7 +1,7 @@
 /*
   xdrv_20_hue.ino - Philips Hue support for Tasmota
 
-  Copyright (C) 2020  Heiko Krupp and Theo Arends
+  Copyright (C) 2021  Heiko Krupp and Theo Arends
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -80,7 +80,6 @@ void HueRespondToMSearch(void)
 {
   char message[TOPSZ];
 
-  TickerMSearch.detach();
   if (PortUdp.beginPacket(udp_remote_ip, udp_remote_port)) {
     char response[320];
     snprintf_P(response, sizeof(response), HUE_RESPONSE, WiFi.localIP().toString().c_str(), HueBridgeId().c_str());

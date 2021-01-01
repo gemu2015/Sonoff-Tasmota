@@ -1,7 +1,7 @@
 /*
   support_command.ino - command support for Tasmota
 
-  Copyright (C) 2020  Theo Arends
+  Copyright (C) 2021  Theo Arends
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -941,6 +941,11 @@ void CmndSetoption(void)
           else if (4 == ptype) {           // SetOption82 .. 113
             bitWrite(Settings.flag4.data, pindex, XdrvMailbox.payload);
             switch (pindex) {
+#ifdef USE_LIGHT
+              case 0:                      // SetOption 82 - (Alexa) Reduced CT range for Alexa (1)
+                setAlexaCTRange();
+                break;
+#endif
               case 3:                      // SetOption85 - Enable Device Groups
               case 6:                      // SetOption88 - PWM Dimmer Buttons control remote devices
               case 15:                     // SetOption97 - Set Baud rate for TuyaMCU serial communication (0 = 9600 or 1 = 115200)
@@ -1284,12 +1289,14 @@ void CmndTemplate(void)
     }
   }
   else {
-    if (JsonTemplate(XdrvMailbox.data)) {    // Free 336 bytes StaticJsonBuffer stack space by moving code to function
+#ifndef FIRMWARE_MINIMAL      // if tasmota-minimal, `Template` is read-only
+    if (JsonTemplate(XdrvMailbox.data)) {
       if (USER_MODULE == Settings.module) { TasmotaGlobal.restart_flag = 2; }
     } else {
       ResponseCmndChar_P(PSTR(D_JSON_INVALID_JSON));
       error = true;
     }
+#endif // FIRMWARE_MINIMAL
   }
   if (!error) { TemplateJson(); }
 }

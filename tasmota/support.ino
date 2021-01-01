@@ -1,7 +1,7 @@
 /*
   support.ino - support for Tasmota
 
-  Copyright (C) 2020  Theo Arends
+  Copyright (C) 2021  Theo Arends
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -388,20 +388,23 @@ char* RemoveControlCharacter(char* p) {
   return p;
 }
 
-char* ReplaceCommaWithDot(char* p) {
-  // Replace character ',' with '.'
+char* ReplaceChar(char* p, char find, char replace) {
   char* write = (char*)p;
   char* read = (char*)p;
   char ch = '.';
 
   while (ch != '\0') {
     ch = *read++;
-    if (ch == ',') {
-      ch = '.';
+    if (ch == find) {
+      ch = replace;
     }
     *write++ = ch;
   }
   return p;
+}
+
+char* ReplaceCommaWithDot(char* p) {
+  return ReplaceChar(p, ',', '.');
 }
 
 char* LowerCase(char* dest, const char* source)
@@ -1301,6 +1304,17 @@ uint8_t ModuleNr(void)
   return (USER_MODULE == Settings.module) ? 0 : Settings.module +1;
 }
 
+uint32_t ModuleTemplate(uint32_t module) {
+  uint32_t i = 0;
+  for (i = 0; i < sizeof(kModuleNiceList); i++) {
+    if (module == pgm_read_byte(kModuleNiceList + i)) {
+      break;
+    }
+  }
+  if (i == sizeof(kModuleNiceList)) { i = 0; }
+  return i;
+}
+
 bool ValidTemplateModule(uint32_t index)
 {
   for (uint32_t i = 0; i < sizeof(kModuleNiceList); i++) {
@@ -1332,6 +1346,9 @@ String AnyModuleName(uint32_t index)
   if (USER_MODULE == index) {
     return String(SettingsText(SET_TEMPLATE_NAME));
   } else {
+#ifdef ESP32
+    index = ModuleTemplate(index);
+#endif
     char name[TOPSZ];
     return String(GetTextIndexed(name, sizeof(name), index, kModuleNames));
   }
@@ -1396,7 +1413,7 @@ void TemplateGpios(myio *gp)
     GetInternalTemplate(&src, Settings.module, 1);
 #endif  // ESP8266
 #ifdef ESP32
-    memcpy_P(&src, &kModules.gp, sizeof(mycfgio));
+    memcpy_P(&src, &kModules[ModuleTemplate(Settings.module)].gp, sizeof(mycfgio));
 #endif  // ESP32
   }
   // 11 85 00 85 85 00 00 00 15 38 85 00 00 81
@@ -1426,7 +1443,7 @@ gpio_flag ModuleFlag(void)
     GetInternalTemplate(&flag, Settings.module, 2);
 #endif  // ESP8266
 #ifdef ESP32
-    memcpy_P(&flag, &kModules.flag, sizeof(gpio_flag));
+    memcpy_P(&flag, &kModules[ModuleTemplate(Settings.module)].flag, sizeof(gpio_flag));
 #endif  // ESP32
   }
 
@@ -1437,13 +1454,18 @@ void ModuleDefault(uint32_t module)
 {
   if (USER_MODULE == module) { module = WEMOS; }  // Generic
   Settings.user_template_base = module;
+
+#ifdef ESP32
+  module = ModuleTemplate(module);
+#endif
+
   char name[TOPSZ];
   SettingsUpdateText(SET_TEMPLATE_NAME, GetTextIndexed(name, sizeof(name), module, kModuleNames));
 #ifdef ESP8266
   GetInternalTemplate(&Settings.user_template, module, 3);
 #endif  // ESP8266
 #ifdef ESP32
-  memcpy_P(&Settings.user_template, &kModules, sizeof(mytmplt));
+  memcpy_P(&Settings.user_template, &kModules[module], sizeof(mytmplt));
 #endif  // ESP32
 }
 
@@ -1457,8 +1479,7 @@ bool FlashPin(uint32_t pin)
   return (((pin > 5) && (pin < 9)) || (11 == pin));
 }
 
-uint32_t ValidPin(uint32_t pin, uint32_t gpio)
-{
+uint32_t ValidPin(uint32_t pin, uint32_t gpio) {
   if (FlashPin(pin)) {
     return GPIO_NONE;    // Disable flash pins GPIO6, GPIO7, GPIO8 and GPIO11
   }
@@ -1473,14 +1494,23 @@ uint32_t ValidPin(uint32_t pin, uint32_t gpio)
   return gpio;
 }
 
-bool ValidGPIO(uint32_t pin, uint32_t gpio)
-{
+bool ValidGPIO(uint32_t pin, uint32_t gpio) {
 #ifdef ESP8266
 #ifdef USE_ADC_VCC
   if (ADC0_PIN == pin) { return false; }  // ADC0 = GPIO17
 #endif
 #endif
   return (GPIO_USER == ValidPin(pin, BGPIO(gpio)));  // Only allow GPIO_USER pins
+}
+
+bool ValidSpiPinUsed(uint32_t gpio) {
+  // ESP8266: If SPI pin selected chk if it's not one of the three Hardware SPI pins (12..14)
+  bool result = false;
+  if (PinUsed(gpio)) {
+    uint32_t pin = Pin(gpio);
+    result = ((pin < 12) || (pin > 14));
+  }
+  return result;
 }
 
 bool JsonTemplate(char* dataBuf)
@@ -2082,6 +2112,25 @@ void AddLogBufferSize(uint32_t loglevel, uint8_t *buffer, uint32_t count, uint32
     buffer += size;
   }
   AddLogData(loglevel, log_data);
+}
+
+void AddLogSpi(bool hardware, uint32_t clk, uint32_t mosi, uint32_t miso) {
+  // Needs optimization
+  uint32_t enabled = (hardware) ? TasmotaGlobal.spi_enabled : TasmotaGlobal.soft_spi_enabled;
+  switch(enabled) {
+    case SPI_MOSI:
+      AddLog_P(LOG_LEVEL_INFO, PSTR("SPI: %s using GPIO%02d(CLK) and GPIO%02d(MOSI)"),
+        (hardware) ? PSTR("Hardware") : PSTR("Software"), clk, mosi);
+      break;
+    case SPI_MISO:
+      AddLog_P(LOG_LEVEL_INFO, PSTR("SPI: %s using GPIO%02d(CLK) and GPIO%02d(MISO)"),
+        (hardware) ? PSTR("Hardware") : PSTR("Software"), clk, miso);
+      break;
+    case SPI_MOSI_MISO:
+      AddLog_P(LOG_LEVEL_INFO, PSTR("SPI: %s using GPIO%02d(CLK), GPIO%02d(MOSI) and GPIO%02d(MISO)"),
+        (hardware) ? PSTR("Hardware") : PSTR("Software"), clk, mosi, miso);
+      break;
+  }
 }
 
 /*********************************************************************************************\

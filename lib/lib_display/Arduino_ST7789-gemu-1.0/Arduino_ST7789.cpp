@@ -26,6 +26,25 @@ uint16_t Arduino_ST7789::GetColorFromIndex(uint8_t index) {
   return ST7789_colors[index];
 }
 
+static const uint8_t PROGMEM
+  init_cmd[] = {                 		    // Initialization commands for 7789 screens
+    10,                       				// 9 commands in list:
+    ST7789_SWRESET,   ST_CMD_DELAY,  		// 1: Software reset, no args, w/delay
+      150,                     				// 150 ms delay
+    ST7789_SLPOUT ,   ST_CMD_DELAY,  		// 2: Out of sleep mode, no args, w/delay
+      255,                    				// 255 = 500 ms delay
+    ST7789_COLMOD , 1+ST_CMD_DELAY,  		// 3: Set color mode, 1 arg + delay:
+      0x55,                   				// 16-bit color
+      10,                     				// 10 ms delay
+    ST7789_MADCTL , 1,  					// 4: Memory access ctrl (directions), 1 arg:
+      0x00,                   				// Row addr/col addr, bottom to top refresh
+    ST7789_INVON ,   ST_CMD_DELAY,  		// 7: Inversion ON
+      10,
+    ST7789_NORON  ,   ST_CMD_DELAY,  		// 8: Normal display on, no args, w/delay
+      10,                     				// 10 ms delay
+    ST7789_DISPON ,   ST_CMD_DELAY,  		// 9: Main screen turn on, no args, w/delay
+    255 };                  				// 255 = 500 ms delay
+
 inline uint16_t swapcolor(uint16_t x) {
   return (x << 11) | (x & 0x07E0) | (x >> 11);
 }
@@ -218,7 +237,6 @@ void Arduino_ST7789::displayInit(const uint8_t *addr) {
       delay(ms);
     }
   }
-
 }
 
 
@@ -365,7 +383,6 @@ void Arduino_ST7789::setRotation(uint8_t m) {
      break;
   }
 }
-
 
 void Arduino_ST7789::setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
   setAddrWindow_int(x0,y0,x1-1,y1-1);
@@ -540,24 +557,6 @@ void Arduino_ST7789::init(uint16_t width, uint16_t height) {
 
   _height = height;
   _width = width;
-
-  uint8_t init_cmd[] = {                 	// Initialization commands for 7789 screens
-    10,                       				// 9 commands in list:
-    ST7789_SWRESET,   ST_CMD_DELAY,  		// 1: Software reset, no args, w/delay
-      150,                     				// 150 ms delay
-    ST7789_SLPOUT ,   ST_CMD_DELAY,  		// 2: Out of sleep mode, no args, w/delay
-      255,                    				// 255 = 500 ms delay
-    ST7789_COLMOD , 1+ST_CMD_DELAY,  		// 3: Set color mode, 1 arg + delay:
-      0x55,                   				// 16-bit color
-      10,                     				// 10 ms delay
-    ST7789_MADCTL , 1,  					// 4: Memory access ctrl (directions), 1 arg:
-      0x00,                   				// Row addr/col addr, bottom to top refresh
-    ST7789_INVON ,   ST_CMD_DELAY,  		// 7: Inversion ON
-      10,
-    ST7789_NORON  ,   ST_CMD_DELAY,  		// 8: Normal display on, no args, w/delay
-      10,                     				// 10 ms delay
-    ST7789_DISPON ,   ST_CMD_DELAY,  		// 9: Main screen turn on, no args, w/delay
-    255 };                  				// 255 = 500 ms delay
 
   displayInit(init_cmd);
 

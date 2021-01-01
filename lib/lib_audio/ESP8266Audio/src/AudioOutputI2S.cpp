@@ -1,7 +1,7 @@
 /*
   AudioOutputI2S
   Base class for I2S interface port
-
+  
   Copyright (C) 2017  Earle F. Philhower, III
 
   This program is free software: you can redistribute it and/or modify
@@ -81,7 +81,7 @@ AudioOutputI2S::AudioOutputI2S(int port, int output_mode, int dma_buf_count, int
       SetPinout(26, 25, 22);
     }
     i2s_zero_dma_buffer((i2s_port_t)portNo);
-  }
+  } 
 #else
   (void) dma_buf_count;
   (void) use_apll;
@@ -97,7 +97,6 @@ AudioOutputI2S::AudioOutputI2S(int port, int output_mode, int dma_buf_count, int
   channels = 2;
   SetGain(1.0);
   SetRate(44100); // Default
-  audioLogger->printf("INSTALLED I2S\n");
 }
 
 AudioOutputI2S::~AudioOutputI2S()
@@ -139,7 +138,7 @@ bool AudioOutputI2S::SetRate(int hz)
   // TODO - have a list of allowable rates from constructor, check them
   this->hertz = hz;
 #ifdef ESP32
-  i2s_set_sample_rates((i2s_port_t)portNo, AdjustI2SRate(hz));
+  i2s_set_sample_rates((i2s_port_t)portNo, AdjustI2SRate(hz)); 
 #else
   i2s_set_rate(AdjustI2SRate(hz));
 #endif
@@ -220,3 +219,5 @@ bool AudioOutputI2S::stop()
 #endif
   return true;
 }
+
+
