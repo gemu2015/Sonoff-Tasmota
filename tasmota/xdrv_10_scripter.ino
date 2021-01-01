@@ -134,8 +134,6 @@ keywords if then else endif, or, and are better readable for beginners (others m
 
 //#endif // USE_SCRIPT_COMPRESSION
 
-extern FS *ufsp;
-
 #ifndef STASK_PRIO
 #define STASK_PRIO 1
 #endif
@@ -221,6 +219,7 @@ void alt_eeprom_readBytes(uint32_t adr, uint32_t len, uint8_t *buf) {
 FS *fsp;
 #endif // LITTLEFS_SCRIPT_SIZE
 
+extern FS *ufsp;
 
 // offsets epoch readings by 1.1.2019 00:00:00 to fit into float with second resolution
 #define EPOCH_OFFSET 1546300800
