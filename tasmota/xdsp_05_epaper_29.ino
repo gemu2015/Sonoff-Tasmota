@@ -88,6 +88,7 @@ void EpdInitDriver29()
 
 #ifdef SHOW_SPLASH
     // Welcome text
+    delay(100);
     renderer->setTextFont(1);
     renderer->DrawStringAt(50, 50, "Waveshare E-Paper Display!", COLORED,0);
     renderer->Updateframe();
