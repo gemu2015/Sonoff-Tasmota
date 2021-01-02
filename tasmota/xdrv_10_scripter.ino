@@ -1731,6 +1731,7 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, float *fp, char *sp,
                         fvar = Get_MFilter(index);
                       }
                     } else {
+                      if (ja) continue;
                       fvar = glob_script_mem.fvars[index];
                     }
                     if (nres) fvar = -fvar;
