@@ -1,7 +1,7 @@
 /*
   xdrv_10_scripter.ino - script support for Tasmota
 
-  Copyright (C) 2020  Gerhard Mutz and Theo Arends
+  Copyright (C) 2021  Gerhard Mutz and Theo Arends
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -5821,8 +5821,8 @@ void Script_Handle_Hue(String *path) {
       String x_str = tok_x.getStr();
       String y_str = tok_y.getStr();
       uint8_t rr,gg,bb;
-      LightStateClass::XyToRgb(x, y, &rr, &gg, &bb);
-      LightStateClass::RgbToHsb(rr, gg, bb, &hue, &sat, nullptr);
+      XyToRgb(x, y, &rr, &gg, &bb);
+      RgbToHsb(rr, gg, bb, &hue, &sat, nullptr);
       if (resp) { response += ","; }
       response += FPSTR(sHUE_LIGHT_RESPONSE_JSON);
       response.replace("{id", String(device));
