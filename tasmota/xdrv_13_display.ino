@@ -1546,6 +1546,14 @@ void CmndDisplayRows(void)
 void draw_picture(char *path, uint32_t xp, uint32_t yp, uint32_t xs, uint32_t ys, bool inverted) {
 char ppath[16];
   strcpy(ppath, path);
+  uint8_t plen = strlen(path) -1;
+  if (ppath[plen]=='1') {
+    // index mode
+    if (inverted) {
+      ppath[plen] = '2';
+    }
+    inverted = false;
+  }
   strcat(ppath, ".jpg");
   Draw_RGB_Bitmap(ppath, xp, yp, inverted);
 }
@@ -1625,26 +1633,27 @@ void Draw_RGB_Bitmap(char *file,uint16_t xp, uint16_t yp, bool inverted ) {
           uint16_t ysize;
           if (mem[0]==0xff && mem[1]==0xd8) {
             get_jpeg_size(mem, size, &xsize, &ysize);
-            //Serial.printf(" x,y %d - %d\n",xsize, ysize );
+            //Serial.printf(" x,y,fs %d - %d - %d\n",xsize, ysize, size );
             if (xsize && ysize) {
               uint8_t *out_buf = (uint8_t *)heap_caps_malloc((xsize*ysize*3)+4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
               if (out_buf) {
                 uint16_t *pixb = (uint16_t *)heap_caps_malloc((xsize*2)+4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
                 if (pixb) {
                   uint8_t *ob=out_buf;
-                  jpg2rgb888(mem, size, out_buf, (jpg_scale_t)JPG_SCALE_NONE);
-                  renderer->setAddrWindow(xp,yp,xp+xsize,yp+ysize);
-                  for(int32_t j=0; j<ysize; j++) {
-                    if (inverted==false) {
-                      rgb888_to_565(ob, pixb, xsize);
-                    } else {
-                      rgb888_to_565i(ob, pixb, xsize);
+                  if (jpg2rgb888(mem, size, out_buf, (jpg_scale_t)JPG_SCALE_NONE)) {
+                    renderer->setAddrWindow(xp,yp,xp+xsize,yp+ysize);
+                    for(int32_t j=0; j<ysize; j++) {
+                      if (inverted==false) {
+                        rgb888_to_565(ob, pixb, xsize);
+                      } else {
+                        rgb888_to_565i(ob, pixb, xsize);
+                      }
+                      ob+=xsize*3;
+                      renderer->pushColors(pixb, xsize, true);
+                      OsWatchLoop();
                     }
-                    ob+=xsize*3;
-                    renderer->pushColors(pixb, xsize, true);
-                    OsWatchLoop();
+                    renderer->setAddrWindow(0,0,0,0);
                   }
-                  renderer->setAddrWindow(0,0,0,0);
                   free(out_buf);
                   free(pixb);
                 } else {
