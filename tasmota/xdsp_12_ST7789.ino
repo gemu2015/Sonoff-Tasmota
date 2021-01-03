@@ -131,8 +131,8 @@ void ST7789_InitDriver(void) {
     #define SDA_2 23
     #define SCL_2 32
   #ifdef USE_LANBON_L8
-    #undef SDA_2 
-    #undef SCL_2 
+    #undef SDA_2
+    #undef SCL_2
     #define SDA_2 4
     #define SCL_2 0
   #endif // USE_LANBON_L8

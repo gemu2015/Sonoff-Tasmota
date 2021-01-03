@@ -503,7 +503,7 @@ void DisplayText(void)
              if (ep) {
                *ep=0;
                ep++;
-               Draw_RGB_Bitmap(cp,disp_xpos,disp_ypos);
+               Draw_RGB_Bitmap(cp,disp_xpos,disp_ypos, false);
                cp=ep;
              }
             }
@@ -1423,7 +1423,7 @@ void CmndDisplayDimmer(void)
 void CmndDisplayBlinkrate(void)
 {
   if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload <= 3)) {
-  
+
     if (!renderer)
       XdspCall(FUNC_DISPLAY_BLINKRATE);
   }
@@ -1540,20 +1540,29 @@ void CmndDisplayRows(void)
 /*********************************************************************************************\
  * optional drivers
 \*********************************************************************************************/
+
+// very limited path size, so, add .jpg
+void draw_picture(char *path, uint32_t xp, uint32_t yp, uint32_t xs, uint32_t ys, bool inverted) {
+char ppath[16];
+  strcpy(ppath, path);
+  strcat(ppath, ".jpg");
+  Draw_RGB_Bitmap(ppath, xp, yp, inverted);
+}
+
+
 #ifdef ESP32
 #ifdef JPEG_PICTS
 #include "img_converters.h"
 #include "esp_jpg_decode.h"
 bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t scale);
 char get_jpeg_size(unsigned char* data, unsigned int data_size, unsigned short *width, unsigned short *height);
-void rgb888_to_565(uint8_t *in, uint16_t *out, uint32_t len);
 #endif // JPEG_PICTS
 #endif // ESP32
 
-#if defined(USE_SCRIPT_FATFS) && defined(USE_SCRIPT)
+#if defined(USE_SCRIPT_FATFS) && defined(USE_SCRIPT) && defined(USE_DISPLAY)
 extern FS *fsp;
 #define XBUFF_LEN 128
-void Draw_RGB_Bitmap(char *file,uint16_t xp, uint16_t yp) {
+void Draw_RGB_Bitmap(char *file,uint16_t xp, uint16_t yp, bool inverted ) {
   if (!renderer) return;
   File fp;
   char *ending = strrchr(file,'.');
@@ -1618,19 +1627,27 @@ void Draw_RGB_Bitmap(char *file,uint16_t xp, uint16_t yp) {
             if (xsize && ysize) {
               uint8_t *out_buf = (uint8_t *)heap_caps_malloc((xsize*ysize*3)+4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
               if (out_buf) {
-                uint8_t *ob=out_buf;
-                jpg2rgb888(mem, size, out_buf, (jpg_scale_t)JPG_SCALE_NONE);
-                uint16_t pixels=xsize*ysize/XBUFF_LEN;
-                renderer->setAddrWindow(xp,yp,xp+xsize,yp+ysize);
-                for(int32_t j=0; j<pixels; j++) {
-                  uint16_t rbuff[XBUFF_LEN*2];
-                  rgb888_to_565(ob, rbuff, XBUFF_LEN);
-                  ob+=XBUFF_LEN*3;
-                  renderer->pushColors(rbuff,XBUFF_LEN,true);
-                  OsWatchLoop();
+                uint16_t *pixb = (uint16_t *)heap_caps_malloc((xsize*2)+4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+                if (pixb) {
+                  uint8_t *ob=out_buf;
+                  jpg2rgb888(mem, size, out_buf, (jpg_scale_t)JPG_SCALE_NONE);
+                  renderer->setAddrWindow(xp,yp,xp+xsize,yp+ysize);
+                  for(int32_t j=0; j<ysize; j++) {
+                    if (inverted==false) {
+                      rgb888_to_565(ob, pixb, xsize);
+                    } else {
+                      rgb888_to_565i(ob, pixb, xsize);
+                    }
+                    ob+=xsize*3;
+                    renderer->pushColors(pixb, xsize, true);
+                    OsWatchLoop();
+                  }
+                  renderer->setAddrWindow(0,0,0,0);
+                  free(out_buf);
+                  free(pixb);
+                } else {
+                  free(out_buf);
                 }
-                renderer->setAddrWindow(0,0,0,0);
-                free(out_buf);
               }
             }
           }

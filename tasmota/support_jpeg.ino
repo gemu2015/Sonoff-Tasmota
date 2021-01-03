@@ -39,6 +39,21 @@ uint16_t b , g, r;
   }
 }
 
+void rgb888_to_565i(uint8_t *in, uint16_t *out, uint32_t len) {
+uint8_t red, grn, blu;
+uint16_t b , g, r;
+
+  for (uint32_t cnt=0; cnt<len; cnt++) {
+    red = 255-*in++;
+    grn = 255-*in++;
+    blu = 255-*in++;
+    b = (blu >> 3) & 0x1f;
+    g = ((grn >> 2) & 0x3f) << 5;
+    r = ((red >> 3) & 0x1f) << 11;
+    *out++ = (r | g | b);
+  }
+}
+
 typedef struct {
         uint16_t width;
         uint16_t height;

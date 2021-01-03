@@ -527,11 +527,16 @@ void Renderer::setDrawMode(uint8_t mode) {
   drawmode=mode;
 }
 
+void Renderer::invertDisplay(boolean i) {
+}
+
 void VButton::xdrawButton(bool inverted) {
   wr_redir=1;
   drawButton(inverted);
   wr_redir=0;
 }
+
+
 
 
 /* END OF FILE */
