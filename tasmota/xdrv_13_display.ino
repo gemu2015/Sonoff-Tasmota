@@ -1621,44 +1621,42 @@ void Draw_RGB_Bitmap(char *file,uint16_t xp, uint16_t yp, bool inverted ) {
     // jpeg files on ESP32 with more memory
 #ifdef ESP32
 #ifdef JPEG_PICTS
-    if (psramFound()) {
-      fp=fsp->open(file,FILE_READ);
-      if (!fp) return;
-      uint32_t size = fp.size();
-      uint8_t *mem = (uint8_t *)heap_caps_malloc(size+4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-      if (mem) {
-        uint8_t res=fp.read(mem, size);
-        if (res) {
-          uint16_t xsize;
-          uint16_t ysize;
-          if (mem[0]==0xff && mem[1]==0xd8) {
-            get_jpeg_size(mem, size, &xsize, &ysize);
-            //Serial.printf(" x,y,fs %d - %d - %d\n",xsize, ysize, size );
-            if (xsize && ysize) {
-              uint8_t *out_buf = (uint8_t *)heap_caps_malloc((xsize*ysize*3)+4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-              if (out_buf) {
-                uint16_t *pixb = (uint16_t *)heap_caps_malloc((xsize*2)+4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-                if (pixb) {
-                  uint8_t *ob=out_buf;
-                  if (jpg2rgb888(mem, size, out_buf, (jpg_scale_t)JPG_SCALE_NONE)) {
-                    renderer->setAddrWindow(xp,yp,xp+xsize,yp+ysize);
-                    for(int32_t j=0; j<ysize; j++) {
-                      if (inverted==false) {
-                        rgb888_to_565(ob, pixb, xsize);
-                      } else {
-                        rgb888_to_565i(ob, pixb, xsize);
-                      }
-                      ob+=xsize*3;
-                      renderer->pushColors(pixb, xsize, true);
-                      OsWatchLoop();
+    fp=fsp->open(file,FILE_READ);
+    if (!fp) return;
+    uint32_t size = fp.size();
+    uint8_t *mem = (uint8_t *)special_malloc(size+4);
+    if (mem) {
+      uint8_t res=fp.read(mem, size);
+      if (res) {
+        uint16_t xsize;
+        uint16_t ysize;
+        if (mem[0]==0xff && mem[1]==0xd8) {
+          get_jpeg_size(mem, size, &xsize, &ysize);
+          //Serial.printf(" x,y,fs %d - %d - %d\n",xsize, ysize, size );
+          if (xsize && ysize) {
+            uint8_t *out_buf = (uint8_t *)special_malloc((xsize*ysize*3)+4);
+            if (out_buf) {
+              uint16_t *pixb = (uint16_t *)special_malloc((xsize*2)+4);
+              if (pixb) {
+                uint8_t *ob=out_buf;
+                if (jpg2rgb888(mem, size, out_buf, (jpg_scale_t)JPG_SCALE_NONE)) {
+                  renderer->setAddrWindow(xp,yp,xp+xsize,yp+ysize);
+                  for(int32_t j=0; j<ysize; j++) {
+                    if (inverted==false) {
+                      rgb888_to_565(ob, pixb, xsize);
+                    } else {
+                      rgb888_to_565i(ob, pixb, xsize);
                     }
-                    renderer->setAddrWindow(0,0,0,0);
+                    ob+=xsize*3;
+                    renderer->pushColors(pixb, xsize, true);
+                    OsWatchLoop();
                   }
-                  free(out_buf);
-                  free(pixb);
-                } else {
-                  free(out_buf);
+                  renderer->setAddrWindow(0,0,0,0);
                 }
+                free(out_buf);
+                free(pixb);
+              } else {
+                free(out_buf);
               }
             }
           }

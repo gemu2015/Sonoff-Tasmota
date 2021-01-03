@@ -86,6 +86,11 @@ uint32_t FlashWriteMaxSector(void) {
 uint8_t* FlashDirectAccess(void) {
   return (uint8_t*)(0x40200000 + (FlashWriteStartSector() * SPI_FLASH_SEC_SIZE));
 }
+
+void *special_malloc(uint32_t size) {
+  return malloc(size);
+}
+
 #endif
 
 /*********************************************************************************************\
@@ -413,4 +418,14 @@ uint8_t* FlashDirectAccess(void) {
 */
   return data;
 }
+
+
+void *special_malloc(uint32_t size) {
+  if (psramFound()) {
+    return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  } else {
+    return malloc(size);
+  }
+}
+
 #endif  // ESP32
