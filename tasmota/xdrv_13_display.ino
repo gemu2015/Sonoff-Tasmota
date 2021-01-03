@@ -1541,6 +1541,7 @@ void CmndDisplayRows(void)
  * optional drivers
 \*********************************************************************************************/
 
+#ifdef USE_TOUCH_BUTTONS
 // very limited path size, so, add .jpg
 void draw_picture(char *path, uint32_t xp, uint32_t yp, uint32_t xs, uint32_t ys, bool inverted) {
 char ppath[16];
@@ -1548,6 +1549,7 @@ char ppath[16];
   strcat(ppath, ".jpg");
   Draw_RGB_Bitmap(ppath, xp, yp, inverted);
 }
+#endif
 
 
 #ifdef ESP32
