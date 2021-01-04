@@ -36,6 +36,13 @@ no math hierarchy  (costs ram and execution time, better group with brackets, an
 (will probably make math hierarchy an ifdefed option)
 keywords if then else endif, or, and are better readable for beginners (others may use {})
 
+// to doo
+remove all filesystem inititialization and gui
+adapt 3 options
+1. ufilesystem
+2. eeprom hardware and emulation
+3. compression
+
 \*********************************************************************************************/
 
 #define XDRV_10             10
@@ -5301,7 +5308,7 @@ void SaveScript(void) {
 #else
 
 #ifdef EEP_SCRIPT_SIZE
-  if (glob_script_mem.flags&1) {
+  if (glob_script_mem.flags & 1) {
 #if EEP_SCRIPT_SIZE==SPI_FLASH_SEC_SIZE
     EEP_WRITE(0, EEP_SCRIPT_SIZE, glob_script_mem.script_ram);
 #else
