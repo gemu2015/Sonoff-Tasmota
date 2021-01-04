@@ -1542,9 +1542,9 @@ int32_t mo_getvars(uint32_t index, uint32_t type,char *retval) {
 void CC1101_Detect() {
 
   // init spi, must use hardware spi
-  if (PinUsed(GPIO_SSPI_CS) && (Pin(GPIO_SSPI_MOSI)==HW_SPI_MOSI) && (Pin(GPIO_SSPI_MISO)==HW_SPI_MISO) && (Pin(GPIO_SSPI_SCLK)==HW_SPI_CLK)) {
+  if ((Pin(GPIO_SSPI_MOSI)==HW_SPI_MOSI) && (Pin(GPIO_SSPI_MISO)==HW_SPI_MISO) && (Pin(GPIO_SSPI_SCLK)==HW_SPI_CLK)) {
   } else {
-    if (PinUsed(GPIO_SPI_CS) && (Pin(GPIO_SPI_MOSI)==HW_SPI_MOSI) && (Pin(GPIO_SPI_MISO)==HW_SPI_MISO) && (Pin(GPIO_SPI_CLK)==HW_SPI_CLK)) {
+    if ((Pin(GPIO_SPI_MOSI)==HW_SPI_MOSI) && (Pin(GPIO_SPI_MISO)==HW_SPI_MISO) && (Pin(GPIO_SPI_CLK)==HW_SPI_CLK)) {
     } else {
       return;
     }
@@ -1570,7 +1570,7 @@ void CC1101_Detect() {
   rf_moritz_init();
   moritz_cfg.moritz_ready = 1;
   moritz_cfg.show_all = 1;
-  moritz_cfg.pair_enable = 1;
+  moritz_cfg.pair_enable = 0;
 
   moritz_addr[0]=MORITZ_BASE_ADDRESS>>16;
   moritz_addr[1]=(MORITZ_BASE_ADDRESS>>8)&0xff;

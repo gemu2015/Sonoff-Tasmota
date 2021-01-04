@@ -142,6 +142,7 @@ enum UserSelectablePins {
   GPIO_RA8876_CS,
   GPIO_ST7789_CS, GPIO_ST7789_DC,
   GPIO_SSD1331_CS, GPIO_SSD1331_DC,
+  GPIO_CC1101_CS,
   GPIO_SENSOR_END };
 
 enum ProgramSelectablePins {
@@ -304,6 +305,9 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_RA8876_CS "|"
   D_SENSOR_ST7789_CS "|" D_SENSOR_ST7789_DC "|"
   D_SENSOR_SSD1331_CS "|" D_SENSOR_SSD1331_DC "|"
+#ifdef USE_MORITZ
+  "MORITZ_CS"  "|"
+#endif
   ;
 
 const char kSensorNamesFixed[] PROGMEM =
@@ -759,6 +763,9 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_ADC_CT_POWER) + MAX_ADCS,    // Current
   AGPIO(GPIO_ADC_JOY) + MAX_ADCS,         // Joystick
 #endif  // ESP32
+#ifdef USE_MORITZ
+  AGPIO(GPIO_CC1101_CS)
+#endif
 };
 
 /*-------------------------------------------------------------------------------------------*\
