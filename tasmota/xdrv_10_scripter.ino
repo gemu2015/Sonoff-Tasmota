@@ -74,6 +74,13 @@ keywords if then else endif, or, and are better readable for beginners (others m
 #define USE_SCRIPT_COMPRESSION
 #endif
 
+#ifdef USE_UFILESYS
+#undef USE_SCRIPT_FATFS
+#define USE_SCRIPT_FATFS -1
+
+#pragma message "universal file system used"
+
+#else
 // solve conficting defines
 // highest priority
 #ifdef USE_SCRIPT_FATFS
@@ -122,6 +129,7 @@ keywords if then else endif, or, and are better readable for beginners (others m
 #pragma message "script compression option used"
 #endif // USE_UNISHOX_COMPRESSION
 
+#endif // USE_UFILESYS
 
 //#ifdef USE_SCRIPT_COMPRESSION
 #include <unishox.h>
@@ -219,7 +227,6 @@ void alt_eeprom_readBytes(uint32_t adr, uint32_t len, uint8_t *buf) {
 FS *fsp;
 #endif // LITTLEFS_SCRIPT_SIZE
 
-//extern FS *ufsp;
 
 // offsets epoch readings by 1.1.2019 00:00:00 to fit into float with second resolution
 #define EPOCH_OFFSET 1546300800
@@ -241,6 +248,15 @@ FS *fsp;
 SDClass *fsp;
 #endif
 #endif //USE_SCRIPT_FATFS
+
+
+extern uint8_t ufs_type;
+extern FS *ufsp;
+
+#ifndef UFSYS_SIZE
+#define UFSYS_SIZE 8192
+#endif
+
 
 #ifndef ESP32
 // esp8266
@@ -967,7 +983,7 @@ char *script;
 
 // init file system
 //#ifndef USE_UFILESYS
-#if 1
+/*
 
 #ifdef USE_SCRIPT_FATFS
     if (!glob_script_mem.script_sd_found) {
@@ -1000,6 +1016,7 @@ char *script;
 #else
     fsp = ufsp;
 #endif
+*/
 
 #if SCRIPT_DEBUG>0
     ClaimSerial();
@@ -5273,6 +5290,16 @@ void HandleScriptConfiguration(void) {
 
 void SaveScript(void) {
 
+
+#ifdef USE_UFILESYS
+  if (glob_script_mem.flags & 1) {
+    fsp->remove(FAT_SCRIPT_NAME);
+    File file = fsp->open(FAT_SCRIPT_NAME, FILE_WRITE);
+    file.write((const uint8_t*)glob_script_mem.script_ram, UFSYS_SIZE);
+    file.close();
+  }
+#else
+
 #ifdef EEP_SCRIPT_SIZE
   if (glob_script_mem.flags&1) {
 #if EEP_SCRIPT_SIZE==SPI_FLASH_SEC_SIZE
@@ -5297,6 +5324,7 @@ void SaveScript(void) {
   }
 #endif // USE_SCRIPT_FATFS
 
+#endif // USE_UFILESYS
 }
 
 void ScriptSaveSettings(void) {
@@ -7645,6 +7673,8 @@ void cpy2lf(char *dst, uint32_t dstlen, char *src) {
 \*********************************************************************************************/
 //const esp_partition_t *esp32_part;
 
+
+
 bool Xdrv10(uint8_t function)
 {
   bool result = false;
@@ -7662,8 +7692,33 @@ bool Xdrv10(uint8_t function)
       glob_script_mem.script_pram = (uint8_t*)Settings.script_pram[0];
       glob_script_mem.script_pram_size = PMEM_SIZE;
 
-      // indicates scripter enabled (use rules[][] as single array)
-      bitWrite(Settings.rule_once, 7, 1);
+#ifdef USE_UFILESYS
+      if (ufs_type) {
+        // we have a file system
+        Script_AddLog_P(LOG_LEVEL_INFO,PSTR("UFILESYSTEM OK!"));
+        fsp=ufsp;
+        char *script;
+        script = (char*)calloc(UFSYS_SIZE + 4, 1);
+        if (!script) break;
+        glob_script_mem.script_ram = script;
+        glob_script_mem.script_size = UFSYS_SIZE;
+        if (fsp->exists(FAT_SCRIPT_NAME)) {
+          File file = fsp->open(FAT_SCRIPT_NAME, FILE_READ);
+          file.read((uint8_t*)script, UFSYS_SIZE);
+          file.close();
+        }
+        script[UFSYS_SIZE - 1] = 0;
+        // use rules storage for permanent vars
+        glob_script_mem.script_pram = (uint8_t*)Settings.rules[0];
+        glob_script_mem.script_pram_size = MAX_SCRIPT_SIZE;
+        glob_script_mem.flags = 1;
+      } else {
+        Script_AddLog_P(LOG_LEVEL_INFO,PSTR("UFILESYSTEM FAIL!"));
+      }
+#else
+
+
+
 #ifdef USE_SCRIPT_COMPRESSION
       int32_t len_decompressed;
       sprt = (char*)calloc(UNISHOXRSIZE + 8,1);
@@ -7680,11 +7735,7 @@ bool Xdrv10(uint8_t function)
       bitWrite(Settings.rule_once, 6, 0);
 #endif // USE_SCRIPT_COMPRESSION
 
-#ifdef USE_BUTTON_EVENT
-      for (uint32_t cnt = 0; cnt < MAX_KEYS; cnt++) {
-        script_button[cnt] = -1;
-      }
-#endif //USE_BUTTON_EVENT
+
 
 #ifdef EEP_SCRIPT_SIZE
       if (EEP_INIT(EEP_SCRIPT_SIZE)) {
@@ -7782,14 +7833,25 @@ bool Xdrv10(uint8_t function)
       }
 #endif // USE_SCRIPT_FATFS
 
+#endif // UFILESYSTEM
 
-    // a valid script MUST start with >D
-    if (glob_script_mem.script_ram[0]!='>' && glob_script_mem.script_ram[1]!='D') {
-      // clr all
-      memset(glob_script_mem.script_ram, 0 ,glob_script_mem.script_size);
-      strcpy_P(glob_script_mem.script_ram, PSTR(">D\nscript error must start with >D"));
-      bitWrite(Settings.rule_enabled, 0, 0);
-    }
+
+// indicates scripter enabled (use rules[][] as single array)
+      bitWrite(Settings.rule_once, 7, 1);
+
+#ifdef USE_BUTTON_EVENT
+      for (uint32_t cnt = 0; cnt < MAX_KEYS; cnt++) {
+        script_button[cnt] = -1;
+      }
+#endif //USE_BUTTON_EVENT
+
+      // a valid script MUST start with >D
+      if (glob_script_mem.script_ram[0]!='>' && glob_script_mem.script_ram[1]!='D') {
+        // clr all
+        memset(glob_script_mem.script_ram, 0 ,glob_script_mem.script_size);
+        strcpy_P(glob_script_mem.script_ram, PSTR(">D\nscript error must start with >D"));
+        bitWrite(Settings.rule_enabled, 0, 0);
+      }
 
       // assure permanent memory is 4 byte aligned
       { uint32_t ptr = (uint32_t)glob_script_mem.script_pram;
@@ -7800,6 +7862,7 @@ bool Xdrv10(uint8_t function)
       }
 
       if (bitRead(Settings.rule_enabled, 0)) Init_Scripter();
+
     //  break;
     //case FUNC_INIT:
       if (bitRead(Settings.rule_enabled, 0)) {

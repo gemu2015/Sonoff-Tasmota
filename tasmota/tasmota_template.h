@@ -142,6 +142,7 @@ enum UserSelectablePins {
   GPIO_RA8876_CS,
   GPIO_ST7789_CS, GPIO_ST7789_DC,
   GPIO_SSD1331_CS, GPIO_SSD1331_DC,
+  GPIO_SDCARD_CS,
   GPIO_CC1101_CS,
   GPIO_SENSOR_END };
 
@@ -378,6 +379,9 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_RC522_CS),                 // RC522 Rfid Chip Select
   AGPIO(GPIO_RC522_RST),                // RC522 Rfid Reset
 #endif
+#ifdef USE_SDCARD
+  AGPIO(GPIO_SDCARD_CS),
+#endif  // USE_SDCARD
 #ifdef USE_DISPLAY
 #ifdef USE_DISPLAY_ILI9341
   AGPIO(GPIO_ILI9341_CS),
