@@ -1,7 +1,7 @@
 /*
   support_rtc.ino - Real Time Clock support for Tasmota
 
-  Copyright (C) 2020  Theo Arends
+  Copyright (C) 2021  Theo Arends
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -400,6 +400,15 @@ void RtcSecond(void)
     } else {
       TasmotaGlobal.rules_flag.time_set = 1;
     }
+
+#ifdef ESP32
+    // Sync RTOS time to be used by SD Card time stamps
+    struct timeval tv;
+    tv.tv_sec = Rtc.local_time;
+    tv.tv_usec = 0;
+    settimeofday(&tv, nullptr);
+#endif  // ESP32
+
   } else {
     Rtc.utc_time++;  // Increment every second
   }
