@@ -389,7 +389,7 @@ void xsend_message_txt(char *msg) {
 #ifdef DEBUG_EMAIL_PORT
   AddLog_P(LOG_LEVEL_INFO, PSTR("%s"),msg);
 #endif
-#if defined(USE_SCRIPT_FATFS) && defined(USE_SCRIPT)
+#if (defined(USE_SCRIPT_FATFS) && defined(USE_SCRIPT)) || defined(UFILESYSTEM)
   if (*msg=='@') {
     msg++;
     attach_File(msg);
@@ -415,7 +415,7 @@ void xsend_message_txt(char *msg) {
 #endif
 }
 
-#if defined(USE_SCRIPT_FATFS) && defined(USE_SCRIPT)
+#if (defined(USE_SCRIPT_FATFS) && defined(USE_SCRIPT)) || defined(UFILESYSTEM)
 #include <LittleFS.h>
 extern FS *fsp;
 
@@ -717,6 +717,8 @@ uint16_t SendMail(char *buffer) {
   //Set the storage types to read the attach files (SD is default)
   //smtpData.setFileStorageType(MailClientStorageType::SPIFFS);
 
+
+// must be adapted to ufilesystem
 #ifdef USE_SCRIPT_FATFS
 #if USE_SCRIPT_FATFS<0
   smtpData.setFileStorageType(MailClientStorageType::FFat);

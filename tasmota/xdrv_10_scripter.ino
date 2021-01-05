@@ -231,7 +231,11 @@ void alt_eeprom_readBytes(uint32_t adr, uint32_t len, uint8_t *buf) {
 #else
 #include <LittleFS.h>
 #endif
-FS *fsp;
+
+#ifndef UFILESYSTEM
+//FS *ufsp;
+#endif
+
 #endif // LITTLEFS_SCRIPT_SIZE
 
 
@@ -250,18 +254,18 @@ enum {SCRIPT_LOGLEVEL=1,SCRIPT_TELEPERIOD,SCRIPT_EVENT_HANDLED};
 
 #ifdef ESP32
 #include "FFat.h"
-FS *fsp;
+#ifndef UFILESYSTEM
+//FS *ufsp;
+#endif
 #else
-SDClass *fsp;
+#ifndef UFILESYSTEM
+//SDClass *ufsp;
+#endif
 #endif
 #endif //USE_SCRIPT_FATFS
 
-
-extern uint8_t ufs_type;
-extern FS *ufsp;
-
-#ifndef UFSYS_SIZE
-#define UFSYS_SIZE 8192
+#ifndef FAT_SCRIPT_SIZE
+#define FAT_SCRIPT_SIZE 4096
 #endif
 
 
@@ -272,6 +276,7 @@ extern FS *ufsp;
 // old fs
 #undef FILE_WRITE
 #define FILE_WRITE (sdfat::O_READ | sdfat::O_WRITE | sdfat::O_CREAT)
+#undef FILE_APPEND
 #define FILE_APPEND (sdfat::O_READ | sdfat::O_WRITE | sdfat::O_CREAT | sdfat::O_APPEND)
 
 #else
@@ -287,9 +292,14 @@ extern FS *ufsp;
 #endif // USE_SCRIPT_FATFS>=0
 
 
-#ifndef FAT_SCRIPT_SIZE
-#define FAT_SCRIPT_SIZE 4096
+extern uint8_t ufs_type;
+extern FS *ufsp;
+
+
+#ifndef UFSYS_SIZE
+#define UFSYS_SIZE 8192
 #endif
+
 
 #ifdef ESP32
 #undef FAT_SCRIPT_NAME
@@ -1067,7 +1077,7 @@ uint32_t result = 0;
 #else
   // ESP8266
   FSInfo64 fsinfo;
-  fsp->info64(fsinfo);
+  ufsp->info64(fsinfo);
   if (sel == 0) {
     result = fsinfo.totalBytes/1000;
   } else if (sel == 1) {
@@ -2114,7 +2124,7 @@ chknext:
 #ifdef DEBUG_FS
                 Script_AddLog_P(LOG_LEVEL_INFO, PSTR("open file for read %d"), cnt);
 #endif
-                glob_script_mem.files[cnt] = fsp->open(str, FILE_READ);
+                glob_script_mem.files[cnt] = ufsp->open(str, FILE_READ);
                 if (glob_script_mem.files[cnt].isDirectory()) {
                   glob_script_mem.files[cnt].rewindDirectory();
                   glob_script_mem.file_flags[cnt].is_dir = 1;
@@ -2124,12 +2134,12 @@ chknext:
               }
               else {
                 if (mode==1) {
-                  glob_script_mem.files[cnt] = fsp->open(str,FILE_WRITE);
+                  glob_script_mem.files[cnt] = ufsp->open(str,FILE_WRITE);
 #ifdef DEBUG_FS
                   Script_AddLog_P(LOG_LEVEL_INFO, PSTR("open file for write %d"), cnt);
 #endif
                 } else {
-                  glob_script_mem.files[cnt] = fsp->open(str,FILE_APPEND);
+                  glob_script_mem.files[cnt] = ufsp->open(str,FILE_APPEND);
 #ifdef DEBUG_FS
                   Script_AddLog_P(LOG_LEVEL_INFO, PSTR("open file for append %d"), cnt);
 #endif
@@ -2266,7 +2276,7 @@ chknext:
         if (!strncmp(vname, "fd(", 3)) {
           char str[glob_script_mem.max_ssize + 1];
           lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
-          fsp->remove(str);
+          ufsp->remove(str);
           lp++;
           len = 0;
           goto exit;
@@ -2304,7 +2314,7 @@ chknext:
           char str[glob_script_mem.max_ssize + 1];
           lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
           // execute script
-          File ef = fsp->open(str, FILE_READ);
+          File ef = ufsp->open(str, FILE_READ);
           if (ef) {
             uint16_t fsiz = ef.size();
             if (fsiz<2048) {
@@ -2325,7 +2335,7 @@ chknext:
         if (!strncmp(vname, "fmd(", 4)) {
           char str[glob_script_mem.max_ssize + 1];
           lp = GetStringArgument(lp + 4, OPER_EQU, str, 0);
-          fvar = fsp->mkdir(str);
+          fvar = ufsp->mkdir(str);
           lp++;
           len = 0;
           goto exit;
@@ -2333,7 +2343,7 @@ chknext:
         if (!strncmp(vname, "frd(", 4)) {
           char str[glob_script_mem.max_ssize + 1];
           lp = GetStringArgument(lp + 4, OPER_EQU, str, 0);
-          fvar = fsp->rmdir(str);
+          fvar = ufsp->rmdir(str);
           lp++;
           len = 0;
           goto exit;
@@ -2341,7 +2351,7 @@ chknext:
         if (!strncmp(vname, "fx(", 3)) {
           char str[glob_script_mem.max_ssize + 1];
           lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
-          if (fsp->exists(str)) fvar = 1;
+          if (ufsp->exists(str)) fvar = 1;
           else fvar = 0;
           lp++;
           len = 0;
@@ -5025,7 +5035,7 @@ void ListDir(char *path, uint8_t depth) {
   char format[12];
   sprintf(format, "%%-%ds", 24 - depth);
 
-  File dir = fsp->open(path, FILE_READ);
+  File dir = ufsp->open(path, FILE_READ);
   if (dir) {
     dir.rewindDirectory();
     if (strlen(path)>1) {
@@ -5154,8 +5164,8 @@ void script_upload(void) {
 #else
     sprintf(npath, "%s/%s", path, upload.filename.c_str());
 #endif
-    fsp->remove(npath);
-    upload_file = fsp->open(npath, FILE_WRITE);
+    ufsp->remove(npath);
+    upload_file = ufsp->open(npath, FILE_WRITE);
     if (!upload_file) Web.upload_error = 1;
   } else if(upload.status == UPLOAD_FILE_WRITE) {
     if (upload_file) upload_file.write(upload.buf, upload.currentSize);
@@ -5174,12 +5184,12 @@ uint8_t DownloadFile(char *file) {
   File download_file;
   WiFiClient download_Client;
 
-    if (!fsp->exists(file)) {
+    if (!ufsp->exists(file)) {
       Script_AddLog_P(LOG_LEVEL_INFO,PSTR("file not found"));
       return 0;
     }
 
-    download_file = fsp->open(file, FILE_READ);
+    download_file = ufsp->open(file, FILE_READ);
     if (!download_file) {
       Script_AddLog_P(LOG_LEVEL_INFO,PSTR("could not open file"));
       return 0;
@@ -5258,7 +5268,7 @@ void HandleScriptConfiguration(void) {
       DownloadFile(glob_script_mem.flink[1]);
     }
     if (Webserver->hasArg("upl")) {
-      Script_FileUploadConfiguration();
+    //  Script_FileUploadConfiguration();
     }
 #endif
 
@@ -5300,8 +5310,8 @@ void SaveScript(void) {
 
 #ifdef USE_UFILESYS
   if (glob_script_mem.flags & 1) {
-    fsp->remove(FAT_SCRIPT_NAME);
-    File file = fsp->open(FAT_SCRIPT_NAME, FILE_WRITE);
+    ufsp->remove(FAT_SCRIPT_NAME);
+    File file = ufsp->open(FAT_SCRIPT_NAME, FILE_WRITE);
     file.write((const uint8_t*)glob_script_mem.script_ram, UFSYS_SIZE);
     file.close();
   }
@@ -5324,8 +5334,8 @@ void SaveScript(void) {
 
 #ifdef USE_SCRIPT_FATFS
   if (glob_script_mem.flags & 1) {
-    fsp->remove(FAT_SCRIPT_NAME);
-    File file = fsp->open(FAT_SCRIPT_NAME, FILE_WRITE);
+    ufsp->remove(FAT_SCRIPT_NAME);
+    File file = ufsp->open(FAT_SCRIPT_NAME, FILE_WRITE);
     file.write((const uint8_t*)glob_script_mem.script_ram, FAT_SCRIPT_SIZE);
     file.close();
   }
@@ -6495,7 +6505,7 @@ void ScriptGetSDCard(void) {
       SendFile(cp);
       return;
     } else {
-      if (fsp->exists(cp)) {
+      if (ufsp->exists(cp)) {
         SendFile(cp);
         return;
       }
@@ -6578,7 +6588,7 @@ char buff[512];
     }
 #endif // USE_DISPLAY_DUMP
   } else {
-    File file = fsp->open(fname,FILE_READ);
+    File file = ufsp->open(fname,FILE_READ);
     uint32_t siz = file.size();
     uint32_t len = sizeof(buff);
     while (siz > 0) {
@@ -7703,14 +7713,13 @@ bool Xdrv10(uint8_t function)
       if (ufs_type) {
         // we have a file system
         Script_AddLog_P(LOG_LEVEL_INFO,PSTR("UFILESYSTEM OK!"));
-        fsp=ufsp;
         char *script;
         script = (char*)calloc(UFSYS_SIZE + 4, 1);
         if (!script) break;
         glob_script_mem.script_ram = script;
         glob_script_mem.script_size = UFSYS_SIZE;
-        if (fsp->exists(FAT_SCRIPT_NAME)) {
-          File file = fsp->open(FAT_SCRIPT_NAME, FILE_READ);
+        if (ufsp->exists(FAT_SCRIPT_NAME)) {
+          File file = ufsp->open(FAT_SCRIPT_NAME, FILE_READ);
           file.read((uint8_t*)script, UFSYS_SIZE);
           file.close();
         }
@@ -7798,17 +7807,17 @@ bool Xdrv10(uint8_t function)
           SPI.begin(Pin(GPIO_SPI_CLK), Pin(GPIO_SPI_MISO), Pin(GPIO_SPI_MOSI), -1);
       }
 #endif // ESP32
-      fsp = &SD;
+      ufsp = &SD;
       if (SD.begin(USE_SCRIPT_FATFS)) {
 #else
     // flash file system
 #ifdef ESP32
-      fsp = &FFat;
+      ufsp = &FFat;
       if (FFat.begin(true)) {
 #else
         // fs on flash
-      fsp = &LittleFS;
-      if (fsp->begin()) {
+      ufsp = &LittleFS;
+      if (ufsp->begin()) {
 #endif // ESP
 
 #endif // USE_SCRIPT_FATFS>=0
@@ -7822,8 +7831,8 @@ bool Xdrv10(uint8_t function)
         if (!script) break;
         glob_script_mem.script_ram = script;
         glob_script_mem.script_size = FAT_SCRIPT_SIZE;
-        if (fsp->exists(FAT_SCRIPT_NAME)) {
-          File file = fsp->open(FAT_SCRIPT_NAME, FILE_READ);
+        if (ufsp->exists(FAT_SCRIPT_NAME)) {
+          File file = ufsp->open(FAT_SCRIPT_NAME, FILE_READ);
           file.read((uint8_t*)script, FAT_SCRIPT_SIZE);
           file.close();
         }
