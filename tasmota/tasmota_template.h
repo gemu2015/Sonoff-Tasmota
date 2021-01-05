@@ -143,7 +143,6 @@ enum UserSelectablePins {
   GPIO_ST7789_CS, GPIO_ST7789_DC,
   GPIO_SSD1331_CS, GPIO_SSD1331_DC,
   GPIO_SDCARD_CS,
-  GPIO_CC1101_CS,
   GPIO_SENSOR_END };
 
 enum ProgramSelectablePins {
@@ -306,9 +305,7 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_RA8876_CS "|"
   D_SENSOR_ST7789_CS "|" D_SENSOR_ST7789_DC "|"
   D_SENSOR_SSD1331_CS "|" D_SENSOR_SSD1331_DC "|"
-#ifdef USE_MORITZ
-  "MORITZ_CS"  "|"
-#endif
+  D_SENSOR_SDCARD_CS "|"
   ;
 
 const char kSensorNamesFixed[] PROGMEM =
@@ -382,12 +379,6 @@ const uint16_t kGpioNiceList[] PROGMEM = {
 #ifdef USE_SDCARD
   AGPIO(GPIO_SDCARD_CS),
 #endif  // USE_SDCARD
-#ifdef USE_DISPLAY
-#ifdef USE_DISPLAY_ILI9341
-  AGPIO(GPIO_ILI9341_CS),
-  AGPIO(GPIO_ILI9341_DC),
-#endif  // USE_DISPLAY_ILI9341
-#endif  // USE_DISPLAY
 #endif  // USE_SPI
   AGPIO(GPIO_SSPI_MISO),      // Software SPI Master Input Client Output
   AGPIO(GPIO_SSPI_MOSI),      // Software SPI Master Output Client Input
@@ -395,6 +386,10 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_SSPI_CS),        // Software SPI Chip Select
   AGPIO(GPIO_SSPI_DC),        // Software SPI Data or Command
 #ifdef USE_DISPLAY
+#ifdef USE_DISPLAY_ILI9341
+  AGPIO(GPIO_ILI9341_CS),
+  AGPIO(GPIO_ILI9341_DC),
+#endif  // USE_DISPLAY_ILI9341
 #ifdef USE_DISPLAY_ILI9488
   AGPIO(GPIO_ILI9488_CS),
 #endif  // USE_DISPLAY_ILI9488
@@ -767,9 +762,6 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_ADC_CT_POWER) + MAX_ADCS,    // Current
   AGPIO(GPIO_ADC_JOY) + MAX_ADCS,         // Joystick
 #endif  // ESP32
-#ifdef USE_MORITZ
-  AGPIO(GPIO_CC1101_CS)
-#endif
 };
 
 /*-------------------------------------------------------------------------------------------*\
