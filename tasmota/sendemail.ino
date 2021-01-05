@@ -417,7 +417,7 @@ void xsend_message_txt(char *msg) {
 
 #if (defined(USE_SCRIPT_FATFS) && defined(USE_SCRIPT)) || defined(UFILESYSTEM)
 #include <LittleFS.h>
-extern FS *fsp;
+extern FS *ufsp;
 
 void attach_File(char *path) {
   g_client->print(F("--frontier\r\n"));
@@ -425,7 +425,7 @@ void attach_File(char *path) {
   char buff[64];
   char *cp = path;
   while (*cp=='/') cp++;
-  File file = fsp->open(path, "r");
+  File file = ufsp->open(path, "r");
   if (file) {
     sprintf_P(buff,PSTR("Content-Disposition: attachment; filename=\"%s\"\r\n\r\n"), cp);
     g_client->write(buff);

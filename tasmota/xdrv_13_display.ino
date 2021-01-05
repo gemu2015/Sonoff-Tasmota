@@ -1586,7 +1586,7 @@ void Draw_RGB_Bitmap(char *file,uint16_t xp, uint16_t yp, bool inverted ) {
 
   if (!strcmp(estr,"rgb")) {
     // special rgb format
-    fp=ufsp->open(file,FILE_READ);
+    fp=ufsp->open(file,FS_FILE_READ);
     if (!fp) return;
     uint16_t xsize;
     fp.read((uint8_t*)&xsize,2);
@@ -1621,7 +1621,7 @@ void Draw_RGB_Bitmap(char *file,uint16_t xp, uint16_t yp, bool inverted ) {
     // jpeg files on ESP32 with more memory
 #ifdef ESP32
 #ifdef JPEG_PICTS
-    fp=ufsp->open(file,FILE_READ);
+    fp=ufsp->open(file,FS_FILE_READ);
     if (!fp) return;
     uint32_t size = fp.size();
     uint8_t *mem = (uint8_t *)special_malloc(size+4);
@@ -1926,7 +1926,7 @@ void Save_graph(uint8_t num, char *path) {
   if (!gp) return;
   File fp;
   ufsp->remove(path);
-  fp=ufsp->open(path,FILE_WRITE);
+  fp=ufsp->open(path,FS_FILE_WRITE);
   if (!fp) return;
   char str[32];
   sprintf_P(str,PSTR("%d\t%d\t%d\t"),gp->xcnt,gp->xs,gp->ys);
@@ -1951,7 +1951,7 @@ void Restore_graph(uint8_t num, char *path) {
   struct GRAPH *gp=graph[index];
   if (!gp) return;
   File fp;
-  fp=ufsp->open(path,FILE_READ);
+  fp=ufsp->open(path,FS_FILE_READ);
   if (!fp) return;
   char vbuff[32];
   char *cp=vbuff;
