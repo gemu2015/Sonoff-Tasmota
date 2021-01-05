@@ -186,6 +186,8 @@ void alt_eeprom_readBytes(uint32_t adr, uint32_t len, uint8_t *buf) {
 #define FS_FILE_READ "r"
 #define FS_FILE_APPEND "a"
 
+
+
 #if USE_SCRIPT_FATFS==-1
 #ifdef ESP32
 //#include "FS.h"
@@ -268,7 +270,7 @@ extern FS *ufsp;
 #define FAT_SCRIPT_NAME "/script.txt"
 #else
 #undef FAT_SCRIPT_NAME
-#define FAT_SCRIPT_NAME "script.txt"
+#define FAT_SCRIPT_NAME "/script.txt"
 #endif
 
 //#if USE_STANDARD_SPI_LIBRARY==0
@@ -4980,7 +4982,7 @@ void SaveScript(void) {
   if (glob_script_mem.FLAGS.fsys == true) {
     ufsp->remove(FAT_SCRIPT_NAME);
     File file = ufsp->open(FAT_SCRIPT_NAME, FS_FILE_WRITE);
-    file.write((const uint8_t*)glob_script_mem.script_ram, UFSYS_SIZE);
+    file.write((const uint8_t*)glob_script_mem.script_ram, strlen(glob_script_mem.script_ram));
     file.close();
   } else {
     // fallback to compressed mode
