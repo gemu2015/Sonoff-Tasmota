@@ -974,43 +974,6 @@ char *script;
       }
     }
 
-// init file system
-//#ifndef USE_UFILESYS
-/*
-
-#ifdef USE_SCRIPT_FATFS
-    if (!glob_script_mem.script_sd_found) {
-
-#if USE_SCRIPT_FATFS>=0
-    // user sd card
-      fsp = &SD;
-      if (SD.begin(USE_SCRIPT_FATFS)) {
-#else
-    // use flash file
-#ifdef ESP32
-    //  if (SPIFFS.begin(FORMAT_SPIFFS_IF_FAILED)) {
-      if (FFat.begin(true)) {
-#else
-      if (fsp->begin()) {
-#endif // ESP32
-
-#endif // USE_SCRIPT_FATFS>=0
-
-        glob_script_mem.script_sd_found = 1;
-      } else {
-        glob_script_mem.script_sd_found = 0;
-      }
-    }
-    for (uint8_t cnt = 0; cnt<SFS_MAX; cnt++) {
-      glob_script_mem.file_flags[cnt].is_open = 0;
-    }
-#endif
-
-#else
-    fsp = ufsp;
-#endif
-*/
-
 #if SCRIPT_DEBUG>0
     ClaimSerial();
     SetSerialBaudrate(9600);
@@ -1033,36 +996,6 @@ char *script;
     return err;
 }
 
-#ifdef USE_SCRIPT_FATFS
-
-
-// format number with thousand marker
-void form1000(uint32_t number, char *dp, char sc) {
-  char str[32];
-  sprintf(str, "%d", number);
-  char *sp = str;
-  uint32_t inum = strlen(sp)/3;
-  uint32_t fnum = strlen(sp)%3;
-  if (!fnum) inum--;
-  for (uint32_t count=0; count<=inum; count++) {
-    if (fnum){
-      memcpy(dp,sp,fnum);
-      dp+=fnum;
-      sp+=fnum;
-      fnum=0;
-    } else {
-      memcpy(dp,sp,3);
-      dp+=3;
-      sp+=3;
-    }
-    if (count!=inum) {
-      *dp++=sc;
-    }
-  }
-  *dp=0;
-}
-
-#endif //USE_SCRIPT_FATFS
 
 #ifdef USE_SCRIPT_GLOBVARS
 #define SCRIPT_UDP_BUFFER_SIZE 128
