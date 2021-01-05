@@ -719,6 +719,7 @@ uint16_t SendMail(char *buffer) {
 
 
 // must be adapted to ufilesystem
+/*
 #ifdef USE_SCRIPT_FATFS
 #if USE_SCRIPT_FATFS<0
   smtpData.setFileStorageType(MailClientStorageType::FFat);
@@ -726,6 +727,9 @@ uint16_t SendMail(char *buffer) {
   smtpData.setFileStorageType(MailClientStorageType::SD);
 #endif
 #endif
+*/
+
+smtpData.setFileStorageType(MailClientStorageType::Univ);
 
 
   //smtpData.setSendCallback(sendCallback);
