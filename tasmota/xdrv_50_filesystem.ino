@@ -349,16 +349,16 @@ const char UFS_FORM_FILE_UPLOAD[] PROGMEM =
 const char UFS_FORM_FILE_UPG[] PROGMEM =
   "<form method='post' action='ufsu' enctype='multipart/form-data'>"
   "<br/><input type='file' name='ufsu'><br/>"
-  "<br/><button type='submit' onclick='eb(\"f1\").style.display=\"none\";eb(\"f2\").style.display=\"block\";this.form.submit();'>" D_START " %s</button>";
-const char UFS_FORM_FILE_UPG_1[] PROGMEM =
-  //"<form action='http://192.168.178.156/ufsd?' method='get'>"
-  "<form name='send-form' class='send-form' method='POST' action='somefunction'>"
-  "<input type='radio' name='q1' value='u'%s> UFS "
-  "<input type='radio' name='q1' Value='f'%s> FFS ";
-const char UFS_FORM_FILE_UPG_2[] PROGMEM =
-  "</form>";
+  "<br/><button type='submit' onclick='eb(\"f1\").style.display=\"none\";eb(\"f2\").style.display=\"block\";this.form.submit();'>" D_START " %s</button>"
+  "</form><br>";
 const char UFS_FORM_FILE_UPGc[] PROGMEM =
-  "<div style='text-align:left;color:green;'>total size: %s kB - free: %s kB</div>";
+"<div style='height:45px;background-color:lightgrey;'>"
+  "<div style='text-align:left;color:green;'>total size: %s kB - free: %s kB";
+const char UFS_FORM_FILE_UPGc1[] PROGMEM =
+  "<button style='float:right;height:40px;width:50px'>%s</button></div>";
+const char UFS_FORM_FILE_UPGc2[] PROGMEM =
+  "</div>";
+
 const char UFS_FORM_SDC_DIRa[] PROGMEM =
   "<div style='text-align:left;overflow:scroll;height:400px;'>";
 const char UFS_FORM_SDC_DIRc[] PROGMEM =
@@ -393,15 +393,16 @@ void UFSdirectory(void) {
   WSContentSendStyle();
   WSContentSend_P(UFS_FORM_FILE_UPLOAD, D_UFSDIR);
   WSContentSend_P(UFS_FORM_FILE_UPG, D_SCRIPT_UPLOAD);
-  if (ffsp && (uint32_t)ufsp!=(uint32_t)ffsp) {
-    WSContentSend_P(UFS_FORM_FILE_UPG_1,"","checked");
-  }
-    WSContentSend_P(UFS_FORM_FILE_UPG_2);
   char ts[16];
   char fs[16];
   UFS_form1000(ufs_fsinfo(0), ts, '.');
   UFS_form1000(ufs_fsinfo(1), fs, '.');
   WSContentSend_P(UFS_FORM_FILE_UPGc, ts, fs);
+  if (ffsp && (uint32_t)ufsp!=(uint32_t)ffsp) {
+    WSContentSend_P(UFS_FORM_FILE_UPGc1, "UFS");
+  }
+  WSContentSend_P(UFS_FORM_FILE_UPGc2);
+
   WSContentSend_P(UFS_FORM_SDC_DIRa);
   if (ufs_type) {
     UFS_ListDir(ufs_path, depth);
