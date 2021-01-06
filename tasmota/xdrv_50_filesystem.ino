@@ -1,7 +1,7 @@
 /*
-  xdrv_98_filesystem.ino - unified file system for Tasmota
+  xdrv_50_filesystem.ino - unified file system for Tasmota
 
-  Copyright (C) 2020  Gerhard Mutz and Theo Arends
+  Copyright (C) 2021  Gerhard Mutz and Theo Arends
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -19,9 +19,10 @@
 
 #ifdef USE_UFILESYS
 /*********************************************************************************************\
-This driver adds universal file system support for ESP8266 (sd card or littlfs on  > 1 M devices
-with special linker file e.g. eagle.flash.4m2m.ld) (makes no sense on 1M devices without sd card)
-and ESP32 (sd card or little fs or sfatfile system).
+This driver adds universal file system support for
+- ESP8266 (sd card or littlefs on  > 1 M devices with special linker file e.g. eagle.flash.4m2m.ld)
+  (makes no sense on 1M devices without sd card)
+- ESP32 (sd card or littlefs or sfatfile system).
 
 The sd card chip select is the standard SDCARD_CS or when not found SDCARD_CS_PIN and initializes
 the FS System Pointer ufsp which can be used by all standard file system calls.
@@ -41,7 +42,7 @@ ufsfree   free size in kB
 The driver enabled by #define USE_UFILESYS
 \*********************************************************************************************/
 
-#define XDRV_98           98
+#define XDRV_50           50
 
 #ifndef SDCARD_CS_PIN
 #define SDCARD_CS_PIN     4
@@ -68,6 +69,8 @@ The driver enabled by #define USE_UFILESYS
 #define UFS_FILE_WRITE "w"
 #define UFS_FILE_READ "r"
 
+#define FFS_2
+
 // global file system pointer
 FS *ufsp;
 // flash file system pointer on esp32
@@ -83,9 +86,7 @@ uint8_t ufs_type;
 #define UFS_TFAT 2
 #define UFS_TLFS 3
 
-#define FFS_2
-
-void UFSInit(void) {
+void UfsInit(void) {
   ufs_type = 0;
   ffsp = 0;
   // check for fs options,
@@ -120,7 +121,7 @@ void UFSInit(void) {
           return;
         }
       }
-#endif
+#endif // FFS_2
       return;
     }
   }
@@ -150,6 +151,61 @@ void UFSInit(void) {
   ufs_type = UFS_TLFS;
   ffsp = ufsp;
   return;
+}
+
+bool TfsFileExists(const char *fname){
+  if (!ufs_type) { return false; }
+
+  bool yes = ffsp->exists(fname);
+  if (!yes) {
+    AddLog_P(LOG_LEVEL_INFO, PSTR("TFS: File not found"));
+  }
+  return yes;
+}
+
+bool TfsSaveFile(const char *fname, const uint8_t *buf, uint32_t len) {
+  if (!ufs_type) { return false; }
+
+  File file = ffsp->open(fname, "w");
+  if (!file) {
+    AddLog_P(LOG_LEVEL_INFO, PSTR("TFS: Save failed"));
+    return false;
+  }
+
+  file.write(buf, len);
+  file.close();
+  return true;
+}
+
+bool TfsInitFile(const char *fname, uint32_t len, uint8_t init_value) {
+  if (!ufs_type) { return false; }
+
+  File file = ffsp->open(fname, "w");
+  if (!file) {
+    AddLog_P(LOG_LEVEL_INFO, PSTR("TFS: Erase failed"));
+    return false;
+  }
+
+  for (uint32_t i = 0; i < len; i++) {
+    file.write(&init_value, 1);
+  }
+  file.close();
+  return true;
+}
+
+bool TfsLoadFile(const char *fname, uint8_t *buf, uint32_t len) {
+  if (!ufs_type) { return false; }
+  if (!TfsFileExists(fname)) { return false; }
+
+  File file = ffsp->open(fname, "r");
+  if (!file) {
+    AddLog_P(LOG_LEVEL_INFO, PSTR("TFS: File not found"));
+    return false;
+  }
+
+  file.read(buf, len);
+  file.close();
+  return true;
 }
 
 uint32_t ufs_fsinfo(uint32_t sel) {
@@ -333,14 +389,6 @@ void UFSdirectory(void) {
     }
   }
 
-  if (Webserver->hasArg("u")) {
-    AddLog_P(LOG_LEVEL_INFO, PSTR("HTP:u"));
-  }
-
-  if (Webserver->hasArg("f")) {
-    AddLog_P(LOG_LEVEL_INFO, PSTR("HTP: f"));
-  }
-
   WSContentStart_P(UFS_FILE_UPLOAD);
   WSContentSendStyle();
   WSContentSend_P(UFS_FORM_FILE_UPLOAD, D_UFSDIR);
@@ -348,7 +396,7 @@ void UFSdirectory(void) {
   if (ffsp && (uint32_t)ufsp!=(uint32_t)ffsp) {
     WSContentSend_P(UFS_FORM_FILE_UPG_1,"","checked");
   }
-  WSContentSend_P(UFS_FORM_FILE_UPG_2);
+    WSContentSend_P(UFS_FORM_FILE_UPG_2);
   char ts[16];
   char fs[16];
   UFS_form1000(ufs_fsinfo(0), ts, '.');
@@ -539,12 +587,12 @@ void UFSFileUploadSuccess(void) {
  * Interface
 \*********************************************************************************************/
 
-bool Xdrv98(uint8_t function) {
+bool Xdrv50(uint8_t function) {
   bool result = false;
 
   switch (function) {
     case FUNC_PRE_INIT:
-      UFSInit();
+      UfsInit();
       break;
     case FUNC_COMMAND:
       result = DecodeCommand(kUFSCommands, kUFSCommand);
