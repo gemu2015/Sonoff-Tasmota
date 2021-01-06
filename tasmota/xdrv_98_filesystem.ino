@@ -83,7 +83,7 @@ uint8_t ufs_type;
 #define UFS_TFAT 2
 #define UFS_TLFS 3
 
-//#define FFS_2
+#define FFS_2
 
 void UFSInit(void) {
   ufs_type = 0;
@@ -295,8 +295,10 @@ const char UFS_FORM_FILE_UPG[] PROGMEM =
   "<br/><input type='file' name='ufsu'><br/>"
   "<br/><button type='submit' onclick='eb(\"f1\").style.display=\"none\";eb(\"f2\").style.display=\"block\";this.form.submit();'>" D_START " %s</button>";
 const char UFS_FORM_FILE_UPG_1[] PROGMEM =
-  "<input type='radio' name='q1' value='u' checked> UFS "
-  "<input type='radio' name='q1' Value='f'> FFS ";
+  //"<form action='http://192.168.178.156/ufsd?' method='get'>"
+  "<form name='send-form' class='send-form' method='POST' action='somefunction'>"
+  "<input type='radio' name='q1' value='u'%s> UFS "
+  "<input type='radio' name='q1' Value='f'%s> FFS ";
 const char UFS_FORM_FILE_UPG_2[] PROGMEM =
   "</form>";
 const char UFS_FORM_FILE_UPGc[] PROGMEM =
@@ -331,12 +333,20 @@ void UFSdirectory(void) {
     }
   }
 
+  if (Webserver->hasArg("u")) {
+    AddLog_P(LOG_LEVEL_INFO, PSTR("HTP:u"));
+  }
+
+  if (Webserver->hasArg("f")) {
+    AddLog_P(LOG_LEVEL_INFO, PSTR("HTP: f"));
+  }
+
   WSContentStart_P(UFS_FILE_UPLOAD);
   WSContentSendStyle();
   WSContentSend_P(UFS_FORM_FILE_UPLOAD, D_UFSDIR);
   WSContentSend_P(UFS_FORM_FILE_UPG, D_SCRIPT_UPLOAD);
   if (ffsp && (uint32_t)ufsp!=(uint32_t)ffsp) {
-    WSContentSend_P(UFS_FORM_FILE_UPG_1);
+    WSContentSend_P(UFS_FORM_FILE_UPG_1,"","checked");
   }
   WSContentSend_P(UFS_FORM_FILE_UPG_2);
   char ts[16];
