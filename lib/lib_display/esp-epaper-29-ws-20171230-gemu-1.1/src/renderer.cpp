@@ -247,11 +247,6 @@ void Renderer::setTextFont(uint8_t f) {
     selected_font = &Font24;
 #endif
     break;
-  case 4:
-#ifdef USE_ICON_FONT
-    selected_font = &iFont40;
-#endif
-    break;
   default:
     selected_font = &Font12;
     break;

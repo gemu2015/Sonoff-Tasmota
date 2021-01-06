@@ -66,7 +66,7 @@ extern sFONT Font20;
 extern sFONT Font16;
 extern sFONT Font12;
 extern sFONT Font8;
-extern sFONT iFont40;
+
 #ifdef __cplusplus
 }
 #endif

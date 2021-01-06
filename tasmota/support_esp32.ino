@@ -1,7 +1,7 @@
 /*
   support_esp32.ino - ESP32 specific code for Tasmota
 
-  Copyright (C) 2020  Theo Arends / Jörg Schüler-Maroldt
+  Copyright (C) 2021  Theo Arends / Jörg Schüler-Maroldt
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -172,7 +172,7 @@ void SettingsErase(uint8_t type) {
 }
 
 void SettingsRead(void *data, size_t size) {
-#ifdef USE_TFS
+#ifdef USE_UFILESYS
 //  if (!TfsLoadFile("/settings", (uint8_t*)data, size)) {
     NvmLoad("main", "Settings", data, size);
 //  }
@@ -182,7 +182,7 @@ void SettingsRead(void *data, size_t size) {
 }
 
 void SettingsWrite(const void *pSettings, unsigned nSettingsLen) {
-#ifdef USE_TFS
+#ifdef USE_UFILESYS
 //  TfsSaveFile("/settings", (const uint8_t*)pSettings, nSettingsLen);
 #endif
   NvmSave("main", "Settings", pSettings, nSettingsLen);
@@ -380,7 +380,7 @@ uint32_t ESP_getSketchSize(void) {
 
 uint32_t ESP_getFreeHeap(void) {
   return ESP.getFreeHeap();
-  //return ESP.getMaxAllocHeap();
+//  return ESP.getMaxAllocHeap();
 }
 
 uint32_t ESP_getMaxAllocHeap(void) {

@@ -718,7 +718,6 @@ uint16_t SendMail(char *buffer) {
   //smtpData.setFileStorageType(MailClientStorageType::SPIFFS);
 
 
-// must be adapted to ufilesystem
 /*
 #ifdef USE_SCRIPT_FATFS
 #if USE_SCRIPT_FATFS<0

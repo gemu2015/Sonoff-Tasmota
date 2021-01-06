@@ -143,6 +143,8 @@ enum UserSelectablePins {
   GPIO_ST7789_CS, GPIO_ST7789_DC,
   GPIO_SSD1331_CS, GPIO_SSD1331_DC,
   GPIO_SDCARD_CS,
+  GPIO_ROT1A_NP, GPIO_ROT1B_NP,        // Rotary switch
+  GPIO_ADC_PH,                         // Analog PH Sensor
   GPIO_SENSOR_END };
 
 enum ProgramSelectablePins {
@@ -236,7 +238,7 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_CSE7766_TX "|" D_SENSOR_CSE7766_RX "|"
   D_SENSOR_ARIRFRCV "|" D_SENSOR_ARIRFSEL "|"
   D_SENSOR_TXD "|" D_SENSOR_RXD "|"
-  D_SENSOR_ROTARY "_a|" D_SENSOR_ROTARY "_b|"
+  D_SENSOR_ROTARY " A|" D_SENSOR_ROTARY " B|"
   D_SENSOR_ADC_JOYSTICK "|"
   D_SENSOR_MAX31865_CS "|"
   D_SENSOR_HRE_CLOCK "|" D_SENSOR_HRE_DATA "|"
@@ -293,7 +295,7 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_SHELLY_DIMMER_BOOT0 "|" D_SENSOR_SHELLY_DIMMER_RST_INV "|"
   D_SENSOR_RC522_RST "|"
   D_SENSOR_P9813_CLK "|" D_SENSOR_P9813_DAT "|"
-  D_SENSOR_OPTION "_a|"
+  D_SENSOR_OPTION " A|"
   D_SENSOR_FTC532 "|"
   D_SENSOR_RC522_CS "|"
   D_SENSOR_NRF24_CS "|" D_SENSOR_NRF24_DC "|"
@@ -306,6 +308,8 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_ST7789_CS "|" D_SENSOR_ST7789_DC "|"
   D_SENSOR_SSD1331_CS "|" D_SENSOR_SSD1331_DC "|"
   D_SENSOR_SDCARD_CS "|"
+  D_SENSOR_ROTARY " A_n|" D_SENSOR_ROTARY " B_n|"
+  D_SENSOR_ADC_PH "|"
   ;
 
 const char kSensorNamesFixed[] PROGMEM =
@@ -330,6 +334,8 @@ const uint16_t kGpioNiceList[] PROGMEM = {
 #ifdef ROTARY_V1
   AGPIO(GPIO_ROT1A) + MAX_ROTARIES,     // Rotary A Pin
   AGPIO(GPIO_ROT1B) + MAX_ROTARIES,     // Rotary B Pin
+  AGPIO(GPIO_ROT1A_NP) + MAX_ROTARIES,  // Rotary A Pin No Pullup
+  AGPIO(GPIO_ROT1B_NP) + MAX_ROTARIES,  // Rotary B Pin No Pullup
 #endif
   AGPIO(GPIO_REL1) + MAX_RELAYS,        // Relays
   AGPIO(GPIO_REL1_INV) + MAX_RELAYS,
@@ -761,6 +767,7 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_ADC_RANGE) + MAX_ADCS,       // Range
   AGPIO(GPIO_ADC_CT_POWER) + MAX_ADCS,    // Current
   AGPIO(GPIO_ADC_JOY) + MAX_ADCS,         // Joystick
+  AGPIO(GPIO_ADC_PH) + MAX_ADCS,          // Analog PH Sensor
 #endif  // ESP32
 };
 
@@ -779,6 +786,7 @@ const uint16_t kAdcNiceList[] PROGMEM = {
   AGPIO(GPIO_ADC_RANGE),                  // Range
   AGPIO(GPIO_ADC_CT_POWER),               // Current
   AGPIO(GPIO_ADC_JOY),                    // Joystick
+  AGPIO(GPIO_ADC_PH),                     // Analog PH Sensor
 };
 #endif  // ESP8266
 
@@ -793,6 +801,7 @@ enum UserSelectableAdc {
   ADC_RANGE,          // Range
   ADC_CT_POWER,       // Current
   ADC_JOY,            // Joystick
+  ADC_PH,             // Analog PH Sensor
 //  ADC_SWITCH,         // Switch
 //  ADC_SWITCH_INV,
   ADC_END };
@@ -2470,7 +2479,7 @@ const mytmplt kModules[] PROGMEM =
     AGPIO(GPIO_SPI_MISO),        // 19      IO                  GPIO19, VSPI_MISO
     0,                           // 20
     AGPIO(GPIO_ILI9341_DC),      // 21      IO                  GPIO21, SPI_DC_LCD
-    0,                           // 22      IO      LED         GPIO22, VSPI_CS1_TFLASH
+    AGPIO(GPIO_SDCARD_CS),       // 22      IO      LED         GPIO22, VSPI_CS1_TFLASH
     AGPIO(GPIO_SPI_MOSI),        // 23      IO                  GPIO23, VSPI_MOSI
     0,                           // 24
     0,                           // 25      IO                  GPIO25, DAC_1 (PAM8304A)
@@ -2497,7 +2506,7 @@ const mytmplt kModules[] PROGMEM =
     AGPIO(GPIO_USER),            // 1       IO     TXD0         GPIO1, U0TXD
     AGPIO(GPIO_USER),            // 2       IO                  GPIO2, SPKR_DATA
     AGPIO(GPIO_USER),            // 3       IO     RXD0         GPIO3, U0RXD
-    AGPIO(GPIO_SDCARD_CS),       // 4       IO                  GPIO4, SPI_CS_CARD
+    0,                           // 4       IO                  GPIO4, SPI_CS_CARD
     0,                           // 5       IO                  GPIO5, SPI_CS_LCD
                                  // 6       IO                  GPIO6, Flash CLK
                                  // 7       IO                  GPIO7, Flash D0
