@@ -83,6 +83,8 @@ uint8_t ufs_type;
 #define UFS_TFAT 2
 #define UFS_TLFS 3
 
+//#define FFS_2
+
 void UFSInit(void) {
   ufs_type = 0;
   ffsp = 0;
@@ -107,6 +109,7 @@ void UFSInit(void) {
       ufsp = &SD;
 #endif  // ESP32
       ufs_type = UFS_TSDC;
+#ifdef FFS_2
       // now detect ffs
       ffsp = &LITTLEFS;
       if (!LITTLEFS.begin()) {
@@ -117,6 +120,7 @@ void UFSInit(void) {
           return;
         }
       }
+#endif
       return;
     }
   }
@@ -289,7 +293,12 @@ const char UFS_FORM_FILE_UPLOAD[] PROGMEM =
 const char UFS_FORM_FILE_UPG[] PROGMEM =
   "<form method='post' action='ufsu' enctype='multipart/form-data'>"
   "<br/><input type='file' name='ufsu'><br/>"
-  "<br/><button type='submit' onclick='eb(\"f1\").style.display=\"none\";eb(\"f2\").style.display=\"block\";this.form.submit();'>" D_START " %s</button></form>";
+  "<br/><button type='submit' onclick='eb(\"f1\").style.display=\"none\";eb(\"f2\").style.display=\"block\";this.form.submit();'>" D_START " %s</button>";
+const char UFS_FORM_FILE_UPG_1[] PROGMEM =
+  "<input type='radio' name='q1' value='u' checked> UFS "
+  "<input type='radio' name='q1' Value='f'> FFS ";
+const char UFS_FORM_FILE_UPG_2[] PROGMEM =
+  "</form>";
 const char UFS_FORM_FILE_UPGc[] PROGMEM =
   "<div style='text-align:left;color:green;'>total size: %s kB - free: %s kB</div>";
 const char UFS_FORM_SDC_DIRa[] PROGMEM =
@@ -326,6 +335,10 @@ void UFSdirectory(void) {
   WSContentSendStyle();
   WSContentSend_P(UFS_FORM_FILE_UPLOAD, D_UFSDIR);
   WSContentSend_P(UFS_FORM_FILE_UPG, D_SCRIPT_UPLOAD);
+  if (ffsp && (uint32_t)ufsp!=(uint32_t)ffsp) {
+    WSContentSend_P(UFS_FORM_FILE_UPG_1);
+  }
+  WSContentSend_P(UFS_FORM_FILE_UPG_2);
   char ts[16];
   char fs[16];
   UFS_form1000(ufs_fsinfo(0), ts, '.');
