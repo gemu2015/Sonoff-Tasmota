@@ -70,6 +70,8 @@ The driver enabled by #define USE_UFILESYS
 
 // global file system pointer
 FS *ufsp;
+// flash file system pointer on esp32
+FS *ffsp;
 char ufs_path[48];
 File ufs_upload_file;
 
@@ -83,14 +85,15 @@ uint8_t ufs_type;
 
 void UFSInit(void) {
   ufs_type = 0;
+  ffsp = 0;
   // check for fs options,
   // 1. check for SD card
   // 2. check for littlefs or FAT
 
 
 #ifdef USE_SDCARD
-//  if (TasmotaGlobal.spi_enabled) {
-  if (1) {
+  if (TasmotaGlobal.spi_enabled) {
+//  if (1) {
     int8_t cs = SDCARD_CS_PIN;
     if (PinUsed(GPIO_SDCARD_CS)) {
       cs = Pin(GPIO_SDCARD_CS);
@@ -104,6 +107,16 @@ void UFSInit(void) {
       ufsp = &SD;
 #endif  // ESP32
       ufs_type = UFS_TSDC;
+      // now detect ffs
+      ffsp = &LITTLEFS;
+      if (!LITTLEFS.begin()) {
+        // ffat is second
+        ffsp = &FFat;
+        if (!FFat.begin(true)) {
+          ffsp = 0;
+          return;
+        }
+      }
       return;
     }
   }
@@ -126,10 +139,12 @@ void UFSInit(void) {
       return;
     }
     ufs_type = UFS_TFAT;
+    ffsp = ufsp;
     return;
   }
 #endif // ESP32
   ufs_type = UFS_TLFS;
+  ffsp = ufsp;
   return;
 }
 
