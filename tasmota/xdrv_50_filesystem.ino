@@ -48,7 +48,7 @@ The driver enabled by #define USE_UFILESYS
 #define SDCARD_CS_PIN     4
 #endif
 
-//#define FFS_2
+#define FFS_2
 
 #ifdef ESP8266
 #include <LittleFS.h>
@@ -347,7 +347,14 @@ const char UFS_FORM_FILE_UPLOAD[] PROGMEM =
   "<div id='f1' name='f1' style='display:block;'>"
   "<fieldset><legend><b>&nbsp;" D_MANAGE_FILE_SYSTEM "&nbsp;</b></legend>";
 const char UFS_FORM_FILE_UPGc[] PROGMEM =
-  "<div style='text-align:left;color:#%06x;'>" D_FS_SIZE " %s kB - " D_FS_FREE " %s kB</div>";
+  "<div style='text-align:left;color:#%06x;'>" D_FS_SIZE " %s kB - " D_FS_FREE " %s kB";
+
+const char UFS_FORM_FILE_UPGc1[] PROGMEM =
+    "<button style='float:right;height:40px;width:50px'>%s</button>";
+const char UFS_FORM_FILE_UPGc2[] PROGMEM =
+    "</div>";
+
+
 const char UFS_FORM_FILE_UPG[] PROGMEM =
   "<form method='post' action='ufsu' enctype='multipart/form-data'>"
   "<br><input type='file' name='ufsu'><br>"
@@ -392,6 +399,8 @@ void UFSdirectory(void) {
   UFS_form1000(ufs_fsinfo(0), ts, '.');
   UFS_form1000(ufs_fsinfo(1), fs, '.');
   WSContentSend_P(UFS_FORM_FILE_UPGc, WebColor(COL_TEXT), ts, fs);
+  WSContentSend_P(UFS_FORM_FILE_UPGc1,"UFS");
+  WSContentSend_P(UFS_FORM_FILE_UPGc2);
 
   WSContentSend_P(UFS_FORM_FILE_UPG, D_SCRIPT_UPLOAD);
 
