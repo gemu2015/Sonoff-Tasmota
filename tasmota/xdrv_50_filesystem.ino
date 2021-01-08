@@ -88,17 +88,57 @@ uint8_t ffs_type;
 
 /*********************************************************************************************/
 
+
+
+
+// init flash file system
 void UfsInitOnce(void) {
   ufs_type = 0;
   ffsp = 0;
   ufs_dir = 0;
-  // check for fs options,
-  // 1. check for SD card
-  // 2. check for littlefs or FAT
+
+#ifdef ESP8266
+  ffsp = &LittleFS;
+  if (!LittleFS.begin()) {
+    return;
+  }
+#endif  // ESP8266
+
+#ifdef ESP32
+  // try lfs first
+  ffsp = &LITTLEFS;
+  if (!LITTLEFS.begin(true)) {
+    // ffat is second
+    ffsp = &FFat;
+    if (!FFat.begin(true)) {
+      return;
+    }
+    ffs_type = UFS_TFAT;
+    ufs_type = ffs_type;
+    ufsp = ffsp;
+    dfsp = ffsp;
+    return;
+  }
+#endif // ESP32
+  ffs_type = UFS_TLFS;
+  ufs_type = ffs_type;
+  ufsp = ffsp;
+  dfsp = ffsp;
+}
+
+// actually this inits flash file only
+void UfsInit(void) {
+  UfsInitOnce();
+  if (ufs_type) {
+    AddLog_P(LOG_LEVEL_INFO, PSTR("UFS: Type %d mounted with %d kB free"), ufs_type, UfsInfo(1, 0));
+  }
+}
+
 
 #ifdef USE_SDCARD
+void UfsCheckSDCardInit(void) {
   if (TasmotaGlobal.spi_enabled) {
-//  if (1) {
+  //  if (1) {
     int8_t cs = SDCARD_CS_PIN;
     if (PinUsed(GPIO_SDCARD_CS)) {
       cs = Pin(GPIO_SDCARD_CS);
@@ -108,66 +148,25 @@ void UfsInitOnce(void) {
 #ifdef ESP8266
       ufsp = &SDFS;
 #endif  // ESP8266
+
 #ifdef ESP32
       ufsp = &SD;
 #endif  // ESP32
       ufs_type = UFS_TSDC;
       dfsp = ufsp;
-#ifdef FFS_2
-      // now detect ffs
-      ffsp = &LITTLEFS;
-      if (!LITTLEFS.begin()) {
-        // ffat is second
-        ffsp = &FFat;
-        if (!FFat.begin(true)) {
-          ffsp = 0;
-          return;
-        }
-        ffs_type = UFS_TFAT;
-        ufs_dir = 1;
-        return;
-      }
-      ffs_type = UFS_TLFS;
       ufs_dir = 1;
-#endif // FFS_2
-      return;
-    }
-  }
-#endif // USE_SDCARD
-
-// if no success with sd card try flash fs
+      // make sd card the global filesystem
 #ifdef ESP8266
-  ufsp = &LittleFS;
-  if (!LittleFS.begin()) {
-    return;
-  }
-#endif  // ESP8266
+      // on esp8266 sdcard info takes several seconds !!!, so we ommit it here
+      AddLog_P(LOG_LEVEL_INFO, PSTR("UFS: SDCARD mounted"));
+#endif // ESP8266
 #ifdef ESP32
-  // try lfs first
-  ufsp = &LITTLEFS;
-  if (!LITTLEFS.begin(true)) {
-    // ffat is second
-    ufsp = &FFat;
-    if (!FFat.begin(true)) {
-      return;
-    }
-    ufs_type = UFS_TFAT;
-    ffsp = ufsp;
-    dfsp = ufsp;
-    return;
-  }
+      AddLog_P(LOG_LEVEL_INFO, PSTR("UFS: SDCARD mounted with %d kB free"), UfsInfo(1, 0));
 #endif // ESP32
-  ufs_type = UFS_TLFS;
-  ffsp = ufsp;
-  dfsp = ufsp;
-}
-
-void UfsInit(void) {
-  UfsInitOnce();
-  if (ufs_type) {
-    AddLog_P(LOG_LEVEL_INFO, PSTR("UFS: Type %d mounted with %dkB free"), ufs_type, UfsInfo(1, 0));
+    }
   }
 }
+#endif // USE_SDCARD
 
 uint32_t UfsInfo(uint32_t sel, uint32_t type) {
   uint32_t result = 0;
@@ -396,6 +395,8 @@ void UFSDelete(void) {
  * Web support
 \*********************************************************************************************/
 
+#ifdef USE_WEBSERVER
+
 const char UFS_WEB_DIR[] PROGMEM =
   "<p><form action='" "ufsd" "' method='get'><button>" "%s" "</button></form></p>";
 
@@ -484,7 +485,6 @@ void UfsDirectory(void) {
   WSContentSend_P(UFS_FORM_FILE_UPGb);
   WSContentSpaceButton(BUTTON_CONFIGURATION);
   WSContentStop();
-  Web.upload_error = 0;
 }
 
 void UfsListDir(char *path, uint8_t depth) {
@@ -621,29 +621,52 @@ uint8_t UfsDownloadFile(char *file) {
 }
 
 void UfsUpload(void) {
+  bool _serialoutput = (LOG_LEVEL_DEBUG <= TasmotaGlobal.seriallog_level);
+
   HTTPUpload& upload = Webserver->upload();
   if (upload.status == UPLOAD_FILE_START) {
+    Web.upload_error = 0;
     char npath[48];
-    sprintf(npath, "%s/%s", ufs_path, upload.filename.c_str());
+    snprintf_P(npath, sizeof(npath), PSTR("%s/%s"), ufs_path, upload.filename.c_str());
+    AddLog_P(LOG_LEVEL_INFO, PSTR(D_LOG_UPLOAD D_FILE " %s ..."), npath);
     dfsp->remove(npath);
     ufs_upload_file = dfsp->open(npath, UFS_FILE_WRITE);
-    if (!ufs_upload_file) { Web.upload_error = 1; }
+    if (!ufs_upload_file) {
+      Web.upload_error = 1;
+    }
+    Web.upload_progress_dot_count = 0;
   }
   else if (upload.status == UPLOAD_FILE_WRITE) {
     if (ufs_upload_file) {
       ufs_upload_file.write(upload.buf, upload.currentSize);
+      if (_serialoutput) {
+        Serial.printf(".");
+        Web.upload_progress_dot_count++;
+        if (!(Web.upload_progress_dot_count % 80)) { Serial.println(); }
+      }
+    } else {
+      Web.upload_error = 2;
     }
   }
   else if (upload.status == UPLOAD_FILE_END) {
-    if (ufs_upload_file) { ufs_upload_file.close(); }
-    if (Web.upload_error) {
-      AddLog_P(LOG_LEVEL_INFO, PSTR("HTP: upload error"));
+    if (_serialoutput && (Web.upload_progress_dot_count % 80)) {
+      Serial.println();
+    }
+    if (ufs_upload_file) {
+      ufs_upload_file.close();
+    } else {
+      Web.upload_error = 3;
     }
   } else {
-    Web.upload_error = 1;
-    WSSend(500, CT_PLAIN, F("500: couldn't create file"));
+    Web.upload_error = 4;
+    WSSend(500, CT_PLAIN, F("500: Couldn't create file"));
+  }
+  if (Web.upload_error) {
+    AddLog_P(LOG_LEVEL_INFO, PSTR("HTP: Upload error %d"), Web.upload_error);
   }
 }
+
+#endif  // USE_WEBSERVER
 
 /*********************************************************************************************\
  * Interface
@@ -653,6 +676,11 @@ bool Xdrv50(uint8_t function) {
   bool result = false;
 
   switch (function) {
+#ifdef USE_SDCARD
+    case FUNC_PRE_INIT:
+      UfsCheckSDCardInit();
+      break;
+#endif // USE_SDCARD
     case FUNC_COMMAND:
       result = DecodeCommand(kUFSCommands, kUFSCommand);
       break;
@@ -665,10 +693,7 @@ bool Xdrv50(uint8_t function) {
     case FUNC_WEB_ADD_HANDLER:
       Webserver->on("/ufsd", UfsDirectory);
       Webserver->on("/ufsu", HTTP_GET, UfsDirectory);
-      Webserver->on("/ufsu", HTTP_POST,[]() {
-        Webserver->sendHeader("Location","/ufsu");
-        Webserver->send(303);
-      }, UfsUpload);
+      Webserver->on("/ufsu", HTTP_POST,[](){Webserver->sendHeader("Location","/ufsu");Webserver->send(303);}, UfsUpload);
       break;
 #endif // USE_WEBSERVER
   }
