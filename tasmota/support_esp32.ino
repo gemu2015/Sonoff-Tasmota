@@ -380,8 +380,8 @@ uint32_t ESP_getSketchSize(void) {
 }
 
 uint32_t ESP_getFreeHeap(void) {
-//  return ESP.getFreeHeap();
-  return ESP.getMaxAllocHeap();
+  return ESP.getFreeHeap();
+//  return ESP.getMaxAllocHeap();
 }
 
 uint32_t ESP_getMaxAllocHeap(void) {
