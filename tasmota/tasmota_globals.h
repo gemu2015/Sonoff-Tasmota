@@ -165,6 +165,10 @@ String EthernetMacAddress(void);
 #define USE_UNISHOX_COMPRESSION                // Add support for string compression
 #endif
 
+#ifdef USE_PID
+#define USE_TIMEPROP
+#endif
+
                                                // See https://github.com/esp8266/Arduino/pull/4889
 #undef NO_EXTRA_4K_HEAP                        // Allocate 4k heap for WPS in ESP8166/Arduino core v2.4.2 (was always allocated in previous versions)
 
@@ -220,6 +224,9 @@ const uint16_t LOG_BUFFER_SIZE = 4000;         // Max number of characters in lo
 #if defined(ARDUINO_ESP8266_RELEASE_2_3_0) || defined(ARDUINO_ESP8266_RELEASE_2_4_0) || defined(ARDUINO_ESP8266_RELEASE_2_4_1) || defined(ARDUINO_ESP8266_RELEASE_2_4_2) || defined(ARDUINO_ESP8266_RELEASE_2_5_0) || defined(ARDUINO_ESP8266_RELEASE_2_5_1) || defined(ARDUINO_ESP8266_RELEASE_2_5_2)
   #error "Arduino ESP8266 Core versions before 2.7.1 are not supported"
 #endif
+
+#define TASM_FILE_SETTINGS          "/settings"
+#define TASM_FILE_ZIGBEE            "/zb"
 
 #ifndef MQTT_MAX_PACKET_SIZE
 #define MQTT_MAX_PACKET_SIZE        1200       // Bytes

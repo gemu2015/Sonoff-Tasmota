@@ -28,7 +28,7 @@
  * Use online command StateText to translate ON, OFF, HOLD and TOGGLE.
  * Use online command Prefix to translate cmnd, stat and tele.
  *
- * Updated until v9.2.0.1
+ * Updated until v9.2.0.3
 \*********************************************************************/
 
 //#define LANGUAGE_MODULE_NAME         // Enable to display "Module Generic" (ie Spanish), Disable to display "Generic Module" (ie English)
@@ -641,6 +641,8 @@
 #define D_SENSOR_HX711_SCK     "HX711 SCK"
 #define D_SENSOR_HX711_DAT     "HX711 DAT"
 #define D_SENSOR_FTC532        "FTC532"
+#define D_SENSOR_BS814_CLK     "BS814 CLK"
+#define D_SENSOR_BS814_DAT     "BS814 DAT"
 #define D_SENSOR_TX2X_TX       "TX2x"
 #define D_SENSOR_RFSEND        "RFSend"
 #define D_SENSOR_RFRECV        "RFrecv"
@@ -875,9 +877,9 @@
 #define D_SCRIPT_UPLOAD_FILES  "Upload Dateien"
 
 //xdrv_50_filesystem.ino
-#define D_MANAGE_FILE_SYSTEM   "Manage File system"
-#define D_FS_SIZE              "Size"
-#define D_FS_FREE              "Free"
+#define D_MANAGE_FILE_SYSTEM   "Verwalte Dateisystem"
+#define D_FS_SIZE              "Größe"
+#define D_FS_FREE              "Frei"
 
 //xsns_67_as3935.ino
 #define D_AS3935_GAIN "Umgebung:"
