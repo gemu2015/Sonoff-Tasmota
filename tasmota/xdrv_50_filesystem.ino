@@ -100,8 +100,8 @@ void UfsInit(void) {
 
 
 #ifdef USE_SDCARD
-//  if (TasmotaGlobal.spi_enabled) {
-  if (1) {
+  if (TasmotaGlobal.spi_enabled) {
+//  if (1) {
     int8_t cs = SDCARD_CS_PIN;
     if (PinUsed(GPIO_SDCARD_CS)) {
       cs = Pin(GPIO_SDCARD_CS);
@@ -118,6 +118,12 @@ void UfsInit(void) {
       dfsp = ufsp;
 #ifdef FFS_2
       // now detect ffs
+#ifdef ESP8266
+      ffsp = &LittleFS;
+      if (!LittleFS.begin()) {
+          return;
+      }
+#else
       ffsp = &LITTLEFS;
       if (!LITTLEFS.begin()) {
         // ffat is second
@@ -128,8 +134,8 @@ void UfsInit(void) {
         }
         ffs_type = UFS_TFAT;
         ufs_dir = 1;
-        return;
       }
+#endif
       ffs_type = UFS_TLFS;
       ufs_dir = 1;
 #endif // FFS_2
