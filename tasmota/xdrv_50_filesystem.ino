@@ -48,7 +48,9 @@ The driver enabled by #define USE_UFILESYS
 #define SDCARD_CS_PIN     4
 #endif
 
+#ifdef ESP32
 #define FFS_2
+#endif
 
 #ifdef ESP8266
 #include <LittleFS.h>
@@ -100,8 +102,8 @@ void UfsInit(void) {
 
 
 #ifdef USE_SDCARD
-  if (TasmotaGlobal.spi_enabled) {
-//  if (1) {
+//  if (TasmotaGlobal.spi_enabled) {
+  if (1) {
     int8_t cs = SDCARD_CS_PIN;
     if (PinUsed(GPIO_SDCARD_CS)) {
       cs = Pin(GPIO_SDCARD_CS);
