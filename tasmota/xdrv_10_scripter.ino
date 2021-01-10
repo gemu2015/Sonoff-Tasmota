@@ -158,8 +158,10 @@ void Script_ticker4_end(void) {
 
 #ifdef ESP8266
 #ifdef USE_24C256
+#undef EEP_INIT
 #define EEP_INIT(A) eeprom_init(A)
 #else
+#undef EEP_INIT
 #define EEP_INIT(A) alt_eeprom_init(A)
 #endif
 #endif
