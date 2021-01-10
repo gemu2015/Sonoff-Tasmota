@@ -195,6 +195,7 @@ const Z_AttributeConverter Z_PostProcess[] PROGMEM = {
   { Zoctstr,  Cx0000, 0x000A,  Z_(ProductCode),          Cm1, 0 },
   { Zstring,  Cx0000, 0x000B,  Z_(ProductURL),           Cm1, 0 },
   { Zstring,  Cx0000, 0x4000,  Z_(SWBuildID),            Cm1, 0 },
+  { Zuint8,   Cx0000, 0x4005,  Z_(MullerLightMode),      Cm1, 0 },
   // { Zunk,     Cx0000, 0xFFFF,  nullptr,                 Cm0, 0 },    // Remove all other values
   // Cmd 0x0A - Cluster 0x0000, attribute 0xFF01 - proprietary
   { Zmap8,    Cx0000, 0xFF01,  Z_(),                     Cm0, 0 },
@@ -742,7 +743,7 @@ public:
     if (Settings.flag3.tuya_serial_mqtt_publish) {
       MqttPublishPrefixTopicRulesProcess_P(TELE, PSTR(D_RSLT_SENSOR));
     } else {
-      AddLog_P(LOG_LEVEL_DEBUG, PSTR(D_LOG_ZIGBEE "%s"), TasmotaGlobal.mqtt_data);
+      AddLogZ_P(LOG_LEVEL_DEBUG, PSTR(D_LOG_ZIGBEE "%s"), TasmotaGlobal.mqtt_data);
     }
   }
 
@@ -1185,6 +1186,10 @@ void ZCLFrame::parseReportAttributes(Z_attribute_list& attr_list) {
   uint32_t i = 0;
   uint32_t len = _payload.len();
 
+  if (ZCL_WRITE_ATTRIBUTES == getCmdId()) {
+    attr_list.addAttribute(PSTR("Command"), true).setStr(PSTR("Write"));
+  }
+
   while (len >= i + 3) {
     uint16_t attrid = _payload.get16(i);
     i += 2;
@@ -1606,14 +1611,34 @@ void ZCLFrame::parseResponse(void) {
   parseResponse_inner(cmd, true, status);
 }
 
+/*********************************************************************************************\
+ * Callbacks
+\*********************************************************************************************/
+// Reset the debounce marker
+void Z_ResetDebounce(uint16_t shortaddr, uint16_t groupaddr, uint16_t cluster, uint8_t endpoint, uint32_t value) {
+  zigbee_devices.getShortAddr(shortaddr).debounce_endpoint = 0;
+}
+
 // Parse non-normalized attributes
 void ZCLFrame::parseClusterSpecificCommand(Z_attribute_list& attr_list) {
-  convertClusterSpecific(attr_list, _cluster_id, _cmd_id, _frame_control.b.direction, _srcaddr, _srcendpoint, _payload);
-  if (!Settings.flag5.zb_disable_autoquery) {
-  // read attributes unless disabled
-    if (!_frame_control.b.direction) {    // only handle server->client (i.e. device->coordinator)
-      if (_wasbroadcast) {                // only update for broadcast messages since we don't see unicast from device to device and we wouldn't know the target
-        sendHueUpdate(BAD_SHORTADDR, _groupaddr, _cluster_id);
+  // Check if debounce is active and if the packet is a duplicate
+  Z_Device & device = zigbee_devices.getShortAddr(_srcaddr);
+  if ((device.debounce_endpoint != 0) && (device.debounce_endpoint == _srcendpoint) && (device.debounce_transact == _transact_seq)) {
+    // this is a duplicate, drop the packet
+    AddLog_P(LOG_LEVEL_DEBUG, PSTR(D_LOG_ZIGBEE "Discarding duplicate command from 0x%04X, endpoint %d"), _srcaddr, _srcendpoint);
+  } else {
+    // reset the duplicate marker, parse the packet normally, and set a timer to reset the marker later (which will discard any existing timer for the same device/endpoint)
+    device.debounce_endpoint = _srcendpoint;
+    device.debounce_transact = _transact_seq;
+    zigbee_devices.setTimer(_srcaddr, 0 /* groupaddr */, USE_ZIGBEE_DEBOUNCE_COMMANDS, 0 /*clusterid*/, _srcendpoint, Z_CAT_DEBOUNCE_CMD, 0, &Z_ResetDebounce);
+
+    convertClusterSpecific(attr_list, _cluster_id, _cmd_id, _frame_control.b.direction, _srcaddr, _srcendpoint, _payload);
+    if (!Settings.flag5.zb_disable_autoquery) {
+    // read attributes unless disabled
+      if (!_frame_control.b.direction) {    // only handle server->client (i.e. device->coordinator)
+        if (_wasbroadcast) {                // only update for broadcast messages since we don't see unicast from device to device and we wouldn't know the target
+          sendHueUpdate(BAD_SHORTADDR, _groupaddr, _cluster_id);
+        }
       }
     }
   }
