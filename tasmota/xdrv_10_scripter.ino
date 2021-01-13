@@ -2790,6 +2790,12 @@ chknext:
           fvar = GetStack();
           goto exit;
         }
+#ifdef ESP32
+        if (!strncmp(vname, "stkwm", 5)) {
+          fvar = uxTaskGetStackHighWaterMark(NULL);
+          goto exit;
+        }
+#endif // ESP32
         if (!strncmp(vname, "slen", 4)) {
           fvar = strlen(glob_script_mem.script_ram);
           goto exit;
@@ -4552,7 +4558,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, JsonParserObject *jo) {
                   ctype += tlen;
                   char nxttok = '(';
                   char *argptr = ctype+tlen;
-                  
+
                   lp += tlen;
                   do {
                     if (*ctype==nxttok && *lp==nxttok) {
@@ -7181,7 +7187,7 @@ bool RulesProcessEvent(char *json_event) {
 #ifdef USE_SCRIPT_TASK
 
 #ifndef STASK_STACK
-#define STASK_STACK 8192
+#define STASK_STACK 8192-2048
 #endif
 
 #if 1

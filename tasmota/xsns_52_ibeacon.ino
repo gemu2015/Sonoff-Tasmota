@@ -231,7 +231,7 @@ void ESP32StartScanTask(){
     xTaskCreatePinnedToCore(
     ESP32ScanTask,    /* Function to implement the task */
     "ESP32ScanTask",  /* Name of the task */
-    2048,             /* Stack size in words */
+    8192,             /* Stack size in words */
     NULL,             /* Task input parameter */
     0,                /* Priority of the task */
     NULL,             /* Task handle. */
