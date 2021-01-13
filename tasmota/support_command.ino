@@ -2116,7 +2116,7 @@ void CmndTskList(void) {
 //  ResponseCmndChar(TaskList);
 }
 
-BaseType_t xxEventGroupSetBitsFromISR( EventGroupHandle_t xEventGroup, const EventBits_t uxBitsToSet, BaseType_t *pxHigherPriorityTaskWoken )
+BaseType_t xEventGroupSetBitsFromISR( EventGroupHandle_t xEventGroup, const EventBits_t uxBitsToSet, BaseType_t *pxHigherPriorityTaskWoken )
 {
 BaseType_t xReturn;
 
