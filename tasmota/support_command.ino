@@ -17,6 +17,8 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#define D_CMND_TSKLIST "TaskList"
+
 const char kTasmotaCommands[] PROGMEM = "|"  // No prefix
   D_CMND_BACKLOG "|" D_CMND_DELAY "|" D_CMND_POWER "|" D_CMND_STATUS "|" D_CMND_STATE "|" D_CMND_SLEEP "|" D_CMND_UPGRADE "|" D_CMND_UPLOAD "|" D_CMND_OTAURL "|"
   D_CMND_SERIALLOG "|" D_CMND_RESTART "|" D_CMND_POWERONSTATE "|" D_CMND_PULSETIME "|" D_CMND_BLINKTIME "|" D_CMND_BLINKCOUNT "|" D_CMND_SAVEDATA "|"
@@ -41,6 +43,9 @@ const char kTasmotaCommands[] PROGMEM = "|"  // No prefix
   D_CMND_SENSOR "|" D_CMND_DRIVER
 #ifdef ESP32
    "|Info|" D_CMND_TOUCH_CAL "|" D_CMND_TOUCH_THRES "|" D_CMND_TOUCH_NUM "|" D_CMND_CPU_FREQUENCY "|" D_CMND_WIFI
+#ifdef ESP32_TASKLIST
+   "|" D_CMND_TSKLIST
+#endif // ESP32_TASKLIST
 #endif  // ESP32
   ;
 
@@ -68,6 +73,9 @@ void (* const TasmotaCommand[])(void) PROGMEM = {
   &CmndSensor, &CmndDriver
 #ifdef ESP32
   , &CmndInfo, &CmndTouchCal, &CmndTouchThres, &CmndTouchNum, &CmndCpuFrequency, &CmndWifi
+#ifdef ESP32_TASKLIST
+  ,  &CmndTskList
+#endif //ESP32_TASKLIST
 #endif  // ESP32
   };
 
@@ -2099,6 +2107,26 @@ void CmndWifi(void)
   }
   ResponseCmndStateText(Settings.flag4.network_wifi);
 }
+
+#ifdef ESP32_TASKLIST
+void CmndTskList(void) {
+//  char TaskList[256];
+//  vTaskList(TaskList);
+  //mdf_mem_print_heap();
+//  ResponseCmndChar(TaskList);
+}
+
+BaseType_t xxEventGroupSetBitsFromISR( EventGroupHandle_t xEventGroup, const EventBits_t uxBitsToSet, BaseType_t *pxHigherPriorityTaskWoken )
+{
+BaseType_t xReturn;
+
+  traceEVENT_GROUP_SET_BITS_FROM_ISR( xEventGroup, uxBitsToSet );
+  xReturn = xTimerPendFunctionCallFromISR( vEventGroupSetBitsCallback, ( void * ) xEventGroup, ( uint32_t ) uxBitsToSet, pxHigherPriorityTaskWoken );
+
+  return xReturn;
+}
+#endif // ESP32_TASKLIST
+
 
 void CmndCpuFrequency(void) {
   if ((80 == XdrvMailbox.payload) || (160 == XdrvMailbox.payload) || (240 == XdrvMailbox.payload)) {
