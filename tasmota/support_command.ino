@@ -2115,16 +2115,6 @@ void CmndTskList(void) {
   //mdf_mem_print_heap();
 //  ResponseCmndChar(TaskList);
 }
-
-BaseType_t xEventGroupSetBitsFromISR( EventGroupHandle_t xEventGroup, const EventBits_t uxBitsToSet, BaseType_t *pxHigherPriorityTaskWoken )
-{
-BaseType_t xReturn;
-
-  traceEVENT_GROUP_SET_BITS_FROM_ISR( xEventGroup, uxBitsToSet );
-  xReturn = xTimerPendFunctionCallFromISR( vEventGroupSetBitsCallback, ( void * ) xEventGroup, ( uint32_t ) uxBitsToSet, pxHigherPriorityTaskWoken );
-
-  return xReturn;
-}
 #endif // ESP32_TASKLIST
 
 
