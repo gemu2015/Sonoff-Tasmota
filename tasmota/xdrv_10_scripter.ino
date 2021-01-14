@@ -1992,6 +1992,11 @@ chknext:
           lp++;
           goto exit;
         }
+        if (!strncmp(vname, "enrsv", 5)) {
+          EnergySaveState();
+          fvar = 0;
+          goto exit;
+        }
 #endif //USE_ENERGY_SENSOR
         break;
       case 'f':

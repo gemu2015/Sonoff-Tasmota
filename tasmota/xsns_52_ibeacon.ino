@@ -38,6 +38,8 @@ uint8_t ib_upd_interval,ib_tout_interval;
 #define IB_TIMEOUT_TIME Settings.ib_tout_interval
 #endif
 
+uint32_t ble_stack;
+
 char ib_mac[14];
 
 #ifdef USE_IBEACON_ESP32
@@ -231,7 +233,7 @@ void ESP32StartScanTask(){
     xTaskCreatePinnedToCore(
     ESP32ScanTask,    /* Function to implement the task */
     "ESP32ScanTask",  /* Name of the task */
-    8192,             /* Stack size in words */
+    2048,             /* Stack size in words */
     NULL,             /* Task input parameter */
     0,                /* Priority of the task */
     NULL,             /* Task handle. */
@@ -255,6 +257,7 @@ void ESP32ScanTask(void *pvParameters){
     vTaskDelay(10000/ portTICK_PERIOD_MS);
     ESP32BLEScan->clearResults();
     AddLog_P(LOG_LEVEL_DEBUG,PSTR("%s: Clear scanning results"),"BLE");
+    ble_stack = uxTaskGetStackHighWaterMark(NULL);
   }
 
 }
@@ -966,6 +969,9 @@ void ibeacon_mqtt(const char *mac,const char *rssi,const char *uid,const char *m
  * Interface
 \*********************************************************************************************/
 
+
+
+
 bool Xsns52(byte function)
 {
   bool result = false;
@@ -985,6 +991,7 @@ bool Xsns52(byte function)
         IBEACON_loop();
         break;
       case FUNC_EVERY_SECOND:
+      AddLog_P(LOG_LEVEL_INFO, PSTR(">>> %d: "),ble_stack);
 #ifdef USE_IBEACON_ESP32
         esp32_every_second();
 #else

@@ -70,6 +70,8 @@ nimble_port_deinit(void)
 
     ble_hs_deinit();
 }
+//uint32_t ble_stack;
+
 
 void
 nimble_port_run(void)
@@ -82,6 +84,7 @@ nimble_port_run(void)
         if (ev == &ble_hs_ev_stop) {
             break;
         }
+        //ble_stack = uxTaskGetStackHighWaterMark(NULL);
     }
 }
 
