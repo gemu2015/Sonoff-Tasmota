@@ -1,7 +1,7 @@
 /*
   xsns_52_ibeacon.ino - Support for HM17 BLE Module + ibeacon reader on Tasmota
 
-  Copyright (C) 2020  Gerhard Mutz and Theo Arends
+  Copyright (C) 2021  Gerhard Mutz and Theo Arends
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -37,8 +37,6 @@ uint8_t ib_upd_interval,ib_tout_interval;
 #define IB_UPDATE_TIME Settings.ib_upd_interval
 #define IB_TIMEOUT_TIME Settings.ib_tout_interval
 #endif
-
-uint32_t ble_stack;
 
 char ib_mac[14];
 
@@ -257,7 +255,6 @@ void ESP32ScanTask(void *pvParameters){
     vTaskDelay(10000/ portTICK_PERIOD_MS);
     ESP32BLEScan->clearResults();
     AddLog_P(LOG_LEVEL_DEBUG,PSTR("%s: Clear scanning results"),"BLE");
-    ble_stack = uxTaskGetStackHighWaterMark(NULL);
   }
 
 }
@@ -282,16 +279,13 @@ void ESP32Init() {
 
   if (TasmotaGlobal.global_state.wifi_down) { return; }
 
+  TasmotaGlobal.wifi_stay_asleep = true;
   if (WiFi.getSleep() == false) {
-    if (0 == Settings.flag3.sleep_normal) {
-      AddLog_P(LOG_LEVEL_DEBUG,PSTR("%s: About to restart to put WiFi modem in sleep mode"),"BLE");
-      Settings.flag3.sleep_normal = 1;  // SetOption60 - Enable normal sleep instead of dynamic sleep
-      TasmotaGlobal.restart_flag = 2;
-    }
-    return;
+    AddLog_P(LOG_LEVEL_DEBUG,PSTR("%s: Put WiFi modem in sleep mode"),"BLE");
+    WiFi.setSleep(true); // Sleep
   }
 
-  AddLog_P(LOG_LEVEL_DEBUG,PSTR("%s: Initializing Blueetooth..."),"BLE");
+  AddLog_P(LOG_LEVEL_DEBUG,PSTR("%s: Initializing Bluetooth..."),"BLE");
 
   if (!ESP32BLE.mode.init) {
     NimBLEDevice::init("");
@@ -969,9 +963,6 @@ void ibeacon_mqtt(const char *mac,const char *rssi,const char *uid,const char *m
  * Interface
 \*********************************************************************************************/
 
-
-
-
 bool Xsns52(byte function)
 {
   bool result = false;
@@ -991,7 +982,6 @@ bool Xsns52(byte function)
         IBEACON_loop();
         break;
       case FUNC_EVERY_SECOND:
-      AddLog_P(LOG_LEVEL_INFO, PSTR(">>> %d: "),ble_stack);
 #ifdef USE_IBEACON_ESP32
         esp32_every_second();
 #else
