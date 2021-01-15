@@ -69,7 +69,6 @@
 bool HttpCheckPriviledgedAccess(bool);
 extern ESP8266WebServer *Webserver;
 
-ESP8266WebServer *CamServer;
 #define BOUNDARY "e8b8c539-047d-4777-a985-fbba6edff11e"
 
 
@@ -109,9 +108,11 @@ struct {
   uint16_t height;
   uint8_t  stream_active;
   WiFiClient client;
+  ESP8266WebServer *CamServer;
 #ifdef USE_FACE_DETECT
   uint8_t  faces;
   uint16_t face_detect_time;
+  uint32_t face_ltime;
 #endif // USE_FACE_DETECT
 #ifdef ENABLE_RTSPSERVER
   WiFiServer *rtspp;
@@ -481,8 +482,6 @@ uint32_t WcSetFaceDetect(int32_t value) {
   return Wc.faces;
 }
 
-uint32_t face_ltime;
-
 uint32_t WcDetectFace(void);
 
 uint32_t WcDetectFace(void) {
@@ -494,8 +493,8 @@ uint32_t WcDetectFace(void) {
   int face_id = 0;
   camera_fb_t *fb;
 
-  if ((millis() - face_ltime) > Wc.face_detect_time) {
-    face_ltime = millis();
+  if ((millis() - Wc.face_ltime) > Wc.face_detect_time) {
+    Wc.face_ltime = millis();
     fb = esp_camera_fb_get();
     if (!fb) { return ESP_FAIL; }
 
@@ -682,7 +681,7 @@ void HandleImageBasic(void) {
   AddLog_P(LOG_LEVEL_DEBUG_MORE, PSTR(D_LOG_HTTP "Capture image"));
 
   if (Settings.webcam_config.stream) {
-    if (!CamServer) {
+    if (!Wc.CamServer) {
       WcStreamControl();
     }
   }
@@ -725,7 +724,7 @@ void HandleWebcamMjpeg(void) {
 //  if (!Wc.stream_active) {
 // always restart stream
     Wc.stream_active = 1;
-    Wc.client = CamServer->client();
+    Wc.client = Wc.CamServer->client();
     AddLog_P(LOG_LEVEL_DEBUG, PSTR("CAM: Create client"));
 //  }
 }
@@ -808,8 +807,8 @@ void HandleWebcamMjpegTask(void) {
 
 void HandleWebcamRoot(void) {
   //CamServer->redirect("http://" + String(ip) + ":81/cam.mjpeg");
-  CamServer->sendHeader("Location", WiFi.localIP().toString() + ":81/cam.mjpeg");
-  CamServer->send(302, "", "");
+  Wc.CamServer->sendHeader("Location", WiFi.localIP().toString() + ":81/cam.mjpeg");
+  Wc.CamServer->send(302, "", "");
   AddLog_P(LOG_LEVEL_DEBUG, PSTR("CAM: Root called"));
 }
 
@@ -821,20 +820,20 @@ uint32_t WcSetStreamserver(uint32_t flag) {
   Wc.stream_active = 0;
 
   if (flag) {
-    if (!CamServer) {
-      CamServer = new ESP8266WebServer(81);
-      CamServer->on("/", HandleWebcamRoot);
-      CamServer->on("/cam.mjpeg", HandleWebcamMjpeg);
-      CamServer->on("/cam.jpg", HandleWebcamMjpeg);
-      CamServer->on("/stream", HandleWebcamMjpeg);
+    if (!Wc.CamServer) {
+      Wc.CamServer = new ESP8266WebServer(81);
+      Wc.CamServer->on("/", HandleWebcamRoot);
+      Wc.CamServer->on("/cam.mjpeg", HandleWebcamMjpeg);
+      Wc.CamServer->on("/cam.jpg", HandleWebcamMjpeg);
+      Wc.CamServer->on("/stream", HandleWebcamMjpeg);
       AddLog_P(LOG_LEVEL_DEBUG, PSTR("CAM: Stream init"));
-      CamServer->begin();
+      Wc.CamServer->begin();
     }
   } else {
-    if (CamServer) {
-      CamServer->stop();
-      delete CamServer;
-      CamServer = NULL;
+    if (Wc.CamServer) {
+      Wc.CamServer->stop();
+      delete Wc.CamServer;
+      Wc.CamServer = NULL;
       AddLog_P(LOG_LEVEL_DEBUG, PSTR("CAM: Stream exit"));
     }
   }
@@ -850,8 +849,8 @@ void WcStreamControl() {
 
 
 void WcLoop(void) {
-  if (CamServer) {
-    CamServer->handleClient();
+  if (Wc.CamServer) {
+    Wc.CamServer->handleClient();
     if (Wc.stream_active) { HandleWebcamMjpegTask(); }
   }
   if (motion_detect) { WcDetectMotion(); }
@@ -860,38 +859,6 @@ void WcLoop(void) {
 #endif
 
 #ifdef ENABLE_RTSPSERVER
-
-#if 0
-  if (Settings.webcam_config.rtsp && !TasmotaGlobal.global_state.wifi_down && Wc.up) {
-    if (!Wc.rtsp_start ) {
-      Wc.rtspp = new WiFiServer(8554);
-      Wc.rtspp->begin();
-      Wc.rtsp_streamer = new OV2640Streamer(&Wc.cam);
-      Wc.rtsp_start = 1;
-      AddLog_P(LOG_LEVEL_INFO, PSTR("CAM: RTSP init"));
-    }
-
-    Wc.rtsp_streamer->handleRequests(0);
-    uint32_t now = millis();
-    if (Wc.rtsp_streamer->anySessions()) {
-      if ((now-Wc.rtsp_lastframe_time) > RTSP_FRAME_TIME) {
-        Wc.rtsp_streamer->streamImage(now);
-        Wc.rtsp_lastframe_time = now;
-
-      }
-      AddLog_P(LOG_LEVEL_INFO, PSTR("CAM: RTSP stream %d"),now);
-    }
-
-    Wc.rtsp_client = Wc.rtspp->accept();
-    if (Wc.rtsp_client) {
-        Wc.rtsp_streamer->addSession(&Wc.rtsp_client);
-        AddLog_P(LOG_LEVEL_INFO, PSTR("CAM: RTSP add session IP: %s"),Wc.rtsp_client.remoteIP().toString().c_str());
-    }
-
-  }
-
-
-#else
     if (Settings.webcam_config.rtsp && !TasmotaGlobal.global_state.wifi_down && Wc.up) {
       if (!Wc.rtsp_start) {
         Wc.rtspp = new WiFiServer(8554);
@@ -930,8 +897,7 @@ void WcLoop(void) {
         }
       }
     }
-#endif
-#endif
+#endif // ENABLE_RTSPSERVER
 }
 
 void WcPicSetup(void) {
@@ -942,12 +908,12 @@ void WcPicSetup(void) {
 
 void WcShowStream(void) {
   if (Settings.webcam_config.stream) {
-//    if (!CamServer || !Wc.up) {
-    if (!CamServer) {
+//    if (!Wc.CamServer || !Wc.up) {
+    if (!Wc.CamServer) {
       WcStreamControl();
       delay(50);   // Give the webcam webserver some time to prepare the stream
     }
-    if (CamServer && Wc.up) {
+    if (Wc.CamServer && Wc.up) {
       WSContentSend_P(PSTR("<p></p><center><img src='http://%s:81/stream' alt='Webcam stream' style='width:99%%;'></center><p></p>"),
         WiFi.localIP().toString().c_str());
     }
