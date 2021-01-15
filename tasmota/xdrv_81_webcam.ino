@@ -72,8 +72,6 @@ extern ESP8266WebServer *Webserver;
 ESP8266WebServer *CamServer;
 #define BOUNDARY "e8b8c539-047d-4777-a985-fbba6edff11e"
 
-WiFiClient client;
-
 
 // CAMERA_MODEL_AI_THINKER default template pins
 #define PWDN_GPIO_NUM     32
@@ -94,29 +92,39 @@ WiFiClient client;
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-struct {
-  uint8_t  up;
-  uint16_t width;
-  uint16_t height;
-  uint8_t  stream_active;
-#ifdef USE_FACE_DETECT
-  uint8_t  faces;
-  uint16_t face_detect_time;
-#endif
-} Wc;
 
 #ifdef ENABLE_RTSPSERVER
 #include <OV2640.h>
 #include <SimStreamer.h>
 #include <OV2640Streamer.h>
 #include <CRtspSession.h>
-WiFiServer rtspServer(8554);
-CStreamer *rtsp_streamer;
-CRtspSession *rtsp_session;
-WiFiClient rtsp_client;
-uint8_t rtsp_start;
-OV2640 cam;
-#endif
+#ifndef RTSP_FRAME_TIME
+#define RTSP_FRAME_TIME 100
+#endif // RTSP_FRAME_TIME
+#endif // ENABLE_RTSPSERVER
+
+struct {
+  uint8_t  up;
+  uint16_t width;
+  uint16_t height;
+  uint8_t  stream_active;
+  WiFiClient client;
+#ifdef USE_FACE_DETECT
+  uint8_t  faces;
+  uint16_t face_detect_time;
+#endif // USE_FACE_DETECT
+#ifdef ENABLE_RTSPSERVER
+  WiFiServer *rtspp;
+  CStreamer *rtsp_streamer;
+  CRtspSession *rtsp_session;
+  WiFiClient rtsp_client;
+  uint8_t rtsp_start;
+  OV2640 cam;
+  uint32_t rtsp_lastframe_time;
+#endif // ENABLE_RTSPSERVER
+} Wc;
+
+
 
 /*********************************************************************************************/
 
@@ -717,7 +725,7 @@ void HandleWebcamMjpeg(void) {
 //  if (!Wc.stream_active) {
 // always restart stream
     Wc.stream_active = 1;
-    client = CamServer->client();
+    Wc.client = CamServer->client();
     AddLog_P(LOG_LEVEL_DEBUG, PSTR("CAM: Create client"));
 //  }
 }
@@ -731,15 +739,15 @@ void HandleWebcamMjpegTask(void) {
   uint32_t tlen;
   bool jpeg_converted = false;
 
-  if (!client.connected()) {
+  if (!Wc.client.connected()) {
     AddLog_P(LOG_LEVEL_DEBUG, PSTR("CAM: Client fail"));
     Wc.stream_active = 0;
   }
   if (1 == Wc.stream_active) {
-    client.flush();
-    client.setTimeout(3);
+    Wc.client.flush();
+    Wc.client.setTimeout(3);
     AddLog_P(LOG_LEVEL_DEBUG, PSTR("CAM: Start stream"));
-    client.print("HTTP/1.1 200 OK\r\n"
+    Wc.client.print("HTTP/1.1 200 OK\r\n"
       "Content-Type: multipart/x-mixed-replace;boundary=" BOUNDARY "\r\n"
       "\r\n");
     Wc.stream_active = 2;
@@ -764,17 +772,17 @@ void HandleWebcamMjpegTask(void) {
       _jpg_buf = wc_fb->buf;
     }
 
-    client.printf("Content-Type: image/jpeg\r\n"
+    Wc.client.printf("Content-Type: image/jpeg\r\n"
       "Content-Length: %d\r\n"
       "\r\n", static_cast<int>(_jpg_buf_len));
-    tlen = client.write(_jpg_buf, _jpg_buf_len);
+    tlen = Wc.client.write(_jpg_buf, _jpg_buf_len);
     /*
     if (tlen!=_jpg_buf_len) {
       esp_camera_fb_return(wc_fb);
       Wc.stream_active=0;
       AddLog_P(LOG_LEVEL_DEBUG, PSTR("CAM: Send fail"));
     }*/
-    client.print("\r\n--" BOUNDARY "\r\n");
+    Wc.client.print("\r\n--" BOUNDARY "\r\n");
 
 #ifdef COPYFRAME
     if (tmp_picstore.buff) { free(tmp_picstore.buff); }
@@ -793,8 +801,8 @@ void HandleWebcamMjpegTask(void) {
   }
   if (0 == Wc.stream_active) {
     AddLog_P(LOG_LEVEL_DEBUG, PSTR("CAM: Stream exit"));
-    client.flush();
-    client.stop();
+    Wc.client.flush();
+    Wc.client.stop();
   }
 }
 
@@ -839,12 +847,7 @@ void WcStreamControl() {
 }
 
 /*********************************************************************************************/
-#ifdef ENABLE_RTSPSERVER
-static uint32_t rtsp_lastframe_time;
-#ifndef RTSP_FRAME_TIME
-#define RTSP_FRAME_TIME 100
-#endif
-#endif
+
 
 void WcLoop(void) {
   if (CamServer) {
@@ -858,41 +861,76 @@ void WcLoop(void) {
 
 #ifdef ENABLE_RTSPSERVER
 
-    if (!rtsp_start && !TasmotaGlobal.global_state.wifi_down && Wc.up) {
-      rtspServer.begin();
-      rtsp_start = 1;
+#if 0
+  if (Settings.webcam_config.rtsp && !TasmotaGlobal.global_state.wifi_down && Wc.up) {
+    if (!Wc.rtsp_start ) {
+      Wc.rtspp = new WiFiServer(8554);
+      Wc.rtspp->begin();
+      Wc.rtsp_streamer = new OV2640Streamer(&Wc.cam);
+      Wc.rtsp_start = 1;
       AddLog_P(LOG_LEVEL_INFO, PSTR("CAM: RTSP init"));
-      rtsp_lastframe_time = millis();
     }
 
-    // If we have an active client connection, just service that until gone
-    if (rtsp_session) {
-        rtsp_session->handleRequests(0); // we don't use a timeout here,
+    Wc.rtsp_streamer->handleRequests(0);
+    uint32_t now = millis();
+    if (Wc.rtsp_streamer->anySessions()) {
+      if ((now-Wc.rtsp_lastframe_time) > RTSP_FRAME_TIME) {
+        Wc.rtsp_streamer->streamImage(now);
+        Wc.rtsp_lastframe_time = now;
+
+      }
+      AddLog_P(LOG_LEVEL_INFO, PSTR("CAM: RTSP stream %d"),now);
+    }
+
+    Wc.rtsp_client = Wc.rtspp->accept();
+    if (Wc.rtsp_client) {
+        Wc.rtsp_streamer->addSession(&Wc.rtsp_client);
+        AddLog_P(LOG_LEVEL_INFO, PSTR("CAM: RTSP add session IP: %s"),Wc.rtsp_client.remoteIP().toString().c_str());
+    }
+
+  }
+
+
+#else
+    if (Settings.webcam_config.rtsp && !TasmotaGlobal.global_state.wifi_down && Wc.up) {
+      if (!Wc.rtsp_start) {
+        Wc.rtspp = new WiFiServer(8554);
+        Wc.rtspp->begin();
+        Wc.rtsp_start = 1;
+        AddLog_P(LOG_LEVEL_INFO, PSTR("CAM: RTSP init"));
+        Wc.rtsp_lastframe_time = millis();
+      }
+
+      // If we have an active client connection, just service that until gone
+      if (Wc.rtsp_session) {
+        Wc.rtsp_session->handleRequests(0); // we don't use a timeout here,
         // instead we send only if we have new enough frames
 
         uint32_t now = millis();
-        if ((now-rtsp_lastframe_time) > RTSP_FRAME_TIME) {
-            rtsp_session->broadcastCurrentFrame(now);
-            rtsp_lastframe_time = now;
+        if ((now-Wc.rtsp_lastframe_time) > RTSP_FRAME_TIME) {
+            Wc.rtsp_session->broadcastCurrentFrame(now);
+            Wc.rtsp_lastframe_time = now;
           //  AddLog_P(LOG_LEVEL_INFO, PSTR("CAM: RTSP session frame"));
         }
 
-        if (rtsp_session->m_stopped) {
-            delete rtsp_session;
-            delete rtsp_streamer;
-            rtsp_session = NULL;
-            rtsp_streamer = NULL;
+        if (Wc.rtsp_session->m_stopped) {
+            delete Wc.rtsp_session;
+            delete Wc.rtsp_streamer;
+            Wc.rtsp_session = NULL;
+            Wc.rtsp_streamer = NULL;
             AddLog_P(LOG_LEVEL_INFO, PSTR("CAM: RTSP stopped"));
         }
-    }
-    else {
-        rtsp_client = rtspServer.accept();
-        if (rtsp_client) {
-            rtsp_streamer = new OV2640Streamer(&rtsp_client, cam);        // our streamer for UDP/TCP based RTP transport
-            rtsp_session = new CRtspSession(&rtsp_client, rtsp_streamer); // our threads RTSP session and state
+      }
+      else {
+        Wc.rtsp_client = Wc.rtspp->accept();
+        if (Wc.rtsp_client) {
+            Wc.rtsp_streamer = new OV2640Streamer(&Wc.rtsp_client, Wc.cam);        // our streamer for UDP/TCP based RTP transport
+            Wc.rtsp_session = new CRtspSession(&Wc.rtsp_client, Wc.rtsp_streamer); // our threads RTSP session and state
             AddLog_P(LOG_LEVEL_INFO, PSTR("CAM: RTSP stream created"));
         }
+      }
     }
+#endif
 #endif
 }
 
@@ -941,24 +979,39 @@ void WcInit(void) {
 #define D_CMND_WC_BRIGHTNESS "Brightness"
 #define D_CMND_WC_CONTRAST "Contrast"
 #define D_CMND_WC_INIT "Init"
+#define D_CMND_RTSP "Rtsp"
 
 const char kWCCommands[] PROGMEM =  D_PRFX_WEBCAM "|"  // Prefix
   "|" D_CMND_WC_STREAM "|" D_CMND_WC_RESOLUTION "|" D_CMND_WC_MIRROR "|" D_CMND_WC_FLIP "|"
   D_CMND_WC_SATURATION "|" D_CMND_WC_BRIGHTNESS "|" D_CMND_WC_CONTRAST "|" D_CMND_WC_INIT
+#ifdef ENABLE_RTSPSERVER
+  "|" D_CMND_RTSP
+#endif // ENABLE_RTSPSERVER
   ;
 
 void (* const WCCommand[])(void) PROGMEM = {
   &CmndWebcam, &CmndWebcamStream, &CmndWebcamResolution, &CmndWebcamMirror, &CmndWebcamFlip,
   &CmndWebcamSaturation, &CmndWebcamBrightness, &CmndWebcamContrast, &CmndWebcamInit
+#ifdef ENABLE_RTSPSERVER
+  , &CmndWebRtsp
+#endif // ENABLE_RTSPSERVER
   };
 
 void CmndWebcam(void) {
   Response_P(PSTR("{\"" D_PRFX_WEBCAM "\":{\"" D_CMND_WC_STREAM "\":%d,\"" D_CMND_WC_RESOLUTION "\":%d,\"" D_CMND_WC_MIRROR "\":%d,\""
     D_CMND_WC_FLIP "\":%d,\""
-    D_CMND_WC_SATURATION "\":%d,\"" D_CMND_WC_BRIGHTNESS "\":%d,\"" D_CMND_WC_CONTRAST "\":%d}}"),
+    D_CMND_WC_SATURATION "\":%d,\"" D_CMND_WC_BRIGHTNESS "\":%d,\"" D_CMND_WC_CONTRAST "\":%d"
+#ifdef ENABLE_RTSPSERVER
+  ",\"" D_CMND_RTSP "\":%d"
+#endif // ENABLE_RTSPSERVER
+  "}}"),
     Settings.webcam_config.stream, Settings.webcam_config.resolution, Settings.webcam_config.mirror,
     Settings.webcam_config.flip,
-    Settings.webcam_config.saturation -2, Settings.webcam_config.brightness -2, Settings.webcam_config.contrast -2);
+    Settings.webcam_config.saturation -2, Settings.webcam_config.brightness -2, Settings.webcam_config.contrast -2
+#ifdef ENABLE_RTSPSERVER
+  , Settings.webcam_config.rtsp
+#endif // ENABLE_RTSPSERVER
+  );
 }
 
 void CmndWebcamStream(void) {
@@ -1021,6 +1074,17 @@ void CmndWebcamInit(void) {
   WcStreamControl();
   ResponseCmndDone();
 }
+
+#ifdef ENABLE_RTSPSERVER
+void CmndWebRtsp(void) {
+  if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload <= 1)) {
+    Settings.webcam_config.rtsp = XdrvMailbox.payload;
+    TasmotaGlobal.restart_flag = 2;
+  }
+  ResponseCmndStateText(Settings.webcam_config.rtsp);
+}
+#endif // ENABLE_RTSPSERVER
+
 
 /*********************************************************************************************\
  * Interface

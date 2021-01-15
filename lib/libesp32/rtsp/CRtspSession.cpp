@@ -35,7 +35,7 @@ void CRtspSession::Init()
 bool CRtspSession::ParseRtspRequest(char const * aRequest, unsigned aRequestSize)
 {
     char CmdName[RTSP_PARAM_STRING_MAX];
-    static char CurRequest[RTSP_BUFFER_SIZE]; // Note: we assume single threaded, this large buf we keep off of the tiny stack
+    //char CurRequest[RTSP_BUFFER_SIZE]; // Note: we assume single threaded, this large buf we keep off of the tiny stack
     unsigned CurRequestSize;
 
     Init();
@@ -375,7 +375,7 @@ bool CRtspSession::handleRequests(uint32_t readTimeoutMs)
     if(m_stopped)
         return false; // Already closed down
 
-    static char RecvBuf[RTSP_BUFFER_SIZE];   // Note: we assume single threaded, this large buf we keep off of the tiny stack
+    //char RecvBuf[RTSP_BUFFER_SIZE];   // Note: we assume single threaded, this large buf we keep off of the tiny stack
 
     memset(RecvBuf,0x00,sizeof(RecvBuf));
     int res = socketread(m_RtspClient,RecvBuf,sizeof(RecvBuf), readTimeoutMs);
