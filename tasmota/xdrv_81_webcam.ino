@@ -44,6 +44,8 @@
  * WcSaturation = Set picture Saturation -2 ... +2
  * WcBrightness = Set picture Brightness -2 ... +2
  * WcContrast   = Set picture Contrast -2 ... +2
+ * WcInit       = Init Camera Interface
+ * WcRtsp       = Control RTSP Server, 0=disable, 1=enable (forces restart) (if defined ENABLE_RTSPSERVER)
  *
  * Only boards with PSRAM should be used. To enable PSRAM board should be se set to esp32cam in common32 of platform_override.ini
  * board                   = esp32cam
@@ -91,6 +93,13 @@ extern ESP8266WebServer *Webserver;
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
+#ifndef MAX_PICSTORE
+#define MAX_PICSTORE 4
+#endif
+struct PICSTORE {
+  uint8_t *buff;
+  uint32_t len;
+};
 
 #ifdef ENABLE_RTSPSERVER
 #include <OV2640.h>
@@ -109,10 +118,12 @@ struct {
   uint8_t  stream_active;
   WiFiClient client;
   ESP8266WebServer *CamServer;
+  struct PICSTORE picstore[MAX_PICSTORE];
 #ifdef USE_FACE_DETECT
   uint8_t  faces;
   uint16_t face_detect_time;
   uint32_t face_ltime;
+  mtmn_config_t mtmn_config = {0};
 #endif // USE_FACE_DETECT
 #ifdef ENABLE_RTSPSERVER
   WiFiServer *rtspp;
@@ -345,18 +356,21 @@ uint32_t WcGetHeight(void) {
 
 /*********************************************************************************************/
 
+struct WC_Motion {
 uint16_t motion_detect;
 uint32_t motion_ltime;
 uint32_t motion_trigger;
 uint32_t motion_brightness;
 uint8_t *last_motion_buffer;
+} wc_motion;
+
 
 uint32_t WcSetMotionDetect(int32_t value) {
-  if (value >= 0) { motion_detect = value; }
+  if (value >= 0) { wc_motion.motion_detect = value; }
   if (-1 == value) {
-    return motion_trigger;
+    return wc_motion.motion_trigger;
   } else  {
-    return motion_brightness;
+    return wc_motion.motion_brightness;
   }
 }
 
@@ -365,22 +379,22 @@ void WcDetectMotion(void) {
   camera_fb_t *wc_fb;
   uint8_t *out_buf = 0;
 
-  if ((millis()-motion_ltime) > motion_detect) {
-    motion_ltime = millis();
+  if ((millis()-wc_motion.motion_ltime) > wc_motion.motion_detect) {
+    wc_motion.motion_ltime = millis();
     wc_fb = esp_camera_fb_get();
     if (!wc_fb) { return; }
 
-    if (!last_motion_buffer) {
-      last_motion_buffer=(uint8_t *)heap_caps_malloc((wc_fb->width*wc_fb->height)+4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!wc_motion.last_motion_buffer) {
+      wc_motion.last_motion_buffer = (uint8_t *)heap_caps_malloc((wc_fb->width*wc_fb->height) + 4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     }
-    if (last_motion_buffer) {
+    if (wc_motion.last_motion_buffer) {
       if (PIXFORMAT_JPEG == wc_fb->format) {
         out_buf = (uint8_t *)heap_caps_malloc((wc_fb->width*wc_fb->height*3)+4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (out_buf) {
           fmt2rgb888(wc_fb->buf, wc_fb->len, wc_fb->format, out_buf);
           uint32_t x, y;
           uint8_t *pxi = out_buf;
-          uint8_t *pxr = last_motion_buffer;
+          uint8_t *pxr = wc_motion.last_motion_buffer;
           // convert to bw
           uint64_t accu = 0;
           uint64_t bright = 0;
@@ -395,8 +409,8 @@ void WcDetectMotion(void) {
               bright += gray;
             }
           }
-          motion_trigger = accu / ((wc_fb->height * wc_fb->width) / 100);
-          motion_brightness = bright / ((wc_fb->height * wc_fb->width) / 100);
+          wc_motion.motion_trigger = accu / ((wc_fb->height * wc_fb->width) / 100);
+          wc_motion.motion_brightness = bright / ((wc_fb->height * wc_fb->width) / 100);
           free(out_buf);
         }
       }
@@ -409,22 +423,20 @@ void WcDetectMotion(void) {
 
 #ifdef USE_FACE_DETECT
 
-static mtmn_config_t mtmn_config = {0};
-
 void fd_init(void) {
-  mtmn_config.type = FAST;
-  mtmn_config.min_face = 80;
-  mtmn_config.pyramid = 0.707;
-  mtmn_config.pyramid_times = 4;
-  mtmn_config.p_threshold.score = 0.6;
-  mtmn_config.p_threshold.nms = 0.7;
-  mtmn_config.p_threshold.candidate_number = 20;
-  mtmn_config.r_threshold.score = 0.7;
-  mtmn_config.r_threshold.nms = 0.7;
-  mtmn_config.r_threshold.candidate_number = 10;
-  mtmn_config.o_threshold.score = 0.7;
-  mtmn_config.o_threshold.nms = 0.7;
-  mtmn_config.o_threshold.candidate_number = 1;
+  Wc.mtmn_config.type = FAST;
+  Wc.mtmn_config.min_face = 80;
+  Wc.mtmn_config.pyramid = 0.707;
+  Wc.mtmn_config.pyramid_times = 4;
+  Wc.mtmn_config.p_threshold.score = 0.6;
+  Wc.mtmn_config.p_threshold.nms = 0.7;
+  Wc.mtmn_config.p_threshold.candidate_number = 20;
+  Wc.mtmn_config.r_threshold.score = 0.7;
+  Wc.mtmn_config.r_threshold.nms = 0.7;
+  Wc.mtmn_config.r_threshold.candidate_number = 10;
+  Wc.mtmn_config.o_threshold.score = 0.7;
+  Wc.mtmn_config.o_threshold.nms = 0.7;
+  Wc.mtmn_config.o_threshold.candidate_number = 1;
 }
 
 #define FACE_COLOR_WHITE  0x00FFFFFF
@@ -518,7 +530,7 @@ uint32_t WcDetectFace(void) {
       return ESP_FAIL;
     }
 
-    box_array_t *net_boxes = face_detect(image_matrix, &mtmn_config);
+    box_array_t *net_boxes = face_detect(image_matrix, &Wc.mtmn_config);
     if (net_boxes){
       detected = true;
       Wc.faces = net_boxes->len;
@@ -543,15 +555,6 @@ uint32_t WcDetectFace(void) {
 
 /*********************************************************************************************/
 
-#ifndef MAX_PICSTORE
-#define MAX_PICSTORE 4
-#endif
-struct PICSTORE {
-  uint8_t *buff;
-  uint32_t len;
-};
-
-struct PICSTORE picstore[MAX_PICSTORE];
 
 #ifdef COPYFRAME
 struct PICSTORE tmp_picstore;
@@ -559,8 +562,8 @@ struct PICSTORE tmp_picstore;
 
 uint32_t WcGetPicstore(int32_t num, uint8_t **buff) {
   if (num<0) { return MAX_PICSTORE; }
-  *buff = picstore[num].buff;
-  return picstore[num].len;
+  *buff = Wc.picstore[num].buff;
+  return Wc.picstore[num].len;
 }
 
 uint32_t WcGetFrame(int32_t bnum) {
@@ -573,8 +576,8 @@ uint32_t WcGetFrame(int32_t bnum) {
     if (bnum < -MAX_PICSTORE) { bnum=-1; }
     bnum = -bnum;
     bnum--;
-    if (picstore[bnum].buff) { free(picstore[bnum].buff); }
-    picstore[bnum].len = 0;
+    if (Wc.picstore[bnum].buff) { free(Wc.picstore[bnum].buff); }
+    Wc.picstore[bnum].len = 0;
     return 0;
   }
 
@@ -615,18 +618,18 @@ uint32_t WcGetFrame(int32_t bnum) {
 pcopy:
   if ((bnum < 1) || (bnum > MAX_PICSTORE)) { bnum = 1; }
   bnum--;
-  if (picstore[bnum].buff) { free(picstore[bnum].buff); }
-  picstore[bnum].buff = (uint8_t *)heap_caps_malloc(_jpg_buf_len+4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (picstore[bnum].buff) {
-    memcpy(picstore[bnum].buff, _jpg_buf, _jpg_buf_len);
-    picstore[bnum].len = _jpg_buf_len;
+  if (Wc.picstore[bnum].buff) { free(Wc.picstore[bnum].buff); }
+  Wc.picstore[bnum].buff = (uint8_t *)heap_caps_malloc(_jpg_buf_len+4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (Wc.picstore[bnum].buff) {
+    memcpy(Wc.picstore[bnum].buff, _jpg_buf, _jpg_buf_len);
+    Wc.picstore[bnum].len = _jpg_buf_len;
   } else {
     AddLog_P(LOG_LEVEL_DEBUG, PSTR("CAM: Can't allocate picstore"));
-    picstore[bnum].len = 0;
+    Wc.picstore[bnum].len = 0;
   }
   if (wc_fb) { esp_camera_fb_return(wc_fb); }
   if (jpeg_converted) { free(_jpg_buf); }
-  if (!picstore[bnum].buff) { return 0; }
+  if (!Wc.picstore[bnum].buff) { return 0; }
 
   return  _jpg_buf_len;
 }
@@ -664,11 +667,11 @@ void HandleImage(void) {
     if (wc_fb) { esp_camera_fb_return(wc_fb); }
   } else {
     bnum--;
-    if (!picstore[bnum].len) {
+    if (!Wc.picstore[bnum].len) {
       AddLog_P(LOG_LEVEL_DEBUG, PSTR("CAM: No image #: %d"), bnum);
       return;
     }
-    client.write((char *)picstore[bnum].buff, picstore[bnum].len);
+    client.write((char *)Wc.picstore[bnum].buff, Wc.picstore[bnum].len);
   }
   client.stop();
 
@@ -853,7 +856,7 @@ void WcLoop(void) {
     Wc.CamServer->handleClient();
     if (Wc.stream_active) { HandleWebcamMjpegTask(); }
   }
-  if (motion_detect) { WcDetectMotion(); }
+  if (wc_motion.motion_detect) { WcDetectMotion(); }
 #ifdef USE_FACE_DETECT
   if (Wc.face_detect_time) { WcDetectFace(); }
 #endif
