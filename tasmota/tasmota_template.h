@@ -146,6 +146,7 @@ enum UserSelectablePins {
   GPIO_ROT1A_NP, GPIO_ROT1B_NP,        // Rotary switch
   GPIO_ADC_PH,                         // Analog PH Sensor
   GPIO_BS814_CLK, GPIO_BS814_DAT,      // Holtek BS814A2 touch ctrlr
+  GPIO_CC1101_CS,
   GPIO_SENSOR_END };
 
 enum ProgramSelectablePins {
@@ -312,6 +313,7 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_ROTARY " A_n|" D_SENSOR_ROTARY " B_n|"
   D_SENSOR_ADC_PH "|"
   D_SENSOR_BS814_CLK "|" D_SENSOR_BS814_DAT "|"
+  D_SENSOR_CC1101_CS "|"
   ;
 
 const char kSensorNamesFixed[] PROGMEM =
@@ -528,6 +530,9 @@ const uint16_t kGpioNiceList[] PROGMEM = {
 #ifdef USE_HX711
   AGPIO(GPIO_HX711_SCK),      // HX711 Load Cell clock
   AGPIO(GPIO_HX711_DAT),      // HX711 Load Cell data
+#endif
+#ifdef USE_MORITZ
+  AGPIO(GPIO_CC1101_CS),
 #endif
 
 /*-------------------------------------------------------------------------------------------*\
