@@ -382,7 +382,7 @@ uint32_t i2s_record(char *path, uint32_t secs) {
   //AddLog_P(LOG_LEVEL_INFO, PSTR("rectime: %d ms"), millis()-stime);
   SpeakerMic(MODE_SPK);
   // save to path
-  SaveWav(mic_path, mic_buff, mic_size);
+  SaveWav(path, mic_buff, mic_size);
   free(mic_buff);
   return 0;
 }
@@ -393,7 +393,8 @@ static const uint8_t wavHTemplate[] PROGMEM = { // Hardcoded simple WAV header w
     0x64, 0x61, 0x74, 0x61, 0xff, 0xff, 0xff, 0xff };
 
 bool SaveWav(char *path, uint8_t *buff, uint32_t size) {
-  File fwp = ufsp->open(path, FILE_WRITE);
+  File fwp = ufsp->open(path, "w");
+  if (!fwp) return false;
   uint8_t wavHeader[sizeof(wavHTemplate)];
   memcpy_P(wavHeader, wavHTemplate, sizeof(wavHTemplate));
 
