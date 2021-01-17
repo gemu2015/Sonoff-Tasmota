@@ -1983,6 +1983,9 @@ chknext:
             case 11:
               fvar = Energy.daily;
               break;
+            case 12:
+              fvar = (float)Settings.energy_kWhyesterday/100000.0;
+              break;
 
             default:
               fvar = 99999;
@@ -1990,11 +1993,6 @@ chknext:
           }
           len = 0;
           lp++;
-          goto exit;
-        }
-        if (!strncmp(vname, "enrsv", 5)) {
-          EnergySaveState();
-          fvar = 0;
           goto exit;
         }
 #endif //USE_ENERGY_SENSOR
