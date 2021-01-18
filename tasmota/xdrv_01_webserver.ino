@@ -2331,6 +2331,11 @@ void HandleUploadDone(void) {
   WSContentStop();
 }
 
+#ifdef USE_BLE_ESP32
+  // declare the fn
+  int ExtStopBLE();
+#endif
+
 void UploadServices(uint32_t start_service) {
   if (Web.upload_services_stopped != start_service) { return; }
   Web.upload_services_stopped = !start_service;
@@ -2355,6 +2360,9 @@ void UploadServices(uint32_t start_service) {
   } else {
 //    AddLog_P(LOG_LEVEL_DEBUG, PSTR("UPL: Services disabled"));
 
+#ifdef USE_BLE_ESP32
+    ExtStopBLE();
+#endif
 #ifdef USE_EMULATION
     UdpDisconnect();
 #endif  // USE_EMULATION
@@ -2632,7 +2640,9 @@ void HandleUploadLoop(void) {
     Web.upload_error = 7;  // Upload aborted
     if (UPL_TASMOTA == Web.upload_file_type) { Update.end(); }
   }
-  delay(0);
+  // do actually wait a little to allow ESP32 tasks to tick
+  // fixes task timeout in ESP32Solo1 style unicore code.
+  delay(10);
   OsWatchLoop();
 //  Scheduler();          // Feed OsWatch timer to prevent restart on long uploads
 }

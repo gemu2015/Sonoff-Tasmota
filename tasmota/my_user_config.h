@@ -401,6 +401,9 @@
 //  #define USE_MQTT_AWS_IOT                       // [Deprecated] Enable MQTT for AWS IoT - requires a private key (+11.9k code, +0.4k mem)
                                                  //   Note: you need to generate a private key + certificate per device and update 'tasmota/tasmota_aws_iot.cpp'
                                                  //   Full documentation here: https://github.com/arendst/Tasmota/wiki/AWS-IoT
+//  #define USE_MQTT_TLS_DROP_OLD_FINGERPRINT      // If you use fingerprint (i.e. not CA) validation, the algorithm changed to a more secure one.
+                                                   // Any valid fingerprint with the old algo will be automatically updated to the new algo.
+                                                   // Enable this if you want to disable the old algo check, which should be more secure
 //  for USE_4K_RSA (support for 4096 bits certificates, instead of 2048), you need to uncommend `-DUSE_4K_RSA` in `build_flags` from `platform.ini` or `platform_override.ini`
 
 // -- Telegram Protocol ---------------------------
@@ -710,6 +713,7 @@
   #define MAX31865_REF_RES    430                // Reference resistor (Usually 430Ω for a PT100, 4300Ω for a PT1000)
   #define MAX31865_PTD_BIAS   0                  // To calibrate your not-so-good PTD
 //#define USE_LMT01                                // Add support for TI LMT01 temperature sensor, count pulses on single GPIO (+0k5 code)
+//#define USE_WIEGAND                              // Add support for 24/26/32/34 bit RFID Wiegand interface (D0/D1) (+1k7 code)
 
 // -- IR Remote features - all protocols from IRremoteESP8266 --------------------------
 // IR Full Protocols mode is activated through platform.io only.
@@ -766,8 +770,6 @@
   #define USE_ZIGBEE_MAXTIME_TRV            60*10     // 10m
   #define USE_ZIGBEE_MAXTIME_SENSOR         60*60     // 1h
   #define USE_ZIGBEE_MAXTIME_LIGHT          60*60     // 1h
-
-
 
 // -- Other sensors/drivers -----------------------
 
@@ -859,6 +861,9 @@
 
 //#define USE_SPI                                  // Add support for hardware SPI
 #define USE_MI_ESP32                             // Add support for ESP32 as a BLE-bridge (+9k2 mem, +292k flash)
+//#define USE_BLE_ESP32                             // Add support for ESP32 as a BLE-bridge (+9k2? mem, +292k? flash)
+//#define USE_IBEACON                              // Add support for bluetooth LE passive scan of ibeacon devices (uses HM17 module)
+//#define USE_IBEACON_ESP32
 //#define USE_WEBCAM                               // Add support for webcam
 
 #endif  // ESP32
