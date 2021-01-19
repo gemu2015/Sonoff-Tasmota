@@ -3073,17 +3073,24 @@ chknext:
 #if 1
         if (!strncmp(vname, "test(", 5)) {
           lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, 0);
-
-          char sbuffer[128];
+          uint32_t cycles;
+          uint64_t accu=0;
+          char sbuffer[32];
+          // PSTR performance test
+          // this is best case since everything will be in cache
+          // PSTR at least 3 times slower here, will be much slower if cache missed
           for (uint16 cnt=0; cnt<1000; cnt++) {
+            cycles=ESP.getCycleCount();
             if (fvar>0) {
               snprintf_P(sbuffer, sizeof(sbuffer), PSTR("1234"));
             } else {
               snprintf(sbuffer, sizeof(sbuffer), "1234");
             }
+            accu += ESP.getCycleCount()-cycles;
           }
           lp++;
           len = 0;
+          fvar = accu / 1000;
           goto exit;
         }
 #endif
