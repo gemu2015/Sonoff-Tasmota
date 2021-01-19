@@ -463,7 +463,7 @@
 // xdrv_23_zigbee
 #define D_ZIGBEE_PERMITJOIN_ACTIVE "Gerätekopplung erlaubt"
 #define D_ZIGBEE_MAPPING_TITLE "Tasmota Zigbee Karte"
-#define D_ZIGBEE_NOT_STARTED "Zigbee nicht gestartet"
+//#define D_ZIGBEE_NOT_STARTED "Zigbee nicht gestartet"
 #define D_ZIGBEE_MAPPING_IN_PROGRESS_SEC "Karte in Erstellung (%d s. verbleibend)"
 #define D_ZIGBEE_MAPPING_NOT_PRESENT "Keine Karte"
 #define D_ZIGBEE_MAP_REFRESH "Zigbee Karte erneuern"

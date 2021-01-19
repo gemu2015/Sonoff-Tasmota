@@ -3070,6 +3070,23 @@ chknext:
 
 #endif //USE_TOUCH_BUTTONS
 #endif //USE_DISPLAY
+#if 1
+        if (!strncmp(vname, "test(", 5)) {
+          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, 0);
+
+          char sbuffer[128];
+          for (uint16 cnt=0; cnt<1000; cnt++) {
+            if (fvar>0) {
+              snprintf_P(sbuffer, sizeof(sbuffer), PSTR("1234"));
+            } else {
+              snprintf(sbuffer, sizeof(sbuffer), "1234");
+            }
+          }
+          lp++;
+          len = 0;
+          goto exit;
+        }
+#endif
         break;
       case 'u':
         if (!strncmp(vname, "uptime", 6)) {
