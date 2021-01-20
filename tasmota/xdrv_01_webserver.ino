@@ -2111,9 +2111,9 @@ void HandleInformation(void)
     }
   }
   if (!TasmotaGlobal.global_state.network_down) {
-    WSContentSend_P(PSTR("}1" D_GATEWAY "}2%s"), IPAddress(Settings.ip_address[1]).toString().c_str());
-    WSContentSend_P(PSTR("}1" D_SUBNET_MASK "}2%s"), IPAddress(Settings.ip_address[2]).toString().c_str());
-    WSContentSend_P(PSTR("}1" D_DNS_SERVER "}2%s"), IPAddress(Settings.ip_address[3]).toString().c_str());
+    WSContentSend_P(PSTR("}1" D_GATEWAY "}2%s"), IPAddress(Settings.ipv4_address[1]).toString().c_str());
+    WSContentSend_P(PSTR("}1" D_SUBNET_MASK "}2%s"), IPAddress(Settings.ipv4_address[2]).toString().c_str());
+    WSContentSend_P(PSTR("}1" D_DNS_SERVER "}2%s"), IPAddress(Settings.ipv4_address[3]).toString().c_str());
   }
   if ((WiFi.getMode() >= WIFI_AP) && (static_cast<uint32_t>(WiFi.softAPIP()) != 0)) {
     WSContentSend_P(PSTR("}1<hr/>}2<hr/>"));
@@ -2127,7 +2127,7 @@ void HandleInformation(void)
     WSContentSend_P(PSTR("}1" D_MQTT_PORT "}2%d"), Settings.mqtt_port);
 #ifdef USE_MQTT_TLS
     WSContentSend_P(PSTR("}1" D_MQTT_TLS_ENABLE "}2%s"), Settings.flag4.mqtt_tls ? PSTR(D_ENABLED) : PSTR(D_DISABLED));
-#endif // USE_MQTT_TLS
+#endif  // USE_MQTT_TLS
     WSContentSend_P(PSTR("}1" D_MQTT_USER "}2%s"), SettingsText(SET_MQTT_USER));
     WSContentSend_P(PSTR("}1" D_MQTT_CLIENT "}2%s"), TasmotaGlobal.mqtt_client);
     WSContentSend_P(PSTR("}1" D_MQTT_TOPIC "}2%s"), SettingsText(SET_MQTT_TOPIC));
@@ -2144,14 +2144,13 @@ void HandleInformation(void)
   } else {
     WSContentSend_P(PSTR("}1" D_MQTT "}2" D_DISABLED));
   }
-  WSContentSend_P(PSTR("}1}2&nbsp;"));  // Empty line
 
+#if defined(USE_EMULATION) || defined(USE_DISCOVERY)
+  WSContentSend_P(PSTR("}1}2&nbsp;"));  // Empty line
+#endif  // USE_EMULATION or USE_DISCOVERY
 #ifdef USE_EMULATION
   WSContentSend_P(PSTR("}1" D_EMULATION "}2%s"), GetTextIndexed(stopic, sizeof(stopic), Settings.flag2.emulation, kEmulationOptions));
-#else
-  WSContentSend_P(PSTR("}1" D_EMULATION "}2" D_DISABLED));
-#endif // USE_EMULATION
-
+#endif  // USE_EMULATION
 #ifdef USE_DISCOVERY
   WSContentSend_P(PSTR("}1" D_MDNS_DISCOVERY "}2%s"), (Settings.flag3.mdns_enabled) ? D_ENABLED : D_DISABLED);  // SetOption55 - Control mDNS service
   if (Settings.flag3.mdns_enabled) {  // SetOption55 - Control mDNS service
@@ -2159,11 +2158,9 @@ void HandleInformation(void)
     WSContentSend_P(PSTR("}1" D_MDNS_ADVERTISE "}2" D_WEB_SERVER));
 #else
     WSContentSend_P(PSTR("}1" D_MDNS_ADVERTISE "}2" D_DISABLED));
-#endif // WEBSERVER_ADVERTISE
+#endif  // WEBSERVER_ADVERTISE
   }
-#else
-  WSContentSend_P(PSTR("}1" D_MDNS_DISCOVERY "}2" D_DISABLED));
-#endif // USE_DISCOVERY
+#endif  // USE_DISCOVERY
 
   WSContentSend_P(PSTR("}1}2&nbsp;"));  // Empty line
   WSContentSend_P(PSTR("}1" D_ESP_CHIP_ID "}2%d"), ESP_getChipId());
@@ -2344,7 +2341,6 @@ void UploadServices(uint32_t start_service) {
   if (start_service) {
 //    AddLog_P(LOG_LEVEL_DEBUG, PSTR("UPL: Services enabled"));
 
-    TasmotaGlobal.restart_flag = 0;
 /*
     MqttRetryCounter(0);
 */
@@ -2379,7 +2375,6 @@ void UploadServices(uint32_t start_service) {
       MqttDisconnect();
     }
 */
-    TasmotaGlobal.restart_flag = 120;  // Set restart watchdog after 2 minutes
   }
 }
 
@@ -2432,7 +2427,6 @@ void HandleUploadLoop(void) {
         Web.upload_error = 2;
         return;
       }
-      TasmotaGlobal.restart_flag = 0;
     }
 #endif  // USE_UFILESYS
   }
