@@ -16,6 +16,8 @@ All notable changes to this project will be documented in this file.
 - Compile time option ``USE_MQTT_TLS_DROP_OLD_FINGERPRINT`` to drop old (less secure) TLS fingerprint
 - Command ``SetOption40 0..250`` to disable button functionality if activated for over 0.1 second re-introduced
 - Support for SM2135 current selection using GPIO ``SM2135 DAT`` index (#10634)
+- Basic support for ESP32 M5stack core2 16MB binary tasmota32-core2.bin (#10635)
+- Support for Sugar Valley NeoPool Controller by Norbert Richter (#10637)
 
 ### Breaking Changed
 - ESP32 switch from default SPIFFS to default LittleFS file system loosing current (zigbee) files
@@ -24,6 +26,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Force initial default state ``SetOption57 1`` to scan wifi network every 44 minutes for strongest signal (#10395)
 - Command ``Sleep 0`` removes any sleep from wifi modem except when ESP32 BLE is active
+- PubSubClient MQTT_SOCKET_TIMEOUT from 15 to 4 seconds
 
 ## [9.2.0.2] 20210105
 ### Added
