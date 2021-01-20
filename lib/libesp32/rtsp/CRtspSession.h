@@ -72,5 +72,9 @@ private:
     unsigned m_ContentLength;                                 // SDP string size
     char CurRequest[RTSP_BUFFER_SIZE];
     char RecvBuf[RTSP_BUFFER_SIZE];
-    char session_buf[200];
+    char session_buf[128];
+    char CmdName[RTSP_PARAM_STRING_MAX];
+    char Transport[255];
+    char Response[1024];
+    char OBuf[256];
 };

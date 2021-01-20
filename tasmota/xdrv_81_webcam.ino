@@ -56,6 +56,7 @@
  * not tolerate any capictive load
  * flash led = gpio 4
  * red led = gpio 33
+ * optional rtsp url: rtsp://xxx.xxx.xxx.xxx:8554/mjpeg/1
  */
 
 /*********************************************************************************************/
