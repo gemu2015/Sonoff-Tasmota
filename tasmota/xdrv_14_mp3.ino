@@ -148,6 +148,60 @@ void MP3PlayerInit(void) {
   return;
 }
 
+
+#ifdef DY_SV17F
+
+/*********************************************************************************************\
+ * specific for DY_SV17F
+ * create the MP3 commands payload, and send it via serial interface to the MP3 player
+ * only track,play,stop and volume supported
+\*********************************************************************************************/
+
+void MP3_SendCmd(uint8_t *scmd, uint8_t len) {
+uint16_t sum = 0;
+  for (uint32_t cnt = 0; cnt < len; cnt++) {
+    sum += scmd[cnt];
+  }
+  scmd[len] = sum;
+  MP3Player->write(scmd, len + 1);
+}
+
+void MP3_CMD(uint8_t mp3cmd, uint16_t val) {
+  uint8_t scmd[8];
+  uint8_t len = 0;
+  scmd[0]=0xAA;
+  switch (mp3cmd) {
+    case MP3_CMD_TRACK:
+      scmd[1]=0x07;
+      scmd[2]=0x02;
+      scmd[3]=val>>8;
+      scmd[4]=val;
+      MP3_SendCmd(scmd, 5);
+    case MP3_CMD_PLAY:
+      scmd[1]=0x02;
+      scmd[2]=0x00;
+      scmd[3]=0xAC;
+      len = 4;
+      break;
+    case MP3_CMD_STOP:
+      scmd[1]=0x10;
+      scmd[2]=0x00;
+      scmd[3]=0xBA;
+      len = 4;
+      break;
+    case MP3_CMD_VOLUME:
+      scmd[1]=0x13;
+      scmd[2]=0x01;
+      scmd[3]=val;
+      len = 4;
+      break;
+    default:
+      return;
+  }
+  MP3_SendCmd(scmd, len);
+}
+
+#else
 /*********************************************************************************************\
  * create the MP3 commands payload, and send it via serial interface to the MP3 player
  * data length is 6 = 6 bytes [FF 06 09 00 00 00] but not counting the start, end, and verification.
@@ -173,7 +227,7 @@ void MP3_CMD(uint8_t mp3cmd,uint16_t val) {
   }
   return;
 }
-
+#endif
 /*********************************************************************************************\
  * check the MP3 commands
 \*********************************************************************************************/
@@ -202,7 +256,9 @@ bool MP3PlayerCmd(void) {
         }
         Response_P(S_JSON_MP3_COMMAND_NVALUE, command, XdrvMailbox.payload);
         break;
+#if !defined(DY_SV17F)
       case CMND_MP3_PLAY:
+#endif // DY_SV17F
       case CMND_MP3_PAUSE:
       case CMND_MP3_STOP:
       case CMND_MP3_RESET:
@@ -213,6 +269,32 @@ bool MP3PlayerCmd(void) {
         if (command_code == CMND_MP3_RESET)    { MP3_CMD(MP3_CMD_RESET,  0); }
         Response_P(S_JSON_MP3_COMMAND, command, XdrvMailbox.payload);
         break;
+
+#ifdef DY_SV17F
+      case CMND_MP3_PLAY:
+        if (XdrvMailbox.data_len > 0) {
+          uint8_t scmd[64];
+          scmd[0] = 0xAA;
+          scmd[1] = 0x08;
+          scmd[2] = XdrvMailbox.data_len + 1;
+          scmd[3] = 2;
+          char *cp = XdrvMailbox.data;
+          scmd[4] = *cp;
+          for (uint8_t i = 1; i < XdrvMailbox.data_len; i++) {
+            if (cp[i]=='.') {
+              scmd[i + 4] = '*';
+            } else {
+              scmd[i + 4] = toupper(cp[i]);
+            }
+          }
+          MP3_SendCmd(scmd, XdrvMailbox.data_len + 4);
+          Response_P(S_JSON_COMMAND_SVALUE, command, XdrvMailbox.data);
+        } else {
+          MP3_CMD(MP3_CMD_PLAY, 0);
+          Response_P(S_JSON_MP3_COMMAND, command, XdrvMailbox.payload);
+        }
+        break;
+#endif
       default:
     	  // else for Unknown command
     	  serviced = false;
