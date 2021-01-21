@@ -46,12 +46,8 @@ adapt 3 options
 \*********************************************************************************************/
 
 #define XDRV_10             10
-#define XI2C_37             37  // See I2CDEVICES.md
 
 #define SCRIPT_DEBUG 0
-
-#define FORMAT_SPIFFS_IF_FAILED true
-
 
 #ifndef MAXVARS
 #define MAXVARS 50
@@ -204,9 +200,6 @@ void alt_eeprom_readBytes(uint32_t adr, uint32_t len, uint8_t *buf) {
 //#include <LittleFS.h>
 #endif
 
-#ifndef UFILESYSTEM
-//FS *ufsp;
-#endif
 
 #endif // LITTLEFS_SCRIPT_SIZE
 
@@ -217,75 +210,19 @@ void alt_eeprom_readBytes(uint32_t adr, uint32_t len, uint8_t *buf) {
 enum {OPER_EQU=1,OPER_PLS,OPER_MIN,OPER_MUL,OPER_DIV,OPER_PLSEQU,OPER_MINEQU,OPER_MULEQU,OPER_DIVEQU,OPER_EQUEQU,OPER_NOTEQU,OPER_GRTEQU,OPER_LOWEQU,OPER_GRT,OPER_LOW,OPER_PERC,OPER_XOR,OPER_AND,OPER_OR,OPER_ANDEQU,OPER_OREQU,OPER_XOREQU,OPER_PERCEQU};
 enum {SCRIPT_LOGLEVEL=1,SCRIPT_TELEPERIOD,SCRIPT_EVENT_HANDLED};
 
-#ifdef USE_SCRIPT_FATFS
 
-#if USE_SCRIPT_FATFS>=0
-//#include <SPI.h>
-//#include <SD.h>
-//#include <FS.h>
-
-#ifdef ESP32
-//#include "FFat.h"
-#ifndef UFILESYSTEM
-//FS *ufsp;
-#endif
-#else
-#ifndef UFILESYSTEM
-//SDClass *ufsp;
-#endif
-#endif
-#endif //USE_SCRIPT_FATFS
-
-#ifndef FAT_SCRIPT_SIZE
-#define FAT_SCRIPT_SIZE 4096
-#endif
-
-
-#ifndef ESP32
-// esp8266
-
-#if USE_SCRIPT_FATFS>=0
-// old fs
-//#undef FILE_WRITE
-//#define FILE_WRITE (sdfat::O_READ | sdfat::O_WRITE | sdfat::O_CREAT)
-//#undef FILE_APPEND
-//#define FILE_APPEND (sdfat::O_READ | sdfat::O_WRITE | sdfat::O_CREAT | sdfat::O_APPEND)
-
-#else
-// new fs
-//undef FILE_WRITE
-//#define FILE_WRITE "w"
-//#undef FILE_READ
-//#define FILE_READ "r"
-//#undef FILE_APPEND
-//#define FILE_APPEND "a"
-#endif
-
-#endif // USE_SCRIPT_FATFS>=0
-
-
+#ifdef USE_UFILESYS
 extern uint8_t ufs_type;
 extern FS *ufsp;
-
 
 #ifndef UFSYS_SIZE
 #define UFSYS_SIZE 8192
 #endif
 
-
-#ifdef ESP32
-#undef FAT_SCRIPT_NAME
 #define FAT_SCRIPT_NAME "/script.txt"
-#else
-#undef FAT_SCRIPT_NAME
-#define FAT_SCRIPT_NAME "/script.txt"
-#endif
 
-//#if USE_STANDARD_SPI_LIBRARY==0
-//#warning ("FATFS standard spi should be used");
-//#endif
+#endif // USE_UFILESYS
 
-#endif // USE_SCRIPT_FATFS
 
 #ifdef SUPPORT_MQTT_EVENT
   #include <LinkedList.h>                 // Import LinkedList library
@@ -300,6 +237,9 @@ extern FS *ufsp;
 #ifdef USE_DISPLAY
 #ifdef USE_TOUCH_BUTTONS
 #include <renderer.h>
+#ifndef MAX_TOUCH_BUTTONS
+#define MAX_TOUCH_BUTTONS 16
+#endif
 extern VButton *buttons[MAX_TOUCH_BUTTONS];
 #endif
 #endif
