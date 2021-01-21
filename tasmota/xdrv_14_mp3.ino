@@ -1,7 +1,7 @@
 /*
   xdrv_14_mp3.ino - MP3 support for Tasmota
 
-  Copyright (C) 2020  gemu2015, mike2nl and Theo Arends
+  Copyright (C) 2021  gemu2015, mike2nl and Theo Arends
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -19,6 +19,13 @@
   --------------------------------------------------------------------------------------------
   Version yyyymmdd  Action    Description
   --------------------------------------------------------------------------------------------
+  1.0.0.5 20210121  added   - support for DY_SV17F Player (#define USE_DY_SV17F)
+                            - cmds supported:
+                            - track
+                            - volume
+                            - play
+                            - play /path
+
   1.0.0.4 20181003  added   - MP3Reset command in case that the player do rare things
                             - and needs a reset, the default volume will be set again too
                     added   - MP3_CMD_RESET_VALUE for the player reset function
@@ -149,7 +156,7 @@ void MP3PlayerInit(void) {
 }
 
 
-#ifdef DY_SV17F
+#ifdef USE_DY_SV17F
 
 /*********************************************************************************************\
  * specific for DY_SV17F
@@ -227,7 +234,7 @@ void MP3_CMD(uint8_t mp3cmd,uint16_t val) {
   }
   return;
 }
-#endif
+#endif // USE_DY_SV17F
 /*********************************************************************************************\
  * check the MP3 commands
 \*********************************************************************************************/
@@ -256,9 +263,9 @@ bool MP3PlayerCmd(void) {
         }
         Response_P(S_JSON_MP3_COMMAND_NVALUE, command, XdrvMailbox.payload);
         break;
-#if !defined(DY_SV17F)
+#ifndef USE_DY_SV17F
       case CMND_MP3_PLAY:
-#endif // DY_SV17F
+#endif // USE_DY_SV17F
       case CMND_MP3_PAUSE:
       case CMND_MP3_STOP:
       case CMND_MP3_RESET:
@@ -270,7 +277,7 @@ bool MP3PlayerCmd(void) {
         Response_P(S_JSON_MP3_COMMAND, command, XdrvMailbox.payload);
         break;
 
-#ifdef DY_SV17F
+#ifdef USE_DY_SV17F
       case CMND_MP3_PLAY:
         if (XdrvMailbox.data_len > 0) {
           uint8_t scmd[64];
@@ -294,7 +301,7 @@ bool MP3PlayerCmd(void) {
           Response_P(S_JSON_MP3_COMMAND, command, XdrvMailbox.payload);
         }
         break;
-#endif
+#endif // USE_DY_SV17F
       default:
     	  // else for Unknown command
     	  serviced = false;
