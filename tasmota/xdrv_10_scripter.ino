@@ -7319,6 +7319,8 @@ uint32_t call2https(const char *host, const char *path) {
 #endif
 
   httpsClient->setTimeout(1500);
+  httpsClient->setInsecure();
+
 
   uint32_t retry = 0;
   while ((!httpsClient->connect(host, 443)) && (retry < 5)) {
