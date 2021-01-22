@@ -1559,10 +1559,11 @@ void SML_Decode(uint8_t index) {
             // get numeric values
             if (meter_desc_p[mindex].type=='o' || meter_desc_p[mindex].type=='c') {
               if (*mp == '(') {
+                mp++;
                 // skip this bracket
-                char *bp = strchr(cp, '(');
+                char *bp = strchr((char*)cp, '(');
                 if (bp) {
-                  cp = bp + 1;
+                  cp = (uint8_t*) (bp + 1);
                 }
                 dval=CharToDouble((char*)cp);
               } else {
