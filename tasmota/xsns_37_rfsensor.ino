@@ -1,7 +1,7 @@
 /*
   xsns_37_rfsensor.ino - RF sensor receiver for Tasmota
 
-  Copyright (C) 2020  Theo Arends
+  Copyright (C) 2021  Theo Arends
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -619,7 +619,7 @@ void RfSnsInit(void)
 
 void RfSnsAnalyzeRawSignal(void)
 {
-  AddLog_P(LOG_LEVEL_DEBUG, PSTR("RFS: Pulses %d"), (int)rfsns_raw_signal->Number);
+  AddLog(LOG_LEVEL_DEBUG, PSTR("RFS: Pulses %d"), (int)rfsns_raw_signal->Number);
 
 #ifdef USE_THEO_V2
     RfSnsAnalyzeTheov2();

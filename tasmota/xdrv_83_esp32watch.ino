@@ -1,7 +1,7 @@
 /*
   xdrv_83_esp32watch.ino - ESP32 TTGO watch support for Tasmota
 
-  Copyright (C) 2020  Gerhard Mutz and Theo Arends
+  Copyright (C) 2021  Gerhard Mutz and Theo Arends
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -378,11 +378,11 @@ uint8_t data;
 
           if (ttgo_globs.bma->isDoubleClick()) {
             ttgo_globs.bma_double_click = true;
-            //AddLog_P(LOG_LEVEL_INFO, PSTR("double click"));
+            //AddLog(LOG_LEVEL_INFO, PSTR("double click"));
           }
           if (ttgo_globs.bma->isAnyNoMotion()) {
             ttgo_globs.bma_click = true;
-            //AddLog_P(LOG_LEVEL_INFO, PSTR("click"));
+            //AddLog(LOG_LEVEL_INFO, PSTR("click"));
           }
 
           //! setp counter
@@ -408,7 +408,7 @@ uint8_t data;
           }
           if (ttgo_globs.ttgo_power->isPEKShortPressIRQ()) {
             ttgo_globs.bma_button = true;
-            //AddLog_P(LOG_LEVEL_INFO, PSTR("button press"));
+            //AddLog(LOG_LEVEL_INFO, PSTR("button press"));
           }
           ttgo_globs.ttgo_power->clearIRQ();
           break;

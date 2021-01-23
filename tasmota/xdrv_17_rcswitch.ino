@@ -1,7 +1,7 @@
 /*
   xdrv_17_rcswitch.ino - RF transceiver using RcSwitch library for Tasmota
 
-  Copyright (C) 2020  Theo Arends
+  Copyright (C) 2021  Theo Arends
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -56,7 +56,7 @@ void RfReceiveCheck(void) {
     int protocol = mySwitch.getReceivedProtocol();
     int delay = mySwitch.getReceivedDelay();
 
-    AddLog_P(LOG_LEVEL_DEBUG, PSTR("RFR: Data 0x%lX (%u), Bits %d, Protocol %d, Delay %d"), data, data, bits, protocol, delay);
+    AddLog(LOG_LEVEL_DEBUG, PSTR("RFR: Data 0x%lX (%u), Bits %d, Protocol %d, Delay %d"), data, data, bits, protocol, delay);
 
     uint32_t now = millis();
     if ((now - rf_lasttime > RF_TIME_AVOID_DUPLICATE) && (data > 0)) {
@@ -130,7 +130,7 @@ void CmndRfProtocol(void) {
     }
   }
   mySwitch.setReceiveProtocolMask(Settings.rf_protocol_mask);
-//  AddLog_P(LOG_LEVEL_INFO, PSTR("RFR: CmndRfProtocol:: Start responce"));
+//  AddLog(LOG_LEVEL_INFO, PSTR("RFR: CmndRfProtocol:: Start responce"));
   Response_P(PSTR("{\"" D_CMND_RFPROTOCOL "\":\""));
   bool gotone = false;
   thisdat = 1;
