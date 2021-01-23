@@ -1,7 +1,7 @@
 /*
   xdrv_84_core2.ino - ESP32 m5stack core2 support for Tasmota
 
-  Copyright (C) 2020  Gerhard Mutz and Theo Arends
+  Copyright (C) 2021  Gerhard Mutz and Theo Arends
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -34,7 +34,6 @@ rtc better sync
 #include <AXP192.h>
 #include <MPU6886.h>
 #include <BM8563_RTC.h>
-#include <i2c_bus.h>
 #include <soc/rtc.h>
 
 #define XDRV_84          84
