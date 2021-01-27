@@ -1,5 +1,7 @@
 /*
-  xsns_62_MI_ESP32.ino - MI-BLE-sensors via ESP32 support for Tasmota
+  xsns_62_esp32_mi.ino - MI-BLE-sensors via ESP32 support for Tasmota
+  enabled by ESP32 && !USE_BLE_ESP32
+  if (ESP32 && USE_BLE_ESP32) then xsns_62_esp32_mi_ble.ino is used
 
   Copyright (C) 2021  Christian Baars and Theo Arends
 
@@ -2052,9 +2054,8 @@ void MI32Show(bool json)
               ||(hass_mode!=-1)
 #endif //USE_HOME_ASSISTANT
             ) {
-              char temperature[FLOATSZ];
-              dtostrfd(MIBLEsensors[i].temp, Settings.flag2.temperature_resolution, temperature);
-              ResponseAppend_P(PSTR(",\"" D_JSON_TEMPERATURE "\":%s"), temperature);
+              ResponseAppend_P(PSTR(",\"" D_JSON_TEMPERATURE "\":%*_f"),
+                Settings.flag2.temperature_resolution, &MIBLEsensors[i].temp);
             }
           }
         }
@@ -2211,9 +2212,7 @@ void MI32Show(bool json)
         WSContentSend_PD(HTTP_RSSI, kMI32DeviceType[MIBLEsensors[i].type-1], MIBLEsensors[i].RSSI);
         if (MIBLEsensors[i].type==FLORA) {
           if (!isnan(MIBLEsensors[i].temp)) {
-            char temperature[FLOATSZ];
-            dtostrfd(MIBLEsensors[i].temp, Settings.flag2.temperature_resolution, temperature);
-            WSContentSend_PD(HTTP_SNS_TEMP, kMI32DeviceType[MIBLEsensors[i].type-1], temperature, TempUnit());
+            WSContentSend_Temp(kMI32DeviceType[MIBLEsensors[i].type-1], MIBLEsensors[i].temp);
           }
           if (MIBLEsensors[i].moisture!=0xff) {
             WSContentSend_PD(HTTP_SNS_MOISTURE, kMI32DeviceType[MIBLEsensors[i].type-1], MIBLEsensors[i].moisture);
