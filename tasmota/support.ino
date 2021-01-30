@@ -253,8 +253,9 @@ uint32_t ChrCount(const char *str, const char *delim) {
 }
 
 // Function to return a substring defined by a delimiter at an index
-char* subStr(char* dest, char* str, const char *delim, int index)
-{
+char* subStr(char* dest, char* str, const char *delim, int index) {
+/*
+  // Exceptions on empty fields
   char *act;
   char *sub = nullptr;
   char *ptr;
@@ -266,6 +267,22 @@ char* subStr(char* dest, char* str, const char *delim, int index)
     sub = strtok_r(act, delim, &ptr);
     if (sub == nullptr) break;
   }
+  return sub;
+*/
+  uint32_t len = strlen(str) -1;
+  // Since strtok consumes the first arg, make a copy
+  strncpy(dest, str, len +2);
+  // Since strtok_r will exception if last char is delim change to space
+  if (strchr(delim, dest[len]) != nullptr) { dest[len] = ' '; }
+
+  char *ptr = dest;
+  char *sub;
+  int i = index;
+  while ( ptr && ((sub = strtok_r(ptr, delim, &ptr))) && (--i) ) {
+//    Serial.printf("%s|", sub);
+  }
+//  Serial.printf("%s|=\n|", sub);
+
   sub = Trim(sub);
   return sub;
 }
@@ -1219,28 +1236,14 @@ int ResponseAppendTime(void)
   return ResponseAppendTimeFormat(Settings.flag2.time_format);
 }
 
-// int ResponseAppendTHD(float f_temperature, float f_humidity)
-// {
-//   char temperature[FLOATSZ];
-//   dtostrfd(f_temperature, Settings.flag2.temperature_resolution, temperature);
-//   char humidity[FLOATSZ];
-//   dtostrfd(f_humidity, Settings.flag2.humidity_resolution, humidity);
-//   char dewpoint[FLOATSZ];
-//   dtostrfd(CalcTempHumToDew(f_temperature, f_humidity), Settings.flag2.temperature_resolution, dewpoint);
-
-//   return ResponseAppend_P(PSTR("\"" D_JSON_TEMPERATURE "\":%s,\"" D_JSON_HUMIDITY "\":%s,\"" D_JSON_DEWPOINT "\":%s"), temperature, humidity, dewpoint);
-// }
-
 int ResponseAppendTHD(float f_temperature, float f_humidity)
 {
   float dewpoint = CalcTempHumToDew(f_temperature, f_humidity);
-
   return ResponseAppend_P(PSTR("\"" D_JSON_TEMPERATURE "\":%*_f,\"" D_JSON_HUMIDITY "\":%*_f,\"" D_JSON_DEWPOINT "\":%*_f"),
                           Settings.flag2.temperature_resolution, &f_temperature,
                           Settings.flag2.humidity_resolution, &f_humidity,
                           Settings.flag2.temperature_resolution, &dewpoint);
 }
-
 
 int ResponseJsonEnd(void)
 {
