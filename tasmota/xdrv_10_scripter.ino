@@ -2323,6 +2323,47 @@ chknext:
           if (sp) strlcpy(sp, SettingsText(SET_MQTT_GRP_TOPIC), glob_script_mem.max_ssize);
           goto strexit;
         }
+#ifdef USE_WEBSEND_RESPONSE
+        if (!strncmp(vname, "gwr(", 4)) {
+          char delim[SCRIPT_MAXSSIZE];
+          lp = GetStringArgument(lp + 4, OPER_EQU, delim, 0);
+          SCRIPT_SKIP_SPACES
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
+          SCRIPT_SKIP_SPACES
+          char rstring[SCRIPT_MAXSSIZE];
+          rstring[0] = 0;
+          uint8_t index = fvar;
+          char *wd = TasmotaGlobal.mqtt_data;
+          char *lwd = wd;
+          strlcpy(rstring, wd, glob_script_mem.max_ssize);
+          if (index) {
+            if (strlen(wd) && index) {
+              while (index) {
+                char *cp = strstr(wd, delim);
+                if (cp) {
+                  index--;
+                  if (!index) {
+                    // take this substring
+                    *cp = 0;
+                    strlcpy(rstring, lwd, glob_script_mem.max_ssize);
+                  } else {
+                    wd = cp + strlen(delim);
+                    lwd = wd;
+                  }
+                } else {
+                  // fail or last string
+                  strlcpy(rstring, lwd, glob_script_mem.max_ssize);
+                  break;
+                }
+              }
+            }
+          }
+          if (sp) strlcpy(sp, rstring, glob_script_mem.max_ssize);
+          lp++;
+          len = 0;
+          goto strexit;
+        }
+#endif
 
 #ifdef SCRIPT_GET_HTTPS_JP
         if (!strncmp(vname, "gjp(", 4)) {
@@ -7250,7 +7291,6 @@ uint32_t call2https(const char *host, const char *path) {
 
   httpsClient->setTimeout(1500);
   httpsClient->setInsecure();
-
 
   uint32_t retry = 0;
   while ((!httpsClient->connect(host, 443)) && (retry < 5)) {
