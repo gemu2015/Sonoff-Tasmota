@@ -2332,28 +2332,47 @@ chknext:
           SCRIPT_SKIP_SPACES
           char rstring[SCRIPT_MAXSSIZE];
           rstring[0] = 0;
-          uint8_t index = fvar;
+          int8_t index = fvar;
           char *wd = TasmotaGlobal.mqtt_data;
           char *lwd = wd;
           strlcpy(rstring, wd, glob_script_mem.max_ssize);
           if (index) {
             if (strlen(wd) && index) {
-              while (index) {
+              if (index<0) {
+                // assume val=xxx
+                rstring[0] = 0;
                 char *cp = strstr(wd, delim);
                 if (cp) {
-                  index--;
-                  if (!index) {
-                    // take this substring
-                    *cp = 0;
-                    strlcpy(rstring, lwd, glob_script_mem.max_ssize);
+                    cp = strchr(cp, '=');
+                    if (cp) {
+                      cp++;
+                      for (uint32_t cnt = 0; cnt < glob_script_mem.max_ssize; cnt++) {
+                        if (*cp==',' || *cp==':' || *cp==0) {
+                          rstring[cnt] = 0;
+                          break;
+                        }
+                        rstring[cnt] = *cp++;
+                      }
+                    }
+                }
+              } else {
+                while (index) {
+                  char *cp = strstr(wd, delim);
+                  if (cp) {
+                    index--;
+                    if (!index) {
+                      // take this substring
+                      *cp = 0;
+                      strlcpy(rstring, lwd, glob_script_mem.max_ssize);
+                    } else {
+                      wd = cp + strlen(delim);
+                      lwd = wd;
+                    }
                   } else {
-                    wd = cp + strlen(delim);
-                    lwd = wd;
+                    // fail or last string
+                    strlcpy(rstring, lwd, glob_script_mem.max_ssize);
+                    break;
                   }
-                } else {
-                  // fail or last string
-                  strlcpy(rstring, lwd, glob_script_mem.max_ssize);
-                  break;
                 }
               }
             }
