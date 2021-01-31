@@ -2721,6 +2721,18 @@ chknext:
           len += 1;
           goto exit;
         }
+        if (!strncmp(vname, "post(", 5)) {
+          char host[SCRIPT_MAXSSIZE];
+          lp = GetStringArgument(lp + 5, OPER_EQU, host, 0);
+          SCRIPT_SKIP_SPACES
+          char request[SCRIPT_MAXSSIZE];
+          lp = GetStringArgument(lp + 4, OPER_EQU, request, 0);
+          SCRIPT_SKIP_SPACES
+          fvar = http_post(host, request);
+          lp++;
+          len = 0;
+          goto exit;
+        }
         break;
 
       case 'r':
@@ -3047,7 +3059,7 @@ chknext:
 
 #endif //USE_TOUCH_BUTTONS
 #endif //USE_DISPLAY
-#if 1
+#if 0
         if (!strncmp(vname, "test(", 5)) {
           lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, 0);
           uint32_t cycles;
@@ -7288,6 +7300,25 @@ uint32_t scripter_create_task(uint32_t num, uint32_t time, uint32_t core, uint32
 
 #endif // USE_SCRIPT_TASK
 #endif // ESP32
+
+
+int32_t http_post(char *host, char *request) {
+  HTTPClient http;
+
+  http.begin(host);
+  //http.addHeader("Content-Type", "text/plain");
+
+  int httpCode = http.POST(request);
+  String payload = http.getString();
+
+  Serial.println(httpCode);
+  Serial.println(payload);
+
+  http.end();
+
+  return httpCode;
+}
+
 
 #ifdef SCRIPT_GET_HTTPS_JP
 #ifdef ESP8266
