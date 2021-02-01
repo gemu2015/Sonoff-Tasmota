@@ -2434,6 +2434,18 @@ chknext:
           len = 0;
           goto exit;
         }
+        if (!strncmp(vname, "http(", 5)) {
+          char host[SCRIPT_MAXSSIZE];
+          lp = GetStringArgument(lp + 5, OPER_EQU, host, 0);
+          SCRIPT_SKIP_SPACES
+          char request[SCRIPT_MAXSSIZE];
+          lp = GetStringArgument(lp, OPER_EQU, request, 0);
+          SCRIPT_SKIP_SPACES
+          fvar = http_req(host, request);
+          lp++;
+          len = 0;
+          goto exit;
+        }
 #ifdef USE_LIGHT
         if (!strncmp(vname, "hsvrgb(", 7)) {
           lp = GetNumericArgument(lp + 7, OPER_EQU, &fvar, 0);
@@ -2721,18 +2733,7 @@ chknext:
           len += 1;
           goto exit;
         }
-        if (!strncmp(vname, "post(", 5)) {
-          char host[SCRIPT_MAXSSIZE];
-          lp = GetStringArgument(lp + 5, OPER_EQU, host, 0);
-          SCRIPT_SKIP_SPACES
-          char request[SCRIPT_MAXSSIZE];
-          lp = GetStringArgument(lp + 4, OPER_EQU, request, 0);
-          SCRIPT_SKIP_SPACES
-          fvar = http_post(host, request);
-          lp++;
-          len = 0;
-          goto exit;
-        }
+
         break;
 
       case 'r':
@@ -7302,17 +7303,40 @@ uint32_t scripter_create_task(uint32_t num, uint32_t time, uint32_t core, uint32
 #endif // ESP32
 
 
-int32_t http_post(char *host, char *request) {
+int32_t http_req(char *host, char *request) {
   HTTPClient http;
+  int32_t httpCode = 0;
+  uint8_t mode = 0;
+  char hbuff[128];
+  strcpy(hbuff, "http://");
+  strcat(hbuff, host);
 
-  http.begin(host);
-  //http.addHeader("Content-Type", "text/plain");
+  if (*request == '_') {
+    mode = 1;
+    request++;
+  }
 
-  int httpCode = http.POST(request);
-  String payload = http.getString();
+  if (!mode) {
+    // GET
+    strcat(hbuff, request);
+    //AddLog(LOG_LEVEL_INFO, PSTR("HTTP GET %s"),hbuff);
+    http.begin(hbuff);
+    httpCode = http.GET();
+  } else {
+    // POST
+    //AddLog(LOG_LEVEL_INFO, PSTR("HTTP POST %s - %s"),hbuff, request);
+    http.begin(hbuff);
+    http.addHeader("Content-Type", "text/plain");
+    httpCode = http.POST(request);
+  }
 
-  Serial.println(httpCode);
-  Serial.println(payload);
+#ifdef USE_WEBSEND_RESPONSE
+  int16_t svd_last_findex = last_findex;
+  strlcpy(TasmotaGlobal.mqtt_data, http.getString().c_str(), MESSZ);
+  //AddLog(LOG_LEVEL_INFO, PSTR("HTTP RESULT %s"), TasmotaGlobal.mqtt_data);
+  Run_Scripter(">E", 2, TasmotaGlobal.mqtt_data);
+  last_findex = svd_last_findex;
+#endif
 
   http.end();
 
