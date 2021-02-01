@@ -343,6 +343,13 @@ typedef union {
 } FS_FLAGS;
 
 
+struct GVARS {
+  JsonParserObject *jo;
+  int16_t numind;
+  int16_t strind;
+};
+
+
 #define NUM_RES 0xfe
 #define STR_RES 0xfd
 #define VAR_NV 0xff
@@ -449,8 +456,8 @@ void f2char(float num, uint32_t dprec, uint32_t lzeros, char *nbuff) {
 int8_t script_button[MAX_KEYS];
 #endif //USE_BUTTON_EVENT
 
-char *GetNumericArgument(char *lp,uint8_t lastop,float *fp, JsonParserObject *jo);
-char *GetStringArgument(char *lp,uint8_t lastop,char *cp, JsonParserObject *jo);
+char *GetNumericArgument(char *lp,uint8_t lastop,float *fp, struct GVARS *gv);
+char *GetStringArgument(char *lp,uint8_t lastop,char *cp, struct GVARS *gv);
 char *ForceStringVar(char *lp,char *dstr);
 void send_download(void);
 uint8_t UfsReject(char *name);
@@ -1104,7 +1111,7 @@ float *Get_MFAddr(uint8_t index, uint16_t *len, uint16_t *ipos) {
   return 0;
 }
 
-char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, float *fp, char *sp, JsonParserObject *jo);
+char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, float *fp, char *sp, struct GVARS *gv);
 
 
 float *get_array_by_name(char *name, uint16_t *alen) {
@@ -1466,7 +1473,7 @@ float fvar;
 
 // vtype => ff=nothing found, fe=constant number,fd = constant string else bit 7 => 80 = string, 0 = number
 // no flash strings here for performance reasons!!!
-char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, float *fp, char *sp, JsonParserObject *jo) {
+char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, float *fp, char *sp, struct GVARS *gv) {
     uint16_t count,len = 0;
     uint8_t nres = 0;
     char vname[64];
@@ -1575,7 +1582,7 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, float *fp, char *sp,
                     if (vtp[count].bits.is_filter) {
                       if (ja) {
                         lp += olen + 1;
-                        lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
+                        lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
                         last_findex = fvar;
                         fvar = Get_MFVal(index, fvar);
                         len = 1;
@@ -1597,7 +1604,7 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, float *fp, char *sp,
         }
     }
 
-    if (jo) {
+    if (gv && gv->jo) {
       // look for json input
       char jvname[64];
       strcpy(jvname, vname);
@@ -1611,12 +1618,12 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, float *fp, char *sp,
         ja++;
         // fetch array index
         float fvar;
-        GetNumericArgument(ja, OPER_EQU, &fvar, 0);
+        GetNumericArgument(ja, OPER_EQU, &fvar, gv);
         aindex = fvar;
         if (aindex<1 || aindex>6) aindex = 1;
         aindex--;
       }
-      if (jo->isValid()) {
+      if (gv->jo->isValid()) {
         char *subtype = strchr(jvname, '#');
         char *subtype2;
         if (subtype) {
@@ -1629,23 +1636,23 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, float *fp, char *sp,
           }
         }
         vn = jvname;
-        str_value = (*jo)[vn].getStr();
-        if ((*jo)[vn].isValid()) {
+        str_value = (*gv->jo)[vn].getStr();
+        if ((*gv->jo)[vn].isValid()) {
           if (subtype) {
-            JsonParserObject jobj1 = (*jo)[vn];
+            JsonParserObject jobj1 = (*gv->jo)[vn];
             if (jobj1.isValid()) {
               vn = subtype;
-              jo = &jobj1;
-              str_value = (*jo)[vn].getStr();
-              if ((*jo)[vn].isValid()) {
+              gv->jo = &jobj1;
+              str_value = (*gv->jo)[vn].getStr();
+              if ((*gv->jo)[vn].isValid()) {
                 // 2. stage
                 if (subtype2) {
-                  JsonParserObject jobj2 = (*jo)[vn];
-                  if ((*jo)[vn].isValid()) {
+                  JsonParserObject jobj2 = (*gv->jo)[vn];
+                  if ((*gv->jo)[vn].isValid()) {
                     vn = subtype2;
-                    jo = &jobj2;
-                    str_value = (*jo)[vn].getStr();
-                    if ((*jo)[vn].isValid()) {
+                    gv->jo = &jobj2;
+                    str_value = (*gv->jo)[vn].getStr();
+                    if ((*gv->jo)[vn].isValid()) {
                       goto skip;
                     } else {
                       goto chknext;
@@ -1664,10 +1671,10 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, float *fp, char *sp,
           skip:
           if (ja) {
             // json array
-            str_value = (*jo)[vn].getArray()[aindex].getStr();
+            str_value = (*gv->jo)[vn].getArray()[aindex].getStr();
           }
           if (str_value && *str_value) {
-            if ((*jo)[vn].isStr()) {
+            if ((*gv->jo)[vn].isStr()) {
               if (!strncmp(str_value, "ON", 2)) {
                 if (fp) *fp = 1;
                 goto nexit;
@@ -1706,14 +1713,14 @@ chknext:
       case 'a':
 #ifdef USE_ANGLE_FUNC
         if (!strncmp(vname, "acos(", 5)) {
-          lp=GetNumericArgument(lp + 5, OPER_EQU, &fvar, 0);
+          lp=GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           fvar = acosf(fvar);
           lp++;
           len = 0;
           goto exit;
         }
         if (!strncmp(vname, "abs(", 4)) {
-          lp=GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
+          lp=GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           fvar = fabs(fvar);
           lp++;
           len = 0;
@@ -1722,18 +1729,18 @@ chknext:
 #endif
         if (!strncmp(vname, "asc(", 4)) {
           char str[SCRIPT_MAXSSIZE];
-          lp = GetStringArgument(lp + 4, OPER_EQU, str, 0);
+          lp = GetStringArgument(lp + 4, OPER_EQU, str, gv);
           fvar = str[0];
           lp++;
           len = 0;
           goto exit;
         }
         if (!strncmp(vname, "adc(", 4)) {
-          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           while (*lp==' ') lp++;
           float fvar1 = 1;
           if (*lp!=')') {
-            lp = GetNumericArgument(lp, OPER_EQU, &fvar1, 0);
+            lp = GetNumericArgument(lp, OPER_EQU, &fvar1, gv);
             if (fvar1<32 || fvar1>39) fvar1 = 32;
           }
           lp++;
@@ -1769,7 +1776,7 @@ chknext:
 #ifdef USE_BUTTON_EVENT
         if (!strncmp(vname, "bt[", 3)) {
           // tasmota button state
-          GetNumericArgument(vname+3, OPER_EQU, &fvar, 0);
+          GetNumericArgument(vname+3, OPER_EQU, &fvar, gv);
           uint32_t index = fvar;
           if (index<1 || index>MAX_KEYS) index = 1;
           fvar=script_button[index - 1];
@@ -1807,10 +1814,10 @@ chknext:
         }
 #ifdef USE_M5STACK_CORE2
         if (!strncmp(vname, "c2ps(", 5)) {
-          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           while (*lp==' ') lp++;
           float fvar1;
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar1, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar1, gv);
           fvar = core2_setaxppin(fvar, fvar1);
           lp++;
           len=0;
@@ -1820,16 +1827,16 @@ chknext:
 
 #ifdef USE_SCRIPT_TASK
         if (!strncmp(vname, "ct(", 3)) {
-          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
           while (*lp==' ') lp++;
           float fvar1;
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar1, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar1, gv);
           while (*lp==' ') lp++;
           float fvar2;
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar2, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
           float prio = STASK_PRIO;
           if (*lp!=')') {
-            lp = GetNumericArgument(lp, OPER_EQU, &prio, 0);
+            lp = GetNumericArgument(lp, OPER_EQU, &prio, gv);
           }
           lp++;
           fvar = scripter_create_task(fvar, fvar1, fvar2, prio);
@@ -1861,7 +1868,7 @@ chknext:
         }
 #ifdef USE_ENERGY_SENSOR
         if (!strncmp(vname, "enrg[", 5)) {
-          lp=GetNumericArgument(lp + 5, OPER_EQU, &fvar, 0);
+          lp=GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           while (*lp==' ') lp++;
           switch ((uint32_t)fvar) {
             case 0:
@@ -1936,7 +1943,7 @@ chknext:
             }
             lp++;
           } else {
-            lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
+            lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
             mode = fvar;
           }
           fvar = -1;
@@ -1981,7 +1988,7 @@ chknext:
           goto exit;
         }
         if (!strncmp(vname, "fc(", 3)) {
-          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
           if (fvar>=0) {
             uint8_t ind = fvar;
             if (ind>=SFS_MAX) ind = SFS_MAX - 1;
@@ -1997,7 +2004,7 @@ chknext:
           goto exit;
         }
         if (!strncmp(vname, "ff(", 3)) {
-          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
           uint8_t ind = fvar;
           if (ind>=SFS_MAX) ind = SFS_MAX - 1;
           glob_script_mem.files[ind].flush();
@@ -2010,7 +2017,7 @@ chknext:
           char str[SCRIPT_MAXSSIZE];
           lp = ForceStringVar(lp + 3, str);
           while (*lp==' ') lp++;
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           uint8_t ind = fvar;
           if (ind>=SFS_MAX) ind = SFS_MAX - 1;
           if (glob_script_mem.file_flags[ind].is_open) {
@@ -2043,7 +2050,7 @@ chknext:
               goto exit;
           }
           while (*lp==' ') lp++;
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           uint8_t find = fvar;
           if (find>=SFS_MAX) find = SFS_MAX - 1;
           uint8_t index = 0;
@@ -2105,10 +2112,10 @@ chknext:
         }
 #if defined(ESP32) && defined(USE_WEBCAM)
         if (!strncmp(vname, "fwp(", 4)) {
-          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           while (*lp==' ') lp++;
           float fvar1;
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar1, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar1, gv);
           uint8_t ind = fvar1;
           if (ind>=SFS_MAX) ind = SFS_MAX - 1;
           if (glob_script_mem.file_flags[ind].is_open) {
@@ -2181,7 +2188,7 @@ chknext:
         }
 
         if (!strncmp(vname, "fsi(", 4)) {
-          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           fvar = UfsInfo(fvar, 0);
           lp++;
           len = 0;
@@ -2202,7 +2209,7 @@ chknext:
           }
 
           while (*lp==' ') lp++;
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           uint8_t index = fvar;
           if (index>=SFS_MAX) index = SFS_MAX - 1;
           if (glob_script_mem.file_flags[index].is_open) {
@@ -2241,7 +2248,7 @@ chknext:
           }
 
           while (*lp==' ') lp++;
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           uint8_t find = fvar;
           if (find>=SFS_MAX) find = SFS_MAX - 1;
           char str[glob_script_mem.max_ssize + 1];
@@ -2328,7 +2335,7 @@ chknext:
           char delim[SCRIPT_MAXSSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, delim, 0);
           SCRIPT_SKIP_SPACES
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           SCRIPT_SKIP_SPACES
           char rstring[SCRIPT_MAXSSIZE];
           rstring[0] = 0;
@@ -2408,7 +2415,7 @@ chknext:
           goto exit;
         }
         if (!strncmp(vname, "hn(", 3)) {
-          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
           if (fvar<0 || fvar>255) fvar = 0;
           lp++;
           len = 0;
@@ -2418,7 +2425,7 @@ chknext:
           goto strexit;
         }
         if (!strncmp(vname, "hx(", 3)) {
-          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
           lp++;
           len = 0;
           if (sp) {
@@ -2448,17 +2455,17 @@ chknext:
         }
 #ifdef USE_LIGHT
         if (!strncmp(vname, "hsvrgb(", 7)) {
-          lp = GetNumericArgument(lp + 7, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 7, OPER_EQU, &fvar, gv);
           if (fvar<0 || fvar>360) fvar = 0;
           SCRIPT_SKIP_SPACES
           // arg2
           float fvar2;
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar2, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
           if (fvar2<0 || fvar2>100) fvar2 = 0;
           SCRIPT_SKIP_SPACES
           // arg3
           float fvar3;
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar3, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar3, gv);
           if (fvar3<0 || fvar3>100) fvar3 = 0;
 
           fvar = HSVToRGB(fvar, fvar2, fvar3);
@@ -2470,7 +2477,7 @@ chknext:
         break;
       case 'i':
         if (!strncmp(vname, "int(", 4)) {
-          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           fvar = floor(fvar);
           lp++;
           len = 0;
@@ -2535,11 +2542,11 @@ chknext:
       case 'm':
         if (!strncmp(vname, "med(", 4)) {
           float fvar1;
-          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar1, 0);
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar1, gv);
           SCRIPT_SKIP_SPACES
           // arg2
           float fvar2;
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar2, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
           fvar = DoMedian5(fvar1, fvar2);
           lp++;
           len = 0;
@@ -2547,7 +2554,7 @@ chknext:
         }
 #ifdef USE_ANGLE_FUNC
         if (!strncmp(vname, "mpt(", 4)) {
-          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           fvar = MeasurePulseTime(fvar);
           lp++;
           len = 0;
@@ -2590,13 +2597,13 @@ chknext:
         }
         if (!strncmp(vname, "mp(", 3)) {
           float fvar1;
-          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar1, 0);
+          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar1, gv);
           SCRIPT_SKIP_SPACES
           while (*lp!=')') {
             char *opp = lp;
             lp++;
             float fvar2;
-            lp = GetNumericArgument(lp, OPER_EQU, &fvar2, 0);
+            lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
             SCRIPT_SKIP_SPACES
             fvar = fvar1;
             if ((*opp=='<' && fvar1<fvar2) ||
@@ -2604,7 +2611,7 @@ chknext:
                 (*opp=='=' && fvar1==fvar2)) {
                   if (*lp!='<' && *lp!='>' && *lp!='=' && *lp!=')' && *lp!=SCRIPT_EOL) {
                     float fvar3;
-                    lp = GetNumericArgument(lp, OPER_EQU, &fvar3, 0);
+                    lp = GetNumericArgument(lp, OPER_EQU, &fvar3, gv);
                     SCRIPT_SKIP_SPACES
                     fvar=fvar3;
                   } else {
@@ -2620,10 +2627,10 @@ chknext:
 #ifdef USE_MORITZ
         if (!strncmp(vname, "mo(", 3)) {
           float fvar1;
-          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar1, 0);
+          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar1, gv);
           SCRIPT_SKIP_SPACES
           float fvar2;
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar2, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
           SCRIPT_SKIP_SPACES
           char rbuff[64];
           fvar = mo_getvars(fvar1, fvar2, rbuff);
@@ -2637,14 +2644,14 @@ chknext:
       case 'p':
         if (!strncmp(vname, "pin[", 4)) {
           // raw pin level
-          GetNumericArgument(vname + 4, OPER_EQU, &fvar, 0);
+          GetNumericArgument(vname + 4, OPER_EQU, &fvar, gv);
           fvar = digitalRead((uint8_t)fvar);
           // skip ] bracket
           len++;
           goto exit;
         }
         if (!strncmp(vname, "pn[", 3)) {
-          GetNumericArgument(vname + 3, OPER_EQU, &fvar, 0);
+          GetNumericArgument(vname + 3, OPER_EQU, &fvar, gv);
           fvar = Pin(fvar);
           // skip ] bracket
           len++;
@@ -2661,7 +2668,7 @@ chknext:
         }
 #endif // USE_I2S_AUDIO
         if (!strncmp(vname, "pd[", 3)) {
-          GetNumericArgument(vname + 3, OPER_EQU, &fvar, 0);
+          GetNumericArgument(vname + 3, OPER_EQU, &fvar, gv);
           uint8_t gpiopin = fvar;
 /*
           for (uint8_t i=0;i<GPIO_SENSOR_END;i++) {
@@ -2704,18 +2711,18 @@ chknext:
         if (!strncmp(vname, "pow(", 4)) {
           // arg1
           float fvar1;
-          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar1, 0);
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar1, gv);
           SCRIPT_SKIP_SPACES
           // arg2
           float fvar2;
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar2, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
           lp++;
           fvar = FastPrecisePowf(fvar1, fvar2);
           len = 0;
           goto exit;
         }
         if (!strncmp(vname, "pwr[", 4)) {
-          GetNumericArgument(vname + 4, OPER_EQU, &fvar, 0);
+          GetNumericArgument(vname + 4, OPER_EQU, &fvar, gv);
           uint8_t index = fvar;
           if (index<=TasmotaGlobal.devices_present) {
             fvar = bitRead(TasmotaGlobal.power, index - 1);
@@ -2726,7 +2733,7 @@ chknext:
           goto exit;
         }
         if (!strncmp(vname, "pc[", 3)) {
-          GetNumericArgument(vname + 3, OPER_EQU, &fvar, 0);
+          GetNumericArgument(vname + 3, OPER_EQU, &fvar, gv);
           uint8_t index = fvar;
           if (index<1 || index>MAX_COUNTERS) index = 1;
           fvar = RtcSettings.pulse_counter[index - 1];
@@ -2743,7 +2750,7 @@ chknext:
         }
         if (!strncmp(vname, "rnd(", 4)) {
           // tasmota switch state
-          GetNumericArgument(vname + 4, OPER_EQU, &fvar, 0);
+          GetNumericArgument(vname + 4, OPER_EQU, &fvar, gv);
           if (fvar<0) {
             randomSeed(-fvar);
             fvar = 0;
@@ -2759,7 +2766,7 @@ chknext:
           char str[SCRIPT_MAXSSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, str, 0);
           SCRIPT_SKIP_SPACES
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           fvar = i2s_record(str, fvar);
           len++;
           goto exit;
@@ -2773,7 +2780,7 @@ chknext:
         }
         if (!strncmp(vname, "sw[", 3)) {
           // tasmota switch state
-          GetNumericArgument(vname + 3, OPER_EQU, &fvar, 0);
+          GetNumericArgument(vname + 3, OPER_EQU, &fvar, gv);
           fvar = SwitchLastState((uint32_t)fvar);
           // skip ] bracket
           len++;
@@ -2806,10 +2813,10 @@ chknext:
           lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
           SCRIPT_SKIP_SPACES
           float fvar1;
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar1, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar1, gv);
           SCRIPT_SKIP_SPACES
           float fvar2;
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar2, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
           lp++;
           len = 0;
           if (fvar1<0) {
@@ -2827,7 +2834,7 @@ chknext:
           token[0] = *lp++;
           token[1] = 0;
           while (*lp==' ') lp++;
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           // skip ) bracket
           lp++;
           len = 0;
@@ -2853,7 +2860,7 @@ chknext:
           goto strexit;
         }
         if (!strncmp(vname, "s(", 2)) {
-          lp = GetNumericArgument(lp + 2, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 2, OPER_EQU, &fvar, gv);
           char str[glob_script_mem.max_ssize + 1];
           f2char(fvar, glob_script_mem.script_dprec, glob_script_mem.script_lzero, str);
           if (sp) strlcpy(sp, str, glob_script_mem.max_ssize);
@@ -2874,7 +2881,7 @@ chknext:
 
 #ifdef ESP32
         if (!strncmp(vname, "sf(", 3)) {
-          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
           if (fvar<80) fvar = 80;
           if (fvar>240) fvar = 240;
           setCpuFrequencyMhz(fvar);
@@ -2886,7 +2893,7 @@ chknext:
 #endif //ESP32
 #ifdef USE_TTGO_WATCH
         if (!strncmp(vname, "slp(", 4)) {
-          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           SCRIPT_SKIP_SPACES
           TTGO_Sleep(fvar);
           lp++;
@@ -2907,7 +2914,7 @@ chknext:
 
 #ifdef USE_SHUTTER
         if (!strncmp(vname, "sht[", 4)) {
-          GetNumericArgument(vname + 4, OPER_EQU, &fvar, 0);
+          GetNumericArgument(vname + 4, OPER_EQU, &fvar, gv);
           uint8_t index = fvar;
           if (index<=TasmotaGlobal.shutters_present) {
             fvar = Settings.shutter_position[index - 1];
@@ -2920,14 +2927,14 @@ chknext:
 #endif //USE_SHUTTER
 #ifdef USE_ANGLE_FUNC
         if (!strncmp(vname, "sin(", 4)) {
-          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           fvar = sinf(fvar);
           lp++;
           len = 0;
           goto exit;
         }
         if (!strncmp(vname, "sqrt(", 5)) {
-          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           fvar = sqrtf(fvar);
           lp++;
           len = 0;
@@ -2937,7 +2944,7 @@ chknext:
 
 #if defined(USE_SML_M) && defined (USE_SML_SCRIPT_CMD)
         if (!strncmp(vname, "sml[", 4)) {
-          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           SCRIPT_SKIP_SPACES
           fvar = SML_GetVal(fvar);
           lp++;
@@ -2946,14 +2953,14 @@ chknext:
         }
         if (!strncmp(vname, "sml(", 4)) {
           float fvar1;
-          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar1, 0);
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar1, gv);
           SCRIPT_SKIP_SPACES
           float fvar2;
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar2, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
           SCRIPT_SKIP_SPACES
           if (fvar2==0) {
             float fvar3;
-            lp = GetNumericArgument(lp, OPER_EQU, &fvar3, 0);
+            lp = GetNumericArgument(lp, OPER_EQU, &fvar3, gv);
             fvar = SML_SetBaud(fvar1, fvar3);
           } else if (fvar2==1) {
             char str[SCRIPT_MAXSSIZE];
@@ -3009,7 +3016,7 @@ chknext:
         }
 #ifdef USE_SCRIPT_TIMER
         if (!strncmp(vname, "ts1(", 4)) {
-          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           if (fvar<10) fvar = 10;
           Script_ticker1.attach_ms(fvar, Script_ticker1_end);
           lp++;
@@ -3017,7 +3024,7 @@ chknext:
           goto exit;
         }
         if (!strncmp(vname, "ts2(", 4)) {
-          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           if (fvar<10) fvar = 10;
           Script_ticker2.attach_ms(fvar, Script_ticker2_end);
           lp++;
@@ -3025,7 +3032,7 @@ chknext:
           goto exit;
         }
         if (!strncmp(vname, "ts3(", 4)) {
-          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           if (fvar<10) fvar = 10;
           Script_ticker3.attach_ms(fvar, Script_ticker3_end);
           lp++;
@@ -3033,7 +3040,7 @@ chknext:
           goto exit;
         }
         if (!strncmp(vname, "ts4(", 4)) {
-          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           if (fvar<10) fvar = 10;
           Script_ticker4.attach_ms(fvar, Script_ticker4_end);
           lp++;
@@ -3045,7 +3052,7 @@ chknext:
 #ifdef USE_DISPLAY
 #ifdef USE_TOUCH_BUTTONS
         if (!strncmp(vname, "tbut[", 5)) {
-          GetNumericArgument(vname + 5, OPER_EQU, &fvar, 0);
+          GetNumericArgument(vname + 5, OPER_EQU, &fvar, gv);
           uint8_t index = fvar;
           if (index<1 || index>MAX_TOUCH_BUTTONS) index = 1;
           index--;
@@ -3062,7 +3069,7 @@ chknext:
 #endif //USE_DISPLAY
 #if 0
         if (!strncmp(vname, "test(", 5)) {
-          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           uint32_t cycles;
           uint64_t accu=0;
           char sbuffer[32];
@@ -3119,26 +3126,26 @@ chknext:
 #if defined(ESP32) && defined(USE_WEBCAM)
         if (!strncmp(vname, "wc(", 3)) {
           float fvar1;
-          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar1, 0);
+          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar1, gv);
           SCRIPT_SKIP_SPACES
           switch ((uint32)fvar1) {
             case 0:
               { float fvar2;
-                lp = GetNumericArgument(lp, OPER_EQU, &fvar2, 0);
+                lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
                 fvar = WcSetup(fvar2);
               }
               break;
             case 1:
               { float fvar2;
-                lp = GetNumericArgument(lp, OPER_EQU, &fvar2, 0);
+                lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
                 fvar = WcGetFrame(fvar2);
               }
               break;
             case 2:
               { float fvar2,fvar3;
-                lp = GetNumericArgument(lp, OPER_EQU, &fvar2, 0);
+                lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
                 SCRIPT_SKIP_SPACES
-                lp = GetNumericArgument(lp, OPER_EQU, &fvar3, 0);
+                lp = GetNumericArgument(lp, OPER_EQU, &fvar3, gv);
                 fvar = WcSetOptions(fvar2, fvar3);
               }
               break;
@@ -3150,20 +3157,20 @@ chknext:
               break;
             case 5:
               { float fvar2;
-                lp = GetNumericArgument(lp, OPER_EQU, &fvar2, 0);
+                lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
                 fvar = WcSetStreamserver(fvar2);
               }
               break;
             case 6:
               { float fvar2;
-                lp = GetNumericArgument(lp, OPER_EQU, &fvar2, 0);
+                lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
                 fvar = WcSetMotionDetect(fvar2);
               }
               break;
 #ifdef USE_FACE_DETECT
             case 7:
               { float fvar2;
-                lp = GetNumericArgument(lp, OPER_EQU, &fvar2, 0);
+                lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
                 fvar = WcSetFaceDetect(fvar2);
               }
               break;
@@ -3188,7 +3195,7 @@ chknext:
 #endif // USE_TTGO_WATCH
 #if defined(USE_FT5206)
         if (!strncmp(vname, "wtch(", 5)) {
-          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, 0);
+          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           fvar = Touch_Status(fvar);
           lp++;
           len = 0;
@@ -3385,14 +3392,14 @@ uint16_t GetStack(void) {
 }
 #endif //ESP8266
 
-char *GetStringArgument(char *lp, uint8_t lastop, char *cp, JsonParserObject *jo) {
+char *GetStringArgument(char *lp, uint8_t lastop, char *cp, struct GVARS *gv) {
   uint8_t operand = 0;
   uint8_t vtype;
   char *slp;
   struct T_INDEX ind;
   char str[SCRIPT_MAXSSIZE],str1[SCRIPT_MAXSSIZE];
   while (1) {
-    lp=isvar(lp, &vtype, &ind, 0, str1, jo);
+    lp=isvar(lp, &vtype, &ind, 0, str1, gv);
     if (vtype!=STR_RES && !(vtype & STYPE)) {
       // numeric type
       glob_script_mem.glob_error = 1;
@@ -3431,7 +3438,7 @@ char *GetStringArgument(char *lp, uint8_t lastop, char *cp, JsonParserObject *jo
   return lp;
 }
 
-char *GetNumericArgument(char *lp, uint8_t lastop, float *fp, JsonParserObject *jo) {
+char *GetNumericArgument(char *lp, uint8_t lastop, float *fp, struct GVARS *gv) {
 uint8_t operand = 0;
 float fvar1,fvar;
 char *slp;
@@ -3441,11 +3448,11 @@ struct T_INDEX ind;
         // get 1. value
         if (*lp=='(') {
             lp++;
-            lp = GetNumericArgument(lp, OPER_EQU, &fvar1, jo);
+            lp = GetNumericArgument(lp, OPER_EQU, &fvar1, gv);
             lp++;
             //if (*lp==')') lp++;
         } else {
-            lp = isvar(lp, &vtype, &ind, &fvar1, 0, jo);
+            lp = isvar(lp, &vtype, &ind, &fvar1, 0, gv);
             if ((vtype!=NUM_RES) && (vtype&STYPE)) {
               // string type
               glob_script_mem.glob_error = 1;
@@ -3657,7 +3664,7 @@ void toSLog(const char *str) {
 #endif
 }
 
-char *Evaluate_expression(char *lp, uint8_t and_or, uint8_t *result, JsonParserObject *jo) {
+char *Evaluate_expression(char *lp, uint8_t and_or, uint8_t *result, struct GVARS *gv) {
   float fvar,*dfvar,fvar1;
   uint8_t numeric;
   struct T_INDEX ind;
@@ -3674,7 +3681,7 @@ char *Evaluate_expression(char *lp, uint8_t and_or, uint8_t *result, JsonParserO
 
 loop:
     SCRIPT_SKIP_SPACES
-    lp = Evaluate_expression(lp, xand_or, &res, jo);
+    lp = Evaluate_expression(lp, xand_or, &res, gv);
     if (*lp==')') {
       lp++;
       goto exit0;
@@ -3707,18 +3714,18 @@ exit0:
   glob_script_mem.glob_error = 0;
   slp = lp;
   numeric = 1;
-  lp = GetNumericArgument(lp, OPER_EQU, dfvar, 0);
+  lp = GetNumericArgument(lp, OPER_EQU, dfvar, gv);
   if (glob_script_mem.glob_error==1) {
     // was string, not number
 	  char cmpstr[SCRIPT_MAXSSIZE];
     lp = slp;
     numeric = 0;
     // get the string
-    lp = isvar(lp, &vtype, &ind, 0, cmpstr, 0);
+    lp = isvar(lp, &vtype, &ind, 0, cmpstr, gv);
 	  lp = getop(lp, &lastop);
     // compare string
     char str[SCRIPT_MAXSSIZE];
-    lp = GetStringArgument(lp, OPER_EQU, str, jo);
+    lp = GetStringArgument(lp, OPER_EQU, str, gv);
     if (lastop==OPER_EQUEQU || lastop==OPER_NOTEQU) {
       res = strcmp(cmpstr, str);
       if (lastop==OPER_EQUEQU) res=!res;
@@ -3729,7 +3736,7 @@ exit0:
     // numeric
     // evaluate operand
     lp = getop(lp, &lastop);
-    lp = GetNumericArgument(lp, OPER_EQU, &fvar1, jo);
+    lp = GetNumericArgument(lp, OPER_EQU, &fvar1, gv);
     switch (lastop) {
       case OPER_EQUEQU:
           res = (*dfvar==fvar1);
@@ -3874,6 +3881,8 @@ char *scripter_sub(char *lp, uint8_t fromscriptcmd) {
   return lp;
 }
 
+int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv);
+
 #define IF_NEST 8
 // execute section of scripter
 int16_t Run_Scripter(const char *type, int8_t tlen, char *js) {
@@ -3885,20 +3894,25 @@ int16_t retval;
 
     if (tasm_cmd_activ && tlen>0) return 0;
 
+    struct GVARS gv;
+
     JsonParserObject jo;
+
     if (js) {
       //String jss = js;    // copy the string to a new buffer, not sure we can change the original buffer
       //JsonParser parser((char*)jss.c_str());
       JsonParser parser(js);
       jo = parser.getRootObject();
-      retval = Run_script_sub(type, tlen, &jo);
+      gv.jo = &jo;
+      retval = Run_script_sub(type, tlen, &gv);
     } else {
-      retval = Run_script_sub(type, tlen, 0);
+      gv.jo = 0;
+      retval = Run_script_sub(type, tlen, &gv);
     }
     return retval;
 }
 
-int16_t Run_script_sub(const char *type, int8_t tlen, JsonParserObject *jo) {
+int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
     uint8_t vtype=0,sindex,xflg,floop=0,globvindex,fromscriptcmd=0;
     char *lp_next;
     int16_t globaindex,saindex;
@@ -4378,14 +4392,14 @@ int16_t Run_script_sub(const char *type, int8_t tlen, JsonParserObject *jo) {
                 char *svd_sp = glob_script_mem.scriptptr;
                 strcat(str, "\n#");
                 glob_script_mem.scriptptr = str;
-                Run_script_sub(">", 1, jo);
+                Run_script_sub(">", 1, gv);
                 glob_script_mem.scriptptr = svd_sp;
             }
 
             // check for variable result
             if (if_state[ifstck]==1) {
               // evaluate exxpression
-              lp = Evaluate_expression(lp, and_or, &if_result[ifstck], jo);
+              lp = Evaluate_expression(lp, and_or, &if_result[ifstck], gv);
               SCRIPT_SKIP_SPACES
               if (*lp=='{' && if_state[ifstck]==1) {
                 lp += 1; // then
@@ -4426,17 +4440,17 @@ int16_t Run_script_sub(const char *type, int8_t tlen, JsonParserObject *jo) {
                       lp = getop(lp, &lastop);
                       char *slp = lp;
                       glob_script_mem.glob_error = 0;
-                      lp = GetNumericArgument(lp, OPER_EQU, &fvar, jo);
+                      lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
                       if (glob_script_mem.glob_error==1) {
                         // mismatch was string, not number
                         // get the string and convert to number
-                        lp = isvar(slp, &vtype, &ind, 0, cmpstr, jo);
+                        lp = isvar(slp, &vtype, &ind, 0, cmpstr, gv);
                         fvar = CharToFloat(cmpstr);
                       }
                       switch (lastop) {
                           case OPER_EQU:
                               if (glob_script_mem.var_not_found) {
-                                if (!jo) toLogEOL("var not found: ",lp);
+                                if (!gv || !gv->jo) toLogEOL("var not found: ",lp);
                                 goto next_line;
                               }
                               *dfvar = fvar;
@@ -4510,8 +4524,8 @@ int16_t Run_script_sub(const char *type, int8_t tlen, JsonParserObject *jo) {
                     lp = getop(lp, &lastop);
                     char *slp = lp;
                     glob_script_mem.glob_error = 0;
-                    lp = GetStringArgument(lp, OPER_EQU, str, jo);
-                    if (!jo && glob_script_mem.glob_error) {
+                    lp = GetStringArgument(lp, OPER_EQU, str, gv);
+                    if ((!gv || !gv->jo) && glob_script_mem.glob_error) {
                       // mismatch
                       lp = GetNumericArgument(slp, OPER_EQU, &fvar, 0);
                       dtostrfd(fvar, 6, str);
@@ -7331,11 +7345,10 @@ int32_t http_req(char *host, char *request) {
   }
 
 #ifdef USE_WEBSEND_RESPONSE
-  int16_t svd_last_findex = last_findex;
   strlcpy(TasmotaGlobal.mqtt_data, http.getString().c_str(), MESSZ);
   //AddLog(LOG_LEVEL_INFO, PSTR("HTTP RESULT %s"), TasmotaGlobal.mqtt_data);
   Run_Scripter(">E", 2, TasmotaGlobal.mqtt_data);
-  last_findex = svd_last_findex;
+  glob_script_mem.glob_error = 0;
 #endif
 
   http.end();
