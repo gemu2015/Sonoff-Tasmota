@@ -2332,7 +2332,6 @@ chknext:
           rstring[0] = 0;
           int8_t index = fvar;
           char *wd = TasmotaGlobal.mqtt_data;
-          char *lwd = wd;
           strlcpy(rstring, wd, glob_script_mem.max_ssize);
           if (index) {
             if (strlen(wd) && index) {
@@ -2354,23 +2353,31 @@ chknext:
                     }
                 }
               } else {
-                while (index) {
-                  char *cp = strstr(wd, delim);
-                  if (cp) {
-                    index--;
-                    if (!index) {
-                      // take this substring
-                      *cp = 0;
-                      strlcpy(rstring, lwd, glob_script_mem.max_ssize);
+                // preserve mqtt_data
+                char *mqd = (char*)malloc(MESSZ+2);
+                if (mqd) {
+                  strlcpy(mqd, TasmotaGlobal.mqtt_data, MESSZ);
+                  wd = mqd;
+                  char *lwd = wd;
+                  while (index) {
+                    char *cp = strstr(wd, delim);
+                    if (cp) {
+                      index--;
+                      if (!index) {
+                        // take this substring
+                        *cp = 0;
+                        strlcpy(rstring, lwd, glob_script_mem.max_ssize);
+                      } else {
+                        wd = cp + strlen(delim);
+                        lwd = wd;
+                      }
                     } else {
-                      wd = cp + strlen(delim);
-                      lwd = wd;
+                      // fail or last string
+                      strlcpy(rstring, lwd, glob_script_mem.max_ssize);
+                      break;
                     }
-                  } else {
-                    // fail or last string
-                    strlcpy(rstring, lwd, glob_script_mem.max_ssize);
-                    break;
                   }
+                  free(mqd);
                 }
               }
             }
