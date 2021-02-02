@@ -5625,7 +5625,8 @@ void Script_Handle_Hue(String *path) {
     response = FPSTR(sHUE_ERROR_JSON);
   }
   AddLog(LOG_LEVEL_DEBUG_MORE, PSTR(D_LOG_HTTP D_HUE " Result (%s)"), response.c_str());
-  WSSend(code, CT_JSON, response);
+  //WSSend(code, CT_JSON, response);
+  WSSend(code, CT_APP_JSON, response);
   if (resp) {
     Run_Scripter(">E", 2, 0);
   }
