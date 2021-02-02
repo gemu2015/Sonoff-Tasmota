@@ -236,7 +236,7 @@ String sendACJsonState(const stdAc::state_t &state) {
 }
 
 void sendIRJsonState(const struct decode_results &results) {
-  Response_P(PSTR("\"" D_JSON_IR_PROTOCOL "\":\"%s\",\"" D_JSON_IR_BITS "\":%d"),
+  ResponseAppend_P(PSTR("\"" D_JSON_IR_PROTOCOL "\":\"%s\",\"" D_JSON_IR_BITS "\":%d"),
                   typeToString(results.decode_type).c_str(),
                   results.bits);
 
@@ -250,10 +250,10 @@ void sendIRJsonState(const struct decode_results &results) {
     } else {
       if (UNKNOWN != results.decode_type) {
         uint64_t reverse = reverseBitsInBytes64(results.value);
-        ResponseAppend_P(PSTR("\"0x%_X\",\"" D_JSON_IR_DATALSB "\":\"0x%_X\""),
+        ResponseAppend_P(PSTR("\"0x%0_X\",\"" D_JSON_IR_DATALSB "\":\"0x%0_X\""),
                          &results.value, &reverse);
       } else {    // UNKNOWN
-        ResponseAppend_P(PSTR("\"0x08X\""), (uint32_t) results.value);  // Unknown is always 32 bits
+        ResponseAppend_P(PSTR("\"0x%08X\""), (uint32_t) results.value);  // Unknown is always 32 bits
       }
     }
   }
