@@ -4400,7 +4400,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
               goto next_line;
             } else {
               char *vnp = lp;
-              lp = isvar(lp, &vtype, &ind, &sysvar, 0, 0);
+              lp = isvar(lp, &vtype, &ind, &sysvar, 0, gv);
               if (vtype!=VAR_NV) {
 #ifdef USE_SCRIPT_GLOBVARS
                   char varname[16];
