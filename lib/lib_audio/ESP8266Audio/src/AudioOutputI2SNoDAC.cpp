@@ -96,11 +96,15 @@ bool AudioOutputI2SNoDAC::ConsumeSample(int16_t sample[2])
   // Either send complete pulse stream or nothing
 #ifdef ESP32
 
+#if 1
 // Deprecated. Use i2s_write
-//  if (!i2s_write_bytes((i2s_port_t)portNo, (const char *)dsBuff, sizeof(uint32_t) * (oversample/32), 0))
+if (!i2s_write_bytes((i2s_port_t)portNo, (const char *)dsBuff, sizeof(uint32_t) * (oversample/32), 0))
+  return false;
+#else
   size_t bytes_written;
   if (ESP_OK != i2s_write((i2s_port_t)portNo, (const char *)dsBuff, sizeof(uint32_t) * (oversample/32), &bytes_written, 0))
     return false;
+#endif
 #else
   if (!i2s_write_sample_nb(dsBuff[0])) return false; // No room at the inn
   // At this point we've sent in first of possibly 8 32-bits, need to send
