@@ -195,10 +195,13 @@ bool AudioOutputI2S::ConsumeSample(int16_t sample[2])
     s32 = ((Amplify(ms[RIGHTCHANNEL]))<<16) | (Amplify(ms[LEFTCHANNEL]) & 0xffff);
   }
 // Deprecated. Use i2s_write
-//  return i2s_write_bytes((i2s_port_t)portNo, (const char*)&s32, sizeof(uint32_t), 0);
+#if 1
+  return i2s_write_bytes((i2s_port_t)portNo, (const char*)&s32, sizeof(uint32_t), 0);
+#else
   size_t bytes_written;
   return (ESP_OK == i2s_write((i2s_port_t)portNo, (const char*)&s32, sizeof(uint32_t), &bytes_written, 0));
-//  return bytes_written;
+  return bytes_written;
+#endif
 #else
   uint32_t s32 = ((Amplify(ms[RIGHTCHANNEL]))<<16) | (Amplify(ms[LEFTCHANNEL]) & 0xffff);
   return i2s_write_sample_nb(s32); // If we can't store it, return false.  OTW true
@@ -225,5 +228,3 @@ bool AudioOutputI2S::stop()
 #endif
   return true;
 }
-
-
