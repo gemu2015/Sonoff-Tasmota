@@ -18,6 +18,8 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+//#define USE_DEPRECATED_I2SWRITE
+
 #include <Arduino.h>
 #ifdef ESP32
   #include "driver/i2s.h"
@@ -96,13 +98,13 @@ bool AudioOutputI2SNoDAC::ConsumeSample(int16_t sample[2])
   // Either send complete pulse stream or nothing
 #ifdef ESP32
 
-#if 1
+#ifdef USE_DEPRECATED_I2SWRITE
 // Deprecated. Use i2s_write
 if (!i2s_write_bytes((i2s_port_t)portNo, (const char *)dsBuff, sizeof(uint32_t) * (oversample/32), 0))
   return false;
 #else
   size_t bytes_written;
-  if (ESP_OK != i2s_write((i2s_port_t)portNo, (const char *)dsBuff, sizeof(uint32_t) * (oversample/32), &bytes_written, 0))
+  if (!i2s_write((i2s_port_t)portNo, (const char *)dsBuff, sizeof(uint32_t) * (oversample/32), &bytes_written, 0))
     return false;
 #endif
 #else
