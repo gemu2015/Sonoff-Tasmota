@@ -813,7 +813,7 @@ void send_message_txt(char *txt) {
     len=WcGetPicstore(cnt-1,&buff);
     if (len) {
       char str[12];
-      sprintf(str,"img_%1d.jpg",cnt+1);
+      sprintf(str,"img_%1d.jpg",cnt);
       smtpData.addAttachData(str, "image/jpg",buff,len);
     }
 #endif

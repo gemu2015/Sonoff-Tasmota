@@ -4325,6 +4325,13 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
               ResponseAppend_P(PSTR("%s"), tmp);
               goto next_line;
             }
+            else if (!strncmp(lp, "sm", 2)) {
+              lp+=3;
+              char tmp[256];
+              Replace_Cmd_Vars(lp ,1 , tmp, sizeof(tmp));
+              SendMail(tmp);
+              goto next_line;
+            }
             else if (!strncmp(lp,"=>",2) || !strncmp(lp,"->",2) || !strncmp(lp,"+>",2) || !strncmp(lp,"print",5)) {
                 // execute cmd
                 uint8_t sflag = 0,pflg = 0,svmqtt,swll;
