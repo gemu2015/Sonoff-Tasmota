@@ -1784,6 +1784,9 @@ bool ESP32_MailClient::sendMail(SMTPData &smtpData)
       smtpData._net->getStreamPtr()->print(buf.c_str());
       send_base64_encode_mime_data(smtpData._net->getStreamPtr(), smtpData._attach._buf[i].front(), smtpData._attach._size[i]);
       smtpData._net->getStreamPtr()->print(ESP32_MAIL_STR_34);
+      //Serial.printf("buff:%d - len:%d\n",(uint32_t)src, len);
+      if (smtpData._debug)
+        ESP32MailDebugInfo("data sent");
     }
     else
     {
@@ -1843,7 +1846,7 @@ bool ESP32_MailClient::sendMail(SMTPData &smtpData)
   }
 
   if (smtpData._debug)
-    ESP32MailDebugInfo(ESP32_MAIL_STR_245);
+    ESP32MailDebugInfo(ESP32_MAIL_STR_245); // info finalyze
 
   smtpData._net->getStreamPtr()->print(ESP32_MAIL_STR_33);
   smtpData._net->getStreamPtr()->print(ESP32_MAIL_STR_2);
@@ -1858,6 +1861,7 @@ bool ESP32_MailClient::sendMail(SMTPData &smtpData)
   }
 
   res = waitSMTPResponse(smtpData);
+
 
   if (res != 250 && res != -1000)
   {

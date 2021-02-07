@@ -493,7 +493,6 @@ void attach_Array(char *aname) {
 
 #else
 
-
 /*
  * Created by K. Suwatchai (Mobizt)
  *
@@ -511,7 +510,7 @@ void attach_Array(char *aname) {
 //To receive Email for Gmail, IMAP option should be enabled. https://support.google.com/mail/answer/7126229?hl=en
 
 #include "ESP32_MailClient.h"
-#include "SD.h"
+//#include "SD.h"
 
 //For demo only
 //#include "image.h"
@@ -530,11 +529,11 @@ char *attachments[MAX_ATTCHMENTS];
 uint8_t num_attachments;
 
 //Callback function to get the Email sending status
-//void sendCallback(SendStatus info);
+void sendCallback(SendStatus info);
 //#define DEBUG_EMAIL_PORT
 
 uint16_t SendMail(char *buffer) {
-  char *params,*oparams;
+  char *params,*oparams=0;
   const char *mserv;
   uint16_t port;
   const char *user;
@@ -668,6 +667,7 @@ uint16_t SendMail(char *buffer) {
 
 
   smtpData.setDebug(true);
+  //smtpData.setDebug(false);
 
   //Set the Email host, port, account and password
   smtpData.setLogin(mserv, port, user, passwd);
@@ -733,7 +733,7 @@ uint16_t SendMail(char *buffer) {
 #endif
 */
 
-smtpData.setFileStorageType(MailClientStorageType::Univ);
+  smtpData.setFileStorageType(MailClientStorageType::Univ);
 
 
   //smtpData.setSendCallback(sendCallback);
@@ -742,9 +742,9 @@ smtpData.setFileStorageType(MailClientStorageType::Univ);
   if (!MailClient.sendMail(smtpData)) {
     //Serial.println("Error sending Email, " + MailClient.smtpErrorReason());
     AddLog(LOG_LEVEL_INFO, PSTR("Error sending Email, %s"), MailClient.smtpErrorReason().c_str());
-
   } else {
     status=0;
+    AddLog(LOG_LEVEL_INFO, PSTR("email sent"));
   }
   //Clear all data from Email object to free memory
   smtpData.empty();
@@ -824,19 +824,16 @@ void send_message_txt(char *txt) {
 
 /*
 //Callback function to get the Email sending status
-void sendCallback(SendStatus msg)
-{
+void sendCallback(SendStatus msg) {
   //Print the current status
   Serial.println(msg.info());
 
   //Do something when complete
-  if (msg.success())
-  {
+  if (msg.success()) {
     Serial.println("----------------");
   }
 }
 */
 #endif
-
 
 #endif // USE_SENDMAIL
