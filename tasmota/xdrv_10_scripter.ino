@@ -4325,6 +4325,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
               ResponseAppend_P(PSTR("%s"), tmp);
               goto next_line;
             }
+#ifdef USE_SENDMAIL
             else if (!strncmp(lp, "sm", 2)) {
               lp+=3;
               char tmp[256];
@@ -4332,6 +4333,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
               SendMail(tmp);
               goto next_line;
             }
+#endif            
             else if (!strncmp(lp,"=>",2) || !strncmp(lp,"->",2) || !strncmp(lp,"+>",2) || !strncmp(lp,"print",5)) {
                 // execute cmd
                 uint8_t sflag = 0,pflg = 0,svmqtt,swll;
