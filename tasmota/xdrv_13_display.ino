@@ -497,7 +497,7 @@ void DisplayText(void)
             cp += var;
             linebuf[fill] = 0;
             break;
-#if (defined(USE_SCRIPT_FATFS) && defined(USE_SCRIPT)) || defined(USE_UFILESYS)
+#ifdef USE_UFILESYS
           case 'P':
             { char *ep=strchr(cp,':');
              if (ep) {
@@ -508,7 +508,7 @@ void DisplayText(void)
              }
             }
             break;
-#endif // USE_SCRIPT_FATFS
+#endif // USE_UFILESYS
           case 'h':
             // hor line to
             var = atoiv(cp, &temp);
@@ -799,9 +799,12 @@ void DisplayText(void)
               cp++;
               var=atoiv(cp,&gxp);
               if (buttons[num]) {
-                // set slider
+                // set slider or button
                 if (buttons[num]->vpower.slider) {
-                    buttons[num]->UpdateSlider(-gxp,-gxp);
+                  buttons[num]->UpdateSlider(-gxp, -gxp);
+                } else {
+                  buttons[num]->vpower.on_off = gxp;
+                  buttons[num]->xdrawButton(buttons[num]->vpower.on_off);
                 }
               }
               break;
@@ -1600,7 +1603,7 @@ char get_jpeg_size(unsigned char* data, unsigned int data_size, unsigned short *
 #endif // JPEG_PICTS
 #endif // ESP32
 
-#if (defined(USE_SCRIPT_FATFS) && defined(USE_SCRIPT)) || defined(USE_UFILESYS)
+#ifdef USE_UFILESYS
 extern FS *ufsp;
 #define XBUFF_LEN 128
 void Draw_RGB_Bitmap(char *file,uint16_t xp, uint16_t yp, bool inverted ) {
@@ -1700,7 +1703,7 @@ void Draw_RGB_Bitmap(char *file,uint16_t xp, uint16_t yp, bool inverted ) {
 #endif // ESP32
   }
 }
-#endif // USE_SCRIPT_FATFS
+#endif // USE_UFILESYS
 
 #ifdef USE_AWATCH
 #define MINUTE_REDUCT 4
