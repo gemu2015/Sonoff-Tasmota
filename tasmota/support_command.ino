@@ -36,7 +36,7 @@ const char kTasmotaCommands[] PROGMEM = "|"  // No prefix
 #ifdef USE_DEVICE_GROUPS_SEND
   D_CMND_DEVGROUP_SEND "|"
 #endif  // USE_DEVICE_GROUPS_SEND
-  D_CMND_DEVGROUP_SHARE "|" D_CMND_DEVGROUPSTATUS "|"
+  D_CMND_DEVGROUP_SHARE "|" D_CMND_DEVGROUPSTATUS "|" D_CMND_DEVGROUP_DEVICE "|"
 #endif  // USE_DEVICE_GROUPS
   D_CMND_SENSOR "|" D_CMND_DRIVER
 #ifdef ESP32
@@ -63,7 +63,7 @@ void (* const TasmotaCommand[])(void) PROGMEM = {
 #ifdef USE_DEVICE_GROUPS_SEND
   &CmndDevGroupSend,
 #endif  // USE_DEVICE_GROUPS_SEND
-  &CmndDevGroupShare, &CmndDevGroupStatus,
+  &CmndDevGroupShare, &CmndDevGroupStatus, &CmndDevGroupTie,
 #endif  // USE_DEVICE_GROUPS
   &CmndSensor, &CmndDriver
 #ifdef ESP32
@@ -119,11 +119,18 @@ void ResponseCmndIdxError(void) {
 void ResponseCmndAll(uint32_t text_index, uint32_t count) {
   uint32_t real_index = text_index;
   ResponseClear();
+  bool jsflg = false;
   for (uint32_t i = 0; i < count; i++) {
     if ((SET_MQTT_GRP_TOPIC == text_index) && (1 == i)) { real_index = SET_MQTT_GRP_TOPIC2 -1; }
-    ResponseAppend_P(PSTR("%c\"%s%d\":\"%s\""), (i) ? ',' : '{', XdrvMailbox.command, i +1, EscapeJSONString(SettingsText(real_index +i)).c_str());
+    if ((ResponseAppend_P(PSTR("%c\"%s%d\":\"%s\""), (jsflg)?',':'{', XdrvMailbox.command, i +1, EscapeJSONString(SettingsText(real_index +i)).c_str()) > (MAX_LOGSZ - TOPSZ)) || (i == count -1)) {
+      ResponseJsonEnd();
+      MqttPublishPrefixTopic_P(RESULT_OR_STAT, XdrvMailbox.command);
+      ResponseClear();
+      jsflg = false;
+    } else {
+      jsflg = true;
+    }
   }
-  ResponseJsonEnd();
 }
 
 /********************************************************************************************/
@@ -477,8 +484,7 @@ void CmndStatus(void)
   }
 
   if ((0 == payload) || (4 == payload)) {
-    float freeMem = ESP_getFreeHeap1024();
-    Response_P(PSTR("{\"" D_CMND_STATUS D_STATUS4_MEMORY "\":{\"" D_JSON_PROGRAMSIZE "\":%d,\"" D_JSON_FREEMEMORY "\":%d,\"" D_JSON_HEAPSIZE "\":%1_f,\""
+    Response_P(PSTR("{\"" D_CMND_STATUS D_STATUS4_MEMORY "\":{\"" D_JSON_PROGRAMSIZE "\":%d,\"" D_JSON_FREEMEMORY "\":%d,\"" D_JSON_HEAPSIZE "\":%d,\""
 #ifdef ESP32
                           D_JSON_PSRMAXMEMORY "\":%d,\"" D_JSON_PSRFREEMEMORY "\":%d,\""
 #endif  // ESP32
@@ -487,7 +493,7 @@ void CmndStatus(void)
                           ",\"" D_JSON_FLASHCHIPID "\":\"%06X\""
 #endif  // ESP8266
                           ",\"FlashFrequency\":%d,\"" D_JSON_FLASHMODE "\":%d"),
-                          ESP_getSketchSize()/1024, ESP.getFreeSketchSpace()/1024, &freeMem,
+                          ESP_getSketchSize()/1024, ESP.getFreeSketchSpace()/1024, ESP_getFreeHeap1024(),
 #ifdef ESP32
                           ESP.getPsramSize()/1024, ESP.getFreePsram()/1024,
 #endif  // ESP32
@@ -1651,9 +1657,9 @@ void CmndFriendlyname(void)
 }
 
 void CmndSwitchText(void) {
-  if ((XdrvMailbox.index > 0) && (XdrvMailbox.index <= MAX_SWITCHES)) {
+  if ((XdrvMailbox.index > 0) && (XdrvMailbox.index <= MAX_SWITCHES_TXT)) {
     if (!XdrvMailbox.usridx && !XdrvMailbox.data_len) {
-      ResponseCmndAll(SET_SWITCH_TXT1, MAX_SWITCHES);
+      ResponseCmndAll(SET_SWITCH_TXT1, MAX_SWITCHES_TXT);
     } else {
       if (XdrvMailbox.data_len > 0) {
         RemoveSpace(XdrvMailbox.data);
@@ -1682,7 +1688,7 @@ void CmndInterlock(void)
   if (max_relays > sizeof(Settings.interlock[0]) * 8) { max_relays = sizeof(Settings.interlock[0]) * 8; }
   if (max_relays > 1) {                                         // Only interlock with more than 1 relay
     if (XdrvMailbox.data_len > 0) {
-      if (strchr(XdrvMailbox.data, ',') != nullptr) {                    // Interlock entry
+      if (strchr(XdrvMailbox.data, ',') != nullptr) {           // Interlock entry
         for (uint32_t i = 0; i < MAX_INTERLOCKS; i++) { Settings.interlock[i] = 0; }  // Reset current interlocks
         char *group;
         char *q;
@@ -2066,7 +2072,7 @@ void CmndDevGroupSend(void)
 {
   uint8_t device_group_index = (XdrvMailbox.usridx ? XdrvMailbox.index - 1 : 0);
   if (device_group_index < device_group_count) {
-    if (!_SendDeviceGroupMessage(device_group_index, (DevGroupMessageType)(DGR_MSGTYPE_UPDATE_COMMAND + DGR_MSGTYPFLAG_WITH_LOCAL))) {
+    if (!_SendDeviceGroupMessage(-device_group_index, (DevGroupMessageType)(DGR_MSGTYPE_UPDATE_COMMAND + DGR_MSGTYPFLAG_WITH_LOCAL))) {
       ResponseCmndChar(XdrvMailbox.data);
     }
   }
@@ -2085,6 +2091,16 @@ void CmndDevGroupShare(void)
 void CmndDevGroupStatus(void)
 {
   DeviceGroupStatus((XdrvMailbox.usridx ? XdrvMailbox.index - 1 : 0));
+}
+
+void CmndDevGroupTie(void)
+{
+  if ((XdrvMailbox.index > 0) && (XdrvMailbox.index <= MAX_DEV_GROUP_NAMES)) {
+    if (XdrvMailbox.data_len > 0) {
+      Settings.device_group_tie[XdrvMailbox.index - 1] = XdrvMailbox.payload;
+    }
+    ResponseCmndIdxNumber(Settings.device_group_tie[XdrvMailbox.index - 1]);
+  }
 }
 #endif  // USE_DEVICE_GROUPS
 

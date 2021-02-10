@@ -73,6 +73,7 @@
 #define D_JSON_EXPORT "Export"
 #define D_JSON_EXPORT_ACTIVE "ExportActive"
 #define D_JSON_EXPORT_REACTIVE "ExportReactive"
+#define D_JSON_EXPORT_POWER "ExportPower"
 #define D_JSON_FAILED "Failed"
 #define D_JSON_FALLBACKTOPIC "FallbackTopic"
 #define D_JSON_FEATURES "Features"
@@ -99,6 +100,7 @@
 #define D_JSON_ID "Id"
 #define D_JSON_ILLUMINANCE "Illuminance"
 #define D_JSON_IMPORT_ACTIVE "ImportActive"
+#define D_JSON_IMPORT_POWER "ImportPower"
 #define D_JSON_IMPORT_REACTIVE "ImportReactive"
 #define D_JSON_INFRARED "Infrared"
 #define D_JSON_UNKNOWN "Unknown"
@@ -328,6 +330,7 @@
 #define D_CMND_DEVGROUP_SEND "DevGroupSend"
 #define D_CMND_DEVGROUP_SHARE "DevGroupShare"
 #define D_CMND_DEVGROUPSTATUS "DevGroupStatus"
+#define D_CMND_DEVGROUP_DEVICE "DevGroupTie"
 #define D_CMND_SERIALSEND "SerialSend"
 #define D_CMND_SERIALDELIMITER "SerialDelimiter"
 #define D_CMND_BAUDRATE "Baudrate"
@@ -615,6 +618,8 @@
 #define D_CMND_ZIGBEE_CONFIG "Config"
   #define D_JSON_ZIGBEE_CONFIG "Config"
 #define D_CMND_ZIGBEE_DATA "Data"
+#define D_CMND_ZIGBEE_SCAN "Scan"
+  #define D_JSON_ZIGBEE_SCAN "ZbScan"
 
 // Commands xdrv_25_A4988_Stepper.ino
 #define D_CMND_MOTOR "MOTOR"
@@ -671,6 +676,12 @@
 #define D_CMND_PING "Ping"
 #define D_JSON_PING "Ping"
 
+// Commands xdrv_52_berry.ino - Berry scripting language
+#define D_PRFX_BR "Br"
+#define D_CMND_BR_RUN ""
+#define D_CMND_BR_RESET "Reset"
+#define D_BR_NOT_STARTED  "Berry not started"
+
 // Commands xsns_02_analog.ino
 #define D_CMND_ADCPARAM "AdcParam"
 
@@ -714,6 +725,7 @@
 #define D_LOG_WIFI "WIF: "         // Wifi
 #define D_LOG_ZIGBEE "ZIG: "       // Zigbee
 #define D_LOG_TCP "TCP: "          // TCP bridge
+#define D_LOG_BERRY "BRY: "        // Berry scripting language
 
 /********************************************************************************************/
 

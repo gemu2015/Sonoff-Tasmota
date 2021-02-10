@@ -573,6 +573,9 @@ void HttpHeaderCors(void)
 
 void WSHeaderSend(void)
 {
+  char server[32];
+  snprintf_P(server, sizeof(server), PSTR("Tasmota/%s (%s)"), TasmotaGlobal.version, GetDeviceHardware().c_str());
+  Webserver->sendHeader(F("Server"), server);
   Webserver->sendHeader(F("Cache-Control"), F("no-cache, no-store, must-revalidate"));
   Webserver->sendHeader(F("Pragma"), F("no-cache"));
   Webserver->sendHeader(F("Expires"), F("-1"));
@@ -1447,8 +1450,8 @@ void HandleTemplateConfiguration(void)
   for (uint32_t i = 0; i < MAX_GPIO_PIN; i++) {
     if (!FlashPin(i)) {
       WSContentSend_P(PSTR("<tr><td><b><font color='#%06x'>" D_GPIO "%d</font></b></td><td%s><select id='g%d' onchange='ot(%d,this.value)'></select></td>"),
-        ((9==i)||(10==i)) ? WebColor(COL_TEXT_WARNING) : WebColor(COL_TEXT), i, (0==i) ? PSTR(" style='width:150px'") : "", i, i);
-      WSContentSend_P(PSTR("<td style='width:50px'><select id='h%d'></select></td></tr>"), i);
+        ((9==i)||(10==i)) ? WebColor(COL_TEXT_WARNING) : WebColor(COL_TEXT), i, (0==i) ? PSTR(" style='width:146px'") : "", i, i);
+      WSContentSend_P(PSTR("<td style='width:54px'><select id='h%d'></select></td></tr>"), i);
     }
   }
   WSContentSend_P(PSTR("</table>"));
@@ -1566,9 +1569,9 @@ void HandleModuleConfiguration(void)
   for (uint32_t i = 0; i < ARRAY_SIZE(template_gp.io); i++) {
     if (ValidGPIO(i, template_gp.io[i])) {
       snprintf_P(stemp, 3, PINS_WEMOS +i*2);
-      WSContentSend_P(PSTR("<tr><td style='width:116px'>%s <b>" D_GPIO "%d</b></td><td style='width:150px'><select id='g%d' onchange='ot(%d,this.value)'></select></td>"),
+      WSContentSend_P(PSTR("<tr><td style='width:116px'>%s <b>" D_GPIO "%d</b></td><td style='width:146px'><select id='g%d' onchange='ot(%d,this.value)'></select></td>"),
         (WEMOS==TasmotaGlobal.module_type)?stemp:"", i, i, i);
-      WSContentSend_P(PSTR("<td style='width:50px'><select id='h%d'></select></td></tr>"), i);
+      WSContentSend_P(PSTR("<td style='width:54px'><select id='h%d'></select></td></tr>"), i);
     }
   }
   WSContentSend_P(PSTR("</table>"));
@@ -2063,8 +2066,6 @@ void HandleInformation(void)
 
   char stopic[TOPSZ];
 
-  float freeMem = ESP_getFreeHeap1024();
-
   WSContentStart_P(PSTR(D_INFORMATION));
   // Save 1k of code space replacing table html with javascript replace codes
   // }1 = </td></tr><tr><th>
@@ -2180,13 +2181,13 @@ void HandleInformation(void)
   WSContentSend_P(PSTR("}1" D_FREE_PROGRAM_SPACE "}2%d kB"), ESP.getFreeSketchSpace() / 1024);
 #ifdef ESP32
   int32_t freeMaxMem = 100 - (int32_t)(ESP_getMaxAllocHeap() * 100 / ESP_getFreeHeap());
-  WSContentSend_P(PSTR("}1" D_FREE_MEMORY "}2%1_f kB (frag. %d%%)"), &freeMem, freeMaxMem);
+  WSContentSend_P(PSTR("}1" D_FREE_MEMORY "}2%d kB (" D_FRAGMENTATION " %d%%)"), ESP_getFreeHeap1024(), freeMaxMem);
   if (psramFound()) {
     WSContentSend_P(PSTR("}1" D_PSR_MAX_MEMORY "}2%d kB"), ESP.getPsramSize() / 1024);
     WSContentSend_P(PSTR("}1" D_PSR_FREE_MEMORY "}2%d kB"), ESP.getFreePsram() / 1024);
   }
 #else // ESP32
-  WSContentSend_P(PSTR("}1" D_FREE_MEMORY "}2%1_f kB"), &freeMem);
+  WSContentSend_P(PSTR("}1" D_FREE_MEMORY "}2%d kB"), ESP_getFreeHeap1024());
 #endif // ESP32
   WSContentSend_P(PSTR("</td></tr></table>"));
 

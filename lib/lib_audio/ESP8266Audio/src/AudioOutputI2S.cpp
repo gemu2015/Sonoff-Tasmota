@@ -18,9 +18,6 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-//#define USE_DEPRECATED_I2SWRITE
-
-
 #include <Arduino.h>
 #ifdef ESP32
   #include "driver/i2s.h"
@@ -198,13 +195,10 @@ bool AudioOutputI2S::ConsumeSample(int16_t sample[2])
     s32 = ((Amplify(ms[RIGHTCHANNEL]))<<16) | (Amplify(ms[LEFTCHANNEL]) & 0xffff);
   }
 // Deprecated. Use i2s_write
-#ifdef USE_DEPRECATED_I2SWRITE
-  return i2s_write_bytes((i2s_port_t)portNo, (const char*)&s32, sizeof(uint32_t), 0);
-#else
+//  return i2s_write_bytes((i2s_port_t)portNo, (const char*)&s32, sizeof(uint32_t), 0);
   size_t bytes_written;
   i2s_write((i2s_port_t)portNo, (const char*)&s32, sizeof(uint32_t), &bytes_written, 0);
   return bytes_written;
-#endif
 #else
   uint32_t s32 = ((Amplify(ms[RIGHTCHANNEL]))<<16) | (Amplify(ms[LEFTCHANNEL]) & 0xffff);
   return i2s_write_sample_nb(s32); // If we can't store it, return false.  OTW true

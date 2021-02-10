@@ -96,6 +96,7 @@
 #define D_FALSE "Faux"
 #define D_FILE "Fichier"
 #define D_FLOW_RATE "Débit"
+#define D_FRAGMENTATION "frag."      // Lower case abbreviated version of fragmentation used in "memory fragmentation"
 #define D_FREE_MEMORY "Mémoire libre"
 #define D_PSR_MAX_MEMORY "Mémoire PS-RAM"
 #define D_PSR_FREE_MEMORY "Mémoire PS-RAM libre"
@@ -625,6 +626,8 @@
 #define D_SENSOR_SBR_TX        "SerBr TX"
 #define D_SENSOR_SR04_TRIG     "SR04 Tri/TX"
 #define D_SENSOR_SR04_ECHO     "SR04 Ech/RX"
+#define D_SENSOR_SDM72_TX      "SDM72 Tx"
+#define D_SENSOR_SDM72_RX      "SDM72 Rx"
 #define D_SENSOR_SDM120_TX     "SDMx20 TX"
 #define D_SENSOR_SDM120_RX     "SDMx20 RX"
 #define D_SENSOR_SDM630_TX     "SDM630 TX"
@@ -828,7 +831,9 @@
 #define D_UNIT_WATT "W"
 #define D_UNIT_WATTHOUR "Wh"
 #define D_UNIT_WATT_METER_QUADRAT "W/m²"
-//SDM220, SDM120, LE01MR
+//SDM220, SDM120, SDM72, LE01MR
+#define D_EXPORT_POWER    "Export Power"
+#define D_IMPORT_POWER 	  "Import Power"
 #define D_PHASE_ANGLE     "Angle de phase"
 #define D_IMPORT_ACTIVE   "Énergie act conso"
 #define D_EXPORT_ACTIVE   "Énergie act fournie"

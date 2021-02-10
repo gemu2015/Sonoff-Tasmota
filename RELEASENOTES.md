@@ -4,6 +4,8 @@
 
 ## Migration Information
 
+This version removes migration support for versions before v8.1.0 (Doris)
+
 See [migration path](https://tasmota.github.io/docs/Upgrading#migration-path) for instructions how to migrate to a major version. Pay attention to the following version breaks due to dynamic settings updates:
 
 1. Migrate to **Sonoff-Tasmota 3.9.x**
@@ -56,7 +58,7 @@ The attached binaries can also be downloaded from http://ota.tasmota.com/tasmota
 
 [Complete list](BUILDS.md) of available feature and sensors.
 
-## Changelog v9.2.0.4
+## Changelog v9.2.0.7
 ### Added
 - Command ``CTRange`` to specify the visible CT range the bulb is capable of [#10311](https://github.com/arendst/Tasmota/issues/10311)
 - Command ``L1MusicSync <0|Off>|<1|On>|<2|Toggle>, 1..10, 1..100>`` to control Sonoff L1 Music Sync mode sensitivity and speed [#10722](https://github.com/arendst/Tasmota/issues/10722)
@@ -68,6 +70,7 @@ The attached binaries can also be downloaded from http://ota.tasmota.com/tasmota
 - Command ``SetOption118 1`` to move ZbReceived from JSON message and into the subtopic replacing "SENSOR" default [#10353](https://github.com/arendst/Tasmota/issues/10353)
 - Command ``SetOption119 1`` to remove the device addr from json payload, can be used with zb_topic_fname where the addr is already known from the topic [#10355](https://github.com/arendst/Tasmota/issues/10355)
 - Zigbee command ``SetOption120 1`` or ``ZbEndpointTopic 1`` to add the zigbee endpoint as suffix in topic when using ``SetOption89 1``
+- Zigbee command ``ZbScan`` to do an energy scan on each radio channel
 - Commands ``ChannelRemap``, ``MultiPWM``, ``AlexaCTRange``, ``PowerOnFade``, ``PWMCT``, ``WhiteBlend`` and ``VirtualCT`` as synonyms for ``SetOption37, 68, 82, 91, 92, 105`` and ``106``
 - Commands ``ZbNameKey``, ``ZbDeviceTopic``, ``ZbNoPrefix``, ``ZbEndpointSuffix``, ``ZbNoAutoBind`` and ``ZbNameTopic`` as synonyms for ``SetOption83, 89, 100, 101, 110`` and ``112``
 - Commands ``ZbNoAutoBind``, ``ZbReceivedTopic`` and ``ZbOmitDevice`` as synonyms for ``SetOption116, 118`` and ``119``
@@ -83,6 +86,7 @@ The attached binaries can also be downloaded from http://ota.tasmota.com/tasmota
 - Support for up to 4 I2C SEESAW_SOIL Capacitance & Temperature sensors by Peter Franck [#10481](https://github.com/arendst/Tasmota/issues/10481)
 - Support for TOF10120 time of flight sensor by Cyril Pawelko [#10190](https://github.com/arendst/Tasmota/issues/10190)
 - Support for Afrikaans language translations by Christiaan Heerze
+- Support for Frysk language translations by Christiaan Heerze
 - Support for IR inverted leds using ``#define IR_SEND_INVERTED true`` [#10301](https://github.com/arendst/Tasmota/issues/10301)
 - Support for disabling 38kHz IR modulation using ``#define IR_SEND_USE_MODULATION false`` [#10301](https://github.com/arendst/Tasmota/issues/10301)
 - Support for SPI display driver for ST7789 TFT by Gerhard Mutz [#9037](https://github.com/arendst/Tasmota/issues/9037)
@@ -90,6 +94,8 @@ The attached binaries can also be downloaded from http://ota.tasmota.com/tasmota
 - Support for 24/26/32/34 bit RFID Wiegand interface (D0/D1) by Sigurd Leuther [#3647](https://github.com/arendst/Tasmota/issues/3647)
 - Support for SM2135 current selection using GPIO ``SM2135 DAT`` index [#10634](https://github.com/arendst/Tasmota/issues/10634)
 - Support for Sugar Valley NeoPool Controller by Norbert Richter [#10637](https://github.com/arendst/Tasmota/issues/10637)
+- Support for Device Groups Device Map [#10898](https://github.com/arendst/Tasmota/issues/10898)
+- Support for Eastron SDM72D-M three phase 100A Modbus energy meter [#10862](https://github.com/arendst/Tasmota/issues/10862)
 - Support for ESP32 ``Module 3`` Odroid Go 16MB binary tasmota32-odroidgo.bin [#8630](https://github.com/arendst/Tasmota/issues/8630)
 - Support for ESP32 ``Module 5`` Wireless Tag Eth01 [#9496](https://github.com/arendst/Tasmota/issues/9496)
 - Support for ESP32 ``Module 7`` M5stack core2 16MB binary tasmota32-core2.bin [#10635](https://github.com/arendst/Tasmota/issues/10635)
@@ -113,12 +119,17 @@ The attached binaries can also be downloaded from http://ota.tasmota.com/tasmota
 - Replaced RA8876 GPIO selection from ``SPI CS`` by ``RA8876 CS``
 
 ### Changed
+- Removed migration support for versions before v8.1.0 (Doris)
 - Command ``Sleep 0`` removes any sleep from wifi modem except when ESP32 BLE is active
 - Logging from heap to stack freeing 700 bytes RAM
 - Disabled ``USE_LIGHT`` light support for ZBBridge saving 17.6kB [#10374](https://github.com/arendst/Tasmota/issues/10374)
 - Force initial default state ``SetOption57 1`` to scan wifi network every 44 minutes for strongest signal [#10395](https://github.com/arendst/Tasmota/issues/10395)
 - PubSubClient MQTT_SOCKET_TIMEOUT from 15 to 4 seconds
 - Domoticz fixed 2 decimals resolution by user selectable ``TempRes``, ``HumRes`` and ``PressRes`` resolutions
+- Increase number of button GPIOs from 4 to 8
+- ESP32 Increase number of switch GPIOs from 8 to 28
+- ESP32 increase number of relay GPIOs from 8 to 28
+- ESP32 Increase number of interlock groups from 4 to 14
 
 ### Fixed
 - Redesign syslog and mqttlog using log buffer [#10164](https://github.com/arendst/Tasmota/issues/10164)

@@ -3,7 +3,25 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - Development
 
-## [9.2.0.4]
+## [9.2.0.7]
+### Added
+- Support for Device Groups Device Map (#10898)
+- Support for Eastron SDM72D-M three phase 100A Modbus energy meter (#10862)
+- Support for Frysk language translations by Christiaan Heerze
+
+## [9.2.0.6] 20210210
+### Changed
+- Removed migration support for versions before v8.1.0 (Doris)
+- ESP32 Increase number of switch GPIOs from 8 to 28
+- ESP32 Increase number of interlock groups from 4 to 14
+- Increase number of button GPIOs from 4 to 8
+- Preview of Berry language for Tasmota32
+
+## [9.2.0.5] 20210205
+### Changed
+- ESP32 increase number of relay GPIOs from 8 to 28
+
+## [9.2.0.4] 20210204
 ### Added
 - Function ``AddLog`` to provide logging for up to 128 (LOGSZ) characters to save stack space
 - Commands ``ChannelRemap``, ``MultiPWM``, ``AlexaCTRange``, ``PowerOnFade``, ``PWMCT``, ``WhiteBlend`` and ``VirtualCT`` as synonyms for ``SetOption37, 68, 82, 91, 92, 105`` and ``106``
@@ -15,6 +33,7 @@ All notable changes to this project will be documented in this file.
 - Command ``L1MusicSync <0|Off>|<1|On>|<2|Toggle>, 1..10, 1..100>`` to control Sonoff L1 Music Sync mode sensitivity and speed (#10722)
 - Command ``Speed2`` to control a once off fade (#10741)
 - Zigbee command ``SetOption120 1`` or ``ZbEndpointTopic 1`` to add the endpoint as suffix in topic when using ``SetOption89 1``
+- Zigbee command ``ZbScan`` to do an energy scan on each radio channel
 
 ### Changed
 - Maximum chars in ``AddLog_P`` logging restored from 128 to 700 (MAX_LOGSZ) to solve broken error messages

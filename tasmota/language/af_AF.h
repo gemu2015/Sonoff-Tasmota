@@ -28,7 +28,7 @@
  * Use online command StateText to translate ON, OFF, HOLD and TOGGLE.
  * Use online command Prefix to translate cmnd, stat and tele.
  *
- * Updated until v9.2.1.0
+ * Updated until v9.2.0.4
 \*********************************************************************/
 
 //#define LANGUAGE_MODULE_NAME         // Enable to display "Module Generic" (ie Spanish), Disable to display "Generic Module" (ie English)
@@ -100,6 +100,7 @@
 #define D_FALSE "Onwaar"
 #define D_FILE "Lêer"
 #define D_FLOW_RATE "Vloeitempo"
+#define D_FRAGMENTATION "frag."      // Lower case abbreviated version of fragmentation used in "memory fragmentation"
 #define D_FREE_MEMORY "Vrye geheue"
 #define D_PSR_MAX_MEMORY "PS-RAM geheue"
 #define D_PSR_FREE_MEMORY "PS-RAM vrye geheue"
@@ -243,8 +244,8 @@
 #define D_WEBSERVER_STOPPED "Webbediener gestop"
 #define D_FILE_NOT_FOUND "Lêer nie gevind nie"
 #define D_REDIRECTED "Herlei na captive portal"
-#define D_WIFIMANAGER_SET_ACCESSPOINT_AND_STATION "Wifimanager stel AccessPoint in en hou Station"
-#define D_WIFIMANAGER_SET_ACCESSPOINT "Wifimanager het AccessPoint ingestel"
+#define D_WIFIMANAGER_SET_ACCESSPOINT_AND_STATION "WiFi manager stel AccessPoint in en hou Station"
+#define D_WIFIMANAGER_SET_ACCESSPOINT "WiFi manager het AccessPoint ingestel"
 #define D_TRYING_TO_CONNECT "Probeer om toestel aan netwerk te koppel"
 
 #define D_RESTART_IN "Begin weer binne"
@@ -277,8 +278,8 @@
 #define D_SERIAL_IN "Serial in"
 #define D_SERIAL_OUT "Serial uit"
 
-#define D_WIFI_PARAMETERS "Wifi-parameters"
-#define D_SCAN_FOR_WIFI_NETWORKS "Soek vir wifi-netwerke"
+#define D_WIFI_PARAMETERS "WiFi parameters"
+#define D_SCAN_FOR_WIFI_NETWORKS "Soek vir WiFi netwerke"
 #define D_SCAN_DONE "Skandering gedoen"
 #define D_NO_NETWORKS_FOUND "Geen netwerke gevind nie"
 #define D_REFRESH_TO_SCAN_AGAIN "Verfris om weer te skandeer"
@@ -629,6 +630,8 @@
 #define D_SENSOR_SBR_TX        "SerBr Tx"
 #define D_SENSOR_SR04_TRIG     "SR04 Tri/TX"
 #define D_SENSOR_SR04_ECHO     "SR04 Ech/RX"
+#define D_SENSOR_SDM72_TX      "SDM72 Tx"
+#define D_SENSOR_SDM72_RX      "SDM72 Rx"
 #define D_SENSOR_SDM120_TX     "SDMx20 Tx"
 #define D_SENSOR_SDM120_RX     "SDMx20 Rx"
 #define D_SENSOR_SDM630_TX     "SDM630 Tx"
@@ -833,7 +836,9 @@
 #define D_UNIT_WATTHOUR "Wh"
 #define D_UNIT_WATT_METER_QUADRAT "W/m²"
 
-//SDM220, SDM120, LE01MR
+//SDM220, SDM120, SDM72, LE01MR
+#define D_EXPORT_POWER    "Uitvoer krag"
+#define D_IMPORT_POWER 	  "Invoer krag"
 #define D_PHASE_ANGLE     "Fasehoek"
 #define D_IMPORT_ACTIVE   "Invoer aktief"
 #define D_EXPORT_ACTIVE   "Uitvoer aktief"
