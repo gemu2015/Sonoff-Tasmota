@@ -46,7 +46,7 @@
 *
 */
 
-#ifdef ESP32
+//#ifdef ESP32
 #include "ILI9341_2.h"
 #include <limits.h>
 
@@ -64,8 +64,8 @@
 #define SPI_BEGIN_TRANSACTION()    if (_hwspi)    spi2->beginTransaction(sspi2)
 #define SPI_END_TRANSACTION()      if (_hwspi)    spi2->endTransaction()
 #else
-#define SPI_BEGIN_TRANSACTION()    (void)
-#define SPI_END_TRANSACTION()      (void)
+#define SPI_BEGIN_TRANSACTION()
+#define SPI_END_TRANSACTION()
 #endif
 
 
@@ -605,4 +605,4 @@ void ILI9341_2::spiwrite32(uint32_t c) {
 #endif
 }
 
-#endif
+//#endif
