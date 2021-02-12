@@ -1644,7 +1644,8 @@ void GpioInit(void)
     bool valid_cs = (ValidSpiPinUsed(GPIO_SPI_CS) ||
                      ValidSpiPinUsed(GPIO_RC522_CS) ||
                      (ValidSpiPinUsed(GPIO_NRF24_CS) && ValidSpiPinUsed(GPIO_NRF24_DC)) ||
-                     (ValidSpiPinUsed(GPIO_ILI9341_CS) && ValidSpiPinUsed(GPIO_ILI9341_DC)) ||
+                     ValidSpiPinUsed(GPIO_ILI9341_CS) ||
+                     ValidSpiPinUsed(GPIO_ILI9341_DC) || // there are also boards without cs
                      ValidSpiPinUsed(GPIO_EPAPER29_CS) ||
                      ValidSpiPinUsed(GPIO_EPAPER42_CS) ||
                      ValidSpiPinUsed(GPIO_ILI9488_CS) ||
@@ -1653,8 +1654,7 @@ void GpioInit(void)
                      ValidSpiPinUsed(GPIO_ST7789_DC) ||  // ST7789 CS may be omitted so chk DC too
                      ValidSpiPinUsed(GPIO_ST7789_CS) ||
                      (ValidSpiPinUsed(GPIO_SSD1331_CS) && ValidSpiPinUsed(GPIO_SSD1331_DC)) ||
-                     ValidSpiPinUsed(GPIO_SDCARD_CS) ||
-                     ValidSpiPinUsed(GPIO_ILI9341_2_DC)
+                     ValidSpiPinUsed(GPIO_SDCARD_CS)
                     );
     // If SPI_CS and/or SPI_DC is used they must be valid
     TasmotaGlobal.spi_enabled = (valid_cs) ? SPI_MOSI_MISO : SPI_NONE;

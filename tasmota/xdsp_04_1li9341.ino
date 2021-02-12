@@ -22,7 +22,7 @@
 #ifdef USE_DISPLAY
 #if (defined(USE_DISPLAY_ILI9341) || defined(USE_DISPLAY_ILI9342))
 
-#define XDSP_13                13
+#define XDSP_04                4
 
 #undef COLORED
 #define COLORED                1
@@ -50,33 +50,31 @@ uint8_t ili9342_ctouch_counter = 0;
 
 /*********************************************************************************************/
 
-void ILI9341_2_InitDriver()
+void ILI9341_InitDriver()
 {
   if (!Settings.display_model) {
-    Settings.display_model = XDSP_13;
+    Settings.display_model = XDSP_04;
   }
 
+  if (XDSP_04 == Settings.display_model) {
 
-  if (XDSP_13 == Settings.display_model) {
-
-    if (Settings.display_width != ILI9341_2_TFTWIDTH) {
-      Settings.display_width = ILI9341_2_TFTWIDTH;
+    if (Settings.display_width != ILI9341_TFTWIDTH) {
+      Settings.display_width = ILI9341_TFTWIDTH;
     }
-    if (Settings.display_height != ILI9341_2_TFTHEIGHT) {
-      Settings.display_height = ILI9341_2_TFTHEIGHT;
+    if (Settings.display_height != ILI9341_TFTHEIGHT) {
+      Settings.display_height = ILI9341_TFTHEIGHT;
     }
 
     // disable screen buffer
     buffer=NULL;
 
     // default colors
-    fg_color = ILI9341_2_WHITE;
-    bg_color = ILI9341_2_BLACK;
+    fg_color = ILI9341_WHITE;
+    bg_color = ILI9341_BLACK;
 
 #ifdef USE_M5STACK_CORE2
     ili9341_2  = new ILI9341_2(5, -2, 15, -2);
 #else
-
     // check for special case with 2 SPI busses (ESP32 bitcoin)
     if (TasmotaGlobal.soft_spi_enabled) {
       // init renderer, may use hardware spi, however we use SSPI defintion because SD card uses SPI definition  (2 spi busses)
@@ -109,8 +107,8 @@ void ILI9341_2_InitDriver()
 #ifdef SHOW_SPLASH
     // Welcome text
     renderer->setTextFont(2);
-    renderer->setTextColor(ILI9341_2_WHITE, ILI9341_2_BLACK);
-    renderer->DrawStringAt(30, (Settings.display_height/2)-12, "ILI9341 TFT!", ILI9341_2_WHITE, 0);
+    renderer->setTextColor(ILI9341_WHITE, ILI9341_BLACK);
+    renderer->DrawStringAt(30, (Settings.display_height/2)-12, "ILI9341 TFT!", ILI9341_WHITE, 0);
     delay(1000);
 #endif // SHOW_SPLASH
 
@@ -128,7 +126,7 @@ void ILI9341_2_InitDriver()
 #endif // USE_FT5206
 #endif // ESP32
 
-    AddLog(LOG_LEVEL_INFO, PSTR("DSP: ILI9341-2"));
+    AddLog(LOG_LEVEL_INFO, PSTR("DSP: ILI9341"));
   }
 }
 
@@ -234,10 +232,10 @@ void Ili9341PrintLog(void) {
       uint16_t theight = size * TFT_FONT_HEIGTH;
 
       renderer->setTextSize(size);
-      renderer->setTextColor(ILI9341_2_CYAN, ILI9341_2_BLACK);  // Add background color to solve flicker
+      renderer->setTextColor(ILI9341_CYAN, ILI9341_BLACK);  // Add background color to solve flicker
       if (!Settings.display_rotate) {  // Use hardware scroll
         renderer->setCursor(0, tft_scroll);
-        renderer->fillRect(0, tft_scroll, renderer->width(), theight, ILI9341_2_BLACK);  // Erase line
+        renderer->fillRect(0, tft_scroll, renderer->width(), theight, ILI9341_BLACK);  // Erase line
         renderer->print(txt);
         tft_scroll += theight;
         if (tft_scroll >= (renderer->height() - tft_bottom)) {
@@ -266,7 +264,7 @@ void Ili9341PrintLog(void) {
   }
 }
 
-void ILI9341_2_Refresh(void) {  // Every second
+void ILI9341_Refresh(void) {  // Every second
   if (Settings.display_mode) {  // Mode 0 is User text
     // 24-04-2017 13:45:43 = 19 + 1 ('\0') = 20
     // 24-04-2017 13:45 = 16 + 1 ('\0') = 17
@@ -279,7 +277,7 @@ void ILI9341_2_Refresh(void) {  // Every second
       char time[time_size];    // 13:45:43
 
       renderer->setTextSize(Settings.display_size);
-      renderer->setTextColor(ILI9341_2_YELLOW, ILI9341_2_RED);   // Add background color to solve flicker
+      renderer->setTextColor(ILI9341_YELLOW, ILI9341_RED);   // Add background color to solve flicker
       renderer->setCursor(0, 0);
 
       snprintf_P(date4, sizeof(date4), PSTR("%02d" D_MONTH_DAY_SEPARATOR "%02d" D_YEAR_MONTH_SEPARATOR "%04d"), RtcTime.day_of_month, RtcTime.month, RtcTime.year);
@@ -310,14 +308,14 @@ void ILI9341_2_Refresh(void) {  // Every second
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
-bool Xdsp13(uint8_t function)
+bool Xdsp04(uint8_t function)
 {
   bool result = false;
 
   if (FUNC_DISPLAY_INIT_DRIVER == function) {
-    ILI9341_2_InitDriver();
+    ILI9341_InitDriver();
   }
-  else if (XDSP_13 == Settings.display_model) {
+  else if (XDSP_04 == Settings.display_model) {
       switch (function) {
         case FUNC_DISPLAY_MODEL:
           result = true;
@@ -338,7 +336,7 @@ bool Xdsp13(uint8_t function)
 #endif // USE_FT5206
 #ifdef USE_DISPLAY_MODES1TO5
         case FUNC_DISPLAY_EVERY_SECOND:
-          ILI9341_2_Refresh();
+          ILI9341_Refresh();
           break;
 #endif  // USE_DISPLAY_MODES1TO5
 

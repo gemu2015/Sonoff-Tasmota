@@ -72,9 +72,9 @@
 
 
 
-const uint16_t ili9341_2_colors[]={ILI9341_2_BLACK,ILI9341_2_WHITE,ILI9341_2_RED,ILI9341_2_GREEN,ILI9341_2_BLUE,ILI9341_2_CYAN,ILI9341_2_MAGENTA,\
-  ILI9341_2_YELLOW,ILI9341_2_NAVY,ILI9341_2_DARKGREEN,ILI9341_2_DARKCYAN,ILI9341_2_MAROON,ILI9341_2_PURPLE,ILI9341_2_OLIVE,\
-ILI9341_2_LIGHTGREY,ILI9341_2_DARKGREY,ILI9341_2_ORANGE,ILI9341_2_GREENYELLOW,ILI9341_2_PINK};
+const uint16_t ili9341_2_colors[]={ILI9341_BLACK,ILI9341_WHITE,ILI9341_RED,ILI9341_GREEN,ILI9341_BLUE,ILI9341_CYAN,ILI9341_MAGENTA,\
+  ILI9341_YELLOW,ILI9341_NAVY,ILI9341_DARKGREEN,ILI9341_DARKCYAN,ILI9341_MAROON,ILI9341_PURPLE,ILI9341_OLIVE,\
+ILI9341_LIGHTGREY,ILI9341_DARKGREY,ILI9341_ORANGE,ILI9341_GREENYELLOW,ILI9341_PINK};
 
 uint16_t ILI9341_2::GetColorFromIndex(uint8_t index) {
   if (index>=sizeof(ili9341_2_colors)/2) index=0;
@@ -137,7 +137,7 @@ static const uint8_t PROGMEM ili9342_initcmd[] = {
   0x00                                   // End of list
 };
 
-ILI9341_2::ILI9341_2(int8_t cs, int8_t mosi, int8_t miso, int8_t sclk, int8_t res, int8_t dc, int8_t bp) : Renderer(ILI9341_2_TFTWIDTH, ILI9341_2_TFTHEIGHT) {
+ILI9341_2::ILI9341_2(int8_t cs, int8_t mosi, int8_t miso, int8_t sclk, int8_t res, int8_t dc, int8_t bp) : Renderer(ILI9341_TFTWIDTH, ILI9341_TFTHEIGHT) {
   _cs   = cs;
   _mosi  = mosi;
   _miso  = miso;
@@ -149,7 +149,7 @@ ILI9341_2::ILI9341_2(int8_t cs, int8_t mosi, int8_t miso, int8_t sclk, int8_t re
 }
 
 // special init for ILI9342
-ILI9341_2::ILI9341_2(int8_t cs, int8_t res, int8_t dc, int8_t bp) : Renderer(ILI9341_2_TFTWIDTH, ILI9341_2_TFTHEIGHT) {
+ILI9341_2::ILI9341_2(int8_t cs, int8_t res, int8_t dc, int8_t bp) : Renderer(ILI9341_TFTWIDTH, ILI9341_TFTHEIGHT) {
   _cs   = cs;
   _res = res;
   _dc = dc;
@@ -175,11 +175,11 @@ void ILI9341_2::init(uint16_t width, uint16_t height) {
   //sspi2 = SPISettings(2500000, MSBFIRST, SPI_MODE3);
 
   if (_hwspi==2) {
-    iwidth=ILI9341_2_TFTWIDTH;
-    iheight=ILI9341_2_TFTHEIGHT;
+    iwidth=ILI9341_TFTWIDTH;
+    iheight=ILI9341_TFTHEIGHT;
   } else {
-    iwidth=ILI9341_2_TFTHEIGHT;
-    iheight=ILI9341_2_TFTWIDTH;
+    iwidth=ILI9341_TFTHEIGHT;
+    iheight=ILI9341_TFTWIDTH;
   }
 
 #ifdef ILI9341_2_HWSPI
@@ -282,9 +282,9 @@ void ILI9341_2::DisplayInit(int8_t p,int8_t size,int8_t rot,int8_t font) {
   setRotation(rot);
   setTextFont(font&3);
   setTextSize(size&7);
-  setTextColor(ILI9341_2_WHITE,ILI9341_2_BLACK);
+  setTextColor(ILI9341_WHITE,ILI9341_BLACK);
   setCursor(0,0);
-  fillScreen(ILI9341_2_BLACK);
+  fillScreen(ILI9341_BLACK);
 }
 
 void ILI9341_2::setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
