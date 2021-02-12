@@ -197,9 +197,6 @@ typedef union {                            // Restricted by MISRA-C Rule 18.4 bu
   };
 } GpioOptionABits;
 
-#define D_SENSOR_ILI9341_2_CS "ILI9341-2_CS"
-#define D_SENSOR_ILI9341_2_DC "ILI9341-2_DC"
-
 // Text in webpage Module Parameters and commands GPIOS and GPIO
 const char kSensorNames[] PROGMEM =
   D_SENSOR_NONE "|"
