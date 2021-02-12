@@ -121,7 +121,9 @@ void ILI9341_2_InitDriver()
 #ifdef ESP32
 #ifdef USE_FT5206
     // start digitizer with fixed adress and pins for esp32
+    #undef SDA_2
     #define SDA_2 21
+    #undef SCL_2
     #define SCL_2 22
     Wire1.begin(SDA_2, SCL_2, 400000);
     Touch_Init(Wire1);
