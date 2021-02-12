@@ -141,6 +141,8 @@ class ILI9341_2 : public Renderer {
   void spiwrite(uint8_t c);
   void spiwrite16(uint16_t c);
   void spiwrite32(uint32_t c);
+  void setScrollMargins(uint16_t top, uint16_t bottom);
+  void scrollTo(uint16_t y);
 
   uint8_t  tabcolor;
   uint8_t dimmer;

@@ -20,7 +20,7 @@
 //#ifdef USE_SPI
 #ifdef USE_SPI
 #ifdef USE_DISPLAY
-#if (defined(USE_DISPLAY_ILI9341_2) || defined(USE_DISPLAY_ILI9342))
+#if (defined(USE_DISPLAY_ILI9341) || defined(USE_DISPLAY_ILI9342))
 
 #define XDSP_13                13
 
@@ -77,8 +77,6 @@ void ILI9341_2_InitDriver()
     ili9341_2  = new ILI9341_2(5, -2, 15, -2);
 #else
 
-
-
     // check for special case with 2 SPI busses (ESP32 bitcoin)
     if (TasmotaGlobal.soft_spi_enabled) {
       // init renderer, may use hardware spi, however we use SSPI defintion because SD card uses SPI definition  (2 spi busses)
@@ -90,11 +88,11 @@ void ILI9341_2_InitDriver()
     } else if (TasmotaGlobal.spi_enabled) {
       // there are displays without CS
       int8_t cs = -1;
-      if (PinUsed(GPIO_ILI9341_2_CS)) {
-        cs = Pin(GPIO_ILI9341_2_CS);
+      if (PinUsed(GPIO_ILI9341_CS)) {
+        cs = Pin(GPIO_ILI9341_CS);
       }
-      if (PinUsed(GPIO_OLED_RESET) && PinUsed(GPIO_BACKLIGHT) && PinUsed(GPIO_ILI9341_2_DC)) {
-        ili9341_2  = new ILI9341_2(Pin(GPIO_ILI9341_2_CS), Pin(GPIO_SPI_MOSI), Pin(GPIO_SPI_MISO), Pin(GPIO_SPI_CLK), Pin(GPIO_OLED_RESET), Pin(GPIO_ILI9341_2_DC), Pin(GPIO_BACKLIGHT));
+      if (PinUsed(GPIO_OLED_RESET) && PinUsed(GPIO_BACKLIGHT) && PinUsed(GPIO_ILI9341_DC)) {
+        ili9341_2  = new ILI9341_2(Pin(GPIO_ILI9341_CS), Pin(GPIO_SPI_MOSI), Pin(GPIO_SPI_MISO), Pin(GPIO_SPI_CLK), Pin(GPIO_OLED_RESET), Pin(GPIO_ILI9341_DC), Pin(GPIO_BACKLIGHT));
       } else {
         return;
       }
@@ -195,73 +193,117 @@ ili9342_ctouch_counter++;
 
 #ifdef USE_DISPLAY_MODES1TO5
 
-void ILI9341_2_PrintLog(bool withDateTime) {
+#define TFT_TOP                16
+#define TFT_BOTTOM             16
+#define TFT_FONT_WIDTH         6
+#define TFT_FONT_HEIGTH        8     // Adafruit minimal font heigth pixels
+
+uint16_t tft_top = TFT_TOP;
+uint16_t tft_bottom = TFT_BOTTOM;
+uint16_t tft_scroll = TFT_TOP;
+uint16_t tft_cols = 0;
+bool tft_init_done = false;
+
+bool Ili9341Header(void) {
+  if (Settings.display_cols[0] != tft_cols) {
+    tft_cols = Settings.display_cols[0];
+    if (tft_cols > 17) {
+      tft_top = TFT_TOP;
+      tft_bottom = TFT_BOTTOM;
+    } else {
+      tft_top = 0;
+      tft_bottom = 0;
+    }
+    tft_scroll = tft_top;
+    renderer->setScrollMargins(tft_top, tft_bottom);
+  }
+  return (tft_cols > 17);
+}
+
+void Ili9341PrintLog(void) {
   disp_refresh--;
   if (!disp_refresh) {
     disp_refresh = Settings.display_refresh;
-    if (!disp_screen_buffer_cols) { DisplayAllocScreenBuffer(); }
+    if (Settings.display_rotate) {
+      if (!disp_screen_buffer_cols) { DisplayAllocScreenBuffer(); }
+    }
 
     char* txt = DisplayLogBuffer('\370');
-    if (txt != NULL) {
-      uint8_t last_row = Settings.display_rows -1;
+    if (txt != nullptr) {
+      uint8_t size = Settings.display_size;
+      uint16_t theight = size * TFT_FONT_HEIGTH;
 
-      renderer->clearDisplay(); /** TODO: Would be smoother without clear, like ILI9341_2_Time() does. **/
-      renderer->setCursor(0,0);
+      renderer->setTextSize(size);
+      renderer->setTextColor(ILI9341_2_CYAN, ILI9341_2_BLACK);  // Add background color to solve flicker
+      if (!Settings.display_rotate) {  // Use hardware scroll
+        renderer->setCursor(0, tft_scroll);
+        renderer->fillRect(0, tft_scroll, renderer->width(), theight, ILI9341_2_BLACK);  // Erase line
+        renderer->print(txt);
+        tft_scroll += theight;
+        if (tft_scroll >= (renderer->height() - tft_bottom)) {
+          tft_scroll = tft_top;
+        }
+        renderer->scrollTo(tft_scroll);
+      } else {
+        uint8_t last_row = Settings.display_rows -1;
 
-      if (withDateTime) {
-        char line[21];
-        snprintf_P(line, sizeof(line), PSTR("%02d" D_HOUR_MINUTE_SEPARATOR "%02d" D_MINUTE_SECOND_SEPARATOR "%02d  %02d" D_MONTH_DAY_SEPARATOR "%02d" D_YEAR_MONTH_SEPARATOR "%04d"), RtcTime.hour, RtcTime.minute, RtcTime.second, RtcTime.day_of_month, RtcTime.month, RtcTime.year);  // [12:34:56  31-12-2021]
-        renderer->setTextColor(ILI9341_2_BLUE);
-        renderer->println(line);
-        renderer->setTextColor(fg_color);
-        last_row--;
+        tft_scroll = (tft_top) ? theight : 0;  // Start below header
+        renderer->setCursor(0, tft_scroll);
+        for (uint32_t i = 0; i < last_row; i++) {
+          strlcpy(disp_screen_buffer[i], disp_screen_buffer[i +1], disp_screen_buffer_cols);
+//          tft->fillRect(0, tft_scroll, tft->width(), theight, ILI9341_BLACK);  // Erase line
+          renderer->print(disp_screen_buffer[i]);
+          tft_scroll += theight;
+          renderer->setCursor(0, tft_scroll);
+          delay(1);  // Fix background runs heap usage due to long runtime of this loop (up to 1 second)
+        }
+        strlcpy(disp_screen_buffer[last_row], txt, disp_screen_buffer_cols);
+        DisplayFillScreen(last_row);
+        renderer->print(disp_screen_buffer[last_row]);
       }
-
-      for (byte i = 0; i < last_row; i++) {
-        strlcpy(disp_screen_buffer[i], disp_screen_buffer[i +1], disp_screen_buffer_cols);
-        renderer->println(disp_screen_buffer[i]);
-      }
-      strlcpy(disp_screen_buffer[last_row], txt, disp_screen_buffer_cols);
-      DisplayFillScreen(last_row);
-
-      AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_DEBUG "[%s]"), disp_screen_buffer[last_row]);
-
-      renderer->println(disp_screen_buffer[last_row]);
-      renderer->Updateframe();
+      AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_APPLICATION "[%s]"), txt);
     }
   }
-}
-
-void ILI9341_2_Time(void) {
-  char line[12];
-  /** TODO: DisplaySize is working, but renderer->println() does not respect DisplayFont **/
-  snprintf_P(line, sizeof(line), PSTR(" %02d" D_HOUR_MINUTE_SEPARATOR "%02d" D_MINUTE_SECOND_SEPARATOR "%02d"), RtcTime.hour, RtcTime.minute, RtcTime.second);  // [ 12:34:56 ]
-  renderer->setCursor(60, 140);
-  renderer->println(line);
-  snprintf_P(line, sizeof(line), PSTR("%02d" D_MONTH_DAY_SEPARATOR "%02d" D_YEAR_MONTH_SEPARATOR "%04d"), RtcTime.day_of_month, RtcTime.month, RtcTime.year);   // [01-02-2018]
-  renderer->setCursor(60, 160);
-  renderer->println(line);
-  renderer->Updateframe();
 }
 
 void ILI9341_2_Refresh(void) {  // Every second
   if (Settings.display_mode) {  // Mode 0 is User text
+    // 24-04-2017 13:45:43 = 19 + 1 ('\0') = 20
+    // 24-04-2017 13:45 = 16 + 1 ('\0') = 17
+
+    if (Ili9341Header()) {
+      char tftdt[Settings.display_cols[0] +1];
+      char date4[11];  // 24-04-2017
+      uint8_t time_size = (Settings.display_cols[0] >= 20) ? 9 : 6;  // 13:45:43 or 13:45
+      char spaces[Settings.display_cols[0] - (8 + time_size)];
+      char time[time_size];    // 13:45:43
+
+      renderer->setTextSize(Settings.display_size);
+      renderer->setTextColor(ILI9341_2_YELLOW, ILI9341_2_RED);   // Add background color to solve flicker
+      renderer->setCursor(0, 0);
+
+      snprintf_P(date4, sizeof(date4), PSTR("%02d" D_MONTH_DAY_SEPARATOR "%02d" D_YEAR_MONTH_SEPARATOR "%04d"), RtcTime.day_of_month, RtcTime.month, RtcTime.year);
+      memset(spaces, 0x20, sizeof(spaces));
+      spaces[sizeof(spaces) -1] = '\0';
+      snprintf_P(time, sizeof(time), PSTR("%02d" D_HOUR_MINUTE_SEPARATOR "%02d" D_MINUTE_SECOND_SEPARATOR "%02d"), RtcTime.hour, RtcTime.minute, RtcTime.second);
+      snprintf_P(tftdt, sizeof(tftdt), PSTR("%s%s%s"), date4, spaces, time);
+
+      renderer->print(tftdt);
+    } else {
+      renderer->setCursor(0, 0);
+    }
+
     switch (Settings.display_mode) {
-      case 1:  // Time
-        ILI9341_2_Time();
-        break;
+      case 1:  // Text
       case 2:  // Local
+      case 3:  // Local
       case 4:  // Mqtt
-        ILI9341_2_PrintLog(false);
-        break;
-      case 3:  // Local + Time
-      case 5:  // Mqtt + Time
-        ILI9341_2_PrintLog(true);
+      case 5:  // Mqtt
+        Ili9341PrintLog();
         break;
     }
   }
 }
-
 #endif  // USE_DISPLAY_MODES1TO5
 
 /*********************************************************************************************/
@@ -299,11 +341,12 @@ bool Xdsp13(uint8_t function)
           ILI9341_2_Refresh();
           break;
 #endif  // USE_DISPLAY_MODES1TO5
+
     }
   }
   return result;
 }
 
-#endif  // USE_DISPLAY_ILI9341_2
+#endif  // USE_DISPLAY_ILI9341
 #endif  // USE_DISPLAY
 #endif  // USE_SPI

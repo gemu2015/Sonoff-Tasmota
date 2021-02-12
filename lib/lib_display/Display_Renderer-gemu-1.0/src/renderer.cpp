@@ -546,6 +546,13 @@ void Renderer::setDrawMode(uint8_t mode) {
 void Renderer::invertDisplay(boolean i) {
 }
 
+void Renderer::setScrollMargins(uint16_t top, uint16_t bottom) {
+
+}
+void Renderer::scrollTo(uint16_t y) {
+
+}
+
 void VButton::xdrawButton(bool inverted) {
   wr_redir=1;
   drawButton(inverted);
@@ -641,6 +648,7 @@ uint16_t VButton::UpdateSlider(int16_t x, int16_t y) {
   }
 
 }
+
 
 
 

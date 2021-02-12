@@ -612,4 +612,25 @@ void ILI9341_2::spiwrite32(uint32_t c) {
 #endif
 }
 
-//#endif
+void ILI9341_2::setScrollMargins(uint16_t top, uint16_t bottom) {
+  uint16_t height = _height - (top + bottom);
+  SPI_BEGIN_TRANSACTION();
+  ILI9341_2_CS_LOW
+  writecmd(0x33);
+
+  spiwrite16(top);
+  spiwrite16(height);
+  spiwrite16(bottom);
+  ILI9341_2_CS_HIGH
+  SPI_END_TRANSACTION();
+}
+
+
+void ILI9341_2::scrollTo(uint16_t y) {
+    SPI_BEGIN_TRANSACTION();
+    ILI9341_2_CS_LOW
+    writecmd(ILI9341_2_VSCRSADD);
+    spiwrite16(y);
+    ILI9341_2_CS_HIGH
+    SPI_END_TRANSACTION();
+}
