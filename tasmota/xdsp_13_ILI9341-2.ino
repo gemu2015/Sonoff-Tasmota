@@ -44,8 +44,6 @@ ILI9341_2 *ili9341_2;
 
 #ifdef USE_FT5206
 #include <FT5206.h>
-#undef FT6336_address
-#define FT6336_address 0x38
 uint8_t ili9342_ctouch_counter = 0;
 #endif // USE_FT5206
 
@@ -78,9 +76,28 @@ void ILI9341_2_InitDriver()
 #ifdef USE_M5STACK_CORE2
     ili9341_2  = new ILI9341_2(5, -2, 15, -2);
 #else
-    // init renderer, may use hardware spi, however we use SSPI defintion because SD card uses SPI definition  (2 spi busses)
-    if (PinUsed(GPIO_SSPI_CS) && PinUsed(GPIO_OLED_RESET) && PinUsed(GPIO_BACKLIGHT) && PinUsed(GPIO_SSPI_MOSI) && PinUsed(GPIO_SSPI_MISO) && PinUsed(GPIO_SSPI_SCLK) && PinUsed(GPIO_SSPI_DC)) {
+
+
+
+    // check for special case with 2 SPI busses (ESP32 bitcoin)
+    if (TasmotaGlobal.soft_spi_enabled) {
+      // init renderer, may use hardware spi, however we use SSPI defintion because SD card uses SPI definition  (2 spi busses)
+      if (PinUsed(GPIO_SSPI_CS) && PinUsed(GPIO_OLED_RESET) && PinUsed(GPIO_BACKLIGHT) && PinUsed(GPIO_SSPI_MOSI) && PinUsed(GPIO_SSPI_MISO) && PinUsed(GPIO_SSPI_SCLK) && PinUsed(GPIO_SSPI_DC)) {
         ili9341_2  = new ILI9341_2(Pin(GPIO_SSPI_CS), Pin(GPIO_SSPI_MOSI), Pin(GPIO_SSPI_MISO), Pin(GPIO_SSPI_SCLK), Pin(GPIO_OLED_RESET), Pin(GPIO_SSPI_DC), Pin(GPIO_BACKLIGHT));
+      } else {
+        return;
+      }
+    } else if (TasmotaGlobal.spi_enabled) {
+      // there are displays without CS
+      int8_t cs = -1;
+      if (PinUsed(GPIO_ILI9341_2_CS)) {
+        cs = Pin(GPIO_ILI9341_2_CS);
+      }
+      if (PinUsed(GPIO_OLED_RESET) && PinUsed(GPIO_BACKLIGHT) && PinUsed(GPIO_ILI9341_2_DC)) {
+        ili9341_2  = new ILI9341_2(Pin(GPIO_ILI9341_2_CS), Pin(GPIO_SPI_MOSI), Pin(GPIO_SPI_MISO), Pin(GPIO_SPI_CLK), Pin(GPIO_OLED_RESET), Pin(GPIO_ILI9341_2_DC), Pin(GPIO_BACKLIGHT));
+      } else {
+        return;
+      }
     } else {
       return;
     }
@@ -96,22 +113,21 @@ void ILI9341_2_InitDriver()
     renderer->setTextFont(2);
     renderer->setTextColor(ILI9341_2_WHITE, ILI9341_2_BLACK);
     renderer->DrawStringAt(30, (Settings.display_height/2)-12, "ILI9341 TFT!", ILI9341_2_WHITE, 0);
-    delay(1000);
 #endif
 
     color_type = COLOR_COLOR;
 
 #ifdef ESP32
 #ifdef USE_FT5206
-        // start digitizer with fixed adress and pins for esp32
-        #define SDA_2 21
-        #define SCL_2 22
-        Wire1.begin(SDA_2, SCL_2, 400000);
-        Touch_Init(Wire1);
+    // start digitizer with fixed adress and pins for esp32
+    #define SDA_2 21
+    #define SCL_2 22
+    Wire1.begin(SDA_2, SCL_2, 400000);
+    Touch_Init(Wire1);
 #endif // USE_FT5206
 #endif // ESP32
 
-
+    AddLog(LOG_LEVEL_INFO, PSTR("DSP: ILI9341-2"));
   }
 }
 

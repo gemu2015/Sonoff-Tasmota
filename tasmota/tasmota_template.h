@@ -142,6 +142,7 @@ enum UserSelectablePins {
   GPIO_RA8876_CS,
   GPIO_ST7789_CS, GPIO_ST7789_DC,
   GPIO_SSD1331_CS, GPIO_SSD1331_DC,
+  GPIO_ILI9341_2_CS, GPIO_ILI9341_2_DC,
   GPIO_SDCARD_CS,
   GPIO_ROT1A_NP, GPIO_ROT1B_NP,        // Rotary switch
   GPIO_ADC_PH,                         // Analog PH Sensor
@@ -195,6 +196,10 @@ typedef union {                            // Restricted by MISRA-C Rule 18.4 bu
     uint32_t spare31 : 1;                  // bit 31
   };
 } GpioOptionABits;
+
+#define D_SENSOR_ILI9341_2_CS "ILI9341-2_CS"
+#define D_SENSOR_ILI9341_2_DC "ILI9341-2_DC"
+
 
 // Text in webpage Module Parameters and commands GPIOS and GPIO
 const char kSensorNames[] PROGMEM =
@@ -311,6 +316,7 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_RA8876_CS "|"
   D_SENSOR_ST7789_CS "|" D_SENSOR_ST7789_DC "|"
   D_SENSOR_SSD1331_CS "|" D_SENSOR_SSD1331_DC "|"
+  D_SENSOR_ILI9341_2_CS "|" D_SENSOR_ILI9341_2_DC "|"
   D_SENSOR_SDCARD_CS "|"
   D_SENSOR_ROTARY " A_n|" D_SENSOR_ROTARY " B_n|"
   D_SENSOR_ADC_PH "|"
@@ -431,6 +437,10 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_SSD1331_CS),
   AGPIO(GPIO_SSD1331_DC),
 #endif  // USE_DISPLAY_SSD1331
+#ifdef USE_DISPLAY_ILI9341_2
+  AGPIO(GPIO_ILI9341_2_CS),
+  AGPIO(GPIO_ILI9341_2_DC),
+#endif  // USE_DISPLAY_ILI9341_2
   AGPIO(GPIO_BACKLIGHT),      // Display backlight control
   AGPIO(GPIO_OLED_RESET),     // OLED Display Reset
 #endif
