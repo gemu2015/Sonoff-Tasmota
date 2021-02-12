@@ -101,7 +101,7 @@ void ILI9341_2_InitDriver()
     } else {
       return;
     }
-#endif
+#endif // USE_M5STACK_CORE2
 
     ili9341_2->init(Settings.display_width,Settings.display_height);
     renderer = ili9341_2;
@@ -113,7 +113,8 @@ void ILI9341_2_InitDriver()
     renderer->setTextFont(2);
     renderer->setTextColor(ILI9341_2_WHITE, ILI9341_2_BLACK);
     renderer->DrawStringAt(30, (Settings.display_height/2)-12, "ILI9341 TFT!", ILI9341_2_WHITE, 0);
-#endif
+    delay(1000);
+#endif // SHOW_SPLASH
 
     color_type = COLOR_COLOR;
 
