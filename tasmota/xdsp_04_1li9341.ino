@@ -1,5 +1,5 @@
 /*
-  xdsp_13_ILI9341-TTGO-TS.ino - Display ILI9341 support for Tasmota
+  xdsp_04_ILI9341.ino - Display ILI9341/2 support for Tasmota
 
   Copyright (C) 2021  Gerhard Mutz and Theo Arends
 
@@ -17,24 +17,11 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-//#ifdef USE_SPI
 #ifdef USE_SPI
 #ifdef USE_DISPLAY
 #if (defined(USE_DISPLAY_ILI9341) || defined(USE_DISPLAY_ILI9342))
 
 #define XDSP_04                4
-
-#undef COLORED
-#define COLORED                1
-#undef UNCOLORED
-#define UNCOLORED              0
-
-
-// using font 8 is opional (num=3)
-// very badly readable, but may be useful for graphs
-#undef USE_TINY_FONT
-#define USE_TINY_FONT
-
 
 #include <ILI9341_2.h>
 
@@ -73,13 +60,14 @@ void ILI9341_InitDriver()
     bg_color = ILI9341_BLACK;
 
 #ifdef USE_M5STACK_CORE2
+    // fixed pins on m5stack core2
     ili9341_2  = new ILI9341_2(5, -2, 15, -2);
 #else
     // check for special case with 2 SPI busses (ESP32 bitcoin)
     if (TasmotaGlobal.soft_spi_enabled) {
       // init renderer, may use hardware spi, however we use SSPI defintion because SD card uses SPI definition  (2 spi busses)
       if (PinUsed(GPIO_SSPI_CS) && PinUsed(GPIO_OLED_RESET) && PinUsed(GPIO_BACKLIGHT) && PinUsed(GPIO_SSPI_MOSI) && PinUsed(GPIO_SSPI_MISO) && PinUsed(GPIO_SSPI_SCLK) && PinUsed(GPIO_SSPI_DC)) {
-        ili9341_2  = new ILI9341_2(Pin(GPIO_SSPI_CS), Pin(GPIO_SSPI_MOSI), Pin(GPIO_SSPI_MISO), Pin(GPIO_SSPI_SCLK), Pin(GPIO_OLED_RESET), Pin(GPIO_SSPI_DC), Pin(GPIO_BACKLIGHT));
+        ili9341_2  = new ILI9341_2(Pin(GPIO_SSPI_CS), Pin(GPIO_SSPI_MOSI), Pin(GPIO_SSPI_MISO), Pin(GPIO_SSPI_SCLK), Pin(GPIO_OLED_RESET), Pin(GPIO_SSPI_DC), Pin(GPIO_BACKLIGHT), 2);
       } else {
         return;
       }
@@ -90,7 +78,7 @@ void ILI9341_InitDriver()
         cs = Pin(GPIO_ILI9341_CS);
       }
       if (PinUsed(GPIO_OLED_RESET) && PinUsed(GPIO_BACKLIGHT) && PinUsed(GPIO_ILI9341_DC)) {
-        ili9341_2  = new ILI9341_2(Pin(GPIO_ILI9341_CS), Pin(GPIO_SPI_MOSI), Pin(GPIO_SPI_MISO), Pin(GPIO_SPI_CLK), Pin(GPIO_OLED_RESET), Pin(GPIO_ILI9341_DC), Pin(GPIO_BACKLIGHT));
+        ili9341_2  = new ILI9341_2(Pin(GPIO_ILI9341_CS), Pin(GPIO_SPI_MOSI), Pin(GPIO_SPI_MISO), Pin(GPIO_SPI_CLK), Pin(GPIO_OLED_RESET), Pin(GPIO_ILI9341_DC), Pin(GPIO_BACKLIGHT), 1);
       } else {
         return;
       }
@@ -126,7 +114,11 @@ void ILI9341_InitDriver()
 #endif // USE_FT5206
 #endif // ESP32
 
+#ifdef USE_DISPLAY_ILI9341
     AddLog(LOG_LEVEL_INFO, PSTR("DSP: ILI9341"));
+#else
+    AddLog(LOG_LEVEL_INFO, PSTR("DSP: ILI9342"));
+#endif
   }
 }
 
@@ -153,23 +145,23 @@ void ili9342_RotConvert(int16_t *x, int16_t *y) {
 
 int16_t temp;
   if (renderer) {
-    uint8_t rot=renderer->getRotation();
+    uint8_t rot = renderer->getRotation();
     switch (rot) {
       case 0:
         break;
       case 1:
-        temp=*y;
-        *y=renderer->height()-*x;
-        *x=temp;
+        temp = *y;
+        *y = renderer->height() - *x;
+        *x = temp;
         break;
       case 2:
-        *x=renderer->width()-*x;
-        *y=renderer->height()-*y;
+        *x = renderer->width() - *x;
+        *y = renderer->height() - *y;
         break;
       case 3:
-        temp=*y;
-        *y=*x;
-        *x=renderer->width()-temp;
+        temp = *y;
+        *y = *x;
+        *x = renderer->width() - temp;
         break;
     }
   }
