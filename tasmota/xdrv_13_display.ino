@@ -107,6 +107,8 @@ uint8_t dsp_font;
 uint8_t dsp_flag;
 uint8_t dsp_on;
 
+uint16_t index_colors[MAX_INDEXCOLORS];
+
 #ifdef USE_DISPLAY_MODES1TO5
 
 char **disp_log_buffer;
@@ -363,6 +365,11 @@ uint32_t decode_te(char *line) {
 
 #define DISPLAY_BUFFER_COLS    128          // Max number of characters in linebuf
 
+uint16_t GetColorFromIndex(uint32_t index) {
+  if (index >= MAX_INDEXCOLORS) index = 0;
+  return index_colors[index];
+}
+
 void DisplayText(void)
 {
   uint8_t lpos;
@@ -468,7 +475,7 @@ void DisplayText(void)
               // color index 0-18
               cp++;
               var = atoiv(cp, &temp);
-              if (renderer) ftemp=renderer->GetColorFromIndex(temp);
+              if (renderer) ftemp = GetColorFromIndex(temp);
             } else {
               // float because it must handle unsigned 16 bit
               var = fatoiv(cp,&ftemp);
@@ -483,7 +490,7 @@ void DisplayText(void)
               // color index 0-18
               cp++;
               var = atoiv(cp, &temp);
-              if (renderer) ftemp=renderer->GetColorFromIndex(temp);
+              if (renderer) ftemp = GetColorFromIndex(temp);
             } else {
               var = fatoiv(cp,&ftemp);
             }
@@ -640,6 +647,18 @@ void DisplayText(void)
             }
             break; }
           case 'd':
+            if (*cp == 'c') {
+              cp++;
+              // define index colo
+              var = atoiv(cp, &temp);
+              cp += var;
+              cp++;
+              var = fatoiv(cp, &ftemp);
+              cp += var;
+              if (temp >= MAX_INDEXCOLORS) temp = 0;
+              index_colors[temp] = ftemp;
+              break;
+            }
             // force draw grafics buffer
             if (renderer) renderer->Updateframe();
             else DisplayDrawFrame();
@@ -855,8 +874,8 @@ void DisplayText(void)
               if (buttons[num]) {
                 if (!sbt) {
                   buttons[num]->vpower.slider = 0;
-                  buttons[num]->initButtonUL(renderer, gxp, gyp, gxs, gys, renderer->GetColorFromIndex(outline),\
-                    renderer->GetColorFromIndex(fill), renderer->GetColorFromIndex(textcolor), bbuff, textsize);
+                  buttons[num]->initButtonUL(renderer, gxp, gyp, gxs, gys, GetColorFromIndex(outline),\
+                    GetColorFromIndex(fill), GetColorFromIndex(textcolor), bbuff, textsize);
                   if (!bflags) {
                     // power button
                     if (dflg) buttons[num]->xdrawButton(bitRead(TasmotaGlobal.power, num));
@@ -877,8 +896,8 @@ void DisplayText(void)
                 } else {
                   // slider
                   buttons[num]->vpower.slider = 1;
-                  buttons[num]->SliderInit(renderer, gxp, gyp, gxs, gys, outline, renderer->GetColorFromIndex(fill),\
-                    renderer->GetColorFromIndex(textcolor), renderer->GetColorFromIndex(textsize));
+                  buttons[num]->SliderInit(renderer, gxp, gyp, gxs, gys, outline, GetColorFromIndex(fill),\
+                    GetColorFromIndex(textcolor), GetColorFromIndex(textsize));
                 }
               }
             }
@@ -923,6 +942,41 @@ void DisplayText(void)
       else DisplayDrawFrame();
     }
 }
+
+#ifdef USE_UFILESYS
+void Display_Init_From_File(void) {
+  File fp;
+  fp = ufsp->open("/display.ini", FS_FILE_READ);
+  if (fp >= 0) {
+    char *savptr = XdrvMailbox.data;
+    char linebuff[128];
+    while (fp.available()) {
+      uint16_t index = 0;
+      while (fp.available()) {
+        uint8_t buf[1];
+        fp.read(buf,1);
+        if (buf[0]=='\n' || buf[0]=='\r') {
+          break;
+        } else {
+          linebuff[index] = buf[0];
+          index++;
+          if (index >= sizeof(linebuff) - 1) {
+            break;
+          }
+        }
+      }
+      linebuff[index] = 0;
+      //AddLog(LOG_LEVEL_INFO, PSTR("displaytext %s"), linebuff);
+      // execute display text here
+      XdrvMailbox.data = linebuff;
+      XdrvMailbox.data_len = 0;
+      DisplayText();
+    }
+    XdrvMailbox.data = savptr;
+    fp.close();
+  }
+}
+#endif
 
 /*********************************************************************************************/
 
@@ -1308,6 +1362,7 @@ void DisplayLocalSensor(void)
 
 #endif  // USE_DISPLAY_MODES1TO5
 
+
 /*********************************************************************************************\
  * Public
 \*********************************************************************************************/
@@ -1323,6 +1378,9 @@ void DisplayInitDriver(void)
     renderer->setDrawMode(0);
   }
 
+#ifdef USE_UFILESYS
+  Display_Init_From_File();
+#endif
 
 //  AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_DEBUG "Display model %d"), Settings.display_model);
 
@@ -2038,7 +2096,7 @@ void RedrawGraph(uint8_t num, uint8_t flags) {
   uint16_t linecol=fg_color;
 
   if (color_type==COLOR_COLOR) {
-    linecol=renderer->GetColorFromIndex(gp->color_index);
+    linecol = GetColorFromIndex(gp->color_index);
   }
 
   if (!gp->flags.overlay) {
@@ -2060,7 +2118,7 @@ void AddGraph(uint8_t num,uint8_t val) {
 
   uint16_t linecol=fg_color;
   if (color_type==COLOR_COLOR) {
-    linecol=renderer->GetColorFromIndex(gp->color_index);
+    linecol = GetColorFromIndex(gp->color_index);
   }
   gp->xcnt++;
   if (gp->xcnt>gp->xs) {
