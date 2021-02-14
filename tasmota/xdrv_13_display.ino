@@ -957,7 +957,7 @@ void DisplayText(void)
 }
 
 #ifdef USE_UFILESYS
-void Display_Init_From_File(const char *file) {
+void Display_Text_From_File(const char *file) {
   File fp;
   fp = ufsp->open(file, FS_FILE_READ);
   if (fp >= 0) {
@@ -979,9 +979,12 @@ void Display_Init_From_File(const char *file) {
         }
       }
       linebuff[index] = 0;
-      //AddLog(LOG_LEVEL_INFO, PSTR("displaytext %s"), linebuff);
+      char *cp = linebuff;
+      while (*cp==' ') cp++;
+      if (*cp == ';') continue;
+      //AddLog(LOG_LEVEL_INFO, PSTR("displaytext %s"), cp);
       // execute display text here
-      XdrvMailbox.data = linebuff;
+      XdrvMailbox.data = cp;
       XdrvMailbox.data_len = 0;
       DisplayText();
     }
@@ -1392,7 +1395,7 @@ void DisplayInitDriver(void)
   }
 
 #ifdef USE_UFILESYS
-  Display_Init_From_File("/display.ini");
+  Display_Text_From_File("/display.ini");
 #endif
 
 //  AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_DEBUG "Display model %d"), Settings.display_model);
@@ -1542,7 +1545,7 @@ void CmndDisplayBlinkrate(void)
 void CmndDisplayBatch(void) {
   if (XdrvMailbox.data_len > 0) {
     if (!Settings.display_mode) {
-      Display_Init_From_File(XdrvMailbox.data);
+      Display_Text_From_File(XdrvMailbox.data);
     }
     ResponseCmndChar(XdrvMailbox.data);
   }
