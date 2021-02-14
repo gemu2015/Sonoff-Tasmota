@@ -4326,7 +4326,8 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
               goto next_line;
             }
 #ifdef USE_SENDMAIL
-          /*  else if (!strncmp(lp, "sm", 2)) {
+/*
+            else if (!strncmp(lp, "sm", 2)) {
               lp+=3;
               char tmp[256];
               Replace_Cmd_Vars(lp ,1 , tmp, sizeof(tmp));

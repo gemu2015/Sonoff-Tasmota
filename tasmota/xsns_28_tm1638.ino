@@ -1,7 +1,7 @@
 /*
   xsns_28_tm1638.ino - TM1638 8 switch, led and 7 segment unit support for Tasmota
 
-  Copyright (C) 2020  Theo Arends
+  Copyright (C) 2021  Theo Arends
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -33,9 +33,9 @@
 #define TM1638_CLOCK_DELAY  1  // uSec
 
 uint8_t tm1638_type = 1;
-uint8_t tm1638_clock_pin = 0;
-uint8_t tm1638_data_pin = 0;
-uint8_t tm1638_strobe_pin = 0;
+int8_t tm1638_clock_pin = 0;
+int8_t tm1638_data_pin = 0;
+int8_t tm1638_strobe_pin = 0;
 uint8_t tm1638_displays = 8;
 uint8_t tm1638_active_display = 1;
 uint8_t tm1638_intensity = 0;
