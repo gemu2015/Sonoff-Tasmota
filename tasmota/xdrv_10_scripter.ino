@@ -5892,7 +5892,9 @@ uint32_t JsonParsePath(JsonParserObject *jobj, const char *spath, char delim, fl
     }
     if (!*cp) break;
   }
-  strlcpy(sres,value.c_str(),slen);
+  if (sres) {
+    strlcpy(sres,value.c_str(), slen);
+  }
   return res;
 
 }
