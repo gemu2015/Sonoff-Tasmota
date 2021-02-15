@@ -5818,7 +5818,7 @@ void dateTime(uint16_t* date, uint16_t* time) {
 
 
 #ifdef SUPPORT_MQTT_EVENT
-
+/*
 //#define DEBUG_MQTT_EVENT
 // parser object, source keys, delimiter, float result or NULL, string result or NULL, string size
 uint32_t JsonParsePath(JsonParserObject *jobj, const char *spath, char delim, float *nres, char *sres, uint32_t slen) {
@@ -5897,7 +5897,7 @@ uint32_t JsonParsePath(JsonParserObject *jobj, const char *spath, char delim, fl
   return res;
 
 }
-
+*/
 #ifndef MQTT_EVENT_MSIZE
 #define MQTT_EVENT_MSIZE 256
 #endif // MQTT_EVENT_MSIZE
