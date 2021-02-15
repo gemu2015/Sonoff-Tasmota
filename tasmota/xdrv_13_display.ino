@@ -957,10 +957,10 @@ typedef struct {
   uint16_t yp;
   uint8_t txtbcol;
   uint8_t txtfcol;
-  uint8_t txtsiz;
+  int8_t txtsiz;
   int8_t txtlen;
   int8_t dp;
-  uint8_t font;
+  int8_t font;
   char unit[6];
   char *jstrbuf;
   char rstr[32];
@@ -968,7 +968,7 @@ typedef struct {
 
 DT_VARS *dt_vars[MAX_DT_VARS];
 
-void define_dt_var(uint32_t num, uint32_t xp, uint32_t yp,  uint32_t txtbcol,  uint32_t txtfcol, uint32_t font, uint32_t txtsiz, int32_t txtlen, int32_t dp, char *jstr, char *unit) {
+void define_dt_var(uint32_t num, uint32_t xp, uint32_t yp,  uint32_t txtbcol,  uint32_t txtfcol, int32_t font, int32_t txtsiz, int32_t txtlen, int32_t dp, char *jstr, char *unit) {
   if (num >= MAX_DT_VARS) return;
 
   if (dt_vars[num]) {
@@ -1007,7 +1007,6 @@ void draw_dt_vars(void) {
     if (dt_vars[cnt]) {
       if (dt_vars[cnt]->jstrbuf) {
         // draw
-        //AddLog(LOG_LEVEL_INFO, PSTR("json: %s"), dt_vars[cnt]->jstrbuf);
         char vstr[MAX_DVTSIZE + 7];
         memset(vstr, ' ', sizeof(vstr));
         strcpy(vstr, dt_vars[cnt]->rstr);
@@ -1026,10 +1025,14 @@ void draw_dt_vars(void) {
           alignright(vstr);
         }
 
-        renderer->setDrawMode(0);
+        if (dt_vars[cnt]->txtsiz > 0) {
+          renderer->setDrawMode(0);
+        } else {
+          renderer->setDrawMode(2);
+        }
         renderer->setTextColor(GetColorFromIndex(dt_vars[cnt]->txtfcol),GetColorFromIndex(dt_vars[cnt]->txtbcol));
         renderer->setTextFont(dt_vars[cnt]->font);
-        renderer->setTextSize(dt_vars[cnt]->txtsiz);
+        renderer->setTextSize(abs(dt_vars[cnt]->txtsiz));
         renderer->DrawStringAt(dt_vars[cnt]->xp, dt_vars[cnt]->yp, vstr, GetColorFromIndex(dt_vars[cnt]->txtfcol), 0);
 
         // reset display vars
@@ -1066,7 +1069,7 @@ void get_dt_mqtt(void) {
 
 void get_dt_vars(char *json) {
   if (strlen(json)) {
-    AddLog(LOG_LEVEL_INFO, PSTR("json: %s"), json);
+    //AddLog(LOG_LEVEL_INFO, PSTR("json: %s"), json);
     JsonParser parser(json);
     JsonParserObject obj = parser.getRootObject();
 
