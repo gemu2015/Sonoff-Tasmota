@@ -1069,7 +1069,6 @@ void get_dt_mqtt(void) {
 
 void get_dt_vars(char *json) {
   if (strlen(json)) {
-    //AddLog(LOG_LEVEL_INFO, PSTR("json: %s"), json);
     JsonParser parser(json);
     JsonParserObject obj = parser.getRootObject();
 
@@ -1098,6 +1097,7 @@ void free_dt_vars(void) {
     if (dt_vars[cnt]) {
       if (dt_vars[cnt]->jstrbuf) free(dt_vars[cnt]->jstrbuf);
       free(dt_vars[cnt]);
+      dt_vars[cnt] = 0;
     }
   }
 }
@@ -2561,14 +2561,6 @@ bool Xdrv13(uint8_t function)
       case FUNC_SHOW_SENSOR:
         DisplayLocalSensor();
         break;
-#else
-
-#ifdef USE_DT_VARS
-      case FUNC_AFTER_TELEPERIOD:
-        //get_dt_vars();
-        break;
-#endif // USE_DT_VARS
-
 #endif  // USE_DISPLAY_MODES1TO5
       case FUNC_COMMAND:
         result = DecodeCommand(kDisplayCommands, DisplayCommand);
