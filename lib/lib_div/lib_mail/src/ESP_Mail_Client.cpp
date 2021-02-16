@@ -2816,9 +2816,9 @@ bool ESP_Mail_Client::openFileRead(SMTPSession *smtp, SMTP_Message *msg, SMTP_At
   }
   else if (att->file.storage_type == esp_mail_file_storage_type_flash) {
 #if defined(ESP32)
-    // file_existed = SPIFFS.exists(filepath.c_str());
+    //file_existed = SPIFFS.exists(filepath.c_str());
 #elif defined(ESP8266)
-    // file_existed = FLASH_FS.exists(filepath.c_str());
+    //file_existed = FLASH_FS.exists(filepath.c_str());
 #endif
 } else if (att->file.storage_type == esp_mail_file_storage_type_univ) {
     file_existed = ufsp->exists(filepath.c_str());
@@ -5702,7 +5702,6 @@ void ESP_Mail_Client::saveHeader(IMAPSession *imap)
   //  _flashOk = FLASH_FS.begin();
 #endif
   }
-
   if (_sdOk || _flashOk)
   {
     if (file)
@@ -5712,9 +5711,9 @@ void ESP_Mail_Client::saveHeader(IMAPSession *imap)
       file = SD.open(headerFilePath.c_str(), FILE_WRITE);
     else if (imap->_storageType == esp_mail_file_storage_type_flash) {
 #if defined(ESP32)
-      // file = SPIFFS.open(headerFilePath.c_str(), FILE_WRITE);
+    //  file = SPIFFS.open(headerFilePath.c_str(), FILE_WRITE);
 #elif defined(ESP8266)
-      // file = FLASH_FS.open(headerFilePath.c_str(), "w");
+    //  file = FLASH_FS.open(headerFilePath.c_str(), "w");
 #endif
     }
     if (file)
@@ -5941,7 +5940,6 @@ bool ESP_Mail_Client::handleAttachment(IMAPSession *imap, char *buf, int bufLen,
     //  _flashOk = FLASH_FS.begin();
 #endif
     }
-
     if (_sdOk || _flashOk)
     {
 
@@ -6368,10 +6366,11 @@ void ESP_Mail_Client::decodeText(IMAPSession *imap, char *buf, int bufLen, int &
                 file = SD.open(filePath.c_str(), FILE_WRITE);
               else if (imap->_storageType == esp_mail_file_storage_type_flash) {
 #if defined(ESP32)
-                //file = SPIFFS.open(filePath.c_str(), FILE_WRITE);
+              //  file = SPIFFS.open(filePath.c_str(), FILE_WRITE);
 #elif defined(ESP8266)
-                //file = FLASH_FS.open(filePath.c_str(), "w");
-#endif         }
+              //  file = FLASH_FS.open(filePath.c_str(), "w");
+#endif
+              }
             }
           }
 

@@ -206,7 +206,7 @@ void ESP_Mail_HTTPClient32::setCertFile(const char *caCertFile, esp_mail_file_st
         _certType = 2;
 
         if (storageType == esp_mail_file_storage_type::esp_mail_file_storage_type_flash) {
-          //  t = SPIFFS.begin(true);
+        //    t = SPIFFS.begin(true);
         }
         else if (storageType == esp_mail_file_storage_type::esp_mail_file_storage_type_sd)
             t = SD.begin();
@@ -216,9 +216,8 @@ void ESP_Mail_HTTPClient32::setCertFile(const char *caCertFile, esp_mail_file_st
         File f;
         if (storageType == esp_mail_file_storage_type::esp_mail_file_storage_type_flash)
         {
-          //  if (SPIFFS.exists(caCertFile)) {
-          //      f = SPIFFS.open(caCertFile, FILE_READ);
-          //  }
+            //if (SPIFFS.exists(caCertFile))
+              //  f = SPIFFS.open(caCertFile, FILE_READ);
         }
         else if (storageType == esp_mail_file_storage_type::esp_mail_file_storage_type_sd)
         {
