@@ -1508,7 +1508,9 @@ void DisplayInitDriver(void)
   }
 
 #ifdef USE_UFILESYS
-  Display_Text_From_File("/display.ini");
+  if (!TasmotaGlobal.no_autoexec) {
+    Display_Text_From_File("/display.ini");
+  }
 #endif
 
 #ifdef USE_DT_VARS
