@@ -3,17 +3,8 @@
 
 //#define DEBUG_EMAIL_PORT
 
-//#include <WiFiClient.h>
-//#include <WiFiClientSecure.h>
 #include <base64.h>
-//#include <core_version.h>
-
-#ifdef ESP8266
 #include "WiFiClientSecureLightBearSSL.h"
-#endif  // ESP8266
-#ifdef ESP32
-#include <WiFiClientSecure.h>
-#endif  // ESP32
 
 class SendEmail
 {
@@ -25,13 +16,8 @@ class SendEmail
     const int timeout;
     const bool ssl;
     const int auth_used;
-#ifdef ESP8266
     // use bear ssl
     BearSSL::WiFiClientSecure_light *client;
-#endif  // ESP8266
-#ifdef ESP32
-    WiFiClient *client;
-#endif  // ESP32
 
     String readClient();
     void a3_to_a4(unsigned char * a4, unsigned char * a3);
