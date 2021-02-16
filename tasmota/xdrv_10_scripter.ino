@@ -4325,7 +4325,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
               ResponseAppend_P(PSTR("%s"), tmp);
               goto next_line;
             }
-#ifdef USE_SENDMAIL
+#if defined(USE_SENDMAIL) || defined(USE_ESP32MAIL)
             else if (!strncmp(lp, "mail", 4)) {
               lp+=5;
               char tmp[256];
@@ -7161,7 +7161,7 @@ nextwebline:
 #endif //USE_SCRIPT_WEB_DISPLAY
 
 
-#ifdef USE_SENDMAIL
+#if defined(USE_SENDMAIL) || defined(USE_ESP32MAIL)
 
 void script_send_email_body(void(*func)(char *)) {
 uint8_t msect = Run_Scripter(">m", -2, 0);
