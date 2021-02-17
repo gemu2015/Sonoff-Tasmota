@@ -15,6 +15,9 @@ String html_content = "";
 SMTP_Message *email_mptr;
 
 //#define DEBUG_EMAIL_PORT
+void smtpCallback(SMTP_Status status);
+  SMTPSession smtp;
+ESP_Mail_Session session;
 
 uint16_t SendMail(char *buffer) {
   char *params,*oparams = 0;
@@ -30,8 +33,8 @@ uint16_t SendMail(char *buffer) {
   uint16_t status = 0;
   uint16_t blen;
   char *endcmd;
-  SMTPSession smtp;
-  ESP_Mail_Session session;
+//  SMTPSession smtp;
+//  ESP_Mail_Session session;
   SMTP_Message message;
   email_mptr = &message;
 
@@ -153,7 +156,7 @@ uint16_t SendMail(char *buffer) {
   AddLog_P(LOG_LEVEL_INFO, PSTR("%s - %s - %s - %s"), from, to, subject, cmd);
 #endif
 
-
+  smtp.callback(smtpCallback);
   smtp.debug(true);
   //smtp.debug(false);
 
@@ -324,6 +327,36 @@ void attach_Data(char *name, uint8_t *buff, uint32_t len) {
   att.descr.transfer_encoding = Content_Transfer_Encoding::enc_base64;
   email_mptr->addAttachment(att);
   email_mptr->resetAttachItem(att);
+}
+
+void smtpCallback(SMTP_Status status)
+{
+  /* Print the current status */
+  Serial.println(status.info());
+
+  /* Print the sending result */
+  if (status.success())
+  {
+    Serial.println("----------------");
+    Serial.printf("Message sent success: %d\n", status.completedCount());
+    Serial.printf("Message sent failled: %d\n", status.failedCount());
+    Serial.println("----------------\n");
+    struct tm dt;
+
+    for (size_t i = 0; i < smtp.sendingResult.size(); i++)
+    {
+      /* Get the result item */
+      SMTP_Result result = smtp.sendingResult.getItem(i);
+      localtime_r(&result.timesstamp, &dt);
+
+      Serial.printf("Message No: %d\n", i + 1);
+      Serial.printf("Status: %s\n", result.completed ? "success" : "failed");
+      Serial.printf("Date/Time: %d/%d/%d %d:%d:%d\n", dt.tm_year + 1900, dt.tm_mon + 1, dt.tm_mday, dt.tm_hour, dt.tm_min, dt.tm_sec);
+      Serial.printf("Recipient: %s\n", result.recipients);
+      Serial.printf("Subject: %s\n", result.subject);
+    }
+    Serial.println("----------------\n");
+  }
 }
 
 #endif // USE_ESP32MAIL
