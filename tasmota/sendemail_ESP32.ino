@@ -200,14 +200,16 @@ uint16_t SendMail(char *buffer) {
   #endif
 
   /* Connect to server with the session config */
-  OsWatchLoop();
+  //ESP.wdtDisable();
 
-  if (!smtp.connect(&session))
+  if (!smtp.connect(&session)) {
+    //ESP.wdtEnable(0);
     goto exit;
+  }
+
+  //ESP.wdtEnable(0);
 
   /* Start sending the Email and close the session */
-  OsWatchLoop();
-
   if (!MailClient.sendMail(&smtp, &message, true)) {
     Serial.println("Error sending Email, " + smtp.errorReason());
   }
@@ -226,7 +228,7 @@ exit:
 
 
 void send_message_txt(char *txt) {
-  OsWatchLoop();
+  delay(0);
   if (*txt == '@') {
     txt++;
     attach_File(txt);
