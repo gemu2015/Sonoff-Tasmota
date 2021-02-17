@@ -7988,6 +7988,7 @@ bool SMTPSession::connect(ESP_Mail_Session *config)
 #elif defined(ESP8266)
     //  MailClient._flashOk = FLASH_FS.begin();
 #endif
+      MailClient._flashOk = 1;
     }
   }
   return MailClient.smtpAuth(this);
