@@ -999,6 +999,7 @@ void define_dt_var(uint32_t num, uint32_t xp, uint32_t yp,  uint32_t txtbcol,  u
     free (dtp);
     return;
   }
+  dtp->rstr[0] = 0;
   strcpy(dtp->jstrbuf, jstr);
   strcpy(dtp->unit,unit);
 }
@@ -1507,15 +1508,17 @@ void DisplayInitDriver(void)
     renderer->setDrawMode(0);
   }
 
+  #ifdef USE_DT_VARS
+    free_dt_vars();
+  #endif
+
 #ifdef USE_UFILESYS
   if (!TasmotaGlobal.no_autoexec) {
     Display_Text_From_File("/display.ini");
   }
 #endif
 
-#ifdef USE_DT_VARS
-  free_dt_vars();
-#endif
+
 
 //  AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_DEBUG "Display model %d"), Settings.display_model);
 
