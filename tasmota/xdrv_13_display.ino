@@ -994,14 +994,15 @@ void define_dt_var(uint32_t num, uint32_t xp, uint32_t yp,  uint32_t txtbcol,  u
   if (txtlen > MAX_DVTSIZE) {txtlen = MAX_DVTSIZE;}
   dtp->txtlen = txtlen;
   dtp->dp = dp;
-  dtp->jstrbuf = (char*)malloc(strlen(jstr + 1));
+  uint8_t jlen = strlen(jstr);
+  dtp->jstrbuf = (char*)calloc(jlen + 2,1);
   if (!dtp->jstrbuf) {
     free (dtp);
     return;
   }
   dtp->rstr[0] = 0;
+  strcpy(dtp->unit, unit);
   strcpy(dtp->jstrbuf, jstr);
-  strcpy(dtp->unit,unit);
 }
 
 void draw_dt_vars(void) {
@@ -1050,11 +1051,17 @@ void draw_dt_vars(void) {
 #define DTV_JSON_SIZE 1024
 
 void DTVarsTeleperiod(void) {
-  char *json = (char*)malloc(DTV_JSON_SIZE);
-  if (json) {
-    strlcpy(json, TasmotaGlobal.mqtt_data, DTV_JSON_SIZE);
-    get_dt_vars(json);
-    free(json);
+  if (TasmotaGlobal.mqtt_data && TasmotaGlobal.mqtt_data[0]) {
+    uint32_t jlen = strlen(TasmotaGlobal.mqtt_data);
+
+    if (jlen < DTV_JSON_SIZE) {
+      char *json = (char*)malloc(jlen + 2);
+      if (json) {
+        strlcpy(json, TasmotaGlobal.mqtt_data, jlen + 1);
+        get_dt_vars(json);
+        free(json);
+      }
+    }
   }
 }
 
