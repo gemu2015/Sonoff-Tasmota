@@ -2924,7 +2924,7 @@ const char kWebCommands[] PROGMEM = "|"  // No prefix
 #ifdef USE_EMULATION
   D_CMND_EMULATION "|"
 #endif
-#if defined(USE_SENDMAIL) || defined(USE_ESP32MAIL)
+#ifdef USE_SENDMAIL
   D_CMND_SENDMAIL "|"
 #endif
   D_CMND_WEBSERVER "|" D_CMND_WEBPASSWORD "|" D_CMND_WEBLOG "|" D_CMND_WEBREFRESH "|" D_CMND_WEBSEND "|" D_CMND_WEBCOLOR "|"
@@ -2934,7 +2934,7 @@ void (* const WebCommand[])(void) PROGMEM = {
 #ifdef USE_EMULATION
   &CmndEmulation,
 #endif
-#if defined(USE_SENDMAIL) || defined(USE_ESP32MAIL)
+#ifdef USE_SENDMAIL
   &CmndSendmail,
 #endif
   &CmndWebServer, &CmndWebPassword, &CmndWeblog, &CmndWebRefresh, &CmndWebSend, &CmndWebColor,
@@ -2966,7 +2966,7 @@ void CmndEmulation(void)
 }
 #endif  // USE_EMULATION
 
-#if defined(USE_SENDMAIL) || defined(USE_ESP32MAIL)
+#ifdef USE_SENDMAIL
 void CmndSendmail(void)
 {
   if (XdrvMailbox.data_len > 0) {
