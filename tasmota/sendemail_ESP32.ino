@@ -25,7 +25,7 @@ SMTP_Message *email_mptr;
 SMTPSession smtp;
 void smtpCallback(SMTP_Status status);
 
-#define DEBUG_EMAIL_PORT
+//#define DEBUG_EMAIL_PORT
 
 uint16_t SendMail(char *buffer) {
   char *params,*oparams = 0;
@@ -169,7 +169,7 @@ uint16_t SendMail(char *buffer) {
 
   //smtp.debug(true);
   smtp.debug(false);
-  smtp.callback(smtpCallback);
+//  smtp.callback(smtpCallback);
 
   message.clearRecipients();
   message.clearCc();
