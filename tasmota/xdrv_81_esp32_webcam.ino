@@ -42,7 +42,7 @@
  11 = FRAMESIZE_HD,       // 1280x720
  12 = FRAMESIZE_SXGA,     // 1280x1024
  13 = FRAMESIZE_UXGA,     // 1600x1200
- // 3MP Sensors above this no support with this driver
+ // 3MP Sensors above this no yet supported with this driver
  14 = FRAMESIZE_FHD,      // 1920x1080
  15 = FRAMESIZE_P_HD,     //  720x1280
  16 = FRAMESIZE_P_3MP,    //  864x1536
