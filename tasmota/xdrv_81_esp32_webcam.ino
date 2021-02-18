@@ -42,7 +42,7 @@
  11 = FRAMESIZE_HD,       // 1280x720
  12 = FRAMESIZE_SXGA,     // 1280x1024
  13 = FRAMESIZE_UXGA,     // 1600x1200
- // 3MP Sensors
+ // 3MP Sensors above this no support with this driver
  14 = FRAMESIZE_FHD,      // 1920x1080
  15 = FRAMESIZE_P_HD,     //  720x1280
  16 = FRAMESIZE_P_3MP,    //  864x1536
@@ -178,7 +178,7 @@ bool WcPinUsed(void) {
 }
 
 uint32_t WcSetup(int32_t fsiz) {
-  if (fsiz >= FRAMESIZE_INVALID) { fsiz = FRAMESIZE_INVALID - 1; }
+  if (fsiz >= FRAMESIZE_FHD) { fsiz = FRAMESIZE_FHD - 1; }
 
   Wc.stream_active = 0;
 
@@ -1009,7 +1009,7 @@ void CmndWebcamStream(void) {
 }
 
 void CmndWebcamResolution(void) {
-  if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload < FRAMESIZE_INVALID)) {
+  if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload < FRAMESIZE_FHD)) {
     Settings.webcam_config.resolution = XdrvMailbox.payload;
     WcSetOptions(0, Settings.webcam_config.resolution);
   }
