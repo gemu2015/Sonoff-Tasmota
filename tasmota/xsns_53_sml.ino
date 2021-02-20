@@ -468,7 +468,7 @@ uint8_t meters_used;
 
 struct METER_DESC const *meter_desc_p;
 const uint8_t *meter_p;
-uint8_t meter_spos[MAX_METERS];
+uint16_t meter_spos[MAX_METERS];
 
 // software serial pointers
 #ifdef ESP8266
@@ -1565,12 +1565,23 @@ void SML_Decode(uint8_t index) {
             if (meter_desc_p[mindex].type=='o' || meter_desc_p[mindex].type=='c') {
               if (*mp == '(') {
                 mp++;
-                // skip this bracket
-                char *bp = strchr((char*)cp, '(');
-                if (bp) {
-                  cp = (uint8_t*) (bp + 1);
+                uint8_t toskip = strtol(mp, &mp, 10);
+                // skip :
+                mp++;
+                // skip toskip bracket
+                dval = 99999;
+                char *bp = cp - 1;  // should point to the 1. bracket
+                for (uint32_t cnt = 0; cnt < toskip; cnt++ ) {
+                  bp = strchr((char*)bp, '(');
+                  if (!bp) {
+                    // error
+                    break;
+                  }
+                  bp++;
                 }
-                dval=CharToDouble((char*)cp);
+                if (bp) {
+                  dval = CharToDouble((char*)bp + 1);
+                }
               } else {
                 dval=CharToDouble((char*)cp);
               }
