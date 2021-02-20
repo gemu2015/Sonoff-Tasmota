@@ -469,7 +469,7 @@ uint8_t dvalid[SML_MAX_VARS];
 
 struct METER_DESC const *meter_desc_p;
 const uint8_t *meter_p;
-uint8_t meter_spos[MAX_METERS];
+uint16_t meter_spos[MAX_METERS];
 
 // software serial pointers
 #ifdef ESP8266
@@ -1258,7 +1258,7 @@ void sml_shift_in(uint32_t meters,uint32_t shard) {
       // QQ,ZZ,PB,SB,NN ..... CRC, ACK SYNC
       if (meter_spos[meters]>4+5) {
       	// get telegramm lenght
-        uint8_t tlen=smltbuf[meters][4]+5;
+        uint16_t tlen=smltbuf[meters][4]+5;
         // test crc
         if (smltbuf[meters][tlen]=ebus_CalculateCRC(smltbuf[meters],tlen)) {
             ebus_esc(smltbuf[meters],tlen);
