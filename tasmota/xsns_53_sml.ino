@@ -1567,12 +1567,22 @@ void SML_Decode(uint8_t index) {
             if (meter_desc_p[mindex].type=='o' || meter_desc_p[mindex].type=='c') {
               if (*mp == '(') {
                 mp++;
-                // skip this bracket
-                char *bp = strchr((char*)cp, '(');
-                if (bp) {
-                  cp = (uint8_t*) (bp + 1);
+                // skip this number of brackets
+                uint8_t toskip = strtol((char*)mp,(char**)&mp, 10);
+                mp++;
+                char *lcp = (char*)cp;
+                if (toskip) {
+                  char *bp = (char*)cp;
+                  for (uint32_t cnt; cnt < toskip; cnt++) {
+                    bp = strchr(bp, '(');
+                    if (!bp) {
+                      break;
+                    }
+                    bp++;
+                    lcp = bp;
+                  }
                 }
-                dval=CharToDouble((char*)cp);
+                dval=CharToDouble((char*)lcp);
               } else {
                 dval=CharToDouble((char*)cp);
               }
