@@ -189,9 +189,11 @@ void ILI9341_2::init(uint16_t width, uint16_t height) {
 
   if (_hwspi >= 2) {
     spi2 = &SPI;
+#ifdef ESP32
     if (_hwspi > 2) {
       spi2->begin(_sclk, _miso, _mosi, -1);
     }
+#endif // ESP32
   } else {
 #ifdef ESP32
     if (_spibus == 2) {
@@ -409,17 +411,17 @@ void ILI9341_2::setRotation(uint8_t m) {
             _height = iheight;
             break;
         case 1:
-            m = (MADCTL_MV | MADCTL_BGR);
+            m = (MADCTL_MY | MADCTL_MV | MADCTL_BGR);
             _width  = iheight;
             _height = iwidth;
             break;
         case 2:
-            m = (MADCTL_MY | MADCTL_BGR);
+            m = (MADCTL_MY | MADCTL_MX | MADCTL_BGR);
             _width  = iwidth;
             _height = iheight;
             break;
         case 3:
-            m = (MADCTL_MX | MADCTL_MY | MADCTL_MV | MADCTL_BGR);
+            m = (MADCTL_MX | MADCTL_MV | MADCTL_BGR);
             _width  = iheight;
             _height = iwidth;
             break;
