@@ -482,6 +482,7 @@ HardwareSerial *meter_ss[MAX_METERS];
 // serial buffers, may be made larger depending on telegram lenght
 #ifndef SML_BSIZ
 #define SML_BSIZ 48
+//#define SML_BSIZ 512
 #endif
 uint8_t smltbuf[MAX_METERS][SML_BSIZ];
 
@@ -1573,7 +1574,7 @@ void SML_Decode(uint8_t index) {
                 char *lcp = (char*)cp;
                 if (toskip) {
                   char *bp = (char*)cp;
-                  for (uint32_t cnt; cnt < toskip; cnt++) {
+                  for (uint32_t cnt = 0; cnt < toskip; cnt++) {
                     bp = strchr(bp, '(');
                     if (!bp) {
                       break;
