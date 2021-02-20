@@ -468,7 +468,7 @@ uint8_t meters_used;
 
 struct METER_DESC const *meter_desc_p;
 const uint8_t *meter_p;
-uint16_t meter_spos[MAX_METERS];
+uint8_t meter_spos[MAX_METERS];
 
 // software serial pointers
 #ifdef ESP8266
@@ -494,6 +494,7 @@ char meter_id[MAX_METERS][METER_ID_SIZE];
 uint8_t sml_send_blocks;
 uint8_t sml_100ms_cnt;
 uint8_t sml_desc_cnt;
+uint8_t sml_json_enable = 1;
 
 #ifdef USE_SML_MEDIAN_FILTER
 // median filter, should be odd size
@@ -1565,23 +1566,12 @@ void SML_Decode(uint8_t index) {
             if (meter_desc_p[mindex].type=='o' || meter_desc_p[mindex].type=='c') {
               if (*mp == '(') {
                 mp++;
-                uint8_t toskip = strtol(mp, &mp, 10);
-                // skip :
-                mp++;
-                // skip toskip bracket
-                dval = 99999;
-                char *bp = cp - 1;  // should point to the 1. bracket
-                for (uint32_t cnt = 0; cnt < toskip; cnt++ ) {
-                  bp = strchr((char*)bp, '(');
-                  if (!bp) {
-                    // error
-                    break;
-                  }
-                  bp++;
-                }
+                // skip this bracket
+                char *bp = strchr((char*)cp, '(');
                 if (bp) {
-                  dval = CharToDouble((char*)bp + 1);
+                  cp = (uint8_t*) (bp + 1);
                 }
+                dval=CharToDouble((char*)cp);
               } else {
                 dval=CharToDouble((char*)cp);
               }
@@ -2661,7 +2651,9 @@ bool Xsns53(byte function) {
         break;
 #endif // USE_SCRIPT
       case FUNC_JSON_APPEND:
-        SML_Show(1);
+        if (sml_json_enable) {
+          SML_Show(1);
+        }
         break;
 #ifdef USE_WEBSERVER
       case FUNC_WEB_SENSOR:
