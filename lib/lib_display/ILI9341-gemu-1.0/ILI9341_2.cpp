@@ -561,9 +561,11 @@ void ILI9341_2::DisplayOnff(int8_t on) {
 }
 
 void ILI9341_2::invertDisplay(boolean i) {
+  SPI_BEGIN_TRANSACTION();
   ILI9341_2_CS_LOW
   writecmd(i ? ILI9341_2_INVON : ILI9341_2_INVOFF);
   ILI9341_2_CS_HIGH
+  SPI_END_TRANSACTION();
 }
 
 void ili9342_dimm(uint8_t dim);

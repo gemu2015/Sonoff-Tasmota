@@ -404,7 +404,7 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_SSPI_CS),        // Software SPI Chip Select
   AGPIO(GPIO_SSPI_DC),        // Software SPI Data or Command
 #ifdef USE_DISPLAY
-#ifdef USE_DISPLAY_ILI9341
+#if (defined(USE_DISPLAY_ILI9341) || defined(USE_DISPLAY_ILI9342))
   AGPIO(GPIO_ILI9341_CS),
   AGPIO(GPIO_ILI9341_DC),
 #endif  // USE_DISPLAY_ILI9341
