@@ -1548,6 +1548,7 @@ void SML_Decode(uint8_t index) {
 #endif
         if (*mp == '#') {
           // get string value
+          getstr:
           mp++;
           if (meter_desc_p[mindex].type == 'o') {
             for (uint8_t p=0; p<METER_ID_SIZE; p++) {
@@ -1581,6 +1582,10 @@ void SML_Decode(uint8_t index) {
                     bp++;
                     lcp = bp;
                   }
+                }
+                if (*mp=='#') {
+                  cp = (uint8_t*)lcp;
+                  goto getstr;
                 }
                 dval=CharToDouble((char*)lcp);
               } else {
@@ -1747,10 +1752,20 @@ void SML_Show(boolean json) {
         cp=strchr(mp,'@');
         if (cp) {
           cp++;
+          tststr:
           if (*cp=='#') {
             // meter id
             sprintf(tpowstr,"\"%s\"",&meter_id[mindex][0]);
             mid=1;
+          } else if (*cp=='(') {
+            if (meter_desc_p[mindex].type=='o') {
+              cp++;
+              strtol((char*)cp,(char**)&cp, 10);
+              cp++;
+              goto tststr;
+            } else {
+              mid=0;
+            }
           } else {
             mid=0;
           }
