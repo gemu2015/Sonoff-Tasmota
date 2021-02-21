@@ -7420,7 +7420,17 @@ uint32_t call2https(const char *host, const char *path) {
   if (retry == 5) {
     return 2;
   }
-  String request = String("GET ") + path +
+
+  String data = "{\"username\":\"" HTTPS_USER "\",\"password\":\"" HTTPS_PW "\", \"email\":\"customer@customer.domain\",\"force_sm_off\":false}";
+  String request = String("POST ") + "/api/login/Basic" + " HTTP/1.1\r\n" + "Host: w3schools.com" + "\r\n" + data + "\r\n" + "Content-Type: application/json" + "\r\n";
+  httpsClient->print(request);
+
+  AddLog(LOG_LEVEL_INFO,PSTR(">>> request %s"),(char*)request.c_str());
+
+  String line = httpsClient->readStringUntil('\n');
+  AddLog(LOG_LEVEL_INFO,PSTR(">>> response 1 %s"),(char*)line.c_str());
+
+  request = String("GET ") + path +
                     " HTTP/1.1\r\n" +
                     "Host: " + host +
                     "\r\n" + "Connection: close\r\n\r\n";
@@ -7441,6 +7451,7 @@ uint32_t call2https(const char *host, const char *path) {
   }
   httpsClient->stop();
   delete httpsClient;
+  AddLog(LOG_LEVEL_INFO,PSTR(">>> response 2 %s"),(char*)line.c_str());
   Run_Scripter(">jp", 3, (char*)result.c_str());
   return 0;
 }
