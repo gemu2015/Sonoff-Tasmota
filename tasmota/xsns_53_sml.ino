@@ -49,8 +49,9 @@
 #define SPECIAL_SS
 #endif
 
-#undef TMSBSIZ
+#ifndef TMSBSIZ
 #define TMSBSIZ 256
+#endif
 
 // addresses a bug in meter DWS74
 //#define DWS74_BUG
