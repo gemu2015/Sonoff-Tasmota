@@ -482,7 +482,6 @@ HardwareSerial *meter_ss[MAX_METERS];
 // serial buffers, may be made larger depending on telegram lenght
 #ifndef SML_BSIZ
 #define SML_BSIZ 48
-//#define SML_BSIZ 512
 #endif
 uint8_t smltbuf[MAX_METERS][SML_BSIZ];
 
