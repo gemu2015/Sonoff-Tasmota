@@ -1639,13 +1639,14 @@ void SML_Decode(uint8_t index) {
 #else
           meter_vars[vindex]=dval;
 #endif
-          dvalid[vindex] = 1;
+        
 //AddLog_P(LOG_LEVEL_INFO, PSTR(">> %s"),mp);
           // get scaling factor
           double fac=CharToDouble((char*)mp);
           meter_vars[vindex]/=fac;
           SML_Immediate_MQTT((const char*)mp,vindex,mindex);
         }
+        dvalid[vindex] = 1;
       }
     }
 nextsect:
