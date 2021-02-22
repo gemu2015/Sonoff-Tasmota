@@ -1251,6 +1251,17 @@ void sml_shift_in(uint32_t meters,uint32_t shard) {
     if (meter_spos[meters]>=SML_BSIZ) {
       meter_spos[meters]=0;
     }
+  } else if (meter_desc_p[meters].type=='v') {
+    if (iob==EBUS_SYNC) {
+      SML_Decode(meters);
+      smltbuf[meters][0] = iob;
+      meter_spos[meters] = 1;
+    } else {
+      if (meter_spos[meters] < SML_BSIZ) {
+        smltbuf[meters][meter_spos[meters]] = iob;
+        meter_spos[meters]++;
+      }
+    }
   }
   else {
     if (iob==EBUS_SYNC) {
@@ -1278,7 +1289,7 @@ void sml_shift_in(uint32_t meters,uint32_t shard) {
 		}
   }
   sb_counter++;
-  if (meter_desc_p[meters].type!='e' && meter_desc_p[meters].type!='m' && meter_desc_p[meters].type!='M' && meter_desc_p[meters].type!='p' && meter_desc_p[meters].type!='R') SML_Decode(meters);
+  if (meter_desc_p[meters].type!='e' && meter_desc_p[meters].type!='m' && meter_desc_p[meters].type!='M' && meter_desc_p[meters].type!='p' && meter_desc_p[meters].type!='R' && meter_desc_p[meters].type!='v') SML_Decode(meters);
 }
 
 
@@ -1295,6 +1306,28 @@ uint32_t meters;
         }
       }
     }
+}
+
+// get vbus septet with 6 bytes
+uint32_t vbus_get_septet(uint8_t *cp) {
+  uint32_t result = 0;
+  uint8_t Crc = 0;
+  for (uint32_t i = 0; i < 5; i++) {
+    Crc += cp[i];
+  }
+  Crc ^= 0xff;
+  if (Crc != cp[5]) {
+    return 999999;
+  }
+  result = (cp[0] | ((cp[4]&1)<<7));
+  result <<= 8;
+  result |= (cp[1] | ((cp[4]&2)<<6));
+  result <<= 8;
+  result |= (cp[2] | ((cp[4]&4)<<5));
+  result <<= 8;
+  result |= (cp[3] | ((cp[4]&8)<<4));
+
+  return result;
 }
 
 
@@ -1438,7 +1471,7 @@ void SML_Decode(uint8_t index) {
               found=0;
             }
           } else {
-            // ebus mbus pzem or raw
+            // ebus mbus pzem vbus or raw
             // XXHHHHSSUU
             if (*mp=='x' && *(mp+1)=='x') {
               //ignore
@@ -1529,6 +1562,41 @@ void SML_Decode(uint8_t index) {
               mbus_dval=(float)((cp[0]<<8)|cp[1]);
               mp+=4;
               cp+=2;
+            }
+            else if (!strncmp(mp,"vs",2)) {
+              ebus_dval = vbus_get_septet(cp);
+              mp += 2;
+              cp += 6;
+            }
+            else if (!strncmp(mp,"vb3",3)) {
+              ebus_dval = vbus_get_septet(cp) >> 24;
+              mp += 3;
+              cp += 6;
+            }
+            else if (!strncmp(mp,"vb2",3)) {
+              ebus_dval = (vbus_get_septet(cp) >> 16) & 0xff;
+              mp += 3;
+              cp += 6;
+            }
+            else if (!strncmp(mp,"vb1",3)) {
+              ebus_dval = (vbus_get_septet(cp) >> 8) & 0xff;
+              mp += 3;
+              cp += 6;
+            }
+            else if (!strncmp(mp,"vb0",3)) {
+              ebus_dval = vbus_get_septet(cp) & 0xff;
+              mp += 3;
+              cp += 6;
+            }
+            else if (!strncmp(mp,"vwh",3)) {
+              ebus_dval = (vbus_get_septet(cp) >> 16) & 0xffff;
+              mp += 3;
+              cp += 6;
+            }
+            else if (!strncmp(mp,"vwl",3)) {
+              ebus_dval = vbus_get_septet(cp) & 0xffff;
+              mp += 3;
+              cp += 6;
             }
             else {
               uint8_t val = hexnibble(*mp++) << 4;
@@ -1639,7 +1707,7 @@ void SML_Decode(uint8_t index) {
 #else
           meter_vars[vindex]=dval;
 #endif
-        
+
 //AddLog_P(LOG_LEVEL_INFO, PSTR(">> %s"),mp);
           // get scaling factor
           double fac=CharToDouble((char*)mp);
