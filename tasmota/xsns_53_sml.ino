@@ -1208,7 +1208,7 @@ void sml_empty_receiver(uint32_t meters) {
 
 void sml_shift_in(uint32_t meters,uint32_t shard) {
   uint32_t count;
-  if (meter_desc_p[meters].type!='e' && meter_desc_p[meters].type!='m' && meter_desc_p[meters].type!='M' && meter_desc_p[meters].type!='p' && meter_desc_p[meters].type!='R') {
+  if (meter_desc_p[meters].type!='e' && meter_desc_p[meters].type!='m' && meter_desc_p[meters].type!='M' && meter_desc_p[meters].type!='p' && meter_desc_p[meters].type!='R' && meter_desc_p[meters].type!='v') {
     // shift in
     for (count=0; count<SML_BSIZ-1; count++) {
       smltbuf[meters][count]=smltbuf[meters][count+1];
@@ -1311,21 +1311,23 @@ uint32_t meters;
 // get vbus septet with 6 bytes
 uint32_t vbus_get_septet(uint8_t *cp) {
   uint32_t result = 0;
-  uint8_t Crc = 0;
+
+
+  uint8_t Crc = 0x7F;
   for (uint32_t i = 0; i < 5; i++) {
-    Crc += cp[i];
+    Crc = (Crc - cp[i]) & 0x7f;
   }
-  Crc ^= 0xff;
   if (Crc != cp[5]) {
-    return 999999;
+    return 0xffffffff;
   }
-  result = (cp[0] | ((cp[4]&1)<<7));
-  result <<= 8;
-  result |= (cp[1] | ((cp[4]&2)<<6));
+
+  result = (cp[3] | ((cp[4]&8)<<4));
   result <<= 8;
   result |= (cp[2] | ((cp[4]&4)<<5));
   result <<= 8;
-  result |= (cp[3] | ((cp[4]&8)<<4));
+  result |= (cp[1] | ((cp[4]&2)<<6));
+  result <<= 8;
+  result |= (cp[0] | ((cp[4]&1)<<7));
 
   return result;
 }
@@ -1375,7 +1377,7 @@ void SML_Decode(uint8_t index) {
         while (*mp>='0' && *mp<='9') mp++;
         if (ind<1 || ind>SML_MAX_VARS) ind=1;
         dvar=meter_vars[ind-1];
-        for (uint8_t p=0;p<5;p++) {
+        for (uint8_t p = 0; p < 5; p++) {
           if (*mp=='@') {
             // store result
             meter_vars[vindex]=dvar;
@@ -1473,10 +1475,18 @@ void SML_Decode(uint8_t index) {
           } else {
             // ebus mbus pzem vbus or raw
             // XXHHHHSSUU
-            if (*mp=='x' && *(mp+1)=='x') {
-              //ignore
-              mp+=2;
-              cp++;
+            if (*mp=='x') {
+              if (*(mp+1)=='x') {
+                //ignore one byte
+                mp += 2;
+                cp++;
+              } else {
+                mp++;
+                if (isdigit(*mp)) {
+                  uint8_t skip = strtol((char*)mp, (char**)&mp, 10);
+                  cp += skip;
+                }
+              }
             } else if (!strncmp(mp,"UUuuUUuu",8)) {
               uint32_t val= (cp[0]<<24)|(cp[1]<<16)|(cp[2]<<8)|(cp[3]<<0);
               ebus_dval=val;
@@ -1563,39 +1573,64 @@ void SML_Decode(uint8_t index) {
               mp+=4;
               cp+=2;
             }
-            else if (!strncmp(mp,"vs",2)) {
-              ebus_dval = vbus_get_septet(cp);
-              mp += 2;
-              cp += 6;
-            }
-            else if (!strncmp(mp,"vb3",3)) {
-              ebus_dval = vbus_get_septet(cp) >> 24;
-              mp += 3;
-              cp += 6;
-            }
-            else if (!strncmp(mp,"vb2",3)) {
-              ebus_dval = (vbus_get_septet(cp) >> 16) & 0xff;
-              mp += 3;
-              cp += 6;
-            }
-            else if (!strncmp(mp,"vb1",3)) {
-              ebus_dval = (vbus_get_septet(cp) >> 8) & 0xff;
-              mp += 3;
-              cp += 6;
-            }
-            else if (!strncmp(mp,"vb0",3)) {
-              ebus_dval = vbus_get_septet(cp) & 0xff;
-              mp += 3;
-              cp += 6;
-            }
-            else if (!strncmp(mp,"vwh",3)) {
-              ebus_dval = (vbus_get_septet(cp) >> 16) & 0xffff;
-              mp += 3;
-              cp += 6;
-            }
-            else if (!strncmp(mp,"vwl",3)) {
-              ebus_dval = vbus_get_septet(cp) & 0xffff;
-              mp += 3;
+            else if (*mp == 'v') {
+              // vbus values vul, vsl, vuwh, vuwl, wswh, vswl, vswh
+              // vub3, vsb3 etc
+              mp++;
+              uint8_t usign;
+              if (*mp == 'u') {
+                usign = 1;
+              } else if (*mp == 's') {
+                usign = 0;
+              }
+              mp++;
+              switch (*mp) {
+                case 'l':
+                  mp++;
+                  // get long value
+                  if (usign) {
+                    ebus_dval = vbus_get_septet(cp);
+                  } else {
+                    ebus_dval = (int32_t)vbus_get_septet(cp);
+                  }
+                  break;
+                case 'w':
+                  mp++;
+                  // get word value
+                  if (*mp == 'h') {
+                    // high word
+                    if (usign) ebus_dval = (vbus_get_septet(cp) >> 16) & 0xffff;
+                    else ebus_dval = (int16_t)((vbus_get_septet(cp) >> 16) & 0xffff);
+                  } else {
+                    // low word
+                    if (usign) ebus_dval = vbus_get_septet(cp) & 0xffff;
+                    else (int16_t)(vbus_get_septet(cp) & 0xffff);
+                  }
+                  mp++;
+                  break;
+                case 'b':
+                  mp++;
+                  switch (*mp) {
+                    case '3':
+                      if (usign) ebus_dval = vbus_get_septet(cp) >> 24;
+                      else ebus_dval = (int8_t)(vbus_get_septet(cp) >> 24);
+                      break;
+                    case '2':
+                      if (usign) ebus_dval = (vbus_get_septet(cp) >> 16) & 0xff;
+                      else ebus_dval = (int8_t)((vbus_get_septet(cp) >> 16) & 0xff);
+                      break;
+                    case '1':
+                      if (usign) ebus_dval = (vbus_get_septet(cp) >> 8) & 0xff;
+                      else ebus_dval = (int8_t)((vbus_get_septet(cp) >> 8) & 0xff);
+                      break;
+                    case '0':
+                      if (usign) ebus_dval = vbus_get_septet(cp) & 0xff;
+                      else ebus_dval = (int8_t)(vbus_get_septet(cp) & 0xff);
+                      break;
+                  }
+                  mp++;
+                  break;
+              }
               cp += 6;
             }
             else {
@@ -1632,7 +1667,7 @@ void SML_Decode(uint8_t index) {
           }
         } else {
           double dval;
-          if (meter_desc_p[mindex].type!='e' && meter_desc_p[mindex].type!='r' && meter_desc_p[mindex].type!='m' && meter_desc_p[mindex].type!='M' && meter_desc_p[mindex].type!='p') {
+          if (meter_desc_p[mindex].type!='e' && meter_desc_p[mindex].type!='r' && meter_desc_p[mindex].type!='m' && meter_desc_p[mindex].type!='M' && meter_desc_p[mindex].type!='p' && meter_desc_p[mindex].type!='v') {
             // get numeric values
             if (meter_desc_p[mindex].type=='o' || meter_desc_p[mindex].type=='c') {
               if (*mp == '(') {
@@ -2316,7 +2351,7 @@ init10:
     } else {
       // serial input, init
 #ifdef SPECIAL_SS
-        if (meter_desc_p[meters].type=='m' || meter_desc_p[meters].type=='M' || meter_desc_p[meters].type=='p' || meter_desc_p[meters].type=='R') {
+        if (meter_desc_p[meters].type=='m' || meter_desc_p[meters].type=='M' || meter_desc_p[meters].type=='p' || meter_desc_p[meters].type=='R' || meter_desc_p[meters].type=='v') {
           meter_ss[meters] = new TasmotaSerial(meter_desc_p[meters].srcpin,meter_desc_p[meters].trxpin,1,0,TMSBSIZ);
         } else {
           meter_ss[meters] = new TasmotaSerial(meter_desc_p[meters].srcpin,meter_desc_p[meters].trxpin,1,1,TMSBSIZ);
