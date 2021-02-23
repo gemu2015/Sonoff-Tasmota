@@ -1312,7 +1312,7 @@ uint32_t meters;
 uint32_t vbus_get_septet(uint8_t *cp) {
   uint32_t result = 0;
 
-  //AddLog(LOG_LEVEL_INFO,PSTR("septet: %02x %02x %02x %02x %02x %02x"),cp[0] ,cp[1],cp[2],cp[3],cp[4],cp[5]);
+  AddLog(LOG_LEVEL_INFO,PSTR("septet: %02x %02x %02x %02x %02x %02x"),cp[0] ,cp[1],cp[2],cp[3],cp[4],cp[5]);
 
   uint8_t Crc = 0x7F;
   for (uint32_t i = 0; i < 5; i++) {
@@ -1330,7 +1330,7 @@ uint32_t vbus_get_septet(uint8_t *cp) {
     result |= (cp[0] | ((cp[4]&1)<<7));
   }
 
-  //AddLog(LOG_LEVEL_INFO,PSTR("septet r: %d"),result);
+  AddLog(LOG_LEVEL_INFO,PSTR("septet r: %d"),result);
   return result;
 }
 
@@ -1628,7 +1628,14 @@ void SML_Decode(uint8_t index) {
                   break;
                 case 'b':
                   mp++;
-                  switch (*mp) {
+                  char bflg;
+                  if (offset >= 0) {
+                    bflg = 0x30 | (offset % 4);
+                  } else {
+                    bflg = *mp;
+                    mp++;
+                  }
+                  switch (bflg) {
                     case '3':
                       if (usign) ebus_dval = vbus_get_septet(cp) >> 24;
                       else ebus_dval = (int8_t)(vbus_get_septet(cp) >> 24);
@@ -1646,7 +1653,16 @@ void SML_Decode(uint8_t index) {
                       else ebus_dval = (int8_t)(vbus_get_septet(cp) & 0xff);
                       break;
                   }
-                  mp++;
+                  break;
+                case 't':
+                  { uint16_t time;
+                    if (offset % 4) {
+                      time = (vbus_get_septet(cp) >> 16) & 0xffff;
+                    } else {
+                      time = vbus_get_septet(cp) & 0xffff;
+                    }
+                    sprintf(&meter_id[mindex][0], "%02d:%02d", time / 60, time % 60);
+                  }
                   break;
               }
               cp += 6;
@@ -1671,17 +1687,19 @@ void SML_Decode(uint8_t index) {
           // get string value
           getstr:
           mp++;
-          if (meter_desc_p[mindex].type == 'o') {
-            uint32_t p;
-            for (p = 0; p < METER_ID_SIZE - 2; p++) {
-              if (*cp == *mp) {
-                break;
+          if (meter_desc_p[mindex].type != 'v') {
+            if (meter_desc_p[mindex].type == 'o') {
+              uint32_t p;
+              for (p = 0; p < METER_ID_SIZE - 2; p++) {
+                if (*cp == *mp) {
+                  break;
+                }
+                meter_id[mindex][p] = *cp++;
               }
-              meter_id[mindex][p] = *cp++;
+              meter_id[mindex][p] = 0;
+            } else {
+              sml_getvalue(cp,mindex);
             }
-            meter_id[mindex][p] = 0;
-          } else {
-            sml_getvalue(cp,mindex);
           }
         } else {
           double dval;
@@ -1767,8 +1785,8 @@ void SML_Decode(uint8_t index) {
           meter_vars[vindex]/=fac;
           SML_Immediate_MQTT((const char*)mp,vindex,mindex);
         }
-        dvalid[vindex] = 1;
       }
+      dvalid[vindex] = 1;
     }
 nextsect:
     // next section
