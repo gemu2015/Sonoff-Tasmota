@@ -1655,6 +1655,7 @@ void SML_Decode(uint8_t index) {
                   }
                   break;
                 case 't':
+                  mp++;
                   { uint16_t time;
                     if (offset % 4) {
                       time = (vbus_get_septet(cp) >> 16) & 0xffff;
@@ -1787,6 +1788,7 @@ void SML_Decode(uint8_t index) {
         }
       }
       dvalid[vindex] = 1;
+      //AddLog(LOG_LEVEL_INFO, PSTR("set valid in line %d"), vindex);
     }
 nextsect:
     // next section
@@ -1948,9 +1950,11 @@ void SML_Show(boolean json) {
               dtostrfd(meter_vars[index],dp,tpowstr);
             }
 
-            if (!dvalid[index]) nojson = 1;
-
             if (json) {
+              if (!dvalid[index]) {
+                nojson = 1;
+                //AddLog(LOG_LEVEL_INFO, PSTR("not yet valid line %d"), index);
+              }
               // json export
               if (index==0) {
                   //snprintf_P(b_mqtt_data, sizeof(b_mqtt_data), "%s,\"%s\":{\"%s\":%s", b_mqtt_data,meter_desc_p[mindex].prefix,jname,tpowstr);
