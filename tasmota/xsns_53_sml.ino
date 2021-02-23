@@ -1312,23 +1312,25 @@ uint32_t meters;
 uint32_t vbus_get_septet(uint8_t *cp) {
   uint32_t result = 0;
 
+  //AddLog(LOG_LEVEL_INFO,PSTR("septet: %02x %02x %02x %02x %02x %02x"),cp[0] ,cp[1],cp[2],cp[3],cp[4],cp[5]);
 
   uint8_t Crc = 0x7F;
   for (uint32_t i = 0; i < 5; i++) {
     Crc = (Crc - cp[i]) & 0x7f;
   }
   if (Crc != cp[5]) {
-    return 0xffffffff;
+    result = 0xffffffff;
+  } else {
+    result = (cp[3] | ((cp[4]&8)<<4));
+    result <<= 8;
+    result |= (cp[2] | ((cp[4]&4)<<5));
+    result <<= 8;
+    result |= (cp[1] | ((cp[4]&2)<<6));
+    result <<= 8;
+    result |= (cp[0] | ((cp[4]&1)<<7));
   }
 
-  result = (cp[3] | ((cp[4]&8)<<4));
-  result <<= 8;
-  result |= (cp[2] | ((cp[4]&4)<<5));
-  result <<= 8;
-  result |= (cp[1] | ((cp[4]&2)<<6));
-  result <<= 8;
-  result |= (cp[0] | ((cp[4]&1)<<7));
-
+  //AddLog(LOG_LEVEL_INFO,PSTR("septet r: %d"),result);
   return result;
 }
 
@@ -1577,6 +1579,12 @@ void SML_Decode(uint8_t index) {
               // vbus values vul, vsl, vuwh, vuwl, wswh, vswl, vswh
               // vub3, vsb3 etc
               mp++;
+              int8_t offset = -1;
+              if (*mp == 'o') {
+                mp++;
+                offset = strtol((char*)mp, (char**)&mp, 10);
+                cp += (offset / 4) * 6;
+              }
               uint8_t usign;
               if (*mp == 'u') {
                 usign = 1;
@@ -1596,8 +1604,19 @@ void SML_Decode(uint8_t index) {
                   break;
                 case 'w':
                   mp++;
+                  char wflg;
+                  if (offset >= 0) {
+                    if (offset % 4) {
+                      wflg = 'h';
+                    } else {
+                      wflg = 'l';
+                    }
+                  } else {
+                    wflg = *mp;
+                    mp++;
+                  }
                   // get word value
-                  if (*mp == 'h') {
+                  if (wflg == 'h') {
                     // high word
                     if (usign) ebus_dval = (vbus_get_septet(cp) >> 16) & 0xffff;
                     else ebus_dval = (int16_t)((vbus_get_septet(cp) >> 16) & 0xffff);
@@ -1606,7 +1625,6 @@ void SML_Decode(uint8_t index) {
                     if (usign) ebus_dval = vbus_get_septet(cp) & 0xffff;
                     else (int16_t)(vbus_get_septet(cp) & 0xffff);
                   }
-                  mp++;
                   break;
                 case 'b':
                   mp++;
@@ -1699,7 +1717,7 @@ void SML_Decode(uint8_t index) {
               dval = sml_getvalue(cp,mindex);
             }
           } else {
-            // ebus pzem or mbus or raw
+            // ebus pzem vbus or mbus or raw
             if (*mp=='b') {
               mp++;
               uint8_t shift = *mp&7;
