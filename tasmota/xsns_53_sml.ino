@@ -1312,7 +1312,7 @@ uint32_t meters;
 uint32_t vbus_get_septet(uint8_t *cp) {
   uint32_t result = 0;
 
-  AddLog(LOG_LEVEL_INFO,PSTR("septet: %02x %02x %02x %02x %02x %02x"),cp[0] ,cp[1],cp[2],cp[3],cp[4],cp[5]);
+  //AddLog(LOG_LEVEL_INFO,PSTR("septet: %02x %02x %02x %02x %02x %02x"),cp[0] ,cp[1],cp[2],cp[3],cp[4],cp[5]);
 
   uint8_t Crc = 0x7F;
   for (uint32_t i = 0; i < 5; i++) {
@@ -1330,7 +1330,7 @@ uint32_t vbus_get_septet(uint8_t *cp) {
     result |= (cp[0] | ((cp[4]&1)<<7));
   }
 
-  AddLog(LOG_LEVEL_INFO,PSTR("septet r: %d"),result);
+  //AddLog(LOG_LEVEL_INFO,PSTR("septet r: %d"),result);
   return result;
 }
 
