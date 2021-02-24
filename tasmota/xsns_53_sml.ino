@@ -890,6 +890,24 @@ void Dump2log(void) {
           sml_logindex++;
         }
       }
+    } else if (meter_desc_p[(dump2log&7)-1].type=='v') {
+      // vbus
+      unsigned char c;
+      while (SML_SAVAILABLE) {
+        c=SML_SREAD;
+        if (c==EBUS_SYNC) {
+          AddLogData(LOG_LEVEL_INFO, log_data);
+          sml_logindex=0;
+          log_data[sml_logindex]=':';
+          sml_logindex++;
+          log_data[sml_logindex]=' ';
+          sml_logindex++;
+        }
+        sprintf(&log_data[sml_logindex],"%02x ",c);
+        if (sml_logindex<sizeof(log_data)-7) {
+          sml_logindex+=3;
+        }
+      }
     } else {
       //while (SML_SAVAILABLE) {
       index=0;
@@ -911,17 +929,6 @@ void Dump2log(void) {
               index = index == 5 ? 0 : index;
 #endif
               break;
-            }
-          } else if (meter_desc_p[(dump2log&7)-1].type=='v') {
-            // vbus
-            c=SML_SREAD;
-            if (c==EBUS_SYNC) {
-              index = 0;
-              AddLogData(LOG_LEVEL_INFO, log_data);
-            }
-            sprintf(&log_data[index],"%02x ",c);
-            if (index<sizeof(log_data)-3) {
-              index+=3;
             }
           } else {
             // sml
