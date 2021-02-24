@@ -1308,6 +1308,7 @@ uint32_t meters;
     }
 }
 
+#define VBUS_BAD_CRC 0
 // get vbus septet with 6 bytes
 uint32_t vbus_get_septet(uint8_t *cp) {
   uint32_t result = 0;
@@ -1319,7 +1320,7 @@ uint32_t vbus_get_septet(uint8_t *cp) {
     Crc = (Crc - cp[i]) & 0x7f;
   }
   if (Crc != cp[5]) {
-    result = 0xffffffff;
+    result = VBUS_BAD_CRC;
   } else {
     result = (cp[3] | ((cp[4]&8)<<4));
     result <<= 8;
@@ -1579,7 +1580,7 @@ void SML_Decode(uint8_t index) {
               // vbus values vul, vsl, vuwh, vuwl, wswh, vswl, vswh
               // vub3, vsb3 etc
               mp++;
-              int8_t offset = -1;
+              int16_t offset = -1;
               if (*mp == 'o') {
                 mp++;
                 offset = strtol((char*)mp, (char**)&mp, 10);
