@@ -37,11 +37,6 @@ no math hierarchy  (costs ram and execution time, better group with brackets, an
 keywords if then else endif, or, and are better readable for beginners (others may use {})
 
 // to doo
-remove all filesystem inititialization and gui
-adapt 3 options
-1. ufilesystem
-2. eeprom hardware and emulation
-3. compression
 
 \*********************************************************************************************/
 
@@ -7425,16 +7420,18 @@ uint32_t call2https(const char *host, const char *path) {
   String request = String("POST ") + "/api/login/Basic" + " HTTP/1.1\r\n" + "Host: w3schools.com" + "\r\n" + data + "\r\n" + "Content-Type: application/json" + "\r\n";
   httpsClient->print(request);
 
-  AddLog(LOG_LEVEL_INFO,PSTR(">>> request %s"),(char*)request.c_str());
+  AddLog(LOG_LEVEL_INFO,PSTR(">>> post request %s"),(char*)request.c_str());
 
   String line = httpsClient->readStringUntil('\n');
-  AddLog(LOG_LEVEL_INFO,PSTR(">>> response 1 %s"),(char*)line.c_str());
+  line = httpsClient->readStringUntil('\n');
+  AddLog(LOG_LEVEL_INFO,PSTR(">>> post response 1 %s"),(char*)line.c_str());
 
   request = String("GET ") + path +
                     " HTTP/1.1\r\n" +
                     "Host: " + host +
                     "\r\n" + "Connection: close\r\n\r\n";
   httpsClient->print(request);
+  AddLog(LOG_LEVEL_INFO,PSTR(">>> get request %s"),(char*)request.c_str());
 
   while (httpsClient->connected()) {
     String line = httpsClient->readStringUntil('\n');
