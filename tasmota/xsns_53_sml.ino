@@ -902,7 +902,7 @@ void Dump2log(void) {
         if (SML_SAVAILABLE) {
           unsigned char c;
           if (meter_desc_p[(dump2log&7)-1].type=='e') {
-            // ebus
+            // ebus, vbus
             c=SML_SREAD;
             sprintf(&log_data[index],"%02x ",c);
             index+=3;
@@ -911,6 +911,15 @@ void Dump2log(void) {
               index = index == 5 ? 0 : index;
 #endif
               break;
+            }
+          } else if (meter_desc_p[(dump2log&7)-1].type=='v') {
+            c=SML_SREAD;
+            if (c==EBUS_SYNC) {
+              index = 0;
+            }
+            sprintf(&log_data[index],"%02x ",c);
+            if (index<sizeof(log_data)-3) {
+              index+=3;
             }
           } else {
             // sml
