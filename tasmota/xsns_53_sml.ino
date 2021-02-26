@@ -1275,7 +1275,6 @@ void sml_shift_in(uint32_t meters,uint32_t shard) {
       uint32_t mlen=smltbuf[meters][2]+5;
       if (mlen>SML_BSIZ) mlen=SML_BSIZ;
       if (meter_spos[meters]>=mlen) {
-        sb_counter = 0;
         SML_Decode(meters);
         sml_empty_receiver(meters);
         meter_spos[meters]=0;
@@ -1285,7 +1284,6 @@ void sml_shift_in(uint32_t meters,uint32_t shard) {
     smltbuf[meters][meter_spos[meters]] = iob;
     meter_spos[meters]++;
     if (meter_spos[meters]>=7) {
-      sb_counter = 0;
       SML_Decode(meters);
       sml_empty_receiver(meters);
       meter_spos[meters]=0;
@@ -1319,7 +1317,6 @@ void sml_shift_in(uint32_t meters,uint32_t shard) {
         // test crc
         if (smltbuf[meters][tlen]=ebus_CalculateCRC(smltbuf[meters],tlen)) {
             ebus_esc(smltbuf[meters],tlen);
-            sb_counter = 0;
             SML_Decode(meters);
         } else {
             // crc error
@@ -1423,12 +1420,12 @@ void SML_Decode(uint8_t index) {
         // 1. index
         double dvar;
         uint8_t opr;
-        uint32_t ind;
-        ind = atoi(mp);
-        while (*mp >= '0' && *mp <= '9') mp++;
-        if (ind < 1 || ind > SML_MAX_VARS) ind = 1;
-        dvar = meter_vars[ind - 1];
-        for (uint8_t p = 0; p < 5; p++) {
+        uint8_t mind;
+        int32_t ind;
+        mind = strtol((char*)mp, (char**)&mp, 10);
+        if (mind < 1 || mind > SML_MAX_VARS) mind = 1;
+        dvar = meter_vars[mind - 1];
+        for (uint8_t p = 0; p < 8; p++) {
           if (*mp == '@') {
             // store result
             meter_vars[vindex] = dvar;
@@ -1443,25 +1440,25 @@ void SML_Decode(uint8_t index) {
             iflg = 1;
             mp++;
           }
-          ind = atoi(mp);
-          while (*mp >= '0' && *mp <= '9') mp++;
-          if (ind < 1 || ind > SML_MAX_VARS) ind = 1;
+          ind = strtol((char*)mp, (char**)&mp, 10);
+          mind = ind;
+          if (mind < 1 || mind > SML_MAX_VARS) mind = 1;
           switch (opr) {
               case '+':
                 if (iflg) dvar += ind;
-                else dvar += meter_vars[ind - 1];
+                else dvar += meter_vars[mind - 1];
                 break;
               case '-':
                 if (iflg) dvar -= ind;
-                else dvar -= meter_vars[ind - 1];
+                else dvar -= meter_vars[mind - 1];
                 break;
               case '*':
                 if (iflg) dvar *= ind;
-                else dvar *= meter_vars[ind - 1];
+                else dvar *= meter_vars[mind - 1];
                 break;
               case '/':
                 if (iflg) dvar /= ind;
-                else dvar /= meter_vars[ind - 1];
+                else dvar /= meter_vars[mind - 1];
                 break;
           }
           while (*mp==' ') mp++;
