@@ -1494,9 +1494,9 @@ void SML_Decode(uint8_t index) {
             mp=strchr(mp,'@');
             if (mp) {
               mp++;
-              SML_Immediate_MQTT((const char*)mp, vindex, mindex);
               double fac = CharToDouble((char*)mp);
               meter_vars[vindex] /= fac;
+              SML_Immediate_MQTT((const char*)mp, vindex, mindex);
             }
           }
           dindex++;
