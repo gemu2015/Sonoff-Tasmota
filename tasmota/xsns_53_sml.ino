@@ -1425,6 +1425,7 @@ void SML_Decode(uint8_t index) {
         mind = strtol((char*)mp, (char**)&mp, 10);
         if (mind < 1 || mind > SML_MAX_VARS) mind = 1;
         dvar = meter_vars[mind - 1];
+        while (*mp==' ') mp++;
         for (uint8_t p = 0; p < 8; p++) {
           if (*mp == '@') {
             // store result
