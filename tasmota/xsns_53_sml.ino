@@ -1430,7 +1430,6 @@ void SML_Decode(uint8_t index) {
             // store result
             meter_vars[vindex] = dvar;
             mp++;
-            SML_Immediate_MQTT((const char*)mp, vindex, mindex);
             break;
           }
           opr = *mp;
@@ -1466,7 +1465,6 @@ void SML_Decode(uint8_t index) {
             // store result
             meter_vars[vindex] = dvar;
             mp++;
-            SML_Immediate_MQTT((const char*)mp, vindex, mindex);
             break;
           }
         }
