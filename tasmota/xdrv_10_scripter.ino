@@ -7392,6 +7392,25 @@ int32_t http_req(char *host, char *request) {
 #include <WiFiClientSecure.h>
 #endif //ESP8266
 
+const char root_ca[] PROGMEM = "=====(\n"
+"-----BEGIN CERTIFICATE-----\n"
+"MIICkzCCAjmgAwIBAgIRANFdB/NLmYDQzgFJonZJTQcwCgYIKoZIzj0EAwIwgZEx\n"
+"CzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpDYWxpZm9ybmlhMRIwEAYDVQQHEwlQYWxv\n"
+"IEFsdG8xDjAMBgNVBAoTBVRlc2xhMR4wHAYDVQQLExVUZXNsYSBFbmVyZ3kgUHJv\n"
+"ZHVjdHMxKTAnBgNVBAMTIGY2ZTBiOGZmYmJkNTMxMjUzMTMyOTViM2FiZWEwOTFk\n"
+"MB4XDTE4MDkxNTA5Mzg0OFoXDTQzMDkwOTA5Mzg0OFowgZExCzAJBgNVBAYTAlVT\n"
+"MRMwEQYDVQQIEwpDYWxpZm9ybmlhMRIwEAYDVQQHEwlQYWxvIEFsdG8xDjAMBgNV\n"
+"BAoTBVRlc2xhMR4wHAYDVQQLExVUZXNsYSBFbmVyZ3kgUHJvZHVjdHMxKTAnBgNV\n"
+"BAMTIGY2ZTBiOGZmYmJkNTMxMjUzMTMyOTViM2FiZWEwOTFkMFkwEwYHKoZIzj0C\n"
+"AQYIKoZIzj0DAQcDQgAEC9OseunYQc+aUbArfdjf61TOBpKq3MRc0nWKiLw7taZV\n"
+"sLPxrTJaqgdHumyw1GziJ981ppbRyOmNpi3QJrnXeqNwMG4wDgYDVR0PAQH/BAQD\n"
+"AgKkMBMGA1UdJQQMMAoGCCsGAQUFBwMBMA8GA1UdEwEB/wQFMAMBAf8wNgYDVR0R\n"
+"BC8wLYIDdGVngglwb3dlcndhbGyCCXBvd2VycGFja4cEwKhaAYcEwKhaAocEwKhb\n"
+"ATAKBggqhkjOPQQDAgNIADBFAiB3LWJD8hEk+/hUtL+IluZF0E78QTrW8d8YydC+\n"
+"8REfMgIhALzmRFGXbUh9lH57KB6KH98iTBKUtgHDsGyK+uKQ+dEn\n"
+"-----END CERTIFICATE-----\n"
+")=====\n" ;
+
 // get tesla powerwall info page json string
 uint32_t call2https(const char *host, const char *path) {
   if (TasmotaGlobal.global_state.wifi_down) return 1;
@@ -7404,8 +7423,28 @@ uint32_t call2https(const char *host, const char *path) {
   httpsClient = new BearSSL::WiFiClientSecure_light(1024, 1024);
 #endif
 
-  httpsClient->setTimeout(1500);
+  httpsClient->setTimeout(2000);
   httpsClient->setInsecure();
+
+#if 0
+  File file = ufsp->open("/tesla.cer", FS_FILE_READ);
+  uint16_t fsize = 0;
+  char *cert = 0;
+  if (file) {
+    fsize = file.size();
+    if (fsize) {
+      cert = (char*)malloc(fsize +2);
+      if (cert) {
+        file.read((uint8_t*)cert, fsize);
+        file.close();
+        httpsClient->setCACert(cert);
+      }
+      AddLog(LOG_LEVEL_INFO,PSTR(">>> cert %d"),fsize);
+    }
+  } else {
+    httpsClient->setCACert(root_ca);
+  }
+#endif
 
   uint32_t retry = 0;
   while ((!httpsClient->connect(host, 443)) && (retry < 5)) {
@@ -7415,25 +7454,43 @@ uint32_t call2https(const char *host, const char *path) {
   if (retry == 5) {
     return 2;
   }
+  AddLog(LOG_LEVEL_INFO,PSTR("connected"));
 
-/*
-  String data = "{\"username\":\"" HTTPS_USER "\",\"password\":\"" HTTPS_PW "\", \"email\":\"customer@customer.domain\",\"force_sm_off\":false}";
-  String request = String("POST ") + "/api/login/Basic" + " HTTP/1.1\r\n" + "Host: w3schools.com" + "\r\n" + data + "\r\n" + "Content-Type: application/json" + "\r\n";
+String request;
+#if 1
+
+  File file = ufsp->open("/login.txt", FS_FILE_READ);
+  uint16_t fsize = 0;
+  char *cert = 0;
+  if (file) {
+    fsize = file.size();
+    if (fsize) {
+      cert = (char*)malloc(fsize +2);
+      if (cert) {
+        file.read((uint8_t*)cert, fsize);
+        file.close();
+        //httpsClient->setCACert(cert);
+      }
+      AddLog(LOG_LEVEL_INFO,PSTR(">>> cert %d"),fsize);
+    }
+  }
+
+  request = String("POST ") + "/api/login/Basic" + " HTTP/1.1\r\n" + "Host: " + host + "\r\n" + cert + "\r\n" + "Content-Type: application/json" + "\r\n\r\n";
   httpsClient->print(request);
-
-  AddLog(LOG_LEVEL_INFO,PSTR(">>> post request %s"),(char*)request.c_str());
+  AddLog_P(LOG_LEVEL_INFO,PSTR(">>> post request %s"),(char*)request.c_str());
 
   String line = httpsClient->readStringUntil('\n');
+  AddLog(LOG_LEVEL_INFO,PSTR(">>> post response 1a %s"),(char*)line.c_str());
   line = httpsClient->readStringUntil('\n');
-  AddLog(LOG_LEVEL_INFO,PSTR(">>> post response 1 %s"),(char*)line.c_str());
-*/
+  AddLog(LOG_LEVEL_INFO,PSTR(">>> post response 1b %s"),(char*)line.c_str());
+#endif
 
-  String request = String("GET ") + path +
+  request = String("GET ") + path +
                     " HTTP/1.1\r\n" +
                     "Host: " + host +
                     "\r\n" + "Connection: close\r\n\r\n";
   httpsClient->print(request);
-//  AddLog(LOG_LEVEL_INFO,PSTR(">>> get request %s"),(char*)request.c_str());
+  AddLog_P(LOG_LEVEL_INFO,PSTR(">>> get request %s"),(char*)request.c_str());
 
   while (httpsClient->connected()) {
     String line = httpsClient->readStringUntil('\n');
@@ -7450,7 +7507,7 @@ uint32_t call2https(const char *host, const char *path) {
   }
   httpsClient->stop();
   delete httpsClient;
-//  AddLog(LOG_LEVEL_INFO,PSTR(">>> response 2 %s"),(char*)line.c_str());
+  AddLog(LOG_LEVEL_INFO,PSTR(">>> response 2 %s"),(char*)result.c_str());
   Run_Scripter(">jp", 3, (char*)result.c_str());
   return 0;
 }
