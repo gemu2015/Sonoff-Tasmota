@@ -7457,7 +7457,7 @@ uint32_t call2https(const char *host, const char *path) {
   AddLog(LOG_LEVEL_INFO,PSTR("connected"));
 
 String request;
-#if 1
+#if 0
 
   File file = ufsp->open("/login.txt", FS_FILE_READ);
   uint16_t fsize = 0;
@@ -7465,7 +7465,7 @@ String request;
   if (file) {
     fsize = file.size();
     if (fsize) {
-      cert = (char*)malloc(fsize +2);
+      cert = (char*)calloc(fsize +2, 1);
       if (cert) {
         file.read((uint8_t*)cert, fsize);
         file.close();
@@ -7475,7 +7475,7 @@ String request;
     }
   }
 
-  request = String("POST ") + "/api/login/Basic" + " HTTP/1.1\r\n" + "Host: " + host + "\r\n" + cert + "\r\n" + "Content-Type: application/json" + "\r\n\r\n";
+  request = String("POST ") + "/api/login/Basic" + " HTTP/1.1\r\n" + "Host: " + host + "\r\n" + cert + "\r\n" + "Content-Type: application/json" + "\r\n";
   httpsClient->print(request);
   AddLog_P(LOG_LEVEL_INFO,PSTR(">>> post request %s"),(char*)request.c_str());
 
@@ -7490,7 +7490,7 @@ String request;
                     "Host: " + host +
                     "\r\n" + "Connection: close\r\n\r\n";
   httpsClient->print(request);
-  AddLog_P(LOG_LEVEL_INFO,PSTR(">>> get request %s"),(char*)request.c_str());
+//  AddLog_P(LOG_LEVEL_INFO,PSTR(">>> get request %s"),(char*)request.c_str());
 
   while (httpsClient->connected()) {
     String line = httpsClient->readStringUntil('\n');
@@ -7507,7 +7507,7 @@ String request;
   }
   httpsClient->stop();
   delete httpsClient;
-  AddLog(LOG_LEVEL_INFO,PSTR(">>> response 2 %s"),(char*)result.c_str());
+//  AddLog(LOG_LEVEL_INFO,PSTR(">>> response 2 %s"),(char*)result.c_str());
   Run_Scripter(">jp", 3, (char*)result.c_str());
   return 0;
 }
