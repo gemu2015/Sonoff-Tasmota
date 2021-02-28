@@ -7392,25 +7392,6 @@ int32_t http_req(char *host, char *request) {
 #include <WiFiClientSecure.h>
 #endif //ESP8266
 
-const char root_ca[] PROGMEM = "=====(\n"
-"-----BEGIN CERTIFICATE-----\n"
-"MIICkzCCAjmgAwIBAgIRANFdB/NLmYDQzgFJonZJTQcwCgYIKoZIzj0EAwIwgZEx\n"
-"CzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpDYWxpZm9ybmlhMRIwEAYDVQQHEwlQYWxv\n"
-"IEFsdG8xDjAMBgNVBAoTBVRlc2xhMR4wHAYDVQQLExVUZXNsYSBFbmVyZ3kgUHJv\n"
-"ZHVjdHMxKTAnBgNVBAMTIGY2ZTBiOGZmYmJkNTMxMjUzMTMyOTViM2FiZWEwOTFk\n"
-"MB4XDTE4MDkxNTA5Mzg0OFoXDTQzMDkwOTA5Mzg0OFowgZExCzAJBgNVBAYTAlVT\n"
-"MRMwEQYDVQQIEwpDYWxpZm9ybmlhMRIwEAYDVQQHEwlQYWxvIEFsdG8xDjAMBgNV\n"
-"BAoTBVRlc2xhMR4wHAYDVQQLExVUZXNsYSBFbmVyZ3kgUHJvZHVjdHMxKTAnBgNV\n"
-"BAMTIGY2ZTBiOGZmYmJkNTMxMjUzMTMyOTViM2FiZWEwOTFkMFkwEwYHKoZIzj0C\n"
-"AQYIKoZIzj0DAQcDQgAEC9OseunYQc+aUbArfdjf61TOBpKq3MRc0nWKiLw7taZV\n"
-"sLPxrTJaqgdHumyw1GziJ981ppbRyOmNpi3QJrnXeqNwMG4wDgYDVR0PAQH/BAQD\n"
-"AgKkMBMGA1UdJQQMMAoGCCsGAQUFBwMBMA8GA1UdEwEB/wQFMAMBAf8wNgYDVR0R\n"
-"BC8wLYIDdGVngglwb3dlcndhbGyCCXBvd2VycGFja4cEwKhaAYcEwKhaAocEwKhb\n"
-"ATAKBggqhkjOPQQDAgNIADBFAiB3LWJD8hEk+/hUtL+IluZF0E78QTrW8d8YydC+\n"
-"8REfMgIhALzmRFGXbUh9lH57KB6KH98iTBKUtgHDsGyK+uKQ+dEn\n"
-"-----END CERTIFICATE-----\n"
-")=====\n" ;
-
 // get tesla powerwall info page json string
 uint32_t call2https(const char *host, const char *path) {
   if (TasmotaGlobal.global_state.wifi_down) return 1;
