@@ -5987,22 +5987,22 @@ bool ScriptMqttData(void)
           value = sres;
         }
 #endif // SUPPORT_MQTT_EVENT_MORE
-        if (json_valid) {
-          value.trim();
-          char sbuffer[128];
+      }
+      if (json_valid) {
+        value.trim();
+        char sbuffer[128];
 
-          if (!strncmp(lkey.c_str(), "Epoch", 5)) {
-            uint32_t ep = atoi(value.c_str()) - (uint32_t)EPOCH_OFFSET;
-            snprintf_P(sbuffer, sizeof(sbuffer), PSTR(">%s=%d\n"), event_item.Event.c_str(), ep);
-          } else {
-            snprintf_P(sbuffer, sizeof(sbuffer), PSTR(">%s=\"%s\"\n"), event_item.Event.c_str(), value.c_str());
-          }
-#ifdef DEBUG_MQTT_EVENT
-          AddLog(LOG_LEVEL_INFO, PSTR("Script: setting script var %s"), sbuffer);
-#endif
-          //toLog(sbuffer);
-          execute_script(sbuffer);
+        if (!strncmp(lkey.c_str(), "Epoch", 5)) {
+          uint32_t ep = atoi(value.c_str()) - (uint32_t)EPOCH_OFFSET;
+          snprintf_P(sbuffer, sizeof(sbuffer), PSTR(">%s=%d\n"), event_item.Event.c_str(), ep);
+        } else {
+          snprintf_P(sbuffer, sizeof(sbuffer), PSTR(">%s=\"%s\"\n"), event_item.Event.c_str(), value.c_str());
         }
+#ifdef DEBUG_MQTT_EVENT
+        AddLog(LOG_LEVEL_INFO, PSTR("Script: setting script var %s"), sbuffer);
+#endif
+        //toLog(sbuffer);
+        execute_script(sbuffer);
       }
     }
   }
