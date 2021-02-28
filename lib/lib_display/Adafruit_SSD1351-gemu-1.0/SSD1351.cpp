@@ -201,7 +201,7 @@ void SSD1351::writedata(uint8_t d) {
 
     if (_dc >= 0) {
       digitalWrite(_dc, HIGH);
-      SPI.transfer(c);
+      SPI.transfer(d);
     } else {
       bytetemp = (d >> 1) | 0x80;
       regvalue= ((8&SPI_USR_COMMAND_BITLEN)<<SPI_USR_COMMAND_BITLEN_S)|((uint32)bytetemp);		//configure transmission variable,9bit transmission length and first 8 command bit
