@@ -1,7 +1,7 @@
 /*
   tasmota_ca.ino - Certificate authorities for Tasmota, LetsEncrypt and AWS
 
-  Copyright (C) 2020  Theo Arends
+  Copyright (C) 2021  Theo Arends
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -245,7 +245,7 @@ const br_x509_trust_anchor PROGMEM Tasmota_TA[] = {
 	}
 };
 
-const size_t Tasmota_TA_size = ARRAY_SIZE(Tasmota_TA);
+const size_t Tasmota_TA_size = nitems(Tasmota_TA);
 
 // we add a separate CA for telegram
 /*********************************************************************************************\

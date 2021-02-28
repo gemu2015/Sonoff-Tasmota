@@ -150,6 +150,7 @@ enum UserSelectablePins {
   GPIO_NEOPOOL_TX, GPIO_NEOPOOL_RX,    // Sugar Valley RS485 interface
   GPIO_SDM72_TX, GPIO_SDM72_RX,        // SDM72 Serial interface
   GPIO_TM1637CLK, GPIO_TM1637DIO,      // TM1637 interface
+  GPIO_PROJECTOR_CTRL_TX, GPIO_PROJECTOR_CTRL_RX,  // LCD/DLP Projector Serial Control
   GPIO_CC1101_CS,
   GPIO_SENSOR_END };
 
@@ -321,6 +322,10 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_NEOPOOL_TX "|" D_SENSOR_NEOPOOL_RX "|"
   D_SENSOR_SDM72_TX "|" D_SENSOR_SDM72_RX "|"
   D_SENSOR_TM1637_CLK "|" D_SENSOR_TM1637_DIO "|"
+  D_SENSOR_PROJECTOR_CTRL_TX "|" D_SENSOR_PROJECTOR_CTRL_RX "|"
+#ifdef USE_MORITZ
+  D_SENSOR_CC1101_CS "|"
+#endif
   ;
 
 const char kSensorNamesFixed[] PROGMEM =
@@ -761,7 +766,10 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_NEOPOOL_TX),      // Sugar Valley RS485 Interface
   AGPIO(GPIO_NEOPOOL_RX),      // Sugar Valley RS485 Interface
 #endif
-
+#ifdef USE_PROJECTOR_CTRL
+  AGPIO(GPIO_PROJECTOR_CTRL_TX),      // LCD/DLP Projector Serial Control
+  AGPIO(GPIO_PROJECTOR_CTRL_RX),      // LCD/DLP Projector Serial Control
+#endif
 #ifdef USE_MORITZ
   AGPIO(GPIO_CC1101_CS),
 #endif
