@@ -150,6 +150,7 @@ enum UserSelectablePins {
   GPIO_NEOPOOL_TX, GPIO_NEOPOOL_RX,    // Sugar Valley RS485 interface
   GPIO_SDM72_TX, GPIO_SDM72_RX,        // SDM72 Serial interface
   GPIO_TM1637CLK, GPIO_TM1637DIO,      // TM1637 interface
+  GPIO_CC1101_CS,
   GPIO_SENSOR_END };
 
 enum ProgramSelectablePins {
@@ -761,6 +762,9 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_NEOPOOL_RX),      // Sugar Valley RS485 Interface
 #endif
 
+#ifdef USE_MORITZ
+  AGPIO(GPIO_CC1101_CS),
+#endif
 /*-------------------------------------------------------------------------------------------*\
  * ESP32 specifics
 \*-------------------------------------------------------------------------------------------*/
