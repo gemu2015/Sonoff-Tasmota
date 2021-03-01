@@ -826,7 +826,7 @@ uint8_t Serial_peek() {
 #define SML_DUMP_SIZE 128
 #endif
 
-uint8_t sml_logindex;
+uint16_t sml_logindex;
 char log_data[SML_DUMP_SIZE];
 
 #define SML_EBUS_SKIP_SYNC_DUMPS
