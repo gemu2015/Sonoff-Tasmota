@@ -884,8 +884,8 @@ void Dump2log(void) {
         char c = SML_SREAD&0x7f;
         if (c == '\n' || c == '\r') {
           if (sml_logindex > 2) {
-            AddLogData(LOG_LEVEL_INFO, log_data);
             log_data[sml_logindex] = 0;
+            AddLogData(LOG_LEVEL_INFO, log_data);
             log_data[0] = ':';
             log_data[1] = ' ';
             sml_logindex = 2;
@@ -903,6 +903,7 @@ void Dump2log(void) {
       while (SML_SAVAILABLE) {
         c = SML_SREAD;
         if (c == VBUS_SYNC) {
+          log_data[sml_logindex] = 0;
           AddLogData(LOG_LEVEL_INFO, log_data);
           log_data[0] = ':';
           log_data[1] = ' ';
@@ -922,6 +923,7 @@ void Dump2log(void) {
           p = SML_SPEAK;
           if (p != EBUS_SYNC && sml_logindex > 5) {
             // new packet, plot last one
+            log_data[sml_logindex] = 0;
             AddLogData(LOG_LEVEL_INFO, log_data);
             strcpy(&log_data[0], ": aa ");
             sml_logindex = 5;
@@ -939,6 +941,7 @@ void Dump2log(void) {
       while (SML_SAVAILABLE) {
         c = SML_SREAD;
         if (c == SML_SYNC) {
+          log_data[sml_logindex] = 0;
           AddLogData(LOG_LEVEL_INFO, log_data);
           log_data[0] = ':';
           log_data[1] = ' ';
@@ -962,6 +965,7 @@ void Dump2log(void) {
         }
       }
       if (sml_logindex > 2) {
+        log_data[sml_logindex] = 0;
         AddLogData(LOG_LEVEL_INFO, log_data);
       }
     }
