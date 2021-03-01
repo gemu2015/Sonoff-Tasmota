@@ -822,8 +822,12 @@ uint8_t Serial_peek() {
   return meter_ss[num-1]->peek();
 }
 
+#ifndef SML_DUMP_SIZE
+#define SML_DUMP_SIZE 128
+#endif
+
 uint8_t sml_logindex;
-char log_data[128];
+char log_data[SML_DUMP_SIZE];
 
 #define SML_EBUS_SKIP_SYNC_DUMPS
 
