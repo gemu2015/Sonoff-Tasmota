@@ -19,7 +19,7 @@
 
 #ifdef USE_SPI
 #ifdef USE_DISPLAY
-#if (defined(USE_DISPLAY_ILI9341) || defined(USE_DISPLAY_ILI9342))
+#ifdef USE_DISPLAY_ILI9341
 
 #define XDSP_04                4
 
@@ -36,13 +36,17 @@ uint8_t ili9342_ctouch_counter = 0;
 
 bool tft_init_done = false;
 
+#define ILI9341_ID 1
+#define ILI9342_ID 2
+
+//Settings.display_options.ilimode = ILI9341_ID;
 
 /*********************************************************************************************/
 
 void ILI9341_InitDriver()
 {
 
-#if (defined(USE_M5STACK_CORE2) || defined(USE_M5STACK_CORE_BASIC))
+#ifdef USE_M5STACK_CORE2
   if (TasmotaGlobal.spi_enabled) {
 #else
   // There are displays without CS
@@ -62,32 +66,28 @@ void ILI9341_InitDriver()
     // disable screen buffer
     buffer = NULL;
 
-#ifdef USE_DISPLAY_ILI9341
-    uint8_t dtype = 1;
-#else
-    uint8_t dtype = 3; // sign ili9342 with variable spi pins
-#endif // USE_DISPLAY_ILI9341
+    if (!Settings.display_options.ilimode) {
+      Settings.display_options.ilimode = ILI9341_ID;
+    }
 
     // default colors
     fg_color = ILI9341_WHITE;
     bg_color = ILI9341_BLACK;
 
 #ifdef USE_M5STACK_CORE2
-    // fixed pins on m5stack core2
-    ili9341_2 = new ILI9341_2(5, -2, 15, -2);
-#elif defined(USE_M5STACK_CORE_BASIC)
-    // int8_t cs, int8_t res, int8_t dc, int8_t bp)
-    ili9341_2 = new ILI9341_2(14, 33, 27, 32);
+    // special modes on m5stack core2
+    ili9341_2 = new ILI9341_2(Pin(GPIO_ILI9341_CS), Pin(GPIO_SPI_MOSI), Pin(GPIO_SPI_MISO), Pin(GPIO_SPI_CLK), -2, Pin(GPIO_ILI9341_DC), -2, 1, 2);
+    Settings.display_options.ilimode = 2;
 #else
     // check for special case with 2 SPI busses (ESP32 bitcoin)
     if (TasmotaGlobal.soft_spi_enabled) {
       // Init renderer, may use hardware spi, however we use SSPI defintion because SD card uses SPI definition  (2 spi busses)
       if (PinUsed(GPIO_SSPI_MOSI) && PinUsed(GPIO_SSPI_MISO) && PinUsed(GPIO_SSPI_SCLK)) {
-        ili9341_2 = new ILI9341_2(Pin(GPIO_ILI9341_CS), Pin(GPIO_SSPI_MOSI), Pin(GPIO_SSPI_MISO), Pin(GPIO_SSPI_SCLK), Pin(GPIO_OLED_RESET), Pin(GPIO_ILI9341_DC), Pin(GPIO_BACKLIGHT), 2, dtype);
+        ili9341_2 = new ILI9341_2(Pin(GPIO_ILI9341_CS), Pin(GPIO_SSPI_MOSI), Pin(GPIO_SSPI_MISO), Pin(GPIO_SSPI_SCLK), Pin(GPIO_OLED_RESET), Pin(GPIO_ILI9341_DC), Pin(GPIO_BACKLIGHT), 2, Settings.display_options.ilimode);
       }
     } else if (TasmotaGlobal.spi_enabled) {
       if (PinUsed(GPIO_ILI9341_DC)) {
-        ili9341_2 = new ILI9341_2(Pin(GPIO_ILI9341_CS), Pin(GPIO_SPI_MOSI), Pin(GPIO_SPI_MISO), Pin(GPIO_SPI_CLK), Pin(GPIO_OLED_RESET), Pin(GPIO_ILI9341_DC), Pin(GPIO_BACKLIGHT), 1, dtype);
+        ili9341_2 = new ILI9341_2(Pin(GPIO_ILI9341_CS), Pin(GPIO_SPI_MOSI), Pin(GPIO_SPI_MISO), Pin(GPIO_SPI_CLK), Pin(GPIO_OLED_RESET), Pin(GPIO_ILI9341_DC), Pin(GPIO_BACKLIGHT), 1, Settings.display_options.ilimode);
       }
     }
 #endif // USE_M5STACK_CORE2
@@ -102,20 +102,12 @@ void ILI9341_InitDriver()
     renderer->DisplayInit(DISPLAY_INIT_MODE, Settings.display_size, Settings.display_rotate, Settings.display_font);
     renderer->dim(Settings.display_dimmer);
 
-#ifdef USE_M5STACK_CORE_BASIC
-    renderer->invertDisplay(0);
-#endif
-
 #ifdef SHOW_SPLASH
     // Welcome text
     renderer->setTextFont(2);
     renderer->setTextSize(1);
     renderer->setTextColor(ILI9341_WHITE, ILI9341_BLACK);
-#ifdef USE_DISPLAY_ILI9341
-    renderer->DrawStringAt(50, (Settings.display_height/2)-12, "ILI9341 TFT!", ILI9341_WHITE, 0);
-#else
-    renderer->DrawStringAt(50, (Settings.display_height/2)-12, "ILI9342 TFT!", ILI9341_WHITE, 0);
-#endif
+    renderer->DrawStringAt(50, (Settings.display_height/2)-12, Settings.display_options.ilimode==ILI9341_ID?"ILI9341 TFT!":"ILI9342 TFT!", ILI9341_WHITE, 0);
     delay(1000);
 #endif // SHOW_SPLASH
 
@@ -141,13 +133,10 @@ void ILI9341_InitDriver()
 #endif // ESP32
 
     tft_init_done = true;
-#ifdef USE_DISPLAY_ILI9341
     AddLog(LOG_LEVEL_INFO, PSTR("DSP: ILI9341"));
-#else
-    AddLog(LOG_LEVEL_INFO, PSTR("DSP: ILI9342"));
-#endif
   }
 }
+
 
 void core2_disp_pwr(uint8_t on);
 void core2_disp_dim(uint8_t dim);
@@ -239,7 +228,7 @@ bool Ili9341Header(void) {
 void Ili9341InitMode(void) {
 //  renderer->setRotation(Settings.display_rotate);  // 0
 #ifdef USE_DISPLAY_ILI9341
-  renderer->invertDisplay(0);
+//  renderer->invertDisplay(0);
 #endif
   renderer->fillScreen(ILI9341_BLACK);
   renderer->setTextWrap(false);         // Allow text to run off edges
