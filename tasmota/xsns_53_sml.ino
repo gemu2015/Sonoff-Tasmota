@@ -1480,6 +1480,7 @@ void SML_Decode(uint8_t index) {
         double fac = CharToDouble((char*)mp);
         meter_vars[vindex] /= fac;
         SML_Immediate_MQTT((const char*)mp, vindex, mindex);
+        dvalid[vindex] = 1;
         // get sfac
       } else if (*mp=='d') {
         // calc deltas d ind 10 (eg every 10 secs)
@@ -1497,7 +1498,16 @@ void SML_Decode(uint8_t index) {
             dtimes[dindex] = millis();
             double vdiff = meter_vars[ind - 1] - dvalues[dindex];
             dvalues[dindex] = meter_vars[ind - 1];
-            meter_vars[vindex] = (double)360000.0 * vdiff / ((double)dtime / 10000.0);
+            double dres = (double)360000.0 * vdiff / ((double)dtime / 10000.0);
+#ifdef USE_SML_MEDIAN_FILTER
+            if (meter_desc_p[mindex].flag & 16) {
+              meter_vars[vindex] = sml_median(&sml_mf[vindex], dres);
+            } else {
+              meter_vars[vindex] = dres;
+            }
+#else
+            meter_vars[vindex] = dres;
+#endif
 
             mp=strchr(mp,'@');
             if (mp) {
@@ -1507,6 +1517,7 @@ void SML_Decode(uint8_t index) {
               SML_Immediate_MQTT((const char*)mp, vindex, mindex);
             }
           }
+          dvalid[vindex] = 1;
           dindex++;
         }
       } else if (*mp == 'h') {
@@ -1739,6 +1750,7 @@ void SML_Decode(uint8_t index) {
       }
       if (found) {
         // matches, get value
+        dvalid[vindex] = 1;
         mp++;
 #ifdef ED300L
         g_mindex=mindex;
@@ -1846,7 +1858,6 @@ void SML_Decode(uint8_t index) {
           SML_Immediate_MQTT((const char*)mp, vindex, mindex);
         }
       }
-      dvalid[vindex] = 1;
       //AddLog(LOG_LEVEL_INFO, PSTR("set valid in line %d"), vindex);
     }
 nextsect:
