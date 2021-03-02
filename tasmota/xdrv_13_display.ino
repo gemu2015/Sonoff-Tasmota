@@ -83,7 +83,7 @@ const uint8_t DISPLAY_LOG_ROWS = 32;           // Number of lines in display log
 #define D_CMND_DISP_BUTTONS "Buttons"
 #define D_CMND_DISP_SCROLLTEXT "ScrollText"
 #define D_CMND_DISP_ILIMODE "ILIMode"
-
+#define D_CMND_DISP_ILIINVERT "Invert"
 
 
 enum XdspFunctions { FUNC_DISPLAY_INIT_DRIVER, FUNC_DISPLAY_INIT, FUNC_DISPLAY_EVERY_50_MSECOND, FUNC_DISPLAY_EVERY_SECOND,
@@ -115,7 +115,7 @@ const char kDisplayCommands[] PROGMEM = D_PRFX_DISPLAY "|"  // Prefix
    "|" D_CMND_DISP_CLEAR "|" D_CMND_DISP_NUMBER "|" D_CMND_DISP_FLOAT "|" D_CMND_DISP_NUMBERNC "|" D_CMND_DISP_FLOATNC "|"
   D_CMND_DISP_BRIGHTNESS "|" D_CMND_DISP_RAW "|" D_CMND_DISP_LEVEL "|" D_CMND_DISP_SEVENSEG_TEXT "|" D_CMND_DISP_SEVENSEG_TEXTNC "|"
   D_CMND_DISP_SCROLLDELAY "|" D_CMND_DISP_CLOCK "|" D_CMND_DISP_TEXTNC "|" D_CMND_DISP_SETLEDS "|" D_CMND_DISP_SETLED "|"
-  D_CMND_DISP_BUTTONS "|" D_CMND_DISP_SCROLLTEXT "|" D_CMND_DISP_ILIMODE
+  D_CMND_DISP_BUTTONS "|" D_CMND_DISP_SCROLLTEXT "|" D_CMND_DISP_ILIMODE "|" D_CMND_DISP_ILIINVERT
   ;
 
 void (* const DisplayCommand[])(void) PROGMEM = {
@@ -128,7 +128,7 @@ void (* const DisplayCommand[])(void) PROGMEM = {
   , &CmndDisplayClear, &CmndDisplayNumber, &CmndDisplayFloat, &CmndDisplayNumberNC, &CmndDisplayFloatNC,
   &CmndDisplayBrightness, &CmndDisplayRaw, &CmndDisplayLevel, &CmndDisplaySevensegText, &CmndDisplaySevensegTextNC,
   &CmndDisplayScrollDelay, &CmndDisplayClock, &CmndDisplayTextNC, &CmndDisplaySetLEDs, &CmndDisplaySetLED,
-  &CmndDisplayButtons, &CmndDisplayScrollText,  &CmndDisplayILIMOde
+  &CmndDisplayButtons, &CmndDisplayScrollText,  &CmndDisplayILIMOde ,  &CmndDisplayILIInvert
 };
 
 char *dsp_str;
@@ -1936,6 +1936,15 @@ void CmndDisplayILIMOde(void)
     TasmotaGlobal.restart_flag = 2;
   }
   ResponseCmndNumber(Settings.display_options.ilimode);
+}
+
+void CmndDisplayILIInvert(void)
+{
+  if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload <= 1)) {
+    Settings.display_options.Invert = XdrvMailbox.payload;
+    if (renderer) renderer->invertDisplay(Settings.display_options.Invert);
+  }
+  ResponseCmndNumber(Settings.display_options.Invert);
 }
 
 void CmndDisplayRotate(void)

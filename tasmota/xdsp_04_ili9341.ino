@@ -46,13 +46,9 @@ bool tft_init_done = false;
 void ILI9341_InitDriver()
 {
 
-#ifdef USE_M5STACK_CORE2
-  if (TasmotaGlobal.spi_enabled) {
-#else
   // There are displays without CS
   if (PinUsed(GPIO_ILI9341_CS) || PinUsed(GPIO_ILI9341_DC) &&
       (TasmotaGlobal.spi_enabled || TasmotaGlobal.soft_spi_enabled)) {
-#endif
 
     Settings.display_model = XDSP_04;
 
@@ -74,11 +70,6 @@ void ILI9341_InitDriver()
     fg_color = ILI9341_WHITE;
     bg_color = ILI9341_BLACK;
 
-#ifdef USE_M5STACK_CORE2
-    // special modes on m5stack core2
-    ili9341_2 = new ILI9341_2(Pin(GPIO_ILI9341_CS), Pin(GPIO_SPI_MOSI), Pin(GPIO_SPI_MISO), Pin(GPIO_SPI_CLK), -2, Pin(GPIO_ILI9341_DC), -2, 1, 2);
-    Settings.display_options.ilimode = 2;
-#else
     // check for special case with 2 SPI busses (ESP32 bitcoin)
     if (TasmotaGlobal.soft_spi_enabled) {
       // Init renderer, may use hardware spi, however we use SSPI defintion because SD card uses SPI definition  (2 spi busses)
@@ -90,7 +81,6 @@ void ILI9341_InitDriver()
         ili9341_2 = new ILI9341_2(Pin(GPIO_ILI9341_CS), Pin(GPIO_SPI_MOSI), Pin(GPIO_SPI_MISO), Pin(GPIO_SPI_CLK), Pin(GPIO_OLED_RESET), Pin(GPIO_ILI9341_DC), Pin(GPIO_BACKLIGHT), 1, Settings.display_options.ilimode);
       }
     }
-#endif // USE_M5STACK_CORE2
 
     if (ili9341_2 == nullptr) {
       AddLog(LOG_LEVEL_INFO, PSTR("DSP: ILI934x invalid GPIOs"));
