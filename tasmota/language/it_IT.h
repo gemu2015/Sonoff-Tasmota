@@ -1,7 +1,7 @@
 /*
   it-IT.h - localization for Italian - Italy for Tasmota
 
-  Copyright (C) 2021  Gennaro Tortone - some mods by Antonio Fragola - Updated by bovirus - rev. 12.02.2021
+  Copyright (C) 2021  Gennaro Tortone - some mods by Antonio Fragola - Updated by bovirus - rev. 27.02.2021
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -666,7 +666,7 @@
 #define D_SENSOR_MAX31855_CS   "MX31855 - CS"
 #define D_SENSOR_MAX31855_CLK  "MX31855 - CLK"
 #define D_SENSOR_MAX31855_DO   "MX31855 - DO"
-#define D_SENSOR_MAX31865_CS   "MX31865 CS"
+#define D_SENSOR_MAX31865_CS   "MX31865 - CS"
 #define D_SENSOR_NRG_SEL       "HLWBL - SEL"  // Suffix "i"
 #define D_SENSOR_NRG_CF1       "HLWBL - CF1"
 #define D_SENSOR_HLW_CF        "HLW8012 - CF"
@@ -674,6 +674,8 @@
 #define D_SENSOR_MCP39F5_TX    "MCP39F5 - TX"
 #define D_SENSOR_MCP39F5_RX    "MCP39F5 - RX"
 #define D_SENSOR_MCP39F5_RST   "MCP39F5 - Reset"
+#define D_SENSOR_CSE7761_TX    "CSE7761 - Tx"
+#define D_SENSOR_CSE7761_RX    "CSE7761 - Rx"
 #define D_SENSOR_CSE7766_TX    "CSE7766 - TX"
 #define D_SENSOR_CSE7766_RX    "CSE7766 - RX"
 #define D_SENSOR_PN532_TX      "PN532 - TX"
@@ -777,6 +779,7 @@
 #define D_SENSOR_RC522_CS      "RC522 - CS"
 #define D_SENSOR_NRF24_CS      "NRF24 - CS"
 #define D_SENSOR_NRF24_DC      "NRF24 - DC"
+#define D_SENSOR_XPT2046_CS    "XPT2046 - CS"
 #define D_SENSOR_ILI9341_CS    "ILI9341 - CS"
 #define D_SENSOR_ILI9341_DC    "ILI9341 - DC"
 #define D_SENSOR_ILI9488_CS    "ILI9488 - CS"
@@ -792,8 +795,8 @@
 #define D_SENSOR_SDCARD_CS     "Scheda SD - CS"
 #define D_SENSOR_WIEGAND_D0    "Wiegand - D0"
 #define D_SENSOR_WIEGAND_D1    "Wiegand - D1"
-#define D_SENSOR_NEOPOOL_TX    "NeoPool Tx"
-#define D_SENSOR_NEOPOOL_RX    "NeoPool Rx"
+#define D_SENSOR_NEOPOOL_TX    "NeoPool - TX"
+#define D_SENSOR_NEOPOOL_RX    "NeoPool - RX"
 
 // Units
 #define D_UNIT_AMPERE "A"
@@ -1001,7 +1004,7 @@
 #define D_NEOPOOL_RELAY_FILTRATION        "Filtrazione"
 #define D_NEOPOOL_RELAY_LIGHT             "Luce"
 #define D_NEOPOOL_RELAY_PH_ACID           "Pompa per acido"
-#define D_NEOPOOL_RELAY_PH_BASE           "Popa base"
+#define D_NEOPOOL_RELAY_PH_BASE           "Pompa base"
 #define D_NEOPOOL_RELAY_RX                "Livello Redox"
 #define D_NEOPOOL_RELAY_CL                "Pompa cloro"
 #define D_NEOPOOL_RELAY_CD                "Pompa salamoia"
@@ -1013,7 +1016,7 @@
 #define D_NEOPOOL_COVER                   "Copertura"
 #define D_NEOPOOL_SHOCK                   "Shock"
 #define D_NEOPOOL_ALARM                   "! "
-#define D_NEOPOOL_LOW                     "Low"
+#define D_NEOPOOL_LOW                     "Bassa"
 #define D_NEOPOOL_FLOW1                   "FL1"
 #define D_NEOPOOL_FLOW2                   "FL2"
 #define D_NEOPOOL_PH_HIGH                 "troppo alto"          // ph Alarms
