@@ -219,6 +219,7 @@ extern FS *ufsp;
 
 #endif // USE_UFILESYS
 
+extern "C" void homekit_main(char *);
 
 #ifdef SUPPORT_MQTT_EVENT
   #include <LinkedList.h>                 // Import LinkedList library
@@ -413,6 +414,10 @@ struct SCRIPT_MEM {
 #ifdef USE_BUTTON_EVENT
     int8_t script_button[MAX_KEYS];
 #endif //USE_BUTTON_EVENT
+
+#ifdef USE_HOMEKIT
+    bool homekit_running = false;
+#endif // USE_HOMEKIT
 } glob_script_mem;
 
 
@@ -476,6 +481,19 @@ void ScriptEverySecond(void) {
       }
     }
     Run_Scripter(">S", 2, 0);
+
+#ifdef USE_HOMEKIT
+    if (glob_script_mem.homekit_running == false) {
+      uint8_t homekit_found = Run_Scripter(">h", -2, 0);
+      if (homekit_found == 99) {
+        if (!TasmotaGlobal.global_state.wifi_down) {
+          homekit_main(glob_script_mem.section_ptr);
+          glob_script_mem.homekit_running = true;
+        }
+      }
+    }
+#endif // USE_HOMEKIT
+
   }
 }
 
@@ -2469,6 +2487,16 @@ chknext:
           goto exit;
         }
 #endif //USE_LIGHT
+
+#ifdef USE_HOMEKIT
+        if (!strncmp(vname, "hki", 3)) {
+          if (!TasmotaGlobal.global_state.wifi_down) {
+            homekit_main(0);
+          }
+          fvar = 0;
+          goto exit;
+        }
+#endif
         break;
       case 'i':
         if (!strncmp(vname, "int(", 4)) {
@@ -7769,7 +7797,6 @@ bool Xdrv10(uint8_t function)
   }
   return result;
 }
-
 
 #endif  // Do not USE_RULES
 #endif  // USE_SCRIPT
