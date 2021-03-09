@@ -152,7 +152,6 @@ enum UserSelectablePins {
   GPIO_TM1637CLK, GPIO_TM1637DIO,      // TM1637 interface
   GPIO_PROJECTOR_CTRL_TX, GPIO_PROJECTOR_CTRL_RX,  // LCD/DLP Projector Serial Control
   GPIO_SSD1351_DC,
-  GPIO_CC1101_CS,
   GPIO_XPT2046_CS,                     // XPT2046 SPI Chip Select
   GPIO_CSE7761_TX, GPIO_CSE7761_RX,    // CSE7761 Serial interface (Dual R3)
   GPIO_SENSOR_END };
@@ -329,9 +328,6 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_SSD1351_DC "|"
   D_SENSOR_XPT2046_CS "|"
   D_SENSOR_CSE7761_TX "|" D_SENSOR_CSE7761_RX "|"
-#ifdef USE_MORITZ
-  D_SENSOR_CC1101_CS "|"
-#endif
   ;
 
 const char kSensorNamesFixed[] PROGMEM =
@@ -421,11 +417,11 @@ const uint16_t kGpioNiceList[] PROGMEM = {
 #ifdef USE_DISPLAY_ILI9341
   AGPIO(GPIO_ILI9341_CS),
   AGPIO(GPIO_ILI9341_DC),
-#endif  // USE_DISPLAY_ILI9341
 #ifdef USE_XPT2046
   AGPIO(GPIO_XPT2046_CS),     // XPT2046 SPI Chip Select
 #endif
 
+#endif  // USE_DISPLAY_ILI9341
 #ifdef USE_DISPLAY_ILI9488
   AGPIO(GPIO_ILI9488_CS),
 #endif  // USE_DISPLAY_ILI9488
@@ -784,9 +780,6 @@ const uint16_t kGpioNiceList[] PROGMEM = {
 #ifdef USE_PROJECTOR_CTRL
   AGPIO(GPIO_PROJECTOR_CTRL_TX),      // LCD/DLP Projector Serial Control
   AGPIO(GPIO_PROJECTOR_CTRL_RX),      // LCD/DLP Projector Serial Control
-#endif
-#ifdef USE_MORITZ
-  AGPIO(GPIO_CC1101_CS),
 #endif
 /*-------------------------------------------------------------------------------------------*\
  * ESP32 specifics
