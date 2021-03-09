@@ -114,6 +114,12 @@ static int outlet_identify(hap_acc_t *ha)
     return HAP_SUCCESS;
 }
 
+static int bridge_identify(hap_acc_t *ha)
+{
+    ESP_LOGI(TAG, "Bridge identified");
+    return HAP_SUCCESS;
+}
+
 /* A dummy callback for handling a write on the "On" characteristic of Outlet.
  * In an actual accessory, this should control the hardware
  */
@@ -171,6 +177,30 @@ static void smart_outlet_thread_entry(void *p)
     /* Initialize the HAP core */
     hap_init(HAP_TRANSPORT_WIFI);
 
+    hap_acc_t *accessory;
+
+    hap_acc_cfg_t cfg = {
+        .name = "Tasmota-Bridge",
+        .manufacturer = "Tasmota",
+        .model = "Bridge",
+        .serial_num = "001122334455",
+        .fw_rev = "0.9.0",
+        .hw_rev = NULL,
+        .pv = "1.1.0",
+        .identify_routine = bridge_identify,
+        .cid = HAP_CID_BRIDGE,
+    };
+    /* Create accessory object */
+    accessory = hap_acc_create(&cfg);
+
+    /* Add a dummy Product Data */
+    uint8_t product_data[] = {'E','S','P','3','2','H','A','P'};
+    hap_acc_add_product_data(accessory, product_data, sizeof(product_data));
+
+    /* Add the Accessory to the HomeKit Database */
+    hap_add_accessory(accessory);
+
+
     /* Initialise the mandatory parameters for Accessory which will be added as
      * the mandatory services internally
      */
@@ -199,10 +229,6 @@ static void smart_outlet_thread_entry(void *p)
         hap_devs[index].hap_cid = HAP_CID_OUTLET;
       }
 
-    //  printf("name %s\n",hap_devs[index].hap_name);
-    //  printf("cid %d\n",hap_devs[index].hap_cid);
-    //  printf("code %s\n",hk_code);
-
       hap_devs[index].hap_cfg.name = hap_devs[index].hap_name;
       hap_devs[index].hap_cfg.manufacturer = "Tasmota";
       hap_devs[index].hap_cfg.model = "Tasmota Device";
@@ -221,10 +247,10 @@ static void smart_outlet_thread_entry(void *p)
       /* Create the Outlet Service. Include the "name" since this is a user visible service  */
       hap_devs[index].service = hap_serv_outlet_create(false, false);
       /* Add the optional characteristic to the Light Bulb Service */
-      int ret = hap_serv_add_char(hap_devs[index].service, hap_char_name_create("My Light"));
-      ret |= hap_serv_add_char(hap_devs[index].service, hap_char_brightness_create(50));
-      ret |= hap_serv_add_char(hap_devs[index].service, hap_char_hue_create(180));
-      ret |= hap_serv_add_char(hap_devs[index].service, hap_char_saturation_create(100));
+    //  int ret = hap_serv_add_char(hap_devs[index].service, hap_char_name_create("My Light"));
+    //  ret |= hap_serv_add_char(hap_devs[index].service, hap_char_brightness_create(50));
+    //  ret |= hap_serv_add_char(hap_devs[index].service, hap_char_hue_create(180));
+    //  ret |= hap_serv_add_char(hap_devs[index].service, hap_char_saturation_create(100));
 
       /* Get pointer to the outlet in use characteristic which we need to monitor for state changes */
       hap_char_t *outlet_in_use = hap_serv_get_char_by_uuid(hap_devs[index].service, HAP_CHAR_UUID_OUTLET_IN_USE);
@@ -236,7 +262,7 @@ static void smart_outlet_thread_entry(void *p)
       hap_acc_add_serv(hap_devs[index].accessory, hap_devs[index].service);
 
       /* Add the Accessory to the HomeKit Database */
-      hap_add_accessory(hap_devs[index].accessory);
+      hap_add_bridged_accessory(hap_devs[index].accessory, hap_get_unique_aid(hap_devs[index].hap_name));
 
       index++;
 
