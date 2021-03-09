@@ -35,7 +35,12 @@ int hap_keystore_init()
         return HAP_SUCCESS;
     }
 
+
+
     hap_platform_nvs_partition = hap_platform_keystore_get_nvs_partition_name();
+
+  //  hap_platfrom_keystore_erase_partition(hap_platform_nvs_partition);
+
     int err = hap_platform_keystore_init_partition(hap_platform_nvs_partition, false);
     if (err != 0) {
 		ESP_MFI_DEBUG(ESP_MFI_DEBUG_ERR, "Error (%d) NVS init failed", err);

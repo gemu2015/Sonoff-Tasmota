@@ -45,7 +45,8 @@ static const char *TAG = "HAP outlet";
 #define SMART_OUTLET_TASK_STACKSIZE 4 * 1024
 #define SMART_OUTLET_TASK_NAME      "hap_outlet"
 
-#define OUTLET_IN_USE_GPIO GPIO_NUM_0
+//#define OUTLET_IN_USE_GPIO GPIO_NUM_0
+#define OUTLET_IN_USE_GPIO -1
 
 #define ESP_INTR_FLAG_DEFAULT 0
 
@@ -241,4 +242,3 @@ void homekit_main()
     xTaskCreate(smart_outlet_thread_entry, SMART_OUTLET_TASK_NAME, SMART_OUTLET_TASK_STACKSIZE,
                 NULL, SMART_OUTLET_TASK_PRIORITY, NULL);
 }
-
