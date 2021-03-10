@@ -25,6 +25,7 @@
 */
 
 #ifdef ESP32
+
 #include <Arduino.h>
 #include <stdio.h>
 #include <string.h>
@@ -34,10 +35,12 @@
 #include <esp_log.h>
 #include <driver/gpio.h>
 
+
 #include <hap.h>
 
 #include <hap_apple_servs.h>
 #include <hap_apple_chars.h>
+#include <hap_platform_keystore.h>
 
 //#include <app_wifi.h>
 //#include <app_hap_setup_payload.h>
@@ -104,15 +107,6 @@ void smart_outlet_hardware_init(gpio_num_t gpio_num)
     }
 }
 
-/* Mandatory identify routine for the accessory.
- * In a real accessory, something like LED blink should be implemented
- * got visual identification
- */
-static int outlet_identify(hap_acc_t *ha)
-{
-    ESP_LOGI(TAG, "Accessory identified");
-    return HAP_SUCCESS;
-}
 
 static int bridge_identify(hap_acc_t *ha)
 {
@@ -120,12 +114,21 @@ static int bridge_identify(hap_acc_t *ha)
     return HAP_SUCCESS;
 }
 
+static int accessory_identify(hap_acc_t *ha)
+{
+    hap_serv_t *hs = hap_acc_get_serv_by_uuid(ha, HAP_SERV_UUID_ACCESSORY_INFORMATION);
+    hap_char_t *hc = hap_serv_get_char_by_uuid(hs, HAP_CHAR_UUID_NAME);
+    const hap_val_t *val = hap_char_get_val(hc);
+    char *name = val->s;
+
+    ESP_LOGI(TAG, "Bridged Accessory %s identified", name);
+    return HAP_SUCCESS;
+}
+
 /* A dummy callback for handling a write on the "On" characteristic of Outlet.
  * In an actual accessory, this should control the hardware
  */
-static int outlet_write(hap_write_data_t write_data[], int count,
-        void *serv_priv, void *write_priv)
-{
+static int outlet_write(hap_write_data_t write_data[], int count, void *serv_priv, void *write_priv) {
     int i, ret = HAP_SUCCESS;
     hap_write_data_t *write;
     for (i = 0; i < count; i++) {
@@ -143,11 +146,35 @@ static int outlet_write(hap_write_data_t write_data[], int count,
     return ret;
 }
 
+static int outlet_read(hap_char_t *hc, hap_status_t *status_code, void *serv_priv, void *read_priv)
+{
+    if (hap_req_get_ctrl_id(read_priv)) {
+        ESP_LOGI(TAG, "Received read from %s", hap_req_get_ctrl_id(read_priv));
+        printf(" read %s\n", hap_req_get_ctrl_id(read_priv));
+    }
+
+    if (!strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_ON)) {
+
+/*
+      hap_char_t *hc = hap_serv_get_char_by_uuid(hs, HAP_CHAR_UUID_FIRMWARE_REVISION);
+      const hap_val_t *val = hap_char_get_val(hc);
+      uint32_t rev = val->f;
+      printf(">>>> rev %d\n", rev);
+*/
+
+        hap_val_t new_val;
+        new_val.i = 1;
+        hap_char_update_val(hc, &new_val);
+        *status_code = HAP_STATUS_SUCCESS;
+    }
+    return HAP_SUCCESS;
+}
+
 
 #define MAX_HAP_DEFS 16
 struct HAP_DESC {
-  hap_acc_cfg_t hap_cfg;
   char hap_name[16];
+  char var_name[16];
   uint8_t hap_cid;
   hap_acc_t *accessory;
   hap_serv_t *service;
@@ -166,14 +193,34 @@ uint32_t cnt;
 }
 
 
-extern void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dstsize);
+extern void Ext_Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dstsize);
+
+
+uint32_t str2c(char **sp, char *vp, uint32_t len) {
+    char *lp = *sp;
+    if (len) len--;
+    char *cp = strchr(lp, ',');
+    if (cp) {
+        while (1) {
+            if (*lp == ',') {
+                *vp = 0;
+                *sp = lp + 1;
+                return 0;
+            }
+            if (len) {
+                *vp++ = *lp++;
+                len--;
+            } else {
+                lp++;
+            }
+        }
+    }
+    return 1;
+}
 
 
 /*The main thread for handling the Smart Outlet Accessory */
-static void smart_outlet_thread_entry(void *p)
-{
-
-
+static void smart_outlet_thread_entry(void *p) {
     /* Initialize the HAP core */
     hap_init(HAP_TRANSPORT_WIFI);
 
@@ -200,7 +247,6 @@ static void smart_outlet_thread_entry(void *p)
     /* Add the Accessory to the HomeKit Database */
     hap_add_accessory(accessory);
 
-
     /* Initialise the mandatory parameters for Accessory which will be added as
      * the mandatory services internally
      */
@@ -214,49 +260,64 @@ static void smart_outlet_thread_entry(void *p)
       if (*lp == '\n') lp++;
 
       char dstbuf[HK_SRCBSIZE*2];
-      //Replace_Cmd_Vars(lp, 1, dstbuf, sizeof(dstbuf));
-      strncpy(dstbuf, lp, sizeof(dstbuf));
+      Ext_Replace_Cmd_Vars(lp, 1, dstbuf, sizeof(dstbuf));
       lp += HK_getlinelen(lp);
 
       char *lp1 = dstbuf;
-      char *cp = strchr(lp1, ',');
-      if (cp) {
-        *cp = 0;
-        strncpy(hap_devs[index].hap_name, lp1, sizeof(hap_devs[index].hap_name));
-        hap_devs[index].hap_cid = strtol(cp + 1, &lp1, 10);
-      } else {
-        strcpy(hap_devs[index].hap_name, "TestDevice");
-        hap_devs[index].hap_cid = HAP_CID_OUTLET;
+      if (str2c(&lp1, hap_devs[index].hap_name, sizeof(hap_devs[index].hap_name))) {
+        goto nextline;
+      }
+      hap_devs[index].hap_cid = strtol(lp1, &lp1, 10);
+      if (str2c(&lp1, hap_devs[index].var_name, sizeof(hap_devs[index].var_name))) {
+        goto nextline;
       }
 
-      hap_devs[index].hap_cfg.name = hap_devs[index].hap_name;
-      hap_devs[index].hap_cfg.manufacturer = "Tasmota";
-      hap_devs[index].hap_cfg.model = "Tasmota Device";
-      hap_devs[index].hap_cfg.serial_num = "001122334455";
-      hap_devs[index].hap_cfg.fw_rev = "0.9.0";
-      hap_devs[index].hap_cfg.hw_rev = NULL;
-      hap_devs[index].hap_cfg.pv = "1.1.0";
-      hap_devs[index].hap_cfg.identify_routine = outlet_identify;
-      hap_devs[index].hap_cfg.cid =  hap_devs[index].hap_cid;
+      hap_acc_cfg_t hap_cfg;
+      hap_cfg.name = hap_devs[index].hap_name;
+      hap_cfg.manufacturer = "Tasmota";
+      hap_cfg.model = "Tasmota Device";
+      hap_cfg.serial_num = "001122334455";
+      hap_cfg.fw_rev = "0.9.0";
+      hap_cfg.hw_rev = NULL;
+      hap_cfg.pv = "1.1.0";
+      hap_cfg.identify_routine = accessory_identify;
+      hap_cfg.cid =  hap_devs[index].hap_cid;
+
       /* Create accessory object */
-      hap_devs[index].accessory = hap_acc_create(&hap_devs[index].hap_cfg);
+      hap_devs[index].accessory = hap_acc_create(&hap_cfg);
       /* Add a dummy Product Data */
       uint8_t product_data[] = {'E','S','P','3','2','H','A','P'};
       hap_acc_add_product_data(hap_devs[index].accessory, product_data, sizeof(product_data));
 
-      /* Create the Outlet Service. Include the "name" since this is a user visible service  */
-      hap_devs[index].service = hap_serv_outlet_create(false, false);
-      /* Add the optional characteristic to the Light Bulb Service */
-    //  int ret = hap_serv_add_char(hap_devs[index].service, hap_char_name_create("My Light"));
-    //  ret |= hap_serv_add_char(hap_devs[index].service, hap_char_brightness_create(50));
-    //  ret |= hap_serv_add_char(hap_devs[index].service, hap_char_hue_create(180));
-    //  ret |= hap_serv_add_char(hap_devs[index].service, hap_char_saturation_create(100));
+      int ret = hap_serv_add_char(hap_devs[index].service, hap_char_name_create(hap_devs[index].hap_name));
+      switch (hap_cfg.cid) {
+        case HAP_CID_LIGHTING:
+          hap_devs[index].service = hap_serv_lightbulb_create(true);
+          /* Add the optional characteristic to the Light Bulb Service */
+          ret |= hap_serv_add_char(hap_devs[index].service, hap_char_brightness_create(50));
+          ret |= hap_serv_add_char(hap_devs[index].service, hap_char_hue_create(180));
+          ret |= hap_serv_add_char(hap_devs[index].service, hap_char_saturation_create(100));
+          break;
+        case HAP_CID_OUTLET:
+          hap_devs[index].service = hap_serv_outlet_create(true, true);
+          break;
+        case HAP_CID_SENSOR:
+          hap_devs[index].service = hap_serv_temperature_sensor_create(20);
+          break;
+        default:
+          hap_devs[index].service = hap_serv_outlet_create(true, true);
+      }
+
+
 
       /* Get pointer to the outlet in use characteristic which we need to monitor for state changes */
       hap_char_t *outlet_in_use = hap_serv_get_char_by_uuid(hap_devs[index].service, HAP_CHAR_UUID_OUTLET_IN_USE);
 
       /* Set the write callback for the service */
       hap_serv_set_write_cb(hap_devs[index].service, outlet_write);
+
+      /* Set the write callback for the service */
+      hap_serv_set_read_cb(hap_devs[index].service, outlet_read);
 
       /* Add the Outlet Service to the Accessory Object */
       hap_acc_add_serv(hap_devs[index].accessory, hap_devs[index].service);
@@ -266,6 +327,7 @@ static void smart_outlet_thread_entry(void *p)
 
       index++;
 
+nextline:
       if (*lp=='\n') {
         lp++;
       } else {
@@ -348,9 +410,6 @@ static void smart_outlet_thread_entry(void *p)
 
 void homekit_main(char *desc) {
   if (desc) {
-    if (hk_desc) {
-      free(hk_desc);
-    }
     char *cp = desc;
     cp += 2;
     while (*cp == ' ') cp++;
@@ -365,22 +424,12 @@ void homekit_main(char *desc) {
       return;
     }
     cp++;
-
-
-    char *ep = strchr(cp, '#');
-    if (ep) {
-        *ep = 0;
-        uint16_t dlen = strlen(cp);
-        *ep = '#';
-        if (dlen > HK_MAXSIZE) {
-          dlen = HK_MAXSIZE;
-        }
-        hk_desc = malloc(dlen + 1);
-        if (!hk_desc) return;
-        memcpy(hk_desc, cp, dlen);
-        hk_desc[dlen] = 0;
-    }
+    hk_desc = cp;
+  } else {
+    hap_platfrom_keystore_erase_partition("nvs");
+    return;
   }
+
   if (!hk_desc) return;
 
   /* Create the application thread */

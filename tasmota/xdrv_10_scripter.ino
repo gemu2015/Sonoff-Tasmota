@@ -3557,6 +3557,11 @@ char *ForceStringVar(char *lp, char *dstr) {
   return lp;
 }
 
+extern "C" {
+  void Ext_Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dstsize) {
+    Replace_Cmd_Vars(srcbuf, srcsize, dstbuf, dstsize);
+  }
+}
 // replace vars in cmd %var%
 void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dstsize) {
     char *cp;
@@ -3651,6 +3656,7 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
     }
     dstbuf[count] = 0;
 }
+
 
 void toLog(const char *str) {
   if (!str) return;
