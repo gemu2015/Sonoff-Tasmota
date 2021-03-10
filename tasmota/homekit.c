@@ -49,6 +49,20 @@ static const char *TAG = "HAP outlet";
 char *hk_desc;
 char hk_code[12];
 
+extern void Ext_Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dstsize);
+extern uint32_t Ext_GetVar(char *vname, float *fvar);
+
+#define MAX_HAP_DEFS 16
+struct HAP_DESC {
+  char hap_name[16];
+  char var_name[16];
+  uint8_t hap_cid;
+  hap_acc_t *accessory;
+  hap_serv_t *service;
+} hap_devs[MAX_HAP_DEFS];
+
+#define HK_SRCBSIZE 256
+
 
 #define SMART_OUTLET_TASK_PRIORITY  1
 #define SMART_OUTLET_TASK_STACKSIZE 4 * 1024
@@ -128,7 +142,7 @@ static int accessory_identify(hap_acc_t *ha)
 /* A dummy callback for handling a write on the "On" characteristic of Outlet.
  * In an actual accessory, this should control the hardware
  */
-static int outlet_write(hap_write_data_t write_data[], int count, void *serv_priv, void *write_priv) {
+static int sensor_write(hap_write_data_t write_data[], int count, void *serv_priv, void *write_priv, uint32_t index) {
     int i, ret = HAP_SUCCESS;
     hap_write_data_t *write;
     for (i = 0; i < count; i++) {
@@ -146,41 +160,107 @@ static int outlet_write(hap_write_data_t write_data[], int count, void *serv_pri
     return ret;
 }
 
-static int outlet_read(hap_char_t *hc, hap_status_t *status_code, void *serv_priv, void *read_priv)
-{
+
+// common read routine
+static int sensor_read(hap_char_t *hc, hap_status_t *status_code, void *serv_priv, void *read_priv, uint32_t index) {
     if (hap_req_get_ctrl_id(read_priv)) {
         ESP_LOGI(TAG, "Received read from %s", hap_req_get_ctrl_id(read_priv));
         printf(" read %s\n", hap_req_get_ctrl_id(read_priv));
     }
 
-    if (!strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_ON)) {
-
-/*
-      hap_char_t *hc = hap_serv_get_char_by_uuid(hs, HAP_CHAR_UUID_FIRMWARE_REVISION);
-      const hap_val_t *val = hap_char_get_val(hc);
-      uint32_t rev = val->f;
-      printf(">>>> rev %d\n", rev);
-*/
-
+    if (!strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_CURRENT_TEMPERATURE)) {
         hap_val_t new_val;
-        new_val.i = 1;
+        float fvar = 0;
+        Ext_GetVar(hap_devs[index].var_name, &fvar);
+        new_val.f = fvar;
         hap_char_update_val(hc, &new_val);
         *status_code = HAP_STATUS_SUCCESS;
     }
     return HAP_SUCCESS;
 }
 
+#define HAP_READ hap_char_t *hc, hap_status_t *status_code, void *serv_priv, void *read_priv) {  return sensor_read(hc, status_code, serv_priv, read_priv
 
-#define MAX_HAP_DEFS 16
-struct HAP_DESC {
-  char hap_name[16];
-  char var_name[16];
-  uint8_t hap_cid;
-  hap_acc_t *accessory;
-  hap_serv_t *service;
-} hap_devs[MAX_HAP_DEFS];
+static int sensor_read1(HAP_READ, 0);}
+static int sensor_read2(HAP_READ, 1);}
+static int sensor_read3(HAP_READ, 2);}
+static int sensor_read4(HAP_READ, 3);}
+static int sensor_read5(HAP_READ, 4);}
+static int sensor_read6(HAP_READ, 5);}
+static int sensor_read7(HAP_READ, 6);}
+static int sensor_read8(HAP_READ, 7);}
+static int sensor_read9(HAP_READ, 8);}
+static int sensor_read10(HAP_READ, 9);}
+static int sensor_read11(HAP_READ, 10);}
+static int sensor_read12(HAP_READ, 11);}
+static int sensor_read13(HAP_READ, 12);}
+static int sensor_read14(HAP_READ, 13);}
+static int sensor_read15(HAP_READ, 14);}
+static int sensor_read16(HAP_READ, 15);}
 
-#define HK_SRCBSIZE 256
+void hap_set_read(hap_serv_t *service, uint32_t index) {
+  switch (index) {
+    case 0: hap_serv_set_read_cb(service, sensor_read1);break;
+    case 1: hap_serv_set_read_cb(service, sensor_read2);break;
+    case 2: hap_serv_set_read_cb(service, sensor_read3);break;
+    case 3: hap_serv_set_read_cb(service, sensor_read4);break;
+    case 4: hap_serv_set_read_cb(service, sensor_read5);break;
+    case 5: hap_serv_set_read_cb(service, sensor_read6);break;
+    case 6: hap_serv_set_read_cb(service, sensor_read7);break;
+    case 7: hap_serv_set_read_cb(service, sensor_read8);break;
+    case 8: hap_serv_set_read_cb(service, sensor_read9);break;
+    case 9: hap_serv_set_read_cb(service, sensor_read10);break;
+    case 10: hap_serv_set_read_cb(service, sensor_read11);break;
+    case 11: hap_serv_set_read_cb(service, sensor_read12);break;
+    case 12: hap_serv_set_read_cb(service, sensor_read13);break;
+    case 13: hap_serv_set_read_cb(service, sensor_read14);break;
+    case 14: hap_serv_set_read_cb(service, sensor_read15);break;
+    case 15: hap_serv_set_read_cb(service, sensor_read16);break;
+  }
+}
+
+
+#define HAP_WRITE hap_write_data_t write_data[], int count, void *serv_priv, void *write_priv) {  return sensor_write(write_data, count, serv_priv, write_priv
+
+static int sensor_write1(HAP_WRITE, 0);}
+static int sensor_write2(HAP_WRITE, 1);}
+static int sensor_write3(HAP_WRITE, 2);}
+static int sensor_write4(HAP_WRITE, 3);}
+static int sensor_write5(HAP_WRITE, 4);}
+static int sensor_write6(HAP_WRITE, 5);}
+static int sensor_write7(HAP_WRITE, 6);}
+static int sensor_write8(HAP_WRITE, 7);}
+static int sensor_write9(HAP_WRITE, 8);}
+static int sensor_write10(HAP_WRITE, 9);}
+static int sensor_write11(HAP_WRITE, 10);}
+static int sensor_write12(HAP_WRITE, 11);}
+static int sensor_write13(HAP_WRITE, 12);}
+static int sensor_write14(HAP_WRITE, 13);}
+static int sensor_write15(HAP_WRITE, 14);}
+static int sensor_write16(HAP_WRITE, 15);}
+
+
+void hap_set_write(hap_serv_t *service, uint32_t index) {
+  switch (index) {
+    case 0: hap_serv_set_write_cb(service, sensor_write1);break;
+    case 1: hap_serv_set_write_cb(service, sensor_write2);break;
+    case 2: hap_serv_set_write_cb(service, sensor_write3);break;
+    case 3: hap_serv_set_write_cb(service, sensor_write4);break;
+    case 4: hap_serv_set_write_cb(service, sensor_write5);break;
+    case 5: hap_serv_set_write_cb(service, sensor_write6);break;
+    case 6: hap_serv_set_write_cb(service, sensor_write7);break;
+    case 7: hap_serv_set_write_cb(service, sensor_write8);break;
+    case 8: hap_serv_set_write_cb(service, sensor_write9);break;
+    case 9: hap_serv_set_write_cb(service, sensor_write10);break;
+    case 10: hap_serv_set_write_cb(service, sensor_write11);break;
+    case 11: hap_serv_set_write_cb(service, sensor_write12);break;
+    case 12: hap_serv_set_write_cb(service, sensor_write13);break;
+    case 13: hap_serv_set_write_cb(service, sensor_write14);break;
+    case 14: hap_serv_set_write_cb(service, sensor_write15);break;
+    case 15: hap_serv_set_write_cb(service, sensor_write16);break;
+  }
+}
+
 
 uint32_t HK_getlinelen(char *lp) {
 uint32_t cnt;
@@ -191,9 +271,6 @@ uint32_t cnt;
   }
   return cnt;
 }
-
-
-extern void Ext_Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dstsize);
 
 
 uint32_t str2c(char **sp, char *vp, uint32_t len) {
@@ -214,9 +291,15 @@ uint32_t str2c(char **sp, char *vp, uint32_t len) {
                 lp++;
             }
         }
+    } else {
+      if (strlen(*sp)) {
+        strlcpy(vp, *sp, len);
+        return 0;
+      }
     }
     return 1;
 }
+
 
 
 /*The main thread for handling the Smart Outlet Accessory */
@@ -258,6 +341,8 @@ static void smart_outlet_thread_entry(void *p) {
     while (*lp) {
       if (*lp == '#') break;
       if (*lp == '\n') lp++;
+      if (*lp == ' ') lp++;
+      if (*lp == ';') goto nextline;
 
       char dstbuf[HK_SRCBSIZE*2];
       Ext_Replace_Cmd_Vars(lp, 1, dstbuf, sizeof(dstbuf));
@@ -268,6 +353,7 @@ static void smart_outlet_thread_entry(void *p) {
         goto nextline;
       }
       hap_devs[index].hap_cid = strtol(lp1, &lp1, 10);
+      lp1++;
       if (str2c(&lp1, hap_devs[index].var_name, sizeof(hap_devs[index].var_name))) {
         goto nextline;
       }
@@ -302,22 +388,20 @@ static void smart_outlet_thread_entry(void *p) {
           hap_devs[index].service = hap_serv_outlet_create(true, true);
           break;
         case HAP_CID_SENSOR:
-          hap_devs[index].service = hap_serv_temperature_sensor_create(20);
+          { float fvar = 22;
+            Ext_GetVar(hap_devs[index].var_name, &fvar);
+            hap_devs[index].service = hap_serv_temperature_sensor_create(fvar);
+          }
           break;
         default:
           hap_devs[index].service = hap_serv_outlet_create(true, true);
       }
 
-
+      hap_set_read(hap_devs[index].service, index);
+      hap_set_write(hap_devs[index].service, index);
 
       /* Get pointer to the outlet in use characteristic which we need to monitor for state changes */
       hap_char_t *outlet_in_use = hap_serv_get_char_by_uuid(hap_devs[index].service, HAP_CHAR_UUID_OUTLET_IN_USE);
-
-      /* Set the write callback for the service */
-      hap_serv_set_write_cb(hap_devs[index].service, outlet_write);
-
-      /* Set the write callback for the service */
-      hap_serv_set_read_cb(hap_devs[index].service, outlet_read);
 
       /* Add the Outlet Service to the Accessory Object */
       hap_acc_add_serv(hap_devs[index].accessory, hap_devs[index].service);

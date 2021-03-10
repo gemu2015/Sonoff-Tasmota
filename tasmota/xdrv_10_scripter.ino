@@ -3558,6 +3558,28 @@ char *ForceStringVar(char *lp, char *dstr) {
 }
 
 extern "C" {
+  uint32_t Ext_GetVar(char *vname, float *fvar) {
+    return GetVar(vname, fvar);
+  }
+}
+
+uint32_t GetVar(char *vname, float *fvar) {
+  struct T_INDEX ind;
+  uint8_t vtype;
+  isvar(vname, &vtype, &ind, fvar, 0, 0);
+  if (vtype != VAR_NV) {
+    // found variable as result
+    if (vtype == NUM_RES || (vtype & STYPE) == 0) {
+      return 0;
+    } else {
+      //  break;
+    }
+  }
+  return 1;
+}
+
+
+extern "C" {
   void Ext_Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dstsize) {
     Replace_Cmd_Vars(srcbuf, srcsize, dstbuf, dstsize);
   }
