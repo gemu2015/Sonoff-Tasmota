@@ -50,13 +50,14 @@ char *hk_desc;
 char hk_code[12];
 
 extern void Ext_Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dstsize);
-extern uint32_t Ext_GetVar(char *vname, float *fvar);
+extern uint32_t Ext_UpdVar(char *vname, float *fvar, uint32_t mode);
 
 #define MAX_HAP_DEFS 16
 struct HAP_DESC {
   char hap_name[16];
   char var_name[16];
   uint8_t hap_cid;
+  uint8_t type;
   hap_acc_t *accessory;
   hap_serv_t *service;
 } hap_devs[MAX_HAP_DEFS];
@@ -150,11 +151,12 @@ static int sensor_write(hap_write_data_t write_data[], int count, void *serv_pri
         if (!strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_ON)) {
             //ESP_LOGI(TAG, "Received Write. Outlet %s", write->val.b ? "On" : "Off");
         	ESP_LOG_LEVEL(ESP_LOG_INFO, TAG, "Received Write. Outlet %s", write->val.b ? "On" : "Off");
-            /* TODO: Control Actual Hardware */
-            hap_char_update_val(write->hc, &(write->val));
-            *(write->status) = HAP_STATUS_SUCCESS;
+          hap_char_update_val(write->hc, &(write->val));
+          float fvar = write->val.b;
+          Ext_UpdVar(hap_devs[index].var_name, &fvar, 1);
+          *(write->status) = HAP_STATUS_SUCCESS;
         } else {
-            *(write->status) = HAP_STATUS_RES_ABSENT;
+          *(write->status) = HAP_STATUS_RES_ABSENT;
         }
     }
     return ret;
@@ -168,13 +170,24 @@ static int sensor_read(hap_char_t *hc, hap_status_t *status_code, void *serv_pri
         printf(" read %s\n", hap_req_get_ctrl_id(read_priv));
     }
 
-    if (!strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_CURRENT_TEMPERATURE)) {
+    if (!strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_CURRENT_TEMPERATURE)
+    || !strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_CURRENT_RELATIVE_HUMIDITY)
+    || !strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_CURRENT_AMBIENT_LIGHT_LEVEL)
+    ) {
         hap_val_t new_val;
         float fvar = 0;
-        Ext_GetVar(hap_devs[index].var_name, &fvar);
+        Ext_UpdVar(hap_devs[index].var_name, &fvar, 0);
         new_val.f = fvar;
         hap_char_update_val(hc, &new_val);
         *status_code = HAP_STATUS_SUCCESS;
+    }
+    if (!strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_ON)) {
+      hap_val_t new_val;
+      float fvar = 0;
+      Ext_UpdVar(hap_devs[index].var_name, &fvar, 0);
+      new_val.b = fvar;
+      hap_char_update_val(hc, &new_val);
+      *status_code = HAP_STATUS_SUCCESS;
     }
     return HAP_SUCCESS;
 }
@@ -354,6 +367,8 @@ static void smart_outlet_thread_entry(void *p) {
       }
       hap_devs[index].hap_cid = strtol(lp1, &lp1, 10);
       lp1++;
+      hap_devs[index].type = strtol(lp1, &lp1, 10);
+      lp1++;
       if (str2c(&lp1, hap_devs[index].var_name, sizeof(hap_devs[index].var_name))) {
         goto nextline;
       }
@@ -389,8 +404,12 @@ static void smart_outlet_thread_entry(void *p) {
           break;
         case HAP_CID_SENSOR:
           { float fvar = 22;
-            Ext_GetVar(hap_devs[index].var_name, &fvar);
-            hap_devs[index].service = hap_serv_temperature_sensor_create(fvar);
+            Ext_UpdVar(hap_devs[index].var_name, &fvar, 0);
+            switch (hap_devs[index].type) {
+              case 0: hap_devs[index].service = hap_serv_temperature_sensor_create(fvar); break;
+              case 1: hap_devs[index].service = hap_serv_humidity_sensor_create(fvar); break;
+              case 2: hap_devs[index].service = hap_serv_light_sensor_create(fvar); break;
+            }
           }
           break;
         default:

@@ -3560,18 +3560,25 @@ char *ForceStringVar(char *lp, char *dstr) {
 }
 
 extern "C" {
-  uint32_t Ext_GetVar(char *vname, float *fvar) {
-    return GetVar(vname, fvar);
+  uint32_t Ext_UpdVar(char *vname, float *fvar, uint32_t mode) {
+    return UpdVar(vname, fvar, mode);
   }
 }
 
-uint32_t GetVar(char *vname, float *fvar) {
+uint32_t UpdVar(char *vname, float *fvar, uint32_t mode) {
   struct T_INDEX ind;
   uint8_t vtype;
+  float res = *fvar;
   isvar(vname, &vtype, &ind, fvar, 0, 0);
   if (vtype != VAR_NV) {
     // found variable as result
     if (vtype == NUM_RES || (vtype & STYPE) == 0) {
+      if (mode) {
+        // set var
+        uint8_t index = glob_script_mem.type[ind.index].index;
+        glob_script_mem.fvars[index] = res;
+        glob_script_mem.type[index].bits.changed = 1;
+      }
       return 0;
     } else {
       //  break;
