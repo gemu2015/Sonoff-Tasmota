@@ -206,7 +206,7 @@ void alt_eeprom_readBytes(uint32_t adr, uint32_t len, uint8_t *buf) {
 #endif
 
 enum {OPER_EQU=1,OPER_PLS,OPER_MIN,OPER_MUL,OPER_DIV,OPER_PLSEQU,OPER_MINEQU,OPER_MULEQU,OPER_DIVEQU,OPER_EQUEQU,OPER_NOTEQU,OPER_GRTEQU,OPER_LOWEQU,OPER_GRT,OPER_LOW,OPER_PERC,OPER_XOR,OPER_AND,OPER_OR,OPER_ANDEQU,OPER_OREQU,OPER_XOREQU,OPER_PERCEQU};
-enum {SCRIPT_LOGLEVEL=1,SCRIPT_TELEPERIOD,SCRIPT_EVENT_HANDLED,SML_JSON_ENABLE};
+enum {SCRIPT_LOGLEVEL=1,SCRIPT_TELEPERIOD,SCRIPT_EVENT_HANDLED,SML_JSON_ENABLE,SCRIPT_EPOFFS};
 
 
 #ifdef USE_UFILESYS
@@ -420,6 +420,7 @@ struct SCRIPT_MEM {
 #ifdef USE_HOMEKIT
     bool homekit_running = false;
 #endif // USE_HOMEKIT
+    uint32_t epoch_offset = EPOCH_OFFSET;
 } glob_script_mem;
 
 
@@ -1700,7 +1701,7 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, float *fp, char *sp,
             } else {
               if (fp) {
                 if (!strncmp(vn.c_str(), "Epoch", 5)) {
-                  *fp = atoi(str_value) - (uint32_t)EPOCH_OFFSET;
+                  *fp = atoi(str_value) - (uint32_t)glob_script_mem.epoch_offset;
                 } else {
                   *fp = CharToFloat((char*)str_value);
                 }
@@ -1866,8 +1867,13 @@ chknext:
         break;
       case 'e':
         if (!strncmp(vname, "epoch", 5)) {
-          fvar = UtcTime() - (uint32_t)EPOCH_OFFSET;
+          fvar = UtcTime() - (uint32_t)glob_script_mem.epoch_offset;
           goto exit;
+        }
+        if (!strncmp(vname, "epoffs", 6)) {
+          fvar = (uint32_t)glob_script_mem.epoch_offset;
+          tind->index = SCRIPT_EPOFFS;
+          goto exit_settable;
         }
         if (!strncmp(vname, "eres", 4)) {
           fvar = glob_script_mem.event_handeled;
@@ -2493,7 +2499,7 @@ chknext:
 #ifdef USE_HOMEKIT
         if (!strncmp(vname, "hki", 3)) {
           if (!TasmotaGlobal.global_state.wifi_down) {
-            // erase nvs 
+            // erase nvs
             homekit_main(0);
             // restart homekit
             glob_script_mem.homekit_running = false;
@@ -4596,6 +4602,9 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
                           case SCRIPT_EVENT_HANDLED:
                             glob_script_mem.event_handeled = *dfvar;
                             break;
+                          case SCRIPT_EPOFFS:
+                            glob_script_mem.epoch_offset = *dfvar;
+                            break;
 #if defined(USE_SML_M) && defined (USE_SML_SCRIPT_CMD)
                           case SML_JSON_ENABLE:
                             sml_json_enable = *dfvar;
@@ -6061,7 +6070,7 @@ bool ScriptMqttData(void)
         char sbuffer[128];
 
         if (!strncmp(lkey.c_str(), "Epoch", 5)) {
-          uint32_t ep = atoi(value.c_str()) - (uint32_t)EPOCH_OFFSET;
+          uint32_t ep = atoi(value.c_str()) - (uint32_t)glob_script_mem.epoch_offset;
           snprintf_P(sbuffer, sizeof(sbuffer), PSTR(">%s=%d\n"), event_item.Event.c_str(), ep);
         } else {
           snprintf_P(sbuffer, sizeof(sbuffer), PSTR(">%s=\"%s\"\n"), event_item.Event.c_str(), value.c_str());
