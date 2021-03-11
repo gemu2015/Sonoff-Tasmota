@@ -167,7 +167,6 @@ static int sensor_write(hap_write_data_t write_data[], int count, void *serv_pri
 static int sensor_read(hap_char_t *hc, hap_status_t *status_code, void *serv_priv, void *read_priv, uint32_t index) {
     if (hap_req_get_ctrl_id(read_priv)) {
         ESP_LOGI(TAG, "Received read from %s", hap_req_get_ctrl_id(read_priv));
-        printf(" read %s\n", hap_req_get_ctrl_id(read_priv));
     }
 
     if (!strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_CURRENT_TEMPERATURE)
@@ -312,8 +311,6 @@ uint32_t str2c(char **sp, char *vp, uint32_t len) {
     }
     return 1;
 }
-
-
 
 /*The main thread for handling the Smart Outlet Accessory */
 static void smart_outlet_thread_entry(void *p) {

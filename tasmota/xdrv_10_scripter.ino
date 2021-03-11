@@ -2493,7 +2493,10 @@ chknext:
 #ifdef USE_HOMEKIT
         if (!strncmp(vname, "hki", 3)) {
           if (!TasmotaGlobal.global_state.wifi_down) {
+            // erase nvs 
             homekit_main(0);
+            // restart homekit
+            glob_script_mem.homekit_running = false;
           }
           fvar = 0;
           goto exit;
