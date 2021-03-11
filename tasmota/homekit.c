@@ -115,14 +115,11 @@ static void outlet_in_use_key_init(uint32_t key_gpio_pin)
 /**
  * Initialize the Smart Outlet Hardware.Here, we just enebale the Outlet-In-Use detection.
  */
-void smart_outlet_hardware_init(int32_t gpio_num)
-{
-
-
+void smart_outlet_hardware_init(int32_t gpio_num) {
     s_esp_evt_queue = xQueueCreate(2, sizeof(uint32_t));
 
     if (gpio_num < 0) return;
-    
+
     if (s_esp_evt_queue != NULL) {
         outlet_in_use_key_init(gpio_num);
     }
