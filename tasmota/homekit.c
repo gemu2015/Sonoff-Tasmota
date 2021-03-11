@@ -115,11 +115,14 @@ static void outlet_in_use_key_init(uint32_t key_gpio_pin)
 /**
  * Initialize the Smart Outlet Hardware.Here, we just enebale the Outlet-In-Use detection.
  */
-void smart_outlet_hardware_init(gpio_num_t gpio_num)
+void smart_outlet_hardware_init(int32_t gpio_num)
 {
-  if (gpio_num < 0) return;
+
 
     s_esp_evt_queue = xQueueCreate(2, sizeof(uint32_t));
+
+    if (gpio_num < 0) return;
+    
     if (s_esp_evt_queue != NULL) {
         outlet_in_use_key_init(gpio_num);
     }
@@ -151,28 +154,28 @@ static int sensor_write(hap_write_data_t write_data[], int count, void *serv_pri
     hap_write_data_t *write;
     for (i = 0; i < count; i++) {
         write = &write_data[i];
-        if (!strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_ON)) {
+        const char *hcp = hap_char_get_type_uuid(write->hc);
+        if (!strcmp(hcp, HAP_CHAR_UUID_ON)) {
             //ESP_LOGI(TAG, "Received Write. Outlet %s", write->val.b ? "On" : "Off");
         	ESP_LOG_LEVEL(ESP_LOG_INFO, TAG, "Received Write. Outlet %s", write->val.b ? "On" : "Off");
           hap_char_update_val(write->hc, &(write->val));
           float fvar = write->val.b;
           Ext_UpdVar(hap_devs[index].var_name, &fvar, 1);
           *(write->status) = HAP_STATUS_SUCCESS;
-        } else if (!strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_HUE)) {
+        } else if (!strcmp(hcp, HAP_CHAR_UUID_HUE)) {
           hap_char_update_val(write->hc, &(write->val));
           float fvar = write->val.f;
           Ext_UpdVar(hap_devs[index].var2_name, &fvar, 1);
           *(write->status) = HAP_STATUS_SUCCESS;
-        } else if (!strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_SATURATION)) {
+        } else if (!strcmp(hcp, HAP_CHAR_UUID_SATURATION)) {
           hap_char_update_val(write->hc, &(write->val));
           float fvar = write->val.f;
           Ext_UpdVar(hap_devs[index].var3_name, &fvar, 1);
           *(write->status) = HAP_STATUS_SUCCESS;
-        } else if (!strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_BRIGHTNESS)) {
+        } else if (!strcmp(hcp, HAP_CHAR_UUID_BRIGHTNESS)) {
           hap_char_update_val(write->hc, &(write->val));
           float fvar = write->val.u;
           Ext_UpdVar(hap_devs[index].var4_name, &fvar, 1);
-          printf(">>>%d\n", (uint32_t)fvar);
           *(write->status) = HAP_STATUS_SUCCESS;
         } else {
           *(write->status) = HAP_STATUS_RES_ABSENT;
@@ -184,26 +187,46 @@ static int sensor_write(hap_write_data_t write_data[], int count, void *serv_pri
 
 // common read routine
 static int sensor_read(hap_char_t *hc, hap_status_t *status_code, void *serv_priv, void *read_priv, uint32_t index) {
+  hap_val_t new_val;
+  float fvar = 0;
+
     if (hap_req_get_ctrl_id(read_priv)) {
         ESP_LOGI(TAG, "Received read from %s", hap_req_get_ctrl_id(read_priv));
     }
 
-    if (!strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_CURRENT_TEMPERATURE)
-    || !strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_CURRENT_RELATIVE_HUMIDITY)
-    || !strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_CURRENT_AMBIENT_LIGHT_LEVEL)
+    const char *hcp = hap_char_get_type_uuid(hc);
+
+    if (!strcmp(hcp, HAP_CHAR_UUID_CURRENT_TEMPERATURE)
+    || !strcmp(hcp, HAP_CHAR_UUID_CURRENT_RELATIVE_HUMIDITY)
+    || !strcmp(hcp, HAP_CHAR_UUID_CURRENT_AMBIENT_LIGHT_LEVEL)
     ) {
-        hap_val_t new_val;
-        float fvar = 0;
+
         Ext_UpdVar(hap_devs[index].var_name, &fvar, 0);
         new_val.f = fvar;
         hap_char_update_val(hc, &new_val);
         *status_code = HAP_STATUS_SUCCESS;
     }
-    if (!strcmp(hap_char_get_type_uuid(hc), HAP_CHAR_UUID_ON)) {
-      hap_val_t new_val;
-      float fvar = 0;
+    if (!strcmp(hcp, HAP_CHAR_UUID_ON)) {
       Ext_UpdVar(hap_devs[index].var_name, &fvar, 0);
       new_val.b = fvar;
+      hap_char_update_val(hc, &new_val);
+      *status_code = HAP_STATUS_SUCCESS;
+    }
+    if (!strcmp(hcp, HAP_CHAR_UUID_HUE)) {
+      Ext_UpdVar(hap_devs[index].var2_name, &fvar, 0);
+      new_val.f = fvar;
+      hap_char_update_val(hc, &new_val);
+      *status_code = HAP_STATUS_SUCCESS;
+    }
+    if (!strcmp(hcp, HAP_CHAR_UUID_SATURATION)) {
+      Ext_UpdVar(hap_devs[index].var3_name, &fvar, 0);
+      new_val.f = fvar;
+      hap_char_update_val(hc, &new_val);
+      *status_code = HAP_STATUS_SUCCESS;
+    }
+    if (!strcmp(hcp, HAP_CHAR_UUID_BRIGHTNESS)) {
+      Ext_UpdVar(hap_devs[index].var4_name, &fvar, 0);
+      new_val.u = fvar;
       hap_char_update_val(hc, &new_val);
       *status_code = HAP_STATUS_SUCCESS;
     }
