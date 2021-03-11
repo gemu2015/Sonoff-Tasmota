@@ -56,6 +56,9 @@ extern uint32_t Ext_UpdVar(char *vname, float *fvar, uint32_t mode);
 struct HAP_DESC {
   char hap_name[16];
   char var_name[16];
+  char var2_name[16];
+  char var3_name[16];
+  char var4_name[16];
   uint8_t hap_cid;
   uint8_t type;
   hap_acc_t *accessory;
@@ -154,6 +157,22 @@ static int sensor_write(hap_write_data_t write_data[], int count, void *serv_pri
           hap_char_update_val(write->hc, &(write->val));
           float fvar = write->val.b;
           Ext_UpdVar(hap_devs[index].var_name, &fvar, 1);
+          *(write->status) = HAP_STATUS_SUCCESS;
+        } else if (!strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_HUE)) {
+          hap_char_update_val(write->hc, &(write->val));
+          float fvar = write->val.f;
+          Ext_UpdVar(hap_devs[index].var2_name, &fvar, 1);
+          *(write->status) = HAP_STATUS_SUCCESS;
+        } else if (!strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_SATURATION)) {
+          hap_char_update_val(write->hc, &(write->val));
+          float fvar = write->val.f;
+          Ext_UpdVar(hap_devs[index].var3_name, &fvar, 1);
+          *(write->status) = HAP_STATUS_SUCCESS;
+        } else if (!strcmp(hap_char_get_type_uuid(write->hc), HAP_CHAR_UUID_BRIGHTNESS)) {
+          hap_char_update_val(write->hc, &(write->val));
+          float fvar = write->val.u;
+          Ext_UpdVar(hap_devs[index].var4_name, &fvar, 1);
+          printf(">>>%d\n", (uint32_t)fvar);
           *(write->status) = HAP_STATUS_SUCCESS;
         } else {
           *(write->status) = HAP_STATUS_RES_ABSENT;
@@ -369,6 +388,19 @@ static void smart_outlet_thread_entry(void *p) {
       if (str2c(&lp1, hap_devs[index].var_name, sizeof(hap_devs[index].var_name))) {
         goto nextline;
       }
+      if (hap_devs[index].hap_cid == HAP_CID_LIGHTING) {
+        // get 3 add vars
+        if (str2c(&lp1, hap_devs[index].var2_name, sizeof(hap_devs[index].var2_name))) {
+          goto nextline;
+        }
+        if (str2c(&lp1, hap_devs[index].var3_name, sizeof(hap_devs[index].var3_name))) {
+          goto nextline;
+        }
+        if (str2c(&lp1, hap_devs[index].var4_name, sizeof(hap_devs[index].var4_name))) {
+          goto nextline;
+        }
+      }
+
 
       hap_acc_cfg_t hap_cfg;
       hap_cfg.name = hap_devs[index].hap_name;
@@ -390,14 +422,22 @@ static void smart_outlet_thread_entry(void *p) {
       int ret = hap_serv_add_char(hap_devs[index].service, hap_char_name_create(hap_devs[index].hap_name));
       switch (hap_cfg.cid) {
         case HAP_CID_LIGHTING:
-          hap_devs[index].service = hap_serv_lightbulb_create(true);
-          /* Add the optional characteristic to the Light Bulb Service */
-          ret |= hap_serv_add_char(hap_devs[index].service, hap_char_brightness_create(50));
-          ret |= hap_serv_add_char(hap_devs[index].service, hap_char_hue_create(180));
-          ret |= hap_serv_add_char(hap_devs[index].service, hap_char_saturation_create(100));
+          { float fvar = 0;
+            Ext_UpdVar(hap_devs[index].var_name, &fvar, 0);
+            hap_devs[index].service = hap_serv_lightbulb_create(fvar);
+            Ext_UpdVar(hap_devs[index].var2_name, &fvar, 0);
+            ret |= hap_serv_add_char(hap_devs[index].service, hap_char_hue_create(fvar));
+            Ext_UpdVar(hap_devs[index].var3_name, &fvar, 0);
+            ret |= hap_serv_add_char(hap_devs[index].service, hap_char_saturation_create(fvar));
+            Ext_UpdVar(hap_devs[index].var4_name, &fvar, 0);
+            ret |= hap_serv_add_char(hap_devs[index].service, hap_char_brightness_create(fvar));
+          }
           break;
         case HAP_CID_OUTLET:
-          hap_devs[index].service = hap_serv_outlet_create(true, true);
+          { float fvar = 0;
+            Ext_UpdVar(hap_devs[index].var_name, &fvar, 0);
+            hap_devs[index].service = hap_serv_outlet_create(fvar, true);
+          }
           break;
         case HAP_CID_SENSOR:
           { float fvar = 22;
