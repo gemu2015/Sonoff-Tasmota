@@ -158,6 +158,27 @@ int hap_platform_keystore_delete_namespace(const char *part_name, const char *na
 // last resort only
 int hap_platfrom_keystore_erase_partition(const char *part_name) {
 //  LITTLEFS.format();
+char path[48];
+strcpy(path, "/");
+strcat(path, part_name);
+File fp = ffsp->open(path, "r");
+if (fp.isDirectory()) {
+  while (true) {
+    File entry = fp.openNextFile();
+    if (!entry) break;
+    char fp[48];
+    strcpy(fp,path);
+    strcat(fp, "/");
+    strcat(fp, entry.name());
+    if (entry.isDirectory()) {
+      hap_platform_keystore_delete_namespace(part_name, entry.name());
+      ffsp->rmdir(fp);
+    } else {
+      ffsp->remove(fp);
+    }
+    entry.close();
+  }
+}
   return 0;
 }
 

@@ -613,6 +613,7 @@ void homekit_main(char *desc) {
     cp++;
     hk_desc = cp;
   } else {
+    // now erases nvs Folder only
     hap_platfrom_keystore_erase_partition("nvs");
     return;
   }
