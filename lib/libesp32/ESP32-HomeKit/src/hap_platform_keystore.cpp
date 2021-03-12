@@ -47,6 +47,8 @@ const char * hap_platform_keystore_get_factory_nvs_partition_name() {
 
 #ifdef HAP_USE_LITTLEFS
 
+#include <LITTLEFS.h>
+
 extern FS *ffsp;
 
 int hap_platform_keystore_init_partition(const char *part_name, bool read_only) {
@@ -54,25 +56,28 @@ int hap_platform_keystore_init_partition(const char *part_name, bool read_only) 
 }
 
 int hap_platform_keystore_get(const char *part_name, const char *name_space, const char *key, uint8_t *val, size_t *val_size) {
-  char dir[16];
-  strcpy(dir, "/");
-  strcat(dir, part_name);
+  char path[48];
+  strcpy(path, "/");
+  strcat(path, part_name);
 
-  File fp = ffsp->open(dir, "r");
+  File fp = ffsp->open(path, "r");
   if (!fp) {
-    ffsp->mkdir(dir);
+    ffsp->mkdir(path);
     return -1;
   }
   fp.close();
 
-  char path[32];
-  strcpy(path, "/");
-  strcat(path, part_name);
   strcat(path, "/");
   strcat(path, name_space);
-  strcat(path, "_");
+  fp = ffsp->open(path, "r");
+  if (!fp) {
+    ffsp->mkdir(path);
+    return -1;
+  }
+  fp.close();
+
+  strcat(path, "/");
   strcat(path, key);
-  printf("get %s\n", path );
   fp = ffsp->open(path, "r");
   if (fp) {
     fp.read(val, *val_size);
@@ -85,23 +90,26 @@ int hap_platform_keystore_get(const char *part_name, const char *name_space, con
 }
 
 int hap_platform_keystore_set(const char *part_name, const char *name_space, const char *key, const uint8_t *val, const size_t val_len) {
-  char dir[16];
-  strcpy(dir, "/");
-  strcat(dir, part_name);
-  File fp = ffsp->open(dir, "r");
-  if (!fp) {
-    ffsp->mkdir(dir);
-  } else {
-    fp.close();
-  }
-  char path[32];
+  char path[48];
   strcpy(path, "/");
   strcat(path, part_name);
+
+  File fp = ffsp->open(path, "r");
+  if (!fp) {
+    ffsp->mkdir(path);
+  }
+  fp.close();
+
   strcat(path, "/");
   strcat(path, name_space);
-  strcat(path, "_");
+  fp = ffsp->open(path, "r");
+  if (!fp) {
+    ffsp->mkdir(path);
+  }
+  fp.close();
+
+  strcat(path, "/");
   strcat(path, key);
-  printf("set %s\n", path );
   fp = ffsp->open(path, "w");
   if (fp) {
     fp.write(val, val_len);
@@ -113,14 +121,43 @@ int hap_platform_keystore_set(const char *part_name, const char *name_space, con
 }
 
 int hap_platform_keystore_delete(const char *part_name, const char *name_space, const char *key) {
+  char path[48];
+  strcpy(path, "/");
+  strcat(path, part_name);
+  strcat(path, "/");
+  strcat(path, name_space);
+  strcat(path, "/");
+  strcat(path, key);
+  ffsp->remove(path);
   return 0;
 }
 
+// should
 int hap_platform_keystore_delete_namespace(const char *part_name, const char *name_space) {
+  char path[48];
+  strcpy(path, "/");
+  strcat(path, part_name);
+  strcat(path, "/");
+  strcat(path, name_space);
+  File fp = ffsp->open(path, "r");
+  if (fp.isDirectory()) {
+    while (true) {
+      File entry = fp.openNextFile();
+      if (!entry) break;
+      char fp[48];
+      strcpy(fp,path);
+      strcat(fp, "/");
+      strcat(fp, entry.name());
+      ffsp->remove(fp);
+      entry.close();
+    }
+  }
   return 0;
 }
 
+// last resort only
 int hap_platfrom_keystore_erase_partition(const char *part_name) {
+  LITTLEFS.format();
   return 0;
 }
 
