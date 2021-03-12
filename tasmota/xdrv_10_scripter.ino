@@ -56,7 +56,9 @@ keywords if then else endif, or, and are better readable for beginners (others m
 #define MAXFILT 5
 #endif
 #define SCRIPT_SVARSIZE 20
+#ifndef SCRIPT_MAXSSIZE
 #define SCRIPT_MAXSSIZE 48
+#endif
 #define SCRIPT_EOL '\n'
 #define SCRIPT_FLOAT_PRECISION 2
 #define PMEM_SIZE sizeof(Settings.script_pram)
