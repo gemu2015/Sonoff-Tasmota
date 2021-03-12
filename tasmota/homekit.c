@@ -227,6 +227,24 @@ static int sensor_read(hap_char_t *hc, hap_status_t *status_code, void *serv_pri
       hap_char_update_val(hc, &new_val);
       *status_code = HAP_STATUS_SUCCESS;
     }
+    if (!strcmp(hcp, HAP_CHAR_UUID_BATTERY_LEVEL)) {
+      Ext_UpdVar(hap_devs[index].var_name, &fvar, 0);
+      new_val.u = fvar;
+      hap_char_update_val(hc, &new_val);
+      *status_code = HAP_STATUS_SUCCESS;
+    }
+    if (!strcmp(hcp, HAP_CHAR_UUID_STATUS_LOW_BATTERY)) {
+      Ext_UpdVar(hap_devs[index].var2_name, &fvar, 0);
+      new_val.u = fvar;
+      hap_char_update_val(hc, &new_val);
+      *status_code = HAP_STATUS_SUCCESS;
+    }
+    if (!strcmp(hcp, HAP_CHAR_UUID_CHARGING_STATE)) {
+      Ext_UpdVar(hap_devs[index].var3_name, &fvar, 0);
+      new_val.u = fvar;
+      hap_char_update_val(hc, &new_val);
+      *status_code = HAP_STATUS_SUCCESS;
+    }
     return HAP_SUCCESS;
 }
 
@@ -466,9 +484,18 @@ static void smart_outlet_thread_entry(void *p) {
               case 0: hap_devs[index].service = hap_serv_temperature_sensor_create(fvar); break;
               case 1: hap_devs[index].service = hap_serv_humidity_sensor_create(fvar); break;
               case 2: hap_devs[index].service = hap_serv_light_sensor_create(fvar); break;
+              case 3:
+                { float fvar1 = 0, fvar2 = 0;
+                  Ext_UpdVar(hap_devs[index].var2_name, &fvar1, 0);
+                  Ext_UpdVar(hap_devs[index].var3_name, &fvar2, 0);
+                  hap_devs[index].service = hap_serv_battery_service_create(fvar, fvar1, fvar2);
+                }
+                break;
             }
           }
           break;
+
+
         default:
           hap_devs[index].service = hap_serv_outlet_create(true, true);
       }
