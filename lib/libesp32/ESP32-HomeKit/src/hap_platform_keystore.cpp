@@ -157,7 +157,7 @@ int hap_platform_keystore_delete_namespace(const char *part_name, const char *na
 
 // last resort only
 int hap_platfrom_keystore_erase_partition(const char *part_name) {
-  LITTLEFS.format();
+//  LITTLEFS.format();
   return 0;
 }
 
