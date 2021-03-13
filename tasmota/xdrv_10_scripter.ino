@@ -246,7 +246,7 @@ extern VButton *buttons[MAX_TOUCH_BUTTONS];
 #endif
 
 typedef union {
-#ifdef USE_SCRIPT_GLOBVARS
+#if defined(USE_SCRIPT_GLOBVARS) || defined(USE_HOMEKIT)
   uint16_t data;
 #else
   uint8_t data;
@@ -262,6 +262,9 @@ typedef union {
     uint8_t constant : 1;
 #ifdef USE_SCRIPT_GLOBVARS
     uint8_t global : 1;
+#endif
+#ifdef USE_SCRIPT_GLOBVARS
+    uint8_t hchanged : 1;
 #endif
   };
 } SCRIPT_TYPE;
@@ -505,6 +508,15 @@ void ScriptEverySecond(void) {
 void RulesTeleperiod(void) {
   if (bitRead(Settings.rule_enabled, 0) && TasmotaGlobal.mqtt_data[0]) Run_Scripter(">T", 2, TasmotaGlobal.mqtt_data);
 }
+
+void SetChanged(uint32_t index) {
+  glob_script_mem.type[index].bits.changed = 1;
+#ifdef USE_HOMEKIT
+  glob_script_mem.type[index].bits.hchanged = 1;
+#endif
+//AddLog(LOG_LEVEL_INFO, PSTR("Change: %d"), index);
+}
+
 
 #define SCRIPT_SKIP_SPACES while (*lp==' ' || *lp=='\t') lp++;
 #define SCRIPT_SKIP_EOL while (*lp==SCRIPT_EOL) lp++;
@@ -1017,7 +1029,7 @@ void Script_PollUdp(void) {
           if (res) {
             // mark changed
             glob_script_mem.last_udp_ip = glob_script_mem.Script_PortUdp.remoteIP();
-            glob_script_mem.type[index].bits.changed = 1;
+            SetChanged(index);
             if (glob_script_mem.glob_script == 99) {
               Run_Scripter(">G", 2, 0);
             }
@@ -3570,32 +3582,40 @@ char *ForceStringVar(char *lp, char *dstr) {
   return lp;
 }
 
+#ifdef USE_HOMEKIT
 extern "C" {
   uint32_t Ext_UpdVar(char *vname, float *fvar, uint32_t mode) {
     return UpdVar(vname, fvar, mode);
   }
 }
 
-uint32_t UpdVar(char *vname, float *fvar, uint32_t mode) {
+int32_t UpdVar(char *vname, float *fvar, uint32_t mode) {
   struct T_INDEX ind;
   uint8_t vtype;
   float res = *fvar;
+  uint8_t index;
   isvar(vname, &vtype, &ind, fvar, 0, 0);
   if (vtype != VAR_NV) {
     // found variable as result
     if (vtype == NUM_RES || (vtype & STYPE) == 0) {
       if (mode) {
         // set var
-        uint8_t index = glob_script_mem.type[ind.index].index;
+        index = glob_script_mem.type[ind.index].index;
         glob_script_mem.fvars[index] = res;
-        glob_script_mem.type[index].bits.changed = 1;
+        SetChanged(ind.index);
+        return 0;
+      } else {
+        // get var
+        //index = glob_script_mem.type[ind.index].index;
+        int32_t ret = glob_script_mem.type[ind.index].bits.hchanged;
+        glob_script_mem.type[ind.index].bits.hchanged = 0;
+        return ret;
       }
-      return 0;
     } else {
       //  break;
     }
   }
-  return 1;
+  return -1;
 }
 
 
@@ -3604,6 +3624,9 @@ extern "C" {
     Replace_Cmd_Vars(srcbuf, srcsize, dstbuf, dstsize);
   }
 }
+
+#endif // USE_HOMEKIT
+
 // replace vars in cmd %var%
 void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dstsize) {
     char *cp;
@@ -4577,7 +4600,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
                               break;
                       }
                       // var was changed
-                      glob_script_mem.type[globvindex].bits.changed = 1;
+                      SetChanged(globvindex);
 #ifdef USE_SCRIPT_GLOBVARS
                       if (glob_script_mem.type[globvindex].bits.global) {
                         script_udp_sendvar(varname, dfvar, 0);
@@ -4635,7 +4658,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
 
                     if (!glob_script_mem.var_not_found) {
                       // var was changed
-                      glob_script_mem.type[globvindex].bits.changed = 1;
+                      SetChanged(globvindex);
 #ifdef USE_SCRIPT_GLOBVARS
                       if (glob_script_mem.type[globvindex].bits.global) {
                         script_udp_sendvar(varname, 0, str);
@@ -5633,7 +5656,7 @@ void Script_Handle_Hue(String *path) {
         glob_script_mem.fvars[hue_script[index].index[0] - 1] = 1;
           response.replace("{re", "true");
       }
-      glob_script_mem.type[hue_script[index].vindex[0]].bits.changed = 1;
+      SetChanged(hue_script[index].vindex[0]);
       resp = true;
     }
 
@@ -5649,7 +5672,7 @@ void Script_Handle_Hue(String *path) {
       response.replace("{cm", "bri");
       response.replace("{re", String(tmp));
       glob_script_mem.fvars[hue_script[index].index[1] - 1] = bri;
-      glob_script_mem.type[hue_script[index].vindex[1]].bits.changed = 1;
+      SetChanged(hue_script[index].vindex[1]);
       resp = true;
     }
 
@@ -5672,9 +5695,9 @@ void Script_Handle_Hue(String *path) {
       response.replace("{cm", "xy");
       response.replace("{re", "[" + x_str + "," + y_str + "]");
       glob_script_mem.fvars[hue_script[index].index[2]-1] = hue;
-      glob_script_mem.type[hue_script[index].vindex[2]].bits.changed = 1;
+      SetChanged(hue_script[index].vindex[2]);
       glob_script_mem.fvars[hue_script[index].index[3]-1] = sat;
-      glob_script_mem.type[hue_script[index].vindex[3]].bits.changed = 1;
+      SetChanged(hue_script[index].vindex[3]);
       resp = true;
     }
 
@@ -5690,7 +5713,7 @@ void Script_Handle_Hue(String *path) {
       response.replace("{cm", "hue");
       response.replace("{re", String(tmp));
       glob_script_mem.fvars[hue_script[index].index[2] - 1] = hue;
-      glob_script_mem.type[hue_script[index].vindex[2]].bits.changed = 1;
+      SetChanged(hue_script[index].vindex[2]);
       resp = true;
     }
 
@@ -5705,7 +5728,7 @@ void Script_Handle_Hue(String *path) {
       response.replace("{cm", "sat");
       response.replace("{re", String(tmp));
       glob_script_mem.fvars[hue_script[index].index[3] - 1] = sat;
-      glob_script_mem.type[hue_script[index].vindex[3]].bits.changed = 1;
+      SetChanged(hue_script[index].vindex[3]);
       resp = true;
     }
 
@@ -5718,7 +5741,7 @@ void Script_Handle_Hue(String *path) {
       response.replace("{cm", "ct");
       response.replace("{re", String(ct));
       glob_script_mem.fvars[hue_script[index].index[4] - 1] = ct;
-      glob_script_mem.type[hue_script[index].vindex[4]].bits.changed = 1;
+      SetChanged(hue_script[index].vindex[4]);
       resp = true;
     }
     response += "]";
