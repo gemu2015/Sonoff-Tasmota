@@ -681,7 +681,7 @@ nextline:
 
 #define HK_PASSCODE "111-11-111"
 
-void homekit_main(char *desc) {
+void homekit_main(char *desc, uint32_t flag ) {
   if (desc) {
     char *cp = desc;
     cp += 2;
@@ -705,7 +705,12 @@ void homekit_main(char *desc) {
     cp++;
     hk_desc = cp;
   } else {
-    hap_reset_to_factory();
+    if (flag == 99) {
+      hap_reset_to_factory();
+    } else {
+      // not yet implemented
+      hap_stop();
+    }
     return;
   }
 

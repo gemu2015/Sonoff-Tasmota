@@ -223,7 +223,7 @@ extern FS *ufsp;
 
 #endif // USE_UFILESYS
 
-extern "C" void homekit_main(char *);
+extern "C" void homekit_main(char *, uint32_t);
 
 #ifdef SUPPORT_MQTT_EVENT
   #include <LinkedList.h>                 // Import LinkedList library
@@ -495,7 +495,7 @@ void ScriptEverySecond(void) {
       uint8_t homekit_found = Run_Scripter(">h", -2, 0);
       if (homekit_found == 99) {
         if (!TasmotaGlobal.global_state.wifi_down) {
-          homekit_main(glob_script_mem.section_ptr);
+          homekit_main(glob_script_mem.section_ptr, 0);
           glob_script_mem.homekit_running = true;
         }
       }
@@ -2511,14 +2511,16 @@ chknext:
 #endif //USE_LIGHT
 
 #ifdef USE_HOMEKIT
-        if (!strncmp(vname, "hki", 3)) {
+        if (!strncmp(vname, "hki(", 4)) {
           if (!TasmotaGlobal.global_state.wifi_down) {
             // erase nvs
-            homekit_main(0);
+            lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
+            homekit_main(0, fvar);
             // restart homekit
-            glob_script_mem.homekit_running = false;
+            TasmotaGlobal.restart_flag = 2;
           }
-          fvar = 0;
+          lp++;
+          len = 0;
           goto exit;
         }
 #endif
