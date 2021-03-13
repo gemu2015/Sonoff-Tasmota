@@ -564,7 +564,7 @@ nextline:
     /* Start Wi-Fi */
     //app_wifi_start(portMAX_DELAY);
 
-    uint32_t io_num = OUTLET_IN_USE_GPIO;
+    int32_t io_num = OUTLET_IN_USE_GPIO;
     if (io_num >= 0) {
         hap_val_t appliance_value = {
           .b = true,
@@ -587,13 +587,14 @@ nextline:
           }
         }
     } else {
-        while (1) {
-        }
+      vTaskDelete(NULL);
+      //  while (1) {
+      //  }
     }
 }
 
 
-#define HK_MAXSIZE 1024
+#define HK_PASSCODE "111-11-111"
 
 void homekit_main(char *desc) {
   if (desc) {
@@ -601,11 +602,17 @@ void homekit_main(char *desc) {
     cp += 2;
     while (*cp == ' ') cp++;
     // "111-11-111"
-    uint32_t cnt;
-    for (cnt = 0; cnt < 10; cnt++) {
-      hk_code[cnt] = *cp++;
+
+    if (*cp == '*') {
+      strlcpy(hk_code, HK_PASSCODE, 10);
+      cp++;
+    } else {
+      uint32_t cnt;
+      for (cnt = 0; cnt < 10; cnt++) {
+        hk_code[cnt] = *cp++;
+      }
+      hk_code[cnt] = 0;
     }
-    hk_code[cnt] = 0;
     if (*cp != '\n') {
       printf("init error\n");
       return;
@@ -613,8 +620,7 @@ void homekit_main(char *desc) {
     cp++;
     hk_desc = cp;
   } else {
-    // now erases nvs Folder only
-    hap_platfrom_keystore_erase_partition("nvs");
+    hap_reset_to_factory();
     return;
   }
 
@@ -622,6 +628,7 @@ void homekit_main(char *desc) {
 
   /* Create the application thread */
   xTaskCreate(smart_outlet_thread_entry, SMART_OUTLET_TASK_NAME, SMART_OUTLET_TASK_STACKSIZE, NULL, SMART_OUTLET_TASK_PRIORITY, NULL);
+
 }
 
 #endif // ESP32
