@@ -148,44 +148,63 @@ static int accessory_identify(hap_acc_t *ha)
     return HAP_SUCCESS;
 }
 
+const struct HAP_CHAR_TABLE {
+  char stype[3];
+  char ntype;
+  int8_t index;
+} hap_rtab[] = {
+  {HAP_CHAR_UUID_CURRENT_TEMPERATURE,'f',0},
+  {HAP_CHAR_UUID_CURRENT_RELATIVE_HUMIDITY,'f',0},
+  {HAP_CHAR_UUID_CURRENT_AMBIENT_LIGHT_LEVEL,'f',0},
+  {HAP_CHAR_UUID_BATTERY_LEVEL,'u',0},
+  {HAP_CHAR_UUID_STATUS_LOW_BATTERY,'b',1},
+  {HAP_CHAR_UUID_CHARGING_STATE,'b',2},
+  {HAP_CHAR_UUID_ON,'b',0},
+  {HAP_CHAR_UUID_HUE,'f',1},
+  {HAP_CHAR_UUID_SATURATION,'f',2},
+  {HAP_CHAR_UUID_BRIGHTNESS,'u',3},
+  {HAP_CHAR_UUID_COLOR_TEMPERATURE,'u',0},
+};
+
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
+
 /* A dummy callback for handling a write on the "On" characteristic of Outlet.
  * In an actual accessory, this should control the hardware
  */
 static int sensor_write(hap_write_data_t write_data[], int count, void *serv_priv, void *write_priv, uint32_t index) {
     int i, ret = HAP_SUCCESS;
+    float fvar;
     hap_write_data_t *write;
     for (i = 0; i < count; i++) {
         write = &write_data[i];
+        bool found = false;
         const char *hcp = hap_char_get_type_uuid(write->hc);
-        if (!strcmp(hcp, HAP_CHAR_UUID_ON)) {
-            //ESP_LOGI(TAG, "Received Write. Outlet %s", write->val.b ? "On" : "Off");
-        	ESP_LOG_LEVEL(ESP_LOG_INFO, TAG, "Received Write. Outlet %s", write->val.b ? "On" : "Off");
-          hap_char_update_val(write->hc, &(write->val));
-          float fvar = write->val.b;
-          Ext_UpdVar(hap_devs[index].var_name, &fvar, 1);
-          *(write->status) = HAP_STATUS_SUCCESS;
-        } else if (!strcmp(hcp, HAP_CHAR_UUID_HUE)) {
-          hap_char_update_val(write->hc, &(write->val));
-          float fvar = write->val.f;
-          Ext_UpdVar(hap_devs[index].var2_name, &fvar, 1);
-          *(write->status) = HAP_STATUS_SUCCESS;
-        } else if (!strcmp(hcp, HAP_CHAR_UUID_SATURATION)) {
-          hap_char_update_val(write->hc, &(write->val));
-          float fvar = write->val.f;
-          Ext_UpdVar(hap_devs[index].var3_name, &fvar, 1);
-          *(write->status) = HAP_STATUS_SUCCESS;
-        } else if (!strcmp(hcp, HAP_CHAR_UUID_BRIGHTNESS)) {
-          hap_char_update_val(write->hc, &(write->val));
-          float fvar = write->val.u;
-          Ext_UpdVar(hap_devs[index].var4_name, &fvar, 1);
-          *(write->status) = HAP_STATUS_SUCCESS;
-        } else {
+        for (uint32_t cnt = 0; cnt < ARRAY_SIZE(hap_rtab); cnt++ ) {
+          if (!strcmp(hcp, hap_rtab[cnt].stype)) {
+            hap_char_update_val(write->hc, &(write->val));
+            switch (hap_rtab[cnt].ntype) {
+              case 'f':  fvar = write->val.f; break;
+              case 'u':  fvar = write->val.u; break;
+              case 'b':  fvar = write->val.b; break;
+            }
+            switch (hap_rtab[cnt].index) {
+              case 0: Ext_UpdVar(hap_devs[index].var_name, &fvar, 1);break;
+              case 1: Ext_UpdVar(hap_devs[index].var2_name, &fvar, 1);break;
+              case 2: Ext_UpdVar(hap_devs[index].var3_name, &fvar, 1);break;
+              case 3: Ext_UpdVar(hap_devs[index].var4_name, &fvar, 1);break;
+            }
+            *(write->status) = HAP_STATUS_SUCCESS;
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
           *(write->status) = HAP_STATUS_RES_ABSENT;
         }
+
     }
     return ret;
 }
-
 
 // common read routine
 static int sensor_read(hap_char_t *hc, hap_status_t *status_code, void *serv_priv, void *read_priv, uint32_t index) {
@@ -200,57 +219,22 @@ static int sensor_read(hap_char_t *hc, hap_status_t *status_code, void *serv_pri
 
     printf("read values %s\n", hcp );
 
-    if (!strcmp(hcp, HAP_CHAR_UUID_CURRENT_TEMPERATURE)
-    || !strcmp(hcp, HAP_CHAR_UUID_CURRENT_RELATIVE_HUMIDITY)
-    || !strcmp(hcp, HAP_CHAR_UUID_CURRENT_AMBIENT_LIGHT_LEVEL)
-    ) {
-
-        Ext_UpdVar(hap_devs[index].var_name, &fvar, 0);
-        new_val.f = fvar;
+    for (uint32_t cnt = 0; cnt < ARRAY_SIZE(hap_rtab); cnt++ ) {
+      if (!strcmp(hcp, hap_rtab[cnt].stype)) {
+        switch (hap_rtab[cnt].index) {
+          case 0: Ext_UpdVar(hap_devs[index].var_name, &fvar, 0);break;
+          case 1: Ext_UpdVar(hap_devs[index].var2_name, &fvar, 0);break;
+          case 2: Ext_UpdVar(hap_devs[index].var3_name, &fvar, 0);break;
+          case 3: Ext_UpdVar(hap_devs[index].var4_name, &fvar, 0);break;
+        }
+        switch (hap_rtab[cnt].ntype) {
+          case 'f':  new_val.f = fvar; break;
+          case 'u':  new_val.u = fvar; break;
+          case 'b':  new_val.b = fvar; break;
+        }
         hap_char_update_val(hc, &new_val);
         *status_code = HAP_STATUS_SUCCESS;
-    }
-    if (!strcmp(hcp, HAP_CHAR_UUID_ON)) {
-      Ext_UpdVar(hap_devs[index].var_name, &fvar, 0);
-      new_val.b = fvar;
-      hap_char_update_val(hc, &new_val);
-      *status_code = HAP_STATUS_SUCCESS;
-    }
-    if (!strcmp(hcp, HAP_CHAR_UUID_HUE)) {
-      Ext_UpdVar(hap_devs[index].var2_name, &fvar, 0);
-      new_val.f = fvar;
-      hap_char_update_val(hc, &new_val);
-      *status_code = HAP_STATUS_SUCCESS;
-    }
-    if (!strcmp(hcp, HAP_CHAR_UUID_SATURATION)) {
-      Ext_UpdVar(hap_devs[index].var3_name, &fvar, 0);
-      new_val.f = fvar;
-      hap_char_update_val(hc, &new_val);
-      *status_code = HAP_STATUS_SUCCESS;
-    }
-    if (!strcmp(hcp, HAP_CHAR_UUID_BRIGHTNESS)) {
-      Ext_UpdVar(hap_devs[index].var4_name, &fvar, 0);
-      new_val.u = fvar;
-      hap_char_update_val(hc, &new_val);
-      *status_code = HAP_STATUS_SUCCESS;
-    }
-    if (!strcmp(hcp, HAP_CHAR_UUID_BATTERY_LEVEL)) {
-      Ext_UpdVar(hap_devs[index].var_name, &fvar, 0);
-      new_val.u = fvar;
-      hap_char_update_val(hc, &new_val);
-      *status_code = HAP_STATUS_SUCCESS;
-    }
-    if (!strcmp(hcp, HAP_CHAR_UUID_STATUS_LOW_BATTERY)) {
-      Ext_UpdVar(hap_devs[index].var2_name, &fvar, 0);
-      new_val.u = fvar;
-      hap_char_update_val(hc, &new_val);
-      *status_code = HAP_STATUS_SUCCESS;
-    }
-    if (!strcmp(hcp, HAP_CHAR_UUID_CHARGING_STATE)) {
-      Ext_UpdVar(hap_devs[index].var3_name, &fvar, 0);
-      new_val.u = fvar;
-      hap_char_update_val(hc, &new_val);
-      *status_code = HAP_STATUS_SUCCESS;
+      }
     }
     return HAP_SUCCESS;
 }
@@ -601,12 +585,33 @@ nextline:
     } else {
     //  vTaskDelete(NULL);
     // update values every 100 ms
+
       while (1) {
         delay(100);
         float fvar;
         hap_char_t *hc;
         hap_val_t new_val;
         for (uint32_t cnt = 0; cnt < hk_services; cnt++) {
+
+#if 0
+          for (uint32_t hcnt = 0; hcnt < ARRAY_SIZE(hap_rtab); hcnt++ ) {
+            if (!strcmp(hap_devs[cnt].service, hap_rtab[hcnt].stype)) {
+              switch (hap_rtab[hcnt].index) {
+                case 0: Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0);break;
+                case 1: Ext_UpdVar(hap_devs[cnt].var2_name, &fvar, 0);break;
+                case 2: Ext_UpdVar(hap_devs[cnt].var3_name, &fvar, 0);break;
+                case 3: Ext_UpdVar(hap_devs[cnt].var4_name, &fvar, 0);break;
+              }
+              switch (hap_rtab[hcnt].ntype) {
+                case 'f':  new_val.f = fvar; break;
+                case 'u':  new_val.u = fvar; break;
+                case 'b':  new_val.b = fvar; break;
+              }
+              hap_char_update_val(hc, &new_val);
+              *status_code = HAP_STATUS_SUCCESS;
+            }
+          }
+#else
           switch (hap_devs[cnt].hap_cid) {
             case HAP_CID_SENSOR:
               switch (hap_devs[cnt].type) {
@@ -680,13 +685,11 @@ nextline:
               }
               break;
           }
+#endif
         }
       }
     }
 }
-
-//HAP_CHAR_UUID_COLOR_TEMPERATURE
-
 
 #define HK_PASSCODE "111-11-111"
 
