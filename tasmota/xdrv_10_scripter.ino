@@ -2515,9 +2515,13 @@ chknext:
           if (!TasmotaGlobal.global_state.wifi_down) {
             // erase nvs
             lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
-            homekit_main(0, fvar);
-            // restart homekit
-            TasmotaGlobal.restart_flag = 2;
+            if (fvar==33) {
+              LITTLEFS.format();
+            } else {
+              homekit_main(0, fvar);
+              // restart homekit
+              TasmotaGlobal.restart_flag = 2;
+            }
           }
           lp++;
           len = 0;
@@ -3588,6 +3592,10 @@ char *ForceStringVar(char *lp, char *dstr) {
 extern "C" {
   uint32_t Ext_UpdVar(char *vname, float *fvar, uint32_t mode) {
     return UpdVar(vname, fvar, mode);
+  }
+
+  char *GetFName(void) {
+    return SettingsText(SET_FRIENDLYNAME1);
   }
 }
 

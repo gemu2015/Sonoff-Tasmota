@@ -59,7 +59,7 @@ extern uint32_t Ext_UpdVar(char *vname, float *fvar, uint32_t mode);
 
 #define MAX_HAP_DEFS 16
 struct HAP_DESC {
-  char hap_name[16];
+  char hap_name[32];
   char var_name[16];
   char var2_name[16];
   char var3_name[16];
@@ -377,6 +377,8 @@ uint32_t str2c(char **sp, char *vp, uint32_t len) {
     return 1;
 }
 
+extern char *GetFName();
+
 /*The main thread for handling the Smart Outlet Accessory */
 static void smart_outlet_thread_entry(void *p) {
     /* Initialize the HAP core */
@@ -385,7 +387,8 @@ static void smart_outlet_thread_entry(void *p) {
     hap_acc_t *accessory;
 
     hap_acc_cfg_t cfg = {
-        .name = "Tasmota-Bridge",
+        //.name = "Tasmota-Bridge",
+        .name = GetFName(),
         .manufacturer = "Tasmota",
         .model = "Bridge",
         .serial_num = "001122334455",
@@ -681,6 +684,8 @@ nextline:
       }
     }
 }
+
+//HAP_CHAR_UUID_COLOR_TEMPERATURE
 
 
 #define HK_PASSCODE "111-11-111"
