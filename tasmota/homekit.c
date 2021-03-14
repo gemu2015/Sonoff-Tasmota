@@ -149,7 +149,7 @@ static int accessory_identify(hap_acc_t *ha)
 }
 
 const struct HAP_CHAR_TABLE {
-  char stype[3];
+  char stype[4];
   char ntype;
   int8_t index;
 } hap_rtab[] = {
@@ -585,33 +585,12 @@ nextline:
     } else {
     //  vTaskDelete(NULL);
     // update values every 100 ms
-
       while (1) {
         delay(100);
         float fvar;
         hap_char_t *hc;
         hap_val_t new_val;
         for (uint32_t cnt = 0; cnt < hk_services; cnt++) {
-
-#if 0
-          for (uint32_t hcnt = 0; hcnt < ARRAY_SIZE(hap_rtab); hcnt++ ) {
-            if (!strcmp(hap_devs[cnt].service, hap_rtab[hcnt].stype)) {
-              switch (hap_rtab[hcnt].index) {
-                case 0: Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0);break;
-                case 1: Ext_UpdVar(hap_devs[cnt].var2_name, &fvar, 0);break;
-                case 2: Ext_UpdVar(hap_devs[cnt].var3_name, &fvar, 0);break;
-                case 3: Ext_UpdVar(hap_devs[cnt].var4_name, &fvar, 0);break;
-              }
-              switch (hap_rtab[hcnt].ntype) {
-                case 'f':  new_val.f = fvar; break;
-                case 'u':  new_val.u = fvar; break;
-                case 'b':  new_val.b = fvar; break;
-              }
-              hap_char_update_val(hc, &new_val);
-              *status_code = HAP_STATUS_SUCCESS;
-            }
-          }
-#else
           switch (hap_devs[cnt].hap_cid) {
             case HAP_CID_SENSOR:
               switch (hap_devs[cnt].type) {
@@ -685,7 +664,6 @@ nextline:
               }
               break;
           }
-#endif
         }
       }
     }
