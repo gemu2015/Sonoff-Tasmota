@@ -584,9 +584,9 @@ nextline:
         }
     } else {
     //  vTaskDelete(NULL);
-    // update values every 100 ms
+    // update values every 500 ms
       while (1) {
-        delay(100);
+        delay(500);
         float fvar;
         hap_char_t *hc;
         hap_val_t new_val;
