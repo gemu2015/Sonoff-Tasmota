@@ -3612,7 +3612,7 @@ int32_t UpdVar(char *vname, float *fvar, uint32_t mode) {
         // set var
         index = glob_script_mem.type[ind.index].index;
         glob_script_mem.fvars[index] = res;
-        SetChanged(ind.index);
+        glob_script_mem.type[ind.index].bits.changed = 1;
         return 0;
       } else {
         // get var
