@@ -164,6 +164,7 @@ const struct HAP_CHAR_TABLE {
   {HAP_CHAR_UUID_SATURATION,'f',2},
   {HAP_CHAR_UUID_BRIGHTNESS,'u',3},
   {HAP_CHAR_UUID_COLOR_TEMPERATURE,'u',0},
+  {HAP_CHAR_UUID_WATTAGE,'f',0}
 };
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
@@ -487,6 +488,7 @@ static void smart_outlet_thread_entry(void *p) {
                   hap_devs[index].service = hap_serv_battery_service_create(fvar, fvar1, fvar2);
                 }
                 break;
+              case 4: hap_devs[index].service = hap_serv_wattage_create(fvar); break;
             }
           }
           break;
@@ -629,6 +631,13 @@ nextline:
                   hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_STATUS_LOW_BATTERY);
                   if (Ext_UpdVar(hap_devs[cnt].var3_name, &fvar, 0)) {
                     new_val.u = fvar;
+                    hap_char_update_val(hc, &new_val);
+                  }
+                  break;
+                case 4:
+                  hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_WATTAGE);
+                  if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
+                    new_val.f = fvar;
                     hap_char_update_val(hc, &new_val);
                   }
                   break;

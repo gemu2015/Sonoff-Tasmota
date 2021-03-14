@@ -138,6 +138,7 @@ typedef struct {
 #define HAP_CHAR_UNIT_ARCDEGREES    "arcdegrees"
 #define HAP_CHAR_UNIT_LUX           "lux"
 #define HAP_CHAR_UNIT_SECONDS       "seconds"
+#define HAP_CHAR_UNIT_WATTS         "watts"
 
 /** HAP Characteristic properties/permissions */
 /** Characteristic supports Paired Read */
