@@ -421,7 +421,7 @@ err:
 
 hap_serv_t *hap_serv_wattage_create(float curr_watts)
 {
-    hap_serv_t *hs = hap_serv_create(HAP_SERV_UUID_WATTAGE_SENSOR);
+    hap_serv_t *hs = hap_serv_create(HAP_SERV_UUID_LIGHT_SENSOR);
     if (!hs) {
         return NULL;
     }

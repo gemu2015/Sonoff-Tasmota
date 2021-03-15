@@ -288,7 +288,7 @@ void hap_update_from_vars(void) {
               }
               break;
             case 4:
-              hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_WATTAGE);
+              hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_CURRENT_AMBIENT_LIGHT_LEVEL);
               if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
                 new_val.f = fvar;
                 hap_char_update_val(hc, &new_val);
@@ -327,7 +327,7 @@ void hap_update_from_vars(void) {
           break;
         }
       }
-    
+
 }
 
 #define HAP_READ hap_char_t *hc, hap_status_t *status_code, void *serv_priv, void *read_priv) {  return sensor_read(hc, status_code, serv_priv, read_priv
@@ -678,6 +678,8 @@ nextline:
 }
 
 #define HK_PASSCODE "111-11-111"
+int hap_loop_stop(void);
+extern void Ext_toLog(char *str);
 
 void homekit_main(char *desc, uint32_t flag ) {
   if (desc) {
@@ -704,10 +706,14 @@ void homekit_main(char *desc, uint32_t flag ) {
     hk_desc = cp;
   } else {
     if (flag == 99) {
+      hap_loop_stop();
       hap_reset_to_factory();
+    } else if (flag == 98) {
+      hap_loop_stop();
+      // is just the folder in wrapper
+      hap_platfrom_keystore_erase_partition(hap_platform_keystore_get_nvs_partition_name());
     } else {
-      // not yet implemented
-      hap_stop();
+      hap_loop_stop();
     }
     return;
   }

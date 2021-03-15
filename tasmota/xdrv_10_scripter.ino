@@ -2520,7 +2520,9 @@ chknext:
             } else {
               homekit_main(0, fvar);
               // restart homekit
-              TasmotaGlobal.restart_flag = 2;
+              if (fvar>=98) {
+                TasmotaGlobal.restart_flag = 2;
+              }
             }
           }
           lp++;
@@ -3593,6 +3595,9 @@ extern "C" {
   uint32_t Ext_UpdVar(char *vname, float *fvar, uint32_t mode) {
     return UpdVar(vname, fvar, mode);
   }
+  void Ext_toLog(char *str) {
+    toLog(str);
+  }
 
   char *GetFName(void) {
     return SettingsText(SET_FRIENDLYNAME1);
@@ -3732,12 +3737,10 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
     dstbuf[count] = 0;
 }
 
-
 void toLog(const char *str) {
   if (!str) return;
   AddLog(LOG_LEVEL_INFO, str);
 }
-
 
 void toLogN(const char *cp, uint8_t len) {
   if (!cp) return;

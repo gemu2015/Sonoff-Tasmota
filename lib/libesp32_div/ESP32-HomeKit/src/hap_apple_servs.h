@@ -74,7 +74,7 @@ extern "C" {
 #define HAP_SERV_UUID_IRRIGATION_SYSTEM             "CF"
 #define HAP_SERV_UUID_VALVE                         "D0"
 #define HAP_SERV_UUID_FAUCET                        "D7"
-#define HAP_SERV_UUID_WATTAGE_SENSOR                "DC"
+
 
 /** Create Accessory Information Service
  *
