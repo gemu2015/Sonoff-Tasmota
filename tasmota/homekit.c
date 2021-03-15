@@ -59,7 +59,7 @@ extern uint32_t Ext_UpdVar(char *vname, float *fvar, uint32_t mode);
 
 #define MAX_HAP_DEFS 16
 struct HAP_DESC {
-  char hap_name[32];
+  char hap_name[24];
   char var_name[16];
   char var2_name[16];
   char var3_name[16];
@@ -238,6 +238,96 @@ static int sensor_read(hap_char_t *hc, hap_status_t *status_code, void *serv_pri
       }
     }
     return HAP_SUCCESS;
+}
+
+// update values every 500 ms
+void hap_update_from_vars(void) {
+    float fvar;
+    hap_char_t *hc;
+    hap_val_t new_val;
+    for (uint32_t cnt = 0; cnt < hk_services; cnt++) {
+      switch (hap_devs[cnt].hap_cid) {
+        case HAP_CID_SENSOR:
+          switch (hap_devs[cnt].type) {
+            case 0:
+              hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_CURRENT_TEMPERATURE);
+              if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
+                new_val.f = fvar;
+                hap_char_update_val(hc, &new_val);
+              }
+              break;
+            case 1:
+              hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_CURRENT_RELATIVE_HUMIDITY);
+              if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
+                new_val.f = fvar;
+                hap_char_update_val(hc, &new_val);
+              }
+              break;
+            case 2:
+              hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_CURRENT_AMBIENT_LIGHT_LEVEL);
+              if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
+                new_val.f = fvar;
+                hap_char_update_val(hc, &new_val);
+              }
+              break;
+            case 3:
+              hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_BATTERY_LEVEL);
+              if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
+                new_val.u = fvar;
+                hap_char_update_val(hc, &new_val);
+              }
+              hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_STATUS_LOW_BATTERY);
+              if (Ext_UpdVar(hap_devs[cnt].var2_name, &fvar, 0)) {
+                new_val.u = fvar;
+                hap_char_update_val(hc, &new_val);
+              }
+              hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_STATUS_LOW_BATTERY);
+              if (Ext_UpdVar(hap_devs[cnt].var3_name, &fvar, 0)) {
+                new_val.u = fvar;
+                hap_char_update_val(hc, &new_val);
+              }
+              break;
+            case 4:
+              hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_WATTAGE);
+              if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
+                new_val.f = fvar;
+                hap_char_update_val(hc, &new_val);
+              }
+              break;
+          }
+          break;
+        case HAP_CID_OUTLET:
+          hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_ON);
+          if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
+            new_val.b = fvar;
+            hap_char_update_val(hc, &new_val);
+          }
+          break;
+        case HAP_CID_LIGHTING:
+          hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_ON);
+          if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
+            new_val.b = fvar;
+            hap_char_update_val(hc, &new_val);
+          }
+          hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_HUE);
+          if (Ext_UpdVar(hap_devs[cnt].var2_name, &fvar, 0)) {
+            new_val.f = fvar;
+            hap_char_update_val(hc, &new_val);
+          }
+          hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_SATURATION);
+          if (Ext_UpdVar(hap_devs[cnt].var3_name, &fvar, 0)) {
+            new_val.f = fvar;
+            hap_char_update_val(hc, &new_val);
+          }
+          hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_BRIGHTNESS);
+          if (Ext_UpdVar(hap_devs[cnt].var4_name, &fvar, 0)) {
+            new_val.u = fvar;
+            hap_char_update_val(hc, &new_val);
+          }
+          break;
+        }
+      }
+    
 }
 
 #define HAP_READ hap_char_t *hc, hap_status_t *status_code, void *serv_priv, void *read_priv) {  return sensor_read(hc, status_code, serv_priv, read_priv
@@ -450,7 +540,6 @@ static void smart_outlet_thread_entry(void *p) {
       /* Create accessory object */
       hap_devs[index].accessory = hap_acc_create(&hap_cfg);
       /* Add a dummy Product Data */
-      uint8_t product_data[] = {'E','S','P','3','2','H','A','P'};
       hap_acc_add_product_data(hap_devs[index].accessory, product_data, sizeof(product_data));
 
       int ret;
@@ -502,7 +591,7 @@ static void smart_outlet_thread_entry(void *p) {
       hap_set_write(hap_devs[index].service, index);
 
       /* Get pointer to the outlet in use characteristic which we need to monitor for state changes */
-      hap_char_t *outlet_in_use = hap_serv_get_char_by_uuid(hap_devs[index].service, HAP_CHAR_UUID_OUTLET_IN_USE);
+      outlet_in_use = hap_serv_get_char_by_uuid(hap_devs[index].service, HAP_CHAR_UUID_OUTLET_IN_USE);
 
       /* Add the Outlet Service to the Accessory Object */
       hap_acc_add_serv(hap_devs[index].accessory, hap_devs[index].service);
@@ -554,13 +643,8 @@ nextline:
     /* Enable Hardware MFi authentication (applicable only for MFi variant of SDK) */
     hap_enable_mfi_auth(HAP_MFI_AUTH_HW);
 
-    /* Initialize Wi-Fi */
-    //app_wifi_init();
-
     /* After all the initializations are done, start the HAP core */
     hap_start();
-    /* Start Wi-Fi */
-    //app_wifi_start(portMAX_DELAY);
 
     int32_t io_num = OUTLET_IN_USE_GPIO;
     if (io_num >= 0) {
@@ -586,94 +670,9 @@ nextline:
         }
     } else {
     //  vTaskDelete(NULL);
-    // update values every 500 ms
       while (1) {
         delay(500);
-        float fvar;
-        hap_char_t *hc;
-        hap_val_t new_val;
-        for (uint32_t cnt = 0; cnt < hk_services; cnt++) {
-          switch (hap_devs[cnt].hap_cid) {
-            case HAP_CID_SENSOR:
-              switch (hap_devs[cnt].type) {
-                case 0:
-                  hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_CURRENT_TEMPERATURE);
-                  if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
-                    new_val.f = fvar;
-                    hap_char_update_val(hc, &new_val);
-                  }
-                  break;
-                case 1:
-                  hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_CURRENT_RELATIVE_HUMIDITY);
-                  if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
-                    new_val.f = fvar;
-                    hap_char_update_val(hc, &new_val);
-                  }
-                  break;
-                case 2:
-                  hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_CURRENT_AMBIENT_LIGHT_LEVEL);
-                  if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
-                    new_val.f = fvar;
-                    hap_char_update_val(hc, &new_val);
-                  }
-                  break;
-                case 3:
-                  hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_BATTERY_LEVEL);
-                  if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
-                    new_val.u = fvar;
-                    hap_char_update_val(hc, &new_val);
-                  }
-                  hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_STATUS_LOW_BATTERY);
-                  if (Ext_UpdVar(hap_devs[cnt].var2_name, &fvar, 0)) {
-                    new_val.u = fvar;
-                    hap_char_update_val(hc, &new_val);
-                  }
-                  hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_STATUS_LOW_BATTERY);
-                  if (Ext_UpdVar(hap_devs[cnt].var3_name, &fvar, 0)) {
-                    new_val.u = fvar;
-                    hap_char_update_val(hc, &new_val);
-                  }
-                  break;
-                case 4:
-                  hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_WATTAGE);
-                  if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
-                    new_val.f = fvar;
-                    hap_char_update_val(hc, &new_val);
-                  }
-                  break;
-              }
-              break;
-            case HAP_CID_OUTLET:
-              hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_ON);
-              if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
-                new_val.b = fvar;
-                hap_char_update_val(hc, &new_val);
-              }
-              break;
-            case HAP_CID_LIGHTING:
-              hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_ON);
-              if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
-                new_val.b = fvar;
-                hap_char_update_val(hc, &new_val);
-              }
-              hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_HUE);
-              if (Ext_UpdVar(hap_devs[cnt].var2_name, &fvar, 0)) {
-                new_val.f = fvar;
-                hap_char_update_val(hc, &new_val);
-              }
-              hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_SATURATION);
-              if (Ext_UpdVar(hap_devs[cnt].var3_name, &fvar, 0)) {
-                new_val.f = fvar;
-                hap_char_update_val(hc, &new_val);
-              }
-              hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_BRIGHTNESS);
-              if (Ext_UpdVar(hap_devs[cnt].var4_name, &fvar, 0)) {
-                new_val.u = fvar;
-                hap_char_update_val(hc, &new_val);
-              }
-              break;
-          }
-        }
+        hap_update_from_vars();
       }
     }
 }
