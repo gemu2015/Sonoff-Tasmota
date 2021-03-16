@@ -164,6 +164,7 @@ const struct HAP_CHAR_TABLE {
   {HAP_CHAR_UUID_SATURATION,'f',2},
   {HAP_CHAR_UUID_BRIGHTNESS,'u',3},
   {HAP_CHAR_UUID_COLOR_TEMPERATURE,'u',0},
+  {HAP_CHAR_UUID_CONTACT_SENSOR_STATE,'u',0},
   {HAP_CHAR_UUID_WATTAGE,'f',0}
 };
 
@@ -291,6 +292,13 @@ void hap_update_from_vars(void) {
               hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_CURRENT_AMBIENT_LIGHT_LEVEL);
               if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
                 new_val.f = fvar;
+                hap_char_update_val(hc, &new_val);
+              }
+              break;
+            case 5:
+              hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_CONTACT_SENSOR_STATE);
+              if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
+                new_val.u = fvar;
                 hap_char_update_val(hc, &new_val);
               }
               break;
@@ -578,6 +586,7 @@ static void smart_outlet_thread_entry(void *p) {
                 }
                 break;
               case 4: hap_devs[index].service = hap_serv_wattage_create(fvar); break;
+              case 5: hap_devs[index].service = hap_serv_contact_sensor_create(fvar); break;
             }
           }
           break;
