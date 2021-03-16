@@ -2515,14 +2515,9 @@ chknext:
           if (!TasmotaGlobal.global_state.wifi_down) {
             // erase nvs
             lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
-            if (fvar==33) {
-              LITTLEFS.format();
-            } else {
-              homekit_main(0, fvar);
-              // restart homekit
-              if (fvar>=98) {
-                TasmotaGlobal.restart_flag = 2;
-              }
+            homekit_main(0, fvar);
+            if (fvar>=98) {
+              glob_script_mem.homekit_running == false;
             }
           }
           lp++;
