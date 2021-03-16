@@ -3600,10 +3600,41 @@ extern "C" {
 }
 
 int32_t UpdVar(char *vname, float *fvar, uint32_t mode) {
+  uint8_t type;
+  uint8_t index;
+  if (*vname == '@') {
+      vname++;
+      type = *vname;
+      vname++;
+      index = (*vname & 0x0f);
+      if (index < 1) index = 1;
+      if (index > 9) index = 9;
+      switch (type) {
+        case 'p':
+          if (mode) {
+            // set power
+            ExecuteCommandPower(index, POWER_TOGGLE, SRC_BUTTON);
+            return 0;
+          } else {
+            // read power
+            *fvar = bitRead(TasmotaGlobal.power,  index - 1);
+            return 1;
+          }
+          break;
+        case 's':
+          *fvar = SwitchLastState(index - 1);
+          return 1;
+          break;
+        case 'b':
+          *fvar = Button.last_state[index - 1];
+          return 1;
+          break;
+      }
+      return 0;
+  }
   struct T_INDEX ind;
   uint8_t vtype;
   float res = *fvar;
-  uint8_t index;
   isvar(vname, &vtype, &ind, fvar, 0, 0);
   if (vtype != VAR_NV) {
     // found variable as result
