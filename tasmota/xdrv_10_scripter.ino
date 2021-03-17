@@ -2515,10 +2515,12 @@ chknext:
           if (!TasmotaGlobal.global_state.wifi_down) {
             // erase nvs
             lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
+
             homekit_main(0, fvar);
-            if (fvar>=98) {
+            if (fvar >= 98) {
               glob_script_mem.homekit_running == false;
             }
+
           }
           lp++;
           len = 0;
