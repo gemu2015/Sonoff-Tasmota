@@ -157,8 +157,8 @@ const struct HAP_CHAR_TABLE {
   {HAP_CHAR_UUID_CURRENT_RELATIVE_HUMIDITY,'f',0},
   {HAP_CHAR_UUID_CURRENT_AMBIENT_LIGHT_LEVEL,'f',0},
   {HAP_CHAR_UUID_BATTERY_LEVEL,'u',0},
-  {HAP_CHAR_UUID_STATUS_LOW_BATTERY,'b',1},
-  {HAP_CHAR_UUID_CHARGING_STATE,'b',2},
+  {HAP_CHAR_UUID_STATUS_LOW_BATTERY,'u',1},
+  {HAP_CHAR_UUID_CHARGING_STATE,'u',2},
   {HAP_CHAR_UUID_ON,'b',0},
   {HAP_CHAR_UUID_HUE,'f',1},
   {HAP_CHAR_UUID_SATURATION,'f',2},
@@ -282,7 +282,7 @@ void hap_update_from_vars(void) {
                 new_val.u = fvar;
                 hap_char_update_val(hc, &new_val);
               }
-              hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_STATUS_LOW_BATTERY);
+              hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_CHARGING_STATE);
               if (Ext_UpdVar(hap_devs[cnt].var3_name, &fvar, 0)) {
                 new_val.u = fvar;
                 hap_char_update_val(hc, &new_val);
