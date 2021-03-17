@@ -60,10 +60,10 @@ extern uint32_t Ext_UpdVar(char *vname, float *fvar, uint32_t mode);
 #define MAX_HAP_DEFS 16
 struct HAP_DESC {
   char hap_name[24];
-  char var_name[16];
-  char var2_name[16];
-  char var3_name[16];
-  char var4_name[16];
+  char var_name[12];
+  char var2_name[12];
+  char var3_name[12];
+  char var4_name[12];
   uint8_t hap_cid;
   uint8_t type;
   hap_acc_t *accessory;
@@ -681,7 +681,7 @@ nextline:
     //  vTaskDelete(NULL);
       while (1) {
         delay(500);
-        hap_update_from_vars();
+      //  hap_update_from_vars();
       }
     }
 }

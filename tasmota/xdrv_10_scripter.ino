@@ -3613,7 +3613,7 @@ int32_t UpdVar(char *vname, float *fvar, uint32_t mode) {
         case 'p':
           if (mode) {
             // set power
-            ExecuteCommandPower(index, POWER_TOGGLE, SRC_BUTTON);
+            ExecuteCommandPower(index, *fvar, SRC_BUTTON);
             return 0;
           } else {
             // read power
