@@ -6362,6 +6362,7 @@ void ScriptGetSDCard(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
 
   String stmp = Webserver->uri();
+
   char *cp = strstr_P(stmp.c_str(), PSTR("/sdc/"));
 //  if (cp) Serial.printf(">>>%s\n",cp);
   if (cp) {
@@ -7855,6 +7856,10 @@ bool Xdrv10(uint8_t function)
             Webserver->on("/sfd", ScriptFullWebpage);
         }
 #endif // SCRIPT_FULL_WEBPAGE
+
+#ifdef USE_UFILESYS
+        Webserver->onNotFound(ScriptGetSDCard);
+#endif // USE_UFILESYS
       }
       break;
 #endif // USE_SCRIPT_WEB_DISPLAY
@@ -7863,7 +7868,6 @@ bool Xdrv10(uint8_t function)
       Webserver->on("/ta",HTTP_POST, HandleScriptTextareaConfiguration);
       Webserver->on("/exs", HTTP_POST,[]() { Webserver->sendHeader("Location","/exs");Webserver->send(303);}, script_upload_start);
       Webserver->on("/exs", HTTP_GET, ScriptExecuteUploadSuccess);
-      break;
 #endif // USE_WEBSERVER
     case FUNC_SAVE_BEFORE_RESTART:
       if (bitRead(Settings.rule_enabled, 0)) {
