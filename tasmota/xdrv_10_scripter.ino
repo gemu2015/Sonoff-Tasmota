@@ -3646,6 +3646,11 @@ int32_t UpdVar(char *vname, float *fvar, uint32_t mode) {
         index = glob_script_mem.type[ind.index].index;
         glob_script_mem.fvars[index] = res;
         glob_script_mem.type[ind.index].bits.changed = 1;
+#ifdef USE_SCRIPT_GLOBVARS
+        if (glob_script_mem.type[ind.index].bits.global) {
+          script_udp_sendvar(vname, fvar, 0);
+        }
+#endif //USE_SCRIPT_GLOBVARS
         return 0;
       } else {
         // get var
