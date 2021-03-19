@@ -6371,13 +6371,15 @@ void ScriptGetSDCard(void) {
 #else
     cp += 5;
 #endif
-    if (strstr_P(cp, PSTR("scrdmp.bmp"))) {
-      SendFile(cp);
-      return;
-    } else {
-      if (ufsp->exists(cp)) {
+    if (ufsp) {
+      if (strstr_P(cp, PSTR("scrdmp.bmp"))) {
         SendFile(cp);
         return;
+      } else {
+        if (ufsp->exists(cp)) {
+          SendFile(cp);
+          return;
+        }
       }
     }
   }
