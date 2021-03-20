@@ -6363,7 +6363,7 @@ void ScriptGetSDCard(void) {
 
   String stmp = Webserver->uri();
 
-  char *cp = strstr_P(stmp.c_str(), PSTR("/sdc/"));
+  char *cp = strstr_P(stmp.c_str(), PSTR("/ufs/"));
 //  if (cp) Serial.printf(">>>%s\n",cp);
   if (cp) {
 #ifdef ESP32
@@ -6400,7 +6400,6 @@ char buff[512];
 #ifdef USE_DISPLAY_DUMP
   char *sbmp = strstr_P(fname, PSTR("scrdmp.bmp"));
   if (sbmp) {
-    mime = "image/bmp";
     sflg = 1;
   }
 #endif // USE_DISPLAY_DUMP
