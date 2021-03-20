@@ -334,10 +334,12 @@ void hap_update_from_vars(void) {
             new_val.u = fvar;
             hap_char_update_val(hc, &new_val);
           }
-          hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_COLOR_TEMPERATURE);
-          if (Ext_UpdVar(hap_devs[cnt].var4_name, &fvar, 0)) {
-            new_val.u = fvar;
-            hap_char_update_val(hc, &new_val);
+          if (hap_devs[cnt].var5_name[0]) {
+            hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_COLOR_TEMPERATURE);
+            if (Ext_UpdVar(hap_devs[cnt].var5_name, &fvar, 0)) {
+              new_val.u = fvar;
+              hap_char_update_val(hc, &new_val);
+            }
           }
           break;
         }
@@ -538,7 +540,7 @@ static void smart_outlet_thread_entry(void *p) {
       str2c(&lp1, hap_devs[index].var3_name, sizeof(hap_devs[index].var3_name));
       str2c(&lp1, hap_devs[index].var4_name, sizeof(hap_devs[index].var4_name));
       str2c(&lp1, hap_devs[index].var5_name, sizeof(hap_devs[index].var5_name));
-        
+
       hap_acc_cfg_t hap_cfg;
       hap_cfg.name = hap_devs[index].hap_name;
       hap_cfg.manufacturer = "Tasmota";
@@ -694,7 +696,7 @@ nextline:
     //  vTaskDelete(NULL);
       while (1) {
         delay(500);
-      //  hap_update_from_vars();
+        hap_update_from_vars();
       }
     }
 }

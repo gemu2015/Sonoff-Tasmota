@@ -3643,12 +3643,13 @@ int32_t UpdVar(char *vname, float *fvar, uint32_t mode) {
     if (vtype == NUM_RES || (vtype & STYPE) == 0) {
       if (mode) {
         // set var
+        //AddLog(LOG_LEVEL_DEBUG, PSTR("write from homekit: %s - %d"), vname, (uint32_t)res);
         index = glob_script_mem.type[ind.index].index;
         glob_script_mem.fvars[index] = res;
         glob_script_mem.type[ind.index].bits.changed = 1;
 #ifdef USE_SCRIPT_GLOBVARS
         if (glob_script_mem.type[ind.index].bits.global) {
-          script_udp_sendvar(vname, fvar, 0);
+          script_udp_sendvar(vname, &res, 0);
         }
 #endif //USE_SCRIPT_GLOBVARS
         return 0;
@@ -3657,6 +3658,7 @@ int32_t UpdVar(char *vname, float *fvar, uint32_t mode) {
         //index = glob_script_mem.type[ind.index].index;
         int32_t ret = glob_script_mem.type[ind.index].bits.hchanged;
         glob_script_mem.type[ind.index].bits.hchanged = 0;
+        //AddLog(LOG_LEVEL_DEBUG, PSTR("read from homekit: %s - %d - %d"), vname, (uint32_t)*fvar, ret);
         return ret;
       }
     } else {
