@@ -7,6 +7,8 @@
  *******************************************************************/
 #include "be_object.h"
 
+extern int b_wire_init(bvm *vm);
+
 extern int b_wire_begintransmission(bvm *vm);
 extern int b_wire_endtransmission(bvm *vm);
 extern int b_wire_requestfrom(bvm *vm);
@@ -18,26 +20,38 @@ extern int b_wire_scan(bvm *vm);
 
 extern int b_wire_validwrite(bvm *vm);
 extern int b_wire_validread(bvm *vm);
+extern int b_wire_readbytes(bvm *vm);
+extern int b_wire_writebytes(bvm *vm);
+extern int b_wire_detect(bvm *vm);
 
 // #if !BE_USE_PRECOMPILED_OBJECT
 #if 1           // TODO we will do pre-compiled later
-be_native_module_attr_table(wire) {
-    be_native_module_function("_begintransmission", b_wire_begintransmission),
-    be_native_module_function("_endtransmission", b_wire_endtransmission),
-    be_native_module_function("_requestfrom", b_wire_requestfrom),
-    be_native_module_function("_available", b_wire_available),
-    be_native_module_function("_write", b_wire_write),
-    be_native_module_function("_read", b_wire_read),
-    be_native_module_function("scan", b_wire_scan),
-    be_native_module_function("write", b_wire_validwrite),
-    be_native_module_function("read", b_wire_validread),
-};
-
-be_define_native_module(wire, NULL);
+void be_load_wirelib(bvm *vm)
+{
+    static const bnfuncinfo members[] = {
+        { "_bus", NULL },               // bus number
+        { "init", b_wire_init },
+        { "_begin_transmission", b_wire_begintransmission },
+        { "_end_transmission", b_wire_endtransmission },
+        { "_request_from", b_wire_requestfrom },
+        { "_available", b_wire_available },
+        { "_write", b_wire_write },
+        { "_read", b_wire_read },
+        { "scan", b_wire_scan },
+        { "write", b_wire_validwrite },
+        { "read", b_wire_validread },
+        { "read_bytes", b_wire_validread },
+        { "write_bytes", b_wire_validread },
+        { "detect", b_wire_detect },
+        
+        { NULL, NULL }
+    };
+    be_regclass(vm, "Wire", members);
+}
 #else
 /* @const_object_info_begin
 module tasmota (scope: global, depend: 1) {
-    getfreeheap, func(l_getFreeHeap)
+    get_free_heap, func(l_getFreeHeap)
 }
 @const_object_info_end */
 #include "../generate/be_fixed_tasmota.h"

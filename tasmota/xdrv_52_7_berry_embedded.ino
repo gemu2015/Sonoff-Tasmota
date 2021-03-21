@@ -32,64 +32,34 @@ const char berry_prog[] =
   //"def noop() log('noop before'); yield(); log('middle after'); yield(); log('noop after'); end "
   //"log(\"foobar\") "
 
+  // create a 'ntv' module to allow functions to be registered in a safe namespace
+  "ntv = module('ntv') "
+
   // auto-import modules
   // // import alias
-  "import wire "
+  "import energy "
 
   // Phase 1
-  // Prepare the super class that will be eventually in Flash
-  "class Tasmota_ntv "
-    "var _op, _operators, _rules, _timers, _cmd "
-
-    // Map all native functions to methods
-    // Again, this will be eventually pre-compiled
-    "var getfreeheap, publish, cmd, getoption, millis, timereached, yield "
-    "var respcmnd, respcmndstr, respcmnd_done, respcmnd_error, respcmnd_failed, resolvecmnd "
-    "var getlight "
-    "def init_ntv() "
-      "import tasmota_ntv "
-      "self.getfreeheap = tasmota_ntv.getfreeheap "
-      "self.publish = tasmota_ntv.publish "
-      "self.cmd = tasmota_ntv.cmd "
-      "self.getoption = tasmota_ntv.getoption "
-      "self.millis = tasmota_ntv.millis "
-      "self.timereached = tasmota_ntv.timereached "
-      "self.yield = tasmota_ntv.yield "
-      "self._operators = tasmota_ntv._operators "
-
-      "self.respcmnd = tasmota_ntv.respcmnd "
-      "self.respcmndstr = tasmota_ntv.respcmndstr "
-      "self.respcmnd_done = tasmota_ntv.respcmnd_done "
-      "self.respcmnd_error = tasmota_ntv.respcmnd_error "
-      "self.respcmnd_failed = tasmota_ntv.respcmnd_failed "
-      "self.resolvecmnd = tasmota_ntv.resolvecmnd "
-
-      "self.getlight = tasmota_ntv.getlight "
-    "end "
-
-    "def init() "
-      "self._op = [ "
-        "['==', /s1,s2-> str(s1)  == str(s2)],"
-        "['!==',/s1,s2-> str(s1)  != str(s2)],"
-        "['=',  /f1,f2-> real(f1) == real(f2)],"
-        "['!=', /f1,f2-> real(f1) != real(f2)],"
-        "['>=', /f1,f2-> real(f1) >= real(f2)],"
-        "['<=', /f1,f2-> real(f1) <= real(f2)],"
-        "['>',  /f1,f2-> real(f1) >  real(f2)],"
-        "['<',  /f1,f2-> real(f1) <  real(f2)],"
-      "] "
-      "self._rules = {} "
-      "self._timers = [] "
-      "self._cmd = {} "
-      "self.init_ntv() "
-    "end "
-  "end "
-
   "class Tasmota: Tasmota_ntv "
-    // add `charsinstring(s:string,c:string) -> int``
+    // for now the variables are built, need to find a way to push in Flash
+    "def init() "
+      "self._op = ['==', '!==', '=', '!=', '>=', '<=', '>', '<'] "
+      "self._opf = [ "
+        "/s1,s2-> str(s1)  == str(s2),"
+        "/s1,s2-> str(s1)  != str(s2),"
+        "/f1,f2-> real(f1) == real(f2),"
+        "/f1,f2-> real(f1) != real(f2),"
+        "/f1,f2-> real(f1) >= real(f2),"
+        "/f1,f2-> real(f1) <= real(f2),"
+        "/f1,f2-> real(f1) >  real(f2),"
+        "/f1,f2-> real(f1) <  real(f2),"
+      "] "
+      "self._operators = \"=<>!|\" "
+    "end "
+    // add `chars_in_string(s:string,c:string) -> int``
     // looks for any char in c, and return the position of the first chat
     // or -1 if not found
-    "def charsinstring(s,c) "
+    "def chars_in_string(s,c) "
       "for i:0..size(s)-1 "
         "for j:0..size(c)-1 "
           "if s[i] == c[j] return i end "
@@ -99,7 +69,7 @@ const char berry_prog[] =
     "end "
 
     // find a key in map, case insensitive, return actual key or nil if not found
-    "def findkeyi(m,keyi) "
+    "def find_key_i(m,keyi) "
       "import string "
       "var keyu = string.toupper(keyi) "
       "if classof(m) == map "
@@ -111,40 +81,45 @@ const char berry_prog[] =
       "end "
     "end "
 
-    // Rules
-    "def addrule(pat,f) self._rules[pat] = f end "
-
     // # split the item when there is an operator, returns a list of (left,op,right)
     // # ex: "Dimmer>50" -> ["Dimmer",tasmota_gt,"50"]
     "def find_op(item) "
       "import string "
-      "var pos = self.charsinstring(item, self._operators) "
+      "var pos = self.chars_in_string(item, self._operators) "
       "if pos>=0 "
         "var op_split = string.split(item,pos) "
         // #print(op_split)
         "var op_left = op_split[0] "
         "var op_rest = op_split[1] "
         // # iterate through operators
-        "for op: self._op "
-          "if string.find(op_rest,op[0]) == 0 "
-            "var op_func = op[1] "
-            "var op_right = string.split(op_rest,size(op[0]))[1] "
+        "for i: 0..size(self._op)-1 "
+          "var op = self._op[i] "
+          "if string.find(op_rest,op) == 0 "
+            "var op_func = self._opf[i] "
+            "var op_right = string.split(op_rest,size(op))[1] "
             "return [op_left,op_func,op_right] "
           "end "
         "end "
       "end "
       "return [item, nil, nil] "
     "end "
+
+    // Rules
+    "def add_rule(pat,f) "
+      "if !self._rules "
+        "self._rules={} "
+      "end "
+      "self._rules[pat] = f "
+    "end "
   
     // Rules trigger if match. return true if match, false if not
-    // Note: condition is not yet managed
     "def try_rule(ev, rule, f) "
       "import string "
       "var rl_list = self.find_op(rule) "
       "var e=ev "
       "var rl=string.split(rl_list[0],'#') "
       "for it:rl "
-        "found=self.findkeyi(e,it) "
+        "found=self.find_key_i(e,it) "
         "if found == nil "
           "return false "
         "end "
@@ -165,55 +140,69 @@ const char berry_prog[] =
     // Run rules, i.e. check each individual rule
     // Returns true if at least one rule matched, false if none
     "def exec_rules(ev_json) "
-      "import json "
-      "var ev = json.load(ev_json) "
-      "var ret = false "
-      "if ev == nil "
-        "print('BRY: ERROR, bad json: '+ev_json, 3) "
-      "else "
-        "for r: self._rules.keys() "
-          "ret = self.try_rule(ev,r,self._rules[r]) || ret "
+      "if self._rules "
+        "import json "
+        "var ev = json.load(ev_json) "
+        "var ret = false "
+        "if ev == nil "
+          "print('BRY: ERROR, bad json: '+ev_json, 3) "
+        "else "
+          "for r: self._rules.keys() "
+            "ret = self.try_rule(ev,r,self._rules[r]) || ret "
+          "end "
         "end "
+        "return ret "
       "end "
-      "return ret "
+      "return false "
     "end "
   
-    "def settimer(delay,f) self._timers.push([self.millis(delay),f]) end "
+    "def set_timer(delay,f) "
+      "if !self._timers self._timers=[] end "
+      "self._timers.push([self.millis(delay),f]) "
+    "end "
 
+    // run every 50ms tick
     "def run_deferred() "
-      "var i=0 "
-      "while i<self._timers.size() "
-        "if self.timereached(self._timers[i][0]) "
-          "f=self._timers[i][1] "
-          "self._timers.remove(i) "
-          "f() "
-        "else "
-          "i=i+1 "
+      "if self._timers "
+        "var i=0 "
+        "while i<self._timers.size() "
+          "if self.time_reached(self._timers[i][0]) "
+            "f=self._timers[i][1] "
+            "self._timers.remove(i) "
+            "f() "
+          "else "
+            "i=i+1 "
+          "end "
         "end "
       "end "
     "end "
 
-    // Delay function, internally calls yield() every 10ms to avoid WDT
-    "def delay(ms) "
-      "var tend = self.millis(ms) "
-      "while !self.timereached(tend) "
-        "self.yield() "
-      "end "
-    "end "
+    // // Delay function, internally calls yield() every 10ms to avoid WDT
+    // "def delay(ms) "
+    //   "var tend = self.millis(ms) "
+    //   "while !self.time_reached(tend) "
+    //     "self.yield() "
+    //   "end "
+    // "end "
 
     // Add command to list
-    "def addcommand(c,f) "
+    "def add_cmd(c,f) "
+      "if !self._cmd "
+        "self._cmd={} "
+      "end "
       "self._cmd[c]=f "
     "end "
 
     "def exec_cmd(cmd, idx, payload) "
-      "import json "
-      "var payload_json = json.load(payload) "
-      "var cmd_found = self.findkeyi(self._cmd, cmd) "
-      "if cmd_found != nil "
-        "self.resolvecmnd(cmd_found) "  // set the command name in XdrvMailbox.command
-        "self._cmd[cmd_found](cmd_found, idx, payload, payload_json) "
-        "return true "
+      "if self._cmd "
+        "import json "
+        "var payload_json = json.load(payload) "
+        "var cmd_found = self.find_key_i(self._cmd, cmd) "
+        "if cmd_found != nil "
+          "self.resolvecmnd(cmd_found) "  // set the command name in XdrvMailbox.command
+          "self._cmd[cmd_found](cmd_found, idx, payload, payload_json) "
+          "return true "
+        "end "
       "end "
       "return false "
     "end "
@@ -225,16 +214,62 @@ const char berry_prog[] =
       "return gc.allocated() "
     "end "
 
+    //
+    // Event from Tasmota is:
+    // 1. event:string        -- type of event (cmd, rule, ...)
+    // 2. cmd:string          -- name of the command to process
+    // 3. index:int           -- index number
+    // 4. payload:string      -- payload as text, analyzed as json
+    //
+    "def event(type, cmd, idx, payload) "
+      "if type=='cmd' return self.exec_cmd(cmd, idx, payload) "
+      "elif type=='rule' return self.exec_rules(payload) "
+      "elif type=='mqtt_data' return nil "    // not yet implemented
+      "elif type=='gc' return self.gc() "
+      "elif type=='every_50ms' return self.run_deferred() "
+      "elif self._drivers "
+        "for d:self._drivers "
+          "try "
+            "if d.dispatch && d.dispatch(type, cmd, idx, payload) nil " // nil for `nop`
+            "elif type=='every_second' && d.every_second return d.every_second() "
+            "elif type=='every_100ms' && d.every_100ms return d.every_100ms() "
+            "end "
+          "except .. as e,m "
+            "import string "
+            "log(string.format('BRY: exception %s - %m',3)) "
+          "end "
+        "end "
+      "end "
+    "end "
+    //
+    // add driver to the queue of event dispatching
+    //
+    "def add_driver(d) "
+      "if self._drivers "
+        "self._drivers.push(d) "
+      "else "
+        "self._drivers = [d]"
+      "end "
+    "end "
+
   "end "
 
   // Instantiate tasmota object
   "tasmota = Tasmota() "
+  "wire = Wire(0) "
+  "wire1 = wire "
+  "wire2 = Wire(1) "
 
-  // Not sure how to run call methods from C
-  "def _exec_rules(e) return tasmota.exec_rules(e) end "
-  "def _run_deferred() return tasmota.run_deferred() end "
-  "def _exec_cmd(cmd, idx, payload) return tasmota.exec_cmd(cmd, idx, payload) end "
-  "def _gc() return tasmota.gc() end "
+  //
+  // Base class for Tasmota Driver
+  //
+  "class Driver "
+    // functions are needs to be set to trigger an event
+    "var dispatch "       // general dispatcher, returns true if serviced
+    "var every_second "   // called every_second
+    "var every_100ms "    // called every 100ms
+    // ...
+  "end "
 
   // simple wrapper to load a file
   // prefixes '/' if needed, and simpler to use than `compile()`
@@ -253,19 +288,30 @@ const char berry_prog[] =
       "var c = compile(f,'file') "
       // save the compiled bytecode
       "if !native "
-        "save(f+'c', c) "
+        "try "
+          "save(f+'c', c) "
+        "except .. as e "
+          "log(string.format('BRY: could not save compiled file %s (%s)',f+'c',e)) "
+        "end "
       "end "
       // call the compiled code
       "c() "
+      "log(string.format(\"BRY: sucessfully loaded '%s'\",f)) "
     "except .. as e "
-      "log(string.format(\"BRY: could not load file '%s' - %s\",f,e)) "
+      "raise \"io_error\",string.format(\"Could not load file '%s'\",f) " 
     "end "
   "end "
 
   // try to load "/autoexec.be"
   // "try compile('/autoexec.be','file')() except .. log('BRY: no /autoexec.bat file') end "
-
-  // Wire
   ;
 
+const char berry_autoexec[] =
+  // load "autoexec.be" using import, which loads either .be or .bec file
+  "try "
+    "load('autoexec.be') "
+  "except .. "
+    "log(\"BRY: No 'autoexec.be' file\") " 
+  "end "
+  ;
 #endif  // USE_BERRY
