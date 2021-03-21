@@ -35,49 +35,6 @@ enum ColorType { COLOR_BW, COLOR_COLOR };
 VButton *buttons[MAX_TOUCH_BUTTONS];
 #endif
 
-#ifdef USE_GRAPH
-
-typedef union {
-  uint8_t data;
-  struct {
-      uint8_t overlay : 1;
-      uint8_t draw : 1;
-      uint8_t nu3 : 1;
-      uint8_t nu4 : 1;
-      uint8_t nu5 : 1;
-      uint8_t nu6 : 1;
-      uint8_t nu7 : 1;
-      uint8_t nu8 : 1;
-  };
-} GFLAGS;
-
-struct GRAPH {
-  uint16_t xp;
-  uint16_t yp;
-  uint16_t xs;
-  uint16_t ys;
-  float ymin;
-  float ymax;
-  float range;
-  uint32_t x_time;       // time per x slice in milliseconds
-  uint32_t last_ms;
-  uint32_t last_ms_redrawn;
-  int16_t decimation; // decimation or graph duration in minutes
-  uint16_t dcnt;
-  uint32_t summ;
-  uint16_t xcnt;
-  uint8_t *values;
-  uint8_t xticks;
-  uint8_t yticks;
-  uint8_t last_val;
-  uint8_t color_index;
-  GFLAGS flags;
-};
-
-struct GRAPH *graph[NUM_GRAPHS];
-#endif // USE_GRAPH
-
-
 // drawing color is WHITE
 // on epaper the whole display buffer is transfered inverted this results in white paper
 uint16_t fg_color = 1;
@@ -208,6 +165,48 @@ uint8_t disp_screen_buffer_rows = 0;
 bool disp_subscribed = false;
 
 #endif  // USE_DISPLAY_MODES1TO5
+
+#ifdef USE_GRAPH
+
+typedef union {
+  uint8_t data;
+  struct {
+      uint8_t overlay : 1;
+      uint8_t draw : 1;
+      uint8_t nu3 : 1;
+      uint8_t nu4 : 1;
+      uint8_t nu5 : 1;
+      uint8_t nu6 : 1;
+      uint8_t nu7 : 1;
+      uint8_t nu8 : 1;
+  };
+} GFLAGS;
+
+struct GRAPH {
+  uint16_t xp;
+  uint16_t yp;
+  uint16_t xs;
+  uint16_t ys;
+  float ymin;
+  float ymax;
+  float range;
+  uint32_t x_time;       // time per x slice in milliseconds
+  uint32_t last_ms;
+  uint32_t last_ms_redrawn;
+  int16_t decimation; // decimation or graph duration in minutes
+  uint16_t dcnt;
+  uint32_t summ;
+  uint16_t xcnt;
+  uint8_t *values;
+  uint8_t xticks;
+  uint8_t yticks;
+  uint8_t last_val;
+  uint8_t color_index;
+  GFLAGS flags;
+};
+
+struct GRAPH *graph[NUM_GRAPHS];
+#endif // USE_GRAPH
 
 /*********************************************************************************************/
 
@@ -1686,7 +1685,7 @@ void CmndDisplay(void)
     D_CMND_DISP_MODE "\":%d,\"" D_CMND_DISP_DIMMER "\":%d,\"" D_CMND_DISP_SIZE "\":%d,\"" D_CMND_DISP_FONT "\":%d,\""
     D_CMND_DISP_ROTATE "\":%d,\"" D_CMND_DISP_REFRESH "\":%d,\"" D_CMND_DISP_COLS "\":[%d,%d],\"" D_CMND_DISP_ROWS "\":%d}}"),
     Settings.display_model, Settings.display_width, Settings.display_height,
-    Settings.display_mode, ((Settings.display_dimmer * 666) / 100) +1, Settings.display_size, Settings.display_font,
+    Settings.display_mode, changeUIntScale(Settings.display_dimmer, 0, 15, 0, 100), Settings.display_size, Settings.display_font,
     Settings.display_rotate, Settings.display_refresh, Settings.display_cols[0], Settings.display_cols[1], Settings.display_rows);
 }
 
@@ -1759,7 +1758,7 @@ void CmndDisplayMode(void)
 
 void CmndDisplayDimmer(void) {
   if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload <= 100)) {
-    Settings.display_dimmer = ((XdrvMailbox.payload +1) * 100) / 666;  // Correction for Domoticz (0 - 15)
+    Settings.display_dimmer = changeUIntScale(XdrvMailbox.payload, 0, 100, 0, 15);  // Correction for Domoticz (0 - 15)
     if (Settings.display_dimmer && !(disp_power)) {
       ExecuteCommandPower(disp_device, POWER_ON, SRC_DISPLAY);
     }
@@ -1772,7 +1771,7 @@ void CmndDisplayDimmer(void) {
       XdspCall(FUNC_DISPLAY_DIM);
     }
   }
-  ResponseCmndNumber(((Settings.display_dimmer * 666) / 100) +1);
+  ResponseCmndNumber(changeUIntScale(Settings.display_dimmer, 0, 15, 0, 100));
 }
 
 void CmndDisplayBlinkrate(void)
@@ -2216,8 +2215,9 @@ void DrawAClock(uint16_t rad) {
  * Graphics
 \*********************************************************************************************/
 
-#ifdef USE_GRAPH
 
+
+#ifdef USE_GRAPH
 #define TICKLEN 4
 void ClrGraph(uint16_t num) {
   struct GRAPH *gp=graph[num];
