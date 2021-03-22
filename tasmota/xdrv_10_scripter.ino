@@ -776,7 +776,7 @@ char *script;
 
     script_mem_size += 16;
     uint8_t *script_mem;
-    script_mem = (uint8_t*)calloc(script_mem_size, 1);
+    script_mem = (uint8_t*)special_malloc(script_mem_size);
     if (!script_mem) {
       if (imemptr) free(imemptr);
       return -4;
@@ -2175,7 +2175,7 @@ chknext:
           if (ef) {
             uint16_t fsiz = ef.size();
             if (fsiz<2048) {
-              char *script = (char*)calloc(fsiz + 16, 1);
+              char *script = (char*)special_malloc(fsiz + 16);
               if (script) {
                 ef.read((uint8_t*)script,fsiz);
                 execute_script(script);
@@ -6428,7 +6428,7 @@ char buff[512];
     #define infoHeaderSize 40
     if (buffer) {
       uint8_t *bp = buffer;
-      uint8_t *lbuf = (uint8_t*)calloc(Settings.display_width + 2, 3);
+      uint8_t *lbuf = (uint8_t*)special_malloc(Settings.display_width + 2);
       uint8_t *lbp;
       uint8_t fileHeader[fileHeaderSize];
       createBitmapFileHeader(Settings.display_height , Settings.display_width , fileHeader);
@@ -7688,7 +7688,7 @@ bool Xdrv10(uint8_t function)
         // we have a file system
         AddLog(LOG_LEVEL_INFO,PSTR("UFILESYSTEM OK!"));
         char *script;
-        script = (char*)calloc(UFSYS_SIZE + 4, 1);
+        script = (char*)special_malloc(UFSYS_SIZE + 4);
         if (!script) break;
         glob_script_mem.script_ram = script;
         glob_script_mem.script_size = UFSYS_SIZE;
