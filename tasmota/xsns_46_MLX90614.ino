@@ -35,7 +35,6 @@ struct  {
   union {
     uint16_t value;
     uint32_t i2c_buf;
-    uint8_t buff[4];
     };
   float obj_temp;
   float amb_temp;
