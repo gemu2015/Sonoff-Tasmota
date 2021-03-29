@@ -2494,6 +2494,9 @@ init10:
         if (meter_desc_p[meters].sopt == 2) {
           smode = SERIAL_8N2;
         }
+        if (meter_desc_p[meters].sopt == 3) {
+          smode = SERIAL_8O2;
+        }
         if (meter_desc_p[meters].type=='M') {
           smode = SERIAL_8E1;
           if (meter_desc_p[meters].sopt == 2) {
