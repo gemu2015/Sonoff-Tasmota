@@ -51,14 +51,14 @@ void MLX90614_Init(void)
 void MLX90614_Every_Second(void)
 {
     //mlx90614.i2c_buf = I2cRead24(I2_ADR_IRT, MLX90614_TOBJ1);
-    mlx90614.value = MLX90614_read16(MLX90614_TOBJ1);
+    mlx90614.value = MLX90614_read16(I2_ADR_IRT, MLX90614_TOBJ1);
     if (mlx90614.value & 0x8000) {
       mlx90614.obj_temp = -999;
     } else {
       mlx90614.obj_temp = ((float)mlx90614.value * 0.02) - 273.15;
     }
     //mlx90614.i2c_buf = I2cRead24(I2_ADR_IRT,MLX90614_TA);
-    mlx90614.value = MLX90614_read16(MLX90614_TA);
+    mlx90614.value = MLX90614_read16(I2_ADR_IRT, MLX90614_TA);
     if (mlx90614.value & 0x8000) {
       mlx90614.amb_temp = -999;
     } else {
@@ -88,26 +88,28 @@ void MLX90614_Show(uint8_t json)
   }
 }
 
-uint16_t MLX90614_read16(uint8_t a) {
+uint16_t MLX90614_read16(uint8_t addr, uint8_t a) {
   uint16_t ret;
 
-  Wire.beginTransmission(I2_ADR_IRT); // start transmission to device
-  Wire.write(a);                 // sends register address to read from
-  Wire.endTransmission(false);   // end transmission
+  Wire.beginTransmission(addr);
+  Wire.write(a);
+  Wire.endTransmission(false);
 
-  Wire.requestFrom(I2_ADR_IRT, (size_t)3); // send data n-bytes read
-  uint8_t buff[4];
-  buff[0] = I2_ADR_IRT << 1;
+  Wire.requestFrom(addr, (size_t)3);
+  uint8_t buff[5];
+  buff[0] = addr << 1;
   buff[1] = a;
-  buff[2] = Wire.read();                  // receive DATA
-  buff[3] = Wire.read();                  // receive DATA
-  ret = buff[2] | (buff[3] << 8);
+  buff[2] = (addr << 1) | 1;
+  buff[3] = Wire.read();
+  buff[4] = Wire.read();
+  ret = buff[3] | (buff[4] << 8);
   uint8_t pec = Wire.read();
+  uint8_t cpec = MLX90614_crc8(buff, sizeof(buff));
+  //AddLog(LOG_LEVEL_INFO,PSTR("%x - %x"),pec, cpec);
 
-  if (pec != MLX90614_crc8(buff, 4)) {
-  //  AddLog(LOG_LEVEL_INFO,PSTR("checksum error"));
+  if (pec != cpec) {
+    AddLog(LOG_LEVEL_INFO,PSTR("mlx checksum error"));
   }
-
   return ret;
 }
 
