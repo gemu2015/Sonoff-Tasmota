@@ -6392,12 +6392,9 @@ extern uint8_t *buffer;
 
 void SendFile(char *fname) {
 char buff[512];
-  const char *mime;
+  const char *mime = 0;
   uint8_t sflg = 0;
-  char *jpg = strstr(fname,".jpg");
-  if (jpg) {
-    mime = "image/jpeg";
-  }
+
 
 #ifdef USE_DISPLAY_DUMP
   char *sbmp = strstr_P(fname, PSTR("scrdmp.bmp"));
@@ -6406,18 +6403,25 @@ char buff[512];
   }
 #endif // USE_DISPLAY_DUMP
 
-  char *bmp = strstr(fname, ".bmp");
+  char *jpg = strstr_P(fname, PSTR(".jpg"));
+  if (jpg) {
+    mime = "image/jpeg";
+  }
+  char *bmp = strstr_P(fname, PSTR(".bmp"));
   if (bmp) {
     mime = "image/bmp";
   }
-  char *html = strstr(fname, ".html");
+  char *html = strstr_P(fname, PSTR(".html"));
   if (html) {
     mime = "text/html";
   }
-  char *txt = strstr(fname, ".txt");
+  char *txt = strstr_P(fname, PSTR(".txt"));
   if (txt) {
     mime = "text/plain";
   }
+
+  if (!mime) return;
+
 
   WSContentSend_P(HTTP_SCRIPT_MIMES, fname, mime);
 
@@ -6428,7 +6432,8 @@ char buff[512];
     #define infoHeaderSize 40
     if (buffer) {
       uint8_t *bp = buffer;
-      uint8_t *lbuf = (uint8_t*)special_malloc(Settings.display_width + 2);
+      uint8_t *lbuf = (uint8_t*)special_malloc(Settings.display_width * 3 + 2);
+      if (!lbuf) return;
       uint8_t *lbp;
       uint8_t fileHeader[fileHeaderSize];
       createBitmapFileHeader(Settings.display_height , Settings.display_width , fileHeader);
@@ -7873,7 +7878,7 @@ bool Xdrv10(uint8_t function)
       Webserver->on("/exs", HTTP_GET, ScriptExecuteUploadSuccess);
 #endif // USE_WEBSERVER
       break;
-      
+
     case FUNC_SAVE_BEFORE_RESTART:
       if (bitRead(Settings.rule_enabled, 0)) {
         Run_Scripter(">R", 2, 0);
