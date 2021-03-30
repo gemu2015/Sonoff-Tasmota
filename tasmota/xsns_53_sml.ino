@@ -2296,17 +2296,17 @@ dddef_exit:
             switch (*lp) {
               case 'N':
                 lp++;
-                script_meter_desc[index].sopt = 0x10 | *lp&3;
+                script_meter_desc[index].sopt = 0x10 | (*lp & 3);
                 lp++;
                 break;
               case 'E':
                 lp++;
-                script_meter_desc[index].sopt = 0x20 | *lp&3;
+                script_meter_desc[index].sopt = 0x20 | (*lp & 3);
                 lp++;
                 break;
               case 'O':
                 lp++;
-                script_meter_desc[index].sopt = 0x30 | *lp&3;
+                script_meter_desc[index].sopt = 0x30 | (*lp & 3);
                 lp++;
                 break;
               default:
