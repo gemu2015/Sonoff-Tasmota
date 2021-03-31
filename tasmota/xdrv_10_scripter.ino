@@ -3046,7 +3046,8 @@ chknext:
         }
         if (!strncmp(vname, "smld(", 5)) {
           lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
-          SML_Decode(fvar);
+          if (fvar < 1) fvar = 1;
+          SML_Decode(fvar - 1);
           lp++;
           len = 0;
           goto exit;
