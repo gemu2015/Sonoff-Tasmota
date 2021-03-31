@@ -3044,6 +3044,13 @@ chknext:
           tind->index = SML_JSON_ENABLE;
           goto exit_settable;
         }
+        if (!strncmp(vname, "smld(", 5)) {
+          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
+          SML_Decode(fvar);
+          lp++;
+          len = 0;
+          goto exit;
+        }
 #endif //USE_SML_M
         break;
       case 't':
