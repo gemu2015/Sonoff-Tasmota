@@ -6296,71 +6296,7 @@ String ScriptUnsubscribe(const char * data, int data_len)
 
 #ifdef USE_SCRIPT_WEB_DISPLAY
 
-#ifdef SCRIPT_FULL_WEBPAGE
-const char HTTP_WEB_FULL_DISPLAY[] PROGMEM =
-  "<p><form action='" "sfd" "' method='get'><button>" "%s" "</button></form></p>";
-
-const char HTTP_SCRIPT_FULLPAGE1[] PROGMEM =
-  "<!DOCTYPE html><html lang=\"" D_HTML_LANGUAGE "\" class=\"\">"
-  "<head>"
-  "<meta charset='utf-8'>"
-  "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1,user-scalable=no\"/>"
-  "<title>%s - %s</title>"
-  "<script>"
-  "var x=null,lt,to,tp,pc='';"            // x=null allow for abortion
-  "function eb(s){"
-    "return document.getElementById(s);"  // Alias to save code space
-  "}"
-  "function qs(s){"                       // Alias to save code space
-    "return document.querySelector(s);"
-  "}"
-  "function wl(f){"                       // Execute multiple window.onload
-    "window.addEventListener('load',f);"
-  "}"
-    "var rfsh=1;"
-    "function la(p){"
-      "var a='';"
-      "if(la.arguments.length==1){"
-        "a=p;"
-        "clearTimeout(lt);"
-      "}"
-      "if(x!=null){x.abort();}"             // Abort if no response within 2 seconds (happens on restart 1)
-      "x=new XMLHttpRequest();"
-      "x.onreadystatechange=function(){"
-        "if(x.readyState==4&&x.status==200){"
-          "var s=x.responseText.replace(/{t}/g,\"<table style='width:100%%'>\").replace(/{s}/g,\"<tr><th>\").replace(/{m}/g,\"</th><td>\").replace(/{e}/g,\"</td></tr>\").replace(/{c}/g,\"%%'><div style='text-align:center;font-weight:\");"
-          "eb('l1').innerHTML=s;"
-        "}"
-      "};"
-      "if (rfsh) {"
-        "x.open('GET','./sfd?m=1'+a,true);"       // ?m related to Webserver->hasArg("m")
-        "x.send();"
-        "lt=setTimeout(la,%d);"               // Settings.web_refresh
-      "}"
-    "}";
-
-const char HTTP_SCRIPT_FULLPAGE2[] PROGMEM =
-    "function seva(par,ivar){"
-      "la('&sv='+ivar+'_'+par);"
-    "}"
-    "function siva(par,ivar){"
-      "rfsh=1;"
-      "la('&sv='+ivar+'_'+par);"
-      "rfsh=0;"
-    "}"
-    "function pr(f){"
-      "if (f) {"
-        "lt=setTimeout(la,%d);"
-        "rfsh=1;"
-      "} else {"
-        "clearTimeout(lt);"
-        "rfsh=0;"
-      "}"
-    "}"
-    "</script>";
-
-
-#ifdef USE_SCRIPT_FATFS
+#ifdef USE_UFILESYS
 
 const char HTTP_SCRIPT_MIMES[] PROGMEM =
   "HTTP/1.1 200 OK\r\n"
@@ -6487,7 +6423,71 @@ char buff[512];
   }
   Webserver->client().stop();
 }
-#endif // USE_SCRIPT_FATFS
+#endif // USE_UFILESYS
+
+#ifdef SCRIPT_FULL_WEBPAGE
+const char HTTP_WEB_FULL_DISPLAY[] PROGMEM =
+  "<p><form action='" "sfd" "' method='get'><button>" "%s" "</button></form></p>";
+
+const char HTTP_SCRIPT_FULLPAGE1[] PROGMEM =
+  "<!DOCTYPE html><html lang=\"" D_HTML_LANGUAGE "\" class=\"\">"
+  "<head>"
+  "<meta charset='utf-8'>"
+  "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1,user-scalable=no\"/>"
+  "<title>%s - %s</title>"
+  "<script>"
+  "var x=null,lt,to,tp,pc='';"            // x=null allow for abortion
+  "function eb(s){"
+    "return document.getElementById(s);"  // Alias to save code space
+  "}"
+  "function qs(s){"                       // Alias to save code space
+    "return document.querySelector(s);"
+  "}"
+  "function wl(f){"                       // Execute multiple window.onload
+    "window.addEventListener('load',f);"
+  "}"
+    "var rfsh=1;"
+    "function la(p){"
+      "var a='';"
+      "if(la.arguments.length==1){"
+        "a=p;"
+        "clearTimeout(lt);"
+      "}"
+      "if(x!=null){x.abort();}"             // Abort if no response within 2 seconds (happens on restart 1)
+      "x=new XMLHttpRequest();"
+      "x.onreadystatechange=function(){"
+        "if(x.readyState==4&&x.status==200){"
+          "var s=x.responseText.replace(/{t}/g,\"<table style='width:100%%'>\").replace(/{s}/g,\"<tr><th>\").replace(/{m}/g,\"</th><td>\").replace(/{e}/g,\"</td></tr>\").replace(/{c}/g,\"%%'><div style='text-align:center;font-weight:\");"
+          "eb('l1').innerHTML=s;"
+        "}"
+      "};"
+      "if (rfsh) {"
+        "x.open('GET','./sfd?m=1'+a,true);"       // ?m related to Webserver->hasArg("m")
+        "x.send();"
+        "lt=setTimeout(la,%d);"               // Settings.web_refresh
+      "}"
+    "}";
+
+const char HTTP_SCRIPT_FULLPAGE2[] PROGMEM =
+    "function seva(par,ivar){"
+      "la('&sv='+ivar+'_'+par);"
+    "}"
+    "function siva(par,ivar){"
+      "rfsh=1;"
+      "la('&sv='+ivar+'_'+par);"
+      "rfsh=0;"
+    "}"
+    "function pr(f){"
+      "if (f) {"
+        "lt=setTimeout(la,%d);"
+        "rfsh=1;"
+      "} else {"
+        "clearTimeout(lt);"
+        "rfsh=0;"
+      "}"
+    "}"
+    "</script>";
+
 
 void ScriptFullWebpage(void) {
   uint32_t fullpage_refresh=10000;
