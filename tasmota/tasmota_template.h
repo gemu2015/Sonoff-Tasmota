@@ -156,6 +156,11 @@ enum UserSelectablePins {
   GPIO_CSE7761_TX, GPIO_CSE7761_RX,    // CSE7761 Serial interface (Dual R3)
   GPIO_VL53L0X_XSHUT1,                 // VL53L0X_XSHUT (the max number of sensors is VL53L0X_MAX_SENSORS)- Used when connecting multiple VL53L0X
   GPIO_MAX7219CLK, GPIO_MAX7219DIN, GPIO_MAX7219CS, // MAX7219 interface
+  GPIO_TFMINIPLUS_TX, GPIO_TFMINIPLUS_RX,  // TFmini Plus ToF sensor
+  GPIO_ZEROCROSS,
+#ifdef ESP32
+  GPIO_HALLEFFECT,
+#endif
   GPIO_SENSOR_END };
 
 enum ProgramSelectablePins {
@@ -332,6 +337,11 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_CSE7761_TX "|" D_SENSOR_CSE7761_RX "|"
   D_SENSOR_VL53L0X_XSHUT "|"
   D_SENSOR_MAX7219_CLK "|" D_SENSOR_MAX7219_DIN "|" D_SENSOR_MAX7219_CS "|"
+  D_SENSOR_TFMINIPLUS_TX "|" D_SENSOR_TFMINIPLUS_RX "|"
+  D_SENSOR_ZEROCROSS "|"
+#ifdef ESP32
+  D_SENSOR_HALLEFFECT "|"
+#endif
   ;
 
 const char kSensorNamesFixed[] PROGMEM =
@@ -563,6 +573,10 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_HX711_SCK),      // HX711 Load Cell clock
   AGPIO(GPIO_HX711_DAT),      // HX711 Load Cell data
 #endif
+#ifdef USE_TFMINIPLUS
+  AGPIO(GPIO_TFMINIPLUS_TX),      // TFmini Plus TX pin
+  AGPIO(GPIO_TFMINIPLUS_RX),      // TFmini Plus RX pin
+#endif
 
 /*-------------------------------------------------------------------------------------------*\
  * Energy sensors
@@ -643,6 +657,7 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_SDM72_TX),      // SDM72 Serial interface
   AGPIO(GPIO_SDM72_RX),      // SDM72 Serial interface
 #endif
+  AGPIO(GPIO_ZEROCROSS),
 #endif  // USE_ENERGY_SENSOR
 
 /*-------------------------------------------------------------------------------------------*\
@@ -791,18 +806,20 @@ const uint16_t kGpioNiceList[] PROGMEM = {
 #endif
 #ifdef USE_VL53L0X
   AGPIO(GPIO_VL53L0X_XSHUT1) + VL53L0X_MAX_SENSORS,  // When using multiple VL53L0X.
-#endif  
+#endif
 
 #ifdef USE_DISPLAY_MAX7219
   AGPIO(GPIO_MAX7219CLK),
   AGPIO(GPIO_MAX7219DIN),
   AGPIO(GPIO_MAX7219CS),
 #endif  // USE_DISPLAY_MAX7219
+
 /*-------------------------------------------------------------------------------------------*\
  * ESP32 specifics
 \*-------------------------------------------------------------------------------------------*/
 
 #ifdef ESP32
+  AGPIO(GPIO_HALLEFFECT) + 2,             // Hall effect sensor connected to GPIO36 and 39
 #ifdef USE_WEBCAM
   AGPIO(GPIO_WEBCAM_PWDN),
   AGPIO(GPIO_WEBCAM_RESET),
@@ -820,7 +837,7 @@ const uint16_t kGpioNiceList[] PROGMEM = {
 #ifdef USE_ETHERNET
   AGPIO(GPIO_ETH_PHY_POWER),
   AGPIO(GPIO_ETH_PHY_MDC),
-  AGPIO(GPIO_ETH_PHY_MDIO),  // Ethernet
+  AGPIO(GPIO_ETH_PHY_MDIO),               // Ethernet
 #endif  // USE_ETHERNET
 
 /*-------------------------------------------------------------------------------------------*\

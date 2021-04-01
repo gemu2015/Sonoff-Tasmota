@@ -155,6 +155,63 @@ char* GetStateText(uint32_t state)
   return SettingsText(SET_STATE_TXT1 + state);
 }
 
+/*********************************************************************************************\
+ * Zero-cross support
+\*********************************************************************************************/
+
+//#define DEBUG_ZEROCROSS
+
+void ZeroCrossMomentStart(void) {
+  if (!TasmotaGlobal.zc_interval) { return; }
+
+#ifdef DEBUG_ZEROCROSS
+  uint32_t dbg_interval = TasmotaGlobal.zc_interval;
+  uint32_t dbg_zctime = TasmotaGlobal.zc_time;
+  uint32_t dbg_starttime = micros();
+#endif
+
+  uint32_t trigger_moment = TasmotaGlobal.zc_time + TasmotaGlobal.zc_interval - TasmotaGlobal.zc_offset - TasmotaGlobal.zc_code_offset;
+  while (TimeReachedUsec(trigger_moment)) {    // Trigger moment already passed so try next
+    trigger_moment += TasmotaGlobal.zc_interval;
+  }
+  while (!TimeReachedUsec(trigger_moment)) {}  // Wait for trigger moment
+
+#ifdef DEBUG_ZEROCROSS
+  uint32_t dbg_endtime = micros();
+  AddLog(LOG_LEVEL_DEBUG, PSTR("ZCD: CodeExecTime %d, StartTime %u, EndTime %u, ZcTime %u, Interval %d"),
+    dbg_endtime - dbg_starttime, dbg_starttime, dbg_endtime, dbg_zctime, dbg_interval);
+#endif
+
+  TasmotaGlobal.zc_code_offset = micros();
+}
+
+void ZeroCrossMomentEnd(void) {
+  if (!TasmotaGlobal.zc_interval) { return; }
+  TasmotaGlobal.zc_code_offset = (micros() - TasmotaGlobal.zc_code_offset) / 2;
+
+#ifdef DEBUG_ZEROCROSS
+  AddLog(LOG_LEVEL_DEBUG, PSTR("ZCD: CodeExecTime %d"), TasmotaGlobal.zc_code_offset * 2);
+#endif
+}
+
+void ICACHE_RAM_ATTR ZeroCrossIsr(void) {
+  uint32_t time = micros();
+  TasmotaGlobal.zc_interval = ((int32_t) (time - TasmotaGlobal.zc_time));
+  TasmotaGlobal.zc_time = time;
+}
+
+void ZeroCrossInit(uint32_t offset) {
+  if (PinUsed(GPIO_ZEROCROSS)) {
+    TasmotaGlobal.zc_offset = offset;
+
+    uint32_t gpio = Pin(GPIO_ZEROCROSS);
+    pinMode(gpio, INPUT_PULLUP);
+    attachInterrupt(gpio, ZeroCrossIsr, CHANGE);
+
+    AddLog(LOG_LEVEL_INFO, PSTR("ZCD: Activated"));  // Zero-cross detection activated
+  }
+}
+
 /********************************************************************************************/
 
 void SetLatchingRelay(power_t lpower, uint32_t state)
@@ -232,6 +289,8 @@ void SetDevicePower(power_t rpower, uint32_t source)
 #endif  // ESP8266
   else
   {
+    ZeroCrossMomentStart();
+
     for (uint32_t i = 0; i < TasmotaGlobal.devices_present; i++) {
       power_t state = rpower &1;
       if (i < MAX_RELAYS) {
@@ -239,6 +298,8 @@ void SetDevicePower(power_t rpower, uint32_t source)
       }
       rpower >>= 1;
     }
+
+    ZeroCrossMomentEnd();
   }
 }
 
@@ -1504,6 +1565,10 @@ void SerialInput(void)
     TasmotaGlobal.serial_in_buffer[TasmotaGlobal.serial_in_byte_counter] = 0;                  // Serial data completed
     bool assume_json = (!Settings.flag.mqtt_serial_raw && (TasmotaGlobal.serial_in_buffer[0] == '{'));
 
+    if (serial_buffer_overrun) {
+      AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_COMMAND "Serial buffer overrun"));
+    }
+
     Response_P(PSTR("{\"" D_JSON_SERIALRECEIVED "\":"));
     if (assume_json) {
       ResponseAppend_P(TasmotaGlobal.serial_in_buffer);
@@ -1802,8 +1867,8 @@ void GpioInit(void)
 
   for (uint32_t i = 0; i < MAX_RELAYS; i++) {
     if (PinUsed(GPIO_REL1, i)) {
-      pinMode(Pin(GPIO_REL1, i), OUTPUT);
       TasmotaGlobal.devices_present++;
+      pinMode(Pin(GPIO_REL1, i), OUTPUT);
 #ifdef ESP8266
       if (EXS_RELAY == TasmotaGlobal.module_type) {
         digitalWrite(Pin(GPIO_REL1, i), bitRead(TasmotaGlobal.rel_inverted, i) ? 1 : 0);
@@ -1820,8 +1885,8 @@ void GpioInit(void)
         SetPin(Pin(GPIO_LED1, i), AGPIO(GPIO_ARIRFSEL));  // Legacy support where LED4 was Arilux RF enable
       } else {
 #endif
-        pinMode(Pin(GPIO_LED1, i), OUTPUT);
         TasmotaGlobal.leds_present++;
+        pinMode(Pin(GPIO_LED1, i), OUTPUT);
         digitalWrite(Pin(GPIO_LED1, i), bitRead(TasmotaGlobal.led_inverted, i));
 #ifdef USE_ARILUX_RF
       }

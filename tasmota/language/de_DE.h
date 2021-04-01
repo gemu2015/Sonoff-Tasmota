@@ -28,7 +28,7 @@
  * Use online command StateText to translate ON, OFF, HOLD and TOGGLE.
  * Use online command Prefix to translate cmnd, stat and tele.
  *
- * Updated until v9.3.1.1
+ * Updated until v9.3.1.2
 \*********************************************************************/
 
 //#define LANGUAGE_MODULE_NAME         // Enable to display "Module Generic" (ie Spanish), Disable to display "Generic Module" (ie English)
@@ -109,6 +109,7 @@
 #define D_GATEWAY "Gateway"
 #define D_GROUP "Gruppe"
 #define D_HOST "Host"
+#define D_HALL_EFFECT "Hall Effect"
 #define D_HOSTNAME "Hostname"
 #define D_HUMIDITY "Feuchtigkeit"
 #define D_ILLUMINANCE "Beleuchtungsstärke"
@@ -585,6 +586,10 @@
 #define D_StL1L2L3 "Ströme L1+L2+L3"
 #define D_SpL1L2L3 "Spannung L1+L2+L3/3"
 
+// xsns_86_tfminiplus.ino
+#define D_SIGNALSTRENGTH "Signalstärke"
+#define D_CHIPTEMPERATURE "Chip Temperatur"
+
 // tasmota_template.h - keep them as short as possible to be able to fit them in GUI drop down box
 #define D_SENSOR_NONE          "None"
 #define D_SENSOR_USER          "User"
@@ -801,9 +806,11 @@
 #define D_SENSOR_NEOPOOL_TX    "NeoPool Tx"
 #define D_SENSOR_NEOPOOL_RX    "NeoPool Rx"
 #define D_SENSOR_VL53L0X_XSHUT "VL53L0X XSHUT"
-#define D_NEW_ADDRESS          "Setting address to"
-#define D_OUT_OF_RANGE         "Out of Range"
-#define D_SENSOR_DETECTED      "detected"
+#define D_SENSOR_TFMINIPLUS_TX  "TFmini+ TX"
+#define D_SENSOR_TFMINIPLUS_RX  "TFmini+ RX"
+#define D_SENSOR_ZEROCROSS     "ZC Puls"
+#define D_SENSOR_HALLEFFECT    "HallEffect"
+
 
 // Units
 #define D_UNIT_AMPERE "A"
@@ -850,6 +857,10 @@
 #define D_UNIT_WATT "W"
 #define D_UNIT_WATTHOUR "Wh"
 #define D_UNIT_WATT_METER_QUADRAT "W/m²"
+
+#define D_NEW_ADDRESS          "Neue Addresse"
+#define D_OUT_OF_RANGE         "Außerhalb Bereich"
+#define D_SENSOR_DETECTED      "erkannt"
 
 //SDM220, SDM120, SDM72, LE01MR
 #define D_EXPORT_POWER    "Exportiere Leistung"

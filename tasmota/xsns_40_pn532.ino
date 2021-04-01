@@ -17,7 +17,6 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef ESP32
 #ifdef USE_PN532_HSU
 /*********************************************************************************************\
  * PN532 - 13.56 MHz RFID and NFC reader
@@ -578,4 +577,3 @@ bool Xsns40(uint8_t function) {
 }
 
 #endif  // USE_PN532_HSU
-#endif

@@ -28,7 +28,7 @@
  * Use online command StateText to translate ON, OFF, HOLD and TOGGLE.
  * Use online command Prefix to translate cmnd, stat and tele.
  *
- * Last update - 9.3.1.1 (17.03.2021)
+ * Last update - 9.3.1.2 (27.03.2021)
 \*********************************************************************/
 
 #define LANGUAGE_MODULE_NAME         // Enable to display "Module Generic" (ie Spanish), Disable to display "Generic Module" (ie English)
@@ -109,6 +109,7 @@
 #define D_GATEWAY "Gateway"
 #define D_GROUP "Gruppo"
 #define D_HOST "Host"
+#define D_HALL_EFFECT "Effetto hall"
 #define D_HOSTNAME "Nome host"
 #define D_HUMIDITY "Umidità"
 #define D_ILLUMINANCE "Illuminazione"
@@ -211,7 +212,7 @@
 #define D_ANALOG_INPUT "Ingresso analogico"
 
 // support.ino
-#define D_OSWATCH "osWatch"
+#define D_OSWATCH "S.O. orologio"
 #define D_BLOCKED_LOOP "Ciclo bloccato"
 #define D_WPS_FAILED_WITH_STATUS "WPSconfig fallito con stato"
 #define D_ACTIVE_FOR_3_MINUTES "Attivo per 3 minuti"
@@ -296,7 +297,7 @@
 
 #define D_MQTT_PARAMETERS "Parametri MQTT"
 #define D_CLIENT "Client"
-#define D_FULL_TOPIC "Full topic"
+#define D_FULL_TOPIC "Argomento completo"
 
 #define D_LOGGING_PARAMETERS "Livelli registri eventi"
 #define D_SERIAL_LOG_LEVEL "Livello registro seriale"
@@ -585,6 +586,10 @@
 #define D_StL1L2L3 "Corrente L1+L2+L3"
 #define D_SpL1L2L3 "Tensione L1+L2+L3/3"
 
+// xsns_86_tfminiplus.ino
+#define D_SIGNALSTRENGTH "Livello segnale"
+#define D_CHIPTEMPERATURE "Temperatura chip"
+
 // tasmota_template.h - keep them as short as possible to be able to fit them in GUI drop down box
 #define D_SENSOR_NONE          "Nessuno"
 #define D_SENSOR_USER          "Utente"
@@ -801,9 +806,11 @@
 #define D_SENSOR_NEOPOOL_TX    "NeoPool - TX"
 #define D_SENSOR_NEOPOOL_RX    "NeoPool - RX"
 #define D_SENSOR_VL53L0X_XSHUT "VL53L0X XSHUT"
-#define D_NEW_ADDRESS          "Imposta indirizzo a"
-#define D_OUT_OF_RANGE         "Fuori limite"
-#define D_SENSOR_DETECTED      "rilevato"
+#define D_SENSOR_TFMINIPLUS_TX  "TFmini+ - TX"
+#define D_SENSOR_TFMINIPLUS_RX  "TFmini+ - RX"
+#define D_SENSOR_ZEROCROSS     "Impulsi ZC"
+#define D_SENSOR_HALLEFFECT    "Effetto hall"
+
 
 // Units
 #define D_UNIT_AMPERE "A"
@@ -850,6 +857,10 @@
 #define D_UNIT_WATT "W"
 #define D_UNIT_WATTHOUR "Wh"
 #define D_UNIT_WATT_METER_QUADRAT "W/m²"
+
+#define D_NEW_ADDRESS          "Imposta indirizzo a"
+#define D_OUT_OF_RANGE         "Fuori intervallo"
+#define D_SENSOR_DETECTED      "rilevato"
 
 //SDM220, SDM120, SDM72, LE01MR
 #define D_EXPORT_POWER    "Potenza esportata"

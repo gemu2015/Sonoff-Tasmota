@@ -33,6 +33,11 @@
 #define CODE_IMAGE_STR "webcam"
 
 #define USE_WEBCAM
+#define USE_UFILESYS
+#define USE_SDCARD
+  #define GUI_TRASH_FILE
+#define USE_SPI
+#undef USE_BERRY                                 // Disable Berry scripting language
 #undef  USE_MI_ESP32                             // (ESP32 only) Disable support for ESP32 as a BLE-bridge (+9k2 mem, +292k flash)
 #endif  // FIRMWARE_WEBCAM
 
@@ -56,8 +61,9 @@
 #define USE_SDCARD
   #define GUI_TRASH_FILE
 
-#define USE_BERRY                                // Enable Berry scripting language
+#ifdef USE_BERRY                                 // Berry scripting language
   #define USE_BERRY_PSRAM                        // Allocate Berry memory in PSRAM if PSRAM is connected - this might be slightly slower but leaves main memory intact
+#endif
 
 #define USE_ADC
 #define USE_SPI
@@ -89,8 +95,9 @@
 #define USE_SDCARD
   #define GUI_TRASH_FILE
 
-#define USE_BERRY                                // Enable Berry scripting language
+#ifdef USE_BERRY                                 // Berry scripting language
   #define USE_BERRY_PSRAM                        // Allocate Berry memory in PSRAM if PSRAM is connected - this might be slightly slower but leaves main memory intact
+#endif
 
 #define USE_I2C
   #define USE_BMA423
@@ -144,6 +151,7 @@
 #define USE_SDCARD
   #define GUI_TRASH_FILE
 #define USE_ADC
+#undef USE_BERRY                                 // Disable Berry scripting language
 #define USE_BLE_ESP32                            // Enable new BLE driver
 #define USE_MI_ESP32                             // (ESP32 only) Add support for ESP32 as a BLE-bridge (+9k2 mem, +292k flash)
 #endif  // FIRMWARE_BLUETOOTH
@@ -179,6 +187,7 @@
 
 #define USE_LIGHT_PALETTE                        // Add support for color palette (+0k9 code)
 
+#define USE_HALLEFFECT                           // Add support for internal Hall Effcet sensor connected to GPIO36 and GPIO39
 #define USE_DS18x20                              // Add support for DS18x20 sensors with id sort, single scan and read retry (+1k3 code)
 
 #define USE_I2C                                  // I2C using library wire (+10k code, 0k2 mem, 124 iram)
@@ -204,7 +213,8 @@
 //#define USE_MCP230xx                           // [I2cDriver22] Enable MCP23008/MCP23017 - Must define I2C Address in #define USE_MCP230xx_ADDR below - range 0x20 - 0x27 (+4k7 code)
 //#define USE_PCA9685                            // [I2cDriver1] Enable PCA9685 I2C HW PWM Driver - Must define I2C Address in #define USE_PCA9685_ADDR below - range 0x40 - 0x47 (+1k4 code)
 //#define USE_MPR121                             // [I2cDriver23] Enable MPR121 controller (I2C addresses 0x5A, 0x5B, 0x5C and 0x5D) in input mode for touch buttons (+1k3 code)
-#define USE_CCS811                             // [I2cDriver24] Enable CCS811 sensor (I2C address 0x5A) (+2k2 code)
+//#define USE_CCS811                             // [I2cDriver24] Enable CCS811 sensor (I2C address 0x5A) (+2k2 code)
+#define USE_CCS811_V2                          // [I2cDriver24] Enable CCS811 sensor (I2C addresses 0x5A and 0x5B) (+2k8 code)
 #define USE_MPU6886                              // [I2cDriver??] Enable MPU6886 6-axis MotionTracking sensor (I2C address 0x68)
 //#define USE_MPU6050                            // [I2cDriver25] Enable MPU6050 sensor (I2C address 0x68 AD0 low or 0x69 AD0 high) (+3K3 of code and 188 Bytes of RAM)
 //#define USE_DS3231                             // [I2cDriver26] Enable DS3231 external RTC in case no Wifi is avaliable. See docs in the source file (+1k2 code)
@@ -286,6 +296,7 @@
 //  #define USE_PROJECTOR_CTRL_NEC                 // Use codes for NEC
 //  #define USE_PROJECTOR_CTRL_OPTOMA              // Use codes for OPTOMA
 //#define USE_AS608                                // Add support for AS608 optical and R503 capacitive fingerprint sensor (+3k4 code)
+//#define USE_TFMINIPLUS                           // Add support for TFmini Plus (TFmini, TFmini-S) LiDAR modules via UART interface
 
 #define USE_ENERGY_SENSOR                        // Add energy sensors (-14k code)
 #define USE_PZEM004T                             // Add support for PZEM004T Energy monitor (+2k code)

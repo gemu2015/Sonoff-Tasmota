@@ -109,6 +109,7 @@
 #define D_GATEWAY "Шлюз"
 #define D_GROUP "Группа"
 #define D_HOST "Хост"
+#define D_HALL_EFFECT "Hall Effect"
 #define D_HOSTNAME "Имя Хоста"
 #define D_HUMIDITY "Влажность"
 #define D_ILLUMINANCE "Освещенность"
@@ -585,6 +586,10 @@
 #define D_StL1L2L3 "Current L1+L2+L3"
 #define D_SpL1L2L3 "Voltage L1+L2+L3/3"
 
+// xsns_86_tfminiplus.ino
+#define D_SIGNALSTRENGTH "Signal Strength"
+#define D_CHIPTEMPERATURE "Chip Temperature"
+
 // tasmota_template.h - keep them as short as possible to be able to fit them in GUI drop down box
 #define D_SENSOR_NONE          "-нет-"
 #define D_SENSOR_USER          "User"
@@ -801,9 +806,11 @@
 #define D_SENSOR_NEOPOOL_TX    "NeoPool Tx"
 #define D_SENSOR_NEOPOOL_RX    "NeoPool Rx"
 #define D_SENSOR_VL53L0X_XSHUT "VL53L0X XSHUT"
-#define D_NEW_ADDRESS          "Setting address to"
-#define D_OUT_OF_RANGE         "Out of Range"
-#define D_SENSOR_DETECTED      "detected"
+#define D_SENSOR_TFMINIPLUS_TX  "TFmini+ TX"
+#define D_SENSOR_TFMINIPLUS_RX  "TFmini+ RX"
+#define D_SENSOR_ZEROCROSS     "ZC Pulse"
+#define D_SENSOR_HALLEFFECT    "HallEffect"
+
 
 // Units
 #define D_UNIT_AMPERE "А"
@@ -850,6 +857,10 @@
 #define D_UNIT_WATT "Вт"
 #define D_UNIT_WATTHOUR "ВтЧ"
 #define D_UNIT_WATT_METER_QUADRAT "W/m²"
+
+#define D_NEW_ADDRESS          "Setting address to"
+#define D_OUT_OF_RANGE         "Out of Range"
+#define D_SENSOR_DETECTED      "detected"
 
 //SDM220, SDM120, SDM72, LE01MR
 #define D_EXPORT_POWER    "Export Power"

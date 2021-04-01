@@ -18,9 +18,9 @@
 | USE_WEBSEND_RESPONSE  | - | - | - | - | - | - | - |
 | USE_EMULATION_HUE     | - | x | x | - | x | - | - |
 | USE_EMULATION_WEMO    | - | x | x | - | x | - | - |
-| USE_DISCOVERY         | - | - | x | x | - | - | x |
+| USE_DISCOVERY         | - | - | - | - | - | - | - |
 | WEBSERVER_ADVERTISE   | - | - | x | x | - | - | x |
-| MQTT_HOST_DISCOVERY   | - | - | x | x | - | - | x |
+| MQTT_HOST_DISCOVERY   | - | - | - | - | - | - | - |
 | USE_TIMERS            | - | x | x | x | x | x | x |
 | USE_TIMERS_WEB        | - | x | x | x | x | x | x |
 | USE_SUNRISE           | - | x | x | x | x | x | x |
@@ -111,6 +111,7 @@
 | USE_PCA9685           | - | - | - | - | - | - | - |
 | USE_MPR121            | - | - | - | - | - | - | - |
 | USE_CCS811            | - | - | - | - | x | - | - |
+| USE_CCS811_V2         | - | - | - | - | - | - | - |
 | USE_MPU6050           | - | - | - | - | - | - | - |
 | USE_DS3231            | - | - | - | - | - | - | - |
 | USE_MGC3130           | - | - | - | - | - | - | - |
@@ -222,6 +223,7 @@
 | Feature or Sensor     | lite | tasmota | knx | sensors | ir | display | webcam | Remarks
 |-----------------------|-------|--------|-----|---------|----|---------|--------|--------
 | USE_UFILESYS          | x | x | x | x | x | x | x |
+| USE_HALLEFFECT        | x | x | x | x | x | x | x |
 | USE_MI_ESP32          | - | x | - | x | - | - | - | See SetOption115
 | USE_IBEACON_ESP32     | - | - | - | - | - | - | - |
 | USE_WEBCAM            | - | - | - | - | - | - | x |
