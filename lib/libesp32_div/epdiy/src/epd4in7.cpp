@@ -46,9 +46,6 @@ extern uint8_t *buffer;
 
 int temperature;
 
-EpdiyHighlevelState epd_hl_init(const EpdWaveform* waveform);
-
-
 EpdiyHighlevelState hl;
 
 Epd47::Epd47(int16_t dwidth, int16_t dheight) :  Renderer(dwidth, dheight) {

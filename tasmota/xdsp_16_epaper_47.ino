@@ -48,14 +48,6 @@ void EpdInitDriver47(void) {
       Settings.display_height = EPD47_HEIGHT;
     }
 
-    // allocate screen buffer
-    if (buffer) free(buffer);
-    buffer = (unsigned char*)ps_calloc(sizeof(uint8_t), (Settings.display_width * Settings.display_height) / 2);
-    if (!buffer) return;
-
-    memset(buffer, 0xFF, Settings.display_width * Settings.display_height / 2);
-
-
     // init renderer
     epd47  = new Epd47(Settings.display_width, Settings.display_height);
     epd47->Init();
