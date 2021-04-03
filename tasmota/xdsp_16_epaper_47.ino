@@ -23,8 +23,6 @@
 
 #define XDSP_16                16
 
-
-
 #define EPD47_BLACK  0
 #define EPD47_WHITE 15
 
