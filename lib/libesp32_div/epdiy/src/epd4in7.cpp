@@ -89,16 +89,34 @@ void Epd47::fillScreen(uint16_t color) {
    memset(buffer, icol, width * height / 2);
 }
 
-void Epd47::drawPixel(int16_t x, int16_t y, uint16_t color) {
+#define _swap(a, b) { uint16_t t = a; a = b; b = t; }
 
-    if (x < 0 || x >= width) {
-        return;
+void Epd47::drawPixel(int16_t x, int16_t y, uint16_t color) {
+uint16_t xp = x;
+uint16_t yp = y;
+
+  switch (getRotation()) {
+    case 1:
+      _swap(xp, yp);
+      xp = width - xp - 1;
+      break;
+    case 2:
+      xp = width - xp - 1;
+      yp = height - yp - 1;
+      break;
+    case 3:
+      _swap(xp, yp);
+      yp = height - yp - 1;
+      break;
+  }
+
+    uint32_t maxsize = width * height / 2;
+    uint8_t *buf_ptr = &buffer[yp * width / 2 + xp / 2];
+    if ((uint32_t)buf_ptr >= (uint32_t)buffer + maxsize) {
+      return;
     }
-    if (y < 0 || y >= height) {
-        return;
-    }
-    uint8_t *buf_ptr = &buffer[y * width / 2 + x / 2];
-    if (x % 2) {
+
+    if (xp % 2) {
         *buf_ptr = (*buf_ptr & 0x0F) | (color << 4);
     } else {
         *buf_ptr = (*buf_ptr & 0xF0) | (color & 0xf);
