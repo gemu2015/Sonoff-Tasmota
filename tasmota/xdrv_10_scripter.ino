@@ -511,8 +511,10 @@ void RulesTeleperiod(void) {
 
 void SetChanged(uint32_t index) {
   glob_script_mem.type[index].bits.changed = 1;
+#ifdef USE_SCRIPT_GLOBVARS
 #ifdef USE_HOMEKIT
   glob_script_mem.type[index].bits.hchanged = 1;
+#endif
 #endif
 //AddLog(LOG_LEVEL_INFO, PSTR("Change: %d"), index);
 }
@@ -3664,8 +3666,11 @@ int32_t UpdVar(char *vname, float *fvar, uint32_t mode) {
       } else {
         // get var
         //index = glob_script_mem.type[ind.index].index;
-        int32_t ret = glob_script_mem.type[ind.index].bits.hchanged;
+        int32_t ret = 0;
+#ifdef USE_SCRIPT_GLOBVARS
+        ret = glob_script_mem.type[ind.index].bits.hchanged;
         glob_script_mem.type[ind.index].bits.hchanged = 0;
+#endif
         //AddLog(LOG_LEVEL_DEBUG, PSTR("read from homekit: %s - %d - %d"), vname, (uint32_t)*fvar, ret);
         return ret;
       }
