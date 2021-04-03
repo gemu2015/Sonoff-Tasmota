@@ -52,7 +52,10 @@ int32_t Epd47::Init(void) {
   skipping = 0;
   epd_base_init(width);
 
-  conversion_lut = (uint8_t *)heap_caps_malloc(1 << 16, MALLOC_CAP_8BIT);
+//  conversion_lut = (uint8_t *)heap_caps_malloc(1 << 16, MALLOC_CAP_8BIT);
+
+  conversion_lut = (uint8_t *)heap_caps_malloc(1 << 16, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+
   assert(conversion_lut != NULL);
   output_queue = xQueueCreate(64, width / 2);
 
@@ -74,7 +77,6 @@ void Epd47::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
   cp437(true);
   setTextFont(font);
   setTextSize(size);
-  setTextColor(15,0);
   setCursor(0,0);
   fillScreen(15);
 }
@@ -417,8 +419,7 @@ void IRAM_ATTR Epd47::provide_out(OutputParams *params) {
                 // reduce line_bytes to actually used bytes
                 line_bytes += area.x / 2;
             }
-            line_bytes =
-                min(line_bytes, width / 2 - (uint32_t)(buf_start - line));
+            line_bytes = min(line_bytes, width / 2 - (uint32_t)(buf_start - line));
             memcpy(buf_start, ptr, line_bytes);
             ptr += area.width / 2 + area.width % 2;
 
@@ -507,8 +508,7 @@ void IRAM_ATTR Epd47::calc_epd_input_4bpp(uint32_t *line_data, uint8_t *epd_inpu
     }
 }
 
-void IRAM_ATTR Epd47::nibble_shift_buffer_right(uint8_t *buf, uint32_t len)
-{
+void IRAM_ATTR Epd47::nibble_shift_buffer_right(uint8_t *buf, uint32_t len) {
     uint8_t carry = 0xF;
     for (uint32_t i = 0; i < len; i++) {
         uint8_t val = buf[i];
@@ -517,9 +517,6 @@ void IRAM_ATTR Epd47::nibble_shift_buffer_right(uint8_t *buf, uint32_t len)
     }
 }
 
-/*
- * bit-shift a buffer `shift` <= 7 bits to the right.
- */
 void IRAM_ATTR Epd47::bit_shift_buffer_right(uint8_t *buf, uint32_t len, int shift) {
     uint8_t carry = 0x00;
     for (uint32_t i = 0; i < len; i++) {
@@ -540,8 +537,6 @@ void IRAM_ATTR tfeed_display(OutputParams *params) {
 }
 
 void IRAM_ATTR Epd47::epd_draw_image(Rect_t area, uint8_t *data, DrawMode mode) {
-    uint8_t line[width / 2];
-    memset(line, 255, width / 2);
     uint8_t frame_count = 15;
 
     SemaphoreHandle_t fetch_sem = xSemaphoreCreateBinary();
@@ -584,14 +579,14 @@ void IRAM_ATTR Epd47::epd_draw_image(Rect_t area, uint8_t *data, DrawMode mode) 
 
 void IRAM_ATTR Epd47::reset_lut(uint8_t *lut_mem, enum DrawMode mode) {
     switch (mode) {
-    case BLACK_ON_WHITE:
+      case BLACK_ON_WHITE:
         memset(lut_mem, 0x55, (1 << 16));
         break;
-    case WHITE_ON_BLACK:
-    case WHITE_ON_WHITE:
+      case WHITE_ON_BLACK:
+      case WHITE_ON_WHITE:
         memset(lut_mem, 0xAA, (1 << 16));
         break;
-    default:
+      default:
         ESP_LOGW("epd_driver", "unknown draw mode %d!", mode);
         break;
     }

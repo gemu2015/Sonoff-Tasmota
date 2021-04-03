@@ -24,17 +24,17 @@
 #define XDSP_16                16
 
 
-#undef COLORED
-#define COLORED                15
-#undef UNCOLORED
-#define UNCOLORED              0
 
+#define EPD47_BLACK  0
+#define EPD47_WHITE 15
 
 #include <epd4in7.h>
 
 Epd47 *epd47;
 bool epd47_init_done = false;
 extern uint8_t color_type;
+extern uint16_t fg_color;
+extern uint16_t bg_color;
 
 /*********************************************************************************************/
 
@@ -64,16 +64,17 @@ void EpdInitDriver47(void) {
 
     renderer = epd47;
     renderer->DisplayInit(DISPLAY_INIT_FULL, Settings.display_size, Settings.display_rotate, Settings.display_font);
-    renderer->setTextColor(0, 15);
+    renderer->setTextColor(EPD47_BLACK, EPD47_WHITE);
 
 #ifdef SHOW_SPLASH
     // Welcome text
     renderer->setTextFont(2);
-    renderer->DrawStringAt(50, 50, "LILGO 4.7 E-Paper Display!", 0, 0);
-    renderer->drawRect(0,0,100,100,0);
+    renderer->DrawStringAt(50, 50, "LILGO 4.7 E-Paper Display!", EPD47_BLACK, 0);
     renderer->Updateframe();
 #endif
 
+    fg_color = EPD47_BLACK;
+    bg_color = EPD47_WHITE;
     color_type = COLOR_COLOR;
 
     epd47_init_done = true;
