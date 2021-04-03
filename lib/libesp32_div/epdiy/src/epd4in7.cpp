@@ -136,4 +136,27 @@ void Epd47::drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) {
   }
 }
 
+void Epd47::setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
+  xp = x0;
+  yp = y0;
+  //setAddrWindow_int(x0,y0,x1-1,y1-1);
+}
+
+void Epd47::pushColors(uint16_t *data, uint16_t len, boolean first) {
+  uint16_t color;
+  uint16_t cxp = xp;
+  while (len--) {
+    color = *data++;
+    uint8_t red = ((color >> 11) & 0x1f) << 3;
+    uint8_t green = ((color >> 5) & 0x3f) << 2;
+    uint8_t blue = (color & 0x1f) << 3;
+    color = (red + green + blue) / 3;
+    color >>= 4;
+    drawPixel(cxp, yp, color);
+    cxp++;
+  }
+  yp++;
+
+}
+
 /* END OF FILE */

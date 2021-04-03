@@ -49,9 +49,13 @@ public:
     void DisplayInit(int8_t p,int8_t size,int8_t rot,int8_t font);
     void drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color);
     void drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color);
+    void setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
+    void pushColors(uint16_t *data, uint16_t len, boolean first);
 private:
-  int16_t width;
-  int16_t height;
+  uint16_t width;
+  uint16_t height;
+  uint16_t xp;
+  uint16_t yp;
 };
 
 #endif /* EPD4IN7_H */
