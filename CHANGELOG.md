@@ -7,19 +7,26 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Commands ``MqttKeepAlive 1..100`` to set Mqtt Keep Alive timer (default 30) and ``MqttTimeout 1..100`` to set Mqtt Socket Timeout (default 4) (#5341)
 - Commands ``DisplayType`` to select sub-modules where implemented and ``DisplayInvert`` to select inverted display where implemented
+- Command ``SerialBuffer 256..520`` to change hardware serial receive buffer size from default (256) to max local buffer size (520) (#11448)
+- Command ``SetOption126 1`` to enable DS18x20 arithmetic mean over teleperiod for JSON temperature based on (#11472)
 - Support for TM1638 seven segment display by Ajith Vasudevan (#11031)
 - Support for MAX7219 seven segment display by Ajith Vasudevan (#11387)
 - Support for Frequency monitoring and zero-cross detection on CSE7761 (Sonoff Dual R3)
 - ESP32 support for internal Hall Effect sensor connected to both GPIO36 and GPIO39 only
 - Support for multiple CCS811 sensors with baseline control (USE_CCS811_V2) by clanganke (#10858)
+- Berry add ``gpio`` module
 
 ### Changed
 - PubSubClient library from EspEasy v2.7.12 to Tasmota v2.8.12
 - IRremoteESP8266 library from v2.7.15 to v2.7.16
 - ESP32 core library from v1.0.5 to v1.0.6
+- Limit number of relay/button columns in GUI to 8 (#11546)
+- ADC range result from int to float using command ``FreqRes`` for decimal resolution selection (#11545)
+- Teleinfo, if raw mode selected also return telemety values in SENSOR data
 
 ### Fixed
 - HC-SR04 on ESP32 release serial interface if not used (#11507)
+- Teleinfo, if raw mode selected also always update total energy calculations
 
 ## [9.3.1.1]
 ### Added

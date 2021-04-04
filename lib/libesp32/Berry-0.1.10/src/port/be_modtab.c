@@ -21,8 +21,7 @@ be_extern_native_module(gc);
 be_extern_native_module(solidify);
 
 /* Tasmota specific */
-// be_extern_native_module(tasmota_ntv);
-be_extern_native_module(wire);
+be_extern_native_module(gpio);
 be_extern_native_module(energy);
 
 /* user-defined modules declare start */
@@ -60,13 +59,18 @@ BERRY_LOCAL const bntvmodule* const be_module_table[] = {
     &be_native_module(solidify),
 #endif
     /* user-defined modules register start */
-
+// #ifdef ESP32
+#if BE_USE_GPIO_MODULE
+    &be_native_module(gpio),
+#endif
     &be_native_module(energy),
+// #endif // ESP32
 
     /* user-defined modules register end */
     NULL /* do not remove */
 };
 
+#ifdef ESP32
 extern void be_load_tasmota_ntvlib(bvm *vm);
 extern void be_load_wirelib(bvm *vm);
 extern void be_load_driverlib(bvm *vm);
@@ -84,3 +88,4 @@ BERRY_API void be_load_custom_libs(bvm *vm)
     be_load_wirelib(vm);
     be_load_driverlib(vm);
 }
+#endif

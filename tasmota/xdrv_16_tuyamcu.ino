@@ -91,9 +91,9 @@ struct TUYA {
 #define D_CMND_TUYARGB "RGB"
 #define D_CMND_TUYA_ENUM "Enum"
 #define D_CMND_TUYA_ENUM_LIST "EnumList"
-#define D_CMND_TUYA_SET_TEMP "SetTemp"
-#define D_CMND_TUYA_SET_HUM "SetHum"
-#define D_CMND_TUYA_SET_TIMER "SetTimer"
+// #define D_CMND_TUYA_SET_TEMP "SetTemp"
+// #define D_CMND_TUYA_SET_HUM "SetHum"
+// #define D_CMND_TUYA_SET_TIMER "SetTimer"
 
 const char kTuyaSensors[] PROGMEM = // List of available sensors (can be expanded in the future)
   "" D_JSON_TEMPERATURE "|TempSet|" D_JSON_HUMIDITY "|HumSet|" D_JSON_ILLUMINANCE
@@ -1190,7 +1190,7 @@ void TuyaSerialInput(void)
       } else {
         AddLog_P(LOG_LEVEL_DEBUG, TasmotaGlobal.mqtt_data);
       }
-      XdrvRulesProcess();
+      XdrvRulesProcess(0);
 
       if (dpId != 0 && Settings.tuyamcu_topic) { // Publish a /STAT Topic ready to use for any home automation system
         if (!Tuya.SuspendTopic) {

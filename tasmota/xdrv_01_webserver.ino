@@ -337,7 +337,7 @@ const char HTTP_END[] PROGMEM =
   "</html>";
 
 const char HTTP_DEVICE_CONTROL[] PROGMEM = "<td style='width:%d%%'><button onclick='la(\"&o=%d\");'>%s%s</button></td>";  // ?o is related to WebGetArg("o", tmp, sizeof(tmp));
-const char HTTP_DEVICE_STATE[] PROGMEM = "<td style='width:%d{c}%s;font-size:%dpx'>%s</div></td>";  // {c} = %'><div style='text-align:center;font-weight:
+const char HTTP_DEVICE_STATE[] PROGMEM = "<td style='width:%d%%;text-align:center;font-weight:%s;font-size:%dpx'>%s</td>";
 
 enum ButtonTitle {
   BUTTON_RESTART, BUTTON_RESET_CONFIGURATION,
@@ -878,6 +878,16 @@ void HandleWifiLogin(void)
   WSContentStop();
 }
 
+uint32_t WebDeviceColumns(void) {
+  const uint32_t max_columns = 8;
+
+  uint32_t rows = TasmotaGlobal.devices_present / max_columns;
+  if (TasmotaGlobal.devices_present % max_columns) { rows++; }
+  uint32_t cols = TasmotaGlobal.devices_present / rows;
+  if (TasmotaGlobal.devices_present % rows) { cols++; }
+  return cols;
+}
+
 #ifdef USE_LIGHT
 void WebSliderColdWarm(void)
 {
@@ -934,7 +944,7 @@ void HandleRoot(void)
 
   WSContentSendStyle();
 
-  WSContentSend_P(PSTR("<div id='l1' name='l1'></div>"));
+  WSContentSend_P(PSTR("<div style='padding:0;' id='l1' name='l1'></div>"));
   if (TasmotaGlobal.devices_present) {
 #ifdef USE_LIGHT
     if (TasmotaGlobal.light_type) {
@@ -1034,21 +1044,25 @@ void HandleRoot(void)
       }
     } else {
 #endif  // USE_SONOFF_IFAN
+      uint32_t cols = WebDeviceColumns();
       for (uint32_t idx = 1; idx <= TasmotaGlobal.devices_present; idx++) {
         bool set_button = ((idx <= MAX_BUTTON_TEXT) && strlen(SettingsText(SET_BUTTON1 + idx -1)));
 #ifdef USE_SHUTTER
         int32_t ShutterWebButton;
         if (ShutterWebButton = IsShutterWebButton(idx)) {
-          WSContentSend_P(HTTP_DEVICE_CONTROL, 100 / TasmotaGlobal.devices_present, idx,
+          WSContentSend_P(HTTP_DEVICE_CONTROL, 100 / cols, idx,
             (set_button) ? SettingsText(SET_BUTTON1 + idx -1) : ((Settings.shutter_options[abs(ShutterWebButton)-1] & 2) /* is locked */ ? "-" : ((Settings.shutter_options[abs(ShutterWebButton)-1] & 8) /* invert web buttons */ ? ((ShutterWebButton>0) ? "&#9660;" : "&#9650;") : ((ShutterWebButton>0) ? "&#9650;" : "&#9660;"))),
             "");
-          continue;
+        } else {
+#endif  // USE_SHUTTER
+          snprintf_P(stemp, sizeof(stemp), PSTR(" %d"), idx);
+          WSContentSend_P(HTTP_DEVICE_CONTROL, 100 / cols, idx,
+            (set_button) ? SettingsText(SET_BUTTON1 + idx -1) : (cols < 5) ? PSTR(D_BUTTON_TOGGLE) : "",
+            (set_button) ? "" : (TasmotaGlobal.devices_present > 1) ? stemp : "");
+#ifdef USE_SHUTTER
         }
 #endif  // USE_SHUTTER
-        snprintf_P(stemp, sizeof(stemp), PSTR(" %d"), idx);
-        WSContentSend_P(HTTP_DEVICE_CONTROL, 100 / TasmotaGlobal.devices_present, idx,
-          (set_button) ? SettingsText(SET_BUTTON1 + idx -1) : (TasmotaGlobal.devices_present < 5) ? PSTR(D_BUTTON_TOGGLE) : "",
-          (set_button) ? "" : (TasmotaGlobal.devices_present > 1) ? stemp : "");
+        if (0 == idx % cols) { WSContentSend_P(PSTR("</tr><tr>")); }
       }
 #ifdef USE_SONOFF_IFAN
     }
@@ -1249,7 +1263,6 @@ bool HandleRootStatusRefresh(void)
 
   if (TasmotaGlobal.devices_present) {
     WSContentSend_P(PSTR("{t}<tr>"));
-    uint32_t fsize = (TasmotaGlobal.devices_present < 5) ? 70 - (TasmotaGlobal.devices_present * 8) : 32;
 #ifdef USE_SONOFF_IFAN
     if (IsModuleIfan()) {
       WSContentSend_P(HTTP_DEVICE_STATE, 36, (bitRead(TasmotaGlobal.power, 0)) ? PSTR("bold") : PSTR("normal"), 54, GetStateText(bitRead(TasmotaGlobal.power, 0)));
@@ -1258,9 +1271,13 @@ bool HandleRootStatusRefresh(void)
       WSContentSend_P(HTTP_DEVICE_STATE, 64, (fanspeed) ? PSTR("bold") : PSTR("normal"), 54, (fanspeed) ? svalue : GetStateText(0));
     } else {
 #endif  // USE_SONOFF_IFAN
+      uint32_t cols = WebDeviceColumns();
+      uint32_t fontsize = (cols < 5) ? 70 - (cols * 8) : 32;
       for (uint32_t idx = 1; idx <= TasmotaGlobal.devices_present; idx++) {
         snprintf_P(svalue, sizeof(svalue), PSTR("%d"), bitRead(TasmotaGlobal.power, idx -1));
-        WSContentSend_P(HTTP_DEVICE_STATE, 100 / TasmotaGlobal.devices_present, (bitRead(TasmotaGlobal.power, idx -1)) ? PSTR("bold") : PSTR("normal"), fsize, (TasmotaGlobal.devices_present < 5) ? GetStateText(bitRead(TasmotaGlobal.power, idx -1)) : svalue);
+        WSContentSend_P(HTTP_DEVICE_STATE, 100 / cols, (bitRead(TasmotaGlobal.power, idx -1)) ? PSTR("bold") : PSTR("normal"), fontsize,
+          (cols < 5) ? GetStateText(bitRead(TasmotaGlobal.power, idx -1)) : svalue);
+        if (0 == idx % cols) { WSContentSend_P(PSTR("</tr><tr>")); }
       }
 #ifdef USE_SONOFF_IFAN
     }
@@ -2881,7 +2898,7 @@ int WebSend(char *buffer)
 extern uint8_t tasm_cmd_activ;
           // recursive call must be possible in this case
           tasm_cmd_activ=0;
-          XdrvRulesProcess();
+          XdrvRulesProcess(0);
 #endif  // USE_SCRIPT
 #endif  // USE_WEBSEND_RESPONSE
         }
@@ -3014,7 +3031,7 @@ void CmndWeblog(void)
 
 void CmndWebRefresh(void)
 {
-  if ((XdrvMailbox.payload > 999) && (XdrvMailbox.payload <= 10000)) {
+  if ((XdrvMailbox.payload > 999) && (XdrvMailbox.payload <= 65000)) {
     Settings.web_refresh = XdrvMailbox.payload;
   }
   ResponseCmndNumber(Settings.web_refresh);
