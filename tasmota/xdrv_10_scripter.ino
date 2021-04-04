@@ -7708,6 +7708,7 @@ bool Xdrv10(uint8_t function)
         char *script;
         script = (char*)special_malloc(UFSYS_SIZE + 4);
         if (!script) break;
+        memset(script, 0, UFSYS_SIZE);
         glob_script_mem.script_ram = script;
         glob_script_mem.script_size = UFSYS_SIZE;
         if (ufsp->exists(FAT_SCRIPT_NAME)) {
