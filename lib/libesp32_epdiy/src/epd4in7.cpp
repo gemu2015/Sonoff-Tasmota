@@ -44,9 +44,13 @@
 
 extern uint8_t *buffer;
 
-int temperature;
+int temperature = 25;
 
 EpdiyHighlevelState hl;
+
+uint16_t Epd47::GetColorFromIndex(uint8_t index) {
+  return index & 0xf;
+}
 
 Epd47::Epd47(int16_t dwidth, int16_t dheight) :  Renderer(dwidth, dheight) {
   width = dwidth;
@@ -63,10 +67,26 @@ int32_t Epd47::Init(void) {
 
 void Epd47::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
 
-  if (p ==  DISPLAY_INIT_FULL) {
+
+  if (p ==  DISPLAY_INIT_MODE) {
     epd_poweron();
     epd_clear();
     epd_poweroff();
+  }
+  if (p ==  DISPLAY_INIT_FULL) {
+    memset(hl.back_fb, 0xff, width * height / 2);
+    epd_poweron();
+    epd_clear();
+    epd_hl_update_screen(&hl, MODE_GC16, temperature);
+    epd_poweroff();
+    return;
+  }
+  if (p ==  DISPLAY_INIT_PARTIAL) {
+    memset(hl.back_fb, 0xff, width * height / 2);
+    epd_poweron();
+    epd_hl_update_screen(&hl, MODE_GL16, temperature);
+    epd_poweroff();
+    return;
   }
   setRotation(rot);
   setTextWrap(false);
