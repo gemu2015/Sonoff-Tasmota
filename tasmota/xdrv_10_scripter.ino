@@ -505,10 +505,6 @@ void ScriptEverySecond(void) {
   }
 }
 
-void RulesTeleperiod(void) {
-  if (bitRead(Settings.rule_enabled, 0) && TasmotaGlobal.mqtt_data[0]) Run_Scripter(">T", 2, TasmotaGlobal.mqtt_data);
-}
-
 void SetChanged(uint32_t index) {
   glob_script_mem.type[index].bits.changed = 1;
 #ifdef USE_SCRIPT_GLOBVARS
@@ -4848,15 +4844,15 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
     return -1;
 }
 
-uint8_t script_xsns_index = 0;
 
 void ScripterEvery100ms(void) {
+  static uint8_t xsns_index = 0;
 
   if (bitRead(Settings.rule_enabled, 0) && (TasmotaGlobal.uptime > 4)) {
     ResponseClear();
     uint16_t script_tele_period_save = TasmotaGlobal.tele_period;
     TasmotaGlobal.tele_period = 2;
-    XsnsNextCall(FUNC_JSON_APPEND, script_xsns_index);
+    XsnsNextCall(FUNC_JSON_APPEND, xsns_index);
     TasmotaGlobal.tele_period = script_tele_period_save;
     if (strlen(TasmotaGlobal.mqtt_data)) {
       TasmotaGlobal.mqtt_data[0] = '{';
@@ -7859,8 +7855,14 @@ bool Xdrv10(uint8_t function)
       break;
     case FUNC_RULES_PROCESS:
       if (bitRead(Settings.rule_enabled, 0)) {
-        Run_Scripter(">E", 2, TasmotaGlobal.mqtt_data);
-        result = glob_script_mem.event_handeled;
+        if (TasmotaGlobal.rule_teleperiod) {  // Signal teleperiod event
+          if (TasmotaGlobal.mqtt_data[0]) {
+            Run_Scripter(">T", 2, TasmotaGlobal.mqtt_data);
+          }
+        } else {
+          Run_Scripter(">E", 2, TasmotaGlobal.mqtt_data);
+          result = glob_script_mem.event_handeled;
+        }
       }
       break;
 #ifdef USE_WEBSERVER
