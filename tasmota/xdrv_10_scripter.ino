@@ -1866,6 +1866,15 @@ chknext:
         }
 #endif //USE_SCRIPT_TASK
 #endif //ESP32
+#ifdef USE_ANGLE_FUNC
+        if (!strncmp(vname, "cos(", 4)) {
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
+          fvar = cosf(fvar);
+          lp++;
+          len = 0;
+          goto exit;
+        }
+#endif
         break;
       case 'd':
         if (!strncmp(vname, "day", 3)) {
