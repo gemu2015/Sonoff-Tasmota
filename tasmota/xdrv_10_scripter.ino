@@ -2211,6 +2211,22 @@ chknext:
           len = 0;
           goto exit;
         }
+        if (!strncmp(vname, "fmt(", 4)) {
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
+          if (!fvar) {
+#ifdef ESP8266
+            LittleFS.format();
+#endif
+#ifdef ESP32
+            LITTLEFS.format();
+#endif
+          } else {
+            //SD.format();
+          }
+          lp++;
+          len = 0;
+          goto exit;
+        }
         if (!strncmp(vname, "frd(", 4)) {
           char str[glob_script_mem.max_ssize + 1];
           lp = GetStringArgument(lp + 4, OPER_EQU, str, 0);
