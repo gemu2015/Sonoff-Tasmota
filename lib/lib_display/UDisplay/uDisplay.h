@@ -45,6 +45,8 @@ class uDisplay : public Renderer {
    uint16_t splash_yp;
    uint16_t fg_col;
    uint16_t bg_col;
+   uint16_t gxs;
+   uint16_t gys;
 };
 
 #endif // _UDISP_

@@ -54,10 +54,10 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             // SD1306,128,64,1,I2C,5a,*,*,*
             str2c(&lp1, dname, sizeof(dname));
             char ibuff[16];
-            str2c(&lp1, ibuff, sizeof(ibuff));
-            setwidth(atoi(ibuff));
-            str2c(&lp1, ibuff, sizeof(ibuff));
-            setheight(atoi(ibuff));
+            gxs = next_val(&lp1);
+            setwidth(gxs);
+            gys = next_val(&lp1);
+            setheight(gys);
             bpp = next_val(&lp1);
             str2c(&lp1, ibuff, sizeof(ibuff));
             if (!strncmp(ibuff, "I2C", 3)) {
@@ -169,8 +169,8 @@ void uDisplay::Updateframe(void) {
     i2c_command(SH1106_SETHIGHCOLUMN | 0x0);  // hi col = 0
     i2c_command(SH1106_SETSTARTLINE | 0x0); // line #0
 
-	  uint8_t ys = height() >> 3;
-	  uint8_t xs = width() >> 3;
+	  uint8_t ys = gys >> 3;
+	  uint8_t xs = gxs >> 3;
     //uint8_t xs = 132 >> 3;
 	  uint8_t m_row = 0;
 	  uint8_t m_col = 2;
