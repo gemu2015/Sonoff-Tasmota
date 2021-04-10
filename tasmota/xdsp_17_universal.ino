@@ -89,12 +89,17 @@ char *fbuff;
     // now replace tasmota vars before passing to driver
     char *cp = strstr(ddesc, "I2C");
     if (cp) {
-      cp += 7;
+      cp += 4;
       //,3c,22,21,-1
       // i2c addr
       //if (*cp == '*') {
       //  Settings.display_address
       //}
+      uint8_t i2caddr = strtol(cp, 0, 16);
+      if (I2cSetDevice(i2caddr)) {
+        I2cSetActiveFound(i2caddr, "DSP-I2C");
+      }
+      cp+=3;
       //replacepin(&cp, Settings.display_address);
       replacepin(&cp, Pin(GPIO_I2C_SCL));
       replacepin(&cp, Pin(GPIO_I2C_SDA));
@@ -135,7 +140,7 @@ void replacepin(char **cp, uint16_t pin) {
     char val[8];
     itoa(pin, val, 10);
     uint16_t slen = strlen(val);
-    AddLog(LOG_LEVEL_INFO, PSTR("replace pin: %s"), val);
+    //AddLog(LOG_LEVEL_INFO, PSTR("replace pin: %s"), val);
     memmove(lp + slen, lp + 1, strlen(lp) - slen);
     memmove(lp, val, slen);
   }
