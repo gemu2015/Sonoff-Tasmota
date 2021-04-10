@@ -57,6 +57,7 @@ class uDisplay : public Renderer {
   void setRotation(uint8_t m);
   void fillScreen(uint16_t color);
   void fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color);
+  void pushColors(uint16_t *data, uint16_t len, boolean first);
 
  private:
    void setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);

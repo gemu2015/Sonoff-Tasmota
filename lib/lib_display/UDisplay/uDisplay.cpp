@@ -439,6 +439,16 @@ void uDisplay::setAddrWindow_int(uint16_t x, uint16_t y, uint16_t w, uint16_t h)
 
 }
 
+void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean first) {
+  uint16_t color;
+
+  while (len--) {
+    color = *data++;
+    uspi->write16(color);
+  }
+
+}
+
 void uDisplay::drawPixel(int16_t x, int16_t y, uint16_t color) {
 
   if (interface != _UDSP_SPI) {
