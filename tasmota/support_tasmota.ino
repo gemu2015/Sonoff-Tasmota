@@ -783,7 +783,7 @@ void MqttPublishTeleState(void)
   MqttPublishPrefixTopic_P(TELE, PSTR(D_RSLT_STATE), Settings.flag5.mqtt_state_retain);
 
 #ifdef USE_DT_VARS
-  DTVarsTeleperiod();
+  DisplayDTVarsTeleperiod();
 #endif // USE_DT_VARS
 
   XdrvRulesProcess(1);  // Allow rule based HA messages

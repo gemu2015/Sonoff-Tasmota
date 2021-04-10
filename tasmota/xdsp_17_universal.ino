@@ -106,6 +106,20 @@ char *fbuff;
       replacepin(&cp, Pin(GPIO_OLED_RESET));
     }
 
+    cp = strstr(ddesc, "SPI");
+    if (cp) {
+      cp += 4;
+      //; 7 params cs,sclk,mosi,dc,bl,reset,miso
+      //SPI,*,*,*,*,*,*
+      replacepin(&cp, Pin(GPIO_SPI_CS));
+      replacepin(&cp, Pin(GPIO_SPI_CLK));
+      replacepin(&cp, Pin(GPIO_SPI_MOSI));
+      replacepin(&cp, Pin(GPIO_SPI_DC));
+      replacepin(&cp, Pin(GPIO_BACKLIGHT));
+      replacepin(&cp, Pin(GPIO_OLED_RESET));
+      replacepin(&cp, Pin(GPIO_SPI_MISO));
+    }
+
     // init renderer
     udisp  = new uDisplay(ddesc);
 
@@ -140,7 +154,7 @@ void replacepin(char **cp, uint16_t pin) {
     char val[8];
     itoa(pin, val, 10);
     uint16_t slen = strlen(val);
-    //AddLog(LOG_LEVEL_INFO, PSTR("replace pin: %s"), val);
+    //AddLog(LOG_LEVEL_INFO, PSTR("replace pin: %d"), pin);
     memmove(lp + slen, lp + 1, strlen(lp) - slen);
     memmove(lp, val, slen);
   }

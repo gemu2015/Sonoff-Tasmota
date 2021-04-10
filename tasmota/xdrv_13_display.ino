@@ -1022,7 +1022,7 @@ void Display_Text_From_File(const char *file) {
     fp.close();
   }
 }
-#endif
+#endif // USE_UFILESYS
 
 
 #ifdef USE_DT_VARS
