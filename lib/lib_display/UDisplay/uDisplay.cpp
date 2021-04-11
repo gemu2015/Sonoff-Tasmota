@@ -275,6 +275,22 @@ void uDisplay::DisplayInit(int8_t p,int8_t size,int8_t rot,int8_t font) {
     Updateframe();
 }
 
+
+void uDisplay::spi_data9(uint8_t d, uint8_t dc) {
+  uint32_t regvalue = d >> 1;
+  if (dc) regvalue |= 0x80;
+  else regvalue &= 0x7f;
+  if (d & 1) regvalue |= 0x8000;
+
+  REG_SET_BIT(SPI_USER_REG(3), SPI_USR_MOSI);
+  REG_WRITE(SPI_MOSI_DLEN_REG(3), 9 - 1);
+  uint32_t *dp = (uint32_t*)SPI_W0_REG(3);
+  *dp = regvalue;
+  REG_SET_BIT(SPI_CMD_REG(3), SPI_USR);
+  while (REG_GET_FIELD(SPI_CMD_REG(3), SPI_USR));
+}
+
+
 void uDisplay::spi_command(uint8_t val) {
   SPI_DC_LOW
   if (spi_nr > 2) {

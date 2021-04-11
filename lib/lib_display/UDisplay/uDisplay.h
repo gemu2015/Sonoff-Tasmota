@@ -74,6 +74,7 @@ class uDisplay : public Renderer {
    void write8(uint8_t val);
    void write16(uint16_t val);
    void write32(uint32_t val);
+   void spi_data9(uint8_t d, uint8_t dc);
 
    uint8_t strlen_ln(char *str);
    int32_t next_val(char **sp);
