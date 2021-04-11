@@ -781,12 +781,7 @@ void MqttPublishTeleState(void)
   ResponseClear();
   MqttShowState();
   MqttPublishPrefixTopic_P(TELE, PSTR(D_RSLT_STATE), Settings.flag5.mqtt_state_retain);
-
-#ifdef USE_DT_VARS
-  DisplayDTVarsTeleperiod();
-#endif // USE_DT_VARS
-
-  XdrvRulesProcess(1);  // Allow rule based HA messages
+  XdrvRulesProcess(1);
 }
 
 void TempHumDewShow(bool json, bool pass_on, const char *types, float f_temperature, float f_humidity)
@@ -1193,7 +1188,7 @@ void Every250mSeconds(void)
         }
         ResponseAppend_P(PSTR("\"}"));
 //        TasmotaGlobal.restart_flag = 2;                   // Restart anyway to keep memory clean webserver
-        MqttPublishPrefixTopic_P(STAT, PSTR(D_CMND_UPGRADE));
+        MqttPublishPrefixTopicRulesProcess_P(STAT, PSTR(D_CMND_UPGRADE));
 #ifdef USE_COUNTER
         CounterInterruptDisable(false);
 #endif  // USE_COUNTER
@@ -1900,15 +1895,6 @@ void GpioInit(void)
   if (PWM_DIMMER == TasmotaGlobal.module_type && PinUsed(GPIO_REL1)) { TasmotaGlobal.devices_present--; }
 #endif  // USE_PWM_DIMMER
 
-  ButtonInit();
-  SwitchInit();
-#ifdef ROTARY_V1
-  RotaryInit();
-#endif
-
   SetLedPower(Settings.ledstate &8);
   SetLedLink(Settings.ledstate &8);
-
-  XdrvCall(FUNC_PRE_INIT);
-  XsnsCall(FUNC_PRE_INIT);
 }

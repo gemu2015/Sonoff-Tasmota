@@ -403,11 +403,14 @@ void ShowWebSource(uint32_t source)
   }
 }
 
-void ExecuteWebCommand(char* svalue, uint32_t source)
-{
+void ExecuteWebCommand(char* svalue, uint32_t source) {
   ShowWebSource(source);
   TasmotaGlobal.last_source = source;
   ExecuteCommand(svalue, SRC_IGNORE);
+}
+
+void ExecuteWebCommand(char* svalue) {
+  ExecuteWebCommand(svalue, SRC_WEBGUI);
 }
 
 // replace the series of `Webserver->on()` with a table in PROGMEM
@@ -1168,7 +1171,7 @@ bool HandleRootStatusRefresh(void)
       int32_t ShutterWebButton;
       if (ShutterWebButton = IsShutterWebButton(device)) {
         snprintf_P(svalue, sizeof(svalue), PSTR("ShutterPosition%d %s"), abs(ShutterWebButton), (ShutterWebButton>0) ? PSTR(D_CMND_SHUTTER_STOPOPEN) : PSTR(D_CMND_SHUTTER_STOPCLOSE));
-        ExecuteWebCommand(svalue, SRC_WEBGUI);
+        ExecuteWebCommand(svalue);
       } else {
 #endif  // USE_SHUTTER
         ExecuteCommandPower(device, POWER_TOGGLE, SRC_IGNORE);
@@ -1186,12 +1189,12 @@ bool HandleRootStatusRefresh(void)
   WebGetArg(PSTR("d0"), tmp, sizeof(tmp));  // 0 - 100 Dimmer value
   if (strlen(tmp)) {
     snprintf_P(svalue, sizeof(svalue), PSTR(D_CMND_DIMMER " %s"), tmp);
-    ExecuteWebCommand(svalue, SRC_WEBGUI);
+    ExecuteWebCommand(svalue);
   }
   WebGetArg(PSTR("w0"), tmp, sizeof(tmp));  // 0 - 100 White value
   if (strlen(tmp)) {
     snprintf_P(svalue, sizeof(svalue), PSTR(D_CMND_WHITE " %s"), tmp);
-    ExecuteWebCommand(svalue, SRC_WEBGUI);
+    ExecuteWebCommand(svalue);
   }
   uint32_t light_device = LightDevice();  // Channel number offset
   uint32_t pwm_channels = (TasmotaGlobal.light_type & 7) > LST_MAX ? LST_MAX : (TasmotaGlobal.light_type & 7);
@@ -1200,23 +1203,23 @@ bool HandleRootStatusRefresh(void)
     WebGetArg(webindex, tmp, sizeof(tmp));  // 0 - 100 percent
     if (strlen(tmp)) {
       snprintf_P(svalue, sizeof(svalue), PSTR(D_CMND_CHANNEL "%d %s"), j +light_device, tmp);
-      ExecuteWebCommand(svalue, SRC_WEBGUI);
+      ExecuteWebCommand(svalue);
     }
   }
   WebGetArg(PSTR("t0"), tmp, sizeof(tmp));  // 153 - 500 Color temperature
   if (strlen(tmp)) {
     snprintf_P(svalue, sizeof(svalue), PSTR(D_CMND_COLORTEMPERATURE " %s"), tmp);
-    ExecuteWebCommand(svalue, SRC_WEBGUI);
+    ExecuteWebCommand(svalue);
   }
   WebGetArg(PSTR("h0"), tmp, sizeof(tmp));  // 0 - 359 Hue value
   if (strlen(tmp)) {
     snprintf_P(svalue, sizeof(svalue), PSTR(D_CMND_HSBCOLOR  "1 %s"), tmp);
-    ExecuteWebCommand(svalue, SRC_WEBGUI);
+    ExecuteWebCommand(svalue);
   }
   WebGetArg(PSTR("n0"), tmp, sizeof(tmp));  // 0 - 99 Saturation value
   if (strlen(tmp)) {
     snprintf_P(svalue, sizeof(svalue), PSTR(D_CMND_HSBCOLOR  "2 %s"), tmp);
-    ExecuteWebCommand(svalue, SRC_WEBGUI);
+    ExecuteWebCommand(svalue);
   }
 #endif  // USE_LIGHT
 #ifdef USE_SHUTTER
@@ -1225,7 +1228,7 @@ bool HandleRootStatusRefresh(void)
     WebGetArg(webindex, tmp, sizeof(tmp));  // 0 - 100 percent
     if (strlen(tmp)) {
       snprintf_P(svalue, sizeof(svalue), PSTR("ShutterPosition%d %s"), j, tmp);
-      ExecuteWebCommand(svalue, SRC_WEBGUI);
+      ExecuteWebCommand(svalue);
     }
   }
 #endif  // USE_SHUTTER
@@ -1233,19 +1236,19 @@ bool HandleRootStatusRefresh(void)
   WebGetArg(PSTR("k"), tmp, sizeof(tmp));  // 1 - 16 Pre defined RF keys
   if (strlen(tmp)) {
     snprintf_P(svalue, sizeof(svalue), PSTR(D_CMND_RFKEY "%s"), tmp);
-    ExecuteWebCommand(svalue, SRC_WEBGUI);
+    ExecuteWebCommand(svalue);
   }
 #endif  // USE_SONOFF_RF
 #ifdef USE_ZIGBEE
   WebGetArg(PSTR("zbj"), tmp, sizeof(tmp));
   if (strlen(tmp)) {
     snprintf_P(svalue, sizeof(svalue), PSTR("ZbPermitJoin"));
-    ExecuteWebCommand(svalue, SRC_WEBGUI);
+    ExecuteWebCommand(svalue);
   }
   WebGetArg(PSTR("zbr"), tmp, sizeof(tmp));
   if (strlen(tmp)) {
     snprintf_P(svalue, sizeof(svalue), PSTR("ZbMap"));
-    ExecuteWebCommand(svalue, SRC_WEBGUI);
+    ExecuteWebCommand(svalue);
   }
 #endif // USE_ZIGBEE
 
@@ -1400,8 +1403,7 @@ void WSContentSendAdcNiceList(uint32_t option) {
 
 /*-------------------------------------------------------------------------------------------*/
 
-void HandleTemplateConfiguration(void)
-{
+void HandleTemplateConfiguration(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
 
   if (Webserver->hasArg(F("save"))) {
@@ -1501,40 +1503,38 @@ uint16_t WebGetGpioArg(uint32_t i) {
   return gpio;
 }
 
-void TemplateSaveSettings(void)
-{
-  char tmp[TOPSZ];                                          // WebGetArg NAME and GPIO/BASE/FLAG byte value
-  char svalue[300];                                         // Template command string
+void TemplateSaveSettings(void) {
+  char tmp[TOPSZ];                                      // WebGetArg NAME and GPIO/BASE/FLAG byte value
+  char command[300];                                     // Template command string
 
-  WebGetArg(PSTR("s1"), tmp, sizeof(tmp));                        // NAME
-  snprintf_P(svalue, sizeof(svalue), PSTR(D_CMND_TEMPLATE " {\"" D_JSON_NAME "\":\"%s\",\"" D_JSON_GPIO "\":["), tmp);
+  WebGetArg(PSTR("s1"), tmp, sizeof(tmp));              // NAME
+  snprintf_P(command, sizeof(command), PSTR(D_CMND_TEMPLATE " {\"" D_JSON_NAME "\":\"%s\",\"" D_JSON_GPIO "\":["), tmp);
 
   uint32_t j = 0;
   for (uint32_t i = 0; i < nitems(Settings.user_template.gp.io); i++) {
     if (6 == i) { j = 9; }
     if (8 == i) { j = 12; }
-    snprintf_P(svalue, sizeof(svalue), PSTR("%s%s%d"), svalue, (i>0)?",":"", WebGetGpioArg(j));
+    snprintf_P(command, sizeof(command), PSTR("%s%s%d"), command, (i>0)?",":"", WebGetGpioArg(j));
     j++;
   }
 
   uint32_t flag = 0;
-  char webindex[5];                                         // WebGetArg name
+  char webindex[5];                                     // WebGetArg name
   for (uint32_t i = 0; i < GPIO_FLAG_USED; i++) {
     snprintf_P(webindex, sizeof(webindex), PSTR("c%d"), i);
-    uint32_t state = Webserver->hasArg(webindex) << i;      // FLAG
+    uint32_t state = Webserver->hasArg(webindex) << i;  // FLAG
     flag += state;
   }
-  WebGetArg(PSTR("g99"), tmp, sizeof(tmp));                       // BASE
+  WebGetArg(PSTR("g99"), tmp, sizeof(tmp));             // BASE
   uint32_t base = atoi(tmp) +1;
 
-  snprintf_P(svalue, sizeof(svalue), PSTR("%s],\"" D_JSON_FLAG "\":%d,\"" D_JSON_BASE "\":%d}"), svalue, flag, base);
-  ExecuteWebCommand(svalue, SRC_WEBGUI);
+  snprintf_P(command, sizeof(command), PSTR("%s],\"" D_JSON_FLAG "\":%d,\"" D_JSON_BASE "\":%d}"), command, flag, base);
+  ExecuteWebCommand(command);
 }
 
 /*-------------------------------------------------------------------------------------------*/
 
-void HandleModuleConfiguration(void)
-{
+void HandleModuleConfiguration(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
 
   if (Webserver->hasArg(F("save"))) {
@@ -1600,30 +1600,27 @@ void HandleModuleConfiguration(void)
   WSContentStop();
 }
 
-void ModuleSaveSettings(void)
-{
+void ModuleSaveSettings(void) {
   char tmp[8];         // WebGetArg numbers only
-
-  WebGetArg(PSTR("g99"), tmp, sizeof(tmp));
+  WebGetArg(PSTR("g99"), tmp, sizeof(tmp));  // Module
   uint32_t new_module = (!strlen(tmp)) ? MODULE : atoi(tmp);
   Settings.last_module = Settings.module;
   Settings.module = new_module;
   SetModuleType();
   myio template_gp;
   TemplateGpios(&template_gp);
-  String gpios = "";
   for (uint32_t i = 0; i < nitems(template_gp.io); i++) {
     if (Settings.last_module != new_module) {
       Settings.my_gp.io[i] = GPIO_NONE;
     } else {
       if (ValidGPIO(i, template_gp.io[i])) {
-        Settings.my_gp.io[i] = WebGetGpioArg(i);
-        gpios += F(", IO"); gpios += String(i); gpios += F(" "); gpios += String(Settings.my_gp.io[i]);
+        Settings.my_gp.io[i] = WebGetGpioArg(i);  // Gpio
       }
     }
   }
-
-  AddLog_P(LOG_LEVEL_INFO, PSTR(D_LOG_MODULE "%s " D_CMND_MODULE "%s"), ModuleName().c_str(), gpios.c_str());
+  char command[32];
+  snprintf_P(command, sizeof(command), PSTR(D_CMND_BACKLOG "0 " D_CMND_MODULE ";" D_CMND_GPIO));
+  ExecuteWebCommand(command);
 }
 
 /*-------------------------------------------------------------------------------------------*/
@@ -1650,8 +1647,7 @@ String HtmlEscape(const String unescaped) {
 // Indexed by enum wl_enc_type in file wl_definitions.h starting from -1
 const char kEncryptionType[] PROGMEM = "|||" D_WPA_PSK "||" D_WPA2_PSK "|" D_WEP "||" D_NONE "|" D_AUTO;
 
-void HandleWifiConfiguration(void)
-{
+void HandleWifiConfiguration(void) {
   if (!HttpCheckPriviledgedAccess(!WifiIsInManagerMode())) { return; }
 
   AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_HTTP D_CONFIGURE_WIFI));
@@ -1803,33 +1799,33 @@ void HandleWifiConfiguration(void)
   WSContentStop();
 }
 
-void WifiSaveSettings(void)
-{
-  char tmp[TOPSZ];  // Max length is currently 150
-
-  WebGetArg(PSTR("h"), tmp, sizeof(tmp));
-  SettingsUpdateText(SET_HOSTNAME, (!strlen(tmp)) ? WIFI_HOSTNAME : tmp);
-  if (strchr(SettingsText(SET_HOSTNAME), '%') != nullptr) {
-    SettingsUpdateText(SET_HOSTNAME, WIFI_HOSTNAME);
-  }
-  WebGetArg(PSTR("c"), tmp, sizeof(tmp));
-  SettingsUpdateText(SET_CORS, (!strlen(tmp)) ? CORS_DOMAIN : tmp);
-  WebGetArg(PSTR("s1"), tmp, sizeof(tmp));
-  SettingsUpdateText(SET_STASSID1, (!strlen(tmp)) ? STA_SSID1 : tmp);
-  WebGetArg(PSTR("s2"), tmp, sizeof(tmp));
-  SettingsUpdateText(SET_STASSID2, (!strlen(tmp)) ? STA_SSID2 : tmp);
-  WebGetArg(PSTR("p1"), tmp, sizeof(tmp));
-  SettingsUpdateText(SET_STAPWD1, (!strlen(tmp)) ? "" : (strlen(tmp) < 5) ? SettingsText(SET_STAPWD1) : tmp);
-  WebGetArg(PSTR("p2"), tmp, sizeof(tmp));
-  SettingsUpdateText(SET_STAPWD2, (!strlen(tmp)) ? "" : (strlen(tmp) < 5) ? SettingsText(SET_STAPWD2) : tmp);
-  AddLog_P(LOG_LEVEL_INFO, PSTR(D_LOG_WIFI D_CMND_HOSTNAME " %s, " D_CMND_SSID "1 %s, " D_CMND_SSID "2 %s, " D_CMND_CORS " %s"),
-    SettingsText(SET_HOSTNAME), SettingsText(SET_STASSID1), SettingsText(SET_STASSID2), SettingsText(SET_CORS));
+void WifiSaveSettings(void) {
+  char tmp1[CMDSZ];
+  WebGetArg(PSTR("h"), tmp1, sizeof(tmp1));   // Host name
+  char tmp2[CMDSZ];
+  WebGetArg(PSTR("c"), tmp2, sizeof(tmp2));   // Cors domain
+  char tmp3[CMDSZ];
+  WebGetArg(PSTR("s1"), tmp3, sizeof(tmp3));  // Ssid1
+  char tmp4[CMDSZ];
+  WebGetArg(PSTR("s2"), tmp4, sizeof(tmp4));  // Ssid2
+  char tmp5[CMDSZ];
+  WebGetArg(PSTR("p1"), tmp5, sizeof(tmp5));  // Password1
+  char tmp6[CMDSZ];
+  WebGetArg(PSTR("p2"), tmp6, sizeof(tmp6));  // Password2
+  char command[300];
+  snprintf_P(command, sizeof(command), PSTR(D_CMND_BACKLOG "0 " D_CMND_HOSTNAME " %s;" D_CMND_CORS " %s;" D_CMND_SSID "1 %s;" D_CMND_SSID "2 %s;" D_CMND_PASSWORD "3 %s;" D_CMND_PASSWORD "4 %s"),
+    (!strlen(tmp1)) ? "1" : tmp1,
+    (!strlen(tmp2)) ? "1" : tmp2,
+    (!strlen(tmp3)) ? "1" : tmp3,
+    (!strlen(tmp4)) ? "1" : tmp4,
+    (!strlen(tmp5)) ? "\"" : (strlen(tmp5) < 5) ? "" : tmp5,
+    (!strlen(tmp6)) ? "\"" : (strlen(tmp6) < 5) ? "" : tmp6);
+  ExecuteWebCommand(command);
 }
 
 /*-------------------------------------------------------------------------------------------*/
 
-void HandleLoggingConfiguration(void)
-{
+void HandleLoggingConfiguration(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
 
   AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_HTTP D_CONFIGURE_LOGGING));
@@ -1866,35 +1862,36 @@ void HandleLoggingConfiguration(void)
   WSContentStop();
 }
 
-void LoggingSaveSettings(void)
-{
-  char tmp[TOPSZ];  // Max length is currently 33
-
-  WebGetArg(PSTR("l0"), tmp, sizeof(tmp));
-  SetSeriallog((!strlen(tmp)) ? SERIAL_LOG_LEVEL : atoi(tmp));
-  WebGetArg(PSTR("l1"), tmp, sizeof(tmp));
-  Settings.weblog_level = (!strlen(tmp)) ? WEB_LOG_LEVEL : atoi(tmp);
-  WebGetArg(PSTR("l2"), tmp, sizeof(tmp));
-  Settings.mqttlog_level = (!strlen(tmp)) ? MQTT_LOG_LEVEL : atoi(tmp);
-  WebGetArg(PSTR("l3"), tmp, sizeof(tmp));
-  SetSyslog((!strlen(tmp)) ? SYS_LOG_LEVEL : atoi(tmp));
-  WebGetArg(PSTR("lh"), tmp, sizeof(tmp));
-  SettingsUpdateText(SET_SYSLOG_HOST, (!strlen(tmp)) ? SYS_LOG_HOST : tmp);
-  WebGetArg(PSTR("lp"), tmp, sizeof(tmp));
-  Settings.syslog_port = (!strlen(tmp)) ? SYS_LOG_PORT : atoi(tmp);
-  WebGetArg(PSTR("lt"), tmp, sizeof(tmp));
-  Settings.tele_period = (!strlen(tmp)) ? TELE_PERIOD : atoi(tmp);
-  if ((Settings.tele_period > 0) && (Settings.tele_period < 10)) {
-    Settings.tele_period = 10;   // Do not allow periods < 10 seconds
-  }
-  AddLog_P(LOG_LEVEL_INFO, PSTR(D_LOG_LOG D_CMND_SERIALLOG " %d, " D_CMND_WEBLOG " %d, " D_CMND_MQTTLOG " %d, " D_CMND_SYSLOG " %d, " D_CMND_LOGHOST " %s, " D_CMND_LOGPORT " %d, " D_CMND_TELEPERIOD " %d"),
-    Settings.seriallog_level, Settings.weblog_level, Settings.mqttlog_level, Settings.syslog_level, SettingsText(SET_SYSLOG_HOST), Settings.syslog_port, Settings.tele_period);
+void LoggingSaveSettings(void) {
+  char tmp1[CMDSZ];
+  WebGetArg(PSTR("l0"), tmp1, sizeof(tmp1));  // Serial log level
+  char tmp2[CMDSZ];
+  WebGetArg(PSTR("l1"), tmp2, sizeof(tmp2));  // Web log level
+  char tmp3[CMDSZ];
+  WebGetArg(PSTR("l2"), tmp3, sizeof(tmp3));  // Mqtt log level
+  char tmp4[CMDSZ];
+  WebGetArg(PSTR("l3"), tmp4, sizeof(tmp4));  // Syslog level
+  char tmp5[CMDSZ];
+  WebGetArg(PSTR("lh"), tmp5, sizeof(tmp5));  // Syslog host name
+  char tmp6[CMDSZ];
+  WebGetArg(PSTR("lp"), tmp6, sizeof(tmp6));  // Syslog port number
+  char tmp7[CMDSZ];
+  WebGetArg(PSTR("lt"), tmp7, sizeof(tmp7));  // Teleperiod
+  char command[200];
+  snprintf_P(command, sizeof(command), PSTR(D_CMND_BACKLOG "0 " D_CMND_SERIALLOG " %s;" D_CMND_WEBLOG " %s;" D_CMND_MQTTLOG " %s;" D_CMND_SYSLOG " %s;" D_CMND_LOGHOST " %s;" D_CMND_LOGPORT " %s;" D_CMND_TELEPERIOD " %s"),
+    (!strlen(tmp1)) ? STR(SERIAL_LOG_LEVEL) : tmp1,
+    (!strlen(tmp2)) ? STR(WEB_LOG_LEVEL) : tmp2,
+    (!strlen(tmp3)) ? STR(MQTT_LOG_LEVEL) : tmp3,
+    (!strlen(tmp4)) ? STR(SYS_LOG_LEVEL) : tmp4,
+    (!strlen(tmp5)) ? SYS_LOG_HOST : tmp5,
+    (!strlen(tmp6)) ? STR(SYS_LOG_PORT) : tmp6,
+    (!strlen(tmp7)) ? STR(TELE_PERIOD) : tmp7);
+  ExecuteWebCommand(command);
 }
 
 /*-------------------------------------------------------------------------------------------*/
 
-void HandleOtherConfiguration(void)
-{
+void HandleOtherConfiguration(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
 
   AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_HTTP D_CONFIGURE_OTHER));
@@ -1956,42 +1953,36 @@ void HandleOtherConfiguration(void)
   WSContentStop();
 }
 
-void OtherSaveSettings(void)
-{
-  char tmp[300];   // Needs to hold complete ESP32 template of minimal 230 chars
-  char webindex[5];
-  char friendlyname[TOPSZ];
-  char message[MAX_LOGSZ];
+void OtherSaveSettings(void) {
+  char tmp1[300];   // Needs to hold complete ESP32 template of minimal 230 chars
+  WebGetArg(PSTR("dn"), tmp1, sizeof(tmp1));  // Device name
+  char tmp2[100];
+  WebGetArg(PSTR("wp"), tmp2, sizeof(tmp2));  // Web password
+  char command[500];
+  snprintf_P(command, sizeof(command), PSTR(D_CMND_BACKLOG "0 " D_CMND_WEBPASSWORD "2 %s;" D_CMND_SO "3 %d;" D_CMND_DEVICENAME " %s"),
+    (!strlen(tmp2)) ? "\"" : (strlen(tmp2) < 5) ? "" : tmp2,
+    Webserver->hasArg(F("b1")),               // SetOption3 - Enable MQTT
+    (!strlen(tmp1)) ? "\"" : tmp1);
 
-  WebGetArg(PSTR("dn"), tmp, sizeof(tmp));
-  SettingsUpdateText(SET_DEVICENAME, (!strlen(tmp)) ? "" : (!strcmp(tmp,"1")) ? SettingsText(SET_FRIENDLYNAME1) : tmp);
-  WebGetArg(PSTR("wp"), tmp, sizeof(tmp));
-  SettingsUpdateText(SET_WEBPWD, (!strlen(tmp)) ? "" : (strchr(tmp,'*')) ? SettingsText(SET_WEBPWD) : tmp);
-  Settings.flag.mqtt_enabled = Webserver->hasArg(F("b1"));  // SetOption3 - Enable MQTT
+  char webindex[5];
+  for (uint32_t i = 0; i < MAX_FRIENDLYNAMES; i++) {
+    snprintf_P(webindex, sizeof(webindex), PSTR("a%d"), i);
+    WebGetArg(webindex, tmp1, sizeof(tmp1));  // Friendly name 1 to 8
+    snprintf_P(command, sizeof(command), PSTR("%s;" D_CMND_FN"%d %s"), command, i +1, (!strlen(tmp1)) ? "\"" : tmp1);
+  }
+
 #ifdef USE_EMULATION
-  UdpDisconnect();
 #if defined(USE_EMULATION_WEMO) || defined(USE_EMULATION_HUE)
-  WebGetArg(PSTR("b2"), tmp, sizeof(tmp));
-  Settings.flag2.emulation = (!strlen(tmp)) ? 0 : atoi(tmp);
+  WebGetArg(PSTR("b2"), tmp1, sizeof(tmp1));  // Emulation
+  snprintf_P(command, sizeof(command), PSTR("%s;" D_CMND_EMULATION " %s"), command, (!strlen(tmp1)) ? "0" : tmp1);
 #endif  // USE_EMULATION_WEMO || USE_EMULATION_HUE
 #endif  // USE_EMULATION
 
-  snprintf_P(message, sizeof(message), PSTR(D_LOG_OTHER D_MQTT_ENABLE " %s, " D_CMND_EMULATION " %d, " D_CMND_DEVICENAME " %s, " D_CMND_FRIENDLYNAME),
-    GetStateText(Settings.flag.mqtt_enabled), Settings.flag2.emulation, SettingsText(SET_DEVICENAME));
-  for (uint32_t i = 0; i < MAX_FRIENDLYNAMES; i++) {
-    snprintf_P(webindex, sizeof(webindex), PSTR("a%d"), i);
-    WebGetArg(webindex, tmp, sizeof(tmp));
-    snprintf_P(friendlyname, sizeof(friendlyname), PSTR(FRIENDLY_NAME"%d"), i +1);
-    SettingsUpdateText(SET_FRIENDLYNAME1 +i, (!strlen(tmp)) ? (i) ? friendlyname : PSTR(FRIENDLY_NAME) : tmp);
-    snprintf_P(message, sizeof(message), PSTR("%s%s %s"), message, (i) ? "," : "", SettingsText(SET_FRIENDLYNAME1 +i));
+  WebGetArg(PSTR("t1"), tmp1, sizeof(tmp1));  // Template
+  if (strlen(tmp1)) {  // {"NAME":"12345678901234","GPIO":[255,255,255,255,255,255,255,255,255,255,255,255,255],"FLAG":255,"BASE":255}
+    snprintf_P(command, sizeof(command), PSTR("%s;" D_CMND_TEMPLATE " %s%s"), command, tmp1, (Webserver->hasArg(F("t2"))) ? PSTR("; " D_CMND_MODULE " 0") : "");
   }
-  AddLogData(LOG_LEVEL_INFO, message);
-
-  WebGetArg(PSTR("t1"), tmp, sizeof(tmp));
-  if (strlen(tmp)) {  // {"NAME":"12345678901234","GPIO":[255,255,255,255,255,255,255,255,255,255,255,255,255],"FLAG":255,"BASE":255}
-    snprintf_P(message, sizeof(message), PSTR(D_CMND_BACKLOG " " D_CMND_TEMPLATE " %s%s"), tmp, (Webserver->hasArg(F("t2"))) ? PSTR("; " D_CMND_MODULE " 0") : "");
-    ExecuteWebCommand(message, SRC_WEBGUI);
-  }
+  ExecuteWebCommand(command);
 }
 
 /*-------------------------------------------------------------------------------------------*/
@@ -2053,7 +2044,7 @@ void HandleResetConfiguration(void)
 
   char command[CMDSZ];
   snprintf_P(command, sizeof(command), PSTR(D_CMND_RESET " 1"));
-  ExecuteWebCommand(command, SRC_WEBGUI);
+  ExecuteWebCommand(command);
 }
 
 void HandleRestoreConfiguration(void)
@@ -2298,7 +2289,7 @@ void HandleUpgradeFirmwareStart(void) {
   WebGetArg(PSTR("o"), otaurl, sizeof(otaurl));
   if (strlen(otaurl)) {
     snprintf_P(command, sizeof(command), PSTR(D_CMND_OTAURL " %s"), otaurl);
-    ExecuteWebCommand(command, SRC_WEBGUI);
+    ExecuteWebCommand(command);
   }
 
   WSContentStart_P(PSTR(D_INFORMATION));
@@ -2310,7 +2301,7 @@ void HandleUpgradeFirmwareStart(void) {
   WSContentStop();
 
   snprintf_P(command, sizeof(command), PSTR(D_CMND_UPGRADE " 1"));
-  ExecuteWebCommand(command, SRC_WEBGUI);
+  ExecuteWebCommand(command);
 }
 
 void HandleUploadDone(void) {
@@ -2893,13 +2884,12 @@ int WebSend(char *buffer)
             }
           }
           TasmotaGlobal.mqtt_data[j] = '\0';
-          MqttPublishPrefixTopic_P(RESULT_OR_STAT, PSTR(D_CMND_WEBSEND));
 #ifdef USE_SCRIPT
-extern uint8_t tasm_cmd_activ;
+          extern uint8_t tasm_cmd_activ;
           // recursive call must be possible in this case
-          tasm_cmd_activ=0;
-          XdrvRulesProcess(0);
+          tasm_cmd_activ = 0;
 #endif  // USE_SCRIPT
+          MqttPublishPrefixTopicRulesProcess_P(RESULT_OR_STAT, PSTR(D_CMND_WEBSEND));
 #endif  // USE_WEBSEND_RESPONSE
         }
         status = 0;                           // No error - Done
@@ -3013,10 +3003,16 @@ void CmndWebServer(void)
 
 void CmndWebPassword(void)
 {
+  bool show_asterisk = (2 == XdrvMailbox.index);
   if (XdrvMailbox.data_len > 0) {
     SettingsUpdateText(SET_WEBPWD, (SC_CLEAR == Shortcut()) ? "" : (SC_DEFAULT == Shortcut()) ? WEB_PASSWORD : XdrvMailbox.data);
-    ResponseCmndChar(SettingsText(SET_WEBPWD));
+    if (!show_asterisk) {
+      ResponseCmndChar(SettingsText(SET_WEBPWD));
+    }
   } else {
+    show_asterisk = true;
+  }
+  if (show_asterisk) {
     Response_P(S_JSON_COMMAND_ASTERISK, XdrvMailbox.command);
   }
 }
@@ -3100,7 +3096,7 @@ void CmndWebButton(void)
 void CmndCors(void)
 {
   if (XdrvMailbox.data_len > 0) {
-    SettingsUpdateText(SET_CORS, (SC_CLEAR == Shortcut()) ? "" : (SC_DEFAULT == Shortcut()) ? WEB_PASSWORD : XdrvMailbox.data);
+    SettingsUpdateText(SET_CORS, (SC_CLEAR == Shortcut()) ? "" : (SC_DEFAULT == Shortcut()) ? CORS_DOMAIN : XdrvMailbox.data);
   }
   ResponseCmndChar(SettingsText(SET_CORS));
 }

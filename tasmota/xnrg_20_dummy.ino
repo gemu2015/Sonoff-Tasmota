@@ -20,7 +20,7 @@
 #ifdef USE_ENERGY_SENSOR
 #ifdef USE_ENERGY_DUMMY
 /*********************************************************************************************\
- * Provides dummy energy monitoring
+ * Provides dummy energy monitoring for up to three channels based on relay count
  *
  * User is supposed to enter valid data for Voltage, Current and Power
  * Active Power is adjusted to calculated Apparent Power (=U*I) if the latter is smaller than the first
@@ -30,10 +30,10 @@
 
 #define XNRG_20             20
 
-#define NRG_DUMMY_PHASES    1       // 1 to 3 channels as x phases
 #define NRG_DUMMY_U_COMMON  true    // Phase voltage = false, Common voltage = true
 #define NRG_DUMMY_F_COMMON  true    // Phase frequency = false, Common frequency = true
 #define NRG_DUMMY_DC        false   // AC = false, DC = true;
+#define NRG_DUMMY_OVERTEMP  true    // Use global temperature for overtemp detection
 
 #define NRG_DUMMY_UREF      24000   // Voltage 240.00 V (= P / I)
 #define NRG_DUMMY_IREF      41666   // Current 0.417 A (= P / U)
@@ -45,17 +45,18 @@
 void NrgDummyEverySecond(void) {
   if (Energy.power_on) {  // Powered on
     float energy = 0;
-    uint32_t max_channel = (NRG_DUMMY_PHASES < 4) ? NRG_DUMMY_PHASES : 3;
-    for (uint32_t channel = 0; channel < max_channel; channel++) {
-      Energy.data_valid[channel] = 0;
+    for (uint32_t channel = 0; channel < Energy.phase_count; channel++) {
       Energy.voltage[channel] = ((float)Settings.energy_voltage_calibration / 100);       // V
       Energy.frequency[channel] = ((float)Settings.energy_frequency_calibration / 100);   // Hz
-      Energy.active_power[channel] = ((float)Settings.energy_power_calibration / 100);    // W
-      if (0 == Energy.active_power[channel]) {
-        Energy.current[channel] = 0;
-      } else {
-        Energy.current[channel] = ((float)Settings.energy_current_calibration / 100000);  // A
-        energy += Energy.active_power[channel];
+      if (bitRead(TasmotaGlobal.power, channel)) {  // Emulate power read only if device is powered on
+        Energy.active_power[channel] = ((float)Settings.energy_power_calibration / 100);    // W
+        if (0 == Energy.active_power[channel]) {
+          Energy.current[channel] = 0;
+        } else {
+          Energy.current[channel] = ((float)Settings.energy_current_calibration / 100000);  // A
+          energy += Energy.active_power[channel];
+        }
+        Energy.data_valid[channel] = 0;
       }
     }
 
@@ -99,13 +100,17 @@ bool NrgDummyCommand(void) {
       }
     }
   }
+  else if (CMND_ENERGYCONFIG == Energy.command_code) {
+    AddLog_P(LOG_LEVEL_DEBUG, PSTR("NRG: Config index %d, payload %d, data '%s'"),
+      XdrvMailbox.index, XdrvMailbox.payload, XdrvMailbox.data ? XdrvMailbox.data : "null" );
+  }
   else serviced = false;  // Unknown command
 
   return serviced;
 }
 
 void NrgDummyDrvInit(void) {
-  if (TasmotaGlobal.gpio_optiona.dummy_energy) {
+  if (TasmotaGlobal.gpio_optiona.dummy_energy && TasmotaGlobal.devices_present) {
     if (HLW_PREF_PULSE == Settings.energy_power_calibration) {
       Settings.energy_frequency_calibration = NRG_DUMMY_FREF;
       Settings.energy_voltage_calibration = NRG_DUMMY_UREF;
@@ -113,10 +118,11 @@ void NrgDummyDrvInit(void) {
       Settings.energy_power_calibration = NRG_DUMMY_PREF;
     }
 
-    Energy.type_dc = NRG_DUMMY_DC;                 // AC = false, DC = true;
-    Energy.phase_count = NRG_DUMMY_PHASES;         // 1 to 3 channels as x phases
+    Energy.phase_count = (TasmotaGlobal.devices_present < ENERGY_MAX_PHASES) ? TasmotaGlobal.devices_present : ENERGY_MAX_PHASES;
     Energy.voltage_common = NRG_DUMMY_U_COMMON;    // Phase voltage = false, Common voltage = true
     Energy.frequency_common = NRG_DUMMY_F_COMMON;  // Phase frequency = false, Common frequency = true
+    Energy.type_dc = NRG_DUMMY_DC;                 // AC = false, DC = true;
+    Energy.use_overtemp = NRG_DUMMY_OVERTEMP;      // Use global temperature for overtemp detection
 
     TasmotaGlobal.energy_driver = XNRG_20;
   }
