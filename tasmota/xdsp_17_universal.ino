@@ -43,14 +43,14 @@ extern FS *ufsp;
 #ifdef DSP_ROM_DESC
 /* sample descriptor */
 const char DSP_SAMPLE_DESC[] PROGMEM =
-// name,xs,ys,bpp,interface, address, scl,sda,reset
+// name,xs,ys,bpp,interface, (HEX) address, scl,sda,reset
 // '*' means take pin number from tasmota
 ":H\n"
 "SH1106,128,64,1,I2C,3c,*,*,*\n"
 // splash settings, font, size, fgcol, bgcol, x,y
 ":S\n"
 "0,1,1,0,40,20\n"
-// init register settings
+// init register settings, must be in HEX
 ":I\n"
 "AE\n"
 "D5,80\n"
