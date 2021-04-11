@@ -212,8 +212,17 @@ Renderer *uDisplay::Init(void) {
     spiSettings = SPISettings(spi_speed, MSBFIRST, SPI_MODE3);
 
 #ifdef ESP8266
-    SPI.begin();
-    uspi = &SPI;
+    if (spi_nr <= 1) {
+      SPI.begin();
+      uspi = &SPI;
+    } else {
+      pinMode(spi_clk, OUTPUT);
+      digitalWrite(spi_clk, LOW);
+      pinMode(spi_mosi, OUTPUT);
+      digitalWrite(spi_mosi, LOW);
+      pinMode(spi_dc, OUTPUT);
+      digitalWrite(spi_dc, LOW);
+    }
 #endif // ESP8266
 
 #ifdef ESP32
@@ -231,10 +240,10 @@ Renderer *uDisplay::Init(void) {
     while (1) {
       uint8_t iob;
       SPI_CS_LOW
-      SPI_DC_LOW
+
       iob = dsp_cmds[index++];
-      spi_data8(iob);
-      SPI_DC_HIGH
+      spi_command(iob);
+
       uint8_t args = dsp_cmds[index++];
       //Serial.printf("cmd, args %x, %d ", iob, args&0x7f);
       for (uint32_t cnt = 0; cnt < (args & 0x7f); cnt++) {
@@ -635,7 +644,6 @@ uint32_t uDisplay::next_hex(char **sp) {
   return strtol(ibuff, 0, 16);
 }
 
-
 #define PIN_OUT_SET 0x60000304
 #define PIN_OUT_CLEAR 0x60000308
 
@@ -658,7 +666,7 @@ void ICACHE_RAM_ATTR uDisplay::write16(uint16_t val) {
 }
 
 void ICACHE_RAM_ATTR uDisplay::write32(uint32_t val) {
-  for (uint32_t bit = 0x800000; bit; bit >>= 1) {
+  for (uint32_t bit = 0x80000000; bit; bit >>= 1) {
     WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << spi_clk);
     if (val & bit) WRITE_PERI_REG( PIN_OUT_SET, 1 << spi_mosi);
     else   WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << spi_mosi);
