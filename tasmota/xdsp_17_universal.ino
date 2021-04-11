@@ -84,6 +84,7 @@ char *fbuff;
 
     if (!ddesc) {
       AddLog(LOG_LEVEL_INFO, PSTR("DSP: No valid descriptor found"));
+      if (fbuff) free(fbuff);
       return;
     }
     // now replace tasmota vars before passing to driver
@@ -109,20 +110,40 @@ char *fbuff;
     cp = strstr(ddesc, "SPI");
     if (cp) {
       cp += 4;
-      //; 7 params cs,sclk,mosi,dc,bl,reset,miso
-      //SPI,*,*,*,*,*,*
-      replacepin(&cp, Pin(GPIO_SPI_CS));
-      replacepin(&cp, Pin(GPIO_SPI_CLK));
-      replacepin(&cp, Pin(GPIO_SPI_MOSI));
-      replacepin(&cp, Pin(GPIO_SPI_DC));
-      replacepin(&cp, Pin(GPIO_BACKLIGHT));
-      replacepin(&cp, Pin(GPIO_OLED_RESET));
-      replacepin(&cp, Pin(GPIO_SPI_MISO));
+      //; 7 params nr,cs,sclk,mosi,dc,bl,reset,miso
+      //SPI,*,*,*,*,*,*,*
+      if (*cp == '1') {
+        cp+=2;
+        replacepin(&cp, Pin(GPIO_SPI_CS));
+        replacepin(&cp, Pin(GPIO_SPI_CLK));
+        replacepin(&cp, Pin(GPIO_SPI_MOSI));
+        replacepin(&cp, Pin(GPIO_SPI_DC));
+        replacepin(&cp, Pin(GPIO_BACKLIGHT));
+        replacepin(&cp, Pin(GPIO_OLED_RESET));
+        replacepin(&cp, Pin(GPIO_SPI_MISO));
+      } else {
+        // soft spi pins
+        cp+=2;
+        replacepin(&cp, Pin(GPIO_SSPI_CS));
+        replacepin(&cp, Pin(GPIO_SSPI_SCLK));
+        replacepin(&cp, Pin(GPIO_SSPI_MOSI));
+        replacepin(&cp, Pin(GPIO_SSPI_DC));
+        replacepin(&cp, Pin(GPIO_BACKLIGHT));
+        replacepin(&cp, Pin(GPIO_OLED_RESET));
+        replacepin(&cp, Pin(GPIO_SSPI_MISO));
+      }
     }
 
     // init renderer
+    if (udisp) delete udisp;
     udisp  = new uDisplay(ddesc);
 
+/*
+    File fp;
+    fp = ufsp->open("/dump.txt", "w");
+    fp.write(ddesc, DISPDESC_SIZE);
+    fp.close();
+*/
     // release desc buffer
     if (fbuff) free(fbuff);
 
@@ -150,12 +171,13 @@ char *fbuff;
 
 void replacepin(char **cp, uint16_t pin) {
   char *lp = *cp;
+  if (*lp == ',') lp++;
   if (*lp == '*') {
     char val[8];
     itoa(pin, val, 10);
     uint16_t slen = strlen(val);
     //AddLog(LOG_LEVEL_INFO, PSTR("replace pin: %d"), pin);
-    memmove(lp + slen, lp + 1, strlen(lp) - slen);
+    memmove(lp + slen, lp + 1, strlen(lp));
     memmove(lp, val, slen);
   }
   char *np = strchr(lp, ',');

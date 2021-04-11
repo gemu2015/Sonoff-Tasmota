@@ -72,14 +72,14 @@ class uDisplay : public Renderer {
    uint32_t next_hex(char **sp);
    void setAddrWindow_int(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
    char dname[16];
-   uint8_t bpp;
+   int8_t bpp;
    uint8_t interface;
    uint8_t i2caddr;
    int8_t i2c_scl;
    int8_t i2c_sda;
    int8_t reset;
    uint8_t dsp_cmds[128];
-   uint8_t i2c_ncmds;
+   uint8_t dsp_ncmds;
    uint8_t dsp_on;
    uint8_t dsp_off;
    uint16_t splash_font;
@@ -100,6 +100,7 @@ class uDisplay : public Renderer {
    SPIClass *uspi;
    SPISettings spiSettings;
    uint32_t spi_speed;
+   uint8_t spi_nr = 1;
    uint8_t rot_0;
    uint8_t rot_1;
    uint8_t rot_2;
@@ -107,6 +108,7 @@ class uDisplay : public Renderer {
    uint8_t saw_1;
    uint8_t saw_2;
    uint8_t saw_3;
+   uint8_t flags;
 };
 
 #endif // _UDISP_

@@ -37,7 +37,7 @@ extern uint8_t *buffer;
 uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   // analyse decriptor
   uint8_t section = 0;
-  i2c_ncmds = 0;
+  dsp_ncmds = 0;
   char linebuff[128];
   while (*lp) {
 
@@ -79,6 +79,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
               section = 0;
             } else if (!strncmp(ibuff, "SPI", 3)) {
               interface = _UDSP_SPI;
+              spi_nr = next_val(&lp1);
               spi_cs = next_val(&lp1);
               spi_clk = next_val(&lp1);
               spi_mosi = next_val(&lp1);
@@ -87,7 +88,9 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
               reset = next_val(&lp1);
               spi_miso = next_val(&lp1);
               spi_speed = next_val(&lp1);
+
               section = 0;
+              Serial.printf("%d %d %d %d %d %d %d %d\n", spi_cs, spi_clk, spi_mosi, spi_dc, bpanel, reset, spi_miso, spi_speed);
             }
             break;
           case 'S':
@@ -107,18 +110,18 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
           case 'I':
             // init data
             if (interface == _UDSP_I2C) {
-              dsp_cmds[i2c_ncmds++] = next_hex(&lp1);
+              dsp_cmds[dsp_ncmds++] = next_hex(&lp1);
               if (!str2c(&lp1, ibuff, sizeof(ibuff))) {
-                dsp_cmds[i2c_ncmds++] = strtol(ibuff, 0, 16);
+                dsp_cmds[dsp_ncmds++] = strtol(ibuff, 0, 16);
               }
             } else {
               while (1) {
                 if (!str2c(&lp1, ibuff, sizeof(ibuff))) {
-                  dsp_cmds[i2c_ncmds++] = strtol(ibuff, 0, 16);
+                  dsp_cmds[dsp_ncmds++] = strtol(ibuff, 0, 16);
                 } else {
                   break;
                 }
-                if (i2c_ncmds >= sizeof(dsp_cmds)) break;
+                if (dsp_ncmds >= sizeof(dsp_cmds)) break;
 
               }
             }
@@ -164,11 +167,13 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
 
 Renderer *uDisplay::Init(void) {
 
+
   if (reset >= 0) {
     pinMode(reset, OUTPUT);
     digitalWrite(reset, HIGH);
+    delay(50);
     digitalWrite(reset, LOW);
-    delay(5);
+    delay(50);
     digitalWrite(reset, HIGH);
     delay(200);
   }
@@ -179,7 +184,7 @@ Renderer *uDisplay::Init(void) {
       if (buffer) free(buffer);
       buffer = (uint8_t*)calloc((width()*height()*bpp)/8, 1);
 
-      for (uint32_t cnt = 0; cnt < i2c_ncmds; cnt++) {
+      for (uint32_t cnt = 0; cnt < dsp_ncmds; cnt++) {
         i2c_command(dsp_cmds[cnt]);
       }
     }
@@ -204,14 +209,19 @@ Renderer *uDisplay::Init(void) {
       digitalWrite(spi_cs, HIGH);
     }
 
+    spiSettings = SPISettings(spi_speed, MSBFIRST, SPI_MODE3);
+
 #ifdef ESP8266
     SPI.begin();
     uspi = &SPI;
 #else
-    SPI.begin(spi_clk, spi_miso, spi_mosi, -1);
-    uspi = &SPI;
+    if (spi_nr != 1) {
+      uspi = new SPIClass(HSPI);
+    } else {
+      uspi = &SPI;
+    }
+    uspi->begin(spi_clk, spi_miso, spi_mosi, -1);
 #endif
-    spiSettings = SPISettings(spi_speed, MSBFIRST, SPI_MODE3);
 
     uint16_t index = 0;
 
@@ -224,7 +234,7 @@ Renderer *uDisplay::Init(void) {
       uspi->write(iob);
       SPI_DC_HIGH
       uint8_t args = dsp_cmds[index++];
-      //Serial.printf("cmd, args %x, %d\n", iob, args&0x7f);
+      //Serial.printf("cmd, args %x, %d ", iob, args&0x7f);
       for (uint32_t cnt = 0; cnt < (args & 0x7f); cnt++) {
         iob = dsp_cmds[index++];
         //Serial.printf("%02x ", iob );
@@ -233,7 +243,7 @@ Renderer *uDisplay::Init(void) {
       SPI_CS_HIGH
       //Serial.printf("\n");
       if (args & 0x80) delay(120);
-      if (index >= i2c_ncmds) break;
+      if (index >= dsp_ncmds) break;
     }
     SPI_END_TRANSACTION
 
