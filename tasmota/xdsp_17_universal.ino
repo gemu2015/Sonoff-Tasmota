@@ -37,6 +37,46 @@ extern FS *ufsp;
 
 #define DISPDESC_SIZE 1000
 
+#define DSP_ROM_DESC
+
+/*********************************************************************************************/
+#ifdef DSP_ROM_DESC
+/* sample descriptor */
+const char DSP_SAMPLE_DESC[] PROGMEM =
+// name,xs,ys,bpp,interface, address, scl,sda,reset
+// '*' means take pin number from tasmota
+":H\n"
+"SH1106,128,64,1,I2C,3c,*,*,*\n"
+// splash settings, font, size, fgcol, bgcol, x,y
+":S\n"
+"0,1,1,0,40,20\n"
+// init register settings
+":I\n"
+"AE\n"
+"D5,80\n"
+"A8,3f\n"
+"D3,00\n"
+"40\n"
+"8D,14\n"
+"20,00\n"
+"A1\n"
+"C8\n"
+"DA,12\n"
+"81,CF\n"
+"D9F1\n"
+"DB,40\n"
+"A4\n"
+"A6\n"
+"AF\n"
+// switch display off
+":o\n"
+"AE\n"
+// switch display on
+":O\n"
+"AF\n"
+"#\n";
+
+#endif // DSP_ROM_DESC
 /*********************************************************************************************/
 
 void Init_uDisp(void) {
@@ -81,6 +121,14 @@ char *fbuff;
     }
 #endif // USE_SCRIPT
 
+
+#ifdef DSP_ROM_DESC
+    if (!ddesc) {
+      memcpy_P(fbuff, DSP_SAMPLE_DESC, sizeof(DSP_SAMPLE_DESC));
+      ddesc = fbuff;
+      AddLog(LOG_LEVEL_INFO, PSTR("DSP: Flash descriptor used"));
+    }
+#endif // DSP_ROM_DESC
 
     if (!ddesc) {
       AddLog(LOG_LEVEL_INFO, PSTR("DSP: No valid descriptor found"));
@@ -166,6 +214,7 @@ char *fbuff;
     AddLog(LOG_LEVEL_INFO, PSTR("DSP: %s!"), udisp->devname());
   }
 }
+
 
 /*********************************************************************************************/
 
