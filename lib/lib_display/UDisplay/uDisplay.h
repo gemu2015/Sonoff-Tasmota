@@ -67,6 +67,14 @@ class uDisplay : public Renderer {
    uint32_t str2c(char **sp, char *vp, uint32_t len);
    void i2c_command(uint8_t val);
    void spi_command(uint8_t val);
+   void spi_command_one(uint8_t val);
+   void spi_data8(uint8_t val);
+   void spi_data16(uint16_t val);
+   void spi_data32(uint32_t val);
+   void write8(uint8_t val);
+   void write16(uint16_t val);
+   void write32(uint32_t val);
+
    uint8_t strlen_ln(char *str);
    int32_t next_val(char **sp);
    uint32_t next_hex(char **sp);
@@ -98,6 +106,7 @@ class uDisplay : public Renderer {
    int8_t spi_miso;
    uint8_t dimmer;
    SPIClass *uspi;
+   uint8_t sspi;
    SPISettings spiSettings;
    uint32_t spi_speed;
    uint8_t spi_nr = 1;
@@ -110,5 +119,7 @@ class uDisplay : public Renderer {
    uint8_t saw_3;
    uint8_t flags;
 };
+
+
 
 #endif // _UDISP_
