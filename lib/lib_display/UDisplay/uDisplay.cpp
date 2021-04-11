@@ -275,7 +275,7 @@ void uDisplay::DisplayInit(int8_t p,int8_t size,int8_t rot,int8_t font) {
     Updateframe();
 }
 
-
+#ifdef ESP32
 void uDisplay::spi_data9(uint8_t d, uint8_t dc) {
   uint32_t regvalue = d >> 1;
   if (dc) regvalue |= 0x80;
@@ -289,39 +289,63 @@ void uDisplay::spi_data9(uint8_t d, uint8_t dc) {
   REG_SET_BIT(SPI_CMD_REG(3), SPI_USR);
   while (REG_GET_FIELD(SPI_CMD_REG(3), SPI_USR));
 }
-
+#else
+void uDisplay::spi_data9(uint8_t d, uint8_t dc) {
+}
+#endif
 
 void uDisplay::spi_command(uint8_t val) {
-  SPI_DC_LOW
-  if (spi_nr > 2) {
-    write8(val);
+
+  if (spi_dc < 0) {
+    write9(val, 0);
   } else {
-    uspi->write(val);
+    SPI_DC_LOW
+    if (spi_nr > 2) {
+      write8(val);
+    } else {
+      uspi->write(val);
+    }
+    SPI_DC_HIGH
   }
-  SPI_DC_HIGH
 }
 
 void uDisplay::spi_data8(uint8_t val) {
-  if (spi_nr > 2) {
-    write8(val);
+  if (spi_dc < 0) {
+    write9(val, 1);
   } else {
-    uspi->write(val);
+    if (spi_nr > 2) {
+      write8(val);
+    } else {
+      uspi->write(val);
+    }
   }
 }
 
 void uDisplay::spi_data16(uint16_t val) {
-  if (spi_nr > 2) {
-    write16(val);
+  if (spi_dc < 0) {
+    write9(val >> 8, 1);
+    write9(val, 1);
   } else {
-    uspi->write16(val);
+    if (spi_nr > 2) {
+      write16(val);
+    } else {
+      uspi->write16(val);
+    }
   }
 }
 
 void uDisplay::spi_data32(uint32_t val) {
-  if (spi_nr > 2) {
-    write32(val);
+  if (spi_dc < 0) {
+    write9(val >> 24, 1);
+    write9(val >> 16, 1);
+    write9(val >> 8, 1);
+    write9(val, 1);
   } else {
-    uspi->write32(val);
+    if (spi_nr > 2) {
+      write32(val);
+    } else {
+      uspi->write32(val);
+    }
   }
 }
 
@@ -345,6 +369,16 @@ void uDisplay::i2c_command(uint8_t val) {
 #define SH1106_SETHIGHCOLUMN 0x10
 #define SH1106_SETSTARTLINE 0x40
 
+/*
+  static const uint8_t PROGMEM dlist1[] = {
+    SSD1306_PAGEADDR,
+    0,                         // Page start address
+    0xFF,                      // Page end (not really, but works here)
+    SSD1306_COLUMNADDR };
+  ssd1306_commandList(dlist1, sizeof(dlist1));
+  ssd1306_command1(col_start); // Column start address
+  ssd1306_command1(col_end); // Column end address
+  */
 
 void uDisplay::Updateframe(void) {
 
@@ -664,6 +698,21 @@ uint32_t uDisplay::next_hex(char **sp) {
 #define PIN_OUT_CLEAR 0x60000308
 
 void ICACHE_RAM_ATTR uDisplay::write8(uint8_t val) {
+  for (uint8_t bit = 0x80; bit; bit >>= 1) {
+    WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << spi_clk);
+    if (val & bit) WRITE_PERI_REG( PIN_OUT_SET, 1 << spi_mosi);
+    else   WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << spi_mosi);
+    WRITE_PERI_REG( PIN_OUT_SET, 1 << spi_clk);
+  }
+}
+
+void ICACHE_RAM_ATTR uDisplay::write9(uint8_t val, uint8_t dc) {
+
+  WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << spi_clk);
+  if (dc) WRITE_PERI_REG( PIN_OUT_SET, 1 << spi_mosi);
+  else  WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << spi_mosi);
+  WRITE_PERI_REG( PIN_OUT_SET, 1 << spi_clk);
+
   for (uint8_t bit = 0x80; bit; bit >>= 1) {
     WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << spi_clk);
     if (val & bit) WRITE_PERI_REG( PIN_OUT_SET, 1 << spi_mosi);

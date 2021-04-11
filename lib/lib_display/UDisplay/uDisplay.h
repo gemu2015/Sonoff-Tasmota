@@ -72,6 +72,7 @@ class uDisplay : public Renderer {
    void spi_data16(uint16_t val);
    void spi_data32(uint32_t val);
    void write8(uint8_t val);
+   void write9(uint8_t val, uint8_t dc);
    void write16(uint16_t val);
    void write32(uint32_t val);
    void spi_data9(uint8_t d, uint8_t dc);
