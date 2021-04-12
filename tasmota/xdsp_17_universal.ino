@@ -38,7 +38,7 @@ extern FS *ffsp;
 
 #define DISPDESC_SIZE 1000
 
-#define DSP_ROM_DESC
+//#define DSP_ROM_DESC
 
 /*********************************************************************************************/
 #ifdef DSP_ROM_DESC
@@ -75,6 +75,8 @@ const char DSP_SAMPLE_DESC[] PROGMEM =
 // switch display on
 ":O\n"
 "AF\n"
+":A\n"
+"00,10,40\n"
 "#\n";
 
 #endif // DSP_ROM_DESC
@@ -195,9 +197,9 @@ char *fbuff;
     cp = strstr(ddesc, ":TI");
     if (cp) {
       uint8_t wire_n = 1;
-      cp+=2;
+      cp+=3;
       wire_n = (*cp & 3) - 1;
-      cp++;
+      cp+=2;
 
       uint8_t i2caddr = strtol(cp, &cp, 16);
       int8_t scl, sda;
@@ -212,10 +214,11 @@ char *fbuff;
         Wire1.begin(sda, scl, 400000);
       }
 #endif
-      if (I2cSetDevice(i2caddr), wire_n) {
+      //AddLog(LOG_LEVEL_INFO, PSTR("DSP: touch %x, %d, %d, %d!"), i2caddr, wire_n, scl, sda);
+      if (I2cSetDevice(i2caddr, wire_n)) {
         I2cSetActiveFound(i2caddr, "FT5206", wire_n);
       }
-      // start digitizer with fixed adress and pins for esp32
+      // start digitizer
       Touch_Init(Wire1);
     }
 #endif
@@ -269,65 +272,9 @@ void udisp_dimm(uint8_t dim) {
 #endif
 }
 
-
-#if defined(USE_FT5206)
 void TS_RotConvert(int16_t *x, int16_t *y) {
-
-int16_t temp;
-  if (renderer) {
-    uint8_t rot = renderer->getRotation();
-    switch (rot) {
-      case 0:
-        break;
-      case 1:
-        temp = *y;
-        *y = renderer->height() - *x;
-        *x = temp;
-        break;
-      case 2:
-        *x = renderer->width() - *x;
-        *y = renderer->height() - *y;
-        break;
-      case 3:
-        temp = *y;
-        *y = *x;
-        *x = renderer->width() - temp;
-        break;
-    }
-  }
+  if (udisp) udisp->TS_RotConvert(x, y);
 }
-#elif defined(USE_XPT2046)
-void TS_RotConvert(int16_t *x, int16_t *y) {
-
-int16_t temp;
-  if (renderer) {
-    uint8_t rot = renderer->getRotation();
-//    AddLog(LOG_LEVEL_DEBUG_MORE, PSTR(" TS: before convert x:%d / y:%d  screen r:%d / w:%d / h:%d"), *x, *y,rot,renderer->width(),renderer->height());
-	temp = map(*x,XPT2046_MINX,XPT2046_MAXX, renderer->height(), 0);
-	*x = map(*y,XPT2046_MINY,XPT2046_MAXY, renderer->width(), 0);
-	*y = temp;
-    switch (rot) {
-      case 0:
-        break;
-      case 1:
-        temp = *y;
-        *y = renderer->width() - *x;
-        *x = temp;
-        break;
-      case 2:
-        *x = renderer->width() - *x;
-        *y = renderer->height() - *y;
-        break;
-      case 3:
-        temp = *y;
-        *y = *x;
-        *x = renderer->height() - temp;
-        break;
-    }
-    AddLog(LOG_LEVEL_DEBUG_MORE, PSTR(" TS: after convert x:%d / y:%d  screen r:%d / w:%d / h:%d"), *x, *y,rot,renderer->width(),renderer->height());
-  }
-}
-#endif
 
 #if defined(USE_FT5206) || defined(USE_XPT2046)
 void udisp_CheckTouch() {

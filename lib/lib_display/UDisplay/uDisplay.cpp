@@ -140,17 +140,24 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             str2c(&lp1, ibuff, sizeof(ibuff));
             dsp_on = strtol(ibuff, 0, 16);
             break;
+          case 'R':
+            madctrl = next_hex(&lp1);
+            break;
           case '0':
-            rot_0 = next_hex(&lp1);
+            rot[0] = next_hex(&lp1);
+            rot_t[0] = next_hex(&lp1);
             break;
           case '1':
-            rot_1 = next_hex(&lp1);
+            rot[1] = next_hex(&lp1);
+            rot_t[1] = next_hex(&lp1);
             break;
           case '2':
-            rot_2 = next_hex(&lp1);
+            rot[2] = next_hex(&lp1);
+            rot_t[2] = next_hex(&lp1);
             break;
           case '3':
-            rot_3 = next_hex(&lp1);
+            rot[3] = next_hex(&lp1);
+            rot_t[3] = next_hex(&lp1);
             break;
           case 'A':
             saw_1 = next_hex(&lp1);
@@ -260,14 +267,14 @@ Renderer *uDisplay::Init(void) {
       spi_command(iob);
 
       uint8_t args = dsp_cmds[index++];
-      //Serial.printf("cmd, args %x, %d ", iob, args&0x7f);
+      Serial.printf("cmd, args %x, %d ", iob, args&0x7f);
       for (uint32_t cnt = 0; cnt < (args & 0x7f); cnt++) {
         iob = dsp_cmds[index++];
-        //Serial.printf("%02x ", iob );
+        Serial.printf("%02x ", iob );
         spi_data8(iob);
       }
       SPI_CS_HIGH
-      //Serial.printf("\n");
+      Serial.printf("\n");
       if (args & 0x80) delay(120);
       if (index >= dsp_ncmds) break;
     }
@@ -380,9 +387,6 @@ void uDisplay::i2c_command(uint8_t val) {
   Wire.endTransmission();
 }
 
-#define SH1106_SETLOWCOLUMN 0
-#define SH1106_SETHIGHCOLUMN 0x10
-#define SH1106_SETSTARTLINE 0x40
 
 /*
   static const uint8_t PROGMEM dlist1[] = {
@@ -398,9 +402,9 @@ void uDisplay::i2c_command(uint8_t val) {
 void uDisplay::Updateframe(void) {
 
   if (interface == _UDSP_I2C) {
-    i2c_command(SH1106_SETLOWCOLUMN | 0x0);  // low col = 0
-    i2c_command(SH1106_SETHIGHCOLUMN | 0x0);  // hi col = 0
-    i2c_command(SH1106_SETSTARTLINE | 0x0); // line #0
+    i2c_command(saw_1 | 0x0);  // low col = 0
+    i2c_command(saw_2 | 0x0);  // hi col = 0
+    i2c_command(saw_3 | 0x0); // line #0
 
 	  uint8_t ys = gys >> 3;
 	  uint8_t xs = gxs >> 3;
@@ -585,29 +589,33 @@ void uDisplay::drawPixel(int16_t x, int16_t y, uint16_t color) {
   SPI_END_TRANSACTION
 }
 
-void uDisplay::setRotation(uint8_t m) {
+void uDisplay::setRotation(uint8_t rotation) {
   if (interface != _UDSP_SPI) {
-    Renderer::setRotation(m);
+    Renderer::setRotation(rotation);
     return;
+  }
+  if (interface == _UDSP_SPI) {
+    SPI_BEGIN_TRANSACTION
+    SPI_CS_LOW
+    spi_command(madctrl);
+    spi_data8(rot[rotation]);
+    SPI_CS_HIGH
+    SPI_END_TRANSACTION
   }
   switch (rotation) {
     case 0:
-      if (interface == _UDSP_SPI) spi_command_one(rot_0);
       _width  = gxs;
       _height = gys;
       break;
     case 1:
-      if (interface == _UDSP_SPI) spi_command_one(rot_1);
       _width  = gys;
       _height = gxs;
       break;
     case 2:
-      if (interface == _UDSP_SPI) spi_command_one(rot_2);
       _width  = gxs;
       _height = gys;
       break;
     case 3:
-      if (interface == _UDSP_SPI) spi_command_one(rot_3);
       _width  = gys;
       _height = gxs;
       break;
@@ -667,6 +675,28 @@ void uDisplay::dim(uint8_t dim) {
 }
 
 
+void uDisplay::TS_RotConvert(int16_t *x, int16_t *y) {
+  int16_t temp;
+
+  switch (rot_t[getRotation()]) {
+    case 0:
+      break;
+    case 1:
+      temp = *y;
+      *y = height() - *x;
+      *x = temp;
+      break;
+    case 2:
+      *x = width() - *x;
+      *y = height() - *y;
+      break;
+    case 3:
+      temp = *y;
+      *y = *x;
+      *x = width() - temp;
+      break;
+  }
+}
 
 uint8_t uDisplay::strlen_ln(char *str) {
   for (uint32_t cnt = 0; cnt < 256; cnt++) {

@@ -59,6 +59,7 @@ class uDisplay : public Renderer {
   void fillScreen(uint16_t color);
   void fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color);
   void pushColors(uint16_t *data, uint16_t len, boolean first);
+  void TS_RotConvert(int16_t *x, int16_t *y);
 
  private:
    void setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
@@ -113,10 +114,9 @@ class uDisplay : public Renderer {
    SPISettings spiSettings;
    uint32_t spi_speed;
    uint8_t spi_nr = 1;
-   uint8_t rot_0;
-   uint8_t rot_1;
-   uint8_t rot_2;
-   uint8_t rot_3;
+   uint8_t madctrl;
+   uint8_t rot[4];
+   uint8_t rot_t[4];
    uint8_t saw_1;
    uint8_t saw_2;
    uint8_t saw_3;
