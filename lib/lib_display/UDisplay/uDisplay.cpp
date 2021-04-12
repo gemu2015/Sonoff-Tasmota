@@ -405,17 +405,6 @@ void uDisplay::i2c_command(uint8_t val) {
 }
 
 
-/*
-  static const uint8_t PROGMEM dlist1[] = {
-    SSD1306_PAGEADDR,
-    0,                         // Page start address
-    0xFF,                      // Page end (not really, but works here)
-    SSD1306_COLUMNADDR };
-  ssd1306_commandList(dlist1, sizeof(dlist1));
-  ssd1306_command1(col_start); // Column start address
-  ssd1306_command1(col_end); // Column end address
-  */
-
 void uDisplay::Updateframe(void) {
 
   if (interface == _UDSP_I2C) {
