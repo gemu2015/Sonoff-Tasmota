@@ -133,12 +133,10 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             }
             break;
           case 'o':
-            str2c(&lp1, ibuff, sizeof(ibuff));
-            dsp_off = strtol(ibuff, 0, 16);
+            dsp_off = next_hex(&lp1);
             break;
           case 'O':
-            str2c(&lp1, ibuff, sizeof(ibuff));
-            dsp_on = strtol(ibuff, 0, 16);
+            dsp_on = next_hex(&lp1);
             break;
           case 'R':
             madctrl = next_hex(&lp1);

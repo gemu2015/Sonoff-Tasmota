@@ -244,7 +244,7 @@ char *fbuff;
     bg_color = udisp->bgcol();
 
     renderer->DisplayInit(DISPLAY_INIT_MODE, Settings.display_size, Settings.display_rotate, Settings.display_font);
-
+    renderer->dim(Settings.display_dimmer);
 
 #ifdef SHOW_SPLASH
     udisp->Splash();

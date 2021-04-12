@@ -117,8 +117,8 @@ class uDisplay : public Renderer {
    uint8_t madctrl;
    uint8_t rot[4];
    uint8_t rot_t[4];
-   uint8_t x_addr_offs[4];
-   uint8_t y_addr_offs[4];
+   uint16_t x_addr_offs[4];
+   uint16_t y_addr_offs[4];
    uint8_t saw_1;
    uint8_t saw_2;
    uint8_t saw_3;
