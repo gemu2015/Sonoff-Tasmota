@@ -33,6 +33,7 @@ uint16_t uDisplay::GetColorFromIndex(uint8_t index) {
 }
 
 extern uint8_t *buffer;
+extern uint8_t color_type;
 
 uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   // analyse decriptor
@@ -69,6 +70,11 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             gys = next_val(&lp1);
             setheight(gys);
             bpp = next_val(&lp1);
+            if (bpp == 1) {
+              color_type = uCOLOR_BW;
+            } else {
+              color_type = uCOLOR_COLOR;
+            }
             str2c(&lp1, ibuff, sizeof(ibuff));
             if (!strncmp(ibuff, "I2C", 3)) {
               interface = _UDSP_I2C;
@@ -182,12 +188,21 @@ Renderer *uDisplay::Init(void) {
     Wire.begin(i2c_sda, i2c_scl);
     if (bpp < 16) {
       if (buffer) free(buffer);
+#ifdef ESP8266
       buffer = (uint8_t*)calloc((width()*height()*bpp)/8, 1);
-
-      for (uint32_t cnt = 0; cnt < dsp_ncmds; cnt++) {
-        i2c_command(dsp_cmds[cnt]);
+#else
+      if (psramFound()) {
+        buffer = (uint8_t*)heap_caps_malloc((width()*height()*bpp)/8, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+      } else {
+        buffer = (uint8_t*)calloc((width()*height()*bpp)/8, 1);
       }
+#endif
     }
+
+    for (uint32_t cnt = 0; cnt < dsp_ncmds; cnt++) {
+      i2c_command(dsp_cmds[cnt]);
+    }
+
   }
   if (interface == _UDSP_SPI) {
     if (bpanel >= 0) {
@@ -275,7 +290,7 @@ void uDisplay::DisplayInit(int8_t p,int8_t size,int8_t rot,int8_t font) {
     Updateframe();
 }
 
-#ifdef ESP32
+#ifdef xESP32
 void uDisplay::spi_data9(uint8_t d, uint8_t dc) {
   uint32_t regvalue = d >> 1;
   if (dc) regvalue |= 0x80;
@@ -599,7 +614,12 @@ void uDisplay::setRotation(uint8_t m) {
   }
 }
 
+
+void udisp_bpwr(uint8_t on);
+
 void uDisplay::DisplayOnff(int8_t on) {
+
+  udisp_bpwr(on);
 
   if (interface == _UDSP_I2C) {
     if (on) {
@@ -631,12 +651,18 @@ void uDisplay::DisplayOnff(int8_t on) {
   }
 }
 
+void udisp_dimm(uint8_t dim);
+
 void uDisplay::dim(uint8_t dim) {
   dimmer = dim;
   if (dimmer > 15) dimmer = 15;
   dimmer = ((float)dimmer / 15.0) * 255.0;
 #ifdef ESP32
-  ledcWrite(ESP32_PWM_CHANNEL, dimmer);
+  if (bpanel >= 0) {
+    ledcWrite(ESP32_PWM_CHANNEL, dimmer);
+  } else {
+    udisp_dimm(dim);
+  }
 #endif
 }
 

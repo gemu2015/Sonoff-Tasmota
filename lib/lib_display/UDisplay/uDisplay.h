@@ -10,6 +10,7 @@
 #define UDISP1_WHITE 1
 #define UDISP1_BLACK 0
 
+enum uColorType { uCOLOR_BW, uCOLOR_COLOR };
 
 // Color definitions
 #define UDISP_BLACK       0x0000      /*   0,   0,   0 */

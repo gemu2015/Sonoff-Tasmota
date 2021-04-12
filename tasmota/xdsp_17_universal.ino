@@ -27,12 +27,13 @@
 
 uDisplay *udisp;
 bool udisp_init_done = false;
+uint8_t ctouch_counter;
 extern uint8_t color_type;
 extern uint16_t fg_color;
 extern uint16_t bg_color;
 
 #ifdef USE_UFILESYS
-extern FS *ufsp;
+extern FS *ffsp;
 #endif
 
 #define DISPDESC_SIZE 1000
@@ -86,17 +87,15 @@ char *fbuff;
   if (TasmotaGlobal.gpio_optiona.udisplay_driver) {
     Settings.display_model = XDSP_17;
 
-    fg_color = 1;
-    bg_color = 0;
     color_type = COLOR_BW;
 
     fbuff = (char*)calloc(DISPDESC_SIZE, 1);
     if (!fbuff) return;
 
 #ifdef USE_UFILESYS
-    if (ufsp  && !TasmotaGlobal.no_autoexec) {
+    if (ffsp  && !TasmotaGlobal.no_autoexec) {
       File fp;
-      fp = ufsp->open("/dispdesc.txt", "r");
+      fp = ffsp->open("/dispdesc.txt", "r");
       if (fp > 0) {
         uint32_t size = fp.size();
         fp.read((uint8_t*)fbuff, size);
@@ -140,19 +139,17 @@ char *fbuff;
     if (cp) {
       cp += 4;
       //,3c,22,21,-1
-      // i2c addr
-      //if (*cp == '*') {
-      //  Settings.display_address
-      //}
-      uint8_t i2caddr = strtol(cp, 0, 16);
+      uint8_t i2caddr = strtol(cp, &cp, 16);
+      int8_t scl, sda;
+      scl = replacepin(&cp, Pin(GPIO_I2C_SCL));
+      sda = replacepin(&cp, Pin(GPIO_I2C_SDA));
+      replacepin(&cp, Pin(GPIO_OLED_RESET));
+
+      Wire1.begin(sda, scl, 400000);
       if (I2cSetDevice(i2caddr)) {
         I2cSetActiveFound(i2caddr, "DSP-I2C");
       }
-      cp+=3;
-      //replacepin(&cp, Settings.display_address);
-      replacepin(&cp, Pin(GPIO_I2C_SCL));
-      replacepin(&cp, Pin(GPIO_I2C_SDA));
-      replacepin(&cp, Pin(GPIO_OLED_RESET));
+
     }
 
     cp = strstr(ddesc, "SPI");
@@ -188,10 +185,48 @@ char *fbuff;
 
 /*
     File fp;
-    fp = ufsp->open("/dump.txt", "w");
+    fp = ffsp->open("/dump.txt", "w");
     fp.write(ddesc, DISPDESC_SIZE);
     fp.close();
 */
+
+    // checck for touch option TI1 or TI2
+#ifdef USE_FT5206
+    cp = strstr(ddesc, ":TI");
+    if (cp) {
+      uint8_t wire_n = 1;
+      cp+=2;
+      wire_n = (*cp & 3) - 1;
+      cp++;
+
+      uint8_t i2caddr = strtol(cp, &cp, 16);
+      int8_t scl, sda;
+      scl = replacepin(&cp, Pin(GPIO_I2C_SCL));
+      sda = replacepin(&cp, Pin(GPIO_I2C_SDA));
+
+      if (wire_n == 0) {
+        Wire.begin(sda, scl, 400000);
+      }
+#ifdef ESP32
+      if (wire_n == 1) {
+        Wire1.begin(sda, scl, 400000);
+      }
+#endif
+      if (I2cSetDevice(i2caddr), wire_n) {
+        I2cSetActiveFound(i2caddr, "FT5206", wire_n);
+      }
+      // start digitizer with fixed adress and pins for esp32
+      Touch_Init(Wire1);
+    }
+#endif
+
+#ifdef USE_XPT2046
+    cp = strstr(ddesc, ":TS");
+    if (cp) {
+	     Touch_Init(Pin(GPIO_XPT2046_CS));
+    }
+#endif
+
     // release desc buffer
     if (fbuff) free(fbuff);
 
@@ -218,7 +253,95 @@ char *fbuff;
 
 /*********************************************************************************************/
 
-void replacepin(char **cp, uint16_t pin) {
+
+void core2_disp_pwr(uint8_t on);
+void core2_disp_dim(uint8_t dim);
+
+void udisp_bpwr(uint8_t on) {
+#ifdef USE_M5STACK_CORE2
+  core2_disp_pwr(on);
+#endif
+}
+
+void udisp_dimm(uint8_t dim) {
+#ifdef USE_M5STACK_CORE2
+  core2_disp_dim(dim);
+#endif
+}
+
+
+#if defined(USE_FT5206)
+void TS_RotConvert(int16_t *x, int16_t *y) {
+
+int16_t temp;
+  if (renderer) {
+    uint8_t rot = renderer->getRotation();
+    switch (rot) {
+      case 0:
+        break;
+      case 1:
+        temp = *y;
+        *y = renderer->height() - *x;
+        *x = temp;
+        break;
+      case 2:
+        *x = renderer->width() - *x;
+        *y = renderer->height() - *y;
+        break;
+      case 3:
+        temp = *y;
+        *y = *x;
+        *x = renderer->width() - temp;
+        break;
+    }
+  }
+}
+#elif defined(USE_XPT2046)
+void TS_RotConvert(int16_t *x, int16_t *y) {
+
+int16_t temp;
+  if (renderer) {
+    uint8_t rot = renderer->getRotation();
+//    AddLog(LOG_LEVEL_DEBUG_MORE, PSTR(" TS: before convert x:%d / y:%d  screen r:%d / w:%d / h:%d"), *x, *y,rot,renderer->width(),renderer->height());
+	temp = map(*x,XPT2046_MINX,XPT2046_MAXX, renderer->height(), 0);
+	*x = map(*y,XPT2046_MINY,XPT2046_MAXY, renderer->width(), 0);
+	*y = temp;
+    switch (rot) {
+      case 0:
+        break;
+      case 1:
+        temp = *y;
+        *y = renderer->width() - *x;
+        *x = temp;
+        break;
+      case 2:
+        *x = renderer->width() - *x;
+        *y = renderer->height() - *y;
+        break;
+      case 3:
+        temp = *y;
+        *y = *x;
+        *x = renderer->height() - temp;
+        break;
+    }
+    AddLog(LOG_LEVEL_DEBUG_MORE, PSTR(" TS: after convert x:%d / y:%d  screen r:%d / w:%d / h:%d"), *x, *y,rot,renderer->width(),renderer->height());
+  }
+}
+#endif
+
+#if defined(USE_FT5206) || defined(USE_XPT2046)
+void udisp_CheckTouch() {
+  ctouch_counter++;
+  if (2 == ctouch_counter) {
+    // every 100 ms should be enough
+    ctouch_counter = 0;
+    Touch_Check(TS_RotConvert);
+  }
+}
+#endif
+
+int8_t replacepin(char **cp, uint16_t pin) {
+  int8_t res = 0;
   char *lp = *cp;
   if (*lp == ',') lp++;
   if (*lp == '*') {
@@ -229,10 +352,12 @@ void replacepin(char **cp, uint16_t pin) {
     memmove(lp + slen, lp + 1, strlen(lp));
     memmove(lp, val, slen);
   }
+  res= strtol(lp, 0, 10);
   char *np = strchr(lp, ',');
   if (np) {
     *cp = np + 1;
   }
+  return res;
 }
 
 #ifdef USE_DISPLAY_MODES1TO5
@@ -318,11 +443,27 @@ bool Xdsp17(uint8_t function)
       case FUNC_DISPLAY_MODEL:
         result = true;
         break;
+
 #ifdef USE_DISPLAY_MODES1TO5
       case FUNC_DISPLAY_EVERY_SECOND:
         UDISP_Refresh();
         break;
 #endif  // USE_DISPLAY_MODES1TO5
+
+#if defined(USE_FT5206) || defined(USE_XPT2046)
+#ifdef USE_TOUCH_BUTTONS
+        case FUNC_DISPLAY_EVERY_50_MSECOND:
+#if defined(USE_FT5206)
+          if (FT5206_found) {
+#elif defined(USE_XPT2046)
+          if (XPT2046_found) {
+#endif
+            udisp_CheckTouch();
+          }
+          break;
+#endif // USE_TOUCH_BUTTONS
+#endif // USE_FT5206
+
     }
   }
   return result;
