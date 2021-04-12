@@ -96,7 +96,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
               spi_speed = next_val(&lp1);
 
               section = 0;
-              Serial.printf("%d %d %d %d %d %d %d %d\n", spi_cs, spi_clk, spi_mosi, spi_dc, bpanel, reset, spi_miso, spi_speed);
+              //Serial.printf("%d %d %d %d %d %d %d %d\n", spi_cs, spi_clk, spi_mosi, spi_dc, bpanel, reset, spi_miso, spi_speed);
             }
             break;
           case 'S':
@@ -145,18 +145,26 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             break;
           case '0':
             rot[0] = next_hex(&lp1);
+            x_addr_offs[0] = next_hex(&lp1);
+            y_addr_offs[0] = next_hex(&lp1);
             rot_t[0] = next_hex(&lp1);
             break;
           case '1':
             rot[1] = next_hex(&lp1);
+            x_addr_offs[1] = next_hex(&lp1);
+            y_addr_offs[2] = next_hex(&lp1);
             rot_t[1] = next_hex(&lp1);
             break;
           case '2':
             rot[2] = next_hex(&lp1);
+            x_addr_offs[2] = next_hex(&lp1);
+            y_addr_offs[2] = next_hex(&lp1);
             rot_t[2] = next_hex(&lp1);
             break;
           case '3':
             rot[3] = next_hex(&lp1);
+            x_addr_offs[3] = next_hex(&lp1);
+            y_addr_offs[3] = next_hex(&lp1);
             rot_t[3] = next_hex(&lp1);
             break;
           case 'A':
@@ -250,11 +258,19 @@ Renderer *uDisplay::Init(void) {
 #ifdef ESP32
     if (spi_nr == 1) {
       uspi = &SPI;
+      uspi->begin(spi_clk, spi_miso, spi_mosi, -1);
     } else if (spi_nr == 2) {
       uspi = new SPIClass(HSPI);
+      uspi->begin(spi_clk, spi_miso, spi_mosi, -1);
+    } else {
+      pinMode(spi_clk, OUTPUT);
+      digitalWrite(spi_clk, LOW);
+      pinMode(spi_mosi, OUTPUT);
+      digitalWrite(spi_mosi, LOW);
+      pinMode(spi_dc, OUTPUT);
+      digitalWrite(spi_dc, LOW);
     }
-    uspi->begin(spi_clk, spi_miso, spi_mosi, -1);
-#endif // ESp32
+#endif // ESP32
 
     uint16_t index = 0;
 
@@ -267,15 +283,18 @@ Renderer *uDisplay::Init(void) {
       spi_command(iob);
 
       uint8_t args = dsp_cmds[index++];
-      Serial.printf("cmd, args %x, %d ", iob, args&0x7f);
-      for (uint32_t cnt = 0; cnt < (args & 0x7f); cnt++) {
+      //Serial.printf("cmd, args %x, %d ", iob, args&0x1f);
+      for (uint32_t cnt = 0; cnt < (args & 0x1f); cnt++) {
         iob = dsp_cmds[index++];
-        Serial.printf("%02x ", iob );
+        //Serial.printf("%02x ", iob );
         spi_data8(iob);
       }
       SPI_CS_HIGH
-      Serial.printf("\n");
-      if (args & 0x80) delay(120);
+      //Serial.printf("\n");
+      if (args & 0x80) {
+        if (args&0x60) delay(500);
+        else delay(150);
+      }
       if (index >= dsp_ncmds) break;
     }
     SPI_END_TRANSACTION
@@ -540,9 +559,10 @@ void uDisplay::setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
 }
 
 void uDisplay::setAddrWindow_int(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+    x += x_addr_offs[cur_rot];
+    y += y_addr_offs[cur_rot];
     uint32_t xa = ((uint32_t)x << 16) | (x+w-1);
     uint32_t ya = ((uint32_t)y << 16) | (y+h-1);
-
 
     spi_command(saw_1);
 
@@ -590,6 +610,7 @@ void uDisplay::drawPixel(int16_t x, int16_t y, uint16_t color) {
 }
 
 void uDisplay::setRotation(uint8_t rotation) {
+  cur_rot = rotation;
   if (interface != _UDSP_SPI) {
     Renderer::setRotation(rotation);
     return;
@@ -750,47 +771,60 @@ uint32_t uDisplay::next_hex(char **sp) {
   return strtol(ibuff, 0, 16);
 }
 
+
+#ifdef ESP8266
 #define PIN_OUT_SET 0x60000304
 #define PIN_OUT_CLEAR 0x60000308
+#define GPIO_SET(A) WRITE_PERI_REG( PIN_OUT_SET, 1 << A)
+#define GPIO_CLR(A) WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << A)
+#else
+#undef GPIO_SET
+#define GPIO_SET(A) digitalWrite(A, HIGH)
+#undef GPIO_CLR
+#define GPIO_CLR(A) digitalWrite(A, LOW)
+#endif
 
-void ICACHE_RAM_ATTR uDisplay::write8(uint8_t val) {
+#define USECACHE ICACHE_RAM_ATTR
+
+
+void USECACHE uDisplay::write8(uint8_t val) {
   for (uint8_t bit = 0x80; bit; bit >>= 1) {
-    WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << spi_clk);
-    if (val & bit) WRITE_PERI_REG( PIN_OUT_SET, 1 << spi_mosi);
-    else   WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << spi_mosi);
-    WRITE_PERI_REG( PIN_OUT_SET, 1 << spi_clk);
+    GPIO_CLR(spi_clk);
+    if (val & bit) GPIO_SET(spi_mosi);
+    else   GPIO_CLR(spi_mosi);
+    GPIO_SET(spi_clk);
   }
 }
 
-void ICACHE_RAM_ATTR uDisplay::write9(uint8_t val, uint8_t dc) {
+void USECACHE uDisplay::write9(uint8_t val, uint8_t dc) {
 
-  WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << spi_clk);
-  if (dc) WRITE_PERI_REG( PIN_OUT_SET, 1 << spi_mosi);
-  else  WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << spi_mosi);
-  WRITE_PERI_REG( PIN_OUT_SET, 1 << spi_clk);
+  GPIO_CLR(spi_clk);
+  if (dc) GPIO_SET(spi_mosi);
+  else  GPIO_CLR(spi_mosi);
+  GPIO_SET(spi_clk);
 
   for (uint8_t bit = 0x80; bit; bit >>= 1) {
-    WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << spi_clk);
-    if (val & bit) WRITE_PERI_REG( PIN_OUT_SET, 1 << spi_mosi);
-    else   WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << spi_mosi);
-    WRITE_PERI_REG( PIN_OUT_SET, 1 << spi_clk);
+    GPIO_CLR(spi_clk);
+    if (val & bit) GPIO_SET(spi_mosi);
+    else   GPIO_CLR(spi_mosi);
+    GPIO_SET(spi_clk);
   }
 }
 
-void ICACHE_RAM_ATTR uDisplay::write16(uint16_t val) {
+void USECACHE uDisplay::write16(uint16_t val) {
   for (uint16_t bit = 0x8000; bit; bit >>= 1) {
-    WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << spi_clk);
-    if (val & bit) WRITE_PERI_REG( PIN_OUT_SET, 1 << spi_mosi);
-    else   WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << spi_mosi);
-    WRITE_PERI_REG( PIN_OUT_SET, 1 << spi_clk);
+    GPIO_CLR(spi_clk);
+    if (val & bit) GPIO_SET(spi_mosi);
+    else   GPIO_CLR(spi_mosi);
+    GPIO_SET(spi_clk);
   }
 }
 
-void ICACHE_RAM_ATTR uDisplay::write32(uint32_t val) {
+void USECACHE uDisplay::write32(uint32_t val) {
   for (uint32_t bit = 0x80000000; bit; bit >>= 1) {
-    WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << spi_clk);
-    if (val & bit) WRITE_PERI_REG( PIN_OUT_SET, 1 << spi_mosi);
-    else   WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << spi_mosi);
-    WRITE_PERI_REG( PIN_OUT_SET, 1 << spi_clk);
+    GPIO_CLR(spi_clk);
+    if (val & bit) GPIO_SET(spi_mosi);
+    else   GPIO_CLR(spi_mosi);
+    GPIO_SET(spi_clk);
   }
 }

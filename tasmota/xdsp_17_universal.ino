@@ -188,9 +188,10 @@ char *fbuff;
 /*
     File fp;
     fp = ffsp->open("/dump.txt", "w");
-    fp.write(ddesc, DISPDESC_SIZE);
+    fp.write((uint8_t*)ddesc, DISPDESC_SIZE);
     fp.close();
-*/
+    */
+
 
     // checck for touch option TI1 or TI2
 #ifdef USE_FT5206
@@ -219,7 +220,8 @@ char *fbuff;
         I2cSetActiveFound(i2caddr, "FT5206", wire_n);
       }
       // start digitizer
-      Touch_Init(Wire1);
+      if (!wire_n) Touch_Init(Wire);
+      else Touch_Init(Wire1);
     }
 #endif
 

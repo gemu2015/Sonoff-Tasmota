@@ -33,8 +33,8 @@ enum uColorType { uCOLOR_BW, uCOLOR_COLOR };
 #define UDISP_GREENYELLOW 0xAFE5      /* 173, 255,  47 */
 #define UDISP_PINK        0xF81F
 
-#define SPI_BEGIN_TRANSACTION uspi->beginTransaction(spiSettings);
-#define SPI_END_TRANSACTION uspi->endTransaction();
+#define SPI_BEGIN_TRANSACTION if (spi_nr <= 2) uspi->beginTransaction(spiSettings);
+#define SPI_END_TRANSACTION if (spi_nr <= 2) uspi->endTransaction();
 #define SPI_CS_LOW if (spi_cs >= 0) digitalWrite(spi_cs, LOW);
 #define SPI_CS_HIGH if (spi_cs >= 0) digitalWrite(spi_cs, HIGH);
 #define SPI_DC_LOW if (spi_dc >= 0) digitalWrite(spi_dc, LOW);
@@ -117,10 +117,13 @@ class uDisplay : public Renderer {
    uint8_t madctrl;
    uint8_t rot[4];
    uint8_t rot_t[4];
+   uint8_t x_addr_offs[4];
+   uint8_t y_addr_offs[4];
    uint8_t saw_1;
    uint8_t saw_2;
    uint8_t saw_3;
-   uint8_t flags;
+   uint8_t cur_rot;
+
 };
 
 
