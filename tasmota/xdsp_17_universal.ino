@@ -137,7 +137,7 @@ char *fbuff;
       return;
     }
     // now replace tasmota vars before passing to driver
-    char *cp = strstr(ddesc, "I2C");
+    char *cp = strstr(ddesc, "I2C,");
     if (cp) {
       cp += 4;
       //,3c,22,21,-1
@@ -147,14 +147,14 @@ char *fbuff;
       sda = replacepin(&cp, Pin(GPIO_I2C_SDA));
       replacepin(&cp, Pin(GPIO_OLED_RESET));
 
-      Wire1.begin(sda, scl, 400000);
+      Wire.begin(sda, scl);
       if (I2cSetDevice(i2caddr)) {
         I2cSetActiveFound(i2caddr, "DSP-I2C");
       }
 
     }
 
-    cp = strstr(ddesc, "SPI");
+    cp = strstr(ddesc, "SPI,");
     if (cp) {
       cp += 4;
       //; 7 params nr,cs,sclk,mosi,dc,bl,reset,miso
@@ -195,7 +195,7 @@ char *fbuff;
 
     // checck for touch option TI1 or TI2
 #ifdef USE_FT5206
-    cp = strstr(ddesc, ":TI");
+    cp = strstr(ddesc, ":TI,");
     if (cp) {
       uint8_t wire_n = 1;
       cp+=3;
@@ -208,7 +208,7 @@ char *fbuff;
       sda = replacepin(&cp, Pin(GPIO_I2C_SDA));
 
       if (wire_n == 0) {
-        Wire.begin(sda, scl, 400000);
+        Wire.begin(sda, scl);
       }
 #ifdef ESP32
       if (wire_n == 1) {
@@ -226,9 +226,11 @@ char *fbuff;
 #endif
 
 #ifdef USE_XPT2046
-    cp = strstr(ddesc, ":TS");
+    cp = strstr(ddesc, ":TS,");
     if (cp) {
-	     Touch_Init(Pin(GPIO_XPT2046_CS));
+      cp+=4;
+      uint8_t touch_cs = replacepin(&cp, Pin(GPIO_XPT2046_CS));
+	    Touch_Init(touch_cs);
     }
 #endif
 

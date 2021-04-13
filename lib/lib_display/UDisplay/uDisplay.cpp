@@ -37,6 +37,7 @@ extern uint8_t color_type;
 
 uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   // analyse decriptor
+  col_mode = 16;
   uint8_t section = 0;
   dsp_ncmds = 0;
   char linebuff[128];
@@ -58,7 +59,9 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
         // id line
         lp1++;
         section = *lp1++;
-      } else {
+        if (*lp1 == ',') lp1++;
+      }
+      if (*lp1 != ':' && *lp1 != '\n') {
         switch (section) {
           case 'H':
             // header line
@@ -96,7 +99,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
               spi_speed = next_val(&lp1);
 
               section = 0;
-              //Serial.printf("%d %d %d %d %d %d %d %d\n", spi_cs, spi_clk, spi_mosi, spi_dc, bpanel, reset, spi_miso, spi_speed);
+              //Serial.printf("%d %d %d %d %d %d %d %d %d\n", spi_nr, spi_cs, spi_clk, spi_mosi, spi_dc, bpanel, reset, spi_miso, spi_speed);
             }
             break;
           case 'S':
@@ -170,6 +173,9 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             saw_2 = next_hex(&lp1);
             saw_3 = next_hex(&lp1);
             break;
+          case 'P':
+            col_mode = next_val(&lp1);
+            break;
         }
       }
     }
@@ -237,8 +243,6 @@ Renderer *uDisplay::Init(void) {
       digitalWrite(spi_cs, HIGH);
     }
 
-    spiSettings = SPISettings(spi_speed, MSBFIRST, SPI_MODE3);
-
 #ifdef ESP8266
     if (spi_nr <= 1) {
       SPI.begin();
@@ -269,6 +273,9 @@ Renderer *uDisplay::Init(void) {
       digitalWrite(spi_dc, LOW);
     }
 #endif // ESP32
+
+    spiSettings = SPISettings((uint32_t)spi_speed*1000000, MSBFIRST, SPI_MODE3);
+
 
     uint16_t index = 0;
 
@@ -457,7 +464,7 @@ void uDisplay::drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
   setAddrWindow_int(x, y, 1, h);
 
   while (h--) {
-    spi_data16(color);
+    WriteColor(color);
   }
 
   SPI_CS_HIGH
@@ -485,7 +492,7 @@ void uDisplay::drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) {
 
 
   while (w--) {
-    spi_data16(color);
+    WriteColor(color);
   }
 
   SPI_CS_HIGH
@@ -505,7 +512,6 @@ void uDisplay::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t col
     return;
   }
 
-  // rudimentary clipping (drawChar w/big text requires this)
   if((x >= gxs) || (y >= gys)) return;
   if((x + w - 1) >= gxs)  w = gxs  - x;
   if((y + h - 1) >= gys) h = gys - y;
@@ -516,9 +522,27 @@ void uDisplay::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t col
 
   setAddrWindow_int(x, y, w, h);
 
-  for (y = h; y > 0; y--) {
-    for (x = w; x > 0; x--) {
-      spi_data16(color);
+  if (col_mode == 18) {
+    uint8_t r = (color & 0xF800) >> 11;
+    uint8_t g = (color & 0x07E0) >> 5;
+    uint8_t b = color & 0x001F;
+    r = (r * 255) / 31;
+    g = (g * 255) / 63;
+    b = (b * 255) / 31;
+
+    for (y = h; y > 0; y--) {
+      for (x = w; x > 0; x--) {
+        spi_data8(r);
+        spi_data8(g);
+        spi_data8(b);
+      }
+    }
+
+  } else {
+    for (y = h; y > 0; y--) {
+      for (x = w; x > 0; x--) {
+        WriteColor(color);
+      }
     }
   }
   SPI_CS_HIGH
@@ -568,9 +592,28 @@ void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean first) {
 
   while (len--) {
     color = *data++;
-    spi_data16(color);
+    WriteColor(color);
   }
 
+}
+
+void uDisplay::WriteColor(uint16_t color) {
+
+  if (col_mode == 18) {
+    uint8_t r = (color & 0xF800) >> 11;
+    uint8_t g = (color & 0x07E0) >> 5;
+    uint8_t b = color & 0x001F;
+
+    r = (r * 255) / 31;
+    g = (g * 255) / 63;
+    b = (b * 255) / 31;
+
+    spi_data8(r);
+    spi_data8(g);
+    spi_data8(b);
+  } else {
+    spi_data16(color);
+  }
 }
 
 void uDisplay::drawPixel(int16_t x, int16_t y, uint16_t color) {
@@ -580,7 +623,7 @@ void uDisplay::drawPixel(int16_t x, int16_t y, uint16_t color) {
     return;
   }
 
-  if((x < 0) ||(x >= _width) || (y < 0) || (y >= _height)) return;
+  if ((x < 0) || (x >= _width) || (y < 0) || (y >= _height)) return;
 
 
   SPI_BEGIN_TRANSACTION
@@ -589,7 +632,7 @@ void uDisplay::drawPixel(int16_t x, int16_t y, uint16_t color) {
 
   setAddrWindow_int(x, y, 1, 1);
 
-  spi_data16(color);
+  WriteColor(color);
 
   SPI_CS_HIGH
 
@@ -629,7 +672,6 @@ void uDisplay::setRotation(uint8_t rotation) {
       break;
   }
 }
-
 
 void udisp_bpwr(uint8_t on);
 
@@ -766,9 +808,9 @@ uint32_t uDisplay::next_hex(char **sp) {
 #define GPIO_CLR(A) WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << A)
 #else
 #undef GPIO_SET
-#define GPIO_SET(A) digitalWrite(A, HIGH)
+#define GPIO_SET(A) GPIO.out_w1ts = (1 << A)
 #undef GPIO_CLR
-#define GPIO_CLR(A) digitalWrite(A, LOW)
+#define GPIO_CLR(A) GPIO.out_w1tc = (1 << A)
 #endif
 
 #define USECACHE ICACHE_RAM_ATTR
@@ -781,6 +823,7 @@ void USECACHE uDisplay::write8(uint8_t val) {
     else   GPIO_CLR(spi_mosi);
     GPIO_SET(spi_clk);
   }
+   GPIO.out_w1ts = 0;
 }
 
 void USECACHE uDisplay::write9(uint8_t val, uint8_t dc) {

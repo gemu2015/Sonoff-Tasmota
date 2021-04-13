@@ -78,6 +78,7 @@ class uDisplay : public Renderer {
    void write16(uint16_t val);
    void write32(uint32_t val);
    void spi_data9(uint8_t d, uint8_t dc);
+   void WriteColor(uint16_t color);
 
    uint8_t strlen_ln(char *str);
    int32_t next_val(char **sp);
@@ -112,7 +113,7 @@ class uDisplay : public Renderer {
    SPIClass *uspi;
    uint8_t sspi;
    SPISettings spiSettings;
-   uint32_t spi_speed;
+   uint8_t spi_speed;
    uint8_t spi_nr = 1;
    uint8_t madctrl;
    uint8_t rot[4];
@@ -123,7 +124,7 @@ class uDisplay : public Renderer {
    uint8_t saw_2;
    uint8_t saw_3;
    uint8_t cur_rot;
-
+   uint8_t col_mode;
 };
 
 
