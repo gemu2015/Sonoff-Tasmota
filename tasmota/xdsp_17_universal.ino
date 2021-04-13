@@ -195,7 +195,7 @@ char *fbuff;
 
     // checck for touch option TI1 or TI2
 #ifdef USE_FT5206
-    cp = strstr(ddesc, ":TI,");
+    cp = strstr(ddesc, ":TI");
     if (cp) {
       uint8_t wire_n = 1;
       cp+=3;
@@ -220,8 +220,12 @@ char *fbuff;
         I2cSetActiveFound(i2caddr, "FT5206", wire_n);
       }
       // start digitizer
+#ifdef ESP32
       if (!wire_n) Touch_Init(Wire);
       else Touch_Init(Wire1);
+#else
+      if (!wire_n) Touch_Init(Wire);
+#endif
     }
 #endif
 

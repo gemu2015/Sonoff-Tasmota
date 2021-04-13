@@ -153,7 +153,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
           case '1':
             rot[1] = next_hex(&lp1);
             x_addr_offs[1] = next_hex(&lp1);
-            y_addr_offs[2] = next_hex(&lp1);
+            y_addr_offs[1] = next_hex(&lp1);
             rot_t[1] = next_hex(&lp1);
             break;
           case '2':
@@ -321,29 +321,14 @@ void uDisplay::DisplayInit(int8_t p,int8_t size,int8_t rot,int8_t font) {
     Updateframe();
 }
 
-#ifdef xESP32
-void uDisplay::spi_data9(uint8_t d, uint8_t dc) {
-  uint32_t regvalue = d >> 1;
-  if (dc) regvalue |= 0x80;
-  else regvalue &= 0x7f;
-  if (d & 1) regvalue |= 0x8000;
-
-  REG_SET_BIT(SPI_USER_REG(3), SPI_USR_MOSI);
-  REG_WRITE(SPI_MOSI_DLEN_REG(3), 9 - 1);
-  uint32_t *dp = (uint32_t*)SPI_W0_REG(3);
-  *dp = regvalue;
-  REG_SET_BIT(SPI_CMD_REG(3), SPI_USR);
-  while (REG_GET_FIELD(SPI_CMD_REG(3), SPI_USR));
-}
-#else
-void uDisplay::spi_data9(uint8_t d, uint8_t dc) {
-}
-#endif
-
 void uDisplay::spi_command(uint8_t val) {
 
   if (spi_dc < 0) {
-    write9(val, 0);
+    if (spi_nr > 2) {
+      write9(val, 0);
+    } else {
+      hw_write9(val, 0);
+    }
   } else {
     SPI_DC_LOW
     if (spi_nr > 2) {
@@ -357,7 +342,11 @@ void uDisplay::spi_command(uint8_t val) {
 
 void uDisplay::spi_data8(uint8_t val) {
   if (spi_dc < 0) {
-    write9(val, 1);
+    if (spi_nr > 2) {
+      write9(val, 1);
+    } else {
+      hw_write9(val, 1);
+    }
   } else {
     if (spi_nr > 2) {
       write8(val);
@@ -369,8 +358,13 @@ void uDisplay::spi_data8(uint8_t val) {
 
 void uDisplay::spi_data16(uint16_t val) {
   if (spi_dc < 0) {
-    write9(val >> 8, 1);
-    write9(val, 1);
+    if (spi_nr > 2) {
+      write9(val >> 8, 1);
+      write9(val, 1);
+    } else {
+      hw_write9(val >> 8, 1);
+      hw_write9(val, 1);
+    }
   } else {
     if (spi_nr > 2) {
       write16(val);
@@ -382,10 +376,17 @@ void uDisplay::spi_data16(uint16_t val) {
 
 void uDisplay::spi_data32(uint32_t val) {
   if (spi_dc < 0) {
-    write9(val >> 24, 1);
-    write9(val >> 16, 1);
-    write9(val >> 8, 1);
-    write9(val, 1);
+    if (spi_nr > 2) {
+      write9(val >> 24, 1);
+      write9(val >> 16, 1);
+      write9(val >> 8, 1);
+      write9(val, 1);
+    } else {
+      hw_write9(val >> 24, 1);
+      hw_write9(val >> 16, 1);
+      hw_write9(val >> 8, 1);
+      hw_write9(val, 1);
+    }
   } else {
     if (spi_nr > 2) {
       write32(val);
@@ -463,8 +464,23 @@ void uDisplay::drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
 
   setAddrWindow_int(x, y, 1, h);
 
-  while (h--) {
-    WriteColor(color);
+  if (col_mode == 18) {
+    uint8_t r = (color & 0xF800) >> 11;
+    uint8_t g = (color & 0x07E0) >> 5;
+    uint8_t b = color & 0x001F;
+    r = (r * 255) / 31;
+    g = (g * 255) / 63;
+    b = (b * 255) / 31;
+
+    while (h--) {
+      spi_data8(r);
+      spi_data8(g);
+      spi_data8(b);
+    }
+  } else {
+    while (h--) {
+      WriteColor(color);
+    }
   }
 
   SPI_CS_HIGH
@@ -490,9 +506,23 @@ void uDisplay::drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) {
 
   setAddrWindow_int(x, y, w, 1);
 
+  if (col_mode == 18) {
+    uint8_t r = (color & 0xF800) >> 11;
+    uint8_t g = (color & 0x07E0) >> 5;
+    uint8_t b = color & 0x001F;
+    r = (r * 255) / 31;
+    g = (g * 255) / 63;
+    b = (b * 255) / 31;
 
-  while (w--) {
-    WriteColor(color);
+    while (w--) {
+      spi_data8(r);
+      spi_data8(g);
+      spi_data8(b);
+    }
+  } else {
+    while (w--) {
+      WriteColor(color);
+    }
   }
 
   SPI_CS_HIGH
@@ -728,7 +758,7 @@ void uDisplay::dim(uint8_t dim) {
 void uDisplay::TS_RotConvert(int16_t *x, int16_t *y) {
   int16_t temp;
 
-  switch (rot_t[getRotation()]) {
+  switch (rot_t[cur_rot]) {
     case 0:
       break;
     case 1:
@@ -800,17 +830,48 @@ uint32_t uDisplay::next_hex(char **sp) {
   return strtol(ibuff, 0, 16);
 }
 
+#ifdef ESP32
+#include "soc/spi_reg.h"
+#include "soc/spi_struct.h"
+#include "esp32-hal-spi.h"
+#include "esp32-hal.h"
+#include "soc/spi_struct.h"
 
-#ifdef ESP8266
-#define PIN_OUT_SET 0x60000304
-#define PIN_OUT_CLEAR 0x60000308
-#define GPIO_SET(A) WRITE_PERI_REG( PIN_OUT_SET, 1 << A)
-#define GPIO_CLR(A) WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << A)
+// since ardunio transferBits ia completely disfunctional
+// we use our own hardware driver for 9 bit spi
+void uDisplay::hw_write9(uint8_t val, uint8_t dc) {
+
+    uint32_t regvalue = val >> 1;
+    if (dc) regvalue |= 0x80;
+    else regvalue &= 0x7f;
+    if (val & 1) regvalue |= 0x8000;
+
+    REG_SET_BIT(SPI_USER_REG(3), SPI_USR_MOSI);
+    REG_WRITE(SPI_MOSI_DLEN_REG(3), 9 - 1);
+    uint32_t *dp = (uint32_t*)SPI_W0_REG(3);
+    *dp = regvalue;
+    REG_SET_BIT(SPI_CMD_REG(3), SPI_USR);
+    while (REG_GET_FIELD(SPI_CMD_REG(3), SPI_USR));
+}
 #else
-#undef GPIO_SET
-#define GPIO_SET(A) GPIO.out_w1ts = (1 << A)
-#undef GPIO_CLR
-#define GPIO_CLR(A) GPIO.out_w1tc = (1 << A)
+#include "spi_register.h"
+void uDisplay::hw_write9(uint8_t val, uint8_t dc) {
+
+    uint32_t regvalue;
+    uint8_t bytetemp;
+    if (!dc) {
+      bytetemp = (val>> 1) & 0x7f;
+    } else {
+      bytetemp = (val >> 1) | 0x80;
+    }
+
+    regvalue = ((8 & SPI_USR_COMMAND_BITLEN) << SPI_USR_COMMAND_BITLEN_S) | ((uint32)bytetemp);		//configure transmission variable,9bit transmission length and first 8 command bit
+    if (val & 0x01) 	regvalue |= BIT15;        //write the 9th bit
+    while (READ_PERI_REG(SPI_CMD(1)) & SPI_USR);		//waiting for spi module available
+    WRITE_PERI_REG(SPI_USER2(1), regvalue);				//write  command and command length into spi reg
+    SET_PERI_REG_MASK(SPI_CMD(1), SPI_USR);		//transmission start
+
+}
 #endif
 
 #define USECACHE ICACHE_RAM_ATTR
@@ -823,7 +884,6 @@ void USECACHE uDisplay::write8(uint8_t val) {
     else   GPIO_CLR(spi_mosi);
     GPIO_SET(spi_clk);
   }
-   GPIO.out_w1ts = 0;
 }
 
 void USECACHE uDisplay::write9(uint8_t val, uint8_t dc) {
