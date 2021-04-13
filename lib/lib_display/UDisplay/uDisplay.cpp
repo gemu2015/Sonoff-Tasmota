@@ -579,6 +579,33 @@ void uDisplay::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t col
   SPI_END_TRANSACTION
 }
 
+/*
+
+// pack RGB into uint32
+uint32_t pack_rgb(uint32_t r, uint32_t g, uint32_t b) {
+  uint32_t data;
+  data=r<<23;
+  data|=g<<14;
+  data|=b<<5;
+  data|=0b10000000010000000010000000000000;
+  return ulswap(data);
+}
+
+// init 27 bit mode
+uint32_t data=pack_rgb(r,g,b);
+REG_SET_BIT(SPI_USER_REG(3), SPI_USR_MOSI);
+REG_WRITE(SPI_MOSI_DLEN_REG(3), 27 - 1);
+uint32_t *dp=(uint32_t*)SPI_W0_REG(3);
+digitalWrite( _cs, LOW);
+for(y=h; y>0; y--) {
+  for(x=w; x>0; x--) {
+    while (REG_GET_FIELD(SPI_CMD_REG(3), SPI_USR));
+    *dp=data;
+    REG_SET_BIT(SPI_CMD_REG(3), SPI_USR);
+  }
+}
+*/
+
 
 void uDisplay::Splash(void) {
   setTextFont(splash_font);
@@ -853,6 +880,7 @@ void uDisplay::hw_write9(uint8_t val, uint8_t dc) {
     REG_SET_BIT(SPI_CMD_REG(3), SPI_USR);
     while (REG_GET_FIELD(SPI_CMD_REG(3), SPI_USR));
 }
+
 #else
 #include "spi_register.h"
 void uDisplay::hw_write9(uint8_t val, uint8_t dc) {
