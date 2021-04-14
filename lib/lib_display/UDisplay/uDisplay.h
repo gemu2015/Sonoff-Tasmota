@@ -72,6 +72,7 @@ class uDisplay : public Renderer {
   void fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color);
   void pushColors(uint16_t *data, uint16_t len, boolean first);
   void TS_RotConvert(int16_t *x, int16_t *y);
+  void invertDisplay(boolean i);
 
  private:
    void setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
@@ -129,6 +130,7 @@ class uDisplay : public Renderer {
    uint8_t spi_speed;
    uint8_t spi_nr = 1;
    uint8_t madctrl;
+   uint8_t startline;
    uint8_t rot[4];
    uint8_t rot_t[4];
    uint16_t x_addr_offs[4];
@@ -138,6 +140,10 @@ class uDisplay : public Renderer {
    uint8_t saw_3;
    uint8_t cur_rot;
    uint8_t col_mode;
+   uint8_t inv_on;
+   uint8_t inv_off;
+   uint8_t sa_mode;
+   uint8_t dim_op;
 };
 
 

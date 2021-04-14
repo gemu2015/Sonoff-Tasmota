@@ -46,11 +46,9 @@ extern FS *ffsp;
 const char DSP_SAMPLE_DESC[] PROGMEM =
 // name,xs,ys,bpp,interface, (HEX) address, scl,sda,reset
 // '*' means take pin number from tasmota
-":H\n"
-"SH1106,128,64,1,I2C,3c,*,*,*\n"
+":H,SH1106,128,64,1,I2C,3c,*,*,*\n"
 // splash settings, font, size, fgcol, bgcol, x,y
-":S\n"
-"0,1,1,0,40,20\n"
+":S,0,1,1,0,40,20\n"
 // init register settings, must be in HEX
 ":I\n"
 "AE\n"
@@ -70,13 +68,10 @@ const char DSP_SAMPLE_DESC[] PROGMEM =
 "A6\n"
 "AF\n"
 // switch display off
-":o\n"
-"AE\n"
+":o,AE\n"
 // switch display on
-":O\n"
-"AF\n"
-":A\n"
-"00,10,40\n"
+":O,AF\n"
+":A,00,10,40\n"
 "#\n";
 
 #endif // DSP_ROM_DESC

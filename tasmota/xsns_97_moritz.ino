@@ -1550,7 +1550,7 @@ void CC1101_Detect() {
     }
   }
 
-  if (Pin(GPIO_CC1101_CS)<99) {
+  if (Pin(GPIO_CC1101_CS)>=0) {
     moritz_cfg.moritz_cs=Pin(GPIO_CC1101_CS);
   } else {
     return;

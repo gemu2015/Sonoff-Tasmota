@@ -22,6 +22,7 @@
 #include <SPI.h>
 #include "uDisplay.h"
 
+#define UDSP_DEBUG
 
 const uint16_t udisp_colors[]={UDISP_BLACK,UDISP_WHITE,UDISP_RED,UDISP_GREEN,UDISP_BLUE,UDISP_CYAN,UDISP_MAGENTA,\
   UDISP_YELLOW,UDISP_NAVY,UDISP_DARKGREEN,UDISP_DARKCYAN,UDISP_MAROON,UDISP_PURPLE,UDISP_OLIVE,\
@@ -38,6 +39,10 @@ extern uint8_t color_type;
 uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   // analyse decriptor
   col_mode = 16;
+  sa_mode = 16;
+  saw_3 = 0xff;
+  dim_op = 0xff;
+  startline = 0xA1;
   uint8_t section = 0;
   dsp_ncmds = 0;
   char linebuff[128];
@@ -99,7 +104,6 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
               spi_speed = next_val(&lp1);
 
               section = 0;
-              //Serial.printf("%d %d %d %d %d %d %d %d %d\n", spi_nr, spi_cs, spi_clk, spi_mosi, spi_dc, bpanel, reset, spi_miso, spi_speed);
             }
             break;
           case 'S':
@@ -143,6 +147,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             break;
           case 'R':
             madctrl = next_hex(&lp1);
+            startline = next_hex(&lp1);
             break;
           case '0':
             rot[0] = next_hex(&lp1);
@@ -172,9 +177,17 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             saw_1 = next_hex(&lp1);
             saw_2 = next_hex(&lp1);
             saw_3 = next_hex(&lp1);
+            sa_mode = next_val(&lp1);
             break;
           case 'P':
             col_mode = next_val(&lp1);
+            break;
+          case 'i':
+            inv_off = next_hex(&lp1);
+            inv_on = next_hex(&lp1);
+            break;
+          case 'D':
+            dim_op = next_hex(&lp1);
             break;
         }
       }
@@ -187,11 +200,31 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
       lp++;
     }
   }
+#ifdef UDSP_DEBUG
+  Serial.printf("Nr. : %d\n", spi_nr);
+  Serial.printf("CS  : %d\n", spi_cs);
+  Serial.printf("CLK : %d\n", spi_clk);
+  Serial.printf("MOSI: %d\n", spi_mosi);
+  Serial.printf("DC  : %d\n", spi_dc);
+  Serial.printf("BPAN: %d\n", bpanel);
+  Serial.printf("RES : %d\n", reset);
+  Serial.printf("MISO: %d\n", spi_miso);
+  Serial.printf("SPED: %d\n", spi_speed*1000000);
+  Serial.printf("Pixels: %d\n", col_mode);
+  Serial.printf("SaMode: %d\n", sa_mode);
+
+
+  Serial.printf("opts: %02x,%02x,%02x\n", saw_3, dim_op, startline);
+
+  Serial.printf("SetAddr : %x,%x,%x\n", saw_1, saw_2, saw_3);
+
+  Serial.printf("Rot 0: %x,%x - %d - %d\n", madctrl, rot[0], x_addr_offs[0], y_addr_offs[0]);
+
+#endif
 }
 
 
 Renderer *uDisplay::Init(void) {
-
 
   if (reset >= 0) {
     pinMode(reset, OUTPUT);
@@ -276,7 +309,6 @@ Renderer *uDisplay::Init(void) {
 
     spiSettings = SPISettings((uint32_t)spi_speed*1000000, MSBFIRST, SPI_MODE3);
 
-
     uint16_t index = 0;
 
     SPI_BEGIN_TRANSACTION
@@ -288,14 +320,20 @@ Renderer *uDisplay::Init(void) {
       spi_command(iob);
 
       uint8_t args = dsp_cmds[index++];
-      //Serial.printf("cmd, args %x, %d ", iob, args&0x1f);
+#ifdef UDSP_DEBUG
+      Serial.printf("cmd, args %x, %d ", iob, args&0x1f);
+#endif
       for (uint32_t cnt = 0; cnt < (args & 0x1f); cnt++) {
         iob = dsp_cmds[index++];
-        //Serial.printf("%02x ", iob );
+#ifdef UDSP_DEBUG
+        Serial.printf("%02x ", iob );
+#endif
         spi_data8(iob);
       }
       SPI_CS_HIGH
-      //Serial.printf("\n");
+#ifdef UDSP_DEBUG
+      Serial.printf("\n");
+#endif
       if (args & 0x80) {
         if (args&0x60) delay(500);
         else delay(150);
@@ -626,23 +664,45 @@ void uDisplay::setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
   }
 }
 
+#define udisp_swap(a, b) (((a) ^= (b)), ((b) ^= (a)), ((a) ^= (b))) ///< No-temp-var swap operation
+
 void uDisplay::setAddrWindow_int(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
     x += x_addr_offs[cur_rot];
     y += y_addr_offs[cur_rot];
-    uint32_t xa = ((uint32_t)x << 16) | (x+w-1);
-    uint32_t ya = ((uint32_t)y << 16) | (y+h-1);
 
-    spi_command(saw_1);
+    if (sa_mode == 16) {
+      uint32_t xa = ((uint32_t)x << 16) | (x+w-1);
+      uint32_t ya = ((uint32_t)y << 16) | (y+h-1);
 
-    spi_data32(xa);
+      spi_command(saw_1);
+      spi_data32(xa);
 
-    spi_command(saw_2);
+      spi_command(saw_2);
+      spi_data32(ya);
 
-    spi_data32(ya);
+      if (saw_3 != 0xff) {
+        spi_command(saw_3); // write to RAM
+      }
+    } else {
+      uint16_t x2 = x + w - 1,
+               y2 = y + h - 1;
 
-    spi_command(saw_3); // write to RAM
-
+      if (cur_rot & 1) { // Vertical address increment mode
+        udisp_swap(x,y);
+        udisp_swap(x2,y2);
+      }
+      spi_command(saw_1);
+      spi_data8(x);
+      spi_data8(x2);
+      spi_command(saw_2);
+      spi_data8(y);
+      spi_data8(y2);
+      if (saw_3 != 0xff) {
+        spi_command(saw_3); // write to RAM
+      }
+    }
 }
+
 
 void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean first) {
   uint16_t color;
@@ -698,15 +758,21 @@ void uDisplay::drawPixel(int16_t x, int16_t y, uint16_t color) {
 
 void uDisplay::setRotation(uint8_t rotation) {
   cur_rot = rotation;
+
   if (interface != _UDSP_SPI) {
-    Renderer::setRotation(rotation);
+    Renderer::setRotation(cur_rot);
     return;
   }
   if (interface == _UDSP_SPI) {
     SPI_BEGIN_TRANSACTION
     SPI_CS_LOW
     spi_command(madctrl);
-    spi_data8(rot[rotation]);
+    spi_data8(rot[cur_rot]);
+    if (sa_mode == 8) {
+      spi_command(startline);
+      spi_data8((cur_rot < 2) ? height() : 0);
+    }
+
     SPI_CS_HIGH
     SPI_END_TRANSACTION
   }
@@ -728,6 +794,7 @@ void uDisplay::setRotation(uint8_t rotation) {
       _height = gxs;
       break;
   }
+
 }
 
 void udisp_bpwr(uint8_t on);
@@ -766,6 +833,14 @@ void uDisplay::DisplayOnff(int8_t on) {
   }
 }
 
+void uDisplay::invertDisplay(boolean i) {
+  if (i) {
+    spi_command_one(inv_on);
+  } else {
+    spi_command_one(inv_off);
+  }
+}
+
 void udisp_dimm(uint8_t dim);
 
 void uDisplay::dim(uint8_t dim) {
@@ -779,6 +854,14 @@ void uDisplay::dim(uint8_t dim) {
     udisp_dimm(dim);
   }
 #endif
+  if (dim_op != 0xff) {
+    SPI_BEGIN_TRANSACTION
+    SPI_CS_LOW
+    spi_command(dim_op);
+    spi_data8(dim);
+    SPI_CS_HIGH
+    SPI_END_TRANSACTION
+  }
 }
 
 
@@ -847,14 +930,18 @@ uint32_t uDisplay::str2c(char **sp, char *vp, uint32_t len) {
 
 int32_t uDisplay::next_val(char **sp) {
   char ibuff[16];
-  str2c(sp, ibuff, sizeof(ibuff));
-  return atoi(ibuff);
+  if (!str2c(sp, ibuff, sizeof(ibuff))) {
+    return atoi(ibuff);
+  }
+  return 0xff;
 }
 
 uint32_t uDisplay::next_hex(char **sp) {
   char ibuff[16];
-  str2c(sp, ibuff, sizeof(ibuff));
-  return strtol(ibuff, 0, 16);
+  if (!str2c(sp, ibuff, sizeof(ibuff))) {
+    return strtol(ibuff, 0, 16);
+  }
+  return 0xff;
 }
 
 #ifdef ESP32

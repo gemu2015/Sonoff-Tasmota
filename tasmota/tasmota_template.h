@@ -162,6 +162,7 @@ enum UserSelectablePins {
   GPIO_HALLEFFECT,
   GPIO_EPD_DATA,                       // Base connection EPD driver
 #endif
+  GPIO_CC1101_CS,
   GPIO_SENSOR_END };
 
 enum ProgramSelectablePins {
@@ -344,6 +345,7 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_HALLEFFECT "|"
   D_SENSOR_EPD_DATA "|"
 #endif
+  D_SENSOR_CC1101_CS "|"
   ;
 
 const char kSensorNamesFixed[] PROGMEM =
@@ -859,6 +861,10 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_ADC_JOY) + MAX_ADCS,         // Joystick
   AGPIO(GPIO_ADC_PH) + MAX_ADCS,          // Analog PH Sensor
 #endif  // ESP32
+
+#ifdef USE_MORITZ
+  AGPIO(GPIO_CC1101_CS),
+#endif
 };
 
 /*-------------------------------------------------------------------------------------------*\
