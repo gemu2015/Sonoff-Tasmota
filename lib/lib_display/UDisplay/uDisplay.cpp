@@ -42,6 +42,10 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   sa_mode = 16;
   saw_3 = 0xff;
   dim_op = 0xff;
+  dsp_off = 0xff;
+  dsp_on = 0xff;
+  lutpsize = 0;
+  lutfsize = 0;
   startline = 0xA1;
   uint8_t section = 0;
   dsp_ncmds = 0;
@@ -189,6 +193,26 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
           case 'D':
             dim_op = next_hex(&lp1);
             break;
+          case 'L':
+            while (1) {
+              if (!str2c(&lp1, ibuff, sizeof(ibuff))) {
+                lut_full[lutfsize++] = strtol(ibuff, 0, 16);
+              } else {
+                break;
+              }
+              if (lutfsize >= sizeof(lut_full)) break;
+            }
+            break;
+          case 'l':
+            while (1) {
+              if (!str2c(&lp1, ibuff, sizeof(ibuff))) {
+                lut_partial[lutpsize++] = strtol(ibuff, 0, 16);
+              } else {
+                break;
+              }
+              if (lutpsize >= sizeof(lut_partial)) break;
+            }
+            break;
         }
       }
     }
@@ -201,25 +225,31 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
     }
   }
 #ifdef UDSP_DEBUG
-  Serial.printf("Nr. : %d\n", spi_nr);
-  Serial.printf("CS  : %d\n", spi_cs);
-  Serial.printf("CLK : %d\n", spi_clk);
-  Serial.printf("MOSI: %d\n", spi_mosi);
-  Serial.printf("DC  : %d\n", spi_dc);
-  Serial.printf("BPAN: %d\n", bpanel);
-  Serial.printf("RES : %d\n", reset);
-  Serial.printf("MISO: %d\n", spi_miso);
-  Serial.printf("SPED: %d\n", spi_speed*1000000);
-  Serial.printf("Pixels: %d\n", col_mode);
-  Serial.printf("SaMode: %d\n", sa_mode);
 
+  if (interface == _UDSP_SPI) {
+    Serial.printf("Nr. : %d\n", spi_nr);
+    Serial.printf("CS  : %d\n", spi_cs);
+    Serial.printf("CLK : %d\n", spi_clk);
+    Serial.printf("MOSI: %d\n", spi_mosi);
+    Serial.printf("DC  : %d\n", spi_dc);
+    Serial.printf("BPAN: %d\n", bpanel);
+    Serial.printf("RES : %d\n", reset);
+    Serial.printf("MISO: %d\n", spi_miso);
+    Serial.printf("SPED: %d\n", spi_speed*1000000);
+    Serial.printf("Pixels: %d\n", col_mode);
+    Serial.printf("SaMode: %d\n", sa_mode);
 
-  Serial.printf("opts: %02x,%02x,%02x\n", saw_3, dim_op, startline);
+    Serial.printf("opts: %02x,%02x,%02x\n", saw_3, dim_op, startline);
 
-  Serial.printf("SetAddr : %x,%x,%x\n", saw_1, saw_2, saw_3);
+    Serial.printf("SetAddr : %x,%x,%x\n", saw_1, saw_2, saw_3);
 
-  Serial.printf("Rot 0: %x,%x - %d - %d\n", madctrl, rot[0], x_addr_offs[0], y_addr_offs[0]);
-
+    Serial.printf("Rot 0: %x,%x - %d - %d\n", madctrl, rot[0], x_addr_offs[0], y_addr_offs[0]);
+  }
+  if (interface == _UDSP_I2C) {
+    Serial.printf("Addr : %02x\n", i2caddr);
+    Serial.printf("SCL  : %d\n", i2c_scl);
+    Serial.printf("SDA : %d\n", i2c_sda);
+  }
 #endif
 }
 
@@ -253,10 +283,26 @@ Renderer *uDisplay::Init(void) {
 
     for (uint32_t cnt = 0; cnt < dsp_ncmds; cnt++) {
       i2c_command(dsp_cmds[cnt]);
+#ifdef UDSP_DEBUG
+      Serial.printf("cmd = %x\n", dsp_cmds[cnt]);
+#endif
     }
 
   }
   if (interface == _UDSP_SPI) {
+
+    if (lutfsize && lutpsize) {
+  #ifdef ESP8266
+      buffer = (uint8_t*)calloc((width()*height()*bpp)/8, 1);
+  #else
+      if (psramFound()) {
+        buffer = (uint8_t*)heap_caps_malloc((width()*height()*bpp)/8, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+      } else {
+        buffer = (uint8_t*)calloc((width()*height()*bpp)/8, 1);
+      }
+      #endif
+    }
+
     if (bpanel >= 0) {
 #ifdef ESP32
         ledcSetup(ESP32_PWM_CHANNEL, 4000, 8);
@@ -346,7 +392,23 @@ Renderer *uDisplay::Init(void) {
   return this;
 }
 
-void uDisplay::DisplayInit(int8_t p,int8_t size,int8_t rot,int8_t font) {
+void uDisplay::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
+
+  if (p == DISPLAY_INIT_PARTIAL) {
+    if (lutpsize) {
+      SetLut(lut_partial);
+      DisplayFrame();
+      delay(500);
+    }
+    return;
+  } else if (p == DISPLAY_INIT_FULL) {
+    if (lutfsize) {
+      SetLut(lut_full);
+      DisplayFrame();
+      delay(3500);
+    }
+    return;
+  } else {
     setRotation(rot);
     invertDisplay(false);
     setTextWrap(false);
@@ -357,6 +419,11 @@ void uDisplay::DisplayInit(int8_t p,int8_t size,int8_t rot,int8_t font) {
     setCursor(0,0);
     fillScreen(bg_col);
     Updateframe();
+
+#ifdef UDSP_DEBUG
+    Serial.printf("%Dsp Init complete \n");
+#endif
+  }
 }
 
 void uDisplay::spi_command(uint8_t val) {
@@ -452,6 +519,12 @@ void uDisplay::i2c_command(uint8_t val) {
 
 
 void uDisplay::Updateframe(void) {
+
+  if (interface == _UDSP_SPI && lutfsize && lutpsize) {
+    Updateframe_EPD();
+    return;
+  }
+
 
   if (interface == _UDSP_I2C) {
     i2c_command(saw_1 | 0x0);  // low col = 0
@@ -735,8 +808,14 @@ void uDisplay::WriteColor(uint16_t color) {
 
 void uDisplay::drawPixel(int16_t x, int16_t y, uint16_t color) {
 
+
   if (interface != _UDSP_SPI) {
     Renderer::drawPixel(x, y, color);
+    return;
+  }
+
+  if (lutfsize && lutpsize) {
+    drawPixel_EPD(x, y, color);
     return;
   }
 
@@ -763,7 +842,13 @@ void uDisplay::setRotation(uint8_t rotation) {
     Renderer::setRotation(cur_rot);
     return;
   }
+
   if (interface == _UDSP_SPI) {
+
+    if (lutfsize && lutpsize) {
+      Renderer::setRotation(cur_rot);
+      return;
+    }
     SPI_BEGIN_TRANSACTION
     SPI_CS_LOW
     spi_command(madctrl);
@@ -801,6 +886,10 @@ void udisp_bpwr(uint8_t on);
 
 void uDisplay::DisplayOnff(int8_t on) {
 
+  if (lutfsize || lutpsize) {
+    return;
+  }
+
   udisp_bpwr(on);
 
   if (interface == _UDSP_I2C) {
@@ -811,7 +900,7 @@ void uDisplay::DisplayOnff(int8_t on) {
     }
   } else {
     if (on) {
-      spi_command_one(dsp_on);
+      if (dsp_on != 0xff) spi_command_one(dsp_on);
       if (bpanel >= 0) {
 #ifdef ESP32
         ledcWrite(ESP32_PWM_CHANNEL, dimmer);
@@ -821,7 +910,7 @@ void uDisplay::DisplayOnff(int8_t on) {
       }
 
     } else {
-      spi_command_one(dsp_off);
+      if (dsp_off != 0xff) spi_command_one(dsp_off);
       if (bpanel >= 0) {
 #ifdef ESP32
         ledcWrite(ESP32_PWM_CHANNEL, 0);
@@ -834,10 +923,17 @@ void uDisplay::DisplayOnff(int8_t on) {
 }
 
 void uDisplay::invertDisplay(boolean i) {
-  if (i) {
-    spi_command_one(inv_on);
-  } else {
-    spi_command_one(inv_off);
+
+  if (lutfsize || lutpsize) {
+    return;
+  }
+
+  if (interface == _UDSP_SPI) {
+    if (i) {
+      spi_command_one(inv_on);
+    } else {
+      spi_command_one(inv_off);
+    }
   }
 }
 
@@ -845,22 +941,30 @@ void udisp_dimm(uint8_t dim);
 
 void uDisplay::dim(uint8_t dim) {
   dimmer = dim;
-  if (dimmer > 15) dimmer = 15;
-  dimmer = ((float)dimmer / 15.0) * 255.0;
-#ifdef ESP32
-  if (bpanel >= 0) {
-    ledcWrite(ESP32_PWM_CHANNEL, dimmer);
-  } else {
-    udisp_dimm(dim);
+
+  if (lutfsize || lutpsize) {
+    return;
   }
+
+  if (interface == _UDSP_SPI) {
+    if (dimmer > 15) dimmer = 15;
+    dimmer = ((float)dimmer / 15.0) * 255.0;
+#ifdef ESP32
+    if (bpanel >= 0) {
+      ledcWrite(ESP32_PWM_CHANNEL, dimmer);
+    } else {
+      udisp_dimm(dim);
+    }
 #endif
-  if (dim_op != 0xff) {
-    SPI_BEGIN_TRANSACTION
-    SPI_CS_LOW
-    spi_command(dim_op);
-    spi_data8(dim);
-    SPI_CS_HIGH
-    SPI_END_TRANSACTION
+
+    if (dim_op != 0xff) {
+      SPI_BEGIN_TRANSACTION
+      SPI_CS_LOW
+      spi_command(dim_op);
+      spi_data8(dim);
+      SPI_CS_HIGH
+      SPI_END_TRANSACTION
+    }
   }
 }
 
@@ -1032,4 +1136,185 @@ void USECACHE uDisplay::write32(uint32_t val) {
     else   GPIO_CLR(spi_mosi);
     GPIO_SET(spi_clk);
   }
+}
+
+// EPD2IN9 commands
+#define DRIVER_OUTPUT_CONTROL                       0x01
+#define BOOSTER_SOFT_START_CONTROL                  0x0C
+#define GATE_SCAN_START_POSITION                    0x0F
+#define DEEP_SLEEP_MODE                             0x10
+#define DATA_ENTRY_MODE_SETTING                     0x11
+#define SW_RESET                                    0x12
+#define TEMPERATURE_SENSOR_CONTROL                  0x1A
+#define MASTER_ACTIVATION                           0x20
+#define DISPLAY_UPDATE_CONTROL_1                    0x21
+#define DISPLAY_UPDATE_CONTROL_2                    0x22
+#define WRITE_RAM                                   0x24
+#define WRITE_VCOM_REGISTER                         0x2C
+#define WRITE_LUT_REGISTER                          0x32
+#define SET_DUMMY_LINE_PERIOD                       0x3A
+#define SET_GATE_TIME                               0x3B
+#define BORDER_WAVEFORM_CONTROL                     0x3C
+#define SET_RAM_X_ADDRESS_START_END_POSITION        0x44
+#define SET_RAM_Y_ADDRESS_START_END_POSITION        0x45
+#define SET_RAM_X_ADDRESS_COUNTER                   0x4E
+#define SET_RAM_Y_ADDRESS_COUNTER                   0x4F
+#define TERMINATE_FRAME_READ_WRITE                  0xFF
+
+// epaper section
+void uDisplay::SetLut(const unsigned char* lut) {
+    spi_command(WRITE_LUT_REGISTER);
+    /* the length of look-up table is 30 bytes */
+    for (int i = 0; i < lutfsize; i++) {
+        spi_data8(lut[i]);
+    }
+}
+
+void uDisplay::Updateframe_EPD(void) {
+  SetFrameMemory(buffer, 0, 0, width(), height());
+  DisplayFrame();
+}
+
+void uDisplay::DisplayFrame(void) {
+    spi_command(DISPLAY_UPDATE_CONTROL_2);
+    spi_data8(0xC4);
+    spi_command(MASTER_ACTIVATION);
+    spi_data8(TERMINATE_FRAME_READ_WRITE);
+}
+
+void uDisplay::SetMemoryArea(int x_start, int y_start, int x_end, int y_end) {
+    spi_command(SET_RAM_X_ADDRESS_START_END_POSITION);
+    /* x point must be the multiple of 8 or the last 3 bits will be ignored */
+    spi_data8((x_start >> 3) & 0xFF);
+    spi_data8((x_end >> 3) & 0xFF);
+    spi_command(SET_RAM_Y_ADDRESS_START_END_POSITION);
+    spi_data8(y_start & 0xFF);
+    spi_data8((y_start >> 8) & 0xFF);
+    spi_data8(y_end & 0xFF);
+    spi_data8((y_end >> 8) & 0xFF);
+}
+
+void uDisplay::SetFrameMemory(const unsigned char* image_buffer) {
+    SetMemoryArea(0, 0, width() - 1, height() - 1);
+    SetMemoryPointer(0, 0);
+    spi_command(WRITE_RAM);
+    /* send the image data */
+    for (int i = 0; i < width() / 8 * height(); i++) {
+        spi_data8(pgm_read_byte(&image_buffer[i])^0xff);
+    }
+}
+
+void uDisplay::SetMemoryPointer(int x, int y) {
+    spi_command(SET_RAM_X_ADDRESS_COUNTER);
+    /* x point must be the multiple of 8 or the last 3 bits will be ignored */
+    spi_data8((x >> 3) & 0xFF);
+    spi_command(SET_RAM_Y_ADDRESS_COUNTER);
+    spi_data8(y & 0xFF);
+    spi_data8((y >> 8) & 0xFF);
+}
+
+void uDisplay::SetFrameMemory(
+    const unsigned char* image_buffer,
+    uint16_t x,
+    uint16_t y,
+    uint16_t image_width,
+    uint16_t image_height
+) {
+    uint16_t x_end;
+    uint16_t y_end;
+
+    if (
+        image_buffer == NULL ||
+        x < 0 || image_width < 0 ||
+        y < 0 || image_height < 0
+    ) {
+        return;
+    }
+
+    /* x point must be the multiple of 8 or the last 3 bits will be ignored */
+    x &= 0xFFF8;
+    image_width &= 0xFFF8;
+    if (x + image_width >= width()) {
+        x_end = width() - 1;
+    } else {
+        x_end = x + image_width - 1;
+    }
+    if (y + image_height >= height()) {
+        y_end = height() - 1;
+    } else {
+        y_end = y + image_height - 1;
+    }
+
+    if (!x && !y && image_width==width() && image_height==height()) {
+      SetFrameMemory(image_buffer);
+      return;
+    }
+
+    SetMemoryArea(x, y, x_end, y_end);
+    SetMemoryPointer(x, y);
+    spi_command(WRITE_RAM);
+    /* send the image data */
+    for (uint16_t j = 0; j < y_end - y + 1; j++) {
+        for (uint16_t i = 0; i < (x_end - x + 1) / 8; i++) {
+            spi_data8(image_buffer[i + j * (image_width / 8)]^0xff);
+        }
+    }
+}
+
+#define IF_INVERT_COLOR     1
+#define renderer_swap(a, b) { int16_t t = a; a = b; b = t; }
+/**
+ *  @brief: this draws a pixel by absolute coordinates.
+ *          this function won't be affected by the rotate parameter.
+ * we must use this for epaper because these displays have a strange and different bit pattern
+ */
+void uDisplay::DrawAbsolutePixel(int x, int y, int16_t color) {
+
+    int16_t w=width(),h=height(),rot=getRotation();
+    if (rot==1 || rot==3) {
+      renderer_swap(w,h);
+    }
+
+    if (x < 0 || x >= w || y < 0 || y >= h) {
+        return;
+    }
+    if (IF_INVERT_COLOR) {
+        if (color) {
+            buffer[(x + y * w) / 8] |= 0x80 >> (x % 8);
+        } else {
+            buffer[(x + y * w) / 8] &= ~(0x80 >> (x % 8));
+        }
+    } else {
+        if (color) {
+            buffer[(x + y * w) / 8] &= ~(0x80 >> (x % 8));
+        } else {
+            buffer[(x + y * w) / 8] |= 0x80 >> (x % 8);
+        }
+    }
+}
+
+void uDisplay::drawPixel_EPD(int16_t x, int16_t y, uint16_t color) {
+  if (!buffer) return;
+  if ((x < 0) || (x >= width()) || (y < 0) || (y >= height()))
+    return;
+
+  // check rotation, move pixel around if necessary
+  switch (cur_rot) {
+  case 1:
+    renderer_swap(x, y);
+    x = width() - x - 1;
+    break;
+  case 2:
+    x = width() - x - 1;
+    y = height() - y - 1;
+    break;
+  case 3:
+    renderer_swap(x, y);
+    y = height() - y - 1;
+    break;
+  }
+
+  // x is which column
+  DrawAbsolutePixel(x,y,color);
+
 }

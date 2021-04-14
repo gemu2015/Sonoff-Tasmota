@@ -10,6 +10,10 @@
 #define UDISP1_WHITE 1
 #define UDISP1_BLACK 0
 
+#define DISPLAY_INIT_MODE 0
+#define DISPLAY_INIT_PARTIAL 1
+#define DISPLAY_INIT_FULL 2
+
 enum uColorType { uCOLOR_BW, uCOLOR_COLOR };
 
 // Color definitions
@@ -93,7 +97,15 @@ class uDisplay : public Renderer {
    void write32(uint32_t val);
    void spi_data9(uint8_t d, uint8_t dc);
    void WriteColor(uint16_t color);
-
+   void SetLut(const unsigned char* lut);
+   void DisplayFrame(void);
+   void Updateframe_EPD();
+   void SetFrameMemory(const unsigned char* image_buffer);
+   void SetFrameMemory(const unsigned char* image_buffer, uint16_t x, uint16_t y, uint16_t image_width, uint16_t image_height);
+   void SetMemoryArea(int x_start, int y_start, int x_end, int y_end);
+   void SetMemoryPointer(int x, int y);
+   void DrawAbsolutePixel(int x, int y, int16_t color);
+   void drawPixel_EPD(int16_t x, int16_t y, uint16_t color);
    uint8_t strlen_ln(char *str);
    int32_t next_val(char **sp);
    uint32_t next_hex(char **sp);
@@ -144,6 +156,10 @@ class uDisplay : public Renderer {
    uint8_t inv_off;
    uint8_t sa_mode;
    uint8_t dim_op;
+   uint8_t lutfsize;
+   uint8_t lutpsize;
+   uint8_t lut_full[64];
+   uint8_t lut_partial[64];
 };
 
 
