@@ -18,11 +18,9 @@
 */
 
 #include <Arduino.h>
-#include <Wire.h>
-#include <SPI.h>
 #include "uDisplay.h"
 
-#define UDSP_DEBUG
+//#define UDSP_DEBUG
 
 const uint16_t udisp_colors[]={UDISP_BLACK,UDISP_WHITE,UDISP_RED,UDISP_GREEN,UDISP_BLUE,UDISP_CYAN,UDISP_MAGENTA,\
   UDISP_YELLOW,UDISP_NAVY,UDISP_DARKGREEN,UDISP_DARKCYAN,UDISP_MAROON,UDISP_PURPLE,UDISP_OLIVE,\
@@ -261,7 +259,6 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
 
     Serial.printf("Rot 0: %x,%x - %d - %d\n", madctrl, rot[0], x_addr_offs[0], y_addr_offs[0]);
 
-
     if (ep_mode) {
       Serial.printf("LUT_Partial : %d\n", lutpsize);
       Serial.printf("LUT_Full : %d\n", lutfsize);
@@ -297,7 +294,8 @@ Renderer *uDisplay::Init(void) {
   }
 
   if (interface == _UDSP_I2C) {
-    Wire.begin(i2c_sda, i2c_scl);
+    wire = &Wire;
+    wire->begin(i2c_sda, i2c_scl);
     if (bpp < 16) {
       if (buffer) free(buffer);
 #ifdef ESP8266
@@ -544,10 +542,10 @@ void uDisplay::spi_command_one(uint8_t val) {
 
 void uDisplay::i2c_command(uint8_t val) {
   //Serial.printf("%02x\n",val );
-  Wire.beginTransmission(i2caddr);
-  Wire.write(0);
-  Wire.write(val);
-  Wire.endTransmission();
+  wire->beginTransmission(i2caddr);
+  wire->write(0);
+  wire->write(val);
+  wire->endTransmission();
 }
 
 
@@ -573,20 +571,20 @@ void uDisplay::Updateframe(void) {
 
     uint16_t count = gxs * ((gys + 7) / 8);
     uint8_t *ptr   = buffer;
-    Wire.beginTransmission(i2caddr);
+    wire->beginTransmission(i2caddr);
     i2c_command(saw_3);
     uint8_t bytesOut = 1;
     while (count--) {
       if (bytesOut >= WIRE_MAX) {
-        Wire.endTransmission();
-        Wire.beginTransmission(i2caddr);
+        wire->endTransmission();
+        wire->beginTransmission(i2caddr);
         i2c_command(saw_3);
         bytesOut = 1;
       }
       i2c_command(*ptr++);
       bytesOut++;
     }
-    Wire.endTransmission();
+    wire->endTransmission();
 #else
 
     i2c_command(saw_1 | 0x0);  // set low col = 0, 0x00
@@ -610,12 +608,12 @@ void uDisplay::Updateframe(void) {
         i2c_command(0x10 | (m_col >> 4)); //set higher column address
 
         for ( j = 0; j < 8; j++) {
-			      Wire.beginTransmission(i2caddr);
-            Wire.write(0x40);
+			      wire->beginTransmission(i2caddr);
+            wire->write(0x40);
             for ( k = 0; k < xs; k++, p++) {
-		            Wire.write(buffer[p]);
+		            wire->write(buffer[p]);
             }
-            Wire.endTransmission();
+            wire->endTransmission();
 	      }
     }
 #endif
@@ -1210,6 +1208,9 @@ void USECACHE uDisplay::write32(uint32_t val) {
   }
 }
 
+
+// epaper section
+
 // EPD2IN9 commands
 #define DRIVER_OUTPUT_CONTROL                       0x01
 #define BOOSTER_SOFT_START_CONTROL                  0x0C
@@ -1233,7 +1234,6 @@ void USECACHE uDisplay::write32(uint32_t val) {
 #define SET_RAM_Y_ADDRESS_COUNTER                   0x4F
 #define TERMINATE_FRAME_READ_WRITE                  0xFF
 
-// epaper section
 void uDisplay::SetLut(const unsigned char* lut) {
     spi_command(WRITE_LUT_REGISTER);
     /* the length of look-up table is 30 bytes */

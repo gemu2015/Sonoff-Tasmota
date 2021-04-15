@@ -3,6 +3,8 @@
 
 #include <Adafruit_GFX.h>
 #include <renderer.h>
+#include <Wire.h>
+#include <SPI.h>
 
 #define _UDSP_I2C 1
 #define _UDSP_SPI 2
@@ -115,6 +117,7 @@ class uDisplay : public Renderer {
    uint8_t interface;
    uint8_t i2caddr;
    int8_t i2c_scl;
+   TwoWire *wire;
    int8_t i2c_sda;
    uint8_t i2c_col_start;
    uint8_t i2c_col_end;
