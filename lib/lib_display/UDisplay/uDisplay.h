@@ -116,6 +116,10 @@ class uDisplay : public Renderer {
    uint8_t i2caddr;
    int8_t i2c_scl;
    int8_t i2c_sda;
+   uint8_t i2c_col_start;
+   uint8_t i2c_col_end;
+   uint8_t i2c_page_start;
+   uint8_t i2c_page_end;
    int8_t reset;
    uint8_t dsp_cmds[128];
    uint8_t dsp_ncmds;
@@ -158,6 +162,7 @@ class uDisplay : public Renderer {
    uint8_t dim_op;
    uint8_t lutfsize;
    uint8_t lutpsize;
+   uint8_t ep_mode;
    uint8_t lut_full[64];
    uint8_t lut_partial[64];
 };

@@ -46,6 +46,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   dsp_on = 0xff;
   lutpsize = 0;
   lutfsize = 0;
+  ep_mode = 0;
   startline = 0xA1;
   uint8_t section = 0;
   dsp_ncmds = 0;
@@ -178,10 +179,20 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             rot_t[3] = next_hex(&lp1);
             break;
           case 'A':
-            saw_1 = next_hex(&lp1);
-            saw_2 = next_hex(&lp1);
-            saw_3 = next_hex(&lp1);
-            sa_mode = next_val(&lp1);
+            if (interface == _UDSP_I2C) {
+              saw_1 = next_hex(&lp1);
+              i2c_page_start = next_hex(&lp1);
+              i2c_page_end = next_hex(&lp1);
+              saw_2 = next_hex(&lp1);
+              i2c_col_start = next_hex(&lp1);
+              i2c_col_end = next_hex(&lp1);
+              saw_3 = next_hex(&lp1);
+            } else {
+              saw_1 = next_hex(&lp1);
+              saw_2 = next_hex(&lp1);
+              saw_3 = next_hex(&lp1);
+              sa_mode = next_val(&lp1);
+            }
             break;
           case 'P':
             col_mode = next_val(&lp1);
@@ -224,6 +235,11 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
       lp++;
     }
   }
+
+  if (lutfsize && lutpsize) {
+    ep_mode = 1;
+  }
+
 #ifdef UDSP_DEBUG
 
   if (interface == _UDSP_SPI) {
@@ -244,11 +260,25 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
     Serial.printf("SetAddr : %x,%x,%x\n", saw_1, saw_2, saw_3);
 
     Serial.printf("Rot 0: %x,%x - %d - %d\n", madctrl, rot[0], x_addr_offs[0], y_addr_offs[0]);
+
+
+    if (ep_mode) {
+      Serial.printf("LUT_Partial : %d\n", lutpsize);
+      Serial.printf("LUT_Full : %d\n", lutfsize);
+    }
   }
   if (interface == _UDSP_I2C) {
     Serial.printf("Addr : %02x\n", i2caddr);
     Serial.printf("SCL  : %d\n", i2c_scl);
-    Serial.printf("SDA : %d\n", i2c_sda);
+    Serial.printf("SDA  : %d\n", i2c_sda);
+
+    Serial.printf("SPA   : %x\n", saw_1);
+    Serial.printf("pa_sta: %x\n", i2c_page_start);
+    Serial.printf("pa_end: %x\n", i2c_page_end);
+    Serial.printf("SCA   : %x\n", saw_2);
+    Serial.printf("ca_sta: %x\n", i2c_col_start);
+    Serial.printf("pa_end: %x\n", i2c_col_end);
+    Serial.printf("WRA   : %x\n", saw_3);
   }
 #endif
 }
@@ -281,6 +311,9 @@ Renderer *uDisplay::Init(void) {
 #endif
     }
 
+#ifdef UDSP_DEBUG
+    Serial.printf("I2C cmds: %d\n", dsp_ncmds);
+#endif
     for (uint32_t cnt = 0; cnt < dsp_ncmds; cnt++) {
       i2c_command(dsp_cmds[cnt]);
 #ifdef UDSP_DEBUG
@@ -291,7 +324,7 @@ Renderer *uDisplay::Init(void) {
   }
   if (interface == _UDSP_SPI) {
 
-    if (lutfsize && lutpsize) {
+    if (ep_mode) {
   #ifdef ESP8266
       buffer = (uint8_t*)calloc((width()*height()*bpp)/8, 1);
   #else
@@ -518,24 +551,53 @@ void uDisplay::i2c_command(uint8_t val) {
 }
 
 
+#define WIRE_MAX 32
+
 void uDisplay::Updateframe(void) {
 
-  if (interface == _UDSP_SPI && lutfsize && lutpsize) {
+  if (interface == _UDSP_SPI && ep_mode) {
     Updateframe_EPD();
     return;
   }
 
 
   if (interface == _UDSP_I2C) {
-    i2c_command(saw_1 | 0x0);  // low col = 0
-    i2c_command(saw_2 | 0x0);  // hi col = 0
-    i2c_command(saw_3 | 0x0); // line #0
+
+  #if 0
+    i2c_command(saw_1);
+    i2c_command(i2c_page_start);
+    i2c_command(i2c_page_end);
+    i2c_command(saw_2);
+    i2c_command(i2c_col_start);
+    i2c_command(i2c_col_end);
+
+    uint16_t count = gxs * ((gys + 7) / 8);
+    uint8_t *ptr   = buffer;
+    Wire.beginTransmission(i2caddr);
+    i2c_command(saw_3);
+    uint8_t bytesOut = 1;
+    while (count--) {
+      if (bytesOut >= WIRE_MAX) {
+        Wire.endTransmission();
+        Wire.beginTransmission(i2caddr);
+        i2c_command(saw_3);
+        bytesOut = 1;
+      }
+      i2c_command(*ptr++);
+      bytesOut++;
+    }
+    Wire.endTransmission();
+#else
+
+    i2c_command(saw_1 | 0x0);  // set low col = 0, 0x00
+    i2c_command(i2c_page_start | 0x0);  // set hi col = 0, 0x10
+    i2c_command(i2c_page_end | 0x0); // set startline line #0, 0x40
 
 	  uint8_t ys = gys >> 3;
 	  uint8_t xs = gxs >> 3;
     //uint8_t xs = 132 >> 3;
-	  uint8_t m_row = 0;
-	  uint8_t m_col = 2;
+	  uint8_t m_row = saw_2;
+	  uint8_t m_col = i2c_col_start;
 
 	  uint16_t p = 0;
 
@@ -543,20 +605,23 @@ void uDisplay::Updateframe(void) {
 
 	  for ( i = 0; i < ys; i++) {
 		    // send a bunch of data in one xmission
-        i2c_command(0xB0 + i + m_row);//set page address
-        i2c_command(m_col & 0xf);//set lower column address
-        i2c_command(0x10 | (m_col >> 4));//set higher column address
+        i2c_command(0xB0 + i + m_row); //set page address
+        i2c_command(m_col & 0xf); //set lower column address
+        i2c_command(0x10 | (m_col >> 4)); //set higher column address
 
-        for( j = 0; j < 8; j++){
+        for ( j = 0; j < 8; j++) {
 			      Wire.beginTransmission(i2caddr);
             Wire.write(0x40);
             for ( k = 0; k < xs; k++, p++) {
 		            Wire.write(buffer[p]);
             }
             Wire.endTransmission();
-        	}
 	      }
     }
+#endif
+ }
+
+
 }
 
 void uDisplay::drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
@@ -814,7 +879,7 @@ void uDisplay::drawPixel(int16_t x, int16_t y, uint16_t color) {
     return;
   }
 
-  if (lutfsize && lutpsize) {
+  if (ep_mode) {
     drawPixel_EPD(x, y, color);
     return;
   }
@@ -845,7 +910,7 @@ void uDisplay::setRotation(uint8_t rotation) {
 
   if (interface == _UDSP_SPI) {
 
-    if (lutfsize && lutpsize) {
+    if (ep_mode) {
       Renderer::setRotation(cur_rot);
       return;
     }
@@ -886,7 +951,7 @@ void udisp_bpwr(uint8_t on);
 
 void uDisplay::DisplayOnff(int8_t on) {
 
-  if (lutfsize || lutpsize) {
+  if (ep_mode) {
     return;
   }
 
@@ -924,7 +989,7 @@ void uDisplay::DisplayOnff(int8_t on) {
 
 void uDisplay::invertDisplay(boolean i) {
 
-  if (lutfsize || lutpsize) {
+  if (ep_mode) {
     return;
   }
 
@@ -935,6 +1000,13 @@ void uDisplay::invertDisplay(boolean i) {
       spi_command_one(inv_off);
     }
   }
+  if (interface == _UDSP_I2C) {
+    if (i) {
+      i2c_command(inv_on);
+    } else {
+      i2c_command(inv_off);
+    }
+  }
 }
 
 void udisp_dimm(uint8_t dim);
@@ -942,7 +1014,7 @@ void udisp_dimm(uint8_t dim);
 void uDisplay::dim(uint8_t dim) {
   dimmer = dim;
 
-  if (lutfsize || lutpsize) {
+  if (ep_mode) {
     return;
   }
 
