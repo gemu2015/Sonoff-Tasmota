@@ -71,7 +71,8 @@ const char DSP_SAMPLE_DESC[] PROGMEM =
 ":o,AE\n"
 // switch display on
 ":O,AF\n"
-":A,00,10,40\n"
+":A,00,10,40,00,02\n"
+":i,A6,A7\n"
 "#\n";
 
 #endif // DSP_ROM_DESC

@@ -108,6 +108,13 @@ class uDisplay : public Renderer {
    void SetMemoryPointer(int x, int y);
    void DrawAbsolutePixel(int x, int y, int16_t color);
    void drawPixel_EPD(int16_t x, int16_t y, uint16_t color);
+   void fillRect_EPD(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color);
+   void drawFastVLine_EPD(int16_t x, int16_t y, int16_t h, uint16_t color);
+   void drawFastHLine_EPD(int16_t x, int16_t y, int16_t w, uint16_t color);
+   void Init_EPD(int8_t p);
+   void spi_command_EPD(uint8_t val);
+   void spi_data8_EPD(uint8_t val);
+   void ClearFrameMemory(unsigned char color);
    uint8_t strlen_ln(char *str);
    int32_t next_val(char **sp);
    uint32_t next_hex(char **sp);
@@ -165,6 +172,9 @@ class uDisplay : public Renderer {
    uint8_t dim_op;
    uint8_t lutfsize;
    uint8_t lutpsize;
+   uint16_t lutftime;
+   uint16_t lutptime;
+   uint16_t lut3time;
    uint8_t ep_mode;
    uint8_t lut_full[64];
    uint8_t lut_partial[64];
