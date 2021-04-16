@@ -842,7 +842,7 @@ void uDisplay::setAddrWindow_int(uint16_t x, uint16_t y, uint16_t w, uint16_t h)
     x += x_addr_offs[cur_rot];
     y += y_addr_offs[cur_rot];
 
-    if (sa_mode == 16) {
+    if (sa_mode != 8) {
       uint32_t xa = ((uint32_t)x << 16) | (x+w-1);
       uint32_t ya = ((uint32_t)y << 16) | (y+h-1);
 
