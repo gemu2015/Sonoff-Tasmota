@@ -960,9 +960,6 @@ void uDisplay::drawPixel(int16_t x, int16_t y, uint16_t color) {
 void uDisplay::setRotation(uint8_t rotation) {
   cur_rot = rotation;
 
-  // currently no rotation on SSD1331
-  if (allcmd_mode) return;
-
   if (interface != _UDSP_SPI) {
     Renderer::setRotation(cur_rot);
     return;
@@ -977,8 +974,14 @@ void uDisplay::setRotation(uint8_t rotation) {
     SPI_BEGIN_TRANSACTION
     SPI_CS_LOW
     spi_command(madctrl);
-    spi_data8(rot[cur_rot]);
-    if (sa_mode == 8) {
+
+    if (!allcmd_mode) {
+      spi_data8(rot[cur_rot]);
+    } else {
+      spi_command(rot[cur_rot]);
+    }
+
+    if ((sa_mode == 8) && !allcmd_mode) {
       spi_command(startline);
       spi_data8((cur_rot < 2) ? height() : 0);
     }
