@@ -200,6 +200,8 @@ sFONT RAFont = {
   12, /* Height */
 };
 
+extern uint8_t *loaded_font;
+
 void Renderer::setTextFont(uint8_t f) {
   font=f;
 
@@ -269,6 +271,7 @@ void Renderer::setTextFont(uint8_t f) {
     selected_font = &Font24_7seg;
     break;
 #endif
+
   default:
     selected_font = &Font12;
     break;
@@ -277,6 +280,9 @@ void Renderer::setTextFont(uint8_t f) {
 #endif
 }
 
+void Renderer::SetRamfont(uint8_t *font) {
+  setFont((const GFXfont *)font);
+}
 
 void Renderer::clearDisplay(void) {
   fillScreen(BLACK);
