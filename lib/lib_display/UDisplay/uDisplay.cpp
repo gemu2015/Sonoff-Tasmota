@@ -960,6 +960,9 @@ void uDisplay::drawPixel(int16_t x, int16_t y, uint16_t color) {
 void uDisplay::setRotation(uint8_t rotation) {
   cur_rot = rotation;
 
+  // currently no rotation on SSD1331
+  if (allcmd_mode) return;
+
   if (interface != _UDSP_SPI) {
     Renderer::setRotation(cur_rot);
     return;
