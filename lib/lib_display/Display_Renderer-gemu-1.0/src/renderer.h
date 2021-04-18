@@ -52,6 +52,7 @@ private:
   sFONT *selected_font;
   uint8_t font;
   uint8_t tsize = 1;
+  GFXfont *ramfont = 0;
 };
 
 typedef union {

@@ -1113,17 +1113,10 @@ void Adafruit_GFX::drawChar(int16_t x, int16_t y, unsigned char c,
         // Character is assumed previously filtered by write() to eliminate
         // newlines, returns, non-printable characters, etc.  Calling
         // drawChar() directly with 'bad' characters of font may cause mayhem!
-        // ram driven font
 
-#ifdef RAMFONT
-        c -= rgfxFont.first;
-        GFXglyph *glyph  = &rgfxFont.glyph[c];
-        uint8_t  *bitmap = rgfxFont.bitmap;
-#else
         c -= (uint8_t)pgm_read_byte(&gfxFont->first);
         GFXglyph *glyph  = pgm_read_glyph_ptr(gfxFont, c);
         uint8_t  *bitmap = pgm_read_bitmap_ptr(gfxFont);
-#endif
 
         uint16_t bo = pgm_read_word(&glyph->bitmapOffset);
         uint8_t  w  = pgm_read_byte(&glyph->width),
@@ -1200,28 +1193,6 @@ size_t Adafruit_GFX::write(uint8_t c) {
 
     } else { // Custom font
 
-#ifdef RAMFONT
-        if (c == '\n') {
-            cursor_x  = 0;
-            cursor_y += (int16_t)textsize_y * rgfxFont.yAdvance;
-        } else if (c != '\r') {
-            uint8_t first = rgfxFont.first;
-            if((c >= first) && (c <= rgfxFont.last)) {
-                GFXglyph *glyph  = &rgfxFont.glyph[c - first];
-                uint8_t   w     = glyph->width,
-                          h     = glyph->height;
-                if((w > 0) && (h > 0)) { // Is there an associated bitmap?
-                    int16_t xo = glyph->xOffset; // sic
-                    if(wrap && ((cursor_x + textsize_x * (xo + w)) > _width)) {
-                        cursor_x  = 0;
-                        cursor_y += (int16_t)textsize_y * rgfxFont.yAdvance;
-                    }
-                    drawChar(cursor_x, cursor_y, c, textcolor, textbgcolor, textsize_x, textsize_y);
-                }
-                cursor_x += glyph->xAdvance * (int16_t)textsize_x;
-            }
-        }
-#else
         if(c == '\n') {
             cursor_x  = 0;
             cursor_y += (int16_t)textsize_y *
@@ -1244,7 +1215,7 @@ size_t Adafruit_GFX::write(uint8_t c) {
                 cursor_x += (uint8_t)pgm_read_byte(&glyph->xAdvance) * (int16_t)textsize_x;
             }
         }
-#endif
+
     }
     return 1;
 }
@@ -1323,26 +1294,6 @@ void Adafruit_GFX::setFont(const GFXfont *f) {
         cursor_y -= 6;
     }
     gfxFont = (GFXfont *)f;
-
-#ifdef RAMFONT
-    struct RAM_FONT *ramfont = (struct RAM_FONT*)gfxFont;
-    rgfxFont.bitmap = (uint8_t*)ramfont+ramfont->bitmap_offset;
-    rgfxFont.glyph = (GFXglyph*) ((uint8_t*)ramfont+ramfont->glyph_offset);
-    rgfxFont.first = ramfont->first;
-    rgfxFont.last = ramfont->last;
-    rgfxFont.yAdvance = ramfont->yAdvance;
-    Serial.printf("Fontptr: %x\n", (uint32_t)ramfont);
-    Serial.printf("Bitmap : %x\n", (uint32_t)rgfxFont.bitmap);
-    Serial.printf("Glyph  : %x\n", (uint32_t)rgfxFont.glyph);
-    GFXglyph *glyph = rgfxFont.glyph;
-    glyph+=2;
-
-    Serial.printf("bitmapOffset: %d\n", glyph->bitmapOffset);
-    Serial.printf("width  : %d\n", glyph->width);
-    Serial.printf("height : %d\n", glyph->height);
-    Serial.printf("xOffset: %d\n", glyph->xOffset);
-    Serial.printf("yOffset: %d\n", glyph->yOffset);
-#endif
 }
 
 

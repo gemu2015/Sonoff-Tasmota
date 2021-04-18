@@ -245,20 +245,7 @@ virtual void
     _cp437;         ///< If set, use correct CP437 charset (default is off)
   GFXfont
     *gfxFont;       ///< Pointer to special font
-
-  GFXfont
-    rgfxFont;
 };
-
-#define RAMFONT
-
-struct RAM_FONT {
-    uint32_t bitmap_offset;
-    uint32_t glyph_offset;
-    uint8_t first;
-    uint8_t last;
-    uint8_t yAdvance;
-  };
 
 
 /// A simple drawn button UI element
