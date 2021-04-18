@@ -182,6 +182,14 @@ char *fbuff;
         replacepin(&cp, Pin(GPIO_BACKLIGHT));
         replacepin(&cp, Pin(GPIO_OLED_RESET));
         replacepin(&cp, Pin(GPIO_SPI_MISO));
+      } else if (*cp == '2') {
+        replacepin(&cp, Pin(GPIO_SPI_CS, 1));
+        replacepin(&cp, Pin(GPIO_SPI_CLK, 1));
+        replacepin(&cp, Pin(GPIO_SPI_MOSI, 1));
+        replacepin(&cp, Pin(GPIO_SPI_DC, 1));
+        replacepin(&cp, Pin(GPIO_BACKLIGHT, 1));
+        replacepin(&cp, Pin(GPIO_OLED_RESET, 1));
+        replacepin(&cp, Pin(GPIO_SPI_MISO, 1));
       } else {
         // soft spi pins
         cp+=2;
