@@ -20,7 +20,7 @@
 #include <Arduino.h>
 #include "uDisplay.h"
 
-//#define UDSP_DEBUG
+#define UDSP_DEBUG
 
 const uint16_t udisp_colors[]={UDISP_BLACK,UDISP_WHITE,UDISP_RED,UDISP_GREEN,UDISP_BLUE,UDISP_CYAN,UDISP_MAGENTA,\
   UDISP_YELLOW,UDISP_NAVY,UDISP_DARKGREEN,UDISP_DARKCYAN,UDISP_MAROON,UDISP_PURPLE,UDISP_OLIVE,\
@@ -52,6 +52,12 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   startline = 0xA1;
   uint8_t section = 0;
   dsp_ncmds = 0;
+  lut_num = 0;
+  lut_cnt[0] = 0;
+  lut_cnt[1] = 0;
+  lut_cnt[2] = 0;
+  lut_cnt[3] = 0;
+  lut_cnt[4] = 0;
   char linebuff[128];
   while (*lp) {
 
@@ -74,6 +80,11 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
         if (section == 'I') {
           if (*lp1 == 'C') {
             allcmd_mode = 1;
+            lp1++;
+          }
+        } else if (section == 'L') {
+          if (*lp1 >= '1' && *lp1 <= '5') {
+            lut_num = *lp1;
             lp1++;
           }
         }
@@ -213,13 +224,25 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             dim_op = next_hex(&lp1);
             break;
           case 'L':
-            while (1) {
-              if (!str2c(&lp1, ibuff, sizeof(ibuff))) {
-                lut_full[lutfsize++] = strtol(ibuff, 0, 16);
-              } else {
-                break;
+            if (!lut_num) {
+              while (1) {
+                if (!str2c(&lp1, ibuff, sizeof(ibuff))) {
+                  lut_full[lutfsize++] = strtol(ibuff, 0, 16);
+                } else {
+                  break;
+                }
+                if (lutfsize >= LUTMAXSIZE) break;
               }
-              if (lutfsize >= sizeof(lut_full)) break;
+            } else {
+              uint8_t index = (lut_num & 0x0f) -1;
+              while (1) {
+                if (!str2c(&lp1, ibuff, sizeof(ibuff))) {
+                  lut_array[lut_cnt[index]++][index] = strtol(ibuff, 0, 16);
+                } else {
+                  break;
+                }
+                if (lut_cnt[index] >= LUTMAXSIZE) break;
+              }
             }
             break;
           case 'l':
@@ -229,7 +252,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
               } else {
                 break;
               }
-              if (lutpsize >= sizeof(lut_partial)) break;
+              if (lutpsize >= LUTMAXSIZE) break;
             }
             break;
           case 'T':
@@ -250,7 +273,13 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   }
 
   if (lutfsize && lutpsize) {
+    // 2 table mode
     ep_mode = 1;
+  }
+
+  if (lut_cnt[0]>0 && lut_cnt[1]==lut_cnt[2] && lut_cnt[1]==lut_cnt[3] && lut_cnt[1]==lut_cnt[4]) {
+    // 5 table mode
+    ep_mode = 2;
   }
 
 #ifdef UDSP_DEBUG
@@ -278,9 +307,16 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
 
     Serial.printf("Rot 0: %x,%x - %d - %d\n", madctrl, rot[0], x_addr_offs[0], y_addr_offs[0]);
 
-    if (ep_mode) {
+    if (ep_mode == 1) {
       Serial.printf("LUT_Partial : %d\n", lutpsize);
       Serial.printf("LUT_Full : %d\n", lutfsize);
+    }
+    if (ep_mode == 2) {
+      Serial.printf("LUT_SIZE 1: %d\n", lut_cnt[0]);
+      Serial.printf("LUT_SIZE 2: %d\n", lut_cnt[1]);
+      Serial.printf("LUT_SIZE 3: %d\n", lut_cnt[2]);
+      Serial.printf("LUT_SIZE 4: %d\n", lut_cnt[3]);
+      Serial.printf("LUT_SIZE 5: %d\n", lut_cnt[4]);
     }
   }
   if (interface == _UDSP_I2C) {
@@ -1300,6 +1336,46 @@ void USECACHE uDisplay::write32(uint32_t val) {
 #define TERMINATE_FRAME_READ_WRITE                  0xFF
 
 
+// EPD4IN2 commands
+#define EPD_42_PANEL_SETTING                               0x00
+#define EPD_42_POWER_SETTING                               0x01
+#define EPD_42_POWER_OFF                                   0x02
+#define EPD_42_POWER_OFF_SEQUENCE_SETTING                  0x03
+#define EPD_42_POWER_ON                                    0x04
+#define EPD_42_POWER_ON_MEASURE                            0x05
+#define EPD_42_BOOSTER_SOFT_START                          0x06
+#define EPD_42_DEEP_SLEEP                                  0x07
+#define EPD_42_DATA_START_TRANSMISSION_1                   0x10
+#define EPD_42_DATA_STOP                                   0x11
+#define EPD_42_DISPLAY_REFRESH                             0x12
+#define EPD_42_DATA_START_TRANSMISSION_2                   0x13
+#define EPD_42_LUT_FOR_VCOM                                0x20
+#define EPD_42_LUT_WHITE_TO_WHITE                          0x21
+#define EPD_42_LUT_BLACK_TO_WHITE                          0x22
+#define EPD_42_LUT_WHITE_TO_BLACK                          0x23
+#define EPD_42_LUT_BLACK_TO_BLACK                          0x24
+#define EPD_42_PLL_CONTROL                                 0x30
+#define EPD_42_TEMPERATURE_SENSOR_COMMAND                  0x40
+#define EPD_42_TEMPERATURE_SENSOR_SELECTION                0x41
+#define EPD_42_TEMPERATURE_SENSOR_WRITE                    0x42
+#define EPD_42_TEMPERATURE_SENSOR_READ                     0x43
+#define EPD_42_VCOM_AND_DATA_INTERVAL_SETTING              0x50
+#define EPD_42_LOW_POWER_DETECTION                         0x51
+#define EPD_42_TCON_SETTING                                0x60
+#define EPD_42_RESOLUTION_SETTING                          0x61
+#define EPD_42_GSST_SETTING                                0x65
+#define EPD_42_GET_STATUS                                  0x71
+#define EPD_42_AUTO_MEASUREMENT_VCOM                       0x80
+#define EPD_42_READ_VCOM_VALUE                             0x81
+#define EPD_42_VCM_DC_SETTING                              0x82
+#define EPD_42_PARTIAL_WINDOW                              0x90
+#define EPD_42_PARTIAL_IN                                  0x91
+#define EPD_42_PARTIAL_OUT                                 0x92
+#define EPD_42_PROGRAM_MODE                                0xA0
+#define EPD_42_ACTIVE_PROGRAMMING                          0xA1
+#define EPD_42_READ_OTP                                    0xA2
+#define EPD_42_POWER_SAVING                                0xE3
+
 void uDisplay::spi_data8_EPD(uint8_t val) {
   SPI_BEGIN_TRANSACTION
   SPI_CS_LOW
@@ -1318,9 +1394,16 @@ void uDisplay::spi_command_EPD(uint8_t val) {
 
 void uDisplay::Init_EPD(int8_t p) {
   if (p == DISPLAY_INIT_PARTIAL) {
-    SetLut(lut_partial);
+    if (lutpsize) {
+      SetLut(lut_partial);
+    }
   } else {
-    SetLut(lut_full);
+    if (lutfsize) {
+      SetLut(lut_full);
+    }
+    if (lut_cnt[0]) {
+      SetLuts();
+    }
   }
   ClearFrameMemory(0xFF);
   Updateframe_EPD();
@@ -1341,6 +1424,98 @@ void uDisplay::ClearFrameMemory(unsigned char color) {
     }
 }
 
+
+
+void uDisplay::SetLuts(void) {
+  uint8_t count;
+
+  spi_command_EPD(EPD_42_LUT_FOR_VCOM);                            //vcom
+  for (count = 0; count < lut_cnt[0]; count++) {
+      spi_data8_EPD(lut_array[count][0]);
+  }
+
+  spi_command_EPD(EPD_42_LUT_WHITE_TO_WHITE);                      //ww --
+  for (count = 0; count < lut_cnt[1]; count++) {
+      spi_data8_EPD(lut_array[count][1]);
+  }
+
+  spi_command_EPD(EPD_42_LUT_BLACK_TO_WHITE);                      //bw r
+  for (count = 0; count < lut_cnt[2]; count++) {
+      spi_data8_EPD(lut_array[count][2]);
+  }
+
+  spi_command_EPD(EPD_42_LUT_WHITE_TO_BLACK);                      //wb w
+  for (count = 0; count < lut_cnt[3]; count++) {
+      spi_data8_EPD(lut_array[count][3]);
+  }
+
+  spi_command_EPD(EPD_42_LUT_BLACK_TO_BLACK);                      //bb b
+  for (count = 0; count < lut_cnt[4]; count++) {
+      spi_data8_EPD(lut_array[count][4]);
+  }
+}
+
+
+void uDisplay::SetPartialWindow_42(uint8_t* frame_buffer, int16_t x, int16_t y, int16_t w, int16_t l, int16_t dtm) {
+  spi_command_EPD(EPD_42_PARTIAL_IN);
+  spi_command_EPD(EPD_42_PARTIAL_WINDOW);
+  spi_data8_EPD(x >> 8);
+  spi_data8_EPD(x & 0xf8);     // x should be the multiple of 8, the last 3 bit will always be ignored
+  spi_data8_EPD(((x & 0xf8) + w  - 1) >> 8);
+  spi_data8_EPD(((x & 0xf8) + w  - 1) | 0x07);
+  spi_data8_EPD(y >> 8);
+  spi_data8_EPD(y & 0xff);
+  spi_data8_EPD((y + l - 1) >> 8);
+  spi_data8_EPD((y + l - 1) & 0xff);
+  spi_data8_EPD(0x01);         // Gates scan both inside and outside of the partial window. (default)
+
+  spi_command_EPD((dtm == 1) ? EPD_42_DATA_START_TRANSMISSION_1 : EPD_42_DATA_START_TRANSMISSION_2);
+  if (frame_buffer != NULL) {
+      for(int i = 0; i < w  / 8 * l; i++) {
+          spi_data8_EPD(frame_buffer[i]^0xff);
+      }
+  } else {
+      for(int i = 0; i < w  / 8 * l; i++) {
+          spi_data8_EPD(0x00);
+      }
+  }
+  spi_command_EPD(EPD_42_PARTIAL_OUT);
+}
+
+void uDisplay::DisplayFrame_42(const unsigned char* frame_buffer) {
+    spi_command_EPD(EPD_42_RESOLUTION_SETTING);
+    spi_data8_EPD(gxs >> 8);
+    spi_data8_EPD(gxs & 0xff);
+    spi_data8_EPD(gys >> 8);
+    spi_data8_EPD(gys & 0xff);
+
+    spi_command_EPD(EPD_42_VCM_DC_SETTING);
+    spi_data8_EPD(0x12);
+
+    spi_command_EPD(EPD_42_VCOM_AND_DATA_INTERVAL_SETTING);
+    spi_command_EPD(0x97);    //VBDF 17|D7 VBDW 97  VBDB 57  VBDF F7  VBDW 77  VBDB 37  VBDR B7
+
+    if (frame_buffer != NULL) {
+        spi_command_EPD(EPD_42_DATA_START_TRANSMISSION_1);
+        for(int i = 0; i < gxs / 8 * gys; i++) {
+            spi_data8_EPD(0xFF);      // bit set: white, bit reset: black
+        }
+        delay(2);
+        spi_command_EPD(EPD_42_DATA_START_TRANSMISSION_2);
+        for(int i = 0; i < gxs / 8 * gys; i++) {
+            spi_data8_EPD(frame_buffer[i]);
+        }
+        delay(2);
+    }
+
+    SetLuts();
+
+    spi_command_EPD(EPD_42_DISPLAY_REFRESH);
+    delay(100);
+
+}
+
+
 void uDisplay::SetLut(const unsigned char* lut) {
     spi_command_EPD(WRITE_LUT_REGISTER);
     /* the length of look-up table is 30 bytes */
@@ -1350,11 +1525,16 @@ void uDisplay::SetLut(const unsigned char* lut) {
 }
 
 void uDisplay::Updateframe_EPD(void) {
-  SetFrameMemory(buffer, 0, 0, gxs, gys);
-  DisplayFrame();
+  if (ep_mode == 1) {
+    SetFrameMemory(buffer, 0, 0, gxs, gys);
+    DisplayFrame_29();
+  } else {
+    SetPartialWindow_42(buffer, 0, 0, gxs, gys, 2);
+    DisplayFrame_42(buffer);
+  }
 }
 
-void uDisplay::DisplayFrame(void) {
+void uDisplay::DisplayFrame_29(void) {
     spi_command_EPD(DISPLAY_UPDATE_CONTROL_2);
     spi_data8_EPD(0xC4);
     spi_command_EPD(MASTER_ACTIVATION);

@@ -60,6 +60,8 @@ enum uColorType { uCOLOR_BW, uCOLOR_COLOR };
 
 #define ESP32_PWM_CHANNEL 1
 
+#define LUTMAXSIZE 64
+
 class uDisplay : public Renderer {
  public:
   uDisplay(char *);
@@ -100,8 +102,10 @@ class uDisplay : public Renderer {
    void spi_data9(uint8_t d, uint8_t dc);
    void WriteColor(uint16_t color);
    void SetLut(const unsigned char* lut);
-   void DisplayFrame(void);
+   void SetLuts(void);
+   void DisplayFrame_29(void);
    void Updateframe_EPD();
+   void DisplayFrame_42(const unsigned char* frame_buffer);
    void SetFrameMemory(const unsigned char* image_buffer);
    void SetFrameMemory(const unsigned char* image_buffer, uint16_t x, uint16_t y, uint16_t image_width, uint16_t image_height);
    void SetMemoryArea(int x_start, int y_start, int x_end, int y_end);
@@ -114,6 +118,7 @@ class uDisplay : public Renderer {
    void Init_EPD(int8_t p);
    void spi_command_EPD(uint8_t val);
    void spi_data8_EPD(uint8_t val);
+   void SetPartialWindow_42(uint8_t* frame_buffer, int16_t x, int16_t y, int16_t w, int16_t l, int16_t dtm);
    void ClearFrameMemory(unsigned char color);
    uint8_t strlen_ln(char *str);
    int32_t next_val(char **sp);
@@ -176,9 +181,12 @@ class uDisplay : public Renderer {
    uint16_t lutftime;
    uint16_t lutptime;
    uint16_t lut3time;
+   uint16_t lut_num;
    uint8_t ep_mode;
-   uint8_t lut_full[64];
-   uint8_t lut_partial[64];
+   uint8_t lut_full[LUTMAXSIZE];
+   uint8_t lut_partial[LUTMAXSIZE];
+   uint8_t lut_array[LUTMAXSIZE][5];
+   uint8_t lut_cnt[5];
 };
 
 
