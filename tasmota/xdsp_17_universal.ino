@@ -183,6 +183,7 @@ char *fbuff;
         replacepin(&cp, Pin(GPIO_OLED_RESET));
         replacepin(&cp, Pin(GPIO_SPI_MISO));
       } else if (*cp == '2') {
+        cp+=2;
         replacepin(&cp, Pin(GPIO_SPI_CS, 1));
         replacepin(&cp, Pin(GPIO_SPI_CLK, 1));
         replacepin(&cp, Pin(GPIO_SPI_MOSI, 1));
