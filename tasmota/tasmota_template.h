@@ -162,7 +162,6 @@ enum UserSelectablePins {
   GPIO_HALLEFFECT,
   GPIO_EPD_DATA,                       // Base connection EPD driver
 #endif
-  GPIO_CC1101_CS,
   GPIO_SENSOR_END };
 
 enum ProgramSelectablePins {
@@ -177,7 +176,7 @@ typedef union {                            // Restricted by MISRA-C Rule 18.4 bu
   struct {                                 // GPIO Option_A1 .. Option_A32
     uint32_t pwm1_input : 1;               // bit 0 (v9.2.0.1)   - Option_A1 - (Light) Change PWM1 to input on power off and no fade running (1)
     uint32_t dummy_energy : 1;             // bit 1 (v9.3.1.2)   - Option_A2 - (Energy) Enable dummy values
-    uint32_t udisplay_driver : 1;          // bit 2 Universal display driver
+    uint32_t udisplay_driver : 1;          // bit 2 (v9.3.1.2)   - Option_A3 - (Display) Universal display driver
     uint32_t spare03 : 1;                  // bit 3
     uint32_t spare04 : 1;                  // bit 4
     uint32_t spare05 : 1;                  // bit 5
@@ -345,7 +344,6 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_HALLEFFECT "|"
   D_SENSOR_EPD_DATA "|"
 #endif
-  D_SENSOR_CC1101_CS "|"
   ;
 
 const char kSensorNamesFixed[] PROGMEM =
@@ -409,11 +407,11 @@ const uint16_t kGpioNiceList[] PROGMEM = {
 #endif
 
 #ifdef USE_SPI
-  AGPIO(GPIO_SPI_MISO),                 // SPI MISO
-  AGPIO(GPIO_SPI_MOSI),                 // SPI MOSI
-  AGPIO(GPIO_SPI_CLK),                  // SPI Clk
-  AGPIO(GPIO_SPI_CS),                   // SPI Chip Select
-  AGPIO(GPIO_SPI_DC),                   // SPI Data Direction
+  AGPIO(GPIO_SPI_MISO) + MAX_SPI,       // SPI MISO
+  AGPIO(GPIO_SPI_MOSI) + MAX_SPI,       // SPI MOSI
+  AGPIO(GPIO_SPI_CLK) + MAX_SPI,        // SPI Clk
+  AGPIO(GPIO_SPI_CS) + MAX_SPI,         // SPI Chip Select
+  AGPIO(GPIO_SPI_DC) + MAX_SPI,         // SPI Data Direction
 #ifdef USE_NRF24
   AGPIO(GPIO_NRF24_CS),
   AGPIO(GPIO_NRF24_DC),
@@ -861,10 +859,6 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_ADC_JOY) + MAX_ADCS,         // Joystick
   AGPIO(GPIO_ADC_PH) + MAX_ADCS,          // Analog PH Sensor
 #endif  // ESP32
-
-#ifdef USE_MORITZ
-  AGPIO(GPIO_CC1101_CS),
-#endif
 };
 
 /*-------------------------------------------------------------------------------------------*\
