@@ -268,18 +268,6 @@ char *fbuff;
     renderer->DisplayInit(DISPLAY_INIT_MODE, Settings.display_size, Settings.display_rotate, Settings.display_font);
     renderer->dim(Settings.display_dimmer);
 
-    File fp;
-    fp = ffsp->open("/FreeSerif24pt7b.fnt", "r");
-    if (fp > 0) {
-      uint32_t size = fp.size();
-      if (ram_font) free (ram_font);
-      ram_font = (uint8_t*)calloc(size+4,1);
-      fp.read((uint8_t*)ram_font, size);
-      fp.close();
-      renderer->SetRamfont(ram_font);
-      AddLog(LOG_LEVEL_INFO, PSTR("DSP:RAM Font loaded"));
-    }
-
 #ifdef SHOW_SPLASH
     udisp->Splash();
 #endif
