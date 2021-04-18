@@ -76,9 +76,6 @@ const char DSP_SAMPLE_DESC[] PROGMEM =
 "#\n";
 
 #endif // DSP_ROM_DESC
-
-uint8_t *ram_font;
-
 /*********************************************************************************************/
 
 void Init_uDisp(void) {
