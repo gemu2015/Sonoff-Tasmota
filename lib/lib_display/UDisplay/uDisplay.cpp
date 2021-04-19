@@ -502,6 +502,7 @@ void uDisplay::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
         Updateframe_EPD();
       }
       if (ep_mode == 2) {
+        ClearFrame_42();
         DisplayFrame_42();
       }
       delay(lutftime * 10);
@@ -1340,46 +1341,6 @@ void USECACHE uDisplay::write32(uint32_t val) {
 #define TERMINATE_FRAME_READ_WRITE                  0xFF
 
 
-// EPD4IN2 commands
-#define EPD_42_PANEL_SETTING                               0x00
-#define EPD_42_POWER_SETTING                               0x01
-#define EPD_42_POWER_OFF                                   0x02
-#define EPD_42_POWER_OFF_SEQUENCE_SETTING                  0x03
-#define EPD_42_POWER_ON                                    0x04
-#define EPD_42_POWER_ON_MEASURE                            0x05
-#define EPD_42_BOOSTER_SOFT_START                          0x06
-#define EPD_42_DEEP_SLEEP                                  0x07
-#define EPD_42_DATA_START_TRANSMISSION_1                   0x10
-#define EPD_42_DATA_STOP                                   0x11
-#define EPD_42_DISPLAY_REFRESH                             0x12
-#define EPD_42_DATA_START_TRANSMISSION_2                   0x13
-#define EPD_42_LUT_FOR_VCOM                                0x20
-#define EPD_42_LUT_WHITE_TO_WHITE                          0x21
-#define EPD_42_LUT_BLACK_TO_WHITE                          0x22
-#define EPD_42_LUT_WHITE_TO_BLACK                          0x23
-#define EPD_42_LUT_BLACK_TO_BLACK                          0x24
-#define EPD_42_PLL_CONTROL                                 0x30
-#define EPD_42_TEMPERATURE_SENSOR_COMMAND                  0x40
-#define EPD_42_TEMPERATURE_SENSOR_SELECTION                0x41
-#define EPD_42_TEMPERATURE_SENSOR_WRITE                    0x42
-#define EPD_42_TEMPERATURE_SENSOR_READ                     0x43
-#define EPD_42_VCOM_AND_DATA_INTERVAL_SETTING              0x50
-#define EPD_42_LOW_POWER_DETECTION                         0x51
-#define EPD_42_TCON_SETTING                                0x60
-#define EPD_42_RESOLUTION_SETTING                          0x61
-#define EPD_42_GSST_SETTING                                0x65
-#define EPD_42_GET_STATUS                                  0x71
-#define EPD_42_AUTO_MEASUREMENT_VCOM                       0x80
-#define EPD_42_READ_VCOM_VALUE                             0x81
-#define EPD_42_VCM_DC_SETTING                              0x82
-#define EPD_42_PARTIAL_WINDOW                              0x90
-#define EPD_42_PARTIAL_IN                                  0x91
-#define EPD_42_PARTIAL_OUT                                 0x92
-#define EPD_42_PROGRAM_MODE                                0xA0
-#define EPD_42_ACTIVE_PROGRAMMING                          0xA1
-#define EPD_42_READ_OTP                                    0xA2
-#define EPD_42_POWER_SAVING                                0xE3
-
 void uDisplay::spi_data8_EPD(uint8_t val) {
   SPI_BEGIN_TRANSACTION
   SPI_CS_LOW
@@ -1411,10 +1372,10 @@ void uDisplay::Init_EPD(int8_t p) {
   }
   if (ep_mode == 1) {
     ClearFrameMemory(0xFF);
+    Updateframe_EPD();
   } else {
-    ClearFrame();
+    ClearFrame_42();
   }
-  Updateframe_EPD();
   if (p == DISPLAY_INIT_PARTIAL) {
     delay(lutptime * 10);
   } else {
@@ -1433,31 +1394,12 @@ void uDisplay::ClearFrameMemory(unsigned char color) {
 }
 
 void uDisplay::SetLuts(void) {
-  uint8_t count;
-
-  spi_command_EPD(lut_cmd[0]);                            //vcom
-  for (count = 0; count < lut_cnt[0]; count++) {
-      spi_data8_EPD(lut_array[count][0]);
-  }
-
-  spi_command_EPD(lut_cmd[1]);                      //ww --
-  for (count = 0; count < lut_cnt[1]; count++) {
-      spi_data8_EPD(lut_array[count][1]);
-  }
-
-  spi_command_EPD(lut_cmd[2]);                      //bw r
-  for (count = 0; count < lut_cnt[2]; count++) {
-      spi_data8_EPD(lut_array[count][2]);
-  }
-
-  spi_command_EPD(lut_cmd[3]);                      //wb w
-  for (count = 0; count < lut_cnt[3]; count++) {
-      spi_data8_EPD(lut_array[count][3]);
-  }
-
-  spi_command_EPD(lut_cmd[4]);                      //bb b
-  for (count = 0; count < lut_cnt[4]; count++) {
-      spi_data8_EPD(lut_array[count][4]);
+  uint8_t index, count;
+  for (index = 0; index < 5; index++) {
+    spi_command_EPD(lut_cmd[index]);                            //vcom
+    for (count = 0; count < lut_cnt[index]; count++) {
+        spi_data8_EPD(lut_array[count][index]);
+    }
   }
 }
 
@@ -1466,38 +1408,40 @@ void uDisplay::DisplayFrame_42(void) {
     Width = (gxs % 8 == 0) ? (gxs / 8 ): (gxs / 8 + 1);
     Height = gys;
 
-    spi_command_EPD(0x13);
+    spi_command_EPD(saw_2);
     for (uint16_t j = 0; j < Height; j++) {
         for (uint16_t i = 0; i < Width; i++) {
-            spi_data8_EPD(buffer[i + j * Width]);
+            spi_data8_EPD(buffer[i + j * Width] ^ 0xff);
         }
     }
-
-  //  EPD_4IN2_TurnOnDisplay();
+    spi_command_EPD(saw_3);
+    delay(100);
+    Serial.printf("EPD Diplayframe\n");
 }
 
-void uDisplay::ClearFrame(void) {
+
+void uDisplay::ClearFrame_42(void) {
     uint16_t Width, Height;
     Width = (gxs % 8 == 0)? (gxs / 8 ): (gxs / 8 + 1);
     Height = gys;
 
-    spi_command_EPD(0x10);
+    spi_command_EPD(saw_1);
     for (uint16_t j = 0; j < Height; j++) {
         for (uint16_t i = 0; i < Width; i++) {
             spi_data8_EPD(0xFF);
         }
     }
 
-    spi_command_EPD(0x13);
+    spi_command_EPD(saw_2);
     for (uint16_t j = 0; j < Height; j++) {
         for (uint16_t i = 0; i < Width; i++) {
             spi_data8_EPD(0xFF);
         }
     }
-	  spi_command_EPD(0x12);		 //DISPLAY REFRESH
-	   delay(10);
 
-  //  EPD_4IN2_TurnOnDisplay();
+   spi_command_EPD(saw_3);
+   delay(100);
+   Serial.printf("EPD Clearframe\n");
 }
 
 

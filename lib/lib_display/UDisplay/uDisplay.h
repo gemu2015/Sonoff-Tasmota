@@ -120,7 +120,7 @@ class uDisplay : public Renderer {
    void spi_data8_EPD(uint8_t val);
    //void SetPartialWindow_42(uint8_t* frame_buffer, int16_t x, int16_t y, int16_t w, int16_t l, int16_t dtm);
    void ClearFrameMemory(unsigned char color);
-   void ClearFrame(void);
+   void ClearFrame_42(void);
    void DisplayFrame_42(void);
    uint8_t strlen_ln(char *str);
    int32_t next_val(char **sp);
