@@ -437,7 +437,7 @@ bool Xdsp17(uint8_t function)
 
 #if defined(USE_FT5206) || defined(USE_XPT2046)
         case FUNC_DISPLAY_EVERY_50_MSECOND:
-          if (touch_found) {
+          if (FT5206_found || XPT2046_found) {
             udisp_CheckTouch();
           }
           break;

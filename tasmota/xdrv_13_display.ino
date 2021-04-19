@@ -2579,7 +2579,6 @@ void AddValue(uint8_t num,float fval) {
 
 #if defined(USE_FT5206) || defined(USE_XPT2046)
 
-bool touch_found;
 int16_t touch_xp;
 int16_t touch_yp;
 bool touched;
@@ -2599,7 +2598,6 @@ bool FT5206_Touch_Init(TwoWire &i2c) {
   if (FT5206_touchp->begin(i2c, FT5206_address)) {
     I2cSetActiveFound(FT5206_address, "FT5206");
     FT5206_found = true;
-    touch_found = true;
   }
   return FT5206_found;
 }
@@ -2644,7 +2642,7 @@ int16_t XPT2046_y() {
 #endif  // USE_XPT2046
 
 uint32_t Touch_Status(uint32_t sel) {
-  if (touch_found) {
+  if (FT5206_found || XPT2046_found) {
     switch (sel) {
       case 0:
         return  touched;

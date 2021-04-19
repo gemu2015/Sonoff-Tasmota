@@ -91,7 +91,7 @@ void ILI9488_InitDriver(void) {
     color_type = COLOR_COLOR;
     // start digitizer
 #ifdef USE_FT5206
-    Touch_Init(Wire);
+    FT5206_Touch_Init(Wire);
 #endif
 
     ili9488_init_done = true;

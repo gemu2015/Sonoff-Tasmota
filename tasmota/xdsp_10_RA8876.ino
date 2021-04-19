@@ -78,7 +78,7 @@ void RA8876_InitDriver(void) {
     color_type = COLOR_COLOR;
 
 #ifdef USE_FT5206
-    Touch_Init(Wire);
+    FT5206_Touch_Init(Wire);
 #endif
 
     ra8876_init_done = true;

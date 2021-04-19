@@ -122,12 +122,12 @@ void ILI9341_InitDriver()
     #undef SCL_2
     #define SCL_2 22
     Wire1.begin(SDA_2, SCL_2, 400000);
-    Touch_Init(Wire1);
+    FT5206_Touch_Init(Wire1);
 #endif // USE_FT5206
 #endif // ESP32
 
 #ifdef USE_XPT2046
-	  Touch_Init(Pin(GPIO_XPT2046_CS));
+	  XPT2046_Touch_Init(Pin(GPIO_XPT2046_CS));
 #endif
 
     tft_init_done = true;
@@ -154,8 +154,8 @@ void ili9342_dimm(uint8_t dim) {
 #if defined(USE_FT5206) || defined(USE_XPT2046)
 #ifdef USE_TOUCH_BUTTONS
 
-#if defined(USE_FT5206)
-void TS_RotConvert(int16_t *x, int16_t *y) {
+#ifdef USE_FT5206
+void FT5206_TS_RotConvert(int16_t *x, int16_t *y) {
 
 int16_t temp;
   if (renderer) {
@@ -180,8 +180,10 @@ int16_t temp;
     }
   }
 }
-#elif defined(USE_XPT2046)
-void TS_RotConvert(int16_t *x, int16_t *y) {
+#endif // USE_FT5206
+
+#ifdef USE_XPT2046
+void XPT2046_TS_RotConvert(int16_t *x, int16_t *y) {
 
 int16_t temp;
   if (renderer) {
@@ -219,7 +221,12 @@ ili9342_ctouch_counter++;
   if (2 == ili9342_ctouch_counter) {
     // every 100 ms should be enough
     ili9342_ctouch_counter = 0;
-    Touch_Check(TS_RotConvert);
+    if (FT5206_found) {
+      Touch_Check(FT5206_TS_RotConvert);
+    }
+    if (XPT2046_found) {
+      Touch_Check(XPT2046_TS_RotConvert);
+    }
   }
 }
 #endif // USE_TOUCH_BUTTONS
