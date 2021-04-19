@@ -105,7 +105,7 @@ class uDisplay : public Renderer {
    void SetLuts(void);
    void DisplayFrame_29(void);
    void Updateframe_EPD();
-   void DisplayFrame_42(const unsigned char* frame_buffer);
+   //void DisplayFrame_42(const unsigned char* frame_buffer);
    void SetFrameMemory(const unsigned char* image_buffer);
    void SetFrameMemory(const unsigned char* image_buffer, uint16_t x, uint16_t y, uint16_t image_width, uint16_t image_height);
    void SetMemoryArea(int x_start, int y_start, int x_end, int y_end);
@@ -118,8 +118,10 @@ class uDisplay : public Renderer {
    void Init_EPD(int8_t p);
    void spi_command_EPD(uint8_t val);
    void spi_data8_EPD(uint8_t val);
-   void SetPartialWindow_42(uint8_t* frame_buffer, int16_t x, int16_t y, int16_t w, int16_t l, int16_t dtm);
+   //void SetPartialWindow_42(uint8_t* frame_buffer, int16_t x, int16_t y, int16_t w, int16_t l, int16_t dtm);
    void ClearFrameMemory(unsigned char color);
+   void ClearFrame(void);
+   void DisplayFrame_42(void);
    uint8_t strlen_ln(char *str);
    int32_t next_val(char **sp);
    uint32_t next_hex(char **sp);
@@ -187,6 +189,7 @@ class uDisplay : public Renderer {
    uint8_t lut_partial[LUTMAXSIZE];
    uint8_t lut_array[LUTMAXSIZE][5];
    uint8_t lut_cnt[5];
+   uint8_t lut_cmd[5];
 };
 
 

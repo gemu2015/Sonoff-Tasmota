@@ -220,20 +220,22 @@ char *fbuff;
     cp = strstr(ddesc, ":TI");
     if (cp) {
       uint8_t wire_n = 1;
-      cp+=3;
+      cp += 3;
       wire_n = (*cp & 3) - 1;
-      cp+=2;
+      cp += 2;
 
       uint8_t i2caddr = strtol(cp, &cp, 16);
       int8_t scl, sda;
-      scl = replacepin(&cp, Pin(GPIO_I2C_SCL));
-      sda = replacepin(&cp, Pin(GPIO_I2C_SDA));
 
       if (wire_n == 0) {
+        scl = replacepin(&cp, Pin(GPIO_I2C_SCL));
+        sda = replacepin(&cp, Pin(GPIO_I2C_SDA));
         Wire.begin(sda, scl);
       }
 #ifdef ESP32
       if (wire_n == 1) {
+        scl = replacepin(&cp, Pin(GPIO_I2C_SCL, 1));
+        sda = replacepin(&cp, Pin(GPIO_I2C_SDA, 1));
         Wire1.begin(sda, scl, 400000);
       }
 #endif

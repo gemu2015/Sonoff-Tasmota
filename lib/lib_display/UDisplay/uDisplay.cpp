@@ -53,11 +53,10 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   uint8_t section = 0;
   dsp_ncmds = 0;
   lut_num = 0;
-  lut_cnt[0] = 0;
-  lut_cnt[1] = 0;
-  lut_cnt[2] = 0;
-  lut_cnt[3] = 0;
-  lut_cnt[4] = 0;
+  for (uint32_t cnt = 0; cnt < 5; cnt++) {
+    lut_cnt[cnt] = 0;
+    lut_cmd[cnt] = 0xff;
+  }
   char linebuff[128];
   while (*lp) {
 
@@ -84,8 +83,9 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
           }
         } else if (section == 'L') {
           if (*lp1 >= '1' && *lp1 <= '5') {
-            lut_num = *lp1;
-            lp1++;
+            lut_num = (*lp1 & 0x07);
+            lp1+=2;
+            lut_cmd[lut_num - 1] = next_hex(&lp1);
           }
         }
         if (*lp1 == ',') lp1++;
@@ -234,7 +234,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
                 if (lutfsize >= LUTMAXSIZE) break;
               }
             } else {
-              uint8_t index = (lut_num & 0x0f) -1;
+              uint8_t index = lut_num - 1;
               while (1) {
                 if (!str2c(&lp1, ibuff, sizeof(ibuff))) {
                   lut_array[lut_cnt[index]++][index] = strtol(ibuff, 0, 16);
@@ -317,6 +317,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
       Serial.printf("LUT_SIZE 3: %d\n", lut_cnt[2]);
       Serial.printf("LUT_SIZE 4: %d\n", lut_cnt[3]);
       Serial.printf("LUT_SIZE 5: %d\n", lut_cnt[4]);
+      Serial.printf("LUT_CMDS %02x-%02x-%02x-%02x-%02x\n", lut_cmd[0], lut_cmd[1], lut_cmd[2], lut_cmd[3], lut_cmd[4]);
     }
   }
   if (interface == _UDSP_I2C) {
@@ -479,7 +480,7 @@ Renderer *uDisplay::Init(void) {
   // must init luts on epaper
   if (ep_mode) {
     Init_EPD(DISPLAY_INIT_FULL);
-    Init_EPD(DISPLAY_INIT_PARTIAL);
+    if (ep_mode == 1) Init_EPD(DISPLAY_INIT_PARTIAL);
   }
 
   return this;
@@ -487,7 +488,7 @@ Renderer *uDisplay::Init(void) {
 
 
 void uDisplay::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
-  if (p !=DISPLAY_INIT_MODE && ep_mode) {
+  if (p != DISPLAY_INIT_MODE && ep_mode) {
     if (p == DISPLAY_INIT_PARTIAL) {
       if (lutpsize) {
         SetLut(lut_partial);
@@ -499,8 +500,11 @@ void uDisplay::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
       if (lutfsize) {
         SetLut(lut_full);
         Updateframe_EPD();
-        delay(lutftime * 10);
       }
+      if (ep_mode == 2) {
+        DisplayFrame_42();
+      }
+      delay(lutftime * 10);
       return;
     }
   } else {
@@ -1405,7 +1409,11 @@ void uDisplay::Init_EPD(int8_t p) {
       SetLuts();
     }
   }
-  ClearFrameMemory(0xFF);
+  if (ep_mode == 1) {
+    ClearFrameMemory(0xFF);
+  } else {
+    ClearFrame();
+  }
   Updateframe_EPD();
   if (p == DISPLAY_INIT_PARTIAL) {
     delay(lutptime * 10);
@@ -1424,95 +1432,72 @@ void uDisplay::ClearFrameMemory(unsigned char color) {
     }
 }
 
-
-
 void uDisplay::SetLuts(void) {
   uint8_t count;
 
-  spi_command_EPD(EPD_42_LUT_FOR_VCOM);                            //vcom
+  spi_command_EPD(lut_cmd[0]);                            //vcom
   for (count = 0; count < lut_cnt[0]; count++) {
       spi_data8_EPD(lut_array[count][0]);
   }
 
-  spi_command_EPD(EPD_42_LUT_WHITE_TO_WHITE);                      //ww --
+  spi_command_EPD(lut_cmd[1]);                      //ww --
   for (count = 0; count < lut_cnt[1]; count++) {
       spi_data8_EPD(lut_array[count][1]);
   }
 
-  spi_command_EPD(EPD_42_LUT_BLACK_TO_WHITE);                      //bw r
+  spi_command_EPD(lut_cmd[2]);                      //bw r
   for (count = 0; count < lut_cnt[2]; count++) {
       spi_data8_EPD(lut_array[count][2]);
   }
 
-  spi_command_EPD(EPD_42_LUT_WHITE_TO_BLACK);                      //wb w
+  spi_command_EPD(lut_cmd[3]);                      //wb w
   for (count = 0; count < lut_cnt[3]; count++) {
       spi_data8_EPD(lut_array[count][3]);
   }
 
-  spi_command_EPD(EPD_42_LUT_BLACK_TO_BLACK);                      //bb b
+  spi_command_EPD(lut_cmd[4]);                      //bb b
   for (count = 0; count < lut_cnt[4]; count++) {
       spi_data8_EPD(lut_array[count][4]);
   }
 }
 
+void uDisplay::DisplayFrame_42(void) {
+    uint16_t Width, Height;
+    Width = (gxs % 8 == 0) ? (gxs / 8 ): (gxs / 8 + 1);
+    Height = gys;
 
-void uDisplay::SetPartialWindow_42(uint8_t* frame_buffer, int16_t x, int16_t y, int16_t w, int16_t l, int16_t dtm) {
-  spi_command_EPD(EPD_42_PARTIAL_IN);
-  spi_command_EPD(EPD_42_PARTIAL_WINDOW);
-  spi_data8_EPD(x >> 8);
-  spi_data8_EPD(x & 0xf8);     // x should be the multiple of 8, the last 3 bit will always be ignored
-  spi_data8_EPD(((x & 0xf8) + w  - 1) >> 8);
-  spi_data8_EPD(((x & 0xf8) + w  - 1) | 0x07);
-  spi_data8_EPD(y >> 8);
-  spi_data8_EPD(y & 0xff);
-  spi_data8_EPD((y + l - 1) >> 8);
-  spi_data8_EPD((y + l - 1) & 0xff);
-  spi_data8_EPD(0x01);         // Gates scan both inside and outside of the partial window. (default)
-
-  spi_command_EPD((dtm == 1) ? EPD_42_DATA_START_TRANSMISSION_1 : EPD_42_DATA_START_TRANSMISSION_2);
-  if (frame_buffer != NULL) {
-      for(int i = 0; i < w  / 8 * l; i++) {
-          spi_data8_EPD(frame_buffer[i]^0xff);
-      }
-  } else {
-      for(int i = 0; i < w  / 8 * l; i++) {
-          spi_data8_EPD(0x00);
-      }
-  }
-  spi_command_EPD(EPD_42_PARTIAL_OUT);
-}
-
-void uDisplay::DisplayFrame_42(const unsigned char* frame_buffer) {
-    spi_command_EPD(EPD_42_RESOLUTION_SETTING);
-    spi_data8_EPD(gxs >> 8);
-    spi_data8_EPD(gxs & 0xff);
-    spi_data8_EPD(gys >> 8);
-    spi_data8_EPD(gys & 0xff);
-
-    spi_command_EPD(EPD_42_VCM_DC_SETTING);
-    spi_data8_EPD(0x12);
-
-    spi_command_EPD(EPD_42_VCOM_AND_DATA_INTERVAL_SETTING);
-    spi_command_EPD(0x97);    //VBDF 17|D7 VBDW 97  VBDB 57  VBDF F7  VBDW 77  VBDB 37  VBDR B7
-
-    if (frame_buffer != NULL) {
-        spi_command_EPD(EPD_42_DATA_START_TRANSMISSION_1);
-        for(int i = 0; i < gxs / 8 * gys; i++) {
-            spi_data8_EPD(0xFF);      // bit set: white, bit reset: black
+    spi_command_EPD(0x13);
+    for (uint16_t j = 0; j < Height; j++) {
+        for (uint16_t i = 0; i < Width; i++) {
+            spi_data8_EPD(buffer[i + j * Width]);
         }
-        delay(2);
-        spi_command_EPD(EPD_42_DATA_START_TRANSMISSION_2);
-        for(int i = 0; i < gxs / 8 * gys; i++) {
-            spi_data8_EPD(frame_buffer[i]);
-        }
-        delay(2);
     }
 
-    SetLuts();
+  //  EPD_4IN2_TurnOnDisplay();
+}
 
-    spi_command_EPD(EPD_42_DISPLAY_REFRESH);
-    delay(100);
+void uDisplay::ClearFrame(void) {
+    uint16_t Width, Height;
+    Width = (gxs % 8 == 0)? (gxs / 8 ): (gxs / 8 + 1);
+    Height = gys;
 
+    spi_command_EPD(0x10);
+    for (uint16_t j = 0; j < Height; j++) {
+        for (uint16_t i = 0; i < Width; i++) {
+            spi_data8_EPD(0xFF);
+        }
+    }
+
+    spi_command_EPD(0x13);
+    for (uint16_t j = 0; j < Height; j++) {
+        for (uint16_t i = 0; i < Width; i++) {
+            spi_data8_EPD(0xFF);
+        }
+    }
+	  spi_command_EPD(0x12);		 //DISPLAY REFRESH
+	   delay(10);
+
+  //  EPD_4IN2_TurnOnDisplay();
 }
 
 
@@ -1529,8 +1514,7 @@ void uDisplay::Updateframe_EPD(void) {
     SetFrameMemory(buffer, 0, 0, gxs, gys);
     DisplayFrame_29();
   } else {
-    SetPartialWindow_42(buffer, 0, 0, gxs, gys, 2);
-    DisplayFrame_42(buffer);
+    DisplayFrame_42();
   }
 }
 
