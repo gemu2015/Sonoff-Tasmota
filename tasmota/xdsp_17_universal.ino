@@ -78,7 +78,7 @@ const char DSP_SAMPLE_DESC[] PROGMEM =
 #endif // DSP_ROM_DESC
 /*********************************************************************************************/
 
-void Init_uDisp(void) {
+void Init_uDisp(const char *desc) {
 char *ddesc = 0;
 char *fbuff;
 
@@ -90,8 +90,15 @@ char *fbuff;
     fbuff = (char*)calloc(DISPDESC_SIZE, 1);
     if (!fbuff) return;
 
+    if (desc) {
+      memcpy(fbuff, desc, DISPDESC_SIZE - 1);
+      ddesc = fbuff;
+      AddLog(LOG_LEVEL_INFO, PSTR("DSP: const char descriptor used"));
+    }
+
+
 #ifdef USE_UFILESYS
-    if (ffsp  && !TasmotaGlobal.no_autoexec) {
+    if (ffsp  && !TasmotaGlobal.no_autoexec && !ddesc) {
       File fp;
       fp = ffsp->open("/dispdesc.txt", "r");
       if (fp > 0) {
@@ -415,7 +422,7 @@ bool Xdsp17(uint8_t function)
   bool result = false;
 
   if (FUNC_DISPLAY_INIT_DRIVER == function) {
-    Init_uDisp();
+    Init_uDisp(0);
   }
   else if (udisp_init_done && (XDSP_17 == Settings.display_model)) {
     switch (function) {
