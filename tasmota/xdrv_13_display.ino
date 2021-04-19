@@ -2624,21 +2624,21 @@ bool XPT2046_found;
 
 bool XPT2046_Touch_Init(uint16_t CS) {
   XPT2046_touchp = new XPT2046_Touchscreen(CS);
-  XPT2046_found = touchp->begin();
+  XPT2046_found = XPT2046_touchp->begin();
   if (XPT2046_found) {
 	   AddLog(LOG_LEVEL_INFO, PSTR("TS: XPT2046"));
   }
   return XPT2046_found;
 }
 bool XPT2046_touched() {
-  return FXPT2046_touchp->touched();
+  return XPT2046_touchp->touched();
 }
 int16_t XPT2046_x() {
-  TP_Point pLoc = XPT2046_touchp->getPoint();
+  TS_Point pLoc = XPT2046_touchp->getPoint();
   return pLoc.x;
 }
 int16_t XPT2046_y() {
-  TP_Point pLoc = XPT2046_touchp->getPoint();
+  TS_Point pLoc = XPT2046_touchp->getPoint();
   return pLoc.y;
 }
 #endif  // USE_XPT2046
@@ -2665,6 +2665,11 @@ void Touch_Check(void(*rotconvert)(int16_t *x, int16_t *y)) {
     touch_xp = FT5206_x();
     touch_yp = FT5206_y();
     touched = FT5206_touched();
+  }
+  if (XPT2046_found) {
+    touch_xp = XPT2046_x();
+    touch_yp = XPT2046_y();
+    touched = XPT2046_touched();
   }
 
   if (touched) {
@@ -2693,7 +2698,7 @@ void Touch_Check(void(*rotconvert)(int16_t *x, int16_t *y)) {
     rotconvert(&touch_xp, &touch_yp);
 
 #ifdef USE_TOUCH_BUTTONS
-    CheckTouchButtons(touched, touch_xp, touch_yp)
+    CheckTouchButtons(touched, touch_xp, touch_yp);
 #endif // USE_TOUCH_BUTTONS
 
   } else {
@@ -2709,7 +2714,7 @@ void Touch_Check(void(*rotconvert)(int16_t *x, int16_t *y)) {
 #endif  // USE_M5STACK_CORE2
 
 #ifdef USE_TOUCH_BUTTONS
-    CheckTouchButtons(touched, touch_xp, touch_yp)
+    CheckTouchButtons(touched, touch_xp, touch_yp);
 #endif // USE_TOUCH_BUTTONS
 
   }
@@ -2738,8 +2743,12 @@ uint8_t tbstate[3];
 #endif // USE_M5STACK_CORE2
 
 void CheckTouchButtons(bool touched, int16_t touch_x, int16_t touch_y) {
+  uint16_t temp;
+  uint8_t rbutt=0;
+  uint8_t vbutt=0;
 
-  if (touched) {
+  if (!renderer) return;
+    if (touched) {
       // AddLog(LOG_LEVEL_DEBUG_MORE, PSTR("touch after convert %d - %d"), pLoc.x, pLoc.y);
       // now must compare with defined buttons
       for (uint8_t count = 0; count < MAX_TOUCH_BUTTONS; count++) {
@@ -2788,7 +2797,7 @@ void CheckTouchButtons(bool touched, int16_t touch_x, int16_t touch_y) {
           }
         }
       }
-    
+
   } else {
     // no hit
     for (uint8_t count = 0; count < MAX_TOUCH_BUTTONS; count++) {

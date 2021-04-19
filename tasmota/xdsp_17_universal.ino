@@ -263,7 +263,7 @@ char *fbuff;
     if (cp) {
       cp+=4;
       uint8_t touch_cs = replacepin(&cp, Pin(GPIO_XPT2046_CS));
-	    Touch_Init(touch_cs);
+	    XPT2046_Touch_Init(touch_cs);
     }
 #endif
 
