@@ -44,11 +44,18 @@ enum uColorType { uCOLOR_BW, uCOLOR_COLOR };
 #define PIN_OUT_CLEAR 0x60000308
 #define GPIO_SET(A) WRITE_PERI_REG( PIN_OUT_SET, 1 << A)
 #define GPIO_CLR(A) WRITE_PERI_REG( PIN_OUT_CLEAR, 1 << A)
+#define GPIO_CLR_SLOW(A) digitalWrite(A, LOW)
+#define GPIO_SET_SLOW(A) digitalWrite(A, HIGH)
 #else
 #undef GPIO_SET
-#define GPIO_SET(A) GPIO.out_w1ts = (1 << A)
 #undef GPIO_CLR
+#undef GPIO_SET_SLOW
+#undef GPIO_CLR_SLOW
 #define GPIO_CLR(A) GPIO.out_w1tc = (1 << A)
+#define GPIO_SET(A) GPIO.out_w1ts = (1 << A)
+#define GPIO_CLR_SLOW(A) digitalWrite(A, LOW)
+#define GPIO_SET_SLOW(A) digitalWrite(A, HIGH)
+
 #endif
 
 #define SPI_BEGIN_TRANSACTION if (spi_nr <= 2) uspi->beginTransaction(spiSettings);
@@ -89,13 +96,15 @@ class uDisplay : public Renderer {
    void drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color);
    uint32_t str2c(char **sp, char *vp, uint32_t len);
    void i2c_command(uint8_t val);
-   void spi_command(uint8_t val);
    void spi_command_one(uint8_t val);
+   void spi_command(uint8_t val);
    void spi_data8(uint8_t val);
    void spi_data16(uint16_t val);
    void spi_data32(uint32_t val);
    void write8(uint8_t val);
+   void write8_slow(uint8_t val);
    void write9(uint8_t val, uint8_t dc);
+   void write9_slow(uint8_t val, uint8_t dc);
    void hw_write9(uint8_t val, uint8_t dc);
    void write16(uint16_t val);
    void write32(uint32_t val);

@@ -115,19 +115,19 @@ int Epd42::Init(void) {
     height = EPD_HEIGHT42;
 
     Reset();
-    SendCommand(EPD_42_POWER_SETTING);
+    SendCommand(EPD_42_POWER_SETTING); // 0xa1
     SendData(0x03);                  // VDS_EN, VDG_EN
     SendData(0x00);                  // VCOM_HV, VGHL_LV[1], VGHL_LV[0]
     SendData(0x2b);                  // VDH
     SendData(0x2b);                  // VDL
     SendData(0xff);                  // VDHR
-    SendCommand(EPD_42_BOOSTER_SOFT_START);
+    SendCommand(EPD_42_BOOSTER_SOFT_START); // axa6
     SendData(0x17);
     SendData(0x17);
     SendData(0x17);                  //07 0f 17 1f 27 2F 37 2f
-    SendCommand(EPD_42_POWER_ON);
+    SendCommand(EPD_42_POWER_ON);  // 04
     WaitUntilIdle();
-    SendCommand(EPD_42_PANEL_SETTING);
+    SendCommand(EPD_42_PANEL_SETTING);  //0x00
    // SendData(0xbf);    // KW-BF   KWR-AF  BWROTP 0f
   //  SendData(0x0b);
 //	SendData(0x0F);  //300x400 Red mode, LUT from OTP
@@ -135,7 +135,7 @@ int Epd42::Init(void) {
 	SendData(0x3F); //300x400 B/W mode, LUT set by register
 //	SendData(0x2F); //300x400 Red mode, LUT set by register
 
-    SendCommand(EPD_42_PLL_CONTROL);
+    SendCommand(EPD_42_PLL_CONTROL); // 0x30
     SendData(0x3C);        // 3A 100Hz   29 150Hz   39 200Hz    31 171Hz       3C 50Hz (default)    0B 10Hz
 	//SendData(0x0B);   //0B is 10Hz
     /* EPD hardware init end */

@@ -530,14 +530,22 @@ void uDisplay::spi_command(uint8_t val) {
 
   if (spi_dc < 0) {
     if (spi_nr > 2) {
-      write9(val, 0);
+      if (spi_nr == 3) {
+        write9(val, 0);
+      } else {
+        write9_slow(val, 0);
+      }
     } else {
       hw_write9(val, 0);
     }
   } else {
     SPI_DC_LOW
     if (spi_nr > 2) {
-      write8(val);
+      if (spi_nr == 3) {
+        write8(val);
+      } else {
+        write8_slow(val);
+      }
     } else {
       uspi->write(val);
     }
@@ -548,13 +556,21 @@ void uDisplay::spi_command(uint8_t val) {
 void uDisplay::spi_data8(uint8_t val) {
   if (spi_dc < 0) {
     if (spi_nr > 2) {
-      write9(val, 1);
+      if (spi_nr == 3) {
+        write9(val, 1);
+      } else {
+        write9_slow(val, 1);
+      }
     } else {
       hw_write9(val, 1);
     }
   } else {
     if (spi_nr > 2) {
-      write8(val);
+      if (spi_nr == 3) {
+        write8(val);
+      } else {
+        write8_slow(val);
+      }
     } else {
       uspi->write(val);
     }
@@ -868,6 +884,7 @@ for(y=h; y>0; y--) {
 
 void uDisplay::Splash(void) {
   if (ep_mode) {
+    Updateframe();
     delay(lut3time * 10);
   }
   setTextFont(splash_font);
@@ -1271,6 +1288,7 @@ void uDisplay::hw_write9(uint8_t val, uint8_t dc) {
 
 #define USECACHE ICACHE_RAM_ATTR
 
+// slow software spi needed for displays with max 10 Mhz clck
 
 void USECACHE uDisplay::write8(uint8_t val) {
   for (uint8_t bit = 0x80; bit; bit >>= 1) {
@@ -1278,6 +1296,15 @@ void USECACHE uDisplay::write8(uint8_t val) {
     if (val & bit) GPIO_SET(spi_mosi);
     else   GPIO_CLR(spi_mosi);
     GPIO_SET(spi_clk);
+  }
+}
+
+void uDisplay::write8_slow(uint8_t val) {
+  for (uint8_t bit = 0x80; bit; bit >>= 1) {
+    GPIO_CLR_SLOW(spi_clk);
+    if (val & bit) GPIO_SET_SLOW(spi_mosi);
+    else   GPIO_CLR_SLOW(spi_mosi);
+    GPIO_SET_SLOW(spi_clk);
   }
 }
 
@@ -1293,6 +1320,21 @@ void USECACHE uDisplay::write9(uint8_t val, uint8_t dc) {
     if (val & bit) GPIO_SET(spi_mosi);
     else   GPIO_CLR(spi_mosi);
     GPIO_SET(spi_clk);
+  }
+}
+
+void uDisplay::write9_slow(uint8_t val, uint8_t dc) {
+
+  GPIO_CLR_SLOW(spi_clk);
+  if (dc) GPIO_SET_SLOW(spi_mosi);
+  else  GPIO_CLR_SLOW(spi_mosi);
+  GPIO_SET_SLOW(spi_clk);
+
+  for (uint8_t bit = 0x80; bit; bit >>= 1) {
+    GPIO_CLR_SLOW(spi_clk);
+    if (val & bit) GPIO_SET_SLOW(spi_mosi);
+    else   GPIO_CLR_SLOW(spi_mosi);
+    GPIO_SET_SLOW(spi_clk);
   }
 }
 
