@@ -85,8 +85,6 @@ char *fbuff;
   if (TasmotaGlobal.gpio_optiona.udisplay_driver) {
     Settings.display_model = XDSP_17;
 
-    color_type = COLOR_BW;
-
     fbuff = (char*)calloc(DISPDESC_SIZE, 1);
     if (!fbuff) return;
 
@@ -279,6 +277,7 @@ char *fbuff;
     Settings.display_height = renderer->height();
     fg_color = udisp->fgcol();
     bg_color = udisp->bgcol();
+    color_type = udisp->color_type();
 
     renderer->DisplayInit(DISPLAY_INIT_MODE, Settings.display_size, Settings.display_rotate, Settings.display_font);
     renderer->dim(Settings.display_dimmer);

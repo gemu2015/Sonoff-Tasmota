@@ -80,6 +80,7 @@ class uDisplay : public Renderer {
   char *devname(void);
   uint16_t fgcol(void) const { return fg_col; };
   uint16_t bgcol(void) const { return bg_col; };
+  int8_t color_type(void) const { return col_type; };
   void dim(uint8_t dim);
   uint16_t GetColorFromIndex(uint8_t index);
   void setRotation(uint8_t m);
@@ -137,6 +138,7 @@ class uDisplay : public Renderer {
    void setAddrWindow_int(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
    char dname[16];
    int8_t bpp;
+   uint8_t col_type;
    uint8_t interface;
    uint8_t i2caddr;
    int8_t i2c_scl;

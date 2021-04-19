@@ -32,7 +32,6 @@ uint16_t uDisplay::GetColorFromIndex(uint8_t index) {
 }
 
 extern uint8_t *buffer;
-extern uint8_t color_type;
 
 uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   // analyse decriptor
@@ -103,9 +102,9 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             setheight(gys);
             bpp = next_val(&lp1);
             if (bpp == 1) {
-              color_type = uCOLOR_BW;
+              col_type = uCOLOR_BW;
             } else {
-              color_type = uCOLOR_COLOR;
+              col_type = uCOLOR_COLOR;
             }
             str2c(&lp1, ibuff, sizeof(ibuff));
             if (!strncmp(ibuff, "I2C", 3)) {
