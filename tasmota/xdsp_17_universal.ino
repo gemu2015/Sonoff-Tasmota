@@ -250,10 +250,10 @@ char *fbuff;
       }
       // start digitizer
 #ifdef ESP32
-      if (!wire_n) Touch_Init(Wire);
-      else Touch_Init(Wire1);
+      if (!wire_n) FT5206_Touch_Init(Wire);
+      else FT5206_Touch_Init(Wire1);
 #else
-      if (!wire_n) Touch_Init(Wire);
+      if (!wire_n) FT5206_Touch_Init(Wire);
 #endif
     }
 #endif
@@ -436,17 +436,11 @@ bool Xdsp17(uint8_t function)
 #endif  // USE_DISPLAY_MODES1TO5
 
 #if defined(USE_FT5206) || defined(USE_XPT2046)
-#ifdef USE_TOUCH_BUTTONS
         case FUNC_DISPLAY_EVERY_50_MSECOND:
-#if defined(USE_FT5206)
-          if (FT5206_found) {
-#elif defined(USE_XPT2046)
-          if (XPT2046_found) {
-#endif
+          if (touch_found) {
             udisp_CheckTouch();
           }
           break;
-#endif // USE_TOUCH_BUTTONS
 #endif // USE_FT5206
 
     }
