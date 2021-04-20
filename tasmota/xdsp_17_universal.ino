@@ -78,7 +78,7 @@ const char DSP_SAMPLE_DESC[] PROGMEM =
 #endif // DSP_ROM_DESC
 /*********************************************************************************************/
 
-void Init_uDisp(const char *desc) {
+Renderer *Init_uDisp(const char *desc) {
 char *ddesc = 0;
 char *fbuff;
 
@@ -86,7 +86,7 @@ char *fbuff;
     Settings.display_model = XDSP_17;
 
     fbuff = (char*)calloc(DISPDESC_SIZE, 1);
-    if (!fbuff) return;
+    if (!fbuff) return 0;
 
     if (desc) {
       memcpy(fbuff, desc, DISPDESC_SIZE - 1);
@@ -153,7 +153,7 @@ char *fbuff;
     if (!ddesc) {
       AddLog(LOG_LEVEL_INFO, PSTR("DSP: No valid descriptor found"));
       if (fbuff) free(fbuff);
-      return;
+      return 0;
     }
     // now replace tasmota vars before passing to driver
     char *cp = strstr(ddesc, "I2C,");
@@ -271,7 +271,7 @@ char *fbuff;
     if (fbuff) free(fbuff);
 
     renderer = udisp->Init();
-    if (!renderer) return;
+    if (!renderer) return 0;
 
     Settings.display_width = renderer->width();
     Settings.display_height = renderer->height();
@@ -288,7 +288,9 @@ char *fbuff;
 
     udisp_init_done = true;
     AddLog(LOG_LEVEL_INFO, PSTR("DSP: %s!"), udisp->devname());
+    return renderer;
   }
+  return 0;
 }
 
 

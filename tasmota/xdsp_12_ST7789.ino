@@ -50,7 +50,6 @@
   #define BACKPLANE_PIN 5
   #endif // USE_LANBON_L8
 
-extern uint8_t *buffer;
 extern uint8_t color_type;
 Arduino_ST7789 *st7789;
 
@@ -73,9 +72,6 @@ void ST7789_InitDriver(void) {
     if (!Settings.display_height) {
       Settings.display_height = 240;
     }
-
-    // disable screen buffer
-    buffer = NULL;
 
     // default colors
     fg_color = ST7789_WHITE;

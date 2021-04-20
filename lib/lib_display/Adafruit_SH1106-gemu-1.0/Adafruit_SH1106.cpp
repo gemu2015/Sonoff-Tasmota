@@ -59,6 +59,7 @@ void Adafruit_SH1106::Updateframe() {
 void Adafruit_SH1106::DisplayInit(int8_t p,int8_t size,int8_t rot,int8_t font) {
 // ignore update mode
   //if (p==DISPLAY_INIT_MODE) {
+  // allocate screen buffer
     setRotation(rot);
     invertDisplay(false);
     setTextWrap(false);         // Allow text to run off edges
