@@ -66,7 +66,7 @@ void Adafruit_SH1106::DisplayInit(int8_t p,int8_t size,int8_t rot,int8_t font) {
     cp437(true);
     setTextFont(font);
     setTextSize(size);
-    setTextColor(WHITE,BLACK);
+    setTextColor(WHITE, BLACK);
     setCursor(0,0);
     fillScreen(BLACK);
     Updateframe();
@@ -81,6 +81,11 @@ void Adafruit_SH1106::Begin(int16_t p1,int16_t p2,int16_t p3) {
 void Adafruit_SH1106::begin(uint8_t vccstate, uint8_t i2caddr, bool reset) {
   _vccstate = vccstate;
   _i2caddr = i2caddr;
+
+  if ( (!framebuffer) && !(framebuffer = (uint8_t *)malloc(WIDTH * ((HEIGHT + 7) / 8)))) {
+    return;
+  }
+
     // I2C Init
     Wire.begin();
 
@@ -275,13 +280,13 @@ void Adafruit_SH1106::display(void) {
         SH1106_command(0x10 | (m_col >> 4));//set higher column address
 
         for( j = 0; j < 8; j++){
-			Wire.beginTransmission(_i2caddr);
-            Wire.write(0x40);
-            for ( k = 0; k < width; k++, p++) {
-		Wire.write(framebuffer[p]);
-            }
-            Wire.endTransmission();
-        	}
+          Wire.beginTransmission(_i2caddr);
+          Wire.write(0x40);
+          for ( k = 0; k < width; k++, p++) {
+		        Wire.write(framebuffer[p]);
+          }
+          Wire.endTransmission();
+        }
 	}
 
 }

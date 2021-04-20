@@ -326,8 +326,8 @@ Adafruit_SSD1306::Adafruit_SSD1306(int8_t rst_pin) :
     @brief  Destructor for Adafruit_SSD1306 object.
 */
 Adafruit_SSD1306::~Adafruit_SSD1306(void) {
-  if(framebuffer) {
-    free(framebuffer);
+  if (framebuffer) {
+    free (framebuffer);
     framebuffer = NULL;
   }
 }
@@ -451,8 +451,9 @@ void Adafruit_SSD1306::ssd1306_command(uint8_t c) {
 boolean Adafruit_SSD1306::begin(uint8_t vcs, uint8_t addr, boolean reset,
   boolean periphBegin) {
 
-//  if((!buffer) && !(buffer = (uint8_t *)malloc(WIDTH * ((HEIGHT + 7) / 8))))
-//    return false;
+  if ( (!framebuffer) && !(framebuffer = (uint8_t *)malloc(WIDTH * ((HEIGHT + 7) / 8)))) {
+    return false;
+  }
 
   clearDisplay();
 
@@ -627,6 +628,10 @@ void Adafruit_SSD1306::DisplayInit(int8_t p,int8_t size,int8_t rot,int8_t font) 
             commands as needed by one's own application.
 */
 void Adafruit_SSD1306::drawPixel(int16_t x, int16_t y, uint16_t color) {
+
+  if (!framebuffer) return;
+
+
   if((x >= 0) && (x < width()) && (y >= 0) && (y < height())) {
     // Pixel is in-bounds. Rotate coordinates if needed.
     switch(getRotation()) {
@@ -659,6 +664,7 @@ void Adafruit_SSD1306::drawPixel(int16_t x, int16_t y, uint16_t color) {
             commands as needed by one's own application.
 */
 void Adafruit_SSD1306::clearDisplay(void) {
+  if (!framebuffer) return;
   memset(framebuffer, 0, WIDTH * ((HEIGHT + 7) / 8));
 }
 
@@ -757,9 +763,9 @@ void Adafruit_SSD1306::drawFastVLine(
 }
 #endif
 
-void Adafruit_SSD1306::drawFastHLineInternal(
+void Adafruit_SSD1306::drawFastHLineInternal (
   int16_t x, int16_t y, int16_t w, uint16_t color) {
-
+  if (!framebuffer) return;
   if((y >= 0) && (y < HEIGHT)) { // Y coord in bounds?
     if(x < 0) { // Clip left
       w += x;
@@ -782,7 +788,7 @@ void Adafruit_SSD1306::drawFastHLineInternal(
 
 void Adafruit_SSD1306::drawFastVLineInternal(
   int16_t x, int16_t __y, int16_t __h, uint16_t color) {
-
+if (!framebuffer) return;
   if((x >= 0) && (x < WIDTH)) { // X coord in bounds?
     if(__y < 0) { // Clip top
       __h += __y;
@@ -875,6 +881,8 @@ void Adafruit_SSD1306::drawFastVLineInternal(
             screen if display() has not been called.
 */
 boolean Adafruit_SSD1306::getPixel(int16_t x, int16_t y) {
+  if (!framebuffer) return 0;
+
   if((x >= 0) && (x < width()) && (y >= 0) && (y < height())) {
     // Pixel is in-bounds. Rotate coordinates if needed.
     switch(getRotation()) {
@@ -916,6 +924,7 @@ uint8_t *Adafruit_SSD1306::getBuffer(void) {
             of graphics commands, as best needed by one's own application.
 */
 void Adafruit_SSD1306::display(void) {
+  if (!framebuffer) return;
   int16_t col_start = 0;
   int16_t col_end = WIDTH - 1;
   if ((64 == WIDTH) && (48 == HEIGHT)) {    // for 64x48, we need to shift by 32 in both directions

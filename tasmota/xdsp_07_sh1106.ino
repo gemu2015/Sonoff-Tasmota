@@ -73,9 +73,6 @@ void SH1106InitDriver() {
     // init renderer
     oled1106 = new Adafruit_SH1106(SH1106_LCDWIDTH,SH1106_LCDHEIGHT);
     renderer = oled1106;
-    if (!renderer->allocate_framebuffer(SH1106_LCDWIDTH * SH1106_LCDHEIGHT) / 8) {
-      return;
-    }
     renderer->Begin(SH1106_SWITCHCAPVCC, Settings.display_address[0],0);
     renderer->DisplayInit(DISPLAY_INIT_MODE,Settings.display_size,Settings.display_rotate,Settings.display_font);
     renderer->setTextColor(1,0);
@@ -89,6 +86,8 @@ void SH1106InitDriver() {
     renderer->DisplayOnff(1);
 #endif
   }
+
+  AddLog(LOG_LEVEL_INFO, PSTR("DSP: SH1106"));
 }
 
 
