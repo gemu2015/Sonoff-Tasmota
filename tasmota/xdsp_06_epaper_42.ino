@@ -34,7 +34,6 @@
 #include <epd4in2.h>
 #include <epdpaint.h>
 
-extern uint8_t *buffer;
 bool epd42_init_done = false;
 
 Epd42 *epd42;
@@ -55,11 +54,6 @@ void EpdInitDriver42() {
       Settings.display_height = EPD_HEIGHT42;
     }
 
-    // allocate screen buffer
-    if (buffer) free(buffer);
-    buffer=(unsigned char*)calloc((EPD_WIDTH42 * EPD_HEIGHT42) / 8,1);
-    if (!buffer) return;
-
     // init renderer
     epd42  = new Epd42(EPD_WIDTH42, EPD_HEIGHT42);
 
@@ -71,6 +65,10 @@ void EpdInitDriver42() {
     }
 
     renderer = epd42;
+
+    if (!renderer->allocate_framebuffer(Settings.display_width * Settings.display_height) / 8) {
+      return;
+    }
 
     epd42->Init();
 

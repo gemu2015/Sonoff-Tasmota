@@ -38,7 +38,7 @@ However, SH1106 driver don't provide several functions such as scroll commands.
 #define DISPLAY_INIT_MODE 0
 
 // the memory buffer for the LCD
-extern uint8_t *buffer;
+
 
 Adafruit_SH1106::Adafruit_SH1106(int16_t width, int16_t height) :
 Renderer(width,height) {
@@ -278,7 +278,7 @@ void Adafruit_SH1106::display(void) {
 			Wire.beginTransmission(_i2caddr);
             Wire.write(0x40);
             for ( k = 0; k < width; k++, p++) {
-		Wire.write(buffer[p]);
+		Wire.write(framebuffer[p]);
             }
             Wire.endTransmission();
         	}
@@ -288,5 +288,5 @@ void Adafruit_SH1106::display(void) {
 
 // clear everything
 void Adafruit_SH1106::clearDisplay(void) {
-  memset(buffer, 0, (SH1106_LCDWIDTH*SH1106_LCDHEIGHT/8));
+  memset(framebuffer, 0, (SH1106_LCDWIDTH*SH1106_LCDHEIGHT/8));
 }

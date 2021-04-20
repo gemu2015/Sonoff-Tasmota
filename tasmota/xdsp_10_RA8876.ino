@@ -35,7 +35,6 @@
 
 bool ra8876_init_done = false;
 uint8_t ra8876_ctouch_counter = 0;
-extern uint8_t *buffer;
 extern uint8_t color_type;
 RA8876 *ra8876;
 
@@ -51,8 +50,6 @@ void RA8876_InitDriver(void) {
     if (Settings.display_height != RA8876_TFTHEIGHT) {
       Settings.display_height = RA8876_TFTHEIGHT;
     }
-
-    buffer = 0;
 
     // default colors
     fg_color = RA8876_WHITE;

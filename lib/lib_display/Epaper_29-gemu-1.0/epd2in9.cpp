@@ -27,7 +27,6 @@
 #include <stdlib.h>
 #include "epd2in9.h"
 
-extern uint8_t *buffer;
 
 Epd::Epd(int16_t width, int16_t height) :
 Paint(width,height) {
@@ -37,7 +36,7 @@ void Epd::DisplayOnff(int8_t on) {
 }
 
 void Epd::Updateframe() {
-  SetFrameMemory(buffer, 0, 0, EPD_WIDTH,EPD_HEIGHT);
+  SetFrameMemory(framebuffer, 0, 0, EPD_WIDTH,EPD_HEIGHT);
   DisplayFrame();
   //Serial.printf("update\n");
 }

@@ -36,7 +36,6 @@
 #include <SPI.h>
 
 bool ssd1331_init_done = false;
-extern uint8_t *buffer;
 extern uint8_t color_type;
 Adafruit_SSD1331 *ssd1331;
 
@@ -54,8 +53,6 @@ void SSD1331_InitDriver() {
     if (Settings.display_height != Adafruit_SSD1331::TFTHEIGHT) {
       Settings.display_height = Adafruit_SSD1331::TFTHEIGHT;
     }
-
-    buffer = 0;
 
     // default colors
     fg_color = SSD1331_WHITE;

@@ -27,7 +27,6 @@ enum IliModes { ILIMODE_9341 = 1, ILIMODE_9342, ILIMODE_MAX };
 
 #include <ILI9341_2.h>
 
-extern uint8_t *buffer;
 extern uint8_t color_type;
 ILI9341_2 *ili9341_2;
 
@@ -61,9 +60,6 @@ void ILI9341_InitDriver()
     if (Settings.display_height != ILI9341_TFTHEIGHT) {
       Settings.display_height = ILI9341_TFTHEIGHT;
     }
-
-    // disable screen buffer
-    buffer = NULL;
 
     if (!Settings.display_options.type || (Settings.display_options.type >= ILIMODE_MAX)) {
       Settings.display_options.type = ILIMODE_9341;

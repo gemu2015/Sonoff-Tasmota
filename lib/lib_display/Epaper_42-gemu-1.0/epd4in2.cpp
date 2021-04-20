@@ -29,8 +29,6 @@
 
 
 //#define SSPI_USEANYPIN
-
-extern uint8_t *buffer;
 uint8_t epd42_mode;
 
 Epd42::Epd42(int16_t width, int16_t height) :
@@ -47,7 +45,7 @@ void Epd42::DisplayOnff(int8_t on) {
 
 void Epd42::Updateframe() {
   //SetFrameMemory(buffer, 0, 0, EPD_WIDTH,EPD_HEIGHT);
-  SetPartialWindow(buffer, 0, 0, width,height,2);
+  SetPartialWindow(framebuffer, 0, 0, width,height,2);
   if (epd42_mode==DISPLAY_INIT_PARTIAL) {
     DisplayFrameQuick();
   } else {
