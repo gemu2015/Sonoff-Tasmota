@@ -31,6 +31,18 @@ enum ColorType { COLOR_BW, COLOR_COLOR };
 #define MAX_TOUCH_BUTTONS 16
 #endif
 
+#ifdef USE_UFILESYS
+extern FS *ufsp;
+extern FS *ffsp;
+#endif
+
+#ifdef USE_MULTI_DISPLAY
+Renderer *displays[3];
+Renderer *Init_uDisplay(const char *desc);
+#endif
+
+
+
 #ifdef USE_TOUCH_BUTTONS
 VButton *buttons[MAX_TOUCH_BUTTONS];
 #endif
@@ -512,6 +524,48 @@ void DisplayText(void)
              }
             }
             break;
+#ifdef USE_MULTI_DISPLAY
+          case 'S':
+            {
+              var = atoiv(cp, &temp);
+              cp += var;
+              if (temp < 1 || temp > 3) {
+                temp = 1;
+              }
+              temp--;
+              if (*cp == ':') {
+                cp++;
+                if (displays[temp]) {
+                  renderer = displays[temp];
+                }
+              } else {
+                char *ep=strchr(cp,':');
+                if (ep) {
+                  *ep=0;
+                  ep++;
+                  File fp;
+                  if (ffsp) {
+                    AddLog(LOG_LEVEL_INFO, PSTR("DSP: File: %s"),cp);
+                    fp = ffsp->open(cp, "r");
+                    if (fp > 0) {
+                      uint32_t size = fp.size();
+                      char *fdesc = (char *)calloc(size + 4, 1);
+                      if (fdesc) {
+                        fp.read((uint8_t*)fdesc, size);
+                        fp.close();
+                        renderer = 0;
+                        renderer = Init_uDisplay(fdesc);
+                        displays[temp] = renderer;
+                        AddLog(LOG_LEVEL_INFO, PSTR("DSP: File descriptor loaded %x"),renderer);
+                      }
+                    }
+                  }
+                }
+                cp = ep;
+              }
+            }
+            break;
+#endif
 #endif // USE_UFILESYS
           case 'h':
             // hor line to
@@ -1024,7 +1078,6 @@ extern FS *ffsp;
 }
 
 #ifdef USE_UFILESYS
-extern FS *ufsp;
 void Display_Text_From_File(const char *file) {
   File fp;
   if (!ufsp) return;
@@ -1657,6 +1710,10 @@ void DisplayInitDriver(void)
 {
   XdspCall(FUNC_DISPLAY_INIT_DRIVER);
 
+#ifdef USE_MULTI_DISPLAY
+  displays[0] = renderer;
+#endif
+
   if (renderer) {
     renderer->setTextFont(Settings.display_font);
     renderer->setTextSize(Settings.display_size);
@@ -2043,6 +2100,9 @@ void CmndDisplayScrollText(void) {
 
 void DisplayReInitDriver(void) {
   XdspCall(FUNC_DISPLAY_INIT_DRIVER);
+#ifdef USE_MULTI_DISPLAY
+  displays[0] = renderer;
+#endif
   ResponseCmndDone();
 }
 

@@ -72,6 +72,7 @@ enum uColorType { uCOLOR_BW, uCOLOR_COLOR };
 class uDisplay : public Renderer {
  public:
   uDisplay(char *);
+  ~uDisplay(void);
   Renderer *Init(void);
   void DisplayInit(int8_t p,int8_t size,int8_t rot,int8_t font);
   void Updateframe();
@@ -143,6 +144,7 @@ class uDisplay : public Renderer {
    uint8_t i2caddr;
    int8_t i2c_scl;
    TwoWire *wire;
+   int8_t wire_n;
    int8_t i2c_sda;
    uint8_t i2c_col_start;
    uint8_t i2c_col_end;

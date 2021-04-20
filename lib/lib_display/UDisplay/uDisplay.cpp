@@ -32,8 +32,15 @@ uint16_t uDisplay::GetColorFromIndex(uint8_t index) {
 }
 
 
+uDisplay::~uDisplay(void) {
+  if (framebuffer) {
+    free(framebuffer);
+  }
+}
+
 uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   // analyse decriptor
+  framebuffer = 0;
   col_mode = 16;
   sa_mode = 16;
   saw_3 = 0xff;
@@ -108,6 +115,10 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             str2c(&lp1, ibuff, sizeof(ibuff));
             if (!strncmp(ibuff, "I2C", 3)) {
               interface = _UDSP_I2C;
+              wire_n = 0;
+              if (!strncmp(ibuff, "I2C2", 4)) {
+               wire_n = 1;
+              }
               i2caddr = next_hex(&lp1);
               i2c_scl = next_val(&lp1);
               i2c_sda = next_val(&lp1);
@@ -348,7 +359,14 @@ Renderer *uDisplay::Init(void) {
   }
 
   if (interface == _UDSP_I2C) {
-    wire = &Wire;
+    if (wire_n == 0) {
+      wire = &Wire;
+    }
+#ifdef ESP32
+    if (wire_n == 1) {
+      wire = &Wire1;
+    }
+#endif
     wire->begin(i2c_sda, i2c_scl);
     if (bpp < 16) {
       if (framebuffer) free(framebuffer);

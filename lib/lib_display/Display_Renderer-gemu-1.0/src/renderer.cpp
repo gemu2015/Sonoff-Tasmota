@@ -85,6 +85,10 @@ void Renderer::Updateframe() {
 
 }
 
+void Renderer::TS_RotConvert(int16_t *x, int16_t *y) {
+
+}
+
 uint8_t *Renderer::allocate_framebuffer(uint32_t size) {
   if (framebuffer) free(framebuffer);
   framebuffer = (unsigned char*)calloc(size, 1);
