@@ -84,7 +84,7 @@ void Get_display(uint8_t index) {
   if (renderer) renderer->setDrawMode(auto_draw >> 1);
   cur_display = index;
 }
-#endif
+#endif // USE_MULTI_DISPLAY
 
 const uint8_t DISPLAY_MAX_DRIVERS = 32;        // Max number of display drivers/models supported by xdsp_interface.ino
 const uint8_t DISPLAY_MAX_COLS = 64;           // Max number of columns allowed with command DisplayCols
@@ -596,7 +596,7 @@ void DisplayText(void)
               }
             }
             break;
-#endif
+#endif // USE_MULTI_DISPLAY
 #endif // USE_UFILESYS
           case 'h':
             // hor line to
@@ -821,7 +821,7 @@ extern FS *ffsp;
             { char *ep = strchr(cp,':');
               if (ep) {
                 static uint8_t *ram_font;
-                char fname[24];
+                char fname[32];
                 *ep = 0;
                 ep++;
                 if (*cp != '/') {
@@ -1743,7 +1743,7 @@ void DisplayInitDriver(void)
 
 #ifdef USE_MULTI_DISPLAY
   Set_display(0);
-#endif
+#endif // USE_MULTI_DISPLAY
 
   if (renderer) {
     renderer->setTextFont(Settings.display_font);
@@ -2133,7 +2133,7 @@ void DisplayReInitDriver(void) {
   XdspCall(FUNC_DISPLAY_INIT_DRIVER);
 #ifdef USE_MULTI_DISPLAY
   Set_display(0);
-#endif
+#endif // USE_MULTI_DISPLAY
   ResponseCmndDone();
 }
 

@@ -174,10 +174,16 @@ uDisplay *udisp;
       if (wire_n == 2) {
         Wire1.begin(sda, scl);
       }
-#endif
       if (I2cSetDevice(i2caddr, wire_n - 1)) {
         I2cSetActiveFound(i2caddr, "DSP-I2C", wire_n - 1);
       }
+#endif // ESP32
+
+#ifdef ESP8266
+      if (I2cSetDevice(i2caddr)) {
+        I2cSetActiveFound(i2caddr, "DSP-I2C");
+      }
+#endif // ESP8266
       //AddLog(LOG_LEVEL_INFO, PSTR("DSP: i2c %x, %d, %d, %d!"), i2caddr, wire_n, scl, sda);
     }
 
@@ -251,11 +257,18 @@ uDisplay *udisp;
       if (wire_n == 1) {
         Wire1.begin(sda, scl, 400000);
       }
-#endif
-      //AddLog(LOG_LEVEL_INFO, PSTR("DSP: touch %x, %d, %d, %d!"), i2caddr, wire_n, scl, sda);
       if (I2cSetDevice(i2caddr, wire_n)) {
         I2cSetActiveFound(i2caddr, "FT5206", wire_n);
       }
+#endif // ESP32
+
+#ifdef ESP8266
+      //AddLog(LOG_LEVEL_INFO, PSTR("DSP: touch %x, %d, %d, %d!"), i2caddr, wire_n, scl, sda);
+      if (I2cSetDevice(i2caddr)) {
+        I2cSetActiveFound(i2caddr, "FT5206");
+      }
+#endif // ESP8266
+
       // start digitizer
 #ifdef ESP32
       if (!wire_n) FT5206_Touch_Init(Wire);
