@@ -35,6 +35,7 @@
 #include <Adafruit_SSD1331.h>
 #include <SPI.h>
 
+
 bool ssd1331_init_done = false;
 extern uint8_t color_type;
 Adafruit_SSD1331 *ssd1331;
