@@ -39,6 +39,7 @@ However, SH1106 driver don't provide several functions such as scroll commands.
 
 // the memory buffer for the LCD
 
+uint8_t *dbuff;
 
 Adafruit_SH1106::Adafruit_SH1106(int16_t width, int16_t height) :
 Renderer(width,height) {
@@ -68,6 +69,7 @@ void Adafruit_SH1106::DisplayInit(int8_t p,int8_t size,int8_t rot,int8_t font) {
     setTextSize(size);
     setTextColor(WHITE, BLACK);
     setCursor(0,0);
+    //fillScreen(BLACK);
     fillScreen(BLACK);
     Updateframe();
   //}
@@ -78,13 +80,12 @@ void Adafruit_SH1106::Begin(int16_t p1,int16_t p2,int16_t p3) {
 }
 
 
-void Adafruit_SH1106::begin(uint8_t vccstate, uint8_t i2caddr, bool reset) {
+boolean Adafruit_SH1106::begin(uint8_t vccstate, uint8_t i2caddr, bool reset) {
   _vccstate = vccstate;
   _i2caddr = i2caddr;
 
-  if ( (!framebuffer) && !(framebuffer = (uint8_t *)malloc(WIDTH * ((HEIGHT + 7) / 8)))) {
-    return;
-  }
+  framebuffer = (uint8_t *)malloc(WIDTH * ((HEIGHT + 7) / 8));
+  if (!framebuffer)  return false;
 
     // I2C Init
     Wire.begin();
@@ -199,6 +200,9 @@ void Adafruit_SH1106::begin(uint8_t vccstate, uint8_t i2caddr, bool reset) {
   #endif
 
   SH1106_command(SH1106_DISPLAYON);//--turn on oled panel
+
+
+  return true;
 }
 
 

@@ -109,6 +109,10 @@ int Epd::Init(const unsigned char* lut) {
     mosi_pin=pin[GPIO_SSPI_MOSI];
     sclk_pin=pin[GPIO_SSPI_SCLK];
 */
+
+    framebuffer = (uint8_t*)malloc(EPD_WIDTH * EPD_HEIGHT / 8);
+    if (!framebuffer) return -1;
+
     pinMode(cs_pin, OUTPUT);
     pinMode(mosi_pin, OUTPUT);
     pinMode(sclk_pin, OUTPUT);

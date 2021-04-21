@@ -451,9 +451,8 @@ void Adafruit_SSD1306::ssd1306_command(uint8_t c) {
 boolean Adafruit_SSD1306::begin(uint8_t vcs, uint8_t addr, boolean reset,
   boolean periphBegin) {
 
-  if ( (!framebuffer) && !(framebuffer = (uint8_t *)malloc(WIDTH * ((HEIGHT + 7) / 8)))) {
-    return false;
-  }
+  framebuffer = (uint8_t *)malloc(WIDTH * ((HEIGHT + 7) / 8));
+  if (!framebuffer)  return false;
 
   clearDisplay();
 

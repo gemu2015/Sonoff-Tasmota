@@ -419,7 +419,7 @@ void Renderer::drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
 
 
 void Renderer::drawFastVLineInternal(int16_t x, int16_t __y, int16_t __h, uint16_t color) {
-
+  if (!framebuffer) return;
   // do nothing if we're off the left or right side of the screen
   if(x < 0 || x >= WIDTH) { return; }
 

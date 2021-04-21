@@ -69,9 +69,6 @@ void EpdInitDriver29(void) {
     }
 
     renderer = epd;
-    if (!renderer->allocate_framebuffer(Settings.display_width * Settings.display_height) / 8) {
-      return;
-    }
 
     epd->Init(DISPLAY_INIT_FULL);
     epd->Init(DISPLAY_INIT_PARTIAL);

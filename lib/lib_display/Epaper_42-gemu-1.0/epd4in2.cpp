@@ -101,6 +101,10 @@ void Epd42::Init(int8_t p) {
 }
 
 int Epd42::Init(void) {
+
+    framebuffer = (uint8_t*)malloc(EPD_WIDTH42 * EPD_HEIGHT42 / 8);
+    if (!framebuffer) return -1;
+
     pinMode(cs_pin, OUTPUT);
     pinMode(mosi_pin, OUTPUT);
     pinMode(sclk_pin, OUTPUT);

@@ -66,10 +66,6 @@ void EpdInitDriver42() {
 
     renderer = epd42;
 
-    if (!renderer->allocate_framebuffer(Settings.display_width * Settings.display_height) / 8) {
-      return;
-    }
-
     epd42->Init();
 
     renderer->fillScreen(0);

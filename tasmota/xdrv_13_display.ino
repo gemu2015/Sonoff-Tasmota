@@ -553,7 +553,7 @@ void DisplayText(void)
                       if (fdesc) {
                         fp.read((uint8_t*)fdesc, size);
                         fp.close();
-                        renderer = 0;
+                        renderer = displays[temp];
                         renderer = Init_uDisplay(fdesc);
                         displays[temp] = renderer;
                         AddLog(LOG_LEVEL_INFO, PSTR("DSP: File descriptor loaded %x"),renderer);

@@ -1712,7 +1712,7 @@ void GFXcanvas1::drawPixel(int16_t x, int16_t y, uint16_t color) {
         GFXclrBit[] = { 0x7F, 0xBF, 0xDF, 0xEF, 0xF7, 0xFB, 0xFD, 0xFE };
 #endif
 
-    if (framebuffer) {
+    if (buffer) {
         if((x < 0) || (y < 0) || (x >= _width) || (y >= _height)) return;
 
         int16_t t;
@@ -1733,7 +1733,7 @@ void GFXcanvas1::drawPixel(int16_t x, int16_t y, uint16_t color) {
                 break;
         }
 
-        uint8_t   *ptr  = &framebuffer[(x / 8) + y * ((WIDTH + 7) / 8)];
+        uint8_t   *ptr  = &buffer[(x / 8) + y * ((WIDTH + 7) / 8)];
 #ifdef __AVR__
         if(color) *ptr |= pgm_read_byte(&GFXsetBit[x & 7]);
         else      *ptr &= pgm_read_byte(&GFXclrBit[x & 7]);
@@ -1751,7 +1751,7 @@ void GFXcanvas1::drawPixel(int16_t x, int16_t y, uint16_t color) {
 */
 /**************************************************************************/
 void GFXcanvas1::fillScreen(uint16_t color) {
-    if(buffer) {
+    if (buffer) {
         uint16_t bytes = ((WIDTH + 7) / 8) * HEIGHT;
         memset(buffer, color ? 0xFF : 0x00, bytes);
     }
@@ -1790,7 +1790,7 @@ GFXcanvas8::~GFXcanvas8(void) {
 /**************************************************************************/
 void GFXcanvas8::drawPixel(int16_t x, int16_t y, uint16_t color) {
 
-    if (framebuffer) {
+    if (buffer) {
         if((x < 0) || (y < 0) || (x >= _width) || (y >= _height)) return;
 
         int16_t t;
@@ -1811,7 +1811,7 @@ void GFXcanvas8::drawPixel(int16_t x, int16_t y, uint16_t color) {
                 break;
         }
 
-        framebuffer[x + y * WIDTH] = color;
+        buffer[x + y * WIDTH] = color;
     }
 }
 
@@ -1822,8 +1822,8 @@ void GFXcanvas8::drawPixel(int16_t x, int16_t y, uint16_t color) {
 */
 /**************************************************************************/
 void GFXcanvas8::fillScreen(uint16_t color) {
-    if (framebuffer) {
-        memset(framebuffer, color, WIDTH * HEIGHT);
+    if (buffer) {
+        memset(buffer, color, WIDTH * HEIGHT);
     }
 }
 
@@ -1859,7 +1859,7 @@ void GFXcanvas8::writeFastHLine(int16_t x, int16_t y,
             break;
     }
 
-    memset(framebuffer + y * WIDTH + x, color, w);
+    memset(buffer + y * WIDTH + x, color, w);
 }
 
 /**************************************************************************/
