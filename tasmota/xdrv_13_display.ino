@@ -36,13 +36,6 @@ extern FS *ufsp;
 extern FS *ffsp;
 #endif
 
-#ifdef USE_MULTI_DISPLAY
-Renderer *displays[3];
-Renderer *Init_uDisplay(const char *desc);
-#endif
-
-
-
 #ifdef USE_TOUCH_BUTTONS
 VButton *buttons[MAX_TOUCH_BUTTONS];
 #endif
@@ -53,6 +46,45 @@ uint16_t fg_color = 1;
 uint16_t bg_color = 0;
 uint8_t color_type = COLOR_BW;
 uint8_t auto_draw = 1;
+int16_t disp_xpos = 0;
+int16_t disp_ypos = 0;
+
+#ifdef USE_MULTI_DISPLAY
+struct MULTI_DISP {
+  Renderer *display;
+  uint16_t fg_color;
+  uint16_t bg_color;
+  int16_t disp_xpos;
+  int16_t disp_ypos;
+  uint8_t color_type;
+  uint8_t auto_draw;
+} displays[3];
+uint8_t cur_display;
+Renderer *Init_uDisplay(const char *desc);
+
+void Set_display(uint8_t index) {
+  displays[index].display = renderer;
+  displays[index].fg_color = fg_color;
+  displays[index].bg_color = bg_color;
+  displays[index].color_type = color_type;
+  displays[index].auto_draw = auto_draw;
+  displays[index].disp_xpos = disp_xpos;
+  displays[index].disp_ypos = disp_ypos;
+  cur_display = index;
+}
+
+void Get_display(uint8_t index) {
+  renderer = displays[index].display;
+  fg_color = displays[index].fg_color;
+  bg_color = displays[index].bg_color;
+  color_type = displays[index].color_type;
+  auto_draw = displays[index].auto_draw;
+  disp_xpos = displays[index].disp_xpos;
+  disp_ypos = displays[index].disp_ypos;
+  if (renderer) renderer->setDrawMode(auto_draw >> 1);
+  cur_display = index;
+}
+#endif
 
 const uint8_t DISPLAY_MAX_DRIVERS = 32;        // Max number of display drivers/models supported by xdsp_interface.ino
 const uint8_t DISPLAY_MAX_COLS = 64;           // Max number of columns allowed with command DisplayCols
@@ -187,8 +219,6 @@ uint16_t dsp_y2;
 uint16_t dsp_rad;
 uint16_t dsp_color;
 int16_t dsp_len;
-int16_t disp_xpos = 0;
-int16_t disp_ypos = 0;
 
 uint8_t disp_power = 0;
 uint8_t disp_device = 0;
@@ -535,8 +565,9 @@ void DisplayText(void)
               temp--;
               if (*cp == ':') {
                 cp++;
-                if (displays[temp]) {
-                  renderer = displays[temp];
+                if (displays[temp].display) {
+                  Set_display(cur_display);
+                  Get_display(temp);
                 }
               } else {
                 char *ep=strchr(cp,':');
@@ -553,9 +584,9 @@ void DisplayText(void)
                       if (fdesc) {
                         fp.read((uint8_t*)fdesc, size);
                         fp.close();
-                        renderer = displays[temp];
+                        Get_display(temp);
                         renderer = Init_uDisplay(fdesc);
-                        displays[temp] = renderer;
+                        Set_display(temp);
                         AddLog(LOG_LEVEL_INFO, PSTR("DSP: File descriptor loaded %x"),renderer);
                       }
                     }
@@ -1241,7 +1272,7 @@ void draw_dt_vars(void) {
 
           // restore display vars
           renderer->setTextColor(fg_color, bg_color);
-          renderer->setDrawMode(auto_draw);
+          renderer->setDrawMode(auto_draw>>1);
         }
       }
     }
@@ -1711,7 +1742,7 @@ void DisplayInitDriver(void)
   XdspCall(FUNC_DISPLAY_INIT_DRIVER);
 
 #ifdef USE_MULTI_DISPLAY
-  displays[0] = renderer;
+  Set_display(0);
 #endif
 
   if (renderer) {
@@ -2101,7 +2132,7 @@ void CmndDisplayScrollText(void) {
 void DisplayReInitDriver(void) {
   XdspCall(FUNC_DISPLAY_INIT_DRIVER);
 #ifdef USE_MULTI_DISPLAY
-  displays[0] = renderer;
+  Set_display(0);
 #endif
   ResponseCmndDone();
 }
