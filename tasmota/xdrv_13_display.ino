@@ -2638,10 +2638,16 @@ void AddValue(uint8_t num,float fval) {
 \*********************************************************************************************/
 
 #if defined(USE_FT5206) || defined(USE_XPT2046)
+bool FT5206_found = false;
+bool XPT2046_found = false;
 
 int16_t touch_xp;
 int16_t touch_yp;
 bool touched;
+
+#ifdef USE_M5STACK_CORE2
+uint8_t tbstate[3];
+#endif // USE_M5STACK_CORE2
 
 #ifdef USE_FT5206
 #include <FT5206.h>
@@ -2650,7 +2656,7 @@ bool touched;
 #define FT5206_address 0x38
 
 FT5206_Class *FT5206_touchp;
-bool FT5206_found;
+
 
 bool FT5206_Touch_Init(TwoWire &i2c) {
   FT5206_found = false;
@@ -2678,7 +2684,7 @@ int16_t FT5206_y() {
 #ifdef USE_XPT2046
 #include <XPT2046_Touchscreen.h>
 XPT2046_Touchscreen *XPT2046_touchp;
-bool XPT2046_found;
+
 
 bool XPT2046_Touch_Init(uint16_t CS) {
   XPT2046_touchp = new XPT2046_Touchscreen(CS);
@@ -2719,16 +2725,21 @@ uint32_t Touch_Status(uint32_t sel) {
 
 void Touch_Check(void(*rotconvert)(int16_t *x, int16_t *y)) {
 
+#ifdef USE_FT5206
   if (FT5206_found) {
     touch_xp = FT5206_x();
     touch_yp = FT5206_y();
     touched = FT5206_touched();
   }
+#endif // USE_FT5206
+
+#ifdef USE_XPT2046
   if (XPT2046_found) {
     touch_xp = XPT2046_x();
     touch_yp = XPT2046_y();
     touched = XPT2046_touched();
   }
+#endif // USE_XPT2046
 
   if (touched) {
 
@@ -2746,7 +2757,7 @@ void Touch_Check(void(*rotconvert)(int16_t *x, int16_t *y)) {
           tbstate[tbut] |= 1;
           //AddLog(LOG_LEVEL_INFO, PSTR("tbut: %d pressed"), tbut);
           Touch_MQTT(tbut, "BIB", tbstate[tbut] & 1);
-      } 0
+        }
       }
       xcenter += 100;
     }
@@ -2796,9 +2807,7 @@ void Touch_RDW_BUTT(uint32_t count, uint32_t pwr) {
   else buttons[count]->vpower.on_off = 0;
 }
 
-#ifdef USE_M5STACK_CORE2
-uint8_t tbstate[3];
-#endif // USE_M5STACK_CORE2
+
 
 void CheckTouchButtons(bool touched, int16_t touch_x, int16_t touch_y) {
   uint16_t temp;
