@@ -313,24 +313,24 @@ uDisplay *udisp;
 
     Settings.display_width = renderer->width();
     Settings.display_height = renderer->height();
-    fg_color = udisp->fgcol();
-    bg_color = udisp->bgcol();
-    color_type = udisp->color_type();
+    fg_color = renderer->fgcol();
+    bg_color = renderer->bgcol();
+    color_type = renderer->color_type();
 
 #ifdef USE_M5STACK_CORE2
-    udisp->SetPwrCB(Core2DisplayPower);
-    udisp->SetDimCB(Core2DisplayDim);
+    renderer->SetPwrCB(Core2DisplayPower);
+    renderer->SetDimCB(Core2DisplayDim);
 #endif
 
     renderer->DisplayInit(DISPLAY_INIT_MODE, Settings.display_size, Settings.display_rotate, Settings.display_font);
     renderer->dim(Settings.display_dimmer);
 
 #ifdef SHOW_SPLASH
-    udisp->Splash();
+    renderer->Splash();
 #endif
 
     udisp_init_done = true;
-    AddLog(LOG_LEVEL_INFO, PSTR("DSP: %s!"), udisp->devname());
+    AddLog(LOG_LEVEL_INFO, PSTR("DSP: %s!"), renderer->devname());
 
     return renderer;
   }

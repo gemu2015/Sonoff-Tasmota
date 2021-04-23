@@ -588,6 +588,33 @@ void Renderer::scrollTo(uint16_t y) {
 
 }
 
+void Renderer::SetPwrCB(pwr_cb cb) {
+
+}
+void Renderer::SetDimCB(dim_cb cb) {
+
+}
+
+uint16_t Renderer::fgcol(void) {
+  return 0;
+}
+uint16_t Renderer::bgcol(void) {
+  return 0;
+}
+int8_t Renderer::color_type(void) {
+ return 0;
+}
+
+void Renderer::Splash(void) {
+
+}
+
+const char dname[1] = {0};
+
+char *Renderer::devname(void) {
+  return (char*)dname;
+}
+
 void VButton::xdrawButton(bool inverted) {
   wr_redir=1;
   drawButton(inverted);

@@ -69,9 +69,6 @@ enum uColorType { uCOLOR_BW, uCOLOR_COLOR };
 
 #define LUTMAXSIZE 64
 
-typedef void (*pwr_cb)(uint8_t);
-typedef void (*dim_cb)(uint8_t);
-
 class uDisplay : public Renderer {
  public:
   uDisplay(char *);
@@ -208,8 +205,6 @@ class uDisplay : public Renderer {
    uint8_t lut_array[LUTMAXSIZE][5];
    uint8_t lut_cnt[5];
    uint8_t lut_cmd[5];
-   pwr_cb pwr_cbp = 0;
-   dim_cb dim_cbp = 0;
 };
 
 
