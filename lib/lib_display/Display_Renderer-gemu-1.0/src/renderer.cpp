@@ -153,6 +153,13 @@ void Renderer::DrawStringAt(int16_t x, int16_t y, const char* text, uint16_t col
     int refcolumn = x;
     sFONT *xfont = selected_font;
 
+/*
+    if (font == 5 && !drawmode) {
+      // clear bckground
+      int16_t x1,y1;
+      uint16_t w,h;
+      Adafruit_GFX::getTextBounds(text, 0, 0, &x1, &y1, &w, &h);
+    }*/
 #ifndef USE_EPD_FONTS
     font=0;
 #endif
