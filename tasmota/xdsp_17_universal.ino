@@ -37,6 +37,10 @@ extern FS *ffsp;
 
 #define DISPDESC_SIZE 1000
 
+
+void Core2DisplayPower(uint8_t on);
+void Core2DisplayDim(uint8_t dim);
+
 //#define DSP_ROM_DESC
 
 /*********************************************************************************************/
@@ -313,6 +317,11 @@ uDisplay *udisp;
     bg_color = udisp->bgcol();
     color_type = udisp->color_type();
 
+#ifdef USE_M5STACK_CORE2
+    udisp->SetPwrCB(Core2DisplayPower);
+    udisp->SetDimCB(Core2DisplayDim);
+#endif
+
     renderer->DisplayInit(DISPLAY_INIT_MODE, Settings.display_size, Settings.display_rotate, Settings.display_font);
     renderer->dim(Settings.display_dimmer);
 
@@ -322,6 +331,7 @@ uDisplay *udisp;
 
     udisp_init_done = true;
     AddLog(LOG_LEVEL_INFO, PSTR("DSP: %s!"), udisp->devname());
+
     return renderer;
   }
   return 0;
@@ -330,8 +340,7 @@ uDisplay *udisp;
 /*********************************************************************************************/
 
 
-void Core2DisplayPower(uint8_t on);
-void Core2DisplayDim(uint8_t dim);
+/*
 
 void udisp_bpwr(uint8_t on) {
 #ifdef USE_M5STACK_CORE2
@@ -344,6 +353,8 @@ void udisp_dimm(uint8_t dim) {
   Core2DisplayDim(dim);
 #endif
 }
+
+*/
 
 void TS_RotConvert(int16_t *x, int16_t *y) {
   if (renderer) renderer->TS_RotConvert(x, y);
