@@ -304,13 +304,15 @@ void Renderer::setTextFont(uint8_t f) {
 
 
 void Renderer::SetRamfont(uint8_t *font) {
-  ramfont = (GFXfont*)font;
-  uint32_t bitmap_offset = (uint32_t)ramfont->bitmap;
-  uint32_t glyph_offset = (uint32_t)ramfont->glyph;
 
-  ramfont->bitmap = (uint8_t*)((uint32_t)font + bitmap_offset);
-  ramfont->glyph = (GFXglyph*)((uint32_t)font + glyph_offset);
+  if (font) {
+    ramfont = (GFXfont*)font;
+    uint32_t bitmap_offset = (uint32_t)ramfont->bitmap;
+    uint32_t glyph_offset = (uint32_t)ramfont->glyph;
 
+    ramfont->bitmap = (uint8_t*)((uint32_t)font + bitmap_offset);
+    ramfont->glyph = (GFXglyph*)((uint32_t)font + glyph_offset);
+  }
   setFont(ramfont);
 }
 
