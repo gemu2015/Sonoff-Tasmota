@@ -31,6 +31,17 @@ uint16_t uDisplay::GetColorFromIndex(uint8_t index) {
   return udisp_colors[index];
 }
 
+uint16_t uDisplay::fgcol(void) {
+  return fg_col;
+}
+uint16_t uDisplay::bgcol(void) {
+  return bg_col;
+}
+
+int8_t uDisplay::color_type(void) {
+  return col_type;
+}
+
 
 uDisplay::~uDisplay(void) {
   if (framebuffer) {
