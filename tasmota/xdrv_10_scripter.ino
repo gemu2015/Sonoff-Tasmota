@@ -7782,19 +7782,19 @@ int32_t lvgl_test(int32_t p) {
      * 0, 0 at the end means an x, y offset after alignment*/
   lv_obj_align(label1, NULL, LV_ALIGN_CENTER, 0, 0);
 
+  if (p > 0) {
+    lvgl_setup();
 
-  lvgl_setup();
+    /*Add a button*/
+    lv_obj_t *btn1 = lv_btn_create(lv_scr_act(), NULL);           /*Add to the active screen*/
+    lv_obj_set_pos(btn1, 2, 2);                                    /*Adjust the position*/
+    lv_obj_set_size(btn1, 96, 30);                                 /* set size of button */
+    lv_obj_set_event_cb(btn1, btn_event_cb);
 
-  /*Add a button*/
-   lv_obj_t *btn1 = lv_btn_create(lv_scr_act(), NULL);           /*Add to the active screen*/
-   lv_obj_set_pos(btn1, 2, 2);                                    /*Adjust the position*/
-   lv_obj_set_size(btn1, 96, 30);                                 /* set size of button */
-   lv_obj_set_event_cb(btn1, btn_event_cb);
-
-   /*Add text*/
-   lv_obj_t *label = lv_label_create(btn1, NULL);                  /*Put on 'btn1'*/
-   lv_label_set_text(label, "Click");
-
+    /*Add text*/
+    lv_obj_t *label = lv_label_create(btn1, NULL);                  /*Put on 'btn1'*/
+    lv_label_set_text(label, "Click");
+  }
 
 
   return 0;

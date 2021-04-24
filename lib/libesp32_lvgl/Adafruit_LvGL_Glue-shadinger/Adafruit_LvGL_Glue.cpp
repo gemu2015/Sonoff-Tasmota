@@ -22,6 +22,7 @@ static void lv_tick_handler(void) { lv_tick_inc(lv_tick_interval_ms); }
 #define ADC_YMIN 240
 #define ADC_YMAX 840
 
+static uint8_t lvgl_bpp = 1;
 
 uint32_t Touch_Status(uint32_t sel);
 
@@ -75,18 +76,23 @@ static void lv_flush_callback(lv_disp_drv_t *disp, const lv_area_t *area, lv_col
 
   Renderer *display = glue->display;
 
-  uint8_t bpp = 16;
+  Serial.printf(">>>%d - %d - %d - %d \n",area->x1, area->y1, width, height);
 
-  if (bpp == 1) {
+  if (lvgl_bpp == 1) {
+    // bitwise convert and copy of area, ugly
+    // should force full frambuffer copy ???
     uint8_t *dp = display->framebuffer;
-    for (uint32_t cnt = 0; cnt < width * height; cnt+=8) {
+    for (uint32_t cnt = 0; cnt < width * height / 8; cnt++) {
       uint8_t bwpix = 0;
       for (uint32_t pix = 0; pix < 8; pix++) {
-        bwpix |= lv_color_to1(*color_p++);
-        bwpix <<= 1;
+        uint8_t pixel = lv_color_to1(*color_p++)<<7;
+        bwpix >>= 1;
+        bwpix |= pixel;
       }
       *dp++ = bwpix;
+      Serial.printf("%02x ", bwpix);
     }
+    display->Updateframe();
   } else {
     if (!glue->first_frame) {
       //display->dmaWait();  // Wait for prior DMA transfer to complete
@@ -213,6 +219,8 @@ LvGLStatus Adafruit_LvGL_Glue::begin(Renderer *tft, bool debug) {
 
 LvGLStatus Adafruit_LvGL_Glue::begin(Renderer *tft, void *touch, bool debug) {
 
+
+
   lv_init();
 // #if (LV_USE_LOG)
 //   if (debug) {
@@ -223,7 +231,17 @@ LvGLStatus Adafruit_LvGL_Glue::begin(Renderer *tft, void *touch, bool debug) {
   // Allocate LvGL display buffer (x2 because DMA double buffering)
   LvGLStatus status = LVGL_ERR_ALLOC;
   // if ((lv_pixel_buf = new lv_color_t[LV_HOR_RES_MAX * LV_BUFFER_ROWS * 2])) {
-  if ((lv_pixel_buf = new lv_color_t[LV_HOR_RES_MAX * LV_BUFFER_ROWS])) {
+
+  uint32_t lvgl_buffer_size;
+  if (lvgl_bpp == 1) {
+    lvgl_buffer_size = tft->width() * tft->height();
+  } else {
+    //lvgl_buffer_size = LV_HOR_RES_MAX * LV_BUFFER_ROWS;
+    lvgl_buffer_size = tft->width() * LV_BUFFER_ROWS;
+  }
+
+
+  if ((lv_pixel_buf = new lv_color_t[lvgl_buffer_size])) {
 
     display = tft;
     touchscreen = (void *)touch;
@@ -238,7 +256,7 @@ LvGLStatus Adafruit_LvGL_Glue::begin(Renderer *tft, void *touch, bool debug) {
     lv_disp_buf_init(
         &lv_disp_buf, lv_pixel_buf,                     // 1st half buf
         nullptr, // 2nd half buf
-        LV_HOR_RES_MAX * LV_BUFFER_ROWS);
+        lvgl_buffer_size);
 
     // Initialize LvGL display driver
     lv_disp_drv_init(&lv_disp_drv);
