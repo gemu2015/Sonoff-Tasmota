@@ -103,9 +103,9 @@ uDisplay_lvgl::uDisplay_lvgl(char *lp) {
             gys = next_val(&lp1);
             bpp = next_val(&lp1);
             if (bpp == 1) {
-              color_type_lvgl = uCOLOR_BW;
+              color_type_lvgl = uCOLOR_BW1;
             } else {
-              color_type_lvgl = uCOLOR_COLOR;
+              color_type_lvgl = uCOLOR_COLOR1;
             }
             str2c(&lp1, ibuff, sizeof(ibuff));
             if (!strncmp(ibuff, "I2C", 3)) {
@@ -790,7 +790,7 @@ void uDisplay_lvgl::drawPixel(int16_t x, int16_t y, uint16_t color) {
   // SPI_END_TRANSACTION
 }
 
-void uDisplay_lvgl::writePixels(int16_t x, int16_t y, int16_t w, int16_t h, 
+void uDisplay_lvgl::writePixels(int16_t x, int16_t y, int16_t w, int16_t h,
                                 uint16_t *colors, uint32_t len) {
 
 
@@ -835,7 +835,7 @@ void uDisplay_lvgl::writePixels(int16_t x, int16_t y, int16_t w, int16_t h,
   //       // hwspi._spi->writePixels(colors, len * 2);
   //       return;
   //   }
-    
+
 
 void uDisplay_lvgl::setRotation(uint8_t rotation) {
   cur_rot = rotation;

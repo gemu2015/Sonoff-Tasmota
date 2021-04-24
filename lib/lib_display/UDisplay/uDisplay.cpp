@@ -928,8 +928,8 @@ void uDisplay::setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
     SPI_CS_HIGH
     SPI_END_TRANSACTION
   } else {
-    SPI_CS_LOW
     SPI_BEGIN_TRANSACTION
+    SPI_CS_LOW
     setAddrWindow_int(x0, y0, x1 - x0, y1 - y0 );
   }
 }

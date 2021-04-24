@@ -14,7 +14,7 @@
 #define DISPLAY_INIT_PARTIAL 1
 #define DISPLAY_INIT_FULL 2
 
-enum uColorType { uCOLOR_BW, uCOLOR_COLOR };
+enum uColorType1 { uCOLOR_BW1, uCOLOR_COLOR1 };
 
 // Color definitions
 #define UDISP_BLACK       0x0000      /*   0,   0,   0 */
