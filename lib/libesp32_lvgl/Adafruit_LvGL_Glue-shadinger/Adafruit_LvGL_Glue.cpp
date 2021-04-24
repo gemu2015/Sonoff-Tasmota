@@ -75,18 +75,32 @@ static void lv_flush_callback(lv_disp_drv_t *disp, const lv_area_t *area, lv_col
 
   Renderer *display = glue->display;
 
-  if (!glue->first_frame) {
-    //display->dmaWait();  // Wait for prior DMA transfer to complete
-    //display->endWrite(); // End transaction from any prior call
+  uint8_t bpp = 16;
+
+  if (bpp == 1) {
+    uint8_t *dp = display->framebuffer;
+    for (uint32_t cnt = 0; cnt < width * height; cnt+=8) {
+      uint8_t bwpix = 0;
+      for (uint32_t pix = 0; pix < 8; pix++) {
+        bwpix |= lv_color_to1(*color_p++);
+        bwpix <<= 1;
+      }
+      *dp++ = bwpix;
+    }
   } else {
-    glue->first_frame = false;
+    if (!glue->first_frame) {
+      //display->dmaWait();  // Wait for prior DMA transfer to complete
+      //display->endWrite(); // End transaction from any prior call
+    } else {
+      glue->first_frame = false;
+    }
+
+    display->setAddrWindow(area->x1, area->y1, area->x1+width, area->y1+height);
+    display->pushColors((uint16_t *)color_p, width * height, true);
+    display->setAddrWindow(0,0,0,0);
+
+    lv_disp_flush_ready(disp);
   }
-
-  display->setAddrWindow(area->x1, area->y1, area->x1+width, area->y1+height);
-  display->pushColors((uint16_t *)color_p, width * height, true);
-  display->setAddrWindow(0,0,0,0);
-
-  lv_disp_flush_ready(disp);
 }
 
 #if (LV_USE_LOG)
@@ -103,6 +117,7 @@ static void lv_debug(lv_log_level_t level, const char *file, uint32_t line, cons
   Serial.println(dsc);
 }
 #endif
+
 
 // GLUE LIB FUNCTIONS ------------------------------------------------------
 
