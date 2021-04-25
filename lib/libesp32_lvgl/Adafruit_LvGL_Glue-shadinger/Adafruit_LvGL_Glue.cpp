@@ -48,7 +48,8 @@ static bool touchscreen_read(struct _lv_indev_drv_t *indev_drv, lv_indev_data_t 
 //#endif
 
 // Actual RAM usage will be 2X these figures, since using 2 DMA buffers...
-#define LV_BUFFER_ROWS 60 // Most others have a bit more space
+//#define LV_BUFFER_ROWS 60 // Most others have a bit more space
+#define LV_BUFFER_ROWS 10
 
 // This is the flush function required for LittlevGL screen updates.
 // It receives a bounding rect and an array of pixel data (conveniently
