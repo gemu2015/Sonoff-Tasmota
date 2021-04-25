@@ -48,8 +48,8 @@ static bool touchscreen_read(struct _lv_indev_drv_t *indev_drv, lv_indev_data_t 
 //#endif
 
 // Actual RAM usage will be 2X these figures, since using 2 DMA buffers...
-//#define LV_BUFFER_ROWS 60 // Most others have a bit more space
-#define LV_BUFFER_ROWS 10
+#define LV_BUFFER_ROWS 60 // Most others have a bit more space
+
 
 // This is the flush function required for LittlevGL screen updates.
 // It receives a bounding rect and an array of pixel data (conveniently
@@ -219,7 +219,8 @@ LvGLStatus Adafruit_LvGL_Glue::begin(Renderer *tft, void *touch, bool debug) {
 
   uint32_t lvgl_buffer_size;
   //lvgl_buffer_size = LV_HOR_RES_MAX * LV_BUFFER_ROWS;
-  lvgl_buffer_size = tft->width() * LV_BUFFER_ROWS;
+  uint8_t flushlines = tft->lvgl_pars();
+  lvgl_buffer_size = tft->width() * flushlines ? flushlines:LV_BUFFER_ROWS;
 
 
   if ((lv_pixel_buf = new lv_color_t[lvgl_buffer_size])) {

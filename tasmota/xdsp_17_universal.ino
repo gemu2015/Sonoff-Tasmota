@@ -198,10 +198,10 @@ uDisplay *udisp;
       //SPI,*,*,*,*,*,*,*
       if (cs < 0) {
         switch (*cp) {
-          case 1:
+          case '1':
             cs = Pin(GPIO_SPI_CS);
             break;
-          case 2:
+          case '2':
             cs = Pin(GPIO_SPI_CS, 1);
             break;
           default:
