@@ -22,7 +22,7 @@ static void lv_tick_handler(void) { lv_tick_inc(lv_tick_interval_ms); }
 #define ADC_YMIN 240
 #define ADC_YMAX 840
 
-static uint8_t lvgl_bpp = 1;
+
 
 uint32_t Touch_Status(uint32_t sel);
 
@@ -76,37 +76,19 @@ static void lv_flush_callback(lv_disp_drv_t *disp, const lv_area_t *area, lv_col
 
   Renderer *display = glue->display;
 
-  Serial.printf(">>>%d - %d - %d - %d \n",area->x1, area->y1, width, height);
-
-  if (lvgl_bpp == 1) {
-    // bitwise convert and copy of area, ugly
-    // should force full frambuffer copy ???
-    uint8_t *dp = display->framebuffer;
-    for (uint32_t cnt = 0; cnt < width * height / 8; cnt++) {
-      uint8_t bwpix = 0;
-      for (uint32_t pix = 0; pix < 8; pix++) {
-        uint8_t pixel = lv_color_to1(*color_p++)<<7;
-        bwpix >>= 1;
-        bwpix |= pixel;
-      }
-      *dp++ = bwpix;
-      Serial.printf("%02x ", bwpix);
-    }
-    display->Updateframe();
-  } else {
-    if (!glue->first_frame) {
+  if (!glue->first_frame) {
       //display->dmaWait();  // Wait for prior DMA transfer to complete
       //display->endWrite(); // End transaction from any prior call
-    } else {
+  } else {
       glue->first_frame = false;
-    }
-
-    display->setAddrWindow(area->x1, area->y1, area->x1+width, area->y1+height);
-    display->pushColors((uint16_t *)color_p, width * height, true);
-    display->setAddrWindow(0,0,0,0);
-
-    lv_disp_flush_ready(disp);
   }
+
+  display->setAddrWindow(area->x1, area->y1, area->x1+width, area->y1+height);
+  display->pushColors((uint16_t *)color_p, width * height, true);
+  display->setAddrWindow(0,0,0,0);
+
+  lv_disp_flush_ready(disp);
+
 }
 
 #if (LV_USE_LOG)
@@ -233,13 +215,9 @@ LvGLStatus Adafruit_LvGL_Glue::begin(Renderer *tft, void *touch, bool debug) {
   // if ((lv_pixel_buf = new lv_color_t[LV_HOR_RES_MAX * LV_BUFFER_ROWS * 2])) {
 
   uint32_t lvgl_buffer_size;
-  if (lvgl_bpp == 1) {
-    lvgl_buffer_size = tft->width() * tft->height();
-  } else {
-    //lvgl_buffer_size = LV_HOR_RES_MAX * LV_BUFFER_ROWS;
-    lvgl_buffer_size = tft->width() * LV_BUFFER_ROWS;
-  }
-
+  //lvgl_buffer_size = LV_HOR_RES_MAX * LV_BUFFER_ROWS;
+  lvgl_buffer_size = tft->width() * LV_BUFFER_ROWS;
+  
 
   if ((lv_pixel_buf = new lv_color_t[lvgl_buffer_size])) {
 
