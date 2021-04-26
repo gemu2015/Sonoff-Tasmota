@@ -68,6 +68,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   ep_mode = 0;
   fg_col = 1;
   bg_col = 0;
+  init_complete = 0;
   splash_font = -1;
   allcmd_mode = 0;
   startline = 0xA1;
@@ -466,18 +467,9 @@ Renderer *uDisplay::Init(void) {
     if (spi_nr == 1) {
       uspi = &SPI;
       uspi->begin(spi_clk, spi_miso, spi_mosi, -1);
-      if (lvgl_param.use_dma) {
-        spi_host = VSPI_HOST;
-        initDMA(spi_cs);
-      }
-
     } else if (spi_nr == 2) {
       uspi = new SPIClass(HSPI);
       uspi->begin(spi_clk, spi_miso, spi_mosi, -1);
-      if (lvgl_param.use_dma) {
-        spi_host = HSPI_HOST;
-        initDMA(spi_cs);
-      }
     } else {
       pinMode(spi_clk, OUTPUT);
       digitalWrite(spi_clk, LOW);
@@ -582,11 +574,26 @@ void uDisplay::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
       fillScreen(bg_col);
       Updateframe();
     }
-
-#ifdef UDSP_DEBUG
-    Serial.printf("Dsp Init complete \n");
-#endif
   }
+#ifdef ESP32
+    if (lvgl_param.use_dma) {
+      if (spi_nr <= 1) {
+        spi_host = VSPI_HOST;
+      //  initDMA(-1);
+      }
+      if (spi_nr == 2) {
+        spi_host = HSPI_HOST;
+      //  initDMA(-1);
+      }
+#ifdef UDSP_DEBUG
+      Serial.printf("Dsp Init complete \n");
+#endif
+      init_complete = 1;
+    }
+#endif // ESP32
+
+
+
 }
 
 void uDisplay::spi_command(uint8_t val) {
@@ -1801,7 +1808,7 @@ void uDisplay::drawFastHLine_EPD(int16_t x, int16_t y, int16_t w, uint16_t color
 
 void uDisplay::beginTransaction(SPISettings s) {
 #ifdef ESP32
-  if (lvgl_param.use_dma) {
+  if (lvgl_param.use_dma && init_complete) {
     dmaWait();
   } else {
     uspi->beginTransaction(s);
@@ -1813,7 +1820,7 @@ void uDisplay::beginTransaction(SPISettings s) {
 
 void uDisplay::endTransaction(void) {
 #ifdef ESP32
-  if (lvgl_param.use_dma) {
+  if (lvgl_param.use_dma && init_complete) {
     dmaBusy();
   } else {
     uspi->endTransaction();
@@ -1848,7 +1855,7 @@ bool uDisplay::initDMA(bool ctrl_cs)
   };
 
   int8_t pin = -1;
-  if (ctrl_cs) pin = spi_cs;
+  if (ctrl_cs >= 0) pin = spi_cs;
 
   spi_device_interface_config_t devcfg = {
     .command_bits = 0,
