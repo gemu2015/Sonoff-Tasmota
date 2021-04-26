@@ -283,7 +283,8 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             lut3time = next_val(&lp1);
             break;
           case 'B':
-            lvgl_param = next_val(&lp1);
+            lvgl_param.fluslines = next_val(&lp1);
+            lvgl_param.use_dma = next_val(&lp1);
             break;
         }
       }
