@@ -1912,10 +1912,10 @@ void uDisplay::pushPixelsDMA(uint16_t* image, uint32_t len) {
 
   dmaWait();
 
-/*
-  if(_swapBytes) {
+
+  //if(_swapBytes) {
     for (uint32_t i = 0; i < len; i++) (image[i] = image[i] << 8 | image[i] >> 8);
-  }*/
+  //}
 
   esp_err_t ret;
 
