@@ -335,6 +335,8 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
     Serial.printf("SPED: %d\n", spi_speed*1000000);
     Serial.printf("Pixels: %d\n", col_mode);
     Serial.printf("SaMode: %d\n", sa_mode);
+    Serial.printf("fg_col: %d\n", fg_col);
+    Serial.printf("bg_col: %d\n", bg_col);
 
     Serial.printf("opts: %02x,%02x,%02x\n", saw_3, dim_op, startline);
 
@@ -541,6 +543,7 @@ Renderer *uDisplay::Init(void) {
 
 
 void uDisplay::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
+
   if (p != DISPLAY_INIT_MODE && ep_mode) {
     if (p == DISPLAY_INIT_PARTIAL) {
       if (lutpsize) {
@@ -575,24 +578,24 @@ void uDisplay::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
       Updateframe();
     }
   }
+
 #ifdef ESP32
-    if (lvgl_param.use_dma) {
-      if (spi_nr <= 1) {
-        spi_host = VSPI_HOST;
-      //  initDMA(-1);
-      }
-      if (spi_nr == 2) {
-        spi_host = HSPI_HOST;
-      //  initDMA(-1);
-      }
-#ifdef UDSP_DEBUG
-      Serial.printf("Dsp Init complete \n");
-#endif
-      init_complete = 1;
+  if (lvgl_param.use_dma) {
+    if (spi_nr <= 1) {
+      spi_host = VSPI_HOST;
+      initDMA(-1);
+    }
+    if (spi_nr == 2) {
+      spi_host = HSPI_HOST;
+      initDMA(-1);
     }
 #endif // ESP32
 
-
+#ifdef UDSP_DEBUG
+    Serial.printf("Dsp Init complete \n");
+#endif
+    init_complete = 1;
+  }
 
 }
 
