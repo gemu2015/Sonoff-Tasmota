@@ -163,10 +163,10 @@ class uDisplay : public Renderer {
    uint8_t dsp_on;
    uint8_t dsp_off;
    uint8_t allcmd_mode;
-   uint16_t splash_font;
-   uint16_t splash_size;
-   int16_t splash_xp;
-   int16_t splash_yp;
+   int8_t splash_font;
+   uint8_t splash_size;
+   uint16_t splash_xp;
+   uint16_t splash_yp;
    uint16_t fg_col;
    uint16_t bg_col;
    uint16_t gxs;

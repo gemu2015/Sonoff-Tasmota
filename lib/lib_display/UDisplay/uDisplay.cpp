@@ -66,6 +66,9 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   lutftime = 350;
   lut3time = 10;
   ep_mode = 0;
+  fg_col = 1;
+  bg_col = 0;
+  splash_font = -1;
   allcmd_mode = 0;
   startline = 0xA1;
   uint8_t section = 0;
@@ -575,7 +578,7 @@ void uDisplay::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
     setTextSize(size);
     setTextColor(fg_col, bg_col);
     setCursor(0,0);
-    if (splash_xp >= 0) {
+    if (splash_font >= 0) {
       fillScreen(bg_col);
       Updateframe();
     }
@@ -949,7 +952,7 @@ void uDisplay::Splash(void) {
   }
   setTextFont(splash_font);
   setTextSize(splash_size);
-  DrawStringAt(abs(splash_xp), splash_yp, dname, fg_col, 0);
+  DrawStringAt(splash_xp, splash_yp, dname, fg_col, 0);
   Updateframe();
 }
 
