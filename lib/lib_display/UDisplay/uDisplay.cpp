@@ -1807,7 +1807,7 @@ bool uDisplay::initDMA(bool ctrl_cs)
   esp_err_t ret;
   spi_bus_config_t buscfg = {
     .mosi_io_num = spi_mosi,
-    .miso_io_num = spi_miso,
+    .miso_io_num = -1,
     .sclk_io_num = spi_clk,
     .quadwp_io_num = -1,
     .quadhd_io_num = -1,
