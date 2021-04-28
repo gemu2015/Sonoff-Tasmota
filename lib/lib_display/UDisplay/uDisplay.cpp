@@ -1090,9 +1090,7 @@ void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean not_swapped) {
       if (lvgl_param.use_dma) {
         pushPixelsDMA(data, len );
       } else {
-        lvgl_color_swap(data, len);
-        //uspi->writeBytes((uint8_t*)data, len * 2);
-        uspi->writePixels(data, len * 2);
+        uspi->writeBytes((uint8_t*)data, len * 2);
       }
 #endif
     } else {
@@ -1124,49 +1122,6 @@ void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean not_swapped) {
       }
     }
   }
-
-
-
-#ifdef ESP32
-// reversed order for DMA, so non-DMA needs to get back to normal order
-  if (!not_swapped && !lvgl_param.use_dma) {
-    for (uint32_t i = 0; i < len; i++) (data[i] = data[i] << 8 | data[i] >> 8);
-  }
-#endif
-
-  if (bpp != 16) {
-    // stupid monchrome version
-    for (uint32_t y = seta_yp1; y < seta_yp2; y++) {
-      for (uint32_t x = seta_xp1; x < seta_xp2; x++) {
-        uint16_t color = *data++;
-        drawPixel(x, y, ulv_color_to1(color));
-        len--;
-        if (!len) return;
-      }
-    }
-    return;
-  }
-
-  if ( (col_mode != 18) && (spi_dc >= 0) && (spi_nr <= 2) ) {
-    // special version 8 bit spi I or II
-#ifdef ESP8266
-    while (len--) {
-      uspi->write(*data++);
-    }
-#else
-    if (lvgl_param.use_dma) {
-      pushPixelsDMA(data, len );
-    } else {
-      uspi->writePixels(data, len * 2);
-      uspi->writeBytes((uint8_t*)data, len * 2);
-    }
-#endif
-  } else {
-    while (len--) {
-      WriteColor(*data++);
-    }
-  }
-
 }
 
 void uDisplay::WriteColor(uint16_t color) {
