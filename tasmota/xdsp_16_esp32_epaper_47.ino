@@ -67,12 +67,60 @@ void EpdInitDriver47(void) {
     bg_color = EPD47_WHITE;
     color_type = COLOR_COLOR;
 
+#ifdef USE_FT5206
+    // start digitizer
+    FT5206_Touch_Init(Wire1);
+#endif // USE_FT5206
+
     epd47_init_done = true;
     AddLog(LOG_LEVEL_INFO, PSTR("DSP: E-Paper 4.7"));
   }
 }
 
 /*********************************************************************************************/
+
+#ifdef USE_FT5206
+#ifdef USE_TOUCH_BUTTONS
+
+uint8_t EPD47_ctouch_counter = 0;
+
+// no rotation support
+void EPD47_RotConvert(int16_t *x, int16_t *y) {
+int16_t temp;
+  if (renderer) {
+    uint8_t rot=renderer->getRotation();
+    switch (rot) {
+      case 0:
+        break;
+      case 1:
+        temp=*y;
+        *y=renderer->height()-*x;
+        *x=temp;
+        break;
+      case 2:
+        *x=renderer->width()-*x;
+        *y=renderer->height()-*y;
+        break;
+      case 3:
+        temp=*y;
+        *y=*x;
+        *x=renderer->width()-temp;
+        break;
+    }
+  }
+}
+
+// check digitizer hit
+void EPD47_CheckTouch(void) {
+  EPD47_ctouch_counter++;
+  if (2 == EPD47_ctouch_counter) {
+    // every 100 ms should be enough
+    EPD47_ctouch_counter = 0;
+    Touch_Check(EPD47_RotConvert);
+  }
+}
+#endif // USE_TOUCH_BUTTONS
+#endif // USE_FT5206
 
 
 /*********************************************************************************************\
@@ -91,6 +139,13 @@ bool Xdsp16(uint8_t function)
       case FUNC_DISPLAY_MODEL:
         result = true;
         break;
+#if defined(USE_FT5206)
+      case FUNC_DISPLAY_EVERY_50_MSECOND:
+        if (FT5206_found) {
+          EPD47_CheckTouch();
+        }
+        break;
+#endif // USE_FT5206
     }
   }
   return result;
