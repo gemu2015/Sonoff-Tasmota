@@ -214,6 +214,7 @@ class uDisplay : public Renderer {
    uint16_t seta_xp2;
    uint16_t seta_yp1;
    uint16_t seta_yp2;
+   void pushColorsMono(uint16_t *data, uint16_t len);
 #ifdef ESP32
    // dma section
    bool DMA_Enabled = false;
@@ -227,7 +228,6 @@ class uDisplay : public Renderer {
    bool dmaBusy(void);
    void dmaWait(void);
    void pushPixelsDMA(uint16_t* image, uint32_t len);
-   void pushColorsMono(uint16_t *data, uint16_t len);
 #endif // ESP32
 };
 
