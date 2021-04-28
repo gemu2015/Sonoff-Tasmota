@@ -1033,22 +1033,103 @@ void uDisplay::setAddrWindow_int(uint16_t x, uint16_t y, uint16_t w, uint16_t h)
 }
 
 
+#define CNV_B1_OR  ((0x10<<11) | (0x20<<5) | 0x10)
 static inline uint8_t ulv_color_to1(uint16_t color) {
-  if (((color>>11) & 0x10) || ((color>>5) & 0x20) || (color & 0x10)) {
+  if (color & CNV_B1_OR) {
       return 1;
   }
   else {
       return 0;
   }
+/*
+// this needs optimization
+  if (((color>>11) & 0x10) || ((color>>5) & 0x20) || (color & 0x10)) {
+      return 1;
+  }
+  else {
+      return 0;
+  }*/
 }
-void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean not_inverted) {
+
+// convert to mono, these are framebuffer based
+void uDisplay::pushColorsMono(uint16_t *data, uint16_t len) {
+  for (uint32_t y = seta_yp1; y < seta_yp2; y++) {
+    for (uint32_t x = seta_xp1; x < seta_xp2; x++) {
+      uint16_t color = *data++;
+      if (bpp == 1) color = ulv_color_to1(color);
+      drawPixel(x, y, color);
+      len--;
+      if (!len) return;
+    }
+  }
+}
+
+// swap high low byte
+static inline void lvgl_color_swap(uint16_t *data, uint16_t len) { for (uint32_t i = 0; i < len; i++) (data[i] = data[i] << 8 | data[i] >> 8); }
+
+void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean not_swapped) {
   uint16_t color;
 
   //Serial.printf("push %x - %d\n", (uint32_t)data, len);
+  if (not_swapped == false) {
+    // called from LVGL bytes are swapped
+    if (bpp != 16) {
+      lvgl_color_swap(data, len);
+      pushColorsMono(data, len);
+      return;
+    }
+
+    if ( (col_mode != 18) && (spi_dc >= 0) && (spi_nr <= 2) ) {
+      // special version 8 bit spi I or II
+#ifdef ESP8266
+      lvgl_color_swap(data, len);
+      while (len--) {
+        uspi->write(*data++);
+      }
+#else
+      if (lvgl_param.use_dma) {
+        pushPixelsDMA(data, len );
+      } else {
+        lvgl_color_swap(data, len);
+        //uspi->writeBytes((uint8_t*)data, len * 2);
+        uspi->writePixels(data, len * 2);
+      }
+#endif
+    } else {
+      // 9 bit and others
+      lvgl_color_swap(data, len);
+      while (len--) {
+        WriteColor(*data++);
+      }
+    }
+  } else {
+    // called from displaytext, no byte swap, currently no dma here
+    if (bpp != 16) {
+      pushColorsMono(data, len);
+      return;
+    }
+    if ( (col_mode != 18) && (spi_dc >= 0) && (spi_nr <= 2) ) {
+      // special version 8 bit spi I or II
+  #ifdef ESP8266
+      while (len--) {
+        uspi->write(*data++);
+      }
+  #else
+      uspi->writePixels(data, len * 2);
+  #endif
+    } else {
+      // 9 bit and others
+      while (len--) {
+        WriteColor(*data++);
+      }
+    }
+  }
+
+
 
 #ifdef ESP32
 // reversed order for DMA, so non-DMA needs to get back to normal order
-  if (!not_inverted && !lvgl_param.use_dma) {
+  if (!not_swapped && !lvgl_param.use_dma) {
     for (uint32_t i = 0; i < len; i++) (data[i] = data[i] << 8 | data[i] >> 8);
   }
 #endif
@@ -1077,6 +1158,7 @@ void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean not_inverted) {
       pushPixelsDMA(data, len );
     } else {
       uspi->writePixels(data, len * 2);
+      uspi->writeBytes((uint8_t*)data, len * 2);
     }
 #endif
   } else {
