@@ -67,7 +67,6 @@ int32_t Epd47::Init(void) {
 
 void Epd47::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
 
-
   if (p ==  DISPLAY_INIT_MODE) {
     epd_poweron();
     epd_clear();
