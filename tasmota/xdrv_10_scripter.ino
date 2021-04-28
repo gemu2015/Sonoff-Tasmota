@@ -2352,7 +2352,7 @@ chknext:
           goto exit;
         }
         if (!strncmp(vname, "fsm", 3)) {
-          fvar=glob_script_mem.script_sd_found;
+          fvar=(uint32_t)ufsp;
           //card_init();
           goto exit;
         }
@@ -5323,8 +5323,8 @@ void HandleScriptConfiguration(void) {
     WSContentSend_P(HTTP_FORM_SCRIPT1b);
 
 #ifdef USE_SCRIPT_FATFS
-    if (glob_script_mem.script_sd_found) {
-      WSContentSend_P(HTTP_FORM_SCRIPT1d);
+    if (ufsp) {
+      //WSContentSend_P(HTTP_FORM_SCRIPT1d);
       if (glob_script_mem.flink[0][0]) WSContentSend_P(HTTP_FORM_SCRIPT1c, 1, glob_script_mem.flink[0]);
       if (glob_script_mem.flink[1][0]) WSContentSend_P(HTTP_FORM_SCRIPT1c, 2, glob_script_mem.flink[1]);
     }
