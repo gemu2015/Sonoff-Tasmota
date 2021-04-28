@@ -25,6 +25,7 @@ SOFTWARE.
 #include "RA8876.h"
 #include <limits.h>
 
+uint8_t initdone;
 /* TODO
 
 font 0 x and y size with line,col cmd
@@ -123,6 +124,9 @@ uint8_t RA8876::readStatus(void) {
 void RA8876::writeReg(uint8_t reg, uint8_t x) {
   writeCmd(reg);
   writeData(x);
+  if (!initdone) {
+  //  Serial.printf("%02x, %02x\n", reg, x);
+  }
 }
 
 // Like writeReg(), but does two successive register writes of a 16-bit value, low byte first.
@@ -593,7 +597,7 @@ bool RA8876::initDisplay() {
   // TODO: Track backlight pin and turn on backlight
 
   SPI.endTransaction();
-
+initdone = 1;
   return true;
 }
 
