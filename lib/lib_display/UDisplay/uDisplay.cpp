@@ -946,6 +946,9 @@ for(y=h; y>0; y--) {
 
 
 void uDisplay::Splash(void) {
+
+  if (splash_font < 0) return;
+  
   if (ep_mode) {
     Updateframe();
     delay(lut3time * 10);
