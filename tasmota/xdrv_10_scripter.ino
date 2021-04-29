@@ -69,6 +69,9 @@ keywords if then else endif, or, and are better readable for beginners (others m
 #define MAX_SARRAY_NUM 32
 #endif
 
+#include <renderer.h>
+extern Renderer *renderer;
+
 uint32_t EncodeLightId(uint8_t relay_id);
 uint32_t DecodeLightId(uint32_t hue_id);
 
@@ -3339,7 +3342,7 @@ chknext:
           goto exit;
         }
 #endif // USE_TTGO_WATCH
-#if defined(USE_FT5206) || defined(USE_XPT2046) ||  defined(USE_LILYGO47)
+#if defined(USE_FT5206) || defined(USE_XPT2046) || defined(USE_LILYGO47)
         if (!strncmp(vname, "wtch(", 5)) {
           lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           fvar = Touch_Status(fvar);
@@ -6489,10 +6492,12 @@ char buff[512];
     // screen copy
     #define fileHeaderSize 14
     #define infoHeaderSize 40
-    if (buffer) {
-      uint8_t *bp = buffer;
+
+    if (renderer && renderer->framebuffer) {
+      uint8_t *bp = renderer->framebuffer;
       uint8_t *lbuf = (uint8_t*)special_malloc(Settings.display_width * 3 + 2);
       if (!lbuf) return;
+      uint8_t bpp = renderer->disp_bpp;
       uint8_t *lbp;
       uint8_t fileHeader[fileHeaderSize];
       createBitmapFileHeader(Settings.display_height , Settings.display_width , fileHeader);
@@ -6502,21 +6507,39 @@ char buff[512];
       Webserver->client().write((uint8_t *)infoHeader, infoHeaderSize);
       for (uint32_t lins = 0; lins<Settings.display_height; lins++) {
         lbp = lbuf + (Settings.display_width * 3);
-        for (uint32_t cols = 0; cols<Settings.display_width; cols += 8) {
-          uint8_t bits = 0x80;
-          while (bits) {
-            if (!((*bp) & bits)) {
-              *--lbp = 0xff;
-              *--lbp = 0xff;
-              *--lbp = 0xff;
-            } else {
-              *--lbp = 0;
-              *--lbp = 0;
-              *--lbp = 0;
+        if (bpp == 4) {
+          for (uint32_t cols = 0; cols < Settings.display_width; cols += 2) {
+            uint8_t pixel;
+            for (uint32_t cnt = 0; cnt <= 1; cnt++) {
+              if (cnt & 1) {
+                pixel = *bp >> 4;
+              } else {
+                pixel = *bp & 0xf;
+              }
+              pixel *= 15;
+              *--lbp = pixel;
+              *--lbp = pixel;
+              *--lbp = pixel;
             }
-            bits = bits>>1;
+            bp++;
           }
-          bp++;
+        } else {
+          for (uint32_t cols = 0; cols < Settings.display_width; cols += 8) {
+            uint8_t bits = 0x80;
+            while (bits) {
+              if (!((*bp) & bits)) {
+                *--lbp = 0xff;
+                *--lbp = 0xff;
+                *--lbp = 0xff;
+              } else {
+                *--lbp = 0;
+                *--lbp = 0;
+                *--lbp = 0;
+              }
+              bits = bits>>1;
+            }
+            bp++;
+          }
         }
         Webserver->client().write((const char*)lbuf, Settings.display_width * 3);
       }

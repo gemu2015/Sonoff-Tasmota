@@ -316,6 +316,8 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
     ep_mode = 2;
   }
 
+  disp_bpp = bpp;
+
 #ifdef UDSP_DEBUG
 
   Serial.printf("xs : %d\n", gxs);
