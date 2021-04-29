@@ -122,7 +122,8 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             setwidth(gxs);
             gys = next_val(&lp1);
             setheight(gys);
-            bpp = next_val(&lp1);
+            disp_bpp = next_val(&lp1);
+            bpp = abs(disp_bpp);
             if (bpp == 1) {
               col_type = uCOLOR_BW;
             } else {
@@ -315,8 +316,6 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
     // 5 table mode
     ep_mode = 2;
   }
-
-  disp_bpp = bpp;
 
 #ifdef UDSP_DEBUG
 
