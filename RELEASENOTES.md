@@ -55,7 +55,7 @@ The following binary downloads have been compiled with ESP8266/Arduino library c
 
 Above binaries are also available as gzipped version allowing faster uploads.
 
-The attached binaries can also be downloaded from http://ota.tasmota.com/tasmota/release. The links can be used for OTA upgrades too like ``OtaUrl http://ota.tasmota.com/tasmota/release/tasmota.bin.gz``
+The binaries can be downloaded from either https://github.com/arendst/Tasmota/tree/release-firmware or http://ota.tasmota.com/tasmota/release. The latter links can be used for OTA upgrades too like ``OtaUrl http://ota.tasmota.com/tasmota/release/tasmota.bin.gz``
 
 ### ESP32 based
 The following binary downloads have been compiled with ESP32/Arduino library core version **1.0.6**.
@@ -70,24 +70,23 @@ The following binary downloads have been compiled with ESP32/Arduino library cor
 - **tasmota32-odroidgo.bin** = The Odroid-Go version is specifically tailored to Odroid_go hardware.
 - **tasmota32-core2.bin** = The Core2 version is specifically tailored to M5Stack Core2 hardware.
 
-The attached binaries can also be downloaded from http://ota.tasmota.com/tasmota32/release. The links can be used for OTA upgrades too like ``OtaUrl http://ota.tasmota.com/tasmota32/release/tasmota32.bin``
+The binaries can be downloaded from either https://github.com/arendst/Tasmota/tree/release-firmware or http://ota.tasmota.com/tasmota32/release. The latter links can be used for OTA upgrades too like ``OtaUrl http://ota.tasmota.com/tasmota32/release/tasmota32.bin``
 
 [List](MODULES.md) of embedded modules.
 
 [Complete list](BUILDS.md) of available feature and sensors.
 
-## Changelog v9.4.0.1
+## Changelog v9.4.0.2
 ### Added
-- Command ``Wifi 0/1`` for ESP8266 to turn wifi Off and On. When wifi is Off it is always returned On after a restart except for a wake-up from deepsleep [#11839](https://github.com/arendst/Tasmota/issues/11839)
+- Initial support for optional ``Template`` JSON fieldpair ``"CMND":"<any template related command>|<any template related command>|..."`` [#11788](https://github.com/arendst/Tasmota/issues/11788)
+- ESP32 pulldown buttons ``Button_d`` and ``Button_id`` and switches ``Switch_d`` [#10814](https://github.com/arendst/Tasmota/issues/10814)
+- Support for MQTT using Azure IoT Hub by Kevin Saye [#11906](https://github.com/arendst/Tasmota/issues/11906)
 
 ### Breaking Changed
 
 ### Changed
-- Zigbee refactored storage for device configuration and device last known data [#11838](https://github.com/arendst/Tasmota/issues/11838)
 
 ### Fixed
-- Command ``Power`` should not reset pulsetime [#11805](https://github.com/arendst/Tasmota/issues/11805)
-- Teleperiod rule handling regression from v9.3.1.2 [#11851](https://github.com/arendst/Tasmota/issues/11851)
 
 ### Noted
 - ESP32 single core **tasmota32solo1.bin** binary can only be uploaded using the GUI as OTA upload will trigger the watchdog timer

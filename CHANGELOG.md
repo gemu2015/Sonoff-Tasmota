@@ -3,7 +3,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - Development
 
-## [9.4.0.1]
+## [9.4.0.2]
+### Added
+- Initial support for optional ``Template`` JSON fieldpair ``"CMND":"<any template related command>|<any template related command>|..."`` (#11788)
+- ESP32 pulldown buttons ``Button_d`` and ``Button_id`` and switches ``Switch_d`` (#10814)
+- Support for MQTT using Azure IoT Hub by Kevin Saye (#11906)
+
+## [Released]
+
+## [9.4.0] 20210423
+- Release Leslie
+
+## [9.4.0.1] 20210423
 ### Added
 - Command ``Wifi 0/1`` for ESP8266 to turn wifi Off and On. When wifi is Off it is always returned On after a restart except for a wake-up from deepsleep (#11839)
 
@@ -13,11 +24,6 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Command ``Power`` should not reset pulsetime (#11805)
 - Teleperiod rule handling regression from v9.3.1.2 (#11851)
-
-## [Released]
-
-## [9.4.0] 20210422
-- Release Leslie
 
 ## [9.3.1.4] 20210422
 ### Added
