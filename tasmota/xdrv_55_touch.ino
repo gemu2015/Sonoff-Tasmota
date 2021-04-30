@@ -59,7 +59,6 @@ uint32_t Touch_Status(uint32_t sel) {
   }
 }
 
-
 #ifdef USE_M5STACK_CORE2
 uint8_t tbstate[3];
 #endif // USE_M5STACK_CORE2
@@ -72,7 +71,6 @@ uint8_t tbstate[3];
 
 FT5206_Class *FT5206_touchp;
 
-
 bool FT5206_Touch_Init(TwoWire &i2c) {
   FT5206_found = false;
   FT5206_touchp = new FT5206_Class();
@@ -80,6 +78,7 @@ bool FT5206_Touch_Init(TwoWire &i2c) {
     I2cSetActiveFound(FT5206_address, "FT5206");
     FT5206_found = true;
   }
+  //AddLog(LOG_LEVEL_INFO, PSTR("TS: FT5206 %d"),FT5206_found);
   return FT5206_found;
 }
 
