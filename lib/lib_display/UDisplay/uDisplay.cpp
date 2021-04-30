@@ -1076,7 +1076,7 @@ static inline void lvgl_color_swap(uint16_t *data, uint16_t len) { for (uint32_t
 void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean not_swapped) {
   uint16_t color;
 
-  Serial.printf("push %x - %d\n", (uint32_t)data, len);
+  //Serial.printf("push %x - %d\n", (uint32_t)data, len);
   if (not_swapped == false) {
     // called from LVGL bytes are swapped
     if (bpp != 16) {
