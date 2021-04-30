@@ -8051,6 +8051,7 @@ int32_t lvgl_test(char **lpp, int32_t p) {
 
 
     default:
+      start_lvgl(0);
       lvgl_setup();
       break;
   }
