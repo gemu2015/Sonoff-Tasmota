@@ -607,10 +607,10 @@ void ILI9341_2::dim(uint8_t dim) {
     ledcWrite(ESP32_PWM_CHANNEL,dimmer);
   } else {
     if (_hwspi>=2) {
+      //ili9342_dimm(dim);
       if (dim_cbp) {
         dim_cbp(dim);
       }
-      //ili9342_dimm(dim);
     }
   }
 #endif
