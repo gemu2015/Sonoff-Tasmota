@@ -7871,29 +7871,52 @@ uint32_t script_i2c(uint8_t sel, uint8_t val, uint8_t val1) {
 #include <renderer.h>
 #include "lvgl.h"
 
-
-void start_lvgl(const char * uconfig);
-
-void btn_event_cb(lv_obj_t * btn, lv_event_t event);
-void btn_event_cb(lv_obj_t * btn, lv_event_t event) {
-    if (event == LV_EVENT_CLICKED) {
-      Run_Scripter(">lvb", 4, 0);
-    }
-}
-
-void slider_event_cb(lv_obj_t * btn, lv_event_t event);
-void slider_event_cb(lv_obj_t * btn, lv_event_t event) {
-
-    if (event == LV_EVENT_VALUE_CHANGED) {
-      Run_Scripter(">lvs", 4, 0);
-    }
-}
-
 #define MAX_LVGL_OBJS 8
-
 uint8_t lvgl_numobjs;
 lv_obj_t *lvgl_buttons[MAX_LVGL_OBJS];
 
+void start_lvgl(const char * uconfig);
+lv_event_t lvgl_last_event;
+uint8_t lvgl_last_object;
+uint8_t lvgl_last_slider;
+
+void lvgl_set_last(lv_obj_t * obj, lv_event_t event);
+void lvgl_set_last(lv_obj_t * obj, lv_event_t event) {
+  lvgl_last_event = event;
+  lvgl_last_object = 0;
+  for (uint8_t cnt = 0; cnt < MAX_LVGL_OBJS; cnt++) {
+    if (lvgl_buttons[cnt] == obj) {
+      lvgl_last_object = cnt + 1;
+      return;
+    }
+  }
+}
+
+
+void btn_event_cb(lv_obj_t * btn, lv_event_t event);
+void btn_event_cb(lv_obj_t * btn, lv_event_t event) {
+  lvgl_set_last(btn, event);
+  if (event == LV_EVENT_CLICKED) {
+    Run_Scripter(">lvb", 4, 0);
+  }
+}
+
+void slider_event_cb(lv_obj_t * sld, lv_event_t event);
+void slider_event_cb(lv_obj_t * sld, lv_event_t event) {
+  lvgl_set_last(sld, event);
+  lvgl_last_slider = lv_slider_get_value(sld);
+  if (event == LV_EVENT_VALUE_CHANGED) {
+    Run_Scripter(">lvs", 4, 0);
+  }
+}
+
+void lvgl_StoreObj(lv_obj_t *obj);
+void lvgl_StoreObj(lv_obj_t *obj) {
+  if (lvgl_numobjs < MAX_LVGL_OBJS) {
+    lvgl_buttons[lvgl_numobjs] = obj;
+    lvgl_numobjs++;
+  }
+}
 
 int32_t lvgl_test(char **lpp, int32_t p) {
   char *lp = *lpp;
@@ -7901,6 +7924,7 @@ int32_t lvgl_test(char **lpp, int32_t p) {
   lv_obj_t *label;
   float xp, yp, xs, ys, min, max;
   char str[SCRIPT_MAXSSIZE];
+  int32_t res = 0;
 
   switch (p) {
     case 0:
@@ -7934,8 +7958,7 @@ int32_t lvgl_test(char **lpp, int32_t p) {
       lv_obj_set_event_cb(obj, btn_event_cb);
       label = lv_label_create(obj, NULL);
       lv_label_set_text(label, str);
-      lvgl_buttons[lvgl_numobjs] = obj;
-      lvgl_numobjs++;
+      lvgl_StoreObj(obj);
       break;
 
     case 3:
@@ -7952,8 +7975,7 @@ int32_t lvgl_test(char **lpp, int32_t p) {
       lv_obj_set_pos(obj, xp, yp);
       lv_obj_set_size(obj, xs, ys);
       lv_obj_set_event_cb(obj, slider_event_cb);
-      lvgl_buttons[lvgl_numobjs] = obj;
-      lvgl_numobjs++;
+      lvgl_StoreObj(obj);
       break;
 
     case 4:
@@ -7974,8 +7996,7 @@ int32_t lvgl_test(char **lpp, int32_t p) {
       lv_obj_set_pos(obj, xp, yp);
       lv_obj_set_size(obj, xs, ys);
       lv_gauge_set_range(obj, min, max);
-      lvgl_buttons[lvgl_numobjs] = obj;
-      lvgl_numobjs++;
+      lvgl_StoreObj(obj);
       break;
 
     case 5:
@@ -8005,8 +8026,7 @@ int32_t lvgl_test(char **lpp, int32_t p) {
       lv_obj_set_pos(obj, xp, yp);
       lv_obj_set_size(obj, xs, ys);
       lv_label_set_text(obj, str);
-      lvgl_buttons[lvgl_numobjs] = obj;
-      lvgl_numobjs++;
+      lvgl_StoreObj(obj);
       break;
 
     case 7:
@@ -8019,33 +8039,24 @@ int32_t lvgl_test(char **lpp, int32_t p) {
       }
       break;
 
+    case 50:
+      res = lvgl_last_object;
+      break;
+    case 51:
+      res = lvgl_last_event;
+      break;
+    case 52:
+      res = lvgl_last_slider;
+      break;
+
+
     default:
       lvgl_setup();
       break;
   }
 
-#if 0
-  lv_obj_clean(lv_scr_act());
-
-  if (p == 0) {
-    lv_obj_t *label1 =  lv_label_create(lv_scr_act(), NULL);
-    /*Modify the Label's text*/
-    lv_label_set_text(label1, "Hello world!");
-    /* Align the Label to the center
-     * NULL means align on parent (which is the screen now)
-     * 0, 0 at the end means an x, y offset after alignment*/
-     lv_obj_align(label1, NULL, LV_ALIGN_CENTER, 0, 0);
-     /*Add a button*/
-     lv_obj_t *btn1 = lv_btn_create(lv_scr_act(), NULL);           /*Add to the active screen*/
-     lv_obj_set_pos(btn1, 2, 2);                                    /*Adjust the position*/
-     lv_obj_set_size(btn1, 96, 30);                                 /* set size of button */
-     lv_obj_set_event_cb(btn1, btn_event_cb);
-     /*Add text*/
-     lv_obj_t *label = lv_label_create(btn1, NULL);                  /*Put on 'btn1'*/
-     lv_label_set_text(label, "Click");
-#endif
   *lpp = lp;
-  return 0;
+  return res;
 }
 
 lv_obj_t          *tabview,        // LittlevGL tabview object
