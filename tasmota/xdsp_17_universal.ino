@@ -23,6 +23,7 @@
 
 #define XDSP_17                17
 
+
 #include <uDisplay.h>
 
 bool udisp_init_done = false;
@@ -91,6 +92,7 @@ uDisplay *udisp;
   if (TasmotaGlobal.gpio_optiona.udisplay_driver || desc) {
 
     Settings.display_model = XDSP_17;
+
 
     fbuff = (char*)calloc(DISPDESC_SIZE, 1);
     if (!fbuff) return 0;

@@ -939,8 +939,6 @@ void RA8876::setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
   SPI.endTransaction();
 }
 
-static inline void lvgl_color_swap1(uint16_t *data, uint16_t len) { for (uint32_t i = 0; i < len; i++) (data[i] = data[i] << 8 | data[i] >> 8); }
-
 void RA8876::pushColors(uint16_t *data, uint16_t len, boolean not_swapped) {
 
   if (not_swapped == false) {
