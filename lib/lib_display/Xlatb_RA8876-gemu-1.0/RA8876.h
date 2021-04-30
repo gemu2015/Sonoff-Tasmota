@@ -581,7 +581,7 @@ class RA8876 : public Renderer {
   void deInitDMA(void);
   bool dmaBusy(void);
   void dmaWait(void);
-  void pushPixelsDMA(uint16_t* image, uint32_t len);
+  void pushPixelsDMA(uint8_t* image, uint32_t len);
 #endif // ESP32
 };
 
