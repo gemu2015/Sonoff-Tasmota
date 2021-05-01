@@ -1,17 +1,14 @@
-# EmberZNet NCP UART EZSP firmware
+# Tube's Zigbee Gateways firmware
 
-## EmberZNet NCP UART EZSP firmware signed for Sonoff ZBBridge
+This firmware is to be used with Tube'z Zigbee EFR32 based gateway:
+- https://github.com/tube0013/tube_gateways
+- https://www.tubeszb.com/product/efr32_gw_2/6
 
 ### Currently recommended versions
 
-- `ncp-uart-sw-6.7.8_115200.ota` - NEW: The current and recommended stable version for EZSP v8 compatible hosts.
+- `MGM210PA32JIA_ncp-uart-sw_6.7.9.gbl` - EZSP version 6.7.9
 
-- `ncp-uart-nsw_6.7.9_115200.ota` - has some additional bug fixes and is under testing.
-
-### Archived versions
-
-- `ncp-uart-sw_6.7.6_115200.ota` - OLD: Original version for EZSP v8 compatible hosts, (contains a bug that can cause battery of IKEA and Philips remotes to drain).
-- `ncp-uart-sw_6.5.5_115200.ota` - LEGACY: Legacy version for older EZSP v7 compatible hosts.
+The device comes pre-flashed with EZSP 6.9.1_2 but there are unresolved issues with Tasmota and we currently only support 6.7.x. You need to downgrade the flash firmware to 6.7.9. Simply use the **Firmware Upggrade** feature of Tasmota, it will automatically detect that the firmware is for the EFR32 and not for Tasmota.
 
 ## EFR32, EmberZNet and EZSP Protocol Versions
 
