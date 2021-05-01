@@ -939,70 +939,44 @@ void RA8876::setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
   SPI.endTransaction();
 }
 
+// pixel color is swapped in contrast to other controllers
 void RA8876::pushColors(uint16_t *data, uint16_t len, boolean not_swapped) {
 
   if (not_swapped == false) {
     // coming from LVGL
-    SPI.beginTransaction(m_spiSettings);
-    while (len--) {
-      uint16_t color = *data++;
-      RA8876_CS_LOW
-      SPI.write(RA8876_DATA_WRITE);
-      SPI.write(color>>8);
-      RA8876_CS_HIGH
-      RA8876_CS_LOW
-      SPI.write(RA8876_DATA_WRITE);
-      SPI.write(color);
-      RA8876_CS_HIGH
-    }
-    SPI.endTransaction();
-/* does not work, needs a cs every byte ???
-
-    uint8_t *line = (uint8_t*)malloc(len * 4);
-    uint8_t *lp = line;
-    if (line) {
-      for (uint32_t cnt = 0; cnt < len; cnt++) {
-        uint16_t color = *data++;
-        *lp++ = RA8876_DATA_WRITE;
-        *lp++ = color>>8;
-        *lp++ = RA8876_DATA_WRITE;
-        *lp++ = color;
-      }
-      SPI.beginTransaction(m_spiSettings);
-      RA8876_CS_LOW
 #ifdef ESP32
-      if (lvgl_param.use_dma) {
-        pushPixelsDMA(line, len);
-      } else {
-        SPI.writeBytes(line, len * 4);
-      }
-#endif
-      RA8876_CS_HIGH
-      SPI.endTransaction();
-      free(line);
-    }
-    */
-  } else {
     SPI.beginTransaction(m_spiSettings);
-    //RA8876_CS_LOW
+    RA8876_CS_LOW
+    SPI.write(RA8876_DATA_WRITE);
+    if (lvgl_param.use_dma) {
+      // will need swapping !
+      pushPixelsDMA(data, len);
+    } else {
+      SPI.writePixels(data, len * 2);
+    }
+    RA8876_CS_HIGH
+    SPI.endTransaction();
+#endif
+  } else {
+    // coming from displaytext
+    SPI.beginTransaction(m_spiSettings);
+    RA8876_CS_LOW
+    SPI.transfer(RA8876_DATA_WRITE);
+
+#ifdef ESP32
+    SPI.writeBytes((uint8_t*)data, len * 2);
+#endif
+
+#ifdef ESP8266
     while (len--) {
       uint16_t color = *data++;
-
-#if 0
-      SPI.transfer(RA8876_DATA_WRITE);
-      SPI.transfer(color&0xff);
-      SPI.transfer(RA8876_DATA_WRITE);
-      SPI.transfer(color>>8);
-#else
-      //waitWriteFifo();
-      writeData(color&0xff);
-      //waitWriteFifo();
-      writeData(color>>8);
-#endif
+      SPI.write(color&0xff);
+      SPI.write(color>>8);
     }
+#endif
+    RA8876_CS_HIGH
     SPI.endTransaction();
   }
-  //RA8876_CS_HIGH
 }
 
 void RA8876::drawPixel(int16_t x, int16_t y, uint16_t color) {
@@ -1536,7 +1510,7 @@ bool RA8876::initDMA()
     .cs_ena_posttrans = 0,
     .clock_speed_hz = RA8876_SPI_SPEED,
     .input_delay_ns = 0,
-    .spics_io_num = m_csPin,
+    .spics_io_num = -1,
     .flags = SPI_DEVICE_NO_DUMMY, //0,
     .queue_size = 1,
     .pre_cb = 0, //dc_callback, //Callback to handle D/C line
@@ -1605,7 +1579,7 @@ void RA8876::dmaWait(void) {
 ** Description:             Push pixels to TFT (len must be less than 32767)
 ***************************************************************************************/
 // This will byte swap the original image if setSwapBytes(true) was called by sketch.
-void RA8876::pushPixelsDMA(uint8_t* image, uint32_t len) {
+void RA8876::pushPixelsDMA(uint16_t* image, uint32_t len) {
 
   if ((len == 0) || (!DMA_Enabled)) return;
 
@@ -1617,7 +1591,7 @@ void RA8876::pushPixelsDMA(uint8_t* image, uint32_t len) {
 
   trans.user = (void *)1;
   trans.tx_buffer = image;  //finally send the line data
-  trans.length = len * 32;        //Data length, in bits
+  trans.length = len * 16;        //Data length, in bits
   trans.flags = 0;                //SPI_TRANS_USE_TXDATA flag
 
   ret = spi_device_queue_trans(dmaHAL, &trans, portMAX_DELAY);
