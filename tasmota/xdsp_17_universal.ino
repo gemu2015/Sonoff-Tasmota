@@ -53,6 +53,11 @@ void Core2DisplayDim(uint8_t dim);
 
 //#define DSP_ROM_DESC
 
+#ifndef DISP_DESC_FILE
+//#define DISP_DESC_FILE "/dispdesc.txt"
+#define DISP_DESC_FILE "/display.ini"
+#endif
+
 /*********************************************************************************************/
 #ifdef DSP_ROM_DESC
 /* sample descriptor */
@@ -107,7 +112,7 @@ uDisplay *udisp;
 #ifdef USE_UFILESYS
     if (ffsp  && !TasmotaGlobal.no_autoexec && !ddesc) {
       File fp;
-      fp = ffsp->open("/dispdesc.txt", "r");
+      fp = ffsp->open(DISP_DESC_FILE, "r");
       if (fp > 0) {
         uint32_t size = fp.size();
         fp.read((uint8_t*)fbuff, size);

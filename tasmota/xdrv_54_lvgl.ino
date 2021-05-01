@@ -309,7 +309,7 @@ void start_lvgl(const char * uconfig) {
     return;
   }
 
-  if (!renderer) {
+  if (!renderer || uconfig) {
 #ifdef USE_UNIVERSAL_DISPLAY    // TODO - we will probably support only UNIV_DISPLAY
     renderer  = Init_uDisplay((char*)uconfig, -1);
     if (!renderer) return;
