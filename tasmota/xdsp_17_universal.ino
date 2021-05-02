@@ -104,8 +104,10 @@ uDisplay *udisp;
 
     if (desc) {
       memcpy_P(fbuff, desc, DISPDESC_SIZE - 1);
-      ddesc = fbuff;
-      AddLog(LOG_LEVEL_INFO, PSTR("DSP: const char descriptor used"));
+      if (fbuff[0] == ':' && fbuff[1] == 'H') {
+        ddesc = fbuff;
+        AddLog(LOG_LEVEL_INFO, PSTR("DSP: const char descriptor used"));
+      }
     }
 
 
