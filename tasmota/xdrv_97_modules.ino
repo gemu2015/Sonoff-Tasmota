@@ -25,6 +25,9 @@ very early stage
 
 #ifdef USE_MODULES
 
+
+#define TEST_MODULE1
+
 #define XDRV_97             97
 
 //  command line commands
@@ -76,10 +79,10 @@ typedef struct {
   void (*mod_func_every_Ssecond)(struct MODULES_TABLE *);
 } FLASH_MODULE;
 
-int32_t mod_func_init(struct MODULES_TABLE *);
-void mod_func_web_sensor(struct MODULES_TABLE *);
-void mod_func_json_append(struct MODULES_TABLE *);
-void mod_func_every_second(struct MODULES_TABLE *);
+static int32_t mod_func_init(struct MODULES_TABLE *);
+static void mod_func_web_sensor(struct MODULES_TABLE *);
+static void mod_func_json_append(struct MODULES_TABLE *);
+static void mod_func_every_second(struct MODULES_TABLE *);
 static const FLASH_MODULE  *end_of_module(void);
 
 
@@ -92,10 +95,13 @@ struct MODULES_TABLE {
 } modules[MAXMODULES];
 
 
+//extern const FLASH_MODULE module_header;
+
 // scan for modules and add to modules table
 void InitModules(void) {
 
   modules[0].mod_addr = end_of_module();
+//  modules[0].mod_addr = &module_header;
   const FLASH_MODULE *fm = modules[0].mod_addr;
   Serial.printf("module %0x %d\n",fm->sync, fm->size);
   modules[0].jt = MODULE_JUMPTABLE;
@@ -142,14 +148,15 @@ bool Xdrv97(uint8_t function) {
   return result;
 }
 
+
+#ifdef TEST_MODULE1
 // example module
 
 static const FLASH_MODULE module_header = {
   0x4AFC,
   MODULE_TYPE_SENSOR,
   0,
-  (uint32_t)end_of_module-(uint32_t)mod_func_init,
-//  (uint32_t)end_of_module-(uint32_t)&module_header,
+  (uint32_t)end_of_module-(uint32_t)mod_func_init + sizeof(FLASH_MODULE),
   mod_func_init,
   mod_func_web_sensor,
   mod_func_json_append,
@@ -202,4 +209,6 @@ static void mod_func_every_second(struct MODULES_TABLE *mt) {
 static const FLASH_MODULE  *end_of_module(void) {
   return &module_header;
 }
+
+#endif
 #endif  // USE_MODULES
