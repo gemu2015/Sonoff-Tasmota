@@ -26,7 +26,7 @@ very early stage
 #ifdef USE_MODULES
 
 
-#define TEST_MODULE1
+//#define TEST_MODULE1
 
 #define XDRV_97             97
 
@@ -83,7 +83,7 @@ static int32_t mod_func_init(struct MODULES_TABLE *);
 static void mod_func_web_sensor(struct MODULES_TABLE *);
 static void mod_func_json_append(struct MODULES_TABLE *);
 static void mod_func_every_second(struct MODULES_TABLE *);
-static const FLASH_MODULE  *end_of_module(void);
+//static const FLASH_MODULE  *end_of_module(void);
 
 
 #define MAXMODULES 16
@@ -94,18 +94,22 @@ struct MODULES_TABLE {
   uint16_t mem_size;
 } modules[MAXMODULES];
 
-
+extern "C" {
+ extern const FLASH_MODULE module_header;
+}
 //extern const FLASH_MODULE module_header;
 
 // scan for modules and add to modules table
 void InitModules(void) {
 
-  modules[0].mod_addr = end_of_module();
+  modules[0].mod_addr = &module_header;
 //  modules[0].mod_addr = &module_header;
-  const FLASH_MODULE *fm = modules[0].mod_addr;
-  Serial.printf("module %0x %d\n",fm->sync, fm->size);
+  //const FLASH_MODULE *fm = modules[0].mod_addr;
+//  Serial.printf("module %0x\n",modules[0].mod_addr);
+  //Serial.printf("module %0x %d\n",fm->sync, fm->size);
   modules[0].jt = MODULE_JUMPTABLE;
-  fm->mod_func_init(&modules[0]);
+  return;
+  //fm->mod_func_init(&modules[0]);
 }
 
 void Module_mdir(void) {

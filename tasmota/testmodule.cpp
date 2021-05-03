@@ -17,7 +17,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#if 0
+#ifdef ESP32
 
 #include <Arduino.h>
 #include <stdio.h>
@@ -32,9 +32,6 @@
 #include "Stream.h"
 
 enum {MODULE_TYPE_SENSOR, MODULE_TYPE_LIGHT, MODULE_TYPE_ENERGY};
-
-
-
 
 typedef struct {
   uint16_t sync;
@@ -60,7 +57,9 @@ static void mod_func_json_append(struct MODULES_TABLE *);
 static void mod_func_every_second(struct MODULES_TABLE *);
 static void end_of_module(void);
 
+
 // example module
+//__attribute__((section(".text")))
 const FLASH_MODULE module_header = {
   0x4AFC,
   MODULE_TYPE_SENSOR,
@@ -72,6 +71,7 @@ const FLASH_MODULE module_header = {
   mod_func_every_second
 };
 
+
 #define jWire (TwoWire*)(jt[0])
 #define jWire1 (TwoWire*)(jt[1])
 #define jSerial (HardwareSerial*)(jt[2])
@@ -82,9 +82,32 @@ typedef struct  {
   uint8_t murks;
 } MODULE1_MEMORY;
 
+/*
+__asm__ __volatile__ (
+".global module_header"
+);
+
+__asm__ __volatile__ (
+"module_header:"
+".byte 0xFC, 0x4A, 0x00, 0x00, 0x00, 0x01"
+);
+
+__asm__ __volatile__ (
+".word end_module-module_header, mod_func_init-module_header, mod_func_web_sensor-module_header, mod_func_json_append-module_header, mod_func_every_second-module_header"
+);
+
 // init module,
+__asm__ __volatile__ (
+"mod_func_init:"
+);
+__asm__ __volatile__ (
+".text"
+);
+
+*/
 static int32_t mod_func_init(struct MODULES_TABLE *mt) {
   void (* const *jt)() = mt->jt;
+
   // allocate memory
   mt->mem_size = sizeof(MODULE1_MEMORY)+8;
   mt->mod_memory = calloc(mt->mem_size/4,4);
@@ -108,20 +131,30 @@ static int32_t mod_func_init(struct MODULES_TABLE *mt) {
 }
 
 
+__asm__ __volatile__ (
+"mod_func_web_sensor:"
+);
 static void mod_func_web_sensor(struct MODULES_TABLE *mt) {
 
 }
 
+__asm__ __volatile__ (
+"mod_func_json_append:"
+);
 static void mod_func_json_append(struct MODULES_TABLE *mt) {
 
 }
 
+__asm__ __volatile__ (
+"mod_func_every_second:"
+);
 static void mod_func_every_second(struct MODULES_TABLE *mt) {
 
 }
 
-static void end_of_module(void) {
+__asm__ __volatile__ (
+"end_module:"
+);
 
-}
 
 #endif
