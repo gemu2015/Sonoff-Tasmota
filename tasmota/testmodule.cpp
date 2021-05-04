@@ -59,7 +59,7 @@ static void end_of_module(void);
 
 
 // example module
-//__attribute__((section(".text")))
+__attribute__((section(".text")))
 const FLASH_MODULE module_header = {
   0x4AFC,
   MODULE_TYPE_SENSOR,
