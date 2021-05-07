@@ -277,10 +277,13 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size) {
 
 // show all linked modules
 void Module_mdir(void) {
+  AddLog(LOG_LEVEL_INFO, PSTR("| ======== Module directory ========"));
+  AddLog(LOG_LEVEL_INFO, PSTR("| nr | name            | address  | size | type |  rev | ram  | init"));
   for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
     if (modules[cnt].mod_addr) {
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-      AddLog(LOG_LEVEL_INFO, PSTR("Module %d: %s %08x - %d- %d - %d - %d"), cnt + 1, fm->name, modules[cnt].mod_addr,  modules[cnt].mod_size,  fm->type, fm->revision, modules[cnt].mem_size);
+      AddLog(LOG_LEVEL_INFO, PSTR("| %02d | %-16s| %08x | %4d | %04x | %04x | %4d | %1d"), cnt + 1, fm->name, modules[cnt].mod_addr,
+       modules[cnt].mod_size,  fm->type, fm->revision, modules[cnt].mem_size, modules[cnt].flags.initialized);
       //AddLog(LOG_LEVEL_INFO, PSTR("Module %d: %s %08x"), cnt + 1, fm->name, modules[cnt].mod_addr);
     }
   }
@@ -293,16 +296,21 @@ void Module_link(void) {
 
   if (XdrvMailbox.data_len) {
     uint32_t size;
+    uint8_t cnt;
     uint8_t *mp = Load_Module(XdrvMailbox.data, &size);
     if (mp) {
-      // currently take pos zero
-      modules[0].mod_addr = (void *) Store_Module(mp, size);
+      for (cnt = 0; cnt < MAXMODULES; cnt++) {
+        if (!modules[cnt].mod_addr) {
+          break;
+        }
+      }
+      modules[cnt].mod_addr = (void *) Store_Module(mp, size);
       free(mp);
-      const FLASH_MODULE *fm = (FLASH_MODULE*)modules[0].mod_addr;
-      modules[0].jt = MODULE_JUMPTABLE;
-      modules[0].mod_size = (uint32_t)fm->end_of_module-(uint32_t)modules[0].mod_addr;
-      modules[0].settings = &mysettings;
-      modules[0].flags.data = 0;
+      const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
+      modules[cnt].jt = MODULE_JUMPTABLE;
+      modules[cnt].mod_size = (uint32_t)fm->end_of_module-(uint32_t)modules[cnt].mod_addr;
+      modules[cnt].settings = &mysettings;
+      modules[cnt].flags.data = 0;
       AddLog(LOG_LEVEL_INFO,PSTR("module %s loaded at %d"),XdrvMailbox.data, 1);
     } else {
       // error

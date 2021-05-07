@@ -100,7 +100,7 @@ MODULE_PART int32_t Init_MLX90614(MODULES_TABLE *mt) {
 
   //HardwareSerial *sp = jSerial;
   //sp->printf_P(GSTR(initmsg));
-  sprint(GSTR(initmsg));
+  //sprint(GSTR(initmsg));
 
   if (!jI2cSetDevice(I2_ADR_IRT)) {
     return -1;
