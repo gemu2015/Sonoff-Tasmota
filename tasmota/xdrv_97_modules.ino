@@ -152,6 +152,12 @@ void InitModules(void) {
     }
   }
 */
+  const FLASH_MODULE *fm = (FLASH_MODULE*)modules[0].mod_addr;
+  modules[0].jt = MODULE_JUMPTABLE;
+  modules[0].mod_size = (uint32_t)fm->end_of_module-(uint32_t)modules[0].mod_addr;
+  modules[0].settings = &mysettings;
+  modules[0].flags.data = 0;
+
   if (ffsp) {
     File fp;
     fp = ffsp->open((char*)"/module.bin", "w");
@@ -201,7 +207,6 @@ void ModuleJsonAppend() {
     }
   }
 }
-
 
 void tmod_beginTransmission(TwoWire *wp, uint8_t addr) {
   wp->beginTransmission(addr);
@@ -298,6 +303,7 @@ void Module_link(void) {
       modules[0].mod_size = (uint32_t)fm->end_of_module-(uint32_t)modules[0].mod_addr;
       modules[0].settings = &mysettings;
       modules[0].flags.data = 0;
+      AddLog(LOG_LEVEL_INFO,PSTR("module %s loaded at %d"),XdrvMailbox.data, 1);
     } else {
       // error
     }
@@ -315,9 +321,11 @@ void Module_unlink(void) {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
         int32_t result = fm->mod_func_execute(&modules[module], FUNC_DEINIT);
         modules[module].flags.data = 0;
+        AddLog(LOG_LEVEL_INFO,PSTR("module %d deinizialized"),module + 1);
       }
       // remove from module table, erase flash
-      // modules[module].mod_addr = 0;
+      modules[module].mod_addr = 0;
+      AddLog(LOG_LEVEL_INFO,PSTR("module %d unlinked"),module + 1);
     }
   }
   ResponseCmndDone();
@@ -334,6 +342,7 @@ void Module_iniz(void) {
       modules[module].flags.every_second = 1;
       modules[module].flags.web_sensor = 1;
       modules[module].flags.json_append = 1;
+      AddLog(LOG_LEVEL_INFO,PSTR("module %d inizialized"),module + 1);
     }
   }
   ResponseCmndDone();
@@ -347,6 +356,7 @@ void Module_deiniz(void) {
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
       int32_t result = fm->mod_func_execute(&modules[module], FUNC_DEINIT);
       modules[module].flags.data = 0;
+      AddLog(LOG_LEVEL_INFO,PSTR("module %d deinizialized"),module + 1);
     }
   }
   ResponseCmndDone();
