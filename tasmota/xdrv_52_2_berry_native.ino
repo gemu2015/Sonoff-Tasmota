@@ -180,63 +180,174 @@ extern "C" {
  *   'i' be_int
  *   'b' be_bool
  *   's' be_string
- *   'o' be_instance
+ *   'lv_obj' be_instance of type or subtype
+ *   '0'..'5' callback
  * 
  * Ex: "oii+s" takes 3 mandatory arguments (obj_instance, int, int) and an optional fourth one [,string]
 \*********************************************************************************************/
 // general form of lv_obj_t* function, up to 4 parameters
 // We can only send 32 bits arguments (no 64 bits nor double) and we expect pointers to be 32 bits
 
+#define LVBE_MAX_CALLBACK     6   // max 6 callbackss
+#define LVBE_LVGL_CB          "_lvgl_cb"
+#define LVBE_LVGL_CB_OBJ      "_lvgl_cb_obj"        // remember which object it was linked to
+#define LVBE_LVGL_CB_DISPATCH "_lvgl_cb_dispatch"
+
+// General form of callback
+typedef int32_t (*lvbe_callback)(struct _lv_obj_t * obj, int32_t v1, int32_t v2, int32_t v3, int32_t v4);
+int32_t lvbe_callback_x(uint32_t n, struct _lv_obj_t * obj, int32_t v1, int32_t v2, int32_t v3, int32_t v4);
+
+// We define 6 callback vectors, this may need to be raised
+int32_t lvbe_callback_0(struct _lv_obj_t * obj, int32_t v1, int32_t v2, int32_t v3, int32_t v4) {
+  return lvbe_callback_x(0, obj, v1, v2, v3, v4);
+}
+int32_t lvbe_callback_1(struct _lv_obj_t * obj, int32_t v1, int32_t v2, int32_t v3, int32_t v4) {
+  return lvbe_callback_x(1, obj, v1, v2, v3, v4);
+}
+int32_t lvbe_callback_2(struct _lv_obj_t * obj, int32_t v1, int32_t v2, int32_t v3, int32_t v4) {
+  return lvbe_callback_x(2, obj, v1, v2, v3, v4);
+}
+int32_t lvbe_callback_3(struct _lv_obj_t * obj, int32_t v1, int32_t v2, int32_t v3, int32_t v4) {
+  return lvbe_callback_x(3, obj, v1, v2, v3, v4);
+}
+int32_t lvbe_callback_4(struct _lv_obj_t * obj, int32_t v1, int32_t v2, int32_t v3, int32_t v4) {
+  return lvbe_callback_x(4, obj, v1, v2, v3, v4);
+}
+int32_t lvbe_callback_5(struct _lv_obj_t * obj, int32_t v1, int32_t v2, int32_t v3, int32_t v4) {
+  return lvbe_callback_x(5, obj, v1, v2, v3, v4);
+}
+
+const lvbe_callback lvbe_callbacks[LVBE_MAX_CALLBACK] = {
+  lvbe_callback_0,
+  lvbe_callback_1,
+  lvbe_callback_2,
+  lvbe_callback_3,
+  lvbe_callback_4,
+  lvbe_callback_5,
+};
+
+int32_t lvbe_callback_x(uint32_t n, struct _lv_obj_t * obj, int32_t v1, int32_t v2, int32_t v3, int32_t v4) {
+  be_getglobal(berry.vm, LVBE_LVGL_CB_OBJ);
+  be_pushint(berry.vm, n);
+  be_pushint(berry.vm, (int32_t) obj);
+  be_pushint(berry.vm, v1);
+  be_pushint(berry.vm, v2);
+  be_pushint(berry.vm, v3);
+  be_pushint(berry.vm, v4);
+  be_pcall(berry.vm, 6);
+  int32_t ret = be_toint(berry.vm, -7);
+  be_pop(berry.vm, 7);
+  berry_log_P(">>>: Callback called%d", n);
+  return ret;
+}
+
 // read a single value at stack position idx, convert to int.
 // if object instance, get `.p` member and convert it recursively
-int32_t be_convert_single_elt(bvm *vm, int32_t idx);
-int32_t be_convert_single_elt(bvm *vm, int32_t idx) {
-  if      (be_isint(vm, idx))     { return be_toint(vm, idx); }
-  else if (be_isbool(vm, idx))    { return be_tobool(vm, idx); }
-  else if (be_isstring(vm, idx))  { return (int32_t) be_tostring(vm, idx); }
-  else if (be_iscomptr(vm, idx))  { return (int32_t) be_tocomptr(vm, idx); }
-  else if (be_isinstance(vm, idx))  {
+int32_t be_convert_single_elt(bvm *vm, int32_t idx, const char * arg_type = nullptr, int32_t lv_obj_cb = 0) {
+  int32_t ret = 0;
+  char provided_type = 0;
+  idx = be_absindex(vm, idx);   // make sure we have an absolute index
+  if (arg_type == nullptr) { arg_type = "."; }    // if no type provided, replace with wildchar
+  size_t arg_type_len = strlen(arg_type);
+
+  // handle callbacks first, since a wrong parameter will always yield to a crash
+  if (arg_type_len == 1 && arg_type[0] >= '0' && arg_type[0] < '0' + LVBE_MAX_CALLBACK) {
+    if (be_isclosure(vm, idx)) {
+      // we're good
+      // berry_log_P(">> closure found idx %d", idx);
+      uint32_t cb_index = arg_type[0] - '0';
+      lvbe_callback func = lvbe_callbacks[cb_index];
+      // register the object
+
+      // record the closure
+      be_getglobal(vm, LVBE_LVGL_CB);
+      be_getmember(vm, -1, ".p");
+      be_pushint(vm, cb_index);
+      be_getindex(vm, -2);
+      // be_dumpstack(vm);
+      // stack: _lvgl_cb, list.p, index, map
+      be_moveto(vm, -1, -4);
+      be_pop(vm, 3);
+      // be_dumpstack(vm);
+      // stack: map
+      be_getmember(vm, -1, ".p");
+      be_pushint(vm, lv_obj_cb);  // key - lv_obj
+      be_pushvalue(vm, idx);      // value - closure
+      // stack map, map.p, key, value
+      be_setindex(vm, -3);
+      // be_dumpstack(vm);
+      // stack map, map.p, key, value
+      be_pop(vm, 4);      // clean
+      // be_dumpstack(vm);
+
+      // record the object, it is always index #1
+      be_getglobal(vm, LVBE_LVGL_CB_OBJ);
+      be_getmember(vm, -1, ".p");
+      be_pushint(vm, cb_index);
+      be_getindex(vm, -2);
+      be_moveto(vm, -1, -4);
+      be_pop(vm, 3);
+      // stack: map
+      be_getmember(vm, -1, ".p");
+      be_pushint(vm, lv_obj_cb);  // key - lv_obj as int
+      be_pushvalue(vm, 1);  // value - lv_obj
+      // stack map, map.p, key, value
+      be_setindex(vm, -3);
+      be_pop(vm, 4);      // clean
+
+
+      return (int32_t) func;
+    } else {
+      be_raise(vm, kTypeError, "Closure expected for callback type");
+    }
+  }
+
+  // first convert the value to int32
+  if      (be_isint(vm, idx))     { ret = be_toint(vm, idx); provided_type = 'i'; }
+  else if (be_isbool(vm, idx))    { ret = be_tobool(vm, idx); provided_type = 'b'; }
+  else if (be_isstring(vm, idx))  { ret = (int32_t) be_tostring(vm, idx); provided_type = 's'; }
+  else if (be_iscomptr(vm, idx))  { ret = (int32_t) be_tocomptr(vm, idx); provided_type = 'i'; }
+
+  // check if simple type was a match
+  if (provided_type) {
+    if ((arg_type_len != 1) || ((arg_type[0] != provided_type) && arg_type[0] != '.') ) {
+      berry_log_P("Unexpected argument type '%c', expected '%s'", provided_type, arg_type);
+    }
+    return ret;
+  }
+
+  // non-simple type
+  if (be_isinstance(vm, idx))  {
     be_getmember(vm, idx, ".p");
-    int32_t ret = be_convert_single_elt(vm, -1);   // recurse
+    int32_t ret = be_convert_single_elt(vm, -1, nullptr);   // recurse
     be_pop(vm, 1);
+
+    if (arg_type_len > 1) {
+      // Check type
+      be_classof(vm, idx);
+      bool class_found = be_getglobal(vm, arg_type);
+      // Stack: class_of_idx, class_of_target (or nil)
+      if (class_found) {
+        if (!be_isderived(vm, -2)) {
+          berry_log_P("Unexpected class type '%s', expected '%s'", be_classname(vm, idx), arg_type);
+        }
+      } else {
+        berry_log_P("Unable to find class '%s' (%d)", arg_type, arg_type_len);
+      }
+      be_pop(vm, 2);
+    } else if (arg_type[0] != '.') {
+      berry_log_P("Unexpected instance type '%s', expected '%s'", be_classname(vm, idx), arg_type);
+    }
+
     return ret;
   } else {
     be_raise(vm, kTypeError, nullptr);
   }
+
+  // 
+
+  return ret;
 }
 
-typedef int32_t (*fn_any_callable)(int32_t p0, int32_t p1, int32_t p2, int32_t p3, int32_t p4);
-int be_call_c_func(bvm *vm, void * func, const char * return_type = nullptr, const char * arg_type = nullptr) {
-  int32_t p[5] = {0,0,0,0,0};
-  int32_t argc = be_top(vm); // Get the number of arguments
-  // AddLog(LOG_LEVEL_INFO, ">> be_call_c_func argc = %d", argc);
-  for (uint32_t i = 0; i < argc; i++) {
-    uint32_t idx = i+1;
-    p[i] = be_convert_single_elt(vm, idx);
-  }
-
-  fn_any_callable f = (fn_any_callable) func;
-  // AddLog(LOG_LEVEL_INFO, ">> be_call_c_func(%p) - %p,%p,%p,%p,%p - %s", f, p[0], p[1], p[2], p[3], p[4], return_type);
-  int32_t ret = (*f)(p[0], p[1], p[2], p[3], p[4]);
-  // AddLog(LOG_LEVEL_INFO, ">> be_call_c_func, ret = %p", ret);
-  if ((return_type == nullptr) || (strlen(return_type) == 0))       { be_return_nil(vm); }  // does not return
-  else if (strlen(return_type) == 1) {
-    switch (return_type[0]) {
-      case 'i':   be_pushint(vm, ret); break;
-      case 'b':   be_pushbool(vm, ret);  break;
-      case 's':   be_pushstring(vm, (const char*) ret);  break;
-      default:    be_raise(vm, "internal_error", "Unsupported return type"); break;
-    }
-    be_return(vm);
-  } else { // class name
-  // AddLog(LOG_LEVEL_INFO, ">> be_call_c_func, create_obj", ret);
-    be_getglobal(vm, return_type);  // stack = class
-    be_pushcomptr(vm, (void*) -1);         // stack = class, -1
-    be_pushcomptr(vm, (void*) ret);         // stack = class, -1, ptr
-    be_call(vm, 2);                 // instanciate with 2 arguments, stack = instance, -1, ptr
-    be_pop(vm, 2);                  // stack = instance
-    be_return(vm);
-  }
-}
 
 #endif  // USE_BERRY

@@ -1,8 +1,8 @@
 import re
 import sys
 
-in_file = "lv_widgets.h"
-module_file = "lv_module.h"
+lv_widgets_file = "lv_widgets.h"
+lv_module_file = "lv_module.h"
 
 out_prefix = "../../tasmota/lvgl_berry/"
 lvgl_prefix = "../../lib/libesp32/Berry/default/"
@@ -13,8 +13,17 @@ be_lv_c_mapping = "be_lv_c_mapping.h"
 be_lv_widgets_libs = "be_lvgl_widgets_lib.c"
 be_lv_lvgl_module = "be_lv_lvgl_module.c"
 
+# detect a function definition all
+# Ex: 'void lv_obj_set_parent(lv_obj_t * obj, lv_obj_t * parent);'
+# Group 1: 'void'
+# Group 2: 'lv_obj_set_parent'
+# Group 3: 'lv_obj_t * obj, lv_obj_t * parent'
+parse_func_def = re.compile("(.*?)\s(\w+)\((.*?)\)")
 
-m = re.compile("(.*?)\s(\w+)\((.*?)\)")
+# parse call argument type
+# Ex: 'const lv_obj_t * parent' -> 'const ', 'lv_obj_t', ' * ', 'parent'
+# Ex: 'bool auto_fit' -> '', 'bool', ' ', 'auto_fit'
+parse_arg = re.compile("(\w+\s+)?(\w+)([\*\s]+)(\w+)")
 
 return_types = {
   "void": "",
@@ -61,7 +70,13 @@ return_types = {
   "lv_slider_type_t": "i",
   "lv_spinner_type_t": "i",
   "lv_spinner_dir_t": "i",
-  "lv_group_focus_cb_t": "i",
+  "lv_blend_mode_t": "i",
+  "lv_grad_dir_t": "i",
+  "lv_border_side_t": "i",
+  "lv_align_t": "i",
+  "lv_keyboard_mode_t": "i",
+  # "lv_group_focus_cb_t": "i",
+  "lv_indev_type_t": "i",
 
 
   "lv_obj_t *": "lv_obj",
@@ -76,12 +91,13 @@ lv = {}
 lvs = []   # special case for case for lv_style
 lv0 = []        # function in lvlg module
 lv_module = []
+lv_cb_types = []  # list of callback types that will need each a separate C callback, later sorted by first argument
 
 lv_widgets = ['arc', 'bar', 'btn', 'btnmatrix', 'calendar', 'canvas', 'chart', 'checkbox',
              'cont', 'cpicker', 'dropdown', 'gauge', 'img', 'imgbtn', 'keyboard', 'label', 'led', 'line',
              'linemeter', 'list', 'msgbox', 'objmask', 'templ', 'page', 'roller', 'slider', 'spinbox',
              'spinner', 'switch', 'table', 'tabview', 'textarea', 'tileview', 'win']
-lv_prefix = ['obj', 'group', 'style'] + lv_widgets
+lv_prefix = ['obj', 'group', 'style', 'indev'] + lv_widgets
 
 def try_int(s):
   try:
@@ -95,7 +111,8 @@ def try_int(s):
 def c_convert_ret_type(c_ret):
   return return_types.get(c_ret, "")
 
-with open(in_file) as f:
+# parse widgets files containing most function calls
+with open(lv_widgets_file) as f:
   for l_raw in f:
     l_raw = re.sub('//.*$', '', l_raw) # remove trailing comments
     l_raw = re.sub('\s+', ' ', l_raw) # replace any multi-space with a single space
@@ -104,10 +121,12 @@ with open(in_file) as f:
     l_raw = re.sub('inline ', '', l_raw)
     if (len(l_raw) == 0): continue
 
-    g = m.search(l_raw)
+    g = parse_func_def.search(l_raw)
     if g:
       # if match, we parse the line
-      ret_type = g.group(1)
+      # Ex: 'void lv_obj_set_parent(lv_obj_t * obj, lv_obj_t * parent);'
+      ret_type = g.group(1)   # return type of the function
+      # Ex: ret_type -> 'void'
 
       if ret_type not in return_types:
         print(f"  // Skipping unsupported return type: {ret_type}")
@@ -117,12 +136,40 @@ with open(in_file) as f:
       c_ret = c_convert_ret_type(ret_type)
 
       # convert arguments
-      # TODO
-      c_args = None
-      args_raw = [ x.strip(" \t\n\r") for x in ",".split(g.group(2)) ]  # split by comma and strip
+      c_args = ""
+      args_raw = [ x.strip(" \t\n\r") for x in g.group(3).split(",") ]  # split by comma and strip
+      for arg_raw in args_raw:
+        # Ex: 'const lv_obj_t * parent' -> 'const ', 'lv_obj_t', ' * ', 'parent'
+        # Ex: 'bool auto_fit' -> '', 'bool', ' ', 'auto_fit'
+        ga = parse_arg.search(arg_raw)
+        if ga:    # parsing ok?
+          ga_type = ga.group(2)
+          ga_ptr = ( ga.group(3).strip(" \t\n\r") == "*" )    # boolean
+          ga_name = ga.group(4)
+          ga_type_ptr = ga_type
+          if ga_ptr: ga_type_ptr += " *"
+          if ga_type_ptr in return_types:
+            ga_type = return_types[ga_type_ptr]
+          else:
+            # remove the trailing '_t' of type name if any
+            ga_type = re.sub(r"_t$", "", ga_type)
+          
+          # if the type is a single letter, we just add it
+          if len(ga_type) == 1:
+            c_args += ga_type
+          else:
+            if ga_type.endswith("_cb"):
+              # it's a callback type, we encode it differently
+              if ga_type not in lv_cb_types:
+                lv_cb_types.append(ga_type)
+              c_args += "&" + str(lv_cb_types.index(ga_type))
+            else:
+              # we have a high-level type that we treat as a class name, enclose in parenthesis
+              c_args += "(" + ga_type + ")"
 
       # analyze function name and determine if it needs to be assigned to a specific class
       func_name = g.group(2)
+      # Ex: func_name -> 'lv_obj_set_parent'
       if func_name.startswith("_"): continue            # skip low-level
       if func_name.startswith("lv_debug_"): continue    # skip debug
 
@@ -145,8 +192,10 @@ with open(in_file) as f:
 
       if found: continue
 
+print("| callback types"+str(lv_cb_types))
 
-with open(module_file) as f:
+# parse module file containing numerical constants
+with open(lv_module_file) as f:
   for l_raw in f:
     l_raw = l_raw.strip(" \t\n\r")    # remove leading or trailing spaces
     if l_raw.startswith("//"):
@@ -270,6 +319,11 @@ print("""
 
 extern int lv0_start(bvm *vm);
 
+extern int lv0_init(bvm *vm);
+
+extern int lv0_register_button_encoder(bvm *vm);    // add buttons with encoder logic
+extern int lv0_register_touch_screen(bvm *vm);      // touch screen
+
 extern int lv0_scr_act(bvm *vm);
 extern int lv0_layer_top(bvm *vm);
 extern int lv0_layer_sys(bvm *vm);
@@ -321,7 +375,10 @@ for subtype, flv in lv.items():
     print(f"    {{ \"init\", lvs_init }},")
     print(f"    {{ \"tostring\", lvs_tostring }},")
   else:
-    print(f"    {{ \"init\", lvbe_{subtype}_create }},")
+    if subtype != 'indev':    # indev has no create
+      print(f"    {{ \"init\", lvbe_{subtype}_create }},")
+    else:
+      print(f"    {{ \"init\", lv0_init }},")
     print(f"    {{ \"tostring\", lvx_tostring }},")
 
   print()
@@ -363,7 +420,10 @@ for subtype, flv in lv.items():
     print(f"    init, func(lvs_init)")
     print(f"    tostring, func(lvs_tostring)")
   else:
-    print(f"    init, func(lvbe_{subtype}_create)")
+    if subtype != 'indev':    # indev has no create
+      print(f"    init, func(lvbe_{subtype}_create)")
+    else:
+      print(f"    init, func(lv0_init)")
     print(f"    tostring, func(lvx_tostring)")
 
   for f in flv:
@@ -396,6 +456,10 @@ print("""/********************************************************************
 #include "lvgl.h"
 
 extern int lv0_start(bvm *vm);
+
+extern int lv0_register_button_encoder(bvm *vm);  // add buttons with encoder logic
+extern int lv0_register_touch_screen(bvm *vm);    // add touch screen
+
 extern int lv0_load_montserrat_font(bvm *vm);
 extern int lv0_load_seg7_font(bvm *vm);
 extern int lv0_load_font(bvm *vm);
@@ -419,7 +483,8 @@ print("""
 
 
 be_native_module_attr_table(lvgl) {
-    // Symbols    be_native_module_str("SYMBOL_AUDIO", "\\xef\\x80\\x81"),
+    // Symbols    
+    be_native_module_str("SYMBOL_AUDIO", "\\xef\\x80\\x81"),
     be_native_module_str("SYMBOL_VIDEO", "\\xef\\x80\\x88"),
     be_native_module_str("SYMBOL_LIST", "\\xef\\x80\\x8b"),
     be_native_module_str("SYMBOL_OK", "\\xef\\x80\\x8c"),
@@ -514,6 +579,10 @@ for k_v in lv_module:
 print("""
 
     be_native_module_function("start", lv0_start),
+
+    be_native_module_function("register_button_encoder", lv0_register_button_encoder),
+    be_native_module_function("register_touch_screen", lv0_register_touch_screen),
+
     be_native_module_function("montserrat_font", lv0_load_montserrat_font),
     be_native_module_function("seg7_font", lv0_load_seg7_font),
     be_native_module_function("load_font", lv0_load_font),
@@ -685,6 +754,10 @@ for k_v in lv_module:
 
 print("""
     start, func(lv0_start)
+
+    register_button_encoder, func(lv0_register_button_encoder)
+    register_touch_screen, func(lv0_register_touch_screen)
+
     montserrat_font, func(lv0_load_montserrat_font)
     seg7_font, func(lv0_load_seg7_font)
     load_font, func(lv0_load_font)

@@ -14,6 +14,11 @@
 
 extern int lv0_start(bvm *vm);
 
+extern int lv0_init(bvm *vm);
+
+extern int lv0_register_button_encoder(bvm *vm);    // add buttons with encoder logic
+extern int lv0_register_touch_screen(bvm *vm);      // touch screen
+
 extern int lv0_scr_act(bvm *vm);
 extern int lv0_layer_top(bvm *vm);
 extern int lv0_layer_sys(bvm *vm);
@@ -172,10 +177,16 @@ extern int lvbe_group_set_editing(bvm *vm);
 extern int lvbe_group_set_click_focus(bvm *vm);
 extern int lvbe_group_set_wrap(bvm *vm);
 extern int lvbe_group_get_focused(bvm *vm);
-extern int lvbe_group_get_focus_cb(bvm *vm);
 extern int lvbe_group_get_editing(bvm *vm);
 extern int lvbe_group_get_click_focus(bvm *vm);
 extern int lvbe_group_get_wrap(bvm *vm);
+
+/* `lv_indev` external functions definitions */
+extern int lvbe_indev_get_type(bvm *vm);
+extern int lvbe_indev_enable(bvm *vm);
+extern int lvbe_indev_set_group(bvm *vm);
+extern int lvbe_indev_get_obj_act(bvm *vm);
+extern int lvbe_indev_search_obj(bvm *vm);
 
 /* `lv_obj` external functions definitions */
 extern int lvbe_obj_create(bvm *vm);
@@ -330,11 +341,13 @@ extern int lvbe_obj_get_style_margin_left(bvm *vm);
 extern int lvbe_obj_set_style_local_margin_left(bvm *vm);
 extern int lvbe_obj_get_style_margin_right(bvm *vm);
 extern int lvbe_obj_set_style_local_margin_right(bvm *vm);
+extern int lvbe_obj_get_style_bg_blend_mode(bvm *vm);
 extern int lvbe_obj_set_style_local_bg_blend_mode(bvm *vm);
 extern int lvbe_obj_get_style_bg_main_stop(bvm *vm);
 extern int lvbe_obj_set_style_local_bg_main_stop(bvm *vm);
 extern int lvbe_obj_get_style_bg_grad_stop(bvm *vm);
 extern int lvbe_obj_set_style_local_bg_grad_stop(bvm *vm);
+extern int lvbe_obj_get_style_bg_grad_dir(bvm *vm);
 extern int lvbe_obj_set_style_local_bg_grad_dir(bvm *vm);
 extern int lvbe_obj_get_style_bg_color(bvm *vm);
 extern int lvbe_obj_set_style_local_bg_color(bvm *vm);
@@ -344,7 +357,9 @@ extern int lvbe_obj_get_style_bg_opa(bvm *vm);
 extern int lvbe_obj_set_style_local_bg_opa(bvm *vm);
 extern int lvbe_obj_get_style_border_width(bvm *vm);
 extern int lvbe_obj_set_style_local_border_width(bvm *vm);
+extern int lvbe_obj_get_style_border_side(bvm *vm);
 extern int lvbe_obj_set_style_local_border_side(bvm *vm);
+extern int lvbe_obj_get_style_border_blend_mode(bvm *vm);
 extern int lvbe_obj_set_style_local_border_blend_mode(bvm *vm);
 extern int lvbe_obj_get_style_border_post(bvm *vm);
 extern int lvbe_obj_set_style_local_border_post(bvm *vm);
@@ -356,6 +371,7 @@ extern int lvbe_obj_get_style_outline_width(bvm *vm);
 extern int lvbe_obj_set_style_local_outline_width(bvm *vm);
 extern int lvbe_obj_get_style_outline_pad(bvm *vm);
 extern int lvbe_obj_set_style_local_outline_pad(bvm *vm);
+extern int lvbe_obj_get_style_outline_blend_mode(bvm *vm);
 extern int lvbe_obj_set_style_local_outline_blend_mode(bvm *vm);
 extern int lvbe_obj_get_style_outline_color(bvm *vm);
 extern int lvbe_obj_set_style_local_outline_color(bvm *vm);
@@ -369,6 +385,7 @@ extern int lvbe_obj_get_style_shadow_ofs_y(bvm *vm);
 extern int lvbe_obj_set_style_local_shadow_ofs_y(bvm *vm);
 extern int lvbe_obj_get_style_shadow_spread(bvm *vm);
 extern int lvbe_obj_set_style_local_shadow_spread(bvm *vm);
+extern int lvbe_obj_get_style_shadow_blend_mode(bvm *vm);
 extern int lvbe_obj_set_style_local_shadow_blend_mode(bvm *vm);
 extern int lvbe_obj_get_style_shadow_color(bvm *vm);
 extern int lvbe_obj_set_style_local_shadow_color(bvm *vm);
@@ -376,6 +393,7 @@ extern int lvbe_obj_get_style_shadow_opa(bvm *vm);
 extern int lvbe_obj_set_style_local_shadow_opa(bvm *vm);
 extern int lvbe_obj_get_style_pattern_repeat(bvm *vm);
 extern int lvbe_obj_set_style_local_pattern_repeat(bvm *vm);
+extern int lvbe_obj_get_style_pattern_blend_mode(bvm *vm);
 extern int lvbe_obj_set_style_local_pattern_blend_mode(bvm *vm);
 extern int lvbe_obj_get_style_pattern_recolor(bvm *vm);
 extern int lvbe_obj_set_style_local_pattern_recolor(bvm *vm);
@@ -389,11 +407,13 @@ extern int lvbe_obj_get_style_value_letter_space(bvm *vm);
 extern int lvbe_obj_set_style_local_value_letter_space(bvm *vm);
 extern int lvbe_obj_get_style_value_line_space(bvm *vm);
 extern int lvbe_obj_set_style_local_value_line_space(bvm *vm);
+extern int lvbe_obj_get_style_value_blend_mode(bvm *vm);
 extern int lvbe_obj_set_style_local_value_blend_mode(bvm *vm);
 extern int lvbe_obj_get_style_value_ofs_x(bvm *vm);
 extern int lvbe_obj_set_style_local_value_ofs_x(bvm *vm);
 extern int lvbe_obj_get_style_value_ofs_y(bvm *vm);
 extern int lvbe_obj_set_style_local_value_ofs_y(bvm *vm);
+extern int lvbe_obj_get_style_value_align(bvm *vm);
 extern int lvbe_obj_set_style_local_value_align(bvm *vm);
 extern int lvbe_obj_get_style_value_color(bvm *vm);
 extern int lvbe_obj_set_style_local_value_color(bvm *vm);
@@ -407,6 +427,7 @@ extern int lvbe_obj_set_style_local_text_letter_space(bvm *vm);
 extern int lvbe_obj_get_style_text_line_space(bvm *vm);
 extern int lvbe_obj_set_style_local_text_line_space(bvm *vm);
 extern int lvbe_obj_set_style_local_text_decor(bvm *vm);
+extern int lvbe_obj_get_style_text_blend_mode(bvm *vm);
 extern int lvbe_obj_set_style_local_text_blend_mode(bvm *vm);
 extern int lvbe_obj_get_style_text_color(bvm *vm);
 extern int lvbe_obj_set_style_local_text_color(bvm *vm);
@@ -419,6 +440,7 @@ extern int lvbe_obj_set_style_local_text_opa(bvm *vm);
 extern int lvbe_obj_set_style_local_text_font(bvm *vm);
 extern int lvbe_obj_get_style_line_width(bvm *vm);
 extern int lvbe_obj_set_style_local_line_width(bvm *vm);
+extern int lvbe_obj_get_style_line_blend_mode(bvm *vm);
 extern int lvbe_obj_set_style_local_line_blend_mode(bvm *vm);
 extern int lvbe_obj_get_style_line_dash_width(bvm *vm);
 extern int lvbe_obj_set_style_local_line_dash_width(bvm *vm);
@@ -430,6 +452,7 @@ extern int lvbe_obj_get_style_line_color(bvm *vm);
 extern int lvbe_obj_set_style_local_line_color(bvm *vm);
 extern int lvbe_obj_get_style_line_opa(bvm *vm);
 extern int lvbe_obj_set_style_local_line_opa(bvm *vm);
+extern int lvbe_obj_get_style_image_blend_mode(bvm *vm);
 extern int lvbe_obj_set_style_local_image_blend_mode(bvm *vm);
 extern int lvbe_obj_get_style_image_recolor(bvm *vm);
 extern int lvbe_obj_set_style_local_image_recolor(bvm *vm);
@@ -717,6 +740,7 @@ extern int lvbe_keyboard_set_cursor_manage(bvm *vm);
 extern int lvbe_keyboard_set_map(bvm *vm);
 extern int lvbe_keyboard_set_ctrl_map(bvm *vm);
 extern int lvbe_keyboard_get_textarea(bvm *vm);
+extern int lvbe_keyboard_get_mode(bvm *vm);
 extern int lvbe_keyboard_get_cursor_manage(bvm *vm);
 extern int lvbe_keyboard_def_event_cb(bvm *vm);
 
@@ -1057,6 +1081,7 @@ extern int lvbe_win_scroll_ver(bvm *vm);
 #include "../generate/be_fixed_be_class_lv_img.h"
 #include "../generate/be_fixed_be_class_lv_style.h"
 #include "../generate/be_fixed_be_class_lv_group.h"
+#include "../generate/be_fixed_be_class_lv_indev.h"
 #include "../generate/be_fixed_be_class_lv_obj.h"
 #include "../generate/be_fixed_be_class_lv_arc.h"
 #include "../generate/be_fixed_be_class_lv_bar.h"
@@ -1421,7 +1446,6 @@ void be_load_lv_group_lib(bvm *vm) {
     { "set_click_focus", lvbe_group_set_click_focus },
     { "set_wrap", lvbe_group_set_wrap },
     { "get_focused", lvbe_group_get_focused },
-    { "get_focus_cb", lvbe_group_get_focus_cb },
     { "get_editing", lvbe_group_get_editing },
     { "get_click_focus", lvbe_group_get_click_focus },
     { "get_wrap", lvbe_group_get_wrap },
@@ -1459,10 +1483,52 @@ class be_class_lv_group (scope: global, name: lv_group) {
     set_click_focus, func(lvbe_group_set_click_focus)
     set_wrap, func(lvbe_group_set_wrap)
     get_focused, func(lvbe_group_get_focused)
-    get_focus_cb, func(lvbe_group_get_focus_cb)
     get_editing, func(lvbe_group_get_editing)
     get_click_focus, func(lvbe_group_get_click_focus)
     get_wrap, func(lvbe_group_get_wrap)
+}
+@const_object_info_end */
+
+void be_load_lv_indev_lib(bvm *vm) {
+#if !BE_USE_PRECOMPILED_OBJECT
+  static const bnfuncinfo members[] = {
+    { ".p", NULL },
+    { "init", lv0_init },
+    { "tostring", lvx_tostring },
+
+    { "get_type", lvbe_indev_get_type },
+    { "enable", lvbe_indev_enable },
+    { "set_group", lvbe_indev_set_group },
+    { "get_obj_act", lvbe_indev_get_obj_act },
+    { "search_obj", lvbe_indev_search_obj },
+
+    // { NULL, (bntvfunc) BE_CLOSURE }, /* mark section for berry closures */
+
+    { NULL, NULL }
+  };
+  be_regclass(vm, "lv_indev", members);
+
+  be_getglobal(vm, "lv_indev");
+  be_getglobal(vm, "lv_obj");
+  be_setsuper(vm, -2);
+  be_pop(vm, 2);
+#else
+    be_pushntvclass(vm, &be_class_lv_indev);
+    be_setglobal(vm, "lv_indev");
+    be_pop(vm, 1);
+#endif
+};
+
+/* @const_object_info_begin
+class be_class_lv_indev (scope: global, name: lv_indev, super: be_class_lv_obj) {
+    .p, var
+    init, func(lv0_init)
+    tostring, func(lvx_tostring)
+    get_type, func(lvbe_indev_get_type)
+    enable, func(lvbe_indev_enable)
+    set_group, func(lvbe_indev_set_group)
+    get_obj_act, func(lvbe_indev_get_obj_act)
+    search_obj, func(lvbe_indev_search_obj)
 }
 @const_object_info_end */
 
@@ -1625,11 +1691,13 @@ void be_load_lv_obj_lib(bvm *vm) {
     { "set_style_local_margin_left", lvbe_obj_set_style_local_margin_left },
     { "get_style_margin_right", lvbe_obj_get_style_margin_right },
     { "set_style_local_margin_right", lvbe_obj_set_style_local_margin_right },
+    { "get_style_bg_blend_mode", lvbe_obj_get_style_bg_blend_mode },
     { "set_style_local_bg_blend_mode", lvbe_obj_set_style_local_bg_blend_mode },
     { "get_style_bg_main_stop", lvbe_obj_get_style_bg_main_stop },
     { "set_style_local_bg_main_stop", lvbe_obj_set_style_local_bg_main_stop },
     { "get_style_bg_grad_stop", lvbe_obj_get_style_bg_grad_stop },
     { "set_style_local_bg_grad_stop", lvbe_obj_set_style_local_bg_grad_stop },
+    { "get_style_bg_grad_dir", lvbe_obj_get_style_bg_grad_dir },
     { "set_style_local_bg_grad_dir", lvbe_obj_set_style_local_bg_grad_dir },
     { "get_style_bg_color", lvbe_obj_get_style_bg_color },
     { "set_style_local_bg_color", lvbe_obj_set_style_local_bg_color },
@@ -1639,7 +1707,9 @@ void be_load_lv_obj_lib(bvm *vm) {
     { "set_style_local_bg_opa", lvbe_obj_set_style_local_bg_opa },
     { "get_style_border_width", lvbe_obj_get_style_border_width },
     { "set_style_local_border_width", lvbe_obj_set_style_local_border_width },
+    { "get_style_border_side", lvbe_obj_get_style_border_side },
     { "set_style_local_border_side", lvbe_obj_set_style_local_border_side },
+    { "get_style_border_blend_mode", lvbe_obj_get_style_border_blend_mode },
     { "set_style_local_border_blend_mode", lvbe_obj_set_style_local_border_blend_mode },
     { "get_style_border_post", lvbe_obj_get_style_border_post },
     { "set_style_local_border_post", lvbe_obj_set_style_local_border_post },
@@ -1651,6 +1721,7 @@ void be_load_lv_obj_lib(bvm *vm) {
     { "set_style_local_outline_width", lvbe_obj_set_style_local_outline_width },
     { "get_style_outline_pad", lvbe_obj_get_style_outline_pad },
     { "set_style_local_outline_pad", lvbe_obj_set_style_local_outline_pad },
+    { "get_style_outline_blend_mode", lvbe_obj_get_style_outline_blend_mode },
     { "set_style_local_outline_blend_mode", lvbe_obj_set_style_local_outline_blend_mode },
     { "get_style_outline_color", lvbe_obj_get_style_outline_color },
     { "set_style_local_outline_color", lvbe_obj_set_style_local_outline_color },
@@ -1664,6 +1735,7 @@ void be_load_lv_obj_lib(bvm *vm) {
     { "set_style_local_shadow_ofs_y", lvbe_obj_set_style_local_shadow_ofs_y },
     { "get_style_shadow_spread", lvbe_obj_get_style_shadow_spread },
     { "set_style_local_shadow_spread", lvbe_obj_set_style_local_shadow_spread },
+    { "get_style_shadow_blend_mode", lvbe_obj_get_style_shadow_blend_mode },
     { "set_style_local_shadow_blend_mode", lvbe_obj_set_style_local_shadow_blend_mode },
     { "get_style_shadow_color", lvbe_obj_get_style_shadow_color },
     { "set_style_local_shadow_color", lvbe_obj_set_style_local_shadow_color },
@@ -1671,6 +1743,7 @@ void be_load_lv_obj_lib(bvm *vm) {
     { "set_style_local_shadow_opa", lvbe_obj_set_style_local_shadow_opa },
     { "get_style_pattern_repeat", lvbe_obj_get_style_pattern_repeat },
     { "set_style_local_pattern_repeat", lvbe_obj_set_style_local_pattern_repeat },
+    { "get_style_pattern_blend_mode", lvbe_obj_get_style_pattern_blend_mode },
     { "set_style_local_pattern_blend_mode", lvbe_obj_set_style_local_pattern_blend_mode },
     { "get_style_pattern_recolor", lvbe_obj_get_style_pattern_recolor },
     { "set_style_local_pattern_recolor", lvbe_obj_set_style_local_pattern_recolor },
@@ -1684,11 +1757,13 @@ void be_load_lv_obj_lib(bvm *vm) {
     { "set_style_local_value_letter_space", lvbe_obj_set_style_local_value_letter_space },
     { "get_style_value_line_space", lvbe_obj_get_style_value_line_space },
     { "set_style_local_value_line_space", lvbe_obj_set_style_local_value_line_space },
+    { "get_style_value_blend_mode", lvbe_obj_get_style_value_blend_mode },
     { "set_style_local_value_blend_mode", lvbe_obj_set_style_local_value_blend_mode },
     { "get_style_value_ofs_x", lvbe_obj_get_style_value_ofs_x },
     { "set_style_local_value_ofs_x", lvbe_obj_set_style_local_value_ofs_x },
     { "get_style_value_ofs_y", lvbe_obj_get_style_value_ofs_y },
     { "set_style_local_value_ofs_y", lvbe_obj_set_style_local_value_ofs_y },
+    { "get_style_value_align", lvbe_obj_get_style_value_align },
     { "set_style_local_value_align", lvbe_obj_set_style_local_value_align },
     { "get_style_value_color", lvbe_obj_get_style_value_color },
     { "set_style_local_value_color", lvbe_obj_set_style_local_value_color },
@@ -1702,6 +1777,7 @@ void be_load_lv_obj_lib(bvm *vm) {
     { "get_style_text_line_space", lvbe_obj_get_style_text_line_space },
     { "set_style_local_text_line_space", lvbe_obj_set_style_local_text_line_space },
     { "set_style_local_text_decor", lvbe_obj_set_style_local_text_decor },
+    { "get_style_text_blend_mode", lvbe_obj_get_style_text_blend_mode },
     { "set_style_local_text_blend_mode", lvbe_obj_set_style_local_text_blend_mode },
     { "get_style_text_color", lvbe_obj_get_style_text_color },
     { "set_style_local_text_color", lvbe_obj_set_style_local_text_color },
@@ -1714,6 +1790,7 @@ void be_load_lv_obj_lib(bvm *vm) {
     { "set_style_local_text_font", lvbe_obj_set_style_local_text_font },
     { "get_style_line_width", lvbe_obj_get_style_line_width },
     { "set_style_local_line_width", lvbe_obj_set_style_local_line_width },
+    { "get_style_line_blend_mode", lvbe_obj_get_style_line_blend_mode },
     { "set_style_local_line_blend_mode", lvbe_obj_set_style_local_line_blend_mode },
     { "get_style_line_dash_width", lvbe_obj_get_style_line_dash_width },
     { "set_style_local_line_dash_width", lvbe_obj_set_style_local_line_dash_width },
@@ -1725,6 +1802,7 @@ void be_load_lv_obj_lib(bvm *vm) {
     { "set_style_local_line_color", lvbe_obj_set_style_local_line_color },
     { "get_style_line_opa", lvbe_obj_get_style_line_opa },
     { "set_style_local_line_opa", lvbe_obj_set_style_local_line_opa },
+    { "get_style_image_blend_mode", lvbe_obj_get_style_image_blend_mode },
     { "set_style_local_image_blend_mode", lvbe_obj_set_style_local_image_blend_mode },
     { "get_style_image_recolor", lvbe_obj_get_style_image_recolor },
     { "set_style_local_image_recolor", lvbe_obj_set_style_local_image_recolor },
@@ -1931,11 +2009,13 @@ class be_class_lv_obj (scope: global, name: lv_obj) {
     set_style_local_margin_left, func(lvbe_obj_set_style_local_margin_left)
     get_style_margin_right, func(lvbe_obj_get_style_margin_right)
     set_style_local_margin_right, func(lvbe_obj_set_style_local_margin_right)
+    get_style_bg_blend_mode, func(lvbe_obj_get_style_bg_blend_mode)
     set_style_local_bg_blend_mode, func(lvbe_obj_set_style_local_bg_blend_mode)
     get_style_bg_main_stop, func(lvbe_obj_get_style_bg_main_stop)
     set_style_local_bg_main_stop, func(lvbe_obj_set_style_local_bg_main_stop)
     get_style_bg_grad_stop, func(lvbe_obj_get_style_bg_grad_stop)
     set_style_local_bg_grad_stop, func(lvbe_obj_set_style_local_bg_grad_stop)
+    get_style_bg_grad_dir, func(lvbe_obj_get_style_bg_grad_dir)
     set_style_local_bg_grad_dir, func(lvbe_obj_set_style_local_bg_grad_dir)
     get_style_bg_color, func(lvbe_obj_get_style_bg_color)
     set_style_local_bg_color, func(lvbe_obj_set_style_local_bg_color)
@@ -1945,7 +2025,9 @@ class be_class_lv_obj (scope: global, name: lv_obj) {
     set_style_local_bg_opa, func(lvbe_obj_set_style_local_bg_opa)
     get_style_border_width, func(lvbe_obj_get_style_border_width)
     set_style_local_border_width, func(lvbe_obj_set_style_local_border_width)
+    get_style_border_side, func(lvbe_obj_get_style_border_side)
     set_style_local_border_side, func(lvbe_obj_set_style_local_border_side)
+    get_style_border_blend_mode, func(lvbe_obj_get_style_border_blend_mode)
     set_style_local_border_blend_mode, func(lvbe_obj_set_style_local_border_blend_mode)
     get_style_border_post, func(lvbe_obj_get_style_border_post)
     set_style_local_border_post, func(lvbe_obj_set_style_local_border_post)
@@ -1957,6 +2039,7 @@ class be_class_lv_obj (scope: global, name: lv_obj) {
     set_style_local_outline_width, func(lvbe_obj_set_style_local_outline_width)
     get_style_outline_pad, func(lvbe_obj_get_style_outline_pad)
     set_style_local_outline_pad, func(lvbe_obj_set_style_local_outline_pad)
+    get_style_outline_blend_mode, func(lvbe_obj_get_style_outline_blend_mode)
     set_style_local_outline_blend_mode, func(lvbe_obj_set_style_local_outline_blend_mode)
     get_style_outline_color, func(lvbe_obj_get_style_outline_color)
     set_style_local_outline_color, func(lvbe_obj_set_style_local_outline_color)
@@ -1970,6 +2053,7 @@ class be_class_lv_obj (scope: global, name: lv_obj) {
     set_style_local_shadow_ofs_y, func(lvbe_obj_set_style_local_shadow_ofs_y)
     get_style_shadow_spread, func(lvbe_obj_get_style_shadow_spread)
     set_style_local_shadow_spread, func(lvbe_obj_set_style_local_shadow_spread)
+    get_style_shadow_blend_mode, func(lvbe_obj_get_style_shadow_blend_mode)
     set_style_local_shadow_blend_mode, func(lvbe_obj_set_style_local_shadow_blend_mode)
     get_style_shadow_color, func(lvbe_obj_get_style_shadow_color)
     set_style_local_shadow_color, func(lvbe_obj_set_style_local_shadow_color)
@@ -1977,6 +2061,7 @@ class be_class_lv_obj (scope: global, name: lv_obj) {
     set_style_local_shadow_opa, func(lvbe_obj_set_style_local_shadow_opa)
     get_style_pattern_repeat, func(lvbe_obj_get_style_pattern_repeat)
     set_style_local_pattern_repeat, func(lvbe_obj_set_style_local_pattern_repeat)
+    get_style_pattern_blend_mode, func(lvbe_obj_get_style_pattern_blend_mode)
     set_style_local_pattern_blend_mode, func(lvbe_obj_set_style_local_pattern_blend_mode)
     get_style_pattern_recolor, func(lvbe_obj_get_style_pattern_recolor)
     set_style_local_pattern_recolor, func(lvbe_obj_set_style_local_pattern_recolor)
@@ -1990,11 +2075,13 @@ class be_class_lv_obj (scope: global, name: lv_obj) {
     set_style_local_value_letter_space, func(lvbe_obj_set_style_local_value_letter_space)
     get_style_value_line_space, func(lvbe_obj_get_style_value_line_space)
     set_style_local_value_line_space, func(lvbe_obj_set_style_local_value_line_space)
+    get_style_value_blend_mode, func(lvbe_obj_get_style_value_blend_mode)
     set_style_local_value_blend_mode, func(lvbe_obj_set_style_local_value_blend_mode)
     get_style_value_ofs_x, func(lvbe_obj_get_style_value_ofs_x)
     set_style_local_value_ofs_x, func(lvbe_obj_set_style_local_value_ofs_x)
     get_style_value_ofs_y, func(lvbe_obj_get_style_value_ofs_y)
     set_style_local_value_ofs_y, func(lvbe_obj_set_style_local_value_ofs_y)
+    get_style_value_align, func(lvbe_obj_get_style_value_align)
     set_style_local_value_align, func(lvbe_obj_set_style_local_value_align)
     get_style_value_color, func(lvbe_obj_get_style_value_color)
     set_style_local_value_color, func(lvbe_obj_set_style_local_value_color)
@@ -2008,6 +2095,7 @@ class be_class_lv_obj (scope: global, name: lv_obj) {
     get_style_text_line_space, func(lvbe_obj_get_style_text_line_space)
     set_style_local_text_line_space, func(lvbe_obj_set_style_local_text_line_space)
     set_style_local_text_decor, func(lvbe_obj_set_style_local_text_decor)
+    get_style_text_blend_mode, func(lvbe_obj_get_style_text_blend_mode)
     set_style_local_text_blend_mode, func(lvbe_obj_set_style_local_text_blend_mode)
     get_style_text_color, func(lvbe_obj_get_style_text_color)
     set_style_local_text_color, func(lvbe_obj_set_style_local_text_color)
@@ -2020,6 +2108,7 @@ class be_class_lv_obj (scope: global, name: lv_obj) {
     set_style_local_text_font, func(lvbe_obj_set_style_local_text_font)
     get_style_line_width, func(lvbe_obj_get_style_line_width)
     set_style_local_line_width, func(lvbe_obj_set_style_local_line_width)
+    get_style_line_blend_mode, func(lvbe_obj_get_style_line_blend_mode)
     set_style_local_line_blend_mode, func(lvbe_obj_set_style_local_line_blend_mode)
     get_style_line_dash_width, func(lvbe_obj_get_style_line_dash_width)
     set_style_local_line_dash_width, func(lvbe_obj_set_style_local_line_dash_width)
@@ -2031,6 +2120,7 @@ class be_class_lv_obj (scope: global, name: lv_obj) {
     set_style_local_line_color, func(lvbe_obj_set_style_local_line_color)
     get_style_line_opa, func(lvbe_obj_get_style_line_opa)
     set_style_local_line_opa, func(lvbe_obj_set_style_local_line_opa)
+    get_style_image_blend_mode, func(lvbe_obj_get_style_image_blend_mode)
     set_style_local_image_blend_mode, func(lvbe_obj_set_style_local_image_blend_mode)
     get_style_image_recolor, func(lvbe_obj_get_style_image_recolor)
     set_style_local_image_recolor, func(lvbe_obj_set_style_local_image_recolor)
@@ -2945,6 +3035,7 @@ void be_load_lv_keyboard_lib(bvm *vm) {
     { "set_map", lvbe_keyboard_set_map },
     { "set_ctrl_map", lvbe_keyboard_set_ctrl_map },
     { "get_textarea", lvbe_keyboard_get_textarea },
+    { "get_mode", lvbe_keyboard_get_mode },
     { "get_cursor_manage", lvbe_keyboard_get_cursor_manage },
     { "def_event_cb", lvbe_keyboard_def_event_cb },
 
@@ -2977,6 +3068,7 @@ class be_class_lv_keyboard (scope: global, name: lv_keyboard, super: be_class_lv
     set_map, func(lvbe_keyboard_set_map)
     set_ctrl_map, func(lvbe_keyboard_set_ctrl_map)
     get_textarea, func(lvbe_keyboard_get_textarea)
+    get_mode, func(lvbe_keyboard_get_mode)
     get_cursor_manage, func(lvbe_keyboard_get_cursor_manage)
     def_event_cb, func(lvbe_keyboard_def_event_cb)
 }
