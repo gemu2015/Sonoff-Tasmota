@@ -29,7 +29,7 @@ very early stage
 
 
 #define EXECUTE_FROM_BINARY
-#define SAVE_DRIVER_TO_FILE
+//#define SAVE_DRIVER_TO_FILE
 
 //#define EXECUTE_IN_FLASH
 //#define SAVE_FLASH
@@ -83,6 +83,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_read
 };
 
+uint8_t *Load_Module(char *path, uint32_t *rsize);
+uint32_t Store_Module(uint8_t *fdesc, uint32_t size);
 
 #define MAXMODULES 16
 MODULES_TABLE modules[MAXMODULES];
@@ -94,14 +96,9 @@ void InitModules(void) {
 
 // read driver from filesystem
 #if defined(EXECUTE_IN_RAM) || defined(EXECUTE_IN_FLASH)
-  File fp;
-  fp = ffsp->open("/module.bin", "r");
-  if (fp <= 0) return;
-  uint32_t size = fp.size();
-  char *fdesc = (char *)calloc(size / 4 , 4);
+  uint32_t size;
+  uint8_t *fdesc = Load_Module((char*)"/module.bin", &size);
   if (!fdesc) return;
-  fp.read((uint8_t*)fdesc, size);
-  fp.close();
 #endif
 
 // this only works with esp32 and special malloc
@@ -128,36 +125,19 @@ void InitModules(void) {
 #endif
 
 #ifdef EXECUTE_IN_FLASH
-#define SPEC_SCRIPT_FLASH 0x000F2000
-  uint32_t *lwp=(uint32_t*)fdesc;
-  uint32_t eeprom_block = SPEC_SCRIPT_FLASH;
-  const FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
-  uint32_t old_pc = (uint32_t)fm->end_of_module-size;
-  uint32_t new_pc = (uint32_t)eeprom_block + 0x40200000;
-  uint32_t offset = new_pc - old_pc;
-  uint32_t corr_pc = (uint32_t)fm->mod_func_execute+offset;
-  uint32_t *lp = (uint32_t*)&fm->mod_func_execute;
-  *lp = corr_pc;
-  lp = (uint32_t*)&fm->end_of_module;
-  *lp = (uint32_t)fm->end_of_module+offset;
-
-//  AddLog(LOG_LEVEL_INFO, PSTR("Module offset %x: %x: %x: %x: %x: %x"),old_pc, new_pc, offset, corr_pc, (uint32_t)fm->mod_func_execute, (uint32_t)&module_header);
-
-#ifdef SAVE_FLASH
-  ESP.flashEraseSector(eeprom_block / SPI_FLASH_SEC_SIZE);
-  ESP.flashWrite(eeprom_block , lwp, SPI_FLASH_SEC_SIZE);
+  modules[0].mod_addr = (void *) Store_Module(fdesc, size);
 #endif
-  modules[0].mod_addr = (void *) new_pc;
+
 //  const FLASH_MODULE *xfm = (FLASH_MODULE*)&module_header;
 //  AddLog(LOG_LEVEL_INFO, PSTR("Module  %x: %x"), *(uint32_t*)corr_pc, *(uint32_t*)xfm->mod_func_execute);
-#endif
 
 #ifdef EXECUTE_FROM_BINARY
   // add one testmodule
   modules[0].mod_addr = (void *) &module_header;
   AddLog(LOG_LEVEL_INFO, PSTR("Module %x: - %x: - %x:"),(uint32_t)modules[0].mod_addr,(uint32_t)&mod_func_execute,(uint32_t)&end_of_module);
-#endif
 
+
+/*
   for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
     if (modules[cnt].mod_addr) {
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
@@ -171,11 +151,10 @@ void InitModules(void) {
 #endif
     }
   }
-
-#ifdef SAVE_DRIVER_TO_FILE
+*/
   if (ffsp) {
     File fp;
-    fp = ffsp->open("/module.bin", "w");
+    fp = ffsp->open((char*)"/module.bin", "w");
     if (fp > 0) {
       uint32_t *fdesc = (uint32_t *)calloc(modules[0].mod_size + 4, 1);
       uint32_t *lp = (uint32_t*)modules[0].mod_addr;
@@ -256,6 +235,41 @@ float fscale(int32_t number, float mulfac, float subfac) {
   return (float)number * mulfac - subfac;
 }
 
+uint8_t *Load_Module(char *path, uint32_t *rsize) {
+  if (!ffsp) return 0;
+  File fp;
+  fp = ffsp->open(path, "r");
+  if (fp <= 0) return 0;
+  uint32_t size = fp.size();
+  uint8_t *fdesc = (uint8_t *)calloc(size / 4 , 4);
+  if (!fdesc) return 0;
+  fp.read(fdesc, size);
+  fp.close();
+  *rsize = size;
+  return fdesc;
+}
+
+// patch calls and store to flash
+#define SPEC_SCRIPT_FLASH 0x000F2000
+uint32_t Store_Module(uint8_t *fdesc, uint32_t size) {
+  uint32_t *lwp=(uint32_t*)fdesc;
+  uint32_t eeprom_block = SPEC_SCRIPT_FLASH;
+  const FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
+  uint32_t old_pc = (uint32_t)fm->end_of_module-size;
+  uint32_t new_pc = (uint32_t)eeprom_block + 0x40200000;
+  uint32_t offset = new_pc - old_pc;
+  uint32_t corr_pc = (uint32_t)fm->mod_func_execute+offset;
+  uint32_t *lp = (uint32_t*)&fm->mod_func_execute;
+  *lp = corr_pc;
+  lp = (uint32_t*)&fm->end_of_module;
+  *lp = (uint32_t)fm->end_of_module+offset;
+
+//  AddLog(LOG_LEVEL_INFO, PSTR("Module offset %x: %x: %x: %x: %x: %x"),old_pc, new_pc, offset, corr_pc, (uint32_t)fm->mod_func_execute, (uint32_t)&module_header);
+  ESP.flashEraseSector(eeprom_block / SPI_FLASH_SEC_SIZE);
+  ESP.flashWrite(eeprom_block , lwp, SPI_FLASH_SEC_SIZE);
+  return new_pc;
+}
+
 // show all linked modules
 void Module_mdir(void) {
   for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
@@ -268,54 +282,71 @@ void Module_mdir(void) {
   ResponseCmndDone();
 }
 
-// later shall link 1 module from file or web
+// link 1 module from file or web
 void Module_link(void) {
-  // just for testing execute second entry
-  for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
-    if (modules[cnt].mod_addr) {
-      const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-      fm->mod_func_execute(&modules[cnt], FUNC_JSON_APPEND);
+  uint8_t *fdesc = 0;
+
+  if (XdrvMailbox.data_len) {
+    uint32_t size;
+    uint8_t *mp = Load_Module(XdrvMailbox.data, &size);
+    if (mp) {
+      // currently take pos zero
+      modules[0].mod_addr = (void *) Store_Module(mp, size);
+      free(mp);
+      const FLASH_MODULE *fm = (FLASH_MODULE*)modules[0].mod_addr;
+      modules[0].jt = MODULE_JUMPTABLE;
+      modules[0].mod_size = (uint32_t)fm->end_of_module-(uint32_t)modules[0].mod_addr;
+      modules[0].settings = &mysettings;
+      modules[0].flags.data = 0;
+    } else {
+      // error
     }
   }
   ResponseCmndDone();
 }
 
-// later shall unlink 1 module only
+// nlink 1 module
 void Module_unlink(void) {
-  // just for testing execute second entry
-  for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
-    if (modules[cnt].mod_addr) {
-      const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-      fm->mod_func_execute(&modules[cnt], FUNC_WEB_SENSOR);
-    }
-  }
-  ResponseCmndDone();
-}
-
-// later shall iniz 1 module only
-void Module_iniz(void) {
-  for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
-    if (modules[cnt].mod_addr) {
-      if (!modules[cnt].flags.initialized) {
-        const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-        fm->mod_func_execute(&modules[cnt], FUNC_INIT);
+  if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAXMODULES)) {
+    uint8_t module = XdrvMailbox.payload - 1;
+    if (modules[module].mod_addr) {
+      if (modules[module].flags.initialized) {
+        // call deiniz
+        const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
+        int32_t result = fm->mod_func_execute(&modules[module], FUNC_DEINIT);
+        modules[module].flags.data = 0;
       }
+      // remove from module table, erase flash
+      // modules[module].mod_addr = 0;
     }
   }
   ResponseCmndDone();
 }
 
-// later shall deiniz 1 module only
-void Module_deiniz(void) {
-  // just for testing execute second entry
-  for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
-    if (modules[cnt].mod_addr) {
-      const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-      fm->mod_func_execute(&modules[cnt], FUNC_EVERY_SECOND);
-      modules[cnt].flags.every_second = 1;
-      modules[cnt].flags.web_sensor = 1;
-      modules[cnt].flags.json_append = 1;
+// iniz 1 module
+void Module_iniz(void) {
 
+  if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAXMODULES)) {
+    uint8_t module = XdrvMailbox.payload - 1;
+    if (modules[module].mod_addr && !modules[module].flags.initialized) {
+      const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
+      int32_t result = fm->mod_func_execute(&modules[module], FUNC_INIT);
+      modules[module].flags.every_second = 1;
+      modules[module].flags.web_sensor = 1;
+      modules[module].flags.json_append = 1;
+    }
+  }
+  ResponseCmndDone();
+}
+
+// deiniz 1 module
+void Module_deiniz(void) {
+  if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAXMODULES)) {
+    uint8_t module = XdrvMailbox.payload - 1;
+    if (modules[module].mod_addr && modules[module].flags.initialized) {
+      const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
+      int32_t result = fm->mod_func_execute(&modules[module], FUNC_DEINIT);
+      modules[module].flags.data = 0;
     }
   }
   ResponseCmndDone();

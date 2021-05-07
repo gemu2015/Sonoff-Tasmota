@@ -12,7 +12,7 @@
 enum {MODULE_TYPE_SENSOR, MODULE_TYPE_LIGHT, MODULE_TYPE_ENERGY};
 enum {ARCH_ESP8266, ARCH_ESP32};
 
-#define MODULE_SYNC 0x4AFC
+#define MODULE_SYNC 0x4AFCAA55
 
 #undef CURR_ARCH
 #ifdef ESP8266
@@ -20,6 +20,8 @@ enum {ARCH_ESP8266, ARCH_ESP32};
 #else
 #define CURR_ARCH ARCH_ESP32
 #endif
+
+#define FUNC_DEINIT 999
 
 // should import Tasmota settings later
 typedef struct {

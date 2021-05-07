@@ -14,7 +14,12 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+/*
 
+
+
+
+*/
 #define USE_MLX90614_MOD
 
 #include "module.h"
@@ -103,16 +108,23 @@ MODULE_PART int32_t Init_MLX90614(MODULES_TABLE *mt) {
   jI2cSetActiveFound(I2_ADR_IRT, GSTR(mlxdev), 0);
 
 
-    uint32_t state;
-    RSIL(state);
+//    uint32_t state;
+  //  RSIL(state);
 //    return state;
 
-    WSR_PS(state);
+//    WSR_PS(state);
 
 
   mod_mem->ready = true;
 
   return 0;
+}
+
+MODULE_PART void MLX90614_Deinit(MODULES_TABLE *mt) {
+  if (mt->mem_size) {
+    free(mt->mod_memory);
+    mt->mem_size = 0;
+  }
 }
 
 MODULE_END void  end_of_module(void) {
@@ -232,6 +244,9 @@ MODULE_PART int32_t mod_func_execute(MODULES_TABLE *mt, uint32_t sel) {
       break;
     case FUNC_EVERY_SECOND:
       MLX90614_Every_Second(mt);
+      break;
+    case FUNC_DEINIT:
+      MLX90614_Deinit(mt);
       break;
   }
   return result;
