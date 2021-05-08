@@ -42,7 +42,9 @@ __asm__ __volatile__ ("__extendsfdf2:");
 */
 
 
-#pragma OPTIMIZE OFF
+
+//#pragma GCC optimize ("O0")
+
 
 MODULE_DESC module_header = {
   MODULE_SYNC,
@@ -73,6 +75,22 @@ typedef struct {
 } MLX9014_MEMORY;
 
 
+// try a class
+class MLX {
+ public:
+  MLX(void);
+  void begin(void);
+private:
+ uint16_t test;
+};
+
+MODULE_PART MLX::MLX(void) {
+}
+
+MODULE_PART void MLX::begin(void) {
+  test = 50;
+}
+
 int32_t Init_MLX90614(MODULES_TABLE *mt);
 void MLX90614_Show(MODULES_TABLE *mt, uint32_t json);
 uint16_t MLX90614_read16(MODULES_TABLE *mt, uint8_t addr, uint8_t a);
@@ -88,6 +106,33 @@ DEFSTR(JSON_IRTMP:,",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}");
 EXTSTR(JSON_IRTMP);
 
 
+/*
+#if 0
+__asm__  (
+  ".align 4\n"
+  "   .global gstr\n"
+  "   gstr:\n"
+  "   .type   gstr,@function\n"
+  "   entry a1, 32\n"
+  "   l32r	a2, initmsg #,\n"
+  "   retw\n"
+  "   .size	gstr, .-gstr"
+);
+#else
+__asm__  (
+  ".align 4\n"
+  "   .global gstr\n"
+  "   gstr:\n"
+  "   .type   gstr,@function\n"
+  "   l32r	a2, initmsg #,\n"
+  "   ret.n\n"
+  "   .size	gstr, .-gstr"
+);
+#endif
+*/
+
+
+
 MODULE_PART int32_t Init_MLX90614(MODULES_TABLE *mt) {
   ALLOCMEM(MLX9014_MEMORY)
 
@@ -98,24 +143,18 @@ MODULE_PART int32_t Init_MLX90614(MODULES_TABLE *mt) {
 
   mt->flags.initialized = true;
 
-  //HardwareSerial *sp = jSerial;
-  //sp->printf_P(GSTR(initmsg));
-  //sprint(GSTR(initmsg));
-
   if (!jI2cSetDevice(I2_ADR_IRT)) {
     return -1;
   }
-  jI2cSetActiveFound(I2_ADR_IRT, GSTR(mlxdev), 0);
-
-
-//    uint32_t state;
-  //  RSIL(state);
-//    return state;
-
-//    WSR_PS(state);
-
+  GXSTR(c,mlxdev);
+  //jI2cSetActiveFound(I2_ADR_IRT, GSTR(mlxdev), 0);
+  jI2cSetActiveFound(I2_ADR_IRT, c, 0);
 
   mod_mem->ready = true;
+
+/*
+  MLX *mlx = new MLX();
+  mlx->begin();*/
 
   return 0;
 }
@@ -140,7 +179,9 @@ MODULE_PART void MLX90614_Every_Second(MODULES_TABLE *mt) {
   // test message
   //HardwareSerial *sp = jSerial;
   //sp->printf_P(GSTR(initmsg));
-  sprint(GSTR(initmsg));
+  //  sprint(GSTR(initmsg));
+  GXSTR(c,initmsg);
+  sprint(c);
 
   if (mod_mem->ready == false) return;
 
@@ -175,9 +216,13 @@ MODULE_PART void MLX90614_Show(MODULES_TABLE *mt, uint32_t json) {
   jftostrfd(mod_mem->amb_temp, jsettings->temperature_resolution, amb_tstr);
 
   if (json) {
-    jResponseAppend_P(GSTR(JSON_IRTMP), obj_tstr, amb_tstr);
+    GXSTR(c,JSON_IRTMP);
+    //jResponseAppend_P(GSTR(JSON_IRTMP), obj_tstr, amb_tstr);
+    jResponseAppend_P(c, obj_tstr, amb_tstr);
   } else {
-    jWSContentSend_PD(GSTR(HTTP_IRTMP), obj_tstr, amb_tstr);
+    GXSTR(c,HTTP_IRTMP);
+    //jWSContentSend_PD(GSTR(HTTP_IRTMP), obj_tstr, amb_tstr);
+    jWSContentSend_PD(c, obj_tstr, amb_tstr);
   }
 }
 
@@ -254,5 +299,4 @@ MODULE_PART int32_t mod_func_execute(MODULES_TABLE *mt, uint32_t sel) {
   return result;
 }
 
-#pragma OPTIMIZE ON
 #endif // USE_MLX90614

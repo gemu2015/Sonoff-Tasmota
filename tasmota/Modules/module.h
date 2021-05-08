@@ -114,6 +114,14 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 
 #define GSTR(STRING) (const char*)&(STRING)
 
+extern "C" {
+ const char *gstr(void);
+}
+
+//#define GSTR(STRING) xgstr()
+
+#define GXSTR(VAR,STRING)  const char *VAR = (const char*)&STRING;
+
 
 #define SETREGS MLX9014_MEMORY *mod_mem = (MLX9014_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;
 
