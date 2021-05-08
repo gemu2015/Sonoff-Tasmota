@@ -84,14 +84,14 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
 };
 
 uint8_t *Load_Module(char *path, uint32_t *rsize);
-uint32_t Store_Module(uint8_t *fdesc, uint32_t size);
+uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint8_t flag);
 
 #define MAXMODULES 16
 MODULES_TABLE modules[MAXMODULES];
 
 extern const FLASH_MODULE module_header;
 
-// scan for modules and add to modules table
+// scan for modules in flash and add to modules table, not yet
 void InitModules(void) {
 
 // read driver from filesystem
@@ -104,14 +104,13 @@ void InitModules(void) {
 // this only works with esp32 and special malloc
 #ifdef EXECUTE_IN_RAM
   const FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
-  uint32_t old_pc = (uint32_t)fm->end_of_module-size;
+  uint32_t old_pc = (uint32_t)fm->end_of_module-size-4;
   uint32_t new_pc = (uint32_t)fdesc;
   uint32_t offset = new_pc - old_pc;
   uint32_t corr_pc = (uint32_t)fm->mod_func_execute+offset;
   uint32_t *lp = (uint32_t*)&fm->mod_func_execute;
   *lp = corr_pc;
   AddLog(LOG_LEVEL_INFO, PSTR("Module offset %x: %x: %x: %x: %x: %x"),old_pc, new_pc, offset, corr_pc, (uint32_t)fm->mod_func_execute, (uint32_t)&module_header);
-//  uint32_t mhead
 
   modules[0].mod_addr = (void *) &module_header;
   fm = (FLASH_MODULE*)modules[0].mod_addr;
@@ -125,7 +124,7 @@ void InitModules(void) {
 #endif
 
 #ifdef EXECUTE_IN_FLASH
-  modules[0].mod_addr = (void *) Store_Module(fdesc, size);
+  modules[0].mod_addr = (void *) Store_Module(fdesc, size, 0);
 #endif
 
 //  const FLASH_MODULE *xfm = (FLASH_MODULE*)&module_header;
@@ -136,25 +135,9 @@ void InitModules(void) {
   modules[0].mod_addr = (void *) &module_header;
   AddLog(LOG_LEVEL_INFO, PSTR("Module %x: - %x: - %x:"),(uint32_t)modules[0].mod_addr,(uint32_t)&mod_func_execute,(uint32_t)&end_of_module);
 
-
-/*
-  for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
-    if (modules[cnt].mod_addr) {
-      const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-      modules[cnt].jt = MODULE_JUMPTABLE;
-      modules[cnt].mod_size = (uint32_t)fm->end_of_module-(uint32_t)modules[cnt].mod_addr;
-      modules[cnt].settings = &mysettings;
-      modules[cnt].flags.data = 0;
-      //modules[cnt].flags.initialized = false;
-#ifdef DO_EXECUTE
-    //  fm->mod_func_execute(&modules[0], FUNC_INIT);
-#endif
-    }
-  }
-*/
   const FLASH_MODULE *fm = (FLASH_MODULE*)modules[0].mod_addr;
   modules[0].jt = MODULE_JUMPTABLE;
-  modules[0].mod_size = (uint32_t)fm->end_of_module-(uint32_t)modules[0].mod_addr;
+  modules[0].mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[0].mod_addr + 4;
   modules[0].settings = &mysettings;
   modules[0].flags.data = 0;
 
@@ -246,7 +229,12 @@ uint8_t *Load_Module(char *path, uint32_t *rsize) {
   fp = ffsp->open(path, "r");
   if (fp <= 0) return 0;
   uint32_t size = fp.size();
+#ifdef ESP8266
   uint8_t *fdesc = (uint8_t *)calloc(size / 4 , 4);
+#endif
+#ifdef ESP32
+  uint8_t *fdesc = (uint8_t *)heap_caps_malloc(size, MALLOC_CAP_EXEC);
+#endif
   if (!fdesc) return 0;
   fp.read(fdesc, size);
   fp.close();
@@ -256,41 +244,53 @@ uint8_t *Load_Module(char *path, uint32_t *rsize) {
 
 // patch calls and store to flash
 #define SPEC_SCRIPT_FLASH 0x000F2000
-uint32_t Store_Module(uint8_t *fdesc, uint32_t size) {
+uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint8_t flag) {
+uint32_t aoffset;
+uint32_t eeprom_block;
+
+  if (flag == 0) {
+    aoffset = 0x40200000;
+    eeprom_block = SPEC_SCRIPT_FLASH;
+  } else {
+    aoffset = 0;
+    eeprom_block = (uint32_t)fdesc;
+  }
   uint32_t *lwp=(uint32_t*)fdesc;
-  uint32_t eeprom_block = SPEC_SCRIPT_FLASH;
   const FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
-  uint32_t old_pc = (uint32_t)fm->end_of_module-size;
-  uint32_t new_pc = (uint32_t)eeprom_block + 0x40200000;
+  uint32_t old_pc = (uint32_t)fm->end_of_module - size - 4;
+  uint32_t new_pc = (uint32_t)eeprom_block + aoffset;
   uint32_t offset = new_pc - old_pc;
-  uint32_t corr_pc = (uint32_t)fm->mod_func_execute+offset;
+  uint32_t corr_pc = (uint32_t)fm->mod_func_execute + offset;
   uint32_t *lp = (uint32_t*)&fm->mod_func_execute;
   *lp = corr_pc;
   lp = (uint32_t*)&fm->end_of_module;
-  *lp = (uint32_t)fm->end_of_module+offset;
+  *lp = (uint32_t)fm->end_of_module + offset;
 
+#ifdef ESP8266
 //  AddLog(LOG_LEVEL_INFO, PSTR("Module offset %x: %x: %x: %x: %x: %x"),old_pc, new_pc, offset, corr_pc, (uint32_t)fm->mod_func_execute, (uint32_t)&module_header);
   ESP.flashEraseSector(eeprom_block / SPI_FLASH_SEC_SIZE);
   ESP.flashWrite(eeprom_block , lwp, SPI_FLASH_SEC_SIZE);
+#endif
   return new_pc;
 }
 
 // show all linked modules
 void Module_mdir(void) {
   AddLog(LOG_LEVEL_INFO, PSTR("| ======== Module directory ========"));
-  AddLog(LOG_LEVEL_INFO, PSTR("| nr | name            | address  | size | type |  rev | ram  | init"));
+  AddLog(LOG_LEVEL_INFO, PSTR("| nr | name            | address  | size | type | rev  | ram  | init"));
   for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
     if (modules[cnt].mod_addr) {
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-      AddLog(LOG_LEVEL_INFO, PSTR("| %02d | %-16s| %08x | %4d | %04x | %04x | %4d | %1d"), cnt + 1, fm->name, modules[cnt].mod_addr,
-       modules[cnt].mod_size,  fm->type, fm->revision, modules[cnt].mem_size, modules[cnt].flags.initialized);
+      const char *type = "xsns"; // only currently supported type
+      AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-16s| %08x | %4d | %4s | %04x | %4d | %1d"), cnt + 1, fm->name, modules[cnt].mod_addr,
+       modules[cnt].mod_size,  type, fm->revision, modules[cnt].mem_size, modules[cnt].flags.initialized);
       //AddLog(LOG_LEVEL_INFO, PSTR("Module %d: %s %08x"), cnt + 1, fm->name, modules[cnt].mod_addr);
     }
   }
   ResponseCmndDone();
 }
 
-// link 1 module from file or web
+// link 1 module from file (or web, not yet)
 void Module_link(void) {
   uint8_t *fdesc = 0;
 
@@ -304,16 +304,21 @@ void Module_link(void) {
           break;
         }
       }
-      modules[cnt].mod_addr = (void *) Store_Module(mp, size);
+#ifdef ESP32
+      modules[cnt].mod_addr = (void *) Store_Module(mp, size, 1);
+#else
+      modules[cnt].mod_addr = (void *) Store_Module(mp, size, 0);
       free(mp);
+#endif
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
       modules[cnt].jt = MODULE_JUMPTABLE;
-      modules[cnt].mod_size = (uint32_t)fm->end_of_module-(uint32_t)modules[cnt].mod_addr;
+      modules[cnt].mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[cnt].mod_addr + 4;
       modules[cnt].settings = &mysettings;
       modules[cnt].flags.data = 0;
-      AddLog(LOG_LEVEL_INFO,PSTR("module %s loaded at %d"),XdrvMailbox.data, 1);
+      AddLog(LOG_LEVEL_INFO,PSTR("module %s loaded at slot %d"), XdrvMailbox.data, 1);
     } else {
       // error
+      AddLog(LOG_LEVEL_INFO,PSTR("module error"));
     }
   }
   ResponseCmndDone();
@@ -326,10 +331,7 @@ void Module_unlink(void) {
     if (modules[module].mod_addr) {
       if (modules[module].flags.initialized) {
         // call deiniz
-        const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
-        int32_t result = fm->mod_func_execute(&modules[module], FUNC_DEINIT);
-        modules[module].flags.data = 0;
-        AddLog(LOG_LEVEL_INFO,PSTR("module %d deinizialized"),module + 1);
+        Deiniz_module(module);
       }
       // remove from module table, erase flash
       modules[module].mod_addr = 0;
@@ -356,16 +358,19 @@ void Module_iniz(void) {
   ResponseCmndDone();
 }
 
+void Deiniz_module(uint32_t module) {
+  if (modules[module].mod_addr && modules[module].flags.initialized) {
+    const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
+    int32_t result = fm->mod_func_execute(&modules[module], FUNC_DEINIT);
+    modules[module].flags.data = 0;
+    AddLog(LOG_LEVEL_INFO,PSTR("module %d deinizialized"),module + 1);
+  }
+}
+
 // deiniz 1 module
 void Module_deiniz(void) {
   if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAXMODULES)) {
-    uint8_t module = XdrvMailbox.payload - 1;
-    if (modules[module].mod_addr && modules[module].flags.initialized) {
-      const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
-      int32_t result = fm->mod_func_execute(&modules[module], FUNC_DEINIT);
-      modules[module].flags.data = 0;
-      AddLog(LOG_LEVEL_INFO,PSTR("module %d deinizialized"),module + 1);
-    }
+    Deiniz_module(XdrvMailbox.payload - 1);
   }
   ResponseCmndDone();
 }

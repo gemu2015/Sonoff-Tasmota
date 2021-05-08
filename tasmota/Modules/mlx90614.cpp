@@ -127,7 +127,9 @@ MODULE_PART void MLX90614_Deinit(MODULES_TABLE *mt) {
   }
 }
 
+
 MODULE_END void  end_of_module(void) {
+ __asm__ __volatile__(".word 0xAA554AFC");
 }
 
 float MLX90614_GetValue(MODULES_TABLE *mt, uint32_t reg);

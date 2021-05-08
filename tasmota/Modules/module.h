@@ -14,6 +14,7 @@ enum {ARCH_ESP8266, ARCH_ESP32};
 
 #define MODULE_SYNC 0x4AFCAA55
 
+
 #undef CURR_ARCH
 #ifdef ESP8266
 #define CURR_ARCH ARCH_ESP8266
@@ -63,11 +64,13 @@ typedef struct {
   char name[16];
   int32_t (*mod_func_execute)(MODULES_TABLE *, uint32_t);
   void (*end_of_module)(void);
+  //uint32_t end_of_module;
 } FLASH_MODULE;
 
 
 int32_t mod_func_execute(MODULES_TABLE *, uint32_t);
 void end_of_module(void);
+
 
 #define MODULE_DESCRIPTOR  const FLASH_MODULE
 
@@ -122,3 +125,5 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 
 // Write Register Processor State
 #define WSR_PS(w)  __asm__ __volatile__("wsr %0,ps ; esync"::"a" (w): "memory")
+
+#define MODULE_SYNC_END __attribute__((section(".text.mod_end"))); __asm__ __volatile__ (".align 4");
