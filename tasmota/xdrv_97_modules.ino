@@ -80,7 +80,9 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_write,
   JMPTBL&tmod_endTransmission,
   JMPTBL&tmod_requestFrom,
-  JMPTBL&tmod_read
+  JMPTBL&tmod_read,
+  JMPTBL&show_hex_address,
+  JMPTBL&free
 };
 
 uint8_t *Load_Module(char *path, uint32_t *rsize);
@@ -104,7 +106,7 @@ void InitModules(void) {
 // this only works with esp32 and special malloc
 #ifdef EXECUTE_IN_RAM
   const FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
-  uint32_t old_pc = (uint32_t)fm->end_of_module-size-4;
+  uint32_t old_pc = (uint32_t)fm->end_of_module - size - 4;
   uint32_t new_pc = (uint32_t)fdesc;
   uint32_t offset = new_pc - old_pc;
   uint32_t corr_pc = (uint32_t)fm->mod_func_execute+offset;
@@ -140,6 +142,7 @@ void InitModules(void) {
   modules[0].mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[0].mod_addr + 4;
   modules[0].settings = &mysettings;
   modules[0].flags.data = 0;
+
 
   if (ffsp) {
     File fp;
@@ -208,6 +211,11 @@ uint8_t tmod_read(TwoWire *wp) {
   return wp->read();
 }
 
+void show_hex_address(uint32_t addr) {
+  AddLog(LOG_LEVEL_INFO,PSTR(">>> %08x"), addr);
+}
+
+
 // convert float to string
 char* ftostrfd(float number, unsigned char prec, char *s) {
   if ((isnan(number)) || (isinf(number))) {  // Fix for JSON output (https://stackoverflow.com/questions/1423081/json-left-out-infinity-and-nan-json-status-in-ecmascript)
@@ -257,7 +265,7 @@ uint32_t eeprom_block;
   }
   uint32_t *lwp=(uint32_t*)fdesc;
   const FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
-  uint32_t old_pc = (uint32_t)fm->end_of_module - size - 4;
+  uint32_t old_pc = (uint32_t)fm->end_of_module - (size - 4);
   uint32_t new_pc = (uint32_t)eeprom_block + aoffset;
   uint32_t offset = new_pc - old_pc;
   uint32_t corr_pc = (uint32_t)fm->mod_func_execute + offset;
@@ -312,7 +320,7 @@ void Module_link(void) {
 #endif
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
       modules[cnt].jt = MODULE_JUMPTABLE;
-      modules[cnt].mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[cnt].mod_addr + 4;
+      modules[cnt].mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[cnt].mod_addr;
       modules[cnt].settings = &mysettings;
       modules[cnt].flags.data = 0;
       AddLog(LOG_LEVEL_INFO,PSTR("module %s loaded at slot %d"), XdrvMailbox.data, 1);

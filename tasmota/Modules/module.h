@@ -92,13 +92,16 @@ void end_of_module(void);
 #define jendTransmission(BUS,VAL) ((void (*)(TwoWire*,bool))(jt[14]))(BUS,VAL)
 #define jrequestFrom(BUS,ADDR,NUM) ((void (*)(TwoWire*,uint8_t,uint8_t))(jt[15]))(BUS,ADDR,NUM)
 #define jread(BUS) ((uint8_t (*)(TwoWire*))(jt[16]))(BUS)
-
-
+#define fshowhex(VAL) ((void (*)(uint32_t))(jt[17]))(VAL)
+#define jfree(MEM) ((void (*)(void*))(jt[18]))(MEM)
 
 
 extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 
-#define DEFSTR(LABEL,TEXT) __asm__ __volatile__ (".section .text.modliteral");__asm__ __volatile__ (".align 4");__asm__ __volatile__(#LABEL ".asciz "#TEXT"");
+//#define DEFSTR(LABEL,TEXT) __asm__ __volatile__ (".section .text.modliteral");__asm__ __volatile__ (".align 4");__asm__ __volatile__(#LABEL ".asciz "#TEXT"");
+
+#define DEFSTR(LABEL,TEXT) __asm__ __volatile__ (".section .text.modliteral\n.align 4");__asm__ __volatile__(#LABEL ".asciz "#TEXT"");
+
 #define EXTSTR(LABEL) extern const char *(LABEL);
 
 #define MODULE_DESC __attribute__((section(".text.mod_desc"))) extern const FLASH_MODULE
@@ -120,8 +123,8 @@ extern "C" {
 
 //#define GSTR(STRING) xgstr()
 
-#define GXSTR(VAR,STRING)  const char *VAR = (const char*)&STRING;
-
+#define GXSTR(VAR,STRING)  const char *VAR = (const char*)&STRING; fshowhex((uint32_t)VAR);
+//#define GXSTR(VAR,STRING) const char *VAR = (const char*)&STRING;
 
 #define SETREGS MLX9014_MEMORY *mod_mem = (MLX9014_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;
 

@@ -32,6 +32,9 @@
 
 #define MLX90614_REV  1
 
+
+
+
 //void __REDIRECT (memcpy, (void *dest, const void *src, size_t n), CopyMem);
 
 /*
@@ -130,8 +133,25 @@ __asm__  (
 );
 #endif
 */
+#if 0
 
+MODULE_PART const uint8_t *getstr(void) {
+  return (const uint8_t*)&initmsg;
+}
 
+#else
+extern "C" { const uint8_t *getstr(void);}
+  __asm__  (
+    ".section text.mod_gstr\n"
+    ".align 4\n"
+    ".global getstr \n"
+    "   getstr: \n"
+    "   .type   gstr,@function\n"
+    "   l32r a2, initmsg #\n"
+    "   ret.n\n"
+    ".size	getstr, .-getstr"
+  );
+#endif
 
 MODULE_PART int32_t Init_MLX90614(MODULES_TABLE *mt) {
   ALLOCMEM(MLX9014_MEMORY)
@@ -146,9 +166,16 @@ MODULE_PART int32_t Init_MLX90614(MODULES_TABLE *mt) {
   if (!jI2cSetDevice(I2_ADR_IRT)) {
     return -1;
   }
+
+#ifdef DSTRING
+  jI2cSetActiveFound(I2_ADR_IRT, GSTR(mlxdev), 0);
+#else
   GXSTR(c,mlxdev);
-  //jI2cSetActiveFound(I2_ADR_IRT, GSTR(mlxdev), 0);
   jI2cSetActiveFound(I2_ADR_IRT, c, 0);
+#endif
+
+  sprint((const char*)getstr());
+
 
   mod_mem->ready = true;
 
@@ -160,8 +187,9 @@ MODULE_PART int32_t Init_MLX90614(MODULES_TABLE *mt) {
 }
 
 MODULE_PART void MLX90614_Deinit(MODULES_TABLE *mt) {
+  SETREGS
   if (mt->mem_size) {
-    free(mt->mod_memory);
+    jfree(mt->mod_memory);
     mt->mem_size = 0;
   }
 }
@@ -179,9 +207,12 @@ MODULE_PART void MLX90614_Every_Second(MODULES_TABLE *mt) {
   // test message
   //HardwareSerial *sp = jSerial;
   //sp->printf_P(GSTR(initmsg));
-  //  sprint(GSTR(initmsg));
+#ifdef DSTRING
+  sprint(GSTR(initmsg));
+#else
   GXSTR(c,initmsg);
   sprint(c);
+#endif
 
   if (mod_mem->ready == false) return;
 
@@ -216,13 +247,20 @@ MODULE_PART void MLX90614_Show(MODULES_TABLE *mt, uint32_t json) {
   jftostrfd(mod_mem->amb_temp, jsettings->temperature_resolution, amb_tstr);
 
   if (json) {
+
+#ifdef DSTRING
+    jResponseAppend_P(GSTR(JSON_IRTMP), obj_tstr, amb_tstr);
+#else
     GXSTR(c,JSON_IRTMP);
-    //jResponseAppend_P(GSTR(JSON_IRTMP), obj_tstr, amb_tstr);
     jResponseAppend_P(c, obj_tstr, amb_tstr);
+#endif
   } else {
+#ifdef DSTRING
+    jWSContentSend_PD(GSTR(HTTP_IRTMP), obj_tstr, amb_tstr);
+#else
     GXSTR(c,HTTP_IRTMP);
-    //jWSContentSend_PD(GSTR(HTTP_IRTMP), obj_tstr, amb_tstr);
     jWSContentSend_PD(c, obj_tstr, amb_tstr);
+#endif
   }
 }
 
@@ -272,6 +310,8 @@ MODULE_PART uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len) {
   }
   return crc;
 }
+
+
 
 /*********************************************************************************************\
  * Interface
