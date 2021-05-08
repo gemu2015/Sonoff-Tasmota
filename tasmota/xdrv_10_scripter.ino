@@ -7873,7 +7873,6 @@ uint32_t script_i2c(uint8_t sel, uint32_t val, uint32_t val1) {
     case 13:
       // write 1 .. 4 bytes
       bytes = sel - 9;
-      AddLog(LOG_LEVEL_INFO,PSTR(">>> %x %x %d"),val, val1, bytes );
       script_i2c_wire->beginTransmission(script_i2c_addr);
       script_i2c_wire->write(val);
       for (uint8_t cnt = 0; cnt < bytes; cnt++) {
