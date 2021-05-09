@@ -47,8 +47,6 @@ __asm__ __volatile__ ("__extendsfdf2:");
 
 
 //#pragma GCC optimize ("O0")
-
-
 MODULE_DESC module_header = {
   MODULE_SYNC,
   CURR_ARCH,
@@ -58,6 +56,8 @@ MODULE_DESC module_header = {
   mod_func_execute,
   end_of_module
 };
+
+
 
 #define I2_ADR_IRT      0x5a
 
@@ -77,7 +77,7 @@ typedef struct {
   bool ready;
 } MLX9014_MEMORY;
 
-
+#if 0
 // try a class
 class MLX {
  public:
@@ -94,64 +94,19 @@ MODULE_PART void MLX::begin(void) {
   test = 50;
 }
 
+#endif
+
 int32_t Init_MLX90614(MODULES_TABLE *mt);
 void MLX90614_Show(MODULES_TABLE *mt, uint32_t json);
 uint16_t MLX90614_read16(MODULES_TABLE *mt, uint8_t addr, uint8_t a);
 uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len);
 
-DEFSTR(initmsg:,"Hello world\n");
-EXTSTR(initmsg);
-DEFSTR(mlxdev:,"MLX90614");
-EXTSTR(mlxdev);
-DEFSTR(HTTP_IRTMP:,"{s}MXL90614 OBJ-TEMP{m}%s C{e} {s}MXL90614 AMB-TEMP {m}%s C{e}");
-EXTSTR(HTTP_IRTMP);
-DEFSTR(JSON_IRTMP:,",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}");
-EXTSTR(JSON_IRTMP);
+// define text
+DPSTR(initmsg,"Hello world\n");
+DPSTR(HTTP_IRTMP,"{s}MXL90614 OBJ-TEMP{m}%s C{e} {s}MXL90614 AMB-TEMP {m}%s C{e}");
+DPSTR(JSON_IRTMP,",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}");
+DPSTR(mlxdev,"MLX90614");
 
-
-/*
-#if 0
-__asm__  (
-  ".align 4\n"
-  "   .global gstr\n"
-  "   gstr:\n"
-  "   .type   gstr,@function\n"
-  "   entry a1, 32\n"
-  "   l32r	a2, initmsg #,\n"
-  "   retw\n"
-  "   .size	gstr, .-gstr"
-);
-#else
-__asm__  (
-  ".align 4\n"
-  "   .global gstr\n"
-  "   gstr:\n"
-  "   .type   gstr,@function\n"
-  "   l32r	a2, initmsg #,\n"
-  "   ret.n\n"
-  "   .size	gstr, .-gstr"
-);
-#endif
-*/
-#if 0
-
-MODULE_PART const uint8_t *getstr(void) {
-  return (const uint8_t*)&initmsg;
-}
-
-#else
-extern "C" { const uint8_t *getstr(void);}
-  __asm__  (
-    ".section text.mod_gstr\n"
-    ".align 4\n"
-    ".global getstr \n"
-    "   getstr: \n"
-    "   .type   gstr,@function\n"
-    "   l32r a2, initmsg #\n"
-    "   ret.n\n"
-    ".size	getstr, .-getstr"
-  );
-#endif
 
 MODULE_PART int32_t Init_MLX90614(MODULES_TABLE *mt) {
   ALLOCMEM(MLX9014_MEMORY)
@@ -164,24 +119,16 @@ MODULE_PART int32_t Init_MLX90614(MODULES_TABLE *mt) {
   mt->flags.initialized = true;
 
   if (!jI2cSetDevice(I2_ADR_IRT)) {
-    return -1;
+  //  return -1;
   }
 
-#ifdef DSTRING
-  jI2cSetActiveFound(I2_ADR_IRT, GSTR(mlxdev), 0);
-#else
-  GXSTR(c,mlxdev);
+  GPSTR(c,mlxdev);
   jI2cSetActiveFound(I2_ADR_IRT, c, 0);
-#endif
 
-  sprint((const char*)getstr());
-
+  GPSTR(d,initmsg)
+  sprint(d);
 
   mod_mem->ready = true;
-
-/*
-  MLX *mlx = new MLX();
-  mlx->begin();*/
 
   return 0;
 }
@@ -196,7 +143,7 @@ MODULE_PART void MLX90614_Deinit(MODULES_TABLE *mt) {
 
 
 MODULE_END void  end_of_module(void) {
- __asm__ __volatile__(".word 0xAA554AFC");
+ __asm__ __volatile__(".word 0x55AA4AFC");
 }
 
 float MLX90614_GetValue(MODULES_TABLE *mt, uint32_t reg);
@@ -208,10 +155,10 @@ MODULE_PART void MLX90614_Every_Second(MODULES_TABLE *mt) {
   //HardwareSerial *sp = jSerial;
   //sp->printf_P(GSTR(initmsg));
 #ifdef DSTRING
-  sprint(GSTR(initmsg));
+  //sprint(GSTR(initmsg));
 #else
-  GXSTR(c,initmsg);
-  sprint(c);
+//  GXSTR(c,initmsg);
+//  sprint(c);
 #endif
 
   if (mod_mem->ready == false) return;
@@ -247,20 +194,12 @@ MODULE_PART void MLX90614_Show(MODULES_TABLE *mt, uint32_t json) {
   jftostrfd(mod_mem->amb_temp, jsettings->temperature_resolution, amb_tstr);
 
   if (json) {
-
-#ifdef DSTRING
-    jResponseAppend_P(GSTR(JSON_IRTMP), obj_tstr, amb_tstr);
-#else
-    GXSTR(c,JSON_IRTMP);
+    GPSTR(c,JSON_IRTMP)
     jResponseAppend_P(c, obj_tstr, amb_tstr);
-#endif
+
   } else {
-#ifdef DSTRING
-    jWSContentSend_PD(GSTR(HTTP_IRTMP), obj_tstr, amb_tstr);
-#else
-    GXSTR(c,HTTP_IRTMP);
+    GPSTR(c,HTTP_IRTMP);
     jWSContentSend_PD(c, obj_tstr, amb_tstr);
-#endif
   }
 }
 

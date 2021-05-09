@@ -12,7 +12,7 @@
 enum {MODULE_TYPE_SENSOR, MODULE_TYPE_LIGHT, MODULE_TYPE_ENERGY};
 enum {ARCH_ESP8266, ARCH_ESP32};
 
-#define MODULE_SYNC 0x4AFCAA55
+#define MODULE_SYNC 0xFC4AAA55
 
 
 #undef CURR_ARCH
@@ -49,6 +49,7 @@ typedef struct {
   void (* const *jt)(void);
   void *mod_memory;
   uint16_t mem_size;
+  uint32_t execution_offset;
   mySettings *settings;
   MOD_FLAGS flags;
 } MODULES_TABLE;
@@ -98,12 +99,6 @@ void end_of_module(void);
 
 extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 
-//#define DEFSTR(LABEL,TEXT) __asm__ __volatile__ (".section .text.modliteral");__asm__ __volatile__ (".align 4");__asm__ __volatile__(#LABEL ".asciz "#TEXT"");
-
-#define DEFSTR(LABEL,TEXT) __asm__ __volatile__ (".section .text.modliteral\n.align 4");__asm__ __volatile__(#LABEL ".asciz "#TEXT"");
-
-#define EXTSTR(LABEL) extern const char *(LABEL);
-
 #define MODULE_DESC __attribute__((section(".text.mod_desc"))) extern const FLASH_MODULE
 #define MODULE_PART __attribute__((section(".text.mod_part")))
 #define MODULE_END __attribute__((section(".text.mod_end")))
@@ -112,29 +107,30 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define CAT(a,b) CAT2(a,b)
 #define UNIQUE_ID CAT(_uid_,__COUNTER__)
 
-#define jPSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[0];}))
 
+// this macro generates a txt and a function to get position independent access
+// 8 bytes for subroutine and up to 8 bytes alignment lost
+#define DPSTR(FUNC,TEXT) extern "C" { volatile const char *FUNC(void);} __asm__  (\
+  ".section .text.mod_part\n"\
+  ".align 4\n"\
+  #FUNC"_: .asciz "#TEXT" \n"\
+  ".align 4\n"\
+  ".literal_position\n"\
+  ".literal ._" #FUNC "," #FUNC "-" #FUNC "_\n"\
+  ".global " #FUNC "\n"\
+  ".type " #FUNC ",@function\n"\
+  #FUNC":\n"\
+  "l32r a2, ._" #FUNC "#,\n"\
+  "ret.n\n"\
+  ".size " #FUNC ",.-" #FUNC ""\
+  );
 
-#define GSTR(STRING) (const char*)&(STRING)
+// this macro gets the text pointer from text defintion
+#define GPSTR(VAR,FUNC) const char *VAR = (const char*) ((uint32_t)FUNC + mt->execution_offset - (uint32_t)FUNC()); fshowhex((uint32_t)VAR);
 
-extern "C" {
- const char *gstr(void);
-}
-
-//#define GSTR(STRING) xgstr()
-
-#define GXSTR(VAR,STRING)  const char *VAR = (const char*)&STRING; fshowhex((uint32_t)VAR);
-//#define GXSTR(VAR,STRING) const char *VAR = (const char*)&STRING;
 
 #define SETREGS MLX9014_MEMORY *mod_mem = (MLX9014_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;
 
-
 #define ALLOCMEM(A) void (* const *jt)() = mt->jt;mt->mem_size = sizeof(A);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MLX9014_MEMORY *mod_mem = (MLX9014_MEMORY*)mt->mod_memory;mySettings *jsettings = mt->settings;
-
-
-#define RSIL(r)  __asm__ __volatile__("rsil %0,15 ; esync":"=a" (r))
-
-// Write Register Processor State
-#define WSR_PS(w)  __asm__ __volatile__("wsr %0,ps ; esync"::"a" (w): "memory")
 
 #define MODULE_SYNC_END __attribute__((section(".text.mod_end"))); __asm__ __volatile__ (".align 4");

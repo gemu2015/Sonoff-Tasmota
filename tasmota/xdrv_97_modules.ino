@@ -43,15 +43,19 @@ const char kModuleCommands[] PROGMEM = "|"// no Prefix
   "link" "|"
   "unlink" "|"
   "iniz" "|"
-  "deiniz"
+  "deiniz" "|"
+  "dump"
   ;
 
 void (* const ModuleCommand[])(void) PROGMEM = {
-  &Module_mdir,  &Module_link, &Module_unlink, &Module_iniz, &Module_deiniz
+  &Module_mdir,  &Module_link, &Module_unlink, &Module_iniz, &Module_deiniz, &Module_dump
 };
 
 void Serial_print(char *txt) {
-  Serial.printf("test: %s\n",txt);
+  //Serial.printf("test: %x %x\n",(uint32_t)txt, *(uint32_t*)txt);
+  //Serial.printf("test: %x\n",(uint32_t)txt);
+
+  Serial.printf_P("test: %s\n",txt);
 }
 
 mySettings mysettings;
@@ -86,7 +90,7 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
 };
 
 uint8_t *Load_Module(char *path, uint32_t *rsize);
-uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint8_t flag);
+uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *offset, uint8_t flag);
 
 #define MAXMODULES 16
 MODULES_TABLE modules[MAXMODULES];
@@ -125,8 +129,9 @@ void InitModules(void) {
 //return;
 #endif
 
+  uint32_t offset = 0;
 #ifdef EXECUTE_IN_FLASH
-  modules[0].mod_addr = (void *) Store_Module(fdesc, size, 0);
+  modules[0].mod_addr = (void *) Store_Module(fdesc, size, &offset, 0);
 #endif
 
 //  const FLASH_MODULE *xfm = (FLASH_MODULE*)&module_header;
@@ -139,6 +144,7 @@ void InitModules(void) {
 
   const FLASH_MODULE *fm = (FLASH_MODULE*)modules[0].mod_addr;
   modules[0].jt = MODULE_JUMPTABLE;
+  modules[0].execution_offset = offset;
   modules[0].mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[0].mod_addr + 4;
   modules[0].settings = &mysettings;
   modules[0].flags.data = 0;
@@ -216,6 +222,7 @@ void show_hex_address(uint32_t addr) {
 }
 
 
+
 // convert float to string
 char* ftostrfd(float number, unsigned char prec, char *s) {
   if ((isnan(number)) || (isinf(number))) {  // Fix for JSON output (https://stackoverflow.com/questions/1423081/json-left-out-infinity-and-nan-json-status-in-ecmascript)
@@ -252,7 +259,7 @@ uint8_t *Load_Module(char *path, uint32_t *rsize) {
 
 // patch calls and store to flash
 #define SPEC_SCRIPT_FLASH 0x000F2000
-uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint8_t flag) {
+uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t flag) {
 uint32_t aoffset;
 uint32_t eeprom_block;
 
@@ -268,6 +275,7 @@ uint32_t eeprom_block;
   uint32_t old_pc = (uint32_t)fm->end_of_module - (size - 4);
   uint32_t new_pc = (uint32_t)eeprom_block + aoffset;
   uint32_t offset = new_pc - old_pc;
+  *ioffset = offset;
   uint32_t corr_pc = (uint32_t)fm->mod_func_execute + offset;
   uint32_t *lp = (uint32_t*)&fm->mod_func_execute;
   *lp = corr_pc;
@@ -290,8 +298,8 @@ void Module_mdir(void) {
     if (modules[cnt].mod_addr) {
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
       const char *type = "xsns"; // only currently supported type
-      AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-16s| %08x | %4d | %4s | %04x | %4d | %1d"), cnt + 1, fm->name, modules[cnt].mod_addr,
-       modules[cnt].mod_size,  type, fm->revision, modules[cnt].mem_size, modules[cnt].flags.initialized);
+      AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-16s| %08x | %4d | %4s | %04x | %4d | %1d %08x"), cnt + 1, fm->name, modules[cnt].mod_addr,
+       modules[cnt].mod_size,  type, fm->revision, modules[cnt].mem_size, modules[cnt].flags.initialized,fm->mod_func_execute);
       //AddLog(LOG_LEVEL_INFO, PSTR("Module %d: %s %08x"), cnt + 1, fm->name, modules[cnt].mod_addr);
     }
   }
@@ -312,15 +320,17 @@ void Module_link(void) {
           break;
         }
       }
+      uint32_t offset;
 #ifdef ESP32
-      modules[cnt].mod_addr = (void *) Store_Module(mp, size, 1);
+      modules[cnt].mod_addr = (void *) Store_Module(mp, size, &offset, 1);
 #else
-      modules[cnt].mod_addr = (void *) Store_Module(mp, size, 0);
+      modules[cnt].mod_addr = (void *) Store_Module(mp, size, &offset, 0);
       free(mp);
 #endif
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
       modules[cnt].jt = MODULE_JUMPTABLE;
       modules[cnt].mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[cnt].mod_addr;
+      modules[cnt].execution_offset = offset;
       modules[cnt].settings = &mysettings;
       modules[cnt].flags.data = 0;
       AddLog(LOG_LEVEL_INFO,PSTR("module %s loaded at slot %d"), XdrvMailbox.data, 1);
@@ -380,6 +390,17 @@ void Module_deiniz(void) {
   if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAXMODULES)) {
     Deiniz_module(XdrvMailbox.payload - 1);
   }
+  ResponseCmndDone();
+}
+
+// deiniz 1 module
+void Module_dump(void) {
+  uint32_t *lp = (uint32_t*) (0x40200000 + SPEC_SCRIPT_FLASH);
+  for (uint32_t cnt = 0; cnt < 8; cnt ++) {
+    AddLog(LOG_LEVEL_INFO,PSTR("%08x: %08x %08x %08x %08x %08x %08x %08x %08x"),lp,lp[0],lp[1],lp[2],lp[3],lp[4],lp[5],lp[6],lp[7]);
+    lp += 8;
+  }
+
   ResponseCmndDone();
 }
 
