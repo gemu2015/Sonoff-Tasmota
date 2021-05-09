@@ -20,6 +20,7 @@
 
 
 */
+
 #define USE_MLX90614_MOD
 
 #include "module.h"
@@ -28,7 +29,8 @@
 #include <Stream.h>
 #include <HardwareSerial.h>
 
-#ifdef USE_MLX90614_MOD
+//#ifdef USE_MLX90614_MOD
+#if 0
 
 #define MLX90614_REV  1
 

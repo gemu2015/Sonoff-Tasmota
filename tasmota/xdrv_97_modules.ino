@@ -28,7 +28,7 @@ very early stage
 #define XDRV_97             97
 
 
-#define EXECUTE_FROM_BINARY
+//#define EXECUTE_FROM_BINARY
 //#define SAVE_DRIVER_TO_FILE
 
 //#define EXECUTE_IN_FLASH

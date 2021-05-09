@@ -110,7 +110,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 
 // this macro generates a txt and a function to get position independent access
 // 8 bytes for subroutine and up to 8 bytes alignment lost
-#define DPSTR(FUNC,TEXT) extern "C" { volatile const char *FUNC(void);} __asm__  (\
+#define DPSTR(FUNC,TEXT) extern "C" {  const char *FUNC(void);} __asm__  (\
   ".section .text.mod_part\n"\
   ".align 4\n"\
   #FUNC"_: .asciz "#TEXT" \n"\
