@@ -1083,6 +1083,10 @@ static inline void lvgl_color_swap(uint16_t *data, uint16_t len) { for (uint32_t
 void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean not_swapped) {
   uint16_t color;
 
+  if (lvgl_param.use_dma&2) {
+    not_swapped = !not_swapped;
+  }
+
   //Serial.printf("push %x - %d\n", (uint32_t)data, len);
   if (not_swapped == false) {
     // called from LVGL bytes are swapped
@@ -1100,7 +1104,7 @@ void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean not_swapped) {
         uspi->write(*data++);
       }
 #else
-      if (lvgl_param.use_dma) {
+      if (lvgl_param.use_dma&1) {
         pushPixelsDMA(data, len );
       } else {
         uspi->writeBytes((uint8_t*)data, len * 2);
@@ -1127,7 +1131,7 @@ void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean not_swapped) {
             *lp++ = b;
           }
 
-          if (lvgl_param.use_dma) {
+          if (lvgl_param.use_dma&1) {
             pushPixels3DMA(line, len );
           } else {
             uspi->writeBytes(line, len * 3);
