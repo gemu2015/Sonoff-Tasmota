@@ -23,13 +23,9 @@
 #define MQTT_WIFI_CLIENT_TIMEOUT   200    // Wifi TCP connection timeout (default is 5000 mSec)
 #endif
 
-#ifdef USE_MQTT_AZURE_IOT
-#include <t_bearssl.h>
+const uint32_t mqtt_file_chuck_size = 700;  // Related to base64_encode (+2 / 3 * 4) and MQTT buffer size (MIN_MESSZ = 1040)
+
 #include <base64.hpp>
-#include <JsonParser.h>
-#undef  MQTT_PORT
-#define MQTT_PORT         8883
-#endif  // USE_MQTT_AZURE_IOT
 
 #define USE_MQTT_NEW_PUBSUBCLIENT
 
@@ -40,6 +36,20 @@
   BearSSL::WiFiClientSecure_light *tlsClient;
 #endif
 WiFiClient EspClient;                     // Wifi Client - non-TLS
+
+#ifdef USE_MQTT_AZURE_IOT
+#undef  MQTT_PORT
+#define MQTT_PORT         8883
+#if defined(USE_MQTT_AZURE_DPS_SCOPEID) && defined(USE_MQTT_AZURE_DPS_PRESHAREDKEY)
+  #include <ESP8266HTTPClient.h>
+  // dedicated tlsHttpsClient for DPS as the 'tlsClient' above causes error '-1' in httpsClient after it is associated with PubSub.  It cost ~5K of heap
+  BearSSL::WiFiClientSecure_light *tlsHttpsClient = new BearSSL::WiFiClientSecure_light(1024,1024);
+  HTTPClient httpsClient;
+  int httpsClientReturn;
+#endif // USE_MQTT_AZURE_DPS_SCOPEID
+  #include <t_bearssl.h>
+  #include <JsonParser.h>
+#endif  // USE_MQTT_AZURE_IOT
 
 const char kMqttCommands[] PROGMEM = "|"  // No prefix
   // SetOption synonyms
@@ -59,7 +69,7 @@ const char kMqttCommands[] PROGMEM = "|"  // No prefix
   D_CMND_MQTTHOST "|" D_CMND_MQTTPORT "|" D_CMND_MQTTRETRY "|" D_CMND_STATETEXT "|" D_CMND_MQTTCLIENT "|"
   D_CMND_FULLTOPIC "|" D_CMND_PREFIX "|" D_CMND_GROUPTOPIC "|" D_CMND_TOPIC "|" D_CMND_PUBLISH "|" D_CMND_MQTTLOG "|"
   D_CMND_BUTTONTOPIC "|" D_CMND_SWITCHTOPIC "|" D_CMND_BUTTONRETAIN "|" D_CMND_SWITCHRETAIN "|" D_CMND_POWERRETAIN "|"
-  D_CMND_SENSORRETAIN "|" D_CMND_INFORETAIN "|" D_CMND_STATERETAIN ;
+  D_CMND_SENSORRETAIN "|" D_CMND_INFORETAIN "|" D_CMND_STATERETAIN "|" D_CMND_FILEUPLOAD "|" D_CMND_FILEDOWNLOAD ;
 
 SO_SYNONYMS(kMqttSynonyms,
   90,
@@ -85,9 +95,16 @@ void (* const MqttCommand[])(void) PROGMEM = {
   &CmndMqttHost, &CmndMqttPort, &CmndMqttRetry, &CmndStateText, &CmndMqttClient,
   &CmndFullTopic, &CmndPrefix, &CmndGroupTopic, &CmndTopic, &CmndPublish, &CmndMqttlog,
   &CmndButtonTopic, &CmndSwitchTopic, &CmndButtonRetain, &CmndSwitchRetain, &CmndPowerRetain, &CmndSensorRetain,
-  &CmndInfoRetain, &CmndStateRetain };
+  &CmndInfoRetain, &CmndStateRetain, &CmndFileUpload, &CmndFileDownload };
 
 struct MQTT {
+  uint32_t file_pos = 0;                 // MQTT file position during upload/download
+  uint32_t file_id = 0;                  // MQTT unique file id during upload/download
+  uint32_t file_type = 0;                // MQTT File type (See UploadTypes)
+  uint32_t file_size = 0;                // MQTT total file size
+  uint8_t* file_buffer = nullptr;        // MQTT file buffer
+  MD5Builder md5;                        // MQTT md5
+  String file_md5;                       // MQTT received file md5 (32 chars)
   uint16_t connect_count = 0;            // MQTT re-connect count
   uint16_t retry_counter = 1;            // MQTT connection retry counter
   uint16_t retry_counter_delay = 1;      // MQTT retry counter multiplier
@@ -101,7 +118,7 @@ struct MQTT {
 
 // This part of code is necessary to store Private Key and Cert in Flash
 #ifdef USE_MQTT_AWS_IOT
-#include <base64.hpp>
+//#include <base64.hpp>
 
 const br_ec_private_key *AWS_IoT_Private_Key = nullptr;
 const br_x509_certificate *AWS_IoT_Client_Certificate = nullptr;
@@ -179,6 +196,9 @@ void MakeValidMqtt(uint32_t option, char* str) {
 PubSubClient MqttClient;
 
 void MqttInit(void) {
+#ifdef USE_MQTT_AZURE_IOT
+  Settings.mqtt_port = 8883;
+#endif //USE_MQTT_AZURE_IOT
 #ifdef USE_MQTT_TLS
   if ((8883 == Settings.mqtt_port) || (8884 == Settings.mqtt_port)) {
     // Turn on TLS for port 8883 (TLS) and 8884 (TLS, client certificate)
@@ -225,51 +245,202 @@ void MqttInit(void) {
 }
 
 #ifdef USE_MQTT_AZURE_IOT
-String azurePreSharedKeytoSASToken(char *iotHubFQDN, const char *deviceId, const char *preSharedKey, int sasTTL = 86400){
-  int ttl = time(NULL) + sasTTL;
-  String dataToSignString = urlEncodeBase64(String(iotHubFQDN) + "/devices/" + String(deviceId)) + "\n" + String(ttl);
-  char dataToSign[dataToSignString.length() + 1];
-  dataToSignString.toCharArray(dataToSign, dataToSignString.length() + 1);
+  String Sha256Sign(String dataToSign, String preSharedKey){
+    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "sha256 dataToSign is '%s'"), String(dataToSign).c_str());
+    char dataToSignChar[dataToSign.length() + 1];
+    dataToSign.toCharArray(dataToSignChar, dataToSign.length() + 1);
 
-  unsigned char decodedPSK[32];
-  unsigned char encryptedSignature[100];
-  unsigned char encodedSignature[100];
-  br_sha256_context sha256_context;
-  br_hmac_key_context hmac_key_context;
-  br_hmac_context hmac_context;
+    unsigned char decodedPSK[32];
+    unsigned char encryptedSignature[100];
+    unsigned char encodedSignature[100];
+    br_sha256_context sha256_context;
+    br_hmac_key_context hmac_key_context;
+    br_hmac_context hmac_context;
 
-  // need to base64 decode the Preshared key and the length
-  int base64_decoded_device_length = decode_base64((unsigned char*)preSharedKey, decodedPSK);
+    // need to base64 decode the Preshared key and the length
+    int base64_decoded_device_length = decode_base64((unsigned char*)preSharedKey.c_str(), decodedPSK);
 
-  // create the sha256 hmac and hash the data
-  br_sha256_init(&sha256_context);
-  br_hmac_key_init(&hmac_key_context, sha256_context.vtable, decodedPSK, base64_decoded_device_length);
-  br_hmac_init(&hmac_context, &hmac_key_context, 32);
-  br_hmac_update(&hmac_context, dataToSign, sizeof(dataToSign)-1);
-  br_hmac_out(&hmac_context, encryptedSignature);
+    // create the sha256 hmac and hash the data
+    br_sha256_init(&sha256_context);
+    br_hmac_key_init(&hmac_key_context, sha256_context.vtable, decodedPSK, base64_decoded_device_length);
+    br_hmac_init(&hmac_context, &hmac_key_context, 32);
+    br_hmac_update(&hmac_context, dataToSignChar, sizeof(dataToSignChar)-1);
+    br_hmac_out(&hmac_context, encryptedSignature);
 
-  // base64 decode the HMAC to a char
-  encode_base64(encryptedSignature, br_hmac_size(&hmac_context), encodedSignature);
+    // base64 decode the HMAC to a char
+    encode_base64(encryptedSignature, br_hmac_size(&hmac_context), encodedSignature);
 
-  // creating the real SAS Token
-  String realSASToken = "SharedAccessSignature ";
-  realSASToken += "sr="   + urlEncodeBase64(String(iotHubFQDN) + "/devices/" + String(deviceId));
-  realSASToken += "&sig=" + urlEncodeBase64(String((char*)encodedSignature));
-  realSASToken += "&se="  + String(ttl);
+    // creating the real SAS Token
+    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "sha256 signature is '%s'"), String((char*)encodedSignature).c_str());
 
-  AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "SASToken is '%s'"), realSASToken.c_str());
+    return String((char*)encodedSignature);
+  }
 
-  return realSASToken;
-}
+  String urlEncodeBase64(String stringToEncode){
+    // correctly URL encoding the 64 characters of Base64 and the '=' sign
+    stringToEncode.replace("+", "%2B");
+    stringToEncode.replace("=", "%3D");
+    stringToEncode.replace("/", "%2F");
+    return stringToEncode;
+  }
 
-String urlEncodeBase64(String stringToEncode){
-  // correctly URL encoding the 64 characters of Base64 and the '=' sign
-  stringToEncode.replace("+", "%2B");
-  stringToEncode.replace("=", "%3D");
-  stringToEncode.replace("/", "%2F");
-  return stringToEncode;
-}
-#endif  // USE_MQTT_AZURE_IOT
+  String AzurePSKtoToken(char *iotHubFQDN, const char *deviceId, const char *preSharedKey, int sasTTL = 86400){
+    int ttl = time(NULL) + sasTTL;
+    String dataToSignString = urlEncodeBase64(String(iotHubFQDN) + "/devices/" + String(deviceId)) + "\n" + String(ttl);
+    String signedData = Sha256Sign(dataToSignString, String(preSharedKey));
+
+    // creating the real SAS Token
+    String realSASToken = "SharedAccessSignature sr="   + urlEncodeBase64(String(iotHubFQDN) + "/devices/" + String(deviceId));
+    realSASToken += "&sig=" + urlEncodeBase64(signedData) + "&se="  + String(ttl);
+
+    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "Azure IoT Hub SAS Token is '%s'"), realSASToken.c_str());
+
+    return realSASToken;
+  }
+
+#if defined(USE_MQTT_AZURE_DPS_SCOPEID) && defined(USE_MQTT_AZURE_DPS_PRESHAREDKEY)
+  String AzureDSPPSKtoToken(String scopeId, String deviceId, const char *preSharedKey, int sasTTL = 3600){
+    int ttl = time(NULL) + sasTTL;
+    String dataToSignString = urlEncodeBase64(scopeId + "/registrations/" + deviceId) + "\n" + String(ttl);
+    String signedData = Sha256Sign(dataToSignString, String(preSharedKey));
+
+    // creating the real SAS Token
+    String realSASToken = "SharedAccessSignature sr=" + urlEncodeBase64(scopeId + "/registrations/" + deviceId);
+    realSASToken += "&sig=" + urlEncodeBase64(signedData) + "&skn=registration" + "&se="  + String(ttl);
+
+    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "Azure DPS SAS Token is '%s'"), realSASToken.c_str());
+
+    return realSASToken;
+  }
+
+  void ProvisionAzureDPS(){
+    AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_MQTT "Starting Azure DPS registration..."));
+    // Scope and Key are derived from user_config_override.h, USE_MQTT_AZURE_DPS_SCOPE_ENDPOINT is optional
+    String dPSScopeId = USE_MQTT_AZURE_DPS_SCOPEID;
+    String dPSPreSharedKey = USE_MQTT_AZURE_DPS_PRESHAREDKEY;
+    #if defined(USE_MQTT_AZURE_DPS_SCOPE_ENDPOINT)
+      String endpoint=USE_MQTT_AZURE_DPS_SCOPE_ENDPOINT;
+    #else
+      String endpoint="https://global.azure-devices-provisioning.net/";
+    #endif //USE_MQTT_AZURE_DPS_SCOPE_ENDPOINT
+
+    String MACAddress = WiFi.macAddress();
+    MACAddress.replace(":", "");
+
+    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "DPS register for %s, scope %s to %s."), MACAddress.c_str(), dPSScopeId.c_str(), endpoint.c_str());
+
+    // derive our PSK from the DPS and set the device ID
+    String devicePresharedKey = Sha256Sign(MACAddress, dPSPreSharedKey);
+    char devicePresharedKeyChar[devicePresharedKey.length() + 1];
+    devicePresharedKey.toCharArray(devicePresharedKeyChar, devicePresharedKey.length() + 1);
+
+    // generate a SAS Token with this new derived key
+    String dPSSASToken = AzureDSPPSKtoToken(dPSScopeId, MACAddress, devicePresharedKey.c_str());
+
+    // REST to DPS to start the assigning process
+    String dPSURL = endpoint + dPSScopeId + "/registrations/" + MACAddress + "/register?api-version=2019-03-31";
+    String dPSPutContent = "{\"registrationId\": \"" + MACAddress + "\"}";
+
+    httpsClient.setReuse(true);
+
+    httpsClient.begin(*tlsHttpsClient, dPSURL);
+    httpsClient.addHeader("User-Agent", "Tasmota");
+    httpsClient.addHeader("Content-Type", "application/json");
+    httpsClient.addHeader("Content-Encoding", "utf-8");
+    httpsClient.addHeader("Authorization", dPSSASToken);
+    httpsClientReturn = httpsClient.PUT(dPSPutContent);
+    String dPSAssigningResponseJSON;
+
+    if (httpsClientReturn == HTTP_CODE_ACCEPTED){
+      dPSAssigningResponseJSON = httpsClient.getString();
+      AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "DPS Assigning response '%s'"), dPSAssigningResponseJSON.c_str());
+    } else {
+      dPSAssigningResponseJSON = httpsClient.getString();
+      AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "DPS Assigning response '%s'"), dPSAssigningResponseJSON.c_str());
+      AddLog(LOG_LEVEL_ERROR, PSTR(D_LOG_MQTT "Azure DPS REST assignment connection failed with code '%d'.  Restarting."), httpsClientReturn);
+      WebRestart(1);
+    }
+
+    if (dPSAssigningResponseJSON.indexOf("\"assigning\"") == -1){
+      AddLog(LOG_LEVEL_ERROR, PSTR(D_LOG_MQTT "Azure DPS assignment failed with response '%s'.  Restarting."), dPSAssigningResponseJSON.c_str());
+      WebRestart(1);
+    } else {
+      AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "Azure DPS assignment response '%s'."), dPSAssigningResponseJSON.c_str());
+    }
+
+    httpsClient.end();
+
+    JsonParser dPSAssigningResponseParser((char*) dPSAssigningResponseJSON.c_str());
+    JsonParserObject dPSAssigningResponseRoot = dPSAssigningResponseParser.getRootObject();
+    String dPSAssigningOperationId = dPSAssigningResponseRoot.getStr("operationId");
+
+    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "DPS operationId is '%s'."), dPSAssigningOperationId.c_str());
+
+    bool assigned = false;
+    int assignedCounter = 1;
+    String dPSAssignedResponseJSON;
+    dPSURL = endpoint + dPSScopeId + "/registrations/" + MACAddress + "/operations/" + dPSAssigningOperationId + "?api-version=2019-03-31";
+
+    while (!assigned && assignedCounter < 5){
+      httpsClient.begin(*tlsHttpsClient, dPSURL);
+      httpsClient.addHeader("User-Agent", "Tasmota");
+      httpsClient.addHeader("Content-Type", "application/json");
+      httpsClient.addHeader("Content-Encoding", "utf-8");
+      httpsClient.addHeader("Authorization", dPSSASToken);
+      httpsClientReturn = httpsClient.GET();
+
+      if (httpsClientReturn == HTTP_CODE_OK){
+        dPSAssignedResponseJSON = httpsClient.getString();
+      } else if (httpsClientReturn !=  HTTP_CODE_ACCEPTED){
+        AddLog(LOG_LEVEL_ERROR, PSTR(D_LOG_MQTT "Azure DPS REST check connection failed with code '%d'."), httpsClientReturn);
+      }
+
+      if (dPSAssignedResponseJSON.indexOf("\"status\":\"assigned\"") > 0){
+        assigned = true;
+      } else if (httpsClientReturn !=  HTTP_CODE_ACCEPTED) {
+        AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "DPS try %d, response '%s'."), assignedCounter, dPSAssignedResponseJSON.c_str());
+      }
+
+      delay(1000 * assignedCounter);
+      assignedCounter+=1;
+    }
+
+    httpsClient.end();
+
+    if (assigned){
+      AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "Azure DPS registration response '%s'."), dPSAssignedResponseJSON.c_str());
+
+      JsonParser parser((char*) dPSAssignedResponseJSON.c_str());
+      JsonParserObject stateObject = parser.getRootObject()[PSTR("registrationState")].getObject();
+      String deviceId = stateObject["deviceId"].getStr();
+      String iotHub = stateObject["assignedHub"].getStr();
+
+      bool newProvision = false;
+      if (String(SettingsText(SET_MQTT_PWD)) != devicePresharedKey ||
+          String(SettingsText(SET_MQTT_HOST)) != iotHub ||
+          String(SettingsText(SET_MQTT_CLIENT)) != deviceId ||
+          String(SettingsText(SET_MQTT_USER)) != deviceId) {
+
+        newProvision = true;
+        SettingsUpdateText(SET_MQTT_PWD, devicePresharedKey.c_str());
+        SettingsUpdateText(SET_MQTT_HOST, iotHub.c_str());
+        SettingsUpdateText(SET_MQTT_CLIENT, deviceId.c_str());
+        SettingsUpdateText(SET_MQTT_USER, deviceId.c_str());
+      }
+
+      if (newProvision){  // because this is the first time we have been provisioned must reboot
+        AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_MQTT "Azure DPS registration success, changed in DPS registration, restarting."));
+        WebRestart(1);
+      } else {
+        AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_MQTT "Azure DPS registration success, no changes."));
+      }
+
+    } else {
+      AddLog(LOG_LEVEL_ERROR, PSTR(D_LOG_MQTT "Azure DPS registration response failed with response '%s'."), dPSAssignedResponseJSON.c_str());
+    }
+  }
+#endif // USE_MQTT_AZURE_DPS_SCOPEID
+#endif // USE_MQTT_AZURE_IOT
 
 bool MqttIsConnected(void) {
   return MqttClient.connected();
@@ -285,6 +456,8 @@ void MqttSubscribeLib(const char *topic) {
   String realTopicString = "devices/" + String(SettingsText(SET_MQTT_CLIENT));
   realTopicString += "/messages/devicebound/#";
   MqttClient.subscribe(realTopicString.c_str());
+  SettingsUpdateText(SET_MQTT_FULLTOPIC, SettingsText(SET_MQTT_CLIENT));
+  SettingsUpdateText(SET_MQTT_TOPIC, SettingsText(SET_MQTT_CLIENT));
 #else
   MqttClient.subscribe(topic);
 #endif  // USE_MQTT_AZURE_IOT
@@ -358,9 +531,11 @@ void MqttDataHandler(char* mqtt_topic, uint8_t* mqtt_data, unsigned int data_len
 #ifdef USE_MQTT_AZURE_IOT
   // for Azure, we read the topic from the property of the message
   String fullTopicString = String(mqtt_topic);
-  int startOfTopic = fullTopicString.indexOf("TOPIC=");
+  String toppicUpper = fullTopicString;
+  toppicUpper.toUpperCase();
+  int startOfTopic = toppicUpper.indexOf("TOPIC=");
   if (startOfTopic == -1){
-    AddLog(LOG_LEVEL_ERROR, PSTR(D_LOG_MQTT "Azure IoT message without the property TOPIC, case sensitive."));
+    AddLog(LOG_LEVEL_ERROR, PSTR(D_LOG_MQTT "Azure IoT message without the property topic."));
     return;
   }
   String newTopic = fullTopicString.substring(startOfTopic + 6);
@@ -683,6 +858,9 @@ void MqttReconnect(void) {
 
   Mqtt.allowed = Settings.flag.mqtt_enabled;  // SetOption3 - Enable MQTT
   if (Mqtt.allowed) {
+#if defined(USE_MQTT_AZURE_DPS_SCOPEID) && defined(USE_MQTT_AZURE_DPS_PRESHAREDKEY)
+  ProvisionAzureDPS();
+#endif
 #ifdef USE_DISCOVERY
 #ifdef MQTT_HOST_DISCOVERY
     MqttDiscoverServer();
@@ -798,7 +976,8 @@ void MqttReconnect(void) {
   String azureMqtt_password = SettingsText(SET_MQTT_PWD);
   if (azureMqtt_password.indexOf("SharedAccessSignature") == -1) {
     // assuming a PreSharedKey was provided, calculating a SAS Token into azureMqtt_password
-    azureMqtt_password = azurePreSharedKeytoSASToken(SettingsText(SET_MQTT_HOST), SettingsText(SET_MQTT_CLIENT), SettingsText(SET_MQTT_PWD));
+    AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_MQTT "Authenticating with an Azure IoT Hub Token"));
+    azureMqtt_password = AzurePSKtoToken(SettingsText(SET_MQTT_HOST), SettingsText(SET_MQTT_CLIENT), SettingsText(SET_MQTT_PWD));
   }
 
   String azureMqtt_userString = String(SettingsText(SET_MQTT_HOST)) + "/" + String(SettingsText(SET_MQTT_CLIENT)); + "/?api-version=2018-06-30";
@@ -1235,6 +1414,200 @@ void CmndStateRetain(void) {
     Settings.flag5.mqtt_state_retain = XdrvMailbox.payload;                                   // CMND_STATERETAIN
   }
   ResponseCmndStateText(Settings.flag5.mqtt_state_retain);                                    // CMND_STATERETAIN
+}
+
+void CmndFileUpload(void) {
+/*
+  Upload (binary) max 700 bytes chunks of data base64 encoded with MD5 hash over base64 decoded data
+  FileUpload 0  - Abort current upload
+  FileUpload {"File":"Config_wemos10_9.4.0.3.dmp","Id":1620385091,"Type":2,"Size":4096}
+  FileUpload {"Id":1620385091,"Data":"CRJcTQ9fYGF ... OT1BRUlNUVVZXWFk="}
+  FileUpload {"Id":1620385091,"Data":" ... "}
+  FileUpload {"Id":1620385091,"Md5":"496fcbb433bbca89833063174d2c5747"}
+*/
+  const char* base64_data = nullptr;
+  uint32_t rcv_id = 0;
+
+  char* dataBuf = (char*)XdrvMailbox.data;
+  if (strlen(dataBuf) > 8) {             // Workaround exception if empty JSON like {} - Needs checks
+    JsonParser parser((char*) dataBuf);
+    JsonParserObject root = parser.getRootObject();
+    if (root) {
+      JsonParserToken val = root[PSTR("ID")];
+      if (val) { rcv_id = val.getUInt(); }
+      val = root[PSTR("TYPE")];
+      if (val) { Mqtt.file_type = val.getUInt(); }
+      val = root[PSTR("SIZE")];
+      if (val) { Mqtt.file_size = val.getUInt(); }
+      val = root[PSTR("MD5")];
+      if (val) { Mqtt.file_md5 = val.getStr(); }
+      val = root[PSTR("DATA")];
+      if (val) { base64_data = val.getStr(); }
+    }
+  }
+
+  if ((0 == Mqtt.file_id) && (rcv_id > 0) && (Mqtt.file_size > 0) && (Mqtt.file_type > 0)) {
+    // Init upload buffer
+    Mqtt.file_buffer = nullptr;
+
+    if (UPL_SETTINGS == Mqtt.file_type) {
+      if (SettingsConfigBackup()) {
+        Mqtt.file_buffer = settings_buffer;
+      }
+    }
+
+    if (!Mqtt.file_buffer) {
+      ResponseCmndChar(PSTR(D_JSON_INVALID_FILE_TYPE));
+    } else {
+      Mqtt.file_id = rcv_id;
+      Mqtt.file_pos = 0;
+
+      Mqtt.md5 = MD5Builder();
+      Mqtt.md5.begin();
+
+//      TasmotaGlobal.masterlog_level = LOG_LEVEL_DEBUG_MORE;  // Hide upload data logging
+    }
+  }
+  else if ((Mqtt.file_id > 0) && (Mqtt.file_id != rcv_id)) {
+    // Error receiving data
+
+    if (UPL_SETTINGS == Mqtt.file_type) {
+      SettingsBufferFree();
+    }
+
+    Mqtt.file_buffer = nullptr;
+    ResponseCmndChar(PSTR(D_JSON_ABORTED));
+  }
+
+  if (Mqtt.file_buffer) {
+    if ((Mqtt.file_pos < Mqtt.file_size) && base64_data) {
+      // Save upload into buffer - Handle possible buffer overflows
+      uint32_t rcvd_bytes = decode_base64_length((unsigned char*)base64_data);
+      unsigned char decode_output[rcvd_bytes];
+      decode_base64((unsigned char*)base64_data, (unsigned char*)decode_output);
+
+      uint32_t bytes_left = Mqtt.file_size - Mqtt.file_pos;
+      uint32_t read_bytes = (bytes_left < rcvd_bytes) ? bytes_left : rcvd_bytes;
+      uint8_t* buffer = Mqtt.file_buffer + Mqtt.file_pos;
+      memcpy(buffer, decode_output, read_bytes);
+      Mqtt.md5.add(buffer, read_bytes);
+
+      Mqtt.file_pos += read_bytes;
+    }
+
+    if ((Mqtt.file_pos < Mqtt.file_size) || (Mqtt.file_md5.length() != 32))   {
+      ResponseCmndChar(PSTR(D_JSON_ACK));
+    } else {
+      Mqtt.md5.calculate();
+      if (strcasecmp(Mqtt.file_md5.c_str(), Mqtt.md5.toString().c_str())) {
+        ResponseCmndChar(PSTR(D_JSON_MD5_MISMATCH));
+      } else {
+        // Process upload data en free buffer
+        ResponseCmndDone();
+
+        if (UPL_SETTINGS == Mqtt.file_type) {
+          if (!SettingsConfigRestore()) {
+            ResponseCmndFailed();
+          } else {
+            TasmotaGlobal.restart_flag = 2;                  // Always restart to re-enable disabled features during update
+          }
+        }
+
+      }
+      Mqtt.file_buffer = nullptr;
+    }
+  }
+
+  if (!Mqtt.file_buffer) {
+//    TasmotaGlobal.masterlog_level = LOG_LEVEL_NONE;          // Enable logging
+    Mqtt.file_id = 0;
+    Mqtt.file_size = 0;
+    Mqtt.file_type = 0;
+    Mqtt.file_md5 = (const char*) nullptr;                   // Force deallocation of the String internal memory
+  }
+  MqttPublishPrefixTopic_P(STAT, XdrvMailbox.command);       // Enforce stat/wemos10/FILEUPLOAD
+  ResponseClear();
+}
+
+void CmndFileDownload(void) {
+/*
+  Download (binary) max 700 bytes chunks of data base64 encoded with MD5 hash over base64 decoded data
+  Currently supports Settings (file type 2)
+  Filedownload 0  - Abort current download
+  FileDownload 2  - Start download of settings file
+  FileDownload    - Continue downloading data until reception of MD5 hash
+*/
+  if (Mqtt.file_id && Mqtt.file_buffer) {
+    bool finished = false;
+
+    if (0 == XdrvMailbox.payload) {   // Abort file download
+      ResponseCmndChar(PSTR(D_JSON_ABORTED));
+      finished = true;
+    }
+    else if (Mqtt.file_pos < Mqtt.file_size) {
+      uint32_t bytes_left = Mqtt.file_size - Mqtt.file_pos;
+      uint32_t write_bytes = (bytes_left < mqtt_file_chuck_size) ? bytes_left : mqtt_file_chuck_size;
+
+      uint8_t* buffer = Mqtt.file_buffer + Mqtt.file_pos;
+      Mqtt.md5.add(buffer, write_bytes);
+
+      // {"Id":1620385091,"Seq":1,"Data":"CRJcTQ9fYGF ... OT1BRUlNUVVZXWFk="}
+//      uint32_t sequence = (Mqtt.file_pos / mqtt_file_chuck_size) +1;
+//      Response_P(PSTR("{\"Id\":%u,\"Seq\":%d,\"Data\":\""), Mqtt.file_id, sequence);
+
+      // {"Id":1620385091,"Data":"CRJcTQ9fYGF ... OT1BRUlNUVVZXWFk="}
+      Response_P(PSTR("{\"Id\":%u,\"Data\":\""), Mqtt.file_id);
+      char base64_data[encode_base64_length(write_bytes)];
+      encode_base64((unsigned char*)buffer, write_bytes, (unsigned char*)base64_data);
+      ResponseAppend_P(base64_data);
+      ResponseAppend_P("\"}");
+
+      Mqtt.file_pos += write_bytes;
+    } else {
+      Mqtt.md5.calculate();
+
+      // {"Id":1620385091,"Md5":"496fcbb433bbca89833063174d2c5747"}
+      Response_P(PSTR("{\"Id\":%u,\"Md5\":\"%s\"}"), Mqtt.file_id, Mqtt.md5.toString().c_str());
+      finished = true;
+    }
+
+    if (finished) {
+      if (UPL_SETTINGS == Mqtt.file_type) {
+        SettingsBufferFree();
+      }
+
+      Mqtt.file_id = 0;
+    }
+  }
+  else if (XdrvMailbox.data_len) {
+    Mqtt.file_buffer = nullptr;
+    Mqtt.file_id = UtcTime();
+
+    if (UPL_SETTINGS == XdrvMailbox.payload) {
+      uint32_t len = SettingsConfigBackup();
+      if (len) {
+        Mqtt.file_type = UPL_SETTINGS;
+        Mqtt.file_buffer = settings_buffer;
+        Mqtt.file_size = len;
+
+        // {"File":"Config_wemos10_9.4.0.3.dmp","Id":1620385091,"Type":2,"Size":4096}
+        Response_P(PSTR("{\"File\":\"%s\",\"Id\":%u,\"Type\":%d,\"Size\":%d}"),
+          SettingsConfigFilename().c_str(), Mqtt.file_id, Mqtt.file_type, len);
+      }
+    }
+
+    if (Mqtt.file_buffer) {
+      Mqtt.file_pos = 0;
+
+      Mqtt.md5 = MD5Builder();
+      Mqtt.md5.begin();
+    } else {
+      Mqtt.file_id = 0;
+      ResponseCmndFailed();
+    }
+  }
+  MqttPublishPrefixTopic_P(STAT, XdrvMailbox.command);
+  ResponseClear();
 }
 
 /*********************************************************************************************\
