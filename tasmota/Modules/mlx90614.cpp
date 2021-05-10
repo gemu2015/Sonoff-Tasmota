@@ -29,26 +29,16 @@
 #include <Stream.h>
 #include <HardwareSerial.h>
 
-//#ifdef USE_MLX90614_MOD
-#if 0
+#ifdef USE_MLX90614_MOD
+//#if 0
 
 #define MLX90614_REV  1
 
 
-
-
-//void __REDIRECT (memcpy, (void *dest, const void *src, size_t n), CopyMem);
-
-/*
-__asm__ __volatile__ ("__floatunsisf:");
-__asm__ __volatile__ ("__mulsf3:");
-__asm__ __volatile__ ("__subsf3:");
-__asm__ __volatile__ ("__extendsfdf2:");
-*/
-
-
-
 //#pragma GCC optimize ("O0")
+
+// this is the structure of the module:
+// descriptor, code, end
 MODULE_DESC module_header = {
   MODULE_SYNC,
   CURR_ARCH,
@@ -56,9 +46,23 @@ MODULE_DESC module_header = {
   MLX90614_REV,
   "MLX90614",
   mod_func_execute,
-  end_of_module
+  end_of_module,
+  0,
+  0
 };
 
+// all functions must be declared MUDULE_PART
+MODULE_PART int32_t Init_MLX90614(MODULES_TABLE *mt);
+MODULE_PART void MLX90614_Show(MODULES_TABLE *mt, uint32_t json);
+MODULE_PART uint16_t MLX90614_read16(MODULES_TABLE *mt, uint8_t addr, uint8_t a);
+MODULE_PART uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len);
+MODULE_PART void MLX90614_Deinit(MODULES_TABLE *mt);
+MODULE_PART float MLX90614_GetValue(MODULES_TABLE *mt, uint32_t reg);
+MODULE_PART void MLX90614_Every_Second(MODULES_TABLE *mt);
+MODULE_PART void MLX90614_Show(MODULES_TABLE *mt, uint32_t json);
+MODULE_PART int32_t mod_func_execute(MODULES_TABLE *mt, uint32_t sel);
+
+MODULE_END
 
 
 #define I2_ADR_IRT      0x5a
@@ -80,7 +84,7 @@ typedef struct {
 } MLX9014_MEMORY;
 
 #if 0
-// try a class
+// try a class, does not work because of helper functions
 class MLX {
  public:
   MLX(void);
@@ -98,10 +102,6 @@ MODULE_PART void MLX::begin(void) {
 
 #endif
 
-int32_t Init_MLX90614(MODULES_TABLE *mt);
-void MLX90614_Show(MODULES_TABLE *mt, uint32_t json);
-uint16_t MLX90614_read16(MODULES_TABLE *mt, uint8_t addr, uint8_t a);
-uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len);
 
 // define text
 DPSTR(initmsg,"Hello world\n");
@@ -110,7 +110,7 @@ DPSTR(JSON_IRTMP,",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}");
 DPSTR(mlxdev,"MLX90614");
 
 
-MODULE_PART int32_t Init_MLX90614(MODULES_TABLE *mt) {
+int32_t Init_MLX90614(MODULES_TABLE *mt) {
   ALLOCMEM(MLX9014_MEMORY)
 
   // now init variables here
@@ -128,14 +128,14 @@ MODULE_PART int32_t Init_MLX90614(MODULES_TABLE *mt) {
   jI2cSetActiveFound(I2_ADR_IRT, c, 0);
 
   GPSTR(d,initmsg)
-  sprint(d);
+  sprint(jPSTR(initmsg));
 
   mod_mem->ready = true;
 
   return 0;
 }
 
-MODULE_PART void MLX90614_Deinit(MODULES_TABLE *mt) {
+void MLX90614_Deinit(MODULES_TABLE *mt) {
   SETREGS
   if (mt->mem_size) {
     jfree(mt->mod_memory);
@@ -144,24 +144,9 @@ MODULE_PART void MLX90614_Deinit(MODULES_TABLE *mt) {
 }
 
 
-MODULE_END void  end_of_module(void) {
- __asm__ __volatile__(".word 0x55AA4AFC");
-}
-
-float MLX90614_GetValue(MODULES_TABLE *mt, uint32_t reg);
-
-MODULE_PART void MLX90614_Every_Second(MODULES_TABLE *mt) {
+void MLX90614_Every_Second(MODULES_TABLE *mt) {
   SETREGS
 
-  // test message
-  //HardwareSerial *sp = jSerial;
-  //sp->printf_P(GSTR(initmsg));
-#ifdef DSTRING
-  //sprint(GSTR(initmsg));
-#else
-//  GXSTR(c,initmsg);
-//  sprint(c);
-#endif
 
   if (mod_mem->ready == false) return;
 
@@ -170,7 +155,7 @@ MODULE_PART void MLX90614_Every_Second(MODULES_TABLE *mt) {
 
 }
 
-MODULE_PART float MLX90614_GetValue(MODULES_TABLE *mt, uint32_t reg) {
+float MLX90614_GetValue(MODULES_TABLE *mt, uint32_t reg) {
   SETREGS
   uint16_t val = 0;
   float ret = 0;
@@ -184,7 +169,7 @@ MODULE_PART float MLX90614_GetValue(MODULES_TABLE *mt, uint32_t reg) {
   return ret;
 }
 
-MODULE_PART void MLX90614_Show(MODULES_TABLE *mt, uint32_t json) {
+void MLX90614_Show(MODULES_TABLE *mt, uint32_t json) {
   SETREGS
 
   mySettings *jsettings = mt->settings;
@@ -205,7 +190,7 @@ MODULE_PART void MLX90614_Show(MODULES_TABLE *mt, uint32_t json) {
   }
 }
 
-MODULE_PART uint16_t MLX90614_read16(MODULES_TABLE *mt, uint8_t addr, uint8_t a) {
+uint16_t MLX90614_read16(MODULES_TABLE *mt, uint8_t addr, uint8_t a) {
   SETREGS
   uint16_t ret;
 
@@ -235,7 +220,7 @@ MODULE_PART uint16_t MLX90614_read16(MODULES_TABLE *mt, uint8_t addr, uint8_t a)
 }
 
 
-MODULE_PART uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len) {
+uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len) {
 // The PEC calculation includes all bits except the START, REPEATED START, STOP,
 // ACK, and NACK bits. The PEC is a CRC-8 with polynomial X8+X2+X1+1.
   uint8_t crc = 0;
@@ -258,7 +243,7 @@ MODULE_PART uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len) {
  * Interface
 \*********************************************************************************************/
 
-MODULE_PART int32_t mod_func_execute(MODULES_TABLE *mt, uint32_t sel) {
+int32_t mod_func_execute(MODULES_TABLE *mt, uint32_t sel) {
   bool result = false;
   switch (sel) {
     case FUNC_INIT:

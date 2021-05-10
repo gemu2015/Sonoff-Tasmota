@@ -28,7 +28,7 @@ very early stage
 #define XDRV_97             97
 
 
-//#define EXECUTE_FROM_BINARY
+#define EXECUTE_FROM_BINARY
 //#define SAVE_DRIVER_TO_FILE
 
 //#define EXECUTE_IN_FLASH
@@ -160,6 +160,9 @@ void InitModules(void) {
       for (uint32_t cnt = 0; cnt < modules[0].mod_size; cnt += 4) {
         *dp++ = *lp++;
       }
+      FLASH_MODULE *flp = (FLASH_MODULE*)fdesc;
+      // patch size
+      flp->size = modules[0].mod_size;
       fp.write((uint8_t*)fdesc, modules[0].mod_size);
       fp.close();
     }
@@ -281,6 +284,8 @@ uint32_t eeprom_block;
   *lp = corr_pc;
   lp = (uint32_t*)&fm->end_of_module;
   *lp = (uint32_t)fm->end_of_module + offset;
+  lp = (uint32_t*)&fm->execution_offset;
+  *lp = offset;
 
 #ifdef ESP8266
 //  AddLog(LOG_LEVEL_INFO, PSTR("Module offset %x: %x: %x: %x: %x: %x"),old_pc, new_pc, offset, corr_pc, (uint32_t)fm->mod_func_execute, (uint32_t)&module_header);
@@ -298,8 +303,8 @@ void Module_mdir(void) {
     if (modules[cnt].mod_addr) {
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
       const char *type = "xsns"; // only currently supported type
-      AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-16s| %08x | %4d | %4s | %04x | %4d | %1d %08x"), cnt + 1, fm->name, modules[cnt].mod_addr,
-       modules[cnt].mod_size,  type, fm->revision, modules[cnt].mem_size, modules[cnt].flags.initialized,fm->mod_func_execute);
+      AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-16s| %08x | %4d | %4s | %04x | %4d | %1d"), cnt + 1, fm->name, modules[cnt].mod_addr,
+       modules[cnt].mod_size,  type, fm->revision, modules[cnt].mem_size, modules[cnt].flags.initialized);
       //AddLog(LOG_LEVEL_INFO, PSTR("Module %d: %s %08x"), cnt + 1, fm->name, modules[cnt].mod_addr);
     }
   }
@@ -393,14 +398,18 @@ void Module_deiniz(void) {
   ResponseCmndDone();
 }
 
-// deiniz 1 module
+// dump module hex 32 bit words
 void Module_dump(void) {
-  uint32_t *lp = (uint32_t*) (0x40200000 + SPEC_SCRIPT_FLASH);
-  for (uint32_t cnt = 0; cnt < 8; cnt ++) {
-    AddLog(LOG_LEVEL_INFO,PSTR("%08x: %08x %08x %08x %08x %08x %08x %08x %08x"),lp,lp[0],lp[1],lp[2],lp[3],lp[4],lp[5],lp[6],lp[7]);
-    lp += 8;
+  if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAXMODULES)) {
+    uint8_t module = XdrvMailbox.payload - 1;
+    if (modules[module].mod_addr) {
+      uint32_t *lp = (uint32_t*) modules[module].mod_addr;
+      for (uint32_t cnt = 0; cnt < 16; cnt ++) {
+        AddLog(LOG_LEVEL_INFO,PSTR("%08x: %08x %08x %08x %08x %08x %08x %08x %08x"),lp,lp[0],lp[1],lp[2],lp[3],lp[4],lp[5],lp[6],lp[7]);
+        lp += 8;
+      }
+    }
   }
-
   ResponseCmndDone();
 }
 

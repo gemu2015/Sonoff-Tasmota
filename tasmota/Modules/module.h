@@ -12,8 +12,15 @@
 enum {MODULE_TYPE_SENSOR, MODULE_TYPE_LIGHT, MODULE_TYPE_ENERGY};
 enum {ARCH_ESP8266, ARCH_ESP32};
 
-#define MODULE_SYNC 0xFC4AAA55
+#define MODULE_SYNC 0x55aaFC4A
 
+
+/* linker sections
+*(.text.mod_desc)
+*(.text.mod_string)
+*(.text.mod*)
+*(.text.mod_end)
+*/
 
 #undef CURR_ARCH
 #ifdef ESP8266
@@ -65,7 +72,8 @@ typedef struct {
   char name[16];
   int32_t (*mod_func_execute)(MODULES_TABLE *, uint32_t);
   void (*end_of_module)(void);
-  //uint32_t end_of_module;
+  uint32_t size;
+  uint32_t execution_offset;
 } FLASH_MODULE;
 
 
@@ -101,33 +109,24 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 
 #define MODULE_DESC __attribute__((section(".text.mod_desc"))) extern const FLASH_MODULE
 #define MODULE_PART __attribute__((section(".text.mod_part")))
-#define MODULE_END __attribute__((section(".text.mod_end")))
+#define MODULE_END __attribute__((section(".text.mod_end"))) void  end_of_module(void) {__asm__ __volatile__(".word 0x4AFCAA55");}
 
 #define CAT2(a,b) a##b
 #define CAT(a,b) CAT2(a,b)
 #define UNIQUE_ID CAT(_uid_,__COUNTER__)
 
 
-// this macro generates a txt and a function to get position independent access
-// 8 bytes for subroutine and up to 8 bytes alignment lost
-#define DPSTR(FUNC,TEXT) extern "C" {  const char *FUNC(void);} __asm__  (\
-  ".section .text.mod_part\n"\
+#define DPSTR(LABEL,TEXT) extern "C" {  const char *LABEL(void);} __asm__  (\
+  ".section .text.mod_string\n"\
   ".align 4\n"\
-  #FUNC"_: .asciz "#TEXT" \n"\
-  ".align 4\n"\
-  ".literal_position\n"\
-  ".literal ._" #FUNC "," #FUNC "-" #FUNC "_\n"\
-  ".global " #FUNC "\n"\
-  ".type " #FUNC ",@function\n"\
-  #FUNC":\n"\
-  "l32r a2, ._" #FUNC "#,\n"\
-  "ret.n\n"\
-  ".size " #FUNC ",.-" #FUNC ""\
-  );
+  ".global " #LABEL "\n"\
+  #LABEL": .asciz "#TEXT" \n"\
+);
 
-// this macro gets the text pointer from text defintion
-#define GPSTR(VAR,FUNC) const char *VAR = (const char*) ((uint32_t)FUNC + mt->execution_offset - (uint32_t)FUNC()); fshowhex((uint32_t)VAR);
+#define GPSTR(VAR,FUNC) const char *VAR = (const char*)&FUNC + mt->execution_offset; fshowhex((uint32_t)VAR);
+#define jPSTR(LABEL) (__extension__({ (const char*)&LABEL[0]+mt->execution_offset ;}))
 
+//#define PSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[0];}))
 
 #define SETREGS MLX9014_MEMORY *mod_mem = (MLX9014_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;
 
