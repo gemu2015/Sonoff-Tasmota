@@ -37,6 +37,9 @@ very early stage
 
 #include "./Modules/module.h"
 
+
+mySettings mysettings;
+
 //  command line commands
 const char kModuleCommands[] PROGMEM = "|"// no Prefix
   "mdir" "|"
@@ -57,8 +60,6 @@ void Serial_print(char *txt) {
 
   Serial.printf_P("test: %s\n",txt);
 }
-
-mySettings mysettings;
 
 
 #define JMPTBL (void (*)())
@@ -146,7 +147,9 @@ void InitModules(void) {
   modules[0].jt = MODULE_JUMPTABLE;
   modules[0].execution_offset = offset;
   modules[0].mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[0].mod_addr + 4;
+//  modules[0].settings = &mysettings;
   modules[0].settings = &mysettings;
+
   modules[0].flags.data = 0;
 
 

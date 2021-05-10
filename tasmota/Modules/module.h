@@ -3,6 +3,14 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <HardwareSerial.h>
+
+#include "tasmota_compat.h"
+#include "tasmota_version.h"                // Tasmota version information
+#include "tasmota.h"                        // Enumeration used in my_user_config.h
+#include "my_user_config.h"                 // Fixed user configurable options
+#include "tasmota_globals.h"                // Function prototypes and global configuration
+#include "i18n.h"                           // Language support configured by my_user_config.h
+#include "tasmota_template.h"               // Hardware configuration
 //#include "settings.h"
 
 #ifndef PROGMEM
@@ -14,6 +22,7 @@ enum {ARCH_ESP8266, ARCH_ESP32};
 
 #define MODULE_SYNC 0x55aaFC4A
 
+#define SETTINGS mySettings
 
 /* linker sections
 *(.text.mod_desc)
@@ -57,7 +66,7 @@ typedef struct {
   void *mod_memory;
   uint16_t mem_size;
   uint32_t execution_offset;
-  mySettings *settings;
+  SETTINGS *settings;
   MOD_FLAGS flags;
 } MODULES_TABLE;
 
@@ -130,6 +139,6 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 
 #define SETREGS MLX9014_MEMORY *mod_mem = (MLX9014_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;
 
-#define ALLOCMEM(A) void (* const *jt)() = mt->jt;mt->mem_size = sizeof(A);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MLX9014_MEMORY *mod_mem = (MLX9014_MEMORY*)mt->mod_memory;mySettings *jsettings = mt->settings;
+#define ALLOCMEM(A) void (* const *jt)() = mt->jt;mt->mem_size = sizeof(A);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MLX9014_MEMORY *mod_mem = (MLX9014_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;
 
 #define MODULE_SYNC_END __attribute__((section(".text.mod_end"))); __asm__ __volatile__ (".align 4");

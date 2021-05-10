@@ -20,7 +20,10 @@
 #ifndef __TASMOTA_INCLUDE__
 #define __TASMOTA_INCLUDE__
 
+
 #include "../tasmota/my_user_config.h"
+//#define SerConfu8 uint8_t
+#include "../tasmota/tasmota_compat.h"
 #include "../tasmota/tasmota_configurations.h"
 #include "../tasmota/tasmota.h"
 

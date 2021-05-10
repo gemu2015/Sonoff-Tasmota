@@ -29,8 +29,8 @@
 #include <Stream.h>
 #include <HardwareSerial.h>
 
-//#ifdef USE_MLX90614_MOD
-#if 0
+#ifdef USE_MLX90614_MOD
+//#if 0
 
 #define MLX90614_REV  1
 
@@ -172,7 +172,7 @@ float MLX90614_GetValue(MODULES_TABLE *mt, uint32_t reg) {
 void MLX90614_Show(MODULES_TABLE *mt, uint32_t json) {
   SETREGS
 
-  mySettings *jsettings = mt->settings;
+SETTINGS *jsettings = mt->settings;
 
   if (mod_mem->ready == false) return;
   char obj_tstr[16];
