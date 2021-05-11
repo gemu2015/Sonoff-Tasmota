@@ -5,14 +5,9 @@
 #include <HardwareSerial.h>
 
 #include "tasmota_options.h"
+#define SerConfu8 uint8_t
+#include "tasmota.h"
 
-/*
-#include "tasmota_version.h"                // Tasmota version information
-#include "tasmota.h"                        // Enumeration used in my_user_config.h
-#include "my_user_config.h"                 // Fixed user configurable options
-#include "tasmota_globals.h"                // Function prototypes and global configuration
-#include "i18n.h"                           // Language support configured by my_user_config.h
-*/
 
 #ifndef PROGMEM
 #define PROGMEM

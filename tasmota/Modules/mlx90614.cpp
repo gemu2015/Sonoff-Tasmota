@@ -24,8 +24,8 @@
 #define USE_MLX90614_MOD
 
 
-//#ifdef USE_MLX90614_MOD
-#if 0
+#ifdef USE_MLX90614_MOD
+//#if 0
 
 #include "module.h"
 #include <Wire.h>
