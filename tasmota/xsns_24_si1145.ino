@@ -1,7 +1,7 @@
 /*
   xsns_24_si1145.ino - SI1145/46/47 UV Index / IR / Visible light sensor support for Tasmota
 
-  Copyright (C) 2020  Theo Arends
+  Copyright (C) 2021  Theo Arends
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -202,7 +202,7 @@ uint16_t Si1145ReadHalfWord(uint8_t reg)
   return I2cRead16LE(SI114X_ADDR, reg);
 }
 
-bool Si1145WriteByte(uint8_t reg, uint16_t val)
+void Si1145WriteByte(uint8_t reg, uint16_t val)
 {
   I2cWrite8(SI114X_ADDR, reg, val);
 }
