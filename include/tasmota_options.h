@@ -23,7 +23,7 @@
 
 #include "../tasmota/my_user_config.h"
 #include "../tasmota/tasmota_compat.h"
-#include "../tasmota/tasmota_configurations.h"
-#include "../tasmota/tasmota.h"
+//#include "../tasmota/tasmota_configurations.h"
+//#include "../tasmota/tasmota.h"
 
 #endif // __TASMOTA_INCLUDE__
