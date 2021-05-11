@@ -1389,9 +1389,11 @@ void uDisplay::TS_RotConvert(int16_t *x, int16_t *y) {
   int16_t temp;
 
   if (rotmap_xmin >= 0) {
-    *y = map(*y, rotmap_ymin, rotmap_ymax, 0, height());
-	  *x = map(*x, rotmap_xmin, rotmap_xmax, 0, width());
+    *y = map(*y, rotmap_ymin, rotmap_ymax, 0, gys);
+    *x = map(*x, rotmap_xmin, rotmap_xmax, 0, gxs);
   }
+  *x = constrain(*x, 0, gxs);
+  *y = constrain(*y, 0, gys);
 
   switch (rot_t[cur_rot]) {
     case 0:
