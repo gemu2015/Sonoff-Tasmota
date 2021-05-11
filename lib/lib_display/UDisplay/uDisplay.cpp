@@ -69,6 +69,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   fg_col = 1;
   bg_col = 0;
   splash_font = -1;
+  rotmap_xmin = -1;
   allcmd_mode = 0;
   startline = 0xA1;
   uint8_t section = 0;
@@ -288,7 +289,13 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             break;
           case 'B':
             lvgl_param.fluslines = next_val(&lp1);
-            lvgl_param.use_dma = next_val(&lp1);
+            lvgl_param.data = next_val(&lp1);
+            break;
+          case 'M':
+            rotmap_xmin = next_val(&lp1);
+            rotmap_xmax = next_val(&lp1);
+            rotmap_ymin = next_val(&lp1);
+            rotmap_ymax = next_val(&lp1);
             break;
         }
       }
@@ -1076,7 +1083,11 @@ static inline void lvgl_color_swap(uint16_t *data, uint16_t len) { for (uint32_t
 void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean not_swapped) {
   uint16_t color;
 
-  //Serial.printf("push %x - %d\n", (uint32_t)data, len);
+  if (lvgl_param.swap_color) {
+    not_swapped = !not_swapped;
+  }
+
+  //Serial.printf("push %x - %d - %d - %d\n", (uint32_t)data, len, not_swapped,lvgl_param.data);
   if (not_swapped == false) {
     // called from LVGL bytes are swapped
     if (bpp != 16) {
@@ -1372,8 +1383,15 @@ void uDisplay::dim(uint8_t dim) {
 }
 
 
+// the cases are PSEUDO_OPCODES from MODULE_DESCRIPTOR
+// and may be exapnded with more opcodes
 void uDisplay::TS_RotConvert(int16_t *x, int16_t *y) {
   int16_t temp;
+
+  if (rotmap_xmin >= 0) {
+    *y = map(*y, rotmap_ymin, rotmap_ymax, 0, height());
+	  *x = map(*x, rotmap_xmin, rotmap_xmax, 0, width());
+  }
 
   switch (rot_t[cur_rot]) {
     case 0:
