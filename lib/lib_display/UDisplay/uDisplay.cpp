@@ -466,7 +466,7 @@ Renderer *uDisplay::Init(void) {
     if (spi_nr == 1) {
       uspi = &SPI;
       uspi->begin(spi_clk, spi_miso, spi_mosi, -1);
-      if (lvgl_param.use_dma) {
+      if (lvgl_param.use_dma&1) {
         spi_host = VSPI_HOST;
         initDMA(spi_cs);
       }
@@ -474,7 +474,7 @@ Renderer *uDisplay::Init(void) {
     } else if (spi_nr == 2) {
       uspi = new SPIClass(HSPI);
       uspi->begin(spi_clk, spi_miso, spi_mosi, -1);
-      if (lvgl_param.use_dma) {
+      if (lvgl_param.use_dma&1) {
         spi_host = HSPI_HOST;
         initDMA(spi_cs);
       }

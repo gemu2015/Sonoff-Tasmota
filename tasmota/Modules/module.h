@@ -4,14 +4,15 @@
 #include <stdint.h>
 #include <HardwareSerial.h>
 
-#include "tasmota_compat.h"
+#include "tasmota_options.h"
+
+/*
 #include "tasmota_version.h"                // Tasmota version information
 #include "tasmota.h"                        // Enumeration used in my_user_config.h
 #include "my_user_config.h"                 // Fixed user configurable options
 #include "tasmota_globals.h"                // Function prototypes and global configuration
 #include "i18n.h"                           // Language support configured by my_user_config.h
-#include "tasmota_template.h"               // Hardware configuration
-//#include "settings.h"
+*/
 
 #ifndef PROGMEM
 #define PROGMEM
@@ -23,6 +24,9 @@ enum {ARCH_ESP8266, ARCH_ESP32};
 #define MODULE_SYNC 0x55aaFC4A
 
 #define SETTINGS mySettings
+//#define SETTINGS struct TSettings
+
+//extern SETTINGS Settings;
 
 /* linker sections
 *(.text.mod_desc)
@@ -133,9 +137,10 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 );
 
 #define GPSTR(VAR,FUNC) const char *VAR = (const char*)&FUNC + mt->execution_offset; fshowhex((uint32_t)VAR);
-#define jPSTR(LABEL) (__extension__({ (const char*)&LABEL[0]+mt->execution_offset ;}))
+//#define jPSTR(LABEL) (__extension__({ (const char *)&LABEL[0]+mt->execution_offset;}))
+#define jPSTR(LABEL) (const char *)LABEL+mt->execution_offset
 
-//#define PSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[0];}))
+//#define jPSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[0];}))
 
 #define SETREGS MLX9014_MEMORY *mod_mem = (MLX9014_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;
 

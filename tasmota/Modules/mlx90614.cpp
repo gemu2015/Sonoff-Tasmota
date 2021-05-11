@@ -23,17 +23,16 @@
 
 #define USE_MLX90614_MOD
 
+
+//#ifdef USE_MLX90614_MOD
+#if 0
+
 #include "module.h"
-#include "tasmota_options.h"
 #include <Wire.h>
 #include <Stream.h>
 #include <HardwareSerial.h>
 
-#ifdef USE_MLX90614_MOD
-//#if 0
-
 #define MLX90614_REV  1
-
 
 //#pragma GCC optimize ("O0")
 
