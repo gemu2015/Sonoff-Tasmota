@@ -1,5 +1,5 @@
 /*
-  settings.h - setting variables for Tasmota
+  myio8 - setting variables for Tasmota
 
   Copyright (C) 2021  Theo Arends
 
@@ -19,6 +19,9 @@
 
 #ifndef _SETTINGS_H_
 #define _SETTINGS_H_
+
+
+#define DEF_MAX_TUYA_FUNCTIONS 16
 
 const uint8_t PARAM8_SIZE = 18;            // Number of param bytes (SetOption)
 
@@ -435,10 +438,9 @@ typedef union {
   };
 } DisplayOptions;
 
-const uint32_t settings_text_size = 699;   // Settings.text_pool[size] = Settings.display_model (2D2) - Settings.text_pool (017)
-const uint8_t MAX_TUYA_FUNCTIONS = 16;
 
-struct {
+
+typedef struct {
   uint16_t      cfg_holder;                // 000  v6 header
   uint16_t      cfg_size;                  // 002
   unsigned long save_flag;                 // 004
@@ -658,7 +660,7 @@ struct {
 
   char          rules[MAX_RULE_SETS][MAX_RULE_SIZE];  // 800  Uses 512 bytes in v5.12.0m, 3 x 512 bytes in v5.14.0b
 
-  TuyaFnidDpidMap tuya_fnid_map[MAX_TUYA_FUNCTIONS];  // E00  32 bytes
+  TuyaFnidDpidMap tuya_fnid_map[DEF_MAX_TUYA_FUNCTIONS];  // E00  32 bytes
   uint16_t      ina226_r_shunt[4];         // E20
   uint16_t      ina226_i_fs[4];            // E28
   uint16_t      tariff[4][2];              // E30
@@ -762,17 +764,13 @@ struct {
   uint32_t      i2c_drivers[3];            // FEC  I2cDriver
   uint32_t      cfg_timestamp;             // FF8
   uint32_t      cfg_crc32;                 // FFC
-} Settings;
+} Tasmota_Settings;
 
 typedef struct {
   uint16_t      valid;                     // 280  (RTC memory offset 100 - sizeof(RTCRBT))
   uint8_t       fast_reboot_count;         // 282
   uint8_t       free_003[1];               // 283
 } TRtcReboot;
-TRtcReboot RtcReboot;
-#ifdef ESP32
-RTC_NOINIT_ATTR TRtcReboot RtcDataReboot;
-#endif  // ESP32
 
 typedef struct {
   uint16_t      valid;                     // 290  (RTC memory offset 100)
@@ -792,10 +790,7 @@ typedef struct {
 
                                            // 2EC - 2FF free locations
 } TRtcSettings;
-TRtcSettings RtcSettings;
-#ifdef ESP32
-RTC_NOINIT_ATTR TRtcSettings RtcDataSettings;
-#endif  // ESP32
+
 
 struct TIME_T {
   uint8_t       second;
@@ -809,7 +804,9 @@ struct TIME_T {
   uint16_t      year;
   unsigned long days;
   unsigned long valid;
-} RtcTime;
+};
+
+
 
 struct XDRVMAILBOX {
   bool          grpflg;
@@ -821,13 +818,8 @@ struct XDRVMAILBOX {
   char         *topic;
   char         *data;
   char         *command;
-} XdrvMailbox;
+};
 
-#ifdef USE_SHUTTER
-const uint8_t MAX_RULES_FLAG = 11;         // Number of bits used in RulesBitfield (tricky I know...)
-#else
-const uint8_t MAX_RULES_FLAG = 9;          // Number of bits used in RulesBitfield (tricky I know...)
-#endif  // USE_SHUTTER
 typedef union {                            // Restricted by MISRA-C Rule 18.4 but so useful...
   uint16_t data;                           // Allow bit manipulation
   struct {
@@ -864,11 +856,5 @@ typedef union {
   };
 } StateBitfield;
 
-// See issue https://github.com/esp8266/Arduino/issues/2913
-#ifdef ESP8266
-#ifdef USE_ADC_VCC
-  ADC_MODE(ADC_VCC);                       // Set ADC input for Power Supply Voltage usage
-#endif
-#endif
 
 #endif  // _SETTINGS_H_

@@ -14,23 +14,14 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-/*
 
 
 
+#include "module.h"
 
-*/
-
-#define USE_MLX90614_MOD
 
 
 #ifdef USE_MLX90614_MOD
-//#if 0
-
-#include "module.h"
-#include <Wire.h>
-#include <Stream.h>
-#include <HardwareSerial.h>
 
 #define MLX90614_REV  1
 
@@ -80,7 +71,9 @@ typedef struct {
   float obj_temp;
   float amb_temp;
   bool ready;
-} MLX9014_MEMORY;
+} MODULE_MEMORY;
+
+
 
 #if 0
 // try a class, does not work because of helper functions
@@ -110,47 +103,37 @@ DPSTR(mlxdev,"MLX90614");
 
 
 int32_t Init_MLX90614(MODULES_TABLE *mt) {
-  ALLOCMEM(MLX9014_MEMORY)
+  ALLOCMEM
 
   // now init variables here
-  mod_mem->ready = false;
-
-  jsettings->temperature_resolution = 2;
+  mem->ready = false;
 
   mt->flags.initialized = true;
 
   if (!jI2cSetDevice(I2_ADR_IRT)) {
-  //  return -1;
+    return -1;
   }
 
   GPSTR(c,mlxdev);
   jI2cSetActiveFound(I2_ADR_IRT, c, 0);
 
-  GPSTR(d,initmsg)
+
+//  GPSTR(d,initmsg)
   sprint(jPSTR(initmsg));
 
-  mod_mem->ready = true;
+  mem->ready = true;
 
   return 0;
 }
-
-void MLX90614_Deinit(MODULES_TABLE *mt) {
-  SETREGS
-  if (mt->mem_size) {
-    jfree(mt->mod_memory);
-    mt->mem_size = 0;
-  }
-}
-
 
 void MLX90614_Every_Second(MODULES_TABLE *mt) {
   SETREGS
 
 
-  if (mod_mem->ready == false) return;
+  if (mem->ready == false) return;
 
-  mod_mem->obj_temp = MLX90614_GetValue(mt, MLX90614_TOBJ1);
-  mod_mem->amb_temp = MLX90614_GetValue(mt, MLX90614_TA);
+  mem->obj_temp = MLX90614_GetValue(mt, MLX90614_TOBJ1);
+  mem->amb_temp = MLX90614_GetValue(mt, MLX90614_TA);
 
 }
 
@@ -173,11 +156,11 @@ void MLX90614_Show(MODULES_TABLE *mt, uint32_t json) {
 
 SETTINGS *jsettings = mt->settings;
 
-  if (mod_mem->ready == false) return;
+  if (mem->ready == false) return;
   char obj_tstr[16];
-  jftostrfd(mod_mem->obj_temp, jsettings->temperature_resolution, obj_tstr);
+  jftostrfd(mem->obj_temp, jsettings->flag2.temperature_resolution, obj_tstr);
   char amb_tstr[16];
-  jftostrfd(mod_mem->amb_temp, jsettings->temperature_resolution, amb_tstr);
+  jftostrfd(mem->amb_temp, jsettings->flag2.temperature_resolution, amb_tstr);
 
   if (json) {
     GPSTR(c,JSON_IRTMP)
@@ -236,6 +219,14 @@ uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len) {
   return crc;
 }
 
+void MLX90614_Deinit(MODULES_TABLE *mt) {
+  SETREGS
+  jI2cResetActive(I2_ADR_IRT,1);
+  if (mt->mem_size) {
+    jfree(mt->mod_memory);
+    mt->mem_size = 0;
+  }
+}
 
 
 /*********************************************************************************************\

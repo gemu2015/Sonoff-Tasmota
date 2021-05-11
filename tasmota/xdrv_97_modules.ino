@@ -38,8 +38,6 @@ very early stage
 #include "./Modules/module.h"
 
 
-mySettings mysettings;
-
 //  command line commands
 const char kModuleCommands[] PROGMEM = "|"// no Prefix
   "mdir" "|"
@@ -87,7 +85,19 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_requestFrom,
   JMPTBL&tmod_read,
   JMPTBL&show_hex_address,
-  JMPTBL&free
+  JMPTBL&free,
+  JMPTBL&I2cWrite16,
+  JMPTBL&I2cRead16,
+  JMPTBL&I2cValidRead16,
+  JMPTBL&snprintf_P,
+  JMPTBL&XdrvRulesProcess,
+  JMPTBL&ResponseJsonEnd,
+  JMPTBL&delay,
+  JMPTBL&I2cActive,
+  JMPTBL&ResponseJsonEndEnd,
+  JMPTBL&IndexSeparator,
+  JMPTBL&Response_P,
+  JMPTBL&I2cResetActive
 };
 
 uint8_t *Load_Module(char *path, uint32_t *rsize);
@@ -147,8 +157,8 @@ void InitModules(void) {
   modules[0].jt = MODULE_JUMPTABLE;
   modules[0].execution_offset = offset;
   modules[0].mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[0].mod_addr + 4;
-//  modules[0].settings = &mysettings;
-  modules[0].settings = &mysettings;
+
+  modules[0].settings = &Settings;
 
   modules[0].flags.data = 0;
 
@@ -173,12 +183,12 @@ void InitModules(void) {
 #endif
 }
 
-void Module_EverySecond(void) {
+void Module_Execute(uint32_t sel) {
   for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
     if (modules[cnt].mod_addr) {
       if (modules[cnt].flags.initialized && modules[cnt].flags.every_second) {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-        fm->mod_func_execute(&modules[0], FUNC_EVERY_SECOND);
+        fm->mod_func_execute(&modules[0], sel);
       }
     }
   }
@@ -339,7 +349,7 @@ void Module_link(void) {
       modules[cnt].jt = MODULE_JUMPTABLE;
       modules[cnt].mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[cnt].mod_addr;
       modules[cnt].execution_offset = offset;
-      modules[cnt].settings = &mysettings;
+      modules[cnt].settings = &Settings;
       modules[cnt].flags.data = 0;
       AddLog(LOG_LEVEL_INFO,PSTR("module %s loaded at slot %d"), XdrvMailbox.data, 1);
     } else {
@@ -430,8 +440,9 @@ bool Xdrv97(uint8_t function) {
     case FUNC_INIT:
       InitModules();
       break;
+    case FUNC_EVERY_250_MSECOND:
     case FUNC_EVERY_SECOND:
-      Module_EverySecond();
+      Module_Execute(function);
       break;
     case FUNC_WEB_SENSOR:
       ModuleWebSensor();

@@ -92,7 +92,39 @@
 #endif  // USE_UFILESYS
 
 // Structs
+// settings variables
+
 #include "settings.h"
+
+const uint32_t settings_text_size = 699;   // Settings.text_pool[size] = Settings.display_model (2D2) - Settings.text_pool (017)
+const uint8_t MAX_TUYA_FUNCTIONS = DEF_MAX_TUYA_FUNCTIONS;
+
+Tasmota_Settings Settings;
+TRtcReboot RtcReboot;
+#ifdef ESP32
+RTC_NOINIT_ATTR TRtcReboot RtcDataReboot;
+#endif  // ESP32
+
+TRtcSettings RtcSettings;
+#ifdef ESP32
+RTC_NOINIT_ATTR TRtcSettings RtcDataSettings;
+#endif  // ESP32
+
+#ifdef USE_SHUTTER
+const uint8_t MAX_RULES_FLAG = 11;         // Number of bits used in RulesBitfield (tricky I know...)
+#else
+const uint8_t MAX_RULES_FLAG = 9;          // Number of bits used in RulesBitfield (tricky I know...)
+#endif  // USE_SHUTTER
+
+// See issue https://github.com/esp8266/Arduino/issues/2913
+#ifdef ESP8266
+#ifdef USE_ADC_VCC
+  ADC_MODE(ADC_VCC);                       // Set ADC input for Power Supply Voltage usage
+#endif
+#endif
+
+struct TIME_T RtcTime;
+struct XDRVMAILBOX XdrvMailbox;
 
 /*********************************************************************************************\
  * Global variables
