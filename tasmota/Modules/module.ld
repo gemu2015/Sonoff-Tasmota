@@ -116,18 +116,16 @@ SECTIONS
     *(.text.gdbstub*, .text.gdb_init) /* Any GDB hooks */
     /* all functional callers are placed in IRAM (including SPI/IRQ callbacks/etc) here */
     *(.text._ZNKSt8functionIF*EE*) /* std::function<any(...)>::operator()() const */
-	*(.text.mod_desc)
-	*(.text.mod*)
-	*(.text.mod_end)
-/*	 *(.text.1)
-	 *(.text.2)
-	 *(.text.3)
-	 *(.text.4)*/
   } >iram1_0_seg :iram1_0_phdr
   .irom0.text : ALIGN(4)
   {
     _irom0_text_start = ABSOLUTE(.);
     *(.ver_number)
+    /* these lines define a module */
+	*(.text.mod_desc)
+	*(.text.mod_string)
+	*(.text.mod*)
+	*(.text.mod_end)
     *.c.o(.literal*, .text*)
     *.cpp.o(EXCLUDE_FILE (umm_malloc.cpp.o) .literal*, EXCLUDE_FILE (umm_malloc.cpp.o) .text*)
     *.cc.o(.literal*, .text*)
@@ -273,9 +271,6 @@ SECTIONS
     *(.gnu.linkonce.lit4.*)
     _lit4_end = ABSOLUTE(.);
   } >iram1_0_seg :iram1_0_phdr
-  
-  
-  
 }
 /* get ROM code address */
 INCLUDE "../ld/eagle.rom.addr.v6.ld"
