@@ -1,4 +1,7 @@
-//#include <Arduino.h>
+
+#ifndef _MODULE_H_
+#define _MODULE_H_
+
 #include <stdio.h>
 #include <stddef.h>
 #include <Wire.h>
@@ -15,7 +18,6 @@
 #include "i18n.h"
 #include "tasmota_template.h"
 #include "settings.h"
-
 
 #ifndef PROGMEM
 #define PROGMEM
@@ -114,7 +116,7 @@ void end_of_module(void);
 #define sprint(A)                       (( void (*)(const char*) )                     jt[11])(A)
 #define jbeginTransmission(BUS,ADDR)    (( void (*)(TwoWire*,uint8_t) )                jt[12])(BUS,ADDR)
 #define jwrite(BUS,VAL)                 (( void (*)(TwoWire*,uint8_t) )                jt[13])(BUS,VAL)
-#define jendTransmission(BUS,VAL)       (( void (*)(TwoWire*,bool) )                   jt[14])(BUS,VAL)
+#define jendTransmission(BUS,VAL)       (( uint8_t (*)(TwoWire*,bool) )                jt[14])(BUS,VAL)
 #define jrequestFrom(BUS,ADDR,NUM)      (( void (*)(TwoWire*,uint8_t,uint8_t) )        jt[15])(BUS,ADDR,NUM)
 #define jread(BUS)                      (( uint8_t (*)(TwoWire*) )                     jt[16])(BUS)
 #define fshowhex(VAL)                   (( void (*)(uint32_t) )                        jt[17])(VAL)
@@ -122,7 +124,7 @@ void end_of_module(void);
 #define jI2cWrite16(ADDR,REG,VAL)       (( bool (*)(uint8_t, uint8_t, uint16_t) )      jt[19])(ADDR,REG,VAL)
 #define jI2cRead16(ADDR,REG)            (( uint16_t (*)(uint8_t, uint8_t) )            jt[20])(ADDR,REG)
 #define jI2cValidRead16(DATA,ADDR,REG)  (( bool (*)(uint16_t *,uint8_t,uint8_t) )      jt[21])(DATA,ADDR,REG)
-#define jsnprintf_P(...)                (( void (*)(char *, size_t,const char*, ...) ) jt[22])(__VA_ARGS__)
+#define jsnprintf_P(...)                (( void (*)(...) )                             jt[22])(__VA_ARGS__)
 #define jXdrvRulesProcess(A)            (( bool (*)(bool) )                            jt[23])(A)
 #define jResponseJsonEnd                (( void (*)(void) )                            jt[24])
 #define jdelay(A)                       (( void (*)(uint32_t) )                        jt[25])(A)
@@ -131,6 +133,15 @@ void end_of_module(void);
 #define jIndexSeparator                 (( char (*)(void) )                            jt[28])
 #define jResponse_P(...)                (( int (*)(const char * formatP, ...) )        jt[29])(__VA_ARGS__)
 #define jI2cResetActive(REG,CNT)        (( void (*)(uint32_t, uint32_t) )              jt[30])(REG,CNT)
+#define jisnan(FVAL)                    (( bool (*)(float) )                           jt[31])(FVAL)
+#define jConvertTemp(FVAL)              (( float (*)(float) )                          jt[32])(FVAL)
+#define jConvertHumidity(FVAL)          (( float (*)(float) )                          jt[33])(FVAL)
+#define jTempHumDewShow(JSON,PASS,TYPES,TEMP,HUM)(( bool (*)(bool,bool,const char *,float,float) ) jt[34])(JSON,PASS,TYPES,TEMP,HUM)
+#define jstrlcpy(DST,SRC,SIZE)          (( size_t (*)(char *,const char *,size_t) )                jt[35])(DST,SRC,SIZE)
+#define jGetTextIndexed(DST,DSIZE,INDEX,HSTCK)(( char *(*)(char*,size_t,uint32_t,const char*) )    jt[36])(DST,DSIZE,INDEX,HSTCK)
+#define JGetTasmotaGlobal(SEL)          ((uint32_t (*)(uint32_t) )                     jt[37])(SEL)
+
+
 
 
 // Arduino macros
@@ -159,12 +170,22 @@ void end_of_module(void);
 
 #define GPSTR(VAR,FUNC) const char *VAR = (const char*)&FUNC + mt->execution_offset; fshowhex((uint32_t)VAR);
 //#define jPSTR(LABEL) (__extension__({ (const char *)&LABEL[0]+mt->execution_offset;}))
+
 #define jPSTR(LABEL) (const char *)LABEL+mt->execution_offset
+
 
 //#define jPSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[0];}))
 
 #define SETREGS MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;
 
 #define ALLOCMEM void (* const *jt)() = mt->jt;mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;
+#define RETMEM if (mt->mem_size) {jfree(mt->mod_memory);mt->mem_size = 0;}
 
 #define MODULE_SYNC_END __attribute__((section(".text.mod_end"))); __asm__ __volatile__ (".align 4");
+
+
+#ifndef NAN
+#define NAN 0
+#endif
+
+#endif // _MODULE_H_

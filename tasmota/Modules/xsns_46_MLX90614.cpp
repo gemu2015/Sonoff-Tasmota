@@ -19,8 +19,6 @@
 
 #include "module.h"
 
-
-
 #ifdef USE_MLX90614_MOD
 
 #define MLX90614_REV  1
@@ -72,27 +70,6 @@ typedef struct {
   float amb_temp;
   bool ready;
 } MODULE_MEMORY;
-
-
-
-#if 0
-// try a class, does not work because of helper functions
-class MLX {
- public:
-  MLX(void);
-  void begin(void);
-private:
- uint16_t test;
-};
-
-MODULE_PART MLX::MLX(void) {
-}
-
-MODULE_PART void MLX::begin(void) {
-  test = 50;
-}
-
-#endif
 
 
 // define text
@@ -219,10 +196,7 @@ uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len) {
 void MLX90614_Deinit(MODULES_TABLE *mt) {
   SETREGS
   jI2cResetActive(I2_ADR_IRT,1);
-  if (mt->mem_size) {
-    jfree(mt->mod_memory);
-    mt->mem_size = 0;
-  }
+  RETMEM
 }
 
 

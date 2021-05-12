@@ -342,10 +342,7 @@ void ADS1115_Deinit(MODULES_TABLE *mt) {
       jI2cResetActive(mem->Ads1115.addresses[t],1);
     }
   }
-  if (mt->mem_size) {
-    jfree(mt->mod_memory);
-    mt->mem_size = 0;
-  }
+  RETMEM
 }
 
 /*********************************************************************************************\

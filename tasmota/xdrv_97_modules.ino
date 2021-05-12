@@ -38,7 +38,6 @@ very early stage
 #include "./Modules/module.h"
 
 
-
 #ifdef EXECUTE_FROM_BINARY
 extern const FLASH_MODULE module_header;
 #else
@@ -55,7 +54,6 @@ FLASH_MODULE module_header = {
   0
 };
 #endif
-
 
 
 //  command line commands
@@ -118,7 +116,14 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&ResponseJsonEndEnd,
   JMPTBL&IndexSeparator,
   JMPTBL&Response_P,
-  JMPTBL&I2cResetActive
+  JMPTBL&I2cResetActive,
+  JMPTBL&tmod_isnan,
+  JMPTBL&ConvertTemp,
+  JMPTBL&ConvertHumidity,
+  JMPTBL&TempHumDewShow,
+  JMPTBL&strlcpy,
+  JMPTBL&GetTextIndexed,
+  JMPTBL&GetTasmotaGlobal
 };
 
 uint8_t *Load_Module(char *path, uint32_t *rsize);
@@ -257,6 +262,20 @@ void tmod_requestFrom(TwoWire *wp, uint8_t addr, uint8_t num) {
 uint8_t tmod_read(TwoWire *wp) {
   return wp->read();
 }
+
+bool tmod_isnan(float val) {
+  return isnan(val);
+}
+
+uint32_t GetTasmotaGlobal(uint32_t sel) {
+  switch (sel) {
+    case 1:
+      return TasmotaGlobal.tele_period;
+      break;
+  }
+  return 0;
+}
+
 
 void show_hex_address(uint32_t addr) {
   AddLog(LOG_LEVEL_INFO,PSTR(">>> %08x"), addr);
