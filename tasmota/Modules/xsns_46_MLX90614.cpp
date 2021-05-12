@@ -114,12 +114,11 @@ int32_t Init_MLX90614(MODULES_TABLE *mt) {
     return -1;
   }
 
-  GPSTR(c,mlxdev);
-  jI2cSetActiveFound(I2_ADR_IRT, c, 0);
+  jI2cSetActiveFound(I2_ADR_IRT, jPSTR(mlxdev), 0);
 
 
 //  GPSTR(d,initmsg)
-  sprint(jPSTR(initmsg));
+//  sprint(jPSTR(initmsg));
 
   mem->ready = true;
 
@@ -163,12 +162,10 @@ SETTINGS *jsettings = mt->settings;
   jftostrfd(mem->amb_temp, jsettings->flag2.temperature_resolution, amb_tstr);
 
   if (json) {
-    GPSTR(c,JSON_IRTMP)
-    jResponseAppend_P(c, obj_tstr, amb_tstr);
+    jResponseAppend_P(jPSTR(JSON_IRTMP), obj_tstr, amb_tstr);
 
   } else {
-    GPSTR(c,HTTP_IRTMP);
-    jWSContentSend_PD(c, obj_tstr, amb_tstr);
+    jWSContentSend_PD(jPSTR(HTTP_IRTMP), obj_tstr, amb_tstr);
   }
 }
 

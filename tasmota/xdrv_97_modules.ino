@@ -28,7 +28,7 @@ very early stage
 #define XDRV_97             97
 
 
-#define EXECUTE_FROM_BINARY
+//#define EXECUTE_FROM_BINARY
 //#define SAVE_DRIVER_TO_FILE
 
 //#define EXECUTE_IN_FLASH
@@ -36,6 +36,26 @@ very early stage
 //#define DO_EXECUTE
 
 #include "./Modules/module.h"
+
+
+
+#ifdef EXECUTE_FROM_BINARY
+extern const FLASH_MODULE module_header;
+#else
+// set dummy header to calm linker
+FLASH_MODULE module_header = {
+  MODULE_SYNC,
+  CURR_ARCH,
+  MODULE_TYPE_SENSOR,
+  0,
+  "MLX90614",
+  0,
+  0,
+  0,
+  0
+};
+#endif
+
 
 
 //  command line commands
@@ -61,7 +81,8 @@ void Serial_print(char *txt) {
 
 
 #define JMPTBL (void (*)())
-// this table must contain all api calls needed by module
+// this vector table table must contain all api calls needed by module
+// and in sync with vectortable in module.h
 void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&Wire,
 #ifdef ESP32
@@ -105,8 +126,6 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *offset, uint8_t f
 
 #define MAXMODULES 16
 MODULES_TABLE modules[MAXMODULES];
-
-extern const FLASH_MODULE module_header;
 
 // scan for modules in flash and add to modules table, not yet
 void InitModules(void) {
@@ -180,6 +199,11 @@ void InitModules(void) {
       fp.close();
     }
   }
+
+
+#else
+
+  AddModules();
 #endif
 }
 
@@ -188,7 +212,7 @@ void Module_Execute(uint32_t sel) {
     if (modules[cnt].mod_addr) {
       if (modules[cnt].flags.initialized && modules[cnt].flags.every_second) {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-        fm->mod_func_execute(&modules[0], sel);
+        fm->mod_func_execute(&modules[cnt], sel);
       }
     }
   }
@@ -199,7 +223,7 @@ void ModuleWebSensor() {
     if (modules[cnt].mod_addr) {
       if (modules[cnt].flags.initialized && modules[cnt].flags.web_sensor) {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-        fm->mod_func_execute(&modules[0], FUNC_WEB_SENSOR);
+        fm->mod_func_execute(&modules[cnt], FUNC_WEB_SENSOR);
       }
     }
   }
@@ -210,12 +234,13 @@ void ModuleJsonAppend() {
     if (modules[cnt].mod_addr) {
       if (modules[cnt].flags.initialized && modules[cnt].flags.json_append) {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-        fm->mod_func_execute(&modules[0], FUNC_JSON_APPEND);
+        fm->mod_func_execute(&modules[cnt], FUNC_JSON_APPEND);
       }
     }
   }
 }
 
+// some helper functions
 void tmod_beginTransmission(TwoWire *wp, uint8_t addr) {
   wp->beginTransmission(addr);
 }
@@ -236,7 +261,6 @@ uint8_t tmod_read(TwoWire *wp) {
 void show_hex_address(uint32_t addr) {
   AddLog(LOG_LEVEL_INFO,PSTR(">>> %08x"), addr);
 }
-
 
 
 // convert float to string
@@ -273,19 +297,65 @@ uint8_t *Load_Module(char *path, uint32_t *rsize) {
   return fdesc;
 }
 
+/*
+ESP.getFlashChipRealSize()
+ESP.getFlashChipSize()
+ESP_getSketchSize()
+ESP.getFreeSketchSpace()
+EspFlashBaseAddress(void)
+EspFlashBaseEndAddress(void)
+*/
+
 // patch calls and store to flash
+// first version assumes module to be smaller then SPI_FLASH_SEC_SIZE
+// we only use full sectors and align to sector size
 #define SPEC_SCRIPT_FLASH 0x000F2000
+#define FLASH_BASE_OFFSET 0x40200000
 uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t flag) {
+#ifdef ESP8266
+uint32_t free_flash_start = ESP_getSketchSize();
+uint32_t free_flash_end = (ESP_getSketchSize() + ESP.getFreeSketchSpace());
+#endif
+#ifdef ESP32
+uint32_t free_flash_start = EspFlashBaseAddress();
+uint32_t free_flash_end = EspFlashBaseEndAddress();
+#endif
+
 uint32_t aoffset;
 uint32_t eeprom_block;
 
+  // align to sector start
+  free_flash_start =  (free_flash_start + SPI_FLASH_SEC_SIZE) & (SPI_FLASH_SEC_SIZE-1^0xffffffff);
+  free_flash_end   =  (free_flash_end + SPI_FLASH_SEC_SIZE) & (SPI_FLASH_SEC_SIZE-1^0xffffffff);
+
+  //AddLog(LOG_LEVEL_INFO,PSTR(">>> %08x  - %08x"),free_flash_start,free_flash_end );
+
   if (flag == 0) {
-    aoffset = 0x40200000;
-    eeprom_block = SPEC_SCRIPT_FLASH;
+    aoffset = FLASH_BASE_OFFSET;
+    eeprom_block = free_flash_start;
   } else {
     aoffset = 0;
     eeprom_block = (uint32_t)fdesc;
   }
+  // search for free entry
+  uint32_t *lp = (uint32_t*) ( aoffset + free_flash_start );
+  for (uint32_t addr = free_flash_start; addr < free_flash_end; addr += SPI_FLASH_SEC_SIZE) {
+      //AddLog(LOG_LEVEL_INFO,PSTR("addr, sync %08x: %08x: %04x"),addr,(uint32_t)lp, *lp);
+      if (*lp != MODULE_SYNC) {
+        // free module space
+        eeprom_block = addr;
+        break;
+      } else {
+        // skip address by module size
+        const FLASH_MODULE *fm = (FLASH_MODULE*)addr;
+        uint32_t modsize = fm->size;
+        if (modsize > SPI_FLASH_SEC_SIZE) {
+          // must align and increment addr
+        }
+      }
+      lp += SPI_FLASH_SEC_SIZE/4;
+  }
+
   uint32_t *lwp=(uint32_t*)fdesc;
   const FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
   uint32_t old_pc = (uint32_t)fm->end_of_module - (size - 4);
@@ -293,7 +363,7 @@ uint32_t eeprom_block;
   uint32_t offset = new_pc - old_pc;
   *ioffset = offset;
   uint32_t corr_pc = (uint32_t)fm->mod_func_execute + offset;
-  uint32_t *lp = (uint32_t*)&fm->mod_func_execute;
+  lp = (uint32_t*)&fm->mod_func_execute;
   *lp = corr_pc;
   lp = (uint32_t*)&fm->end_of_module;
   *lp = (uint32_t)fm->end_of_module + offset;
@@ -308,6 +378,43 @@ uint32_t eeprom_block;
   return new_pc;
 }
 
+void AddModules(void) {
+#ifdef ESP8266
+  uint32_t free_flash_start = ESP_getSketchSize();
+  uint32_t free_flash_end = (ESP_getSketchSize() + ESP.getFreeSketchSpace());
+#endif
+#ifdef ESP32
+  uint32_t free_flash_start = EspFlashBaseAddress();
+  uint32_t free_flash_end = EspFlashBaseEndAddress();
+#endif
+
+  // align to sector start
+  free_flash_start =  (free_flash_start + SPI_FLASH_SEC_SIZE) & (SPI_FLASH_SEC_SIZE-1^0xffffffff);
+  free_flash_end   =  (free_flash_end + SPI_FLASH_SEC_SIZE) & (SPI_FLASH_SEC_SIZE-1^0xffffffff);
+
+  uint16_t module = 0;
+  uint32_t *lp = (uint32_t*) ( FLASH_BASE_OFFSET + free_flash_start );
+  for (uint32_t addr = free_flash_start; addr < free_flash_end; addr += SPI_FLASH_SEC_SIZE) {
+    //AddLog(LOG_LEVEL_INFO,PSTR("addr, sync %08x: %08x: %04x"),addr,(uint32_t)lp, *lp);
+    if (*lp == MODULE_SYNC) {
+      // add module
+      const FLASH_MODULE *fm = (FLASH_MODULE*)lp;
+      modules[module].mod_addr = (FLASH_MODULE*)lp;
+      modules[module].jt = MODULE_JUMPTABLE;
+      modules[module].execution_offset = fm->execution_offset;
+      modules[module].mod_size = fm->size;
+      modules[module].settings = &Settings;
+      modules[module].flags.data = 0;
+      // add addr according to module size, currently assume module < SPI_FLASH_SEC_SIZE
+      module++;
+      if (module >= MAXMODULES) {
+        break;
+      }
+    }
+    lp += SPI_FLASH_SEC_SIZE/4;
+  }
+}
+
 // show all linked modules
 void Module_mdir(void) {
   AddLog(LOG_LEVEL_INFO, PSTR("| ======== Module directory ========"));
@@ -316,8 +423,11 @@ void Module_mdir(void) {
     if (modules[cnt].mod_addr) {
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
       const char *type = "xsns"; // only currently supported type
-      AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-16s| %08x | %4d | %4s | %04x | %4d | %1d"), cnt + 1, fm->name, modules[cnt].mod_addr,
+      AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-16s| %08x | %4d | %4s | %04x | %4d | %1d |"), cnt + 1, fm->name, modules[cnt].mod_addr,
        modules[cnt].mod_size,  type, fm->revision, modules[cnt].mem_size, modules[cnt].flags.initialized);
+      // AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-16s| %08x | %4d | %4s | %04x | %4d | %1d | %08x"), cnt + 1, fm->name, modules[cnt].mod_addr,
+      //  modules[cnt].mod_size,  type, fm->revision, modules[cnt].mem_size, modules[cnt].flags.initialized, fm->execution_offset);
+
       //AddLog(LOG_LEVEL_INFO, PSTR("Module %d: %s %08x"), cnt + 1, fm->name, modules[cnt].mod_addr);
     }
   }
@@ -347,7 +457,7 @@ void Module_link(void) {
 #endif
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
       modules[cnt].jt = MODULE_JUMPTABLE;
-      modules[cnt].mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[cnt].mod_addr;
+      modules[cnt].mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[cnt].mod_addr + 4;
       modules[cnt].execution_offset = offset;
       modules[cnt].settings = &Settings;
       modules[cnt].flags.data = 0;
@@ -360,7 +470,7 @@ void Module_link(void) {
   ResponseCmndDone();
 }
 
-// nlink 1 module
+// unlink 1 module
 void Module_unlink(void) {
   if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAXMODULES)) {
     uint8_t module = XdrvMailbox.payload - 1;
@@ -370,6 +480,9 @@ void Module_unlink(void) {
         Deiniz_module(module);
       }
       // remove from module table, erase flash
+      if ((uint32_t)modules[module].mod_addr != (uint32_t)&module_header) {
+        ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - FLASH_BASE_OFFSET) / SPI_FLASH_SEC_SIZE);
+      }
       modules[module].mod_addr = 0;
       AddLog(LOG_LEVEL_INFO,PSTR("module %d unlinked"),module + 1);
     }

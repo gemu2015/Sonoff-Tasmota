@@ -99,7 +99,7 @@ void end_of_module(void);
 
 #define MODULE_DESCRIPTOR  const FLASH_MODULE
 
-
+// vector table calls
 #define jWire                           ( TwoWire*)                                    jt[0]
 #define jWire1                          ( TwoWire*)                                    jt[1]
 #define jSerial                         ( HardwareSerial*)                             jt[2]
@@ -133,6 +133,7 @@ void end_of_module(void);
 #define jI2cResetActive(REG,CNT)        (( void (*)(uint32_t, uint32_t) )              jt[30])(REG,CNT)
 
 
+// Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
 #define bitSet(value, bit) ((value) |= (1UL << (bit)))
 #define bitClear(value, bit) ((value) &= ~(1UL << (bit)))
