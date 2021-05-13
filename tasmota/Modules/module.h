@@ -99,7 +99,6 @@ int32_t mod_func_execute(MODULES_TABLE *, uint32_t);
 void end_of_module(void);
 
 
-#define MODULE_DESCRIPTOR  const FLASH_MODULE
 
 // vector table calls
 #define jWire                           ( TwoWire*)                                    jt[0]
@@ -140,6 +139,11 @@ void end_of_module(void);
 #define jstrlcpy(DST,SRC,SIZE)          (( size_t (*)(char *,const char *,size_t) )                jt[35])(DST,SRC,SIZE)
 #define jGetTextIndexed(DST,DSIZE,INDEX,HSTCK)(( char *(*)(char*,size_t,uint32_t,const char*) )    jt[36])(DST,DSIZE,INDEX,HSTCK)
 #define JGetTasmotaGlobal(SEL)          ((uint32_t (*)(uint32_t) )                     jt[37])(SEL)
+#define jiseq(FVAL)                     (( bool (*)(float) )                           jt[38])(FVAL)
+#define jfdiv(P1,P2)                    (( float (*)(float,float) )                    jt[39])(P1,P2)
+#define jfmul(P1,P2)                    (( float (*)(float,float) )                    jt[40])(P1,P2)
+#define jfdiff(P1,P2)                   (( float (*)(float,float) )                    jt[41])(P1,P2)
+#define jtofloat(P1)                    (( float (*)(uint64_t) )                       jt[42])(P1)
 
 
 
@@ -187,5 +191,10 @@ void end_of_module(void);
 #ifndef NAN
 #define NAN 0
 #endif
+
+
+#define MODULE_DESCRIPTOR(NAME,TYPE,REV)  __attribute__((section(".text.mod_desc"))) extern const FLASH_MODULE module_header = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,end_of_module,0,0};
+
+
 
 #endif // _MODULE_H_

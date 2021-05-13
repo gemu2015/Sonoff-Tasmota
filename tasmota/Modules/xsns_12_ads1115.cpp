@@ -122,17 +122,7 @@ CONFIG REGISTER
 #define ADS1115_REG_CONFIG_CQUE_NONE    (0x0003)  // Disable the comparator and put ALERT/RDY in high state (default)
 
 // this must be at the beginning
-MODULE_DESC module_header = {
-  MODULE_SYNC,
-  CURR_ARCH,
-  MODULE_TYPE_SENSOR,
-  ADS1115_REV,
-  "ADS1115",
-  mod_func_execute,
-  end_of_module,
-  0,
-  0
-};
+MODULE_DESCRIPTOR("ADS1115",MODULE_TYPE_SENSOR,ADS1115_REV)
 
 // all functions must be declared MUDULE_PART
 MODULE_PART int32_t Init_ADS1115(MODULES_TABLE *mt);
@@ -144,6 +134,7 @@ MODULE_PART void Ads1115StartComparator(MODULES_TABLE *mt, uint8_t channel, uint
 MODULE_PART void ADS1115_Deinit(MODULES_TABLE *mt);
 MODULE_PART int32_t mod_func_execute(MODULES_TABLE *mt, uint32_t sel);
 
+// module end marker
 MODULE_END
 
 

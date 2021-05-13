@@ -26,18 +26,8 @@
 //#pragma GCC optimize ("O0")
 
 // this is the structure of the module:
-// descriptor, code, end
-MODULE_DESC module_header = {
-  MODULE_SYNC,
-  CURR_ARCH,
-  MODULE_TYPE_SENSOR,
-  MLX90614_REV,
-  "MLX90614",
-  mod_func_execute,
-  end_of_module,
-  0,
-  0
-};
+// descripotr, code, end
+MODULE_DESCRIPTOR("MLX90614",MODULE_TYPE_SENSOR,MLX90614_REV)
 
 // all functions must be declared MUDULE_PART
 MODULE_PART int32_t Init_MLX90614(MODULES_TABLE *mt);

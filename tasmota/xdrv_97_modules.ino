@@ -123,8 +123,16 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&TempHumDewShow,
   JMPTBL&strlcpy,
   JMPTBL&GetTextIndexed,
-  JMPTBL&GetTasmotaGlobal
+  JMPTBL&GetTasmotaGlobal,
+  JMPTBL&tmod_iseq,
+  JMPTBL&tmod_fdiv,
+  JMPTBL&tmod_fmul,
+  JMPTBL&tmod_fdiff,
+  JMPTBL&tmod_tofloat
 };
+
+
+
 
 uint8_t *Load_Module(char *path, uint32_t *rsize);
 uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *offset, uint8_t flag);
@@ -266,6 +274,26 @@ uint8_t tmod_read(TwoWire *wp) {
 bool tmod_isnan(float val) {
   return isnan(val);
 }
+
+bool tmod_iseq(float val) {
+  return val == 0.0;
+}
+
+float tmod_fdiv(float p1, float p2) {
+  return p1/p2;
+}
+float tmod_fmul(float p1, float p2) {
+  return p1*p2;
+}
+
+float tmod_fdiff(float p1, float p2) {
+  return p1-p2;
+}
+
+float tmod_tofloat(uint64_t in) {
+  return in;
+}
+
 
 uint32_t GetTasmotaGlobal(uint32_t sel) {
   switch (sel) {

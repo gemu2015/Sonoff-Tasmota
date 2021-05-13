@@ -36,18 +36,7 @@
 #define SHT3X_REV  1
 
 
-MODULE_DESC module_header = {
-  MODULE_SYNC,
-  CURR_ARCH,
-  MODULE_TYPE_SENSOR,
-  SHT3X_REV,
-  "SHT3X",
-  mod_func_execute,
-  end_of_module,
-  0,
-  0
-};
-
+MODULE_DESCRIPTOR("SHT3X",MODULE_TYPE_SENSOR,SHT3X_REV)
 MODULE_PART int32_t Sht3x_Detect(MODULES_TABLE *mt);
 MODULE_PART void SHT3X_Show(MODULES_TABLE *mt, bool json);
 MODULE_PART void SHT3X_Deinit(MODULES_TABLE *mt);
@@ -100,9 +89,15 @@ bool Sht3xRead(MODULES_TABLE *mt, float &t, float &h, uint8_t sht3x_address) {
   for (uint32_t i = 0; i < 6; i++) {
     data[i] = jread(jWire);             // cTemp msb, cTemp lsb, cTemp crc, humidity msb, humidity lsb, humidity crc
   };
-  t = jConvertTemp((float)((((data[0] << 8) | data[1]) * 175) / 65535.0) - 45);
-  h = jConvertHumidity((float)((((data[3] << 8) | data[4]) * 100) / 65535.0));
-  return (!jisnan(t) && !jisnan(h) && (h != 0));
+  t = jfdiv( jtofloat(((data[0] << 8) | data[1] ) * 175), 65535.0);
+  t = jfdiff(t, 45);
+  //t = jConvertTemp((float)( ( ( (data[0] << 8) | data[1] ) * 175) / 65535.0) - 45);
+  t = jConvertTemp(t);
+
+  h = t = jfdiv( jtofloat(((data[3] << 8) | data[4] ) * 100), 65535.0);
+//  h = jConvertHumidity((float)((((data[3] << 8) | data[4]) * 100) / 65535.0));
+  h = jConvertHumidity(h);
+  return (!jisnan(t) && !jisnan(h) && !jiseq(h));
 }
 
 /********************************************************************************************/
@@ -136,7 +131,9 @@ void SHT3X_Show(MODULES_TABLE *mt, bool json) {
       char types[11];
       jstrlcpy(types, mem->sht3x_sensors[i].types, sizeof(types));
       if (mem->sht3x_count > 1) {
-        jsnprintf_P(types, sizeof(types), jPSTR(kShtTypes), mem->ht3x_sensors[i].types, jIndexSeparator, mem->sht3x_sensors[i].address);
+        char *types = mem->sht3x_sensors[i].types;
+        jsnprintf_P(types, sizeof(types), jPSTR(kShtTypes), types, jIndexSeparator(), mem->sht3x_sensors[i].address);
+        //jsnprintf_P(types, sizeof(types), jPSTR(kShtTypes), mem->ht3x_sensors[i].types, jIndexSeparator(), addr);
       }
       jTempHumDewShow(json, ((0 == JGetTasmotaGlobal(1)) && (0 == i)), types, t, h);
     }
@@ -150,6 +147,8 @@ void SHT3X_Deinit(MODULES_TABLE *mt) {
   }
   RETMEM
 }
+
+
 
 /*********************************************************************************************\
  * Interface
