@@ -41,6 +41,7 @@ MODULE_PART int32_t Sht3x_Detect(MODULES_TABLE *mt);
 MODULE_PART void SHT3X_Show(MODULES_TABLE *mt, bool json);
 MODULE_PART void SHT3X_Deinit(MODULES_TABLE *mt);
 MODULE_PART bool Sht3xRead(MODULES_TABLE *mt, float &t, float &h, uint8_t sht3x_address);
+MODULE_PART int32_t mod_func_execute(MODULES_TABLE *mt, uint32_t sel);
 MODULE_END
 
 

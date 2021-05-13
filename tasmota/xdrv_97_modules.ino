@@ -465,12 +465,12 @@ void AddModules(void) {
 // show all linked modules
 void Module_mdir(void) {
   AddLog(LOG_LEVEL_INFO, PSTR("| ======== Module directory ========"));
-  AddLog(LOG_LEVEL_INFO, PSTR("| nr | name            | address  | size | type | rev  | ram  | init"));
+  AddLog(LOG_LEVEL_INFO, PSTR("| nr | name            | address  | size | type | rev  | ram  | init |"));
   for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
     if (modules[cnt].mod_addr) {
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
       const char *type = "xsns"; // only currently supported type
-      AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-16s| %08x | %4d | %4s | %04x | %4d | %1d |"), cnt + 1, fm->name, modules[cnt].mod_addr,
+      AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-16s| %08x | %4d | %4s | %04x | %4d |  %1d   |"), cnt + 1, fm->name, modules[cnt].mod_addr,
        modules[cnt].mod_size,  type, fm->revision, modules[cnt].mem_size, modules[cnt].flags.initialized);
       // AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-16s| %08x | %4d | %4s | %04x | %4d | %1d | %08x"), cnt + 1, fm->name, modules[cnt].mod_addr,
       //  modules[cnt].mod_size,  type, fm->revision, modules[cnt].mem_size, modules[cnt].flags.initialized, fm->execution_offset);
@@ -508,7 +508,7 @@ void Module_link(void) {
       modules[cnt].execution_offset = offset;
       modules[cnt].settings = &Settings;
       modules[cnt].flags.data = 0;
-      AddLog(LOG_LEVEL_INFO,PSTR("module %s loaded at slot %d"), XdrvMailbox.data, 1);
+      AddLog(LOG_LEVEL_INFO,PSTR("module %s loaded at slot %d"), XdrvMailbox.data, cnt + 1);
     } else {
       // error
       AddLog(LOG_LEVEL_INFO,PSTR("module error"));

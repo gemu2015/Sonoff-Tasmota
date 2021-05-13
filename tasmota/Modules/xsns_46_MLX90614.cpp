@@ -51,6 +51,7 @@ MODULE_END
 #define MLX90614_TOBJ1  0x07
 #define MLX90614_TOBJ2  0x08
 
+// all memory must be in struct MODULE_MEMORY
 typedef struct {
   union {
     uint16_t value;
@@ -62,8 +63,7 @@ typedef struct {
 } MODULE_MEMORY;
 
 
-// define text
-DPSTR(initmsg,"Hello world\n");
+// all text defines must be here
 DPSTR(HTTP_IRTMP,"{s}MXL90614 OBJ-TEMP{m}%s C{e} {s}MXL90614 AMB-TEMP {m}%s C{e}");
 DPSTR(JSON_IRTMP,",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}");
 DPSTR(mlxdev,"MLX90614");
@@ -76,20 +76,16 @@ int32_t Init_MLX90614(MODULES_TABLE *mt) {
   mem->ready = false;
 
   mt->flags.initialized = true;
-
+  
   if (!jI2cSetDevice(I2_ADR_IRT)) {
     return -1;
   }
 
   jI2cSetActiveFound(I2_ADR_IRT, jPSTR(mlxdev), 0);
 
-
-//  GPSTR(d,initmsg)
-//  sprint(jPSTR(initmsg));
-
   mem->ready = true;
 
-  return 0;
+  return mem->ready;
 }
 
 void MLX90614_Every_Second(MODULES_TABLE *mt) {
