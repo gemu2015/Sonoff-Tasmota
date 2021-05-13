@@ -59,18 +59,19 @@
 
 #define HTU_REV  1
 
-
+// define calls
 MODULE_DESCRIPTOR("HTU21",MODULE_TYPE_SENSOR,HTU_REV)
 MODULE_PART int32_t HTU_Detect(MODULES_TABLE *mt);
 MODULE_PART void HTU_Show(MODULES_TABLE *mt, bool json);
 MODULE_PART void HTU_Deinit(MODULES_TABLE *mt);
-MODULE_PART bool HtuCheckCrc8(MODULES_TABLE *mt, float &t, float &h, uint8_t sht3x_address);
+MODULE_PART uint8_t HtuCheckCrc8(uint16_t data);
 MODULE_PART uint8_t HtuReadDeviceId(MODULES_TABLE *mt);
 MODULE_PART void HtuSetResolution(MODULES_TABLE *mt, uint8_t resolution);
 MODULE_PART void HtuReset(MODULES_TABLE *mt);
 MODULE_PART void HtuHeater(MODULES_TABLE *mt, uint8_t heater);
 MODULE_PART void HTU_Init(MODULES_TABLE *mt);
 MODULE_PART bool HTU_Read(MODULES_TABLE *mt);
+MODULE_PART void HTU_EverySecond(MODULES_TABLE *mt);
 MODULE_PART int32_t mod_func_execute(MODULES_TABLE *mt, uint32_t sel);
 MODULE_END
 
@@ -95,7 +96,6 @@ typedef struct {
 } MODULE_MEMORY;
 
 #define Htu mem->Htu
-
 
 /*********************************************************************************************/
 
