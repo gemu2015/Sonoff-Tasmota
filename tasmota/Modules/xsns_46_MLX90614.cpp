@@ -53,15 +53,14 @@ MODULE_END
 
 // all memory must be in struct MODULE_MEMORY
 typedef struct {
-  union {
-    uint16_t value;
-    uint32_t i2c_buf;
-    };
   float obj_temp;
   float amb_temp;
   bool ready;
 } MODULE_MEMORY;
 
+#define obj_temp mem->obj_temp
+#define amb_temp mem->amb_temp
+#define ready mem->ready
 
 // all text defines must be here
 DPSTR(HTTP_IRTMP,"{s}MXL90614 OBJ-TEMP{m}%s C{e} {s}MXL90614 AMB-TEMP {m}%s C{e}");
@@ -73,29 +72,29 @@ int32_t Init_MLX90614(MODULES_TABLE *mt) {
   ALLOCMEM
 
   // now init variables here
-  mem->ready = false;
+  ready = false;
 
   mt->flags.initialized = true;
-  
+
   if (!jI2cSetDevice(I2_ADR_IRT)) {
     return -1;
   }
 
   jI2cSetActiveFound(I2_ADR_IRT, jPSTR(mlxdev), 0);
 
-  mem->ready = true;
+  ready = true;
 
-  return mem->ready;
+  return ready;
 }
 
 void MLX90614_Every_Second(MODULES_TABLE *mt) {
   SETREGS
 
 
-  if (mem->ready == false) return;
+  if (ready == false) return;
 
-  mem->obj_temp = MLX90614_GetValue(mt, MLX90614_TOBJ1);
-  mem->amb_temp = MLX90614_GetValue(mt, MLX90614_TA);
+  obj_temp = MLX90614_GetValue(mt, MLX90614_TOBJ1);
+  amb_temp = MLX90614_GetValue(mt, MLX90614_TA);
 
 }
 
@@ -118,11 +117,11 @@ void MLX90614_Show(MODULES_TABLE *mt, uint32_t json) {
 
 SETTINGS *jsettings = mt->settings;
 
-  if (mem->ready == false) return;
+  if (ready == false) return;
   char obj_tstr[16];
-  jftostrfd(mem->obj_temp, jsettings->flag2.temperature_resolution, obj_tstr);
+  jftostrfd(obj_temp, jsettings->flag2.temperature_resolution, obj_tstr);
   char amb_tstr[16];
-  jftostrfd(mem->amb_temp, jsettings->flag2.temperature_resolution, amb_tstr);
+  jftostrfd(amb_temp, jsettings->flag2.temperature_resolution, amb_tstr);
 
   if (json) {
     jResponseAppend_P(jPSTR(JSON_IRTMP), obj_tstr, amb_tstr);

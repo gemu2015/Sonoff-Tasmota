@@ -58,6 +58,10 @@ typedef struct {
   SHT3XSTRUCT sht3x_sensors[SHT3X_MAX_SENSORS];
 } MODULE_MEMORY;
 
+#define sht3x_count mem->sht3x_count
+#define sht3x_addresses mem->sht3x_addresses
+#define sht3x_sensors mem->sht3x_sensors
+
 
 // define strings used
 DPSTR(kShtTypes3,"SHT3X|SHT3X|SHTC3");
@@ -67,8 +71,8 @@ bool Sht3xRead(MODULES_TABLE *mt, float &t, float &h, uint8_t sht3x_address) {
   SETREGS
   unsigned int data[6];
 
-  t = NAN;
-  h = NAN;
+  t = jNAN;
+  h = t;
 
   jbeginTransmission(jWire, sht3x_address);
   if (SHTC3_ADDR == sht3x_address) {
@@ -105,35 +109,35 @@ bool Sht3xRead(MODULES_TABLE *mt, float &t, float &h, uint8_t sht3x_address) {
 
 int32_t Sht3x_Detect(MODULES_TABLE *mt) {
   ALLOCMEM
-  mem->sht3x_addresses[0] = SHT3X_ADDR_GND;
-  mem->sht3x_addresses[1] = SHT3X_ADDR_VDD;
-  mem->sht3x_addresses[2] = SHTC3_ADDR;
+  sht3x_addresses[0] = SHT3X_ADDR_GND;
+  sht3x_addresses[1] = SHT3X_ADDR_VDD;
+  sht3x_addresses[2] = SHTC3_ADDR;
 
   for (uint32_t i = 0; i < SHT3X_MAX_SENSORS; i++) {
-    if (jI2cActive(mem->sht3x_addresses[i])) { continue; }
+    if (jI2cActive(sht3x_addresses[i])) { continue; }
     float t;
     float h;
-    if (Sht3xRead(mt, t, h, mem->sht3x_addresses[i])) {
-      mem->sht3x_sensors[mem->sht3x_count].address = mem->sht3x_addresses[i];
-      jGetTextIndexed(mem->sht3x_sensors[mem->sht3x_count].types, sizeof(mem->sht3x_sensors[mem->sht3x_count].types), i, jPSTR(kShtTypes3));
-      jI2cSetActiveFound(mem->sht3x_sensors[mem->sht3x_count].address, mem->sht3x_sensors[mem->sht3x_count].types, 0);
-      mem->sht3x_count++;
+    if (Sht3xRead(mt, t, h, sht3x_addresses[i])) {
+      sht3x_sensors[sht3x_count].address = sht3x_addresses[i];
+      jGetTextIndexed(sht3x_sensors[sht3x_count].types, sizeof(sht3x_sensors[sht3x_count].types), i, jPSTR(kShtTypes3));
+      jI2cSetActiveFound(sht3x_sensors[sht3x_count].address, sht3x_sensors[sht3x_count].types, 0);
+      sht3x_count++;
     }
   }
-  return mem->sht3x_count;
+  return sht3x_count;
 }
 
 void SHT3X_Show(MODULES_TABLE *mt, bool json) {
   SETREGS
-  for (uint32_t i = 0; i < mem->sht3x_count; i++) {
+  for (uint32_t i = 0; i < sht3x_count; i++) {
     float t;
     float h;
-    if (Sht3xRead(mt, t, h, mem->sht3x_sensors[i].address)) {
+    if (Sht3xRead(mt, t, h, sht3x_sensors[i].address)) {
       char types[11];
-      jstrlcpy(types, mem->sht3x_sensors[i].types, sizeof(types));
-      if (mem->sht3x_count > 1) {
-        char *types = mem->sht3x_sensors[i].types;
-        jsnprintf_P(types, sizeof(types), jPSTR(kShtTypes), types, jIndexSeparator(), mem->sht3x_sensors[i].address);
+      jstrlcpy(types, sht3x_sensors[i].types, sizeof(types));
+      if (sht3x_count > 1) {
+        char *types = sht3x_sensors[i].types;
+        jsnprintf_P(types, sizeof(types), jPSTR(kShtTypes), types, jIndexSeparator(), sht3x_sensors[i].address);
         //jsnprintf_P(types, sizeof(types), jPSTR(kShtTypes), mem->ht3x_sensors[i].types, jIndexSeparator(), addr);
       }
       jTempHumDewShow(json, ((0 == JGetTasmotaGlobal(1)) && (0 == i)), types, t, h);
@@ -143,8 +147,8 @@ void SHT3X_Show(MODULES_TABLE *mt, bool json) {
 
 void SHT3X_Deinit(MODULES_TABLE *mt) {
   SETREGS
-  for (uint32_t i = 0; i < mem->sht3x_count; i++) {
-    jI2cResetActive(mem->sht3x_sensors[i].address,1);
+  for (uint32_t i = 0; i < sht3x_count; i++) {
+    jI2cResetActive(sht3x_sensors[i].address,1);
   }
   RETMEM
 }

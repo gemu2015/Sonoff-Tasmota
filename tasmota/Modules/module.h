@@ -144,6 +144,16 @@ void end_of_module(void);
 #define jfmul(P1,P2)                    (( float (*)(float,float) )                    jt[40])(P1,P2)
 #define jfdiff(P1,P2)                   (( float (*)(float,float) )                    jt[41])(P1,P2)
 #define jtofloat(P1)                    (( float (*)(uint64_t) )                       jt[42])(P1)
+#define jfadd(P1,P2)                    (( float (*)(float,float) )                    jt[42])(P1,P2)
+#define jI2cRead8(ADDR,REG)             (( uint8_t (*)(uint8_t,uint8_t) )              jt[43])(ADDR,REG)
+#define jI2cWrite8(ADDR,REG,VAL)        (( bool (*)(uint8_t,uint8_t,uint8_t) )         jt[44])(ADDR,REG,VAL)
+#define javailable(WIRE)                (( uint8_t (*)(TwoWire*) )                     jt[45])(WIRE)
+#define jAddLogMissed(SENS,MISS)        (( void (*)(const char*,uint32_t) )            jt[46])(SENS,MISS)
+#define jNAN                            (( float (*)(void) )                           jt[47])()
+#define jgtsf2(P1,P2)                   (( bool (*)(float,float) )                     jt[48])(P1,P2)
+#define jltsf2(P1,P2)                   (( bool (*)(float,float) )                     jt[49])(P1,P2)
+#define jeqsf2(P1,P2)                   (( bool (*)(float,float) )                     jt[50])(P1,P2)
+
 
 
 

@@ -128,10 +128,17 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_fdiv,
   JMPTBL&tmod_fmul,
   JMPTBL&tmod_fdiff,
-  JMPTBL&tmod_tofloat
+  JMPTBL&tmod_tofloat,
+  JMPTBL&tmod_fadd,
+  JMPTBL&I2cRead8,
+  JMPTBL&I2cWrite8,
+  JMPTBL&tmod_available,
+  JMPTBL&AddLogMissed,
+  JMPTBL&tmod_NAN,
+  JMPTBL&tmod_gtsf2,
+  JMPTBL&tmod_ltsf2,
+  JMPTBL&tmod_eqsf2,
 };
-
-
 
 
 uint8_t *Load_Module(char *path, uint32_t *rsize);
@@ -271,24 +278,48 @@ uint8_t tmod_read(TwoWire *wp) {
   return wp->read();
 }
 
+uint8_t tmod_available(TwoWire *wp) {
+  return wp->available();
+}
+
 bool tmod_isnan(float val) {
   return isnan(val);
 }
+
+float tmod_NAN(void) {
+  return NAN;
+}
+
+bool tmod_gtsf2(float p1, float p2) {
+  return p1 > p2;
+}
+bool tmod_ltsf2(float p1, float p2) {
+  return p1 < p2;
+}
+bool tmod_eqsf2(float p1, float p2) {
+  return p1 == p2;
+}
+
 
 bool tmod_iseq(float val) {
   return val == 0.0;
 }
 
 float tmod_fdiv(float p1, float p2) {
-  return p1/p2;
+  return p1 / p2;
 }
 float tmod_fmul(float p1, float p2) {
-  return p1*p2;
+  return p1 * p2;
 }
 
 float tmod_fdiff(float p1, float p2) {
-  return p1-p2;
+  return p1 - p2;
 }
+
+float tmod_fadd(float p1, float p2) {
+  return p1 + p2;
+}
+
 
 float tmod_tofloat(uint64_t in) {
   return in;

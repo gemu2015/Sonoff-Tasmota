@@ -152,6 +152,9 @@ typedef struct {
   bool ready;
 } MODULE_MEMORY;
 
+#define Ads1115 mem->Ads1115
+#define ready mem->ready 
+
 // define text
 DPSTR(moddev,"ADS1115");
 DPSTR(moddev1,"ADS1115%c%02x");
@@ -180,7 +183,7 @@ void Ads1115StartComparator(MODULES_TABLE *mt, uint8_t channel, uint16_t mode) {
   config |= (ADS1115_REG_CONFIG_MUX_SINGLE_0 + (0x1000 * channel));
 
   // Write config register to the ADC
-  jI2cWrite16(mem->Ads1115.address, ADS1115_REG_POINTER_CONFIG, config);
+  jI2cWrite16(Ads1115.address, ADS1115_REG_POINTER_CONFIG, config);
 }
 
 
@@ -190,12 +193,12 @@ int16_t Ads1115GetConversion(MODULES_TABLE *mt, uint8_t channel) {
   // Wait for the conversion to complete
   jdelay(ADS1115_CONVERSIONDELAY);
   // Read the conversion results
-  jI2cRead16(mem->Ads1115.address, ADS1115_REG_POINTER_CONVERT);
+  jI2cRead16(Ads1115.address, ADS1115_REG_POINTER_CONVERT);
 
   Ads1115StartComparator(mt, channel, ADS1115_REG_CONFIG_MODE_CONTIN);
   jdelay(ADS1115_CONVERSIONDELAY);
   // Read the conversion results
-  uint16_t res = jI2cRead16(mem->Ads1115.address, ADS1115_REG_POINTER_CONVERT);
+  uint16_t res = jI2cRead16(Ads1115.address, ADS1115_REG_POINTER_CONVERT);
   return (int16_t)res;
 }
 
@@ -204,34 +207,34 @@ int16_t Ads1115GetConversion(MODULES_TABLE *mt, uint8_t channel) {
 int32_t Init_ADS1115(MODULES_TABLE *mt) {
   ALLOCMEM
 
-  mem->Ads1115.addresses[0] = ADS1115_ADDRESS_ADDR_GND;
-  mem->Ads1115.addresses[1] = ADS1115_ADDRESS_ADDR_VDD;
-  mem->Ads1115.addresses[2] = ADS1115_ADDRESS_ADDR_SDA;
-  mem->Ads1115.addresses[3] = ADS1115_ADDRESS_ADDR_SCL;
+  Ads1115.addresses[0] = ADS1115_ADDRESS_ADDR_GND;
+  Ads1115.addresses[1] = ADS1115_ADDRESS_ADDR_VDD;
+  Ads1115.addresses[2] = ADS1115_ADDRESS_ADDR_SDA;
+  Ads1115.addresses[3] = ADS1115_ADDRESS_ADDR_SCL;
 
   for (uint32_t i = 0; i < fldsiz(ADS1115,addresses); i++) {
-    if (!mem->Ads1115.found[i]) {
-      mem->Ads1115.address = mem->Ads1115.addresses[i];
-      if (jI2cActive(mem->Ads1115.address)) { continue; }
+    if (!Ads1115.found[i]) {
+      Ads1115.address = Ads1115.addresses[i];
+      if (jI2cActive(Ads1115.address)) { continue; }
       uint16_t buffer;
-      if (jI2cValidRead16(&buffer, mem->Ads1115.address, ADS1115_REG_POINTER_CONVERT) &&
-          jI2cValidRead16(&buffer, mem->Ads1115.address, ADS1115_REG_POINTER_CONFIG)) {
+      if (jI2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONVERT) &&
+          jI2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONFIG)) {
         Ads1115StartComparator(mt, i, ADS1115_REG_CONFIG_MODE_CONTIN);
-        jI2cSetActiveFound(mem->Ads1115.address, jPSTR(moddev), 0);
-        mem->Ads1115.found[i] = 1;
-        mem->Ads1115.count++;
+        jI2cSetActiveFound(Ads1115.address, jPSTR(moddev), 0);
+        Ads1115.found[i] = 1;
+        Ads1115.count++;
       }
     }
   }
   mt->flags.initialized = true;
-  mem->ready = true;
-  return mem->Ads1115.count;
+  ready = true;
+  return Ads1115.count;
 }
 
 // Create the identifier of the the selected sensor
 void Ads1115Label(MODULES_TABLE *mt, char* label, uint32_t maxsize, uint8_t address) {
   SETREGS
-  if (1 == mem->Ads1115.count) {
+  if (1 == Ads1115.count) {
     // "ADS1115":{"A0":3240,"A1":3235,"A2":3269,"A3":3269}
     jsnprintf_P(label, maxsize, jPSTR(moddev));
   } else {
@@ -248,10 +251,10 @@ void AdsEvery250ms(MODULES_TABLE *mt) {
   int16_t value;
 
   for (uint32_t t = 0; t < fldsiz(ADS1115,addresses); t++) {
-    if (mem->Ads1115.found[t]) {
+    if (Ads1115.found[t]) {
 
-      uint8_t old_address = mem->Ads1115.address;
-      mem->Ads1115.address = mem->Ads1115.addresses[t];
+      uint8_t old_address = Ads1115.address;
+      Ads1115.address = Ads1115.addresses[t];
 
       // collect first wich addresses have changed. We can save on rule processing this way
       uint32_t changed = 0;
@@ -260,22 +263,22 @@ void AdsEvery250ms(MODULES_TABLE *mt) {
 
         // Check if value has changed more than 1 percent from last stored value
         // we assume that gain is set up correctly, and we could use the whole 16bit result space
-        if (value >= mem->Ads1115.last_values[t][i] + 327 || value <= mem->Ads1115.last_values[t][i] - 327) {
-          mem->Ads1115.last_values[t][i] = value;
+        if (value >= Ads1115.last_values[t][i] + 327 || value <= Ads1115.last_values[t][i] - 327) {
+          Ads1115.last_values[t][i] = value;
           bitSet(changed, i);
         }
       }
-      mem->Ads1115.address = old_address;
+      Ads1115.address = old_address;
       if (changed) {
         char label[15];
-        Ads1115Label(mt, label, sizeof(label), mem->Ads1115.addresses[t]);
+        Ads1115Label(mt, label, sizeof(label), Ads1115.addresses[t]);
 
         jResponse_P(jPSTR(moddev2), label);
 
         bool first = true;
         for (uint32_t i = 0; i < 4; i++) {
           if (bitRead(changed, i)) {
-            jResponseAppend_P(jPSTR(moddev3), (first) ? jPSTR(moddev7) : jPSTR(moddev6), i, mem->Ads1115.last_values[t][i]);
+            jResponseAppend_P(jPSTR(moddev3), (first) ? jPSTR(moddev7) : jPSTR(moddev6), i, Ads1115.last_values[t][i]);
             first = false;
           }
         }
@@ -295,18 +298,18 @@ void ADS1115_Show(MODULES_TABLE *mt, bool json) {
 
   for (uint32_t t = 0; t < fldsiz(ADS1115,addresses); t++) {
     //AddLog(LOG_LEVEL_INFO, "Logging ADS1115 %02x", Ads1115.addresses[t]);
-    if (mem->Ads1115.found[t]) {
+    if (Ads1115.found[t]) {
 
-      uint8_t old_address = mem->Ads1115.address;
-      mem->Ads1115.address = mem->Ads1115.addresses[t];
+      uint8_t old_address = Ads1115.address;
+      Ads1115.address = Ads1115.addresses[t];
       for (uint32_t i = 0; i < 4; i++) {
         values[i] = Ads1115GetConversion(mt, i);
         //AddLog(LOG_LEVEL_INFO, "Logging ADS1115 %02x (%i) = %i", Ads1115.address, i, values[i] );
       }
-      mem->Ads1115.address = old_address;
+      Ads1115.address = old_address;
 
       char label[15];
-      Ads1115Label(mt, label, sizeof(label), mem->Ads1115.addresses[t]);
+      Ads1115Label(mt, label, sizeof(label), Ads1115.addresses[t]);
 
       if (json) {
         jResponseAppend_P(jPSTR(moddev4), label);
@@ -329,8 +332,8 @@ void ADS1115_Deinit(MODULES_TABLE *mt) {
   SETREGS
 
   for (uint32_t t = 0; t < fldsiz(ADS1115,addresses); t++) {
-    if (mem->Ads1115.found[t]) {
-      jI2cResetActive(mem->Ads1115.addresses[t],1);
+    if (Ads1115.found[t]) {
+      jI2cResetActive(Ads1115.addresses[t],1);
     }
   }
   RETMEM
