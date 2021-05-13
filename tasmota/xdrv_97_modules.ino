@@ -512,38 +512,51 @@ void Module_mdir(void) {
   ResponseCmndDone();
 }
 
+void LinkModule(uint8_t *mp, uint32_t size, char *name) {
+  uint8_t cnt;
+
+  if (mp) {
+    uint32_t *lp = (uint32_t*)mp;
+    if (*lp != MODULE_SYNC) {
+      free(mp);
+      AddLog(LOG_LEVEL_INFO,PSTR("module sync error"));
+      return;
+    }
+    for (cnt = 0; cnt < MAXMODULES; cnt++) {
+      if (!modules[cnt].mod_addr) {
+        break;
+      }
+    }
+    uint32_t offset;
+#ifdef ESP32
+    modules[cnt].mod_addr = (void *) Store_Module(mp, size, &offset, 1);
+#else
+    modules[cnt].mod_addr = (void *) Store_Module(mp, size, &offset, 0);
+    free(mp);
+#endif
+    //AddLog(LOG_LEVEL_INFO,PSTR("module stored in flash"));
+    const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
+    modules[cnt].jt = MODULE_JUMPTABLE;
+    modules[cnt].mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[cnt].mod_addr + 4;
+    modules[cnt].execution_offset = offset;
+    modules[cnt].settings = &Settings;
+    modules[cnt].flags.data = 0;
+    AddLog(LOG_LEVEL_INFO,PSTR("module %s loaded at slot %d"), name, cnt + 1);
+  } else {
+    // error
+    AddLog(LOG_LEVEL_INFO,PSTR("module error"));
+  }
+}
+
 // link 1 module from file (or web, not yet)
 void Module_link(void) {
   uint8_t *fdesc = 0;
 
   if (XdrvMailbox.data_len) {
     uint32_t size;
-    uint8_t cnt;
+
     uint8_t *mp = Load_Module(XdrvMailbox.data, &size);
-    if (mp) {
-      for (cnt = 0; cnt < MAXMODULES; cnt++) {
-        if (!modules[cnt].mod_addr) {
-          break;
-        }
-      }
-      uint32_t offset;
-#ifdef ESP32
-      modules[cnt].mod_addr = (void *) Store_Module(mp, size, &offset, 1);
-#else
-      modules[cnt].mod_addr = (void *) Store_Module(mp, size, &offset, 0);
-      free(mp);
-#endif
-      const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-      modules[cnt].jt = MODULE_JUMPTABLE;
-      modules[cnt].mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[cnt].mod_addr + 4;
-      modules[cnt].execution_offset = offset;
-      modules[cnt].settings = &Settings;
-      modules[cnt].flags.data = 0;
-      AddLog(LOG_LEVEL_INFO,PSTR("module %s loaded at slot %d"), XdrvMailbox.data, cnt + 1);
-    } else {
-      // error
-      AddLog(LOG_LEVEL_INFO,PSTR("module error"));
-    }
+    LinkModule(mp, size, XdrvMailbox.data);
   }
   ResponseCmndDone();
 }
@@ -617,6 +630,61 @@ void Module_dump(void) {
   ResponseCmndDone();
 }
 
+const char MOD_UPLOAD[] PROGMEM =
+  "<p><form action='" "mo_upl" "' method='get'><button>" "%s" "</button></form></p>";
+
+const char MOD_FORM_FILE_UPG[] PROGMEM =
+  "<form method='post' action='modu' enctype='multipart/form-data'>"
+  "<br><input type='file' name='modu'><br>"
+  "<br><button type='submit' onclick='eb(\"f1\").style.display=\"none\";eb(\"f2\").style.display=\"block\";this.form.submit();'>" D_START " %s</button></form>"
+  "<br>";
+
+void Module_upload(void) {
+    if (!HttpCheckPriviledgedAccess()) { return; }
+
+    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_HTTP "Upload module"));
+
+    WSContentStart_P(PSTR(D_MANAGE_FILE_SYSTEM));
+    WSContentSendStyle();
+    WSContentSend_P(MOD_FORM_FILE_UPG, PSTR("Upload module"));
+    WSContentSpaceButton(BUTTON_MANAGEMENT);
+    WSContentStop();
+
+    Webserver->sendHeader(F("Location"),F("/modu"));
+    Webserver->send(303);
+
+    Web.upload_file_type = UPL_MODULE;
+}
+
+static uint8_t *module_input_buffer;
+static uint32_t module_bytes_read;
+static char   module_name[16];
+
+bool Module_upload_start(const char* upload_filename) {
+  strlcpy(module_name, upload_filename, sizeof(module_name));
+  module_input_buffer = (uint8_t *)calloc(SPI_FLASH_SEC_SIZE / 4 , 4);
+  if (!module_input_buffer) return false;
+  module_bytes_read = 0;
+  return true;
+}
+
+bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
+
+  if ((SPI_FLASH_SEC_SIZE - module_bytes_read) > current_size) {
+    memcpy(module_input_buffer, upload_buf, current_size);
+    module_bytes_read += current_size;
+    return true;
+  } else {
+    current_size = SPI_FLASH_SEC_SIZE - module_bytes_read;
+    memcpy(module_input_buffer, upload_buf, current_size);
+    return false;
+  }
+}
+
+void Module_upload_stop(void) {
+  LinkModule(module_input_buffer, module_bytes_read, module_name);
+}
+
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
@@ -641,8 +709,21 @@ bool Xdrv97(uint8_t function) {
     case FUNC_JSON_APPEND:
       ModuleJsonAppend();
       break;
+    case FUNC_WEB_ADD_MANAGEMENT_BUTTON:
+      if (XdrvMailbox.index) {
+        XdrvMailbox.index++;
+      } else {
+        WSContentSend_PD(MOD_UPLOAD, PSTR("Upload Module"));
+      }
+      break;
+    case FUNC_WEB_ADD_HANDLER:
+      Webserver->on("/mo_upl", Module_upload);
+      Webserver->on("/modu", HTTP_GET, Module_upload);
+      Webserver->on("/modu", HTTP_POST,[](){Webserver->sendHeader(F("Location"),F("/modu"));Webserver->send(303);}, HandleUploadLoop);
+      break;
   }
   return result;
 }
+
 
 #endif  // USE_MODULES

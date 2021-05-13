@@ -2619,6 +2619,14 @@ void HandleUploadLoop(void) {
       }
     }
 #endif  // USE_UFILESYS
+#ifdef USE_MODULES
+    else if (UPL_MODULE == Web.upload_file_type) {
+      if (!Module_upload_start(upload.filename.c_str())) {
+        Web.upload_error = 2;
+        return;
+      }
+    }
+#endif // USE_MODULES
   }
 
   // ***** Step2: Write upload file
@@ -2701,6 +2709,15 @@ void HandleUploadLoop(void) {
       }
     }
 #endif  // USE_UFILESYS
+#ifdef USE_MODULES
+    else if (UPL_MODULE == Web.upload_file_type) {
+      if (!Module_upload_write(upload.buf, upload.currentSize)) {
+        Web.upload_error = 9;  // File too large
+        return;
+      }
+    }
+#endif // USE_MODULES
+
 #ifdef USE_WEB_FW_UPGRADE
     else if (BUpload.active) {
       // Write a block
@@ -2733,6 +2750,12 @@ void HandleUploadLoop(void) {
       UfsUploadFileClose();
     }
 #endif  // USE_UFILESYS
+
+#ifdef USE_MODULES
+    else if (UPL_MODULE == Web.upload_file_type) {
+      Module_upload_stop();
+    }
+#endif // USE_MODULES
 #ifdef USE_WEB_FW_UPGRADE
     else if (BUpload.active) {
       // Done writing the data to SPI flash
