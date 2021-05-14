@@ -36,7 +36,7 @@ very early stage
 //#define DO_EXECUTE
 
 #include "./Modules/module.h"
-
+#include <TasmotaSerial.h>
 
 #ifdef EXECUTE_FROM_BINARY
 extern const FLASH_MODULE module_header;
@@ -77,6 +77,10 @@ void Serial_print(char *txt) {
   Serial.printf_P("test: %s\n",txt);
 }
 
+TasmotaSerial *tmod_newTS(int32_t rpin, int32_t tpin);
+int tmod_beginTS(TasmotaSerial *ts, uint32_t baud);
+void tmod_writeTS(TasmotaSerial *ts, char *buf, uint32_t size);
+void tmod_flushTS(TasmotaSerial *ts);
 
 #define JMPTBL (void (*)())
 // this vector table table must contain all api calls needed by module
@@ -138,8 +142,138 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_gtsf2,
   JMPTBL&tmod_ltsf2,
   JMPTBL&tmod_eqsf2,
+  JMPTBL&tmod_Pin,
+  JMPTBL&tmod_newTS,
+  JMPTBL&tmod_writeTS,
+  JMPTBL&tmod_flushTS,
+  JMPTBL&tmod_beginTS,
+  JMPTBL&XdrvMailbox,
+  JMPTBL&GetCommandCode,
+  JMPTBL&strlen,
+  JMPTBL&strncasecmp_P,
+  JMPTBL&toupper,
+  JMPTBL&iscale
 };
 
+
+// some helper functions
+void tmod_beginTransmission(TwoWire *wp, uint8_t addr) {
+  wp->beginTransmission(addr);
+}
+void tmod_write(TwoWire *wp, uint8_t val) {
+  wp->write(val);
+}
+void tmod_endTransmission(TwoWire *wp, bool flag) {
+  wp->endTransmission(flag);
+}
+void tmod_requestFrom(TwoWire *wp, uint8_t addr, uint8_t num) {
+  wp->requestFrom(addr, num);
+}
+
+uint8_t tmod_read(TwoWire *wp) {
+  return wp->read();
+}
+
+uint8_t tmod_available(TwoWire *wp) {
+  return wp->available();
+}
+
+bool tmod_isnan(float val) {
+  return isnan(val);
+}
+
+float tmod_NAN(void) {
+  return NAN;
+}
+
+bool tmod_gtsf2(float p1, float p2) {
+  return p1 > p2;
+}
+bool tmod_ltsf2(float p1, float p2) {
+  return p1 < p2;
+}
+bool tmod_eqsf2(float p1, float p2) {
+  return p1 == p2;
+}
+
+
+bool tmod_iseq(float val) {
+  return val == 0.0;
+}
+
+float tmod_fdiv(float p1, float p2) {
+  return p1 / p2;
+}
+float tmod_fmul(float p1, float p2) {
+  return p1 * p2;
+}
+
+float tmod_fdiff(float p1, float p2) {
+  return p1 - p2;
+}
+
+float tmod_fadd(float p1, float p2) {
+  return p1 + p2;
+}
+
+
+float tmod_tofloat(uint64_t in) {
+  return in;
+}
+
+int tmod_Pin(uint32_t pin, uint32_t index) {
+  return Pin(pin, index);
+}
+
+TasmotaSerial *tmod_newTS(int32_t rpin, int32_t tpin) {
+  TasmotaSerial *ts = new TasmotaSerial(rpin, tpin);
+  return ts;
+}
+
+int tmod_beginTS(TasmotaSerial *ts, uint32_t baud) {
+  return ts->begin(baud);
+}
+
+void tmod_writeTS(TasmotaSerial *ts, char *buf, uint32_t size) {
+  ts->write(buf, size);
+}
+
+void tmod_flushTS(TasmotaSerial *ts) {
+  ts->flush();
+}
+
+uint32_t GetTasmotaGlobal(uint32_t sel) {
+  switch (sel) {
+    case 1:
+      return TasmotaGlobal.tele_period;
+      break;
+  }
+  return 0;
+}
+
+
+void show_hex_address(uint32_t addr) {
+  AddLog(LOG_LEVEL_INFO,PSTR(">>> %08x"), addr);
+}
+
+// convert float to string
+char* ftostrfd(float number, unsigned char prec, char *s) {
+  if ((isnan(number)) || (isinf(number))) {  // Fix for JSON output (https://stackoverflow.com/questions/1423081/json-left-out-infinity-and-nan-json-status-in-ecmascript)
+    strcpy_P(s, PSTR("null"));
+    return s;
+  } else {
+    return dtostrf(number, 1, prec, s);
+  }
+}
+
+// scale a float number
+float fscale(int32_t number, float mulfac, float subfac) {
+  return (float)number * mulfac - subfac;
+}
+
+int32_t iscale(int32_t number, int32_t mulfac, int32_t divfac) {
+  return (number * mulfac) / divfac;
+}
 
 uint8_t *Load_Module(char *path, uint32_t *rsize);
 uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *offset, uint8_t flag);
@@ -238,6 +372,20 @@ void Module_Execute(uint32_t sel) {
   }
 }
 
+int32_t Module_Command(uint32_t sel) {
+int32_t result = 0;
+  for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
+    if (modules[cnt].mod_addr) {
+      if (modules[cnt].flags.initialized) {
+        const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
+        result = fm->mod_func_execute(&modules[cnt], sel);
+        if (result) break;
+      }
+    }
+  }
+  return result;
+}
+
 void ModuleWebSensor() {
   for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
     if (modules[cnt].mod_addr) {
@@ -258,102 +406,6 @@ void ModuleJsonAppend() {
       }
     }
   }
-}
-
-// some helper functions
-void tmod_beginTransmission(TwoWire *wp, uint8_t addr) {
-  wp->beginTransmission(addr);
-}
-void tmod_write(TwoWire *wp, uint8_t val) {
-  wp->write(val);
-}
-void tmod_endTransmission(TwoWire *wp, bool flag) {
-  wp->endTransmission(flag);
-}
-void tmod_requestFrom(TwoWire *wp, uint8_t addr, uint8_t num) {
-  wp->requestFrom(addr, num);
-}
-
-uint8_t tmod_read(TwoWire *wp) {
-  return wp->read();
-}
-
-uint8_t tmod_available(TwoWire *wp) {
-  return wp->available();
-}
-
-bool tmod_isnan(float val) {
-  return isnan(val);
-}
-
-float tmod_NAN(void) {
-  return NAN;
-}
-
-bool tmod_gtsf2(float p1, float p2) {
-  return p1 > p2;
-}
-bool tmod_ltsf2(float p1, float p2) {
-  return p1 < p2;
-}
-bool tmod_eqsf2(float p1, float p2) {
-  return p1 == p2;
-}
-
-
-bool tmod_iseq(float val) {
-  return val == 0.0;
-}
-
-float tmod_fdiv(float p1, float p2) {
-  return p1 / p2;
-}
-float tmod_fmul(float p1, float p2) {
-  return p1 * p2;
-}
-
-float tmod_fdiff(float p1, float p2) {
-  return p1 - p2;
-}
-
-float tmod_fadd(float p1, float p2) {
-  return p1 + p2;
-}
-
-
-float tmod_tofloat(uint64_t in) {
-  return in;
-}
-
-
-uint32_t GetTasmotaGlobal(uint32_t sel) {
-  switch (sel) {
-    case 1:
-      return TasmotaGlobal.tele_period;
-      break;
-  }
-  return 0;
-}
-
-
-void show_hex_address(uint32_t addr) {
-  AddLog(LOG_LEVEL_INFO,PSTR(">>> %08x"), addr);
-}
-
-
-// convert float to string
-char* ftostrfd(float number, unsigned char prec, char *s) {
-  if ((isnan(number)) || (isinf(number))) {  // Fix for JSON output (https://stackoverflow.com/questions/1423081/json-left-out-infinity-and-nan-json-status-in-ecmascript)
-    strcpy_P(s, PSTR("null"));
-    return s;
-  } else {
-    return dtostrf(number, 1, prec, s);
-  }
-}
-
-// scale a float number
-float fscale(int32_t number, float mulfac, float subfac) {
-  return (float)number * mulfac - subfac;
 }
 
 uint8_t *Load_Module(char *path, uint32_t *rsize) {
@@ -493,6 +545,9 @@ void AddModules(void) {
   }
 }
 
+const char mod_types[] PROGMEM = "xsns|xlgt|xnrg|xdrv|";
+
+
 // show all linked modules
 void Module_mdir(void) {
   AddLog(LOG_LEVEL_INFO, PSTR("| ======== Module directory ========"));
@@ -500,7 +555,8 @@ void Module_mdir(void) {
   for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
     if (modules[cnt].mod_addr) {
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-      const char *type = "xsns"; // only currently supported type
+      char type[6];
+      GetTextIndexed(type, sizeof(type), fm->type, mod_types );
       AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-16s| %08x | %4d | %4s | %04x | %4d |  %1d   |"), cnt + 1, fm->name, modules[cnt].mod_addr,
        modules[cnt].mod_size,  type, fm->revision, modules[cnt].mem_size, modules[cnt].flags.initialized);
       // AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-16s| %08x | %4d | %4s | %04x | %4d | %1d | %08x"), cnt + 1, fm->name, modules[cnt].mod_addr,
@@ -695,6 +751,9 @@ bool Xdrv97(uint8_t function) {
   switch (function) {
     case FUNC_COMMAND:
       result = DecodeCommand(kModuleCommands, ModuleCommand);
+      if (!result) {
+        result = Module_Command(FUNC_COMMAND);
+      }
       break;
     case FUNC_INIT:
       InitModules();

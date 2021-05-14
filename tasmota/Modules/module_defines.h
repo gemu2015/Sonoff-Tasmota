@@ -11,6 +11,7 @@
 #define jWSContentSend_PD(...)          (( void (*)(const char * formatP, ...) )       jt[7])(__VA_ARGS__)
 #define jftostrfd(A,B,C)                (( char *(*)(float, uint8_t, char*) )          jt[8])(A,B,C)
 #define jcalloc(A,B)                    (( void *(*)(size_t, size_t) )                 jt[9])(A,B)
+// 10
 #define jfscale(A,B,C)                  (( float (*)(int32_t, float, float) )          jt[10])(A,B,C)
 #define sprint(A)                       (( void (*)(const char*) )                     jt[11])(A)
 #define jbeginTransmission(BUS,ADDR)    (( void (*)(TwoWire*,uint8_t) )                jt[12])(BUS,ADDR)
@@ -21,6 +22,7 @@
 #define fshowhex(VAL)                   (( void (*)(uint32_t) )                        jt[17])(VAL)
 #define jfree(MEM)                      (( void (*)(void*) )                           jt[18])(MEM)
 #define jI2cWrite16(ADDR,REG,VAL)       (( bool (*)(uint8_t, uint8_t, uint16_t) )      jt[19])(ADDR,REG,VAL)
+// 20
 #define jI2cRead16(ADDR,REG)            (( uint16_t (*)(uint8_t, uint8_t) )            jt[20])(ADDR,REG)
 #define jI2cValidRead16(DATA,ADDR,REG)  (( bool (*)(uint16_t *,uint8_t,uint8_t) )      jt[21])(DATA,ADDR,REG)
 #define jsnprintf_P(...)                (( void (*)(...) )                             jt[22])(__VA_ARGS__)
@@ -31,6 +33,7 @@
 #define jResponseJsonEndEnd             (( void (*)(void) )                            jt[27])
 #define jIndexSeparator                 (( char (*)(void) )                            jt[28])
 #define jResponse_P(...)                (( int (*)(const char * formatP, ...) )        jt[29])(__VA_ARGS__)
+// 30
 #define jI2cResetActive(REG,CNT)        (( void (*)(uint32_t, uint32_t) )              jt[30])(REG,CNT)
 #define jisnan(FVAL)                    (( bool (*)(float) )                           jt[31])(FVAL)
 #define jConvertTemp(FVAL)              (( float (*)(float) )                          jt[32])(FVAL)
@@ -41,18 +44,34 @@
 #define JGetTasmotaGlobal(SEL)          ((uint32_t (*)(uint32_t) )                     jt[37])(SEL)
 #define jiseq(FVAL)                     (( bool (*)(float) )                           jt[38])(FVAL)
 #define jfdiv(P1,P2)                    (( float (*)(float,float) )                    jt[39])(P1,P2)
+// 40
 #define jfmul(P1,P2)                    (( float (*)(float,float) )                    jt[40])(P1,P2)
 #define jfdiff(P1,P2)                   (( float (*)(float,float) )                    jt[41])(P1,P2)
 #define jtofloat(P1)                    (( float (*)(uint64_t) )                       jt[42])(P1)
-#define jfadd(P1,P2)                    (( float (*)(float,float) )                    jt[42])(P1,P2)
-#define jI2cRead8(ADDR,REG)             (( uint8_t (*)(uint8_t,uint8_t) )              jt[43])(ADDR,REG)
-#define jI2cWrite8(ADDR,REG,VAL)        (( bool (*)(uint8_t,uint8_t,uint8_t) )         jt[44])(ADDR,REG,VAL)
-#define javailable(WIRE)                (( uint8_t (*)(TwoWire*) )                     jt[45])(WIRE)
-#define jAddLogMissed(SENS,MISS)        (( void (*)(const char*,uint32_t) )            jt[46])(SENS,MISS)
-#define jNAN                            (( float (*)(void) )                           jt[47])()
-#define jgtsf2(P1,P2)                   (( bool (*)(float,float) )                     jt[48])(P1,P2)
-#define jltsf2(P1,P2)                   (( bool (*)(float,float) )                     jt[49])(P1,P2)
-#define jeqsf2(P1,P2)                   (( bool (*)(float,float) )                     jt[50])(P1,P2)
+#define jfadd(P1,P2)                    (( float (*)(float,float) )                    jt[43])(P1,P2)
+#define jI2cRead8(ADDR,REG)             (( uint8_t (*)(uint8_t,uint8_t) )              jt[44])(ADDR,REG)
+#define jI2cWrite8(ADDR,REG,VAL)        (( bool (*)(uint8_t,uint8_t,uint8_t) )         jt[45])(ADDR,REG,VAL)
+#define javailable(WIRE)                (( uint8_t (*)(TwoWire*) )                     jt[46])(WIRE)
+#define jAddLogMissed(SENS,MISS)        (( void (*)(const char*,uint32_t) )            jt[47])(SENS,MISS)
+#define jNAN                            (( float (*)(void) )                           jt[48])()
+#define jgtsf2(P1,P2)                   (( bool (*)(float,float) )                     jt[49])(P1,P2)
+// 50
+#define jltsf2(P1,P2)                   (( bool (*)(float,float) )                     jt[50])(P1,P2)
+#define jeqsf2(P1,P2)                   (( bool (*)(float,float) )                     jt[51])(P1,P2)
+#define jPin(PIN,INDEX)                 (( int (*)(uint32_t,uint32_t) )                jt[52])(PIN,INDEX)
+#define jnewTS(RPIN,TPIN)               (( void* (*)(int32_t,int32_t) )                jt[53])(RPIN,TPIN)
+#define jwriteTS(TSER,BUF,SIZE)         (( void (*)(void*,uint8_t*,uint32_t) )         jt[54])(TSER,BUF,SIZE)
+#define jflushTS(TSER)                  (( void (*)(void*) )                           jt[55])(TSER)
+#define jbeginTS(TSER,BAUD)             (( int (*)(void*,uint32_t) )                   jt[56])(TSER,BAUD)
+#define jXDRVMAILBOX                    (XDRVMAILBOX*)                                 jt[57]
+#define jGetCommandCode(DST,DSIZE,NEEDLE,HSTCK)(( int (*)(char*,size_t,const char*,const char*) )    jt[58])(DST,DSIZE,NEEDLE,HSTCK)
+#define jstrlen(STR)                    (( uint32_t (*)(char*) )                       jt[59])(STR)
+#define jstrncasecmp_P(S1,S2,SIZE)      (( int (*)(const char*,const char *, size_t) ) jt[60])(S1,S2,SIZE)
+#define jtoupper(CHAR)                  (( int (*)( int c ) )                          jt[61])(CHAR)
+#define jiscale(A,B,C)                  (( int32_t (*)(int32_t, int32_t, int32_t) )    jt[62])(A,B,C)
+
+
+
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -123,3 +142,14 @@
 #define   ftostrfd jftostrfd
 #define   fscale jfscale
 #define   I2cSetDevice jI2cSetDevice
+#define   Pin jPin
+#define   NewTS jnewTS
+#define   writeTS jwriteTS
+#define   flushTS jflushTS
+#define   beginTS jbeginTS
+#define   XdrvMailbox (jXDRVMAILBOX)
+#define   GetCommandCode jGetCommandCode
+#define   strlen jstrlen
+#define   strncasecmp_P jstrncasecmp_P
+#define   toupper jtoupper
+#define   iscale jiscale
