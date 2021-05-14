@@ -121,7 +121,6 @@ SECTIONS
   {
     _irom0_text_start = ABSOLUTE(.);
     *(.ver_number)
-    /* these lines define a module */
 	*(.text.mod_desc)
 	*(.text.mod_string)
 	*(.text.mod*)
