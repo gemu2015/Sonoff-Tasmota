@@ -18,6 +18,7 @@
 */
 
 #include "module.h"
+#include "module_defines.h"
 
 #ifdef USE_ADS1115_MOD
 
@@ -153,7 +154,7 @@ typedef struct {
 } MODULE_MEMORY;
 
 #define Ads1115 mem->Ads1115
-#define ready mem->ready 
+#define ready mem->ready
 
 // define text
 DPSTR(moddev,"ADS1115");
@@ -215,12 +216,12 @@ int32_t Init_ADS1115(MODULES_TABLE *mt) {
   for (uint32_t i = 0; i < fldsiz(ADS1115,addresses); i++) {
     if (!Ads1115.found[i]) {
       Ads1115.address = Ads1115.addresses[i];
-      if (jI2cActive(Ads1115.address)) { continue; }
+      if (I2cActive(Ads1115.address)) { continue; }
       uint16_t buffer;
-      if (jI2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONVERT) &&
-          jI2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONFIG)) {
+      if (I2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONVERT) &&
+          I2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONFIG)) {
         Ads1115StartComparator(mt, i, ADS1115_REG_CONFIG_MODE_CONTIN);
-        jI2cSetActiveFound(Ads1115.address, jPSTR(moddev), 0);
+        I2cSetActiveFound(Ads1115.address, jPSTR(moddev), 0);
         Ads1115.found[i] = 1;
         Ads1115.count++;
       }
@@ -236,10 +237,10 @@ void Ads1115Label(MODULES_TABLE *mt, char* label, uint32_t maxsize, uint8_t addr
   SETREGS
   if (1 == Ads1115.count) {
     // "ADS1115":{"A0":3240,"A1":3235,"A2":3269,"A3":3269}
-    jsnprintf_P(label, maxsize, jPSTR(moddev));
+    snprintf_P(label, maxsize, jPSTR(moddev));
   } else {
     // "ADS1115-48":{"A0":3240,"A1":3235,"A2":3269,"A3":3269},"ADS1115-49":{"A0":3240,"A1":3235,"A2":3269,"A3":3269}
-    jsnprintf_P(label, maxsize, jPSTR(moddev1), jIndexSeparator, address);
+    snprintf_P(label, maxsize, jPSTR(moddev1), jIndexSeparator, address);
   }
 }
 
@@ -273,18 +274,18 @@ void AdsEvery250ms(MODULES_TABLE *mt) {
         char label[15];
         Ads1115Label(mt, label, sizeof(label), Ads1115.addresses[t]);
 
-        jResponse_P(jPSTR(moddev2), label);
+        Response_P(jPSTR(moddev2), label);
 
         bool first = true;
         for (uint32_t i = 0; i < 4; i++) {
           if (bitRead(changed, i)) {
-            jResponseAppend_P(jPSTR(moddev3), (first) ? jPSTR(moddev7) : jPSTR(moddev6), i, Ads1115.last_values[t][i]);
+            ResponseAppend_P(jPSTR(moddev3), (first) ? jPSTR(moddev7) : jPSTR(moddev6), i, Ads1115.last_values[t][i]);
             first = false;
           }
         }
-        jResponseJsonEndEnd();
+        ResponseJsonEndEnd();
 
-        jXdrvRulesProcess(0);
+        XdrvRulesProcess(0);
       }
 
     }
@@ -312,15 +313,15 @@ void ADS1115_Show(MODULES_TABLE *mt, bool json) {
       Ads1115Label(mt, label, sizeof(label), Ads1115.addresses[t]);
 
       if (json) {
-        jResponseAppend_P(jPSTR(moddev4), label);
+        ResponseAppend_P(jPSTR(moddev4), label);
         for (uint32_t i = 0; i < 4; i++) {
-          jResponseAppend_P(jPSTR(moddev5), (0 == i) ? jPSTR(moddev7) : jPSTR(moddev6), i, values[i]);
+          ResponseAppend_P(jPSTR(moddev5), (0 == i) ? jPSTR(moddev7) : jPSTR(moddev6), i, values[i]);
         }
-        jResponseJsonEnd();
+        ResponseJsonEnd();
       }
       else {
         for (uint32_t i = 0; i < 4; i++) {
-          jWSContentSend_PD(jPSTR(moddev8), label, i, values[i]);
+          WSContentSend_PD(jPSTR(moddev8), label, i, values[i]);
         }
       }
     }
@@ -333,7 +334,7 @@ void ADS1115_Deinit(MODULES_TABLE *mt) {
 
   for (uint32_t t = 0; t < fldsiz(ADS1115,addresses); t++) {
     if (Ads1115.found[t]) {
-      jI2cResetActive(Ads1115.addresses[t],1);
+      I2cResetActive(Ads1115.addresses[t],1);
     }
   }
   RETMEM

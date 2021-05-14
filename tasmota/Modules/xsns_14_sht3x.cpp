@@ -18,6 +18,7 @@
 */
 
 #include "module.h"
+#include "module_defines.h"
 
 #ifdef USE_SHT3X_MOD
 /*********************************************************************************************\
@@ -74,34 +75,34 @@ bool Sht3xRead(MODULES_TABLE *mt, float &t, float &h, uint8_t sht3x_address) {
   t = jNAN;
   h = t;
 
-  jbeginTransmission(jWire, sht3x_address);
+  beginTransmission(sht3x_address);
   if (SHTC3_ADDR == sht3x_address) {
-    jwrite(jWire,0x35);                  // Wake from
-    jwrite(jWire,0x17);                  // sleep
-    jendTransmission(jWire, false);
-    jbeginTransmission(jWire, sht3x_address);
-    jwrite(jWire, 0x78);                  // Disable clock stretching ( I don't think that wire library support clock stretching )
-    jwrite(jWire, 0x66);                  // High resolution
+    write(0x35);                  // Wake from
+    write(0x17);                  // sleep
+    endTransmission(false);
+    beginTransmission(sht3x_address);
+    write(0x78);                  // Disable clock stretching ( I don't think that wire library support clock stretching )
+    write(0x66);                  // High resolution
   } else {
-    jwrite(jWire, 0x2C);                  // Enable clock stretching
-    jwrite(jWire, 0x06);                  // High repeatability
+    write(0x2C);                  // Enable clock stretching
+    write(0x06);                  // High repeatability
   }
-  if (jendTransmission(jWire, false) != 0) {   // Stop I2C transmission
+  if (endTransmission(false) != 0) {   // Stop I2C transmission
     return false;
   }
-  jdelay(30);                           // Timing verified with logic analyzer (10 is to short)
-  jrequestFrom(jWire, sht3x_address, (uint8_t)6);   // Request 6 bytes of data
+  delay(30);                           // Timing verified with logic analyzer (10 is to short)
+  requestFrom(sht3x_address, (uint8_t)6);   // Request 6 bytes of data
   for (uint32_t i = 0; i < 6; i++) {
-    data[i] = jread(jWire);             // cTemp msb, cTemp lsb, cTemp crc, humidity msb, humidity lsb, humidity crc
+    data[i] = read();             // cTemp msb, cTemp lsb, cTemp crc, humidity msb, humidity lsb, humidity crc
   };
   t = jfdiv( jtofloat(((data[0] << 8) | data[1] ) * 175), 65535.0);
   t = jfdiff(t, 45);
   //t = jConvertTemp((float)( ( ( (data[0] << 8) | data[1] ) * 175) / 65535.0) - 45);
-  t = jConvertTemp(t);
+  t = ConvertTemp(t);
 
   h = t = jfdiv( jtofloat(((data[3] << 8) | data[4] ) * 100), 65535.0);
 //  h = jConvertHumidity((float)((((data[3] << 8) | data[4]) * 100) / 65535.0));
-  h = jConvertHumidity(h);
+  h = ConvertHumidity(h);
   return (!jisnan(t) && !jisnan(h) && !jiseq(h));
 }
 
@@ -114,13 +115,13 @@ int32_t Sht3x_Detect(MODULES_TABLE *mt) {
   sht3x_addresses[2] = SHTC3_ADDR;
 
   for (uint32_t i = 0; i < SHT3X_MAX_SENSORS; i++) {
-    if (jI2cActive(sht3x_addresses[i])) { continue; }
+    if (I2cActive(sht3x_addresses[i])) { continue; }
     float t;
     float h;
     if (Sht3xRead(mt, t, h, sht3x_addresses[i])) {
       sht3x_sensors[sht3x_count].address = sht3x_addresses[i];
-      jGetTextIndexed(sht3x_sensors[sht3x_count].types, sizeof(sht3x_sensors[sht3x_count].types), i, jPSTR(kShtTypes3));
-      jI2cSetActiveFound(sht3x_sensors[sht3x_count].address, sht3x_sensors[sht3x_count].types, 0);
+      GetTextIndexed(sht3x_sensors[sht3x_count].types, sizeof(sht3x_sensors[sht3x_count].types), i, jPSTR(kShtTypes3));
+      I2cSetActiveFound(sht3x_sensors[sht3x_count].address, sht3x_sensors[sht3x_count].types, 0);
       sht3x_count++;
     }
   }
@@ -134,13 +135,13 @@ void SHT3X_Show(MODULES_TABLE *mt, bool json) {
     float h;
     if (Sht3xRead(mt, t, h, sht3x_sensors[i].address)) {
       char types[11];
-      jstrlcpy(types, sht3x_sensors[i].types, sizeof(types));
+      strlcpy(types, sht3x_sensors[i].types, sizeof(types));
       if (sht3x_count > 1) {
         char *types = sht3x_sensors[i].types;
-        jsnprintf_P(types, sizeof(types), jPSTR(kShtTypes), types, jIndexSeparator(), sht3x_sensors[i].address);
+        snprintf_P(types, sizeof(types), jPSTR(kShtTypes), types, IndexSeparator(), sht3x_sensors[i].address);
         //jsnprintf_P(types, sizeof(types), jPSTR(kShtTypes), mem->ht3x_sensors[i].types, jIndexSeparator(), addr);
       }
-      jTempHumDewShow(json, ((0 == JGetTasmotaGlobal(1)) && (0 == i)), types, t, h);
+      TempHumDewShow(json, ((0 == GetTasmotaGlobal(1)) && (0 == i)), types, t, h);
     }
   }
 }
@@ -148,7 +149,7 @@ void SHT3X_Show(MODULES_TABLE *mt, bool json) {
 void SHT3X_Deinit(MODULES_TABLE *mt) {
   SETREGS
   for (uint32_t i = 0; i < sht3x_count; i++) {
-    jI2cResetActive(sht3x_sensors[i].address,1);
+    I2cResetActive(sht3x_sensors[i].address,1);
   }
   RETMEM
 }

@@ -18,6 +18,7 @@
 
 
 #include "module.h"
+#include "module_defines.h"
 
 #ifdef USE_MLX90614_MOD
 
@@ -76,11 +77,11 @@ int32_t Init_MLX90614(MODULES_TABLE *mt) {
 
   mt->flags.initialized = true;
 
-  if (!jI2cSetDevice(I2_ADR_IRT)) {
+  if (!I2cSetDevice(I2_ADR_IRT)) {
     return -1;
   }
 
-  jI2cSetActiveFound(I2_ADR_IRT, jPSTR(mlxdev), 0);
+  I2cSetActiveFound(I2_ADR_IRT, jPSTR(mlxdev), 0);
 
   ready = true;
 
@@ -106,7 +107,7 @@ float MLX90614_GetValue(MODULES_TABLE *mt, uint32_t reg) {
   if (val & 0x8000) {
     ret = -999;
   } else {
-    ret = jfscale(val, (float)0.02, (float)273.15);
+    ret = fscale(val, (float)0.02, (float)273.15);
     //ret = ((float)val * (float)0.02) - (float)273.15;
   }
   return ret;
@@ -119,15 +120,14 @@ SETTINGS *jsettings = mt->settings;
 
   if (ready == false) return;
   char obj_tstr[16];
-  jftostrfd(obj_temp, jsettings->flag2.temperature_resolution, obj_tstr);
+  ftostrfd(obj_temp, jsettings->flag2.temperature_resolution, obj_tstr);
   char amb_tstr[16];
-  jftostrfd(amb_temp, jsettings->flag2.temperature_resolution, amb_tstr);
+  ftostrfd(amb_temp, jsettings->flag2.temperature_resolution, amb_tstr);
 
   if (json) {
-    jResponseAppend_P(jPSTR(JSON_IRTMP), obj_tstr, amb_tstr);
-
+    ResponseAppend_P(jPSTR(JSON_IRTMP), obj_tstr, amb_tstr);
   } else {
-    jWSContentSend_PD(jPSTR(HTTP_IRTMP), obj_tstr, amb_tstr);
+    WSContentSend_PD(jPSTR(HTTP_IRTMP), obj_tstr, amb_tstr);
   }
 }
 
@@ -135,19 +135,19 @@ uint16_t MLX90614_read16(MODULES_TABLE *mt, uint8_t addr, uint8_t a) {
   SETREGS
   uint16_t ret;
 
-  jbeginTransmission(jWire,addr);
-  jwrite(jWire,a);
-  jendTransmission(jWire,false);
+  beginTransmission(addr);
+  write(a);
+  endTransmission(false);
 
-  jrequestFrom(jWire, addr, (size_t)3);
+  requestFrom(addr, (size_t)3);
   uint8_t buff[5];
   buff[0] = addr << 1;
   buff[1] = a;
   buff[2] = (addr << 1) | 1;
-  buff[3] = jread(jWire);
-  buff[4] = jread(jWire);
+  buff[3] = read();
+  buff[4] = read();
   ret = buff[3] | (buff[4] << 8);
-  uint8_t pec = jread(jWire);
+  uint8_t pec = read();
 
   return ret;
 
@@ -180,7 +180,7 @@ uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len) {
 
 void MLX90614_Deinit(MODULES_TABLE *mt) {
   SETREGS
-  jI2cResetActive(I2_ADR_IRT,1);
+  I2cResetActive(I2_ADR_IRT,1);
   RETMEM
 }
 

@@ -17,7 +17,9 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+
 #include "module.h"
+#include "module_defines.h"
 
 #ifdef USE_HTU_MOD
 /*********************************************************************************************\
@@ -97,6 +99,7 @@ typedef struct {
 
 #define Htu mem->Htu
 
+
 /*********************************************************************************************/
 
 uint8_t HtuCheckCrc8(uint16_t data) {
@@ -118,15 +121,15 @@ uint8_t HtuReadDeviceId(MODULES_TABLE *mt) {
   uint16_t deviceID = 0;
   uint8_t checksum = 0;
 
-  jbeginTransmission(jWire, HTU21_ADDR);
-  jwrite(jWire, HTU21_SERIAL2_READ1);
-  jwrite(jWire, HTU21_SERIAL2_READ2);
-  jendTransmission(jWire, 0);
+  beginTransmission(HTU21_ADDR);
+  write(HTU21_SERIAL2_READ1);
+  write(HTU21_SERIAL2_READ2);
+  endTransmission(0);
 
-  jrequestFrom(jWire, HTU21_ADDR, 3);
-  deviceID  = jread(jWire) << 8;
-  deviceID |= jread(jWire);
-  checksum  = jread(jWire);
+  requestFrom(HTU21_ADDR, 3);
+  deviceID  = read() << 8;
+  deviceID |= read();
+  checksum  = read();
   if (HtuCheckCrc8(deviceID) == checksum) {
     deviceID = deviceID >> 8;
   } else {
@@ -137,23 +140,23 @@ uint8_t HtuReadDeviceId(MODULES_TABLE *mt) {
 
 void HtuSetResolution(MODULES_TABLE *mt, uint8_t resolution) {
   SETREGS
-  uint8_t current = jI2cRead8(HTU21_ADDR, HTU21_READREG);
+  uint8_t current = I2cRead8(HTU21_ADDR, HTU21_READREG);
   current &= 0x7E;          // Replace current resolution bits with 0
   current |= resolution;    // Add new resolution bits to register
-  jI2cWrite8(HTU21_ADDR, HTU21_WRITEREG, current);
+  I2cWrite8(HTU21_ADDR, HTU21_WRITEREG, current);
 }
 
 void HtuReset(MODULES_TABLE *mt) {
   SETREGS
-  jbeginTransmission(jWire, HTU21_ADDR);
-  jwrite(jWire, HTU21_RESET);
-  jendTransmission(jWire, 0);
-  jdelay(15);                // Reset takes 15ms
+  beginTransmission(HTU21_ADDR);
+  write(HTU21_RESET);
+  endTransmission(0);
+  delay(15);                // Reset takes 15ms
 }
 
 void HtuHeater(MODULES_TABLE *mt, uint8_t heater) {
   SETREGS
-  uint8_t current = jI2cRead8(HTU21_ADDR, HTU21_READREG);
+  uint8_t current = I2cRead8(HTU21_ADDR, HTU21_READREG);
 
   switch(heater)
   {
@@ -164,7 +167,7 @@ void HtuHeater(MODULES_TABLE *mt, uint8_t heater) {
     default               : current &= heater;
                             break;
   }
-  jI2cWrite8(HTU21_ADDR, HTU21_WRITEREG, current);
+  I2cWrite8(HTU21_ADDR, HTU21_WRITEREG, current);
 }
 
 void HTU_Init(MODULES_TABLE *mt) {
@@ -181,32 +184,32 @@ bool HTU_Read(MODULES_TABLE *mt) {
 
   if (Htu.valid) { Htu.valid--; }
 
-  jbeginTransmission(jWire, HTU21_ADDR);
-  jwrite(jWire, HTU21_READTEMP);
-  if (jendTransmission(jWire, 0) != 0) { return false; }           // In case of error
-  jdelay(Htu.jdelay_temp);                                       // Sensor time at max resolution
+  beginTransmission(HTU21_ADDR);
+  write(HTU21_READTEMP);
+  if (endTransmission(0) != 0) { return false; }           // In case of error
+  delay(Htu.jdelay_temp);                                       // Sensor time at max resolution
 
-  jrequestFrom(jWire, HTU21_ADDR, 3);
-  if (3 == javailable(jWire)) {
-    sensorval = jread(jWire) << 8;                              // MSB
-    sensorval |= jread(jWire);                                  // LSB
-    checksum = jread(jWire);
+  requestFrom(HTU21_ADDR, 3);
+  if (3 == available()) {
+    sensorval = read() << 8;                              // MSB
+    sensorval |= read();                                  // LSB
+    checksum = read();
   }
   if (HtuCheckCrc8(sensorval) != checksum) { return false; }   // Checksum mismatch
 
   //Htu.temperature = jConvertTemp(0.002681 * (float)sensorval - 46.85);
-  Htu.temperature = jConvertTemp(jfscale(sensorval, 0.002681, 46.85));
+  Htu.temperature = ConvertTemp(jfscale(sensorval, 0.002681, 46.85));
 
-  jbeginTransmission(jWire, HTU21_ADDR);
-  jwrite(jWire, HTU21_READHUM);
-  if (jendTransmission(jWire, 0) != 0) { return false; }           // In case of error
-  jdelay(Htu.jdelay_humidity);                                   // Sensor time at max resolution
+  beginTransmission(HTU21_ADDR);
+  write(HTU21_READHUM);
+  if (endTransmission(0) != 0) { return false; }           // In case of error
+  delay(Htu.jdelay_humidity);                                   // Sensor time at max resolution
 
-  jrequestFrom(jWire, HTU21_ADDR, 3);
-  if (3 <= javailable(jWire)) {
-    sensorval = jread(jWire) << 8;                              // MSB
-    sensorval |= jread(jWire);                                  // LSB
-    checksum = jread(jWire);
+  requestFrom(HTU21_ADDR, 3);
+  if (3 <= available()) {
+    sensorval = read() << 8;                              // MSB
+    sensorval |= read();                                  // LSB
+    checksum = read();
   }
   if (HtuCheckCrc8(sensorval) != checksum) { return false; }   // Checksum mismatch
 
@@ -229,7 +232,7 @@ bool HTU_Read(MODULES_TABLE *mt) {
     //Htu.humidity = (-0.15) * (25 - Htu.temperature) + Htu.humidity;
     Htu.humidity = jfadd( jfmul(-0.15 , jfdiff(25 , Htu.temperature) ) ,Htu.humidity);
   }
-  Htu.humidity = jConvertHumidity(Htu.humidity);
+  Htu.humidity = ConvertHumidity(Htu.humidity);
 
   Htu.valid = SENSOR_MAX_MISS;
   return true;
@@ -243,7 +246,7 @@ int32_t HTU_Detect(MODULES_TABLE *mt) {
   Htu.jdelay_humidity = 6;
 
   Htu.address = HTU21_ADDR;
-  if (jI2cActive(Htu.address)) { return - 1; }
+  if (I2cActive(Htu.address)) { return - 1; }
 
   Htu.type = HtuReadDeviceId(mt);
   if (Htu.type) {
@@ -268,8 +271,8 @@ int32_t HTU_Detect(MODULES_TABLE *mt) {
         Htu.jdelay_temp = 50;
         Htu.jdelay_humidity = 23;
     }
-    jGetTextIndexed(Htu.types, sizeof(Htu.types), index, jPSTR(kHtuTypes));
-    jI2cSetActiveFound(Htu.address, Htu.types, 0);
+    GetTextIndexed(Htu.types, sizeof(Htu.types), index, jPSTR(kHtuTypes));
+    I2cSetActiveFound(Htu.address, Htu.types, 0);
   }
   return 0;
 }
@@ -280,7 +283,7 @@ void HTU_EverySecond(MODULES_TABLE *mt) {
   if (Htu.cnt & 1) {  // Every 2 seconds
     // HTU21: 68mS, SI70xx: 37mS
     if (!HTU_Read(mt)) {
-      jAddLogMissed(Htu.types, Htu.valid);
+      AddLogMissed(Htu.types, Htu.valid);
     }
   }
 }
@@ -288,13 +291,13 @@ void HTU_EverySecond(MODULES_TABLE *mt) {
 void HTU_Show(MODULES_TABLE *mt, bool json) {
   SETREGS
   if (Htu.valid) {
-    jTempHumDewShow(json, (0 == JGetTasmotaGlobal(1)), Htu.types, Htu.temperature, Htu.humidity);
+    TempHumDewShow(json, (0 == GetTasmotaGlobal(1)), Htu.types, Htu.temperature, Htu.humidity);
   }
 }
 
 void HTU_Deinit(MODULES_TABLE *mt) {
   SETREGS
-  jI2cResetActive(Htu.address,1);
+  I2cResetActive(Htu.address,1);
   RETMEM
 }
 
