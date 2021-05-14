@@ -69,8 +69,8 @@
 #define jstrncasecmp_P(S1,S2,SIZE)      (( int (*)(const char*,const char *, size_t) ) jt[60])(S1,S2,SIZE)
 #define jtoupper(CHAR)                  (( int (*)( int c ) )                          jt[61])(CHAR)
 #define jiscale(A,B,C)                  (( int32_t (*)(int32_t, int32_t, int32_t) )    jt[62])(A,B,C)
-
-
+#define jdeleteTS(TSER)                 (( void (*)(void*) )                           jt[63])(TSER)
+#define jreadTS(TSER,BUF,SIZE)          (( size_t (*)(void*,uint8_t*,uint32_t) )       jt[64])(TSER,BUF,SIZE)
 
 
 // Arduino macros
@@ -153,3 +153,5 @@
 #define   strncasecmp_P jstrncasecmp_P
 #define   toupper jtoupper
 #define   iscale jiscale
+#define   deleteTS jdeleteTS
+#define   readTS jreadTS

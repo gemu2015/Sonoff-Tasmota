@@ -88,6 +88,7 @@ MODULE_DESCRIPTOR("MP3PLAYER",MODULE_TYPE_DRIVER,MP3PLAYER_REV)
 // all functions must be declared MUDULE_PART
 MODULE_PART uint16_t MP3_Checksum(uint8_t *array);
 MODULE_PART int32_t MP3PlayerInit(MODULES_TABLE *mt);
+MODULE_PART int32_t MP3_Init(MODULES_TABLE *mt);
 MODULE_PART void MP3_SendCmd(MODULES_TABLE *mt, uint8_t *scmd, uint8_t len);
 MODULE_PART void MP3_CMD(MODULES_TABLE *mt, uint8_t mp3cmd, uint16_t val);
 MODULE_PART bool MP3PlayerCmd(MODULES_TABLE *mt);
@@ -105,17 +106,19 @@ MODULE_END
 DPSTR(S_JSON_MP3_COMMAND_NVALUE,"{\"MP3%s\":%d}");
 DPSTR(mS_JSON_COMMAND_SVALUE,"{\"%s\":\"%s\"}");
 DPSTR(S_JSON_MP3_COMMAND,"{\"MP3%s\"}");
-DPSTR(kMP3_Commands,"Track|Play|Pause|Stop|Volume|EQ|Device|Reset|DAC|TYPE");
+DPSTR(kMP3_Commands,"Track|Play|Pause|Stop|Volume|EQ|Device|Reset|DAC|TYPE|PIN");
 DPSTR(d_mp3,"MP3");
 
 
 
 typedef struct {
   bool player_type;
+  uint8_t player_txpin;
   void *ts;
 } MODULE_MEMORY;
 
 #define player_type mem->player_type
+#define player_txpin mem->player_txpin
 #define ts mem->ts
 
 /*********************************************************************************************\
@@ -132,7 +135,8 @@ enum MP3_Commands {                                 // commands useable in conso
   CMND_MP3_DEVICE,                                  // sd-card: 02, usb-stick: 01
   CMND_MP3_RESET,                                   // MP3Reset, a fresh and default restart
   CMND_MP3_DAC,                                     // set dac, 1=off, 0=on, DAC is turned on (0) by default
-  CMND_MP3_SETTYPE                                  // set player type 0=default 1=DY_SV17F
+  CMND_MP3_SETTYPE,                                  // set player type 0=default 1=DY_SV17F
+  CMND_MP3_SETPIN
  };
 
 
@@ -174,12 +178,22 @@ uint16_t MP3_Checksum(uint8_t *array) {
 int32_t MP3PlayerInit(MODULES_TABLE *mt) {
   ALLOCMEM
 
+  // should be in settings
   player_type = DEFAULT;
+  player_txpin = 2;
 
-  int8_t txpin =  Pin(GPIO_MP3_DFR562, 0);
-  txpin = 2;
+  if (!MP3_Init(mt)) {
+    mt->flags.initialized = true;
+    return 0;
+  }
+  return 1;
+}
 
-  ts = NewTS(-1, txpin);
+int32_t MP3_Init(MODULES_TABLE *mt) {
+  SETREGS
+  // int8_t txpin =  Pin(GPIO_MP3_DFR562, 0);
+
+  ts = NewTS(-1, player_txpin);
 
   if (ts) {
     // start serial communication fixed to 9600 baud
@@ -189,12 +203,12 @@ int32_t MP3PlayerInit(MODULES_TABLE *mt) {
       MP3_CMD(mt, MP3_CMD_RESET, MP3_CMD_RESET_VALUE);    // reset the player to defaults
       delay(3000);
       MP3_CMD(mt, MP3_CMD_VOLUME, MP3_VOLUME);            // after reset set volume depending on the entry in the my_user_config.h
+      return 0;
     }
   }
-
-  mt->flags.initialized = true;
-  return 0;
+  return 1;
 }
+
 
 /*********************************************************************************************\
  * specific for DY_SV17F
@@ -294,6 +308,7 @@ bool MP3PlayerCmd(MODULES_TABLE *mt) {
       case CMND_MP3_DEVICE:
       case CMND_MP3_DAC:
       case CMND_MP3_SETTYPE:
+      case CMND_MP3_SETPIN:
         // play a track, set volume, select EQ, sepcify file device
         if (XdrvMailbox->data_len > 0) {
           if (command_code == CMND_MP3_TRACK)  { MP3_CMD(mt, MP3_CMD_TRACK,  XdrvMailbox->payload); }
@@ -304,6 +319,13 @@ bool MP3PlayerCmd(MODULES_TABLE *mt) {
           if (command_code == CMND_MP3_DEVICE) { MP3_CMD(mt, MP3_CMD_DEVICE, XdrvMailbox->payload); }
           if (command_code == CMND_MP3_DAC)    { MP3_CMD(mt, MP3_CMD_DAC,    XdrvMailbox->payload); }
           if (command_code == CMND_MP3_SETTYPE) { player_type = XdrvMailbox->payload & 1; }
+          if (command_code == CMND_MP3_SETPIN) {
+            player_txpin = XdrvMailbox->payload;
+            if (ts) {
+              deleteTS(ts);
+              MP3_Init(mt);
+            }
+          }
         }
         Response_P(jPSTR(S_JSON_MP3_COMMAND_NVALUE), command, XdrvMailbox->payload);
         break;
@@ -359,6 +381,8 @@ play_default:
 
 void MP3Player_Deinit(MODULES_TABLE *mt) {
   SETREGS
+  if (ts) deleteTS(ts);
+  ts = nullptr;
   RETMEM
 }
 

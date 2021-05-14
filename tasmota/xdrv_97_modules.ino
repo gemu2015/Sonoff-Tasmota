@@ -81,6 +81,8 @@ TasmotaSerial *tmod_newTS(int32_t rpin, int32_t tpin);
 int tmod_beginTS(TasmotaSerial *ts, uint32_t baud);
 void tmod_writeTS(TasmotaSerial *ts, char *buf, uint32_t size);
 void tmod_flushTS(TasmotaSerial *ts);
+void tmod_deleteTS(TasmotaSerial *ts);
+size_t tmod_readTS(TasmotaSerial *ts, char *buf, uint32_t size);
 
 #define JMPTBL (void (*)())
 // this vector table table must contain all api calls needed by module
@@ -152,7 +154,9 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&strlen,
   JMPTBL&strncasecmp_P,
   JMPTBL&toupper,
-  JMPTBL&iscale
+  JMPTBL&iscale,
+  JMPTBL&tmod_deleteTS,
+  JMPTBL&tmod_readTS
 };
 
 
@@ -234,8 +238,17 @@ int tmod_beginTS(TasmotaSerial *ts, uint32_t baud) {
   return ts->begin(baud);
 }
 
+
+void tmod_deleteTS(TasmotaSerial *ts) {
+  delete(ts);
+}
+
 void tmod_writeTS(TasmotaSerial *ts, char *buf, uint32_t size) {
   ts->write(buf, size);
+}
+
+size_t tmod_readTS(TasmotaSerial *ts, char *buf, uint32_t size) {
+  return ts->read(buf, size);
 }
 
 void tmod_flushTS(TasmotaSerial *ts) {
