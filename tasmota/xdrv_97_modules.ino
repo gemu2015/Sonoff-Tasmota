@@ -18,9 +18,10 @@
 */
 
 
-/* attempt to create relocatable flash module drivers
+/* proof of concept only
+attempt to create relocatable flash module drivers
 with runtime link and unlink
-very early stage
+adds about 10k flash size
 */
 
 #ifdef USE_MODULES

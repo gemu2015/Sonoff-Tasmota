@@ -17,6 +17,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+
 #include "module.h"
 
 #ifdef USE_ADS1115_MOD
