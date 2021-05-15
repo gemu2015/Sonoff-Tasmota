@@ -56,6 +56,9 @@ FLASH_MODULE module_header = {
 };
 #endif
 
+#ifndef MODULE_NAME
+#define MODULE_NAME "/module.bin"
+#endif
 
 //  command line commands
 const char kModuleCommands[] PROGMEM = "|"// no Prefix
@@ -301,7 +304,7 @@ void InitModules(void) {
 // read driver from filesystem
 #if defined(EXECUTE_IN_RAM) || defined(EXECUTE_IN_FLASH)
   uint32_t size;
-  uint8_t *fdesc = Load_Module((char*)"/module.bin", &size);
+  uint8_t *fdesc = Load_Module((char*)MODULE_NAME, &size);
   if (!fdesc) return;
 #endif
 
@@ -338,7 +341,7 @@ void InitModules(void) {
 #ifdef EXECUTE_FROM_BINARY
   // add one testmodule
   modules[0].mod_addr = (void *) &module_header;
-  AddLog(LOG_LEVEL_INFO, PSTR("Module %x: - %x: - %x:"),(uint32_t)modules[0].mod_addr,(uint32_t)&mod_func_execute,(uint32_t)&end_of_module);
+//  AddLog(LOG_LEVEL_INFO, PSTR("Module %x: - %x: - %x:"),(uint32_t)modules[0].mod_addr,(uint32_t)&mod_func_execute,(uint32_t)&end_of_module);
 
   const FLASH_MODULE *fm = (FLASH_MODULE*)modules[0].mod_addr;
   modules[0].jt = MODULE_JUMPTABLE;
@@ -352,7 +355,7 @@ void InitModules(void) {
 
   if (ffsp) {
     File fp;
-    fp = ffsp->open((char*)"/module.bin", "w");
+    fp = ffsp->open((char*)MODULE_NAME, "w");
     if (fp > 0) {
       uint32_t *fdesc = (uint32_t *)calloc(modules[0].mod_size + 4, 1);
       uint32_t *lp = (uint32_t*)modules[0].mod_addr;
@@ -651,18 +654,28 @@ void Module_unlink(void) {
   ResponseCmndDone();
 }
 
+int32_t Init_module(uint32_t module) {
+  if (modules[module].mod_addr && !modules[module].flags.initialized) {
+    const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
+    int32_t result = fm->mod_func_execute(&modules[module], FUNC_INIT);
+    modules[module].flags.every_second = 1;
+    modules[module].flags.web_sensor = 1;
+    modules[module].flags.json_append = 1;
+    AddLog(LOG_LEVEL_INFO,PSTR("module %d inizialized"),module + 1);
+    return 1;
+  }
+  return 0;
+}
+
 // iniz 1 module
 void Module_iniz(void) {
 
   if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAXMODULES)) {
     uint8_t module = XdrvMailbox.payload - 1;
-    if (modules[module].mod_addr && !modules[module].flags.initialized) {
-      const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
-      int32_t result = fm->mod_func_execute(&modules[module], FUNC_INIT);
-      modules[module].flags.every_second = 1;
-      modules[module].flags.web_sensor = 1;
-      modules[module].flags.json_append = 1;
-      AddLog(LOG_LEVEL_INFO,PSTR("module %d inizialized"),module + 1);
+    Init_module(module);
+  } else if (XdrvMailbox.payload == 0) {
+    for (uint8_t module = 0; module < MAXMODULES; module++) {
+      Init_module(module);
     }
   }
   ResponseCmndDone();
