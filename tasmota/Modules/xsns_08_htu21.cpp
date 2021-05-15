@@ -19,9 +19,11 @@
 
 
 #include "module.h"
-#include "module_defines.h"
+
 
 #ifdef USE_HTU_MOD
+
+#include "module_defines.h"
 /*********************************************************************************************\
  * HTU21 - Temperature and Humidity
  *

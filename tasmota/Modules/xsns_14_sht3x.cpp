@@ -18,9 +18,12 @@
 */
 
 #include "module.h"
-#include "module_defines.h"
+
 
 #ifdef USE_SHT3X_MOD
+
+#include "module_defines.h"
+
 /*********************************************************************************************\
  * SHT3X and SHTC3 - Temperature and Humidity
  *

@@ -1,4 +1,13 @@
 
+#define AGPIO(x) ((x)<<5)
+#define BGPIO(x) ((x)>>5)
+
+#include "i18n.h"
+
+#define SerConfu8 uint8_t
+#include "tasmota.h"
+#include "tasmota_template.h"
+#include "settings.h"
 
 // vector table calls
 #define jWire                           ( TwoWire*)                                    jt[0]

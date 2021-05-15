@@ -18,9 +18,10 @@
 */
 
 #include "module.h"
-#include "module_defines.h"
 
 #ifdef USE_ADS1115_MOD
+
+#include "module_defines.h"
 
 #define ADS1115_REV 1
 

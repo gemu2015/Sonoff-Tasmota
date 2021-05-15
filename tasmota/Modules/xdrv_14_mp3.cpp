@@ -70,9 +70,11 @@
 */
 
 #include "module.h"
-#include "module_defines.h"
 
 #ifdef USE_MP3_PLAYER_MOD
+
+#include "module_defines.h"
+
 /*********************************************************************************************\
  * MP3 control for RB-DFR-562 DFRobot mini MP3 player
  * https://www.dfrobot.com/wiki/index.php/DFPlayer_Mini_SKU:DFR0299

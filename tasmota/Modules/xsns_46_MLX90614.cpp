@@ -18,9 +18,11 @@
 
 
 #include "module.h"
-#include "module_defines.h"
+
 
 #ifdef USE_MLX90614_MOD
+
+#include "module_defines.h"
 
 #define MLX90614_REV  1
 

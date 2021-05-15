@@ -9,15 +9,8 @@
 #include <HardwareSerial.h>
 
 #include "tasmota_options.h"
-#define SerConfu8 uint8_t
-#include "tasmota.h"
 
-#define AGPIO(x) ((x)<<5)
-#define BGPIO(x) ((x)>>5)
 
-#include "i18n.h"
-#include "tasmota_template.h"
-#include "settings.h"
 
 #ifndef PROGMEM
 #define PROGMEM
@@ -28,8 +21,8 @@ enum {ARCH_ESP8266, ARCH_ESP32};
 
 #define MODULE_SYNC 0x55aaFC4A
 
-#define SETTINGS Tasmota_Settings
-//#define SETTINGS struct TSettings
+//#define SETTINGS Tasmota_Settings
+#define SETTINGS void
 
 //extern SETTINGS Settings;
 
