@@ -10,7 +10,21 @@
 
 #include "tasmota_options.h"
 
+#ifdef USE_MODULES
 
+#define AGPIO(x) ((x)<<5)
+#define BGPIO(x) ((x)>>5)
+
+#include "i18n.h"
+
+#define SerConfu8 uint8_t
+#include "tasmota.h"
+#include "tasmota_template.h"
+
+#include "settings.h"
+
+
+#define SETTINGS Tasmota_Settings
 
 #ifndef PROGMEM
 #define PROGMEM
@@ -21,8 +35,8 @@ enum {ARCH_ESP8266, ARCH_ESP32};
 
 #define MODULE_SYNC 0x55aaFC4A
 
-//#define SETTINGS Tasmota_Settings
-#define SETTINGS void
+
+//#define SETTINGS void
 
 //extern SETTINGS Settings;
 
@@ -63,7 +77,7 @@ typedef struct {
   void *mod_memory;
   uint16_t mem_size;
   uint32_t execution_offset;
-  SETTINGS *settings;
+  Tasmota_Settings *settings;
   MOD_FLAGS flags;
 } MODULES_TABLE;
 
@@ -86,6 +100,6 @@ typedef struct {
 int32_t mod_func_execute(MODULES_TABLE *, uint32_t);
 void end_of_module(void);
 
-
+#endif
 
 #endif // _MODULE_H_
