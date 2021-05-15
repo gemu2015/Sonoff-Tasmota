@@ -71,7 +71,7 @@ unlink X
 unlinks (deletes) the module Nr x from system
 
 iniz X
-initializes the module Nr x (attaches it to Tasmota)
+initializes the module Nr x (attaches it to Tasmota) iniz 0 initializes all drivers
 
 deiniz X
 deinitializes the module Nr x (detaches it from Tasmota and frees memory)
