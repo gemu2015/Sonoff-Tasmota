@@ -78,8 +78,9 @@
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
 #define bitSet(value, bit) ((value) |= (1UL << (bit)))
 #define bitClear(value, bit) ((value) &= ~(1UL << (bit)))
+#ifndef bitWrite
 #define bitWrite(value, bit, bitvalue) (bitvalue ? bitSet(value, bit) : bitClear(value, bit))
-
+#endif
 #define fldsiz(name, field) (sizeof(((name *)0)->field))
 
 #define MODULE_DESC __attribute__((section(".text.mod_desc"))) extern const FLASH_MODULE
@@ -129,6 +130,7 @@
 #define   GetTasmotaGlobal JGetTasmotaGlobal
 #define   ConvertTemp jConvertTemp
 #define   strlcpy jstrlcpy
+#undef   snprintf_P
 #define   snprintf_P jsnprintf_P
 #define   TempHumDewShow jTempHumDewShow
 #define   IndexSeparator jIndexSeparator
@@ -151,6 +153,7 @@
 #define   XdrvMailbox (jXDRVMAILBOX)
 #define   GetCommandCode jGetCommandCode
 #define   strlen jstrlen
+#undef strncasecmp_P
 #define   strncasecmp_P jstrncasecmp_P
 #define   toupper jtoupper
 #define   iscale jiscale

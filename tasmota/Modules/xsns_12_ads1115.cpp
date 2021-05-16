@@ -18,10 +18,10 @@
 */
 
 
-#include "module.h"
+#include "tasmota_options.h"
 
 #ifdef USE_ADS1115_MOD
-
+#include "module.h"
 #include "module_defines.h"
 
 #define ADS1115_REV 1

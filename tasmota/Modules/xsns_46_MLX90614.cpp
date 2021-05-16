@@ -15,11 +15,11 @@
 */
 
 
-#include "module.h"
 
+#include "tasmota_options.h"
 
 #ifdef USE_MLX90614_MOD
-
+#include "module.h"
 #include "module_defines.h"
 
 #define MLX90614_REV  1

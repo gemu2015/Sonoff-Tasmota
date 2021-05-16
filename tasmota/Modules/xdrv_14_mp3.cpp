@@ -69,11 +69,11 @@
 
 */
 
+#include "tasmota_options.h"
 
-#include "module.h"
 
 #ifdef USE_MP3_PLAYER_MOD
-
+#include "module.h"
 #include "module_defines.h"
 
 /*********************************************************************************************\

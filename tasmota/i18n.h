@@ -747,7 +747,6 @@
 /********************************************************************************************/
 
 #define D_ASTERISK_PWD "****"
-
 #ifndef MY_LANGUAGE
   #include "language/en_GB.h"
 #else

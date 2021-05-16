@@ -1,4 +1,3 @@
-
 #ifndef _MODULE_H_
 #define _MODULE_H_
 
@@ -8,17 +7,24 @@
 #include <Stream.h>
 #include <HardwareSerial.h>
 
-#include "tasmota_options.h"
-
 #ifdef USE_MODULES
 
 #define AGPIO(x) ((x)<<5)
 #define BGPIO(x) ((x)>>5)
 
-#include "i18n.h"
-
+#ifndef SerConfu8
 #define SerConfu8 uint8_t
+#endif
+//#include "tasmota_compat.h"
 #include "tasmota.h"
+#include "i18n.h"
+#include "tasmota_globals.h"
+
+
+#ifndef D_SENSOR_NONE
+#include "../language/de_DE.h"
+#endif
+
 #include "tasmota_template.h"
 
 #include "settings.h"

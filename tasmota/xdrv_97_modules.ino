@@ -526,22 +526,36 @@ uint32_t eeprom_block;
 }
 
 void AddModules(void) {
+  uint32_t flashbase;
+  uint32_t pagesize;
 #ifdef ESP8266
   uint32_t free_flash_start = ESP_getSketchSize();
   uint32_t free_flash_end = (ESP_getSketchSize() + ESP.getFreeSketchSpace());
+  pagesize = SPI_FLASH_SEC_SIZE;
+  flashbase = FLASH_BASE_OFFSET;
 #endif
 #ifdef ESP32
   uint32_t free_flash_start = EspFlashBaseAddress();
   uint32_t free_flash_end = EspFlashBaseEndAddress();
+  pagesize = SPI_FLASH_MMU_PAGE_SIZE;
+  flashbase = 0x40200000;
 #endif
 
+ // 00210000: 00400000: 400d758c:
   // align to sector start
-  free_flash_start =  (free_flash_start + SPI_FLASH_SEC_SIZE) & (SPI_FLASH_SEC_SIZE-1^0xffffffff);
-  free_flash_end   =  (free_flash_end + SPI_FLASH_SEC_SIZE) & (SPI_FLASH_SEC_SIZE-1^0xffffffff);
+  free_flash_start =  (free_flash_start + pagesize) & (pagesize-1^0xffffffff);
+  free_flash_end   =  (free_flash_end + pagesize) & (pagesize-1^0xffffffff);
+
+
+#ifdef ESP32
+  uint32_t *lpx = (uint32_t*) AddModules;
+  AddLog(LOG_LEVEL_INFO,PSTR("addr, sync %08x: %08x: %08x: "),(uint32_t)free_flash_start,(uint32_t)free_flash_end,lpx);
+  return;
+#endif
 
   uint16_t module = 0;
-  uint32_t *lp = (uint32_t*) ( FLASH_BASE_OFFSET + free_flash_start );
-  for (uint32_t addr = free_flash_start; addr < free_flash_end; addr += SPI_FLASH_SEC_SIZE) {
+  uint32_t *lp = (uint32_t*) ( flashbase + free_flash_start );
+  for (uint32_t addr = free_flash_start; addr < free_flash_end; addr += pagesize) {
     //AddLog(LOG_LEVEL_INFO,PSTR("addr, sync %08x: %08x: %04x"),addr,(uint32_t)lp, *lp);
     if (*lp == MODULE_SYNC) {
       // add module
@@ -558,7 +572,7 @@ void AddModules(void) {
         break;
       }
     }
-    lp += SPI_FLASH_SEC_SIZE/4;
+    lp += pagesize/4;
   }
 }
 

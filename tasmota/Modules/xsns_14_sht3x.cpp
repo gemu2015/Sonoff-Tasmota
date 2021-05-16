@@ -18,12 +18,10 @@
 */
 
 
-
-#include "module.h"
-
+#include "tasmota_options.h"
 
 #ifdef USE_SHT3X_MOD
-
+#include "module.h"
 #include "module_defines.h"
 
 /*********************************************************************************************\

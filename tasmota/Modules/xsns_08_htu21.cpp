@@ -18,11 +18,10 @@
 */
 
 
-#include "module.h"
-
+#include "tasmota_options.h"
 
 #ifdef USE_HTU_MOD
-
+#include "module.h"
 #include "module_defines.h"
 /*********************************************************************************************\
  * HTU21 - Temperature and Humidity
