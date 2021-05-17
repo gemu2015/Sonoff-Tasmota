@@ -525,6 +525,10 @@ uint32_t eeprom_block;
   return new_pc;
 }
 
+void testcall(void) {
+  AddLog(LOG_LEVEL_INFO,PSTR("was called"));
+}
+
 void AddModules(void) {
   uint32_t flashbase;
   uint32_t pagesize;
@@ -547,8 +551,13 @@ void AddModules(void) {
   free_flash_end   =  (free_flash_end + pagesize) & (pagesize-1^0xffffffff);
 
 #ifdef ESP32
-  uint32_t *lpx = (uint32_t*) AddModules;
-  AddLog(LOG_LEVEL_INFO,PSTR("addr, sync %08x: %08x: %08x: "),(uint32_t)free_flash_start,(uint32_t)free_flash_end,(uint32_t)*lpx);
+  void (*call)() = testcall;
+
+  call();
+
+  uint32_t *lpx = (uint32_t*) testcall;
+  //400d756c
+  AddLog(LOG_LEVEL_INFO,PSTR("addr, sync %08x: %08x: %08x: "),(uint32_t)free_flash_start,(uint32_t)free_flash_end,(uint32_t)lpx);
   return;
 #endif
 
