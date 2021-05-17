@@ -352,7 +352,7 @@ void InitModules(void) {
 
   modules[0].flags.data = 0;
 
-
+#ifdef ESP8266
   if (ffsp) {
     File fp;
     fp = ffsp->open((char*)MODULE_NAME, "w");
@@ -370,7 +370,7 @@ void InitModules(void) {
       fp.close();
     }
   }
-
+#endif
 
 #else
 
@@ -464,8 +464,8 @@ uint32_t free_flash_start = ESP_getSketchSize();
 uint32_t free_flash_end = (ESP_getSketchSize() + ESP.getFreeSketchSpace());
 #endif
 #ifdef ESP32
-uint32_t free_flash_start = EspFlashBaseAddress();
-uint32_t free_flash_end = EspFlashBaseEndAddress();
+uint32_t free_flash_start = ESP_getSketchSize();  //EspFlashBaseAddress();
+uint32_t free_flash_end = (ESP_getSketchSize() + ESP.getFreeSketchSpace()); //EspFlashBaseEndAddress();
 #endif
 
 uint32_t aoffset;
@@ -535,8 +535,8 @@ void AddModules(void) {
   flashbase = FLASH_BASE_OFFSET;
 #endif
 #ifdef ESP32
-  uint32_t free_flash_start = EspFlashBaseAddress();
-  uint32_t free_flash_end = EspFlashBaseEndAddress();
+  uint32_t free_flash_start = ESP_getSketchSize();  //EspFlashBaseAddress();
+  uint32_t free_flash_end = (ESP_getSketchSize() + ESP.getFreeSketchSpace()); //EspFlashBaseEndAddress();
   pagesize = SPI_FLASH_MMU_PAGE_SIZE;
   flashbase = 0x40200000;
 #endif
@@ -546,10 +546,9 @@ void AddModules(void) {
   free_flash_start =  (free_flash_start + pagesize) & (pagesize-1^0xffffffff);
   free_flash_end   =  (free_flash_end + pagesize) & (pagesize-1^0xffffffff);
 
-
 #ifdef ESP32
   uint32_t *lpx = (uint32_t*) AddModules;
-  AddLog(LOG_LEVEL_INFO,PSTR("addr, sync %08x: %08x: %08x: "),(uint32_t)free_flash_start,(uint32_t)free_flash_end,lpx);
+  AddLog(LOG_LEVEL_INFO,PSTR("addr, sync %08x: %08x: %08x: "),(uint32_t)free_flash_start,(uint32_t)free_flash_end,(uint32_t)*lpx);
   return;
 #endif
 
