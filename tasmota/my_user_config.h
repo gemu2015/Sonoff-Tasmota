@@ -419,7 +419,14 @@
                                                    // Any valid fingerprint with the old algo will be automatically updated to the new algo.
                                                    // Enable this if you want to disable the old algo check, which should be more secure
 //  for USE_4K_RSA (support for 4096 bits certificates, instead of 2048), you need to uncommend `-DUSE_4K_RSA` in `build_flags` from `platform.ini` or `platform_override.ini`
-//  #define USE_MQTT_AZURE_IOT                     // Enable MQTT for Azure IoT Hub (+1k code)
+
+// -- MQTT - TLS - Azure IoT & IoT Central ---------
+// Starting with version v9.4.0.3 added support for both Azure IoT Hub and IoT Central
+//#define USE_MQTT_TLS                             // REQUIRED Use TLS for MQTT connection (+34.5k code, +7.0k mem and +4.8k additional during connection handshake)
+//  #define USE_MQTT_AZURE_IOT                     // REQUIRED Enable accesss to IoT Hub without DPS using a preshared key: https://tasmota.github.io/docs/Azure-IoT-Hub/  Enable MQTT for Azure IoT Hub (+1k code)
+//  #define USE_MQTT_AZURE_DPS_SCOPEID             // OPTIONAL Enables Azure Device Provisioning Service (DPS) for provision at scale, REQUIRED for IoT Central.  Uses the REST over HTTPS protocol (+4k memory)
+//  #define USE_MQTT_AZURE_DPS_PRESHAREDKEY        // OPTIONAL The Preshared Key of DPS https://github.com/tasmota/docs/blob/development/docs/Azure-IoT-Central.md
+//  #define USE_MQTT_AZURE_DPS_SCOPE_ENDPOINT      // OPTIONAL Defaults to "https://global.azure-devices-provisioning.net/", can be changed for Azure China, Azure Germany or others.
 
 // -- Telegram Protocol ---------------------------
 //#define USE_TELEGRAM                             // Support for Telegram protocol (+49k code, +7.0k mem and +4.8k additional during connection handshake)
@@ -921,10 +928,16 @@
 #define USE_CSE7761                              // Add support for CSE7761 Energy monitor as used in Sonoff Dual R3
 
 // -- LVGL Graphics Library ---------------------------------
-//#define USE_LVGL                                  // LVGL Engine, requires Berry, takes 440k of Flash
-  #define USE_LVGL_PSRAM                            // Allocate LVGL memory in PSRAM if PSRAM is connected - this might be slightly slower but leaves main memory intact
-  #define USE_LVGL_MAX_SLEEP  10                    // max sleep in ms when LVGL is enabled, more than 10ms will make display less responsive
-  #define USE_LVGL_BG_DEFAULT 0x000000              // Default color for the uninitialized background screen (black)
+//#define USE_LVGL                                 // LVGL Engine, requires Berry, takes 440k of Flash
+  #define USE_LVGL_PSRAM                         // Allocate LVGL memory in PSRAM if PSRAM is connected - this might be slightly slower but leaves main memory intact
+  #define USE_LVGL_MAX_SLEEP  10                 // max sleep in ms when LVGL is enabled, more than 10ms will make display less responsive
+  //#define USE_LVGL_FREETYPE                      // Use the FreeType renderer to display fonts using native TTF files in file system (+75k flash)
+                                                 // WARNING this feature needs to increase the stack size to 32KB, for which there is no easy way right now
+    #define LV_USE_FT_CACHE_MANAGER 1            // define whether glyphs are cached by FreeType library
+    #define USE_LVGL_FREETYPE_MAX_FACES 64       // max number of FreeType faces in cache
+    #define USE_LVGL_FREETYPE_MAX_SIZES 4        // max number of sizes in cache
+    #define USE_LVGL_FREETYPE_MAX_BYTES 16*1024  // max bytes in cache
+  #define USE_LVGL_BG_DEFAULT 0x000000           // Default color for the uninitialized background screen (black)
 
 
 #endif  // ESP32

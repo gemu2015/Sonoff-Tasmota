@@ -2708,7 +2708,6 @@ bool Xdrv13(uint8_t function)
         DisplayDTVarsTeleperiod();
 #endif // USE_DT_VARS
         break;
-
 #ifdef USE_DISPLAY_MODES1TO5
       case FUNC_MQTT_SUBSCRIBE:
         DisplayMqttSubscribe();
