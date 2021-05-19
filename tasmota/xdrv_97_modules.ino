@@ -74,11 +74,10 @@ void (* const ModuleCommand[])(void) PROGMEM = {
   &Module_mdir,  &Module_link, &Module_unlink, &Module_iniz, &Module_deiniz, &Module_dump
 };
 
-void Serial_print(char *txt) {
+void Serial_print(const char *txt) {
   //Serial.printf("test: %x %x\n",(uint32_t)txt, *(uint32_t*)txt);
   //Serial.printf("test: %x\n",(uint32_t)txt);
-
-  Serial.printf_P("test: %s\n",txt);
+  Serial.printf_P(PSTR("test: %s\n"),txt);
 }
 
 TasmotaSerial *tmod_newTS(int32_t rpin, int32_t tpin);
@@ -550,24 +549,14 @@ void AddModules(void) {
   free_flash_start =  (free_flash_start + pagesize) & (pagesize-1^0xffffffff);
   free_flash_end   =  (free_flash_end + pagesize) & (pagesize-1^0xffffffff);
 
-#ifdef ESP32
-  void (*call)() = testcall;
-
-  call();
-
-  uint32_t *lpx = (uint32_t*) testcall;
-  //400d756c
-  AddLog(LOG_LEVEL_INFO,PSTR("addr, sync %08x: %08x: %08x: "),(uint32_t)free_flash_start,(uint32_t)free_flash_end,(uint32_t)lpx);
-  return;
-#endif
 
   uint16_t module = 0;
   uint32_t *lp = (uint32_t*) ( flashbase + free_flash_start );
   for (uint32_t addr = free_flash_start; addr < free_flash_end; addr += pagesize) {
     //AddLog(LOG_LEVEL_INFO,PSTR("addr, sync %08x: %08x: %04x"),addr,(uint32_t)lp, *lp);
-    if (*lp == MODULE_SYNC) {
+    const volatile FLASH_MODULE *fm = (FLASH_MODULE*)lp;
+    if (fm->sync == MODULE_SYNC) {
       // add module
-      const FLASH_MODULE *fm = (FLASH_MODULE*)lp;
       modules[module].mod_addr = (FLASH_MODULE*)lp;
       modules[module].jt = MODULE_JUMPTABLE;
       modules[module].execution_offset = fm->execution_offset;
@@ -594,10 +583,18 @@ void Module_mdir(void) {
   for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
     if (modules[cnt].mod_addr) {
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
+      const uint32_t volatile mtype = fm->type;
+      const uint32_t volatile rev = fm->revision;
+      const uint32_t *np = (uint32_t*)fm->name;
+      uint32_t name[4];
+      name[0] = np[0];
+      name[1] = np[1];
+      name[2] = np[2];
+      name[3] = np[3];
       char type[6];
-      GetTextIndexed(type, sizeof(type), fm->type, mod_types );
-      AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-16s| %08x | %4d | %4s | %04x | %4d |  %1d   |"), cnt + 1, fm->name, modules[cnt].mod_addr,
-       modules[cnt].mod_size,  type, fm->revision, modules[cnt].mem_size, modules[cnt].flags.initialized);
+      GetTextIndexed(type, sizeof(type), mtype, mod_types );
+      AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-16s| %08x | %4d | %4s | %04x | %4d |  %1d   |"), cnt + 1, (char*)name, modules[cnt].mod_addr,
+       modules[cnt].mod_size,  type, rev, modules[cnt].mem_size, modules[cnt].flags.initialized);
       // AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-16s| %08x | %4d | %4s | %04x | %4d | %1d | %08x"), cnt + 1, fm->name, modules[cnt].mod_addr,
       //  modules[cnt].mod_size,  type, fm->revision, modules[cnt].mem_size, modules[cnt].flags.initialized, fm->execution_offset);
 

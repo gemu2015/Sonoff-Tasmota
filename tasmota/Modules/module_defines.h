@@ -102,8 +102,41 @@
 #define GPSTR(VAR,FUNC) const char *VAR = (const char*)&FUNC + mt->execution_offset; fshowhex((uint32_t)VAR);
 //#define jPSTR(LABEL) (__extension__({ (const char *)&LABEL[0]+mt->execution_offset;}))
 
+// on esp8266 passing of PGMP strings works, on ESP32 fails and must be copied to ram buffer before passing pointer
+// this implementation only supports one jPSTR per call
+#ifdef ESP8266
 #define jPSTR(LABEL) (const char *)LABEL+mt->execution_offset
+#define STRBUFFER
+#else
+#define jPSTR(LABEL) __extension__( {_copy32((uint32_t*)((const char *)LABEL+mt->execution_offset), mem->cbuffer); (const char *)mem->cbuffer;} )
+#define STRBUFFER uint32_t cbuffer[STRBUFFSIZE];
+#endif
 
+#ifdef ESP32
+uint32_t _strlen32(uint32_t *sp) {
+  uint8_t len = 1;
+  while (1) {
+    uint32_t val = *sp++;
+    if (!(val & 0xff000000)) break;
+    if (!(val & 0x00ff0000)) break;
+    if (!(val & 0x0000ff00)) break;
+    if (!(val & 0x000000ff)) break;
+    len++;
+  };
+  return len;
+}
+
+#define STRBUFFSIZE 32
+void _copy32(uint32_t *src, uint32_t *dst) {
+  uint8_t len = _strlen32(src);
+  if (len > STRBUFFSIZE) len = STRBUFFSIZE;
+  for (uint8_t cnt = 0; cnt < len; cnt++) {
+    *dst++ = *src++;
+  }
+}
+
+
+#endif
 
 #define SETREGS MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;
 #define ALLOCMEM void (* const *jt)() = mt->jt;mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;

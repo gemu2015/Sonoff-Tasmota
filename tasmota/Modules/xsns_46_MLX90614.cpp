@@ -57,6 +57,7 @@ typedef struct {
   float obj_temp;
   float amb_temp;
   bool ready;
+  STRBUFFER
 } MODULE_MEMORY;
 
 #define obj_temp mem->obj_temp
@@ -76,6 +77,8 @@ int32_t Init_MLX90614(MODULES_TABLE *mt) {
   ready = false;
 
   mt->flags.initialized = true;
+
+  sprint(jPSTR(mlxdev));
 
   if (!I2cSetDevice(I2_ADR_IRT)) {
     return -1;

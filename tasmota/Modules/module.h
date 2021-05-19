@@ -78,7 +78,7 @@ typedef union {
 
 typedef struct {
   void *mod_addr;
-  uint16_t mod_size;
+  uint32_t mod_size;
   void (* const *jt)(void);
   void *mod_memory;
   uint16_t mem_size;
@@ -90,6 +90,7 @@ typedef struct {
 
 #define MD_TYPE uint32_t
 // this descriptor is in .text so only 32 bit access allowed
+#pragma pack(4)
 typedef struct {
   MD_TYPE sync;
   MD_TYPE arch;
@@ -102,6 +103,7 @@ typedef struct {
   uint32_t execution_offset;
 } FLASH_MODULE;
 
+#pragma pack(2)
 
 int32_t mod_func_execute(MODULES_TABLE *, uint32_t);
 void end_of_module(void);
