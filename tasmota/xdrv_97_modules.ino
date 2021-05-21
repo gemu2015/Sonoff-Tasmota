@@ -579,21 +579,19 @@ const char mod_types[] PROGMEM = "xsns|xlgt|xnrg|xdrv|";
 // show all linked modules
 void Module_mdir(void) {
   AddLog(LOG_LEVEL_INFO, PSTR("| ======== Module directory ========"));
-  AddLog(LOG_LEVEL_INFO, PSTR("| nr | name            | address  | size | type | rev  | ram  | init |"));
+  AddLog(LOG_LEVEL_INFO, PSTR("| nr | name           | address  | size | type | rev  | ram  | init |"));
   for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
     if (modules[cnt].mod_addr) {
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
       const uint32_t volatile mtype = fm->type;
       const uint32_t volatile rev = fm->revision;
-      const uint32_t *np = (uint32_t*)fm->name;
-      uint32_t name[4];
-      name[0] = np[0];
-      name[1] = np[1];
-      name[2] = np[2];
-      name[3] = np[3];
+      // esp32 crashes when fm->name is given as addlog parameter ???, so copy to charbuffer
+      // ESP8266 does not crash
+      char name[16];
+      strncpy(name, fm->name, 16);
       char type[6];
       GetTextIndexed(type, sizeof(type), mtype, mod_types );
-      AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-16s| %08x | %4d | %4s | %04x | %4d |  %1d   |"), cnt + 1, (char*)name, modules[cnt].mod_addr,
+      AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-15s| %08x | %4d | %4s | %04x | %4d |  %1d   |"), cnt + 1, name, modules[cnt].mod_addr,
        modules[cnt].mod_size,  type, rev, modules[cnt].mem_size, modules[cnt].flags.initialized);
       // AddLog(LOG_LEVEL_INFO, PSTR("| %2d | %-16s| %08x | %4d | %4s | %04x | %4d | %1d | %08x"), cnt + 1, fm->name, modules[cnt].mod_addr,
       //  modules[cnt].mod_size,  type, fm->revision, modules[cnt].mem_size, modules[cnt].flags.initialized, fm->execution_offset);

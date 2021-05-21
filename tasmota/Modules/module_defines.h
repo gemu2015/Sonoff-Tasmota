@@ -112,6 +112,11 @@
 #define STRBUFFER uint32_t cbuffer[STRBUFFSIZE];
 #endif
 
+
+#define XPSTR(TEXT) __extension__( {  __asm__  ( ".section .text.mod_string\n .align 4\n .global _xxx\n _xxx: .asciz " #TEXT "\n.section .text.mod_part" );  (const char *)_xxx;  } )
+
+
+
 #ifdef ESP32
 uint32_t _strlen32(uint32_t *sp) {
   uint8_t len = 1;

@@ -79,6 +79,8 @@ int32_t Init_MLX90614(MODULES_TABLE *mt) {
   mt->flags.initialized = true;
 
   sprint(jPSTR(mlxdev));
+  //sprint(XPSTR("hallo")); 
+
 
   if (!I2cSetDevice(I2_ADR_IRT)) {
     return -1;
@@ -87,6 +89,7 @@ int32_t Init_MLX90614(MODULES_TABLE *mt) {
   I2cSetActiveFound(I2_ADR_IRT, jPSTR(mlxdev), 0);
 
   ready = true;
+
 
   return ready;
 }
