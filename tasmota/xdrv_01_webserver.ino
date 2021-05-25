@@ -955,7 +955,7 @@ void WebRestart(uint32_t type)
     } else {
 #if (AFTER_INITIAL_WIFI_CONFIG_GO_TO_NEW_IP)
       WSContentTextCenterStart(WebColor(COL_TEXT_SUCCESS));
-      WSContentSend_P(PSTR(D_SUCCESSFUL_WIFI_CONNECTION "<br><br></div><div style='text-align:center;'>" D_REDIRECTING_TO_NEW_IP "<br><br></div>"));
+      WSContentSend_P(PSTR(D_SUCCESSFUL_WIFI_CONNECTION "<br><br></div><div style='text-align:center;'>" D_REDIRECTING_TO_NEW_IP "<br><br><a href='http://%_I'>%_I</a><br></div>"),(uint32_t)WiFi.localIP(),(uint32_t)WiFi.localIP());
 #else
       WSContentTextCenterStart(WebColor(COL_TEXT_SUCCESS));
       WSContentSend_P(PSTR(D_SUCCESSFUL_WIFI_CONNECTION "<br><br></div><div style='text-align:center;'>" D_NOW_YOU_CAN_CLOSE_THIS_WINDOW "<br><br></div>"));
@@ -2619,14 +2619,6 @@ void HandleUploadLoop(void) {
       }
     }
 #endif  // USE_UFILESYS
-#ifdef USE_MODULES
-    else if (UPL_MODULE == Web.upload_file_type) {
-      if (!Module_upload_start(upload.filename.c_str())) {
-        Web.upload_error = 2;
-        return;
-      }
-    }
-#endif // USE_MODULES
   }
 
   // ***** Step2: Write upload file
@@ -2709,15 +2701,6 @@ void HandleUploadLoop(void) {
       }
     }
 #endif  // USE_UFILESYS
-#ifdef USE_MODULES
-    else if (UPL_MODULE == Web.upload_file_type) {
-      if (!Module_upload_write(upload.buf, upload.currentSize)) {
-        Web.upload_error = 9;  // File too large
-        return;
-      }
-    }
-#endif // USE_MODULES
-
 #ifdef USE_WEB_FW_UPGRADE
     else if (BUpload.active) {
       // Write a block
@@ -2750,12 +2733,6 @@ void HandleUploadLoop(void) {
       UfsUploadFileClose();
     }
 #endif  // USE_UFILESYS
-
-#ifdef USE_MODULES
-    else if (UPL_MODULE == Web.upload_file_type) {
-      Module_upload_stop();
-    }
-#endif // USE_MODULES
 #ifdef USE_WEB_FW_UPGRADE
     else if (BUpload.active) {
       // Done writing the data to SPI flash
@@ -3052,16 +3029,15 @@ int WebSend(char *buffer)
 #ifdef USE_WEBSEND_RESPONSE
           // Return received data to the user - Adds 900+ bytes to the code
           const char* read = http.getString().c_str();  // File found at server - may need lot of ram or trigger out of memory!
-          uint32_t j = 0;
-          char text = '.';
-          while (text != '\0') {
-            text = *read++;
-            if (text > 31) {                  // Remove control characters like linefeed
-              TasmotaGlobal.mqtt_data[j++] = text;
-              if (j == sizeof(TasmotaGlobal.mqtt_data) -2) { break; }
+          ResponseClear();
+          char text[2] = { 0 };
+          text[0] = '.';
+          while (text[0] != '\0') {
+            text[0] = *read++;
+            if (text[0] > 31) {               // Remove control characters like linefeed
+              if (ResponseAppend_P(text) == ResponseSize()) { break; };
             }
           }
-          TasmotaGlobal.mqtt_data[j] = '\0';
 #ifdef USE_SCRIPT
           extern uint8_t tasm_cmd_activ;
           // recursive call must be possible in this case

@@ -578,6 +578,8 @@
 
 //xsns_53_sml.ino
 #define D_TPWRIN "Energia-Consumo"
+#define D_TPWRIN0 "Energia-Consumo T0"
+#define D_TPWRIN1 "Energia-Consumo T1"
 #define D_TPWROUT "Energia-Geração"
 #define D_TPWRCURR "Potência Ativa-Consumo/Geração"
 #define D_TPWRCURR1 "Potência Ativa-Consumo F1"
@@ -1046,8 +1048,12 @@
 #define D_NEOPOOL_PR_OFF                  "PrOff"
 #define D_NEOPOOL_SETPOINT_OK             "Ok"
 #define D_NEOPOOL_COVER                   "Cover"
-#define D_NEOPOOL_SHOCK                   "Shock"
-#define D_NEOPOOL_ALARM                   "! "
+#define D_NEOPOOL_SHOCK                   "Boost"
+#define D_NEOPOOL_STATUS_ON               "ON"
+#define D_NEOPOOL_STATUS_OFF              "OFF"
+#define D_NEOPOOL_STATUS_WAIT             "WAIT"
+#define D_NEOPOOL_STATUS_TANK             "TANK"
+#define D_NEOPOOL_STATUS_FLOW             "Flow"
 #define D_NEOPOOL_LOW                     "Low"
 #define D_NEOPOOL_FLOW1                   "FL1"
 #define D_NEOPOOL_FLOW2                   "FL2"

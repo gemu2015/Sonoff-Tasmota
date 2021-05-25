@@ -533,10 +533,10 @@ bool SendKey(uint32_t key, uint32_t device, uint32_t state)
           (POWER_TOGGLE == state)) {
         state = ~(TasmotaGlobal.power >> (device -1)) &1;   // POWER_OFF or POWER_ON
       }
-      snprintf_P(TasmotaGlobal.mqtt_data, sizeof(TasmotaGlobal.mqtt_data), GetStateText(state));
+      Response_P(GetStateText(state));
     }
 #ifdef USE_DOMOTICZ
-    if (!(DomoticzSendKey(key, device, state, strlen(TasmotaGlobal.mqtt_data)))) {
+    if (!(DomoticzSendKey(key, device, state, ResponseLength()))) {
 #endif  // USE_DOMOTICZ
       MqttPublish(stopic, ((key) ? Settings.flag.mqtt_switch_retain                         // CMND_SWITCHRETAIN
                                  : Settings.flag.mqtt_button_retain) &&                     // CMND_BUTTONRETAIN
@@ -823,7 +823,7 @@ bool MqttShowSensor(void)
 {
   ResponseAppendTime();
 
-  int json_data_start = strlen(TasmotaGlobal.mqtt_data);
+  int json_data_start = ResponseLength();
   for (uint32_t i = 0; i < MAX_SWITCHES; i++) {
 #ifdef USE_TM1638
     if (PinUsed(GPIO_SWT1, i) || (PinUsed(GPIO_TM1638CLK) && PinUsed(GPIO_TM1638DIO) && PinUsed(GPIO_TM1638STB))) {
@@ -836,14 +836,14 @@ bool MqttShowSensor(void)
   XsnsCall(FUNC_JSON_APPEND);
   XdrvCall(FUNC_JSON_APPEND);
 
-  bool json_data_available = (strlen(TasmotaGlobal.mqtt_data) - json_data_start);
-  if (strstr_P(TasmotaGlobal.mqtt_data, PSTR(D_JSON_PRESSURE)) != nullptr) {
+  bool json_data_available = (ResponseLength() - json_data_start);
+  if (ResponseContains_P(PSTR(D_JSON_PRESSURE))) {
     ResponseAppend_P(PSTR(",\"" D_JSON_PRESSURE_UNIT "\":\"%s\""), PressureUnit().c_str());
   }
-  if (strstr_P(TasmotaGlobal.mqtt_data, PSTR(D_JSON_TEMPERATURE)) != nullptr) {
+  if (ResponseContains_P(PSTR(D_JSON_TEMPERATURE))) {
     ResponseAppend_P(PSTR(",\"" D_JSON_TEMPERATURE_UNIT "\":\"%c\""), TempUnit());
   }
-  if ((strstr_P(TasmotaGlobal.mqtt_data, PSTR(D_JSON_SPEED)) != nullptr) && Settings.flag2.speed_conversion) {
+  if (ResponseContains_P(PSTR(D_JSON_SPEED)) && Settings.flag2.speed_conversion) {
     ResponseAppend_P(PSTR(",\"" D_JSON_SPEED_UNIT "\":\"%s\""), SpeedUnit().c_str());
   }
   ResponseJsonEnd();
@@ -1109,10 +1109,11 @@ void Every250mSeconds(void)
 #endif  // USE_ARILUX_RF
         TasmotaGlobal.ota_state_flag = 92;
         ota_result = 0;
+        char full_ota_url[200];
         ota_retry_counter--;
         if (ota_retry_counter) {
           char ota_url[TOPSZ];
-          strlcpy(TasmotaGlobal.mqtt_data, GetOtaUrl(ota_url, sizeof(ota_url)), sizeof(TasmotaGlobal.mqtt_data));
+          strlcpy(full_ota_url, GetOtaUrl(ota_url, sizeof(ota_url)), sizeof(full_ota_url));
 #ifdef ESP8266
 #ifndef FIRMWARE_MINIMAL
           if (RtcSettings.ota_loader) {
@@ -1132,10 +1133,10 @@ void Every250mSeconds(void)
             // Replace http://192.168.2.17:80/api/arduino/tasmota.bin  with http://192.168.2.17:80/api/arduino/tasmota-minimal.bin
             // Replace http://192.168.2.17/api/arduino/tasmota.bin.gz  with http://192.168.2.17/api/arduino/tasmota-minimal.bin.gz
 
-            char *bch = strrchr(TasmotaGlobal.mqtt_data, '/');         // Only consider filename after last backslash prevent change of urls having "-" in it
-            if (bch == nullptr) { bch = TasmotaGlobal.mqtt_data; }     // No path found so use filename only
+            char *bch = strrchr(full_ota_url, '/');         // Only consider filename after last backslash prevent change of urls having "-" in it
+            if (bch == nullptr) { bch = full_ota_url; }     // No path found so use filename only
             char *ech = strchr(bch, '.');                              // Find file type in filename (none, .ino.bin, .ino.bin.gz, .bin, .bin.gz or .gz)
-            if (ech == nullptr) { ech = TasmotaGlobal.mqtt_data + strlen(TasmotaGlobal.mqtt_data); }  // Point to '/0' at end of mqtt_data becoming an empty string
+            if (ech == nullptr) { ech = full_ota_url + strlen(full_ota_url); }  // Point to '/0' at end of mqtt_data becoming an empty string
 
 //AddLog(LOG_LEVEL_DEBUG, PSTR("OTA: File type [%s]"), ech);
 
@@ -1145,22 +1146,22 @@ void Every250mSeconds(void)
             char *pch = strrchr(bch, '-');                             // Find last dash (-) and ignore remainder - handles tasmota-DE
             if (pch == nullptr) { pch = ech; }                         // No dash so ignore filetype
             *pch = '\0';                                               // mqtt_data = http://domus1:80/api/arduino/tasmota
-            snprintf_P(TasmotaGlobal.mqtt_data, sizeof(TasmotaGlobal.mqtt_data), PSTR("%s-" D_JSON_MINIMAL "%s"), TasmotaGlobal.mqtt_data, ota_url_type);  // Minimal filename must be filename-minimal
+            snprintf_P(full_ota_url, sizeof(full_ota_url), PSTR("%s-" D_JSON_MINIMAL "%s"), full_ota_url, ota_url_type);  // Minimal filename must be filename-minimal
           }
 #endif  // FIRMWARE_MINIMAL
           if (ota_retry_counter < OTA_ATTEMPTS / 2) {
-            if (StrCaseStr_P(TasmotaGlobal.mqtt_data, PSTR(".gz"))) {
+            if (StrCaseStr_P(full_ota_url, PSTR(".gz"))) {
               ota_retry_counter = 1;
             } else {
-              strcat_P(TasmotaGlobal.mqtt_data, PSTR(".gz"));
+              strcat_P(full_ota_url, PSTR(".gz"));
             }
           }
 #endif  // ESP8266
           char version[50];
           snprintf_P(version, sizeof(version), PSTR("%s%s"), TasmotaGlobal.version, TasmotaGlobal.image_name);
-          AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_UPLOAD "%s %s"), TasmotaGlobal.mqtt_data, version);
+          AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_UPLOAD "%s %s"), full_ota_url, version);
           WiFiClient OTAclient;
-          ota_result = (HTTP_UPDATE_FAILED != ESPhttpUpdate.update(OTAclient, TasmotaGlobal.mqtt_data, version));
+          ota_result = (HTTP_UPDATE_FAILED != ESPhttpUpdate.update(OTAclient, full_ota_url, version));
           if (!ota_result) {
 #ifndef FIRMWARE_MINIMAL
             int ota_error = ESPhttpUpdate.getLastError();

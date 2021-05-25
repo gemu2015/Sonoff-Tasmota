@@ -578,6 +578,8 @@
 
 // xsns_53_sml.ino
 #define D_TPWRIN "Totaal-In"
+#define D_TPWRIN0 "Totaal-In T0"
+#define D_TPWRIN1 "Totaal-In T1"
 #define D_TPWROUT "Totaal-Uit"
 #define D_TPWRCURR "Stroom-In/Uit"
 #define D_TPWRCURR1 "Stroom-In p1"
@@ -1047,7 +1049,11 @@
 #define D_NEOPOOL_SETPOINT_OK             "Oké"
 #define D_NEOPOOL_COVER                   "Voorblad"
 #define D_NEOPOOL_SHOCK                   "Skok"
-#define D_NEOPOOL_ALARM                   "! "
+#define D_NEOPOOL_STATUS_ON               "ON"
+#define D_NEOPOOL_STATUS_OFF              "OFF"
+#define D_NEOPOOL_STATUS_WAIT             "WAIT"
+#define D_NEOPOOL_STATUS_TANK             "TANK"
+#define D_NEOPOOL_STATUS_FLOW             "Flow"
 #define D_NEOPOOL_LOW                     "Laag"
 #define D_NEOPOOL_FLOW1                   "FL1"
 #define D_NEOPOOL_FLOW2                   "FL2"

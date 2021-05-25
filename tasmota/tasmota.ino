@@ -92,39 +92,7 @@
 #endif  // USE_UFILESYS
 
 // Structs
-// settings variables
-
 #include "settings.h"
-
-const uint32_t settings_text_size = 699;   // Settings.text_pool[size] = Settings.display_model (2D2) - Settings.text_pool (017)
-const uint8_t MAX_TUYA_FUNCTIONS = DEF_MAX_TUYA_FUNCTIONS;
-
-Tasmota_Settings Settings;
-TRtcReboot RtcReboot;
-#ifdef ESP32
-RTC_NOINIT_ATTR TRtcReboot RtcDataReboot;
-#endif  // ESP32
-
-TRtcSettings RtcSettings;
-#ifdef ESP32
-RTC_NOINIT_ATTR TRtcSettings RtcDataSettings;
-#endif  // ESP32
-
-#ifdef USE_SHUTTER
-const uint8_t MAX_RULES_FLAG = 11;         // Number of bits used in RulesBitfield (tricky I know...)
-#else
-const uint8_t MAX_RULES_FLAG = 9;          // Number of bits used in RulesBitfield (tricky I know...)
-#endif  // USE_SHUTTER
-
-// See issue https://github.com/esp8266/Arduino/issues/2913
-#ifdef ESP8266
-#ifdef USE_ADC_VCC
-  ADC_MODE(ADC_VCC);                       // Set ADC input for Power Supply Voltage usage
-#endif
-#endif
-
-struct TIME_T RtcTime;
-struct XDRVMAILBOX XdrvMailbox;
 
 /*********************************************************************************************\
  * Global variables
@@ -220,7 +188,7 @@ struct {
   uint8_t module_type;                      // Current copy of Settings.module or user template type
   uint8_t last_source;                      // Last command source
   uint8_t shutters_present;                 // Number of actual define shutters
-//  uint8_t prepped_loglevel;                 // Delayed log level message
+  uint8_t discovery_counter;                // Delayed discovery counter
 
 #ifndef SUPPORT_IF_STATEMENT
   uint8_t backlog_index;                    // Command backlog index
@@ -374,6 +342,8 @@ void setup(void) {
     }
   }
 
+  memcpy_P(TasmotaGlobal.version, VERSION_MARKER, 1);  // Dummy for compiler saving VERSION_MARKER
+
   snprintf_P(TasmotaGlobal.version, sizeof(TasmotaGlobal.version), PSTR("%d.%d.%d"), VERSION >> 24 & 0xff, VERSION >> 16 & 0xff, VERSION >> 8 & 0xff);  // Release version 6.3.0
   if (VERSION & 0xff) {  // Development or patched version 6.3.0.10
     snprintf_P(TasmotaGlobal.version, sizeof(TasmotaGlobal.version), PSTR("%s.%d"), TasmotaGlobal.version, VERSION & 0xff);
@@ -409,8 +379,6 @@ void setup(void) {
 #ifdef FIRMWARE_MINIMAL
   AddLog(LOG_LEVEL_INFO, PSTR(D_WARNING_MINIMAL_VERSION));
 #endif  // FIRMWARE_MINIMAL
-
-  memcpy_P(TasmotaGlobal.mqtt_data, VERSION_MARKER, 1);  // Dummy for compiler saving VERSION_MARKER
 
 #ifdef USE_ARDUINO_OTA
   ArduinoOTAInit();

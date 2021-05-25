@@ -578,6 +578,8 @@
 
 // xsns_53_sml.ino
 #define D_TPWRIN "Energía Total-Entrada"
+#define D_TPWRIN0 "Energía Total-Entrada T0"
+#define D_TPWRIN1 "Energía Total-Entrada T1"
 #define D_TPWROUT "Energía Total-Salida"
 #define D_TPWRCURR "Potencia-En/Sal"
 #define D_TPWRCURR1 "Potencia-Entr p1"
@@ -1047,7 +1049,11 @@
 #define D_NEOPOOL_SETPOINT_OK             "Ok"
 #define D_NEOPOOL_COVER                   "Cover"
 #define D_NEOPOOL_SHOCK                   "Golpe"
-#define D_NEOPOOL_ALARM                   "! "
+#define D_NEOPOOL_STATUS_ON               "ON"
+#define D_NEOPOOL_STATUS_OFF              "OFF"
+#define D_NEOPOOL_STATUS_WAIT             "WAIT"
+#define D_NEOPOOL_STATUS_TANK             "TANK"
+#define D_NEOPOOL_STATUS_FLOW             "Flow"
 #define D_NEOPOOL_LOW                     "Bajo"
 #define D_NEOPOOL_FLOW1                   "FL1"
 #define D_NEOPOOL_FLOW2                   "FL2"

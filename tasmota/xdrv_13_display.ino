@@ -777,6 +777,7 @@ void DisplayText(void)
               cp = get_string(bbuff, sizeof(bbuff), cp);
               char unit[4];
               cp = get_string(unit, sizeof(unit), cp);
+	      decode_te(unit);
               define_dt_var(num, gxp, gyp, textbcol, textfcol, font, textsize, txlen, time, dp, bbuff, unit);
             }
           }
@@ -1291,7 +1292,7 @@ void draw_dt_vars(void) {
 void DisplayDTVarsTeleperiod(void) {
   ResponseClear();
   MqttShowState();
-  uint32_t jlen = strlen(TasmotaGlobal.mqtt_data);
+  uint32_t jlen = ResponseLength();
 
   if (jlen < DTV_JSON_SIZE) {
     char *json = (char*)malloc(jlen + 2);
@@ -1311,9 +1312,9 @@ void get_dt_mqtt(void) {
   TasmotaGlobal.tele_period = 2;
   XsnsNextCall(FUNC_JSON_APPEND, xsns_index);
   TasmotaGlobal.tele_period = script_tele_period_save;
-  if (strlen(TasmotaGlobal.mqtt_data)) {
-    TasmotaGlobal.mqtt_data[0] = '{';
-    snprintf_P(TasmotaGlobal.mqtt_data, sizeof(TasmotaGlobal.mqtt_data), PSTR("%s}"), TasmotaGlobal.mqtt_data);
+  if (ResponseLength()) {
+    ResponseJsonStart();
+    ResponseJsonEnd();
   }
   get_dt_vars(TasmotaGlobal.mqtt_data);
 }

@@ -577,6 +577,8 @@
 
 // xsns_53_sml.ino
 #define D_TPWRIN "Общо енергия - IN"
+#define D_TPWRIN0 "Общо енергия - IN T0"
+#define D_TPWRIN1 "Общо енергия - IN T1"
 #define D_TPWROUT "Общо енергия - OUT"
 #define D_TPWRCURR "Активна мощност - In/Out"
 #define D_TPWRCURR1 "Активна мощност - In p1"
@@ -1045,8 +1047,12 @@
 #define D_NEOPOOL_PR_OFF                  "PrOff"
 #define D_NEOPOOL_SETPOINT_OK             "Ok"
 #define D_NEOPOOL_COVER                   "Cover"
-#define D_NEOPOOL_SHOCK                   "Shock"
-#define D_NEOPOOL_ALARM                   "! "
+#define D_NEOPOOL_SHOCK                   "Boost"
+#define D_NEOPOOL_STATUS_ON               "ON"
+#define D_NEOPOOL_STATUS_OFF              "OFF"
+#define D_NEOPOOL_STATUS_WAIT             "WAIT"
+#define D_NEOPOOL_STATUS_TANK             "TANK"
+#define D_NEOPOOL_STATUS_FLOW             "Flow"
 #define D_NEOPOOL_LOW                     "Low"
 #define D_NEOPOOL_FLOW1                   "FL1"
 #define D_NEOPOOL_FLOW2                   "FL2"

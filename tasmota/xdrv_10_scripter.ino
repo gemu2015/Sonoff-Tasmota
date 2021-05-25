@@ -2424,9 +2424,9 @@ chknext:
                 }
               } else {
                 // preserve mqtt_data
-                char *mqd = (char*)malloc(MESSZ+2);
+                char *mqd = (char*)malloc(ResponseSize()+2);
                 if (mqd) {
-                  strlcpy(mqd, TasmotaGlobal.mqtt_data, MESSZ);
+                  strlcpy(mqd, TasmotaGlobal.mqtt_data, ResponseSize());
                   wd = mqd;
                   char *lwd = wd;
                   while (index) {
@@ -4979,9 +4979,9 @@ void ScripterEvery100ms(void) {
     TasmotaGlobal.tele_period = 2;
     XsnsNextCall(FUNC_JSON_APPEND, xsns_index);
     TasmotaGlobal.tele_period = script_tele_period_save;
-    if (strlen(TasmotaGlobal.mqtt_data)) {
-      TasmotaGlobal.mqtt_data[0] = '{';
-      snprintf_P(TasmotaGlobal.mqtt_data, sizeof(TasmotaGlobal.mqtt_data), PSTR("%s}"), TasmotaGlobal.mqtt_data);
+    if (ResponseLength()) {
+      ResponseJsonStart();
+      ResponseJsonEnd();
       Run_Scripter(">T", 2, TasmotaGlobal.mqtt_data);
     }
   }
@@ -6040,7 +6040,7 @@ bool ScriptCommand(void) {
     } else {
       if ('>' == XdrvMailbox.data[0]) {
         // execute script
-        snprintf_P (TasmotaGlobal.mqtt_data, sizeof(TasmotaGlobal.mqtt_data), PSTR("{\"%s\":\"%s\"}"), command,XdrvMailbox.data);
+        Response_P(PSTR("{\"%s\":\"%s\"}"), command, XdrvMailbox.data);
         if (bitRead(Settings.rule_enabled, 0)) {
           for (uint8_t count = 0; count<XdrvMailbox.data_len; count++) {
             if (XdrvMailbox.data[count]==';') XdrvMailbox.data[count] = '\n';
@@ -6059,15 +6059,15 @@ bool ScriptCommand(void) {
         if (glob_script_mem.glob_error==1) {
           // was string, not number
           GetStringArgument(lp, OPER_EQU, str, 0);
-          snprintf_P (TasmotaGlobal.mqtt_data, sizeof(TasmotaGlobal.mqtt_data), PSTR("{\"script\":{\"%s\":\"%s\"}}"), lp, str);
+          Response_P(PSTR("{\"script\":{\"%s\":\"%s\"}}"), lp, str);
         } else {
           dtostrfd(fvar, 6, str);
-          snprintf_P (TasmotaGlobal.mqtt_data, sizeof(TasmotaGlobal.mqtt_data), PSTR("{\"script\":{\"%s\":%s}}"), lp, str);
+          Response_P(PSTR("{\"script\":{\"%s\":%s}}"), lp, str);
         }
       }
       return serviced;
     }
-    snprintf_P (TasmotaGlobal.mqtt_data, sizeof(TasmotaGlobal.mqtt_data), PSTR("{\"%s\":\"%s\",\"Free\":%d}"),command, GetStateText(bitRead(Settings.rule_enabled, 0)), glob_script_mem.script_size - strlen(glob_script_mem.script_ram));
+    Response_P(PSTR("{\"%s\":\"%s\",\"Free\":%d}"), command, GetStateText(bitRead(Settings.rule_enabled, 0)), glob_script_mem.script_size - strlen(glob_script_mem.script_ram));
 #ifdef SUPPORT_MQTT_EVENT
   } else if (CMND_SUBSCRIBE == command_code) {			//MQTT Subscribe command. Subscribe <Event>, <Topic> [, <Key>]
       String result = ScriptSubscribe(XdrvMailbox.data, XdrvMailbox.data_len);
@@ -7703,7 +7703,7 @@ int32_t http_req(char *host, char *request) {
   }
 
 #ifdef USE_WEBSEND_RESPONSE
-  strlcpy(TasmotaGlobal.mqtt_data, http.getString().c_str(), MESSZ);
+  strlcpy(TasmotaGlobal.mqtt_data, http.getString().c_str(), ResponseSize());
   //AddLog(LOG_LEVEL_INFO, PSTR("HTTP RESULT %s"), TasmotaGlobal.mqtt_data);
   Run_Scripter(">E", 2, TasmotaGlobal.mqtt_data);
   glob_script_mem.glob_error = 0;
@@ -8386,11 +8386,6 @@ bool Xdrv10(uint8_t function)
     case FUNC_EVERY_100_MSECOND:
       ScripterEvery100ms();
       break;
-#ifdef USE_LVGL
-    case FUNC_EVERY_50_MSECOND:
-      lv_task_handler();
-      break;
-#endif // USE_LVGL
 
     case FUNC_EVERY_SECOND:
       ScriptEverySecond();

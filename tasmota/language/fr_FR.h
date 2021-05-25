@@ -578,6 +578,8 @@
 
 // xsns_53_sml.ino
 #define D_TPWRIN "Energie totale Entrée"
+#define D_TPWRIN0 "Energie totale Entrée T0"
+#define D_TPWRIN1 "Energie totale Entrée T1"
 #define D_TPWROUT "Energie totale Sortie"
 #define D_TPWRCURR "Puissance active E/S"
 #define D_TPWRCURR1 "Puissance active Ent Ph1"
@@ -1046,7 +1048,11 @@
 #define D_NEOPOOL_SETPOINT_OK             "OK"
 #define D_NEOPOOL_COVER                   "Couverture"
 #define D_NEOPOOL_SHOCK                   "Choc chlore"
-#define D_NEOPOOL_ALARM                   "! "
+#define D_NEOPOOL_STATUS_ON               "ON"
+#define D_NEOPOOL_STATUS_OFF              "OFF"
+#define D_NEOPOOL_STATUS_WAIT             "WAIT"
+#define D_NEOPOOL_STATUS_TANK             "TANK"
+#define D_NEOPOOL_STATUS_FLOW             "Flow"
 #define D_NEOPOOL_LOW                     "Bas"
 #define D_NEOPOOL_FLOW1                   "FL1"
 #define D_NEOPOOL_FLOW2                   "FL2"
