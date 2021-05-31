@@ -225,7 +225,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             rot_t[3] = next_hex(&lp1);
             break;
           case 'A':
-            if (interface == _UDSP_I2C || bpp == 1) {
+            if (interface == _UDSP_I2C || bpp < 16) {
               saw_1 = next_hex(&lp1);
               i2c_page_start = next_hex(&lp1);
               i2c_page_end = next_hex(&lp1);
