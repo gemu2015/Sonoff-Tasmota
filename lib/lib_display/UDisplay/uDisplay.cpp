@@ -225,7 +225,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             rot_t[3] = next_hex(&lp1);
             break;
           case 'A':
-            if (interface == _UDSP_I2C) {
+            if (interface == _UDSP_I2C || bpp == 1) {
               saw_1 = next_hex(&lp1);
               i2c_page_start = next_hex(&lp1);
               i2c_page_end = next_hex(&lp1);
@@ -774,8 +774,45 @@ void uDisplay::Updateframe(void) {
 	      }
     }
 #endif
+
  }
 
+
+  if (interface == _UDSP_SPI) {
+    SPI_BEGIN_TRANSACTION
+    SPI_CS_LOW
+
+    spi_command(saw_1 | 0x0);  // set low col = 0, 0x00
+    spi_command(i2c_page_start | 0x0);  // set hi col = 0, 0x10
+    spi_command(i2c_page_end | 0x0); // set startline line #0, 0x40
+
+	  uint8_t ys = gys >> 3;
+	  uint8_t xs = gxs >> 3;
+    //uint8_t xs = 132 >> 3;
+	  uint8_t m_row = saw_2;
+	  uint8_t m_col = i2c_col_start;
+
+	  uint16_t p = 0;
+
+	  uint8_t i, j, k = 0;
+
+	  for ( i = 0; i < ys; i++) {
+		    // send a bunch of data in one xmission
+        spi_command(0xB0 + i + m_row); //set page address
+        spi_command(m_col & 0xf); //set lower column address
+        spi_command(0x10 | (m_col >> 4)); //set higher column address
+
+        for ( j = 0; j < 8; j++) {
+            for ( k = 0; k < xs; k++, p++) {
+		            spi_data8(framebuffer[p]);
+            }
+	      }
+    }
+
+    SPI_CS_HIGH
+    SPI_END_TRANSACTION
+
+  }
 
 }
 
