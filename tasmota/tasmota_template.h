@@ -166,6 +166,9 @@ enum UserSelectablePins {
 #ifdef ESP32
   GPIO_KEY1_PD, GPIO_KEY1_INV_PD, GPIO_SWT1_PD,
 #endif
+  GPIO_I2S_OUT_DATA, GPIO_I2S_OUT_CLK, GPIO_I2S_OUT_SLCT,
+  GPIO_I2S_IN_DATA,  GPIO_I2S_IN_CLK,  GPIO_I2S_IN_SLCT,
+  GPIO_INTERRUPT,
   GPIO_SENSOR_END };
 
 enum ProgramSelectablePins {
@@ -227,7 +230,7 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_I2C_SCL "|" D_SENSOR_I2C_SDA "|"
   D_SENSOR_SPI_MISO "|" D_SENSOR_SPI_MOSI "|" D_SENSOR_SPI_CLK "|" D_SENSOR_SPI_CS "|" D_SENSOR_SPI_DC "|"
   D_SENSOR_SSPI_MISO "|" D_SENSOR_SSPI_MOSI "|" D_SENSOR_SSPI_SCLK "|" D_SENSOR_SSPI_CS "|" D_SENSOR_SSPI_DC "|"
-  D_SENSOR_BACKLIGHT "|" D_SENSOR_OLED_RESET "|"
+  D_SENSOR_BACKLIGHT "|" D_SENSOR_DISP_RESET "|"
   D_SENSOR_IRSEND "|" D_SENSOR_IRRECV "|"
   D_SENSOR_RFSEND "|" D_SENSOR_RFRECV "|"
   D_SENSOR_DHT11 "|" D_SENSOR_AM2301 "|" D_SENSOR_SI7021 "|" D_SENSOR_DHT11 "_o|"
@@ -352,6 +355,9 @@ const char kSensorNames[] PROGMEM =
 #ifdef ESP32
   D_SENSOR_BUTTON "_d|" D_SENSOR_BUTTON "_id|" D_SENSOR_SWITCH "_d|"
 #endif
+  D_SENSOR_I2S_OUT_DATA "|" D_SENSOR_I2S_OUT_CLK "|" D_SENSOR_I2S_OUT_SLCT "|"
+  D_SENSOR_I2S_IN_DATA  "|" D_SENSOR_I2S_IN_CLK  "|" D_SENSOR_I2S_IN_SLCT  "|"
+  D_SENSOR_INTERRUPT "|"
   ;
 
 const char kSensorNamesFixed[] PROGMEM =
@@ -406,6 +412,7 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_LEDLNK_INV),               // Inverted link led
 #ifdef USE_BERRY
   AGPIO(GPIO_INPUT) + MAX_SWITCHES,     // Pure digital input to be read via Berry
+  AGPIO(GPIO_INTERRUPT) + MAX_SWITCHES, // Interrupt pins to be catched by Berry
 #endif
   AGPIO(GPIO_OUTPUT_HI),                // Fixed output high
   AGPIO(GPIO_OUTPUT_LO),                // Fixed output low
@@ -424,6 +431,15 @@ const uint16_t kGpioNiceList[] PROGMEM = {
 #ifdef USE_I2C
   AGPIO(GPIO_I2C_SCL) + MAX_I2C,        // I2C SCL
   AGPIO(GPIO_I2C_SDA) + MAX_I2C,        // I2C SDA
+#endif
+
+#ifdef USE_I2S
+  AGPIO(GPIO_I2S_OUT_DATA) + MAX_I2S,   // I2S Out Data
+  AGPIO(GPIO_I2S_OUT_CLK) + MAX_I2S,    // I2C Out Clock
+  AGPIO(GPIO_I2S_OUT_SLCT) + MAX_I2S,   // I2C Out Word Select
+  AGPIO(GPIO_I2S_IN_DATA) + MAX_I2S,    // I2S In Data
+  AGPIO(GPIO_I2S_IN_CLK) + MAX_I2S,     // I2C In Clock
+  AGPIO(GPIO_I2S_IN_SLCT) + MAX_I2S,    // I2C In Word Select
 #endif
 
 #ifdef USE_SPI

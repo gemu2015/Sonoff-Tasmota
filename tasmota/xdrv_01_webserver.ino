@@ -515,6 +515,7 @@ const WebServerDispatch_t WebServerDispatch[] PROGMEM = {
 };
 
 void WebServer_on(const char * prefix, void (*func)(void), uint8_t method = HTTP_ANY) {
+  if (Webserver == nullptr) { return; }
 #ifdef ESP8266
   Webserver->on((const __FlashStringHelper *) prefix, (HTTPMethod) method, func);
 #endif  // ESP8266
@@ -2842,15 +2843,22 @@ void HandleHttpCommand(void)
     uint32_t index = curridx;
     char* line;
     size_t len;
+    WSContentFlush();
     while (GetLog(TasmotaGlobal.templog_level, &index, &line, &len)) {
       // [14:49:36.123 MQTT: stat/wemos5/RESULT = {"POWER":"OFF"}] > [{"POWER":"OFF"}]
       char* JSON = (char*)memchr(line, '{', len);
       if (JSON) {  // Is it a JSON message (and not only [15:26:08 MQT: stat/wemos5/POWER = O])
-        size_t JSONlen = len - (JSON - line);
-        if (JSONlen > sizeof(TasmotaGlobal.mqtt_data)) { JSONlen = sizeof(TasmotaGlobal.mqtt_data); }
-        char stemp[JSONlen];
-        strlcpy(stemp, JSON +1, JSONlen -2);
-        WSContentSend_P(PSTR("%s%s"), (cflg) ? "," : "", stemp);
+        String stemp = (cflg) ? "," : "";  // Add comma
+
+//        size_t JSONlen = len - (JSON - line);
+//        stemp.concat(JSON +1, JSONlen -3);  // Add terminating '\0' - Not supported on ESP32
+        len -= 2;                          // Skip last '}'
+        char save_log_char = line[len];
+        line[len] = '\0';                  // Add terminating \'0'
+        stemp.concat(JSON +1);             // Skip first '{'
+        line[len] = save_log_char;
+
+        Webserver->sendContent(stemp);
         cflg = true;
       }
     }
@@ -2927,11 +2935,18 @@ void HandleConsoleRefresh(void)
   bool cflg = (index);
   char* line;
   size_t len;
+  WSContentFlush();
   while (GetLog(Settings.weblog_level, &index, &line, &len)) {
-    if (len > sizeof(TasmotaGlobal.mqtt_data) -2) { len = sizeof(TasmotaGlobal.mqtt_data); }
-    char stemp[len +1];
-    strlcpy(stemp, line, len);
-    WSContentSend_P(PSTR("%s%s"), (cflg) ? PSTR("\n") : "", stemp);
+    String stemp = (cflg) ? "\n" : "";   // Add newline
+
+//    stemp.concat(line, len -1);          // Add terminating '\0' - Not supported on ESP32
+    len--;
+    char save_log_char = line[len];
+    line[len] = '\0';                    // Add terminating \'0'
+    stemp.concat(line);
+    line[len] = save_log_char;
+
+    Webserver->sendContent(stemp);
     cflg = true;
   }
   WSContentSend_P(PSTR("}1"));
