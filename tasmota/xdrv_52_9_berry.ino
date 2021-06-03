@@ -93,9 +93,9 @@ extern "C" {
 bool callBerryRule(void) {
   if (berry.rules_busy) { return false; }
   berry.rules_busy = true;
-  char * json_event = TasmotaGlobal.mqtt_data;
+  char * json_event = XdrvMailbox.data;
   bool serviced = false;
-  serviced = callBerryEventDispatcher(PSTR("rule"), nullptr, 0, TasmotaGlobal.mqtt_data);
+  serviced = callBerryEventDispatcher(PSTR("rule"), nullptr, 0, XdrvMailbox.data);
   berry.rules_busy = false;
   return serviced;     // TODO event not handled
 }
@@ -673,15 +673,10 @@ void HandleBerryConsole(void)
 //   bool cflg = (index);
 //   char* line;
 //   size_t len;
-//   WSContentFlush();
 //   while (GetLog(Settings.weblog_level, &index, &line, &len)) {
-//     String stemp = (cflg) ? "\n" : "";   // Add newline
-//     len--;
-//     char save_log_char = line[len];
-//     line[len] = '\0';                    // Add terminating \'0'
-//     stemp.concat(line);
-//     line[len] = save_log_char;
-//     Webserver->sendContent(stemp);
+//     if (cflg) { WSContentSend_P(PSTR("\n")); }
+//     WSContentFlush();
+//     Webserver->sendContent(line, len -1);
 //     cflg = true;
 //   }
 //   WSContentSend_P(PSTR("}1"));

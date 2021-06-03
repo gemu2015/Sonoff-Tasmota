@@ -675,36 +675,35 @@ void WSSend(int code, int ctype, const String& content)
 * HTTP Content Chunk handler
 **********************************************************************************************/
 
-void WSContentBegin(int code, int ctype)
-{
+void WSContentBegin(int code, int ctype) {
   Webserver->client().flush();
   WSHeaderSend();
   Webserver->setContentLength(CONTENT_LENGTH_UNKNOWN);
-  WSSend(code, ctype, "");                        // Signal start of chunked content
+  WSSend(code, ctype, "");                         // Signal start of chunked content
   Web.chunk_buffer = "";
 }
 
-void _WSContentSend(const String& content)        // Low level sendContent for all core versions
-{
-  size_t len = content.length();
-  Webserver->sendContent(content);
+void _WSContentSend(const char* content, size_t size) {  // Lowest level sendContent for all core versions
+  Webserver->sendContent(content, size);
 
 #ifdef USE_DEBUG_DRIVER
   ShowFreeMem(PSTR("WSContentSend"));
 #endif
-  DEBUG_CORE_LOG(PSTR("WEB: Chunk size %d/%d"), len, sizeof(TasmotaGlobal.mqtt_data));
+  DEBUG_CORE_LOG(PSTR("WEB: Chunk size %d/%d"), size, sizeof(TasmotaGlobal.mqtt_data));
 }
 
-void WSContentFlush(void)
-{
+void _WSContentSend(const String& content) {       // Low level sendContent for all core versions
+  _WSContentSend(content.c_str(), content.length());
+}
+
+void WSContentFlush(void) {
   if (Web.chunk_buffer.length() > 0) {
-    _WSContentSend(Web.chunk_buffer);                  // Flush chunk buffer
+    _WSContentSend(Web.chunk_buffer);              // Flush chunk buffer
     Web.chunk_buffer = "";
   }
 }
 
-void _WSContentSendBuffer(void)
-{
+void _WSContentSendBuffer(void) {
   int len = strlen(TasmotaGlobal.mqtt_data);
 
   if (0 == len) {                                  // No content
@@ -724,6 +723,11 @@ void _WSContentSendBuffer(void)
   if (strlen(TasmotaGlobal.mqtt_data) >= CHUNKED_BUFFER_SIZE) {  // Content is oversize
     _WSContentSend(TasmotaGlobal.mqtt_data);                     // Send content
   }
+}
+
+void WSContentSend(const char* content, size_t size) {
+  WSContentFlush();
+  _WSContentSend(content, size);
 }
 
 void WSContentSend_P(const char* formatP, ...)     // Content send snprintf_P char data
@@ -907,8 +911,7 @@ void WSContentSend_THD(const char *types, float f_temperature, float f_humidity)
 
 void WSContentEnd(void)
 {
-  WSContentFlush();                                // Flush chunk buffer
-  _WSContentSend("");                              // Signal end of chunked content
+  WSContentSend("", 0);                            // Signal end of chunked content
   Webserver->client().stop();
 }
 
@@ -2843,22 +2846,13 @@ void HandleHttpCommand(void)
     uint32_t index = curridx;
     char* line;
     size_t len;
-    WSContentFlush();
     while (GetLog(TasmotaGlobal.templog_level, &index, &line, &len)) {
       // [14:49:36.123 MQTT: stat/wemos5/RESULT = {"POWER":"OFF"}] > [{"POWER":"OFF"}]
       char* JSON = (char*)memchr(line, '{', len);
       if (JSON) {  // Is it a JSON message (and not only [15:26:08 MQT: stat/wemos5/POWER = O])
-        String stemp = (cflg) ? "," : "";  // Add comma
-
-//        size_t JSONlen = len - (JSON - line);
-//        stemp.concat(JSON +1, JSONlen -3);  // Add terminating '\0' - Not supported on ESP32
-        len -= 2;                          // Skip last '}'
-        char save_log_char = line[len];
-        line[len] = '\0';                  // Add terminating \'0'
-        stemp.concat(JSON +1);             // Skip first '{'
-        line[len] = save_log_char;
-
-        Webserver->sendContent(stemp);
+        if (cflg) { WSContentSend_P(PSTR(",")); }
+        uint32_t JSONlen = len - (JSON - line) -3;
+        WSContentSend(JSON +1, JSONlen);
         cflg = true;
       }
     }
@@ -2935,18 +2929,9 @@ void HandleConsoleRefresh(void)
   bool cflg = (index);
   char* line;
   size_t len;
-  WSContentFlush();
   while (GetLog(Settings.weblog_level, &index, &line, &len)) {
-    String stemp = (cflg) ? "\n" : "";   // Add newline
-
-//    stemp.concat(line, len -1);          // Add terminating '\0' - Not supported on ESP32
-    len--;
-    char save_log_char = line[len];
-    line[len] = '\0';                    // Add terminating \'0'
-    stemp.concat(line);
-    line[len] = save_log_char;
-
-    Webserver->sendContent(stemp);
+    if (cflg) { WSContentSend_P(PSTR("\n")); }
+    WSContentSend(line, len -1);
     cflg = true;
   }
   WSContentSend_P(PSTR("}1"));
