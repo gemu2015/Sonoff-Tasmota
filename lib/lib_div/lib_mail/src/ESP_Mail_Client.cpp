@@ -2825,10 +2825,13 @@ bool ESP_Mail_Client::openFileRead(SMTPSession *smtp, SMTP_Message *msg, SMTP_At
       filepath += att->descr.filename;
     }
 
-    if (att->file.storage_type == esp_mail_file_storage_type_sd)
+    if (att->file.storage_type == esp_mail_file_storage_type_sd) {
       file_existed = ESP_MAIL_SD_FS.exists(filepath.c_str());
-    else if (att->file.storage_type == esp_mail_file_storage_type_flash)
+    } else if (att->file.storage_type == esp_mail_file_storage_type_flash) {
       file_existed = ESP_MAIL_FLASH_FS.exists(filepath.c_str());
+    } else if (att->file.storage_type == esp_mail_file_storage_type_univ) {
+      file_existed = ufsp->exists(filepath.c_str());
+    }
   }
 
   if (!file_existed)
@@ -2858,7 +2861,7 @@ bool ESP_Mail_Client::openFileRead(SMTPSession *smtp, SMTP_Message *msg, SMTP_At
 #elif defined(ESP8266)
       file = ESP_MAIL_FLASH_FS.open(filepath.c_str(), "r");
 #endif
-} else if (att->file.storage_type == esp_mail_file_storage_type_univ) {
+    } else if (att->file.storage_type == esp_mail_file_storage_type_univ) {
       file = ufsp->open(filepath.c_str(), "r");
     }
 
