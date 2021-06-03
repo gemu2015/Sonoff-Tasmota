@@ -2850,14 +2850,17 @@ bool ESP_Mail_Client::openFileRead(SMTPSession *smtp, SMTP_Message *msg, SMTP_At
 
     buf.clear();
 
-    if (att->file.storage_type == esp_mail_file_storage_type_sd)
+    if (att->file.storage_type == esp_mail_file_storage_type_sd) {
       file = ESP_MAIL_SD_FS.open(filepath.c_str(), FILE_READ);
-    else if (att->file.storage_type == esp_mail_file_storage_type_flash)
+    } else if (att->file.storage_type == esp_mail_file_storage_type_flash) {
 #if defined(ESP32)
       file = ESP_MAIL_FLASH_FS.open(filepath.c_str(), FILE_READ);
 #elif defined(ESP8266)
       file = ESP_MAIL_FLASH_FS.open(filepath.c_str(), "r");
 #endif
+} else if (att->file.storage_type == esp_mail_file_storage_type_univ) {
+      file = ufsp->open(filepath.c_str(), "r");
+    }
 
     if (!file)
       return false;
