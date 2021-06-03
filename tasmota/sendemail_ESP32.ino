@@ -20,7 +20,7 @@ SMTPSession *smtp;
 //SMTPSession smtp;
 void smtpCallback(SMTP_Status status);
 
-#define DEBUG_EMAIL_PORT
+//#define DEBUG_EMAIL_PORT
 
 uint16_t SendMail(char *buffer) {
   char *params,*oparams = 0;
