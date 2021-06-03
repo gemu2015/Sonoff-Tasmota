@@ -20,7 +20,7 @@ SMTPSession *smtp;
 //SMTPSession smtp;
 void smtpCallback(SMTP_Status status);
 
-//#define DEBUG_EMAIL_PORT
+#define DEBUG_EMAIL_PORT
 
 uint16_t SendMail(char *buffer) {
   char *params,*oparams = 0;
@@ -371,4 +371,16 @@ if (status.success())
 }
 
 }
+
+
+void Tasmota_print(const char *txt) {
+#ifdef DEBUG_EMAIL_PORT
+  AddLog(LOG_LEVEL_INFO, PSTR("ESP32mail: %s"),txt);
+#endif
+}
+
+
+
+
+
 #endif // USE_ESP32MAIL
