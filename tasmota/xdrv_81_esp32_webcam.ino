@@ -769,6 +769,9 @@ void HandleWebcamMjpegTask(void) {
     Wc.client.print("HTTP/1.1 200 OK\r\n"
       "Content-Type: multipart/x-mixed-replace;boundary=" BOUNDARY "\r\n"
       "\r\n");
+
+    Wc.client.print("\r\n--" BOUNDARY "\r\n");
+
     Wc.stream_active = 2;
   }
   if (2 == Wc.stream_active) {
