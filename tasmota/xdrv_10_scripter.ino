@@ -787,6 +787,9 @@ char *script;
       if (imemptr) free(imemptr);
       return -4;
     }
+
+    memset(script_mem, 0, script_mem_size);
+
     glob_script_mem.script_mem = script_mem;
     glob_script_mem.script_mem_size = script_mem_size;
 
@@ -1203,6 +1206,7 @@ float Get_MFilter(uint8_t index) {
     if (count==index) {
       if (mflp->numvals & OR_FILT_MASK) {
         // moving average
+        AddLog(LOG_LEVEL_INFO,PSTR(">>>> %d %d %d"),index, AND_FILT_MASK, (uint32_t)mflp->maccu);
         return mflp->maccu / (mflp->numvals & AND_FILT_MASK);
       } else {
         // median, sort array indices
