@@ -2291,6 +2291,8 @@ char get_jpeg_size(unsigned char* data, unsigned int data_size, unsigned short *
 #endif // JPEG_PICTS
 #endif // ESP32
 
+//#define SLOW_RGB16
+
 #ifdef USE_UFILESYS
 extern FS *ufsp;
 #define XBUFF_LEN 128
@@ -2314,30 +2316,32 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
 
   if (!strcmp(estr,"rgb")) {
     // special rgb format
-    fp=ufsp->open(file,FS_FILE_READ);
+    fp = ufsp->open(file, FS_FILE_READ);
     if (!fp) return;
     uint16_t xsize;
-    fp.read((uint8_t*)&xsize,2);
+    fp.read((uint8_t*)&xsize, 2);
     uint16_t ysize;
-    fp.read((uint8_t*)&ysize,2);
-#if 1
-    renderer->setAddrWindow(xp,yp,xp+xsize,yp+ysize);
-    uint16_t rgb[xsize];
-    for (int16_t j=0; j<ysize; j++) {
-    //  for(int16_t i=0; i<xsize; i+=XBUFF_LEN) {
-        fp.read((uint8_t*)rgb,xsize*2);
-        renderer->pushColors(rgb,xsize,true);
-    //  }
-      OsWatchLoop();
+    fp.read((uint8_t*)&ysize, 2);
+#ifndef SLOW_RGB16
+    renderer->setAddrWindow(xp, yp, xp + xsize, yp + ysize);
+    uint16_t *rgb = (uint16_t *)special_malloc(xsize * 2);
+    if (rgb) {
+      //uint16_t rgb[xsize];
+      for (int16_t j = 0; j < ysize; j++) {
+        fp.read((uint8_t*)rgb, xsize * 2);
+        renderer->pushColors(rgb, xsize, true);
+        OsWatchLoop();
+      }
+      free(rgb);
     }
-    renderer->setAddrWindow(0,0,0,0);
+    renderer->setAddrWindow(0, 0, 0, 0);
 #else
-    for(int16_t j=0; j<ysize; j++) {
-      for(int16_t i=0; i<xsize; i++ ) {
+    for (int16_t j = 0; j < ysize; j++) {
+      for (int16_t i = 0; i < xsize; i++ ) {
         uint16_t rgb;
-        uint8_t res=fp.read((uint8_t*)&rgb,2);
+        uint8_t res = fp.read((uint8_t*)&rgb, 2);
         if (!res) break;
-        renderer->writePixel(xp+i,yp,rgb);
+        renderer->writePixel(xp + i, yp, rgb);
       }
       delay(0);
       OsWatchLoop();
@@ -2373,7 +2377,7 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
                 uint8_t *ob = out_buf;
                 if (jpg2rgb888(mem, size, out_buf, (jpg_scale_t)JPG_SCALE_NONE)) {
                   renderer->setAddrWindow(xp, yp, xp + xsize, yp + ysize);
-                  for(int32_t j = 0; j < ysize; j++) {
+                  for (int32_t j = 0; j < ysize; j++) {
                     if (inverted == false) {
                       rgb888_to_565(ob, pixb, xsize);
                     } else {
