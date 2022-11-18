@@ -10089,13 +10089,15 @@ exgc:
             hmflg = 1;
             cp++;
           }
+          // cnth2016/240
+
           //todflg=atoi(&label[3]);
           todflg = strtol(cp, &cp, 10);
           if (!hmflg) {
             if (todflg >= entries) todflg = entries - 1;
             if (todflg < 0) todflg = 0;
           }
-          if (*cp=='/') {
+          if (*cp == '/') {
             cp++;
             divflg = strtol(cp, &cp, 10);
           }
