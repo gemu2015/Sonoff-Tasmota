@@ -94,7 +94,8 @@ const uint8_t xlgt_present = sizeof(xlgt_func_ptr) / sizeof(xlgt_func_ptr[0]);  
 
 uint8_t xlgt_active = 0;
 
-bool XlgtCall(uint32_t function) {
+bool XlgtCall(uint32_t function)
+{
   DEBUG_TRACE_LOG(PSTR("LGT: %d"), function);
 
   if (FUNC_MODULE_INIT == function) {
