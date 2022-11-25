@@ -577,7 +577,7 @@ bool HueActive(uint8_t device) {
 
 /*********************************************************************************\
  * HueLightStatus2Generic
- * 
+ *
  * Adds specific information for a newly discovered device
  * Returns a (char*) pointer that the caller needs to `free()`
 \*********************************************************************************/
@@ -668,7 +668,7 @@ uint32_t EncodeLightId(uint8_t relay_id)
 }
 
 // See above for encoding
-// 
+//
 uint32_t DecodeLightIdZigbee(uint32_t hue_id, uint16_t * shortaddr)
 {
   uint8_t relay_id = hue_id & 0xF;
@@ -1147,7 +1147,7 @@ void HandleHueApi(String *path)
  * Interface
 \*********************************************************************************************/
 
-bool Xdrv20(uint8_t function)
+bool Xdrv20(uint32_t function)
 {
   bool result = false;
 

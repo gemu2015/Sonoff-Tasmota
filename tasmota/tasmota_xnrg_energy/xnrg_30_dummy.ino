@@ -150,7 +150,7 @@ void NrgDummyDrvInit(void) {
  * Interface
 \*********************************************************************************************/
 
-bool Xnrg30(uint8_t function) {
+bool Xnrg30(uint32_t function) {
   bool result = false;
 
   switch (function) {

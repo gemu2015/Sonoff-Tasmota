@@ -170,7 +170,7 @@ void Sm16716ModuleSelected(void)
  * Interface
 \*********************************************************************************************/
 
-bool Xlgt03(uint8_t function)
+bool Xlgt03(uint32_t function)
 {
   bool result = false;
 
@@ -187,4 +187,3 @@ bool Xlgt03(uint8_t function)
 
 #endif  // USE_SM16716
 #endif  // USE_LIGHT
-

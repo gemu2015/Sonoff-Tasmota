@@ -118,7 +118,7 @@ void DYPShow(bool json) {
  * Interface
 \*********************************************************************************************/
 
-bool Xsns76(uint8_t function) {
+bool Xsns76(uint32_t function) {
   if (!PinUsed(GPIO_DYP_RX)) { return false; }
 
   switch (function) {

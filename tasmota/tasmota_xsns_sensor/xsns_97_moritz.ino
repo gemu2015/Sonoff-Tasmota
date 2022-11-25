@@ -1959,7 +1959,7 @@ void Script_Check_HTML_Setvars(void) {
  * Interface
 \*********************************************************************************************/
 
-bool Xsns97(byte function) {
+bool Xsns97(uint32_t function) {
   bool result = false;
 
   switch (function) {

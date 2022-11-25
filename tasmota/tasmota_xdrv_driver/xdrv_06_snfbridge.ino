@@ -535,7 +535,7 @@ void SonoffBridgeWebGetArg(void) {
  * Interface
 \*********************************************************************************************/
 
-bool Xdrv06(uint8_t function)
+bool Xdrv06(uint32_t function)
 {
   bool result = false;
 

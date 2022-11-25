@@ -1014,7 +1014,7 @@ void TInfoShow(bool json)
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
-bool Xnrg15(uint8_t function)
+bool Xnrg15(uint32_t function)
 {
     bool result = false;
     switch (function)
