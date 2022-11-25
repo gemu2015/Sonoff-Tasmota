@@ -158,8 +158,7 @@ const uint8_t xnrg_present = sizeof(xnrg_func_ptr) / sizeof(xnrg_func_ptr[0]);  
 
 uint8_t xnrg_active = 0;
 
-bool XnrgCall(uint32_t function)
-{
+bool XnrgCall(uint32_t function) {
   DEBUG_TRACE_LOG(PSTR("NRG: %d"), function);
 
   if (FUNC_PRE_INIT == function) {
