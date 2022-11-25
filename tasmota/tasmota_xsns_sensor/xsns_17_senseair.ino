@@ -172,7 +172,7 @@ void SenseairShow(bool json)
  * Interface
 \*********************************************************************************************/
 
-bool Xsns17(uint32_t function)
+bool Xsns17(uint8_t function)
 {
   bool result = false;
 

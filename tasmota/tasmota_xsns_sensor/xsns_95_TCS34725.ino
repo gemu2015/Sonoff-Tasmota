@@ -242,7 +242,7 @@ void TCS34725_Show(boolean json)
 
 
 
-bool Xsns78(uint32_t function)
+bool Xsns78(byte function)
 {
   bool result = false;
 

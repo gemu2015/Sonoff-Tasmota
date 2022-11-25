@@ -634,7 +634,7 @@ bool Ws2812SetChannels(void)
 void Ws2812ShowScheme(void)
 {
   uint32_t scheme = Settings->light_scheme - Ws2812.scheme_offset;
-
+  
 #ifdef USE_NETWORK_LIGHT_SCHEMES
   if ((scheme != 9) && (ddp_udp_up)) {
     ddp_udp.stop();
@@ -771,7 +771,7 @@ void CmndWidth(void)
  * Interface
 \*********************************************************************************************/
 
-bool Xlgt01(uint32_t function)
+bool Xlgt01(uint8_t function)
 {
   bool result = false;
 

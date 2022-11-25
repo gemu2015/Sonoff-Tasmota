@@ -709,7 +709,7 @@ void CmndI2cClock(void)
  * Interface
 \*********************************************************************************************/
 
-bool Xdrv99(uint32_t function)
+bool Xdrv99(uint8_t function)
 {
   bool result = false;
 

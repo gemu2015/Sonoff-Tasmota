@@ -517,7 +517,7 @@ void Ds18x20Show(bool json) {
  * Interface
 \*********************************************************************************************/
 
-bool Xsns05(uint32_t function) {
+bool Xsns05(uint8_t function) {
   bool result = false;
 
   if (PinUsed(GPIO_DSB)) {

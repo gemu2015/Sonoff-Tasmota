@@ -393,7 +393,7 @@ void CC1101_433_loop(void) {
  * Interface
 \*********************************************************************************************/
 
-bool Xsns96(uint32_t function) {
+bool Xsns96(byte function) {
   bool result = false;
 
   switch (function) {

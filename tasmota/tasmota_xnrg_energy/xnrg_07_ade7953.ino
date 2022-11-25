@@ -535,7 +535,7 @@ bool Ade7953Command(void) {
  * Interface
 \*********************************************************************************************/
 
-bool Xnrg07(uint32_t function) {
+bool Xnrg07(uint8_t function) {
   if (!I2cEnabled(XI2C_07)) { return false; }
 
   bool result = false;

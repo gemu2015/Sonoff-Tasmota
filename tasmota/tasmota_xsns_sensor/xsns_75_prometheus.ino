@@ -352,7 +352,7 @@ void HandleMetrics(void) {
  * Interface
 \*********************************************************************************************/
 
-bool Xsns75(uint32_t function) {
+bool Xsns75(uint8_t function) {
   bool result = false;
 
   switch (function) {

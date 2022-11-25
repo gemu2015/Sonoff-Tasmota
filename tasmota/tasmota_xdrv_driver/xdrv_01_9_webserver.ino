@@ -3696,7 +3696,7 @@ void CmndCors(void)
  * Interface
 \*********************************************************************************************/
 
-bool Xdrv01(uint32_t function)
+bool Xdrv01(uint8_t function)
 {
   bool result = false;
 

@@ -150,7 +150,7 @@ void IEM3000Every250ms(void)
         case 10:
           Energy.import_active[0] = value;
           break;
-
+        
         case 11:
           Energy.import_active[1] = value;
           break;
@@ -203,7 +203,7 @@ void Iem3000DrvInit(void)
  * Interface
 \*********************************************************************************************/
 
-bool Xnrg16(uint32_t function)
+bool Xnrg16(uint8_t function)
 {
   bool result = false;
 

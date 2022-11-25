@@ -275,7 +275,7 @@ void solaxX1_250MSecond(void) // Every 250 milliseconds
       DEBUG_SENSOR_LOG(PSTR("SX1: Data response CRC error"));
       return;
     }
-
+  
     solaxX1_global.SendRetry_count = 20; // Inverter is responding
 
     if (DataRead[0] != 0xAA || DataRead[1] != 0x55) { // Check for header
@@ -459,7 +459,7 @@ void solaxX1_250MSecond(void) // Every 250 milliseconds
   }
   solaxX1_global.SendRetry_count--;
 
-return;
+return;  
 } // end solaxX1_250MSecond
 
 void solaxX1_SnsInit(void)
@@ -582,7 +582,7 @@ void solaxX1_Show(bool json)
  * Interface
 \*********************************************************************************************/
 
-bool Xnrg12(uint32_t function)
+bool Xnrg12(uint8_t function)
 {
   bool result = false;
 

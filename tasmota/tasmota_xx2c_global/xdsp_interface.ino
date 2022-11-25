@@ -20,9 +20,9 @@
 #ifdef USE_DISPLAY
 
 #ifdef XFUNC_PTR_IN_ROM
-bool (* const xdsp_func_ptr[])(uint32_t) PROGMEM = {   // Display Function Pointers
+bool (* const xdsp_func_ptr[])(uint8_t) PROGMEM = {   // Display Function Pointers
 #else
-bool (* const xdsp_func_ptr[])(uint32_t) = {   // Display Function Pointers
+bool (* const xdsp_func_ptr[])(uint8_t) = {   // Display Function Pointers
 #endif
 
 #ifdef XDSP_01
@@ -182,7 +182,7 @@ uint8_t XdspPresent(void)
   return xdsp_present;
 }
 
-bool XdspCall(uint32_t function)
+bool XdspCall(uint8_t Function)
 {
   bool result = false;
 

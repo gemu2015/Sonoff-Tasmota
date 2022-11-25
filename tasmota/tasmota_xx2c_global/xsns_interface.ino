@@ -18,9 +18,9 @@
 */
 
 #ifdef XFUNC_PTR_IN_ROM
-bool (* const xsns_func_ptr[])(uint32_t) PROGMEM = {  // Sensor Function Pointers for simple implementation of sensors
+bool (* const xsns_func_ptr[])(uint8_t) PROGMEM = {  // Sensor Function Pointers for simple implementation of sensors
 #else
-bool (* const xsns_func_ptr[])(uint32_t) = {  // Sensor Function Pointers for simple implementation of sensors
+bool (* const xsns_func_ptr[])(uint8_t) = {  // Sensor Function Pointers for simple implementation of sensors
 #endif
 
 #ifdef XSNS_01
@@ -1111,7 +1111,7 @@ bool XsnsNextCall(uint8_t Function, uint8_t &xsns_index) {
   return xsns_func_ptr[xsns_index](Function);
 }
 
-bool XsnsCall(uint32_t function) {
+bool XsnsCall(uint8_t Function) {
   bool result = false;
 
 //  DEBUG_TRACE_LOG(PSTR("SNS: %d"), Function);

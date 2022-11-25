@@ -1334,7 +1334,7 @@ b_mqtt_data[0]=0;
  * Interface
 \*********************************************************************************************/
 
-bool Xsns40(uint32_t function)
+bool Xsns40(byte function)
 {
   bool result = false;
 

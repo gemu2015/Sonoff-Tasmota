@@ -173,7 +173,7 @@ void M5EPD47_CheckTouch(void) {
  * Interface
 \*********************************************************************************************/
 
-bool Xdsp20(uint32_t function)
+bool Xdsp20(uint8_t function)
 {
   bool result = false;
 

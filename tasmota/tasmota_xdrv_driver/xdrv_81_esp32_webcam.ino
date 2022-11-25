@@ -1438,7 +1438,7 @@ void WcStatsShow(void) {
  * Interface
 \*********************************************************************************************/
 
-bool Xdrv81(uint32_t function) {
+bool Xdrv81(uint8_t function) {
   bool result = false;
 
   switch (function) {

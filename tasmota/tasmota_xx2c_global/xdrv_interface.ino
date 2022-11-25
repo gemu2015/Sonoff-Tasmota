@@ -18,9 +18,9 @@
 */
 
 #ifdef XFUNC_PTR_IN_ROM
-bool (* const xdrv_func_ptr[])(uint32_t) PROGMEM = {   // Driver Function Pointers
+bool (* const xdrv_func_ptr[])(uint8_t) PROGMEM = {   // Driver Function Pointers
 #else
-bool (* const xdrv_func_ptr[])(uint32_t) = {   // Driver Function Pointers
+bool (* const xdrv_func_ptr[])(uint8_t) = {   // Driver Function Pointers
 #endif
 
 #ifdef XDRV_01
@@ -1131,7 +1131,7 @@ bool XdrvCallDriver(uint32_t driver, uint8_t Function)
  * Function call to all xdrv
 \*********************************************************************************************/
 
-bool XdrvCall(uint32_t function)
+bool XdrvCall(uint8_t Function)
 {
   bool result = false;
 

@@ -80,7 +80,7 @@ void NRF24Detect(void) {
  * Interface
 \*********************************************************************************************/
 
-bool Xdrv33(uint32_t function) {
+bool Xdrv33(uint8_t function) {
   bool result = false;
 
   if (FUNC_INIT == function) {
@@ -91,3 +91,4 @@ bool Xdrv33(uint32_t function) {
 
 #endif  // USE_NRF24
 #endif  // USE_SPI
+

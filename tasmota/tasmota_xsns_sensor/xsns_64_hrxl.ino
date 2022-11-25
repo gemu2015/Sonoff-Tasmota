@@ -98,7 +98,7 @@ void HRXLShow(bool json)
  * Interface
 \*********************************************************************************************/
 
-bool Xsns64(uint32_t function)
+bool Xsns64(uint8_t function)
 {
    if (!PinUsed(GPIO_HRXL_RX)) { return false; }
 
