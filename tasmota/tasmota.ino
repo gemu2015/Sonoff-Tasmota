@@ -114,6 +114,7 @@ struct WIFI {
   uint8_t wifi_test_counter = 0;
   uint16_t save_data_counter = 0;
   uint8_t old_wificonfig = MAX_WIFI_OPTION; // means "nothing yet saved here"
+  uint8_t phy_mode = 0;
   bool wifi_test_AP_TIMEOUT = false;
   bool wifi_Test_Restart = false;
   bool wifi_Test_Save_SSID2 = false;
@@ -126,7 +127,7 @@ typedef struct {
 } TRtcReboot;
 TRtcReboot RtcReboot;
 #ifdef ESP32
-RTC_NOINIT_ATTR TRtcReboot RtcDataReboot;
+static RTC_NOINIT_ATTR TRtcReboot RtcDataReboot;
 #endif  // ESP32
 
 typedef struct {
@@ -153,10 +154,11 @@ typedef struct {
 } TRtcSettings;
 TRtcSettings RtcSettings;
 #ifdef ESP32
-RTC_NOINIT_ATTR TRtcSettings RtcDataSettings;
+static RTC_NOINIT_ATTR TRtcSettings RtcDataSettings;
 #endif  // ESP32
 
 struct TIME_T {
+  uint32_t      nanos;
   uint8_t       second;
   uint8_t       minute;
   uint8_t       hour;
@@ -226,6 +228,8 @@ bool tasconsole_serial = true;
 HardwareSerial TasConsole = Serial;         // Only serial interface
 #endif  // ESP32
 
+char EmptyStr[1] = { 0 };                   // Provide a pointer destination to an empty char string
+
 struct TasmotaGlobal_t {
   uint32_t global_update;                   // Timestamp of last global temperature and humidity update
   uint32_t baudrate;                        // Current Serial baudrate
@@ -249,6 +253,7 @@ struct TasmotaGlobal_t {
   power_t blink_power;                      // Blink power state
   power_t blink_powersave;                  // Blink start power save state
   power_t blink_mask;                       // Blink relay active mask
+  power_t power_on_delay_state;
 
   int serial_in_byte_counter;               // Index in receive buffer
 
@@ -309,7 +314,6 @@ struct TasmotaGlobal_t {
   uint8_t latching_relay_pulse;             // Latching relay pulse timer
   uint8_t active_device;                    // Active device in ExecuteCommandPower
   uint8_t sleep;                            // Current copy of Settings->sleep
-  uint8_t skip_sleep;                       // Abandon sleep and allow loop
   uint8_t leds_present;                     // Max number of LED supported
   uint8_t led_inverted;                     // LED inverted flag (1 = (0 = On, 1 = Off))
   uint8_t led_power;                        // LED power state
@@ -319,6 +323,7 @@ struct TasmotaGlobal_t {
   uint8_t light_driver;                     // Light module configured
   uint8_t light_type;                       // Light types
   uint8_t serial_in_byte;                   // Received byte
+  uint8_t serial_skip;                      // Skip number of received messages
   uint8_t devices_present;                  // Max number of devices supported
   uint8_t masterlog_level;                  // Master log level used to override set log level
   uint8_t seriallog_level;                  // Current copy of Settings->seriallog_level
@@ -327,8 +332,10 @@ struct TasmotaGlobal_t {
   uint8_t module_type;                      // Current copy of Settings->module or user template type
   uint8_t emulated_module_type;             // Emulated module type as requested by ESP32
   uint8_t last_source;                      // Last command source
+  uint8_t last_command_source;              // Last command source
   uint8_t shutters_present;                 // Number of actual define shutters
   uint8_t discovery_counter;                // Delayed discovery counter
+  uint8_t power_on_delay;                   // Delay relay power on to reduce power surge (SetOption47)
 #ifdef USE_PWM_DIMMER
   uint8_t restore_powered_off_led_counter;  // Seconds before powered-off LED (LEDLink) is restored
   uint8_t pwm_dimmer_led_bri;               // Adjusted brightness LED level
@@ -461,6 +468,8 @@ void setup(void) {
 #ifdef ESP32
 #if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
 #ifdef USE_USB_CDC_CONSOLE
+  TasConsole.setRxBufferSize(INPUT_BUFFER_SIZE);
+//  TasConsole.setTxBufferSize(INPUT_BUFFER_SIZE);
   TasConsole.begin(115200);    // Will always be 115200 bps
 #if !ARDUINO_USB_MODE
   USB.begin();                 // This needs a serial console with DTR/DSR support
@@ -510,7 +519,7 @@ void setup(void) {
     Settings->baudrate = APP_BAUDRATE / 300;
     Settings->serial_config = TS_SERIAL_8N1;
   }
-  SetSerialBaudrate(Settings->baudrate * 300);  // Reset serial interface if current baudrate is different from requested baudrate
+  SetSerialInitBegin();                        // Reset serial interface if current baudrate and/or config is different from requested settings
 
   if (1 == RtcReboot.fast_reboot_count) {      // Allow setting override only when all is well
     UpdateQuickPowerCycle(true);
@@ -541,7 +550,7 @@ void setup(void) {
 #endif
 #endif  // USE_EMULATION
 
-//  AddLogBuffer(LOG_LEVEL_DEBUG, (uint8_t*)&TasmotaGlobal, sizeof(TasmotaGlobal));
+//  AddLog(LOG_LEVEL_INFO, PSTR("DBG: TasmotaGlobal size %d, data %100_H"), sizeof(TasmotaGlobal), (uint8_t*)&TasmotaGlobal);
 
   if (Settings->param[P_BOOT_LOOP_OFFSET]) {         // SetOption36
     // Disable functionality as possible cause of fast restart within BOOT_LOOP_TIME seconds (Exception, WDT or restarts)
@@ -553,6 +562,7 @@ void setup(void) {
             bitWrite(Settings->rule_enabled, i, 0);  // Disable rules causing boot loop
           }
         }
+        Settings->flag4.network_wifi = 1;            // Enable wifi if disabled
       }
       if (RtcReboot.fast_reboot_count > Settings->param[P_BOOT_LOOP_OFFSET] +2) {  // Restarted 4 times
         Settings->rule_enabled = 0;                  // Disable all rules
@@ -610,8 +620,7 @@ void setup(void) {
   }
 #endif // USE_BERRY
 
-  XdrvCall(FUNC_PRE_INIT);
-  XsnsCall(FUNC_PRE_INIT);
+  XdrvXsnsCall(FUNC_PRE_INIT);
 
   TasmotaGlobal.init_state = INIT_GPIOS;
 
@@ -629,8 +638,7 @@ void setup(void) {
   ArduinoOTAInit();
 #endif  // USE_ARDUINO_OTA
 
-  XdrvCall(FUNC_INIT);
-  XsnsCall(FUNC_INIT);
+  XdrvXsnsCall(FUNC_INIT);
 #ifdef USE_SCRIPT
   if (bitRead(Settings->rule_enabled, 0)) Run_Scripter(">BS",3,0);
 #endif
@@ -674,7 +682,8 @@ void BacklogLoop(void) {
 void SleepDelay(uint32_t mseconds) {
   if (!TasmotaGlobal.backlog_nodelay && mseconds) {
     uint32_t wait = millis() + mseconds;
-    while (!TimeReached(wait) && !Serial.available() && !TasmotaGlobal.skip_sleep) {  // We need to service serial buffer ASAP as otherwise we get uart buffer overrun
+    while (!TimeReached(wait) && !Serial.available()) {  // We need to service serial buffer ASAP as otherwise we get uart buffer overrun
+      XdrvCall(FUNC_SLEEP_LOOP);  // Main purpose is reacting ASAP on serial data availability or interrupt handling (ADE7880)
       delay(1);
     }
   } else {
@@ -683,8 +692,7 @@ void SleepDelay(uint32_t mseconds) {
 }
 
 void Scheduler(void) {
-  XdrvCall(FUNC_LOOP);
-  XsnsCall(FUNC_LOOP);
+  XdrvXsnsCall(FUNC_LOOP);
 
 // check LEAmDNS.h
 // MDNS.update() needs to be called in main loop
@@ -712,32 +720,28 @@ void Scheduler(void) {
 #ifdef ROTARY_V1
     RotaryHandler();
 #endif  // ROTARY_V1
-    XdrvCall(FUNC_EVERY_50_MSECOND);
-    XsnsCall(FUNC_EVERY_50_MSECOND);
+    XdrvXsnsCall(FUNC_EVERY_50_MSECOND);
   }
 
   static uint32_t state_100msecond = 0;            // State 100msecond timer
   if (TimeReached(state_100msecond)) {
     SetNextTimeInterval(state_100msecond, 100);
     Every100mSeconds();
-    XdrvCall(FUNC_EVERY_100_MSECOND);
-    XsnsCall(FUNC_EVERY_100_MSECOND);
+    XdrvXsnsCall(FUNC_EVERY_100_MSECOND);
   }
 
   static uint32_t state_250msecond = 0;            // State 250msecond timer
   if (TimeReached(state_250msecond)) {
     SetNextTimeInterval(state_250msecond, 250);
     Every250mSeconds();
-    XdrvCall(FUNC_EVERY_250_MSECOND);
-    XsnsCall(FUNC_EVERY_250_MSECOND);
+    XdrvXsnsCall(FUNC_EVERY_250_MSECOND);
   }
 
   static uint32_t state_second = 0;                // State second timer
   if (TimeReached(state_second)) {
     SetNextTimeInterval(state_second, 1000);
     PerformEverySecond();
-    XdrvCall(FUNC_EVERY_SECOND);
-    XsnsCall(FUNC_EVERY_SECOND);
+    XdrvXsnsCall(FUNC_EVERY_SECOND);
   }
 
   if (!TasmotaGlobal.serial_local) { SerialInput(); }

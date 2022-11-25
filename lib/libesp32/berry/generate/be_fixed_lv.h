@@ -1,7 +1,7 @@
 #include "be_constobj.h"
 
 static be_define_const_map_slots(m_liblv_map) {
-    { be_const_key(init, -1), be_const_closure(lv_lv_module_init_closure) },
+    { be_const_key(init, -1), be_const_closure(lv_module_init_closure) },
     { be_const_key(member, 0), be_const_func(lv0_member) },
 };
 

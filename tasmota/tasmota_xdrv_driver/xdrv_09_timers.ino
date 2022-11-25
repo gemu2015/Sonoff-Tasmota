@@ -41,14 +41,14 @@
 const char kTimerCommands[] PROGMEM = "|"  // No prefix
   D_CMND_TIMER "|" D_CMND_TIMERS
 #ifdef USE_SUNRISE
-  "|" D_CMND_LATITUDE "|" D_CMND_LONGITUDE
+  "|" D_CMND_LATITUDE "|" D_CMND_LONGITUDE "|" D_CMND_SUNRISE
 #endif
   ;
 
 void (* const TimerCommand[])(void) PROGMEM = {
   &CmndTimer, &CmndTimers
 #ifdef USE_SUNRISE
-  , &CmndLatitude, &CmndLongitude
+  , &CmndLatitude, &CmndLongitude, &CmndSunrise
 #endif
   };
 
@@ -129,7 +129,19 @@ void DuskTillDawn(uint8_t *hour_up,uint8_t *minute_up, uint8_t *hour_down, uint8
   h (D) = -12.0 nautische Dämmerung
   h (D) = -18.0 astronomische Dämmerung
   */
-  const float h = SUNRISE_DAWN_ANGLE * RAD;
+  float sunrise_dawn_angle = DAWN_NORMAL;
+  switch (Settings->mbflag2.sunrise_dawn_angle) {
+    case 1:
+      sunrise_dawn_angle = DAWN_CIVIL;
+      break;
+    case 2:
+      sunrise_dawn_angle = DAWN_NAUTIC;
+      break;
+    case 3:
+      sunrise_dawn_angle = DAWN_ASTRONOMIC;
+      break;
+  }
+  const float h = sunrise_dawn_angle * RAD;
   const float sin_h = sinf(h);    // let GCC pre-compute the sin() at compile time
 
   float B = Settings->latitude / (1000000.0f / RAD); // geographische Breite
@@ -241,10 +253,10 @@ uint16_t TimerGetTimeOfDay(uint8_t index)
   int16_t xtime = xtimer.time;
 #ifdef USE_SUNRISE
   if (xtimer.mode) {
-  if (xtime >= 12*60) xtime = 12*60 - xtime;
-  xtime += (int16_t)SunMinutes(xtimer.mode-1);
-  if (xtime <      0) xtime += 24*60;
-  if (xtime >= 24*60) xtime -= 24*60;
+    ApplyTimerOffsets(&xtimer);
+    xtime = xtimer.time;
+    if (xtime==2047 && xtimer.mode==1) xtime *= -1; // Sun always has already rises
+    if (xtime==2046 && xtimer.mode==2) xtime *= -1; // Sun always has already set   
   }
 #endif
 return xtime;
@@ -508,20 +520,25 @@ void CmndTimers(void)
 }
 
 #ifdef USE_SUNRISE
-void CmndLongitude(void)
-{
+void CmndLongitude(void) {
   if (XdrvMailbox.data_len) {
     Settings->longitude = (int)(CharToFloat(XdrvMailbox.data) *1000000);
   }
   ResponseCmndFloat((float)(Settings->longitude) /1000000, 6);
 }
 
-void CmndLatitude(void)
-{
+void CmndLatitude(void) {
   if (XdrvMailbox.data_len) {
     Settings->latitude = (int)(CharToFloat(XdrvMailbox.data) *1000000);
   }
   ResponseCmndFloat((float)(Settings->latitude) /1000000, 6);
+}
+
+void CmndSunrise(void) {
+  if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload <= 3)) {
+    Settings->mbflag2.sunrise_dawn_angle = XdrvMailbox.payload;
+  }
+  ResponseCmndNumber(Settings->mbflag2.sunrise_dawn_angle);
 }
 #endif  // USE_SUNRISE
 
@@ -929,7 +946,7 @@ void TimerSaveSettings(void)
  * Interface
 \*********************************************************************************************/
 
-bool Xdrv09(uint8_t function)
+bool Xdrv09(uint32_t function)
 {
   bool result = false;
 

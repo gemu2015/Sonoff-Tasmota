@@ -536,7 +536,6 @@ void Ade7880Cycle(void) {
 
 void Ade7880Service0(void) {
   // Poll sequence
-  SkipSleep(false);
   Ade7880Cycle();
   Ade7880.watchdog = 0;
   Ade7880.irq0_state = 0;
@@ -546,7 +545,6 @@ void IRAM_ATTR Ade7880Isr0(void) {
   // Poll sequence
   if (!Ade7880.irq0_state) {
     Ade7880.irq0_state = 1;
-    SkipSleep(true);
   }
 }
 
@@ -738,7 +736,7 @@ const char HTTP_ADE7880_CURRENT[] PROGMEM = "{s}" D_CURRENT_NEUTRAL "{m}%s " D_U
 #endif  // USE_WEBSERVER
 
 void Ade7880Show(bool json) {
-  char value_chr[TOPSZ];
+  char value_chr[GUISZ];
 
   if (json) {
     ResponseAppend_P(PSTR(",\"" D_JSON_CURRENT_NEUTRAL "\":%s"),
@@ -755,7 +753,7 @@ void Ade7880Show(bool json) {
  * Interface
 \*********************************************************************************************/
 
-bool Xnrg23(uint8_t function) {
+bool Xnrg23(uint32_t function) {
   if (!I2cEnabled(XI2C_65)) { return false; }
 
   bool result = false;

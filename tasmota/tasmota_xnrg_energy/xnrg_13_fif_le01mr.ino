@@ -262,8 +262,8 @@ void FifLEShow(bool json) {
 */
 
 void FifLEShow(bool json) {
-  char value_chr[TOPSZ];
-  char value2_chr[TOPSZ];
+  char value_chr[GUISZ];
+  char value2_chr[GUISZ];
 
   if (json) {
     ResponseAppend_P(PSTR(",\"" D_JSON_TOTAL_ACTIVE "\":%s,\"" D_JSON_TOTAL_REACTIVE "\":%s"),
@@ -282,7 +282,7 @@ void FifLEShow(bool json) {
  * Interface
 \*********************************************************************************************/
 
-bool Xnrg13(uint8_t function)
+bool Xnrg13(uint32_t function)
 {
   bool result = false;
 

@@ -38,6 +38,7 @@ return_types = {
   "char *": "c",
   "uint8_t *": "c",
   "const char *": "s",
+  "retchar *": "s",
   "constchar *": "s",       # special construct
   "lv_obj_user_data_t": "i",
 
@@ -245,6 +246,7 @@ with open(lv_widgets_file) as f:
     l_raw = re.sub('static ', '', l_raw)
     l_raw = re.sub('inline ', '', l_raw)
     l_raw = re.sub('const\s+char\s*\*', 'constchar *', l_raw)
+    l_raw = re.sub('^char\s*\*', 'retchar *', l_raw)    # special case for returning a char*
     l_raw = re.sub('const ', '', l_raw)
     l_raw = re.sub('struct ', '', l_raw)
     if (len(l_raw) == 0): continue
@@ -817,42 +819,11 @@ print("""
 
 const size_t lv0_constants_size = sizeof(lv0_constants)/sizeof(lv0_constants[0]);
 
-/********************************************************************
-** Solidified function: lv_module_init
-********************************************************************/
-be_local_closure(lv_lv_module_init,   /* name */
-  be_nested_proto(
-    3,                          /* nstack */
-    1,                          /* argc */
-    0,                          /* varg */
-    0,                          /* has upvals */
-    NULL,                       /* no upvals */
-    0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
-    1,                          /* has constants */
-    ( &(const bvalue[ 3]) {     /* constants */
-    /* K0   */  be_nested_str(lv),
-    /* K1   */  be_nested_str(member),
-    /* K2   */  be_nested_str(lv_solidified),
-    }),
-    &be_const_str_lv_module_init,
-    &be_const_str_solidified,
-    ( &(const binstruction[ 7]) {  /* code */
-      0x6004000B,  //  0000  GETGBL	R1	G11
-      0x58080000,  //  0001  LDCONST	R2	K0
-      0x7C040200,  //  0002  CALL	R1	1
-      0x88080101,  //  0003  GETMBR	R2	R0	K1
-      0x90060202,  //  0004  SETMBR	R1	K1	R2
-      0x90060400,  //  0005  SETMBR	R1	K2	R0
-      0x80040200,  //  0006  RET	1	R1
-    })
-  )
-);
-/*******************************************************************/
+#include "../src/solidify/solidified_lv.h"
 
 /* @const_object_info_begin
 module lv (scope: global, file: lv) {
-    init, closure(lv_lv_module_init_closure)
+    init, closure(lv_module_init_closure)
     member, func(lv0_member)
 }
 @const_object_info_end */

@@ -597,8 +597,7 @@ void StartWebserver(int type, IPAddress ipweb)
 //      Webserver->on(F("/u2"), HTTP_POST, HandleUploadDone, HandleUploadLoop);  // this call requires 2 functions so we keep a direct call
       Webserver->on("/u2", HTTP_POST, HandleUploadDone, HandleUploadLoop);  // this call requires 2 functions so we keep a direct call
 #ifndef FIRMWARE_MINIMAL
-      XdrvCall(FUNC_WEB_ADD_HANDLER);
-      XsnsCall(FUNC_WEB_ADD_HANDLER);
+      XdrvXsnsCall(FUNC_WEB_ADD_HANDLER);
 #endif  // Not FIRMWARE_MINIMAL
 
       if (!Web.initial_config) {
@@ -1085,8 +1084,7 @@ uint32_t WebUseManagementSubmenu(void) {
 
   if (!management_count) {
     XdrvMailbox.index = 1;
-    XdrvCall(FUNC_WEB_ADD_CONSOLE_BUTTON);
-    XsnsCall(FUNC_WEB_ADD_CONSOLE_BUTTON);
+    XdrvXsnsCall(FUNC_WEB_ADD_CONSOLE_BUTTON);
     XdrvCall(FUNC_WEB_ADD_MANAGEMENT_BUTTON);
     management_count = XdrvMailbox.index;
   }
@@ -1288,8 +1286,7 @@ void HandleRoot(void)
   }
 
 #ifndef FIRMWARE_MINIMAL
-  XdrvCall(FUNC_WEB_ADD_MAIN_BUTTON);
-  XsnsCall(FUNC_WEB_ADD_MAIN_BUTTON);
+  XdrvXsnsCall(FUNC_WEB_ADD_MAIN_BUTTON);
 #endif  // Not FIRMWARE_MINIMAL
 
   if (HTTP_ADMIN == Web.state) {
@@ -1442,8 +1439,7 @@ bool HandleRootStatusRefresh(void)
   }
 #endif // USE_ZIGBEE
 
-  XsnsCall(FUNC_WEB_GET_ARG);
-  XdrvCall(FUNC_WEB_GET_ARG);
+  XsnsXdrvCall(FUNC_WEB_GET_ARG);
 
 #ifdef USE_WEB_SSE
   WSContentBegin(200, CT_STREAM);
@@ -1455,8 +1451,7 @@ bool HandleRootStatusRefresh(void)
   if (Settings->web_time_end) {
     WSContentSend_P(PSTR("{s}" D_TIMER_TIME "{m}%s{e}"), GetDateAndTime(DT_LOCAL).substring(Settings->web_time_start, Settings->web_time_end).c_str());
   }
-  XsnsCall(FUNC_WEB_SENSOR);
-  XdrvCall(FUNC_WEB_SENSOR);
+  XsnsXdrvCall(FUNC_WEB_SENSOR);
 
   WSContentSend_P(PSTR("</table>"));
 
@@ -1522,8 +1517,7 @@ void HandleConfiguration(void)
   WSContentButton(BUTTON_MODULE);
   WSContentButton(BUTTON_WIFI);
 
-  XdrvCall(FUNC_WEB_ADD_BUTTON);
-  XsnsCall(FUNC_WEB_ADD_BUTTON);
+  XdrvXsnsCall(FUNC_WEB_ADD_BUTTON);
 
   WSContentButton(BUTTON_LOGGING);
   WSContentButton(BUTTON_OTHER);
@@ -2334,7 +2328,7 @@ void HandleInformation(void)
   // }2 = </th><td>
   WSContentSend_P(HTTP_SCRIPT_INFO_BEGIN);
   WSContentSend_P(PSTR("<table style='width:100%%'><tr><th>"));
-  WSContentSend_P(PSTR(D_PROGRAM_VERSION "}2%s%s"), TasmotaGlobal.version, TasmotaGlobal.image_name);
+  WSContentSend_P(PSTR(D_PROGRAM_VERSION "}2%s%s%s"), TasmotaGlobal.version, TasmotaGlobal.image_name, GetCodeCores().c_str());
   WSContentSend_P(PSTR("}1" D_BUILD_DATE_AND_TIME "}2%s"), GetBuildDateAndTime().c_str());
   WSContentSend_P(PSTR("}1" D_CORE_AND_SDK_VERSION "}2" ARDUINO_CORE_RELEASE "/%s"), ESP.getSdkVersion());
   WSContentSend_P(PSTR("}1" D_UPTIME "}2%s"), GetUptime().c_str());
@@ -2853,8 +2847,7 @@ void HandleUploadLoop(void) {
 #ifdef USE_WEB_FW_UPGRADE
     else if (BUpload.active) {
       // Write a block
-//      AddLog(LOG_LEVEL_DEBUG, PSTR("DBG: Size %d"), upload.currentSize);
-//      AddLogBuffer(LOG_LEVEL_DEBUG, upload.buf, 32);
+//      AddLog(LOG_LEVEL_DEBUG, PSTR("DBG: Size %d, Data '%32_H'"), upload.currentSize, upload.buf);
       Web.upload_error = BUploadWriteBuffer(upload.buf, upload.currentSize);
       if (Web.upload_error != 0) { return; }
     }
@@ -3106,8 +3099,7 @@ void HandleManagement(void)
   WSContentButton(BUTTON_CONSOLE);
 
   XdrvMailbox.index = 0;
-  XdrvCall(FUNC_WEB_ADD_CONSOLE_BUTTON);
-  XsnsCall(FUNC_WEB_ADD_CONSOLE_BUTTON);
+  XdrvXsnsCall(FUNC_WEB_ADD_CONSOLE_BUTTON);
 
   WSContentSend_P(PSTR("<div></div>"));            // 5px padding
   XdrvCall(FUNC_WEB_ADD_MANAGEMENT_BUTTON);
@@ -3696,7 +3688,7 @@ void CmndCors(void)
  * Interface
 \*********************************************************************************************/
 
-bool Xdrv01(uint8_t function)
+bool Xdrv01(uint32_t function)
 {
   bool result = false;
 

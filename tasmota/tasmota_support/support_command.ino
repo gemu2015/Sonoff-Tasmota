@@ -46,7 +46,11 @@ const char kTasmotaCommands[] PROGMEM = "|"  // No prefix
 #endif  // USE_DEVICE_GROUPS
   D_CMND_SETSENSOR "|" D_CMND_SENSOR "|" D_CMND_DRIVER "|" D_CMND_JSON
 #ifdef ESP32
-   "|Info|" D_CMND_TOUCH_CAL "|" D_CMND_TOUCH_THRES "|" D_CMND_TOUCH_NUM "|" D_CMND_CPU_FREQUENCY
+   "|Info|"
+#if defined(SOC_TOUCH_VERSION_1) || defined(SOC_TOUCH_VERSION_2)
+  D_CMND_TOUCH_CAL "|" D_CMND_TOUCH_THRES "|"
+#endif  // ESP32 SOC_TOUCH_VERSION_1 or SOC_TOUCH_VERSION_2
+  D_CMND_CPU_FREQUENCY
 #endif  // ESP32
 #endif   //FIRMWARE_MINIMAL_ONLY
   ;
@@ -81,7 +85,11 @@ void (* const TasmotaCommand[])(void) PROGMEM = {
 #endif  // USE_DEVICE_GROUPS
   &CmndSetSensor, &CmndSensor, &CmndDriver, &CmndJson
 #ifdef ESP32
-  , &CmndInfo, &CmndTouchCal, &CmndTouchThres, &CmndTouchNum, &CmndCpuFrequency
+  , &CmndInfo,
+#if defined(SOC_TOUCH_VERSION_1) || defined(SOC_TOUCH_VERSION_2)
+  &CmndTouchCal, &CmndTouchThres,
+#endif  // ESP32 SOC_TOUCH_VERSION_1 or SOC_TOUCH_VERSION_2
+  &CmndCpuFrequency
 #endif  // ESP32
 #endif   //FIRMWARE_MINIMAL_ONLY
   };
@@ -321,6 +329,7 @@ void ExecuteCommand(const char *cmnd, uint32_t source)
   // cmnd: "var1=1"    = stopic "var1" and svalue "=1"
   SHOW_FREE_MEM(PSTR("ExecuteCommand"));
   ShowSource(source);
+  TasmotaGlobal.last_command_source = source;
 
   const char *pos = cmnd;
   while (*pos && isspace(*pos)) {
@@ -403,9 +412,11 @@ void CommandHandler(char* topicBuf, char* dataBuf, uint32_t data_len)
 
   bool binary_data = (index > 199);        // Suppose binary data on topic index > 199
   if (!binary_data) {
-    while (*dataBuf && isspace(*dataBuf)) {
-      dataBuf++;                           // Skip leading spaces in data
-      data_len--;
+    if (strstr_P(type, PSTR("SERIALSEND")) == nullptr) {  // Do not skip leading spaces on (s)serialsend
+      while (*dataBuf && isspace(*dataBuf)) {
+        dataBuf++;                           // Skip leading spaces in data
+        data_len--;
+      }
     }
   }
 
@@ -735,14 +746,14 @@ void CmndStatus(void)
   }
 
   if ((0 == payload) || (2 == payload)) {
-    Response_P(PSTR("{\"" D_CMND_STATUS D_STATUS2_FIRMWARE "\":{\"" D_JSON_VERSION "\":\"%s%s\",\"" D_JSON_BUILDDATETIME "\":\"%s\""
+    Response_P(PSTR("{\"" D_CMND_STATUS D_STATUS2_FIRMWARE "\":{\"" D_JSON_VERSION "\":\"%s%s%s\",\"" D_JSON_BUILDDATETIME "\":\"%s\""
 #ifdef ESP8266
                           ",\"" D_JSON_BOOTVERSION "\":%d"
 #endif
                           ",\"" D_JSON_COREVERSION "\":\"" ARDUINO_CORE_RELEASE "\",\"" D_JSON_SDKVERSION "\":\"%s\","
                           "\"CpuFrequency\":%d,\"Hardware\":\"%s\""
                           "%s}}"),
-                          TasmotaGlobal.version, TasmotaGlobal.image_name, GetBuildDateAndTime().c_str()
+                          TasmotaGlobal.version, TasmotaGlobal.image_name, GetCodeCores().c_str(), GetBuildDateAndTime().c_str()
 #ifdef ESP8266
                           , ESP.getBootVersion()
 #endif
@@ -2468,10 +2479,14 @@ void CmndWifi(void)
       WifiEnable();
 #endif
     }
-#ifdef ESP8266
   } else if ((XdrvMailbox.payload >= 2) && (XdrvMailbox.payload <= 4)) {
-    WiFi.setPhyMode(WiFiPhyMode_t(XdrvMailbox.payload - 1));  // 1-B/2-BG/3-BGN
+    // Wifi 2 = B
+    // Wifi 3 = BG
+    // Wifi 4 = BGN
+#ifdef ESP32
+    Wifi.phy_mode = XdrvMailbox.payload - 1;
 #endif
+    WiFi.setPhyMode(WiFiPhyMode_t(XdrvMailbox.payload - 1));  // 1-B/2-BG/3-BGN
   }
   Response_P(PSTR("{\"" D_JSON_WIFI "\":\"%s\",\"" D_JSON_WIFI_MODE "\":\"11%c\"}"), GetStateText(Settings->flag4.network_wifi), pgm_read_byte(&kWifiPhyMode[WiFi.getPhyMode() & 0x3]) );
 }
@@ -2608,34 +2623,29 @@ void CmndCpuFrequency(void) {
   ResponseCmndNumber(getCpuFrequencyMhz());
 }
 
+#if defined(SOC_TOUCH_VERSION_1) || defined(SOC_TOUCH_VERSION_2)
 void CmndTouchCal(void) {
   if (XdrvMailbox.payload >= 0) {
     if (XdrvMailbox.payload == 0) {
-      TOUCH_BUTTON.calibration = 0;
+      TouchButton.calibration = 0;
     }
     else if (XdrvMailbox.payload < MAX_KEYS + 1) {
-      TOUCH_BUTTON.calibration = bitSet(TOUCH_BUTTON.calibration, XdrvMailbox.payload);
+      TouchButton.calibration = bitSet(TouchButton.calibration, XdrvMailbox.payload);
     }
     else if (XdrvMailbox.payload == 255) {
-      TOUCH_BUTTON.calibration = 0x0FFFFFFF;  // All MAX_KEYS pins
+      TouchButton.calibration = 0x0FFFFFFF;  // All MAX_KEYS pins
     }
   }
-  ResponseCmndNumber(TOUCH_BUTTON.calibration);
+  ResponseCmndNumber(TouchButton.calibration);
   AddLog(LOG_LEVEL_INFO, PSTR("Button Touchvalue Hits,"));
 }
 
 void CmndTouchThres(void) {
-  if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload < 32000)) {
-    TOUCH_BUTTON.pin_threshold = XdrvMailbox.payload;
+  if (XdrvMailbox.data_len > 0) {
+    Settings->touch_threshold = XdrvMailbox.payload;
   }
-  ResponseCmndNumber(TOUCH_BUTTON.pin_threshold);
+  ResponseCmndNumber(Settings->touch_threshold);
 }
-
-void CmndTouchNum(void) {
-  if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload < 32)) {
-    TOUCH_BUTTON.hit_threshold = XdrvMailbox.payload;
-  }
-  ResponseCmndNumber(TOUCH_BUTTON.hit_threshold);
-}
+#endif  // ESP32 SOC_TOUCH_VERSION_1 or SOC_TOUCH_VERSION_2
 
 #endif  // ESP32

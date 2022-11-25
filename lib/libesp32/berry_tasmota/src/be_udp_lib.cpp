@@ -37,7 +37,7 @@ extern "C" {
     return be_call_c_func(vm, (void*) &be_udp_deinit_ntv, "=.p", "");
   }
 
-  // udp.begin(address:string, port:int) -> nil
+  // udp.begin(address:string, port:int) -> bool
   int32_t be_udp_begin_ntv(WiFiUDP *udp, const char *host, int32_t port) {
     IPAddress addr((uint32_t)0);
     // if no host or host is "" then we defult to INADDR_ANY (0.0.0.0)
@@ -48,6 +48,14 @@ extern "C" {
   }
   int32_t be_udp_begin(struct bvm *vm) {
     return be_call_c_func(vm, (void*) &be_udp_begin_ntv, "b", ".si");
+  }
+
+  // udp.stop() -> nil
+  void be_udp_stop_ntv(WiFiUDP *udp) {
+    udp->stop();
+  }
+  int32_t be_udp_stop(struct bvm *vm) {
+    return be_call_c_func(vm, (void*) &be_udp_stop_ntv, "b", ".");
   }
 
   // udp.begin_multicast(address:string, port:int) -> nil
@@ -94,10 +102,30 @@ extern "C" {
   int32_t be_udp_read(struct bvm *vm) {
     WiFiUDP *udp = (WiFiUDP*) be_convert_single_elt(vm, 1, NULL, NULL);
     if (udp->parsePacket()) {
-      int btr = udp->available();
-      uint8_t * buf = (uint8_t*) be_pushbuffer(vm, btr);
+      int btr = udp->available();   // btr contains the size of bytes_to_read
+
+      int argc = be_top(vm);
+      if (argc >= 2 && be_isbytes(vm, 2)) {
+        // we have already a bytes() buffer
+        be_pushvalue(vm, 2);    // push on top
+        // resize to btr
+        be_getmember(vm, -1, "resize");
+        be_pushvalue(vm, -2);
+        be_pushint(vm, btr);
+        be_call(vm, 2);
+        be_pop(vm, 3);
+      } else {
+        be_pushbytes(vm, nullptr, btr); // allocate a buffer of size btr filled with zeros
+      }
+
+      // get the address of the buffer
+      be_getmember(vm, -1, "_buffer");
+      be_pushvalue(vm, -2);
+      be_call(vm, 1);
+      uint8_t * buf = (uint8_t*) be_tocomptr(vm, -2);
+      be_pop(vm, 2);
+
       int32_t btr2 = udp->read(buf, btr);
-      be_pushbytes(vm, buf, btr2);
 
       // set remotet ip
       IPAddress remote_ip = udp->remoteIP();
@@ -139,6 +167,7 @@ class be_class_udp (scope: global, name: udp) {
     begin, func(be_udp_begin)
     begin_multicast, func(be_udp_begin_mcast)
     read, func(be_udp_read)
+    close, func(be_udp_stop)
 }
 @const_object_info_end */
 

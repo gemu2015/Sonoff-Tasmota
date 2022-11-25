@@ -45,7 +45,7 @@ void RtcSettingsSave(void) {
     if (RTC_MEM_VALID != RtcSettings.valid) {
       memset(&RtcSettings, 0, sizeof(RtcSettings));
       RtcSettings.valid = RTC_MEM_VALID;
-//      RtcSettings.ex_energy_kWhtoday = Settings->ex_energy_kWhtoday;
+//      RtcSettings.ex_energy_kWhtoday = Settings->energy_power_calibration2;  // = ex_energy_kWhtoday
 //      RtcSettings.ex_energy_kWhtotal = Settings->ex_energy_kWhtotal;
       for (uint32_t i = 0; i < 3; i++) {
         RtcSettings.energy_kWhtoday_ph[i] = Settings->energy_kWhtoday_ph[i];
@@ -367,8 +367,7 @@ void SettingsSaveAll(void) {
   } else {
     Settings->power = 0;
   }
-  XsnsCall(FUNC_SAVE_BEFORE_RESTART);
-  XdrvCall(FUNC_SAVE_BEFORE_RESTART);
+  XsnsXdrvCall(FUNC_SAVE_BEFORE_RESTART);
   SettingsSave(0);
 }
 
@@ -603,8 +602,7 @@ void SettingsSave(uint8_t rotate) {
  * stop_flash_rotate 1 = Allow only eeprom flash slot use (SetOption12 1)
  */
 #ifndef FIRMWARE_MINIMAL
-  XsnsCall(FUNC_SAVE_SETTINGS);
-  XdrvCall(FUNC_SAVE_SETTINGS);
+  XsnsXdrvCall(FUNC_SAVE_SETTINGS);
   UpdateBackwardCompatibility();
   if ((GetSettingsCrc32() != settings_crc32) || rotate) {
     if (1 == rotate) {                                 // Use eeprom flash slot only and disable flash rotate from now on (upgrade)
@@ -838,6 +836,7 @@ void SettingsDefaultSet2(void) {
   SOBitfield3  flag3 = { 0 };
   SOBitfield4  flag4 = { 0 };
   SOBitfield5  flag5 = { 0 };
+  SOBitfield6  flag6 = { 0 };
   SysMBitfield1  flag2 = { 0 };
   SysMBitfield2  mbflag2 = { 0 };
 
@@ -855,6 +854,7 @@ void SettingsDefaultSet2(void) {
 #else
   Settings->config_version = 1;  // ESP32
 #endif  // CONFIG_IDF_TARGET_ESP32S3
+  Settings->webcam_clk = 20;
 #endif  // ESP32
 
   flag.stop_flash_rotate |= APP_FLASH_CYCLE;
@@ -912,6 +912,7 @@ void SettingsDefaultSet2(void) {
   // Serial
   Settings->serial_config = TS_SERIAL_8N1;
   Settings->baudrate = APP_BAUDRATE / 300;
+  Settings->sserial_config = TS_SERIAL_8N1;
   Settings->sbaudrate = SOFT_BAUDRATE / 300;
   Settings->serial_delimiter = 0xff;
   Settings->seriallog_level = SERIAL_LOG_LEVEL;
@@ -975,6 +976,9 @@ void SettingsDefaultSet2(void) {
   flag.button_swap |= KEY_SWAP_DOUBLE_PRESS;
   flag.button_single |= KEY_ONLY_SINGLE_PRESS;
   Settings->param[P_HOLD_TIME] = KEY_HOLD_TIME;  // Default 4 seconds hold time
+#if defined(SOC_TOUCH_VERSION_1) || defined(SOC_TOUCH_VERSION_2)
+  Settings->touch_threshold = ESP32_TOUCH_THRESHOLD;
+#endif  // ESP32 SOC_TOUCH_VERSION_1 or SOC_TOUCH_VERSION_2
 
   // Switch
   for (uint32_t i = 0; i < MAX_SWITCHES_SET; i++) { Settings->switchmode[i] = SWITCH_MODE; }
@@ -992,6 +996,7 @@ void SettingsDefaultSet2(void) {
   flag5.mqtt_status_retain |= MQTT_STATUS_RETAIN;
   flag5.mqtt_switches |= MQTT_SWITCHES;
   flag5.mqtt_persistent |= ~MQTT_CLEAN_SESSION;
+  flag6.mqtt_disable_sserialrec |= MQTT_DISABLE_SSERIALRECEIVED;
 //  flag.mqtt_serial |= 0;
   flag.device_index_enable |= MQTT_POWER_FORMAT;
   flag3.time_append_timezone |= MQTT_APPEND_TIMEZONE;
@@ -1040,6 +1045,9 @@ void SettingsDefaultSet2(void) {
   Settings->energy_power_calibration = HLW_PREF_PULSE;
   Settings->energy_voltage_calibration = HLW_UREF_PULSE;
   Settings->energy_current_calibration = HLW_IREF_PULSE;
+  Settings->energy_power_calibration2 = HLW_PREF_PULSE;
+  Settings->energy_voltage_calibration2 = HLW_UREF_PULSE;
+  Settings->energy_current_calibration2 = HLW_IREF_PULSE;
 //  Settings->energy_kWhtoday_ph[0] = 0;
 //  Settings->energy_kWhtoday_ph[1] = 0;
 //  Settings->energy_kWhtoday_ph[2] = 0;
@@ -1209,6 +1217,10 @@ void SettingsDefaultSet2(void) {
   Settings->longitude = (int)((double)LONGITUDE * 1000000);
   SettingsResetStd();
   SettingsResetDst();
+//  if (DAWN_NORMAL == SUNRISE_DAWN_ANGLE) { mbflag2.sunrise_dawn_angle |= 0; }
+  if (DAWN_CIVIL == SUNRISE_DAWN_ANGLE) { mbflag2.sunrise_dawn_angle |= 1; }
+  else if (DAWN_NAUTIC == SUNRISE_DAWN_ANGLE) { mbflag2.sunrise_dawn_angle |= 2; }
+  else if (DAWN_ASTRONOMIC == SUNRISE_DAWN_ANGLE) { mbflag2.sunrise_dawn_angle |= 3; }
 
   Settings->button_debounce = KEY_DEBOUNCE_TIME;
   Settings->switch_debounce = SWITCH_DEBOUNCE_TIME;
@@ -1254,6 +1266,8 @@ void SettingsDefaultSet2(void) {
   Settings->flag3 = flag3;
   Settings->flag4 = flag4;
   Settings->flag5 = flag5;
+  Settings->flag6 = flag6;
+  Settings->mbflag2 = mbflag2;
 }
 
 void SettingsDefaultSet3(void) {
@@ -1456,7 +1470,7 @@ void SettingsDelta(void) {
     }
     if (Settings->version < 0x09020006) {
       for (uint32_t i = 0; i < MAX_SWITCHES_SET; i++) {
-        Settings->switchmode[i] = (i < 8) ? Settings->ex_switchmode[i] : SWITCH_MODE;
+        Settings->switchmode[i] = SWITCH_MODE;
       }
       for (uint32_t i = 0; i < MAX_INTERLOCKS_SET; i++) {
         Settings->interlock[i] = (i < 4) ? Settings->ds3502_state[i] : 0;
@@ -1520,8 +1534,8 @@ void SettingsDelta(void) {
       memset(&Settings->energy_kWhtoday_ph, 0, 36);
       memset(&RtcSettings.energy_kWhtoday_ph, 0, 24);
       Settings->energy_kWhtotal_ph[0] = Settings->ex_energy_kWhtotal;
-      Settings->energy_kWhtoday_ph[0] = Settings->ex_energy_kWhtoday;
-      Settings->energy_kWhyesterday_ph[0] = Settings->ex_energy_kWhyesterday;
+      Settings->energy_kWhtoday_ph[0] = Settings->energy_power_calibration2;  // = ex_energy_kWhtoday
+      Settings->energy_kWhyesterday_ph[0] = Settings->energy_voltage_calibration2;  // = ex_energy_kWhyesterday
       RtcSettings.energy_kWhtoday_ph[0] = RtcSettings.ex_energy_kWhtoday;
       RtcSettings.energy_kWhtotal_ph[0] = RtcSettings.ex_energy_kWhtotal;
     }
@@ -1569,6 +1583,33 @@ void SettingsDelta(void) {
     }
     if (Settings->version < 0x0C000204) {  // 12.0.2.4
       Settings->param[P_BISTABLE_PULSE] = APP_BISTABLE_PULSE;
+    }
+#if defined(SOC_TOUCH_VERSION_1) || defined(SOC_TOUCH_VERSION_2)
+    if (Settings->version < 0x0C010103) {  // 12.1.1.3
+      Settings->touch_threshold = ESP32_TOUCH_THRESHOLD;
+    }
+#endif  // ESP32 SOC_TOUCH_VERSION_1 or SOC_TOUCH_VERSION_2
+    if (Settings->version < 0x0C010105) {  // 12.1.1.5
+ //  if (DAWN_NORMAL == SUNRISE_DAWN_ANGLE) { mbflag2.sunrise_dawn_angle = 0; }
+      if (DAWN_CIVIL == SUNRISE_DAWN_ANGLE) { Settings->mbflag2.sunrise_dawn_angle = 1; }
+      else if (DAWN_NAUTIC == SUNRISE_DAWN_ANGLE) { Settings->mbflag2.sunrise_dawn_angle = 2; }
+      else if (DAWN_ASTRONOMIC == SUNRISE_DAWN_ANGLE) { Settings->mbflag2.sunrise_dawn_angle = 3; }
+    }
+#ifdef ESP32
+    if (Settings->version < 0x0C010106) {  // 12.1.1.6
+      Settings->webcam_clk = 20;
+    }
+#endif  // ESP32
+    if (Settings->version < 0x0C020002) {  // 12.2.0.2
+      Settings->energy_kWhdoy = Settings->energy_current_calibration2 & 0xFFFF;
+      Settings->energy_min_power = (Settings->energy_current_calibration2 >> 16) & 0xFFFF;
+      Settings->energy_power_calibration2 = Settings->energy_power_calibration;
+      Settings->energy_voltage_calibration2 = Settings->energy_voltage_calibration;
+      Settings->energy_current_calibration2 = Settings->energy_current_calibration;
+    }
+    if (Settings->version < 0x0C020005) {  // 12.2.0.5
+      Settings->modbus_sbaudrate = Settings->ex_modbus_sbaudrate;
+      Settings->param[P_SERIAL_SKIP] = 0;
     }
 
     Settings->version = VERSION;

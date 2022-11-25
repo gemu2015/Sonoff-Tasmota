@@ -1458,7 +1458,7 @@ bool findNextVariableValue(char * &pVarname, float &value)
   } else if (sVarName.startsWith(F("TIMER"))) {
     uint32_t index = sVarName.substring(5).toInt();
     if (index > 0 && index <= MAX_TIMERS) {
-      value = Settings->timer[index -1].time;
+      value = TimerGetTimeOfDay(index -1);
     }
 #if defined(USE_SUNRISE)
   } else if (sVarName.equals(F("SUNRISE"))) {
@@ -2441,7 +2441,7 @@ float map_double(float x, float in_min, float in_max, float out_min, float out_m
  * Interface
 \*********************************************************************************************/
 
-bool Xdrv10(uint8_t function)
+bool Xdrv10(uint32_t function)
 {
   bool result = false;
 

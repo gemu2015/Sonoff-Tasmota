@@ -522,11 +522,30 @@ bool MqttPublishLib(const char* topic, const uint8_t* payload, unsigned int plen
 //    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "Connection lost or message too large"));
     return false;
   }
+
   uint32_t written = MqttClient.write(payload, plength);
   if (written != plength) {
     AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "Message too large"));
     return false;
   }
+/*
+  // Solves #6525??
+  const uint8_t* write_buf = payload;
+  uint32_t bytes_remaining = plength;
+  uint32_t bytes_to_write;
+  uint32_t written;
+  while (bytes_remaining > 0) {
+    bytes_to_write = (bytes_remaining > 256) ? 256 : bytes_remaining;
+    written = MqttClient.write(write_buf, bytes_to_write);
+    if (written != bytes_to_write) {
+      AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_MQTT "Message too large"));
+      return false;
+    }
+    write_buf += written;
+    bytes_remaining -= written;
+  }
+*/
+
   MqttClient.endPublish();
 
   yield();  // #3313
@@ -942,8 +961,8 @@ void MqttConnected(void) {
   if (Mqtt.initial_connection_state) {
     if (ResetReason() != REASON_DEEP_SLEEP_AWAKE) {
       char stopic2[TOPSZ];
-      Response_P(PSTR("{\"Info1\":{\"" D_CMND_MODULE "\":\"%s\",\"" D_JSON_VERSION "\":\"%s%s\",\"" D_JSON_FALLBACKTOPIC "\":\"%s\",\"" D_CMND_GROUPTOPIC "\":\"%s\"}}"),
-        ModuleName().c_str(), TasmotaGlobal.version, TasmotaGlobal.image_name, GetFallbackTopic_P(stopic, ""), GetGroupTopic_P(stopic2, "", SET_MQTT_GRP_TOPIC));
+      Response_P(PSTR("{\"Info1\":{\"" D_CMND_MODULE "\":\"%s\",\"" D_JSON_VERSION "\":\"%s%s%s\",\"" D_JSON_FALLBACKTOPIC "\":\"%s\",\"" D_CMND_GROUPTOPIC "\":\"%s\"}}"),
+        ModuleName().c_str(), TasmotaGlobal.version, TasmotaGlobal.image_name, GetCodeCores().c_str(), GetFallbackTopic_P(stopic, ""), GetGroupTopic_P(stopic2, "", SET_MQTT_GRP_TOPIC));
       MqttPublishPrefixTopicRulesProcess_P(TELE, PSTR(D_RSLT_INFO "1"), Settings->flag5.mqtt_info_retain);
 #ifdef USE_WEBSERVER
       if (Settings->webserver) {
@@ -1984,7 +2003,7 @@ void MqttSaveSettings(void) {
  * Interface
 \*********************************************************************************************/
 
-bool Xdrv02(uint8_t function)
+bool Xdrv02(uint32_t function)
 {
   bool result = false;
 

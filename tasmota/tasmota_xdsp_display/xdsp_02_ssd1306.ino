@@ -64,10 +64,10 @@ void SSD1306InitDriver(void) {
   if (XDSP_02 == Settings->display_model) {
     I2cSetActiveFound(Settings->display_address[0], "SSD1306");
 
-    if ((Settings->display_width != 64) && (Settings->display_width != 96) && (Settings->display_width != 128)) {
+    if ((Settings->display_width != 72) && (Settings->display_width != 64) && (Settings->display_width != 96) && (Settings->display_width != 128)) {
       Settings->display_width = 128;
     }
-    if ((Settings->display_height != 16) && (Settings->display_height != 32) && (Settings->display_height != 48) && (Settings->display_height != 64)) {
+    if ((Settings->display_height != 40) && (Settings->display_height != 16) && (Settings->display_height != 32) && (Settings->display_height != 48) && (Settings->display_height != 64)) {
       Settings->display_height = 64;
     }
 
@@ -167,8 +167,7 @@ void Ssd1306Refresh(void)  // Every second
  * Interface
 \*********************************************************************************************/
 
-bool Xdsp02(byte function)
-{
+bool Xdsp02(uint32_t function) {
   if (!I2cEnabled(XI2C_04)) { return false; }
 
   bool result = false;

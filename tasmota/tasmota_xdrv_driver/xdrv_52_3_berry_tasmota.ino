@@ -265,6 +265,7 @@ extern "C" {
     be_map_insert_int(vm, "min", t->tm_min);
     be_map_insert_int(vm, "sec", t->tm_sec);
     be_map_insert_int(vm, "weekday", t->tm_wday);
+    be_map_insert_int(vm, "epoch", mktime(t));
     if (unparsed) be_map_insert_str(vm, "unparsed", unparsed);
     be_pop(vm, 1);
   }
@@ -319,6 +320,19 @@ extern "C" {
     if (top == 2 && be_isint(vm, 2)) {  // only 1 argument of type string accepted
       uint32_t timer = be_toint(vm, 2);
       delay(timer);
+      be_return_nil(vm); // Return
+    }
+    be_raise(vm, kTypeError, nullptr);
+  }
+
+  // Berry: tasmota.delay_microseconds(timer:int) -> nil
+  //
+  int32_t l_delay_microseconds(struct bvm *vm);
+  int32_t l_delay_microseconds(struct bvm *vm) {
+    int32_t top = be_top(vm); // Get the number of arguments
+    if (top == 2 && be_isint(vm, 2)) {  // only 1 argument of type string accepted
+      uint32_t timer = be_toint(vm, 2);
+      delayMicroseconds(timer);
       be_return_nil(vm); // Return
     }
     be_raise(vm, kTypeError, nullptr);

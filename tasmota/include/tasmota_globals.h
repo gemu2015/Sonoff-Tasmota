@@ -258,7 +258,8 @@ String EthernetMacAddress(void);
 #define TASM_FILE_DRIVER            "/.drvset%03d"
 #define TASM_FILE_SENSOR            "/.snsset%03d"
 #define TASM_FILE_TLSKEY            "/tlskey"          // TLS private key
-#define TASM_FILE_ZIGBEE            "/zb"              // Zigbee devices information blob
+#define TASM_FILE_ZIGBEE_LEGACY_V2  "/zb"              // Zigbee devices information blob, legacy v2
+#define TASM_FILE_ZIGBEE            "/zbv4"            // Zigbee devices information blob, now v4
 #define TASM_FILE_ZIGBEE_DATA       "/zbdata"          // Zigbee last known values of devices
 #define TASM_FILE_AUTOEXEC          "/autoexec.bat"    // Commands executed after restart
 #define TASM_FILE_CONFIG            "/config.sys"      // Settings executed after restart
@@ -282,6 +283,9 @@ String EthernetMacAddress(void);
 #endif
 #ifndef MQTT_CLEAN_SESSION
 #define MQTT_CLEAN_SESSION          1          // 0 = No clean session, 1 = Clean session (default)
+#endif
+#ifndef MQTT_DISABLE_SSERIALRECEIVED        
+#define MQTT_DISABLE_SSERIALRECEIVED 0         // 1 = Disable sserialreceived mqtt messages, 0 = Enable sserialreceived mqtt messages (default)
 #endif
 #ifndef MQTT_LWT_OFFLINE
 #define MQTT_LWT_OFFLINE            "Offline"  // MQTT LWT offline topic message

@@ -322,6 +322,7 @@ ZBM(ZBS_AF_REGISTER01, Z_SREQ | Z_AF, AF_REGISTER, 0x01 /* endpoint */, Z_B0(Z_P
                         0x05, 0x00 /* AppDeviceId */, 0x00 /* AppDevVer */, 0x00 /* LatencyReq */,
                         0x00 /* AppNumInClusters */, 0x00 /* AppNumOutClusters */)
 ZBM(ZBR_AF_REGISTER,   Z_SRSP | Z_AF, AF_REGISTER, Z_SUCCESS)   // 640000
+ZBM(ZBR_AF_REGISTER_NOERROR,   Z_SRSP | Z_AF, AF_REGISTER)   // 6400xx  -- don't abort if an error occurs
 ZBM(ZBS_AF_REGISTER0B, Z_SREQ | Z_AF, AF_REGISTER, 0x0B /* endpoint */, Z_B0(Z_PROF_HA), Z_B1(Z_PROF_HA),    // 2400040B050000000000
                         0x05, 0x00 /* AppDeviceId */, 0x00 /* AppDevVer */, 0x00 /* LatencyReq */,
                         0x00 /* AppNumInClusters */, 0x00 /* AppNumOutClusters */)
@@ -513,15 +514,16 @@ static const Zigbee_Instruction zb_prog[] PROGMEM = {
     ZI_SEND(ZBS_AF_REGISTER0B)                    // Z_AF register for endpoint 0B, profile 0x0104 Home Automation
     ZI_WAIT_RECV(1000, ZBR_AF_REGISTER)
     ZI_SEND(ZBS_AF_REGISTERF2)                    // Z_AF register for endpoint F2, profile 0xa1e0 Green Power
-    ZI_WAIT_RECV(1000, ZBR_AF_REGISTER)
+    ZI_WAIT_RECV(1000, ZBR_AF_REGISTER_NOERROR)   // don't abort if endpoint F2 was not accepted
     // Write again channels, see https://github.com/Koenkk/zigbee-herdsman/blob/37bea20ba04ee5d4938abc21a7569b43f831de32/src/adapter/z-stack/adapter/startZnp.ts#L244-L245
     ZI_SEND(ZBS_W_CHANN)                          // write CHANNEL
     ZI_WAIT_RECV(1000, ZBR_WNV_OK)
 
     // redo Z_ZDO:activeEpReq to check that Ep are available
-    ZI_SEND(ZBS_ZDO_ACTIVEEPREQ)                  // Z_ZDO:activeEpReq
-    ZI_WAIT_RECV(1000, ZBR_ZDO_ACTIVEEPREQ)
-    ZI_WAIT_UNTIL(1000, ZBR_ZDO_ACTIVEEPRSP_OK)
+    // This is not really necessary and will fail if F2 was not allowed
+    // ZI_SEND(ZBS_ZDO_ACTIVEEPREQ)                  // Z_ZDO:activeEpReq
+    // ZI_WAIT_RECV(1000, ZBR_ZDO_ACTIVEEPREQ)
+    // ZI_WAIT_UNTIL(1000, ZBR_ZDO_ACTIVEEPRSP_OK)
     ZI_SEND(ZBS_PERMITJOINREQ_CLOSE)              // Closing the Permit Join
     ZI_WAIT_RECV(1000, ZBR_PERMITJOINREQ)
     ZI_WAIT_UNTIL(1000, ZBR_PERMITJOIN_AREQ_RSP)

@@ -36,7 +36,7 @@ end
 
 var pattern = "#@\\s*solidify:([A-Za-z0-9_.,]+)"
 
-def parse_file(fname)
+def parse_file(fname, prefix_out)
   print("Parsing: ", fname)
   var f = open(prefix_dir + fname)
   var src = f.read()
@@ -81,5 +81,5 @@ clean_directory(prefix_out)
 var src_file_list = os.listdir(prefix_dir)
 for src_file : src_file_list
   if src_file[0] == '.'  continue end
-  parse_file(src_file)
+  parse_file(src_file, prefix_out)
 end

@@ -3,7 +3,143 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - Development
 
-## [12.1.1.2]
+## [12.2.0.5]
+### Added
+- ESP32 DS18x20 parasitic power usage when defining W1_PARASITE_POWER (#17112)
+- Optional define ``SERIAL_BRIDGE_BUFFER_SIZE`` to set Serial Bridge internal buffer size (Default ESP8266 = 256, ESP32 = 800)
+- Command ``SSerialBuffer 256..SERIAL_BRIDGE_BUFFER_SIZE`` to change serial bridge rx buffer size (#17120)
+- Command ``SetOption35 0..255`` to skip number of received messages in Serial Bridge (default 0) (#17140)
+- Teleinfo TEMPO (BBR) contract (#17160)
+
+### Breaking Changed
+
+### Changed
+- Serial Bridge default internal serial rx buffer size from 64 to 256 (#17120)
+- Accept filename extensions to GUI file upload input fields (#16875)
+- AC PWM dimmer lineair power distribution (#17177)
+
+### Fixed
+- ModbusBridge baudrates over 76500 baud (#17106)
+
+### Removed
+- Accept filename extensions to GUI file upload input fields as not functional in some browsers (#16875)
+
+## [12.2.0.4] 20221117
+### Added
+- Support for Plantower PMSx003T AQI models with temperature and humidity (#16971)
+- Support for Dingtian x595/x165 shift register based relay boards by Barbudor (#17032)
+- New ``FUNC_NETWORK_UP`` and ``FUNC_NETWORK_DOWN`` events
+- WS2812 and Light ArtNet DMX control over UDP port 6454 (#17059)
+- Command ``SwitchMode 16`` sending only MQTT message on inverted switch change (#17028)
+- Support for HMC5883L 3-Axis Digital Compass sensor by Andreas Achtzehn (#17069)
+- Berry add ``udp->close()`` method (#17094)
+- Command ``RgxClients`` for range extender clients list (#17048)
+- Command ``RgxPort [tcp|udp], gateway_port, client_mac, client_port`` for range extender port forwardings (#17092)
+
+### Changed
+- Reverted Flash Mode back from ``DIO`` to ``DOUT`` for ESP8266/ESP8285 (#17019)
+- ESP32 Framework (Core) from v2.0.5.2 to v2.0.5.3 (#17034)
+- TuyaMcu rewrite by btsimonh (#17051)
+- WS2812 sends signal to only ``Pixels`` leds instead of sending to 512 leds (#17055)
+- Zigbee improved Aqara plug support and completed cluster 0x0702 (#17073)
+- ESP32 LVGL library from v8.3.2 to v8.3.3 (no functional change)
+
+### Fixed
+- SenseAir S8 module detection (#17033)
+
+### Removed
+
+## [12.2.0.3] 20221109
+### Added
+- Support for BP1658CJ RGBCW led bulbs like Orein OS0100411267 by Cossid (#17011)
+
+### Breaking Changed
+- Redesign distance sensors VL53LXX, TOF10120, HRXL and DYP to use cm instead of mm (#17021)
+
+### Changed
+- Default Flash Mode changed from ``DOUT`` to ``DIO`` for ESP8266/ESP8285
+
+## [12.2.0.2] 20221107
+### Added
+- Support for Digital Addressable Lighting Interface (DALI) by Andrei Kazmirtsuk (#16938)
+- Support for two phase power calibration using commands ``PowerSet2``, ``VoltageSet2`` and ``CurrentSet2``
+- Support for NTAG2xx tags read and write on PN532 NFC reader (#16939)
+- Berry ``bytes().reverse()`` method (#16977)
+- ESP32 Support for DMX ArtNet Led matrix animations (#16984)
+- Command ``SetOption47 1..255`` to delay power on relay state in seconds reducing power surge. ``SO47 1`` delays until network connected. ``SO47 2`` delays until mqtt connected
+- ESP32 DMX ArtNet optimization to avoid any object allocation and avoid garbage collector pauses
+- Berry add ``dyn`` class
+
+### Changed
+- Move some persistent data (PowerLow)
+- ESP32 Framework (Core) from v2.0.5 to v2.0.5.2
+- ADE7953 monitoring from instant power to accumulated energy (#16941)
+
+### Fixed
+- Deduplicate code and fix %timer n% rule regression from v12.2.0 (#16914)
+- Serial initialization for baudrate and config (#16970)
+- ModbusBridge buffer overflow (#16979)
+- Default serial bridge configuration from 5N1 to 8N1 regression from v10.1.0.3
+
+### Removed
+- Define ``USE_PN532_DATA_RAW`` from NFC reader (#16939)
+
+## [12.2.0.1] 20221026
+### Added
+- DS18x20 support on up to four GPIOs by md5sum-as (#16833)
+- Berry add `bytes().setbytes()` (#16892)
+- Support for Shelly Pro 1/1PM and 2/2PM (#16773)
+- Add Zigbee router firmware for Sonoff ZBBridgePro (#16900)
+- Prepare for DMX ArtNet support on ESP32
+
+### Changed
+- DS18x20 ``DS18Alias`` to ``DS18Sens`` (#16833)
+- Compiling with reduced boards manifests in favour of Autoconfig (#16848)
+- Add NeoPool ``NPFiltration 2`` toggle cmnd (#16859)
+- ESP32 NimBLE library from v1.4.0 to v1.4.1 (#16775)
+
+### Fixed
+- BP5758D red channel corruption regression from v12.1.1.6 (#16850)
+
+## [Released]
+
+## [12.2.0] 20221017
+- Release Patrick
+
+## [12.1.1.6] 20221017
+### Added
+- Command ``WcClock 10..200`` set webcam clock in MHz. Default is 20
+- ESP32 Automatically resize FS to max flash size at initial boot (#16838)
+- Command ``SspmPowerOnState<relay> 0|1|2`` to set Sonoff SPM 4Relay module v1.2.0 power on state overruling tasmota  global power on state. 0 = Off, 1 = On, 2 = Saved state (#13447)
+- Support for Flash size 32/64/128 MB in Partition Wizard and auto-resize
+
+## [12.1.1.5] 20221013
+### Added
+- Command ``Sunrise 0..3`` to select sunrise dawn angle between Normal, Civil, Nautical or Astronomical (#16795)
+
+## [12.1.1.4] 20221012
+### Added
+- Support for Shelly Plus 2PM using template ``{"NAME":"Shelly Plus 2PM PCB v0.1.9","GPIO":[320,0,0,0,32,192,0,0,225,224,0,0,0,0,193,0,0,0,0,0,0,608,640,3458,0,0,0,0,0,9472,0,4736,0,0,0,0],"FLAG":0,"BASE":1,"CMND":"AdcParam1 2,10000,10000,3350"}``
+- Zigbee Alexa/Hue emulation, support multiple switches on separate endpoints (#16718)
+- Support for QMC5883L magnetic induction sensor by Helge Scheunemann (#16714)
+- LVGL/HASPmota add tiny "pixel perfect" fonts for small screens (#16758)
+- HASPmota support for TTF fonts (#16759)
+- Support for Modbus Energy Monitoring devices using a rule file. See ``xnrg_29_modbus.ino`` for more information
+
+### Changed
+- ESP32 LVGL library from v8.3.0 to v8.3.2
+- Increase serial console fixed input buffer size from 520 to 800
+- Swap Shelly EM internal channels A and B to match P1 and P2 (#16486)
+
+## [12.1.1.3] 20221003
+### Added
+- ESP32-S2 and ESP32-S3 touch button support
+- Zigbee friendly names per endpoint
+
+### Fixed
+- ESP32 touch button multi-press and hold detection (#16596)
+
+## [12.1.1.2] 20220927
 ### Added
 - Berry has persistent MQTT subscriptions: auto-subscribe at (re)connection
 - Berry automated solidification of code
@@ -12,6 +148,7 @@ All notable changes to this project will be documented in this file.
 - Zigbee support for decimal Voltage/Current/Power on power metering plugs
 - Command ``UrlFetch <url>`` to download a file to filesystem
 - Zigbee basic support for Green Power
+- Berry add ``introspect.setmodule(name:string, value:any) -> nil``
 
 ### Changed
 - ESP32 Increase number of button GPIOs from 8 to 28 (#16518)
@@ -19,10 +156,7 @@ All notable changes to this project will be documented in this file.
 - Tasmota Core32 from 2.0.4.1 to 2.0.5
 - IRremoteESP8266 library from v2.8.3 to v2.8.4
 - Zigbee report unprocessed attributes
-
-### Fixed
-
-### Removed
+- Platformio one Platform for all Tasmota frameworks Core32 2.0.5 (#16644)
 
 ## [12.1.1.1] 20220910
 ### Added
@@ -53,8 +187,6 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - ESP32 NimBLE library from v1.3.6 to v1.4.0
-
-## [Released]
 
 ## [12.1.1] 20220825
 - Release Patricia

@@ -52,6 +52,8 @@ uint8_t       Settings->knx_CB_param[MAX_KNX_CB]     Type of Output (set relay, 
 
 #include <esp-knx-ip.h>         // KNX Library
 
+bool knx_started = false;
+
 address_t KNX_physs_addr;  // Physical KNX address of this device
 address_t KNX_addr;        // KNX Address converter variable
 
@@ -491,7 +493,7 @@ void KNX_INIT(void)
     device_param[KNX_HUMIDITY-1].show = true;
   }
 #ifdef USE_DS18x20
-  if (PinUsed(GPIO_DSB)) {
+  if (PinUsed(GPIO_DSB, GPIO_ANY)) {
     device_param[KNX_TEMPERATURE-1].show = true;
   }
 #endif
@@ -945,7 +947,7 @@ void HandleKNXConfiguration(void)
             "var GA_AREA=eb('GA_AREA');"
             "var GA_FDEF=eb('GA_FDEF');"
             "if(GA_FNUM!=null&&GA_FNUM.value=='0'&&GA_AREA.value=='0'&&GA_FDEF.value=='0'){"
-              "alert('" D_KNX_WARNING "');"
+              "alert(\"" D_KNX_WARNING "\");"
             "}"
           "}"
           "function CBwarning()"
@@ -954,7 +956,7 @@ void HandleKNXConfiguration(void)
             "var CB_AREA=eb('CB_AREA');"
             "var CB_FDEF=eb('CB_FDEF');"
             "if(CB_FNUM!=null&&CB_FNUM.value=='0'&&CB_AREA.value=='0'&&CB_FDEF.value=='0'){"
-              "alert('" D_KNX_WARNING "');"
+              "alert(\"" D_KNX_WARNING "\");"
             "}"
           "}"));
     WSContentSendStyle();
@@ -1298,7 +1300,7 @@ void CmndKnxCb(void)
  * Interface
 \*********************************************************************************************/
 
-bool Xdrv11(uint8_t function)
+bool Xdrv11(uint32_t function)
 {
   bool result = false;
     switch (function) {
@@ -1328,6 +1330,15 @@ bool Xdrv11(uint8_t function)
         break;
       case FUNC_PRE_INIT:
         KNX_INIT();
+        break;
+      case FUNC_NETWORK_UP:
+        if (!knx_started && Settings->flag.knx_enabled) {  // CMND_KNX_ENABLED
+          KNXStart();
+          knx_started = true;
+        }
+        break;
+      case FUNC_NETWORK_DOWN:
+        knx_started = false;
         break;
 //      case FUNC_SET_POWER:
 //        break;

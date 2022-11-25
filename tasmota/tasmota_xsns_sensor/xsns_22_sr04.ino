@@ -115,7 +115,7 @@ void Sr04TModeDetect(void) {
   if (!PinUsed(GPIO_SR04_ECHO)) { return; }
 
   int sr04_echo_pin = Pin(GPIO_SR04_ECHO);
-  int sr04_trig_pin = (PinUsed(GPIO_SR04_TRIG)) ? Pin(GPIO_SR04_TRIG) : Pin(GPIO_SR04_ECHO);   // if GPIO_SR04_TRIG is not configured use single PIN mode with GPIO_SR04_ECHO only
+  int sr04_trig_pin = Pin(GPIO_SR04_TRIG);  // if GPIO_SR04_TRIG is not configured use single PIN mode with GPIO_SR04_TRIG as -1
   sonar_serial = new TasmotaSerial(sr04_echo_pin, sr04_trig_pin, 1);
 
   if (sonar_serial && sonar_serial->begin(9600)) {
@@ -135,14 +135,17 @@ void Sr04TModeDetect(void) {
       delete sonar_serial;
       sonar_serial = nullptr;
     }
+    sr04_trig_pin = (PinUsed(GPIO_SR04_TRIG)) ? Pin(GPIO_SR04_TRIG) : Pin(GPIO_SR04_ECHO);  // if GPIO_SR04_TRIG is not configured use single PIN mode with GPIO_SR04_ECHO only
     sonar = new NewPing(sr04_trig_pin, sr04_echo_pin, SR04_MAX_SENSOR_DISTANCE);
     delay(100); // give time to inizialise, preventing ping_median fails
     if (!sonar || !sonar->ping_median(5)) {
       SR04.type = SR04_MODE_NONE;
     }
   } else {
-    if (sonar_serial->hardwareSerial()) {
-      ClaimSerial();
+    if (sonar_serial) {
+      if (sonar_serial->hardwareSerial()) {
+        ClaimSerial();
+      }
     }
   }
 
@@ -187,19 +190,16 @@ void Sr04TReading(void) {
 
 void Sr04Show(bool json) {
   if (SR04.valid) {                // Check if read failed
-    char distance_chr[33];
-    dtostrfd(SR04.distance, 3, distance_chr);
-
     if(json) {
-      ResponseAppend_P(PSTR(",\"SR04\":{\"" D_JSON_DISTANCE "\":%s}"), distance_chr);
+      ResponseAppend_P(PSTR(",\"SR04\":{\"" D_JSON_DISTANCE "\":%1_f}"), &SR04.distance);
 #ifdef USE_DOMOTICZ
       if (0 == TasmotaGlobal.tele_period) {
-        DomoticzSensor(DZ_COUNT, distance_chr);  // Send distance as Domoticz Counter value
+        DomoticzFloatSensor(DZ_COUNT, SR04.distance);  // Send distance as Domoticz Counter value
       }
 #endif  // USE_DOMOTICZ
 #ifdef USE_WEBSERVER
     } else {
-      WSContentSend_PD(HTTP_SNS_DISTANCE_CM, "SR04", distance_chr);
+      WSContentSend_PD(HTTP_SNS_F_DISTANCE_CM, "SR04", &SR04.distance);
 #endif  // USE_WEBSERVER
     }
   }
@@ -209,7 +209,7 @@ void Sr04Show(bool json) {
  * Interface
 \*********************************************************************************************/
 
-bool Xsns22(uint8_t function) {
+bool Xsns22(uint32_t function) {
   bool result = false;
 
   if (SR04.type) {
