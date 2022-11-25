@@ -42,13 +42,52 @@ enum SHT3X_Types {
 const char kSht3xTypes[] PROGMEM = "SHT3X|SHTC3|SHT4X";
 
 uint8_t sht3x_addresses[] = { 0x44, 0x45, 0x70 };
-
+TwoWire *sht3x_wire;
 uint8_t sht3x_count = 0;
+
 struct SHT3XSTRUCT {
   uint8_t type;        // Sensor type
   uint8_t address;     // I2C bus address
   char types[6];  // Sensor type name and address, e.g. "SHT3X"
 } sht3x_sensors[SHT3X_ADDRESSES];
+
+
+TwoWire *I2C_Check_Device(uint32_t addr) {
+TwoWire *wire = nullptr;
+
+#ifdef ESP8266
+  if (I2cActive(addr)) { return wire; }  // already active
+  if (!I2cSetDevice(addr)) { return wire; } // not found
+  wire = &Wire;
+#endif // ESP8266
+
+#ifdef ESP32
+  if (I2cActive(addr)) { return wire; }  // already active
+  if (!I2cSetDevice(addr, 0)) {
+    if (!I2cSetDevice(addr, 1)) { return wire; }
+    wire = &Wire1;
+  } else {
+    wire = &Wire;
+  }
+#endif // ESP32
+
+  return wire;
+}
+
+void I2cSetActiveFound(TwoWire *wire, uint32_t addr, char *name) {
+#ifdef ESP8266
+  I2cSetActiveFound(addr, name);
+#endif // ESP8266
+
+#ifdef ESP32
+  if ((uint32_t)wire == (uint32_t)&Wire) {
+    I2cSetActiveFound(addr, name, 0);
+  } else {
+    I2cSetActiveFound(addr, name, 1);
+  }
+#endif // ESP32
+}
+
 
 uint8_t Sht3xComputeCrc(uint8_t data[], uint8_t len) {
   // Compute CRC as per datasheet
@@ -73,33 +112,33 @@ bool Sht3xRead(uint32_t type, float &t, float &h, uint8_t i2c_address) {
   t = NAN;
   h = NAN;
 
-  Wire.beginTransmission(i2c_address);
+  sht3x_wire->beginTransmission(i2c_address);
   switch (type) {
     case SHT3X_TYPE_SHT3X:
       // TODO: Clock stretching is used for SHT3x but not for SHTC3. Why?
-      Wire.write(0x2C);                     // Enable clock stretching
-      Wire.write(0x06);                     // High repeatability measurement
+      sht3x_wire->write(0x2C);                     // Enable clock stretching
+      sht3x_wire->write(0x06);                     // High repeatability measurement
       break;
     case SHT3X_TYPE_SHTCX:
-      Wire.write(0x35);                     // Wake from
-      Wire.write(0x17);                     // sleep
-      Wire.endTransmission();
-      Wire.beginTransmission(i2c_address);
+      sht3x_wire->write(0x35);                     // Wake from
+      sht3x_wire->write(0x17);                     // sleep
+      sht3x_wire->endTransmission();
+      sht3x_wire->beginTransmission(i2c_address);
       // TODO: Clock stretching is used for SHT3x but not for SHTC3. Why?
-      Wire.write(0x78);                     // Disable clock stretching
-      Wire.write(0x66);                     // Normal mode measurement
+      sht3x_wire->write(0x78);                     // Disable clock stretching
+      sht3x_wire->write(0x66);                     // Normal mode measurement
       break;
     case SHT3X_TYPE_SHT4X:
-      Wire.write(0xFD);                     // High repeatability measurement
+      sht3x_wire->write(0xFD);                     // High repeatability measurement
       break;
   }
-  if (Wire.endTransmission() != 0) {        // Stop I2C transmission
+  if (sht3x_wire->endTransmission() != 0) {        // Stop I2C transmission
     return false;
   }
   delay(30);                                // Timing verified with logic analyzer (10 is to short)
-  Wire.requestFrom(i2c_address, (uint8_t)6); // Request 6 bytes of data
+  sht3x_wire->requestFrom(i2c_address, (uint8_t)6); // Request 6 bytes of data
   for (uint32_t i = 0; i < 6; i++) {
-    data[i] = Wire.read();                  // temperature (MSB, LSB, CRC), humidity (MSB, LSB, CRC)
+    data[i] = sht3x_wire->read();                  // temperature (MSB, LSB, CRC), humidity (MSB, LSB, CRC)
   };
   if ((Sht3xComputeCrc(&data[0], 2) != data[2]) || (Sht3xComputeCrc(&data[3], 2) != data[5])) {
     return false;
@@ -120,13 +159,17 @@ void Sht3xDetect(void) {
   float h;
 
   for (uint32_t k = 0; k < SHT3X_TYPES; k++) {
+    TwoWire *wire = I2C_Check_Device(sht3x_addresses[k]);
+    if (!wire) { continue; }
+    sht3x_wire = wire;
+
     sht3x_sensors[sht3x_count].type = k;
     for (uint32_t i = 0; i < SHT3X_ADDRESSES; i++) {
       if (!I2cSetDevice(sht3x_addresses[i])) { continue; }
       sht3x_sensors[sht3x_count].address = sht3x_addresses[i];
       if (Sht3xRead(sht3x_sensors[sht3x_count].type, t, h, sht3x_sensors[sht3x_count].address)) {
         GetTextIndexed(sht3x_sensors[sht3x_count].types, sizeof(sht3x_sensors[sht3x_count].types), sht3x_sensors[sht3x_count].type, kSht3xTypes);
-        I2cSetActiveFound(sht3x_sensors[sht3x_count].address, sht3x_sensors[sht3x_count].types);
+        I2cSetActiveFound(sht3x_wire, sht3x_sensors[sht3x_count].address, sht3x_sensors[sht3x_count].types);
         sht3x_count++;
       }
     }

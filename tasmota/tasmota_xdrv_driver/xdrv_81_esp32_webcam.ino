@@ -192,7 +192,7 @@ bool WcPinUsed(void) {
   if (!PinUsed(GPIO_WEBCAM_XCLK) || !PinUsed(GPIO_WEBCAM_PCLK) ||
       !PinUsed(GPIO_WEBCAM_VSYNC) || !PinUsed(GPIO_WEBCAM_HREF) ||
       ((!PinUsed(GPIO_WEBCAM_SIOD) || !PinUsed(GPIO_WEBCAM_SIOC)) && !TasmotaGlobal.i2c_enabled_2)    // preferred option is to reuse and share I2Cbus 2
-      ) { 
+      ) {
         pin_used = false;
   }
   return pin_used;
@@ -432,7 +432,9 @@ uint32_t WcSetup(int32_t fsiz) {
 
   WcApplySettings();
 
-  AddLog(LOG_LEVEL_INFO, PSTR("CAM: Initialized"));
+  camera_sensor_info_t *info = esp_camera_sensor_get_info(&wc_s->id);
+
+  AddLog(LOG_LEVEL_INFO, PSTR("CAM: %s Initialized"), info->name);
 
   Wc.up = 1;
   if (psram) { Wc.up = 2; }

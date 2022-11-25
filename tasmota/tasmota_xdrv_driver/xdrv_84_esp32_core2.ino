@@ -245,8 +245,8 @@ void Core2Init(void) {
     TIME_T tmpTime;
     TasmotaGlobal.ntp_force_sync = true;  // Force to sync with ntp
     BreakTime(Rtc.utc_time, tmpTime);
-    Rtc.daylight_saving_time = RuleToTime(Settings.tflag[1], RtcTime.year);
-    Rtc.standard_time = RuleToTime(Settings.tflag[0], RtcTime.year);
+    Rtc.daylight_saving_time = RuleToTime(Settings->tflag[1], RtcTime.year);
+    Rtc.standard_time = RuleToTime(Settings->tflag[0], RtcTime.year);
     AddLog(LOG_LEVEL_INFO, PSTR("CR2: Set time from BM8563 to RTC (" D_UTC_TIME ") %s, (" D_DST_TIME ") %s, (" D_STD_TIME ") %s"),
                 GetDateAndTime(DT_UTC).c_str(), GetDateAndTime(DT_DST).c_str(), GetDateAndTime(DT_STD).c_str());
     if (Rtc.local_time < START_VALID_TIME) {  // 2016-01-01
@@ -265,7 +265,7 @@ void Core2EverySecond(void) {
   if (core2_globs.ready) {
     Core2GetADC();
 
-    if (Rtc.utc_time > START_VALID_TIME && core2_globs.tset==false && abs(Rtc.utc_time - Core2GetUtc()) > 3) {
+    if (Rtc.utc_time > START_VALID_TIME && core2_globs.tset==false && abs((int32_t)Rtc.utc_time - (int32_t)Core2GetUtc()) > 3) {
       Core2SetUtc(Rtc.utc_time);
       AddLog(LOG_LEVEL_INFO, PSTR("CR2: Write Time TO BM8563 from NTP (" D_UTC_TIME ") %s, (" D_DST_TIME ") %s, (" D_STD_TIME ") %s"),
                   GetDateAndTime(DT_UTC).c_str(), GetDateAndTime(DT_DST).c_str(), GetDateAndTime(DT_STD).c_str());
@@ -284,11 +284,11 @@ void Core2EverySecond(void) {
 void Core2Show(uint32_t json) {
   if (json) {
     ResponseAppend_P(PSTR(",\"Core2\":{\"VBV\":%*_f,\"VBC\":%*_f,\"BV\":%*_f,\"BC\":%*_f,\"" D_JSON_TEMPERATURE "\":%*_f}"),
-      Settings.flag2.voltage_resolution, &core2_adc.vbus_v,
-      Settings.flag2.current_resolution, &core2_adc.vbus_c,
-      Settings.flag2.voltage_resolution, &core2_adc.batt_v,
-      Settings.flag2.current_resolution, &core2_adc.batt_c,
-      Settings.flag2.temperature_resolution, &core2_adc.temp);
+      Settings->flag2.voltage_resolution, &core2_adc.vbus_v,
+      Settings->flag2.current_resolution, &core2_adc.vbus_c,
+      Settings->flag2.voltage_resolution, &core2_adc.batt_v,
+      Settings->flag2.current_resolution, &core2_adc.batt_c,
+      Settings->flag2.temperature_resolution, &core2_adc.temp);
   } else {
     WSContentSend_Voltage("VBus", core2_adc.vbus_v);
     WSContentSend_CurrentMA("VBus", core2_adc.vbus_c);
