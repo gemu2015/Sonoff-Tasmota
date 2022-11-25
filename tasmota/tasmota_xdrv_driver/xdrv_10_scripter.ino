@@ -8188,7 +8188,7 @@ bool ScriptCommand(void) {
         float *fpd = 0;
         uint16_t alend;
         char *cp = get_array_by_name(lp, &fpd, &alend, 0);
-        if (fpd && cp) {
+        if (fpd && cp && (!strchr(lp, '[')) ) {
           // is array
           Response_P(PSTR("{\"script\":{\"%s\":["), lp);
           for (uint16_t cnt = 0; cnt < alend; cnt++) {
