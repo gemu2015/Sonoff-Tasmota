@@ -1880,6 +1880,7 @@ if (hsv.S == 0) {
 
 #ifdef ESP32
 #ifdef JPEG_PICTS
+#ifdef STREAM_JPEG_PICTS
 struct JPG_TASK {
   char boundary[40];
   bool draw;
@@ -1984,6 +1985,7 @@ int32_t fetch_jpg(uint32_t sel, char *url, uint32_t xp, uint32_t yp, uint32_t sc
   }
   return 0;
 }
+#endif // STREAM_JPEG_PICTS
 #endif // JPEG_PICTS
 #endif // ESP32
 
@@ -3687,6 +3689,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 
 #ifdef ESP32
 #ifdef JPEG_PICTS
+#ifdef STREAM_JPEG_PICTS
       case 'j':
         if (!strncmp(lp, "jpg(", 4)) {
           lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
@@ -3710,6 +3713,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto nfuncexit;
         }
         break;
+#endif // STREAM_JPEG_PICTS
 #endif // JPEG_PICTS
 #endif // ESP32
 
