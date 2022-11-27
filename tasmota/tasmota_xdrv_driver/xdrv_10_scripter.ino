@@ -4364,7 +4364,7 @@ extern char *SML_GetSVal(uint32_t index);
           goto nfuncexit;
         }
         if (!strncmp(vname, "smlj", 4)) {
-          fvar = sml_json_enable;
+          fvar = sml_options;
           tind->index = SML_JSON_ENABLE;
           goto exit_settable;
         }
