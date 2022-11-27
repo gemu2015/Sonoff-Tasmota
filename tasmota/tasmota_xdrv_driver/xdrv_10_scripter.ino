@@ -183,7 +183,7 @@ void Script_ticker4_end(void) {
 #endif
 
 #if defined(USE_SML_M) && defined (USE_SML_SCRIPT_CMD)
-extern uint8_t sml_json_enable;
+extern uint8_t sml_options;
 #endif
 
 #if defined(EEP_SCRIPT_SIZE) && !defined(ESP32)
@@ -6808,7 +6808,7 @@ getnext:
                             break;
 #if defined(USE_SML_M) && defined (USE_SML_SCRIPT_CMD)
                           case SML_JSON_ENABLE:
-                            sml_json_enable = *dfvar;
+                            sml_options = *dfvar;
                             break;
 #endif
                         }
