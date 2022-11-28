@@ -3817,7 +3817,7 @@ bool Xsns53(uint32_t function) {
         break;
 #endif // USE_SCRIPT
       case FUNC_JSON_APPEND:
-        if (sml_options & 1) {
+        if (sml_options & SML_OPTIONS_JSON_ENABLE) {
           SML_Show(1);
         }
         break;
