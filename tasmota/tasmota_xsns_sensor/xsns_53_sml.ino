@@ -3645,13 +3645,15 @@ void SML_Send_Seq(uint32_t meter,char *seq) {
   }
 
   if (script_meter_desc[meter].trx_en.trxen) {
-    digitalWrite(script_meter_desc[index].trx_en.trxenpin, script_meter_desc[index].trx_en.trxenpol ^ 1);
+    digitalWrite(script_meter_desc[meter].trx_en.trxenpin, script_meter_desc[meter].trx_en.trxenpol ^ 1);
   }
   meter_ss[meter]->flush();
   meter_ss[meter]->write(sbuff, slen);
 
   if (script_meter_desc[meter].trx_en.trxen) {
-    digitalWrite(script_meter_desc[index].trx_en.trxenpin, script_meter_desc[index].trx_en.trxenpol);
+    // must wait for all data sent
+    meter_ss[meter]->flush();
+    digitalWrite(script_meter_desc[meter].trx_en.trxenpin, script_meter_desc[meter].trx_en.trxenpol);
   }
 
   if (dump2log) {
