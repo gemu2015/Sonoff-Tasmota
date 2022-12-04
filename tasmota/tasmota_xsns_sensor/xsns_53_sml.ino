@@ -2969,6 +2969,7 @@ dddef_exit:
               if (*lp != ')') {
                 goto dddef_exit;
               }
+              lp++;
               if (Gpio_used(script_meter_desc[index].trx_en.trxenpin)) {
                 AddLog(LOG_LEVEL_INFO, PSTR("SML: Error: Duplicate GPIO %d defined. Not usable for TX enable in meter number %d"), script_meter_desc[index].trx_en.trxenpin, index + 1);
                 goto dddef_exit;
