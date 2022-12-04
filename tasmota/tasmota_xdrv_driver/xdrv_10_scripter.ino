@@ -9232,7 +9232,6 @@ uint16_t cipos = 0;
         } else {
           // single numeric
           arrays[anum] = &glob_script_mem.fvars[index];
-          AddLog(LOG_LEVEL_INFO,PSTR("numneric"));
           anum++;
           entries = 1;
         }
