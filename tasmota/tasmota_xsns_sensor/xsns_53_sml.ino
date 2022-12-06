@@ -650,6 +650,7 @@ public:
   void setRxBufferSize(uint32_t size);
   void updateBaudRate(uint32_t baud);
   void rxRead(void);
+  void end();
   using Print::write;
 private:
   // Member variables
@@ -693,6 +694,11 @@ void SML_ESP32_SERIAL::setbaud(uint32_t speed) {
   m_bit_time = ESP.getCpuFreqMHz() * 1000000 / speed;
 }
 
+void SML_ESP32_SERIAL::end(void) {
+  if (m_buffer) {
+    free(m_buffer);
+  }
+}
 
 bool SML_ESP32_SERIAL::begin(uint32_t speed, uint32_t smode, int32_t recpin, int32_t trxpin) {
   if (!m_valid) { return false; }
@@ -3251,7 +3257,7 @@ init10:
               break;
           }
         } else {
-          // depecated serial config
+          // deprecated serial config
           if (meter_desc_p[meters].sopt == 2) {
             smode = SERIAL_8N2;
           }
@@ -3332,17 +3338,45 @@ uint32_t SML_Status(uint32_t meter) {
 #endif
 }
 
-
-
-uint32_t SML_Write(uint32_t meter,char *hstr) {
+uint32_t SML_Write(int32_t meter, char *hstr) {
+  int8_t flag = meter;
+  meter = abs(meter);
   if (meter < 1 || meter > meters_used) return 0;
   meter--;
   if (!meter_ss[meter]) return 0;
-  SML_Send_Seq(meter, hstr);
+  if (flag > 0) {
+    SML_Send_Seq(meter, hstr);
+  } else {
+    // 9600:8E1, only hardware serial
+    uint16_t baud = strtol(hstr, &hstr, 10);
+    hstr++;
+    // currently only 8 bits and ignore stopbits
+    hstr++;
+    SerialConfig smode;
+    switch (*hstr) {
+      case 'N':
+        smode = SERIAL_8N1;
+        break;
+      case 'E':
+        smode = SERIAL_8E1;
+        break;
+      case 'O':
+        smode = SERIAL_8O1;
+        break;
+    }
+
+#ifdef ESP8266
+    Serial.end();
+    Serial.begin(baud, smode);
+#else
+    //meter_ss[meter]->end();
+    //meter_ss[meter]->begin(baud, smode, meter_desc_p[meter].srcpin, meter_desc_p[meter].trxpin);
+#endif
+  }
   return 1;
 }
 
-uint32_t SML_Read(int32_t meter,char *str, uint32_t slen) {
+uint32_t SML_Read(int32_t meter, char *str, uint32_t slen) {
 uint8_t hflg = 0;
   if (meter < 0) {
     meter = abs(meter);
