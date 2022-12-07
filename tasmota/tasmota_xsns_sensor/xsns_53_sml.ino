@@ -3366,11 +3366,9 @@ uint32_t SML_Write(int32_t meter, char *hstr) {
     }
 
 #ifdef ESP8266
-    Serial.end();
     Serial.begin(baud, smode);
 #else
-    //meter_ss[meter]->end();
-    //meter_ss[meter]->begin(baud, smode, meter_desc_p[meter].srcpin, meter_desc_p[meter].trxpin);
+    meter_ss[meter]->begin(baud, smode, meter_desc_p[meter].srcpin, meter_desc_p[meter].trxpin);
 #endif
   }
   return 1;
