@@ -6025,7 +6025,9 @@ int16_t retval;
   if (!glob_script_mem.scriptptr) {
     return -99;
   }
-  if (tasm_cmd_activ && tlen > 0) return 0;
+  //if (tasm_cmd_activ && tlen > 0) return 0;
+  if (tasm_cmd_activ) return 0;
+
   struct GVARS gv;
   gv.jo = 0;
   retval = Run_script_sub(type, tlen, &gv);
@@ -6040,7 +6042,8 @@ int16_t retval;
       return -99;
     }
 
-    if (tasm_cmd_activ && tlen>0) return 0;
+    //if (tasm_cmd_activ && tlen>0) return 0;
+    if (tasm_cmd_activ) return 0;
 
     struct GVARS gv;
 
