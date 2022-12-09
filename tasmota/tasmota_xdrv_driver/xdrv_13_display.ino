@@ -477,6 +477,7 @@ void DisplayText(void)
         escape = 1;
         cp++;
         // if string in buffer print it
+        dp -= decode_te(linebuf);
         if ((uint32_t)dp - (uint32_t)linebuf) {
           if (!fill) { *dp = 0; }
           if (col > 0 && lin > 0) {
@@ -867,7 +868,7 @@ void DisplayText(void)
               cp = get_string(bbuff, sizeof(bbuff), cp);
               char unit[4];
               cp = get_string(unit, sizeof(unit), cp);
-	      decode_te(unit);
+	            decode_te(unit);
               define_dt_var(num, gxp, gyp, textbcol, textfcol, font, textsize, txlen, time, dp, bbuff, unit);
             }
           }
