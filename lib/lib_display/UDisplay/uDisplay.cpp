@@ -670,10 +670,10 @@ Renderer *uDisplay::Init(void) {
       }
     } else {
       for (uint32_t cnt = 0; cnt < 8; cnt ++) {
-        bus_config.data_gpio_nums[cnt] = par_dbh[cnt];
+        bus_config.data_gpio_nums[cnt] = par_dbl[cnt];
       }
       for (uint32_t cnt = 0; cnt < 8; cnt ++) {
-        bus_config.data_gpio_nums[cnt + 8] = par_dbl[cnt];
+        bus_config.data_gpio_nums[cnt + 8] = par_dbh[cnt];
       }
     }
 
@@ -2490,6 +2490,8 @@ void uDisplay::_setup_dma_desc_links(const uint8_t *data, int32_t len) {
     */
   }
 
+#define WAIT_LCD_NOT_BUSY while (*reg_lcd_user & LCD_CAM_LCD_START) {}
+
 
 void uDisplay::pb_beginTransaction(void) {
     auto dev = _dev;
@@ -2533,57 +2535,78 @@ bool uDisplay::pb_busy(void) {
 }
 
 bool uDisplay::pb_writeCommand(uint32_t data, uint_fast8_t bit_length) {
-    if (interface == _UDSP_PAR8) {
+  auto dev = _dev;
+  auto reg_lcd_user = &(dev->lcd_user.val);
+  dev->lcd_misc.val = LCD_CAM_LCD_CD_IDLE_EDGE | LCD_CAM_LCD_CD_CMD_SET;
+
+  if (interface == _UDSP_PAR8) {
       // 8bit bus
       auto bytes = bit_length >> 3;
-      auto dev = _dev;
-      auto reg_lcd_user = &(dev->lcd_user.val);
-      dev->lcd_misc.val = LCD_CAM_LCD_CD_IDLE_EDGE | LCD_CAM_LCD_CD_CMD_SET;
       do {
         dev->lcd_cmd_val.lcd_cmd_value = data;
         data >>= 8;
-        while (*reg_lcd_user & LCD_CAM_LCD_START) {}
+        WAIT_LCD_NOT_BUSY
         *reg_lcd_user = LCD_CAM_LCD_CMD | LCD_CAM_LCD_UPDATE_REG | LCD_CAM_LCD_START;
       } while (--bytes);
       return true;
-    } else {
-      // 16 bit bus
-      if (_has_align_data) { _send_align_data(); }
-      auto dev = _dev;
-      auto reg_lcd_user = &(dev->lcd_user.val);
-      dev->lcd_misc.val = LCD_CAM_LCD_CD_IDLE_EDGE | LCD_CAM_LCD_CD_CMD_SET;
+  } else {
       dev->lcd_cmd_val.val = data;
-
-      if (bit_length <= 16) {
-        while (*reg_lcd_user & LCD_CAM_LCD_START) {}
-        *reg_lcd_user = LCD_CAM_LCD_2BYTE_EN | LCD_CAM_LCD_CMD | LCD_CAM_LCD_UPDATE_REG | LCD_CAM_LCD_START;
-        return true;
-      }
-
-      while (*reg_lcd_user & LCD_CAM_LCD_START) {}
-      *reg_lcd_user = LCD_CAM_LCD_CMD_2_CYCLE_EN | LCD_CAM_LCD_2BYTE_EN | LCD_CAM_LCD_CMD | LCD_CAM_LCD_UPDATE_REG | LCD_CAM_LCD_START;
+      WAIT_LCD_NOT_BUSY
+      *reg_lcd_user = LCD_CAM_LCD_2BYTE_EN | LCD_CAM_LCD_CMD | LCD_CAM_LCD_UPDATE_REG | LCD_CAM_LCD_START;
       return true;
-    }
- }
-
+  }
+}
 
 void uDisplay::pb_writeData(uint32_t data, uint_fast8_t bit_length) {
+  auto dev = _dev;
+  auto reg_lcd_user = &(dev->lcd_user.val);
+  dev->lcd_misc.val = LCD_CAM_LCD_CD_IDLE_EDGE;
+
   if (interface == _UDSP_PAR8) {
     auto bytes = bit_length >> 3;
-    auto dev = _dev;
-    auto reg_lcd_user = &(dev->lcd_user.val);
-    dev->lcd_misc.val = LCD_CAM_LCD_CD_IDLE_EDGE;
-
     uint8_t shift = (bytes - 1) * 8;
     for (uint32_t cnt = 0; cnt < bytes; cnt++) {
       dev->lcd_cmd_val.lcd_cmd_value = (data >> shift) & 0xff;
       shift -= 8;
-      while (*reg_lcd_user & LCD_CAM_LCD_START) {}
+      WAIT_LCD_NOT_BUSY
       *reg_lcd_user = LCD_CAM_LCD_CMD | LCD_CAM_LCD_UPDATE_REG | LCD_CAM_LCD_START;
     }
     return;
 
   } else {
+    auto bytes = bit_length >> 3;
+    switch (bytes) {
+      case 1:
+        dev->lcd_cmd_val.val = data;
+        WAIT_LCD_NOT_BUSY
+        *reg_lcd_user = LCD_CAM_LCD_2BYTE_EN | LCD_CAM_LCD_CMD | LCD_CAM_LCD_UPDATE_REG | LCD_CAM_LCD_START;
+        break;
+      case 2:
+        dev->lcd_cmd_val.val = data;
+        WAIT_LCD_NOT_BUSY
+        *reg_lcd_user = LCD_CAM_LCD_2BYTE_EN | LCD_CAM_LCD_CMD | LCD_CAM_LCD_UPDATE_REG | LCD_CAM_LCD_START;
+        break;
+      case 4:
+        dev->lcd_cmd_val.val = data;
+        WAIT_LCD_NOT_BUSY
+        *reg_lcd_user = LCD_CAM_LCD_CMD_2_CYCLE_EN | LCD_CAM_LCD_2BYTE_EN | LCD_CAM_LCD_CMD | LCD_CAM_LCD_UPDATE_REG | LCD_CAM_LCD_START;
+        break;
+    }
+
+    return;
+
+    /*
+    uint8_t shift = (bytes - 1) * 8;
+    for (uint32_t cnt = 0; cnt < bytes; cnt++) {
+      uint16_t iow = (data >> shift) & 0xff;
+      iow <<= 8;
+      dev->lcd_cmd_val.lcd_cmd_value = iow;
+      shift -= 8;
+      while (*reg_lcd_user & LCD_CAM_LCD_START) {}
+      *reg_lcd_user = LCD_CAM_LCD_2BYTE_EN | LCD_CAM_LCD_CMD | LCD_CAM_LCD_UPDATE_REG | LCD_CAM_LCD_START;
+    }
+    return;
+
     auto bytes = bit_length >> 3;
     auto dev = _dev;
     auto reg_lcd_user = &(dev->lcd_user.val);
@@ -2611,6 +2634,7 @@ void uDisplay::pb_writeData(uint32_t data, uint_fast8_t bit_length) {
     }
     _has_align_data = true;
     _align_data = data;
+    */
   }
 }
 
