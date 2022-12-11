@@ -512,7 +512,6 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
 
 }
 
-
 Renderer *uDisplay::Init(void) {
   extern bool UsePSRAM(void);
 
@@ -673,6 +672,7 @@ Renderer *uDisplay::Init(void) {
 
   if (interface == _UDSP_RGB) {
 #ifdef USE_ESP32_S3
+
     if (bpanel >= 0) {
       analogWrite(bpanel, 32);
     }
@@ -680,6 +680,9 @@ Renderer *uDisplay::Init(void) {
 
     _panel_config->clk_src = LCD_CLK_SRC_PLL160M;
 
+    if (spi_speed > 12) {
+      spi_speed = 12;
+    }
     _panel_config->timings.pclk_hz = spi_speed*1000000;
     _panel_config->timings.h_res = gxs;
     _panel_config->timings.v_res = gys;
@@ -716,7 +719,6 @@ Renderer *uDisplay::Init(void) {
     _panel_config->flags.relax_on_idle = 0;
     _panel_config->flags.fb_in_psram = 1;             // allocate frame buffer in PSRAM
 
-/*
     ESP_ERROR_CHECK(esp_lcd_new_rgb_panel(_panel_config, &_panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_reset(_panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_init(_panel_handle));
@@ -724,6 +726,7 @@ Renderer *uDisplay::Init(void) {
     uint16_t color = random(0xffff);
     ESP_ERROR_CHECK(_panel_handle->draw_bitmap(_panel_handle, 0, 0, 1, 1, &color));
 
+/*
     _rgb_panel = __containerof(_panel_handle, esp_rgb_panel_t, base);
 */
     //return (uint16_t *)_rgb_panel->fb;
@@ -881,8 +884,12 @@ Renderer *uDisplay::Init(void) {
     if (ep_mode == 1) Init_EPD(DISPLAY_INIT_PARTIAL);
   }
 
+#ifdef UDSP_DEBUG
+  Serial.printf("Dsp Init 1 complete \n");
+#endif
   return this;
 }
+
 
 
 void uDisplay::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
@@ -921,7 +928,7 @@ void uDisplay::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
     }
 
 #ifdef UDSP_DEBUG
-    Serial.printf("Dsp Init complete \n");
+    Serial.printf("Dsp Init 2 complete \n");
 #endif
   }
 }
@@ -1080,6 +1087,10 @@ void uDisplay::i2c_command(uint8_t val) {
 #define WIRE_MAX 32
 
 void uDisplay::Updateframe(void) {
+
+  if (interface == _UDSP_RGB) {
+    return;
+  }
 
   if (ep_mode) {
     Updateframe_EPD();
@@ -1294,6 +1305,11 @@ void uDisplay::fillScreen(uint16_t color) {
 
 // fill a rectangle
 void uDisplay::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {
+
+
+  if (interface == _UDSP_RGB) {
+    return;
+  }
 
 
   if (ep_mode) {
@@ -1635,6 +1651,9 @@ void uDisplay::WriteColor(uint16_t color) {
 
 void uDisplay::drawPixel(int16_t x, int16_t y, uint16_t color) {
 
+  if (interface == _UDSP_RGB) {
+    return;
+  }
 
   if (ep_mode) {
     drawPixel_EPD(x, y, color);

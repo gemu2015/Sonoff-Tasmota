@@ -72,6 +72,7 @@ typedef struct TSGlobal_t {
 TSGlobal_t TSGlobal;
 
 bool FT5206_found = false;
+bool GT911_found = false;
 bool XPT2046_found = false;
 bool SRES_found = false;
 
@@ -196,7 +197,7 @@ bool FT5206_Touch_Init(TwoWire &i2c) {
   FT5206_found = false;
   FT5206_touchp = new FT5206_Class();
   if (FT5206_touchp->begin(i2c, FT5206_address)) {
-    I2cSetActiveFound(FT5206_address, "FT5206");
+    AddLog(LOG_LEVEL_INFO, PSTR("TI: FT5206"));
     FT5206_found = true;
   }
   //AddLog(LOG_LEVEL_INFO, PSTR("TS: FT5206 %d"),FT5206_found);
@@ -216,10 +217,39 @@ int16_t FT5206_y() {
 }
 #endif  // USE_FT5206
 
+#ifdef USE_GT911
+#include <GT911.h>
+// touch panel controller
+#undef GT911_address
+#define GT911_address 0x5d
+GT911 *GT911_touchp;
+
+bool GT911_Touch_Init(TwoWire *i2c, int8_t irq_pin) {
+  GT911_found = false;
+  GT911_touchp = new GT911();
+  int8_t res_pin = 38;
+  if (!GT911_touchp->begin(i2c, irq_pin, res_pin)) {
+    AddLog(LOG_LEVEL_INFO, PSTR("TI: GT911"));
+    GT911_found = true;
+  }
+  return GT911_found;
+}
+
+void GT911_CheckTouch(void) {
+  GT911_touchp->update();
+  TSGlobal.touched = !GT911_touchp->isFingerUp();
+  if (TSGlobal.touched) {
+    tp_finger_t FingerItem = GT911_touchp->readFinger(0);
+    TSGlobal.raw_touch_xp = GT911_touchp->readFingerX(0);
+    TSGlobal.raw_touch_yp = GT911_touchp->readFingerY(0);
+  }
+}
+#endif  // USE_GT911
+
+
 #ifdef USE_XPT2046
 #include <XPT2046_Touchscreen.h>
 XPT2046_Touchscreen *XPT2046_touchp;
-
 
 bool XPT2046_Touch_Init(uint16_t CS) {
   XPT2046_touchp = new XPT2046_Touchscreen(CS);
@@ -263,6 +293,12 @@ void Touch_Check(void(*rotconvert)(int16_t *x, int16_t *y)) {
       TSGlobal.raw_touch_xp = FT5206_x();
       TSGlobal.raw_touch_yp = FT5206_y();
     }
+  }
+#endif // USE_FT5206
+
+#ifdef USE_GT911
+  if (GT911_found) {
+    GT911_CheckTouch();
   }
 #endif // USE_FT5206
 
@@ -333,7 +369,6 @@ void Touch_Check(void(*rotconvert)(int16_t *x, int16_t *y)) {
   }
 }
 
-extern uint8_t GT911_found;
 
 #ifdef USE_TOUCH_BUTTONS
 void Touch_MQTT(uint8_t index, const char *cp, uint32_t val) {

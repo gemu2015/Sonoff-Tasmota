@@ -317,6 +317,11 @@ class uDisplay : public Renderer {
    int8_t par_dbl[8];
    int8_t par_dbh[8];
 
+   int8_t de;
+   int8_t vsync;
+   int8_t hsync;
+   int8_t pclk;
+
    uint16_t hsync_polarity;
    uint16_t hsync_front_porch;
    uint16_t hsync_pulse_width;
@@ -326,10 +331,7 @@ class uDisplay : public Renderer {
    uint16_t vsync_pulse_width;
    uint16_t vsync_back_porch;
    uint16_t pclk_active_neg;
-   uint16_t de;
-   uint16_t vsync;
-   uint16_t hsync;
-   uint16_t pclk;
+
    esp_lcd_panel_handle_t _panel_handle = NULL;
    esp_rgb_panel_t *_rgb_panel;
 

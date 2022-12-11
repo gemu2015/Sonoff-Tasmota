@@ -33,6 +33,8 @@ uint8_t ctouch_counter;
 extern FS *ffsp;
 #endif
 
+#undef GT911_address
+#define GT911_address 0x5D
 
 enum {GPIO_DP_RES=GPIO_SENSOR_END-1,GPIO_DP_CS,GPIO_DP_RS,GPIO_DP_WR,GPIO_DP_RD,GPIO_DPAR0,GPIO_DPAR1,GPIO_DPAR2,GPIO_DPAR3,GPIO_DPAR4,GPIO_DPAR5,GPIO_DPAR6,GPIO_DPAR7,GPIO_DPAR8,GPIO_DPAR9,GPIO_DPAR10,GPIO_DPAR11,GPIO_DPAR12,GPIO_DPAR13,GPIO_DPAR14,GPIO_DPAR15};
 
@@ -268,10 +270,6 @@ int8_t cs;
         replacepin(&cp, Pin(GPIO_DPAR15));
       }
     }
-    cp = strstr(ddesc, "RGB,");
-    if (cp) {
-      cp += 4;
-    }
 #endif // CONFIG_IDF_TARGET_ESP32S3
 /*
     File fp;
@@ -288,7 +286,7 @@ int8_t cs;
     udisp  = new uDisplay(ddesc);
 
     // checck for touch option TI1 or TI2
-#ifdef USE_FT5206
+#if defined(USE_FT5206) || defined(USE_GT911)
     cp = strstr(ddesc, ":TI");
     if (cp) {
       uint8_t wire_n = 1;
@@ -297,9 +295,15 @@ int8_t cs;
       cp += 2;
 
       uint8_t i2caddr = strtol(cp, &cp, 16);
-      int8_t scl, sda;
+      int8_t scl, sda, irq;
       scl = replacepin(&cp, Pin(GPIO_I2C_SCL, wire_n));
       sda = replacepin(&cp, Pin(GPIO_I2C_SDA, wire_n));
+      if (*cp == ',') {
+        cp++;
+        irq = strtol(cp, &cp, 10);
+      } else {
+        irq = -1;
+      }
       if (wire_n == 0) {
         I2cBegin(sda, scl);
       }
@@ -308,26 +312,54 @@ int8_t cs;
         I2c2Begin(sda, scl, 400000);
       }
       if (I2cSetDevice(i2caddr, wire_n)) {
-        I2cSetActiveFound(i2caddr, "FT5206", wire_n);
+        if (i2caddr == GT911_address) {
+          I2cSetActiveFound(i2caddr, "GT911", wire_n);
+        } else {
+          I2cSetActiveFound(i2caddr, "FT5206", wire_n);
+        }
       }
 #endif // ESP32
 
 #ifdef ESP8266
       //AddLog(LOG_LEVEL_INFO, PSTR("DSP: touch %x, %d, %d, %d!"), i2caddr, wire_n, scl, sda);
       if (I2cSetDevice(i2caddr)) {
-        I2cSetActiveFound(i2caddr, "FT5206");
+        if (i2caddr == GT911_address) {
+          I2cSetActiveFound(i2caddr, "GT911");
+        } else {
+          I2cSetActiveFound(i2caddr, "FT5206");
+        }
       }
 #endif // ESP8266
 
       // start digitizer
 #ifdef ESP32
-      if (!wire_n) FT5206_Touch_Init(Wire);
-      else FT5206_Touch_Init(Wire1);
+      if (i2caddr == GT911_address) {
+#ifdef USE_GT911
+        if (!wire_n) GT911_Touch_Init(&Wire, irq);
+        else GT911_Touch_Init(&Wire1, irq);
+#endif
+      } else {
+#ifdef USE_FT5206
+        if (!wire_n) FT5206_Touch_Init(Wire);
+        else FT5206_Touch_Init(Wire1);
+#endif
+      }
+
 #else
+
+      if (i2caddr == GT911_address) {
+#ifdef USE_GT911
+      if (!wire_n) GT911_Touch_Init(&Wire, irq);
+#endif
+      } else {
+#ifdef USE_FT5206
       if (!wire_n) FT5206_Touch_Init(Wire);
+#endif
+      }
 #endif // ESP32
+
     }
-#endif // USE_FT5206
+#endif // USE_FT5206 || GT911
 
 #ifdef USE_XPT2046
     cp = strstr(ddesc, ":TS,");
