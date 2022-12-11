@@ -26,7 +26,7 @@
 
 
 
-//#define UDSP_DEBUG
+#define UDSP_DEBUG
 
 const uint16_t udisp_colors[]={UDISP_BLACK,UDISP_WHITE,UDISP_RED,UDISP_GREEN,UDISP_BLUE,UDISP_CYAN,UDISP_MAGENTA,\
   UDISP_YELLOW,UDISP_NAVY,UDISP_DARKGREEN,UDISP_DARKCYAN,UDISP_MAROON,UDISP_PURPLE,UDISP_OLIVE,\
@@ -211,16 +211,6 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
               vsync = next_val(&lp1);
               hsync = next_val(&lp1);
               pclk = next_val(&lp1);
-
-              hsync_polarity = next_val(&lp1);
-              hsync_front_porch = next_val(&lp1);
-              hsync_pulse_width = next_val(&lp1);
-              hsync_back_porch = next_val(&lp1);
-              vsync_polarity = next_val(&lp1);
-              vsync_front_porch = next_val(&lp1);
-              vsync_pulse_width = next_val(&lp1);
-              vsync_back_porch = next_val(&lp1);
-              pclk_active_neg = next_val(&lp1);
               bpanel = next_val(&lp1);
 
               for (uint32_t cnt = 0; cnt < 8; cnt ++) {
@@ -268,9 +258,23 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
               }
             }
             break;
+#ifdef USE_ESP32_S3
+          case 'v':
+            hsync_polarity = next_val(&lp1);
+            hsync_front_porch = next_val(&lp1);
+            hsync_pulse_width = next_val(&lp1);
+            hsync_back_porch = next_val(&lp1);
+            vsync_polarity = next_val(&lp1);
+            vsync_front_porch = next_val(&lp1);
+            vsync_pulse_width = next_val(&lp1);
+            vsync_back_porch = next_val(&lp1);
+            pclk_active_neg = next_val(&lp1);
+            break;
+#endif // USE_ESP32_S3
           case 'o':
             dsp_off = next_hex(&lp1);
             break;
+
           case 'O':
             dsp_on = next_hex(&lp1);
             break;
@@ -483,22 +487,25 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   }
   if (interface == _UDSP_RGB) {
 #ifdef USE_ESP32_S3
-    Serial.printf("par  mode: %d\n", hsync_polarity);
-    Serial.printf("par  res: %d\n", hsync_front_porch);
-    Serial.printf("par  cs : %d\n", hsync_pulse_width);
-    Serial.printf("par  rs : %d\n", hsync_back_porch);
-    Serial.printf("par  wr : %d\n", vsync_polarity);
-    Serial.printf("par  rd : %d\n", vsync_front_porch);
-    Serial.printf("par  bp : %d\n", vsync_pulse_width);
-    Serial.printf("par  rd : %d\n", vsync_back_porch);
-    Serial.printf("par  bp : %d\n", pclk_active_neg);
-    Serial.printf("par  bp : %d\n", bpanel);
+    Serial.printf("rgb  hsync_polarity: %d\n", hsync_polarity);
+    Serial.printf("rgb  hsync_front_porch: %d\n", hsync_front_porch);
+    Serial.printf("rgb  hsync_pulse_width : %d\n", hsync_pulse_width);
+    Serial.printf("rgb  hsync_back_porch : %d\n", hsync_back_porch);
+    Serial.printf("rgb  vsync_polarity : %d\n", vsync_polarity);
+    Serial.printf("rgb  vsync_front_porch : %d\n", vsync_front_porch);
+    Serial.printf("rgb  vsync_pulse_width : %d\n", vsync_pulse_width);
+    Serial.printf("rgb  vsync_back_porch : %d\n", vsync_back_porch);
+    Serial.printf("rgb  pclk_active_neg : %d\n", pclk_active_neg);
+    Serial.printf("rgb  bp : %d\n", bpanel);
+
     for (uint32_t cnt = 0; cnt < 8; cnt ++) {
-      Serial.printf("par  d%d: %d\n", cnt, par_dbl[cnt]);
+      Serial.printf("rgb  d%d: %d\n", cnt, par_dbl[cnt]);
     }
     for (uint32_t cnt = 0; cnt < 8; cnt ++) {
-      Serial.printf("par  d%d: %d\n", cnt + 8, par_dbh[cnt]);
+      Serial.printf("rgb  d%d: %d\n", cnt + 8, par_dbh[cnt]);
     }
+
+    Serial.printf("rgb  freq : %d\n", spi_speed);
 #endif // USE_ESP32_S3
   }
 #endif
@@ -606,7 +613,6 @@ Renderer *uDisplay::Init(void) {
     spiSettings = SPISettings((uint32_t)spi_speed*1000000, MSBFIRST, SPI_MODE3);
     SPI_BEGIN_TRANSACTION
 
-
     if (reset >= 0) {
       pinMode(reset, OUTPUT);
       digitalWrite(reset, HIGH);
@@ -710,6 +716,7 @@ Renderer *uDisplay::Init(void) {
     _panel_config->flags.relax_on_idle = 0;
     _panel_config->flags.fb_in_psram = 1;             // allocate frame buffer in PSRAM
 
+/*
     ESP_ERROR_CHECK(esp_lcd_new_rgb_panel(_panel_config, &_panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_reset(_panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_init(_panel_handle));
@@ -718,7 +725,7 @@ Renderer *uDisplay::Init(void) {
     ESP_ERROR_CHECK(_panel_handle->draw_bitmap(_panel_handle, 0, 0, 1, 1, &color));
 
     _rgb_panel = __containerof(_panel_handle, esp_rgb_panel_t, base);
-
+*/
     //return (uint16_t *)_rgb_panel->fb;
 
 #endif // USE_ESP32_S3

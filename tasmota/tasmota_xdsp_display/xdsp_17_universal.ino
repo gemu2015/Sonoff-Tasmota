@@ -268,6 +268,10 @@ int8_t cs;
         replacepin(&cp, Pin(GPIO_DPAR15));
       }
     }
+    cp = strstr(ddesc, "RGB,");
+    if (cp) {
+      cp += 4;
+    }
 #endif // CONFIG_IDF_TARGET_ESP32S3
 /*
     File fp;
