@@ -5,23 +5,6 @@
 //#undef log_d
 //#define log_d Serial.printf
 
-static const uint8_t _kGT911FW540960G2T1602729168[] = {
-    0x43, 0x1C, 0x02, 0xC0, 0x03, 0x02, 0x05, 0x00, 0x01, 0x18, 0x28, 0x0F, 0x50, 0x32,
-    0x03, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x1A, 0x1E, 0x14, 0x87,
-    0x29, 0x0A, 0x21, 0x23, 0xB2, 0x04, 0x00, 0x00, 0x00, 0x1A, 0x02, 0x1C, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x03, 0x64, 0x32, 0x00, 0x00, 0x00, 0x19, 0x41, 0x94, 0xC5, 0x02,
-    0x07, 0x00, 0x00, 0x04, 0x98, 0x1B, 0x00, 0x7F, 0x21, 0x00, 0x6A, 0x28, 0x00, 0x58,
-    0x31, 0x00, 0x4A, 0x3B, 0x00, 0x4A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x02, 0x04, 0x06, 0x08, 0x0A, 0x0C, 0x0E, 0x10, 0x12, 0x14, 0x16, 0x18, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0x28, 0x26, 0x24, 0x22, 0x21, 0x20, 0x1F, 0x1E, 0x1D, 0x00, 0x02, 0x04,
-    0x06, 0x08, 0x0A, 0x0C, 0x0F, 0x10, 0x12, 0x13, 0x14, 0x16, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-    0xFF, 0xFF, 0xCE, 0x01
-};
-
 GT911::GT911() {}
 
 volatile uint8_t gt911_irq_trigger = 0;
@@ -32,7 +15,7 @@ void ICACHE_RAM_ATTR ___GT911IRQ___()
     interrupts();
 }
 
-esp_err_t GT911::begin(TwoWire *use_wire, int8_t pin_int, int8_t pin_res)
+esp_err_t GT911::begin(TwoWire *use_wire, int8_t pin_int, int8_t pin_res, uint16_t xs, uint16_t ys)
 {
     log_d("GT911: Initialization");
 
@@ -48,10 +31,6 @@ esp_err_t GT911::begin(TwoWire *use_wire, int8_t pin_int, int8_t pin_res)
     }
     wire = use_wire;
 
-  //  wire->setClock(400000);
-  //  wire->begin(pin_sda, pin_scl);
-  //  delay(100);
-
     wire->beginTransmission(0x14);
     if (wire->endTransmission())
     {
@@ -64,19 +43,13 @@ esp_err_t GT911::begin(TwoWire *use_wire, int8_t pin_int, int8_t pin_res)
         _iic_addr = 0x5D;
     }
 
-    // if(read(0x8047) != _kGT911FW540960G2T1602729168[0])
-    // {
-    //     log_d("GT911: Update firmware");
-    //     write(0x8040, 0x02);
-    //     delay(100);
-    //     write(0x8047, _kGT911FW540960G2T1602729168, 186);
-    //     delay(50);
-    //     write(0x8040, 0x00);
-    //     delay(100);
-    // }
     if (pin_int >= 0) {
       attachInterrupt(pin_int, ___GT911IRQ___, FALLING);
     }
+
+    readBlockData(configBuf, GT911_CONFIG_START, GT911_CONFIG_SIZE);
+    setResolution(xs, ys);
+
     log_d("GT911: initialized");
 
     return ESP_OK;
@@ -122,15 +95,59 @@ void GT911::read(uint16_t addr, uint8_t *buf, uint16_t len)
     wire->readBytes(buf, len);
 }
 
-uint8_t calcChecksum(const uint8_t *buf, uint8_t len)
-{
-    uint8_t ccsum = 0;
-    for (int i = 0; i < len; i++)
-    {
-        ccsum += buf[i];
-    }
-    ccsum = (~ccsum) + 1;
-    return ccsum;
+void GT911::readBlockData(uint8_t *buf, uint16_t reg, uint8_t size) {
+  wire->beginTransmission(_iic_addr);
+  wire->write(highByte(reg));
+  wire->write(lowByte(reg));
+  wire->endTransmission();
+  wire->requestFrom(_iic_addr, size);
+  for (uint8_t i = 0; i < size; i++) {
+    buf[i] = wire->read();
+  }
+}
+
+void GT911::writeBlockData(uint16_t reg, uint8_t *buf, uint8_t size) {
+  wire->beginTransmission(_iic_addr);
+  wire->write(highByte(reg));
+  wire->write(lowByte(reg));
+  for (uint8_t i = 0; i < size; i++) {
+    wire->write(buf[i]);
+  }
+  wire->endTransmission();
+}
+
+
+void GT911::calculateChecksum() {
+  uint8_t checksum = 0;
+  configBuf[GT911_CONFIG_CHKSUM - GT911_CONFIG_START] = 0;
+  for (uint8_t i = 0; i < GT911_CONFIG_SIZE; i++) {
+    checksum += configBuf[i];
+  }
+  checksum = (~checksum) + 1;
+  configBuf[GT911_CONFIG_CHKSUM - GT911_CONFIG_START] = checksum;
+}
+
+void GT911::reflashConfig() {
+  calculateChecksum();
+  /*
+  write(GT911_X_OUTPUT_MAX_LOW, configBuf[GT911_X_OUTPUT_MAX_LOW - GT911_CONFIG_START]);
+  write(GT911_X_OUTPUT_MAX_HIGH, configBuf[GT911_X_OUTPUT_MAX_HIGH - GT911_CONFIG_START]);
+  write(GT911_Y_OUTPUT_MAX_LOW, configBuf[GT911_Y_OUTPUT_MAX_LOW - GT911_CONFIG_START]);
+  write(GT911_Y_OUTPUT_MAX_HIGH, configBuf[GT911_Y_OUTPUT_MAX_HIGH - GT911_CONFIG_START]);
+  write(GT911_CONFIG_CHKSUM, configBuf[GT911_CONFIG_CHKSUM - GT911_CONFIG_START]);
+  write(GT911_CONFIG_FRESH, 1);
+*/
+  writeBlockData(GT911_CONFIG_START, configBuf, GT911_CONFIG_SIZE);
+  write(GT911_CONFIG_FRESH, 1);
+  
+}
+
+void GT911::setResolution(uint16_t _width, uint16_t _height) {
+  configBuf[GT911_X_OUTPUT_MAX_LOW - GT911_CONFIG_START] = lowByte(_width);
+  configBuf[GT911_X_OUTPUT_MAX_HIGH - GT911_CONFIG_START] = highByte(_width);
+  configBuf[GT911_Y_OUTPUT_MAX_LOW - GT911_CONFIG_START] = lowByte(_height);
+  configBuf[GT911_Y_OUTPUT_MAX_HIGH - GT911_CONFIG_START] = highByte(_height);
+  reflashConfig();
 }
 
 bool GT911::avaliable()

@@ -36,7 +36,7 @@
 \*******************************************************************************************/
 
 
-#if defined(USE_LVGL_TOUCHSCREEN) || defined(USE_FT5206) || defined(USE_XPT2046) || defined(USE_LILYGO47) || defined(USE_TOUCH_BUTTONS) || defined(SIMPLE_RES_TOUCH)
+#if defined(USE_LVGL_TOUCHSCREEN) || defined(USE_FT5206) || defined(USE_XPT2046) || defined(USE_GT911) || defined(USE_LILYGO47) || defined(USE_TOUCH_BUTTONS) || defined(SIMPLE_RES_TOUCH)
 
 #ifdef USE_DISPLAY_LVGL_ONLY
 #undef USE_TOUCH_BUTTONS
@@ -110,7 +110,7 @@ bool Touch_GetStatus(uint8_t* touches, uint16_t* x, uint16_t* y, uint8_t* gestur
 }
 
 uint32_t Touch_Status(int32_t sel) {
-  if (TSGlobal.external_ts || FT5206_found || XPT2046_found) {
+  if (TSGlobal.external_ts || FT5206_found || GT911_found || XPT2046_found || SRES_found) {
     switch (sel) {
       case 0:
         return  TSGlobal.touched;
@@ -224,11 +224,11 @@ int16_t FT5206_y() {
 #define GT911_address 0x5d
 GT911 *GT911_touchp;
 
-bool GT911_Touch_Init(TwoWire *i2c, int8_t irq_pin) {
+bool GT911_Touch_Init(TwoWire *i2c, int8_t irq_pin, int8_t rst_pin, uint16_t xs, uint16_t ys) {
   GT911_found = false;
   GT911_touchp = new GT911();
-  int8_t res_pin = 38;
-  if (!GT911_touchp->begin(i2c, irq_pin, res_pin)) {
+  //AddLog(LOG_LEVEL_INFO, PSTR("init GT911 %d , %d , %d , %d"), irq_pin, rst_pin, xs, ys);
+  if (ESP_OK == GT911_touchp->begin(i2c, irq_pin, rst_pin, xs, ys)) {
     AddLog(LOG_LEVEL_INFO, PSTR("TI: GT911"));
     GT911_found = true;
   }
@@ -239,7 +239,6 @@ void GT911_CheckTouch(void) {
   GT911_touchp->update();
   TSGlobal.touched = !GT911_touchp->isFingerUp();
   if (TSGlobal.touched) {
-    tp_finger_t FingerItem = GT911_touchp->readFinger(0);
     TSGlobal.raw_touch_xp = GT911_touchp->readFingerX(0);
     TSGlobal.raw_touch_yp = GT911_touchp->readFingerY(0);
   }
@@ -501,7 +500,7 @@ bool Xdrv55(uint32_t function) {
     case FUNC_INIT:
       break;
     case FUNC_EVERY_100_MSECOND:
-      if (FT5206_found || XPT2046_found || SRES_found) {
+      if (FT5206_found || XPT2046_found || GT911_found || SRES_found) {
         Touch_Check(TS_RotConvert);
       }
       break;

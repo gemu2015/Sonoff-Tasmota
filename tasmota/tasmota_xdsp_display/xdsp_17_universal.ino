@@ -233,8 +233,21 @@ int8_t cs;
       }
     }
 
+    uint16_t xs, ys;
+    // we need screen size for gt911 touch controler
+    cp = strstr(ddesc, ":H,");
+    if (cp) {
+      cp += 3;
+      cp = strchr(cp, ',');
+      cp++;
+      xs = strtol(cp, &cp, 10);
+      cp++;
+      ys = strtol(cp, &cp, 10);
+    }
+
 #ifdef CONFIG_IDF_TARGET_ESP32S3
     int8_t xp, xm, yp, ym;
+
     cp = strstr(ddesc, "PAR,");
     if (cp) {
       cp += 4;
@@ -295,15 +308,21 @@ int8_t cs;
       cp += 2;
 
       uint8_t i2caddr = strtol(cp, &cp, 16);
-      int8_t scl, sda, irq;
+      int8_t scl, sda, irq = -1, rst = -1;
       scl = replacepin(&cp, Pin(GPIO_I2C_SCL, wire_n));
       sda = replacepin(&cp, Pin(GPIO_I2C_SDA, wire_n));
-      if (*cp == ',') {
-        cp++;
+      if (*(cp - 1) == ',') {
         irq = strtol(cp, &cp, 10);
       } else {
         irq = -1;
       }
+      if (*cp == ',') {
+        cp++;
+        rst = strtol(cp, &cp, 10);
+      } else {
+        rst = -1;
+      }
+
       if (wire_n == 0) {
         I2cBegin(sda, scl);
       }
@@ -335,8 +354,8 @@ int8_t cs;
 #ifdef ESP32
       if (i2caddr == GT911_address) {
 #ifdef USE_GT911
-        if (!wire_n) GT911_Touch_Init(&Wire, irq);
-        else GT911_Touch_Init(&Wire1, irq);
+        if (!wire_n) GT911_Touch_Init(&Wire, irq, rst, xs, ys);
+        else GT911_Touch_Init(&Wire1, irq, rst, xs, ys);
 #endif
       } else {
 #ifdef USE_FT5206
@@ -349,7 +368,7 @@ int8_t cs;
 
       if (i2caddr == GT911_address) {
 #ifdef USE_GT911
-      if (!wire_n) GT911_Touch_Init(&Wire, irq);
+      if (!wire_n) GT911_Touch_Init(&Wire, irq, rst, xs, ys);
 #endif
       } else {
 #ifdef USE_FT5206
