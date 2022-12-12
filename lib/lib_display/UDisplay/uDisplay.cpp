@@ -1432,7 +1432,7 @@ void uDisplay::Splash(void) {
 
 void uDisplay::setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
 
-  if (bpp != 16) {
+  if (bpp != 16 || interface == _UDSP_RGB) {
     // just save params or update frame
     if (!x0 && !y0 && !x1 && !y1) {
       if (!ep_mode) {
@@ -1445,6 +1445,10 @@ void uDisplay::setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
       seta_yp2 = y1;
       // Serial.printf("xp1=%d xp2=%d yp1=%d yp2=%d\n", seta_xp1, seta_xp2, seta_yp1, seta_yp2);
     }
+    return;
+  }
+
+  if (interface == _UDSP_RGB) {
     return;
   }
 
@@ -1461,6 +1465,11 @@ void uDisplay::setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
 #define udisp_swap(a, b) (((a) ^= (b)), ((b) ^= (a)), ((a) ^= (b))) ///< No-temp-var swap operation
 
 void uDisplay::setAddrWindow_int(uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+
+    if (interface == _UDSP_RGB) {
+      return;
+    }
+
     x += x_addr_offs[cur_rot];
     y += y_addr_offs[cur_rot];
 
@@ -1554,9 +1563,21 @@ void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean not_swapped) {
     not_swapped = !not_swapped;
   }
 
-  //Serial.printf("push %x - %d - %d - %d\n", (uint32_t)data, len, not_swapped,lvgl_param.data);
+  //Serial.printf("push %x - %d - %d - %d\n", (uint32_t)data, len, not_swapped, lvgl_param.data);
   if (not_swapped == false) {
     // called from LVGL bytes are swapped
+    if (interface == _UDSP_RGB) {
+      for (uint32_t y = seta_yp1; y < seta_yp2; y++) {
+        for (uint32_t x = seta_xp1; x < seta_xp2; x++) {
+          seta_yp1++;
+          drawPixel(x, y, *data++);   // todo - inline the method to save speed
+          len--;
+          if (!len) return;         // failsafe - exist if len (pixel number) is exhausted
+        }
+      }
+      return;
+    }
+
     if (bpp != 16) {
       // lvgl_color_swap(data, len); -- no need to swap anymore, we have inverted the mask
       pushColorsMono(data, len, true);
@@ -1630,6 +1651,18 @@ void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean not_swapped) {
     }
   } else {
     // called from displaytext, no byte swap, currently no dma here
+    if (interface == _UDSP_RGB) {
+      for (uint32_t y = seta_yp1; y < seta_yp2; y++) {
+        seta_yp1++;
+        for (uint32_t x = seta_xp1; x < seta_xp2; x++) {
+          drawPixel(x, y, *data++);   // todo - inline the method to save speed
+          len--;
+          if (!len) return;         // failsafe - exist if len (pixel number) is exhausted
+        }
+      }
+      return;
+    }
+
     if (bpp != 16) {
       pushColorsMono(data, len);
       return;

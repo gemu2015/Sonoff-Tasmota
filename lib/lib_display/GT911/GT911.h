@@ -143,7 +143,7 @@ public:
 
 public:
     GT911();
-    esp_err_t begin(TwoWire *use_wire, int8_t pin_int, int8_t pin_res, uint16_t xs, uint16_t ys);
+    int32_t begin(TwoWire *use_wire, int8_t pin_int, int8_t pin_res, uint16_t xs, uint16_t ys);
     bool avaliable();
     void update();
     void SetRotation(uint16_t rotate);

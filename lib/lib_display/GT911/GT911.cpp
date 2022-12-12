@@ -2,7 +2,16 @@
 #include <stdint.h>
 #include "GT911.h"
 
-//#undef log_d
+#undef log_d
+#define log_d
+#undef log_e
+#define log_e
+
+#ifdef ESP8266
+#define ESP_OK 0
+#define ESP_FAIL -1
+#endif
+
 //#define log_d Serial.printf
 
 GT911::GT911() {}
@@ -15,7 +24,7 @@ void ICACHE_RAM_ATTR ___GT911IRQ___()
     interrupts();
 }
 
-esp_err_t GT911::begin(TwoWire *use_wire, int8_t pin_int, int8_t pin_res, uint16_t xs, uint16_t ys)
+int32_t GT911::begin(TwoWire *use_wire, int8_t pin_int, int8_t pin_res, uint16_t xs, uint16_t ys)
 {
     log_d("GT911: Initialization");
 
@@ -48,7 +57,7 @@ esp_err_t GT911::begin(TwoWire *use_wire, int8_t pin_int, int8_t pin_res, uint16
     }
 
     readBlockData(configBuf, GT911_CONFIG_START, GT911_CONFIG_SIZE);
-    
+
     setResolution(xs, ys);
 
     log_d("GT911: initialized");
