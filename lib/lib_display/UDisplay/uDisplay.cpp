@@ -260,7 +260,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             }
             break;
 #ifdef USE_ESP32_S3
-          case 'v':
+          case 'V':
             hsync_polarity = next_val(&lp1);
             hsync_front_porch = next_val(&lp1);
             hsync_pulse_width = next_val(&lp1);
@@ -1593,7 +1593,7 @@ void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean not_swapped) {
           fb++;
           len--;
           if (!len) return;         // failsafe - exist if len (pixel number) is exhausted
-        }  
+        }
       }
 #endif
       return;
