@@ -48,6 +48,7 @@ esp_err_t GT911::begin(TwoWire *use_wire, int8_t pin_int, int8_t pin_res, uint16
     }
 
     readBlockData(configBuf, GT911_CONFIG_START, GT911_CONFIG_SIZE);
+    
     setResolution(xs, ys);
 
     log_d("GT911: initialized");
@@ -139,7 +140,7 @@ void GT911::reflashConfig() {
 */
   writeBlockData(GT911_CONFIG_START, configBuf, GT911_CONFIG_SIZE);
   write(GT911_CONFIG_FRESH, 1);
-  
+
 }
 
 void GT911::setResolution(uint16_t _width, uint16_t _height) {

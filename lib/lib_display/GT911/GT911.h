@@ -110,7 +110,7 @@
 #define GT911_DRIVER_CH0               (uint16_t)0X80D5
 #define GT911_CONFIG_CHKSUM            (uint16_t)0X80FF
 #define GT911_CONFIG_FRESH             (uint16_t)0X8100
-#define GT911_CONFIG_SIZE              (uint16_t)0xFF-0x46
+#define GT911_CONFIG_SIZE              (uint16_t)0xFF-0x46-1
 // Coordinate information
 #define GT911_PRODUCT_ID        (uint16_t)0X8140
 #define GT911_FIRMWARE_VERSION  (uint16_t)0X8140

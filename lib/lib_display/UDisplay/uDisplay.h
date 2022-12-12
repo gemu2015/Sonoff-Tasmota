@@ -36,6 +36,7 @@ static inline void gpio_lo(int_fast8_t pin) { if (pin >= 0) *get_gpio_lo_reg(pin
 #include "esp_pm.h"
 #include "esp_lcd_panel_ops.h"
 #include <hal/dma_types.h>
+#include <rom/cache.h>
 #endif // USE_ESP32_S3
 
 #define _UDSP_I2C 1
@@ -334,6 +335,8 @@ class uDisplay : public Renderer {
 
    esp_lcd_panel_handle_t _panel_handle = NULL;
    esp_rgb_panel_t *_rgb_panel;
+   uint16_t *rgb_fb;
+
 
    esp_lcd_i80_bus_handle_t _i80_bus = nullptr;
    gdma_channel_handle_t _dma_chan;

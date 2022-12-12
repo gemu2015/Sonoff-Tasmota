@@ -25,8 +25,9 @@
 #endif
 
 
+extern int Cache_WriteBack_Addr(uint32_t addr, uint32_t size);
 
-#define UDSP_DEBUG
+//#define UDSP_DEBUG
 
 const uint16_t udisp_colors[]={UDISP_BLACK,UDISP_WHITE,UDISP_RED,UDISP_GREEN,UDISP_BLUE,UDISP_CYAN,UDISP_MAGENTA,\
   UDISP_YELLOW,UDISP_NAVY,UDISP_DARKGREEN,UDISP_DARKCYAN,UDISP_MAROON,UDISP_PURPLE,UDISP_OLIVE,\
@@ -487,15 +488,11 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   }
   if (interface == _UDSP_RGB) {
 #ifdef USE_ESP32_S3
-    Serial.printf("rgb  hsync_polarity: %d\n", hsync_polarity);
-    Serial.printf("rgb  hsync_front_porch: %d\n", hsync_front_porch);
-    Serial.printf("rgb  hsync_pulse_width : %d\n", hsync_pulse_width);
-    Serial.printf("rgb  hsync_back_porch : %d\n", hsync_back_porch);
-    Serial.printf("rgb  vsync_polarity : %d\n", vsync_polarity);
-    Serial.printf("rgb  vsync_front_porch : %d\n", vsync_front_porch);
-    Serial.printf("rgb  vsync_pulse_width : %d\n", vsync_pulse_width);
-    Serial.printf("rgb  vsync_back_porch : %d\n", vsync_back_porch);
-    Serial.printf("rgb  pclk_active_neg : %d\n", pclk_active_neg);
+
+    Serial.printf("rgb  de: %d\n", de);
+    Serial.printf("rgb  vsync: %d\n", vsync);
+    Serial.printf("rgb  hsync : %d\n", hsync);
+    Serial.printf("rgb  pclk : %d\n", pclk);
     Serial.printf("rgb  bp : %d\n", bpanel);
 
     for (uint32_t cnt = 0; cnt < 8; cnt ++) {
@@ -506,6 +503,17 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
     }
 
     Serial.printf("rgb  freq : %d\n", spi_speed);
+
+    Serial.printf("rgb  hsync_polarity: %d\n", hsync_polarity);
+    Serial.printf("rgb  hsync_front_porch: %d\n", hsync_front_porch);
+    Serial.printf("rgb  hsync_pulse_width : %d\n", hsync_pulse_width);
+    Serial.printf("rgb  hsync_back_porch : %d\n", hsync_back_porch);
+    Serial.printf("rgb  vsync_polarity : %d\n", vsync_polarity);
+    Serial.printf("rgb  vsync_front_porch : %d\n", vsync_front_porch);
+    Serial.printf("rgb  vsync_pulse_width : %d\n", vsync_pulse_width);
+    Serial.printf("rgb  vsync_back_porch : %d\n", vsync_back_porch);
+    Serial.printf("rgb  pclk_active_neg : %d\n", pclk_active_neg);
+
 #endif // USE_ESP32_S3
   }
 #endif
@@ -680,8 +688,8 @@ Renderer *uDisplay::Init(void) {
 
     _panel_config->clk_src = LCD_CLK_SRC_PLL160M;
 
-    if (spi_speed > 12) {
-      spi_speed = 12;
+    if (spi_speed > 14) {
+      spi_speed = 14;
     }
     _panel_config->timings.pclk_hz = spi_speed*1000000;
     _panel_config->timings.h_res = gxs;
@@ -708,10 +716,10 @@ Renderer *uDisplay::Init(void) {
     _panel_config->pclk_gpio_num = pclk;
 
     for (uint32_t cnt = 0; cnt < 8; cnt ++) {
-      _panel_config->data_gpio_nums[cnt] = par_dbl[cnt];
+      _panel_config->data_gpio_nums[cnt] = par_dbh[cnt];
     }
     for (uint32_t cnt = 0; cnt < 8; cnt ++) {
-      _panel_config->data_gpio_nums[cnt + 8] = par_dbh[cnt];
+      _panel_config->data_gpio_nums[cnt + 8] = par_dbl[cnt];
     }
     _panel_config->disp_gpio_num = GPIO_NUM_NC;
 
@@ -726,15 +734,12 @@ Renderer *uDisplay::Init(void) {
     uint16_t color = random(0xffff);
     ESP_ERROR_CHECK(_panel_handle->draw_bitmap(_panel_handle, 0, 0, 1, 1, &color));
 
-/*
     _rgb_panel = __containerof(_panel_handle, esp_rgb_panel_t, base);
-*/
-    //return (uint16_t *)_rgb_panel->fb;
+
+    rgb_fb = (uint16_t *)_rgb_panel->fb;
 
 #endif // USE_ESP32_S3
   }
-
-
 
   if (interface == _UDSP_PAR8 || interface == _UDSP_PAR16) {
 
@@ -1202,6 +1207,7 @@ void uDisplay::Updateframe(void) {
 
 void uDisplay::drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
 
+
   if (ep_mode) {
     drawFastVLine_EPD(x, y, h, color);
     return;
@@ -1215,6 +1221,15 @@ void uDisplay::drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
   // Rudimentary clipping
   if ((x >= _width) || (y >= _height)) return;
   if ((y + h - 1) >= _height) h = _height - y;
+
+
+  if (interface == _UDSP_RGB) {
+    while (h--) {
+      drawPixel(x, y, color);
+      y++;
+    }
+    return;
+  }
 
   SPI_BEGIN_TRANSACTION
 
@@ -1261,7 +1276,16 @@ void uDisplay::drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) {
 
   // Rudimentary clipping
   if((x >= _width) || (y >= _height)) return;
-  if((x+w-1) >= _width)  w = _width-x;
+  if((x + w - 1) >= _width)  w = _width - x;
+
+
+  if (interface == _UDSP_RGB) {
+    while (w--) {
+      drawPixel(x, y, color);
+      x++;
+    }
+    return;
+  }
 
 
   SPI_BEGIN_TRANSACTION
@@ -1308,6 +1332,11 @@ void uDisplay::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t col
 
 
   if (interface == _UDSP_RGB) {
+    for (uint32_t yp = y; yp < y + h; yp++) {
+      for (uint32_t xp = x; xp < x + w; xp++) {
+        drawPixel(xp , yp , color);
+      }
+    }
     return;
   }
 
@@ -1649,9 +1678,18 @@ void uDisplay::WriteColor(uint16_t color) {
   }
 }
 
+
+
 void uDisplay::drawPixel(int16_t x, int16_t y, uint16_t color) {
 
   if (interface == _UDSP_RGB) {
+#ifdef USE_ESP32_S3
+    uint16_t *fb = rgb_fb;
+    fb += (int32_t)y * _width;
+    fb += x;
+    *fb = color;
+    Cache_WriteBack_Addr((uint32_t)fb, 2);
+#endif
     return;
   }
 
