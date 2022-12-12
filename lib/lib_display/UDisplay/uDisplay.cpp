@@ -1224,10 +1224,17 @@ void uDisplay::drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
 
 
   if (interface == _UDSP_RGB) {
+  #ifdef USE_ESP32_S3
+    uint16_t *fb = rgb_fb;
+    fb += (int32_t)y * _width;
+    fb += x;
     while (h--) {
-      drawPixel(x, y, color);
+      *fb = color;
+      Cache_WriteBack_Addr((uint32_t)fb, 2);
+      fb+=_width;
       y++;
     }
+  #endif
     return;
   }
 
@@ -1280,10 +1287,17 @@ void uDisplay::drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) {
 
 
   if (interface == _UDSP_RGB) {
+  #ifdef USE_ESP32_S3
+    uint16_t *fb = rgb_fb;
+    fb += (int32_t)y * _width;
+    fb += x;
     while (w--) {
-      drawPixel(x, y, color);
+      *fb = color;
+      Cache_WriteBack_Addr((uint32_t)fb, 2);
+      fb++;
       x++;
     }
+  #endif
     return;
   }
 
@@ -1333,9 +1347,7 @@ void uDisplay::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t col
 
   if (interface == _UDSP_RGB) {
     for (uint32_t yp = y; yp < y + h; yp++) {
-      for (uint32_t xp = x; xp < x + w; xp++) {
-        drawPixel(xp , yp , color);
-      }
+      drawFastHLine(x, yp, w, color);
     }
     return;
   }
@@ -1567,14 +1579,23 @@ void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean not_swapped) {
   if (not_swapped == false) {
     // called from LVGL bytes are swapped
     if (interface == _UDSP_RGB) {
+#ifdef USE_ESP32_S3
       for (uint32_t y = seta_yp1; y < seta_yp2; y++) {
+        seta_yp1++;
+        uint16_t *fb = rgb_fb;
+        fb += (int32_t)y * _width;
+        fb += seta_xp1;
         for (uint32_t x = seta_xp1; x < seta_xp2; x++) {
-          seta_yp1++;
-          drawPixel(x, y, *data++);   // todo - inline the method to save speed
+          uint16_t color = *data++;
+          color = color << 8 | color >> 8;
+          *fb = color;
+          Cache_WriteBack_Addr((uint32_t)fb, 2);
+          fb++;
           len--;
           if (!len) return;         // failsafe - exist if len (pixel number) is exhausted
-        }
+        }  
       }
+#endif
       return;
     }
 
@@ -1652,14 +1673,21 @@ void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean not_swapped) {
   } else {
     // called from displaytext, no byte swap, currently no dma here
     if (interface == _UDSP_RGB) {
+#ifdef USE_ESP32_S3
       for (uint32_t y = seta_yp1; y < seta_yp2; y++) {
         seta_yp1++;
+        uint16_t *fb = rgb_fb;
+        fb += (int32_t)y * _width;
+        fb += seta_xp1;
         for (uint32_t x = seta_xp1; x < seta_xp2; x++) {
-          drawPixel(x, y, *data++);   // todo - inline the method to save speed
+          *fb = *data++;
+          Cache_WriteBack_Addr((uint32_t)fb, 2);
+          fb++;
           len--;
           if (!len) return;         // failsafe - exist if len (pixel number) is exhausted
         }
       }
+#endif
       return;
     }
 
