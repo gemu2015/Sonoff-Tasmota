@@ -110,7 +110,7 @@
 #define GT911_DRIVER_CH0               (uint16_t)0X80D5
 #define GT911_CONFIG_CHKSUM            (uint16_t)0X80FF
 #define GT911_CONFIG_FRESH             (uint16_t)0X8100
-#define GT911_CONFIG_SIZE              (uint16_t)0xFF-0x46-1
+#define GT911_CONFIG_SIZE              (uint16_t)0xFF-0x46
 // Coordinate information
 #define GT911_PRODUCT_ID        (uint16_t)0X8140
 #define GT911_FIRMWARE_VERSION  (uint16_t)0X8140
@@ -166,8 +166,7 @@ private:
     void calculateChecksum();
     void setResolution(uint16_t _width, uint16_t _height);
     void readBlockData(uint8_t *buf, uint16_t reg, uint8_t size);
-    void writeBlockData(uint16_t reg, uint8_t *val, uint8_t size);
-private:
+
     bool _is_finger_up = false;
     uint8_t _num = 0;
     uint8_t _rotate = ROTATE_90;

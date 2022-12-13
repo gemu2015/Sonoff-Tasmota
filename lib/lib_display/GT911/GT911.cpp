@@ -34,10 +34,10 @@ int32_t GT911::begin(TwoWire *use_wire, int8_t pin_int, int8_t pin_res, uint16_t
     if (pin_res >= 0) {
       pinMode(pin_res, OUTPUT); // Startup sequence PIN part
       digitalWrite(pin_res, 0);
-      delay(10);
+      delay(1);
       digitalWrite(pin_res, 1);
-      delay(50);
     }
+    delay(100);
     wire = use_wire;
 
     wire->beginTransmission(0x14);
@@ -58,12 +58,18 @@ int32_t GT911::begin(TwoWire *use_wire, int8_t pin_int, int8_t pin_res, uint16_t
 
     readBlockData(configBuf, GT911_CONFIG_START, GT911_CONFIG_SIZE);
 
-    setResolution(xs, ys);
+    uint16_t curx = configBuf[GT911_X_OUTPUT_MAX_LOW - GT911_CONFIG_START] | (configBuf[GT911_X_OUTPUT_MAX_HIGH - GT911_CONFIG_START] << 8);
+    uint16_t cury = configBuf[GT911_Y_OUTPUT_MAX_LOW - GT911_CONFIG_START] | (configBuf[GT911_Y_OUTPUT_MAX_HIGH - GT911_CONFIG_START] << 8);
+
+    if (curx != xs || cury != ys) {
+      setResolution(xs, ys);
+    }
 
     log_d("GT911: initialized");
 
     return ESP_OK;
 }
+
 
 void GT911::write(uint16_t addr, uint8_t data)
 {
@@ -116,21 +122,10 @@ void GT911::readBlockData(uint8_t *buf, uint16_t reg, uint8_t size) {
   }
 }
 
-void GT911::writeBlockData(uint16_t reg, uint8_t *buf, uint8_t size) {
-  wire->beginTransmission(_iic_addr);
-  wire->write(highByte(reg));
-  wire->write(lowByte(reg));
-  for (uint8_t i = 0; i < size; i++) {
-    wire->write(buf[i]);
-  }
-  wire->endTransmission();
-}
-
 
 void GT911::calculateChecksum() {
   uint8_t checksum = 0;
-  configBuf[GT911_CONFIG_CHKSUM - GT911_CONFIG_START] = 0;
-  for (uint8_t i = 0; i < GT911_CONFIG_SIZE; i++) {
+  for (uint8_t i = 0; i < GT911_CONFIG_SIZE - 1 ; i++) {
     checksum += configBuf[i];
   }
   checksum = (~checksum) + 1;
@@ -139,17 +134,12 @@ void GT911::calculateChecksum() {
 
 void GT911::reflashConfig() {
   calculateChecksum();
-  /*
   write(GT911_X_OUTPUT_MAX_LOW, configBuf[GT911_X_OUTPUT_MAX_LOW - GT911_CONFIG_START]);
   write(GT911_X_OUTPUT_MAX_HIGH, configBuf[GT911_X_OUTPUT_MAX_HIGH - GT911_CONFIG_START]);
   write(GT911_Y_OUTPUT_MAX_LOW, configBuf[GT911_Y_OUTPUT_MAX_LOW - GT911_CONFIG_START]);
   write(GT911_Y_OUTPUT_MAX_HIGH, configBuf[GT911_Y_OUTPUT_MAX_HIGH - GT911_CONFIG_START]);
   write(GT911_CONFIG_CHKSUM, configBuf[GT911_CONFIG_CHKSUM - GT911_CONFIG_START]);
   write(GT911_CONFIG_FRESH, 1);
-*/
-  writeBlockData(GT911_CONFIG_START, configBuf, GT911_CONFIG_SIZE);
-  write(GT911_CONFIG_FRESH, 1);
-
 }
 
 void GT911::setResolution(uint16_t _width, uint16_t _height) {
