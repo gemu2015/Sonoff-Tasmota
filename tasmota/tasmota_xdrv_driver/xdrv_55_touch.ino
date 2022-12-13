@@ -220,14 +220,11 @@ int16_t FT5206_y() {
 #ifdef USE_GT911
 #include <GT911.h>
 // touch panel controller
-#undef GT911_address
-#define GT911_address 0x5d
 GT911 *GT911_touchp;
 
 bool GT911_Touch_Init(TwoWire *i2c, int8_t irq_pin, int8_t rst_pin, uint16_t xs, uint16_t ys) {
   GT911_found = false;
   GT911_touchp = new GT911();
-  //AddLog(LOG_LEVEL_INFO, PSTR("init GT911 %d , %d , %d , %d"), irq_pin, rst_pin, xs, ys);
   if (ESP_OK == GT911_touchp->begin(i2c, irq_pin, rst_pin, xs, ys)) {
     AddLog(LOG_LEVEL_INFO, PSTR("TI: GT911"));
     GT911_found = true;
