@@ -85,21 +85,20 @@ void M5EpdInitDriver47(void) {
 
 #ifdef USE_TOUCH_BUTTONS
 // GT911 touch controller
-#include "GT911.H"
-
+#include "GT911_M5.H"
 
 #define M5EPD47_address 0x5D
 
-GT911 *M5EPD47_touchp;
-uint8_t GT911_found;
+GT911_M5 *M5EPD47_touchp;
+uint8_t GT911_M5_found;
 
 void M5EPD47_Touch_Init(void) {
-GT911_found = false;
-M5EPD47_touchp = new GT911();
+GT911_M5_found = false;
+M5EPD47_touchp = new GT911_M5();
 
 if (ESP_OK == M5EPD47_touchp->begin(&Wire1, 36)) {
     I2cSetActiveFound(M5EPD47_address, "GT911", 1);
-    GT911_found = true;
+    GT911_M5_found = true;
   }
 }
 
@@ -187,7 +186,7 @@ bool Xdsp20(uint32_t function)
         break;
 #ifdef USE_TOUCH_BUTTONS
       case FUNC_DISPLAY_EVERY_50_MSECOND:
-        if (GT911_found) {
+        if (GT911_M5_found) {
           M5EPD47_CheckTouch();
         }
         break;

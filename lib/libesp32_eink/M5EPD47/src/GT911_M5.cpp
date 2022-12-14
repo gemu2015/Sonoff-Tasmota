@@ -1,11 +1,11 @@
 #include <Arduino.h>
 #include <stdint.h>
-#include "GT911.h"
+#include "GT911_M5.h"
 
 //#undef log_d
 //#define log_d Serial.printf
 
-static const uint8_t _kGT911FW540960G2T1602729168[] = {
+static const uint8_t _kGT911_M5FW540960G2T1602729168[] = {
     0x43, 0x1C, 0x02, 0xC0, 0x03, 0x02, 0x05, 0x00, 0x01, 0x18, 0x28, 0x0F, 0x50, 0x32,
     0x03, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x1A, 0x1E, 0x14, 0x87,
     0x29, 0x0A, 0x21, 0x23, 0xB2, 0x04, 0x00, 0x00, 0x00, 0x1A, 0x02, 0x1C, 0x00, 0x00,
@@ -22,19 +22,19 @@ static const uint8_t _kGT911FW540960G2T1602729168[] = {
     0xFF, 0xFF, 0xCE, 0x01
 };
 
-GT911::GT911() {}
+GT911_M5::GT911_M5() {}
 
-volatile uint8_t gt911_irq_trigger = 0;
-void ICACHE_RAM_ATTR ___GT911IRQ___()
+volatile uint8_t GT911_M5_irq_trigger = 0;
+void ICACHE_RAM_ATTR ___GT911_M5IRQ___()
 {
     noInterrupts();
-    gt911_irq_trigger = 1;
+    GT911_M5_irq_trigger = 1;
     interrupts();
 }
 
-esp_err_t GT911::begin(TwoWire *use_wire, uint8_t pin_int)
+esp_err_t GT911_M5::begin(TwoWire *use_wire, uint8_t pin_int)
 {
-    log_d("GT911: Initialization");
+    log_d("GT911_M5: Initialization");
     pinMode(pin_int, INPUT); // Startup sequence PIN part
     wire = use_wire;
 
@@ -54,25 +54,25 @@ esp_err_t GT911::begin(TwoWire *use_wire, uint8_t pin_int)
         _iic_addr = 0x5D;
     }
 
-    // if(read(0x8047) != _kGT911FW540960G2T1602729168[0])
+    // if(read(0x8047) != _kGT911_M5FW540960G2T1602729168[0])
     // {
-    //     log_d("GT911: Update firmware");
+    //     log_d("GT911_M5: Update firmware");
     //     write(0x8040, 0x02);
     //     delay(100);
-    //     write(0x8047, _kGT911FW540960G2T1602729168, 186);
+    //     write(0x8047, _kGT911_M5FW540960G2T1602729168, 186);
     //     delay(50);
     //     write(0x8040, 0x00);
     //     delay(100);
     // }
 
-    attachInterrupt(pin_int, ___GT911IRQ___, FALLING);
+    attachInterrupt(pin_int, ___GT911_M5IRQ___, FALLING);
 
-    log_d("GT911: initialized");
+    log_d("GT911_M5: initialized");
 
     return ESP_OK;
 }
 
-void GT911::write(uint16_t addr, uint8_t data)
+void GT911_M5::write(uint16_t addr, uint8_t data)
 {
     wire->beginTransmission(_iic_addr);
     wire->write((uint8_t)(addr >> 8));
@@ -81,7 +81,7 @@ void GT911::write(uint16_t addr, uint8_t data)
     wire->endTransmission(true);
 }
 
-void GT911::write(uint16_t addr, const uint8_t *data, uint16_t len)
+void GT911_M5::write(uint16_t addr, const uint8_t *data, uint16_t len)
 {
     wire->beginTransmission(_iic_addr);
     wire->write((uint8_t)(addr >> 8));
@@ -90,7 +90,7 @@ void GT911::write(uint16_t addr, const uint8_t *data, uint16_t len)
     wire->endTransmission(true);
 }
 
-uint8_t GT911::read(uint16_t addr)
+uint8_t GT911_M5::read(uint16_t addr)
 {
     wire->flush();
     wire->beginTransmission(_iic_addr);
@@ -101,7 +101,7 @@ uint8_t GT911::read(uint16_t addr)
     return wire->read();
 }
 
-void GT911::read(uint16_t addr, uint8_t *buf, uint16_t len)
+void GT911_M5::read(uint16_t addr, uint8_t *buf, uint16_t len)
 {
     wire->flush();
     wire->beginTransmission(_iic_addr);
@@ -123,25 +123,25 @@ uint8_t calcChecksum(const uint8_t *buf, uint8_t len)
     return ccsum;
 }
 
-bool GT911::avaliable()
+bool GT911_M5::avaliable()
 {
-    if(gt911_irq_trigger == 1)
+    if(GT911_M5_irq_trigger == 1)
     {
-        gt911_irq_trigger = 0;
+        GT911_M5_irq_trigger = 0;
         return true;
     }
     return false;
 }
 
-void GT911::flush(void)
+void GT911_M5::flush(void)
 {
     write(0x814E, 0x00);
-    gt911_irq_trigger = 0;
+    GT911_M5_irq_trigger = 0;
     _num = 0;
     _is_finger_up = 0;
 }
 
-void GT911::update()
+void GT911_M5::update()
 {
     uint8_t r814e = read(0x814E);
     uint8_t num = r814e & 0x0F;
@@ -194,7 +194,7 @@ void GT911::update()
     }
 }
 
-bool GT911::isFingerUp(void)
+bool GT911_M5::isFingerUp(void)
 {
     if(_is_finger_up == 1)
     {
@@ -204,7 +204,7 @@ bool GT911::isFingerUp(void)
     return false;
 }
 
-void GT911::SetRotation(uint16_t rotate)
+void GT911_M5::SetRotation(uint16_t rotate)
 {
     if(rotate < 4)
     {
@@ -228,7 +228,7 @@ void GT911::SetRotation(uint16_t rotate)
     }
 }
 
-tp_finger_t GT911::readFinger(uint8_t num)
+tp_finger_t GT911_M5::readFinger(uint8_t num)
 {
     if(num > 2)
     {
@@ -237,27 +237,27 @@ tp_finger_t GT911::readFinger(uint8_t num)
     return this->_fingers[num];
 }
 
-uint16_t GT911::readFingerID(uint8_t num)
+uint16_t GT911_M5::readFingerID(uint8_t num)
 {
     return this->_fingers[num].id;
 }
 
-uint16_t GT911::readFingerSize(uint8_t num)
+uint16_t GT911_M5::readFingerSize(uint8_t num)
 {
     return this->_fingers[num].size;
 }
 
-uint16_t GT911::readFingerX(uint8_t num)
+uint16_t GT911_M5::readFingerX(uint8_t num)
 {
     return this->_fingers[num].x;
 }
 
-uint16_t GT911::readFingerY(uint8_t num)
+uint16_t GT911_M5::readFingerY(uint8_t num)
 {
     return this->_fingers[num].y;
 }
 
-uint8_t GT911::getFingerNum(void)
+uint8_t GT911_M5::getFingerNum(void)
 {
     return _num;
 }

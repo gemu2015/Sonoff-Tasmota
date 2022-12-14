@@ -1,5 +1,5 @@
-#ifndef GT911_H
-#define GT911_H
+#ifndef GT911_M5_H
+#define GT911_M5_H
 
 #include <stdint.h>
 #include <Wire.h>
@@ -12,7 +12,7 @@ typedef struct
     uint16_t size;
 }tp_finger_t;
 
-class GT911
+class GT911_M5
 {
 public:
     static const uint8_t ROTATE_0 = 0;
@@ -21,7 +21,7 @@ public:
     static const uint8_t ROTATE_270 = 3;
 
 public:
-    GT911();
+    GT911_M5();
     esp_err_t begin(TwoWire *use_wire, uint8_t pin_int);
     bool avaliable();
     void update();
