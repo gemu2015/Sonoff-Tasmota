@@ -65,7 +65,8 @@ esp_err_t GT911_M5::begin(TwoWire *use_wire, uint8_t pin_int)
     //     delay(100);
     // }
 
-    attachInterrupt(pin_int, ___GT911_M5IRQ___, FALLING);
+    // crashes in latest tasmota dev ????
+    // attachInterrupt(pin_int, ___GT911_M5IRQ___, FALLING);
 
     log_d("GT911_M5: initialized");
 

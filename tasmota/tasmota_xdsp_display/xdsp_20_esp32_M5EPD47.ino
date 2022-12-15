@@ -135,7 +135,7 @@ void M5EPD47_CheckTouch(void) {
   if (2 == M5EPD47_ctouch_counter) {
     // every 100 ms should be enough
     M5EPD47_ctouch_counter = 0;
-    if (M5EPD47_touchp->avaliable()) {
+  //  if (M5EPD47_touchp->avaliable()) {
       M5EPD47_touchp->update();
       TSGlobal.touched = !M5EPD47_touchp->isFingerUp();
       if (TSGlobal.touched) {
@@ -160,7 +160,7 @@ void M5EPD47_CheckTouch(void) {
 #ifdef USE_TOUCH_BUTTONS
       CheckTouchButtons(TSGlobal.touched, TSGlobal.touch_xp, TSGlobal.touch_yp);
 #endif // USE_TOUCH_BUTTONS
-    }
+  //  }
 
   }
 }
