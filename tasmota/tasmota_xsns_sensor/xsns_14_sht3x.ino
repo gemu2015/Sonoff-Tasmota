@@ -159,13 +159,12 @@ void Sht3xDetect(void) {
   float h;
 
   for (uint32_t k = 0; k < SHT3X_TYPES; k++) {
-    TwoWire *wire = I2C_Check_Device(sht3x_addresses[k]);
-    if (!wire) { continue; }
-    sht3x_wire = wire;
-
     sht3x_sensors[sht3x_count].type = k;
     for (uint32_t i = 0; i < SHT3X_ADDRESSES; i++) {
-      if (!I2cSetDevice(sht3x_addresses[i])) { continue; }
+      TwoWire *wire = I2C_Check_Device(sht3x_addresses[i]);
+      if (!wire) { continue; }
+      sht3x_wire = wire;
+      //if (!I2cSetDevice(sht3x_addresses[i])) { continue; }
       sht3x_sensors[sht3x_count].address = sht3x_addresses[i];
       if (Sht3xRead(sht3x_sensors[sht3x_count].type, t, h, sht3x_sensors[sht3x_count].address)) {
         GetTextIndexed(sht3x_sensors[sht3x_count].types, sizeof(sht3x_sensors[sht3x_count].types), sht3x_sensors[sht3x_count].type, kSht3xTypes);
