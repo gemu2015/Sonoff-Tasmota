@@ -40,7 +40,7 @@ internal I2C devices
 
 \*********************************************************************************************/
 
-#define XDRV_86        86
+#define XDRV_97        97
 
 #include "M5EPD.h"
 #include "BM8563.h"
@@ -148,7 +148,7 @@ void CmndM5EPDShutdown(void) {
  * Interface
 \*********************************************************************************************/
 
-bool Xdrv86(uint8_t function) {
+bool Xdrv97(uint32_t function) {
   bool result = false;
 
   switch (function) {

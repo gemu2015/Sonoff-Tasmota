@@ -10,7 +10,7 @@ typedef struct
     uint16_t y;
     uint16_t id;
     uint16_t size;
-}tp_finger_t;
+}tp_finger_m5_t;
 
 class GT911_M5
 {
@@ -26,7 +26,7 @@ public:
     bool avaliable();
     void update();
     void SetRotation(uint16_t rotate);
-    tp_finger_t readFinger(uint8_t num);
+    tp_finger_m5_t readFinger(uint8_t num);
     uint16_t readFingerX(uint8_t num);
     uint16_t readFingerY(uint8_t num);
     uint16_t readFingerID(uint8_t num);
@@ -47,7 +47,7 @@ private:
     bool _is_finger_up = false;
     uint8_t _num = 0;
     uint8_t _rotate = ROTATE_0;
-    tp_finger_t _fingers[2];
+    tp_finger_m5_t _fingers[2];
     uint8_t _iic_addr = 0x14;
     TwoWire *wire;
 };

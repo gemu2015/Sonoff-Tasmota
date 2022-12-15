@@ -228,7 +228,7 @@ void GT911_M5::SetRotation(uint16_t rotate)
     }
 }
 
-tp_finger_t GT911_M5::readFinger(uint8_t num)
+tp_finger_m5_t GT911_M5::readFinger(uint8_t num)
 {
     if(num > 2)
     {

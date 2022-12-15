@@ -140,7 +140,7 @@ void M5EPD47_CheckTouch(void) {
       TSGlobal.touched = !M5EPD47_touchp->isFingerUp();
       if (TSGlobal.touched) {
         //M5EPD47_touchp->update();
-        tp_finger_t FingerItem = M5EPD47_touchp->readFinger(0);
+        tp_finger_m5_t FingerItem = M5EPD47_touchp->readFinger(0);
 
         TSGlobal.touch_xp = M5EPD47_touchp->readFingerX(0);
         TSGlobal.touch_yp = M5EPD47_touchp->readFingerY(0);
