@@ -55,8 +55,9 @@
 
 //#define MODBUS_DEBUG
 
-// addresses a bug in meter DWS74
-//#define DWS74_BUG
+#ifdef DWS74_BUG
+#define USE_SML_SPECOPT
+#endif
 
 // JSON Strings do not translate
 // max 23 char
@@ -89,6 +90,9 @@ typedef union {
   };
 } TRX_EN_TYPE;
 
+
+#define SO_DWS74_BUG 1
+
 struct METER_DESC {
   int8_t srcpin;
   uint8_t type;
@@ -110,6 +114,7 @@ struct METER_DESC {
   uint8_t so_bpos1;
   uint8_t so_fcode2;
   uint8_t so_bpos2;
+  uint8_t so_flags;
 #endif
 };
 
@@ -1307,7 +1312,7 @@ uint8_t *skip_sml(uint8_t *cp,int16_t *res) {
 
 // get sml binary value
 // not defined for unsigned >0x7fff ffff ffff ffff (should never happen)
-double sml_getvalue(unsigned char *cp,uint8_t index) {
+double sml_getvalue(unsigned char *cp, uint8_t index) {
 uint8_t len,unit,type;
 int16_t scaler,result;
 int64_t value;
@@ -1406,14 +1411,18 @@ double dval;
                     break;
                 case 2:
                     // signed 16 bit
-#ifdef DWS74_BUG
-                    if (scaler==-2) {
-                      value=(uint32_t)uvalue;
+#ifdef USE_SML_SPECOPT
+                    if (script_meter_desc[index].so_flags & SO_DWS74_BUG) {
+                      if (scaler == -2) {
+                        value = (uint32_t)uvalue;
+                      } else {
+                        value = (int16_t)uvalue;
+                      }
                     } else {
-                      value=(int16_t)uvalue;
+                      value = (int16_t)uvalue;
                     }
 #else
-                    value=(int16_t)uvalue;
+                    value = (int16_t)uvalue;
 #endif
                     break;
                 case 3:
@@ -2324,7 +2333,7 @@ void SML_Decode(uint8_t index) {
               uint8_t day = date % 100; // = 01
               sprintf(&meter_id[mindex][0],"%02d.%02d.%02d",day, month, year);
             } else {
-              sml_getvalue(cp,mindex);
+              sml_getvalue(cp, mindex);
             }
           }
         } else {
@@ -2358,7 +2367,7 @@ void SML_Decode(uint8_t index) {
                 dval=CharToDouble((char*)cp);
               }
             } else {
-              dval = sml_getvalue(cp,mindex);
+              dval = sml_getvalue(cp, mindex);
             }
           } else {
             // ebus pzem vbus or mbus or raw
@@ -2836,6 +2845,12 @@ void SML_Init(void) {
   for (uint32_t cnt = 0; cnt < MAX_METERS; cnt++) {
     script_meter_desc[cnt].so_obis1 = 0;
     script_meter_desc[cnt].so_obis2 = 0;
+    // addresses a bug in meter DWS74
+#ifdef DWS74_BUG
+    script_meter_desc[cnt].so_flags = SO_DWS74_BUG;
+#else
+    script_meter_desc[cnt].so_flags = 0;
+#endif
   }
 #endif
 
@@ -3090,6 +3105,9 @@ dddef_exit:
             if (*cp == '1') {
               cp++;
               SML_GetSpecOpt(cp, mnum - 1);
+            } else if (*cp == '2') {
+              cp += 2;
+              script_meter_desc[mnum].so_flags = strtol(cp, &cp, 16);
             }
           }
 #endif

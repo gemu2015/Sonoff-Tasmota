@@ -27,7 +27,10 @@
 
 extern int Cache_WriteBack_Addr(uint32_t addr, uint32_t size);
 
+
 //#define UDSP_DEBUG
+
+#define renderer_swap(a, b) { int16_t t = a; a = b; b = t; }
 
 const uint16_t udisp_colors[]={UDISP_BLACK,UDISP_WHITE,UDISP_RED,UDISP_GREEN,UDISP_BLUE,UDISP_CYAN,UDISP_MAGENTA,\
   UDISP_YELLOW,UDISP_NAVY,UDISP_DARKGREEN,UDISP_DARKCYAN,UDISP_MAROON,UDISP_PURPLE,UDISP_OLIVE,\
@@ -96,6 +99,10 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   lut_num = 0;
   lvgl_param.data = 0;
   lvgl_param.fluslines = 40;
+  rot_t[0] = 0;
+  rot_t[1] = 1;
+  rot_t[2] = 2;
+  rot_t[3] = 3;
 
   for (uint32_t cnt = 0; cnt < 5; cnt++) {
     lut_cnt[cnt] = 0;
@@ -1225,14 +1232,21 @@ void uDisplay::drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
 
   if (interface == _UDSP_RGB) {
   #ifdef USE_ESP32_S3
-    uint16_t *fb = rgb_fb;
-    fb += (int32_t)y * _width;
-    fb += x;
-    while (h--) {
-      *fb = color;
-      Cache_WriteBack_Addr((uint32_t)fb, 2);
-      fb+=_width;
-      y++;
+    if (cur_rot > 0) {
+      while (h--) {
+        drawPixel_RGB(x , y , color);
+        y++;
+      }
+    } else {
+      uint16_t *fb = rgb_fb;
+      fb += (int32_t)y * _width;
+      fb += x;
+      while (h--) {
+        *fb = color;
+        Cache_WriteBack_Addr((uint32_t)fb, 2);
+        fb+=_width;
+        y++;
+      }
     }
   #endif
     return;
@@ -1287,15 +1301,22 @@ void uDisplay::drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) {
 
 
   if (interface == _UDSP_RGB) {
-  #ifdef USE_ESP32_S3
-    uint16_t *fb = rgb_fb;
-    fb += (int32_t)y * _width;
-    fb += x;
-    while (w--) {
-      *fb = color;
-      Cache_WriteBack_Addr((uint32_t)fb, 2);
-      fb++;
-      x++;
+#ifdef USE_ESP32_S3
+    if (cur_rot > 0) {
+      while (w--) {
+        drawPixel_RGB(x , y , color);
+        x++;
+      }
+    } else {
+      uint16_t *fb = rgb_fb;
+      fb += (int32_t)y * _width;
+      fb += x;
+      while (w--) {
+        *fb = color;
+        Cache_WriteBack_Addr((uint32_t)fb, 2);
+        fb++;
+        x++;
+      }
     }
   #endif
     return;
@@ -1343,7 +1364,6 @@ void uDisplay::fillScreen(uint16_t color) {
 
 // fill a rectangle
 void uDisplay::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {
-
 
   if (interface == _UDSP_RGB) {
     for (uint32_t yp = y; yp < y + h; yp++) {
@@ -1580,19 +1600,32 @@ void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean not_swapped) {
     // called from LVGL bytes are swapped
     if (interface == _UDSP_RGB) {
 #ifdef USE_ESP32_S3
-      for (uint32_t y = seta_yp1; y < seta_yp2; y++) {
-        seta_yp1++;
-        uint16_t *fb = rgb_fb;
-        fb += (int32_t)y * _width;
-        fb += seta_xp1;
-        for (uint32_t x = seta_xp1; x < seta_xp2; x++) {
-          uint16_t color = *data++;
-          color = color << 8 | color >> 8;
-          *fb = color;
-          Cache_WriteBack_Addr((uint32_t)fb, 2);
-          fb++;
-          len--;
-          if (!len) return;         // failsafe - exist if len (pixel number) is exhausted
+      if (cur_rot > 0) {
+        for (uint32_t y = seta_yp1; y < seta_yp2; y++) {
+          seta_yp1++;
+          for (uint32_t x = seta_xp1; x < seta_xp2; x++) {
+            uint16_t color = *data++;
+            color = color << 8 | color >> 8;
+            drawPixel_RGB(x, y, color);
+            len--;
+            if (!len) return;         // failsafe - exist if len (pixel number) is exhausted
+          }
+        }
+      } else {
+        for (uint32_t y = seta_yp1; y < seta_yp2; y++) {
+          seta_yp1++;
+          uint16_t *fb = rgb_fb;
+          fb += (int32_t)y * _width;
+          fb += seta_xp1;
+          for (uint32_t x = seta_xp1; x < seta_xp2; x++) {
+            uint16_t color = *data++;
+            color = color << 8 | color >> 8;
+            *fb = color;
+            Cache_WriteBack_Addr((uint32_t)fb, 2);
+            fb++;
+            len--;
+            if (!len) return;         // failsafe - exist if len (pixel number) is exhausted
+          }
         }
       }
 #endif
@@ -1674,17 +1707,28 @@ void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean not_swapped) {
     // called from displaytext, no byte swap, currently no dma here
     if (interface == _UDSP_RGB) {
 #ifdef USE_ESP32_S3
-      for (uint32_t y = seta_yp1; y < seta_yp2; y++) {
-        seta_yp1++;
-        uint16_t *fb = rgb_fb;
-        fb += (int32_t)y * _width;
-        fb += seta_xp1;
-        for (uint32_t x = seta_xp1; x < seta_xp2; x++) {
-          *fb = *data++;
-          Cache_WriteBack_Addr((uint32_t)fb, 2);
-          fb++;
-          len--;
-          if (!len) return;         // failsafe - exist if len (pixel number) is exhausted
+      if (cur_rot > 0) {
+        for (uint32_t y = seta_yp1; y < seta_yp2; y++) {
+          seta_yp1++;
+          for (uint32_t x = seta_xp1; x < seta_xp2; x++) {
+            drawPixel_RGB(x, y, *data++);
+            len--;
+            if (!len) return;         // failsafe - exist if len (pixel number) is exhausted
+          }
+        }
+      } else {
+        for (uint32_t y = seta_yp1; y < seta_yp2; y++) {
+          seta_yp1++;
+          uint16_t *fb = rgb_fb;
+          fb += (int32_t)y * _width;
+          fb += seta_xp1;
+          for (uint32_t x = seta_xp1; x < seta_xp2; x++) {
+            *fb = *data++;
+            Cache_WriteBack_Addr((uint32_t)fb, 2);
+            fb++;
+            len--;
+            if (!len) return;         // failsafe - exist if len (pixel number) is exhausted
+          }
         }
       }
 #endif
@@ -1739,20 +1783,49 @@ void uDisplay::WriteColor(uint16_t color) {
   }
 }
 
+#ifdef USE_ESP32_S3
+void uDisplay::drawPixel_RGB(int16_t x, int16_t y, uint16_t color) {
+int16_t w = _width, h = _height;
 
+  if ((x < 0) || (x >= w) || (y < 0) || (y >= h)) {
+    return;
+  }
+
+  // check rotation, move pixel around if necessary
+  switch (cur_rot) {
+  case 1:
+    renderer_swap(w, h);
+    renderer_swap(x, y);
+    x = w - x - 1;
+    break;
+  case 2:
+    x = w - x - 1;
+    y = h - y - 1;
+    break;
+  case 3:
+    renderer_swap(w, h);
+    renderer_swap(x, y);
+    y = h - y - 1;
+    break;
+  }
+
+  uint16_t *fb = rgb_fb;
+  fb += (int32_t)y * w;
+  fb += x;
+  *fb = color;
+  Cache_WriteBack_Addr((uint32_t)fb, 2);
+
+}
+#endif // USE_ESP32_S3
 
 void uDisplay::drawPixel(int16_t x, int16_t y, uint16_t color) {
 
-  if (interface == _UDSP_RGB) {
 #ifdef USE_ESP32_S3
-    uint16_t *fb = rgb_fb;
-    fb += (int32_t)y * _width;
-    fb += x;
-    *fb = color;
-    Cache_WriteBack_Addr((uint32_t)fb, 2);
-#endif
+  if (interface == _UDSP_RGB) {
+    drawPixel_RGB(x, y, color);
     return;
   }
+#endif
 
   if (ep_mode) {
     drawPixel_EPD(x, y, color);
@@ -2411,7 +2484,7 @@ void uDisplay::SetFrameMemory(
 }
 
 #define IF_INVERT_COLOR     1
-#define renderer_swap(a, b) { int16_t t = a; a = b; b = t; }
+
 /**
  *  @brief: this draws a pixel by absolute coordinates.
  *          this function won't be affected by the rotate parameter.

@@ -364,6 +364,7 @@ class uDisplay : public Renderer {
    uint8_t _align_data;
    void cs_control(bool level);
    uint32_t get_sr_touch(uint32_t xp, uint32_t xm, uint32_t yp, uint32_t ym);
+   void drawPixel_RGB(int16_t x, int16_t y, uint16_t color);
 #endif
 
 #ifdef ESP32
