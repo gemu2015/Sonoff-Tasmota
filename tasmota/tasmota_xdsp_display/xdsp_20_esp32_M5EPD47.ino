@@ -72,7 +72,7 @@ void M5EpdInitDriver47(void) {
 
 #ifdef USE_TOUCH_BUTTONS
     // start digitizer
-    M5EPD47_Touch_Init();
+    GT911_Touch_Init(&Wire1, -1, -1, M5EPD47_HEIGHT, M5EPD47_WIDTH);
 #endif // USE_TOUCH_BUTTONS
 
     m5epd47_init_done = true;
@@ -81,91 +81,6 @@ void M5EpdInitDriver47(void) {
 }
 
 /*********************************************************************************************/
-
-
-#ifdef USE_TOUCH_BUTTONS
-// GT911 touch controller
-#include "GT911_M5.H"
-
-#define M5EPD47_address 0x5D
-
-GT911_M5 *M5EPD47_touchp;
-uint8_t GT911_M5_found;
-
-void M5EPD47_Touch_Init(void) {
-GT911_M5_found = false;
-M5EPD47_touchp = new GT911_M5();
-
-if (ESP_OK == M5EPD47_touchp->begin(&Wire1, 36)) {
-    I2cSetActiveFound(M5EPD47_address, "GT911", 1);
-    GT911_M5_found = true;
-  }
-}
-
-uint8_t M5EPD47_ctouch_counter = 0;
-// no rotation support
-void M5EPD47_RotConvert(int16_t *x, int16_t *y) {
-int16_t temp;
-  if (renderer) {
-    uint8_t rot=renderer->getRotation();
-    switch (rot) {
-      case 0:
-        break;
-      case 1:
-        temp=*y;
-        *y=renderer->height()-*x;
-        *x=temp;
-        break;
-      case 2:
-        *x=renderer->width()-*x;
-        *y=renderer->height()-*y;
-        break;
-      case 3:
-        temp=*y;
-        *y=*x;
-        *x=renderer->width()-temp;
-        break;
-    }
-  }
-}
-
-// check digitizer hit
-void M5EPD47_CheckTouch(void) {
-  M5EPD47_ctouch_counter++;
-  if (2 == M5EPD47_ctouch_counter) {
-    // every 100 ms should be enough
-    M5EPD47_ctouch_counter = 0;
-  //  if (M5EPD47_touchp->avaliable()) {
-      M5EPD47_touchp->update();
-      TSGlobal.touched = !M5EPD47_touchp->isFingerUp();
-      if (TSGlobal.touched) {
-        //M5EPD47_touchp->update();
-        tp_finger_m5_t FingerItem = M5EPD47_touchp->readFinger(0);
-
-        TSGlobal.touch_xp = M5EPD47_touchp->readFingerX(0);
-        TSGlobal.touch_yp = M5EPD47_touchp->readFingerY(0);
-        if (TSGlobal.touch_xp < 0) TSGlobal.touch_xp = 0;
-        if (TSGlobal.touch_yp < 0) TSGlobal.touch_yp = 0;
-        if (TSGlobal.touch_xp >= M5EPD47_WIDTH) TSGlobal.touch_xp = M5EPD47_WIDTH - 1;
-        if (TSGlobal.touch_yp >= M5EPD47_HEIGHT) TSGlobal.touch_yp = M5EPD47_HEIGHT - 1;
-
-        //AddLog(LOG_LEVEL_INFO, PSTR("touch before convert %d - %d"), TSGlobal.touch_xp, TSGlobal.touch_yp);
-
-        M5EPD47_RotConvert(&TSGlobal.touch_xp, &TSGlobal.touch_yp);
-
-        //AddLog(LOG_LEVEL_INFO, PSTR("touch after convert %d - %d"), TSGlobal.touch_xp, TSGlobal.touch_yp);
-
-      }
-      //Touch_Check(EPD47_RotConvert);
-#ifdef USE_TOUCH_BUTTONS
-      CheckTouchButtons(TSGlobal.touched, TSGlobal.touch_xp, TSGlobal.touch_yp);
-#endif // USE_TOUCH_BUTTONS
-  //  }
-
-  }
-}
-#endif // USE_TOUCH_BUTTONS
-
 
 
 /*********************************************************************************************\
@@ -184,13 +99,6 @@ bool Xdsp20(uint32_t function)
       case FUNC_DISPLAY_MODEL:
         result = true;
         break;
-#ifdef USE_TOUCH_BUTTONS
-      case FUNC_DISPLAY_EVERY_50_MSECOND:
-        if (GT911_M5_found) {
-          M5EPD47_CheckTouch();
-        }
-        break;
-#endif // USE_TOUCH_BUTTONS
     }
   }
   return result;

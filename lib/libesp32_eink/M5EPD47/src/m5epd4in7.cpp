@@ -106,6 +106,7 @@ void M5Epd47::Updateframe() {
 
 void M5Epd47::RotConvert(int16_t *x, int16_t *y, int16_t *w, int16_t *h) {
 int16_t temp;
+
     uint8_t rot=getRotation();
     switch (rot) {
       case 0:
@@ -129,7 +130,10 @@ int16_t temp;
     }
 }
 
-
+void M5Epd47::TS_RotConvert(int16_t *x, int16_t *y) {
+  _swap(*x, *y);
+  *y = height - *y;
+}
 
 //displaytext [up0:0:960:5:2]
 // needs to be rot converted

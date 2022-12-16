@@ -89,6 +89,10 @@ void M5EPDModuleInit(void) {
   M5EPD_globs.m5epd.begin();
   delay(100);
   AddLog(LOG_LEVEL_INFO, PSTR("DRV: M5 E-Paper 4.7"));
+
+  // must reinitialyze SD card
+  UfsCheckSDCardInit();
+
   M5EPD_globs.ready = true;
 }
 

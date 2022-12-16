@@ -57,6 +57,7 @@ public:
     void ep_update_mode(uint8_t mode);
     void ep_update_area(uint16_t xp, uint16_t yp, uint16_t width, uint16_t height, uint8_t mode);
     void RotConvert(int16_t *x, int16_t *y, int16_t *w, int16_t *h);
+    void TS_RotConvert(int16_t *x, int16_t *y);
 
 private:
   uint16_t width;
