@@ -291,27 +291,35 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             startline = next_hex(&lp1);
             break;
           case '0':
-            rot[0] = next_hex(&lp1);
-            x_addr_offs[0] = next_hex(&lp1);
-            y_addr_offs[0] = next_hex(&lp1);
+            if (interface != _UDSP_RGB) {
+              rot[0] = next_hex(&lp1);
+              x_addr_offs[0] = next_hex(&lp1);
+              y_addr_offs[0] = next_hex(&lp1);
+            }
             rot_t[0] = next_hex(&lp1);
             break;
           case '1':
-            rot[1] = next_hex(&lp1);
-            x_addr_offs[1] = next_hex(&lp1);
-            y_addr_offs[1] = next_hex(&lp1);
+            if (interface != _UDSP_RGB) {
+              rot[1] = next_hex(&lp1);
+              x_addr_offs[1] = next_hex(&lp1);
+              y_addr_offs[1] = next_hex(&lp1);
+            }
             rot_t[1] = next_hex(&lp1);
             break;
           case '2':
-            rot[2] = next_hex(&lp1);
-            x_addr_offs[2] = next_hex(&lp1);
-            y_addr_offs[2] = next_hex(&lp1);
+            if (interface != _UDSP_RGB) {
+              rot[2] = next_hex(&lp1);
+              x_addr_offs[2] = next_hex(&lp1);
+              y_addr_offs[2] = next_hex(&lp1);
+            }
             rot_t[2] = next_hex(&lp1);
             break;
           case '3':
-            rot[3] = next_hex(&lp1);
-            x_addr_offs[3] = next_hex(&lp1);
-            y_addr_offs[3] = next_hex(&lp1);
+            if (interface != _UDSP_RGB) {
+              rot[3] = next_hex(&lp1);
+              x_addr_offs[3] = next_hex(&lp1);
+              y_addr_offs[3] = next_hex(&lp1);
+            }
             rot_t[3] = next_hex(&lp1);
             break;
           case 'A':
