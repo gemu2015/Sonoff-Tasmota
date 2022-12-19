@@ -1283,6 +1283,77 @@ void Hexdump(uint8_t *sbuff, uint32_t slen) {
   AddLogData(LOG_LEVEL_INFO, cbuff);
 }
 
+#ifdef SML_DOUBLE_ASCI
+#define DOUBLE2CHAR dtostrf_d
+#else
+#define DOUBLE2CHAR dtostrfd
+#endif
+
+#if DOUBLE2CHAR==dtostrf_d
+
+#define L64BUFSIZE (sizeof(int64_t) * 8 + 1)
+
+char *i64toa(int64_t N, char *str, uint32_t base) {
+      int i = 2;
+      int64_t uarg;
+      char *tail, *head = str, buf[L64BUFSIZE];
+
+      if (36 < base || 2 > base)
+            base = 10;                    /* can only use 0-9, A-Z        */
+      tail = &buf[L64BUFSIZE - 1];           /* last character position      */
+      *tail-- = '\0';
+
+      if (10 == base && N < 0L) {
+            *head++ = '-';
+            uarg    = -N;
+      }
+      else  uarg = N;
+
+      if (uarg) {
+        for (i = 1; uarg; ++i) {
+          int64_t rem;
+          int64_t quot;
+          rem = uarg % base;
+          quot = uarg / base;
+          *tail-- = (char)(rem + ((9L < rem) ? ('A' - 10L) : '0'));
+          uarg    = quot;
+        }
+      }
+      else  *tail-- = '0';
+
+      memcpy(head, ++tail, i);
+      return str;
+}
+
+//  double implementation of dtostrfd
+// not yet speed optimized
+char* dtostrf_d(double number, uint8_t prec, char *s) {
+  if ((isnan(number)) || (isinf(number))) {
+    strcpy_P(s, PSTR("null"));
+  } else {
+      char *cp = s;
+      i64toa(number, cp, 10);
+      cp += strlen(cp);
+      double ipart, fpart;
+      fpart = modf(number, &ipart);
+      if (prec) {
+        *cp++ = '.';
+        fpart = fabs(fpart);
+        for (uint32_t cnt = 0; cnt < prec; cnt++) {
+          fpart *= 10;
+          uint32_t ipart = fpart;
+          *cp++ = 0x30 | (ipart % 10);
+        }
+        *cp = 0;
+      }
+  }
+  return s;
+}
+
+#endif // DOUBLE2CHAR==dtostrf_d
+
+
+
 #if defined(ED300L) || defined(AS2020) || defined(DTZ541) || defined(USE_SML_SPECOPT)
 uint8_t sml_status[MAX_METERS];
 uint8_t g_mindex;
@@ -2474,7 +2545,7 @@ void SML_Immediate_MQTT(const char *mp,uint8_t index,uint8_t mindex) {
         uint8_t dp = atoi(cp);
         if (dp & 0x10) {
           // immediate mqtt
-          dtostrfd(meter_vars[index], dp & 0xf, tpowstr);
+          DOUBLE2CHAR(meter_vars[index], dp & 0xf, tpowstr);
           ResponseTime_P(PSTR(",\"%s\":{\"%s\":%s}}"), meter_desc_p[mindex].prefix, jname, tpowstr);
           MqttPublishTeleSensor();
         }
@@ -2608,7 +2679,7 @@ void SML_Show(boolean json) {
 
             if (!mid) {
               uint8_t dp = atoi(cp) & 0xf;
-              dtostrfd(meter_vars[index], dp, tpowstr);
+              DOUBLE2CHAR(meter_vars[index], dp, tpowstr);
             }
 
             if (json) {
@@ -2673,11 +2744,11 @@ void SML_Show(boolean json) {
 #ifdef USE_DOMOTICZ
   if (json && !TasmotaGlobal.tele_period) {
     char str[16];
-    dtostrfd(meter_vars[0], 1, str);
+    DOUBLE2CHAR(meter_vars[0], 1, str);
     DomoticzSensorPowerEnergy(meter_vars[1], str);  // PowerUsage, EnergyToday
-    dtostrfd(meter_vars[2], 1, str);
+    DOUBLE2CHAR(meter_vars[2], 1, str);
     DomoticzSensor(DZ_VOLTAGE, str);  // Voltage
-    dtostrfd(meter_vars[3], 1, str);
+    DOUBLE2CHAR(meter_vars[3], 1, str);
     DomoticzSensor(DZ_CURRENT, str);  // Current
   }
 #endif  // USE_DOMOTICZ
@@ -3107,7 +3178,7 @@ dddef_exit:
               SML_GetSpecOpt(cp, mnum - 1);
             } else if (*cp == '2') {
               cp += 2;
-              script_meter_desc[mnum].so_flags = strtol(cp, &cp, 16);
+              script_meter_desc[mnum - 1].so_flags = strtol(cp, &cp, 16);
             }
           }
 #endif
@@ -3146,6 +3217,9 @@ dddef_exit:
             if (*cp == '1') {
               cp++;
               SML_GetSpecOpt(cp, mnum - 1);
+            } else if (*cp == '2') {
+              cp += 2;
+              script_meter_desc[mnum - 1].so_flags = strtol(cp, &cp, 16);
             }
           }
 #endif
