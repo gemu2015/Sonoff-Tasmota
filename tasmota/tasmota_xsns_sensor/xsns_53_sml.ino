@@ -1284,8 +1284,10 @@ void Hexdump(uint8_t *sbuff, uint32_t slen) {
 }
 
 #ifdef SML_DOUBLE_ASCI
+#undef DOUBLE2CHAR
 #define DOUBLE2CHAR dtostrf_d
 #else
+#undef DOUBLE2CHAR
 #define DOUBLE2CHAR dtostrfd
 #endif
 
