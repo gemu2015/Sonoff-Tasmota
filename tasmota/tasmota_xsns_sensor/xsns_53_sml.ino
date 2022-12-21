@@ -2262,7 +2262,7 @@ void SML_GetSpecOpt(char *cp, uint32_t mnum) {
 
 void SML_Init(void) {
   meters_used = MAX_METERS;
-
+  meter_desc_p = script_meter_desc;
   sml_desc_cnt = 0;
 
   for (uint32_t cnt = 0; cnt < SML_MAX_VARS; cnt++) {
