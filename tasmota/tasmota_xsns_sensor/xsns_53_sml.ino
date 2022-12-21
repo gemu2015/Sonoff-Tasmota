@@ -110,6 +110,7 @@ struct METER_DESC {
   uint16_t sbsiz;
   uint8_t *sbuff;
   uint16_t spos;
+  uint16_t sibsiz;
   uint8_t so_flags;
 #ifdef USE_SML_SPECOPT
   uint32_t so_obis1;
@@ -727,7 +728,7 @@ bool SML_ESP32_SERIAL::begin(uint32_t speed, uint32_t smode, int32_t recpin, int
     m_tx_pin = trxpin;
     hws = new HardwareSerial(uart_index);
     if (hws) {
-      hws->begin(speed, cfgmode, m_rx_pin, m_tx_pin);
+    //  hws->begin(speed, cfgmode, m_rx_pin, m_tx_pin);
     }
   }
   return true;
@@ -2906,6 +2907,7 @@ void SML_Init(void) {
   for (uint32_t meters = 0; meters < MAX_METERS; meters++) {
     script_meter_desc[meters].spos = 0;
     script_meter_desc[meters].sbsiz = SML_BSIZ;
+    script_meter_desc[meters].sibsiz = TMSBSIZ;
     if (script_meter_desc[meters].sbuff) {
       free(script_meter_desc[meters].sbuff);
       script_meter_desc[meters].sbuff = 0;
@@ -3187,6 +3189,13 @@ dddef_exit:
             } else if (*cp == '3') {
               cp += 2;
               script_meter_desc[mnum - 1].sbsiz = strtol(cp, &cp, 10);
+              if (*cp == ',') {
+                cp++;
+                script_meter_desc[mnum - 1].sibsiz = strtol(cp, &cp, 10);
+                if (script_meter_desc[mnum - 1].sibsiz < 64) {
+                  script_meter_desc[mnum - 1].sibsiz = 64;
+                }
+              }
             }
           }
           while (1) {
@@ -3228,6 +3237,16 @@ dddef_exit:
             } else if (*cp == '2') {
               cp += 2;
               script_meter_desc[mnum - 1].so_flags = strtol(cp, &cp, 16);
+            } else if (*cp == '3') {
+              cp += 2;
+              script_meter_desc[mnum - 1].sbsiz = strtol(cp, &cp, 10);
+              if (*cp == ',') {
+                cp++;
+                script_meter_desc[mnum - 1].sibsiz = strtol(cp, &cp, 10);
+                if (script_meter_desc[mnum - 1].sibsiz < 64) {
+                  script_meter_desc[mnum - 1].sibsiz = 64;
+                }
+              }
             }
           }
           while (1) {
@@ -3309,13 +3328,13 @@ init10:
       // serial input, init
 #ifdef SPECIAL_SS
         if (meter_desc_p[meters].type=='m' || meter_desc_p[meters].type=='M' || meter_desc_p[meters].type=='k' || meter_desc_p[meters].type=='p' || meter_desc_p[meters].type=='R' || meter_desc_p[meters].type=='v') {
-          meter_ss[meters] = new TasmotaSerial(meter_desc_p[meters].srcpin,meter_desc_p[meters].trxpin,1,0,TMSBSIZ);
+          meter_ss[meters] = new TasmotaSerial(meter_desc_p[meters].srcpin,meter_desc_p[meters].trxpin, 1, 0, script_meter_desc[meters].sibsiz);
         } else {
-          meter_ss[meters] = new TasmotaSerial(meter_desc_p[meters].srcpin,meter_desc_p[meters].trxpin,1,1,TMSBSIZ);
+          meter_ss[meters] = new TasmotaSerial(meter_desc_p[meters].srcpin,meter_desc_p[meters].trxpin, 1, 1, script_meter_desc[meters].sibsiz);
         }
 #else
 #ifdef ESP8266
-        meter_ss[meters] = new TasmotaSerial(meter_desc_p[meters].srcpin,meter_desc_p[meters].trxpin,1,0,TMSBSIZ);
+        meter_ss[meters] = new TasmotaSerial(meter_desc_p[meters].srcpin,meter_desc_p[meters].trxpin, 1, 0, script_meter_desc[meters].sibsiz);
 #endif  // ESP8266
 #ifdef ESP32
         // use hardware serial
@@ -3325,13 +3344,14 @@ init10:
           if (uart_index == 0) { ClaimSerial(); }
           uart_index--;
           if (uart_index < 0) uart_index = 0;
+          meter_ss[meters]->setRxBufferSize(script_meter_desc[meters].sibsiz);
         }
 #else
         meter_ss[meters] = new HardwareSerial(uart_index);
         if (uart_index == 0) { ClaimSerial(); }
         uart_index--;
         if (uart_index < 0) uart_index = 0;
-        meter_ss[meters]->setRxBufferSize(TMSBSIZ);
+        meter_ss[meters]->setRxBufferSize(script_meter_desc[meters].sibsiz);
 #endif // USE_ESP32_SW_SERIAL
 
 #endif  // ESP32
@@ -3380,7 +3400,7 @@ init10:
 #endif  // ESP8266
 #ifdef ESP32
         meter_ss[meters]->begin(meter_desc_p[meters].params, smode, meter_desc_p[meters].srcpin, meter_desc_p[meters].trxpin);
-        //meter_ss[meters]->setRxBufferSize(TMSBSIZ);
+        //meter_ss[meters]->setRxBufferSize(script_meter_desc[meters].sibsiz);
 #endif  // ESP32
     }
   }
