@@ -25,6 +25,8 @@
 
 #define XSNS_53 53
 
+// this driver depends on use USE_SCRIPT !!!
+
 // default baudrate of D0 output
 #define SML_BAUDRATE 9600
 
@@ -35,11 +37,6 @@
 // debug counter input to led for counter1 and 2
 //#define DEBUG_CNT_LED1 2
 //#define DEBUG_CNT_LED1 2
-
-// use analog optical counter sensor with AD Converter ADS1115 (not yet functional)
-//#define ANALOG_OPTO_SENSOR
-// fototransistor with pullup at A0, A1 of ADS1115 A3 and +3.3V
-// level and amplification are automatically set
 
 
 #include <TasmotaSerial.h>
@@ -55,29 +52,6 @@
 
 //#define MODBUS_DEBUG
 
-
-// JSON Strings do not translate
-// max 23 char
-#define DJ_TPWRIN "Total_in"
-#define DJ_TPWRIN0 "Total_in_0"
-#define DJ_TPWRIN1 "Total_in_1"
-#define DJ_TPWROUT "Total_out"
-#define DJ_TPWRCURR "Power_curr"
-#define DJ_TPWRCURR1 "Power_p1"
-#define DJ_TPWRCURR2 "Power_p2"
-#define DJ_TPWRCURR3 "Power_p3"
-#define DJ_CURR1 "Curr_p1"
-#define DJ_CURR2 "Curr_p2"
-#define DJ_CURR3 "Curr_p3"
-#define DJ_VOLT1 "Volt_p1"
-#define DJ_VOLT2 "Volt_p2"
-#define DJ_VOLT3 "Volt_p3"
-#define DJ_METERNR "Meter_number"
-#define DJ_METERSID "Meter_id"
-#define DJ_CSUM "Curr_summ"
-#define DJ_VAVG "Volt_avg"
-#define DJ_COUNTER "Count"
-
 typedef union {
   uint8_t data;
   struct {
@@ -91,6 +65,7 @@ typedef union {
 #define SO_DWS74_BUG 1
 #define SO_OBIS_LINE 2
 
+#define METER_ID_SIZE 24
 
 struct METER_DESC {
   int8_t srcpin;
@@ -112,6 +87,7 @@ struct METER_DESC {
   uint16_t spos;
   uint16_t sibsiz;
   uint8_t so_flags;
+  char meter_id[METER_ID_SIZE];
 #ifdef USE_SML_SPECOPT
   uint32_t so_obis1;
   uint32_t so_obis2;
@@ -132,382 +108,7 @@ struct METER_DESC  script_meter_desc[MAX_METERS];
 uint8_t *script_meter;
 #endif
 
-
-
-// this descriptor method is no longer supported
-// but still functional for simple meters
-// use scripting method instead
-// meter list , enter new meters here
-//=====================================================
-#define EHZ161_0 1
-#define EHZ161_1 2
-#define EHZ363 3
-#define EHZH 4
-#define EDL300 5
-#define Q3B 6
-#define COMBO3 7
-#define COMBO2 8
-#define COMBO3a 9
-#define Q3B_V1 10
-#define EHZ363_2 11
-#define COMBO3b 12
-#define WGS_COMBO 13
-#define EBZD_G 14
-#define SML_NO_OP 15
-#define Q3C 16
-
-// select this meter
-// SML_NO_OP ignores hardcoded interface
-#define METER SML_NO_OP
-//#define METER EHZ161_1
-
-#if METER==SML_NO_OP
-#undef METERS_USED
-#define METERS_USED 0
-struct METER_DESC const meter_desc[]={};
-const uint8_t meter[]="";
-#endif
-
-
-#if METER==EHZ161_0
-#undef METERS_USED
-#define METERS_USED 1
-struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={3,'o',0,SML_BAUDRATE,"OBIS",-1,1,0}};
-const uint8_t meter[]=
-"1,1-0:1.8.0*255(@1," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-"1,1-0:2.8.0*255(@1," D_TPWROUT ",kWh," DJ_TPWROUT ",4|"
-"1,1-0:21.7.0*255(@1," D_TPWRCURR1 ",W," DJ_TPWRCURR1 ",0|"
-"1,1-0:41.7.0*255(@1," D_TPWRCURR2 ",W," DJ_TPWRCURR2 ",0|"
-"1,1-0:61.7.0*255(@1," D_TPWRCURR3 ",W," DJ_TPWRCURR3 ",0|"
-"1,=m 3+4+5 @1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
-"1,1-0:0.0.0*255(@#)," D_METERNR ",," DJ_METERNR ",0";
-
-#endif
-
-//=====================================================
-
-#if METER==EHZ161_1
-#undef METERS_USED
-#define METERS_USED 1
-struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={3,'o',0,SML_BAUDRATE,"OBIS",-1,1,0}};
-const uint8_t meter[]=
-"1,1-0:1.8.1*255(@1," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-"1,1-0:2.8.1*255(@1," D_TPWROUT ",kWh," DJ_TPWROUT ",4|"
-"1,=d 2 10 @1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
-"1,1-0:0.0.0*255(@#)," D_METERNR ",," DJ_METERNR ",0";
-#endif
-
-//=====================================================
-
-#if METER==EHZ363
-#undef METERS_USED
-#define METERS_USED 1
-struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={3,'s',0,SML_BAUDRATE,"SML",-1,1,0}};
-// 2 Richtungszähler EHZ SML 8 bit 9600 baud, binär
-const uint8_t meter[]=
-//0x77,0x07,0x01,0x00,0x01,0x08,0x00,0xff
-"1,77070100010800ff@1000," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-//0x77,0x07,0x01,0x00,0x02,0x08,0x00,0xff
-"1,77070100020800ff@1000," D_TPWROUT ",kWh," DJ_TPWROUT ",4|"
-//0x77,0x07,0x01,0x00,0x10,0x07,0x00,0xff
-"1,77070100100700ff@1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
-//0x77,0x07,0x01,0x00,0x00,0x00,0x09,0xff
-"1,77070100000009ff@#," D_METERNR ",," DJ_METERNR ",0";
-#endif
-
-//=====================================================
-
-#if METER==EHZH
-#undef METERS_USED
-#define METERS_USED 1
-struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={3,'s',0,SML_BAUDRATE,"SML",-1,1,0}};
-// 2 Richtungszähler EHZ SML 8 bit 9600 baud, binär
-// verbrauch total
-const uint8_t meter[]=
-//0x77,0x07,0x01,0x00,0x01,0x08,0x00,0xff
-"1,77070100010800ff@1000," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-//0x77,0x07,0x01,0x00,0x01,0x08,0x01,0xff
-"1,77070100020800ff@1000," D_TPWROUT ",kWh," DJ_TPWROUT ",4|"
-//0x77,0x07,0x01,0x00,0x0f,0x07,0x00,0xff
-"1,770701000f0700ff@1," D_TPWRCURR ",W," DJ_TPWRCURR ",0";
-#endif
-
-//=====================================================
-
-#if METER==EDL300
-#undef METERS_USED
-#define METERS_USED 1
-struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={3,'s',0,SML_BAUDRATE,"SML",-1,1,0}};
-// 2 Richtungszähler EHZ SML 8 bit 9600 baud, binär
-// verbrauch total
-const uint8_t meter[]=
-//0x77,0x07,0x01,0x00,0x01,0x08,0x00,0xff
-"1,77070100010800ff@1000," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-//0x77,0x07,0x01,0x00,0x01,0x08,0x01,0xff
-"1,77070100020801ff@1000," D_TPWROUT ",kWh," DJ_TPWROUT ",4|"
-//0x77,0x07,0x01,0x00,0x0f,0x07,0x00,0xff
-"1,770701000f0700ff@1," D_TPWRCURR ",W," DJ_TPWRCURR ",0";
-#endif
-
-#if METER==EBZD_G
-#undef METERS_USED
-#define METERS_USED 1
-struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={3,'s',0,SML_BAUDRATE,"strom",-1,1,0}};
-const uint8_t meter[]=
-//0x77,0x07,0x01,0x00,0x01,0x08,0x00,0xff
-"1,77070100010800ff@1000," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-// ..
-"1,77070100020800ff@1000," D_TPWROUT ",kWh," DJ_TPWROUT ",4|"
-//0x77,0x07,0x01,0x00,0x01,0x08,0x01,0xff
-"1,77070100010801ff@1000," D_TPWRCURR1 ",kWh," DJ_TPWRCURR1 ",4|"
-//0x77,0x07,0x01,0x00,0x01,0x08,0x02,0xff
-"1,77070100010802ff@1000," D_TPWRCURR2 ",kWh," DJ_TPWRCURR2 ",4|"
-// 77 07 01 00 10 07 00 FF
-"1,77070100100700ff@1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
-// ..
-"1,77070100600100ff@#," D_METERNR ",," DJ_METERNR ",0";
-#endif
-
-
-//=====================================================
-
-#if METER==Q3B
-#undef METERS_USED
-#define METERS_USED 1
-struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={3,'s',0,SML_BAUDRATE,"SML",-1,1,0}};
-const uint8_t meter[]=
-//0x77,0x07,0x01,0x00,0x01,0x08,0x01,0xff
-"1,77070100010800ff@1000," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-//0x77,0x07,0x01,0x00,0x02,0x08,0x01,0xff
-"1,77070100020801ff@1000," D_TPWROUT ",kWh," DJ_TPWROUT ",4|"
-//0x77,0x07,0x01,0x00,0x01,0x07,0x00,0xff
-"1,77070100010700ff@1," D_TPWRCURR ",W," DJ_TPWRCURR ",0";
-#endif
-
-#if METER==COMBO3
-// 3 Zähler Beispiel
-#undef METERS_USED
-#define METERS_USED 3
-
-struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={3,'o',0,SML_BAUDRATE,"OBIS",-1,1,0}, // harware serial RX pin
-  [1]={14,'s',0,SML_BAUDRATE,"SML",-1,1,0}, // GPIO14 software serial
-  [2]={4,'o',0,SML_BAUDRATE,"OBIS2",-1,1,0}}; // GPIO4 software serial
-
-// 3 Zähler definiert
-const uint8_t meter[]=
-"1,1-0:1.8.0*255(@1," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-"1,1-0:2.8.0*255(@1," D_TPWROUT ",kWh," DJ_TPWROUT ",4|"
-"1,1-0:21.7.0*255(@1," D_TPWRCURR1 ",W," DJ_TPWRCURR1 ",0|"
-"1,1-0:41.7.0*255(@1," D_TPWRCURR2 ",W," DJ_TPWRCURR2 ",0|"
-"1,1-0:61.7.0*255(@1," D_TPWRCURR3 ",W," DJ_TPWRCURR3 ",0|"
-"1,=m 3+4+5 @1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
-"1,1-0:0.0.0*255(@#)," D_METERNR ",," DJ_METERNR ",0|"
-"2,77070100010800ff@1000," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-"2,77070100020800ff@1000," D_TPWROUT ",kWh," DJ_TPWROUT ",4|"
-"2,77070100100700ff@1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
-"3,1-0:1.8.1*255(@1," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-"3,1-0:2.8.1*255(@1," D_TPWROUT ",kWh," DJ_TPWROUT ",4|"
-"3,=d 2 10 @1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
-"3,1-0:0.0.0*255(@#)," D_METERNR ",," DJ_METERNR ",0";
-
-#endif
-
-#if METER==COMBO2
-// 2 Zähler Beispiel
-#undef METERS_USED
-#define METERS_USED 2
-
-struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={3,'o',0,SML_BAUDRATE,"OBIS1",-1,1,0}, // harware serial RX pin
-  [1]={14,'o',0,SML_BAUDRATE,"OBIS2",-1,1,0}}; // GPIO14 software serial
-
-// 2 Zähler definiert
-const uint8_t meter[]=
-"1,1-0:1.8.1*255(@1," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-"1,1-0:2.8.1*255(@1," D_TPWROUT ",kWh," DJ_TPWROUT ",4|"
-"1,=d 2 10 @1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
-"1,1-0:0.0.0*255(@#)," D_METERNR ",," DJ_METERNR ",0|"
-
-"2,1-0:1.8.1*255(@1," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-"2,1-0:2.8.1*255(@1," D_TPWROUT ",kWh," DJ_TPWROUT ",4|"
-"2,=d 6 10 @1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
-"2,1-0:0.0.0*255(@#)," D_METERNR ",," DJ_METERNR ",0";
-
-#endif
-
-#if METER==COMBO3a
-#undef METERS_USED
-#define METERS_USED 3
-
-struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={3,'o',0,SML_BAUDRATE,"OBIS1",-1,1,0}, // harware serial RX pin
-  [1]={14,'o',0,SML_BAUDRATE,"OBIS2",-1,1,0},
-  [2]={1,'o',0,SML_BAUDRATE,"OBIS3",-1,1,0}};
-
-// 3 Zähler definiert
-const uint8_t meter[]=
-"1,=h --- Zähler Nr 1 ---|"
-"1,1-0:1.8.1*255(@1," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-"1,1-0:2.8.1*255(@1," D_TPWROUT ",kWh," DJ_TPWROUT ",4|"
-"1,=d 2 10 @1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
-"1,1-0:0.0.0*255(@#)," D_METERNR ",," DJ_METERNR ",0|"
-"2,=h --- Zähler Nr 2 ---|"
-"2,1-0:1.8.1*255(@1," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-"2,1-0:2.8.1*255(@1," D_TPWROUT ",kWh," DJ_TPWROUT ",4|"
-"2,=d 6 10 @1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
-"2,1-0:0.0.0*255(@#)," D_METERNR ",," DJ_METERNR ",0|"
-"3,=h --- Zähler Nr 3 ---|"
-"3,1-0:1.8.1*255(@1," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-"3,1-0:2.8.1*255(@1," D_TPWROUT ",kWh," DJ_TPWROUT ",4|"
-"3,=d 10 10 @1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
-"3,1-0:0.0.0*255(@#)," D_METERNR ",," DJ_METERNR ",0";
-
-#endif
-
-//=====================================================
-
-#if METER==Q3B_V1
-#undef METERS_USED
-#define METERS_USED 1
-struct METER_DESC const meter_desc[METERS_USED]={
-[0]={3,'o',0,SML_BAUDRATE,"OBIS",-1,1,0}};
-const uint8_t meter[]=
-"1,1-0:1.8.1*255(@1," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-"1,=d 1 10 @1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
-"1,1-0:0.0.0*255(@#)," D_METERNR ",," DJ_METERNR ",0";
-#endif
-
-//=====================================================
-
-#if METER==EHZ363_2
-#undef METERS_USED
-#define METERS_USED 1
-struct METER_DESC const meter_desc[METERS_USED]={
-[0]={3,'s',0,SML_BAUDRATE,"SML",-1,1,0}};
-// 2 direction meter EHZ SML 8 bit 9600 baud, binary
-const uint8_t meter[]=
-//0x77,0x07,0x01,0x00,0x01,0x08,0x00,0xff
-"1,77070100010800ff@1000," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-//0x77,0x07,0x01,0x00,0x02,0x08,0x00,0xff
-"1,77070100020800ff@1000," D_TPWROUT ",kWh," DJ_TPWROUT ",4|"
-//0x77,0x07,0x01,0x00,0x01,0x08,0x01,0xff
-"1,77070100010801ff@1000," D_TPWRCURR1 ",kWh," DJ_TPWRCURR1 ",4|"
-//0x77,0x07,0x01,0x00,0x01,0x08,0x02,0xff
-"1,77070100010802ff@1000," D_TPWRCURR2 ",kWh," DJ_TPWRCURR2 ",4|"
-//0x77,0x07,0x01,0x00,0x10,0x07,0x00,0xff
-"1,77070100100700ff@1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
-//0x77,0x07,0x01,0x00,0x00,0x00,0x09,0xff
-"1,77070100000009ff@#," D_METERNR ",," DJ_METERNR ",0";
-#endif
-
-// example  OBIS power meter + gas and water counter
-#if METER==COMBO3b
-#undef METERS_USED
-#define METERS_USED 3
-struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={3,'o',0,SML_BAUDRATE,"OBIS",-1,1,0}, // harware serial RX pin
-  [1]={14,'c',0,50,"Gas"}, // GPIO14 gas counter
-  [2]={1,'c',0,10,"Wasser"}}; // water counter
-
-// 3 meters defined
-const uint8_t meter[]=
-"1,1-0:1.8.1*255(@1," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-"1,1-0:2.8.1*255(@1," D_TPWROUT ",kWh," DJ_TPWROUT ",4|"
-"1,=d 2 10 @1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|"
-"1,1-0:0.0.0*255(@#)," D_METERNR ",," DJ_METERNR ",0|"
-
-// with counters the comparison string must be exactly this string
-"2,1-0:1.8.0*255(@100," D_GasIN ",cbm," DJ_COUNTER ",2|"
-
-"3,1-0:1.8.0*255(@100," D_H2oIN ",cbm," DJ_COUNTER ",2";
-#endif
-
-
-#if METER==WGS_COMBO
-#undef METERS_USED
-#define METERS_USED 3
-
-struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={1,'c',0,10,"H20",-1,1,0}, // GPIO1 water counter
-  [1]={4,'c',0,50,"GAS",-1,1,0}, // GPIO4 gas counter
-  [2]={3,'s',0,SML_BAUDRATE,"SML",-1,1,0}}; // SML harware serial RX pin
-
-const uint8_t meter[]=
-//----------------------------Wasserzähler--sensor53 c1------------------------------------
-//"1,=h==================|"
-"1,1-0:1.8.0*255(@10000," D_H2oIN ",cbm," DJ_COUNTER ",4|"            // 1
-//----------------------------Gaszähler-----sensor53 c2------------------------------------
-// bei gaszählern (countern) muss der Vergleichsstring so aussehen wie hier
-"2,=h==================|"
-"2,1-0:1.8.0*255(@100," D_GasIN ",cbm," DJ_COUNTER ",3|"              // 2
-//----------------------------Stromzähler-EHZ363W5--sensor53 d0----------------------------
-"3,=h==================|"
-//0x77,0x07,0x01,0x00,0x01,0x08,0x00,0xff
-"3,77070100010800ff@1000," D_TPWRIN ",kWh," DJ_TPWRIN ",3|"         // 3  Zählerstand Total
-"3,=h==================|"
-//0x77,0x07,0x01,0x00,0x10,0x07,0x00,0xff
-"3,77070100100700ff@1," D_TPWRCURR ",W," DJ_TPWRCURR ",2|"          // 4  Aktuelle Leistung
-"3,=h -------------------------------|"
-"3,=m 10+11+12 @100," D_StL1L2L3 ",A," DJ_CSUM ",2|"            // 5  Summe Aktuelle Ströme
-//"3,=h -------------------------------|"
-"3,=m 13+14+15/#3 @100," D_SpL1L2L3 ",V," DJ_VAVG ",2|"      // 6   Mittelwert Spannungen
-"3,=h==================|"
-//0x77,0x07,0x01,0x00,0x24,0x07,0x00,0xff
-"3,77070100240700ff@1," D_TPWRCURR1 ",W," DJ_TPWRCURR1 ",2|"        // 7  Wirkleistung L1
-//0x77,0x07,0x01,0x00,0x38,0x07,0x00,0xff
-"3,77070100380700ff@1," D_TPWRCURR2 ",W," DJ_TPWRCURR2 ",2|"        // 8  Wirkleistung L2
-//0x77,0x07,0x01,0x00,0x4c,0x07,0x00,0xff
-"3,770701004c0700ff@1," D_TPWRCURR3 ",W," DJ_TPWRCURR3 ",2|"        // 9  Wirkleistung L3
-"3,=h -------------------------------|"
-//0x77,0x07,0x01,0x00,0x1f,0x07,0x00,0xff
-"3,770701001f0700ff@100," D_Strom_L1 ",A," DJ_CURR1 ",2|"        // 10 Strom L1
-//0x77,0x07,0x01,0x00,0x33,0x07,0x00,0xff
-"3,77070100330700ff@100," D_Strom_L2 ",A," DJ_CURR2 ",2|"        // 11 Strom L2
-//0x77,0x07,0x01,0x00,0x47,0x07,0x00,0xff
-"3,77070100470700ff@100," D_Strom_L3 ",A," DJ_CURR3 ",2|"        // 12 Strom L3
-"3,=h -------------------------------|"
-//0x77,0x07,0x01,0x00,0x20,0x07,0x00,0xff
-"3,77070100200700ff@100," D_Spannung_L1 ",V," DJ_VOLT1 ",2|"  // 13 Spannung L1
-//0x77,0x07,0x01,0x00,0x34,0x07,0x00,0xff
-"3,77070100340700ff@100," D_Spannung_L2 ",V," DJ_VOLT2 ",2|"  // 14 Spannung L2
-//0x77,0x07,0x01,0x00,0x48,0x07,0x00,0xff
-"3,77070100480700ff@100," D_Spannung_L3 ",V," DJ_VOLT3 ",2|"  // 15 Spannung L3
-"3,=h==================|"
-//0x77,0x07,0x01,0x00,0x00,0x00,0x09,0xff
-"3,77070100000009ff@#," D_METERSID ",," DJ_METERSID ",0|"           // 16 Service ID
-"3,=h--------------------------------";                             // letzte Zeile
-#endif
-
-
-#if METER==Q3C
-#undef METERS_USED
-#define METERS_USED 1
-struct METER_DESC const meter_desc[METERS_USED]={
-  [0]={3,'s',0,SML_BAUDRATE,"SML",-1,1,0}};
-const uint8_t meter[]=
-//0x77,0x07,0x01,0x00,0x01,0x08,0x01,0xff
-"1,77070101010800ff@1000," D_TPWRIN0 ",kWh," DJ_TPWRIN0 ",2|" // Verbrauch T0
-//0x77,0x07,0x01,0x00,0x01,0x08,0x01,0xff
-"1,77070101010801ff@1000," D_TPWRIN1 ",kWh," DJ_TPWRIN1 ",2|" // Verbrauch T1
-//0x77,0x07,0x01,0x00,0x01,0x07,0x00,0xff
-"1,77070100010700ff@1," D_TPWRCURR ",W," DJ_TPWRCURR ",0|" // Strom Gesamt
-//0x77,0x07,0x01,0x00,0x01,0x07,0x00,0xff
-"1,77070100150700ff@1," D_TPWRCURR1 ",W," DJ_TPWRCURR1 ",0|" // Strom L1
-//0x77,0x07,0x01,0x00,0x01,0x07,0x00,0xff
-"1,77070100290700ff@1," D_TPWRCURR2 ",W," DJ_TPWRCURR2 ",0|" // Strom L2
-//0x77,0x07,0x01,0x00,0x01,0x07,0x00,0xff
-"1,770701003D0700ff@1," D_TPWRCURR3 ",W," DJ_TPWRCURR3 ",0"; // Strom L3
-#endif
-
-// this driver uses double because meter vars would not fit in float
+// this driver uses double because some meter vars would not fit in float
 //=====================================================
 
 // median filter eliminates outliers, but uses much RAM and CPU cycles
@@ -549,8 +150,8 @@ TasmotaSerial *meter_ss[MAX_METERS];
 
 
 // meter nr as string
-#define METER_ID_SIZE 24
-char meter_id[MAX_METERS][METER_ID_SIZE];
+//#define METER_ID_SIZE 24
+//char meter_id[MAX_METERS][METER_ID_SIZE];
 
 #define VBUS_SYNC		0xaa
 #define SML_SYNC		0x77
@@ -863,231 +464,6 @@ SML_ESP32_SERIAL *meter_ss[MAX_METERS];
 #endif
 #endif  // ESP32
 
-
-#ifdef ANALOG_OPTO_SENSOR
-// sensor over ADS1115 with i2c Bus
-uint8_t ads1115_up;
-
-// ads1115 driver
-#define SAMPLE_BIT (0x8000)
-
-#define ADS1115_COMP_QUEUE_SHIFT 0
-#define ADS1115_COMP_LATCH_SHIFT 2
-#define ADS1115_COMP_POLARITY_SHIFT 3
-#define ADS1115_COMP_MODE_SHIFT 4
-#define ADS1115_DATA_RATE_SHIFT 5
-#define ADS1115_MODE_SHIFT 8
-#define ADS1115_PGA_SHIFT 9
-#define ADS1115_MUX_SHIFT 12
-
-enum ads1115_comp_queue {
-	ADS1115_COMP_QUEUE_AFTER_ONE = 0,
-	ADS1115_COMP_QUEUE_AFTER_TWO = 0x1 << ADS1115_COMP_QUEUE_SHIFT,
-	ADS1115_COMP_QUEUE_AFTER_FOUR = 0x2 << ADS1115_COMP_QUEUE_SHIFT,
-	ADS1115_COMP_QUEUE_DISABLE = 0x3 << ADS1115_COMP_QUEUE_SHIFT,
-	ADS1115_COMP_QUEUE_MASK = 0x3 << ADS1115_COMP_QUEUE_SHIFT,
-};
-
-enum ads1115_comp_latch {
-	ADS1115_COMP_LATCH_NO = 0,
-	ADS1115_COMP_LATCH_YES = 1 << ADS1115_COMP_LATCH_SHIFT,
-	ADS1115_COMP_LATCH_MASK = 1 << ADS1115_COMP_LATCH_SHIFT,
-};
-
-enum ads1115_comp_polarity {
-	ADS1115_COMP_POLARITY_ACTIVE_LOW = 0,
-	ADS1115_COMP_POLARITY_ACTIVE_HIGH = 1 << ADS1115_COMP_POLARITY_SHIFT,
-	ADS1115_COMP_POLARITY_MASK = 1 << ADS1115_COMP_POLARITY_SHIFT,
-};
-
-enum ads1115_comp_mode {
-	ADS1115_COMP_MODE_WINDOW = 0,
-	ADS1115_COMP_MODE_HYSTERESIS = 1 << ADS1115_COMP_MODE_SHIFT,
-	ADS1115_COMP_MODE_MASK = 1 << ADS1115_COMP_MODE_SHIFT,
-};
-
-enum ads1115_data_rate {
-	ADS1115_DATA_RATE_8_SPS = 0,
-	ADS1115_DATA_RATE_16_SPS = 0x1 << ADS1115_DATA_RATE_SHIFT,
-	ADS1115_DATA_RATE_32_SPS = 0x2 << ADS1115_DATA_RATE_SHIFT,
-	ADS1115_DATA_RATE_64_SPS = 0x3 << ADS1115_DATA_RATE_SHIFT,
-	ADS1115_DATA_RATE_128_SPS = 0x4 << ADS1115_DATA_RATE_SHIFT,
-	ADS1115_DATA_RATE_250_SPS = 0x5 << ADS1115_DATA_RATE_SHIFT,
-	ADS1115_DATA_RATE_475_SPS = 0x6 << ADS1115_DATA_RATE_SHIFT,
-	ADS1115_DATA_RATE_860_SPS = 0x7 << ADS1115_DATA_RATE_SHIFT,
-	ADS1115_DATA_RATE_MASK = 0x7 << ADS1115_DATA_RATE_SHIFT,
-};
-
-enum ads1115_mode {
-	ADS1115_MODE_CONTINUOUS = 0,
-	ADS1115_MODE_SINGLE_SHOT = 1 << ADS1115_MODE_SHIFT,
-	ADS1115_MODE_MASK = 1 << ADS1115_MODE_SHIFT,
-};
-
-enum ads1115_pga {
-	ADS1115_PGA_TWO_THIRDS = 0, //±6.144 V
-	ADS1115_PGA_ONE = 0x1 << ADS1115_PGA_SHIFT, //±4.096 V
-	ADS1115_PGA_TWO = 0x2 << ADS1115_PGA_SHIFT, //±2.048 V
-	ADS1115_PGA_FOUR = 0x3 << ADS1115_PGA_SHIFT, //±1.024 V
-	ADS1115_PGA_EIGHT = 0x4 << ADS1115_PGA_SHIFT, //±0.512 V
-	ADS1115_PGA_SIXTEEN = 0x5 << ADS1115_PGA_SHIFT, //±0.256 V
-	ADS1115_PGA_MASK = 0x7 << ADS1115_PGA_SHIFT,
-};
-
-
-enum ads1115_mux {
-	ADS1115_MUX_DIFF_AIN0_AIN1 = 0,
-	ADS1115_MUX_DIFF_AIN0_AIN3 = 0x1 << ADS1115_MUX_SHIFT,
-	ADS1115_MUX_DIFF_AIN1_AIN3 = 0x2 << ADS1115_MUX_SHIFT,
-	ADS1115_MUX_DIFF_AIN2_AIN3 = 0x3 << ADS1115_MUX_SHIFT,
-	ADS1115_MUX_GND_AIN0 = 0x4 << ADS1115_MUX_SHIFT,
-	ADS1115_MUX_GND_AIN1 = 0x5 << ADS1115_MUX_SHIFT,
-	ADS1115_MUX_GND_AIN2 = 0x6 << ADS1115_MUX_SHIFT,
-	ADS1115_MUX_GND_AIN3 = 0x7 << ADS1115_MUX_SHIFT,
-	ADS1115_MUX_MASK = 0x7 << ADS1115_MUX_SHIFT,
-};
-
-class ADS1115 {
-public:
-	ADS1115(uint8_t address = 0x48);
-
-	void begin();
-	uint8_t trigger_sample();
-	uint8_t reset();
-	bool is_sample_in_progress();
-	int16_t read_sample();
-	float sample_to_float(int16_t val);
-	float read_sample_float();
-
-	void set_comp_queue(enum ads1115_comp_queue val) { set_config(val, ADS1115_COMP_QUEUE_MASK); }
-	void set_comp_latching(enum ads1115_comp_latch val) { set_config(val, ADS1115_COMP_LATCH_MASK); }
-	void set_comp_polarity(enum ads1115_comp_polarity val) { set_config(val, ADS1115_COMP_POLARITY_MASK); }
-	void set_comp_mode(enum ads1115_comp_mode val) { set_config(val, ADS1115_COMP_MODE_MASK); }
-	void set_data_rate(enum ads1115_data_rate val) { set_config(val, ADS1115_DATA_RATE_MASK); }
-	void set_mode(enum ads1115_mode val) { set_config(val, ADS1115_MODE_MASK); }
-	void set_pga(enum ads1115_pga val) { set_config(val, ADS1115_PGA_MASK); m_voltage_range = val >> ADS1115_PGA_SHIFT; }
-	void set_mux(enum ads1115_mux val) { set_config(val, ADS1115_MUX_MASK); }
-
-private:
-	void set_config(uint16_t val, uint16_t mask) {
-		m_config = (m_config & ~mask) | val;
-	}
-
-	uint8_t write_register(uint8_t reg, uint16_t val);
-	uint16_t read_register(uint8_t reg);
-
-	uint8_t m_address;
-	uint16_t m_config;
-	int m_voltage_range;
-};
-
-
-enum ads1115_register {
-	ADS1115_REGISTER_CONVERSION = 0,
-	ADS1115_REGISTER_CONFIG = 1,
-	ADS1115_REGISTER_LOW_THRESH = 2,
-	ADS1115_REGISTER_HIGH_THRESH = 3,
-};
-
-#define FACTOR 32768.0
-static float ranges[] = { 6.144 / FACTOR, 4.096 / FACTOR, 2.048 / FACTOR, 1.024 / FACTOR, 0.512 / FACTOR, 0.256 / FACTOR};
-
-ADS1115::ADS1115(uint8_t address)
-{
-        m_address = address;
-        m_config = ADS1115_COMP_QUEUE_AFTER_ONE |
-                   ADS1115_COMP_LATCH_NO |
-                   ADS1115_COMP_POLARITY_ACTIVE_LOW |
-                   ADS1115_COMP_MODE_WINDOW |
-                   ADS1115_DATA_RATE_128_SPS |
-                   ADS1115_MODE_SINGLE_SHOT |
-                   ADS1115_MUX_GND_AIN0;
-        set_pga(ADS1115_PGA_ONE);
-}
-
-uint8_t ADS1115::write_register(uint8_t reg, uint16_t val)
-{
-        Wire.beginTransmission(m_address);
-        Wire.write(reg);
-        Wire.write(val>>8);
-        Wire.write(val & 0xFF);
-        return Wire.endTransmission();
-}
-
-uint16_t ADS1115::read_register(uint8_t reg)
-{
-        Wire.beginTransmission(m_address);
-        Wire.write(reg);
-        Wire.endTransmission();
-
-        uint8_t result = Wire.requestFrom((int)m_address, 2, 1);
-        if (result != 2) {
-          return 0;
-        }
-
-        uint16_t val;
-
-        val = Wire.read() << 8;
-        val |= Wire.read();
-        return val;
-}
-
-void ADS1115::begin()
-{
-        Wire.begin();
-}
-
-uint8_t ADS1115::trigger_sample()
-{
-        return write_register(ADS1115_REGISTER_CONFIG, m_config | SAMPLE_BIT);
-}
-
-uint8_t ADS1115::reset()
-{
-	Wire.beginTransmission(0);
-	Wire.write(0x6);
-	return Wire.endTransmission();
-}
-
-bool ADS1115::is_sample_in_progress()
-{
-	uint16_t val = read_register(ADS1115_REGISTER_CONFIG);
-	return (val & SAMPLE_BIT) == 0;
-}
-
-int16_t ADS1115::read_sample()
-{
-        return read_register(ADS1115_REGISTER_CONVERSION);
-}
-
-float ADS1115::sample_to_float(int16_t val)
-{
-	return val * ranges[m_voltage_range];
-}
-
-float ADS1115::read_sample_float()
-{
-	return sample_to_float(read_sample());
-}
-
-ADS1115 adc;
-
-void ADS1115_init(void) {
-
-  ads1115_up=0;
-  if (!TasmotaGlobal.i2c_enabled) return;
-
-  adc.begin();
-  adc.set_data_rate(ADS1115_DATA_RATE_128_SPS);
-  adc.set_mode(ADS1115_MODE_CONTINUOUS);
-  adc.set_mux(ADS1115_MUX_DIFF_AIN0_AIN3);
-  adc.set_pga(ADS1115_PGA_TWO);
-
-  int16_t val = adc.read_sample();
-  ads1115_up=1;
-}
-
-#endif
 
 char sml_start;
 uint8_t dump2log=0;
@@ -1527,10 +903,10 @@ double dval;
                 s1=*cp<<16|*(cp+1)<<8|*(cp+2);
                 cp+=4;
                 s2=*cp<<16|*(cp+1)<<8|*(cp+2);
-                sprintf(&meter_id[index][0],"%u-%u",s1,s2);
+                sprintf(&script_meter_desc[index].meter_id[0],"%u-%u",s1,s2);
             } else {
                 // server id on hager
-                char *str=&meter_id[index][0];
+                char *str=&script_meter_desc[index].meter_id[0];
                 for (type=0; type<len-1; type++) {
                     sprintf(str,"%02x",*cp++);
                     str+=2;
@@ -2354,7 +1730,7 @@ void SML_Decode(uint8_t index) {
                     } else {
                       time = vbus_get_septet(cp) & 0xffff;
                     }
-                    sprintf(&meter_id[mindex][0], "%02d:%02d", time / 60, time % 60);
+                    sprintf(&script_meter_desc[index].meter_id[0], "%02d:%02d", time / 60, time % 60);
                   }
                   break;
               }
@@ -2388,9 +1764,10 @@ void SML_Decode(uint8_t index) {
                 if (*cp == *mp) {
                   break;
                 }
-                meter_id[mindex][p] = *cp++;
+                script_meter_desc[mindex].meter_id[p] = *cp++;
               }
-              meter_id[mindex][p] = 0;
+              script_meter_desc[mindex].meter_id[p] = 0;
+
             } else if (meter_desc_p[mindex].type == 'k') {
               // 220901
               uint32_t date = mbus_dval;
@@ -2398,7 +1775,7 @@ void SML_Decode(uint8_t index) {
               date -= year * 10000;
               uint8_t month = date / 100; // = 09
               uint8_t day = date % 100; // = 01
-              sprintf(&meter_id[mindex][0],"%02d.%02d.%02d",day, month, year);
+              sprintf(&script_meter_desc[mindex].meter_id[0],"%02d.%02d.%02d",day, month, year);
             } else {
               sml_getvalue(cp, mindex);
             }
@@ -2619,7 +1996,7 @@ void SML_Show(boolean json) {
               // convert hex to asci
               sml_hex_asci(mindex, tpowstr);
             } else {
-              sprintf(tpowstr,"\"%s\"", &meter_id[mindex][0]);
+              sprintf(tpowstr,"\"%s\"", &script_meter_desc[mindex].meter_id[0]);
             }
             mid = 1;
           } else if (*cp == '(') {
@@ -2760,14 +2137,6 @@ struct SML_COUNTER {
   uint32_t sml_counter_pulsewidth;
   uint16_t sml_debounce;
   uint8_t sml_cnt_updated;
-
-#ifdef ANALOG_OPTO_SENSOR
-  int16_t ana_curr;
-  int16_t ana_max;
-  int16_t ana_min;
-  int16_t ana_cmpl;
-  int16_t ana_cmph;
-#endif
 } sml_counters[MAX_COUNTERS];
 
 uint8_t sml_counter_pinstate;
@@ -2802,7 +2171,6 @@ uint32_t debounce_time;
 #ifndef METER_DEF_SIZE
 #define METER_DEF_SIZE 3000
 #endif
-
 
 
 #ifdef SML_REPLACE_VARS
@@ -2893,9 +2261,7 @@ void SML_GetSpecOpt(char *cp, uint32_t mnum) {
 #endif
 
 void SML_Init(void) {
-  meters_used = METERS_USED;
-  meter_desc_p = meter_desc;
-  meter_p = meter;
+  meters_used = MAX_METERS;
 
   sml_desc_cnt = 0;
 
@@ -2914,7 +2280,6 @@ void SML_Init(void) {
     }
   }
 
-
   for (uint32_t cnt = 0; cnt < MAX_METERS; cnt++) {
 #ifdef USE_SML_SPECOPT
     script_meter_desc[cnt].so_obis1 = 0;
@@ -2930,8 +2295,6 @@ void SML_Init(void) {
     script_meter_desc[cnt].so_flags |= SO_OBIS_LINE;
 #endif
   }
-
-#ifdef USE_SCRIPT
 
   for (uint32_t cnt = 0; cnt < MAX_METERS; cnt++) {
     if (script_meter_desc[cnt].txmem) {
@@ -2999,7 +2362,7 @@ void SML_Init(void) {
 dddef_exit:
             if (script_meter) free(script_meter);
             script_meter = 0;
-            meters_used = METERS_USED;
+            meters_used = MAX_METERS;
             goto init10;
           }
           script_meter_desc[index].srcpin = srcpin;
@@ -3146,7 +2509,7 @@ dddef_exit:
                 script_meter_desc[index].max_index = tx_entries;
                 sml_send_blocks++;
               }
-#endif
+#endif // look ahead
             }
           }
           if (*lp == SCRIPT_EOL) lp--;
@@ -3260,7 +2623,7 @@ dddef_exit:
           }
 
         }
-#endif
+#endif // SML_REPLACE_VARS
 
       }
 
@@ -3278,7 +2641,6 @@ next_line:
     meter_p = script_meter;
   }
   }
-#endif
 
 init10:
   typedef void (*function)();
@@ -3295,12 +2657,7 @@ init10:
   for (uint8_t meters = 0; meters < meters_used; meters++) {
     if (meter_desc_p[meters].type == 'c') {
         if (meter_desc_p[meters].flag & 2) {
-          // analog mode
-#ifdef ANALOG_OPTO_SENSOR
-          ADS1115_init();
-          sml_counters[cindex].ana_max=-32768;
-          sml_counters[cindex].ana_min=+32767;
-#endif
+
         } else {
           // counters, set to input with pullup
           if (meter_desc_p[meters].flag & 1) {
@@ -3546,7 +2903,7 @@ float SML_GetVal(uint32_t index) {
 
 char *SML_GetSVal(uint32_t index) {
   if (index < 1 || index > MAX_METERS) { index = 1;}
-  return &meter_id[index - 1][0];
+  return (char*)script_meter_desc[index - 1].meter_id;
 }
 
 int32_t SML_Set_WStr(uint32_t meter, char *hstr) {
@@ -3583,15 +2940,6 @@ uint32_t ctime = millis();
 
           if (meter_desc_p[meters].flag & 2) {
             // analog mode, get next value
-#ifdef ANALOG_OPTO_SENSOR
-            if (ads1115_up) {
-              int16_t val = adc.read_sample();
-              if (val>sml_counters[cindex].ana_max) sml_counters[cindex].ana_max = val;
-              if (val<sml_counters[cindex].ana_min) sml_counters[cindex].ana_min = val;
-              sml_counters[cindex].ana_curr = val;
-              int16_t range = sml_counters[cindex].ana_max - sml_counters[cindex].ana_min;
-            }
-#endif
           } else {
             // poll digital input
             uint8_t state;
@@ -3708,7 +3056,7 @@ void SML_Check_Send(void) {
 }
 
 void sml_hex_asci(uint32_t mindex, char *tpowstr) {
-  char *cp = &meter_id[mindex][0];
+  char *cp = script_meter_desc[mindex].meter_id;
   uint16_t slen = strlen(cp);
   slen &= 0xfffe;
   uint16_t cnt;
