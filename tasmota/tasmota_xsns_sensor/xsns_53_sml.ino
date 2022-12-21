@@ -55,7 +55,8 @@
 
 //#define MODBUS_DEBUG
 
-#ifdef DWS74_BUG
+#if defined(DWS74_BUG) || defined(SML_OBIS_LINE)
+#undef USE_SML_SPECOPT
 #define USE_SML_SPECOPT
 #endif
 
@@ -92,6 +93,8 @@ typedef union {
 
 
 #define SO_DWS74_BUG 1
+#define SO_OBIS_LINE 2
+
 
 struct METER_DESC {
   int8_t srcpin;
@@ -107,6 +110,8 @@ struct METER_DESC {
   char *script_str;
   uint8_t sopt;
   TRX_EN_TYPE trx_en;
+  bool shift_mode;
+  uint16_t so_sbsiz;
 #ifdef USE_SML_SPECOPT
   uint32_t so_obis1;
   uint32_t so_obis2;
@@ -559,7 +564,7 @@ uint8_t sml_100ms_cnt;
 uint8_t sml_desc_cnt;
 
 #define SML_OPTIONS_JSON_ENABLE 1
-#define SML_OPTIONS_OBIS_LINE 2
+#define SML_OPTIONS_ASC_DOUBLE 2
 uint8_t sml_options = SML_OPTIONS_JSON_ENABLE;
 
 
@@ -1283,34 +1288,27 @@ void Hexdump(uint8_t *sbuff, uint32_t slen) {
   AddLogData(LOG_LEVEL_INFO, cbuff);
 }
 
-#ifdef SML_DOUBLE_ASCI
-#undef DOUBLE2CHAR
 #define DOUBLE2CHAR dtostrf_d
-#else
-#undef DOUBLE2CHAR
-#define DOUBLE2CHAR dtostrfd
-#endif
-
-#if DOUBLE2CHAR==dtostrf_d
 
 #define L64BUFSIZE (sizeof(int64_t) * 8 + 1)
 
-char *i64toa(int64_t N, char *str, uint32_t base) {
-      int i = 2;
+char *i64toa(int64_t number, char *str, uint32_t base) {
+      int16_t i = 2;
       int64_t uarg;
       char *tail, *head = str, buf[L64BUFSIZE];
 
-      if (36 < base || 2 > base)
-            base = 10;                    /* can only use 0-9, A-Z        */
-      tail = &buf[L64BUFSIZE - 1];           /* last character position      */
+      if (36 < base || 2 > base) {
+            base = 10;
+      }
+      tail = &buf[L64BUFSIZE - 1];
       *tail-- = '\0';
 
-      if (10 == base && N < 0L) {
+      if (10 == base && number < 0L) {
             *head++ = '-';
-            uarg    = -N;
+            uarg    = -number;
+      } else {
+        uarg = number;
       }
-      else  uarg = N;
-
       if (uarg) {
         for (i = 1; uarg; ++i) {
           int64_t rem;
@@ -1320,9 +1318,9 @@ char *i64toa(int64_t N, char *str, uint32_t base) {
           *tail-- = (char)(rem + ((9L < rem) ? ('A' - 10L) : '0'));
           uarg    = quot;
         }
+      } else {
+        *tail-- = '0';
       }
-      else  *tail-- = '0';
-
       memcpy(head, ++tail, i);
       return str;
 }
@@ -1330,6 +1328,11 @@ char *i64toa(int64_t N, char *str, uint32_t base) {
 //  double implementation of dtostrfd
 // not yet speed optimized
 char* dtostrf_d(double number, uint8_t prec, char *s) {
+
+  if (!(sml_options & SML_OPTIONS_ASC_DOUBLE)) {
+    return dtostrfd(number, prec, s);
+  }
+
   if ((isnan(number)) || (isinf(number))) {
     strcpy_P(s, PSTR("null"));
   } else {
@@ -1351,9 +1354,6 @@ char* dtostrf_d(double number, uint8_t prec, char *s) {
   }
   return s;
 }
-
-#endif // DOUBLE2CHAR==dtostrf_d
-
 
 
 #if defined(ED300L) || defined(AS2020) || defined(DTZ541) || defined(USE_SML_SPECOPT)
@@ -1711,22 +1711,10 @@ void sml_empty_receiver(uint32_t meters) {
   }
 }
 
-
 void sml_shift_in(uint32_t meters,uint32_t shard) {
   uint32_t count;
 
-#ifdef SML_OBIS_LINE
-  sml_options |= SML_OPTIONS_OBIS_LINE;
-#endif
-
-  bool shift;
-  if (!(sml_options & SML_OPTIONS_OBIS_LINE)) {
-    shift = (meter_desc_p[meters].type != 'e' && meter_desc_p[meters].type != 'k' && meter_desc_p[meters].type != 'm' && meter_desc_p[meters].type != 'M' && meter_desc_p[meters].type != 'p' && meter_desc_p[meters].type != 'R' && meter_desc_p[meters].type != 'v');
-  } else {
-    shift = (meter_desc_p[meters].type != 'o' && meter_desc_p[meters].type != 'e' && meter_desc_p[meters].type != 'k' && meter_desc_p[meters].type != 'm' && meter_desc_p[meters].type != 'M' && meter_desc_p[meters].type != 'p' && meter_desc_p[meters].type != 'R' && meter_desc_p[meters].type != 'v');
-  }
-
-  if (shift) {
+  if (script_meter_desc[meters].shift_mode) {
     // shift in
     for (count = 0; count < SML_BSIZ - 1; count++) {
       smltbuf[meters][count] = smltbuf[meters][count + 1];
@@ -1735,7 +1723,7 @@ void sml_shift_in(uint32_t meters,uint32_t shard) {
   uint8_t iob = (uint8_t)meter_ss[meters]->read();
 
   if (meter_desc_p[meters].type == 'o') {
-    if (!(sml_options & SML_OPTIONS_OBIS_LINE)) {
+    if (!(script_meter_desc[meters].so_flags & SO_OBIS_LINE)) {
       smltbuf[meters][SML_BSIZ-1] = iob & 0x7f;
     } else {
       iob &= 0x7f;
@@ -1860,7 +1848,7 @@ void sml_shift_in(uint32_t meters,uint32_t shard) {
   }
   sb_counter++;
 
-  if (shift) {
+  if (script_meter_desc[meters].shift_mode) {
     SML_Decode(meters);
   }
 }
@@ -2912,17 +2900,21 @@ void SML_Init(void) {
 
   for (uint32_t cnt = 0; cnt < MAX_METERS; cnt++) {
     meter_spos[cnt] = 0;
+    script_meter_desc[cnt].so_sbsiz = SML_BSIZ;
   }
 
 #ifdef USE_SML_SPECOPT
   for (uint32_t cnt = 0; cnt < MAX_METERS; cnt++) {
     script_meter_desc[cnt].so_obis1 = 0;
     script_meter_desc[cnt].so_obis2 = 0;
+    script_meter_desc[cnt].so_flags = 0;
     // addresses a bug in meter DWS74
 #ifdef DWS74_BUG
-    script_meter_desc[cnt].so_flags = SO_DWS74_BUG;
-#else
-    script_meter_desc[cnt].so_flags = 0;
+    script_meter_desc[cnt].so_flags |= SO_DWS74_BUG;
+#endif
+
+#ifdef SML_OBIS_LINE
+    script_meter_desc[cnt].so_flags |= SO_OBIS_LINE;
 #endif
   }
 #endif
@@ -3181,6 +3173,10 @@ dddef_exit:
             } else if (*cp == '2') {
               cp += 2;
               script_meter_desc[mnum - 1].so_flags = strtol(cp, &cp, 16);
+              if (*cp == ',') {
+                cp++;
+                script_meter_desc[mnum - 1].so_sbsiz = strtol(cp, &cp, 10);
+              }
             }
           }
 #endif
@@ -3379,6 +3375,14 @@ init10:
 #endif  // ESP32
     }
   }
+// speed optimize shift flag
+  for (uint32_t meters = 0; meters < meters_used; meters++ ) {
+    if (!(script_meter_desc[meters].so_flags & SO_OBIS_LINE)) {
+      script_meter_desc[meters].shift_mode = (meter_desc_p[meters].type != 'e' && meter_desc_p[meters].type != 'k' && meter_desc_p[meters].type != 'm' && meter_desc_p[meters].type != 'M' && meter_desc_p[meters].type != 'p' && meter_desc_p[meters].type != 'R' && meter_desc_p[meters].type != 'v');
+    } else {
+      script_meter_desc[meters].shift_mode = (meter_desc_p[meters].type != 'o' && meter_desc_p[meters].type != 'e' && meter_desc_p[meters].type != 'k' && meter_desc_p[meters].type != 'm' && meter_desc_p[meters].type != 'M' && meter_desc_p[meters].type != 'p' && meter_desc_p[meters].type != 'R' && meter_desc_p[meters].type != 'v');
+    }
+  }
 }
 
 
@@ -3442,7 +3446,7 @@ uint32_t SML_Write(int32_t meter, char *hstr) {
     SML_Send_Seq(meter, hstr);
   } else {
     // 9600:8E1, only hardware serial
-    uint16_t baud = strtol(hstr, &hstr, 10);
+    uint32_t baud = strtol(hstr, &hstr, 10);
     hstr++;
     // currently only 8 bits and ignore stopbits
     hstr++;
