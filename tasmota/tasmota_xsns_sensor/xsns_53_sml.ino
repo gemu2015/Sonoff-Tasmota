@@ -2317,7 +2317,7 @@ void SML_Init(void) {
     return;
   }
 
-  char *lp = glob_script_mem.scriptptr;
+  char *lp = glob_script_mem.section_ptr;
   uint8_t new_meters_used;
 
   // use script definition
@@ -2328,8 +2328,6 @@ void SML_Init(void) {
     free(sml_globs.dvalid);
     reset_sml_vars(sml_globs.meters_used);
   }
-
-    AddLog(LOG_LEVEL_INFO, PSTR(">> %s"),lp);
 
   if (*lp == '>' && *(lp + 1) == 'M') {
     lp += 2;
@@ -2344,8 +2342,6 @@ void SML_Init(void) {
   } else {
     return;
   }
-
-  AddLog(LOG_LEVEL_INFO, PSTR("meters: %d, vars: %d"),sml_globs.meters_used,sml_globs.maxvars);
 
   reset_sml_vars(sml_globs.meters_used);
 
@@ -2363,7 +2359,7 @@ void SML_Init(void) {
   uint8_t dec_line = 0;
 
   sml_globs.sml_send_blocks = 0;
-  lp = glob_script_mem.scriptptr;
+  lp = glob_script_mem.section_ptr;
   while (lp) {
       if (!section) {
         if (*lp == '>' && *(lp + 1) == 'M') {
@@ -2795,19 +2791,7 @@ init10:
 
 
 #ifdef USE_SML_SCRIPT_CMD
-uint32_t sml_getv(uint32_t sel) {
-  if (sml_globs.ready == false) return 0;
-  if (!sel) {
-    for (uint8_t cnt = 0; cnt < sml_globs.maxvars; cnt++) {
-      sml_globs.dvalid[cnt] = 0;
-    }
-    sel = 0;
-  } else {
-    if (sel < 1) sel = 1;
-    sel = sml_globs.dvalid[sel - 1];
-  }
-  return sel;
-}
+
 uint32_t SML_SetBaud(uint32_t meter, uint32_t br) {
   if (sml_globs.ready == false) return 0;
   if (meter < 1 || meter > sml_globs.meters_used) return 0;
@@ -2917,6 +2901,20 @@ uint32_t SML_Read(int32_t meter, char *str, uint32_t slen) {
   }
   mp->spos = 0;
   return 1;
+}
+
+uint32_t sml_getv(uint32_t sel) {
+  if (sml_globs.ready == false) return 0;
+  if (!sel) {
+    for (uint8_t cnt = 0; cnt < sml_globs.maxvars; cnt++) {
+      sml_globs.dvalid[cnt] = 0;
+    }
+    sel = 0;
+  } else {
+    if (sel < 1 || sel > sml_globs.maxvars) { sel = 1;}
+    sel = sml_globs.dvalid[sel - 1];
+  }
+  return sel;
 }
 
 float SML_GetVal(uint32_t index) {
