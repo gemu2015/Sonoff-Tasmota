@@ -103,10 +103,8 @@ struct METER_DESC {
 #define MAX_METERS 5
 #endif
 
-#ifdef USE_SCRIPT
 struct METER_DESC  script_meter_desc[MAX_METERS];
 uint8_t *script_meter;
-#endif
 
 // this driver uses double because some meter vars would not fit in float
 //=====================================================
@@ -124,18 +122,16 @@ uint8_t *script_meter;
 #ifndef SML_MAX_VARS
 #define SML_MAX_VARS 20
 #endif
-
-
 double meter_vars[SML_MAX_VARS];
+uint8_t dvalid[SML_MAX_VARS];
+
 // calulate deltas
 #define MAX_DVARS MAX_METERS*2
 double dvalues[MAX_DVARS];
 uint32_t dtimes[MAX_DVARS];
-uint8_t meters_used;
-uint8_t dvalid[SML_MAX_VARS];
 
-struct METER_DESC const *meter_desc_p;
-const uint8_t *meter_p;
+
+struct METER_DESC *meter_desc_p;
 
 // software serial pointers
 #ifdef ESP8266
@@ -148,19 +144,20 @@ TasmotaSerial *meter_ss[MAX_METERS];
 #define SML_BSIZ 48
 #endif
 
-
-// meter nr as string
-//#define METER_ID_SIZE 24
-//char meter_id[MAX_METERS][METER_ID_SIZE];
-
 #define VBUS_SYNC		0xaa
 #define SML_SYNC		0x77
 #define EBUS_SYNC		0xaa
 #define EBUS_ESC    0xa9
 
-uint8_t sml_send_blocks;
-uint8_t sml_100ms_cnt;
-uint8_t sml_desc_cnt;
+struct SML_GLOBS {
+  uint8_t sml_send_blocks;
+  uint8_t sml_100ms_cnt;
+  uint8_t sml_desc_cnt;
+  uint8_t meters_used;
+  uint8_t *meter_p;
+  bool ready;
+} sml_globs;
+
 
 #define SML_OPTIONS_JSON_ENABLE 1
 #define SML_OPTIONS_ASC_DOUBLE 2
@@ -179,31 +176,31 @@ int8_t index;
 #define FLT_MAX 99999999
 #endif
 
-double sml_median_array(double *array,uint8_t len) {
+double sml_median_array(double *array, uint8_t len) {
       uint8_t ind[len];
-      uint8_t mind=0,index=0,flg;
-      double min=FLT_MAX;
+      uint8_t mind = 0, index = 0, flg;
+      double min = FLT_MAX;
 
-      for (uint8_t hcnt=0; hcnt<len/2+1; hcnt++) {
-          for (uint8_t mcnt=0; mcnt<len; mcnt++) {
-              flg=0;
-              for (uint8_t icnt=0; icnt<index; icnt++) {
-                  if (ind[icnt]==mcnt) {
-                      flg=1;
+      for (uint8_t hcnt = 0; hcnt < len / 2 + 1; hcnt++) {
+          for (uint8_t mcnt = 0; mcnt < len; mcnt++) {
+              flg = 0;
+              for (uint8_t icnt = 0; icnt < index; icnt++) {
+                  if (ind[icnt] == mcnt) {
+                      flg = 1;
                   }
               }
               if (!flg) {
-                  if (array[mcnt]<min) {
-                      min=array[mcnt];
-                      mind=mcnt;
+                  if (array[mcnt] < min) {
+                      min = array[mcnt];
+                      mind = mcnt;
                   }
               }
           }
-          ind[index]=mind;
+          ind[index] = mind;
           index++;
-          min=FLT_MAX;
+          min = FLT_MAX;
       }
-      return array[ind[len/2]];
+      return array[ind[len / 2]];
   }
 
 
@@ -211,11 +208,11 @@ double sml_median_array(double *array,uint8_t len) {
 double sml_median(struct SML_MEDIAN_FILTER* mf, double in) {
   //double tbuff[MEDIAN_SIZE],tmp;
   //uint8_t flag;
-  mf->buffer[mf->index]=in;
+  mf->buffer[mf->index] = in;
   mf->index++;
-  if (mf->index>=MEDIAN_SIZE) mf->index=0;
+  if (mf->index >= MEDIAN_SIZE) mf->index = 0;
 
-  return sml_median_array(mf->buffer,MEDIAN_SIZE);
+  return sml_median_array(mf->buffer, MEDIAN_SIZE);
 /*
   // sort list and take median
   memmove(tbuff,mf->buffer,sizeof(tbuff));
@@ -476,24 +473,24 @@ uint8_t ser_act_meter_num=0;
 #define SML_SPEAK Serial_peek()
 
 bool Serial_available() {
-  uint8_t num=dump2log&7;
-  if (num<1 || num>meters_used) num=1;
-  if (!meter_ss[num-1]) return 0;
-  return meter_ss[num-1]->available();
+  uint8_t num = dump2log & 7;
+  if (num < 1 || num > sml_globs.meters_used) num = 1;
+  if (!meter_ss[num - 1]) return 0;
+  return meter_ss[num - 1]->available();
 }
 
 uint8_t Serial_read() {
-  uint8_t num=dump2log&7;
-  if (num<1 || num>meters_used) num=1;
-  if (!meter_ss[num-1]) return 0;
-  return meter_ss[num-1]->read();
+  uint8_t num = dump2log & 7;
+  if (num < 1 || num > sml_globs.meters_used) num = 1;
+  if (!meter_ss[num - 1]) return 0;
+  return meter_ss[num - 1]->read();
 }
 
 uint8_t Serial_peek() {
-  uint8_t num=dump2log&7;
-  if (num<1 || num>meters_used) num=1;
-  if (!meter_ss[num-1]) return 0;
-  return meter_ss[num-1]->peek();
+  uint8_t num = dump2log & 7;
+  if (num < 1 || num > sml_globs.meters_used) num = 1;
+  if (!meter_ss[num - 1]) return 0;
+  return meter_ss[num - 1]->peek();
 }
 
 #ifndef SML_DUMP_SIZE
@@ -509,11 +506,11 @@ void Dump2log(void) {
   int16_t index = 0, hcnt = 0;
   uint32_t d_lastms;
   uint8_t dchars[16];
-  uint8_t type = meter_desc_p[(dump2log&7) - 1].type;
+  uint8_t type = meter_desc_p[(dump2log & 7) - 1].type;
 
   //if (!SML_SAVAILABLE) return;
 
-  if (dump2log&8) {
+  if (dump2log & 8) {
     // combo mode
     while (SML_SAVAILABLE) {
       log_data[index] = ':';
@@ -797,10 +794,10 @@ double dval;
 
 #ifdef USE_SML_SPECOPT
  unsigned char *cpx = cp - 5;
- uint32_t ocode = (*(cpx+0)<<24) | (*(cpx+1)<<16) | (*(cpx+2)<<8) | (*(cpx+3)<<0);
+ uint32_t ocode = (*(cpx + 0) << 24) | (*(cpx + 1) << 16) | (*(cpx + 2) << 8) | (*(cpx + 3) << 0);
 
  if (ocode == script_meter_desc[g_mindex].so_obis1) {
-   sml_status[g_mindex]&=0xfe;
+   sml_status[g_mindex] &= 0xfe;
    uint32_t flag = 0;
    uint16_t bytes = 0;
    if (*cp == script_meter_desc[g_mindex].so_fcode1) {
@@ -811,7 +808,7 @@ double dval;
         flag |= *cpx++;
      }
      if (flag & (1 << script_meter_desc[g_mindex].so_bpos1)) {
-       sml_status[g_mindex]|=1;
+       sml_status[g_mindex] |= 1;
      }
    }
    if (*cp == script_meter_desc[g_mindex].so_fcode2) {
@@ -822,39 +819,39 @@ double dval;
        flag |= *cpx++;
      }
      if (flag & (1 << script_meter_desc[g_mindex].so_bpos1)) {
-       sml_status[g_mindex]|=1;
+       sml_status[g_mindex] |= 1;
      }
    }
  }
 #endif
 
-  cp=skip_sml(cp,&result);
+  cp = skip_sml(cp, &result);
   // check time
-  cp=skip_sml(cp,&result);
+  cp = skip_sml(cp, &result);
   // check unit
-  cp=skip_sml(cp,&result);
+  cp = skip_sml(cp, &result);
   // check scaler
-  cp=skip_sml(cp,&result);
-  scaler=result;
+  cp = skip_sml(cp, &result);
+  scaler = result;
 
   // get value
-  type=*cp&0x70;
-  len=*cp&0x0f;
+  type = *cp & 0x70;
+  len = *cp & 0x0f;
   cp++;
-    if (type==0x50 || type==0x60) {
+    if (type == 0x50 || type == 0x60) {
         // shift into 64 bit
-        uint64_t uvalue=0;
-        uint8_t nlen=len;
+        uint64_t uvalue = 0;
+        uint8_t nlen = len;
         while (--nlen) {
-            uvalue<<=8;
-            uvalue|=*cp++;
+            uvalue <<= 8;
+            uvalue |= *cp++;
         }
-        if (type==0x50) {
+        if (type == 0x50) {
             // signed
-            switch (len-1) {
+            switch (len - 1) {
                 case 1:
                     // byte
-                    value=(signed char)uvalue;
+                    value = (signed char)uvalue;
                     break;
                 case 2:
                     // signed 16 bit
@@ -870,69 +867,69 @@ double dval;
                     break;
                 case 3:
                   // signed 24 bit
-                  value=(int32_t)(uvalue<<8);
-                  value/=256;
+                  value = (int32_t)(uvalue << 8);
+                  value /= 256;
                   break;
 
                 case 4:
                     // signed 32 bit
-                    value=(int32_t)uvalue;
+                    value = (int32_t)uvalue;
                     break;
                 case 5:
                 case 6:
                 case 7:
                 case 8:
                     // signed 64 bit
-                    value=(int64_t)uvalue;
+                    value = (int64_t)uvalue;
                     break;
             }
         } else {
             // unsigned
-            value=uvalue;
+            value = uvalue;
         }
 
     } else {
-        if (!(type&0xf0)) {
+        if (!(type & 0xf0)) {
             // octet string serial number
             // no coding found on the net
             // up to now 2 types identified on Hager
-            if (len==9) {
+            if (len == 9) {
               // serial number on hager => 24 bit - 24 bit
                 cp++;
                 uint32_t s1,s2;
-                s1=*cp<<16|*(cp+1)<<8|*(cp+2);
-                cp+=4;
-                s2=*cp<<16|*(cp+1)<<8|*(cp+2);
-                sprintf(&script_meter_desc[index].meter_id[0],"%u-%u",s1,s2);
+                s1 = *cp << 16 | *(cp + 1) <<8 | *(cp + 2);
+                cp += 4;
+                s2 = *cp << 16 | *(cp + 1) <<8 | *(cp + 2);
+                sprintf(&script_meter_desc[index].meter_id[0], "%u-%u", s1, s2);
             } else {
                 // server id on hager
-                char *str=&script_meter_desc[index].meter_id[0];
-                for (type=0; type<len-1; type++) {
-                    sprintf(str,"%02x",*cp++);
-                    str+=2;
+                char *str = &script_meter_desc[index].meter_id[0];
+                for (type = 0; type < len - 1; type++) {
+                    sprintf(str,"%02x", *cp++);
+                    str += 2;
                 }
             }
-            value=0;
+            value = 0;
         } else {
-            value=999999;
-            scaler=0;
+            value = 999999;
+            scaler = 0;
         }
     }
-    dval=value;
-    if (scaler==-1) {
-      dval/=10;
-    } else if (scaler==-2) {
-      dval/=100;
-    } else if (scaler==-3) {
-      dval/=1000;
-    } else if (scaler==-4) {
-      dval/=10000;
-    } else if (scaler==1) {
-      dval*=10;
-    } else if (scaler==2) {
-      dval*=100;
-    } else if (scaler==3) {
-      dval*=1000;
+    dval = value;
+    if (scaler == -1) {
+      dval /= 10;
+    } else if (scaler == -2) {
+      dval /= 100;
+    } else if (scaler == -3) {
+      dval /= 1000;
+    } else if (scaler == -4) {
+      dval /= 10000;
+    } else if (scaler == 1) {
+      dval *= 10;
+    } else if (scaler == 2) {
+      dval *= 100;
+    } else if (scaler == 3) {
+      dval *= 1000;
     }
   #ifdef ED300L
     // decode current power OBIS 00 0F 07 00
@@ -962,11 +959,11 @@ double dval;
     }
   #endif
   #ifdef USE_SML_SPECOPT
-    ocode = (*(cpx+0)<<24) | (*(cpx+1)<<16) | (*(cpx+2)<<8) | (*(cpx+3)<<0);
+    ocode = (*(cpx + 0) << 24) | (*(cpx + 1) << 16) | (*(cpx + 2) << 8) | (*(cpx + 3) << 0);
     if (ocode == script_meter_desc[g_mindex].so_obis2) {
       if (sml_status[g_mindex] & 1) {
         // and invert sign on solar feed
-        dval*=-1;
+        dval *= -1;
       }
     }
   #endif
@@ -1028,14 +1025,14 @@ double CharToDouble(const char *str)
 // remove ebus escapes
 void ebus_esc(uint8_t *ebus_buffer, unsigned char len) {
     short count,count1;
-    for (count=0; count<len; count++) {
-        if (ebus_buffer[count]==EBUS_ESC) {
+    for (count = 0; count < len; count++) {
+        if (ebus_buffer[count] == EBUS_ESC) {
             //found escape
-            ebus_buffer[count]+=ebus_buffer[count+1];
+            ebus_buffer[count] += ebus_buffer[count + 1];
             // remove 2. char
             count++;
-            for (count1=count; count1<len; count1++) {
-                ebus_buffer[count1]=ebus_buffer[count1+1];
+            for (count1 = count; count1 < len; count1++) {
+                ebus_buffer[count1] = ebus_buffer[count1 + 1];
             }
         }
     }
@@ -1081,7 +1078,7 @@ void sml_empty_receiver(uint32_t meters) {
   }
 }
 
-void sml_shift_in(uint32_t meters,uint32_t shard) {
+void sml_shift_in(uint32_t meters, uint32_t shard) {
   uint32_t count;
 
 struct METER_DESC *mp = &script_meter_desc[meters];
@@ -1098,6 +1095,7 @@ struct METER_DESC *mp = &script_meter_desc[meters];
 
   switch (mp->type) {
     case 'o':
+      // asci obis
       if (!(mp->so_flags & SO_OBIS_LINE)) {
         mp->sbuff[mp->sbsiz - 1] = iob & 0x7f;
       } else {
@@ -1114,12 +1112,15 @@ struct METER_DESC *mp = &script_meter_desc[meters];
       }
       break;
     case 's':
+      // binary obis = sml
       mp->sbuff[mp->sbsiz - 1] = iob;
       break;
     case 'r':
+      // raw with shift
       mp->sbuff[mp->sbsiz - 1] = iob;
       break;
     case 'R':
+      // raw without shift
       mp->sbuff[mp->spos] = iob;
       mp->spos++;
       if (mp->spos > mp->sbsiz) {
@@ -1190,6 +1191,7 @@ struct METER_DESC *mp = &script_meter_desc[meters];
       }
       break;
     case 'v':
+      // vbus
       if (iob == EBUS_SYNC) {
         sb_counter = 0;
         SML_Decode(meters);
@@ -1203,6 +1205,7 @@ struct METER_DESC *mp = &script_meter_desc[meters];
       }
       break;
     case 'e':
+      // ebus
       if (iob == EBUS_SYNC) {
         // should be end of telegramm
         // QQ,ZZ,PB,SB,NN ..... CRC, ACK SYNC
@@ -1240,7 +1243,7 @@ struct METER_DESC *mp = &script_meter_desc[meters];
 void SML_Poll(void) {
 uint32_t meters;
 
-    for (meters = 0; meters < meters_used; meters++) {
+    for (meters = 0; meters < sml_globs.meters_used; meters++) {
       if (meter_desc_p[meters].type != 'c') {
         // poll for serial input
         if (!meter_ss[meters]) continue;
@@ -1300,7 +1303,7 @@ char *skip_double(char *cp) {
 
 
 void SML_Decode(uint8_t index) {
-  const char *mp=(const char*)meter_p;
+  const char *mp = (const char*)sml_globs.meter_p;
   int8_t mindex;
   uint8_t *cp;
   uint8_t dindex = 0, vindex = 0;
@@ -1313,7 +1316,7 @@ void SML_Decode(uint8_t index) {
     // new section
     mindex = ((*mp) & 7) - 1;
 
-    if (mindex < 0 || mindex >= meters_used) mindex = 0;
+    if (mindex < 0 || mindex >= sml_globs.meters_used) mindex = 0;
     mp += 2;
     if (*mp == '=' && *(mp+1) == 'h') {
       mp = strchr(mp, '|');
@@ -1739,8 +1742,8 @@ void SML_Decode(uint8_t index) {
             else {
               uint8_t val = hexnibble(*mp++) << 4;
               val |= hexnibble(*mp++);
-              if (val!=*cp++) {
-                found=0;
+              if (val != *cp++) {
+                found = 0;
               }
             }
           }
@@ -1782,9 +1785,10 @@ void SML_Decode(uint8_t index) {
           }
         } else {
           double dval;
-          if (meter_desc_p[mindex].type!='e' && meter_desc_p[mindex].type!='r' && meter_desc_p[mindex].type!='m' && meter_desc_p[mindex].type!='M' && meter_desc_p[mindex].type!='k' && meter_desc_p[mindex].type!='p' && meter_desc_p[mindex].type!='v') {
+          char type = meter_desc_p[mindex].type;
+          if (type != 'e' && type != 'r' && type != 'm' && type != 'M' && type != 'k' && type != 'p' && type != 'v') {
             // get numeric values
-            if (meter_desc_p[mindex].type=='o' || meter_desc_p[mindex].type=='c') {
+            if (type == 'o' || type == 'c') {
               if (*mp == '(') {
                 mp++;
                 // skip this number of brackets
@@ -1802,13 +1806,13 @@ void SML_Decode(uint8_t index) {
                     lcp = bp;
                   }
                 }
-                if (*mp=='#') {
+                if (*mp == '#') {
                   cp = (uint8_t*)lcp;
                   goto getstr;
                 }
-                dval=CharToDouble((char*)lcp);
+                dval = CharToDouble((char*)lcp);
               } else {
-                dval=CharToDouble((char*)cp);
+                dval = CharToDouble((char*)cp);
               }
             } else {
               dval = sml_getvalue(cp, mindex);
@@ -1818,8 +1822,8 @@ void SML_Decode(uint8_t index) {
             if (*mp == 'b') {
               mp++;
               uint8_t shift = *mp&7;
-              ebus_dval = (uint32_t)ebus_dval>>shift;
-              ebus_dval = (uint32_t)ebus_dval&1;
+              ebus_dval = (uint32_t)ebus_dval >> shift;
+              ebus_dval = (uint32_t)ebus_dval & 1;
               mp+=2;
             }
             if (*mp == 'i') {
@@ -1881,7 +1885,7 @@ void SML_Decode(uint8_t index) {
     }
 nextsect:
     // next section
-    if (vindex<SML_MAX_VARS-1) {
+    if (vindex < SML_MAX_VARS - 1) {
       vindex++;
     }
     mp = strchr(mp, '|');
@@ -1895,24 +1899,24 @@ void SML_Immediate_MQTT(const char *mp,uint8_t index,uint8_t mindex) {
   char jname[24];
 
   // we must skip sf,webname,unit
-  char *cp=strchr(mp,',');
+  char *cp = strchr(mp, ',');
   if (cp) {
     cp++;
     // wn
-    cp=strchr(cp,',');
+    cp = strchr(cp,',');
     if (cp) {
       cp++;
       // unit
-      cp=strchr(cp,',');
+      cp = strchr(cp,',');
       if (cp) {
         cp++;
         // json mqtt
-        for (uint8_t count=0;count<sizeof(jname);count++) {
-          if (*cp==',') {
-            jname[count]=0;
+        for (uint8_t count = 0; count < sizeof(jname); count++) {
+          if (*cp == ',') {
+            jname[count] = 0;
             break;
           }
-          jname[count]=*cp++;
+          jname[count] = *cp++;
         }
         cp++;
         uint8_t dp = atoi(cp);
@@ -1934,29 +1938,29 @@ void SML_Show(boolean json) {
   char name[24];
   char unit[8];
   char jname[24];
-  int8_t index=0,mid=0;
-  char *mp=(char*)meter_p;
+  int8_t index = 0, mid = 0;
+  char *mp = (char*)sml_globs.meter_p;
   char *cp, nojson = 0;
   //char b_mqtt_data[MESSZ];
   //b_mqtt_data[0]=0;
 
-    if (!meters_used) return;
+    if (!sml_globs.meters_used) return;
 
     int8_t lastmind = ((*mp) & 7) - 1;
-    if (lastmind < 0 || lastmind >= meters_used) lastmind = 0;
+    if (lastmind < 0 || lastmind >= sml_globs.meters_used) lastmind = 0;
     while (mp != NULL) {
         if (*mp == 0) break;
         // setup sections
         mindex = ((*mp) & 7) - 1;
 
-        if (mindex < 0 || mindex >= meters_used) mindex = 0;
+        if (mindex < 0 || mindex >= sml_globs.meters_used) mindex = 0;
         if (meter_desc_p[mindex].prefix[0] == '*' && meter_desc_p[mindex].prefix[1] == 0) {
           nojson = 1;
         } else {
           nojson = 0;
         }
         mp += 2;
-        if (*mp == '=' && *(mp+1) == 'h') {
+        if (*mp == '=' && *(mp + 1) == 'h') {
           mp += 2;
           // html tag
           if (json) {
@@ -2217,7 +2221,7 @@ uint32_t SML_getscriptsize(char *lp) {
   //AddLog(LOG_LEVEL_INFO, PSTR("len=%d"),mlen);
   return mlen;
 }
-#endif
+#endif // SML_REPLACE_VARS
 
 bool Gpio_used(uint8_t gpiopin) {
   if ((gpiopin < nitems(TasmotaGlobal.gpio_pin)) && (TasmotaGlobal.gpio_pin[gpiopin] > 0)) {
@@ -2261,9 +2265,12 @@ void SML_GetSpecOpt(char *cp, uint32_t mnum) {
 #endif
 
 void SML_Init(void) {
-  meters_used = MAX_METERS;
+
+  sml_globs.ready = false;
+
+  sml_globs.meters_used = MAX_METERS;
   meter_desc_p = script_meter_desc;
-  sml_desc_cnt = 0;
+  sml_globs.sml_desc_cnt = 0;
 
   for (uint32_t cnt = 0; cnt < SML_MAX_VARS; cnt++) {
     meter_vars[cnt] = 0;
@@ -2312,8 +2319,11 @@ void SML_Init(void) {
 
   if (bitRead(Settings->rule_enabled, 0)) {
 
-  uint8_t meter_script=Run_Scripter(">M", -2, 0);
-  if (meter_script == 99) {
+  uint8_t meter_script = Run_Scripter(">M", -2, 0);
+  if (meter_script != 99) {
+    AddLog(LOG_LEVEL_INFO, PSTR("no meter section found!"));
+    return;
+  } else {
     // use script definition
     if (script_meter) free(script_meter);
     script_meter = 0;
@@ -2323,12 +2333,12 @@ void SML_Init(void) {
     int8_t srcpin = 0;
     uint8_t dec_line = 0;
     char *lp = glob_script_mem.scriptptr;
-    sml_send_blocks = 0;
+    sml_globs.sml_send_blocks = 0;
     while (lp) {
       if (!section) {
         if (*lp == '>' && *(lp+1) == 'M') {
           lp += 2;
-          meters_used = strtol(lp, 0, 10);
+          sml_globs.meters_used = strtol(lp, 0, 10);
           section = 1;
           uint32_t mlen = SML_getscriptsize(lp);
           if (mlen == 0) return; // missing end #
@@ -2351,7 +2361,7 @@ void SML_Init(void) {
           lp++;
           index = *lp & 7;
           lp += 2;
-          if (index < 1 || index > meters_used) {
+          if (index < 1 || index > sml_globs.meters_used) {
             AddLog(LOG_LEVEL_INFO, PSTR("illegal meter number!"));
             goto next_line;
           }
@@ -2362,7 +2372,7 @@ void SML_Init(void) {
 dddef_exit:
             if (script_meter) free(script_meter);
             script_meter = 0;
-            meters_used = MAX_METERS;
+            sml_globs.meters_used = MAX_METERS;
             goto init10;
           }
           script_meter_desc[index].srcpin = srcpin;
@@ -2446,7 +2456,6 @@ dddef_exit:
             script_meter_desc[index].tsecs = strtol(lp, &lp, 10);
             if (*lp == ',') {
               lp++;
-#if 1
               // look ahead
               uint16_t txlen = 0;
               uint16_t tx_entries = 1;
@@ -2485,31 +2494,9 @@ dddef_exit:
                 //AddLog(LOG_LEVEL_INFO, PSTR(">>> %s - %d"), script_meter_desc[index].txmem, txlen);
                 script_meter_desc[index].index = 0;
                 script_meter_desc[index].max_index = tx_entries;
-                sml_send_blocks++;
+                sml_globs.sml_send_blocks++;
                 lp += txlen;
               }
-#else
-              char txbuff[SML_SRCBSIZE];
-              uint32_t txlen = 0, tx_entries = 1;
-              for (uint32_t cnt = 0; cnt < sizeof(txbuff); cnt++) {
-                if (*lp == SCRIPT_EOL && *(lp - 1) != ',' ) {
-                  txbuff[cnt] = 0;
-                  txlen = cnt;
-                  break;
-                }
-                if (*lp == ',') tx_entries++;
-                txbuff[cnt] = *lp++;
-              }
-              if (txlen) {
-                script_meter_desc[index].txmem = (char*)calloc(txlen + 2, 1);
-                if (script_meter_desc[index].txmem) {
-                  strcpy(script_meter_desc[index].txmem, txbuff);
-                }
-                script_meter_desc[index].index = 0;
-                script_meter_desc[index].max_index = tx_entries;
-                sml_send_blocks++;
-              }
-#endif // look ahead
             }
           }
           if (*lp == SCRIPT_EOL) lp--;
@@ -2526,7 +2513,7 @@ dddef_exit:
           // add meters line -1,1-0:1.8.0*255(@10000,H2OIN,cbm,COUNTER,4|
           if (*lp1 == '-') lp1++;
           uint8_t mnum = strtol(lp1, 0, 10);
-          if (mnum < 1 || mnum > meters_used) {
+          if (mnum < 1 || mnum > sml_globs.meters_used) {
             AddLog(LOG_LEVEL_INFO, PSTR("illegal meter number!"));
             goto next_line;
           }
@@ -2578,7 +2565,7 @@ dddef_exit:
           // add meters line -1,1-0:1.8.0*255(@10000,H2OIN,cbm,COUNTER,4|
           if (*lp == '-') lp++;
           uint8_t mnum = strtol(lp,0,10);
-          if (mnum < 1 || mnum > meters_used) {
+          if (mnum < 1 || mnum > sml_globs.meters_used) {
             AddLog(LOG_LEVEL_INFO, PSTR("illegal meter number!"));
             goto next_line;
           }
@@ -2638,7 +2625,7 @@ next_line:
     }
     *tp = 0;
     meter_desc_p = script_meter_desc;
-    meter_p = script_meter;
+    sml_globs.meter_p = script_meter;
   }
   }
 
@@ -2650,11 +2637,11 @@ init10:
       RtcSettings.pulse_counter[i] = Settings->pulse_counter[i];
       sml_counters[i].sml_cnt_last_ts = millis();
   }
-  #ifdef ESP32
+#ifdef ESP32
   uint32_t uart_index = SOC_UART_NUM - 1;
-  #endif
+#endif
   sml_counter_pinstate = 0;
-  for (uint8_t meters = 0; meters < meters_used; meters++) {
+  for (uint8_t meters = 0; meters < sml_globs.meters_used; meters++) {
     if (meter_desc_p[meters].type == 'c') {
         if (meter_desc_p[meters].flag & 2) {
 
@@ -2762,7 +2749,7 @@ init10:
     }
   }
 // speed optimize shift flag
-  for (uint32_t meters = 0; meters < meters_used; meters++ ) {
+  for (uint32_t meters = 0; meters < sml_globs.meters_used; meters++ ) {
     struct METER_DESC *mp = &script_meter_desc[meters];
 
     if (!(mp->so_flags & SO_OBIS_LINE)) {
@@ -2774,6 +2761,7 @@ init10:
       mp->sbuff = (uint8_t*)malloc(mp->sbsiz);
     }
   }
+  sml_globs.ready = true;
 }
 
 
@@ -2791,7 +2779,7 @@ uint32_t sml_getv(uint32_t sel) {
   return sel;
 }
 uint32_t SML_SetBaud(uint32_t meter, uint32_t br) {
-  if (meter < 1 || meter > meters_used) return 0;
+  if (meter < 1 || meter > sml_globs.meters_used) return 0;
   meter--;
   if (!meter_ss[meter]) return 0;
 #ifdef ESP8266
@@ -2818,7 +2806,7 @@ uint32_t SML_SetBaud(uint32_t meter, uint32_t br) {
 }
 
 uint32_t SML_Status(uint32_t meter) {
-  if (meter < 1 || meter > meters_used) return 0;
+  if (meter < 1 || meter > sml_globs.meters_used) return 0;
   meter--;
 #if defined(ED300L) || defined(AS2020) || defined(DTZ541) || defined(USE_SML_SPECOPT)
   return sml_status[meter];
@@ -2830,7 +2818,7 @@ uint32_t SML_Status(uint32_t meter) {
 uint32_t SML_Write(int32_t meter, char *hstr) {
   int8_t flag = meter;
   meter = abs(meter);
-  if (meter < 1 || meter > meters_used) return 0;
+  if (meter < 1 || meter > sml_globs.meters_used) return 0;
   meter--;
   if (!meter_ss[meter]) return 0;
   if (flag > 0) {
@@ -2869,7 +2857,7 @@ uint8_t hflg = 0;
     meter = abs(meter);
     hflg = 1;
   }
-  if (meter < 1 || meter > meters_used) return 0;
+  if (meter < 1 || meter > sml_globs.meters_used) return 0;
   meter--;
   if (!meter_ss[meter]) return 0;
 
@@ -2907,7 +2895,7 @@ char *SML_GetSVal(uint32_t index) {
 }
 
 int32_t SML_Set_WStr(uint32_t meter, char *hstr) {
-  if (meter < 1 || meter > meters_used) return -1;
+  if (meter < 1 || meter > sml_globs.meters_used) return -1;
   meter--;
   if (!meter_ss[meter]) return -2;
   script_meter_desc[meter].script_str = hstr;
@@ -2931,7 +2919,7 @@ void SML_Counter_Poll(void) {
 uint16_t meters, cindex = 0;
 uint32_t ctime = millis();
 
-  for (meters = 0; meters < meters_used; meters++) {
+  for (meters = 0; meters < sml_globs.meters_used; meters++) {
     if (meter_desc_p[meters].type == 'c') {
       // poll for counters and debouce
       if (meter_desc_p[meters].params > 0) {
@@ -3011,13 +2999,13 @@ char *SML_Get_Sequence(char *cp,uint32_t index) {
 }
 
 void SML_Check_Send(void) {
-  sml_100ms_cnt++;
+  sml_globs.sml_100ms_cnt++;
   char *cp;
-  for (uint32_t cnt = sml_desc_cnt; cnt < meters_used; cnt++) {
+  for (uint32_t cnt = sml_globs.sml_desc_cnt; cnt < sml_globs.meters_used; cnt++) {
     if (script_meter_desc[cnt].trxpin >= 0 && script_meter_desc[cnt].txmem) {
-      //AddLog(LOG_LEVEL_INFO, PSTR("100 ms>> %d - %s - %d"),sml_desc_cnt,script_meter_desc[cnt].txmem,script_meter_desc[cnt].tsecs);
-      if ((sml_100ms_cnt >= script_meter_desc[cnt].tsecs)) {
-        sml_100ms_cnt = 0;
+      //AddLog(LOG_LEVEL_INFO, PSTR("100 ms>> %d - %s - %d"),sml_globs.sml_desc_cnt,script_meter_desc[cnt].txmem,script_meter_desc[cnt].tsecs);
+      if ((sml_globs.sml_100ms_cnt >= script_meter_desc[cnt].tsecs)) {
+        sml_globs.sml_100ms_cnt = 0;
         // check for scriptsync extra output
         if (script_meter_desc[cnt].script_str) {
           cp = script_meter_desc[cnt].script_str;
@@ -3028,29 +3016,29 @@ void SML_Check_Send(void) {
             script_meter_desc[cnt].index++;
             if (script_meter_desc[cnt].index >= script_meter_desc[cnt].max_index) {
               script_meter_desc[cnt].index = 0;
-              sml_desc_cnt++;
+              sml_globs.sml_desc_cnt++;
             }
             cp = SML_Get_Sequence(script_meter_desc[cnt].txmem, script_meter_desc[cnt].index);
             //SML_Send_Seq(cnt,cp);
           } else {
             cp = script_meter_desc[cnt].txmem;
             //SML_Send_Seq(cnt,cp);
-            sml_desc_cnt++;
+            sml_globs.sml_desc_cnt++;
           }
         }
         //AddLog(LOG_LEVEL_INFO, PSTR(">> %s"),cp);
         SML_Send_Seq(cnt,cp);
-        if (sml_desc_cnt >= meters_used) {
-          sml_desc_cnt = 0;
+        if (sml_globs.sml_desc_cnt >= sml_globs.meters_used) {
+          sml_globs.sml_desc_cnt = 0;
         }
         break;
       }
     } else {
-      sml_desc_cnt++;
+      sml_globs.sml_desc_cnt++;
     }
 
-    if (sml_desc_cnt >= meters_used) {
-      sml_desc_cnt = 0;
+    if (sml_globs.sml_desc_cnt >= sml_globs.meters_used) {
+      sml_globs.sml_desc_cnt = 0;
     }
   }
 }
@@ -3267,7 +3255,7 @@ bool XSNS_53_cmd(void) {
         // set dump mode
         cp++;
         uint8_t index = atoi(cp);
-        if ((index & 7) > meters_used) index = 1;
+        if ((index & 7) > sml_globs.meters_used) index = 1;
         if (index > 0 && meter_desc_p[(index & 7) - 1].type == 'c') {
           index = 0;
         }
@@ -3285,7 +3273,7 @@ bool XSNS_53_cmd(void) {
             while (isdigit(*cp)) cp++;
             RtcSettings.pulse_counter[index - 1] = cval;
             uint8_t cindex = 0;
-            for (uint8_t meters = 0; meters < meters_used; meters++) {
+            for (uint8_t meters = 0; meters < sml_globs.meters_used; meters++) {
               if (meter_desc_p[meters].type == 'c') {
                 InjektCounterValue(meters,RtcSettings.pulse_counter[cindex], 0.0);
                 cindex++;
@@ -3361,31 +3349,35 @@ bool Xsns53(uint32_t function) {
         SML_Init();
         break;
       case FUNC_LOOP:
-        SML_Counter_Poll();
-        if (dump2log) Dump2log();
-        else {
-          SML_Poll();
+        if (sml_globs.ready) {
+          SML_Counter_Poll();
+          if (dump2log) Dump2log();
+          else {
+            SML_Poll();
+          }
         }
         break;
-    //  case FUNC_EVERY_50_MSECOND:
-    //    if (dump2log) Dump2log();
-    //    else SML_Poll();
-    //    break;
 #ifdef USE_SCRIPT
       case FUNC_EVERY_100_MSECOND:
         if (bitRead(Settings->rule_enabled, 0)) {
-          SML_Check_Send();
+          if (sml_globs.ready) {
+            SML_Check_Send();
+          }
         }
         break;
 #endif // USE_SCRIPT
       case FUNC_JSON_APPEND:
-        if (sml_options & SML_OPTIONS_JSON_ENABLE) {
-          SML_Show(1);
+        if (sml_globs.ready) {
+          if (sml_options & SML_OPTIONS_JSON_ENABLE) {
+            SML_Show(1);
+          }
         }
         break;
 #ifdef USE_WEBSERVER
       case FUNC_WEB_SENSOR:
-        SML_Show(0);
+        if (sml_globs.ready) {
+          SML_Show(0);
+        }
         break;
 #endif  // USE_WEBSERVER
       case FUNC_COMMAND_SENSOR:
@@ -3395,7 +3387,9 @@ bool Xsns53(uint32_t function) {
         break;
       case FUNC_SAVE_BEFORE_RESTART:
       case FUNC_SAVE_AT_MIDNIGHT:
-        SML_CounterSaveState();
+        if (sml_globs.ready) {
+          SML_CounterSaveState();
+        }
         break;
     }
   return result;
