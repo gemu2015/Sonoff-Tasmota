@@ -326,7 +326,7 @@ bool SML_ESP32_SERIAL::begin(uint32_t speed, uint32_t smode, int32_t recpin, int
     m_tx_pin = trxpin;
     hws = new HardwareSerial(uart_index);
     if (hws) {
-    //  hws->begin(speed, cfgmode, m_rx_pin, m_tx_pin);
+      hws->begin(speed, cfgmode, m_rx_pin, m_tx_pin);
     }
   }
   return true;
@@ -2317,8 +2317,9 @@ void SML_Init(void) {
 
   }
 
-  if (bitRead(Settings->rule_enabled, 0)) {
-
+  if (!bitRead(Settings->rule_enabled, 0)) {
+    return;
+  } else {
   uint8_t meter_script = Run_Scripter(">M", -2, 0);
   if (meter_script != 99) {
     AddLog(LOG_LEVEL_INFO, PSTR("no meter section found!"));
@@ -2742,6 +2743,7 @@ init10:
           //Serial.setRxBufferSize(512);
         }
 #endif  // ESP8266
+
 #ifdef ESP32
         meter_ss[meters]->begin(meter_desc_p[meters].params, smode, meter_desc_p[meters].srcpin, meter_desc_p[meters].trxpin);
         //meter_ss[meters]->setRxBufferSize(script_meter_desc[meters].sibsiz);
