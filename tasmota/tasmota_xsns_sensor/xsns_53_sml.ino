@@ -118,13 +118,6 @@ uint8_t *script_meter;
 #define USE_SML_MEDIAN_FILTER
 #endif
 
-// max number of vars , may be adjusted
-#ifndef SML_MAX_VARS
-#define SML_MAX_VARS 20
-#endif
-double meter_vars[SML_MAX_VARS];
-uint8_t dvalid[SML_MAX_VARS];
-
 // calulate deltas
 #define MAX_DVARS MAX_METERS*2
 double dvalues[MAX_DVARS];
@@ -149,12 +142,22 @@ TasmotaSerial *meter_ss[MAX_METERS];
 #define EBUS_SYNC		0xaa
 #define EBUS_ESC    0xa9
 
+// max number of vars , may be adjusted
+#ifndef SML_MAX_VARS
+#define SML_MAX_VARS 20
+#endif
+
 struct SML_GLOBS {
   uint8_t sml_send_blocks;
   uint8_t sml_100ms_cnt;
   uint8_t sml_desc_cnt;
   uint8_t meters_used;
+  uint8_t maxvars;
   uint8_t *meter_p;
+  //double meter_vars[SML_MAX_VARS];
+  //uint8_t dvalid[SML_MAX_VARS];
+  double *meter_vars;
+  uint8_t *dvalid;
   bool ready;
 } sml_globs;
 
@@ -1358,13 +1361,13 @@ void SML_Decode(uint8_t index) {
         uint8_t mind;
         int32_t ind;
         mind = strtol((char*)mp, (char**)&mp, 10);
-        if (mind < 1 || mind > SML_MAX_VARS) mind = 1;
-        dvar = meter_vars[mind - 1];
+        if (mind < 1 || mind > sml_globs.maxvars) mind = 1;
+        dvar = sml_globs.meter_vars[mind - 1];
         while (*mp==' ') mp++;
         for (uint8_t p = 0; p < 8; p++) {
           if (*mp == '@') {
             // store result
-            meter_vars[vindex] = dvar;
+            sml_globs.meter_vars[vindex] = dvar;
             mp++;
             break;
           }
@@ -1377,37 +1380,37 @@ void SML_Decode(uint8_t index) {
           }
           ind = strtol((char*)mp, (char**)&mp, 10);
           mind = ind;
-          if (mind < 1 || mind > SML_MAX_VARS) mind = 1;
+          if (mind < 1 || mind > sml_globs.maxvars) mind = 1;
           switch (opr) {
               case '+':
                 if (iflg) dvar += ind;
-                else dvar += meter_vars[mind - 1];
+                else dvar += sml_globs.meter_vars[mind - 1];
                 break;
               case '-':
                 if (iflg) dvar -= ind;
-                else dvar -= meter_vars[mind - 1];
+                else dvar -= sml_globs.meter_vars[mind - 1];
                 break;
               case '*':
                 if (iflg) dvar *= ind;
-                else dvar *= meter_vars[mind - 1];
+                else dvar *= sml_globs.meter_vars[mind - 1];
                 break;
               case '/':
                 if (iflg) dvar /= ind;
-                else dvar /= meter_vars[mind - 1];
+                else dvar /= sml_globs.meter_vars[mind - 1];
                 break;
           }
           while (*mp==' ') mp++;
           if (*mp == '@') {
             // store result
-            meter_vars[vindex] = dvar;
+            sml_globs.meter_vars[vindex] = dvar;
             mp++;
             break;
           }
         }
         double fac = CharToDouble((char*)mp);
-        meter_vars[vindex] /= fac;
+        sml_globs.meter_vars[vindex] /= fac;
         SML_Immediate_MQTT((const char*)mp, vindex, mindex);
-        dvalid[vindex] = 1;
+        sml_globs.dvalid[vindex] = 1;
         // get sfac
       } else if (*mp=='d') {
         // calc deltas d ind 10 (eg every 10 secs)
@@ -1417,40 +1420,40 @@ void SML_Decode(uint8_t index) {
           while (*mp == ' ') mp++;
           uint8_t ind = atoi(mp);
           while (*mp >= '0' && *mp <= '9') mp++;
-          if (ind < 1 || ind > SML_MAX_VARS) ind = 1;
+          if (ind < 1 || ind > sml_globs.maxvars) ind = 1;
           uint32_t delay = atoi(mp) * 1000;
           uint32_t dtime = millis() - dtimes[dindex];
           if (dtime > delay) {
             // calc difference
             dtimes[dindex] = millis();
-            double vdiff = meter_vars[ind - 1] - dvalues[dindex];
-            dvalues[dindex] = meter_vars[ind - 1];
+            double vdiff = sml_globs.meter_vars[ind - 1] - dvalues[dindex];
+            dvalues[dindex] = sml_globs.meter_vars[ind - 1];
             double dres = (double)360000.0 * vdiff / ((double)dtime / 10000.0);
 
-            dvalid[vindex] += 1;
+            sml_globs.dvalid[vindex] += 1;
 
-            if (dvalid[vindex] >= 2) {
+            if (sml_globs.dvalid[vindex] >= 2) {
               // differece is only valid after 2. calculation
-              dvalid[vindex] = 2;
+              sml_globs.dvalid[vindex] = 2;
 #ifdef USE_SML_MEDIAN_FILTER
               if (meter_desc_p[mindex].flag & 16) {
-                meter_vars[vindex] = sml_median(&sml_mf[vindex], dres);
+                sml_globs.meter_vars[vindex] = sml_median(&sml_mf[vindex], dres);
               } else {
-                meter_vars[vindex] = dres;
+                sml_globs.meter_vars[vindex] = dres;
               }
 #else
-              meter_vars[vindex] = dres;
+              sml_globs.meter_vars[vindex] = dres;
 #endif
             }
             mp=strchr(mp,'@');
             if (mp) {
               mp++;
               double fac = CharToDouble((char*)mp);
-              meter_vars[vindex] /= fac;
+              sml_globs.meter_vars[vindex] /= fac;
               SML_Immediate_MQTT((const char*)mp, vindex, mindex);
             }
           }
-          //dvalid[vindex] = 1;
+          //sml_globs.dvalid[vindex] = 1;
           dindex++;
         }
       } else if (*mp == 'h') {
@@ -1751,7 +1754,7 @@ void SML_Decode(uint8_t index) {
       }
       if (found) {
         // matches, get value
-        dvalid[vindex] = 1;
+        sml_globs.dvalid[vindex] = 1;
         mp++;
 #if defined(ED300L) || defined(AS2020) || defined(DTZ541) || defined(USE_SML_SPECOPT)
         g_mindex = mindex;
@@ -1860,12 +1863,12 @@ void SML_Decode(uint8_t index) {
           }
 #ifdef USE_SML_MEDIAN_FILTER
           if (meter_desc_p[mindex].flag & 16) {
-            meter_vars[vindex] = sml_median(&sml_mf[vindex], dval);
+            sml_globs.meter_vars[vindex] = sml_median(&sml_mf[vindex], dval);
           } else {
-            meter_vars[vindex] = dval;
+            sml_globs.meter_vars[vindex] = dval;
           }
 #else
-          meter_vars[vindex] = dval;
+          sml_globs.meter_vars[vindex] = dval;
 #endif
 
           //AddLog(LOG_LEVEL_INFO, PSTR(">> %s"),mp);
@@ -1875,9 +1878,9 @@ void SML_Decode(uint8_t index) {
           char *cp = skip_double((char*)mp);
           if (cp && (*cp == '+' || *cp == '-')) {
             double offset = CharToDouble(cp);
-            meter_vars[vindex] += offset;
+            sml_globs.meter_vars[vindex] += offset;
           }
-          meter_vars[vindex] /= fac;
+          sml_globs.meter_vars[vindex] /= fac;
           SML_Immediate_MQTT((const char*)mp, vindex, mindex);
         }
       }
@@ -1885,7 +1888,7 @@ void SML_Decode(uint8_t index) {
     }
 nextsect:
     // next section
-    if (vindex < SML_MAX_VARS - 1) {
+    if (vindex < sml_globs.maxvars - 1) {
       vindex++;
     }
     mp = strchr(mp, '|');
@@ -1922,7 +1925,7 @@ void SML_Immediate_MQTT(const char *mp,uint8_t index,uint8_t mindex) {
         uint8_t dp = atoi(cp);
         if (dp & 0x10) {
           // immediate mqtt
-          DOUBLE2CHAR(meter_vars[index], dp & 0xf, tpowstr);
+          DOUBLE2CHAR(sml_globs.meter_vars[index], dp & 0xf, tpowstr);
           ResponseTime_P(PSTR(",\"%s\":{\"%s\":%s}}"), meter_desc_p[mindex].prefix, jname, tpowstr);
           MqttPublishTeleSensor();
         }
@@ -2015,7 +2018,7 @@ void SML_Show(boolean json) {
           } else if (*cp == 'b') {
             // bit value
 #ifdef SML_BIT_TEXT
-            sprintf_P(tpowstr, PSTR("\"%s\""), (uint8_t)meter_vars[index]?D_ON:D_OFF);
+            sprintf_P(tpowstr, PSTR("\"%s\""), (uint8_t)sml_globs.meter_vars[index]?D_ON:D_OFF);
             mid = 2;
 #endif
           } else {
@@ -2056,11 +2059,11 @@ void SML_Show(boolean json) {
 
             if (!mid) {
               uint8_t dp = atoi(cp) & 0xf;
-              DOUBLE2CHAR(meter_vars[index], dp, tpowstr);
+              DOUBLE2CHAR(sml_globs.meter_vars[index], dp, tpowstr);
             }
 
             if (json) {
-              //if (dvalid[index]) {
+              //if (sml_globs.dvalid[index]) {
 
                 //AddLog(LOG_LEVEL_INFO, PSTR("not yet valid line %d"), index);
               //}
@@ -2099,7 +2102,7 @@ void SML_Show(boolean json) {
             }
           }
         }
-        if (index < SML_MAX_VARS - 1) {
+        if (index < sml_globs.maxvars - 1) {
           index++;
         }
         // next section
@@ -2121,11 +2124,11 @@ void SML_Show(boolean json) {
 #ifdef USE_DOMOTICZ
   if (json && !TasmotaGlobal.tele_period) {
     char str[16];
-    DOUBLE2CHAR(meter_vars[0], 1, str);
-    DomoticzSensorPowerEnergy(meter_vars[1], str);  // PowerUsage, EnergyToday
-    DOUBLE2CHAR(meter_vars[2], 1, str);
+    DOUBLE2CHAR(sml_globs.meter_vars[0], 1, str);
+    DomoticzSensorPowerEnergy(sml_globs.meter_vars[1], str);  // PowerUsage, EnergyToday
+    DOUBLE2CHAR(sml_globs.meter_vars[2], 1, str);
     DomoticzSensor(DZ_VOLTAGE, str);  // Voltage
-    DOUBLE2CHAR(meter_vars[3], 1, str);
+    DOUBLE2CHAR(sml_globs.meter_vars[3], 1, str);
     DomoticzSensor(DZ_CURRENT, str);  // Current
   }
 #endif  // USE_DOMOTICZ
@@ -2264,20 +2267,9 @@ void SML_GetSpecOpt(char *cp, uint32_t mnum) {
 }
 #endif
 
-void SML_Init(void) {
+void reset_sml_vars(uint16_t maxmeters) {
 
-  sml_globs.ready = false;
-
-  sml_globs.meters_used = MAX_METERS;
-  meter_desc_p = script_meter_desc;
-  sml_globs.sml_desc_cnt = 0;
-
-  for (uint32_t cnt = 0; cnt < SML_MAX_VARS; cnt++) {
-    meter_vars[cnt] = 0;
-    dvalid[cnt] = 0;
-  }
-
-  for (uint32_t meters = 0; meters < MAX_METERS; meters++) {
+  for (uint32_t meters = 0; meters < maxmeters; meters++) {
     script_meter_desc[meters].spos = 0;
     script_meter_desc[meters].sbsiz = SML_BSIZ;
     script_meter_desc[meters].sibsiz = TMSBSIZ;
@@ -2285,61 +2277,97 @@ void SML_Init(void) {
       free(script_meter_desc[meters].sbuff);
       script_meter_desc[meters].sbuff = 0;
     }
-  }
-
-  for (uint32_t cnt = 0; cnt < MAX_METERS; cnt++) {
 #ifdef USE_SML_SPECOPT
-    script_meter_desc[cnt].so_obis1 = 0;
-    script_meter_desc[cnt].so_obis2 = 0;
+    script_meter_desc[meters].so_obis1 = 0;
+    script_meter_desc[meters].so_obis2 = 0;
 #endif
-    script_meter_desc[cnt].so_flags = 0;
+    script_meter_desc[meters].so_flags = 0;
     // addresses a bug in meter DWS74
 #ifdef DWS74_BUG
-    script_meter_desc[cnt].so_flags |= SO_DWS74_BUG;
+    script_meter_desc[meters].so_flags |= SO_DWS74_BUG;
 #endif
 
 #ifdef SML_OBIS_LINE
-    script_meter_desc[cnt].so_flags |= SO_OBIS_LINE;
+    script_meter_desc[meters].so_flags |= SO_OBIS_LINE;
 #endif
-  }
-
-  for (uint32_t cnt = 0; cnt < MAX_METERS; cnt++) {
-    if (script_meter_desc[cnt].txmem) {
-     free(script_meter_desc[cnt].txmem);
+    if (script_meter_desc[meters].txmem) {
+      free(script_meter_desc[meters].txmem);
     }
-    script_meter_desc[cnt].txmem = 0;
-    script_meter_desc[cnt].trxpin = -1;
-
-    if (meter_ss[cnt]) {
-        delete meter_ss[cnt];
-        meter_ss[cnt] = NULL;
+    script_meter_desc[meters].txmem = 0;
+    script_meter_desc[meters].trxpin = -1;
+    if (meter_ss[meters]) {
+        delete meter_ss[meters];
+        meter_ss[meters] = NULL;
     }
-
   }
+}
+
+
+void SML_Init(void) {
+
+  sml_globs.ready = false;
 
   if (!bitRead(Settings->rule_enabled, 0)) {
     return;
-  } else {
+  }
+
   uint8_t meter_script = Run_Scripter(">M", -2, 0);
   if (meter_script != 99) {
     AddLog(LOG_LEVEL_INFO, PSTR("no meter section found!"));
     return;
+  }
+
+  char *lp = glob_script_mem.scriptptr;
+  uint8_t new_meters_used;
+
+  // use script definition
+  if (script_meter) {
+    // restart condition
+    free(script_meter);
+    free(sml_globs.meter_vars);
+    free(sml_globs.dvalid);
+    reset_sml_vars(sml_globs.meters_used);
+  }
+
+    AddLog(LOG_LEVEL_INFO, PSTR(">> %s"),lp);
+
+  if (*lp == '>' && *(lp + 1) == 'M') {
+    lp += 2;
+    sml_globs.meters_used = strtol(lp, &lp, 10);
+    while (*lp == ' ') lp++;
+    if (*lp == ',') {
+      lp++;
+      sml_globs.maxvars = strtol(lp, 0, 10);
+    } else {
+      sml_globs.maxvars = SML_MAX_VARS;
+    }
   } else {
-    // use script definition
-    if (script_meter) free(script_meter);
-    script_meter = 0;
-    uint8_t *tp = 0;
-    uint16_t index = 0;
-    uint8_t section = 0;
-    int8_t srcpin = 0;
-    uint8_t dec_line = 0;
-    char *lp = glob_script_mem.scriptptr;
-    sml_globs.sml_send_blocks = 0;
-    while (lp) {
+    return;
+  }
+
+  AddLog(LOG_LEVEL_INFO, PSTR("meters: %d, vars: %d"),sml_globs.meters_used,sml_globs.maxvars);
+
+  reset_sml_vars(sml_globs.meters_used);
+
+  sml_globs.meter_vars = (double*)calloc(sml_globs.maxvars, sizeof(double));
+  sml_globs.dvalid = (uint8_t*)calloc(sml_globs.maxvars, sizeof(uint8_t));
+
+  meter_desc_p = script_meter_desc;
+  sml_globs.sml_desc_cnt = 0;
+
+  script_meter = 0;
+  uint8_t *tp = 0;
+  uint16_t index = 0;
+  uint8_t section = 0;
+  int8_t srcpin = 0;
+  uint8_t dec_line = 0;
+
+  sml_globs.sml_send_blocks = 0;
+  lp = glob_script_mem.scriptptr;
+  while (lp) {
       if (!section) {
-        if (*lp == '>' && *(lp+1) == 'M') {
+        if (*lp == '>' && *(lp + 1) == 'M') {
           lp += 2;
-          sml_globs.meters_used = strtol(lp, 0, 10);
           section = 1;
           uint32_t mlen = SML_getscriptsize(lp);
           if (mlen == 0) return; // missing end #
@@ -2521,7 +2549,7 @@ dddef_exit:
           // 1,=h—————————————
           if (strncmp(lp1 + 1, ",=h", 3)) {
             dec_line++;
-            if (dec_line >= SML_MAX_VARS) {
+            if (dec_line >= sml_globs.maxvars) {
               AddLog(LOG_LEVEL_INFO, PSTR("too many decode lines: %d !"), dec_line);
               goto next_line;
             }
@@ -2572,7 +2600,7 @@ dddef_exit:
           }
           if (strncmp(lp + 1, ",=h", 3)) {
             dec_line++;
-            if (dec_line >= SML_MAX_VARS) {
+            if (dec_line >= sml_globs.maxvars) {
               AddLog(LOG_LEVEL_INFO, PSTR("too many decode lines: %d !"), dec_line);
               goto next_line;
             }
@@ -2627,8 +2655,7 @@ next_line:
     *tp = 0;
     meter_desc_p = script_meter_desc;
     sml_globs.meter_p = script_meter;
-  }
-  }
+
 
 init10:
   typedef void (*function)();
@@ -2769,18 +2796,20 @@ init10:
 
 #ifdef USE_SML_SCRIPT_CMD
 uint32_t sml_getv(uint32_t sel) {
+  if (sml_globs.ready == false) return 0;
   if (!sel) {
-    for (uint8_t cnt = 0; cnt < SML_MAX_VARS; cnt++) {
-      dvalid[cnt] = 0;
+    for (uint8_t cnt = 0; cnt < sml_globs.maxvars; cnt++) {
+      sml_globs.dvalid[cnt] = 0;
     }
     sel = 0;
   } else {
     if (sel < 1) sel = 1;
-    sel = dvalid[sel - 1];
+    sel = sml_globs.dvalid[sel - 1];
   }
   return sel;
 }
 uint32_t SML_SetBaud(uint32_t meter, uint32_t br) {
+  if (sml_globs.ready == false) return 0;
   if (meter < 1 || meter > sml_globs.meters_used) return 0;
   meter--;
   if (!meter_ss[meter]) return 0;
@@ -2808,6 +2837,7 @@ uint32_t SML_SetBaud(uint32_t meter, uint32_t br) {
 }
 
 uint32_t SML_Status(uint32_t meter) {
+  if (sml_globs.ready == false) return 0;
   if (meter < 1 || meter > sml_globs.meters_used) return 0;
   meter--;
 #if defined(ED300L) || defined(AS2020) || defined(DTZ541) || defined(USE_SML_SPECOPT)
@@ -2818,6 +2848,7 @@ uint32_t SML_Status(uint32_t meter) {
 }
 
 uint32_t SML_Write(int32_t meter, char *hstr) {
+  if (sml_globs.ready == false) return 0;
   int8_t flag = meter;
   meter = abs(meter);
   if (meter < 1 || meter > sml_globs.meters_used) return 0;
@@ -2854,7 +2885,9 @@ uint32_t SML_Write(int32_t meter, char *hstr) {
 }
 
 uint32_t SML_Read(int32_t meter, char *str, uint32_t slen) {
-uint8_t hflg = 0;
+  if (sml_globs.ready == false) return 0;
+
+  uint8_t hflg = 0;
   if (meter < 0) {
     meter = abs(meter);
     hflg = 1;
@@ -2887,16 +2920,19 @@ uint8_t hflg = 0;
 }
 
 float SML_GetVal(uint32_t index) {
-  if (index < 1 || index > SML_MAX_VARS) { index = 1;}
-  return meter_vars[index - 1];
+  if (sml_globs.ready == false) return 0;
+  if (index < 1 || index > sml_globs.maxvars) { index = 1;}
+  return sml_globs.meter_vars[index - 1];
 }
 
 char *SML_GetSVal(uint32_t index) {
+  if (sml_globs.ready == false) return 0;
   if (index < 1 || index > MAX_METERS) { index = 1;}
   return (char*)script_meter_desc[index - 1].meter_id;
 }
 
 int32_t SML_Set_WStr(uint32_t meter, char *hstr) {
+  if (sml_globs.ready == false) return 0;
   if (meter < 1 || meter > sml_globs.meters_used) return -1;
   meter--;
   if (!meter_ss[meter]) return -2;
@@ -3338,8 +3374,6 @@ void SML_CounterSaveState(void) {
 }
 
 
-
-
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
@@ -3353,8 +3387,9 @@ bool Xsns53(uint32_t function) {
       case FUNC_LOOP:
         if (sml_globs.ready) {
           SML_Counter_Poll();
-          if (dump2log) Dump2log();
-          else {
+          if (dump2log) {
+            Dump2log();
+          } else {
             SML_Poll();
           }
         }
