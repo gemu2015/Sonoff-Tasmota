@@ -2332,21 +2332,13 @@ void SML_Init(void) {
   if (*lp == '>' && *(lp + 1) == 'M') {
     lp += 2;
     sml_globs.meters_used = strtol(lp, &lp, 10);
-    while (*lp == ' ') lp++;
-    if (*lp == ',') {
-      lp++;
-      sml_globs.maxvars = strtol(lp, 0, 10);
-    } else {
-      sml_globs.maxvars = SML_MAX_VARS;
-    }
   } else {
     return;
   }
 
-  reset_sml_vars(sml_globs.meters_used);
+  sml_globs.maxvars = 0;
 
-  sml_globs.meter_vars = (double*)calloc(sml_globs.maxvars, sizeof(double));
-  sml_globs.dvalid = (uint8_t*)calloc(sml_globs.maxvars, sizeof(uint8_t));
+  reset_sml_vars(sml_globs.meters_used);
 
   meter_desc_p = script_meter_desc;
   sml_globs.sml_desc_cnt = 0;
@@ -2356,7 +2348,6 @@ void SML_Init(void) {
   uint16_t index = 0;
   uint8_t section = 0;
   int8_t srcpin = 0;
-  uint8_t dec_line = 0;
 
   sml_globs.sml_send_blocks = 0;
   lp = glob_script_mem.section_ptr;
@@ -2543,36 +2534,34 @@ dddef_exit:
             goto next_line;
           }
           // 1,=h—————————————
-          if (strncmp(lp1 + 1, ",=h", 3)) {
-            dec_line++;
-            if (dec_line >= sml_globs.maxvars) {
-              AddLog(LOG_LEVEL_INFO, PSTR("too many decode lines: %d !"), dec_line);
-              goto next_line;
-            }
-          }
-          if (!strncmp(lp1 + 1, ",=so", 4)) {
-            // special option
-            char *cp = lp1 + 5;
-            if (*cp == '1') {
-              cp++;
-#ifdef USE_SML_SPECOPT
-              SML_GetSpecOpt(cp, mnum - 1);
-#endif
-            } else if (*cp == '2') {
-              cp += 2;
-              script_meter_desc[mnum - 1].so_flags = strtol(cp, &cp, 16);
-            } else if (*cp == '3') {
-              cp += 2;
-              script_meter_desc[mnum - 1].sbsiz = strtol(cp, &cp, 10);
-              if (*cp == ',') {
+          if (!strncmp(lp1 + 1, ",=h", 3) || !strncmp(lp1 + 1, ",=so", 4)) {
+            if (!strncmp(lp1 + 1, ",=so", 4)) {
+              // special option
+              char *cp = lp1 + 5;
+              if (*cp == '1') {
                 cp++;
-                script_meter_desc[mnum - 1].sibsiz = strtol(cp, &cp, 10);
-                if (script_meter_desc[mnum - 1].sibsiz < 64) {
-                  script_meter_desc[mnum - 1].sibsiz = 64;
+#ifdef USE_SML_SPECOPT
+                SML_GetSpecOpt(cp, mnum - 1);
+#endif
+              } else if (*cp == '2') {
+                cp += 2;
+                script_meter_desc[mnum - 1].so_flags = strtol(cp, &cp, 16);
+              } else if (*cp == '3') {
+                cp += 2;
+                script_meter_desc[mnum - 1].sbsiz = strtol(cp, &cp, 10);
+                if (*cp == ',') {
+                  cp++;
+                  script_meter_desc[mnum - 1].sibsiz = strtol(cp, &cp, 10);
+                  if (script_meter_desc[mnum - 1].sibsiz < 64) {
+                    script_meter_desc[mnum - 1].sibsiz = 64;
+                  }
                 }
               }
             }
+          } else {
+            sml_globs.maxvars++;
           }
+
           while (1) {
             if (*lp1 == 0) {
               *tp++ = '|';
@@ -2594,35 +2583,32 @@ dddef_exit:
             AddLog(LOG_LEVEL_INFO, PSTR("illegal meter number!"));
             goto next_line;
           }
-          if (strncmp(lp + 1, ",=h", 3)) {
-            dec_line++;
-            if (dec_line >= sml_globs.maxvars) {
-              AddLog(LOG_LEVEL_INFO, PSTR("too many decode lines: %d !"), dec_line);
-              goto next_line;
-            }
-          }
-          if (!strncmp(lp + 1, ",=so", 4)) {
-            // special option
-            char *cp = lp + 5;
-            if (*cp == '1') {
-              cp++;
-#ifdef USE_SML_SPECOPT
-              SML_GetSpecOpt(cp, mnum - 1);
-#endif
-            } else if (*cp == '2') {
-              cp += 2;
-              script_meter_desc[mnum - 1].so_flags = strtol(cp, &cp, 16);
-            } else if (*cp == '3') {
-              cp += 2;
-              script_meter_desc[mnum - 1].sbsiz = strtol(cp, &cp, 10);
-              if (*cp == ',') {
+          if (!strncmp(lp + 1, ",=h", 3) || !strncmp(lp + 1, ",=so", 4)) {
+            if (!strncmp(lp + 1, ",=so", 4)) {
+              // special option
+              char *cp = lp + 5;
+              if (*cp == '1') {
                 cp++;
-                script_meter_desc[mnum - 1].sibsiz = strtol(cp, &cp, 10);
-                if (script_meter_desc[mnum - 1].sibsiz < 64) {
-                  script_meter_desc[mnum - 1].sibsiz = 64;
+  #ifdef USE_SML_SPECOPT
+                SML_GetSpecOpt(cp, mnum - 1);
+  #endif
+              } else if (*cp == '2') {
+                cp += 2;
+                script_meter_desc[mnum - 1].so_flags = strtol(cp, &cp, 16);
+              } else if (*cp == '3') {
+                cp += 2;
+                script_meter_desc[mnum - 1].sbsiz = strtol(cp, &cp, 10);
+                if (*cp == ',') {
+                  cp++;
+                  script_meter_desc[mnum - 1].sibsiz = strtol(cp, &cp, 10);
+                  if (script_meter_desc[mnum - 1].sibsiz < 64) {
+                    script_meter_desc[mnum - 1].sibsiz = 64;
+                  }
                 }
               }
             }
+          } else {
+            sml_globs.maxvars++;
           }
           while (1) {
             if (*lp == SCRIPT_EOL) {
@@ -2773,17 +2759,28 @@ init10:
 #endif  // ESP32
     }
   }
+
+  sml_globs.meter_vars = (double*)calloc(sml_globs.maxvars, sizeof(double));
+  sml_globs.dvalid = (uint8_t*)calloc(sml_globs.maxvars, sizeof(uint8_t));
+  if (!sml_globs.maxvars || !sml_globs.meter_vars || !sml_globs.dvalid) {
+    AddLog(LOG_LEVEL_INFO, PSTR("sml memory error!"));
+    return;
+  }
+
+  AddLog(LOG_LEVEL_DEBUG, PSTR("meters: %d , decode lines: %d"), sml_globs.meters_used, sml_globs.maxvars);
+
 // speed optimize shift flag
   for (uint32_t meters = 0; meters < sml_globs.meters_used; meters++ ) {
     struct METER_DESC *mp = &script_meter_desc[meters];
+    char type = mp->type;
 
     if (!(mp->so_flags & SO_OBIS_LINE)) {
-      mp->shift_mode = (mp->type != 'e' && mp->type != 'k' && mp->type != 'm' && mp->type != 'M' && mp->type != 'p' && mp->type != 'R' && mp->type != 'v');
+      mp->shift_mode = (type != 'e' && type != 'k' && type != 'm' && type != 'M' && type != 'p' && type != 'R' && type != 'v');
     } else {
-      mp->shift_mode = (mp->type != 'o' && mp->type != 'e' && mp->type != 'k' && mp->type != 'm' && mp->type != 'M' && mp->type != 'p' && mp->type != 'R' && mp->type != 'v');
+      mp->shift_mode = (type != 'o' && type != 'e' && type != 'k' && type != 'm' && type != 'M' && type != 'p' && type != 'R' && type != 'v');
     }
     if (mp->sbsiz) {
-      mp->sbuff = (uint8_t*)malloc(mp->sbsiz);
+      mp->sbuff = (uint8_t*)calloc(mp->sbsiz, 1);
     }
   }
   sml_globs.ready = true;
