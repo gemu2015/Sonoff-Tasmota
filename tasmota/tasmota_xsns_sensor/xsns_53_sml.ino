@@ -2743,6 +2743,9 @@ next_line:
       mp->shift_mode = (type != 'o' && type != 'e' && type != 'k' && type != 'm' && type != 'M' && type != 'p' && type != 'R' && type != 'v');
     }
   }
+
+	sml_globs.meter_vars[3] = 220101000000.0;
+
   sml_globs.ready = true;
 }
 
@@ -2874,7 +2877,7 @@ uint32_t sml_getv(uint32_t sel) {
   return sel;
 }
 
-float SML_GetVal(uint32_t index) {
+double SML_GetVal(uint32_t index) {
   if (sml_globs.ready == false) return 0;
   if (index < 1 || index > sml_globs.maxvars) { index = 1;}
   return sml_globs.meter_vars[index - 1];

@@ -4309,8 +4309,18 @@ extern char *SML_GetSVal(uint32_t index);
           SCRIPT_SKIP_SPACES
           lp++;
           len = 0;
-          if (sp) strlcpy(sp, SML_GetSVal(fvar), glob_script_mem.max_ssize);
-          goto strexit;;
+          if (fvar > 0) {
+            if (sp) strlcpy(sp, SML_GetSVal(fvar), glob_script_mem.max_ssize);
+          } else {
+            char sbuff[SCRIPT_MAXSSIZE];
+            fvar = fabs(fvar);
+            if (fvar < 1) {
+              fvar = 1;
+            }
+            dtostrfd(SML_GetVal(fvar), glob_script_mem.script_dprec, sbuff);
+            if (sp) strlcpy(sp, sbuff, glob_script_mem.max_ssize);
+          }
+          goto strexit;
         }
         if (!strncmp(lp, "sml(", 4)) {
           float fvar1;
