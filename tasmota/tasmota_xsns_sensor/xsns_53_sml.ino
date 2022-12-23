@@ -46,219 +46,17 @@
 #define SPECIAL_SS
 #endif
 
-#ifndef TMSBSIZ
-#define TMSBSIZ 256
-#endif
-
-//#define MODBUS_DEBUG
-
-typedef union {
-  uint8_t data;
-  struct {
-    uint8_t trxenpol : 1;  // string or number
-    uint8_t trxen : 1;
-    uint8_t trxenpin : 6;
-  };
-} TRX_EN_TYPE;
-
-
-#define SO_DWS74_BUG 1
-#define SO_OBIS_LINE 2
-
-#define METER_ID_SIZE 24
-
-struct METER_DESC {
-  int8_t srcpin;
-  uint8_t type;
-  uint16_t flag;
-  int32_t params;
-  char prefix[8];
-  int8_t trxpin;
-  uint8_t tsecs;
-  char *txmem;
-  uint8_t index;
-  uint8_t max_index;
-  char *script_str;
-  uint8_t sopt;
-  TRX_EN_TYPE trx_en;
-  bool shift_mode;
-  uint16_t sbsiz;
-  uint8_t *sbuff;
-  uint16_t spos;
-  uint16_t sibsiz;
-  uint8_t so_flags;
-  char meter_id[METER_ID_SIZE];
-#ifdef USE_SML_SPECOPT
-  uint32_t so_obis1;
-  uint32_t so_obis2;
-  uint8_t so_fcode1;
-  uint8_t so_bpos1;
-  uint8_t so_fcode2;
-  uint8_t so_bpos2;
-#endif
-#ifdef ESP32
-#ifndef USE_ESP32_SW_SERIAL
-  HardwareSerial *meter_ss;
-#else
-  SML_ESP32_SERIAL *meter_ss;
-#endif
-#endif  // ESP32
-// software serial pointers
-#ifdef ESP8266
-  TasmotaSerial *meter_ss;
-#endif  // ESP8266
-};
-
-
-
 // max number of meters , may be adjusted
 #ifndef MAX_METERS
 #define MAX_METERS 5
 #endif
 
-struct METER_DESC  script_meter_desc[MAX_METERS];
-uint8_t *script_meter;
 
-// this driver uses double because some meter vars would not fit in float
-//=====================================================
-
-// median filter eliminates outliers, but uses much RAM and CPU cycles
-// 672 bytes extra RAM with SML_MAX_VARS = 16
-// default compile on, but must be enabled by descriptor flag 16
-// may be undefined if RAM must be saved
-
-#ifndef SML_NO_MEDIAN_FILTER
-#define USE_SML_MEDIAN_FILTER
-#endif
-
-struct METER_DESC *meter_desc_p;
-
-
-// serial buffers, may be made larger depending on telegram lenght
-#ifndef SML_BSIZ
-#define SML_BSIZ 48
-#endif
-
-#define VBUS_SYNC		0xaa
-#define SML_SYNC		0x77
-#define EBUS_SYNC		0xaa
-#define EBUS_ESC    0xa9
-
-
-// calulate deltas
-#define MAX_DVARS MAX_METERS*2
-
-#ifndef SML_DUMP_SIZE
-#define SML_DUMP_SIZE 128
-#endif
-
-// median filter, should be odd size
-#define MEDIAN_SIZE 5
-struct SML_MEDIAN_FILTER {
-double buffer[MEDIAN_SIZE];
-int8_t index;
-};
-
-
-struct SML_GLOBS {
-  uint8_t sml_send_blocks;
-  uint8_t sml_100ms_cnt;
-  uint8_t sml_desc_cnt;
-  uint8_t meters_used;
-  uint8_t maxvars;
-  uint8_t *meter_p;
-  double *meter_vars;
-  uint8_t *dvalid;
-  double dvalues[MAX_DVARS];
-  uint32_t dtimes[MAX_DVARS];
-  char sml_start;
-  uint8_t dump2log = 0;
-  uint8_t ser_act_LED_pin = 255;
-  uint8_t ser_act_meter_num = 0;
-  uint16_t sml_logindex;
-  char log_data[SML_DUMP_SIZE];
-#if defined(ED300L) || defined(AS2020) || defined(DTZ541) || defined(USE_SML_SPECOPT)
-  uint8_t sml_status[MAX_METERS];
-  uint8_t g_mindex;
-#endif
-#ifdef USE_SML_MEDIAN_FILTER
-  struct SML_MEDIAN_FILTER *sml_mf;
-#endif
-  bool ready;
-} sml_globs;
-
-
-#define SML_OPTIONS_JSON_ENABLE 1
-uint8_t sml_options = SML_OPTIONS_JSON_ENABLE;
-
-#ifdef USE_SML_MEDIAN_FILTER
-
-#ifndef FLT_MAX
-#define FLT_MAX 99999999
-#endif
-
-double sml_median_array(double *array, uint8_t len) {
-      uint8_t ind[len];
-      uint8_t mind = 0, index = 0, flg;
-      double min = FLT_MAX;
-
-      for (uint8_t hcnt = 0; hcnt < len / 2 + 1; hcnt++) {
-          for (uint8_t mcnt = 0; mcnt < len; mcnt++) {
-              flg = 0;
-              for (uint8_t icnt = 0; icnt < index; icnt++) {
-                  if (ind[icnt] == mcnt) {
-                      flg = 1;
-                  }
-              }
-              if (!flg) {
-                  if (array[mcnt] < min) {
-                      min = array[mcnt];
-                      mind = mcnt;
-                  }
-              }
-          }
-          ind[index] = mind;
-          index++;
-          min = FLT_MAX;
-      }
-      return array[ind[len / 2]];
-  }
-
-
-// calc median
-double sml_median(struct SML_MEDIAN_FILTER* mf, double in) {
-  //double tbuff[MEDIAN_SIZE],tmp;
-  //uint8_t flag;
-  mf->buffer[mf->index] = in;
-  mf->index++;
-  if (mf->index >= MEDIAN_SIZE) mf->index = 0;
-
-  return sml_median_array(mf->buffer, MEDIAN_SIZE);
-/*
-  // sort list and take median
-  memmove(tbuff,mf->buffer,sizeof(tbuff));
-  for (byte ocnt=0; ocnt<MEDIAN_SIZE; ocnt++) {
-    flag=0;
-    for (byte count=0; count<MEDIAN_SIZE-1; count++) {
-      if (tbuff[count]>tbuff[count+1]) {
-        tmp=tbuff[count];
-        tbuff[count]=tbuff[count+1];
-        tbuff[count+1]=tmp;
-        flag=1;
-      }
-    }
-    if (!flag) break;
-  }
-  return tbuff[MEDIAN_SIZE/2];
-  */
-}
-#endif
-
+//#define MODBUS_DEBUG
 
 // ESP32 software serial read only
 #ifdef ESP32
 #ifdef USE_ESP32_SW_SERIAL
-
 #ifndef ESP32_SWS_BUFFER_SIZE
 #define ESP32_SWS_BUFFER_SIZE 256
 #endif
@@ -473,6 +271,208 @@ void IRAM_ATTR SML_ESP32_SERIAL::rxRead(void) {
 }
 #endif // USE_ESP32_SW_SERIAL
 #endif // ESP32
+
+
+typedef union {
+  uint8_t data;
+  struct {
+    uint8_t trxenpol : 1;  // string or number
+    uint8_t trxen : 1;
+    uint8_t trxenpin : 6;
+  };
+} TRX_EN_TYPE;
+
+#ifndef TMSBSIZ
+#define TMSBSIZ 256
+#endif
+
+#define SO_DWS74_BUG 1
+#define SO_OBIS_LINE 2
+
+#define METER_ID_SIZE 24
+
+struct METER_DESC {
+  int8_t srcpin;
+  uint8_t type;
+  uint16_t flag;
+  int32_t params;
+  char prefix[8];
+  int8_t trxpin;
+  uint8_t tsecs;
+  char *txmem;
+  uint8_t index;
+  uint8_t max_index;
+  char *script_str;
+  uint8_t sopt;
+  TRX_EN_TYPE trx_en;
+  bool shift_mode;
+  uint16_t sbsiz;
+  uint8_t *sbuff;
+  uint16_t spos;
+  uint16_t sibsiz;
+  uint8_t so_flags;
+  char meter_id[METER_ID_SIZE];
+#ifdef USE_SML_SPECOPT
+  uint32_t so_obis1;
+  uint32_t so_obis2;
+  uint8_t so_fcode1;
+  uint8_t so_bpos1;
+  uint8_t so_fcode2;
+  uint8_t so_bpos2;
+#endif
+#ifdef ESP32
+#ifndef USE_ESP32_SW_SERIAL
+  HardwareSerial *meter_ss;
+#else
+  SML_ESP32_SERIAL *meter_ss;
+#endif
+#endif  // ESP32
+// software serial pointers
+#ifdef ESP8266
+  TasmotaSerial *meter_ss;
+#endif  // ESP8266
+};
+
+
+struct METER_DESC  script_meter_desc[MAX_METERS];
+uint8_t *script_meter;
+
+// this driver uses double because some meter vars would not fit in float
+//=====================================================
+
+// median filter eliminates outliers, but uses much RAM and CPU cycles
+// 672 bytes extra RAM with SML_MAX_VARS = 16
+// default compile on, but must be enabled by descriptor flag 16
+// may be undefined if RAM must be saved
+
+#ifndef SML_NO_MEDIAN_FILTER
+#define USE_SML_MEDIAN_FILTER
+#endif
+
+struct METER_DESC *meter_desc_p;
+
+
+// serial buffers, may be made larger depending on telegram lenght
+#ifndef SML_BSIZ
+#define SML_BSIZ 48
+#endif
+
+#define VBUS_SYNC		0xaa
+#define SML_SYNC		0x77
+#define EBUS_SYNC		0xaa
+#define EBUS_ESC    0xa9
+
+
+// calulate deltas
+#define MAX_DVARS MAX_METERS*2
+
+#ifndef SML_DUMP_SIZE
+#define SML_DUMP_SIZE 128
+#endif
+
+// median filter, should be odd size
+#define MEDIAN_SIZE 5
+struct SML_MEDIAN_FILTER {
+double buffer[MEDIAN_SIZE];
+int8_t index;
+};
+
+
+struct SML_GLOBS {
+  uint8_t sml_send_blocks;
+  uint8_t sml_100ms_cnt;
+  uint8_t sml_desc_cnt;
+  uint8_t meters_used;
+  uint8_t maxvars;
+  uint8_t *meter_p;
+  double *meter_vars;
+  uint8_t *dvalid;
+  double dvalues[MAX_DVARS];
+  uint32_t dtimes[MAX_DVARS];
+  char sml_start;
+  uint8_t dump2log = 0;
+  uint8_t ser_act_LED_pin = 255;
+  uint8_t ser_act_meter_num = 0;
+  uint16_t sml_logindex;
+  char log_data[SML_DUMP_SIZE];
+#if defined(ED300L) || defined(AS2020) || defined(DTZ541) || defined(USE_SML_SPECOPT)
+  uint8_t sml_status[MAX_METERS];
+  uint8_t g_mindex;
+#endif
+#ifdef USE_SML_MEDIAN_FILTER
+  struct SML_MEDIAN_FILTER *sml_mf;
+#endif
+  bool ready;
+} sml_globs;
+
+
+#define SML_OPTIONS_JSON_ENABLE 1
+uint8_t sml_options = SML_OPTIONS_JSON_ENABLE;
+
+#ifdef USE_SML_MEDIAN_FILTER
+
+#ifndef FLT_MAX
+#define FLT_MAX 99999999
+#endif
+
+double sml_median_array(double *array, uint8_t len) {
+      uint8_t ind[len];
+      uint8_t mind = 0, index = 0, flg;
+      double min = FLT_MAX;
+
+      for (uint8_t hcnt = 0; hcnt < len / 2 + 1; hcnt++) {
+          for (uint8_t mcnt = 0; mcnt < len; mcnt++) {
+              flg = 0;
+              for (uint8_t icnt = 0; icnt < index; icnt++) {
+                  if (ind[icnt] == mcnt) {
+                      flg = 1;
+                  }
+              }
+              if (!flg) {
+                  if (array[mcnt] < min) {
+                      min = array[mcnt];
+                      mind = mcnt;
+                  }
+              }
+          }
+          ind[index] = mind;
+          index++;
+          min = FLT_MAX;
+      }
+      return array[ind[len / 2]];
+  }
+
+
+// calc median
+double sml_median(struct SML_MEDIAN_FILTER* mf, double in) {
+  //double tbuff[MEDIAN_SIZE],tmp;
+  //uint8_t flag;
+  mf->buffer[mf->index] = in;
+  mf->index++;
+  if (mf->index >= MEDIAN_SIZE) mf->index = 0;
+
+  return sml_median_array(mf->buffer, MEDIAN_SIZE);
+/*
+  // sort list and take median
+  memmove(tbuff,mf->buffer,sizeof(tbuff));
+  for (byte ocnt=0; ocnt<MEDIAN_SIZE; ocnt++) {
+    flag=0;
+    for (byte count=0; count<MEDIAN_SIZE-1; count++) {
+      if (tbuff[count]>tbuff[count+1]) {
+        tmp=tbuff[count];
+        tbuff[count]=tbuff[count+1];
+        tbuff[count+1]=tmp;
+        flag=1;
+      }
+    }
+    if (!flag) break;
+  }
+  return tbuff[MEDIAN_SIZE/2];
+  */
+}
+#endif
+
+
 
 
 #define SML_SAVAILABLE Serial_available()
@@ -1239,6 +1239,10 @@ void SML_Decode(uint8_t index) {
   uint8_t *cp;
   uint8_t dindex = 0, vindex = 0;
   delay(0);
+
+  if (!sml_globs.ready) {
+    return;
+  }
 
   while (mp != NULL) {
     // check list of defines
@@ -2279,6 +2283,7 @@ void SML_Init(void) {
   uint16_t index = 0;
   uint8_t section = 0;
   int8_t srcpin = 0;
+  uint32_t mlen;
 
   sml_globs.sml_send_blocks = 0;
   lp = glob_script_mem.section_ptr;
@@ -2287,7 +2292,7 @@ void SML_Init(void) {
         if (*lp == '>' && *(lp + 1) == 'M') {
           lp += 2;
           section = 1;
-          uint32_t mlen = SML_getscriptsize(lp);
+          mlen = SML_getscriptsize(lp);
           if (mlen == 0) return; // missing end #
           script_meter = (uint8_t*)calloc(mlen, 1);
           if (!script_meter) {
@@ -2319,8 +2324,7 @@ void SML_Init(void) {
 dddef_exit:
             if (script_meter) free(script_meter);
             script_meter = 0;
-            sml_globs.meters_used = MAX_METERS;
-            goto init10;
+            return;
           }
           script_meter_desc[index].srcpin = srcpin;
           if (*lp != ',') goto next_line;
@@ -2451,7 +2455,7 @@ dddef_exit:
         }
 #ifdef SML_REPLACE_VARS
         char dstbuf[SML_SRCBSIZE*2];
-        Replace_Cmd_Vars(lp, 1, dstbuf,sizeof(dstbuf));
+        Replace_Cmd_Vars(lp, 1, dstbuf, sizeof(dstbuf));
         lp += SML_getlinelen(lp);
         //AddLog(LOG_LEVEL_INFO, PSTR("%s"),dstbuf);
         char *lp1 = dstbuf;
@@ -2566,11 +2570,17 @@ next_line:
       }
     }
     *tp = 0;
-    meter_desc_p = script_meter_desc;
     sml_globs.meter_p = script_meter;
 
+    // set serial buffers
+  for (uint32_t meters = 0; meters < sml_globs.meters_used; meters++ ) {
+    struct METER_DESC *mp = &script_meter_desc[meters];
+    if (mp->sbsiz) {
+      mp->sbuff = (uint8_t*)calloc(mp->sbsiz, 1);
+    }
+  }
 
-init10:
+  // initialize hardware
   typedef void (*function)();
   uint8_t cindex = 0;
   // preloud counters
@@ -2611,16 +2621,19 @@ init10:
         }
     } else {
       // serial input, init
+#ifdef ESP8266
 #ifdef SPECIAL_SS
-        if (meter_desc_p[meters].type=='m' || meter_desc_p[meters].type=='M' || meter_desc_p[meters].type=='k' || meter_desc_p[meters].type=='p' || meter_desc_p[meters].type=='R' || meter_desc_p[meters].type=='v') {
+        char type = meter_desc_p[meters].type;
+        if (type=='m' || type=='M' || type=='k' || type=='p' || type=='R' || type=='v') {
           script_meter_desc[meters].meter_ss = new TasmotaSerial(meter_desc_p[meters].srcpin,meter_desc_p[meters].trxpin, 1, 0, script_meter_desc[meters].sibsiz);
         } else {
           script_meter_desc[meters].meter_ss = new TasmotaSerial(meter_desc_p[meters].srcpin,meter_desc_p[meters].trxpin, 1, 1, script_meter_desc[meters].sibsiz);
         }
 #else
-#ifdef ESP8266
         script_meter_desc[meters].meter_ss = new TasmotaSerial(meter_desc_p[meters].srcpin,meter_desc_p[meters].trxpin, 1, 0, script_meter_desc[meters].sibsiz);
-#endif  // ESP8266
+#endif  // SPECIAL_SS
+#endif // ESP8266
+
 #ifdef ESP32
         // use hardware serial
 #ifdef USE_ESP32_SW_SERIAL
@@ -2640,7 +2653,6 @@ init10:
 #endif // USE_ESP32_SW_SERIAL
 
 #endif  // ESP32
-#endif // SPECIAL_SS
 
         SerialConfig smode = SERIAL_8N1;
 
@@ -2703,7 +2715,10 @@ init10:
     return;
   }
 
-  AddLog(LOG_LEVEL_DEBUG, PSTR("meters: %d , decode lines: %d"), sml_globs.meters_used, sml_globs.maxvars);
+  uint16_t memory = mlen + sml_globs.maxvars * (sizeof(double) +  sizeof(uint8_t) + sizeof(struct SML_MEDIAN_FILTER));
+
+  AddLog(LOG_LEVEL_INFO, PSTR("meters: %d , decode lines: %d, memory used: %d bytes"), sml_globs.meters_used, sml_globs.maxvars, memory);
+
 
 // speed optimize shift flag
   for (uint32_t meters = 0; meters < sml_globs.meters_used; meters++ ) {
@@ -2714,9 +2729,6 @@ init10:
       mp->shift_mode = (type != 'e' && type != 'k' && type != 'm' && type != 'M' && type != 'p' && type != 'R' && type != 'v');
     } else {
       mp->shift_mode = (type != 'o' && type != 'e' && type != 'k' && type != 'm' && type != 'M' && type != 'p' && type != 'R' && type != 'v');
-    }
-    if (mp->sbsiz) {
-      mp->sbuff = (uint8_t*)calloc(mp->sbsiz, 1);
     }
   }
   sml_globs.ready = true;
@@ -2858,7 +2870,7 @@ float SML_GetVal(uint32_t index) {
 
 char *SML_GetSVal(uint32_t index) {
   if (sml_globs.ready == false) return 0;
-  if (index < 1 || index > MAX_METERS) { index = 1;}
+  if (index < 1 || index > sml_globs.meters_used) { index = 1;}
   return (char*)script_meter_desc[index - 1].meter_id;
 }
 
