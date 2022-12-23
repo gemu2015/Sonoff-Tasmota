@@ -2744,8 +2744,6 @@ next_line:
     }
   }
 
-	sml_globs.meter_vars[3] = 220101000000.0;
-
   sml_globs.ready = true;
 }
 
