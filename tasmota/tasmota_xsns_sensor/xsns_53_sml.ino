@@ -107,6 +107,7 @@ SML_ESP32_SERIAL::SML_ESP32_SERIAL(uint32_t index) {
 SML_ESP32_SERIAL::~SML_ESP32_SERIAL(void) {
   if (hws) {
     hws->end();
+		delete(hws);
   } else {
     detachInterrupt(m_rx_pin);
     if (m_buffer) {
@@ -2652,7 +2653,6 @@ next_line:
           if (uart_index == 0) { ClaimSerial(); }
           uart_index--;
           if (uart_index < 0) uart_index = 0;
-          script_meter_desc[meters].meter_ss->setRxBufferSize(script_meter_desc[meters].sibsiz);
         }
 #else
         script_meter_desc[meters].meter_ss = new HardwareSerial(uart_index);
@@ -2708,7 +2708,9 @@ next_line:
 
 #ifdef ESP32
         script_meter_desc[meters].meter_ss->begin(meter_desc_p[meters].params, smode, meter_desc_p[meters].srcpin, meter_desc_p[meters].trxpin);
-        //script_meter_desc.meter_ss[meters]->setRxBufferSize(script_meter_desc[meters].sibsiz);
+#ifdef USE_ESP32_SW_SERIAL
+				script_meter_desc[meters].meter_ss->setRxBufferSize(script_meter_desc[meters].sibsiz);
+#endif
 #endif  // ESP32
     }
   }
