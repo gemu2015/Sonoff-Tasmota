@@ -135,7 +135,7 @@ bool SML_ESP32_SERIAL::begin(uint32_t speed, uint32_t smode, int32_t recpin, int
     serial_buffer_size = ESP32_SWS_BUFFER_SIZE;
     m_buffer = (uint8_t*)malloc(serial_buffer_size);
     if (m_buffer == NULL) return false;
-    pinMode(m_rx_pin, INPUT);
+    pinMode(m_rx_pin, INPUT_PULLUP);
     attachInterruptArg(m_rx_pin, sml_callRxRead, this, CHANGE);
     m_in_pos = m_out_pos = 0;
     hws = nullptr;
@@ -174,7 +174,7 @@ int32_t SML_ESP32_SERIAL::read(void) {
   } else {
     if (m_in_pos == m_out_pos) return -1;
     uint32_t ch = m_buffer[m_out_pos];
-    m_out_pos = (m_out_pos +1) % serial_buffer_size;
+    m_out_pos = (m_out_pos + 1) % serial_buffer_size;
     return ch;
   }
 }
@@ -2224,6 +2224,7 @@ void reset_sml_vars(uint16_t maxmeters) {
 #endif
     if (script_meter_desc[meters].txmem) {
       free(script_meter_desc[meters].txmem);
+      script_meter_desc[meters].txmem = 0;
     }
     script_meter_desc[meters].txmem = 0;
     script_meter_desc[meters].trxpin = -1;
@@ -2256,10 +2257,19 @@ void SML_Init(void) {
   if (script_meter) {
     // restart condition
     free(script_meter);
-    free(sml_globs.meter_vars);
-    free(sml_globs.dvalid);
+    if (sml_globs.meter_vars) {
+      free(sml_globs.meter_vars);
+      sml_globs.meter_vars = 0;
+    }
+    if (sml_globs.dvalid) {
+      free(sml_globs.dvalid);
+      sml_globs.dvalid = 0;
+    }
 #ifdef USE_SML_MEDIAN_FILTER
-    free(sml_globs.sml_mf);
+    if (sml_globs.sml_mf) {
+      free(sml_globs.sml_mf);
+      sml_globs.sml_mf = 0;
+    }
 #endif
     reset_sml_vars(sml_globs.meters_used);
   }
@@ -2584,7 +2594,7 @@ next_line:
   typedef void (*function)();
   uint8_t cindex = 0;
   // preloud counters
-  for (byte i = 0; i < MAX_COUNTERS; i++) {
+  for (uint8_t i = 0; i < MAX_COUNTERS; i++) {
       RtcSettings.pulse_counter[i] = Settings->pulse_counter[i];
       sml_counters[i].sml_cnt_last_ts = millis();
   }
