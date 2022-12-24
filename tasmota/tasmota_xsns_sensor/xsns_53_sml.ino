@@ -27,12 +27,6 @@
 
 // this driver depends on use USE_SCRIPT !!!
 
-// default baudrate of D0 output
-#define SML_BAUDRATE 9600
-
-// send this every N seconds (for meters that only send data on demand)
-// not longer supported, use scripting instead
-//#define SML_SEND_SEQ
 
 // debug counter input to led for counter1 and 2
 //#define DEBUG_CNT_LED1 2
@@ -51,19 +45,29 @@
 #define MAX_METERS 5
 #endif
 
+
+/* additional defines
+	USE_ESP32_SW_SERIAL
+	default off, uses a special combo driver that allows more then 3 serial ports on ESP32.
+	define rec pins as negativ to use software serial
+*/
+
 // if you have to save more RAM you may disable these options by defines in user_config_override
 
 #ifndef NO_SML_REPLACE_VARS
+// allows to replace values in decoder section with script string variables
 #undef SML_REPLACE_VARS
 #define SML_REPLACE_VARS
 #endif
 
 #ifndef NO_USE_SML_SPECOPT
+// allows to define special option 1 for meters that use a direction bit
 #undef USE_SML_SPECOPT
 #define USE_SML_SPECOPT
 #endif
 
 #ifndef NO_USE_SML_SCRIPT_CMD
+// allows several sml cmds from scripts, as well as access to sml registers
 #undef USE_SML_SCRIPT_CMD
 #define USE_SML_SCRIPT_CMD
 #endif
@@ -78,6 +82,29 @@
 #define USE_SML_MEDIAN_FILTER
 #endif
 
+/* special options per meter
+1:
+special binary SML option for meters that use a bit in the status register to sign import or export like ED300L, AS2020 or DTZ541
+a. obis code that holds the direction bit,
+b. Flag identifier,
+c. direction bit,
+d. second Flag identifier (some meters use 2 different flags),
+e. second bit,
+f. obis code of value to be inverted on direction bit.
+e.g. 1,=so1,00010800,65,11,65,11,00100700 for DTZ541
+
+2:
+flags, currently only bit 0
+if 1 use asci obis line compare instead a pattern compare
+e.g. 1,=so2,1  set obis line mode on meter 1
+
+3:
+serial buffers
+a. serial buffer size
+b. serial irq buffer size
+e.g. 1,=so3,256,256  set serial buffers on meter 1
+
+*/
 
 //#define MODBUS_DEBUG
 
