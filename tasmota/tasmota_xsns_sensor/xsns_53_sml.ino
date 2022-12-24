@@ -51,16 +51,42 @@
 #define MAX_METERS 5
 #endif
 
+// if you have to save more RAM you may disable these options by defines in user_config_override
+
+#ifndef NO_SML_REPLACE_VARS
+#undef SML_REPLACE_VARS
+#define SML_REPLACE_VARS
+#endif
+
+#ifndef NO_USE_SML_SPECOPT
+#undef USE_SML_SPECOPT
+#define USE_SML_SPECOPT
+#endif
+
+#ifndef NO_USE_SML_SCRIPT_CMD
+#undef USE_SML_SCRIPT_CMD
+#define USE_SML_SCRIPT_CMD
+#endif
+
+// median filter eliminates outliers, but uses much RAM and CPU cycles
+// 672 bytes extra RAM with SML_MAX_VARS = 16
+// default compile on, but must be enabled by descriptor flag 16
+// may be undefined if RAM must be saved
+
+#ifndef NO_USE_SML_MEDIAN_FILTER
+#undef USE_SML_MEDIAN_FILTER
+#define USE_SML_MEDIAN_FILTER
+#endif
+
 
 //#define MODBUS_DEBUG
 
-// ESP32 software serial read only
+// ESP32 combined hardware and software serial driver, software read only
 #ifdef ESP32
 #ifdef USE_ESP32_SW_SERIAL
 #ifndef ESP32_SWS_BUFFER_SIZE
 #define ESP32_SWS_BUFFER_SIZE 256
 #endif
-
 
 class SML_ESP32_SERIAL : public Stream {
 public:
@@ -341,14 +367,7 @@ uint8_t *script_meter;
 // this driver uses double because some meter vars would not fit in float
 //=====================================================
 
-// median filter eliminates outliers, but uses much RAM and CPU cycles
-// 672 bytes extra RAM with SML_MAX_VARS = 16
-// default compile on, but must be enabled by descriptor flag 16
-// may be undefined if RAM must be saved
 
-#ifndef SML_NO_MEDIAN_FILTER
-#define USE_SML_MEDIAN_FILTER
-#endif
 
 struct METER_DESC *meter_desc_p;
 
@@ -2295,6 +2314,7 @@ void SML_Init(void) {
   uint8_t section = 0;
   int8_t srcpin = 0;
   uint32_t mlen;
+	uint16_t memory = 0;
 
   sml_globs.sml_send_blocks = 0;
   lp = glob_script_mem.section_ptr;
@@ -2306,6 +2326,7 @@ void SML_Init(void) {
           mlen = SML_getscriptsize(lp);
           if (mlen == 0) return; // missing end #
           script_meter = (uint8_t*)calloc(mlen, 1);
+					memory += mlen;
           if (!script_meter) {
             goto dddef_exit;
           }
@@ -2440,6 +2461,7 @@ dddef_exit:
               }
               if (txlen) {
                 script_meter_desc[index].txmem = (char*)calloc(txlen + 2, 1);
+								memory += txlen + 2;
                 if (script_meter_desc[index].txmem) {
                   // now copy send blocks
                   char *txp = lp;
@@ -2588,6 +2610,7 @@ next_line:
     struct METER_DESC *mp = &script_meter_desc[meters];
     if (mp->sbsiz) {
       mp->sbuff = (uint8_t*)calloc(mp->sbsiz, 1);
+			memory += mp->sbsiz;
     }
   }
 
@@ -2727,7 +2750,7 @@ next_line:
     return;
   }
 
-  uint16_t memory = mlen + sml_globs.maxvars * (sizeof(double) +  sizeof(uint8_t) + sizeof(struct SML_MEDIAN_FILTER));
+  memory += sizeof(sml_globs) + sizeof(script_meter_desc) + sml_globs.maxvars * (sizeof(double) +  sizeof(uint8_t) + sizeof(struct SML_MEDIAN_FILTER));
 
   AddLog(LOG_LEVEL_INFO, PSTR("meters: %d , decode lines: %d, memory used: %d bytes"), sml_globs.meters_used, sml_globs.maxvars, memory);
 
