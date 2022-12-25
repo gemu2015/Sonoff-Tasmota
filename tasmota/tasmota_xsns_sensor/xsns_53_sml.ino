@@ -2293,6 +2293,18 @@ char *SpecOptions(char *cp, uint32_t mnum) {
 	return cp;
 }
 
+#ifdef USE_SML_CRYPT
+int32_t decrypt(uint8_t *data, uint32_t dlen, uint8_t *iv_bytes, uint8_t iv_length, uint8_t *key) {
+	br_gcm_context * gcm_ctx;
+	br_aes_small_ctr_keys * ctr_ctx;
+	br_gcm_init(gcm_ctx, &ctr_ctx->vtable, &br_ghash_ctmul32);
+  br_gcm_reset(gcm_ctx, iv_bytes, iv_length);
+  br_gcm_flip(gcm_ctx);
+	br_gcm_run(gcm_ctx, 0, data, dlen);
+	return 0;
+}
+#endif
+
 void reset_sml_vars(uint16_t maxmeters) {
 
   for (uint32_t meters = 0; meters < maxmeters; meters++) {
