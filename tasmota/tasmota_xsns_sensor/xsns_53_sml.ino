@@ -345,7 +345,7 @@ typedef union {
 
 #define METER_ID_SIZE 24
 
-#define USE_SML_CRYPT
+//#define USE_SML_CRYPT
 
 #define SML_CRYPT_SIZE 16
 
@@ -2573,12 +2573,18 @@ dddef_exit:
           if (*lp == SCRIPT_EOL) lp--;
           goto next_line;
         }
+				char *lp1;
 #ifdef SML_REPLACE_VARS
         char dstbuf[SML_SRCBSIZE*2];
         Replace_Cmd_Vars(lp, 1, dstbuf, sizeof(dstbuf));
         lp += SML_getlinelen(lp);
+				lp1 = dstbuf;
+#else
+				lp1 = lp;
+				lp += SML_getlinelen(lp);
+#endif // SML_REPLACE_VARS
+
         //AddLog(LOG_LEVEL_INFO, PSTR("%s"),dstbuf);
-        char *lp1 = dstbuf;
         if (*lp1 == '-' || isdigit(*lp1)) {
           //toLogEOL(">>",lp);
           // add meters line -1,1-0:1.8.0*255(@10000,H2OIN,cbm,COUNTER,4|
@@ -2607,38 +2613,6 @@ dddef_exit:
             if (index >= METER_DEF_SIZE) break;
           }
         }
-#else
-
-        if (*lp == '-' || isdigit(*lp)) {
-          //toLogEOL(">>",lp);
-          // add meters line -1,1-0:1.8.0*255(@10000,H2OIN,cbm,COUNTER,4|
-          if (*lp == '-') lp++;
-          uint8_t mnum = strtol(lp,0,10);
-          if (mnum < 1 || mnum > sml_globs.meters_used) {
-            AddLog(LOG_LEVEL_INFO, PSTR("illegal meter number!"));
-            goto next_line;
-          }
-          if (!strncmp(lp + 1, ",=h", 3) || !strncmp(lp + 1, ",=so", 4)) {
-            if (!strncmp(lp + 1, ",=so", 4)) {
-              // special option
-							SpecOptions(lp + 5, mnum - 1);
-						}
-          } else {
-            sml_globs.maxvars++;
-          }
-          while (1) {
-            if (*lp == SCRIPT_EOL) {
-              if (*(tp-1) != '|') *tp++ = '|';
-              goto next_line;
-            }
-            *tp++ = *lp++;
-            index++;
-            if (index >= METER_DEF_SIZE) break;
-          }
-
-        }
-#endif // SML_REPLACE_VARS
-
       }
 
 next_line:
