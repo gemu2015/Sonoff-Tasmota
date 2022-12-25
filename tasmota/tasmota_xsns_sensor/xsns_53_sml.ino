@@ -409,6 +409,7 @@ struct METER_DESC  meter_desc[MAX_METERS];
 
 #define VBUS_SYNC		0xaa
 #define SML_SYNC		0x77
+#define SML_CRYPT_SYNC 0x7e
 #define EBUS_SYNC		0xaa
 #define EBUS_ESC    0xa9
 
@@ -444,7 +445,7 @@ struct SML_GLOBS {
   uint8_t ser_act_LED_pin = 255;
   uint8_t ser_act_meter_num = 0;
   uint16_t sml_logindex;
-  char log_data[SML_DUMP_SIZE];
+  char *log_data;
 #if defined(ED300L) || defined(AS2020) || defined(DTZ541) || defined(USE_SML_SPECOPT)
   uint8_t sml_status[MAX_METERS];
   uint8_t g_mindex;
@@ -560,9 +561,12 @@ void dump2log(void) {
   int16_t index = 0, hcnt = 0;
   uint32_t d_lastms;
   uint8_t dchars[16];
-  uint8_t type = sml_globs.mp[(sml_globs.dump2log & 7) - 1].type;
+	uint8_t meter = (sml_globs.dump2log & 7) - 1;
+  uint8_t type = sml_globs.mp[meter].type;
 
   //if (!SML_SAVAILABLE) return;
+	if (!sml_globs.log_data) return;
+
 
   if (sml_globs.dump2log & 8) {
     // combo mode
@@ -667,9 +671,15 @@ void dump2log(void) {
     } else if (type == 's') {
       // sml
       uint8_t c;
+			uint8_t sml_sync = SML_SYNC;
+#ifdef USE_SML_CRYPT
+			if (sml_globs.mp[meter].use_crypt == true) {
+				sml_sync = SML_CRYPT_SYNC;
+			}
+#endif
       while (SML_SAVAILABLE) {
         c = SML_SREAD;
-        if (c == SML_SYNC) {
+        if (c == sml_sync) {
           sml_globs.log_data[sml_globs.sml_logindex] = 0;
           AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
           sml_globs.log_data[0] = ':';
@@ -690,7 +700,11 @@ void dump2log(void) {
       while ((millis() - d_lastms) < 40) {
         while (SML_SAVAILABLE) {
           sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x ", SML_SREAD);
-          sml_globs.sml_logindex += 3;
+					if (sml_globs.sml_logindex < sizeof(sml_globs.log_data) - 7) {
+	          sml_globs.sml_logindex += 3;
+	        } else {
+						break;
+					}
         }
       }
       if (sml_globs.sml_logindex > 2) {
@@ -2225,7 +2239,30 @@ char *SpecOptions(char *cp, uint32_t mnum) {
 		case '1':
 			cp++;
 #ifdef USE_SML_SPECOPT
-			SML_GetSpecOpt(cp, mnum - 1);
+			if (*cp == ',') {
+		    cp++;
+		    meter_desc[mnum].so_obis1 = strtol(cp, &cp, 16);
+		  }
+		  if (*cp == ',') {
+		    cp++;
+		    meter_desc[mnum].so_fcode1 = strtol(cp, &cp, 16);
+		  }
+		  if (*cp == ',') {
+		    cp++;
+		    meter_desc[mnum].so_bpos1 = strtol(cp, &cp, 10);
+		  }
+		  if (*cp == ',') {
+		    cp++;
+		    meter_desc[mnum].so_fcode2 = strtol(cp, &cp, 16);
+		  }
+		  if (*cp == ',') {
+		    cp++;
+		    meter_desc[mnum].so_bpos2 = strtol(cp, &cp, 10);
+		  }
+		  if (*cp == ',') {
+		    cp++;
+		    meter_desc[mnum].so_obis2 = strtol(cp, &cp, 16);
+		  }
 #endif
 			break;
  		case '2':
@@ -2255,40 +2292,6 @@ char *SpecOptions(char *cp, uint32_t mnum) {
 	}
 	return cp;
 }
-
-#ifdef USE_SML_SPECOPT
-void SML_GetSpecOpt(char *cp, uint32_t mnum) {
-// special option 1
-// we need 2 obis codes
-// 2 flag codes + bit positions
-// 1,=so1,00010800,63,7,64,11,00100700
-
-  if (*cp == ',') {
-    cp++;
-    meter_desc[mnum].so_obis1 = strtol(cp, &cp, 16);
-  }
-  if (*cp == ',') {
-    cp++;
-    meter_desc[mnum].so_fcode1 = strtol(cp, &cp, 16);
-  }
-  if (*cp == ',') {
-    cp++;
-    meter_desc[mnum].so_bpos1 = strtol(cp, &cp, 10);
-  }
-  if (*cp == ',') {
-    cp++;
-    meter_desc[mnum].so_fcode2 = strtol(cp, &cp, 16);
-  }
-  if (*cp == ',') {
-    cp++;
-    meter_desc[mnum].so_bpos2 = strtol(cp, &cp, 10);
-  }
-  if (*cp == ',') {
-    cp++;
-    meter_desc[mnum].so_obis2 = strtol(cp, &cp, 16);
-  }
-}
-#endif
 
 void reset_sml_vars(uint16_t maxmeters) {
 
@@ -3309,6 +3312,12 @@ bool XSNS_53_cmd(void) {
         if (index > 0 && sml_globs.mp[(index & 7) - 1].type == 'c') {
           index = 0;
         }
+				if (sml_globs.log_data) {
+					free(sml_globs.log_data);
+				}
+				if (index > 0) {
+					sml_globs.log_data = (char*)calloc(SML_DUMP_SIZE, sizeof(char));
+				}
         sml_globs.dump2log = index;
         ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"dump: %d\"}}"), sml_globs.dump2log);
       } else if (*cp == 'c') {
