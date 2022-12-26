@@ -345,7 +345,7 @@ typedef union {
 
 #define METER_ID_SIZE 24
 
-//#define USE_SML_CRYPT
+#define USE_SML_DECRYPT
 
 #define SML_CRYPT_SIZE 16
 
@@ -389,7 +389,7 @@ struct METER_DESC {
 #ifdef ESP8266
   TasmotaSerial *meter_ss;
 #endif  // ESP8266
-#ifdef USE_SML_CRYPT
+#ifdef USE_SML_DECRYPT
 	bool use_crypt;
 	uint8_t key[SML_CRYPT_SIZE];
 #endif
@@ -409,7 +409,8 @@ struct METER_DESC  meter_desc[MAX_METERS];
 
 #define VBUS_SYNC		0xaa
 #define SML_SYNC		0x77
-#define SML_CRYPT_SYNC 0x7e
+#define SML_CRYPT_SYNC1 0x7e
+#define SML_CRYPT_SYNC2 0xa0
 #define EBUS_SYNC		0xaa
 #define EBUS_ESC    0xa9
 
@@ -446,6 +447,10 @@ struct SML_GLOBS {
   uint8_t ser_act_meter_num = 0;
   uint16_t sml_logindex;
   char *log_data;
+#ifdef USE_SML_DECRYPT
+	uint8_t *log_buffer;
+	uint16_t log_index;
+#endif
 #if defined(ED300L) || defined(AS2020) || defined(DTZ541) || defined(USE_SML_SPECOPT)
   uint8_t sml_status[MAX_METERS];
   uint8_t g_mindex;
@@ -556,6 +561,7 @@ uint8_t Serial_peek() {
 
 
 #define SML_EBUS_SKIP_SYNC_DUMPS
+uint8_t *hdlc_decode(uint8_t *data, uint32_t dlen, uint8_t *key, uint16_t *size);
 
 void dump2log(void) {
   int16_t index = 0, hcnt = 0;
@@ -566,7 +572,9 @@ void dump2log(void) {
 
   //if (!SML_SAVAILABLE) return;
 	if (!sml_globs.log_data) return;
-
+#ifdef USE_SML_DECRYPT
+	if (!sml_globs.log_buffer) return;
+#endif
 
   if (sml_globs.dump2log & 8) {
     // combo mode
@@ -626,7 +634,7 @@ void dump2log(void) {
           continue;
         }
         sml_globs.log_data[sml_globs.sml_logindex] = c;
-        if (sml_globs.sml_logindex < sizeof(sml_globs.log_data) - 2) {
+        if (sml_globs.sml_logindex < SML_DUMP_SIZE - 2) {
           sml_globs.sml_logindex++;
         }
       }
@@ -643,7 +651,7 @@ void dump2log(void) {
           sml_globs.sml_logindex = 2;
         }
         sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x ", c);
-        if (sml_globs.sml_logindex < sizeof(sml_globs.log_data) - 7) {
+        if (sml_globs.sml_logindex < SML_DUMP_SIZE - 7) {
           sml_globs.sml_logindex += 3;
         }
       }
@@ -664,7 +672,7 @@ void dump2log(void) {
           continue;
         }
         sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x ", c);
-        if (sml_globs.sml_logindex < sizeof(sml_globs.log_data) - 7) {
+        if (sml_globs.sml_logindex < SML_DUMP_SIZE - 7) {
           sml_globs.sml_logindex += 3;
         }
       }
@@ -672,9 +680,9 @@ void dump2log(void) {
       // sml
       uint8_t c;
 			uint8_t sml_sync = SML_SYNC;
-#ifdef USE_SML_CRYPT
+#ifdef USE_SML_DECRYPT
 			if (sml_globs.mp[meter].use_crypt == true) {
-				sml_sync = SML_CRYPT_SYNC;
+				sml_sync = SML_CRYPT_SYNC1;
 			}
 #endif
       while (SML_SAVAILABLE) {
@@ -682,12 +690,40 @@ void dump2log(void) {
         if (c == sml_sync) {
           sml_globs.log_data[sml_globs.sml_logindex] = 0;
           AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
+#ifdef USE_SML_DECRYPT
+					if (sml_globs.log_buffer[0] == SML_CRYPT_SYNC1 && sml_globs.log_data[1] == SML_CRYPT_SYNC2) {
+						// we have a frame, decode it
+						uint16_t logsiz;
+						uint8_t *db = hdlc_decode(sml_globs.log_buffer,  sml_globs.log_index, meter_desc[meter].key, &logsiz);
+						uint16_t index = 0;
+						while (logsiz) {
+							sml_globs.log_data[0] = ':';
+		          sml_globs.log_data[1] = ' ';
+							sml_globs.sml_logindex = 2;
+							for (uint16_t cnt = 0; cnt < 16; cnt++) {
+								sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x ", sml_globs.log_buffer[index++]);
+								logsiz--;
+								if (!logsiz) {
+									break;
+								}
+							}
+							AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
+						}
+						sml_globs.log_index = 0;
+					}
+#endif
           sml_globs.log_data[0] = ':';
           sml_globs.log_data[1] = ' ';
           sml_globs.sml_logindex = 2;
         }
+#ifdef USE_SML_DECRYPT
+				sml_globs.log_buffer[sml_globs.log_index++] = c;
+				if (sml_globs.log_index >= SML_DUMP_SIZE) {
+					sml_globs.log_index = 0;
+				}
+#endif
         sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x ", c);
-        if (sml_globs.sml_logindex < sizeof(sml_globs.log_data) - 7) {
+        if (sml_globs.sml_logindex < SML_DUMP_SIZE - 7) {
           sml_globs.sml_logindex += 3;
         }
       }
@@ -700,7 +736,7 @@ void dump2log(void) {
       while ((millis() - d_lastms) < 40) {
         while (SML_SAVAILABLE) {
           sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x ", SML_SREAD);
-					if (sml_globs.sml_logindex < sizeof(sml_globs.log_data) - 7) {
+					if (sml_globs.sml_logindex < SML_DUMP_SIZE - 7) {
 	          sml_globs.sml_logindex += 3;
 	        } else {
 						break;
@@ -2282,7 +2318,7 @@ char *SpecOptions(char *cp, uint32_t mnum) {
 			break;
 		case '4':
 			cp += 2;
-#ifdef USE_SML_CRYPT
+#ifdef USE_SML_DECRYPT
 			meter_desc[mnum - 1].use_crypt = true;
 			for (uint8_t cnt = 0; cnt < (SML_CRYPT_SIZE * 2); cnt += 2) {
 				meter_desc[mnum].key[cnt / 2] = (sml_hexnibble(cp[cnt]) << 4) | sml_hexnibble(cp[cnt + 1]);
@@ -2293,15 +2329,73 @@ char *SpecOptions(char *cp, uint32_t mnum) {
 	return cp;
 }
 
-#ifdef USE_SML_CRYPT
-int32_t decrypt(uint8_t *data, uint32_t dlen, uint8_t *iv_bytes, uint8_t iv_length, uint8_t *key) {
-	br_gcm_context * gcm_ctx;
-	br_aes_small_ctr_keys * ctr_ctx;
-	br_gcm_init(gcm_ctx, &ctr_ctx->vtable, &br_ghash_ctmul32);
-  br_gcm_reset(gcm_ctx, iv_bytes, iv_length);
-  br_gcm_flip(gcm_ctx);
-	br_gcm_run(gcm_ctx, 0, data, dlen);
-	return 0;
+#ifdef USE_SML_DECRYPT
+
+//// calculate crc16 CCITT
+uint16_t hdlc_crc16(const uint8_t *dp, uint8_t len) {
+#define POLY 0x8408
+	uint8_t i;
+  uint16_t data;
+  uint16_t crc = 0xffff;
+
+  if (len == 0) {
+  	return (~crc);
+	}
+  do {
+		data = (unsigned int)0xff & *dp++;
+    for (i = 0; i < 8; i++) {
+    	if ((crc & 0x0001) ^ (data & 0x0001)) {
+        crc = (crc >> 1) ^ POLY;
+      } else {
+				crc >>= 1;
+			}
+			data >>= 1;
+		}
+  } while (--len);
+
+  crc = ~crc;
+  data = crc;
+  crc = (crc << 8) | (data >> 8 & 0xff);
+	return crc;
+}
+
+void hdlctest() {
+		uint8_t data[105] = {0x7e,0xa0,0x67,0xcf,0x02,0x23,0x13,0xfb,0xf1,0xe6,0xe7,0x00,0xdb,0x08,0x49,0x53,0x4b,0x68,0x74,0x99,0xf5,0x08,0x4f,0x20,0x00,0x1e,0x65,0xb9,0xda,0x54,0xeb,0xa6,0xb5,0xbf,0x51,0x2a,0x7a,0xa5,0x1d,0x85,0x5a,0x7c,0xc9,0x16,0x24,0xde,0x22,0xb3,0x39,0x08,0x9f,0xcb,0x2e,0xe8,0xbc,0xab,0x83,0xb8,0xba,0xcb,0x2b,0x10,0x15,0x6e,0x7a,0x13,0x62,0x18,0x50,0x2e,0x14,0xd9,0xbc,0xcb,0x5f,0x91,0x0d,0xa0,0x65,0x8a,0xdc,0x08,0x3e,0x81,0xae,0x42,0xfa,0x1e,0x51,0xa1,0xf8,0xed,0x3d,0xd3,0xe1,0x6f,0xbc,0x3d,0xcc,0x8a,0xae,0xf7,0x75,0x9e,0x7e};
+		uint16_t dlen = 105;
+		AddLog(LOG_LEVEL_INFO, PSTR("start hdlc"));
+		uint8_t key[16] = {0x69, 0xC3, 0xB0, 0x89, 0xDC, 0x1E, 0xE1, 0x9E, 0x59, 0x81, 0x44, 0x40, 0x85, 0x44, 0x71, 0x23};
+		uint16_t size;
+	 	hdlc_decode( data,  dlen, key, &size);
+}
+
+uint8_t *hdlc_decode(uint8_t *data, uint32_t dlen, uint8_t *key, uint16_t *size) {
+	uint16_t crc = hdlc_crc16(data + 1, dlen - 4);
+	uint16_t dcrc = data[dlen - 3] << 8 | data[dlen - 2];
+	if (crc != dcrc) {
+		return 0;
+	}
+
+	// crc OK
+	uint8_t ivec[12];
+  uint8_t index = 0;
+  for (uint8_t cnt = 14; cnt < 14+8; cnt++) {
+  	ivec[index] = data[cnt];
+    index++;
+  }
+  for (uint8_t cnt = 24; cnt < 24+4; cnt++) {
+    ivec[index] = data[cnt];
+    index++;
+  }
+
+	br_gcm_context gcm_ctx;
+	br_aes_small_ctr_keys ctr_ctx;
+	br_aes_small_ctr_init(&ctr_ctx, key, 16);
+	br_gcm_init(&gcm_ctx, &ctr_ctx.vtable, &br_ghash_ctmul32);
+  br_gcm_reset(&gcm_ctx, ivec, 12);
+  br_gcm_flip(&gcm_ctx);
+	br_gcm_run(&gcm_ctx, 0, data + 28 , dlen - 31);
+	*size = dlen - 31;
+	return data + 28;
 }
 #endif
 
@@ -3298,11 +3392,20 @@ bool XSNS_53_cmd(void) {
         if (index > 0 && sml_globs.mp[(index & 7) - 1].type == 'c') {
           index = 0;
         }
+#ifdef USE_SML_DECRYPT
+				if (sml_globs.log_buffer) {
+					free(sml_globs.log_buffer);
+				}
+#endif
 				if (sml_globs.log_data) {
 					free(sml_globs.log_data);
 				}
+
 				if (index > 0) {
 					sml_globs.log_data = (char*)calloc(SML_DUMP_SIZE, sizeof(char));
+#ifdef USE_SML_DECRYPT
+					sml_globs.log_buffer = (uint8_t*)calloc(SML_DUMP_SIZE, sizeof(char));
+#endif
 				}
         sml_globs.dump2log = index;
         ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"dump: %d\"}}"), sml_globs.dump2log);

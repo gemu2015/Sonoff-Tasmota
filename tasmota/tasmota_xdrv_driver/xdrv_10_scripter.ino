@@ -2645,6 +2645,12 @@ chknext:
         }
 #endif //USE_SCRIPT_TASK
 #endif //ESP32
+
+        if (!strncmp(lp, "crypt", 5)) {
+          hdlctest();
+          goto nfuncexit;
+        }
+
 #ifdef USE_ANGLE_FUNC
         if (!strncmp(lp, "cos(", 4)) {
           lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
