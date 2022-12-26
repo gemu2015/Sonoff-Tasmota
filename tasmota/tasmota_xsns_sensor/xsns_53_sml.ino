@@ -688,10 +688,9 @@ void dump2log(void) {
       while (SML_SAVAILABLE) {
         c = SML_SREAD;
         if (c == sml_sync) {
-          sml_globs.log_data[sml_globs.sml_logindex] = 0;
-          AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
 #ifdef USE_SML_DECRYPT
-					if (sml_globs.log_buffer[0] == SML_CRYPT_SYNC1 && sml_globs.log_data[1] == SML_CRYPT_SYNC2) {
+					if (sml_globs.mp[meter].use_crypt == true && sml_globs.log_buffer[0] == SML_CRYPT_SYNC1 && sml_globs.log_data[1] == SML_CRYPT_SYNC2) {
+						AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
 						// we have a frame, decode it
 						uint16_t logsiz;
 						uint8_t *db = hdlc_decode(sml_globs.log_buffer,  sml_globs.log_index, meter_desc[meter].key, &logsiz);
@@ -710,6 +709,12 @@ void dump2log(void) {
 							AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
 						}
 						sml_globs.log_index = 0;
+						sml_globs.log_buffer[1] = 0;
+					} else {
+						sml_globs.log_data[0] = c;
+						sml_globs.log_index = 1;
+						sml_globs.log_data[sml_globs.sml_logindex] = 0;
+	          AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
 					}
 #endif
           sml_globs.log_data[0] = ':';
@@ -1119,6 +1124,11 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
 
   if (!mp->sbuff) return;
 
+#ifdef USE_SML_DECRYPT
+	if (sml_globs.mp[meters].use_crypt) {
+		mp->shift_mode = 0;
+	}
+#endif
   if (mp->shift_mode) {
     // shift in
     for (count = 0; count < mp->sbsiz - 1; count++) {
@@ -1147,7 +1157,26 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
       break;
     case 's':
       // binary obis = sml
+#ifdef USE_SML_DECRYPT
+			if (sml_globs.mp[meters].use_crypt) {
+				if (iob == SML_CRYPT_SYNC1) {
+					// decode frame
+					if (mp->sbuff[0] == SML_CRYPT_SYNC1 && mp->sbuff[1] == SML_CRYPT_SYNC2) {
+						uint16_t logsiz;
+						uint8_t *db = hdlc_decode(mp->sbuff,  mp->spos, meter_desc[meters].key, &logsiz);
+						memmove(mp->sbuff, db, logsiz);
+						SML_Decode(meters);
+						mp->spos = 0;
+					} else {
+
+					}
+				}
+			} else {
+				mp->sbuff[mp->sbsiz - 1] = iob;
+			}
+#else
       mp->sbuff[mp->sbsiz - 1] = iob;
+#endif
       break;
     case 'r':
       // raw with shift
