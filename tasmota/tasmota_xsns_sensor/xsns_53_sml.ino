@@ -571,7 +571,8 @@ void dump2log(void) {
 	if (!sml_globs.log_data) return;
 
 #ifdef USE_SML_DECRYPT
-	if (sml_globs.mp[meter].use_crypt == true) {
+	struct METER_DESC *mp = &meter_desc[meter];
+	if (mp->use_crypt == true) {
 			d_lastms = millis();
       sml_globs.log_data[0] = ':';
       sml_globs.log_data[1] = ' ';
@@ -582,30 +583,29 @@ void dump2log(void) {
           sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x ", iob);
 					if (sml_globs.sml_logindex < SML_DUMP_SIZE - 7) {
 	          sml_globs.sml_logindex += 3;
-	        } else {
-						break;
-					}
+	        }
 					// fill raw serial buffer
-					sml_globs.mp[meter].sbuff[sml_globs.mp[meter].spos] = iob;
-					sml_globs.mp[meter].spos++;
-					if (sml_globs.mp[meter].spos >= sml_globs.mp[meter].sbsiz) {
-						sml_globs.mp[meter].spos = sml_globs.mp[meter].sbsiz - 1;
+					mp->sbuff[mp->spos] = iob;
+					mp->spos++;
+					if (mp->spos >= mp->sbsiz) {
+						mp->spos = mp->sbsiz - 1;
 					}
-					if (iob == SML_CRYPT_SYNC2 && sml_globs.mp[meter].last_iob == SML_CRYPT_SYNC1) {
+					if (iob == SML_CRYPT_SYNC2 && mp->last_iob == SML_CRYPT_SYNC1) {
 						// frame start
-						sml_globs.mp[meter].spos = 2;
-						sml_globs.mp[meter].sbuff[0] = SML_CRYPT_SYNC1;
-						sml_globs.mp[meter].sbuff[1] = SML_CRYPT_SYNC2;
+						mp->spos = 2;
+						mp->sbuff[0] = SML_CRYPT_SYNC1;
+						mp->sbuff[1] = SML_CRYPT_SYNC2;
 					}
-					sml_globs.mp[meter].last_iob = iob;
+					mp->last_iob = iob;
 					uint16_t logsiz;
-					uint8_t *fbuff = hdlc_decode(sml_globs.mp[meter].sbuff,  sml_globs.mp[meter].spos, meter_desc[meter].key, &logsiz);
+					uint8_t *fbuff = hdlc_decode(mp->sbuff,  mp->spos, meter_desc[meter].key, &logsiz);
 					if (fbuff) {
 						// we decoded a valid frame
+						AddLog(LOG_LEVEL_INFO, PSTR(">> decrypted block: %d bytes"), logsiz);
 						uint16_t index = 0;
 						while (logsiz) {
 							sml_globs.log_data[0] = ':';
-		          sml_globs.log_data[1] = ' ';
+		          sml_globs.log_data[1] = '>';
 							sml_globs.sml_logindex = 2;
 							for (uint16_t cnt = 0; cnt < 16; cnt++) {
 								sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x ", fbuff[index++]);
@@ -1158,6 +1158,7 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
 		if (db) {
 			// we decoded a valid frame
 			memmove(mp->sbuff, db, logsiz);
+			AddLog(LOG_LEVEL_INFO, PSTR(">> decrypted block: %d bytes"), logsiz);
 			SML_Decode(meters);
 		}
 		return;
@@ -2364,7 +2365,7 @@ char *SpecOptions(char *cp, uint32_t mnum) {
 		case '4':
 			cp += 2;
 #ifdef USE_SML_DECRYPT
-			meter_desc[mnum - 1].use_crypt = true;
+			meter_desc[mnum].use_crypt = true;
 			for (uint8_t cnt = 0; cnt < (SML_CRYPT_SIZE * 2); cnt += 2) {
 				meter_desc[mnum].key[cnt / 2] = (sml_hexnibble(cp[cnt]) << 4) | sml_hexnibble(cp[cnt + 1]);
 			}
