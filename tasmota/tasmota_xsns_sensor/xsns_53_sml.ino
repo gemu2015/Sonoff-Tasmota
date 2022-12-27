@@ -72,6 +72,11 @@
 #define USE_SML_SCRIPT_CMD
 #endif
 
+#ifndef NO_USE_SML_DECRYPT
+// allows 256 bit AES decryption
+#define USE_SML_DECRYPT
+#endif
+
 // median filter eliminates outliers, but uses much RAM and CPU cycles
 // 672 bytes extra RAM with SML_MAX_VARS = 16
 // default compile on, but must be enabled by descriptor flag 16
@@ -103,6 +108,10 @@ serial buffers
 a. serial buffer size
 b. serial irq buffer size
 e.g. 1,=so3,256,256  set serial buffers on meter 1
+
+4:
+decrytion key, 16 bytes hex btw 32 chars without spaces or commas
+defining key switches decryption mode on
 
 */
 
