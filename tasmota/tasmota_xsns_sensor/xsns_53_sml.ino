@@ -99,8 +99,9 @@ f. obis code of value to be inverted on direction bit.
 e.g. 1,=so1,00010800,65,11,65,11,00100700 for DTZ541
 
 2:
-flags, currently only bit 0
-if 1 use asci obis line compare instead a pattern compare
+flags, currently only bit 0 and 1
+if 1 fix DWS74 bug
+if 2 use asci obis line compare instead a pattern compare
 e.g. 1,=so2,1  set obis line mode on meter 1
 
 3:
