@@ -6083,7 +6083,8 @@ int16_t retval;
 
 #define SCRIPT_LOOP_NEST 3
 int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
-    uint8_t vtype = 0, sindex, xflg, globvindex, fromscriptcmd = 0;
+    uint8_t vtype = 0, sindex, xflg, fromscriptcmd = 0;
+    int16_t globvindex;
     // 22 bytes per nested loop
     uint8_t floop[SCRIPT_LOOP_NEST] = {0, 0, 0};
     int8_t loopdepth = -1;
@@ -6701,6 +6702,7 @@ getnext:
                         dfvar = &sysvar;
                         if (ind.bits.settable) {
                           sysv_type = ind.index;
+                          globvindex = -1;
                         } else {
                           sysv_type = 0;
                         }
@@ -6778,33 +6780,36 @@ getnext:
                               break;
                       }
                       // var was changed
-                      SetChanged(globvindex);
+                      if (globvindex >= 0) SetChanged(globvindex);
 #ifdef USE_SCRIPT_GLOBVARS
-                      if (glob_script_mem.type[globvindex].bits.global) {
-                        script_udp_sendvar(varname, dfvar, 0);
+                      if (globvindex >= 0 ) {
+                        if (glob_script_mem.type[globvindex].bits.global) {
+                          script_udp_sendvar(varname, dfvar, 0);
+                        }
                       }
 #endif //USE_SCRIPT_GLOBVARS
-                      if (glob_script_mem.type[globvindex].bits.is_filter) {
-                        if (globaindex >= 0) {
-                          Set_MFVal(glob_script_mem.type[globvindex].index, globaindex, *dfvar);
-                        } else {
-                          if (glob_script_mem.arres == 2) {
-                            // fetch var preset
-                            lp++;
-                            while (*lp && *lp != SCRIPT_EOL) {
-                              if (*lp == '}') {
-                                lp++;
-                                break;
+                      if (globvindex >= 0) {
+                        if (glob_script_mem.type[globvindex].bits.is_filter) {
+                          if (globaindex >= 0) {
+                            Set_MFVal(glob_script_mem.type[globvindex].index, globaindex, *dfvar);
+                          } else {
+                            if (glob_script_mem.arres == 2) {
+                              // fetch var preset
+                              lp++;
+                              while (*lp && *lp != SCRIPT_EOL) {
+                                if (*lp == '}') {
+                                  lp++;
+                                  break;
+                                }
+                                lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
+                                Set_MFilter(glob_script_mem.type[globvindex].index, fvar);
                               }
-                              lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
-                              Set_MFilter(glob_script_mem.type[globvindex].index, fvar);
-                            }
-                          }  else {
+                            }  else {
                               Set_MFilter(glob_script_mem.type[globvindex].index, *dfvar);
+                            }
                           }
                         }
                       }
-
                       if (sysv_type) {
                         switch (sysv_type) {
                           case SCRIPT_LOGLEVEL:
@@ -6864,10 +6869,12 @@ getnext:
 #endif
                     if (!glob_script_mem.var_not_found) {
                       // var was changed
-                      SetChanged(globvindex);
+                      if (globvindex >= 0) SetChanged(globvindex);
 #ifdef USE_SCRIPT_GLOBVARS
-                      if (glob_script_mem.type[globvindex].bits.global) {
-                        script_udp_sendvar(varname, 0, str);
+                      if (globvindex >= 0) {
+                        if (glob_script_mem.type[globvindex].bits.global) {
+                          script_udp_sendvar(varname, 0, str);
+                        }
                       }
 #endif //USE_SCRIPT_GLOBVARS
                       if (saindex >= 0) {
