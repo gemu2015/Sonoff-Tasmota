@@ -52,6 +52,14 @@ keywords if then else endif, or, and are better readable for beginners (others m
 #endif
 #define MAXNVARS MAXVARS-MAXSVARS
 
+#ifdef USE_SML_M
+#ifndef NO_USE_SML_SCRIPT_CMD
+// allows several sml cmds from scripts, as well as access to sml registers
+#undef USE_SML_SCRIPT_CMD
+#define USE_SML_SCRIPT_CMD
+#endif
+#endif // USE_SML_M
+
 #ifndef MAXFILT
 #define MAXFILT 5
 #endif
