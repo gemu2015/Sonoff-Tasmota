@@ -1838,6 +1838,7 @@ void DisplayLocalSensor(void)
 
 void DisplayInitDriver(void)
 {
+
   XdspCall(FUNC_DISPLAY_INIT_DRIVER);
 
 //  AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_DEBUG "Display model %d"), Settings->display_model);
@@ -1924,10 +1925,14 @@ void CmndDisplayModel(void) {
   if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload < DISPLAY_MAX_DRIVERS)) {
     uint32_t last_display_model = Settings->display_model;
     Settings->display_model = XdrvMailbox.payload;
-    if (XdspCall(FUNC_DISPLAY_MODEL)) {
-      TasmotaGlobal.restart_flag = 2;  // Restart to re-init interface and add/Remove MQTT subscribe
+    if (Settings->display_model == 0) {
+      TasmotaGlobal.restart_flag = 2;
     } else {
-      Settings->display_model = last_display_model;
+      if (XdspCall(FUNC_DISPLAY_MODEL)) {
+        TasmotaGlobal.restart_flag = 2;  // Restart to re-init interface and add/Remove MQTT subscribe
+      } else {
+        Settings->display_model = last_display_model;
+      }
     }
   }
   ResponseCmndNumber(Settings->display_model);
