@@ -2564,6 +2564,37 @@ chknext:
           }
           goto nfuncexit;
         }
+        if (!strncmp(lp, "ap(", 3)) {
+          //TasmotaGlobal.restart_flag = 216;
+          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
+          switch ((uint8_t)fvar) {
+            case 0:
+              { char ssid[SCRIPT_MAXSSIZE];
+              lp = GetStringArgument(lp, OPER_EQU, ssid, 0);
+              char pw[SCRIPT_MAXSSIZE];
+              lp = GetStringArgument(lp, OPER_EQU, pw, 0);
+              IPAddress local_IP(192,168,189,1);
+              IPAddress gateway(192,168,189,1);
+              IPAddress subnet(255,255,255,0);
+              // Begin Access Point
+              WiFi.softAPConfig(local_IP, gateway, subnet);
+              fvar = WiFi.softAP(ssid, pw);
+              }
+              break;
+            case 1:
+              fvar = WiFi.softAPdisconnect(true);
+              break;
+            case 2:
+              fvar = WiFi.disconnect(true);
+              break;
+          }
+
+          //Web.state = HTTP_ADMIN;
+          // 192.168.4.1
+          // WiFi.softAPIP();
+
+          goto nfuncexit;
+        }
         break;
 
       case 'b':
@@ -10737,7 +10768,7 @@ void cpy2lf(char *dst, uint32_t dstlen, char *src) {
 #ifdef USE_SCRIPT_I2C
 uint8_t script_i2c_addr;
 TwoWire *script_i2c_wire;
-uint32_t script_i2c(uint8_t sel, uint32_t val, uint32_t val1) {
+uint32_t script_i2c(uint8_t sel, uint16_t val, uint32_t val1) {
   uint32_t rval = 0;
   uint8_t bytes = 1;
 
@@ -10755,9 +10786,11 @@ uint32_t script_i2c(uint8_t sel, uint32_t val, uint32_t val1) {
       break;
     case 2:
       // read 1..4 bytes
-      script_i2c_wire->beginTransmission(script_i2c_addr);
-      script_i2c_wire->write(val);
-      script_i2c_wire->endTransmission();
+      if (val != 0xffff) {
+        script_i2c_wire->beginTransmission(script_i2c_addr);
+        script_i2c_wire->write(val);
+        script_i2c_wire->endTransmission();
+      }
       script_i2c_wire->requestFrom((int)script_i2c_addr, (int)val1);
 
       for (uint8_t cnt = 0; cnt < val1; cnt++) {
@@ -10773,7 +10806,9 @@ uint32_t script_i2c(uint8_t sel, uint32_t val, uint32_t val1) {
       // write 1 .. 4 bytes
       bytes = sel - 9;
       script_i2c_wire->beginTransmission(script_i2c_addr);
-      script_i2c_wire->write(val);
+      if (val != 0xffff) {
+        script_i2c_wire->write(val);
+      }
       for (uint8_t cnt = 0; cnt < bytes; cnt++) {
         script_i2c_wire->write(val1);
         val1 >>= 8;
