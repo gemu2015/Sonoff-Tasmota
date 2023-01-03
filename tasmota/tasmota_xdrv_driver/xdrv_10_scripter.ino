@@ -10815,7 +10815,7 @@ uint32_t script_i2c(uint8_t sel, uint16_t val, uint32_t val1) {
           val1 >>= 8;
         }
       } else {
-        uint32_t wval = 0
+        uint32_t wval = 0;
         for (uint8_t cnt = 0; cnt < bytes; cnt++) {
           wval = val1 >> ((bytes - 1 - cnt) * 8);
           script_i2c_wire->write(wval);
