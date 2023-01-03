@@ -10321,6 +10321,25 @@ void ScriptJsonAppend(void) {
 }
 #endif //USE_SCRIPT_JSON_EXPORT
 
+// returns section as string
+String ScriptLoadSection(const char *sect) {
+  uint16_t slen = strlen(sect);
+  if (Run_Scripter1(sect, -slen, 0) == 99) {
+    char *spo = glob_script_mem.section_ptr + slen;
+    char *sp = spo;
+    while (*sp) {
+      if (*sp == '#') {
+        *sp = 0;
+        String str = spo;
+        *sp = '#';
+        return str;
+      }
+      sp++;
+    }
+  }
+  return "";
+}
+
 
 bool RulesProcessEvent(const char *json_event) {
   if (bitRead(Settings->rule_enabled, 0)) {
