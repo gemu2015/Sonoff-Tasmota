@@ -10786,7 +10786,7 @@ uint32_t script_i2c(uint8_t sel, uint16_t val, uint32_t val1) {
       break;
     case 2:
       // read 1..4 bytes
-      if (val != 0xffff) {
+      if ((val & 0x8000) == 0) {
         script_i2c_wire->beginTransmission(script_i2c_addr);
         script_i2c_wire->write(val);
         script_i2c_wire->endTransmission();
@@ -10806,12 +10806,20 @@ uint32_t script_i2c(uint8_t sel, uint16_t val, uint32_t val1) {
       // write 1 .. 4 bytes
       bytes = sel - 9;
       script_i2c_wire->beginTransmission(script_i2c_addr);
-      if (val != 0xffff) {
+      if ((val & 0x8000) == 0) {
         script_i2c_wire->write(val);
       }
-      for (uint8_t cnt = 0; cnt < bytes; cnt++) {
-        script_i2c_wire->write(val1);
-        val1 >>= 8;
+      if ((val & 0x4000) == 0) {
+        for (uint8_t cnt = 0; cnt < bytes; cnt++) {
+          script_i2c_wire->write(val1);
+          val1 >>= 8;
+        }
+      } else {
+        uint32_t wval = 0
+        for (uint8_t cnt = 0; cnt < bytes; cnt++) {
+          wval = val1 >> ((bytes - 1 - cnt) * 8);
+          script_i2c_wire->write(wval);
+        }
       }
       script_i2c_wire->endTransmission();
       break;
