@@ -214,16 +214,21 @@ extern "C" {
       if (Settings->flag4.network_wifi) {
         int32_t rssi = WiFi.RSSI();
         bool show_rssi = false;
-#if LWIP_IPV6
-        String ipv6_addr = WifiGetIPv6();
+#ifdef USE_IPV6
+        String ipv6_addr = WifiGetIPv6Str();
         if (ipv6_addr != "") {
           be_map_insert_str(vm, "ip6", ipv6_addr.c_str());
           show_rssi = true;
         }
-#endif
+        ipv6_addr = WifiGetIPv6LinkLocalStr();
+        if (ipv6_addr != "") {
+          be_map_insert_str(vm, "ip6local", ipv6_addr.c_str());
+          show_rssi = true;
+        }
+#endif // USE_IPV6
         if (static_cast<uint32_t>(WiFi.localIP()) != 0) {
           be_map_insert_str(vm, "mac", WiFi.macAddress().c_str());
-          be_map_insert_str(vm, "ip", WiFi.localIP().toString().c_str());
+          be_map_insert_str(vm, "ip", IPAddress((uint32_t)WiFi.localIP()).toString().c_str());   // quick fix for IPAddress bug
           show_rssi = true;
         }
         if (show_rssi) {
@@ -247,13 +252,31 @@ extern "C" {
 #ifdef USE_ETHERNET
       if (static_cast<uint32_t>(EthernetLocalIP()) != 0) {
         be_map_insert_str(vm, "mac", EthernetMacAddress().c_str());
-        be_map_insert_str(vm, "ip", EthernetLocalIP().toString().c_str());
+        be_map_insert_str(vm, "ip", IPAddress((uint32_t)EthernetLocalIP()).toString().c_str());   // quick fix for IPAddress bug
       }
-#endif
+#ifdef USE_IPV6
+      String ipv6_addr = EthernetGetIPv6Str();
+      if (ipv6_addr != "") {
+        be_map_insert_str(vm, "ip6", ipv6_addr.c_str());
+      }
+      ipv6_addr = EthernetGetIPv6LinkLocalStr();
+      if (ipv6_addr != "") {
+        be_map_insert_str(vm, "ip6local", ipv6_addr.c_str());
+      }
+#endif // USE_IPV6
+#endif // USE_ETHERNET
       be_pop(vm, 1);
       be_return(vm);
     }
     be_raise(vm, kTypeError, nullptr);
+  }
+
+  // Berry: tasmota.hostname() -> string
+  //
+  int32_t l_hostname(struct bvm *vm);
+  int32_t l_hostname(struct bvm *vm) {
+    be_pushstring(vm, NetworkHostname());
+    be_return(vm);
   }
 
   static void l_push_time(bvm *vm, struct tm *t, const char *unparsed) {

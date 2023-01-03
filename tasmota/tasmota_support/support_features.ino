@@ -855,11 +855,18 @@ void ResponseAppendFeatures(void)
 #if defined(USE_I2C) && defined(USE_HMC5883L)
     feature9 |= 0x00000200;  // xsns_101_hmc5883l.ino
 #endif
-//    feature9 |= 0x00000400;
-//    feature9 |= 0x00000800;
-
-//    feature9 |= 0x00001000;
-//    feature9 |= 0x00002000;
+#ifdef USE_LD2410
+    feature9 |= 0x00000400;  // xsns_102_ld2410.ino
+#endif
+#ifdef USE_ME007
+    feature9 |= 0x00000800;  // xsns_23_me007.ino
+#endif
+#if defined(USE_I2C) && defined(USE_DISPLAY) && defined(USE_DISPLAY_TM1650)
+    feature9 |= 0x00001000;  // xdsp_20_tm1650.ino
+#endif
+#if defined(USE_I2C) && defined(USE_PCA9632)
+    feature9 |= 0x00002000;
+#endif
 //    feature9 |= 0x00004000;
 //    feature9 |= 0x00008000;
 

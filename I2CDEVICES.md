@@ -9,8 +9,8 @@ The following table lists the supported I2C devices
 Index | Define              | Driver   | Device   | Address(es) | Description
 ------|---------------------|----------|----------|-------------|-----------------------------------------------
    1  | USE_PCA9685         | xdrv_15  | PCA9685  | 0x40 - 0x47 | 16-channel 12-bit pwm driver
-   2  | USE_PCF8574         | xdrv_28  | PCF8574  | 0x20 - 0x26 | 8-bit I/O expander
-   2  | USE_PCF8574         | xdrv_28  | PCF8574A | 0x39 - 0x3F | 8-bit I/O expander
+   2  | USE_PCF8574         | xdrv_28  | PCF8574  | 0x20 - 0x26 | 8-bit I/O expander (address range overridable)
+   2  | USE_PCF8574         | xdrv_28  | PCF8574A | 0x39 - 0x3F | 8-bit I/O expander (address range overridable)
    3  | USE_DISPLAY_LCD     | xdsp_01  |          | 0x27, 0x3F  | LCD display
    4  | USE_DISPLAY_SSD1306 | xdsp_02  | SSD1306  | 0x3C - 0x3D | Oled display
    5  | USE_DISPLAY_MATRIX  | xdsp_03  | HT16K33  | 0x70 - 0x77 | 8x8 led matrix
@@ -108,3 +108,5 @@ Index | Define              | Driver   | Device   | Address(es) | Description
   71  | USE_QMC5883L        | xsns_33  | QMC5883L | 0x0D        | Magnetic Field Sensor
   72  | USE_INA3221         | xsns_100 | INA3221  | 0x40-0x43   | 3-channels Voltage and Current sensor
   73  | USE_HMC5883L        | xsns_101 | HMC5883L | 0x1E        | 3-channels Magnetic Field Sensor
+  74  | USE_DISPLAY_TM1650  | xdsp_20  | TM1650   | 0x24 - 0x27, 0x34 - 0x37 | Four-digit seven-segment LED controller
+  75  | USE_PCA9632         | xdrv_64  | PCA9632  | 0x60        | 4-channel 4-bit pwm driver

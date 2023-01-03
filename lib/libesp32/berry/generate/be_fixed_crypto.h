@@ -1,8 +1,8 @@
 #include "be_constobj.h"
 
 static be_define_const_map_slots(m_libcrypto_map) {
-    { be_const_key_weak(AES_GCM, -1), be_const_class(be_class_aes_gcm) },
-    { be_const_key_weak(EC_C25519, -1), be_const_class(be_class_ec_c25519) },
+    { be_const_key(random, -1), be_const_func(m_crypto_random) },
+    { be_const_key(member, -1), be_const_func(be_class_crypto_member) },
 };
 
 static be_define_const_map(

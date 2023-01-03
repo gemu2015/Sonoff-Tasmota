@@ -50,6 +50,7 @@ be_extern_native_module(partition_core);
 be_extern_native_module(crc);
 be_extern_native_module(crypto);
 be_extern_native_module(ULP);
+be_extern_native_module(mdns);
 #ifdef USE_ZIGBEE
 be_extern_native_module(zigbee);
 #endif // USE_ZIGBEE
@@ -163,9 +164,7 @@ BERRY_LOCAL const bntvmodule* const be_module_table[] = {
     &be_native_module(flash),
     &be_native_module(partition_core),
     &be_native_module(crc),
-#ifdef USE_ALEXA_AVS
     &be_native_module(crypto),
-#endif
 #if defined(USE_BERRY_ULP) && ((CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32S2) || defined(CONFIG_IDF_TARGET_ESP32S3))
     &be_native_module(ULP),
 #endif // USE_BERRY_ULP
@@ -173,6 +172,9 @@ BERRY_LOCAL const bntvmodule* const be_module_table[] = {
     &be_native_module(MI32),
     &be_native_module(BLE),
 #endif //USE_MI_ESP32
+#ifdef USE_DISCOVERY
+    &be_native_module(mdns),
+#endif // USE_DISCOVERY
 #endif // TASMOTA
     /* user-defined modules register end */
     NULL /* do not remove */

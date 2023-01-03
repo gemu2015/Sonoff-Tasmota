@@ -28,7 +28,7 @@
  * Use online command StateText to translate ON, OFF, HOLD and TOGGLE.
  * Use online command Prefix to translate cmnd, stat and tele.
  *
- * Updated until v9.4.0.1 - Last update 10.11.2022
+ * Updated until v9.4.0.1 - Last update 07.12.2022
 \*********************************************************************/
 
 #define LANGUAGE_MODULE_NAME         // Enable to display "Module Generic" (ie Spanish), Disable to display "Generic Module" (ie English)
@@ -83,6 +83,9 @@
 #define D_DEBUG                "Debug"
 #define D_DEWPOINT             "Punto rugiada" //
 #define D_DISABLED             "Disabilitato/a"
+#define D_MOVING_DISTANCE      "Distanza in movimento"
+#define D_STATIC_DISTANCE      "Distanza statica"
+#define D_DETECT_DISTANCE      "Rileva distanza"
 #define D_DISTANCE             "Distanza"
 #define D_DNS_SERVER           "Server DNS"
 #define D_DO                   "Ossigeno dissolto"
@@ -688,10 +691,12 @@
 #define D_SENSOR_SBR_TX                 "SerBr - TX"
 #define D_SENSOR_MBR_TX                 "ModBr - TX"
 #define D_SENSOR_MBR_RX                 "ModBr - RX"
+#define D_SENSOR_MBR_TX_ENA             "ModBr - TX ON"
 #define D_SENSOR_SR04_TRIG              "SR04 Tri - TX"
 #define D_SENSOR_SR04_ECHO              "SR04 Ech - RX"
-#define D_SENSOR_NRG_MBS_TX             "NrgModbus - TX"
-#define D_SENSOR_NRG_MBS_RX             "NrgModbus - RX"
+#define D_SENSOR_NRG_MBS_TX             "NrgMbs - TX"
+#define D_SENSOR_NRG_MBS_RX             "NrgMbs - RX"
+#define D_SENSOR_NRG_MBS_TX_ENA         "NrgMbs - TX ON"
 #define D_SENSOR_SDM72_TX               "SDM72 - TX"
 #define D_SENSOR_SDM72_RX               "SDM72 - RX"
 #define D_SENSOR_SDM120_TX              "SDMx20 - TX"
@@ -910,6 +915,8 @@
 #define D_SENSOR_CM11_TX                "CM110x - TX"
 #define D_SENSOR_CM11_RX                "CM110x - RX"
 #define D_SENSOR_FLOWRATEMETER          "Portata"
+#define D_SENSOR_ME007_TRIG             "ME007 - Tri"
+#define D_SENSOR_ME007_RX               "ME007 - RX"
 
 // Units
 #define D_UNIT_AMPERE                     "A"
