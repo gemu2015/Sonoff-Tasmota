@@ -2392,7 +2392,9 @@ void uDisplay::DisplayFrame_42(void) {
     }
     spi_command_EPD(saw_3);
     delay(100);
+#ifdef UDSP_DEBUG
     Serial.printf("EPD Diplayframe\n");
+#endif
 }
 
 
@@ -2417,7 +2419,9 @@ void uDisplay::ClearFrame_42(void) {
 
    spi_command_EPD(saw_3);
    delay(100);
+#ifdef UDSP_DEBUG
    Serial.printf("EPD Clearframe\n");
+#endif
 }
 
 
