@@ -151,7 +151,7 @@ int Epd::Init(const unsigned char* lut) {
     SetMemoryPointer(0, 0);
     WaitUntilIdle();
 
-    SetLut(lut_full_update);
+    SetLut_by_host(lut_full_update);
 
 #else
     /* EPD hardware init start */
