@@ -28,7 +28,7 @@
 extern int Cache_WriteBack_Addr(uint32_t addr, uint32_t size);
 
 
-//#define UDSP_DEBUG
+#define UDSP_DEBUG
 
 #define renderer_swap(a, b) { int16_t t = a; a = b; b = t; }
 
@@ -65,6 +65,18 @@ uDisplay::~uDisplay(void) {
   }
   if (_i80_bus) {
     esp_lcd_del_i80_bus(_i80_bus);
+  }
+
+  if (lut_full) {
+    free(lut_full);
+  }
+  if (lut_partial) {
+    free(lut_partial);
+  }
+  for (uint16_t cnt = 0; cnt < 5; cnt++ ) {
+    if (lut_array[cnt]) {
+      free(lut_array[cnt]);
+    }
   }
 #endif // USE_ESP32_S3
 }
@@ -135,9 +147,21 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
         } else if (section == 'L') {
           if (*lp1 >= '1' && *lp1 <= '5') {
             lut_num = (*lp1 & 0x07);
-            lp1+=2;
+            lp1 += 2;
+            lut_siz[lut_num - 1] = next_val(&lp1);
+            lut_array[lut_num - 1] = (uint8_t*)malloc(lut_siz[lut_num - 1]);
+            lp1++;
             lut_cmd[lut_num - 1] = next_hex(&lp1);
+          } else {
+            lut_num = 0;
+            lp1++;
+            lut_siz_full = next_val(&lp1);
+            lut_full = (uint8_t*)malloc(lut_siz_full);
           }
+        } else if (section == 'l') {
+          lp1++;
+          lut_siz_partial = next_val(&lp1);
+          lut_partial = (uint8_t*)malloc(lut_siz_partial);
         }
         if (*lp1 == ',') lp1++;
       }
@@ -350,34 +374,43 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             break;
           case 'L':
             if (!lut_num) {
+              if (!lut_full) {
+                break;
+              }
               while (1) {
                 if (!str2c(&lp1, ibuff, sizeof(ibuff))) {
                   lut_full[lutfsize++] = strtol(ibuff, 0, 16);
                 } else {
                   break;
                 }
-                if (lutfsize >= LUTMAXSIZE) break;
+                if (lutfsize >= lut_siz_full) break;
               }
             } else {
               uint8_t index = lut_num - 1;
+              if (!lut_array[index]) {
+                break;
+              }
               while (1) {
                 if (!str2c(&lp1, ibuff, sizeof(ibuff))) {
                   lut_array[lut_cnt[index]++][index] = strtol(ibuff, 0, 16);
                 } else {
                   break;
                 }
-                if (lut_cnt[index] >= LUTMAXSIZE) break;
+                if (lut_cnt[index] >= lut_siz[index]) break;
               }
             }
             break;
           case 'l':
+            if (!lut_partial) {
+              break;
+            }
             while (1) {
               if (!str2c(&lp1, ibuff, sizeof(ibuff))) {
                 lut_partial[lutpsize++] = strtol(ibuff, 0, 16);
               } else {
                 break;
               }
-              if (lutpsize >= LUTMAXSIZE) break;
+              if (lutpsize >= lut_siz_partial) break;
             }
             break;
           case 'T':

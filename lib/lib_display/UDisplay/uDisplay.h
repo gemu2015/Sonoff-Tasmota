@@ -107,7 +107,6 @@ enum uColorType { uCOLOR_BW, uCOLOR_COLOR };
 #define SPI_DC_LOW if (spi_dc >= 0) GPIO_CLR_SLOW(spi_dc);
 #define SPI_DC_HIGH if (spi_dc >= 0) GPIO_SET_SLOW(spi_dc);
 
-#define LUTMAXSIZE 64
 
 #ifdef USE_ESP32_S3
 struct esp_lcd_i80_bus_t {
@@ -294,11 +293,15 @@ class uDisplay : public Renderer {
    uint16_t lut3time;
    uint16_t lut_num;
    uint8_t ep_mode;
-   uint8_t lut_full[LUTMAXSIZE];
-   uint8_t lut_partial[LUTMAXSIZE];
-   uint8_t lut_array[LUTMAXSIZE][5];
+   uint8_t *lut_full;
+   uint8_t lut_siz_full;
+   uint8_t *lut_partial;
+   uint8_t lut_siz_partial;
+   uint8_t *lut_array[5];
+
    uint8_t lut_cnt[5];
    uint8_t lut_cmd[5];
+   uint8_t lut_siz[5];
    uint16_t seta_xp1;
    uint16_t seta_xp2;
    uint16_t seta_yp1;
