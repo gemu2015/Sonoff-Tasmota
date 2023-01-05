@@ -2822,7 +2822,7 @@ next_line:
 #ifdef ESP8266
 #ifdef SPECIAL_SS
         char type = sml_globs.mp[meters].type;
-        if (type=='m' || type=='M' || type=='k' || type=='p' || type=='R' || type=='v') {
+        if (type == 'm' || type == 'M' || type == 'k' || type == 'p' || type == 'R' || type == 'v') {
           meter_desc[meters].meter_ss = new TasmotaSerial(sml_globs.mp[meters].srcpin,sml_globs.mp[meters].trxpin, 1, 0, meter_desc[meters].sibsiz);
         } else {
           meter_desc[meters].meter_ss = new TasmotaSerial(sml_globs.mp[meters].srcpin,sml_globs.mp[meters].trxpin, 1, 1, meter_desc[meters].sibsiz);
