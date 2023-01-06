@@ -148,6 +148,7 @@ int8_t cs;
       if (fbuff) free(fbuff);
       return 0;
     }
+
     // now replace tasmota vars before passing to driver
     char *cp = strstr(ddesc, "I2C");
     if (cp) {
@@ -297,6 +298,8 @@ int8_t cs;
       AddLog(LOG_LEVEL_DEBUG, PSTR("DSP: reinit"));
     }
     udisp  = new uDisplay(ddesc);
+
+    return 0;
 
     // checck for touch option TI1 or TI2
 #if defined(USE_FT5206) || defined(USE_GT911)
