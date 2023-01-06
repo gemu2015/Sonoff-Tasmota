@@ -48,6 +48,8 @@ static inline void gpio_lo(int_fast8_t pin) { if (pin >= 0) *get_gpio_lo_reg(pin
 #define UDISP1_WHITE 1
 #define UDISP1_BLACK 0
 
+#define MAX_LUTS 5
+
 #define DISPLAY_INIT_MODE 0
 #define DISPLAY_INIT_PARTIAL 1
 #define DISPLAY_INIT_FULL 2
@@ -297,11 +299,11 @@ class uDisplay : public Renderer {
    uint8_t lut_siz_full;
    uint8_t *lut_partial;
    uint8_t lut_siz_partial;
-   uint8_t *lut_array[5];
+   uint8_t *lut_array[MAX_LUTS];
 
-   uint8_t lut_cnt[5];
-   uint8_t lut_cmd[5];
-   uint8_t lut_siz[5];
+   uint8_t lut_cnt[MAX_LUTS];
+   uint8_t lut_cmd[MAX_LUTS];
+   uint8_t lut_siz[MAX_LUTS];
    uint16_t seta_xp1;
    uint16_t seta_xp2;
    uint16_t seta_yp1;

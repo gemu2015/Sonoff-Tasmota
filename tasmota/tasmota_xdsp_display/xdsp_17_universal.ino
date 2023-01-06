@@ -297,9 +297,7 @@ int8_t cs;
       delete renderer;
       AddLog(LOG_LEVEL_DEBUG, PSTR("DSP: reinit"));
     }
-    udisp  = new uDisplay(ddesc);
-
-    return 0;
+    udisp  = new uDisplay(ddesc);    
 
     // checck for touch option TI1 or TI2
 #if defined(USE_FT5206) || defined(USE_GT911)

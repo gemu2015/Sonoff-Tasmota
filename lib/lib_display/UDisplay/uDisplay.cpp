@@ -28,7 +28,7 @@
 extern int Cache_WriteBack_Addr(uint32_t addr, uint32_t size);
 
 
-#define UDSP_DEBUG
+//#define UDSP_DEBUG
 
 #define renderer_swap(a, b) { int16_t t = a; a = b; b = t; }
 
@@ -73,7 +73,7 @@ uDisplay::~uDisplay(void) {
   if (lut_partial) {
     free(lut_partial);
   }
-  for (uint16_t cnt = 0; cnt < 5; cnt++ ) {
+  for (uint16_t cnt = 0; cnt < MAX_LUTS; cnt++ ) {
     if (lut_array[cnt]) {
       free(lut_array[cnt]);
     }
@@ -116,7 +116,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   rot_t[2] = 2;
   rot_t[3] = 3;
 
-  for (uint32_t cnt = 0; cnt < 5; cnt++) {
+  for (uint32_t cnt = 0; cnt < MAX_LUTS; cnt++) {
     lut_cnt[cnt] = 0;
     lut_cmd[cnt] = 0xff;
   }
@@ -150,7 +150,6 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             lp1 += 2;
             lut_siz[lut_num - 1] = next_val(&lp1);
             lut_array[lut_num - 1] = (uint8_t*)malloc(lut_siz[lut_num - 1]);
-            lp1++;
             lut_cmd[lut_num - 1] = next_hex(&lp1);
           } else {
             lut_num = 0;
@@ -362,6 +361,11 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
               sa_mode = next_val(&lp1);
             }
             break;
+          case 'a':
+            saw_1 = next_hex(&lp1);
+            saw_2 = next_hex(&lp1);
+            saw_3 = next_hex(&lp1);
+            break;
           case 'P':
             col_mode = next_val(&lp1);
             break;
@@ -392,7 +396,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
               }
               while (1) {
                 if (!str2c(&lp1, ibuff, sizeof(ibuff))) {
-                  lut_array[lut_cnt[index]++][index] = strtol(ibuff, 0, 16);
+                  lut_array[index][lut_cnt[index]++] = strtol(ibuff, 0, 16);
                 } else {
                   break;
                 }
@@ -942,8 +946,6 @@ Renderer *uDisplay::Init(void) {
 #endif
   return this;
 }
-
-
 
 void uDisplay::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
   if (p != DISPLAY_INIT_MODE && ep_mode) {
@@ -2371,48 +2373,52 @@ void uDisplay::ClearFrameMemory(unsigned char color) {
 
 void uDisplay::SetLuts(void) {
   uint8_t index, count;
-  for (index = 0; index < 5; index++) {
-    spi_command_EPD(lut_cmd[index]);                            //vcom
+  for (index = 0; index < MAX_LUTS; index++) {
+    spi_command_EPD(lut_cmd[index]);
     for (count = 0; count < lut_cnt[index]; count++) {
-        spi_data8_EPD(lut_array[count][index]);
+        spi_data8_EPD(lut_array[index][count]);
     }
   }
 }
 
 void uDisplay::DisplayFrame_42(void) {
-    uint16_t Width, Height;
-    Width = (gxs % 8 == 0) ? (gxs / 8 ): (gxs / 8 + 1);
-    Height = gys;
+
+    spi_command_EPD(saw_1);
+    for(int i = 0; i < gxs / 8 * gys; i++) {
+        spi_data8_EPD(0xFF);
+    }
+    delay(2);
 
     spi_command_EPD(saw_2);
-    for (uint16_t j = 0; j < Height; j++) {
-        for (uint16_t i = 0; i < Width; i++) {
-            spi_data8_EPD(framebuffer[i + j * Width] ^ 0xff);
-        }
+    for(int i = 0; i < gxs / 8 * gys; i++) {
+        spi_data8_EPD(framebuffer[i]);
     }
+    delay(2);
+
+    SetLuts();
+
     spi_command_EPD(saw_3);
     delay(100);
+
 #ifdef UDSP_DEBUG
     Serial.printf("EPD Diplayframe\n");
 #endif
 }
 
 
-void uDisplay::ClearFrame_42(void) {
-    uint16_t Width, Height;
-    Width = (gxs % 8 == 0)? (gxs / 8 ): (gxs / 8 + 1);
-    Height = gys;
 
+
+void uDisplay::ClearFrame_42(void) {
     spi_command_EPD(saw_1);
-    for (uint16_t j = 0; j < Height; j++) {
-        for (uint16_t i = 0; i < Width; i++) {
+    for (uint16_t j = 0; j < gys; j++) {
+        for (uint16_t i = 0; i < gxs; i++) {
             spi_data8_EPD(0xFF);
         }
     }
 
     spi_command_EPD(saw_2);
-    for (uint16_t j = 0; j < Height; j++) {
-        for (uint16_t i = 0; i < Width; i++) {
+    for (uint16_t j = 0; j < gys; j++) {
+        for (uint16_t i = 0; i < gxs; i++) {
             spi_data8_EPD(0xFF);
         }
     }
