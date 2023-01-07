@@ -156,11 +156,13 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             lp1++;
             lut_siz_full = next_val(&lp1);
             lut_full = (uint8_t*)malloc(lut_siz_full);
+            lut_cmd[0] = next_hex(&lp1);
           }
         } else if (section == 'l') {
           lp1++;
           lut_siz_partial = next_val(&lp1);
           lut_partial = (uint8_t*)malloc(lut_siz_partial);
+          lut_cmd[0] = next_hex(&lp1);
         }
         if (*lp1 == ',') lp1++;
       }
@@ -2391,7 +2393,7 @@ void uDisplay::DisplayFrame_42(void) {
 
     spi_command_EPD(saw_2);
     for(int i = 0; i < gxs / 8 * gys; i++) {
-        spi_data8_EPD(framebuffer[i]);
+        spi_data8_EPD(framebuffer[i]^0xff);
     }
     delay(2);
 
@@ -2430,9 +2432,9 @@ void uDisplay::ClearFrame_42(void) {
 #endif
 }
 
-
 void uDisplay::SetLut(const unsigned char* lut) {
-    spi_command_EPD(WRITE_LUT_REGISTER);
+    //spi_command_EPD(WRITE_LUT_REGISTER);
+    spi_command_EPD(lut_cmd[0]);
     /* the length of look-up table is 30 bytes */
     for (int i = 0; i < lutfsize; i++) {
         spi_data8_EPD(lut[i]);
