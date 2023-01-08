@@ -290,7 +290,8 @@ class uDisplay : public Renderer {
    uint8_t dim_op;
    uint8_t lutfsize;
    uint8_t lutpsize;
-   uint16_t lutftime;
+   int16_t lutftime;
+   int8_t busy_pin;
    uint16_t lutptime;
    uint16_t lut3time;
    uint16_t lut_num;
@@ -313,6 +314,7 @@ class uDisplay : public Renderer {
    int16_t rotmap_ymin;
    int16_t rotmap_ymax;
    void pushColorsMono(uint16_t *data, uint16_t len, bool rgb16_swap = false);
+   void delay_sync(int32_t time);
 
 #ifdef USE_ESP32_S3
    int8_t par_cs;

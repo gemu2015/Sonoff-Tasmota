@@ -98,6 +98,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   lutptime = 35;
   lutftime = 350;
   lut3time = 10;
+  busy_pin = -1;
   ep_mode = 0;
   fg_col = 1;
   bg_col = 0;
@@ -423,6 +424,10 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             lutftime = next_val(&lp1);
             lutptime = next_val(&lp1);
             lut3time = next_val(&lp1);
+            if (lutftime < 0) {
+              busy_pin = -lutftime;
+              pinMode(busy_pin, INPUT_PULLUP);
+            }
             break;
           case 'B':
             lvgl_param.fluslines = next_val(&lp1);
@@ -955,7 +960,7 @@ void uDisplay::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
       if (lutpsize) {
         SetLut(lut_partial);
         Updateframe_EPD();
-        delay(lutptime * 10);
+        delay_sync(lutptime * 10);
       }
       return;
     } else if (p == DISPLAY_INIT_FULL) {
@@ -967,7 +972,7 @@ void uDisplay::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
         ClearFrame_42();
         DisplayFrame_42();
       }
-      delay(lutftime * 10);
+      delay_sync(lutftime * 10);
       return;
     }
   } else {
@@ -987,6 +992,17 @@ void uDisplay::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
 #ifdef UDSP_DEBUG
     Serial.printf("Dsp Init 2 complete \n");
 #endif
+  }
+}
+
+// epaper sync or delay
+void uDisplay::delay_sync(int32_t time) {
+  if (busy_pin > 0) {
+    while (digitalRead(busy_pin) == 0) {      //0: busy, 1: idle
+      delay(1);
+    }
+  } else {
+    delay(time);
   }
 }
 
@@ -1499,7 +1515,7 @@ void uDisplay::Splash(void) {
 
   if (ep_mode) {
     Updateframe();
-    delay(lut3time * 10);
+    delay_sync(lut3time * 10);
   }
   setTextFont(splash_font);
   setTextSize(splash_size);
@@ -2357,9 +2373,9 @@ void uDisplay::Init_EPD(int8_t p) {
     ClearFrame_42();
   }
   if (p == DISPLAY_INIT_PARTIAL) {
-    delay(lutptime * 10);
+    delay_sync(lutptime * 10);
   } else {
-    delay(lutftime * 10);
+    delay_sync(lutftime * 10);
   }
 }
 
@@ -2400,7 +2416,7 @@ void uDisplay::DisplayFrame_42(void) {
     SetLuts();
 
     spi_command_EPD(saw_3);
-    delay(100);
+    delay_sync(100);
 
 #ifdef UDSP_DEBUG
     Serial.printf("EPD Diplayframe\n");
@@ -2426,7 +2442,7 @@ void uDisplay::ClearFrame_42(void) {
     }
 
    spi_command_EPD(saw_3);
-   delay(100);
+   delay_sync(100);
 #ifdef UDSP_DEBUG
    Serial.printf("EPD Clearframe\n");
 #endif
