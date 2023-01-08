@@ -130,9 +130,9 @@ int Epd::Init(const unsigned char* lut) {
 
 #ifdef EPD_29_V2
     /* EPD hardware init start */
-    WaitUntilIdle();
     SendCommand(0x12);  //SWRESET
     WaitUntilIdle();
+    delay(100);
 
     SendCommand(0x01); //Driver output control
     SendData(0x27);
@@ -150,6 +150,7 @@ int Epd::Init(const unsigned char* lut) {
 
     SetMemoryPointer(0, 0);
     WaitUntilIdle();
+    delay(100);
 
     SetLut_by_host(lut_full_update);
 
@@ -201,11 +202,6 @@ void Epd::SendData(unsigned char data) {
  *  @brief: Wait until the busy_pin goes LOW
  */
 void Epd::WaitUntilIdle(void) {
-
-#ifdef EPD_29_V2
-  delay(100);
-#endif
-
   return;
     //while(DigitalRead(busy_pin) == HIGH) {      //LOW: idle, HIGH: busy
     //    DelayMs(100);
