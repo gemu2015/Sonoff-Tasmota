@@ -1,0 +1,12 @@
+{
+  "name":"ESP32-Matter",
+  "version": "1.0.0",
+  "description":"Matter for ESP32",
+  "keywords":"Matter",
+  "repository": {
+    "type": "git",
+    "url": ""
+	},
+  "frameworks": "arduino",
+  "platforms": "espressif32"
+}
