@@ -10255,14 +10255,14 @@ exgc:
 
 void script_send_email_body(void(*func)(char *)) {
 uint8_t msect = Run_Scripter1(">m", -2, 0);
-  if (msect==99) {
+  if (msect == 99) {
     char tmp[256];
     char *lp = glob_script_mem.section_ptr + 2;
     while (lp) {
-      while (*lp==SCRIPT_EOL) {
+      while (*lp == SCRIPT_EOL) {
        lp++;
       }
-      if (!*lp || *lp=='#' || *lp=='>') {
+      if (!*lp || *lp == '#' || *lp == '>') {
           break;
       }
       if (*lp!=';') {
@@ -10271,7 +10271,7 @@ uint8_t msect = Run_Scripter1(">m", -2, 0);
         //client->println(tmp);
         func(tmp);
       }
-      if (*lp==SCRIPT_EOL) {
+      if (*lp == SCRIPT_EOL) {
         lp++;
       } else {
         lp = strchr(lp, SCRIPT_EOL);
