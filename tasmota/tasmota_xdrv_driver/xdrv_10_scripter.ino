@@ -549,7 +549,7 @@ char *GetStringArgument(char *lp,uint8_t lastop,char *cp, struct GVARS *gv);
 char *ForceStringVar(char *lp,char *dstr);
 void send_download(void);
 uint8_t UfsReject(char *name);
-void fread_str(uint8_t fref, char *sp, uint16_t slen);
+void fread_str(uint8_t fref, char *sp, uint16_t slen, uint16_t flg);
 char *eval_sub(char *lp, float *fvar, char *rstr);
 
 void ScriptEverySecond(void) {
@@ -1442,19 +1442,24 @@ float DoMedian5(uint8_t index, float in) {
 }
 
 #ifdef USE_UFILESYS
-void fread_str(uint8_t fref, char *sp, uint16_t slen) {
+void fread_str(uint8_t fref, char *sp, uint16_t slen, uint16_t flg) {
   uint16_t index = 0;
   while (glob_script_mem.files[fref].available()) {
     uint8_t buf[1], iob;
-    glob_script_mem.files[fref].read(buf,1);
+    glob_script_mem.files[fref].read(buf, 1);
     iob = buf[0];
-    if (iob == '\t' || iob == ',' || iob == '\n' || iob == '\r') {
-      break;
+    if (flg) {
+      if (iob == '\n') {
+        break;
+      }
     } else {
-      *sp++ = iob;
-      index++;
-      if (index >= slen - 1) break;
+      if (iob == '\t' || iob == ',' || iob == '\n' || iob == '\r') {
+        break;
+      }
     }
+    *sp++ = iob;
+    index++;
+    if (index >= slen - 1) break;
   }
   *sp = 0;
 }
@@ -1578,10 +1583,10 @@ int32_t opt_fext(uint8_t fref,  char *ts_from, char *ts_to) {
   // seek to start
   int32_t fres = extract_from_file(fref,  ts_from, ts_to, -2, 0, 0, 0, 0);
   char tsf[32];
-  fread_str(fref, tsf, sizeof(tsf));
+  fread_str(fref, tsf, sizeof(tsf), 0);
   uint32_t ltsf = tstamp2l(tsf);
   fres = extract_from_file(fref,  ts_from, ts_to, -1, 0, 0, 0, 0);
-  fread_str(fref, tsf, sizeof(tsf));
+  fread_str(fref, tsf, sizeof(tsf), 0);
   uint32_t tssiz = tstamp2l(tsf) - ltsf;
   uint32_t tspos = tstamp2l(ts_from) - ltsf;
   float perc =  (float)tspos / (float)tssiz * 0.8;
@@ -2759,13 +2764,15 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           lp = GetNumericArgument(lp, OPER_EQU, &sf_from, 0);
           lp = GetNumericArgument(lp, OPER_EQU, &sf_to, 0);
           lp = GetNumericArgument(lp, OPER_EQU, &dfd, 0);
+          if (*lp != ')') {
+            lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
+          } else {
+            fvar = 0;
+          }
           uint8_t source = sfd;
           uint8_t dest = dfd;
           uint32_t fsize = sf_to - sf_from;
-          if (glob_script_mem.file_flags[source].is_open) {
-            // seek to start
-            glob_script_mem.files[source].seek(sf_from, SeekSet);
-          } else {
+          if (!glob_script_mem.file_flags[source].is_open) {
             fvar = -1;
             goto nfuncexit;
           }
@@ -2776,6 +2783,18 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           uint8_t *fbuff = (uint8_t*)malloc(512);
           uint16_t rsize = 512;
           if (fbuff) {
+            if (fvar) {
+              // flag > 0 copy header
+              glob_script_mem.files[source].seek(0, SeekSet);
+              fread_str(source, (char*)fbuff, rsize, 1);
+              uint16_t ssize = strlen((char*)fbuff);
+              fbuff[ssize++] = '\n';
+              fbuff[ssize] = 0;
+              glob_script_mem.files[dest].write(fbuff, ssize);
+            }
+
+            // seek to start
+            glob_script_mem.files[source].seek(sf_from, SeekSet);
             while (fsize) {
               if (fsize < rsize) {
                 rsize = fsize;
