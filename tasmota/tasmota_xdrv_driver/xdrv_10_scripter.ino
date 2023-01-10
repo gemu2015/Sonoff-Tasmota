@@ -1573,6 +1573,28 @@ struct tm tmx;
   return tmd;
 }
 
+// optimized access
+int32_t opt_fext(uint8_t fref,  char *ts_from, char *ts_to) {
+  // seek to start
+  int32_t fres = extract_from_file(fref,  ts_from, ts_to, -2, 0, 0, 0, 0);
+  char tsf[32];
+  fread_str(fref, tsf, sizeof(tsf));
+  uint32_t ltsf = tstamp2l(tsf);
+  fres = extract_from_file(fref,  ts_from, ts_to, -1, 0, 0, 0, 0);
+  fread_str(fref, tsf, sizeof(tsf));
+  uint32_t tssiz = tstamp2l(tsf) - ltsf;
+  uint32_t tspos = tstamp2l(ts_from) - ltsf;
+  float perc =  (float)tspos / (float)tssiz * 0.9;
+  if (perc < 0) perc = 0;
+  if (perc > 1) perc = 1;
+  float fsize = glob_script_mem.files[fref].size();
+  uint32_t spos = perc * fsize;
+  //AddLog(LOG_LEVEL_INFO,PSTR(">>> 1 %d, %d"), (uint32_t)perc, spos);
+  glob_script_mem.files[fref].seek(spos, SeekSet);
+  fres = extract_from_file(fref,  ts_from, ts_to, -3, 0, 0, 0, 0);
+  return fres;
+}
+
 // assume 1. entry is timestamp, others are tab delimited values until LF
 // file reference, from timestamp, to timestampm, column offset, array pointers, array lenght, number of arrays
 int32_t extract_from_file(uint8_t fref,  char *ts_from, char *ts_to, int8_t coffs, float **a_ptr, uint16_t *a_len, uint8_t numa, int16_t accum) {
@@ -1603,6 +1625,7 @@ int32_t extract_from_file(uint8_t fref,  char *ts_from, char *ts_to, int8_t coff
       glob_script_mem.files[fref].seek(cpos, SeekSet);
     } else if (coffs == -2) {
       // seek to line 2
+      glob_script_mem.files[fref].seek(0, SeekSet);
       for (uint32_t cp = 0; cp < cpos; cp++) {
         uint8_t buff[2], iob;
         glob_script_mem.files[fref].read(buff, 1);
@@ -2763,7 +2786,9 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
             }
             free(fbuff);
             glob_script_mem.files[source].close();
+            glob_script_mem.file_flags[source].is_open = 0;
             glob_script_mem.files[dest].close();
+            glob_script_mem.file_flags[dest].is_open = 0;
           } else {
             fvar = -3;
             goto nfuncexit;
@@ -3274,23 +3299,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
             }
             if (oflg) {
               // optimized access
-              // seek to start
-              uint32_t fres = extract_from_file(fref,  ts_from, ts_to, -2, 0, 0, 0, 0);
-              char tsf[32];
-              fread_str(fref, tsf, sizeof(tsf));
-              uint32_t ltsf = tstamp2l(tsf);
-              fres = extract_from_file(fref,  ts_from, ts_to, -1, 0, 0, 0, 0);
-              fread_str(fref, tsf, sizeof(tsf));
-              uint32_t tssiz = tstamp2l(tsf) - ltsf;
-              uint32_t tspos = tstamp2l(ts_from) - ltsf;
-              float perc =  (float)tspos / (float)tssiz * 0.9;
-              if (perc < 0) perc = 0;
-              if (perc > 1) perc = 1;
-              float fsize = glob_script_mem.files[fref].size();
-              uint32_t spos = perc * fsize;
-              //AddLog(LOG_LEVEL_INFO,PSTR(">>> 1 %d, %d"), (uint32_t)perc, spos);
-              glob_script_mem.files[fref].seek(spos, SeekSet);
-              fres = extract_from_file(fref,  ts_from, ts_to, -3, 0, 0, 0, 0);
+              int32_t fres = opt_fext(fref,  ts_from, ts_to);
               //AddLog(LOG_LEVEL_INFO,PSTR(">>> 2 %s - %d - %d"), ts_from, fres, (uint32_t)(perc*100));
               if (fres > 0) {
                 fvar = extract_from_file(fref,  ts_from, ts_to, coffs, a_ptr, a_len, index, accum);
@@ -3302,6 +3311,12 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
               fvar = extract_from_file(fref,  ts_from, ts_to, coffs, a_ptr, a_len, index, accum);
             }
           } else {
+            if (oflg) {
+              fvar = opt_fext(fref,  ts_from, ts_to);
+              if (coffs == -4) {
+                goto nfuncexit;
+              }
+            }
             fvar = extract_from_file(fref,  ts_from, ts_to, coffs, 0, 0, 0, 0);
           }
 
