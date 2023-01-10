@@ -2727,6 +2727,51 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto nfuncexit;
         }
 #endif
+
+#ifdef USE_UFILESYS
+        if (!strncmp(lp, "cpf(", 4)) {
+          // copy file with offsets sfd, sfstart, sfstop, df
+          float sfd, sf_from, sf_to, dfd;
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &sfd, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &sf_from, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &sf_to, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &dfd, 0);
+          uint8_t source = sfd;
+          uint8_t dest = dfd;
+          uint32_t fsize = sf_to - sf_from;
+          if (glob_script_mem.file_flags[source].is_open) {
+            // seek to start
+            glob_script_mem.files[source].seek(sf_from, SeekSet);
+          } else {
+            fvar = -1;
+            goto nfuncexit;
+          }
+          if (!glob_script_mem.file_flags[dest].is_open) {
+            fvar = -2;
+            goto nfuncexit;
+          }
+          uint8_t *fbuff = (uint8_t*)malloc(512);
+          uint16_t rsize = 512;
+          if (fbuff) {
+            while (fsize) {
+              if (fsize < rsize) {
+                rsize = fsize;
+              }
+              glob_script_mem.files[source].read(fbuff, rsize);
+              glob_script_mem.files[dest].write(fbuff, rsize);
+              fsize -= rsize;
+            }
+            free(fbuff);
+            glob_script_mem.files[source].close();
+            glob_script_mem.files[dest].close();
+          } else {
+            fvar = -3;
+            goto nfuncexit;
+          }
+          fvar = 0;
+          goto nfuncexit;
+        }
+#endif
         break;
       case 'd':
         if (!strncmp(vname, "day", 3)) {
