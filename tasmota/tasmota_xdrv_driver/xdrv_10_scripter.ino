@@ -1573,7 +1573,7 @@ struct tm tmx;
   return tmd;
 }
 
-// optimized access
+// optimized access, estimate entry point
 int32_t opt_fext(uint8_t fref,  char *ts_from, char *ts_to) {
   // seek to start
   int32_t fres = extract_from_file(fref,  ts_from, ts_to, -2, 0, 0, 0, 0);
@@ -1584,7 +1584,7 @@ int32_t opt_fext(uint8_t fref,  char *ts_from, char *ts_to) {
   fread_str(fref, tsf, sizeof(tsf));
   uint32_t tssiz = tstamp2l(tsf) - ltsf;
   uint32_t tspos = tstamp2l(ts_from) - ltsf;
-  float perc =  (float)tspos / (float)tssiz * 0.9;
+  float perc =  (float)tspos / (float)tssiz * 0.8;
   if (perc < 0) perc = 0;
   if (perc > 1) perc = 1;
   float fsize = glob_script_mem.files[fref].size();
