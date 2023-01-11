@@ -497,6 +497,10 @@ struct SCRIPT_MEM {
 #ifdef USE_SCRIPT_SPI
     struct SCRIPT_SPI spi;
 #endif
+#ifdef USE_FEXTRACT
+    uint32_t from_time;
+    uint32_t to_time;
+#endif
 #if defined(USE_SML_M) && defined(USE_SML_SCRIPT_CMD) && defined(USE_SCRIPT_SERIAL)
     char *hstr;
 #endif
@@ -549,7 +553,7 @@ char *GetStringArgument(char *lp,uint8_t lastop,char *cp, struct GVARS *gv);
 char *ForceStringVar(char *lp,char *dstr);
 void send_download(void);
 uint8_t UfsReject(char *name);
-void fread_str(uint8_t fref, char *sp, uint16_t slen, uint16_t flg);
+void fread_str_fp(File *fp, char *sp, uint16_t slen, uint16_t flg);
 char *eval_sub(char *lp, float *fvar, char *rstr);
 
 void ScriptEverySecond(void) {
@@ -1246,7 +1250,51 @@ void ws2812_set_array(float *array ,uint32_t len, uint32_t offset) {
 #endif //USE_WS2812
 #endif //USE_LIGHT
 
+#ifdef USE_UFILESYS
+int32_t script_copy_file(File *source, File *dest, uint32_t sf_from, uint32_t sf_to, uint32_t flag, WiFiClient *client) {
+int32_t res = 0;
+uint32_t fsize = sf_to - sf_from;
 
+  uint8_t *fbuff = (uint8_t*)malloc(512);
+  uint16_t rsize = 512;
+  if (fbuff) {
+    if (flag) {
+      // flag > 0 copy header
+      source->seek(0, SeekSet);
+      fread_str_fp(source, (char*)fbuff, rsize, 1);
+      uint16_t ssize = strlen((char*)fbuff);
+      fbuff[ssize++] = '\n';
+      fbuff[ssize] = 0;
+      if (dest) {
+        dest->write(fbuff, ssize);
+      }
+      if (client) {
+        client->write(fbuff, ssize);
+      }
+    }
+
+    // seek to start
+    source->seek(sf_from, SeekSet);
+    while (fsize) {
+      if (fsize < rsize) {
+        rsize = fsize;
+      }
+      source->read(fbuff, rsize);
+      if (dest) {
+        dest->write(fbuff, rsize);
+      }
+      if (client) {
+        client->write(fbuff, rsize);
+      }
+      fsize -= rsize;
+    }
+    free(fbuff);
+  } else {
+    return -3;
+  }
+  return res;
+}
+#endif // USE_UFILESYS
 
 float median_array(float *array, uint16_t len) {
     uint8_t ind[len];
@@ -1442,11 +1490,11 @@ float DoMedian5(uint8_t index, float in) {
 }
 
 #ifdef USE_UFILESYS
-void fread_str(uint8_t fref, char *sp, uint16_t slen, uint16_t flg) {
+void fread_str_fp(File *fp, char *sp, uint16_t slen, uint16_t flg) {
   uint16_t index = 0;
-  while (glob_script_mem.files[fref].available()) {
+  while (fp->available()) {
     uint8_t buf[1], iob;
-    glob_script_mem.files[fref].read(buf, 1);
+    fp->read(buf, 1);
     iob = buf[0];
     if (flg) {
       if (iob == '\n') {
@@ -1463,7 +1511,8 @@ void fread_str(uint8_t fref, char *sp, uint16_t slen, uint16_t flg) {
   }
   *sp = 0;
 }
-#endif
+
+#endif // USE_UFILESYS
 
 #ifdef USE_FEXTRACT
 
@@ -1578,38 +1627,61 @@ struct tm tmx;
   return tmd;
 }
 
+// convert seconds to tasmota time stamp
+uint32_t s2tstamp(char *ts, uint32_t tsize, uint32_t seconds, uint32_t flg) {
+
+  time_t tmd = seconds;
+  struct tm *tmp;
+  struct FE_TM tm;
+  tmp = gmtime(&tmd);
+  if (!flg) {
+    tm.secs = tmp->tm_sec;
+    tm.mins = tmp->tm_min;
+    tm.hour = tmp->tm_hour;
+  } else {
+    tm.secs = 0;
+    tm.mins = 0;
+    tm.hour = 0;
+  }
+  tm.month = tmp->tm_mon + 1;
+  tm.year  = tmp->tm_year - 100;
+  tm.day = tmp->tm_mday;
+  tss2ts(&tm, ts, 0);
+  return 0;
+}
+
 // optimized access, estimate entry point
-int32_t opt_fext(uint8_t fref,  char *ts_from, char *ts_to) {
+int32_t opt_fext(File *fp,  char *ts_from, char *ts_to) {
   // seek to start
-  int32_t fres = extract_from_file(fref,  ts_from, ts_to, -2, 0, 0, 0, 0);
+  int32_t fres = extract_from_file(fp,  ts_from, ts_to, -2, 0, 0, 0, 0);
   char tsf[32];
-  fread_str(fref, tsf, sizeof(tsf), 0);
+  fread_str_fp(fp, tsf, sizeof(tsf), 0);
   uint32_t ltsf = tstamp2l(tsf);
-  fres = extract_from_file(fref,  ts_from, ts_to, -1, 0, 0, 0, 0);
-  fread_str(fref, tsf, sizeof(tsf), 0);
+  fres = extract_from_file(fp,  ts_from, ts_to, -1, 0, 0, 0, 0);
+  fread_str_fp(fp, tsf, sizeof(tsf), 0);
   uint32_t tssiz = tstamp2l(tsf) - ltsf;
   uint32_t tspos = tstamp2l(ts_from) - ltsf;
   float perc =  (float)tspos / (float)tssiz * 0.8;
   if (perc < 0) perc = 0;
   if (perc > 1) perc = 1;
-  float fsize = glob_script_mem.files[fref].size();
+  float fsize = fp->size();
   uint32_t spos = perc * fsize;
   //AddLog(LOG_LEVEL_INFO,PSTR(">>> 1 %d, %d"), (uint32_t)perc, spos);
-  glob_script_mem.files[fref].seek(spos, SeekSet);
-  fres = extract_from_file(fref,  ts_from, ts_to, -3, 0, 0, 0, 0);
+  fp->seek(spos, SeekSet);
+  fres = extract_from_file(fp,  ts_from, ts_to, -3, 0, 0, 0, 0);
   return fres;
 }
 
 // assume 1. entry is timestamp, others are tab delimited values until LF
 // file reference, from timestamp, to timestampm, column offset, array pointers, array lenght, number of arrays
-int32_t extract_from_file(uint8_t fref,  char *ts_from, char *ts_to, int8_t coffs, float **a_ptr, uint16_t *a_len, uint8_t numa, int16_t accum) {
-  if (!glob_script_mem.file_flags[fref].is_open) return -1;
+int32_t extract_from_file(File *fp,  char *ts_from, char *ts_to, int8_t coffs, float **a_ptr, uint16_t *a_len, uint8_t numa, int16_t accum) {
+
   char rstr[32];
   uint8_t sindex = 0;
   uint8_t colpos = 0;
   uint8_t range = 0;
   if (coffs < 0) {
-    uint32_t cpos = glob_script_mem.files[fref].size();
+    uint32_t cpos = fp->size();
     if (coffs == -1) {
       // seek to last entry
       if (cpos > 1) cpos -= 2;
@@ -1617,8 +1689,8 @@ int32_t extract_from_file(uint8_t fref,  char *ts_from, char *ts_to, int8_t coff
       uint8_t lbuff[256];
       uint8_t iob;
       uint16_t index = sizeof(lbuff) -1;
-      glob_script_mem.files[fref].seek(cpos - sizeof(lbuff), SeekSet);
-      glob_script_mem.files[fref].read(lbuff, sizeof(lbuff));
+      fp->seek(cpos - sizeof(lbuff), SeekSet);
+      fp->read(lbuff, sizeof(lbuff));
       while (cpos) {
         iob = lbuff[index];
         if (iob == '\n' || iob == '\r') {
@@ -1627,13 +1699,13 @@ int32_t extract_from_file(uint8_t fref,  char *ts_from, char *ts_to, int8_t coff
         cpos--;
         index--;
       }
-      glob_script_mem.files[fref].seek(cpos, SeekSet);
+      fp->seek(cpos, SeekSet);
     } else if (coffs == -2) {
       // seek to line 2
-      glob_script_mem.files[fref].seek(0, SeekSet);
+      fp->seek(0, SeekSet);
       for (uint32_t cp = 0; cp < cpos; cp++) {
         uint8_t buff[2], iob;
-        glob_script_mem.files[fref].read(buff, 1);
+        fp->read(buff, 1);
         iob = buff[0];
         if (iob == '\n' || iob == '\r') {
           cpos = cp + 1;
@@ -1642,24 +1714,24 @@ int32_t extract_from_file(uint8_t fref,  char *ts_from, char *ts_to, int8_t coff
       }
     } else {
       // seek to pos of ts_from
-      cpos = glob_script_mem.files[fref].position();
+      cpos = fp->position();
       uint32_t tsfrom = tstamp2l(ts_from);
-      while (glob_script_mem.files[fref].available()) {
+      while (fp->available()) {
         uint8_t buff[2], iob;
-        glob_script_mem.files[fref].read(buff, 1);
+        fp->read(buff, 1);
         cpos++;
         iob = buff[0];
         if (iob == '\n' || iob == '\r') {
           // read time stamp
           char ts[22];
-          glob_script_mem.files[fref].read((uint8_t*)ts, sizeof(ts));
+          fp->read((uint8_t*)ts, sizeof(ts));
           char *cp = strchr(ts, '\t');
           if (cp) {
             *cp = 0;
             uint32_t tstc = tstamp2l(ts);
             //Serial.printf(">>> %s - %d - %d\n",ts, tstc, cpos );
             if (tstc >= tsfrom) {
-              glob_script_mem.files[fref].seek(cpos, SeekSet);
+              fp->seek(cpos, SeekSet);
               return cpos;
             }
           }
@@ -1670,8 +1742,8 @@ int32_t extract_from_file(uint8_t fref,  char *ts_from, char *ts_to, int8_t coff
     }
     return cpos;
   }
-  uint32_t ipos = glob_script_mem.files[fref].position();
-  glob_script_mem.files[fref].seek(0, SeekSet);
+  uint32_t ipos = fp->position();
+  fp->seek(0, SeekSet);
   uint32_t tsfrom = tstamp2l(ts_from);
   uint32_t tsto = tstamp2l(ts_to);
   //AddLog(LOG_LEVEL_INFO, PSTR("from: %d  to: %d"),tsfrom,  tsto);
@@ -1694,10 +1766,10 @@ int32_t extract_from_file(uint8_t fref,  char *ts_from, char *ts_to, int8_t coff
     accum = -accum;
   }
   if (accum == 0) accum = 1;
-  while (glob_script_mem.files[fref].available()) {
+  while (fp->available()) {
     // scan through file
     uint8_t buff[2], iob;
-    glob_script_mem.files[fref].read(buff, 1);
+    fp->read(buff, 1);
     iob = buff[0];
     if (iob == '\t' || iob == ',' || iob == '\n' || iob == '\r') {
       rstr[sindex] = 0;
@@ -1722,7 +1794,7 @@ int32_t extract_from_file(uint8_t fref,  char *ts_from, char *ts_to, int8_t coff
           uint32_t cts = tstamp2l(rstr);
           if (cts > tsto) {
             // end of range must seek back to last LF, for next scan
-            glob_script_mem.files[fref].seek(lastpos, SeekSet);
+            fp->seek(lastpos, SeekSet);
             break;
           }
           if (cts >= tsfrom && cts <= tsto) {
@@ -1779,12 +1851,12 @@ int32_t extract_from_file(uint8_t fref,  char *ts_from, char *ts_to, int8_t coff
       }
       colpos++;
       if (iob == '\n' || iob == '\r') {
-        lastpos = glob_script_mem.files[fref].position();
+        lastpos = fp->position();
         colpos = 0;
         lines ++;
         if (lines == 1) {
           if (ipos) {
-            glob_script_mem.files[fref].seek(ipos, SeekSet);
+            fp->seek(ipos, SeekSet);
           }
         }
       }
@@ -2771,48 +2843,20 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           }
           uint8_t source = sfd;
           uint8_t dest = dfd;
-          uint32_t fsize = sf_to - sf_from;
+
           if (!glob_script_mem.file_flags[source].is_open) {
-            fvar = -1;
+            fvar -1;
             goto nfuncexit;
           }
           if (!glob_script_mem.file_flags[dest].is_open) {
-            fvar = -2;
+            fvar -2;
             goto nfuncexit;
           }
-          uint8_t *fbuff = (uint8_t*)malloc(512);
-          uint16_t rsize = 512;
-          if (fbuff) {
-            if (fvar) {
-              // flag > 0 copy header
-              glob_script_mem.files[source].seek(0, SeekSet);
-              fread_str(source, (char*)fbuff, rsize, 1);
-              uint16_t ssize = strlen((char*)fbuff);
-              fbuff[ssize++] = '\n';
-              fbuff[ssize] = 0;
-              glob_script_mem.files[dest].write(fbuff, ssize);
-            }
-
-            // seek to start
-            glob_script_mem.files[source].seek(sf_from, SeekSet);
-            while (fsize) {
-              if (fsize < rsize) {
-                rsize = fsize;
-              }
-              glob_script_mem.files[source].read(fbuff, rsize);
-              glob_script_mem.files[dest].write(fbuff, rsize);
-              fsize -= rsize;
-            }
-            free(fbuff);
-            glob_script_mem.files[source].close();
-            glob_script_mem.file_flags[source].is_open = 0;
-            glob_script_mem.files[dest].close();
-            glob_script_mem.file_flags[dest].is_open = 0;
-          } else {
-            fvar = -3;
-            goto nfuncexit;
-          }
-          fvar = 0;
+          fvar = script_copy_file(&glob_script_mem.files[source], &glob_script_mem.files[dest], sf_from, sf_to, fvar, 0);
+          glob_script_mem.files[source].close();
+          glob_script_mem.file_flags[source].is_open = 0;
+          glob_script_mem.files[dest].close();
+          glob_script_mem.file_flags[dest].is_open = 0;
           goto nfuncexit;
         }
 #endif
@@ -3316,27 +3360,31 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
                 break;
               }
             }
+            if (!glob_script_mem.file_flags[fref].is_open) {
+              fvar = -1;
+              goto nfuncexit;
+            }
             if (oflg) {
               // optimized access
-              int32_t fres = opt_fext(fref,  ts_from, ts_to);
+              int32_t fres = opt_fext(&glob_script_mem.files[fref],  ts_from, ts_to);
               //AddLog(LOG_LEVEL_INFO,PSTR(">>> 2 %s - %d - %d"), ts_from, fres, (uint32_t)(perc*100));
               if (fres > 0) {
-                fvar = extract_from_file(fref,  ts_from, ts_to, coffs, a_ptr, a_len, index, accum);
+                fvar = extract_from_file(&glob_script_mem.files[fref],  ts_from, ts_to, coffs, a_ptr, a_len, index, accum);
               } else {
                 // fatal error time stamp out of range
                 fvar = -2;
               }
             } else {
-              fvar = extract_from_file(fref,  ts_from, ts_to, coffs, a_ptr, a_len, index, accum);
+              fvar = extract_from_file(&glob_script_mem.files[fref],  ts_from, ts_to, coffs, a_ptr, a_len, index, accum);
             }
           } else {
             if (oflg) {
-              fvar = opt_fext(fref,  ts_from, ts_to);
+              fvar = opt_fext(&glob_script_mem.files[fref],  ts_from, ts_to);
               if (coffs == -4) {
                 goto nfuncexit;
               }
             }
-            fvar = extract_from_file(fref,  ts_from, ts_to, coffs, 0, 0, 0, 0);
+            fvar = extract_from_file(&glob_script_mem.files[fref],  ts_from, ts_to, coffs, 0, 0, 0, 0);
           }
 
           goto nfuncexit;
@@ -5016,6 +5064,14 @@ extern char *SML_GetSVal(uint32_t index);
           uint8_t secs = (uint32_t)fvar % 60;
           sprintf_P(tbuff,PSTR("%02d:%02d:%02d"), hours, mins, secs);
           if (sp) strlcpy(sp, tbuff, glob_script_mem.max_ssize);
+          len = 0;
+          goto strexit;
+        }
+        if (!strncmp(lp, "s2t(", 4)) {
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
+          char str[SCRIPT_MAXSSIZE];
+          s2tstamp(str, SCRIPT_MAXSSIZE, fvar, 0);
+          if (sp) strlcpy(sp, str, glob_script_mem.max_ssize);
           len = 0;
           goto strexit;
         }
@@ -8739,6 +8795,21 @@ void ScriptServeFile(void) {
         SendFile(cp);
         return;
       } else {
+#ifdef USE_FEXTRACT
+        char *lp = strchr(cp, '@');
+        if (lp) {
+          *lp = 0;
+          lp++;
+          // /ufs/test.txt@1.2.22-00:00_12.2.22-00:00
+          char *tp = strchr(lp, '_');
+          if (tp) {
+            *tp = 0;
+            tp++;
+            glob_script_mem.from_time = tstamp2l(lp);
+            glob_script_mem.to_time = tstamp2l(tp);
+          }
+        }
+#endif
         if (ufsp->exists(cp)) {
           SendFile(cp);
           return;
@@ -8962,6 +9033,23 @@ uint32_t fsize;
     }
 #endif // USE_DISPLAY_DUMP
   } else {
+#ifdef USE_FEXTRACT
+    if (glob_script_mem.to_time > glob_script_mem.from_time) {
+      char ts[32];
+      s2tstamp(ts, sizeof(ts), glob_script_mem.from_time, 0);
+      int32_t fo_from = opt_fext(&file, ts, ts);
+      s2tstamp(ts, sizeof(ts), glob_script_mem.to_time, 0);
+      int32_t fo_to = opt_fext(&file, ts, ts);
+      if (fo_from >= 0 && fo_to >= 0) {
+        script_copy_file(&file, 0, fo_from, fo_to, 1, &client);
+      }
+      file.close();
+      client.stop();
+      glob_script_mem.to_time = 0;
+      glob_script_mem.from_time = 0;
+      return;
+    }
+#endif
     uint32_t len = sizeof(buff);
     while (fsize > 0) {
       if (len > fsize) len = fsize;
