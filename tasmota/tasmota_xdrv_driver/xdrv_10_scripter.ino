@@ -210,13 +210,13 @@ uint32_t alt_eeprom_init(uint32_t size) {
 }
 
 void alt_eeprom_writeBytes(uint32_t adr, uint32_t len, uint8_t *buf) {
-  uint32_t *lwp=(uint32_t*)buf;
+  uint32_t *lwp = (uint32_t*)buf;
   ESP.flashEraseSector(eeprom_block / SPI_FLASH_SEC_SIZE);
   ESP.flashWrite(eeprom_block , lwp, SPI_FLASH_SEC_SIZE);
 }
 
 void alt_eeprom_readBytes(uint32_t adr, uint32_t len, uint8_t *buf) {
-  uint32_t *lwp=(uint32_t*)buf;
+  uint32_t *lwp = (uint32_t*)buf;
   ESP.flashRead(eeprom_block , lwp, SPI_FLASH_SEC_SIZE);
 }
 #endif // EEP_SCRIPT_SIZE
@@ -5067,6 +5067,7 @@ extern char *SML_GetSVal(uint32_t index);
           len = 0;
           goto strexit;
         }
+#ifdef USE_FEXTRACT
         if (!strncmp(lp, "s2t(", 4)) {
           lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
           char str[SCRIPT_MAXSSIZE];
@@ -5075,6 +5076,7 @@ extern char *SML_GetSVal(uint32_t index);
           len = 0;
           goto strexit;
         }
+#endif // USE_FEXTRACT
         break;
 
       case 't':
@@ -7452,7 +7454,7 @@ void script_upload_start(void) {
       WSSend(500, CT_PLAIN, F("500: wrong filename"));
       return;
     }
-    if (upload.totalSize>=glob_script_mem.script_size) {
+    if (upload.totalSize >= glob_script_mem.script_size) {
       Web.upload_error = 1;
       WSSend(500, CT_PLAIN, F("500: file to large"));
       return;
@@ -7468,7 +7470,7 @@ void script_upload_start(void) {
     uint32_t tsiz = glob_script_mem.script_size - 1;
     if (uplsize<tsiz) {
       if (uplsize + csiz < tsiz) {
-        memcpy(script_ex_ptr,upload.buf, csiz);
+        memcpy(script_ex_ptr, upload.buf, csiz);
         script_ex_ptr += csiz;
         uplsize += csiz;
       } else {
@@ -7477,7 +7479,6 @@ void script_upload_start(void) {
         script_ex_ptr += csiz;
         uplsize += csiz;
       }
-      //AddLog(LOG_LEVEL_INFO, PSTR("HTP: write %d - %d"),csiz,uplsize);
     }
 
     //if (upload_file) upload_file.write(upload.buf,upload.currentSize);
@@ -7629,7 +7630,6 @@ void HandleScriptConfiguration(void) {
 
 void SaveScript(void) {
 
-
 #ifdef USE_UFILESYS
   if (glob_script_mem.FLAGS.fsys == true) {
     ufsp->remove(FAT_SCRIPT_NAME);
@@ -7638,22 +7638,24 @@ void SaveScript(void) {
     file.close();
   } else {
     // fallback to compressed mode
-    script_compress(Settings->rules[0],MAX_SCRIPT_SIZE-1);
+    script_compress(Settings->rules[0], MAX_SCRIPT_SIZE-1);
   }
 #else // USE_UFILESYS
 
 #ifdef EEP_SCRIPT_SIZE
   // here we handle EEPROM modes
   if (glob_script_mem.FLAGS.eeprom == true) {
-    if (EEP_SCRIPT_SIZE!=SPECIAL_EEPMODE_SIZE) {
+    if (EEP_SCRIPT_SIZE != SPECIAL_EEPMODE_SIZE) {
       EEP_WRITE(0, EEP_SCRIPT_SIZE, glob_script_mem.script_ram);
     } else {
       uint8_t *ucs;
       ucs = (uint8_t*)calloc(SPI_FLASH_SEC_SIZE + 4, 1);
-      if (!script_compress((char*)ucs,EEP_SCRIPT_SIZE-1)) {
-        alt_eeprom_writeBytes(0, EEP_SCRIPT_SIZE, ucs);
+      if (ucs) {
+        if (!script_compress((char*)ucs, EEP_SCRIPT_SIZE - 1)) {
+          alt_eeprom_writeBytes(0, EEP_SCRIPT_SIZE, ucs);
+        }
+        free(ucs);
       }
-      if (ucs) free(ucs);
     }
   }
 #else
@@ -7698,8 +7700,9 @@ void ScriptSaveSettings(void) {
 
 //
 uint32_t script_compress(char *dest, uint32_t size) {
-  //AddLog(LOG_LEVEL_INFO,PSTR("in string: %s len = %d"),glob_script_mem.script_ram,strlen(glob_script_mem.script_ram));
+  //AddLog(LOG_LEVEL_INFO,PSTR("len: %d dsize = %d"), size, strlen(glob_script_mem.script_ram));
   int32_t len_compressed = SCRIPT_COMPRESS(glob_script_mem.script_ram, strlen(glob_script_mem.script_ram), dest, size);
+  OsWatchLoop();
   if (len_compressed > 0) {
     dest[len_compressed] = 0;
     AddLog(LOG_LEVEL_INFO,PSTR("script compressed to %d bytes = %d %%"),len_compressed,len_compressed * 100 / strlen(glob_script_mem.script_ram));
