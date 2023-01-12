@@ -8713,7 +8713,9 @@ void ScriptServeFile82(void) {
   if (cp) {
     cp += 4;
     if (ufsp) {
+#ifndef USE_FEXTRACT
       if (ufsp->exists(cp)) {
+#endif
         if (download82_busy == true) {
           AddLog(LOG_LEVEL_INFO, PSTR("UFS 82: Download is busy"));
           return;
@@ -8725,7 +8727,9 @@ void ScriptServeFile82(void) {
         //AddLog(LOG_LEVEL_INFO, PSTR("Sendfile 82 started"));
         return;
       }
+#ifndef USE_FEXTRACT
     }
+#endif
   }
 
   Handle82NotFound();
@@ -8795,23 +8799,7 @@ void ScriptServeFile(void) {
         SendFile(cp);
         return;
       } else {
-#ifdef USE_FEXTRACT
-        char *lp = strchr(cp, '@');
-        if (lp) {
-          *lp = 0;
-          lp++;
-          // /ufs/test.txt@1.2.22-00:00_12.2.22-00:00
-          char *tp = strchr(lp, '_');
-          if (tp) {
-            *tp = 0;
-            tp++;
-            glob_script_mem.from_time = tstamp2l(lp);
-            glob_script_mem.to_time = tstamp2l(tp);
-          }
-        }
-#endif
-        if (ufsp->exists(cp)) {
-          SendFile(cp);
+        if (!SendFile(cp)) {
           return;
         }
       }
@@ -8825,27 +8813,28 @@ bool script_download_busy;
 
 //#define USE_DLTASK
 
-void SendFile(char *fname) {
+int32_t SendFile(char *fname) {
 
 #ifdef ESP8266
-  SendFile_sub(fname, 0);
+  return SendFile_sub(fname, 0);
 #endif // ESP8266
 
 #ifdef ESP32
 #ifdef USE_DLTASK
   if (script_download_busy == true) {
     AddLog(LOG_LEVEL_INFO, PSTR("UFS: Download is busy"));
-    return;
+    return -1;
   }
   script_download_busy = true;
   char *path = (char*)malloc(128);
   strcpy(path, fname);
   xTaskCreatePinnedToCore(script_download_task, "DT", 6000, (void*)path, 3, NULL, 1);
 #else
-  SendFile_sub(fname, 0);
+  return SendFile_sub(fname, 0);
 #endif
 
 #endif // ESP32
+  return 0;
 }
 
 #ifdef USE_DLTASK
@@ -8859,12 +8848,28 @@ void script_download_task(void *path) {
 
 #define REVERT_M5EPD
 
-void SendFile_sub(char *path, uint8_t stype) {
+int32_t SendFile_sub(char *path, uint8_t stype) {
 char buff[512];
 WiFiClient client;
 uint8_t sflg = 0;
 File file;
 uint32_t fsize;
+
+#ifdef USE_FEXTRACT
+  char *lp = strchr(path, '@');
+  if (lp) {
+    *lp = 0;
+    lp++;
+    // /ufs/test.txt@1.2.22-00:00_12.2.22-00:00
+    char *tp = strchr(lp, '_');
+    if (tp) {
+      *tp = 0;
+      tp++;
+      glob_script_mem.from_time = tstamp2l(lp);
+      glob_script_mem.to_time = tstamp2l(tp);
+    }
+  }
+#endif
 
 #ifdef USE_DISPLAY_DUMP
   char *sbmp = strstr_P(path, PSTR("scrdmp.bmp"));
@@ -8887,9 +8892,12 @@ uint32_t fsize;
     strcpy_P(buff,PSTR("text/plain"));
   }
 
-  if (!buff[0]) return;
+  if (!buff[0]) return -2;
 
   if (!sflg) {
+    if (!ufsp->exists(path)) {
+      return -1;
+    }
     file = ufsp->open(path, FS_FILE_READ);
     fsize = file.size();
   }
@@ -8930,7 +8938,7 @@ uint32_t fsize;
       uint8_t *bp = renderer->framebuffer;
       uint8_t *lbuf = (uint8_t*)special_malloc(Settings->display_width * 3 + 2);
       memset(lbuf, 0, Settings->display_width * 3);
-      if (!lbuf) return;
+      if (!lbuf) return -3;
       uint8_t dmflg = 0;
       if (renderer->disp_bpp & 0x40) {
         dmflg = 1;
@@ -9047,7 +9055,7 @@ uint32_t fsize;
       client.stop();
       glob_script_mem.to_time = 0;
       glob_script_mem.from_time = 0;
-      return;
+      return 0;
     }
 #endif
     uint32_t len = sizeof(buff);
@@ -9060,6 +9068,7 @@ uint32_t fsize;
     file.close();
     client.stop();
   }
+  return 0;
 }
 #endif // USE_UFILESYS
 
