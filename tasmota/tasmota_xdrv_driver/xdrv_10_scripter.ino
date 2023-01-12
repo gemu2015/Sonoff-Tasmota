@@ -5370,6 +5370,11 @@ extern char *SML_GetSVal(uint32_t index);
           fvar = !TasmotaGlobal.global_state.wifi_down;
           goto exit;
         }
+        if (!strncmp(vname, "wlp", 3)) {
+          OsWatchLoop();
+          fvar = 0;
+          goto exit;
+        }
 #ifdef xUSE_SHINE
         if (!strncmp(vname, "wav2mp3(", 8)) {
           char path[SCRIPT_MAXSSIZE];
