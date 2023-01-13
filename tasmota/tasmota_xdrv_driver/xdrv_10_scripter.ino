@@ -1594,9 +1594,13 @@ uint32_t ts2ts(struct FE_TM *tm, char *ts) {
 }
 
 void tss2ts(struct FE_TM *tm, char *dst, uint8_t mode) {
-  if (mode == 1) {
+  if (mode & 1 == 1) {
     // was tsm format go to 16.12.20 15:36
-    sprintf(dst, "%01d.%01d.%01d %01d:%02d", tm->day, tm->month, tm->year, tm->hour, tm->mins);
+    char c = ' ';
+    if (mode & 0x80) {
+        c = '-';
+    }
+    sprintf(dst, "%01d.%01d.%01d%c%01d:%02d", tm->day, tm->month, tm->year, c, tm->hour, tm->mins);
   } else {
     // 2020-12-16T15:36:41
     sprintf(dst, "%04d-%02d-%02dT%02d:%02d:%02d", tm->year + 2000, tm->month, tm->day, tm->hour, tm->mins, tm->secs);
@@ -1651,13 +1655,15 @@ uint32_t s2tstamp(char *ts, uint32_t tsize, uint32_t seconds, uint32_t flg) {
 }
 
 // optimized access, estimate entry point
-int32_t opt_fext(File *fp,  char *ts_from, char *ts_to) {
+int32_t opt_fext(File *fp,  char *ts_from, char *ts_to, uint32_t flg) {
   // seek to start
   int32_t fres = extract_from_file(fp,  ts_from, ts_to, -2, 0, 0, 0, 0);
+  int32_t start = fres;
   char tsf[32];
   fread_str_fp(fp, tsf, sizeof(tsf), 0);
   uint32_t ltsf = tstamp2l(tsf);
   fres = extract_from_file(fp,  ts_from, ts_to, -1, 0, 0, 0, 0);
+  int32_t end = fres;
   fread_str_fp(fp, tsf, sizeof(tsf), 0);
   uint32_t tssiz = tstamp2l(tsf) - ltsf;
   uint32_t tspos = tstamp2l(ts_from) - ltsf;
@@ -1669,6 +1675,15 @@ int32_t opt_fext(File *fp,  char *ts_from, char *ts_to) {
   //AddLog(LOG_LEVEL_INFO,PSTR(">>> 1 %d, %d"), (uint32_t)perc, spos);
   fp->seek(spos, SeekSet);
   fres = extract_from_file(fp,  ts_from, ts_to, -3, 0, 0, 0, 0);
+  if (fres < 0) {
+    if (flg) {
+      if (flg == 1) {
+        fres = start;
+      } else {
+        fres = end;
+      }
+    }
+  }
   return fres;
 }
 
@@ -3366,7 +3381,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
             }
             if (oflg) {
               // optimized access
-              int32_t fres = opt_fext(&glob_script_mem.files[fref],  ts_from, ts_to);
+              int32_t fres = opt_fext(&glob_script_mem.files[fref],  ts_from, ts_to, 1);
               //AddLog(LOG_LEVEL_INFO,PSTR(">>> 2 %s - %d - %d"), ts_from, fres, (uint32_t)(perc*100));
               if (fres > 0) {
                 fvar = extract_from_file(&glob_script_mem.files[fref],  ts_from, ts_to, coffs, a_ptr, a_len, index, accum);
@@ -3379,7 +3394,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
             }
           } else {
             if (oflg) {
-              fvar = opt_fext(&glob_script_mem.files[fref],  ts_from, ts_to);
+              fvar = opt_fext(&glob_script_mem.files[fref],  ts_from, ts_to, 0);
               if (coffs == -4) {
                 goto nfuncexit;
               }
@@ -8877,7 +8892,7 @@ uint32_t fsize;
       glob_script_mem.to_time = tstamp2l(tp);
     }
   }
-#endif
+#endif // USE_FEXTRACT
 
 #ifdef USE_DISPLAY_DUMP
   char *sbmp = strstr_P(path, PSTR("scrdmp.bmp"));
@@ -9053,9 +9068,13 @@ uint32_t fsize;
     if (glob_script_mem.to_time > glob_script_mem.from_time) {
       char ts[32];
       s2tstamp(ts, sizeof(ts), glob_script_mem.from_time, 0);
-      int32_t fo_from = opt_fext(&file, ts, ts);
+      int32_t fo_from = opt_fext(&file, ts, ts, 1);
       s2tstamp(ts, sizeof(ts), glob_script_mem.to_time, 0);
-      int32_t fo_to = opt_fext(&file, ts, ts);
+      //int32_t fo_to = opt_fext(&file, ts, ts, 2);
+      int32_t fo_to = extract_from_file(&file,  ts, ts, -3, 0, 0, 0, 0);
+      if (fo_to < 0) {
+        fo_to = extract_from_file(&file,  ts, ts, -1, 0, 0, 0, 0);
+      }
       if (fo_from >= 0 && fo_to >= 0) {
         script_copy_file(&file, 0, fo_from, fo_to, 1, &client);
       }
