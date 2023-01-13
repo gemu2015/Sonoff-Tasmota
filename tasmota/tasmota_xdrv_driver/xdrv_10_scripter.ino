@@ -609,7 +609,7 @@ void SetChanged(uint32_t index) {
 
 
 #define SCRIPT_SKIP_SPACES while (*lp==' ' || *lp=='\t') lp++;
-#define SCRIPT_SKIP_EOL while (*lp==SCRIPT_EOL) lp++;
+#define SCRIPT_SKIP_EOL while (*lp == SCRIPT_EOL) lp++;
 
 float *Get_MFAddr(uint8_t index, uint16_t *len, uint16_t *ipos);
 
@@ -767,7 +767,7 @@ char *script;
                     vtypes[vars].bits.is_filter = 0;
                 }
                 *vnp_p++ = vnames_p;
-                while (lp<op) {
+                while (lp < op) {
                     *vnames_p++ = *lp++;
                 }
                 *vnames_p++ = 0;
@@ -791,10 +791,10 @@ char *script;
                       return -1;
                     }
                     if (vtypes[vars].bits.is_filter) {
-                      while (isdigit(*op) || *op=='.' || *op=='-') {
+                      while (isdigit(*op) || *op == '.' || *op == '-') {
                         op++;
                       }
-                      while (*op==' ') op++;
+                      while (*op == ' ') op++;
                       if (isdigit(*op)) {
                         // lenght define follows
                         uint16_t flen = atoi(op);
@@ -803,7 +803,7 @@ char *script;
                           flen = MAX_ARRAY_SIZE;
                         }
                         mfilt[numflt-1].numvals &= OR_FILT_MASK;
-                        mfilt[numflt-1].numvals |= flen&AND_FILT_MASK;
+                        mfilt[numflt-1].numvals |= flen & AND_FILT_MASK;
                       }
                     }
 
@@ -7716,8 +7716,9 @@ void ScriptSaveSettings(void) {
 //
 uint32_t script_compress(char *dest, uint32_t size) {
   //AddLog(LOG_LEVEL_INFO,PSTR("len: %d dsize = %d"), size, strlen(glob_script_mem.script_ram));
+  yield();
   int32_t len_compressed = SCRIPT_COMPRESS(glob_script_mem.script_ram, strlen(glob_script_mem.script_ram), dest, size);
-  OsWatchLoop();
+  yield();
   if (len_compressed > 0) {
     dest[len_compressed] = 0;
     AddLog(LOG_LEVEL_INFO,PSTR("script compressed to %d bytes = %d %%"),len_compressed,len_compressed * 100 / strlen(glob_script_mem.script_ram));
@@ -8029,7 +8030,7 @@ void Script_Check_Hue(String *response) {
   char *lp = glob_script_mem.section_ptr + 2;
   while (lp) {
     SCRIPT_SKIP_SPACES
-    while (*lp==SCRIPT_EOL) {
+    while (*lp == SCRIPT_EOL) {
      lp++;
     }
     if (!*lp || *lp=='#' || *lp=='>') {
@@ -8051,7 +8052,7 @@ void Script_Check_Hue(String *response) {
       // get type
       hue_script[hue_devs].type = *cp;
 
-      for (vindex = 0; vindex<HUE_DEV_MVNUM; vindex++) {
+      for (vindex = 0; vindex < HUE_DEV_MVNUM; vindex++) {
         hue_script[hue_devs].index[vindex] = 0;
       }
       vindex = 0;
@@ -9819,7 +9820,7 @@ const char *gc_str;
       char *lp = lin + 3;
       uint8_t bcnt = 0;
       char *found = lin;
-      while (bcnt<4) {
+      while (bcnt < 4) {
         found = strstr(found, "bu(");
         if (!found) break;
         found += 3;
@@ -10496,7 +10497,7 @@ void ScriptJsonAppend(void) {
     char tmp[256];
     char *lp = glob_script_mem.section_ptr + 2;
     while (lp) {
-      while (*lp==SCRIPT_EOL) {
+      while (*lp == SCRIPT_EOL) {
        lp++;
       }
       if (!*lp || *lp=='#' || *lp=='>') {
