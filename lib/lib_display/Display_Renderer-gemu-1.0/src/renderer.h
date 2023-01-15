@@ -86,6 +86,7 @@ public:
   virtual uint16_t bgcol(void);
   virtual int8_t color_type(void);
   virtual void Splash(void);
+  virtual void Sleep(void);
   virtual char *devname(void);
   virtual LVGL_PARAMS *lvgl_pars(void);
   virtual void ep_update_mode(uint8_t mode);

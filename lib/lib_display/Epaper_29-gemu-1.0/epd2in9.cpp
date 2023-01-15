@@ -30,7 +30,7 @@
 
 #define EPD_29_V2
 
-#define BUSY_PIN 16
+//#define BUSY_PIN 16
 
 
 Epd::Epd(int16_t width, int16_t height) :

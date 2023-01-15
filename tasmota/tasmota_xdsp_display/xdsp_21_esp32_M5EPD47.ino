@@ -1,5 +1,5 @@
 /*
-  xdsp_20_esp32_M5EPD47.ino - M5Stack e-paper 4.7 inch support for Tasmota
+  xdsp_21_esp32_M5EPD47.ino - M5Stack e-paper 4.7 inch support for Tasmota
 
   Copyright (C) 2021  Theo Arends, Gerhard Mutz and M5Stack
 
@@ -21,7 +21,7 @@
 #ifdef USE_DISPLAY
 #ifdef USE_M5EPD47
 
-#define XDSP_20               20
+#define XDSP_21               21
 
 #define M5EPD47_BLACK  0
 #define M5EPD47_WHITE 15
@@ -87,7 +87,7 @@ void M5EpdInitDriver47(void) {
  * Interface
 \*********************************************************************************************/
 
-bool Xdsp20(uint32_t function)
+bool Xdsp21(uint32_t function)
 {
   bool result = false;
 
