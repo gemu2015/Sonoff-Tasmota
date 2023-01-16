@@ -488,7 +488,6 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   if (lutfsize && lutpsize) {
     // 2 table mode
     ep_mode = 1;
-    ep_update_mode = DISPLAY_INIT_FULL;
   }
 
   if (lut_cnt[0] > 0 && lut_cnt[1] == lut_cnt[2] && lut_cnt[1] == lut_cnt[3] && lut_cnt[1] == lut_cnt[4]) {
@@ -1130,9 +1129,14 @@ void uDisplay::reset_pin(int32_t msl, int32_t msh) {
 #define UDSP_BUSY_TIMEOUT 3000
 // epaper sync or delay
 void uDisplay::delay_sync(int32_t ms) {
+  uint8_t busy_level = HIGH;
+  if (ep_mode == 2) {
+    busy_level = LOW;
+  }
   uint32_t time = millis();
   if (busy_pin > 0) {
-    while (digitalRead(busy_pin) == HIGH) {
+
+    while (digitalRead(busy_pin) == busy_level) {
       delay(1);
       if  ((millis() - time) > UDSP_BUSY_TIMEOUT) {
         break;
@@ -2658,11 +2662,27 @@ void uDisplay::SetMemoryPointer(int x, int y) {
     spi_data8_EPD((y >> 8) & 0xFF);
 }
 
+#if 0
 void uDisplay::Send_EP_Data() {
   for (int i = 0; i < gys / 8 * gys; i++) {
       spi_data8_EPD(framebuffer[i]^0xff);
   }
 }
+#else
+void uDisplay::Send_EP_Data() {
+  uint16_t image_width = gxs & 0xFFF8;
+  uint16_t x = 0;
+  uint16_t y = 0;
+  uint16_t x_end = gxs - 1;
+  uint16_t y_end = gys - 1;
+
+  for (uint16_t j = 0; j < y_end - y + 1; j++) {
+    for (uint16_t i = 0; i < (x_end - x + 1) / 8; i++) {
+        spi_data8_EPD(framebuffer[i + j * (image_width / 8)]^0xff);
+    }
+  }
+}
+#endif
 
 void uDisplay::SetFrameMemory(
     const unsigned char* image_buffer,
