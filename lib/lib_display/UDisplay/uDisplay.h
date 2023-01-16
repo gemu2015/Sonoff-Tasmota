@@ -246,7 +246,7 @@ class uDisplay : public Renderer {
    uint8_t i2c_page_start;
    uint8_t i2c_page_end;
    int8_t reset;
-   uint8_t dsp_cmds[128];
+   uint8_t dsp_cmds[256];
    uint8_t dsp_ncmds;
    uint8_t dsp_on;
    uint8_t dsp_off;
@@ -296,12 +296,18 @@ class uDisplay : public Renderer {
    uint16_t lut3time;
    uint16_t lut_num;
    uint8_t ep_mode;
+   uint8_t ep_update_mode;
    uint8_t *lut_full;
    uint8_t lut_siz_full;
    uint8_t *lut_partial;
    uint8_t lut_siz_partial;
-   uint8_t *lut_array[MAX_LUTS];
 
+   uint8_t epcoffs_full;
+   uint8_t epc_full_cnt;
+   uint8_t epcoffs_part;
+   uint8_t epc_part_cnt;
+
+   uint8_t *lut_array[MAX_LUTS];
    uint8_t lut_cnt[MAX_LUTS];
    uint8_t lut_cmd[MAX_LUTS];
    uint8_t lut_siz[MAX_LUTS];
@@ -315,6 +321,9 @@ class uDisplay : public Renderer {
    int16_t rotmap_ymax;
    void pushColorsMono(uint16_t *data, uint16_t len, bool rgb16_swap = false);
    void delay_sync(int32_t time);
+   void reset_pin(int32_t delayl, int32_t delayh);
+   void delay_arg(uint32_t arg);
+   void Send_EP_Data(void);
 
 #ifdef USE_ESP32_S3
    int8_t par_cs;
@@ -372,6 +381,7 @@ class uDisplay : public Renderer {
    void cs_control(bool level);
    uint32_t get_sr_touch(uint32_t xp, uint32_t xm, uint32_t yp, uint32_t ym);
    void drawPixel_RGB(int16_t x, int16_t y, uint16_t color);
+   void send_spi_cmds(uint16_t cmd_offset, uint16_t cmd_size);
 #endif
 
 #ifdef ESP32
