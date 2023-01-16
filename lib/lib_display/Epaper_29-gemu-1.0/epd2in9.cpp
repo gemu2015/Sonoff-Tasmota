@@ -128,6 +128,9 @@ int Epd::Init(const unsigned char* lut) {
     sclk_pin=pin[GPIO_SSPI_SCLK];
 */
 
+    if (framebuffer) {
+    //  free(framebuffer);
+    }
     framebuffer = (uint8_t*)malloc(EPD_WIDTH * EPD_HEIGHT / 8);
     if (!framebuffer) return -1;
 

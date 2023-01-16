@@ -324,6 +324,7 @@ class uDisplay : public Renderer {
    void reset_pin(int32_t delayl, int32_t delayh);
    void delay_arg(uint32_t arg);
    void Send_EP_Data(void);
+   void send_spi_cmds(uint16_t cmd_offset, uint16_t cmd_size);
 
 #ifdef USE_ESP32_S3
    int8_t par_cs;
@@ -381,7 +382,6 @@ class uDisplay : public Renderer {
    void cs_control(bool level);
    uint32_t get_sr_touch(uint32_t xp, uint32_t xm, uint32_t yp, uint32_t ym);
    void drawPixel_RGB(int16_t x, int16_t y, uint16_t color);
-   void send_spi_cmds(uint16_t cmd_offset, uint16_t cmd_size);
 #endif
 
 #ifdef ESP32

@@ -488,7 +488,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   if (lutfsize && lutpsize) {
     // 2 table mode
     ep_mode = 1;
-    ep_update_mode = DISPLAY_INIT_PARTIAL;
+    ep_update_mode = DISPLAY_INIT_FULL;
   }
 
   if (lut_cnt[0] > 0 && lut_cnt[1] == lut_cnt[2] && lut_cnt[1] == lut_cnt[3] && lut_cnt[1] == lut_cnt[4]) {
@@ -632,6 +632,8 @@ void uDisplay::delay_arg(uint32_t args) {
 #define EP_SET_MEM_AREA 0x64
 #define EP_SET_MEM_PTR 0x65
 #define EP_SEND_DATA 0x66
+#define EP_CLR_FRAME 0x67
+#define EP_SEND_FRAME 0x68
 
 void uDisplay::send_spi_cmds(uint16_t cmd_offset, uint16_t cmd_size) {
 uint16_t index = 0;
@@ -657,9 +659,11 @@ uint16_t index = 0;
           break;
         case EP_LUT_FULL:
           SetLut(lut_full);
+          ep_update_mode = DISPLAY_INIT_FULL;
           break;
         case EP_LUT_PARTIAL:
           SetLut(lut_partial);
+          ep_update_mode = DISPLAY_INIT_PARTIAL;
           break;
         case EP_WAITIDLE:
           if (args & 1) {
@@ -678,14 +682,17 @@ uint16_t index = 0;
         case EP_SEND_DATA:
           Send_EP_Data();
           break;
+        case EP_CLR_FRAME:
+          ClearFrameMemory(0xFF);
+          break;
+        case EP_SEND_FRAME:
+          SetFrameMemory(framebuffer);
+          break;
       }
 #ifdef UDSP_DEBUG
       if (args & 1) {
         Serial.printf("%02x ", iob );
       }
-#endif
-
-#ifdef UDSP_DEBUG
       Serial.printf("\n");
 #endif
       if (args & 0x80) {  // delay after the command
@@ -740,7 +747,7 @@ Renderer *uDisplay::Init(void) {
     } else {
       framebuffer = (uint8_t*)calloc((gxs * gys * bpp) / 8, 1);
     }
-    #endif
+#endif // ESP8266
   }
 
   if (interface == _UDSP_I2C) {
@@ -751,7 +758,7 @@ Renderer *uDisplay::Init(void) {
     if (wire_n == 1) {
       wire = &Wire1;
     }
-#endif
+#endif // ESP32
     wire->begin(i2c_sda, i2c_scl);    // TODO: aren't I2C buses already initialized? Shouldn't this be moved to display driver?
 
 #ifdef UDSP_DEBUG
@@ -1119,7 +1126,7 @@ void uDisplay::reset_pin(int32_t msl, int32_t msh) {
 void uDisplay::delay_sync(int32_t ms) {
   uint32_t time = millis();
   if (busy_pin > 0) {
-    while (digitalRead(busy_pin) == 0) {      //0: busy, 1: idle
+    while (digitalRead(busy_pin) == HIGH) {
       delay(1);
       if  ((millis() - time) > UDSP_BUSY_TIMEOUT) {
         break;
@@ -1645,6 +1652,10 @@ void uDisplay::Splash(void) {
   setTextSize(splash_size);
   DrawStringAt(splash_xp, splash_yp, dname, fg_col, 0);
   Updateframe();
+
+#ifdef UDSP_DEBUG
+  Serial.printf("draw splash\n");
+#endif
 }
 
 void uDisplay::setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
@@ -2642,16 +2653,8 @@ void uDisplay::SetMemoryPointer(int x, int y) {
 }
 
 void uDisplay::Send_EP_Data() {
-  uint16_t image_width = gxs & 0xFFF8;
-  uint16_t x = 0;
-  uint16_t y = 0;
-  uint16_t x_end = gxs - 1;
-  uint16_t y_end = gys - 1;
-
-  for (uint16_t j = 0; j < y_end - y + 1; j++) {
-    for (uint16_t i = 0; i < (x_end - x + 1) / 8; i++) {
-        spi_data8_EPD(framebuffer[i + j * (image_width / 8)]^0xff);
-    }
+  for (int i = 0; i < gys / 8 * gys; i++) {
+      SendData(framebuffer[i])^0xff);
   }
 }
 
