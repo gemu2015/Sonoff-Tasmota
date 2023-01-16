@@ -637,6 +637,9 @@ void uDisplay::delay_arg(uint32_t args) {
 
 void uDisplay::send_spi_cmds(uint16_t cmd_offset, uint16_t cmd_size) {
 uint16_t index = 0;
+#ifdef UDSP_DEBUG
+  Serial.printf("start send cmd table\n");
+#endif
   while (1) {
     uint8_t iob;
     SPI_CS_LOW
@@ -727,6 +730,9 @@ uint16_t index = 0;
     }
     if (index >= cmd_size) break;
   }
+#ifdef UDSP_DEBUG
+  Serial.printf("end send cmd table\n");
+#endif
 }
 
 Renderer *uDisplay::Init(void) {
@@ -2654,7 +2660,7 @@ void uDisplay::SetMemoryPointer(int x, int y) {
 
 void uDisplay::Send_EP_Data() {
   for (int i = 0; i < gys / 8 * gys; i++) {
-      SendData(framebuffer[i])^0xff);
+      spi_data8_EPD(framebuffer[i]^0xff);
   }
 }
 
