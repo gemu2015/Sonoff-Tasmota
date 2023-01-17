@@ -28,7 +28,7 @@
 extern int Cache_WriteBack_Addr(uint32_t addr, uint32_t size);
 
 
-#define UDSP_DEBUG
+//#define UDSP_DEBUG
 
 #define renderer_swap(a, b) { int16_t t = a; a = b; b = t; }
 
@@ -1138,7 +1138,7 @@ void uDisplay::reset_pin(int32_t msl, int32_t msh) {
 // epaper sync or delay
 void uDisplay::delay_sync(int32_t ms) {
   uint8_t busy_level = HIGH;
-  if (ep_mode == 2) {
+  if (lvgl_param.busy_invert) {
     busy_level = LOW;
   }
   uint32_t time = millis();
