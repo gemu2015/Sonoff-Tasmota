@@ -1082,12 +1082,18 @@ void uDisplay::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
     ep_update_mode = p;
     if (p == DISPLAY_INIT_PARTIAL) {
       if (lutpsize) {
+#ifdef UDSP_DEBUG
+        Serial.printf("init partial epaper mode\n");
+#endif
         SetLut(lut_partial);
         Updateframe_EPD();
         delay_sync(lutptime * 10);
       }
       return;
     } else if (p == DISPLAY_INIT_FULL) {
+#ifdef UDSP_DEBUG
+      Serial.printf("init full epaper mode\n");
+#endif
       if (lutfsize) {
         SetLut(lut_full);
         Updateframe_EPD();
