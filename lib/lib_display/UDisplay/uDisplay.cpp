@@ -28,7 +28,7 @@
 extern int Cache_WriteBack_Addr(uint32_t addr, uint32_t size);
 
 
-//#define UDSP_DEBUG
+#define UDSP_DEBUG
 
 #define renderer_swap(a, b) { int16_t t = a; a = b; b = t; }
 
@@ -109,6 +109,8 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   startline = 0xA1;
   uint8_t section = 0;
   dsp_ncmds = 0;
+  epc_part_cnt = 0;
+  epc_full_cnt = 0;
   lut_num = 0;
   lvgl_param.data = 0;
   lvgl_param.fluslines = 40;
