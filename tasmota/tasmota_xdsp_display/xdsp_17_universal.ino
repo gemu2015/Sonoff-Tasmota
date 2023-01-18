@@ -298,11 +298,9 @@ int8_t cs;
     fp.write((uint8_t*)ddesc, DISPDESC_SIZE);
     fp.close();
 */
-
     // init renderer
     if (renderer) {
-      udisp = renderer;
-      delete udisp;
+      delete renderer;
       AddLog(LOG_LEVEL_DEBUG, PSTR("DSP: reinit"));
     }
 
@@ -420,7 +418,6 @@ int8_t cs;
     // release desc buffer
     if (fbuff) free(fbuff);
 
-return 0;
     renderer = udisp->Init();
     if (!renderer) return 0;
 

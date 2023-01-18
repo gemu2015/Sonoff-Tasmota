@@ -28,7 +28,7 @@
 extern int Cache_WriteBack_Addr(uint32_t addr, uint32_t size);
 
 
-#define UDSP_DEBUG
+//#define UDSP_DEBUG
 
 #define renderer_swap(a, b) { int16_t t = a; a = b; b = t; }
 
@@ -53,13 +53,13 @@ int8_t uDisplay::color_type(void) {
 }
 
 uDisplay::~uDisplay(void) {
-
 #ifdef UDSP_DEBUG
   Serial.printf("dealloc\n");
 #endif
-  if (framebuffer) {
-    free(framebuffer);
+  if (frame_buffer) {
+    free(frame_buffer);
   }
+
   if (lut_full) {
     free(lut_full);
   }
@@ -67,11 +67,13 @@ uDisplay::~uDisplay(void) {
   if (lut_partial) {
     free(lut_partial);
   }
+
   for (uint16_t cnt = 0; cnt < MAX_LUTS; cnt++ ) {
     if (lut_array[cnt]) {
       free(lut_array[cnt]);
     }
   }
+
 #ifdef USE_ESP32_S3
   if (_dmadesc) {
     heap_caps_free(_dmadesc);
@@ -127,7 +129,10 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   for (uint32_t cnt = 0; cnt < MAX_LUTS; cnt++) {
     lut_cnt[cnt] = 0;
     lut_cmd[cnt] = 0xff;
+    lut_array[cnt] = 0;
   }
+  lut_partial = 0;
+  lut_full = 0;
   char linebuff[128];
   while (*lp) {
 
@@ -501,7 +506,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   }
 
 #ifdef UDSP_DEBUG
-
+  Serial.printf("Device : %s\n", dname);
   Serial.printf("xs : %d\n", gxs);
   Serial.printf("ys : %d\n", gys);
   Serial.printf("bpp: %d\n", bpp);
@@ -759,6 +764,7 @@ Renderer *uDisplay::Init(void) {
     }
 #endif // ESP8266
   }
+  frame_buffer = framebuffer;
 
   if (interface == _UDSP_I2C) {
     if (wire_n == 0) {
