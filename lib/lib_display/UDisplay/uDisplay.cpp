@@ -28,7 +28,7 @@
 extern int Cache_WriteBack_Addr(uint32_t addr, uint32_t size);
 
 
-//#define UDSP_DEBUG
+#define UDSP_DEBUG
 
 #define renderer_swap(a, b) { int16_t t = a; a = b; b = t; }
 
@@ -52,10 +52,25 @@ int8_t uDisplay::color_type(void) {
   return col_type;
 }
 
-
 uDisplay::~uDisplay(void) {
+
+#ifdef UDSP_DEBUG
+  Serial.printf("dealloc\n");
+#endif
   if (framebuffer) {
     free(framebuffer);
+  }
+  if (lut_full) {
+    free(lut_full);
+  }
+
+  if (lut_partial) {
+    free(lut_partial);
+  }
+  for (uint16_t cnt = 0; cnt < MAX_LUTS; cnt++ ) {
+    if (lut_array[cnt]) {
+      free(lut_array[cnt]);
+    }
   }
 #ifdef USE_ESP32_S3
   if (_dmadesc) {
@@ -65,18 +80,6 @@ uDisplay::~uDisplay(void) {
   }
   if (_i80_bus) {
     esp_lcd_del_i80_bus(_i80_bus);
-  }
-
-  if (lut_full) {
-    free(lut_full);
-  }
-  if (lut_partial) {
-    free(lut_partial);
-  }
-  for (uint16_t cnt = 0; cnt < MAX_LUTS; cnt++ ) {
-    if (lut_array[cnt]) {
-      free(lut_array[cnt]);
-    }
   }
 #endif // USE_ESP32_S3
 }

@@ -56,9 +56,10 @@ class Renderer {
 #endif
 
   //Paint(unsigned char* image, int width, int height);
-  //~Renderer();
+
 public:
   Renderer(int16_t x, int16_t y);
+  virtual ~Renderer();
   void setTextFont(uint8_t f);
   void clearDisplay(void);
   virtual void DrawStringAt(int16_t x, int16_t y, const char* text,uint16_t colored,uint8_t flag);

@@ -301,7 +301,8 @@ int8_t cs;
 
     // init renderer
     if (renderer) {
-      delete renderer;
+      udisp = renderer;
+      delete udisp;
       AddLog(LOG_LEVEL_DEBUG, PSTR("DSP: reinit"));
     }
 
@@ -419,6 +420,7 @@ int8_t cs;
     // release desc buffer
     if (fbuff) free(fbuff);
 
+return 0;
     renderer = udisp->Init();
     if (!renderer) return 0;
 
