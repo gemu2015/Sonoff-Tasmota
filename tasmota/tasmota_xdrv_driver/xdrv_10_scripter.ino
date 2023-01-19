@@ -42,6 +42,9 @@ keywords if then else endif, or, and are better readable for beginners (others m
 
 #define XDRV_10             10
 
+
+const uint8_t SCRIPT_VERS[2] = {5, 0};
+
 #define SCRIPT_DEBUG 0
 
 #ifndef MAXVARS
@@ -8342,6 +8345,89 @@ bool Script_SubCmd(void) {
 }
 #endif //USE_SCRIPT_SUB_COMMAND
 
+
+void script_version(void) {
+uint32_t options = 0;
+#ifdef USE_BUTTON_EVENT
+  options |= 0x00000001;
+#endif
+#ifdef USE_SCRIPT_JSON_EXPORT
+  options |= 0x00000002;
+#endif
+#ifdef USE_SCRIPT_SUB_COMMAND
+  options |= 0x00000004;
+#endif
+#ifdef USE_SCRIPT_HUE
+  options |= 0x00000008;
+#endif
+#ifdef USE_HOMEKIT
+  options |= 0x00000010;
+#endif
+#ifdef USE_SCRIPT_STATUS
+  options |= 0x00000020;
+#endif
+#ifdef SUPPORT_MQTT_EVENT
+  options |= 0x00000040;
+#endif
+#ifdef USE_SENDMAIL
+  options |= 0x00000080;
+#endif
+#ifdef USE_SCRIPT_WEB_DISPLAY
+  options |= 0x00000100;
+#endif
+#ifdef SCRIPT_FULL_WEBPAGE
+  options |= 0x00000200;
+#endif
+#ifdef USE_TOUCH_BUTTONS
+  options |= 0x00000400;
+#endif
+#ifdef USE_WEBSEND_RESPONSE
+  options |= 0x00000800;
+#endif
+#ifdef USE_ANGLE_FUNC
+  options |= 0x00001000;
+#endif
+#ifdef USE_SCRIPT_TASK
+  options |= 0x00002000;
+#endif
+#ifdef USE_SCRIPT_GLOBVARS
+  options |= 0x00004000;
+#endif
+#ifdef USE_SCRIPT_TIMER
+  options |= 0x00008000;
+#endif
+#ifdef SCRIPT_GET_HTTPS_JP
+  options |= 0x00010000;
+#endif
+#ifdef LARGE_ARRAYS
+  options |= 0x00020000;
+#endif
+#ifdef SCRIPT_LARGE_VNBUFF
+  options |= 0x00040000;
+#endif
+#ifdef USE_GOOGLE_CHARTS
+  options |= 0x00080000;
+#endif
+#ifdef USE_FEXTRACT
+  options |= 0x00100000;
+#endif
+#ifdef USE_SCRIPT_SPI
+  options |= 0x00200000;
+#endif
+#ifdef USE_SCRIPT_I2C
+  options |= 0x00400000;
+#endif
+#ifdef USE_DSIPLAY_DUMP
+  options |= 0x00800000;
+#endif
+#ifdef USE_SCRIPT_SERIAL
+  options |= 0x01000000;
+#endif
+
+  Response_P(PSTR("{\"script\":{\"vers\":%d.%d,\"opts\":%08x}}"), SCRIPT_VERS[0], SCRIPT_VERS[1], options);
+}
+
+
 void execute_script(char *script) {
   char *svd_sp = glob_script_mem.scriptptr;
   strcat(script, "\n#");
@@ -8406,6 +8492,10 @@ bool ScriptCommand(void) {
           execute_script(XdrvMailbox.data);
         }
       }
+      if (!strcmp(XdrvMailbox.data, "-v")) {
+        script_version();
+        return serviced;
+      }
       if ('?' == XdrvMailbox.data[0]) {
         char *lp = XdrvMailbox.data;
         lp++;
@@ -8432,7 +8522,7 @@ bool ScriptCommand(void) {
         } else {
           glob_script_mem.glob_error = 0;
           GetNumericArgument(lp, OPER_EQU, &fvar, 0);
-          if (glob_script_mem.glob_error==1) {
+          if (glob_script_mem.glob_error == 1) {
             // was string, not number
             GetStringArgument(lp, OPER_EQU, str, 0);
             Response_P(PSTR("{\"script\":{\"%s\":\"%s\"}}"), lp, str);
