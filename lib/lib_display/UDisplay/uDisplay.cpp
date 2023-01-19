@@ -643,6 +643,10 @@ void uDisplay::delay_arg(uint32_t args) {
 #define EP_SEND_DATA 0x66
 #define EP_CLR_FRAME 0x67
 #define EP_SEND_FRAME 0x68
+#define EP_BREAK_RR_EQU 0x69
+#define EP_BREAK_RR_NEQ 0x6a
+
+extern int32_t ESP_ResetInfoReason();
 
 void uDisplay::send_spi_cmds(uint16_t cmd_offset, uint16_t cmd_size) {
 uint16_t index = 0;
@@ -700,6 +704,24 @@ uint16_t index = 0;
         case EP_SEND_FRAME:
           SetFrameMemory(framebuffer);
           break;
+        case EP_BREAK_RR_EQU:
+          if (args & 1) {
+            iob = dsp_cmds[cmd_offset++];
+            index++;
+            if (iob == ESP_ResetInfoReason()) {
+              goto exit;
+            }
+          }
+          break;
+        case EP_BREAK_RR_NEQ:
+          if (args & 1) {
+            iob = dsp_cmds[cmd_offset++];
+            index++;
+            if (iob != ESP_ResetInfoReason()) {
+              goto exit;
+            }
+          }
+          break;
       }
 #ifdef UDSP_DEBUG
       if (args & 1) {
@@ -739,9 +761,12 @@ uint16_t index = 0;
     }
     if (index >= cmd_size) break;
   }
+
+exit:
 #ifdef UDSP_DEBUG
   Serial.printf("end send cmd table\n");
 #endif
+  return;
 }
 
 Renderer *uDisplay::Init(void) {

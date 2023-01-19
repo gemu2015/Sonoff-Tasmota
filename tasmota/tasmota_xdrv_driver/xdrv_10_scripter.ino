@@ -4254,7 +4254,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 */
 
         if (!strncmp(lp, "rr(", 3)) {
-          lp+=4;
+          lp += 4;
           len = 0;
           const char *cp = GetResetReason().c_str();
           if (sp) {
@@ -4265,6 +4265,10 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
               }
           }
           goto strexit;
+        }
+        if (!strncmp(lp, "rrsn", 4)) {
+          fvar = ESP_ResetInfoReason();
+          goto exit;
         }
         if (!strncmp(lp, "rax", 3)) {
           TasmotaGlobal.no_autoexec = 0;
