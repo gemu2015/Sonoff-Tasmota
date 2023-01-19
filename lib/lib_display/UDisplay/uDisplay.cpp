@@ -709,6 +709,7 @@ uint16_t index = 0;
             iob = dsp_cmds[cmd_offset++];
             index++;
             if (iob == ESP_ResetInfoReason()) {
+              ep_update_mode = DISPLAY_INIT_PARTIAL;
               goto exit;
             }
           }
@@ -718,6 +719,7 @@ uint16_t index = 0;
             iob = dsp_cmds[cmd_offset++];
             index++;
             if (iob != ESP_ResetInfoReason()) {
+              ep_update_mode = DISPLAY_INIT_PARTIAL;
               goto exit;
             }
           }
