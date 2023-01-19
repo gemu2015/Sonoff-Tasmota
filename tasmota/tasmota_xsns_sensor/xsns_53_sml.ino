@@ -35,6 +35,8 @@
 
 #include <TasmotaSerial.h>
 
+#include "DataParsers.h"
+
 // use special no wait serial driver, should be always on
 #ifndef ESP32
 #define SPECIAL_SS
