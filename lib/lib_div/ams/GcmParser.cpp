@@ -1,10 +1,6 @@
 #include "GcmParser.h"
 #include "lwip/def.h"
-#if defined(ESP8266)
-#include "bearssl/bearssl.h"
-#elif defined(ESP32)
-#include "mbedtls/gcm.h"
-#endif
+#include <t_bearssl.h>
 
 GCMParser::GCMParser(uint8_t *encryption_key, uint8_t *authentication_key) {
     memcpy(this->encryption_key, encryption_key, 16);

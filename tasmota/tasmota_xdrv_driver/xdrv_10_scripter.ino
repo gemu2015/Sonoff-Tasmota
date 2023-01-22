@@ -103,7 +103,6 @@ char *Get_esc_char(char *cp, char *esc_chr);
 
 #undef USE_SCRIPT_FATFS
 #define USE_SCRIPT_FATFS -1
-// #pragma message "universal file system used"
 
 #else // USE_UFILESYS
 
@@ -511,7 +510,7 @@ struct SCRIPT_MEM {
 } glob_script_mem;
 
 
-uint8_t tasm_cmd_activ=0;
+uint8_t tasm_cmd_activ = 0;
 
 void flt2char(float num, char *nbuff) {
   dtostrfd(num, glob_script_mem.script_dprec, nbuff);
@@ -556,7 +555,9 @@ char *GetStringArgument(char *lp,uint8_t lastop,char *cp, struct GVARS *gv);
 char *ForceStringVar(char *lp,char *dstr);
 void send_download(void);
 uint8_t UfsReject(char *name);
+#ifdef USE_UFILESYS
 void fread_str_fp(File *fp, char *sp, uint16_t slen, uint16_t flg);
+#endif
 char *eval_sub(char *lp, float *fvar, char *rstr);
 
 void ScriptEverySecond(void) {
@@ -1253,7 +1254,8 @@ void ws2812_set_array(float *array ,uint32_t len, uint32_t offset) {
 #endif //USE_WS2812
 #endif //USE_LIGHT
 
-#ifdef USE_UFILESYS
+
+#if defined(USE_UFILESYS) && defined(USE_WEBSERVER) && defined(USE_SCRIPT_WEB_DISPLAY)
 int32_t script_copy_file(File *source, File *dest, uint32_t sf_from, uint32_t sf_to, uint32_t flag, WiFiClient *client) {
 int32_t res = 0;
 uint32_t fsize = sf_to - sf_from;
@@ -1483,12 +1485,12 @@ int8_t index;
 
 float DoMedian5(uint8_t index, float in) {
 
-  if (index>=MEDIAN_FILTER_NUM) index = 0;
+  if (index >= MEDIAN_FILTER_NUM) index = 0;
 
   struct MEDIAN_FILTER* mf = &script_mf[index];
   mf->buffer[mf->index] = in;
   mf->index++;
-  if (mf->index>=MEDIAN_SIZE) mf->index = 0;
+  if (mf->index >= MEDIAN_SIZE) mf->index = 0;
   return median_array(mf->buffer, MEDIAN_SIZE);
 }
 
