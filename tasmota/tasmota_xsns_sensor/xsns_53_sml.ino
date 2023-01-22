@@ -35,7 +35,7 @@
 
 #include <TasmotaSerial.h>
 
-#include "DataParsers.h"
+#include "han_Parser.h"
 
 // use special no wait serial driver, should be always on
 #ifndef ESP32
@@ -2397,6 +2397,16 @@ char *SpecOptions(char *cp, uint32_t mnum) {
 }
 
 #ifdef USE_SML_DECRYPT
+
+#include "han_Parser.h"
+
+uint8_t *ams_decode(uint8_t *data, uint32_t dlen, uint8_t *key, uint16_t *size) {
+	Han_Parser *hp = new Han_Parser(0,0,0, key, 0);
+	uint8_t *buff;
+	uint16_t len;
+	hp->readHanPort(&buff, &len);
+	return 0;
+}
 
 //// calculate crc16 CCITT
 uint16_t hdlc_crc16(const uint8_t *dp, uint8_t len) {

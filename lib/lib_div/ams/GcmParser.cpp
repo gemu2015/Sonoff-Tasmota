@@ -52,6 +52,8 @@ int8_t GCMParser::parse(uint8_t *d, DataParserContext &ctx) {
 
     uint8_t additional_authenticated_data[17];
     memcpy(additional_authenticated_data, ptr, 1);
+    ptr++;
+    headersize++;
 
     // Security tag
     uint8_t sec = *ptr;
@@ -76,55 +78,13 @@ int8_t GCMParser::parse(uint8_t *d, DataParserContext &ctx) {
         memcpy(authentication_tag, ptr + len - footersize - 5, authkeylen);
     }
 
-    #if defined(ESP8266)
-        br_gcm_context gcmCtx;
-        br_aes_ct_ctr_keys bc;
-        br_aes_ct_ctr_init(&bc, encryption_key, 16);
-        br_gcm_init(&gcmCtx, &bc.vtable, br_ghash_ctmul32);
-        br_gcm_reset(&gcmCtx, initialization_vector, sizeof(initialization_vector));
-        if(authkeylen > 0) {
-            br_gcm_aad_inject(&gcmCtx, additional_authenticated_data, aadlen);
-        }
-        br_gcm_flip(&gcmCtx);
-        br_gcm_run(&gcmCtx, 0, (void*) (ptr), len - authkeylen - 5); // 5 == security tag and frame counter
-        if(authkeylen > 0 && br_gcm_check_tag_trunc(&gcmCtx, authentication_tag, authkeylen) != 1) {
-            return GCM_AUTH_FAILED;
-        }
-    #elif defined(ESP32)
-        uint8_t cipher_text[len - authkeylen - 5];
-        memcpy(cipher_text, ptr, len - authkeylen - 5);
-
-        mbedtls_gcm_context m_ctx;
-        mbedtls_gcm_init(&m_ctx);
-        int success = mbedtls_gcm_setkey(&m_ctx, MBEDTLS_CIPHER_ID_AES, encryption_key, 128);
-        if (0 != success) {
-            return GCM_ENCRYPTION_KEY_FAILED;
-        }
-        if (0 < authkeylen) {
-            success = mbedtls_gcm_auth_decrypt(&m_ctx, sizeof(cipher_text), initialization_vector, sizeof(initialization_vector),
-                additional_authenticated_data, aadlen, authentication_tag, authkeylen,
-                cipher_text, (unsigned char*)(ptr));
-            if (authkeylen > 0 && success == MBEDTLS_ERR_GCM_AUTH_FAILED) {
-                mbedtls_gcm_free(&m_ctx);
-                return GCM_AUTH_FAILED;
-            } else if(success == MBEDTLS_ERR_GCM_BAD_INPUT) {
-                mbedtls_gcm_free(&m_ctx);
-                return GCM_DECRYPT_FAILED;
-            }
-        } else {
-            success = mbedtls_gcm_starts(&m_ctx, MBEDTLS_GCM_DECRYPT, initialization_vector, sizeof(initialization_vector),NULL, 0);
-            if (0 != success) {
-                mbedtls_gcm_free(&m_ctx);
-                return GCM_DECRYPT_FAILED;
-            }
-            success = mbedtls_gcm_update(&m_ctx, sizeof(cipher_text), cipher_text, (unsigned char*)(ptr));
-            if (0 != success) {
-                mbedtls_gcm_free(&m_ctx);
-                return GCM_DECRYPT_FAILED;
-            }
-        }
-        mbedtls_gcm_free(&m_ctx);
-    #endif
+    br_gcm_context gcm_ctx;
+  	br_aes_small_ctr_keys ctr_ctx;
+  	br_aes_small_ctr_init(&ctr_ctx, encryption_key, 16);
+  	br_gcm_init(&gcm_ctx, &ctr_ctx.vtable, &br_ghash_ctmul32);
+    br_gcm_reset(&gcm_ctx, initialization_vector, 12);
+    br_gcm_flip(&gcm_ctx);
+  	br_gcm_run(&gcm_ctx, 0, ptr , ctx.length - headersize);
 
     ctx.length -= footersize + headersize;
     return ptr-d;
