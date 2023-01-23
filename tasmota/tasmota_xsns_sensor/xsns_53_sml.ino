@@ -574,7 +574,7 @@ uint8_t Serial_peek() {
 
 
 #define SML_EBUS_SKIP_SYNC_DUMPS
-uint8_t *hdlc_decode(uint8_t *data, uint32_t dlen, uint8_t *key, uint16_t *size);
+uint8_t *hdlc_decode(struct METER_DESC *mp, uint16_t *size);
 
 void dump2log(void) {
   int16_t index = 0, hcnt = 0;
@@ -614,7 +614,7 @@ void dump2log(void) {
 					}
 					mp->last_iob = iob;
 					uint16_t logsiz;
-					uint8_t *fbuff = hdlc_decode(mp->sbuff,  mp->spos, meter_desc[meter].key, &logsiz);
+					uint8_t *fbuff = hdlc_decode(mp, &logsiz);
 					if (fbuff) {
 						// we decoded a valid frame
 						AddLog(LOG_LEVEL_INFO, PSTR(">> decrypted block: %d bytes"), logsiz);
@@ -1181,7 +1181,7 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
 		mp->last_iob = iob;
 
 		uint16_t logsiz;
-		uint8_t *db = hdlc_decode(mp->sbuff,  mp->spos, mp->key, &logsiz);
+		uint8_t *db = hdlc_decode(mp, &logsiz);
 		if (db) {
 			// we decoded a valid frame
 			memmove(mp->sbuff, db, logsiz);
@@ -2404,12 +2404,18 @@ char *SpecOptions(char *cp, uint32_t mnum) {
 
 #ifdef USE_SML_DECRYPT
 
+uint16_t serial_dispatch(uint8_t meter, uint8_t sel) {
+	if (!sel) {
+		return meter_desc[meter].meter_ss->available();
+	}
+	return meter_desc[meter].meter_ss->read();
+}
 
-uint8_t *ams_decode(uint8_t *data, uint32_t dlen, uint8_t *key, uint16_t *size) {
-	Han_Parser *hp = new Han_Parser(nullptr,nullptr, key, 0);
+
+uint8_t *ams_decode(struct METER_DESC *mp, uint16_t *size) {
 	uint8_t *buff;
 	uint16_t len;
-	hp->readHanPort(&buff, &len);
+	mp->hp->readHanPort(&buff, &len);
 	return 0;
 }
 
@@ -2440,11 +2446,13 @@ uint16_t hdlc_crc16(const uint8_t *dp, uint8_t len) {
   crc = (crc << 8) | (data >> 8 & 0xff);
 	return crc;
 }
-
-uint8_t *hdlc_decode(uint8_t *data, uint32_t dlen, uint8_t *key, uint16_t *size) {
+uint8_t *hdlc_decode(struct METER_DESC *mp, uint16_t *size) {
+	uint8_t *data = mp->sbuff;
+	uint16_t dlen = mp->spos;
 	if (dlen < 31) {
 		return 0;
 	}
+
 	uint16_t crc = hdlc_crc16(data + 1, dlen - 4);
 	uint16_t dcrc = data[dlen - 3] << 8 | data[dlen - 2];
 	if (crc != dcrc) {
@@ -2465,7 +2473,7 @@ uint8_t *hdlc_decode(uint8_t *data, uint32_t dlen, uint8_t *key, uint16_t *size)
 
 	br_gcm_context gcm_ctx;
 	br_aes_small_ctr_keys ctr_ctx;
-	br_aes_small_ctr_init(&ctr_ctx, key, 16);
+	br_aes_small_ctr_init(&ctr_ctx, mp->key, 16);
 	br_gcm_init(&gcm_ctx, &ctr_ctx.vtable, &br_ghash_ctmul32);
   br_gcm_reset(&gcm_ctx, ivec, 12);
   br_gcm_flip(&gcm_ctx);
@@ -2969,8 +2977,7 @@ next_line:
 
 #ifdef USE_SML_DECRYPT
 		if (mp->use_crypt) {
-			//mp->hp = new Han_Parser(mp->meter_ss->available, mp->meter_ss->read, mp->key, nullptr);
-			mp->hp = new Han_Parser(nullptr, nullptr, mp->key, nullptr);
+			mp->hp = new Han_Parser(serial_dispatch, meters, mp->key, nullptr);
 		}
 #endif
   }

@@ -3,9 +3,9 @@
 
 #define debugV
 
-Han_Parser::Han_Parser(int (*sa)(void), int (*sr)(void), uint8_t *key, uint8_t *auth) {
-    serial_available = sa;
-    serial_read = sr;
+Han_Parser::Han_Parser(uint16_t (dp)(uint8_t, uint8_t), uint8_t m, uint8_t *key, uint8_t *auth) {
+    dispatch = dp;
+    meter = m;
     memmove(encryptionKey, key, 16);
     if (auth) memmove(authenticationKey, auth, 16);
 }
@@ -18,6 +18,13 @@ Han_Parser::~Han_Parser(void) {
   if (llcParser) delete llcParser;
   if (dlmsParser) delete dlmsParser;
   if (dsmrParser) delete dsmrParser;
+}
+
+int Han_Parser::serial_available(void) {
+  return dispatch(meter, 0);
+}
+int Han_Parser::serial_read(void) {
+  return dispatch(meter, 1);
 }
 
 int16_t Han_Parser::serial_readBytes(uint8_t *buf, uint16_t size) {
