@@ -41,8 +41,6 @@ int8_t Han_Parser::readHanPort(uint8_t **out, uint16_t *size) {
 
 	if (!serial_available()) return false;
 
-  //serialInit = true;
-
 	// Before reading, empty serial buffer to increase chance of getting first byte of a data transfer
 	if (!serialInit) {
 		serial_readBytes(hanBuffer, BUF_SIZE_HAN);

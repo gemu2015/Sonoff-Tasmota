@@ -464,6 +464,7 @@ struct SML_GLOBS {
   uint8_t ser_act_meter_num = 0;
   uint16_t sml_logindex;
   char *log_data;
+	uint16_t logsize = SML_DUMP_SIZE;
 #if defined(ED300L) || defined(AS2020) || defined(DTZ541) || defined(USE_SML_SPECOPT)
   uint8_t sml_status[MAX_METERS];
   uint8_t g_mindex;
@@ -596,10 +597,31 @@ void dump2log(void) {
       while ((millis() - d_lastms) < 40) {
         while (SML_SAVAILABLE) {
 					uint8_t iob = SML_SREAD;
+					uint16_t logsiz;
+					if (mp->hp->readHanPort(&mp->sbuff, &logsiz)) {
+						AddLog(LOG_LEVEL_INFO, PSTR(">> decrypted block: %d bytes"), logsiz);
+						uint16_t index = 0;
+						while (logsiz) {
+							sml_globs.log_data[0] = ':';
+		          sml_globs.log_data[1] = '>';
+							sml_globs.sml_logindex = 2;
+							for (uint16_t cnt = 0; cnt < 16; cnt++) {
+								sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x ", mp->sbuff[index++]);
+								if (sml_globs.sml_logindex < sml_globs.logsize - 7) {
+				          sml_globs.sml_logindex += 3;
+				        }
+								logsiz--;
+								if (!logsiz) {
+									break;
+								}
+							}
+							AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
+					}
           sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x ", iob);
-					if (sml_globs.sml_logindex < SML_DUMP_SIZE - 7) {
+					if (sml_globs.sml_logindex < sml_globs.logsize - 7) {
 	          sml_globs.sml_logindex += 3;
 	        }
+/*
 					// fill raw serial buffer
 					mp->sbuff[mp->spos] = iob;
 					mp->spos++;
@@ -615,6 +637,7 @@ void dump2log(void) {
 					mp->last_iob = iob;
 					uint16_t logsiz;
 					uint8_t *fbuff = hdlc_decode(mp, &logsiz);
+
 					if (fbuff) {
 						// we decoded a valid frame
 						AddLog(LOG_LEVEL_INFO, PSTR(">> decrypted block: %d bytes"), logsiz);
@@ -634,7 +657,7 @@ void dump2log(void) {
 								}
 							}
 							AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
-						}
+						}*/
 					}
         }
       }
@@ -705,7 +728,7 @@ void dump2log(void) {
           	continue;
         	}
         	sml_globs.log_data[sml_globs.sml_logindex] = c;
-        	if (sml_globs.sml_logindex < SML_DUMP_SIZE - 2) {
+        	if (sml_globs.sml_logindex < sml_globs.logsize - 2) {
           	sml_globs.sml_logindex++;
         	}
       	}
@@ -723,7 +746,7 @@ void dump2log(void) {
           	sml_globs.sml_logindex = 2;
         	}
         	sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x ", c);
-        	if (sml_globs.sml_logindex < SML_DUMP_SIZE - 7) {
+        	if (sml_globs.sml_logindex < sml_globs.logsize - 7) {
           	sml_globs.sml_logindex += 3;
         	}
       	}
@@ -746,7 +769,7 @@ void dump2log(void) {
           	continue;
         	}
         	sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x ", c);
-        	if (sml_globs.sml_logindex < SML_DUMP_SIZE - 7) {
+        	if (sml_globs.sml_logindex < sml_globs.logsize - 7) {
           	sml_globs.sml_logindex += 3;
         	}
       	}
@@ -765,7 +788,7 @@ void dump2log(void) {
           	sml_globs.sml_logindex = 2;
         	}
         	sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x ", c);
-        	if (sml_globs.sml_logindex < SML_DUMP_SIZE - 7) {
+        	if (sml_globs.sml_logindex < sml_globs.logsize - 7) {
           	sml_globs.sml_logindex += 3;
         	}
       	}
@@ -780,7 +803,7 @@ void dump2log(void) {
       	while ((millis() - d_lastms) < 40) {
         	while (SML_SAVAILABLE) {
           	sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x ", SML_SREAD);
-						if (sml_globs.sml_logindex < SML_DUMP_SIZE - 7) {
+						if (sml_globs.sml_logindex < sml_globs.logsize - 7) {
 	          	sml_globs.sml_logindex += 3;
 	        	} else {
 							break;
@@ -1166,6 +1189,16 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
 
 #ifdef USE_SML_DECRYPT
 	if (mp->use_crypt) {
+
+#if 1
+		if (mp->hp) {
+			uint16_t len;
+			if (mp->hp->readHanPort(&mp->sbuff, &len)) {
+				AddLog(LOG_LEVEL_INFO, PSTR(">> decrypted block: %d bytes"), len);
+				SML_Decode(meters);
+			}
+		}
+#else
 		uint8_t iob = (uint8_t)mp->meter_ss->read();
 		if (mp->spos < mp->sbsiz) {
 			mp->sbuff[mp->spos] = iob;
@@ -1189,6 +1222,7 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
 			SML_Decode(meters);
 		}
 		return;
+#endif
 	}
 #endif
 
@@ -2398,6 +2432,10 @@ char *SpecOptions(char *cp, uint32_t mnum) {
 			}
 #endif
 			break;
+		case '5':
+			cp += 2;
+			sml_globs.logsize = strtol(cp, &cp, 10);
+			break;
 	}
 	return cp;
 }
@@ -2411,11 +2449,12 @@ uint16_t serial_dispatch(uint8_t meter, uint8_t sel) {
 	return meter_desc[meter].meter_ss->read();
 }
 
-
-uint8_t *ams_decode(struct METER_DESC *mp, uint16_t *size) {
+uint8_t ams_decode(struct METER_DESC *mp, uint16_t *size) {
 	uint8_t *buff;
 	uint16_t len;
-	mp->hp->readHanPort(&buff, &len);
+	if (mp->hp) {
+		return mp->hp->readHanPort(&buff, &len);
+	}
 	return 0;
 }
 
@@ -3514,7 +3553,7 @@ bool XSNS_53_cmd(void) {
 				}
 
 				if (index > 0) {
-					sml_globs.log_data = (char*)calloc(SML_DUMP_SIZE, sizeof(char));
+					sml_globs.log_data = (char*)calloc(sml_globs.logsize, sizeof(char));
 				}
         sml_globs.dump2log = index;
         ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"dump: %d\"}}"), sml_globs.dump2log);

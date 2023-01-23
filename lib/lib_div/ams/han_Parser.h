@@ -38,7 +38,7 @@ private:
 		uint8_t hanBuffer[BUF_SIZE_HAN];
     uint8_t meter;
 		int len = 0;
-		bool serialInit = false;
+		bool serialInit = true;
 		bool Debug = true;
 };
 #endif
