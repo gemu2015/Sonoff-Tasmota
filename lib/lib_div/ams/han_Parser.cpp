@@ -3,12 +3,31 @@
 
 #define debugV
 
-Han_Parser::Han_Parser(int16_t (*sa)(void), uint8_t (*sr)(void), int16_t (*srb)(uint8_t *, uint16_t), uint8_t *key, uint8_t *auth) {
+Han_Parser::Han_Parser(int (*sa)(void), int (*sr)(void), uint8_t *key, uint8_t *auth) {
     serial_available = sa;
     serial_read = sr;
-    serial_readBytes = srb;
     memmove(encryptionKey, key, 16);
     if (auth) memmove(authenticationKey, auth, 16);
+}
+
+Han_Parser::~Han_Parser(void) {
+  if (hdlcParser) delete hdlcParser;
+  if (mbusParser) delete mbusParser;
+  if (gbtParser) delete gbtParser;
+  if (gcmParser) delete gcmParser;
+  if (llcParser) delete llcParser;
+  if (dlmsParser) delete dlmsParser;
+  if (dsmrParser) delete dsmrParser;
+}
+
+int16_t Han_Parser::serial_readBytes(uint8_t *buf, uint16_t size) {
+  if (size > serial_available()) {
+    size = serial_available();
+  }
+  for (uint16_t cnt = 0; cnt < size; cnt++) {
+    buf[cnt] = serial_read();
+  }
+  return size;
 }
 
 int8_t Han_Parser::readHanPort(uint8_t **out, uint16_t *size) {

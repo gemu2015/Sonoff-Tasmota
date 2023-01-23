@@ -89,6 +89,11 @@
 #define USE_SML_MEDIAN_FILTER
 #endif
 
+
+#ifdef USE_SML_DECRYPT
+#include "han_Parser.h"
+#endif
+
 /* special options per meter
 1:
 special binary SML option for meters that use a bit in the status register to sign import or export like ED300L, AS2020 or DTZ541
@@ -133,9 +138,9 @@ public:
   virtual ~SML_ESP32_SERIAL();
   bool begin(uint32_t speed, uint32_t smode, int32_t recpin, int32_t trxpin);
   int32_t peek(void);
-  int32_t read(void) override;
+  int read(void) override;
   size_t write(uint8_t byte) override;
-  int32_t available(void) override;
+  int available(void) override;
   void flush(void) override;
   void setRxBufferSize(uint32_t size);
   void updateBaudRate(uint32_t baud);
@@ -234,7 +239,7 @@ int32_t SML_ESP32_SERIAL::peek(void) {
   }
 }
 
-int32_t SML_ESP32_SERIAL::read(void) {
+int SML_ESP32_SERIAL::read(void) {
   if (hws) {
     return hws->read();
   } else {
@@ -245,7 +250,7 @@ int32_t SML_ESP32_SERIAL::read(void) {
   }
 }
 
-int32_t SML_ESP32_SERIAL::available(void) {
+int SML_ESP32_SERIAL::available(void) {
   if (hws) {
     return hws->available();
   } else {
@@ -403,6 +408,7 @@ struct METER_DESC {
 	bool use_crypt;
 	uint8_t last_iob;
 	uint8_t key[SML_CRYPT_SIZE];
+	Han_Parser *hp;
 #endif
 };
 
@@ -2398,10 +2404,9 @@ char *SpecOptions(char *cp, uint32_t mnum) {
 
 #ifdef USE_SML_DECRYPT
 
-#include "han_Parser.h"
 
 uint8_t *ams_decode(uint8_t *data, uint32_t dlen, uint8_t *key, uint16_t *size) {
-	Han_Parser *hp = new Han_Parser(0,0,0, key, 0);
+	Han_Parser *hp = new Han_Parser(nullptr,nullptr, key, 0);
 	uint8_t *buff;
 	uint16_t len;
 	hp->readHanPort(&buff, &len);
@@ -2473,36 +2478,45 @@ uint8_t *hdlc_decode(uint8_t *data, uint32_t dlen, uint8_t *key, uint16_t *size)
 void reset_sml_vars(uint16_t maxmeters) {
 
   for (uint32_t meters = 0; meters < maxmeters; meters++) {
-    meter_desc[meters].spos = 0;
-    meter_desc[meters].sbsiz = SML_BSIZ;
-    meter_desc[meters].sibsiz = TMSBSIZ;
-    if (meter_desc[meters].sbuff) {
-      free(meter_desc[meters].sbuff);
-      meter_desc[meters].sbuff = 0;
+
+		struct METER_DESC *mp = &meter_desc[meters];
+    mp->spos = 0;
+    mp->sbsiz = SML_BSIZ;
+    mp->sibsiz = TMSBSIZ;
+    if (mp->sbuff) {
+      free(mp->sbuff);
+      mp->sbuff = 0;
     }
 #ifdef USE_SML_SPECOPT
-    meter_desc[meters].so_obis1 = 0;
-    meter_desc[meters].so_obis2 = 0;
+    mp->so_obis1 = 0;
+    mp->so_obis2 = 0;
 #endif
-    meter_desc[meters].so_flags = 0;
+    mp->so_flags = 0;
     // addresses a bug in meter DWS74
 #ifdef DWS74_BUG
-    meter_desc[meters].so_flags |= SO_DWS74_BUG;
+    mp->so_flags |= SO_DWS74_BUG;
 #endif
 
 #ifdef SML_OBIS_LINE
-    meter_desc[meters].so_flags |= SO_OBIS_LINE;
+    mp->so_flags |= SO_OBIS_LINE;
 #endif
-    if (meter_desc[meters].txmem) {
-      free(meter_desc[meters].txmem);
-      meter_desc[meters].txmem = 0;
+    if (mp->txmem) {
+      free(mp->txmem);
+      mp->txmem = 0;
     }
-    meter_desc[meters].txmem = 0;
-    meter_desc[meters].trxpin = -1;
-    if (meter_desc[meters].meter_ss) {
-        delete meter_desc[meters].meter_ss;
-        meter_desc[meters].meter_ss = NULL;
+    mp->txmem = 0;
+    mp->trxpin = -1;
+    if (mp->meter_ss) {
+        delete mp->meter_ss;
+        mp->meter_ss = NULL;
     }
+#ifdef USE_SML_DECRYPT
+		if (mp->use_crypt) {
+			if (mp->hp) {
+				delete mp->hp;
+			}
+		}
+#endif
   }
 }
 
@@ -2952,6 +2966,13 @@ next_line:
     } else {
       mp->shift_mode = (type != 'o' && type != 'e' && type != 'k' && type != 'm' && type != 'M' && type != 'p' && type != 'R' && type != 'v');
     }
+
+#ifdef USE_SML_DECRYPT
+		if (mp->use_crypt) {
+			//mp->hp = new Han_Parser(mp->meter_ss->available, mp->meter_ss->read, mp->key, nullptr);
+			mp->hp = new Han_Parser(nullptr, nullptr, mp->key, nullptr);
+		}
+#endif
   }
 
   sml_globs.ready = true;

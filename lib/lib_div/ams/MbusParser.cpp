@@ -1,5 +1,9 @@
 #include "MbusParser.h"
 
+
+MBUSParser::~MBUSParser(void) {
+  if (buf) free(buf);
+}
 int8_t MBUSParser::parse(uint8_t *d, DataParserContext &ctx) {
     int len;
     int headersize = 3;

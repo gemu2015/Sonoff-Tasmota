@@ -10,21 +10,21 @@
 
 int16_t serial_available(void);
 uint8_t serial_read(void);
-int16_t serial_readBytes(uint8_t *, uint16_t);
 
 class Han_Parser
 {
 public:
-    Han_Parser(int16_t (*)(void), uint8_t (*)(void), int16_t (*)(uint8_t *, uint16_t), uint8_t *, uint8_t *);
+    Han_Parser(int (*)(void), int (*)(void), uint8_t *, uint8_t *);
+    ~Han_Parser(void);
     int8_t readHanPort(uint8_t **out, uint16_t *size);
 		int16_t unwrapData(uint8_t *buf, DataParserContext &context);
 		void printHanReadError(int16_t pos);
 		uint8_t encryptionKey[16];
 		uint8_t authenticationKey[16];
 private:
-    int16_t (*serial_available)(void);
-    uint8_t (*serial_read)(void);
-    int16_t (*serial_readBytes)(uint8_t *, uint16_t);
+    int (*serial_available)(void);
+    int (*serial_read)(void);
+    int16_t serial_readBytes(uint8_t *, uint16_t);
 		HDLCParser *hdlcParser = NULL;
 		MBUSParser *mbusParser = NULL;
 		GBTParser *gbtParser = NULL;

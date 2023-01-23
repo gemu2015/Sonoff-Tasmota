@@ -1,6 +1,10 @@
 #include "GbtParser.h"
 #include "lwip/def.h"
 
+GBTParser::~GBTParser(void) {
+  if (buf) free(buf);
+}
+
 int8_t GBTParser::parse(uint8_t *d, DataParserContext &ctx) {
     GBTHeader* h = (GBTHeader*) (d);
     uint16_t sequence = ntohs(h->sequence);

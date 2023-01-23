@@ -23,7 +23,8 @@ typedef struct MbusFooter {
 class MBUSParser {
 public:
     int8_t parse(uint8_t *buf, DataParserContext &ctx);
-	uint16_t write(const uint8_t* d, DataParserContext &ctx);
+		~MBUSParser(void);
+		uint16_t write(const uint8_t* d, DataParserContext &ctx);
 private:
     uint8_t lastSequenceNumber = 0;
     uint16_t pos = 0;

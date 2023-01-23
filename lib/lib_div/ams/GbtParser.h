@@ -17,6 +17,7 @@ typedef struct GBTHeader {
 class GBTParser {
 public:
     int8_t parse(uint8_t *buf, DataParserContext &ctx);
+		~GBTParser(void);
 private:
     uint8_t lastSequenceNumber = 0;
     uint16_t pos = 0;

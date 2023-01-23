@@ -44,12 +44,8 @@ int8_t GCMParser::parse(uint8_t *d, DataParserContext &ctx) {
     if(len + headersize > ctx.length)
         return DATA_PARSE_INCOMPLETE;
 
-    //Serial.printf("\nL: %d : %d, %d\n", length, len, headersize);
-
     uint8_t additional_authenticated_data[17];
     memcpy(additional_authenticated_data, ptr, 1);
-    ptr++;
-    headersize++;
 
     // Security tag
     uint8_t sec = *ptr;
@@ -83,5 +79,5 @@ int8_t GCMParser::parse(uint8_t *d, DataParserContext &ctx) {
   	br_gcm_run(&gcm_ctx, 0, ptr , ctx.length - headersize);
 
     ctx.length -= footersize + headersize;
-    return ptr-d;
+    return ptr - d;
 }
