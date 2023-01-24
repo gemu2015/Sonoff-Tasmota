@@ -40,7 +40,7 @@ int16_t Han_Parser::serial_readBytes(uint8_t *buf, uint16_t size) {
   return size;
 }
 
-int8_t Han_Parser::readHanPort(uint8_t **out, uint16_t *size) {
+bool Han_Parser::readHanPort(uint8_t **out, uint16_t *size) {
 
 	if (!serial_available()) return false;
 

@@ -16,7 +16,7 @@ class Han_Parser
 public:
     Han_Parser(uint16_t (*)(uint8_t, uint8_t), uint8_t, uint8_t *, uint8_t *);
     ~Han_Parser(void);
-    int8_t readHanPort(uint8_t **out, uint16_t *size);
+    bool readHanPort(uint8_t **out, uint16_t *size);
 		int16_t unwrapData(uint8_t *buf, DataParserContext &context);
 		void printHanReadError(int16_t pos);
 		uint8_t encryptionKey[16];

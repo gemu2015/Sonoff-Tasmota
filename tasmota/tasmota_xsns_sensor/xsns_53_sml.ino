@@ -409,7 +409,7 @@ struct METER_DESC {
   TasmotaSerial *meter_ss;
 #endif  // ESP8266
 #ifdef USE_SML_DECRYPT
-	bool use_crypt;
+	bool use_crypt = false;
 	uint8_t last_iob;
 	uint8_t key[SML_CRYPT_SIZE];
 	Han_Parser *hp;
@@ -552,9 +552,9 @@ double sml_median(struct SML_MEDIAN_FILTER* mf, double in) {
 
 #define SML_SAVAILABLE Serial_available()
 #define SML_SREAD Serial_read()
-#define SML_SPEAK Serial_peek()
+#define SML_SPEEK Serial_peek()
 
-bool Serial_available() {
+uint16_t Serial_available() {
   uint8_t num = sml_globs.dump2log & 7;
   if (num < 1 || num > sml_globs.meters_used) num = 1;
   if (!meter_desc[num - 1].meter_ss) return 0;
@@ -602,7 +602,12 @@ void dump2log(void) {
         while (SML_SAVAILABLE) {
 					d_lastms = millis();
 					uint16_t logsiz;
-					if (mp->hp->readHanPort(&mp->sbuff, &logsiz)) {
+					uint8_t *payload;
+					if (mp->hp->readHanPort(&payload, &logsiz)) {
+						if (logsiz > mp->sbsiz) {
+							logsiz = mp->sbsiz;
+						}
+						memmove(mp->sbuff, payload, logsiz);
 						AddLog(LOG_LEVEL_INFO, PSTR(">> decrypted block: %d bytes"), logsiz);
 						uint16_t index = 0;
 						while (logsiz) {
@@ -723,7 +728,7 @@ void dump2log(void) {
       	while (SML_SAVAILABLE) {
         	c = SML_SREAD;
         	if (c == EBUS_SYNC) {
-          	p = SML_SPEAK;
+          	p = SML_SPEEK;
           	if (p != EBUS_SYNC && sml_globs.sml_logindex > 5) {
             	// new packet, plot last one
             	sml_globs.log_data[sml_globs.sml_logindex] = 0;
@@ -761,22 +766,27 @@ void dump2log(void) {
       	// raw dump
       	d_lastms = millis();
       	sml_dump_start(' ');
-      	while ((millis() - d_lastms) < 40) {
-        	while (SML_SAVAILABLE) {
+				while ((millis() - d_lastms) < 40) {
+					while (SML_SAVAILABLE) {
+						d_lastms = millis();
+						yield();
           	sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x ", SML_SREAD);
 						if (sml_globs.sml_logindex < sml_globs.logsize - 7) {
 	          	sml_globs.sml_logindex += 3;
-	        	} else {
-							break;
+	        	}
+						if (sml_globs.sml_logindex >= 32*3+2) {
+							AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
+							sml_dump_start(' ');
 						}
-        	}
+					}
       	}
       	if (sml_globs.sml_logindex > 2) {
         	sml_globs.log_data[sml_globs.sml_logindex] = 0;
         	AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
       	}
 				break;
-    }
+
+	 	}
   }
 }
 
@@ -1162,11 +1172,16 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
 			}
 			mp->lastms = millis();
 			uint16_t len;
-			if (mp->hp->readHanPort(&mp->sbuff, &len)) {
+			uint8_t *payload;
+			if (mp->hp->readHanPort(&payload, &len)) {
+				if (len > mp->sbsiz) {
+					len = mp->sbsiz;
+				}
+				memmove(mp->sbuff, payload, len);
 				AddLog(LOG_LEVEL_INFO, PSTR(">> decrypted block: %d bytes"), len);
 				SML_Decode(meters);
 			} else {
-				AddLog(LOG_LEVEL_INFO, PSTR(">> %d - %02x"), mp->hp->len, mp->hp->hanBuffer[mp->hp->len]);
+				//AddLog(LOG_LEVEL_INFO, PSTR(">> %d - %02x"), mp->hp->len, mp->hp->hanBuffer[mp->hp->len]);
 			}
 		}
 		return;
@@ -2377,6 +2392,7 @@ char *SpecOptions(char *cp, uint32_t mnum) {
 			for (uint8_t cnt = 0; cnt < (SML_CRYPT_SIZE * 2); cnt += 2) {
 				meter_desc[mnum].key[cnt / 2] = (sml_hexnibble(cp[cnt]) << 4) | sml_hexnibble(cp[cnt + 1]);
 			}
+			AddLog(LOG_LEVEL_INFO, PSTR(">> crypto mode used for meter %d"), mnum + 1);
 #endif
 			break;
 		case '5':
@@ -2400,7 +2416,7 @@ uint16_t serial_dispatch(uint8_t meter, uint8_t sel) {
 	} else {
 		mp->spos = 0;
 	}
-	AddLog(LOG_LEVEL_INFO, PSTR("SML pos: %d read: %02x"),mp->spos-1, iob);
+	//AddLog(LOG_LEVEL_INFO, PSTR("SML pos: %d read: %02x"),mp->spos-1, iob);
 	return iob;
 }
 
@@ -2493,7 +2509,7 @@ uint8_t *hdlc_decode(struct METER_DESC *mp, uint16_t *size) {
 	return data + 28;
 }
 */
-#endif
+#endif // USE_SML_DECRYPT
 
 void reset_sml_vars(uint16_t maxmeters) {
 
@@ -2537,6 +2553,7 @@ void reset_sml_vars(uint16_t maxmeters) {
 				mp->hp = NULL;
 			}
 		}
+		mp->use_crypt = 0;
 #endif
   }
 }
