@@ -3629,6 +3629,12 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           fvar = RtcTime.hour;
           goto exit;
         }
+        if (!strncmp(vname, "ht(", 3)) {
+          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
+          han_test(fvar);
+          goto nfuncexit;
+        }
+
         if (!strncmp(vname, "heap", 4)) {
           fvar = ESP_getFreeHeap();
           goto exit;
