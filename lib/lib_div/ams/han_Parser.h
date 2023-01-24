@@ -21,6 +21,8 @@ public:
 		void printHanReadError(int16_t pos);
 		uint8_t encryptionKey[16];
 		uint8_t authenticationKey[16];
+    uint8_t hanBuffer[BUF_SIZE_HAN];
+    int len = 0;
 private:
     uint16_t (*dispatch)(uint8_t, uint8_t);
     int serial_available(void);
@@ -35,9 +37,7 @@ private:
 		DSMRParser *dsmrParser = NULL;
     uint8_t encryption_key[16];
     uint8_t authentication_key[16];
-		uint8_t hanBuffer[BUF_SIZE_HAN];
     uint8_t meter;
-		int len = 0;
 		bool serialInit = true;
 		bool Debug = true;
 };

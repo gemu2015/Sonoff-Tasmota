@@ -1,7 +1,10 @@
 #include "han_Parser.h"
 #include "Cosem.h"
 
-#define debugV
+
+extern int SML_print(const char *, ...);
+#define han_debug SML_print
+
 
 Han_Parser::Han_Parser(uint16_t (dp)(uint8_t, uint8_t), uint8_t m, uint8_t *key, uint8_t *auth) {
     dispatch = dp;
@@ -52,11 +55,12 @@ int8_t Han_Parser::readHanPort(uint8_t **out, uint16_t *size) {
 	int pos = DATA_PARSE_INCOMPLETE;
 	// For each byte received, check if we have a complete frame we can handle
 	while (serial_available() && pos == DATA_PARSE_INCOMPLETE) {
-		// If buffer was overflowed, reset
+    yield();
+    // If buffer was overflowed, reset
 		if (len >= BUF_SIZE_HAN) {
 			serial_readBytes(hanBuffer, BUF_SIZE_HAN);
 			len = 0;
-			debugV("Buffer overflow, resetting");
+			han_debug(PSTR("Buffer overflow, resetting"));
 			return false;
 		}
 		hanBuffer[len++] = serial_read();
@@ -64,12 +68,12 @@ int8_t Han_Parser::readHanPort(uint8_t **out, uint16_t *size) {
 		pos = unwrapData((uint8_t *) hanBuffer, ctx);
 		if(ctx.type > 0 && pos >= 0) {
 			if(ctx.type == DATA_TAG_DLMS) {
-				debugV("Received valid DLMS at %d", pos);
+				han_debug(PSTR("Received valid DLMS at %d"), pos);
 			} else if(ctx.type == DATA_TAG_DSMR) {
-				debugV("Received valid DSMR at %d", pos);
+				han_debug(PSTR("Received valid DSMR at %d"), pos);
 			} else {
 				// TODO: Move this so that payload is sent to MQTT
-				debugV("Unknown tag %02X at pos %d", ctx.type, pos);
+				han_debug(PSTR("Unknown tag %02X at pos %d"), ctx.type, pos);
 				len = 0;
 				return false;
 			}
@@ -78,7 +82,7 @@ int8_t Han_Parser::readHanPort(uint8_t **out, uint16_t *size) {
 	if (pos == DATA_PARSE_INCOMPLETE) {
 		return false;
 	} else if(pos == DATA_PARSE_UNKNOWN_DATA) {
-		debugV("Unknown data payload:");
+		han_debug(PSTR("Unknown data payload:"));
 		len = len + serial_readBytes(hanBuffer + len, BUF_SIZE_HAN - len);
 		//debugPrint(hanBuffer, 0, len);
 		len = 0;
@@ -104,7 +108,7 @@ int8_t Han_Parser::readHanPort(uint8_t **out, uint16_t *size) {
 	//AmsData data;
 	char* payload = ((char *) (hanBuffer)) + pos;
 	if (ctx.type == DATA_TAG_DLMS) {
-		debugV("Using application data:");
+		han_debug(PSTR("Using application data:"));
 
 		//if (Debug.isActive(RemoteDebug::VERBOSE)) debugPrint((byte*) payload, 0, ctx.length);
 
@@ -167,7 +171,7 @@ int16_t Han_Parser::unwrapData(uint8_t *buf, DataParserContext &context) {
 				if (res >= 0) doRet = true;
 				break;
 			default:
-				debugV("Ended up in default case while unwrapping...(tag %02X)", tag);
+				han_debug(PSTR("Ended up in default case while unwrapping...(tag %02X)"), tag);
 				return DATA_PARSE_UNKNOWN_DATA;
 		}
 		lastTag = tag;
@@ -178,25 +182,25 @@ int16_t Han_Parser::unwrapData(uint8_t *buf, DataParserContext &context) {
 		if (Debug) {
 			switch(tag) {
 				case DATA_TAG_HDLC:
-					debugV("HDLC frame:");
+					han_debug(PSTR("HDLC frame:"));
 					break;
 				case DATA_TAG_MBUS:
-					debugV("MBUS frame:");
+					han_debug(PSTR("MBUS frame:"));
 					break;
 				case DATA_TAG_GBT:
-					debugV("GBT frame:");
+					han_debug(PSTR("GBT frame:"));
 					break;
 				case DATA_TAG_GCM:
-					debugV("GCM frame:");
+					han_debug(PSTR("GCM frame:"));
 					break;
 				case DATA_TAG_LLC:
-					debugV("LLC frame:");
+					han_debug(PSTR("LLC frame:"));
 					break;
 				case DATA_TAG_DLMS:
-					debugV("DLMS frame:");
+					han_debug(PSTR("DLMS frame:"));
 					break;
 				case DATA_TAG_DSMR:
-					debugV("DSMR frame:");
+					han_debug(PSTR("DSMR frame:"));
 					break;
 			}
 		}
@@ -222,44 +226,44 @@ int16_t Han_Parser::unwrapData(uint8_t *buf, DataParserContext &context) {
 		// Use start byte of new buffer position as tag for next round in loop
 		tag = (*buf);
 	}
-	debugV("Got to end of unwrap method...");
+	han_debug(PSTR("Got to end of unwrap method..."));
 	return DATA_PARSE_UNKNOWN_DATA;
 }
 
 void Han_Parser::printHanReadError(int16_t pos) {
 		switch(pos) {
 			case DATA_PARSE_BOUNDRY_FLAG_MISSING:
-				debugV("Boundry flag missing");
+				han_debug(PSTR("Boundry flag missing"));
 				break;
 			case DATA_PARSE_HEADER_CHECKSUM_ERROR:
-				debugV("Header checksum error");
+				han_debug(PSTR("Header checksum error"));
 				break;
 			case DATA_PARSE_FOOTER_CHECKSUM_ERROR:
-				debugV("Frame checksum error");
+				han_debug(PSTR("Frame checksum error"));
 				break;
 			case DATA_PARSE_INCOMPLETE:
-				debugV("Received frame is incomplete");
+				han_debug(PSTR("Received frame is incomplete"));
 				break;
 			case GCM_AUTH_FAILED:
-				debugV("Decrypt authentication failed");
+				han_debug(PSTR("Decrypt authentication failed"));
 				break;
 			case GCM_ENCRYPTION_KEY_FAILED:
-				debugV("Setting decryption key failed");
+				han_debug(PSTR("Setting decryption key failed"));
 				break;
 			case GCM_DECRYPT_FAILED:
-				debugV("Decryption failed");
+				han_debug(PSTR("Decryption failed"));
 				break;
 			case MBUS_FRAME_LENGTH_NOT_EQUAL:
-				debugV("Frame length mismatch");
+				han_debug(PSTR("Frame length mismatch"));
 				break;
 			case DATA_PARSE_INTERMEDIATE_SEGMENT:
-				debugV("Intermediate segment received");
+				han_debug(PSTR("Intermediate segment received"));
 				break;
 			case DATA_PARSE_UNKNOWN_DATA:
-				debugV("Unknown data format %02X", hanBuffer[0]);
+				han_debug(PSTR("Unknown data format %02X"), hanBuffer[0]);
 				break;
 			default:
-				debugV("Unspecified error while reading data: %d", pos);
+				han_debug(PSTR("Unspecified error while reading data: %d"), pos);
 				break;
 		}
 }
