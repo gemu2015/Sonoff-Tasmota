@@ -40,6 +40,10 @@ int8_t GCMParser::parse(uint8_t *d, DataParserContext &ctx) {
 
         ptr += 3;
         headersize += 3;
+    } else  if(((*ptr) & 0xFF) == 0x4f) {
+    // ???????? single frame did only decode with this compare
+        ptr++;
+        headersize++;
     }
     if(len + headersize > ctx.length)
         return DATA_PARSE_INCOMPLETE;
