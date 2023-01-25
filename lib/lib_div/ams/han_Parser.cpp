@@ -10,7 +10,11 @@ Han_Parser::Han_Parser(uint16_t (dp)(uint8_t, uint8_t), uint8_t m, uint8_t *key,
     dispatch = dp;
     meter = m;
     memmove(encryptionKey, key, 16);
-    if (auth) memmove(authenticationKey, auth, 16);
+    if (auth) {
+      memmove(authenticationKey, auth, 16);
+    } else {
+      memset(authenticationKey, 0, 16);
+    }
 }
 
 Han_Parser::~Han_Parser(void) {

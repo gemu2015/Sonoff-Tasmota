@@ -1422,6 +1422,20 @@ char *skip_double(char *cp) {
   return 0;
 }
 
+uint8_t *sml_find(uint8_t *src, uint16_t ssize, uint8_t *pattern, uint16_t psize) {
+	if (psize >= ssize) {
+		return 0;
+	}
+	for (uint32_t cnt = 0; cnt < ssize - psize; cnt++) {
+		if (!memcmp(src, pattern, psize)) {
+			return src;
+		}
+		src++;
+	}
+	return 0;
+}
+
+
 
 void SML_Decode(uint8_t index) {
   const char *mp = (const char*)sml_globs.meter_p;
@@ -1605,12 +1619,32 @@ void SML_Decode(uint8_t index) {
             uint8_t val = hexnibble(*mp++) << 4;
             val |= hexnibble(*mp++);
             if (val != *cp++) {
-              found=0;
+              found = 0;
             }
           } else {
             // ebus modbus pzem vbus or raw
-            // XXHHHHSSUU
-            if (*mp == 'x') {
+						if (!strncmp(mp, "pm(", 3)) {
+							// pattern match
+							mp += 3;
+							uint8_t pattern[64];
+							for (uint32_t cnt = 0; cnt < sizeof(pattern); cnt++) {
+								if (*mp == '@' || !*mp) {
+									break;
+								}
+								if (*mp == ')') {
+									mp++;
+									pattern[cnt] = 0;
+									uint8_t *ucp = sml_find(cp, meter_desc[index].sbsiz, pattern, cnt);
+									if (ucp) {
+										cp = ucp + cnt;
+									}
+									break;
+								}
+								uint8_t iob = hexnibble(*mp++) << 4;
+								iob |= hexnibble(*mp++);
+								pattern[cnt] = iob;
+							}
+						} else if (*mp == 'x') {
               if (*(mp + 1) == 'x') {
                 //ignore one byte
                 mp += 2;
@@ -2508,7 +2542,10 @@ void reset_sml_vars(uint16_t maxmeters) {
 			}
 		}
 		mp->use_crypt = 0;
+#ifdef USE_SML_AUTHKEY
+		memset(mp->auth, 0, SML_CRYPT_SIZE);
 #endif
+#endif // USE_SML_DECRYPT
   }
 }
 

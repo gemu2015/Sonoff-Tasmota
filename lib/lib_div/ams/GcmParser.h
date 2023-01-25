@@ -22,6 +22,7 @@ public:
 private:
     uint8_t encryption_key[16];
     uint8_t authentication_key[16];
+		uint8_t use_auth = 0;
 };
 
 #endif
