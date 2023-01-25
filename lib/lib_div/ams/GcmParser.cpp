@@ -75,8 +75,14 @@ int8_t GCMParser::parse(uint8_t *d, DataParserContext &ctx) {
   	br_aes_small_ctr_init(&ctr_ctx, encryption_key, 16);
   	br_gcm_init(&gcm_ctx, &ctr_ctx.vtable, &br_ghash_ctmul32);
     br_gcm_reset(&gcm_ctx, initialization_vector, 12);
+    if (authkeylen > 0) {
+      br_gcm_aad_inject(&gcm_ctx, additional_authenticated_data, aadlen);
+    }
     br_gcm_flip(&gcm_ctx);
   	br_gcm_run(&gcm_ctx, 0, ptr , ctx.length - headersize);
+    if (authkeylen > 0 && br_gcm_check_tag_trunc(&gcm_ctx, authentication_tag, authkeylen) != 1) {
+      return GCM_AUTH_FAILED;
+    }
 
     ctx.length -= footersize + headersize;
     return ptr - d;

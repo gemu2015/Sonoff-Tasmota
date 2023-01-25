@@ -52,6 +52,9 @@
 	USE_ESP32_SW_SERIAL
 	default off, uses a special combo driver that allows more then 3 serial ports on ESP32.
 	define rec pins as negativ to use software serial
+
+	USE_SML_AUTHKEY
+	rarely used , thus off by default
 */
 
 // if you have to save more RAM you may disable these options by defines in user_config_override
@@ -114,7 +117,8 @@ e.g. 1,=so2,2  set obis line mode on meter 1
 3:
 serial buffers
 a. serial buffer size
-b. serial irq buffer size
+b. serial irq buffer size, a must be given
+c. dumplog buffer size, default is 128 , a and b must be given
 e.g. 1,=so3,256,256  set serial buffers on meter 1
 
 4:
@@ -122,7 +126,8 @@ decrytion key, 16 bytes hex btw 32 chars without spaces or commas
 defining key switches decryption mode on
 
 5:
-dumplog buffer size, default is 128
+authentication key, 16 bytes hex btw 32 chars without spaces or commas
+needs USE_SML_AUTHKEY
 
 */
 
@@ -413,6 +418,9 @@ struct METER_DESC {
 	uint8_t last_iob;
 	uint8_t key[SML_CRYPT_SIZE];
 	Han_Parser *hp;
+#ifdef USE_SML_AUTHKEY
+	uint8_t auth[SML_CRYPT_SIZE];
+#endif
 #endif
 };
 
@@ -2234,7 +2242,6 @@ void SML_Show(boolean json) {
    }
 
 
-
 #ifdef USE_DOMOTICZ
   if (json && !TasmotaGlobal.tele_period) {
     char str[16];
@@ -2287,7 +2294,6 @@ void IRAM_ATTR SML_CounterIsr(void *arg) {
   sml_counters[index].sml_counter_ltime = time;
   sml_counter_pinstate ^= (1 << index);
 }
-
 
 #ifndef METER_DEF_SIZE
 #define METER_DEF_SIZE 3000
@@ -2394,6 +2400,10 @@ char *SpecOptions(char *cp, uint32_t mnum) {
 					meter_desc[mnum].sibsiz = SML_MINSB;
 				}
 			}
+			if (*cp == ',') {
+				cp++;
+				sml_globs.logsize = strtol(cp, &cp, 10);
+			}
 			break;
 		case '4':
 			cp += 2;
@@ -2403,70 +2413,28 @@ char *SpecOptions(char *cp, uint32_t mnum) {
 				meter_desc[mnum].key[cnt / 2] = (sml_hexnibble(cp[cnt]) << 4) | sml_hexnibble(cp[cnt + 1]);
 			}
 			AddLog(LOG_LEVEL_INFO, PSTR(">> crypto mode used for meter %d"), mnum + 1);
-#endif
 			break;
+#ifdef USE_SML_AUTHKEY
 		case '5':
 			cp += 2;
-			sml_globs.logsize = strtol(cp, &cp, 10);
+			for (uint8_t cnt = 0; cnt < (SML_CRYPT_SIZE * 2); cnt += 2) {
+				meter_desc[mnum].auth[cnt / 2] = (sml_hexnibble(cp[cnt]) << 4) | sml_hexnibble(cp[cnt + 1]);
+			}
 			break;
+#endif
+#endif
 	}
 	return cp;
 }
 
 #ifdef USE_SML_DECRYPT
 
-const uint8_t sml_test[282] = { 0x68,0xfa,0xfa,0x68,0x53,0xff,0x00,0x01,0x67,0xdb,0x08,0x4b,0x46,0x4d,0x65,0x50,0x9a,0xe0,0x42,0x81,0xf8,0x20,0x00,0x50,0xed,0x6b,0xed,0xe5,0x82,0x05,0x75,0xdd,0xf4,0x27,0x39,0x6f,0x75,0xea,0xaf,0xc8,0x16,0xf2,0x85,0xf4,0xad,0xaf,0x17,0xbb,0x85,0xbf,0xde,0x1b,0x0b,0x09,0x05,0x59,0xe4,0xbe,0x9a,0xa6,0xdc,0x4d,0x69,0x7a,0x09,0x7e,0x7e,0x8f,0x58,0x1f,0xf4,0x6a,0xb8,0xdf,0x82,0x94,0xfb,0xd6,0x9e,0x03,0xa6,0xe7,0x5d,0x0f,0x89,0xa2,0x1f,0x7b,0x25,0x41,0xc0,0xcb,0x65,0x5b,0x3f,0xc3,0x93,0x21,0x36,0x72,0xf7,0x56,0xbb,0xfa,0xc7,0x86,0x2d,0xef,0xf6,0x5f,0x5e,0x08,0x56,0x27,0x12,0x75,0xab,0x9b,0x13,0xe9,0x46,0x5d,0x4c,0x25,0x4a,0x8a,0xed,0x4f,0x3b,0xf3,0xee,0xb5,0x44,0x44,0x38,0xf9,0x4e,0x47,0xd3,0x25,0x94,0x9d,0xba,0xdc,0x9b,0x7d,0x66,0x65,0xa6,0xb1,0xe1,0x80,0x13,0xd6,0x00,0xa5,0x2c,0xf4,0xdd,0xd2,0xd1,0xb7,0x57,0xf2,0xaa,0x04,0xe1,0x99,0x88,0x0b,0xac,0x4d,0xa0,0xae,0xd6,0xa8,0xcb,0xce,0x68,0xe0,0xdc,0x9b,0x84,0xe8,0xa3,0x1d,0x86,0xc8,0x15,0xc3,0xe7,0xe1,0x2e,0x43,0x9f,0x80,0x7f,0x16,0xb2,0x23,0x96,0xb5,0x09,0xb6,0x99,0x44,0xdb,0xd5,0x32,0x2d,0x51,0x81,0x64,0x23,0xa2,0x42,0xff,0xbe,0x22,0x7b,0xb9,0x55,0x52,0xb0,0x4c,0x57,0xfe,0xca,0x8c,0x61,0x14,0x71,0x31,0x33,0xb7,0xa3,0x47,0x41,0xe5,0xc2,0x70,0x03,0x02,0x42,0x4a,0x9b,0x95,0x08,0xfb,0xd0,0x8e,0x16,0x9e,0x6e,0x50,0x16,0x68,0x14,0x14,0x68,0x53,0xff,0x11,0x01,0x67,0x14,0x0a,0xfa,0x47,0x70,0xd9,0x15,0x8d,0x1c,0x97,0x96,0x20,0xb1,0xb6,0x6b,0x50,0x16};
-
-uint16_t fake_size = 282;
-uint16_t fake_pos = 0;
-
-void han_test(uint32_t var) {
-	struct METER_DESC *mp = &meter_desc[0];
-	fake_size = 282;
-	fake_pos = 0;
-
-sml_count=0;
-	AddLog(LOG_LEVEL_INFO, PSTR(">> sbsiz: %d"), mp->sbsiz);
-	AddLog(LOG_LEVEL_INFO, PSTR(">> sibsiz: %d"), mp->sibsiz);
-
-	return;
-	for (uint16_t cnt=0; cnt<16; cnt++ ) {
-		AddLog(LOG_LEVEL_INFO, PSTR(">> key: %02x"), mp->key[cnt]);
-	}
-
-	for (uint16_t cnt=0; cnt<30; cnt++ ) {
-		uint16_t logsiz;
-		uint8_t *payload;
-
-		if (mp->hp->readHanPort(&payload, &logsiz)) {
-			AddLog(LOG_LEVEL_INFO, PSTR(">> decrypted block: %d bytes"), logsiz);
-			break;
-		}
-	}
-}
-
 uint16_t serial_dispatch(uint8_t meter, uint8_t sel) {
 	struct METER_DESC *mp = &meter_desc[meter];
 	if (!sel) {
 		return mp->meter_ss->available();
-		//return fake_size;
 	}
-#if 0
-	uint8_t iob = sml_test[fake_pos++];
-	fake_size--;
-	if (fake_pos >= 282) {
-		fake_size = 282;
-		fake_pos = 0;
-	}
-#else
 	uint8_t iob = mp->meter_ss->read();
-	if (mp->spos < mp->sbsiz) {
-		mp->sbuff[mp->spos++] = iob;
-	} else {
-		mp->spos = 0;
-	}
-#endif
-	//AddLog(LOG_LEVEL_INFO, PSTR("SML pos: %d read: %02x"),mp->spos-1, iob);
 	return iob;
 }
 
@@ -2495,70 +2463,6 @@ int SML_print(const char *format, ...) {
 	return len;
 }
 
-/*
-//// calculate crc16 CCITT
-uint16_t hdlc_crc16(const uint8_t *dp, uint8_t len) {
-#define POLY 0x8408
-	uint8_t i;
-  uint16_t data;
-  uint16_t crc = 0xffff;
-
-  if (len == 0) {
-  	return (~crc);
-	}
-  do {
-		data = (unsigned int)0xff & *dp++;
-    for (i = 0; i < 8; i++) {
-    	if ((crc & 0x0001) ^ (data & 0x0001)) {
-        crc = (crc >> 1) ^ POLY;
-      } else {
-				crc >>= 1;
-			}
-			data >>= 1;
-		}
-  } while (--len);
-
-  crc = ~crc;
-  data = crc;
-  crc = (crc << 8) | (data >> 8 & 0xff);
-	return crc;
-}
-uint8_t *hdlc_decode(struct METER_DESC *mp, uint16_t *size) {
-	uint8_t *data = mp->sbuff;
-	uint16_t dlen = mp->spos;
-	if (dlen < 31) {
-		return 0;
-	}
-
-	uint16_t crc = hdlc_crc16(data + 1, dlen - 4);
-	uint16_t dcrc = data[dlen - 3] << 8 | data[dlen - 2];
-	if (crc != dcrc) {
-		return 0;
-	}
-
-	// crc OK
-	uint8_t ivec[12];
-  uint8_t index = 0;
-  for (uint8_t cnt = 14; cnt < 14+8; cnt++) {
-  	ivec[index] = data[cnt];
-    index++;
-  }
-  for (uint8_t cnt = 24; cnt < 24+4; cnt++) {
-    ivec[index] = data[cnt];
-    index++;
-  }
-
-	br_gcm_context gcm_ctx;
-	br_aes_small_ctr_keys ctr_ctx;
-	br_aes_small_ctr_init(&ctr_ctx, mp->key, 16);
-	br_gcm_init(&gcm_ctx, &ctr_ctx.vtable, &br_ghash_ctmul32);
-  br_gcm_reset(&gcm_ctx, ivec, 12);
-  br_gcm_flip(&gcm_ctx);
-	br_gcm_run(&gcm_ctx, 0, data + 28 , dlen - 31);
-	*size = dlen - 31;
-	return data + 28;
-}
-*/
 #endif // USE_SML_DECRYPT
 
 void reset_sml_vars(uint16_t maxmeters) {
@@ -3057,7 +2961,11 @@ next_line:
 
 #ifdef USE_SML_DECRYPT
 		if (mp->use_crypt) {
+#ifdef USE_SML_AUTHKEY
+			mp->hp = new Han_Parser(serial_dispatch, meters, mp->key, mp->auth);
+#else
 			mp->hp = new Han_Parser(serial_dispatch, meters, mp->key, nullptr);
+#endif
 		}
 #endif
   }
