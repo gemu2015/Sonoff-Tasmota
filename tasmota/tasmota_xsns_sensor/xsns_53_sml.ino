@@ -1435,6 +1435,39 @@ uint8_t *sml_find(uint8_t *src, uint16_t ssize, uint8_t *pattern, uint16_t psize
 	return 0;
 }
 
+double sml_get_obis_value(uint8_t *data) {
+	double out = 0;
+	CosemData *item = (CosemData *)data;
+	switch (item->base.type) {
+		case CosemTypeLongSigned: {
+				out = ntohs(item->ls.data);
+				break;
+		}
+		case CosemTypeLongUnsigned: {
+				out = ntohs(item->lu.data);
+				break;
+		}
+		case CosemTypeDLongSigned: {
+				out = ntohl(item->dlu.data);
+				break;
+		}
+		case CosemTypeDLongUnsigned: {
+				out = ntohl(item->dlu.data);
+				break;
+		}
+		case CosemTypeLong64Signed: {
+				out = ntohll(item->l64s.data);
+				break;
+		}
+		case CosemTypeLong64Unsigned: {
+				out = ntohll(item->l64u.data);
+				break;
+		}
+	}
+	return out;
+}
+
+
 
 
 void SML_Decode(uint8_t index) {
@@ -1626,6 +1659,11 @@ void SML_Decode(uint8_t index) {
 						if (!strncmp(mp, "pm(", 3)) {
 							// pattern match
 							mp += 3;
+							uint8_t aflg = 0;
+							if (*mp == 't') {
+								aflg = 1;
+								mp++;
+							}
 							uint8_t pattern[64];
 							for (uint32_t cnt = 0; cnt < sizeof(pattern); cnt++) {
 								if (*mp == '@' || !*mp) {
@@ -1637,6 +1675,10 @@ void SML_Decode(uint8_t index) {
 									uint8_t *ucp = sml_find(cp, meter_desc[index].sbsiz, pattern, cnt);
 									if (ucp) {
 										cp = ucp + cnt;
+										// check auto type
+										if (aflg) {
+											ebus_dval = sml_get_obis_value(cp);
+										}
 									}
 									break;
 								}
