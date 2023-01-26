@@ -2516,7 +2516,6 @@ char *SpecOptions(char *cp, uint32_t mnum) {
 }
 
 #ifdef USE_SML_DECRYPT
-
 uint16_t serial_dispatch(uint8_t meter, uint8_t sel) {
 	struct METER_DESC *mp = &meter_desc[meter];
 	if (!sel) {
@@ -2543,14 +2542,13 @@ int SML_print(const char *format, ...) {
 	  }
 	}
 	vsnprintf(temp, len + 1, format, arg);
-	AddLog(LOG_LEVEL_INFO, PSTR("SML: %s"),temp);
+	AddLog(LOG_LEVEL_DEBUG, PSTR("SML: %s"),temp);
 	va_end(arg);
 	if (len >= sizeof(loc_buf)) {
 		free(temp);
 	}
 	return len;
 }
-
 #endif // USE_SML_DECRYPT
 
 void reset_sml_vars(uint16_t maxmeters) {
