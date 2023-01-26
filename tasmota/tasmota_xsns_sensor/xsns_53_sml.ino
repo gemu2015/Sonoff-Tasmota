@@ -1659,9 +1659,9 @@ void SML_Decode(uint8_t index) {
 						if (!strncmp(mp, "pm(", 3)) {
 							// pattern match
 							mp += 3;
-							uint8_t aflg = 0;
-							if (*mp == 't') {
-								aflg = 1;
+							uint8_t aflg = 1;
+							if (*mp == 'r') {
+								aflg = 0;
 								mp++;
 							}
 							uint8_t pattern[64];
@@ -1677,7 +1677,20 @@ void SML_Decode(uint8_t index) {
 										cp = ucp + cnt;
 										// check auto type
 										if (aflg) {
-											ebus_dval = sml_get_obis_value(cp);
+											// METER_ID_SIZE
+											CosemData *item = (CosemData *)cp;
+											switch (item->base.type) {
+            						case CosemTypeString:
+                					memcpy(meter_desc[mindex].meter_id, item->str.data, item->str.length);
+                					meter_desc[mindex].meter_id[item->str.length] = 0;
+                					break;
+            						case CosemTypeOctetString:
+                					memcpy(meter_desc[mindex].meter_id, item->oct.data, item->oct.length);
+                					meter_desc[mindex].meter_id[item->oct.length] = 0;
+                					break;
+												default:
+													ebus_dval = sml_get_obis_value(cp);
+        							}
 										}
 									}
 									break;
@@ -1971,7 +1984,6 @@ void SML_Decode(uint8_t index) {
                 meter_desc[mindex].meter_id[p] = *cp++;
               }
               meter_desc[mindex].meter_id[p] = 0;
-
             } else if (sml_globs.mp[mindex].type == 'k') {
               // 220901
               uint32_t date = mbus_dval;
