@@ -557,6 +557,9 @@ void send_download(void);
 uint8_t UfsReject(char *name);
 #ifdef USE_UFILESYS
 void fread_str_fp(File *fp, char *sp, uint16_t slen, uint16_t flg);
+int32_t script_copy_file(File *source, File *dest, uint32_t sf_from, uint32_t sf_to, uint32_t flag, WiFiClient *client);
+int32_t opt_fext(File *fp,  char *ts_from, char *ts_to, uint32_t flg);
+int32_t extract_from_file(File *fp,  char *ts_from, char *ts_to, int8_t coffs, float **a_ptr, uint16_t *a_len, uint8_t numa, int16_t accum);
 #endif
 char *eval_sub(char *lp, float *fvar, char *rstr);
 
@@ -1255,52 +1258,6 @@ void ws2812_set_array(float *array ,uint32_t len, uint32_t offset) {
 #endif //USE_LIGHT
 
 
-#if defined(USE_UFILESYS) && defined(USE_WEBSERVER) && defined(USE_SCRIPT_WEB_DISPLAY)
-int32_t script_copy_file(File *source, File *dest, uint32_t sf_from, uint32_t sf_to, uint32_t flag, WiFiClient *client) {
-int32_t res = 0;
-uint32_t fsize = sf_to - sf_from;
-
-  uint8_t *fbuff = (uint8_t*)malloc(512);
-  uint16_t rsize = 512;
-  if (fbuff) {
-    if (flag) {
-      // flag > 0 copy header
-      source->seek(0, SeekSet);
-      fread_str_fp(source, (char*)fbuff, rsize, 1);
-      uint16_t ssize = strlen((char*)fbuff);
-      fbuff[ssize++] = '\n';
-      fbuff[ssize] = 0;
-      if (dest) {
-        dest->write(fbuff, ssize);
-      }
-      if (client) {
-        client->write(fbuff, ssize);
-      }
-    }
-
-    // seek to start
-    source->seek(sf_from, SeekSet);
-    while (fsize) {
-      if (fsize < rsize) {
-        rsize = fsize;
-      }
-      source->read(fbuff, rsize);
-      if (dest) {
-        dest->write(fbuff, rsize);
-      }
-      if (client) {
-        client->write(fbuff, rsize);
-      }
-      fsize -= rsize;
-    }
-    free(fbuff);
-  } else {
-    return -3;
-  }
-  return res;
-}
-#endif // USE_UFILESYS
-
 float median_array(float *array, uint16_t len) {
     uint8_t ind[len];
     uint8_t mind = 0;
@@ -1494,6 +1451,7 @@ float DoMedian5(uint8_t index, float in) {
   return median_array(mf->buffer, MEDIAN_SIZE);
 }
 
+
 #ifdef USE_UFILESYS
 void fread_str_fp(File *fp, char *sp, uint16_t slen, uint16_t flg) {
   uint16_t index = 0;
@@ -1517,7 +1475,50 @@ void fread_str_fp(File *fp, char *sp, uint16_t slen, uint16_t flg) {
   *sp = 0;
 }
 
-#endif // USE_UFILESYS
+int32_t script_copy_file(File *source, File *dest, uint32_t sf_from, uint32_t sf_to, uint32_t flag, WiFiClient *client) {
+int32_t res = 0;
+uint32_t fsize = sf_to - sf_from;
+
+  uint8_t *fbuff = (uint8_t*)malloc(512);
+  uint16_t rsize = 512;
+  if (fbuff) {
+    if (flag) {
+      // flag > 0 copy header
+      source->seek(0, SeekSet);
+      fread_str_fp(source, (char*)fbuff, rsize, 1);
+      uint16_t ssize = strlen((char*)fbuff);
+      fbuff[ssize++] = '\n';
+      fbuff[ssize] = 0;
+      if (dest) {
+        dest->write(fbuff, ssize);
+      }
+      if (client) {
+        client->write(fbuff, ssize);
+      }
+    }
+
+    // seek to start
+    source->seek(sf_from, SeekSet);
+    while (fsize) {
+      if (fsize < rsize) {
+        rsize = fsize;
+      }
+      source->read(fbuff, rsize);
+      if (dest) {
+        dest->write(fbuff, rsize);
+      }
+      if (client) {
+        client->write(fbuff, rsize);
+      }
+      fsize -= rsize;
+    }
+    free(fbuff);
+  } else {
+    return -3;
+  }
+  return res;
+}
+
 
 #ifdef USE_FEXTRACT
 
@@ -1887,7 +1888,7 @@ int32_t extract_from_file(File *fp,  char *ts_from, char *ts_to, int8_t coffs, f
   return rlines;
 }
 #endif // USE_FEXTRACT
-
+#endif // USE_UFILESYS
 
 uint32_t script_bcd(uint8_t sel, uint32_t val) {
 uint32_t res = 0;
