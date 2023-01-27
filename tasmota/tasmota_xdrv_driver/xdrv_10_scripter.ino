@@ -2754,16 +2754,12 @@ chknext:
           lp = isvar(lp + 4, &vtype, &ind, 0, 0, gv);
           if (!ind.bits.constant) {
             uint8_t index = glob_script_mem.type[ind.index].index;
-            if (glob_script_mem.fvars[index] != glob_script_mem.s_fvars[index]) {
-              // var has changed
-              glob_script_mem.s_fvars[index] = glob_script_mem.fvars[index];
-              fvar = 1;
-              goto nfuncexit;
-            } else {
-              fvar = 0;
-              goto nfuncexit;
-            }
+            fvar = glob_script_mem.fvars[index] - glob_script_mem.s_fvars[index];
+            glob_script_mem.s_fvars[index] = glob_script_mem.fvars[index];
+          } else {
+            fvar = 0;
           }
+          goto nfuncexit;
         }
 #ifdef ESP32
         if (!strncmp(vname, "core", 4)) {
@@ -5864,7 +5860,7 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
     struct T_INDEX ind;
     char string[SCRIPT_MAXSSIZE];
     dstsize -= 2;
-    for (count = 0; count<dstsize; count++) {
+    for (count = 0; count < dstsize; count++) {
         if (srcsize && (*cp == SCRIPT_EOL)) break;
         if (*cp == '%') {
             cp++;
@@ -5921,8 +5917,8 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
                 } else {
                   strcpy(&dstbuf[count], "???");
                   count += 2;
-                  while (*cp!='%') {
-                    if (*cp==0 || *cp==SCRIPT_EOL) {
+                  while (*cp != '%') {
+                    if (*cp == 0 || *cp == SCRIPT_EOL) {
                       dstbuf[count+1] = 0;
                       return;
                     }
@@ -9776,7 +9772,7 @@ const char *gc_str;
     strcpy_P(center, PSTR("<center>"));
   }
 
-  if ( ((!mc && (*lin != '$')) || (mc == 'w' && (*lin != '$'))) && (!(specopt&WSO_FORCEMAIN)) ) {
+  if ( ((!mc && (*lin != '$')) || (mc == 'w' && (*lin != '$'))) && (!(specopt & WSO_FORCEMAIN)) ) {
     // normal web section
     //AddLog(LOG_LEVEL_INFO, PSTR("normal %s"), lin);
     if (*lin == '@') {
