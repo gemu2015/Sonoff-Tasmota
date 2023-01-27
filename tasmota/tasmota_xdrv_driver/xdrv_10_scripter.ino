@@ -2889,20 +2889,19 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         }
         if (!strncmp(lp, "dp(", 3)) {
           lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
-          while (*lp==' ') lp++;
+          while (*lp == ' ') lp++;
           glob_script_mem.script_lzero = fvar;
           if (*lp == ',' || *lp == '.') {
             glob_script_mem.script_sepc = *lp;
             lp++;
           }
           lp = GetNumericArgument(lp , OPER_EQU, &fvar, gv);
-          while (*lp==' ') lp++;
+          while (*lp == ' ') lp++;
           glob_script_mem.script_dprec = fvar;
           fvar = 0;
           goto nfuncexit;
         }
         if (!strncmp(lp, "diff[", 5)) {
-          // var changed
           struct T_INDEX ind;
           uint8_t vtype;
           lp = isvar(lp + 5, &vtype, &ind, 0, 0, gv);
@@ -2934,7 +2933,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 #ifdef USE_ENERGY_SENSOR
         if (!strncmp(lp, "enrg[", 5)) {
           lp=GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
-          while (*lp==' ') lp++;
+          while (*lp == ' ') lp++;
           switch ((uint32_t)fvar) {
             case 0:
               fvar = Energy.total_sum;
@@ -2990,9 +2989,9 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         if (!strncmp(lp, "fo(", 3)) {
           char str[SCRIPT_MAXSSIZE];
           lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
-          while (*lp==' ') lp++;
+          while (*lp == ' ') lp++;
           uint8_t mode = 0;
-          if ((*lp=='r') || (*lp=='w') || (*lp=='a')) {
+          if ((*lp == 'r') || (*lp == 'w') || (*lp == 'a')) {
             switch (*lp) {
               case 'r':
                 mode = 0;
@@ -3012,7 +3011,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           fvar = -1;
           for (uint8_t cnt = 0;cnt<SFS_MAX;cnt++) {
             if (!glob_script_mem.file_flags[cnt].is_open) {
-              if (mode==0) {
+              if (mode == 0) {
 #ifdef DEBUG_FS
                 AddLog(LOG_LEVEL_INFO, PSTR("open file for read %d"), cnt);
 #endif
@@ -3025,7 +3024,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
                 }
               }
               else {
-                if (mode==1) {
+                if (mode == 1) {
                   glob_script_mem.files[cnt] = ufsp->open(str,FS_FILE_WRITE);
 #ifdef DEBUG_FS
                   AddLog(LOG_LEVEL_INFO, PSTR("open file for write %d"), cnt);
@@ -3050,9 +3049,9 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         }
         if (!strncmp(lp, "fc(", 3)) {
           lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
-          if (fvar>=0) {
+          if (fvar >= 0) {
             uint8_t ind = fvar;
-            if (ind>=SFS_MAX) ind = SFS_MAX - 1;
+            if (ind >= SFS_MAX) ind = SFS_MAX - 1;
 #ifdef DEBUG_FS
             AddLog(LOG_LEVEL_INFO, PSTR("closing file %d"), ind);
 #endif
@@ -3065,7 +3064,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         if (!strncmp(lp, "ff(", 3)) {
           lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
           uint8_t ind = fvar;
-          if (ind>=SFS_MAX) ind = SFS_MAX - 1;
+          if (ind >= SFS_MAX) ind = SFS_MAX - 1;
           glob_script_mem.files[ind].flush();
           fvar = 0;
           goto nfuncexit;
@@ -3073,10 +3072,10 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         if (!strncmp(lp, "fw(", 3)) {
           char str[SCRIPT_MAXSSIZE];
           lp = ForceStringVar(lp + 3, str);
-          while (*lp==' ') lp++;
+          while (*lp == ' ') lp++;
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           uint8_t ind = fvar;
-          if (ind>=SFS_MAX) ind = SFS_MAX - 1;
+          if (ind >= SFS_MAX) ind = SFS_MAX - 1;
           if (glob_script_mem.file_flags[ind].is_open) {
             fvar = glob_script_mem.files[ind].print(str);
           } else {
@@ -3091,7 +3090,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           SCRIPT_SKIP_SPACES
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           uint8_t ind = fvar;
-          if (ind>=SFS_MAX) ind = SFS_MAX - 1;
+          if (ind >= SFS_MAX) ind = SFS_MAX - 1;
           if (glob_script_mem.file_flags[ind].is_open) {
             fvar = glob_script_mem.files[ind].write(buf, 1);
           } else {
@@ -3105,9 +3104,9 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           uint8_t vtype;
           uint8_t sindex = 0;
           lp = isvar(lp + 3, &vtype, &ind, 0, 0, gv);
-          if (vtype!=VAR_NV) {
+          if (vtype != VAR_NV) {
             // found variable as result
-            if ((vtype&STYPE)==0) {
+            if ((vtype & STYPE) == 0) {
                   // error
                   fvar = 0;
                   goto exit;
@@ -3120,10 +3119,10 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
               fvar = 0;
               goto exit;
           }
-          while (*lp==' ') lp++;
+          while (*lp == ' ') lp++;
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           uint8_t find = fvar;
-          if (find>=SFS_MAX) find = SFS_MAX - 1;
+          if (find >= SFS_MAX) find = SFS_MAX - 1;
           uint8_t index = 0;
           char str[SCRIPT_MAXSSIZE];
           char *cp = str;
@@ -3134,7 +3133,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
                 if (entry) {
                   if (!UfsReject((char*)entry.name())) {
                     char *ep = (char*)entry.name();
-                    if (*ep=='/') ep++;
+                    if (*ep == '/') ep++;
                     char *lcp = strrchr(ep,'/');
                     if (lcp) {
                       ep = lcp + 1;
@@ -3154,12 +3153,12 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
               while (glob_script_mem.files[find].available()) {
                 uint8_t buf[1];
                 glob_script_mem.files[find].read(buf,1);
-                if (buf[0]=='\t' || buf[0]==',' || buf[0]=='\n' || buf[0]=='\r') {
+                if (buf[0] == '\t' || buf[0] == ',' || buf[0] == '\n' || buf[0] == '\r') {
                   break;
                 } else {
                   *cp++ = buf[0];
                   index++;
-                  if (index>=glob_script_mem.max_ssize - 1) break;
+                  if (index >= glob_script_mem.max_ssize - 1) break;
                 }
               }
               *cp = 0;
@@ -3176,7 +3175,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         if (!strncmp(lp, "frb(", 4)) {
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           uint8_t ind = fvar;
-          if (ind>=SFS_MAX) ind = SFS_MAX - 1;
+          if (ind >= SFS_MAX) ind = SFS_MAX - 1;
           if (glob_script_mem.file_flags[ind].is_open) {
             uint8_t buf[2];
             buf[0] = 0;
@@ -3190,7 +3189,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         if (!strncmp(lp, "fa(", 3)) {
           lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
           uint8_t ind = fvar;
-          if (ind>=SFS_MAX) ind = SFS_MAX - 1;
+          if (ind >= SFS_MAX) ind = SFS_MAX - 1;
           if (glob_script_mem.file_flags[ind].is_open) {
             fvar = glob_script_mem.files[ind].available();
           } else {
@@ -3204,7 +3203,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           SCRIPT_SKIP_SPACES
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           SCRIPT_SKIP_SPACES
-          if (ind>=SFS_MAX) ind = SFS_MAX - 1;
+          if (ind >= SFS_MAX) ind = SFS_MAX - 1;
           if (glob_script_mem.file_flags[ind].is_open) {
             fvar = glob_script_mem.files[ind].seek(fvar, SeekSet);
           } else {
@@ -3216,7 +3215,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
           SCRIPT_SKIP_SPACES
           uint8_t ind = fvar;
-          if (ind>=SFS_MAX) ind = SFS_MAX - 1;
+          if (ind >= SFS_MAX) ind = SFS_MAX - 1;
           if (glob_script_mem.file_flags[ind].is_open) {
             fvar = glob_script_mem.files[ind].size();
           } else {
@@ -3245,15 +3244,15 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 #if defined(ESP32) && defined(USE_WEBCAM)
         if (!strncmp(lp, "fwp(", 4)) {
           lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
-          while (*lp==' ') lp++;
+          while (*lp == ' ') lp++;
           float fvar1;
           lp = GetNumericArgument(lp, OPER_EQU, &fvar1, gv);
           uint8_t ind = fvar1;
-          if (ind>=SFS_MAX) ind = SFS_MAX - 1;
+          if (ind >= SFS_MAX) ind = SFS_MAX - 1;
           if (glob_script_mem.file_flags[ind].is_open) {
             uint8_t *buff;
             float maxps = WcGetPicstore(-1, 0);
-            if (fvar<1 || fvar>maxps) fvar = 1;
+            if (fvar < 1 || fvar > maxps) fvar = 1;
             uint32_t len = WcGetPicstore(fvar - 1, &buff);
             if (len) {
               //glob_script_mem.files[ind].seek(0,SeekEnd);
@@ -3280,7 +3279,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
               char *script = (char*)special_malloc(fsiz + 16);
               if (script) {
                 memset(script, 0, fsiz + 16);
-                ef.read((uint8_t*)script,fsiz);
+                ef.read((uint8_t*)script, fsiz);
                 execute_script(script);
                 free(script);
                 fvar = 1;
@@ -3351,12 +3350,6 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           } else {
             break;
           }
-          /*
-          if (oflg) {
-            lp = GetNumericArgument(lp, OPER_EQU, &pfac, gv);
-            SCRIPT_SKIP_SPACES
-          }*/
-
           // extract from file
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           SCRIPT_SKIP_SPACES
@@ -3486,7 +3479,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
               while (glob_script_mem.files[find].available()) {
                 uint8_t buf[1];
                 glob_script_mem.files[find].read(buf,1);
-                if (buf[0]=='\t' || buf[0]==',' || buf[0]=='\n' || buf[0]=='\r') {
+                if (buf[0] == '\t' || buf[0] == ',' || buf[0] == '\n' || buf[0] == '\r') {
                   // skip leading TAB
                   if (first) {
                     break;
@@ -3509,17 +3502,16 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 
 #endif // USE_SCRIPT_FATFS_EXT
         if (!strncmp(lp, "fl1(", 4) || !strncmp(lp, "fl2(", 4) )  {
-          uint8_t lknum = *(lp+2)&3;
+          uint8_t lknum = *(lp + 2) & 3;
           char str[SCRIPT_MAXSSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, str, 0);
-          if (lknum<1 || lknum>2) lknum = 1;
+          if (lknum < 1 || lknum > 2) lknum = 1;
           strlcpy(glob_script_mem.flink[lknum - 1], str, 14);
           fvar = 0;
           goto nfuncexit;
         }
         if (!strncmp(lp, "fsm", 3)) {
-          fvar=(uint32_t)ufsp;
-          //card_init();
+          fvar = (uint32_t)ufsp;
           goto exit;
         }
 #endif //USE_SCRIPT_FATFS
@@ -3569,7 +3561,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           strlcpy(rstring, wd, glob_script_mem.max_ssize);
           if (index) {
             if (strlen(wd) && index) {
-              if (index<0) {
+              if (index < 0) {
                 // assume val=xxx
                 rstring[0] = 0;
                 char *cp = strstr(wd, delim);
@@ -3578,7 +3570,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
                     if (cp) {
                       cp++;
                       for (uint32_t cnt = 0; cnt < glob_script_mem.max_ssize; cnt++) {
-                        if (*cp==',' || *cp==':' || *cp==0) {
+                        if (*cp == ',' || *cp == ':' || *cp == 0) {
                           rstring[cnt] = 0;
                           break;
                         }
@@ -3640,13 +3632,6 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           fvar = RtcTime.hour;
           goto exit;
         }
-        /*
-        if (!strncmp(vname, "ht(", 3)) {
-          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
-          han_test(fvar);
-          goto nfuncexit;
-        }*/
-
         if (!strncmp(vname, "heap", 4)) {
           fvar = ESP_getFreeHeap();
           goto exit;
@@ -3685,7 +3670,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           } else {
             uint8_t *ucp = (uint8_t*)&fvar;
             uint8_t rflg = 0;
-            if (*lp=='r') {
+            if (*lp == 'r') {
               rflg = 1;
               ucp += sizeof(float);
               lp++;
@@ -3718,17 +3703,17 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 #ifdef USE_LIGHT
         if (!strncmp(lp, "hsvrgb(", 7)) {
           lp = GetNumericArgument(lp + 7, OPER_EQU, &fvar, gv);
-          if (fvar<0 || fvar>360) fvar = 0;
+          if (fvar < 0 || fvar > 360) fvar = 0;
           SCRIPT_SKIP_SPACES
           // arg2
           float fvar2;
           lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
-          if (fvar2<0 || fvar2>100) fvar2 = 0;
+          if (fvar2 < 0 || fvar2 > 100) fvar2 = 0;
           SCRIPT_SKIP_SPACES
           // arg3
           float fvar3;
           lp = GetNumericArgument(lp, OPER_EQU, &fvar3, gv);
-          if (fvar3<0 || fvar3>100) fvar3 = 0;
+          if (fvar3 < 0 || fvar3 > 100) fvar3 = 0;
 
           fvar = HSVToRGB(fvar, fvar2, fvar3);
           goto nfuncexit;
@@ -4022,27 +4007,27 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           float fvar1;
           lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar1, gv);
           SCRIPT_SKIP_SPACES
-          while (*lp!=')') {
+          while (*lp != ')') {
             char *opp = lp;
             lp++;
             float fvar2;
             lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
             SCRIPT_SKIP_SPACES
             fvar = fvar1;
-            if ((*opp=='<' && fvar1<fvar2) ||
-                (*opp=='>' && fvar1>fvar2) ||
-                (*opp=='=' && fvar1==fvar2)) {
-                  if (*lp!='<' && *lp!='>' && *lp!='=' && *lp!=')' && *lp!=SCRIPT_EOL) {
+            if ((*opp == '<' && fvar1 < fvar2) ||
+                (*opp == '>' && fvar1 > fvar2) ||
+                (*opp == '=' && fvar1 == fvar2)) {
+                  if (*lp !='<' && *lp != '>' && *lp != '=' && *lp != ')' && *lp != SCRIPT_EOL) {
                     float fvar3;
                     lp = GetNumericArgument(lp, OPER_EQU, &fvar3, gv);
                     SCRIPT_SKIP_SPACES
-                    fvar=fvar3;
+                    fvar = fvar3;
                   } else {
                     fvar  = fvar2;
                   }
                   break;
             }
-            while (*lp!='<' && *lp!='>' && *lp!='=' && *lp!=')' && *lp!=SCRIPT_EOL) lp++;
+            while (*lp != '<' && *lp != '>' && *lp != '=' && *lp != ')' && *lp != SCRIPT_EOL) lp++;
           }
           len = 0;
           goto exit;
@@ -4143,17 +4128,6 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         if (!strncmp(lp, "pd[", 3)) {
           GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
           uint8_t gpiopin = fvar;
-/*
-          for (uint8_t i=0;i<GPIO_SENSOR_END;i++) {
-//            if (pin_gpio[i]==gpiopin) {
-            if (Pin(i)==gpiopin) {
-              fvar=i;
-              // skip ] bracket
-              len++;
-              goto exit;
-            }
-          }
-*/
           if ((gpiopin < nitems(TasmotaGlobal.gpio_pin)) && (TasmotaGlobal.gpio_pin[gpiopin] > 0)) {
             fvar = TasmotaGlobal.gpio_pin[gpiopin];
             // skip ] bracket
@@ -4343,7 +4317,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
           lp++;
           len = 0;
-          if (fvar1<0) {
+          if (fvar1 < 0) {
             fvar1 = strlen(str) + fvar1;
           }
           if (sp) {
@@ -4452,8 +4426,8 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 #ifdef ESP32
         if (!strncmp(lp, "sf(", 3)) {
           lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
-          if (fvar<80) fvar = 80;
-          if (fvar>240) fvar = 240;
+          if (fvar < 80) fvar = 80;
+          if (fvar > 240) fvar = 240;
           setCpuFrequencyMhz(fvar);
           fvar = getCpuFrequencyMhz();
           goto nfuncexit;
@@ -4482,7 +4456,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         if (!strncmp(lp, "sht[", 4)) {
           GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           uint8_t index = fvar;
-          if (index<=TasmotaGlobal.shutters_present) {
+          if (index <= TasmotaGlobal.shutters_present) {
             fvar = Settings->shutter_position[index - 1];
           } else {
             fvar = -1;
@@ -4611,7 +4585,7 @@ extern char *SML_GetSVal(uint32_t index);
           lp = GetNumericArgument(lp, OPER_EQU, &br, gv);
           SCRIPT_SKIP_SPACES
           uint32_t sconfig = TS_SERIAL_8N1;
-          if (*lp!=')') {
+          if (*lp != ')') {
             // serial options, must be 3 chars 8N1, 7E2 etc
             uint8_t bits = *lp++ & 0xf;
             uint8_t parity = 0;
@@ -4624,7 +4598,7 @@ extern char *SML_GetSVal(uint32_t index);
           SCRIPT_SKIP_SPACES
           // check for rec buffer
           float rxbsiz = 128;
-          if (*lp!=')') {
+          if (*lp != ')') {
               lp = GetNumericArgument(lp, OPER_EQU, &rxbsiz, gv);
           }
           fvar = -1;
@@ -5450,7 +5424,7 @@ extern char *SML_GetSVal(uint32_t index);
 
     // nothing valid found
 notfound:
-    if (fp) *fp=0;
+    if (fp) *fp = 0;
     *vtype = VAR_NV;
     tind->index = VAR_NV;
     glob_script_mem.var_not_found = 1;
