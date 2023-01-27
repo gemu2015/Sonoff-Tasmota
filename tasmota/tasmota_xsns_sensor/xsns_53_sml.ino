@@ -2500,7 +2500,7 @@ char *SpecOptions(char *cp, uint32_t mnum) {
 			for (uint8_t cnt = 0; cnt < (SML_CRYPT_SIZE * 2); cnt += 2) {
 				meter_desc[mnum].key[cnt / 2] = (sml_hexnibble(cp[cnt]) << 4) | sml_hexnibble(cp[cnt + 1]);
 			}
-			AddLog(LOG_LEVEL_INFO, PSTR(">> crypto mode used for meter %d"), mnum + 1);
+			AddLog(LOG_LEVEL_INFO, PSTR("crypto mode used for meter %d"), mnum + 1);
 			break;
 #ifdef USE_SML_AUTHKEY
 		case '5':
