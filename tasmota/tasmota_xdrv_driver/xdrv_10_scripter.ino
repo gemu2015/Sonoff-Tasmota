@@ -2754,7 +2754,7 @@ chknext:
           lp = isvar(lp + 4, &vtype, &ind, 0, 0, gv);
           if (!ind.bits.constant) {
             uint8_t index = glob_script_mem.type[ind.index].index;
-            fvar = glob_script_mem.fvars[index] - glob_script_mem.s_fvars[index];
+            fvar = glob_script_mem.fvars[index] != glob_script_mem.s_fvars[index];
             glob_script_mem.s_fvars[index] = glob_script_mem.fvars[index];
           } else {
             fvar = 0;
@@ -2899,6 +2899,20 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           while (*lp==' ') lp++;
           glob_script_mem.script_dprec = fvar;
           fvar = 0;
+          goto nfuncexit;
+        }
+        if (!strncmp(lp, "diff[", 5)) {
+          // var changed
+          struct T_INDEX ind;
+          uint8_t vtype;
+          lp = isvar(lp + 5, &vtype, &ind, 0, 0, gv);
+          if (!ind.bits.constant) {
+            uint8_t index = glob_script_mem.type[ind.index].index;
+            fvar = glob_script_mem.fvars[index] - glob_script_mem.s_fvars[index];
+            glob_script_mem.s_fvars[index] = glob_script_mem.fvars[index];
+          } else {
+            fvar = 0;
+          }
           goto nfuncexit;
         }
         break;
