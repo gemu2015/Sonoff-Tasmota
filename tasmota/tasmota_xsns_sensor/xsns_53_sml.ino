@@ -1423,6 +1423,7 @@ char *skip_double(char *cp) {
 }
 
 uint8_t *sml_find(uint8_t *src, uint16_t ssize, uint8_t *pattern, uint16_t psize) {
+	AddLog(LOG_LEVEL_INFO, PSTR(">> %02x %02x %02x %02x"),pattern[0],pattern[1],pattern[2],pattern[3]);
 	if (psize >= ssize) {
 		return 0;
 	}
@@ -1581,7 +1582,7 @@ void SML_Decode(uint8_t index) {
         SML_Immediate_MQTT((const char*)mp, vindex, mindex);
         sml_globs.dvalid[vindex] = 1;
         // get sfac
-      } else if (*mp=='d') {
+      } else if (*mp == 'd') {
         // calc deltas d ind 10 (eg every 10 secs)
         if (dindex < MAX_DVARS) {
           // only n indexes
@@ -1658,25 +1659,34 @@ void SML_Decode(uint8_t index) {
             // ebus modbus pzem vbus or raw
 						if (!strncmp(mp, "pm(", 3)) {
 							// pattern match
+							uint8_t dp = 0;
 							mp += 3;
 							uint8_t aflg = 1;
 							if (*mp == 'r') {
 								aflg = 0;
 								mp++;
+							} else if (*mp == 'o') {
+								aflg |= 2;
+								mp++;
 							}
 							uint8_t pattern[64];
+							// check for obis pattern
 							for (uint32_t cnt = 0; cnt < sizeof(pattern); cnt++) {
 								if (*mp == '@' || !*mp) {
 									break;
 								}
 								if (*mp == ')') {
 									mp++;
+									if ((aflg & 2) && (dp == 2)) {
+										pattern[cnt] = 0xff;
+										cnt++;
+									}
 									pattern[cnt] = 0;
 									uint8_t *ucp = sml_find(cp, meter_desc[index].sbsiz, pattern, cnt);
 									if (ucp) {
 										cp = ucp + cnt;
 										// check auto type
-										if (aflg) {
+										if (aflg & 1) {
 											// METER_ID_SIZE
 											CosemData *item = (CosemData *)cp;
 											switch (item->base.type) {
@@ -1695,8 +1705,17 @@ void SML_Decode(uint8_t index) {
 									}
 									break;
 								}
-								uint8_t iob = hexnibble(*mp++) << 4;
-								iob |= hexnibble(*mp++);
+								uint8_t iob;
+								if (aflg & 2) {
+									iob = strtol((char*)mp, (char**)&mp, 10);
+									if (*mp == '.') {
+										mp++;
+										dp++;
+									}
+								} else {
+									iob = hexnibble(*mp++) << 4;
+									iob |= hexnibble(*mp++);
+								}
 								pattern[cnt] = iob;
 							}
 						} else if (*mp == 'x') {
