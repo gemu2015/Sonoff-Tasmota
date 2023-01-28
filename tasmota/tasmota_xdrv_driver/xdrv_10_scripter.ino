@@ -4547,13 +4547,7 @@ extern char *SML_GetSVal(uint32_t index);
               fvar = -99;
             }
           } else {
-
-
-#if defined(ED300L) || defined(AS2020)
             fvar = SML_Status(fvar1);
-#else
-            fvar = 0;
-#endif //ED300L
           }
           goto nfuncexit;
         }
