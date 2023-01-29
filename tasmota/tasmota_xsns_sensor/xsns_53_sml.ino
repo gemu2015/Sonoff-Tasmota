@@ -1178,7 +1178,7 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
 			if (timediff > SML_STIMEOUT) {
 				mp->hp->len = 0;
 				mp->spos = 0;
-				AddLog(LOG_LEVEL_DEBUG, PSTR(">> timeout reset"));
+				AddLog(LOG_LEVEL_DEBUG, PSTR("SML: sync"));
 			}
 			mp->lastms = millis();
 			uint16_t len;
