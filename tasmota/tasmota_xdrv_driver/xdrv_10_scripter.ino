@@ -4478,7 +4478,9 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         }
 #endif //USE_ANGLE_FUNC
 
+
 #if defined(USE_SML_M) && defined (USE_SML_SCRIPT_CMD)
+uint32_t sml_status(uint32_t meter);
 extern char *SML_GetSVal(uint32_t index);
 
         if (!strncmp(lp, "sml[", 4)) {
@@ -4547,7 +4549,7 @@ extern char *SML_GetSVal(uint32_t index);
               fvar = -99;
             }
           } else {
-            fvar = SML_Status(fvar1);
+            fvar = sml_status(fvar1);
           }
           goto nfuncexit;
         }

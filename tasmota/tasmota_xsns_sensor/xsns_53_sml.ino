@@ -1423,7 +1423,7 @@ char *skip_double(char *cp) {
 }
 
 uint8_t *sml_find(uint8_t *src, uint16_t ssize, uint8_t *pattern, uint16_t psize) {
-	AddLog(LOG_LEVEL_INFO, PSTR(">> %02x %02x %02x %02x"),pattern[0],pattern[1],pattern[2],pattern[3]);
+	//AddLog(LOG_LEVEL_INFO, PSTR(">> %02x %02x %02x %02x"),pattern[0],pattern[1],pattern[2],pattern[3]);
 	if (psize >= ssize) {
 		return 0;
 	}
@@ -1661,12 +1661,13 @@ void SML_Decode(uint8_t index) {
 							// pattern match
 							uint8_t dp = 0;
 							mp += 3;
-							uint8_t aflg = 1;
+							// default to asci obis
+							uint8_t aflg = 3;
 							if (*mp == 'r') {
 								aflg = 0;
 								mp++;
-							} else if (*mp == 'o') {
-								aflg |= 2;
+							} else if (*mp == 'h') {
+								aflg = 1;
 								mp++;
 							}
 							uint8_t pattern[64];
