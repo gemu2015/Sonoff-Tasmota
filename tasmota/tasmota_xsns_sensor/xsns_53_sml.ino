@@ -129,6 +129,10 @@ defining key switches decryption mode on
 authentication key, 16 bytes hex btw 32 chars without spaces or commas
 needs USE_SML_AUTHKEY
 
+6:
+synchronisation timout in milliseconds, after no serial data within this
+time serial pointer is reset to zero
+
 */
 
 //#define MODBUS_DEBUG
@@ -365,6 +369,10 @@ typedef union {
 #define TMSBSIZ 256
 #endif
 
+#ifndef SML_STIMEOUT
+#define SML_STIMEOUT 1000
+#endif
+
 #define SO_DWS74_BUG 1
 #define SO_OBIS_LINE 2
 
@@ -392,6 +400,7 @@ struct METER_DESC {
   uint16_t spos;
   uint16_t sibsiz;
 	uint32_t lastms;
+	uint16_t tout_ms;
   uint8_t so_flags;
   char meter_id[METER_ID_SIZE];
 #ifdef USE_SML_SPECOPT
@@ -1160,10 +1169,6 @@ void sml_empty_receiver(uint32_t meters) {
   }
 }
 
-#ifndef SML_STIMEOUT
-#define SML_STIMEOUT 1000
-#endif
-
 void sml_shift_in(uint32_t meters, uint32_t shard) {
   uint32_t count;
 
@@ -1175,7 +1180,7 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
 	if (mp->use_crypt) {
 		if (mp->hp) {
 			uint32_t timediff = millis() - mp->lastms;
-			if (timediff > SML_STIMEOUT) {
+			if (timediff > mp->tout_ms) {
 				mp->hp->len = 0;
 				mp->spos = 0;
 				AddLog(LOG_LEVEL_DEBUG, PSTR("SML: sync"));
@@ -1232,11 +1237,19 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
       break;
     case 'R':
       // raw without shift
+			{
+			uint32_t timediff = millis() - mp->lastms;
+			if (timediff > mp->tout_ms) {
+				mp->spos = 0;
+				AddLog(LOG_LEVEL_DEBUG, PSTR("SML: sync"));
+			}
+			mp->lastms = millis();
       mp->sbuff[mp->spos] = iob;
       mp->spos++;
       if (mp->spos > mp->sbsiz) {
         mp->spos = 0;
       }
+			}
       break;
     case 'k':
       // Kamstrup
@@ -2019,7 +2032,7 @@ void SML_Decode(uint8_t index) {
         } else {
           double dval;
           char type = sml_globs.mp[mindex].type;
-          if (type != 'e' && type != 'r' && type != 'm' && type != 'M' && type != 'k' && type != 'p' && type != 'v') {
+          if (type != 'e' && type != 'r' && type != 'R' && type != 'm' && type != 'M' && type != 'k' && type != 'p' && type != 'v') {
             // get numeric values
             if (type == 'o' || type == 'c') {
               if (*mp == '(') {
@@ -2464,48 +2477,49 @@ bool Gpio_used(uint8_t gpiopin) {
 #define SML_MINSB 64
 char *SpecOptions(char *cp, uint32_t mnum) {
 // special option
+struct METER_DESC *mp = &meter_desc[mnum];
 	switch (*cp) {
 		case '1':
 			cp++;
 #ifdef USE_SML_SPECOPT
 			if (*cp == ',') {
 		    cp++;
-		    meter_desc[mnum].so_obis1 = strtol(cp, &cp, 16);
+		    mp->so_obis1 = strtol(cp, &cp, 16);
 		  }
 		  if (*cp == ',') {
 		    cp++;
-		    meter_desc[mnum].so_fcode1 = strtol(cp, &cp, 16);
+		    mp->so_fcode1 = strtol(cp, &cp, 16);
 		  }
 		  if (*cp == ',') {
 		    cp++;
-		    meter_desc[mnum].so_bpos1 = strtol(cp, &cp, 10);
+		    mp->so_bpos1 = strtol(cp, &cp, 10);
 		  }
 		  if (*cp == ',') {
 		    cp++;
-		    meter_desc[mnum].so_fcode2 = strtol(cp, &cp, 16);
+		    mp->so_fcode2 = strtol(cp, &cp, 16);
 		  }
 		  if (*cp == ',') {
 		    cp++;
-		    meter_desc[mnum].so_bpos2 = strtol(cp, &cp, 10);
+		    mp->so_bpos2 = strtol(cp, &cp, 10);
 		  }
 		  if (*cp == ',') {
 		    cp++;
-		    meter_desc[mnum].so_obis2 = strtol(cp, &cp, 16);
+		    mp->so_obis2 = strtol(cp, &cp, 16);
 		  }
 #endif
 			break;
  		case '2':
 			cp += 2;
-			meter_desc[mnum].so_flags = strtol(cp, &cp, 16);
+			mp->so_flags = strtol(cp, &cp, 16);
 			break;
 		case '3':
 			cp += 2;
-			meter_desc[mnum].sbsiz = strtol(cp, &cp, 10);
+			mp->sbsiz = strtol(cp, &cp, 10);
 			if (*cp == ',') {
 				cp++;
-				meter_desc[mnum].sibsiz = strtol(cp, &cp, 10);
-				if (meter_desc[mnum].sibsiz < SML_MINSB) {
-					meter_desc[mnum].sibsiz = SML_MINSB;
+				mp->sibsiz = strtol(cp, &cp, 10);
+				if (mp->sibsiz < SML_MINSB) {
+					mp->sibsiz = SML_MINSB;
 				}
 			}
 			if (*cp == ',') {
@@ -2518,7 +2532,7 @@ char *SpecOptions(char *cp, uint32_t mnum) {
 #ifdef USE_SML_DECRYPT
 			meter_desc[mnum].use_crypt = true;
 			for (uint8_t cnt = 0; cnt < (SML_CRYPT_SIZE * 2); cnt += 2) {
-				meter_desc[mnum].key[cnt / 2] = (sml_hexnibble(cp[cnt]) << 4) | sml_hexnibble(cp[cnt + 1]);
+				mp->key[cnt / 2] = (sml_hexnibble(cp[cnt]) << 4) | sml_hexnibble(cp[cnt + 1]);
 			}
 			AddLog(LOG_LEVEL_INFO, PSTR("crypto mode used for meter %d"), mnum + 1);
 			break;
@@ -2526,8 +2540,12 @@ char *SpecOptions(char *cp, uint32_t mnum) {
 		case '5':
 			cp += 2;
 			for (uint8_t cnt = 0; cnt < (SML_CRYPT_SIZE * 2); cnt += 2) {
-				meter_desc[mnum].auth[cnt / 2] = (sml_hexnibble(cp[cnt]) << 4) | sml_hexnibble(cp[cnt + 1]);
+				mp->auth[cnt / 2] = (sml_hexnibble(cp[cnt]) << 4) | sml_hexnibble(cp[cnt + 1]);
 			}
+			break;
+		case '6':
+			cp += 2;
+			mp->tout_ms = strtol(cp, &cp, 10);
 			break;
 #endif
 #endif
@@ -2606,6 +2624,10 @@ void reset_sml_vars(uint16_t maxmeters) {
         delete mp->meter_ss;
         mp->meter_ss = NULL;
     }
+
+		mp->lastms = millis();
+		mp->tout_ms = SML_STIMEOUT;
+
 #ifdef USE_SML_DECRYPT
 		if (mp->use_crypt) {
 			if (mp->hp) {
