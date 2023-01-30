@@ -2932,7 +2932,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         }
 #ifdef USE_ENERGY_SENSOR
         if (!strncmp(lp, "enrg[", 5)) {
-          lp=GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
+          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           while (*lp == ' ') lp++;
           switch ((uint32_t)fvar) {
             case 0:
