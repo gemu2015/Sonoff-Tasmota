@@ -1,4 +1,7 @@
-<img src="https://github.com/arendst/Tasmota/blob/master/tools/logo/TASMOTA_FullLogo_Vector.svg" alt="Logo" align="right" height="76"/>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./tools/logo/TASMOTA_FullLogo_Vector_White.svg">
+  <img alt="Logo" src="./tools/logo/TASMOTA_FullLogo_Vector.svg" align="right" height="76">
+</picture>
 
 # RELEASE NOTES
 
@@ -55,7 +58,7 @@ Easy initial installation of Tasmota can be performed using the [Tasmota WebInst
 The following binary downloads have been compiled with ESP8266/Arduino library core version **2.7.4.9**.
 
 - **tasmota.bin** = The Tasmota version with most drivers for 1M+ flash. **RECOMMENDED RELEASE BINARY**
-- **tasmota4M.bin** = The Tasmota version with most drivers and filesystem for 4M+ flash.
+- **tasmota-4M.bin** = The Tasmota version with most drivers and filesystem for 4M+ flash.
 - **tasmota-AD.bin** to **tasmota-VN.bin** = The Tasmota version in different languages for 1M+ flash.
 - **tasmota-lite.bin** = The Lite version without most drivers and sensors for 1M+ flash.
 - **tasmota-knx.bin** = The Knx version without some features but adds KNX support for 1M+ flash.
@@ -107,18 +110,23 @@ The latter links can be used for OTA upgrades too like ``OtaUrl https://ota.tasm
 
 [Complete list](BUILDS.md) of available feature and sensors.
 
-## Changelog v12.3.1.3
+## Changelog v12.3.1.5
 ### Added
 - Support for up to 3 single phase modbus energy monitoring device using generic Energy Modbus driver- Support for RGB displays [#17414](https://github.com/arendst/Tasmota/issues/17414)
 - Support for IPv6 DNS records (AAAA) and IPv6 ``Ping`` for ESP32 and ESP8266 [#17417](https://github.com/arendst/Tasmota/issues/17417)
 - Support for IPv6 only networks on Ethernet (not yet Wifi)
 - Support for TM1650 display as used in some clocks by Stefan Oskamp [#17594](https://github.com/arendst/Tasmota/issues/17594)
 - Support for PCA9632 4-channel 8-bit PWM driver as light driver by Pascal Heinrich [#17557](https://github.com/arendst/Tasmota/issues/17557)
+- support for SEN5X gas and air quality sensor by Tyeth Gundry [#17736](https://github.com/arendst/Tasmota/issues/17736)
 - Berry support for ``crypto.SHA256`` [#17430](https://github.com/arendst/Tasmota/issues/17430)
 - Berry crypto add ``EC_P256`` and ``PBKDF2_HMAC_SHA256`` algorithms required by Matter protocol [#17473](https://github.com/arendst/Tasmota/issues/17473)
 - Berry crypto add ``random`` to generate series of random bytes
 - Berry crypto add ``HKDF_HMAC_SHA256``
 - Berry crypto add ``SPAKE2P_Matter`` for Matter support
+- ESP32 command ``EnergyCols 1..8`` to change number of GUI columns
+- ESP32 command ``EnergyDisplay 1..3`` to change GUI column presentation
+- ESP32 support for eigth energy phases/channels
+- ESP32 support for BMPxxx sensors on two I2C busses [#17643](https://github.com/arendst/Tasmota/issues/17643)
 
 ### Breaking Changed
 
@@ -126,6 +134,8 @@ The latter links can be used for OTA upgrades too like ``OtaUrl https://ota.tasm
 - ESP32 Framework (Core) from v2.0.5.3 to v2.0.6 (IPv6 support)
 - Energy totals max supported value from +/-21474.83647 to +/-2147483.647 kWh
 - Removed delays in TasmotaSerial and TasmotaModbus Tx enable switching
+- Keep webserver enabled on command ``upload``
+- Increase rule event buffer from 100 to 256 characters [#16943](https://github.com/arendst/Tasmota/issues/16943)
 - TuyaMcu rewrite by btsimonh [#17051](https://github.com/arendst/Tasmota/issues/17051)
 - Tasmota OTA scripts now support both unzipped and gzipped file uploads [#17378](https://github.com/arendst/Tasmota/issues/17378)
 
@@ -136,5 +146,6 @@ The latter links can be used for OTA upgrades too like ``OtaUrl https://ota.tasm
 - Shutter default motorstop set to 0 [#17403](https://github.com/arendst/Tasmota/issues/17403)
 - Shutter default tilt configuration [#17484](https://github.com/arendst/Tasmota/issues/17484)
 - Orno WE517 modbus serial config 8E1 setting [#17545](https://github.com/arendst/Tasmota/issues/17545)
+- Rename ``tasmota4M.bin`` to ``tasmota-4M.bin`` to solve use of ``tasmota-minimal.bin`` [#17674](https://github.com/arendst/Tasmota/issues/17674)
 
 ### Removed

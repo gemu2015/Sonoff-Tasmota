@@ -113,10 +113,6 @@ void Renderer::setTextSize(uint8_t sf) {
   Adafruit_GFX::setTextSize(sf);
 }
 
-Renderer::~Renderer() {
-
-}
-
 /**
  *  @brief: this draws a charactor on the frame buffer but not refresh
  */

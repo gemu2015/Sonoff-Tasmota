@@ -298,6 +298,7 @@ int8_t cs;
     fp.write((uint8_t*)ddesc, DISPDESC_SIZE);
     fp.close();
 */
+
     // init renderer
     if (renderer) {
       delete renderer;

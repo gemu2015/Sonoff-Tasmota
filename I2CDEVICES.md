@@ -45,6 +45,7 @@ Index | Define              | Driver   | Device   | Address(es) | Description
   22  | USE_MCP230xx        | xsns_29  | MCP23017 | 0x20 - 0x26 | 16-bit I/O expander
   23  | USE_MPR121          | xsns_30  | MPR121   | 0x5A - 0x5D | Proximity capacitive touch sensor
   24  | USE_CCS811          | xsns_31  | CCS811   | 0x5A        | Gas (TVOC) and air quality sensor
+  24' | USE_CCS811_V2       | xsns_31  | CCS811   | 0x5A - 0x5B | Gas (TVOC) and air quality sensor
   25  | USE_MPU6050         | xsns_32  | MPU6050  | 0x68 - 0x69 | 3-axis gyroscope and temperature sensor
   26  | USE_DS3231          | xsns_33  | DS3231   | 0x68        | Real time clock
   27  | USE_MGC3130         | xsns_36  | MGC3130  | 0x42        | Electric field sensor
@@ -110,3 +111,4 @@ Index | Define              | Driver   | Device   | Address(es) | Description
   73  | USE_HMC5883L        | xsns_101 | HMC5883L | 0x1E        | 3-channels Magnetic Field Sensor
   74  | USE_DISPLAY_TM1650  | xdsp_20  | TM1650   | 0x24 - 0x27, 0x34 - 0x37 | Four-digit seven-segment LED controller
   75  | USE_PCA9632         | xdrv_64  | PCA9632  | 0x60        | 4-channel 4-bit pwm driver
+  76  | USE_SEN5X           | xsns_103 | SEN5X    | 0x69        | Gas (VOC/NOx index) and air quality (PPM <1,<2.5,<4,<10)

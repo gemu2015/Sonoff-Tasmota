@@ -533,6 +533,7 @@
 #define USE_TUYA_MCU                             // Add support for Tuya Serial MCU
   #define TUYA_DIMMER_ID       0                 // Default dimmer Id
   #define USE_TUYA_TIME                          // Add support for Set Time in Tuya MCU
+//#define USE_TUYAMCUBR                            // Add support for TuyaMCU Bridge
 #define USE_ARMTRONIX_DIMMERS                    // Add support for Armtronix Dimmers (+1k4 code)
 #define USE_PS_16_DZ                             // Add support for PS-16-DZ Dimmer (+2k code)
 #define USE_SONOFF_IFAN                          // Add support for Sonoff iFan02 and iFan03 (+2k code)
@@ -579,7 +580,7 @@
 //#define USE_LSC_MCSL                             // Add support for GPE Multi color smart light as sold by Action in the Netherlands (+1k1 code)
 
 // #define USE_LIGHT_ARTNET                         // Add support for DMX/ArtNet via UDP on port 6454 (+3.5k code)
-  #define USE_LIGHT_ARTNET_MCAST 239,255,25,54   // Multicast address used to listen: 239.255.25.24
+  #define USE_LIGHT_ARTNET_MCAST 239,255,25,54   // Multicast address used to listen: 239.255.25.54
 
 // -- Counter input -------------------------------
 #define USE_COUNTER                              // Enable inputs as counter (+0k8 code)
@@ -618,6 +619,7 @@
     #define MGS_SENSOR_ADDR    0x04              // Default Mutichannel Gas sensor i2c address
 //  #define USE_SGP30                              // [I2cDriver18] Enable SGP30 sensor (I2C address 0x58) (+1k1 code)
 //  #define USE_SGP40                              // [I2cDriver69] Enable SGP40 sensor (I2C address 0x59) (+1k4 code)
+//  #define USE_SEN5X                              // [I2cDriver76] Enable SEN5X sensor (I2C address 0x69) (+3k code)
 //  #define USE_SI1145                             // [I2cDriver19] Enable SI1145/46/47 sensor (I2C address 0x60) (+1k code)
 //  #define USE_LM75AD                             // [I2cDriver20] Enable LM75AD sensor (I2C addresses 0x48 - 0x4F) (+0k5 code)
 //  #define USE_APDS9960                           // [I2cDriver21] Enable APDS9960 Proximity Sensor (I2C address 0x39). Disables SHT and VEML6070 (+4k7 code)
@@ -717,6 +719,7 @@
 
 //  #define USE_RTC_CHIPS                          // Enable RTC chip support and NTP server - Select only one
 //    #define USE_DS3231                           // [I2cDriver26] Enable DS3231 RTC (I2C address 0x68) (+1k2 code)
+//    #define DS3231_ENABLE_TEMP                   //   In DS3231 driver, enable the internal temperature sensor
 //    #define USE_BM8563                           // [I2cDriver59] Enable BM8563 RTC - found in M5Stack - support both I2C buses on ESP32 (I2C address 0x51) (+2.5k code)
 //    #define USE_PCF85363                         // [I2cDriver66] Enable PCF85363 RTC - found Shelly 3EM (I2C address 0x51) (+0k7 code)
 
@@ -822,6 +825,7 @@
   #define USE_TASMOTA_CLIENT_SERIAL_SPEED 57600  // Depends on the sketch that is running on the Uno/Pro Mini
 //#define USE_OPENTHERM                            // Add support for OpenTherm (+15k code)
 //#define USE_MIEL_HVAC                            // Add support for Mitsubishi Electric HVAC serial interface (+5k code)
+//#define USE_TUYAMCUBR                            // Add support for TuyaMCU Bridge
 //#define USE_PROJECTOR_CTRL                       // Add support for LCD/DLP Projector serial control interface (+2k code)
 //  #define USE_PROJECTOR_CTRL_NEC                 // Use codes for NEC
 //  #define USE_PROJECTOR_CTRL_OPTOMA              // Use codes for OPTOMA
@@ -1120,7 +1124,8 @@
   // #define USE_BERRY_ULP                          // Enable ULP (Ultra Low Power) support (+4.9k)
   // Berry crypto extensions below:
   #define USE_BERRY_CRYPTO_AES_GCM               // enable AES GCM 256 bits
-  // #define USE_BERRY_CRYPTO_AES_CTR               // enable AEC CTR 256 bits
+  // #define USE_BERRY_CRYPTO_AES_CCM               // enable AES CCM 128 bits
+  // #define USE_BERRY_CRYPTO_AES_CTR               // enable AES CTR 256 bits
   // #define USE_BERRY_CRYPTO_EC_P256               // enable EC P256r1
   // #define USE_BERRY_CRYPTO_EC_C25519             // enable Elliptic Curve C C25519
   #define USE_BERRY_CRYPTO_SHA256                // enable SHA256 hash function

@@ -11,6 +11,11 @@
 extern int be_class_crypto_member(bvm *vm);
 extern int m_crypto_random(bvm *vm);
 
+extern int m_aes_ccm_init(bvm *vm);
+extern int m_aes_ccm_encryt(bvm *vm);
+extern int m_aes_ccm_decryt(bvm *vm);
+extern int m_aes_ccm_tag(bvm *vm);
+
 extern int m_aes_gcm_init(bvm *vm);
 extern int m_aes_gcm_encryt(bvm *vm);
 extern int m_aes_gcm_decryt(bvm *vm);
@@ -22,6 +27,10 @@ extern int m_aes_ctr_tag(bvm *vm);
 
 extern int m_ec_p256_pubkey(bvm *vm);
 extern int m_ec_p256_sharedkey(bvm *vm);
+extern int m_ec_p256_ecdsa_sign_sha256(bvm *vm);
+extern int m_ec_p256_ecdsa_verify_sha256(bvm *vm);
+extern int m_ec_p256_ecdsa_sign_sha256_asn1(bvm *vm);
+extern int m_ec_p256_ecdsa_verify_sha256_asn1(bvm *vm);
 extern int m_ec_p256_mod(bvm *vm);
 extern int m_ec_p256_neg(bvm *vm);
 extern int m_ec_p256_muladd(bvm *vm);
@@ -47,6 +56,7 @@ extern const bclass be_class_md5;
 #include "solidify/solidified_crypto_pbkdf2_hmac_sha256.h"
 #include "solidify/solidified_crypto_spake2p_matter.h"
 
+#include "be_fixed_be_class_aes_ccm.h"
 #include "be_fixed_be_class_aes_gcm.h"
 #include "be_fixed_be_class_aes_ctr.h"
 #include "be_fixed_be_class_ec_p256.h"
@@ -65,11 +75,17 @@ extern const bclass be_class_md5;
   #define USE_BERRY_CRYPTO_HMAC_SHA256
   #undef USE_BERRY_CRYPTO_HKDF_SHA256
   #define USE_BERRY_CRYPTO_HKDF_SHA256
+  #undef USE_BERRY_CRYPTO_AES_CCM
+  #define USE_BERRY_CRYPTO_AES_CCM
 #endif
 
 const be_const_member_t be_crypto_members[] = {
   // name with prefix '/' indicates a Berry class
   // entries need to be sorted (ignoring the prefix char)
+#ifdef USE_BERRY_CRYPTO_AES_CCM
+  { "/AES_CCM", (intptr_t) &be_class_aes_ccm },
+#endif // USE_BERRY_CRYPTO_AES_CTR
+
 #ifdef USE_BERRY_CRYPTO_AES_CTR
   { "/AES_CTR", (intptr_t) &be_class_aes_ctr },
 #endif // USE_BERRY_CRYPTO_AES_CTR
@@ -114,6 +130,16 @@ const size_t be_crypto_members_size = sizeof(be_crypto_members)/sizeof(be_crypto
 
 /* @const_object_info_begin
 
+class be_class_aes_ccm (scope: global, name: AES_CCM) {
+    .p1, var
+    .p2, var
+
+    init, func(m_aes_ccm_init)
+    encrypt, func(m_aes_ccm_encryt)
+    decrypt, func(m_aes_ccm_decryt)
+    tag, func(m_aes_ccm_tag)
+}
+
 class be_class_aes_gcm (scope: global, name: AES_GCM) {
     .p1, var
     .p2, var
@@ -135,6 +161,10 @@ class be_class_aes_ctr (scope: global, name: AES_CTR) {
 class be_class_ec_p256 (scope: global, name: EC_P256) {
     public_key, static_func(m_ec_p256_pubkey)
     shared_key, static_func(m_ec_p256_sharedkey)
+    ecdsa_sign_sha256, static_func(m_ec_p256_ecdsa_sign_sha256)
+    ecdsa_verify_sha256, static_func(m_ec_p256_ecdsa_verify_sha256)
+    ecdsa_sign_sha256_asn1, static_func(m_ec_p256_ecdsa_sign_sha256_asn1)
+    ecdsa_verify_sha256_asn1, static_func(m_ec_p256_ecdsa_verify_sha256_asn1)
     mod, static_func(m_ec_p256_mod)
     neg, static_func(m_ec_p256_neg)
     muladd, static_func(m_ec_p256_muladd)
