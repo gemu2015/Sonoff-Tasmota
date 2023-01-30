@@ -4,8 +4,8 @@
 #include <stdint.h>
 #include "Arduino.h"
 
-String toHex(uint8_t* in);
-String toHex(uint8_t* in, uint16_t size);
-void fromHex(uint8_t *out, String in, uint16_t size);
+String AMS_toHex(uint8_t* in);
+String AMS_toHex(uint8_t* in, uint16_t size);
+void AMS_fromHex(uint8_t *out, String in, uint16_t size);
 
 #endif

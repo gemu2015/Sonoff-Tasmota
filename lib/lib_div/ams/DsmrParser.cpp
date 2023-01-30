@@ -19,7 +19,7 @@ int8_t DSMRParser::parse(uint8_t *buf, DataParserContext &ctx, bool verified) {
     if(crcPos > 0) {
 	    uint16_t crc_calc = crc16(buf, crcPos);
         uint16_t crc = 0x0000;
-        fromHex((uint8_t*) &crc, String((char*) buf+crcPos), 2);
+        AMS_fromHex((uint8_t*) &crc, String((char*) buf+crcPos), 2);
         crc = ntohs(crc);
 
         if(crc != crc_calc)
