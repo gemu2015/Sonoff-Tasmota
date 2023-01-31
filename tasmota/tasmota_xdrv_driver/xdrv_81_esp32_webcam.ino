@@ -111,6 +111,41 @@
 #include "fb_gfx.h"
 #include "camera_pins.h"
 
+
+#undef Y2_GPIO_NUM
+#undef Y3_GPIO_NUM
+#undef Y4_GPIO_NUM
+#undef Y5_GPIO_NUM
+#undef Y6_GPIO_NUM
+#undef Y7_GPIO_NUM
+#undef Y8_GPIO_NUM
+#undef Y9_GPIO_NUM
+#undef XCLK_GPIO_NUM
+#undef PCLK_GPIO_NUM
+#undef VSYNC_GPIO_NUM
+#undef HREF_GPIO_NUM
+#undef SIOD_GPIO_NUM
+#undef SIOC_GPIO_NUM
+#undef PWDN_GPIO_NUM
+#undef RESET_GPIO_NUM
+
+#define Y2_GPIO_NUM 11
+#define Y3_GPIO_NUM 9
+#define Y4_GPIO_NUM 8
+#define Y5_GPIO_NUM 10
+#define Y6_GPIO_NUM 12
+#define Y7_GPIO_NUM 18
+#define Y8_GPIO_NUM 17
+#define Y9_GPIO_NUM 16
+#define XCLK_GPIO_NUM 15
+#define PCLK_GPIO_NUM 13
+#define VSYNC_GPIO_NUM 6
+#define HREF_GPIO_NUM 7
+#define SIOD_GPIO_NUM 4
+#define SIOC_GPIO_NUM 5
+#define PWDN_GPIO_NUM -1
+#define RESET_GPIO_NUM -1
+
 bool HttpCheckPriviledgedAccess(bool);
 extern ESP8266WebServer *Webserver;
 
@@ -183,6 +218,7 @@ bool WcPinUsed(void) {
     if (!PinUsed(GPIO_WEBCAM_DATA, i)) {
       pin_used = false;
     }
+    //AddLog(LOG_LEVEL_DEBUG, PSTR(">> %d"), Pin(GPIO_WEBCAM_DATA, i));
 //    if (i < MAX_WEBCAM_HSD) {
 //      if (!PinUsed(GPIO_WEBCAM_HSD, i)) {
 //        pin_used = false;
@@ -192,7 +228,7 @@ bool WcPinUsed(void) {
   if (!PinUsed(GPIO_WEBCAM_XCLK) || !PinUsed(GPIO_WEBCAM_PCLK) ||
       !PinUsed(GPIO_WEBCAM_VSYNC) || !PinUsed(GPIO_WEBCAM_HREF) ||
       ((!PinUsed(GPIO_WEBCAM_SIOD) || !PinUsed(GPIO_WEBCAM_SIOC)) && !TasmotaGlobal.i2c_enabled_2)    // preferred option is to reuse and share I2Cbus 2
-      ) { 
+      ) {
         pin_used = false;
   }
   return pin_used;
@@ -432,7 +468,9 @@ uint32_t WcSetup(int32_t fsiz) {
 
   WcApplySettings();
 
-  AddLog(LOG_LEVEL_INFO, PSTR("CAM: Initialized"));
+  camera_sensor_info_t *info = esp_camera_sensor_get_info(&wc_s->id);
+
+  AddLog(LOG_LEVEL_INFO, PSTR("CAM: %s Initialized"), info->name);
 
   Wc.up = 1;
   if (psram) { Wc.up = 2; }
@@ -756,6 +794,18 @@ void HandleImage(void) {
     camera_fb_t *wc_fb = 0;
     wc_fb = esp_camera_fb_get();
     if (!wc_fb) { return; }
+    if (Wc.stream_active < 2) {
+      // fetch some more frames
+      delay(20);
+      esp_camera_fb_return(wc_fb);
+      delay(20);
+      wc_fb = esp_camera_fb_get();
+      delay(20);
+      esp_camera_fb_return(wc_fb);
+      delay(20);
+      wc_fb = esp_camera_fb_get();
+    }
+
     if (wc_fb->format != PIXFORMAT_JPEG) {
       bool jpeg_converted = frame2jpg(wc_fb, 80, &_jpg_buf, &_jpg_buf_len);
       if (!jpeg_converted) {
