@@ -192,7 +192,7 @@ bool WcPinUsed(void) {
   if (!PinUsed(GPIO_WEBCAM_XCLK) || !PinUsed(GPIO_WEBCAM_PCLK) ||
       !PinUsed(GPIO_WEBCAM_VSYNC) || !PinUsed(GPIO_WEBCAM_HREF) ||
       ((!PinUsed(GPIO_WEBCAM_SIOD) || !PinUsed(GPIO_WEBCAM_SIOC)) && !TasmotaGlobal.i2c_enabled_2)    // preferred option is to reuse and share I2Cbus 2
-      ) {
+      ) { 
         pin_used = false;
   }
   return pin_used;
@@ -432,9 +432,7 @@ uint32_t WcSetup(int32_t fsiz) {
 
   WcApplySettings();
 
-  camera_sensor_info_t *info = esp_camera_sensor_get_info(&wc_s->id);
-
-  AddLog(LOG_LEVEL_INFO, PSTR("CAM: %s Initialized"), info->name);
+  AddLog(LOG_LEVEL_INFO, PSTR("CAM: Initialized"));
 
   Wc.up = 1;
   if (psram) { Wc.up = 2; }
@@ -745,26 +743,13 @@ void HandleImage(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
 
   uint32_t bnum = Webserver->arg(F("p")).toInt();
-  if ((bnum < 0) || (bnum > MAX_PICSTORE)) { bnum = 1; }
-  uint32_t fsiz = Webserver->arg(F("s")).toInt();
-  if ((fsiz < 0) || (fsiz > 13)) { fsiz = 1; }
-
-  uint8_t sres = Settings->webcam_config.resolution;
-
-  if (fsiz  && fsiz != sres) {
-    esp_camera_deinit();
-    WcSetup(fsiz);
-    AddLog(LOG_LEVEL_INFO, PSTR("CAM switch: bnum: %d, sres: %d"), bnum, fsiz);
-  }
-
+  if ((bnum < 0) || (bnum > MAX_PICSTORE)) { bnum= 1; }
   WiFiClient client = Webserver->client();
   String response = "HTTP/1.1 200 OK\r\n";
   response += "Content-disposition: inline; filename=cap.jpg\r\n";
   response += "Content-type: image/jpeg\r\n\r\n";
-
   Webserver->sendContent(response);
-  sensor_t * wc_s = esp_camera_sensor_get();
-  
+
   if (!bnum) {
     size_t _jpg_buf_len = 0;
     uint8_t * _jpg_buf = NULL;
@@ -795,12 +780,6 @@ void HandleImage(void) {
   }
   client.stop();
 
-  // restore framesize
-  if (fsiz  && fsiz != sres) {
-    // deiniz
-    esp_camera_deinit();
-    WcSetup(Settings->webcam_config.resolution);
-  }
   AddLog(LOG_LEVEL_DEBUG_MORE, PSTR("CAM: Sending image #: %d"), bnum+1);
 }
 
