@@ -654,7 +654,7 @@ void WcDetectMotion(void) {
 
   if ((millis()-wc_motion.motion_ltime) > wc_motion.motion_detect) {
     wc_motion.motion_ltime = millis();
-    wc_fb = wc_get_frame();
+    wc_fb = esp_camera_fb_get();
     if (!wc_fb) { return; }
 
     if (!wc_motion.last_motion_buffer) {
