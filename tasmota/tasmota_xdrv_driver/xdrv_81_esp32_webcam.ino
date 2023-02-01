@@ -111,6 +111,7 @@
 #include "fb_gfx.h"
 #include "camera_pins.h"
 
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
 
 #undef Y2_GPIO_NUM
 #undef Y3_GPIO_NUM
@@ -145,6 +146,9 @@
 #define SIOC_GPIO_NUM 5
 #define PWDN_GPIO_NUM -1
 #define RESET_GPIO_NUM -1
+
+#endif
+
 
 bool HttpCheckPriviledgedAccess(bool);
 extern ESP8266WebServer *Webserver;
@@ -626,6 +630,23 @@ uint32_t WcSetMotionDetect(int32_t value) {
   }
 }
 
+
+camera_fb_t *wc_get_frame() {
+  camera_fb_t *wc_fb;
+  wc_fb = esp_camera_fb_get();
+  if (wc_fb) {
+    return nullptr;
+  }
+  if ( Wc.stream_active < 2) {
+    // fetch some more frames
+    esp_camera_fb_return(wc_fb);
+    wc_fb = esp_camera_fb_get();
+    esp_camera_fb_return(wc_fb);
+    wc_fb = esp_camera_fb_get();
+  }
+  return wc_fb;
+}
+
 // optional motion detector
 void WcDetectMotion(void) {
   camera_fb_t *wc_fb;
@@ -633,7 +654,7 @@ void WcDetectMotion(void) {
 
   if ((millis()-wc_motion.motion_ltime) > wc_motion.motion_detect) {
     wc_motion.motion_ltime = millis();
-    wc_fb = esp_camera_fb_get();
+    wc_fb = wc_get_frame();
     if (!wc_fb) { return; }
 
     if (!wc_motion.last_motion_buffer) {
@@ -706,7 +727,7 @@ uint32_t WcGetFrame(int32_t bnum) {
   }
 #endif
 
-  wc_fb = esp_camera_fb_get();
+  wc_fb = wc_get_frame();
   if (!wc_fb) {
     AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: Can't get frame"));
     return 0;
@@ -792,19 +813,8 @@ void HandleImage(void) {
     size_t _jpg_buf_len = 0;
     uint8_t * _jpg_buf = NULL;
     camera_fb_t *wc_fb = 0;
-    wc_fb = esp_camera_fb_get();
+    wc_fb = wc_get_frame();
     if (!wc_fb) { return; }
-    if (Wc.stream_active < 2) {
-      // fetch some more frames
-      //delay(20);
-      esp_camera_fb_return(wc_fb);
-      //delay(20);
-      wc_fb = esp_camera_fb_get();
-      //delay(20);
-      esp_camera_fb_return(wc_fb);
-      //delay(20);
-      wc_fb = esp_camera_fb_get();
-    }
 
     if (wc_fb->format != PIXFORMAT_JPEG) {
       bool jpeg_converted = frame2jpg(wc_fb, 80, &_jpg_buf, &_jpg_buf_len);
@@ -845,7 +855,7 @@ void HandleImageBasic(void) {
   }
 
   camera_fb_t *wc_fb;
-  wc_fb = esp_camera_fb_get();  // Acquire frame
+  wc_fb = wc_get_frame();
   if (!wc_fb) {
     AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: Frame buffer could not be acquired"));
     return;
