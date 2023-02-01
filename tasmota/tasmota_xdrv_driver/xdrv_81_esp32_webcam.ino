@@ -634,14 +634,16 @@ uint32_t WcSetMotionDetect(int32_t value) {
 camera_fb_t *wc_get_frame() {
   camera_fb_t *wc_fb;
   wc_fb = esp_camera_fb_get();
-  if (wc_fb) {
+  if (!wc_fb) {
     return nullptr;
   }
   if ( Wc.stream_active < 2) {
     // fetch some more frames
     esp_camera_fb_return(wc_fb);
     wc_fb = esp_camera_fb_get();
-    esp_camera_fb_return(wc_fb);
+    if (wc_fb) {
+      esp_camera_fb_return(wc_fb);
+    }
     wc_fb = esp_camera_fb_get();
   }
   return wc_fb;
@@ -814,7 +816,10 @@ void HandleImage(void) {
     uint8_t * _jpg_buf = NULL;
     camera_fb_t *wc_fb = 0;
     wc_fb = wc_get_frame();
-    if (!wc_fb) { return; }
+    if (!wc_fb) {
+      client.stop();
+      return;
+    }
 
     if (wc_fb->format != PIXFORMAT_JPEG) {
       bool jpeg_converted = frame2jpg(wc_fb, 80, &_jpg_buf, &_jpg_buf_len);
@@ -930,6 +935,9 @@ void HandleWebcamMjpegTask(void) {
       AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: Frame fail"));
       Wc.stream_active = 0;
       WcStats.camfail++;
+      AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: Stream exit"));
+      Wc.client.flush();
+      Wc.client.stop();
     }
     WcStats.camcnt++;
   }
