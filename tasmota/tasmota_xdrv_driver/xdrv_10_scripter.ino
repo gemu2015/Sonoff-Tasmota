@@ -76,6 +76,7 @@ const uint8_t SCRIPT_VERS[2] = {5, 0};
 #endif
 #define MAX_SCRIPT_CMDBUFFER 4096
 
+#define SPI_FLASH_2SEC_SIZE SPI_FLASH_SEC_SIZE*2
 
 #define SCRIPT_EOL '\n'
 #define SCRIPT_FLOAT_PRECISION 2
@@ -117,8 +118,12 @@ char *Get_esc_char(char *cp, char *esc_chr);
 #pragma message "script 24c256 file option used"
 #else
 
-#if EEP_SCRIPT_SIZE==SPECIAL_EEPMODE_SIZE
+#if EEP_SCRIPT_SIZE==SPECIAL_EEPMODE_SIZE || EEP_SCRIPT_SIZE==SPI_FLASH_2SEC_SIZE
+#if EEP_SCRIPT_SIZE==SPI_FLASH_2SEC_SIZE
+#pragma message "internal special flash script buffer used"
+#else
 #pragma message "internal compressed eeprom script buffer used"
+#endif
 #else
 #error "unsupported eeprom option used"
 #endif
@@ -207,19 +212,29 @@ uint32_t eeprom_block;
 uint32_t alt_eeprom_init(uint32_t size) {
     //EEPROM.begin(size);
     //eeprom_block = (uint32_t)&_EEPROM_start - 0x40200000 - SPI_FLASH_SEC_SIZE;
+#if EEP_SCRIPT_SIZE==SPI_FLASH_2SEC_SIZE
+    eeprom_block = SPEC_SCRIPT_FLASH - SPI_FLASH_SEC_SIZE;
+    //eeprom_block = SPEC_SCRIPT_FLASH;
+#else
     eeprom_block = SPEC_SCRIPT_FLASH;
+#endif
     return 1;
 }
 
 void alt_eeprom_writeBytes(uint32_t adr, uint32_t len, uint8_t *buf) {
   uint32_t *lwp = (uint32_t*)buf;
+#if EEP_SCRIPT_SIZE==SPI_FLASH_2SEC_SIZE
+  ESP.flashEraseSector(eeprom_block  / SPI_FLASH_SEC_SIZE);
+  ESP.flashEraseSector((eeprom_block + SPI_FLASH_SEC_SIZE)  / SPI_FLASH_SEC_SIZE);
+#else
   ESP.flashEraseSector(eeprom_block / SPI_FLASH_SEC_SIZE);
-  ESP.flashWrite(eeprom_block , lwp, SPI_FLASH_SEC_SIZE);
+#endif
+  ESP.flashWrite(eeprom_block , lwp, len);
 }
 
 void alt_eeprom_readBytes(uint32_t adr, uint32_t len, uint8_t *buf) {
   uint32_t *lwp = (uint32_t*)buf;
-  ESP.flashRead(eeprom_block , lwp, SPI_FLASH_SEC_SIZE);
+  ESP.flashRead(eeprom_block, lwp, len);
 }
 #endif // EEP_SCRIPT_SIZE
 
@@ -7657,9 +7672,12 @@ void SaveScript(void) {
 #ifdef EEP_SCRIPT_SIZE
   // here we handle EEPROM modes
   if (glob_script_mem.FLAGS.eeprom == true) {
-    if (EEP_SCRIPT_SIZE != SPECIAL_EEPMODE_SIZE) {
+    if (EEP_SCRIPT_SIZE < SPECIAL_EEPMODE_SIZE) {
       EEP_WRITE(0, EEP_SCRIPT_SIZE, glob_script_mem.script_ram);
     } else {
+#if EEP_SCRIPT_SIZE==SPI_FLASH_2SEC_SIZE
+      alt_eeprom_writeBytes(0, SPI_FLASH_2SEC_SIZE, (uint8_t*)glob_script_mem.script_ram);
+#else
       uint8_t *ucs;
       ucs = (uint8_t*)calloc(SPI_FLASH_SEC_SIZE + 4, 1);
       if (ucs) {
@@ -7668,6 +7686,7 @@ void SaveScript(void) {
         }
         free(ucs);
       }
+#endif
     }
   }
 #else
@@ -11627,7 +11646,7 @@ bool Xdrv10(uint32_t function)
       if (EEP_INIT(EEP_SCRIPT_SIZE)) {
           // found 32kb eeprom,
           char *script;
-          if (EEP_SCRIPT_SIZE != SPECIAL_EEPMODE_SIZE) {
+#if EEP_SCRIPT_SIZE<SPECIAL_EEPMODE_SIZE
             script = (char*)calloc(EEP_SCRIPT_SIZE + 4, 1);
             if (!script) break;
             glob_script_mem.script_ram = script;
@@ -11637,8 +11656,20 @@ bool Xdrv10(uint32_t function)
               memset(script, EEP_SCRIPT_SIZE, 0);
             }
             script[EEP_SCRIPT_SIZE - 1] = 0;
-          } else {
+#else
             uint8_t *ucs;
+#if EEP_SCRIPT_SIZE==SPI_FLASH_2SEC_SIZE
+            ucs = (uint8_t*)calloc(SPI_FLASH_2SEC_SIZE + 4, 1);
+            if (!ucs) break;
+            alt_eeprom_readBytes(0, SPI_FLASH_2SEC_SIZE, ucs);
+            if (*ucs == 0xff) {
+              memset(ucs, SPI_FLASH_2SEC_SIZE, 0);
+            }
+            ucs[SPI_FLASH_2SEC_SIZE- 1] = 0;
+            glob_script_mem.script_ram = (char*)ucs;
+            glob_script_mem.script_size = SPI_FLASH_2SEC_SIZE;
+
+#else
             ucs = (uint8_t*)calloc(SPI_FLASH_SEC_SIZE + 4, 1);
             if (!ucs) break;
             alt_eeprom_readBytes(0, SPI_FLASH_SEC_SIZE, ucs);
@@ -11657,8 +11688,8 @@ bool Xdrv10(uint32_t function)
             if (len_decompressed>0) glob_script_mem.script_ram[len_decompressed] = 0;
 
             if (ucs) free(ucs);
-
-          }
+#endif // EEP_SCRIPT_SIZE==SPI_FLASH_2SEC_SIZE
+#endif // EEP_SCRIPT_SIZE<SPECIAL_EEPMODE_SIZE
 
           // use rules storage for permanent vars
           glob_script_mem.script_pram = (uint8_t*)Settings->rules[0];
