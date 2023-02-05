@@ -1000,7 +1000,7 @@ char *script;
     //char *sp = strings;
     char *sp = strings_op;
 
-    for (count = 0; count<svars; count++) {
+    for (count = 0; count < svars; count++) {
         strcpy(cp1,sp);
         sp += strlen(sp) + 1;
         cp1 += glob_script_mem.max_ssize;
@@ -1023,7 +1023,7 @@ char *script;
 
 #if SCRIPT_DEBUG>2
     struct T_INDEX *dvtp = glob_script_mem.type;
-    for (uint8_t count = 0; count<glob_script_mem.numvars; count++) {
+    for (uint8_t count = 0; count < glob_script_mem.numvars; count++) {
       if (dvtp[count].bits.is_string) {
 
       } else {
@@ -1168,14 +1168,14 @@ void Script_PollUdp(void) {
       //AddLog(LOG_LEVEL_DEBUG, PSTR("UDP: Packet %s - %d - %s"), packet_buffer, len, script_udp_remote_ip.toString().c_str());
       AddLog(LOG_LEVEL_DEBUG, PSTR("UDP: Packet %s - %d - %_I"), packet_buffer, len, (uint32_t)glob_script_mem.script_udp_remote_ip);
 #endif
-      char *lp=packet_buffer;
+      char *lp = packet_buffer;
       if (!strncmp(lp,"=>", 2)) {
         lp += 2;
         char *cp=strchr(lp, '=');
         if (cp) {
           char vnam[32];
           for (uint32_t count = 0; count<len; count++) {
-            if (lp[count]=='=') {
+            if (lp[count] == '=') {
               vnam[count] = 0;
               break;
             }
@@ -2187,13 +2187,13 @@ uint32_t MeasurePulseTime(int32_t in) {
 uint32_t match_vars(char *dvnam, float **fp, char **sp, uint32_t *ind) {
   uint16_t olen = strlen(dvnam);
   struct T_INDEX *vtp = glob_script_mem.type;
-  for (uint32_t count = 0; count<glob_script_mem.numvars; count++) {
+  for (uint32_t count = 0; count < glob_script_mem.numvars; count++) {
     char *cp = glob_script_mem.glob_vnp + glob_script_mem.vnp_offset[count];
     uint8_t slen = strlen(cp);
-    if (slen==olen && *cp==dvnam[0]) {
+    if (slen == olen && *cp == dvnam[0]) {
       if (!strncmp(cp, dvnam, olen)) {
         uint8_t index = vtp[count].index;
-        if (vtp[count].bits.is_string==0) {
+        if (vtp[count].bits.is_string == 0) {
           if (vtp[count].bits.is_filter) {
             // error
             return 0;
