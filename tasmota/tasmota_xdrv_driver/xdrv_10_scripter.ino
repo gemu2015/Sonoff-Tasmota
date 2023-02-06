@@ -1905,6 +1905,42 @@ int32_t extract_from_file(File *fp,  char *ts_from, char *ts_to, int8_t coffs, f
 #endif // USE_FEXTRACT
 #endif // USE_UFILESYS
 
+
+struct BINDIR {
+uint32_t address;
+uint32_t size;
+} bindir;
+
+int32_t script_bindir(uint8_t sel, char *file) {
+
+  switch (sel) {
+    case 0:
+#ifdef ESP32
+      const esp_partition_t *part;
+      part = esp_partition_find_first(ESP_PARTITION_TYPE_ANY, ESP_PARTITION_SUBTYPE_ANY, "binary");
+      if (part) {
+        bindir.address = part->address;
+        bindir.size = part->size;
+        return bindir.size;
+      } else {
+        bindir.address = 0;
+        bindir.size = 0;
+        return 0;
+      }
+#endif
+#ifdef ESP8266
+      bindir.address = 0;
+      bindir.size = 0;
+#endif
+      break;
+    case 1:
+      return bindir.address;
+      break;
+  }
+
+  return 0;
+}
+
 uint32_t script_bcd(uint8_t sel, uint32_t val) {
 uint32_t res = 0;
   if (sel) {
@@ -2758,6 +2794,14 @@ chknext:
           while (*lp==' ') lp++;
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           fvar = script_bcd(sel, fvar);
+          goto nfuncexit;
+        }
+
+        if (!strncmp(lp, "bdir(", 5)) {
+          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
+          char str[SCRIPT_MAXSSIZE];
+          lp = GetStringArgument(lp, OPER_EQU, str, 0);
+          fvar = script_bindir(fvar, str);
           goto nfuncexit;
         }
         break;
