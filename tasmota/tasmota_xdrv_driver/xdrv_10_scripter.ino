@@ -1906,16 +1906,33 @@ int32_t extract_from_file(File *fp,  char *ts_from, char *ts_to, int8_t coffs, f
 #endif // USE_UFILESYS
 
 
+
+#ifdef USE_SCRIPT_BDIR
 struct BINDIR {
 uint32_t address;
 uint32_t size;
 } bindir;
 
-int32_t script_bindir(uint8_t sel, char *file) {
+#define MODULE_SYNC 0x55aaFC4A
 
+// 32 bytes header
+typedef struct {
+  uint32_t sync;
+  uint8_t arch; // architecture EPS8266, ESP32 variants
+  uint8_t type; // language 
+  uint16_t revision;
+  char name[16];
+  uint32_t size; // size of payload
+  uint16_t execution_offset; // execution offset, normally 32
+  uint16_t CRC; // checksum over payload
+} FLASH_MODULE;
+
+
+int32_t script_bindir(uint8_t sel, char *path) {
   switch (sel) {
     case 0:
 #ifdef ESP32
+      // init
       const esp_partition_t *part;
       part = esp_partition_find_first(ESP_PARTITION_TYPE_ANY, ESP_PARTITION_SUBTYPE_ANY, "binary");
       if (part) {
@@ -1929,17 +1946,116 @@ int32_t script_bindir(uint8_t sel, char *file) {
       }
 #endif
 #ifdef ESP8266
-      bindir.address = 0;
-      bindir.size = 0;
+      bindir.address = ESP_getSketchSize();
+      bindir.size = ESP.getFreeSketchSpace();
 #endif
       break;
     case 1:
-      return bindir.address;
+      // list
+      {
+        uint8_t *buff = (uint8_t*)malloc(SPI_FLASH_SEC_SIZE);
+        if (buff) {
+          FLASH_MODULE *fm;
+          int32_t tsize = bindir.size;
+          uint32_t addr = bindir.address;
+          while (tsize> 0) {
+            ESP.flashRead(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
+            fm = (FLASH_MODULE*)buff;
+            if (fm->sync == MODULE_SYNC) {
+              AddLog(LOG_LEVEL_INFO,PSTR(">>>> %d - %s"), fm->size, fm->name);
+            }
+            tsize -= SPI_FLASH_SEC_SIZE;
+            addr += SPI_FLASH_SEC_SIZE;
+          }
+          free(buff);
+        }
+      }
+      break;
+    case 2:
+      // write, copy from file system
+      {
+        // find free entry
+        uint8_t *buff = (uint8_t*)malloc(SPI_FLASH_SEC_SIZE);
+        if (!buff) {
+          return -1;
+        }
+        FLASH_MODULE *fm;
+        int32_t tsize = bindir.size;
+        uint32_t addr = bindir.address;
+        while (tsize> 0) {
+          ESP.flashRead(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
+          fm = (FLASH_MODULE*)buff;
+          if (fm->sync == MODULE_SYNC) {
+            //AddLog(LOG_LEVEL_INFO,PSTR(">>>> %d - %s"), fm.size, fm.name);
+            if (!strcmp(fm->name, path)) {
+              // replace
+              break;
+            }
+          } else {
+            break;
+          }
+          tsize -= SPI_FLASH_SEC_SIZE;
+          addr += SPI_FLASH_SEC_SIZE;
+        }
+        File file = ufsp->open(path, FS_FILE_READ);
+        if (file) {
+          int32_t size = file.size();
+          FLASH_MODULE fm;
+          fm.sync = MODULE_SYNC;
+          fm.arch = ESP32;
+          fm.type = 0;
+          fm.revision = 0;
+          strncpy(fm.name, path, sizeof(fm.name));
+          fm.size = size;
+          fm.execution_offset = 32;
+          fm.CRC = 0;
+          memcpy(buff, (uint8_t*)&fm, sizeof(FLASH_MODULE));
+          uint16_t s = file.read(buff + sizeof(FLASH_MODULE), SPI_FLASH_SEC_SIZE - sizeof(FLASH_MODULE));
+          size -= s;
+          ESP.flashEraseSector(addr / SPI_FLASH_SEC_SIZE);
+          ESP.flashWrite(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
+          addr += SPI_FLASH_SEC_SIZE;
+          while (size > 0) {
+            uint16_t s = file.read(buff, SPI_FLASH_SEC_SIZE);
+            ESP.flashEraseSector(addr / SPI_FLASH_SEC_SIZE);
+            ESP.flashWrite(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
+            size -= s;
+          }
+          free(buff);
+          file.close();
+          return 0;
+        }
+      }
+      break;
+    case 3:
+      // get execution address and size
+      {
+        uint8_t *buff = (uint8_t*)malloc(SPI_FLASH_SEC_SIZE);
+        if (buff) {
+          FLASH_MODULE *fm;
+          int32_t tsize = bindir.size;
+          uint32_t addr = bindir.address;
+          while (tsize> 0) {
+            ESP.flashRead(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
+            fm = (FLASH_MODULE*)buff;
+            if (fm->sync == MODULE_SYNC) {
+              if (!strcmp(fm->name, path)) {
+                AddLog(LOG_LEVEL_INFO,PSTR(">>>> found %d - %s"), fm->size, fm->name);
+                break;
+              }
+            }
+            tsize -= SPI_FLASH_SEC_SIZE;
+            addr += SPI_FLASH_SEC_SIZE;
+          }
+          free(buff);
+        }
+      }
       break;
   }
 
   return 0;
 }
+#endif // USE_SCRIPT_BDIR
 
 uint32_t script_bcd(uint8_t sel, uint32_t val) {
 uint32_t res = 0;
@@ -2797,13 +2913,17 @@ chknext:
           goto nfuncexit;
         }
 
+#ifdef USE_SCRIPT_BDIR
         if (!strncmp(lp, "bdir(", 5)) {
           lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           char str[SCRIPT_MAXSSIZE];
-          lp = GetStringArgument(lp, OPER_EQU, str, 0);
+          if (fvar > 1) {
+            lp = GetStringArgument(lp, OPER_EQU, str, 0);
+          }
           fvar = script_bindir(fvar, str);
           goto nfuncexit;
         }
+#endif // USE_SCRIPT_BDIR
         break;
       case 'c':
         if (!strncmp(lp, "chg[", 4)) {
@@ -3334,7 +3454,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           File ef = ufsp->open(str, FS_FILE_READ);
           if (ef) {
             uint16_t fsiz = ef.size();
-            if (fsiz<2048) {
+            if (fsiz < 2048) {
               char *script = (char*)special_malloc(fsiz + 16);
               if (script) {
                 memset(script, 0, fsiz + 16);
