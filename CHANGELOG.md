@@ -3,12 +3,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - Development
 
+## [12.3.1.6]
+### Added
+- ESP32 preliminary support for Matter protocol, milestone 1 (commissioning) by Stephan Hadinger
+- Basic support for Shelly Pro 4PM
+
+### Breaking Changed
+
+### Changed
+
+### Fixed
+
+### Removed
+
 ## [12.3.1.5]
 ### Added
 - ESP32 support for eigth energy phases/channels
 - ESP32 command ``EnergyCols 1..8`` to change number of GUI columns
 - ESP32 command ``EnergyDisplay 1..3`` to change GUI column presentation
-- support for SEN5X gas and air quality sensor by Tyeth Gundry (#17736)
+- Support for SEN5X gas and air quality sensor by Tyeth Gundry (#17736)
+- Berry add ``mdns`` advanced features and query
+- ESP32 support for Biomine BioPDU 625x12 (#17857)
 
 ### Breaking Changed
 - Berry energy_ctypes changed with new energy driver
@@ -22,8 +37,7 @@ All notable changes to this project will be documented in this file.
 - Shelly Pro 1/2 relay click at restart regression from v12.3.1.4
 - Zigbee extend plug-in modifiers to 16 bits
 - Broken I2C priority regression from v12.3.1.3 (#17810)
-
-### Removed
+- Energy usage and return migrated too small (/10000) regression from v12.3.1.3
 
 ## [12.3.1.4] 20230127
 ### Added
