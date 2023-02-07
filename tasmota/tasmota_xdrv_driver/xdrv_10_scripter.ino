@@ -1925,14 +1925,16 @@ typedef struct {
   uint32_t size; // size of payload
   uint16_t execution_offset; // execution offset, normally 32
   uint16_t CRC; // checksum over payload
-} FLASH_MODULE;
+} DATA_MODULE;
 
-enum {MODULE_TYPE_SENSOR, MODULE_TYPE_LIGHT, MODULE_TYPE_ENERGY, MODULE_TYPE_DRIVER,MODULE_TYPE_SCRIPT,MODULE_TYPE_BERRY};
-enum {ARCH_ESP8266, ARCH_ESP32, ARCH_ESP32S3, ARCH_ESP32C3};
+
+enum {DATA_TYPE_SENSOR, DATA_TYPE_LIGHT, DATA_TYPE_ENERGY, DATA_TYPE_DRIVER, DATA_TYPE_SCRIPT, DATA_TYPE_BERRY};
+//enum {ARCH_ESP8266, ARCH_ESP32, ARCH_ESP32S3, ARCH_ESP32C3};
+
 
 uint32_t script_getbsiz(uint32_t size) {
-uint32_t psiz = (size + sizeof(FLASH_MODULE)) / SPI_FLASH_SEC_SIZE;
-  if ((size + sizeof(FLASH_MODULE)) % SPI_FLASH_SEC_SIZE) {
+uint32_t psiz = (size + sizeof(DATA_MODULE)) / SPI_FLASH_SEC_SIZE;
+  if ((size + sizeof(DATA_MODULE)) % SPI_FLASH_SEC_SIZE) {
     psiz += 1;
   }
   psiz *= SPI_FLASH_SEC_SIZE;
@@ -1969,7 +1971,7 @@ int32_t script_bindir(uint8_t sel, char *path) {
       {
         uint8_t *buff = (uint8_t*)malloc(SPI_FLASH_SEC_SIZE);
         if (buff) {
-          FLASH_MODULE *fm;
+          DATA_MODULE *fm;
           int32_t tsize = bindir.size;
           uint32_t addr = bindir.address;
           uint32_t psiz;
@@ -1977,7 +1979,7 @@ int32_t script_bindir(uint8_t sel, char *path) {
           AddLog(LOG_LEVEL_INFO,PSTR("Partition (%08x - %d kb)"), bindir.address, bindir.size / 1024);
           while (tsize> 0) {
             ESP.flashRead(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
-            fm = (FLASH_MODULE*)buff;
+            fm = (DATA_MODULE*)buff;
             if (fm->sync == MODULE_SYNC) {
               entry += 1;
               AddLog(LOG_LEVEL_INFO,PSTR("entry-%02d %s - %08x - %d bytes"), entry, fm->name, addr, fm->size);
@@ -2000,13 +2002,13 @@ int32_t script_bindir(uint8_t sel, char *path) {
         if (!buff) {
           return -1;
         }
-        FLASH_MODULE *fm;
+        DATA_MODULE *fm;
         int32_t tsize = bindir.size;
         uint32_t addr = bindir.address;
         uint32_t psiz;
         while (tsize> 0) {
           ESP.flashRead(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
-          fm = (FLASH_MODULE*)buff;
+          fm = (DATA_MODULE*)buff;
           if (fm->sync == MODULE_SYNC) {
             if (!strcmp(fm->name, path)) {
               // replace
@@ -2022,12 +2024,12 @@ int32_t script_bindir(uint8_t sel, char *path) {
         File file = ufsp->open(path, FS_FILE_READ);
         if (file) {
           int32_t size = file.size();
-          FLASH_MODULE fm;
+          DATA_MODULE fm;
           fm.sync = MODULE_SYNC;
 #ifdef ESP8266
-          fm.arch = ARCH_ESP8266;
+          fm.arch = 0;
 #else          
-          fm.arch = ARCH_ESP32;
+          fm.arch = 0;
 #endif
           fm.type = 0;
           fm.revision = 0;
@@ -2035,8 +2037,8 @@ int32_t script_bindir(uint8_t sel, char *path) {
           fm.size = size;
           fm.execution_offset = 32;
           fm.CRC = 0;
-          memcpy(buff, (uint8_t*)&fm, sizeof(FLASH_MODULE));
-          uint16_t s = file.read(buff + sizeof(FLASH_MODULE), SPI_FLASH_SEC_SIZE - sizeof(FLASH_MODULE));
+          memcpy(buff, (uint8_t*)&fm, sizeof(DATA_MODULE));
+          uint16_t s = file.read(buff + sizeof(DATA_MODULE), SPI_FLASH_SEC_SIZE - sizeof(DATA_MODULE));
           size -= s;
           ESP.flashEraseSector(addr / SPI_FLASH_SEC_SIZE);
           ESP.flashWrite(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
@@ -2061,13 +2063,13 @@ int32_t script_bindir(uint8_t sel, char *path) {
       {
         uint8_t *buff = (uint8_t*)malloc(SPI_FLASH_SEC_SIZE);
         if (buff) {
-          FLASH_MODULE *fm;
+          DATA_MODULE *fm;
           int32_t tsize = bindir.size;
           uint32_t addr = bindir.address;
           uint32_t psiz;
           while (tsize> 0) {
             ESP.flashRead(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
-            fm = (FLASH_MODULE*)buff;
+            fm = (DATA_MODULE*)buff;
             if (fm->sync == MODULE_SYNC) {
               if (!strcmp(fm->name, path)) {
                 AddLog(LOG_LEVEL_INFO,PSTR(">>>> found %s - %d - %08x"), fm->name, fm->size, addr);

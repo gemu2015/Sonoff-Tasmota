@@ -16,18 +16,18 @@
 #define SerConfu8 uint8_t
 #endif
 //#include "tasmota_compat.h"
-#include "tasmota.h"
+#include "../include/tasmota.h"
 #include "i18n.h"
-#include "tasmota_globals.h"
+#include "../include/tasmota_globals.h"
 
 
 #ifndef D_SENSOR_NONE
 #include "../language/de_DE.h"
 #endif
 
-#include "tasmota_template.h"
+#include "../include/tasmota_template.h"
 
-#include "settings.h"
+//#include "../include/settings.h"
 
 extern TSettings* Settings;
 
@@ -37,8 +37,10 @@ extern TSettings* Settings;
 #define PROGMEM
 #endif
 
+#ifndef MODULE_TYPE_SENSOR
 enum {MODULE_TYPE_SENSOR, MODULE_TYPE_LIGHT, MODULE_TYPE_ENERGY, MODULE_TYPE_DRIVER};
 enum {ARCH_ESP8266, ARCH_ESP32};
+#endif
 
 #define MODULE_SYNC 0x55aaFC4A
 

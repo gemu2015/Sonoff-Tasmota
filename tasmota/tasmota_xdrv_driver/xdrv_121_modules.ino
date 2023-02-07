@@ -26,7 +26,7 @@ adds about 10k flash size
 
 #ifdef USE_MODULES
 
-#define XDRV_97             97
+#define XDRV_121             121
 
 
 //#define EXECUTE_FROM_BINARY
@@ -55,6 +55,8 @@ FLASH_MODULE module_header = {
   0
 };
 #endif
+
+extern FS *ffsp;
 
 #ifndef MODULE_NAME
 #define MODULE_NAME "/module.bin"
@@ -100,7 +102,7 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&Serial,
   JMPTBL&I2cSetDevice,
   //JMPTBL&I2cSetActiveFound,
-  JMPTBL(void (*)(uint32_t addr, const char *types, uint32_t bus))&I2cSetActiveFound,
+  JMPTBL(void (*)(uint32_t addr, const char *types, uint8_t bus))&I2cSetActiveFound,
 
   //void I2cSetActiveFound(uint32_t addr, const char *types, uint32_t bus = 0);
   //void I2cSetActiveFound(uint32_t addr, const char *types, uint32_t bus)
@@ -760,7 +762,7 @@ void Module_upload(void) {
     Webserver->sendHeader(F("Location"),F("/modu"));
     Webserver->send(303);
 
-    Web.upload_file_type = UPL_MODULE;
+    //Web.upload_file_type = UPL_MODULE;
 }
 
 static uint8_t *module_input_buffer;
@@ -796,7 +798,7 @@ void Module_upload_stop(void) {
  * Interface
 \*********************************************************************************************/
 
-bool Xdrv97(uint8_t function) {
+bool Xdrv121(uint32_t function) {
   bool result = false;
 
   switch (function) {
