@@ -1914,6 +1914,7 @@ uint32_t size;
 } bindir;
 
 #define MODULE_SYNC 0x55aaFC4A
+#define FLASH_BASE_OFFSET 0x40200000
 
 // 32 bytes header
 typedef struct {
@@ -1957,9 +1958,11 @@ int32_t script_bindir(uint8_t sel, char *path) {
       }
 #endif
 #ifdef ESP8266
-      uint32_t chipsize = ESP.getFlashChipSize();
-      bindir.address = ESP_getSketchSize();
-      bindir.size = ESP.getFreeSketchSpace();
+      {
+        uint32_t chipsize = ESP.getFlashChipSize();
+        bindir.address = FLASH_BASE_OFFSET + ESP_getSketchSize();
+        bindir.size = ESP.getFreeSketchSpace();
+      }
 #endif
       break;
     case 1:
@@ -2023,7 +2026,7 @@ int32_t script_bindir(uint8_t sel, char *path) {
           int32_t size = file.size();
           FLASH_MODULE fm;
           fm.sync = MODULE_SYNC;
-          fm.arch = ESP32;
+          fm.arch = ARCH_ESP32;
           fm.type = 0;
           fm.revision = 0;
           strncpy(fm.name, path, sizeof(fm.name));
