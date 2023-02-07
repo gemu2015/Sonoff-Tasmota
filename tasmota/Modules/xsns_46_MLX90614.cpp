@@ -15,21 +15,10 @@
 */
 
 
+#include "tasmota_options.h"
 
 #ifdef USE_MLX90614_MOD
 
-typedef int SerConfu8;
-//typedef int SerialConfig;
-#define D_SENSOR_NONE          "None"
-
-#include <Arduino.h> 
-#include <stdint.h> 
-#include "../include/tasmota_globals.h"
-#include "tasmota_options.h"
-#include "../include/tasmota.h"
-//#include "../include/tasmota_template.h"
-#include "../include/tasmota_compat.h"
-#include "../include/tasmota_types.h"
 #include "module.h"
 #include "module_defines.h"
 
@@ -39,7 +28,7 @@ typedef int SerConfu8;
 
 // this is the structure of the module:
 // descripotr, code, end
-MODULE_DESCRIPTOR("MLX90614",MODULE_TYPE_SENSOR,MLX90614_REV)
+MODULE_DESCRIPTOR("MLX90614", MODULE_TYPE_SENSOR, MLX90614_REV)
 
 // all functions must be declared MUDULE_PART
 MODULE_PART int32_t Init_MLX90614(MODULES_TABLE *mt);

@@ -27,7 +27,7 @@
 
 #include "../include/tasmota_template.h"
 
-//#include "../include/settings.h"
+#include "../include/tasmota_types.h"
 
 extern TSettings* Settings;
 
