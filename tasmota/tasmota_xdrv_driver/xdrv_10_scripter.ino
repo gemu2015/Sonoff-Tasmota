@@ -1957,6 +1957,7 @@ int32_t script_bindir(uint8_t sel, char *path) {
       }
 #endif
 #ifdef ESP8266
+      uint32_t chipsize = ESP.getFlashChipSize();
       bindir.address = ESP_getSketchSize();
       bindir.size = ESP.getFreeSketchSpace();
 #endif
