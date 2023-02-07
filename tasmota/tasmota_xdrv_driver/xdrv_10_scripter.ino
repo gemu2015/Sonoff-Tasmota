@@ -1906,7 +1906,6 @@ int32_t extract_from_file(File *fp,  char *ts_from, char *ts_to, int8_t coffs, f
 #endif // USE_UFILESYS
 
 
-
 #ifdef USE_SCRIPT_BDIR
 struct BINDIR {
 uint32_t address;
@@ -1915,7 +1914,6 @@ uint32_t size;
 
 #define MODULE_SYNC 0x55aaFC4A
 #define FLASH_BASE_OFFSET 0x40200000
-//0x000F2000
 
 // 32 bytes header
 typedef struct {
@@ -1930,7 +1928,7 @@ typedef struct {
 } FLASH_MODULE;
 
 enum {MODULE_TYPE_SENSOR, MODULE_TYPE_LIGHT, MODULE_TYPE_ENERGY, MODULE_TYPE_DRIVER,MODULE_TYPE_SCRIPT,MODULE_TYPE_BERRY};
-enum {ARCH_ESP8266, ARCH_ESP32, ARCH_ESP32C3};
+enum {ARCH_ESP8266, ARCH_ESP32, ARCH_ESP32S3, ARCH_ESP32C3};
 
 uint32_t script_getbsiz(uint32_t size) {
 uint32_t psiz = (size + sizeof(FLASH_MODULE)) / SPI_FLASH_SEC_SIZE;
@@ -1961,7 +1959,7 @@ int32_t script_bindir(uint8_t sel, char *path) {
 #ifdef ESP8266
       {
         uint32_t chipsize = ESP.getFlashChipSize();
-        bindir.address = FLASH_BASE_OFFSET + ESP_getSketchSize();
+        bindir.address =  ESP_getSketchSize();
         bindir.size = ESP.getFreeSketchSpace();
       }
 #endif
@@ -2010,7 +2008,6 @@ int32_t script_bindir(uint8_t sel, char *path) {
           ESP.flashRead(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
           fm = (FLASH_MODULE*)buff;
           if (fm->sync == MODULE_SYNC) {
-            //AddLog(LOG_LEVEL_INFO,PSTR(">>>> %d - %s"), fm.size, fm.name);
             if (!strcmp(fm->name, path)) {
               // replace
               break;
@@ -2027,7 +2024,11 @@ int32_t script_bindir(uint8_t sel, char *path) {
           int32_t size = file.size();
           FLASH_MODULE fm;
           fm.sync = MODULE_SYNC;
+#ifdef ESP8266
+          fm.arch = ARCH_ESP8266;
+#else          
           fm.arch = ARCH_ESP32;
+#endif
           fm.type = 0;
           fm.revision = 0;
           strncpy(fm.name, path, sizeof(fm.name));
@@ -2037,7 +2038,6 @@ int32_t script_bindir(uint8_t sel, char *path) {
           memcpy(buff, (uint8_t*)&fm, sizeof(FLASH_MODULE));
           uint16_t s = file.read(buff + sizeof(FLASH_MODULE), SPI_FLASH_SEC_SIZE - sizeof(FLASH_MODULE));
           size -= s;
-          AddLog(LOG_LEVEL_INFO,PSTR("flash write %08x - %d"), addr, size);
           ESP.flashEraseSector(addr / SPI_FLASH_SEC_SIZE);
           ESP.flashWrite(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
           addr += SPI_FLASH_SEC_SIZE;
