@@ -1915,6 +1915,7 @@ uint32_t size;
 
 #define MODULE_SYNC 0x55aaFC4A
 #define FLASH_BASE_OFFSET 0x40200000
+//0x000F2000
 
 // 32 bytes header
 typedef struct {
@@ -1933,10 +1934,10 @@ enum {ARCH_ESP8266, ARCH_ESP32, ARCH_ESP32C3};
 
 uint32_t script_getbsiz(uint32_t size) {
 uint32_t psiz = (size + sizeof(FLASH_MODULE)) / SPI_FLASH_SEC_SIZE;
-            if ((size + sizeof(FLASH_MODULE)) % SPI_FLASH_SEC_SIZE) {
-              psiz += 1;
-            }
-            psiz *= SPI_FLASH_SEC_SIZE;
+  if ((size + sizeof(FLASH_MODULE)) % SPI_FLASH_SEC_SIZE) {
+    psiz += 1;
+  }
+  psiz *= SPI_FLASH_SEC_SIZE;
   return psiz;
 }
 
@@ -2036,6 +2037,7 @@ int32_t script_bindir(uint8_t sel, char *path) {
           memcpy(buff, (uint8_t*)&fm, sizeof(FLASH_MODULE));
           uint16_t s = file.read(buff + sizeof(FLASH_MODULE), SPI_FLASH_SEC_SIZE - sizeof(FLASH_MODULE));
           size -= s;
+          AddLog(LOG_LEVEL_INFO,PSTR("flash write %08x - %d"), addr, size);
           ESP.flashEraseSector(addr / SPI_FLASH_SEC_SIZE);
           ESP.flashWrite(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
           addr += SPI_FLASH_SEC_SIZE;
@@ -2048,6 +2050,9 @@ int32_t script_bindir(uint8_t sel, char *path) {
           free(buff);
           file.close();
           return 0;
+        } else {
+          free(buff);
+          AddLog(LOG_LEVEL_INFO,PSTR("File %s not found"), path);
         }
       }
       break;
