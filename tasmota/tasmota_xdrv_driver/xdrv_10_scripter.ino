@@ -1930,6 +1930,14 @@ typedef struct {
 enum {MODULE_TYPE_SENSOR, MODULE_TYPE_LIGHT, MODULE_TYPE_ENERGY, MODULE_TYPE_DRIVER,MODULE_TYPE_SCRIPT,MODULE_TYPE_BERRY};
 enum {ARCH_ESP8266, ARCH_ESP32, ARCH_ESP32C3};
 
+uint32_t script_getbsiz(uint32_t size) {
+uint32_t psiz = (size + sizeof(FLASH_MODULE)) / SPI_FLASH_SEC_SIZE;
+            if ((size + sizeof(FLASH_MODULE)) % SPI_FLASH_SEC_SIZE) {
+              psiz += 1;
+            }
+            psiz *= SPI_FLASH_SEC_SIZE;
+  return psiz;
+}
 
 int32_t script_bindir(uint8_t sel, char *path) {
   switch (sel) {
@@ -1961,14 +1969,19 @@ int32_t script_bindir(uint8_t sel, char *path) {
           FLASH_MODULE *fm;
           int32_t tsize = bindir.size;
           uint32_t addr = bindir.address;
-          uint32_t psiz = SPI_FLASH_SEC_SIZE;
-          AddLog(LOG_LEVEL_INFO,PSTR("Partition %08x - %d kb"), bindir.address, bindir.size / 1024);
+          uint32_t psiz;
+          uint16_t entry = 0;
+          AddLog(LOG_LEVEL_INFO,PSTR("Partition (%08x - %d kb)"), bindir.address, bindir.size / 1024);
           while (tsize> 0) {
             ESP.flashRead(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
             fm = (FLASH_MODULE*)buff;
             if (fm->sync == MODULE_SYNC) {
-              AddLog(LOG_LEVEL_INFO,PSTR("entry %s - %08x - %d bytes"), fm->name, addr, fm->size);
-            }
+              entry += 1;
+              AddLog(LOG_LEVEL_INFO,PSTR("entry-%02d %s - %08x - %d bytes"), entry, fm->name, addr, fm->size);
+              psiz = script_getbsiz(fm->size);
+            } else {
+              psiz = SPI_FLASH_SEC_SIZE;
+            }          
             tsize -= psiz;
             addr += psiz;
           }
@@ -1987,7 +2000,7 @@ int32_t script_bindir(uint8_t sel, char *path) {
         FLASH_MODULE *fm;
         int32_t tsize = bindir.size;
         uint32_t addr = bindir.address;
-        uint32_t psiz = SPI_FLASH_SEC_SIZE;
+        uint32_t psiz;
         while (tsize> 0) {
           ESP.flashRead(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
           fm = (FLASH_MODULE*)buff;
@@ -1997,6 +2010,7 @@ int32_t script_bindir(uint8_t sel, char *path) {
               // replace
               break;
             }
+            psiz = script_getbsiz(fm->size);
           } else {
             break;
           }
@@ -2041,7 +2055,7 @@ int32_t script_bindir(uint8_t sel, char *path) {
           FLASH_MODULE *fm;
           int32_t tsize = bindir.size;
           uint32_t addr = bindir.address;
-          uint32_t psiz = SPI_FLASH_SEC_SIZE;
+          uint32_t psiz;
           while (tsize> 0) {
             ESP.flashRead(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
             fm = (FLASH_MODULE*)buff;
@@ -2050,6 +2064,9 @@ int32_t script_bindir(uint8_t sel, char *path) {
                 AddLog(LOG_LEVEL_INFO,PSTR(">>>> found %s - %d - %08x"), fm->name, fm->size, addr);
                 break;
               }
+              psiz = script_getbsiz(fm->size);
+            } else {
+              psiz = SPI_FLASH_SEC_SIZE;
             }
             tsize -= psiz;
             addr += psiz;
