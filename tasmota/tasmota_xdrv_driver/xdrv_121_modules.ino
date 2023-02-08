@@ -308,6 +308,10 @@ MODULES_TABLE modules[MAXMODULES];
 // scan for modules in flash and add to modules table, not yet
 void InitModules(void) {
 
+  for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
+    modules[cnt].mod_addr = 0;
+  }
+
 // read driver from filesystem
 #if defined(EXECUTE_IN_RAM) || defined(EXECUTE_IN_FLASH)
   uint32_t size;
@@ -380,7 +384,7 @@ void InitModules(void) {
 #endif // ESP8266
 
 #else
-  AddModules();
+  //AddModules();
 #endif // EXECUTE_FROM_BINARY
 }
 
