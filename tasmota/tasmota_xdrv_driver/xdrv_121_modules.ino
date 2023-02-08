@@ -335,7 +335,7 @@ void InitModules(void) {
   pcc = *(uint32_t*)fm->mod_func_execute;
   AddLog(LOG_LEVEL_INFO, PSTR("Ram %x: "),pcc);
 //return;
-#endif
+#endif // EXECUTE_IN_RAM
 
   uint32_t offset = 0;
 #ifdef EXECUTE_IN_FLASH
@@ -377,12 +377,11 @@ void InitModules(void) {
       fp.close();
     }
   }
-#endif
+#endif // ESP8266
 
 #else
-
   AddModules();
-#endif
+#endif // EXECUTE_FROM_BINARY
 }
 
 
