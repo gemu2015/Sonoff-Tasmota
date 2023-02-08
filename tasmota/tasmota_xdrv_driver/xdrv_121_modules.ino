@@ -36,7 +36,7 @@ adds about 10k flash size
 //#define SAVE_FLASH
 //#define DO_EXECUTE
 
-#include "./Modules/module.h"
+#include "./Modules/modules_def.h"
 #include <TasmotaSerial.h>
 
 #ifdef EXECUTE_FROM_BINARY
@@ -384,7 +384,7 @@ void InitModules(void) {
 #endif // ESP8266
 
 #else
-  //AddModules();
+  AddModules();
 #endif // EXECUTE_FROM_BINARY
 }
 
@@ -560,7 +560,6 @@ void AddModules(void) {
   // align to sector start
   free_flash_start =  (free_flash_start + pagesize) & (pagesize-1^0xffffffff);
   free_flash_end   =  (free_flash_end + pagesize) & (pagesize-1^0xffffffff);
-
 
   uint16_t module = 0;
   uint32_t *lp = (uint32_t*) ( flashbase + free_flash_start );
