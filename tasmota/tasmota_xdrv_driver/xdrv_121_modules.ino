@@ -62,6 +62,20 @@ extern FS *ffsp;
 #define MODULE_NAME "/module.bin"
 #endif
 
+
+enum murks {MODFUNC_SETTINGS_OVERRIDE, MODFUNC_PIN_STATE, MODFUNC_MODULE_INIT, MODFUNC_PRE_INIT, MODFUNC_INIT,
+                    MODFUNC_LOOP, MODFUNC_EVERY_50_MSECOND, MODFUNC_EVERY_100_MSECOND, MODFUNC_EVERY_200_MSECOND, MODFUNC_EVERY_250_MSECOND, MODFUNC_EVERY_SECOND,
+                    MODFUNC_SAVE_SETTINGS, MODFUNC_SAVE_AT_MIDNIGHT, MODFUNC_SAVE_BEFORE_RESTART,
+                    MODFUNC_AFTER_TELEPERIOD, MODFUNC_JSON_APPEND, MODFUNC_WEB_SENSOR, MODFUNC_COMMAND, MODFUNC_COMMAND_SENSOR, MODFUNC_COMMAND_DRIVER,
+                    MODFUNC_MQTT_SUBSCRIBE, MODFUNC_MQTT_INIT, MODFUNC_MQTT_DATA,
+                    MODFUNC_SET_POWER, MODFUNC_SET_DEVICE_POWER, MODFUNC_SHOW_SENSOR, MODFUNC_ANY_KEY,
+                    MODFUNC_ENERGY_EVERY_SECOND, MODFUNC_ENERGY_RESET,
+                    MODFUNC_RULES_PROCESS, MODFUNC_TELEPERIOD_RULES_PROCESS, MODFUNC_SERIAL, MODFUNC_FREE_MEM, MODFUNC_BUTTON_PRESSED, MODFUNC_BUTTON_MULTI_PRESSED,
+                    MODFUNC_WEB_ADD_BUTTON, MODFUNC_WEB_ADD_CONSOLE_BUTTON, MODFUNC_WEB_ADD_MANAGEMENT_BUTTON, MODFUNC_WEB_ADD_MAIN_BUTTON,
+                    MODFUNC_WEB_GET_ARG, MODFUNC_WEB_ADD_HANDLER, MODFUNC_SET_CHANNELS, MODFUNC_SET_SCHEME, MODFUNC_HOTPLUG_SCAN,
+                    MODFUNC_DEVICE_GROUP_ITEM };
+
+
 //  command line commands
 const char kModuleCommands[] PROGMEM = "|"// no Prefix
   "mdir" "|"
@@ -419,7 +433,7 @@ void ModuleWebSensor() {
     if (modules[cnt].mod_addr) {
       if (modules[cnt].flags.initialized && modules[cnt].flags.web_sensor) {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-        fm->mod_func_execute(&modules[cnt], FUNC_WEB_SENSOR);
+        fm->mod_func_execute(&modules[cnt], MODFUNC_WEB_SENSOR);
       }
     }
   }
@@ -430,7 +444,7 @@ void ModuleJsonAppend() {
     if (modules[cnt].mod_addr) {
       if (modules[cnt].flags.initialized && modules[cnt].flags.json_append) {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-        fm->mod_func_execute(&modules[cnt], FUNC_JSON_APPEND);
+        fm->mod_func_execute(&modules[cnt], MODFUNC_JSON_APPEND);
       }
     }
   }
@@ -685,7 +699,7 @@ void Module_unlink(void) {
 int32_t Init_module(uint32_t module) {
   if (modules[module].mod_addr && !modules[module].flags.initialized) {
     const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
-    int32_t result = fm->mod_func_execute(&modules[module], FUNC_INIT);
+    int32_t result = fm->mod_func_execute(&modules[module], MODFUNC_INIT);
     modules[module].flags.every_second = 1;
     modules[module].flags.web_sensor = 1;
     modules[module].flags.json_append = 1;
