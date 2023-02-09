@@ -1906,192 +1906,6 @@ int32_t extract_from_file(File *fp,  char *ts_from, char *ts_to, int8_t coffs, f
 #endif // USE_UFILESYS
 
 
-#ifdef USE_SCRIPT_BDIR
-struct BINDIR {
-uint32_t address;
-uint32_t size;
-} bindir;
-
-#define MODULE_SYNC 0x55aaFC4A
-#define FLASH_BASE_OFFSET 0x40200000
-
-// 32 bytes header
-typedef struct {
-  uint32_t sync;
-  uint8_t arch; // architecture EPS8266, ESP32 variants
-  uint8_t type; // language 
-  uint16_t revision;
-  char name[16];
-  uint32_t size; // size of payload
-  uint16_t execution_offset; // execution offset, normally 32
-  uint16_t CRC; // checksum over payload
-} DATA_MODULE;
-
-
-enum {DATA_TYPE_SENSOR, DATA_TYPE_LIGHT, DATA_TYPE_ENERGY, DATA_TYPE_DRIVER, DATA_TYPE_SCRIPT, DATA_TYPE_BERRY};
-//enum {ARCH_ESP8266, ARCH_ESP32, ARCH_ESP32S3, ARCH_ESP32C3};
-
-
-uint32_t script_getbsiz(uint32_t size) {
-uint32_t psiz = (size + sizeof(DATA_MODULE)) / SPI_FLASH_SEC_SIZE;
-  if ((size + sizeof(DATA_MODULE)) % SPI_FLASH_SEC_SIZE) {
-    psiz += 1;
-  }
-  psiz *= SPI_FLASH_SEC_SIZE;
-  return psiz;
-}
-
-int32_t script_bindir(uint8_t sel, char *path) {
-  switch (sel) {
-    case 0:
-#ifdef ESP32
-      // init
-      const esp_partition_t *part;
-      part = esp_partition_find_first(ESP_PARTITION_TYPE_ANY, ESP_PARTITION_SUBTYPE_ANY, "binary");
-      if (part) {
-        bindir.address = part->address;
-        bindir.size = part->size;
-        return bindir.size;
-      } else {
-        bindir.address = 0;
-        bindir.size = 0;
-        return 0;
-      }
-#endif
-#ifdef ESP8266
-      {
-        uint32_t chipsize = ESP.getFlashChipSize();
-        bindir.address =  ESP_getSketchSize();
-        bindir.size = ESP.getFreeSketchSpace();
-      }
-#endif
-      break;
-    case 1:
-      // list
-      {
-        uint8_t *buff = (uint8_t*)malloc(SPI_FLASH_SEC_SIZE);
-        if (buff) {
-          DATA_MODULE *fm;
-          int32_t tsize = bindir.size;
-          uint32_t addr = bindir.address;
-          uint32_t psiz;
-          uint16_t entry = 0;
-          AddLog(LOG_LEVEL_INFO,PSTR("Partition (%08x - %d kb)"), bindir.address, bindir.size / 1024);
-          while (tsize> 0) {
-            ESP.flashRead(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
-            fm = (DATA_MODULE*)buff;
-            if (fm->sync == MODULE_SYNC) {
-              entry += 1;
-              AddLog(LOG_LEVEL_INFO,PSTR("entry-%02d %s - %08x - %d bytes"), entry, fm->name, addr, fm->size);
-              psiz = script_getbsiz(fm->size);
-            } else {
-              psiz = SPI_FLASH_SEC_SIZE;
-            }          
-            tsize -= psiz;
-            addr += psiz;
-          }
-          free(buff);
-        }
-      }
-      break;
-    case 2:
-      // write, copy from file system
-      {
-        // find free entry
-        uint8_t *buff = (uint8_t*)malloc(SPI_FLASH_SEC_SIZE);
-        if (!buff) {
-          return -1;
-        }
-        DATA_MODULE *fm;
-        int32_t tsize = bindir.size;
-        uint32_t addr = bindir.address;
-        uint32_t psiz;
-        while (tsize> 0) {
-          ESP.flashRead(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
-          fm = (DATA_MODULE*)buff;
-          if (fm->sync == MODULE_SYNC) {
-            if (!strcmp(fm->name, path)) {
-              // replace
-              break;
-            }
-            psiz = script_getbsiz(fm->size);
-          } else {
-            break;
-          }
-          tsize -= psiz;
-          addr += psiz;
-        }
-        File file = ufsp->open(path, FS_FILE_READ);
-        if (file) {
-          int32_t size = file.size();
-          DATA_MODULE fm;
-          fm.sync = MODULE_SYNC;
-#ifdef ESP8266
-          fm.arch = 0;
-#else          
-          fm.arch = 0;
-#endif
-          fm.type = 0;
-          fm.revision = 0;
-          strncpy(fm.name, path, sizeof(fm.name));
-          fm.size = size;
-          fm.execution_offset = 32;
-          fm.CRC = 0;
-          memcpy(buff, (uint8_t*)&fm, sizeof(DATA_MODULE));
-          uint16_t s = file.read(buff + sizeof(DATA_MODULE), SPI_FLASH_SEC_SIZE - sizeof(DATA_MODULE));
-          size -= s;
-          ESP.flashEraseSector(addr / SPI_FLASH_SEC_SIZE);
-          ESP.flashWrite(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
-          addr += SPI_FLASH_SEC_SIZE;
-          while (size > 0) {
-            uint16_t s = file.read(buff, SPI_FLASH_SEC_SIZE);
-            ESP.flashEraseSector(addr / SPI_FLASH_SEC_SIZE);
-            ESP.flashWrite(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
-            size -= s;
-          }
-          free(buff);
-          file.close();
-          return 0;
-        } else {
-          free(buff);
-          AddLog(LOG_LEVEL_INFO,PSTR("File %s not found"), path);
-        }
-      }
-      break;
-    case 3:
-      // get execution address and size
-      {
-        uint8_t *buff = (uint8_t*)malloc(SPI_FLASH_SEC_SIZE);
-        if (buff) {
-          DATA_MODULE *fm;
-          int32_t tsize = bindir.size;
-          uint32_t addr = bindir.address;
-          uint32_t psiz;
-          while (tsize> 0) {
-            ESP.flashRead(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
-            fm = (DATA_MODULE*)buff;
-            if (fm->sync == MODULE_SYNC) {
-              if (!strcmp(fm->name, path)) {
-                AddLog(LOG_LEVEL_INFO,PSTR(">>>> found %s - %d - %08x"), fm->name, fm->size, addr);
-                break;
-              }
-              psiz = script_getbsiz(fm->size);
-            } else {
-              psiz = SPI_FLASH_SEC_SIZE;
-            }
-            tsize -= psiz;
-            addr += psiz;
-          }
-          free(buff);
-        }
-      }
-      break;
-  }
-
-  return 0;
-}
-#endif // USE_SCRIPT_BDIR
-
 uint32_t script_bcd(uint8_t sel, uint32_t val) {
 uint32_t res = 0;
   if (sel) {
@@ -2948,17 +2762,17 @@ chknext:
           goto nfuncexit;
         }
 
-#ifdef USE_SCRIPT_BDIR
+#ifdef USE_FLASH_BDIR
         if (!strncmp(lp, "bdir(", 5)) {
           lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           char str[SCRIPT_MAXSSIZE];
           if (fvar > 1) {
             lp = GetStringArgument(lp, OPER_EQU, str, 0);
           }
-          fvar = script_bindir(fvar, str);
+          fvar = flash_bindir(fvar, str);
           goto nfuncexit;
         }
-#endif // USE_SCRIPT_BDIR
+#endif // USE_FLASH_BDIR
         break;
       case 'c':
         if (!strncmp(lp, "chg[", 4)) {
