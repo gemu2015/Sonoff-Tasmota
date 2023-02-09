@@ -76,6 +76,8 @@
 #include "module.h"
 #include "module_defines.h"
 
+#define MP3_DEFAULT_TX_PIN 15
+
 /*********************************************************************************************\
  * MP3 control for RB-DFR-562 DFRobot mini MP3 player
  * https://www.dfrobot.com/wiki/index.php/DFPlayer_Mini_SKU:DFR0299
@@ -83,7 +85,7 @@
 
 #define MP3PLAYER_REV 1
 
-#define DEFAULT 0
+#define MP3_DEFAULT 0
 #define DY_SV17F 1
 
 MODULE_DESCRIPTOR("MP3PLAYER",MODULE_TYPE_DRIVER,MP3PLAYER_REV)
@@ -111,8 +113,6 @@ DPSTR(mS_JSON_COMMAND_SVALUE,"{\"%s\":\"%s\"}");
 DPSTR(S_JSON_MP3_COMMAND,"{\"MP3%s\"}");
 DPSTR(kMP3_Commands,"Track|Play|Pause|Stop|Volume|EQ|Device|Reset|DAC|TYPE|PIN");
 DPSTR(d_mp3,"MP3");
-
-
 
 typedef struct {
   bool player_type;
@@ -182,8 +182,8 @@ int32_t MP3PlayerInit(MODULES_TABLE *mt) {
   ALLOCMEM
 
   // should be in settings
-  player_type = DEFAULT;
-  player_txpin = 2;
+  player_type = MP3_DEFAULT;
+  player_txpin = MP3_DEFAULT_TX_PIN;
 
   if (!MP3_Init(mt)) {
     mt->flags.initialized = true;
@@ -202,9 +202,9 @@ int32_t MP3_Init(MODULES_TABLE *mt) {
     // start serial communication fixed to 9600 baud
     if (beginTS(ts,9600)) {
       flushTS(ts);
-      delay(1000);
+      delay(10);
       MP3_CMD(mt, MP3_CMD_RESET, MP3_CMD_RESET_VALUE);    // reset the player to defaults
-      delay(3000);
+      delay(100);
       MP3_CMD(mt, MP3_CMD_VOLUME, MP3_VOLUME);            // after reset set volume depending on the entry in the my_user_config.h
       return 0;
     }

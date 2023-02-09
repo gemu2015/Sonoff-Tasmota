@@ -1,5 +1,15 @@
 
-
+typedef struct {
+  bool          grpflg;
+  bool          usridx;
+  uint16_t      command_code;
+  uint32_t      index;
+  uint32_t      data_len;
+  int32_t       payload;
+  char         *topic;
+  char         *data;
+  char         *command;
+}XdrvMailbox;
 
 // vector table calls
 #define jWire                           ( TwoWire*)                                    jt[0]
@@ -64,7 +74,7 @@
 #define jwriteTS(TSER,BUF,SIZE)         (( void (*)(void*,uint8_t*,uint32_t) )         jt[54])(TSER,BUF,SIZE)
 #define jflushTS(TSER)                  (( void (*)(void*) )                           jt[55])(TSER)
 #define jbeginTS(TSER,BAUD)             (( int (*)(void*,uint32_t) )                   jt[56])(TSER,BAUD)
-#define jXDRVMAILBOX                    (XDRVMAILBOX*)                                 jt[57]
+#define jXdrvMailbox                    ((XdrvMailbox*)                                 jt[57])
 #define jGetCommandCode(DST,DSIZE,NEEDLE,HSTCK)(( int (*)(char*,size_t,const char*,const char*) )    jt[58])(DST,DSIZE,NEEDLE,HSTCK)
 #define jstrlen(STR)                    (( uint32_t (*)(char*) )                       jt[59])(STR)
 #define jstrncasecmp_P(S1,S2,SIZE)      (( int (*)(const char*,const char *, size_t) ) jt[60])(S1,S2,SIZE)
@@ -189,7 +199,7 @@ void _copy32(uint32_t *src, uint32_t *dst) {
 #define   writeTS jwriteTS
 #define   flushTS jflushTS
 #define   beginTS jbeginTS
-#define   XdrvMailbox (jXDRVMAILBOX)
+#define   XdrvMailbox (jXdrvMailbox)
 #define   GetCommandCode jGetCommandCode
 #define   strlen jstrlen
 #undef strncasecmp_P
