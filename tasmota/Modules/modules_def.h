@@ -52,6 +52,12 @@ typedef struct {
   void (*end_of_module)(void);
   uint32_t size;
   uint32_t execution_offset;
+  char gpio1[8];
+  uint32_t val1;
+  char gpio2[8];
+  uint32_t val2;
+  char gpio3[8];
+  uint32_t val3;
 } FLASH_MODULE;
 
 
