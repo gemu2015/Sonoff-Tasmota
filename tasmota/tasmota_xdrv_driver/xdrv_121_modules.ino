@@ -755,7 +755,7 @@ void Module_dump(void) {
   ResponseCmndDone();
 }
 
-const char MOD_UPLOAD[] PROGMEM =
+const char MOD_DIRECTORY[] PROGMEM =
   "<p><form action='" "mo_upl" "' method='get'><button>" "%s" "</button></form></p>";
 
 const char MOD_FORM_FILE_UPG[] PROGMEM =
@@ -767,11 +767,11 @@ const char MOD_FORM_FILE_UPG[] PROGMEM =
 void Module_upload(void) {
     if (!HttpCheckPriviledgedAccess()) { return; }
 
-    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_HTTP "Upload module"));
+    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_HTTP "Module directory"));
 
     WSContentStart_P(PSTR(D_MANAGE_FILE_SYSTEM));
     WSContentSendStyle();
-    WSContentSend_P(MOD_FORM_FILE_UPG, PSTR("Upload module"));
+    WSContentSend_P(MOD_FORM_FILE_UPG, PSTR("Upload Module"));
     WSContentSpaceButton(BUTTON_MANAGEMENT);
     WSContentStop();
 
@@ -1028,7 +1028,7 @@ bool Xdrv121(uint32_t function) {
       if (XdrvMailbox.index) {
         XdrvMailbox.index++;
       } else {
-        WSContentSend_PD(MOD_UPLOAD, PSTR("Upload Module"));
+        WSContentSend_PD(MOD_DIRECTORY, PSTR("Module directory"));
       }
       break;
     case FUNC_WEB_ADD_HANDLER:
