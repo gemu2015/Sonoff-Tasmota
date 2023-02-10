@@ -601,7 +601,10 @@ const char mod_types[] PROGMEM = "xsns|xlgt|xnrg|xdrv|";
 // show all linked modules
 void Module_mdir(void) {
 
- #if 0
+ #if 1
+
+  Response_P(PSTR("{"));
+  uint8_t index = 0;
   for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
     if (modules[cnt].mod_addr) {
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
@@ -611,10 +614,15 @@ void Module_mdir(void) {
       strncpy(name, fm->name, 16);
       char type[6];
       GetTextIndexed(type, sizeof(type), mtype, mod_types );
-      Response_P(PSTR("{\"MOD #%d\":{\"name\":\"%s\",\"addr\":\"%08x\",\"size\":%d,\"type\":\"%s\",\"rev\":%d,\"mem\":%d,\"init\":%d}}"),cnt + 1, name, modules[cnt].mod_addr,
+      if (index > 0) {
+        ResponseAppend_P(PSTR(","));
+      }
+      ResponseAppend_P(PSTR("\"MOD #%d\":{\"name\":\"%s\",\"addr\":\"%08x\",\"size\":%d,\"type\":\"%s\",\"rev\":%d,\"mem\":%d,\"init\":%d}"),cnt + 1, name, modules[cnt].mod_addr,
        modules[cnt].mod_size, type, rev, modules[cnt].mem_size, modules[cnt].flags.initialized);
+       index++;
     }
   }
+  ResponseJsonEnd();
  #else 
   AddLog(LOG_LEVEL_INFO, PSTR("| ======== Module directory ========"));
   AddLog(LOG_LEVEL_INFO, PSTR("| nr | name           | address  | size | type | rev  | ram  | init |"));
@@ -638,7 +646,7 @@ void Module_mdir(void) {
     }
   }
   #endif
-  ResponseCmndDone();
+  //ResponseCmndDone();
 }
 
 void LinkModule(uint8_t *mp, uint32_t size, char *name) {
