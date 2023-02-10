@@ -312,7 +312,7 @@ extern VButton *buttons[MAX_TOUCH_BUTTONS];
 #endif
 
 typedef union {
-#if defined(USE_SCRIPT_GLOBVARS) || defined(USE_HOMEKIT)
+#if defined(USE_SCRIPT_GLOBVARS) || defined(USE_HOMEKIT) || defined(USE_SCRIPT_INT)
   uint16_t data;
 #else
   uint8_t data;
@@ -331,6 +331,9 @@ typedef union {
 #endif
 #ifdef USE_SCRIPT_GLOBVARS
     uint8_t hchanged : 1;
+#endif
+#ifdef USE_SCRIPT_INT
+    uint8_t integer : 1;
 #endif
   };
 } SCRIPT_TYPE;
@@ -766,12 +769,12 @@ char *script;
         // skip leading spaces
         SCRIPT_SKIP_SPACES
         // skip empty line
-        if (*lp=='\n' || *lp=='\r') goto next_line;
+        if (*lp == '\n' || *lp == '\r') goto next_line;
         // skip comment
-        if (*lp==';') goto next_line;
+        if (*lp == ';') goto next_line;
         if (init) {
             // init section
-            if (*lp=='>' || !*lp) {
+            if (*lp == '>' || !*lp) {
                 init = 0;
                 break;
             }
@@ -779,7 +782,7 @@ char *script;
             if (op) {
                 vtypes[vars].bits.data = 0;
                 // found variable definition
-                if (*lp=='p' && *(lp+1)==':') {
+                if (*lp == 'p' && *(lp + 1) == ':') {
                     lp += 2;
                     if (numperm < SCRIPT_MAXPERM) {
                       vtypes[vars].bits.is_permanent = 1;
@@ -788,21 +791,29 @@ char *script;
                 } else {
                     vtypes[vars].bits.is_permanent = 0;
                 }
-                if (*lp=='t' && *(lp+1)==':') {
+                if (*lp == 't' && *(lp + 1) == ':') {
                     lp += 2;
                     vtypes[vars].bits.is_timer = 1;
                 } else {
                     vtypes[vars].bits.is_timer = 0;
                 }
-                if (*lp=='i' && *(lp+1)==':') {
+                if (*lp == 'i' && *(lp + 1) == ':') {
                     lp += 2;
                     vtypes[vars].bits.is_autoinc = 1;
                 } else {
                     vtypes[vars].bits.is_autoinc = 0;
                 }
+#ifdef USE_SCRIPT_INTEGER
+                if (*lp == 'b' && *(lp + 1) == ':') {
+                    lp += 2;
+                    vtypes[vars].bits.integer = 1;
+                } else {
+                    vtypes[vars].bits.integer = 0;
+                }
+#endif // USE_SCRIPT_INTEGER
 
 #ifdef USE_SCRIPT_GLOBVARS
-                if (*lp=='g' && *(lp+1)==':') {
+                if (*lp == 'g' && *(lp + 1) == ':') {
                     lp += 2;
                     vtypes[vars].bits.global = 1;
                     glob_script_mem.udp_flags.udp_used = 1;
@@ -810,18 +821,18 @@ char *script;
                     vtypes[vars].bits.global = 0;
                   }
 #endif //USE_SCRIPT_GLOBVARS
-                if ((*lp=='m' || *lp=='M') && *(lp+1)==':') {
+                if ((*lp == 'm' || *lp == 'M') && *(lp + 1) == ':') {
                     uint8_t flg = *lp;
                     lp += 2;
-                    if (*lp=='p' && *(lp+1)==':') {
+                    if (*lp == 'p' && *(lp + 1) == ':') {
                       vtypes[vars].bits.is_permanent = 1;
                       lp += 2;
                     }
-                    if (flg=='M') mfilt[numflt].numvals = 8;
+                    if (flg == 'M') mfilt[numflt].numvals = 8;
                     else mfilt[numflt].numvals = 5;
                     vtypes[vars].bits.is_filter = 1;
                     mfilt[numflt].index = 0;
-                    if (flg=='M') {
+                    if (flg == 'M') {
                       mfilt[numflt].numvals |= OR_FILT_MASK;
                     }
                     vtypes[vars].index = numflt;
@@ -873,8 +884,8 @@ char *script;
                           // limit array size
                           flen = MAX_ARRAY_SIZE;
                         }
-                        mfilt[numflt-1].numvals &= OR_FILT_MASK;
-                        mfilt[numflt-1].numvals |= flen & AND_FILT_MASK;
+                        mfilt[numflt - 1].numvals &= OR_FILT_MASK;
+                        mfilt[numflt - 1].numvals |= flen & AND_FILT_MASK;
                       }
                     }
 
@@ -911,8 +922,8 @@ char *script;
               lp += 2;
               SCRIPT_SKIP_SPACES
               if (isdigit(*lp)) {
-                uint8_t ssize = atoi(lp)+1;
-                if (ssize<10 || ssize>SCRIPT_MAXSSIZE) ssize=SCRIPT_MAXSSIZE;
+                uint8_t ssize = atoi(lp) + 1;
+                if (ssize < 10 || ssize > SCRIPT_MAXSSIZE) ssize = SCRIPT_MAXSSIZE;
                 glob_script_mem.max_ssize = ssize;
               }
               init = 1;
@@ -926,8 +937,8 @@ char *script;
     }
 
     uint16_t fsize = 0;
-    for (count=0; count<numflt; count++) {
-      fsize += sizeof(struct M_FILT) + ((mfilt[count].numvals&AND_FILT_MASK) - 1)*sizeof(TS_FLOAT);
+    for (count=0; count < numflt; count++) {
+      fsize += sizeof(struct M_FILT) + ((mfilt[count].numvals & AND_FILT_MASK) - 1) * sizeof(TS_FLOAT);
     }
 
     // now copy vars to memory

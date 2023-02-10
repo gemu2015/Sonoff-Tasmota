@@ -219,3 +219,4 @@ void _copy32(uint32_t *src, uint32_t *dst) {
 #define   deleteTS jdeleteTS
 #define   readTS jreadTS
 #define   IndexSeparator jIndexSeparator
+#define   AddLog jAddLog

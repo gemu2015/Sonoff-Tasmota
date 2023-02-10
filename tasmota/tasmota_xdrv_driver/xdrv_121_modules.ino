@@ -800,6 +800,30 @@ void Module_upload_stop(void) {
   LinkModule(module_input_buffer, module_bytes_read, module_name);
 }
 
+
+void Module_HandleUploadLoop(void) {
+
+  if (HTTP_USER == Web.state) { return; }
+    
+  HTTPUpload& upload = Webserver->upload();
+
+  switch (upload.status) {
+    case UPLOAD_FILE_START:
+    // ***** Step1: Start upload file
+      Module_upload_start(upload.filename.c_str());
+      break;
+    case UPLOAD_FILE_WRITE:
+    // ***** Step2: Write upload file
+      Module_upload_write(upload.buf, upload.currentSize);
+      break;
+    case UPLOAD_FILE_END:
+    // ***** Step3: Finish upload file
+      Module_upload_stop();
+      break;
+  }
+}
+  
+
 #ifdef USE_FLASH_BDIR
 struct BINDIR {
 uint32_t address;
@@ -1024,7 +1048,7 @@ bool Xdrv121(uint32_t function) {
     case FUNC_WEB_ADD_HANDLER:
       Webserver->on("/mo_upl", Module_upload);
       Webserver->on("/modu", HTTP_GET, Module_upload);
-      Webserver->on("/modu", HTTP_POST,[](){Webserver->sendHeader(F("Location"),F("/modu"));Webserver->send(303);}, HandleUploadLoop);
+      Webserver->on("/modu", HTTP_POST,[](){Webserver->sendHeader(F("Location"),F("/modu"));Webserver->send(303);}, Module_HandleUploadLoop);
       break;
   }
   return result;

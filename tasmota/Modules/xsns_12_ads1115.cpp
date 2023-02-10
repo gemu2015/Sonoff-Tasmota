@@ -206,8 +206,6 @@ int16_t MOD_FUNC(Ads1115GetConversion, uint8_t channel) {
 }
 
 
-//jAddLog(LOG_LEVEL_INFO,PSTR("found %d"),Ads1115.address);
-
 /********************************************************************************************/
 
 int32_t MOD_FUNC(Init_ADS1115) {

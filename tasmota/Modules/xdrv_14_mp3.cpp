@@ -115,6 +115,7 @@ DPSTR(mS_JSON_COMMAND_SVALUE,"{\"%s\":\"%s\"}");
 DPSTR(S_JSON_MP3_COMMAND,"{\"MP3%s\"}");
 DPSTR(kMP3_Commands,"Track|Play|Pause|Stop|Volume|EQ|Device|Reset|DAC|TYPE|PIN");
 DPSTR(d_mp3,"MP3");
+DPSTR(started,"mp3 inizialized with TRX pin %d");
 
 typedef struct {
   bool player_type;
@@ -209,6 +210,7 @@ int32_t MOD_FUNC(MP3_Init) {
       CALL_MOD_FUNC(MP3_CMD, MP3_CMD_RESET, MP3_CMD_RESET_VALUE);    // reset the player to defaults
       delay(100);
       CALL_MOD_FUNC(MP3_CMD, MP3_CMD_VOLUME, MP3_VOLUME);            // after reset set volume depending on the entry in the my_user_config.h
+      AddLog(LOG_LEVEL_INFO, PSTR(started), player_txpin);
       return 0;
     }
   }

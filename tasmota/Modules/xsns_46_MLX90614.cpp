@@ -78,7 +78,6 @@ int32_t MOD_FUNC(Init_MLX90614) {
   ready = false;
   mt->flags.initialized = true;
   sprint(PSTR(mlxdev));
-  //sprint(XPSTR("hallo"));
 
   if (!I2cSetDevice(I2_ADR_IRT)) {
     return -1;
