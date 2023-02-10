@@ -45,19 +45,24 @@ add these to build_flags:
 .text.mod_end
 6. examine call instructions, no call to external symbol may appear
 
-7. enable these defines and only one module
+7. enable these defines and only one module with name
 #define USE_MODULES
 #define EXECUTE_FROM_BINARY
 
 //#define USE_MLX90614_MOD
+//#define MODULE_NAME "MLX90614.bin"
 //#define USE_ADS1115_MOD
-//#define USE_SHT3X_MOD
+//#define MODULE_NAME "ADS1115.bin"
+#define USE_SHT3X_MOD
+#define MODULE_NAME "SHT3X.bin"
 //#define USE_HTU_MOD
-#define USE_MP3_PLAYER_MOD
+//#define MODULE_NAME "HTU.bin"
+//#define USE_MP3_PLAYER_MOD
+//#define MODULE_NAME "mp3player.bin"
 
 8. test driver functionality
 if all is working as expected the resulting relocatable driver is stored
-in file system as module.bin. it now can be uploaded to pc and renamed
+in file system as MODULE_NAME. it now can be uploaded to pc
 
 9. uncomment these defines and recompile
 #define EXECUTE_FROM_BINARY
