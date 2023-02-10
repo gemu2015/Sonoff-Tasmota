@@ -43,7 +43,9 @@ keywords if then else endif, or, and are better readable for beginners (others m
 #define XDRV_10             10
 
 
+#ifndef TS_FLOAT
 #define TS_FLOAT float
+#endif
 
 const uint8_t SCRIPT_VERS[2] = {5, 0};
 
@@ -569,7 +571,8 @@ void f2char(TS_FLOAT num, uint32_t dprec, uint32_t lzeros, char *nbuff, char dse
   }
 }
 
-
+uint32_t match_vars(char *dvnam, TS_FLOAT **fp, char **sp, uint32_t *ind);
+uint32_t script_sspi_trans(int32_t cs_index, TS_FLOAT *array, uint32_t len, uint32_t size);
 char *scripter_sub(char *lp, uint8_t fromscriptcmd);
 char *GetNumericArgument(char *lp,uint8_t lastop,TS_FLOAT *fp, struct GVARS *gv);
 char *GetStringArgument(char *lp,uint8_t lastop,char *cp, struct GVARS *gv);
@@ -641,6 +644,38 @@ void SetChanged(uint32_t index) {
 
 TS_FLOAT *Get_MFAddr(uint8_t index, uint16_t *len, uint16_t *ipos);
 
+uint32_t Script_Find_Vars(char *sp) {
+  uint16_t numvars = 0;
+  uint16_t svars = 0;
+  while (*sp) {
+    if (*sp == '\n' || *sp == '\r') {
+      sp++;
+      while (*sp == '=') {
+        sp++;
+      }
+      if (*sp == '#' || *sp == '>') {
+        break;
+      }
+      char *cp = strchr(sp, '=');
+      if (cp) {
+        cp++;
+        while (*cp == ' ') {
+          cp++;
+        }
+        if (*cp == '"') {
+          svars += 1;
+        } else if (isdigit(*cp)) {
+          numvars += 1;
+        }
+        sp = cp;
+      }
+    }
+    sp++;
+  }
+  return (svars << 16) | numvars;
+}
+
+
 // allocates all variables and presets them
 int16_t Init_Scripter(void) {
 char *script;
@@ -649,38 +684,43 @@ char *script;
     script = glob_script_mem.script_ram;
     if (!*script) return -999;
 
+    uint32_t xvars = Script_Find_Vars(script + 1);
+    uint16_t maxnvars = xvars & 0xffff;
+    if (maxnvars < 1) {
+      maxnvars = 1;
+    }
+    uint16_t maxsvars = xvars >> 16;
+    if (maxsvars < 1) {
+      maxsvars = 1;
+    }
+    uint16_t maxvars = maxsvars + maxnvars;
+    //AddLog(LOG_LEVEL_INFO, PSTR("Script: svar = %d, nvars = %d"), maxsvars, maxnvars);
+    
     // scan lines for >DEF
     uint16_t lines = 0;
     uint16_t nvars = 0;
     uint16_t svars = 0;
     uint16_t vars = 0;
     char *lp = script;
-    uint16_t imemsize = (MAXVARS*10) + 4;
+    uint16_t imemsize = (maxvars * 10) + 4;
     uint8_t *imemptr = (uint8_t*)calloc(imemsize, 1);
     if (!imemptr) {
       return -7;
     }
 
-    //ClaimSerial();
-    //SetSerialBaudrate(115200);
-    //Serial.printf("size %d\n",imemsize);
-    //Serial.printf("stack %d\n",GetStack());  // 2848
-    // 2896
-    //char vnames[MAXVARS*10];
     char *vnames = (char*)imemptr;
 
-    char *vnp[MAXVARS];
-    TS_FLOAT fvalues[MAXVARS];
-    struct T_INDEX vtypes[MAXVARS];
-
+    char *vnp[maxvars];
+    TS_FLOAT fvalues[maxvars];
+    struct T_INDEX vtypes[maxvars];
 
     //char strings[MAXSVARS*SCRIPT_MAXSSIZE];
     //char *strings_p = strings;
-    char *strings_op = (char*)calloc(MAXSVARS*SCRIPT_MAXSSIZE, 1);
+    char *strings_op = (char*)calloc(maxsvars * SCRIPT_MAXSSIZE, 1);
     char *strings_p = strings_op;
     if (!strings_op) {
       free(imemptr);
-      return -7;
+      return -8;
     }
 
 /*
@@ -708,7 +748,7 @@ char *script;
     char *vnames_p = vnames;
     char **vnp_p = vnp;
 
-    char *snp[MAXSVARS];
+    char *snp[maxsvars];
 
     struct M_FILT mfilt[MAXFILT];
 
@@ -741,7 +781,7 @@ char *script;
                 // found variable definition
                 if (*lp=='p' && *(lp+1)==':') {
                     lp += 2;
-                    if (numperm<SCRIPT_MAXPERM) {
+                    if (numperm < SCRIPT_MAXPERM) {
                       vtypes[vars].bits.is_permanent = 1;
                       numperm++;
                     }
@@ -786,7 +826,7 @@ char *script;
                     }
                     vtypes[vars].index = numflt;
                     numflt++;
-                    if (numflt>MAXFILT) {
+                    if (numflt > MAXFILT) {
                       if (imemptr) free(imemptr);
                       if (strings_op) free(strings_op);
                       return -6;
@@ -801,9 +841,12 @@ char *script;
                 *vnames_p++ = 0;
                 // init variable
                 op++;
-                if (*op!='"') {
+                while (*op == ' ') {
+                  op++;
+                }
+                if (*op != '"') {
                     TS_FLOAT fv;
-                    if (*op=='0' && *(op+1)=='x') {
+                    if (*op == '0' && *(op + 1) == 'x') {
                       op += 2;
                       fv=strtol(op, &op, 16);
                     } else {
@@ -813,7 +856,7 @@ char *script;
                     vtypes[vars].bits.is_string = 0;
                     if (!vtypes[vars].bits.is_filter) vtypes[vars].index = nvars;
                     nvars++;
-                    if (nvars>MAXNVARS) {
+                    if (nvars > maxnvars) {
                       if (imemptr) free(imemptr);
                       if (strings_op) free(strings_op);
                       return -1;
@@ -850,14 +893,14 @@ char *script;
                     vtypes[vars].bits.is_string = 1;
                     vtypes[vars].index = svars;
                     svars++;
-                    if (svars>MAXSVARS) {
+                    if (svars > maxsvars) {
                       if (imemptr) free(imemptr);
                       if (strings_op) free(strings_op);
                       return -2;
                     }
                 }
                 vars++;
-                if (vars>MAXVARS) {
+                if (vars > maxvars) {
                   if (imemptr) free(imemptr);
                   if (strings_op) free(strings_op);
                   return -3;
@@ -2196,7 +2239,6 @@ uint32_t MeasurePulseTime(int32_t in) {
 #endif // USE_ANGLE_FUNC
 
 #ifdef USE_SCRIPT_GLOBVARS
-uint32_t match_vars(char *dvnam, TS_FLOAT **fp, char **sp, uint32_t *ind);
 uint32_t match_vars(char *dvnam, TS_FLOAT **fp, char **sp, uint32_t *ind) {
   uint16_t olen = strlen(dvnam);
   struct T_INDEX *vtp = glob_script_mem.type;
@@ -7229,7 +7271,6 @@ getnext:
 
 #ifdef USE_SCRIPT_SPI
 // transfer 1-3 bytes
-uint32_t script_sspi_trans(int32_t cs_index, TS_FLOAT *array, uint32_t len, uint32_t size);
 uint32_t script_sspi_trans(int32_t cs_index, TS_FLOAT *array, uint32_t len, uint32_t size) {
   uint32_t out = 0;
   if (cs_index >= 0) {
