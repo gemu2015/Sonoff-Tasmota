@@ -22,6 +22,13 @@
 attempt to create relocatable flash module drivers
 with runtime link and unlink
 adds about 10k flash size
+
+to doo:
+pin managment
+module list GUI
+
+
+
 */
 
 #ifdef USE_MODULES
@@ -593,6 +600,22 @@ const char mod_types[] PROGMEM = "xsns|xlgt|xnrg|xdrv|";
 
 // show all linked modules
 void Module_mdir(void) {
+
+ #if 0
+  for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
+    if (modules[cnt].mod_addr) {
+      const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
+      const uint32_t volatile mtype = fm->type;
+      const uint32_t volatile rev = fm->revision;
+      char name[16];
+      strncpy(name, fm->name, 16);
+      char type[6];
+      GetTextIndexed(type, sizeof(type), mtype, mod_types );
+      Response_P(PSTR("{\"MOD #%d\":{\"name\":\"%s\",\"addr\":\"%08x\",\"size\":%d,\"type\":\"%s\",\"rev\":%d,\"mem\":%d,\"init\":%d}}"),cnt + 1, name, modules[cnt].mod_addr,
+       modules[cnt].mod_size, type, rev, modules[cnt].mem_size, modules[cnt].flags.initialized);
+    }
+  }
+ #else 
   AddLog(LOG_LEVEL_INFO, PSTR("| ======== Module directory ========"));
   AddLog(LOG_LEVEL_INFO, PSTR("| nr | name           | address  | size | type | rev  | ram  | init |"));
   for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
@@ -614,6 +637,7 @@ void Module_mdir(void) {
       //AddLog(LOG_LEVEL_INFO, PSTR("Module %d: %s %08x"), cnt + 1, fm->name, modules[cnt].mod_addr);
     }
   }
+  #endif
   ResponseCmndDone();
 }
 

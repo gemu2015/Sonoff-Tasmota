@@ -312,11 +312,7 @@ extern VButton *buttons[MAX_TOUCH_BUTTONS];
 #endif
 
 typedef union {
-#if defined(USE_SCRIPT_GLOBVARS) || defined(USE_HOMEKIT) || defined(USE_SCRIPT_INT)
   uint16_t data;
-#else
-  uint8_t data;
-#endif
   struct {
     uint8_t is_string : 1;  // string or number
     uint8_t is_permanent : 1;
@@ -326,15 +322,9 @@ typedef union {
     uint8_t settable : 1;
     uint8_t is_filter : 1;
     uint8_t constant : 1;
-#ifdef USE_SCRIPT_GLOBVARS
     uint8_t global : 1;
-#endif
-#ifdef USE_SCRIPT_GLOBVARS
     uint8_t hchanged : 1;
-#endif
-#ifdef USE_SCRIPT_INT
     uint8_t integer : 1;
-#endif
   };
 } SCRIPT_TYPE;
 
@@ -803,14 +793,12 @@ char *script;
                 } else {
                     vtypes[vars].bits.is_autoinc = 0;
                 }
-#ifdef USE_SCRIPT_INTEGER
                 if (*lp == 'b' && *(lp + 1) == ':') {
                     lp += 2;
                     vtypes[vars].bits.integer = 1;
                 } else {
                     vtypes[vars].bits.integer = 0;
                 }
-#endif // USE_SCRIPT_INTEGER
 
 #ifdef USE_SCRIPT_GLOBVARS
                 if (*lp == 'g' && *(lp + 1) == ':') {
@@ -859,9 +847,17 @@ char *script;
                     TS_FLOAT fv;
                     if (*op == '0' && *(op + 1) == 'x') {
                       op += 2;
-                      fv=strtol(op, &op, 16);
+                      if (vtypes[vars].bits.integer) {
+                        *(uint32_t*)&fv = strtoll(op, &op, 16);
+                      } else {
+                        fv = strtol(op, &op, 16);
+                      }
                     } else {
-                      fv=CharToFloat(op);
+                      if (vtypes[vars].bits.integer) {
+                        *(int32_t*)&fv = strtol(op, &op, 10);
+                      } else {
+                        fv=CharToFloat(op);
+                      }
                     }
                     fvalues[nvars] = fv;
                     vtypes[vars].bits.is_string = 0;
@@ -3720,6 +3716,20 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto nfuncexit;
         }
 #endif //SCRIPT_GET_HTTPS_JP
+
+        if (!strncmp(lp, "gi(", 3)) {
+          lp += 3;
+          if (!strncmp(lp, "epoch", 5)) {
+            lp += 5;
+            *(uint32_t*)&fvar = UtcTime();
+          } else if (*lp == '0' && *(lp + 1) == 'x') {
+            lp += 2;
+            *(uint32_t*)&fvar = strtoll(lp, &lp, 16);
+          } else {
+            *(int32_t*)&fvar = strtol(lp, &lp, 10);
+          }
+          goto nfuncexit;
+        }
         break;
       case 'h':
         if (!strncmp(vname, "hours", 5)) {
@@ -3732,11 +3742,20 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         }
         if (!strncmp(lp, "hn(", 3)) {
           lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
-          if (fvar<0 || fvar>255) fvar = 0;
+          if (fvar < 0 || fvar > 255) fvar = 0;
           lp++;
           len = 0;
           if (sp) {
             sprintf(sp, "%02x", (uint8_t)fvar);
+          }
+          goto strexit;
+        }
+        if (!strncmp(lp, "hxi(", 4)) {
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
+          lp++;
+          len = 0;
+          if (sp) {
+            sprintf(sp, "%08x", *(uint32_t*)&fvar);
           }
           goto strexit;
         }
@@ -5979,11 +5998,15 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
                 cp += 2;
               } else {
                 cp = isvar(cp, &vtype, &ind, &fvar, string, 0);
-                if (vtype!=VAR_NV) {
+                if (vtype != VAR_NV) {
                   // found variable as result
-                  if (vtype==NUM_RES || (vtype&STYPE)==0) {
+                  if (vtype == NUM_RES || (vtype & STYPE) == 0) {
                     // numeric result
-                    f2char(fvar, dprec, lzero, string, dsep);
+                    if (ind.bits.integer) {
+                      dtostrfd(*(int32_t*)&fvar, 0, string);
+                    } else {
+                      f2char(fvar, dprec, lzero, string, dsep);
+                    }
                   } else {
                     // string result
                   }
@@ -7017,7 +7040,51 @@ getnext:
 #ifdef SCRIPT_LM_SUB
                       }
 #endif
-                      switch (lastop) {
+                      if (ind.bits.integer) {
+                        switch (lastop) {
+                          case OPER_EQU:
+                              if (glob_script_mem.var_not_found) {
+                                if (!gv || !gv->jo) toLogEOL("var not found: ",lp);
+                                goto next_line;
+                              }
+                              *dfvar = fvar;
+                              break;
+                          case OPER_PLSEQU:
+                              *(int32_t*)dfvar += *(int32_t*)&fvar;
+                              break;
+                          case OPER_MINEQU:
+                              *(int32_t*)dfvar -= *(int32_t*)&fvar;
+                              break;
+                          case OPER_MULEQU:
+                              *(int32_t*)dfvar *= *(int32_t*)&fvar;
+                              break;
+                          case OPER_DIVEQU:
+                              *(int32_t*)dfvar /= *(int32_t*)&fvar;
+                              break;
+                          case OPER_PERCEQU:
+                              *(int32_t*)dfvar %= *(int32_t*)&fvar;
+                              break;
+                          case OPER_ANDEQU:
+                              *(uint32_t*)dfvar &= *(int32_t*)&fvar;
+                              break;
+                          case OPER_OREQU:
+                              *(uint32_t*)dfvar |= *(int32_t*)&fvar;
+                              break;
+                          case OPER_XOREQU:
+                              *(uint32_t*)dfvar ^= *(int32_t*)&fvar;
+                              break;
+                          case OPER_SHLEQU:
+                              *(uint32_t*)dfvar <<= *(int32_t*)&fvar;
+                              break;
+                          case OPER_SHREQU:
+                              *(uint32_t*)dfvar >>= *(int32_t*)&fvar;
+                              break;
+                          default:
+                              // error
+                              break;
+                        } 
+                      } else {
+                        switch (lastop) {
                           case OPER_EQU:
                               if (glob_script_mem.var_not_found) {
                                 if (!gv || !gv->jo) toLogEOL("var not found: ",lp);
@@ -7058,7 +7125,9 @@ getnext:
                           default:
                               // error
                               break;
+                        }
                       }
+                      
                       // var was changed
                       if (globvindex >= 0) SetChanged(globvindex);
 #ifdef USE_SCRIPT_GLOBVARS
