@@ -64,18 +64,18 @@
 
 // define calls
 MODULE_DESCRIPTOR("HTU21",MODULE_TYPE_SENSOR,HTU_REV,"",0,"",0,"",0)
-MODULE_PART int32_t HTU_Detect(MODULES_TABLE *mt);
-MODULE_PART void HTU_Show(MODULES_TABLE *mt, bool json);
-MODULE_PART void HTU_Deinit(MODULES_TABLE *mt);
+MODULE_PART int32_t MOD_FUNC(HTU_Detect);
+MODULE_PART void MOD_FUNC(HTU_Show, bool json);
+MODULE_PART void MOD_FUNC(HTU_Deinit);
 MODULE_PART uint8_t HtuCheckCrc8(uint16_t data);
-MODULE_PART uint8_t HtuReadDeviceId(MODULES_TABLE *mt);
-MODULE_PART void HtuSetResolution(MODULES_TABLE *mt, uint8_t resolution);
-MODULE_PART void HtuReset(MODULES_TABLE *mt);
-MODULE_PART void HtuHeater(MODULES_TABLE *mt, uint8_t heater);
-MODULE_PART void HTU_Init(MODULES_TABLE *mt);
-MODULE_PART bool HTU_Read(MODULES_TABLE *mt);
-MODULE_PART void HTU_EverySecond(MODULES_TABLE *mt);
-MODULE_PART int32_t mod_func_execute(MODULES_TABLE *mt, uint32_t sel);
+MODULE_PART uint8_t MOD_FUNC(HtuReadDeviceId);
+MODULE_PART void MOD_FUNC(HtuSetResolution, uint8_t resolution);
+MODULE_PART void MOD_FUNC(HtuReset);
+MODULE_PART void MOD_FUNC(HtuHeater, uint8_t heater);
+MODULE_PART void MOD_FUNC(HTU_Init);
+MODULE_PART bool MOD_FUNC(HTU_Read);
+MODULE_PART void MOD_FUNC(HTU_EverySecond);
+MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
 MODULE_END
 
 // define strings used
@@ -114,10 +114,10 @@ uint8_t HtuCheckCrc8(uint16_t data) {
   return data >>= 8;
 }
 
-uint8_t HtuReadDeviceId(MODULES_TABLE *mt) {
+uint8_t MOD_FUNC(HtuReadDeviceId) {
   SETREGS
 
-  HtuReset(mt);  // Fixes ESP32 sensor loss at restart
+  CALL_MOD_FUNC(HtuReset);  // Fixes ESP32 sensor loss at restart
 
   uint16_t deviceID = 0;
   uint8_t checksum = 0;
@@ -139,7 +139,7 @@ uint8_t HtuReadDeviceId(MODULES_TABLE *mt) {
   return (uint8_t)deviceID;
 }
 
-void HtuSetResolution(MODULES_TABLE *mt, uint8_t resolution) {
+void MOD_FUNC(HtuSetResolution, uint8_t resolution) {
   SETREGS
   uint8_t current = I2cRead8(HTU21_ADDR, HTU21_READREG);
   current &= 0x7E;          // Replace current resolution bits with 0
@@ -147,7 +147,7 @@ void HtuSetResolution(MODULES_TABLE *mt, uint8_t resolution) {
   I2cWrite8(HTU21_ADDR, HTU21_WRITEREG, current);
 }
 
-void HtuReset(MODULES_TABLE *mt) {
+void MOD_FUNC(HtuReset) {
   SETREGS
   beginTransmission(HTU21_ADDR);
   write(HTU21_RESET);
@@ -155,7 +155,7 @@ void HtuReset(MODULES_TABLE *mt) {
   delay(15);                // Reset takes 15ms
 }
 
-void HtuHeater(MODULES_TABLE *mt, uint8_t heater) {
+void MOD_FUNC(HtuHeater, uint8_t heater) {
   SETREGS
   uint8_t current = I2cRead8(HTU21_ADDR, HTU21_READREG);
 
@@ -171,14 +171,14 @@ void HtuHeater(MODULES_TABLE *mt, uint8_t heater) {
   I2cWrite8(HTU21_ADDR, HTU21_WRITEREG, current);
 }
 
-void HTU_Init(MODULES_TABLE *mt) {
+void MOD_FUNC(HTU_Init) {
   SETREGS
-  HtuReset(mt);
-  HtuHeater(mt, HTU21_HEATER_OFF);
-  HtuSetResolution(mt, HTU21_RES_RH12_T14);
+  CALL_MOD_FUNC(HtuReset);
+  CALL_MOD_FUNC(HtuHeater, HTU21_HEATER_OFF);
+  CALL_MOD_FUNC(HtuSetResolution, HTU21_RES_RH12_T14);
 }
 
-bool HTU_Read(MODULES_TABLE *mt) {
+bool MOD_FUNC(HTU_Read) {
   SETREGS
   uint8_t  checksum = 0;
   uint16_t sensorval = 0;
@@ -241,7 +241,7 @@ bool HTU_Read(MODULES_TABLE *mt) {
 
 /********************************************************************************************/
 
-int32_t HTU_Detect(MODULES_TABLE *mt) {
+int32_t MOD_FUNC(HTU_Detect) {
   ALLOCMEM
 
   Htu.jdelay_humidity = 6;
@@ -249,10 +249,10 @@ int32_t HTU_Detect(MODULES_TABLE *mt) {
   Htu.address = HTU21_ADDR;
   if (I2cActive(Htu.address)) { return - 1; }
 
-  Htu.type = HtuReadDeviceId(mt);
+  Htu.type = CALL_MOD_FUNC(HtuReadDeviceId);
   if (Htu.type) {
     uint8_t index = 0;
-    HTU_Init(mt);
+    CALL_MOD_FUNC(HTU_Init);
     switch (Htu.type) {
       case HTU21_CHIPID:
         Htu.jdelay_temp = 50;
@@ -272,31 +272,31 @@ int32_t HTU_Detect(MODULES_TABLE *mt) {
         Htu.jdelay_temp = 50;
         Htu.jdelay_humidity = 23;
     }
-    GetTextIndexed(Htu.types, sizeof(Htu.types), index, jPSTR(kHtuTypes));
+    GetTextIndexed(Htu.types, sizeof(Htu.types), index, PSTR(kHtuTypes));
     I2cSetActiveFound(Htu.address, Htu.types, 0);
   }
   return 0;
 }
 
-void HTU_EverySecond(MODULES_TABLE *mt) {
+void MOD_FUNC(HTU_EverySecond) {
   SETREGS
   Htu.cnt++;
   if (Htu.cnt & 1) {  // Every 2 seconds
     // HTU21: 68mS, SI70xx: 37mS
-    if (!HTU_Read(mt)) {
+    if (!CALL_MOD_FUNC(HTU_Read)) {
       AddLogMissed(Htu.types, Htu.valid);
     }
   }
 }
 
-void HTU_Show(MODULES_TABLE *mt, bool json) {
+void MOD_FUNC(HTU_Show, bool json) {
   SETREGS
   if (Htu.valid) {
     TempHumDewShow(json, (0 == GetTasmotaGlobal(1)), Htu.types, Htu.temperature, Htu.humidity);
   }
 }
 
-void HTU_Deinit(MODULES_TABLE *mt) {
+void MOD_FUNC(HTU_Deinit) {
   SETREGS
   I2cResetActive(Htu.address,1);
   RETMEM
@@ -307,23 +307,23 @@ void HTU_Deinit(MODULES_TABLE *mt) {
 \*********************************************************************************************/
 
 
-int32_t mod_func_execute(MODULES_TABLE *mt, uint32_t sel) {
+int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
   bool result = false;
   switch (sel) {
     case FUNC_INIT:
-      result = HTU_Detect(mt);
+      result = CALL_MOD_FUNC(HTU_Detect);
       break;
     case FUNC_EVERY_SECOND:
-      HTU_EverySecond(mt);
+      CALL_MOD_FUNC(HTU_EverySecond);
       break;
     case FUNC_JSON_APPEND:
-      HTU_Show(mt, 1);
+      CALL_MOD_FUNC(HTU_Show, 1);
       break;
     case FUNC_WEB_SENSOR:
-      HTU_Show(mt, 0);
+      CALL_MOD_FUNC(HTU_Show, 0);
       break;
     case FUNC_DEINIT:
-      HTU_Deinit(mt);
+      CALL_MOD_FUNC(HTU_Deinit);
       break;
   }
   return result;

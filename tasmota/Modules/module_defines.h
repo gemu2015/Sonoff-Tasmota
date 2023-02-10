@@ -17,7 +17,7 @@ typedef struct {
 #define jSerial                         ( HardwareSerial*)                             jt[2]
 #define jI2cSetDevice(A)                (( bool (*)(uint32_t) )                        jt[3])(A)
 #define jI2cSetActiveFound(A,B,C)       (( void (*)(uint32_t,const char *, uint32_t) ) jt[4])(A,B,C)
-#define jAddLog(A,B)                    (( void (*)(uint32_t, PGM_P, ...) )            jt[5])(A,B)
+#define jAddLog(A,...)                    (( void (*)(uint32_t, PGM_P, ...) )            jt[5])(A,__VA_ARGS__)
 #define jResponseAppend_P(...)          (( void (*)(const char * formatP, ...) )       jt[6])(__VA_ARGS__)
 #define jWSContentSend_PD(...)          (( void (*)(const char * formatP, ...) )       jt[7])(__VA_ARGS__)
 #define jftostrfd(A,B,C)                (( char *(*)(float, uint8_t, char*) )          jt[8])(A,B,C)
@@ -32,10 +32,10 @@ typedef struct {
 #define jread(BUS)                      (( uint8_t (*)(TwoWire*) )                     jt[16])(BUS)
 #define fshowhex(VAL)                   (( void (*)(uint32_t) )                        jt[17])(VAL)
 #define jfree(MEM)                      (( void (*)(void*) )                           jt[18])(MEM)
-#define jI2cWrite16(ADDR,REG,VAL)       (( bool (*)(uint8_t, uint8_t, uint16_t) )      jt[19])(ADDR,REG,VAL)
+#define jI2cWrite16(ADDR,REG,VAL,BUS)       (( bool (*)(uint8_t, uint8_t, uint16_t, uint8_t) )      jt[19])(ADDR,REG,VAL,BUS)
 // 20
-#define jI2cRead16(ADDR,REG)            (( uint16_t (*)(uint8_t, uint8_t) )            jt[20])(ADDR,REG)
-#define jI2cValidRead16(DATA,ADDR,REG)  (( bool (*)(uint16_t *,uint8_t,uint8_t) )      jt[21])(DATA,ADDR,REG)
+#define jI2cRead16(ADDR,REG,BUS)            (( uint16_t (*)(uint8_t, uint8_t, uint8_t) )  jt[20])(ADDR,REG,BUS)
+#define jI2cValidRead16(DATA,ADDR,REG,BUS)  (( bool (*)(uint16_t *,uint8_t,uint8_t,uint8_t) )      jt[21])(DATA,ADDR,REG,BUS)
 #define jsnprintf_P(...)                (( void (*)(...) )                             jt[22])(__VA_ARGS__)
 #define jXdrvRulesProcess(A)            (( bool (*)(bool) )                            jt[23])(A)
 #define jResponseJsonEnd                (( void (*)(void) )                            jt[24])
@@ -84,6 +84,7 @@ typedef struct {
 #define jreadTS(TSER,BUF,SIZE)          (( size_t (*)(void*,uint8_t*,uint32_t) )       jt[64])(TSER,BUF,SIZE)
 
 
+
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
 #define bitSet(value, bit) ((value) |= (1UL << (bit)))
@@ -112,13 +113,14 @@ typedef struct {
 #define GPSTR(VAR,FUNC) const char *VAR = (const char*)&FUNC + mt->execution_offset; fshowhex((uint32_t)VAR);
 //#define jPSTR(LABEL) (__extension__({ (const char *)&LABEL[0]+mt->execution_offset;}))
 
+#undef PSTR
 // on esp8266 passing of PGMP strings works, on ESP32 fails and must be copied to ram buffer before passing pointer
-// this implementation only supports one jPSTR per call
+// this implementation only supports one PSTR per call
 #ifdef ESP8266
-#define jPSTR(LABEL) (const char *)LABEL+mt->execution_offset
+#define PSTR(LABEL) (const char *)LABEL+mt->execution_offset
 #define STRBUFFER
 #else
-#define jPSTR(LABEL) __extension__( {_copy32((uint32_t*)((const char *)LABEL+mt->execution_offset), mem->cbuffer); (const char *)mem->cbuffer;} )
+#define PSTR(LABEL) __extension__( {_copy32((uint32_t*)((const char *)LABEL+mt->execution_offset), mem->cbuffer); (const char *)mem->cbuffer;} )
 #define STRBUFFER uint32_t cbuffer[STRBUFFSIZE];
 #endif
 
@@ -173,6 +175,8 @@ void _copy32(uint32_t *src, uint32_t *dst) {
 #define   requestFrom(ADDR,NUM)  jrequestFrom(jWire, ADDR, NUM);
 #define   read() jread(jWire)
 #define   I2cRead8 jI2cRead8
+#define   I2cRead16 jI2cRead16
+#define   I2cWrite16 jI2cWrite16
 #define   I2cWrite8 jI2cWrite8
 #define   delay jdelay
 #define   available() javailable(jWire)
@@ -214,3 +218,4 @@ void _copy32(uint32_t *src, uint32_t *dst) {
 #define   iscale jiscale
 #define   deleteTS jdeleteTS
 #define   readTS jreadTS
+#define   IndexSeparator jIndexSeparator

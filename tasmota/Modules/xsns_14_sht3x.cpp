@@ -41,11 +41,11 @@
 
 
 MODULE_DESCRIPTOR("SHT3X",MODULE_TYPE_SENSOR,SHT3X_REV,"",0,"",0,"",0)
-MODULE_PART int32_t Sht3x_Detect(MODULES_TABLE *mt);
-MODULE_PART void SHT3X_Show(MODULES_TABLE *mt, bool json);
-MODULE_PART void SHT3X_Deinit(MODULES_TABLE *mt);
-MODULE_PART bool Sht3xRead(MODULES_TABLE *mt, float &t, float &h, uint8_t sht3x_address);
-MODULE_PART int32_t mod_func_execute(MODULES_TABLE *mt, uint32_t sel);
+MODULE_PART int32_t MOD_FUNC(Sht3x_Detect);
+MODULE_PART void MOD_FUNC(SHT3X_Show, bool json);
+MODULE_PART void MOD_FUNC(SHT3X_Deinit);
+MODULE_PART bool MOD_FUNC(Sht3xRead, float &t, float &h, uint8_t sht3x_address);
+MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
 MODULE_END
 
 
@@ -71,7 +71,7 @@ typedef struct {
 DPSTR(kShtTypes3,"SHT3X|SHT3X|SHTC3");
 DPSTR(kShtTypes,"%s%c%02X");
 
-bool Sht3xRead(MODULES_TABLE *mt, float &t, float &h, uint8_t sht3x_address) {
+bool MOD_FUNC(Sht3xRead, float &t, float &h, uint8_t sht3x_address) {
   SETREGS
   unsigned int data[6];
 
@@ -111,7 +111,7 @@ bool Sht3xRead(MODULES_TABLE *mt, float &t, float &h, uint8_t sht3x_address) {
 
 /********************************************************************************************/
 
-int32_t Sht3x_Detect(MODULES_TABLE *mt) {
+int32_t MOD_FUNC(Sht3x_Detect) {
   ALLOCMEM
   sht3x_addresses[0] = SHT3X_ADDR_GND;
   sht3x_addresses[1] = SHT3X_ADDR_VDD;
@@ -121,9 +121,9 @@ int32_t Sht3x_Detect(MODULES_TABLE *mt) {
     if (I2cActive(sht3x_addresses[i])) { continue; }
     float t;
     float h;
-    if (Sht3xRead(mt, t, h, sht3x_addresses[i])) {
+    if (CALL_MOD_FUNC(Sht3xRead, t, h, sht3x_addresses[i])) {
       sht3x_sensors[sht3x_count].address = sht3x_addresses[i];
-      GetTextIndexed(sht3x_sensors[sht3x_count].types, sizeof(sht3x_sensors[sht3x_count].types), i, jPSTR(kShtTypes3));
+      GetTextIndexed(sht3x_sensors[sht3x_count].types, sizeof(sht3x_sensors[sht3x_count].types), i, PSTR(kShtTypes3));
       I2cSetActiveFound(sht3x_sensors[sht3x_count].address, sht3x_sensors[sht3x_count].types, 0);
       sht3x_count++;
     }
@@ -131,25 +131,25 @@ int32_t Sht3x_Detect(MODULES_TABLE *mt) {
   return sht3x_count;
 }
 
-void SHT3X_Show(MODULES_TABLE *mt, bool json) {
+void MOD_FUNC(SHT3X_Show, bool json) {
   SETREGS
   for (uint32_t i = 0; i < sht3x_count; i++) {
     float t;
     float h;
-    if (Sht3xRead(mt, t, h, sht3x_sensors[i].address)) {
+    if (CALL_MOD_FUNC(Sht3xRead, t, h, sht3x_sensors[i].address)) {
       char types[11];
       strlcpy(types, sht3x_sensors[i].types, sizeof(types));
       if (sht3x_count > 1) {
         char *types = sht3x_sensors[i].types;
-        snprintf_P(types, sizeof(types), jPSTR(kShtTypes), types, IndexSeparator(), sht3x_sensors[i].address);
-        //jsnprintf_P(types, sizeof(types), jPSTR(kShtTypes), mem->ht3x_sensors[i].types, jIndexSeparator(), addr);
+        snprintf_P(types, sizeof(types), PSTR(kShtTypes), types, IndexSeparator(), sht3x_sensors[i].address);
+        //jsnprintf_P(types, sizeof(types), PSTR(kShtTypes), mem->ht3x_sensors[i].types, jIndexSeparator(), addr);
       }
       TempHumDewShow(json, ((0 == GetTasmotaGlobal(1)) && (0 == i)), types, t, h);
     }
   }
 }
 
-void SHT3X_Deinit(MODULES_TABLE *mt) {
+void MOD_FUNC(SHT3X_Deinit) {
   SETREGS
   for (uint32_t i = 0; i < sht3x_count; i++) {
     I2cResetActive(sht3x_sensors[i].address,1);
@@ -157,26 +157,24 @@ void SHT3X_Deinit(MODULES_TABLE *mt) {
   RETMEM
 }
 
-
-
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
 
-int32_t mod_func_execute(MODULES_TABLE *mt, uint32_t sel) {
+int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
   bool result = false;
   switch (sel) {
     case FUNC_INIT:
-      result = Sht3x_Detect(mt);
+      result = CALL_MOD_FUNC(Sht3x_Detect);
       break;
     case FUNC_JSON_APPEND:
-      SHT3X_Show(mt, 1);
+      CALL_MOD_FUNC(SHT3X_Show, 1);
       break;
     case FUNC_WEB_SENSOR:
-      SHT3X_Show(mt, 0);
+      CALL_MOD_FUNC(SHT3X_Show, 0);
       break;
     case FUNC_DEINIT:
-      SHT3X_Deinit(mt);
+      CALL_MOD_FUNC(SHT3X_Deinit);
       break;
   }
   return result;

@@ -19,7 +19,16 @@ how to create relocatable modules:
 
 you must use a 4M esp8266 device with 2Mb filesystem as development system.
 replace the linker file local.eagle.app.v6.common.ld by the one provided in module dir
-( the file is automatically generated on clean and has to be replaced again after clean)
+( the file is automatically generated and must be checked on new espressif versions)
+  the module section must be inserted as shown below after *(.ver_number)
+    _irom0_text_start = ABSOLUTE(.);
+    *(.ver_number)
+	/* start modules */
+	*(.text.mod_desc)
+	*(.text.mod_string)
+	*(.text.mod*)
+	*(.text.mod_end)
+	/* end modules */
 
 
 1. copy the .ino file you want to convert to the modules directory and rename to .cpp

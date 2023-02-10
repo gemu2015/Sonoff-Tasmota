@@ -139,12 +139,13 @@ SECTIONS
   {
     _irom0_text_start = ABSOLUTE(.);
     *(.ver_number)
+	/* start modules */
 	*(.text.mod_desc)
 	*(.text.mod_string)
 	*(.text.mod*)
 	*(.text.mod_end)
-				
-    *.c.o(.literal*, .text*)
+	/* end modules */
+	*.c.o(.literal*, .text*)
     *.cpp.o(EXCLUDE_FILE (umm_malloc.cpp.o) .literal*, EXCLUDE_FILE (umm_malloc.cpp.o) .text*)
     *.cc.o(.literal*, .text*)
 #ifdef VTABLES_IN_FLASH

@@ -77,13 +77,13 @@ int32_t MOD_FUNC(Init_MLX90614) {
   // now init variables here
   ready = false;
   mt->flags.initialized = true;
-  sprint(jPSTR(mlxdev));
+  sprint(PSTR(mlxdev));
   //sprint(XPSTR("hallo"));
 
   if (!I2cSetDevice(I2_ADR_IRT)) {
     return -1;
   }
-  I2cSetActiveFound(I2_ADR_IRT, jPSTR(mlxdev), 0);
+  I2cSetActiveFound(I2_ADR_IRT, PSTR(mlxdev), 0);
   ready = true;
   return ready;
 }
@@ -126,9 +126,9 @@ SETTINGS *jsettings = mt->settings;
   ftostrfd(amb_temp, jsettings->flag2.temperature_resolution, amb_tstr);
 
   if (json) {
-    ResponseAppend_P(jPSTR(JSON_IRTMP), obj_tstr, amb_tstr);
+    ResponseAppend_P(PSTR(JSON_IRTMP), obj_tstr, amb_tstr);
   } else {
-    WSContentSend_PD(jPSTR(HTTP_IRTMP), obj_tstr, amb_tstr);
+    WSContentSend_PD(PSTR(HTTP_IRTMP), obj_tstr, amb_tstr);
   }
 }
 

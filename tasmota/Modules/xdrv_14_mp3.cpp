@@ -302,10 +302,10 @@ bool MOD_FUNC(MP3PlayerCmd) {
   SETREGS
   char command[CMDSZ];
   bool serviced = true;
-  uint8_t disp_len = strlen((char*)jPSTR(d_mp3));
+  uint8_t disp_len = strlen((char*)PSTR(d_mp3));
 
-  if (!strncasecmp_P(XdrvMailbox->topic, jPSTR(d_mp3), disp_len)) {  // prefix
-    int command_code = GetCommandCode(command, sizeof(command), XdrvMailbox->topic + disp_len, jPSTR(kMP3_Commands));
+  if (!strncasecmp_P(XdrvMailbox->topic, PSTR(d_mp3), disp_len)) {  // prefix
+    int command_code = GetCommandCode(command, sizeof(command), XdrvMailbox->topic + disp_len, PSTR(kMP3_Commands));
 
     switch (command_code) {
       case CMND_MP3_TRACK:
@@ -333,7 +333,7 @@ bool MOD_FUNC(MP3PlayerCmd) {
             }
           }
         }
-        Response_P(jPSTR(S_JSON_MP3_COMMAND_NVALUE), command, XdrvMailbox->payload);
+        Response_P(PSTR(S_JSON_MP3_COMMAND_NVALUE), command, XdrvMailbox->payload);
         break;
 
       case CMND_MP3_PAUSE:
@@ -345,7 +345,7 @@ play_default:
         if (command_code == CMND_MP3_PAUSE)    { CALL_MOD_FUNC(MP3_CMD, MP3_CMD_PAUSE,  0); }
         if (command_code == CMND_MP3_STOP)     { CALL_MOD_FUNC(MP3_CMD, MP3_CMD_STOP,   0); }
         if (command_code == CMND_MP3_RESET)    { CALL_MOD_FUNC(MP3_CMD, MP3_CMD_RESET,  0); }
-        Response_P(jPSTR(S_JSON_MP3_COMMAND), command, XdrvMailbox->payload);
+        Response_P(PSTR(S_JSON_MP3_COMMAND), command, XdrvMailbox->payload);
         break;
 
       case CMND_MP3_PLAY:
@@ -368,10 +368,10 @@ play_default:
             }
           }
           CALL_MOD_FUNC(MP3_SendCmd, scmd, XdrvMailbox->data_len + 4);
-          Response_P(jPSTR(mS_JSON_COMMAND_SVALUE), command, XdrvMailbox->data);
+          Response_P(PSTR(mS_JSON_COMMAND_SVALUE), command, XdrvMailbox->data);
         } else {
           CALL_MOD_FUNC(MP3_CMD, MP3_CMD_PLAY, 0);
-          Response_P(jPSTR(S_JSON_MP3_COMMAND), command, XdrvMailbox->payload);
+          Response_P(PSTR(S_JSON_MP3_COMMAND), command, XdrvMailbox->payload);
         }
         break;
       default:

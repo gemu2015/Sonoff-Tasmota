@@ -147,7 +147,7 @@ typedef struct {
   uint8_t addresses[4];
   uint8_t found[4];
   int16_t last_values[4][4];
-}ADS1115;
+} ADS1115;
 
 
 typedef struct {
@@ -186,7 +186,7 @@ void MOD_FUNC(Ads1115StartComparator, uint8_t channel, uint16_t mode) {
   config |= (ADS1115_REG_CONFIG_MUX_SINGLE_0 + (0x1000 * channel));
 
   // Write config register to the ADC
-  jI2cWrite16(Ads1115.address, ADS1115_REG_POINTER_CONFIG, config);
+  I2cWrite16(Ads1115.address, ADS1115_REG_POINTER_CONFIG, config, 0);
 }
 
 
@@ -194,16 +194,19 @@ int16_t MOD_FUNC(Ads1115GetConversion, uint8_t channel) {
   SETREGS
   CALL_MOD_FUNC(Ads1115StartComparator, channel, ADS1115_REG_CONFIG_MODE_SINGLE);
   // Wait for the conversion to complete
-  jdelay(ADS1115_CONVERSIONDELAY);
+  delay(ADS1115_CONVERSIONDELAY);
   // Read the conversion results
-  jI2cRead16(Ads1115.address, ADS1115_REG_POINTER_CONVERT);
+  I2cRead16(Ads1115.address, ADS1115_REG_POINTER_CONVERT, 0);
 
   CALL_MOD_FUNC(Ads1115StartComparator, channel, ADS1115_REG_CONFIG_MODE_CONTIN);
-  jdelay(ADS1115_CONVERSIONDELAY);
+  delay(ADS1115_CONVERSIONDELAY);
   // Read the conversion results
-  uint16_t res = jI2cRead16(Ads1115.address, ADS1115_REG_POINTER_CONVERT);
+  uint16_t res = I2cRead16(Ads1115.address, ADS1115_REG_POINTER_CONVERT, 0);
   return (int16_t)res;
 }
+
+
+//jAddLog(LOG_LEVEL_INFO,PSTR("found %d"),Ads1115.address);
 
 /********************************************************************************************/
 
@@ -218,12 +221,12 @@ int32_t MOD_FUNC(Init_ADS1115) {
   for (uint32_t i = 0; i < fldsiz(ADS1115,addresses); i++) {
     if (!Ads1115.found[i]) {
       Ads1115.address = Ads1115.addresses[i];
-      if (I2cActive(Ads1115.address)) { continue; }
+      if (!I2cSetDevice(Ads1115.address)) { continue; }
       uint16_t buffer;
-      if (I2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONVERT) &&
-          I2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONFIG)) {
+      if (I2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONVERT, 0) &&
+          I2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONFIG, 0)) {
         CALL_MOD_FUNC(Ads1115StartComparator, i, ADS1115_REG_CONFIG_MODE_CONTIN);
-        I2cSetActiveFound(Ads1115.address, jPSTR(moddev), 0);
+        I2cSetActiveFound(Ads1115.address, PSTR(moddev), 0);
         Ads1115.found[i] = 1;
         Ads1115.count++;
       }
@@ -239,10 +242,10 @@ void MOD_FUNC(Ads1115Label, char* label, uint32_t maxsize, uint8_t address) {
   SETREGS
   if (1 == Ads1115.count) {
     // "ADS1115":{"A0":3240,"A1":3235,"A2":3269,"A3":3269}
-    snprintf_P(label, maxsize, jPSTR(moddev));
+    snprintf_P(label, maxsize, PSTR(moddev));
   } else {
     // "ADS1115-48":{"A0":3240,"A1":3235,"A2":3269,"A3":3269},"ADS1115-49":{"A0":3240,"A1":3235,"A2":3269,"A3":3269}
-    snprintf_P(label, maxsize, jPSTR(moddev1), jIndexSeparator, address);
+    snprintf_P(label, maxsize, PSTR(moddev1), IndexSeparator, address);
   }
 }
 
@@ -259,7 +262,7 @@ void MOD_FUNC(AdsEvery250ms) {
       uint8_t old_address = Ads1115.address;
       Ads1115.address = Ads1115.addresses[t];
 
-      // collect first wich addresses have changed. We can save on rule processing this way
+      // collect first which addresses have changed. We can save on rule processing this way
       uint32_t changed = 0;
       for (uint32_t i = 0; i < 4; i++) {
         value = CALL_MOD_FUNC(Ads1115GetConversion, i);
@@ -276,12 +279,12 @@ void MOD_FUNC(AdsEvery250ms) {
         char label[15];
         CALL_MOD_FUNC(Ads1115Label, label, sizeof(label), Ads1115.addresses[t]);
 
-        Response_P(jPSTR(moddev2), label);
+        Response_P(PSTR(moddev2), label);
 
         bool first = true;
         for (uint32_t i = 0; i < 4; i++) {
           if (bitRead(changed, i)) {
-            ResponseAppend_P(jPSTR(moddev3), (first) ? jPSTR(moddev7) : jPSTR(moddev6), i, Ads1115.last_values[t][i]);
+            ResponseAppend_P(PSTR(moddev3), (first) ? PSTR(moddev7) : PSTR(moddev6), i, Ads1115.last_values[t][i]);
             first = false;
           }
         }
@@ -315,15 +318,15 @@ void MOD_FUNC(ADS1115_Show, bool json) {
       CALL_MOD_FUNC(Ads1115Label, label, sizeof(label), Ads1115.addresses[t]);
 
       if (json) {
-        ResponseAppend_P(jPSTR(moddev4), label);
+        ResponseAppend_P(PSTR(moddev4), label);
         for (uint32_t i = 0; i < 4; i++) {
-          ResponseAppend_P(jPSTR(moddev5), (0 == i) ? jPSTR(moddev7) : jPSTR(moddev6), i, values[i]);
+          ResponseAppend_P(PSTR(moddev5), (0 == i) ? PSTR(moddev7) : PSTR(moddev6), i, values[i]);
         }
         ResponseJsonEnd();
       }
       else {
         for (uint32_t i = 0; i < 4; i++) {
-          WSContentSend_PD(jPSTR(moddev8), label, i, values[i]);
+          WSContentSend_PD(PSTR(moddev8), label, i, values[i]);
         }
       }
     }
