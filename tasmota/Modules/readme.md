@@ -17,7 +17,7 @@ you must use a = fdiv(b, c)
 
 how to create relocatable modules:
 
-you must use a 4M esp8266 device with 2Mb filesystem as development system.
+currentl yonly esp8266 is supported
 replace the linker file local.eagle.app.v6.common.ld by the one provided in module dir
 ( the file is automatically generated and must be checked on new espressif versions)
   the module section must be inserted as shown below after *(.ver_number)
@@ -29,6 +29,11 @@ replace the linker file local.eagle.app.v6.common.ld by the one provided in modu
 	*(.text.mod*)
 	*(.text.mod_end)
 	/* end modules */
+
+place this into your platform_override.ini:
+extra_scripts           = ${esp_defaults.extra_scripts}
+                          Tasmota/Modules/grepmodule-firmware.py
+
 
 
 1. copy the .ino file you want to convert to the modules directory and rename to .cpp
@@ -62,7 +67,7 @@ add these to build_flags:
 
 8. test driver functionality
 if all is working as expected the resulting relocatable driver is stored
-in file system as MODULE_NAME. it now can be uploaded to pc
+along with your firmware bin file with filename MODULE_NAME.bin
 
 9. uncomment these defines and recompile
 #define EXECUTE_FROM_BINARY
