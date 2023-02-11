@@ -9,8 +9,8 @@ no initialized variables, must initialize all variables in code
 all variables must be in one structure. all system calls must be vectorized
 (vector table with many calls already available)
 most annoying thing however is to avoid intrinsic compiler functions.
-e.g. floating point math generates intrinsic calls.
-therefore several float math functions are provided to circumvent intrinsic calls.
+e.g. floating point math generates builtin calls.
+therefore several float math functions are provided to circumvent builtin calls.
 e.g. you may not write  a = b / c  with float variables.
 you must use a = fdiv(b, c)
 
@@ -30,15 +30,15 @@ replace the linker file local.eagle.app.v6.common.ld by the one provided in modu
 	*(.text.mod_end)
 	/* end modules */
 
-place this into your platform_override.ini:
+move grepmodule-firmware.py to folder Tools
+and place this into your platform_override.ini:
 extra_scripts           = ${esp_defaults.extra_scripts}
-                          Tasmota/Modules/grepmodule-firmware.py
-
+                          Tools/grepmodule-firmware.py
 
 
 1. copy the .ino file you want to convert to the modules directory and rename to .cpp
 2. modify the source according to the sample files.
-3. add calls not yet in the vector table.
+3. add calls not yet in the vector table. in header and xdrv121
 4. enable generation of assembly listings and examine the assembly files.
 add these to build_flags:
 -save-temps=obj
@@ -73,10 +73,10 @@ along with your firmware bin file with filename MODULE_NAME.bin
 #define EXECUTE_FROM_BINARY
 #define USE_MP3_PLAYER_MOD
 
-10. now link the new module and test the relocatable version.
+10. now link the new module via upload and test the relocatable version.
 
 since we can not use the Pin assigments from Tasmota in all cases
-we must provide a pin select command for some drivers
+we must provide a pin select command for some drivers. GUI solution in development
 
 modules may be loaded (linked) via file system or via upload
 in console "upload module"
@@ -100,3 +100,7 @@ show a directory of linked modules
 
 dump X
 shows a memory dump of module Nr x
+
+currently after a reboot all modules persist but are not initialized yet.
+in fulture versions all persistent modules will be initialized on reboot
+
