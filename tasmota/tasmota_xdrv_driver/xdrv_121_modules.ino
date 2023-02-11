@@ -777,6 +777,51 @@ void Module_dump(void) {
   ResponseCmndDone();
 }
 
+const char HTTP_MODULES_CSS[] PROGMEM =
+"<head><style>rc{color:red;}gc{color:green;}yc{color:yellow;}</style></head>"
+"<table border='3' frame='void' style='width:800px;background-color:#00BFFF;'>"
+"<tr align='center';><th>Slot</th><th align='left'>Name</th><th>Type</th><th>Vers</th><th>Size</th><th>RAM</th><th>GPIO</th><th>enable</th></tr>";
+const char HTTP_MODULES_TEND[] PROGMEM =
+"</table>";
+
+const char HTTP_MODULES_COMMON[] PROGMEM =
+"<tr align='center' style ='background-color: #%s'>"
+"<td><yc>%02d</yc></td><td align='left'>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td><td><input type='checkbox' %s onchange='miva(%d,\"%s\")';></td>";
+
+const char HTTP_MODULES_SCRIPT[] PROGMEM =
+"<script>function miva(par,ivar){"
+  //"rfsh=1;"
+  "la('&modules='+ivar+'_'+par);"
+  //"rfsh=0;
+  "setTimeout(function(){"
+   "window.location.reload();"
+ "}, 500);"
+  "}";
+
+/*
+"function la(p){"
+    "if(typeof(EventSource)!==\"undefined\"){"
+      "var e=new EventSource('?m=1');"
+      "e.onmessage=event=>{"
+        "eb('l1').innerHTML=event.data.replace(/{t}/g,\"<table style='width:100%%'>\")"
+                                     ".replace(/{s}/g,\"<tr><th>\")"
+    //                                 ".replace(/{m}/g,\"</th><td>\")"
+                                     ".replace(/{m}/g,\"</th><td style='width:20px;white-space:nowrap'>\")"  // I want a right justified column with left justified text
+                                     ".replace(/{e}/g,\"</td></tr>\");"
+      "}"
+    "}"
+    "a=p||'';"
+    "clearTimeout(lt);"
+    "if(x!=null){x.abort()}"             // Abort if no response within 2 seconds (happens on restart 1)
+    "x=new XMLHttpRequest();"
+    "x.open('GET','.?m=1'+a,true);"      // ?m related to Webserver->hasArg("m")
+    "x.send();"
+    "lt=setTimeout(la,2e4);"             // 20s failure timeout
+"}"
+"</script>";
+*/
+
+
 const char MOD_DIRECTORY[] PROGMEM =
   "<p><form action='" "mo_upl" "' method='get'><button>" "%s" "</button></form></p>";
 
@@ -786,22 +831,104 @@ const char MOD_FORM_FILE_UPG[] PROGMEM =
   "<br><button type='submit' onclick='eb(\"f1\").style.display=\"none\";eb(\"f2\").style.display=\"block\";this.form.submit();'>" D_START " %s</button></form>"
   "<br>";
 
-void Module_upload(void) {
-    if (!HttpCheckPriviledgedAccess()) { return; }
+const char MOD_FORM_FILE_UPGc[] PROGMEM =
+  "<div style='text-align:left;color:#%06x;'>" "Max Slots" " %d - " "Free Slots" " %d";
 
-    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_HTTP "Module directory"));
-
-    WSContentStart_P(PSTR(D_MANAGE_FILE_SYSTEM));
-    WSContentSendStyle();
-    WSContentSend_P(MOD_FORM_FILE_UPG, PSTR("Upload Module"));
-    WSContentSpaceButton(BUTTON_MANAGEMENT);
-    WSContentStop();
-
-    Webserver->sendHeader(F("Location"),F("/modu"));
-    Webserver->send(303);
-
-    //Web.upload_file_type = UPL_MODULE;
+uint16_t MOD_FreeSlots() {
+  uint16_t slots = 0;
+  for (uint16_t cnt = 0; cnt < MAXMODULES; cnt++) {
+    if (modules[cnt].mod_addr) {
+      slots += 1;
+    }
+  }
+  return MAXMODULES - slots;
 }
+
+void Modul_Check_HTML_Setvars(void) {
+
+  if (!HttpCheckPriviledgedAccess()) { return; }
+
+  if (Webserver->hasArg("modules")) {
+    String stmp = Webserver->arg("modules");
+    uint32_t ind;
+    char *cp=(char*)stmp.c_str();
+    AddLog(LOG_LEVEL_INFO, PSTR(">>> %s"), cp);
+    if (!strncmp(cp, "enb", 3)) {
+      // enable sensor
+      cp += 3;
+      ind = strtol(cp, &cp, 10);
+      cp++;
+      uint8_t enabled = strtol(cp, &cp, 10);
+      if (enabled) {
+        Init_module(ind); 
+      } else {
+        Deiniz_module(ind);
+      }
+      AddLog(LOG_LEVEL_INFO, PSTR("Module set enabled of %d %d"), ind, enabled);
+      
+      //WSContentSend_PD("<meta http-equiv=\"refresh\" content=\"0\">");
+    } 
+
+  }
+}
+
+void Module_upload() {
+
+  if (!HttpCheckPriviledgedAccess()) { return; }
+ 
+  WSContentStart_P(PSTR("Modules Directory"));
+  WSContentSendStyle();
+  WSContentSend_P(PSTR("Modules Directory"));
+
+  WSContentSend_PD(MOD_FORM_FILE_UPGc, WebColor(COL_TEXT), MAXMODULES, MOD_FreeSlots());
+
+  WSContentSend_P(MOD_FORM_FILE_UPG, PSTR("module upload"));
+  
+  WSContentSend_PD("<div>");
+  WSContentSend_PD(HTTP_MODULES_SCRIPT);
+  WSContentSend_P(HTTP_SCRIPT_ROOT, Settings->web_refresh, Settings->web_refresh);
+  WSContentSend_PD("</script>");
+
+  WSContentSend_PD(HTTP_MODULES_CSS);
+
+  for (uint16_t cnt = 0; cnt < MAXMODULES; cnt++) {
+    if (modules[cnt].mod_addr) {
+      const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
+      const uint32_t volatile mtype = fm->type;
+      const uint32_t volatile rev = fm->revision;
+      char name[16];
+      strncpy(name, fm->name, 16);
+      char type[6];
+      GetTextIndexed(type, sizeof(type), mtype, mod_types );
+
+      const char *cp;
+      uint8_t uval;
+      if (modules[cnt].flags.initialized) {
+        cp="checked='checked'";
+        uval = 0;
+      } else {
+        cp="";
+        uval = 1;
+      }
+      char enblid[16];
+      sprintf_P(enblid,PSTR("enb%d"),cnt);
+
+      WSContentSend_PD(HTTP_MODULES_COMMON, "808080", cnt + 1, name, type, rev, modules[cnt].mod_size, modules[cnt].mem_size, 0, cp, uval, enblid);
+  
+    }
+  }
+
+  WSContentSend_PD(HTTP_MODULES_TEND);
+
+  WSContentSend_PD("</div>");
+  
+  WSContentSpaceButton(BUTTON_MANAGEMENT);
+  WSContentStop();
+  
+  Webserver->sendHeader(F("Location"),F("/modu"));
+  Webserver->send(303);  
+}
+
 
 static uint8_t *module_input_buffer;
 static uint32_t module_bytes_read;
@@ -1065,6 +1192,7 @@ bool Xdrv121(uint32_t function) {
       Module_Execute(function);
       break;
     case FUNC_WEB_SENSOR:
+      Modul_Check_HTML_Setvars();
       ModuleWebSensor();
       break;
     case FUNC_JSON_APPEND:

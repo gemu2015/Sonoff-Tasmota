@@ -19,7 +19,7 @@
 #ifdef USE_I2C
 #ifdef USE_TCS34725
 
-#define XSNS_78       78
+#define XSNS_104       104
 #define XI2C_55       55  // See I2CDEVICES.md
 
 #include <Wire.h>
@@ -242,7 +242,7 @@ void TCS34725_Show(boolean json)
 
 
 
-bool Xsns78(uint32_t function)
+bool Xsns104(uint32_t function)
 {
   bool result = false;
 

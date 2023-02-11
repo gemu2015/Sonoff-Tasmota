@@ -29,7 +29,7 @@
 
 #define CC100_CS 0
 #define USE_MORITZ_CACHE
-#define XSNS_97 97
+#define XSNS_126 126
 
 // this id is used by maxcube
 //#define MORITZ_BASE_ADDRESS 0x567890
@@ -1959,7 +1959,7 @@ void Script_Check_HTML_Setvars(void) {
  * Interface
 \*********************************************************************************************/
 
-bool Xsns97(uint32_t function) {
+bool Xsns126(uint32_t function) {
   bool result = false;
 
   switch (function) {
