@@ -2398,7 +2398,26 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, TS_FLOAT *fp, char *
     tind->bits.data = 0;
 
     //Serial.printf("Stack 2: %d\n",GetStack());
-    if (isdigit(*lp) || (*lp == '-' && isdigit(*(lp+1))) || *lp == '.') {
+
+    if ( (*lp == '#') && (*(lp + 1) == '-' || isdigit(*(lp + 1))) ) {
+      // 32 bit integer
+      lp++;
+      if (fp) {
+          if (*lp == '0' && *(lp + 1) == 'x') {
+            lp += 2;
+            *(uint32_t*)fp = strtol(lp, &lp, 16);
+          } else {
+            *(int32_t*)fp = strtol(lp, &lp, 10);
+          }
+      }
+      tind->bits.constant = 1;
+      tind->bits.is_string = 0;
+      tind->bits.integer = 1;
+      *vtype = NUM_RES;
+      return lp;
+    }
+
+    if (isdigit(*lp) || (*lp == '-' && isdigit(*(lp + 1))) || *lp == '.') {
       // isnumber
         if (fp) {
           if (*lp == '0' && *(lp + 1) == 'x') {
