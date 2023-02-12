@@ -37,7 +37,7 @@
 
 #define SHT3X_MAX_SENSORS   3
 
-#define SHT3X_REV  1
+#define SHT3X_REV  1<<16
 
 
 MODULE_DESCRIPTOR("SHT3X",MODULE_TYPE_SENSOR,SHT3X_REV,"",0,"",0,"",0)
@@ -127,6 +127,12 @@ int32_t MOD_FUNC(Sht3x_Detect) {
       I2cSetActiveFound(sht3x_sensors[sht3x_count].address, sht3x_sensors[sht3x_count].types, 0);
       sht3x_count++;
     }
+  }
+  
+  if (sht3x_count) {
+    mt->flags.initialized = true;
+  } else {
+    CALL_MOD_FUNC(SHT3X_Deinit);
   }
   return sht3x_count;
 }

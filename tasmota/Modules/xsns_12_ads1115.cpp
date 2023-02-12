@@ -24,7 +24,7 @@
 #include "module.h"
 #include "module_defines.h"
 
-#define ADS1115_REV 1
+#define ADS1115_REV 1<<16
 
 /*********************************************************************************************\
  * ADS1115 - 4 channel 16BIT A/D converter
@@ -230,8 +230,12 @@ int32_t MOD_FUNC(Init_ADS1115) {
       }
     }
   }
-  mt->flags.initialized = true;
-  ready = true;
+  if (Ads1115.count) {
+    mt->flags.initialized = true;
+    ready = true;
+  } else {
+    CALL_MOD_FUNC(ADS1115_Deinit);
+  }
   return Ads1115.count;
 }
 

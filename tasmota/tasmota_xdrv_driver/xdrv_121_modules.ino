@@ -313,7 +313,10 @@ int32_t iscale(int32_t number, int32_t mulfac, int32_t divfac) {
 uint8_t *Load_Module(char *path, uint32_t *rsize);
 uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *offset, uint8_t flag);
 
-#define MAXMODULES 16
+#ifndef MAXMODULES
+#define MAXMODULES 8
+#endif
+
 MODULES_TABLE modules[MAXMODULES];
 
 // scan for modules in flash and add to modules table, not yet
@@ -375,6 +378,7 @@ void InitModules(void) {
   modules[0].flags.data = 0;
 
 #ifdef ESP8266
+/*
   if (ffsp) {
     File fp;
     fp = ffsp->open((char*)MODULE_NAME, "w");
@@ -392,6 +396,7 @@ void InitModules(void) {
       fp.close();
     }
   }
+  */
 #endif // ESP8266
 
 #else
@@ -685,6 +690,21 @@ void LinkModule(uint8_t *mp, uint32_t size, char *name) {
   }
 }
 
+void Unlink_Module(uint32_t module) {
+  if (modules[module].mod_addr) {
+    if (modules[module].flags.initialized) {
+      // call deiniz
+      Deiniz_module(module);
+    }
+    // remove from module table, erase flash
+    if ((uint32_t)modules[module].mod_addr != (uint32_t)&module_header) {
+      ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - FLASH_BASE_OFFSET) / SPI_FLASH_SEC_SIZE);
+    }
+    modules[module].mod_addr = 0;
+    AddLog(LOG_LEVEL_INFO,PSTR("module %d unlinked"),module + 1);
+  }
+}
+
 // link 1 module from file (or web, not yet)
 void Module_link(void) {
   uint8_t *fdesc = 0;
@@ -702,18 +722,7 @@ void Module_link(void) {
 void Module_unlink(void) {
   if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAXMODULES)) {
     uint8_t module = XdrvMailbox.payload - 1;
-    if (modules[module].mod_addr) {
-      if (modules[module].flags.initialized) {
-        // call deiniz
-        Deiniz_module(module);
-      }
-      // remove from module table, erase flash
-      if ((uint32_t)modules[module].mod_addr != (uint32_t)&module_header) {
-        ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - FLASH_BASE_OFFSET) / SPI_FLASH_SEC_SIZE);
-      }
-      modules[module].mod_addr = 0;
-      AddLog(LOG_LEVEL_INFO,PSTR("module %d unlinked"),module + 1);
-    }
+    Unlink_Module(module);
   }
   ResponseCmndDone();
 }
@@ -780,13 +789,13 @@ void Module_dump(void) {
 const char HTTP_MODULES_CSS[] PROGMEM =
 "<head><style>rc{color:red;}gc{color:green;}yc{color:yellow;}</style></head>"
 "<table border='3' frame='void' style='width:800px;background-color:#00BFFF;'>"
-"<tr align='center';><th>Slot</th><th align='left'>Name</th><th>Type</th><th>Vers</th><th>Size</th><th>RAM</th><th>GPIO</th><th>enable</th></tr>";
+"<tr align='center';><th>Slot</th><th align='left'>Name</th><th>Type</th><th>Vers</th><th>Size</th><th>RAM</th><th>GPIO</th><th>I</th><th>X</th></tr>";
 const char HTTP_MODULES_TEND[] PROGMEM =
 "</table>";
 
 const char HTTP_MODULES_COMMON[] PROGMEM =
 "<tr align='center' style ='background-color: #%s'>"
-"<td><yc>%02d</yc></td><td align='left'>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td>%d</td><td><input type='checkbox' %s onchange='miva(%d,\"%s\")';></td>";
+"<td><yc>%02d</yc></td><td align='left'>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td><input type='checkbox' %s onchange='miva(%d,\"%s\")';></td><td><a href='modu?delete=%d' onclick=\"return confirm('delete module ?')\">&#128293;</a></td>";
 
 const char HTTP_MODULES_SCRIPT[] PROGMEM =
 "<script>function miva(par,ivar){"
@@ -848,11 +857,10 @@ void Modul_Check_HTML_Setvars(void) {
 
   if (!HttpCheckPriviledgedAccess()) { return; }
 
-  if (Webserver->hasArg("modules")) {
-    String stmp = Webserver->arg("modules");
+  if (Webserver->hasArg(F("modules"))) {
+    String stmp = Webserver->arg(F("modules"));
     uint32_t ind;
     char *cp=(char*)stmp.c_str();
-    AddLog(LOG_LEVEL_INFO, PSTR(">>> %s"), cp);
     if (!strncmp(cp, "enb", 3)) {
       // enable sensor
       cp += 3;
@@ -864,10 +872,7 @@ void Modul_Check_HTML_Setvars(void) {
       } else {
         Deiniz_module(ind);
       }
-      AddLog(LOG_LEVEL_INFO, PSTR("Module set enabled of %d %d"), ind, enabled);
-      
-      //WSContentSend_PD("<meta http-equiv=\"refresh\" content=\"0\">");
-    } 
+    }
 
   }
 }
@@ -875,7 +880,15 @@ void Modul_Check_HTML_Setvars(void) {
 void Module_upload() {
 
   if (!HttpCheckPriviledgedAccess()) { return; }
- 
+
+  if (Webserver->hasArg(F("delete"))) {
+    String stmp = Webserver->arg(F("delete"));
+    char *cp = (char*)stmp.c_str();
+    // unlink module
+    uint8_t module = strtol(cp, &cp, 10);
+    Unlink_Module(module - 1);
+  }
+
   WSContentStart_P(PSTR("Modules Directory"));
   WSContentSendStyle();
   WSContentSend_P(PSTR("Modules Directory"));
@@ -884,10 +897,10 @@ void Module_upload() {
 
   WSContentSend_P(MOD_FORM_FILE_UPG, PSTR("module upload"));
   
-  WSContentSend_PD("<div>");
+  WSContentSend_PD(PSTR("<div>"));
   WSContentSend_PD(HTTP_MODULES_SCRIPT);
   WSContentSend_P(HTTP_SCRIPT_ROOT, Settings->web_refresh, Settings->web_refresh);
-  WSContentSend_PD("</script>");
+  WSContentSend_PD(PSTR("</script>"));
 
   WSContentSend_PD(HTTP_MODULES_CSS);
 
@@ -904,23 +917,27 @@ void Module_upload() {
       const char *cp;
       uint8_t uval;
       if (modules[cnt].flags.initialized) {
-        cp="checked='checked'";
+        cp = "checked='checked'";
         uval = 0;
       } else {
-        cp="";
+        cp = "";
         uval = 1;
       }
       char enblid[16];
       sprintf_P(enblid,PSTR("enb%d"),cnt);
 
-      WSContentSend_PD(HTTP_MODULES_COMMON, "808080", cnt + 1, name, type, rev, modules[cnt].mod_size, modules[cnt].mem_size, 0, cp, uval, enblid);
+      char srev[16];
+      float frev = (float)(rev >> 16) + (float)(rev & 0xffff)/100;
+      dtostrf(frev, 1, 2, srev);
+
+      WSContentSend_PD(HTTP_MODULES_COMMON, "808080", cnt + 1, name, type, srev, modules[cnt].mod_size, modules[cnt].mem_size, 0, cp, uval, enblid, cnt + 1);
   
     }
   }
 
   WSContentSend_PD(HTTP_MODULES_TEND);
 
-  WSContentSend_PD("</div>");
+  WSContentSend_PD(PSTR("</div>"));
   
   WSContentSpaceButton(BUTTON_MANAGEMENT);
   WSContentStop();

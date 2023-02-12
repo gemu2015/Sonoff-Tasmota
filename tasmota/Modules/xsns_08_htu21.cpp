@@ -60,7 +60,7 @@
 #define HTU21_CRC8_POLYNOM  0x13100
 
 
-#define HTU_REV  1
+#define HTU_REV  1<<16
 
 // define calls
 MODULE_DESCRIPTOR("HTU21",MODULE_TYPE_SENSOR,HTU_REV,"",0,"",0,"",0)
@@ -247,7 +247,11 @@ int32_t MOD_FUNC(HTU_Detect) {
   Htu.jdelay_humidity = 6;
 
   Htu.address = HTU21_ADDR;
-  if (I2cActive(Htu.address)) { return - 1; }
+  //if (I2cActive(Htu.address)) {
+  if (!I2cSetDevice(Htu.address)) { 
+    CALL_MOD_FUNC(HTU_Deinit);
+    return - 1;
+  }
 
   Htu.type = CALL_MOD_FUNC(HtuReadDeviceId);
   if (Htu.type) {
@@ -274,6 +278,7 @@ int32_t MOD_FUNC(HTU_Detect) {
     }
     GetTextIndexed(Htu.types, sizeof(Htu.types), index, PSTR(kHtuTypes));
     I2cSetActiveFound(Htu.address, Htu.types, 0);
+    mt->flags.initialized = true;
   }
   return 0;
 }

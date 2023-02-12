@@ -22,7 +22,7 @@
 #include "module.h"
 #include "module_defines.h"
 
-#define MLX90614_REV  1
+#define MLX90614_REV  1<<16|1
 
 //#pragma GCC optimize ("O0")
 
@@ -76,13 +76,14 @@ int32_t MOD_FUNC(Init_MLX90614) {
 
   // now init variables here
   ready = false;
-  mt->flags.initialized = true;
   sprint(PSTR(mlxdev));
 
   if (!I2cSetDevice(I2_ADR_IRT)) {
+    CALL_MOD_FUNC(MLX90614_Deinit);
     return -1;
   }
   I2cSetActiveFound(I2_ADR_IRT, PSTR(mlxdev), 0);
+  mt->flags.initialized = true;
   ready = true;
   return ready;
 }

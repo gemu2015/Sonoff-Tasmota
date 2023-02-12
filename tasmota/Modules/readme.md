@@ -50,20 +50,16 @@ add these to build_flags:
 .text.mod_end
 6. examine call instructions, no call to external symbol may appear
 
-7. enable these defines and only one module with name
+7. enable these defines and only one module 
 #define USE_MODULES
 #define EXECUTE_FROM_BINARY
 
 //#define USE_MLX90614_MOD
-//#define MODULE_NAME "MLX90614.bin"
 //#define USE_ADS1115_MOD
-//#define MODULE_NAME "ADS1115.bin"
 #define USE_SHT3X_MOD
-#define MODULE_NAME "SHT3X.bin"
 //#define USE_HTU_MOD
-//#define MODULE_NAME "HTU.bin"
 //#define USE_MP3_PLAYER_MOD
-//#define MODULE_NAME "mp3player.bin"
+
 
 8. test driver functionality
 if all is working as expected the resulting relocatable driver is stored
@@ -76,7 +72,7 @@ along with your firmware bin file with filename MODULE_NAME.bin
 10. now link the new module via upload and test the relocatable version.
 
 since we can not use the Pin assigments from Tasmota in all cases
-we must provide a pin select command for some drivers. GUI solution in development
+we could provide a pin select command for some drivers. GUI solution in development
 
 modules may be loaded (linked) via file system or via upload
 in console "upload module"
@@ -102,5 +98,5 @@ dump X
 shows a memory dump of module Nr x
 
 currently after a reboot all modules persist but are not initialized yet.
-in fulture versions all persistent modules will be initialized on reboot
+in future versions all persistent modules will be initialized on reboot
 

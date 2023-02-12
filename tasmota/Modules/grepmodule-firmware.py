@@ -29,8 +29,10 @@ if env["PIOPLATFORM"] != "espressif32" :
                     fwp.write(msync)
 
                 if msync[0] == 0x4a and msync[1] == 0xfc and msync[2] == 0xaa and msync[3] == 0x55:
-                    arch = int.from_bytes(fp.read(4), "little")
-                    type = int.from_bytes(fp.read(4), "little")
+                    xarch = fp.read(4)
+                    arch = int.from_bytes(xarch, "little")
+                    xtype = fp.read(4)
+                    type = int.from_bytes(xtype, "little")
                     if arch == 0 and type <= 4:
                         #print("found start sync")
                         start = 1
@@ -43,6 +45,8 @@ if env["PIOPLATFORM"] != "espressif32" :
                             os.remove(mod_file)
                         fwp = open(mod_file, "wb")
                         fwp.write(msync)
+                        fwp.write(xarch)
+                        fwp.write(xtype)
                         fwp.write(dummy)
                         fwp.write(xname)
                         size += 24
@@ -50,6 +54,10 @@ if env["PIOPLATFORM"] != "espressif32" :
                 if msync[0] == 0x55 and msync[1] == 0xaa and msync[2] == 0xfc and msync[3] == 0x4a:
                     start = 2
                     #print("found end sync")
+                    # set module size 
+                    fwp.seek(40)
+                    sizeb = size.to_bytes( 4, "little" )
+                    fwp.write(sizeb)
                     fwp.close()
                     break
                     

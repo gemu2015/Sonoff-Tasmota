@@ -83,7 +83,7 @@
  * https://www.dfrobot.com/wiki/index.php/DFPlayer_Mini_SKU:DFR0299
 \*********************************************************************************************/
 
-#define MP3PLAYER_REV 1
+#define MP3PLAYER_REV 1<<16
 
 #define DY_SV17F 1
 
@@ -191,6 +191,7 @@ int32_t MOD_FUNC(MP3PlayerInit) {
     mt->flags.initialized = true;
     return 0;
   }
+  CALL_MOD_FUNC(MP3Player_Deinit);
   return 1;
 }
 
