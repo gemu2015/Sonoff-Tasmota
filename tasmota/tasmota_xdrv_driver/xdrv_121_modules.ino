@@ -799,9 +799,11 @@ const char HTTP_MODULES_CSS[] PROGMEM =
 const char HTTP_MODULES_TEND[] PROGMEM =
 "</table>";
 
-const char HTTP_MODULES_COMMON[] PROGMEM =
+const char HTTP_MODULES_COMMONa[] PROGMEM =
 "<tr align='center' style ='background-color: #%s'>"
-"<td><yc>%02d</yc></td><td align='left'>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td><td><input type='checkbox' %s onchange='miva(%d,\"%s\")';></td><td><a href='modu?delete=%d' onclick=\"return confirm('delete module ?')\">&#128293;</a></td>";
+"<td><yc>%02d</yc></td><td align='left'>%s</td><td>%s</td><td>%s</td><td>%d</td><td>%d</td>"; // <td>%s</td>
+const char HTTP_MODULES_COMMONc[] PROGMEM =
+"<td><input type='checkbox' %s onchange='miva(%d,\"%s\")';></td><td><a href='modu?delete=%d' onclick=\"return confirm('delete module ?')\">&#128293;</a></td>";
 
 const char HTTP_MODULES_SCRIPT[] PROGMEM =
 "<script>function miva(par,ivar){"
@@ -810,31 +812,9 @@ const char HTTP_MODULES_SCRIPT[] PROGMEM =
   //"rfsh=0;
   "setTimeout(function(){"
    "window.location.reload();"
- "}, 500);"
-  "}";
+  "}, 500);"
+"}";
 
-/*
-"function la(p){"
-    "if(typeof(EventSource)!==\"undefined\"){"
-      "var e=new EventSource('?m=1');"
-      "e.onmessage=event=>{"
-        "eb('l1').innerHTML=event.data.replace(/{t}/g,\"<table style='width:100%%'>\")"
-                                     ".replace(/{s}/g,\"<tr><th>\")"
-    //                                 ".replace(/{m}/g,\"</th><td>\")"
-                                     ".replace(/{m}/g,\"</th><td style='width:20px;white-space:nowrap'>\")"  // I want a right justified column with left justified text
-                                     ".replace(/{e}/g,\"</td></tr>\");"
-      "}"
-    "}"
-    "a=p||'';"
-    "clearTimeout(lt);"
-    "if(x!=null){x.abort()}"             // Abort if no response within 2 seconds (happens on restart 1)
-    "x=new XMLHttpRequest();"
-    "x.open('GET','.?m=1'+a,true);"      // ?m related to Webserver->hasArg("m")
-    "x.send();"
-    "lt=setTimeout(la,2e4);"             // 20s failure timeout
-"}"
-"</script>";
-*/
 
 
 const char MOD_DIRECTORY[] PROGMEM =
@@ -920,6 +900,42 @@ void Module_upload() {
       char type[6];
       GetTextIndexed(type, sizeof(type), mtype, mod_types );
 
+      char srev[8];
+      float frev = (float)(rev >> 16) + (float)(rev & 0xffff)/100;
+      dtostrf(frev, 1, 2, srev);
+      WSContentSend_PD(HTTP_MODULES_COMMONa, "808080", cnt + 1, name, type, srev, modules[cnt].mod_size, modules[cnt].mem_size);
+
+/*
+<select onchange="this.form.submit()">
+    ...
+</select>
+
+*/
+
+
+      WSContentSend_PD(PSTR("<td>"));
+      for (uint8_t xcnt = 0; xcnt < MAX_MOD_STORES; xcnt++) {
+        char name[8];
+        strncpy(name, fm->ms[xcnt].name, 8);  // name=\"cars\"
+        if (name[0]) {
+          WSContentSend_PD(PSTR("<label for=\"p%d_%d\">%s:</label> <select id=\"p%d_%d\" style='width: 60px;'>"),cnt,xcnt,name,cnt,xcnt);
+          for (uint8_t pins = 0; pins < nitems(TasmotaGlobal.gpio_pin); pins++) {
+            char sel[10];
+            if (fm->ms[xcnt].value == pins) {
+              strcpy_P(sel, PSTR("selected"));
+            } else {
+              sel[0] = 0;
+            }
+           // AddLog(LOG_LEVEL_INFO,PSTR(">>> %d - %d"), pins, TasmotaGlobal.gpio_pin[pins]);
+            if (TasmotaGlobal.gpio_pin[pins] == 0) {
+              WSContentSend_PD(PSTR("<option value=\"%d\" %s>%d</option>"), pins, sel, pins);
+            }
+          }
+          WSContentSend_PD(PSTR("</select><br>"));
+        }
+      }
+      WSContentSend_PD(PSTR("</td>"));
+    
       const char *cp;
       uint8_t uval;
       if (modules[cnt].flags.initialized) {
@@ -929,14 +945,9 @@ void Module_upload() {
         cp = "";
         uval = 1;
       }
-      char enblid[16];
+      char enblid[8];
       sprintf_P(enblid,PSTR("enb%d"),cnt);
-
-      char srev[16];
-      float frev = (float)(rev >> 16) + (float)(rev & 0xffff)/100;
-      dtostrf(frev, 1, 2, srev);
-
-      WSContentSend_PD(HTTP_MODULES_COMMON, "808080", cnt + 1, name, type, srev, modules[cnt].mod_size, modules[cnt].mem_size, 0, cp, uval, enblid, cnt + 1);
+      WSContentSend_PD(HTTP_MODULES_COMMONc, cp, uval, enblid, cnt + 1);
   
     }
   }

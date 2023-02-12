@@ -41,11 +41,14 @@ typedef struct {
 
 #define MD_TYPE uint32_t
 
+#define MOD_STORE_NAMESIZE 8
+
 typedef struct {
-  char name[8];
+  char name[MOD_STORE_NAMESIZE];
   MD_TYPE value;
 } MODULE_STORE;
 
+#define MAX_MOD_STORES 4
 
 // this descriptor is in .text so only 32 bit access allowed
 #pragma pack(4)
@@ -59,15 +62,7 @@ typedef struct {
   void (*end_of_module)(void);
   uint32_t size;
   uint32_t execution_offset;
-  MODULE_STORE ms[4];
-  /*
-  char gpio1[8];
-  uint32_t val1;
-  char gpio2[8];
-  uint32_t val2;
-  char gpio3[8];
-  uint32_t val3;
-  */
+  MODULE_STORE ms[MAX_MOD_STORES];
 } FLASH_MODULE;
 
 
