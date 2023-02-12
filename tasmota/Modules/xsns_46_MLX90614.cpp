@@ -28,7 +28,7 @@
 
 // this is the structure of the module:
 // descripotr, code, end
-MODULE_DESCRIPTOR("MLX90614", MODULE_TYPE_SENSOR, MLX90614_REV,"",0,"",0,"",0)
+MODULE_DESCRIPTOR("MLX90614", MODULE_TYPE_SENSOR, MLX90614_REV,"",0,"",0,"",0,"",0)
 
 // all functions must be declared MUDULE_PART
 MODULE_PART int32_t MOD_FUNC(Init_MLX90614);

@@ -90,7 +90,8 @@
 #define MP3_DEFAULT DY_SV17F
 
 
-MODULE_DESCRIPTOR("MP3PLAYER",MODULE_TYPE_DRIVER,MP3PLAYER_REV,"TRX1",MP3_DEFAULT_TX_PIN,"",0,"",0)
+MODULE_DESCRIPTOR("MP3PLAYER",MODULE_TYPE_DRIVER,MP3PLAYER_REV,"TRX1",MP3_DEFAULT_TX_PIN,"",0,"",0,"",0)
+
 
 // all functions must be declared MUDULE_PART
 MODULE_PART uint16_t MP3_Checksum(uint8_t *array);
@@ -198,7 +199,7 @@ int32_t MOD_FUNC(MP3PlayerInit) {
 int32_t MOD_FUNC(MP3_Init) {
   SETREGS
 
-  player_txpin = mp->val1;
+  player_txpin = mp->ms[0].value;
 
   //ts = NewTS(-1, player_txpin);
   ts = NewTS(-1, player_txpin);

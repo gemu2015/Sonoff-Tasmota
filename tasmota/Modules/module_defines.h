@@ -165,9 +165,12 @@ void _copy32(uint32_t *src, uint32_t *dst) {
 #define ALLOCMEM void (* const *jt)() = mt->jt;mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;
 #define RETMEM if (mt->mem_size) {jfree(mt->mod_memory);mt->mem_size = 0;}
 #define MODULE_SYNC_END __attribute__((section(".text.mod_end"))); __asm__ __volatile__ (".align 4");
-#define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3)  __attribute__((section(".text.mod_desc"))) extern const FLASH_MODULE module_header = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,end_of_module,0,0,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3};
+#define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(".text.mod_desc"))) extern const FLASH_MODULE module_header = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,end_of_module,0,0,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
 #define MOD_FUNC(A, ...) A(MODULES_TABLE *mt, ##__VA_ARGS__)
 #define CALL_MOD_FUNC(A, ...) A(mt, ##__VA_ARGS__)
+#define MODULE_STORAGE(IND,NAME,VALUE)  __attribute__((section(".text.mod_desc"))) extern const MODULE_STORE storage[IND] = {NAME,VALUE};
+
+
 
 #define   beginTransmission(ADDR) jbeginTransmission(jWire, ADDR)
 #define   write(CMD) jwrite(jWire, CMD)

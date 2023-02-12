@@ -125,7 +125,7 @@ CONFIG REGISTER
 #define ADS1115_REG_CONFIG_CQUE_NONE    (0x0003)  // Disable the comparator and put ALERT/RDY in high state (default)
 
 // this must be at the beginning
-MODULE_DESCRIPTOR("ADS1115",MODULE_TYPE_SENSOR,ADS1115_REV,"",0,"",0,"",0)
+MODULE_DESCRIPTOR("ADS1115",MODULE_TYPE_SENSOR,ADS1115_REV,"",0,"",0,"",0,"",0)
 
 // all functions must be declared MUDULE_PART
 MODULE_PART int32_t MOD_FUNC(Init_ADS1115);

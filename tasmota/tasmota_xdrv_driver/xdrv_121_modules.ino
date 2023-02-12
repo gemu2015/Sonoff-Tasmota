@@ -453,6 +453,8 @@ void ModuleJsonAppend() {
 }
 
 uint8_t *Load_Module(char *path, uint32_t *rsize) {
+
+ #ifdef USE_UFILESYS
   if (!ffsp) return 0;
   File fp;
   fp = ffsp->open(path, "r");
@@ -469,6 +471,9 @@ uint8_t *Load_Module(char *path, uint32_t *rsize) {
   fp.close();
   *rsize = size;
   return fdesc;
+#else
+  return 0;
+#endif  
 }
 
 /*
@@ -711,9 +716,10 @@ void Module_link(void) {
 
   if (XdrvMailbox.data_len) {
     uint32_t size;
-
+#ifdef USE_UFILESYS
     uint8_t *mp = Load_Module(XdrvMailbox.data, &size);
     LinkModule(mp, size, XdrvMailbox.data);
+#endif
   }
   ResponseCmndDone();
 }

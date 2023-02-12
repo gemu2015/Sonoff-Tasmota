@@ -795,22 +795,22 @@ char *script;
                 } else {
                     vtypes[vars].bits.is_autoinc = 0;
                 }
-                if (*lp == 'b' && *(lp + 1) == ':') {
-                    lp += 2;
-                    vtypes[vars].bits.integer = 1;
-                } else {
-                    vtypes[vars].bits.integer = 0;
-                }
 
 #ifdef USE_SCRIPT_GLOBVARS
                 if (*lp == 'g' && *(lp + 1) == ':') {
                     lp += 2;
                     vtypes[vars].bits.global = 1;
                     glob_script_mem.udp_flags.udp_used = 1;
-                  } else {
+                } else {
                     vtypes[vars].bits.global = 0;
-                  }
+                }
 #endif //USE_SCRIPT_GLOBVARS
+                if (*lp == 'I' && *(lp + 1) == ':') {
+                    lp += 2;
+                    vtypes[vars].bits.integer = 1;
+                } else {
+                    vtypes[vars].bits.integer = 0;
+                }
                 if ((*lp == 'm' || *lp == 'M') && *(lp + 1) == ':') {
                     uint8_t flg = *lp;
                     lp += 2;
@@ -835,6 +835,7 @@ char *script;
                 } else {
                     vtypes[vars].bits.is_filter = 0;
                 }
+                
                 *vnp_p++ = vnames_p;
                 while (lp < op) {
                     *vnames_p++ = *lp++;
