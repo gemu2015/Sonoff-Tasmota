@@ -8,8 +8,6 @@ import binascii
 
 #MODULE_SYNC = 0x55aaFC4A
 
-
-
 if env["PIOPLATFORM"] != "espressif32" :
 
     def grep_module(source, target, env):
@@ -68,5 +66,5 @@ if env["PIOPLATFORM"] != "espressif32" :
                 print("module size error")
 
 
-    if not tasmotapiolib.is_env_set(tasmotapiolib.DISABLE_BIN_GZ, env):
-        env.AddPostAction("$BUILD_DIR/${PROGNAME}.bin", [grep_module])
+    #if not tasmotapiolib.is_env_set(tasmotapiolib.DISABLE_BIN_GZ, env):
+    env.AddPostAction("$BUILD_DIR/${PROGNAME}.bin", [grep_module])
