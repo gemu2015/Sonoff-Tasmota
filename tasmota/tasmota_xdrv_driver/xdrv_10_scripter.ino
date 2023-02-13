@@ -94,6 +94,7 @@ const uint8_t SCRIPT_VERS[2] = {5, 1};
 #define MAX_SARRAY_NUM 32
 #endif
 
+int32_t fast_mux(uint32_t flag, uint32_t time, TS_FLOAT *buf, uint32_t len);
 void Draw_jpeg(uint8_t *mem, uint16_t jpgsize, uint16_t xp, uint16_t yp, uint8_t scale);
 uint32_t EncodeLightId(uint8_t relay_id);
 uint32_t DecodeLightId(uint32_t hue_id);
@@ -936,7 +937,7 @@ char *script;
     }
 
     uint16_t fsize = 0;
-    for (count=0; count < numflt; count++) {
+    for (count = 0; count < numflt; count++) {
       fsize += sizeof(struct M_FILT) + ((mfilt[count].numvals & AND_FILT_MASK) - 1) * sizeof(TS_FLOAT);
     }
 
@@ -1035,7 +1036,7 @@ char *script;
 #define MAXVNSIZ 255
     uint8_t *cp = glob_script_mem.vnp_offset;
 #endif
-    for (count = 0; count<vars; count++) {
+    for (count = 0; count < vars; count++) {
         *cp++ = index;
         while (*namep) {
             index++;
@@ -1082,14 +1083,17 @@ char *script;
 
 #if SCRIPT_DEBUG>2
     struct T_INDEX *dvtp = glob_script_mem.type;
-    for (uint8_t count = 0; count < glob_script_mem.numvars; count++) {
+    char out[128];
+    char string[32];
+    for (uint16_t count = 0; count < glob_script_mem.numvars; count++) {
+      char *cp = glob_script_mem.glob_vnp + glob_script_mem.vnp_offset[count];
       if (dvtp[count].bits.is_string) {
-
+        strlcpy(string, glob_script_mem.glob_snp + (dvtp[count].index * glob_script_mem.max_ssize), SCRIPT_MAXSSIZE);
       } else {
-        char string[32];
         f2char(glob_script_mem.fvars[dvtp[count].index], glob_script_mem.script_dprec, glob_script_mem.script_lzero, string, '.');
-        toLog(string);
       }
+      sprintf(out, "%d : %s = %s", count, cp, string);
+      toLog(out);
     }
 #endif //SCRIPT_DEBUG
 
@@ -2390,7 +2394,7 @@ TS_FLOAT fvar;
 // no flash strings here for performance reasons!!!
 char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, TS_FLOAT *fp, char *sp, struct GVARS *gv);
 char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, TS_FLOAT *fp, char *sp, struct GVARS *gv) {
-    uint16_t count,len = 0;
+    uint16_t count, len = 0;
     uint8_t nres = 0;
     char vname[64];
     TS_FLOAT fvar = 0;
@@ -2405,9 +2409,9 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, TS_FLOAT *fp, char *
       if (fp) {
           if (*lp == '0' && *(lp + 1) == 'x') {
             lp += 2;
-            *(uint32_t*)fp = strtol(lp, &lp, 16);
+            *(uint32_t*)fp = strtoll(lp, &lp, 16);
           } else {
-            *(int32_t*)fp = strtol(lp, &lp, 10);
+            *(int32_t*)fp = strtoll(lp, &lp, 10);
           }
       }
       tind->bits.constant = 1;
@@ -2422,7 +2426,7 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, TS_FLOAT *fp, char *
         if (fp) {
           if (*lp == '0' && *(lp + 1) == 'x') {
             lp += 2;
-            *fp = strtol(lp, &lp, 16);
+            *fp = strtoll(lp, &lp, 16);
           } else {
             *fp = CharToFloat(lp);
             if (*lp == '-') lp++;
@@ -2499,11 +2503,11 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, TS_FLOAT *fp, char *
         uint8_t slen = strlen(cp);
         if (slen == olen && *cp == dvnam[0]) {
             if (!strncmp(cp, dvnam, olen)) {
-                uint8_t index = vtp[count].index;
+                uint16_t index = vtp[count].index;
                 *tind = vtp[count];
                 tind->index = count; // overwrite with global var index
                 if (vtp[count].bits.is_string == 0) {
-                    *vtype = NTYPE | index;
+                    *vtype = NTYPE; // | index;
                     if (vtp[count].bits.is_filter) {
                       if (ja) {
                         lp += olen + 1;
@@ -2522,7 +2526,7 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, TS_FLOAT *fp, char *
                     if (nres) fvar = -fvar;
                     if (fp) *fp = fvar;
                 } else {
-                    *vtype = STYPE|index;
+                    *vtype = STYPE;  //|index;
                     if (sp) strlcpy(sp, glob_script_mem.glob_snp + (index * glob_script_mem.max_ssize), SCRIPT_MAXSSIZE);
                 }
                 return lp + len;
@@ -5791,7 +5795,7 @@ struct T_INDEX ind;
             //if (*lp==')') lp++;
         } else {
             lp = isvar(lp, &vtype, &ind, &fvar1, 0, gv);
-            if ((vtype!=NUM_RES) && (vtype&STYPE)) {
+            if ((vtype != NUM_RES) && (vtype & STYPE)) {
               // string type
               glob_script_mem.glob_error = 1;
             }
@@ -8280,9 +8284,9 @@ void Script_Check_Hue(String *response) {
             vname[cnt] = *cp++;
           }
           isvar(vname, &vtype, &ind, 0, 0, 0);
-          if (vtype!=VAR_NV) {
+          if (vtype != VAR_NV) {
             // found variable as result
-            if (vtype==NUM_RES || (vtype&STYPE)==0) {
+            if (vtype == NUM_RES || (vtype & STYPE) == 0) {
               hue_script[hue_devs].vindex[vindex] = ind.index;
               hue_script[hue_devs].index[vindex] = glob_script_mem.type[ind.index].index+1;
             } else {
@@ -9520,7 +9524,7 @@ void Script_Check_HTML_Setvars(void) {
     struct T_INDEX ind;
     uint8_t vtype;
     isvar(vname, &vtype, &ind, 0, 0, 0);
-    if (vtype!=NUM_RES && vtype&STYPE) {
+    if (vtype != NUM_RES && vtype & STYPE) {
       // string type must insert quotes
       uint8_t tlen = strlen(cp1);
       memmove(cp1 + 1, cp1, tlen);
@@ -9670,7 +9674,7 @@ uint16_t cipos = 0;
     if (vtype != VAR_NV) {
       SCRIPT_SKIP_SPACES
       uint8_t index = glob_script_mem.type[ind.index].index;
-      if ((vtype&STYPE) == 0) {
+      if ((vtype & STYPE) == 0) {
         // numeric result
         //Serial.printf("numeric %d - %d \n",ind.index,index);
         if (glob_script_mem.type[ind.index].bits.is_filter) {
@@ -9826,7 +9830,7 @@ void ScriptWebShow(char mc, uint8_t page) {
           struct T_INDEX ind;
           uint8_t vtype;
           lp = isvar(lp + 5, &vtype, &ind, 0, 0, 0);
-          if ((vtype != VAR_NV) && (vtype&STYPE) == 0) {
+          if ((vtype != VAR_NV) && (vtype & STYPE) == 0) {
             uint16_t index = glob_script_mem.type[ind.index].index;
             cv_count = &glob_script_mem.fvars[index];
             SCRIPT_SKIP_SPACES
@@ -10434,7 +10438,7 @@ exgc:
         char *slp = lp;
         lp = isvar(lp, &vtype, &ind, &max_entries, 0, 0);
         if (vtype != VAR_NV) {
-          if ((vtype&STYPE) == 0) {
+          if ((vtype & STYPE) == 0) {
             // numeric result
             if (!ind.bits.constant && glob_script_mem.type[ind.index].bits.is_filter) {
               // is 1. array
@@ -10876,7 +10880,7 @@ void IRAM_ATTR fast_mux_irq() {
 
 /* uint8_t pin nr, 0x40 = value, 0x80 = next
 */
-int32_t fast_mux(uint32_t flag, uint32_t time, TS_FLOAT *buf, uint32_t len);
+
 int32_t fast_mux(uint32_t flag, uint32_t time, TS_FLOAT *buf, uint32_t len) {
 int32_t retval;
   if (!flag) {
