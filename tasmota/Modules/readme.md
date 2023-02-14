@@ -72,7 +72,8 @@ along with your firmware bin file with filename MODULE_NAME.bin
 10. now link the new module via upload and test the relocatable version.
 
 since we can not use the Pin assigments from Tasmota in all cases
-we could provide a pin select command for some drivers. GUI solution in development
+we could provide a pin select command for some drivers. 
+GUI solution for pins is available
 
 modules may be loaded (linked) via file system or via upload
 in console "upload module"
@@ -92,7 +93,7 @@ deiniz X
 deinitializes the module Nr x (detaches it from Tasmota and frees memory)
 
 mdir
-show a directory of linked modules
+show a JSON list of linked modules
 
 dump X
 shows a memory dump of module Nr x
