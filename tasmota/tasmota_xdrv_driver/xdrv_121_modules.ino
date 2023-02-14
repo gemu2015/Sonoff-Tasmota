@@ -25,8 +25,6 @@ adds about 10k flash size
 
 to doo:
 pin managment
-module list GUI
-
 
 
 */
@@ -710,6 +708,51 @@ void Unlink_Module(uint32_t module) {
   }
 }
 
+
+void Read_Module_Data(uint32_t module, uint32_t *data) {
+  if (modules[module].mod_addr) {
+    uint32_t *buff = (uint32_t *)calloc(SPI_FLASH_SEC_SIZE / 4 , 4);
+    if (buff) {
+      ESP.flashRead((uint32_t)modules[module].mod_addr, buff, SPI_FLASH_SEC_SIZE);
+      FLASH_MODULE *fm = (FLASH_MODULE*)buff;
+      AddLog(LOG_LEVEL_INFO,PSTR("read flash data: %08x"),fm->sync);
+      for (uint16_t cnt = 0; cnt < MAX_MOD_STORES; cnt++ ) {
+        *data++ = fm->ms[cnt].value;
+      }
+      free(buff);
+    }
+  }
+}
+
+void Update_Module_Data(uint32_t module, uint32_t *data) {
+  if (modules[module].mod_addr) {
+    uint8_t flag = modules[module].flags.initialized;
+    if (flag) {
+      Deiniz_module(module);
+    }
+    uint32_t *buff = (uint32_t *)calloc(SPI_FLASH_SEC_SIZE / 4 , 4);
+    if (buff) {
+      ESP.flashRead((uint32_t)modules[module].mod_addr, buff, SPI_FLASH_SEC_SIZE);
+      FLASH_MODULE *fm = (FLASH_MODULE*)buff;
+      AddLog(LOG_LEVEL_INFO,PSTR("read flash: %08x"),fm->sync);
+      if (fm->sync == MODULE_SYNC) {
+        AddLog(LOG_LEVEL_INFO,PSTR("modify data"));
+        for (uint16_t cnt = 0; cnt < MAX_MOD_STORES; cnt++ ) {
+          fm->ms[cnt].value = *data++;
+        }
+        // rewrite modified module
+        AddLog(LOG_LEVEL_INFO,PSTR("write flash"));
+        ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - FLASH_BASE_OFFSET) / SPI_FLASH_SEC_SIZE);
+        ESP.flashWrite((uint32_t)modules[module].mod_addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
+      }
+      free(buff);
+    }
+    if (flag) {
+      Init_module(module);
+    }
+  }
+}
+
 // link 1 module from file (or web, not yet)
 void Module_link(void) {
   uint8_t *fdesc = 0;
@@ -861,6 +904,27 @@ void Modul_Check_HTML_Setvars(void) {
     }
 
   }
+
+  if (Webserver->hasArg(F("sv"))) {
+    // set selector
+    String stmp = Webserver->arg(F("sv"));
+    char *cp = (char*)stmp.c_str();
+    if (!strncmp(cp, "sel", 3)) {
+      cp += 3;
+      uint8_t mind = strtol(cp, &cp, 10);
+      cp++;
+      uint8_t pinn = strtol(cp, &cp, 10);
+      cp++;
+      uint8_t pind = strtol(cp, &cp, 10);
+      //AddLog(LOG_LEVEL_INFO,PSTR(">>> %d - %d - %d"), mind, pinn, pind);
+      // should better update values on closing menu
+      uint32_t vals[MAX_MOD_STORES];
+      Read_Module_Data(mind, vals);
+      vals[pinn] = pind;
+      Update_Module_Data(mind, vals);
+    }
+  }
+
 }
 
 void Module_upload() {
@@ -905,20 +969,14 @@ void Module_upload() {
       dtostrf(frev, 1, 2, srev);
       WSContentSend_PD(HTTP_MODULES_COMMONa, "808080", cnt + 1, name, type, srev, modules[cnt].mod_size, modules[cnt].mem_size);
 
-/*
-<select onchange="this.form.submit()">
-    ...
-</select>
-
-*/
-
-
       WSContentSend_PD(PSTR("<td>"));
       for (uint8_t xcnt = 0; xcnt < MAX_MOD_STORES; xcnt++) {
         char name[8];
-        strncpy(name, fm->ms[xcnt].name, 8);  // name=\"cars\"
+        strncpy(name, fm->ms[xcnt].name, 8);
         if (name[0]) {
-          WSContentSend_PD(PSTR("<label for=\"p%d_%d\">%s:</label> <select id=\"p%d_%d\" style='width: 60px;'>"),cnt,xcnt,name,cnt,xcnt);
+          char vn[12];
+          sprintf(vn,"sel%d_%d", cnt, xcnt);
+          WSContentSend_PD(PSTR("<label for=\"p%d_%d\">%s:</label> <select  id=\"p%d_%d\" style='width: 60px;' onchange='seva(value,\"%s\")'>"),cnt,xcnt,name,cnt,xcnt,vn);
           for (uint8_t pins = 0; pins < nitems(TasmotaGlobal.gpio_pin); pins++) {
             char sel[10];
             if (fm->ms[xcnt].value == pins) {
@@ -963,9 +1021,8 @@ void Module_upload() {
   Webserver->send(303);  
 }
 
-
 static uint8_t *module_input_buffer;
-static uint32_t module_bytes_read;
+static uint16_t module_bytes_read;
 static char   module_name[16];
 
 bool Module_upload_start(const char* upload_filename) {
