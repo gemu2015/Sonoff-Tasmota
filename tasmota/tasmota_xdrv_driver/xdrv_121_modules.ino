@@ -714,10 +714,9 @@ void Read_Module_Data(uint32_t module, uint32_t *data) {
   if (modules[module].mod_addr) {
     FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
     if (fm->sync == MODULE_SYNC) {
-      AddLog(LOG_LEVEL_INFO,PSTR("read flash data:"));
+      //AddLog(LOG_LEVEL_INFO,PSTR("read flash data:"));
       for (uint16_t cnt = 0; cnt < MAX_MOD_STORES; cnt++ ) {
         *data = fm->ms[cnt].value;
-        AddLog(LOG_LEVEL_INFO,PSTR(">>: %04x"),*data);
         data++;
       }
     }
@@ -734,16 +733,16 @@ void Update_Module_Data(uint32_t module, uint32_t *data) {
     if (buff) {
       ESP.flashRead((uint32_t)modules[module].mod_addr-FLASH_BASE_OFFSET, buff, SPI_FLASH_SEC_SIZE);
       FLASH_MODULE *fm = (FLASH_MODULE*)buff;
-      AddLog(LOG_LEVEL_INFO,PSTR("read flash: %08x"),fm->sync);
+      //AddLog(LOG_LEVEL_INFO,PSTR("read flash: %08x"),fm->sync);
       if (fm->sync == MODULE_SYNC) {
-        AddLog(LOG_LEVEL_INFO,PSTR("modify data"));
+        //AddLog(LOG_LEVEL_INFO,PSTR("modify data"));
         for (uint16_t cnt = 0; cnt < MAX_MOD_STORES; cnt++ ) {
           fm->ms[cnt].value = *data++;
         }
         // rewrite modified module
-        AddLog(LOG_LEVEL_INFO,PSTR("write flash"));
-        ESP.flashEraseSector(((uint32_t)modules[module].mod_addr-FLASH_BASE_OFFSET - FLASH_BASE_OFFSET) / SPI_FLASH_SEC_SIZE);
-        ESP.flashWrite((uint32_t)modules[module].mod_addr-FLASH_BASE_OFFSET, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
+        //AddLog(LOG_LEVEL_INFO,PSTR("write flash"));
+        ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - FLASH_BASE_OFFSET) / SPI_FLASH_SEC_SIZE);
+        ESP.flashWrite((uint32_t)modules[module].mod_addr - FLASH_BASE_OFFSET, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
       }
       free(buff);
     }
@@ -928,8 +927,8 @@ void Modul_Check_HTML_Setvars(void) {
       Read_Module_Data(mind, vals);
       uint32_t old = vals[pinn];
       vals[pinn] = pind;
-      AddLog(LOG_LEVEL_INFO,PSTR(">>> %d - %d - %d -> %d"), mind, pinn, old, pind);
-      //Update_Module_Data(mind, vals);
+      //AddLog(LOG_LEVEL_INFO,PSTR(">>> %d - %d - %d -> %d"), mind, pinn, old, pind);
+      Update_Module_Data(mind, vals);
     }
   }
 
