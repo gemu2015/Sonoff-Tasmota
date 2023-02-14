@@ -78,11 +78,12 @@ const char kModuleCommands[] PROGMEM = "|"// no Prefix
   "unlink" "|"
   "iniz" "|"
   "deiniz" "|"
-  "dump"
+  "dump" "|"
+  "list"
   ;
 
 void (* const ModuleCommand[])(void) PROGMEM = {
-  &Module_mdir,  &Module_link, &Module_unlink, &Module_iniz, &Module_deiniz, &Module_dump
+  &Module_mdir,  &Module_link, &Module_unlink, &Module_iniz, &Module_deiniz, &Module_dump, &BinDir_list
 };
 
 void Serial_print(const char *txt) {
@@ -711,15 +712,14 @@ void Unlink_Module(uint32_t module) {
 
 void Read_Module_Data(uint32_t module, uint32_t *data) {
   if (modules[module].mod_addr) {
-    uint32_t *buff = (uint32_t *)calloc(SPI_FLASH_SEC_SIZE / 4 , 4);
-    if (buff) {
-      ESP.flashRead((uint32_t)modules[module].mod_addr, buff, SPI_FLASH_SEC_SIZE);
-      FLASH_MODULE *fm = (FLASH_MODULE*)buff;
-      AddLog(LOG_LEVEL_INFO,PSTR("read flash data: %08x"),fm->sync);
+    FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
+    if (fm->sync == MODULE_SYNC) {
+      AddLog(LOG_LEVEL_INFO,PSTR("read flash data:"));
       for (uint16_t cnt = 0; cnt < MAX_MOD_STORES; cnt++ ) {
-        *data++ = fm->ms[cnt].value;
+        *data = fm->ms[cnt].value;
+        AddLog(LOG_LEVEL_INFO,PSTR(">>: %04x"),*data);
+        data++;
       }
-      free(buff);
     }
   }
 }
@@ -732,7 +732,7 @@ void Update_Module_Data(uint32_t module, uint32_t *data) {
     }
     uint32_t *buff = (uint32_t *)calloc(SPI_FLASH_SEC_SIZE / 4 , 4);
     if (buff) {
-      ESP.flashRead((uint32_t)modules[module].mod_addr, buff, SPI_FLASH_SEC_SIZE);
+      ESP.flashRead((uint32_t)modules[module].mod_addr-FLASH_BASE_OFFSET, buff, SPI_FLASH_SEC_SIZE);
       FLASH_MODULE *fm = (FLASH_MODULE*)buff;
       AddLog(LOG_LEVEL_INFO,PSTR("read flash: %08x"),fm->sync);
       if (fm->sync == MODULE_SYNC) {
@@ -742,8 +742,8 @@ void Update_Module_Data(uint32_t module, uint32_t *data) {
         }
         // rewrite modified module
         AddLog(LOG_LEVEL_INFO,PSTR("write flash"));
-        ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - FLASH_BASE_OFFSET) / SPI_FLASH_SEC_SIZE);
-        ESP.flashWrite((uint32_t)modules[module].mod_addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
+        ESP.flashEraseSector(((uint32_t)modules[module].mod_addr-FLASH_BASE_OFFSET - FLASH_BASE_OFFSET) / SPI_FLASH_SEC_SIZE);
+        ESP.flashWrite((uint32_t)modules[module].mod_addr-FLASH_BASE_OFFSET, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
       }
       free(buff);
     }
@@ -835,6 +835,12 @@ void Module_dump(void) {
   ResponseCmndDone();
 }
 
+void BinDir_list(void) {
+  flash_bindir(0, (char*)"");
+  flash_bindir(1, (char*)"");
+  ResponseCmndDone();
+}
+
 const char HTTP_MODULES_CSS[] PROGMEM =
 "<head><style>rc{color:red;}gc{color:green;}yc{color:yellow;}</style></head>"
 "<table border='3' frame='void' style='width:800px;background-color:#00BFFF;'>"
@@ -916,12 +922,14 @@ void Modul_Check_HTML_Setvars(void) {
       uint8_t pinn = strtol(cp, &cp, 10);
       cp++;
       uint8_t pind = strtol(cp, &cp, 10);
-      //AddLog(LOG_LEVEL_INFO,PSTR(">>> %d - %d - %d"), mind, pinn, pind);
+      
       // should better update values on closing menu
       uint32_t vals[MAX_MOD_STORES];
       Read_Module_Data(mind, vals);
+      uint32_t old = vals[pinn];
       vals[pinn] = pind;
-      Update_Module_Data(mind, vals);
+      AddLog(LOG_LEVEL_INFO,PSTR(">>> %d - %d - %d -> %d"), mind, pinn, old, pind);
+      //Update_Module_Data(mind, vals);
     }
   }
 
@@ -1082,7 +1090,6 @@ uint32_t size;
 
 #define MODULE_SYNC 0x55aaFC4A
 #define FLASH_BASE_OFFSET 0x40200000
-
 // 32 bytes header
 typedef struct {
   uint32_t sync;
