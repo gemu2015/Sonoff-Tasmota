@@ -73,7 +73,7 @@ along with your firmware bin file with filename MODULE_NAME.bin
 
 since we can not use the Pin assigments from Tasmota in all cases
 we could provide a pin select command for some drivers. 
-GUI solution for pins is available
+GUI solution for up to 4 pins is available with permanent save
 
 modules may be loaded (linked) via file system or via upload
 in console "upload module"

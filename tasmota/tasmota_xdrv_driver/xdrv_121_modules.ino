@@ -21,10 +21,9 @@
 /* proof of concept only
 attempt to create relocatable flash module drivers
 with runtime link and unlink
-adds about 10k flash size
+adds about 11,3k flash size
 
 to doo:
-pin managment
 
 
 */
@@ -835,8 +834,10 @@ void Module_dump(void) {
 }
 
 void BinDir_list(void) {
+#ifdef USE_FLASH_BDIR
   flash_bindir(0, (char*)"");
   flash_bindir(1, (char*)"");
+#endif
   ResponseCmndDone();
 }
 

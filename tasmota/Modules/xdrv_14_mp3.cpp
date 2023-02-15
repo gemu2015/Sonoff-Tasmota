@@ -85,6 +85,7 @@
 
 #define MP3PLAYER_REV 1<<16
 
+#define DVP_MINI 0
 #define DY_SV17F 1
 
 #define MP3_DEFAULT DY_SV17F
@@ -186,7 +187,7 @@ int32_t MOD_FUNC(MP3PlayerInit) {
   ALLOCMEM
 
   // should be in settings
-  player_type = MP3_DEFAULT;
+  player_type = DY_SV17F;
 
   if (!CALL_MOD_FUNC(MP3_Init)) {
     mt->flags.initialized = true;
@@ -240,7 +241,7 @@ void MOD_FUNC(MP3_SendCmd, uint8_t *scmd, uint8_t len) {
 void MOD_FUNC(MP3_CMD, uint8_t mp3cmd, uint16_t val) {
   SETREGS
 
-  if (player_type == DEFAULT) {
+  if (player_type == DVP_MINI) {
     uint8_t i       = 0;
     uint8_t cmd[10];  // = {0x7e,0xff,6,0,0,0,0,0,0,0xef}; // fill array
     cmd[0]          = 0x7e;
@@ -318,7 +319,6 @@ bool MOD_FUNC(MP3PlayerCmd) {
       case CMND_MP3_DEVICE:
       case CMND_MP3_DAC:
       case CMND_MP3_SETTYPE:
-      case CMND_MP3_SETPIN:
         // play a track, set volume, select EQ, sepcify file device
         if (XdrvMailbox->data_len > 0) {
           if (command_code == CMND_MP3_TRACK)  { CALL_MOD_FUNC(MP3_CMD, MP3_CMD_TRACK,  XdrvMailbox->payload); }
@@ -329,13 +329,6 @@ bool MOD_FUNC(MP3PlayerCmd) {
           if (command_code == CMND_MP3_DEVICE) { CALL_MOD_FUNC(MP3_CMD, MP3_CMD_DEVICE, XdrvMailbox->payload); }
           if (command_code == CMND_MP3_DAC)    { CALL_MOD_FUNC(MP3_CMD, MP3_CMD_DAC,    XdrvMailbox->payload); }
           if (command_code == CMND_MP3_SETTYPE) { player_type = XdrvMailbox->payload & 1; }
-          if (command_code == CMND_MP3_SETPIN) {
-            player_txpin = XdrvMailbox->payload;
-            if (ts) {
-              deleteTS(ts);
-              CALL_MOD_FUNC(MP3_Init);
-            }
-          }
         }
         Response_P(PSTR(S_JSON_MP3_COMMAND_NVALUE), command, XdrvMailbox->payload);
         break;
