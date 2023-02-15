@@ -103,7 +103,7 @@ bool MOD_FUNC(Sht3xRead, float &t, float &h, uint8_t sht3x_address) {
   //t = jConvertTemp((float)( ( ( (data[0] << 8) | data[1] ) * 175) / 65535.0) - 45);
   t = ConvertTemp(t);
 
-  h = t = jfdiv( jtofloat(((data[3] << 8) | data[4] ) * 100), 65535.0);
+  h = jfdiv( jtofloat(((data[3] << 8) | data[4] ) * 100), 65535.0);
 //  h = jConvertHumidity((float)((((data[3] << 8) | data[4]) * 100) / 65535.0));
   h = ConvertHumidity(h);
   return (!jisnan(t) && !jisnan(h) && !jiseq(h));
