@@ -5800,7 +5800,47 @@ struct T_INDEX ind;
               glob_script_mem.glob_error = 1;
             }
         }
-        switch (lastop) {
+        if (ind.bits.integer) {
+          switch (lastop) {
+            case OPER_EQU:
+                fvar = fvar1;
+                break;
+            case OPER_PLS:
+                *(int32_t*)&fvar += *(int32_t*)&fvar1;
+                break;
+            case OPER_MIN:
+                *(int32_t*)&fvar -= *(int32_t*)&fvar1;
+                break;
+            case OPER_MUL:
+                *(int32_t*)&fvar *= *(int32_t*)&fvar1;
+                break;
+            case OPER_DIV:
+                *(int32_t*)&fvar /= *(int32_t*)&fvar1;
+                break;
+            case OPER_PERC:
+                *(int32_t*)&fvar %= *(int32_t*)&fvar1;
+                break;
+            case OPER_XOR:
+                *(uint32_t*)&fvar ^= *(uint32_t*)&fvar1;
+                break;
+            case OPER_AND:
+                *(uint32_t*)&fvar &= *(uint32_t*)&fvar1;
+                break;
+            case OPER_OR:
+                *(uint32_t*)&fvar |= *(uint32_t*)&fvar1;
+                break;
+            case OPER_SHL:
+                *(uint32_t*)&fvar <<= *(uint32_t*)&fvar1;
+                break;
+            case OPER_SHR:
+                *(uint32_t*)&fvar >>= *(uint32_t*)&fvar1;
+                break;
+            default:
+                break;
+
+          }
+        } else {
+          switch (lastop) {
             case OPER_EQU:
                 fvar = fvar1;
                 break;
@@ -5837,6 +5877,7 @@ struct T_INDEX ind;
             default:
                 break;
 
+          }
         }
         slp = lp;
         lp = getop(lp, &operand);
