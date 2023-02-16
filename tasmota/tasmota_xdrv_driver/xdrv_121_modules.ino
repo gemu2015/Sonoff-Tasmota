@@ -32,7 +32,6 @@ to doo:
 
 #define XDRV_121             121
 
-
 //#define EXECUTE_FROM_BINARY
 //#define SAVE_DRIVER_TO_FILE
 
@@ -593,6 +592,9 @@ void AddModules(void) {
       modules[module].mod_size = fm->size;
       modules[module].settings = Settings;
       modules[module].flags.data = 0;
+      if (TasmotaGlobal.gpio_optiona.shelly_pro) {
+        Init_module(module);
+      }
       // add addr according to module size, currently assume module < SPI_FLASH_SEC_SIZE
       module++;
       if (module >= MAXMODULES) {
