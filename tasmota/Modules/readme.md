@@ -98,6 +98,6 @@ show a JSON list of linked modules
 dump X
 shows a memory dump of module Nr x
 
-currently after a reboot all modules persist but are not initialized yet.
-in future versions all persistent modules will be initialized on reboot
+after a reboot all modules persist 
+and if option A 7 is set all modules are initialized too
 
