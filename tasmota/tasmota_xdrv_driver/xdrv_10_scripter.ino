@@ -3766,6 +3766,16 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           fvar = ESP_getFreeHeap();
           goto exit;
         }
+        if (!strncmp(lp, "hni(", 4)) {
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
+          uint8_t iob = *(uint32_t*)&fvar;
+          lp++;
+          len = 0;
+          if (sp) {
+            sprintf(sp, "%02x", iob);
+          }
+          goto strexit;
+        }
         if (!strncmp(lp, "hn(", 3)) {
           lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
           if (fvar < 0 || fvar > 255) fvar = 0;
