@@ -18,7 +18,7 @@ you must use a = fdiv(b, c)
 how to create relocatable plugins:
 
 currentl yonly esp8266 is supported
-replace the linker file local.eagle.app.v6.common.ld by the one provided in module dir
+replace the linker file local.eagle.app.v6.common.ld by the one provided in plugins dir
 ( the file is automatically generated and must be checked on new espressif versions)
   the module section must be inserted as shown below after *(.ver_number)
     _irom0_text_start = ABSOLUTE(.);
@@ -36,7 +36,7 @@ extra_scripts           = ${esp_defaults.extra_scripts}
                           Tools/grepmodule-firmware.py
 
 
-1. copy the .ino file you want to convert to the modules directory and rename to .cpp
+1. copy the .ino file you want to convert to the plugins directory and rename to .cpp
 2. modify the source according to the sample files.
 3. add calls not yet in the vector table. in header and xdrv121
 4. enable generation of assembly listings and examine the assembly files.
@@ -67,37 +67,37 @@ along with your firmware bin file with filename MODULE_NAME.bin
 
 9. uncomment these defines and recompile
 #define EXECUTE_FROM_BINARY
-#define USE_MP3_PLAYER_MOD
+#define USE_SHT3X_MOD
 
-10. now link the new module via upload and test the relocatable version.
+10. now link the new plugin via upload and test the relocatable version.
 
 since we can not use the Pin assigments from Tasmota in all cases
 we could provide a pin select command for some drivers. 
 GUI solution for up to 4 pins is available with permanent save
 
-modules may be loaded (linked) via file system or via upload
-in console "upload module"
+plugins may be loaded (linked) via file system or via upload
+in console "upload plugins"
 
-module driver commands:
+plugin driver commands:
 
-link /module.bin
-links a module from filesystem to the next free memory slot. or upload via web ui
+link /plugin.bin
+links a plugin from filesystem to the next free memory slot. or upload via web ui
 
 unlink X
-unlinks (deletes) the module Nr x from system
+unlinks (deletes) the plugin Nr x from system
 
 iniz X
-initializes the module Nr x (attaches it to Tasmota) iniz 0 initializes all drivers
+initializes the plugin Nr x (attaches it to Tasmota) iniz 0 initializes all drivers
 
 deiniz X
-deinitializes the module Nr x (detaches it from Tasmota and frees memory)
+deinitializes the plugin Nr x (detaches it from Tasmota and frees memory)
 
 mdir
-show a JSON list of linked modules
+show a JSON list of linked plugins
 
 dump X
-shows a memory dump of module Nr x
+shows a memory dump of plugin Nr x
 
-after a reboot all modules persist 
-and if option A 7 is set all modules are initialized too
+after a reboot all plugins persist 
+and if option A 7 is set all plugins are initialized too
 

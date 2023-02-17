@@ -76,7 +76,7 @@
 #include "module.h"
 #include "module_defines.h"
 
-#define MP3_DEFAULT_TX_PIN 1
+#define MP3_DEFAULT_TX_PIN 5
 
 /*********************************************************************************************\
  * MP3 control for RB-DFR-562 DFRobot mini MP3 player
