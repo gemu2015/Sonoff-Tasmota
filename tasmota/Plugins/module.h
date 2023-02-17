@@ -7,7 +7,7 @@
 #include <Stream.h>
 #include <HardwareSerial.h>
 
-#ifdef USE_PLUGINS
+#ifdef USE_BINPLUGINS
 
 #define AGPIO(x) ((x)<<5)
 #define BGPIO(x) ((x)>>5)

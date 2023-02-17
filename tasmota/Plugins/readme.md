@@ -51,7 +51,7 @@ add these to build_flags:
 6. examine call instructions, no call to external symbol may appear
 
 7. enable these defines and only one plugin 
-#define USE_PLUGINS
+#define USE_BINPLUGINS
 #define EXECUTE_FROM_BINARY
 
 //#define USE_MLX90614_MOD

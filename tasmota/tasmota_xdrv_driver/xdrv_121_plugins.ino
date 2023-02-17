@@ -28,7 +28,7 @@ to doo:
 
 */
 
-#ifdef USE_PLUGINS
+#ifdef USE_BINPLUGINS
 
 #define XDRV_121             121
 
@@ -1091,7 +1091,6 @@ uint32_t size;
 } bindir;
 
 #define MODULE_SYNC 0x55aaFC4A
-#define FLASH_BASE_OFFSET 0x40200000
 // 32 bytes header
 typedef struct {
   uint32_t sync;
@@ -1315,4 +1314,4 @@ bool Xdrv121(uint32_t function) {
 }
 
 
-#endif  // USE_PLUGINS
+#endif  // USE_BINPLUGINS
