@@ -171,6 +171,18 @@ void _copy32(uint32_t *src, uint32_t *dst) {
 #define MODULE_STORAGE(IND,NAME,VALUE)  __attribute__((section(".text.mod_desc"))) extern const MODULE_STORE storage[IND] = {NAME,VALUE};
 
 
+typedef struct {
+  void (*xbeginTransmission)(uint8_t);
+  uint8_t (*xendTransmission)(bool); 
+  uint8_t (*xread)(); 
+  void (*xwrite)(uint8_t);
+  void (*xrequestFrom)(uint8_t,uint8_t);
+}  xTwoWire;
+
+#define INITWIRE(A) A->xbeginTransmission = ( void (*)(uint8_t) ) jt[12];A->xendTransmission = ( uint8_t (*)(bool) ) jt[14];A->xread = ( uint8_t (*)() ) jt[16];A->xwrite = ( void (*)(uint8_t) ) jt[13];A->xrequestFrom = ( void (*)(uint8_t,uint8_t) ) jt[15];
+
+
+#define TwoWire xTwoWire
 
 #define   beginTransmission(ADDR) jbeginTransmission(jWire, ADDR)
 #define   write(CMD) jwrite(jWire, CMD)

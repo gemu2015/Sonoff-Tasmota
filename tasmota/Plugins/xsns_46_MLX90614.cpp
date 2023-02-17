@@ -52,18 +52,20 @@ MODULE_END
 #define MLX90614_TOBJ1  0x07
 #define MLX90614_TOBJ2  0x08
 
+
 // all memory must be in struct MODULE_MEMORY
 typedef struct {
   float obj_temp;
   float amb_temp;
   bool ready;
-  //TwoWire *wire;
+ // TwoWire *wire;
   STRBUFFER
 } MODULE_MEMORY;
 
 #define obj_temp mem->obj_temp
 #define amb_temp mem->amb_temp
 #define ready mem->ready
+//#define wire mem->wire
 
 // all text defines must be here
 DPSTR(HTTP_IRTMP,"{s}MXL90614 OBJ-TEMP{m}%s C{e} {s}MXL90614 AMB-TEMP {m}%s C{e}");
@@ -73,10 +75,16 @@ DPSTR(mlxdev,"MLX90614");
 
 int32_t MOD_FUNC(Init_MLX90614) {
   ALLOCMEM
+ // INITWIRE(wire)
+
+ // wire->xbeginTransmission(0xaa);
+ // wire->xwrite(0xaa);
+ // wire->xendTransmission(false);
+
 
   // now init variables here
   ready = false;
-  sprint(PSTR(mlxdev));
+  //sprint(PSTR(mlxdev));
 
   if (!I2cSetDevice(I2_ADR_IRT)) {
     CALL_MOD_FUNC(MLX90614_Deinit);
