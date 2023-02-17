@@ -43,7 +43,6 @@ MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
 
 MODULE_END
 
-
 #define I2_ADR_IRT      0x5a
 
 #define MLX90614_RAWIR1 0x04
