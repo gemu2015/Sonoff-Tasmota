@@ -1,6 +1,6 @@
-Modules
+Plugins
 =======
-modules are relocatable binary drivers for tasmota (currently only ESP8266 supported)
+plugins are relocatable binary drivers for tasmota (currently only ESP8266 supported)
 they may be linked and unlinked during runtime (no reboot needed)
 in theory any tasmota driver (light, energy, sensor or drv) may be
 converted to relocatable format.
@@ -15,7 +15,7 @@ e.g. you may not write  a = b / c  with float variables.
 you must use a = fdiv(b, c)
 
 
-how to create relocatable modules:
+how to create relocatable plugins:
 
 currentl yonly esp8266 is supported
 replace the linker file local.eagle.app.v6.common.ld by the one provided in module dir
@@ -50,8 +50,8 @@ add these to build_flags:
 .text.mod_end
 6. examine call instructions, no call to external symbol may appear
 
-7. enable these defines and only one module 
-#define USE_MODULES
+7. enable these defines and only one plugin 
+#define USE_PLUGINS
 #define EXECUTE_FROM_BINARY
 
 //#define USE_MLX90614_MOD

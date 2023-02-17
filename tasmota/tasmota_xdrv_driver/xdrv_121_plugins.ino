@@ -1,5 +1,5 @@
 /*
-  xdrv_121_modules.ino - Prove of concept for flash modules
+  xdrv_121_plugins.ino - Prove of concept for flash plugins
 
   Copyright (C) 2021  Gerhard Mutz
 
@@ -28,7 +28,7 @@ to doo:
 
 */
 
-#ifdef USE_MODULES
+#ifdef USE_PLUGINS
 
 #define XDRV_121             121
 
@@ -39,7 +39,7 @@ to doo:
 //#define SAVE_FLASH
 //#define DO_EXECUTE
 
-#include "./Modules/modules_def.h"
+#include "./Plugins/modules_def.h"
 #include <TasmotaSerial.h>
 
 #ifdef EXECUTE_FROM_BINARY
@@ -310,16 +310,16 @@ int32_t iscale(int32_t number, int32_t mulfac, int32_t divfac) {
 uint8_t *Load_Module(char *path, uint32_t *rsize);
 uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *offset, uint8_t flag);
 
-#ifndef MAXMODULES
-#define MAXMODULES 8
+#ifndef MAX_PLUGINS
+#define MAX_PLUGINS 8
 #endif
 
-MODULES_TABLE modules[MAXMODULES];
+MODULES_TABLE modules[MAX_PLUGINS];
 
 // scan for modules in flash and add to modules table, not yet
 void InitModules(void) {
 
-  for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
+  for (uint8_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
     modules[cnt].mod_addr = 0;
   }
 
@@ -403,7 +403,7 @@ void InitModules(void) {
 
 
 void Module_Execute(uint32_t sel) {
-  for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
+  for (uint8_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
     if (modules[cnt].mod_addr) {
       if (modules[cnt].flags.initialized && modules[cnt].flags.every_second) {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
@@ -415,7 +415,7 @@ void Module_Execute(uint32_t sel) {
 
 int32_t Module_Command(uint32_t sel) {
 int32_t result = 0;
-  for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
+  for (uint8_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
     if (modules[cnt].mod_addr) {
       if (modules[cnt].flags.initialized) {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
@@ -428,7 +428,7 @@ int32_t result = 0;
 }
 
 void ModuleWebSensor() {
-  for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
+  for (uint8_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
     if (modules[cnt].mod_addr) {
       if (modules[cnt].flags.initialized && modules[cnt].flags.web_sensor) {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
@@ -439,7 +439,7 @@ void ModuleWebSensor() {
 }
 
 void ModuleJsonAppend() {
-  for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
+  for (uint8_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
     if (modules[cnt].mod_addr) {
       if (modules[cnt].flags.initialized && modules[cnt].flags.json_append) {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
@@ -597,7 +597,7 @@ void AddModules(void) {
       }
       // add addr according to module size, currently assume module < SPI_FLASH_SEC_SIZE
       module++;
-      if (module >= MAXMODULES) {
+      if (module >= MAX_PLUGINS) {
         break;
       }
     }
@@ -615,7 +615,7 @@ void Module_mdir(void) {
 
   Response_P(PSTR("{"));
   uint8_t index = 0;
-  for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
+  for (uint8_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
     if (modules[cnt].mod_addr) {
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
       const uint32_t volatile mtype = fm->type;
@@ -636,7 +636,7 @@ void Module_mdir(void) {
  #else 
   AddLog(LOG_LEVEL_INFO, PSTR("| ======== Module directory ========"));
   AddLog(LOG_LEVEL_INFO, PSTR("| nr | name           | address  | size | type | rev  | ram  | init |"));
-  for (uint8_t cnt = 0; cnt < MAXMODULES; cnt++) {
+  for (uint8_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
     if (modules[cnt].mod_addr) {
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
       const uint32_t volatile mtype = fm->type;
@@ -669,7 +669,7 @@ void LinkModule(uint8_t *mp, uint32_t size, char *name) {
       AddLog(LOG_LEVEL_INFO,PSTR("module sync error"));
       return;
     }
-    for (cnt = 0; cnt < MAXMODULES; cnt++) {
+    for (cnt = 0; cnt < MAX_PLUGINS; cnt++) {
       if (!modules[cnt].mod_addr) {
         break;
       }
@@ -769,7 +769,7 @@ void Module_link(void) {
 
 // unlink 1 module
 void Module_unlink(void) {
-  if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAXMODULES)) {
+  if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAX_PLUGINS)) {
     uint8_t module = XdrvMailbox.payload - 1;
     Unlink_Module(module);
   }
@@ -792,11 +792,11 @@ int32_t Init_module(uint32_t module) {
 // iniz 1 module
 void Module_iniz(void) {
 
-  if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAXMODULES)) {
+  if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAX_PLUGINS)) {
     uint8_t module = XdrvMailbox.payload - 1;
     Init_module(module);
   } else if (XdrvMailbox.payload == 0) {
-    for (uint8_t module = 0; module < MAXMODULES; module++) {
+    for (uint8_t module = 0; module < MAX_PLUGINS; module++) {
       Init_module(module);
     }
   }
@@ -814,7 +814,7 @@ void Deiniz_module(uint32_t module) {
 
 // deiniz 1 module
 void Module_deiniz(void) {
-  if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAXMODULES)) {
+  if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAX_PLUGINS)) {
     Deiniz_module(XdrvMailbox.payload - 1);
   }
   ResponseCmndDone();
@@ -822,7 +822,7 @@ void Module_deiniz(void) {
 
 // dump module hex 32 bit words
 void Module_dump(void) {
-  if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAXMODULES)) {
+  if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAX_PLUGINS)) {
     uint8_t module = XdrvMailbox.payload - 1;
     if (modules[module].mod_addr) {
       uint32_t *lp = (uint32_t*) modules[module].mod_addr;
@@ -882,12 +882,12 @@ const char MOD_FORM_FILE_UPGc[] PROGMEM =
 
 uint16_t MOD_FreeSlots() {
   uint16_t slots = 0;
-  for (uint16_t cnt = 0; cnt < MAXMODULES; cnt++) {
+  for (uint16_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
     if (modules[cnt].mod_addr) {
       slots += 1;
     }
   }
-  return MAXMODULES - slots;
+  return MAX_PLUGINS - slots;
 }
 
 void Modul_Check_HTML_Setvars(void) {
@@ -949,13 +949,13 @@ void Module_upload() {
     Unlink_Module(module - 1);
   }
 
-  WSContentStart_P(PSTR("Modules Directory"));
+  WSContentStart_P(PSTR("Plugins Directory"));
   WSContentSendStyle();
-  WSContentSend_P(PSTR("Modules Directory"));
+  WSContentSend_P(PSTR("Plugins Directory"));
 
-  WSContentSend_PD(MOD_FORM_FILE_UPGc, WebColor(COL_TEXT), MAXMODULES, MOD_FreeSlots());
+  WSContentSend_PD(MOD_FORM_FILE_UPGc, WebColor(COL_TEXT), MAX_PLUGINS, MOD_FreeSlots());
 
-  WSContentSend_P(MOD_FORM_FILE_UPG, PSTR("module upload"));
+  WSContentSend_P(MOD_FORM_FILE_UPG, PSTR("Plugin upload"));
   
   WSContentSend_PD(PSTR("<div>"));
   WSContentSend_PD(HTTP_MODULES_SCRIPT);
@@ -964,7 +964,7 @@ void Module_upload() {
 
   WSContentSend_PD(HTTP_MODULES_CSS);
 
-  for (uint16_t cnt = 0; cnt < MAXMODULES; cnt++) {
+  for (uint16_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
     if (modules[cnt].mod_addr) {
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
       const uint32_t volatile mtype = fm->type;
@@ -1302,7 +1302,7 @@ bool Xdrv121(uint32_t function) {
       if (XdrvMailbox.index) {
         XdrvMailbox.index++;
       } else {
-        WSContentSend_PD(MOD_DIRECTORY, PSTR("Module directory"));
+        WSContentSend_PD(MOD_DIRECTORY, PSTR("Plugins directory"));
       }
       break;
     case FUNC_WEB_ADD_HANDLER:
@@ -1315,4 +1315,4 @@ bool Xdrv121(uint32_t function) {
 }
 
 
-#endif  // USE_MODULES
+#endif  // USE_PLUGINS
