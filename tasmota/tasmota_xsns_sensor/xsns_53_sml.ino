@@ -1221,7 +1221,13 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
       mp->sbuff[count] = mp->sbuff[count + 1];
     }
   }
-  uint8_t iob = (uint8_t)mp->meter_ss->read();
+    
+  uint8_t iob;
+  if (mp->srcpin != TCP_MODE_FLG) {
+    iob = (uint8_t)mp->meter_ss->read(); 
+  } else {
+    iob = (uint8_t)mp->client.read();
+  }
 
   switch (mp->type) {
     case 'o':
@@ -1304,6 +1310,20 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
       if (mp->spos >= mp->sbsiz) {
         mp->spos = 0;
       }
+      if (mp->srcpin == TCP_MODE_FLG) {
+        // tcp read
+        if (mp->spos >= 6) {
+          uint8_t tlen = (mp->sbuff[4] << 8) | mp->sbuff[4];
+          if (mp->spos == 6 + tlen) {
+            mp->spos = 0;
+            SML_Decode(meters);
+            mp->client.flush();
+            //Hexdump(mp->sbuff + 6, 10);
+          }
+        }
+        break;
+      }
+
       if (mp->spos >= 3) {
         uint32_t mlen = mp->sbuff[2] + 5;
         if (mlen > mp->sbsiz) mlen = mp->sbsiz;
@@ -1384,14 +1404,23 @@ void SML_Poll(void) {
 uint32_t meters;
 
     for (meters = 0; meters < sml_globs.meters_used; meters++) {
-      if (sml_globs.mp[meters].type != 'c') {
-        // poll for serial input
-        if (!meter_desc[meters].meter_ss) continue;
-        if (sml_globs.ser_act_LED_pin != 255 && (sml_globs.ser_act_meter_num == 0 || sml_globs.ser_act_meter_num - 1 == meters)) {
-          digitalWrite(sml_globs.ser_act_LED_pin, meter_desc[meters].meter_ss->available() && !digitalRead(sml_globs.ser_act_LED_pin)); // Invert LED, if queue is continuously full
-        }
-        while (meter_desc[meters].meter_ss->available()) {
-          sml_shift_in(meters, 0);
+      struct METER_DESC *mp = &meter_desc[meters];
+      if (mp->type != 'c') {
+        if (mp->srcpin != TCP_MODE_FLG) {
+          if (!mp->meter_ss) continue;
+          // poll for serial input
+          if (sml_globs.ser_act_LED_pin != 255 && (sml_globs.ser_act_meter_num == 0 || sml_globs.ser_act_meter_num - 1 == meters)) {
+            digitalWrite(sml_globs.ser_act_LED_pin, mp->meter_ss->available() && !digitalRead(sml_globs.ser_act_LED_pin)); // Invert LED, if queue is continuously full
+          }
+          while (mp->meter_ss->available()) {
+            sml_shift_in(meters, 0);
+          }
+        } else {
+#ifdef USE_SML_TCP          
+          while (mp->client.available()){
+            sml_shift_in(meters, 0);
+          }
+#endif
         }
 /*
 				if (meter_desc[meters].meter_ss->available()) {
@@ -3494,7 +3523,7 @@ typedef struct {
   uint16_t P_ID;
   uint16_t SIZE;
   uint8_t U_ID;
-  uint8_t payload[10];
+  uint8_t payload[8];
  } MODBUS_TCP_HEADER;
 
 uint16_t sml_swap(uint16_t in) {
@@ -3516,21 +3545,11 @@ for (uint8_t cnt = 0; cnt < slen - 3; cnt++) {
   tcph.payload[cnt] = *sbuff++;
 }
 
-// 01 04 00 26 00 02 90 00 
-
 #ifdef USE_SML_TCP
  // AddLog(LOG_LEVEL_INFO, PSTR("slen >> %d "),slen);
   if (meter_desc[meter].client.connected()) {
     meter_desc[meter].client.write((uint8_t*)&tcph, 7 + slen - 3);
   }
-
-/*
-Rx
-while(client.available()){
-String reply = client.readStringUntil('\r');
-Serial.print(reply);
-}
-*/
 #endif
 }
 
