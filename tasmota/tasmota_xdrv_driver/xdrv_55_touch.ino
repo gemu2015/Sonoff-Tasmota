@@ -247,8 +247,14 @@ void GT911_CheckTouch(void) {
 #include <XPT2046_Touchscreen.h>
 XPT2046_Touchscreen *XPT2046_touchp;
 
-bool XPT2046_Touch_Init(uint16_t CS) {
-  XPT2046_touchp = new XPT2046_Touchscreen(CS);
+bool XPT2046_Touch_Init(uint16_t CS, int8_t irqpin, uint8_t bus) {
+ #ifdef ESP32
+ if (PinUsed(GPIO_SPI_CLK, bus) && PinUsed(GPIO_SPI_MISO, bus) && PinUsed(GPIO_SPI_MOSI), bus) {
+    // must init SPI with pins
+    SPI.begin(Pin(GPIO_SPI_CLK, bus), Pin(GPIO_SPI_MISO, bus), Pin(GPIO_SPI_MOSI, bus), -1);
+ }
+ #endif // ESP32
+  XPT2046_touchp = new XPT2046_Touchscreen(CS, irqpin, bus);
   XPT2046_found = XPT2046_touchp->begin();
   if (XPT2046_found) {
 	   AddLog(LOG_LEVEL_INFO, PSTR("TS: XPT2046"));

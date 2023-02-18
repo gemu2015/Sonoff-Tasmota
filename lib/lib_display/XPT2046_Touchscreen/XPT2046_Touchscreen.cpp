@@ -30,9 +30,17 @@
 static XPT2046_Touchscreen 	*isrPinptr;
 void isrPin(void);
 
-bool XPT2046_Touchscreen::begin(SPIClass &wspi)
-{
+bool XPT2046_Touchscreen::begin(SPIClass &wspi) {
+
+#ifdef ESP32
+	if (!bus) {
+		_pspi = &wspi;
+	} else {
+		_pspi = new SPIClass(HSPI);
+	}
+#else
 	_pspi = &wspi;
+#endif
 	_pspi->begin();
 	pinMode(csPin, OUTPUT);
 	digitalWrite(csPin, HIGH);
