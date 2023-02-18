@@ -439,9 +439,12 @@ struct METER_DESC {
 #endif // USE_SML_AUTHKEY
 #endif // USE_SML_DECRYPT
 
+#ifdef USE_SML_TCP
   IPAddress ip_addr;
-
+  WiFiClient client;
+#endif
 };
+
 
 #define TCP_MODE_FLG 0x7f
 
@@ -2721,6 +2724,7 @@ void SML_Init(void) {
 
   sml_globs.sml_send_blocks = 0;
   lp = glob_script_mem.section_ptr;
+  struct METER_DESC *mmp;
   while (lp) {
       if (!section) {
         if (*lp == '>' && *(lp + 1) == 'M') {
@@ -2753,6 +2757,7 @@ void SML_Init(void) {
             goto next_line;
           }
           index--;
+          mmp = &meter_desc[index];
           if (*lp == '[') {
             // sign TCP mode
             srcpin = TCP_MODE_FLG;
@@ -2767,7 +2772,9 @@ void SML_Init(void) {
             }
             str[cnt] = 0;
             lp++;
-            meter_desc[index].ip_addr.fromString(str);
+#ifdef USE_SML_TCP
+            mmp->ip_addr.fromString(str);
+#endif
           } else {
             srcpin  = strtol(lp, &lp, 10);
             if (Gpio_used(abs(srcpin))) {
@@ -2778,85 +2785,87 @@ dddef_exit:
               return;
             }
           }
-          meter_desc[index].srcpin = srcpin;
+          mmp->srcpin = srcpin;
           if (*lp != ',') goto next_line;
           lp++;
-          meter_desc[index].type = *lp;
+          mmp->type = *lp;
           lp++;
           if (*lp != ',') {
             switch (*lp) {
               case 'N':
                 lp++;
-                meter_desc[index].sopt = 0x10 | (*lp & 3);
+                mmp->sopt = 0x10 | (*lp & 3);
                 lp++;
                 break;
               case 'E':
                 lp++;
-                meter_desc[index].sopt = 0x20 | (*lp & 3);
+                mmp->sopt = 0x20 | (*lp & 3);
                 lp++;
                 break;
               case 'O':
                 lp++;
-                meter_desc[index].sopt = 0x30 | (*lp & 3);
+                mmp->sopt = 0x30 | (*lp & 3);
                 lp++;
                 break;
               default:
-                meter_desc[index].sopt = *lp&7;
+                mmp->sopt = *lp&7;
                 lp++;
             }
           } else {
-            meter_desc[index].sopt = 0;
+            mmp->sopt = 0;
           }
           lp++;
-          meter_desc[index].flag = strtol(lp, &lp, 10);
+          mmp->flag = strtol(lp, &lp, 10);
           if (*lp != ',') goto next_line;
           lp++;
-          meter_desc[index].params = strtol(lp, &lp, 10);
+          mmp->params = strtol(lp, &lp, 10);
           if (*lp != ',') goto next_line;
           lp++;
-          meter_desc[index].prefix[7] = 0;
+          mmp->prefix[7] = 0;
           for (uint32_t cnt = 0; cnt < 8; cnt++) {
             if (*lp == SCRIPT_EOL || *lp == ',') {
-              meter_desc[index].prefix[cnt] = 0;
+              mmp->prefix[cnt] = 0;
               break;
             }
-            meter_desc[index].prefix[cnt] = *lp++;
+           mmp->prefix[cnt] = *lp++;
           }
           if (*lp == ',') {
             lp++;
             // get TRX pin
-            meter_desc[index].trxpin = strtol(lp, &lp, 10);
-            if (Gpio_used(meter_desc[index].trxpin)) {
-              AddLog(LOG_LEVEL_INFO, PSTR("SML: Error: Duplicate GPIO %d defined. Not usable for TX in meter number %d"), meter_desc[index].trxpin, index + 1);
-              goto dddef_exit;
+            mmp->trxpin = strtol(lp, &lp, 10);
+            if (mmp->srcpin != TCP_MODE_FLG) {
+              if (Gpio_used(mmp->trxpin)) {
+                AddLog(LOG_LEVEL_INFO, PSTR("SML: Error: Duplicate GPIO %d defined. Not usable for TX in meter number %d"), meter_desc[index].trxpin, index + 1);
+                goto dddef_exit;
+              }
             }
             // optional transmit enable pin
             if (*lp == '(') {
               lp++;
               if (*lp == 'i') {
                 lp++;
-                meter_desc[index].trx_en.trxenpol = 1;
+                mmp->trx_en.trxenpol = 1;
               } else {
-                meter_desc[index].trx_en.trxenpol = 0;
+                mmp->trx_en.trxenpol = 0;
               }
-              meter_desc[index].trx_en.trxenpin = strtol(lp, &lp, 10);
+              mmp->trx_en.trxenpin = strtol(lp, &lp, 10);
               if (*lp != ')') {
                 goto dddef_exit;
               }
               lp++;
-              if (Gpio_used(meter_desc[index].trx_en.trxenpin)) {
+              if (Gpio_used(mmp->trx_en.trxenpin)) {
                 AddLog(LOG_LEVEL_INFO, PSTR("SML: Error: Duplicate GPIO %d defined. Not usable for TX enable in meter number %d"), meter_desc[index].trx_en.trxenpin, index + 1);
                 goto dddef_exit;
               }
-              meter_desc[index].trx_en.trxen = 1;
-              pinMode(meter_desc[index].trx_en.trxenpin, OUTPUT);
-              digitalWrite(meter_desc[index].trx_en.trxenpin, meter_desc[index].trx_en.trxenpol);
+              mmp->trx_en.trxen = 1;
+              pinMode(mmp->trx_en.trxenpin, OUTPUT);
+              digitalWrite(mmp->trx_en.trxenpin, mmp->trx_en.trxenpol);
             } else {
-              meter_desc[index].trx_en.trxen = 0;
+              mmp->trx_en.trxen = 0;
             }
             if (*lp != ',') goto next_line;
             lp++;
-            meter_desc[index].tsecs = strtol(lp, &lp, 10);
+            mmp->tsecs = strtol(lp, &lp, 10);
             if (*lp == ',') {
               lp++;
               // look ahead
@@ -2880,9 +2889,9 @@ dddef_exit:
                 txlen++;
               }
               if (txlen) {
-                meter_desc[index].txmem = (char*)calloc(txlen + 2, 1);
+                mmp->txmem = (char*)calloc(txlen + 2, 1);
 								memory += txlen + 2;
-                if (meter_desc[index].txmem) {
+                if (mmp->txmem) {
                   // now copy send blocks
                   char *txp = lp;
                   uint16_t tind = 0;
@@ -2890,14 +2899,14 @@ dddef_exit:
                       if (*txp == SCRIPT_EOL) {
                         txp++;
                       } else {
-                        meter_desc[index].txmem[tind] = *txp++;
+                        mmp->txmem[tind] = *txp++;
                         tind++;
                       }
                   }
                 }
                 //AddLog(LOG_LEVEL_INFO, PSTR(">>> %s - %d"), meter_desc[index].txmem, txlen);
-                meter_desc[index].index = 0;
-                meter_desc[index].max_index = tx_entries;
+                mmp->index = 0;
+                mmp->max_index = tx_entries;
                 sml_globs.sml_send_blocks++;
                 lp += txlen;
               }
@@ -2982,23 +2991,24 @@ next_line:
 #endif
   sml_counter_pinstate = 0;
   for (uint8_t meters = 0; meters < sml_globs.meters_used; meters++) {
-    if (sml_globs.mp[meters].type == 'c') {
-        if (sml_globs.mp[meters].flag & 2) {
+    METER_DESC *mp = &meter_desc[meters];
+    if (mp->type == 'c') {
+        if (mp->flag & 2) {
 
         } else {
           // counters, set to input with pullup
-          if (sml_globs.mp[meters].flag & 1) {
-            pinMode(sml_globs.mp[meters].srcpin, INPUT_PULLUP);
+          if (mp->flag & 1) {
+            pinMode(mp->srcpin, INPUT_PULLUP);
           } else {
-            pinMode(sml_globs.mp[meters].srcpin, INPUT);
+            pinMode(mp->srcpin, INPUT);
           }
           // check for irq mode
-          if (sml_globs.mp[meters].params <= 0) {
+          if (mp->params <= 0) {
             // init irq mode
             sml_counters[cindex].sml_cnt_old_state = meters;
             sml_counters[cindex].sml_debounce = -sml_globs.mp[meters].params;
-            attachInterruptArg(sml_globs.mp[meters].srcpin, SML_CounterIsr, &sml_cnt_index[cindex], CHANGE);
-            if (digitalRead(sml_globs.mp[meters].srcpin) > 0) {
+            attachInterruptArg(mp->srcpin, SML_CounterIsr, &sml_cnt_index[cindex], CHANGE);
+            if (digitalRead(mp->srcpin) > 0) {
               sml_counter_pinstate |= (1 << cindex);
             }
             sml_counters[cindex].sml_counter_ltime = millis();
@@ -3010,88 +3020,94 @@ next_line:
         }
     } else {
       // serial input, init
-      if (sml_globs.mp[meters].srcpin == TCP_MODE_FLG) {
+      if (mp->srcpin == TCP_MODE_FLG) {
+#ifdef USE_SML_TCP
         // tcp mode
+        int32_t err = mp->client.connect(mp->ip_addr, mp->params);
+        if (!err) {
+          AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP to %s"),mp->ip_addr.toString().c_str());
+        }
+#endif
       } else {
         // serial mode
 #ifdef ESP8266
 #ifdef SPECIAL_SS
-        char type = sml_globs.mp[meters].type;
+        char type = mp->type;
         if (type == 'm' || type == 'M' || type == 'k' || type == 'p' || type == 'R' || type == 'v') {
-          meter_desc[meters].meter_ss = new TasmotaSerial(sml_globs.mp[meters].srcpin,sml_globs.mp[meters].trxpin, 1, 0, meter_desc[meters].sibsiz);
+          mp->meter_ss = new TasmotaSerial(mp->srcpin, mp->trxpin, 1, 0, mp->sibsiz);
         } else {
-          meter_desc[meters].meter_ss = new TasmotaSerial(sml_globs.mp[meters].srcpin,sml_globs.mp[meters].trxpin, 1, 1, meter_desc[meters].sibsiz);
+          mp->meter_ss = new TasmotaSerial(mp->srcpin, mp->trxpin, 1, 1, mp->sibsiz);
         }
 #else
-        meter_desc[meters].meter_ss = new TasmotaSerial(sml_globs.mp[meters].srcpin,sml_globs.mp[meters].trxpin, 1, 0, meter_desc[meters].sibsiz);
+        mp->meter_ss = new TasmotaSerial(mp->srcpin, mp->trxpin, 1, 0, mp->sibsiz);
 #endif  // SPECIAL_SS
 #endif // ESP8266
 
 #ifdef ESP32
         // use hardware serial
 #ifdef USE_ESP32_SW_SERIAL
-        meter_desc[meters].meter_ss = new SML_ESP32_SERIAL(uart_index);
-        if (sml_globs.mp[meters].srcpin >= 0) {
+        mp->meter_ss = new SML_ESP32_SERIAL(uart_index);
+        if (mp->srcpin >= 0) {
           if (uart_index == 0) { ClaimSerial(); }
           uart_index--;
           if (uart_index < 0) uart_index = 0;
         }
 #else
-        meter_desc[meters].meter_ss = new HardwareSerial(uart_index);
+        mp->meter_ss = new HardwareSerial(uart_index);
         if (uart_index == 0) { ClaimSerial(); }
         uart_index--;
         if (uart_index < 0) uart_index = 0;
-        meter_desc[meters].meter_ss->setRxBufferSize(meter_desc[meters].sibsiz);
+        mp->meter_ss->setRxBufferSize(mp->sibsiz);
 #endif // USE_ESP32_SW_SERIAL
 
 #endif  // ESP32
 
         SerialConfig smode = SERIAL_8N1;
 
-        if (sml_globs.mp[meters].sopt & 0xf0) {
+        if (mp->sopt & 0xf0) {
           // new serial config
-          switch (sml_globs.mp[meters].sopt >> 4) {
+          switch (mp->sopt >> 4) {
             case 1:
-              if ((sml_globs.mp[meters].sopt & 1) == 1) smode = SERIAL_8N1;
+              if ((mp->sopt & 1) == 1) smode = SERIAL_8N1;
               else smode = SERIAL_8N2;
               break;
             case 2:
-              if ((sml_globs.mp[meters].sopt & 1) == 1) smode = SERIAL_8E1;
+              if ((mp->sopt & 1) == 1) smode = SERIAL_8E1;
               else smode = SERIAL_8E2;
               break;
             case 3:
-              if ((sml_globs.mp[meters].sopt & 1) == 1) smode = SERIAL_8O1;
+              if ((mp->sopt & 1) == 1) smode = SERIAL_8O1;
               else smode = SERIAL_8O2;
               break;
           }
         } else {
           // deprecated serial config
-          if (sml_globs.mp[meters].sopt == 2) {
+          if (mp->sopt == 2) {
             smode = SERIAL_8N2;
           }
-          if (sml_globs.mp[meters].type=='M') {
+          if (mp->type=='M') {
             smode = SERIAL_8E1;
-            if (sml_globs.mp[meters].sopt == 2) {
+            if (mp->sopt == 2) {
               smode = SERIAL_8E2;
             }
           }
         }
 
 #ifdef ESP8266
-        if (meter_desc[meters].meter_ss->begin(sml_globs.mp[meters].params)) {
-          meter_desc[meters].meter_ss->flush();
+        if (mp->meter_ss->begin(mp->params)) {
+          mp->meter_ss->flush();
         }
-        if (meter_desc[meters].meter_ss->hardwareSerial()) {
-          Serial.begin(sml_globs.mp[meters].params, smode);
+        if (mp->meter_ss->hardwareSerial()) {
+          Serial.begin(mp->params, smode);
           ClaimSerial();
           //Serial.setRxBufferSize(512);
         }
 #endif  // ESP8266
 
 #ifdef ESP32
-        meter_desc[meters].meter_ss->begin(sml_globs.mp[meters].params, smode, sml_globs.mp[meters].srcpin, sml_globs.mp[meters].trxpin);
+        mp->meter_ss->begin(mp->params, smode, mp->srcpin, mp->trxpin);
 #ifdef USE_ESP32_SW_SERIAL
-				meter_desc[meters].meter_ss->setRxBufferSize(meter_desc[meters].sibsiz);
+				mp->meter_ss->setRxBufferSize(mp->sibsiz);
 #endif
 #endif  // ESP32
       }
@@ -3473,14 +3489,53 @@ uint8_t sml_hexnibble(char chr) {
   return rVal;
 }
 
+typedef struct {
+  uint16_t T_ID;
+  uint16_t P_ID;
+  uint16_t SIZE;
+  uint8_t U_ID;
+  uint8_t payload[10];
+ } MODBUS_TCP_HEADER;
+
+uint16_t sml_swap(uint16_t in) {
+  return (in << 8) || in >> 8;
+}
+
 // send modbus TCP frame with payload
 // given ip addr  and port in baudrate
-void sml_tcp_send(uint8_t *sbuff, uint16_t slen) {
+void sml_tcp_send(uint32_t meter, uint8_t *sbuff, uint16_t slen) {
+MODBUS_TCP_HEADER tcph;
 
+tcph.T_ID = sml_swap(0xaa55);
+tcph.P_ID = 0;
+tcph.SIZE = sml_swap(6);
+tcph.U_ID = sml_swap(3);
+
+sbuff++;
+for (uint8_t cnt = 0; cnt < slen - 3; cnt++) {
+  tcph.payload[cnt] = *sbuff++;
+}
+
+// 01 04 00 26 00 02 90 00 
+
+#ifdef USE_SML_TCP
+ // AddLog(LOG_LEVEL_INFO, PSTR("slen >> %d "),slen);
+  if (meter_desc[meter].client.connected()) {
+    meter_desc[meter].client.write((uint8_t*)&tcph, 7 + slen - 3);
+  }
+
+/*
+Rx
+while(client.available()){
+String reply = client.readStringUntil('\r');
+Serial.print(reply);
+}
+*/
+#endif
 }
 
 // send sequence every N Seconds
-void SML_Send_Seq(uint32_t meter,char *seq) {
+void SML_Send_Seq(uint32_t meter, char *seq) {
   uint8_t sbuff[48];
   uint8_t *ucp = sbuff, slen = 0;
   char *cp = seq;
@@ -3558,7 +3613,7 @@ void SML_Send_Seq(uint32_t meter,char *seq) {
   }
 
   if (meter_desc[meter].srcpin == TCP_MODE_FLG) {
-    sml_tcp_send(sbuff, slen);
+    sml_tcp_send(meter, sbuff, slen);
   } else {
     if (meter_desc[meter].trx_en.trxen) {
       digitalWrite(meter_desc[meter].trx_en.trxenpin, meter_desc[meter].trx_en.trxenpol ^ 1);
