@@ -81,6 +81,11 @@
 #define USE_SML_DECRYPT
 #endif
 
+#ifndef NO_USE_SML_TCP
+// modbus over TCP
+#define USE_SML_TCP
+#endif
+
 // median filter eliminates outliers, but uses much RAM and CPU cycles
 // 672 bytes extra RAM with SML_MAX_VARS = 16
 // default compile on, but must be enabled by descriptor flag 16
@@ -409,7 +414,8 @@ struct METER_DESC {
   uint8_t so_bpos1;
   uint8_t so_fcode2;
   uint8_t so_bpos2;
-#endif
+#endif // USE_SML_SPECOPT
+
 #ifdef ESP32
 #ifndef USE_ESP32_SW_SERIAL
   HardwareSerial *meter_ss;
@@ -417,10 +423,12 @@ struct METER_DESC {
   SML_ESP32_SERIAL *meter_ss;
 #endif
 #endif  // ESP32
+
 // software serial pointers
 #ifdef ESP8266
   TasmotaSerial *meter_ss;
 #endif  // ESP8266
+
 #ifdef USE_SML_DECRYPT
 	bool use_crypt = false;
 	uint8_t last_iob;
@@ -428,10 +436,14 @@ struct METER_DESC {
 	Han_Parser *hp;
 #ifdef USE_SML_AUTHKEY
 	uint8_t auth[SML_CRYPT_SIZE];
-#endif
-#endif
+#endif // USE_SML_AUTHKEY
+#endif // USE_SML_DECRYPT
+
+  IPAddress ip_addr;
+
 };
 
+#define TCP_MODE_FLG 0x7f
 
 struct METER_DESC  meter_desc[MAX_METERS];
 
@@ -2741,13 +2753,30 @@ void SML_Init(void) {
             goto next_line;
           }
           index--;
-          srcpin  = strtol(lp, &lp, 10);
-          if (Gpio_used(abs(srcpin))) {
-            AddLog(LOG_LEVEL_INFO, PSTR("SML: Error: Duplicate GPIO %d defined. Not usable for RX in meter number %d"), abs(srcpin), index + 1);
+          if (*lp == '[') {
+            // sign TCP mode
+            srcpin = TCP_MODE_FLG;
+            lp++;
+            char str[32];
+            uint8_t cnt;
+            for (cnt = 0; cnt < sizeof(str) - 1; cnt++) {
+              if (!*lp || *lp == '\n' || *lp == ']') {
+                break;
+              }
+              str[cnt] = *lp++;
+            }
+            str[cnt] = 0;
+            lp++;
+            meter_desc[index].ip_addr.fromString(str);
+          } else {
+            srcpin  = strtol(lp, &lp, 10);
+            if (Gpio_used(abs(srcpin))) {
+              AddLog(LOG_LEVEL_INFO, PSTR("SML: Error: Duplicate GPIO %d defined. Not usable for RX in meter number %d"), abs(srcpin), index + 1);
 dddef_exit:
-            if (sml_globs.script_meter) free(sml_globs.script_meter);
-            sml_globs.script_meter = 0;
-            return;
+              if (sml_globs.script_meter) free(sml_globs.script_meter);
+              sml_globs.script_meter = 0;
+              return;
+            }
           }
           meter_desc[index].srcpin = srcpin;
           if (*lp != ',') goto next_line;
@@ -2981,6 +3010,10 @@ next_line:
         }
     } else {
       // serial input, init
+      if (sml_globs.mp[meters].srcpin == TCP_MODE_FLG) {
+        // tcp mode
+      } else {
+        // serial mode
 #ifdef ESP8266
 #ifdef SPECIAL_SS
         char type = sml_globs.mp[meters].type;
@@ -3061,6 +3094,7 @@ next_line:
 				meter_desc[meters].meter_ss->setRxBufferSize(meter_desc[meters].sibsiz);
 #endif
 #endif  // ESP32
+      }
     }
   }
 
@@ -3439,6 +3473,12 @@ uint8_t sml_hexnibble(char chr) {
   return rVal;
 }
 
+// send modbus TCP frame with payload
+// given ip addr  and port in baudrate
+void sml_tcp_send(uint8_t *sbuff, uint16_t slen) {
+
+}
+
 // send sequence every N Seconds
 void SML_Send_Seq(uint32_t meter,char *seq) {
   uint8_t sbuff[48];
@@ -3517,16 +3557,19 @@ void SML_Send_Seq(uint32_t meter,char *seq) {
     slen += 6;
   }
 
-  if (meter_desc[meter].trx_en.trxen) {
-    digitalWrite(meter_desc[meter].trx_en.trxenpin, meter_desc[meter].trx_en.trxenpol ^ 1);
-  }
-  meter_desc[meter].meter_ss->flush();
-  meter_desc[meter].meter_ss->write(sbuff, slen);
-
-  if (meter_desc[meter].trx_en.trxen) {
-    // must wait for all data sent
+  if (meter_desc[meter].srcpin == TCP_MODE_FLG) {
+    sml_tcp_send(sbuff, slen);
+  } else {
+    if (meter_desc[meter].trx_en.trxen) {
+      digitalWrite(meter_desc[meter].trx_en.trxenpin, meter_desc[meter].trx_en.trxenpol ^ 1);
+    }
     meter_desc[meter].meter_ss->flush();
-    digitalWrite(meter_desc[meter].trx_en.trxenpin, meter_desc[meter].trx_en.trxenpol);
+    meter_desc[meter].meter_ss->write(sbuff, slen);
+    if (meter_desc[meter].trx_en.trxen) {
+      // must wait for all data sent
+      meter_desc[meter].meter_ss->flush();
+      digitalWrite(meter_desc[meter].trx_en.trxenpin, meter_desc[meter].trx_en.trxenpol);
+    }
   }
 
   if (sml_globs.dump2log) {
