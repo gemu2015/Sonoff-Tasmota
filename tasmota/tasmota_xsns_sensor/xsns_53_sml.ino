@@ -1313,7 +1313,7 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
       if (mp->srcpin == TCP_MODE_FLG) {
         // tcp read
         if (mp->spos >= 6) {
-          uint8_t tlen = (mp->sbuff[4] << 8) | mp->sbuff[4];
+          uint8_t tlen = (mp->sbuff[4] << 8) | mp->sbuff[5];
           if (mp->spos == 6 + tlen) {
             mp->spos = 0;
             SML_Decode(meters);
