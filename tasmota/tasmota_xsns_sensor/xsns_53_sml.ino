@@ -588,22 +588,37 @@ double sml_median(struct SML_MEDIAN_FILTER* mf, double in) {
 uint16_t Serial_available() {
   uint8_t num = sml_globs.dump2log & 7;
   if (num < 1 || num > sml_globs.meters_used) num = 1;
-  if (!meter_desc[num - 1].meter_ss) return 0;
-  return meter_desc[num - 1].meter_ss->available();
+  num--;
+  if (meter_desc[num].srcpin != TCP_MODE_FLG) {
+    if (!meter_desc[num].meter_ss) return 0;
+    return meter_desc[num].meter_ss->available();
+  } else {
+    return meter_desc[num].client.available();
+  }
 }
 
 uint8_t Serial_read() {
   uint8_t num = sml_globs.dump2log & 7;
   if (num < 1 || num > sml_globs.meters_used) num = 1;
-  if (!meter_desc[num - 1].meter_ss) return 0;
-  return meter_desc[num - 1].meter_ss->read();
+  num--;
+  if (meter_desc[num].srcpin != TCP_MODE_FLG) {
+    if (!meter_desc[num].meter_ss) return 0;
+    return meter_desc[num].meter_ss->read();
+  } else {
+    return meter_desc[num].client.read();
+  }
 }
 
 uint8_t Serial_peek() {
   uint8_t num = sml_globs.dump2log & 7;
   if (num < 1 || num > sml_globs.meters_used) num = 1;
-  if (!meter_desc[num - 1].meter_ss) return 0;
-  return meter_desc[num - 1].meter_ss->peek();
+  num--;
+  if (meter_desc[num].srcpin != TCP_MODE_FLG) {
+    if (!meter_desc[num].meter_ss) return 0;
+    return meter_desc[num].meter_ss->peek();
+  } else {
+    return meter_desc[num].client.peek();
+  }
 }
 
 void sml_dump_start(char c) {
