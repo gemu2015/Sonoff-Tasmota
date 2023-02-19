@@ -60,8 +60,8 @@ typedef struct {
   char name[16];
   int32_t (*mod_func_execute)(MODULES_TABLE *, uint32_t);
   void (*end_of_module)(void);
-  uint32_t size;
-  uint32_t execution_offset;
+  MD_TYPE size;
+  MD_TYPE execution_offset;
   MODULE_STORE ms[MAX_MOD_STORES];
 } FLASH_MODULE;
 

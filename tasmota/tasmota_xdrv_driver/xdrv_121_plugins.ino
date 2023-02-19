@@ -1098,6 +1098,8 @@ typedef struct {
   uint32_t type; 
   uint32_t revision;
   char name[16];
+  uint32_t dummy1;
+  uint32_t dummy2;
   uint32_t size; // size of payload
   uint16_t execution_offset; // execution offset, normally 32
   uint16_t CRC; // checksum over payload
