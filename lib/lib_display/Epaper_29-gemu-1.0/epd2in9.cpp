@@ -29,7 +29,8 @@
 #include "tasmota_options.h"
 
 #ifndef EPD_29_V1
-#define EPD_29_V2
+//#define EPD_29_V2
+
 #endif
 
 
