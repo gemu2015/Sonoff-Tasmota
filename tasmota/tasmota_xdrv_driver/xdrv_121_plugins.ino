@@ -316,7 +316,7 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *offset, uint8_t f
 
 MODULES_TABLE modules[MAX_PLUGINS];
 
-// scan for modules in flash and add to modules table, not yet
+// scan for modules in flash and add to modules table
 void InitModules(void) {
 
   for (uint8_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
