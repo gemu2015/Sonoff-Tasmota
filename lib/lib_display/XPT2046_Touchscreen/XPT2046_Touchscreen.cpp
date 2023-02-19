@@ -39,10 +39,12 @@ bool XPT2046_Touchscreen::begin(SPIClass &wspi) {
 		_pspi = new SPIClass(HSPI);
 		//_pspi = new SPIClass(VSPI);
 	}
+	_pspi->begin(sclk, miso, mosi, -1);
 #else
 	_pspi = &wspi;
+	_pspi->begin();
 #endif
-	_pspi->begin(sclk, miso, mosi, -1);
+	
 	pinMode(csPin, OUTPUT);
 	digitalWrite(csPin, HIGH);
 	if (255 != tirqPin) {
