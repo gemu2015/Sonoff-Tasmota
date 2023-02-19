@@ -32,7 +32,6 @@
 //#define DEBUG_CNT_LED1 2
 //#define DEBUG_CNT_LED1 2
 
-
 #include <TasmotaSerial.h>
 
 
@@ -441,7 +440,11 @@ struct METER_DESC {
 
 #ifdef USE_SML_TCP
   IPAddress ip_addr;
-  WiFiClient client;
+#ifdef TCP_CLIENT_SECURE
+  WiFiClientSecure *client;
+#else
+  WiFiClient *client;
+#endif
 #endif
 };
 
@@ -593,7 +596,7 @@ uint16_t Serial_available() {
     if (!meter_desc[num].meter_ss) return 0;
     return meter_desc[num].meter_ss->available();
   } else {
-    return meter_desc[num].client.available();
+    return meter_desc[num].client->available();
   }
 }
 
@@ -605,7 +608,7 @@ uint8_t Serial_read() {
     if (!meter_desc[num].meter_ss) return 0;
     return meter_desc[num].meter_ss->read();
   } else {
-    return meter_desc[num].client.read();
+    return meter_desc[num].client->read();
   }
 }
 
@@ -617,7 +620,7 @@ uint8_t Serial_peek() {
     if (!meter_desc[num].meter_ss) return 0;
     return meter_desc[num].meter_ss->peek();
   } else {
-    return meter_desc[num].client.peek();
+    return meter_desc[num].client->peek();
   }
 }
 
@@ -1241,7 +1244,7 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
   if (mp->srcpin != TCP_MODE_FLG) {
     iob = (uint8_t)mp->meter_ss->read(); 
   } else {
-    iob = (uint8_t)mp->client.read();
+    iob = (uint8_t)mp->client->read();
   }
 
   switch (mp->type) {
@@ -1332,7 +1335,7 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
           if (mp->spos == 6 + tlen) {
             mp->spos = 0;
             SML_Decode(meters);
-            mp->client.flush();
+            mp->client->flush();
             //Hexdump(mp->sbuff + 6, 10);
           }
         }
@@ -1432,7 +1435,7 @@ uint32_t meters;
           }
         } else {
 #ifdef USE_SML_TCP          
-          while (mp->client.available()){
+          while (mp->client->available()){
             sml_shift_in(meters, 0);
           }
 #endif
@@ -3067,7 +3070,14 @@ next_line:
       if (mp->srcpin == TCP_MODE_FLG) {
 #ifdef USE_SML_TCP
         // tcp mode
-        int32_t err = mp->client.connect(mp->ip_addr, mp->params);
+#ifdef TCP_CLIENT_SECURE
+        mp->client = new WiFiClientSecure;
+        //client(new BearSSL::WiFiClientSecure_light(1024,1024)) {
+        mp->client->setInsecure();
+#else        
+        mp->client = new WiFiClient;
+#endif
+        int32_t err = mp->client->connect(mp->ip_addr, mp->params);
         if (!err) {
           AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP to %s"),mp->ip_addr.toString().c_str());
         }
@@ -3562,8 +3572,8 @@ for (uint8_t cnt = 0; cnt < slen - 3; cnt++) {
 
 #ifdef USE_SML_TCP
  // AddLog(LOG_LEVEL_INFO, PSTR("slen >> %d "),slen);
-  if (meter_desc[meter].client.connected()) {
-    meter_desc[meter].client.write((uint8_t*)&tcph, 7 + slen - 3);
+  if (meter_desc[meter].client->connected()) {
+    meter_desc[meter].client->write((uint8_t*)&tcph, 7 + slen - 3);
   }
 #endif
 }
