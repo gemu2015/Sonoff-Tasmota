@@ -77,7 +77,7 @@ void EpdInitDriver29(void) {
     renderer->setTextColor(1,0);
 
 #ifdef SHOW_SPLASH
-    if (!Settings->flag5.display_no_splash) {
+    //if (!Settings->flag5.display_no_splash) {
       // Welcome text
       delay(100);
       renderer->setTextFont(1);
@@ -85,7 +85,7 @@ void EpdInitDriver29(void) {
       renderer->Updateframe();
       delay(1000);
       renderer->fillScreen(0);
-    }
+   // }
 #endif
 
     epd_init_done = true;
