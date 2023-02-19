@@ -1094,9 +1094,9 @@ uint32_t size;
 // 32 bytes header
 typedef struct {
   uint32_t sync;
-  uint8_t arch; // architecture EPS8266, ESP32 variants
-  uint8_t type; // language 
-  uint16_t revision;
+  uint32_t arch; // architecture EPS8266, ESP32 variants
+  uint32_t type; 
+  uint32_t revision;
   char name[16];
   uint32_t size; // size of payload
   uint16_t execution_offset; // execution offset, normally 32
@@ -1137,7 +1137,7 @@ int32_t flash_bindir(uint8_t sel, char *path) {
 #ifdef ESP8266
       {
         uint32_t chipsize = ESP.getFlashChipSize();
-        bindir.address =  ESP_getSketchSize();
+        bindir.address =  (ESP_getSketchSize() + SPI_FLASH_SEC_SIZE) & (SPI_FLASH_SEC_SIZE-1^0xffffffff);
         bindir.size = ESP.getFreeSketchSpace();
       }
 #endif
