@@ -399,12 +399,13 @@ int8_t cs;
         cp++;
         irqpin = strtol(cp, &cp, 10);
       }
-      uint8_t bus = 0;
+      uint8_t bus = 1;
       if (*cp == ',') {
         cp++;
         bus = strtol(cp, &cp, 10);
+        if (bus < 1) bus = 1;
       }
-	    XPT2046_Touch_Init(touch_cs, irqpin, bus);
+	    XPT2046_Touch_Init(touch_cs, irqpin, bus - 1);
     }
 #endif // USE_XPT2046
 

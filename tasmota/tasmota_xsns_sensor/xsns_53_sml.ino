@@ -85,6 +85,11 @@
 #define USE_SML_TCP
 #endif
 
+#ifndef NO_SML_OBIS_LINE
+// obis in line mode
+#define SML_OBIS_LINE
+#endif
+
 // median filter eliminates outliers, but uses much RAM and CPU cycles
 // 672 bytes extra RAM with SML_MAX_VARS = 16
 // default compile on, but must be enabled by descriptor flag 16
@@ -1440,14 +1445,6 @@ uint32_t meters;
           }
 #endif
         }
-/*
-				if (meter_desc[meters].meter_ss->available()) {
-					sml_count++;
-					uint8_t iob = meter_desc[meters].meter_ss->read();
-					if (sml_count<5 || sml_count > 100) {
-					AddLog(LOG_LEVEL_INFO, PSTR(">> %02x - %d"),iob,sml_count);
-				}
-			}*/
       }
     }
 }
@@ -1718,6 +1715,11 @@ void SML_Decode(uint8_t index) {
       double ebus_dval = 99;
       double mbus_dval = 99;
       while (*mp != '@') {
+        if (found == 0) {
+          // skip rest of decoder part
+          mp++;
+          continue;
+        }
         if (sml_globs.mp[mindex].type == 'o' || sml_globs.mp[mindex].type == 'c') {
           if (*mp++ != *cp++) {
             found=0;
