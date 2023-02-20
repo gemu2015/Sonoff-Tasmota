@@ -632,7 +632,7 @@ void sml_dump_start(char c) {
 
 
 #define SML_EBUS_SKIP_SYNC_DUMPS
-uint8_t *hdlc_decode(struct METER_DESC *mp, uint16_t *size);
+
 
 void dump2log(void) {
   int16_t index = 0, hcnt = 0;
@@ -3079,7 +3079,7 @@ next_line:
 #endif
         int32_t err = mp->client->connect(mp->ip_addr, mp->params);
         if (!err) {
-          AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP to %s"),mp->ip_addr.toString().c_str());
+          AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP to %s:%d"),mp->ip_addr.toString().c_str(), mp->params);
         }
 #endif
       } else {
