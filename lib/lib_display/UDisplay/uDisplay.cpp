@@ -28,7 +28,7 @@
 extern int Cache_WriteBack_Addr(uint32_t addr, uint32_t size);
 
 
-//#define UDSP_DEBUG
+#define UDSP_DEBUG
 
 #define renderer_swap(a, b) { int16_t t = a; a = b; b = t; }
 
@@ -645,6 +645,7 @@ void uDisplay::delay_arg(uint32_t args) {
 #define EP_SEND_FRAME 0x68
 #define EP_BREAK_RR_EQU 0x69
 #define EP_BREAK_RR_NEQ 0x6a
+#define EP_ESCAPE 0x6b
 
 extern int32_t ESP_ResetInfoReason();
 
@@ -659,7 +660,13 @@ uint16_t index = 0;
     iob = dsp_cmds[cmd_offset++];
     index++;
     if (ep_mode == 1 && iob >= EP_RESET) {
+      Serial.printf("esc %02x", iob);
       // epaper pseudo opcodes
+      if (iob == EP_ESCAPE) {
+        iob = dsp_cmds[cmd_offset++];
+        index++;
+        goto docmd;
+      }
       uint8_t args = dsp_cmds[cmd_offset++];
       index++;
 #ifdef UDSP_DEBUG
@@ -735,6 +742,7 @@ uint16_t index = 0;
         delay_arg(args);
       }
     } else {
+docmd:      
       ulcd_command(iob);
       uint8_t args = dsp_cmds[cmd_offset++];
       index++;
