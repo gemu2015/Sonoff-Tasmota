@@ -94,9 +94,16 @@ typedef struct {
 #endif
 #define fldsiz(name, field) (sizeof(((name *)0)->field))
 
-#define MODULE_DESC __attribute__((section(".text.mod_desc"))) extern const FLASH_MODULE
-#define MODULE_PART __attribute__((section(".text.mod_part")))
-#define MODULE_END __attribute__((section(".text.mod_end"))) void  end_of_module(void) {__asm__ __volatile__(".word 0x4AFCAA55");}
+// linker sections
+#define SECTION_DESC ".text.mod_desc"
+#define SECTION_STRING text.mod_string
+#define SECTION_PART ".text.mod_part"
+#define SECTION_END ".text.mod_end"
+//KEEP (*(SORT(.text.mod.*)))
+
+//#define MODULE_DESC __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE
+#define MODULE_PART __attribute__((section(SECTION_PART)))
+#define MODULE_END __attribute__((section(SECTION_END))) void  end_of_module(void) {__asm__ __volatile__(".word 0x4AFCAA55");}
 
 #define CAT2(a,b) a##b
 #define CAT(a,b) CAT2(a,b)
@@ -125,7 +132,7 @@ typedef struct {
 #endif
 
 
-#define XPSTR(TEXT) __extension__( {  __asm__  ( ".section .text.mod_string\n .align 4\n .global _xxx\n _xxx: .asciz " #TEXT "\n.section .text.mod_part" );  (const char *)_xxx;  } )
+//#define XPSTR(TEXT) __extension__( {  __asm__  ( ".section .text.mod_string\n .align 4\n .global _xxx\n _xxx: .asciz " #TEXT "\n.section .text.mod_part" );  (const char *)_xxx;  } )
 
 
 
@@ -164,11 +171,11 @@ void _copy32(uint32_t *src, uint32_t *dst) {
 #define SETREGS MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
 #define ALLOCMEM void (* const *jt)() = mt->jt;mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;
 #define RETMEM if (mt->mem_size) {jfree(mt->mod_memory);mt->mem_size = 0;}
-#define MODULE_SYNC_END __attribute__((section(".text.mod_end"))); __asm__ __volatile__ (".align 4");
-#define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(".text.mod_desc"))) extern const FLASH_MODULE module_header = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,end_of_module,0,0,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
+//#define MODULE_SYNC_END __attribute__((section(".text.mod_end"))); __asm__ __volatile__ (".align 4");
+#define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE module_header = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,end_of_module,0,0,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
 #define MOD_FUNC(A, ...) A(MODULES_TABLE *mt, ##__VA_ARGS__)
 #define CALL_MOD_FUNC(A, ...) A(mt, ##__VA_ARGS__)
-#define MODULE_STORAGE(IND,NAME,VALUE)  __attribute__((section(".text.mod_desc"))) extern const MODULE_STORE storage[IND] = {NAME,VALUE};
+//#define MODULE_STORAGE(IND,NAME,VALUE)  __attribute__((section(SECTION_DESC))) extern const MODULE_STORE storage[IND] = {NAME,VALUE};
 
 
 typedef struct {
