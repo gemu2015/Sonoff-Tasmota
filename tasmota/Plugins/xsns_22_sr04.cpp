@@ -17,7 +17,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifdef USE_SR04
+#ifdef USE_SR04_MOD
 /*********************************************************************************************\
  * HC-SR04, HC-SR04+, JSN-SR04T - Ultrasonic distance sensor
  *

@@ -117,6 +117,23 @@ typedef struct {
   #LABEL": .asciz "#TEXT" \n"\
 );
 
+//#define PSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[0];}))
+//#define PROGMEM  __attribute__((section(".irom.text")))
+
+//extern "C" {const char *murks(void);}
+
+#define MERGE_(a,b)  a##b
+#define LABEL_(a) MERGE_(lbl_, a)
+#define UNAME LABEL_(__LINE__)
+#define SUNAME "UNAME"
+
+#define xPSTR(TEXT) (__extension__({ __asm__  (".section .text.mod_string\n.align 4\n.global " UNAME "\n" UNAME " : .asciz "#TEXT" \n");\
+ __asm__  (".section .text.mod_part\n"); extern const char UNAME[0];  &UNAME[0]; }))
+
+#undef PROGMEM
+#define PROGMEM  __attribute__((section(".text.mod_string"),aligned(4)))
+#define yPSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[0];}))
+
 #define GPSTR(VAR,FUNC) const char *VAR = (const char*)&FUNC + mt->execution_offset; fshowhex((uint32_t)VAR);
 //#define jPSTR(LABEL) (__extension__({ (const char *)&LABEL[0]+mt->execution_offset;}))
 

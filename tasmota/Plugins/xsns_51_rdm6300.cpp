@@ -17,7 +17,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifdef USE_RDM6300
+#ifdef USE_RDM6300_MOD
 /*********************************************************************************************\
  * Seeed studio Grove / RDM630 / RDM6300 125kHz rfid reader
  *

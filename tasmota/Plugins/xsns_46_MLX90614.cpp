@@ -22,6 +22,8 @@
 #include "module.h"
 #include "module_defines.h"
 
+#define XSNS_46       46
+
 #define MLX90614_REV  1<<16|1
 
 //#pragma GCC optimize ("O0")
@@ -71,6 +73,7 @@ DPSTR(HTTP_IRTMP,"{s}MXL90614 OBJ-TEMP{m}%s C{e} {s}MXL90614 AMB-TEMP {m}%s C{e}
 DPSTR(JSON_IRTMP,",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}");
 DPSTR(mlxdev,"MLX90614");
 
+const char murks[] PROGMEM = "hallo welt";
 
 int32_t MOD_FUNC(Init_MLX90614) {
   ALLOCMEM
@@ -83,13 +86,14 @@ int32_t MOD_FUNC(Init_MLX90614) {
 
   // now init variables here
   ready = false;
-  //sprint(PSTR(mlxdev));
+  sprint(yPSTR("alles mist"));
 
   if (!I2cSetDevice(I2_ADR_IRT)) {
     CALL_MOD_FUNC(MLX90614_Deinit);
     return -1;
   }
-  I2cSetActiveFound(I2_ADR_IRT, PSTR(mlxdev), 0);
+  //I2cSetActiveFound(I2_ADR_IRT, PSTR(mlxdev), 0);
+  I2cSetActiveFound(I2_ADR_IRT, yPSTR("wie gehts"), 0);
   mt->flags.initialized = true;
   ready = true;
   return ready;
@@ -120,7 +124,6 @@ float MOD_FUNC(MLX90614_GetValue, uint32_t reg) {
   return ret;
 }
 
-
 void MOD_FUNC(MLX90614_Show, uint32_t json) {
   SETREGS
 
@@ -131,7 +134,6 @@ SETTINGS *jsettings = mt->settings;
   ftostrfd(obj_temp, jsettings->flag2.temperature_resolution, obj_tstr);
   char amb_tstr[16];
   ftostrfd(amb_temp, jsettings->flag2.temperature_resolution, amb_tstr);
-
   if (json) {
     ResponseAppend_P(PSTR(JSON_IRTMP), obj_tstr, amb_tstr);
   } else {
