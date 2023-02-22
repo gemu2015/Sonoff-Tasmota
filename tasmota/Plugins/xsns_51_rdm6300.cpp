@@ -16,8 +16,15 @@
   You should have received a copy of the GNU General Public License
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
+#include "tasmota_options.h"
+
 
 #ifdef USE_RDM6300_MOD
+
+#include "module.h"
+#include "module_defines.h"
+
+
 /*********************************************************************************************\
  * Seeed studio Grove / RDM630 / RDM6300 125kHz rfid reader
  *
@@ -30,21 +37,50 @@
 
 #define XSNS_51            51
 
+#define RDM6300_DEFAULT_REC_PIN 5
 #define RDM6300_BAUDRATE   9600
 #define RDM_TIMEOUT        100
 #define RDM6300_BLOCK      2 * 10   // 2 seconds block time
 
-#include <TasmotaSerial.h>
-TasmotaSerial *RDM6300Serial = nullptr;
 
-struct {
-  uint32_t uid = 0;
-  uint8_t block_time = 0;
+#define RDM6300_REV 1<<16
+
+MODULE_DESCRIPTOR("RDM6300",MODULE_TYPE_SENSOR,RDM6300_REV,"REC",RDM6300_DEFAULT_REC_PIN,"",0,"",0,"",0)
+
+// all functions must be declared MUDULE_PART
+MODULE_PART uint8_t MOD_FUNC(RDM6300_HexNibble, char chr);
+MODULE_PART void MOD_FUNC(RDM6300_HexStringToArray, uint8_t array[], uint8_t len, char buffer[]);
+MODULE_PART int32_t MOD_FUNC(RDM6300_Init);
+MODULE_PART void MOD_FUNC(RDM6300_Deinit);
+MODULE_PART void MOD_FUNC(RDM6300_ScanForTag);
+void MOD_FUNC(RDM6300_Show);
+MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
+
+MODULE_END
+
+DPSTR(started,"mp3 inizialized with TRX pin %d");
+
+typedef struct {
+  uint32_t uid;
+  uint8_t block_time;
 } Rdm;
+
+typedef struct {
+  Rdm rdm;
+  void *ts;
+  int8_t recpin;
+  uint8_t ready;
+} MODULE_MEMORY;
+
+#define rdm mem->rdm
+#define ts mem->ts
+#define recpin mem->recpin
+#define ready mem->ready
 
 /********************************************************************************************/
 
-uint8_t RDM6300HexNibble(char chr) {
+uint8_t MOD_FUNC(RDM6300_HexNibble, char chr) {
+  SETREGS
   uint8_t rVal = 0;
   if (isdigit(chr)) { rVal = chr - '0'; }
   else if (chr >= 'A' && chr <= 'F') { rVal = chr + 10 - 'A'; }
@@ -53,41 +89,54 @@ uint8_t RDM6300HexNibble(char chr) {
 }
 
 // Convert hex string to int array
-void RDM6300HexStringToArray(uint8_t array[], uint8_t len, char buffer[]) {
+void MOD_FUNC(RDM6300_HexStringToArray, uint8_t array[], uint8_t len, char buffer[]) {
+  SETREGS
   char *cp = buffer;
   for (uint32_t i = 0; i < len; i++) {
-    uint8_t val = RDM6300HexNibble(*cp++) << 4;
-    array[i] = val | RDM6300HexNibble(*cp++);
+    uint8_t val = CALL_MOD_FUNC(RDM6300_HexNibble, *cp++) << 4;
+    array[i] = val | CALL_MOD_FUNC(RDM6300_HexNibble, *cp++);
   }
 }
 
 /********************************************************************************************/
 
-void RDM6300Init() {
-  if (PinUsed(GPIO_RDM6300_RX)) {
-    RDM6300Serial = new TasmotaSerial(Pin(GPIO_RDM6300_RX), -1, 1);
-    if (RDM6300Serial->begin(RDM6300_BAUDRATE)) {
-      if (RDM6300Serial->hardwareSerial()) {
-        ClaimSerial();
-      }
+int32_t MOD_FUNC(RDM6300_Init) {
+  ALLOCMEM
+
+  ready = false;
+  recpin = mp->ms[0].value;
+
+  ts = NewTS(recpin, -1);
+
+  if (ts) {
+    if (beginTS(ts, RDM6300_BAUDRATE)) {
+      //if (ts->hardwareSerial()) {
+      //  ClaimSerial();
+      //}
+      initialized = true;
+      ready = true;
+      return 0;
     }
   }
+  CALL_MOD_FUNC(Sr04T_Deinit);
+  return -1;
 }
 
-void RDM6300ScanForTag() {
-  if (!RDM6300Serial) { return; }
+void MOD_FUNC(RDM6300_ScanForTag) {
+  SETREGS
+  if (!ready) { return; }
 
   if (Rdm.block_time > 0) {
     Rdm.block_time--;
-    while (RDM6300Serial->available()) {
-      RDM6300Serial->read();               // Flush serial buffer
+    while (availTS(ts)) {
+      readbTS(ts);               // Flush serial buffer
     }
     return;
   }
 
-  if (RDM6300Serial->available()) {
+  if (availTS(ts)) {
 
-    char c = RDM6300Serial->read();
+    char c = readbTS(ts);
     if (c != 2) { return; }                // Head marker
 
     // read rest of message 11 more bytes
@@ -98,8 +147,8 @@ void RDM6300ScanForTag() {
 
     uint32_t cmillis = millis();
     while (1) {
-      if (RDM6300Serial->available()) {
-        c = RDM6300Serial->read();
+      if (availTS(ts)) {
+        c = readbTS(ts);
         rdm_buffer[rdm_index++] = c;
 
         if (3 == c) { break; }             // Tail marker
@@ -117,7 +166,7 @@ void RDM6300ScanForTag() {
     Rdm.block_time = RDM6300_BLOCK;        // Block for 2 seconds
 
     uint8_t rdm_array[6];
-    RDM6300HexStringToArray(rdm_array, sizeof(rdm_array), (char*)rdm_buffer +1);
+    CALL_MOD_FUNC(RDM6300_HexStringToArray, rdm_array, sizeof(rdm_array), (char*)rdm_buffer +1);
     uint8_t accu = 0;
     for (uint32_t count = 0; count < 5; count++) {
       accu ^= rdm_array[count];            // Calc checksum,
@@ -134,32 +183,36 @@ void RDM6300ScanForTag() {
   }
 }
 
-#ifdef USE_WEBSERVER
-void RDM6300Show(void) {
-  if (!RDM6300Serial) { return; }
+
+void MOD_FUNC(RDM6300_Show) {
+  SETREGS
+  if (!ready) { return; }
   WSContentSend_PD(PSTR("{s}RDM6300 UID{m}%08X {e}"), Rdm.uid);
 }
-#endif  // USE_WEBSERVER
 
+void MOD_FUNC(RDM6300_Deinit) {
+  SETREGS
+  if (ts) deleteTS(ts);
+  ts = nullptr;
+  RETMEM
+}
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
 
-bool Xsns51(uint32_t function) {
+int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
   bool result = false;
 
   switch (function) {
     case FUNC_INIT:
-      RDM6300Init();
+      CALL_MOD_FUNC(RDM6300_Init);
       break;
     case FUNC_EVERY_100_MSECOND:
-      RDM6300ScanForTag();
+      CALL_MOD_FUNC(RDM6300_ScanForTag);
       break;
-#ifdef USE_WEBSERVER
     case FUNC_WEB_SENSOR:
-      RDM6300Show();
+      CALL_MOD_FUNC(RDM6300_Show);
       break;
-#endif  // USE_WEBSERVER
   }
   return result;
 }

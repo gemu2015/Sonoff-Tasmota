@@ -450,6 +450,10 @@ struct METER_DESC {
 #else
   WiFiClient *client;
 #endif
+
+#ifdef ESP32
+  int8_t uart_index;
+#endif
 #endif
 };
 
@@ -2612,6 +2616,11 @@ struct METER_DESC *mp = &meter_desc[mnum];
 		case '6':
 			cp += 2;
 			mp->tout_ms = strtol(cp, &cp, 10);
+  	case '7':
+			cp += 2;
+#ifdef ESP32     
+			mp->uart_index = strtol(cp, &cp, 10);
+#endif
 			break;
 #endif
 #endif
@@ -2694,6 +2703,10 @@ void reset_sml_vars(uint16_t maxmeters) {
 		mp->lastms = millis();
 		mp->tout_ms = SML_STIMEOUT;
 
+#ifdef ESP32
+    mp->uart_index = -1
+#endif
+
 #ifdef USE_SML_DECRYPT
 		if (mp->use_crypt) {
 			if (mp->hp) {
@@ -2770,6 +2783,10 @@ void SML_Init(void) {
   int8_t srcpin = 0;
   uint32_t mlen;
 	uint16_t memory = 0;
+
+#ifdef ESP32
+  uint32_t uart_index = SOC_UART_NUM - 1;
+#endif
 
   sml_globs.sml_send_blocks = 0;
   lp = glob_script_mem.section_ptr;
@@ -3035,9 +3052,7 @@ next_line:
       RtcSettings.pulse_counter[i] = Settings->pulse_counter[i];
       sml_counters[i].sml_cnt_last_ts = millis();
   }
-#ifdef ESP32
-  uint32_t uart_index = SOC_UART_NUM - 1;
-#endif
+
   sml_counter_pinstate = 0;
   for (uint8_t meters = 0; meters < sml_globs.meters_used; meters++) {
     METER_DESC *mp = &meter_desc[meters];
@@ -3101,6 +3116,9 @@ next_line:
 
 #ifdef ESP32
         // use hardware serial
+        if (mp->uart_index >= 0) {
+          uart_index = mp->uart_index;
+        }
 #ifdef USE_ESP32_SW_SERIAL
         mp->meter_ss = new SML_ESP32_SERIAL(uart_index);
         if (mp->srcpin >= 0) {

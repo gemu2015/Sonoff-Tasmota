@@ -2008,6 +2008,7 @@ uint8_t script_hexnibble(char chr) {
   return rVal;
 }
 
+
 #ifdef USE_LIGHT
 uint32_t HSVToRGB(uint16_t hue, uint8_t saturation, uint8_t value) {
 TS_FLOAT r = 0, g = 0, b = 0;
