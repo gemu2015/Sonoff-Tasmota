@@ -5929,9 +5929,12 @@ char *ForceStringVar(char *lp, char *dstr) {
 }
 
 #ifdef USE_HOMEKIT
+
+int32_t UpdVar(char *vname, float *fvar, uint32_t mode);
+
 extern "C" {
-  uint32_t Ext_UpdVar(char *vname, TS_FLOAT *fvar, uint32_t mode);
-  uint32_t Ext_UpdVar(char *vname, TS_FLOAT *fvar, uint32_t mode) {
+
+  uint32_t Ext_UpdVar(char *vname, float *fvar, uint32_t mode) {
     return UpdVar(vname, fvar, mode);
   }
   void Ext_toLog(char *str) {
@@ -5942,8 +5945,8 @@ extern "C" {
     return SettingsText(SET_FRIENDLYNAME1);
   }
 }
-int32_t UpdVar(char *vname, TS_FLOAT *fvar, uint32_t mode);
-int32_t UpdVar(char *vname, TS_FLOAT *fvar, uint32_t mode) {
+
+int32_t UpdVar(char *vname, float *fvar, uint32_t mode) {
   uint8_t type;
   uint8_t index;
   if (*vname == '@') {
