@@ -98,7 +98,7 @@ void tmod_deleteTS(TasmotaSerial *ts);
 size_t tmod_readTS(TasmotaSerial *ts, char *buf, uint32_t size);
 uint8_t tmod_read1TS(TasmotaSerial *ts);
 uint8_t tmod_availTS(TasmotaSerial *ts);
-
+bool hardwareSerialTS(TasmotaSerial *ts);
 
 #define JMPTBL (void (*)())
 // this vector table table must contain all api calls needed by module
@@ -180,8 +180,16 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_deleteTS,
   JMPTBL&tmod_readTS,
   JMPTBL&tmod_read1TS,
-  JMPTBL&tmod_availTS
+  JMPTBL&tmod_availTS,
+  JMPTBL&MqttPublishTeleSensor,
+  JMPTBL&strtoul,
+  JMPTBL&AddLogBuffer,
+  JMPTBL&ResponseTime_P,
+  JMPTBL&ClaimSerial,
+  JMPTBL&hardwareSerialTS,
+  JMPTBL&millis
 };
+
 
 
 // some helper functions
@@ -283,9 +291,12 @@ uint8_t tmod_availTS(TasmotaSerial *ts) {
   return ts->available();
 }
 
-
 void tmod_flushTS(TasmotaSerial *ts) {
-  ts->flush();
+  return ts->flush();
+}
+
+bool hardwareSerialTS(TasmotaSerial *ts) {
+ return  ts->hardwareSerial();
 }
 
 uint32_t GetTasmotaGlobal(uint32_t sel) {

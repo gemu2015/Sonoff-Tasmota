@@ -58,7 +58,9 @@ MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
 
 MODULE_END
 
-DPSTR(started,"mp3 inizialized with TRX pin %d");
+DPSTR(started,"RDM6300 inizialized with TRX pin %d");
+DPSTR(HHTP_UID,"{s}RDM6300 UID{m}%08X {e}");
+DPSTR(JSON_UID,",\"RDM6300\":{\"UID\":\"%08X\"}}");
 
 typedef struct {
   uint32_t uid;
@@ -110,15 +112,16 @@ int32_t MOD_FUNC(RDM6300_Init) {
 
   if (ts) {
     if (beginTS(ts, RDM6300_BAUDRATE)) {
-      //if (ts->hardwareSerial()) {
-      //  ClaimSerial();
-      //}
+      if (hardwareSerial(ts)) {
+        ClaimSerial();
+      }
+      AddLog(LOG_LEVEL_INFO, PSTR(started), recpin);
       initialized = true;
       ready = true;
       return 0;
     }
   }
-  CALL_MOD_FUNC(Sr04T_Deinit);
+  CALL_MOD_FUNC(RDM6300_Deinit);
   return -1;
 }
 
@@ -126,8 +129,8 @@ void MOD_FUNC(RDM6300_ScanForTag) {
   SETREGS
   if (!ready) { return; }
 
-  if (Rdm.block_time > 0) {
-    Rdm.block_time--;
+  if (rdm.block_time > 0) {
+    rdm.block_time--;
     while (availTS(ts)) {
       readbTS(ts);               // Flush serial buffer
     }
@@ -163,7 +166,7 @@ void MOD_FUNC(RDM6300_ScanForTag) {
 
     if (rdm_buffer[13] != 3) { return; }   // Tail marker
 
-    Rdm.block_time = RDM6300_BLOCK;        // Block for 2 seconds
+    rdm.block_time = RDM6300_BLOCK;        // Block for 2 seconds
 
     uint8_t rdm_array[6];
     CALL_MOD_FUNC(RDM6300_HexStringToArray, rdm_array, sizeof(rdm_array), (char*)rdm_buffer +1);
@@ -176,18 +179,17 @@ void MOD_FUNC(RDM6300_ScanForTag) {
     rdm_buffer[11] = '\0';
     uint32_t uid = strtoul(rdm_buffer +3, nullptr, 16);
     if (uid > 0) {                         // Ignore false positive all zeros
-      Rdm.uid = uid;
-      ResponseTime_P(PSTR(",\"RDM6300\":{\"UID\":\"%08X\"}}"), Rdm.uid);
+      rdm.uid = uid;
+      ResponseTime_P(PSTR(JSON_UID), rdm.uid);
       MqttPublishTeleSensor();
     }
   }
 }
 
-
 void MOD_FUNC(RDM6300_Show) {
   SETREGS
   if (!ready) { return; }
-  WSContentSend_PD(PSTR("{s}RDM6300 UID{m}%08X {e}"), Rdm.uid);
+  WSContentSend_PD(PSTR(HHTP_UID), rdm.uid);
 }
 
 void MOD_FUNC(RDM6300_Deinit) {
@@ -203,7 +205,7 @@ void MOD_FUNC(RDM6300_Deinit) {
 int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
   bool result = false;
 
-  switch (function) {
+  switch (sel) {
     case FUNC_INIT:
       CALL_MOD_FUNC(RDM6300_Init);
       break;

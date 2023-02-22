@@ -84,6 +84,14 @@ typedef struct {
 #define jreadTS(TSER,BUF,SIZE)          (( size_t (*)(void*,uint8_t*,uint32_t) )       jt[64])(TSER,BUF,SIZE)
 #define jread1TS(TSER)                  (( uint8_t (*)(void*) )                        jt[65])(TSER)
 #define javailTS(TSER)                  (( uint8_t (*)(void*) )                        jt[66])(TSER)
+#define jMqttPublishTeleSensor          (( void (*)(void) )                            jt[67])
+#define jstrtoul(A,B,C)                 (( uint32_t (*)(const char *,char **, int) )   jt[68])(A,B,C)
+#define jAddLogBuffer(A,B,C)            (( void (*)(uint32_t,uint8_t*, uint32_t) )     jt[69])(A,B,C)
+#define jResponseTime_P(...)            (( int (*)(const char*, ...) )                 jt[70])(__VA_ARGS__)
+#define jClaimSerial                    (( void (*)(void) )                            jt[71])
+#define jhardwareSerial(TSER)           (( bool (*)(void*) )                           jt[72])(TSER)
+#define jmillis                         (( uint32_t (*)(void) )                        jt[73])
+
 
 
 
@@ -264,3 +272,10 @@ typedef struct {
 #define   availTS javailTS
 #define   IndexSeparator jIndexSeparator
 #define   AddLog jAddLog
+#define   MqttPublishTeleSensor jMqttPublishTeleSensor
+#define   strtoul jstrtoul
+#define   AddLogBuffer jAddLogBuffer
+#define   ResponseTime_P jResponseTime_P
+#define   ClaimSerial jClaimSerial
+#define   hardwareSerial jhardwareSerial
+#define   millis jmillis
