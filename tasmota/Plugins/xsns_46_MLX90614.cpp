@@ -73,7 +73,7 @@ DPSTR(HTTP_IRTMP,"{s}MXL90614 OBJ-TEMP{m}%s C{e} {s}MXL90614 AMB-TEMP {m}%s C{e}
 DPSTR(JSON_IRTMP,",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}");
 DPSTR(mlxdev,"MLX90614");
 
-const char murks[] PROGMEM = "hallo welt";
+//const char murks[] PROGMEM = "hallo welt";
 
 int32_t MOD_FUNC(Init_MLX90614) {
   ALLOCMEM
@@ -86,15 +86,15 @@ int32_t MOD_FUNC(Init_MLX90614) {
 
   // now init variables here
   ready = false;
-  sprint(yPSTR("alles mist"));
+  //sprint(yPSTR("Hallo"));
 
   if (!I2cSetDevice(I2_ADR_IRT)) {
     CALL_MOD_FUNC(MLX90614_Deinit);
     return -1;
   }
-  //I2cSetActiveFound(I2_ADR_IRT, PSTR(mlxdev), 0);
-  I2cSetActiveFound(I2_ADR_IRT, yPSTR("wie gehts"), 0);
-  mt->flags.initialized = true;
+  I2cSetActiveFound(I2_ADR_IRT, PSTR(mlxdev), 0);
+  //I2cSetActiveFound(I2_ADR_IRT, yPSTR("wie gehts"), 0);
+  initialized = true;
   ready = true;
   return ready;
 }

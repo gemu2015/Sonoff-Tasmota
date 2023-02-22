@@ -96,6 +96,9 @@ void tmod_writeTS(TasmotaSerial *ts, char *buf, uint32_t size);
 void tmod_flushTS(TasmotaSerial *ts);
 void tmod_deleteTS(TasmotaSerial *ts);
 size_t tmod_readTS(TasmotaSerial *ts, char *buf, uint32_t size);
+uint8_t tmod_read1TS(TasmotaSerial *ts);
+uint8_t tmod_availTS(TasmotaSerial *ts);
+
 
 #define JMPTBL (void (*)())
 // this vector table table must contain all api calls needed by module
@@ -175,7 +178,9 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&toupper,
   JMPTBL&iscale,
   JMPTBL&tmod_deleteTS,
-  JMPTBL&tmod_readTS
+  JMPTBL&tmod_readTS,
+  JMPTBL&tmod_read1TS,
+  JMPTBL&tmod_availTS
 };
 
 
@@ -269,6 +274,15 @@ void tmod_writeTS(TasmotaSerial *ts, char *buf, uint32_t size) {
 size_t tmod_readTS(TasmotaSerial *ts, char *buf, uint32_t size) {
   return ts->read(buf, size);
 }
+
+uint8_t tmod_read1TS(TasmotaSerial *ts) {
+  return ts->read();
+}
+
+uint8_t tmod_availTS(TasmotaSerial *ts) {
+  return ts->available();
+}
+
 
 void tmod_flushTS(TasmotaSerial *ts) {
   ts->flush();
@@ -517,17 +531,30 @@ uint32_t eeprom_block;
   uint32_t *lp = (uint32_t*) ( aoffset + free_flash_start );
   for (uint32_t addr = free_flash_start; addr < free_flash_end; addr += SPI_FLASH_SEC_SIZE) {
       //AddLog(LOG_LEVEL_INFO,PSTR("addr, sync %08x: %08x: %04x"),addr,(uint32_t)lp, *lp);
-      if (*lp != MODULE_SYNC) {
-        // free module space
-        eeprom_block = addr;
-        break;
-      } else {
+      if (*lp == MODULE_SYNC) {
+        // check if name is equal
+        FLASH_MODULE fm;
+        uint32_t *fp = (uint32_t*)&fm;
+        for (uint8_t cnt = 0; cnt < sizeof(FLASH_MODULE)/4; cnt++) {
+          fp[cnt] = lp[cnt];
+        }
+        const FLASH_MODULE *fd = (FLASH_MODULE*)fdesc;
+        if (!strcmp(fm.name, fd->name)) {
+          // module already exists
+          //eeprom_block = addr;
+          //break;
+        }
         // skip address by module size
-        const FLASH_MODULE *fm = (FLASH_MODULE*)addr;
-        uint32_t modsize = fm->size;
+        const FLASH_MODULE *fr = (FLASH_MODULE*)addr;
+        uint32_t modsize = fr->size;
         if (modsize > SPI_FLASH_SEC_SIZE) {
           // must align and increment addr
         }
+      } else {
+        exit:
+        // free module space
+        eeprom_block = addr;
+        break;
       }
       lp += SPI_FLASH_SEC_SIZE/4;
   }

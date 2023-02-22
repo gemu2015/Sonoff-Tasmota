@@ -82,6 +82,8 @@ typedef struct {
 #define jiscale(A,B,C)                  (( int32_t (*)(int32_t, int32_t, int32_t) )    jt[62])(A,B,C)
 #define jdeleteTS(TSER)                 (( void (*)(void*) )                           jt[63])(TSER)
 #define jreadTS(TSER,BUF,SIZE)          (( size_t (*)(void*,uint8_t*,uint32_t) )       jt[64])(TSER,BUF,SIZE)
+#define jread1TS(TSER)                  (( uint8_t (*)(void*) )                        jt[65])(TSER)
+#define javailTS(TSER)                  (( uint8_t (*)(void*) )                        jt[66])(TSER)
 
 
 
@@ -186,7 +188,7 @@ void _copy32(uint32_t *src, uint32_t *dst) {
 //#define PACK4(c1,c2,c3,c4,...) ( SHIFT(c1,24) | SHIFT(c2,16) | SHIFT(c3,8) | SHIFT(c4,0) )
 
 #define SETREGS MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
-#define ALLOCMEM void (* const *jt)() = mt->jt;mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;
+#define ALLOCMEM void (* const *jt)() = mt->jt;mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
 #define RETMEM if (mt->mem_size) {jfree(mt->mod_memory);mt->mem_size = 0;}
 //#define MODULE_SYNC_END __attribute__((section(".text.mod_end"))); __asm__ __volatile__ (".align 4");
 #define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE module_header = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,end_of_module,0,0,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
@@ -205,7 +207,8 @@ typedef struct {
 
 #define INITWIRE(A) A->xbeginTransmission = ( void (*)(uint8_t) ) jt[12];A->xendTransmission = ( uint8_t (*)(bool) ) jt[14];A->xread = ( uint8_t (*)() ) jt[16];A->xwrite = ( void (*)(uint8_t) ) jt[13];A->xrequestFrom = ( void (*)(uint8_t,uint8_t) ) jt[15];
 
-
+#define initialized mt->flags.initialized
+#define TasmotaSerial  void
 #define TwoWire xTwoWire
 
 #define   beginTransmission(ADDR) jbeginTransmission(jWire, ADDR)
@@ -257,5 +260,7 @@ typedef struct {
 #define   iscale jiscale
 #define   deleteTS jdeleteTS
 #define   readTS jreadTS
+#define   readbTS jread1TS
+#define   availTS javailTS
 #define   IndexSeparator jIndexSeparator
 #define   AddLog jAddLog
