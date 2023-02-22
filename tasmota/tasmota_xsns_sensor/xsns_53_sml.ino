@@ -2708,7 +2708,7 @@ void reset_sml_vars(uint16_t maxmeters) {
 		mp->tout_ms = SML_STIMEOUT;
 
 #ifdef ESP32
-    mp->uart_index = -1
+    mp->uart_index = -1;
 #endif
 
 #ifdef USE_SML_DECRYPT
