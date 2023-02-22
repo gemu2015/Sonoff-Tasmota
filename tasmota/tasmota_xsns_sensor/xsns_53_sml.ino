@@ -141,6 +141,10 @@ needs USE_SML_AUTHKEY
 synchronisation timout in milliseconds, after no serial data within this
 time serial pointer is reset to zero
 
+7:
+on esp32 the uart index may be set, normally it is allocated from 2 down to 0 automatically
+thus you can combine serial SML with serial script , berry or serial drivers.
+
 */
 
 //#define MODBUS_DEBUG
