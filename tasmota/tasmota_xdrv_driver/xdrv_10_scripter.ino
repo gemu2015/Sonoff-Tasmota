@@ -7988,10 +7988,15 @@ void SaveScriptEnd(void) {
 #endif //USE_SCRIPT_GLOBVARS
 
   if (glob_script_mem.script_mem) {
+    // script was restarted
+    Run_Scripter1(">R\n", 3, 0);
     Scripter_save_pvars();
     free(glob_script_mem.script_mem);
     glob_script_mem.script_mem = 0;
     glob_script_mem.script_mem_size = 0;
+ #ifdef USE_SCRIPT_SERIAL
+    Script_Close_Serial();
+#endif   
   }
 
   if (bitRead(Settings->rule_enabled, 0)) {
@@ -8001,10 +8006,6 @@ void SaveScriptEnd(void) {
       AddLog(LOG_LEVEL_INFO, PSTR("script init error: %d"), res);
       return;
     }
-
-#ifdef USE_SCRIPT_SERIAL
-    Script_Close_Serial();
-#endif
 
     set_callbacks();
 

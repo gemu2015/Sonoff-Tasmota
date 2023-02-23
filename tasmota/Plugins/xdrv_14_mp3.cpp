@@ -120,7 +120,7 @@ DPSTR(d_mp3,"MP3");
 DPSTR(started,"mp3 inizialized with TRX pin %d");
 
 typedef struct {
-  bool player_type;
+  uint8_t player_type;
   uint8_t player_txpin;
   void *ts;
 } MODULE_MEMORY;

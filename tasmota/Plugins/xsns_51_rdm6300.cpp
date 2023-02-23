@@ -64,22 +64,20 @@ DPSTR(JSON_UID,",\"RDM6300\":{\"UID\":\"%08X\"}}");
 
 /*********************************************************************************************/
 
-typedef struct {
-  uint32_t uid;
-  uint8_t block_time;
-} Rdm;
 
 typedef struct {
-  Rdm rdm;
   void *ts;
   int8_t recpin;
   uint8_t ready;
+  uint32_t uid;
+  uint8_t block_time;
 } MODULE_MEMORY;
 
-#define rdm mem->rdm
 #define ts mem->ts
 #define recpin mem->recpin
 #define ready mem->ready
+#define uid mem->uid
+#define block_time mem->block_time
 
 /********************************************************************************************/
 int32_t MOD_FUNC(RDM6300_Init) {
@@ -88,18 +86,23 @@ int32_t MOD_FUNC(RDM6300_Init) {
   ready = false;
   recpin = mp->ms[0].value;
 
+
   AddLog(LOG_LEVEL_INFO, PSTR(started), recpin);
+
+  CALL_MOD_FUNC(RDM6300_Deinit);
   return -1;
 
   ts = NewTS(recpin, -1);
   
+  
+
   if (ts) {
     if (beginTS(ts, RDM6300_BAUDRATE)) {
       if (hardwareSerial(ts)) {
         ClaimSerial();
       }
-      AddLog(LOG_LEVEL_INFO, PSTR(started), recpin);
-      //initialized = true;
+      //AddLog(LOG_LEVEL_INFO, PSTR(started), recpin);
+      initialized = true;
       //ready = true;
       return 0;
     }
@@ -132,8 +135,8 @@ void MOD_FUNC(RDM6300_ScanForTag) {
   SETREGS
   if (!ready) { return; }
 
-  if (rdm.block_time > 0) {
-    rdm.block_time--;
+  if (block_time > 0) {
+    block_time--;
     while (availTS(ts)) {
       readbTS(ts);               // Flush serial buffer
     }
@@ -169,7 +172,7 @@ void MOD_FUNC(RDM6300_ScanForTag) {
 
     if (rdm_buffer[13] != 3) { return; }   // Tail marker
 
-    rdm.block_time = RDM6300_BLOCK;        // Block for 2 seconds
+    block_time = RDM6300_BLOCK;        // Block for 2 seconds
 
     uint8_t rdm_array[6];
     CALL_MOD_FUNC(RDM6300_HexStringToArray, rdm_array, sizeof(rdm_array), (char*)rdm_buffer +1);
@@ -180,10 +183,10 @@ void MOD_FUNC(RDM6300_ScanForTag) {
     if (accu != rdm_array[5]) { return; }  // Checksum error
 
     rdm_buffer[11] = '\0';
-    uint32_t uid = strtoul(rdm_buffer +3, nullptr, 16);
-    if (uid > 0) {                         // Ignore false positive all zeros
-      rdm.uid = uid;
-      ResponseTime_P(PSTR(JSON_UID), rdm.uid);
+    uint32_t tuid = strtoul(rdm_buffer + 3, nullptr, 16);
+    if (tuid > 0) {                         // Ignore false positive all zeros
+      uid = tuid;
+      ResponseTime_P(PSTR(JSON_UID), uid);
       MqttPublishTeleSensor();
     }
   }
@@ -192,7 +195,7 @@ void MOD_FUNC(RDM6300_ScanForTag) {
 void MOD_FUNC(RDM6300_Show) {
   SETREGS
   if (!ready) { return; }
-  WSContentSend_PD(PSTR(HHTP_UID), rdm.uid);
+  WSContentSend_PD(PSTR(HHTP_UID), uid);
 }
 
 void MOD_FUNC(RDM6300_Deinit) {
