@@ -5801,6 +5801,7 @@ char *slp;
 uint8_t vtype;
 while (*lp == ' ') { lp++; } // skip leading spaces
 struct T_INDEX ind;
+    ind.bits.integer = 0;
     while (1) {
         // get 1. value
         if (*lp=='(') {
