@@ -2620,6 +2620,7 @@ struct METER_DESC *mp = &meter_desc[mnum];
 		case '6':
 			cp += 2;
 			mp->tout_ms = strtol(cp, &cp, 10);
+      break;
   	case '7':
 			cp += 2;
 #ifdef ESP32     
@@ -3125,6 +3126,7 @@ next_line:
         }
 #ifdef USE_ESP32_SW_SERIAL
         mp->meter_ss = new SML_ESP32_SERIAL(uart_index);
+        AddLog(LOG_LEVEL_INFO, PSTR("SML: uart used: %d"),uart_index);
         if (mp->srcpin >= 0) {
           if (uart_index == 0) { ClaimSerial(); }
           uart_index--;

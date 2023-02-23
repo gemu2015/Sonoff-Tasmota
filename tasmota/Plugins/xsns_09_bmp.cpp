@@ -1,4 +1,4 @@
-/* bmpx.cpp - module test support for Tasmota
+/* BMEx.cpp - module test support for Tasmota
   Copyright (C) 2021  Gerhard Mutz
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -17,12 +17,12 @@
 
 #include "tasmota_options.h" 
 
-#ifdef USE_BMP_MOD
+#ifdef USE_BME_MOD
 
 #include "module.h"
 #include "module_defines.h"
 
-#define BMP_REV  1<<16|0
+#define BME_REV  1<<16|0
 
 #define BME280_I2C_ADDRESS1  (0x76)
 #define BME280_I2C_ADDRESS2  (0x77)
@@ -115,15 +115,15 @@ typedef uint32_t humidity_t;
 
 // this is the structure of the module:
 // descripotr, code, end
-MODULE_DESCRIPTOR("BMPX", MODULE_TYPE_SENSOR, BMP_REV,"",0,"",0,"",0,"",0)
+MODULE_DESCRIPTOR("BMEx", MODULE_TYPE_SENSOR, BME_REV,"",0,"",0,"",0,"",0)
 
 // all functions must be declared MUDULE_PART
-MODULE_PART int32_t MOD_FUNC(Init_BMP);
-MODULE_PART void MOD_FUNC(BMP_clearCalibrationData);
-MODULE_PART void MOD_FUNC(BMP_readCalibrationData);
-MODULE_PART void MOD_FUNC(BMP_Show, uint32_t json);
-MODULE_PART void MOD_FUNC(BMP_Deinit);
-MODULE_PART void MOD_FUNC(BMP_Every_Second);
+MODULE_PART int32_t MOD_FUNC(Init_BME);
+MODULE_PART void MOD_FUNC(BME_clearCalibrationData);
+MODULE_PART void MOD_FUNC(BME_readCalibrationData);
+MODULE_PART void MOD_FUNC(BME_Show, uint32_t json);
+MODULE_PART void MOD_FUNC(BME_Deinit);
+MODULE_PART void MOD_FUNC(BME_Every_Second);
 MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
 
 MODULE_END
@@ -186,12 +186,12 @@ typedef struct {
 #define ready mem->ready
 
 // all text defines must be here
-DPSTR(HTTP_BMP,"{s}BMP TEMP{m}%s C{e} {s}BMP HUM {m}%s %%{e} {s}BMP PRESS {m}%s hp{e}");
-DPSTR(JSON_BMP,",\"BMP\":{\"TEMP\":%s,\"HUM\":%s,\"PRESS\":%s}");
-DPSTR(bmpdev,"BMPX");
+DPSTR(HTTP_BME,"{s}BME TEMP{m}%s C{e} {s}BME HUM {m}%s %%{e} {s}BME PRESS {m}%s hp{e}");
+DPSTR(JSON_BME,",\"BME\":{\"TEMP\":%s,\"HUM\":%s,\"PRESS\":%s}");
+DPSTR(BMEdev,"BMEX");
 
 
-int32_t MOD_FUNC(Init_BMP) {
+int32_t MOD_FUNC(Init_BME) {
   ALLOCMEM
  
   // now init variables here
@@ -200,20 +200,20 @@ int32_t MOD_FUNC(Init_BMP) {
   i2c_addr = BME280_I2C_ADDRESS1;
 
   if (!I2cSetDevice(i2c_addr)) {
-    CALL_MOD_FUNC(BMP_Deinit);
+    CALL_MOD_FUNC(BME_Deinit);
     return -1;
   }
 
-  I2cSetActiveFound(i2c_addr, PSTR(bmpdev), 0);
+  I2cSetActiveFound(i2c_addr, PSTR(BMEdev), 0);
 
-  CALL_MOD_FUNC(BMP_clearCalibrationData);
-  CALL_MOD_FUNC(BMP_readCalibrationData);
+  CALL_MOD_FUNC(BME_clearCalibrationData);
+  CALL_MOD_FUNC(BME_readCalibrationData);
   initialized = true;
   ready = true;
   return ready;
 }
 
-uint16_t BMP_Read(uint8_t reg, uint8_t num) {
+uint16_t BME_Read(uint8_t reg, uint8_t num) {
   beginTransmission(addr);
   write(reg);
   endTransmission(false);
@@ -228,7 +228,7 @@ uint16_t BMP_Read(uint8_t reg, uint8_t num) {
 }
 
 
-void MOD_FUNC(BMP_clearCalibrationData) {
+void MOD_FUNC(BME_clearCalibrationData) {
   SETREGS
   _dig_T1 = 0;
   _dig_T2 = 0;
@@ -252,7 +252,7 @@ void MOD_FUNC(BMP_clearCalibrationData) {
 
 i2cRead(_i2c_address,p_data,data_size);
 
-void MOD_FUNC(BMP_readCalibrationData) {
+void MOD_FUNC(BME_readCalibrationData) {
   SETREGS
   _dig_T1 = readUint16(BME280_CAL_T1);
   _dig_T2 = (int16_t) readUint16(BME280_CAL_T2);
@@ -278,7 +278,7 @@ void MOD_FUNC(BMP_readCalibrationData) {
   _dig_H6 = (int8_t) readUint8(BME280_CAL_H6);
 }
 
-void MOD_FUNC(BMP_Every_Second) {
+void MOD_FUNC(BME_Every_Second) {
   SETREGS
 
   if (ready == false) return;
@@ -289,7 +289,7 @@ void MOD_FUNC(BMP_Every_Second) {
 }
 
 
-void MOD_FUNC(BMP_Show, uint32_t json) {
+void MOD_FUNC(BME_Show, uint32_t json) {
   SETREGS
 
   if (ready == false) return;
@@ -304,13 +304,13 @@ void MOD_FUNC(BMP_Show, uint32_t json) {
   ftostrfd(hum, jsettings->flag2.pressure_resolution, press_tstr);
 
   if (json) {
-    ResponseAppend_P(PSTR(JSON_BMP), temp_tstr, hum_tstr, press_tstr);
+    ResponseAppend_P(PSTR(JSON_BME), temp_tstr, hum_tstr, press_tstr);
   } else {
-    WSContentSend_PD(PSTR(HTTP_BMP), temp_tstr, hum_tstr, press_tstr);
+    WSContentSend_PD(PSTR(HTTP_BME), temp_tstr, hum_tstr, press_tstr);
   }
 }
 
-void MOD_FUNC(BMP_Deinit) {
+void MOD_FUNC(BME_Deinit) {
   SETREGS
   I2cResetActive(i2c_addr, 1);
   RETMEM
@@ -324,22 +324,22 @@ int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
   bool result = false;
   switch (sel) {
     case FUNC_INIT:
-      result = CALL_MOD_FUNC(Init_BMP);
+      result = CALL_MOD_FUNC(Init_BME);
       break;
     case FUNC_JSON_APPEND:
-      CALL_MOD_FUNC(BMP_Show, 1);
+      CALL_MOD_FUNC(BME_Show, 1);
       break;
     case FUNC_WEB_SENSOR:
-      CALL_MOD_FUNC(BMP_Show, 0);
+      CALL_MOD_FUNC(BME_Show, 0);
       break;
     case FUNC_EVERY_SECOND:
-      CALL_MOD_FUNC(BMP_Every_Second);
+      CALL_MOD_FUNC(BME_Every_Second);
       break;
     case FUNC_DEINIT:
-      CALL_MOD_FUNC(BMP_Deinit);
+      CALL_MOD_FUNC(BME_Deinit);
       break;
   }
   return result;
 }
 
-#endif // USE_BMP_MOD
+#endif // USE_BME_MOD
