@@ -34,7 +34,6 @@ MODULE_DESCRIPTOR("MLX90614", MODULE_TYPE_SENSOR, MLX90614_REV,"",0,"",0,"",0,""
 
 // all functions must be declared MUDULE_PART
 MODULE_PART int32_t MOD_FUNC(Init_MLX90614);
-MODULE_PART void MOD_FUNC(MLX90614_Show, uint32_t json);
 MODULE_PART uint16_t MOD_FUNC(MLX90614_read16, uint8_t addr, uint8_t a);
 MODULE_PART uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len);
 MODULE_PART void MOD_FUNC(MLX90614_Deinit);
