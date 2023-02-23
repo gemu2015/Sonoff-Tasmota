@@ -86,7 +86,8 @@ int32_t MOD_FUNC(Init_MLX90614) {
 
   // now init variables here
   ready = false;
-  //sprint(yPSTR("Hallo"));
+ // sprint(yPSTR("Hallo"));
+ // sprint(PSTR(mlxdev));
 
   if (!I2cSetDevice(I2_ADR_IRT)) {
     CALL_MOD_FUNC(MLX90614_Deinit);

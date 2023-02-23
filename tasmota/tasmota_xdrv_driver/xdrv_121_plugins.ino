@@ -1326,6 +1326,7 @@ bool Xdrv121(uint32_t function) {
     case FUNC_INIT:
       InitModules();
       break;
+    case FUNC_EVERY_100_MSECOND:
     case FUNC_EVERY_250_MSECOND:
     case FUNC_EVERY_SECOND:
       Module_Execute(function);

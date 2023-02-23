@@ -42,7 +42,7 @@ DPSTR(JSON_DIST,",\"SR04T\":{\"DIST\":%s}");
 
 /*********************************************************************************************/
 typedef struct {
-  uint8_t rxpin;
+  uint8_t recpin;
   uint8_t ready;
   float distance;
   TasmotaSerial *ts;
@@ -50,7 +50,7 @@ typedef struct {
 } MODULE_MEMORY;
 
 #define ts mem->ts
-#define rxpin mem->rxpin
+#define recpin mem->recpin
 #define ready mem->ready
 #define distance mem->distance
 #define sbuff mem->sbuff
@@ -59,13 +59,13 @@ int32_t MOD_FUNC(Sr04T_Detect) {
   ALLOCMEM
 
   ready = false;
-  rxpin = mp->ms[0].value;
- 
-  ts = NewTS(rxpin, -1);
+  recpin = mp->ms[0].value;
+
+  ts = NewTS(recpin, -1);
  
   if (ts) {
     if (beginTS(ts, 9600)) {
-      AddLog(LOG_LEVEL_INFO, PSTR(started), rxpin);
+      AddLog(LOG_LEVEL_INFO, PSTR(started), recpin);
       initialized = true;
       ready = true;
       return 0;

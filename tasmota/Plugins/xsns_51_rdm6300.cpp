@@ -1,7 +1,7 @@
 /*
   xsns_51_rdm6300.ino - Support for RDM630(0) 125kHz NFC Tag Reader on Tasmota
 
-  Copyright (C) 2021  Gerhard Mutz and Theo Arends
+  Copyright (C) 2023  Gerhard Mutz
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -35,12 +35,11 @@
  *    Versn --------- Tag ---------
 \*********************************************************************************************/
 
-#define XSNS_51            51
 
 #define RDM6300_DEFAULT_REC_PIN 3
 #define RDM6300_BAUDRATE   9600
 #define RDM_TIMEOUT        100
-#define RDM6300_BLOCK      2 * 10   // 2 seconds block time
+#define RDM6300_BLOCK      20   // 2 seconds block time
 
 
 #define RDM6300_REV 1<<16
@@ -48,8 +47,8 @@
 MODULE_DESCRIPTOR("RDM6300",MODULE_TYPE_SENSOR,RDM6300_REV,"REC",RDM6300_DEFAULT_REC_PIN,"",0,"",0,"",0)
 
 // all functions must be declared MUDULE_PART
-MODULE_PART uint8_t MOD_FUNC(RDM6300_HexNibble, char chr);
-MODULE_PART void MOD_FUNC(RDM6300_HexStringToArray, uint8_t array[], uint8_t len, char buffer[]);
+MODULE_PART uint8_t RDM6300_HexNibble( char chr);
+MODULE_PART void RDM6300_HexStringToArray( uint8_t array[], uint8_t len, char buffer[]);
 MODULE_PART int32_t MOD_FUNC(RDM6300_Init);
 MODULE_PART void MOD_FUNC(RDM6300_Deinit);
 MODULE_PART void MOD_FUNC(RDM6300_ScanForTag);
@@ -62,17 +61,18 @@ DPSTR(started,"RDM6300 inizialized with REC pin %d");
 DPSTR(HHTP_UID,"{s}RDM6300 UID{m}%08X {e}");
 DPSTR(JSON_UID,",\"RDM6300\":{\"UID\":\"%08X\"}}");
 
+
 /*********************************************************************************************/
 
 
 typedef struct {
-  void *ts;
-  int8_t recpin;
+  uint8_t recpin;
   uint8_t ready;
   uint32_t uid;
   uint8_t block_time;
+  TasmotaSerial *ts;
 } MODULE_MEMORY;
-
+ 
 #define ts mem->ts
 #define recpin mem->recpin
 #define ready mem->ready
@@ -86,24 +86,16 @@ int32_t MOD_FUNC(RDM6300_Init) {
   ready = false;
   recpin = mp->ms[0].value;
 
-
-  AddLog(LOG_LEVEL_INFO, PSTR(started), recpin);
-
-  CALL_MOD_FUNC(RDM6300_Deinit);
-  return -1;
-
   ts = NewTS(recpin, -1);
-  
-  
 
   if (ts) {
     if (beginTS(ts, RDM6300_BAUDRATE)) {
       if (hardwareSerial(ts)) {
         ClaimSerial();
       }
-      //AddLog(LOG_LEVEL_INFO, PSTR(started), recpin);
+      AddLog(LOG_LEVEL_INFO, PSTR(started), recpin);
       initialized = true;
-      //ready = true;
+      ready = true;
       return 0;
     }
   }
@@ -111,8 +103,7 @@ int32_t MOD_FUNC(RDM6300_Init) {
   return -1;
 }
 
-uint8_t MOD_FUNC(RDM6300_HexNibble, char chr) {
-  SETREGS
+uint8_t RDM6300_HexNibble( char chr) {
   uint8_t rVal = 0;
   if (isdigit(chr)) { rVal = chr - '0'; }
   else if (chr >= 'A' && chr <= 'F') { rVal = chr + 10 - 'A'; }
@@ -121,12 +112,11 @@ uint8_t MOD_FUNC(RDM6300_HexNibble, char chr) {
 }
 
 // Convert hex string to int array
-void MOD_FUNC(RDM6300_HexStringToArray, uint8_t array[], uint8_t len, char buffer[]) {
-  SETREGS
+void RDM6300_HexStringToArray( uint8_t array[], uint8_t len, char buffer[]) {
   char *cp = buffer;
   for (uint32_t i = 0; i < len; i++) {
-    uint8_t val = CALL_MOD_FUNC(RDM6300_HexNibble, *cp++) << 4;
-    array[i] = val | CALL_MOD_FUNC(RDM6300_HexNibble, *cp++);
+    uint8_t val = RDM6300_HexNibble( *cp++) << 4;
+    array[i] = val | RDM6300_HexNibble( *cp++);
   }
 }
 
@@ -159,7 +149,6 @@ void MOD_FUNC(RDM6300_ScanForTag) {
       if (availTS(ts)) {
         c = readbTS(ts);
         rdm_buffer[rdm_index++] = c;
-
         if (3 == c) { break; }             // Tail marker
         if (rdm_index > 14) { break; }     // Illegal message
       }
@@ -175,7 +164,7 @@ void MOD_FUNC(RDM6300_ScanForTag) {
     block_time = RDM6300_BLOCK;        // Block for 2 seconds
 
     uint8_t rdm_array[6];
-    CALL_MOD_FUNC(RDM6300_HexStringToArray, rdm_array, sizeof(rdm_array), (char*)rdm_buffer +1);
+    RDM6300_HexStringToArray( rdm_array, sizeof(rdm_array), (char*)rdm_buffer +1);
     uint8_t accu = 0;
     for (uint32_t count = 0; count < 5; count++) {
       accu ^= rdm_array[count];            // Calc checksum,
@@ -216,10 +205,13 @@ int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
       CALL_MOD_FUNC(RDM6300_Init);
       break;
     case FUNC_EVERY_100_MSECOND:
-      //CALL_MOD_FUNC(RDM6300_ScanForTag);
+      CALL_MOD_FUNC(RDM6300_ScanForTag);
       break;
     case FUNC_WEB_SENSOR:
-      //CALL_MOD_FUNC(RDM6300_Show);
+      CALL_MOD_FUNC(RDM6300_Show);
+      break;
+    case FUNC_DEINIT:
+      CALL_MOD_FUNC(RDM6300_Deinit);
       break;
   }
   return result;
