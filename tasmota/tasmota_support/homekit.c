@@ -51,7 +51,7 @@
 
 static const char *TAG = "HAP outlet";
 char *hk_desc;
-char hk_code[12];
+char hk_code[24];
 uint8_t hk_services;
 
 extern void Ext_Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dstsize);
@@ -701,7 +701,7 @@ nextline:
     }
 }
 
-#define HK_PASSCODE "111-11-111"
+#define HK_PASSCODE "1111-1111-1111"
 int hap_loop_stop(void);
 int32_t homekit_pars(uint32_t sel);
 
@@ -713,11 +713,11 @@ int32_t homekit_main(char *desc, uint32_t flag ) {
     // "111-11-111"
 
     if (*cp == '*') {
-      strlcpy(hk_code, HK_PASSCODE, 10);
+      strlcpy(hk_code, HK_PASSCODE, 14);
       cp++;
     } else {
       uint32_t cnt;
-      for (cnt = 0; cnt < 10; cnt++) {
+      for (cnt = 0; cnt < 14; cnt++) {
         hk_code[cnt] = *cp++;
       }
       hk_code[cnt] = 0;

@@ -2617,6 +2617,8 @@ struct METER_DESC *mp = &meter_desc[mnum];
 				mp->auth[cnt / 2] = (sml_hexnibble(cp[cnt]) << 4) | sml_hexnibble(cp[cnt + 1]);
 			}
 			break;
+#endif // USE_SML_AUTHKEY
+#endif // USE_SML_DECRYPT
 		case '6':
 			cp += 2;
 			mp->tout_ms = strtol(cp, &cp, 10);
@@ -2625,10 +2627,8 @@ struct METER_DESC *mp = &meter_desc[mnum];
 			cp += 2;
 #ifdef ESP32     
 			mp->uart_index = strtol(cp, &cp, 10);
-#endif
+#endif // ESP32
 			break;
-#endif
-#endif
 	}
 	return cp;
 }
@@ -3124,9 +3124,9 @@ next_line:
         if (mp->uart_index >= 0) {
           uart_index = mp->uart_index;
         }
+        AddLog(LOG_LEVEL_INFO, PSTR("SML: uart used: %d"),uart_index);
 #ifdef USE_ESP32_SW_SERIAL
         mp->meter_ss = new SML_ESP32_SERIAL(uart_index);
-        AddLog(LOG_LEVEL_INFO, PSTR("SML: uart used: %d"),uart_index);
         if (mp->srcpin >= 0) {
           if (uart_index == 0) { ClaimSerial(); }
           uart_index--;
