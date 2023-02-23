@@ -190,7 +190,7 @@ int32_t MOD_FUNC(MP3PlayerInit) {
   player_type = DY_SV17F;
 
   if (!CALL_MOD_FUNC(MP3_Init)) {
-    mt->flags.initialized = true;
+    initialized = true;
     return 0;
   }
   CALL_MOD_FUNC(MP3Player_Deinit);

@@ -37,7 +37,7 @@
 
 #define XSNS_51            51
 
-#define RDM6300_DEFAULT_REC_PIN 5
+#define RDM6300_DEFAULT_REC_PIN 3
 #define RDM6300_BAUDRATE   9600
 #define RDM_TIMEOUT        100
 #define RDM6300_BLOCK      2 * 10   // 2 seconds block time
@@ -53,14 +53,16 @@ MODULE_PART void MOD_FUNC(RDM6300_HexStringToArray, uint8_t array[], uint8_t len
 MODULE_PART int32_t MOD_FUNC(RDM6300_Init);
 MODULE_PART void MOD_FUNC(RDM6300_Deinit);
 MODULE_PART void MOD_FUNC(RDM6300_ScanForTag);
-void MOD_FUNC(RDM6300_Show);
+MODULE_PART void MOD_FUNC(RDM6300_Show);
 MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
 
 MODULE_END
 
-DPSTR(started,"RDM6300 inizialized with TRX pin %d");
+DPSTR(started,"RDM6300 inizialized with REC pin %d");
 DPSTR(HHTP_UID,"{s}RDM6300 UID{m}%08X {e}");
 DPSTR(JSON_UID,",\"RDM6300\":{\"UID\":\"%08X\"}}");
+
+/*********************************************************************************************/
 
 typedef struct {
   uint32_t uid;
@@ -80,6 +82,31 @@ typedef struct {
 #define ready mem->ready
 
 /********************************************************************************************/
+int32_t MOD_FUNC(RDM6300_Init) {
+  ALLOCMEM
+
+  ready = false;
+  recpin = mp->ms[0].value;
+
+  AddLog(LOG_LEVEL_INFO, PSTR(started), recpin);
+  return -1;
+
+  ts = NewTS(recpin, -1);
+  
+  if (ts) {
+    if (beginTS(ts, RDM6300_BAUDRATE)) {
+      if (hardwareSerial(ts)) {
+        ClaimSerial();
+      }
+      AddLog(LOG_LEVEL_INFO, PSTR(started), recpin);
+      //initialized = true;
+      //ready = true;
+      return 0;
+    }
+  }
+  CALL_MOD_FUNC(RDM6300_Deinit);
+  return -1;
+}
 
 uint8_t MOD_FUNC(RDM6300_HexNibble, char chr) {
   SETREGS
@@ -100,30 +127,6 @@ void MOD_FUNC(RDM6300_HexStringToArray, uint8_t array[], uint8_t len, char buffe
   }
 }
 
-/********************************************************************************************/
-
-int32_t MOD_FUNC(RDM6300_Init) {
-  ALLOCMEM
-
-  ready = false;
-  recpin = mp->ms[0].value;
-
-  ts = NewTS(recpin, -1);
-
-  if (ts) {
-    if (beginTS(ts, RDM6300_BAUDRATE)) {
-      if (hardwareSerial(ts)) {
-        ClaimSerial();
-      }
-      AddLog(LOG_LEVEL_INFO, PSTR(started), recpin);
-      initialized = true;
-      ready = true;
-      return 0;
-    }
-  }
-  CALL_MOD_FUNC(RDM6300_Deinit);
-  return -1;
-}
 
 void MOD_FUNC(RDM6300_ScanForTag) {
   SETREGS
@@ -210,10 +213,10 @@ int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
       CALL_MOD_FUNC(RDM6300_Init);
       break;
     case FUNC_EVERY_100_MSECOND:
-      CALL_MOD_FUNC(RDM6300_ScanForTag);
+      //CALL_MOD_FUNC(RDM6300_ScanForTag);
       break;
     case FUNC_WEB_SENSOR:
-      CALL_MOD_FUNC(RDM6300_Show);
+      //CALL_MOD_FUNC(RDM6300_Show);
       break;
   }
   return result;
