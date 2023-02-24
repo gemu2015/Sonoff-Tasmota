@@ -717,7 +717,10 @@ int32_t homekit_main(char *desc, uint32_t flag ) {
       cp++;
     } else {
       uint32_t cnt;
-      for (cnt = 0; cnt < 14; cnt++) {
+      for (cnt = 0; cnt < sizeof(hk_code); cnt++) {
+        if (*cp == ' ' || *cp == '\n') {
+          break;
+        }
         hk_code[cnt] = *cp++;
       }
       hk_code[cnt] = 0;
