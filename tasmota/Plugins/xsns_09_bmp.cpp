@@ -204,7 +204,7 @@ typedef struct {
 // all text defines must be here
 DPSTR(HTTP_BMP_T,"{s}%s Temperatur{m}%s C{e}");
 DPSTR(HTTP_BMP_P,"{s}%s Luftdruck {m}%s hp{e}"); 
-DPSTR(JSON_BMP,",\"%s\":{\"TEMP\":%s,\"HUM\":%s,\"PRESS\":%s}");
+DPSTR(JSON_BMP,",\"%s\":{\"Temperature\":%s,\"Humidity\":%s,\"Pressure\":%s}");
 
 DPSTR(BMEtypes,"BMP180|BME280|BMP280|BME680");
 DPSTR(started,"val: %d - %d");
@@ -398,7 +398,7 @@ void MOD_FUNC(BME_Show, uint32_t json) {
   ftostrfd(press, jsettings->flag2.pressure_resolution, press_tstr);
 
   if (json) {
-    ResponseAppend_P(PSTR(JSON_BMP), temp_tstr, hum_tstr, press_tstr);
+    ResponseAppend_P(PSTR(JSON_BMP), typestr, temp_tstr, hum_tstr, press_tstr);
   } else {
     
     if (type == BME280_CHIPID) {
