@@ -202,9 +202,9 @@ typedef struct {
 #define ready mem->ready
 
 // all text defines must be here
-DPSTR(HTTP_BMP,"{s}BMx TEMP{m}%s C{e} {s}BMx PRESS {m}%s hp{e}");
-DPSTR(HTTP_BME,"{s}BMx HUM {m}%s %%{e}"); 
-DPSTR(JSON_BMP,",\"BMx\":{\"TEMP\":%s,\"HUM\":%s,\"PRESS\":%s}");
+DPSTR(HTTP_BMP_T,"{s}%s Temperatur{m}%s C{e}");
+DPSTR(HTTP_BMP_P,"{s}%s Luftdruck {m}%s hp{e}"); 
+DPSTR(JSON_BMP,",\"%s\":{\"TEMP\":%s,\"HUM\":%s,\"PRESS\":%s}");
 
 DPSTR(BMEtypes,"BMP180|BME280|BMP280|BME680");
 DPSTR(started,"val: %d - %d");
@@ -400,12 +400,18 @@ void MOD_FUNC(BME_Show, uint32_t json) {
   if (json) {
     ResponseAppend_P(PSTR(JSON_BMP), temp_tstr, hum_tstr, press_tstr);
   } else {
-    WSContentSend_PD(PSTR(HTTP_BMP), temp_tstr, press_tstr);
+    
     if (type == BME280_CHIPID) {
-      WSContentSend_PD(PSTR(HTTP_BME), hum_tstr);
+      TempHumDewShow(json, 0, typestr, temp, hum);
+    } else {
+      WSContentSend_PD(PSTR(HTTP_BMP_T), typestr, temp_tstr);
     }
+    WSContentSend_PD(PSTR(HTTP_BMP_P), typestr, press_tstr);
   }
+    
 }
+
+
 
 void MOD_FUNC(BME_Deinit) {
   SETREGS
