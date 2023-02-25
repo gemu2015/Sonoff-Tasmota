@@ -145,8 +145,11 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define xPSTR(TEXT) (__extension__({ __asm__  (".section .text.mod_string\n.align 4\n.global " UNAME "\n" UNAME " : .asciz "#TEXT" \n");\
  __asm__  (".section .text.mod_part\n"); extern const char UNAME[0];  &UNAME[0]; }))
 
+
 #undef PROGMEM
 #define PROGMEM  __attribute__((section(".text.mod_string"),aligned(4)))
+
+
 #define yPSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[0];}))
 
 #define GPSTR(VAR,FUNC) const char *VAR = (const char*)&FUNC + mt->execution_offset; fshowhex((uint32_t)VAR);
@@ -285,7 +288,7 @@ typedef struct {
 #define   hardwareSerial jhardwareSerial
 #define   millis jmillis
 #define   sprintf_P jsprintf_P
-#define   AddlogT jAddlogT
+#define   AddLogT jAddlogT
 #define   tmod__divsi3 jtmod__divsi3
 #define   tmod__udivsi3 jtmod__udivsi3
 #define   tmod__floatsisf jtmod__floatsisf

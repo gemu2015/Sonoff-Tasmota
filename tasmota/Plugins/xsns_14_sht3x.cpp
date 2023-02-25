@@ -148,7 +148,6 @@ void MOD_FUNC(SHT3X_Show, bool json) {
       if (sht3x_count > 1) {
         char *types = sht3x_sensors[i].types;
         snprintf_P(types, sizeof(types), PSTR(kShtTypes), types, IndexSeparator(), sht3x_sensors[i].address);
-        //jsnprintf_P(types, sizeof(types), PSTR(kShtTypes), mem->ht3x_sensors[i].types, jIndexSeparator(), addr);
       }
       TempHumDewShow(json, ((0 == GetTasmotaGlobal(1)) && (0 == i)), types, t, h);
     }
