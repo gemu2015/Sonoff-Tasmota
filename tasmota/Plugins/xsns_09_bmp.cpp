@@ -373,8 +373,8 @@ void MOD_FUNC(BME_Every_Second) {
 
   if (type == BME280_CHIPID) {
     uint16_t r_hum = CALL_MOD_FUNC(BME_Read, BME280_HUMIDITY, 2);
-    hum = CALL_MOD_FUNC(compensateHumidity, r_hum); // Uses value calculated by compensateTemperature.
-    hum = fscale(r_hum, (float)0.01024, (float)0);
+    r_hum = CALL_MOD_FUNC(compensateHumidity, r_hum); // Uses value calculated by compensateTemperature.
+    hum = fscale(r_hum, (float)0.00097656, (float)0);
   }
 
   temp =  fscale(r_temp, (float)0.01, (float)0);
