@@ -8055,6 +8055,9 @@ void set_callbacks() {
   if (Run_Scripter1(">T", -2, 0) == 99) {glob_script_mem.teleperiod = glob_script_mem.section_ptr + 2;} else {glob_script_mem.teleperiod = 0;}
 }
 
+
+#define SCRIPT_HUE_DEBUG
+
 #if defined(USE_SCRIPT_HUE) && defined(USE_WEBSERVER) && defined(USE_EMULATION) && defined(USE_EMULATION_HUE) && defined(USE_LIGHT)
 #define HUE_DEV_MVNUM 5
 #define HUE_DEV_NSIZE 16
@@ -8337,7 +8340,7 @@ void Script_Check_Hue(String *response) {
           struct T_INDEX ind;
           uint8_t vtype;
           char vname[16];
-          for (uint32_t cnt = 0; cnt<sizeof(vname) - 1; cnt++) {
+          for (uint32_t cnt = 0; cnt < sizeof(vname) - 1; cnt++) {
             if (*cp==',' || *cp==0) {
               vname[cnt] = 0;
               break;
@@ -8357,6 +8360,9 @@ void Script_Check_Hue(String *response) {
         }
       }
       // append response
+#ifdef SCRIPT_HUE_DEBUG
+      AddLog(LOG_LEVEL_INFO, PSTR("Hue: %s - %d "),hue_script[hue_devs].name, hue_devs);
+#endif
       if (response) {
         if (TasmotaGlobal.devices_present) {
           *response += ",\"";
@@ -8367,9 +8373,10 @@ void Script_Check_Hue(String *response) {
         }
         *response += String(EncodeLightId(hue_devs + TasmotaGlobal.devices_present + 1))+"\":";
         Script_HueStatus(response, hue_devs);
-        //AddLog(LOG_LEVEL_INFO, PSTR("Hue: %s - %d "),response->c_str(), hue_devs);
+#ifdef SCRIPT_HUE_DEBUG
+        AddLog(LOG_LEVEL_INFO, PSTR("Hue: %s - %d "),response->c_str(), hue_devs);
+#endif
       }
-
       hue_devs++;
     }
     if (*lp==SCRIPT_EOL) {
@@ -8380,7 +8387,7 @@ void Script_Check_Hue(String *response) {
       lp++;
     }
   }
-#if 0
+#ifdef SCRIPT_HUE_DEBUG
   if (response) {
     AddLog(LOG_LEVEL_DEBUG, PSTR("Hue: %d"), hue_devs);
     toLog(">>>>");
@@ -8527,7 +8534,11 @@ void Script_Handle_Hue(String path) {
   } else {
     response = FPSTR(sHUE_ERROR_JSON);
   }
+#ifdef SCRIPT_HUE_DEBUG
+  AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_HTTP D_HUE " Result (%s)"), response.c_str());
+#else
   AddLog(LOG_LEVEL_DEBUG_MORE, PSTR(D_LOG_HTTP D_HUE " Result (%s)"), response.c_str());
+#endif
   WSSend(code, CT_APP_JSON, response);
   if (resp) {
     //Run_Scripter(">E", 2, 0);
@@ -12145,6 +12156,8 @@ bool Xdrv10(uint32_t function)
 #endif
       break;
 
+    case FUNC_NETWORK_UP:
+      break;
   }
   return result;
 }
