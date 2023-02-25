@@ -99,6 +99,8 @@ size_t tmod_readTS(TasmotaSerial *ts, char *buf, uint32_t size);
 uint8_t tmod_read1TS(TasmotaSerial *ts);
 uint8_t tmod_availTS(TasmotaSerial *ts);
 bool hardwareSerialTS(TasmotaSerial *ts);
+void AddlogT(char* txt);
+
 
 #define JMPTBL (void (*)())
 // this vector table table must contain all api calls needed by module
@@ -187,11 +189,18 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&ResponseTime_P,
   JMPTBL&ClaimSerial,
   JMPTBL&hardwareSerialTS,
-  JMPTBL&millis
+  JMPTBL&millis,
+  JMPTBL&sprintf_P,
+  JMPTBL&AddlogT,
+  JMPTBL&tmod__divsi3,
+  JMPTBL&tmod__udivsi3,
 };
 
 
 
+void AddlogT(char* txt) {
+   AddLog(LOG_LEVEL_INFO ,PSTR("%s"), txt);
+}
 // some helper functions
 void tmod_beginTransmission(TwoWire *wp, uint8_t addr) {
   wp->beginTransmission(addr);
@@ -232,9 +241,24 @@ bool tmod_eqsf2(float p1, float p2) {
   return p1 == p2;
 }
 
-
 bool tmod_iseq(float val) {
   return val == 0.0;
+}
+
+float tmod__floatsisf(int32_t in) {
+  return in;
+}
+
+float tmod__floatunsisf(uint32_t in) {
+  return in;
+}
+
+uint32_t tmod__udivsi3(uint32_t p1, uint32_t p2) {
+  return p1 / p2;
+}
+
+int32_t tmod__divsi3(int32_t p1, int32_t p2) {
+  return p1 / p2;
 }
 
 float tmod_fdiv(float p1, float p2) {
@@ -1070,6 +1094,7 @@ void Module_upload() {
 }
 
 static uint8_t *module_input_buffer;
+static uint8_t *module_input_ptr;
 static uint16_t module_bytes_read;
 static char   module_name[16];
 
@@ -1077,6 +1102,7 @@ bool Module_upload_start(const char* upload_filename) {
   strlcpy(module_name, upload_filename, sizeof(module_name));
   module_input_buffer = (uint8_t *)calloc(SPI_FLASH_SEC_SIZE / 4 , 4);
   if (!module_input_buffer) return false;
+  module_input_ptr = module_input_buffer;
   module_bytes_read = 0;
   return true;
 }
@@ -1084,12 +1110,15 @@ bool Module_upload_start(const char* upload_filename) {
 bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
 
   if ((SPI_FLASH_SEC_SIZE - module_bytes_read) > current_size) {
-    memcpy(module_input_buffer, upload_buf, current_size);
+    memcpy(module_input_ptr, upload_buf, current_size);
     module_bytes_read += current_size;
+    module_input_ptr += current_size;
     return true;
   } else {
     current_size = SPI_FLASH_SEC_SIZE - module_bytes_read;
-    memcpy(module_input_buffer, upload_buf, current_size);
+    memcpy(module_input_ptr, upload_buf, current_size);
+    module_bytes_read += current_size;
+    module_input_ptr += current_size;
     return false;
   }
 }

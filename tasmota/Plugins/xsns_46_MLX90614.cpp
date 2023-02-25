@@ -29,7 +29,7 @@
 //#pragma GCC optimize ("O0")
 
 // this is the structure of the module:
-// descripotr, code, end
+// descripotr, code, endi2c
 MODULE_DESCRIPTOR("MLX90614", MODULE_TYPE_SENSOR, MLX90614_REV,"",0,"",0,"",0,"",0)
 
 // all functions must be declared MUDULE_PART

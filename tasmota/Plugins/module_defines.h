@@ -11,13 +11,15 @@ typedef struct {
   char         *command;
 }XdrvMailbox;
 
+extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
+
 // vector table calls
 #define jWire                           ( TwoWire*)                                    jt[0]
 #define jWire1                          ( TwoWire*)                                    jt[1]
 #define jSerial                         ( HardwareSerial*)                             jt[2]
 #define jI2cSetDevice(A)                (( bool (*)(uint32_t) )                        jt[3])(A)
 #define jI2cSetActiveFound(A,B,C)       (( void (*)(uint32_t,const char *, uint32_t) ) jt[4])(A,B,C)
-#define jAddLog(A,...)                    (( void (*)(uint32_t, PGM_P, ...) )            jt[5])(A,__VA_ARGS__)
+#define jAddLog(A,...)                  (( void (*)(uint32_t,const char * formatP, ...) ) jt[5])(A,__VA_ARGS__)
 #define jResponseAppend_P(...)          (( void (*)(const char * formatP, ...) )       jt[6])(__VA_ARGS__)
 #define jWSContentSend_PD(...)          (( void (*)(const char * formatP, ...) )       jt[7])(__VA_ARGS__)
 #define jftostrfd(A,B,C)                (( char *(*)(float, uint8_t, char*) )          jt[8])(A,B,C)
@@ -91,9 +93,12 @@ typedef struct {
 #define jClaimSerial                    (( void (*)(void) )                            jt[71])
 #define jhardwareSerial(TSER)           (( bool (*)(void*) )                           jt[72])(TSER)
 #define jmillis                         (( uint32_t (*)(void) )                        jt[73])
-
-
-
+#define jsprintf_P(A,B,...)             (( void (*)(char*,const char * formatP,... ) ) jt[74])(A,B,__VA_ARGS__)
+#define jAddlogT(TXT)                   (( void (*)(char*) )                           jt[75])(TXT)
+#define jtmod__divsi3(A,B)              (( int32_t (*)(int32_t,int32_t) )              jt[76])(A,B)
+#define jtmod__udivsi3(A,B)             (( uint32_t (*)(uint32_t,uint32_t) )           jt[77])(A,B)
+#define jtmod__floatsisf(A)             (( float (*)(int32_t) )                        jt[78])(A)
+#define jtmod__floatunsisf(A)           (( float (*)(uint32_t) )                       jt[79])(A)
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -279,3 +284,10 @@ typedef struct {
 #define   ClaimSerial jClaimSerial
 #define   hardwareSerial jhardwareSerial
 #define   millis jmillis
+#define   sprintf_P jsprintf_P
+#define   AddlogT jAddlogT
+#define   tmod__divsi3 jtmod__divsi3
+#define   tmod__udivsi3 jtmod__udivsi3
+#define   tmod__floatsisf jtmod__floatsisf
+#define   tmod__floatunsisf jtmod__floatunsisf
+
