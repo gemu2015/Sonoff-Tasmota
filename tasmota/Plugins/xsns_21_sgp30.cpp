@@ -17,8 +17,13 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifdef USE_I2C
+#include "tasmota_options.h" 
+
 #ifdef USE_SGP30_MOD
+
+#include "module.h"
+#include "module_defines.h"
+
 /*********************************************************************************************\
  * SGP30 - Gas (TVOC - Total Volatile Organic Compounds) and Air Quality (CO2)
  *
@@ -27,12 +32,22 @@
  * I2C Address: 0x58
 \*********************************************************************************************/
 
-#define XSNS_21             21
-#define XI2C_18             18  // See I2CDEVICES.md
+
+DPSTR(HTTP_SNS_SGP30,"{s}SGP30 eCO2 {m}%d ppm {e}{s}SGP30 TVOC {m}%d ppb {e}");
+DPSTR(HTTP_SNS_AHUM,"{s}SGP30 Abs Humidity{m}%s g/m3{e}");
+
 
 #define SGP30_ADDRESS       0x58
 
-#include "Adafruit_SGP30.h"
+// all memory must be in struct MODULE_MEMORY
+typedef struct {
+  float obj_temp;
+  float amb_temp;
+  bool ready;
+} MODULE_MEMORY;
+
+#define ready mem->ready
+
 Adafruit_SGP30 sgp;
 
 bool sgp30_type = false;
@@ -171,4 +186,4 @@ bool Xsns21(uint32_t function)
 }
 
 #endif  // USE_SGP30
-#endif  // USE_I2C
+

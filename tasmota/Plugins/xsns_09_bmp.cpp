@@ -368,8 +368,15 @@ void MOD_FUNC(BME_Every_Second) {
   uint32_t r_press = CALL_MOD_FUNC(BME_Read, BME280_PRESSURE, 3) >> 4;
   int32_t r_temp = CALL_MOD_FUNC(BME_Read, BME280_TEMPERATURE, 3) >> 4;
   
+  //AddLog(LOG_LEVEL_INFO, PSTR(started), 1, _dig_T1);
+  //AddLog(LOG_LEVEL_INFO, PSTR(started), 2, _dig_T2);
+  //AddLog(LOG_LEVEL_INFO, PSTR(started), 3, _dig_T3);
+  //AddLog(LOG_LEVEL_INFO, PSTR(started), 4, r_temp);
+
   r_temp = CALL_MOD_FUNC(compensateTemperature, r_temp); // First call this before calling the other compensate functions.
   r_press = CALL_MOD_FUNC(compensatePressure, r_press); // Uses value calculated by compensateTemperature.
+
+  //AddLog(LOG_LEVEL_INFO, PSTR(started), 5, r_temp);
 
   if (type == BME280_CHIPID) {
     uint16_t r_hum = CALL_MOD_FUNC(BME_Read, BME280_HUMIDITY, 2);

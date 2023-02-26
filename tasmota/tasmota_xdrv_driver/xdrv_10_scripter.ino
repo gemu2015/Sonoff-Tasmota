@@ -8056,7 +8056,7 @@ void set_callbacks() {
 }
 
 
-#define SCRIPT_HUE_DEBUG
+//#define SCRIPT_HUE_DEBUG
 
 #if defined(USE_SCRIPT_HUE) && defined(USE_WEBSERVER) && defined(USE_EMULATION) && defined(USE_EMULATION_HUE) && defined(USE_LIGHT)
 #define HUE_DEV_MVNUM 5
