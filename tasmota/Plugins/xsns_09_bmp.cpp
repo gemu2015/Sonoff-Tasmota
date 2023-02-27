@@ -208,10 +208,9 @@ typedef struct {
 DPSTR(HTTP_BMP_T,"{s}%s Temperatur{m}%s C{e}");
 DPSTR(HTTP_BMP_P,"{s}%s Luftdruck {m}%s hp{e}"); 
 DPSTR(JSON_BMP,",\"%s\":{\"Temperature\":%s,\"Pressure\":%s");
-DPSTR(JSON_BME,",\"%s\":{\"Humidity\":%s,\"AbsHumidity\":%s}");
+DPSTR(JSON_BME,",\"Humidity\":%s,\"AbsHumidity\":%s}");
 DPSTR(JSON_BMPend,"}");
 DPSTR(HTTP_SNS_AHUM,"{s}%s Abs Humidity{m}%s g/m3{e}");
-DPSTR(JSON_SNS_AHUM,",\"Abs_Humidity\":%s}");
 DPSTR(BMEtypes,"BMP180|BME280|BMP280|BME680");
 DPSTR(started,"val: %d - %d");
 
@@ -439,7 +438,7 @@ void MOD_FUNC(BME_Show, uint32_t json) {
   if (json) {
     ResponseAppend_P(PSTR(JSON_BMP), typestr, temp_tstr, press_tstr);
     if (type == BME280_CHIPID) {
-      ResponseAppend_P(PSTR(JSON_BME), typestr, hum_tstr, ahum_tstr);
+      ResponseAppend_P(PSTR(JSON_BME), hum_tstr, ahum_tstr);
     } else {
       ResponseAppend_P(PSTR(JSON_BMPend));
     }
