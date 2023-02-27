@@ -194,6 +194,12 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&AddlogT,
   JMPTBL&tmod__divsi3,
   JMPTBL&tmod__udivsi3,
+  JMPTBL&tmod__floatsisf,
+  JMPTBL&tmod__floatunsisf,
+  JMPTBL&FastPrecisePowf,
+  JMPTBL&GetTasmotaGlobalf,
+  JMPTBL&tmod__muldi3,
+  JMPTBL&tmod__fixunssfsi
 };
 
 
@@ -253,6 +259,11 @@ float tmod__floatunsisf(uint32_t in) {
   return in;
 }
 
+uint32_t tmod__fixunssfsi(float in) {
+  return in;
+}
+
+
 uint32_t tmod__udivsi3(uint32_t p1, uint32_t p2) {
   return p1 / p2;
 }
@@ -260,6 +271,12 @@ uint32_t tmod__udivsi3(uint32_t p1, uint32_t p2) {
 int32_t tmod__divsi3(int32_t p1, int32_t p2) {
   return p1 / p2;
 }
+
+int64_t tmod__muldi3(int64_t p1, int64_t p2) {
+  return p1 * p2;
+}
+
+
 
 float tmod_fdiv(float p1, float p2) {
   return p1 / p2;
@@ -328,10 +345,19 @@ uint32_t GetTasmotaGlobal(uint32_t sel) {
     case 1:
       return TasmotaGlobal.tele_period;
       break;
+    case 2:
+      return TasmotaGlobal.global_update;
+      break;
+    case 3:
+      return TasmotaGlobal.humidity;
+      break;
   }
   return 0;
 }
 
+float GetTasmotaGlobalf(uint32_t sel) {
+  return TasmotaGlobal.temperature_celsius;
+}
 
 void show_hex_address(uint32_t addr) {
   AddLog(LOG_LEVEL_INFO,PSTR(">>> %08x"), addr);

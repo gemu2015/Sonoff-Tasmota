@@ -132,6 +132,7 @@ MODULE_PART void MOD_FUNC(BME_Show, uint32_t json);
 MODULE_PART void MOD_FUNC(BME_Deinit);
 MODULE_PART void MOD_FUNC(BME_Every_Second);
 MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
+MODULE_PART float MOD_FUNC(Calc_AbsoluteHumidity, float temperature, float humidity);
 MODULE_PART humidity_t MOD_FUNC(compensateHumidity, int32_t adc_H);
 MODULE_PART temperature_t MOD_FUNC(compensateTemperature, int32_t adc_T);
 MODULE_PART pressure_t MOD_FUNC(compensatePressure, int32_t adc_P);
@@ -141,6 +142,7 @@ MODULE_END
 // all memory must be in struct MODULE_MEMORY
 typedef struct {
   float hum;
+  float abshum;
   float temp;
   int32_t _t_fine;
   float press;
@@ -175,6 +177,7 @@ typedef struct {
 #define press mem->press
 #define type mem->type
 #define typestr mem->typestr
+#define abshum mem->abshum
 
 #define i2c_addr mem->i2c_addr
 
@@ -204,8 +207,11 @@ typedef struct {
 // all text defines must be here
 DPSTR(HTTP_BMP_T,"{s}%s Temperatur{m}%s C{e}");
 DPSTR(HTTP_BMP_P,"{s}%s Luftdruck {m}%s hp{e}"); 
-DPSTR(JSON_BMP,",\"%s\":{\"Temperature\":%s,\"Humidity\":%s,\"Pressure\":%s}");
-
+DPSTR(JSON_BMP,",\"%s\":{\"Temperature\":%s,\"Pressure\":%s");
+DPSTR(JSON_BME,",\"%s\":{\"Humidity\":%s,\"AbsHumidity\":%s}");
+DPSTR(JSON_BMPend,"}");
+DPSTR(HTTP_SNS_AHUM,"{s}%s Abs Humidity{m}%s g/m3{e}");
+DPSTR(JSON_SNS_AHUM,",\"Abs_Humidity\":%s}");
 DPSTR(BMEtypes,"BMP180|BME280|BMP280|BME680");
 DPSTR(started,"val: %d - %d");
 
@@ -359,6 +365,35 @@ humidity_t MOD_FUNC(compensateHumidity, int32_t adc_H) {
   return (uint32_t)(v_x1_u32r>>12);
 }
 
+float MOD_FUNC(Calc_AbsoluteHumidity, float temperature, float humidity) {
+  SETREGS
+  //taken from https://carnotcycle.wordpress.com/2012/08/04/how-to-convert-relative-humidity-to-absolute-humidity/
+  //precision is about 0.1°C in range -30 to 35°C
+  //August-Roche-Magnus 	6.1094 exp(17.625 x T)/(T + 243.04)
+  //Buck (1981) 		6.1121 exp(17.502 x T)/(T + 240.97)
+  //reference https://www.eas.ualberta.ca/jdwilson/EAS372_13/Vomel_CIRES_satvpformulae.html
+  float ctmp = NAN;
+  const float mw = 18.01534f; 	// molar mass of water g/mol
+  const float r = 8.31447215f; 	// Universal gas constant J/mol/K
+
+  if (isnan(temperature) || isnan(humidity) ) {
+    return NAN;
+  }
+
+  //ctmp = FastPrecisePowf(2.718281828f, (17.67f * temperature) / (temperature + 243.5f));
+  float p1 = tmod__mulsf3(17.67f , temperature);
+  float p2 = tmod__addsf3(temperature , 243.5f);
+
+  ctmp = FastPrecisePowf(2.718281828f, tmod__divsf3(p1, p2));
+
+  //return (6.112f * ctmp * humidity * 2.1674) / (273.15 + temperature); 	//simplified version
+  //return (6.112f * ctmp * humidity * mw) / ((273.15f + temperature) * r); 	//long version
+  p1 = (tmod__mulsf3(6.112f , tmod__mulsf3(ctmp ,tmod__mulsf3(humidity , mw))));
+
+  p2 = tmod__mulsf3(tmod__addsf3(273.15f , temperature), r);
+  
+  return  tmod__divsf3(p1, p2);
+}
 
 void MOD_FUNC(BME_Every_Second) {
   SETREGS
@@ -368,24 +403,19 @@ void MOD_FUNC(BME_Every_Second) {
   uint32_t r_press = CALL_MOD_FUNC(BME_Read, BME280_PRESSURE, 3) >> 4;
   int32_t r_temp = CALL_MOD_FUNC(BME_Read, BME280_TEMPERATURE, 3) >> 4;
   
-  //AddLog(LOG_LEVEL_INFO, PSTR(started), 1, _dig_T1);
-  //AddLog(LOG_LEVEL_INFO, PSTR(started), 2, _dig_T2);
-  //AddLog(LOG_LEVEL_INFO, PSTR(started), 3, _dig_T3);
-  //AddLog(LOG_LEVEL_INFO, PSTR(started), 4, r_temp);
-
   r_temp = CALL_MOD_FUNC(compensateTemperature, r_temp); // First call this before calling the other compensate functions.
   r_press = CALL_MOD_FUNC(compensatePressure, r_press); // Uses value calculated by compensateTemperature.
-
-  //AddLog(LOG_LEVEL_INFO, PSTR(started), 5, r_temp);
+  temp =  fscale(r_temp, (float)0.01, (float)0);
+  press = fscale(r_press, (float)0.01, (float)0);
 
   if (type == BME280_CHIPID) {
     uint16_t r_hum = CALL_MOD_FUNC(BME_Read, BME280_HUMIDITY, 2);
     r_hum = CALL_MOD_FUNC(compensateHumidity, r_hum); // Uses value calculated by compensateTemperature.
     hum = fscale(r_hum, (float)0.00097656, (float)0);
+  
+    abshum = CALL_MOD_FUNC(Calc_AbsoluteHumidity, temp, hum);
+    //abshum = 4.345f;
   }
-
-  temp =  fscale(r_temp, (float)0.01, (float)0);
-  press = fscale(r_press, (float)0.01, (float)0);
 
 }
 
@@ -399,17 +429,24 @@ void MOD_FUNC(BME_Show, uint32_t json) {
 
   char temp_tstr[16];
   ftostrfd(temp, jsettings->flag2.temperature_resolution, temp_tstr);
-  char hum_tstr[16];
-  ftostrfd(hum, jsettings->flag2.humidity_resolution, hum_tstr);
   char press_tstr[16];
   ftostrfd(press, jsettings->flag2.pressure_resolution, press_tstr);
-
+  char hum_tstr[16];
+  ftostrfd(hum, jsettings->flag2.humidity_resolution, hum_tstr);
+  char ahum_tstr[16];
+  ftostrfd(abshum, 4, ahum_tstr);
+  
   if (json) {
-    ResponseAppend_P(PSTR(JSON_BMP), typestr, temp_tstr, hum_tstr, press_tstr);
+    ResponseAppend_P(PSTR(JSON_BMP), typestr, temp_tstr, press_tstr);
+    if (type == BME280_CHIPID) {
+      ResponseAppend_P(PSTR(JSON_BME), typestr, hum_tstr, ahum_tstr);
+    } else {
+      ResponseAppend_P(PSTR(JSON_BMPend));
+    }
   } else {
-    
     if (type == BME280_CHIPID) {
       TempHumDewShow(json, 0, typestr, temp, hum);
+      WSContentSend_PD(PSTR(HTTP_SNS_AHUM), typestr, ahum_tstr);
     } else {
       WSContentSend_PD(PSTR(HTTP_BMP_T), typestr, temp_tstr);
     }

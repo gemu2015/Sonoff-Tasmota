@@ -73,7 +73,7 @@ DPSTR(JSON_IRTMP,",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}");
 DPSTR(mlxdev,"MLX90614");
 
 
-int32_t MOD_FUNC(Init_MLX90614) {
+int32_t MOD_FUNC(MLX90614_Init) {
   ALLOCMEM
  // INITWIRE(wire)
 
@@ -201,7 +201,7 @@ int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
   bool result = false;
   switch (sel) {
     case FUNC_INIT:
-      result = CALL_MOD_FUNC(Init_MLX90614);
+      result = CALL_MOD_FUNC(MLX90614_Init);
       break;
     case FUNC_JSON_APPEND:
       CALL_MOD_FUNC(MLX90614_Show, 1);

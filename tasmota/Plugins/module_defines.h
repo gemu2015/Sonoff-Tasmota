@@ -30,7 +30,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jbeginTransmission(BUS,ADDR)    (( void (*)(TwoWire*,uint8_t) )                jt[12])(BUS,ADDR)
 #define jwrite(BUS,VAL)                 (( void (*)(TwoWire*,uint8_t) )                jt[13])(BUS,VAL)
 #define jendTransmission(BUS,VAL)       (( uint8_t (*)(TwoWire*,bool) )                jt[14])(BUS,VAL)
-#define jrequestFrom(BUS,ADDR,NUM)      (( void (*)(TwoWire*,uint8_t,uint8_t) )        jt[15])(BUS,ADDR,NUM)
+#define jrequestFrom(BUS,ADDR,NUM)      (( size_t (*)(TwoWire*,uint8_t,uint8_t) )      jt[15])(BUS,ADDR,NUM)
 #define jread(BUS)                      (( uint8_t (*)(TwoWire*) )                     jt[16])(BUS)
 #define fshowhex(VAL)                   (( void (*)(uint32_t) )                        jt[17])(VAL)
 #define jfree(MEM)                      (( void (*)(void*) )                           jt[18])(MEM)
@@ -79,6 +79,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jXdrvMailbox                    ((XdrvMailbox*)                                 jt[57])
 #define jGetCommandCode(DST,DSIZE,NEEDLE,HSTCK)(( int (*)(char*,size_t,const char*,const char*) )    jt[58])(DST,DSIZE,NEEDLE,HSTCK)
 #define jstrlen(STR)                    (( uint32_t (*)(char*) )                       jt[59])(STR)
+// 60
 #define jstrncasecmp_P(S1,S2,SIZE)      (( int (*)(const char*,const char *, size_t) ) jt[60])(S1,S2,SIZE)
 #define jtoupper(CHAR)                  (( int (*)( int c ) )                          jt[61])(CHAR)
 #define jiscale(A,B,C)                  (( int32_t (*)(int32_t, int32_t, int32_t) )    jt[62])(A,B,C)
@@ -89,6 +90,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jMqttPublishTeleSensor          (( void (*)(void) )                            jt[67])
 #define jstrtoul(A,B,C)                 (( uint32_t (*)(const char *,char **, int) )   jt[68])(A,B,C)
 #define jAddLogBuffer(A,B,C)            (( void (*)(uint32_t,uint8_t*, uint32_t) )     jt[69])(A,B,C)
+// 70
 #define jResponseTime_P(...)            (( int (*)(const char*, ...) )                 jt[70])(__VA_ARGS__)
 #define jClaimSerial                    (( void (*)(void) )                            jt[71])
 #define jhardwareSerial(TSER)           (( bool (*)(void*) )                           jt[72])(TSER)
@@ -99,6 +101,11 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jtmod__udivsi3(A,B)             (( uint32_t (*)(uint32_t,uint32_t) )           jt[77])(A,B)
 #define jtmod__floatsisf(A)             (( float (*)(int32_t) )                        jt[78])(A)
 #define jtmod__floatunsisf(A)           (( float (*)(uint32_t) )                       jt[79])(A)
+// 80
+#define jFastPrecisePowf(A,B)           (( float (*)(float, float) )                   jt[80])(A,B)
+#define JGetTasmotaGf(SEL)              (( float (*)(uint32_t) )                       jt[81])(SEL)
+#define jtmod__muldi3(A,B)              (( int64_t (*)(int64_t,int64_t) )              jt[82])(A,B)
+#define jtmod__fixunssfsi(A)            (( uint32_t (*)(float) )                       jt[83])(A)
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -230,7 +237,7 @@ typedef struct {
 #define   beginTransmission(ADDR) jbeginTransmission(jWire, ADDR)
 #define   write(CMD) jwrite(jWire, CMD)
 #define   endTransmission(BUS) jendTransmission(jWire, BUS)
-#define   requestFrom(ADDR,NUM)  jrequestFrom(jWire, ADDR, NUM);
+#define   requestFrom(ADDR,NUM)  jrequestFrom(jWire, ADDR, NUM)
 #define   read() jread(jWire)
 #define   I2cRead8 jI2cRead8
 #define   I2cRead16 jI2cRead16
@@ -293,4 +300,12 @@ typedef struct {
 #define   tmod__udivsi3 jtmod__udivsi3
 #define   tmod__floatsisf jtmod__floatsisf
 #define   tmod__floatunsisf jtmod__floatunsisf
-
+#define   FastPrecisePowf  jFastPrecisePowf
+#define   isnan jisnan
+#define   tmod__mulsf3  jfmul
+#define   tmod__divsf3  jfdiv
+#define   tmod__addsf3  jfadd
+#define   tmod__subsf3  jfdiff
+#define   GetTasmotaGlobalf JGetTasmotaGlobalf
+#define   tmod__muldi3 jtmod__muldi3
+#define   tmod__fixunssfsi jtmod__fixunssfsi

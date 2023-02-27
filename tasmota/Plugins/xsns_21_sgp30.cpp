@@ -24,53 +24,228 @@
 #include "module.h"
 #include "module_defines.h"
 
-/*********************************************************************************************\
- * SGP30 - Gas (TVOC - Total Volatile Organic Compounds) and Air Quality (CO2)
- *
- * Source: Gerhard Mutz and Adafruit Industries
- *
- * I2C Address: 0x58
-\*********************************************************************************************/
-
-
-DPSTR(HTTP_SNS_SGP30,"{s}SGP30 eCO2 {m}%d ppm {e}{s}SGP30 TVOC {m}%d ppb {e}");
-DPSTR(HTTP_SNS_AHUM,"{s}SGP30 Abs Humidity{m}%s g/m3{e}");
-
 
 #define SGP30_ADDRESS       0x58
 
 // all memory must be in struct MODULE_MEMORY
 typedef struct {
-  float obj_temp;
-  float amb_temp;
+  bool sgp30_ready;
   bool ready;
+  uint8_t secs;
+  uint16_t eCO2;
+  uint16_t TVOC;
+  uint16_t TVOC_base;
+  uint16_t eCO2_base;
+  float abshum;
 } MODULE_MEMORY;
 
 #define ready mem->ready
+#define secs mem->secs
+#define sgp30_ready mem->sgp30_ready
+#define TVOC mem->TVOC
+#define eCO2 mem->eCO2
+#define TVOC_base mem->TVOC_base
+#define eCO2_base mem->eCO2_base
+#define abshum mem->abshum
 
-Adafruit_SGP30 sgp;
+#define SGP30_REV  1<<16|1
 
-bool sgp30_type = false;
-bool sgp30_ready = false;
-float sgp30_abshum;
+// all functions must be declared MUDULE_PART
+MODULE_DESCRIPTOR("SGP30", MODULE_TYPE_SENSOR, SGP30_REV,"",0,"",0,"",0,"",0)
+MODULE_PART int32_t MOD_FUNC(SGP30_Init);
+MODULE_PART bool MOD_FUNC(SGP30_IAQinit);
+MODULE_PART bool MOD_FUNC(SGP30_Begin);
+MODULE_PART bool MOD_FUNC(SGP30_IAQmeasure);
+MODULE_PART bool MOD_FUNC(getIAQBaseline, uint16_t *eco2_base, uint16_t *tvoc_base);
+MODULE_PART bool MOD_FUNC(readWordFromCommand, uint8_t command[], uint8_t commandLength, uint16_t delayms, uint16_t *readdata, uint8_t readlen);
+MODULE_PART uint8_t generateCRC(uint8_t *data, uint8_t datalen);
+MODULE_PART float MOD_FUNC(Calc_AbsoluteHumidity, float temperature, float humidity);
+MODULE_PART bool MOD_FUNC(setHumidity, uint32_t absolute_humidity);
+MODULE_PART void MOD_FUNC(SGP30_Every_Second);
+MODULE_PART void MOD_FUNC(SGP30_Show, bool json);
+MODULE_PART void MOD_FUNC(SGP30_Deinit);
+MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
+MODULE_END
 
+// all text defs must appear here
+DPSTR(HTTP_SNS_SGP30,"{s}SGP30 eCO2 {m}%d ppm {e}{s}SGP30 TVOC {m}%d ppb {e}");
+DPSTR(JSON_SNS_SGP30,",\"SGP30\":{\"ECO2\":%d,\"TVOC\":%d");
+DPSTR(SGP30,"SGP30");
+DPSTR(HTTP_SNS_AHUM,"{s}SGP30 Abs Humidity{m}%s g/m3{e}");
+DPSTR(JSON_SNS_AHUM,",\"AHUM\":%s");
+
+//DPSTR(SGP30SN,"SGP: Serialnumber 0x%04X-0x%04X-0x%04X");
 /********************************************************************************************/
 
-void sgp30_Init(void)
-{
-  if (!I2cSetDevice(SGP30_ADDRESS)) { return; }
+int32_t MOD_FUNC(SGP30_Init) {
+  ALLOCMEM
 
-  if (sgp.begin()) {
-    sgp30_type = true;
-//    AddLog(LOG_LEVEL_DEBUG, PSTR("SGP: Serialnumber 0x%04X-0x%04X-0x%04X"), sgp.serialnumber[0], sgp.serialnumber[1], sgp.serialnumber[2]);
-    I2cSetActiveFound(SGP30_ADDRESS, "SGP30");
+  ready = false;
+  sgp30_ready = false;
+
+  if (!I2cSetDevice(SGP30_ADDRESS)) { 
+    goto exit; 
   }
+
+  if (CALL_MOD_FUNC(SGP30_Begin)) {
+    ready = true;
+    initialized = true;
+    I2cSetActiveFound(SGP30_ADDRESS, PSTR(SGP30), 0);
+    return 0;
+  }
+
+  exit:
+  CALL_MOD_FUNC(SGP30_Deinit);
+  return -1;
 }
 
-//#define POW_FUNC pow
-#define POW_FUNC FastPrecisePow
+#define SGP30_FEATURESET 0x0020    ///< The required set for this library
 
-float sgp30_AbsoluteHumidity(float temperature, float humidity) {
+bool MOD_FUNC(SGP30_Begin) {
+  SETREGS
+  
+  uint16_t serialnumber[3];
+  uint8_t command[2];
+  command[0] = 0x36;
+  command[1] = 0x82;
+  if (!CALL_MOD_FUNC(readWordFromCommand, command, 2, 10, serialnumber, 3)) {
+    return false;
+  }
+
+  uint16_t featureset;
+  command[0] = 0x20;
+  command[1] = 0x2F;
+  if (!CALL_MOD_FUNC(readWordFromCommand, command, 2, 10, &featureset, 1)) {
+    return false;
+  }
+  if ((featureset & 0xF0) != SGP30_FEATURESET) {
+    return false;
+  }
+
+  //AddLog(LOG_LEVEL_INFO, PSTR(SGP30SN), serialnumber[0], serialnumber[1], serialnumber[2]);
+
+  if (!CALL_MOD_FUNC(SGP30_IAQinit)) {
+      return false;
+  }
+
+  return true;
+}
+
+bool MOD_FUNC(SGP30_IAQinit) {
+  SETREGS
+  uint8_t command[2];
+  command[0] = 0x20;
+  command[1] = 0x03;
+  return CALL_MOD_FUNC(readWordFromCommand, command, 2, 10, 0, 0);
+}
+
+bool MOD_FUNC(SGP30_IAQmeasure) {
+  SETREGS
+  uint8_t command[2];
+  command[0] = 0x20;
+  command[1] = 0x08;
+  uint16_t reply[2];
+  if (!CALL_MOD_FUNC(readWordFromCommand, command, 2, 12, reply, 2)) {
+    return false;
+  }
+  TVOC = reply[1];
+  eCO2 = reply[0];
+  return true;
+}
+
+bool MOD_FUNC(getIAQBaseline, uint16_t *eco2_base, uint16_t *tvoc_base) {
+  SETREGS
+  uint8_t command[2];
+  command[0] = 0x20;
+  command[1] = 0x15;
+  uint16_t reply[2];
+  if (!CALL_MOD_FUNC(readWordFromCommand, command, 2, 10, reply, 2)) {
+    return false;
+  }
+  *eco2_base = reply[0];
+  *tvoc_base = reply[1];
+  return true;
+}
+
+bool MOD_FUNC(setHumidity, uint32_t absolute_humidity) {
+  SETREGS
+  if (absolute_humidity > 256000) {
+    return false;
+  }
+
+  //uint16_t ah_scaled = (uint16_t)(((uint64_t)absolute_humidity * 256 * 16777) >> 24);
+  uint64_t llval = tmod__muldi3(absolute_humidity << 8, 16777);
+  uint16_t ah_scaled = llval >> 24;
+  uint8_t command[5];
+  command[0] = 0x20;
+  command[1] = 0x61;
+  command[2] = ah_scaled >> 8;
+  command[3] = ah_scaled & 0xFF;
+  command[4] = generateCRC(command + 2, 2);
+
+  return CALL_MOD_FUNC(readWordFromCommand, command, 5, 10, 0, 0);
+}
+
+
+bool MOD_FUNC(readWordFromCommand, uint8_t command[], uint8_t commandLength, uint16_t delayms, uint16_t *readdata, uint8_t readlen) {
+  SETREGS
+  beginTransmission(SGP30_ADDRESS);
+  for (uint8_t i = 0; i < commandLength; i++) {
+    write(command[i]);
+  }
+  endTransmission(false);
+
+  delay(delayms);
+
+  if (readlen == 0) {
+    return true;
+  }
+
+  uint8_t replylen = readlen * (2 + 1);
+  if (requestFrom(SGP30_ADDRESS, replylen) != replylen) {
+    return false;
+  }
+  uint8_t replybuffer[replylen];
+  for (uint8_t i = 0; i < replylen; i++) {
+    replybuffer[i] = read();
+  }
+
+  for (uint8_t i = 0; i < readlen; i++) {
+    uint8_t crc = generateCRC(replybuffer + i * 3, 2);
+    if (crc != replybuffer[i * 3 + 2]) {
+      return false;
+    }
+    // success! store it
+    readdata[i] = replybuffer[i * 3];
+    readdata[i] <<= 8;
+    readdata[i] |= replybuffer[i * 3 + 1];
+  }
+  return true;
+}
+
+#define SGP30_CRC8_POLYNOMIAL 0x31 ///< Seed for SGP30's CRC polynomial
+#define SGP30_CRC8_INIT 0xFF       ///< Init value for CRC
+
+
+uint8_t generateCRC(uint8_t *data, uint8_t datalen) {
+  // calculates 8-Bit checksum with given polynomial
+  uint8_t crc = SGP30_CRC8_INIT;
+
+  for (uint8_t i = 0; i < datalen; i++) {
+    crc ^= data[i];
+    for (uint8_t b = 0; b < 8; b++) {
+      if (crc & 0x80)
+        crc = (crc << 1) ^ SGP30_CRC8_POLYNOMIAL;
+      else
+        crc <<= 1;
+    }
+  }
+  return crc;
+}
+
+
+float MOD_FUNC(Calc_AbsoluteHumidity, float temperature, float humidity) {
+  SETREGS
   //taken from https://carnotcycle.wordpress.com/2012/08/04/how-to-convert-relative-humidity-to-absolute-humidity/
   //precision is about 0.1°C in range -30 to 35°C
   //August-Roche-Magnus 	6.1094 exp(17.625 x T)/(T + 243.04)
@@ -84,106 +259,111 @@ float sgp30_AbsoluteHumidity(float temperature, float humidity) {
     return NAN;
   }
 
-  temp = POW_FUNC(2.718281828f, (17.67f * temperature) / (temperature + 243.5f));
+  //temp = FastPrecisePowf(2.718281828f, (17.67f * temperature) / (temperature + 243.5f));
+  float p1 = tmod__mulsf3(17.67f , temperature);
+  float p2 = tmod__addsf3(temperature , 243.5f);
+  temp = FastPrecisePowf(2.718281828f, tmod__divsf3(p1, p2));
 
-  //return (6.112 * temp * humidity * 2.1674) / (273.15 + temperature); 	//simplified version
-  return (6.112f * temp * humidity * mw) / ((273.15f + temperature) * r); 	//long version
+  //return (6.112f * temp * humidity * 2.1674) / (273.15 + temperature); 	//simplified version
+  //return (6.112f * temp * humidity * mw) / ((273.15f + temperature) * r); 	//long version
+  p1 = (tmod__mulsf3(6.112f , tmod__mulsf3(temp ,tmod__mulsf3(humidity , mw))));
+
+  p2 = tmod__mulsf3(tmod__addsf3(273.15f , temperature), r);
+  
+  return  tmod__divsf3(p1, p2);
 }
+
 
 #define SAVE_PERIOD 30
 
-void Sgp30Update(void)  // Perform every second to ensure proper operation of the baseline compensation algorithm
-{
+void MOD_FUNC(SGP30_Every_Second) {
+  SETREGS
+  if (!ready) return;
+
   sgp30_ready = false;
-  if (!sgp.IAQmeasure()) {
+  if (!CALL_MOD_FUNC(SGP30_IAQmeasure)) {
     return;  // Measurement failed
   }
-  if (TasmotaGlobal.global_update && (TasmotaGlobal.humidity > 0) && !isnan(TasmotaGlobal.temperature_celsius)) {
+
+ // if (TasmotaGlobal.global_update && (TasmotaGlobal.humidity > 0) && !isnan(TasmotaGlobal.temperature_celsius)) {
+
+  if (GetTasmotaGlobal(2) && (GetTasmotaGlobal(3) > 0) && !isnan(JGetTasmotaGf(0))) {
     // abs hum in mg/m3
-    sgp30_abshum = sgp30_AbsoluteHumidity(TasmotaGlobal.temperature_celsius, TasmotaGlobal.humidity);
-    sgp.setHumidity(sgp30_abshum*1000);
+    abshum = CALL_MOD_FUNC(Calc_AbsoluteHumidity, JGetTasmotaGf(0), tmod__floatunsisf(GetTasmotaGlobal(3)));
+    CALL_MOD_FUNC(setHumidity, tmod__fixunssfsi(tmod__mulsf3(abshum , 1000)));
   }
+
   sgp30_ready = true;
 
+  secs++;
   // these should normally be stored permanently and used for fast restart
-  if (!(TasmotaGlobal.uptime%SAVE_PERIOD)) {
+  if (secs >= SAVE_PERIOD) {
+    secs = 0;
     // store settings every N seconds
-    uint16_t TVOC_base;
-    uint16_t eCO2_base;
-
-    if (!sgp.getIAQBaseline(&eCO2_base, &TVOC_base)) return;  // Failed to get baseline readings
-//      AddLog(LOG_LEVEL_DEBUG, PSTR("SGP: Baseline values eCO2 0x%04X, TVOC 0x%04X"), eCO2_base, TVOC_base);
+    if (!CALL_MOD_FUNC(getIAQBaseline, &eCO2_base, &TVOC_base)) {
+     return;  // Failed to get baseline readings
+    }
+//  AddLog(LOG_LEVEL_DEBUG, PSTR("SGP: Baseline values eCO2 0x%04X, TVOC 0x%04X"), eCO2_base, TVOC_base);
   }
 }
 
-#ifdef USE_WEBSERVER
-const char HTTP_SNS_SGP30[] PROGMEM =
-  "{s}SGP30 " D_ECO2 "{m}%d " D_UNIT_PARTS_PER_MILLION "{e}"                // {s} = <tr><th>, {m} = </th><td>, {e} = </td></tr>
-  "{s}SGP30 " D_TVOC "{m}%d " D_UNIT_PARTS_PER_BILLION "{e}";
-const char HTTP_SNS_AHUM[] PROGMEM = "{s}SGP30 Abs Humidity{m}%s g/m3{e}";
-#endif
 
-#define D_JSON_AHUM "aHumidity"
-
-void Sgp30Show(bool json)
-{
+void MOD_FUNC(SGP30_Show, bool json) {
+  SETREGS
   if (sgp30_ready) {
     char abs_hum[33];
-    bool ahum_available = TasmotaGlobal.global_update && (TasmotaGlobal.humidity > 0) && !isnan(TasmotaGlobal.temperature_celsius);
+    bool ahum_available = GetTasmotaGlobal(2) && (GetTasmotaGlobal(3) > 0) && !isnan(JGetTasmotaGf(0));
     if (ahum_available) {
         // has humidity + temperature
-        dtostrfd(sgp30_abshum,4,abs_hum);
+        ftostrfd(abshum, 4, abs_hum);
     }
+
     if (json) {
-      ResponseAppend_P(PSTR(",\"SGP30\":{\"" D_JSON_ECO2 "\":%d,\"" D_JSON_TVOC "\":%d"), sgp.eCO2, sgp.TVOC);
+      ResponseAppend_P(PSTR(JSON_SNS_SGP30), eCO2, TVOC);
       if (ahum_available) {
-        ResponseAppend_P(PSTR(",\"" D_JSON_AHUM "\":%s"),abs_hum);
+        ResponseAppend_P(PSTR(JSON_SNS_AHUM), abs_hum);
       }
-      ResponseJsonEnd();
-#ifdef USE_DOMOTICZ
-      if (0 == TasmotaGlobal.tele_period) DomoticzSensor(DZ_AIRQUALITY, sgp.eCO2);
-#endif  // USE_DOMOTICZ
-#ifdef USE_WEBSERVER
     } else {
-      WSContentSend_PD(HTTP_SNS_SGP30, sgp.eCO2, sgp.TVOC);
+      WSContentSend_PD(PSTR(HTTP_SNS_SGP30), eCO2, TVOC);
       if (ahum_available) {
-        WSContentSend_PD(HTTP_SNS_AHUM, abs_hum);
+        WSContentSend_PD(PSTR(HTTP_SNS_AHUM), abs_hum);
       }
-#endif
     }
   }
+}
+
+void MOD_FUNC(SGP30_Deinit) {
+  SETREGS
+  I2cResetActive(SGP30_ADDRESS, 1);
+  RETMEM
 }
 
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
 
-bool Xsns21(uint32_t function)
-{
-  if (!I2cEnabled(XI2C_18)) { return false; }
-
+int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
   bool result = false;
 
-  if (FUNC_INIT == function) {
-    sgp30_Init();
-  }
-  else if (sgp30_type) {
-    switch (function) {
+  switch (sel) {
+      case FUNC_INIT:
+        result = CALL_MOD_FUNC(SGP30_Init);
+        break;
       case FUNC_EVERY_SECOND:
-        Sgp30Update();
+        CALL_MOD_FUNC(SGP30_Every_Second);
         break;
       case FUNC_JSON_APPEND:
-        Sgp30Show(1);
+        CALL_MOD_FUNC(SGP30_Show, 1);
         break;
-  #ifdef USE_WEBSERVER
       case FUNC_WEB_SENSOR:
-        Sgp30Show(0);
+        CALL_MOD_FUNC(SGP30_Show, 0);
         break;
-  #endif  // USE_WEBSERVER
-    }
+      case FUNC_DEINIT:
+        CALL_MOD_FUNC(SGP30_Deinit);
+        break;
   }
   return result;
 }
 
-#endif  // USE_SGP30
+#endif  // USE_SGP30_MOD
 
