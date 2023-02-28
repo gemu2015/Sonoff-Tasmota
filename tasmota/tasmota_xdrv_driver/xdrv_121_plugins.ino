@@ -199,7 +199,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&FastPrecisePowf,
   JMPTBL&GetTasmotaGlobalf,
   JMPTBL&tmod__muldi3,
-  JMPTBL&tmod__fixunssfsi
+  JMPTBL&tmod__fixunssfsi,
+  JMPTBL&tmod__umodsi3
 };
 
 
@@ -267,6 +268,12 @@ uint32_t tmod__fixunssfsi(float in) {
 uint32_t tmod__udivsi3(uint32_t p1, uint32_t p2) {
   return p1 / p2;
 }
+
+uint32_t tmod__umodsi3(uint32_t p1, uint32_t p2) {
+  return p1 % p2;
+}
+
+
 
 int32_t tmod__divsi3(int32_t p1, int32_t p2) {
   return p1 / p2;

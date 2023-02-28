@@ -106,6 +106,8 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define JGetTasmotaGf(SEL)              (( float (*)(uint32_t) )                       jt[81])(SEL)
 #define jtmod__muldi3(A,B)              (( int64_t (*)(int64_t,int64_t) )              jt[82])(A,B)
 #define jtmod__fixunssfsi(A)            (( uint32_t (*)(float) )                       jt[83])(A)
+#define jtmod__umodsi3(A,B)             (( uint32_t (*)(uint32_t,uint32_t) )           jt[84])(A,B)
+
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -309,3 +311,4 @@ typedef struct {
 #define   GetTasmotaGlobalf JGetTasmotaGlobalf
 #define   tmod__muldi3 jtmod__muldi3
 #define   tmod__fixunssfsi jtmod__fixunssfsi
+#define   tmod__umodsi3 jtmod__umodsi3

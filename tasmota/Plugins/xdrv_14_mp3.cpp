@@ -194,7 +194,7 @@ int32_t MOD_FUNC(MP3PlayerInit) {
     return 0;
   }
   CALL_MOD_FUNC(MP3Player_Deinit);
-  return 1;
+  return -1;
 }
 
 int32_t MOD_FUNC(MP3_Init) {
@@ -217,7 +217,7 @@ int32_t MOD_FUNC(MP3_Init) {
       return 0;
     }
   }
-  return 1;
+  return -1;
 }
 
 
