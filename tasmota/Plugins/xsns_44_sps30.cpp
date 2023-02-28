@@ -17,34 +17,15 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifdef USE_I2C
+
+#include "tasmota_options.h"
+
 #ifdef USE_SPS30_MOD
 
-#define XSNS_44 44
-#define XI2C_30 30  // See I2CDEVICES.md
+#include "module.h"
+#include "module_defines.h"
 
 #define SPS30_ADDR 0x69
-
-#include <Wire.h>
-#ifdef ESP8266
-#include <twi.h>
-#endif
-
-uint8_t sps30_ready = 0;
-uint8_t sps30_running;
-
-struct SPS30 {
-  float PM1_0;
-  float PM2_5;
-  float PM4_0;
-  float PM10;
-  float NCPM0_5;
-  float NCPM1_0;
-  float NCPM2_5;
-  float NCPM4_0;
-  float NCPM10;
-  float TYPSIZ;
-} sps30_result;
 
 #define SPS_CMD_START_MEASUREMENT 0x0010
 #define SPS_CMD_START_MEASUREMENT_ARG 0x0300
@@ -58,6 +39,60 @@ struct SPS30 {
 #define SPS_CMD_RESET 0xd304
 #define SPS_WRITE_DELAY_US 20000
 #define SPS_MAX_SERIAL_LEN 32
+
+// all memory must be in struct MODULE_MEMORY
+typedef struct {
+  float PM1_0;
+  float PM2_5;
+  float PM4_0;
+  float PM10;
+  float NCPM0_5;
+  float NCPM1_0;
+  float NCPM2_5;
+  float NCPM4_0;
+  float NCPM10;
+  float TYPSIZ;
+  bool sps30_running;
+  bool ready;
+} MODULE_MEMORY;
+
+#define PM1_0 mem->PM1_0
+#define PM2_5 mem->PM2_5
+#define PM4_0 mem->PM4_0
+#define PM10 mem->PM10
+#define NCPM0_5 mem->NCPM0_5
+#define NCPM1_0 mem->NCPM1_0
+#define NCPM2_5 mem->NCPM2_5
+#define NCPM4_0 mem->NCPM4_0
+#define NCPM10 mem->NCPM10
+#define TYPSIZ mem->TYPSIZ
+#define sps30_running mem->sps30_running
+#define ready mem->ready
+
+
+#define SPS30_REV  1<<16|1
+
+// all functions must be declared MUDULE_PART
+MODULE_DESCRIPTOR("SPS30", MODULE_TYPE_SENSOR, SPS30_REV,"",0,"",0,"",0,"",0)
+MODULE_PART int32_t MOD_FUNC(SPS30_Init);
+MODULE_PART void MOD_FUNC(SPS30_Every_Second);
+MODULE_PART void MOD_FUNC(SPS30_Show, bool json);
+MODULE_PART void MOD_FUNC(SPS30_Deinit);
+MODULE_PART uint8_t sps30_calc_CRC(uint8_t *data);
+MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
+MODULE_END
+
+// all text defs must appear here
+DPSTR(HTTP_SNS_SPS30,"{s}SGP30 eCO2 {m}%d ppm {e}{s}SGP30 TVOC {m}%d ppb {e}");
+DPSTR(JSON_SNS_SPS30,",\"SGP30\":{\"ECO2\":%d,\"TVOC\":%d");
+DPSTR(SPS30,"SPS30");
+
+const char HTTP_SNS_SPS30_a[] PROGMEM ="{s}SPS30 " "%s" "{m}%s ug/m3{e}";
+const char HTTP_SNS_SPS30_b[] PROGMEM ="{s}SPS30 " "%s" "{m}%s #/cm3{e}";
+const char HTTP_SNS_SPS30_c[] PROGMEM ="{s}SPS30 " "TYPSIZ" "{m}%s um{e}";
+
+
+/********************************************************************************************/
 
 uint8_t sps30_calc_CRC(uint8_t *data) {
     uint8_t crc = 0xFF;
@@ -74,13 +109,13 @@ uint8_t sps30_calc_CRC(uint8_t *data) {
     return crc;
 }
 
-void CmdClean(void);
 
 #ifdef ESP8266
 unsigned char twi_readFrom(unsigned char address, unsigned char* buf, unsigned int len, unsigned char sendStop);
 #endif
 
-void sps30_get_data(uint16_t cmd, uint8_t *data, uint8_t dlen) {
+void MOD_FUNC(sps30_get_data, uint16_t cmd, uint8_t *data, uint8_t dlen) {
+  SETREGS
   unsigned char cmdb[2];
   uint8_t tmp[3];
   uint8_t index=0;
@@ -120,8 +155,9 @@ void sps30_get_data(uint16_t cmd, uint8_t *data, uint8_t dlen) {
   }
 }
 
-void sps30_cmd(uint16_t cmd) {
-unsigned char cmdb[6];
+void MOD_FUNC(sps30_cmd, uint16_t cmd) {
+  SETREGS
+  unsigned char cmdb[6];
   Wire.beginTransmission(SPS30_ADDR);
   cmdb[0]=cmd>>8;
   cmdb[1]=cmd;
@@ -137,8 +173,9 @@ unsigned char cmdb[6];
   Wire.endTransmission();
 }
 
-void SPS30_Detect(void)
-{
+void MOD_FUNC(SPS30_Detect) {
+  ALLOCMEM
+
   if (!I2cSetDevice(SPS30_ADDR)) { return; }
   uint8_t dcode[32];
   sps30_get_data(SPS_CMD_GET_SERIAL,dcode,sizeof(dcode));
@@ -152,14 +189,8 @@ void SPS30_Detect(void)
   I2cSetActiveFound(SPS30_ADDR, "SPS30");
 }
 
-#define D_UNIT_PM "ug/m3"
-#define D_UNIT_NCPM "#/cm3"
 
-#ifdef USE_WEBSERVER
-const char HTTP_SNS_SPS30_a[] PROGMEM ="{s}SPS30 " "%s" "{m}%s " D_UNIT_PM "{e}";
-const char HTTP_SNS_SPS30_b[] PROGMEM ="{s}SPS30 " "%s" "{m}%s " D_UNIT_NCPM "{e}";
-const char HTTP_SNS_SPS30_c[] PROGMEM ="{s}SPS30 " "TYPSIZ" "{m}%s " "um" "{e}";
-#endif  // USE_WEBSERVER
+
 
 #define PMDP 2
 
@@ -167,7 +198,9 @@ const char HTTP_SNS_SPS30_c[] PROGMEM ="{s}SPS30 " "TYPSIZ" "{m}%s " "um" "{e}";
 //#define SPS30_HOURS sps30_inuse_hours
 //uint8_t sps30_inuse_hours;
 
-void SPS30_Every_Second() {
+void MOD_FUNC(SPS30_Every_Second) {
+  SETREGS
+  
   if (!sps30_running) return;
 
   if (TasmotaGlobal.uptime%10==0) {
@@ -202,8 +235,7 @@ void SPS30_Every_Second() {
 
 }
 
-void SPS30_Show(bool json)
-{
+void MODFUNC(SPS30_Show, bool json) {
   if (!sps30_running) { return; }
 
   char str[64];
@@ -255,15 +287,15 @@ void SPS30_Show(bool json)
   }
 }
 
-void CmdClean(void)
-{
+void MOD_FUNC(CmdCleand) {
+  SETREGS
   sps30_cmd(SPS_CMD_CLEAN);
   ResponseTime_P(PSTR(",\"SPS30\":{\"CFAN\":\"true\"}}"));
   MqttPublishTeleSensor();
 }
 
-bool SPS30_cmd(void)
-{
+bool MOD_FUNC(SPS30_cmd) {
+  SETREGS
   bool serviced = true;
   if (XdrvMailbox.data_len > 0) {
       char *cp=XdrvMailbox.data;
@@ -282,41 +314,41 @@ bool SPS30_cmd(void)
   return serviced;
 }
 
+void MOD_FUNC(SPS30_Deinit) {
+  SETREGS
+  I2cResetActive(SGP30_ADDRESS, 1);
+  RETMEM
+}
+
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
 
-bool Xsns44(uint32_t function)
-{
-  if (!I2cEnabled(XI2C_30)) { return false; }
-
+int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
   bool result = false;
 
-  if (FUNC_INIT == function) {
-    SPS30_Detect();
-  }
-  else if (sps30_ready) {
-    switch (function) {
+  switch (sel) {
+      case FUNC_INIT:
+        result = CALL_MOD_FUNC(SPS30_Init);
+        break;
       case FUNC_EVERY_SECOND:
-        SPS30_Every_Second();
+        CALL_MOD_FUNC(SPS30_Every_Second);
         break;
       case FUNC_JSON_APPEND:
-        SPS30_Show(1);
+        CALL_MOD_FUNC(SPS30_Show, 1);
         break;
-  #ifdef USE_WEBSERVER
       case FUNC_WEB_SENSOR:
-        SPS30_Show(0);
+        CALL_MOD_FUNC(SPS30_Show, 0);
         break;
-  #endif  // USE_WEBSERVER
       case FUNC_COMMAND_SENSOR:
-        if (XSNS_44 == XdrvMailbox.index) {
-          result = SPS30_cmd();
-        }
+        result = CALL_MOD_FUNC(SPS30Cmd);
         break;
-    }
+      case FUNC_DEINIT:
+        CALL_MOD_FUNC(SPS30_Deinit);
+        break;
   }
   return result;
 }
 
 #endif  // USE_SPS30
-#endif  // USE_I2C
+

@@ -69,10 +69,10 @@ MODULE_END
 
 // all text defs must appear here
 DPSTR(HTTP_SNS_SGP30,"{s}SGP30 eCO2 {m}%d ppm {e}{s}SGP30 TVOC {m}%d ppb {e}");
-DPSTR(JSON_SNS_SGP30,",\"SGP30\":{\"ECO2\":%d,\"TVOC\":%d");
+DPSTR(JSON_SNS_SGP30,",\"SGP30\":{\"eCO2\":%d,\"TVOC\":%d");
 DPSTR(SGP30,"SGP30");
 DPSTR(HTTP_SNS_AHUM,"{s}SGP30 Abs Humidity{m}%s g/m3{e}");
-DPSTR(JSON_SNS_AHUM,",\"AHUM\":%s");
+DPSTR(JSON_SNS_AHUM,",\"aHumidity\":%s}");
 
 //DPSTR(SGP30SN,"SGP: Serialnumber 0x%04X-0x%04X-0x%04X");
 /********************************************************************************************/
