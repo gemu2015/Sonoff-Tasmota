@@ -128,6 +128,7 @@ MODULE_PART int32_t MOD_FUNC(Init_BME);
 MODULE_PART void MOD_FUNC(BME_clearCalibrationData);
 MODULE_PART void MOD_FUNC(BME_readCalibrationData);
 MODULE_PART uint32_t MOD_FUNC(BME_Read, uint8_t reg, int8_t num);
+MODULE_PART uint32_t MOD_FUNC(BME_Write, uint8_t reg, int8_t val);
 MODULE_PART void MOD_FUNC(BME_Show, uint32_t json);
 MODULE_PART void MOD_FUNC(BME_Deinit);
 MODULE_PART void MOD_FUNC(BME_Every_Second);
@@ -253,6 +254,15 @@ uint32_t MOD_FUNC(BME_Read, uint8_t reg, int8_t num) {
   return result;
 }
 
+uint32_t MOD_FUNC(BME_Write, uint8_t reg, int8_t val) {
+  SETREGS
+
+  beginTransmission(i2c_addr);
+  write(reg);
+  write(val);
+  return endTransmission(true);
+}
+
 
 void MOD_FUNC(BME_readCalibrationData) {
   SETREGS
@@ -281,6 +291,13 @@ void MOD_FUNC(BME_readCalibrationData) {
     bmc._dig_H4 = (temp1<<4) | (temp2&0x0f);
     bmc._dig_H5 = (temp3<<4) | (temp2>>4);
     bmc._dig_H6 = (int8_t) CALL_MOD_FUNC(BME_Read,BME280_CAL_H6, 1);
+
+    CALL_MOD_FUNC(BME_Write, BME280_CTRL_MEAS_REGISTER, 0x00);
+    CALL_MOD_FUNC(BME_Write, BME280_CTRL_HUM_REGISTER, 0x01);
+    CALL_MOD_FUNC(BME_Write, BME280_CONFIG_REGISTER, 0xA0);
+    CALL_MOD_FUNC(BME_Write, BME280_CTRL_MEAS_REGISTER, 0x27);
+  } else {
+    CALL_MOD_FUNC(BME_Write, BME280_CTRL_MEAS_REGISTER, 0xb7);
   }
 }
 
@@ -378,7 +395,7 @@ float MOD_FUNC(Calc_AbsoluteHumidity, float temperature, float humidity) {
 }
 
 
-DPSTR(started,"val: %d - %d");
+DPSTR(started,"val: %d - %08x");
 
 void MOD_FUNC(BME_Every_Second) {
   SETREGS
@@ -388,12 +405,14 @@ void MOD_FUNC(BME_Every_Second) {
   uint32_t r_press = CALL_MOD_FUNC(BME_Read, BME280_PRESSURE, 3) >> 4;
   int32_t r_temp = CALL_MOD_FUNC(BME_Read, BME280_TEMPERATURE, 3) >> 4;
   
+  uint32_t testregs = CALL_MOD_FUNC(BME_Read, 0xf3, 3);
+  AddLog(LOG_LEVEL_INFO, PSTR(started), 1, testregs);
+
+
   r_temp = CALL_MOD_FUNC(compensateTemperature, r_temp); // First call this before calling the other compensate functions.
   r_press = CALL_MOD_FUNC(compensatePressure, r_press); // Uses value calculated by compensateTemperature.
   temp =  fscale(r_temp, (float)0.01, (float)0);
   press = fscale(r_press, (float)0.01, (float)0);
-
-  AddLog(LOG_LEVEL_INFO, PSTR(started), 1, r_temp);
 
 
   if (type == BME280_CHIPID) {

@@ -47,7 +47,7 @@ extern const FLASH_MODULE module_header;
 #else
 // set dummy header to calm linker
 FLASH_MODULE module_header = {
-  MODULE_SYNC,
+  0,
   CURR_ARCH,
   MODULE_TYPE_SENSOR,
   0,
@@ -1023,8 +1023,8 @@ void Modul_Check_HTML_Setvars(void) {
       // should better update values on closing menu
       uint32_t vals[MAX_MOD_STORES];
       Read_Module_Data(mind, vals);
-      uint32_t old = vals[pinn];
-      vals[pinn] = pind;
+      uint32_t old = vals[pinn] & 0xff;
+      vals[pinn] = (vals[pinn] & 0xffffff00) | pind;
       //AddLog(LOG_LEVEL_INFO,PSTR(">>> %d - %d - %d -> %d"), mind, pinn, old, pind);
       Update_Module_Data(mind, vals);
     }
@@ -1081,16 +1081,34 @@ void Module_upload() {
         if (name[0]) {
           char vn[12];
           sprintf(vn,"sel%d_%d", cnt, xcnt);
+          uint32_t val32 = fm->ms[xcnt].value;
+          uint8_t selector = val32 >> 24;
           WSContentSend_PD(PSTR("<label for=\"p%d_%d\">%s:</label> <select  id=\"p%d_%d\" style='width: 60px;' onchange='seva(value,\"%s\")'>"),cnt,xcnt,name,cnt,xcnt,vn);
-          for (uint8_t pins = 0; pins < nitems(TasmotaGlobal.gpio_pin); pins++) {
-            char sel[10];
-            if (fm->ms[xcnt].value == pins) {
-              strcpy_P(sel, PSTR("selected"));
-            } else {
-              sel[0] = 0;
+          if (!selector) {
+            for (uint8_t pins = 0; pins < nitems(TasmotaGlobal.gpio_pin); pins++) {
+              char sel[10];
+              if ((val32 & 0xff) == pins) {
+                strcpy_P(sel, PSTR("selected"));
+              } else {
+                sel[0] = 0;
+              }
+              // AddLog(LOG_LEVEL_INFO,PSTR(">>> %d - %d"), pins, TasmotaGlobal.gpio_pin[pins]);
+              if (TasmotaGlobal.gpio_pin[pins] == 0) {
+                WSContentSend_PD(PSTR("<option value=\"%d\" %s>%d</option>"), pins, sel, pins);
+              }
             }
-           // AddLog(LOG_LEVEL_INFO,PSTR(">>> %d - %d"), pins, TasmotaGlobal.gpio_pin[pins]);
-            if (TasmotaGlobal.gpio_pin[pins] == 0) {
+          } else {
+            // selector 1
+            uint8_t from = val32 >> 16;
+            uint8_t to = val32 >> 8;
+            for (uint8_t pins = from; pins <= to; pins++) {
+              char sel[10];
+              if ((val32 & 0xff) == pins) {
+                strcpy_P(sel, PSTR("selected"));
+              } else {
+                sel[0] = 0;
+              }
+              // AddLog(LOG_LEVEL_INFO,PSTR(">>> %d - %d"), pins, TasmotaGlobal.gpio_pin[pins]);
               WSContentSend_PD(PSTR("<option value=\"%d\" %s>%d</option>"), pins, sel, pins);
             }
           }

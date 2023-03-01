@@ -91,7 +91,7 @@
 #define MP3_DEFAULT DY_SV17F
 
 
-MODULE_DESCRIPTOR("MP3PLAYER",MODULE_TYPE_DRIVER,MP3PLAYER_REV,"TRX",MP3_DEFAULT_TX_PIN,"",0,"",0,"",0)
+MODULE_DESCRIPTOR("MP3PLAYER",MODULE_TYPE_DRIVER,MP3PLAYER_REV,"TRX",MP3_DEFAULT_TX_PIN,"TYPE",0x01000101,"",0,"",0)
 
 
 // all functions must be declared MUDULE_PART
@@ -115,7 +115,7 @@ MODULE_END
 DPSTR(S_JSON_MP3_COMMAND_NVALUE,"{\"MP3%s\":%d}");
 DPSTR(mS_JSON_COMMAND_SVALUE,"{\"%s\":\"%s\"}");
 DPSTR(S_JSON_MP3_COMMAND,"{\"MP3%s\"}");
-DPSTR(kMP3_Commands,"Track|Play|Pause|Stop|Volume|EQ|Device|Reset|DAC|TYPE|PIN");
+DPSTR(kMP3_Commands,"Track|Play|Pause|Stop|Volume|EQ|Device|Reset|DAC|TYPE");
 DPSTR(d_mp3,"MP3");
 DPSTR(started,"mp3 inizialized with TRX pin %d");
 
@@ -143,8 +143,7 @@ enum MP3_Commands {                                 // commands useable in conso
   CMND_MP3_DEVICE,                                  // sd-card: 02, usb-stick: 01
   CMND_MP3_RESET,                                   // MP3Reset, a fresh and default restart
   CMND_MP3_DAC,                                     // set dac, 1=off, 0=on, DAC is turned on (0) by default
-  CMND_MP3_SETTYPE,                                  // set player type 0=default 1=DY_SV17F
-  CMND_MP3_SETPIN
+  CMND_MP3_SETTYPE                                  // set player type 0=default 1=DY_SV17F
  };
 
 
@@ -187,7 +186,9 @@ int32_t MOD_FUNC(MP3PlayerInit) {
   ALLOCMEM
 
   // should be in settings
-  player_type = DY_SV17F;
+  //player_type = DY_SV17F;
+  player_type = mp->ms[1].value;
+  player_type &= 3;
 
   if (!CALL_MOD_FUNC(MP3_Init)) {
     initialized = true;
@@ -200,7 +201,7 @@ int32_t MOD_FUNC(MP3PlayerInit) {
 int32_t MOD_FUNC(MP3_Init) {
   SETREGS
 
-  player_txpin = mp->ms[0].value;
+  player_txpin = mp->ms[0].value & 0xff;
 
   //ts = NewTS(-1, player_txpin);
   ts = NewTS(-1, player_txpin);
