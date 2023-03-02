@@ -142,7 +142,7 @@ SECTIONS
 	/* start modules */
 	*(.text.mod_desc)
 	*(.text.mod_string)
-	*(.text.mod*)
+	*(.text.mod_*)
 	*(.text.mod_end)
 	/* end modules */
 	*.c.o(.literal*, .text*)

@@ -107,8 +107,8 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jtmod__muldi3(A,B)              (( int64_t (*)(int64_t,int64_t) )              jt[82])(A,B)
 #define jtmod__fixunssfsi(A)            (( uint32_t (*)(float) )                       jt[83])(A)
 #define jtmod__umodsi3(A,B)             (( uint32_t (*)(uint32_t,uint32_t) )           jt[84])(A,B)
-#define jtwi_readFrom(A,B,C,D)(( unsigned char (*)(uint8_t,uint8_t*,unsigned int,uint8_t ) ) jt[85])(A,B,C,D)
-#define jDecodeCommand(A,B)             (( bool (*)(const char*,void(*)(void)) )       jt[86])(A,B,0)
+#define jtwi_readFrom(A,B,C,D)(( unsigned char (*)(uint8_t,uint8_t*,unsigned int,uint8_t) ) jt[85])(A,B,C,D)
+#define jDecodeCommand(A,B)             (( bool (*)(const char*,const void(*)(MODULES_TABLE*) )   jt[86])(A,B)
 
 
 // Arduino macros
@@ -156,6 +156,8 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 
 #undef PSTR
 #define PSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[mt->execution_offset];}))
+
+#define DATAMEM  __attribute__((section(".text.mod_table"),aligned(4)))
 
 
 #define GPSTR(VAR,FUNC) const char *VAR = (const char*)&FUNC + mt->execution_offset; fshowhex((uint32_t)VAR);
