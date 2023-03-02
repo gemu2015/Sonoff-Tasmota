@@ -122,7 +122,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 
 // linker sections
 #define SECTION_DESC ".text.mod_desc"
-#define SECTION_STRING text.mod_string
+#define SECTION_STRING ".text.mod_string"
 #define SECTION_PART ".text.mod_part"
 #define SECTION_END ".text.mod_end"
 //KEEP (*(SORT(.text.mod.*)))
@@ -146,36 +146,33 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 //#define PSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[0];}))
 //#define PROGMEM  __attribute__((section(".irom.text")))
 
-//extern "C" {const char *murks(void);}
-
 #define MERGE_(a,b)  a##b
 #define LABEL_(a) MERGE_(lbl_, a)
 #define UNAME LABEL_(__LINE__)
 #define SUNAME "UNAME"
 
-#define xPSTR(TEXT) (__extension__({ __asm__  (".section .text.mod_string\n.align 4\n.global " UNAME "\n" UNAME " : .asciz "#TEXT" \n");\
- __asm__  (".section .text.mod_part\n"); extern const char UNAME[0];  &UNAME[0]; }))
-
-
 #undef PROGMEM
 #define PROGMEM  __attribute__((section(".text.mod_string"),aligned(4)))
 
+#undef PSTR
+#define PSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[mt->execution_offset];}))
 
-#define yPSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[0];}))
 
 #define GPSTR(VAR,FUNC) const char *VAR = (const char*)&FUNC + mt->execution_offset; fshowhex((uint32_t)VAR);
 //#define jPSTR(LABEL) (__extension__({ (const char *)&LABEL[0]+mt->execution_offset;}))
 
-#undef PSTR
+//#undef PSTR
 // on esp8266 passing of PGMP strings works, on ESP32 fails and must be copied to ram buffer before passing pointer
 // this implementation only supports one PSTR per call
 #ifdef ESP8266
-#define PSTR(LABEL) (const char *)LABEL+mt->execution_offset
+#define yPSTR(LABEL) (const char *)LABEL+mt->execution_offset
 #define STRBUFFER
 #else
-#define PSTR(LABEL) __extension__( {_copy32((uint32_t*)((const char *)LABEL+mt->execution_offset), mem->cbuffer); (const char *)mem->cbuffer;} )
+#define yPSTR(LABEL) __extension__( {_copy32((uint32_t*)((const char *)LABEL+mt->execution_offset), mem->cbuffer); (const char *)mem->cbuffer;} )
 #define STRBUFFER uint32_t cbuffer[STRBUFFSIZE];
 #endif
+
+#define GSTR(LABEL) (const char *)LABEL+mt->execution_offset
 
 
 //#define XPSTR(TEXT) __extension__( {  __asm__  ( ".section .text.mod_string\n .align 4\n .global _xxx\n _xxx: .asciz " #TEXT "\n.section .text.mod_part" );  (const char *)_xxx;  } )

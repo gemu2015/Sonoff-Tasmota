@@ -90,7 +90,7 @@ int32_t MOD_FUNC(SGP30_Init) {
   if (CALL_MOD_FUNC(SGP30_Begin)) {
     ready = true;
     initialized = true;
-    I2cSetActiveFound(SGP30_ADDRESS, PSTR(SGP30), 0);
+    I2cSetActiveFound(SGP30_ADDRESS, GSTR(SGP30), 0);
     return 0;
   }
 
@@ -122,7 +122,7 @@ bool MOD_FUNC(SGP30_Begin) {
     return false;
   }
 
-  //AddLog(LOG_LEVEL_INFO, PSTR(SGP30SN), serialnumber[0], serialnumber[1], serialnumber[2]);
+  //AddLog(LOG_LEVEL_INFO, GSTR(SGP30SN), serialnumber[0], serialnumber[1], serialnumber[2]);
 
   if (!CALL_MOD_FUNC(SGP30_IAQinit)) {
       return false;
@@ -303,7 +303,7 @@ void MOD_FUNC(SGP30_Every_Second) {
     if (!CALL_MOD_FUNC(getIAQBaseline, &eCO2_base, &TVOC_base)) {
      return;  // Failed to get baseline readings
     }
-//  AddLog(LOG_LEVEL_DEBUG, PSTR("SGP: Baseline values eCO2 0x%04X, TVOC 0x%04X"), eCO2_base, TVOC_base);
+//  AddLog(LOG_LEVEL_DEBUG, GSTR("SGP: Baseline values eCO2 0x%04X, TVOC 0x%04X"), eCO2_base, TVOC_base);
   }
 }
 
@@ -319,16 +319,16 @@ void MOD_FUNC(SGP30_Show, bool json) {
     }
 
     if (json) {
-      ResponseAppend_P(PSTR(JSON_SNS_SGP30), eCO2, TVOC);
+      ResponseAppend_P(GSTR(JSON_SNS_SGP30), eCO2, TVOC);
       if (ahum_available) {
-        ResponseAppend_P(PSTR(JSON_SNS_AHUM), abs_hum);
+        ResponseAppend_P(GSTR(JSON_SNS_AHUM), abs_hum);
       } else {
         ResponseJsonEnd();
       }
     } else {
-      WSContentSend_PD(PSTR(HTTP_SNS_SGP30), eCO2, TVOC);
+      WSContentSend_PD(GSTR(HTTP_SNS_SGP30), eCO2, TVOC);
       if (ahum_available) {
-        WSContentSend_PD(PSTR(HTTP_SNS_AHUM), abs_hum);
+        WSContentSend_PD(GSTR(HTTP_SNS_AHUM), abs_hum);
       }
     }
   }

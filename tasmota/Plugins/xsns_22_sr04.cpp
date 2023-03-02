@@ -65,7 +65,7 @@ int32_t MOD_FUNC(Sr04T_Detect) {
  
   if (ts) {
     if (beginTS(ts, 9600)) {
-      AddLog(LOG_LEVEL_INFO, PSTR(started), recpin);
+      AddLog(LOG_LEVEL_INFO, GSTR(started), recpin);
       initialized = true;
       ready = true;
       return 0;
@@ -112,9 +112,9 @@ void MOD_FUNC(Sr04T_Show, bool json) {
   char tstr[16];
   ftostrfd(distance, 1, tstr);
   if (json) {
-    ResponseAppend_P(PSTR(JSON_DIST), tstr);
+    ResponseAppend_P(GSTR(JSON_DIST), tstr);
   } else {
-    WSContentSend_PD(PSTR(HTTP_DIST), tstr);
+    WSContentSend_PD(GSTR(HTTP_DIST), tstr);
   }
 }
 

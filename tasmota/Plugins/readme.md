@@ -26,6 +26,7 @@ replace the linker file local.eagle.app.v6.common.ld by the one provided in plug
 	/* start modules */
 	*(.text.mod_desc)
 	*(.text.mod_string)
+	*(.text.mod_*)
 	*(.text.mod_part)
 	*(.text.mod_end)
 	/* end modules */

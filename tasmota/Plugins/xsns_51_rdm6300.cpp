@@ -93,7 +93,7 @@ int32_t MOD_FUNC(RDM6300_Init) {
       if (hardwareSerial(ts)) {
         ClaimSerial();
       }
-      AddLog(LOG_LEVEL_INFO, PSTR(started), recpin);
+      AddLog(LOG_LEVEL_INFO, GSTR(started), recpin);
       initialized = true;
       ready = true;
       return 0;
@@ -175,7 +175,7 @@ void MOD_FUNC(RDM6300_ScanForTag) {
     uint32_t tuid = strtoul(rdm_buffer + 3, nullptr, 16);
     if (tuid > 0) {                         // Ignore false positive all zeros
       uid = tuid;
-      ResponseTime_P(PSTR(JSON_UID), uid);
+      ResponseTime_P(GSTR(JSON_UID), uid);
       MqttPublishTeleSensor();
     }
   }
@@ -184,7 +184,7 @@ void MOD_FUNC(RDM6300_ScanForTag) {
 void MOD_FUNC(RDM6300_Show) {
   SETREGS
   if (!ready) { return; }
-  WSContentSend_PD(PSTR(HHTP_UID), uid);
+  WSContentSend_PD(GSTR(HHTP_UID), uid);
 }
 
 void MOD_FUNC(RDM6300_Deinit) {

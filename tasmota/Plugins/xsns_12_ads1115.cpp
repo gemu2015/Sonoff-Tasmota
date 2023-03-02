@@ -224,7 +224,7 @@ int32_t MOD_FUNC(Init_ADS1115) {
       if (I2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONVERT, 0) &&
           I2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONFIG, 0)) {
         CALL_MOD_FUNC(Ads1115StartComparator, i, ADS1115_REG_CONFIG_MODE_CONTIN);
-        I2cSetActiveFound(Ads1115.address, PSTR(moddev), 0);
+        I2cSetActiveFound(Ads1115.address, GSTR(moddev), 0);
         Ads1115.found[i] = 1;
         Ads1115.count++;
       }
@@ -244,10 +244,10 @@ void MOD_FUNC(Ads1115Label, char* label, uint32_t maxsize, uint8_t address) {
   SETREGS
   if (1 == Ads1115.count) {
     // "ADS1115":{"A0":3240,"A1":3235,"A2":3269,"A3":3269}
-    snprintf_P(label, maxsize, PSTR(moddev));
+    snprintf_P(label, maxsize, GSTR(moddev));
   } else {
     // "ADS1115-48":{"A0":3240,"A1":3235,"A2":3269,"A3":3269},"ADS1115-49":{"A0":3240,"A1":3235,"A2":3269,"A3":3269}
-    snprintf_P(label, maxsize, PSTR(moddev1), IndexSeparator, address);
+    snprintf_P(label, maxsize, GSTR(moddev1), IndexSeparator, address);
   }
 }
 
@@ -281,12 +281,12 @@ void MOD_FUNC(AdsEvery250ms) {
         char label[15];
         CALL_MOD_FUNC(Ads1115Label, label, sizeof(label), Ads1115.addresses[t]);
 
-        Response_P(PSTR(moddev2), label);
+        Response_P(GSTR(moddev2), label);
 
         bool first = true;
         for (uint32_t i = 0; i < 4; i++) {
           if (bitRead(changed, i)) {
-            ResponseAppend_P(PSTR(moddev3), (first) ? PSTR(moddev7) : PSTR(moddev6), i, Ads1115.last_values[t][i]);
+            ResponseAppend_P(GSTR(moddev3), (first) ? GSTR(moddev7) : GSTR(moddev6), i, Ads1115.last_values[t][i]);
             first = false;
           }
         }
@@ -320,15 +320,15 @@ void MOD_FUNC(ADS1115_Show, bool json) {
       CALL_MOD_FUNC(Ads1115Label, label, sizeof(label), Ads1115.addresses[t]);
 
       if (json) {
-        ResponseAppend_P(PSTR(moddev4), label);
+        ResponseAppend_P(GSTR(moddev4), label);
         for (uint32_t i = 0; i < 4; i++) {
-          ResponseAppend_P(PSTR(moddev5), (0 == i) ? PSTR(moddev7) : PSTR(moddev6), i, values[i]);
+          ResponseAppend_P(GSTR(moddev5), (0 == i) ? GSTR(moddev7) : GSTR(moddev6), i, values[i]);
         }
         ResponseJsonEnd();
       }
       else {
         for (uint32_t i = 0; i < 4; i++) {
-          WSContentSend_PD(PSTR(moddev8), label, i, values[i]);
+          WSContentSend_PD(GSTR(moddev8), label, i, values[i]);
         }
       }
     }

@@ -106,14 +106,14 @@ int32_t MOD_FUNC(SPS30_Init) {
     return -1;
   }
 
-  AddLog(LOG_LEVEL_INFO, PSTR(SPS30_serial), dcode);
+  AddLog(LOG_LEVEL_INFO, GSTR(SPS30_serial), dcode);
   
   CALL_MOD_FUNC(sps30_cmd, SPS_CMD_START_MEASUREMENT);
   sps30_running = 1;
   ready = 1;
   initialized = 1;
   secs = 0;
-  I2cSetActiveFound(SPS30_ADDR, PSTR(SPS30), 0);
+  I2cSetActiveFound(SPS30_ADDR, GSTR(SPS30), 0);
   return 0;
 }
 
@@ -258,51 +258,51 @@ void MOD_FUNC(SPS30_Show, bool json) {
   char str[64];
   if (json) {
     ftostrfd(sps30_result.PM1_0, PMDP, str);
-    ResponseAppend_P(PSTR(JSON_SNS_SPS30_a), 1, 0,str);
+    ResponseAppend_P(GSTR(JSON_SNS_SPS30_a), 1, 0,str);
     ftostrfd(sps30_result.PM2_5,PMDP,str);
-    ResponseAppend_P(PSTR(JSON_SNS_SPS30_b), 2, 5, str);
+    ResponseAppend_P(GSTR(JSON_SNS_SPS30_b), 2, 5, str);
     ftostrfd(sps30_result.PM4_0,PMDP,str);
-    ResponseAppend_P(PSTR(JSON_SNS_SPS30_b), 4, 0, str);
+    ResponseAppend_P(GSTR(JSON_SNS_SPS30_b), 4, 0, str);
     ftostrfd(sps30_result.PM10,PMDP,str);
-    ResponseAppend_P(PSTR(JSON_SNS_SPS30_b), 10, 0, str);
+    ResponseAppend_P(GSTR(JSON_SNS_SPS30_b), 10, 0, str);
 
     ftostrfd(sps30_result.NCPM0_5,PMDP,str);
-    ResponseAppend_P(PSTR(JSON_SNS_SPS30_c), 0, 5, str);
+    ResponseAppend_P(GSTR(JSON_SNS_SPS30_c), 0, 5, str);
     ftostrfd(sps30_result.NCPM1_0,PMDP,str);
-    ResponseAppend_P(PSTR(JSON_SNS_SPS30_c), 1, 0, str);
+    ResponseAppend_P(GSTR(JSON_SNS_SPS30_c), 1, 0, str);
     ftostrfd(sps30_result.NCPM2_5,PMDP,str);
-    ResponseAppend_P(PSTR(JSON_SNS_SPS30_c), 2, 5, str);
+    ResponseAppend_P(GSTR(JSON_SNS_SPS30_c), 2, 5, str);
     ftostrfd(sps30_result.NCPM4_0,PMDP,str);
-    ResponseAppend_P(PSTR(JSON_SNS_SPS30_c), 4, 0, str);
+    ResponseAppend_P(GSTR(JSON_SNS_SPS30_c), 4, 0, str);
     ftostrfd(sps30_result.NCPM10,PMDP,str);
-    ResponseAppend_P(PSTR(JSON_SNS_SPS30_c), 10, 0, str);
+    ResponseAppend_P(GSTR(JSON_SNS_SPS30_c), 10, 0, str);
 
     ftostrfd(sps30_result.TYPSIZ,PMDP,str);
-    ResponseAppend_P(PSTR(JSON_SNS_SPS30_d), str);
+    ResponseAppend_P(GSTR(JSON_SNS_SPS30_d), str);
 
   } else {
     ftostrfd(sps30_result.PM1_0,PMDP,str);
-    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_a),1,0,str);
+    WSContentSend_PD(GSTR(HTTP_SNS_SPS30_a),1,0,str);
     ftostrfd(sps30_result.PM2_5,PMDP,str);
-    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_a),2,5,str);
+    WSContentSend_PD(GSTR(HTTP_SNS_SPS30_a),2,5,str);
     ftostrfd(sps30_result.PM4_0,PMDP,str);
-    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_a),4,0,str);
+    WSContentSend_PD(GSTR(HTTP_SNS_SPS30_a),4,0,str);
     ftostrfd(sps30_result.PM10,PMDP,str);
-    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_a),10,0,str);
+    WSContentSend_PD(GSTR(HTTP_SNS_SPS30_a),10,0,str);
 
     ftostrfd(sps30_result.NCPM0_5,PMDP,str);
-    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_b),0,5,str);
+    WSContentSend_PD(GSTR(HTTP_SNS_SPS30_b),0,5,str);
     ftostrfd(sps30_result.NCPM1_0,PMDP,str);
-    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_b),1,0,str);
+    WSContentSend_PD(GSTR(HTTP_SNS_SPS30_b),1,0,str);
     ftostrfd(sps30_result.NCPM2_5,PMDP,str);
-    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_b),2,5,str);
+    WSContentSend_PD(GSTR(HTTP_SNS_SPS30_b),2,5,str);
     ftostrfd(sps30_result.NCPM4_0,PMDP,str);
-    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_b),4,0,str);
+    WSContentSend_PD(GSTR(HTTP_SNS_SPS30_b),4,0,str);
     ftostrfd(sps30_result.NCPM10,PMDP,str);
-    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_b),10,0,str);
+    WSContentSend_PD(GSTR(HTTP_SNS_SPS30_b),10,0,str);
 
     ftostrfd(sps30_result.TYPSIZ,PMDP,str);
-    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_c),str);
+    WSContentSend_PD(GSTR(HTTP_SNS_SPS30_c),str);
   }
 
 }
@@ -311,7 +311,7 @@ DPSTR(S_JSON_SPS30_FAN, ",\"SPS30\":{\"CFAN\":\"true\"}}");
 void MOD_FUNC(CmdClean) {
   SETREGS
   CALL_MOD_FUNC(sps30_cmd, SPS_CMD_CLEAN);
-  ResponseTime_P(PSTR(S_JSON_SPS30_FAN));
+  ResponseTime_P(GSTR(S_JSON_SPS30_FAN));
   MqttPublishTeleSensor();
 }
 
@@ -325,10 +325,10 @@ bool MOD_FUNC(SPS30_command) {
   SETREGS
   char command[CMDSZ];
   bool serviced = true;
-  uint8_t disp_len = strlen((char*)PSTR(SPS30));
+  uint8_t disp_len = strlen((char*)GSTR(SPS30));
 
-  if (!strncasecmp_P(XdrvMailbox->topic, PSTR(SPS30), disp_len)) {  // prefix
-    int command_code = GetCommandCode(command, sizeof(command), XdrvMailbox->topic + disp_len, PSTR(kSPS30_Commands));
+  if (!strncasecmp_P(XdrvMailbox->topic, GSTR(SPS30), disp_len)) {  // prefix
+    int command_code = GetCommandCode(command, sizeof(command), XdrvMailbox->topic + disp_len, GSTR(kSPS30_Commands));
     switch (command_code) {
       case CMND_SPS30_Start:
         sps30_running = 1;
@@ -346,7 +346,7 @@ bool MOD_FUNC(SPS30_command) {
     }
   }
 
-  Response_P(PSTR(S_JSON_SPS30_COMMAND), sps30_running?PSTR(S_JSON_SPS30_r):PSTR(S_JSON_SPS30_s));
+  Response_P(GSTR(S_JSON_SPS30_COMMAND), sps30_running?GSTR(S_JSON_SPS30_r):GSTR(S_JSON_SPS30_s));
 
   return serviced;
 }

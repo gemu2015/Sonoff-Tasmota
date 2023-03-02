@@ -214,7 +214,7 @@ int32_t MOD_FUNC(MP3_Init) {
       CALL_MOD_FUNC(MP3_CMD, MP3_CMD_RESET, MP3_CMD_RESET_VALUE);    // reset the player to defaults
       delay(100);
       CALL_MOD_FUNC(MP3_CMD, MP3_CMD_VOLUME, MP3_VOLUME);            // after reset set volume depending on the entry in the my_user_config.h
-      AddLog(LOG_LEVEL_INFO, PSTR(started), player_txpin);
+      AddLog(LOG_LEVEL_INFO, GSTR(started), player_txpin);
       return 0;
     }
   }
@@ -308,10 +308,10 @@ bool MOD_FUNC(MP3PlayerCmd) {
   SETREGS
   char command[CMDSZ];
   bool serviced = true;
-  uint8_t disp_len = strlen((char*)PSTR(d_mp3));
+  uint8_t disp_len = strlen((char*)GSTR(d_mp3));
 
-  if (!strncasecmp_P(XdrvMailbox->topic, PSTR(d_mp3), disp_len)) {  // prefix
-    int command_code = GetCommandCode(command, sizeof(command), XdrvMailbox->topic + disp_len, PSTR(kMP3_Commands));
+  if (!strncasecmp_P(XdrvMailbox->topic, GSTR(d_mp3), disp_len)) {  // prefix
+    int command_code = GetCommandCode(command, sizeof(command), XdrvMailbox->topic + disp_len, GSTR(kMP3_Commands));
 
     switch (command_code) {
       case CMND_MP3_TRACK:
@@ -331,7 +331,7 @@ bool MOD_FUNC(MP3PlayerCmd) {
           if (command_code == CMND_MP3_DAC)    { CALL_MOD_FUNC(MP3_CMD, MP3_CMD_DAC,    XdrvMailbox->payload); }
           if (command_code == CMND_MP3_SETTYPE) { player_type = XdrvMailbox->payload & 1; }
         }
-        Response_P(PSTR(S_JSON_MP3_COMMAND_NVALUE), command, XdrvMailbox->payload);
+        Response_P(GSTR(S_JSON_MP3_COMMAND_NVALUE), command, XdrvMailbox->payload);
         break;
 
       case CMND_MP3_PAUSE:
@@ -343,7 +343,7 @@ play_default:
         if (command_code == CMND_MP3_PAUSE)    { CALL_MOD_FUNC(MP3_CMD, MP3_CMD_PAUSE,  0); }
         if (command_code == CMND_MP3_STOP)     { CALL_MOD_FUNC(MP3_CMD, MP3_CMD_STOP,   0); }
         if (command_code == CMND_MP3_RESET)    { CALL_MOD_FUNC(MP3_CMD, MP3_CMD_RESET,  0); }
-        Response_P(PSTR(S_JSON_MP3_COMMAND), command, XdrvMailbox->payload);
+        Response_P(GSTR(S_JSON_MP3_COMMAND), command, XdrvMailbox->payload);
         break;
 
       case CMND_MP3_PLAY:
@@ -366,10 +366,10 @@ play_default:
             }
           }
           CALL_MOD_FUNC(MP3_SendCmd, scmd, XdrvMailbox->data_len + 4);
-          Response_P(PSTR(mS_JSON_COMMAND_SVALUE), command, XdrvMailbox->data);
+          Response_P(GSTR(mS_JSON_COMMAND_SVALUE), command, XdrvMailbox->data);
         } else {
           CALL_MOD_FUNC(MP3_CMD, MP3_CMD_PLAY, 0);
-          Response_P(PSTR(S_JSON_MP3_COMMAND), command, XdrvMailbox->payload);
+          Response_P(GSTR(S_JSON_MP3_COMMAND), command, XdrvMailbox->payload);
         }
         break;
       default:

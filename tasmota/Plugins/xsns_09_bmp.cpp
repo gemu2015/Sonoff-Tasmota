@@ -190,13 +190,13 @@ typedef struct {
 #define ready mem->ready
 
 // all text defines must be here
-DPSTR(HTTP_BMP_T,"{s}%s Temperatur{m}%s C{e}");
-DPSTR(HTTP_BMP_P,"{s}%s Luftdruck {m}%s hp{e}"); 
-DPSTR(JSON_BMP,",\"%s\":{\"Temperature\":%s,\"Pressure\":%s");
-DPSTR(JSON_BME,",\"Humidity\":%s,\"AbsHumidity\":%s}");
-DPSTR(JSON_BMPend,"}");
-DPSTR(HTTP_SNS_AHUM,"{s}%s Abs Humidity{m}%s g/m3{e}");
-DPSTR(BMEtypes,"BMP180|BME280|BMP280|BME680");
+const char HTTP_BMP_T[] PROGMEM = "{s}%s Temperatur{m}%s C{e}";
+const char HTTP_BMP_P[] PROGMEM = "{s}%s Luftdruck {m}%s hp{e}"; 
+const char JSON_BMP[] PROGMEM = ",\"%s\":{\"Temperature\":%s,\"Pressure\":%s";
+const char JSON_BME[] PROGMEM = ",\"Humidity\":%s,\"AbsHumidity\":%s}";
+const char JSON_BMPend[] PROGMEM = "}";
+const char HTTP_SNS_AHUM[] PROGMEM = "{s}%s Abs Humidity{m}%s g/m3{e}";
+const char BMEtypes[] PROGMEM = "BMP180|BME280|BMP280|BME680";
 
 int32_t MOD_FUNC(Init_BME) {
   ALLOCMEM
@@ -224,7 +224,7 @@ int32_t MOD_FUNC(Init_BME) {
     index = 3;   
   }  
 
-  GetTextIndexed(typestr, sizeof(typestr), index, PSTR(BMEtypes));
+  GetTextIndexed(typestr, sizeof(typestr), index, GSTR(BMEtypes));
   I2cSetActiveFound(i2c_addr, typestr, 0);
 
   CALL_MOD_FUNC(BME_readCalibrationData);
@@ -439,20 +439,20 @@ void MOD_FUNC(BME_Show, uint32_t json) {
   ftostrfd(abshum, 4, ahum_tstr);
   
   if (json) {
-    ResponseAppend_P(PSTR(JSON_BMP), typestr, temp_tstr, press_tstr);
+    ResponseAppend_P(GSTR(JSON_BMP), typestr, temp_tstr, press_tstr);
     if (type == BME280_CHIPID) {
-      ResponseAppend_P(PSTR(JSON_BME), hum_tstr, ahum_tstr);
+      ResponseAppend_P(GSTR(JSON_BME), hum_tstr, ahum_tstr);
     } else {
-      ResponseAppend_P(PSTR(JSON_BMPend));
+      ResponseAppend_P(GSTR(JSON_BMPend));
     }
   } else {
     if (type == BME280_CHIPID) {
       TempHumDewShow(json, 0, typestr, temp, hum);
-      WSContentSend_PD(PSTR(HTTP_SNS_AHUM), typestr, ahum_tstr);
+      WSContentSend_PD(GSTR(HTTP_SNS_AHUM), typestr, ahum_tstr);
     } else {
-      WSContentSend_PD(PSTR(HTTP_BMP_T), typestr, temp_tstr);
+      WSContentSend_PD(GSTR(HTTP_BMP_T), typestr, temp_tstr);
     }
-    WSContentSend_PD(PSTR(HTTP_BMP_P), typestr, press_tstr);
+    WSContentSend_PD(GSTR(HTTP_BMP_P), typestr, press_tstr);
   }
     
 }

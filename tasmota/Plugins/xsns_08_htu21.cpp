@@ -276,7 +276,7 @@ int32_t MOD_FUNC(HTU_Detect) {
         Htu.jdelay_temp = 50;
         Htu.jdelay_humidity = 23;
     }
-    GetTextIndexed(Htu.types, sizeof(Htu.types), index, PSTR(kHtuTypes));
+    GetTextIndexed(Htu.types, sizeof(Htu.types), index, GSTR(kHtuTypes));
     I2cSetActiveFound(Htu.address, Htu.types, 0);
     mt->flags.initialized = true;
   }

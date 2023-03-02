@@ -29,7 +29,7 @@
 //#pragma GCC optimize ("O0")
 
 // this is the structure of the module:
-// descripotr, code, endi2c
+// descripotr, code, end
 MODULE_DESCRIPTOR("MLX90614", MODULE_TYPE_SENSOR, MLX90614_REV,"",0,"",0,"",0,"",0)
 
 // all functions must be declared MUDULE_PART
@@ -68,12 +68,11 @@ typedef struct {
 //#define wire mem->wire
 
 // all text defines must be here
-DPSTR(HTTP_IRTMP,"{s}MXL90614 OBJ-TEMP{m}%s C{e} {s}MXL90614 AMB-TEMP {m}%s C{e}");
-DPSTR(JSON_IRTMP,",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}");
-DPSTR(mlxdev,"MLX90614");
+const char HTTP_IRTMP[] PROGMEM = "{s}MXL90614 OBJ-TEMP{m}%s C{e} {s}MXL90614 AMB-TEMP {m}%s C{e}";
+const char JSON_IRTMP[] PROGMEM = ",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}";
+const char mlxdev[] PROGMEM = "MLX90614";
 
-
-int32_t MOD_FUNC(MLX90614_Init) {
+int32_t MOD_FUNC(Init_MLX90614) {
   ALLOCMEM
  // INITWIRE(wire)
 
@@ -81,18 +80,16 @@ int32_t MOD_FUNC(MLX90614_Init) {
  // wire->xwrite(0xaa);
  // wire->xendTransmission(false);
 
-
   // now init variables here
   ready = false;
- // sprint(yPSTR("Hallo"));
-  //AddLog(LOG_LEVEL_INFO,murks,2,4);
-  //ready=murks[0];
 
+  AddLog(LOG_LEVEL_INFO,yPSTR("Hallo wie geht es"));
+  
   if (!I2cSetDevice(I2_ADR_IRT)) {
     CALL_MOD_FUNC(MLX90614_Deinit);
     return -1;
   }
-  I2cSetActiveFound(I2_ADR_IRT, PSTR(mlxdev), 0);
+  I2cSetActiveFound(I2_ADR_IRT, GSTR(mlxdev), 0);
   initialized = true;
   ready = true;
   return ready;
@@ -126,7 +123,7 @@ float MOD_FUNC(MLX90614_GetValue, uint32_t reg) {
 void MOD_FUNC(MLX90614_Show, uint32_t json) {
   SETREGS
 
-SETTINGS *jsettings = mt->settings;
+  SETTINGS *jsettings = mt->settings;
 
   if (ready == false) return;
   char obj_tstr[16];
@@ -134,9 +131,9 @@ SETTINGS *jsettings = mt->settings;
   char amb_tstr[16];
   ftostrfd(amb_temp, jsettings->flag2.temperature_resolution, amb_tstr);
   if (json) {
-    ResponseAppend_P(PSTR(JSON_IRTMP), obj_tstr, amb_tstr);
+    ResponseAppend_P(GSTR(JSON_IRTMP), obj_tstr, amb_tstr);
   } else {
-    WSContentSend_PD(PSTR(HTTP_IRTMP), obj_tstr, amb_tstr);
+    WSContentSend_PD(GSTR(HTTP_IRTMP), obj_tstr, amb_tstr);
   }
 }
 
@@ -194,31 +191,6 @@ void MOD_FUNC(MLX90614_Deinit) {
 }
 
 
-/*
-
- //result = xDecodeCommand(PSTR(ksps30Commands), ksps30Command);
- 
-__asm__  (".section .text.mod_part\n"); void (*const ksps30Command[])(void) = {(void (*)(void))&SPS30_Deinit,(void (*)(void)) &SPS30_command};
-
-DPSTR(ksps30Commands, "sps30|Start|Stop|Clean");
-
-
-//void (*ksps30Command[])(void) PROGMEM = {(void (*)(void))&SPS30_Deinit,(void (*)(void)) &SPS30_command};
-
-#define xDecodeCommand(A,B)             ( ( bool (*)(const char*, void (* const [])(void)) )       jt[86])(A,B)
-
-//bool xDecodeCommand(const char*, void (* const [])(void));
-
-
-bool DecodeCommand(const char* haystack, void (* const MyCommand[])(void), const uint8_t *synonyms = nullptr);
-
-void (*const kScd30Command[])(void) PROGMEM = {
-  &CmndScd30Altitude, &CmndScd30AutoMode, &CmndScd30Calibrate, &CmndScd30Firmware, &CmndScd30Interval, &CmndScd30Pressure, &CmndScd30TempOffset };
-
-result = DecodeCommand(kScd30Commands, kScd30Command);
-*/
-
-
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
@@ -226,7 +198,7 @@ int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
   bool result = false;
   switch (sel) {
     case FUNC_INIT:
-      result = CALL_MOD_FUNC(MLX90614_Init);
+      result = CALL_MOD_FUNC(Init_MLX90614);
       break;
     case FUNC_JSON_APPEND:
       CALL_MOD_FUNC(MLX90614_Show, 1);

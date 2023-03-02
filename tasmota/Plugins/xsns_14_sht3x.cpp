@@ -126,7 +126,7 @@ int32_t MOD_FUNC(Sht3x_Detect) {
     float h;
     if (CALL_MOD_FUNC(Sht3xRead, t, h, sht3x_addresses[i])) {
       sht3x_sensors[sht3x_count].address = sht3x_addresses[i];
-      GetTextIndexed(sht3x_sensors[sht3x_count].types, sizeof(sht3x_sensors[sht3x_count].types), i, PSTR(kShtTypes3));
+      GetTextIndexed(sht3x_sensors[sht3x_count].types, sizeof(sht3x_sensors[sht3x_count].types), i, GSTR(kShtTypes3));
       I2cSetActiveFound(sht3x_sensors[sht3x_count].address, sht3x_sensors[sht3x_count].types, 0);
       sht3x_count++;
     }
@@ -180,7 +180,7 @@ void MOD_FUNC(SHT3X_Show, bool json) {
       strlcpy(types, sht3x_sensors[i].types, sizeof(types));
       if (sht3x_count > 1) {
         char *types = sht3x_sensors[i].types;
-        snprintf_P(types, sizeof(types), PSTR(kShtTypes), types, IndexSeparator(), sht3x_sensors[i].address);
+        snprintf_P(types, sizeof(types), GSTR(kShtTypes), types, IndexSeparator(), sht3x_sensors[i].address);
       }
       TempHumDewShow(json, ((0 == GetTasmotaGlobal(1)) && (0 == i)), types, t, h);
 
@@ -188,7 +188,7 @@ void MOD_FUNC(SHT3X_Show, bool json) {
       char abs_hum[32];
       ftostrfd(abshum, 4, abs_hum);
       if (!json) {
-        WSContentSend_PD(PSTR(HTTP_SNS_AHUM), types, abs_hum);
+        WSContentSend_PD(GSTR(HTTP_SNS_AHUM), types, abs_hum);
       } else {
         
       }
