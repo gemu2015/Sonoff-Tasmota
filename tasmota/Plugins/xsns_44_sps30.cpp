@@ -357,22 +357,6 @@ void MOD_FUNC(SPS30_Deinit) {
   RETMEM
 }
 
-__asm__  (".section .text.mod_string\n"); void (*const kScd30Command[])(void) = {(void (*)(void))&SPS30_Deinit,(void (*)(void)) &SPS30_command};
-DPSTR(ksps30Commands, "sps30|Start|Stop|Clean");
-
-
-//void (*const kScd30Command[])(void) PROGMEM = {&SPS30_Deinit, &SPS30_command};
-
-
-
-/*
-
-
-void (*const kScd30Command[])(void) PROGMEM = {
-  &CmndScd30Altitude, &CmndScd30AutoMode, &CmndScd30Calibrate, &CmndScd30Firmware, &CmndScd30Interval, &CmndScd30Pressure, &CmndScd30TempOffset };
-
-result = DecodeCommand(kScd30Commands, kScd30Command);
-*/
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
@@ -394,7 +378,6 @@ int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
         CALL_MOD_FUNC(SPS30_Show, 0);
         break;
       case FUNC_COMMAND:
-        result = DecodeCommand(kScd30Commands, kScd30Command);
         result = CALL_MOD_FUNC(SPS30_command);
         break;
       case FUNC_DEINIT:

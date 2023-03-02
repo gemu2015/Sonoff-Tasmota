@@ -108,7 +108,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jtmod__fixunssfsi(A)            (( uint32_t (*)(float) )                       jt[83])(A)
 #define jtmod__umodsi3(A,B)             (( uint32_t (*)(uint32_t,uint32_t) )           jt[84])(A,B)
 #define jtwi_readFrom(A,B,C,D)(( unsigned char (*)(uint8_t,uint8_t*,unsigned int,uint8_t ) ) jt[85])(A,B,C,D)
-#define jDecodeCommand(A,B)             (( bool (*)(const char*,void (* const x[])(void)) ) jt[86])(A,B,0)
+#define jDecodeCommand(A,B)             (( bool (*)(const char*,void(*)(void)) )       jt[86])(A,B,0)
 
 
 // Arduino macros

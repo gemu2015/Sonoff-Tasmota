@@ -194,6 +194,31 @@ void MOD_FUNC(MLX90614_Deinit) {
 }
 
 
+/*
+
+ //result = xDecodeCommand(PSTR(ksps30Commands), ksps30Command);
+ 
+__asm__  (".section .text.mod_part\n"); void (*const ksps30Command[])(void) = {(void (*)(void))&SPS30_Deinit,(void (*)(void)) &SPS30_command};
+
+DPSTR(ksps30Commands, "sps30|Start|Stop|Clean");
+
+
+//void (*ksps30Command[])(void) PROGMEM = {(void (*)(void))&SPS30_Deinit,(void (*)(void)) &SPS30_command};
+
+#define xDecodeCommand(A,B)             ( ( bool (*)(const char*, void (* const [])(void)) )       jt[86])(A,B)
+
+//bool xDecodeCommand(const char*, void (* const [])(void));
+
+
+bool DecodeCommand(const char* haystack, void (* const MyCommand[])(void), const uint8_t *synonyms = nullptr);
+
+void (*const kScd30Command[])(void) PROGMEM = {
+  &CmndScd30Altitude, &CmndScd30AutoMode, &CmndScd30Calibrate, &CmndScd30Firmware, &CmndScd30Interval, &CmndScd30Pressure, &CmndScd30TempOffset };
+
+result = DecodeCommand(kScd30Commands, kScd30Command);
+*/
+
+
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
