@@ -83,8 +83,8 @@ MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
 MODULE_END
 
 // strings
-DPSTR(SPS30,"SPS30");
-DPSTR(SPS30_serial, "sps30 found with serial: %s");
+const char SPS30[] PROGMEM = "SPS30";
+const char SPS30_serial[] PROGMEM = "sps30 found with serial: %s";
 
 /********************************************************************************************/
 
@@ -240,14 +240,14 @@ void MOD_FUNC(SPS30_Every_Second) {
 
 #define PMDP 2
 
-DPSTR(HTTP_SNS_SPS30_a, "{s}SPS30 PM %0d.%0d{m}%s ug/m3{e}");
-DPSTR(HTTP_SNS_SPS30_b, "{s}SPS30 NCPM %0d.%0d{m}%s #/cm3{e}");
-DPSTR(HTTP_SNS_SPS30_c, "{s}SPS30 TYPSIZ {m}%s um{e}");
+const char HTTP_SNS_SPS30_a[] PROGMEM = "{s}SPS30 PM %0d.%0d{m}%s ug/m3{e}";
+const char HTTP_SNS_SPS30_b[] PROGMEM = "{s}SPS30 NCPM %0d.%0d{m}%s #/cm3{e}";
+const char HTTP_SNS_SPS30_c[] PROGMEM = "{s}SPS30 TYPSIZ {m}%s um{e}";
 
-DPSTR(JSON_SNS_SPS30_a, ",\"SPS30\":{\"PM%0d_%0d\":%s");
-DPSTR(JSON_SNS_SPS30_b, ",\"PM%0d_%0d\":%s");
-DPSTR(JSON_SNS_SPS30_c, ",\"NCPM%0d_%0d\":%s");
-DPSTR(JSON_SNS_SPS30_d, ",\"TYPSIZ\":%s}");
+const char JSON_SNS_SPS30_a[] PROGMEM = ",\"SPS30\":{\"PM%0d_%0d\":%s";
+const char JSON_SNS_SPS30_b[] PROGMEM = ",\"PM%0d_%0d\":%s";
+const char JSON_SNS_SPS30_c[] PROGMEM = ",\"NCPM%0d_%0d\":%s";
+const char JSON_SNS_SPS30_d[] PROGMEM = ",\"TYPSIZ\":%s}";
 
 void MOD_FUNC(SPS30_Show, bool json) {
   SETREGS
@@ -307,7 +307,7 @@ void MOD_FUNC(SPS30_Show, bool json) {
 
 }
 
-DPSTR(S_JSON_SPS30_FAN, ",\"SPS30\":{\"CFAN\":\"true\"}}");
+const char S_JSON_SPS30_FAN[] PROGMEM = ",\"SPS30\":{\"CFAN\":\"true\"}}";
 void MOD_FUNC(CmdClean) {
   SETREGS
   CALL_MOD_FUNC(sps30_cmd, SPS_CMD_CLEAN);
@@ -315,11 +315,11 @@ void MOD_FUNC(CmdClean) {
   MqttPublishTeleSensor();
 }
 
-DPSTR(kSPS30_Commands, "Start|Stop|Clean");
+const char kSPS30_Commands[] PROGMEM = "Start|Stop|Clean";
 enum MP3_Commands {CMND_SPS30_Start,CMND_SPS30_Stop,CMND_SPS30_Clean};
-DPSTR(S_JSON_SPS30_COMMAND, "{\"SPS30\":\"%s\"}");
-DPSTR(S_JSON_SPS30_r, "running");
-DPSTR(S_JSON_SPS30_s, "stopped");
+const char S_JSON_SPS30_COMMAND[] PROGMEM = "{\"SPS30\":\"%s\"}";
+const char S_JSON_SPS30_r[] PROGMEM = "running";
+const char S_JSON_SPS30_s[] PROGMEM = "stopped";
 
 bool MOD_FUNC(SPS30_command) {
   SETREGS

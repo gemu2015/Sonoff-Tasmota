@@ -79,7 +79,7 @@ MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
 MODULE_END
 
 // define strings used
-DPSTR(kHtuTypes,"HTU21|SI7013|SI7020|SI7021|T/RH?");
+const char kHtuTypes[] PROGMEM = "HTU21|SI7013|SI7020|SI7021|T/RH?";
 
 typedef struct {
   float temperature;

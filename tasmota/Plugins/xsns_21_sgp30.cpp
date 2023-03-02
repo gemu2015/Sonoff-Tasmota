@@ -68,11 +68,11 @@ MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
 MODULE_END
 
 // all text defs must appear here
-DPSTR(HTTP_SNS_SGP30,"{s}SGP30 eCO2 {m}%d ppm {e}{s}SGP30 TVOC {m}%d ppb {e}");
-DPSTR(JSON_SNS_SGP30,",\"SGP30\":{\"eCO2\":%d,\"TVOC\":%d");
-DPSTR(SGP30,"SGP30");
-DPSTR(HTTP_SNS_AHUM,"{s}SGP30 Abs Humidity{m}%s g/m3{e}");
-DPSTR(JSON_SNS_AHUM,",\"aHumidity\":%s}");
+const char HTTP_SNS_SGP30[] PROGMEM = "{s}SGP30 eCO2 {m}%d ppm {e}{s}SGP30 TVOC {m}%d ppb {e}";
+const char JSON_SNS_SGP30[] PROGMEM = ",\"SGP30\":{\"eCO2\":%d,\"TVOC\":%d";
+const char SGP30[] PROGMEM = "SGP30";
+const char HTTP_SNS_AHUM[] PROGMEM = "{s}SGP30 Abs Humidity{m}%s g/m3{e}";
+const char JSON_SNS_AHUM[] PROGMEM = ",\"aHumidity\":%s}";
 
 //DPSTR(SGP30SN,"SGP: Serialnumber 0x%04X-0x%04X-0x%04X");
 /********************************************************************************************/

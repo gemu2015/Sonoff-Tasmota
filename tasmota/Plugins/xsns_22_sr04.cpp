@@ -36,9 +36,9 @@ MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
 
 MODULE_END
 
-DPSTR(started,"SR04TV3 inizialized with RX pin %d");
-DPSTR(HTTP_DIST,"{s}SR04T distance{m}%s cm{e}");
-DPSTR(JSON_DIST,",\"SR04T\":{\"DIST\":%s}");
+const char started[] PROGMEM = "SR04TV3 inizialized with RX pin %d";
+const char HTTP_DIST[] PROGMEM = "{s}SR04T distance{m}%s cm{e}";
+const char JSON_DIST[] PROGMEM = ",\"SR04T\":{\"DIST\":%s}";
 
 /*********************************************************************************************/
 typedef struct {

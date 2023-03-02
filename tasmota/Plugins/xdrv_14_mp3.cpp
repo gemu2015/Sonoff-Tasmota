@@ -112,12 +112,12 @@ MODULE_END
 
 #define D_CMND_MP3 "MP3"
 
-DPSTR(S_JSON_MP3_COMMAND_NVALUE,"{\"MP3%s\":%d}");
-DPSTR(mS_JSON_COMMAND_SVALUE,"{\"%s\":\"%s\"}");
-DPSTR(S_JSON_MP3_COMMAND,"{\"MP3%s\"}");
-DPSTR(kMP3_Commands,"Track|Play|Pause|Stop|Volume|EQ|Device|Reset|DAC|TYPE");
-DPSTR(d_mp3,"MP3");
-DPSTR(started,"mp3 inizialized with TRX pin %d");
+const char S_JSON_MP3_COMMAND_NVALUE[] PROGMEM = "{\"MP3%s\":%d}";
+const char mS_JSON_COMMAND_SVALUE[] PROGMEM = "{\"%s\":\"%s\"}";
+const char S_JSON_MP3_COMMAND[] PROGMEM = "{\"MP3%s\"}";
+const char kMP3_Commands[] PROGMEM = "Track|Play|Pause|Stop|Volume|EQ|Device|Reset|DAC|TYPE";
+const char d_mp3[] PROGMEM = "MP3";
+const char started[] PROGMEM = "mp3 inizialized with TRX pin %d";
 
 typedef struct {
   uint8_t player_type;

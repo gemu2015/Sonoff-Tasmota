@@ -69,10 +69,9 @@ typedef struct {
 
 
 // define strings used
-DPSTR(kShtTypes3,"SHT3X|SHT3X|SHTC3");
-DPSTR(kShtTypes,"%s%c%02X");
-DPSTR(HTTP_SNS_AHUM,"{s}%s Abs Humidity{m}%s g/m3{e}");
-DPSTR(started,"val %s");
+const char kShtTypes3[] PROGMEM = "SHT3X|SHT3X|SHTC3";
+const char kShtTypes[] PROGMEM = "%s%c%02X";
+const char HTTP_SNS_AHUM[] PROGMEM = "{s}%s Abs Humidity{m}%s g/m3{e}";
 
 bool MOD_FUNC(Sht3xRead, float &t, float &h, uint8_t sht3x_address) {
   SETREGS

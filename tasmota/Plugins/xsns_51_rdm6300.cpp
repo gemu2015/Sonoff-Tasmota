@@ -57,9 +57,9 @@ MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
 
 MODULE_END
 
-DPSTR(started,"RDM6300 inizialized with REC pin %d");
-DPSTR(HHTP_UID,"{s}RDM6300 UID{m}%08X {e}");
-DPSTR(JSON_UID,",\"RDM6300\":{\"UID\":\"%08X\"}}");
+const char started[] PROGMEM = "RDM6300 inizialized with REC pin %d";
+const char HHTP_UID[] PROGMEM = "{s}RDM6300 UID{m}%08X {e}";
+const char JSON_UID[] PROGMEM = ",\"RDM6300\":{\"UID\":\"%08X\"}}";
 
 
 /*********************************************************************************************/

@@ -159,15 +159,15 @@ typedef struct {
 #define ready mem->ready
 
 // define text
-DPSTR(moddev,"ADS1115");
-DPSTR(moddev1,"ADS1115%c%02x");
-DPSTR(moddev2,"{\"%s\":{");
-DPSTR(moddev3,"%s\"A%ddiv10\":%d");
-DPSTR(moddev4,",\"%s\":{");
-DPSTR(moddev5,"%s\"A%d\":%d");
-DPSTR(moddev6,",");
-DPSTR(moddev7,"");
-DPSTR(moddev8,"{s}%s Analog%d{m}%d{e}");
+const char moddev[] PROGMEM = "ADS1115";
+const char moddev1[] PROGMEM = "ADS1115%c%02x";
+const char moddev2[] PROGMEM = "{\"%s\":{";
+const char moddev3[] PROGMEM = "%s\"A%ddiv10\":%d";
+const char moddev4[] PROGMEM = ",\"%s\":{";
+const char moddev5[] PROGMEM = "%s\"A%d\":%d";
+const char moddev6[] PROGMEM = ",";
+const char moddev7[] PROGMEM = "";
+const char moddev8[] PROGMEM = "{s}%s Analog%d{m}%d{e}";
 
 //Ads1115StartComparator(channel, ADS1115_REG_CONFIG_MODE_SINGLE);
 //Ads1115StartComparator(channel, ADS1115_REG_CONFIG_MODE_CONTIN);
