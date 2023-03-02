@@ -200,7 +200,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&GetTasmotaGlobalf,
   JMPTBL&tmod__muldi3,
   JMPTBL&tmod__fixunssfsi,
-  JMPTBL&tmod__umodsi3
+  JMPTBL&tmod__umodsi3,
+  JMPTBL&twi_readFrom
 };
 
 

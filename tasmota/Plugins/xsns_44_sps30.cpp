@@ -83,13 +83,7 @@ MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
 MODULE_END
 
 // strings
-DPSTR(HTTP_SNS_SPS30,"{s}SGP30 eCO2 {m}%d ppm {e}{s}SGP30 TVOC {m}%d ppb {e}");
-DPSTR(JSON_SNS_SPS30,",\"SGP30\":{\"ECO2\":%d,\"TVOC\":%d");
 DPSTR(SPS30,"SPS30");
-DPSTR(HTTP_SNS_SPS30_a, "{s}SPS30 %s{m}%s ug/m3{e}");
-DPSTR(HTTP_SNS_SPS30_b, "{s}SPS30 %s{m}%s #/cm3{e}");
-DPSTR(HTTP_SNS_SPS30_c, "{s}SPS30 TYPSIZ {m}%s um{e}");
-
 DPSTR(SPS30_serial, "sps30 found with serial: %s");
 
 /********************************************************************************************/
@@ -98,9 +92,11 @@ DPSTR(SPS30_serial, "sps30 found with serial: %s");
 int32_t MOD_FUNC(SPS30_Init) {
   ALLOCMEM
 
+
   if (!I2cSetDevice(SPS30_ADDR)) { 
     goto exit;
   }
+
 
   uint8_t dcode[32];
   CALL_MOD_FUNC(sps30_get_data, SPS_CMD_GET_SERIAL, dcode, sizeof(dcode));
@@ -111,6 +107,7 @@ int32_t MOD_FUNC(SPS30_Init) {
   }
 
   AddLog(LOG_LEVEL_INFO, PSTR(SPS30_serial), dcode);
+  
   CALL_MOD_FUNC(sps30_cmd, SPS_CMD_START_MEASUREMENT);
   sps30_running = 1;
   ready = 1;
@@ -135,27 +132,33 @@ uint8_t sps30_calc_CRC(uint8_t *data) {
     return crc;
 }
 
+
 void MOD_FUNC(sps30_get_data, uint16_t cmd, uint8_t *data, uint8_t dlen) {
   SETREGS
   uint8_t tmp[3];
   uint8_t index = 0;
   memset(data, 0, dlen);
   uint8_t twi_buff[64];
+  memset(twi_buff, 0, sizeof(twi_buff));
 
   beginTransmission(SPS30_ADDR);
   write(cmd >> 8);
   write(cmd);
-  endTransmission(false);
+  endTransmission(true); // true = default
 
   // need 60 bytes max
   dlen /= 2;
   dlen *= 3;
 
-  requestFrom(SPS30_ADDR, dlen);
+#ifdef ESP8266
+  twi_readFrom(SPS30_ADDR, twi_buff, dlen, 1);
+#endif  // ESP8266
 
-  for (uint16_t cnt = 0; cnt < dlen; cnt++)  {
-    twi_buff[cnt] = read();
-  } 
+#ifdef ESP32
+  Wire.requestFrom((uint16_t)SPS30_ADDR, dlen, true);
+  Wire.readBytes(twi_buff, dlen);
+#endif  // ESP32
+
   uint8_t bind = 0;
   while (bind < dlen) {
     tmp[0] = twi_buff[bind++];
@@ -204,15 +207,15 @@ void MOD_FUNC(SPS30_Every_Second) {
     float *fp = &sps30_result.PM1_0;
 
     typedef union {
-    uint8_t array[4];
-    float value;
+      uint8_t array[4];
+      float value;
     } ByteToFloat;
 
     ByteToFloat conv;
 
     for (uint32_t count = 0; count < 10; count++) {
       for (uint32_t i = 0; i < 4; i++){
-        conv.array[3-i] = vars[count * sizeof(float) + i];
+        conv.array[3 - i] = vars[count * sizeof(float) + i];
       }
       *fp++ = conv.value;
     }
@@ -237,59 +240,71 @@ void MOD_FUNC(SPS30_Every_Second) {
 
 #define PMDP 2
 
+DPSTR(HTTP_SNS_SPS30_a, "{s}SPS30 PM %0d.%0d{m}%s ug/m3{e}");
+DPSTR(HTTP_SNS_SPS30_b, "{s}SPS30 NCPM %0d.%0d{m}%s #/cm3{e}");
+DPSTR(HTTP_SNS_SPS30_c, "{s}SPS30 TYPSIZ {m}%s um{e}");
+
+DPSTR(JSON_SNS_SPS30_a, ",\"SPS30\":{\"PM%0d_%0d\":%s");
+DPSTR(JSON_SNS_SPS30_b, ",\"PM%0d_%0d\":%s");
+DPSTR(JSON_SNS_SPS30_c, ",\"NCPM%0d_%0d\":%s");
+DPSTR(JSON_SNS_SPS30_d, ",\"TYPSIZ\":%s}");
+
 void MOD_FUNC(SPS30_Show, bool json) {
   SETREGS
 
   if (!ready) return;
   if (!sps30_running) return;
 
-/*
   char str[64];
   if (json) {
     ftostrfd(sps30_result.PM1_0, PMDP, str);
-    ResponseAppend_P(PSTR(",\"SPS30\":{\"" "PM1_0" "\":%s"), str);
+    ResponseAppend_P(PSTR(JSON_SNS_SPS30_a), 1, 0,str);
     ftostrfd(sps30_result.PM2_5,PMDP,str);
-    ResponseAppend_P(PSTR(",\"" "PM2_5" "\":%s"), str);
+    ResponseAppend_P(PSTR(JSON_SNS_SPS30_b), 2, 5, str);
     ftostrfd(sps30_result.PM4_0,PMDP,str);
-    ResponseAppend_P(PSTR(",\"" "PM4_0" "\":%s"), str);
+    ResponseAppend_P(PSTR(JSON_SNS_SPS30_b), 4, 0, str);
     ftostrfd(sps30_result.PM10,PMDP,str);
-    ResponseAppend_P(PSTR(",\"" "PM10" "\":%s"), str);
+    ResponseAppend_P(PSTR(JSON_SNS_SPS30_b), 10, 0, str);
+
     ftostrfd(sps30_result.NCPM0_5,PMDP,str);
-    ResponseAppend_P(PSTR(",\"" "NCPM0_5" "\":%s"), str);
+    ResponseAppend_P(PSTR(JSON_SNS_SPS30_c), 0, 5, str);
     ftostrfd(sps30_result.NCPM1_0,PMDP,str);
-    ResponseAppend_P(PSTR(",\"" "NCPM1_0" "\":%s"), str);
+    ResponseAppend_P(PSTR(JSON_SNS_SPS30_c), 1, 0, str);
     ftostrfd(sps30_result.NCPM2_5,PMDP,str);
-    ResponseAppend_P(PSTR(",\"" "NCPM2_5" "\":%s"), str);
+    ResponseAppend_P(PSTR(JSON_SNS_SPS30_c), 2, 5, str);
     ftostrfd(sps30_result.NCPM4_0,PMDP,str);
-    ResponseAppend_P(PSTR(",\"" "NCPM4_0" "\":%s"), str);
+    ResponseAppend_P(PSTR(JSON_SNS_SPS30_c), 4, 0, str);
     ftostrfd(sps30_result.NCPM10,PMDP,str);
-    ResponseAppend_P(PSTR(",\"" "NCPM10" "\":%s"), str);
+    ResponseAppend_P(PSTR(JSON_SNS_SPS30_c), 10, 0, str);
+
     ftostrfd(sps30_result.TYPSIZ,PMDP,str);
-    ResponseAppend_P(PSTR(",\"" "TYPSIZ" "\":%s}"), str);
+    ResponseAppend_P(PSTR(JSON_SNS_SPS30_d), str);
 
   } else {
     ftostrfd(sps30_result.PM1_0,PMDP,str);
-    WSContentSend_PD(HTTP_SNS_SPS30_a,"PM 1.0",str);
+    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_a),1,0,str);
     ftostrfd(sps30_result.PM2_5,PMDP,str);
-    WSContentSend_PD(HTTP_SNS_SPS30_a,"PM 2.5",str);
+    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_a),2,5,str);
     ftostrfd(sps30_result.PM4_0,PMDP,str);
-    WSContentSend_PD(HTTP_SNS_SPS30_a,"PM 4.0",str);
+    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_a),4,0,str);
     ftostrfd(sps30_result.PM10,PMDP,str);
-    WSContentSend_PD(HTTP_SNS_SPS30_a,"PM 10",str);
+    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_a),10,0,str);
+
     ftostrfd(sps30_result.NCPM0_5,PMDP,str);
-    WSContentSend_PD(HTTP_SNS_SPS30_b,"NCPM 0.5",str);
+    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_b),0,5,str);
     ftostrfd(sps30_result.NCPM1_0,PMDP,str);
-    WSContentSend_PD(HTTP_SNS_SPS30_b,"NCPM 1.0",str);
+    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_b),1,0,str);
     ftostrfd(sps30_result.NCPM2_5,PMDP,str);
-    WSContentSend_PD(HTTP_SNS_SPS30_b,"NCPM 2.5",str);
+    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_b),2,5,str);
     ftostrfd(sps30_result.NCPM4_0,PMDP,str);
-    WSContentSend_PD(HTTP_SNS_SPS30_b,"NCPM 4.0",str);
+    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_b),4,0,str);
     ftostrfd(sps30_result.NCPM10,PMDP,str);
-    WSContentSend_PD(HTTP_SNS_SPS30_b,"NCPM 10",str);
+    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_b),10,0,str);
+
     ftostrfd(sps30_result.TYPSIZ,PMDP,str);
-    WSContentSend_PD(HTTP_SNS_SPS30_c,str);
+    WSContentSend_PD(PSTR(HTTP_SNS_SPS30_c),str);
   }
-  */
+
 }
 
 DPSTR(S_JSON_SPS30_FAN, ",\"SPS30\":{\"CFAN\":\"true\"}}");
@@ -342,6 +357,22 @@ void MOD_FUNC(SPS30_Deinit) {
   RETMEM
 }
 
+__asm__  (".section .text.mod_string\n"); void (*const kScd30Command[])(void) = {(void (*)(void))&SPS30_Deinit,(void (*)(void)) &SPS30_command};
+DPSTR(ksps30Commands, "sps30|Start|Stop|Clean");
+
+
+//void (*const kScd30Command[])(void) PROGMEM = {&SPS30_Deinit, &SPS30_command};
+
+
+
+/*
+
+
+void (*const kScd30Command[])(void) PROGMEM = {
+  &CmndScd30Altitude, &CmndScd30AutoMode, &CmndScd30Calibrate, &CmndScd30Firmware, &CmndScd30Interval, &CmndScd30Pressure, &CmndScd30TempOffset };
+
+result = DecodeCommand(kScd30Commands, kScd30Command);
+*/
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
@@ -362,7 +393,8 @@ int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
       case FUNC_WEB_SENSOR:
         CALL_MOD_FUNC(SPS30_Show, 0);
         break;
-      case FUNC_COMMAND_SENSOR:
+      case FUNC_COMMAND:
+        result = DecodeCommand(kScd30Commands, kScd30Command);
         result = CALL_MOD_FUNC(SPS30_command);
         break;
       case FUNC_DEINIT:

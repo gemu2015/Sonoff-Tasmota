@@ -395,7 +395,6 @@ float MOD_FUNC(Calc_AbsoluteHumidity, float temperature, float humidity) {
 }
 
 
-DPSTR(started,"val: %d - %08x");
 
 void MOD_FUNC(BME_Every_Second) {
   SETREGS
@@ -405,10 +404,6 @@ void MOD_FUNC(BME_Every_Second) {
   uint32_t r_press = CALL_MOD_FUNC(BME_Read, BME280_PRESSURE, 3) >> 4;
   int32_t r_temp = CALL_MOD_FUNC(BME_Read, BME280_TEMPERATURE, 3) >> 4;
   
-  uint32_t testregs = CALL_MOD_FUNC(BME_Read, 0xf3, 3);
-  AddLog(LOG_LEVEL_INFO, PSTR(started), 1, testregs);
-
-
   r_temp = CALL_MOD_FUNC(compensateTemperature, r_temp); // First call this before calling the other compensate functions.
   r_press = CALL_MOD_FUNC(compensatePressure, r_press); // Uses value calculated by compensateTemperature.
   temp =  fscale(r_temp, (float)0.01, (float)0);

@@ -322,6 +322,8 @@ void MOD_FUNC(SGP30_Show, bool json) {
       ResponseAppend_P(PSTR(JSON_SNS_SGP30), eCO2, TVOC);
       if (ahum_available) {
         ResponseAppend_P(PSTR(JSON_SNS_AHUM), abs_hum);
+      } else {
+        ResponseJsonEnd();
       }
     } else {
       WSContentSend_PD(PSTR(HTTP_SNS_SGP30), eCO2, TVOC);

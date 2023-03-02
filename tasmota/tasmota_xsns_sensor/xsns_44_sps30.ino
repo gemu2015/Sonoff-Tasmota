@@ -104,7 +104,7 @@ void sps30_get_data(uint16_t cmd, uint8_t *data, uint8_t dlen) {
   Wire.requestFrom((uint16_t)SPS30_ADDR, dlen, true);
   Wire.readBytes(twi_buff, dlen);
 #endif  // ESP32
-
+  
   uint8_t bind=0;
   while (bind<dlen) {
     tmp[0] = twi_buff[bind++];
