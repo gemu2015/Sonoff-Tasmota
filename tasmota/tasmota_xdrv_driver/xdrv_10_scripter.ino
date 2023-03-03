@@ -1439,6 +1439,13 @@ TS_FLOAT Get_MFVal(uint8_t index, int16_t bind) {
           }
           return summ / maxind;
         }
+        if (bind == -3) {
+          TS_FLOAT summ = 0;
+          for (uint32_t cnt = 0; cnt < maxind; cnt++) {
+            summ += mflp->rbuff[cnt];
+          }
+          return summ;
+        }
         if (bind < -2 || bind > maxind ) bind = 1;
         return mflp->rbuff[bind - 1];
     }

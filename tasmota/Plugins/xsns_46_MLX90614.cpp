@@ -73,24 +73,6 @@ const char JSON_IRTMP[] PROGMEM = ",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}";
 const char mlxdev[] PROGMEM = "MLX90614";
 
 
-MODULE_PART void MOD_FUNC(cmd1);
-MODULE_PART void MOD_FUNC(cmd2);
-
-const char ksps30Commands[] PROGMEM = "mlx|cmd1|cmd2";
-void (*const ksps30Command[])(MODULES_TABLE*) DATAMEM = {&cmd1, &cmd2};
-
-
-void MOD_FUNC(cmd1) {
-  SETREGS
- AddLog(LOG_LEVEL_INFO,PSTR("cmd 1"));
-}
-
-void MOD_FUNC(cmd2) {
-  SETREGS
-  AddLog(LOG_LEVEL_INFO,PSTR("cmd 2"));
-}
-
-
 int32_t MOD_FUNC(Init_MLX90614) {
   ALLOCMEM
  // INITWIRE(wire)
@@ -104,7 +86,7 @@ int32_t MOD_FUNC(Init_MLX90614) {
 
   //AddLog(LOG_LEVEL_INFO,PSTR("Hallo wie geht es"));
 
-  bool result = DecodeCommand(GSTR(ksps30Commands), ksps30Command);
+  //uint8_t result = DecodeCommand(PSTR("mlx|cmd1|cmd2"), ksps30Command);
 
   if (!I2cSetDevice(I2_ADR_IRT)) {
     CALL_MOD_FUNC(MLX90614_Deinit);
@@ -115,9 +97,6 @@ int32_t MOD_FUNC(Init_MLX90614) {
   ready = true;
   return ready;
 }
-
-
-
 
 void MOD_FUNC(MLX90614_Every_Second) {
   SETREGS
@@ -213,11 +192,27 @@ void MOD_FUNC(MLX90614_Deinit) {
   RETMEM
 }
 
+MODULE_PART void MOD_FUNC(cmd1);
+MODULE_PART void MOD_FUNC(cmd2);
+
+void MOD_FUNC(cmd1) {
+  SETREGS
+ AddLog(LOG_LEVEL_INFO,PSTR("cmd 1"));
+}
+
+void MOD_FUNC(cmd2) {
+  SETREGS
+  AddLog(LOG_LEVEL_INFO,PSTR("cmd 2"));
+}
+
+const char ksps30Commands[] PROGMEM = "mlx|start|stop";
+VTABLE(ksps30Command) = {&cmd1, &cmd2};
 
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
 int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
+  SETREGS
   bool result = false;
   switch (sel) {
     case FUNC_INIT:
@@ -234,6 +229,9 @@ int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
       break;
     case FUNC_DEINIT:
       CALL_MOD_FUNC(MLX90614_Deinit);
+      break;
+    case FUNC_COMMAND:
+      result = DecodeCommand(GSTR(ksps30Commands), GVT(ksps30Command));
       break;
   }
   return result;

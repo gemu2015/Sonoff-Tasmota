@@ -108,8 +108,11 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jtmod__fixunssfsi(A)            (( uint32_t (*)(float) )                       jt[83])(A)
 #define jtmod__umodsi3(A,B)             (( uint32_t (*)(uint32_t,uint32_t) )           jt[84])(A,B)
 #define jtwi_readFrom(A,B,C,D)(( unsigned char (*)(uint8_t,uint8_t*,unsigned int,uint8_t) ) jt[85])(A,B,C,D)
-#define jDecodeCommand(A,B)             (( bool (*)(const char*,const void(*)(MODULES_TABLE*) )   jt[86])(A,B)
+#define jDecodeCommand(A,B,C)           (( bool (*)(const char*, void (* const x[])(MODULES_TABLE*),MODULES_TABLE*))   jt[86])(A,B,C)
 
+
+//#define xDecodeCommand(A,B) (( bool (*)(const char*, void (* const x[])(MODULES_TABLE*)) )  jt[86])(A,B)
+//bool xDecodeCommand(const char* haystack, void (* const MyCommand[])(MODULES_TABLE*));
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -175,6 +178,9 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #endif
 
 #define GSTR(LABEL) (const char *)LABEL+mt->execution_offset
+
+#define VTABLE(A) void (*const A[])(MODULES_TABLE*) PROGMEM
+#define GVT(LABEL) ( void (**)(MODULES_TABLE*) ) ((char *)LABEL)+mt->execution_offset
 
 
 //#define XPSTR(TEXT) __extension__( {  __asm__  ( ".section .text.mod_string\n .align 4\n .global _xxx\n _xxx: .asciz " #TEXT "\n.section .text.mod_part" );  (const char *)_xxx;  } )
@@ -314,4 +320,5 @@ typedef struct {
 #define   tmod__fixunssfsi jtmod__fixunssfsi
 #define   tmod__umodsi3 jtmod__umodsi3
 #define   twi_readFrom jtwi_readFrom
-#define   DecodeCommand jDecodeCommand
+#define   DecodeCommand(A,B) jDecodeCommand(A,B,mt)
+
