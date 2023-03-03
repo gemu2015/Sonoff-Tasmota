@@ -202,7 +202,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod__fixunssfsi,
   JMPTBL&tmod__umodsi3,
   JMPTBL&twi_readFrom,
-  JMPTBL&MT_DecodeCommand
+  JMPTBL&MT_DecodeCommand,
+  JMPTBL&ResponseCmndDone
 };
 
 
@@ -223,8 +224,8 @@ bool MT_DecodeCommand(const char* haystack, void (* const MyCommand[])(void), MO
     uint32_t lval = (uint32_t)MyCommand[XdrvMailbox.command_code];
     lval += mt->execution_offset;
     void (* const cmdaddr)(MODULES_TABLE *mt) = (void (* const)(MODULES_TABLE *mt))lval;
-    AddLog(LOG_LEVEL_INFO,PSTR(">>> %08x - %08x"), lval, mt->execution_offset );
-    //cmdaddr(mt);
+    //AddLog(LOG_LEVEL_INFO,PSTR(">>> %08x - %08x"), lval, mt->execution_offset );
+    cmdaddr(mt);
     return true;
   }
   return false;

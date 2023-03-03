@@ -109,10 +109,8 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jtmod__umodsi3(A,B)             (( uint32_t (*)(uint32_t,uint32_t) )           jt[84])(A,B)
 #define jtwi_readFrom(A,B,C,D)(( unsigned char (*)(uint8_t,uint8_t*,unsigned int,uint8_t) ) jt[85])(A,B,C,D)
 #define jDecodeCommand(A,B,C)           (( bool (*)(const char*, void (* const x[])(MODULES_TABLE*),MODULES_TABLE*))   jt[86])(A,B,C)
+#define jResponseCmndDone               (( void (*)(void) )                            jt[87])
 
-
-//#define xDecodeCommand(A,B) (( bool (*)(const char*, void (* const x[])(MODULES_TABLE*)) )  jt[86])(A,B)
-//bool xDecodeCommand(const char* haystack, void (* const MyCommand[])(MODULES_TABLE*));
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -123,6 +121,8 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #endif
 #define fldsiz(name, field) (sizeof(((name *)0)->field))
 
+
+// essential defines -----------------------------------------------------------------------
 // linker sections
 #define SECTION_DESC ".text.mod_desc"
 #define SECTION_STRING ".text.mod_string"
@@ -134,37 +134,83 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define MODULE_PART __attribute__((section(SECTION_PART)))
 #define MODULE_END __attribute__((section(SECTION_END))) void  end_of_module(void) {__asm__ __volatile__(".word 0x4AFCAA55");}
 
-#define CAT2(a,b) a##b
-#define CAT(a,b) CAT2(a,b)
-#define UNIQUE_ID CAT(_uid_,__COUNTER__)
+//#define PROGMEM  __attribute__((section(".irom.text")))
+#undef PROGMEM
+#define PROGMEM  __attribute__((section(".text.mod_string"),aligned(4)))
+
+//#define PSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[0];}))
+#undef PSTR
+#define PSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[mt->execution_offset];}))
+#define GSTR(LABEL) (const char *)LABEL+mt->execution_offset
+
+#define VTABLE(A) void (*const A[])(MODULES_TABLE*) PROGMEM
+#define GVT(LABEL) ( void (**)(MODULES_TABLE*) ) ((char *)LABEL+mt->execution_offset)
+
+#define SETREGS MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
+#define ALLOCMEM void (* const *jt)() = mt->jt;mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
+#define RETMEM if (mt->mem_size) {jfree(mt->mod_memory);mt->mem_size = 0;}
+#define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE module_header = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,end_of_module,0,0,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
+#define MOD_FUNC(A, ...) A(MODULES_TABLE *mt, ##__VA_ARGS__)
+#define CALL_MOD_FUNC(A, ...) A(mt, ##__VA_ARGS__)
+#define STRBUFFER
+
+/*
+
+//#pragma GCC optimize ("O0")
+
+ // TwoWire *wire;
+//#define wire mem->wire
+ // INITWIRE(wire)
+
+ // wire->xbeginTransmission(0xaa);
+ // wire->xwrite(0xaa);
+ // wire->xendTransmission(false);
 
 
+
+
+MODULE_PART void MOD_FUNC(cmd1);
+MODULE_PART void MOD_FUNC(cmd2);
+
+void MOD_FUNC(cmd1) {
+  SETREGS
+ AddLog(LOG_LEVEL_INFO,PSTR("cmd 1"));
+ ResponseCmndDone();
+}
+
+void MOD_FUNC(cmd2) {
+  SETREGS
+  AddLog(LOG_LEVEL_INFO,PSTR("cmd 2"));
+  ResponseCmndDone();
+}
+
+const char ksps30Commands[] PROGMEM = "mlx|start|stop";
+VTABLE(ksps30Command) = {&cmd1, &cmd2};
+
+case FUNC_COMMAND:
+      result = DecodeCommand(GSTR(ksps30Commands), GVT(ksps30Command));
+      break;
+      
+*/
+
+
+/*
+#define DATAMEM  __attribute__((section(".text.mod_table"),aligned(4)))
 #define DPSTR(LABEL,TEXT) extern "C" {  const char *LABEL(void);} __asm__  (\
   ".section .text.mod_string\n"\
   ".align 4\n"\
   ".global " #LABEL "\n"\
   #LABEL": .asciz "#TEXT" \n"\
 );
-
-//#define PSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[0];}))
-//#define PROGMEM  __attribute__((section(".irom.text")))
-
 #define MERGE_(a,b)  a##b
 #define LABEL_(a) MERGE_(lbl_, a)
 #define UNAME LABEL_(__LINE__)
 #define SUNAME "UNAME"
-
-#undef PROGMEM
-#define PROGMEM  __attribute__((section(".text.mod_string"),aligned(4)))
-
-#undef PSTR
-#define PSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[mt->execution_offset];}))
-
-#define DATAMEM  __attribute__((section(".text.mod_table"),aligned(4)))
-
-
 #define GPSTR(VAR,FUNC) const char *VAR = (const char*)&FUNC + mt->execution_offset; fshowhex((uint32_t)VAR);
 //#define jPSTR(LABEL) (__extension__({ (const char *)&LABEL[0]+mt->execution_offset;}))
+#define CAT2(a,b) a##b
+#define CAT(a,b) CAT2(a,b)
+#define UNIQUE_ID CAT(_uid_,__COUNTER__)
 
 //#undef PSTR
 // on esp8266 passing of PGMP strings works, on ESP32 fails and must be copied to ram buffer before passing pointer
@@ -176,14 +222,6 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define yPSTR(LABEL) __extension__( {_copy32((uint32_t*)((const char *)LABEL+mt->execution_offset), mem->cbuffer); (const char *)mem->cbuffer;} )
 #define STRBUFFER uint32_t cbuffer[STRBUFFSIZE];
 #endif
-
-#define GSTR(LABEL) (const char *)LABEL+mt->execution_offset
-
-#define VTABLE(A) void (*const A[])(MODULES_TABLE*) PROGMEM
-#define GVT(LABEL) ( void (**)(MODULES_TABLE*) ) ((char *)LABEL)+mt->execution_offset
-
-
-//#define XPSTR(TEXT) __extension__( {  __asm__  ( ".section .text.mod_string\n .align 4\n .global _xxx\n _xxx: .asciz " #TEXT "\n.section .text.mod_part" );  (const char *)_xxx;  } )
 
 
 
@@ -209,8 +247,6 @@ void _copy32(uint32_t *src, uint32_t *dst) {
     *dst++ = *src++;
   }
 }
-
-
 #endif
 
 //#define SHIFT(cmd, bits) (((uint32_t)(cmd)) << (bits))
@@ -219,15 +255,10 @@ void _copy32(uint32_t *src, uint32_t *dst) {
 //#define PACK3(c1,c2,c3,...)    ( SHIFT(c1,16) | SHIFT(c2, 8) | SHIFT(c3,0) )
 //#define PACK4(c1,c2,c3,c4,...) ( SHIFT(c1,24) | SHIFT(c2,16) | SHIFT(c3,8) | SHIFT(c4,0) )
 
-#define SETREGS MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
-#define ALLOCMEM void (* const *jt)() = mt->jt;mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
-#define RETMEM if (mt->mem_size) {jfree(mt->mod_memory);mt->mem_size = 0;}
 //#define MODULE_SYNC_END __attribute__((section(".text.mod_end"))); __asm__ __volatile__ (".align 4");
-#define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE module_header = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,end_of_module,0,0,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
-#define MOD_FUNC(A, ...) A(MODULES_TABLE *mt, ##__VA_ARGS__)
-#define CALL_MOD_FUNC(A, ...) A(mt, ##__VA_ARGS__)
 //#define MODULE_STORAGE(IND,NAME,VALUE)  __attribute__((section(SECTION_DESC))) extern const MODULE_STORE storage[IND] = {NAME,VALUE};
 
+*/
 
 typedef struct {
   void (*xbeginTransmission)(uint8_t);
@@ -238,6 +269,7 @@ typedef struct {
 }  xTwoWire;
 
 #define INITWIRE(A) A->xbeginTransmission = ( void (*)(uint8_t) ) jt[12];A->xendTransmission = ( uint8_t (*)(bool) ) jt[14];A->xread = ( uint8_t (*)() ) jt[16];A->xwrite = ( void (*)(uint8_t) ) jt[13];A->xrequestFrom = ( void (*)(uint8_t,uint8_t) ) jt[15];
+
 
 #define initialized mt->flags.initialized
 #define TasmotaSerial  void
@@ -321,4 +353,4 @@ typedef struct {
 #define   tmod__umodsi3 jtmod__umodsi3
 #define   twi_readFrom jtwi_readFrom
 #define   DecodeCommand(A,B) jDecodeCommand(A,B,mt)
-
+#define   ResponseCmndDone jResponseCmndDone
