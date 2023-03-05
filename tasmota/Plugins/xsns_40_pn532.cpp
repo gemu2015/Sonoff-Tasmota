@@ -94,6 +94,7 @@ typedef struct PN532 {
 // all memory must be in struct MODULE_MEMORY
 typedef struct {
   bool ready;
+  uint8_t mode;
   PN532 Pn532;
   TasmotaSerial *ts;
   uint8_t rec;
@@ -105,18 +106,20 @@ typedef struct {
 #define ts mem->ts
 #define rec mem->rec
 #define trx mem->trx
-
+#define mode mem->mode
 
 #define PN532_REV  1<<16|0
 
-MODULE_DESCRIPTOR("PN532", MODULE_TYPE_SENSOR, PN532_REV,"RXD",3,"TXD",1,"",0,"",0)
+MODULE_DESCRIPTOR("PN532", MODULE_TYPE_SENSOR, PN532_REV,"RXD",3,"TXD",1,"MODE",0x01000100,"",0)
 MODULE_PART bool MOD_FUNC(PN532_Init);
 MODULE_PART int8_t MOD_FUNC(PN532_receive, uint8_t *buf, int len, uint16_t timeout);
 MODULE_PART int8_t MOD_FUNC(PN532_readAckFrame);
 MODULE_PART int8_t MOD_FUNC(PN532_writeCommand, const uint8_t *header, uint8_t hlen, const uint8_t *body, uint8_t blen);
 MODULE_PART int16_t MOD_FUNC(PN532_readResponse, uint8_t buf[], uint8_t len, uint16_t timeout);
 MODULE_PART uint32_t MOD_FUNC(PN532_getFirmwareVersion);
+MODULE_PART int16_t MOD_FUNC(PN532_getResponseLength, uint8_t buf[], uint8_t len, uint16_t timeout);
 MODULE_PART void MOD_FUNC(PN532_wakeup);
+MODULE_PART bool MOD_FUNC(PN532_setPassiveActivationRetries, uint8_t maxRetries);
 MODULE_PART bool MOD_FUNC(PN532_SAMConfig);
 MODULE_PART void MOD_FUNC(PN532_ScanForTag);
 MODULE_PART bool MOD_FUNC(PN532_readPassiveTargetID, uint8_t cardbaudrate, uint8_t *uid, uint8_t *uidLength, uint16_t timeout);
@@ -147,30 +150,86 @@ bool MOD_FUNC(PN532_Init) {
   ready = false;
   rec = mp->ms[0].value;
   trx = mp->ms[1].value;
+  mode = mp->ms[2].value & 1;
 
   Pn532.scantimer = 0;
 
-  ts = NewTS(rec, trx);
-
-  if (ts) {
-    if (beginTS(ts, 115200)) {
-      if (hardwareSerial(ts)) {
-        ClaimSerial();
-      }
-      CALL_MOD_FUNC(PN532_wakeup);
-      uint32_t ver = CALL_MOD_FUNC(PN532_getFirmwareVersion);
-      if (ver) {
-        AddLog(LOG_LEVEL_INFO,PSTR("PN532 found with serial: %d"), ver);
-        initialized = true;
-        ready = true;
-        CALL_MOD_FUNC(PN532_SAMConfig);
+  if (mode) {
+    if (I2cSetDevice(PN532_I2_ADDR)) {
+      I2cSetActiveFound(PN532_I2_ADDR, PSTR("PN532"), 0);
+    }
+  } else {
+    ts = NewTS(rec, trx);
+    if (ts) {
+      if (beginTS(ts, 115200)) {
+        if (hardwareSerial(ts)) {
+          ClaimSerial();
+        }
       }
     } 
-  }  
+  }
+
+  CALL_MOD_FUNC(PN532_wakeup);
+
+  uint32_t ver = CALL_MOD_FUNC(PN532_getFirmwareVersion);
+  if (ver) {
+    AddLog(LOG_LEVEL_INFO,PSTR("NFC: PN532 NFC Reader detected v%u.%u"),(ver>>16) & 0xFF, (ver>>8) & 0xFF);
+    initialized = true;
+    ready = true;
+    CALL_MOD_FUNC(PN532_setPassiveActivationRetries, 0xFF);
+    CALL_MOD_FUNC(PN532_SAMConfig);
+  }
+
   if (ready == false) {
     CALL_MOD_FUNC(PN532_Deinit);
   }
   return ready;
+}
+
+int16_t MOD_FUNC(PN532_getResponseLength, uint8_t buf[], uint8_t len, uint16_t timeout) {
+  SETREGS
+  uint8_t PN532_NACK[6];
+  PN532_NACK[0] = 0;
+  PN532_NACK[1] = 0;
+  PN532_NACK[2] = 0xFF;
+  PN532_NACK[3] = 0xff;
+  PN532_NACK[4] = 0;
+  PN532_NACK[5] = 0;
+
+    uint16_t ctime = 0;
+
+    do {
+        if (requestFrom(PN532_I2_ADDR, 6)) {
+            if (read() & 1) {  // check first byte --- status
+                break;         // PN532 is ready
+            }
+        }
+
+        delay(1);
+        ctime++;
+        if ((0 != timeout) && (ctime > timeout)) {
+            return -1;
+        }
+    } while (1); 
+    
+    if (0x00 != read()      ||       // PREAMBLE
+            0x00 != read()  ||       // STARTCODE1
+            0xFF != read()           // STARTCODE2
+        ) {
+        
+        return PN532_INVALID_FRAME;
+    }
+    
+    uint8_t length = read();
+
+    // request for last respond msg again
+    beginTransmission(PN532_I2_ADDR);
+    for (uint16_t i = 0; i < sizeof(PN532_NACK); ++i) {
+      write(PN532_NACK[i]);
+    }
+    endTransmission(true);
+
+    return length;
 }
 
 int8_t MOD_FUNC(PN532_receive, uint8_t *buf, int len, uint16_t timeout) {
@@ -200,115 +259,237 @@ int8_t MOD_FUNC(PN532_receive, uint8_t *buf, int len, uint16_t timeout) {
   return read_bytes;
 }
 
-int8_t MOD_FUNC(PN532_readAckFrame) {
-  SETREGS
-  const uint8_t PN532_ACK[] = {0, 0, 0xFF, 0, 0xFF, 0};
-  uint8_t ackBuf[sizeof(PN532_ACK)];
-
-  if (CALL_MOD_FUNC(PN532_receive, ackBuf, sizeof(PN532_ACK), PN532_ACK_WAIT_TIME) <= 0) {
-    return PN532_TIMEOUT;
-  }
-
-  if (memcmp(&ackBuf, &PN532_ACK, sizeof(PN532_ACK))) {
-    return PN532_INVALID_ACK;
-  }
-  return 0;
-}
-
 int8_t MOD_FUNC(PN532_writeCommand, const uint8_t *header, uint8_t hlen, const uint8_t *body = 0, uint8_t blen = 0) {
   SETREGS
-  // Clear the serial buffer just in case
-  flushTS(ts);
-
   Pn532.command = header[0];
-  bwriteTS(ts, (uint8_t)PN532_PREAMBLE);
-  bwriteTS(ts, (uint8_t)PN532_STARTCODE1);
-  bwriteTS(ts, PN532_STARTCODE2);
-
-  uint8_t length = hlen + blen + 1;   // length of data field: TFI + DATA
-  bwriteTS(ts, length);
-  bwriteTS(ts, ~length + 1);         // checksum of length
-
-  bwriteTS(ts, PN532_HOSTTOPN532);
-  uint8_t sum = PN532_HOSTTOPN532;    // sum of TFI + DATA
-
-  writeTS(ts, (uint8_t*)header, hlen);
-  for (uint32_t i = 0; i < hlen; i++) {
-    sum += header[i];
-  }
-
-  if (blen) {
-    writeTS(ts, (uint8_t*)body, blen);
-    for (uint32_t i = 0; i < blen; i++) {
-      sum += body[i];
+  if (mode) {
+    beginTransmission(PN532_I2_ADDR);
+    
+    write(PN532_PREAMBLE);
+    write(PN532_STARTCODE1);
+    write(PN532_STARTCODE2);
+    
+    uint8_t length = hlen + blen + 1;   // length of data field: TFI + DATA
+    write(length);
+    write(~length + 1);                 // checksum of length
+    
+    write(PN532_HOSTTOPN532);
+    uint8_t sum = PN532_HOSTTOPN532;    // sum of TFI + DATA
+         
+    for (uint8_t i = 0; i < hlen; i++) {
+        if (write(header[i])) {
+          sum += header[i];
+        } else {
+          return PN532_INVALID_FRAME;
+        }
     }
+
+    for (uint8_t i = 0; i < blen; i++) {
+        if (write(body[i])) {
+          sum += body[i];
+        } else {
+          return PN532_INVALID_FRAME;
+        }
+    }
+  
+    uint8_t checksum = ~sum + 1;            // checksum of TFI + DATA
+    write(checksum);
+    write(PN532_POSTAMBLE);
+    
+    endTransmission(true);
+
+  } else {
+    // Clear the serial buffer just in case
+    flushTS(ts);
+
+    bwriteTS(ts, (uint8_t)PN532_PREAMBLE);
+    bwriteTS(ts, (uint8_t)PN532_STARTCODE1);
+    bwriteTS(ts, PN532_STARTCODE2);
+
+    uint8_t length = hlen + blen + 1;   // length of data field: TFI + DATA
+    bwriteTS(ts, length);
+    bwriteTS(ts, ~length + 1);         // checksum of length
+
+    bwriteTS(ts, PN532_HOSTTOPN532);
+    uint8_t sum = PN532_HOSTTOPN532;    // sum of TFI + DATA
+
+    writeTS(ts, (uint8_t*)header, hlen);
+    for (uint32_t i = 0; i < hlen; i++) {
+      sum += header[i];
+    }
+
+    if (blen) {
+      writeTS(ts, (uint8_t*)body, blen);
+      for (uint32_t i = 0; i < blen; i++) {
+        sum += body[i];
+      }
+    }
+
+    uint8_t checksum = ~sum + 1;            // checksum of TFI + DATA
+    bwriteTS(ts, checksum);
+
+    bwriteTS(ts, (uint8_t)PN532_POSTAMBLE);
   }
-
-  uint8_t checksum = ~sum + 1;            // checksum of TFI + DATA
-  bwriteTS(ts, checksum);
-
-  bwriteTS(ts, (uint8_t)PN532_POSTAMBLE);
-
   return CALL_MOD_FUNC(PN532_readAckFrame);
 }
 
 int16_t MOD_FUNC(PN532_readResponse, uint8_t buf[], uint8_t len, uint16_t timeout = 50) {
   SETREGS
-  uint8_t tmp[3];
 
-  // Read preamble and start code
-  if (CALL_MOD_FUNC(PN532_receive, tmp, 3, timeout)<=0) {
-    return PN532_TIMEOUT;
-  }
-  if (0 != tmp[0] || 0!= tmp[1] || 0xFF != tmp[2]) {
-    return PN532_INVALID_FRAME;
-  }
+  if (mode) {
+    uint16_t ctime = 0;
+    uint8_t length = CALL_MOD_FUNC(PN532_getResponseLength, buf, len, timeout);
+
+    // [RDY] 00 00 FF LEN LCS (TFI PD0 ... PDn) DCS 00
+    do {
+        if (requestFrom(PN532_I2_ADDR, 6 + length + 2)) {
+            if (read() & 1) {  // check first byte --- status
+                break;         // PN532 is ready
+            }
+        }
+
+        delay(1);
+        ctime++;
+        if ((0 != timeout) && (ctime > timeout)) {
+            return -1;
+        }
+    } while (1); 
+    
+    if (0x00 != read()  ||       // PREAMBLE
+        0x00 != read()  ||       // STARTCODE1
+        0xFF != read()           // STARTCODE2
+        ) {
+        return PN532_INVALID_FRAME;
+    }
+    
+    length = read();
+
+    if (0 != (uint8_t)(length + read())) {   // checksum of length
+        return PN532_INVALID_FRAME;
+    }
+    
+    uint8_t cmd = Pn532.command + 1;               // response command
+    if (PN532_PN532TOHOST != read() || (cmd) != read()) {
+      return PN532_INVALID_FRAME;
+    }
+    
+    length -= 2;
+    if (length > len) {
+      return PN532_NO_SPACE;  // not enough space
+    }
+    
+    uint8_t sum = PN532_PN532TOHOST + cmd;
+    for (uint8_t i = 0; i < length; i++) {
+      buf[i] = read();
+      sum += buf[i];
+    }
+    
+    uint8_t checksum = read();
+    if (0 != (uint8_t)(sum + checksum)) {
+      return PN532_INVALID_FRAME;
+    }
+    read();         // POSTAMBLE
+    
+    return length;
+  } else {
+    uint8_t tmp[3];
+
+    // Read preamble and start code
+    if (CALL_MOD_FUNC(PN532_receive, tmp, 3, timeout)<=0) {
+      return PN532_TIMEOUT;
+    }
+    if (0 != tmp[0] || 0!= tmp[1] || 0xFF != tmp[2]) {
+      return PN532_INVALID_FRAME;
+    }
    
-  // Get length of data to be received
-  uint8_t length[2];
+    // Get length of data to be received
+    uint8_t length[2];
   
-  if (CALL_MOD_FUNC(PN532_receive, length, 2, timeout) <= 0) {
-    return PN532_TIMEOUT;
-  }
+    if (CALL_MOD_FUNC(PN532_receive, length, 2, timeout) <= 0) {
+      return PN532_TIMEOUT;
+    }
 
-  // Validate that frame is valid
-  if (0 != (uint8_t)(length[0] + length[1])) {
-    return PN532_INVALID_FRAME;
-  }
-  length[0] -= 2;
-  if (length[0] > len) {   // If this happens, then Pn532.packetbuffer is not large enough
-    return PN532_NO_SPACE;
-  }
+    // Validate that frame is valid
+    if (0 != (uint8_t)(length[0] + length[1])) {
+      return PN532_INVALID_FRAME;
+    }
+    length[0] -= 2;
+    if (length[0] > len) {   // If this happens, then Pn532.packetbuffer is not large enough
+      return PN532_NO_SPACE;
+    }
 
-  // Get the command byte
-  uint8_t cmd = Pn532.command + 1;
-  if (CALL_MOD_FUNC(PN532_receive, tmp, 2, timeout) <= 0) { // Time out while receiving
-    return PN532_TIMEOUT;
-  }
-  if (PN532_PN532TOHOST != tmp[0] || cmd != tmp[1]) { // Invalid frame received
-    return PN532_INVALID_FRAME;
-  }
+    // Get the command byte
+    uint8_t cmd = Pn532.command + 1;
+    if (CALL_MOD_FUNC(PN532_receive, tmp, 2, timeout) <= 0) { // Time out while receiving
+      return PN532_TIMEOUT;
+    }
+    if (PN532_PN532TOHOST != tmp[0] || cmd != tmp[1]) { // Invalid frame received
+      return PN532_INVALID_FRAME;
+    }
 
-  if (CALL_MOD_FUNC(PN532_receive, buf, length[0], timeout) != length[0]) { // Timed out
-    return PN532_TIMEOUT;
-  }
+    if (CALL_MOD_FUNC(PN532_receive, buf, length[0], timeout) != length[0]) { // Timed out
+      return PN532_TIMEOUT;
+    }
 
-  uint8_t sum = PN532_PN532TOHOST + cmd;
-  for (uint32_t i=0; i<length[0]; i++) {
-    sum += buf[i];
-  }
+    uint8_t sum = PN532_PN532TOHOST + cmd;
+    for (uint32_t i=0; i<length[0]; i++) {
+      sum += buf[i];
+    }
 
-  // Checksum & postamble
-  if (CALL_MOD_FUNC(PN532_receive, tmp, 2, timeout) <= 0) {
-    return PN532_TIMEOUT;
+    // Checksum & postamble
+    if (CALL_MOD_FUNC(PN532_receive, tmp, 2, timeout) <= 0) {
+      return PN532_TIMEOUT;
+    }
+    if (0 != (uint8_t)(sum + tmp[0]) || 0 != tmp[1]) { // Checksum fail, so frame must be invalid
+      return PN532_INVALID_FRAME;
+    }
+    return length[0];
   }
-  if (0 != (uint8_t)(sum + tmp[0]) || 0 != tmp[1]) { // Checksum fail, so frame must be invalid
-    return PN532_INVALID_FRAME;
-  }
-
-  return length[0];
 }
 
+
+int8_t MOD_FUNC(PN532_readAckFrame) {
+  SETREGS
+  uint8_t PN532_ACK[6];
+  PN532_ACK[0] = 0;
+  PN532_ACK[1] = 0;
+  PN532_ACK[2] = 0xFF;
+  PN532_ACK[3] = 0;
+  PN532_ACK[4] = 0xFF;
+  PN532_ACK[5] = 0;
+
+  uint8_t ackBuf[sizeof(PN532_ACK)];
+
+  if (mode) {    
+    uint16_t time = 0;
+    do {
+      if (requestFrom(PN532_I2_ADDR,  sizeof(PN532_ACK) + 1)) {
+        if (read() & 1) {  // check first byte --- status
+          break;         // PN532 is ready
+        }
+      }
+
+      delay(1);
+      time++;
+      if (time > PN532_ACK_WAIT_TIME) {
+        return PN532_TIMEOUT;
+      }
+    } while (1); 
+    
+    for (uint8_t i = 0; i < sizeof(PN532_ACK); i++) {
+      ackBuf[i] = read();
+    }
+    
+  } else {
+    if (CALL_MOD_FUNC(PN532_receive, ackBuf, sizeof(PN532_ACK), PN532_ACK_WAIT_TIME) <= 0) {
+      return PN532_TIMEOUT;
+    }
+  }
+  if (memcmp(&ackBuf, PN532_ACK, sizeof(PN532_ACK))) {
+    return PN532_INVALID_ACK;
+  }
+  return 0;
+}
 
 uint32_t MOD_FUNC(PN532_getFirmwareVersion) {
   SETREGS
@@ -342,10 +523,29 @@ uint32_t MOD_FUNC(PN532_getFirmwareVersion) {
 
 void MOD_FUNC(PN532_wakeup) {
   SETREGS
-  uint8_t wakeup[5] = {0x55,0x55,0,0,0};
+  if (mode) return;
+  uint8_t wakeup[5];
+  wakeup[0] = 0x55;
+  wakeup[1] = 0x55;
+  wakeup[2] = 0;
+  wakeup[3] = 0;
+  wakeup[4] = 0;
   writeTS(ts, wakeup, sizeof(wakeup));
   // Flush the serial buffer just in case there's garbage in there
   flushTS(ts);
+}
+
+bool MOD_FUNC(PN532_setPassiveActivationRetries, uint8_t maxRetries) {
+  SETREGS
+  Pn532.packetbuffer[0] = PN532_COMMAND_RFCONFIGURATION;
+  Pn532.packetbuffer[1] = 5;    // Config item 5 (MaxRetries)
+  Pn532.packetbuffer[2] = 0xFF; // MxRtyATR (default = 0xFF)
+  Pn532.packetbuffer[3] = 0x01; // MxRtyPSL (default = 0x01)
+  Pn532.packetbuffer[4] = maxRetries;
+  if (CALL_MOD_FUNC(PN532_writeCommand, Pn532.packetbuffer, 5)) {
+    return 0; // no ACK
+  }
+  return (0 < CALL_MOD_FUNC(PN532_readResponse, Pn532.packetbuffer, sizeof(Pn532.packetbuffer)));
 }
 
 
@@ -368,7 +568,8 @@ bool MOD_FUNC(PN532_readPassiveTargetID, uint8_t cardbaudrate, uint8_t *uid, uin
   Pn532.packetbuffer[0] = PN532_COMMAND_INLISTPASSIVETARGET;
   Pn532.packetbuffer[1] = 1;  // max 1 cards at once (we can set this to 2 later)
   Pn532.packetbuffer[2] = cardbaudrate;
-  if (CALL_MOD_FUNC(PN532_writeCommand, Pn532.packetbuffer, 3)) {
+  int8_t status = CALL_MOD_FUNC(PN532_writeCommand, Pn532.packetbuffer, 3);
+  if (status) {
     return 0x0;  // command failed
   }
   // read data packet
@@ -402,49 +603,16 @@ bool MOD_FUNC(PN532_readPassiveTargetID, uint8_t cardbaudrate, uint8_t *uid, uin
   return 1;
 }
 
-#if 0
-
-
-bool PN532_setPassiveActivationRetries(uint8_t maxRetries) {
-  /*
-  Pn532.packetbuffer[0] = PN532_COMMAND_RFCONFIGURATION;
-  Pn532.packetbuffer[1] = 5;    // Config item 5 (MaxRetries)
-  Pn532.packetbuffer[2] = 0xFF; // MxRtyATR (default = 0xFF)
-  Pn532.packetbuffer[3] = 0x01; // MxRtyPSL (default = 0x01)
-  Pn532.packetbuffer[4] = maxRetries;
-  if (PN532_writeCommand(Pn532.packetbuffer, 5)) {
-    return 0; // no ACK
-  }
-  return (0 < PN532_readResponse(Pn532.packetbuffer, sizeof(Pn532.packetbuffer)));
-*/
-return 0;
-}
-
-
-
-/* void PN532_inSelect(void) {
-  Pn532.packetbuffer[0] = PN532_COMMAND_INSELECT;
-  Pn532.packetbuffer[1] = 1;
-  if (PN532_writeCommand(Pn532.packetbuffer, 2)) {
-    return ;
-  }
-  int16_t res = PN532_readResponse(Pn532.packetbuffer, sizeof(Pn532.packetbuffer));
-} */
-
-#endif
-
 
 #ifdef USE_PN532_DATA_FUNCTION
 
 void PN532_inRelease(void) {
-  /*
   Pn532.packetbuffer[0] = PN532_COMMAND_INRELEASE;
   Pn532.packetbuffer[1] = 1;
   if (PN532_writeCommand(Pn532.packetbuffer, 2)) {
     return;
   }
   PN532_readResponse(Pn532.packetbuffer, sizeof(Pn532.packetbuffer));
-  */
 }
 
 uint8_t PN532_mifareclassic_AuthenticateBlock (uint8_t *uid, uint8_t uidLen, uint32_t blockNumber, uint8_t keyNumber, uint8_t *keyData) {
@@ -452,8 +620,7 @@ uint8_t PN532_mifareclassic_AuthenticateBlock (uint8_t *uid, uint8_t uidLen, uin
   uint8_t _key[6];
   uint8_t _uid[7];
   uint8_t _uidLen;
-  /*
-
+  
   // Hang on to the key and uid data
   memcpy(&_key, keyData, 6);
   memcpy(&_uid, uid, uidLen);
@@ -481,12 +648,10 @@ uint8_t PN532_mifareclassic_AuthenticateBlock (uint8_t *uid, uint8_t uidLen, uin
     // Authentification failed
     return 0;
   }
-*/
   return 1;
 }
 
 uint8_t PN532_mifareclassic_ReadDataBlock (uint8_t blockNumber, uint8_t *data) {
-  /*
   // Prepare the command 
   Pn532.packetbuffer[0] = PN532_COMMAND_INDATAEXCHANGE;
   Pn532.packetbuffer[1] = 1;                      // Card number
@@ -509,12 +674,10 @@ uint8_t PN532_mifareclassic_ReadDataBlock (uint8_t blockNumber, uint8_t *data) {
   // Copy the 16 data bytes to the output buffer
   // Block content starts at byte 9 of a valid response
   memcpy (data, &Pn532.packetbuffer[1], 16);
-*/
   return 1;
 }
 
 uint8_t PN532_mifareclassic_WriteDataBlock (uint8_t blockNumber, uint8_t *data) {
-  /*
   // Prepare the first command
   Pn532.packetbuffer[0] = PN532_COMMAND_INDATAEXCHANGE;
   Pn532.packetbuffer[1] = 1;                      // Card number
@@ -529,13 +692,11 @@ uint8_t PN532_mifareclassic_WriteDataBlock (uint8_t blockNumber, uint8_t *data) 
 
   // Read the response packet
   return (0 < PN532_readResponse(Pn532.packetbuffer, sizeof(Pn532.packetbuffer)));
-  */
- return 0;
 }
 
 uint8_t PN532_ntag21x_probe (void) {
   uint8_t result=0;
-/*
+
   Pn532.packetbuffer[0] = PN532_COMMAND_INCOMMUNICATETHRU;
   Pn532.packetbuffer[1] = NTAG21X_CMD_GET_VERSION;       
 
@@ -556,12 +717,10 @@ uint8_t PN532_ntag21x_probe (void) {
       memcpy_P(&result,&NTAG[i].confPage,sizeof(result));
     }
   }
-  */
   return result; //Return configuration page address
 }
 
 bool PN532_ntag21x_auth(void) {
-/*
   Pn532.packetbuffer[0] = PN532_COMMAND_INCOMMUNICATETHRU;
   Pn532.packetbuffer[1] = NTAG21X_CMD_PWD_AUTH;
   memcpy(&Pn532.packetbuffer[2],&Pn532.pwd_auth,4);
@@ -593,12 +752,10 @@ bool PN532_ntag2xx_read16 (const uint8_t page, char *out) {
     return false;
   }
   memcpy(out,&Pn532.packetbuffer[1],16);
-  */
   return true;  
 }
 
 bool PN532_ntag2xx_write4(uint8_t page, char *in) {
-/*
     Pn532.packetbuffer[0] = PN532_COMMAND_INCOMMUNICATETHRU;
     Pn532.packetbuffer[1] = NTAG2XX_CMD_WRITE;
     Pn532.packetbuffer[2] = page; // first page
@@ -611,25 +768,21 @@ bool PN532_ntag2xx_write4(uint8_t page, char *in) {
     if (PN532_readResponse(Pn532.packetbuffer, sizeof(Pn532.packetbuffer)) < 1) {
       return false;
     }
-    */
     return true;
 }
 
 bool PN532_ntag2xx_write16(uint8_t page, char *in) {
-  /*
   for (uint8_t i = 0; i < 4; i++) {
     if (!PN532_ntag2xx_write4(page +i, &in[i << 2])) {
       return false;
     }
   }
-  */
    return true;
 }
 
 bool PN532_ntag21x_set_password(uint8_t confPage, bool unsetPasswd) {
   char card_datas[16];
 
-/*
   if (PN532_ntag2xx_read16(confPage, card_datas)) {
     if (unsetPasswd) {
       card_datas[3]=0xFF;
@@ -641,7 +794,6 @@ bool PN532_ntag21x_set_password(uint8_t confPage, bool unsetPasswd) {
     memcpy(&card_datas[12],&Pn532.pwd_pack_new, 2); // New password ack
     return PN532_ntag2xx_write16(confPage, card_datas);
   }
-  */
   return false;
 }
 
@@ -720,11 +872,15 @@ bool PN532_Command(void) {
 
 void MOD_FUNC(PN532_ScanForTag) {
   SETREGS
-  uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };
+  //uint8_t uid[] = { 0, 0, 0, 0, 0, 0, 0 };
+  uint8_t uid[7];
+  memset(uid, 0, sizeof(uid));
+
   uint8_t uid_len = 0;
+  
   if (CALL_MOD_FUNC(PN532_readPassiveTargetID, PN532_MIFARE_ISO14443A, uid, &uid_len)) {
     ToHex_P((unsigned char*)uid, uid_len, Pn532.uids, sizeof(Pn532.uids));
-
+ 
 #ifdef USE_PN532_DATA_FUNCTION
     bool success = false;
     char card_datas[17]={0};
@@ -841,11 +997,12 @@ void MOD_FUNC(PN532_ScanForTag) {
     ResponseTime_P(PSTR(",\"PN532\":{\"UID\":\"%s\"}}"), Pn532.uids);
 #endif  // USE_PN532_DATA_FUNCTION
     MqttPublishTeleSensor();
-
     Pn532.scantimer = 7; // Ignore tags found for two seconds
+  } else {
+    Pn532.uids[0] = '-';
+    Pn532.uids[1] = 0;
   }
 }
-
 
 void MOD_FUNC(PN532_Show) {
   SETREGS
@@ -858,25 +1015,6 @@ void MOD_FUNC(PN532_Deinit) {
   ts = nullptr;
   RETMEM
 }
-
-MODULE_PART void MOD_FUNC(cmd1);
-MODULE_PART void MOD_FUNC(cmd2);
-
-void MOD_FUNC(cmd1) {
-  SETREGS
- AddLog(LOG_LEVEL_INFO,PSTR("cmd 1"));
- ResponseCmndDone();
-}
-
-void MOD_FUNC(cmd2) {
-  SETREGS
-  AddLog(LOG_LEVEL_INFO,PSTR("cmd 2"));
-  ResponseCmndDone();
-}
-
-FSTRING(ksps30Commands) = "mlx|start|stop";
-VTABLE(ksps30Command) = {&cmd1, &cmd2};
-
 
 /*********************************************************************************************\
  * Interface
@@ -907,9 +1045,6 @@ int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
         }
         break;
 #endif  // USE_PN532_DATA_FUNCTION
-      case FUNC_COMMAND:
-        result = DecodeCommand(ksps30Commands, ksps30Command);
-        break;
       case FUNC_DEINIT:
         CALL_MOD_FUNC(PN532_Deinit);
         break;

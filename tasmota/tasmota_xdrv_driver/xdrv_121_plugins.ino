@@ -207,7 +207,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&ResponseCmndDone,
   JMPTBL&tmod_write1TS,
   JMPTBL&memcmp,
-  JMPTBL&ToHex_P
+  JMPTBL&ToHex_P,
+  JMPTBL&memset
 };
 
 
