@@ -343,7 +343,7 @@ bool PN532_SAMConfig(void)
     pn532_i2c_packetbuffer[0] = PN532_COMMAND_SAMCONFIGURATION;
     pn532_i2c_packetbuffer[1] = 0x01; // normal mode;
     pn532_i2c_packetbuffer[2] = 0x14; // timeout 50ms * 20 = 1 second
-    pn532_i2c_packetbuffer[3] = 0x01; // use IRQ pin!
+    pn532_i2c_packetbuffer[3] = 0x00; // no IRQ pin!
 
     if (PN532_writeCommand(pn532_i2c_packetbuffer, 4))
         return false;

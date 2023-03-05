@@ -22,8 +22,6 @@
 #include "module.h"
 #include "module_defines.h"
 
-#define XSNS_46       46
-
 #define MLX90614_REV  1<<16|1
 
 // this is the structure of the module:
@@ -184,7 +182,6 @@ void MOD_FUNC(MLX90614_Deinit) {
  * Interface
 \*********************************************************************************************/
 int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
-  SETREGS
   bool result = false;
   switch (sel) {
     case FUNC_INIT:

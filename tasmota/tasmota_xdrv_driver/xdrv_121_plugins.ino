@@ -92,15 +92,16 @@ void Serial_print(const char *txt) {
 
 TasmotaSerial *tmod_newTS(int32_t rpin, int32_t tpin);
 int tmod_beginTS(TasmotaSerial *ts, uint32_t baud);
-void tmod_writeTS(TasmotaSerial *ts, char *buf, uint32_t size);
+size_t tmod_writeTS(TasmotaSerial *ts, char *buf, uint32_t size);
 void tmod_flushTS(TasmotaSerial *ts);
 void tmod_deleteTS(TasmotaSerial *ts);
 size_t tmod_readTS(TasmotaSerial *ts, char *buf, uint32_t size);
-uint8_t tmod_read1TS(TasmotaSerial *ts);
+int tmod_read1TS(TasmotaSerial *ts);
 uint8_t tmod_availTS(TasmotaSerial *ts);
 bool hardwareSerialTS(TasmotaSerial *ts);
 void AddlogT(char* txt);
 bool MT_DecodeCommand(const char* haystack, void (* const InCommand[])(void), MODULES_TABLE *mt);
+size_t tmod_write1TS(TasmotaSerial *ts, uint8_t val);
 
 #define JMPTBL (void (*)())
 // this vector table table must contain all api calls needed by module
@@ -203,12 +204,18 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod__umodsi3,
   JMPTBL&twi_readFrom,
   JMPTBL&MT_DecodeCommand,
-  JMPTBL&ResponseCmndDone
+  JMPTBL&ResponseCmndDone,
+  JMPTBL&tmod_write1TS,
+  JMPTBL&memcmp,
+  JMPTBL&ToHex_P
 };
 
 
 bool MT_DecodeCommand(const char* haystack, void (* const MyCommand[])(void), MODULES_TABLE *mt) {
 
+  haystack += mt->execution_offset;
+  MyCommand += (mt->execution_offset >> 2);
+  
   GetTextIndexed(XdrvMailbox.command, CMDSZ, 0, haystack);  // Get prefix if available
   int prefix_length = strlen(XdrvMailbox.command);
   char prefix[prefix_length + 1];
@@ -249,7 +256,7 @@ void tmod_requestFrom(TwoWire *wp, uint8_t addr, uint8_t num) {
   wp->requestFrom(addr, num);
 }
 
-uint8_t tmod_read(TwoWire *wp) {
+int tmod_read(TwoWire *wp) {
   return wp->read();
 }
 
@@ -337,7 +344,7 @@ int tmod_Pin(uint32_t pin, uint32_t index) {
 }
 
 TasmotaSerial *tmod_newTS(int32_t rpin, int32_t tpin) {
-  TasmotaSerial *ts = new TasmotaSerial(rpin, tpin);
+  TasmotaSerial *ts = new TasmotaSerial(rpin, tpin, 1);
   return ts;
 }
 
@@ -350,15 +357,19 @@ void tmod_deleteTS(TasmotaSerial *ts) {
   delete(ts);
 }
 
-void tmod_writeTS(TasmotaSerial *ts, char *buf, uint32_t size) {
-  ts->write(buf, size);
+size_t tmod_writeTS(TasmotaSerial *ts, char *buf, uint32_t size) {
+  return ts->write(buf, size);
+}
+
+size_t tmod_write1TS(TasmotaSerial *ts, uint8_t val) {
+  return ts->write(val);
 }
 
 size_t tmod_readTS(TasmotaSerial *ts, char *buf, uint32_t size) {
   return ts->read(buf, size);
 }
 
-uint8_t tmod_read1TS(TasmotaSerial *ts) {
+int tmod_read1TS(TasmotaSerial *ts) {
   return ts->read();
 }
 
@@ -371,7 +382,7 @@ void tmod_flushTS(TasmotaSerial *ts) {
 }
 
 bool hardwareSerialTS(TasmotaSerial *ts) {
- return  ts->hardwareSerial();
+  return  ts->hardwareSerial();
 }
 
 uint32_t GetTasmotaGlobal(uint32_t sel) {

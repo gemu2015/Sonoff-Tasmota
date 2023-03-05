@@ -28,10 +28,10 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jfscale(A,B,C)                  (( float (*)(int32_t, float, float) )          jt[10])(A,B,C)
 #define sprint(A)                       (( void (*)(const char*) )                     jt[11])(A)
 #define jbeginTransmission(BUS,ADDR)    (( void (*)(TwoWire*,uint8_t) )                jt[12])(BUS,ADDR)
-#define jwrite(BUS,VAL)                 (( void (*)(TwoWire*,uint8_t) )                jt[13])(BUS,VAL)
+#define jwrite(BUS,VAL)                 (( size_t (*)(TwoWire*,uint8_t) )              jt[13])(BUS,VAL)
 #define jendTransmission(BUS,VAL)       (( uint8_t (*)(TwoWire*,bool) )                jt[14])(BUS,VAL)
 #define jrequestFrom(BUS,ADDR,NUM)      (( size_t (*)(TwoWire*,uint8_t,uint8_t) )      jt[15])(BUS,ADDR,NUM)
-#define jread(BUS)                      (( uint8_t (*)(TwoWire*) )                     jt[16])(BUS)
+#define jread(BUS)                      (( int (*)(TwoWire*) )                         jt[16])(BUS)
 #define fshowhex(VAL)                   (( void (*)(uint32_t) )                        jt[17])(VAL)
 #define jfree(MEM)                      (( void (*)(void*) )                           jt[18])(MEM)
 #define jI2cWrite16(ADDR,REG,VAL,BUS)       (( bool (*)(uint8_t, uint8_t, uint16_t, uint8_t) )      jt[19])(ADDR,REG,VAL,BUS)
@@ -73,7 +73,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jeqsf2(P1,P2)                   (( bool (*)(float,float) )                     jt[51])(P1,P2)
 #define jPin(PIN,INDEX)                 (( int (*)(uint32_t,uint32_t) )                jt[52])(PIN,INDEX)
 #define jnewTS(RPIN,TPIN)               (( void* (*)(int32_t,int32_t) )                jt[53])(RPIN,TPIN)
-#define jwriteTS(TSER,BUF,SIZE)         (( void (*)(void*,uint8_t*,uint32_t) )         jt[54])(TSER,BUF,SIZE)
+#define jwriteTS(TSER,BUF,SIZE)         (( size_t (*)(void*,uint8_t*,uint32_t) )       jt[54])(TSER,BUF,SIZE)
 #define jflushTS(TSER)                  (( void (*)(void*) )                           jt[55])(TSER)
 #define jbeginTS(TSER,BAUD)             (( int (*)(void*,uint32_t) )                   jt[56])(TSER,BAUD)
 #define jXdrvMailbox                    ((XdrvMailbox*)                                 jt[57])
@@ -85,7 +85,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jiscale(A,B,C)                  (( int32_t (*)(int32_t, int32_t, int32_t) )    jt[62])(A,B,C)
 #define jdeleteTS(TSER)                 (( void (*)(void*) )                           jt[63])(TSER)
 #define jreadTS(TSER,BUF,SIZE)          (( size_t (*)(void*,uint8_t*,uint32_t) )       jt[64])(TSER,BUF,SIZE)
-#define jread1TS(TSER)                  (( uint8_t (*)(void*) )                        jt[65])(TSER)
+#define jread1TS(TSER)                  (( int (*)(void*) )                            jt[65])(TSER)
 #define javailTS(TSER)                  (( uint8_t (*)(void*) )                        jt[66])(TSER)
 #define jMqttPublishTeleSensor          (( void (*)(void) )                            jt[67])
 #define jstrtoul(A,B,C)                 (( uint32_t (*)(const char *,char **, int) )   jt[68])(A,B,C)
@@ -110,7 +110,9 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jtwi_readFrom(A,B,C,D)(( unsigned char (*)(uint8_t,uint8_t*,unsigned int,uint8_t) ) jt[85])(A,B,C,D)
 #define jDecodeCommand(A,B,C)           (( bool (*)(const char*, void (* const x[])(MODULES_TABLE*),MODULES_TABLE*))   jt[86])(A,B,C)
 #define jResponseCmndDone               (( void (*)(void) )                            jt[87])
-
+#define jbwriteTS(TSER,VAL)             (( size_t (*)(void*,uint8_t) )                 jt[88])(TSER,VAL)
+#define jmemcmp(A,B,SIZE)               (( int (*)(const void*,const void*,int) )      jt[89])(A,B,SIZE)
+#define jToHex_P(A,B,C,D,E)             (( char* (*)(const unsigned char *, size_t, char *, size_t, char) ) jt[90])(A,B,C,D,E)
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -145,6 +147,9 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 
 #define VTABLE(A) void (*const A[])(MODULES_TABLE*) PROGMEM
 #define GVT(LABEL) ( void (**)(MODULES_TABLE*) ) ((char *)LABEL+mt->execution_offset)
+
+#define FSTRING(A) const char A[] PROGMEM 
+
 
 #define SETREGS MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
 #define ALLOCMEM void (* const *jt)() = mt->jt;mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
@@ -354,3 +359,7 @@ typedef struct {
 #define   twi_readFrom jtwi_readFrom
 #define   DecodeCommand(A,B) jDecodeCommand(A,B,mt)
 #define   ResponseCmndDone jResponseCmndDone
+#define   bwriteTS jbwriteTS
+#define   memcmp jmemcmp
+#define   ToHex_P(A,B,C,D) jToHex_P(A,B,C,D,'\0') 
+
