@@ -110,7 +110,7 @@ typedef struct {
 
 #define PN532_REV  1<<16|0
 
-MODULE_DESCRIPTOR("PN532", MODULE_TYPE_SENSOR, PN532_REV,"RXD",3,"TXD",1,"MODE",0x01000100,"",0)
+MODULE_DESCRIPTOR("PN532", MODULE_TYPE_SENSOR, PN532_REV,"RXD",3,"TXD",1,"MODE",0x01000101,"",0)
 MODULE_PART bool MOD_FUNC(PN532_Init);
 MODULE_PART int8_t MOD_FUNC(PN532_receive, uint8_t *buf, int len, uint16_t timeout);
 MODULE_PART int8_t MOD_FUNC(PN532_readAckFrame);
@@ -186,15 +186,10 @@ bool MOD_FUNC(PN532_Init) {
   return ready;
 }
 
+const uint8_t PN532_NACK[6] PROGMEM = {0,0,0xff,0xff,0,0};
+
 int16_t MOD_FUNC(PN532_getResponseLength, uint8_t buf[], uint8_t len, uint16_t timeout) {
   SETREGS
-  uint8_t PN532_NACK[6];
-  PN532_NACK[0] = 0;
-  PN532_NACK[1] = 0;
-  PN532_NACK[2] = 0xFF;
-  PN532_NACK[3] = 0xff;
-  PN532_NACK[4] = 0;
-  PN532_NACK[5] = 0;
 
     uint16_t ctime = 0;
 
@@ -225,7 +220,7 @@ int16_t MOD_FUNC(PN532_getResponseLength, uint8_t buf[], uint8_t len, uint16_t t
     // request for last respond msg again
     beginTransmission(PN532_I2_ADDR);
     for (uint16_t i = 0; i < sizeof(PN532_NACK); ++i) {
-      write(PN532_NACK[i]);
+      write(pgm_read_byte(&PN532_NACK[mt->execution_offset+i]));
     }
     endTransmission(true);
 
@@ -447,16 +442,10 @@ int16_t MOD_FUNC(PN532_readResponse, uint8_t buf[], uint8_t len, uint16_t timeou
   }
 }
 
+const uint8_t PN532_ACK[6] PROGMEM = {0,0,0xff,0,0xff,0};
 
 int8_t MOD_FUNC(PN532_readAckFrame) {
   SETREGS
-  uint8_t PN532_ACK[6];
-  PN532_ACK[0] = 0;
-  PN532_ACK[1] = 0;
-  PN532_ACK[2] = 0xFF;
-  PN532_ACK[3] = 0;
-  PN532_ACK[4] = 0xFF;
-  PN532_ACK[5] = 0;
 
   uint8_t ackBuf[sizeof(PN532_ACK)];
 
@@ -485,7 +474,7 @@ int8_t MOD_FUNC(PN532_readAckFrame) {
       return PN532_TIMEOUT;
     }
   }
-  if (memcmp(&ackBuf, PN532_ACK, sizeof(PN532_ACK))) {
+  if (memcmp(&ackBuf, &PN532_ACK[mt->execution_offset], sizeof(PN532_ACK))) {
     return PN532_INVALID_ACK;
   }
   return 0;

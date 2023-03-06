@@ -7466,31 +7466,62 @@ uint32_t script_sspi_trans(int32_t cs_index, TS_FLOAT *array, uint32_t len, uint
         out <<= 16;
         out |= glob_script_mem.spi.spip->transfer16((uint32_t)*array);
       }
+      if (size == 4) {
+        // special byte transfer with cs low
+        digitalWrite(glob_script_mem.spi.cs[cs_index], 0);
+        out = glob_script_mem.spi.spip->transfer((uint8_t)*array);
+        digitalWrite(glob_script_mem.spi.cs[cs_index], 1);
+      }
       *array++ = out;
     }
     glob_script_mem.spi.spip->endTransaction();
 
   } else {
-    if (size < 1 || size > 3) size = 1;
-    for (uint32_t cnt = 0; cnt < len; cnt++) {
-      uint32_t bit = 1 << ((size * 8) - 1);
-      out = 0;
-      uint32_t uvar = *array;
-      while (bit) {
-        digitalWrite(glob_script_mem.spi.sclk, 0);
-        if (glob_script_mem.spi.mosi >= 0) {
-          if (uvar & bit) digitalWrite(glob_script_mem.spi.mosi, 1);
-          else   digitalWrite(glob_script_mem.spi.mosi, 0);
-        }
-        digitalWrite(glob_script_mem.spi.sclk, 1);
-        if (glob_script_mem.spi.miso >= 0) {
-          if (digitalRead(glob_script_mem.spi.miso)) {
-            out |= bit;
+    if (size == 4) {
+      for (uint32_t cnt = 0; cnt < len; cnt++) {
+        digitalWrite(glob_script_mem.spi.cs[cs_index], 0);
+        uint32_t bit = 1 << ((1 * 8) - 1);
+        out = 0;
+        uint32_t uvar = *array;
+        while (bit) {
+          digitalWrite(glob_script_mem.spi.sclk, 0);
+          if (glob_script_mem.spi.mosi >= 0) {
+            if (uvar & bit) digitalWrite(glob_script_mem.spi.mosi, 1);
+            else   digitalWrite(glob_script_mem.spi.mosi, 0);
           }
+          digitalWrite(glob_script_mem.spi.sclk, 1);
+          if (glob_script_mem.spi.miso >= 0) {
+            if (digitalRead(glob_script_mem.spi.miso)) {
+              out |= bit;
+            }
+          }
+          bit >>= 1;
         }
-        bit >>= 1;
+        *array++ = out;
+        digitalWrite(glob_script_mem.spi.cs[cs_index], 1);
       }
-      *array++ = out;
+    } else {
+      if (size < 1 || size > 3) size = 1;
+      for (uint32_t cnt = 0; cnt < len; cnt++) {
+        uint32_t bit = 1 << ((size * 8) - 1);
+        out = 0;
+        uint32_t uvar = *array;
+        while (bit) {
+          digitalWrite(glob_script_mem.spi.sclk, 0);
+          if (glob_script_mem.spi.mosi >= 0) {
+            if (uvar & bit) digitalWrite(glob_script_mem.spi.mosi, 1);
+            else   digitalWrite(glob_script_mem.spi.mosi, 0);
+          }
+          digitalWrite(glob_script_mem.spi.sclk, 1);
+          if (glob_script_mem.spi.miso >= 0) {
+            if (digitalRead(glob_script_mem.spi.miso)) {
+              out |= bit;
+            }
+          }
+          bit >>= 1;
+        }
+        *array++ = out;
+      }
     }
   }
   if (cs_index >= 0) {

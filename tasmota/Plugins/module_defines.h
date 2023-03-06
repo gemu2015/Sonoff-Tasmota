@@ -114,6 +114,8 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jmemcmp(A,B,SIZE)               (( int (*)(const void*,const void*,int) )      jt[89])(A,B,SIZE)
 #define jToHex_P(A,B,C,D,E)             (( char* (*)(const unsigned char *, size_t, char *, size_t, char) ) jt[90])(A,B,C,D,E)
 #define jmemset(A,B,C)                  (( void* (*)(void *,int,size_t) )              jt[91])(A,B,C)
+#define jmemmove(A,B,C)                 (( void* (*)(void *,const void,size_t) )       jt[92])(A,B,C)
+
 
 
 // Arduino macros
@@ -155,6 +157,8 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define GU8A(LABEL) (const uint8_t *)LABEL+mt->execution_offset
 
 #define PARRAY(A,...) (__extension__({static const unsigned char __c[] PROGMEM = {A,...}; &__c[mt->execution_offset];}))
+
+#define GFB(A)  pgm_read_byte(&A[mt->execution_offset])
 
 #define SETREGS MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
 #define ALLOCMEM void (* const *jt)() = mt->jt;mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
@@ -368,3 +372,4 @@ typedef struct {
 #define   memcmp jmemcmp
 #define   ToHex_P(A,B,C,D) jToHex_P(A,B,C,D,'\0') 
 #define   memset jmemset
+#define   memmove jmemmove

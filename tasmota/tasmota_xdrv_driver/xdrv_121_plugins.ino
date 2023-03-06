@@ -206,9 +206,10 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&MT_DecodeCommand,
   JMPTBL&ResponseCmndDone,
   JMPTBL&tmod_write1TS,
-  JMPTBL&memcmp,
+  JMPTBL&memcmp_P,
   JMPTBL&ToHex_P,
-  JMPTBL&memset
+  JMPTBL&memset,
+  JMPTBL&memmove_P
 };
 
 
