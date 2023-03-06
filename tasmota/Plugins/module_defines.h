@@ -114,7 +114,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jmemcmp(A,B,SIZE)               (( int (*)(const void*,const void*,int) )      jt[89])(A,B,SIZE)
 #define jToHex_P(A,B,C,D,E)             (( char* (*)(const unsigned char *, size_t, char *, size_t, char) ) jt[90])(A,B,C,D,E)
 #define jmemset(A,B,C)                  (( void* (*)(void *,int,size_t) )              jt[91])(A,B,C)
-#define jmemmove(A,B,C)                 (( void* (*)(void *,const void,size_t) )       jt[92])(A,B,C)
+#define jmemmove(A,B,C)                 (( void* (*)(void *,const void *,size_t) )     jt[92])(A,B,C)
 #define jResponseCmndNumber(A)          (( void (*)(int))                              jt[93])(A)
 #define jResponseCmndFloat(A,B)         (( void (*)(float,uint32_t))                   jt[94])(A,B)
 #define jResponseAppendTHD(A,B)         (( int (*)(float,float))                       jt[95])(A,B)
@@ -381,3 +381,4 @@ typedef struct {
 #define   ResponseCmndFloat jResponseCmndFloat
 #define   ResponseAppendTHD jResponseAppendTHD
 #define   WSContentSend_THD jWSContentSend_THD
+#define   memcpy_P jmemmove

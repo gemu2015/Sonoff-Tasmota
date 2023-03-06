@@ -1214,6 +1214,19 @@ bool Module_upload_start(const char* upload_filename) {
 
 bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
 
+/*
+  if (0 == module_bytes_read) {
+    // 1. block
+    FLASH_MODULE *fm = (FLASH_MODULE*)upload_buf;
+    uint32_t old_pc = (uint32_t)fm->end_of_module - size - 4;
+    uint32_t new_pc = (uint32_t)fdesc;
+    uint32_t offset = new_pc - old_pc;
+    uint32_t corr_pc = (uint32_t)fm->mod_func_execute+offset;
+
+
+    xxxxx
+  }*/
+
   if ((SPI_FLASH_SEC_SIZE - module_bytes_read) > current_size) {
     memcpy(module_input_ptr, upload_buf, current_size);
     module_bytes_read += current_size;
@@ -1242,6 +1255,7 @@ void Module_HandleUploadLoop(void) {
   switch (upload.status) {
     case UPLOAD_FILE_START:
     // ***** Step1: Start upload file
+      //AddLog(LOG_LEVEL_INFO,PSTR("size %d bytes"), upload.contentLength);
       Module_upload_start(upload.filename.c_str());
       break;
     case UPLOAD_FILE_WRITE:

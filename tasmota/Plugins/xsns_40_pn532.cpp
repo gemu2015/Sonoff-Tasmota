@@ -38,7 +38,7 @@
 
 //SDA/TXD
 //SCL/RXD
-
+#define USE_PN532_DATA_FUNCTION
 
 #define PN532_INVALID_ACK                           -1
 #define PN532_TIMEOUT                               -2
@@ -129,20 +129,6 @@ MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
 
 MODULE_END
 
-/*
-const struct {
-  uint8_t version[6];
-  uint8_t confPage;
-} NTAG[] PROGMEM ={ 
-  {.version={0x04, 0x02, 0x01, 0x00, 0x0f, 0x03},.confPage=0x29}, // NTAG213
-  {.version={0x04, 0x02, 0x01, 0x00, 0x11, 0x03},.confPage=0x83}, // NTAG215
-  {.version={0x04, 0x02, 0x01, 0x00, 0x13, 0x03},.confPage=0xe3}, // NTAG216 
-  {.version={0x04, 0x05, 0x02, 0x02, 0x13, 0x03},.confPage=0xe3}, // NT3H2111
-  {.version={0x04, 0x05, 0x02, 0x02, 0x15, 0x03},.confPage=0xe3}, // NT3H2211
-};
-
-#define NTAG_CNT (sizeof(NTAG)/7) // num records in NTAG array
-*/
 
 bool MOD_FUNC(PN532_Init) {
   ALLOCMEM
@@ -593,26 +579,44 @@ bool MOD_FUNC(PN532_readPassiveTargetID, uint8_t cardbaudrate, uint8_t *uid, uin
 }
 
 
+
 #ifdef USE_PN532_DATA_FUNCTION
 
-void PN532_inRelease(void) {
+const struct {
+  uint8_t version[6];
+  uint8_t confPage;
+} NTAG[] PROGMEM ={ 
+  {.version={0x04, 0x02, 0x01, 0x00, 0x0f, 0x03},.confPage=0x29}, // NTAG213
+  {.version={0x04, 0x02, 0x01, 0x00, 0x11, 0x03},.confPage=0x83}, // NTAG215
+  {.version={0x04, 0x02, 0x01, 0x00, 0x13, 0x03},.confPage=0xe3}, // NTAG216 
+  {.version={0x04, 0x05, 0x02, 0x02, 0x13, 0x03},.confPage=0xe3}, // NT3H2111
+  {.version={0x04, 0x05, 0x02, 0x02, 0x15, 0x03},.confPage=0xe3}, // NT3H2211
+};
+
+#define NTAG_CNT (sizeof(NTAG)/7) // num records in NTAG array
+
+MODULE_PART void MOD_FUNC(PN532_inRelease);
+void MOD_FUNC(PN532_inRelease) {
+  SETREGS
   Pn532.packetbuffer[0] = PN532_COMMAND_INRELEASE;
   Pn532.packetbuffer[1] = 1;
-  if (PN532_writeCommand(Pn532.packetbuffer, 2)) {
+  if (CALL_MOD_FUNC(PN532_writeCommand, Pn532.packetbuffer, 2)) {
     return;
   }
-  PN532_readResponse(Pn532.packetbuffer, sizeof(Pn532.packetbuffer));
+  CALL_MOD_FUNC(PN532_readResponse, Pn532.packetbuffer, sizeof(Pn532.packetbuffer));
 }
 
-uint8_t PN532_mifareclassic_AuthenticateBlock (uint8_t *uid, uint8_t uidLen, uint32_t blockNumber, uint8_t keyNumber, uint8_t *keyData) {
+MODULE_PART uint8_t MOD_FUNC(PN532_mifareclassic_AuthenticateBlock, uint8_t *uid, uint8_t uidLen, uint32_t blockNumber, uint8_t keyNumber, uint8_t *keyData);
+uint8_t MOD_FUNC(PN532_mifareclassic_AuthenticateBlock, uint8_t *uid, uint8_t uidLen, uint32_t blockNumber, uint8_t keyNumber, uint8_t *keyData) {
+  SETREGS
   uint8_t i;
   uint8_t _key[6];
   uint8_t _uid[7];
   uint8_t _uidLen;
   
   // Hang on to the key and uid data
-  memcpy(&_key, keyData, 6);
-  memcpy(&_uid, uid, uidLen);
+  memcpy_P(&_key, keyData, 6);
+  memcpy_P(&_uid, uid, uidLen);
   _uidLen = uidLen;
 
   // Prepare the authentication command //
@@ -620,15 +624,15 @@ uint8_t PN532_mifareclassic_AuthenticateBlock (uint8_t *uid, uint8_t uidLen, uin
   Pn532.packetbuffer[1] = 1;                              /* Max card numbers */
   Pn532.packetbuffer[2] = (keyNumber) ? MIFARE_CMD_AUTH_B : MIFARE_CMD_AUTH_A;
   Pn532.packetbuffer[3] = blockNumber;                    /* Block Number (1K = 0..63, 4K = 0..255 */
-  memcpy(&Pn532.packetbuffer[4], &_key, 6);
+  memcpy_P(&Pn532.packetbuffer[4], &_key, 6);
   for (i = 0; i < _uidLen; i++) {
     Pn532.packetbuffer[10 + i] = _uid[i];              /* 4 bytes card ID */
   }
 
-  if (PN532_writeCommand(Pn532.packetbuffer, 10 + _uidLen)) { return 0; }
+  if (CALL_MOD_FUNC(PN532_writeCommand, Pn532.packetbuffer, 10 + _uidLen)) { return 0; }
 
   // Read the response packet
-  PN532_readResponse(Pn532.packetbuffer, sizeof(Pn532.packetbuffer));
+  CALL_MOD_FUNC(PN532_readResponse, Pn532.packetbuffer, sizeof(Pn532.packetbuffer));
 
   // Check if the response is valid and we are authenticated???
   // for an auth success it should be bytes 5-7: 0xD5 0x41 0x00
@@ -640,7 +644,9 @@ uint8_t PN532_mifareclassic_AuthenticateBlock (uint8_t *uid, uint8_t uidLen, uin
   return 1;
 }
 
-uint8_t PN532_mifareclassic_ReadDataBlock (uint8_t blockNumber, uint8_t *data) {
+MODULE_PART uint8_t MOD_FUNC(PN532_mifareclassic_ReadDataBlock, uint8_t blockNumber, uint8_t *data);
+uint8_t MOD_FUNC(PN532_mifareclassic_ReadDataBlock, uint8_t blockNumber, uint8_t *data) {
+  SETREGS
   // Prepare the command 
   Pn532.packetbuffer[0] = PN532_COMMAND_INDATAEXCHANGE;
   Pn532.packetbuffer[1] = 1;                      // Card number
@@ -648,12 +654,12 @@ uint8_t PN532_mifareclassic_ReadDataBlock (uint8_t blockNumber, uint8_t *data) {
   Pn532.packetbuffer[3] = blockNumber;            // Block Number (0..63 for 1K, 0..255 for 4K)
 
   // Send the command 
-  if (PN532_writeCommand(Pn532.packetbuffer, 4)) {
+  if (CALL_MOD_FUNC(PN532_writeCommand, Pn532.packetbuffer, 4)) {
     return 0;
   }
 
   // Read the response packet
-  PN532_readResponse(Pn532.packetbuffer, sizeof(Pn532.packetbuffer));
+  CALL_MOD_FUNC(PN532_readResponse, Pn532.packetbuffer, sizeof(Pn532.packetbuffer));
 
   // If byte 8 isn't 0x00 we probably have an error
   if (Pn532.packetbuffer[0] != 0x00) {
@@ -662,38 +668,42 @@ uint8_t PN532_mifareclassic_ReadDataBlock (uint8_t blockNumber, uint8_t *data) {
 
   // Copy the 16 data bytes to the output buffer
   // Block content starts at byte 9 of a valid response
-  memcpy (data, &Pn532.packetbuffer[1], 16);
+  memcpy_P (data, &Pn532.packetbuffer[1], 16);
   return 1;
 }
 
-uint8_t PN532_mifareclassic_WriteDataBlock (uint8_t blockNumber, uint8_t *data) {
+MODULE_PART uint8_t MOD_FUNC(PN532_mifareclassic_WriteDataBlock, uint8_t blockNumber, uint8_t *data);
+uint8_t MOD_FUNC(PN532_mifareclassic_WriteDataBlock, uint8_t blockNumber, uint8_t *data) {
+  SETREGS
   // Prepare the first command
   Pn532.packetbuffer[0] = PN532_COMMAND_INDATAEXCHANGE;
   Pn532.packetbuffer[1] = 1;                      // Card number
   Pn532.packetbuffer[2] = MIFARE_CMD_WRITE;       // Mifare Write command = 0xA0
   Pn532.packetbuffer[3] = blockNumber;            // Block Number (0..63 for 1K, 0..255 for 4K)
-  memcpy(&Pn532.packetbuffer[4], data, 16);       // Data Payload
+  memcpy_P(&Pn532.packetbuffer[4], data, 16);       // Data Payload
 
   // Send the command
-  if (PN532_writeCommand(Pn532.packetbuffer, 20)) {
+  if (CALL_MOD_FUNC(PN532_writeCommand, Pn532.packetbuffer, 20)) {
     return 0;
   }
 
   // Read the response packet
-  return (0 < PN532_readResponse(Pn532.packetbuffer, sizeof(Pn532.packetbuffer)));
+  return (0 < CALL_MOD_FUNC(PN532_readResponse, Pn532.packetbuffer, sizeof(Pn532.packetbuffer)));
 }
 
-uint8_t PN532_ntag21x_probe (void) {
+MODULE_PART uint8_t MOD_FUNC(PN532_ntag21x_probe);
+uint8_t MOD_FUNC(PN532_ntag21x_probe) {
+  SETREGS
   uint8_t result=0;
 
   Pn532.packetbuffer[0] = PN532_COMMAND_INCOMMUNICATETHRU;
   Pn532.packetbuffer[1] = NTAG21X_CMD_GET_VERSION;       
 
-  if (PN532_writeCommand(Pn532.packetbuffer, 2)) {
+  if (CALL_MOD_FUNC(PN532_writeCommand, Pn532.packetbuffer, 2)) {
     return result;
   }
 
-  if (PN532_readResponse(Pn532.packetbuffer, sizeof(Pn532.packetbuffer))<9){
+  if (CALL_MOD_FUNC(PN532_readResponse, Pn532.packetbuffer, sizeof(Pn532.packetbuffer))<9){
     return result;
   }
 
@@ -703,21 +713,23 @@ uint8_t PN532_ntag21x_probe (void) {
 
   for (uint8_t i=0; i<NTAG_CNT; i++) {
     if (0 == memcmp_P(&Pn532.packetbuffer[3],&NTAG[i].version[0],6)) {
-      memcpy_P(&result,&NTAG[i].confPage,sizeof(result));
+      memcpy_P(&result,&NTAG[(tmod__udivsi3(mt->execution_offset,7))+i].confPage,sizeof(result));
     }
   }
   return result; //Return configuration page address
 }
 
-bool PN532_ntag21x_auth(void) {
+MODULE_PART bool MOD_FUNC(PN532_ntag21x_auth);
+bool MOD_FUNC(PN532_ntag21x_auth) {
+  SETREGS
   Pn532.packetbuffer[0] = PN532_COMMAND_INCOMMUNICATETHRU;
   Pn532.packetbuffer[1] = NTAG21X_CMD_PWD_AUTH;
-  memcpy(&Pn532.packetbuffer[2],&Pn532.pwd_auth,4);
+  memcpy_P(&Pn532.packetbuffer[2],&Pn532.pwd_auth,4);
 
-  if (PN532_writeCommand(Pn532.packetbuffer, 6)) {
+  if (CALL_MOD_FUNC(PN532_writeCommand, Pn532.packetbuffer, 6)) {
     return false;
   }
-  if ((PN532_readResponse(Pn532.packetbuffer, sizeof(Pn532.packetbuffer)))<3){
+  if ((CALL_MOD_FUNC(PN532_readResponse, Pn532.packetbuffer, sizeof(Pn532.packetbuffer)))<3){
     return false;
   }
   if (Pn532.packetbuffer[0]) { //PN532 return any error
@@ -726,67 +738,142 @@ bool PN532_ntag21x_auth(void) {
   return memcmp(&Pn532.packetbuffer[1],&Pn532.pwd_pack,2)==0;
 }
 
-bool PN532_ntag2xx_read16 (const uint8_t page, char *out) {
+MODULE_PART bool MOD_FUNC(PN532_ntag2xx_read16, const uint8_t page, char *out);
+bool MOD_FUNC(PN532_ntag2xx_read16, const uint8_t page, char *out) {
+  SETREGS
 
   Pn532.packetbuffer[0] = PN532_COMMAND_INCOMMUNICATETHRU;
   Pn532.packetbuffer[1] = NTAG2XX_CMD_READ;
   Pn532.packetbuffer[2] = page;
-  if (PN532_writeCommand(Pn532.packetbuffer, 3)) {
+  if (CALL_MOD_FUNC(PN532_writeCommand, Pn532.packetbuffer, 3)) {
     return false;
   }
-  if ((PN532_readResponse(Pn532.packetbuffer, sizeof(Pn532.packetbuffer)))<17){
+  if ((CALL_MOD_FUNC(PN532_readResponse, Pn532.packetbuffer, sizeof(Pn532.packetbuffer)))<17){
     return false;
   }
   if (Pn532.packetbuffer[0]!=0) {
     return false;
   }
-  memcpy(out,&Pn532.packetbuffer[1],16);
+  memcpy_P(out,&Pn532.packetbuffer[1],16);
   return true;  
 }
 
-bool PN532_ntag2xx_write4(uint8_t page, char *in) {
+MODULE_PART bool MOD_FUNC(PN532_ntag2xx_write4, uint8_t page, char *in);
+bool MOD_FUNC(PN532_ntag2xx_write4, uint8_t page, char *in) {
+  SETREGS
     Pn532.packetbuffer[0] = PN532_COMMAND_INCOMMUNICATETHRU;
     Pn532.packetbuffer[1] = NTAG2XX_CMD_WRITE;
     Pn532.packetbuffer[2] = page; // first page
-    memcpy(&Pn532.packetbuffer[3],in,4);
+    memcpy_P(&Pn532.packetbuffer[3],in,4);
 
-    if (PN532_writeCommand(Pn532.packetbuffer, 7)) {
+    if (CALL_MOD_FUNC(PN532_writeCommand, Pn532.packetbuffer, 7)) {
       return false;
     }
 
-    if (PN532_readResponse(Pn532.packetbuffer, sizeof(Pn532.packetbuffer)) < 1) {
+    if (CALL_MOD_FUNC(PN532_readResponse, Pn532.packetbuffer, sizeof(Pn532.packetbuffer)) < 1) {
       return false;
     }
     return true;
 }
 
-bool PN532_ntag2xx_write16(uint8_t page, char *in) {
+MODULE_PART bool MOD_FUNC(PN532_ntag2xx_write16, uint8_t page, char *in);
+bool MOD_FUNC(PN532_ntag2xx_write16, uint8_t page, char *in) {
+  SETREGS
   for (uint8_t i = 0; i < 4; i++) {
-    if (!PN532_ntag2xx_write4(page +i, &in[i << 2])) {
+    if (!CALL_MOD_FUNC(PN532_ntag2xx_write4, page +i, &in[i << 2])) {
       return false;
     }
   }
    return true;
 }
 
-bool PN532_ntag21x_set_password(uint8_t confPage, bool unsetPasswd) {
+MODULE_PART bool MOD_FUNC(PN532_ntag21x_set_password, uint8_t confPage, bool unsetPasswd);
+bool MOD_FUNC(PN532_ntag21x_set_password, uint8_t confPage, bool unsetPasswd) {
+  SETREGS
   char card_datas[16];
 
-  if (PN532_ntag2xx_read16(confPage, card_datas)) {
+  if (CALL_MOD_FUNC(PN532_ntag2xx_read16, confPage, card_datas)) {
     if (unsetPasswd) {
       card_datas[3]=0xFF;
-      return PN532_ntag2xx_write4(confPage, card_datas);
+      return CALL_MOD_FUNC(PN532_ntag2xx_write4, confPage, card_datas);
     }
     card_datas[3]=0; // Set AUTH0 for protect all pages
     card_datas[4] |= 0x80; // Set PROT flag for read and write access is protected by the password verification
-    memcpy(&card_datas[8],&Pn532.pwd_auth_new, 4); // New password
-    memcpy(&card_datas[12],&Pn532.pwd_pack_new, 2); // New password ack
-    return PN532_ntag2xx_write16(confPage, card_datas);
+    memcpy_P(&card_datas[8],&Pn532.pwd_auth_new, 4); // New password
+    memcpy_P(&card_datas[12],&Pn532.pwd_pack_new, 2); // New password ack
+    return CALL_MOD_FUNC(PN532_ntag2xx_write16, confPage, card_datas);
   }
   return false;
 }
 
-bool PN532_Command(void) {
+MODULE_PART void MOD_FUNC(PN532_Erase);
+void MOD_FUNC(PN532_Erase) {
+  SETREGS
+  memset(Pn532.newdata,0,sizeof(Pn532.newdata));
+  Pn532.function = 1; // Block 1 of next card/tag will be reset to 0x00...
+  AddLog(LOG_LEVEL_INFO, PSTR("data block 1 (4-7 for NTAG) will be erased"));
+}
+
+MODULE_PART void MOD_FUNC(PN532_Write);
+void MOD_FUNC(PN532_Write) {
+  SETREGS
+  memset(Pn532.newdata,0,sizeof(Pn532.newdata));
+  strncpy((char *)Pn532.newdata, XdrvMailbox->data, sizeof(Pn532.newdata));
+  //if (strlen(argument) > 16) argument[16]=0;
+  Pn532.function = 2;
+  AddLog(LOG_LEVEL_INFO, PSTR("data block 1 (4-7 for NTAG) will be set to '%s'"), Pn532.newdata);
+}
+MODULE_PART void MOD_FUNC(PN532_Auth);
+void MOD_FUNC(PN532_Auth) {
+  SETREGS
+  /*
+   if (ArgC() > 1) {
+      Pn532.pwd_auth=strtoul(ArgV(argument,2),nullptr,0);
+    }
+    if (ArgC() > 2) {
+      Pn532.pwd_pack=strtoul(ArgV(argument,3),nullptr,0);
+    }
+    Settings->pn532_password=Pn532.pwd_auth;
+    Settings->pn532_pack=Pn532.pwd_pack;
+    */
+}
+MODULE_PART void MOD_FUNC(PN532_Set_PWD);
+void MOD_FUNC(PN532_Set_PWD) {
+  SETREGS
+  /*
+    Pn532.pwd_auth_new=Pn532.pwd_auth;
+    Pn532.pwd_pack_new=Pn532.pwd_pack;
+    if (ArgC() > 1) {
+      Pn532.pwd_auth_new=strtoul(ArgV(argument,2),nullptr,0);
+    }
+    if (ArgC() > 2) {
+      Pn532.pwd_pack_new=strtoul(ArgV(argument,3),nullptr,0);
+    }
+    */
+  AddLog(LOG_LEVEL_INFO, PSTR("will be protected"));
+  Pn532.function = 3;
+}
+MODULE_PART void MOD_FUNC(PN532_Unset_PWD);
+void MOD_FUNC(PN532_Unset_PWD) {
+  SETREGS
+  AddLog(LOG_LEVEL_INFO, PSTR("will be unprotected"));
+  Pn532.function = 4;
+
+}
+MODULE_PART void MOD_FUNC(PN532_Cancel);
+void MOD_FUNC(PN532_Cancel) {
+  SETREGS
+  AddLog(LOG_LEVEL_INFO, PSTR("NFC: PN532 - Job canceled"));
+  Pn532.function = 0;
+}
+
+const char PN532Commands[] PROGMEM = "pn532|Erase|Write|Auth|Set_PWD|Unset_PWD|Cancel";
+VTABLE(PN532Command) = {&PN532_Erase, &PN532_Write, &PN532_Auth, &PN532_Set_PWD, &PN532_Unset_PWD, &PN532_Cancel};
+
+
+#if 0
+bool MOD_FUNC(PN532_Command) {
+  SETREGS
   bool serviced = false;
   char command[10];
   char log[70];
@@ -855,6 +942,7 @@ bool PN532_Command(void) {
   if (serviced) ResponseTime_P(PSTR(",\"PN532\":{\"COMMAND\":\"%s\"}}"),command);
   return serviced;
 }
+#endif
 
 #endif  // USE_PN532_DATA_FUNCTION
 
@@ -879,50 +967,52 @@ void MOD_FUNC(PN532_ScanForTag) {
       uint8_t confPage=0;
       uint8_t nuid[] = { 0, 0, 0, 0, 0, 0, 0 };
       uint8_t nuid_len = 0;
-      if ((confPage=PN532_ntag21x_probe())>0) {
+      if ((confPage = CALL_MOD_FUNC(PN532_ntag21x_probe))>0) {
         // NTAG EV1 found
         str_pwd=PWD_NONE;
-        if (!PN532_ntag2xx_read16(4, card_datas)) {
-          if (PN532_readPassiveTargetID(PN532_MIFARE_ISO14443A, nuid, &nuid_len)) {
+        if (!CALL_MOD_FUNC(PN532_ntag2xx_read16, 4, card_datas)) {
+          if (CALL_MOD_FUNC(PN532_readPassiveTargetID, PN532_MIFARE_ISO14443A, nuid, &nuid_len)) {
             if (memcmp(uid, nuid, sizeof(uid))==0) {
-              if (PN532_ntag21x_auth()) {
+              if (CALL_MOD_FUNC(PN532_ntag21x_auth)) {
                 str_pwd=PWD_OK;
                 if (Pn532.function == 3) { // new password
-                  success = PN532_ntag21x_set_password(confPage, false);
+                  success = CALL_MOD_FUNC(PN532_ntag21x_set_password, confPage, false);
                 }
                 if (Pn532.function == 4) { // clear password
-                  success = PN532_ntag21x_set_password(confPage, true);
+                  success = CALL_MOD_FUNC(PN532_ntag21x_set_password, confPage, true);
                 }
               } else {
                 str_pwd=PWD_NOK;
               }
-              if (!PN532_ntag2xx_read16(4, card_datas)) card_datas[0]=0;
+              if (!CALL_MOD_FUNC(PN532_ntag2xx_read16, 4, card_datas)) card_datas[0]=0;
             }
           }
         } else {
           if (Pn532.function == 3) { // new password
-            success = PN532_ntag21x_set_password(confPage, false);
+            success = CALL_MOD_FUNC(PN532_ntag21x_set_password, confPage, false);
           }
         }      
       } else {
-        if (PN532_readPassiveTargetID(PN532_MIFARE_ISO14443A, nuid, &nuid_len)) {
+        if (CALL_MOD_FUNC(PN532_readPassiveTargetID, PN532_MIFARE_ISO14443A, nuid, &nuid_len)) {
           if (memcmp(uid, nuid, sizeof(uid))==0) {
-            if (!PN532_ntag2xx_read16(4, card_datas)) card_datas[0]=0;
+            if (!CALL_MOD_FUNC(PN532_ntag2xx_read16, 4, card_datas)) card_datas[0]=0;
           }
         }
       }
       if ((Pn532.function == 1) || (Pn532.function == 2)) {
-       success = PN532_ntag2xx_write16(4, (char *)Pn532.newdata);
-       if (!PN532_ntag2xx_read16(4, card_datas)) card_datas[0]=0;
+       success = CALL_MOD_FUNC(PN532_ntag2xx_write16, 4, (char *)Pn532.newdata);
+       if (!CALL_MOD_FUNC(PN532_ntag2xx_read16, 4, card_datas)) card_datas[0]=0;
       }
     }
     else if (uid_len == 4) { // Lets try to read blocks 1 & 2 of the mifare classic card for more information
-      uint8_t keyuniversal[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
-      if (PN532_mifareclassic_AuthenticateBlock (uid, uid_len, 1, 1, keyuniversal)) {
+      uint8_t keyuniversal[6];
+      memset(keyuniversal, 0xff, 6);
+      // = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+      if (CALL_MOD_FUNC(PN532_mifareclassic_AuthenticateBlock, uid, uid_len, 1, 1, keyuniversal)) {
         if ((Pn532.function == 1) || (Pn532.function == 2)) {
-          success=PN532_mifareclassic_WriteDataBlock(1, Pn532.newdata);
+          success = CALL_MOD_FUNC(PN532_mifareclassic_WriteDataBlock, 1, Pn532.newdata);
         }
-        if (PN532_mifareclassic_ReadDataBlock(1, (uint8_t *)card_datas)) {
+        if (CALL_MOD_FUNC(PN532_mifareclassic_ReadDataBlock, 1, (uint8_t *)card_datas)) {
           for (uint32_t i = 0; i < 16; i++) {
             if (!isprint(card_datas[i])) {
               // do not output non-printable characters to the console 
@@ -933,7 +1023,7 @@ void MOD_FUNC(PN532_ScanForTag) {
           card_datas[0] = 0;
         }
       } else {
-        sprintf_P(card_datas, PSTR("AUTHFAIL"));
+        sprintf_P(card_datas, PSTR("AUTHFAIL"),0);
       }
     }
     switch (Pn532.function) {
@@ -970,7 +1060,7 @@ void MOD_FUNC(PN532_ScanForTag) {
     }
     Pn532.function = 0;
     card_datas[16] = 0;
-    ResponseTime_P(PSTR(",\"PN532\":{\"UID\":\"%s\",\"" D_JSON_DATA "\":\"%s\""), Pn532.uids, card_datas);
+    ResponseTime_P(PSTR(",\"PN532\":{\"UID\":\"%s\",\"Data\":\"%s\""), Pn532.uids, card_datas);
     if (str_pwd == PWD_NONE) {
       ResponseAppend_P(PSTR(",\"Auth\":\"None\""));
     } else
@@ -981,7 +1071,7 @@ void MOD_FUNC(PN532_ScanForTag) {
       ResponseAppend_P(PSTR(",\"Auth\":\"NOk\""));
     }
     ResponseAppend_P(PSTR("}}"));
-    PN532_inRelease(); 
+    CALL_MOD_FUNC(PN532_inRelease); 
 #else
     ResponseTime_P(PSTR(",\"PN532\":{\"UID\":\"%s\"}}"), Pn532.uids);
 #endif  // USE_PN532_DATA_FUNCTION
@@ -1029,8 +1119,11 @@ int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
         break;
 #ifdef USE_PN532_DATA_FUNCTION
       case FUNC_COMMAND_SENSOR:
-        if (XSNS_40 == XdrvMailbox.index) {
-          result = PN532_Command();
+        result = DecodeCommand(PN532Commands, PN532Command);
+        if (result == false) {
+          AddLog(LOG_LEVEL_INFO, PSTR("NFC: PN532 - Next scanned tag"));
+        } else {
+          ResponseCmndDone();
         }
         break;
 #endif  // USE_PN532_DATA_FUNCTION
