@@ -47,10 +47,11 @@ if env["PIOPLATFORM"] != "espressif32" :
                         fwp.write(xtype)
                         fwp.write(dummy)
                         fwp.write(xname)
-                        size += 24
+                        size += 28
 
                 if msync[0] == 0x55 and msync[1] == 0xaa and msync[2] == 0xfc and msync[3] == 0x4a:
                     start = 2
+                    size += 4
                     #print("found end sync")
                     # set module size 
                     fwp.seek(40)
