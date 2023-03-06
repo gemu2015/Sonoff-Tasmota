@@ -11140,14 +11140,14 @@ int32_t url2file(uint8_t fref, char *url) {
   HTTPClient http;
   int32_t httpCode = 0;
   String weburl = "http://"+UrlEncode(url);
-  //for (uint32_t retry = 0; retry < 15; retry++) {
+  for (uint32_t retry = 0; retry < 3; retry++) {
     http.begin(http_client, weburl);
     delay(100);
     httpCode = http.GET();
-    //if (httpCode > 0) {
-    //  break;
-    //}
-  //}
+    if (httpCode >= 0) {
+      break;
+    }
+  }
   if (httpCode < 0) {
     AddLog(LOG_LEVEL_INFO,PSTR("HTTP error %d = %s"), httpCode, http.errorToString(httpCode).c_str());
   }

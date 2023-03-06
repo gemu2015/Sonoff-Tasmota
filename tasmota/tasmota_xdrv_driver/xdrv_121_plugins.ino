@@ -102,7 +102,9 @@ bool hardwareSerialTS(TasmotaSerial *ts);
 void AddlogT(char* txt);
 bool MT_DecodeCommand(const char* haystack, void (* const InCommand[])(void), MODULES_TABLE *mt);
 size_t tmod_write1TS(TasmotaSerial *ts, uint8_t val);
-
+#ifdef ESP32
+void twi_readFrom(uint8_t address, uint8_t* data, uint8_t length);
+#endif
 #define JMPTBL (void (*)())
 // this vector table table must contain all api calls needed by module
 // and in sync with vectortable in module.h
@@ -209,8 +211,20 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&memcmp_P,
   JMPTBL&ToHex_P,
   JMPTBL&memset,
-  JMPTBL&memmove_P
+  JMPTBL&memmove_P,
+  JMPTBL&ResponseCmndNumber,
+  JMPTBL&ResponseCmndFloat,
+  JMPTBL&ResponseAppendTHD,
+  JMPTBL&WSContentSend_THD
 };
+
+
+#ifdef ESP32
+void twi_readFrom(uint8_t address, uint8_t* data, uint8_t length) {
+  Wire.requestFrom(address, (size_t)length, (bool)true);
+  Wire.readBytes(data, length);
+}
+#endif  // ESP32
 
 
 bool MT_DecodeCommand(const char* haystack, void (* const MyCommand[])(void), MODULES_TABLE *mt) {

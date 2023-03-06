@@ -115,7 +115,10 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jToHex_P(A,B,C,D,E)             (( char* (*)(const unsigned char *, size_t, char *, size_t, char) ) jt[90])(A,B,C,D,E)
 #define jmemset(A,B,C)                  (( void* (*)(void *,int,size_t) )              jt[91])(A,B,C)
 #define jmemmove(A,B,C)                 (( void* (*)(void *,const void,size_t) )       jt[92])(A,B,C)
-
+#define jResponseCmndNumber(A)          (( void (*)(int))                              jt[93])(A)
+#define jResponseCmndFloat(A,B)         (( void (*)(float,uint32_t))                   jt[94])(A,B)
+#define jResponseAppendTHD(A,B)         (( int (*)(float,float))                       jt[95])(A,B)
+#define jWSContentSend_THD(A,B,C)       ((void (*)(const char *,float,float))          jt[96])(A,B,C)
 
 
 // Arduino macros
@@ -349,6 +352,7 @@ typedef struct {
 #define   ClaimSerial jClaimSerial
 #define   hardwareSerial jhardwareSerial
 #define   millis jmillis
+#undef    sprintf_P
 #define   sprintf_P jsprintf_P
 #define   AddLogT jAddlogT
 #define   tmod__divsi3 jtmod__divsi3
@@ -373,3 +377,7 @@ typedef struct {
 #define   ToHex_P(A,B,C,D) jToHex_P(A,B,C,D,'\0') 
 #define   memset jmemset
 #define   memmove jmemmove
+#define   ResponseCmndNumber jResponseCmndNumber
+#define   ResponseCmndFloat jResponseCmndFloat
+#define   ResponseAppendTHD jResponseAppendTHD
+#define   WSContentSend_THD jWSContentSend_THD

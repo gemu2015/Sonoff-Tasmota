@@ -17,14 +17,15 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 */
-#ifdef USE_I2C
+
+
+#include "tasmota_options.h" 
+
 #ifdef USE_SCD30_MOD
 /*********************************************************************************************\
  * SCD30 NDIR CO2 Temperature and Humidity sensor
 \*********************************************************************************************/
 
-#define XSNS_42                       42
-#define XI2C_29                       29  // See I2CDEVICES.md
 
 //#define SCD30_DEBUG
 
@@ -38,18 +39,41 @@
 #define SCD30_STATE_ERROR_I2C_RESET   4
 #define SCD30_STATE_ERROR_UNKNOWN     5
 
-const char kScd30Commands[] PROGMEM = "Scd30|"  // Prefix
-  "Alt|Auto|Cal|FW|Int|Pres|TOff";
-void (*const kScd30Command[])(void) PROGMEM = {
-  &CmndScd30Altitude, &CmndScd30AutoMode, &CmndScd30Calibrate, &CmndScd30Firmware, &CmndScd30Interval, &CmndScd30Pressure, &CmndScd30TempOffset };
+#define ERROR_SCD30_NO_ERROR                        0
+#define ERROR_SCD30_NO_DATA                0x80000000
+#define ERROR_SCD30_CO2_ZERO               0x90000000
+#define ERROR_SCD30_UNKNOWN_ERROR           0x1000000
+#define ERROR_SCD30_CRC_ERROR               0x2000000
+#define ERROR_SCD30_NOT_ENOUGH_BYTES_ERROR  0x3000000
+#define ERROR_SCD30_NOT_FOUND_ERROR         0x4000000
+#define ERROR_SCD30_NOT_A_NUMBER_ERROR      0x5000000
+#define ERROR_SCD30_INVALID_VALUE           0x6000000
+
+#include "module.h"
+#include "module_defines.h"
+
+#define SCD30_REV  1<<16|0
+
+MODULE_DESCRIPTOR("SCD30", MODULE_TYPE_SENSOR, SCD30_REV,"",0,"",0,"",0,"",0)
+// all functions must be declared MUDULE_PART
+MODULE_PART int32_t MOD_FUNC(SCD30_Detect);
+MODULE_PART void MOD_FUNC(SCD30_Show, bool json);
+MODULE_PART void MOD_FUNC(SCD30_Update);
+MODULE_PART void MOD_FUNC(CmndScd30Altitude);
+MODULE_PART void  MOD_FUNC(CmndScd30AutoMode);
+MODULE_PART void  MOD_FUNC(CmndScd30Calibrate);
+MODULE_PART void  MOD_FUNC(CmndScd30Firmware);
+MODULE_PART void  MOD_FUNC(CmndScd30Interval);
+MODULE_PART void  MOD_FUNC(CmndScd30Pressure);
+MODULE_PART void  MOD_FUNC(CmndScd30TempOffset);
+MODULE_PART void MOD_FUNC(SCD30_Deinit);
+MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
+
+MODULE_END
 
 /********************************************************************************************/
 
-#include <FrogmoreScd30.h>
-
-FrogmoreScd30 scd30;
-
-struct {
+typedef struct {
   float humidity = 0.0f;
   float temperature = 0.0f;
   int error_state = SCD30_STATE_NO_ERROR;
@@ -66,41 +90,70 @@ struct {
   bool init_once;
   bool found = false;
   bool data_valid = false;
-} Scd30;
+} SCD30;
 
-void Scd30Detect(void) {
-  if (!I2cSetDevice(SCD30_ADDRESS)) { return; }
+typedef struct {
+  uint8_t ready;
+  SCD30 Scd30;
+} MODULE_MEMORY;
 
-  scd30.begin();
+#define ready mem->ready
+#define Scd30 mem->Scd30
 
-  uint8_t major = 0;
-  uint8_t minor = 0;
-  if (scd30.getFirmwareVersion(&major, &minor)) { return; }
-  if (scd30.getMeasurementInterval(&Scd30.interval)) { return; }
-  if (scd30.beginMeasuring()) { return; }
+int32_t MOD_FUNC(SCD30_Detect) {
+  ALLOCMEM
 
-  I2cSetActiveFound(SCD30_ADDRESS, "SCD30");
-  Scd30.found = true;
+  ready = false;
 
-//  AddLog(LOG_LEVEL_DEBUG, PSTR("SCD: FW v%d.%d"), major, minor);
+  Scd30.found = false;
+  Scd30.data_valid = true;
+  initialized = 1;
+
+  if (I2cSetDevice(SCD30_ADDRESS)) {
+
+    //scd30.begin();
+
+    uint8_t major = 0;
+    uint8_t minor = 0;
+    /*
+    if (scd30.getFirmwareVersion(&major, &minor)) { 
+      goto exit; 
+    }
+    if (scd30.getMeasurementInterval(&Scd30.interval)) {
+      goto exit; 
+    }
+    if (scd30.beginMeasuring()) {
+      goto exit; 
+    }
+    */
+    AddLog(LOG_LEVEL_INFO, PSTR("SCD30: FW v%d.%d"), major, minor);
+    I2cSetActiveFound(SCD30_ADDRESS, PSTR("SCD30"), 0);
+    Scd30.found = true;
+    initialized = 1;
+    ready = true;
+    return ready;
+  }
+  
+  exit:
+  CALL_MOD_FUNC(SCD30_Deinit);
+  return ready;
 }
 
+
 // gets data from the sensor every 3 seconds or so to give the sensor time to gather new data
-void Scd30Update(void) {
+void MOD_FUNC(SCD30_Update) {
+  SETREGS
   Scd30.loop_count++;
   if (Scd30.loop_count > (Scd30.interval - 1)) {
     uint32_t error = 0;
     switch (Scd30.error_state) {
       case SCD30_STATE_NO_ERROR: {
-        error = scd30.readMeasurement(&Scd30.co2, &Scd30.co2e_avg, &Scd30.temperature, &Scd30.humidity);
+        //error = scd30.readMeasurement(&Scd30.co2, &Scd30.co2e_avg, &Scd30.temperature, &Scd30.humidity);
         switch (error) {
           case ERROR_SCD30_NO_ERROR:
             Scd30.loop_count = 0;
             Scd30.data_valid = true;
             Scd30.good_measure_count++;
-#ifdef USE_LIGHT
-            LightSetSignal(CO2_LOW, CO2_HIGH, Scd30.co2);
-#endif  // USE_LIGHT
             break;
 
           case ERROR_SCD30_NO_DATA:
@@ -155,7 +208,7 @@ void Scd30Update(void) {
         AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: not answering, sending soft reset, counter: %ld"), Scd30.loop_count);
 #endif
         Scd30.reset_count++;
-        error = scd30.softReset();
+        //error = scd30.softReset();
         if (error) {
 #ifdef SCD30_DEBUG
           AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: resetting got error: 0x%lX"), error);
@@ -180,7 +233,7 @@ void Scd30Update(void) {
         AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: clearing i2c bus"));
 #endif
         Scd30.i2c_reset_count++;
-        error = scd30.clearI2CBus();
+        //error = scd30.clearI2CBus();
         if (error) {
           Scd30.error_state = SCD30_STATE_ERROR_I2C_RESET;
 #ifdef SCD30_DEBUG
@@ -210,119 +263,137 @@ void Scd30Update(void) {
 /*********************************************************************************************\
  * Command Scd30
 \*********************************************************************************************/
+const char kScd30Commands[] PROGMEM = "Scd30|"  // Prefix
+  "Alt|Auto|Cal|FW|Int|Pres|TOff";
+void (*const kScd30Command[])(MODULES_TABLE*) PROGMEM = { &CmndScd30Altitude, &CmndScd30AutoMode, &CmndScd30Calibrate, &CmndScd30Firmware, &CmndScd30Interval, &CmndScd30Pressure, &CmndScd30TempOffset };
 
-void CmndScd30Altitude(void) {
+
+void MOD_FUNC(CmndScd30Altitude) {
+  SETREGS
   uint16_t value = 0;
-  if (XdrvMailbox.data_len > 0) {
-    value = XdrvMailbox.payload;
-    scd30.setAltitudeCompensation(value);
+  if (XdrvMailbox->data_len > 0) {
+    value = XdrvMailbox->payload;
+    //scd30.setAltitudeCompensation(value);
   } else {
-    scd30.getAltitudeCompensation(&value);
+    //scd30.getAltitudeCompensation(&value);
   }
   ResponseCmndNumber(value);
 };
 
-void CmndScd30AutoMode(void) {
+
+void  MOD_FUNC(CmndScd30AutoMode) {
+  SETREGS
   uint16_t value = 0;
-  if (XdrvMailbox.data_len > 0) {
-    value = XdrvMailbox.payload;
-    scd30.setCalibrationType(value);
+  if (XdrvMailbox->data_len > 0) {
+    value = XdrvMailbox->payload;
+    //scd30.setCalibrationType(value);
   } else {
-    scd30.getCalibrationType(&value);
+    //scd30.getCalibrationType(&value);
   }
   ResponseCmndNumber(value);
 };
 
-void CmndScd30Calibrate(void) {
+void  MOD_FUNC(CmndScd30Calibrate) {
+  SETREGS
   uint16_t value = 0;
-  if (XdrvMailbox.data_len > 0) {
-    value = XdrvMailbox.payload;
-    scd30.setForcedRecalibrationFactor(value);
+  if (XdrvMailbox->data_len > 0) {
+    value = XdrvMailbox->payload;
+    //scd30.setForcedRecalibrationFactor(value);
   } else {
-    scd30.getForcedRecalibrationFactor(&value);
+    //scd30.getForcedRecalibrationFactor(&value);
   }
   ResponseCmndNumber(value);
 };
 
-void CmndScd30Firmware(void) {
+void  MOD_FUNC(CmndScd30Firmware) {
+  SETREGS
   uint8_t major = 0;
   uint8_t minor = 0;
-  int error = scd30.getFirmwareVersion(&major, &minor);
+  int error = 0;
+  //scd30.getFirmwareVersion(&major, &minor);
   if (!error) {
     float firmware = major + ((float)minor / 100);
     ResponseCmndFloat(firmware, 2);
   }
 };
 
-void CmndScd30Interval(void) {
+void  MOD_FUNC(CmndScd30Interval) {
+  SETREGS
   uint16_t value = 0;
-  if (XdrvMailbox.data_len > 0) {
-    value = XdrvMailbox.payload;
-    int error = scd30.setMeasurementInterval(value);
+  if (XdrvMailbox->data_len > 0) {
+    value = XdrvMailbox->payload;
+    int error = 0;
+    //scd30.setMeasurementInterval(value);
     if (!error) {
       Scd30.interval = value;
     }
   }
-  scd30.getMeasurementInterval(&value);
+  //scd30.getMeasurementInterval(&value);
   ResponseCmndNumber(value);
 };
 
-void CmndScd30Pressure(void) {
+void  MOD_FUNC(CmndScd30Pressure) {
+  SETREGS
   uint16_t value = 0;
-  if (XdrvMailbox.data_len > 0) {
-    value = XdrvMailbox.payload;
-    scd30.setAmbientPressure(value);
+  if (XdrvMailbox->data_len > 0) {
+    value = XdrvMailbox->payload;
+    //scd30.setAmbientPressure(value);
   } else {
-    scd30.getAmbientPressure(&value);
+    //scd30.getAmbientPressure(&value);
   }
   ResponseCmndNumber(value);
 };
 
-void CmndScd30TempOffset(void) {
+void  MOD_FUNC(CmndScd30TempOffset) {
+  SETREGS
   uint16_t value = 0;
-  if (XdrvMailbox.data_len > 0) {
-    value = XdrvMailbox.payload;
-    scd30.setTemperatureOffset(value);
+  if (XdrvMailbox->data_len > 0) {
+    value = XdrvMailbox->payload;
+    //scd30.setTemperatureOffset(value);
   } else {
-    scd30.getTemperatureOffset(&value);
+    //scd30.getTemperatureOffset(&value);
   }
   ResponseCmndNumber(value);
 };
 
 /********************************************************************************************/
 
-void Scd30Show(bool json) {
+const char HTTP_SNS_CO2[]           PROGMEM = "{s}%s CO2{m}%d ppm{e}";
+const char HTTP_SNS_CO2EAVG[]       PROGMEM = "{s}%s eCO2{m}%d ppm{e}";
+
+void MOD_FUNC(SCD30_Show, bool json) {
+  SETREGS
+
   if (Scd30.data_valid) {
     float t = ConvertTemp(Scd30.temperature);
     float h = ConvertHumidity(Scd30.humidity);
 
     if (json) {
-      ResponseAppend_P(PSTR(",\"SCD30\":{\"" D_JSON_CO2 "\":%d,\"" D_JSON_ECO2 "\":%d,"), Scd30.co2, Scd30.co2e_avg);
+      ResponseAppend_P(PSTR(",\"SCD30\":{\"CO2\":%d,\" eCO2\":%d,"), Scd30.co2, Scd30.co2e_avg);
       ResponseAppendTHD(t, h);
       ResponseJsonEnd();
-#ifdef USE_DOMOTICZ
-      if (0 == TasmotaGlobal.tele_period) {
-        DomoticzSensor(DZ_AIRQUALITY, Scd30.co2);
-        DomoticzTempHumPressureSensor(t, h);
-      }
-#endif  // USE_DOMOTICZ
-#ifdef USE_WEBSERVER
     } else {
-      WSContentSend_PD(HTTP_SNS_CO2EAVG, "SCD30", Scd30.co2e_avg);
-      WSContentSend_PD(HTTP_SNS_CO2, "SCD30", Scd30.co2);
-      WSContentSend_THD("SCD30", t, h);
-#endif  // USE_WEBSERVER
+      WSContentSend_PD(GSTR(HTTP_SNS_CO2EAVG), PSTR("SCD30"), Scd30.co2e_avg);
+      WSContentSend_PD(GSTR(HTTP_SNS_CO2), PSTR("SCD30"), Scd30.co2);
+      WSContentSend_THD(PSTR("SCD30"), t, h);
     }
   }
 }
+
+void MOD_FUNC(SCD30_Deinit) {
+  SETREGS
+  I2cResetActive(SCD30_ADDRESS, 1);
+  RETMEM
+}
+
+
 
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
 
-bool Xsns42(uint32_t function) {
-  if (!I2cEnabled(XI2C_29)) { return false; }
-
+int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
+  SETREGS
   bool result = false;
 
   // https://github.com/arendst/Tasmota/issues/15438 and datasheet (The boot-up time is < 2 s.)
@@ -331,30 +402,27 @@ bool Xsns42(uint32_t function) {
     Scd30Detect();
   }
 */
-  if (!Scd30.init_once && (FUNC_EVERY_SECOND == function) && (TasmotaGlobal.uptime > 3)) {
-    Scd30.init_once = true;
-    Scd30Detect();
-  }
-  else if (Scd30.found) {
-    switch (function) {
-      case FUNC_EVERY_SECOND:
-        Scd30Update();
-        break;
-      case FUNC_COMMAND:
-        result = DecodeCommand(kScd30Commands, kScd30Command);
-        break;
-      case FUNC_JSON_APPEND:
-        Scd30Show(1);
-        break;
-#ifdef USE_WEBSERVER
-      case FUNC_WEB_SENSOR:
-        Scd30Show(0);
-        break;
-#endif  // USE_WEBSERVER
-    }
+  switch (sel) {
+    case FUNC_INIT:
+      result = CALL_MOD_FUNC(SCD30_Detect);
+      break;
+    case FUNC_EVERY_SECOND:
+      CALL_MOD_FUNC(SCD30_Update);
+      break;
+    case FUNC_COMMAND:
+      result = DecodeCommand(kScd30Commands, kScd30Command);
+      break;
+    case FUNC_JSON_APPEND:
+      CALL_MOD_FUNC(SCD30_Show, 1);
+      break;
+    case FUNC_WEB_SENSOR:
+      CALL_MOD_FUNC(SCD30_Show, 0);
+      break;
+    case FUNC_DEINIT:
+      CALL_MOD_FUNC(SCD30_Deinit);
+      break;
   }
   return result;
 }
 
-#endif  // USE_SCD30
-#endif  // USE_I2C
+#endif  // USE_SCD30_MOD
