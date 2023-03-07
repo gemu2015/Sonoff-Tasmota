@@ -656,29 +656,21 @@ uint32_t eeprom_block;
   uint32_t *lp = (uint32_t*) ( aoffset + free_flash_start );
   uint32_t addr = free_flash_start;
   while (addr < free_flash_end) {
-      //AddLog(LOG_LEVEL_INFO,PSTR("addr, sync %08x: %08x: %04x"),addr,(uint32_t)lp, *lp);
-      uint32_t blocksize = SPI_FLASH_SEC_SIZE/4;
+      uint32_t blocksize = SPI_FLASH_SEC_SIZE;
       if (*lp == MODULE_SYNC) {
         // check if name is equal
-        FLASH_MODULE fm;
-        uint32_t *fp = (uint32_t*)&fm;
-        for (uint8_t cnt = 0; cnt < sizeof(FLASH_MODULE)/4; cnt++) {
-          fp[cnt] = lp[cnt];
-        }
-        /*
+        const FLASH_MODULE *fr = (FLASH_MODULE*)lp;
         const FLASH_MODULE *fd = (FLASH_MODULE*)fdesc;
-        if (!strcmp(fm.name, fd->name)) {
+        if (!strcmp_P(fd->name, fr->name)) {
           // module already exists
           //eeprom_block = addr;
           //break;
-        }*/
-        
+        }
+      
         // skip address by module size
-        const FLASH_MODULE *fr = (FLASH_MODULE*)addr;
         blocksize = (fr->size / SPI_FLASH_SEC_SIZE) + 1;
         // must align and increment addr
         blocksize *= SPI_FLASH_SEC_SIZE;
-        blocksize /= 4;
       } else {
         // free module block, check required size
         uint8_t blocks = (size / SPI_FLASH_SEC_SIZE) + 1;
@@ -695,7 +687,7 @@ uint32_t eeprom_block;
           break;
         }
       }
-      lp += blocksize;
+      lp += (blocksize / 4);
       addr += blocksize;
   }
   return eeprom_block;
@@ -844,11 +836,19 @@ void LinkModule(uint8_t *mp, uint32_t size, char *name) {
       AddLog(LOG_LEVEL_INFO,PSTR("module sync error"));
       return;
     }
+    uint8_t sfree = 0; 
     for (cnt = 0; cnt < MAX_PLUGINS; cnt++) {
       if (!modules[cnt].mod_addr) {
+        sfree = 1;
         break;
       }
     }
+    if (!sfree) {
+      free(mp);
+      AddLog(LOG_LEVEL_INFO,PSTR("no free slot!"));
+      return;
+    }
+
     uint32_t offset;
 #ifdef ESP32
     modules[cnt].mod_addr = (void *) Store_Module(mp, size, &offset, 1);
@@ -947,6 +947,10 @@ void Module_unlink(void) {
   if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAX_PLUGINS)) {
     uint8_t module = XdrvMailbox.payload - 1;
     Unlink_Module(module);
+  } if (XdrvMailbox.payload == 0) {
+    for (uint8_t module = 0; module < MAX_PLUGINS; module++) {
+      Unlink_Module(module);
+    }
   }
   ResponseCmndDone();
 }
