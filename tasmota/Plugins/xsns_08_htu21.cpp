@@ -278,7 +278,7 @@ int32_t MOD_FUNC(HTU_Detect) {
     }
     GetTextIndexed(Htu.types, sizeof(Htu.types), index, GSTR(kHtuTypes));
     I2cSetActiveFound(Htu.address, Htu.types, 0);
-    mt->flags.initialized = true;
+    initialized = true;
   }
   return 0;
 }

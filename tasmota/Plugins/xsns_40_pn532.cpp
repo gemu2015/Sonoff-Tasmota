@@ -38,7 +38,7 @@
 
 //SDA/TXD
 //SCL/RXD
-#define USE_PN532_DATA_FUNCTION
+//#define USE_PN532_DATA_FUNCTION
 
 #define PN532_INVALID_ACK                           -1
 #define PN532_TIMEOUT                               -2

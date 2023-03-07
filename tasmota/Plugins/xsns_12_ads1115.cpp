@@ -231,7 +231,7 @@ int32_t MOD_FUNC(Init_ADS1115) {
     }
   }
   if (Ads1115.count) {
-    mt->flags.initialized = true;
+    initialized = true;
     ready = true;
   } else {
     CALL_MOD_FUNC(ADS1115_Deinit);
