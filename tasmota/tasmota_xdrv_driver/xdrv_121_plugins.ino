@@ -609,6 +609,7 @@ uint8_t *Load_Module(char *path, uint32_t *rsize) {
 #endif  
 }
 
+
 /*
 ESP.getFlashChipRealSize()
 ESP.getFlashChipSize()
@@ -623,7 +624,8 @@ EspFlashBaseEndAddress(void)
 // we only use full sectors and align to sector size
 #define SPEC_SCRIPT_FLASH 0x000F2000
 #define FLASH_BASE_OFFSET 0x40200000
-uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t flag) {
+uint32_t Module_CheckFree(uint32_t size, uint8_t *fdesc) {
+uint8_t flag = 0;
 #ifdef ESP8266
 uint32_t free_flash_start = ESP_getSketchSize();
 uint32_t free_flash_end = (ESP_getSketchSize() + ESP.getFreeSketchSpace());
@@ -647,12 +649,15 @@ uint32_t eeprom_block;
     eeprom_block = free_flash_start;
   } else {
     aoffset = 0;
-    eeprom_block = (uint32_t)fdesc;
+    //eeprom_block = (uint32_t)fdesc;
+    eeprom_block = free_flash_start;
   }
   // search for free entry
   uint32_t *lp = (uint32_t*) ( aoffset + free_flash_start );
-  for (uint32_t addr = free_flash_start; addr < free_flash_end; addr += SPI_FLASH_SEC_SIZE) {
+  uint32_t addr = free_flash_start;
+  while (addr < free_flash_end) {
       //AddLog(LOG_LEVEL_INFO,PSTR("addr, sync %08x: %08x: %04x"),addr,(uint32_t)lp, *lp);
+      uint32_t blocksize = SPI_FLASH_SEC_SIZE/4;
       if (*lp == MODULE_SYNC) {
         // check if name is equal
         FLASH_MODULE fm;
@@ -660,27 +665,48 @@ uint32_t eeprom_block;
         for (uint8_t cnt = 0; cnt < sizeof(FLASH_MODULE)/4; cnt++) {
           fp[cnt] = lp[cnt];
         }
+        /*
         const FLASH_MODULE *fd = (FLASH_MODULE*)fdesc;
         if (!strcmp(fm.name, fd->name)) {
           // module already exists
           //eeprom_block = addr;
           //break;
-        }
+        }*/
+        
         // skip address by module size
         const FLASH_MODULE *fr = (FLASH_MODULE*)addr;
-        uint32_t modsize = fr->size;
-        if (modsize > SPI_FLASH_SEC_SIZE) {
-          // must align and increment addr
-        }
+        blocksize = (fr->size / SPI_FLASH_SEC_SIZE) + 1;
+        // must align and increment addr
+        blocksize *= SPI_FLASH_SEC_SIZE;
+        blocksize /= 4;
       } else {
-        exit:
-        // free module space
-        eeprom_block = addr;
-        break;
+        // free module block, check required size
+        uint8_t blocks = (size / SPI_FLASH_SEC_SIZE) + 1;
+        uint32_t *bp = lp;
+        uint8_t free = 1;
+        for (uint32_t cnt = 0; cnt < blocks; cnt++) {
+          if (*bp == MODULE_SYNC) {
+            free = 0;
+          }
+          bp += SPI_FLASH_SEC_SIZE;
+        }
+        if (free) {
+          eeprom_block = addr;
+          break;
+        }
       }
-      lp += SPI_FLASH_SEC_SIZE/4;
+      lp += blocksize;
+      addr += blocksize;
   }
+  return eeprom_block;
+}
 
+uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t flag) {
+  uint32_t eeprom_block = Module_CheckFree(size, fdesc);
+  if (!eeprom_block) {
+    return 0;
+  }
+  uint32_t aoffset = FLASH_BASE_OFFSET;
   uint32_t *lwp=(uint32_t*)fdesc;
   const FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
   uint32_t old_pc = (uint32_t)fm->end_of_module - (size - 4);
@@ -688,7 +714,7 @@ uint32_t eeprom_block;
   uint32_t offset = new_pc - old_pc;
   *ioffset = offset;
   uint32_t corr_pc = (uint32_t)fm->mod_func_execute + offset;
-  lp = (uint32_t*)&fm->mod_func_execute;
+  uint32_t *lp = (uint32_t*)&fm->mod_func_execute;
   *lp = corr_pc;
   lp = (uint32_t*)&fm->end_of_module;
   *lp = (uint32_t)fm->end_of_module + offset;
@@ -1214,18 +1240,12 @@ bool Module_upload_start(const char* upload_filename) {
 
 bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
 
-/*
   if (0 == module_bytes_read) {
     // 1. block
     FLASH_MODULE *fm = (FLASH_MODULE*)upload_buf;
-    uint32_t old_pc = (uint32_t)fm->end_of_module - size - 4;
-    uint32_t new_pc = (uint32_t)fdesc;
-    uint32_t offset = new_pc - old_pc;
-    uint32_t corr_pc = (uint32_t)fm->mod_func_execute+offset;
-
-
-    xxxxx
-  }*/
+    uint32_t size = fm->size;
+    //Module_CheckFree(size, upload.filename.c_str());
+  }
 
   if ((SPI_FLASH_SEC_SIZE - module_bytes_read) > current_size) {
     memcpy(module_input_ptr, upload_buf, current_size);
@@ -1255,7 +1275,6 @@ void Module_HandleUploadLoop(void) {
   switch (upload.status) {
     case UPLOAD_FILE_START:
     // ***** Step1: Start upload file
-      //AddLog(LOG_LEVEL_INFO,PSTR("size %d bytes"), upload.contentLength);
       Module_upload_start(upload.filename.c_str());
       break;
     case UPLOAD_FILE_WRITE:
