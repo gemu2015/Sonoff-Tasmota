@@ -63,7 +63,7 @@ if env["PIOPLATFORM"] != "espressif32" :
                 
         if start == 2:
             print("extracted module: "+name)
-            if size > 4096:
+            if size > 8192:
                 print("module size error")
 
 

@@ -118,7 +118,10 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jResponseCmndNumber(A)          (( void (*)(int))                              jt[93])(A)
 #define jResponseCmndFloat(A,B)         (( void (*)(float,uint32_t))                   jt[94])(A,B)
 #define jResponseAppendTHD(A,B)         (( int (*)(float,float))                       jt[95])(A,B)
-#define jWSContentSend_THD(A,B,C)       ((void (*)(const char *,float,float))          jt[96])(A,B,C)
+#define jWSContentSend_THD(A,B,C)       (( void (*)(const char *,float,float))         jt[96])(A,B,C)
+#define jstrncpy(A,B,C)                 (( char *(*)(char *, const char *, size_t) )   jt[97])(A,B,C)   
+#define jisprint(A)                     (( int (*)(int) )                              jt[98])(A)
+
 
 
 // Arduino macros
@@ -374,6 +377,7 @@ typedef struct {
 #define   ResponseCmndDone jResponseCmndDone
 #define   bwriteTS jbwriteTS
 #define   memcmp jmemcmp
+#define   memcmp_P jmemcmp
 #define   ToHex_P(A,B,C,D) jToHex_P(A,B,C,D,'\0') 
 #define   memset jmemset
 #define   memmove jmemmove
@@ -382,3 +386,5 @@ typedef struct {
 #define   ResponseAppendTHD jResponseAppendTHD
 #define   WSContentSend_THD jWSContentSend_THD
 #define   memcpy_P jmemmove
+#define   strncpy jstrncpy
+#define   isprint jisprint

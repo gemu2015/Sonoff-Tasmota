@@ -215,7 +215,9 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&ResponseCmndNumber,
   JMPTBL&ResponseCmndFloat,
   JMPTBL&ResponseAppendTHD,
-  JMPTBL&WSContentSend_THD
+  JMPTBL&WSContentSend_THD,
+  JMPTBL&strncpy_P,
+  JMPTBL&isprint
 };
 
 
