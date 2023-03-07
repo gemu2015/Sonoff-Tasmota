@@ -715,8 +715,13 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
 
 #ifdef ESP8266
 //  AddLog(LOG_LEVEL_INFO, PSTR("Module offset %x: %x: %x: %x: %x: %x"),old_pc, new_pc, offset, corr_pc, (uint32_t)fm->mod_func_execute, (uint32_t)&module_header);
-  ESP.flashEraseSector(eeprom_block / SPI_FLASH_SEC_SIZE);
-  ESP.flashWrite(eeprom_block , lwp, SPI_FLASH_SEC_SIZE);
+  uint8_t blocks = (size / SPI_FLASH_SEC_SIZE) + 1;
+  for (uint8_t cnt = 0; cnt < blocks; cnt++) {
+    ESP.flashEraseSector(eeprom_block / SPI_FLASH_SEC_SIZE);
+    ESP.flashWrite(eeprom_block , lwp, SPI_FLASH_SEC_SIZE);
+    lwp += SPI_FLASH_SEC_SIZE / 4;
+    eeprom_block += SPI_FLASH_SEC_SIZE;
+  }
 #endif
   return new_pc;
 }
@@ -878,6 +883,7 @@ void Unlink_Module(uint32_t module) {
     }
     // remove from module table, erase flash
     if ((uint32_t)modules[module].mod_addr != (uint32_t)&module_header) {
+
       ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - FLASH_BASE_OFFSET) / SPI_FLASH_SEC_SIZE);
     }
     modules[module].mod_addr = 0;
@@ -1231,13 +1237,11 @@ void Module_upload() {
 static uint8_t *module_input_buffer;
 static uint8_t *module_input_ptr;
 static uint16_t module_bytes_read;
+static uint16_t module_size;
 static char   module_name[16];
 
 bool Module_upload_start(const char* upload_filename) {
   strlcpy(module_name, upload_filename, sizeof(module_name));
-  module_input_buffer = (uint8_t *)calloc(SPI_FLASH_SEC_SIZE / 4 , 4);
-  if (!module_input_buffer) return false;
-  module_input_ptr = module_input_buffer;
   module_bytes_read = 0;
   return true;
 }
@@ -1247,17 +1251,24 @@ bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
   if (0 == module_bytes_read) {
     // 1. block
     FLASH_MODULE *fm = (FLASH_MODULE*)upload_buf;
-    uint32_t size = fm->size;
+    module_size = fm->size;
+    uint32_t size = (fm->size / SPI_FLASH_SEC_SIZE) + 1 ;
+    size *= SPI_FLASH_SEC_SIZE;
+    module_input_buffer = (uint8_t *)calloc(size / 4 , 4);
+    if (!module_input_buffer) {
+      return false;
+    }
+    module_input_ptr = module_input_buffer;
     //Module_CheckFree(size, upload.filename.c_str());
   }
 
-  if ((SPI_FLASH_SEC_SIZE - module_bytes_read) > current_size) {
+  if ((module_size - module_bytes_read) > current_size) {
     memcpy(module_input_ptr, upload_buf, current_size);
     module_bytes_read += current_size;
     module_input_ptr += current_size;
     return true;
   } else {
-    current_size = SPI_FLASH_SEC_SIZE - module_bytes_read;
+    current_size = module_size - module_bytes_read;
     memcpy(module_input_ptr, upload_buf, current_size);
     module_bytes_read += current_size;
     module_input_ptr += current_size;
@@ -1266,7 +1277,9 @@ bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
 }
 
 void Module_upload_stop(void) {
-  LinkModule(module_input_buffer, module_bytes_read, module_name);
+  if (module_input_buffer) {
+    LinkModule(module_input_buffer, module_bytes_read, module_name);
+  }
 }
 
 
