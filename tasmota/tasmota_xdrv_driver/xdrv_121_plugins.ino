@@ -622,7 +622,7 @@ EspFlashBaseEndAddress(void)
 */
 
 // patch calls and store to flash
-// first version assumes module to be smaller then SPI_FLASH_SEC_SIZE
+// first version assumes module to be smaller then 2*SPI_FLASH_SEC_SIZE
 // we only use full sectors and align to sector size
 #define SPEC_SCRIPT_FLASH 0x000F2000
 #define FLASH_BASE_OFFSET 0x40200000
@@ -843,6 +843,9 @@ void LinkModule(uint8_t *mp, uint32_t size, char *name) {
       AddLog(LOG_LEVEL_INFO,PSTR("module sync error"));
       return;
     }
+
+    Unlink_Named_Module(name);
+
     uint8_t sfree = 0; 
     for (cnt = 0; cnt < MAX_PLUGINS; cnt++) {
       if (!modules[cnt].mod_addr) {
@@ -857,6 +860,7 @@ void LinkModule(uint8_t *mp, uint32_t size, char *name) {
     }
 
     uint32_t offset;
+
 #ifdef ESP32
     modules[cnt].mod_addr = (void *) Store_Module(mp, size, &offset, 1);
 #else
@@ -874,6 +878,24 @@ void LinkModule(uint8_t *mp, uint32_t size, char *name) {
   } else {
     // error
     AddLog(LOG_LEVEL_INFO,PSTR("module error"));
+  }
+}
+
+void Unlink_Named_Module(char *name) {
+  for (uint8_t module = 0; module < MAX_PLUGINS; module++) {
+    if (modules[module].mod_addr) {
+      // compare name
+      const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
+      char nam[32];
+      strcpy_P(nam, name);
+      char *cp = strchr(nam, '.');
+      if (cp) {
+        *cp = 0;
+      }
+      if (!strcmp_P(nam, fm->name)) {
+        Unlink_Module(module);
+      }
+    }
   }
 }
 
