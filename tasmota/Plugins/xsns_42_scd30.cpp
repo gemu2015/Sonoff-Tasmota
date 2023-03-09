@@ -154,6 +154,7 @@ MODULE_PART int MOD_FUNC(SCD30_get16BitRegCheckCRC, void* pInput, uint16_t* pDat
 MODULE_PART int MOD_FUNC(SCD30_get32BitRegCheckCRC, void* pInput, float* pData);
 MODULE_PART int MOD_FUNC(SCD30_sendCommand, uint16_t registerAddress, uint16_t* pData);
 MODULE_PART int MOD_FUNC(SCD30_readRegister, uint16_t registerAddress, uint16_t* pData);
+MODULE_PART uint16_t MOD_FUNC(SCD30_opt_med5, uint16_t * p);
 
 
 #define COMMAND_SCD30_CONTINUOUS_MEASUREMENT      0x0010
@@ -546,6 +547,7 @@ int MOD_FUNC(SCD30_readMeasurement, uint16 *pCO2_ppm, uint16 *pCO2EAvg_ppm, floa
   if (error) {
     return (error);
   }
+
   error = CALL_MOD_FUNC(SCD30_get32BitRegCheckCRC, &bytes[0], &tempCO2);
   if (error) {
     return (error);
@@ -560,6 +562,7 @@ int MOD_FUNC(SCD30_readMeasurement, uint16 *pCO2_ppm, uint16 *pCO2EAvg_ppm, floa
   if (error) {
     return (error);
   }
+
 
   //if (tempCO2 == 0) {
   if (jiseq(tempCO2)) {
@@ -654,7 +657,7 @@ void MOD_FUNC(SCD30_Update) {
     uint32_t error = 0;
     switch (Scd30.error_state) {
       case SCD30_STATE_NO_ERROR: {
-        //error = scd30.readMeasurement(&Scd30.co2, &Scd30.co2e_avg, &Scd30.temperature, &Scd30.humidity);
+        error = CALL_MOD_FUNC(SCD30_readMeasurement, &Scd30.co2, &Scd30.co2e_avg, &Scd30.temperature, &Scd30.humidity);
         switch (error) {
           case ERROR_SCD30_NO_ERROR:
             Scd30.loop_count = 0;
@@ -714,7 +717,7 @@ void MOD_FUNC(SCD30_Update) {
         AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: not answering, sending soft reset, counter: %ld"), Scd30.loop_count);
 #endif
         Scd30.reset_count++;
-        //error = scd30.softReset();
+        error = CALL_MOD_FUNC(SCD30_softReset);
         if (error) {
 #ifdef SCD30_DEBUG
           AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: resetting got error: 0x%lX"), error);
@@ -739,7 +742,7 @@ void MOD_FUNC(SCD30_Update) {
         AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: clearing i2c bus"));
 #endif
         Scd30.i2c_reset_count++;
-        //error = scd30.clearI2CBus();
+        error = CALL_MOD_FUNC(SCD30_clearI2CBus);
         if (error) {
           Scd30.error_state = SCD30_STATE_ERROR_I2C_RESET;
 #ifdef SCD30_DEBUG
