@@ -121,6 +121,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jWSContentSend_THD(A,B,C)       (( void (*)(const char *,float,float))         jt[96])(A,B,C)
 #define jstrncpy(A,B,C)                 (( char *(*)(char *, const char *, size_t) )   jt[97])(A,B,C)   
 #define jisprint(A)                     (( int (*)(int) )                              jt[98])(A)
+#define jisinf(A)                       (( bool (*)(float) )                           jt[99])(A)
 
 
 
@@ -364,6 +365,7 @@ typedef struct {
 #define   tmod__floatunsisf jtmod__floatunsisf
 #define   FastPrecisePowf  jFastPrecisePowf
 #define   isnan jisnan
+#define   isinf jisinf
 #define   tmod__mulsf3  jfmul
 #define   tmod__divsf3  jfdiv
 #define   tmod__addsf3  jfadd
@@ -388,3 +390,46 @@ typedef struct {
 #define   memcpy_P jmemmove
 #define   strncpy jstrncpy
 #define   isprint jisprint
+
+/*
+#define RENAME_LIBRARY(GCC_NAME, AEABI_NAME)		\
+  __asm__ (".globl\t__aeabi_" #AEABI_NAME "\n"		\
+	   RENAME_LIBRARY_SET "\t__aeabi_" #AEABI_NAME 	\
+	     ", __" #GCC_NAME "\n");
+       */
+
+#if 1
+#define RENAME_LIBRARY_SET ".set"
+#define RENAME_LIBRARY(GCC_NAME, AEABI_NAME)		\
+  __asm__ (".globl\t__" #AEABI_NAME "\n"		\
+	   RENAME_LIBRARY_SET "\t__" #AEABI_NAME 	\
+	     ", __" #GCC_NAME "\n");
+
+#else
+#define RENAME_LIBRARY(GCC_NAME, AEABI_NAME)			\
+  __asm__ (".globl\t__c6xabi_" #AEABI_NAME "\n"		\
+	   ".set\t__c6xabi_" #AEABI_NAME			\
+	   ", __gnu_" #GCC_NAME "\n");
+#endif
+
+#define DECLARE_LIBRARY_RENAMES RENAME_LIBRARY (divsf3, murks)
+
+//RENAME_LIBRARY (murks, divsf3)
+
+//@code{DECLARE_LIBRARY_RENAMES} macro
+//(@pxref{Library Calls}
+
+/*
+jnewTS(RPIN,TPIN)               (( void* (*)(int32_t,int32_t) )                jt[53])(RPIN,TPIN)
+#define jwriteTS(TSER,BUF,SIZE)         (( size_t (*)(void*,uint8_t*,uint32_t) )       jt[54])(TSER,BUF,SIZE)
+#define jflushTS(TSER)                  (( void (*)(void*) )                           jt[55])(TSER)
+#define jbeginTS(TSER,BAUD)             (( int (*)(void*,uint32_t) )                   jt[56])(TSER,BAUD)
+#define jdeleteTS(TSER)                 (( void (*)(void*) )                           jt[63])(TSER)
+#define jreadTS(TSER,BUF,SIZE)          (( size_t (*)(void*,uint8_t*,uint32_t) )       jt[64])(TSER,BUF,SIZE)
+#define jread1TS(TSER)                  (( int (*)(void*) )                            jt[65])(TSER)
+#define javailTS(TSER)                  (( uint8_t (*)(void*) )                        jt[66])(TSER)
+*/
+
+
+
+

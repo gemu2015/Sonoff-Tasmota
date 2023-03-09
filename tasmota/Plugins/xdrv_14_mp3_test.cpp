@@ -72,7 +72,7 @@
 #include "tasmota_options.h"
 
 
-#ifdef USE_MP3_PLAYER_MOD
+#ifdef USE_MP3_PLAYER_TEST_MOD
 #include "module.h"
 #include "module_defines.h"
 
@@ -120,17 +120,30 @@ const char d_mp3[] PROGMEM = "MP3";
 const char started[] PROGMEM = "mp3 inizialized with TRX pin %d";
 
 typedef struct {
+  void *its;
+  int (*begin)(void*, uint32_t); 
+  size_t (*write)(void*, uint8_t* ,uint32_t);
+  int (*read)(void);
+  void (*flush)(void*);
+} TSER;
+
+//#undef TasmotaSerial
+//#define TasmotaSerial TSER
+
+typedef struct {
   uint8_t player_type;
   uint8_t player_txpin;
-  void *ts;
+  TSER tser;
+  TSER *ts;
 } MODULE_MEMORY;
 
 #define player_type mem->player_type
 #define player_txpin mem->player_txpin
 #define ts mem->ts
+#define tser mem->tser
 
 /*********************************************************************************************\
- * enumerationsines
+ * enumerations
 \*********************************************************************************************/
 
 enum MP3_Commands {                                 // commands useable in console or rules
@@ -182,12 +195,34 @@ uint16_t MP3_Checksum(uint8_t *array) {
  * define serial tx port fixed with 9600 baud
 \*********************************************************************************************/
 
+MODULE_PART TSER* MOD_FUNC(SerialInit, TSER *tsin, int32_t rx, int32_t tx);
+
+TSER* MOD_FUNC(SerialInit, TSER *tsin, int32_t rx, int32_t tx) {
+  SETREGS
+  tsin->its = jnewTS(rx, tx);
+  tsin->begin = (( int (*)(void*,uint32_t) ) jt[56]);
+  tsin->write = (( size_t (*)(void*,uint8_t*,uint32_t) ) jt[54]);
+  tsin->flush = (( void (*)(void*) ) jt[55]);
+
+  //int (begin*)(void*, uint32_t); 
+  //size_t (write*)(void*, uint8_t* ,uint32_t);
+  //int (read*)(void);  
+  return tsin;
+}
+
+#define flush() flush(ts)
+#define write(A,B) write(ts,A,B)
+
 int32_t MOD_FUNC(MP3PlayerInit) {
   ALLOCMEM
 
+  float a = 10;
+  float b = a / player_txpin;
+  player_type = b;
+
   // should be in settings
   //player_type = DY_SV17F;
-  player_type = mp->ms[1].value;
+  //player_type = mp->ms[1].value;
   player_type &= 3;
 
   if (!CALL_MOD_FUNC(MP3_Init)) {
@@ -203,12 +238,15 @@ int32_t MOD_FUNC(MP3_Init) {
 
   player_txpin = mp->ms[0].value & 0xff;
 
-  ts = NewTS(-1, player_txpin);
+  //ts = NewTS(-1, player_txpin);
+  //ts = NewTS(-1, player_txpin);
+  ts = CALL_MOD_FUNC(SerialInit, &tser, -1, player_txpin);
 
   if (ts) {
     // start serial communication fixed to 9600 baud
     if (beginTS(ts,9600)) {
-      flushTS(ts);
+      //flushTS(ts);
+      ts->flush();
       delay(10);
       CALL_MOD_FUNC(MP3_CMD, MP3_CMD_RESET, MP3_CMD_RESET_VALUE);    // reset the player to defaults
       delay(100);
@@ -235,7 +273,8 @@ void MOD_FUNC(MP3_SendCmd, uint8_t *scmd, uint8_t len) {
     sum += scmd[cnt];
   }
   scmd[len] = sum;
-  writeTS(ts, scmd, len + 1);
+  //writeTS(ts, scmd, len + 1);
+  ts->write(scmd, len + 1);
 }
 
 void MOD_FUNC(MP3_CMD, uint8_t mp3cmd, uint16_t val) {

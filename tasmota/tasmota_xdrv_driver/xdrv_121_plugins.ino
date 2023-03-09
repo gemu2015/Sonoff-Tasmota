@@ -217,7 +217,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&ResponseAppendTHD,
   JMPTBL&WSContentSend_THD,
   JMPTBL&strncpy_P,
-  JMPTBL&isprint
+  JMPTBL&isprint,
+  JMPTBL&tmod_isinf
 };
 
 
@@ -284,6 +285,10 @@ uint8_t tmod_available(TwoWire *wp) {
 
 bool tmod_isnan(float val) {
   return isnan(val);
+}
+
+bool tmod_isinf(float val) {
+  return isinf(val);
 }
 
 float tmod_NAN(void) {
