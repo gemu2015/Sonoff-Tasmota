@@ -881,7 +881,7 @@ void MOD_FUNC(SCD30_Show, bool json) {
     float h = ConvertHumidity(Scd30.humidity);
 
     if (json) {
-      ResponseAppend_P(PSTR(",\"SCD30\":{\"CO2\":%d,\" eCO2\":%d,"), Scd30.co2, Scd30.co2e_avg);
+      ResponseAppend_P(PSTR(",\"SCD30\":{\"Carbondioxide\":%d,\" eCO2\":%d,"), Scd30.co2, Scd30.co2e_avg);
       ResponseAppendTHD(t, h);
       ResponseJsonEnd();
     } else {
