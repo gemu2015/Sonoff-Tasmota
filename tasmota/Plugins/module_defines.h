@@ -379,6 +379,7 @@ typedef struct {
 #define   ResponseCmndDone jResponseCmndDone
 #define   bwriteTS jbwriteTS
 #define   memcmp jmemcmp
+#undef memcmp_P
 #define   memcmp_P jmemcmp
 #define   ToHex_P(A,B,C,D) jToHex_P(A,B,C,D,'\0') 
 #define   memset jmemset
@@ -387,6 +388,7 @@ typedef struct {
 #define   ResponseCmndFloat jResponseCmndFloat
 #define   ResponseAppendTHD jResponseAppendTHD
 #define   WSContentSend_THD jWSContentSend_THD
+#undef memcpy_P
 #define   memcpy_P jmemmove
 #define   strncpy jstrncpy
 #define   isprint jisprint
