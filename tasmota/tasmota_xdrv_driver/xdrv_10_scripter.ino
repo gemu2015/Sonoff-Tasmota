@@ -47,6 +47,7 @@ keywords if then else endif, or, and are better readable for beginners (others m
 #define TS_FLOAT float
 #endif
 
+
 // float = 4, double = 8 bytes
 
 const uint8_t SCRIPT_VERS[2] = {5, 1};
@@ -263,7 +264,7 @@ void alt_eeprom_readBytes(uint32_t adr, uint32_t len, uint8_t *buf) {
 #include <TasmotaSerial.h>
 
 #ifdef TESLA_POWERWALL
-#include "powerwall.h"
+#include "include/powerwall.h"
 #endif
 
 #ifdef USE_DISPLAY_DUMP
@@ -5331,7 +5332,7 @@ extern char *SML_GetSVal(uint32_t index);
           uint32_t cycles;
           uint64_t accu = 0;
           char sbuffer[32];
-
+    
           /*
           // PSTR performance test
           // this is best case since everything will be in cache

@@ -2,15 +2,16 @@
 #define Powerwall_h
 
 // include libraries
-#include <Arduino.h>
+//#include <Arduino.h>
 #include <WiFiClientSecure.h>
-#include <ArduinoJson.h>
+//#include <ArduinoJson.h>
 
 #include <math_tools.h>
 
 // import config files
 #include <config.h>
 #include <secrets.h>
+#include <wolfssl/ssl.h>
 
 class Powerwall {
    private:
@@ -22,6 +23,8 @@ class Powerwall {
     double lastPowers[4];
 
    public:
+    WOLFSSL_CTX* ctx = NULL;
+    WOLFSSL* ssl = NULL;
     Powerwall();
     String getAuthCookie();
     String powerwallGetRequest(String url, String authCookie);
@@ -40,6 +43,21 @@ Powerwall::Powerwall() {
     for (int i = 0; i < getArrayLength(lastPowers); i++) {
         lastPowers[i] = 0.0;
     }
+
+    WOLFSSL_METHOD* method;
+    method = wolfTLSv1_3_client_method();
+    if (method == NULL) {
+        Serial.println("unable to get method");
+    }
+    ctx = wolfSSL_CTX_new(method);
+    if (ctx == NULL) {
+        Serial.println("unable to get ctx");
+    }
+    /* initialize wolfSSL using callback functions */
+    wolfSSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, 0);
+    //wolfSSL_SetIOSend(ctx, EthernetSend);
+    //wolfSSL_SetIORecv(ctx, EthernetReceive);
+
 }
 
 /**
