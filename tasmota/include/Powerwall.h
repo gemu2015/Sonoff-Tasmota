@@ -6,12 +6,12 @@
 #include <WiFiClientSecure.h>
 //#include <ArduinoJson.h>
 
-#include <math_tools.h>
+//#include <math_tools.h>
 
 // import config files
-#include <config.h>
-#include <secrets.h>
-#include <wolfssl/ssl.h>
+//#include <config.h>
+//#include <secrets.h>
+
 
 class Powerwall {
    private:
@@ -19,19 +19,21 @@ class Powerwall {
     String tesla_email;
     String tesla_password;
     String authCookie;
-    double lastSOCPerc;
-    double lastPowers[4];
-
-   public:
+    float lastSOCPerc;
+    float lastPowers[4];
     WOLFSSL_CTX* ctx = NULL;
     WOLFSSL* ssl = NULL;
+
+   public:
     Powerwall();
+    void Begin();
     String getAuthCookie();
     String powerwallGetRequest(String url, String authCookie);
     String powerwallGetRequest(String url);
-    double currBattPerc(String authCookie);
-    double* currPowers(String authCookie);
+    float currBattPerc(String authCookie);
+    float* currPowers(String authCookie);
 };
+
 
 Powerwall::Powerwall() {
     powerwall_ip   = POWERWALL_IP_CONFIG;
@@ -40,25 +42,47 @@ Powerwall::Powerwall() {
     authCookie     = "";
     lastSOCPerc    = 0.0;
 
-    for (int i = 0; i < getArrayLength(lastPowers); i++) {
+    for (int i = 0; i < 4; i++) {
         lastPowers[i] = 0.0;
     }
+}
 
-    WOLFSSL_METHOD* method;
-    method = wolfTLSv1_3_client_method();
-    if (method == NULL) {
-        Serial.println("unable to get method");
-    }
-    ctx = wolfSSL_CTX_new(method);
+void Powerwall::Begin() {
     if (ctx == NULL) {
-        Serial.println("unable to get ctx");
+        WOLFSSL_METHOD* method;
+        method = wolfTLSv1_3_client_method();
+        if (method == NULL) {
+            Serial.println("unable to get method");
+        }
+        ctx = wolfSSL_CTX_new(method);
+        if (ctx == NULL) {
+            Serial.println("unable to get ctx");
+        }
+        /* initialize wolfSSL using callback functions */
+        wolfSSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, 0);
     }
-    /* initialize wolfSSL using callback functions */
-    wolfSSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, 0);
     //wolfSSL_SetIOSend(ctx, EthernetSend);
     //wolfSSL_SetIORecv(ctx, EthernetReceive);
 
 }
+
+const char* root_ca= \
+"-----BEGIN CERTIFICATE-----\n"
+"MIICkzCCAjmgAwIBAgIRANFdB/NLmYDQzgFJonZJTQcwCgYIKoZIzj0EAwIwgZEx\n"
+"CzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpDYWxpZm9ybmlhMRIwEAYDVQQHEwlQYWxv\n"
+"IEFsdG8xDjAMBgNVBAoTBVRlc2xhMR4wHAYDVQQLExVUZXNsYSBFbmVyZ3kgUHJv\n"
+"ZHVjdHMxKTAnBgNVBAMTIGY2ZTBiOGZmYmJkNTMxMjUzMTMyOTViM2FiZWEwOTFk\n"
+"MB4XDTE4MDkxNTA5Mzg0OFoXDTQzMDkwOTA5Mzg0OFowgZExCzAJBgNVBAYTAlVT\n"
+"MRMwEQYDVQQIEwpDYWxpZm9ybmlhMRIwEAYDVQQHEwlQYWxvIEFsdG8xDjAMBgNV\n"
+"BAoTBVRlc2xhMR4wHAYDVQQLExVUZXNsYSBFbmVyZ3kgUHJvZHVjdHMxKTAnBgNV\n"
+"BAMTIGY2ZTBiOGZmYmJkNTMxMjUzMTMyOTViM2FiZWEwOTFkMFkwEwYHKoZIzj0C\n"
+"AQYIKoZIzj0DAQcDQgAEC9OseunYQc+aUbArfdjf61TOBpKq3MRc0nWKiLw7taZV\n"
+"sLPxrTJaqgdHumyw1GziJ981ppbRyOmNpi3QJrnXeqNwMG4wDgYDVR0PAQH/BAQD\n"
+"AgKkMBMGA1UdJQQMMAoGCCsGAQUFBwMBMA8GA1UdEwEB/wQFMAMBAf8wNgYDVR0R\n"
+"BC8wLYIDdGVngglwb3dlcndhbGyCCXBvd2VycGFja4cEwKhaAYcEwKhaAocEwKhb\n"
+"ATAKBggqhkjOPQQDAgNIADBFAiB3LWJD8hEk+/hUtL+IluZF0E78QTrW8d8YydC+\n"
+"8REfMgIhALzmRFGXbUh9lH57KB6KH98iTBKUtgHDsGyK+uKQ+dEn"
+"-----END CERTIFICATE-----\n";
 
 /**
  * This function returns a string with the authToken based on the basic login endpoint of
@@ -66,32 +90,72 @@ Powerwall::Powerwall() {
  * @returns authToken to be used in an authCookie
  */
 String Powerwall::getAuthCookie() {
-    Serial.println("(DEV: requesting new auth Cookie)");
+    Serial.printf("(DEV: requesting new auth Cookie from %s)\n",powerwall_ip);
     String apiLoginURL = "/api/login/Basic";
+
+    esp_log_level_set("*", ESP_LOG_VERBOSE);
+
+
+  //  String pw_ip = "https://" + powerwall_ip;
+
+#if 0
+    HTTPClient http;
+
+    http.begin("https://192.168.188.60/api/meters/aggregates", root_ca); //Specify the URL and certificate
+    int httpCode = http.GET();                                                  //Make the request
+
+    if (httpCode > 0) { //Check for the returning code
+      String payload = http.getString();
+      Serial.println(httpCode);
+      Serial.println(payload);
+    } else {
+      Serial.println("Error on HTTP request");
+    }
+
+return "result";
+#endif
+
+    //WiFiClient wifi_test;
+    //wifi_test.connect(powerwall_ip, 80);
+    //wifi_test.stop();
 
     WiFiClientSecure httpsClient;
     httpsClient.setInsecure();
     httpsClient.setTimeout(10000);
     int retry = 0;
 
-    while ((!httpsClient.connect(powerwall_ip, 443)) && (retry < 15)) {
+#define PW_RETRIES 15
+    sint32_t error = 0;
+
+    while ((!httpsClient.connect(powerwall_ip, 443)) && (retry < PW_RETRIES)) {
+    //while ((!httpsClient.connect("https://api.github.com", 443)) && (retry < PW_RETRIES)) {
         delay(100);
         Serial.print(".");
         retry++;
     }
 
-    if (retry >= 15) {
-        return ("CONN-FAIL");
+
+    esp_log_level_set("*", ESP_LOG_NONE);
+
+    if (retry >= PW_RETRIES) {
+      Serial.printf("conn fail");
+      return ("CONN-FAIL");
     }
 
-    String dataString;
-    StaticJsonDocument<192> authJsonDoc;
 
+    Serial.printf("connected");
+
+    String dataString;
+
+#ifdef AJSON
+    StaticJsonDocument<192> authJsonDoc;
     authJsonDoc["username"] = "customer";
     authJsonDoc["email"]    = tesla_email;
     authJsonDoc["password"] = tesla_password;
-
     serializeJson(authJsonDoc, dataString);
+#else
+    dataString = "{\"username\":\"customer\",\"email\":\"" + tesla_email + "\",\"password\":\"" + tesla_password + "\"}";
+#endif
 
     httpsClient.print(String("POST ") + apiLoginURL + " HTTP/1.1\r\n" +
                       "Host: " + powerwall_ip + "\r\n" +
@@ -109,17 +173,21 @@ String Powerwall::getAuthCookie() {
 
     String jsonInput = httpsClient.readStringUntil('\n');
 
+#ifdef AJSON
     StaticJsonDocument<384> authJSON;
-
     DeserializationError error = deserializeJson(authJSON, jsonInput);
-
     if (error) {
         Serial.print(F("deserializeJson() failed: "));
         Serial.println(error.f_str());
         return "ERROR (getAuthCookie())";
     }
-
     String result = authJSON["token"];
+#else
+    String result = "";
+#endif
+
+
+  Serial.printf("result %s\n",jsonInput.c_str());
 
     if (result == NULL) {
         getAuthCookie();
@@ -134,7 +202,7 @@ String Powerwall::getAuthCookie() {
  * This is mainly used here to do API requests.
  * HTTP/1.0 is used because some responses are so big that this would encounter
  * chunked transfer encoding in HTTP/1.1 (https://en.wikipedia.org/wiki/Chunked_transfer_encoding)
- * 
+ *
  * @param url relative URL on the Powerwall
  * @param authCookie optional, but recommended
  * @returns content of request
@@ -194,7 +262,7 @@ String Powerwall::powerwallGetRequest(String url) {
  * @param authCookie - this is optional
  * @return percent --> double
  */
-double Powerwall::currBattPerc(String authCookie = "") {
+float Powerwall::currBattPerc(String authCookie = "") {
     String tempAuthCookie;
 
     if (authCookie != "") {
@@ -205,18 +273,19 @@ double Powerwall::currBattPerc(String authCookie = "") {
 
     String socJson = this->powerwallGetRequest("/api/system_status/soe", tempAuthCookie);
 
+#ifdef AJSON
     StaticJsonDocument<48> socJsonDoc;
-
     DeserializationError error = deserializeJson(socJsonDoc, socJson);
-
     if (error) {
         Serial.print(F("deserializeJson() failed: "));
         Serial.println(error.f_str());
         return lastSOCPerc;
     }
-
-    double output = socJsonDoc["percentage"];
+    float output = socJsonDoc["percentage"];
     output        = round_down(output, 2);
+#else
+    float output = 0;
+#endif
 
     lastSOCPerc = output;
 
@@ -226,14 +295,14 @@ double Powerwall::currBattPerc(String authCookie = "") {
 }
 
 /**
- * This function returns the current power consumption of several endpoints as an array. 
+ * This function returns the current power consumption of several endpoints as an array.
  * Included are Power from Grid, Battery, Home and Solar. Have in mind that some of the
  * values might be negative, but keep in mind that you have solar :-)
  * @param authCookie - this is optional
  * @return array of current power flows
  */
-double* Powerwall::currPowers(String authCookie = "") {
-    static double powers[4];
+float* Powerwall::currPowers(String authCookie = "") {
+    static float powers[4];
 
     String tempAuthCookie;
 
@@ -246,22 +315,26 @@ double* Powerwall::currPowers(String authCookie = "") {
     const char* metersJson = this->powerwallGetRequest("/api/meters/aggregates", tempAuthCookie).c_str();
 
     // Serial.println(metersJson);
-
+#ifdef AJSON
     DynamicJsonDocument powersJsonDoc(2048);
-
     DeserializationError error = deserializeJson(powersJsonDoc, metersJson);
-
     if (error) {
         Serial.print(F("deserializeJson() failed: "));
         Serial.println(error.f_str());
         return lastPowers;
     }
-
     powers[0] = powersJsonDoc["site"]["instant_power"];
     powers[1] = powersJsonDoc["battery"]["instant_power"];
     powers[2] = powersJsonDoc["load"]["instant_power"];
     powers[3] = powersJsonDoc["solar"]["instant_power"];
+#else
 
+    powers[0] = 0;
+    powers[1] = 0;
+    powers[2] = 0;
+    powers[3] = 0;
+
+#endif
     // // testing values
     // powers[0] = -10000.00;
     // powers[1] = 20000.00;

@@ -3406,8 +3406,10 @@ void SML_Counter_Poll_1s(void) {
 	}
 }
 
-#define CNT_PULSE_TIMEOUT 5000
 
+#ifndef CNT_PULSE_TIMEOUT
+#define CNT_PULSE_TIMEOUT 5000
+#endif
 
 // fast counter polling
 void SML_Counter_Poll(void) {

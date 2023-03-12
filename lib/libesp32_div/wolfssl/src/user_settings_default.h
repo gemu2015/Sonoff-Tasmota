@@ -405,9 +405,14 @@ extern "C" {
     extern void user_free(void *p);
     extern void *user_realloc(void *p, unsigned long n);
 
-    #define XMALLOC(n, h, t)     user_malloc(n)
-    #define XFREE(p, h, t)       user_free(p)
-    #define XREALLOC(p, n, h, t) user_realloc(p, n)
+    //#define XMALLOC(n, h, t)     user_malloc(n)
+    //#define XFREE(p, h, t)       user_free(p)
+    //#define XREALLOC(p, n, h, t) user_realloc(p, n)
+
+    #define XMALLOC(n, h, t)     malloc(n)
+    #define XFREE(p, h, t)       free(p)
+    #define XREALLOC(p, n, h, t) realloc(p, n)
+
 #endif
 
 #if 0

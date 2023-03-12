@@ -264,6 +264,7 @@ void alt_eeprom_readBytes(uint32_t adr, uint32_t len, uint8_t *buf) {
 #include <TasmotaSerial.h>
 
 #ifdef TESLA_POWERWALL
+#include <wolfssl/ssl.h>
 #include "include/powerwall.h"
 #endif
 
@@ -11258,8 +11259,9 @@ uint32_t call2https(const char *host, const char *path) {
   uint32_t status = 0;
 
 #ifdef TESLA_POWERWALL
-//  authCookie = powerwall.getAuthCookie();
-//  return 0;
+  powerwall.Begin();
+  authCookie = powerwall.getAuthCookie();
+  return 0;
 #endif
 
 #ifdef ESP32
