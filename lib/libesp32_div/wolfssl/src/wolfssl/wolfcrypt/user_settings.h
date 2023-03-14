@@ -51,6 +51,8 @@
 
 #define NO_CRYPT_TEST
 
+#define DEBUG_WOLFSSL
+
 /* when you want to use SINGLE THREAD */
 /* #define SINGLE_THREADED */
 #define NO_FILESYSTEM

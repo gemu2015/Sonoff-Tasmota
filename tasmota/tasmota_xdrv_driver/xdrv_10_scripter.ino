@@ -11267,16 +11267,33 @@ struct SCRIPT_WOLF_SSL {
 int script_wolf_Send(WOLFSSL* ssl, char* msg, int sz, void* ctx) {
     int sent = 0;
     sent = script_wolf_ssl.client.write((byte*)msg, sz);
+   // Serial.printf(">>> %d bytes",sent);
     return sent;
 }
 
 int script_wolf_Receive(WOLFSSL* ssl, char* reply, int sz, void* ctx) {
   int ret = 0;
 
-  while (script_wolf_ssl.client.available() > 0 && ret < sz) {
-    reply[ret++] = script_wolf_ssl.client.read();
+  while (1) {
+    int bytes = script_wolf_ssl.client.available();
+    if (!bytes) {
+      break;
+    } else {
+      //Serial.printf("<<< bytes: %d - %d - %d",bytes, ret, sz );
+    }
+    reply[ret] = script_wolf_ssl.client.read();
+    ret++;
+    if (ret >= sz) {
+      break;
+    }
   }
+
+  //Serial.printf("<<< %d bytes of %d",ret, sz);
   return ret;
+}
+
+void log_function(const int logLevel, const char *const logMessage) {
+  Serial.println(logMessage);
 }
 
 int32_t script_wolf(uint32_t sel, char *payload) {
@@ -11300,6 +11317,10 @@ int32_t script_wolf(uint32_t sel, char *payload) {
           wolfSSL_SetIOSend(script_wolf_ssl.ctx, script_wolf_Send);
           wolfSSL_SetIORecv(script_wolf_ssl.ctx, script_wolf_Receive);
         //}
+
+          wolfSSL_Debugging_ON();
+          wolfSSL_SetLoggingCb(log_function);
+
         break;
 
       case 1:
@@ -11349,6 +11370,7 @@ int32_t script_wolf(uint32_t sel, char *payload) {
           Serial.println("not connected");
           return -1;
         }
+        Serial.printf("wr: %s", payload);
         if (wolfSSL_write(script_wolf_ssl.ssl, payload, sizeof(payload)) != sizeof(payload)) {
           int err = wolfSSL_get_error(script_wolf_ssl.ssl, 0);
           wolfSSL_ERR_error_string(err, errBuf);
@@ -11364,10 +11386,16 @@ int32_t script_wolf(uint32_t sel, char *payload) {
         }
         { int input= 0;
         int total_input = 0;
-        char reply[128];
+        char reply[512];
         while (!script_wolf_ssl.client.available()) {}
         // read data
-        while (wolfSSL_pending(script_wolf_ssl.ssl)) {
+        //while (wolfSSL_pending(script_wolf_ssl.ssl)) {
+        while (1) {
+          int bytes = script_wolf_ssl.client.available();
+          Serial.printf("bytes: %d",bytes);
+          if (bytes <= 0) {
+            break;
+          }
           input = wolfSSL_read(script_wolf_ssl.ssl, reply, sizeof(reply) - 1);
           total_input += input;
           if (input < 0) {
