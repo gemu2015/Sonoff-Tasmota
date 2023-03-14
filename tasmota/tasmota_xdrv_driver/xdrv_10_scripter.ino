@@ -263,8 +263,11 @@ void alt_eeprom_readBytes(uint32_t adr, uint32_t len, uint8_t *buf) {
 
 #include <TasmotaSerial.h>
 
-#ifdef TESLA_POWERWALL
+#ifdef USE_WOLFSSL
 #include <wolfssl/ssl.h>
+#endif
+
+#ifdef TESLA_POWERWALL
 #include "include/powerwall.h"
 #endif
 
@@ -5557,6 +5560,15 @@ extern char *SML_GetSVal(uint32_t index);
           char path[SCRIPT_MAXSSIZE];
           lp = GetStringArgument(lp + 8, OPER_EQU, path, 0);
           fvar = wav2mp3(path);
+          goto nfuncexit;
+        }
+#endif
+#ifdef USE_WOLFSSL
+        if (!strncmp(vname, "wolf(", 5)) {
+          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
+          char payload[SCRIPT_MAXSSIZE];
+          lp = GetStringArgument(lp, OPER_EQU, payload, 0);
+          fvar = script_wolf(fvar, payload);
           goto nfuncexit;
         }
 #endif
@@ -11239,6 +11251,153 @@ int32_t http_req(char *host, char *request) {
 
   return httpCode;
 }
+
+
+#ifdef USE_WOLFSSL
+
+int script_wolf_Send(WOLFSSL* ssl, char* msg, int sz, void* ctx);
+int script_wolf_Receive(WOLFSSL* ssl, char* reply, int sz, void* ctx);
+
+struct SCRIPT_WOLF_SSL {
+  WOLFSSL_CTX* ctx = NULL;
+  WOLFSSL* ssl = NULL;
+  WiFiClient client; 
+} script_wolf_ssl;
+
+int script_wolf_Send(WOLFSSL* ssl, char* msg, int sz, void* ctx) {
+    int sent = 0;
+    sent = script_wolf_ssl.client.write((byte*)msg, sz);
+    return sent;
+}
+
+int script_wolf_Receive(WOLFSSL* ssl, char* reply, int sz, void* ctx) {
+  int ret = 0;
+
+  while (script_wolf_ssl.client.available() > 0 && ret < sz) {
+    reply[ret++] = script_wolf_ssl.client.read();
+  }
+  return ret;
+}
+
+int32_t script_wolf(uint32_t sel, char *payload) {
+  char errBuf[80];
+  uint8_t retry = 0;
+    switch (sel) {
+      case 0:
+        //if (script_wolf_ssl.ctx == NULL) {
+          wolfSSL_Init();
+          WOLFSSL_METHOD* method;
+          method = wolfTLSv1_3_client_method();
+          if (method == NULL) {
+            Serial.println("unable to get method");
+          }
+          script_wolf_ssl.ctx = wolfSSL_CTX_new(method);
+          if (script_wolf_ssl.ctx == NULL) {
+            Serial.println("unable to get ctx");
+          }
+          /* initialize wolfSSL using callback functions */
+          wolfSSL_CTX_set_verify(script_wolf_ssl.ctx, SSL_VERIFY_NONE, 0);
+          wolfSSL_SetIOSend(script_wolf_ssl.ctx, script_wolf_Send);
+          wolfSSL_SetIORecv(script_wolf_ssl.ctx, script_wolf_Receive);
+        //}
+        break;
+
+      case 1:
+        while ((!script_wolf_ssl.client.connect(payload, 443)) && (retry < 3)) {
+          delay(100);
+          Serial.print(".");
+          retry++;
+        }
+        if (retry >= 3) {
+          Serial.println("conn fail");
+          return -1;
+        }
+        Serial.println("connected");
+        break;
+
+      case 2:
+        {
+        if (!script_wolf_ssl.client.connected()) {
+          Serial.println("not connected");
+          return -1;
+        }
+        script_wolf_ssl.ssl = wolfSSL_new(script_wolf_ssl.ctx);
+        if (script_wolf_ssl.ssl == NULL) {
+          Serial.println("Unable to allocate SSL object");
+          return -2;
+        }
+        int err = wolfSSL_connect(script_wolf_ssl.ssl);
+        if (err != WOLFSSL_SUCCESS) {
+          err = wolfSSL_get_error(script_wolf_ssl.ssl, 0);
+          wolfSSL_ERR_error_string(err, errBuf);
+          Serial.print("TLS Connect Error: ");
+          Serial.println(errBuf);
+        }
+    
+        Serial.print("SSL version is ");
+        Serial.println(wolfSSL_get_version(script_wolf_ssl.ssl));
+
+        const char *cipherName = wolfSSL_get_cipher(script_wolf_ssl.ssl);
+        Serial.print("SSL cipher suite is ");
+        Serial.println(cipherName);
+        }
+        
+        break;
+
+      case 3:
+        if (!script_wolf_ssl.client.connected()) {
+          Serial.println("not connected");
+          return -1;
+        }
+        if (wolfSSL_write(script_wolf_ssl.ssl, payload, sizeof(payload)) != sizeof(payload)) {
+          int err = wolfSSL_get_error(script_wolf_ssl.ssl, 0);
+          wolfSSL_ERR_error_string(err, errBuf);
+          Serial.print("TLS Write Error: ");
+          Serial.println(errBuf);
+        }
+        break;
+
+      case 4:
+        if (!script_wolf_ssl.client.connected()) {
+          Serial.println("not connected");
+          return -1;
+        }
+        { int input= 0;
+        int total_input = 0;
+        char reply[128];
+        while (!script_wolf_ssl.client.available()) {}
+        // read data
+        while (wolfSSL_pending(script_wolf_ssl.ssl)) {
+          input = wolfSSL_read(script_wolf_ssl.ssl, reply, sizeof(reply) - 1);
+          total_input += input;
+          if (input < 0) {
+            int err = wolfSSL_get_error(script_wolf_ssl.ssl, 0);
+            wolfSSL_ERR_error_string(err, errBuf);
+            Serial.print("TLS Read Error: ");
+            Serial.println(errBuf);
+            break;
+          } else if (input > 0) {
+            reply[input] = '\0';
+            Serial.print(reply);
+          } else {
+            Serial.println();
+          }
+        }
+        return total_input;
+        }
+        break;
+
+      case 5:
+        wolfSSL_shutdown(script_wolf_ssl.ssl);
+        wolfSSL_free(script_wolf_ssl.ssl);
+        script_wolf_ssl.client.stop();
+        Serial.println("Connection complete.");
+        break;
+    }
+    return 0;
+}
+
+#endif
 
 
 #ifdef SCRIPT_GET_HTTPS_JP

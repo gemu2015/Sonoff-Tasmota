@@ -381,7 +381,7 @@ extern "C" {
 
 #undef DEBUG_WOLFSSL
 #undef NO_ERROR_STRINGS
-#if 0
+#if 1
     #define DEBUG_WOLFSSL
 #else
     #if 0

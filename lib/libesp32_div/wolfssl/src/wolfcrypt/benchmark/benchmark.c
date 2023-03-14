@@ -8212,7 +8212,7 @@ void bench_sphincsKeySign(byte level, byte optim)
 
 #elif defined(FREERTOS)
 
-    #include "task.h"
+    #include "freertos/task.h"
 #if defined(WOLFSSL_ESPIDF)
     /* proto type definition */
     int construct_argv();

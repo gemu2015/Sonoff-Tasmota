@@ -4,6 +4,8 @@
 // include libraries
 //#include <Arduino.h>
 #include <WiFiClientSecure.h>
+#include "WiFiClientSecureLightBearSSL.h"
+
 //#include <ArduinoJson.h>
 
 //#include <math_tools.h>
@@ -11,6 +13,22 @@
 // import config files
 //#include <config.h>
 //#include <secrets.h>
+WiFiClient wolf_client;
+
+int wolf_Send(WOLFSSL* ssl, char* msg, int sz, void* ctx) {
+    int sent = 0;
+    sent = wolf_client.write((byte*)msg, sz);
+    return sent;
+}
+
+int wolf_Receive(WOLFSSL* ssl, char* reply, int sz, void* ctx) {
+  int ret = 0;
+
+  while (wolf_client.available() > 0 && ret < sz) {
+    reply[ret++] = wolf_client.read();
+  }
+  return ret;
+}
 
 
 class Powerwall {
@@ -21,8 +39,12 @@ class Powerwall {
     String authCookie;
     float lastSOCPerc;
     float lastPowers[4];
+    
+
+#ifdef USE_WOLFSSL   
     WOLFSSL_CTX* ctx = NULL;
     WOLFSSL* ssl = NULL;
+#endif
 
    public:
     Powerwall();
@@ -48,7 +70,9 @@ Powerwall::Powerwall() {
 }
 
 void Powerwall::Begin() {
+#ifdef USE_WOLFSSL      
     if (ctx == NULL) {
+        wolfSSL_Init();
         WOLFSSL_METHOD* method;
         method = wolfTLSv1_3_client_method();
         if (method == NULL) {
@@ -60,29 +84,11 @@ void Powerwall::Begin() {
         }
         /* initialize wolfSSL using callback functions */
         wolfSSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, 0);
+        wolfSSL_SetIOSend(ctx, wolf_Send);
+        wolfSSL_SetIORecv(ctx, wolf_Receive);
     }
-    //wolfSSL_SetIOSend(ctx, EthernetSend);
-    //wolfSSL_SetIORecv(ctx, EthernetReceive);
-
+#endif
 }
-
-const char* root_ca= \
-"-----BEGIN CERTIFICATE-----\n"
-"MIICkzCCAjmgAwIBAgIRANFdB/NLmYDQzgFJonZJTQcwCgYIKoZIzj0EAwIwgZEx\n"
-"CzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpDYWxpZm9ybmlhMRIwEAYDVQQHEwlQYWxv\n"
-"IEFsdG8xDjAMBgNVBAoTBVRlc2xhMR4wHAYDVQQLExVUZXNsYSBFbmVyZ3kgUHJv\n"
-"ZHVjdHMxKTAnBgNVBAMTIGY2ZTBiOGZmYmJkNTMxMjUzMTMyOTViM2FiZWEwOTFk\n"
-"MB4XDTE4MDkxNTA5Mzg0OFoXDTQzMDkwOTA5Mzg0OFowgZExCzAJBgNVBAYTAlVT\n"
-"MRMwEQYDVQQIEwpDYWxpZm9ybmlhMRIwEAYDVQQHEwlQYWxvIEFsdG8xDjAMBgNV\n"
-"BAoTBVRlc2xhMR4wHAYDVQQLExVUZXNsYSBFbmVyZ3kgUHJvZHVjdHMxKTAnBgNV\n"
-"BAMTIGY2ZTBiOGZmYmJkNTMxMjUzMTMyOTViM2FiZWEwOTFkMFkwEwYHKoZIzj0C\n"
-"AQYIKoZIzj0DAQcDQgAEC9OseunYQc+aUbArfdjf61TOBpKq3MRc0nWKiLw7taZV\n"
-"sLPxrTJaqgdHumyw1GziJ981ppbRyOmNpi3QJrnXeqNwMG4wDgYDVR0PAQH/BAQD\n"
-"AgKkMBMGA1UdJQQMMAoGCCsGAQUFBwMBMA8GA1UdEwEB/wQFMAMBAf8wNgYDVR0R\n"
-"BC8wLYIDdGVngglwb3dlcndhbGyCCXBvd2VycGFja4cEwKhaAYcEwKhaAocEwKhb\n"
-"ATAKBggqhkjOPQQDAgNIADBFAiB3LWJD8hEk+/hUtL+IluZF0E78QTrW8d8YydC+\n"
-"8REfMgIhALzmRFGXbUh9lH57KB6KH98iTBKUtgHDsGyK+uKQ+dEn"
-"-----END CERTIFICATE-----\n";
 
 /**
  * This function returns a string with the authToken based on the basic login endpoint of
@@ -93,60 +99,109 @@ String Powerwall::getAuthCookie() {
     Serial.printf("(DEV: requesting new auth Cookie from %s)\n",powerwall_ip);
     String apiLoginURL = "/api/login/Basic";
 
-    esp_log_level_set("*", ESP_LOG_VERBOSE);
-
-
-  //  String pw_ip = "https://" + powerwall_ip;
-
-#if 0
-    HTTPClient http;
-
-    http.begin("https://192.168.188.60/api/meters/aggregates", root_ca); //Specify the URL and certificate
-    int httpCode = http.GET();                                                  //Make the request
-
-    if (httpCode > 0) { //Check for the returning code
-      String payload = http.getString();
-      Serial.println(httpCode);
-      Serial.println(payload);
-    } else {
-      Serial.println("Error on HTTP request");
-    }
-
-return "result";
-#endif
-
-    //WiFiClient wifi_test;
-    //wifi_test.connect(powerwall_ip, 80);
-    //wifi_test.stop();
-
-    WiFiClientSecure httpsClient;
-    httpsClient.setInsecure();
-    httpsClient.setTimeout(10000);
     int retry = 0;
 
-#define PW_RETRIES 15
+#define PW_RETRIES 5
     sint32_t error = 0;
 
-    while ((!httpsClient.connect(powerwall_ip, 443)) && (retry < PW_RETRIES)) {
-    //while ((!httpsClient.connect("https://api.github.com", 443)) && (retry < PW_RETRIES)) {
+    powerwall_ip = "www.howsmyssl.com";
+
+    while ((!wolf_client.connect(powerwall_ip, 443)) && (retry < PW_RETRIES)) {
         delay(100);
         Serial.print(".");
         retry++;
     }
-
-
-    esp_log_level_set("*", ESP_LOG_NONE);
 
     if (retry >= PW_RETRIES) {
       Serial.printf("conn fail");
       return ("CONN-FAIL");
     }
 
-
     Serial.printf("connected");
 
-    String dataString;
+    char errBuf[80];
+    ssl = wolfSSL_new(ctx);
+    if (ssl == NULL) {
+        Serial.println("Unable to allocate SSL object");
+        return ("CONN-FAIL");
+    }
 
+    int err = wolfSSL_connect(ssl);
+    if (err != WOLFSSL_SUCCESS) {
+        err = wolfSSL_get_error(ssl, 0);
+        wolfSSL_ERR_error_string(err, errBuf);
+        Serial.print("TLS Connect Error: ");
+        Serial.println(errBuf);
+    }
+    
+    Serial.print("SSL version is ");
+    Serial.println(wolfSSL_get_version(ssl));
+
+    const char *cipherName = wolfSSL_get_cipher(ssl);
+    Serial.print("SSL cipher suite is ");
+    Serial.println(cipherName);
+
+    String dataString = "{\"username\":\"customer\",\"email\":\"" + tesla_email + "\",\"password\":\"" + tesla_password + "\",\"force_sm_off\":false}";
+
+    String payload = String("POST ") + apiLoginURL + " HTTP/1.1\r\n" +
+                      "Host: " + powerwall_ip + "\r\n" +
+                      "Connection: close" + "\r\n" +
+                      "Content-Type: application/json" + "\r\n" +
+                      "Content-Length: " + dataString.length() + "\r\n" +
+                      "\r\n" + dataString + "\r\n\r\n";
+
+    //payload = "https://www.howsmyssl.com/a/check";
+
+    payload = String("GET ") + "/a/check" + " HTTP/1.1\r\n" +
+                      "Host: " + powerwall_ip + "\r\n" +
+                      "Connection: close" + "\r\n" +
+                      "\r\n\r\n";
+
+
+    char *msg =  (char*)payload.c_str();
+    int msgSz = (int)strlen(msg);
+    int input          = 0;
+    int total_input    = 0;
+    char reply[128];
+
+    Serial.printf("sent to Server: %s", msg);
+
+    if ((wolfSSL_write(ssl, msg, msgSz)) == msgSz) {
+        Serial.print("Server response: ");
+        /* wait for data */
+        while (!wolf_client.available()) {}
+        /* read data */
+        while (wolfSSL_pending(ssl)) {
+          input = wolfSSL_read(ssl, reply, sizeof(reply) - 1);
+          total_input += input;
+          if (input < 0) {
+            err = wolfSSL_get_error(ssl, 0);
+            wolfSSL_ERR_error_string(err, errBuf);
+            Serial.print("TLS Read Error: ");
+            Serial.println(errBuf);
+            break;
+          } else if (input > 0) {
+            reply[input] = '\0';
+            Serial.print(reply);
+          } else {
+            Serial.println();
+          }
+        }
+        Serial.printf("received: %d", total_input);
+    } else {
+        err = wolfSSL_get_error(ssl, 0);
+        wolfSSL_ERR_error_string(err, errBuf);
+        Serial.print("TLS Write Error: ");
+        Serial.println(errBuf);
+    }
+      
+    wolfSSL_shutdown(ssl);
+    wolfSSL_free(ssl);
+
+    wolf_client.stop();
+    Serial.println("Connection complete.");
+
+#if 0
 #ifdef AJSON
     StaticJsonDocument<192> authJsonDoc;
     authJsonDoc["username"] = "customer";
@@ -157,21 +212,21 @@ return "result";
     dataString = "{\"username\":\"customer\",\"email\":\"" + tesla_email + "\",\"password\":\"" + tesla_password + "\"}";
 #endif
 
-    httpsClient.print(String("POST ") + apiLoginURL + " HTTP/1.1\r\n" +
+    httpsClient->print(String("POST ") + apiLoginURL + " HTTP/1.1\r\n" +
                       "Host: " + powerwall_ip + "\r\n" +
                       "Connection: close" + "\r\n" +
                       "Content-Type: application/json" + "\r\n" +
                       "Content-Length: " + dataString.length() + "\r\n" +
                       "\r\n" + dataString + "\r\n\r\n");
 
-    while (httpsClient.connected()) {
-        String response = httpsClient.readStringUntil('\n');
+    while (httpsClient->connected()) {
+        String response = httpsClient->readStringUntil('\n');
         if (response == "\r") {
             break;
         }
     }
 
-    String jsonInput = httpsClient.readStringUntil('\n');
+    String jsonInput = httpsClient->readStringUntil('\n');
 
 #ifdef AJSON
     StaticJsonDocument<384> authJSON;
@@ -193,8 +248,9 @@ return "result";
         getAuthCookie();
     }
 
-    authCookie = result;
-    return result;
+#endif
+    //authCookie = result;
+    return ("CONN-OK");;
 }
 
 /**

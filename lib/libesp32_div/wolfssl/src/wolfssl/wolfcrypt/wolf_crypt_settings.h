@@ -59,6 +59,11 @@
 #include <wolfssl/options.h>
 #endif
 
+
+
+#include "user_settings.h"
+
+
 /* Uncomment next line if using IPHONE */
 /* #define IPHONE */
 
@@ -221,12 +226,12 @@
  */
 
 /* Uncomment next line if building for using ESP-IDF */
- #define WOLFSSL_ESPIDF
+ //#define WOLFSSL_ESPIDF
  #define NO_ASN_TIME
 
 
 /* Uncomment next line if using Espressif ESP32-WROOM-32 */
-/* #define WOLFSSL_ESPWROOM32 */
+//#define WOLFSSL_ESPWROOM32
 
 /* Uncomment next line if using Espressif ESP32-WROOM-32SE */
 /* #define WOLFSSL_ESPWROOM32SE */
@@ -839,7 +844,7 @@ extern void uITRON4_free(void *p) ;
     #endif
 
     #ifndef SINGLE_THREADED
-        #include "semphr.h"
+        #include <freertos/semphr.h>
     #endif
 #endif
 
