@@ -11265,10 +11265,21 @@ int32_t http_req(char *host, char *request) {
 #ifdef TESLA_POWERWALL
 Powerwall powerwall = Powerwall();
 
-uint32_t call2pwl(const char *url) {
+int32_t call2pwl(const char *url) {
   String result = powerwall.GetRequest(String(url), powerwall.AuthCookie());
-  AddLog(LOG_LEVEL_INFO, PSTR("PWL: result: %s"), result.c_str());
-  Run_Scripter(">jp", 3, (char*)result.c_str());
+ 
+  //AddLog(LOG_LEVEL_INFO, PSTR("PWL: result: %s"), result.c_str());
+
+  // shrink file size
+  result.replace("communication_time", "ct");
+  result.replace("instant", "i");
+  result.replace("apparent", "a");
+  result.replace("reactive", "r");
+
+  //AddLog(LOG_LEVEL_INFO, PSTR("PWL: result: %s"), result.c_str());
+
+  Run_Scripter(">jp", 3, result.c_str());
+
   return 0;
 }
 
