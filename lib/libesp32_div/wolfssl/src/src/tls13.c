@@ -9458,6 +9458,10 @@ static int DoTls13NewSessionTicket(WOLFSSL* ssl, const byte* input,
 #endif
     const byte* nonce;
     byte        nonceLength;
+#ifndef NO_SESSION_CACHE
+    const byte* id;
+    byte idSz;
+#endif
 
     WOLFSSL_START(WC_FUNC_NEW_SESSION_TICKET_DO);
     WOLFSSL_ENTER("DoTls13NewSessionTicket");
@@ -9553,9 +9557,22 @@ static int DoTls13NewSessionTicket(WOLFSSL* ssl, const byte* input,
     #endif
     *inOutIdx += length;
 
+    //#ifndef NO_SESSION_CACHE
+    //AddSession(ssl);
+    //#endif
+
     #ifndef NO_SESSION_CACHE
     AddSession(ssl);
+    id = ssl->session->sessionID;
+    idSz = ssl->session->sessionIDSz;
+    if (ssl->session->haveAltSessionID) {
+        id = ssl->session->altSessionID;
+        idSz = ID_LEN;
+    }
+    AddSessionToCache(ssl->ctx, ssl->session, id, idSz, NULL,
+        ssl->session->side, 1, &ssl->clientSession);
     #endif
+
 
     /* Always encrypted. */
     *inOutIdx += ssl->keys.padSz;
@@ -11155,7 +11172,7 @@ int wolfSSL_connect_TLSv13(WOLFSSL* ssl)
  *
  * ssl       SSL/TLS object.
  * secret    Secret to use when generating integrity check for cookie.
- *           A value of NULL indicates to generate a new random secret.
+ *           A value of NULL indicates to generate a new random secret.c
  * secretSz  Size of secret data in bytes.
  *           Use a value of 0 to indicate use of default size.
  * returns BAD_FUNC_ARG when ssl is NULL or not using TLS v1.3, SIDE_ERROR when

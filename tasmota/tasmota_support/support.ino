@@ -1796,6 +1796,9 @@ void TemplateJson(void)
 
 #if ( defined(USE_SCRIPT) && defined(SUPPORT_MQTT_EVENT) ) || defined (USE_DT_VARS)
 
+#ifndef SELEM_SIZE
+#define SELEM_SIZE 64
+#endif
 /*********************************************************************************************\
  * Parse json paylod with path
 \*********************************************************************************************/
@@ -1805,11 +1808,11 @@ uint32_t JsonParsePath(JsonParserObject *jobj, const char *spath, char delim, fl
   uint32_t res = 0;
   const char *cp = spath;
 #ifdef DEBUG_JSON_PARSE_PATH
-  AddLog(LOG_LEVEL_INFO, PSTR("JSON: parsing json key: %s from json: %s"), cp, jpath);
+  AddLog(LOG_LEVEL_INFO, PSTR("JSON: parsing json key: %s from json"), cp);
 #endif
   JsonParserObject obj = *jobj;
   JsonParserObject lastobj = obj;
-  char selem[64];
+  char selem[SELEM_SIZE];
   uint8_t aindex = 0;
   String value = "";
   while (1) {

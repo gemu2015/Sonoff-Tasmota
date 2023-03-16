@@ -263,7 +263,7 @@ void alt_eeprom_readBytes(uint32_t adr, uint32_t len, uint8_t *buf) {
 
 #include <TasmotaSerial.h>
 
-#ifdef USE_WOLFSSL
+#ifdef USE_SCRIPT_SSL
 #include <wolfssl/ssl.h>
 #endif
 
@@ -2358,6 +2358,8 @@ char iob = *cp;
       iob = '\n';
     } else if (*cp == 'r') {
       iob = '\r';
+    } else if (*cp == '"') {
+      iob = '"';
     } else if (*cp == '0' && *(cp + 1) == 'x') {
       cp += 2;
       iob = strtol(cp, 0, 16);
@@ -3755,6 +3757,15 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto nfuncexit;
         }
 #endif //SCRIPT_GET_HTTPS_JP
+
+#ifdef TESLA_POWERWALL
+        if (!strncmp(lp, "gpwl(", 5)) {
+          char path[SCRIPT_MAXSSIZE];
+          lp = GetStringArgument(lp + 5, OPER_EQU, path, 0);
+          fvar = call2pwl(path);
+          goto nfuncexit;
+        }
+#endif
 
         if (!strncmp(lp, "gi(", 3)) {
           lp += 3;
@@ -5255,6 +5266,15 @@ extern char *SML_GetSVal(uint32_t index);
           goto strexit;
         }
 #endif // USE_FEXTRACT
+#ifdef USE_SCRIPT_SSL
+        if (!strncmp(vname, "ssl(", 4)) {
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
+          char payload[SCRIPT_MAXSSIZE];
+          lp = GetStringArgument(lp, OPER_EQU, payload, 0);
+          fvar = script_wolf(fvar, payload);
+          goto nfuncexit;
+        }
+#endif
         break;
 
       case 't':
@@ -5560,15 +5580,6 @@ extern char *SML_GetSVal(uint32_t index);
           char path[SCRIPT_MAXSSIZE];
           lp = GetStringArgument(lp + 8, OPER_EQU, path, 0);
           fvar = wav2mp3(path);
-          goto nfuncexit;
-        }
-#endif
-#ifdef USE_WOLFSSL
-        if (!strncmp(vname, "wolf(", 5)) {
-          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
-          char payload[SCRIPT_MAXSSIZE];
-          lp = GetStringArgument(lp, OPER_EQU, payload, 0);
-          fvar = script_wolf(fvar, payload);
           goto nfuncexit;
         }
 #endif
@@ -6479,7 +6490,6 @@ int16_t retval;
 
     if (js) {
       String jss = js;    // copy the string to a new buffer, not sure we can change the original buffer
-      //JsonParser parser((char*)jss.c_str());
       JsonParser parser((char*)jss.c_str());
       jo = parser.getRootObject();
       gv.jo = &jo;
@@ -11252,21 +11262,41 @@ int32_t http_req(char *host, char *request) {
   return httpCode;
 }
 
+#ifdef TESLA_POWERWALL
+Powerwall powerwall = Powerwall();
 
-#ifdef USE_WOLFSSL
+uint32_t call2pwl(const char *url) {
+  String result = powerwall.GetRequest(String(url), powerwall.AuthCookie());
+  AddLog(LOG_LEVEL_INFO, PSTR("PWL: result: %s"), result.c_str());
+  Run_Scripter(">jp", 3, (char*)result.c_str());
+  return 0;
+}
+
+#endif
+
+#ifdef USE_SCRIPT_SSL
+
+#include "esp_tls.h"
+#include "esp_crt_bundle.h"
 
 int script_wolf_Send(WOLFSSL* ssl, char* msg, int sz, void* ctx);
 int script_wolf_Receive(WOLFSSL* ssl, char* reply, int sz, void* ctx);
 
-struct SCRIPT_WOLF_SSL {
+struct SCRIPT_SSL {
   WOLFSSL_CTX* ctx = NULL;
   WOLFSSL* ssl = NULL;
-  WiFiClient client; 
-} script_wolf_ssl;
+  WOLFSSL_METHOD* method;
+  WiFiClient client;
+  WiFiClientSecure *sclient;
+  esp_tls_t *tls;
+  //esp_tls_cfg_t cfg = {.crt_bundle_attach = esp_crt_bundle_attach,};
+  esp_tls_cfg_t cfg = {.crt_bundle_attach = arduino_esp_crt_bundle_attach,};
+  uint8_t type = 0;
+} script_ssl;
 
 int script_wolf_Send(WOLFSSL* ssl, char* msg, int sz, void* ctx) {
     int sent = 0;
-    sent = script_wolf_ssl.client.write((byte*)msg, sz);
+    sent = script_ssl.client.write((byte*)msg, sz);
    // Serial.printf(">>> %d bytes",sent);
     return sent;
 }
@@ -11275,13 +11305,13 @@ int script_wolf_Receive(WOLFSSL* ssl, char* reply, int sz, void* ctx) {
   int ret = 0;
 
   while (1) {
-    int bytes = script_wolf_ssl.client.available();
+    int bytes = script_ssl.client.available();
     if (!bytes) {
       break;
     } else {
       //Serial.printf("<<< bytes: %d - %d - %d",bytes, ret, sz );
     }
-    reply[ret] = script_wolf_ssl.client.read();
+    reply[ret] = script_ssl.client.read();
     ret++;
     if (ret >= sz) {
       break;
@@ -11296,131 +11326,304 @@ void log_function(const int logLevel, const char *const logMessage) {
   Serial.println(logMessage);
 }
 
+extern const uint8_t server_root_cert_pem_start[] asm("_binary_server_root_cert_pem_start");
+extern const uint8_t server_root_cert_pem_end[]   asm("_binary_server_root_cert_pem_end");
+
 int32_t script_wolf(uint32_t sel, char *payload) {
   char errBuf[80];
   uint8_t retry = 0;
     switch (sel) {
       case 0:
-        //if (script_wolf_ssl.ctx == NULL) {
+        script_ssl.type = payload[0];
+
+        if (script_ssl.type == 'W') {
           wolfSSL_Init();
-          WOLFSSL_METHOD* method;
-          method = wolfTLSv1_3_client_method();
-          if (method == NULL) {
+          
+          if (payload[1] == '3') {
+            script_ssl.method = wolfTLSv1_3_client_method();
+          } else {
+            script_ssl.method = wolfTLSv1_2_client_method();
+          }
+          if (script_ssl.method == NULL) {
             Serial.println("unable to get method");
           }
-          script_wolf_ssl.ctx = wolfSSL_CTX_new(method);
-          if (script_wolf_ssl.ctx == NULL) {
+          script_ssl.ctx = wolfSSL_CTX_new(script_ssl.method);
+          if (script_ssl.ctx == NULL) {
             Serial.println("unable to get ctx");
           }
-          /* initialize wolfSSL using callback functions */
-          wolfSSL_CTX_set_verify(script_wolf_ssl.ctx, SSL_VERIFY_NONE, 0);
-          wolfSSL_SetIOSend(script_wolf_ssl.ctx, script_wolf_Send);
-          wolfSSL_SetIORecv(script_wolf_ssl.ctx, script_wolf_Receive);
-        //}
+          // initialize wolfSSL using callback functions
+          if (payload[2] == 'N') {
+            wolfSSL_CTX_set_verify(script_ssl.ctx, SSL_VERIFY_NONE, 0);
+          }
 
-          wolfSSL_Debugging_ON();
+          wolfSSL_SetIOSend(script_ssl.ctx, script_wolf_Send);
+          wolfSSL_SetIORecv(script_ssl.ctx, script_wolf_Receive);
           wolfSSL_SetLoggingCb(log_function);
+          //wolfSSL_CTX_load_verify_buffer()
+        }
 
+        if (script_ssl.type == 'B') {
+            script_ssl.sclient = new WiFiClientSecure;
+            script_ssl.sclient->setTimeout(2000);
+            if (payload[2] == 'N') {
+              script_ssl.sclient->setInsecure();
+            }
+        }
+        
+        if (script_ssl.type == 'M') {
+          script_ssl.tls = esp_tls_init();
+          if (!script_ssl.tls) {
+            Serial.println("Failed to allocate esp_tls handle!");
+          } else {
+            Serial.println("mbed init ok!");
+          }
+        }       
         break;
 
       case 1:
-        while ((!script_wolf_ssl.client.connect(payload, 443)) && (retry < 3)) {
-          delay(100);
-          Serial.print(".");
-          retry++;
+        { uint16_t port = 443;
+          char *cp = strchr(payload, ':');
+          if (cp) {
+            *cp = 0;
+            cp++;
+            port = strtol(cp, 0, 10);
+          }
+          Serial.println(payload);
+          if (script_ssl.type == 'W') {
+            while ((!script_ssl.client.connect(payload, port)) && (retry < 3)) {
+              delay(100);
+              Serial.print(".");
+              retry++;
+            } 
+          }
+          if (script_ssl.type == 'B') {
+            while ((!script_ssl.sclient->connect(payload, port)) && (retry < 3)) {
+              delay(100);
+              Serial.print(".");
+              retry++;
+            } 
+          }
+          
+          if (script_ssl.type == 'M') {
+            //int esp_tls_conn_http_new_async(const char *url, const esp_tls_cfg_t *cfg, esp_tls_t *tls);
+            //int esp_tls_conn_http_new_sync(const char *url, const esp_tls_cfg_t *cfg, esp_tls_t *tls);
+            if (esp_tls_conn_http_new_async(payload, &script_ssl.cfg, script_ssl.tls) == 1) {
+              Serial.println("connected");
+            } else {
+              Serial.println("connection failed");
+              return -1;
+            }
+          } else {
+            if (retry >= 3) {
+              Serial.println("conn fail");
+              return -1;
+            }
+            Serial.println("connected");
+          }
         }
-        if (retry >= 3) {
-          Serial.println("conn fail");
-          return -1;
-        }
-        Serial.println("connected");
         break;
 
       case 2:
-        {
-        if (!script_wolf_ssl.client.connected()) {
-          Serial.println("not connected");
-          return -1;
-        }
-        script_wolf_ssl.ssl = wolfSSL_new(script_wolf_ssl.ctx);
-        if (script_wolf_ssl.ssl == NULL) {
-          Serial.println("Unable to allocate SSL object");
-          return -2;
-        }
-        int err = wolfSSL_connect(script_wolf_ssl.ssl);
-        if (err != WOLFSSL_SUCCESS) {
-          err = wolfSSL_get_error(script_wolf_ssl.ssl, 0);
-          wolfSSL_ERR_error_string(err, errBuf);
-          Serial.print("TLS Connect Error: ");
-          Serial.println(errBuf);
-        }
     
-        Serial.print("SSL version is ");
-        Serial.println(wolfSSL_get_version(script_wolf_ssl.ssl));
+        if (script_ssl.type == 'W') {
+          if (!script_ssl.client.connected()) {
+            Serial.println("not connected");
+            return -1;
+          }
+          script_ssl.ssl = wolfSSL_new(script_ssl.ctx);
+          if (script_ssl.ssl == NULL) {
+            Serial.println("Unable to allocate SSL object");
+            return -2;
+          }
+          int err;
+          /*
+          err = wolfSSL_CTX_UseSNI(script_ssl.ctx, WOLFSSL_SNI_HOST_NAME, payload, strlen(payload));
+          if (err != WOLFSSL_SUCCESS) {
+            sprintf(errBuf,"Setting host name failed with error condition: %d and reason %s\n", ret, wolfSSL_ERR_error_string(ret, reply));
+              Serial.print(errBuf); 
+          }*/
 
-        const char *cipherName = wolfSSL_get_cipher(script_wolf_ssl.ssl);
-        Serial.print("SSL cipher suite is ");
-        Serial.println(cipherName);
+          err = wolfSSL_connect(script_ssl.ssl);
+          if (err != WOLFSSL_SUCCESS) {
+            err = wolfSSL_get_error(script_ssl.ssl, 0);
+            wolfSSL_ERR_error_string(err, errBuf);
+            Serial.print("TLS Connect Error: ");
+            Serial.println(errBuf);
+          }
+    
+          Serial.print("SSL version is ");
+          Serial.println(wolfSSL_get_version(script_ssl.ssl));
+
+          const char *cipherName = wolfSSL_get_cipher(script_ssl.ssl);
+          Serial.print("SSL cipher suite is ");
+          Serial.println(cipherName);
         }
-        
         break;
 
       case 3:
-        if (!script_wolf_ssl.client.connected()) {
-          Serial.println("not connected");
-          return -1;
+        if (script_ssl.type == 'W') {
+          if (!script_ssl.client.connected()) {
+            Serial.println("not connected");
+            return -1;
+          }
+          Serial.printf("wr: %s", payload);
+          if (wolfSSL_write(script_ssl.ssl, payload, sizeof(payload)) != sizeof(payload)) {
+            int err = wolfSSL_get_error(script_ssl.ssl, 0);
+            wolfSSL_ERR_error_string(err, errBuf);
+            Serial.print("TLS Write Error: ");
+            Serial.println(errBuf);
+          }
         }
-        Serial.printf("wr: %s", payload);
-        if (wolfSSL_write(script_wolf_ssl.ssl, payload, sizeof(payload)) != sizeof(payload)) {
-          int err = wolfSSL_get_error(script_wolf_ssl.ssl, 0);
-          wolfSSL_ERR_error_string(err, errBuf);
-          Serial.print("TLS Write Error: ");
-          Serial.println(errBuf);
+        if (script_ssl.type == 'B') {
+          if (!script_ssl.sclient->connected()) {
+            Serial.println("not connected");
+            return -1;
+          }
+          Serial.printf("wr: %s", payload);
+          script_ssl.sclient->print(payload);
         }
+
+        if (script_ssl.type == 'M') {
+          Serial.printf("wr: %s", payload);
+          if (!script_ssl.tls) {
+            Serial.println("not connected");
+            return -1;
+          }
+          size_t written_bytes = 0;
+          do {
+            int ret = esp_tls_conn_write(script_ssl.tls,
+                                 payload + written_bytes,
+                                 strlen(payload) - written_bytes);
+            if (ret >= 0) {
+              Serial.printf("%d bytes written", ret);
+              written_bytes += ret;
+            } else if (ret != ESP_TLS_ERR_SSL_WANT_READ  && ret != ESP_TLS_ERR_SSL_WANT_WRITE) {
+              Serial.printf("esp_tls_conn_write  returned: [0x%02X](%s)", ret, esp_err_to_name(ret));
+            }
+          } while (written_bytes < strlen(payload));
+        }
+  
         break;
 
       case 4:
-        if (!script_wolf_ssl.client.connected()) {
-          Serial.println("not connected");
-          return -1;
-        }
-        { int input= 0;
-        int total_input = 0;
-        char reply[512];
-        while (!script_wolf_ssl.client.available()) {}
-        // read data
-        //while (wolfSSL_pending(script_wolf_ssl.ssl)) {
-        while (1) {
-          int bytes = script_wolf_ssl.client.available();
-          Serial.printf("bytes: %d",bytes);
-          if (bytes <= 0) {
-            break;
+        if (script_ssl.type == 'W') {
+          if (!script_ssl.client.connected()) {
+            Serial.println("not connected");
+            return -1;
           }
-          input = wolfSSL_read(script_wolf_ssl.ssl, reply, sizeof(reply) - 1);
-          total_input += input;
-          if (input < 0) {
-            int err = wolfSSL_get_error(script_wolf_ssl.ssl, 0);
-            wolfSSL_ERR_error_string(err, errBuf);
-            Serial.print("TLS Read Error: ");
-            Serial.println(errBuf);
-            break;
-          } else if (input > 0) {
-            reply[input] = '\0';
-            Serial.print(reply);
-          } else {
-            Serial.println();
+          int input= 0;
+          int total_input = 0;
+          char reply[512];
+          uint32_t time = millis();
+          while (!script_ssl.client.available()) {
+            if (millis()-time > 1000) {
+              break;
+            }
+          }
+          // read data
+          //while (wolfSSL_pending(script_ssl.ssl)) {
+          while (1) {
+            int bytes = script_ssl.client.available();
+            Serial.printf("bytes: %d\n",bytes);
+            if (bytes <= 0) {
+              break;
+            }
+            input = wolfSSL_read(script_ssl.ssl, reply, sizeof(reply) - 1);
+            total_input += input;
+            if (input < 0) {
+              int err = wolfSSL_get_error(script_ssl.ssl, 0);
+              wolfSSL_ERR_error_string(err, errBuf);
+              Serial.print("TLS Read Error: ");
+              Serial.println(errBuf);
+              break;
+            } else if (input > 0) {
+              reply[input] = '\0';
+              Serial.print(reply);
+            } else {
+              Serial.println();
+            }
+          }
+          return total_input;
+        }
+        
+        if (script_ssl.type == 'B') {
+          if (!script_ssl.sclient->connected()) {
+            Serial.println("not connected");
+            return -1;
+          }
+          uint32_t time = millis();
+          while (!script_ssl.sclient->available()) {
+            if (millis()-time > 1000) {
+              break;
+            }
+          }
+          while (script_ssl.sclient->available()) {
+            String line = script_ssl.sclient->readStringUntil('\n');
+            Serial.println(line.c_str());
           }
         }
-        return total_input;
+
+        if (script_ssl.type == 'M') {
+          if (!script_ssl.tls) {
+            Serial.println("not connected");
+            return -1;
+          }
+          char buf[512];
+          do {
+            int len = sizeof(buf) - 1;
+            memset(buf, 0x00, sizeof(buf));
+            int ret = esp_tls_conn_read(script_ssl.tls, (char *)buf, len);
+
+            if (ret == ESP_TLS_ERR_SSL_WANT_WRITE  || ret == ESP_TLS_ERR_SSL_WANT_READ) {
+              continue;
+            } else if (ret < 0) {
+              Serial.printf("esp_tls_conn_read  returned [-0x%02X](%s)", -ret, esp_err_to_name(ret));
+              break;
+            } else if (ret == 0) {
+              Serial.println("connection closed");
+              break;
+            }
+
+            len = ret;
+            Serial.printf("%d bytes read", len);
+            /* Print response directly to stdout as it is read */
+            for (int i = 0; i < len; i++) {
+              Serial.printf("%c",buf[i]);
+            }
+            Serial.printf("\n"); // JSON output doesn't have a newline at end
+          } while (1);
         }
         break;
 
       case 5:
-        wolfSSL_shutdown(script_wolf_ssl.ssl);
-        wolfSSL_free(script_wolf_ssl.ssl);
-        script_wolf_ssl.client.stop();
-        Serial.println("Connection complete.");
+        if (script_ssl.type == 'W') {
+          wolfSSL_shutdown(script_ssl.ssl);
+          wolfSSL_free(script_ssl.ssl);
+          script_ssl.client.stop();
+          Serial.println("Connection complete.");
+        }
+        if (script_ssl.type == 'B') {
+          script_ssl.sclient->stop();
+          delete  script_ssl.sclient;
+        }
+
+        if (script_ssl.type == 'M') {
+          if (script_ssl.tls) {
+            esp_tls_conn_destroy(script_ssl.tls);
+          }
+        }
         break;
+
+      case 6:
+        if (script_ssl.type == 'W') {
+          if (*payload == '1') {
+            wolfSSL_Debugging_ON();
+          } else {
+            wolfSSL_Debugging_OFF();
+          }
+        }
+        break;
+
     }
     return 0;
 }
@@ -11435,21 +11638,12 @@ int32_t script_wolf(uint32_t sel, char *payload) {
 #include <WiFiClientSecure.h>
 #endif //ESP8266
 
-#ifdef TESLA_POWERWALL
-Powerwall powerwall = Powerwall();
-String authCookie   = "";
-#endif
+
 
 // get tesla powerwall info page json string
 uint32_t call2https(const char *host, const char *path) {
   //if (TasmotaGlobal.global_state.wifi_down) return 1;
   uint32_t status = 0;
-
-#ifdef TESLA_POWERWALL
-  powerwall.Begin();
-  authCookie = powerwall.getAuthCookie();
-  return 0;
-#endif
 
 #ifdef ESP32
   WiFiClientSecure *httpsClient;
@@ -11461,27 +11655,6 @@ uint32_t call2https(const char *host, const char *path) {
 
   httpsClient->setTimeout(2000);
   httpsClient->setInsecure();
-
-#if 0
-  File file = ufsp->open("/tesla.cer", FS_FILE_READ);
-  uint16_t fsize = 0;
-  char *cert = 0;
-  if (file) {
-    fsize = file.size();
-    if (fsize) {
-      cert = (char*)malloc(fsize +2);
-      if (cert) {
-        file.read((uint8_t*)cert, fsize);
-        file.close();
-        httpsClient->setCACert(cert);
-      }
-      AddLog(LOG_LEVEL_INFO,PSTR(">>> cert %d"),fsize);
-    }
-  } else {
-    httpsClient->setCACert(root_ca);
-  }
-#endif
-
 
   AddLog(LOG_LEVEL_INFO,PSTR(">>> host %s"),host);
 
@@ -11495,34 +11668,7 @@ uint32_t call2https(const char *host, const char *path) {
   }
   AddLog(LOG_LEVEL_INFO,PSTR("connected"));
 
-String request;
-#if 0
-
-  File file = ufsp->open("/login.txt", FS_FILE_READ);
-  uint16_t fsize = 0;
-  char *cert = 0;
-  if (file) {
-    fsize = file.size();
-    if (fsize) {
-      cert = (char*)calloc(fsize +2, 1);
-      if (cert) {
-        file.read((uint8_t*)cert, fsize);
-        file.close();
-        //httpsClient->setCACert(cert);
-      }
-      AddLog(LOG_LEVEL_INFO,PSTR(">>> cert %d"),fsize);
-    }
-  }
-
-  request = String("POST ") + "/api/login/Basic" + " HTTP/1.1\r\n" + "Host: " + host + "\r\n" + cert + "\r\n" + "Content-Type: application/json" + "\r\n";
-  httpsClient->print(request);
-  AddLog(LOG_LEVEL_INFO,PSTR(">>> post request %s"),(char*)request.c_str());
-
-  String line = httpsClient->readStringUntil('\n');
-  AddLog(LOG_LEVEL_INFO,PSTR(">>> post response 1a %s"),(char*)line.c_str());
-  line = httpsClient->readStringUntil('\n');
-  AddLog(LOG_LEVEL_INFO,PSTR(">>> post response 1b %s"),(char*)line.c_str());
-#endif
+  String request;
 
   request = String("GET ") + path +
                     " HTTP/1.1\r\n" +

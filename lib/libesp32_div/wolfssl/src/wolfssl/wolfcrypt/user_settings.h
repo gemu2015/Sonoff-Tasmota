@@ -26,6 +26,8 @@
 
 #define WOLFSSL_ESPIDF
 
+#undef NO_SESSION_CACHE
+
 /*
  * choose ONE of these Espressif chips to define:
  *
@@ -35,6 +37,8 @@
  */
 
 #define WOLFSSL_ESPWROOM32
+
+//#define WOLFSSL_ARDUINO
 
 /* #define DEBUG_WOLFSSL_VERBOSE */
 
