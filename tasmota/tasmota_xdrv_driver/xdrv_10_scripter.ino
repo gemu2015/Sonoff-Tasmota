@@ -11250,41 +11250,50 @@ int32_t http_req(char *host, char *request) {
   return httpCode;
 }
 
+
+#ifdef SCRIPT_GET_HTTPS_JP
+
 #ifdef TESLA_POWERWALL
 Powerwall powerwall = Powerwall();
 
 int32_t call2pwl(const char *url) {
-  String result = powerwall.GetRequest(String(url), powerwall.AuthCookie());
- 
+  uint8_t debug = 0;
+  if (*url == 'D') {
+    url++;
+    debug = 1;
+  }
+  String cookie = powerwall.AuthCookie();
+  if (*url == 'N') {
+    url++;
+    cookie = "";
+  } 
+  String result = powerwall.GetRequest(String(url), cookie);
   //AddLog(LOG_LEVEL_INFO, PSTR("PWL: result: %s"), result.c_str());
 
-  // shrink file size
+  // shrink data size because it exceeds json parser maxsize
   result.replace("communication_time", "ct");
   result.replace("instant", "i");
   result.replace("apparent", "a");
   result.replace("reactive", "r");
 
-  //AddLog(LOG_LEVEL_INFO, PSTR("PWL: result: %s"), result.c_str());
+  if (debug) {
+    AddLog(LOG_LEVEL_INFO, PSTR("PWL: result: %s"), result.c_str());
+  }
 
   Run_Scripter(">jp", 3, result.c_str());
 
   return 0;
 }
-
-#endif
-
+#endif // TESLA_POWERWALL
 
 
-#ifdef SCRIPT_GET_HTTPS_JP
 #ifdef ESP8266
 #include "WiFiClientSecureLightBearSSL.h"
 #else
 #include <WiFiClientSecure.h>
 #endif //ESP8266
 
-
-
-// get tesla powerwall info page json string
+// get https info page json string
 uint32_t call2https(const char *host, const char *path) {
   //if (TasmotaGlobal.global_state.wifi_down) return 1;
   uint32_t status = 0;
@@ -11300,7 +11309,7 @@ uint32_t call2https(const char *host, const char *path) {
   httpsClient->setTimeout(2000);
   httpsClient->setInsecure();
 
-  AddLog(LOG_LEVEL_INFO,PSTR(">>> host %s"),host);
+ // AddLog(LOG_LEVEL_INFO,PSTR(">>> host %s"),host);
 
   uint32_t retry = 0;
   while ((!httpsClient->connect(host, 443)) && (retry < 10)) {
@@ -11310,7 +11319,7 @@ uint32_t call2https(const char *host, const char *path) {
   if (retry == 10) {
     return 2;
   }
-  AddLog(LOG_LEVEL_INFO,PSTR("connected"));
+  AddLog(LOG_LEVEL_DEBUG,PSTR("connected"));
 
   String request;
 

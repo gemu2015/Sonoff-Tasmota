@@ -1,10 +1,15 @@
+
+// inspred by https://github.com/MoritzLerch/tesla-pv-display
 #ifndef Powerwall_h
 #define Powerwall_h
 
 // include libraries
-//#include <Arduino.h>
-#include <WiFiClientSecure.h>
+#ifdef ESP8266
 #include "WiFiClientSecureLightBearSSL.h"
+#else
+#include <WiFiClientSecure.h>
+#endif //ESP8266
+
 
 class Powerwall {
    private:
@@ -39,17 +44,21 @@ String Powerwall::AuthCookie() {
  * @returns authToken to be used in an authCookie
  */
 String Powerwall::getAuthCookie() {
-    AddLog(LOG_LEVEL_INFO, PSTR("PWL: requesting new auth Cookie from %s"), powerwall_ip);
+    AddLog(LOG_LEVEL_DEBUG, PSTR("PWL: requesting new auth Cookie from %s"), powerwall_ip);
     String apiLoginURL = "/api/login/Basic";
 
-    WiFiClientSecure httpsClient;
-    httpsClient.setInsecure();
-    httpsClient.setTimeout(10000);
+#ifdef ESP32
+    WiFiClientSecure *httpsClient = new WiFiClientSecure;
+#else
+    BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024,1024);
+#endif
+    httpsClient->setInsecure();
+    httpsClient->setTimeout(10000);
 
     int retry = 0;
 
 #define PW_RETRIES 5
-    while ((!httpsClient.connect(powerwall_ip, 443)) && (retry < PW_RETRIES)) {
+    while ((!httpsClient->connect(powerwall_ip, 443)) && (retry < PW_RETRIES)) {
         delay(100);
         Serial.print(".");
         retry++;
@@ -59,7 +68,7 @@ String Powerwall::getAuthCookie() {
         return ("CONN-FAIL");
     }
 
-    AddLog(LOG_LEVEL_INFO, PSTR("PWL: connected"));
+    AddLog(LOG_LEVEL_DEBUG, PSTR("PWL: connected"));
 
     String dataString = "{\"username\":\"customer\",\"email\":\"" + tesla_email + "\",\"password\":\"" + tesla_password + "\",\"force_sm_off\":false}";
 
@@ -70,16 +79,16 @@ String Powerwall::getAuthCookie() {
                       "Content-Length: " + dataString.length() + "\r\n" +
                       "\r\n" + dataString + "\r\n\r\n";
 
-    httpsClient.println(payload);
+    httpsClient->println(payload);
 
-    while (httpsClient.connected()) {
-        String response = httpsClient.readStringUntil('\n');
+    while (httpsClient->connected()) {
+        String response = httpsClient->readStringUntil('\n');
         if (response == "\r") {
             break;
         }
     }
 
-    String jsonInput = httpsClient.readStringUntil('\n');
+    String jsonInput = httpsClient->readStringUntil('\n');
 
     char str_value[128];
     str_value[0] = 0;
@@ -88,7 +97,7 @@ String Powerwall::getAuthCookie() {
     JsonParserObject obj = parser.getRootObject();
     uint32_t res = JsonParsePath(&obj, "token", '#', &fv, str_value, sizeof(str_value));
 
-    AddLog(LOG_LEVEL_INFO, PSTR("PWL: token: %s"), str_value);
+    AddLog(LOG_LEVEL_DEBUG, PSTR("PWL: token: %s"), str_value);
 
     authCookie = str_value;
     return authCookie;
@@ -105,23 +114,27 @@ String Powerwall::getAuthCookie() {
  * @returns content of request
  */
 String Powerwall::GetRequest(String url, String authCookie) {
-    WiFiClientSecure httpsClient;
-    httpsClient.setInsecure();
-    httpsClient.setTimeout(10000);
+#ifdef ESP32
+    WiFiClientSecure *httpsClient = new WiFiClientSecure;
+#else
+    BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024,1024);
+#endif
+    httpsClient->setInsecure();
+    httpsClient->setTimeout(10000);
 
     String tempAuthCookie;
 
     if (authCookie != "") {
         tempAuthCookie = authCookie;
     } else {
-        tempAuthCookie = this->getAuthCookie();
+        tempAuthCookie = getAuthCookie();
     }
 
-    AddLog(LOG_LEVEL_INFO, PSTR("PWL: doing GET-request to %s%s"), powerwall_ip, url.c_str());
+    AddLog(LOG_LEVEL_DEBUG, PSTR("PWL: doing GET-request to %s%s"), powerwall_ip, url.c_str());
 
     int retry = 0;
 
-    while ((!httpsClient.connect(powerwall_ip, 443)) && (retry < 15)) {
+    while ((!httpsClient->connect(powerwall_ip, 443)) && (retry < 15)) {
         delay(100);
         Serial.print(".");
         retry++;
@@ -132,26 +145,35 @@ String Powerwall::GetRequest(String url, String authCookie) {
     }
 
     // HTTP/1.0 is used because of Chunked transfer encoding
-    httpsClient.print(String("GET ") + url + " HTTP/1.0" + "\r\n" +
+    httpsClient->print(String("GET ") + url + " HTTP/1.0" + "\r\n" +
                       "Host: " + powerwall_ip + "\r\n" +
                       "Cookie: " + "AuthCookie" + "=" + authCookie + "\r\n" +
                       "Connection: close\r\n\r\n");
 
-    while (httpsClient.connected()) {
-        String response = httpsClient.readStringUntil('\n');
+    while (httpsClient->connected()) {
+        String response = httpsClient->readStringUntil('\n');
+        char *cp =  (char*)response.c_str();
+        if (!strncmp_P(cp, PSTR("HTTP"), 4)) {
+            char *sp = strchr(cp, ' ');
+            if (sp) {
+                sp++;
+                uint16_t result = strtol(sp, 0, 10);
+                AddLog(LOG_LEVEL_DEBUG, PSTR("PWL: result %d"), result);
+            }
+        }
         if (response == "\r") {
             break;
         }
     }
 
-    return httpsClient.readStringUntil('\n');
+    return httpsClient->readStringUntil('\n');
 }
 
 /**
  * this is getting called if there was no provided authCookie in powerwallGetRequest(String url, String authCookie)
  */
 String Powerwall::GetRequest(String url) {
-    return (this->GetRequest(url, this->getAuthCookie()));
+    return (GetRequest(url, getAuthCookie()));
 }
 
 #endif
