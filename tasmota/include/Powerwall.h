@@ -65,6 +65,7 @@ String Powerwall::getAuthCookie() {
     }
 
     if (retry >= PW_RETRIES) {
+        delete httpsClient;
         return ("CONN-FAIL");
     }
 
@@ -100,6 +101,9 @@ String Powerwall::getAuthCookie() {
     AddLog(LOG_LEVEL_DEBUG, PSTR("PWL: token: %s"), str_value);
 
     authCookie = str_value;
+
+    delete httpsClient;
+    
     return authCookie;
 }
 
@@ -141,6 +145,7 @@ String Powerwall::GetRequest(String url, String authCookie) {
     }
 
     if (retry >= 15) {
+        delete httpsClient;
         return ("CONN-FAIL");
     }
 
@@ -166,7 +171,9 @@ String Powerwall::GetRequest(String url, String authCookie) {
         }
     }
 
-    return httpsClient->readStringUntil('\n');
+    String result = httpsClient->readStringUntil('\n');
+    delete httpsClient;
+    return result;
 }
 
 /**
