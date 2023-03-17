@@ -125,13 +125,9 @@ String Powerwall::GetRequest(String url, String authCookie) {
 #endif
     httpsClient->setInsecure();
     httpsClient->setTimeout(10000);
-
-    String tempAuthCookie;
-
-    if (authCookie != "") {
-        tempAuthCookie = authCookie;
-    } else {
-        tempAuthCookie = getAuthCookie();
+    
+    if (authCookie == "") {
+        getAuthCookie();
     }
 
     AddLog(LOG_LEVEL_DEBUG, PSTR("PWL: doing GET-request to %s%s"), powerwall_ip, url.c_str());
@@ -164,6 +160,10 @@ String Powerwall::GetRequest(String url, String authCookie) {
                 sp++;
                 uint16_t result = strtol(sp, 0, 10);
                 AddLog(LOG_LEVEL_DEBUG, PSTR("PWL: result %d"), result);
+                // in case of error 401, get new cookie
+                if (result == 401) {
+                    authCookie = "";
+                }
             }
         }
         if (response == "\r") {
