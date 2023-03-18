@@ -50,7 +50,8 @@ String Powerwall::getAuthCookie() {
 #ifdef ESP32
     WiFiClientSecure *httpsClient = new WiFiClientSecure;
 #else
-    BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024,1024);
+   // BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024,1024);
+    WiFiClientSecure *httpsClient = new WiFiClientSecure;
 #endif
     httpsClient->setInsecure();
     httpsClient->setTimeout(10000);
@@ -121,7 +122,8 @@ String Powerwall::GetRequest(String url, String authCookie) {
 #ifdef ESP32
     WiFiClientSecure *httpsClient = new WiFiClientSecure;
 #else
-    BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024,1024);
+    //BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024,1024);
+    WiFiClientSecure *httpsClient = new WiFiClientSecure;
 #endif
     httpsClient->setInsecure();
     httpsClient->setTimeout(10000);

@@ -448,7 +448,11 @@ struct METER_DESC {
 #endif // USE_SML_DECRYPT
 
 #ifdef USE_SML_TCP
+#ifdef USE_SML_TCP_IP_STR
+  char ip_addr[16];
+#else
   IPAddress ip_addr;
+#endif
 #ifdef TCP_CLIENT_SECURE
   WiFiClientSecure *client;
 #else
@@ -2844,7 +2848,11 @@ void SML_Init(void) {
             str[cnt] = 0;
             lp++;
 #ifdef USE_SML_TCP
+#ifdef USE_SML_TCP_IP_STR
+            strcpy(mmp->ip_addr, str);
+#else
             mmp->ip_addr.fromString(str);
+#endif
 #endif
           } else {
             srcpin  = strtol(lp, &lp, 10);
@@ -3101,7 +3109,11 @@ next_line:
 #endif
         int32_t err = mp->client->connect(mp->ip_addr, mp->params);
         if (!err) {
+#ifdef USE_SML_TCP_IP_STR
+          AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP to %s:%d"),mp->ip_addr, mp->params);
+#else
           AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP to %s:%d"),mp->ip_addr.toString().c_str(), mp->params);
+#endif
         }
 #endif
       } else {
