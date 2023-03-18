@@ -39,10 +39,11 @@ extern uint16_t bg_color;
 
 void M5EpdInitDriver47(void) {
 
-  if (PinUsed(GPIO_EPD_DATA)) {
+  //if (PinUsed(GPIO_EPD_DATA)) {
+  if (TasmotaGlobal.gpio_optiona.udisplay_driver) {
   //  if (1) {
 
-    Settings->display_model = XDSP_20;
+    Settings->display_model = XDSP_21;
 
     if (Settings->display_width != M5EPD47_WIDTH) {
       Settings->display_width = M5EPD47_WIDTH;
@@ -94,7 +95,7 @@ bool Xdsp21(uint32_t function)
   if (FUNC_DISPLAY_INIT_DRIVER == function) {
     M5EpdInitDriver47();
   }
-  else if (m5epd47_init_done && (XDSP_20 == Settings->display_model)) {
+  else if (m5epd47_init_done && (XDSP_21 == Settings->display_model)) {
     switch (function) {
       case FUNC_DISPLAY_MODEL:
         result = true;
