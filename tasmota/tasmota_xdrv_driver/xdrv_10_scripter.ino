@@ -661,7 +661,7 @@ uint32_t Script_Find_Vars(char *sp) {
         }
         if (*cp == '"') {
           svars += 1;
-        } else if (isdigit(*cp)) {
+        } else if (isdigit(*cp) || *cp == '-') {
           numvars += 1;
         }
         sp = cp;
