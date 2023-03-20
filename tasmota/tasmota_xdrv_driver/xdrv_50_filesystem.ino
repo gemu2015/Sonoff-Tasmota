@@ -609,7 +609,7 @@ const char UFS_FORM_FILE_UPGc[] PROGMEM =
   "<div style='text-align:left;color:#%06x;'>" D_FS_SIZE " %s MB - " D_FS_FREE " %s MB";
 
 const char UFS_FORM_FILE_UPGc1[] PROGMEM =
-    " &nbsp;&nbsp;<a href='http://%_I/ufsd?dir=%d'>%s</a>";
+    " &nbsp;&nbsp;<a href='/ufsd?dir=%d'>%s</a>";
 
 const char UFS_FORM_FILE_UPGc2[] PROGMEM =
   "</div>";
@@ -652,7 +652,7 @@ const char UFS_FORM_SDC_HREFdel[] PROGMEM =
 
 #ifdef GUI_EDIT_FILE
 
-#define TFS_FILE_BUFFER_SIZE  1024
+#define FILE_BUFFER_SIZE  1024
 
 const char UFS_FORM_SDC_HREFedit[] PROGMEM =
   "<a href='ufse?file=%s/%s'>&#x1F4DD;</a>"; // 📝
@@ -719,7 +719,7 @@ void UfsDirectory(void) {
   WSContentSend_PD(UFS_FORM_FILE_UPGc, WebColor(COL_TEXT), ts, fs);
 
   if (ufs_dir) {
-    WSContentSend_P(UFS_FORM_FILE_UPGc1, (uint32_t)WiFi.localIP(), (ufs_dir == 1)?2:1, (ufs_dir == 1)?PSTR("SDCard"):PSTR("FlashFS"));
+    WSContentSend_P(UFS_FORM_FILE_UPGc1, (ufs_dir == 1)?2:1, (ufs_dir == 1)?PSTR("SDCard"):PSTR("FlashFS"));
   }
   WSContentSend_P(UFS_FORM_FILE_UPGc2);
 
@@ -1037,11 +1037,11 @@ void UfsEditor(void) {
       AddLog(LOG_LEVEL_DEBUG, PSTR("UFS: UfsEditor: file open failed"));
       WSContentSend_P(D_NEW_FILE);
     } else {
-      uint8_t *buf = (uint8_t*)malloc(TFS_FILE_BUFFER_SIZE+1);
+      uint8_t *buf = (uint8_t*)malloc(FILE_BUFFER_SIZE+1);
       size_t filelen = fp.size();
       AddLog(LOG_LEVEL_DEBUG, PSTR("UFS: UfsEditor: file len=%d"), filelen);
       while (filelen > 0) {
-        size_t l = fp.read(buf, TFS_FILE_BUFFER_SIZE);
+        size_t l = fp.read(buf, FILE_BUFFER_SIZE);
         AddLog(LOG_LEVEL_DEBUG_MORE, PSTR("UFS: UfsEditor: read=%d"), l);
         if (l < 0) { break; }
         buf[l] = '\0';

@@ -757,6 +757,22 @@ bool NewerVersion(char* version_str) {
   return (version > VERSION);
 }
 
+int32_t UpdateDevicesPresent(int32_t change) {
+  int32_t difference = 0;
+  int32_t devices_present = TasmotaGlobal.devices_present;  // Between 0 and 32
+  devices_present += change;
+  if (devices_present < 0) {                          // Support down to 0
+    difference = devices_present;
+    devices_present = 0;
+  }
+  else if (devices_present >= POWER_SIZE) {           // Support up to uint32_t as bitmask
+    difference = devices_present - POWER_SIZE;
+    devices_present = POWER_SIZE;
+  }
+  TasmotaGlobal.devices_present = devices_present;
+  return difference;
+}
+
 char* GetPowerDevice(char* dest, uint32_t idx, size_t size, uint32_t option)
 {
   strncpy_P(dest, S_RSLT_POWER, size);                // POWER
@@ -1796,9 +1812,6 @@ void TemplateJson(void)
 
 #if ( defined(USE_SCRIPT) && defined(SUPPORT_MQTT_EVENT) ) || defined (USE_DT_VARS)
 
-#ifndef SELEM_SIZE
-#define SELEM_SIZE 64
-#endif
 /*********************************************************************************************\
  * Parse json paylod with path
 \*********************************************************************************************/
@@ -1808,11 +1821,11 @@ uint32_t JsonParsePath(JsonParserObject *jobj, const char *spath, char delim, fl
   uint32_t res = 0;
   const char *cp = spath;
 #ifdef DEBUG_JSON_PARSE_PATH
-  AddLog(LOG_LEVEL_INFO, PSTR("JSON: parsing json key: %s from json"), cp);
+  AddLog(LOG_LEVEL_INFO, PSTR("JSON: parsing json key: %s from json: %s"), cp, jpath);
 #endif
   JsonParserObject obj = *jobj;
   JsonParserObject lastobj = obj;
-  char selem[SELEM_SIZE];
+  char selem[64];
   uint8_t aindex = 0;
   String value = "";
   while (1) {

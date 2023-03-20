@@ -319,7 +319,7 @@ void ResponseAppendFeatures(void)
     feature3 |= 0x40000000;  // xsns_27_apds9960.ino
 #endif
 #ifdef USE_TM1638
-    feature3 |= 0x80000000;  // xsns_28_tm1638.ino
+    feature3 |= 0x80000000;  // xdrv_66_tm1638.ino
 #endif
   }
 
@@ -865,7 +865,7 @@ void ResponseAppendFeatures(void)
     feature9 |= 0x00001000;  // xdsp_20_tm1650.ino
 #endif
 #if defined(USE_I2C) && defined(USE_PCA9632)
-    feature9 |= 0x00002000;
+    feature9 |= 0x00002000;  // xdrv_64_pca9632.ino
 #endif
 #ifdef USE_TUYAMCUBR
     feature9 |= 0x00004000;  // xdrv_65_tuyamcubr.ino
@@ -876,7 +876,9 @@ void ResponseAppendFeatures(void)
 #if defined(USE_ENERGY_SENSOR) && defined(USE_BIOPDU)
     feature9 |= 0x00010000;  // xnrg_24_biopdu.ino
 #endif
-//    feature9 |= 0x00020000;
+#if (defined(USE_I2C) || defined(USE_SPI)) && defined(USE_MCP23XXX_DRV)
+    feature9 |= 0x00020000;  // xdrv_67_mcp23xxx.ino
+#endif
 //    feature9 |= 0x00040000;
 //    feature9 |= 0x00080000;
 

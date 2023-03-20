@@ -53,6 +53,15 @@ char* int64_tostring(int64_t *i64) {
 }
 BE_FUNC_CTYPE_DECLARE(int64_tostring, "s", ".")
 
+int64_t* int64_fromstring(bvm *vm, const char* s) {
+  int64_t *i64 = (int64_t*)be_malloc(vm, sizeof(int64_t));
+  if (i64 == NULL) { be_raise(vm, "memory_error", "cannot allocate buffer"); }
+  if (s) { *i64 = atoll(s); }
+  else   { *i64 = 0; }
+  return i64;
+}
+BE_FUNC_CTYPE_DECLARE(int64_fromstring, "int64", "@s")
+
 int32_t int64_toint(int64_t *i64) {
   return (int32_t) *i64;
 }
@@ -62,6 +71,13 @@ void int64_set(int64_t *i64, int32_t high, int32_t low) {
   *i64 = ((int64_t)high << 32) | ((int64_t)low & 0xFFFFFFFF);
 }
 BE_FUNC_CTYPE_DECLARE(int64_set, "", ".ii")
+
+int64_t* int64_fromu32(bvm *vm, uint32_t low) {
+  int64_t* r64 = (int64_t*)be_malloc(vm, sizeof(int64_t));
+  *r64 = low;
+  return r64;
+}
+BE_FUNC_CTYPE_DECLARE(int64_fromu32, "int64", "@i")
 
 int64_t* int64_add(bvm *vm, int64_t *i64, int64_t *j64) {
   int64_t* r64 = (int64_t*)be_malloc(vm, sizeof(int64_t));
@@ -188,8 +204,10 @@ class be_class_int64 (scope: global, name: int64) {
   init, ctype_func(int64_init)
   deinit, ctype_func(int64_deinit)
   set, ctype_func(int64_set)
+  fromu32, static_ctype_func(int64_fromu32)
 
   tostring, ctype_func(int64_tostring)
+  fromstring, static_ctype_func(int64_fromstring)
   toint, ctype_func(int64_toint)
 
   +, ctype_func(int64_add)

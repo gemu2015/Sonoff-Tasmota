@@ -167,7 +167,7 @@ unsigned char *min_br_ssl_engine_sendrec_buf(const br_ssl_engine_context *cc, si
 
 #endif // ESP8266
 
-#define DEBUG_ESP_SSL
+//#define DEBUG_ESP_SSL
 #ifdef DEBUG_ESP_SSL
 //#define DEBUG_BSSL(fmt, ...)  DEBUG_ESP_PORT.printf_P((PGM_P)PSTR( "BSSL:" fmt), ## __VA_ARGS__)
 #define DEBUG_BSSL(fmt, ...)  Serial.printf(fmt, ## __VA_ARGS__)
@@ -309,7 +309,7 @@ int WiFiClientSecure_light::connect(IPAddress ip, uint16_t port) {
     setLastError(ERR_TCP_CONNECT);
     return 0;
   }
-  return _connectSSL(nullptr);
+  return _connectSSL(_domain.isEmpty() ? nullptr : _domain.c_str());
 }
 #endif
 
@@ -568,8 +568,6 @@ int WiFiClientSecure_light::_run_until(unsigned target, bool blocking) {
     if (state & BR_SSL_CLOSED) {
       return -1;
     }
-
-    DEBUG_BSSL("_run_until state: %d, target: %d \n",state, target);
 
 #ifdef ESP8266
     if (!(_client->state() == ESTABLISHED) && !WiFiClient::available()) {
