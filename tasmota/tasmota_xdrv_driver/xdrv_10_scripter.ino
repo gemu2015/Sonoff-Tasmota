@@ -11275,13 +11275,35 @@ int32_t call2pwl(const char *url) {
   result.replace("instant", "i");
   result.replace("apparent", "a");
   result.replace("reactive", "r");
-
-  if (debug) {
-    AddLog(LOG_LEVEL_INFO, PSTR("PWL: result: %s"), result.c_str());
+  if (result.length()>4095) {
+    AddLog(LOG_LEVEL_INFO, PSTR("PWL: result overflow: %d"), result.length());
   }
 
-  Run_Scripter(">jp", 3, result.c_str());
-
+  // meter aggregates has also too many tokens
+  char *cp = (char*)result.c_str();
+  if (!strncmp_P(cp, PSTR("{\"site\""), 7)) {
+    // split into 2 sets
+    char *sp = strstr_P(cp, PSTR(",\"load\":"));
+    if (sp) {
+      *sp = '}';
+      *(sp + 1 ) = 0;
+      if (debug) {
+        AddLog(LOG_LEVEL_INFO, PSTR("PWL: result 1: %s"), cp);
+      }
+      Run_Scripter(">jp", 3, cp);
+      *sp = '{';
+      *(sp + 1 ) = '\"';
+      if (debug) {
+        AddLog(LOG_LEVEL_INFO, PSTR("PWL: result 2: %s"), sp);
+      }
+      Run_Scripter(">jp", 3, sp);
+    }
+  } else {
+    if (debug) {
+      AddLog(LOG_LEVEL_INFO, PSTR("PWL: result: %s"), result.c_str());
+    }
+    Run_Scripter(">jp", 3, result.c_str());
+  }
   return 0;
 }
 #endif // TESLA_POWERWALL
