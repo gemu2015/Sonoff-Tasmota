@@ -90,6 +90,12 @@
 #define SML_OBIS_LINE
 #endif
 
+
+#ifdef USE_SML_TCP_SECURE
+#define USE_SML_TCP_IP_STR
+#endif
+
+
 // median filter eliminates outliers, but uses much RAM and CPU cycles
 // 672 bytes extra RAM with SML_MAX_VARS = 16
 // default compile on, but must be enabled by descriptor flag 16
@@ -453,7 +459,7 @@ struct METER_DESC {
 #else
   IPAddress ip_addr;
 #endif
-#ifdef TCP_CLIENT_SECURE
+#ifdef USE_SML_TCP_SECURE
   WiFiClientSecure *client;
 #else
   WiFiClient *client;
@@ -464,6 +470,7 @@ struct METER_DESC {
 #endif
 #endif
 };
+
 
 
 #define TCP_MODE_FLG 0x7f
@@ -3100,7 +3107,7 @@ next_line:
       if (mp->srcpin == TCP_MODE_FLG) {
 #ifdef USE_SML_TCP
         // tcp mode
-#ifdef TCP_CLIENT_SECURE
+#ifdef USE_SML_TCP_SECURE
         mp->client = new WiFiClientSecure;
         //client(new BearSSL::WiFiClientSecure_light(1024,1024)) {
         mp->client->setInsecure();
