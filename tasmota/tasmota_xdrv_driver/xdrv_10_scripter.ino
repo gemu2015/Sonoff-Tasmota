@@ -4440,6 +4440,13 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           TasmotaGlobal.no_autoexec = 0;
           goto exit;
         }
+#ifdef USE_ANGLE_FUNC
+        if (!strncmp(lp, "rad(", 4)) {
+          GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
+          fvar = fvar * 3.1415916535f / 180.0f;
+          goto nfuncexit;
+        }
+#endif
         break;
 
       case 's':
