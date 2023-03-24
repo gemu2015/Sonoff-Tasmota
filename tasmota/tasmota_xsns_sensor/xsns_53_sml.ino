@@ -620,7 +620,11 @@ uint16_t Serial_available() {
     if (!meter_desc[num].meter_ss) return 0;
     return meter_desc[num].meter_ss->available();
   } else {
-    return meter_desc[num].client->available();
+    if (meter_desc[num].client) {
+      return meter_desc[num].client->available();
+    } else {
+      return 0;
+    }
   }
 }
 
@@ -632,7 +636,11 @@ uint8_t Serial_read() {
     if (!meter_desc[num].meter_ss) return 0;
     return meter_desc[num].meter_ss->read();
   } else {
-    return meter_desc[num].client->read();
+    if (meter_desc[num].client) {
+      return meter_desc[num].client->read();
+    } else {
+      return 0;
+    }
   }
 }
 
@@ -644,7 +652,11 @@ uint8_t Serial_peek() {
     if (!meter_desc[num].meter_ss) return 0;
     return meter_desc[num].meter_ss->peek();
   } else {
-    return meter_desc[num].client->peek();
+    if (meter_desc[num].client) {
+      return meter_desc[num].client->peek();
+    } else {
+      return 0;
+    }
   }
 }
 
@@ -1268,7 +1280,11 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
   if (mp->srcpin != TCP_MODE_FLG) {
     iob = (uint8_t)mp->meter_ss->read(); 
   } else {
-    iob = (uint8_t)mp->client->read();
+    if (mp->client) {
+      iob = (uint8_t)mp->client->read();
+    } else {
+      iob = 0;
+    }
   }
 
   switch (mp->type) {
@@ -1359,7 +1375,9 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
           if (mp->spos == 6 + tlen) {
             mp->spos = 0;
             SML_Decode(meters);
-            mp->client->flush();
+            if (mp->client) {
+              mp->client->flush();
+            }
             //Hexdump(mp->sbuff + 6, 10);
           }
         }
@@ -1458,9 +1476,11 @@ uint32_t meters;
             sml_shift_in(meters, 0);
           }
         } else {
-#ifdef USE_SML_TCP          
-          while (mp->client->available()){
-            sml_shift_in(meters, 0);
+#ifdef USE_SML_TCP
+          if (mp->client) {    
+            while (mp->client->available()){
+              sml_shift_in(meters, 0);
+            }
           }
 #endif
         }
@@ -3125,6 +3145,7 @@ next_line:
           }
         } else {
           AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP since wifi is down"));
+          mp->client = nullptr;
         }
 #endif
       } else {
@@ -3623,9 +3644,11 @@ for (uint8_t cnt = 0; cnt < slen - 3; cnt++) {
 
 #ifdef USE_SML_TCP
  // AddLog(LOG_LEVEL_INFO, PSTR("slen >> %d "),slen);
-  if (meter_desc[meter].client->connected()) {
-    meter_desc[meter].client->write((uint8_t*)&tcph, 7 + slen - 3);
-  }
+ if (meter_desc[meter].client) {
+    if (meter_desc[meter].client->connected()) {
+      meter_desc[meter].client->write((uint8_t*)&tcph, 7 + slen - 3);
+    }
+ }
 #endif
 }
 
