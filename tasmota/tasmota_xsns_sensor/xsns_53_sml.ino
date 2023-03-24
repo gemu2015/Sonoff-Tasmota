@@ -3105,22 +3105,26 @@ next_line:
     } else {
       // serial input, init
       if (mp->srcpin == TCP_MODE_FLG) {
+        if (!TasmotaGlobal.global_state.wifi_down) {
 #ifdef USE_SML_TCP
-        // tcp mode
+          // tcp mode
 #ifdef USE_SML_TCP_SECURE
-        mp->client = new WiFiClientSecure;
-        //client(new BearSSL::WiFiClientSecure_light(1024,1024)) {
-        mp->client->setInsecure();
+          mp->client = new WiFiClientSecure;
+          //client(new BearSSL::WiFiClientSecure_light(1024,1024)) {
+          mp->client->setInsecure();
 #else        
-        mp->client = new WiFiClient;
+          mp->client = new WiFiClient;
 #endif
-        int32_t err = mp->client->connect(mp->ip_addr, mp->params);
-        if (!err) {
+          int32_t err = mp->client->connect(mp->ip_addr, mp->params);
+          if (!err) {
 #ifdef USE_SML_TCP_IP_STR
-          AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP to %s:%d"),mp->ip_addr, mp->params);
+            AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP to %s:%d"),mp->ip_addr, mp->params);
 #else
-          AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP to %s:%d"),mp->ip_addr.toString().c_str(), mp->params);
+            AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP to %s:%d"),mp->ip_addr.toString().c_str(), mp->params);
 #endif
+          }
+        } else {
+          AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP since wifi is down"));
         }
 #endif
       } else {
