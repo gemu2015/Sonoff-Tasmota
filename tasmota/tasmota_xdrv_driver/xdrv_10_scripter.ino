@@ -2405,12 +2405,12 @@ TS_FLOAT fvar;
 #ifdef SCRIPT_SAVE_RAM
 #undef strncmp_XP
 #define strncmp_XP strncmp_P
-#undef XPSTR(A)
+#undef XPSTR
 #define XPSTR(A) PSTR(A)
 #else
 #undef strncmp_XP
 #define strncmp_XP strncmp
-#undef XPSTR(A)
+#undef XPSTR
 #define XPSTR(A) A
 #endif
 

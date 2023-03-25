@@ -454,20 +454,23 @@ struct METER_DESC {
 #endif // USE_SML_DECRYPT
 
 #ifdef USE_SML_TCP
+
 #ifdef USE_SML_TCP_IP_STR
   char ip_addr[16];
 #else
   IPAddress ip_addr;
-#endif
+#endif // USE_SML_TCP_IP_STR
+
 #ifdef USE_SML_TCP_SECURE
   WiFiClientSecure *client;
 #else
   WiFiClient *client;
-#endif
+#endif // USE_SML_TCP_SECURE
+
+#endif // USE_SML_TCP
 
 #ifdef ESP32
   int8_t uart_index;
-#endif
 #endif
 };
 
@@ -534,6 +537,7 @@ struct SML_GLOBS {
 #endif
 	uint8_t *script_meter;
 	struct METER_DESC *mp;
+  uint8_t to_cnt;
   bool ready;
 } sml_globs;
 
@@ -3125,28 +3129,8 @@ next_line:
     } else {
       // serial input, init
       if (mp->srcpin == TCP_MODE_FLG) {
-        if (!TasmotaGlobal.global_state.wifi_down) {
 #ifdef USE_SML_TCP
-          // tcp mode
-#ifdef USE_SML_TCP_SECURE
-          mp->client = new WiFiClientSecure;
-          //client(new BearSSL::WiFiClientSecure_light(1024,1024)) {
-          mp->client->setInsecure();
-#else        
-          mp->client = new WiFiClient;
-#endif
-          int32_t err = mp->client->connect(mp->ip_addr, mp->params);
-          if (!err) {
-#ifdef USE_SML_TCP_IP_STR
-            AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP to %s:%d"),mp->ip_addr, mp->params);
-#else
-            AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP to %s:%d"),mp->ip_addr.toString().c_str(), mp->params);
-#endif
-          }
-        } else {
-          AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP since wifi is down"));
-          mp->client = nullptr;
-        }
+        sml_tcp_init(mp);
 #endif
       } else {
         // serial mode
@@ -3632,25 +3616,85 @@ uint16_t sml_swap(uint16_t in) {
 void sml_tcp_send(uint32_t meter, uint8_t *sbuff, uint16_t slen) {
 MODBUS_TCP_HEADER tcph;
 
-tcph.T_ID = sml_swap(0x1234);
-tcph.P_ID = 0;
-tcph.SIZE = sml_swap(6);
-tcph.U_ID = *sbuff;
+  tcph.T_ID = sml_swap(0x1234);
+  tcph.P_ID = 0;
+  tcph.SIZE = sml_swap(6);
+  tcph.U_ID = *sbuff;
 
-sbuff++;
-for (uint8_t cnt = 0; cnt < slen - 3; cnt++) {
-  tcph.payload[cnt] = *sbuff++;
-}
+  sbuff++;
+  for (uint8_t cnt = 0; cnt < slen - 3; cnt++) {
+    tcph.payload[cnt] = *sbuff++;
+  }
 
 #ifdef USE_SML_TCP
- // AddLog(LOG_LEVEL_INFO, PSTR("slen >> %d "),slen);
- if (meter_desc[meter].client) {
+  // AddLog(LOG_LEVEL_INFO, PSTR("slen >> %d "),slen);
+  if (meter_desc[meter].client) {
     if (meter_desc[meter].client->connected()) {
       meter_desc[meter].client->write((uint8_t*)&tcph, 7 + slen - 3);
     }
- }
+  }
 #endif
 }
+
+#ifdef USE_SML_TCP
+int32_t sml_tcp_init(struct METER_DESC *mp) {  
+  if (!TasmotaGlobal.global_state.wifi_down) {
+    if (!mp->client) {
+      // tcp mode
+#ifdef USE_SML_TCP_SECURE
+      mp->client = new WiFiClientSecure;
+      //client(new BearSSL::WiFiClientSecure_light(1024,1024)) {
+      mp->client->setInsecure();
+#else        
+      mp->client = new WiFiClient;
+#endif // USE_SML_TCP_SECURE
+    }
+    int32_t err = mp->client->connect(mp->ip_addr, mp->params);
+    char ipa[32];
+#ifdef USE_SML_TCP_IP_STR
+    strcpy(ipa, mp->ip_addr);
+#else
+    strcpy(ipa, mp->ip_addr.toString().c_str());
+#endif
+    if (!err) {
+      AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP to %s:%d"),ipa, mp->params);
+    } else {
+      AddLog(LOG_LEVEL_INFO, PSTR("SML: connected TCP to %s:%d"),ipa, mp->params);
+    }
+  } else {
+    AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP since wifi is down"));
+    mp->client = nullptr;
+    return -1;
+  }
+  return 0;
+}
+
+#ifndef TCP_TIMEOUT
+#define TCP_TIMEOUT 30
+#endif
+
+void sml_tcp_check(void) {
+  sml_globs.to_cnt++;
+  if (sml_globs.to_cnt > TCP_TIMEOUT) {
+    sml_globs.to_cnt = 0;
+    for (uint32_t meter = 0; meter < sml_globs.meters_used; meter++) {
+      struct METER_DESC *mp = &sml_globs.mp[meter];
+		  if (mp->srcpin == TCP_MODE_FLG) {
+			  if (!mp->client) {
+          sml_tcp_init(mp);
+        } else {
+          if (!mp->client->connected()) {
+            sml_tcp_init(mp);
+          }
+        }
+		  }
+	  }
+  }
+}
+
+
+#endif // USE_SML_TCP
+
 
 // send sequence every N Seconds
 void SML_Send_Seq(uint32_t meter, char *seq) {
@@ -3966,6 +4010,9 @@ bool Xsns53(uint32_t function) {
 					if (bitRead(Settings->rule_enabled, 0)) {
 						if (sml_globs.ready) {
 							SML_Counter_Poll_1s();
+#ifdef USE_SML_TCP
+              sml_tcp_check();
+#endif
 						}
 					}
 					break;
