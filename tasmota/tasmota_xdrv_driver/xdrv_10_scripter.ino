@@ -2935,6 +2935,11 @@ chknext:
           fvar = cosf(fvar);
           goto nfuncexit;
         }
+        if (!strncmp(lp, "ceil(", 5)) {
+          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
+          fvar = ceilf(fvar);
+          goto nfuncexit;
+        }
 #endif
 #ifdef USE_FEXTRACT
         if (!strncmp(lp, "cts(", 4)) {
@@ -3654,6 +3659,13 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           if (sp) strlcpy(sp, SettingsText(SET_FRIENDLYNAME1), glob_script_mem.max_ssize);
           goto strexit;
         }
+#ifdef USE_ANGLE_FUNC
+        if (!strncmp(lp, "floor(", 6)) {
+          lp = GetNumericArgument(lp + 6, OPER_EQU, &fvar, gv);
+          fvar = floorf(fvar);
+          goto nfuncexit;
+        }
+#endif
         break;
 
       case 'g':
@@ -4444,6 +4456,11 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         if (!strncmp(lp, "rad(", 4)) {
           GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           fvar = fvar * 3.1415916535f / 180.0f;
+          goto nfuncexit;
+        }
+        if (!strncmp(lp, "round(", 6)) {
+          lp = GetNumericArgument(lp + 6, OPER_EQU, &fvar, gv);
+          fvar = roundf(fvar);
           goto nfuncexit;
         }
 #endif
