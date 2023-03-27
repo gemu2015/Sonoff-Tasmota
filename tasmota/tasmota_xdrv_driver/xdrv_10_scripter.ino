@@ -5375,13 +5375,15 @@ extern char *SML_GetSVal(uint32_t index);
 #endif //USE_DISPLAY
 
 
-#if 0
+#if 1
         if (!strncmp_XP(lp, XPSTR("test("), 5)) {
           lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           uint32_t cycles;
           uint64_t accu = 0;
           char sbuffer[32];
-    
+          
+          GT911_Touch_Init(&Wire1, -1, -1, 960, 540);
+
           /*
           // PSTR performance test
           // this is best case since everything will be in cache
