@@ -39,8 +39,8 @@ extern uint16_t bg_color;
 
 void M5EpdInitDriver47(void) {
 
-  //if (PinUsed(GPIO_EPD_DATA)) {
-  if (TasmotaGlobal.gpio_optiona.udisplay_driver) {
+  if (PinUsed(GPIO_EPD_DATA)) {
+  //if (TasmotaGlobal.gpio_optiona.udisplay_driver) {
   //  if (1) {
 
     Settings->display_model = XDSP_21;
@@ -73,7 +73,7 @@ void M5EpdInitDriver47(void) {
 
 #ifdef USE_TOUCH_BUTTONS
     // start digitizer
-    GT911_Touch_Init(&Wire1, 36, -1, M5EPD47_HEIGHT, M5EPD47_WIDTH);
+    GT911_Touch_Init(&Wire1, -1, -1, M5EPD47_HEIGHT, M5EPD47_WIDTH);
 #endif // USE_TOUCH_BUTTONS
 
     m5epd47_init_done = true;
