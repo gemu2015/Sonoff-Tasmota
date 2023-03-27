@@ -228,6 +228,8 @@ bool GT911_Touch_Init(TwoWire *i2c, int8_t irq_pin, int8_t rst_pin, uint16_t xs,
   if (ESP_OK == GT911_touchp->begin(i2c, irq_pin, rst_pin, xs, ys)) {
     AddLog(LOG_LEVEL_INFO, PSTR("TI: GT911"));
     GT911_found = true;
+  } else {
+    AddLog(LOG_LEVEL_INFO, PSTR("TI: GT911 failed"));
   }
   return GT911_found;
 }
