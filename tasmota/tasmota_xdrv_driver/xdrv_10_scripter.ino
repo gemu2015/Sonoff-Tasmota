@@ -6963,26 +6963,17 @@ getnext:
             }
 #endif //ESP32
 
-            else if (!strncmp(lp, "pwm", 3)) {
+            else if (!strncmp(lp, "pwm", 3) && lp[4] == '(') {
               lp += 3;
-              uint8_t channel = 1;
-              if (*(lp+1) == '(') {
-                channel = *lp & 0x0f;
+              uint8_t channel = *lp & 0x0f;
 #ifdef ESP8266
-                if (channel > 5) {channel = 5;}
+              if (channel > 5) {channel = 5;}
 #endif // ESP8266
 #ifdef ESP32
-                if (channel > 8) {channel = 8;}
+              if (channel > 8) {channel = 8;}
 #endif // ESP32
-                if (channel < 1) {channel = 1;}
-                lp += 2;
-              } else {
-                if (*lp == '(') {
-                  lp++;
-                } else {
-                  goto next_line;
-                }
-              }
+              if (channel < 1) {channel = 1;}
+              lp += 2;
               lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
               SCRIPT_SKIP_SPACES
               TS_FLOAT fvar1 = 4000;
