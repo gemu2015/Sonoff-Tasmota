@@ -5375,7 +5375,7 @@ extern char *SML_GetSVal(uint32_t index);
 #endif //USE_DISPLAY
 
 
-#if 1
+#if 0
         if (!strncmp_XP(lp, XPSTR("test("), 5)) {
           lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           uint32_t cycles;
