@@ -6847,7 +6847,7 @@ getnext:
               goto next_line;
             }
 #ifdef USE_DISPLAY
-            else if (!strncmp(lp, "dt", 2)) {
+            else if (!strncmp(lp, "dt ", 3)) {
               //char dstbuf[256];
               lp += 2;
               SCRIPT_SKIP_SPACES
@@ -6985,26 +6985,26 @@ getnext:
               goto next_line;
             }
 #ifdef USE_SCRIPT_WEB_DISPLAY
-            else if (!strncmp(lp, "wcs", 3)) {
+            else if (!strncmp(lp, "wcs ", 4)) {
               lp += 4;
               // skip one space after cmd
               web_send_line(0, lp);
               //WSContentFlush();
               goto next_line;
             }
-            else if (!strncmp(lp, "wfs", 3)) {
+            else if (!strncmp(lp, "wfs ", 4)) {
               lp += 4;
               // skip one space after cmd
               web_send_file(0, lp);
               //WSContentFlush();
               goto next_line;
             }
-            else if (!strncmp(lp, "wcf", 3)) {
+            else if (!strncmp(lp, "wcf\n", 4)) {
               WSContentFlush();
               goto next_line;
             }
 #endif
-            else if (!strncmp(lp, "rapp", 3)) {
+            else if (!strncmp(lp, "rapp ", 4)) {
               lp += 4;
               // skip one space after cmd
               char *tmp = (char*)malloc(256);
@@ -7018,7 +7018,7 @@ getnext:
 
 
 #if defined(USE_SENDMAIL) || defined(USE_ESP32MAIL)
-            else if (!strncmp(lp, "mail", 4)) {
+            else if (!strncmp(lp, "mail ", 5)) {
               lp += 5;
               //char tmp[256];
               char *tmp = (char*)malloc(256);
