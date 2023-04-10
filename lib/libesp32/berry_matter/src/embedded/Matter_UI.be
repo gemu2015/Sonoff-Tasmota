@@ -158,9 +158,9 @@ class Matter_UI
     webserver.content_send("<fieldset><legend><b>&nbsp;Matter Passcode&nbsp;</b></legend><p></p>")
     webserver.content_send("<form action='/matterc' method='post' >")
     webserver.content_send("<p>Passcode:</p>")
-    webserver.content_send(string.format("<input type='number' min='1' max='99999998' name='passcode' value='%i'>", self.device.passcode))
+    webserver.content_send(string.format("<input type='number' min='1' max='99999998' name='passcode' value='%i'>", self.device.root_passcode))
     webserver.content_send("<p>Distinguish id:</p>")
-    webserver.content_send(string.format("<input type='number' min='0' max='4095' name='discriminator' value='%i'>", self.device.discriminator))
+    webserver.content_send(string.format("<input type='number' min='0' max='4095' name='discriminator' value='%i'>", self.device.root_discriminator))
     webserver.content_send(string.format("<p><input type='checkbox' name='ipv4'%s>IPv4 only</p>", self.device.ipv4only ? " checked" : ""))
     webserver.content_send("<p></p><button name='passcode' class='button bgrn'>Change</button></form></p>")
     webserver.content_send("<p></p></fieldset><p></p>")
@@ -185,16 +185,17 @@ class Matter_UI
         if !first     webserver.content_send("<hr>") end
         first = false
 
-        webserver.content_send(string.format("<fieldset><legend><b>&nbsp;%s&nbsp;</b></legend><p></p>", "&lt;No label&gt;"))
+        var label = f.fabric_label
+        if !label   label = "&lt;No label&gt;"    end
+        webserver.content_send(string.format("<fieldset><legend><b>&nbsp;#%i %s&nbsp;</b></legend><p></p>", f.get_fabric_index(), label))
 
         var fabric_rev = f.get_fabric_id().copy().reverse()
         var deviceid_rev = f.get_device_id().copy().reverse()
         webserver.content_send(string.format("Fabric: %s<br>", fabric_rev.tohex()))
         webserver.content_send(string.format("Device: %s<br>&nbsp;", deviceid_rev.tohex()))
 
-        webserver.content_send("<form action='/matterc' method='post' ")
-        webserver.content_send("onsubmit='return confirm(\"This will cause a restart.\");'>")
-        webserver.content_send(string.format("<input name='del_fabric' type='hidden' value='%s'>", fabric_rev.tohex()))
+        webserver.content_send("<form action='/matterc' method='post'>")
+        webserver.content_send(string.format("<input name='del_fabric' type='hidden' value='%i'>", f.get_fabric_index()))
         webserver.content_send("<button name='del' class='button bgrn'>Delete Fabric</button></form></p>")
     
         webserver.content_send("<p></p></fieldset><p></p>")
@@ -247,10 +248,10 @@ class Matter_UI
       #---------------------------------------------------------------------#
       if webserver.has_arg("passcode") || webserver.has_arg("discriminator")
         if webserver.has_arg("passcode")
-          self.device.passcode = int(webserver.arg("passcode"))
+          self.device.root_passcode = int(webserver.arg("passcode"))
         end
         if webserver.has_arg("discriminator")
-          self.device.discriminator = int(webserver.arg("discriminator"))
+          self.device.root_discriminator = int(webserver.arg("discriminator"))
         end
         self.device.ipv4only = webserver.arg("ipv4") == 'on'
         self.device.save_param()
@@ -269,23 +270,20 @@ class Matter_UI
         webserver.redirect("/?rst=")
 
       elif webserver.has_arg("del_fabric")
-        var del_fabric = webserver.arg("del_fabric")
+        var del_fabric = int(webserver.arg("del_fabric"))
         var idx = 0
         var fabrics = self.device.sessions.fabrics
-        var dirty = false
         while idx < size(fabrics)
-          var fabric_hex = fabrics[idx].get_fabric_id().copy().reverse().tohex()
-          if fabric_hex == del_fabric
-            fabrics.remove(idx)
-            dirty = true
+          if fabrics[idx].get_fabric_index() == del_fabric
+            self.device.remove_fabric(fabrics[idx])
+            break
           else
             idx += 1
           end
         end
-        if dirty    self.device.sessions.save_fabrics()  end
 
         #- and force restart -#
-        webserver.redirect("/?rst=")
+        webserver.redirect("/matterc?")
 
       end
     except .. as e, m
@@ -309,7 +307,7 @@ class Matter_UI
     var matter_enabled = tasmota.get_option(matter.MATTER_OPTION)
 
     if matter_enabled
-      if self.device.commissioning_open
+      if self.device.is_root_commissioning_open()
         self.show_commissioning_info()
       end
 
@@ -337,7 +335,7 @@ class Matter_UI
     if   webserver.has_arg("mtc0")    # Close Commissioning
       self.device.stop_basic_commissioning()
     elif webserver.has_arg("mtc1")    # Open Commissioning
-      self.device.start_basic_commissioning()
+      self.device.start_root_basic_commissioning()
     end
   end
 

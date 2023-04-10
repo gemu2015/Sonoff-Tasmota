@@ -3,21 +3,43 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - Development
 
-## [12.4.0.3]
+## [12.4.0.5]
 ### Added
+- Matter support for Light and Relays on ESP32 by Stephan Hadinger (#18320)
+- ESP32 WIP support for 16 shutters using `#define USE_SHUTTER_ESP32` in addition to `USE_SHUTTER` by Stefan Bode (#18295)
 
 ### Breaking Changed
 
 ### Changed
+- ESP32 LVGL library from v8.3.5 to v8.3.6 (no functional change)
 
 ### Fixed
-- Refactor energy monitoring reducing stack usage and solve inherent exceptions and watchdogs (#18164)
+- ESP32 ``Upload``, ``Upgrade``, ``WebGetConfig``, ``WebQuery`` and ``WebSend`` random HTTP(S) connection timeout set to 5 sec (commit 542eca3)
 
 ### Removed
 
+## [12.4.0.4] 20230403
+### Added
+- Matter support simple Relay on Apple Homekit by Stephan Hadinger (#18239)
+- VSC Pio menu bar extensions by @Jason2866 (#18233)
+- Command ``SwitchMode0`` to show or set all SwitchModes
+
+### Changed
+- Support for multiple PCF8574 as switch/button/relay if enabled with `#define USE_PCF8574` and `#define USE_PCF8574_MODE2`
+
+## [12.4.0.3] 20230322
+### Added
+- Support for PMSA003I Air Quality Sensor by Jean-Pierre Deschamps (#18214)
+- Support for DingTian virtual switch/button/relay (#18223)
+- Berry add `mdns.remove_service()`
+
+### Fixed
+- Refactor energy monitoring reducing stack usage and solve inherent exceptions and watchdogs (#18164)
+- Berry fix `tasmota.get_power(index)`
+
 ## [12.4.0.2] 20230317
 ### Added
-- Support for multiple MCP23008 as switch/button/relay
+- Support for multiple MCP23008 as switch/button/relay if enabled with `#define USE_MCP23XXX_DRV`
 - Support for multiple PCF8574 as switch/button/relay
 - Extended Tariff command for forced tariff (#18080)
 - Berry support for Tensorflow Lite (TFL) by Christiaan Baars (#18119)

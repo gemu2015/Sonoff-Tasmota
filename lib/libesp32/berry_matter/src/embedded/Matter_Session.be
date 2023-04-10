@@ -45,6 +45,8 @@ class Matter_Fabric : Matter_Expirable
   var _store                      # reference back to session store
   # timestamp
   var created
+  # fabric-index
+  var fabric_index                # index number for fabrics, starts with `1`
   # list of active sessions
   var _sessions                   # only active CASE sessions that need to be persisted
   # our own private key
@@ -82,6 +84,23 @@ class Matter_Fabric : Matter_Expirable
   def get_admin_subject()     return self.admin_subject     end
   def get_admin_vendor()      return self.admin_vendor      end
   def get_ca()                return self.root_ca_certificate end
+  def get_fabric_index()      return self.fabric_index      end
+
+  def set_fabric_index(v)     self.fabric_index = v         end
+
+  #############################################################
+  # Called before removal
+  def log_new_fabric()
+    import string
+    tasmota.log(string.format("MTR: +Fabric    fab='%s'", self.get_fabric_id().copy().reverse().tohex()), 2)
+  end
+
+  #############################################################
+  # Called before removal
+  def before_remove()
+    import string
+    tasmota.log(string.format("MTR: -Fabric    fab='%s' (removed)", self.get_fabric_id().copy().reverse().tohex()), 2)
+  end
 
   #############################################################
   # Operational Group Key Derivation, 4.15.2, p.182
@@ -136,7 +155,7 @@ class Matter_Fabric : Matter_Expirable
   end
 
   #############################################################
-  # Fabric::to_json()
+  # Fabric::tojson()
   #
   # convert a single entry as json
   # returns a JSON string
@@ -146,6 +165,7 @@ class Matter_Fabric : Matter_Expirable
     import string
     import introspect
 
+    self.persist_pre()
     var keys = []
     for k : introspect.members(self)
       var v = introspect.get(self, k)
@@ -171,6 +191,7 @@ class Matter_Fabric : Matter_Expirable
       r.push('"_sessions":' + s_list)
     end
 
+    self.persist_post()
     return "{" + r.concat(",") + "}"
   end
 
@@ -203,7 +224,7 @@ class Matter_Fabric : Matter_Expirable
         introspect.set(self, k, v)
       end
     end
-
+    self.hydrate_post()
     return self
   end
 
@@ -221,6 +242,7 @@ matter.Fabric = Matter_Fabric
 class Matter_Session : Matter_Expirable
   static var _PASE = 1           # PASE authentication in progress
   static var _CASE = 2           # CASE authentication in progress
+  static var _COUNTER_SND_INCR = 1024  # counter increased when persisting
   var _store                     # reference back to session store
   # mode for Session. Can be PASE=1, CASE=2, Established=10 none=0
   var mode
@@ -231,21 +253,23 @@ class Matter_Session : Matter_Expirable
   var initiator_session_id        # id used to respond to the initiator
   var created                     # timestamp (UTC) when the session was created
   var last_used                   # timestamp (UTC) when the session was last used
-  var source_node_id              # source node if bytes(8) (opt, used only when session is not established)
+  var _source_node_id             # source node if bytes(8) (opt, used only when session is not established)
   # session_ids when the session will be active
   var __future_initiator_session_id
   var __future_local_session_id
   # counters
   var counter_rcv                 # counter for incoming messages
-  var counter_snd                 # counter for outgoing messages
+  var counter_snd                 # persisted last highest known counter_snd (it is in advance or equal to the actual last used counter_snd)
+  var _counter_rcv_impl           # implementation of counter_rcv by matter.Counter()
+  var _counter_snd_impl           # implementation of counter_snd by matter.Counter()
   var _exchange_id                # exchange id for locally initiated transaction, non-persistent
   # keep track of last known IP/Port of the fabric
   var _ip                         # IP of the last received packet
   var _port                       # port of the last received packet
   var _message_handler            # pointer to the message handler for this session
   # non-session counters
-  var __counter_insecure_rcv      # counter for incoming messages
-  var __counter_insecure_snd      # counter for outgoing messages
+  var _counter_insecure_rcv      # counter for incoming messages
+  var _counter_insecure_snd      # counter for outgoing messages
   # encryption keys and challenges
   var i2rkey                      # key initiator to receiver (incoming)
   var r2ikey                      # key receiver to initiator (outgoing)
@@ -273,15 +297,70 @@ class Matter_Session : Matter_Expirable
     self.mode = 0
     self.local_session_id = local_session_id
     self.initiator_session_id = initiator_session_id
-    self.counter_rcv = matter.Counter()
-    self.counter_snd = matter.Counter()
-    self.__counter_insecure_rcv = matter.Counter()
-    self.__counter_insecure_snd = matter.Counter()
+    # self.counter_rcv = matter.Counter()
+    # self.counter_snd = matter.Counter()
+    self._counter_snd_impl = matter.Counter()
+    self._counter_rcv_impl = matter.Counter()
+    self.counter_rcv = 0      # avoid nil values
+    self.counter_snd = self._counter_snd_impl.next() + self._COUNTER_SND_INCR
+    # print(">>>> INIT", "counter_rcv=", self.counter_rcv, "counter_snd=", self.counter_snd)
+    self._counter_insecure_rcv = matter.Counter()
+    self._counter_insecure_snd = matter.Counter()
     self._breadcrumb = 0
     self._exchange_id = crypto.random(2).get(0,2)      # generate a random 16 bits number, then increment with rollover
 
     self._fabric = fabric ? fabric : self._store.create_fabric()
     self.update()
+  end
+
+  #############################################################
+  # Called before removal
+  def before_remove()
+    import string
+    tasmota.log(string.format("MTR: -Session   (%6i) (removed)", self.local_session_id), 3)
+  end
+
+  #############################################################
+  # Management of security counters
+  #############################################################
+  # Provide the next counter value, and update the last know persisted if needed
+  #
+  def counter_snd_next()
+    import string
+    var next = self._counter_snd_impl.next()
+    tasmota.log(string.format("MTR: .          Counter_snd=%i", next), 3)
+    # print(">>> NEXT counter_snd=", self.counter_snd, "_impl=", self._counter_snd_impl.val(), 4)
+    if matter.Counter.is_greater(next, self.counter_snd)
+      self.counter_snd = next + self._COUNTER_SND_INCR
+      if self.does_persist()
+        # the persisted counter is behind the actual counter
+        self.save()
+      end
+    end
+    return next
+  end
+  # #############################################################
+  # # Before savind
+  # def persist_pre()
+  # end
+
+  #############################################################
+  # When hydrating from persistance, update counters
+  def hydrate_post()
+    # reset counter_snd to highest known.
+    # We advance it only in case it is actually used
+    # This avoids updaing counters on dead sessions
+    self._counter_snd_impl.reset(self.counter_snd)
+    self._counter_rcv_impl.reset(self.counter_rcv)
+    self.counter_snd = self._counter_snd_impl.val()
+    self.counter_rcv = self._counter_rcv_impl.val()
+  end
+  #############################################################
+  # Validate received counter
+  def counter_rcv_validate(v, t)
+    var ret = self._counter_rcv_impl.validate(v, t)
+    if ret    self.counter_rcv = self._counter_rcv_impl.val()    end           # update the validated counter
+    return ret
   end
 
   #############################################################
@@ -300,6 +379,9 @@ class Matter_Session : Matter_Expirable
   def fabric_completed()
     self._fabric.set_no_expiration()
     self._fabric.set_persist(true)
+    if (self._fabric.get_fabric_index() == nil)
+      self._fabric.set_fabric_index(self._store.next_fabric_idx())
+    end
     self._store.add_fabric(self._fabric)
   end
 
@@ -324,9 +406,10 @@ class Matter_Session : Matter_Expirable
     # close the PASE session, it will be re-opened with a CASE session
     self.local_session_id = self.__future_local_session_id
     self.initiator_session_id = self.__future_initiator_session_id
-    self.source_node_id = nil
-    self.counter_rcv.reset()
-    self.counter_snd.reset()
+    self._counter_rcv_impl.reset()
+    self._counter_snd_impl.reset()
+    self.counter_rcv = 0
+    self.counter_snd = self._counter_snd_impl.next()
     self.i2rkey = nil
     self._i2r_privacy = nil
     self.r2ikey = nil
@@ -448,6 +531,7 @@ class Matter_Session : Matter_Expirable
     import string
     import introspect
 
+    self.persist_pre()
     var keys = []
     for k : introspect.members(self)
       var v = introspect.get(self, k)
@@ -460,14 +544,13 @@ class Matter_Session : Matter_Expirable
       var v = introspect.get(self, k)
       if v == nil     continue end
 
-      if   k == "counter_rcv"       v = v.val()
-      elif k == "counter_snd"       v = v.next() + 256          # take a margin to avoid reusing the same counter
-      elif isinstance(v, bytes)     v = "$$" + v.tob64()        # bytes
+      if   isinstance(v, bytes)     v = "$$" + v.tob64()        # bytes
       elif type(v) == 'instance'    continue                    # skip any other instance
       end
       
       r.push(string.format("%s:%s", json.dump(str(k)), json.dump(v)))
     end
+    self.persist_post()
     return "{" + r.concat(",") + "}"
   end
 
@@ -484,24 +567,20 @@ class Matter_Session : Matter_Expirable
 
     for k:values.keys()
       var v = values[k]
-      if   k == "counter_rcv"     self.counter_rcv.reset(int(v))
-      elif k == "counter_snd"     self.counter_snd.reset(int(v))
-      else
-        # standard values
-        if type(v) == 'string'
-          if string.find(v, "0x") == 0  # treat as bytes
-            introspect.set(self, k, bytes().fromhex(v[2..]))
-          elif string.find(v, "$$") == 0  # treat as bytes
-            introspect.set(self, k, bytes().fromb64(v[2..]))
-          else
-            introspect.set(self, k, v)
-          end
+      # standard values
+      if type(v) == 'string'
+        if string.find(v, "0x") == 0  # treat as bytes
+          introspect.set(self, k, bytes().fromhex(v[2..]))
+        elif string.find(v, "$$") == 0  # treat as bytes
+          introspect.set(self, k, bytes().fromb64(v[2..]))
         else
           introspect.set(self, k, v)
         end
+      else
+        introspect.set(self, k, v)
       end
     end
-
+    self.hydrate_post()
     return self
   end
 
@@ -586,6 +665,20 @@ class Matter_Session_Store
   end
 
   #############################################################
+  # remove fabric
+  def remove_fabric(fabric)
+    var idx = 0
+    while idx < size(self.sessions)
+      if self.sessions[idx]._fabric == fabric
+        self.sessions.remove(idx)
+      else
+        idx += 1
+      end
+    end
+    self.fabrics.remove(self.fabrics.find(fabric))     # fail safe
+  end
+
+  #############################################################
   # Remove redudant fabric
   #
   # remove all other fabrics that have the same:
@@ -616,6 +709,22 @@ class Matter_Session_Store
   def count_active_fabrics()
     self.remove_expired()      # clean before
     return self.fabrics.count_persistables()
+  end
+
+  #############################################################
+  # Next fabric-idx
+  #
+  # starts at `1`, computes the next available fabric-idx
+  def next_fabric_idx()
+    self.remove_expired()      # clean before
+    var next_idx = 1
+    for fab: self.active_fabrics()
+      var fab_idx = fab.fabric_index
+      if type(fab_idx) == 'int' && fab_idx >= next_idx
+        next_idx = fab_idx + 1
+      end
+    end
+    return next_idx
   end
 
   #############################################################
@@ -661,7 +770,7 @@ class Matter_Session_Store
     var sessions = self.sessions
     while i < sz
       var session = sessions[i]
-      if session.source_node_id == nodeid
+      if session._source_node_id == nodeid
         session.update()
         return session
       end
@@ -720,10 +829,10 @@ class Matter_Session_Store
     var session = self.get_session_by_source_node_id(source_node_id)
     if session == nil
       session = matter.Session(self, 0, 0)
-      session.source_node_id = source_node_id
+      session._source_node_id = source_node_id
       self.sessions.push(session)
+      session.set_expire_in_seconds(expire)
     end
-    session.set_expire_in_seconds(expire)
     session.update()
     return session
   end
@@ -731,12 +840,15 @@ class Matter_Session_Store
   #############################################################
   # find session by resumption id
   def find_session_by_resumption_id(resumption_id)
+    import string
     if !resumption_id  return nil end
     var i = 0
     var sessions = self.sessions
     while i < size(sessions)
       var session = sessions[i]
+      tasmota.log(string.format("MTR: session.resumption_id=%s vs %s", str(session.resumption_id), str(resumption_id)))
       if session.resumption_id == resumption_id && session.shared_secret != nil
+        tasmota.log(string.format("MTR: session.shared_secret=%s", str(session.shared_secret)))
         session.update()
         return session
       end
@@ -781,7 +893,7 @@ class Matter_Session_Store
       var f = open(self._FABRICS, "w")
       f.write(fabs)
       f.close()
-      tasmota.log(string.format("MTR: Saved %i fabric(s) and %i session(s)", fabs_size, sessions_saved), 2)
+      tasmota.log(string.format("MTR: =Saved     %i fabric(s) and %i session(s)", fabs_size, sessions_saved), 2)
     except .. as e, m
       tasmota.log("MTR: Session_Store::save Exception:" + str(e) + "|" + str(m), 2)
     end

@@ -51,6 +51,7 @@
 #define D_DECIMAL_SEPARATOR ","
 
 // Common
+#define D_ABSOLUTE_HUMIDITY "Abs Humidity"
 #define D_ADMIN "Admin"
 #define D_AIR_QUALITY "Kvalita vzduchu"
 #define D_AP "AP"                    // Access Point
@@ -133,6 +134,7 @@
 #define D_MULTI_PRESS "multi-stlačenie"
 #define D_NOISE "Hluk"
 #define D_NONE "Žiadny"
+#define D_NOX "NOx"
 #define D_O2 "Oxygen"
 #define D_OFF "Vyp."
 #define D_OFFLINE "Neaktívny"
@@ -201,6 +203,7 @@
 #define D_UV_LEVEL "úroveň UV"
 #define D_UV_POWER "UV Power"
 #define D_VERSION "Verzia"
+#define D_VOC "VOC"
 #define D_VOLTAGE "Napätie"
 #define D_VOLUME "Volume"
 #define D_WEIGHT "Hmotnosť"
@@ -925,6 +928,7 @@
 #define D_SENSOR_BIOPDU_PZEM0XX_TX "BioPDU PZEM0XX Tx"
 #define D_SENSOR_BIOPDU_PZEM016_RX "BioPDU PZEM016 Rx"
 #define D_SENSOR_BIOPDU_BIT    "BioPDU Bit"
+#define D_SENSOR_LOX_O2_RX     "LoxO2 RX"
 
 // Units
 #define D_UNIT_AMPERE "A"
@@ -938,6 +942,7 @@
 #define D_UNIT_GALLONS "gal"
 #define D_UNIT_GALLONS_PER_MIN "g/m"
 #define D_UNIT_KILOGRAM "kg"
+#define D_UNIT_GRAM_PER_CUBIC_METER "g/m³"
 #define D_UNIT_INCH_MERCURY "inHg"
 #define D_UNIT_INCREMENTS "inc"
 #define D_UNIT_KELVIN "K"

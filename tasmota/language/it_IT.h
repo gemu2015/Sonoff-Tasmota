@@ -28,7 +28,7 @@
  * Use online command StateText to translate ON, OFF, HOLD and TOGGLE.
  * Use online command Prefix to translate cmnd, stat and tele.
  *
- * Updated until v9.4.0.1 - Last update 04.02.2023
+ * Updated until v9.4.0.1 - Last update 06.04.2023
 \*********************************************************************/
 
 #define LANGUAGE_MODULE_NAME         // Enable to display "Module Generic" (ie Spanish), Disable to display "Generic Module" (ie English)
@@ -51,6 +51,7 @@
 #define D_DECIMAL_SEPARATOR "."
 
 // Common
+#define D_ABSOLUTE_HUMIDITY    "Umidità ass"
 #define D_ADMIN                "Admin"
 #define D_AIR_QUALITY          "Qualità dell'aria"
 #define D_AP                   "AP"                   // Access Point
@@ -133,6 +134,7 @@
 #define D_MULTI_PRESS          "multi-pressione"
 #define D_NOISE                "Rumore"
 #define D_NONE                 "Nessuno"
+#define D_NOX                  "NOx"
 #define D_O2                   "Ossigeno"
 #define D_OFF                  "OFF"
 #define D_OFFLINE              "Offline"
@@ -201,6 +203,7 @@
 #define D_UV_LEVEL             "Livello UV"
 #define D_UV_POWER             "Intensità UV"
 #define D_VERSION              "Versione"
+#define D_VOC                  "VOC"
 #define D_VOLTAGE              "Tensione"
 #define D_VOLUME               "Volume"
 #define D_WEIGHT               "Peso"
@@ -925,6 +928,7 @@
 #define D_SENSOR_BIOPDU_PZEM0XX_TX      "BioPDU PZEM0XX - TX"
 #define D_SENSOR_BIOPDU_PZEM016_RX      "BioPDU PZEM016 - RX"
 #define D_SENSOR_BIOPDU_BIT             "BioPDU Bit"
+#define D_SENSOR_LOX_O2_RX              "LoxO2 - RX"
 
 // Units
 #define D_UNIT_AMPERE                     "A"
@@ -937,6 +941,7 @@
 #define D_UNIT_HOUR                       "o"
 #define D_UNIT_GALLONS                    "gal"
 #define D_UNIT_GALLONS_PER_MIN            "g/m"
+#define D_UNIT_GRAM_PER_CUBIC_METER       "g/m³"
 #define D_UNIT_INCH_MERCURY               "inHg"
 #define D_UNIT_INCREMENTS                 "inc"
 #define D_UNIT_KELVIN                     "K"
