@@ -3616,7 +3616,9 @@ uint16_t sml_swap(uint16_t in) {
 void sml_tcp_send(uint32_t meter, uint8_t *sbuff, uint16_t slen) {
 MODBUS_TCP_HEADER tcph;
 
-  tcph.T_ID = sml_swap(0x1234);
+  //tcph.T_ID = sml_swap(0x1234);
+  tcph.T_ID = random(0xffff);
+
   tcph.P_ID = 0;
   tcph.SIZE = sml_swap(6);
   tcph.U_ID = *sbuff;
