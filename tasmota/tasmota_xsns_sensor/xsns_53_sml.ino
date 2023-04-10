@@ -3170,7 +3170,7 @@ next_line:
 
 #endif  // ESP32
 
-        SerialConfig smode = SERIAL_8N1;
+        uint32_t smode = SERIAL_8N1;
 
         if (mp->sopt & 0xf0) {
           // new serial config
@@ -3206,7 +3206,7 @@ next_line:
           mp->meter_ss->flush();
         }
         if (mp->meter_ss->hardwareSerial()) {
-          Serial.begin(mp->params, smode);
+          Serial.begin(mp->params, (SerialConfig)smode);
           ClaimSerial();
           //Serial.setRxBufferSize(512);
         }
@@ -3321,7 +3321,7 @@ uint32_t SML_Write(int32_t meter, char *hstr) {
     hstr++;
     // currently only 8 bits and ignore stopbits
     hstr++;
-    SerialConfig smode;
+    uint32_t smode;
     switch (*hstr) {
       case 'N':
         smode = SERIAL_8N1;
@@ -3335,7 +3335,7 @@ uint32_t SML_Write(int32_t meter, char *hstr) {
     }
 
 #ifdef ESP8266
-    Serial.begin(baud, smode);
+    Serial.begin(baud, (SerialConfig)smode);
 #else
     meter_desc[meter].meter_ss->begin(baud, smode, sml_globs.mp[meter].srcpin, sml_globs.mp[meter].trxpin);
 #endif
