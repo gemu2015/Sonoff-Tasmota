@@ -2449,6 +2449,7 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, TS_FLOAT *fp, char *
       // isnumber
         if (fp) {
           if (*lp == '0' && *(lp + 1) == 'x') {
+
             lp += 2;
             *fp = strtoll(lp, &lp, 16);
           } else {
@@ -2465,6 +2466,8 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, TS_FLOAT *fp, char *
         *vtype = NUM_RES;
         return lp;
     }
+
+
 
     if (*lp == '"') {
       lp++;
@@ -2521,6 +2524,7 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, TS_FLOAT *fp, char *
       olen = strlen(dvnam);
     }
 
+
     glob_script_mem.arres = 0;
     for (count = 0; count < glob_script_mem.numvars; count++) {
         char *cp = glob_script_mem.glob_vnp + glob_script_mem.vnp_offset[count];
@@ -2557,6 +2561,7 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, TS_FLOAT *fp, char *
             }
         }
     }
+
 
 #define USE_SCRIPT_JSON
 //#define USE_SCRIPT_FULL_JSON_PARSER
@@ -3732,7 +3737,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
                 }
               } else {
                 // preserve mqtt_data
-                char *mqd = (char*)malloc(ResponseSize()+2);
+                char *mqd = (char*)malloc(ResponseSize() + 2);
                 if (mqd) {
                   strlcpy(mqd, ResponseData(), ResponseSize());
                   wd = mqd;
@@ -11305,9 +11310,22 @@ int32_t call2pwl(const char *url) {
   result.replace("instant", "i");
   result.replace("apparent", "a");
   result.replace("reactive", "r");
+
+// custom replace
+#ifdef TESLA_POWERWALL_ID
+  result.replace(TESLA_POWERWALL_ID, "PWL");
+#endif
+
   if (result.length()>4095) {
     AddLog(LOG_LEVEL_INFO, PSTR("PWL: result overflow: %d"), result.length());
   }
+
+
+#ifdef MQTT_DATA_STRING
+  TasmotaGlobal.mqtt_data = result;
+#else
+  strncpy(TasmotaGlobal.mqtt_data, result.c_str(), MESSZ);
+#endif
 
   // meter aggregates has also too many tokens
   char *cp = (char*)result.c_str();
