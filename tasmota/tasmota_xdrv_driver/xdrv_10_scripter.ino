@@ -11312,8 +11312,12 @@ int32_t call2pwl(const char *url) {
   result.replace("reactive", "r");
 
 // custom replace
-#ifdef TESLA_POWERWALL_ID
-  result.replace(TESLA_POWERWALL_ID, "PWL");
+#ifdef TESLA_POWERWALL_CTS1
+  result.replace(TESLA_POWERWALL_CTS1, "PW_CTS1");
+#endif
+
+#ifdef TESLA_POWERWALL_CTS2
+  result.replace(TESLA_POWERWALL_CTS2, "PW_CTS2");
 #endif
 
   if (result.length()>4095) {
