@@ -3027,6 +3027,10 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto nfuncexit;
         }
 #endif
+        if (!strncmp_XP(vname, XPSTR("ctper"), 5)) {
+          fvar = TasmotaGlobal.tele_period;
+          goto exit;
+        }
         break;
       case 'd':
         if (!strncmp_XP(vname, XPSTR("day"), 3)) {
@@ -6094,6 +6098,24 @@ extern "C" {
 }
 
 #endif // USE_HOMEKIT
+
+
+bool is_int_var(char *name) {
+uint8_t vtype;
+struct T_INDEX ind;
+
+  isvar(name, &vtype, &ind, 0, 0, 0);
+
+  if (vtype != VAR_NV) {
+    if (vtype == NUM_RES || (vtype & STYPE) == 0) {
+      // numeric result
+      if (ind.bits.integer) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 // replace vars in cmd %var%
 void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dstsize) {
@@ -9678,6 +9700,11 @@ void Script_Check_HTML_Setvars(void) {
     *cp1 = '=';
     cp1++;
 
+    if (is_int_var(vname)) {
+      memmove(cp1 + 1, cp1, strlen(cp1));
+      *cp1++ = '#';
+    }
+
     struct T_INDEX ind;
     uint8_t vtype;
     isvar(vname, &vtype, &ind, 0, 0, 0);
@@ -10405,6 +10432,8 @@ const char *gc_str;
       char vname[16];
       ScriptGetVarname(vname, slp, sizeof(vname));
 
+      bool isint = is_int_var(vname);
+
       char label[SCRIPT_MAXSSIZE];
       lp = GetStringArgument(lp, OPER_EQU, label, 0);
       SCRIPT_SKIP_SPACES
@@ -10422,10 +10451,17 @@ const char *gc_str;
       }
 
       char vstr[16],minstr[16],maxstr[16],stepstr[16];
-      dtostrfd(val, dprec, vstr);
-      dtostrfd(min, dprec, minstr);
-      dtostrfd(max, dprec, maxstr);
-      dtostrfd(step, dprec, stepstr);
+      if (isint) {
+        dtostrfd(*(int32_t*)&val, 0, vstr);
+        dtostrfd(*(int32_t*)&min, dprec, minstr);
+        dtostrfd(*(int32_t*)&max, dprec, maxstr);
+        dtostrfd(*(int32_t*)&step, dprec, stepstr);
+      } else {
+        dtostrfd(val, dprec, vstr);
+        dtostrfd(min, dprec, minstr);
+        dtostrfd(max, dprec, maxstr);
+        dtostrfd(step, dprec, stepstr);
+      }
       WCS_DIV(specopt);
       WSContentSend_P(SCRIPT_MSG_NUMINP, center, label, minstr, maxstr, stepstr, vstr, tsiz, vname);
       WCS_DIV(specopt | WSO_STOP_DIV);
