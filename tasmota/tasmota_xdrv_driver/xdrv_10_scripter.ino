@@ -2301,6 +2301,33 @@ uint32_t match_vars(char *dvnam, TS_FLOAT **fp, char **sp, uint32_t *ind) {
 #define SCRIPT_IS_STRING_MAXSIZE 256
 #endif
 
+
+void script_sort_string_array(uint8_t num) {
+  uint16_t sasize = glob_script_mem.si_num[num];
+  char *sa = glob_script_mem.last_index_string[num];
+  if (!sa) {
+    return;
+  }
+  char temp[SCRIPT_MAXSSIZE];
+  bool swapped;
+  do {
+    swapped = false;
+    for (uint16_t i = 0; i < sasize - 1; ++i) {
+      char *s1 = sa + (i * glob_script_mem.max_ssize);
+      char *s2 = sa + ((i + 1) * glob_script_mem.max_ssize);
+      if (strcmp(s1, s2) > 0) {
+        // swap
+        strcpy(temp, s1);
+        strcpy(s1, s2);
+        strcpy(s2, temp);
+        swapped = true;
+      }
+    }
+    sasize -= 1;
+  } while (swapped);
+}
+
+
 char *isargs(char *lp, uint32_t isind) {
   TS_FLOAT fvar;
   lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
@@ -2336,11 +2363,11 @@ char *isargs(char *lp, uint32_t isind) {
       glob_script_mem.si_num[isind] = MAX_SARRAY_NUM;
     }
 
-    glob_script_mem.last_index_string[isind] = (char*)calloc(glob_script_mem.max_ssize*glob_script_mem.si_num[isind], 1);
-    for (uint32_t cnt = 0; cnt<glob_script_mem.siro_num[isind]; cnt++) {
+    glob_script_mem.last_index_string[isind] = (char*)calloc(glob_script_mem.max_ssize * glob_script_mem.si_num[isind], 1);
+    for (uint32_t cnt = 0; cnt < glob_script_mem.siro_num[isind]; cnt++) {
       char str[SCRIPT_MAXSSIZE];
       GetTextIndexed(str, sizeof(str), cnt, sstart);
-      strlcpy(glob_script_mem.last_index_string[isind] + (cnt*glob_script_mem.max_ssize), str,glob_script_mem.max_ssize);
+      strlcpy(glob_script_mem.last_index_string[isind] + (cnt * glob_script_mem.max_ssize), str, glob_script_mem.max_ssize);
     }
   } else {
     glob_script_mem.last_index_string[isind] = sstart;
@@ -2395,8 +2422,8 @@ TS_FLOAT fvar;
         GetTextIndexed(str, sizeof(str), index , glob_script_mem.last_index_string[isind]);
       }
     } else {
-      if (index > glob_script_mem.si_num[isind]) {
-        index = glob_script_mem.si_num[isind];
+      if (index >= glob_script_mem.si_num[isind]) {
+        index = glob_script_mem.si_num[isind] - 1;
       }
       strlcpy(str,glob_script_mem.last_index_string[isind] + (index * glob_script_mem.max_ssize), glob_script_mem.max_ssize);
     }
@@ -2792,6 +2819,19 @@ chknext:
           }
           memcpy(fpd, fps, alend * sizeof(TS_FLOAT));
           fvar = alend;
+          goto nfuncexit;
+        }
+
+        if (!strncmp_XP(lp, XPSTR("as("), 3)) {
+          uint16_t alen;
+          TS_FLOAT *fa;
+          lp = get_array_by_name(lp + 3, &fa, &alen, 0);
+          if (!fa) {
+            fvar = -1;
+            goto exit;
+          }
+          script_sort_array(fa, alen);
+          fvar = 0;
           goto nfuncexit;
         }
 
@@ -5203,6 +5243,15 @@ extern char *SML_GetSVal(uint32_t index);
 
 #endif //USE_SCRIPT_SERIAL
 
+        if (!strncmp_XP(lp, XPSTR("sas("), 4)) {
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
+          if (fvar < 1 || fvar > 3) {
+            fvar = 1;
+          }
+          script_sort_string_array(fvar - 1);
+          goto nfuncexit;
+        }
+
 #ifdef USE_SCRIPT_SPI
         if (!strncmp_XP(lp, XPSTR("spi("), 4)) {
           lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
@@ -7542,12 +7591,17 @@ struct SCRIPT_ONEWIRE {
 
 uint32_t Script_OW(uint8_t sel, uint8_t val) {
 uint8_t res = 0;
+uint8_t bits;
 
   if (sel >= 10 && sel <= 18) {
       if (val < 1 || val > MAX_DS_SENSORS) {
         val = 1;
       }
     return script_ow.ds_address[val - 1][sel - 10];
+  }
+
+  if (sel > 0 && script_ow.ds == nullptr) {
+    return 0xffff;
   }
 
   switch (sel) {
@@ -7564,8 +7618,7 @@ uint8_t res = 0;
       script_ow.ds->write(val, 1);
       break;
     case 4:
-      res = script_ow.ds->read();
-      return res;
+      return script_ow.ds->read();
       break;
     case 5:
       script_ow.ds->reset_search();
@@ -7574,8 +7627,7 @@ uint8_t res = 0;
       if (val < 1 || val > MAX_DS_SENSORS) {
         val = 1;
       }
-      res = script_ow.ds->search(script_ow.ds_address[val - 1]);
-      return res;    
+      return script_ow.ds->search(script_ow.ds_address[val - 1]);  
       break;
     case 7:
       if (val < 1 || val > MAX_DS_SENSORS) {
@@ -7583,8 +7635,26 @@ uint8_t res = 0;
       }
       script_ow.ds->select(script_ow.ds_address[val - 1]);
       break;
+    case 8:
+      bits = val & 0xc0;
+      val &= 0x3f;
+      if (val < 1 || val > MAX_DS_SENSORS) {
+        val = 1;
+      }
+      script_ow.ds->reset();
+      script_ow.ds->select(script_ow.ds_address[val - 1]);
+      script_ow.ds->write(0xf5, 1);
+      script_ow.ds->write(0x0c, 1);
+      script_ow.ds->write(0xff, 1);
+      res = script_ow.ds->read();
+      script_ow.ds->write(bits, 1);
+      break;
+    case 99:
+      delete script_ow.ds;
+      script_ow.ds = nullptr;
+      break;
   }
-  return 0;
+  return res;
 }
 #endif // USE_SCRIPT_ONEWIRE
 
@@ -7691,6 +7761,25 @@ bool Script_Close_Serial() {
   return false;
 }
 #endif //USE_SCRIPT_SERIAL
+
+
+void script_sort_array(float *array, uint16_t size) {
+  bool swapped;
+  do {
+    swapped = false;
+    for (uint16_t i = 0; i < size - 1; ++i) {
+      if (array[i] > array[i + 1]) {
+        // swap
+        float tmp = array[i];
+        array[i] = array[i + 1];
+        array[i + 1] = tmp;
+        swapped = true;
+      }
+    }
+    size -= 1;
+  } while (swapped);
+}
+
 
 bool Is_gpio_used(uint8_t gpiopin) {
   if (gpiopin >= 0 && (gpiopin < nitems(TasmotaGlobal.gpio_pin)) && (TasmotaGlobal.gpio_pin[gpiopin] > 0)) {
