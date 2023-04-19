@@ -190,6 +190,10 @@ void Script_ticker4_end(void) {
 }
 #endif
 
+#ifdef USE_SCRIPT_ONEWIRE
+#include <OneWire.h>   
+#endif
+
 // EEPROM MACROS
 // i2c eeprom
 #define EEP_WRITE(A,B,C) eeprom_writeBytes(A, B, (uint8_t*)C);
@@ -583,6 +587,7 @@ int32_t opt_fext(File *fp,  char *ts_from, char *ts_to, uint32_t flg);
 int32_t extract_from_file(File *fp,  char *ts_from, char *ts_to, int8_t coffs, TS_FLOAT **a_ptr, uint16_t *a_len, uint8_t numa, int16_t accum);
 #endif
 char *eval_sub(char *lp, TS_FLOAT *fvar, char *rstr);
+uint32_t Script_OW(uint8_t sel, uint8_t val);
 
 void ScriptEverySecond(void) {
 
@@ -4302,6 +4307,21 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         }
         break;
 
+#ifdef USE_SCRIPT_ONEWIRE
+      case 'o':
+        if (!strncmp_XP(vname, XPSTR("owire("), 6)) {
+          lp = GetNumericArgument(lp + 6, OPER_EQU, &fvar, 0);
+          uint8_t sel = fvar;
+          SCRIPT_SKIP_SPACES
+          if (*lp != ')') {
+            lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
+          }
+          fvar = Script_OW(sel, fvar);
+          goto nfuncexit;
+        }
+        break;
+#endif        
+
       case 'p':
         if (!strncmp_XP(lp, XPSTR("pin["), 4)) {
           // raw pin level
@@ -5182,7 +5202,6 @@ extern char *SML_GetSVal(uint32_t index);
 #endif
 
 #endif //USE_SCRIPT_SERIAL
-
 
 #ifdef USE_SCRIPT_SPI
         if (!strncmp_XP(lp, XPSTR("spi("), 4)) {
@@ -7509,6 +7528,66 @@ getnext:
     }
     return -1;
 }
+
+#ifdef USE_SCRIPT_ONEWIRE
+
+#ifndef MAX_DS_SENSORS             
+#define MAX_DS_SENSORS 20
+#endif
+
+struct SCRIPT_ONEWIRE {
+  OneWire *ds;
+  uint8_t ds_address[MAX_DS_SENSORS][8];
+} script_ow;
+
+uint32_t Script_OW(uint8_t sel, uint8_t val) {
+uint8_t res = 0;
+
+  if (sel >= 10 && sel <= 18) {
+      if (val < 1 || val > MAX_DS_SENSORS) {
+        val = 1;
+      }
+    return script_ow.ds_address[val - 1][sel - 10];
+  }
+
+  switch (sel) {
+    case 0:
+      script_ow.ds = new OneWire(val);
+      break;
+    case 1:
+      script_ow.ds->reset();
+      break;
+    case 2:
+      script_ow.ds->skip();
+      break;
+    case 3:
+      script_ow.ds->write(val, 1);
+      break;
+    case 4:
+      res = script_ow.ds->read();
+      return res;
+      break;
+    case 5:
+      script_ow.ds->reset_search();
+      break;
+    case 6:
+      if (val < 1 || val > MAX_DS_SENSORS) {
+        val = 1;
+      }
+      res = script_ow.ds->search(script_ow.ds_address[val - 1]);
+      return res;    
+      break;
+    case 7:
+      if (val < 1 || val > MAX_DS_SENSORS) {
+        val = 1;
+      }
+      script_ow.ds->select(script_ow.ds_address[val - 1]);
+      break;
+  }
+  return 0;
+}
+#endif // USE_SCRIPT_ONEWIRE
+
 
 
 #ifdef USE_SCRIPT_SPI
@@ -10175,7 +10254,7 @@ const char *gc_str;
       lp = GetStringArgument(lp, OPER_EQU, right, 0);
       SCRIPT_SKIP_SPACES
 
-      WSContentSend_P(SCRIPT_MSG_SLIDER, left,mid, right, (uint32_t)min, (uint32_t)max, (uint32_t)val, vname);
+      WSContentSend_P(SCRIPT_MSG_SLIDER, left, mid, right, (uint32_t)min, (uint32_t)max, (uint32_t)val, vname);
       lp++;
 
     } else if (!strncmp(lin, "ck(", 3)) {
@@ -10908,8 +10987,11 @@ exgc:
         WSContentSend_P(PSTR("%s"), lin);
       }
 #else
-      if (!(specopt&WSO_FORCEMAIN)) {
-        lin++;
+
+      if (mc != 'z') {
+        if (!(specopt&WSO_FORCEMAIN)) {
+          lin++;
+        }
       }
       WSContentSend_P(PSTR("%s"), lin);
     } else {
