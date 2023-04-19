@@ -3733,6 +3733,13 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto nfuncexit;
         }
 #endif
+
+        if (!strncmp_XP(lp, XPSTR("f("), 2)) {
+          // convert to float var
+          lp = GetNumericArgument(lp + 2, OPER_EQU, &fvar, gv);
+          fvar = *(uint32_t*)&fvar;
+          goto nfuncexit;
+        }
         break;
 
       case 'g':
@@ -4124,6 +4131,12 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         }
 #endif // USE_I2S_AUDIO
 #endif // ESP32
+        if (!strncmp_XP(lp, XPSTR("i("), 2)) {
+          // convert to integer var
+          lp = GetNumericArgument(lp + 2, OPER_EQU, &fvar, gv);
+          *(uint32_t*)&fvar = fvar;
+          goto nfuncexit;
+        }
         break;
 
 #ifdef ESP32
@@ -7590,7 +7603,7 @@ struct SCRIPT_ONEWIRE {
 } script_ow;
 
 uint32_t Script_OW(uint8_t sel, uint8_t val) {
-uint8_t res = 0;
+uint32_t res = 0;
 uint8_t bits;
 
   if (sel >= 10 && sel <= 18) {
@@ -7648,6 +7661,25 @@ uint8_t bits;
       script_ow.ds->write(0xff, 1);
       res = script_ow.ds->read();
       script_ow.ds->write(bits, 1);
+      break;
+    case 9:
+      bits = val & 0x80;
+      val &= 0x3f;
+      if (val < 1 || val > MAX_DS_SENSORS) {
+        val = 1;
+      }
+     
+      script_ow.ds->reset();
+      script_ow.ds->select(script_ow.ds_address[val - 1]);
+      if (!bits) {
+        script_ow.ds->write(0x44, 1);
+      } else {
+        script_ow.ds->write(0xbe, 1);
+        delay(10);
+        res = script_ow.ds->read();
+        res |= script_ow.ds->read() << 8;
+        script_ow.ds->reset();
+      }
       break;
     case 99:
       delete script_ow.ds;
