@@ -191,7 +191,8 @@ void Script_ticker4_end(void) {
 #endif
 
 #ifdef USE_SCRIPT_ONEWIRE
-#include <OneWire.h>   
+#include <OneWire.h>
+#include <DS2480B.h>
 #endif
 
 // EEPROM MACROS
@@ -587,7 +588,7 @@ int32_t opt_fext(File *fp,  char *ts_from, char *ts_to, uint32_t flg);
 int32_t extract_from_file(File *fp,  char *ts_from, char *ts_to, int8_t coffs, TS_FLOAT **a_ptr, uint16_t *a_len, uint8_t numa, int16_t accum);
 #endif
 char *eval_sub(char *lp, TS_FLOAT *fvar, char *rstr);
-uint32_t Script_OW(uint8_t sel, uint8_t val);
+uint32_t Script_OW(uint8_t sel, uint32_t val);
 
 void ScriptEverySecond(void) {
 
@@ -4373,7 +4374,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto nfuncexit;
         }
         break;
-#endif        
+#endif // USE_SCRIPT_ONEWIRE   
 
       case 'p':
         if (!strncmp_XP(lp, XPSTR("pin["), 4)) {
@@ -7600,10 +7601,12 @@ getnext:
 
 struct SCRIPT_ONEWIRE {
   OneWire *ds;
+  DS2480B *dsh;
+  TasmotaSerial *ts;
   uint8_t ds_address[MAX_DS_SENSORS][8];
 } script_ow;
 
-uint32_t Script_OW(uint8_t sel, uint8_t val) {
+uint32_t Script_OW(uint8_t sel, uint32_t val) {
 uint32_t res = 0;
 uint8_t bits;
 
@@ -7614,40 +7617,78 @@ uint8_t bits;
     return script_ow.ds_address[val - 1][sel - 10];
   }
 
-  if (sel > 0 && script_ow.ds == nullptr) {
+  if (sel > 0 && (script_ow.ds == nullptr && script_ow.dsh == nullptr)) {
     return 0xffff;
   }
 
   switch (sel) {
     case 0:
-      script_ow.ds = new OneWire(val);
+      if (val & 0x8000) {
+        script_ow.ts = new TasmotaSerial(val & 0xff, (val >> 8) & 0xff, 1, 0, 64);
+        if (script_ow.ts) {
+          script_ow.ts->begin(9600);
+          script_ow.dsh = new DS2480B(script_ow.ts);
+        }
+        script_ow.ds = nullptr;
+      } else {
+        script_ow.ds = new OneWire(val);
+        script_ow.dsh = nullptr;
+      }
       break;
     case 1:
-      script_ow.ds->reset();
+      if (script_ow.ds) {
+        script_ow.ds->reset();
+      } else {
+        script_ow.dsh->reset();
+      }
       break;
     case 2:
-      script_ow.ds->skip();
+      if (script_ow.ds) {
+        script_ow.ds->skip();
+      } else {
+        script_ow.dsh->skip();
+      }
       break;
     case 3:
-      script_ow.ds->write(val, 1);
+      if (script_ow.ds) {
+        script_ow.ds->write(val, 1);
+      } else {
+        script_ow.dsh->write(val, 1);
+      }
       break;
     case 4:
-      return script_ow.ds->read();
+      if (script_ow.ds) {
+        return script_ow.ds->read();
+      } else {
+        return script_ow.dsh->read();
+      }
       break;
     case 5:
-      script_ow.ds->reset_search();
+      if (script_ow.ds) {
+        script_ow.ds->reset_search();
+      } else {
+        script_ow.dsh->reset_search();
+      }
       break;
     case 6:
       if (val < 1 || val > MAX_DS_SENSORS) {
         val = 1;
       }
-      return script_ow.ds->search(script_ow.ds_address[val - 1]);  
+      if (script_ow.ds) {
+        return script_ow.ds->search(script_ow.ds_address[val - 1]);
+      } else {
+        return script_ow.dsh->search(script_ow.ds_address[val - 1]);
+      }
       break;
     case 7:
       if (val < 1 || val > MAX_DS_SENSORS) {
         val = 1;
       }
-      script_ow.ds->select(script_ow.ds_address[val - 1]);
+      if (script_ow.ds) {
+        script_ow.ds->select(script_ow.ds_address[val - 1]);
+      } else {
+        script_ow.dsh->select(script_ow.ds_address[val - 1]);
+      }
       break;
     case 8:
       bits = val & 0xc0;
@@ -7655,13 +7696,23 @@ uint8_t bits;
       if (val < 1 || val > MAX_DS_SENSORS) {
         val = 1;
       }
-      script_ow.ds->reset();
-      script_ow.ds->select(script_ow.ds_address[val - 1]);
-      script_ow.ds->write(0xf5, 1);
-      script_ow.ds->write(0x0c, 1);
-      script_ow.ds->write(0xff, 1);
-      res = script_ow.ds->read();
-      script_ow.ds->write(bits, 1);
+      if (script_ow.ds) {
+        script_ow.ds->reset();
+        script_ow.ds->select(script_ow.ds_address[val - 1]);
+        script_ow.ds->write(0xf5, 1);
+        script_ow.ds->write(0x0c, 1);
+        script_ow.ds->write(0xff, 1);
+        res = script_ow.ds->read();
+        script_ow.ds->write(bits, 1);
+      } else {
+        script_ow.dsh->reset();
+        script_ow.dsh->select(script_ow.ds_address[val - 1]);
+        script_ow.dsh->write(0xf5, 1);
+        script_ow.dsh->write(0x0c, 1);
+        script_ow.dsh->write(0xff, 1);
+        res = script_ow.dsh->read();
+        script_ow.dsh->write(bits, 1);
+      }
       break;
     case 9:
       bits = val & 0x80;
@@ -7670,21 +7721,41 @@ uint8_t bits;
         val = 1;
       }
      
-      script_ow.ds->reset();
-      script_ow.ds->select(script_ow.ds_address[val - 1]);
-      if (!bits) {
-        script_ow.ds->write(0x44, 1);
-      } else {
-        script_ow.ds->write(0xbe, 1);
-        delay(10);
-        res = script_ow.ds->read();
-        res |= script_ow.ds->read() << 8;
+      if (script_ow.ds) {
         script_ow.ds->reset();
+        script_ow.ds->select(script_ow.ds_address[val - 1]);
+        if (!bits) {
+          script_ow.ds->write(0x44, 1);
+        } else {
+          script_ow.ds->write(0xbe, 1);
+          delay(10);
+          res = script_ow.ds->read();
+          res |= script_ow.ds->read() << 8;
+          script_ow.ds->reset();
+        }
+      } else {
+        script_ow.dsh->reset();
+        script_ow.dsh->select(script_ow.ds_address[val - 1]);
+        if (!bits) {
+          script_ow.dsh->write(0x44, 1);
+        } else {
+          script_ow.dsh->write(0xbe, 1);
+          delay(10);
+          res = script_ow.dsh->read();
+          res |= script_ow.dsh->read() << 8;
+          script_ow.dsh->reset();
+        }
       }
       break;
     case 99:
-      delete script_ow.ds;
-      script_ow.ds = nullptr;
+      if (script_ow.ds) {
+        delete script_ow.ds;
+        script_ow.ds = nullptr;
+      } else {
+        delete script_ow.dsh;
+        script_ow.dsh = nullptr;
+        delete script_ow.ts;
+      }
       break;
   }
   return res;

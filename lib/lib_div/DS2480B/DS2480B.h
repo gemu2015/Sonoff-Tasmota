@@ -1,5 +1,5 @@
-#ifndef OneWire_h
-#define OneWire_h
+#ifndef DS2480B_h
+#define DS2480B_h
 
 #include <inttypes.h>
 
@@ -10,7 +10,7 @@
 #include "pins_arduino.h"  // for digitalPinToBitMask, etc
 #endif
 
-#include "AltSoftSerial.h"
+#include <TasmotaSerial.h>
 
 // You can exclude certain features from OneWire.  In theory, this
 // might save some space.  In practice, the compiler automatically
@@ -72,7 +72,7 @@
 class DS2480B
 {
   private:
-	AltSoftSerial _port;
+	TasmotaSerial *_port;
 	bool isCmdMode;
 
 #if ONEWIRE_SEARCH
@@ -86,7 +86,7 @@ class DS2480B
   bool waitForReply();
 
   public:
-    DS2480B(AltSoftSerial port);
+    DS2480B(TasmotaSerial *port);
 
 	void begin();
 
