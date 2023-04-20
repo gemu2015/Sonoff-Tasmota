@@ -4693,9 +4693,15 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
               lp++;
             }
           }
+          bool isint = is_int_var(lp);
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           char str[SCRIPT_MAXSSIZE];
-          f2char(fvar, dprec, lzero, str, dsep);
+          if (isint) {
+            double dvar = *(int32_t*)&fvar;
+            f2char(dvar, dprec, lzero, str, dsep);
+          } else {
+            f2char(fvar, dprec, lzero, str, dsep);
+          }
           if (sp) strlcpy(sp, str, glob_script_mem.max_ssize);
           lp++;
           len = 0;
