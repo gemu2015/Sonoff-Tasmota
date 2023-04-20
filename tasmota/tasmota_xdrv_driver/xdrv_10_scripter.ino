@@ -537,10 +537,10 @@ void flt2char(TS_FLOAT num, char *nbuff) {
   dtostrfd(num, glob_script_mem.script_dprec, nbuff);
 }
 
-void f2char(TS_FLOAT num, uint32_t dprec, uint32_t lzeros, char *nbuff, char dsep);
+void f2char(double num, uint32_t dprec, uint32_t lzeros, char *nbuff, char dsep);
 
 // convert float to char with leading zeros
-void f2char(TS_FLOAT num, uint32_t dprec, uint32_t lzeros, char *nbuff, char dsep) {
+void f2char(double num, uint32_t dprec, uint32_t lzeros, char *nbuff, char dsep) {
   dtostrfd(num, dprec, nbuff);
   if (lzeros > 1) {
     // check leading zeros
@@ -4362,8 +4362,8 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 
 #ifdef USE_SCRIPT_ONEWIRE
       case 'o':
-        if (!strncmp_XP(vname, XPSTR("owire("), 6)) {
-          lp = GetNumericArgument(lp + 6, OPER_EQU, &fvar, 0);
+        if (!strncmp_XP(vname, XPSTR("ow("), 3)) {
+          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, 0);
           uint8_t sel = fvar;
           SCRIPT_SKIP_SPACES
           if (*lp != ')') {
@@ -6256,7 +6256,8 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
                   if (vtype == NUM_RES || (vtype & STYPE) == 0) {
                     // numeric result
                     if (ind.bits.integer) {
-                      dtostrfd(*(int32_t*)&fvar, 0, string);
+                      double dval = *(int32_t*)&fvar;
+                      f2char(dval, dprec, lzero, string, dsep);
                     } else {
                       f2char(fvar, dprec, lzero, string, dsep);
                     }
