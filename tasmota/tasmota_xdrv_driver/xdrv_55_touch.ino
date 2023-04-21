@@ -256,7 +256,16 @@ bool XPT2046_Touch_Init(uint16_t CS, int8_t irqpin, uint8_t bus) {
   uint8_t xbus = bus;
   bus &= 1;
  #ifdef ESP32
- if (PinUsed(GPIO_SPI_CLK, bus) && PinUsed(GPIO_SPI_MISO, bus) && PinUsed(GPIO_SPI_MOSI), bus) {
+
+// strange compiler bug !!!
+// this works
+  bool p1 = PinUsed(GPIO_SPI_CLK, bus);
+  bool p2 = PinUsed(GPIO_SPI_MISO, bus);
+  bool p3 = PinUsed(GPIO_SPI_MOSI, bus);
+  if (p1 && p2 && p3) {
+
+// this does not work 
+ //if (PinUsed(GPIO_SPI_CLK, bus) && PinUsed(GPIO_SPI_MISO, bus) && PinUsed(GPIO_SPI_MOSI), bus) {
     // must init SPI with pins
     sclk = Pin(GPIO_SPI_CLK, bus);
     miso = Pin(GPIO_SPI_MISO, bus);
