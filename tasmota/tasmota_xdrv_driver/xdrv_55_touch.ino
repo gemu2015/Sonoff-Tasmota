@@ -253,6 +253,8 @@ bool XPT2046_Touch_Init(uint16_t CS, int8_t irqpin, uint8_t bus) {
   int8_t sclk = -1;
   int8_t mosi = -1;
   int8_t miso = -1;
+  uint8_t xbus = bus;
+  bus &= 1;
  #ifdef ESP32
  if (PinUsed(GPIO_SPI_CLK, bus) && PinUsed(GPIO_SPI_MISO, bus) && PinUsed(GPIO_SPI_MOSI), bus) {
     // must init SPI with pins
@@ -271,7 +273,7 @@ bool XPT2046_Touch_Init(uint16_t CS, int8_t irqpin, uint8_t bus) {
  }
  #endif // ESP8266
 
-  XPT2046_touchp = new XPT2046_Touchscreen(CS, irqpin, bus, sclk, miso, mosi);
+  XPT2046_touchp = new XPT2046_Touchscreen(CS, irqpin, xbus, sclk, miso, mosi);
   XPT2046_found = XPT2046_touchp->begin();
   if (XPT2046_found) {
 	   AddLog(LOG_LEVEL_INFO, PSTR("TS: XPT2046"));

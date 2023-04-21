@@ -392,11 +392,10 @@ int8_t cs;
 #ifdef USE_XPT2046
     cp = strstr(ddesc, ":TS,");
     if (cp) {
-      cp+=4;
+      cp += 4;
       uint8_t touch_cs = replacepin(&cp, Pin(GPIO_XPT2046_CS));
       int8_t irqpin = -1;
-      if (*cp == ',') {
-        cp++;
+      if (*(cp - 1) == ',') {
         irqpin = strtol(cp, &cp, 10);
       }
       uint8_t bus = 1;
