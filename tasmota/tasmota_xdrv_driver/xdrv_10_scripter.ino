@@ -46,11 +46,10 @@ keywords if then else endif, or, and are better readable for beginners (others m
 #ifndef TS_FLOAT
 #define TS_FLOAT float
 #endif
-
-
 // float = 4, double = 8 bytes
 
-const uint8_t SCRIPT_VERS[2] = {5, 1};
+
+const uint8_t SCRIPT_VERS[2] = {5, 2};
 
 #define SCRIPT_DEBUG 0
 
