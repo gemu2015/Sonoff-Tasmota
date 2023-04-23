@@ -149,7 +149,9 @@ uint8_t DS2480B::reset(void)
 
 	_port->write(0xC1);
 	//proper return is 0xCD otherwise something was wrong
-	while (!_port->available());
+	//while (!_port->available());
+   if (!waitForReply()) return true;
+
 	r = _port->read();
 	if (r == 0xCD) return 1;
 	return 0;
@@ -184,11 +186,12 @@ void DS2480B::endTransaction()
 	commandMode();
 }
 
-bool DS2480B::waitForReply()
-{
-	for (uint16_t i = 0; i < 30000; i++)
-	{
+#define DS2480_DELAY 50
+
+bool DS2480B::waitForReply() {
+	for (uint16_t i = 0; i < DS2480_DELAY; i++) {
 		if (_port->available()) return true;
+      delay(1);
 	}
 	return false;
 }

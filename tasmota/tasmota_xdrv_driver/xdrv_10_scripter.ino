@@ -7629,10 +7629,12 @@ uint8_t bits;
   switch (sel) {
     case 0:
       if (val & 0x8000) {
-        script_ow.ts = new TasmotaSerial(val & 0xff, (val >> 8) & 0xff, 1, 0, 64);
+        val &= 0x7fff;
+        script_ow.ts = new TasmotaSerial(val & 0xff, (val >> 8) & 0x7f, 1, 0, 64);
         if (script_ow.ts) {
           script_ow.ts->begin(9600);
           script_ow.dsh = new DS2480B(script_ow.ts);
+          script_ow.dsh->begin();
         }
         script_ow.ds = nullptr;
       } else {
@@ -7761,6 +7763,9 @@ uint8_t bits;
         script_ow.dsh = nullptr;
         delete script_ow.ts;
       }
+      break;
+    case 98:
+      script_ow.ts->write(val);
       break;
   }
   return res;
@@ -12256,6 +12261,9 @@ bool Xdrv10(uint32_t function)
     case FUNC_INIT:
 
       //bitWrite(Settings->rule_enabled, 0, 0); // >>>>>>>>>>>
+#ifndef NO_SCRIPT_STOP_ON_ERROR
+      bitWrite(Settings->rule_stop, 0, 1);
+#endif
 
       // set defaults to rules memory
       //bitWrite(Settings->rule_enabled,0,0);
