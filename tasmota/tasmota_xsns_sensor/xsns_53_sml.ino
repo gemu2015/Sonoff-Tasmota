@@ -3215,7 +3215,9 @@ next_line:
         if (mp->meter_ss->hardwareSerial()) {
           Serial.begin(mp->params, (SerialConfig)smode);
           ClaimSerial();
-          //Serial.setRxBufferSize(512);
+          if (mp->so_flags.SO_TRX_INVERT) {
+            U0C0 = U0C0 | BIT(UCRXI) | BIT(UCTXI); // Inverse RX, TX
+          }
         }
 #endif  // ESP8266
 
