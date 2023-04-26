@@ -528,6 +528,11 @@ struct SCRIPT_MEM {
     char *hstr;
 #endif
 
+#ifdef USE_SCRIPT_I2C
+    uint8_t script_i2c_addr;
+    TwoWire *script_i2c_wire;
+#endif
+
 } glob_script_mem;
 
 
@@ -11769,36 +11774,38 @@ void cpy2lf(char *dst, uint32_t dstlen, char *src) {
 }
 
 #ifdef USE_SCRIPT_I2C
-uint8_t script_i2c_addr;
-TwoWire *script_i2c_wire;
 uint32_t script_i2c(uint8_t sel, uint16_t val, uint32_t val1) {
   uint32_t rval = 0;
   uint8_t bytes = 1;
 
+  if (sel > 0) {
+    if (!glob_script_mem.script_i2c_wire) return 0;
+  }
+
   switch (sel) {
     case 0:
-      script_i2c_addr = val;
+      glob_script_mem.script_i2c_addr = val;
 #ifdef ESP32
-      if (val1 == 0) script_i2c_wire = &Wire;
-      else script_i2c_wire = &Wire1;
+      if (val1 == 0) glob_script_mem.script_i2c_wire = &Wire;
+      else glob_script_mem.script_i2c_wire = &Wire1;
 #else
-      script_i2c_wire = &Wire;
+      glob_script_mem.script_i2c_wire = &Wire;
 #endif
-      script_i2c_wire->beginTransmission(script_i2c_addr);
-      return (0 == script_i2c_wire->endTransmission());
+      glob_script_mem.script_i2c_wire->beginTransmission(glob_script_mem.script_i2c_addr);
+      return (0 == glob_script_mem.script_i2c_wire->endTransmission());
       break;
     case 2:
       // read 1..4 bytes
       if ((val & 0x8000) == 0) {
-        script_i2c_wire->beginTransmission(script_i2c_addr);
-        script_i2c_wire->write(val);
-        script_i2c_wire->endTransmission();
+        glob_script_mem.script_i2c_wire->beginTransmission(glob_script_mem.script_i2c_addr);
+        glob_script_mem.script_i2c_wire->write(val);
+        glob_script_mem.script_i2c_wire->endTransmission();
       }
-      script_i2c_wire->requestFrom((int)script_i2c_addr, (int)val1);
+      glob_script_mem.script_i2c_wire->requestFrom((int)glob_script_mem.script_i2c_addr, (int)val1);
 
       for (uint8_t cnt = 0; cnt < val1; cnt++) {
         rval <<= 8;
-        rval |= (uint8_t)script_i2c_wire->read();
+        rval |= (uint8_t)glob_script_mem.script_i2c_wire->read();
       }
       break;
 
@@ -11808,23 +11815,23 @@ uint32_t script_i2c(uint8_t sel, uint16_t val, uint32_t val1) {
     case 13:
       // write 1 .. 4 bytes
       bytes = sel - 9;
-      script_i2c_wire->beginTransmission(script_i2c_addr);
+      glob_script_mem.script_i2c_wire->beginTransmission(glob_script_mem.script_i2c_addr);
       if ((val & 0x8000) == 0) {
-        script_i2c_wire->write(val);
+        glob_script_mem.script_i2c_wire->write(val);
       }
       if ((val & 0x4000) == 0) {
         for (uint8_t cnt = 0; cnt < bytes; cnt++) {
-          script_i2c_wire->write(val1);
+          glob_script_mem.script_i2c_wire->write(val1);
           val1 >>= 8;
         }
       } else {
         uint32_t wval = 0;
         for (uint8_t cnt = 0; cnt < bytes; cnt++) {
           wval = val1 >> ((bytes - 1 - cnt) * 8);
-          script_i2c_wire->write(wval);
+          glob_script_mem.script_i2c_wire->write(wval);
         }
       }
-      script_i2c_wire->endTransmission();
+      glob_script_mem.script_i2c_wire->endTransmission();
       break;
 
   }
