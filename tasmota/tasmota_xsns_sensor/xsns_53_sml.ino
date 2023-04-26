@@ -4001,12 +4001,14 @@ bool Xsns53(uint32_t function) {
         SML_Init();
         break;
       case FUNC_LOOP:
-        if (sml_globs.ready) {
-          SML_Counter_Poll();
-          if (sml_globs.dump2log) {
-            dump2log();
-          } else {
-            SML_Poll();
+        if (bitRead(Settings->rule_enabled, 0)) {
+          if (sml_globs.ready) {
+            SML_Counter_Poll();
+            if (sml_globs.dump2log) {
+              dump2log();
+            } else {
+              SML_Poll();
+            }
           }
         }
         break;
