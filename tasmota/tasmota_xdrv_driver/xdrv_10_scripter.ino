@@ -503,6 +503,7 @@ struct SCRIPT_MEM {
     char *web_pages[10];
     uint32_t script_lastmillis;
     bool event_handeled = false;
+    bool res_ivar = false;
 #ifdef USE_BUTTON_EVENT
     int8_t script_button[MAX_KEYS];
 #endif //USE_BUTTON_EVENT
@@ -4086,7 +4087,11 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           // arg2
           TS_FLOAT fvar2;
           lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
-          fvar = script_i2c(9 + bytes, fvar, fvar2);
+          if (glob_script_mem.res_ivar) {
+            fvar = script_i2c(9 + bytes, fvar, *(uint32_t*)&fvar2);
+          } else {
+            fvar = script_i2c(9 + bytes, fvar, fvar2);
+          }
           goto nfuncexit;
         }
         if (!strncmp_XP(lp, XPSTR("ir"), 2)) {
@@ -4099,7 +4104,12 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
             lp++;
           }
           lp = GetNumericArgument(lp + 1, OPER_EQU, &fvar, gv);
-          fvar = script_i2c(2, fvar, bytes);
+          if (glob_script_mem.res_ivar) {
+            uint32_t intres = script_i2c(2, fvar, bytes);
+            (*(uint32_t*)&fvar) = intres;
+          } else {
+            fvar = script_i2c(2, fvar, bytes);
+          }
           goto nfuncexit;
         }
 #endif // USE_SCRIPT_I2C
@@ -7262,6 +7272,7 @@ getnext:
                       } else {
                         dfvar = &glob_script_mem.fvars[index];
                         sysv_type = 0;
+                        glob_script_mem.res_ivar = ind.bits.integer;
                       }
                       numeric = 1;
                       SCRIPT_SKIP_SPACES
