@@ -3345,6 +3345,13 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           uint8_t find = fvar;
           if (find >= SFS_MAX) find = SFS_MAX - 1;
+          while (*lp == ' ') lp++;
+          uint8_t options = 0;
+          if (*lp != ')') {
+              // options
+             lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
+             options = fvar;
+          }
           uint8_t index = 0;
           char str[SCRIPT_MAXSSIZE];
           char *cp = str;
@@ -3375,9 +3382,12 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
               while (glob_script_mem.files[find].available()) {
                 uint8_t buf[1];
                 glob_script_mem.files[find].read(buf,1);
-                if (buf[0] == '\t' || buf[0] == ',' || buf[0] == '\n' || buf[0] == '\r') {
+                if (!options && (buf[0] == '\t' || buf[0] == ',' || buf[0] == '\n' || buf[0] == '\r')) {
                   break;
                 } else {
+                  if (options && (buf[0] == '\n' || buf[0] == '\r')) {
+                    break;
+                  }
                   *cp++ = buf[0];
                   index++;
                   if (index >= glob_script_mem.max_ssize - 1) break;
