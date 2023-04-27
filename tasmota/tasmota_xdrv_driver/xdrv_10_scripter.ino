@@ -5951,8 +5951,8 @@ int32_t script_logfile_write(char *path, char *payload, uint32_t size) {
       
       uint32_t fsize = rfd.size();
       // append string
-      rfd.write(payload, strlen(payload));
-      rfd.write("\n", 1);
+      rfd.write((uint8_t*)payload, strlen(payload));
+      rfd.write((uint8_t*)"\n", 1);
       if (fsize < size) {
         rfd.close();
         return fsize;
@@ -5965,8 +5965,8 @@ int32_t script_logfile_write(char *path, char *payload, uint32_t size) {
       }
       while (rfd.available()) {
         line = rfd.readStringUntil('\n');
-        wfd.write((char*)line.c_str(), line.length());
-        wfd.write("\n", 1);
+        wfd.write((uint8_t*)line.c_str(), line.length());
+        wfd.write((uint8_t*)"\n", 1);
       }
       rfd.close();
       wfd.close();
