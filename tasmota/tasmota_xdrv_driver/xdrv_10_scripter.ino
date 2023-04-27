@@ -611,6 +611,7 @@ int32_t extract_from_file(File *fp,  char *ts_from, char *ts_to, int8_t coffs, T
 #endif
 char *eval_sub(char *lp, TS_FLOAT *fvar, char *rstr);
 uint32_t script_ow(uint8_t sel, uint32_t val);
+int32_t script_logfile_write(char *path, char *payload, uint32_t size);
 
 void ScriptEverySecond(void) {
 
@@ -4253,6 +4254,19 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto nfuncexit;
         }
 #endif // USE_LVGL
+
+#ifdef USE_SCRIPT_FATFS_EXT
+        if (!strncmp_XP(lp, XPSTR("lfw("), 4)) {
+          char path[SCRIPT_MAXSSIZE];
+          lp = GetStringArgument(lp + 4, OPER_EQU, path, 0);
+          char payload[SCRIPT_MAXSSIZE];
+          lp = GetStringArgument(lp, OPER_EQU, payload, 0);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
+          // write to logfile
+          fvar = script_logfile_write(path, payload, fvar);
+          goto nfuncexit;
+        }
+#endif // USE_SCRIPT_FATFS_EXT
         break;
       case 'm':
         if (!strncmp_XP(lp, XPSTR("med("), 4)) {
@@ -5927,6 +5941,41 @@ char *getop(char *lp, uint8_t *operand) {
     return lp;
 }
 
+#ifdef USE_SCRIPT_FATFS_EXT
+int32_t script_logfile_write(char *path, char *payload, uint32_t size) {
+  
+      File rfd = ufsp->open(path, FS_FILE_APPEND);
+      if (rfd == 0) {
+        return -1;
+      }
+      
+      uint32_t fsize = rfd.size();
+      // append string
+      rfd.write(payload, strlen(payload));
+      rfd.write("\n", 1);
+      if (fsize < size) {
+        rfd.close();
+        return fsize;
+      }
+      rfd.seek(0, SeekSet);
+      String line = rfd.readStringUntil('\n');
+      File wfd = ufsp->open("/ltmp", FS_FILE_WRITE);
+      if (!wfd) {
+        return -2;
+      }
+      while (rfd.available()) {
+        line = rfd.readStringUntil('\n');
+        wfd.write((char*)line.c_str(), line.length());
+        wfd.write("\n", 1);
+      }
+      rfd.close();
+      wfd.close();
+      ufsp->remove(path);
+      ufsp->rename("/ltmp", path);
+      
+  return fsize;
+}
+#endif
 
 #ifdef ESP8266
 extern "C" {
