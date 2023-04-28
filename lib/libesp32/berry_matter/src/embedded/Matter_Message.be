@@ -358,6 +358,7 @@ class Matter_Frame
     # check privacy flag, p.127
     if self.sec_p
       # compute privacy key, p.71
+      tasmota.log("MTR: >>>>>>>>>>>>>>>>>>>> Compute Privacy TODO", 2)
       var k = session.get_i2r_privacy()
       var n = bytes().add(self.local_session_id, -2) + mic[5..15]   # session in Big Endian
       var m = self.raw[4 .. self.payload_idx-1]
@@ -400,7 +401,7 @@ class Matter_Frame
     # tasmota.log("MTR: ******************************", 4)
 
     if tag != mic
-      tasmota.log("MTR: rejected packet due to invalid MIC", 3)
+      tasmota.log("MTR: rejected packet due to invalid MIC", 2)
       return nil
     end
 
@@ -460,6 +461,7 @@ class Matter_Frame
   #############################################################
   # Decode a message we are about to send, to ease debug
   def debug(raw)
+    return      # disable logging for now
     var r = matter.Frame(self.message_handler, raw)
     r.decode_header()
     r.decode_payload()

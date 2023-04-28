@@ -23,12 +23,17 @@
 #@ solidify:Matter_Plugin,weak
 
 class Matter_Plugin
+  static var TYPE = ""                      # name of the plug-in in json
+  static var NAME = ""                      # display name of the plug-in
+  static var ARG  = ""                      # additional argument name (or empty if none)
+  static var ARG_TYPE = / x -> str(x)       # function to convert argument to the right type
   static var CLUSTERS = {
     0x001D: [0,1,2,3,0xFFFC,0xFFFD],                # Descriptor Cluster 9.5 p.453
   }
   var device                                # reference to the `device` global object
   var endpoint                              # current endpoint
   var clusters                              # map from cluster to list of attributes, typically constructed from CLUSTERS hierachy
+  var tick                                  # tick value when it was last updated
 
   #############################################################
   # MVC Model
@@ -39,7 +44,10 @@ class Matter_Plugin
   #############################################################
   # Constructor
   #
-  def init(device, endpoint)
+  # device: contains the root device object so the plugin can "call home"
+  # endpoint: (int) the endpoint number (16 bits)
+  # arguments: (map) the map for all complementary arguments that are plugin specific
+  def init(device, endpoint, arguments)
     self.device = device
     self.endpoint = endpoint
     self.clusters = self.consolidate_clusters()
@@ -48,15 +56,23 @@ class Matter_Plugin
   #############################################################
   # Stub for updating shadow values (local copies of what we published to the Matter gateway)
   def update_shadow()
+    self.tick = self.device.tick
+  end
+
+  #############################################################
+  # Stub for updating shadow values (local copies of what we published to the Matter gateway)
+  def update_shadow_lazy()
+    if self.tick != self.device.tick
+      self.update_shadow()
+    end
   end
 
   #############################################################
   # signal that an attribute has been changed
   #
   # If `endpoint` is `nil`, send to all endpoints
-  def attribute_updated(endpoint, cluster, attribute, fabric_specific)
-    if endpoint == nil    endpoint = self.endpoint  end
-    self.device.attribute_updated(endpoint, cluster, attribute, fabric_specific)
+  def attribute_updated(cluster, attribute, fabric_specific)
+    self.device.attribute_updated(self.endpoint, cluster, attribute, fabric_specific)
   end
 
   #############################################################
@@ -215,6 +231,7 @@ class Matter_Plugin
   def every_second()
     self.update_shadow()                    # force reading value and sending subscriptions
   end
+
 end
 
 matter.Plugin = Matter_Plugin

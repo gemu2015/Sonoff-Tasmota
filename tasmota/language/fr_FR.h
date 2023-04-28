@@ -802,6 +802,8 @@
 #define D_SENSOR_OUTPUT_LO     "Sortie Lo"
 #define D_SENSOR_AS608_TX      "AS608 Tx"
 #define D_SENSOR_AS608_RX      "AS608 Rx"
+#define D_SENSOR_GM861_TX      "GM861 Tx"
+#define D_SENSOR_GM861_RX      "GM861 Rx"
 #define D_SENSOR_DDS2382_TX    "DDS238-2 Tx"
 #define D_SENSOR_DDS2382_RX    "DDS238-2 Rx"
 #define D_SENSOR_DDSU666_TX    "DDSU666 Tx"
@@ -1189,5 +1191,9 @@
 #define D_NEOPOOL_PH_HIGH                 "Trop haut"          // ph Alarms
 #define D_NEOPOOL_PH_LOW                  "Trop bas"
 #define D_NEOPOOL_PUMP_TIME_EXCEEDED      "durée pompage expirée"
+
+// xsns_106_gdk101.ino
+#define D_AVG_RAD_DOSE                    "dose moyenne de rayonnement"
+#define D_UNIT_US_H                       "µSv/h"
 
 #endif  // _LANGUAGE_FR_FR_H_

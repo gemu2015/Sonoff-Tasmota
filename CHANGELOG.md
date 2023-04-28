@@ -3,20 +3,49 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - Development
 
-## [12.4.0.5]
+## [12.5.0.1]
+### Added
+- Matter sensors Humidity, Pressure, Illuminance; optimize memory (#18441)
+- Command ``SetOption152 0/1`` to select two (0 = default) pin bistable or one (1) pin latching relay control (#18386)
+- Matter allow `Matter#Initialized` rule once the device is configured (#18451)
+- Matter UI to change endpoints configuration (#18498)
+- Matter support for Shutters (without Tilt) (#18509)
+
+### Breaking Changed
+
+### Changed
+- ESP32 Framework (Core) from v2.0.7 to v2.0.8
+- Refactored Zero Cross Dimmer (#18481)
+
+### Fixed
+- ESP8266 Energy Export Active no update regression from v12.3.1.3
+- NovaSDS GUI values (#18444)
+- Berry fix rules for string comparisons (#18464)
+
+### Removed
+
+## [Released]
+
+## [12.5.0] 20230417
+- Release Peyton
+
+## [12.4.0.5] 20230417
 ### Added
 - Matter support for Light and Relays on ESP32 by Stephan Hadinger (#18320)
 - ESP32 WIP support for 16 shutters using `#define USE_SHUTTER_ESP32` in addition to `USE_SHUTTER` by Stefan Bode (#18295)
-
-### Breaking Changed
+- Berry `webserver.html_escape()` reusing the internal HTML escaping function
+- Support for GDK101 gamma radiation sensor by Petr Novacek (#18390)
+- Matter support in now stabilized for Apple and Google (not tested with Alexa)
+- Berry `instrospect.name()` to get names of functions, modules and classes (#18422)
+- Berry add `searchall()` and `matchall()` to `re` module and pre-compiled patterns (#18429)
+- Matter automatically exposes all detected Temperature sensors (#18430)
 
 ### Changed
 - ESP32 LVGL library from v8.3.5 to v8.3.6 (no functional change)
 
 ### Fixed
 - ESP32 ``Upload``, ``Upgrade``, ``WebGetConfig``, ``WebQuery`` and ``WebSend`` random HTTP(S) connection timeout set to 5 sec (commit 542eca3)
-
-### Removed
+- ESP32 energy monitoring set StartTotalTime regression from v12.3.1.5 (#18385)
 
 ## [12.4.0.4] 20230403
 ### Added
@@ -88,8 +117,6 @@ All notable changes to this project will be documented in this file.
 - SR04 driver single pin ultrasonic sensor detection (#17966)
 - IR panasonic protocol regression from v12.0.2.4 (#18013)
 - EnergyTotal divided twice during minimal upgrade step regression from v12.3.1.3 (#18024)
-
-## [Released]
 
 ## [12.4.0] 20230216
 - Release Peter

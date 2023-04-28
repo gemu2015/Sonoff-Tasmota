@@ -36,7 +36,6 @@ bool XPT2046_Touchscreen::begin(SPIClass &wspi) {
 	if (!bus) {
 		_pspi = &wspi;
 	} else {
-
 #ifndef CONFIG_IDF_TARGET_ESP32C3
 #ifndef CONFIG_IDF_TARGET_ESP32S2
 		if (bus == 1) {

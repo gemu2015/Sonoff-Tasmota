@@ -98,7 +98,7 @@ class Matter_Pake1
   def parse(b, idx)
     if idx == nil    idx = 0 end
     var val = matter.TLV.parse(b, idx)
-    tasmota.log("MTR: parsed TLV: " + str(val), 4)
+    # tasmota.log("MTR: parsed TLV: " + str(val), 4)
 
     self.pA = val.getsubval(1)
     return self
@@ -130,7 +130,7 @@ class Matter_Pake3
   def parse(b, idx)
     if idx == nil    idx = 0 end
     var val = matter.TLV.parse(b, idx)
-    tasmota.log("MTR: parsed TLV: " + str(val), 4)
+    # tasmota.log("MTR: parsed TLV: " + str(val), 4)
 
     self.cA = val.getsubval(1)
     return self
@@ -157,7 +157,7 @@ class Matter_Sigma1
     if idx == nil    idx = 0 end
     var val = matter.TLV.parse(b, idx)
     self.Msg1 = b[idx..]
-    tasmota.log("MTR: Sigma1 TLV=" + str(val), 4)
+    # tasmota.log("MTR: Sigma1 TLV=" + str(val), 4)
 
     self.initiatorRandom = val.getsubval(1)
     self.initiator_session_id = val.getsubval(2)
@@ -218,7 +218,7 @@ class Matter_Sigma2Resume
     # initiatorRandom
     s.add_TLV(1, matter.TLV.B1, self.resumptionID)
     s.add_TLV(2, matter.TLV.B1, self.sigma2ResumeMIC)
-    s.add_TLV(3, matter.TLV.B1, self.responderSessionID)
+    s.add_TLV(3, matter.TLV.U2, self.responderSessionID)
     if self.SLEEPY_IDLE_INTERVAL != nil || self.SLEEPY_ACTIVE_INTERVAL != nil
       var s2 = s.add_struct(4)
       s2.add_TLV(1, matter.TLV.U4, self.SLEEPY_IDLE_INTERVAL)
@@ -240,7 +240,7 @@ class Matter_Sigma3
     if idx == nil    idx = 0 end
     var val = matter.TLV.parse(b, idx)
     self.Msg3 = b[idx..]
-    tasmota.log("MTR: Sigma3 TLV=" + str(val), 4)
+    # tasmota.log("MTR: Sigma3 TLV=" + str(val), 4)
 
     self.TBEData3Encrypted = val.getsubval(1)
     return self
