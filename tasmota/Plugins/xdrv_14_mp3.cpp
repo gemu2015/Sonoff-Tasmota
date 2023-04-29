@@ -71,8 +71,13 @@
 
 #include "tasmota_options.h"
 
-
 #ifdef USE_MP3_PLAYER_MOD
+
+#define XDRV_14             14
+//#define END_OF_MODULE end_of_module_XDRV_14
+//#define MODULE_HEADER module_header_XDRV_14
+//#define MODULE_FUNCTION_EXECUTE mod_func_execute_XDRV_14
+
 #include "module.h"
 #include "module_defines.h"
 
@@ -89,6 +94,7 @@
 #define DY_SV17F 1
 
 #define MP3_DEFAULT DY_SV17F
+
 
 
 MODULE_DESCRIPTOR("MP3PLAYER",MODULE_TYPE_DRIVER,MP3PLAYER_REV,"TXD",MP3_DEFAULT_TX_PIN,"TYPE",0x01000101,"",0,"",0)

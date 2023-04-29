@@ -21,6 +21,9 @@
 #include "tasmota_options.h"
 
 #ifdef USE_ADS1115_MOD
+
+#define XSNS_12                         12
+
 #include "module.h"
 #include "module_defines.h"
 
