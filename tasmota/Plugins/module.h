@@ -48,8 +48,8 @@ extern TSettings* Settings;
 */
 
 
-int32_t mod_func_execute(MODULES_TABLE *, uint32_t);
-void end_of_module(void);
+static int32_t mod_func_execute(MODULES_TABLE *, uint32_t);
+static void end_of_module(void);
 
 #endif
 

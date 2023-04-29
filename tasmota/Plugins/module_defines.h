@@ -145,14 +145,15 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 
 
 #ifndef MODULE_HEADER
-#define END_OF_MODULE end_of_module
 #define MODULE_HEADER module_header
-#define MODULE_FUNCTION_EXECUTE mod_func_execute
 #endif
+
+#define MODULE_FUNCTION_EXECUTE mod_func_execute
+#define END_OF_MODULE end_of_module
 
 //#define MODULE_DESC __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE
 #define MODULE_PART __attribute__((section(SECTION_PART)))
-#define MODULE_END __attribute__((section(SECTION_END))) void  END_OF_MODULE(void) {__asm__ __volatile__(".word 0x4AFCAA55");}
+#define MODULE_END __attribute__((section(SECTION_END))) static void  END_OF_MODULE(void) {__asm__ __volatile__(".word 0x4AFCAA55");}
 
 //#define PROGMEM  __attribute__((section(".irom.text")))
 #undef PROGMEM

@@ -138,7 +138,7 @@ MODULE_PART void MOD_FUNC(ADS1115_Show, bool json);
 MODULE_PART int16_t MOD_FUNC(Ads1115GetConversion, uint8_t channel);
 MODULE_PART void MOD_FUNC(Ads1115StartComparator, uint8_t channel, uint16_t mode);
 MODULE_PART void MOD_FUNC(ADS1115_Deinit);
-MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
+MODULE_PART static int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
 
 // module end marker
 MODULE_END
@@ -354,7 +354,7 @@ void MOD_FUNC(ADS1115_Deinit) {
  * Interface
 \*********************************************************************************************/
 
-int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
+static int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
   bool result = false;
   switch (sel) {
     case FUNC_INIT:

@@ -74,9 +74,9 @@
 #ifdef USE_MP3_PLAYER_MOD
 
 #define XDRV_14             14
-//#define END_OF_MODULE end_of_module_XDRV_14
+
 //#define MODULE_HEADER module_header_XDRV_14
-//#define MODULE_FUNCTION_EXECUTE mod_func_execute_XDRV_14
+
 
 #include "module.h"
 #include "module_defines.h"
@@ -108,7 +108,7 @@ MODULE_PART void MOD_FUNC(MP3_SendCmd, uint8_t *scmd, uint8_t len);
 MODULE_PART void MOD_FUNC(MP3_CMD, uint8_t mp3cmd, uint16_t val);
 MODULE_PART bool MOD_FUNC(MP3PlayerCmd);
 MODULE_PART void MOD_FUNC(MP3Player_Deinit);
-MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
+MODULE_PART static int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
 MODULE_END
 
 
@@ -400,7 +400,7 @@ void MOD_FUNC(MP3Player_Deinit) {
  * Interface
 \*********************************************************************************************/
 
-int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
+static int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
   bool result = false;
   switch (sel) {
     case FUNC_INIT:
