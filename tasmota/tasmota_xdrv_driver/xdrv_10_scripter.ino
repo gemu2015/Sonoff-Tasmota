@@ -12654,6 +12654,10 @@ bool Xdrv10(uint32_t function)
         }
       }
       break;
+    case FUNC_BUTTON_MULTI_PRESSED:
+      if (bitRead(Settings->rule_enabled, 0)) {
+        Run_Scripter1(">b", 2, 0);
+      }
 #endif //USE_BUTTON_EVENT
 
     case FUNC_LOOP:
