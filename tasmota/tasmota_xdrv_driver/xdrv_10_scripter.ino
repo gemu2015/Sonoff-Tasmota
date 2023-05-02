@@ -4255,6 +4255,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         }
 #endif // USE_LVGL
 
+#ifdef USE_UFILESYS
 #ifdef USE_SCRIPT_FATFS_EXT
         if (!strncmp_XP(lp, XPSTR("lfw("), 4)) {
           char path[SCRIPT_MAXSSIZE];
@@ -4267,6 +4268,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto nfuncexit;
         }
 #endif // USE_SCRIPT_FATFS_EXT
+#endif
         break;
       case 'm':
         if (!strncmp_XP(lp, XPSTR("med("), 4)) {
@@ -5942,6 +5944,7 @@ char *getop(char *lp, uint8_t *operand) {
 }
 
 #ifdef USE_SCRIPT_FATFS_EXT
+#ifdef USE_UFILESYS
 int32_t script_logfile_write(char *path, char *payload, uint32_t size) {
   
       File rfd = ufsp->open(path, FS_FILE_APPEND);
@@ -5975,7 +5978,8 @@ int32_t script_logfile_write(char *path, char *payload, uint32_t size) {
       
   return fsize;
 }
-#endif
+#endif // USE_UFILESYS
+#endif // USE_SCRIPT_FATFS_EXT
 
 #ifdef ESP8266
 extern "C" {
