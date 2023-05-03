@@ -165,6 +165,7 @@ String Powerwall::GetRequest(String url, String authCookie) {
                 // in case of error 401, get new cookie
                 if (result == 401) {
                     authCookie = "";
+                    getAuthCookie();
                 }
             }
         }
