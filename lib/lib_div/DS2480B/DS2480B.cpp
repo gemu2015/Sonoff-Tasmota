@@ -131,7 +131,8 @@ DS2480B::DS2480B(TasmotaSerial *port)
 void DS2480B::begin()
 {
 	_port->write(0xC1);
-   waitForReply();
+   if (!waitForReply()) return;
+   _port->read();
 	isCmdMode = true;
 }
 
