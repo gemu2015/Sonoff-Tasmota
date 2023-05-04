@@ -7842,9 +7842,11 @@ ScriptOneWire *ow = &glob_script_mem.ow;
       break;
     case 99:
       if (ow->ds) {
+        ow->ds->reset();
         delete ow->ds;
         ow->ds = nullptr;
       } else {
+        ow->dsh->reset();
         delete ow->dsh;
         ow->dsh = nullptr;
         delete ow->ts;
