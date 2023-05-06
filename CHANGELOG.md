@@ -3,26 +3,44 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - Development
 
-## [12.5.0.1]
+## [12.5.0.2]
+### Added
+- Matter support for Shutters with Tilt
+- Matter POC for remote Relay
+- Support for Zero-Cross Dimmer on ESP32, changed calculation on EPS8266, high resolution control e.g. Solar: `ZCDimmerSet`
+- ESP32 Enhanced Shutterbuttons functionality to control tilt position, additionally incr/decr possible to position and tilt.
+- ESP32 `Shuttersetup` for "Shelly 2.5 pro" automatic calibration and setup (experimental)
+- Berry `tcpclientasync` class for non-blocking TCP client
+- Support for GM861 1D and 2D bar code reader (#18399)
+
+### Breaking Changed
+
+### Changed
+
+### Fixed
+- Partition_Manager.tapp fixed
+
+### Removed
+
+## [12.5.0.1] 20230505
 ### Added
 - Matter sensors Humidity, Pressure, Illuminance; optimize memory (#18441)
 - Command ``SetOption152 0/1`` to select two (0 = default) pin bistable or one (1) pin latching relay control (#18386)
 - Matter allow `Matter#Initialized` rule once the device is configured (#18451)
 - Matter UI to change endpoints configuration (#18498)
 - Matter support for Shutters (without Tilt) (#18509)
-
-### Breaking Changed
+- Support for TC74 temperature sensor by Michael Loftis (#18042)
 
 ### Changed
 - ESP32 Framework (Core) from v2.0.7 to v2.0.8
 - Refactored Zero Cross Dimmer (#18481)
+- ESP32 LVGL library from v8.3.6 to v8.3.7 (no functional change)
 
 ### Fixed
 - ESP8266 Energy Export Active no update regression from v12.3.1.3
 - NovaSDS GUI values (#18444)
 - Berry fix rules for string comparisons (#18464)
-
-### Removed
+- Shutter: GarageMode does not stop on console commands, `ShutterSetOpen` and `ShutterSetClose` does not reset direction (#18539)
 
 ## [Released]
 

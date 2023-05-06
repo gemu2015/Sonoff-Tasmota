@@ -706,7 +706,10 @@
 //    #define GDK101_SHOW_STATUS
 //    #define GDK101_SHOW_VIBRATION_STATUS
 //    #define GDK101_SHOW_MEAS_TIME
-
+//  #define USE_TC74                               // [I2cDriver80] Enable TC74 sensor (I2C addresses 0x48 - 0x4F) (+1k code)
+//    #define TC74_MAX_SENSORS 8                   // Support non-default/multiple I2C addresses
+//    #define TC74_I2C_PROBE_ADDRESSES { 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F }  // Addresses to probe/support
+//    #define TC74_MAX_FAILCOUNT 8                 // Maximum failed polls before it's marked inactive until reprobing later
 
 //  #define USE_RTC_CHIPS                          // Enable RTC chip support and NTP server - Select only one
 //    #define USE_DS3231                           // [I2cDriver26] Enable DS3231 RTC (I2C address 0x68) (+1k2 code)
@@ -828,7 +831,8 @@
 //  #define VINDRIKTNING_SHOW_PM1                  // Display undocumented/supposed PM1.0 values
 //  #define VINDRIKTNING_SHOW_PM10                 // Display undocumented/supposed PM10 values
 //#define USE_LD2410                               // Add support for HLK-LD2410 24GHz smart wave motion sensor (+2k8 code)
-// #define USE_LOX_O2                               // Add support for LuminOx LOX O2 Sensor (+0k8 code)
+//#define USE_LOX_O2                               // Add support for LuminOx LOX O2 Sensor (+0k8 code)
+//#define USE_GM861                                // Add support for GM861 1D and 2D Bar Code Reader (+1k3 code)
 
 // -- Power monitoring sensors --------------------
 #define USE_ENERGY_SENSOR                        // Add support for Energy Monitors (+14k code)
