@@ -17,7 +17,7 @@
 GT911::GT911() {}
 
 volatile uint8_t gt911_irq_trigger = 0;
-void ICACHE_RAM_ATTR ___GT911IRQ___()
+void IRAM_ATTR ___GT911IRQ___()
 {
     noInterrupts();
     gt911_irq_trigger = 1;

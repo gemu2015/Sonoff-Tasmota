@@ -7696,6 +7696,24 @@ getnext:
 
 #ifdef USE_SCRIPT_ONEWIRE
 
+bool script_OneWireCrc8(uint8_t *addr) {
+  uint8_t crc = 0;
+  uint8_t len = 8;
+
+  while (len--) {
+    uint8_t inbyte = *addr++;          // from 0 to 7
+    for (uint32_t i = 8; i; i--) {
+      uint8_t mix = (crc ^ inbyte) & 0x01;
+      crc >>= 1;
+      if (mix) {
+        crc ^= 0x8C;
+      }
+      inbyte >>= 1;
+    }
+  }
+  return (crc == *addr);               // addr 8
+}
+
 uint32_t script_ow(uint8_t sel, uint32_t val) {
 uint32_t res = 0;
 uint8_t bits;
@@ -7843,27 +7861,41 @@ ScriptOneWire *ow = &glob_script_mem.ow;
       }
      
       if (ow->ds) {
+        uint8_t data[9];
         ow->ds->reset();
         ow->ds->select(ow->ds_address[val - 1]);
         if (!bits) {
           ow->ds->write(0x44, 1);
         } else {
           ow->ds->write(0xbe, 1);
-          delay(10);
-          res = ow->ds->read();
-          res |= ow->ds->read() << 8;
+          for (uint32_t cnt = 0; cnt < 9; cnt++) {
+            data[cnt] = ow->ds->read();
+          }
+          if (script_OneWireCrc8(data)) {
+            res = data[0];
+            res |= data[1] << 8;
+          } else {
+            res = 0xffff;
+          }
           ow->ds->reset();
         }
       } else {
+        uint8_t data[9];
         ow->dsh->reset();
         ow->dsh->select(ow->ds_address[val - 1]);
         if (!bits) {
           ow->dsh->write(0x44, 1);
         } else {
           ow->dsh->write(0xbe, 1);
-          delay(10);
-          res = ow->dsh->read();
-          res |= ow->dsh->read() << 8;
+          for (uint32_t cnt = 0; cnt < 9; cnt++) {
+            data[cnt] = ow->dsh->read();
+          }
+          if (script_OneWireCrc8(data)) {
+            res = data[0];
+            res |= data[1] << 8;
+          } else {
+            res = 0xffff;
+          }
           ow->dsh->reset();
         }
       }
@@ -10348,6 +10380,7 @@ uint32_t cnt;
 #define WSO_NODIV 2
 #define WSO_FORCEPLAIN 4
 #define WSO_FORCEMAIN 8
+#define WSO_FORCEGUI 16
 #define WSO_STOP_DIV 0x80
 
 void WCS_DIV(uint8_t flag) {
@@ -10529,7 +10562,10 @@ const char *gc_str;
     strcpy_P(center, PSTR("<center>"));
   }
 
-  if ( ((!mc && (*lin != '$')) || (mc == 'w' && (*lin != '$'))) && (!(specopt & WSO_FORCEMAIN)) ) {
+  bool dogui = ((!mc && (*lin != '$')) || (mc == 'w' && (*lin != '$'))) && (!(specopt & WSO_FORCEMAIN));
+  
+  if ((dogui && !(specopt & WSO_FORCEGUI)) || (!dogui && (specopt & WSO_FORCEGUI))) {
+  //if ( ((!mc && (*lin != '$')) || (mc == 'w' && (*lin != '$'))) && (!(specopt & WSO_FORCEMAIN)) || (specopt & WSO_FORCEGUI)) {
     // normal web section
     //AddLog(LOG_LEVEL_INFO, PSTR("normal %s"), lin);
     if (*lin == '@') {
@@ -10880,11 +10916,11 @@ const char *gc_str;
   } else {
     //  main section interface
     //AddLog(LOG_LEVEL_INFO, PSTR("main %s"), lin);
-    if ( (*lin == mc) || (mc == 'z') || (specopt&WSO_FORCEMAIN)) {
+    if ( (*lin == mc) || (mc == 'z') || (specopt & WSO_FORCEMAIN)) {
 
 #ifdef USE_GOOGLE_CHARTS
       if (mc != 'z') {
-        if (!(specopt&WSO_FORCEMAIN)) {
+        if (!(specopt & WSO_FORCEMAIN)) {
           lin++;
         }
       }
@@ -11308,7 +11344,7 @@ exgc:
 #else
 
       if (mc != 'z') {
-        if (!(specopt&WSO_FORCEMAIN)) {
+        if (!(specopt & WSO_FORCEMAIN)) {
           lin++;
         }
       }
