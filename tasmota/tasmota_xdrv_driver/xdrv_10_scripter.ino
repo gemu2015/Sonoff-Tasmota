@@ -7875,7 +7875,7 @@ ScriptOneWire *ow = &glob_script_mem.ow;
             res = data[0];
             res |= data[1] << 8;
           } else {
-            res = 0xffff;
+            res = 0;
           }
           ow->ds->reset();
         }
@@ -7894,7 +7894,7 @@ ScriptOneWire *ow = &glob_script_mem.ow;
             res = data[0];
             res |= data[1] << 8;
           } else {
-            res = 0xffff;
+            res = 0;
           }
           ow->dsh->reset();
         }
