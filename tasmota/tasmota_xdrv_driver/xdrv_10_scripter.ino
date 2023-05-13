@@ -10190,6 +10190,16 @@ const char SCRIPT_MSG_PULLDOWNb[] PROGMEM =
 const char SCRIPT_MSG_PULLDOWNc[] PROGMEM =
   "</select>";
 
+const char SCRIPT_MSG_RADIOa[] PROGMEM =
+  "%s<fieldset style='width:%dpx'><legend>%s</legend>";
+const char SCRIPT_MSG_RADIOa0[] PROGMEM =
+  "%s<fieldset><legend>%s</legend>";
+const char SCRIPT_MSG_RADIOb[] PROGMEM =
+  "<div><input type='radio' name='%s' onclick='seva(%d%,\"%s\")'%s>"
+	"<label>%s</label></div>";
+const char SCRIPT_MSG_RADIOc[] PROGMEM =
+  "</fieldset>";
+
 const char SCRIPT_MSG_TEXTINP[] PROGMEM =
   "%s<label><b>%s</b><input type='text'  value='%s' style='width:%dpx'  onfocusin='pr(0)' onfocusout='pr(1)' onchange='siva(value,\"%s\")'></label>";
 
@@ -10709,6 +10719,63 @@ const char *gc_str;
       }
       WSContentSend_P(SCRIPT_MSG_PULLDOWNc);
       WCS_DIV(specopt | WSO_STOP_DIV);
+    } else if (!strncmp(lin, "rb(", 3)) {
+      // radio buttons
+      char *lp = lin + 3;
+      char *slp = lp;
+      TS_FLOAT val;
+      lp = GetNumericArgument(lp, OPER_EQU, &val, 0);
+      SCRIPT_SKIP_SPACES
+
+      char vname[16];
+      ScriptGetVarname(vname, slp, sizeof(vname));
+
+      SCRIPT_SKIP_SPACES
+      char pulabel[SCRIPT_MAXSSIZE];
+      lp = GetStringArgument(lp, OPER_EQU, pulabel, 0);
+      SCRIPT_SKIP_SPACES
+
+      glob_script_mem.glob_error = 0;
+      int16_t tsiz = -1;
+      TS_FLOAT fvar;
+      char *slp1 = lp;
+      lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
+      if (!glob_script_mem.glob_error) {
+        tsiz = fvar;
+      } else {
+        lp = slp1;
+      }
+
+      WCS_DIV(specopt);
+      if (tsiz < 0) {
+        WSContentSend_P(SCRIPT_MSG_RADIOa0, center, pulabel);
+      } else {
+        WSContentSend_P(SCRIPT_MSG_RADIOa, center, tsiz, pulabel);
+      }
+      
+
+      // get pu labels
+      uint8_t index = 1;
+      while (*lp) {
+        SCRIPT_SKIP_SPACES
+        lp = GetStringArgument(lp, OPER_EQU, pulabel, 0);
+        char *cp;
+        if (val == index) {
+          cp = (char*)"checked";
+        } else {
+          cp = (char*)"";
+        }
+        WSContentSend_P(SCRIPT_MSG_RADIOb, vname, index, vname, cp, pulabel);
+        SCRIPT_SKIP_SPACES
+        if (*lp == ')') {
+          lp++;
+          break;
+        }
+        index++;
+      }
+      WSContentSend_P(SCRIPT_MSG_RADIOc);
+      WCS_DIV(specopt | WSO_STOP_DIV);
+      WSContentFlush();
     } else if (!strncmp(lin, "bu(", 3)) {
       char *lp = lin + 3;
       uint8_t bcnt = 0;
