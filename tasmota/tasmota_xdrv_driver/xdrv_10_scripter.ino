@@ -8926,7 +8926,7 @@ void Script_Check_Hue(String *response) {
   }
 #ifdef SCRIPT_HUE_DEBUG
   if (response) {
-    AddLog(LOG_LEVEL_DEBUG, PSTR("Hue: %d"), hue_devs);
+    AddLog(LOG_LEVEL_INFO, PSTR("Hue: %d"), hue_devs);
     toLog(">>>>");
     toLog(response->c_str());
     toLog(response->c_str()+700);   // Was MAX_LOGSZ
@@ -8958,20 +8958,33 @@ void Script_Handle_Hue(String path) {
   uint8_t device = DecodeLightId(atoi(path.c_str()));
   uint8_t index = device - TasmotaGlobal.devices_present - 1;
 
+  uint16_t args = Webserver->args();
+
+#ifdef ESP82666
+  char *json = (char*)Webserver->arg(args - 1).c_str();
+#else
+   String request_arg = Webserver->arg(args - 1);
+   char *json = (char*)request_arg.c_str();
+#endif
+
+#ifdef SCRIPT_HUE_DEBUG
+  AddLog(LOG_LEVEL_INFO, PSTR("Hue 0: %s - %d "),path.c_str(), device);
+  AddLog(LOG_LEVEL_INFO, PSTR("Hue 1: %d, %s"), args, json);
+#endif
   if (Webserver->args()) {
     response = "[";
 
-    JsonParser parser((char*) Webserver->arg((Webserver->args())-1).c_str());
+    JsonParser parser(json);
     JsonParserObject root = parser.getRootObject();
     JsonParserToken hue_on = root[PSTR("on")];
-    if (hue_on) {
 
+    if (hue_on) {
       response += FPSTR(sHUE_LIGHT_RESPONSE_JSON);
       response.replace("{id", String(EncodeLightId(device)));
       response.replace("{cm", "on");
 
       bool on = hue_on.getBool();
-      if (on==false) {
+      if (on == false) {
         glob_script_mem.fvars[hue_script[index].index[0] - 1] = 0;
         response.replace("{re", "false");
       } else {
