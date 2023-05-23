@@ -404,13 +404,16 @@ typedef union {
 
 #define SML_CRYPT_SIZE 16
 
+#ifndef SML_PREFIX_SIZE
+#define SML_PREFIX_SIZE 8
+#endif
 
 struct METER_DESC {
   int8_t srcpin;
   uint8_t type;
   uint16_t flag;
   int32_t params;
-  char prefix[8];
+  char prefix[SML_PREFIX_SIZE];
   int8_t trxpin;
   uint8_t tsecs;
   char *txmem;
@@ -2938,8 +2941,8 @@ dddef_exit:
           mmp->params = strtol(lp, &lp, 10);
           if (*lp != ',') goto next_line;
           lp++;
-          mmp->prefix[7] = 0;
-          for (uint32_t cnt = 0; cnt < 8; cnt++) {
+          mmp->prefix[SML_PREFIX_SIZE - 1] = 0;
+          for (uint32_t cnt = 0; cnt < SML_PREFIX_SIZE; cnt++) {
             if (*lp == SCRIPT_EOL || *lp == ',') {
               mmp->prefix[cnt] = 0;
               break;
