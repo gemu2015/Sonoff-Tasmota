@@ -4269,6 +4269,15 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         }
 #endif // USE_SCRIPT_FATFS_EXT
 #endif
+
+#ifdef USE_ANGLE_FUNC
+        if (!strncmp_XP(lp, XPSTR("log("), 4)) {
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
+          SCRIPT_SKIP_SPACES
+          fvar = log(fvar);
+          goto nfuncexit;
+        }
+#endif
         break;
       case 'm':
         if (!strncmp_XP(lp, XPSTR("med("), 4)) {
