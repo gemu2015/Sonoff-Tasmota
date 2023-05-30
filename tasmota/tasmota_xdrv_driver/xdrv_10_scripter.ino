@@ -9288,7 +9288,7 @@ bool ScriptCommand(void) {
           break;
         case 8: // stop on error Off
         case 9: // On
-          bitWrite(Settings->rule_stop, index -1, XdrvMailbox.payload &1);
+          bitWrite(Settings->rule_stop, index - 1, XdrvMailbox.payload & 1);
           break;
 
 #ifdef xSCRIPT_STRIP_COMMENTS
