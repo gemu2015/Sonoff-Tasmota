@@ -42,18 +42,18 @@
 #define RDM6300_BLOCK      20   // 2 seconds block time
 
 
-#define RDM6300_REV 1<<16
+#define RDM6300_REV 1<<16|2
 
 MODULE_DESCRIPTOR("RDM6300",MODULE_TYPE_SENSOR,RDM6300_REV,"RXD",RDM6300_DEFAULT_REC_PIN,"",0,"",0,"",0)
 
 // all functions must be declared MUDULE_PART
 MODULE_PART uint8_t RDM6300_HexNibble( char chr);
 MODULE_PART void RDM6300_HexStringToArray( uint8_t array[], uint8_t len, char buffer[]);
-MODULE_PART int32_t MOD_FUNC(RDM6300_Init);
-MODULE_PART void MOD_FUNC(RDM6300_Deinit);
-MODULE_PART void MOD_FUNC(RDM6300_ScanForTag);
-MODULE_PART void MOD_FUNC(RDM6300_Show);
-MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
+MODULE_PART int32_t RDM6300_Init();
+MODULE_PART void RDM6300_Deinit();
+MODULE_PART void RDM6300_ScanForTag();
+MODULE_PART void RDM6300_Show();
+MODULE_PART int32_t mod_func_execute(uint32_t sel);
 
 MODULE_END
 
@@ -80,7 +80,7 @@ typedef struct {
 #define block_time mem->block_time
 
 /********************************************************************************************/
-int32_t MOD_FUNC(RDM6300_Init) {
+int32_t RDM6300_Init() {
   ALLOCMEM
 
   ready = false;
@@ -99,7 +99,7 @@ int32_t MOD_FUNC(RDM6300_Init) {
       return 0;
     }
   }
-  CALL_MOD_FUNC(RDM6300_Deinit);
+  RDM6300_Deinit();
   return -1;
 }
 
@@ -121,7 +121,7 @@ void RDM6300_HexStringToArray( uint8_t array[], uint8_t len, char buffer[]) {
 }
 
 
-void MOD_FUNC(RDM6300_ScanForTag) {
+void RDM6300_ScanForTag() {
   SETREGS
   if (!ready) { return; }
 
@@ -181,13 +181,13 @@ void MOD_FUNC(RDM6300_ScanForTag) {
   }
 }
 
-void MOD_FUNC(RDM6300_Show) {
+void RDM6300_Show() {
   SETREGS
   if (!ready) { return; }
   WSContentSend_PD(GSTR(HHTP_UID), uid);
 }
 
-void MOD_FUNC(RDM6300_Deinit) {
+void RDM6300_Deinit() {
   SETREGS
   if (ts) deleteTS(ts);
   ts = nullptr;
@@ -197,21 +197,21 @@ void MOD_FUNC(RDM6300_Deinit) {
  * Interface
 \*********************************************************************************************/
 
-int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
+int32_t mod_func_execute(uint32_t sel) {
   bool result = false;
 
   switch (sel) {
     case FUNC_INIT:
-      CALL_MOD_FUNC(RDM6300_Init);
+      RDM6300_Init();
       break;
     case FUNC_EVERY_100_MSECOND:
-      CALL_MOD_FUNC(RDM6300_ScanForTag);
+      RDM6300_ScanForTag();
       break;
     case FUNC_WEB_SENSOR:
-      CALL_MOD_FUNC(RDM6300_Show);
+      RDM6300_Show();
       break;
     case FUNC_DEINIT:
-      CALL_MOD_FUNC(RDM6300_Deinit);
+      RDM6300_Deinit();
       break;
   }
   return result;
