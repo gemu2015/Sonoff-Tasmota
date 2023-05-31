@@ -102,13 +102,13 @@ MODULE_DESCRIPTOR("MP3PLAYER",MODULE_TYPE_DRIVER,MP3PLAYER_REV,"TXD",MP3_DEFAULT
 
 // all functions must be declared MUDULE_PART
 MODULE_PART uint16_t MP3_Checksum(uint8_t *array);
-MODULE_PART int32_t MOD_FUNC(MP3PlayerInit);
-MODULE_PART int32_t MOD_FUNC(MP3_Init);
-MODULE_PART void MOD_FUNC(MP3_SendCmd, uint8_t *scmd, uint8_t len);
-MODULE_PART void MOD_FUNC(MP3_CMD, uint8_t mp3cmd, uint16_t val);
-MODULE_PART bool MOD_FUNC(MP3PlayerCmd);
-MODULE_PART void MOD_FUNC(MP3Player_Deinit);
-MODULE_PART static int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
+MODULE_PART int32_t MP3PlayerInit();
+MODULE_PART int32_t MP3_Init();
+MODULE_PART void MP3_SendCmd(uint8_t *scmd, uint8_t len);
+MODULE_PART void MP3_CMD(uint8_t mp3cmd, uint16_t val);
+MODULE_PART bool MP3PlayerCmd();
+MODULE_PART void MP3Player_Deinit();
+MODULE_PART static int32_t mod_func_execute(uint32_t sel);
 MODULE_END
 
 
@@ -173,14 +173,13 @@ enum MP3_Commands {                                 // commands useable in conso
  * calculate the checksum
  * starts with cmd[1] with a length of 6 bytes
 \*********************************************************************************************/
-
 uint16_t MP3_Checksum(uint8_t *array) {
   uint16_t checksum = 0;
   for (uint32_t i = 0; i < 6; i++) {
     checksum += array[i];
   }
   checksum = checksum^0xffff;
-  return (checksum+1);
+  return checksum + 1;
 }
 
 /*********************************************************************************************\
@@ -188,7 +187,7 @@ uint16_t MP3_Checksum(uint8_t *array) {
  * define serial tx port fixed with 9600 baud
 \*********************************************************************************************/
 
-int32_t MOD_FUNC(MP3PlayerInit) {
+int32_t MP3PlayerInit() {
   ALLOCMEM
 
   // should be in settings
@@ -196,15 +195,15 @@ int32_t MOD_FUNC(MP3PlayerInit) {
   player_type = mp->ms[1].value;
   player_type &= 3;
 
-  if (!CALL_MOD_FUNC(MP3_Init)) {
+  if (!MP3_Init()) {
     initialized = true;
     return 0;
   }
-  CALL_MOD_FUNC(MP3Player_Deinit);
+  MP3Player_Deinit();
   return -1;
 }
 
-int32_t MOD_FUNC(MP3_Init) {
+int32_t MP3_Init() {
   SETREGS
 
   player_txpin = mp->ms[0].value & 0xff;
@@ -216,9 +215,9 @@ int32_t MOD_FUNC(MP3_Init) {
     if (beginTS(ts,9600)) {
       flushTS(ts);
       delay(10);
-      CALL_MOD_FUNC(MP3_CMD, MP3_CMD_RESET, MP3_CMD_RESET_VALUE);    // reset the player to defaults
+      MP3_CMD(MP3_CMD_RESET, MP3_CMD_RESET_VALUE);    // reset the player to defaults
       delay(100);
-      CALL_MOD_FUNC(MP3_CMD, MP3_CMD_VOLUME, MP3_VOLUME);            // after reset set volume depending on the entry in the my_user_config.h
+      MP3_CMD(MP3_CMD_VOLUME, MP3_VOLUME);            // after reset set volume depending on the entry in the my_user_config.h
       AddLog(LOG_LEVEL_INFO, GSTR(started), player_txpin);
       return 0;
     }
@@ -233,7 +232,7 @@ int32_t MOD_FUNC(MP3_Init) {
  * only track,play,stop and volume supported
 \*********************************************************************************************/
 
-void MOD_FUNC(MP3_SendCmd, uint8_t *scmd, uint8_t len) {
+void MP3_SendCmd(uint8_t *scmd, uint8_t len) {
   SETREGS
 
   uint16_t sum = 0;
@@ -244,7 +243,7 @@ void MOD_FUNC(MP3_SendCmd, uint8_t *scmd, uint8_t len) {
   writeTS(ts, scmd, len + 1);
 }
 
-void MOD_FUNC(MP3_CMD, uint8_t mp3cmd, uint16_t val) {
+void MP3_CMD(uint8_t mp3cmd, uint16_t val) {
   SETREGS
 
   if (player_type == DVP_MINI) {
@@ -266,7 +265,7 @@ void MOD_FUNC(MP3_CMD, uint8_t mp3cmd, uint16_t val) {
     writeTS(ts, cmd, sizeof(cmd));               // write mp3 data array to player
     delay(1000);
     if (mp3cmd == MP3_CMD_RESET) {
-      CALL_MOD_FUNC(MP3_CMD, MP3_CMD_VOLUME, MP3_VOLUME);            // after reset set volume depending on the entry in the my_user_config.h
+      MP3_CMD(MP3_CMD_VOLUME, MP3_VOLUME);            // after reset set volume depending on the entry in the my_user_config.h
     }
   } else {
     uint8_t scmd[8];
@@ -278,7 +277,7 @@ void MOD_FUNC(MP3_CMD, uint8_t mp3cmd, uint16_t val) {
         scmd[2]=0x02;
         scmd[3]=val>>8;
         scmd[4]=val;
-        CALL_MOD_FUNC(MP3_SendCmd, scmd, 5);
+        MP3_SendCmd(scmd, 5);
       case MP3_CMD_PLAY:
         scmd[1]=0x02;
         scmd[2]=0x00;
@@ -300,7 +299,7 @@ void MOD_FUNC(MP3_CMD, uint8_t mp3cmd, uint16_t val) {
       default:
         return;
     }
-    CALL_MOD_FUNC(MP3_SendCmd, scmd, len);
+    MP3_SendCmd(scmd, len);
   }
 
 }
@@ -309,7 +308,7 @@ void MOD_FUNC(MP3_CMD, uint8_t mp3cmd, uint16_t val) {
  * check the MP3 commands
 \*********************************************************************************************/
 
-bool MOD_FUNC(MP3PlayerCmd) {
+bool MP3PlayerCmd() {
   SETREGS
   char command[CMDSZ];
   bool serviced = true;
@@ -327,13 +326,13 @@ bool MOD_FUNC(MP3PlayerCmd) {
       case CMND_MP3_SETTYPE:
         // play a track, set volume, select EQ, sepcify file device
         if (XdrvMailbox->data_len > 0) {
-          if (command_code == CMND_MP3_TRACK)  { CALL_MOD_FUNC(MP3_CMD, MP3_CMD_TRACK,  XdrvMailbox->payload); }
+          if (command_code == CMND_MP3_TRACK)  { MP3_CMD(MP3_CMD_TRACK,  XdrvMailbox->payload); }
           if (command_code == CMND_MP3_VOLUME) {
-              CALL_MOD_FUNC(MP3_CMD, MP3_CMD_VOLUME, iscale(XdrvMailbox->payload,30,100));
+              MP3_CMD(MP3_CMD_VOLUME, iscale(XdrvMailbox->payload,30,100));
           }
-          if (command_code == CMND_MP3_EQ)     { CALL_MOD_FUNC(MP3_CMD, MP3_CMD_EQ,     XdrvMailbox->payload); }
-          if (command_code == CMND_MP3_DEVICE) { CALL_MOD_FUNC(MP3_CMD, MP3_CMD_DEVICE, XdrvMailbox->payload); }
-          if (command_code == CMND_MP3_DAC)    { CALL_MOD_FUNC(MP3_CMD, MP3_CMD_DAC,    XdrvMailbox->payload); }
+          if (command_code == CMND_MP3_EQ)     { MP3_CMD(MP3_CMD_EQ,     XdrvMailbox->payload); }
+          if (command_code == CMND_MP3_DEVICE) { MP3_CMD(MP3_CMD_DEVICE, XdrvMailbox->payload); }
+          if (command_code == CMND_MP3_DAC)    { MP3_CMD(MP3_CMD_DAC,    XdrvMailbox->payload); }
           if (command_code == CMND_MP3_SETTYPE) { player_type = XdrvMailbox->payload & 1; }
         }
         Response_P(GSTR(S_JSON_MP3_COMMAND_NVALUE), command, XdrvMailbox->payload);
@@ -344,10 +343,10 @@ bool MOD_FUNC(MP3PlayerCmd) {
       case CMND_MP3_RESET:
 play_default:
         // play or re-play after pause, pause, stop,
-        if (command_code == CMND_MP3_PLAY)     { CALL_MOD_FUNC(MP3_CMD, MP3_CMD_PLAY,   0); }
-        if (command_code == CMND_MP3_PAUSE)    { CALL_MOD_FUNC(MP3_CMD, MP3_CMD_PAUSE,  0); }
-        if (command_code == CMND_MP3_STOP)     { CALL_MOD_FUNC(MP3_CMD, MP3_CMD_STOP,   0); }
-        if (command_code == CMND_MP3_RESET)    { CALL_MOD_FUNC(MP3_CMD, MP3_CMD_RESET,  0); }
+        if (command_code == CMND_MP3_PLAY)     { MP3_CMD(MP3_CMD_PLAY,   0); }
+        if (command_code == CMND_MP3_PAUSE)    { MP3_CMD(MP3_CMD_PAUSE,  0); }
+        if (command_code == CMND_MP3_STOP)     { MP3_CMD(MP3_CMD_STOP,   0); }
+        if (command_code == CMND_MP3_RESET)    { MP3_CMD(MP3_CMD_RESET,  0); }
         Response_P(GSTR(S_JSON_MP3_COMMAND), command, XdrvMailbox->payload);
         break;
 
@@ -370,10 +369,10 @@ play_default:
               scmd[i + 4] = toupper(cp[i]);
             }
           }
-          CALL_MOD_FUNC(MP3_SendCmd, scmd, XdrvMailbox->data_len + 4);
+          MP3_SendCmd(scmd, XdrvMailbox->data_len + 4);
           Response_P(GSTR(mS_JSON_COMMAND_SVALUE), command, XdrvMailbox->data);
         } else {
-          CALL_MOD_FUNC(MP3_CMD, MP3_CMD_PLAY, 0);
+          MP3_CMD(MP3_CMD_PLAY, 0);
           Response_P(GSTR(S_JSON_MP3_COMMAND), command, XdrvMailbox->payload);
         }
         break;
@@ -388,7 +387,7 @@ play_default:
   return serviced;
 }
 
-void MOD_FUNC(MP3Player_Deinit) {
+void MP3Player_Deinit() {
   SETREGS
   if (ts) deleteTS(ts);
   ts = nullptr;
@@ -400,17 +399,17 @@ void MOD_FUNC(MP3Player_Deinit) {
  * Interface
 \*********************************************************************************************/
 
-static int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
+static int32_t mod_func_execute(uint32_t sel) {
   bool result = false;
   switch (sel) {
     case FUNC_INIT:
-      result = CALL_MOD_FUNC(MP3PlayerInit);
+      result = MP3PlayerInit();
       break;
     case FUNC_COMMAND:
-      result = CALL_MOD_FUNC(MP3PlayerCmd);
+      result = MP3PlayerCmd();
       break;
     case FUNC_DEINIT:
-      CALL_MOD_FUNC(MP3Player_Deinit);
+      MP3Player_Deinit();
       break;
   }
   return result;

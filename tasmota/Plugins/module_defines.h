@@ -155,6 +155,21 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define MODULE_PART __attribute__((section(SECTION_PART)))
 #define MODULE_END __attribute__((section(SECTION_END))) static void  END_OF_MODULE(void) {__asm__ __volatile__(".word 0x4AFCAA55");}
 
+//#define GET_MTABLE static uint32_t  GetmTbl(void) {
+//  return 0x12345678;
+//}
+
+/*
+__asm__  (\
+  ".section .text.mod_part\n"\
+  ".literal .xyz, 9600\n"\
+  ".align 4\n"\
+  "l32r	a2, .xyz	#,\n"\
+  "ret.n\n"\
+);\
+};
+*/
+
 //#define PROGMEM  __attribute__((section(".irom.text")))
 #undef PROGMEM
 #define PROGMEM  __attribute__((section(".text.mod_string"),aligned(4)))
@@ -175,14 +190,31 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 
 #define GFB(A)  pgm_read_byte(&A[mt->execution_offset])
 
-#define SETREGS MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
-#define ALLOCMEM void (* const *jt)() = mt->jt;mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
+extern "C" { MODULES_TABLE *gettbl(void); };
+
+#define SETREGS MODULES_TABLE *mt = gettbl(); MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
+#define ALLOCMEM MODULES_TABLE *mt = gettbl(); void (* const *jt)() = mt->jt;mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
 #define RETMEM if (mt->mem_size) {jfree(mt->mod_memory);mt->mem_size = 0;}
-#define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE MODULE_HEADER = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,END_OF_MODULE,0,0,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
+#define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE MODULE_HEADER = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,END_OF_MODULE,0,0,0x12345678,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
 #define MOD_FUNC(A, ...) A(MODULES_TABLE *mt, ##__VA_ARGS__)
 #define CALL_MOD_FUNC(A, ...) A(mt, ##__VA_ARGS__)
 #define STRBUFFER
 
+
+
+#define GET_TABLE __asm__  __volatile__ (\
+  ".section .text.mod_part\n"\
+  ".align 4\n"\
+  ".global gettbl\n"\
+  "gettbl: l32r	a2, module_header+48	#,\n"\
+  "ret.n\n"\
+);\
+
+GET_TABLE
+
+
+ //MODULES_TABLE *mtx = gettbl();
+    
 /*
 
 //#pragma GCC optimize ("O0")
