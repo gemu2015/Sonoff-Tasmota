@@ -22,7 +22,7 @@
 #include "module.h"
 #include "module_defines.h"
 
-#define BMX_REV  1<<16|0
+#define BMX_REV  1<<16|2
 
 #define BME280_I2C_ADDRESS1  (0x76)
 #define BME280_I2C_ADDRESS2  (0x77)
@@ -124,19 +124,19 @@ typedef uint32_t humidity_t;
 MODULE_DESCRIPTOR("BMXx80", MODULE_TYPE_SENSOR, BMX_REV,"",0,"",0,"",0,"",0)
 
 // all functions must be declared MUDULE_PART
-MODULE_PART int32_t MOD_FUNC(Init_BME);
-MODULE_PART void MOD_FUNC(BME_clearCalibrationData);
-MODULE_PART void MOD_FUNC(BME_readCalibrationData);
-MODULE_PART uint32_t MOD_FUNC(BME_Read, uint8_t reg, int8_t num);
-MODULE_PART uint32_t MOD_FUNC(BME_Write, uint8_t reg, int8_t val);
-MODULE_PART void MOD_FUNC(BME_Show, uint32_t json);
-MODULE_PART void MOD_FUNC(BME_Deinit);
-MODULE_PART void MOD_FUNC(BME_Every_Second);
-MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
-MODULE_PART float MOD_FUNC(Calc_AbsoluteHumidity, float temperature, float humidity);
-MODULE_PART humidity_t MOD_FUNC(compensateHumidity, int32_t adc_H);
-MODULE_PART temperature_t MOD_FUNC(compensateTemperature, int32_t adc_T);
-MODULE_PART pressure_t MOD_FUNC(compensatePressure, int32_t adc_P);
+MODULE_PART int32_t Init_BME();
+MODULE_PART void BME_clearCalibrationData();
+MODULE_PART void BME_readCalibrationData();
+MODULE_PART uint32_t BME_Read(uint8_t reg, int8_t num);
+MODULE_PART uint32_t BME_Write(uint8_t reg, int8_t val);
+MODULE_PART void BME_Show(uint32_t json);
+MODULE_PART void BME_Deinit();
+MODULE_PART void BME_Every_Second();
+MODULE_PART int32_t mod_func_execute(uint32_t sel);
+MODULE_PART float Calc_AbsoluteHumidity(float temperature, float humidity);
+MODULE_PART humidity_t compensateHumidity(int32_t adc_H);
+MODULE_PART temperature_t compensateTemperature(int32_t adc_T);
+MODULE_PART pressure_t compensatePressure(int32_t adc_P);
 
 MODULE_END
 
@@ -198,7 +198,7 @@ const char JSON_BMPend[] PROGMEM = "}";
 const char HTTP_SNS_AHUM[] PROGMEM = "{s}%s Abs Humidity{m}%s g/m3{e}";
 const char BMEtypes[] PROGMEM = "BMP180|BME280|BMP280|BME680";
 
-int32_t MOD_FUNC(Init_BME) {
+int32_t    Init_BME() {
   ALLOCMEM
  
   // now init variables here
@@ -207,11 +207,11 @@ int32_t MOD_FUNC(Init_BME) {
   i2c_addr = BME280_I2C_ADDRESS1;
 
   if (!I2cSetDevice(i2c_addr)) {
-    CALL_MOD_FUNC(BME_Deinit);
+    BME_Deinit();
     return -1;
   }
 
-  type = CALL_MOD_FUNC(BME_Read, BME280_ID_REGISTER, 1);
+  type = BME_Read(BME280_ID_REGISTER, 1);
 
   uint8_t index = 0;
   if (type == BMP180_CHIPID) {
@@ -227,14 +227,14 @@ int32_t MOD_FUNC(Init_BME) {
   GetTextIndexed(typestr, sizeof(typestr), index, GSTR(BMEtypes));
   I2cSetActiveFound(i2c_addr, typestr, 0);
 
-  CALL_MOD_FUNC(BME_readCalibrationData);
+  BME_readCalibrationData();
 
   initialized = true;
   ready = true;
   return ready;
 }
 
-uint32_t MOD_FUNC(BME_Read, uint8_t reg, int8_t num) {
+uint32_t    BME_Read(uint8_t reg, int8_t num) {
   SETREGS
 
   beginTransmission(i2c_addr);
@@ -254,7 +254,7 @@ uint32_t MOD_FUNC(BME_Read, uint8_t reg, int8_t num) {
   return result;
 }
 
-uint32_t MOD_FUNC(BME_Write, uint8_t reg, int8_t val) {
+uint32_t    BME_Write(uint8_t reg, int8_t val) {
   SETREGS
 
   beginTransmission(i2c_addr);
@@ -264,40 +264,40 @@ uint32_t MOD_FUNC(BME_Write, uint8_t reg, int8_t val) {
 }
 
 
-void MOD_FUNC(BME_readCalibrationData) {
+void    BME_readCalibrationData() {
   SETREGS
-  bmc._dig_T1 = (uint16_t) CALL_MOD_FUNC(BME_Read, BME280_CAL_T1, -2);
-  bmc._dig_T2 = (int16_t) CALL_MOD_FUNC(BME_Read, BME280_CAL_T2, -2);
-  bmc._dig_T3 = (int16_t) CALL_MOD_FUNC(BME_Read, BME280_CAL_T3, -2);
+  bmc._dig_T1 = (uint16_t) BME_Read(BME280_CAL_T1, -2);
+  bmc._dig_T2 = (int16_t) BME_Read(BME280_CAL_T2, -2);
+  bmc._dig_T3 = (int16_t) BME_Read(BME280_CAL_T3, -2);
 
-  bmc._dig_P1 = (uint16_t) CALL_MOD_FUNC(BME_Read, BME280_CAL_P1, -2);
-  bmc._dig_P2 = (int16_t) CALL_MOD_FUNC(BME_Read, BME280_CAL_P2, -2);
-  bmc._dig_P3 = (int16_t) CALL_MOD_FUNC(BME_Read, BME280_CAL_P3, -2);
-  bmc._dig_P4 = (int16_t) CALL_MOD_FUNC(BME_Read, BME280_CAL_P4, -2);
-  bmc._dig_P5 = (int16_t) CALL_MOD_FUNC(BME_Read, BME280_CAL_P5, -2);
-  bmc._dig_P6 = (int16_t) CALL_MOD_FUNC(BME_Read, BME280_CAL_P6, -2);
-  bmc._dig_P7 = (int16_t) CALL_MOD_FUNC(BME_Read, BME280_CAL_P7, -2);
-  bmc._dig_P8 = (int16_t) CALL_MOD_FUNC(BME_Read, BME280_CAL_P8, -2);
-  bmc._dig_P9 = (int16_t) CALL_MOD_FUNC(BME_Read, BME280_CAL_P9, -2);
+  bmc._dig_P1 = (uint16_t)  BME_Read(BME280_CAL_P1, -2);
+  bmc._dig_P2 = (int16_t)  BME_Read(BME280_CAL_P2, -2);
+  bmc._dig_P3 = (int16_t)  BME_Read(BME280_CAL_P3, -2);
+  bmc._dig_P4 = (int16_t)  BME_Read(BME280_CAL_P4, -2);
+  bmc._dig_P5 = (int16_t)  BME_Read(BME280_CAL_P5, -2);
+  bmc._dig_P6 = (int16_t)  BME_Read(BME280_CAL_P6, -2);
+  bmc._dig_P7 = (int16_t)  BME_Read(BME280_CAL_P7, -2);
+  bmc._dig_P8 = (int16_t)  BME_Read(BME280_CAL_P8, -2);
+  bmc._dig_P9 = (int16_t)  BME_Read(BME280_CAL_P9, -2);
   
   if (type == BME280_CHIPID) {
-    bmc._dig_H1 = CALL_MOD_FUNC(BME_Read, BME280_CAL_H1, 1);
-    bmc._dig_H2 = (int16_t) CALL_MOD_FUNC(BME_Read,BME280_CAL_H2, -2);
-    bmc._dig_H3 = CALL_MOD_FUNC(BME_Read, BME280_CAL_H3, 1);
+    bmc._dig_H1 =  BME_Read(BME280_CAL_H1, 1);
+    bmc._dig_H2 = (int16_t)  BME_Read(BME280_CAL_H2, -2);
+    bmc._dig_H3 =  BME_Read(BME280_CAL_H3, 1);
   // H4 & H5 share a byte.
-    uint8_t temp1 = CALL_MOD_FUNC(BME_Read,BME280_CAL_H4, 1);
-    uint8_t temp2 = CALL_MOD_FUNC(BME_Read,BME280_CAL_H45, 1);
-    uint8_t temp3 = CALL_MOD_FUNC(BME_Read,BME280_CAL_H5, 1);
+    uint8_t temp1 =  BME_Read(BME280_CAL_H4, 1);
+    uint8_t temp2 =  BME_Read(BME280_CAL_H45, 1);
+    uint8_t temp3 =  BME_Read(BME280_CAL_H5, 1);
     bmc._dig_H4 = (temp1<<4) | (temp2&0x0f);
     bmc._dig_H5 = (temp3<<4) | (temp2>>4);
-    bmc._dig_H6 = (int8_t) CALL_MOD_FUNC(BME_Read,BME280_CAL_H6, 1);
+    bmc._dig_H6 = (int8_t)  BME_Read(BME280_CAL_H6, 1);
 
-    CALL_MOD_FUNC(BME_Write, BME280_CTRL_MEAS_REGISTER, 0x00);
-    CALL_MOD_FUNC(BME_Write, BME280_CTRL_HUM_REGISTER, 0x01);
-    CALL_MOD_FUNC(BME_Write, BME280_CONFIG_REGISTER, 0xA0);
-    CALL_MOD_FUNC(BME_Write, BME280_CTRL_MEAS_REGISTER, 0x27);
+     BME_Write(BME280_CTRL_MEAS_REGISTER, 0x00);
+     BME_Write(BME280_CTRL_HUM_REGISTER, 0x01);
+     BME_Write(BME280_CONFIG_REGISTER, 0xA0);
+     BME_Write(BME280_CTRL_MEAS_REGISTER, 0x27);
   } else {
-    CALL_MOD_FUNC(BME_Write, BME280_CTRL_MEAS_REGISTER, 0xb7);
+     BME_Write(BME280_CTRL_MEAS_REGISTER, 0xb7);
   }
 }
 
@@ -305,7 +305,7 @@ void MOD_FUNC(BME_readCalibrationData) {
 // From the datasheet.
 // Returns temperature in DegC, resolution is 0.01 DegC. Output value of 5123 equals 51.23 DegC.
 // _t_fine carries fine temperature as "global" value.
-temperature_t MOD_FUNC(compensateTemperature, int32_t adc_T) {
+temperature_t    compensateTemperature(int32_t adc_T) {
   SETREGS
   int32_t var1, var2, T;
   var1 = ((((adc_T>>3) - ((int32_t)bmc._dig_T1<<1))) * ((int32_t)bmc._dig_T2)) >> 11;
@@ -318,7 +318,7 @@ temperature_t MOD_FUNC(compensateTemperature, int32_t adc_T) {
 
 // From the datasheet.
 // Returns pressure in Pa as unsigned 32 bit integer. Output value of 96386 equals 96386 Pa = 963.86 hPa
-pressure_t MOD_FUNC(compensatePressure, int32_t adc_P) {
+pressure_t    compensatePressure(int32_t adc_P) {
   SETREGS
   int32_t var1, var2;
   uint32_t p;
@@ -350,7 +350,7 @@ pressure_t MOD_FUNC(compensatePressure, int32_t adc_P) {
 // From the datasheet.
 // Returns humidity in %RH as unsigned 32 bit integer in Q22.10 format (22 integer and 10 fractional bits).
 // Output value of 47445 represents 47445/1024 = 46.333 %RH
-humidity_t MOD_FUNC(compensateHumidity, int32_t adc_H) {
+humidity_t    compensateHumidity(int32_t adc_H) {
   SETREGS
   int32_t v_x1_u32r;
   v_x1_u32r = (_t_fine - ((int32_t)76800));
@@ -364,7 +364,7 @@ humidity_t MOD_FUNC(compensateHumidity, int32_t adc_H) {
   return (uint32_t)(v_x1_u32r>>12);
 }
 
-float MOD_FUNC(Calc_AbsoluteHumidity, float temperature, float humidity) {
+float    Calc_AbsoluteHumidity(float temperature, float humidity) {
   SETREGS
   //taken from https://carnotcycle.wordpress.com/2012/08/04/how-to-convert-relative-humidity-to-absolute-humidity/
   //precision is about 0.1°C in range -30 to 35°C
@@ -396,33 +396,33 @@ float MOD_FUNC(Calc_AbsoluteHumidity, float temperature, float humidity) {
 
 
 
-void MOD_FUNC(BME_Every_Second) {
+void    BME_Every_Second() {
   SETREGS
 
   if (ready == false) return;
 
-  uint32_t r_press = CALL_MOD_FUNC(BME_Read, BME280_PRESSURE, 3) >> 4;
-  int32_t r_temp = CALL_MOD_FUNC(BME_Read, BME280_TEMPERATURE, 3) >> 4;
+  uint32_t r_press =  BME_Read(BME280_PRESSURE, 3) >> 4;
+  int32_t r_temp =  BME_Read(BME280_TEMPERATURE, 3) >> 4;
   
-  r_temp = CALL_MOD_FUNC(compensateTemperature, r_temp); // First call this before calling the other compensate functions.
-  r_press = CALL_MOD_FUNC(compensatePressure, r_press); // Uses value calculated by compensateTemperature.
+  r_temp =  compensateTemperature(r_temp); // First call this before calling the other compensate functions.
+  r_press =  compensatePressure(r_press); // Uses value calculated by compensateTemperature.
   temp =  fscale(r_temp, (float)0.01, (float)0);
   press = fscale(r_press, (float)0.01, (float)0);
 
 
   if (type == BME280_CHIPID) {
-    uint16_t r_hum = CALL_MOD_FUNC(BME_Read, BME280_HUMIDITY, 2);
-    r_hum = CALL_MOD_FUNC(compensateHumidity, r_hum); // Uses value calculated by compensateTemperature.
+    uint16_t r_hum =  BME_Read(BME280_HUMIDITY, 2);
+    r_hum =  compensateHumidity(r_hum); // Uses value calculated by compensateTemperature.
     hum = fscale(r_hum, (float)0.00097656, (float)0);
   
-    abshum = CALL_MOD_FUNC(Calc_AbsoluteHumidity, temp, hum);
+    abshum =  Calc_AbsoluteHumidity(temp, hum);
     
   }
 
 }
 
 
-void MOD_FUNC(BME_Show, uint32_t json) {
+void    BME_Show(uint32_t json) {
   SETREGS
 
   if (ready == false) return;
@@ -459,7 +459,7 @@ void MOD_FUNC(BME_Show, uint32_t json) {
 
 
 
-void MOD_FUNC(BME_Deinit) {
+void BME_Deinit() {
   SETREGS
   I2cResetActive(i2c_addr, 1);
   RETMEM
@@ -469,23 +469,23 @@ void MOD_FUNC(BME_Deinit) {
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
-int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
+int32_t mod_func_execute(uint32_t sel) {
   bool result = false;
   switch (sel) {
     case FUNC_INIT:
-      result = CALL_MOD_FUNC(Init_BME);
+      result = Init_BME();
       break;
     case FUNC_JSON_APPEND:
-      CALL_MOD_FUNC(BME_Show, 1);
+      BME_Show(1);
       break;
     case FUNC_WEB_SENSOR:
-      CALL_MOD_FUNC(BME_Show, 0);
+      BME_Show(0);
       break;
     case FUNC_EVERY_SECOND:
-      CALL_MOD_FUNC(BME_Every_Second);
+      BME_Every_Second();
       break;
     case FUNC_DEINIT:
-      CALL_MOD_FUNC(BME_Deinit);
+      BME_Deinit();
       break;
   }
   return result;
