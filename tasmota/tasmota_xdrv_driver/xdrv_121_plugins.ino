@@ -100,7 +100,7 @@ int tmod_read1TS(TasmotaSerial *ts);
 uint8_t tmod_availTS(TasmotaSerial *ts);
 bool hardwareSerialTS(TasmotaSerial *ts);
 void AddlogT(char* txt);
-bool MT_DecodeCommand(const char* haystack, void (* const InCommand[])(void), MODULES_TABLE *mt);
+bool MT_DecodeCommand(const char* haystack, void (* const InCommand[])(void));
 size_t tmod_write1TS(TasmotaSerial *ts, uint8_t val);
 #ifdef ESP32
 void twi_readFrom(uint8_t address, uint8_t* data, uint8_t length);
@@ -205,7 +205,7 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod__fixunssfsi,
   JMPTBL&tmod__umodsi3,
   JMPTBL&twi_readFrom,
-  JMPTBL&MT_DecodeCommand,
+  JMPTBL&DecodeCommand,
   JMPTBL&ResponseCmndDone,
   JMPTBL&tmod_write1TS,
   JMPTBL&memcmp_P,
@@ -229,8 +229,8 @@ void twi_readFrom(uint8_t address, uint8_t* data, uint8_t length) {
 }
 #endif  // ESP32
 
-
-bool MT_DecodeCommand(const char* haystack, void (* const MyCommand[])(void), MODULES_TABLE *mt) {
+/*
+bool MT_DecodeCommand(const char* haystack, void (* const MyCommand[])(void)) {
 
   haystack += mt->execution_offset;
   MyCommand += (mt->execution_offset >> 2);
@@ -256,7 +256,7 @@ bool MT_DecodeCommand(const char* haystack, void (* const MyCommand[])(void), MO
   }
   return false;
 }
-
+*/
 
 void AddlogT(char* txt) {
    AddLog(LOG_LEVEL_INFO ,PSTR("%s"), txt);

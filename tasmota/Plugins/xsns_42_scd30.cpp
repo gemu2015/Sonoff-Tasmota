@@ -52,22 +52,22 @@
 #include "module.h"
 #include "module_defines.h"
 
-#define SCD30_REV  1<<16|0
+#define SCD30_REV  1<<16|2
 
 MODULE_DESCRIPTOR("SCD30", MODULE_TYPE_SENSOR, SCD30_REV,"",0,"",0,"",0,"",0)
 // all functions must be declared MUDULE_PART
-MODULE_PART int32_t MOD_FUNC(SCD30_Detect);
-MODULE_PART void MOD_FUNC(SCD30_Show, bool json);
-MODULE_PART void MOD_FUNC(SCD30_Update);
-MODULE_PART void MOD_FUNC(CmndScd30Altitude);
-MODULE_PART void  MOD_FUNC(CmndScd30AutoMode);
-MODULE_PART void  MOD_FUNC(CmndScd30Calibrate);
-MODULE_PART void  MOD_FUNC(CmndScd30Firmware);
-MODULE_PART void  MOD_FUNC(CmndScd30Interval);
-MODULE_PART void  MOD_FUNC(CmndScd30Pressure);
-MODULE_PART void  MOD_FUNC(CmndScd30TempOffset);
-MODULE_PART void MOD_FUNC(SCD30_Deinit);
-MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
+MODULE_PART int32_t SCD30_Detect();
+MODULE_PART void SCD30_Show(bool json);
+MODULE_PART void SCD30_Update();
+MODULE_PART void CmndScd30Altitude();
+MODULE_PART void  CmndScd30AutoMode();
+MODULE_PART void  CmndScd30Calibrate();
+MODULE_PART void  CmndScd30Firmware();
+MODULE_PART void  CmndScd30Interval();
+MODULE_PART void  CmndScd30Pressure();
+MODULE_PART void  CmndScd30TempOffset();
+MODULE_PART void SCD30_Deinit();
+MODULE_PART int32_t mod_func_execute(uint32_t sel);
 
 MODULE_END
 
@@ -115,46 +115,46 @@ typedef struct {
 // SCD30 driver
 
 
-MODULE_PART void MOD_FUNC(SCD30_begin, uint8_t addr);
+MODULE_PART void SCD30_begin(uint8_t addr);
 
-MODULE_PART int MOD_FUNC(SCD30_softReset);
-MODULE_PART int MOD_FUNC(SCD30_clearI2CBus); // this is a HARD reset of the IC2 bus to restore communication, it will disrupt the bus
+MODULE_PART int SCD30_softReset();
+MODULE_PART int SCD30_clearI2CBus(); // this is a HARD reset of the IC2 bus to restore communication, it will disrupt the bus
 
-MODULE_PART int MOD_FUNC(SCD30_getAltitudeCompensation, uint16_t *pHeight_meter);
-MODULE_PART int MOD_FUNC(SCD30_getAmbientPressure, uint16_t *pAirPressure_mbar);
-MODULE_PART int MOD_FUNC(SCD30_getCalibrationType, uint16_t *pIsAuto);
-MODULE_PART int MOD_FUNC(SCD30_getFirmwareVersion, uint8_t *pMajor, uint8_t *pMinor);
-MODULE_PART int MOD_FUNC(SCD30_getForcedRecalibrationFactor, uint16_t *pCo2_ppm);
-MODULE_PART int MOD_FUNC(SCD30_getMeasurementInterval, uint16_t *pTime_sec);
-MODULE_PART int MOD_FUNC(SCD30_getTemperatureOffset ,float *pOffset_degC);
-MODULE_PART int MOD_FUNC(SCD30_getTemperatureOffset, uint16_t *pOffset_centiDegC);
+MODULE_PART int SCD30_getAltitudeCompensation(uint16_t *pHeight_meter);
+MODULE_PART int SCD30_getAmbientPressure(uint16_t *pAirPressure_mbar);
+MODULE_PART int SCD30_getCalibrationType(uint16_t *pIsAuto);
+MODULE_PART int SCD30_getFirmwareVersion(uint8_t *pMajor, uint8_t *pMinor);
+MODULE_PART int SCD30_getForcedRecalibrationFactor(uint16_t *pCo2_ppm);
+MODULE_PART int SCD30_getMeasurementInterval(uint16_t *pTime_sec);
+MODULE_PART int SCD30_getTemperatureOffset(float *pOffset_degC);
+MODULE_PART int SCD30_getTemperatureOffset(uint16_t *pOffset_centiDegC);
 
-MODULE_PART int MOD_FUNC(SCD30_setAltitudeCompensation, uint16_t height_meter);
-MODULE_PART int MOD_FUNC(SCD30_setAmbientPressure, uint16_t airPressure_mbar);
-MODULE_PART int MOD_FUNC(SCD30_setAutoSelfCalibration);
-MODULE_PART int MOD_FUNC(SCD30_setCalibrationType, bool isAuto);
-MODULE_PART int MOD_FUNC(SCD30_setForcedRecalibrationFactor, uint16_t co2_ppm);
-MODULE_PART int MOD_FUNC(SCD30_setManualCalibration);
-MODULE_PART int MOD_FUNC(SCD30_setMeasurementInterval, uint16_t time_sec);
-MODULE_PART int MOD_FUNC(SCD30_setTemperatureOffset, float offset_degC);
-MODULE_PART int MOD_FUNC(SCD30_setTemperatureOffset, uint16_t offset_centiDegC);
+MODULE_PART int SCD30_setAltitudeCompensation(uint16_t height_meter);
+MODULE_PART int SCD30_setAmbientPressure(uint16_t airPressure_mbar);
+MODULE_PART int SCD30_setAutoSelfCalibration();
+MODULE_PART int SCD30_setCalibrationType(bool isAuto);
+MODULE_PART int SCD30_setForcedRecalibrationFactor(uint16_t co2_ppm);
+MODULE_PART int SCD30_setManualCalibration();
+MODULE_PART int SCD30_setMeasurementInterval(uint16_t time_sec);
+MODULE_PART int SCD30_setTemperatureOffset(float offset_degC);
+MODULE_PART int SCD30_setTemperatureOffset(uint16_t offset_centiDegC);
 
-MODULE_PART int MOD_FUNC(SCD30_beginMeasuring);
-MODULE_PART int MOD_FUNC(SCD30_beginMeasuring, uint16_t airPressure_mbar); // also sets ambient pressure offset in mbar/hPascal
-MODULE_PART int MOD_FUNC(SCD30_isDataAvailable, bool *pIsAvailable);
-MODULE_PART int MOD_FUNC(SCD30_readMeasurement, uint16 *pCO2_ppm,uint16 *pCO2EAvg_ppm,float *pTemperature,float *pHumidity);
-MODULE_PART int MOD_FUNC(SCD30_stopMeasuring);
+MODULE_PART int SCD30_beginMeasuring();
+MODULE_PART int SCD30_beginMeasuring(uint16_t airPressure_mbar); // also sets ambient pressure offset in mbar/hPascal
+MODULE_PART int SCD30_isDataAvailable(bool *pIsAvailable);
+MODULE_PART int SCD30_readMeasurement(uint16 *pCO2_ppm,uint16 *pCO2EAvg_ppm,float *pTemperature,float *pHumidity);
+MODULE_PART int SCD30_stopMeasuring();
 
-MODULE_PART uint8_t MOD_FUNC(SCD30_computeCRC8, uint8_t data[], uint8_t len);
-MODULE_PART int MOD_FUNC(SCD30_sendBytes, void *pInput, uint8_t len);
-MODULE_PART int MOD_FUNC(SCD30_getBytes, void *pOutput, uint8_t len);
-MODULE_PART int MOD_FUNC(SCD30_sendCommand, uint16_t command);
-MODULE_PART int MOD_FUNC(SCD30_sendCommandArguments, uint16_t command, uint16_t arguments);
-MODULE_PART int MOD_FUNC(SCD30_get16BitRegCheckCRC, void* pInput, uint16_t* pData);
-MODULE_PART int MOD_FUNC(SCD30_get32BitRegCheckCRC, void* pInput, float* pData);
-MODULE_PART int MOD_FUNC(SCD30_sendCommand, uint16_t registerAddress, uint16_t* pData);
-MODULE_PART int MOD_FUNC(SCD30_readRegister, uint16_t registerAddress, uint16_t* pData);
-MODULE_PART uint16_t MOD_FUNC(SCD30_opt_med5, uint16_t * p);
+MODULE_PART uint8_t SCD30_computeCRC8(uint8_t data[], uint8_t len);
+MODULE_PART int SCD30_sendBytes(void *pInput, uint8_t len);
+MODULE_PART int SCD30_getBytes(void *pOutput, uint8_t len);
+MODULE_PART int SCD30_sendCommand(uint16_t command);
+MODULE_PART int SCD30_sendCommandArguments(uint16_t command, uint16_t arguments);
+MODULE_PART int SCD30_get16BitRegCheckCRC(void* pInput, uint16_t* pData);
+MODULE_PART int SCD30_get32BitRegCheckCRC(void* pInput, float* pData);
+MODULE_PART int SCD30_sendCommand(uint16_t registerAddress, uint16_t* pData);
+MODULE_PART int SCD30_readRegister(uint16_t registerAddress, uint16_t* pData);
+MODULE_PART uint16_t SCD30_opt_med5(uint16_t * p);
 
 
 #define COMMAND_SCD30_CONTINUOUS_MEASUREMENT      0x0010
@@ -174,7 +174,7 @@ MODULE_PART uint16_t MOD_FUNC(SCD30_opt_med5, uint16_t * p);
 #define SCD30_MEAS_BYTES 18
 
 
-void MOD_FUNC(SCD30_begin, uint8_t addr) {
+void SCD30_begin(uint8_t addr) {
     SETREGS
     drv.i2cAddress = addr;
     drv.co2NewDataLocation = -1; // indicates there is no data, so the 1st data point needs to fill up the median filter
@@ -193,7 +193,7 @@ void MOD_FUNC(SCD30_begin, uint8_t addr) {
 #define PIX_SORT(a,b) { if ((a)>(b)) PIX_SWAP((a),(b)); }
 #define PIX_SWAP(a,b) { uint16_t temp=(a);(a)=(b);(b)=temp; }
 
-uint16_t MOD_FUNC(SCD30_opt_med5, uint16_t * p) {
+uint16_t SCD30_opt_med5(uint16_t * p) {
     PIX_SORT(p[0], p[1]);
     PIX_SORT(p[3], p[4]);
     PIX_SORT(p[0], p[3]);
@@ -206,7 +206,7 @@ uint16_t MOD_FUNC(SCD30_opt_med5, uint16_t * p) {
 
 // twi_status() attempts to read out any data left that is holding SDA low, so a new transaction can take place
 // something like (http://www.forward.com.au/pfod/ArduinoProgramming/I2C_ClearBus/index.html)
-int MOD_FUNC(SCD30_clearI2CBus) {
+int SCD30_clearI2CBus() {
 /*
 #ifdef ESP8266
     return (twi_status());
@@ -217,7 +217,7 @@ int MOD_FUNC(SCD30_clearI2CBus) {
     return 0;
 }
 
-uint8_t MOD_FUNC(SCD30_computeCRC8, uint8_t data[], uint8_t len) {
+uint8_t SCD30_computeCRC8(uint8_t data[], uint8_t len) {
 // Computes the CRC that the SCD30 uses
   uint8_t crc = 0xFF; //Init with 0xFF
 
@@ -235,7 +235,7 @@ uint8_t MOD_FUNC(SCD30_computeCRC8, uint8_t data[], uint8_t len) {
 }
 
 // Sends stream of bytes to device
-int MOD_FUNC(SCD30_sendBytes, void *pInput, uint8_t len) {
+int SCD30_sendBytes(void *pInput, uint8_t len) {
   SETREGS
     uint8_t *pBytes = (uint8_t *) pInput;
     int result;
@@ -252,7 +252,7 @@ int MOD_FUNC(SCD30_sendBytes, void *pInput, uint8_t len) {
 }
 
 // Gets a number of bytes from device
-int MOD_FUNC(SCD30_getBytes, void *pOutput, uint8_t len) {
+int SCD30_getBytes(void *pOutput, uint8_t len) {
   SETREGS
   uint8_t *pBytes = (uint8_t *) pOutput;
   uint8_t result;
@@ -273,32 +273,32 @@ int MOD_FUNC(SCD30_getBytes, void *pOutput, uint8_t len) {
 }
 
 //Sends just a command, no arguments, no CRC
-int MOD_FUNC(SCD30_sendCommand, uint16_t command) {
+int SCD30_sendCommand(uint16_t command) {
   SETREGS
   uint8_t data[2];
   data[0] = command >> 8;
   data[1] = command & 0xFF;
-  int error = CALL_MOD_FUNC(SCD30_sendBytes, data, sizeof(data));
+  int error = SCD30_sendBytes(data, sizeof(data));
   return error;
 }
 
 //Sends a command along with arguments and CRC
-int MOD_FUNC(SCD30_sendCommandArguments, uint16_t command, uint16_t arguments) {
+int SCD30_sendCommandArguments(uint16_t command, uint16_t arguments) {
   SETREGS
   uint8_t data[5];
   data[0] = command >> 8;
   data[1] = command & 0xFF;
   data[2] = arguments >> 8;
   data[3] = arguments & 0xFF;
-  data[4] = CALL_MOD_FUNC(SCD30_computeCRC8, &data[2], 2); //Calc CRC on the arguments only, not the command
-  int error = CALL_MOD_FUNC(SCD30_sendBytes, data, sizeof(data));
+  data[4] = SCD30_computeCRC8(&data[2], 2); //Calc CRC on the arguments only, not the command
+  int error = SCD30_sendBytes(data, sizeof(data));
   return error;
 }
 
-int MOD_FUNC(SCD30_get16BitRegCheckCRC, void* pInput, uint16_t *pData) {
+int SCD30_get16BitRegCheckCRC(void* pInput, uint16_t *pData) {
   SETREGS
   uint8_t *pBytes = (uint8_t *) pInput;
-  uint8_t expectedCRC = CALL_MOD_FUNC(SCD30_computeCRC8, pBytes, SCD30_DATA_REGISTER_BYTES);
+  uint8_t expectedCRC = SCD30_computeCRC8(pBytes, SCD30_DATA_REGISTER_BYTES);
   if (expectedCRC != pBytes[SCD30_DATA_REGISTER_BYTES]) {
     return (ERROR_SCD30_CRC_ERROR);
   }
@@ -308,19 +308,19 @@ int MOD_FUNC(SCD30_get16BitRegCheckCRC, void* pInput, uint16_t *pData) {
 
 // gets 32 bits, (2) 16-bit chunks, and validates the CRCs
 //
-int MOD_FUNC(SCD30_get32BitRegCheckCRC, void *pInput, float *pData) {
+int SCD30_get32BitRegCheckCRC(void *pInput, float *pData) {
   SETREGS
   uint16_t tempU16High;
   uint16_t tempU16Low;
   uint8_t *pBytes = (uint8_t *) pInput;
   uint32_t rawInt = 0;
 
-  int error = CALL_MOD_FUNC(SCD30_get16BitRegCheckCRC, pBytes, &tempU16High);
+  int error = SCD30_get16BitRegCheckCRC(pBytes, &tempU16High);
   if (error) {
     return (error);
   }
 
-  error = CALL_MOD_FUNC(SCD30_get16BitRegCheckCRC, pBytes + SCD30_DATA_REGISTER_WITH_CRC, &tempU16Low);
+  error = SCD30_get16BitRegCheckCRC(pBytes + SCD30_DATA_REGISTER_WITH_CRC, &tempU16Low);
   if (error) {
     return (error);
   }
@@ -340,20 +340,20 @@ int MOD_FUNC(SCD30_get32BitRegCheckCRC, void *pInput, float *pData) {
 }
 
 //Gets two bytes (and check CRC) from SCD30
-int MOD_FUNC(SCD30_readRegister, uint16_t registerAddress, uint16_t* pData) {
+int SCD30_readRegister(uint16_t registerAddress, uint16_t* pData) {
   SETREGS
-  int error = CALL_MOD_FUNC(SCD30_sendCommand, registerAddress);
+  int error = SCD30_sendCommand(registerAddress);
   if (error) {
     return (error);
   }
   delay(1); // the SCD30 uses clock streching to give it time to prepare data, waiting here makes it work
   uint8_t data[SCD30_DATA_REGISTER_WITH_CRC];
-  error = CALL_MOD_FUNC(SCD30_getBytes, data, sizeof(data));
+  error = SCD30_getBytes(data, sizeof(data));
   if (error) {
     return (error);
   }
   uint16 regValue;
-  error = CALL_MOD_FUNC(SCD30_get16BitRegCheckCRC, data, &regValue);
+  error = SCD30_get16BitRegCheckCRC(data, &regValue);
   if (error) {
     return (error);
   }
@@ -362,36 +362,36 @@ int MOD_FUNC(SCD30_readRegister, uint16_t registerAddress, uint16_t* pData) {
   return (ERROR_SCD30_NO_ERROR);
 }
 
-int MOD_FUNC(SCD30_softReset) {
+int SCD30_softReset() {
   SETREGS
-  return (CALL_MOD_FUNC(SCD30_sendCommand, COMMAND_SCD30_SOFT_RESET));
+  return (SCD30_sendCommand(COMMAND_SCD30_SOFT_RESET));
 }
 
-int MOD_FUNC(SCD30_getAltitudeCompensation, uint16_t *pHeight_meter) {
+int SCD30_getAltitudeCompensation(uint16_t *pHeight_meter) {
   SETREGS
-  return (CALL_MOD_FUNC(SCD30_readRegister, COMMAND_SCD30_ALTITUDE_COMPENSATION, pHeight_meter));
+  return (SCD30_readRegister(COMMAND_SCD30_ALTITUDE_COMPENSATION, pHeight_meter));
 }
 
-int MOD_FUNC(SCD30_getAmbientPressure, uint16_t *pAirPressure_mbar) {
+int SCD30_getAmbientPressure(uint16_t *pAirPressure_mbar) {
   SETREGS
   *pAirPressure_mbar = drv.ambientPressure;
   return (ERROR_SCD30_NO_ERROR);
 }
 
-int MOD_FUNC(SCD30_getCalibrationType, uint16_t *pIsAuto) {
+int SCD30_getCalibrationType(uint16_t *pIsAuto) {
   SETREGS
   uint16_t value = 0;
-  int error = CALL_MOD_FUNC(SCD30_readRegister, COMMAND_SCD30_CALIBRATION_TYPE, &value);
+  int error = SCD30_readRegister(COMMAND_SCD30_CALIBRATION_TYPE, &value);
   if (!error) {
     *pIsAuto = value != 0;
   }
   return (error);
 }
 
-int MOD_FUNC(SCD30_getFirmwareVersion, uint8_t *pMajor, uint8_t *pMinor) {
+int SCD30_getFirmwareVersion(uint8_t *pMajor, uint8_t *pMinor) {
   SETREGS
   uint16_t value;
-  int error = CALL_MOD_FUNC(SCD30_readRegister, COMMAND_SCD30_GET_FW_VERSION, &value);
+  int error = SCD30_readRegister(COMMAND_SCD30_GET_FW_VERSION, &value);
   if (!error) {
     *pMajor = value >> 8;
     *pMinor = value & 0xFF;
@@ -399,20 +399,20 @@ int MOD_FUNC(SCD30_getFirmwareVersion, uint8_t *pMajor, uint8_t *pMinor) {
   return (error);
 }
 
-int MOD_FUNC(SCD30_getForcedRecalibrationFactor, uint16_t *pCo2_ppm) {
+int SCD30_getForcedRecalibrationFactor(uint16_t *pCo2_ppm) {
   SETREGS
-  return (CALL_MOD_FUNC(SCD30_readRegister, COMMAND_SCD30_FORCED_RECALIBRATION_FACTOR, pCo2_ppm));
+  return (SCD30_readRegister(COMMAND_SCD30_FORCED_RECALIBRATION_FACTOR, pCo2_ppm));
 }
 
-int MOD_FUNC(SCD30_getMeasurementInterval, uint16_t *pTime_sec) {
+int SCD30_getMeasurementInterval(uint16_t *pTime_sec) {
   SETREGS
-  return (CALL_MOD_FUNC(SCD30_readRegister, COMMAND_SCD30_MEASUREMENT_INTERVAL, pTime_sec));
+  return (SCD30_readRegister(COMMAND_SCD30_MEASUREMENT_INTERVAL, pTime_sec));
 }
 
-int MOD_FUNC(SCD30_getTemperatureOffset, float *pOffset_degC) {
+int SCD30_getTemperatureOffset(float *pOffset_degC) {
   SETREGS
   uint16_t value;
-  int error = CALL_MOD_FUNC(SCD30_readRegister, COMMAND_SCD30_TEMPERATURE_OFFSET, &value);
+  int error = SCD30_readRegister(COMMAND_SCD30_TEMPERATURE_OFFSET, &value);
   if (!error) {
     // result is in centi-degrees, need to convert to degrees
     //*pOffset_degC = (float) value / 100.0;
@@ -421,10 +421,10 @@ int MOD_FUNC(SCD30_getTemperatureOffset, float *pOffset_degC) {
   return (error);
 }
 
-int MOD_FUNC(SCD30_getTemperatureOffset, uint16_t *pOffset_centiDegC) {
+int SCD30_getTemperatureOffset(uint16_t *pOffset_centiDegC) {
   SETREGS
   uint16_t value;
-  int error = CALL_MOD_FUNC(SCD30_readRegister, COMMAND_SCD30_TEMPERATURE_OFFSET, &value);
+  int error = SCD30_readRegister(COMMAND_SCD30_TEMPERATURE_OFFSET, &value);
   if (!error) {
     // result is in centi-degrees, need to convert to degrees
     *pOffset_centiDegC = value;
@@ -432,49 +432,49 @@ int MOD_FUNC(SCD30_getTemperatureOffset, uint16_t *pOffset_centiDegC) {
   return (error);
 }
 
-int MOD_FUNC(SCD30_setAltitudeCompensation, uint16_t height_meter) {
+int SCD30_setAltitudeCompensation(uint16_t height_meter) {
   SETREGS
-  return (CALL_MOD_FUNC(SCD30_sendCommandArguments, COMMAND_SCD30_ALTITUDE_COMPENSATION, height_meter));
+  return (SCD30_sendCommandArguments(COMMAND_SCD30_ALTITUDE_COMPENSATION, height_meter));
 }
 
-int MOD_FUNC(SCD30_setAmbientPressure, uint16_t airPressure_mbar) {
+int SCD30_setAmbientPressure(uint16_t airPressure_mbar) {
   SETREGS
   drv.ambientPressure = airPressure_mbar;
   return 0;
-  //return CALL_MOD_FUNC((SCD30_beginMeasuring, drv.ambientPressure));
+  //return (SCD30_beginMeasuring(drv.ambientPressure));
 }
 
-int MOD_FUNC(SCD30_setAutoSelfCalibration) {
+int SCD30_setAutoSelfCalibration() {
   SETREGS
   bool isAuto = true;
-  return (CALL_MOD_FUNC(SCD30_setCalibrationType, isAuto));
+  return (SCD30_setCalibrationType(isAuto));
 }
 
-int MOD_FUNC(SCD30_setCalibrationType, bool isAuto) {
+int SCD30_setCalibrationType(bool isAuto) {
   SETREGS
   bool value = !!isAuto; // using NOT operator twice makes sure value is 0 or 1
-  return (CALL_MOD_FUNC(SCD30_sendCommandArguments, COMMAND_SCD30_CALIBRATION_TYPE, value));
+  return (SCD30_sendCommandArguments(COMMAND_SCD30_CALIBRATION_TYPE, value));
 }
 
-int MOD_FUNC(SCD30_setForcedRecalibrationFactor, uint16_t co2_ppm) {
+int SCD30_setForcedRecalibrationFactor(uint16_t co2_ppm) {
   SETREGS
-  return (CALL_MOD_FUNC(SCD30_sendCommandArguments, COMMAND_SCD30_FORCED_RECALIBRATION_FACTOR, co2_ppm));
+  return (SCD30_sendCommandArguments(COMMAND_SCD30_FORCED_RECALIBRATION_FACTOR, co2_ppm));
 }
 
-int MOD_FUNC(SCD30_setManualCalibration) {
+int SCD30_setManualCalibration() {
   SETREGS
   bool isAuto = false;
-  return (CALL_MOD_FUNC(SCD30_setCalibrationType, isAuto));
+  return (SCD30_setCalibrationType(isAuto));
 }
 
-int MOD_FUNC(SCD30_setMeasurementInterval, uint16_t time_sec) {
+int SCD30_setMeasurementInterval(uint16_t time_sec) {
   SETREGS
   if (time_sec < 2) time_sec = 2;
   if (time_sec > 1800) time_sec = 1800;
-  return (CALL_MOD_FUNC(SCD30_sendCommandArguments, COMMAND_SCD30_MEASUREMENT_INTERVAL, time_sec));
+  return (SCD30_sendCommandArguments(COMMAND_SCD30_MEASUREMENT_INTERVAL, time_sec));
 }
 
-int MOD_FUNC(SCD30_setTemperatureOffset, float offset_degC) {
+int SCD30_setTemperatureOffset(float offset_degC) {
   SETREGS
   uint16_t offset_centiDegC;
   //if (offset_degC >= 0) {
@@ -482,34 +482,34 @@ int MOD_FUNC(SCD30_setTemperatureOffset, float offset_degC) {
 
     //offset_centiDegC = (uint16_t) offset_degC * 100;
     offset_centiDegC = tmod__fixunssfsi(offset_degC) * 100;
-    return (CALL_MOD_FUNC(SCD30_sendCommandArguments, COMMAND_SCD30_TEMPERATURE_OFFSET, offset_centiDegC));
+    return (SCD30_sendCommandArguments(COMMAND_SCD30_TEMPERATURE_OFFSET, offset_centiDegC));
   } else {
     return (ERROR_SCD30_INVALID_VALUE);
   }
 }
 
-int MOD_FUNC(SCD30_setTemperatureOffset, uint16_t offset_centiDegC) {
+int SCD30_setTemperatureOffset(uint16_t offset_centiDegC) {
   SETREGS
-  return (CALL_MOD_FUNC(SCD30_sendCommandArguments, COMMAND_SCD30_TEMPERATURE_OFFSET, offset_centiDegC));
+  return (SCD30_sendCommandArguments(COMMAND_SCD30_TEMPERATURE_OFFSET, offset_centiDegC));
 }
 
-int MOD_FUNC(SCD30_beginMeasuring) {
+int SCD30_beginMeasuring() {
   SETREGS
-  return(CALL_MOD_FUNC(SCD30_sendCommandArguments, COMMAND_SCD30_CONTINUOUS_MEASUREMENT, drv.ambientPressure));
-  //return (CALL_MOD_FUNC(SCD30_beginMeasuring, drv.ambientPressure));
+  return(SCD30_sendCommandArguments(COMMAND_SCD30_CONTINUOUS_MEASUREMENT, drv.ambientPressure));
+  //return (SCD30_beginMeasuring(drv.ambientPressure));
 }
 
 
-int MOD_FUNC(SCD30_beginMeasuring, uint16_t airPressure_mbar) {
+int SCD30_beginMeasuring(uint16_t airPressure_mbar) {
   SETREGS
   drv.ambientPressure = airPressure_mbar;
-  return(CALL_MOD_FUNC(SCD30_sendCommandArguments, COMMAND_SCD30_CONTINUOUS_MEASUREMENT, drv.ambientPressure));
+  return(SCD30_sendCommandArguments(COMMAND_SCD30_CONTINUOUS_MEASUREMENT, drv.ambientPressure));
 }
 
-int MOD_FUNC(SCD30_isDataAvailable, bool *pIsAvailable) {
+int SCD30_isDataAvailable(bool *pIsAvailable) {
   SETREGS
   uint16_t isDataAvailable = false;
-  int error = CALL_MOD_FUNC(SCD30_readRegister, COMMAND_SCD30_GET_DATA_READY, &isDataAvailable);
+  int error = SCD30_readRegister(COMMAND_SCD30_GET_DATA_READY, &isDataAvailable);
   if (!error) {
     *pIsAvailable = isDataAvailable != 0;
   }
@@ -517,7 +517,7 @@ int MOD_FUNC(SCD30_isDataAvailable, bool *pIsAvailable) {
 }
 
 
-int MOD_FUNC(SCD30_readMeasurement, uint16 *pCO2_ppm, uint16 *pCO2EAvg_ppm, float *pTemperature, float *pHumidity ) {
+int SCD30_readMeasurement(uint16 *pCO2_ppm, uint16 *pCO2EAvg_ppm, float *pTemperature, float *pHumidity ) {
   SETREGS
   bool isAvailable = false;
   int error = 0;
@@ -525,7 +525,7 @@ int MOD_FUNC(SCD30_readMeasurement, uint16 *pCO2_ppm, uint16 *pCO2EAvg_ppm, floa
   float tempHumidity;
   float tempTemperature;
 
-  error = CALL_MOD_FUNC(SCD30_isDataAvailable, &isAvailable);
+  error = SCD30_isDataAvailable(&isAvailable);
   if (error) {
     return (error);
   }
@@ -534,7 +534,7 @@ int MOD_FUNC(SCD30_readMeasurement, uint16 *pCO2_ppm, uint16 *pCO2EAvg_ppm, floa
     return (ERROR_SCD30_NO_DATA);
   }
 
-  error = CALL_MOD_FUNC(SCD30_sendCommand, COMMAND_SCD30_READ_MEASUREMENT);
+  error = SCD30_sendCommand(COMMAND_SCD30_READ_MEASUREMENT);
   if (error) {
     return (error);
   }
@@ -543,22 +543,22 @@ int MOD_FUNC(SCD30_readMeasurement, uint16 *pCO2_ppm, uint16 *pCO2EAvg_ppm, floa
   uint8_t bytes[SCD30_MEAS_BYTES];
   // there are (6) 16-bit values, each with a CRC in the measurement data
   // the chip does not seem to like sending this data, except all at once
-  error = CALL_MOD_FUNC(SCD30_getBytes, bytes, SCD30_MEAS_BYTES);
+  error = SCD30_getBytes(bytes, SCD30_MEAS_BYTES);
   if (error) {
     return (error);
   }
 
-  error = CALL_MOD_FUNC(SCD30_get32BitRegCheckCRC, &bytes[0], &tempCO2);
+  error = SCD30_get32BitRegCheckCRC(&bytes[0], &tempCO2);
   if (error) {
     return (error);
   }
 
-  error = CALL_MOD_FUNC(SCD30_get32BitRegCheckCRC, &bytes[6], &tempTemperature);
+  error = SCD30_get32BitRegCheckCRC(&bytes[6], &tempTemperature);
   if (error) {
     return (error);
   }
 
-  error = CALL_MOD_FUNC(SCD30_get32BitRegCheckCRC, &bytes[12], &tempHumidity);
+  error = SCD30_get32BitRegCheckCRC(&bytes[12], &tempHumidity);
   if (error) {
     return (error);
   }
@@ -590,7 +590,7 @@ int MOD_FUNC(SCD30_readMeasurement, uint16 *pCO2_ppm, uint16 *pCO2EAvg_ppm, floa
     temp[x] = drv.co2History[x];
   }
 
-  *pCO2_ppm = CALL_MOD_FUNC(SCD30_opt_med5, temp);
+  *pCO2_ppm = SCD30_opt_med5(temp);
   if (pCO2EAvg_ppm) {
     int16_t delta = (int16_t) *pCO2_ppm - (int16_t) drv.co2EAverage;
     int16_t change = delta / 32;
@@ -603,14 +603,14 @@ int MOD_FUNC(SCD30_readMeasurement, uint16 *pCO2_ppm, uint16 *pCO2EAvg_ppm, floa
   return (ERROR_SCD30_NO_ERROR);
 }
 
-int MOD_FUNC(SCD30_stopMeasuring) {
+int SCD30_stopMeasuring() {
   SETREGS
-  return (CALL_MOD_FUNC(SCD30_sendCommand, COMMAND_SCD30_STOP_MEASUREMENT));
+  return (SCD30_sendCommand(COMMAND_SCD30_STOP_MEASUREMENT));
 }
 
 // end driver section
 
-int32_t MOD_FUNC(SCD30_Detect) {
+int32_t SCD30_Detect() {
   ALLOCMEM
 
   ready = false;
@@ -620,19 +620,19 @@ int32_t MOD_FUNC(SCD30_Detect) {
 
   if (I2cSetDevice(SCD30_ADDRESS)) {
 
-    CALL_MOD_FUNC(SCD30_begin, SCD30_ADDRESS);
+    SCD30_begin(SCD30_ADDRESS);
 
     uint8_t major = 0;
     uint8_t minor = 0;
   
-    if (CALL_MOD_FUNC(SCD30_getFirmwareVersion, &major, &minor)) { 
+    if (SCD30_getFirmwareVersion(&major, &minor)) { 
       goto exit; 
     }
   
-    if (CALL_MOD_FUNC(SCD30_getMeasurementInterval, &Scd30.interval)) {
+    if (SCD30_getMeasurementInterval(&Scd30.interval)) {
       goto exit; 
     }
-    if (CALL_MOD_FUNC(SCD30_beginMeasuring)) {
+    if (SCD30_beginMeasuring()) {
       goto exit; 
     }
     
@@ -644,20 +644,20 @@ int32_t MOD_FUNC(SCD30_Detect) {
   }
   
   exit:
-  CALL_MOD_FUNC(SCD30_Deinit);
+  SCD30_Deinit();
   return ready;
 }
 
 
 // gets data from the sensor every 3 seconds or so to give the sensor time to gather new data
-void MOD_FUNC(SCD30_Update) {
+void SCD30_Update() {
   SETREGS
   Scd30.loop_count++;
   if (Scd30.loop_count > (Scd30.interval - 1)) {
     uint32_t error = 0;
     switch (Scd30.error_state) {
       case SCD30_STATE_NO_ERROR: {
-        error = CALL_MOD_FUNC(SCD30_readMeasurement, &Scd30.co2, &Scd30.co2e_avg, &Scd30.temperature, &Scd30.humidity);
+        error = SCD30_readMeasurement(&Scd30.co2, &Scd30.co2e_avg, &Scd30.temperature, &Scd30.humidity);
         switch (error) {
           case ERROR_SCD30_NO_ERROR:
             Scd30.loop_count = 0;
@@ -717,7 +717,7 @@ void MOD_FUNC(SCD30_Update) {
         AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: not answering, sending soft reset, counter: %ld"), Scd30.loop_count);
 #endif
         Scd30.reset_count++;
-        error = CALL_MOD_FUNC(SCD30_softReset);
+        error = SCD30_softReset();
         if (error) {
 #ifdef SCD30_DEBUG
           AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: resetting got error: 0x%lX"), error);
@@ -742,7 +742,7 @@ void MOD_FUNC(SCD30_Update) {
         AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: clearing i2c bus"));
 #endif
         Scd30.i2c_reset_count++;
-        error = CALL_MOD_FUNC(SCD30_clearI2CBus);
+        error = SCD30_clearI2CBus();
         if (error) {
           Scd30.error_state = SCD30_STATE_ERROR_I2C_RESET;
 #ifdef SCD30_DEBUG
@@ -774,52 +774,52 @@ void MOD_FUNC(SCD30_Update) {
 \*********************************************************************************************/
 const char kScd30Commands[] PROGMEM = "Scd30|"  // Prefix
   "Alt|Auto|Cal|FW|Int|Pres|TOff";
-void (*const kScd30Command[])(MODULES_TABLE*) PROGMEM = { &CmndScd30Altitude, &CmndScd30AutoMode, &CmndScd30Calibrate, &CmndScd30Firmware, &CmndScd30Interval, &CmndScd30Pressure, &CmndScd30TempOffset };
+void (*const kScd30Command[])(void) PROGMEM = { &CmndScd30Altitude, &CmndScd30AutoMode, &CmndScd30Calibrate, &CmndScd30Firmware, &CmndScd30Interval, &CmndScd30Pressure, &CmndScd30TempOffset };
 
 
-void MOD_FUNC(CmndScd30Altitude) {
+void CmndScd30Altitude() {
   SETREGS
   uint16_t value = 0;
   if (XdrvMailbox->data_len > 0) {
     value = XdrvMailbox->payload;
-    CALL_MOD_FUNC(SCD30_setAltitudeCompensation, value);
+    SCD30_setAltitudeCompensation(value);
   } else {
-    CALL_MOD_FUNC(SCD30_getAltitudeCompensation, &value);
+    SCD30_getAltitudeCompensation(&value);
   }
   ResponseCmndNumber(value);
 };
 
 
-void  MOD_FUNC(CmndScd30AutoMode) {
+void  CmndScd30AutoMode() {
   SETREGS
   uint16_t value = 0;
   if (XdrvMailbox->data_len > 0) {
     value = XdrvMailbox->payload;
-    CALL_MOD_FUNC(SCD30_setCalibrationType, value);
+    SCD30_setCalibrationType(value);
   } else {
-    CALL_MOD_FUNC(SCD30_getCalibrationType, &value);
+    SCD30_getCalibrationType(&value);
   }
   ResponseCmndNumber(value);
 };
 
-void  MOD_FUNC(CmndScd30Calibrate) {
+void  CmndScd30Calibrate() {
   SETREGS
   uint16_t value = 0;
   if (XdrvMailbox->data_len > 0) {
     value = XdrvMailbox->payload;
-    CALL_MOD_FUNC(SCD30_setForcedRecalibrationFactor, value);
+    SCD30_setForcedRecalibrationFactor(value);
   } else {
-    CALL_MOD_FUNC(SCD30_getForcedRecalibrationFactor, &value);
+    SCD30_getForcedRecalibrationFactor(&value);
   }
   ResponseCmndNumber(value);
 };
 
-void  MOD_FUNC(CmndScd30Firmware) {
+void  CmndScd30Firmware() {
   SETREGS
   uint8_t major = 0;
   uint8_t minor = 0;
   int error = 0;
-  CALL_MOD_FUNC(SCD30_getFirmwareVersion, &major, &minor);
+  SCD30_getFirmwareVersion(&major, &minor);
   if (!error) {
     //float firmware = major + ((float)minor / 100);
     // float firmware = fscale(minor, 0.01, tmod__floatsisf(major));
@@ -829,41 +829,41 @@ void  MOD_FUNC(CmndScd30Firmware) {
   }
 };
 
-void  MOD_FUNC(CmndScd30Interval) {
+void  CmndScd30Interval() {
   SETREGS
   uint16_t value = 0;
   if (XdrvMailbox->data_len > 0) {
     value = XdrvMailbox->payload;
     int error = 0;
-    CALL_MOD_FUNC(SCD30_setMeasurementInterval, value);
+    SCD30_setMeasurementInterval(value);
     if (!error) {
       Scd30.interval = value;
     }
   }
-  CALL_MOD_FUNC(SCD30_getMeasurementInterval, &value);
+  SCD30_getMeasurementInterval(&value);
   ResponseCmndNumber(value);
 };
 
-void  MOD_FUNC(CmndScd30Pressure) {
+void  CmndScd30Pressure() {
   SETREGS
   uint16_t value = 0;
   if (XdrvMailbox->data_len > 0) {
     value = XdrvMailbox->payload;
-    CALL_MOD_FUNC(SCD30_setAmbientPressure, value);
+    SCD30_setAmbientPressure(value);
   } else {
-    CALL_MOD_FUNC(SCD30_getAmbientPressure, &value);
+    SCD30_getAmbientPressure(&value);
   }
   ResponseCmndNumber(value);
 };
 
-void  MOD_FUNC(CmndScd30TempOffset) {
+void  CmndScd30TempOffset() {
   SETREGS
   uint16_t value = 0;
   if (XdrvMailbox->data_len > 0) {
     value = XdrvMailbox->payload;
-    CALL_MOD_FUNC(SCD30_setTemperatureOffset, value);
+    SCD30_setTemperatureOffset(value);
   } else {
-    CALL_MOD_FUNC(SCD30_getTemperatureOffset, &value);
+    SCD30_getTemperatureOffset(&value);
   }
   ResponseCmndNumber(value);
 };
@@ -873,7 +873,7 @@ void  MOD_FUNC(CmndScd30TempOffset) {
 const char HTTP_SNS_CO2[]           PROGMEM = "{s}%s CO2{m}%d ppm{e}";
 const char HTTP_SNS_CO2EAVG[]       PROGMEM = "{s}%s eCO2{m}%d ppm{e}";
 
-void MOD_FUNC(SCD30_Show, bool json) {
+void SCD30_Show(bool json) {
   SETREGS
 
   if (Scd30.data_valid) {
@@ -892,7 +892,7 @@ void MOD_FUNC(SCD30_Show, bool json) {
   }
 }
 
-void MOD_FUNC(SCD30_Deinit) {
+void SCD30_Deinit() {
   SETREGS
   I2cResetActive(SCD30_ADDRESS, 1);
   RETMEM
@@ -904,7 +904,7 @@ void MOD_FUNC(SCD30_Deinit) {
  * Interface
 \*********************************************************************************************/
 
-int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
+int32_t mod_func_execute(uint32_t sel) {
   SETREGS
   bool result = false;
 
@@ -916,22 +916,22 @@ int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
 */
   switch (sel) {
     case FUNC_INIT:
-      result = CALL_MOD_FUNC(SCD30_Detect);
+      result = SCD30_Detect();
       break;
     case FUNC_EVERY_SECOND:
-      CALL_MOD_FUNC(SCD30_Update);
+      SCD30_Update();
       break;
     case FUNC_COMMAND:
       result = DecodeCommand(kScd30Commands, kScd30Command);
       break;
     case FUNC_JSON_APPEND:
-      CALL_MOD_FUNC(SCD30_Show, 1);
+      SCD30_Show(1);
       break;
     case FUNC_WEB_SENSOR:
-      CALL_MOD_FUNC(SCD30_Show, 0);
+      SCD30_Show(0);
       break;
     case FUNC_DEINIT:
-      CALL_MOD_FUNC(SCD30_Deinit);
+      SCD30_Deinit();
       break;
   }
   return result;

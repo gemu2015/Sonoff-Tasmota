@@ -108,7 +108,9 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jtmod__fixunssfsi(A)            (( uint32_t (*)(float) )                       jt[83])(A)
 #define jtmod__umodsi3(A,B)             (( uint32_t (*)(uint32_t,uint32_t) )           jt[84])(A,B)
 #define jtwi_readFrom(A,B,C,D)(( unsigned char (*)(uint8_t,uint8_t*,unsigned int,uint8_t) ) jt[85])(A,B,C,D)
-#define jDecodeCommand(A,B,C)           (( bool (*)(const char*, void (* const x[])(MODULES_TABLE*),MODULES_TABLE*))   jt[86])(A,B,C)
+//#define jDecodeCommand(A,B,C)           (( bool (*)(const char*, void (* const x[])(MODULES_TABLE*),MODULES_TABLE*))   jt[86])(A,B,C)
+#define jDecodeCommand(A,B)           (( bool (*)(const char*, void (* const x[])(void)))   jt[86])(A,B)
+
 #define jResponseCmndDone               (( void (*)(void) )                            jt[87])
 #define jbwriteTS(TSER,VAL)             (( size_t (*)(void*,uint8_t) )                 jt[88])(TSER,VAL)
 #define jmemcmp(A,B,SIZE)               (( int (*)(const void*,const void*,int) )      jt[89])(A,B,SIZE)
@@ -419,7 +421,7 @@ typedef struct {
 #define   tmod__fixunssfsi jtmod__fixunssfsi
 #define   tmod__umodsi3 jtmod__umodsi3
 #define   twi_readFrom jtwi_readFrom
-#define   DecodeCommand(A,B) jDecodeCommand(A,B,mt)
+#define   DecodeCommand(A,B) jDecodeCommand(A,B)
 #define   ResponseCmndDone jResponseCmndDone
 #define   bwriteTS jbwriteTS
 #define   memcmp jmemcmp
