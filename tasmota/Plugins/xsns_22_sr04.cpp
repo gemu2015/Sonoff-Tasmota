@@ -24,15 +24,15 @@
 #include "module.h"
 #include "module_defines.h"
 
-#define SR04TV3_REV  1<<16|0
+#define SR04TV3_REV  1<<16|2
 
 MODULE_DESCRIPTOR("SR04TV3", MODULE_TYPE_SENSOR, SR04TV3_REV,"RECPIN",3,"",0,"",0,"",0)
 // all functions must be declared MUDULE_PART
-MODULE_PART int32_t MOD_FUNC(Sr04T_Detect);
-MODULE_PART void MOD_FUNC(Sr04T_Show, bool json);
-MODULE_PART void MOD_FUNC(Sr04T_Read);
-MODULE_PART void MOD_FUNC(Sr04T_Deinit);
-MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
+MODULE_PART int32_t Sr04T_Detect();
+MODULE_PART void Sr04T_Show(bool json);
+MODULE_PART void Sr04T_Read();
+MODULE_PART void Sr04T_Deinit();
+MODULE_PART int32_t mod_func_execute(uint32_t sel);
 
 MODULE_END
 
@@ -55,7 +55,7 @@ typedef struct {
 #define distance mem->distance
 #define sbuff mem->sbuff
 
-int32_t MOD_FUNC(Sr04T_Detect) {
+int32_t Sr04T_Detect() {
   ALLOCMEM
 
   ready = false;
@@ -71,11 +71,11 @@ int32_t MOD_FUNC(Sr04T_Detect) {
       return 0;
     }
   }
-  CALL_MOD_FUNC(Sr04T_Deinit);
+  Sr04T_Deinit();
   return -1;
 }
 
-void MOD_FUNC(Sr04T_Read) {
+void Sr04T_Read() {
   SETREGS
   if (!ready) {
     return;
@@ -104,7 +104,7 @@ Distance value is 0x07A1; converted to decimal for 1953; unit: mm
 
 }
 
-void MOD_FUNC(Sr04T_Show, bool json) {
+void Sr04T_Show(bool json) {
   SETREGS
   if (!ready) {
     return;
@@ -118,7 +118,7 @@ void MOD_FUNC(Sr04T_Show, bool json) {
   }
 }
 
-void MOD_FUNC(Sr04T_Deinit) {
+void Sr04T_Deinit() {
   SETREGS
   if (ts) deleteTS(ts);
   RETMEM
@@ -128,25 +128,25 @@ void MOD_FUNC(Sr04T_Deinit) {
  * Interface
 \*********************************************************************************************/
 
-int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
+int32_t mod_func_execute(uint32_t sel) {
   bool result = false;
 
   switch (sel) {
     case FUNC_INIT:
-      result = CALL_MOD_FUNC(Sr04T_Detect);
+      result = Sr04T_Detect();
       break;
     case FUNC_EVERY_SECOND:
-      CALL_MOD_FUNC(Sr04T_Read);
+      Sr04T_Read();
       result = true;
       break;
     case FUNC_JSON_APPEND:
-      CALL_MOD_FUNC(Sr04T_Show, 1);
+      Sr04T_Show(1);
       break;
     case FUNC_WEB_SENSOR:
-      CALL_MOD_FUNC(Sr04T_Show, 0);
+      Sr04T_Show(0);
       break;
     case FUNC_DEINIT:
-      CALL_MOD_FUNC(Sr04T_Deinit);
+      Sr04T_Deinit();
       break;
   }
   return result;
