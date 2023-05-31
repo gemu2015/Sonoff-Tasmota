@@ -197,7 +197,11 @@ extern "C" { MODULES_TABLE *gettbl(void); };
 #define RETMEM if (mt->mem_size) {jfree(mt->mod_memory);mt->mem_size = 0;}
 #define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE MODULE_HEADER = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,END_OF_MODULE,0,0,0x12345678,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
 #define MOD_FUNC(A, ...) A(MODULES_TABLE *mt, ##__VA_ARGS__)
+//#define MOD_FUNC(A, ...) A(##__VA_ARGS__)
+
 #define CALL_MOD_FUNC(A, ...) A(mt, ##__VA_ARGS__)
+
+
 #define STRBUFFER
 
 
