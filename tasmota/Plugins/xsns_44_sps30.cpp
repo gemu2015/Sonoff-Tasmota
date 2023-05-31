@@ -66,20 +66,20 @@ typedef struct {
 #define ready mem->ready
 #define secs mem->secs
 
-#define SPS30_REV  1<<16|1
+#define SPS30_REV  1<<16|2
 
 // all functions must be declared MUDULE_PART
 MODULE_DESCRIPTOR("SPS30", MODULE_TYPE_SENSOR, SPS30_REV,"",0,"",0,"",0,"",0)
-MODULE_PART int32_t MOD_FUNC(SPS30_Init);
-MODULE_PART void MOD_FUNC(SPS30_Every_Second);
-MODULE_PART void MOD_FUNC(SPS30_Show, bool json);
-MODULE_PART void MOD_FUNC(SPS30_Deinit);
+MODULE_PART int32_t SPS30_Init();
+MODULE_PART void SPS30_Every_Second();
+MODULE_PART void SPS30_Show(bool json);
+MODULE_PART void SPS30_Deinit();
 MODULE_PART uint8_t sps30_calc_CRC(uint8_t *data);
-MODULE_PART void MOD_FUNC(sps30_cmd, uint16_t cmd);
-MODULE_PART bool MOD_FUNC(SPS30_command);
-MODULE_PART void MOD_FUNC(CmdClean);
-MODULE_PART void MOD_FUNC(sps30_get_data, uint16_t cmd, uint8_t *data, uint8_t dlen);
-MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
+MODULE_PART void sps30_cmd(uint16_t cmd);
+MODULE_PART bool SPS30_command();
+MODULE_PART void CmdClean();
+MODULE_PART void sps30_get_data(uint16_t cmd, uint8_t *data, uint8_t dlen);
+MODULE_PART int32_t mod_func_execute(uint32_t sel);
 MODULE_END
 
 // strings
@@ -89,7 +89,7 @@ const char SPS30_serial[] PROGMEM = "sps30 found with serial: %s";
 /********************************************************************************************/
 
 
-int32_t MOD_FUNC(SPS30_Init) {
+int32_t SPS30_Init() {
   ALLOCMEM
 
 
@@ -99,16 +99,16 @@ int32_t MOD_FUNC(SPS30_Init) {
 
 
   uint8_t dcode[32];
-  CALL_MOD_FUNC(sps30_get_data, SPS_CMD_GET_SERIAL, dcode, sizeof(dcode));
+  sps30_get_data(SPS_CMD_GET_SERIAL, dcode, sizeof(dcode));
   if (dcode[0] == 0) {
     exit:
-    CALL_MOD_FUNC(SPS30_Deinit);
+    SPS30_Deinit();
     return -1;
   }
 
   AddLog(LOG_LEVEL_INFO, GSTR(SPS30_serial), dcode);
   
-  CALL_MOD_FUNC(sps30_cmd, SPS_CMD_START_MEASUREMENT);
+  sps30_cmd(SPS_CMD_START_MEASUREMENT);
   sps30_running = 1;
   ready = 1;
   initialized = 1;
@@ -133,7 +133,7 @@ uint8_t sps30_calc_CRC(uint8_t *data) {
 }
 
 
-void MOD_FUNC(sps30_get_data, uint16_t cmd, uint8_t *data, uint8_t dlen) {
+void sps30_get_data(uint16_t cmd, uint8_t *data, uint8_t dlen) {
   SETREGS
   uint8_t tmp[3];
   uint8_t index = 0;
@@ -174,7 +174,7 @@ void MOD_FUNC(sps30_get_data, uint16_t cmd, uint8_t *data, uint8_t dlen) {
   }
 }
 
-void MOD_FUNC(sps30_cmd, uint16_t cmd) {
+void sps30_cmd(uint16_t cmd) {
   SETREGS
   unsigned char cmdb[6];
   beginTransmission(SPS30_ADDR);
@@ -194,7 +194,7 @@ void MOD_FUNC(sps30_cmd, uint16_t cmd) {
   endTransmission(true);
 }
 
-void MOD_FUNC(SPS30_Every_Second) {
+void SPS30_Every_Second() {
   SETREGS
   
   if (!ready) return;
@@ -203,7 +203,7 @@ void MOD_FUNC(SPS30_Every_Second) {
   if (tmod__umodsi3(secs , 10) == 0) {
     // every 10 seconds
     uint8_t vars[sizeof(float) * 10];
-    CALL_MOD_FUNC(sps30_get_data, SPS_CMD_READ_MEASUREMENT, vars, sizeof(vars));
+    sps30_get_data(SPS_CMD_READ_MEASUREMENT, vars, sizeof(vars));
     float *fp = &sps30_result.PM1_0;
 
     typedef union {
@@ -230,7 +230,7 @@ void MOD_FUNC(SPS30_Every_Second) {
     // so count hours, should be in Settings
     jsettings->sps30_inuse_hours++;
     if (jsettings->sps30_inuse_hours > (7*24)) {
-      CALL_MOD_FUNC(CmdClean);
+      CmdClean();
       jsettings->sps30_inuse_hours = 0;
     }
   }
@@ -249,7 +249,7 @@ const char JSON_SNS_SPS30_b[] PROGMEM = ",\"PM%0d_%0d\":%s";
 const char JSON_SNS_SPS30_c[] PROGMEM = ",\"NCPM%0d_%0d\":%s";
 const char JSON_SNS_SPS30_d[] PROGMEM = ",\"TYPSIZ\":%s}";
 
-void MOD_FUNC(SPS30_Show, bool json) {
+void SPS30_Show(bool json) {
   SETREGS
 
   if (!ready) return;
@@ -308,9 +308,9 @@ void MOD_FUNC(SPS30_Show, bool json) {
 }
 
 const char S_JSON_SPS30_FAN[] PROGMEM = ",\"SPS30\":{\"CFAN\":\"true\"}}";
-void MOD_FUNC(CmdClean) {
+void CmdClean() {
   SETREGS
-  CALL_MOD_FUNC(sps30_cmd, SPS_CMD_CLEAN);
+  sps30_cmd(SPS_CMD_CLEAN);
   ResponseTime_P(GSTR(S_JSON_SPS30_FAN));
   MqttPublishTeleSensor();
 }
@@ -321,7 +321,7 @@ const char S_JSON_SPS30_COMMAND[] PROGMEM = "{\"SPS30\":\"%s\"}";
 const char S_JSON_SPS30_r[] PROGMEM = "running";
 const char S_JSON_SPS30_s[] PROGMEM = "stopped";
 
-bool MOD_FUNC(SPS30_command) {
+bool SPS30_command() {
   SETREGS
   char command[CMDSZ];
   bool serviced = true;
@@ -332,14 +332,14 @@ bool MOD_FUNC(SPS30_command) {
     switch (command_code) {
       case CMND_SPS30_Start:
         sps30_running = 1;
-        CALL_MOD_FUNC(sps30_cmd, SPS_CMD_START_MEASUREMENT);
+        sps30_cmd(SPS_CMD_START_MEASUREMENT);
         break;
       case CMND_SPS30_Stop:
         sps30_running = 0;
-        CALL_MOD_FUNC(sps30_cmd, SPS_CMD_STOP_MEASUREMENT);
+        sps30_cmd(SPS_CMD_STOP_MEASUREMENT);
         break;
       case CMND_SPS30_Clean:
-        CALL_MOD_FUNC(CmdClean);
+        CmdClean();
         break;
       default:
         serviced = false;
@@ -351,7 +351,7 @@ bool MOD_FUNC(SPS30_command) {
   return serviced;
 }
 
-void MOD_FUNC(SPS30_Deinit) {
+void SPS30_Deinit() {
   SETREGS
   I2cResetActive(SPS30_ADDR, 1);
   RETMEM
@@ -361,27 +361,27 @@ void MOD_FUNC(SPS30_Deinit) {
  * Interface
 \*********************************************************************************************/
 
-int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
+int32_t mod_func_execute(uint32_t sel) {
   bool result = false;
 
   switch (sel) {
       case FUNC_INIT:
-        result = CALL_MOD_FUNC(SPS30_Init);
+        result = SPS30_Init();
         break;
       case FUNC_EVERY_SECOND:
-        CALL_MOD_FUNC(SPS30_Every_Second);
+        SPS30_Every_Second();
         break;
       case FUNC_JSON_APPEND:
-        CALL_MOD_FUNC(SPS30_Show, 1);
+        SPS30_Show(1);
         break;
       case FUNC_WEB_SENSOR:
-        CALL_MOD_FUNC(SPS30_Show, 0);
+        SPS30_Show(0);
         break;
       case FUNC_COMMAND:
-        result = CALL_MOD_FUNC(SPS30_command);
+        result = SPS30_command();
         break;
       case FUNC_DEINIT:
-        CALL_MOD_FUNC(SPS30_Deinit);
+        SPS30_Deinit();
         break;
   }
   return result;
