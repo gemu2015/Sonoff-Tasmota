@@ -181,7 +181,9 @@ __asm__  (\
 #define PSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[mt->execution_offset];}))
 #define GSTR(LABEL) (const char *)LABEL+mt->execution_offset
 
-#define VTABLE(A) void (*const A[])(MODULES_TABLE*) PROGMEM
+//#define VTABLE(A) void (*const A[])(MODULES_TABLE*) PROGMEM
+#define VTABLE(A) void (*const A[])(void) PROGMEM
+
 #define GVT(LABEL) ( void (**)(MODULES_TABLE*) ) ((char *)LABEL+mt->execution_offset)
 
 #define FSTRING(A) const char A[] PROGMEM 
