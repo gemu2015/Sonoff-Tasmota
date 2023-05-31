@@ -27,7 +27,7 @@
 #include "module.h"
 #include "module_defines.h"
 
-#define ADS1115_REV 1<<16
+#define ADS1115_REV 1<<16|2
 
 /*********************************************************************************************\
  * ADS1115 - 4 channel 16BIT A/D converter
@@ -131,14 +131,14 @@ CONFIG REGISTER
 MODULE_DESCRIPTOR("ADS1115",MODULE_TYPE_SENSOR,ADS1115_REV,"",0,"",0,"",0,"",0)
 
 // all functions must be declared MUDULE_PART
-MODULE_PART int32_t MOD_FUNC(Init_ADS1115);
-MODULE_PART void MOD_FUNC(Ads1115Label, char* label, uint32_t maxsize, uint8_t address);
-MODULE_PART void MOD_FUNC(AdsEvery250ms);
-MODULE_PART void MOD_FUNC(ADS1115_Show, bool json);
-MODULE_PART int16_t MOD_FUNC(Ads1115GetConversion, uint8_t channel);
-MODULE_PART void MOD_FUNC(Ads1115StartComparator, uint8_t channel, uint16_t mode);
-MODULE_PART void MOD_FUNC(ADS1115_Deinit);
-MODULE_PART static int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
+MODULE_PART int32_t Init_ADS1115();
+MODULE_PART void Ads1115Label(char* label, uint32_t maxsize, uint8_t address);
+MODULE_PART void AdsEvery250ms();
+MODULE_PART void ADS1115_Show(bool json);
+MODULE_PART int16_t Ads1115GetConversion(uint8_t channel);
+MODULE_PART void Ads1115StartComparator(uint8_t channel, uint16_t mode);
+MODULE_PART void ADS1115_Deinit();
+MODULE_PART static int32_t mod_func_execute(uint32_t sel);
 
 // module end marker
 MODULE_END
@@ -174,7 +174,7 @@ const char moddev8[] PROGMEM = "{s}%s Analog%d{m}%d{e}";
 
 //Ads1115StartComparator(channel, ADS1115_REG_CONFIG_MODE_SINGLE);
 //Ads1115StartComparator(channel, ADS1115_REG_CONFIG_MODE_CONTIN);
-void MOD_FUNC(Ads1115StartComparator, uint8_t channel, uint16_t mode) {
+void Ads1115StartComparator(uint8_t channel, uint16_t mode) {
   SETREGS
   // Start with default values
   uint16_t config = mode |
@@ -193,15 +193,15 @@ void MOD_FUNC(Ads1115StartComparator, uint8_t channel, uint16_t mode) {
 }
 
 
-int16_t MOD_FUNC(Ads1115GetConversion, uint8_t channel) {
+int16_t Ads1115GetConversion(uint8_t channel) {
   SETREGS
-  CALL_MOD_FUNC(Ads1115StartComparator, channel, ADS1115_REG_CONFIG_MODE_SINGLE);
+  Ads1115StartComparator(channel, ADS1115_REG_CONFIG_MODE_SINGLE);
   // Wait for the conversion to complete
   delay(ADS1115_CONVERSIONDELAY);
   // Read the conversion results
   I2cRead16(Ads1115.address, ADS1115_REG_POINTER_CONVERT, 0);
 
-  CALL_MOD_FUNC(Ads1115StartComparator, channel, ADS1115_REG_CONFIG_MODE_CONTIN);
+  Ads1115StartComparator(channel, ADS1115_REG_CONFIG_MODE_CONTIN);
   delay(ADS1115_CONVERSIONDELAY);
   // Read the conversion results
   uint16_t res = I2cRead16(Ads1115.address, ADS1115_REG_POINTER_CONVERT, 0);
@@ -211,7 +211,7 @@ int16_t MOD_FUNC(Ads1115GetConversion, uint8_t channel) {
 
 /********************************************************************************************/
 
-int32_t MOD_FUNC(Init_ADS1115) {
+int32_t Init_ADS1115() {
   ALLOCMEM
 
   Ads1115.addresses[0] = ADS1115_ADDRESS_ADDR_GND;
@@ -226,7 +226,7 @@ int32_t MOD_FUNC(Init_ADS1115) {
       uint16_t buffer;
       if (I2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONVERT, 0) &&
           I2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONFIG, 0)) {
-        CALL_MOD_FUNC(Ads1115StartComparator, i, ADS1115_REG_CONFIG_MODE_CONTIN);
+        Ads1115StartComparator(i, ADS1115_REG_CONFIG_MODE_CONTIN);
         I2cSetActiveFound(Ads1115.address, GSTR(moddev), 0);
         Ads1115.found[i] = 1;
         Ads1115.count++;
@@ -237,13 +237,13 @@ int32_t MOD_FUNC(Init_ADS1115) {
     initialized = true;
     ready = true;
   } else {
-    CALL_MOD_FUNC(ADS1115_Deinit);
+    ADS1115_Deinit();
   }
   return Ads1115.count;
 }
 
 // Create the identifier of the the selected sensor
-void MOD_FUNC(Ads1115Label, char* label, uint32_t maxsize, uint8_t address) {
+void Ads1115Label(char* label, uint32_t maxsize, uint8_t address) {
   SETREGS
   if (1 == Ads1115.count) {
     // "ADS1115":{"A0":3240,"A1":3235,"A2":3269,"A3":3269}
@@ -257,7 +257,7 @@ void MOD_FUNC(Ads1115Label, char* label, uint32_t maxsize, uint8_t address) {
 #if defined(USE_RULES) || defined(USE_SCRIPT)
 // Check every 250ms if there are relevant changes in any of the analog inputs
 // and if so then trigger a message
-void MOD_FUNC(AdsEvery250ms) {
+void AdsEvery250ms() {
   SETREGS
   int16_t value;
 
@@ -270,7 +270,7 @@ void MOD_FUNC(AdsEvery250ms) {
       // collect first which addresses have changed. We can save on rule processing this way
       uint32_t changed = 0;
       for (uint32_t i = 0; i < 4; i++) {
-        value = CALL_MOD_FUNC(Ads1115GetConversion, i);
+        value = Ads1115GetConversion(i);
 
         // Check if value has changed more than 1 percent from last stored value
         // we assume that gain is set up correctly, and we could use the whole 16bit result space
@@ -282,7 +282,7 @@ void MOD_FUNC(AdsEvery250ms) {
       Ads1115.address = old_address;
       if (changed) {
         char label[15];
-        CALL_MOD_FUNC(Ads1115Label, label, sizeof(label), Ads1115.addresses[t]);
+        Ads1115Label(label, sizeof(label), Ads1115.addresses[t]);
 
         Response_P(GSTR(moddev2), label);
 
@@ -303,7 +303,7 @@ void MOD_FUNC(AdsEvery250ms) {
 }
 #endif  // USE_RULES
 
-void MOD_FUNC(ADS1115_Show, bool json) {
+void ADS1115_Show(bool json) {
   SETREGS
   int16_t values[4];
 
@@ -314,13 +314,13 @@ void MOD_FUNC(ADS1115_Show, bool json) {
       uint8_t old_address = Ads1115.address;
       Ads1115.address = Ads1115.addresses[t];
       for (uint32_t i = 0; i < 4; i++) {
-        values[i] = CALL_MOD_FUNC(Ads1115GetConversion, i);
+        values[i] = Ads1115GetConversion(i);
         //AddLog(LOG_LEVEL_INFO, "Logging ADS1115 %02x (%i) = %i", Ads1115.address, i, values[i] );
       }
       Ads1115.address = old_address;
 
       char label[15];
-      CALL_MOD_FUNC(Ads1115Label, label, sizeof(label), Ads1115.addresses[t]);
+      Ads1115Label(label, sizeof(label), Ads1115.addresses[t]);
 
       if (json) {
         ResponseAppend_P(GSTR(moddev4), label);
@@ -339,7 +339,7 @@ void MOD_FUNC(ADS1115_Show, bool json) {
 
 }
 
-void MOD_FUNC(ADS1115_Deinit) {
+void ADS1115_Deinit() {
   SETREGS
 
   for (uint32_t t = 0; t < fldsiz(ADS1115,addresses); t++) {
@@ -354,23 +354,23 @@ void MOD_FUNC(ADS1115_Deinit) {
  * Interface
 \*********************************************************************************************/
 
-static int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
+static int32_t mod_func_execute(uint32_t sel) {
   bool result = false;
   switch (sel) {
     case FUNC_INIT:
-      result = CALL_MOD_FUNC(Init_ADS1115);
+      result = Init_ADS1115();
       break;
     case FUNC_JSON_APPEND:
-      CALL_MOD_FUNC(ADS1115_Show, 1);
+      ADS1115_Show(1);
       break;
     case FUNC_WEB_SENSOR:
-      CALL_MOD_FUNC(ADS1115_Show, 0);
+      ADS1115_Show(0);
       break;
     case FUNC_EVERY_250_MSECOND:
-      CALL_MOD_FUNC(AdsEvery250ms);
+      AdsEvery250ms();
       break;
     case FUNC_DEINIT:
-      CALL_MOD_FUNC(ADS1115_Deinit);
+      ADS1115_Deinit();
       break;
   }
   return result;
