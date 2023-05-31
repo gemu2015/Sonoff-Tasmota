@@ -22,21 +22,21 @@
 #include "module.h"
 #include "module_defines.h"
 
-#define MLX90614_REV  1<<16|1
+#define MLX90614_REV  1<<16|2
 
 // this is the structure of the module:
 // descripotr, code, end
 MODULE_DESCRIPTOR("MLX90614", MODULE_TYPE_SENSOR, MLX90614_REV,"",0,"",0,"",0,"",0)
 
 // all functions must be declared MUDULE_PART
-MODULE_PART int32_t MOD_FUNC(Init_MLX90614);
-MODULE_PART uint16_t MOD_FUNC(MLX90614_read16, uint8_t addr, uint8_t a);
+MODULE_PART int32_t Init_MLX90614();
+MODULE_PART uint16_t MLX90614_read16(uint8_t addr, uint8_t a);
 MODULE_PART uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len);
-MODULE_PART void MOD_FUNC(MLX90614_Deinit);
-MODULE_PART float MOD_FUNC(MLX90614_GetValue, uint32_t reg);
-MODULE_PART void MOD_FUNC(MLX90614_Every_Second);
-MODULE_PART void MOD_FUNC(MLX90614_Show, uint32_t json);
-MODULE_PART int32_t MOD_FUNC(mod_func_execute, uint32_t sel);
+MODULE_PART void MLX90614_Deinit();
+MODULE_PART float MLX90614_GetValue(uint32_t reg);
+MODULE_PART void MLX90614_Every_Second();
+MODULE_PART void MLX90614_Show(uint32_t json);
+MODULE_PART int32_t mod_func_execute(uint32_t sel);
 
 MODULE_END
 
@@ -68,14 +68,14 @@ const char JSON_IRTMP[] PROGMEM = ",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}";
 const char mlxdev[] PROGMEM = "MLX90614";
 
 
-int32_t MOD_FUNC(Init_MLX90614) {
+int32_t Init_MLX90614() {
   ALLOCMEM
 
   // now init variables here
   ready = false;
 
   if (!I2cSetDevice(I2_ADR_IRT)) {
-    CALL_MOD_FUNC(MLX90614_Deinit);
+    MLX90614_Deinit();
     return -1;
   }
   I2cSetActiveFound(I2_ADR_IRT, GSTR(mlxdev), 0);
@@ -84,21 +84,21 @@ int32_t MOD_FUNC(Init_MLX90614) {
   return ready;
 }
 
-void MOD_FUNC(MLX90614_Every_Second) {
+void MLX90614_Every_Second() {
   SETREGS
 
   if (ready == false) return;
 
-  obj_temp = CALL_MOD_FUNC(MLX90614_GetValue, MLX90614_TOBJ1);
-  amb_temp = CALL_MOD_FUNC(MLX90614_GetValue, MLX90614_TA);
+  obj_temp = MLX90614_GetValue(MLX90614_TOBJ1);
+  amb_temp = MLX90614_GetValue(MLX90614_TA);
 
 }
 
-float MOD_FUNC(MLX90614_GetValue, uint32_t reg) {
+float MLX90614_GetValue(uint32_t reg) {
   SETREGS
   uint16_t val = 0;
   float ret = 0;
-  val = CALL_MOD_FUNC(MLX90614_read16, I2_ADR_IRT, reg);
+  val = MLX90614_read16(I2_ADR_IRT, reg);
   if (val & 0x8000) {
     ret = -999;
   } else {
@@ -108,7 +108,7 @@ float MOD_FUNC(MLX90614_GetValue, uint32_t reg) {
   return ret;
 }
 
-void MOD_FUNC(MLX90614_Show, uint32_t json) {
+void MLX90614_Show(uint32_t json) {
   SETREGS
 
   SETTINGS *jsettings = mt->settings;
@@ -125,7 +125,7 @@ void MOD_FUNC(MLX90614_Show, uint32_t json) {
   }
 }
 
-uint16_t MOD_FUNC(MLX90614_read16, uint8_t addr, uint8_t a) {
+uint16_t MLX90614_read16(uint8_t addr, uint8_t a) {
   SETREGS
   uint16_t ret;
 
@@ -172,7 +172,7 @@ uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len) {
   return crc;
 }
 
-void MOD_FUNC(MLX90614_Deinit) {
+void MLX90614_Deinit() {
   SETREGS
   I2cResetActive(I2_ADR_IRT,1);
   RETMEM
@@ -181,23 +181,23 @@ void MOD_FUNC(MLX90614_Deinit) {
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
-int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
+int32_t mod_func_execute(uint32_t sel) {
   bool result = false;
   switch (sel) {
     case FUNC_INIT:
-      result = CALL_MOD_FUNC(Init_MLX90614);
+      result = Init_MLX90614();
       break;
     case FUNC_JSON_APPEND:
-      CALL_MOD_FUNC(MLX90614_Show, 1);
+      MLX90614_Show(1);
       break;
     case FUNC_WEB_SENSOR:
-      CALL_MOD_FUNC(MLX90614_Show, 0);
+      MLX90614_Show(0);
       break;
     case FUNC_EVERY_SECOND:
-      CALL_MOD_FUNC(MLX90614_Every_Second);
+      MLX90614_Every_Second();
       break;
     case FUNC_DEINIT:
-      CALL_MOD_FUNC(MLX90614_Deinit);
+      MLX90614_Deinit();
       break;
   }
   return result;
