@@ -157,6 +157,10 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define MODULE_PART __attribute__((section(SECTION_PART)))
 #define MODULE_END __attribute__((section(SECTION_END))) static void  END_OF_MODULE(void) {__asm__ __volatile__(".word 0x4AFCAA55");}
 
+
+//redefine_extname oldname newname
+//#pragma redefine_extname myroutine __fixed_myroutine
+
 //#define GET_MTABLE static uint32_t  GetmTbl(void) {
 //  return 0x12345678;
 //}
@@ -462,9 +466,12 @@ typedef struct {
 	   ", __gnu_" #GCC_NAME "\n");
 #endif
 
-#define DECLARE_LIBRARY_RENAMES RENAME_LIBRARY (divsf3, murks)
+#define DECLARE_LIBRARY_RENAMES RENAME_LIBRARY (__muldf3, murks)
 
-//RENAME_LIBRARY (murks, divsf3)
+//RENAME_LIBRARY (muldf3, murks)
+RENAME_LIBRARY (my_muldf3, muldf3)
+
+
 
 //@code{DECLARE_LIBRARY_RENAMES} macro
 //(@pxref{Library Calls}

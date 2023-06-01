@@ -1002,6 +1002,22 @@ int32_t Init_module(uint32_t module) {
   if (modules[module].mod_addr && !modules[module].flags.initialized) {
     const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
     //int32_t result = fm->mod_func_execute(&modules[module], MODFUNC_INIT);
+    uint32_t mtv = fm->mtv;
+    if ((uint32_t)&modules[module] != mtv) {
+      AddLog(LOG_LEVEL_INFO,PSTR("reinit memory link of module %d"), module + 1);
+      uint32_t *buff = (uint32_t *)calloc(SPI_FLASH_SEC_SIZE / 4 , 4);
+      if (buff) {
+        ESP.flashRead((uint32_t)modules[module].mod_addr-FLASH_BASE_OFFSET, buff, SPI_FLASH_SEC_SIZE);
+        FLASH_MODULE *fm = (FLASH_MODULE*)buff;
+        if (fm->sync == MODULE_SYNC) {
+          uint32_t *lp = (uint32_t*)&fm->mtv;
+          *lp = (uint32_t)&modules[module];
+          ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - FLASH_BASE_OFFSET) / SPI_FLASH_SEC_SIZE);
+          ESP.flashWrite((uint32_t)modules[module].mod_addr - FLASH_BASE_OFFSET, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
+        }
+        free(buff);
+      }
+    }
     int32_t result = fm->mod_func_execute(MODFUNC_INIT);
     modules[module].flags.every_second = 1;
     modules[module].flags.web_sensor = 1;
