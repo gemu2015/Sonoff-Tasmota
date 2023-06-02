@@ -726,6 +726,8 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
   *lp = offset;
   lp = (uint32_t*)&fm->mtv;
   *lp = (uint32_t)&modules[index];
+  lp = (uint32_t*)&fm->jtab;
+  *lp = (uint32_t)&MODULE_JUMPTABLE;
 
 
 #ifdef ESP8266
@@ -1003,15 +1005,22 @@ int32_t Init_module(uint32_t module) {
     const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
     //int32_t result = fm->mod_func_execute(&modules[module], MODFUNC_INIT);
     uint32_t mtv = fm->mtv;
-    if ((uint32_t)&modules[module] != mtv) {
+    uint32_t jtab = fm->jtab;
+
+    if (((uint32_t)&modules[module] != mtv) || ((uint32_t)&MODULE_JUMPTABLE != jtab)) {
       AddLog(LOG_LEVEL_INFO,PSTR("reinit memory link of module %d"), module + 1);
       uint32_t *buff = (uint32_t *)calloc(SPI_FLASH_SEC_SIZE / 4 , 4);
       if (buff) {
         ESP.flashRead((uint32_t)modules[module].mod_addr-FLASH_BASE_OFFSET, buff, SPI_FLASH_SEC_SIZE);
         FLASH_MODULE *fm = (FLASH_MODULE*)buff;
         if (fm->sync == MODULE_SYNC) {
+          
           uint32_t *lp = (uint32_t*)&fm->mtv;
           *lp = (uint32_t)&modules[module];
+
+          lp = (uint32_t*)&fm->jtab;
+          *lp = (uint32_t)&MODULE_JUMPTABLE;
+
           ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - FLASH_BASE_OFFSET) / SPI_FLASH_SEC_SIZE);
           ESP.flashWrite((uint32_t)modules[module].mod_addr - FLASH_BASE_OFFSET, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
         }

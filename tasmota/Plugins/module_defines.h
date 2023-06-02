@@ -203,7 +203,7 @@ extern "C" { MODULES_TABLE *gettbl(void); };
 #define SETREGS MODULES_TABLE *mt = gettbl(); MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
 #define ALLOCMEM MODULES_TABLE *mt = gettbl(); void (* const *jt)() = mt->jt;mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
 #define RETMEM if (mt->mem_size) {jfree(mt->mod_memory);mt->mem_size = 0;}
-#define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE MODULE_HEADER = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,END_OF_MODULE,0,0,0x12345678,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
+#define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE MODULE_HEADER = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,END_OF_MODULE,0,0,0x12345678,0,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
 #define MOD_FUNC(A, ...) A(MODULES_TABLE *mt, ##__VA_ARGS__)
 //#define MOD_FUNC(A, ...) A(##__VA_ARGS__)
 
@@ -223,6 +223,8 @@ extern "C" { MODULES_TABLE *gettbl(void); };
 );\
 
 GET_TABLE
+
+
 
 
  //MODULES_TABLE *mtx = gettbl();
@@ -346,7 +348,7 @@ typedef struct {
 
 #define initialized mt->flags.initialized
 #define TasmotaSerial  void
-#define TwoWire xTwoWire
+//#define TwoWire xTwoWire
 
 #define   beginTransmission(ADDR) jbeginTransmission(jWire, ADDR)
 #define   write(CMD) jwrite(jWire, CMD)
@@ -471,7 +473,22 @@ typedef struct {
 //RENAME_LIBRARY (muldf3, murks)
 RENAME_LIBRARY (my_muldf3, muldf3)
 
+/*
+".global my_muldf3\n"\
+  my_muldf3:  l32r	a2, module_header+52
+  l32i	a2, a2, 212 # offset of call
+  callx0 a2 #
+  ret.n
+*/
 
+
+
+/*
+  TwoWire xwire;
+  void (TwoWire::*pwire)();
+  pwire = &TwoWire::begin;
+  (xwire.*pwire)();
+  */
 
 //@code{DECLARE_LIBRARY_RENAMES} macro
 //(@pxref{Library Calls}

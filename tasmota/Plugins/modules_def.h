@@ -66,6 +66,7 @@ typedef struct {
   MD_TYPE execution_offset;
   // 48
   MD_TYPE mtv;
+  MD_TYPE jtab;
   // 52
   MODULE_STORE ms[MAX_MOD_STORES];
 } FLASH_MODULE;
