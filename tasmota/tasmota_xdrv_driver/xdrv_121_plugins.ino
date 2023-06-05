@@ -105,6 +105,11 @@ size_t tmod_write1TS(TasmotaSerial *ts, uint8_t val);
 #ifdef ESP32
 void twi_readFrom(uint8_t address, uint8_t* data, uint8_t length);
 #endif
+
+extern "C" {
+ extern void (* const MODULE_JUMPTABLE[])(void);
+}
+
 #define JMPTBL (void (*)())
 // this vector table table must contain all api calls needed by module
 // and in sync with vectortable in module.h
