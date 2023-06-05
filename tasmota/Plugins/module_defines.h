@@ -218,20 +218,7 @@ extern MODULES_TABLE modules[];
 
 #define STRBUFFER
 
-#define GET_TABLE __asm__  __volatile__ (\
-  ".section .text.mod_part\n"\
-  ".align 4\n"\
-  ".global gettbl\n"\
-  "gettbl: l32r	a2, module_header+48	#,\n"\
-  "ret.n\n"\
-);\
 
-GET_TABLE
-
-
-
-
- //MODULES_TABLE *mtx = gettbl();
     
 /*
 
