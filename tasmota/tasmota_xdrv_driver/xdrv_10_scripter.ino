@@ -125,8 +125,8 @@ char *Get_esc_char(char *cp, char *esc_chr);
 #pragma message "script 24c256 file option used"
 #else
 
-#if EEP_SCRIPT_SIZE==SPECIAL_EEPMODE_SIZE || EEP_SCRIPT_SIZE==SPI_FLASH_2SEC_SIZE
-#if EEP_SCRIPT_SIZE==SPI_FLASH_2SEC_SIZE
+#if EEP_SCRIPT_SIZE==SPECIAL_EEPMODE_SIZE || EEP_SCRIPT_SIZE==SPI_FLASH_2SEC_SIZE || EEP_SCRIPT_SIZE==SPI_FLASH_SEC_SIZE
+#if EEP_SCRIPT_SIZE==SPI_FLASH_2SEC_SIZE || EEP_SCRIPT_SIZE==SPI_FLASH_SEC_SIZE
 #pragma message "internal special flash script buffer used"
 #else
 #pragma message "internal compressed eeprom script buffer used"
@@ -8462,11 +8462,11 @@ void SaveScript(void) {
 #ifdef EEP_SCRIPT_SIZE
   // here we handle EEPROM modes
   if (glob_script_mem.FLAGS.eeprom == true) {
-    if (EEP_SCRIPT_SIZE < SPECIAL_EEPMODE_SIZE) {
+    if (EEP_SCRIPT_SIZE < SPECIAL_EEPMODE_SIZE && EEP_SCRIPT_SIZE != SPI_FLASH_SEC_SIZE) {
       EEP_WRITE(0, EEP_SCRIPT_SIZE, glob_script_mem.script_ram);
     } else {
-#if EEP_SCRIPT_SIZE==SPI_FLASH_2SEC_SIZE
-      alt_eeprom_writeBytes(0, SPI_FLASH_2SEC_SIZE, (uint8_t*)glob_script_mem.script_ram);
+#if EEP_SCRIPT_SIZE==SPI_FLASH_2SEC_SIZE || EEP_SCRIPT_SIZE==SPI_FLASH_SEC_SIZE
+      alt_eeprom_writeBytes(0, EEP_SCRIPT_SIZE, (uint8_t*)glob_script_mem.script_ram);
 #else
       uint8_t *ucs;
       ucs = (uint8_t*)calloc(SPI_FLASH_SEC_SIZE + 4, 1);
@@ -12566,7 +12566,7 @@ bool Xdrv10(uint32_t function)
       if (EEP_INIT(EEP_SCRIPT_SIZE)) {
           // found 32kb eeprom,
           char *script;
-#if EEP_SCRIPT_SIZE<SPECIAL_EEPMODE_SIZE
+#if EEP_SCRIPT_SIZE<SPECIAL_EEPMODE_SIZE && EEP_SCRIPT_SIZE!=SPI_FLASH_SEC_SIZE
             script = (char*)calloc(EEP_SCRIPT_SIZE + 4, 1);
             if (!script) break;
             glob_script_mem.script_ram = script;
@@ -12578,16 +12578,16 @@ bool Xdrv10(uint32_t function)
             script[EEP_SCRIPT_SIZE - 1] = 0;
 #else
             uint8_t *ucs;
-#if EEP_SCRIPT_SIZE==SPI_FLASH_2SEC_SIZE
-            ucs = (uint8_t*)calloc(SPI_FLASH_2SEC_SIZE + 4, 1);
+#if EEP_SCRIPT_SIZE==SPI_FLASH_2SEC_SIZE || EEP_SCRIPT_SIZE==SPI_FLASH_SEC_SIZE
+            ucs = (uint8_t*)calloc(EEP_SCRIPT_SIZE + 4, 1);
             if (!ucs) break;
-            alt_eeprom_readBytes(0, SPI_FLASH_2SEC_SIZE, ucs);
+            alt_eeprom_readBytes(0, EEP_SCRIPT_SIZE, ucs);
             if (*ucs == 0xff) {
-              memset(ucs, SPI_FLASH_2SEC_SIZE, 0);
+              memset(ucs, EEP_SCRIPT_SIZE, 0);
             }
-            ucs[SPI_FLASH_2SEC_SIZE- 1] = 0;
+            ucs[EEP_SCRIPT_SIZE - 1] = 0;
             glob_script_mem.script_ram = (char*)ucs;
-            glob_script_mem.script_size = SPI_FLASH_2SEC_SIZE;
+            glob_script_mem.script_size = EEP_SCRIPT_SIZE;
 
 #else
             ucs = (uint8_t*)calloc(SPI_FLASH_SEC_SIZE + 4, 1);
