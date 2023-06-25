@@ -612,6 +612,7 @@ int32_t extract_from_file(File *fp,  char *ts_from, char *ts_to, int8_t coffs, T
 char *eval_sub(char *lp, TS_FLOAT *fvar, char *rstr);
 uint32_t script_ow(uint8_t sel, uint32_t val);
 int32_t script_logfile_write(char *path, char *payload, uint32_t size);
+void script_sort_array(TS_FLOAT *array, uint16_t size);
 
 void ScriptEverySecond(void) {
 
@@ -8043,14 +8044,14 @@ bool Script_Close_Serial() {
 #endif //USE_SCRIPT_SERIAL
 
 
-void script_sort_array(float *array, uint16_t size) {
+void script_sort_array(TS_FLOAT *array, uint16_t size) {
   bool swapped;
   do {
     swapped = false;
     for (uint16_t i = 0; i < size - 1; ++i) {
       if (array[i] > array[i + 1]) {
         // swap
-        float tmp = array[i];
+        TS_FLOAT tmp = array[i];
         array[i] = array[i + 1];
         array[i + 1] = tmp;
         swapped = true;
