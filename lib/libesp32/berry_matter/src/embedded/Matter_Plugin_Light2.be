@@ -17,6 +17,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+import matter
+
 # Matter plug-in for core behavior
 
 # dummy declaration for solidification
@@ -57,9 +59,11 @@ class Matter_Plugin_Light2 : Matter_Plugin_Light1
     self.update_ct_minmax()
     super(self).update_shadow()
     var light_status = light.get()
-    var ct = light_status.find('ct', nil)
-    if ct  == nil     ct = self.shadow_ct      end
-    if ct  != self.shadow_ct    self.attribute_updated(0x0300, 0x0007)   self.shadow_ct = ct   end
+    if light_status != nil
+      var ct = light_status.find('ct', nil)
+      if ct  == nil     ct = self.shadow_ct      end
+      if ct  != self.shadow_ct    self.attribute_updated(0x0300, 0x0007)   self.shadow_ct = ct   end
+    end
   end
 
   #############################################################
@@ -75,11 +79,10 @@ class Matter_Plugin_Light2 : Matter_Plugin_Light1
   # read an attribute
   #
   def read_attribute(session, ctx)
-    import string
     var TLV = matter.TLV
     var cluster = ctx.cluster
     var attribute = ctx.attribute
-      
+    
     # ====================================================================================================
     if   cluster == 0x0300              # ========== Color Control 3.2 p.111 ==========
       self.update_shadow_lazy()

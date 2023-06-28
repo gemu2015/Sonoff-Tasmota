@@ -17,6 +17,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+import matter
+
 # Matter plug-in for core behavior
 
 # dummy declaration for solidification
@@ -29,6 +31,7 @@ class Matter_Plugin_Shutter : Matter_Plugin_Device
   static var NAME = "Shutter"                       # display name of the plug-in
   static var ARG  = "shutter"                       # additional argument name (or empty if none)
   static var ARG_TYPE = / x -> int(x)               # function to convert argument to the right type
+  static var ARG_HINT = "Enter Relay<x> number"
   static var CLUSTERS  = {
     # 0x001D: inherited                             # Descriptor Cluster 9.5 p.453
     # 0x0003: inherited                             # Identify 1.2 p.16
@@ -43,19 +46,43 @@ class Matter_Plugin_Shutter : Matter_Plugin_Device
   var shadow_shutter_target
   var shadow_shutter_tilt
   var shadow_shutter_direction                      # 1=opening -1=closing 0=not moving TODO
+  var shadow_shutter_inverted                       # 1=same as matter 0=matter must invert
 
   #############################################################
-  # Constructor
-  def init(device, endpoint, arguments)
-    super(self).init(device, endpoint, arguments)
-    self.tasmota_shutter_index = arguments.find(self.ARG #-'relay'-#)
+  # parse_configuration
+  #
+  # Parse configuration map
+  def parse_configuration(config)
+    self.tasmota_shutter_index = config.find(self.ARG #-'relay'-#)
     if self.tasmota_shutter_index == nil     self.tasmota_shutter_index = 0   end
+    self.shadow_shutter_inverted = -1
+  end
+
+  #############################################################
+  # Update inverted set
+  #
+  # Update "inverted" flag from Status 13
+  def update_inverted()
+    # get the min/max tilt values
+    if (self.shadow_shutter_inverted == -1)
+      var r_st13 = tasmota.cmd("Status 13", true)     # issue `Status 13`
+      if r_st13.contains('StatusSHT')
+        r_st13 = r_st13['StatusSHT']        # skip root
+        var d = r_st13.find("SHT"+str(self.tasmota_shutter_index), {}).find('Opt')
+        # tasmota.log("MTR: opt: "+str(d))
+        if d != nil
+          self.shadow_shutter_inverted = int(d[size(d)-1])  # inverted is at the most right character
+          # tasmota.log("MTR: Inverted flag: "+str(self.shadow_shutter_inverted))
+        end
+      end
+    end
   end
 
   #############################################################
   # Update shadow
   #
   def update_shadow()
+    self.update_inverted()
     var sp = tasmota.cmd("ShutterPosition" + str(self.tasmota_shutter_index + 1), true)
     if sp
       self.parse_sensors(sp)
@@ -67,14 +94,15 @@ class Matter_Plugin_Shutter : Matter_Plugin_Device
   # read an attribute
   #
   def read_attribute(session, ctx)
-    import string
     var TLV = matter.TLV
     var cluster = ctx.cluster
     var attribute = ctx.attribute
+    var matter_position
 
     # ====================================================================================================
     if   cluster == 0x0102              # ========== Window Covering 5.3 p.289 ==========
       self.update_shadow_lazy()
+      self.update_inverted()
       if   attribute == 0x0000          #  ---------- Type / enum8 ----------
         return TLV.create_TLV(TLV.U1, 0xFF) # 0xFF = unknown type of shutter
       elif attribute == 0x0005          #  ---------- NumberOfActuationsLift / u16 ----------
@@ -83,14 +111,23 @@ class Matter_Plugin_Shutter : Matter_Plugin_Device
         return TLV.create_TLV(TLV.U1, 1 + 8)   # Operational + Lift Position Aware
       elif attribute == 0x000D          #  ---------- EndProductType / u8 ----------
         return TLV.create_TLV(TLV.U1, 0xFF) # 0xFF = unknown type of shutter
-
       elif attribute == 0x000E          #  ---------- CurrentPositionLiftPercent100ths / u16 ----------
-        return TLV.create_TLV(TLV.U2, (100 - self.shadow_shutter_pos) * 100)
+        if self.shadow_shutter_inverted == 0
+          matter_position = (100 - self.shadow_shutter_pos) * 100
+        else
+          matter_position = self.shadow_shutter_pos * 100
+        end
+        return TLV.create_TLV(TLV.U2, matter_position)
       elif attribute == 0x000A          #  ---------- OperationalStatus / u8 ----------
         var op = self.shadow_shutter_direction == 0 ? 0 : (self.shadow_shutter_direction > 0 ? 1 : 2)
         return TLV.create_TLV(TLV.U1, op)
       elif attribute == 0x000B          #  ---------- TargetPositionLiftPercent100ths / u16 ----------
-        return TLV.create_TLV(TLV.U2, (100 - self.shadow_shutter_target) * 100)
+        if self.shadow_shutter_inverted == 0
+          matter_position = (100 - self.shadow_shutter_target) * 100
+        else
+          matter_position = self.shadow_shutter_target * 100
+        end
+        return TLV.create_TLV(TLV.U2, matter_position)
 
       elif attribute == 0x0017          #  ---------- Mode / u8 ----------
         return TLV.create_TLV(TLV.U1, 0)    # normal mode
@@ -137,7 +174,10 @@ class Matter_Plugin_Shutter : Matter_Plugin_Device
         var pos_100 = val.findsubval(0)
         if pos_100 != nil
           pos_100 = pos_100 / 100
-          tasmota.cmd("ShutterStopPosition"+str(self.tasmota_shutter_index+1) + " " + str(100 - pos_100), true)
+          if self.shadow_shutter_inverted == 0
+            pos_100 = 100 - pos_100
+          end
+          tasmota.cmd("ShutterPosition"+str(self.tasmota_shutter_index+1) + " " + str(pos_100), true)
           ctx.log = "pos%:"+str(pos_100)
           self.update_shadow()
         end
@@ -156,11 +196,10 @@ class Matter_Plugin_Shutter : Matter_Plugin_Device
   # parse the output from `ShutterPosition`
   # Ex: `{"Shutter1":{"Position":50,"Direction":0,"Target":50,"Tilt":30}}`
   def parse_sensors(payload)
-    import string
     var k = "Shutter" + str(self.tasmota_shutter_index + 1)
     if payload.contains(k)
       var v = payload[k]
-      # tasmota.log(string.format("MTR: getting shutter values(%i): %s", self.endpoint, str(v)), 2)
+      # tasmota.log(format("MTR: getting shutter values(%i): %s", self.endpoint, str(v)), 2)
       # Position
       var val_pos = v.find("Position")
       if val_pos != nil

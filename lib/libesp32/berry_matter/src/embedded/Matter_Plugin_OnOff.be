@@ -17,6 +17,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+import matter
+
 # Matter plug-in for core behavior
 
 # dummy declaration for solidification
@@ -29,6 +31,7 @@ class Matter_Plugin_OnOff : Matter_Plugin_Device
   static var NAME = "Relay"                         # display name of the plug-in
   static var ARG  = "relay"                         # additional argument name (or empty if none)
   static var ARG_TYPE = / x -> int(x)               # function to convert argument to the right type
+  static var ARG_HINT = "Enter Relay<x> number"
   static var UPDATE_TIME = 250                      # update every 250ms
   static var CLUSTERS  = {
     # 0x001D: inherited                             # Descriptor Cluster 9.5 p.453
@@ -37,25 +40,32 @@ class Matter_Plugin_OnOff : Matter_Plugin_Device
     # 0x0005: inherited                             # Scenes 1.4 p.30 - no writable
     0x0006: [0,0xFFFC,0xFFFD],                      # On/Off 1.5 p.48
   }
-  static var TYPES = { 0x010A: 2 }       # On/Off Light
+  static var TYPES = { 0x010A: 2 }                  # On/Off Plug-in Unit
 
   var tasmota_relay_index             # Relay number in Tasmota (zero based)
   var shadow_onoff                           # fake status for now # TODO
 
   #############################################################
   # Constructor
-  def init(device, endpoint, arguments)
-    super(self).init(device, endpoint, arguments)
+  def init(device, endpoint, config)
+    super(self).init(device, endpoint, config)
     self.shadow_onoff = false
-    self.tasmota_relay_index = arguments.find(self.ARG #-'relay'-#)
-    if self.tasmota_relay_index == nil     self.tasmota_relay_index = 0   end
+  end
+
+  #############################################################
+  # parse_configuration
+  #
+  # Parse configuration map
+  def parse_configuration(config)
+    self.tasmota_relay_index = int(config.find(self.ARG #-'relay'-#, 1))
+    if self.tasmota_relay_index <= 0    self.tasmota_relay_index = 1    end
   end
 
   #############################################################
   # Update shadow
   #
   def update_shadow()
-    var state = tasmota.get_power(self.tasmota_relay_index)
+    var state = tasmota.get_power(self.tasmota_relay_index - 1)
     if state != nil
       if self.shadow_onoff != nil && self.shadow_onoff != bool(state)
         self.attribute_updated(0x0006, 0x0000)
@@ -69,7 +79,7 @@ class Matter_Plugin_OnOff : Matter_Plugin_Device
   # Model
   #
   def set_onoff(v)
-    tasmota.set_power(self.tasmota_relay_index, bool(v))
+    tasmota.set_power(self.tasmota_relay_index - 1, bool(v))
     self.update_shadow()
   end
 
@@ -77,7 +87,6 @@ class Matter_Plugin_OnOff : Matter_Plugin_Device
   # read an attribute
   #
   def read_attribute(session, ctx)
-    import string
     var TLV = matter.TLV
     var cluster = ctx.cluster
     var attribute = ctx.attribute

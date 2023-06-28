@@ -36,9 +36,9 @@ While fallback or downgrading is common practice it was never supported due to S
 
 This release will be supported from ESP8266/Arduino library Core version **2.7.4.9** due to reported security and stability issues on previous Core version. This will also support gzipped binaries.
 
-This release will be supported from ESP32/Arduino library Core version **2.0.8**.
+This release will be supported from ESP32/Arduino library Core version **2.0.10**.
 
-Support of ESP8266 Core versions before 2.7.4.9 and ESP32 Core versions before 2.0.8 have been removed.
+Support of ESP8266 Core versions before 2.7.4.9 and ESP32 Core versions before 2.0.10 have been removed.
 
 ## Support of TLS
 
@@ -75,12 +75,12 @@ Latest released binaries can be downloaded from
 - http://ota.tasmota.com/tasmota/release
 
 Historical binaries can be downloaded from
-- http://ota.tasmota.com/tasmota/release-12.5.0
+- http://ota.tasmota.com/tasmota/release-13.0.0
 
 The latter links can be used for OTA upgrades too like ``OtaUrl http://ota.tasmota.com/tasmota/release/tasmota.bin.gz``
 
 ### ESP32, ESP32-C3, ESP32-S2 and ESP32-S3 based
-The following binary downloads have been compiled with ESP32/Arduino library core version **2.0.8**.
+The following binary downloads have been compiled with ESP32/Arduino library core version **2.0.10**.
 
 - **tasmota32.bin** = The Tasmota version with most drivers including additional sensors and KNX for 4M+ flash.  **RECOMMENDED RELEASE BINARY**
 - **tasmota32xy.bin** = The Tasmota version with most drivers including additional sensors and KNX for ESP32-C3/S2/S3 and 4M+ flash.
@@ -100,7 +100,7 @@ Latest released binaries can be downloaded from
 - https://ota.tasmota.com/tasmota32/release
 
 Historical binaries can be downloaded from
-- https://ota.tasmota.com/tasmota32/release-12.5.0
+- https://ota.tasmota.com/tasmota32/release-13.0.0
 
 The latter links can be used for OTA upgrades too like ``OtaUrl https://ota.tasmota.com/tasmota32/release/tasmota32.bin``
 
@@ -110,26 +110,11 @@ The latter links can be used for OTA upgrades too like ``OtaUrl https://ota.tasm
 
 [Complete list](BUILDS.md) of available feature and sensors.
 
-## Changelog v12.5.0.2
+## Changelog v13.0.0.1
 ### Added
-- Command ``SetOption152 0/1`` to select two (0 = default) pin bistable or one (1) pin latching relay control [#18386](https://github.com/arendst/Tasmota/issues/18386)
-- Support for TC74 temperature sensor by Michael Loftis [#18042](https://github.com/arendst/Tasmota/issues/18042)
-- Support for GM861 1D and 2D bar code reader [#18399](https://github.com/arendst/Tasmota/issues/18399)
-- Matter sensors Humidity, Pressure, Illuminance [#18441](https://github.com/arendst/Tasmota/issues/18441)
-- Matter allow `Matter#Initialized` rule once the device is configured [#18451](https://github.com/arendst/Tasmota/issues/18451)
-- Matter UI to change endpoints configuration [#18498](https://github.com/arendst/Tasmota/issues/18498)
-- Matter support for Shutters with Tilt [#18509](https://github.com/arendst/Tasmota/issues/18509)
-- ESP32 Enhanced Shutterbuttons functionality to control tilt position, additionally incr/decr possible to position and tilt.
-- ESP32 `Shuttersetup` for "Shelly 2.5 pro" automatic calibration and setup (experimental)
-- Berry `tcpclientasync` class for non-blocking TCP client
 
 ### Breaking Changed
 
 ### Changed
-- ESP32 Framework (Core) from v2.0.7 to v2.0.8
-- Refactored Zero Cross Dimmer [#18481](https://github.com/arendst/Tasmota/issues/18481)
 
 ### Fixed
-- ESP8266 Energy Export Active no update regression from v12.3.1.3
-- NovaSDS GUI values [#18444](https://github.com/arendst/Tasmota/issues/18444)
-- Berry fix rules for string comparisons [#18464](https://github.com/arendst/Tasmota/issues/18464)

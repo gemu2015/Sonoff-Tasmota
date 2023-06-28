@@ -22,9 +22,25 @@
  * GM861 1D and 2D Bar Code Reader
  *
  * For background information see https://github.com/arendst/Tasmota/discussions/18399
+ *
+ * Commands available:
+ * GM861Zone<byte>          - Show zone byte state
+ * GM861Zone<byte> <value>  - Set zone byte to value
+ *   GM861Zone5 20          - Set read interval to 2 seconds (default 10 = 0x0A)
+ *   GM861Zone44 0x02       - Enable all barcodes using full area (default 5 = 0x05)
+ *   GM861Zone208 0x80      - Enable AIM ID (default 0 = 0x00)
+ * GM861Save                - Save changes in zone bytes to flash
+ * GM861Reset 1             - Reset to factory settings and re-init the scanner
+ * GM861Dump                - Dump zone bytes 0 to 97 if logging level 4
 \*********************************************************************************************/
 
-#define XSNS_107                    107
+#define XSNS_107               107
+
+//#define GM861_DECODE_AIM            // Decode AIM-id (+0k3 code)
+//#define GM861_HEARTBEAT             // Enable heartbeat
+
+#define GM861_BAUDRATE         9600   // Serial baudrate
+#define GM861_GUI_LENGTH       30     // Max number of code characters in GUI
 
 /*
 #define GPIO_GM861_TX      304
@@ -51,6 +67,8 @@ Headr Ty Ln Addrs Data  Check   Headr Ty Ln Data  Check
 7E 00 08 01 00 B0 03    AB CD                             Output center part
 7E 00 08 01 00 B1 03    AB CD                             Cut out N bytes from start (Eg: three characters)
 7E 00 08 01 00 B2 02    AB CD                             Cut out N bytes from end (Eg: two characters)
+7E 00 08 01 00 D0 80    AB CD                             Enabling AIM ID
+7E 00 08 01 00 D0 00    AB CD                             Disabling AIM ID
 7E 00 08 01 00 D9 50    81 D3   02 00 00 01 00    33 31   Zone bytes reset to defaults
 7E 00 08 01 00 D9 55    D1 76   02 00 00 01 00    33 31   Restore user-defined factory settings
 7E 00 08 01 00 D9 56    E1 15   02 00 00 01 00    33 31   Save as user-defined factory settings
@@ -75,15 +93,33 @@ enum Gm861States {
 #include <TasmotaSerial.h>
 TasmotaSerial *Gm861Serial = nullptr;
 
-struct GDK {
-  char barcode[30];
+typedef struct {
+  char barcode[GM861_GUI_LENGTH];
   uint8_t index;
   uint8_t state;
-  bool heartbeat;
+  uint8_t heartbeat;
   bool read;
-} Gm861;
+} tGm861;
+tGm861 *Gm861 = nullptr;
 
 /*********************************************************************************************/
+
+#ifdef GM861_DECODE_AIM
+const char kGm861AIMID[] PROGMEM = "A1C0E0E4F0G0H1I0I1L0M1Q1R0S0X0X1X4X5d1emzm";
+const char kGm861AIM[] PROGMEM = "Code39|Code128|EAN13|EAN8|Codabar|Code93|Code11|I2of5|ITF|PDF417|MSIPlessey|QRCode|S2of5|D2of5|CnPost|M2of5|ISBN|ISSN|DMCode|GS1|Aztec";
+
+String Gm861AIMId2AIM(const char* aim_id) {
+  char aim_ids[sizeof(kGm861AIMID)];
+  strcpy_P(aim_ids, kGm861AIMID);
+  int index = (strstr(aim_ids, aim_id) -aim_ids) /2;
+  if (index < 0) {                     // Unknown
+    strcpy(aim_ids, aim_id);           // Return AIM-id
+  } else {
+    GetTextIndexed(aim_ids, sizeof(aim_ids), index, kGm861AIM);
+  }
+  return aim_ids;
+}
+#endif  // GM861_DECODE_AIM
 
 uint32_t Gm861Crc(uint8_t* ptr, uint32_t len) {
   // When no need for checking CRC, CRC byte can be filled in 0xAB 0xCD
@@ -130,15 +166,15 @@ void Gm861Send(uint32_t type, uint32_t len, uint32_t address, uint32_t data) {
 }
 
 void Gm861SetZone(uint32_t address, uint32_t data) {
-  Gm861.read = false;
+  Gm861->read = false;
   uint32_t len = 1;
   if (0x2A == address) { len = 2; }    // Baudrate
   Gm861Send(8, len, address, data);
 }
 
 void Gm861GetZone(uint32_t address) {
-  Gm861.read = true;
-  Gm861.index = address;
+  Gm861->read = true;
+  Gm861->index = address;
   uint32_t data = 1;
   if (0x2A == address) { data = 2; }   // Baudrate
   Gm861Send(7, 1, address, data);
@@ -147,9 +183,8 @@ void Gm861GetZone(uint32_t address) {
 void Gm861SerialInput(void) {
   if (!Gm861Serial->available()) { return; }
 
-  char buffer[256];
+  char buffer[272];                    // Max 256 code characters and some control characters
   uint32_t byte_counter = 0;
-
   // Use timeout to allow large serial reads within a window
   uint32_t timeout = millis();
   while (millis() - 10 < timeout) {
@@ -165,32 +200,55 @@ void Gm861SerialInput(void) {
 
   if (0 == buffer[1]) {                // Command result or Heartbeat
     if (2 == buffer[0]) {              // Command result
-      // 02 00 00 01 00 33 31                     - Command acknowledge
-      // 02 00 00 01 01 23 10                     - Command result (Zonebyte 96 - 0x60)
-      // 02 00 00 02 39 01 C1 4C                  - Command result (Zonebytes 42/43 - 0x2A)
-      if (Gm861.read) {
+      // 02 00 00 01 00 33 31                              - Command acknowledge
+      // 02 00 00 01 01 23 10                              - Command result (Zonebyte 96 - 0x60)
+      // 02 00 00 02 39 01 C1 4C                           - Command result (Zonebytes 42/43 - 0x2A)
+      if (Gm861->read) {
         uint32_t result = buffer[4];
         if (2 == buffer[3]) {          // Length
           result += (buffer[5] << 8);
         }
-        Gm861.read = false;
-        Response_P(S_JSON_COMMAND_INDEX_NVALUE, PSTR("GM861Zone"), Gm861.index, result);
+        Gm861->read = false;
+        Response_P(S_JSON_COMMAND_INDEX_NVALUE, PSTR("GM861Zone"), Gm861->index, result);
         MqttPublishPrefixTopicRulesProcess_P(RESULT_OR_STAT, PSTR("GM861Zone"));
       }
     }
     else if (3 == buffer[0]) {         // Heartbeat
-      // 03 00 00 01 00 33 31                     - Heartbeat response
-      // 03 00 0A 30 33 32 31 35 36 33 38 34 30   - Scan response with zone byte 96 = 0x81
-      Gm861.heartbeat = true;
+      // 03 00 00 01 00 33 31                              - Heartbeat response
+      // 03 00 0A 30 33 32 31 35 36 33 38 34 30            - Scan response with zone byte 96 = 0x81
+#ifdef GM861_HEARTBEAT
+      if ((0 == buffer[2]) && (1 == buffer[3]) && (0 == buffer[4])) {
+        Gm861->heartbeat = 0;
+      }
+#endif  // GM861_HEARTBEAT
     }
   } else {                             // Bar code
-    // 38 37 31 31 32 31 38 39 37 32 38 37 35 0D  - Barcode 8711218972875
+    // 38 37 31 31 32 31 38 39 37 32 38 37 35 0D           - Barcode 8711218972875
+    // 5D 45 30 38 37 31 31 32 31 38 39 37 32 38 37 35 0D  - AIM ]E0, Barcode 8711218972875
     RemoveControlCharacter(buffer);    // Remove control character (0x00 .. 0x1F and 0x7F)
-    snprintf_P(Gm861.barcode, sizeof(Gm861.barcode) -3, PSTR("%s"), buffer);
-    if (strlen(buffer) > sizeof(Gm861.barcode) -3) {
-      strcat(Gm861.barcode, "...");
+    uint32_t offset = 0;
+    char aim_id[3] = { 0 };
+    if (']' == buffer[0]) {            // AIM code ]xy
+      offset = 3;
+      aim_id[0] = buffer[1];
+      aim_id[1] = buffer[2];
     }
-    ResponseTime_P(PSTR(",\"GM861\":\"%s\"}"), buffer);
+
+    // Prepare GUI result
+    snprintf_P(Gm861->barcode, sizeof(Gm861->barcode) -3, PSTR("%s"), buffer + offset);
+    if (strlen(buffer) > sizeof(Gm861->barcode) -3) {
+      strcat(Gm861->barcode, "...");
+    }
+
+    ResponseTime_P(PSTR(",\"GM861\":{"));
+    if (offset) {
+#ifdef GM861_DECODE_AIM
+      ResponseAppend_P(PSTR("\"AIM\":\"%s\","), Gm861AIMId2AIM(aim_id).c_str());
+#else
+      ResponseAppend_P(PSTR("\"AIM\":\"%s\","), aim_id);
+#endif  // GM861_DECODE_AIM
+    }
+    ResponseAppend_P(PSTR("\"Code\":\"%s\"}}"), buffer + offset);
     MqttPublishTeleSensor();
   }
 }
@@ -199,14 +257,16 @@ void Gm861SerialInput(void) {
 
 void Gm861Init(void) {
   if (PinUsed(GPIO_GM861_RX) && PinUsed(GPIO_GM861_TX)) {
+    Gm861 = (tGm861*)calloc(sizeof(tGm861), 1);
+    if (!Gm861) { return; }
+
     Gm861Serial = new TasmotaSerial(Pin(GPIO_GM861_RX), Pin(GPIO_GM861_TX), 1);
-    if (Gm861Serial->begin(9600)) {
+    if (Gm861Serial->begin(GM861_BAUDRATE)) {
       if (Gm861Serial->hardwareSerial()) {
         ClaimSerial();
       }
-      Gm861.barcode[0] = '0';          // No barcode yet
-      Gm861.state = GM861_STATE_INIT_OFFSET;
-//      AddLog(LOG_LEVEL_INFO, PSTR("GM8: Connected"));
+      Gm861->barcode[0] = '0';          // No barcode yet
+      Gm861->state = GM861_STATE_INIT_OFFSET;
     }
   }
 }
@@ -216,18 +276,18 @@ void Gm861StateMachine(void) {
   Power on
   14:25:04.219-025 DMP: 02 00 00 62 D6 00 20 00 00 0A 32 01 2C 00 87 3C 01 A1 1C 32 03 00 80 00 06 00 00 00 00 00 00 00 00 00 00 00 00 02 80 3C 00 00 00 06 00 00 39 01 05 64 0D 0D 0D 01 0D 01 04 80 09 04 80 05 04 80 01 04 80 01 08 04 80 08 04 80 08 04 80 08 04 80 08 01 80 00 00 00 04 80 01 01 00 00 00 00 04 80 00 00 03 00 01 00 30 FE
   Default: setup code on
-  12:12:18.672-024 DMP: 02 00 00 61 D6 00 20 00 00 0A 32 01 2C 00 87 3C 01 A1 1C 32 03 00 80 00 06 00 00 00 00 00 00 00 00 00 00 00 00 02 80 3C 00 00 00 06 00 00 39 01 05 64 0D 0D 0D 01 0D 01 04 80 09 04 80 05 04 80 01 04 80 01 08 04 80 08 04 80 08 04 80 08 04 80 08 01 80 00 00 00 04 80 01 01 00 00 00 00 04 80 00 00 03 00 01 00 30 FE
+  12:12:18.672-024 DMP: 02 00 00 62 D6 00 20 00 00 0A 32 01 2C 00 87 3C 01 A1 1C 32 03 00 80 00 06 00 00 00 00 00 00 00 00 00 00 00 00 02 80 3C 00 00 00 06 00 00 39 01 05 64 0D 0D 0D 01 0D 01 04 80 09 04 80 05 04 80 01 04 80 01 08 04 80 08 04 80 08 04 80 08 04 80 08 01 80 00 00 00 04 80 01 01 00 00 00 00 04 80 00 00 03 00 01 00 30 FE
   Output:
   14:37:45.129-027 DMP: 02 00 00 62 D6 00 20 01 00 0A 32 01 2C 00 87 3C 01 A1 1C 32 03 00 80 00 06 00 00 00 00 00 00 00 00 00 00 00 00 02 80 3C 00 00 00 06 00 00 39 01 05 64 0D 0D 0D 01 0D 01 04 80 09 04 80 05 04 80 01 04 80 01 08 04 80 08 04 80 08 04 80 08 04 80 08 01 80 00 00 00 04 80 01 01 00 00 00 00 04 80 00 00 03 00 01 00 20 91
   Serial output:
   14:39:04.887-027 DMP: 02 00 00 62 D6 00 20 01 00 0A 32 01 2C 00 87 3C 01 A0 1C 32 03 00 80 00 06 00 00 00 00 00 00 00 00 00 00 00 00 02 80 3C 00 00 00 06 00 00 39 01 05 64 0D 0D 0D 01 0D 01 04 80 09 04 80 05 04 80 01 04 80 01 08 04 80 08 04 80 08 04 80 08 04 80 08 01 80 00 00 00 04 80 01 01 00 00 00 00 04 80 00 00 03 00 01 00 2D 9E
   */
-  if (!Gm861.state) { return; }
+  if (!Gm861->state) { return; }
 
-  switch (Gm861.state) {
+  switch (Gm861->state) {
     case GM861_STATE_RESET:
       Gm861SetZone(0xD9, 0x50);        // Factory reset
-      Gm861.state = GM861_STATE_SETUP_CODE_ON +7;  // Add time for reset to complete
+      Gm861->state = GM861_STATE_SETUP_CODE_ON +7;  // Add time for reset to complete
       break;
     case GM861_STATE_SETUP_CODE_ON:
       Gm861SetZone(0x00, 0xD6);        // Set LED on, Mute off, Normal lighting, Normal brightness, Continuous mode (Default: setup code on)
@@ -243,18 +303,34 @@ void Gm861StateMachine(void) {
       AddLog(LOG_LEVEL_INFO, PSTR("GM8: Initialized"));
       break;
   }
-  Gm861.state--;
+  Gm861->state--;
 }
+
+#ifdef GM861_HEARTBEAT
+void Gm861Heartbeat(void) {
+  if (!Gm861->state && (!(TasmotaGlobal.uptime % 10))) {
+    // It is recommended to send a heartbeat packet every 10 seconds
+    Gm861Send(10, 1, 0, 0);            // Send heartbeat
+    Gm861->heartbeat++;
+    // If no correct reply is received for three consecutive times, the main control should be handle it accordingly.
+    if (Gm861->heartbeat > 3) {
+      AddLog(LOG_LEVEL_DEBUG, PSTR("GM8: Heartbeat lost"));
+      Gm861->heartbeat = 0;
+      Gm861->state = GM861_STATE_RESET;
+    }
+  }
+}
+#endif  // GM861_HEARTBEAT
 
 /*********************************************************************************************\
  * Commands
 \*********************************************************************************************/
 
 const char kGm861Commands[] PROGMEM = "GM861|"  // Prefix
-  "Zone|Reset|Dump";
+  "Zone|Save|Reset|Dump";
 
 void (* const Gm861Command[])(void) PROGMEM = {
-  &CmndGm816Zone, &CmndGm816Reset, &CmndGm816Dump };
+  &CmndGm816Zone, &CmndGm816Save, &CmndGm816Reset, &CmndGm816Dump };
 
 void CmndGm816Zone(void) {
   // GM861Zone42     - Read baudrate
@@ -270,10 +346,16 @@ void CmndGm816Zone(void) {
   }
 }
 
+void CmndGm816Save(void) {
+  // GM861Save       - Save zone bytes to flash
+  Gm861Send(9, 1, 0, 0);               // Save to flash
+  ResponseCmndDone();
+}
+
 void CmndGm816Reset(void) {
   // GM861Reset 1    - Do factory reset and inititalize for serial comms
   if (1 == XdrvMailbox.payload) {
-    Gm861.state = GM861_STATE_RESET;
+    Gm861->state = GM861_STATE_RESET;
     ResponseCmndDone();
   }
 }
@@ -283,16 +365,6 @@ void CmndGm816Dump(void) {
   Gm861Send(7, 1, 0, 0x62);            // Dump zone bytes 0 to 97
   ResponseCmndDone();
 }
-
-/*********************************************************************************************\
- * Presentation
-\*********************************************************************************************/
-
-#ifdef USE_WEBSERVER
-void Gm861Show(void) {
-  WSContentSend_PD(PSTR("{s}GM816{m}%s{e}"), Gm861.barcode);
-}
-#endif  // USE_WEBSERVER
 
 /*********************************************************************************************\
    Interface
@@ -313,9 +385,14 @@ bool Xsns107(uint32_t function) {
       case FUNC_EVERY_250_MSECOND:
         Gm861StateMachine();
         break;
+#ifdef GM861_HEARTBEAT
+      case FUNC_EVERY_SECOND:
+        Gm861Heartbeat();
+        break;
+#endif  // GM861_HEARTBEAT
 #ifdef USE_WEBSERVER
       case FUNC_WEB_SENSOR:
-        Gm861Show();
+        WSContentSend_PD(PSTR("{s}GM816{m}%s{e}"), Gm861->barcode);
         break;
 #endif  // USE_WEBSERVER
       case FUNC_COMMAND:

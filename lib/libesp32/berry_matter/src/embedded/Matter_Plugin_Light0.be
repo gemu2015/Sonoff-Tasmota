@@ -17,6 +17,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+import matter
+
 # Matter plug-in for core behavior
 
 # dummy declaration for solidification
@@ -41,8 +43,8 @@ class Matter_Plugin_Light0 : Matter_Plugin_Device
 
   #############################################################
   # Constructor
-  def init(device, endpoint, arguments)
-    super(self).init(device, endpoint, arguments)
+  def init(device, endpoint, config)
+    super(self).init(device, endpoint, config)
     self.shadow_onoff = false
   end
 
@@ -52,8 +54,10 @@ class Matter_Plugin_Light0 : Matter_Plugin_Device
   def update_shadow()
     import light
     var light_status = light.get()
-    var pow = light_status.find('power', nil)
-    if pow != self.shadow_onoff self.attribute_updated(0x0006, 0x0000)   self.shadow_onoff = pow end
+    if light_status != nil
+      var pow = light_status.find('power', nil)
+      if pow != self.shadow_onoff self.attribute_updated(0x0006, 0x0000)   self.shadow_onoff = pow end
+    end
     super(self).update_shadow()
   end
 
@@ -61,7 +65,6 @@ class Matter_Plugin_Light0 : Matter_Plugin_Device
   # read an attribute
   #
   def read_attribute(session, ctx)
-    import string
     var TLV = matter.TLV
     var cluster = ctx.cluster
     var attribute = ctx.attribute

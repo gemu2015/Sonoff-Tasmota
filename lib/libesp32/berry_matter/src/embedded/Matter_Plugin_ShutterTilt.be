@@ -17,6 +17,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+import matter
+
 # Matter plug-in for core behavior
 
 # dummy declaration for solidification
@@ -58,7 +60,6 @@ class Matter_Plugin_ShutterTilt : Matter_Plugin_Shutter
   # parse the output from `ShutterPosition`
   # Ex: `{"Shutter1":{"Position":50,"Direction":0,"Target":50,"Tilt":30}}`
   def parse_sensors(payload)
-    import string
     var k = "Shutter" + str(self.tasmota_shutter_index + 1)
     if payload.contains(k)
       var v = payload[k]
@@ -96,7 +97,6 @@ class Matter_Plugin_ShutterTilt : Matter_Plugin_Shutter
   # read an attribute
   #
   def read_attribute(session, ctx)
-    import string
     var TLV = matter.TLV
     var cluster = ctx.cluster
     var attribute = ctx.attribute
@@ -110,14 +110,14 @@ class Matter_Plugin_ShutterTilt : Matter_Plugin_Shutter
       elif attribute == 0x000F          #  ---------- CurrentPositionTiltPercent100ths / u8 ----------
         self.update_tilt_min_max()
         if self.tilt_min != nil && self.tilt_max != nil
-          var tilt_percentage = tasmota.scale_uint(self.shadow_shutter_tilt, self.tilt_min, self.tilt_max, 0, 1000)
+          var tilt_percentage = tasmota.scale_uint(self.shadow_shutter_tilt - self.tilt_min, 0, self.tilt_max - self.tilt_min, 0, 10000)
           return TLV.create_TLV(TLV.U2, tilt_percentage)
         else
           return TLV.create_TLV(TLV.NULL, nil)                    # return invalid
         end
       elif attribute == 0x000C          #  ---------- TargetPositionTiltPercent100ths / u16 ----------
         if self.tilt_min != nil && self.tilt_max != nil
-          var tilt_percentage = tasmota.scale_uint(self.shadow_shutter_tilt, self.tilt_min, self.tilt_max, 0, 1000)
+          var tilt_percentage = tasmota.scale_uint(self.shadow_shutter_tilt - self.tilt_min, 0, self.tilt_max - self.tilt_min, 0, 10000)
           return TLV.create_TLV(TLV.U2, tilt_percentage)
         else
           return TLV.create_TLV(TLV.NULL, nil)                    # return invalid
@@ -150,7 +150,7 @@ class Matter_Plugin_ShutterTilt : Matter_Plugin_Shutter
         if tilt != nil
           self.update_tilt_min_max()
           if self.tilt_min != nil && self.tilt_max !=  nil
-            var tilt_val = tasmota.scale_uint(tilt, 0, 1000, self.tilt_min, self.tilt_max)
+            var tilt_val = self.tilt_min + tasmota.scale_uint(tilt, 0, 10000, 0, self.tilt_max - self.tilt_min)
             tasmota.cmd("ShutterTilt"+str(self.tasmota_shutter_index+1) + " " + str(tilt_val), false)   # TODO
             self.update_shadow()
             ctx.log = "tilt%:"+str(tilt)

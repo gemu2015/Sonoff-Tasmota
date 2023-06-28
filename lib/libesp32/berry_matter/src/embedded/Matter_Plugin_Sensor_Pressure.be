@@ -17,6 +17,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+import matter
+
 # Matter plug-in for core behavior
 
 # dummy declaration for solidification
@@ -28,9 +30,9 @@ class Matter_Plugin_Sensor_Pressure : Matter_Plugin_Sensor
   static var TYPE = "pressure"                      # name of the plug-in in json
   static var NAME = "Pressure"                      # display name of the plug-in
   static var CLUSTERS  = {
-    0x0403: [0,1,2,0xFFFC,0xFFFD],                  # Temperature Measurement p.97 - no writable
+    0x0403: [0,1,2,0xFFFC,0xFFFD],                  # Pressure Measurement
   }
-  static var TYPES = { 0x0305: 2 }                  # Temperature Sensor, rev 2
+  static var TYPES = { 0x0305: 2 }                  # Pressure Sensor, rev 2
 
   #############################################################
   # Pre-process value
@@ -54,7 +56,6 @@ class Matter_Plugin_Sensor_Pressure : Matter_Plugin_Sensor
   # read an attribute
   #
   def read_attribute(session, ctx)
-    import string
     var TLV = matter.TLV
     var cluster = ctx.cluster
     var attribute = ctx.attribute
