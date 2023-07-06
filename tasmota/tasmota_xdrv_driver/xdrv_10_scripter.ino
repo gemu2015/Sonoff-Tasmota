@@ -12500,7 +12500,7 @@ void script_add_subpage(uint8_t num) {
 \*********************************************************************************************/
 //const esp_partition_t *esp32_part;
 
-//#define SCRIPT_EARLY_INIT
+
 
 bool Xdrv10(uint32_t function)
 {
@@ -12510,11 +12510,8 @@ bool Xdrv10(uint32_t function)
 
   switch (function) {
     //case FUNC_PRE_INIT:
-#ifndef USE_SDCARD
+    //case FUNC_INIT:
     case FUNC_SETUP_RING1:  // We need to setup SCRIPT before call to ScriptLoadSection()
-#else
-    case FUNC_INIT:
-#endif
 
       //bitWrite(Settings->rule_enabled, 0, 0); // >>>>>>>>>>>
 #ifndef NO_SCRIPT_STOP_ON_ERROR
@@ -12675,11 +12672,8 @@ bool Xdrv10(uint32_t function)
 
       if (bitRead(Settings->rule_enabled, 0)) Init_Scripter();
 
-#ifndef USE_SDCARD
       break;
     case FUNC_INIT:
-#endif
-
       if (bitRead(Settings->rule_enabled, 0)) {
         set_callbacks();
         Run_Scripter1(">B\n", 3, 0);

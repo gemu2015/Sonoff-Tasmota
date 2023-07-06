@@ -1388,6 +1388,7 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
           uint8_t tlen = (mp->sbuff[4] << 8) | mp->sbuff[5];
           if (mp->spos == 6 + tlen) {
             mp->spos = 0;
+            memmove(&mp->sbuff[0], &mp->sbuff[6], mp->sbsiz - 6);
             SML_Decode(meters);
             if (mp->client) {
               mp->client->flush();
@@ -2203,11 +2204,13 @@ void SML_Decode(uint8_t index) {
                 dval = mbus_dval;
                 mp++;
               } else {
-                uint16_t pos = meter_desc[mindex].sbuff[2] + 3;
-                if (pos > (meter_desc[mindex].sbsiz - 2)) pos = meter_desc[mindex].sbsiz - 2;
-                uint16_t crc = MBUS_calculateCRC(&meter_desc[mindex].sbuff[0], pos, 0xFFFF);
-                if (lowByte(crc) != meter_desc[mindex].sbuff[pos]) goto nextsect;
-                if (highByte(crc) != meter_desc[mindex].sbuff[pos + 1]) goto nextsect;
+                if (meter_desc[mindex].srcpin != TCP_MODE_FLG) {
+                  uint16_t pos = meter_desc[mindex].sbuff[2] + 3;
+                  if (pos > (meter_desc[mindex].sbsiz - 2)) pos = meter_desc[mindex].sbsiz - 2;
+                  uint16_t crc = MBUS_calculateCRC(&meter_desc[mindex].sbuff[0], pos, 0xFFFF);
+                  if (lowByte(crc) != meter_desc[mindex].sbuff[pos]) goto nextsect;
+                  if (highByte(crc) != meter_desc[mindex].sbuff[pos + 1]) goto nextsect;
+                }
                 dval = mbus_dval;
                 //AddLog(LOG_LEVEL_INFO, PSTR(">> %s"),mp);
                 mp++;
@@ -3620,7 +3623,7 @@ typedef struct {
  } MODBUS_TCP_HEADER;
 
 uint16_t sml_swap(uint16_t in) {
-  return (in << 8) || in >> 8;
+  return (in << 8) | in >> 8;
 }
 
 // send modbus TCP frame with payload
