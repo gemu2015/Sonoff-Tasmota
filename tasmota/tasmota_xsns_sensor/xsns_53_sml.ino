@@ -1864,6 +1864,18 @@ void SML_Decode(uint8_t index) {
                   cp += skip;
                 }
               }
+            } else if (!strncmp(mp, "UUuuUUuuUUuuUUuu", 16)) {
+              uint64_t val = ((uint64_t)cp[0]<<56) | ((uint64_t)cp[1]<<48) | ((uint64_t)cp[2]<<40) | ((uint64_t)cp[3]<<32) | ((uint64_t)cp[4]<<24) | ((uint64_t)cp[5]<<16) | ((uint64_t)cp[7]<<8) | ((uint64_t)cp[8]<<0);
+              mp += 16;
+              cp += 8;
+              ebus_dval = val;
+              mbus_dval = val;
+            } else if (!strncmp(mp, "uuUUuuUUuuUUuuUU", 16)) {
+              uint64_t val = ((uint64_t)cp[1]<<56) | ((uint64_t)cp[0]<<48) | ((uint64_t)cp[3]<<40) | ((uint64_t)cp[2]<<32) | ((uint64_t)cp[5]<<24) | ((uint64_t)cp[4]<<16) | ((uint64_t)cp[8]<<8) | ((uint64_t)cp[7]<<0);
+              mp += 16;
+              cp += 8;
+              ebus_dval = val;
+              mbus_dval = val;
             } else if (!strncmp(mp, "UUuuUUuu", 8)) {
               uint32_t val = (cp[0]<<24) | (cp[1]<<16) | (cp[2]<<8) | (cp[3]<<0);
               mp += 8;
