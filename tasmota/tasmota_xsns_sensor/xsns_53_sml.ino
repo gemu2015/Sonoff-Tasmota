@@ -1865,13 +1865,17 @@ void SML_Decode(uint8_t index) {
                 }
               }
             } else if (!strncmp(mp, "U64", 3)) {
-              uint64_t val = ((uint64_t)cp[0]<<56) | ((uint64_t)cp[1]<<48) | ((uint64_t)cp[2]<<40) | ((uint64_t)cp[3]<<32) | ((uint64_t)cp[4]<<24) | ((uint64_t)cp[5]<<16) | ((uint64_t)cp[7]<<8) | ((uint64_t)cp[8]<<0);
+              uint32_t valh = (cp[0]<<24) | (cp[1]<<16) | (cp[2]<<8) | (cp[3]<<0);
+              uint32_t vall = (cp[4]<<24) | (cp[5]<<16) | (cp[6]<<8) | (cp[7]<<0);
+              uint64_t val = ((uint64_t)valh<<32) | vall;
               mp += 3;
               cp += 8;
               ebus_dval = val;
               mbus_dval = val;
             } else if (!strncmp(mp, "u64", 3)) {
-              uint64_t val = ((uint64_t)cp[1]<<56) | ((uint64_t)cp[0]<<48) | ((uint64_t)cp[3]<<40) | ((uint64_t)cp[2]<<32) | ((uint64_t)cp[5]<<24) | ((uint64_t)cp[4]<<16) | ((uint64_t)cp[8]<<8) | ((uint64_t)cp[7]<<0);
+              uint64_t valh = (cp[1]<<24) | (cp[0]<<16) | (cp[3]<<8) | (cp[2]<<0);
+              uint64_t vall = (cp[5]<<24) | (cp[4]<<16) | (cp[7]<<8) | (cp[6]<<0);
+              uint64_t val = ((uint64_t)valh<<32) | vall;
               mp += 3;
               cp += 8;
               ebus_dval = val;
