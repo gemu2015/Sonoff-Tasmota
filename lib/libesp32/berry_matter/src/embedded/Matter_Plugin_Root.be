@@ -306,8 +306,12 @@ class Matter_Plugin_Root : Matter_Plugin
       if   attribute == 0x0003          # ---------- PartsList / list[endpoint-no]----------
         var pl = TLV.Matter_TLV_array()
         var eps = self.device.get_active_endpoints(true)
+        var disable_bridge_mode = self.device.disable_bridge_mode
         for ep: eps
-          pl.add_TLV(nil, TLV.U2, ep)     # add each endpoint
+          # if bridge mode is disabled, don't announce Aggregatore (above 0xFF00)
+          if !disable_bridge_mode || ep < 0xFF00
+            pl.add_TLV(nil, TLV.U2, ep)     # add each endpoint
+          end
         end
         return pl
       else
@@ -364,6 +368,7 @@ class Matter_Plugin_Root : Matter_Plugin
         return srcr
 
       elif command == 0x0004            # ---------- CommissioningComplete p.636 ----------
+        self.send_ack_now(ctx.msg)      # long operation, send Ack first
         # no data
         if session._fabric
           session._breadcrumb = 0          # clear breadcrumb
@@ -431,6 +436,7 @@ class Matter_Plugin_Root : Matter_Plugin
         return ar
 
       elif command == 0x0004            # ---------- CSRRequest ----------
+        self.send_ack_now(ctx.msg)      # long operation, send Ack first
         var CSRNonce = val.findsubval(0)     # octstr 32
         if size(CSRNonce) != 32   return nil end    # check size on nonce
         var IsForUpdateNOC = val.findsubval(1, false)     # bool

@@ -76,6 +76,7 @@ class Matter_MessageHandler
   def msg_received(raw, addr, port)
     var ret = false
 
+    self.device.profiler.log("msg_received")
     try
       # tasmota.log("MTR: MessageHandler::msg_received raw="+raw.tohex(), 4)
       var frame = matter.Frame(self, raw, addr, port)
@@ -138,7 +139,7 @@ class Matter_MessageHandler
        
         # check if it's a duplicate
         if !session.counter_rcv_validate(frame.message_counter, true)
-          tasmota.log("MTR: .          Duplicate encrypted message = " + str(frame.message_counter) + " counter=" + str(session.counter_rcv), 4)
+          tasmota.log("MTR: .          Duplicate encrypted message = " + str(frame.message_counter) + " counter=" + str(session.counter_rcv), 3)
           self.send_encrypted_ack(frame, false #-not reliable-#)
           return false
         end
@@ -174,6 +175,7 @@ class Matter_MessageHandler
         elif protocol_id == 0x0001  # PROTOCOL_ID_INTERACTION_MODEL
           # dispatch to IM Protocol Messages
           ret = self.im.process_incoming(frame)
+          self.device.profiler.log("process_IM_end")
           # if `ret` is true, we have something to send
           if ret
             self.im.send_enqueued(self)
@@ -220,6 +222,7 @@ class Matter_MessageHandler
   #   msg.exchange_id:      exchange id (int)
   #   msg.local_session_id: local session (for logging)
   def send_response_frame(msg)
+    self.device.profiler.log("send_response_frame")
     self.device.msg_send(msg)
   end
 
