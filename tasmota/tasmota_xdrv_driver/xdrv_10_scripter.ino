@@ -6816,6 +6816,11 @@ startline:
         }
         // skip empty line
         SCRIPT_SKIP_EOL
+
+        while (*lp == '\t' || *lp == ' ') {
+          lp++;
+        }
+        
         // skip comment
         if (*lp == ';') goto next_line;
         if (!*lp) break;
