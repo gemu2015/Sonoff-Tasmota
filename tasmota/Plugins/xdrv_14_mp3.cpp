@@ -199,9 +199,10 @@ int32_t MP3PlayerInit() {
     initialized = true;
     return 0;
   }
+
   MP3Player_Deinit();
   return -1;
-}
+} 
 
 int32_t MP3_Init() {
   SETREGS

@@ -133,6 +133,7 @@ void MCP2515_Init(void) {
       return;
     }
     AddLog(LOG_LEVEL_INFO, PSTR("CAN: Sniffer Initialized"));
+    Mcp2515.init_status = 1;
   }
 }
 
