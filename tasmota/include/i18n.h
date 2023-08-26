@@ -238,6 +238,7 @@
 #define D_JSON_MY "YaxisInduction"
 #define D_JSON_MZ "ZaxisInduction"
 #define D_JSON_MAGNETICFLD "MagneticInduction"
+#define D_JSON_BATTPERCENT "BatteryPercentage"
 #define D_RSLT_ENERGY "ENERGY"
 #define D_RSLT_HASS_STATE "HASS_STATE"
 #define D_RSLT_INFO "INFO"
@@ -823,6 +824,8 @@
 #define D_LOG_TCP "TCP: "          // TCP bridge
 #define D_LOG_BERRY "BRY: "        // Berry scripting language
 #define D_LOG_LVGL "LVG: "         // LVGL graphics engine
+#define D_LOG_THERMOSTAT "THE: "   // Thermostat driver
+#define D_LOG_SENSOR "SNS: "       // Sensor driver
 
 /********************************************************************************************/
 

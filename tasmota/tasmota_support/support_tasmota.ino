@@ -201,7 +201,8 @@ void ZeroCrossMomentEnd(void) {
 #endif
 }
 
-void IRAM_ATTR ZeroCrossIsr(void) {
+void IRAM_ATTR ZeroCrossIsr(void);
+void ZeroCrossIsr(void) {
   uint32_t time = micros();
   TasmotaGlobal.zc_interval = ((int32_t) (time - TasmotaGlobal.zc_time));
   TasmotaGlobal.zc_time = time;
@@ -828,6 +829,11 @@ void MqttShowState(void)
 
   ResponseAppendTime();
   ResponseAppend_P(PSTR(",\"" D_JSON_UPTIME "\":\"%s\",\"UptimeSec\":%u"), GetUptime().c_str(), UpTime());
+
+  // Battery Level expliciet for deepsleep devices
+  if (Settings->battery_level_percent != 101) {
+    ResponseAppend_P(PSTR(",\"" D_CMND_ZIGBEE_BATTPERCENT "\":%d"), Settings->battery_level_percent);
+  }
 
 #ifdef ESP8266
 #ifdef USE_ADC_VCC
@@ -1916,6 +1922,8 @@ void TasConsoleInput(void) {
 //
 // This patched version of pinMode forces a full GPIO reset before setting new mode
 //
+#include "driver/gpio.h"
+
 extern "C" void ARDUINO_ISR_ATTR __pinMode(uint8_t pin, uint8_t mode);
 
 extern "C" void ARDUINO_ISR_ATTR pinMode(uint8_t pin, uint8_t mode) {

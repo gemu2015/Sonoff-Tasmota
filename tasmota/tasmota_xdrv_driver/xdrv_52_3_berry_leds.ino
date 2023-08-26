@@ -33,8 +33,13 @@ enum {
   neopixel_type_end
 };
 
+#ifdef CONFIG_IDF_TARGET_ESP32C2
+typedef NeoPixelBus<NeoGrbFeature, NeoEsp32SpiN800KbpsMethod> neopixel_ws2812_grb_t;
+typedef NeoPixelBus<NeoGrbwFeature, NeoEsp32SpiNSk6812Method> neopixel_sk6812_grbw_t;
+#else
 typedef NeoPixelBus<NeoGrbFeature, NeoEsp32RmtN800KbpsMethod> neopixel_ws2812_grb_t;
 typedef NeoPixelBus<NeoGrbwFeature, NeoEsp32RmtNSk6812Method> neopixel_sk6812_grbw_t;
+#endif
 
 
 /*********************************************************************************************\
@@ -155,7 +160,7 @@ extern "C" {
             }
             uint32_t pixels_size;       // number of bytes to push
             if (s_ws2812_grb)     { s_ws2812_grb->Show();   pixels_size = s_ws2812_grb->PixelsSize(); }
-            if (s_sk6812_grbw)    { s_sk6812_grbw->Show();  pixels_size = s_ws2812_grb->PixelsSize(); }
+            if (s_sk6812_grbw)    { s_sk6812_grbw->Show();  pixels_size = s_sk6812_grbw->PixelsSize(); }
 
             // Wait for RMT/I2S to complete fixes distortion due to analogRead
             // 1ms is needed for 96 bytes

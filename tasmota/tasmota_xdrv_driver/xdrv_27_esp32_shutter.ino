@@ -53,7 +53,7 @@ const char HTTP_MSG_SLIDER_SHUTTER[] PROGMEM =
   "<div><span class='p'>%s</span><span class='q'>%s</span></div>"
   "<div><input type='range' min='0' max='100' value='%d' onchange='lc(\"u\",%d,value)'></div>";
 
-const uint32_t SHUTTER_VERSION = 0x01010100;  // Latest driver version (See settings deltas below)
+const uint16_t SHUTTER_VERSION = 0x0100;  // Latest driver version (See settings deltas below)
 
 typedef struct { // depreciated 2023-04-28
   int8_t pos;
@@ -86,7 +86,8 @@ typedef struct {
 // Global structure containing shutter saved variables
 struct SHUTTERSETTINGS {
   uint32_t      crc32;                                     // To detect file changes
-  uint32_t      version;                                   // To detect driver function changes
+  uint16_t      version;                                   // To detect driver function changes
+  uint16_t      spare;
   uint8_t       shutter_accuracy;
   uint8_t       shutter_mode;
   uint16_t      shutter_motorstop;
@@ -252,9 +253,7 @@ void ShutterSettingsDelta(void) {
   // Fix possible setting deltas
   if (ShutterSettings.version != SHUTTER_VERSION) {      // Fix version dependent changes
 
-    if (ShutterSettings.version < 0x01010100) {
-      AddLog(LOG_LEVEL_INFO, PSTR("SHT: Update oldest version restore"));
-      
+    if (ShutterSettings.version < 0x0100) {
       for (uint8_t i=0; i < MAX_SHUTTERS_ESP32; i++){
         if (ShutterSettings.shutter_startrelay[i] == 0) continue;
         AddLog(LOG_LEVEL_INFO, PSTR("SHT:    %s SHT%d:%d"),D_CMND_SHUTTER_RELAY,i+1,ShutterSettings.shutter_startrelay[i]);
@@ -271,13 +270,7 @@ void ShutterSettingsDelta(void) {
           ShutterSettings.shutter_button[i].position[j].mqtt_broadcast = ShutterSettings.shutter_button_old[i].position[j].mqtt_broadcast;
         }
       }
-
     }
-
-    // if (ShutterSettings.version < 0x01010101) {
-    //   AddLog(LOG_LEVEL_INFO, PSTR("SHT: Update old version restore"));
-
-    // }
 
     // Set current version and save settings
     ShutterSettings.version = SHUTTER_VERSION;
@@ -338,6 +331,12 @@ void ShutterSettingsSave(void) {
     AddLog(LOG_LEVEL_INFO, D_ERROR_FILESYSTEM_NOT_READY);
 #endif  // USE_UFILESYS
   }
+}
+
+bool ShutterSettingsRestore(void) {
+  XdrvMailbox.data = (char*)&ShutterSettings;
+  XdrvMailbox.index = sizeof(ShutterSettings);
+  return true;
 }
 
 uint8_t ShutterGetRelayNoFromBitfield(power_t number) {
@@ -461,8 +460,6 @@ void ShutterRtc50mS(void)
 
 int32_t ShutterPercentToRealPosition(int16_t percent, uint32_t index)
 {
-  // if inverted recalculate the percentposition
-  percent = (ShutterSettings.shutter_options[index] & 1) ? 100 - percent : percent;
 	if (ShutterSettings.shutter_set50percent[index] != 50) {
     return (percent <= 5) ? ShutterSettings.shuttercoeff[2][index] * percent*10 : (ShutterSettings.shuttercoeff[1][index] * percent + (ShutterSettings.shuttercoeff[0][index]*10))*10;
 	} else {
@@ -524,9 +521,8 @@ uint8_t ShutterRealToPercentPosition(int32_t realpos, uint32_t index)
       }
     }
   }
-   realpercent = realpercent < 0 ? 0 : realpercent;
-  // if inverted recalculate the percentposition
-  return (ShutterSettings.shutter_options[index] & 1) ? 100 - realpercent : realpercent;
+  realpercent = realpercent < 0 ? 0 : realpercent;
+  return realpercent;
 }
 
 void ShutterInit(void)
@@ -702,9 +698,12 @@ void ShutterReportPosition(bool always, uint32_t index)
       ShutterLogPos(i);
       shutter_running++;
     }
-    if (i && index == MAX_SHUTTERS_ESP32) { ResponseAppend_P(PSTR(",")); }
-    ResponseAppend_P(JSON_SHUTTER_POS, i+1,  ShutterRealToPercentPosition(Shutter[i].real_position, i), Shutter[i].direction, ShutterRealToPercentPosition(Shutter[i].target_position, i), Shutter[i].tilt_real_pos );
-  }
+    if (i && index == MAX_SHUTTERS) { ResponseAppend_P(PSTR(",")); }
+    uint32_t position = ShutterRealToPercentPosition(Shutter[i].real_position, i);
+    uint32_t target = ShutterRealToPercentPosition(Shutter[i].target_position, i);
+    ResponseAppend_P(JSON_SHUTTER_POS, i+1, (ShutterSettings.shutter_options[i] & 1) ? 100-position : position, Shutter[i].direction,(ShutterSettings.shutter_options[i] & 1) ? 100-target : target, Shutter[i].tilt_real_pos );
+    //ResponseAppend_P(JSON_SHUTTER_POS, i+1,  position, Shutter[i].direction, target, Shutter[i].tilt_real_pos );
+   }
   ResponseJsonEnd();
   if (always || shutter_running) {
     MqttPublishPrefixTopicRulesProcess_P(RESULT_OR_STAT, PSTR(D_PRFX_SHUTTER));  // RulesProcess() now re-entry protected
@@ -1269,7 +1268,8 @@ bool ShutterButtonHandler(void)
   // handle on button release: start shutter on shortpress and stop running shutter after longpress.
   if (NOT_PRESSED == button
       && Shutter[shutter_index].direction != 0  // only act on shutters activly moving
-      && Button.hold_timer[button_index] > 0)   // kick in on first release of botton. do not check for multipress
+      && Button.hold_timer[button_index] > 0   // kick in on first release of botton. do not check for multipress
+      && !ShutterSettings.shutter_button[button_index].position[3].mqtt_broadcast ) // do not stop on hold release if broadcast
   {
     XdrvMailbox.index = shutter_index +1;
     XdrvMailbox.payload = -99;  // reset any payload to invalid
@@ -1322,7 +1322,7 @@ void ShutterToggle(bool dir)
 
 void ShutterShow(){
   for (uint32_t i = 0; i < TasmotaGlobal.shutters_present; i++) {
-    WSContentSend_P(HTTP_MSG_SLIDER_SHUTTER,  (ShutterSettings.shutter_options[i] & 1) ? D_OPEN : D_CLOSE,(ShutterSettings.shutter_options[i] & 1) ? D_CLOSE : D_OPEN, ShutterRealToPercentPosition(-9999, i), i+1);
+    WSContentSend_P(HTTP_MSG_SLIDER_SHUTTER,  (ShutterGetOptions(i) & 1) ? D_OPEN : D_CLOSE,(ShutterGetOptions(i) & 1) ? D_CLOSE : D_OPEN, (ShutterGetOptions(i) & 1) ? (100 - ShutterRealToPercentPosition(-9999, i)) : ShutterRealToPercentPosition(-9999, i), i+1);
   }
 }
 /*********************************************************************************************\
@@ -1506,10 +1506,6 @@ void CmndShutterPosition(void)
 
       }
 
-      // if position is either 0 or 100 reset the tilt to avoid tilt moving at the end
-      if (XdrvMailbox.payload ==   0 && ShutterRealToPercentPosition(Shutter[index].real_position, index)  > 0  ) {Shutter[index].tilt_target_pos = Shutter[index].tilt_config[4];}
-      if (XdrvMailbox.payload == 100 && ShutterRealToPercentPosition(Shutter[index].real_position, index)  < 100) {Shutter[index].tilt_target_pos = Shutter[index].tilt_config[3];}
-
       //override tiltposition if explicit set (shutterbutton)
       if (Shutter[index].tilt_target_pos_override != -128) {
         Shutter[index].tilt_target_pos = tmin(tmax( Shutter[index].tilt_config[0],Shutter[index].tilt_target_pos_override ), Shutter[index].tilt_config[1]);
@@ -1517,8 +1513,16 @@ void CmndShutterPosition(void)
       }
 
       int8_t target_pos_percent = (XdrvMailbox.payload < 0) ? (XdrvMailbox.payload == -99 ? ShutterRealToPercentPosition(Shutter[index].real_position, index) : 0) : ((XdrvMailbox.payload > 100) ? 100 : XdrvMailbox.payload);
-      // webgui still send also on inverted shutter the native position.
-      target_pos_percent = ((ShutterSettings.shutter_options[index] & 1) && (SRC_WEBGUI == TasmotaGlobal.last_source)) ? 100 - target_pos_percent : target_pos_percent;
+      target_pos_percent = ((ShutterSettings.shutter_options[index] & 1) && ((SRC_MQTT       != TasmotaGlobal.last_source) // 1
+                                                                          && (SRC_SERIAL     != TasmotaGlobal.last_source) // 6
+                                                                          && (SRC_WEBGUI     != TasmotaGlobal.last_source) // 7
+                                                                          && (SRC_WEBCOMMAND != TasmotaGlobal.last_source) // 8
+                                                                             )) ? 100 - target_pos_percent : target_pos_percent;
+
+      // if position is either 0 or 100 reset the tilt to avoid tilt moving at the end
+      if (target_pos_percent ==   0 && ShutterRealToPercentPosition(Shutter[index].real_position, index)  > 0  ) {Shutter[index].tilt_target_pos = Shutter[index].tilt_config[4];}
+      if (target_pos_percent == 100 && ShutterRealToPercentPosition(Shutter[index].real_position, index)  < 100) {Shutter[index].tilt_target_pos = Shutter[index].tilt_config[3];}
+
       if (XdrvMailbox.payload != -99) {
         Shutter[index].target_position = ShutterPercentToRealPosition(target_pos_percent, index);
         //Shutter[i].accelerator[index] = ShutterGlobal.open_velocity_max / ((Shutter[i].motordelay[index] > 0) ? Shutter[i].motordelay[index] : 1);
@@ -1874,14 +1878,16 @@ void CmndShutterButton(void)
                   ShutterSettings.shutter_button[i].position[j] = {-1,-128,0};
           } else {
             setting.enabled = true;
-            setting.shutter_number == XdrvMailbox.index-1;
+            setting.shutter_number = XdrvMailbox.index-1;
             ShutterSettings.shutter_button[button_index-1] = setting;
+            //AddLog(LOG_LEVEL_DEBUG, PSTR("SHT: ENABLE SHT:%d -> %d"),XdrvMailbox.index-1,ShutterSettings.shutter_button[button_index-1]);
           }
         }
       }
       char setting_chr[30*MAX_SHUTTER_KEYS] = "-", *setting_chr_ptr = setting_chr;
       for (uint32_t i=0 ; i < MAX_SHUTTERS_ESP32*2 ; i++) {
         setting = ShutterSettings.shutter_button[i];
+        //AddLog(LOG_LEVEL_DEBUG, PSTR("SHT: Setting: SHT on BTN:%d, index:%d"),ShutterSettings.shutter_button[i].shutter_number,XdrvMailbox.index-1);
         if ((setting.enabled) && (ShutterSettings.shutter_button[i].shutter_number == XdrvMailbox.index-1)) {
           if (*setting_chr_ptr == 0)
             setting_chr_ptr += sprintf_P(setting_chr_ptr, PSTR("|"));
@@ -2258,9 +2264,12 @@ bool Xdrv27(uint32_t function)
     char stemp1[10];
     power_t save_powermatrix;
     switch (function) {
+      case FUNC_RESTORE_SETTINGS:
+        result = ShutterSettingsRestore();
+        break;
       case FUNC_SAVE_SETTINGS:
         ShutterSettingsSave();
-      break;
+        break;
       case FUNC_PRE_INIT:
         ShutterSettingsLoad(0);
         ShutterInit();
