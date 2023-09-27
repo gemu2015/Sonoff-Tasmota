@@ -24,11 +24,38 @@
 #include "esp8266toEsp32.h"
 #endif
 
+#include "tasmota_options.h"
+
+
+int Pin(uint32_t gpio, uint32_t index = 0);
+
+
+enum UserSelectablePins {
+  GPIO_NONE,                           // Not used
+  GPIO_KEY1, GPIO_KEY1_NP, GPIO_KEY1_INV, GPIO_KEY1_INV_NP, // 4 x Button
+  GPIO_SWT1, GPIO_SWT1_NP,             // 8 x User connected external switches
+  GPIO_REL1, GPIO_REL1_INV,            // 8 x Relays
+  GPIO_LED1, GPIO_LED1_INV,            // 4 x Leds
+  GPIO_CNTR1, GPIO_CNTR1_NP,           // 4 x Counter
+  GPIO_PWM1, GPIO_PWM1_INV,            // 5 x PWM
+  GPIO_BUZZER, GPIO_BUZZER_INV,        // Buzzer
+  GPIO_LEDLNK, GPIO_LEDLNK_INV,        // Link led
+  GPIO_I2C_SCL, GPIO_I2C_SDA,          // Software I2C
+  GPIO_SPI_MISO, GPIO_SPI_MOSI, GPIO_SPI_CLK, GPIO_SPI_CS, GPIO_SPI_DC,        // Hardware SPI
+  GPIO_SSPI_MISO, GPIO_SSPI_MOSI, GPIO_SSPI_SCLK, GPIO_SSPI_CS, GPIO_SSPI_DC,  // Software SPI
+  GPIO_BACKLIGHT,                      // Display backlight control
+  GPIO_OLED_RESET
+};
+
 
 extern int Cache_WriteBack_Addr(uint32_t addr, uint32_t size);
 
 
-//#define UDSP_DEBUG
+#define UDSP_DEBUG
+
+#ifndef UDSP_LBSIZE
+#define UDSP_LBSIZE 256
+#endif
 
 #define renderer_swap(a, b) { int16_t t = a; a = b; b = t; }
 
@@ -133,7 +160,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   }
   lut_partial = 0;
   lut_full = 0;
-  char linebuff[128];
+  char linebuff[UDSP_LBSIZE];
   while (*lp) {
 
     uint16_t llen = strlen_ln(lp);
@@ -157,6 +184,55 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             allcmd_mode = 1;
             lp1++;
           }
+          // special case
+          if (interface == _UDSP_RGB) {
+              // special case RGB with SPI init
+              // collect line and send directly
+              spi_dc = Pin(GPIO_SSPI_DC);
+              spi_nr = 4;
+              spi_clk = Pin(GPIO_SSPI_SCLK);
+              spi_mosi = Pin(GPIO_SSPI_MOSI);
+              spi_miso = Pin(GPIO_SSPI_MISO);
+              
+              spi_cs = Pin(GPIO_SSPI_CS);
+              if (spi_cs >= 0) {
+                pinMode(spi_cs, OUTPUT);
+                digitalWrite(spi_cs, HIGH);
+              }
+  
+              reset = Pin(GPIO_OLED_RESET);
+              if (reset >= 0) {
+                pinMode(reset, OUTPUT);
+                digitalWrite(reset, HIGH);
+                delay(50);
+                reset_pin(50, 200);
+              }
+
+              pinMode(spi_clk, OUTPUT);
+              pinMode(spi_mosi, OUTPUT);
+
+              if (spi_miso >= 0) {
+                pinMode(spi_miso, INPUT);
+              }
+              
+              if (spi_dc >= 0) {
+                pinMode(spi_dc, OUTPUT);
+              }
+
+#ifdef UDSP_DEBUG
+              Serial.printf("SPI_MOSI  : %d\n", spi_mosi);
+              Serial.printf("SPI_MISO  : %d\n", spi_miso);
+              Serial.printf("SPI_SCLK  : %d\n", spi_clk);
+              Serial.printf("SPI_DC  : %d\n", spi_dc);
+              Serial.printf("SPI_CS  : %d\n", spi_cs);
+              Serial.printf("LCD_RESET  : %d\n", reset);
+#endif
+              //uspi = &SPI;
+              //uspi->begin(spi_clk, spi_miso, spi_mosi, -1);
+              //spi_speed = 10;
+              //spiSettings = SPISettings((uint32_t)spi_speed*1000000, MSBFIRST, SPI_MODE3);
+          }
+
         } else if (section == 'L') {
           if (*lp1 >= '1' && *lp1 <= '5') {
             lut_num = (*lp1 & 0x07);
@@ -286,18 +362,38 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             break;
           case 'I':
             // init data
-            if (interface == _UDSP_I2C) {
-              dsp_cmds[dsp_ncmds++] = next_hex(&lp1);
-              if (!str2c(&lp1, ibuff, sizeof(ibuff))) {
-                dsp_cmds[dsp_ncmds++] = strtol(ibuff, 0, 16);
-              }
-            } else {
+            if (interface == _UDSP_RGB) {
+              // special case RGB with SPI init
+              // collect line and send directly
+              dsp_ncmds = 0;
               while (1) {
                 if (dsp_ncmds >= sizeof(dsp_cmds)) break;
                 if (!str2c(&lp1, ibuff, sizeof(ibuff))) {
                   dsp_cmds[dsp_ncmds++] = strtol(ibuff, 0, 16);
                 } else {
                   break;
+                }
+              }
+              interface = _UDSP_SPI;
+              SPI_BEGIN_TRANSACTION
+              send_spi_cmds(0, dsp_ncmds);
+              SPI_END_TRANSACTION
+              interface = _UDSP_RGB;
+              
+            } else {
+              if (interface == _UDSP_I2C) {
+                dsp_cmds[dsp_ncmds++] = next_hex(&lp1);
+                if (!str2c(&lp1, ibuff, sizeof(ibuff))) {
+                  dsp_cmds[dsp_ncmds++] = strtol(ibuff, 0, 16);
+                }
+              } else {
+                while (1) {
+                  if (dsp_ncmds >= sizeof(dsp_cmds)) break;
+                  if (!str2c(&lp1, ibuff, sizeof(ibuff))) {
+                    dsp_cmds[dsp_ncmds++] = strtol(ibuff, 0, 16);
+                  } else {
+                    break;
+                  }
                 }
               }
             }
@@ -2419,6 +2515,7 @@ void uDisplay::hw_write9(uint8_t val, uint8_t dc) {
     *dp = regvalue;
     REG_SET_BIT(SPI_CMD_REG(3), SPI_USR);
     while (REG_GET_FIELD(SPI_CMD_REG(3), SPI_USR));
+
 }
 
 #else
