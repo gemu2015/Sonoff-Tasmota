@@ -376,7 +376,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
               }
               interface = _UDSP_SPI;
               SPI_BEGIN_TRANSACTION
-              send_spi_cmds(0, dsp_ncmds);
+              send_spi_icmds(dsp_ncmds);
               SPI_END_TRANSACTION
               interface = _UDSP_RGB;
               
@@ -743,6 +743,50 @@ void uDisplay::delay_arg(uint32_t args) {
 #define EP_BREAK_RR_NEQ 0x6a
 
 extern int32_t ESP_ResetInfoReason();
+
+// special init for GC displays
+void uDisplay::send_spi_icmds(uint16_t cmd_size) {
+uint16_t index = 0;
+uint16_t cmd_offset = 0;
+
+
+#ifdef UDSP_DEBUG
+  Serial.printf("start send icmd table\n");
+#endif
+  while (1) {
+    uint8_t iob;
+    SPI_CS_LOW
+    iob = dsp_cmds[cmd_offset++];
+    index++;
+    ulcd_command(iob);
+    uint8_t args = dsp_cmds[cmd_offset++];
+    index++;
+#ifdef UDSP_DEBUG
+    Serial.printf("cmd, args %02x, %d ", iob, args & 0x7f);
+#endif
+    for (uint32_t cnt = 0; cnt < (args & 0x7f); cnt++) {
+      iob = dsp_cmds[cmd_offset++];
+      index++;
+#ifdef UDSP_DEBUG
+      Serial.printf("%02x ", iob);
+#endif
+      ulcd_data8(iob);
+    }
+    SPI_CS_HIGH
+#ifdef UDSP_DEBUG
+    Serial.printf("\n");
+#endif
+    if (args & 0x80) {  // delay after the command
+      delay_arg(args);
+    }
+    if (index >= cmd_size) break;
+  }
+#ifdef UDSP_DEBUG
+  Serial.printf("end send icmd table\n");
+#endif
+  return;
+}
+
 
 void uDisplay::send_spi_cmds(uint16_t cmd_offset, uint16_t cmd_size) {
 uint16_t index = 0;
