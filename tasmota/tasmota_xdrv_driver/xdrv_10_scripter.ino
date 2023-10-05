@@ -552,6 +552,11 @@ struct SCRIPT_MEM {
     ScriptOneWire ow;
 #endif
 
+#ifdef USE_SCRIPT_TCP_SERVER
+    WiFiServer *tcp_server;
+    WiFiClient tcp_client;
+#endif
+
 } glob_script_mem;
 
 
@@ -5796,6 +5801,120 @@ extern char *SML_GetSVal(uint32_t index);
           char path[SCRIPT_MAXSSIZE];
           lp = GetStringArgument(lp + 8, OPER_EQU, path, 0);
           fvar = wav2mp3(path);
+          goto nfuncexit;
+        }
+#endif
+#ifdef USE_SCRIPT_TCP_SERVER
+        if (!strncmp_XP(lp, XPSTR("wso("), 4)) {
+          TS_FLOAT port;
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &port, gv);
+          glob_script_mem.tcp_server = new WiFiServer(port);
+          fvar = 0;
+          if (!glob_script_mem.tcp_server) {
+            fvar = -1;
+          } else  {
+            AddLog(LOG_LEVEL_INFO, PSTR("tcp server started"));
+          }
+          glob_script_mem.tcp_server->begin();
+          glob_script_mem.tcp_server->setNoDelay(true);
+
+          goto nfuncexit;
+        }
+        if (!strncmp_XP(lp, XPSTR("wsc("), 4)) {
+          if (glob_script_mem.tcp_server) {
+            glob_script_mem.tcp_client.stop();
+            glob_script_mem.tcp_server->stop();
+            delete glob_script_mem.tcp_server;
+            glob_script_mem.tcp_server = 0;
+          }
+          fvar = 0;
+          goto nfuncexit;
+        }
+        if (!strncmp_XP(lp, XPSTR("wsa("), 4)) {
+          fvar = 0;
+          if (glob_script_mem.tcp_server) {
+            if (glob_script_mem.tcp_server->hasClient()) {
+              glob_script_mem.tcp_client = glob_script_mem.tcp_server->available();
+              AddLog(LOG_LEVEL_DEBUG, PSTR("tcp client connected"));
+            }
+            if (glob_script_mem.tcp_client && glob_script_mem.tcp_client.connected()) {
+              fvar = glob_script_mem.tcp_client.available();
+            } else {
+              AddLog(LOG_LEVEL_DEBUG, PSTR("tcp client not connected"));
+            }
+          } else {
+            AddLog(LOG_LEVEL_DEBUG, PSTR("tcp server not active"));
+          }
+          goto nfuncexit;
+        }
+        if (!strncmp_XP(lp, XPSTR("wsrs("), 5)) {
+          fvar = 0;
+          char buff[SCRIPT_MAXSSIZE];
+          if (glob_script_mem.tcp_server) {
+            if (glob_script_mem.tcp_client.connected()) {
+                uint16_t slen = glob_script_mem.tcp_client.available();
+                if (slen > sizeof(buff)) {
+                  slen = sizeof(buff);
+                }
+                for (uint16_t cnt = 0; cnt < slen; cnt++) {
+                  buff[cnt] = glob_script_mem.tcp_client.read();
+                }
+                buff[slen] = 0; 
+                if (sp) strlcpy(sp, buff, glob_script_mem.max_ssize);
+            }
+          }
+          goto strexit;
+        }
+        if (!strncmp_XP(lp, XPSTR("wsws("), 5)) {
+          fvar = 0;
+          char buff[SCRIPT_MAXSSIZE];
+          lp = GetStringArgument(lp + 5, OPER_EQU, buff, 0);
+          if (glob_script_mem.tcp_server) {
+            if (glob_script_mem.tcp_client.connected()) {
+              glob_script_mem.tcp_client.write(buff, strlen(buff));
+            }
+            glob_script_mem.tcp_client.flush();
+          }
+          goto nfuncexit;
+        }
+        if (!strncmp_XP(lp, XPSTR("wsra("), 5)) {
+          TS_FLOAT *fpd = 0;
+          uint16_t alend;
+          uint16_t ipos;
+          lp = get_array_by_name(lp + 5, &fpd, &alend, &ipos);
+          SCRIPT_SKIP_SPACES
+          if (glob_script_mem.tcp_server) {
+            if (glob_script_mem.tcp_client.connected()) {
+                uint16_t slen = glob_script_mem.tcp_client.available();
+                if (slen > alend) {
+                  slen = alend;
+                }
+                for (uint16_t cnt = 0; cnt < slen; cnt++) {
+                  *fpd++ = glob_script_mem.tcp_client.read();
+                }
+                fvar = slen;
+            }
+          }
+          goto nfuncexit;
+        }
+        if (!strncmp_XP(lp, XPSTR("wswa("), 5)) {
+          TS_FLOAT *fpd = 0;
+          uint16_t alend;
+          uint16_t ipos;
+          lp = get_array_by_name(lp + 5, &fpd, &alend, &ipos);
+          SCRIPT_SKIP_SPACES
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
+          if (fvar > alend) {
+            fvar = alend;
+          }
+          if (glob_script_mem.tcp_server) {
+            if (glob_script_mem.tcp_client.connected()) {
+              for (uint16_t cnt = 0; cnt < fvar; cnt++) {
+                glob_script_mem.tcp_client.write((uint8_t)*fpd++);
+              }
+              glob_script_mem.tcp_client.flush();
+            }
+          }
           goto nfuncexit;
         }
 #endif
