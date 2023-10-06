@@ -5904,13 +5904,51 @@ extern char *SML_GetSVal(uint32_t index);
           lp = get_array_by_name(lp + 5, &fpd, &alend, &ipos);
           SCRIPT_SKIP_SPACES
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
-          if (fvar > alend) {
-            fvar = alend;
+          uint16_t al = fvar;
+          if (al > alend) {
+            al = alend;
+          }
+          SCRIPT_SKIP_SPACES
+
+          uint16_t opts = 0;
+          if (*lp != ')') {
+            lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
+            opts = fvar;
           }
           if (glob_script_mem.tcp_server) {
             if (glob_script_mem.tcp_client.connected()) {
-              for (uint16_t cnt = 0; cnt < fvar; cnt++) {
-                glob_script_mem.tcp_client.write((uint8_t)*fpd++);
+              for (uint16_t cnt = 0; cnt < al; cnt++) {
+                switch (opts) {
+                  case 0:
+                    glob_script_mem.tcp_client.write((uint8_t)*fpd++);
+                    break;
+                  case 1:
+                    { 
+                      uint16_t wval = *fpd++;
+                      glob_script_mem.tcp_client.write(wval >> 8);
+                      glob_script_mem.tcp_client.write(wval);
+                    }
+                    break;
+                  case 2:
+                    {
+                      int16_t swval = *fpd++;
+                      glob_script_mem.tcp_client.write(swval >> 8);
+                      glob_script_mem.tcp_client.write(swval);
+                    }
+                    break;
+                  case 3:
+                    {
+                      uint32_t lval = *(uint32_t*)fpd;
+                      fpd++;
+                      glob_script_mem.tcp_client.write(lval >> 24);
+                      glob_script_mem.tcp_client.write(lval >> 16);
+                      glob_script_mem.tcp_client.write(lval >> 8);
+                      glob_script_mem.tcp_client.write(lval);
+                    }
+                    break;
+
+
+                }
               }
               glob_script_mem.tcp_client.flush();
             }
