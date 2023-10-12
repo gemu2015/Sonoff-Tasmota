@@ -5873,7 +5873,6 @@ extern char *SML_GetSVal(uint32_t index);
             if (glob_script_mem.tcp_client.connected()) {
               glob_script_mem.tcp_client.write(buff, strlen(buff));
             }
-            glob_script_mem.tcp_client.flush();
           }
           goto nfuncexit;
         }
@@ -5950,7 +5949,16 @@ extern char *SML_GetSVal(uint32_t index);
 
                 }
               }
+            }
+          }
+          goto nfuncexit;
+        }
+        if (!strncmp_XP(lp, XPSTR("wsf("), 4)) {
+          fvar = -1;
+          if (glob_script_mem.tcp_server) {
+            if (glob_script_mem.tcp_client.connected()) {
               glob_script_mem.tcp_client.flush();
+              fvar = 0;
             }
           }
           goto nfuncexit;
