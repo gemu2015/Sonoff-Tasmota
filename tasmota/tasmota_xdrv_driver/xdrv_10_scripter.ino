@@ -617,7 +617,7 @@ int32_t opt_fext(File *fp,  char *ts_from, char *ts_to, uint32_t flg);
 int32_t extract_from_file(File *fp,  char *ts_from, char *ts_to, int8_t coffs, TS_FLOAT **a_ptr, uint16_t *a_len, uint8_t numa, int16_t accum);
 #endif
 char *eval_sub(char *lp, TS_FLOAT *fvar, char *rstr);
-uint32_t script_ow(uint8_t sel, uint32_t val);
+int32_t script_ow(uint8_t sel, uint32_t val);
 int32_t script_logfile_write(char *path, char *payload, uint32_t size);
 void script_sort_array(TS_FLOAT *array, uint16_t size);
 
@@ -7919,7 +7919,7 @@ bool script_OneWireCrc8(uint8_t *addr) {
   return (crc == *addr);               // addr 8
 }
 
-uint32_t script_ow(uint8_t sel, uint32_t val) {
+int32_t script_ow(uint8_t sel, uint32_t val) {
 uint32_t res = 0;
 uint8_t bits;
 bool invert = false;
