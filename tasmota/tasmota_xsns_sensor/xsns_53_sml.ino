@@ -111,6 +111,11 @@
 #include "han_Parser.h"
 #endif
 
+
+#ifdef USE_SML_CANBUS
+#include "mcp2515.h"
+#endif
+
 /* special options per meter
 1:
 special binary SML option for meters that use a bit in the status register to sign import or export like ED300L, AS2020 or DTZ541
@@ -479,10 +484,15 @@ struct METER_DESC {
 
 #endif // USE_SML_TCP
 
+
+#ifdef USE_SML_CANBUS
+  MCP2515 *mcp2515;
+#endif
 #ifdef ESP32
   int8_t uart_index;
 #endif
 };
+
 
 
 
@@ -1480,6 +1490,7 @@ uint32_t meters;
 
     for (meters = 0; meters < sml_globs.meters_used; meters++) {
       struct METER_DESC *mp = &meter_desc[meters];
+      if (mp->type == 'C') continue;
       if (mp->type != 'c') {
         if (mp->srcpin != TCP_MODE_FLG) {
           if (!mp->meter_ss) continue;
@@ -3171,6 +3182,29 @@ next_line:
           InjektCounterValue(meters, RtcSettings.pulse_counter[cindex], 0.0);
           cindex++;
         }
+    } else if (mp->type == 'C') {
+#ifdef USE_SML_CANBUS
+      if (TasmotaGlobal.spi_enabled) {
+        mp->mcp2515 = new MCP2515(mp->srcpin);
+        if (MCP2515::ERROR_OK != mp->mcp2515->reset()) {
+          AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Failed to reset module"));
+          return;
+        }
+        //mp->params
+
+        if (MCP2515::ERROR_OK != mp->mcp2515->setBitrate(CAN_100KBPS, MCP_8MHZ)) {
+          AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Failed to set module bitrate"));
+          return;
+        }
+        if (MCP2515::ERROR_OK != mp->mcp2515->setNormalMode()) {
+          AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Failed to set normal mode"));
+          return;
+        }
+        AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Initialized"));
+      } else {
+        AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: SPI not configuered"));
+      }
+#endif
     } else {
       // serial input, init
       if (mp->srcpin == TCP_MODE_FLG) {
@@ -3559,6 +3593,68 @@ uint32_t ctime = millis();
 }
 
 #ifdef USE_SCRIPT
+
+#ifdef USE_SML_CANBUS
+
+char sml_c2h(char c) {
+  return "0123456789ABCDEF"[0x0F & (unsigned char)c];
+}
+
+#define SML_CAN_MAX_FRAMES 8
+
+void SML_CANBUS_Read() {
+  uint8_t nCounter = 0;
+  bool checkRcv;
+  struct can_frame canFrame;
+
+    for (uint32_t meter = 0; meter < sml_globs.meters_used; meter++) {
+      struct METER_DESC *mp = &sml_globs.mp[meter];
+
+      if (mp->type != 'C') continue;
+
+      checkRcv = mp->mcp2515->checkReceive();
+
+      while (checkRcv && nCounter <= SML_CAN_MAX_FRAMES) {
+        mp->mcp2515->checkReceive();
+        nCounter++;
+        if (mp->mcp2515->readMessage(&canFrame) == MCP2515::ERROR_OK) {
+          //mp->mcp2515->lastFrameRecv = TasmotaGlobal.uptime;
+          char canMsg[17];
+          canMsg[0] = 0;
+          for (int i = 0; i < canFrame.can_dlc; i++) {
+            canMsg[i*2] = sml_c2h(canFrame.data[i]>>4);
+            canMsg[i*2+1] = sml_c2h(canFrame.data[i]);
+          }
+          if (canFrame.can_dlc > 0) {
+            canMsg[(canFrame.can_dlc - 1) * 2 + 2] = 0;
+          }
+//          AddLog(LOG_LEVEL_INFO, PSTR("CAN: Received message 0x%s from ID 0x%x"), canMsg, (uint32_t)canFrame.can_id);
+
+//          AddLog(LOG_LEVEL_INFO, PSTR("CAN: Received: ID: %d"), (uint32_t)canFrame.can_id);
+//          AddLog(LOG_LEVEL_INFO, PSTR("CAN: Received: LEN: %d"), (uint32_t)canFrame.can_dlc);
+//          for (int i = 0; i < canFrame.can_dlc; i++) {
+//            AddLog(LOG_LEVEL_INFO, PSTR("CAN: Received: DATA[%d]: %d"), i,canFrame.data[i]);
+//            }
+          Response_P(PSTR("{\"%s\":%d,\"%s\":%d"),
+          "ID",(uint32_t)canFrame.can_id,
+          "LEN",(uint32_t)canFrame.can_dlc
+          );
+          for (int i = 0; i < canFrame.can_dlc; i++) { ResponseAppend_P(PSTR(",\"D%d\":%d"),i,canFrame.data[i]); }
+          ResponseJsonEnd();
+
+          MqttPublishPrefixTopic_P(STAT, "CAN");
+          ResponseClear();
+      } else if (mp->mcp2515->checkError()) {
+        uint8_t errFlags = mp->mcp2515->getErrorFlags();
+        mp->mcp2515->clearRXnOVRFlags();
+        AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Received error %d"), errFlags);
+        break;
+      }
+    }
+  }
+}
+#endif
+
 char *SML_Get_Sequence(char *cp,uint32_t index) {
   if (!index) return cp;
   uint32_t cindex = 0;
@@ -4056,6 +4152,10 @@ bool Xsns53(uint32_t function) {
             SML_Check_Send();
           }
         }
+
+#ifdef USE_SML_CANBUS
+        SML_CANBUS_Read();
+#endif
         break;
 			case FUNC_EVERY_SECOND:
 					if (bitRead(Settings->rule_enabled, 0)) {

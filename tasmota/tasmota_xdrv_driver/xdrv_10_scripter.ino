@@ -5916,38 +5916,56 @@ extern char *SML_GetSVal(uint32_t index);
           }
           if (glob_script_mem.tcp_server) {
             if (glob_script_mem.tcp_client.connected()) {
-              for (uint16_t cnt = 0; cnt < al; cnt++) {
-                switch (opts) {
-                  case 0:
-                    glob_script_mem.tcp_client.write((uint8_t)*fpd++);
-                    break;
-                  case 1:
-                    { 
-                      uint16_t wval = *fpd++;
-                      glob_script_mem.tcp_client.write(wval >> 8);
-                      glob_script_mem.tcp_client.write(wval);
-                    }
-                    break;
-                  case 2:
-                    {
-                      int16_t swval = *fpd++;
-                      glob_script_mem.tcp_client.write(swval >> 8);
-                      glob_script_mem.tcp_client.write(swval);
-                    }
-                    break;
-                  case 3:
-                    {
-                      uint32_t lval = *(uint32_t*)fpd;
-                      fpd++;
-                      glob_script_mem.tcp_client.write(lval >> 24);
-                      glob_script_mem.tcp_client.write(lval >> 16);
-                      glob_script_mem.tcp_client.write(lval >> 8);
-                      glob_script_mem.tcp_client.write(lval);
-                    }
-                    break;
-
-
+              uint8_t *abf = (uint8_t*)malloc(al * 4);
+              uint8_t *oabf = abf;
+              uint16_t dlen = 0;
+              if (abf) {
+                for (uint16_t cnt = 0; cnt < al; cnt++) {
+                  switch (opts) {
+                    case 0:
+                      //glob_script_mem.tcp_client.write((uint8_t)*fpd++);
+                      *abf++ = (uint8_t)*fpd++;
+                      dlen++;
+                      break;
+                    case 1:
+                      { 
+                        uint16_t wval = *fpd++;
+                        //glob_script_mem.tcp_client.write(wval >> 8);
+                        //glob_script_mem.tcp_client.write(wval);
+                        *abf++ = (wval >> 8);
+                        *abf++ = wval;
+                        dlen += 2;
+                      }
+                      break;
+                    case 2:
+                      {
+                        int16_t swval = *fpd++;
+                        //glob_script_mem.tcp_client.write(swval >> 8);
+                        //glob_script_mem.tcp_client.write(swval);
+                        *abf++ = (swval >> 8);
+                        *abf++ = swval;
+                        dlen += 2;
+                      }
+                      break;
+                    case 3:
+                      {
+                        uint32_t lval = *(uint32_t*)fpd;
+                        fpd++;
+                        //glob_script_mem.tcp_client.write(lval >> 24);
+                        //glob_script_mem.tcp_client.write(lval >> 16);
+                        //glob_script_mem.tcp_client.write(lval >> 8);
+                        //glob_script_mem.tcp_client.write(lval);
+                        *abf++ = (lval >> 24);
+                        *abf++ = (lval >> 16);
+                        *abf++ = (lval >> 8);
+                        *abf++ = lval;
+                        dlen += 4;
+                      }
+                      break;
+                  }
                 }
+                glob_script_mem.tcp_client.write(oabf, dlen);
+                free(oabf);
               }
             }
           }
