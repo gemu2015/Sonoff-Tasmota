@@ -41,7 +41,7 @@
 #define XSNS_87              87
 
 #ifndef MCP2515_BITRATE
-  #define MCP2515_BITRATE  CAN_100KBPS
+  #define MCP2515_BITRATE  CAN_125KBPS
 #endif
 
 #ifndef MCP2515_CLOCK

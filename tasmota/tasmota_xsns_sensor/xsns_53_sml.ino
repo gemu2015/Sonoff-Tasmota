@@ -704,8 +704,9 @@ void dump2log(void) {
   //if (!SML_SAVAILABLE) return;
 	if (!sml_globs.log_data) return;
 
+  struct METER_DESC *mp = &meter_desc[meter];
+
 #ifdef USE_SML_DECRYPT
-	struct METER_DESC *mp = &meter_desc[meter];
 	if (mp->use_crypt == true) {
 			d_lastms = millis();
       while ((millis() - d_lastms) < 50) {
@@ -872,6 +873,44 @@ void dump2log(void) {
       	}
 				}
 				break;
+ #ifdef USE_SML_CANBUS       
+      case 'C':
+        if (mp->mcp2515 == nullptr) break;
+        { struct can_frame canFrame;
+          if (mp->mcp2515->checkReceive()) {
+            if (mp->mcp2515->readMessage(&canFrame) == MCP2515::ERROR_OK) {
+              mp->sbuff[0] = canFrame.can_id >> 24;
+              mp->sbuff[1] = canFrame.can_id >> 16;
+              mp->sbuff[2] = canFrame.can_id >> 8;
+              mp->sbuff[3] = canFrame.can_id;
+              mp->sbuff[4] = canFrame.can_dlc;
+              for (int i = 0; i < canFrame.can_dlc; i++) {
+                mp->sbuff[5 + i] = canFrame.data[i];
+              }
+              sml_dump_start(' ');
+              for (uint8_t index = 0; index < canFrame.can_dlc + 5; index++) {
+                sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x", mp->sbuff[index]);
+                sml_globs.sml_logindex += 2;
+                if (index == 3) {
+                  sml_globs.log_data[sml_globs.sml_logindex] = ':';
+                  sml_globs.sml_logindex++;
+                  sml_globs.log_data[sml_globs.sml_logindex] = ' ';
+                  sml_globs.sml_logindex++;
+                }
+              }
+              sml_globs.log_data[sml_globs.sml_logindex] = 0;
+              AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
+            } else {
+              if (mp->mcp2515->checkError()) {
+                uint8_t errFlags = mp->mcp2515->getErrorFlags();
+                mp->mcp2515->clearRXnOVRFlags();
+                AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Received error %d"), errFlags);
+              }
+            }
+          }
+        }
+        break;
+#endif
     	default:
       	// raw dump
       	d_lastms = millis();
@@ -2195,7 +2234,7 @@ void SML_Decode(uint8_t index) {
         } else {
           double dval;
           char type = sml_globs.mp[mindex].type;
-          if (type != 'e' && type != 'r' && type != 'R' && type != 'm' && type != 'M' && type != 'k' && type != 'p' && type != 'v') {
+          if (type != 'C' && type != 'e' && type != 'r' && type != 'R' && type != 'm' && type != 'M' && type != 'k' && type != 'p' && type != 'v') {
             // get numeric values
             if (type == 'o' || type == 'c') {
               if (*mp == '(') {
@@ -2267,7 +2306,6 @@ void SML_Decode(uint8_t index) {
                 dval = ebus_dval;
               }
             }
-
           }
 #ifdef USE_SML_MEDIAN_FILTER
           if (sml_globs.mp[mindex].flag & 16) {
@@ -3184,15 +3222,15 @@ next_line:
         }
     } else if (mp->type == 'C') {
 #ifdef USE_SML_CANBUS
-      if (TasmotaGlobal.spi_enabled) {
+      mp->mcp2515 = nullptr;
+      if ( PinUsed(GPIO_SPI_MISO) && PinUsed(GPIO_SPI_MOSI) && PinUsed(GPIO_SPI_CLK) ) {
         mp->mcp2515 = new MCP2515(mp->srcpin);
         if (MCP2515::ERROR_OK != mp->mcp2515->reset()) {
           AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Failed to reset module"));
           return;
         }
-        //mp->params
 
-        if (MCP2515::ERROR_OK != mp->mcp2515->setBitrate(CAN_100KBPS, MCP_8MHZ)) {
+        if (MCP2515::ERROR_OK != mp->mcp2515->setBitrate((CAN_SPEED)(mp->params%100), (CAN_CLOCK)(mp->params/100))) {
           AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Failed to set module bitrate"));
           return;
         }
@@ -3200,6 +3238,9 @@ next_line:
           AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Failed to set normal mode"));
           return;
         }
+
+        //attachInterrupt(mp->trxpin, sml_canbus_irq, FALLING);
+
         AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Initialized"));
       } else {
         AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: SPI not configuered"));
@@ -3596,54 +3637,126 @@ uint32_t ctime = millis();
 
 #ifdef USE_SML_CANBUS
 
-char sml_c2h(char c) {
-  return "0123456789ABCDEF"[0x0F & (unsigned char)c];
+
+void IRAM_ATTR sml_canbus_irq(void) {
+
+/*
+  if (mp->mcp2515 == nullptr) return;
+
+  uint8_t irq = mcp2515.getInterrupts();
+        
+  if (irq & MCP2515::CANINTF_RX0IF) {
+    if (mcp2515.readMessage(MCP2515::RXB0, &frame) == MCP2515::ERROR_OK) {
+                // frame contains received from RXB0 message
+    }
+  }
+            
+  if (irq & MCP2515::CANINTF_RX1IF) {
+    if (mcp2515.readMessage(MCP2515::RXB1, &frame) == MCP2515::ERROR_OK) {
+                // frame contains received from RXB1 message
+    }
+  }
+  */
 }
+
+
 
 #define SML_CAN_MAX_FRAMES 8
 
 void SML_CANBUS_Read() {
-  uint8_t nCounter = 0;
-  bool checkRcv;
   struct can_frame canFrame;
 
-    for (uint32_t meter = 0; meter < sml_globs.meters_used; meter++) {
-      struct METER_DESC *mp = &sml_globs.mp[meter];
+  for (uint32_t meter = 0; meter < sml_globs.meters_used; meter++) {
+    struct METER_DESC *mp = &sml_globs.mp[meter];
+    uint8_t nCounter = 0;
 
-      if (mp->type != 'C') continue;
+    if (mp->type != 'C') continue;
 
-      checkRcv = mp->mcp2515->checkReceive();
+    if (mp->mcp2515 == nullptr) continue;
 
-      while (checkRcv && nCounter <= SML_CAN_MAX_FRAMES) {
-        mp->mcp2515->checkReceive();
-        nCounter++;
-        if (mp->mcp2515->readMessage(&canFrame) == MCP2515::ERROR_OK) {
-          //mp->mcp2515->lastFrameRecv = TasmotaGlobal.uptime;
-          char canMsg[17];
-          canMsg[0] = 0;
+
+/*
+ * Controller Area Network Identifier structure
+ *
+ * bit 0-28 : CAN identifier (11/29 bit)
+ * bit 29   : error message frame flag (0 = data frame, 1 = error message)
+ * bit 30   : remote transmission request flag (1 = rtr frame)
+ * bit 31   : frame format flag (0 = standard 11 bit, 1 = extended 29 bit)
+ * 
+ * 
+ * REGISTER 6-3: EFLG: ERROR FLAG REGISTER (ADDRESS: 2Dh)
+   
+
+enum CAN_CLOCK {
+    MCP_20MHZ,
+    MCP_16MHZ,
+    MCP_8MHZ
+};
+
+enum CAN_SPEED {
+    CAN_5KBPS,
+    CAN_10KBPS,
+    CAN_20KBPS,
+    CAN_31K25BPS,
+    CAN_33KBPS,
+    CAN_40KBPS,
+    CAN_50KBPS,
+    CAN_80KBPS,
+    CAN_83K3BPS,
+    CAN_95KBPS,
+    CAN_100KBPS,
+    CAN_125KBPS,
+    CAN_200KBPS,
+    CAN_250KBPS,
+    CAN_500KBPS,
+    CAN_1000KBPS
+};
+
+
+R/W-0 R/W-0 R-0 R-0 R-0 R-0 R-0 R-0
+RX1OVR RX0OVR TXBO TXEP RXEP TXWAR RXWAR EWARN
+bit 7 bit 0
+Legend:
+R = Readable bit W = Writable bit U = Unimplemented bit, read as ‘0’
+-n = Value at POR ‘1’ = Bit is set ‘0’ = Bit is cleared x = Bit is unknown
+bit 7 bit 6 bit 5 bit 4 bit 3 bit 2 bit 1 bit 0
+RX1OVR: Receive Buffer 1 Overflow Flag bit
+- Sets when a valid message is received for RXB1 and RX1IF (CANINTF[1]) = 1 - Must be reset by MCU
+RX0OVR: Receive Buffer 0 Overflow Flag bit
+- Sets when a valid message is received for RXB0 and RX0IF (CANINTF[0]) = 1 - Must be reset by MCU
+TXBO: Bus-Off Error Flag bit
+- Sets when TEC reaches 255
+- Resets after a successful bus recovery sequence
+TXEP: Transmit Error-Passive Flag bit
+- Sets when TEC is equal to or greater than 128 - Resets when TEC is less than 128
+RXEP: Receive Error-Passive Flag bit
+- Sets when REC is equal to or greater than 128 - Resets when REC is less than 128
+TXWAR: Transmit Error Warning Flag bit
+- Sets when TEC is equal to or greater than 96 - Resets when TEC is less than 96
+RXWAR: Receive Error Warning Flag bit
+- Sets when REC is equal to or greater than 96 - Resets when REC is less than 96
+EWARN: Error Warning Flag bit
+- Sets when TEC or REC is equal to or greater than 96 (TXWAR or RXWAR = 1) - Resets when both REC and TEC are less than 96
+
+ */
+
+
+    while (mp->mcp2515->checkReceive() && nCounter <= SML_CAN_MAX_FRAMES) {
+       if (mp->mcp2515->readMessage(&canFrame) == MCP2515::ERROR_OK) {
+          mp->sbuff[0] = canFrame.can_id >> 24;
+          mp->sbuff[1] = canFrame.can_id >> 16;
+          mp->sbuff[2] = canFrame.can_id >> 8;
+          mp->sbuff[3] = canFrame.can_id;
+          mp->sbuff[4] = canFrame.can_dlc;
           for (int i = 0; i < canFrame.can_dlc; i++) {
-            canMsg[i*2] = sml_c2h(canFrame.data[i]>>4);
-            canMsg[i*2+1] = sml_c2h(canFrame.data[i]);
+            mp->sbuff[5 + i] = canFrame.data[i];
           }
-          if (canFrame.can_dlc > 0) {
-            canMsg[(canFrame.can_dlc - 1) * 2 + 2] = 0;
-          }
-//          AddLog(LOG_LEVEL_INFO, PSTR("CAN: Received message 0x%s from ID 0x%x"), canMsg, (uint32_t)canFrame.can_id);
+          SML_Decode(meter);
 
-//          AddLog(LOG_LEVEL_INFO, PSTR("CAN: Received: ID: %d"), (uint32_t)canFrame.can_id);
-//          AddLog(LOG_LEVEL_INFO, PSTR("CAN: Received: LEN: %d"), (uint32_t)canFrame.can_dlc);
-//          for (int i = 0; i < canFrame.can_dlc; i++) {
-//            AddLog(LOG_LEVEL_INFO, PSTR("CAN: Received: DATA[%d]: %d"), i,canFrame.data[i]);
-//            }
-          Response_P(PSTR("{\"%s\":%d,\"%s\":%d"),
-          "ID",(uint32_t)canFrame.can_id,
-          "LEN",(uint32_t)canFrame.can_dlc
-          );
-          for (int i = 0; i < canFrame.can_dlc; i++) { ResponseAppend_P(PSTR(",\"D%d\":%d"),i,canFrame.data[i]); }
-          ResponseJsonEnd();
+          //AddLog(LOG_LEVEL_INFO, PSTR("CAN: 0x%08x"), (uint32_t)canFrame.can_id);
 
-          MqttPublishPrefixTopic_P(STAT, "CAN");
-          ResponseClear();
+          nCounter++;
+
       } else if (mp->mcp2515->checkError()) {
         uint8_t errFlags = mp->mcp2515->getErrorFlags();
         mp->mcp2515->clearRXnOVRFlags();
@@ -3851,6 +3964,8 @@ void SML_Send_Seq(uint32_t meter, char *seq) {
     rflg = 1;
     cp++;
   }
+
+  struct METER_DESC *mp = &meter_desc[meter];
   while (*cp) {
     if (!*cp || !*(cp+1)) break;
     if (*cp == ',') break;
@@ -3860,8 +3975,8 @@ void SML_Send_Seq(uint32_t meter, char *seq) {
     slen++;
     if (slen >= sizeof(sbuff)-6) break; // leave space for checksum
   }
-  if (meter_desc[meter].type == 'm' || meter_desc[meter].type == 'M' || meter_desc[meter].type == 'k') {
-    if (meter_desc[meter].type == 'k') {
+  if (mp->type == 'm' || mp->type == 'M' || mp->type == 'k') {
+    if (mp->type == 'k') {
       // kamstrup, append crc, cr
       *ucp++ = 0;
       *ucp++ = 0;
@@ -3904,12 +4019,12 @@ void SML_Send_Seq(uint32_t meter, char *seq) {
     }
 
   }
-  if (meter_desc[meter].type == 'o') {
+  if (mp->type == 'o') {
     for (uint32_t cnt = 0; cnt < slen; cnt++) {
       sbuff[cnt] |= (CalcEvenParity(sbuff[cnt]) << 7);
     }
   }
-  if (meter_desc[meter].type == 'p') {
+  if (mp->type == 'p') {
     *ucp++ = 0xc0;
     *ucp++ = 0xa8;
     *ucp++ = 1;
@@ -3919,18 +4034,34 @@ void SML_Send_Seq(uint32_t meter, char *seq) {
     slen += 6;
   }
 
-  if (meter_desc[meter].srcpin == TCP_MODE_FLG) {
+  if (mp->srcpin == TCP_MODE_FLG) {
     sml_tcp_send(meter, sbuff, slen);
   } else {
-    if (meter_desc[meter].trx_en.trxen) {
-      digitalWrite(meter_desc[meter].trx_en.trxenpin, meter_desc[meter].trx_en.trxenpol ^ 1);
-    }
-    meter_desc[meter].meter_ss->flush();
-    meter_desc[meter].meter_ss->write(sbuff, slen);
-    if (meter_desc[meter].trx_en.trxen) {
-      // must wait for all data sent
-      meter_desc[meter].meter_ss->flush();
-      digitalWrite(meter_desc[meter].trx_en.trxenpin, meter_desc[meter].trx_en.trxenpol);
+    if (mp->type == 'C') {
+#ifdef USE_SML_CANBUS
+      if (mp->mcp2515 != nullptr) {
+        struct can_frame canMsg;
+        canMsg.can_id = (uint32_t) (sbuff[0] << 24 | sbuff[1] << 16 | sbuff[2] << 8 | sbuff[3]);
+        canMsg.can_dlc = sbuff[4];
+        for (uint8_t i = 0; i < canMsg.can_dlc; i++) {
+          canMsg.data[i] = sbuff[i + 5];
+        }
+        //AddLog(LOG_LEVEL_INFO, PSTR("CAN: CanSend (%08x)->%d"), canMsg.can_id, canMsg.can_dlc);
+        mp->mcp2515->sendMessage(&canMsg);
+      }
+#endif
+    } else { 
+      if (mp->trx_en.trxen) {
+        digitalWrite(meter_desc[meter].trx_en.trxenpin, meter_desc[meter].trx_en.trxenpol ^ 1);
+      }
+      mp->meter_ss->flush();
+      mp->meter_ss->write(sbuff, slen);
+      if (mp->trx_en.trxen) {
+        // must wait for all data sent
+        mp->meter_ss->flush();
+        digitalWrite(mp->trx_en.trxenpin, mp->trx_en.trxenpol);
+      }
+
     }
   }
 
@@ -3939,14 +4070,14 @@ void SML_Send_Seq(uint32_t meter, char *seq) {
     Hexdump(sbuff, slen);
 #else
     uint8_t type = sml_globs.mp[(sml_globs.dump2log&7) - 1].type;
-    if (type == 'm' || type == 'M' || type == 'k') {
+    if (type == 'm' || type == 'M' || type == 'k' || type == 'C') {
       Hexdump(sbuff, slen);
     }
 #endif
   }
 
 #ifdef MODBUS_DEBUG
-  uint8_t type = meter_desc[meter].type;
+  uint8_t type = mp->type;
   if (!sml_globs.dump2log && (type == 'm' || type == 'M' || type == 'k')) {
     AddLog(LOG_LEVEL_INFO, PSTR("transmit index >> %d"),sml_globs.mp[meter].index);
     Hexdump(sbuff, slen);
@@ -4142,6 +4273,9 @@ bool Xsns53(uint32_t function) {
               dump2log();
             } else {
               SML_Poll();
+#ifdef USE_SML_CANBUS
+              SML_CANBUS_Read();
+#endif
             }
           }
         }
@@ -4152,10 +4286,6 @@ bool Xsns53(uint32_t function) {
             SML_Check_Send();
           }
         }
-
-#ifdef USE_SML_CANBUS
-        SML_CANBUS_Read();
-#endif
         break;
 			case FUNC_EVERY_SECOND:
 					if (bitRead(Settings->rule_enabled, 0)) {
