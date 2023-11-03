@@ -113,6 +113,8 @@
 
 
 #ifdef USE_SML_CANBUS
+#define SML_CAN_MASKS 2
+#define SML_CAN_FILTERS 6
 #include "mcp2515.h"
 #endif
 
@@ -487,12 +489,13 @@ struct METER_DESC {
 
 #ifdef USE_SML_CANBUS
   MCP2515 *mcp2515;
+  uint32_t can_masks[SML_CAN_MASKS];
+  uint32_t can_filters[SML_CAN_FILTERS];
 #endif
 #ifdef ESP32
   int8_t uart_index;
 #endif
 };
-
 
 
 
@@ -877,7 +880,7 @@ void dump2log(void) {
       case 'C':
         if (mp->mcp2515 == nullptr) break;
         { struct can_frame canFrame;
-          if (mp->mcp2515->checkReceive()) {
+     //    while (mp->mcp2515->checkReceive()) {
             if (mp->mcp2515->readMessage(&canFrame) == MCP2515::ERROR_OK) {
               mp->sbuff[0] = canFrame.can_id >> 24;
               mp->sbuff[1] = canFrame.can_id >> 16;
@@ -907,7 +910,7 @@ void dump2log(void) {
                 AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Received error %d"), errFlags);
               }
             }
-          }
+        //  }
         }
         break;
 #endif
@@ -2758,6 +2761,32 @@ struct METER_DESC *mp = &meter_desc[mnum];
 			mp->uart_index = strtol(cp, &cp, 10);
 #endif // ESP32
 			break;
+
+#ifdef USE_SML_CANBUS
+     case '8':
+      cp += 2;
+      for (uint8_t cnt = 0; cnt < SML_CAN_MASKS; cnt++) {
+				mp->can_masks[cnt] = sml_hex32(cp);
+        cp += 8;
+        if (*cp != ',') {
+          break;
+        }
+        cp++;
+			}
+      break;
+    case '9':
+      cp += 2;
+      for (uint8_t cnt = 0; cnt < SML_CAN_FILTERS; cnt++) {
+				mp->can_filters[cnt] = sml_hex32(cp);
+        cp += 8;
+        if (*cp != ',') {
+          break;
+        }
+        cp++;
+			}
+      break;
+
+#endif
 	}
 	return cp;
 }
@@ -2839,6 +2868,15 @@ void reset_sml_vars(uint16_t maxmeters) {
 
 #ifdef ESP32
     mp->uart_index = -1;
+#endif
+
+#ifdef USE_SML_CANBUS
+    for (uint8_t cnt = 0; cnt < SML_CAN_MASKS; cnt++) {
+			mp->can_masks[cnt] = 0;
+		}
+    for (uint8_t cnt = 0; cnt < SML_CAN_FILTERS; cnt++) {
+			mp->can_filters[cnt] = 0;
+    }
 #endif
 
 #ifdef USE_SML_DECRYPT
@@ -3234,12 +3272,31 @@ next_line:
           AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Failed to set module bitrate"));
           return;
         }
+
+        //attachInterrupt(mp->trxpin, sml_canbus_irq, FALLING);
+
+        if (MCP2515::ERROR_OK != mp->mcp2515->setConfigMode()) {
+          AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Failed to set config mode"));
+        } else {
+          if (mp->can_filters[0]) mp->mcp2515->setFilter(MCP2515::RXF0, true, mp->can_filters[0]);
+          if (mp->can_filters[1]) mp->mcp2515->setFilter(MCP2515::RXF1, true, mp->can_filters[1]);
+          if (mp->can_filters[2]) mp->mcp2515->setFilter(MCP2515::RXF2, true, mp->can_filters[2]);
+          if (mp->can_filters[3]) mp->mcp2515->setFilter(MCP2515::RXF3, true, mp->can_filters[3]);
+          if (mp->can_filters[4]) mp->mcp2515->setFilter(MCP2515::RXF4, true, mp->can_filters[4]);
+          if (mp->can_filters[5]) mp->mcp2515->setFilter(MCP2515::RXF5, true, mp->can_filters[5]);
+
+          //AddLog(LOG_LEVEL_INFO, PSTR("SML CAN Filters: %08x, %08x, %08x, %08x, %08x, %08x"),mp->can_filters[0],mp->can_filters[1],mp->can_filters[2],mp->can_filters[3],mp->can_filters[4],mp->can_filters[5]);
+
+          if (mp->can_masks[0]) mp->mcp2515->setFilterMask(MCP2515::MASK0, true, mp->can_masks[0]);
+          if (mp->can_masks[1]) mp->mcp2515->setFilterMask(MCP2515::MASK1, true, mp->can_masks[1]);
+
+          //AddLog(LOG_LEVEL_INFO, PSTR("SML CAN Masks: %08x, %08x"),mp->can_masks[0],mp->can_masks[1]);
+        }
+
         if (MCP2515::ERROR_OK != mp->mcp2515->setNormalMode()) {
           AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Failed to set normal mode"));
           return;
         }
-
-        //attachInterrupt(mp->trxpin, sml_canbus_irq, FALLING);
 
         AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Initialized"));
       } else {
@@ -3742,6 +3799,8 @@ EWARN: Error Warning Flag bit
 
 
     while (mp->mcp2515->checkReceive() && nCounter <= SML_CAN_MAX_FRAMES) {
+    //while (nCounter <= SML_CAN_MAX_FRAMES) {
+
        if (mp->mcp2515->readMessage(&canFrame) == MCP2515::ERROR_OK) {
           mp->sbuff[0] = canFrame.can_id >> 24;
           mp->sbuff[1] = canFrame.can_id >> 16;
@@ -3754,14 +3813,15 @@ EWARN: Error Warning Flag bit
           SML_Decode(meter);
 
           //AddLog(LOG_LEVEL_INFO, PSTR("CAN: 0x%08x"), (uint32_t)canFrame.can_id);
+         nCounter++;
 
-          nCounter++;
-
-      } else if (mp->mcp2515->checkError()) {
-        uint8_t errFlags = mp->mcp2515->getErrorFlags();
-        mp->mcp2515->clearRXnOVRFlags();
-        AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Received error %d"), errFlags);
-        break;
+      } else {
+        if (mp->mcp2515->checkError()) {
+          uint8_t errFlags = mp->mcp2515->getErrorFlags();
+          mp->mcp2515->clearRXnOVRFlags();
+          AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Received error %d"), errFlags);
+          break;
+        }
       }
     }
   }
@@ -3853,6 +3913,18 @@ uint8_t sml_hexnibble(char chr) {
     if (chr >= 'a' && chr <= 'f') rVal = chr + 10 - 'a';
   }
   return rVal;
+}
+
+uint32_t sml_hex32(char *cp) {
+  uint32_t iob = (sml_hexnibble(*cp++) << 4) | sml_hexnibble(*cp++);
+  uint32_t result = iob << 24;
+  iob = (sml_hexnibble(*cp++) << 4) | sml_hexnibble(*cp++);
+  result |= iob << 16;
+  iob = (sml_hexnibble(*cp++) << 4) | sml_hexnibble(*cp++);
+  result |= iob << 8;
+  iob = (sml_hexnibble(*cp++) << 4) | sml_hexnibble(*cp++);
+  result |= iob;
+  return result;
 }
 
 typedef struct {

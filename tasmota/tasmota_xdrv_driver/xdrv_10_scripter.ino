@@ -1195,6 +1195,8 @@ char *script;
       free(imemptr);
       if (strings_op) free(strings_op);
     }
+
+    glob_script_mem.script_lastmillis = millis();
     return err;
 }
 
