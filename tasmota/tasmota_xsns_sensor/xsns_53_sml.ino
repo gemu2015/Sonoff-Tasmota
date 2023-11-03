@@ -115,7 +115,14 @@
 #ifdef USE_SML_CANBUS
 #define SML_CAN_MASKS 2
 #define SML_CAN_FILTERS 6
+#ifdef ESP8266
 #include "mcp2515.h"
+#else
+#include <can.h>
+#include "driver/twai.h"
+
+
+#endif
 #endif
 
 /* special options per meter
@@ -488,7 +495,11 @@ struct METER_DESC {
 
 
 #ifdef USE_SML_CANBUS
+#ifdef ESP8266
   MCP2515 *mcp2515;
+#else
+  //twai_handle_t *canp;
+#endif
   uint32_t can_masks[SML_CAN_MASKS];
   uint32_t can_filters[SML_CAN_FILTERS];
 #endif
@@ -562,6 +573,9 @@ struct SML_GLOBS {
 	struct METER_DESC *mp;
   uint8_t to_cnt;
   bool ready;
+#ifdef USE_SML_CANBUS
+  uint8_t twai_installed;
+#endif
 } sml_globs;
 
 
@@ -878,6 +892,7 @@ void dump2log(void) {
 				break;
  #ifdef USE_SML_CANBUS       
       case 'C':
+ #ifdef ESP8266     
         if (mp->mcp2515 == nullptr) break;
         { struct can_frame canFrame;
      //    while (mp->mcp2515->checkReceive()) {
@@ -907,12 +922,51 @@ void dump2log(void) {
               if (mp->mcp2515->checkError()) {
                 uint8_t errFlags = mp->mcp2515->getErrorFlags();
                 mp->mcp2515->clearRXnOVRFlags();
-                AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Received error %d"), errFlags);
+                AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Received error %d"), errFlags);
               }
             }
         //  }
         }
         break;
+#else
+        // esp32 native CAN
+        if (!sml_globs.twai_installed) break;
+        {
+        uint32_t alerts_triggered = sml_can_check_alerts();
+
+        // Check if message is received
+        if (alerts_triggered & TWAI_ALERT_RX_DATA) {
+          // One or more messages received. Handle all.
+          twai_message_t message;
+          while (twai_receive(&message, 0) == ESP_OK) {
+            //handle_rx_message(message);
+            //AddLog(LOG_LEVEL_INFO, PSTR("received message: %08x"), message.identifier);
+            mp->sbuff[0] = message.identifier >> 24;
+            mp->sbuff[1] = message.identifier >> 16;
+            mp->sbuff[2] = message.identifier >> 8;
+            mp->sbuff[3] = message.identifier;
+            mp->sbuff[4] = message.data_length_code;
+            for (int i = 0; i < message.data_length_code; i++) {
+              mp->sbuff[5 + i] = message.data[i];
+            }
+            sml_dump_start(' ');
+            for (uint8_t index = 0; index < message.data_length_code + 5; index++) {
+              sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x", mp->sbuff[index]);
+              sml_globs.sml_logindex += 2;
+              if (index == 3) {
+                  sml_globs.log_data[sml_globs.sml_logindex] = ':';
+                  sml_globs.sml_logindex++;
+                  sml_globs.log_data[sml_globs.sml_logindex] = ' ';
+                  sml_globs.sml_logindex++;
+              }
+            }
+            sml_globs.log_data[sml_globs.sml_logindex] = 0;
+            AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
+          }
+        }
+        }
+        break;
+#endif
 #endif
     	default:
       	// raw dump
@@ -2932,6 +2986,17 @@ void SML_Init(void) {
       sml_globs.sml_mf = 0;
     }
 #endif
+
+#ifdef USE_SML_CANBUS
+#ifdef ESP32
+    if (sml_globs.twai_installed) {
+      twai_stop();
+      twai_driver_uninstall();
+      sml_globs.twai_installed = false;
+    }
+#endif
+#endif
+
     reset_sml_vars(sml_globs.meters_used);
   }
 
@@ -3260,23 +3325,25 @@ next_line:
         }
     } else if (mp->type == 'C') {
 #ifdef USE_SML_CANBUS
+
+#ifdef ESP8266
       mp->mcp2515 = nullptr;
       if ( PinUsed(GPIO_SPI_MISO) && PinUsed(GPIO_SPI_MOSI) && PinUsed(GPIO_SPI_CLK) ) {
         mp->mcp2515 = new MCP2515(mp->srcpin);
         if (MCP2515::ERROR_OK != mp->mcp2515->reset()) {
-          AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Failed to reset module"));
+          AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Failed to reset module"));
           return;
         }
 
         if (MCP2515::ERROR_OK != mp->mcp2515->setBitrate((CAN_SPEED)(mp->params%100), (CAN_CLOCK)(mp->params/100))) {
-          AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Failed to set module bitrate"));
+          AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Failed to set module bitrate"));
           return;
         }
 
         //attachInterrupt(mp->trxpin, sml_canbus_irq, FALLING);
 
         if (MCP2515::ERROR_OK != mp->mcp2515->setConfigMode()) {
-          AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Failed to set config mode"));
+          AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Failed to set config mode"));
         } else {
           if (mp->can_filters[0]) mp->mcp2515->setFilter(MCP2515::RXF0, true, mp->can_filters[0]);
           if (mp->can_filters[1]) mp->mcp2515->setFilter(MCP2515::RXF1, true, mp->can_filters[1]);
@@ -3294,14 +3361,76 @@ next_line:
         }
 
         if (MCP2515::ERROR_OK != mp->mcp2515->setNormalMode()) {
-          AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Failed to set normal mode"));
+          AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Failed to set normal mode"));
           return;
         }
 
         AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Initialized"));
       } else {
-        AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: SPI not configuered"));
+        AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: SPI not configuered"));
       }
+ #else
+      // Initialize configuration structures using macro initializers
+      twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)mp->trxpin, (gpio_num_t)mp->srcpin, TWAI_MODE_NORMAL);
+      g_config.rx_queue_len = 32;
+      twai_timing_config_t t_config;
+      switch (mp->params) {
+        case 0:
+          t_config = TWAI_TIMING_CONFIG_25KBITS();
+          break;
+        case 1:
+          t_config = TWAI_TIMING_CONFIG_50KBITS();
+          break;
+        case 2:
+          t_config = TWAI_TIMING_CONFIG_100KBITS();
+          break;
+        case 3:
+          t_config = TWAI_TIMING_CONFIG_125KBITS();
+          break;
+        case 4:
+          t_config = TWAI_TIMING_CONFIG_250KBITS();
+          break;
+        case 5:
+          t_config = TWAI_TIMING_CONFIG_500KBITS();
+          break;
+        case 6:
+          t_config = TWAI_TIMING_CONFIG_800KBITS();
+          break;
+        case 7:
+          t_config = TWAI_TIMING_CONFIG_1MBITS();
+          break;
+      }
+    
+      twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+
+      if (mp->can_filters[0]) {
+        f_config.acceptance_code = mp->can_filters[0] << 3; 
+        f_config.acceptance_mask = mp->can_masks[0] << 3; 
+        f_config.single_filter = true;
+      }
+      sml_globs.twai_installed = false;
+      // Install TWAI driver
+      if (twai_driver_install(&g_config, &t_config, &f_config) == ESP_OK) {
+        AddLog(LOG_LEVEL_DEBUG, PSTR("Can driver installed"));
+        // Start TWAI driver
+        if (twai_start() == ESP_OK) {
+          AddLog(LOG_LEVEL_DEBUG, PSTR("Can driver started"));
+          // Reconfigure alerts to detect frame receive, Bus-Off error and RX queue full states
+          uint32_t alerts_to_enable = TWAI_ALERT_RX_DATA | TWAI_ALERT_RX_QUEUE_FULL | TWAI_ALERT_TX_IDLE | TWAI_ALERT_TX_SUCCESS | TWAI_ALERT_TX_FAILED | TWAI_ALERT_ERR_PASS | TWAI_ALERT_BUS_ERROR;
+          if (twai_reconfigure_alerts(alerts_to_enable, NULL) == ESP_OK) {
+            AddLog(LOG_LEVEL_DEBUG, PSTR("CAN Alerts reconfigured"));
+            AddLog(LOG_LEVEL_INFO, PSTR("Can driver ready"));
+            sml_globs.twai_installed = true;
+          } else {
+            AddLog(LOG_LEVEL_DEBUG, PSTR("Failed to reconfigure CAN alerts"));
+          } 
+        } else {
+          AddLog(LOG_LEVEL_DEBUG, PSTR("Failed to start can driver"));
+        }
+      } else {
+        AddLog(LOG_LEVEL_DEBUG, PSTR("Failed to install can driver"));
+      }
+ #endif     
 #endif
     } else {
       // serial input, init
@@ -3694,6 +3823,43 @@ uint32_t ctime = millis();
 
 #ifdef USE_SML_CANBUS
 
+#define POLLING_RATE_MS 100
+uint32_t sml_can_check_alerts() {
+
+  uint32_t alerts_triggered;
+  twai_read_alerts(&alerts_triggered, pdMS_TO_TICKS(POLLING_RATE_MS));
+  twai_status_info_t twaistatus;
+  twai_get_status_info(&twaistatus);
+
+  // Handle alerts
+  if (alerts_triggered & TWAI_ALERT_ERR_PASS) {
+    AddLog(LOG_LEVEL_DEBUG, PSTR("Alert: TWAI controller has become error passive."));
+  }
+  if (alerts_triggered & TWAI_ALERT_BUS_ERROR) {
+    AddLog(LOG_LEVEL_DEBUG, PSTR("Alert: A (Bit, Stuff, CRC, Form, ACK) error has occurred on the bus."));
+    AddLog(LOG_LEVEL_DEBUG, PSTR("Bus error count: %d"), twaistatus.bus_error_count);
+  }
+  if (alerts_triggered & TWAI_ALERT_RX_QUEUE_FULL) {
+    AddLog(LOG_LEVEL_DEBUG, PSTR("Alert: The RX queue is full causing a received frame to be lost."));
+    AddLog(LOG_LEVEL_DEBUG, PSTR("RX buffered: %d"), twaistatus.msgs_to_rx);
+    AddLog(LOG_LEVEL_DEBUG, PSTR("RX missed: %d"), twaistatus.rx_missed_count);
+    AddLog(LOG_LEVEL_DEBUG, PSTR("RX overrun %d"), twaistatus.rx_overrun_count);
+  }
+
+  if (alerts_triggered & TWAI_ALERT_TX_FAILED) {
+    AddLog(LOG_LEVEL_DEBUG, PSTR("Alert: The Transmission failed."));
+    AddLog(LOG_LEVEL_DEBUG, PSTR("TX buffered: %d"), twaistatus.msgs_to_tx);
+    AddLog(LOG_LEVEL_DEBUG, PSTR("TX error: %d"), twaistatus.tx_error_counter);
+    AddLog(LOG_LEVEL_DEBUG, PSTR("TX failed: %d"), twaistatus.tx_failed_count);
+  }
+  
+  if (alerts_triggered & TWAI_ALERT_TX_SUCCESS) {
+    AddLog(LOG_LEVEL_DEBUG, PSTR("Alert: The Transmission was successful."));
+    AddLog(LOG_LEVEL_DEBUG, PSTR("TX buffered: %d"), twaistatus.msgs_to_tx);
+  }
+
+  return alerts_triggered;
+}
 
 void IRAM_ATTR sml_canbus_irq(void) {
 
@@ -3716,11 +3882,10 @@ void IRAM_ATTR sml_canbus_irq(void) {
   */
 }
 
-
-
 #define SML_CAN_MAX_FRAMES 8
 
 void SML_CANBUS_Read() {
+#ifdef ESP8266
   struct can_frame canFrame;
 
   for (uint32_t meter = 0; meter < sml_globs.meters_used; meter++) {
@@ -3825,6 +3990,38 @@ EWARN: Error Warning Flag bit
       }
     }
   }
+#else
+
+  for (uint32_t meter = 0; meter < sml_globs.meters_used; meter++) {
+    struct METER_DESC *mp = &sml_globs.mp[meter];
+    uint8_t nCounter = 0;
+
+    if (mp->type != 'C') continue;
+
+    if (sml_globs.twai_installed) {
+        uint32_t alerts_triggered = sml_can_check_alerts();
+
+        // Check if message is received
+        if (alerts_triggered & TWAI_ALERT_RX_DATA) {
+          // One or more messages received. Handle all.
+          twai_message_t message;
+          while (twai_receive(&message, 0) == ESP_OK) {
+            mp->sbuff[0] = message.identifier >> 24;
+            mp->sbuff[1] = message.identifier >> 16;
+            mp->sbuff[2] = message.identifier >> 8;
+            mp->sbuff[3] = message.identifier;
+            mp->sbuff[4] = message.data_length_code;
+            for (int i = 0; i < message.data_length_code; i++) {
+              mp->sbuff[5 + i] = message.data[i];
+            }
+            SML_Decode(meter);
+          }
+        }
+        
+    }
+  } 
+
+#endif
 }
 #endif
 
@@ -4111,6 +4308,7 @@ void SML_Send_Seq(uint32_t meter, char *seq) {
   } else {
     if (mp->type == 'C') {
 #ifdef USE_SML_CANBUS
+#ifdef ESP8266
       if (mp->mcp2515 != nullptr) {
         struct can_frame canMsg;
         canMsg.can_id = (uint32_t) (sbuff[0] << 24 | sbuff[1] << 16 | sbuff[2] << 8 | sbuff[3]);
@@ -4121,6 +4319,31 @@ void SML_Send_Seq(uint32_t meter, char *seq) {
         //AddLog(LOG_LEVEL_INFO, PSTR("CAN: CanSend (%08x)->%d"), canMsg.can_id, canMsg.can_dlc);
         mp->mcp2515->sendMessage(&canMsg);
       }
+#else
+      if (sml_globs.twai_installed) {
+        twai_message_t message;
+        message.identifier = (uint32_t) (sbuff[0] << 24 | sbuff[1] << 16 | sbuff[2] << 8 | sbuff[3]);
+        message.data_length_code = sbuff[4];
+        for (uint8_t i = 0; i < message.data_length_code; i++) {
+          message.data[i] = sbuff[i + 5];
+        }
+
+        message.flags = 0;
+        if (message.identifier & 0x80000000) {
+          message.extd = 1;
+          message.identifier &= 0x7fffffff;
+        }
+
+        twai_clear_receive_queue();
+
+        // Queue message for transmission
+        if (twai_transmit(&message, pdMS_TO_TICKS(100)) == ESP_OK) {
+          AddLog(LOG_LEVEL_DEBUG, PSTR("Can message queued for transmission"));
+        } else {
+          AddLog(LOG_LEVEL_DEBUG, PSTR("Failed to queue can message for transmission"));
+        }
+      }
+#endif
 #endif
     } else { 
       if (mp->trx_en.trxen) {
