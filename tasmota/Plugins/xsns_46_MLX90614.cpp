@@ -149,7 +149,7 @@ uint16_t MLX90614_read16(uint8_t addr, uint8_t a) {
   //AddLog(LOG_LEVEL_INFO,PSTR("%x - %x"),pec, cpec);
 
   if (pec != cpec) {
-    //jAddLog(LOG_LEVEL_INFO,PSTR("mlx checksum error"));
+    jAddLog(LOG_LEVEL_INFO,PSTR("mlx checksum error"));
   }
   return ret;
 }
