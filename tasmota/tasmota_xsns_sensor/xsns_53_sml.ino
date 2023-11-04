@@ -120,10 +120,8 @@
 #else
 #include <can.h>
 #include "driver/twai.h"
-
-
 #endif
-#endif
+#endif // USE_SML_CANBUS
 
 /* special options per meter
 1:
@@ -502,7 +500,8 @@ struct METER_DESC {
 #endif
   uint32_t can_masks[SML_CAN_MASKS];
   uint32_t can_filters[SML_CAN_FILTERS];
-#endif
+#endif // USE_SML_CANBUS
+
 #ifdef ESP32
   int8_t uart_index;
 #endif
@@ -575,7 +574,7 @@ struct SML_GLOBS {
   bool ready;
 #ifdef USE_SML_CANBUS
   uint8_t twai_installed;
-#endif
+#endif // USE_SML_CANBUS
 } sml_globs;
 
 
@@ -967,7 +966,7 @@ void dump2log(void) {
         }
         break;
 #endif
-#endif
+#endif // USE_SML_CANBUS
     	default:
       	// raw dump
       	d_lastms = millis();
@@ -2840,7 +2839,7 @@ struct METER_DESC *mp = &meter_desc[mnum];
 			}
       break;
 
-#endif
+#endif // USE_SML_CANBUS
 	}
 	return cp;
 }
@@ -2931,7 +2930,7 @@ void reset_sml_vars(uint16_t maxmeters) {
     for (uint8_t cnt = 0; cnt < SML_CAN_FILTERS; cnt++) {
 			mp->can_filters[cnt] = 0;
     }
-#endif
+#endif // USE_SML_CANBUS
 
 #ifdef USE_SML_DECRYPT
 		if (mp->use_crypt) {
@@ -2995,7 +2994,7 @@ void SML_Init(void) {
       sml_globs.twai_installed = false;
     }
 #endif
-#endif
+#endif // USE_SML_CANBUS
 
     reset_sml_vars(sml_globs.meters_used);
   }
@@ -3431,7 +3430,7 @@ next_line:
         AddLog(LOG_LEVEL_DEBUG, PSTR("Failed to install can driver"));
       }
  #endif     
-#endif
+#endif // USE_SML_CANBUS
     } else {
       // serial input, init
       if (mp->srcpin == TCP_MODE_FLG) {
@@ -3827,6 +3826,8 @@ uint32_t ctime = millis();
 
 #ifdef USE_SML_CANBUS
 
+
+#ifdef ESP32
 #define POLLING_RATE_MS 100
 uint32_t sml_can_check_alerts() {
 
@@ -3865,26 +3866,8 @@ uint32_t sml_can_check_alerts() {
   return alerts_triggered;
 }
 
-void IRAM_ATTR sml_canbus_irq(void) {
+#endif // ESP32
 
-/*
-  if (mp->mcp2515 == nullptr) return;
-
-  uint8_t irq = mcp2515.getInterrupts();
-        
-  if (irq & MCP2515::CANINTF_RX0IF) {
-    if (mcp2515.readMessage(MCP2515::RXB0, &frame) == MCP2515::ERROR_OK) {
-                // frame contains received from RXB0 message
-    }
-  }
-            
-  if (irq & MCP2515::CANINTF_RX1IF) {
-    if (mcp2515.readMessage(MCP2515::RXB1, &frame) == MCP2515::ERROR_OK) {
-                // frame contains received from RXB1 message
-    }
-  }
-  */
-}
 
 #define SML_CAN_MAX_FRAMES 8
 
@@ -4027,7 +4010,7 @@ EWARN: Error Warning Flag bit
 
 #endif
 }
-#endif
+#endif // USE_SML_CANBUS
 
 char *SML_Get_Sequence(char *cp,uint32_t index) {
   if (!index) return cp;
@@ -4348,7 +4331,7 @@ void SML_Send_Seq(uint32_t meter, char *seq) {
         }
       }
 #endif
-#endif
+#endif // USE_SML_CANBUS
     } else { 
       if (mp->trx_en.trxen) {
         digitalWrite(meter_desc[meter].trx_en.trxenpin, meter_desc[meter].trx_en.trxenpol ^ 1);
@@ -4574,7 +4557,7 @@ bool Xsns53(uint32_t function) {
               SML_Poll();
 #ifdef USE_SML_CANBUS
               SML_CANBUS_Read();
-#endif
+#endif// USE_SML_CANBUS
             }
           }
         }
