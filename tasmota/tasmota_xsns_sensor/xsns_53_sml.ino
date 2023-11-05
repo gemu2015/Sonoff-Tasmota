@@ -90,6 +90,13 @@
 #define SML_OBIS_LINE
 #endif
 
+#ifdef ESP32
+#ifndef NO_USE_SML_CANBUS
+// canbus support
+#undef USE_SML_CANBUS
+#define USE_SML_CANBUS
+#endif
+#endif
 
 #ifdef USE_SML_TCP_SECURE
 #define USE_SML_TCP_IP_STR
