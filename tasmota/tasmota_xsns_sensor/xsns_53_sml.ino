@@ -120,11 +120,20 @@
 
 
 #ifdef USE_SML_CANBUS
+
+#ifdef ESP8266
+// esp8266 uses SPI MPC2515
+#undef SML_CAN_MASKS
+#undef SML_CAN_FILTERS
 #define SML_CAN_MASKS 2
 #define SML_CAN_FILTERS 6
-#ifdef ESP8266
 #include "mcp2515.h"
 #else
+// esp32 uses native twai
+#undef SML_CAN_MASKS
+#undef SML_CAN_FILTERS
+#define SML_CAN_MASKS 1
+#define SML_CAN_FILTERS 1
 #include <can.h>
 #include "driver/twai.h"
 #endif
@@ -170,6 +179,13 @@ time serial pointer is reset to zero
 on esp32 the uart index may be set, normally it is allocated from 2 down to 0 automatically
 thus you can combine serial SML with serial script , berry or serial drivers.
 
+8:
+on esp32 1 filter mask
+on esp8266 2 filter masks
+
+9:
+on esp32 1 filter
+on esp8266 6 filters
 */
 
 //#define MODBUS_DEBUG
@@ -901,7 +917,7 @@ void dump2log(void) {
  #ifdef ESP8266     
         if (mp->mcp2515 == nullptr) break;
         { struct can_frame canFrame;
-     //    while (mp->mcp2515->checkReceive()) {
+        while (mp->mcp2515->checkReceive()) {
             if (mp->mcp2515->readMessage(&canFrame) == MCP2515::ERROR_OK) {
               mp->sbuff[0] = canFrame.can_id >> 24;
               mp->sbuff[1] = canFrame.can_id >> 16;
@@ -931,7 +947,7 @@ void dump2log(void) {
                 AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Received error %d"), errFlags);
               }
             }
-        //  }
+        }
         }
         break;
 #else
@@ -942,11 +958,8 @@ void dump2log(void) {
 
         // Check if message is received
         if (alerts_triggered & TWAI_ALERT_RX_DATA) {
-          // One or more messages received. Handle all.
           twai_message_t message;
           while (twai_receive(&message, 0) == ESP_OK) {
-            //handle_rx_message(message);
-            //AddLog(LOG_LEVEL_INFO, PSTR("received message: %08x"), message.identifier);
             mp->sbuff[0] = message.identifier >> 24;
             mp->sbuff[1] = message.identifier >> 16;
             mp->sbuff[2] = message.identifier >> 8;
@@ -3358,13 +3371,10 @@ next_line:
           if (mp->can_filters[4]) mp->mcp2515->setFilter(MCP2515::RXF4, true, mp->can_filters[4]);
           if (mp->can_filters[5]) mp->mcp2515->setFilter(MCP2515::RXF5, true, mp->can_filters[5]);
 
-          //AddLog(LOG_LEVEL_INFO, PSTR("SML CAN Filters: %08x, %08x, %08x, %08x, %08x, %08x"),mp->can_filters[0],mp->can_filters[1],mp->can_filters[2],mp->can_filters[3],mp->can_filters[4],mp->can_filters[5]);
-
           if (mp->can_masks[0]) mp->mcp2515->setFilterMask(MCP2515::MASK0, true, mp->can_masks[0]);
           if (mp->can_masks[1]) mp->mcp2515->setFilterMask(MCP2515::MASK1, true, mp->can_masks[1]);
 
-          //AddLog(LOG_LEVEL_INFO, PSTR("SML CAN Masks: %08x, %08x"),mp->can_masks[0],mp->can_masks[1]);
-        }
+         }
 
         if (MCP2515::ERROR_OK != mp->mcp2515->setNormalMode()) {
           AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Failed to set normal mode"));
@@ -3378,9 +3388,13 @@ next_line:
  #else
       // Initialize configuration structures using macro initializers
       twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)mp->trxpin, (gpio_num_t)mp->srcpin, TWAI_MODE_NORMAL);
-      g_config.rx_queue_len = 32;
+      uint8_t qlen = mp->params/100;
+      if (qlen < 8) {
+        qlen = 8;
+      }
+      g_config.rx_queue_len = qlen;
       twai_timing_config_t t_config;
-      switch (mp->params) {
+      switch (mp->params%100) {
         case 0:
           t_config = TWAI_TIMING_CONFIG_25KBITS();
           break;
@@ -3404,6 +3418,9 @@ next_line:
           break;
         case 7:
           t_config = TWAI_TIMING_CONFIG_1MBITS();
+          break;
+        default:
+          t_config = TWAI_TIMING_CONFIG_125KBITS();
           break;
       }
     
@@ -3890,77 +3907,8 @@ void SML_CANBUS_Read() {
 
     if (mp->mcp2515 == nullptr) continue;
 
-
-/*
- * Controller Area Network Identifier structure
- *
- * bit 0-28 : CAN identifier (11/29 bit)
- * bit 29   : error message frame flag (0 = data frame, 1 = error message)
- * bit 30   : remote transmission request flag (1 = rtr frame)
- * bit 31   : frame format flag (0 = standard 11 bit, 1 = extended 29 bit)
- * 
- * 
- * REGISTER 6-3: EFLG: ERROR FLAG REGISTER (ADDRESS: 2Dh)
-   
-
-enum CAN_CLOCK {
-    MCP_20MHZ,
-    MCP_16MHZ,
-    MCP_8MHZ
-};
-
-enum CAN_SPEED {
-    CAN_5KBPS,
-    CAN_10KBPS,
-    CAN_20KBPS,
-    CAN_31K25BPS,
-    CAN_33KBPS,
-    CAN_40KBPS,
-    CAN_50KBPS,
-    CAN_80KBPS,
-    CAN_83K3BPS,
-    CAN_95KBPS,
-    CAN_100KBPS,
-    CAN_125KBPS,
-    CAN_200KBPS,
-    CAN_250KBPS,
-    CAN_500KBPS,
-    CAN_1000KBPS
-};
-
-
-R/W-0 R/W-0 R-0 R-0 R-0 R-0 R-0 R-0
-RX1OVR RX0OVR TXBO TXEP RXEP TXWAR RXWAR EWARN
-bit 7 bit 0
-Legend:
-R = Readable bit W = Writable bit U = Unimplemented bit, read as ‘0’
--n = Value at POR ‘1’ = Bit is set ‘0’ = Bit is cleared x = Bit is unknown
-bit 7 bit 6 bit 5 bit 4 bit 3 bit 2 bit 1 bit 0
-RX1OVR: Receive Buffer 1 Overflow Flag bit
-- Sets when a valid message is received for RXB1 and RX1IF (CANINTF[1]) = 1 - Must be reset by MCU
-RX0OVR: Receive Buffer 0 Overflow Flag bit
-- Sets when a valid message is received for RXB0 and RX0IF (CANINTF[0]) = 1 - Must be reset by MCU
-TXBO: Bus-Off Error Flag bit
-- Sets when TEC reaches 255
-- Resets after a successful bus recovery sequence
-TXEP: Transmit Error-Passive Flag bit
-- Sets when TEC is equal to or greater than 128 - Resets when TEC is less than 128
-RXEP: Receive Error-Passive Flag bit
-- Sets when REC is equal to or greater than 128 - Resets when REC is less than 128
-TXWAR: Transmit Error Warning Flag bit
-- Sets when TEC is equal to or greater than 96 - Resets when TEC is less than 96
-RXWAR: Receive Error Warning Flag bit
-- Sets when REC is equal to or greater than 96 - Resets when REC is less than 96
-EWARN: Error Warning Flag bit
-- Sets when TEC or REC is equal to or greater than 96 (TXWAR or RXWAR = 1) - Resets when both REC and TEC are less than 96
-
- */
-
-
     while (mp->mcp2515->checkReceive() && nCounter <= SML_CAN_MAX_FRAMES) {
-    //while (nCounter <= SML_CAN_MAX_FRAMES) {
-
-       if (mp->mcp2515->readMessage(&canFrame) == MCP2515::ERROR_OK) {
+      if (mp->mcp2515->readMessage(&canFrame) == MCP2515::ERROR_OK) {
           mp->sbuff[0] = canFrame.can_id >> 24;
           mp->sbuff[1] = canFrame.can_id >> 16;
           mp->sbuff[2] = canFrame.can_id >> 8;
@@ -3970,15 +3918,12 @@ EWARN: Error Warning Flag bit
             mp->sbuff[5 + i] = canFrame.data[i];
           }
           SML_Decode(meter);
-
-          //AddLog(LOG_LEVEL_INFO, PSTR("CAN: 0x%08x"), (uint32_t)canFrame.can_id);
-         nCounter++;
-
+          nCounter++;
       } else {
         if (mp->mcp2515->checkError()) {
           uint8_t errFlags = mp->mcp2515->getErrorFlags();
           mp->mcp2515->clearRXnOVRFlags();
-          AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Received error %d"), errFlags);
+          AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Received error %d"), errFlags);
           break;
         }
       }
@@ -4310,7 +4255,6 @@ void SML_Send_Seq(uint32_t meter, char *seq) {
         for (uint8_t i = 0; i < canMsg.can_dlc; i++) {
           canMsg.data[i] = sbuff[i + 5];
         }
-        //AddLog(LOG_LEVEL_INFO, PSTR("CAN: CanSend (%08x)->%d"), canMsg.can_id, canMsg.can_dlc);
         mp->mcp2515->sendMessage(&canMsg);
       }
 #else
