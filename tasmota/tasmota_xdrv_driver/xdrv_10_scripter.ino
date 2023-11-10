@@ -479,7 +479,7 @@ struct SCRIPT_MEM {
     uint16_t script_size;
     uint8_t *script_pram;
     uint16_t script_pram_size;
-    uint8_t numvars;
+    uint16_t numvars;
     uint8_t arres;
     void *script_mem;
     uint16_t script_mem_size;
