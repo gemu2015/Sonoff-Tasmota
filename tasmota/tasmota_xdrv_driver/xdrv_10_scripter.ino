@@ -10629,6 +10629,8 @@ uint32_t cnt;
 #define WSO_FORCEPLAIN 4
 #define WSO_FORCEMAIN 8
 #define WSO_FORCEGUI 16
+#define WSO_FORCETAB 32
+#define WSO_FORCESUBFILE 64
 #define WSO_STOP_DIV 0x80
 
 void WCS_DIV(uint8_t flag) {
@@ -10729,7 +10731,7 @@ void ScriptWebShow(char mc, uint8_t page) {
           //goto nextwebline;
         } else if (!strncmp(lp, "%/", 2)) {
           // send file
-          if (mc) {
+          if (mc || (specopt & WSO_FORCESUBFILE)) {
             web_send_file(mc, lp + 1);
           }
         } else {
@@ -10773,6 +10775,9 @@ int32_t web_send_file(char mc, char *fname) {
         // skip comment lines
         continue;
       }
+      if (*lp == ';') {
+       // continue;
+      }
       web_send_line(mc, lbuff);
     }
     file.close();
@@ -10811,6 +10816,17 @@ const char *gc_str;
   }
 
   bool dogui = ((!mc && (*lin != '$')) || (mc == 'w' && (*lin != '$'))) && (!(specopt & WSO_FORCEMAIN));
+
+  AddLog(LOG_LEVEL_INFO, PSTR("murks %s"), lin);
+
+  if (!strncmp(lin, "%=#", 3)) {
+    // subroutine
+    uint8_t sflg = specopt;
+    specopt = WSO_FORCEPLAIN;
+    lin = scripter_sub(lin + 1, 0);
+    specopt = sflg;
+    return lin;
+  }
 
   if ((dogui && !(specopt & WSO_FORCEGUI)) || (!dogui && (specopt & WSO_FORCEGUI))) {
   //if ( ((!mc && (*lin != '$')) || (mc == 'w' && (*lin != '$'))) && (!(specopt & WSO_FORCEMAIN)) || (specopt & WSO_FORCEGUI)) {
@@ -11206,13 +11222,17 @@ const char *gc_str;
       lp++;
 
     } else {
-      if (mc == 'w' || (specopt & WSO_FORCEPLAIN)) {
-        WSContentSend_P(PSTR("%s"), lin);
+      if (specopt & WSO_FORCETAB) {
+        WSContentSend_P(PSTR("{s}%s{e}"), lin);
       } else {
-        if (optflg) {
-          WSContentSend_P(PSTR("<div>%s</div>"), lin);
+        if (mc == 'w' || (specopt & WSO_FORCEPLAIN)) {
+          WSContentSend_P(PSTR("%s"), lin);
         } else {
-          WSContentSend_P(PSTR("{s}%s{e}"), lin);
+          if (optflg) {
+            WSContentSend_P(PSTR("<div>%s</div>"), lin);
+          } else {
+            WSContentSend_P(PSTR("{s}%s{e}"), lin);
+          }
         }
       }
     }
