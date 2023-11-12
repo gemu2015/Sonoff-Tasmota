@@ -10817,8 +10817,6 @@ const char *gc_str;
 
   bool dogui = ((!mc && (*lin != '$')) || (mc == 'w' && (*lin != '$'))) && (!(specopt & WSO_FORCEMAIN));
 
-  AddLog(LOG_LEVEL_INFO, PSTR("murks %s"), lin);
-
   if (!strncmp(lin, "%=#", 3)) {
     // subroutine
     uint8_t sflg = specopt;
