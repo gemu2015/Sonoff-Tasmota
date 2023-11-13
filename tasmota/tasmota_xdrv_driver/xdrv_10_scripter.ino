@@ -1928,6 +1928,9 @@ int32_t extract_from_file(File *fp,  char *ts_from, char *ts_to, int8_t coffs, T
     uint8_t buff[2], iob;
     fp->read(buff, 1);
     iob = buff[0];
+    TS_FLOAT fval;
+    uint16_t curpos;
+
     if (iob == '\t' || iob == ',' || iob == '\n' || iob == '\r') {
       rstr[sindex] = 0;
       sindex = 0;
@@ -1964,10 +1967,11 @@ int32_t extract_from_file(File *fp,  char *ts_from, char *ts_to, int8_t coffs, T
         } else {
           // data columns
           if (range) {
-            uint8_t curpos = colpos - coffs;
+            curpos = colpos - coffs;
             if (colpos >= coffs && curpos < numa) {
               if (a_len[curpos]) {
-                TS_FLOAT fval = CharToFloat(rstr);
+                fval = CharToFloat(rstr);
+nextcol:
                 uint8_t flg = 1;
                 if ((mflg[curpos] & 1) == 1) {
                   // absolute values, build diffs
@@ -2008,12 +2012,20 @@ int32_t extract_from_file(File *fp,  char *ts_from, char *ts_to, int8_t coffs, T
       }
       colpos++;
       if (iob == '\n' || iob == '\r') {
-        lastpos = fp->position();
-        colpos = 0;
-        lines ++;
-        if (lines == 1) {
-          if (ipos) {
-            fp->seek(ipos, SeekSet);
+        // end of line
+        if (colpos < numa) {
+          // empty column
+          curpos = colpos - coffs;
+          fval = 0;
+          goto nextcol;
+        } else {
+          lastpos = fp->position();
+          colpos = 0;
+          lines ++;
+          if (lines == 1) {
+            if (ipos) {
+              fp->seek(ipos, SeekSet);
+            }
           }
         }
       }
