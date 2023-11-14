@@ -335,10 +335,18 @@ typedef union {
   };
 } SCRIPT_TYPE;
 
+
+#ifdef SCRIPT_LARGE_VNBUFF
+struct T_INDEX {
+  uint16_t index;
+  SCRIPT_TYPE bits;
+};
+#else
 struct T_INDEX {
   uint8_t index;
   SCRIPT_TYPE bits;
 };
+#endif // SCRIPT_LARGE_VNBUFF
 
 struct M_FILT {
 #ifdef LARGE_ARRAYS
@@ -2327,7 +2335,7 @@ uint32_t match_vars(char *dvnam, TS_FLOAT **fp, char **sp, uint32_t *ind) {
     uint8_t slen = strlen(cp);
     if (slen == olen && *cp == dvnam[0]) {
       if (!strncmp(cp, dvnam, olen)) {
-        uint8_t index = vtp[count].index;
+        uint16_t index = vtp[count].index;
         if (vtp[count].bits.is_string == 0) {
           if (vtp[count].bits.is_filter) {
             // error
@@ -2995,7 +3003,7 @@ chknext:
           uint8_t vtype;
           lp = isvar(lp + 4, &vtype, &ind, 0, 0, gv);
           if (!ind.bits.constant) {
-            uint8_t index = glob_script_mem.type[ind.index].index;
+            uint16_t index = glob_script_mem.type[ind.index].index;
             fvar = glob_script_mem.fvars[index] != glob_script_mem.s_fvars[index];
             glob_script_mem.s_fvars[index] = glob_script_mem.fvars[index];
           } else {
@@ -3157,7 +3165,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           uint8_t vtype;
           lp = isvar(lp + 5, &vtype, &ind, 0, 0, gv);
           if (!ind.bits.constant) {
-            uint8_t index = glob_script_mem.type[ind.index].index;
+            uint16_t index = glob_script_mem.type[ind.index].index;
             fvar = glob_script_mem.fvars[index] - glob_script_mem.s_fvars[index];
             glob_script_mem.s_fvars[index] = glob_script_mem.fvars[index];
           } else {
@@ -3353,7 +3361,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         if (!strncmp_XP(lp, XPSTR("fr("), 3)) {
           struct T_INDEX ind;
           uint8_t vtype;
-          uint8_t sindex = 0;
+          uint16_t sindex = 0;
           lp = isvar(lp + 3, &vtype, &ind, 0, 0, gv);
           if (vtype != VAR_NV) {
             // found variable as result
@@ -4946,7 +4954,7 @@ extern char *SML_GetSVal(uint32_t index);
                 fvar = -1;
               } else {
                 // string result
-                uint8_t sindex = glob_script_mem.type[ind.index].index;
+                uint16_t sindex = glob_script_mem.type[ind.index].index;
                 char *cp = glob_script_mem.glob_snp + (sindex * glob_script_mem.max_ssize);
                 fvar = SML_Set_WStr(fvar1, cp);
               }
@@ -6436,7 +6444,7 @@ extern "C" {
 
 int32_t UpdVar(char *vname, float *fvar, uint32_t mode) {
   uint8_t type;
-  uint8_t index;
+  uint16_t index;
   if (*vname == '@') {
       vname++;
       type = *vname;
@@ -8318,7 +8326,7 @@ void Scripter_save_pvars(void) {
   struct T_INDEX *vtp = glob_script_mem.type;
   for (uint16_t count = 0; count < glob_script_mem.numvars; count++) {
     if (vtp[count].bits.is_permanent && !vtp[count].bits.is_string) {
-      uint8_t index = vtp[count].index;
+      uint16_t index = vtp[count].index;
       if (vtp[count].bits.is_filter) {
         // save array
         uint16_t len = 0;
@@ -10547,7 +10555,7 @@ uint16_t cipos = 0;
     lp = isvar(lp, &vtype, &ind, &sysvar, 0, 0);
     if (vtype != VAR_NV) {
       SCRIPT_SKIP_SPACES
-      uint8_t index = glob_script_mem.type[ind.index].index;
+      uint16_t index = glob_script_mem.type[ind.index].index;
       if ((vtype & STYPE) == 0) {
         // numeric result
         //Serial.printf("numeric %d - %d \n",ind.index,index);
