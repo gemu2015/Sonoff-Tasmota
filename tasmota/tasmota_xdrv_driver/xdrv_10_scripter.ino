@@ -2013,7 +2013,7 @@ nextcol:
       colpos++;
       if (iob == '\n' || iob == '\r') {
         // end of line
-        if (colpos < numa) {
+        if (colpos <= numa) {
           // empty column
           curpos = colpos - coffs;
           fval = 0;
