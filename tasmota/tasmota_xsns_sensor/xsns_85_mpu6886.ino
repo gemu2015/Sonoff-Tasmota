@@ -1,5 +1,5 @@
 /*
-  xsns_84_tof10120.ino -MPU6886/MPU9250 accelerometer support for Tasmota
+  xsns_85_mpu6886.ino - MPU6886/MPU9250 accelerometer support for Tasmota
 
   Copyright (C) 2021  Stephan Hadinger and Theo Arends
 
@@ -60,6 +60,7 @@ void MPU_Show(uint32_t json) {
                           mpu_sensor.mpu_model,
                           mpu_sensor.ax, mpu_sensor.ay, mpu_sensor.az,
                           mpu_sensor.gyx, mpu_sensor.gyy, mpu_sensor.gyz);
+#ifdef USE_WEBSERVER
   } else {
     float ax = mpu_sensor.ax / 1000.0f;
     float ay = mpu_sensor.ay / 1000.0f;
@@ -67,6 +68,7 @@ void MPU_Show(uint32_t json) {
     WSContentSend_PD(HTTP_MPU6686, mpu_sensor.mpu_model, &ax, mpu_sensor.mpu_model, &ay, mpu_sensor.mpu_model, &az,
                                    mpu_sensor.mpu_model, mpu_sensor.gyx, mpu_sensor.mpu_model, mpu_sensor.gyy, mpu_sensor.mpu_model, mpu_sensor.gyz);
 
+#endif  // USE_WEBSERVER
   }
 }
 

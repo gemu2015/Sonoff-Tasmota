@@ -454,8 +454,7 @@ void PIDShowValues(void) {
   ResponseAppend_P(PSTR("}"));
 }
 
-void PIDShowValuesWeb(void) {
-
+#ifdef USE_WEBSERVER
 #define D_PID_DISPLAY_NAME     "PID Controller"
 #define D_PID_SET_POINT        "Set Point"
 #define D_PID_PRESENT_VALUE    "Current Value"
@@ -465,12 +464,13 @@ void PIDShowValuesWeb(void) {
 #define D_PID_MODE_MANUAL      "Manual"
 #define D_PID_MODE_OFF         "Off"
 
-  const char HTTP_PID_HL[] PROGMEM = "{s}<hr>{m}<hr>{e}";
-  const char HTTP_PID_INFO[] PROGMEM = "{s}" D_PID_DISPLAY_NAME "{m}%s{e}";
-  const char HTTP_PID_SP_FORMAT[] PROGMEM = "{s}%s " "{m}%*_f ";
-  const char HTTP_PID_PV_FORMAT[] PROGMEM = "{s}%s " "{m}%*_f ";
-  const char HTTP_PID_POWER_FORMAT[] PROGMEM = "{s}%s " "{m}%*_f " D_UNIT_PERCENT;
+const char HTTP_PID_HL[] PROGMEM = "{s}<hr>{m}<hr>{e}";
+const char HTTP_PID_INFO[] PROGMEM = "{s}" D_PID_DISPLAY_NAME "{m}%s{e}";
+const char HTTP_PID_SP_FORMAT[] PROGMEM = "{s}%s " "{m}%*_f ";
+const char HTTP_PID_PV_FORMAT[] PROGMEM = "{s}%s " "{m}%*_f ";
+const char HTTP_PID_POWER_FORMAT[] PROGMEM = "{s}%s " "{m}%*_f " D_UNIT_PERCENT;
 
+void PIDShowValuesWeb(void) {
   float f_buf;
 
   WSContentSend_P(HTTP_PID_HL);
@@ -485,6 +485,7 @@ void PIDShowValuesWeb(void) {
     WSContentSend_PD(HTTP_PID_POWER_FORMAT, D_PID_POWER, 0, &f_buf);
   }
 }
+#endif  // USE_WEBSERVER
 
 void PIDRun(void) {
   double power = Pid.pid.tick(Pid.current_time_secs);
@@ -537,9 +538,11 @@ bool Xdrv49(uint32_t function) {
     case FUNC_JSON_APPEND:
       PIDShowValues();
       break;
+#ifdef USE_WEBSERVER
     case FUNC_WEB_SENSOR:
       PIDShowValuesWeb();
       break;
+#endif  // USE_WEBSERVER
   }
   return result;
 }

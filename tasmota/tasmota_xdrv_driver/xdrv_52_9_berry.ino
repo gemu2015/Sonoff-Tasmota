@@ -23,6 +23,10 @@
 #define XDRV_52             52
 
 #include <berry.h>
+extern "C" {
+  #include "be_bytecode.h"
+  #include "be_var.h"
+}
 #include "berry_tasmota.h"
 #ifdef USE_MATTER_DEVICE
   #include "berry_matter.h"
@@ -169,11 +173,20 @@ int32_t callBerryEventDispatcher(const char *type, const char *cmd, int32_t idx,
 }
 
 // Simplified version of event loop. Just call `tasmota.fast_loop()`
-void callBerryFastLoop(void) {
+// `every_5ms` is a flag to wait at least 5ms between calss to `tasmota.fast_loop()`
+void callBerryFastLoop(bool every_5ms) {
+  static uint32_t fast_loop_last_call = 0;
   bvm *vm = berry.vm;
 
   if (nullptr == vm) { return; }
 
+  uint32_t now = millis();
+  if (every_5ms) {
+    if (!TimeReached(fast_loop_last_call + USE_BERRY_FAST_LOOP_SLEEP_MS /* 5ms */)) { return; }
+  }
+  fast_loop_last_call = now;
+
+  // TODO - can we make this dereferencing once for all?
   if (be_getglobal(vm, "tasmota")) {
     if (be_getmethod(vm, -1, "fast_loop")) {
       be_pushvalue(vm, -2); // add instance as first arg
@@ -358,7 +371,7 @@ void BerryInit(void) {
       be_pop(berry.vm, 1);
     }
 
-    AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_BERRY "Berry initialized, RAM used=%u bytes"), callBerryGC());
+    AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_BERRY "Berry initialized, RAM used %u bytes"), callBerryGC());
     berry_init_ok = true;
 
     // we generate a synthetic event `autoexec`
@@ -748,6 +761,87 @@ void HandleBerryConsole(void)
   WSContentStop();
 }
 
+#ifdef USE_BERRY_PARTITION_WIZARD
+// Display a Button to dynamically load the Partition Wizard
+void HandleBerryPartiionWizardLoaderButton(void) {
+  bvm * vm = berry.vm;
+  static const char PARTITION_WIZARD_NAME[] = "partition_wizard";
+  if (!berry.partition_wizard_loaded) {
+    if (be_global_find(vm, be_newstr(vm, PARTITION_WIZARD_NAME)) < 0) {    // the global name `partition_wizard` doesn't exist
+      WSContentSend_P("<form id=but_part_mgr style='display: block;' action='tapp' method='get'><input type='hidden' name='n' value='Partition_Wizard'/><button>[Load Partition Wizard]</button></form><p></p>");
+    } else {
+      berry.partition_wizard_loaded = true;
+    }
+  }
+}
+
+void HandleBerryPartitionWizardLoader(void) {
+  if (BerryBECLoader(USE_BERRY_PARTITION_WIZARD_URL)) {
+    // All good, redirect
+    Webserver->sendHeader("Location", "/part_wiz", true);
+    Webserver->send(302, "text/plain", "");
+    berry.partition_wizard_loaded = true;
+  } else {
+    Webserver->sendHeader("Location", "/mn?", true);
+    Webserver->send(302, "text/plain", "");
+  }
+}
+#endif //USE_BERRY_PARTITION_WIZARD
+
+// return true if successful
+bool BerryBECLoader(const char * url) {
+  bvm *vm = berry.vm;
+
+  HTTPClientLight cl;
+  cl.setUserAgent(USE_BERRY_WEBCLIENT_USERAGENT);
+  cl.setConnectTimeout(USE_BERRY_WEBCLIENT_TIMEOUT);   // set default timeout
+  cl.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+
+  if (!cl.begin(url)) {
+    AddLog(LOG_LEVEL_INFO, "BRY: unable to load URL '%s'", url);
+    // cl.end();
+    return false;
+  }
+  
+  uint32_t http_connect_time = millis();
+  int32_t httpCode = cl.GET();
+  if (httpCode != 200) {
+    AddLog(LOG_LEVEL_INFO, "BRY: unable to load URL '%s' code %i", url, httpCode);
+    // cl.end();
+    return false;
+  }
+
+  int32_t sz = cl.getSize();
+  AddLog(LOG_LEVEL_DEBUG, "BRY: Response http_code %i size %i bytes in %i ms", httpCode, sz, millis() - http_connect_time);
+  // abort if we exceed 32KB size, things will not go well otherwise
+  if (sz >= 32767 || sz <= 0) {
+    AddLog(LOG_LEVEL_DEBUG, "BRY: Response size too big %i bytes", sz);
+    return false;
+  }
+
+  // create a bytes object at top of stack.
+  // the streamwriter knows how to get it. 
+  uint8_t * buf = (uint8_t*) be_pushbytes(vm, nullptr, sz);
+  StreamBeBytesWriter memory_writer(vm);
+  int32_t written = cl.writeToStream(&memory_writer);
+  cl.end();  // free allocated memory ~16KB
+
+  size_t loaded_sz = 0;
+  const void * loaded_buf = be_tobytes(vm, -1, &loaded_sz);
+
+  FlashFileImplPtr fp = FlashFileImplPtr(new FlashFileImpl(loaded_buf, loaded_sz));
+  File * f_ptr = new File(fp);   // we need to allocate dynamically because be_close calls `delete` on it
+  bclosure* loaded_bec = be_bytecode_load_from_fs(vm, f_ptr);
+  be_pop(vm, 1);
+  if (loaded_bec != NULL) {
+    be_pushclosure(vm, loaded_bec);
+    be_call(vm, 0);
+    be_pop(vm, 1);
+  }
+   be_gc_collect(vm);   // force a GC to free the buffer now
+  return true;
+}
+
 #endif // USE_WEBSERVER
 
 /*********************************************************************************************\
@@ -758,6 +852,11 @@ bool Xdrv52(uint32_t function)
   bool result = false;
 
   switch (function) {
+    case FUNC_SLEEP_LOOP:
+      if (TasmotaGlobal.berry_fast_loop_enabled) {    // call only if enabled at global level
+        callBerryFastLoop(true);      // call `tasmota.fast_loop()` optimized for minimal performance impact
+      }
+      break;
     case FUNC_LOOP:
       if (!berry.autoexec_done) {
         // we generate a synthetic event `autoexec`
@@ -779,7 +878,7 @@ bool Xdrv52(uint32_t function)
         }
       }
       if (TasmotaGlobal.berry_fast_loop_enabled) {    // call only if enabled at global level
-        callBerryFastLoop();      // call `tasmota.fast_loop()` optimized for minimal performance impact
+        callBerryFastLoop(false);      // call `tasmota.fast_loop()` optimized for minimal performance impact
       }
       break;
 
@@ -825,6 +924,9 @@ bool Xdrv52(uint32_t function)
         XdrvMailbox.index++;
       } else {
         WSContentSend_P(HTTP_BTN_BERRY_CONSOLE);
+#ifdef USE_BERRY_PARTITION_WIZARD
+      HandleBerryPartiionWizardLoaderButton();
+#endif // USE_BERRY_PARTITION_WIZARD
         callBerryEventDispatcher(PSTR("web_add_button"), nullptr, 0, nullptr);
         callBerryEventDispatcher(PSTR("web_add_console_button"), nullptr, 0, nullptr);
       }
@@ -844,6 +946,9 @@ bool Xdrv52(uint32_t function)
         berry.web_add_handler_done = true;
       }
       WebServer_on(PSTR("/bc"), HandleBerryConsole);
+#ifdef USE_BERRY_PARTITION_WIZARD
+      Webserver->on("/tapp", HTTP_GET, HandleBerryPartitionWizardLoader);
+#endif // USE_BERRY_PARTITION_WIZARD
       break;
 #endif // USE_WEBSERVER
     case FUNC_SAVE_BEFORE_RESTART:
