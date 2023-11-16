@@ -189,8 +189,8 @@ typedef union {                            // Restricted by MISRA-C Rule 18.4 bu
     uint32_t berry_no_autoexec : 1;        // bit 7  (v12.5.0.3) - SetOption153 - (Berry) Disable autoexec.be on restart (1)
     uint32_t berry_light_scheme : 1;       // bit 8  (v12.5.0.3) - SetOption154 - (Berry) Handle berry led using RMT0 as additional WS2812 scheme
     uint32_t zcfallingedge : 1;            // bit 9  (v13.0.0.1) - SetOption155 - (ZCDimmer) Enable rare falling Edge dimmer instead of leading edge
-    uint32_t spare10 : 1;                  // bit 10
-    uint32_t spare11 : 1;                  // bit 11
+    uint32_t sen5x_passive_mode : 1;       // bit 10 (v13.1.0.1) - SetOption156 - (Sen5x) Run in passive mode when there is another I2C master (e.g. Ikea Vindstyrka), i.e. do not set up Sen5x sensor, higher polling interval
+    uint32_t neopool_outputsensitive : 1;  // bit 11 (v13.2.0.1) - SetOption157 - (NeoPool) Output sensitive data (1)
     uint32_t spare12 : 1;                  // bit 12
     uint32_t spare13 : 1;                  // bit 13
     uint32_t spare14 : 1;                  // bit 14
@@ -742,7 +742,7 @@ typedef struct {
   uint16_t      modbus_sbaudrate;          // 736
   uint16_t      shutter_motorstop;         // 738
   uint8_t       battery_level_percent;     // 73A
-  uint8_t       free_73B[2];               // 73B
+  uint8_t       hdmi_addr[2];              // 73B  HDMI CEC physical address - warning this is a non-aligned uint16
 
   uint8_t       novasds_startingoffset;    // 73D
   uint8_t       web_color[18][3];          // 73E
@@ -845,11 +845,12 @@ typedef struct {
   uint8_t       tcp_config;                // F5F
   uint8_t       light_step_pixels;				 // F60
 
-  uint8_t       ex_modbus_sbaudrate;       // F61  - v12.2.0.5
+  uint8_t       hdmi_cec_device_type;      // F61  - v13.1.0.1 (was ex_modbus_sbaudrate v12.2.0.5)
 
   uint8_t       modbus_sconfig;            // F62
+  uint8_t       windmeter_measure_intvl;   // F63
 
-  uint8_t       free_f63[13];              // F63 - Decrement if adding new Setting variables just above and below
+  uint8_t       free_f64[12];              // F64 - Decrement if adding new Setting variables just above and below
 
   // Only 32 bit boundary variables below
   uint32_t      touch_threshold;           // F70

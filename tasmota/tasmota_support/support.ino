@@ -727,7 +727,7 @@ bool NewerVersion(char* version_str) {
   char version_dup[strlen(version_str) +1];
   strncpy(version_dup, version_str, sizeof(version_dup));  // Duplicate the version_str as strtok_r will modify it.
   // Loop through the version string, splitting on '.' seperators.
-  for (char *str = strtok_r(version_dup, ".", &str_ptr); str && i < sizeof(VERSION); str = strtok_r(nullptr, ".", &str_ptr), i++) {
+  for (char *str = strtok_r(version_dup, ".", &str_ptr); str && i < sizeof(TASMOTA_VERSION); str = strtok_r(nullptr, ".", &str_ptr), i++) {
     int field = atoi(str);
     // The fields in a version string can only range from 0-255.
     if ((field < 0) || (field > 255)) {
@@ -744,17 +744,17 @@ bool NewerVersion(char* version_str) {
   }
   // A version string should have 2-4 fields. e.g. 1.2, 1.2.3, or 1.2.3a (= 1.2.3.1).
   // If not, then don't consider it a valid version string.
-  if ((i < 2) || (i > sizeof(VERSION))) {
+  if ((i < 2) || (i > sizeof(TASMOTA_VERSION))) {
     return false;
   }
   // Keep shifting the parsed version until we hit the maximum number of tokens.
   // VERSION stores the major number of the version in the most significant byte of the uint32_t.
-  while (i < sizeof(VERSION)) {
+  while (i < sizeof(TASMOTA_VERSION)) {
     version <<= 8;
     i++;
   }
   // Now we should have a fully constructed version number in uint32_t form.
-  return (version > VERSION);
+  return (version > TASMOTA_VERSION);
 }
 
 int32_t UpdateDevicesPresent(int32_t change) {
@@ -1442,16 +1442,30 @@ void SetPin(uint32_t lpin, uint32_t gpio) {
   TasmotaGlobal.gpio_pin[lpin] = gpio;
 }
 
+#ifdef CONFIG_IDF_TARGET_ESP32C3
+#include "driver/gpio.h"                         // Include needed for Arduino 3
+#endif
+
 void DigitalWrite(uint32_t gpio_pin, uint32_t index, uint32_t state) {
   static uint32_t pinmode_init[2] = { 0 };       // Pins 0 to 63 !!!
 
   if (PinUsed(gpio_pin, index)) {
     uint32_t pin = Pin(gpio_pin, index) & 0x3F;  // Fix possible overflow over 63 gpios
+#ifdef CONFIG_IDF_TARGET_ESP32C3
+//    if (GPIO_REL1 == gpio_pin) {
+      gpio_hold_dis((gpio_num_t)pin);            // Allow state change
+//    }
+#endif
     if (!bitRead(pinmode_init[pin / 32], pin % 32)) {
       bitSet(pinmode_init[pin / 32], pin % 32);
       pinMode(pin, OUTPUT);
     }
     digitalWrite(pin, state &1);
+#ifdef CONFIG_IDF_TARGET_ESP32C3
+    if (GPIO_REL1 == gpio_pin) {
+      gpio_hold_en((gpio_num_t)pin);             // Retain the state when the chip or system is reset, for example, when watchdog time-out or Deep-sleep
+    }
+#endif
   }
 }
 
@@ -1682,26 +1696,28 @@ bool FlashPin(uint32_t pin) {
 #if CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C3
   return (((pin > 10) && (pin < 12)) || ((pin > 13) && (pin < 18)));  // ESP32C3 has GPIOs 11-17 reserved for Flash, with some boards GPIOs 12 13 are useable
 #elif CONFIG_IDF_TARGET_ESP32C6
-  return (pin > 23);                      // ESP32C6 flash pins 24-30
+  return ((pin == 24) || (pin == 25) || (pin == 27) || (pin == 29) || (pin == 30));  // ESP32C6 has GPIOs 24-30 reserved for Flash, with some boards GPIOs 26 28 are useable
 #elif CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
-  return (pin > 21) && (pin < 33);        // ESP32S2 skip 22-32
+  return (pin > 21) && (pin < 33);     // ESP32S2 skip 22-32
 #else
-  return (pin >= 28) && (pin <= 31);      // ESP32 skip 28-31
+  return (pin >= 28) && (pin <= 31);   // ESP32 skip 28-31
 #endif  // ESP32C2/C3/C6 and S2/S3
 #endif  // ESP32
 }
 
-bool RedPin(uint32_t pin) {  // Pin may be dangerous to change, display in RED in template console
+bool RedPin(uint32_t pin) {            // Pin may be dangerous to change, display in RED in template console
 #ifdef ESP8266
   return (9 == pin) || (10 == pin);
 #endif  // ESP8266
 #ifdef ESP32
 #if CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C3
-  return (12 == pin) || (13 == pin);  // ESP32C3: GPIOs 12 13 are usually used for Flash (mode QIO/QOUT)
-#elif CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32S2
-  return false;                       // No red pin on ESP32C6 and ESP32S3
+  return (12 == pin) || (13 == pin);   // ESP32C3: GPIOs 12 13 are usually used for Flash (mode QIO/QOUT)
+#elif CONFIG_IDF_TARGET_ESP32C6
+  return (26 == pin) || (28 == pin);   // ESP32C6: GPIOs 26 28 are usually used for Flash (mode QIO/QOUT)
+#elif CONFIG_IDF_TARGET_ESP32S2
+  return false;                        // No red pin on ESP32S3
 #elif CONFIG_IDF_TARGET_ESP32S3
-  return (33 <= pin) && (37 >= pin);  // ESP32S3: GPIOs 33..37 are usually used for PSRAM
+  return (33 <= pin) && (37 >= pin);   // ESP32S3: GPIOs 33..37 are usually used for PSRAM
 #else   // ESP32 red pins are 6-11 for original ESP32, other models like PICO are not impacted if flash pins are condfigured
   // PICO can also have 16/17/18/23 not available
   return ((6 <= pin) && (11 >= pin)) || (16 == pin) || (17 == pin);  // TODO adapt depending on the exact type of ESP32
