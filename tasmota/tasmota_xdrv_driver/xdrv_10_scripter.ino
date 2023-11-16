@@ -4981,7 +4981,7 @@ extern char *SML_GetSVal(uint32_t index);
           TS_FLOAT meter;
           lp = GetNumericArgument(lp + 5, OPER_EQU, &meter, gv);
           if (meter < 1) meter = 1;
-          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           SML_Shift_Num(meter - 1, fvar);
           goto nfuncexit;
         }
