@@ -336,7 +336,7 @@ typedef union {
 } SCRIPT_TYPE;
 
 
-#ifdef SCRIPT_LARGE_VNBUFF
+#if 1
 struct T_INDEX {
   uint16_t index;
   SCRIPT_TYPE bits;
@@ -346,7 +346,7 @@ struct T_INDEX {
   uint8_t index;
   SCRIPT_TYPE bits;
 };
-#endif // SCRIPT_LARGE_VNBUFF
+#endif
 
 struct M_FILT {
 #ifdef LARGE_ARRAYS

@@ -3984,7 +3984,7 @@ void SML_Check_Send(void) {
   sml_globs.sml_100ms_cnt++;
   char *cp;
   for (uint32_t cnt = sml_globs.sml_desc_cnt; cnt < sml_globs.meters_used; cnt++) {
-    if (meter_desc[cnt].trxpin >= 0 && meter_desc[cnt].txmem) {
+    if (meter_desc[cnt].trxpin >= 0 && (meter_desc[cnt].txmem || meter_desc[cnt].script_str) {
       //AddLog(LOG_LEVEL_INFO, PSTR("100 ms>> %d - %s - %d"),sml_globs.sml_desc_cnt,meter_desc[cnt].txmem,meter_desc[cnt].tsecs);
       if ((sml_globs.sml_100ms_cnt >= meter_desc[cnt].tsecs)) {
         sml_globs.sml_100ms_cnt = 0;
