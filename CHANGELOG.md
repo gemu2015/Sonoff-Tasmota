@@ -3,13 +3,149 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - Development
 
-## [13.1.0.1]
+## [13.2.0.2]
+### Added
+- Scripter TCP client (#19914)
+- Berry ``debug.gcdebug()`` to enable GC debugging (#19936)
+- Berry AES_CBC to crypto module (#19964)
+- NeoPool sensor delta trigger (command ``NPTelePeriod``) (#19973)
+- NeoPool store settings on unified file system (#19973)
+- NeoPool command ``NPBoost`` (#19973)
+- ESP32 Partition Wizard can be loaded dynamically (#19980)
+
+### Breaking Changed
+
+### Changed
+- Matter update hierarchy of plugins (#19915)
+- NeoPool ``NPHydrolysis`` percent and unit (#19924)
+- Thermostat JSON index from 0 to 1 (#20011)
+
+### Fixed
+- Scripter timer issue (#19914)
+- Zero-Cross Dimmer for ESP32 with Core3 (#19929)
+- Matter flow sensor (#19961)
+- Berry ``gpio.dac_voltage()`` regression from v13.1.0.1 (#19997)
+- ESP32-C3 ledlink functionality regression from v13.1.0.2
+
+### Removed
+
+
+## [13.2.0.1] 20231103
+### Added
+- I2C bus2 support to iAQ core sensor (#19799)
+- I2C bus2 support to HTU temperature and humidity sensor
+- I2C bus2 support to BH1750 ambient light sensor
+- I2C bus2 support to ADS1115 A/D Converter
+- I2C bus2 support to SHTxX temperature and humidity sensor
+- I2C bus2 support to HYTxxx temperature and humidity sensor
+- I2C bus2 support to SI1145/6/7 Ultra violet index and light sensor
+- I2C bus2 support to LM75AD temperature sensor
+- Command ``GpioRead`` to show input state (#19810)
+- ESP32 core v3 auto TasConsole USB or Serial connection by @staars
+- Support for Winsen XH03x dust particle sensors using USE_PMS5003 and PMS_MODEL_ZH03X (#19850)
+- NeoPool hydrolysis setpoint and max
+- NeoPool command ``NPFiltrationSpeed`` to set non-standard filtration type speed (#19857)
+- NeoPool ``SetOption157`` to output sensitive data (#19857)
+- NeoPool enhancements for HA (#19857)
+- ST7735S display.ini for 1.44 inch 128x128 red SPI display (#19862)
+- HASPmota add styling properties (#19912)
+- Matter flow sensor suppor (#19852)
+
+### Breaking Changed
+- NeoPool SENSOR topic ``Power`` renamed to ``Powerunit`` (#19857)
+
+### Changed
+- Prepare I2C drivers for bus2 support
+- Matter Light0 now accept a Relay number (#19809)
+- ESP32 keep FS intact when over flashing with VSC (#19816)
+- Increase MAX_HUE_DEVICES to 32 (#19820)
+- MI32 updates (#19893)
+
+### Fixed
+- NeoPool filtration mode display (#19801)
+- Compile USE_PID (#19890)
+- ESP32 I2C allow bus2 support when bus1 is not enabled
+- ESP32 IR receive with Arduino Core 3 (#19904)
+
+## [Released]
+
+## [13.2.0] 20231019
+- Release Quincy
+
+## [13.1.0.4] 20231019
+### Added
+- Support for HC8 CO2 sensor (#19714)
+- ESP32 commands ``Ds18Rescan`` and ``Ds18RetryRead`` (#19700)
+
+### Breaking Changed
+- Removed support for Homekit in favour of Matter (#19738)
+
+### Changed
+- ESP32 Framework (Arduino Core) from v2.0.13 to v2.0.14
+- MAX31855/MAX6675 sensors driver support up to 6 (#19329)
+- ESP32 analog from `analogRead()` to calibrated `analogReadMilliVolts()` (#19732)
+- I2S refactoring in preparation for core 3 (#19749)
+- Teleinfo use Apparent Power as Active Power approximation (#19756)
+
+### Fixed
+- ESP32 shutter frequency (#19717)
+- ModbusBridge write memory leak (#19758)
+- Zigbee timezone when device reads LocalTime attribute (#19772)
+
+### Removed
+- WiFiClientSecure in favour of WiFiClientSecureLightBearSSL (#19725)
+
+## [13.1.0.3] 20231003
+### Added
+- Support for Shelly PlusPMMini, Plus1Mini and Plus1PMMini
+- Matter support for Virtual Devices controllable via Rules or Berry (#19520)
+- Berry read and write Counters (#19558)
+- ESP32 support for influxdb access using https (#19582)
+- Support for ENS16x (air quality) and ENS210 (temp & RH) sensors (#19479)
+- Support for non-persistent ``WebButton17`` to ``WebButton32`` (#19580)
+- Command ``Mi32Name`` (#19619)
+
+### Changed
+- ESP32 Framework (Arduino Core) from v2.0.12 to v2.0.13
+- ESP32 LVGL library from v8.3.9 to v8.3.10 (no functional change)
+- Consolidate SGP40 and SGP41 into SGP4x driver (#19560)
+- ESP32 Audio preparation for Arduino Core v3 (#19637)
+- ESP32 LittleFS updated to version with grow option (#19635)
+- ESP32 Partition Wizard grow filesystem support (#19645)
+
+### Fixed
+- ESP32 DS18x20 driver support extended over GPIO33
+- ESP32 Shutter button quad press (#19589)
+- Compile error with new email lib (#19608)
+- ESP32 Arduino Core v2 wifi client flush (#19642)
+
+## [13.1.0.2] 20230914
+### Added
+- Support for HDMI CEC protocol (#19434)
+- Support different baudrates on BL0942
+
+### Breaking Changed
+- `Sendmail` upgraded to ESP-Mail-Client v3.4.9 from v1.2.0, using BearSSL instead of MbedTLS (#19460)
+
+### Changed
+- Berry fast_loop is now called every 5ms whatever the Sleep value (#19436)
+- Reduce IRAM consumption of HDMI CEC to 1453 bytes (#19452)
+- ESP32 Framework (Arduino Core) from v2.0.11 to v2.0.12
+- ESP32 LVGL library from v8.3.8 to v8.3.9 (no functional change)
+
+### Fixed
+- PCF8574 mode 1 with base relays exception 3/28 regression from v12.4.0.4 (#19408)
+- Berry make mdns compatible with non-IPv6 builds
+- ESP32 Shutter migration (#19454)
+- ESP32 Shutter multi press button events (#19465)
+- Support for IPv6 link-local zones for esp-idf 5.1 (necessary for Matter)
+- ESP32-C3 relay click on restart
+
+## [13.1.0.1] 20230831
 ### Added
 - Commands to allow setting of timeprop parameters (#19310)
 - Variables ``%power<1..28>%`` and  ``%switch<1..28>%`` to rules (#19331)
 - Experimental support for ESP32-C2 and ESP32-C6 using Arduino core v3.0 
-
-### Breaking Changed
 
 ### Changed
 - Display invert setting after tasmota start in uDisplay driver (#19337)
@@ -17,11 +153,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Shutter invert (#19341, #19374)
 - Teleinfo power (#19381)
-
-### Removed
-
-
-## [Released] - Development
+- Exception 3 in IRHVAC (#19389)
 
 ## [13.1.0] 20230815
 - Release Quentin
@@ -62,7 +194,7 @@ All notable changes to this project will be documented in this file.
 - Zero cross dimmer minimum interrupt time (#19211)
 - Fade would fail when the difference between start and target would be too small (#19248)
 - Inverted shutter (#19243)
-- Matter support for large atribute responses (#19252)
+- Matter support for large attribute responses (#19252)
 - Matter auto-configuration Relay indices (#19255)
 
 ## [13.0.0.2] 20230721
@@ -909,14 +1041,14 @@ All notable changes to this project will be documented in this file.
 - Support for MQ analog sensor for air quality by Francesco Adriani (#14581)
 - Command ``SetOption134 1`` to disable PWM auto-phasing for lights by default (new behavior) (#14590)
 - Increase PWM channels to 16 (Esp32 only)
-- Initial support for ESP32S3 with support for 38 configurable GPIOs
+- Initial support for ESP32-S3 with support for 38 configurable GPIOs
 
 ### Changed
 - BME68x-Sensor-API library from v3.5.9 to v4.4.7
 - ESP32 core library from v2.0.2 to v2.0.2.1 (#14553)
 
 ### Fixed
-- OneWire-Stickbreaker (DS18x20) library support for ESP32S2 (#14338)
+- OneWire-Stickbreaker (DS18x20) library support for ESP32-S2 (#14338)
 
 ## [2022.01.2 = 10.1.0.5] 20220116
 ### Added
@@ -1105,10 +1237,10 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Command ``WebGetConfig <url>`` if ``#define USE_WEBGETCONFIG`` is enabled to restore/init configuration from external webserver (#13034)
 - Berry class ``webclient`` for HTTP/HTTPS requests
-- Support for ESP32S2 GPIOs
+- Support for ESP32-S2 GPIOs
 - ESP32 add GPIO 6/7/8/11 to template and remove GPIO 28-31 (remapping so backwards compatible)
-- Crash recorder ``Status 12`` for ESP32/ESP32S2/ESP32C3, supporting Esp-idf 3.3/4.4
-- Support for ESP32/ESP32S2 DAC gpio via Berry
+- Crash recorder ``Status 12`` for ESP32/ESP32-S2/ESP32-C3, supporting Esp-idf 3.3/4.4
+- Support for ESP32/ESP32-S2 DAC gpio via Berry
 - Berry support for Serial
 - Support for Sensirion SCD40/SCD41 CO2 sensor (#13139)
 - Support for BL0939 energy monitor as used in ESP32 based Sonoff Dual R3 V2 Pow (#13195)
@@ -1160,7 +1292,7 @@ All notable changes to this project will be documented in this file.
 - Berry now compiling in ``strict`` mode to catch more bugs
 
 ### Fixed
-- Fixed PWM5 on ESP32C3
+- ESP32-C3 PWM5
 
 ## [9.5.0.5] 20210815
 ### Added

@@ -4977,6 +4977,14 @@ extern char *SML_GetSVal(uint32_t index);
           SML_Decode(fvar - 1);
           goto nfuncexit;
         }
+        if (!strncmp_XP(lp, XPSTR("smls("), 5)) {
+          TS_FLOAT meter;
+          lp = GetNumericArgument(lp + 5, OPER_EQU, &meter, gv);
+          if (meter < 1) meter = 1;
+          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
+          SML_Shift_Num(meter - 1, fvar);
+          goto nfuncexit;
+        }
         if (!strncmp_XP(lp, XPSTR("smlv["), 5)) {
           lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           fvar = sml_getv(fvar);

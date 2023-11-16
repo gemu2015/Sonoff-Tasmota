@@ -3726,6 +3726,19 @@ uint32_t sml_getv(uint32_t sel) {
   return sel;
 }
 
+uint32_t SML_Shift_Num(uint32_t meter, uint32_t shift) {
+  struct METER_DESC *mp = &sml_globs.mp[meter];
+  if (shift > mp->sbsiz) shift = mp->sbsiz;
+  for (uint16_t cnt = 0; cnt < shift; cnt++) {
+     for (uint16_t count = 0; count < mp->sbsiz - 1; count++) {
+      mp->sbuff[count] = mp->sbuff[count + 1];
+      SML_Decode(meter);
+    }
+  }
+  return shift;
+}
+
+
 double SML_GetVal(uint32_t index) {
   if (sml_globs.ready == false) return 0;
   if (index < 1 || index > sml_globs.maxvars) { index = 1;}
