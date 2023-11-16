@@ -1458,6 +1458,7 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
 			uint32_t timediff = millis() - mp->lastms;
 			if (timediff > mp->tout_ms) {
 				mp->spos = 0;
+        SML_Decode(meters);
 				AddLog(LOG_LEVEL_DEBUG, PSTR("SML: sync"));
 			}
 			mp->lastms = millis();
