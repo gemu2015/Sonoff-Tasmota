@@ -1903,7 +1903,7 @@ void SML_Decode(uint8_t index) {
         }
         if (sml_globs.mp[mindex].type == 'o' || sml_globs.mp[mindex].type == 'c') {
           if (*mp++ != *cp++) {
-            found=0;
+            found = 0;
           }
         } else {
           if (sml_globs.mp[mindex].type == 's') {
@@ -1963,7 +1963,9 @@ void SML_Decode(uint8_t index) {
         							}
 #endif
 										}
-									}
+									} else {
+                    found = 0;
+                  }
 									break;
 								}
 								uint8_t iob;
