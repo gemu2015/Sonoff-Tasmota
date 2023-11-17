@@ -7,6 +7,12 @@
 */
 
 
+// new email library needs more stack !!!
+// else crashes
+//#undef SET_ESP32_STACK_SIZE
+//#define SET_ESP32_STACK_SIZE (12 * 1024)
+
+
 #ifdef ESP32
 #ifdef USE_WEBSERVER
 #ifdef USE_SENDMAIL
