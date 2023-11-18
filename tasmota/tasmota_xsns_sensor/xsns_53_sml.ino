@@ -2338,8 +2338,27 @@ void SML_Decode(uint8_t index) {
                   goto getstr;
                 }
                 dval = CharToDouble((char*)lcp);
+              } else if (*mp == 's') {
+                  mp++;
+                  char delim = *mp;
+                  mp++;
+                  uint8_t toskip = strtol((char*)mp,(char**)&mp, 10);
+                  mp++;
+                  char *lcp = (char*)cp;
+                  if (toskip) {
+                    char *bp = (char*)cp;
+                    for (uint32_t cnt = 0; cnt < toskip; cnt++) {
+                      bp = strchr(bp, delim);
+                      if (!bp) {
+                        break;
+                      }
+                      bp++;
+                      lcp = bp;
+                    }
+                  }
+                  dval = CharToDouble((char*)lcp);
               } else {
-                dval = CharToDouble((char*)cp);
+                  dval = CharToDouble((char*)cp);
               }
             } else {
               dval = sml_getvalue(cp, mindex);
@@ -2534,6 +2553,16 @@ void SML_Show(boolean json) {
           } else if (*cp == '(') {
             if (sml_globs.mp[mindex].type == 'o') {
               cp++;
+              strtol((char*)cp,(char**)&cp, 10);
+              cp++;
+              goto tststr;
+            } else {
+              mid = 0;
+            }
+          } else if (*cp == 's') {
+            // skip values
+            if (sml_globs.mp[mindex].type == 'o') {
+              cp += 2;
               strtol((char*)cp,(char**)&cp, 10);
               cp++;
               goto tststr;
