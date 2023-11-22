@@ -48,7 +48,7 @@
 #define D_MONTH3LIST "JanFebMärAprMaiJunJulAugSepOktNovDez"
 
 // Non JSON decimal separator
-#define D_DECIMAL_SEPARATOR ","
+#define D_DECIMAL_SEPARATOR "."
 
 // Common
 #define D_ABSOLUTE_HUMIDITY "Abs. Feuchtigkeit"
