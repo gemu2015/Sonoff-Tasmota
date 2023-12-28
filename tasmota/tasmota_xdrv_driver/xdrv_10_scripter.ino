@@ -70,9 +70,13 @@ const uint8_t SCRIPT_VERS[2] = {5, 2};
 #endif // USE_SML_M
 
 #ifndef MAXFILT
-#define MAXFILT 5
+#define MAXFILT 10
 #endif
+
+#ifndef SCRIPT_SVARSIZE
 #define SCRIPT_SVARSIZE 20
+#endif
+
 #ifndef SCRIPT_MAXSSIZE
 #define SCRIPT_MAXSSIZE 48
 #endif
@@ -155,6 +159,7 @@ char *Get_esc_char(char *cp, char *esc_chr);
 #ifndef MAX_EXT_ARRAYS
 #define MAX_EXT_ARRAYS 5
 #endif
+
 
 #ifndef STASK_PRIO
 #define STASK_PRIO 1
