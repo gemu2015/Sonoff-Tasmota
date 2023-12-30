@@ -166,7 +166,6 @@
 #define D_RESTART "Restart"
 #define D_RESTARTING "Restartare"
 #define D_RESTART_REASON "Motiv Restartare"
-#define D_RESTORE "Restaurare"
 #define D_RETAINED "Păstrare"
 #define D_RULE "Regulă"
 #define D_SAVE "Salvare"
@@ -192,7 +191,6 @@
 #define D_TWILIGHT_ASTRONOMICAL "Astronomical"
 #define D_TWILIGHT_CIVIL "Civil"
 #define D_TWILIGHT_NAUTICAL "Nautical"
-#define D_UPGRADE "actualizare"
 #define D_UPLOAD "Încărcăre"
 #define D_UPTIME "Folosință"
 #define D_USED "used"
@@ -290,6 +288,7 @@
 #define D_RESET_CONFIGURATION "Resetează Configurare"
 #define D_BACKUP_CONFIGURATION "Backup Configurare"
 #define D_RESTORE_CONFIGURATION "Restaurează Configurație"
+#define D_START_RESTORE "Start restore"
 #define D_MAIN_MENU "Meniu Principal"
 
 #define D_MODULE_PARAMETERS "Parametri modul"
@@ -958,6 +957,7 @@
 #define D_SENSOR_BIOPDU_PZEM016_RX "BioPDU PZEM016 Rx"
 #define D_SENSOR_BIOPDU_BIT    "BioPDU Bit"
 #define D_SENSOR_LOX_O2_RX     "LoxO2 RX"
+#define D_GPIO_MAGIC_SWITCH "MagicSwitch"
 
 // Units
 #define D_UNIT_AMPERE "A"

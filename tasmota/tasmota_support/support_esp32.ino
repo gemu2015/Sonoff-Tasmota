@@ -433,9 +433,9 @@ String ESP_getResetReason(void) {
 uint32_t ESP_ResetInfoReason(void) {
   RESET_REASON reason = rtc_get_reset_reason(0);
   if (1  == reason) { return REASON_DEFAULT_RST; }       // POWERON_RESET
-  if (12 == reason) { return REASON_SOFT_RESTART; }      // SW_CPU_RESET / RTC_SW_CPU_RESET
+  if ((3  == reason) || (12 == reason)) { return REASON_SOFT_RESTART; }  // SW_RESET / RTC_SW_SYS_RESET and SW_CPU_RESET / RTC_SW_CPU_RESET
   if (5  == reason) { return REASON_DEEP_SLEEP_AWAKE; }  // DEEPSLEEP_RESET
-  if (3  == reason) { return REASON_EXT_SYS_RST; }       // SW_RESET / RTC_SW_SYS_RESET
+//  if (3  == reason) { return REASON_EXT_SYS_RST; }       // SW_RESET / RTC_SW_SYS_RESET
   return -1; //no "official error code", but should work with the current code base
 }
 
@@ -977,5 +977,52 @@ uint32_t HwRandom(void) {
   #undef _RAND_ADDR
 #endif  // ESP_IDF_VERSION_MAJOR >= 5
 }
+
+/********************************************************************************************/
+// Since ESP-IDF 4.4, GPIO matrix or I/O is not reset during a restart
+// and GPIO configuration can get stuck because of leftovers
+//
+// This patched version of pinMode forces a full GPIO reset before setting new mode
+//
+#include "driver/gpio.h"
+
+extern "C" void ARDUINO_ISR_ATTR __pinMode(uint8_t pin, uint8_t mode);
+
+extern "C" void ARDUINO_ISR_ATTR pinMode(uint8_t pin, uint8_t mode) {
+  gpio_reset_pin((gpio_num_t)pin);
+  __pinMode(pin, mode);
+#ifdef CONFIG_IDF_TARGET_ESP32C3
+  // See GpioForceHoldRelay() below
+  static uint64_t pin_hold_mask = 0;
+  if (!bitRead(pin_hold_mask, pin)) {
+    bitSet(pin_hold_mask, pin);
+    gpio_hold_dis((gpio_num_t)pin);    // Allow state change
+  }
+#endif
+}
+
+#ifdef CONFIG_IDF_TARGET_ESP32C3
+void GpioForceHoldRelay(void) {
+  // Only ESP32-C3 toggles outputs on restart unless gpio_hold_en() is called before restart
+  // Retain the state when the chip or system is reset, for example, when watchdog time-out or Deep-sleep
+
+//  gpio_force_hold_all();             // This will hold flash/serial too so do not use
+
+  // Use current gpio config
+//  for (uint32_t i = 0; i < nitems(TasmotaGlobal.gpio_pin); i++) {
+//    if ((TasmotaGlobal.gpio_pin[i] & 0xFFE0) == GPIO_REL1 << 5) {
+  // Use future gpio config
+  myio template_gp;
+  TemplateGpios(&template_gp);
+  for (uint32_t i = 0; i < nitems(Settings->my_gp.io); i++) {
+    if (((Settings->my_gp.io[i] & 0xFFE0) == GPIO_REL1 << 5) ||
+        ((template_gp.io[i] & 0xFFE0) == GPIO_REL1 << 5)) {
+      gpio_hold_en((gpio_num_t)i);     // Retain the state when the chip or system is reset, for example, when watchdog time-out or Deep-sleep
+    }
+  }
+}
+#endif
+
+/********************************************************************************************/
 
 #endif  // ESP32

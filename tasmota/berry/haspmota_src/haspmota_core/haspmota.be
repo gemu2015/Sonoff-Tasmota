@@ -1320,13 +1320,20 @@ class lvh_dropdown : lvh_obj
   end
 end
 
+class lvh_bar : lvh_obj
+  static _lv_class = lv.bar
+  
+  def set_val(t)
+    self._lv_obj.set_value(t, lv.ANIM_OFF)
+  end
+end
+
 #################################################################################
 #
 # All other subclasses than just map the LVGL object
 # and doesn't have any specific behavior
 #
 #################################################################################
-class lvh_bar : lvh_obj         static _lv_class = lv.bar         end
 class lvh_btn : lvh_obj         static _lv_class = lv.btn         end
 class lvh_btnmatrix : lvh_obj   static _lv_class = lv.btnmatrix   end
 class lvh_checkbox : lvh_obj    static _lv_class = lv.checkbox    end
@@ -1733,12 +1740,19 @@ class HASPmota
   #====================================================================
   def do_action(lvh_object, event_code)
     if event_code != lv.EVENT_CLICKED    return end
-    var action = lvh_object._action
-    var cur_page = self.lvh_pages[self.lvh_page_cur_idx]
-    # print("do_action","lvh_object",lvh_object,"action",action,"cur_page",cur_page,self.lvh_page_cur_idx)
+    self.page_show(lvh_object._action)
+  end
 
+  #====================================================================
+  #  Execute a page changing action from string `action`
+  #
+  #  Arg1 `action` can be `prev`, `next`, `back` or `p<number>`
+  #  Returns: nil
+  #====================================================================
+  def page_show(action)
     # action can be `prev`, `next`, `back`, or `p<number>` like `p1`
     var to_page = nil
+    var cur_page = self.lvh_pages[self.lvh_page_cur_idx]
     var sorted_pages_list =  self.pages_list_sorted(self.lvh_page_cur_idx)
     if size(sorted_pages_list) <= 1  return end     # if only 1 page, do nothing
     # handle prev/next/back values

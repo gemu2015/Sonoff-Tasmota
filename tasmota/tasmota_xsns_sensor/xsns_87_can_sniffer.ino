@@ -41,7 +41,7 @@
 #define XSNS_87              87
 
 #ifndef MCP2515_BITRATE
-  #define MCP2515_BITRATE  CAN_125KBPS
+  #define MCP2515_BITRATE  CAN_100KBPS
 #endif
 
 #ifndef MCP2515_CLOCK
@@ -133,7 +133,6 @@ void MCP2515_Init(void) {
       return;
     }
     AddLog(LOG_LEVEL_INFO, PSTR("CAN: Sniffer Initialized"));
-    Mcp2515.init_status = 1;
   }
 }
 

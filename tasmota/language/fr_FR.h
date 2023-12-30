@@ -166,7 +166,6 @@
 #define D_RESTART "Redémarrage"
 #define D_RESTARTING "Redémarre"
 #define D_RESTART_REASON "Raison du redémarrage"
-#define D_RESTORE "restaurer"
 #define D_RETAINED "persistant"		   // MQTT
 #define D_RULE "Règle"
 #define D_SAVE "Enregistrer"
@@ -192,7 +191,6 @@
 #define D_TWILIGHT_ASTRONOMICAL "Astronomical"
 #define D_TWILIGHT_CIVIL "Civil"
 #define D_TWILIGHT_NAUTICAL "Nautical"
-#define D_UPGRADE "la mise à jour" 	 // "Lancer la mise à jour"
 #define D_UPLOAD "Upload"            // Not better in french
 #define D_UPTIME "Durée d'activité"
 #define D_USED "utilisé"
@@ -290,6 +288,7 @@
 #define D_RESET_CONFIGURATION "Configuration par défaut"
 #define D_BACKUP_CONFIGURATION "Sauvegarde de la config."
 #define D_RESTORE_CONFIGURATION "Restauration de la config."
+#define D_START_RESTORE "Start restore"
 #define D_MAIN_MENU "Menu principal"
 
 #define D_MODULE_PARAMETERS "Paramètres module"
@@ -958,6 +957,7 @@
 #define D_SENSOR_BIOPDU_PZEM016_RX "BioPDU PZEM016 Rx"
 #define D_SENSOR_BIOPDU_BIT    "BioPDU Bit"
 #define D_SENSOR_LOX_O2_RX     "LoxO2 RX"
+#define D_GPIO_MAGIC_SWITCH "MagicSwitch"
 
 
 // Units

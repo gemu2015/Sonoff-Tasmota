@@ -28,7 +28,7 @@
  * Use online command StateText to translate ON, OFF, HOLD and TOGGLE.
  * Use online command Prefix to translate cmnd, stat and tele.
  *
- * Updated until v13.1.0.4
+ * Updated until v13.3.0.1 - Last update 18.12.2023
 \*********************************************************************/
 
 //#define LANGUAGE_MODULE_NAME         // Enable to display "Module Generic" (ie Spanish), Disable to display "Generic Module" (ie English)
@@ -48,10 +48,10 @@
 #define D_MONTH3LIST "JanFebMärAprMaiJunJulAugSepOktNovDez"
 
 // Non JSON decimal separator
-#define D_DECIMAL_SEPARATOR "."
+#define D_DECIMAL_SEPARATOR ","
 
 // Common
-#define D_ABSOLUTE_HUMIDITY "Abs. Feuchtigkeit"
+#define D_ABSOLUTE_HUMIDITY "Abs․ Feuchtigkeit"
 #define D_ADMIN "Admin"
 #define D_AIR_QUALITY "Luftqualität"
 #define D_AP "AP"                    // Access Point
@@ -107,7 +107,7 @@
 #define D_FILE "Datei"
 #define D_FILE_SYSTEM_SIZE "Dateisystemgröße"
 #define D_FLOW_RATE "Durchflussmenge"
-#define D_FRAGMENTATION "frag."      // Lower case abbreviated version of fragmentation used in "memory fragmentation"
+#define D_FRAGMENTATION "frag․"      // Lower case abbreviated version of fragmentation used in "memory fragmentation"
 #define D_FRAME_RATE "Frame Rate"
 #define D_FREE_MEMORY "Freier Arbeitsspeicher"
 #define D_PSR_MAX_MEMORY "PS-RAM Speicher"
@@ -158,7 +158,7 @@
 #define D_PRESSURE "Luftdruck"
 #define D_PRESSUREATSEALEVEL "Luftdruck auf Meereshöhe"
 #define D_PROGRAM_FLASH_SIZE "Flash nutzbar"
-#define D_PROGRAM_SIZE "Größe Programm"
+#define D_PROGRAM_SIZE "Programmgröße"
 #define D_PROJECT "Projekt"
 #define D_RAIN "Regen"
 #define D_RANGE "Bereich"
@@ -166,7 +166,6 @@
 #define D_RESTART "Neustart"
 #define D_RESTARTING "starte neu"
 #define D_RESTART_REASON "Grund für Neustart"
-#define D_RESTORE "Wiederherstellung"
 #define D_RETAINED "beibehalten"
 #define D_RULE "Regel"
 #define D_SAVE "Speichern"
@@ -177,7 +176,7 @@
 #define D_STOP "Stop"
 #define D_SUBNET_MASK "Subnetzmaske"
 #define D_SUBSCRIBE_TO "abonniere"
-#define D_UNSUBSCRIBE_FROM "löse abo. von"
+#define D_UNSUBSCRIBE_FROM "löse Abo․ von"
 #define D_SUCCESSFUL "erfolgreich"
 #define D_SUNRISE "Sonnenaufgang"
 #define D_SUNSET "Sonnenuntergang"
@@ -192,7 +191,6 @@
 #define D_TWILIGHT_ASTRONOMICAL "astronomisch"
 #define D_TWILIGHT_CIVIL "zivil"
 #define D_TWILIGHT_NAUTICAL "nautisch"
-#define D_UPGRADE "update"
 #define D_UPLOAD "Upload"
 #define D_UPTIME "Laufzeit"
 #define D_USED "genutzt"
@@ -232,7 +230,7 @@
 
 // support.ino
 #define D_OSWATCH "osWatch"
-#define D_BLOCKED_LOOP "Schleife blockiert."
+#define D_BLOCKED_LOOP "Schleife blockiert"
 #define D_WPS_FAILED_WITH_STATUS "WPS fehlgeschlagen mit Status"
 #define D_ACTIVE_FOR_3_MINUTES "aktiv für 3 Minuten"
 #define D_FAILED_TO_START "Starten fehlgeschlagen"
@@ -243,9 +241,9 @@
 #define D_CONNECT_FAILED_AP_NOT_REACHED "Verbindung fehlgeschlagen, da AP nicht erreicht werden konnte"
 #define D_CONNECT_FAILED_WRONG_PASSWORD "Verbindung fehlgeschlagen"
 #define D_CONNECT_FAILED_AP_TIMEOUT "Verbindung fehlgeschlagen, da der AP nicht antwortet (timeout)"
-#define D_ATTEMPTING_CONNECTION "Verbindungsversuch..."
-#define D_CHECKING_CONNECTION "Prüfe Verbindung..."
-#define D_QUERY_DONE "Suchanfrage abgeschlossen. MQTT-Services gefunden"
+#define D_ATTEMPTING_CONNECTION "Verbindungsversuch…"
+#define D_CHECKING_CONNECTION "Prüfe Verbindung…"
+#define D_QUERY_DONE "Suche abgeschlossen․ MQTT-Services gefunden"
 #define D_MQTT_SERVICE_FOUND "MQTT-Service gefunden bei"
 #define D_FOUND_AT "gefunden bei"
 #define D_SYSLOG_HOST_NOT_FOUND "Syslog-Host nicht gefunden"
@@ -280,19 +278,20 @@
 #define D_CONSOLE "Konsole"
 #define D_CONFIRM_RESTART "Wirklich neustarten?"
 
-#define D_CONFIGURE_MODULE "Gerät konfigurieren"
-#define D_CONFIGURE_WIFI "WLAN konfigurieren"
-#define D_CONFIGURE_MQTT "MQTT konfigurieren"
-#define D_CONFIGURE_DOMOTICZ "Domoticz konfigurieren"
-#define D_CONFIGURE_LOGGING "Logging konfigurieren"
-#define D_CONFIGURE_OTHER "Sonstige Konfiguration"
+#define D_CONFIGURE_MODULE "Geräteeinstellungen"
+#define D_CONFIGURE_WIFI "WLAN-Einstellungen"
+#define D_CONFIGURE_MQTT "MQTT-Einstellungen"
+#define D_CONFIGURE_DOMOTICZ "Domoticz-Einstellungen"
+#define D_CONFIGURE_LOGGING "Logging-Einstellungen"
+#define D_CONFIGURE_OTHER "Weitere Einstellungen"
 #define D_CONFIRM_RESET_CONFIGURATION "Zurücksetzen der Konfiguration bestätigen"
 #define D_RESET_CONFIGURATION "Konfiguration zurücksetzen"
 #define D_BACKUP_CONFIGURATION "Konfiguration sichern"
 #define D_RESTORE_CONFIGURATION "Konfiguration wiederherstellen"
+#define D_START_RESTORE "Wiederherstellung starten"
 #define D_MAIN_MENU "Hauptmenü"
 
-#define D_MODULE_PARAMETERS "Geräte-Einstellungen"
+#define D_MODULE_PARAMETERS "Geräteeinstellungen"
 #define D_MODULE_TYPE "Gerätetyp"
 #define D_PULLUP_ENABLE "Pull-up aktiv"
 #define D_ADC "ADC"
@@ -323,7 +322,7 @@
 #define D_SHOW_MORE_OPTIONS "Mehr Optionen"
 #define D_CHECK_CREDENTIALS "Bitte SSID/Passwort überprüfen"
 #define D_SUCCESSFUL_WIFI_CONNECTION "mit Wifi verbunden"
-#define D_NOW_YOU_CAN_CLOSE_THIS_WINDOW "Fenster kann geschlossen werden"
+#define D_NOW_YOU_CAN_CLOSE_THIS_WINDOW "Das Fenster kann geschlossen werden"
 #define D_REDIRECTING_TO_NEW_IP "Umleitung zur neuen Geräte IP-Adresse"
 
 #define D_MQTT_PARAMETERS "MQTT-Einstellungen"
@@ -340,7 +339,7 @@
 #define D_SYSLOG_PORT "Syslog Port"
 #define D_TELEMETRY_PERIOD "Telemetrieperiode"
 
-#define D_OTHER_PARAMETERS "Sonstige Einstellungen"
+#define D_OTHER_PARAMETERS "Weitere Einstellungen"
 #define D_TEMPLATE "Vorlage"
 #define D_ACTIVATE "Aktivieren"
 #define D_DEVICE_NAME "Gerätename"
@@ -349,7 +348,7 @@
 #define D_MQTT_TLS_ENABLE "MQTT TLS"
 #define D_HTTP_API "HTTP API"
 #define D_HTTP_API_ENABLE "HTTP API aktivieren"
-#define D_FRIENDLY_NAME "Name [Friendly Name]"
+#define D_FRIENDLY_NAME "Friendly Name"
 #define D_BELKIN_WEMO "Belkin WeMo"
 #define D_HUE_BRIDGE "Hue Bridge"
 #define D_SINGLE_DEVICE "Einzelnes Gerät"
@@ -398,9 +397,9 @@
 #define D_UPLOAD_ERR_1 "Keine Datei ausgewählt"
 #define D_UPLOAD_ERR_2 "Nicht genug Speicherplatz"
 #define D_UPLOAD_ERR_3 "Falsche Dateisignatur"
-#define D_UPLOAD_ERR_4 "Datei überschreitet vorhdn. Flashspeicher"
+#define D_UPLOAD_ERR_4 "Datei überschreitet vorhdn․ Flashspeicher"
 #define D_UPLOAD_ERR_5 "Upload Buffer Vergleich weicht ab"
-#define D_UPLOAD_ERR_6 "Upload fehlgeschlagen. Aktiviere logging 3"
+#define D_UPLOAD_ERR_6 "Upload fehlgeschlagen․ Aktiviere Logging 3"
 #define D_UPLOAD_ERR_7 "Upload abgebrochen"
 #define D_UPLOAD_ERR_8 "Datei ungültig"
 #define D_UPLOAD_ERR_9 "Datei zu groß"
@@ -409,14 +408,14 @@
 #define D_UPLOAD_ERR_12 "RF Chip beschreiben fehlgeschlagen"
 #define D_UPLOAD_ERR_13 "RF Firmware ungültig"
 #define D_UPLOAD_ERR_14 "Nicht kompatibel"
-#define D_UPLOAD_ERROR_CODE "Upload Fehler Nummer"
+#define D_UPLOAD_ERROR_CODE "Upload Fehlernummer"
 
 #define D_ENTER_COMMAND "Befehl eingeben"
 #define D_ENABLE_WEBLOG_FOR_RESPONSE "Aktivere Web Log Level 2 falls Reaktion erwartet"
 #define D_NEED_USER_AND_PASSWORD "Benötige user=<Benutzername>&password=<Passwort>"
 
 // xdrv_01_mqtt.ino
-#define D_FINGERPRINT "TLS-Fingerabdruck wird verifiziert..."
+#define D_FINGERPRINT "TLS-Fingerabdruck wird verifiziert…"
 #define D_TLS_CONNECT_FAILED_TO "TLS-Verbindung fehlgeschlagen an"
 #define D_RETRY_IN "Wiederversuch in"
 #define D_VERIFIED "verifiziert mit Fingerabdruck"
@@ -444,11 +443,11 @@
 #define D_3_RESPONSE_PACKETS_SENT "3 Antwortpakete gesendet"
 
 // xdrv_07_domoticz.ino
-#define D_DOMOTICZ_PARAMETERS "Domoticz-Parameter"
+#define D_DOMOTICZ_PARAMETERS "Domoticz-Einstellungen"
 #define D_DOMOTICZ_IDX "Idx"
-#define D_DOMOTICZ_KEY_IDX "Key idx"
-#define D_DOMOTICZ_SWITCH_IDX "Switch idx"
-#define D_DOMOTICZ_SENSOR_IDX "Sensor idx"
+#define D_DOMOTICZ_KEY_IDX "Key Idx"
+#define D_DOMOTICZ_SWITCH_IDX "Switch Idx"
+#define D_DOMOTICZ_SENSOR_IDX "Sensor Idx"
   #define D_DOMOTICZ_TEMP "Temp"
   #define D_DOMOTICZ_TEMP_HUM "Temp,Hum"
   #define D_DOMOTICZ_TEMP_HUM_BARO "Temp,Hum,Baro"
@@ -459,10 +458,10 @@
   #define D_DOMOTICZ_CURRENT "Current/PM10"
   #define D_DOMOTICZ_AIRQUALITY "AirQuality"
   #define D_DOMOTICZ_P1_SMART_METER "P1SmartMeter"
-#define D_DOMOTICZ_UPDATE_TIMER "Update Zeitplan"
+#define D_DOMOTICZ_UPDATE_TIMER "Zeitplan-Update"
 
 // xdrv_09_timers.ino
-#define D_CONFIGURE_TIMER "Zeitplan konfigurieren"
+#define D_CONFIGURE_TIMER "Zeitplaneinstellungen"
 #define D_TIMER_PARAMETERS "Zeitplaneinstellungen"
 #define D_TIMER_ENABLE "Zeitpläne aktivieren"
 #define D_TIMER_ARM "Aktiv"
@@ -473,7 +472,7 @@
 #define D_TIMER_ACTION "Aktion"
 
 // xdrv_10_knx.ino
-#define D_CONFIGURE_KNX "KNX konfigurieren"
+#define D_CONFIGURE_KNX "KNX-Einstellungen"
 #define D_KNX_PARAMETERS "KNX-Parameter"
 #define D_KNX_GENERAL_CONFIG "Allgemein"
 #define D_KNX_PHYSICAL_ADDRESS "Physikalische Adresse"
@@ -489,7 +488,7 @@
 #define D_KNX_COMMAND_READ "Lesen"
 #define D_KNX_COMMAND_OTHER "Andere"
 #define D_SENT_TO "gesendet an"
-#define D_KNX_WARNING "Die Gruppenadresse (0/0/0) ist reserviert und kann nicht verwendet werden."
+#define D_KNX_WARNING "Die Gruppenadresse (0/0/0) ist reserviert und kann nicht verwendet werden"
 #define D_KNX_ENHANCEMENT "Erweiterte Kommunikation"
 #define D_KNX_TX_SLOT "KNX TX"
 #define D_KNX_RX_SLOT "KNX RX"
@@ -500,7 +499,7 @@
 #define D_ZIGBEE_PERMITJOIN_ACTIVE "Gerätekopplung erlaubt"
 #define D_ZIGBEE_MAPPING_TITLE "Tasmota Zigbee Karte"
 #define D_ZIGBEE_NOT_STARTED "Zigbee nicht gestartet"
-#define D_ZIGBEE_MAPPING_IN_PROGRESS_SEC "Karte in Erstellung (%d s. verbleibend)"
+#define D_ZIGBEE_MAPPING_IN_PROGRESS_SEC "Karte in Erstellung (%d s․ verbleibend)"
 #define D_ZIGBEE_MAPPING_NOT_PRESENT "Keine Karte"
 #define D_ZIGBEE_MAP_REFRESH "Zigbee Karte erneuern"
 #define D_ZIGBEE_MAP   "Zigbee Karte"
@@ -527,7 +526,7 @@
 // xdrv_89_dali.ino
 #define D_SENSOR_DALI_RX                  "Dali RX"
 #define D_SENSOR_DALI_TX                  "Dali TX"
-#define D_CONFIGURE_DALI                  "Konfig. DALI"
+#define D_CONFIGURE_DALI                  "DALI-Einstellungen"
 
 // xdrv_03_energy.ino
 #define D_ENERGY_TODAY "Energie heute"
@@ -540,9 +539,9 @@
 #define D_DOMOTICZ_SHUTTER "Rollo"
 
 // xdrv_28_pcf8574.ino
-#define D_CONFIGURE_PCF8574 "Konfiguriere PCF8574"
+#define D_CONFIGURE_PCF8574 "PCF8574-Einstellungen"
 #define D_PCF8574_PARAMETERS "PCF8574 Parameter"
-#define D_INVERT_PORTS "Invertiere Ports"
+#define D_INVERT_PORTS "Ports invertieren"
 #define D_DEVICE "Gerät"
 #define D_DEVICE_INPUT "Eingang"
 #define D_DEVICE_OUTPUT "Ausgang"
@@ -593,9 +592,9 @@
 #define D_PROXIMITY "Nähe"
 
 // xsns_32_mpu6050.ino
-#define D_AX_AXIS "Beschl. X-Achse"
-#define D_AY_AXIS "Beschl. Y-Achse"
-#define D_AZ_AXIS "Beschl. Z-Achse"
+#define D_AX_AXIS "Beschl․ X-Achse"
+#define D_AY_AXIS "Beschl․ Y-Achse"
+#define D_AZ_AXIS "Beschl․ Z-Achse"
 #define D_GX_AXIS "Gyroskop X-Achse"
 #define D_GY_AXIS "Gyroskop Y-Achse"
 #define D_GZ_AXIS "Gyroskop Z-Achse"
@@ -958,6 +957,7 @@
 #define D_SENSOR_BIOPDU_PZEM016_RX "BioPDU PZEM016 Rx"
 #define D_SENSOR_BIOPDU_BIT    "BioPDU Bit"
 #define D_SENSOR_LOX_O2_RX     "LoxO2 RX"
+#define D_GPIO_MAGIC_SWITCH    "MagicSwitch"
 
 // Units
 #define D_UNIT_AMPERE "A"
@@ -1071,22 +1071,22 @@
 #define D_SCRIPT_UPLOAD_FILES  "Upload Dateien"
 
 //xdrv_50_filesystem.ino
-#define D_MANAGE_FILE_SYSTEM   "Verwalte Dateisystem"
+#define D_MANAGE_FILE_SYSTEM   "Dateisystem verwalten"
 #define D_FS_SIZE              "Größe"
 #define D_FS_FREE              "Frei"
 #define D_NEW_FILE             "neue-datei.txt"
-#define D_CREATE_NEW_FILE      "Datei erstellen und bearbeiten"
+#define D_CREATE_NEW_FILE      "Neue Datei erstellen"
 #define D_EDIT_FILE            "Datei bearbeiten"
-#define D_CONFIRM_FILE_DEL     "Datei löschen bestätigen"
-#define D_SHOW_HIDDEN_FILES    "Zeige versteckte Datei(en)"
+#define D_CONFIRM_FILE_DEL     "Datei wirklich löschen?"
+#define D_SHOW_HIDDEN_FILES    "Versteckte Datei(en) anzeigen"
 
 //xsns_67_as3935.ino
-#define D_AS3935_GAIN "Umgebung:"
-#define D_AS3935_ENERGY "Energie:"
-#define D_AS3935_DISTANCE "Entfernung:"
-#define D_AS3935_DISTURBER "Entstörer:"
-#define D_AS3935_VRMS "µVrms:"
-#define D_AS3935_APRX "ca.:"
+#define D_AS3935_GAIN "Umgebung"
+#define D_AS3935_ENERGY "Energie"
+#define D_AS3935_DISTANCE "Entfernung"
+#define D_AS3935_DISTURBER "Entstörer"
+#define D_AS3935_VRMS "µVrms"
+#define D_AS3935_APRX "ca․"
 #define D_AS3935_AWAY "entfernt"
 #define D_AS3935_LIGHT "Blitz"
 #define D_AS3935_OUT "ausserhalb der Reichweite"
@@ -1097,13 +1097,13 @@
 #define D_AS3935_INTNOEV "Interrupt ohne Grund!"
 #define D_AS3935_FLICKER "IRQ Pin flackert!"
 #define D_AS3935_POWEROFF "Ausgeschaltet"
-#define D_AS3935_NOMESS "lausche..."
+#define D_AS3935_NOMESS "lausche…"
 #define D_AS3935_ON "An"
 #define D_AS3935_OFF "Aus"
 #define D_AS3935_INDOORS "Indoors"
 #define D_AS3935_OUTDOORS "Outdoors"
 #define D_AS3935_CAL_FAIL "Kalibrierung fehlerhaft"
-#define D_AS3935_CAL_OK "Cap gesetzt auf:"
+#define D_AS3935_CAL_OK "Cap gesetzt auf"
 
 //xsns_68_opentherm.ino
 #define D_SENSOR_BOILER_OT_RX   "OpenTherm RX"
@@ -1115,8 +1115,8 @@
 #define D_CURRENT_TARIFF  "Aktueller Tarif"
 #define D_TARIFF          "Tarif"
 #define D_OVERLOAD        "ADPS"
-#define D_MAX_POWER       "max. Leistung"
-#define D_MAX_CURRENT     "max. Stromstärke"
+#define D_MAX_POWER       "max․ Leistung"
+#define D_MAX_CURRENT     "max․ Stromstärke"
 
 // xsns_79_as608.ino
 #define D_FP_ENROLL_PLACEFINGER "Finger auflegen"
@@ -1199,7 +1199,7 @@
 #define D_NEOPOOL_RELAY_VALVE             "Ventil"
 #define D_NEOPOOL_RELAY_AUX               "Aux"
 #define D_NEOPOOL_TIME                    "Zeit"
-#define D_NEOPOOL_FILT_MODE               "Filtration mode"
+#define D_NEOPOOL_FILT_MODE               "Filtermodus"
 #define D_NEOPOOL_CELL_RUNTIME            "Laufzeit Zelle"
 #define D_NEOPOOL_POLARIZATION            "Pol"               // Sensor status
 #define D_NEOPOOL_PR_OFF                  "PrAus"

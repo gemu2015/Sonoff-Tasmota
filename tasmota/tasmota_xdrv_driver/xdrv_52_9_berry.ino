@@ -31,6 +31,9 @@ extern "C" {
 #ifdef USE_MATTER_DEVICE
   #include "berry_matter.h"
 #endif
+#ifdef USE_WS2812
+  #include "berry_animate.h"
+#endif
 #include "be_vm.h"
 #include "ZipReadFS.h"
 #include "ccronexpr.h"
@@ -906,9 +909,6 @@ bool Xdrv52(uint32_t function)
     case FUNC_EVERY_100_MSECOND:
       callBerryEventDispatcher(PSTR("every_100ms"), nullptr, 0, nullptr);
       break;
-    case FUNC_EVERY_200_MSECOND:
-      callBerryEventDispatcher(PSTR("every_200ms"), nullptr, 0, nullptr);
-      break;
     case FUNC_EVERY_250_MSECOND:
       callBerryEventDispatcher(PSTR("every_250ms"), nullptr, 0, nullptr);
       break;
@@ -969,6 +969,9 @@ bool Xdrv52(uint32_t function)
       callBerryEventDispatcher(PSTR("button_pressed"), nullptr, 0, nullptr);
       break;
 
+    case FUNC_ACTIVE:
+      result = true;
+      break;
 
   }
   return result;

@@ -6,13 +6,6 @@
   SPDX-License-Identifier: GPL-3.0-only
 */
 
-
-// new email library needs more stack !!!
-// else crashes
-//#undef SET_ESP32_STACK_SIZE
-//#define SET_ESP32_STACK_SIZE (12 * 1024)
-
-
 #ifdef ESP32
 #ifdef USE_WEBSERVER
 #ifdef USE_SENDMAIL
@@ -32,11 +25,6 @@
  * and a section >m is found, the lines in this section (until #) are sent as email body
 \*********************************************************************************************/
 
-
-#include <ESP_Mail_Client_Version.h>
-
-
-#if ESP_MAIL_VERSION_NUM>=30409
 //
 // Black magic necessary for BearSSL and BearSSL in libmail to live in parallel
 //
@@ -97,12 +85,9 @@ typedef struct {
 }
 
 #include "SSLClient/ESP_SSLClient.h"
-#endif
-
 #include <ESP_Mail_Client.h>
 
-
-//#define DEBUG_EMAIL_PORT    // Enable debugging
+// #define DEBUG_EMAIL_PORT    // Enable debugging
 
 #ifndef SEND_MAIL32_MINRAM
 #undef SEND_MAIL32_MINRAM
@@ -416,12 +401,8 @@ void smtpCallback(SMTP_Status status) {
     for (size_t i = 0; i < smtp->sendingResult.size(); i++) {
       /* Get the result item */
       SMTP_Result result = smtp->sendingResult.getItem(i);
-
-#if ESP_MAIL_VERSION_NUM>=30409
       localtime_r((time_t*)&result.timestamp, &dt);
-#else
-      localtime_r(&result.timesstamp, &dt);
-#endif
+
       Serial.printf("Message No: %d\n", i + 1);
       Serial.printf("Status: %s\n", result.completed ? "success" : "failed");
       Serial.printf("Date/Time: %d/%d/%d %d:%d:%d\n", dt.tm_year + 1900, dt.tm_mon + 1, dt.tm_mday, dt.tm_hour, dt.tm_min, dt.tm_sec);

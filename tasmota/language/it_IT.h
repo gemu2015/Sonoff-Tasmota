@@ -28,7 +28,7 @@
  * Use online command StateText to translate ON, OFF, HOLD and TOGGLE.
  * Use online command Prefix to translate cmnd, stat and tele.
  *
- * Updated until v9.4.0.1 - Last update 13.11.2023
+ * Updated until v9.4.0.1 - Last update 17.12.2023
 \*********************************************************************/
 
 #define LANGUAGE_MODULE_NAME         // Enable to display "Module Generic" (ie Spanish), Disable to display "Generic Module" (ie English)
@@ -166,7 +166,6 @@
 #define D_RESTART              "Riavvia"
 #define D_RESTARTING           "Riavvio"
 #define D_RESTART_REASON       "Causa riavvio"
-#define D_RESTORE              "ripristino"
 #define D_RETAINED             "salvato"
 #define D_RULE                 "Regola"
 #define D_SAVE                 "Salva"
@@ -192,7 +191,6 @@
 #define D_TWILIGHT_ASTRONOMICAL "astronomico"
 #define D_TWILIGHT_CIVIL       "civile"
 #define D_TWILIGHT_NAUTICAL    "nautico"
-#define D_UPGRADE              "aggiornamento"
 #define D_UPLOAD               "Caricamento"
 #define D_UPTIME               "Tempo accensione"
 #define D_USED                 "usati"
@@ -290,6 +288,7 @@
 #define D_RESET_CONFIGURATION          "Impostazioni predefinite"
 #define D_BACKUP_CONFIGURATION         "Salva impostazioni"
 #define D_RESTORE_CONFIGURATION        "Carica impostazioni"
+#define D_START_RESTORE                "Avvia ripristino"
 #define D_MAIN_MENU                    "Menu principale"
 
 #define D_MODULE_PARAMETERS  "Parametri modulo"
@@ -958,6 +957,7 @@
 #define D_SENSOR_BIOPDU_PZEM016_RX      "BioPDU PZEM016 - RX"
 #define D_SENSOR_BIOPDU_BIT             "BioPDU Bit"
 #define D_SENSOR_LOX_O2_RX              "LoxO2 - RX"
+#define D_GPIO_MAGIC_SWITCH             "MagicSwitch"
 
 // Units
 #define D_UNIT_AMPERE                     "A"
@@ -1220,6 +1220,7 @@
 
 // xsns_106_gdk101.ino
 #define D_AVG_RAD_DOSE                    "Dose media radiazioni"
+#define D_AVG_RAD_DOSE                    "Radiazioni"
 #define D_UNIT_US_H                       "µSv/h"
 
 #endif  // _LANGUAGE_IT_IT_H_

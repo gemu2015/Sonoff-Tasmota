@@ -1917,6 +1917,11 @@ void SSPMInit(void) {
     return;
   }
 
+  if (SspmSerial->hardwareSerial()) {
+    ClaimSerial();
+  }
+  AddLog(LOG_LEVEL_DEBUG, PSTR("SPM: Serial UART%d"), SspmSerial->getUart());
+
   Xdrv86SettingsLoad(0);
 
   pinMode(SSPM_GPIO_ARM_RESET, OUTPUT);
@@ -2681,6 +2686,9 @@ bool Xdrv86(uint32_t function) {
         break;
       case FUNC_BUTTON_PRESSED:
         result = SSPMButton();
+        break;
+      case FUNC_ACTIVE:
+        result = true;
         break;
     }
   }

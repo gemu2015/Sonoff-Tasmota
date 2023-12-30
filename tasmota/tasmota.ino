@@ -775,6 +775,8 @@ void setup(void) {
   if (bitRead(Settings->rule_enabled, 0)) Run_Scripter(">BS",3,0);
 #endif
 
+  XdrvCall(FUNC_ACTIVE);         // FUNC_ACTIVE
+
   TasmotaGlobal.rules_flag.system_init = 1;
 }
 
@@ -886,6 +888,10 @@ void Scheduler(void) {
   ArduinoOtaLoop();
 #endif  // USE_ARDUINO_OTA
 #endif  // ESP8266
+
+#ifndef SYSLOG_UPDATE_SECOND
+  SyslogAsync(false);
+#endif  // SYSLOG_UPDATE_SECOND
 }
 
 void loop(void) {

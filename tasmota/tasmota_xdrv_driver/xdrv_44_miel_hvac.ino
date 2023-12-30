@@ -1084,9 +1084,12 @@ miel_hvac_pre_init(void)
 		ClaimSerial();
 		SetSerial(baudrate, TS_SERIAL_8E1);
 	}
+#ifdef ESP32
+    AddLog(LOG_LEVEL_DEBUG, PSTR(MIEL_HVAC_LOGNAME ": Serial UART%d"), sc->sc_serial->getUart());
+#endif
 
-  UpdateDevicesPresent(1);  /* claim a POWER device slot */
 	sc->sc_device = TasmotaGlobal.devices_present;
+  UpdateDevicesPresent(1);  /* claim a POWER device slot */
 
 	miel_hvac_sc = sc;
 	return;
@@ -1336,6 +1339,10 @@ bool Xdrv44(uint32_t function) {
 	case FUNC_COMMAND:
 		result = DecodeCommand(miel_hvac_cmnd_names, miel_hvac_cmnds);
 		break;
+
+    case FUNC_ACTIVE:
+        result = true;
+        break;
 	}
 
 	return (result);

@@ -166,7 +166,6 @@
 #define D_RESTART "Herstart"
 #define D_RESTARTING "Herstarten"
 #define D_RESTART_REASON "Reden herstart"
-#define D_RESTORE "herstellen"
 #define D_RETAINED "behouden"
 #define D_RULE "Regel"
 #define D_SAVE "Opslaan"
@@ -192,7 +191,6 @@
 #define D_TWILIGHT_ASTRONOMICAL "Astronomical"
 #define D_TWILIGHT_CIVIL "Civil"
 #define D_TWILIGHT_NAUTICAL "Nautical"
-#define D_UPGRADE "opwaarderen"
 #define D_UPLOAD "Verzenden"
 #define D_UPTIME "Bedrijfstijd"
 #define D_USED "used"
@@ -290,6 +288,7 @@
 #define D_RESET_CONFIGURATION "Reset Configuratie"
 #define D_BACKUP_CONFIGURATION "Bewaar Configuratie"
 #define D_RESTORE_CONFIGURATION "Herstel Configuration"
+#define D_START_RESTORE "Start restore"
 #define D_MAIN_MENU "Hoofdmenu"
 
 #define D_MODULE_PARAMETERS "Module parameters"
@@ -958,6 +957,7 @@
 #define D_SENSOR_BIOPDU_PZEM016_RX "BioPDU PZEM016 Rx"
 #define D_SENSOR_BIOPDU_BIT    "BioPDU Bit"
 #define D_SENSOR_LOX_O2_RX     "LoxO2 RX"
+#define D_GPIO_MAGIC_SWITCH "MagicSwitch"
 
 // Units
 #define D_UNIT_AMPERE "A"
