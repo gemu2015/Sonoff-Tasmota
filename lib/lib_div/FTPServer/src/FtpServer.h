@@ -28,7 +28,7 @@
  *******************************************************************************/
 
 // Uncomment to print debugging info to console attached to ESP8266
-#define FTP_DEBUG
+//#define FTP_DEBUG
 
 #ifndef ESP32FTP_SERVERESP_H
 #define ESP32FTP_SERVERESP_H

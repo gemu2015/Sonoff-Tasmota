@@ -29,6 +29,7 @@
 WiFiServer ftpServer( FTP_CTRL_PORT );
 WiFiServer dataServer( FTP_DATA_PORT_PASV );
 
+
 void FtpServer::begin(String uname, String pword, FS *fp)
 {
 
@@ -259,7 +260,7 @@ boolean FtpServer::processCommand()
     
     
   char path[ FTP_CWD_SIZE ];
-    if( haveParameter() && makeExistsPath( path ))
+    if ( haveParameter() && makeExistsPath( path ))
     {
       strcpy( cwdName, path );
        client.println( "250 Ok. Current directory is " + String(cwdName) );
@@ -344,7 +345,7 @@ boolean FtpServer::processCommand()
   //
   else if( ! strcmp( command, "PORT" ))
   {
-	if (data) data.stop();
+	  if (data) data.stop();
     // get IP of data client
     dataIp[ 0 ] = atoi( parameters );
     char * p = strchr( parameters, ',' );
@@ -410,15 +411,15 @@ boolean FtpServer::processCommand()
   else if( ! strcmp( command, "DELE" ))
   {
     char path[ FTP_CWD_SIZE ];
-    if (haveParameter())
+    if (!haveParameter())
       client.println( "501 No file name");
     else if( makePath( path ))
     {
-      if( ! ufsp->exists( path ))
+      if ( ! ufsp->exists( path ))
         client.println( "550 File " + String(parameters) + " not found");
       else
       {
-        if( ufsp->remove( path ))
+        if ( ufsp->remove( path ))
           client.println( "250 Deleted " + String(parameters) );
         else
           client.println( "450 Can't delete " + String(parameters));
@@ -571,30 +572,33 @@ boolean FtpServer::processCommand()
   //
   //  RETR - Retrieve
   //
-  else if( ! strcmp( command, "RETR" ))
-  {
+  else if( ! strcmp( command, "RETR" )) {
     char path[ FTP_CWD_SIZE ];
-    if (haveParameter())
-      client.println( "501 No file name");
-    else if( makePath( path ))
-	{
-		file = ufsp->open(path, "r");
-      if( !file){
-        client.println( "550 File " +String(parameters)+ " not found");
-        client.println( "450 Can't open " +String(parameters));
-        }
-      else if( ! dataConnect())
-        client.println( "425 No data connection");
-      else
-      {
 #ifdef FTP_DEBUG
-  		  Serial.println("Sending " + String(parameters));
+  	Serial.println("retr " + String(parameters));
 #endif
-        client.println( "150-Connected to port "+ String(dataPort));
-        client.println( "150 " + String(file.size()) + " bytes to download");
-        millisBeginTrans = millis();
-        bytesTransfered = 0;
-        transferStatus = 1;
+    if (!haveParameter()) {
+      client.println( "501 No file name");
+    }
+    else {
+      if ( makePath( path )) {
+		    file = ufsp->open(path, "r");
+        if( !file){
+          client.println( "550 File " +String(parameters)+ " not found");
+          client.println( "450 Can't open " +String(parameters));
+        }
+        else if( ! dataConnect())
+          client.println( "425 No data connection");
+        else {
+#ifdef FTP_DEBUG
+  		    Serial.println("Sending " + String(parameters));
+#endif
+          client.println( "150-Connected to port "+ String(dataPort));
+          client.println( "150 " + String(file.size()) + " bytes to download");
+          millisBeginTrans = millis();
+          bytesTransfered = 0;
+          transferStatus = 1;
+        }
       }
     }
   }
@@ -604,7 +608,7 @@ boolean FtpServer::processCommand()
   else if( ! strcmp( command, "STOR" ))
   {
     char path[ FTP_CWD_SIZE ];
-    if (haveParameter())
+    if (!haveParameter())
       client.println( "501 No file name");
     else if( makePath( path ))
     {
@@ -635,7 +639,7 @@ boolean FtpServer::processCommand()
   else if( ! strcmp( command, "MKD" ))
   {
      char path[ FTP_CWD_SIZE ];
-     if( haveParameter() && makePath( path )){
+     if ( haveParameter() && makePath( path )){
       if (ufsp->exists( path )){
         client.println( "521 Can't create \"" + String(parameters) + ", Directory exists");
         }
@@ -705,7 +709,7 @@ boolean FtpServer::processCommand()
     char dir[ FTP_FIL_SIZE ];
     if( strlen( buf ) == 0 || ! rnfrCmd )
       client.println( "503 Need RNFR before RNTO");
-    else if (haveParameter())
+    else if (!haveParameter())
       client.println( "501 No file name");
     else if( makePath( path ))
     {
@@ -1058,8 +1062,9 @@ char * FtpServer::makeDateTimeStr( char * tstr, uint16_t date, uint16_t time )
 
 bool FtpServer::haveParameter()
 {
-  if( parameters != NULL && strlen( parameters ) > 0 )
+  if ( parameters != NULL && strlen( parameters ) > 0 ) {
     return true;
+  }
   client.println ("501 No file name");
   return false;  
 }
