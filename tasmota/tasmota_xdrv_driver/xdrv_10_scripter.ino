@@ -13119,7 +13119,7 @@ bool Xdrv10(uint32_t function)
 
     case FUNC_NETWORK_UP:
 #ifdef USE_FTP
-      ftpSrv.begin("esp32","esp32", ufsp);
+      ftpSrv.begin("USER_FTP","PW_FTP", ufsp);
 #endif
       break;
     
