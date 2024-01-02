@@ -1348,9 +1348,16 @@ void UfsEditorUpload(void) {
 
 #endif  // USE_WEBSERVER
 
+
+#ifdef USE_FTP
+#include <FtpServer.h>
+FtpServer ftpSrv;   //set #define FTP_DEBUG in ESP32FtpServer.h to see ftp verbose on serial
+#endif
+
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
+
 
 bool Xdrv50(uint32_t function) {
   bool result = false;
@@ -1358,7 +1365,19 @@ bool Xdrv50(uint32_t function) {
   switch (function) {
     case FUNC_LOOP:
       UfsExecuteCommandFileLoop();
+
+#ifdef USE_FTP
+      ftpSrv.handleFTP();
+#endif
+
       break;
+    
+    case FUNC_NETWORK_UP:
+#ifdef USE_FTP
+      ftpSrv.begin(USER_FTP,PW_FTP, ufsp);
+#endif
+      break;
+
 /*
 // Moved to support_tasmota.ino for earlier init to be used by scripter
 #ifdef USE_SDCARD

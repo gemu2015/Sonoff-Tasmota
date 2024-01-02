@@ -12773,11 +12773,6 @@ void script_add_subpage(uint8_t num) {
 \*********************************************************************************************/
 //const esp_partition_t *esp32_part;
 
-#ifdef USE_FTP
-#include <FtpServer.h>
-FtpServer ftpSrv;   //set #define FTP_DEBUG in ESP32FtpServer.h to see ftp verbose on serial
-#endif
-
 bool Xdrv10(uint32_t function)
 {
   bool result = false;
@@ -13112,15 +13107,9 @@ bool Xdrv10(uint32_t function)
 #ifdef USE_SCRIPT_ALT_DOWNLOAD
       WebServer82Loop();
 #endif
-#ifdef USE_FTP
-      ftpSrv.handleFTP();
-#endif
       break;
 
     case FUNC_NETWORK_UP:
-#ifdef USE_FTP
-      ftpSrv.begin("USER_FTP","PW_FTP", ufsp);
-#endif
       break;
     
     case FUNC_ACTIVE:
