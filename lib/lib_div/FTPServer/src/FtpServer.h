@@ -28,15 +28,19 @@
  *******************************************************************************/
 
 // Uncomment to print debugging info to console attached to ESP8266
-//#define FTP_DEBUG
+#define FTP_DEBUG
 
 #ifndef ESP32FTP_SERVERESP_H
 #define ESP32FTP_SERVERESP_H
 
-//#include "Streaming.h"
-#include "SD_MMC.h"
+
 #include <FS.h>
 #include <WiFiClient.h>
+#ifdef ESP32
+  #include <WiFi.h>
+#else
+  #include <ESP8266WiFi.h>
+#endif
 
 #define FTP_SERVER_VERSION "FTP-2016-01-14"
 
@@ -61,8 +65,8 @@ public:
   bool is_up = false;
 
 private:
- bool haveParameter();
-bool    makeExistsPath( char * path, char * param = NULL );
+  bool    haveParameter();
+  bool    makeExistsPath( char * path, char * param = NULL );
   void    iniVariables();
   void    clientConnected();
   void    disconnectClient();
@@ -84,6 +88,9 @@ bool    makeExistsPath( char * path, char * param = NULL );
   IPAddress      dataIp;              // IP address of client for data
   WiFiClient client;
   WiFiClient data;
+
+  WiFiServer *ftpServerp;
+  WiFiServer *dataServer;
 
   File file;
   

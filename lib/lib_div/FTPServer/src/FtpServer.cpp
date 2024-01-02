@@ -20,14 +20,7 @@
 //  2017: modified by @robo8080
 // 2019: modified by @fa1ke5
 
-#include "FtpServer.h"
-
-#include <WiFi.h>
-
-#include <FS.h>
-
-WiFiServer ftpServer( FTP_CTRL_PORT );
-WiFiServer dataServer( FTP_DATA_PORT_PASV );
+#include "ftpServer.h"
 
 
 void FtpServer::begin(String uname, String pword, FS *fp)
@@ -39,9 +32,14 @@ void FtpServer::begin(String uname, String pword, FS *fp)
 	_FTP_USER = uname;
 	_FTP_PASS = pword;
 
-  ftpServer.begin();
+  ftpServerp = new WiFiServer(FTP_CTRL_PORT);
+  if (!ftpServerp) return;
+  dataServer = new WiFiServer(FTP_DATA_PORT_PASV);
+  if (!dataServer) return;
+
+  ftpServerp->begin();
 	delay(10);
-	dataServer.begin();	
+	dataServer->begin();	
 	delay(10);
 	millisTimeOut = (uint32_t)FTP_TIME_OUT * 60 * 1000;
 	millisDelay = 0;
@@ -80,10 +78,10 @@ void FtpServer::handleFTP() {
   if ((int32_t) ( millisDelay - millis() ) > 0 )
     return;
 
-  if (ftpServer.hasClient()) {
-//  if (ftpServer.available()) {
+  if (ftpServerp->hasClient()) {
+//  if (ftpServerp->available()) {
 	  client.stop();
-	  client = ftpServer.available();
+	  client = ftpServerp->available();
   }
   
   if ( cmdStatus == 0 ) {
@@ -327,12 +325,12 @@ boolean FtpServer::processCommand()
   else if( ! strcmp( command, "PASV" ))
   {
     if (data.connected()) data.stop();
-    //dataServer.begin();
+    //dataServer->begin();
      //dataIp = Ethernet.localIP();    
 	dataIp = WiFi.localIP();	
 	dataPort = FTP_DATA_PORT_PASV;
     //data.connect( dataIp, dataPort );
-    //data = dataServer.available();
+    //data = dataServer->available();
 #ifdef FTP_DEBUG
 	Serial.println("Connection management set to passive");
   Serial.println( "Data port set to " + String(dataPort));
@@ -443,7 +441,7 @@ boolean FtpServer::processCommand()
       client.println( "150 Accepted data connection");
       uint16_t nm = 0;
 
-      File dir = ufsp->open(cwdName);
+      File dir = ufsp->open(cwdName, "r");
       dir.rewindDirectory();
      if ((!dir) || (!dir.isDirectory()))
         client.println( "550 Can't open directory " + String(cwdName) );
@@ -492,7 +490,7 @@ boolean FtpServer::processCommand()
 	  client.println( "150 Accepted data connection");
       uint16_t nm = 0;
 //      Dir dir= SD.openDir(cwdName);
-      File dir= ufsp->open(cwdName);
+      File dir= ufsp->open(cwdName, "r");
       char dtStr[ 15 ];
     //  if(!SD.exists(cwdName))
      if((!dir)||(!dir.isDirectory()))
@@ -542,7 +540,7 @@ boolean FtpServer::processCommand()
       client.println( "150 Accepted data connection");
       uint16_t nm = 0;
 //      Dir dir=SD.openDir(cwdName);
-      File dir= ufsp->open(cwdName);
+      File dir= ufsp->open(cwdName, "r");
       if( !ufsp->exists( cwdName ))
         client.println( "550 Can't open directory " + String(parameters));
       else
@@ -765,7 +763,7 @@ boolean FtpServer::processCommand()
 	{
 		file = ufsp->open(path, "r");
       if(!file)
-         client.println( "450 Can't open " +String(parameters) );
+         client.println( "450 Can't open " + String(parameters) );
       else
       {
         client.println( "213 " + String(file.size()));
@@ -795,16 +793,16 @@ boolean FtpServer::dataConnect()
   //wait 5 seconds for a data connection
   if (!data.connected())
   {
-    while (!dataServer.hasClient() && millis() - startTime < 10000)
-//    while (!dataServer.available() && millis() - startTime < 10000)
+    while (!dataServer->hasClient() && millis() - startTime < 10000)
+//    while (!dataServer->available() && millis() - startTime < 10000)
 	  {
 		  //delay(100);
 		  yield();
 	  }
-    if (dataServer.hasClient()) {
-//    if (dataServer.available()) {
+    if (dataServer->hasClient()) {
+//    if (dataServer->available()) {
 		  data.stop();
-		  data = dataServer.available();
+		  data = dataServer->available();
 #ifdef FTP_DEBUG
 		      Serial.println("ftpdataserver client....");
 #endif
