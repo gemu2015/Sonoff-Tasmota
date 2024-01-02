@@ -22,6 +22,9 @@
 
 #include "ftpServer.h"
 
+#ifdef ESP32
+#define F(A) A
+#endif
 
 void FtpServer::begin(String uname, String pword, FS *fp) {
 
