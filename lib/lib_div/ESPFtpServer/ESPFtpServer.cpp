@@ -534,7 +534,7 @@ boolean FtpServer::processCommand () {
             sprintf (buffer, "Type=dir;Modify=%04u%02u%02u%02u%02u%02u; %s", ptm->tm_year + 1900, ptm->tm_mon + 1, ptm->tm_mday, ptm->tm_hour, ptm->tm_min, ptm->tm_sec, fn.c_str());
           } 
           else {
-            sprintf (buffer, "Type=file;Size=%s;Modify=%04u%02u%02u%02u%02u%02u; %s", ufsp->c_str(), ptm->tm_year + 1900, ptm->tm_mon + 1, ptm->tm_mday, ptm->tm_hour, ptm->tm_min, ptm->tm_sec, fn.c_str());
+            sprintf (buffer, "Type=file;Size=%s;Modify=%04u%02u%02u%02u%02u%02u; %s", fs.c_str(), ptm->tm_year + 1900, ptm->tm_mon + 1, ptm->tm_mday, ptm->tm_hour, ptm->tm_min, ptm->tm_sec, fn.c_str());
           } 
           data.println (buffer);
           nm ++;
