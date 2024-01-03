@@ -465,11 +465,13 @@ boolean FtpServer::processCommand() {
           Serial.println(F("File Name = ") + fn);
 #endif
           fs = String(file.size());
-          if(file.isDirectory()){
-            data.println(F("01-01-2000  00:00AM <DIR> ") + fn);
+          uint32_t tm = file.getLastWrite();
+          String tstr = GetDT(tm);
+          tstr[10] = ' ';
+          if (file.isDirectory()) {
+            data.println(tstr + F(" <DIR> ") + fn);
           } else {
-            data.println(F("01-01-2000  00:00AM ") + fs + " " + fn);
-//          data.println( " " + fn );
+            data.println(tstr + " " + fs + " " + fn);
           }
           nm ++;
           file = dir.openNextFile();
@@ -883,8 +885,6 @@ int8_t FtpServer::readChar() {
 
   if (client.available()) {
     char c = client.read();
-	 // char c;
-	 // client.readBytes((uint8_t*) c, 1);
   #ifdef FTP_DEBUG
     Serial.print( c);
   #endif

@@ -42,6 +42,8 @@
   #include <ESP8266WiFi.h>
 #endif
 
+extern String GetDT(uint32_t time);
+
 #define FTP_SERVER_VERSION "FTP-2016-01-14"
 
 #define FTP_CTRL_PORT    21          // Command port on wich server is listening  
