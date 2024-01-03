@@ -96,15 +96,15 @@ void FtpServer::handleFTP() {
     abortTransfer();
     iniVariables();
 #ifdef FTP_DEBUG
-	Serial.println(F("Ftp server waiting for connection on port ") + String(FTP_CTRL_PORT));
+	  Serial.println(F("Ftp server waiting for connection on port ") + String(FTP_CTRL_PORT));
 #endif
     cmdStatus = 2;
   }
   else if ( cmdStatus == 2 )         // Ftp server idle
   {
    		
-    if ( client.connected() )                // A client connected
-    {
+    if (client.connected() ) {
+      // A client connected
       clientConnected();      
       millisEndConnection = millis() + 10 * 1000 ; // wait client id during 10 s.
       cmdStatus = 3;
@@ -115,45 +115,51 @@ void FtpServer::handleFTP() {
   }
   else if ( readChar() > 0 )         // got response
   {
-    if ( cmdStatus == 3 )            // Ftp server waiting for user identity
-      if ( userIdentity() )
+
+    if ( cmdStatus == 3 ) {    
+      // Ftp server waiting for user identity
+      if (userIdentity()) {
         cmdStatus = 4;
-      else
+      } else {
         cmdStatus = 0;
-    else if ( cmdStatus == 4 )       // Ftp server waiting for user registration
-      if ( userPassword() )
-      {
+      }
+    }
+    else if ( cmdStatus == 4 ) {
+      // Ftp server waiting for user registration
+      if (userPassword()) {
         cmdStatus = 5;
         millisEndConnection = millis() + millisTimeOut;
+      } else {
+        cmdStatus = 0;
       }
-      else
+    }
+    else if ( cmdStatus == 5 ) {
+      // Ftp server waiting for user command
+      if (!processCommand()) {
         cmdStatus = 0;
-    else if ( cmdStatus == 5 )       // Ftp server waiting for user command
-      if( ! processCommand())
-        cmdStatus = 0;
-      else
+      } else {
         millisEndConnection = millis() + millisTimeOut;
+      }
+    }
   }
-  else if (!client.connected() || !client)
-  {
+  else if (!client.connected() || !client) {
 	  cmdStatus = 1;
 #ifdef FTP_DEBUG
 	    Serial.println(F("client disconnected"));
 #endif
   }
 
-  if( transferStatus == 1 )         // Retrieve data
-  {
-    if( ! doRetrieve())
+  if (transferStatus == 1 ) {
+    // Retrieve data
+    if (!doRetrieve()) {
       transferStatus = 0;
-  }
-  else if ( transferStatus == 2 )    // Store data
-  {
-    if( ! doStore())
+    }
+  } else if ( transferStatus == 2 ) {
+    // Store data
+    if (!doStore()) {
       transferStatus = 0;
-  }
-  else if ( cmdStatus > 2 && ! ((int32_t) ( millisEndConnection - millis() ) > 0 ))
-  {
+    }
+  } else if ( cmdStatus > 2 && ! ((int32_t) ( millisEndConnection - millis() ) > 0 )) {
 	  client.println(F("530 Timeout"));
     millisDelay = millis() + 200;    // delay of 200 ms
     cmdStatus = 0;
@@ -217,6 +223,11 @@ boolean FtpServer::processCommand() {
   //      ACCESS CONTROL COMMANDS      //
   //                                   //
   ///////////////////////////////////////
+
+
+  #ifdef FTP_DEBUG
+    //Serial.println(F("curr cmd ") + String(command));
+  #endif
 
   //
   //  CDUP - Change to Parent Directory 
@@ -599,7 +610,7 @@ boolean FtpServer::processCommand() {
   //
   //  STOR - Store
   //
-  else if( ! strcmp( command, "STOR" ))
+  else if (!strcmp( command, "STOR" ))
   {
     char path[ FTP_CWD_SIZE ];
     if (!haveParameter()) {
@@ -630,10 +641,13 @@ boolean FtpServer::processCommand() {
   //  MKD - Make Directory
   //
   
-  else if( ! strcmp( command, "MKD" ))
+  else if (!strcmp( command, "MKD" ))
   {
      char path[ FTP_CWD_SIZE ];
-     if ( haveParameter() && makePath( path )) {
+  #ifdef FTP_DEBUG
+            Serial.println(F("mkdir ") + String(parameters));
+  #endif
+     if (haveParameter() && makePath( path )) {
       if (ufsp->exists( path )) {
         client.println(F("521 Can't create \"") + String(parameters) + F(", Directory exists"));
       } else {

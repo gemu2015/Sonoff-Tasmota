@@ -28,7 +28,7 @@
  *******************************************************************************/
 
 // Uncomment to print debugging info to console attached to ESP8266
-//#define FTP_DEBUG
+#define FTP_DEBUG
 
 #ifndef ESP32FTP_SERVERESP_H
 #define ESP32FTP_SERVERESP_H
@@ -48,14 +48,20 @@
 #define FTP_DATA_PORT_PASV 50009     // Data port in passive mode
 
 #define FTP_TIME_OUT  5           // Disconnect client after 5 minutes of inactivity
+
+#ifdef ESP32
 #define FTP_CMD_SIZE 255 + 8 // max size of a command
 #define FTP_CWD_SIZE 255 + 8 // max size of a directory name
 #define FTP_FIL_SIZE 255     // max size of a file name
-
-//#define FTP_BUF_SIZE 512 //512   // size of file buffer for read/write
-//#define FTP_BUF_SIZE 2*1460 //512   // size of file buffer for read/write
 #define FTP_BUF_SIZE 4096 //512   //  700 KByte/s download in AP mode, direct connection.
+#endif
 
+#ifdef ESP8266
+#define FTP_CMD_SIZE 128 // max size of a command
+#define FTP_CWD_SIZE 128 // max size of a directory name
+#define FTP_FIL_SIZE 64  // max size of a file name
+#define FTP_BUF_SIZE 256 //  700 KByte/s download in AP mode, direct connection.
+#endif
 
 class FtpServer
 {
