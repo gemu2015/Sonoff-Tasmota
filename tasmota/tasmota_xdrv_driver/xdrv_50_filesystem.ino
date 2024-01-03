@@ -1350,7 +1350,7 @@ void UfsEditorUpload(void) {
 
 
 #ifdef USE_FTP
-#include <FtpServer.h>
+#include <ESPFtpServer.h>
 FtpServer ftpSrv;   //set #define FTP_DEBUG in ESP32FtpServer.h to see ftp verbose on serial
 #endif
 
