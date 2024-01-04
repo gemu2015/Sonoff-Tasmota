@@ -35,7 +35,6 @@ void FtpServer::begin (String uname, String pword, FS *ufp, FS *ffp) {
   ufsp = ufp;
   ffsp = ffp;
 
-
   dual_mode = false;
 
   if ((uint32_t)ufsp != (uint32_t)ffsp) {
