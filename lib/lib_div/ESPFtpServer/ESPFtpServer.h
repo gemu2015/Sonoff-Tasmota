@@ -65,7 +65,8 @@
 class FtpServer {
   public:
     void    begin(String uname, String pword, FS *fp);
-    void    handleFTP ();
+    void    handleFTP (void);
+    ~FtpServer(void);
     bool    is_up = false;
 
   private:

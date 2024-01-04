@@ -54,6 +54,16 @@ void FtpServer::begin (String uname, String pword, FS *fp) {
   is_up = true;
 }
 
+FtpServer::~FtpServer(void) {
+  ftpServer->close();
+  ftpServer->stop();
+  delete ftpServer;
+  dataServer->close();
+  dataServer->stop();
+  delete dataServer;
+}
+
+
 void FtpServer::iniVariables () {
   // Default for data port
   dataPort = FTP_DATA_PORT_PASV;

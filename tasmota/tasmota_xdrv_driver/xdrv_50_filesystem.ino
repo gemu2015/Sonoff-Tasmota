@@ -548,13 +548,19 @@ const char kUFSCommands[] PROGMEM = "Ufs|"  // Prefix
 #ifdef UFILESYS_STATIC_SERVING
   "|Serve"
 #endif
+#ifdef USE_FTP
+  "|FTP"
+#endif
   ;
 
 void (* const kUFSCommand[])(void) PROGMEM = {
   &UFSInfo, &UFSType, &UFSSize, &UFSFree, &UFSDelete, &UFSRename, &UFSRun
 #ifdef UFILESYS_STATIC_SERVING
   ,&UFSServe
-#endif  
+#endif
+#ifdef USE_FTP
+  ,&Switch_FTP
+#endif
   };
 
 void UFSInfo(void) {
@@ -1351,7 +1357,37 @@ void UfsEditorUpload(void) {
 
 #ifdef USE_FTP
 #include <ESPFtpServer.h>
-FtpServer ftpSrv;   //set #define FTP_DEBUG in ESP32FtpServer.h to see ftp verbose on serial
+FtpServer *ftpSrv;
+bool FTP_initial_on = 0;
+
+void FTP_Server(bool onoff) {
+  if (onoff == true) {
+    if (!ftpSrv) {
+      ftpSrv = new FtpServer; 
+      ftpSrv->begin(USER_FTP,PW_FTP, ufsp);
+    }
+  } else {
+    if (ftpSrv) {
+      delete ftpSrv;
+      ftpSrv = nullptr;
+    }
+  }
+}
+
+void Switch_FTP(void) {
+  if (XdrvMailbox.data_len > 0) {
+    if (XdrvMailbox.payload > 0) {
+      FTP_Server(true);
+    } else {
+      FTP_Server(false);
+    }
+  }
+  bool running = 0;
+  if (ftpSrv) {
+    running = 1;
+  }
+  ResponseCmndNumber(running);
+}
 #endif
 
 /*********************************************************************************************\
@@ -1367,14 +1403,18 @@ bool Xdrv50(uint32_t function) {
       UfsExecuteCommandFileLoop();
 
 #ifdef USE_FTP
-      ftpSrv.handleFTP();
+      if (ftpSrv) {
+        ftpSrv->handleFTP();
+      }
 #endif
 
       break;
     
     case FUNC_NETWORK_UP:
 #ifdef USE_FTP
-      ftpSrv.begin(USER_FTP,PW_FTP, ufsp);
+      if (FTP_initial_on) {
+        FTP_Server(true);
+      }
 #endif
       break;
 
