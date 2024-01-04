@@ -1356,12 +1356,8 @@ void UfsEditorUpload(void) {
 
 
 #ifdef USE_FTP
-#ifndef FTP_INITIAL_ON
-#define FTP_INITIAL_ON 1
-#endif
 #include <ESPFtpServer.h>
 FtpServer *ftpSrv;
-bool FTP_initial_on = FTP_INITIAL_ON;
 
 void FTP_Server(bool onoff) {
   if (onoff == true) {
@@ -1381,8 +1377,10 @@ void Switch_FTP(void) {
   if (XdrvMailbox.data_len > 0) {
     if (XdrvMailbox.payload > 0) {
       FTP_Server(true);
+      Settings->mbflag2.spare25 = true;
     } else {
       FTP_Server(false);
+      Settings->mbflag2.spare25 = false;
     }
   }
   bool running = 0;
@@ -1415,7 +1413,7 @@ bool Xdrv50(uint32_t function) {
     
     case FUNC_NETWORK_UP:
 #ifdef USE_FTP
-      if (FTP_initial_on) {
+      if (Settings->mbflag2.spare25) {
         FTP_Server(true);
       }
 #endif
