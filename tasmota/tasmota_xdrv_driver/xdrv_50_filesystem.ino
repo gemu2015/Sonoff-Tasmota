@@ -1356,9 +1356,12 @@ void UfsEditorUpload(void) {
 
 
 #ifdef USE_FTP
+#ifndef FTP_INITIAL_ON
+#define FTP_INITIAL_ON 1
+#endif
 #include <ESPFtpServer.h>
 FtpServer *ftpSrv;
-bool FTP_initial_on = 0;
+bool FTP_initial_on = FTP_INITIAL_ON;
 
 void FTP_Server(bool onoff) {
   if (onoff == true) {
@@ -1386,9 +1389,9 @@ void Switch_FTP(void) {
   if (ftpSrv) {
     running = 1;
   }
-  ResponseCmndNumber(running);
+  ResponseCmndChar(GetStateText(running));
 }
-#endif
+#endif // USE_FTP
 
 /*********************************************************************************************\
  * Interface
