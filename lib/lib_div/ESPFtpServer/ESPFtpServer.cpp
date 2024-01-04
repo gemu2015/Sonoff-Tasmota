@@ -28,11 +28,21 @@
 #define F(A) A
 #endif
 
-void FtpServer::begin (String uname, String pword, FS *fp) {
+void FtpServer::begin (String uname, String pword, FS *ufp, FS *ffp) {
 
   if (is_up) return;
 
-  ufsp = fp;
+  ufsp = ufp;
+  ffsp = ffp;
+
+
+  dual_mode = false;
+
+  if ((uint32_t)ufsp != (uint32_t)ffsp) {
+    dual_mode = true;
+  }
+
+  cfsp = ufsp;
 
   // Tells the ftp server to begin listening for incoming connection
   _FTP_USER = uname;
@@ -247,7 +257,7 @@ boolean FtpServer::processCommand () {
       // if found, ends the string on its position
       if (ok) {
         * pSep = 0;
-        ok = ufsp->exists (cwdName);
+        ok = cfsp->exists (cwdName);
       }
     }
     // if an error appends, move to root
@@ -401,16 +411,16 @@ boolean FtpServer::processCommand () {
       client.println (F("501 No file name"));
     }
     else if (makePath (path)) {
-      if (!ufsp->exists (path)) {
+      if (!cfsp->exists (path)) {
         client.println (F("550 File ") + String (parameters) + F(" not found"));
       }
       else {
-        if (ufsp->remove (path)) {
+        if (cfsp->remove (path)) {
           client.println (F("250 Deleted ") + String (parameters));
           // silently recreate the directory if it vanished with the last file it contained
           String directory = String (path).substring (0, String(path).lastIndexOf ("/"));
-          if (!ufsp->exists (directory.c_str())) {
-            ufsp->mkdir (directory.c_str());
+          if (!cfsp->exists (directory.c_str())) {
+            cfsp->mkdir (directory.c_str());
           }
         }
         else {
@@ -429,7 +439,7 @@ boolean FtpServer::processCommand () {
       uint16_t nm = 0;
       
       #ifdef ESP8266
-      Dir dir = ufsp->openDir (cwdName);
+      Dir dir = cfsp->openDir (cwdName);
       while (dir.next ()) {
         String fname, fsize;
         fname = dir.fileName ();
@@ -450,7 +460,7 @@ boolean FtpServer::processCommand () {
       client.println( "226 " + String (nm) + " matches total");
       #endif
       #ifdef ESP32
-      File dir = ufsp->open (cwdName);
+      File dir = cfsp->open (cwdName);
       if ((!dir) || (!dir.isDirectory ())) {
         client.println (F("550 Can't open directory ") + String (cwdName));
       }
@@ -502,7 +512,7 @@ boolean FtpServer::processCommand () {
       client.println (F("150 Accepted data connection"));
       uint16_t nm = 0;
       #ifdef ESP8266
-      Dir dir = ufsp->openDir (cwdName);
+      Dir dir = cfsp->openDir (cwdName);
       char dtStr[15];
       while (dir.next ()) {
         String fn, fs;
@@ -525,9 +535,9 @@ boolean FtpServer::processCommand () {
       client.println("226 " + String(nm) + F(" matches total"));
       #endif
       #ifdef ESP32
-      File dir = ufsp->open (cwdName);
+      File dir = cfsp->open (cwdName);
       char dtStr[15];
-      if (!ufsp->exists (cwdName)) {
+      if (!cfsp->exists (cwdName)) {
         client.println (F("550 Can't open directory ") + String (parameters));
       }
       else {
@@ -572,8 +582,8 @@ boolean FtpServer::processCommand () {
       client.println (F("150 Accepted data connection"));
       uint16_t nm = 0;
       #ifdef ESP8266
-      Dir dir = ufsp->openDir (cwdName);
-      if (!ufsp->exists (cwdName)) {
+      Dir dir = cfsp->openDir (cwdName);
+      if (!cfsp->exists (cwdName)) {
         client.println (F("550 Can't open directory ") + String (parameters));
       }
       else {
@@ -585,8 +595,8 @@ boolean FtpServer::processCommand () {
       }
       #endif
       #ifdef ESP32
-      File dir = ufsp->open (cwdName);
-      if (!ufsp->exists (cwdName)) {
+      File dir = cfsp->open (cwdName);
+      if (!cfsp->exists (cwdName)) {
         client.println (F("550 Can't open directory ") + String (parameters));
       }
       else {
@@ -622,7 +632,7 @@ boolean FtpServer::processCommand () {
       client.println (F("501 No file name"));
     }
     else if (makePath (path)) {
-      file = ufsp->open (path, "r");
+      file = cfsp->open (path, "r");
       if (!file) {
         client.println (F("550 File ") + String (parameters) + F(" not found"));
       }
@@ -654,7 +664,7 @@ boolean FtpServer::processCommand () {
       client.println (F("501 No file name"));
     }
     else if (makePath (path)) {
-	  file = ufsp->open (path, "w");
+	  file = cfsp->open (path, "w");
       if (!file) {
         client.println (F("451 Can't open/create ") + String (parameters));
       }
@@ -681,11 +691,11 @@ boolean FtpServer::processCommand () {
   else if (!strcmp (command, "MKD")) {
     char path[FTP_CWD_SIZE];
     if (haveParameter () && makePath (path)) {
-      if (ufsp->exists (path)) {
+      if (cfsp->exists (path)) {
         client.println (F("521 Can't create \"") + String (parameters) + F("\", Directory exists"));
       }
       else {
-        if (ufsp->mkdir (path)) {
+        if (cfsp->mkdir (path)) {
           client.println (F("257 \"") + String (parameters) + F("\" created"));
         }
         else {
@@ -701,14 +711,14 @@ boolean FtpServer::processCommand () {
   else if (!strcmp (command, "RMD")) {
     char path[FTP_CWD_SIZE];
     if (haveParameter () && makePath (path)) {
-      if (ufsp->rmdir (path)) {
+      if (cfsp->rmdir (path)) {
         #ifdef FTP_DEBUG
         Serial.println (F("-> deleting ") + String (parameters));
         #endif
         client.println ("250 \"" + String (parameters) + F("\" deleted"));
       }
       else {
-      	if (ufsp->exists (path)) { // hack
+      	if (cfsp->exists (path)) { // hack
           client.println (F("550 Can't remove \"") + String (parameters) + F("\". Directory not empty?"));  
         }
         else {
@@ -730,7 +740,7 @@ boolean FtpServer::processCommand () {
       client.println (F("501 No file name"));
     }
     else if (makePath (buf)) {
-      if (!ufsp->exists (buf)) {
+      if (!cfsp->exists (buf)) {
         client.println (F("550 File ") + String (parameters) + F(" not found"));
       }
       else {
@@ -756,14 +766,14 @@ boolean FtpServer::processCommand () {
       client.println (F("501 No file name"));
     }
     else if (makePath (path)) {
-      if (ufsp->exists (path)) {
+      if (cfsp->exists (path)) {
         client.println (F("553 ") + String (parameters) + F(" already exists"));
       }
       else {          
         #ifdef FTP_DEBUG
         Serial.println (F("-> renaming ") + String (buf) + " to " + String (path));
         #endif
-        if (ufsp->rename (buf, path)) {
+        if (cfsp->rename (buf, path)) {
           client.println (F("250 File successfully renamed or moved"));
         }
         else {
@@ -805,7 +815,7 @@ boolean FtpServer::processCommand () {
       client.println (F("501 No file name"));
     }
     else if (makePath (path)) {
-      file = ufsp->open (path, "r");
+      file = cfsp->open (path, "r");
       if (!file) {
         client.println (F("450 Can't open ") + String (parameters));
       }
@@ -1114,7 +1124,7 @@ bool FtpServer::makeExistsPath (char * path, char * param) {
   if (!makePath (path, param)) {
     return false;
   }
-  if (ufsp->exists (path)) {
+  if (cfsp->exists (path)) {
     return true;
   }
   client.println (F("550 ") + String (path) + F(" not found."));

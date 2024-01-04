@@ -64,7 +64,7 @@
 
 class FtpServer {
   public:
-    void    begin(String uname, String pword, FS *fp);
+    void    begin(String uname, String pword, FS *ufp, FS *ffp);
     void    handleFTP (void);
     ~FtpServer(void);
     bool    is_up = false;
@@ -99,6 +99,10 @@ class FtpServer {
     WiFiServer *dataServer;
 
     FS *ufsp;
+    FS *ffsp;
+    FS *cfsp;
+
+    bool dual_mode;
 
     File file;
   
