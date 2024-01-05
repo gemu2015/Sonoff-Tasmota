@@ -28,20 +28,11 @@
 #define F(A) A
 #endif
 
-void FtpServer::begin (String uname, String pword, FS *ufp, FS *ffp) {
+void FtpServer::begin (String uname, String pword, FS *ufp) {
 
   if (is_up) return;
 
-  ufsp = ufp;
-  ffsp = ffp;
-
-  dual_mode = false;
-
-  if ((uint32_t)ufsp != (uint32_t)ffsp) {
-    dual_mode = true;
-  }
-
-  cfsp = ufsp;
+  cfsp = ufp;
 
   // Tells the ftp server to begin listening for incoming connection
   _FTP_USER = uname;

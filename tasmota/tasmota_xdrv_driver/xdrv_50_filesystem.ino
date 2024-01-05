@@ -1366,12 +1366,18 @@ void UfsEditorUpload(void) {
 #include <ESPFtpServer.h>
 FtpServer *ftpSrv;
 
-void FTP_Server(bool onoff) {
-  if (onoff == true) {
-    if (!ftpSrv) {
-      ftpSrv = new FtpServer; 
-      ftpSrv->begin(USER_FTP,PW_FTP, ufsp, ffsp);
+void FTP_Server(uint32_t mode) {
+  if (mode > 0) {
+    if (ftpSrv) {
+      delete ftpSrv;
     }
+    ftpSrv = new FtpServer;
+    if (mode == 1) {
+      ftpSrv->begin(USER_FTP,PW_FTP, ufsp);
+    } else {
+      ftpSrv->begin(USER_FTP,PW_FTP, ffsp);
+    }
+    AddLog(LOG_LEVEL_INFO, PSTR("UFS: FTP Server started in mode: '%d'"), mode);
   } else {
     if (ftpSrv) {
       delete ftpSrv;
@@ -1382,19 +1388,12 @@ void FTP_Server(bool onoff) {
 
 void Switch_FTP(void) {
   if (XdrvMailbox.data_len > 0) {
-    if (XdrvMailbox.payload > 0) {
-      FTP_Server(true);
-      Settings->mbflag2.spare25 = true;
-    } else {
-      FTP_Server(false);
-      Settings->mbflag2.spare25 = false;
+    if (XdrvMailbox.payload >= 0 && XdrvMailbox.payload <= 2) {
+      FTP_Server(XdrvMailbox.payload);
+      Settings->mbflag2.FTP_Mode = XdrvMailbox.payload;
     }
   }
-  bool running = 0;
-  if (ftpSrv) {
-    running = 1;
-  }
-  ResponseCmndChar(GetStateText(running));
+  ResponseCmndNumber(Settings->mbflag2.FTP_Mode);
 }
 #endif // USE_FTP
 
@@ -1420,8 +1419,8 @@ bool Xdrv50(uint32_t function) {
     
     case FUNC_NETWORK_UP:
 #ifdef USE_FTP
-      if (Settings->mbflag2.spare25) {
-        FTP_Server(true);
+      if (Settings->mbflag2.FTP_Mode && !ftpSrv) {
+        FTP_Server(Settings->mbflag2.FTP_Mode);
       }
 #endif
       break;
