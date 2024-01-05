@@ -52,7 +52,7 @@ ufsdelete
 ufsrename
 ufsrun
 ufsServe
-ftp       start stop ftp server
+ftp       start stop ftp server: 0 = OFF, 1 = SDC, 2 = FlashFile
 
 
 \*********************************************************************************************/
