@@ -3813,6 +3813,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           bool match = false;
           uint8_t dstrlen = strlen(delim);
           if (glob_script_mem.file_flags[find].is_open) {
+            glob_script_mem.files[find].seek(0, SeekSet);
             uint8_t first = 0;
             uint8_t clen = 0;
             while (glob_script_mem.files[find].available()) {
