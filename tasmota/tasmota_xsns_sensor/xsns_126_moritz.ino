@@ -1,5 +1,5 @@
 /*
-  xsns_97_moritz.ino - CC1101 radio_modem MAX! support
+  xsns_126_moritz.ino - CC1101 radio_modem MAX! support
 
   Copyright (C) 2019  Gerhard Mutz and Rudolf Koenig (culfw)
 
@@ -1797,7 +1797,7 @@ t hexid mode temp => set temperature and mode of Thermostat with hexid
 5 => manual comfort
 6 => manual window
 */
-bool XSNS_97_cmd(void) {
+bool XSNS_126_cmd(void) {
   bool serviced = true;
   const char S_JSON_MORITZ[] = "{\"MORITZ\":{\"%s\":%d}}";
   const char S_JSON_MORITZ1[] = "{\"MORITZ\":{\"%s\":\"%s\"}}";
@@ -1991,8 +1991,8 @@ bool Xsns126(uint32_t function) {
         break;
 #endif  // USE_WEBSERVER
       case FUNC_COMMAND_SENSOR:
-        if (XSNS_97 == XdrvMailbox.index) {
-          result = XSNS_97_cmd();
+        if (XSNS_126 == XdrvMailbox.index) {
+          result = XSNS_126_cmd();
         }
         break;
   }
