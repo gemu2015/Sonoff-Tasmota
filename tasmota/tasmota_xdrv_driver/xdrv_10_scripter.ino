@@ -4381,7 +4381,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           tind->bits.is_string = 0;
           return lp + len;
         }
-#ifdef USE_LVGL
+#ifdef xUSE_LVGL
         if (!strncmp_XP(lp, XPSTR("lvgl("), 5)) {
           lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           SCRIPT_SKIP_SPACES
@@ -12436,7 +12436,7 @@ uint32_t script_i2c(uint8_t sel, uint16_t val, uint32_t val1) {
 #endif // USE_SCRIPT_I2C
 
 
-#ifdef USE_LVGL
+#ifdef xUSE_LVGL
 #include <renderer.h>
 #include "lvgl.h"
 
