@@ -1324,7 +1324,7 @@ const char HTTP_MORITZ_WC[] PROGMEM =
 "<td></td><td><input type='checkbox' %s onchange='miva(%d,\"%s\")';></td><td>%s</td></tr>";
 
 const char HTTP_MORITZ_THERM[] PROGMEM =
-"<td>%s</td><td><input  min='10' max='30' step='0.5' value='%s' type='number' onfocusin='pr(0)' onfocusout='pr(1)' onchange='miva(value,\"%s\")'>"
+"<td>%s</td><td><input   style='color:black;' min='10' max='30' step='0.5' value='%s' type='number'  onfocusin='pr(0)' onfocusout='pr(1)' onchange='miva(value,\"%s\")'>"
 "</td><td>%s ºC</td></tr>";
 
 const char HTTP_MORITZ_SCRIPT[] PROGMEM =
