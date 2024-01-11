@@ -1556,7 +1556,7 @@ int32_t mo_getvars(uint32_t index, uint32_t type,char *retval) {
 
 #ifdef ESP32
 #undef HW_SPI_MOSI
-#define HW_SPI_MOSI 23
+#define HW_SPI_MOSI 20
 #undef HW_SPI_MISO
 #define HW_SPI_MISO 19
 #undef HW_SPI_CLK
@@ -1576,7 +1576,7 @@ void CC1101_Detect() {
   // init spi, must use hardware spi
   if ((Pin(GPIO_SSPI_MOSI)==HW_SPI_MOSI) && (Pin(GPIO_SSPI_MISO)==HW_SPI_MISO) && (Pin(GPIO_SSPI_SCLK)==HW_SPI_CLK)) {
   } else {
-    if ((Pin(GPIO_SPI_MOSI)==HW_SPI_MOSI) && (Pin(GPIO_SPI_MISO)==HW_SPI_MISO) && (Pin(GPIO_SPI_CLK)==HW_SPI_CLK)) {
+    if ((Pin(GPIO_SPI_MOSI)>=0) && (Pin(GPIO_SPI_MISO)>=0) && (Pin(GPIO_SPI_CLK)>=0)) {
     } else {
       return;
     }

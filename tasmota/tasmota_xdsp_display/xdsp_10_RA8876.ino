@@ -55,6 +55,8 @@ void RA8876_InitDriver(void) {
     fg_color = RA8876_WHITE;
     bg_color = RA8876_BLACK;
 
+    delay(500);
+
     // init renderer, must use hardware spi
     ra8876  = new RA8876(Pin(GPIO_RA8876_CS), Pin(GPIO_SPI_MOSI), Pin(GPIO_SPI_MISO), Pin(GPIO_SPI_CLK), Pin(GPIO_BACKLIGHT));
 

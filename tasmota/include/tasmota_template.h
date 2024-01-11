@@ -20,7 +20,6 @@
 #ifndef _TASMOTA_TEMPLATE_H_
 #define _TASMOTA_TEMPLATE_H_
 
-#define D_SENSOR_CC1101_CS "Moritz_CS"
 
 // User selectable GPIO functionality
 // ATTENTION: Only add at the end of this list just before GPIO_SENSOR_END
