@@ -570,6 +570,10 @@ struct SCRIPT_MEM {
     WiFiClient tcp_client;
 #endif
 
+#ifdef SCRIPT_FULL_WEBPAGE
+    uint8_t wsp[8];
+#endif
+
 } glob_script_mem;
 
 
@@ -755,6 +759,12 @@ char *script;
     if (!imemptr) {
       return -7;
     }
+
+#ifdef SCRIPT_FULL_WEBPAGE
+    for (uint8_t cnt = 0; cnt < 8; cnt++) {
+      glob_script_mem.wsp[cnt] = 0;
+    }
+#endif
 
     char *vnames = (char*)imemptr;
 
@@ -12850,8 +12860,11 @@ void script_add_subpage(uint8_t num) {
           wptr = ScriptFullWebpage7;
           break;
       }
-      sprintf_P(id, PSTR("/sfd%1d"), num);
-      Webserver->on(id, wptr);
+      if (!glob_script_mem.wsp[num - 1]) {
+        sprintf_P(id, PSTR("/sfd%1d"), num);
+        Webserver->on(id, wptr);
+        glob_script_mem.wsp[num - 1] = 1;
+      }
       WSContentSend_P(HTTP_WEB_FULL_DISPLAY, num, bname);
   }
 }
