@@ -1603,6 +1603,10 @@ bool Xdrv123(uint32_t function) {
       Webserver->on("/modu", HTTP_GET, Module_upload);
       Webserver->on("/modu", HTTP_POST,[](){Webserver->sendHeader(F("Location"),F("/modu"));Webserver->send(303);}, Module_HandleUploadLoop);
       break;
+      
+    case FUNC_ACTIVE:
+      result = true;
+      break;
   }
   return result;
 }
