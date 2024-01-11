@@ -48,7 +48,7 @@
 #define D_MONTH3LIST "JanFebMärAprMaiJunJulAugSepOktNovDez"
 
 // Non JSON decimal separator
-#define D_DECIMAL_SEPARATOR "."
+#define D_DECIMAL_SEPARATOR ","
 
 // Common
 #define D_ABSOLUTE_HUMIDITY "Abs․ Feuchtigkeit"
@@ -275,6 +275,7 @@
 #define D_INFORMATION "Informationen"
 #define D_FIRMWARE_UPGRADE "Firmware Update"
 #define D_MANAGEMENT "Konsolen"
+#define D_GPIO_VIEWER "GPIO Viewer"
 #define D_CONSOLE "Konsole"
 #define D_CONFIRM_RESTART "Wirklich neustarten?"
 
@@ -1221,5 +1222,9 @@
 // xsns_106_gdk101.ino
 #define D_AVG_RAD_DOSE                    "durchschnittliche Strahlendosis"
 #define D_UNIT_US_H                       "µSv/h"
+
+// ixrv92_pipsolar.ino
+#define D_SENSOR_PIPSOLAR_TX             "Pipsolar TX"
+#define D_SENSOR_PIPSOLAR_RX             "Pipsolar RX"
 
 #endif  // _LANGUAGE_DE_DE_H_

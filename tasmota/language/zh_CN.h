@@ -275,6 +275,7 @@
 #define D_INFORMATION "信息"
 #define D_FIRMWARE_UPGRADE "固件升级"
 #define D_MANAGEMENT "控制台"
+#define D_GPIO_VIEWER "GPIO Viewer"
 #define D_CONSOLE "控制台"
 #define D_CONFIRM_RESTART "确认重启"
 
@@ -1221,5 +1222,9 @@
 // xsns_106_gdk101.ino
 #define D_AVG_RAD_DOSE                    "平均辐射剂量"
 #define D_UNIT_US_H                       "µSv/h"
+
+// ixrv92_pipsolar.ino
+#define D_SENSOR_PIPSOLAR_TX             "Pipsolar TX"
+#define D_SENSOR_PIPSOLAR_RX             "Pipsolar RX"
 
 #endif  // _LANGUAGE_ZH_CN_H_

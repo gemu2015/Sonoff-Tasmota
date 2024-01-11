@@ -274,7 +274,8 @@
 #define D_CONFIGURATION "Konfigurering"
 #define D_INFORMATION "Information"
 #define D_FIRMWARE_UPGRADE "Uppgradera firmware"
-#define D_MANAGEMENT "Consoles"
+#define D_MANAGEMENT "Tools"
+#define D_GPIO_VIEWER "GPIO Viewer"
 #define D_CONSOLE "Konsol"
 #define D_CONFIRM_RESTART "Bekräfta omstart"
 
@@ -1221,5 +1222,9 @@
 // xsns_106_gdk101.ino
 #define D_AVG_RAD_DOSE                    "genomsnittlig stråldos"
 #define D_UNIT_US_H                       "µSv/h"
+
+// ixrv92_pipsolar.ino
+#define D_SENSOR_PIPSOLAR_TX             "Pipsolar TX"
+#define D_SENSOR_PIPSOLAR_RX             "Pipsolar RX"
 
 #endif  // _LANGUAGE_SV_SE_H_

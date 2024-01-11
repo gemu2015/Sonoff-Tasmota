@@ -274,7 +274,8 @@
 #define D_CONFIGURATION "Konfiguraasje"
 #define D_INFORMATION "Ynformaasje"
 #define D_FIRMWARE_UPGRADE "Opwurdearje"
-#define D_MANAGEMENT "Consoles"
+#define D_MANAGEMENT "Tools"
+#define D_GPIO_VIEWER "GPIO Viewer"
 #define D_CONSOLE "Konsole"
 #define D_CONFIRM_RESTART "Befestigje opnij starte"
 
@@ -1221,5 +1222,9 @@
 // xsns_106_gdk101.ino
 #define D_AVG_RAD_DOSE                    "gemiddelde stralingsdosis"
 #define D_UNIT_US_H                       "µSv/h"
+
+// ixrv92_pipsolar.ino
+#define D_SENSOR_PIPSOLAR_TX             "Pipsolar TX"
+#define D_SENSOR_PIPSOLAR_RX             "Pipsolar RX"
 
 #endif  // _LANGUAGE_FY_NL_H_

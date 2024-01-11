@@ -275,6 +275,7 @@
 #define D_INFORMATION "Información"
 #define D_FIRMWARE_UPGRADE "Actualizar Firmware"
 #define D_MANAGEMENT "Consolas"
+#define D_GPIO_VIEWER "GPIO Viewer"
 #define D_CONSOLE "Consola"
 #define D_CONFIRM_RESTART "Confirmar Reinicio"
 
@@ -1221,5 +1222,9 @@
 // xsns_106_gdk101.ino
 #define D_AVG_RAD_DOSE                    "dosis media de radiación"
 #define D_UNIT_US_H                       "µSv/h"
+
+// ixrv92_pipsolar.ino
+#define D_SENSOR_PIPSOLAR_TX             "Pipsolar TX"
+#define D_SENSOR_PIPSOLAR_RX             "Pipsolar RX"
 
 #endif  // _LANGUAGE_ES_ES_H_

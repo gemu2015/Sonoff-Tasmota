@@ -534,7 +534,7 @@ void ShowWebSource(uint32_t source)
 {
   if ((source > 0) && (source < SRC_MAX)) {
     char stemp1[20];
-    AddLog(LOG_LEVEL_DEBUG, PSTR("SRC: %s from %_I"), GetTextIndexed(stemp1, sizeof(stemp1), source, kCommandSource), (uint32_t)Webserver->client().remoteIP());
+    AddLog(LOG_LEVEL_DEBUG, PSTR("SRC: %s from %s"), GetTextIndexed(stemp1, sizeof(stemp1), source, kCommandSource), Webserver->client().remoteIP().toString().c_str());
   }
 }
 
@@ -602,7 +602,7 @@ void StartWebserver(int type)
     if (!Webserver) {
       Webserver = new ESP8266WebServer((HTTP_MANAGER == type || HTTP_MANAGER_RESET_ONLY == type) ? 80 : WEB_PORT);
 
-      const char* headerkeys[] = { "Referer" };
+      const char* headerkeys[] = { "Referer", "Host" };
       size_t headerkeyssize = sizeof(headerkeys) / sizeof(char*);
       Webserver->collectHeaders(headerkeys, headerkeyssize);
 
@@ -1075,8 +1075,6 @@ void WebRestart(uint32_t type) {
       WSContentSpaceButton(BUTTON_MAIN);
     }
   }
-  WSContentStop();
-
   if (!(2 == type)) {
     AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_HTTP D_RESTART));
     ShowWebSource(SRC_WEBGUI);
@@ -1085,6 +1083,7 @@ void WebRestart(uint32_t type) {
 #endif  // ESP32
     TasmotaGlobal.restart_flag = 2;
   }
+  WSContentStop();
 }
 
 /*********************************************************************************************/
@@ -3155,8 +3154,7 @@ void HandleManagement(void)
 
   XdrvMailbox.index = 0;
   XdrvXsnsCall(FUNC_WEB_ADD_CONSOLE_BUTTON);
-
-  WSContentSend_P(PSTR("<div></div>"));            // 5px padding
+//  WSContentSend_P(PSTR("<div></div>"));            // 5px padding
   XdrvCall(FUNC_WEB_ADD_MANAGEMENT_BUTTON);
 
   WSContentSpaceButton(BUTTON_MAIN);

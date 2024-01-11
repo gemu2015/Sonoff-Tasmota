@@ -274,7 +274,8 @@
 #define D_CONFIGURATION "Configuration"
 #define D_INFORMATION "Information"
 #define D_FIRMWARE_UPGRADE "Firmware Upgrade"
-#define D_MANAGEMENT "Consoles"
+#define D_MANAGEMENT "Tools"
+#define D_GPIO_VIEWER "GPIO Viewer"
 #define D_CONSOLE "Console"
 #define D_CONFIRM_RESTART "Confirm Restart"
 
@@ -1222,5 +1223,9 @@
 //#define D_AVG_RAD_DOSE                    "Average Radiation Dose"
 #define D_AVG_RAD_DOSE                    "Radiation"
 #define D_UNIT_US_H                       "µSv/h"
+
+// ixrv92_pipsolar.ino
+#define D_SENSOR_PIPSOLAR_TX             "Pipsolar TX"
+#define D_SENSOR_PIPSOLAR_RX             "Pipsolar RX"
 
 #endif  // _LANGUAGE_EN_GB_H_

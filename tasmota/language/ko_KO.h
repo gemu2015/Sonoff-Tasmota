@@ -274,7 +274,8 @@
 #define D_CONFIGURATION "설정 메뉴"
 #define D_INFORMATION "정보"
 #define D_FIRMWARE_UPGRADE "펌웨어 업그레이드"
-#define D_MANAGEMENT "Consoles"
+#define D_MANAGEMENT "Tools"
+#define D_GPIO_VIEWER "GPIO Viewer"
 #define D_CONSOLE "콘솔"
 #define D_CONFIRM_RESTART "재시작"
 
@@ -1221,5 +1222,9 @@
 // xsns_106_gdk101.ino
 #define D_AVG_RAD_DOSE                    "average radiation dose"
 #define D_UNIT_US_H                       "µSv/h"
+
+// ixrv92_pipsolar.ino
+#define D_SENSOR_PIPSOLAR_TX             "Pipsolar TX"
+#define D_SENSOR_PIPSOLAR_RX             "Pipsolar RX"
 
 #endif  // _LANGUAGE_KO_KO_H_

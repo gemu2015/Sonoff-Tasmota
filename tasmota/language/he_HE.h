@@ -274,7 +274,8 @@
 #define D_CONFIGURATION "הגדרות"
 #define D_INFORMATION "מידע"
 #define D_FIRMWARE_UPGRADE "שדרוג קושחה"
-#define D_MANAGEMENT "Consoles"
+#define D_MANAGEMENT "Tools"
+#define D_GPIO_VIEWER "GPIO Viewer"
 #define D_CONSOLE "קונסול"
 #define D_CONFIRM_RESTART "אישור הפעלה מחדש"
 
@@ -1221,5 +1222,9 @@
 // xsns_106_gdk101.ino
 #define D_AVG_RAD_DOSE                    "מינון קרינה ממוצע"
 #define D_UNIT_US_H                       "µSv/h"
+
+// ixrv92_pipsolar.ino
+#define D_SENSOR_PIPSOLAR_TX             "Pipsolar TX"
+#define D_SENSOR_PIPSOLAR_RX             "Pipsolar RX"
 
 #endif  // _LANGUAGE_HE_HE_H_
