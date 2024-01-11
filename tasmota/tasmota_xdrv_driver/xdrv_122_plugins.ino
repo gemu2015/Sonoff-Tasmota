@@ -1,5 +1,5 @@
 /*
-  xdrv_121_plugins.ino - Prove of concept for flash plugins
+  xdrv_123_plugins.ino - Prove of concept for flash plugins
 
   Copyright (C) 2021  Gerhard Mutz
 
@@ -30,7 +30,7 @@ to doo:
 
 #ifdef USE_BINPLUGINS
 
-#define XDRV_121             121
+#define XDRV_123             123
 
 //#define EXECUTE_FROM_BINARY
 //#define SAVE_DRIVER_TO_FILE
@@ -1566,7 +1566,7 @@ int32_t flash_bindir(uint8_t sel, char *path) {
  * Interface
 \*********************************************************************************************/
 
-bool Xdrv121(uint32_t function) {
+bool Xdrv123(uint32_t function) {
   bool result = false;
 
   switch (function) {
