@@ -1420,7 +1420,7 @@ char *lbl=ma;
 struct MORITZ mo;
 struct MORITZ *mp;
 
-  WSContentSend_PD(HTTP_MORITZ_CSS);
+  WSContentSend_P(HTTP_MORITZ_CSS);
 
   for (uint16_t cnt=0;cnt<MORITZ_MAX_DEVICES;cnt++) {
 #ifdef USE_EEPROM
@@ -1465,12 +1465,12 @@ struct MORITZ *mp;
 
       switch (mp->mdata.type) {
         case 0:
-          WSContentSend_PD(HTTP_MORITZ_COMMON,"c0c0c0","PB",MMLSIZ-1,lbl,lblid,rfes,bls,mp->rssi);
+          WSContentSend_P(HTTP_MORITZ_COMMON,"c0c0c0","PB",MMLSIZ-1,lbl,lblid,rfes,bls,mp->rssi);
           GetTextIndexed(blbl, sizeof(blbl), mp->mdata.is_open, pbstr);
-          WSContentSend_PD(HTTP_MORITZ_PBUT,blbl);
+          WSContentSend_P(HTTP_MORITZ_PBUT,blbl);
           break;
         case 1:
-          WSContentSend_PD(HTTP_MORITZ_COMMON,"a0a0a0","WC",MMLSIZ-1,lbl,lblid,rfes,bls,mp->rssi);
+          WSContentSend_P(HTTP_MORITZ_COMMON,"a0a0a0","WC",MMLSIZ-1,lbl,lblid,rfes,bls,mp->rssi);
           GetTextIndexed(blbl, sizeof(blbl), mp->mdata.is_open, wcstr);
           const char *cp;
           uint8_t uval;
@@ -1481,7 +1481,7 @@ struct MORITZ *mp;
             cp="";
             uval=1;
           }
-          WSContentSend_PD(HTTP_MORITZ_WC,cp,uval,enblid,blbl);
+          WSContentSend_P(HTTP_MORITZ_WC,cp,uval,enblid,blbl);
           break;
         case 2:
           memmove(mod,&mmodes[mp->tmode*2],2);
@@ -1490,13 +1490,13 @@ struct MORITZ *mp;
           dtostrfd(tmp,1,ts1);
           tmp=(float)mp->mtemperature/10.0;
           dtostrfd(tmp,1,ts2);
-          WSContentSend_PD(HTTP_MORITZ_COMMON,"808080","TH",MMLSIZ-1,lbl,lblid,rfes,bls,mp->rssi);
-          WSContentSend_PD(HTTP_MORITZ_THERM,mod,ts1,tmpid,ts2);
+          WSContentSend_P(HTTP_MORITZ_COMMON,"808080","TH",MMLSIZ-1,lbl,lblid,rfes,bls,mp->rssi);
+          WSContentSend_P(HTTP_MORITZ_THERM,mod,ts1,tmpid,ts2);
           break;
       }
     }
   }
-  WSContentSend_PD(HTTP_MORITZ_TEND);
+  WSContentSend_P(HTTP_MORITZ_TEND);
 
 }
 #endif
@@ -1980,7 +1980,7 @@ bool Xsns126(uint32_t function) {
         break;
 #ifdef USE_WEBSERVER
       case FUNC_WEB_ADD_MAIN_BUTTON:
-        WSContentSend_PD(HTTP_MORITZ_SCRIPT);
+        WSContentSend_P(HTTP_MORITZ_SCRIPT);
         break;
 
       case FUNC_WEB_SENSOR:
