@@ -1207,16 +1207,16 @@ void Module_upload() {
   WSContentSendStyle();
   WSContentSend_P(PSTR("Plugins Directory"));
 
-  WSContentSend_PD(MOD_FORM_FILE_UPGc, WebColor(COL_TEXT), MAX_PLUGINS, MOD_FreeSlots());
+  WSContentSend_P(MOD_FORM_FILE_UPGc, WebColor(COL_TEXT), MAX_PLUGINS, MOD_FreeSlots());
 
   WSContentSend_P(MOD_FORM_FILE_UPG, PSTR("Plugin upload"));
   
-  WSContentSend_PD(PSTR("<div>"));
-  WSContentSend_PD(HTTP_MODULES_SCRIPT);
+  WSContentSend_P(PSTR("<div>"));
+  WSContentSend_P(HTTP_MODULES_SCRIPT);
   WSContentSend_P(HTTP_SCRIPT_ROOT, Settings->web_refresh, Settings->web_refresh);
-  WSContentSend_PD(PSTR("</script>"));
+  WSContentSend_P(PSTR("</script>"));
 
-  WSContentSend_PD(HTTP_MODULES_CSS);
+  WSContentSend_P(HTTP_MODULES_CSS);
 
   for (uint16_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
     if (modules[cnt].mod_addr) {
@@ -1231,9 +1231,9 @@ void Module_upload() {
       char srev[8];
       float frev = (float)(rev >> 16) + (float)(rev & 0xffff)/100;
       dtostrf(frev, 1, 2, srev);
-      WSContentSend_PD(HTTP_MODULES_COMMONa, "808080", cnt + 1, name, type, srev, modules[cnt].mod_size, modules[cnt].mem_size);
+      WSContentSend_P(HTTP_MODULES_COMMONa, "808080", cnt + 1, name, type, srev, modules[cnt].mod_size, modules[cnt].mem_size);
 
-      WSContentSend_PD(PSTR("<td>"));
+      WSContentSend_P(PSTR("<td>"));
       for (uint8_t xcnt = 0; xcnt < MAX_MOD_STORES; xcnt++) {
         char name[8];
         strncpy(name, fm->ms[xcnt].name, 8);
@@ -1242,7 +1242,7 @@ void Module_upload() {
           sprintf(vn,"sel%d_%d", cnt, xcnt);
           uint32_t val32 = fm->ms[xcnt].value;
           uint8_t selector = val32 >> 24;
-          WSContentSend_PD(PSTR("<label for=\"p%d_%d\">%s:</label> <select  id=\"p%d_%d\" style='width: 60px;' onchange='seva(value,\"%s\")'>"),cnt,xcnt,name,cnt,xcnt,vn);
+          WSContentSend_P(PSTR("<label for=\"p%d_%d\">%s:</label> <select  id=\"p%d_%d\" style='width: 60px;' onchange='seva(value,\"%s\")'>"),cnt,xcnt,name,cnt,xcnt,vn);
           if (!selector) {
             for (uint8_t pins = 0; pins < nitems(TasmotaGlobal.gpio_pin); pins++) {
               char sel[10];
@@ -1253,7 +1253,7 @@ void Module_upload() {
               }
               // AddLog(LOG_LEVEL_INFO,PSTR(">>> %d - %d"), pins, TasmotaGlobal.gpio_pin[pins]);
               if (TasmotaGlobal.gpio_pin[pins] == 0) {
-                WSContentSend_PD(PSTR("<option value=\"%d\" %s>%d</option>"), pins, sel, pins);
+                WSContentSend_P(PSTR("<option value=\"%d\" %s>%d</option>"), pins, sel, pins);
               }
             }
           } else {
@@ -1268,13 +1268,13 @@ void Module_upload() {
                 sel[0] = 0;
               }
               // AddLog(LOG_LEVEL_INFO,PSTR(">>> %d - %d"), pins, TasmotaGlobal.gpio_pin[pins]);
-              WSContentSend_PD(PSTR("<option value=\"%d\" %s>%d</option>"), pins, sel, pins);
+              WSContentSend_P(PSTR("<option value=\"%d\" %s>%d</option>"), pins, sel, pins);
             }
           }
-          WSContentSend_PD(PSTR("</select><br>"));
+          WSContentSend_P(PSTR("</select><br>"));
         }
       }
-      WSContentSend_PD(PSTR("</td>"));
+      WSContentSend_P(PSTR("</td>"));
     
       const char *cp;
       uint8_t uval;
@@ -1287,14 +1287,14 @@ void Module_upload() {
       }
       char enblid[8];
       sprintf_P(enblid,PSTR("enb%d"),cnt);
-      WSContentSend_PD(HTTP_MODULES_COMMONc, cp, uval, enblid, cnt + 1);
+      WSContentSend_P(HTTP_MODULES_COMMONc, cp, uval, enblid, cnt + 1);
   
     }
   }
 
-  WSContentSend_PD(HTTP_MODULES_TEND);
+  WSContentSend_P(HTTP_MODULES_TEND);
 
-  WSContentSend_PD(PSTR("</div>"));
+  WSContentSend_P(PSTR("</div>"));
   
   WSContentSpaceButton(BUTTON_MANAGEMENT);
   WSContentStop();
@@ -1595,7 +1595,7 @@ bool Xdrv123(uint32_t function) {
       if (XdrvMailbox.index) {
         XdrvMailbox.index++;
       } else {
-        WSContentSend_PD(MOD_DIRECTORY, PSTR("Plugins directory"));
+        WSContentSend_P(MOD_DIRECTORY, PSTR("Plugins directory"));
       }
       break;
     case FUNC_WEB_ADD_HANDLER:
