@@ -341,17 +341,10 @@ typedef union {
 } SCRIPT_TYPE;
 
 
-#if 1
 struct T_INDEX {
   uint16_t index;
   SCRIPT_TYPE bits;
 };
-#else
-struct T_INDEX {
-  uint8_t index;
-  SCRIPT_TYPE bits;
-};
-#endif
 
 struct M_FILT {
 #ifdef LARGE_ARRAYS
@@ -571,7 +564,7 @@ struct SCRIPT_MEM {
 #endif
 
 #ifdef SCRIPT_FULL_WEBPAGE
-    uint8_t wsp[8];
+    uint8_t wsp;
 #endif
 
 } glob_script_mem;
@@ -761,9 +754,7 @@ char *script;
     }
 
 #ifdef SCRIPT_FULL_WEBPAGE
-    for (uint8_t cnt = 0; cnt < 8; cnt++) {
-      glob_script_mem.wsp[cnt] = 0;
-    }
+   // glob_script_mem.wsp = 0;
 #endif
 
     char *vnames = (char*)imemptr;
@@ -12860,10 +12851,11 @@ void script_add_subpage(uint8_t num) {
           wptr = ScriptFullWebpage7;
           break;
       }
-      if (!glob_script_mem.wsp[num - 1]) {
+      uint8_t flag = 1 << num;
+      if (!(glob_script_mem.wsp & flag)) {
         sprintf_P(id, PSTR("/sfd%1d"), num);
         Webserver->on(id, wptr);
-        glob_script_mem.wsp[num - 1] = 1;
+        glob_script_mem.wsp |= flag;
       }
       WSContentSend_P(HTTP_WEB_FULL_DISPLAY, num, bname);
   }
