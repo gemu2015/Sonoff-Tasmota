@@ -507,6 +507,7 @@ class RA8876 : public Renderer {
   void setDrawMode(uint8_t mode);
   void setDrawMode_reg(uint8_t mode);
   void dim(uint8_t contrast);
+  void dim10(uint8_t contrast, uint16_t contrast_gamma);
   void FastString(uint16_t x,uint16_t y,uint16_t tcolor, const char* str);
 
  private:
