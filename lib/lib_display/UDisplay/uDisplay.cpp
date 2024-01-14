@@ -1852,9 +1852,9 @@ for(y=h; y>0; y--) {
 
 #ifdef USE_UNIVERSAL_TOUCH
 
+uint8_t ut_irq_flg;
 
-
-static void USE_IRAM_ATTR ut_touch_irq() {
+void IRAM_ATTR ut_touch_irq(void) {
   ut_irq_flg = 1;
 }
 

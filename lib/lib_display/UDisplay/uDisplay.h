@@ -431,7 +431,6 @@ class uDisplay : public Renderer {
   uint8_t ut_i2caddr;
   int8_t ut_reset;
   int8_t ut_irq;
-  unt8_t ut_irq_flg;
   char ut_name[8];
   uint8_t ut_init_code[32];
   uint8_t ut_touch_code[16];
