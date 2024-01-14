@@ -542,6 +542,38 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
           case 'b':
             bpmode = next_val(&lp1);
             break;
+#ifdef USE_UNIVERSAL_TOUCH
+          case 'U':
+            if (!strncmp(lp1, "TI", 2)) {
+              // init
+              lp1 += 3;
+              str2c(&lp1, ut_name, sizeof(ut_name));
+              if (*lp1 == 'I') {
+                // i2c mode
+                lp1++;
+                ut_mode = *lp1 & 0xf;
+                lp1 += 2;
+                ut_i2caddr = next_hex(&lp1);
+              } else {
+                // spi mode
+              }
+              ut_trans(&lp, ut_init_code);
+            } else if (!strncmp(lp1, "TT", 2)) {
+              lp1 += 2;
+              // touch
+              ut_trans(&lp, ut_touch_code);
+            } else if (!strncmp(lp1, "TX", 2)) {
+              lp1 += 2;
+              // get x
+              ut_trans(&lp, ut_getx_code);
+            } else if (!strncmp(lp1, "TY", 2)) {
+              lp1 += 2;
+              // get y
+              ut_trans(&lp, ut_gety_code);
+            }
+
+            break;
+#endif // USE_UNIVERSAL_TOUCH
         }
       }
     }
@@ -1815,6 +1847,25 @@ for(y=h; y>0; y--) {
 }
 */
 
+#ifdef USE_UNIVERSAL_TOUCH
+// universal touch driver
+bool uDisplay::utouch_Init(void) {
+  return false;
+}
+
+bool uDisplay::touched(void) {
+  return false;
+}
+
+int16_t uDisplay::getPoint_x(void) {
+  return 0;
+}
+
+int16_t uDisplay::getPoint_y(void) {
+  return 0;
+}
+#endif // USE_UNIVERSAL_TOUCH
+
 
 void uDisplay::Splash(void) {
 
@@ -2460,6 +2511,20 @@ uint8_t uDisplay::strlen_ln(char *str) {
 char *uDisplay::devname(void) {
   return dname;
 }
+
+#ifdef USE_UNIVERSAL_TOUCH
+void uDisplay::ut_trans(char **sp, uint8_t *ut_code) {
+  char *cp = *sp;
+  Serial.printf(">> %s\n",cp);
+  while (*cp) {
+    if (*cp == ':') {
+      break;
+    }
+    cp++;
+  }
+  *sp = cp - 1;
+}
+#endif
 
 uint32_t uDisplay::str2c(char **sp, char *vp, uint32_t len) {
     char *lp = *sp;
