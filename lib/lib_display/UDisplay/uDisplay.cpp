@@ -1851,6 +1851,13 @@ for(y=h; y>0; y--) {
 */
 
 #ifdef USE_UNIVERSAL_TOUCH
+
+
+
+static void USE_IRAM_ATTR ut_touch_irq() {
+  ut_irq_flg = 1;
+}
+
 // universal touch driver
 bool uDisplay::utouch_Init(char **name) {
   *name = ut_name;
@@ -1863,10 +1870,19 @@ bool uDisplay::utouch_Init(char **name) {
     digitalWrite(ut_reset, HIGH);
     delay(10);
   }
+  if (ut_irq >= 0) {
+    attachInterrupt(ut_irq, ut_touch_irq, FALLING);
+  }
   return ut_execute(ut_init_code);
 }
 
 bool uDisplay::touched(void) {
+  if (ut_irq >= 0) {
+    if (!ut_irq_flg) {
+      return false;
+    }
+    ut_irq_flg = 0;
+  }
   return ut_execute(ut_touch_code);
 }
 
