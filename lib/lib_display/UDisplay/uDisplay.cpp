@@ -553,7 +553,11 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
                 lp1++;
                 ut_mode = *lp1 & 0xf;
                 lp1 += 2;
+                ut_reset = -1;
+                ut_irq = -1;
                 ut_i2caddr = next_hex(&lp1);
+                ut_reset = next_val(&lp1);
+                ut_irq = next_val(&lp1);
               } else {
                 // spi mode
               }
@@ -1850,6 +1854,15 @@ for(y=h; y>0; y--) {
 // universal touch driver
 bool uDisplay::utouch_Init(char **name) {
   *name = ut_name;
+  if (ut_reset >= 0) {
+    pinMode(ut_reset, OUTPUT);
+    digitalWrite(ut_reset, HIGH);
+    delay(10);
+    digitalWrite(ut_reset, LOW);
+    delay(5);
+    digitalWrite(ut_reset, HIGH);
+    delay(10);
+  }
   return ut_execute(ut_init_code);
 }
 
