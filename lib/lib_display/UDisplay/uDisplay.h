@@ -192,7 +192,7 @@ class uDisplay : public Renderer {
   void SetDimCB(dim_cb cb) { dim_cbp = cb; };
 #ifdef USE_UNIVERSAL_TOUCH
 // universal touch driver
-  bool utouch_Init(void);
+  bool utouch_Init(char **name);
   bool touched(void);
   int16_t getPoint_x();
   int16_t getPoint_y();
@@ -422,6 +422,8 @@ class uDisplay : public Renderer {
 #ifdef USE_UNIVERSAL_TOUCH
 // universal touch driver
   void ut_trans(char **sp, uint8_t *ut_code);
+  int16_t ut_execute(uint8_t *ut_code);
+  uint8_t ut_par(char **cp, uint32_t mode);
   uint32_t ut_result;
   uint8_t ut_array[16];
   uint8_t ut_r1; 

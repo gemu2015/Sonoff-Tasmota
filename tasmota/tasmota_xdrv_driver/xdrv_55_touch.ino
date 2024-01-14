@@ -244,9 +244,10 @@ bool CST816S_Touch_Init(uint8_t bus, int8_t irq_pin, int8_t rst_pin, int interru
 
 void utouch_Touch_Init() {
   if (renderer) {
-    utouch_found = renderer->utouch_Init();
+    char *name;
+    utouch_found = renderer->utouch_Init(&name);
     if (utouch_found) {
-      AddLog(LOG_LEVEL_INFO, PSTR("UTOUCH"));
+      AddLog(LOG_LEVEL_INFO, PSTR("UT: %s"), name);
     }
   }
 }
@@ -628,7 +629,7 @@ bool Xdrv55(uint32_t function) {
     case FUNC_INIT:
       break;
     case FUNC_EVERY_100_MSECOND:
-      if (CST816S_found || FT5206_found || XPT2046_found || GT911_found || SRES_found) {
+      if (CST816S_found || FT5206_found || XPT2046_found || GT911_found || utouch_found || SRES_found) {
         Touch_Check(TS_RotConvert);
       }
       break;

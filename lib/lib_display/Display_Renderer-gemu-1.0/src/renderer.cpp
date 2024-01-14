@@ -623,7 +623,7 @@ int8_t Renderer::color_type(void) {
  return 0;
 }
 
-bool Renderer::utouch_Init(void) {
+bool Renderer::utouch_Init(char **name) {
   return false;
 }
 
