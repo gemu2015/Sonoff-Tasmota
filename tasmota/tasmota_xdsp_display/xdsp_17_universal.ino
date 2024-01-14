@@ -374,6 +374,10 @@ int8_t cs;
 #endif // ESP8266
 
       // start digitizer
+#ifdef USE_UNIVERSAL_TOUCH
+      utouch_Touch_Init();
+#endif
+
 #ifdef ESP32
       if (i2caddr == GT911_address) {
 #ifdef USE_GT911
