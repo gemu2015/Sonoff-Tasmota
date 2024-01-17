@@ -18,7 +18,7 @@
 #endif
 
 enum {
-  UT_RD,UT_RDM,UT_CP,UT_RTF,UT_MV,UT_RT,UT_RTT,UT_RDW,UT_RDWM,UT_WR,UT_WRW,UT_CPR,UT_AND,UT_DBG,UT_GSRT,UT_END
+  UT_RD,UT_RDM,UT_CP,UT_RTF,UT_MV,UT_MVB,UT_RT,UT_RTT,UT_RDW,UT_RDWM,UT_WR,UT_WRW,UT_CPR,UT_AND,UT_DBG,UT_GSRT,UT_END
 };
 
 #define SIMPLERS_XP par_dbl[1]
@@ -204,7 +204,7 @@ class uDisplay : public Renderer {
 #ifdef USE_UNIVERSAL_TOUCH
 // universal touch driver
   bool utouch_Init(char **name);
-  bool touched(void);
+  uint16_t touched(void);
   int16_t getPoint_x();
   int16_t getPoint_y();
 #endif // USE_UNIVERSAL_TOUCH

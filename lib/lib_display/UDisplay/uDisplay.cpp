@@ -1925,7 +1925,7 @@ bool uDisplay::utouch_Init(char **name) {
   return ut_execute(ut_init_code);
 }
 
-bool uDisplay::touched(void) {
+uint16_t uDisplay::touched(void) {
   if (ut_irq >= 0) {
     if (!ut_irq_flg) {
       return false;
@@ -2669,6 +2669,12 @@ void uDisplay::ut_trans(char **sp, uint8_t *ut_code, int32_t size) {
       // return when true
       *ut_code++ = UT_RTT;
       size -= 1;
+    } else if (!strncmp(cp, "MVB", 3)) {
+      // move
+      *ut_code++ = UT_MVB;
+      *ut_code++ = ut_par(&cp, 1);
+      *ut_code++ = ut_par(&cp, 1);
+      size -= 3;
     } else if (!strncmp(cp, "MV", 2)) {
       // move
       *ut_code++ = UT_MV;
@@ -2812,6 +2818,9 @@ RTT = return when result == true  with false
 
 MV DN DN = move from array index to result, second parameter: 1 = move byte, 2 = move word, 3 = move word, reverse order
 
+MVB DN DN = move byte from array index to result, par1; 0 = low, 1 = high byte, par2 = array index
+
+
 AND HN = and result with immediate to result
 
 RT = return result
@@ -2874,7 +2883,19 @@ uint16_t wval;
         if (result > 0) {
           return false;
         }
-        break;     
+        break;
+      case UT_MVB:
+        // move byte from index to high or low result
+        wval = *ut_code++;
+        iob = *ut_code++;
+        if (wval == 0) {
+          result &= 0xff00;
+          result |= ut_array[iob]; 
+        } else {
+          result &= 0x00ff;
+          result |= (ut_array[iob] << 8); 
+        }
+        break;
       case UT_MV:
         // move
         // source
