@@ -442,6 +442,7 @@ class uDisplay : public Renderer {
   int8_t ut_reset;
   int8_t ut_irq;
   TwoWire *ut_wire;
+  SPIClass *ut_spi;
   SPISettings ut_spiSettings;
   char ut_name[8];
   uint8_t ut_init_code[32];
