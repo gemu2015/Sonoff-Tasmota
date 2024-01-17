@@ -17,6 +17,15 @@
 #endif // ESP_IDF_VERSION_MAJOR >= 5
 #endif
 
+enum {
+  UT_RD,UT_RDM,UT_CP,UT_RTF,UT_MV,UT_RT,UT_RTT,UT_RDW,UT_RDWM,UT_WR,UT_WRW,UT_CPR,UT_AND,UT_DBG,UT_GSRT,UT_END
+};
+
+#define SIMPLERS_XP par_dbl[1]
+#define SIMPLERS_XM par_cs
+#define SIMPLERS_YP par_rs
+#define SIMPLERS_YM par_dbl[0]
+
 #ifdef USE_ESP32_S3
 #include <esp_lcd_panel_io.h>
 #include "esp_private/gdma.h"
@@ -101,14 +110,7 @@ enum uColorType { uCOLOR_BW, uCOLOR_COLOR };
 #define GPIO_SET(A) GPIO.out_w1ts = (1 << A)
 #endif
 
-enum {
-  UT_RD,UT_RDM,UT_CP,UT_RTF,UT_MV,UT_RT,UT_RTT,UT_RDW,UT_RDWM,UT_WR,UT_WRW,UT_CPR,UT_AND,UT_DBG,UT_GSRT,UT_END
-};
 
-#define SIMPLERS_XP par_dbl[1]
-#define SIMPLERS_XM par_cs
-#define SIMPLERS_YP par_rs
-#define SIMPLERS_YM par_dbl[0]
 
 
 #define GPIO_CLR_SLOW(A) digitalWrite(A, LOW)

@@ -256,6 +256,7 @@ bool utouch_touched() {
   if (renderer) {
     return renderer->touched();
   }
+  return false;
 }
 int16_t utouch_x() {
   if (renderer) {
