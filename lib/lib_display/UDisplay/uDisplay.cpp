@@ -2777,60 +2777,6 @@ uint8_t *uDisplay::ut_wr(uint8_t *iop, uint32_t amode) {
   return iop;
 }
 
-/* universal touch interface
-
-4 sections:
-:UTI,FT5206,I2,38,-1,-1
-init section
-device name, up to 7 chars
-interface type:  I=I2C, S=SPI, R=resistive,  1 or 2 denotes bus number, i2c address or SPI CS pin, reset pin, irq pin
-
-:UTT
-touch check call
-
-:UTX
-get x coordinate
-
-:UTY
-get y coordinate
-
-commands:
-input goes to array[16]
-result register holds move or compare
-
-DN = decimal number
-HN = hex number
-
-RD HN = read one byte  (from bytes adress)
-RDM HN DN = read n bytes (from bytes adress)
-
-RDW HWN = read one byte  (from word adress)
-RDWM HWN DN = read n bytes (from word adress)
-
-WR HN HN = write one byte  (to bytes adress)
-WRW HWN HN = write one byte (to word adress)
-
-CP HN = compare array[0] with immediate to result
-CPR HN = compare result with immediate to result
-
-RTF = return when result == false with false
-RTT = return when result == true  with false
-
-MV DN DN = move from array index to result, second parameter: 1 = move byte, 2 = move word, 3 = move word, reverse order
-
-MVB DN DN = move byte from array index to result, par1; 0 = low, 1 = high byte, par2 = array index
-
-
-AND HN = and result with immediate to result
-
-RT = return result
-
-GSRT DN = get result from simple resitive touch to array, paramter = threshold 
-
-DBG DN = log result and first 4 array bytes 
-
-*/
-
 
 int16_t uDisplay::ut_execute(uint8_t *ut_code) {
 int16_t result = 0;
