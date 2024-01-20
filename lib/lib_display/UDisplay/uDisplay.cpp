@@ -587,23 +587,13 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
               } else if (*lp1 == 'S') {
                 // spi mode
                 lp1++;
-                uint8_t ut_mode = *lp1 & 0xf;
+                ut_spi_nr = *lp1 & 0xf;
                 lp1 += 2;
-                ut_reset = -1;
-                ut_irq = -1;
                 ut_spi_cs = next_val(&lp1);
                 ut_reset = next_val(&lp1);
                 ut_irq = next_val(&lp1);
-                // assume displays SPI bus
                 pinMode(ut_spi_cs, OUTPUT);
                 digitalWrite(ut_spi_cs, HIGH);
-
-                if (ut_mode == spi_nr) {
-                  ut_spi = uspi;
-                } else {
-                  // not yet
-                  ut_spi = nullptr;
-                }
                 ut_spiSettings = SPISettings(2000000, MSBFIRST, SPI_MODE0);
               } else {
                 // simple resistive touch
@@ -927,6 +917,17 @@ uint16_t index = 0;
         delay_arg(args);
       }
     } else {
+      if (spi_dc == -2) {
+        // pseudo opcodes
+        switch (iob) {
+          case UDSP_WRITE_16:
+            break;
+          case UDSP_READ_DATA:
+            break;
+          case UDSP_READ_STATUS:
+            break;
+        }
+      }
       ulcd_command(iob);
       uint8_t args = dsp_cmds[cmd_offset++];
       index++;
@@ -1919,7 +1920,15 @@ bool uDisplay::utouch_Init(char **name) {
     delay(10);
   }
   if (ut_irq >= 0) {
+    pinMode(ut_irq, INPUT );
     attachInterrupt(ut_irq, ut_touch_irq, FALLING);
+  }
+
+  if (ut_spi_nr == spi_nr) {
+    ut_spi = uspi;
+  } else {
+    // not yet
+    ut_spi = nullptr;
   }
 
   return ut_execute(ut_init_code);
@@ -2709,7 +2718,13 @@ void uDisplay::ut_trans(char **sp, uint8_t *ut_code, int32_t size) {
     } else if (!strncmp(cp, "GSRT", 4)) {
       *ut_code++ = UT_GSRT;
       wval = ut_par(&cp, 1);
-      *ut_code++ = wval>>8;
+      *ut_code++ = wval >> 8;
+      *ut_code++ = wval;
+      size -= 3;
+    } else if (!strncmp(cp, "XPT", 3)) {
+      *ut_code++ = UT_XPT;
+      wval = ut_par(&cp, 1);
+      *ut_code++ = wval >> 8;
       *ut_code++ = wval;
       size -= 3;
     } else if (!strncmp(cp, "DBG", 3)) {
@@ -2747,15 +2762,19 @@ uint8_t *uDisplay::ut_rd(uint8_t *iop, uint32_t len, uint32_t amode) {
     }
   } else {
     // spi mode
-    uint16_t val = *iop++;
-    if (ut_spi) {
-      digitalWrite(ut_spi_cs, LOW);
-      ut_spi->beginTransaction(ut_spiSettings);
-      val = ut_spi->transfer16(val);
-      ut_spi->endTransaction();
-      ut_array[0] = val << 8;
-      ut_array[1] = val;
-      digitalWrite(ut_spi_cs, HIGH);
+    if (amode == 1) {
+      uint16_t val = *iop++;
+      uint16_t len = *iop++;
+      if (ut_spi) {
+        digitalWrite(ut_spi_cs, LOW);
+        ut_spi->beginTransaction(ut_spiSettings);
+        ut_spi->transfer(val);
+        val = ut_spi->transfer16(0);
+        ut_spi->endTransaction();
+        ut_array[len] = val << 8;
+        ut_array[len + 1] = val;
+        digitalWrite(ut_spi_cs, HIGH);
+      }
     }
   }
   return iop;
@@ -2777,6 +2796,58 @@ uint8_t *uDisplay::ut_wr(uint8_t *iop, uint32_t amode) {
   return iop;
 }
 
+
+int16_t uDisplay::besttwoavg( int16_t x , int16_t y , int16_t z ) {
+  int16_t da, db, dc;
+  int16_t reta = 0;
+  if ( x > y ) da = x - y; else da = y - x;
+  if ( x > z ) db = x - z; else db = z - x;
+  if ( z > y ) dc = z - y; else dc = y - z;
+
+  if ( da <= db && da <= dc ) reta = (x + y) >> 1;
+  else if ( db <= da && db <= dc ) reta = (x + z) >> 1;
+  else reta = (y + z) >> 1;
+
+  return (reta);
+}
+
+uint16_t uDisplay::ut_XPT2046(uint16_t z_th) {
+  uint16_t result = 0;
+  if (ut_spi) {
+    int16_t data[6];
+		ut_spi->beginTransaction(ut_spiSettings);
+		digitalWrite(ut_spi_cs, LOW);
+		ut_spi->transfer(0xB1 /* Z1 */);
+		int16_t z1 = ut_spi->transfer16(0xC1 /* Z2 */) >> 3;
+		int16_t z = z1 + 4095;
+		int16_t z2 = ut_spi->transfer16(0x91 /* X */) >> 3;
+		z -= z2;
+		if (z >= z_th) {
+			ut_spi->transfer16(0x91 /* X */);  // dummy X measure, 1st is always noisy
+			data[0] = ut_spi->transfer16(0xD1 /* Y */) >> 3;
+			data[1] = ut_spi->transfer16(0x91 /* X */) >> 3; // make 3 x-y measurements
+			data[2] = ut_spi->transfer16(0xD1 /* Y */) >> 3;
+			data[3] = ut_spi->transfer16(0x91 /* X */) >> 3;
+      result = 1;
+		}
+		else {
+      data[0] = data[1] = data[2] = data[3] = 0;
+    }
+    data[4] = ut_spi->transfer16(0xD0 /* Y */) >> 3;	// Last Y touch power down
+		data[5] = ut_spi->transfer16(0) >> 3;
+		digitalWrite(ut_spi_cs, HIGH);
+		ut_spi->endTransaction();
+
+    uint16_t x = besttwoavg( data[0], data[2], data[4] );
+	  uint16_t y = besttwoavg( data[1], data[3], data[5] );
+
+    ut_array[0] = x >> 8;
+    ut_array[1] = x;
+    ut_array[2] = y >> 8;
+    ut_array[3] = y;
+	}
+  return result;
+}
 
 int16_t uDisplay::ut_execute(uint8_t *ut_code) {
 int16_t result = 0;
@@ -2892,6 +2963,11 @@ uint16_t wval;
         }
 #endif // USE_ESP32_S3
         break;
+      case UT_XPT:
+        wval = *ut_code++ << 8;
+        wval |= *ut_code++;
+        result = ut_XPT2046(wval);
+        break;
       case UT_DBG:
         // debug show result
         //Serial.printf("UTDBG: %d\n", result);
@@ -2962,38 +3038,57 @@ uint32_t uDisplay::next_hex(char **sp) {
 // we use our own hardware driver for 9 bit spi
 void uDisplay::hw_write9(uint8_t val, uint8_t dc) {
 
-    uint32_t regvalue = val >> 1;
-    if (dc) regvalue |= 0x80;
-    else regvalue &= 0x7f;
-    if (val & 1) regvalue |= 0x8000;
+    if (spi_dc < -1) {
+      // RA8876 mode
+      if (!dc) {
+        uspi->write(RA8876_CMD_WRITE);
+        uspi->write(val);
+      } else {
+        uspi->write(RA8876_DATA_WRITE);
+        uspi->write(val);
+      }
+    } else {
+      uint32_t regvalue = val >> 1;
+      if (dc) regvalue |= 0x80;
+      else regvalue &= 0x7f;
+      if (val & 1) regvalue |= 0x8000;
 
-    REG_SET_BIT(SPI_USER_REG(3), SPI_USR_MOSI);
-    REG_WRITE(SPI_MOSI_DLEN_REG(3), 9 - 1);
-    uint32_t *dp = (uint32_t*)SPI_W0_REG(3);
-    *dp = regvalue;
-    REG_SET_BIT(SPI_CMD_REG(3), SPI_USR);
-    while (REG_GET_FIELD(SPI_CMD_REG(3), SPI_USR));
-
+      REG_SET_BIT(SPI_USER_REG(3), SPI_USR_MOSI);
+      REG_WRITE(SPI_MOSI_DLEN_REG(3), 9 - 1);
+      uint32_t *dp = (uint32_t*)SPI_W0_REG(3);
+      *dp = regvalue;
+      REG_SET_BIT(SPI_CMD_REG(3), SPI_USR);
+      while (REG_GET_FIELD(SPI_CMD_REG(3), SPI_USR));
+    }
 }
 
 #else
 #include "spi_register.h"
 void uDisplay::hw_write9(uint8_t val, uint8_t dc) {
 
-    uint32_t regvalue;
-    uint8_t bytetemp;
-    if (!dc) {
-      bytetemp = (val>> 1) & 0x7f;
+    if (spi_dc < -1) {
+      // RA8876 mode
+      if (!dc) {
+        uspi->write(RA8876_CMD_WRITE);
+        uspi->write(val);
+      } else {
+        uspi->write(RA8876_DATA_WRITE);
+        uspi->write(val);
+      }
     } else {
-      bytetemp = (val >> 1) | 0x80;
+      uint32_t regvalue;
+      uint8_t bytetemp;
+      if (!dc) {
+        bytetemp = (val>> 1) & 0x7f;
+      } else {
+        bytetemp = (val >> 1) | 0x80;
+      }
+      regvalue = ((8 & SPI_USR_COMMAND_BITLEN) << SPI_USR_COMMAND_BITLEN_S) | ((uint32)bytetemp);		//configure transmission variable,9bit transmission length and first 8 command bit
+      if (val & 0x01) 	regvalue |= BIT15;        //write the 9th bit
+      while (READ_PERI_REG(SPI_CMD(1)) & SPI_USR);		//waiting for spi module available
+      WRITE_PERI_REG(SPI_USER2(1), regvalue);				//write  command and command length into spi reg
+      SET_PERI_REG_MASK(SPI_CMD(1), SPI_USR);		//transmission start
     }
-
-    regvalue = ((8 & SPI_USR_COMMAND_BITLEN) << SPI_USR_COMMAND_BITLEN_S) | ((uint32)bytetemp);		//configure transmission variable,9bit transmission length and first 8 command bit
-    if (val & 0x01) 	regvalue |= BIT15;        //write the 9th bit
-    while (READ_PERI_REG(SPI_CMD(1)) & SPI_USR);		//waiting for spi module available
-    WRITE_PERI_REG(SPI_USER2(1), regvalue);				//write  command and command length into spi reg
-    SET_PERI_REG_MASK(SPI_CMD(1), SPI_USR);		//transmission start
-
 }
 #endif
 
@@ -3008,6 +3103,25 @@ void USECACHE uDisplay::write8(uint8_t val) {
     else   GPIO_CLR(spi_mosi);
     GPIO_SET(spi_clk);
   }
+}
+
+uint8_t uDisplay::writeReg16(uint8_t reg, uint16_t wval) {
+  hw_write9(reg, 0);
+  hw_write9(wval, 1);
+  hw_write9(reg + 1, 0);
+  hw_write9(wval >> 8, 1);
+}
+
+uint8_t uDisplay::readData(void) {
+  uspi->write(RA8876_DATA_READ);
+  uint8_t val = uspi->transfer(0);
+  return val;
+}
+
+uint8_t uDisplay::readStatus(void) {
+  uspi->write(RA8876_STATUS_READ);
+  uint8_t val = uspi->transfer(0);
+  return val;
 }
 
 void uDisplay::write8_slow(uint8_t val) {

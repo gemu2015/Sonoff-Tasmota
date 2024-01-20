@@ -18,8 +18,18 @@
 #endif
 
 enum {
-  UT_RD,UT_RDM,UT_CP,UT_RTF,UT_MV,UT_MVB,UT_RT,UT_RTT,UT_RDW,UT_RDWM,UT_WR,UT_WRW,UT_CPR,UT_AND,UT_DBG,UT_GSRT,UT_END
+  UT_RD,UT_RDM,UT_CP,UT_RTF,UT_MV,UT_MVB,UT_RT,UT_RTT,UT_RDW,UT_RDWM,UT_WR,UT_WRW,UT_CPR,UT_AND,UT_DBG,UT_GSRT,UT_XPT,UT_END
 };
+
+#define RA8876_DATA_WRITE  0x80
+#define RA8876_DATA_READ   0xC0
+#define RA8876_CMD_WRITE   0x00
+#define RA8876_STATUS_READ 0x40
+
+#define UDSP_WRITE_16 0xf0
+#define UDSP_READ_DATA 0xf1
+#define UDSP_READ_STATUS 0xf2
+
 
 #define SIMPLERS_XP par_dbl[1]
 #define SIMPLERS_XM par_cs
@@ -231,6 +241,9 @@ class uDisplay : public Renderer {
    void write16(uint16_t val);
    void write32(uint32_t val);
    void spi_data9(uint8_t d, uint8_t dc);
+   uint8_t readData(void);
+   uint8_t readStatus(void);
+   uint8_t writeReg16(uint8_t reg, uint16_t wval);
    void WriteColor(uint16_t color);
    void SetLut(const unsigned char* lut);
    void SetLuts(void);
@@ -437,12 +450,15 @@ class uDisplay : public Renderer {
   uint16_t ut_par(char **cp, uint32_t mode);
   uint8_t *ut_rd(uint8_t *io, uint32_t len, uint32_t amode);
   uint8_t *ut_wr(uint8_t *io, uint32_t amode);
-  uint32_t ut_result;
+  uint16_t ut_XPT2046(uint16_t zh);
+  int16_t besttwoavg( int16_t x , int16_t y , int16_t z );
+
   uint8_t ut_array[16];
   uint8_t ut_i2caddr;
   uint8_t ut_spi_cs;
   int8_t ut_reset;
   int8_t ut_irq;
+  uint8_t ut_spi_nr;
   TwoWire *ut_wire;
   SPIClass *ut_spi;
   SPISettings ut_spiSettings;
