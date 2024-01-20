@@ -3,7 +3,43 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - Development
 
-## [13.3.0.2]
+## [13.3.0.3]
+### Added
+- Berry `debug.caller` (#20470)
+- GPIO Viewer user selection of assets website now defaults to `https://ota.tasmota.com/tasmota|tasmota32/gpio_viewer/assets`
+- Support for HardwareSerial invert (#15461)
+- SML support for IM350 (#20474)
+- LVGL `lv.str_arr` (#20480)
+- ESP32 MI BLE support for Xiaomi LYWSD02MMC (#20381)
+- LVGL option to add `lv.keyboard` extra widget (#20496)
+- GUI sensor separators (#20495)
+- Command ``TimedPower<index> <milliseconds>[,ON|OFF|TOGGLE|BLINK]`` executes ``Power<index> [ON|OFF|TOGGLE|BLINK] `` and after <millisecond> executes ``Power<index> [OFF|ON|TOGGLE|BLINK_OFF]``
+- Berry solidification of strings longer than 255 bytes (#20529)
+- Berry syntax coloring for Notepad++ (by FransO)
+- Berry/Zigbee add web hook per device for customized status display
+
+### Breaking Changed
+
+### Changed
+- ESP32 platform update from 2024.01.00 to 2024.01.01 (#20508)
+- IP stack compatible with new Core3 IPv6 implementation (#20509)
+- Command ``TimedPower`` from erasing all timers to showing remaining timers
+
+### Fixed
+- Scripter memory leak in `>w x` (#20473)
+- ESP8266 GPIO Viewer exception 9 on reading Analog GPIO
+- GPIO Viewer single instance
+- Zigbee ramdom crash in main page (#20481)
+- Web file upload response on upload error (#20340)
+- ESP32 shutter exception 6 (divide by zero) on ``ShutterMode 4`` (#20524)
+- GPIOViewer exception 3
+- Berry assigment to list with negative index
+- Matter fix support for Alexa
+
+### Removed
+- Max number of 30 backlog entries
+
+## [13.3.0.2] 20240111
 ### Added
 - HASPmota type `chart` (#20372)
 - Berry add support for `tcpclientasync` in `tcpserver` (#20401)
@@ -21,19 +57,16 @@ All notable changes to this project will be documented in this file.
 - Berry `tasmota.webcolor` (#20454)
 - Support for pipsolar inverter (#20408)
 
-### Breaking Changed
-
 ### Changed
 - Renamed button "Consoles" to "Tools"
 - ESP32 platform update from 2023.12.00 to 2024.01.00 (#20445)
 - Header `Host` is now collected by Webserver (#20446)
 - Webcam tweaks (#20451)
+- ESP8266 platform update from 2023.04.00 to 2024.01.00 (#20467)
+- ESP8266 Framework (Arduino Core) from v2.7.4.9 to v2.7.5 (#20467)
 
 ### Fixed
 - ESP32 Zigbee Aqara attributes (#20452)
-
-### Removed
-
 
 ## [13.3.0.1] 20240101
 ### Added

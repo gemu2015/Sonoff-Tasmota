@@ -833,6 +833,8 @@ void _WSContentSendBuffer(bool decimal, const char * formatP, va_list arg) {
   int len = strlen(content);
   if (0 == len) { return; }                        // No content
 
+  WSContentSeparator(2);                           // Print separator on next WSContentSeparator(1)
+
   if (decimal && (D_DECIMAL_SEPARATOR[0] != '.')) {
     for (uint32_t i = 0; i < len; i++) {
       if ('.' == content[i]) {
@@ -980,6 +982,27 @@ void WSContentButton(uint32_t title_index, bool show=true) {
 void WSContentSpaceButton(uint32_t title_index, bool show=true) {
   WSContentSend_P(PSTR("<div id=but%dd style=\"display: %s;\"></div>"),title_index, show ? "block":"none");            // 5px padding
   WSContentButton(title_index, show);
+}
+
+void WSContentSeparator(uint32_t state) {
+  // Send two column separator
+  static bool request = false;
+  switch (state) {
+    case 0:    // Print separator (fall through to WSContentSeparator(1))
+      request = true;
+    case 1:    // Print separator if needed
+      if (request) {
+        WSContentSend_P(HTTP_SNS_HR);  // <tr><td colspan=2><hr/>{e}
+        request = false;
+      }
+      break;
+    case 2:    // Print separator on next WSContentSeparator(1)
+      request = true;
+      break;
+    case 3:    // Don't print separator on next WSContentSeparator(1)
+      request = false;
+      break;
+  }
 }
 
 void WSContentSend_Temp(const char *types, float f_temperature) {
@@ -1467,12 +1490,14 @@ bool HandleRootStatusRefresh(void)
 #else
   WSContentBegin(200, CT_HTML);
 #endif  // USE_WEB_SSE
-  WSContentSend_P(PSTR("{t}"));
+
+  WSContentSend_P(PSTR("{t}"));        // <table style='width:100%'>
+  WSContentSeparator(3);               // Reset seperator to ignore previous outputs 
   if (Settings->web_time_end) {
     WSContentSend_P(PSTR("{s}" D_TIMER_TIME "{m}%s{e}"), GetDateAndTime(DT_LOCAL).substring(Settings->web_time_start, Settings->web_time_end).c_str());
+    WSContentSeparator(0);             // Print separator
   }
   XsnsXdrvCall(FUNC_WEB_SENSOR);
-
   WSContentSend_P(PSTR("</table>"));
 
   if (TasmotaGlobal.devices_present) {
@@ -2348,8 +2373,24 @@ void HandleRestoreConfiguration(void)
 
 #ifndef FIRMWARE_MINIMAL_ONLY
 
-void HandleInformation(void)
-{
+void WSContentSeparatorI(uint32_t size) {
+  WSContentSend_P(PSTR("</td></tr><tr><td colspan=2><hr style='font-size:2px'%s/>"), (1 == size)?" size=1":"");
+//  WSContentSend_P(PSTR("</td></tr><tr><td colspan=2><hr style='font-size:%dpx'/>"), size);
+//  WSContentSend_P(PSTR("</td></tr><tr><td colspan=2><hr style='border_top:%dpx solid'/>"), size);
+//  WSContentSend_P(PSTR("</td></tr><tr><td colspan=2 style='border-bottom:%dpx solid #ccc;'>"), size);
+}
+
+void WSContentSeparatorIFat(void) {
+//  WSContentSend_P(PSTR("}1}2&nbsp;"));      // Empty line = </td></tr><tr><th></th><td>&nbsp;
+  WSContentSeparatorI(2);
+}
+
+void WSContentSeparatorIThin(void) {
+//  WSContentSend_P(PSTR("}1<hr/>}2<hr/>"));  // </td></tr><tr><th><hr/></th><td><hr/>
+  WSContentSeparatorI(1);
+}
+
+void HandleInformation(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
 
   float freemem = ((float)ESP_getFreeHeap()) / 1024;
@@ -2382,13 +2423,13 @@ void HandleInformation(void)
   for (uint32_t i = 0; i < maxfn; i++) {
     WSContentSend_P(PSTR("}1" D_FRIENDLY_NAME " %d}2%s"), i +1, SettingsTextEscaped(SET_FRIENDLYNAME1 +i).c_str());
   }
-  WSContentSend_P(PSTR("}1}2&nbsp;"));  // Empty line
+  WSContentSeparatorIFat();
   bool show_hr = false;
   if ((WiFi.getMode() >= WIFI_AP) && (static_cast<uint32_t>(WiFi.softAPIP()) != 0)) {
     WSContentSend_P(PSTR("}1" D_MAC_ADDRESS "}2%s"), WiFi.softAPmacAddress().c_str());
     WSContentSend_P(PSTR("}1" D_IP_ADDRESS " (AP)}2%_I"), (uint32_t)WiFi.softAPIP());
     WSContentSend_P(PSTR("}1" D_GATEWAY "}2%_I"), (uint32_t)WiFi.softAPIP());
-    WSContentSend_P(PSTR("}1<hr/>}2<hr/>"));
+    WSContentSeparatorIThin();
   }
   if (Settings->flag4.network_wifi) {
     int32_t rssi = WiFi.RSSI();
@@ -2399,7 +2440,7 @@ void HandleInformation(void)
       pgm_read_byte(&kWifiPhyMode[WiFi.getPhyMode() & 0x3]),
       WiFi.channel(),
       WiFi.BSSIDstr().c_str());
-    WSContentSend_P(PSTR("}1}2&nbsp;"));  // Empty line
+    WSContentSeparatorIFat();
     WSContentSend_P(PSTR("}1" D_HOSTNAME "}2%s%s"), TasmotaGlobal.hostname, (Mdns.begun) ? PSTR(".local") : "");
 #ifdef USE_IPV6
     String ipv6_addr = WifiGetIPv6Str();
@@ -2431,7 +2472,7 @@ void HandleInformation(void)
 #if defined(ESP32) && CONFIG_IDF_TARGET_ESP32 && defined(USE_ETHERNET)
   if (EthernetHasIP()) {
     if (show_hr) {
-      WSContentSend_P(PSTR("}1<hr/>}2<hr/>"));
+      WSContentSeparatorIThin();
     }
     WSContentSend_P(PSTR("}1" D_HOSTNAME "}2%s%s"), EthernetHostname(), (Mdns.begun) ? PSTR(".local") : "");
 #ifdef USE_IPV6
@@ -2459,9 +2500,9 @@ void HandleInformation(void)
 #endif // USE_IPV6
   }
 #endif  // USE_ETHERNET
-  WSContentSend_P(PSTR("}1}2&nbsp;"));  // Empty line
+  WSContentSeparatorIFat();
   WSContentSend_P(PSTR("}1" D_HTTP_API "}2%s"), Settings->flag5.disable_referer_chk ? PSTR(D_ENABLED) : PSTR(D_DISABLED)); // SetOption 128
-  WSContentSend_P(PSTR("}1}2&nbsp;"));  // Empty line
+  WSContentSeparatorIFat();
   if (Settings->flag.mqtt_enabled) {  // SetOption3 - Enable MQTT
     WSContentSend_P(PSTR("}1" D_MQTT_HOST "}2%s"), SettingsTextEscaped(SET_MQTT_HOST).c_str());
     WSContentSend_P(PSTR("}1" D_MQTT_PORT "}2%d"), Settings->mqtt_port);
@@ -2486,11 +2527,12 @@ void HandleInformation(void)
   }
 
 #if defined(USE_EMULATION) || defined(USE_DISCOVERY)
-  WSContentSend_P(PSTR("}1}2&nbsp;"));  // Empty line
+  WSContentSeparatorIFat();
 #endif  // USE_EMULATION or USE_DISCOVERY
 #ifdef USE_EMULATION
   WSContentSend_P(PSTR("}1" D_EMULATION "}2%s"), GetTextIndexed(stopic, sizeof(stopic), Settings->flag2.emulation, kEmulationOptions));
 #endif  // USE_EMULATION
+
 #ifdef USE_DISCOVERY
   WSContentSend_P(PSTR("}1" D_MDNS_DISCOVERY "}2%s"), (Settings->flag3.mdns_enabled) ? D_ENABLED : D_DISABLED);  // SetOption55 - Control mDNS service
   if (Settings->flag3.mdns_enabled) {  // SetOption55 - Control mDNS service
@@ -2502,7 +2544,7 @@ void HandleInformation(void)
   }
 #endif  // USE_DISCOVERY
 
-  WSContentSend_P(PSTR("}1}2&nbsp;"));  // Empty line
+  WSContentSeparatorIFat();
   WSContentSend_P(PSTR("}1" D_ESP_CHIP_ID "}2%d (%s)"), ESP_getChipId(), GetDeviceHardwareRevision().c_str());
   WSContentSend_P(PSTR("}1" D_FLASH_CHIP_ID "}20x%06X (" D_TASMOTA_FLASHMODE ")"), ESP_getFlashChipId());
 #ifdef ESP32
@@ -2525,7 +2567,7 @@ void HandleInformation(void)
     WSContentSend_P(PSTR("}1" D_PSR_MAX_MEMORY "}2%d KB"), ESP.getPsramSize() / 1024);
     WSContentSend_P(PSTR("}1" D_PSR_FREE_MEMORY "}2%d KB"), ESP.getFreePsram() / 1024);
   }
-  WSContentSend_P(PSTR("}1}2&nbsp;"));  // Empty line
+  WSContentSeparatorIFat();
   uint32_t cur_part = ESP_PARTITION_SUBTYPE_APP_FACTORY;   // 0
   const esp_partition_t *running_ota = esp_ota_get_running_partition();
   if (running_ota) { cur_part = running_ota->subtype; }    // 16 - 32
@@ -2565,7 +2607,7 @@ void HandleInformation(void)
 #else   // not ESP32
   WSContentSend_PD(PSTR("}1" D_FREE_MEMORY "}2%1_f KB"), &freemem);
 #ifdef USE_UFILESYS
-  WSContentSend_P(PSTR("}1}2&nbsp;"));  // Empty line
+  WSContentSeparatorIFat();
   WSContentSend_P(PSTR("}1" D_FILE_SYSTEM_SIZE "}2%d KB"), UfsSize());
 #endif  // USE_UFILESYS
 #endif  // ESP32
@@ -2574,7 +2616,7 @@ void HandleInformation(void)
   WSContentSend_P(HTTP_SCRIPT_INFO_END);
   WSContentSendStyle();
   // WSContentSend_P(PSTR("<fieldset><legend><b>&nbsp;Information&nbsp;</b></legend>"));
-  WSContentSend_P(PSTR("<style>td{padding:0px 5px;}</style>"
+  WSContentSend_P(PSTR("<style>th{padding-right:5px;}</style>"
                        "<div id='i' name='i'></div>"));
   //   WSContentSend_P(PSTR("</fieldset>"));
   WSContentSpaceButton(BUTTON_MAIN);

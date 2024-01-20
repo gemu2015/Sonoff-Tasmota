@@ -2211,6 +2211,7 @@ void ZigbeeShow(bool json)
 
       uint32_t now = Rtc.utc_time;
 
+      // iterate through devices by alphabetical order
       for (uint32_t i = 0; i < zigbee_num; i++) {
         const Z_Device &device = zigbee_devices.devicesAt(sorted_idx[i]);
         uint16_t shortaddr = device.shortaddr;
@@ -2335,8 +2336,11 @@ void ZigbeeShow(bool json)
               WSContentSend_P(PSTR(" &#128261; %d%%"), changeUIntScale(light.getDimmer(),0,254,0,100));
             }
             if (light.validCT() && ((channels == 2) || (channels == 5))) {
-              uint32_t ct_k = (((1000000 / light.getCT()) + 25) / 50) * 50;
-              WSContentSend_P(msg[ZB_WEB_LIGHT_CT], light.getCT(), ct_k);
+              uint16_t ct = light.getCT();
+              if (ct != 0) {        // ct == 0 means undefined value
+                uint32_t ct_k = (((1000000 / ct) + 25) / 50) * 50;
+                WSContentSend_P(msg[ZB_WEB_LIGHT_CT], light.getCT(), ct_k);
+              }
             }
             if (light.validHue() && light.validSat() && (channels >= 3)) {
               uint8_t r,g,b;
@@ -2362,6 +2366,10 @@ void ZigbeeShow(bool json)
           }
           WSContentSend_P(PSTR("{e}"));
         }
+#ifdef USE_BERRY
+        // Berry hook to display additional customized information
+        callBerryZigbeeDispatcher("web_device_status", nullptr, nullptr, shortaddr);
+#endif // USE_BERRY
       }
 
       WSContentSend_P(msg[ZB_WEB_LINE_END]);  // Terminate current multi column table and open new table

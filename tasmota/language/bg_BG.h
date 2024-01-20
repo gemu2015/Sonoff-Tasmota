@@ -57,6 +57,7 @@
 #define D_AP "Точка за достъп"       // Access Point
 #define D_AS "като"
 #define D_AUTO "АВТОМАТИЧНО"
+#define D_BATTERY "Battery"
 #define D_BATT "Бат."                // Short for Battery
 #define D_BATTERY_CHARGE "Charge"   // Battery charge in %
 #define D_BLINK "Мигане вкл."
@@ -547,7 +548,7 @@
 #define D_DEVICE_INPUT "Вход"
 #define D_DEVICE_OUTPUT "Изход"
 
-// xdrv_39_thermostat.ino
+// xdrv_39_thermostat.ino, xdrv_85_esp32_ble_eq3_trv.ino
 #define D_THERMOSTAT                  "Thermostat"
 #define D_THERMOSTAT_SET_POINT        "Set Point Temperature"
 #define D_THERMOSTAT_SENSOR           "Current Temperature"

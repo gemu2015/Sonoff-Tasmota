@@ -57,6 +57,7 @@
 #define D_AP "存取點"                    // Access Point
 #define D_AS "名稱:"
 #define D_AUTO "自動"
+#define D_BATTERY "Battery"
 #define D_BATT "電池"                // Short for Battery
 #define D_BATTERY_CHARGE "Charge"  // Battery charge in % 
 #define D_BLINK "閃爍"
@@ -547,7 +548,7 @@
 #define D_DEVICE_INPUT "輸入"
 #define D_DEVICE_OUTPUT "輸出"
 
-// xdrv_39_thermostat.ino
+// xdrv_39_thermostat.ino, xdrv_85_esp32_ble_eq3_trv.ino
 #define D_THERMOSTAT                  "Thermostat"
 #define D_THERMOSTAT_SET_POINT        "Set Point Temperature"
 #define D_THERMOSTAT_SENSOR           "Current Temperature"
