@@ -2539,7 +2539,7 @@ void uDisplay::dim10(uint8_t dim, uint16_t dim_gamma) {           // dimmer with
 }
 
 // the cases are PSEUDO_OPCODES from MODULE_DESCRIPTOR
-// and may be exapnded with more opcodes
+// and may be expanded with more opcodes
 void uDisplay::TS_RotConvert(int16_t *x, int16_t *y) {
   int16_t temp;
 
@@ -2603,17 +2603,32 @@ char *uDisplay::devname(void) {
 
 #ifdef USE_UNIVERSAL_TOUCH
 
-uint16_t uDisplay::ut_par(char **lp, uint32_t mode) {
+float CharToFloat(const char *str);
+
+uint32_t uDisplay::ut_par(char **lp, uint32_t mode) {
   char *cp = *lp;
   while (*cp != ' ') {
+    if (!cp) break;
     cp++;
   }
   cp++;
-  uint16_t result;
+  uint32_t result;
   if (!mode) {
+    // hex
     result = strtol(cp, &cp, 16);
-  } else {
+  } else if (mode == 1) {
+    // word
     result = strtol(cp, &cp, 10);
+  } else {
+    // float as 32bit integer
+    float fval = CharToFloat(cp);
+    result = *(uint32_t*)&fval;
+    while (*cp) {
+      if (*cp == ' ' || *cp =='\n') {
+        break;
+      }
+      cp++;
+    }
   }
   *lp = cp;
   return result;
@@ -2712,7 +2727,24 @@ void uDisplay::ut_trans(char **sp, uint8_t *ut_code, int32_t size) {
     } else if (!strncmp(cp, "AND", 3)) {
       *ut_code++ = UT_AND;
       wval = ut_par(&cp, 0);
-      *ut_code++ = wval>>8;
+      *ut_code++ = wval >> 8;
+      *ut_code++ = wval;
+      size -= 3;
+    } else if (!strncmp(cp, "SCL", 3)) {
+      *ut_code++ = UT_SCALE;
+      wval = ut_par(&cp, 1);
+      *ut_code++ = wval >> 8;
+      *ut_code++ = wval;
+      uint32_t lval = ut_par(&cp, 2);
+      *ut_code++ = lval >> 24;
+      *ut_code++ = lval >> 16;
+      *ut_code++ = lval >> 8;
+      *ut_code++ = lval;
+      size -= 7;
+    } else if (!strncmp(cp, "LIM", 3)) {
+      *ut_code++ = UT_LIM;
+      wval = ut_par(&cp, 1);
+      *ut_code++ = wval >> 8;
       *ut_code++ = wval;
       size -= 3;
     } else if (!strncmp(cp, "GSRT", 4)) {
@@ -2736,6 +2768,9 @@ void uDisplay::ut_trans(char **sp, uint8_t *ut_code, int32_t size) {
     if (size <= 1) {
       break;
     }
+
+
+
 
     cp++;
   }
@@ -2861,46 +2896,56 @@ uint16_t wval;
         // read 1 byte
         ut_code = ut_rd(ut_code, 1, 1);
         break;
+
       case UT_RDM:
         // read multiple bytes
         ut_code = ut_rd(ut_code, 2, 1);
         break;
+
       case UT_RDW:
         // read 1 byte
         ut_code = ut_rd(ut_code, 1, 2);
         break;
+
       case UT_RDWM:
         // read multiple bytes
         ut_code = ut_rd(ut_code, 2, 2);
         break;
+
       case UT_WR:
         ut_code = ut_wr(ut_code, 1);
         break;
+
        case UT_WRW:
         ut_code = ut_wr(ut_code, 2);
         break;
+
       case UT_CP:
         // compare
         iob = *ut_code++;
         result = (iob == ut_array[0]);
         break;
+
       case UT_CPR:
         // compare
         iob = *ut_code++;
         result = (iob == result);
         break;
+
       case UT_RTF:
         // return when false
         if (result == 0) {
           return false;
         }
         break;
+
       case UT_RTT:
          // return when true
         if (result > 0) {
           return false;
         }
         break;
+
       case UT_MVB:
         // move byte from index to high or low result
         wval = *ut_code++;
@@ -2913,6 +2958,7 @@ uint16_t wval;
           result |= (ut_array[iob] << 8); 
         }
         break;
+
       case UT_MV:
         // move
         // source
@@ -2931,16 +2977,42 @@ uint16_t wval;
         }
         result &= 0xfff;
         break;
-       case UT_AND:
+
+      case UT_AND:
         // and 
         wval = *ut_code++ << 8;
         wval |= *ut_code++;
         result &= wval;
         break;
+      
+      case UT_SCALE:
+        {
+        wval = *ut_code++ << 8;
+        wval |= *ut_code++;
+        result -= wval;
+        uint32_t lval = (uint32_t)*ut_code++ << 24;
+        lval |= (uint32_t)*ut_code++ << 16;
+        lval |= (uint32_t)*ut_code++ << 8;
+        lval |= (uint32_t)*ut_code++;
+        float fval = *(float*)&lval;
+        fval *= (float)result;  
+        result = fval;
+        }
+        break;
+
+      case UT_LIM:
+        wval = *ut_code++ << 8;
+        wval = *ut_code++;
+        if (result > wval) {
+          result = wval;
+        }
+        break;
+
       case UT_RT:
         // result
         return result;
         break;
+
       case UT_GSRT:
 #ifdef USE_ESP32_S3      
         { uint32_t val = get_sr_touch(SIMPLERS_XP, SIMPLERS_XM, SIMPLERS_YP, SIMPLERS_YM);
@@ -2963,17 +3035,20 @@ uint16_t wval;
         }
 #endif // USE_ESP32_S3
         break;
+
       case UT_XPT:
         wval = *ut_code++ << 8;
         wval |= *ut_code++;
         result = ut_XPT2046(wval);
         break;
+
       case UT_DBG:
         // debug show result
         //Serial.printf("UTDBG: %d\n", result);
         wval = *ut_code++;
         AddLog(LOG_LEVEL_INFO, PSTR("UTDBG %d: %02x : %02x,%02x,%02x,%02x"), wval, result, ut_array[0], ut_array[1], ut_array[2], ut_array[3]);
         break;
+
       case UT_END:
         break;
     }

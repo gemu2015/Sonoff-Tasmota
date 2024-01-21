@@ -18,7 +18,7 @@
 #endif
 
 enum {
-  UT_RD,UT_RDM,UT_CP,UT_RTF,UT_MV,UT_MVB,UT_RT,UT_RTT,UT_RDW,UT_RDWM,UT_WR,UT_WRW,UT_CPR,UT_AND,UT_DBG,UT_GSRT,UT_XPT,UT_END
+  UT_RD,UT_RDM,UT_CP,UT_RTF,UT_MV,UT_MVB,UT_RT,UT_RTT,UT_RDW,UT_RDWM,UT_WR,UT_WRW,UT_CPR,UT_AND,UT_SCALE,UT_LIM,UT_DBG,UT_GSRT,UT_XPT,UT_END
 };
 
 #define RA8876_DATA_WRITE  0x80
@@ -447,7 +447,7 @@ class uDisplay : public Renderer {
 // universal touch driver
   void ut_trans(char **sp, uint8_t *ut_code, int32_t size);
   int16_t ut_execute(uint8_t *ut_code);
-  uint16_t ut_par(char **cp, uint32_t mode);
+  uint32_t ut_par(char **cp, uint32_t mode);
   uint8_t *ut_rd(uint8_t *io, uint32_t len, uint32_t amode);
   uint8_t *ut_wr(uint8_t *io, uint32_t amode);
   uint16_t ut_XPT2046(uint16_t zh);
