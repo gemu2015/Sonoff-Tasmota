@@ -463,10 +463,10 @@ class uDisplay : public Renderer {
   SPIClass *ut_spi;
   SPISettings ut_spiSettings;
   char ut_name[8];
-  uint8_t ut_init_code[32];
+  uint8_t ut_init_code[20];
   uint8_t ut_touch_code[32];
-  uint8_t ut_getx_code[16];
-  uint8_t ut_gety_code[16];
+  uint8_t ut_getx_code[20];
+  uint8_t ut_gety_code[20];
 
 #endif // USE_UNIVERSAL_TOUCH
 };

@@ -3002,7 +3002,7 @@ uint16_t wval;
 
       case UT_LIM:
         wval = *ut_code++ << 8;
-        wval = *ut_code++;
+        wval |= *ut_code++;
         if (result > wval) {
           result = wval;
         }
