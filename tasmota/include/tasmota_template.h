@@ -216,6 +216,7 @@ enum UserSelectablePins {
   GPIO_I2S_DAC,                         // Audio DAC support for ESP32 and ESP32S2
   GPIO_MAGIC_SWITCH,                    // MagicSwitch as in Sonoff BasicR4
   GPIO_PIPSOLAR_TX, GPIO_PIPSOLAR_RX,   // pipsolar inverter
+  GPIO_CC1101_CS,
   GPIO_SENSOR_END };
 
 // Error as warning to rethink GPIO usage with max 2045
@@ -479,6 +480,7 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_I2S_DAC "|"
   D_GPIO_MAGIC_SWITCH "|"
   D_SENSOR_PIPSOLAR_TX "|" D_SENSOR_PIPSOLAR_RX "|"
+  D_SENSOR_CC1101_CS "|"
   ;
 
 const char kSensorNamesFixed[] PROGMEM =
@@ -1155,6 +1157,10 @@ const uint16_t kGpioNiceList[] PROGMEM = {
 #ifdef USE_PIPSOLAR                       // xdrv_92_pipsolar.ino
   AGPIO(GPIO_PIPSOLAR_TX),                // pipsolar inverter Serial interface
   AGPIO(GPIO_PIPSOLAR_RX),                // pipsolar inverter Serial interface
+#endif
+
+#ifdef USE_MORITZ
+  AGPIO(GPIO_CC1101_CS),
 #endif
 
 /*-------------------------------------------------------------------------------------------*\
