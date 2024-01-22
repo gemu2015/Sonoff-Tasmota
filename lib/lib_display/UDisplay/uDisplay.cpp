@@ -2634,12 +2634,23 @@ uint32_t uDisplay::ut_par(char **lp, uint32_t mode) {
   return result;
 }
 
+// translate pseudo opcodes to tokens
 void uDisplay::ut_trans(char **sp, uint8_t *ut_code, int32_t size) {
   char *cp = *sp;
   uint16_t wval;
   while (*cp) {
     if (*cp == ':' || *cp == '#') {
       break;
+    }
+    if (*cp == ';') {
+      // skip comment line
+      while (*cp) {
+        if (*cp == '\n') {
+          cp++;
+          break;
+        }
+        cp++;
+      }
     }
     if (!strncmp(cp, "RDWM", 4)) {
       // read word many
@@ -3185,6 +3196,7 @@ uint8_t uDisplay::writeReg16(uint8_t reg, uint16_t wval) {
   hw_write9(wval, 1);
   hw_write9(reg + 1, 0);
   hw_write9(wval >> 8, 1);
+  return 0;
 }
 
 uint8_t uDisplay::readData(void) {
