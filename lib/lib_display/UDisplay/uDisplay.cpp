@@ -29,7 +29,7 @@
 extern int Cache_WriteBack_Addr(uint32_t addr, uint32_t size);
 
 
-//#define UDSP_DEBUG
+#define UDSP_DEBUG
 
 #ifndef UDSP_LBSIZE
 #define UDSP_LBSIZE 256
@@ -393,6 +393,9 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
 #endif
                 } else {
                   delay(dsp_cmds[0]);
+#ifdef UDSP_DEBUG
+                  Serial.printf("delay = %s ms\n", dsp_cmds[0]);
+#endif
                 }
               }
               interface = _UDSP_RGB;
