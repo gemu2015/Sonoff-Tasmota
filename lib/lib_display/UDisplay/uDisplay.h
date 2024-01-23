@@ -276,6 +276,7 @@ class uDisplay : public Renderer {
    uint8_t interface;
    uint8_t i2caddr;
    int8_t i2c_scl;
+   int8_t spec_init;
    TwoWire *wire;
    int8_t wire_n;
    int8_t i2c_sda;

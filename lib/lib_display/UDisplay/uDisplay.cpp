@@ -112,6 +112,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
   lutftime = 350;
   lut3time = 10;
   busy_pin = -1;
+  spec_init = -1;
   ep_mode = 0;
   fg_col = 1;
   bg_col = 0;
@@ -186,6 +187,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
               // collect line and send directly
               lp1++;
               spi_nr = 4;
+              spec_init = _UDSP_SPI;
               spi_dc = -1;
               spi_miso = -1;
               spi_clk = next_val(&lp1);
@@ -215,8 +217,26 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
               Serial.printf("DSP RESET : %d\n", reset);
 #endif
             }
-          }
-
+          } else if (*lp1 == 'I') {
+            // pecial case RGB with i2c init, bus nr, i2c addr
+            lp1++;
+            if (interface == _UDSP_RGB) { 
+              // collect line and send directly
+              lp1++;
+              wire_n = next_val(&lp1);
+              i2caddr = next_hex(&lp1);
+#ifdef UDSP_DEBUG
+              Serial.printf("I2C_INIT bus : %d\n", wire_n);
+              Serial.printf("I2C_INIT addr : %02x\n", i2caddr);
+#endif
+              if (wire_n == 1) {
+                wire = &Wire;
+              } else {
+                wire = &Wire1;
+              }
+              spec_init = _UDSP_I2C;
+            }
+          }         
         } else if (section == 'L') {
           if (*lp1 >= '1' && *lp1 <= '5') {
             lut_num = (*lp1 & 0x07);
@@ -347,8 +367,8 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             break;
           case 'I':
             // init data
-            if (interface == _UDSP_RGB && spi_nr == 4) {
-              // special case RGB with SPI init
+            if (interface == _UDSP_RGB && spec_init > 0) {
+              // special case RGB with SPI or I2C init
               // collect line and send directly
               dsp_ncmds = 0;
               while (1) {
@@ -359,10 +379,9 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
                   break;
                 }
               }
-              interface = _UDSP_SPI;
+              interface = spec_init;
               send_spi_icmds(dsp_ncmds);
               interface = _UDSP_RGB;
-              
             } else {
               if (interface == _UDSP_I2C) {
                 dsp_cmds[dsp_ncmds++] = next_hex(&lp1);
