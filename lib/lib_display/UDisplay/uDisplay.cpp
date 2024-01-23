@@ -379,8 +379,22 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
                   break;
                 }
               }
-              interface = spec_init;
-              send_spi_icmds(dsp_ncmds);
+              if (spec_init == _UDSP_SPI) {
+                interface = spec_init;
+                send_spi_icmds(dsp_ncmds);
+              } else {
+                if (dsp_ncmds == 2) {
+                  wire->beginTransmission(i2caddr);
+                  wire->write(dsp_cmds[0]);
+                  wire->write(dsp_cmds[1]);
+                  wire->endTransmission();
+#ifdef UDSP_DEBUG
+                  Serial.printf("reg = 02%x, val = 02%x\n", dsp_cmds[0], dsp_cmds[1]);
+#endif
+                } else {
+                  delay(dsp_cmds[0]);
+                }
+              }
               interface = _UDSP_RGB;
             } else {
               if (interface == _UDSP_I2C) {
