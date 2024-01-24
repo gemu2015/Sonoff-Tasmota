@@ -389,12 +389,12 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
                   wire->write(dsp_cmds[1]);
                   wire->endTransmission();
 #ifdef UDSP_DEBUG
-                  Serial.printf("reg = 02%x, val = 02%x\n", dsp_cmds[0], dsp_cmds[1]);
+                  Serial.printf("reg = %02%x, val = %02x\n", dsp_cmds[0], dsp_cmds[1]);
 #endif
                 } else {
                   delay(dsp_cmds[0]);
 #ifdef UDSP_DEBUG
-                  Serial.printf("delay = %s ms\n", dsp_cmds[0]);
+                  Serial.printf("delay = %d ms\n", dsp_cmds[0]);
 #endif
                 }
               }
