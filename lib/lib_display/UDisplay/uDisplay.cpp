@@ -82,6 +82,21 @@ uDisplay::~uDisplay(void) {
     }
   }
 
+#ifdef USE_UNIVERSAL_TOUCH
+  if (ut_init_code) {
+    free(ut_init_code);
+  }
+  if (ut_touch_code) {
+    free(ut_touch_code);
+  }
+  if (ut_getx_code) {
+    free(ut_getx_code);
+  }
+  if (ut_gety_code) {
+    free(ut_gety_code);
+  }
+#endif // USE_UNIVERSAL_TOUCH
+
 #ifdef USE_ESP32_S3
   if (_dmadesc) {
     heap_caps_free(_dmadesc);
@@ -140,17 +155,6 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
     lut_cmd[cnt] = 0xff;
     lut_array[cnt] = 0;
   }
-
-#ifdef USE_UNIVERSAL_TOUCH
-  ut_init_code[0] = UT_RT;
-  ut_init_code[1] = UT_END;
-  ut_touch_code[0] = UT_RT;
-  ut_touch_code[1] = UT_END;
-  ut_getx_code[0] = UT_RT;
-  ut_getx_code[1] = UT_END;
-  ut_gety_code[0] = UT_RT;
-  ut_gety_code[1] = UT_END;
-#endif // USE_UNIVERSAL_TOUCH
 
   lut_partial = 0;
   lut_full = 0;
@@ -635,19 +639,19 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
                 // simple resistive touch
                 lp1++;
               }
-              ut_trans(&lp, ut_init_code, sizeof(ut_init_code));
+              ut_trans(&lp, &ut_init_code);
             } else if (!strncmp(lp1, "TT", 2)) {
               lp1 += 2;
               // touch
-              ut_trans(&lp, ut_touch_code, sizeof(ut_touch_code));
+              ut_trans(&lp, &ut_touch_code);
             } else if (!strncmp(lp1, "TX", 2)) {
               lp1 += 2;
               // get x
-              ut_trans(&lp, ut_getx_code, sizeof(ut_getx_code));
+              ut_trans(&lp, &ut_getx_code);
             } else if (!strncmp(lp1, "TY", 2)) {
               lp1 += 2;
               // get y
-              ut_trans(&lp, ut_gety_code, sizeof(ut_gety_code));
+              ut_trans(&lp, &ut_gety_code);
             }
             break;
 #endif // USE_UNIVERSAL_TOUCH
@@ -1967,7 +1971,10 @@ bool uDisplay::utouch_Init(char **name) {
     ut_spi = nullptr;
   }
 
-  return ut_execute(ut_init_code);
+  if (ut_init_code) {
+    return ut_execute(ut_init_code);
+  }
+  return false;
 }
 
 uint16_t uDisplay::touched(void) {
@@ -1977,15 +1984,24 @@ uint16_t uDisplay::touched(void) {
     }
     ut_irq_flg = 0;
   }
-  return ut_execute(ut_touch_code);
+  if (ut_touch_code) {
+    return ut_execute(ut_touch_code);
+  }
+  return 0;
 }
 
 int16_t uDisplay::getPoint_x(void) {
-  return ut_execute(ut_getx_code);
+  if (ut_getx_code) {
+    return ut_execute(ut_getx_code);
+  }
+  return 0;
 }
 
 int16_t uDisplay::getPoint_y(void) {
-  return ut_execute(ut_gety_code);
+  if (ut_gety_code) {
+    return ut_execute(ut_gety_code);
+  }
+  return 0;
 }
 #endif // USE_UNIVERSAL_TOUCH
 
@@ -2671,9 +2687,11 @@ uint32_t uDisplay::ut_par(char **lp, uint32_t mode) {
 }
 
 // translate pseudo opcodes to tokens
-void uDisplay::ut_trans(char **sp, uint8_t *ut_code, int32_t size) {
+void uDisplay::ut_trans(char **sp, uint8_t **code) {
   char *cp = *sp;
   uint16_t wval;
+  uint8_t tmp_code[64];
+  uint8_t *ut_code = tmp_code;
   while (*cp) {
     if (*cp == ':' || *cp == '#') {
       break;
@@ -2699,14 +2717,12 @@ void uDisplay::ut_trans(char **sp, uint8_t *ut_code, int32_t size) {
         wval = sizeof(ut_array);
       }
       *ut_code++ = wval;
-      size -= 4;
     } else if (!strncmp(cp, "RDW", 3)) {
       // read word one
       *ut_code++ = UT_RDW;
       wval = ut_par(&cp, 0);
       *ut_code++ = wval>>8;
       *ut_code++ = wval;
-      size -= 3;
     } else if (!strncmp(cp, "RDM", 3)) {
       // read many
       *ut_code++ = UT_RDM;
@@ -2716,46 +2732,37 @@ void uDisplay::ut_trans(char **sp, uint8_t *ut_code, int32_t size) {
         wval = sizeof(ut_array);
       }
       *ut_code++ = wval;
-      size -= 3;
     } else if (!strncmp(cp, "RD", 2)) {
       // read one
       *ut_code++ = UT_RD;
       *ut_code++ = ut_par(&cp, 0);
-      size -= 2;
     } else if (!strncmp(cp, "CPR", 3)) {
       // cmp and set
       *ut_code++ = UT_CPR;
       *ut_code++ = ut_par(&cp, 0);
-      size -= 2;
      } else if (!strncmp(cp, "CP", 2)) {
       // cmp and set
       *ut_code++ = UT_CP;
       *ut_code++ = ut_par(&cp, 0);
-      size -= 2;
     } else if (!strncmp(cp, "RTF", 3)) {
       // return when false
       *ut_code++ = UT_RTF;
-      size -= 1;
     } else if (!strncmp(cp, "RTT", 3)) {
       // return when true
       *ut_code++ = UT_RTT;
-      size -= 1;
     } else if (!strncmp(cp, "MVB", 3)) {
       // move
       *ut_code++ = UT_MVB;
       *ut_code++ = ut_par(&cp, 1);
       *ut_code++ = ut_par(&cp, 1);
-      size -= 3;
     } else if (!strncmp(cp, "MV", 2)) {
       // move
       *ut_code++ = UT_MV;
       *ut_code++ = ut_par(&cp, 1);
       *ut_code++ = ut_par(&cp, 1);
-      size -= 3;
     } else if (!strncmp(cp, "RT", 2)) {
       // return status
       *ut_code++ = UT_RT;
-      size -= 1;
     } else if (!strncmp(cp, "WRW", 3)) {
       *ut_code++ = UT_WRW;
       wval = ut_par(&cp, 0);
@@ -2763,20 +2770,17 @@ void uDisplay::ut_trans(char **sp, uint8_t *ut_code, int32_t size) {
       *ut_code++ = wval;
       wval = ut_par(&cp, 0);
       *ut_code++ = wval;
-      size -= 4;
     } else if (!strncmp(cp, "WR", 2)) {
       *ut_code++ = UT_WR;
       wval = ut_par(&cp, 0);
       *ut_code++ = wval;
       wval = ut_par(&cp, 0);
       *ut_code++ = wval;
-      size -= 3;
     } else if (!strncmp(cp, "AND", 3)) {
       *ut_code++ = UT_AND;
       wval = ut_par(&cp, 0);
       *ut_code++ = wval >> 8;
       *ut_code++ = wval;
-      size -= 3;
     } else if (!strncmp(cp, "SCL", 3)) {
       *ut_code++ = UT_SCALE;
       wval = ut_par(&cp, 1);
@@ -2787,42 +2791,38 @@ void uDisplay::ut_trans(char **sp, uint8_t *ut_code, int32_t size) {
       *ut_code++ = lval >> 16;
       *ut_code++ = lval >> 8;
       *ut_code++ = lval;
-      size -= 7;
     } else if (!strncmp(cp, "LIM", 3)) {
       *ut_code++ = UT_LIM;
       wval = ut_par(&cp, 1);
       *ut_code++ = wval >> 8;
       *ut_code++ = wval;
-      size -= 3;
     } else if (!strncmp(cp, "GSRT", 4)) {
       *ut_code++ = UT_GSRT;
       wval = ut_par(&cp, 1);
       *ut_code++ = wval >> 8;
       *ut_code++ = wval;
-      size -= 3;
     } else if (!strncmp(cp, "XPT", 3)) {
       *ut_code++ = UT_XPT;
       wval = ut_par(&cp, 1);
       *ut_code++ = wval >> 8;
       *ut_code++ = wval;
-      size -= 3;
     } else if (!strncmp(cp, "DBG", 3)) {
       *ut_code++ = UT_DBG;
       wval = ut_par(&cp, 1);
       *ut_code++ = wval;
-      size -= 2;
     }
-    if (size <= 1) {
-      break;
-    }
-
-
-
-
     cp++;
   }
   *ut_code++ = UT_END;
   *sp = cp - 1;
+  uint16_t memsize = (uint32_t)ut_code - (uint32_t)tmp_code;
+  // allocate memory
+  //AddLog(LOG_LEVEL_INFO, PSTR("UT-code: %d bytes"),memsize);
+  uint8_t *mp = (uint8_t*)malloc(memsize + 2);
+  if (mp) {
+    memmove(mp, tmp_code, memsize);
+    *code = mp;
+  }
 }
 
 uint8_t *uDisplay::ut_rd(uint8_t *iop, uint32_t len, uint32_t amode) {

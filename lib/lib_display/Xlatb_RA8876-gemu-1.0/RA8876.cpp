@@ -384,12 +384,16 @@ bool RA8876::initPLL(void) {
   //Serial.print("8: "); Serial.println(m_memPll.n);
   writeReg(RA8876_REG_MPLLC1, m_memPll.k << 1);
   writeReg(RA8876_REG_MPLLC2, m_memPll.n);
+  //AddLog(LOG_LEVEL_INFO, PSTR(">> m_memPll.k %02x"), m_memPll.k);
+  //AddLog(LOG_LEVEL_INFO, PSTR(">> m_memPll.n %02x"), m_memPll.n);
 
   //Serial.print("CORE_FREQ "); Serial.println(m_corePll.freq);
   //Serial.print("9: "); Serial.println(m_corePll.k << 1);
   //Serial.print("A: "); Serial.println(m_corePll.n);
   writeReg(RA8876_REG_SPLLC1, m_corePll.k << 1);
   writeReg(RA8876_REG_SPLLC2, m_corePll.n);
+  //AddLog(LOG_LEVEL_INFO, PSTR(">> m_corePll.k %02x"), m_corePll.k);
+  //AddLog(LOG_LEVEL_INFO, PSTR(">> m_corePll.n %02x"), m_corePll.n);
 
   // Per the data sheet, there are two divider fields for the scan clock, but the math seems
   //  to work out if we treat k as a single 3-bit number in bits 3..1.
@@ -398,6 +402,8 @@ bool RA8876::initPLL(void) {
   //Serial.print("6: "); Serial.println(m_scanPll.n);
   writeReg(RA8876_REG_PPLLC1, m_scanPll.k << 1);
   writeReg(RA8876_REG_PPLLC2, m_scanPll.n);
+  //AddLog(LOG_LEVEL_INFO, PSTR(">> m_scanPll.k %02x"), m_scanPll.k);
+  //AddLog(LOG_LEVEL_INFO, PSTR(">> m_scanPll.n %02x"), m_scanPll.n);
 
   // Toggle bit 7 of the CCR register to trigger a reconfiguration of the PLLs
   writeReg(RA8876_REG_CCR, 0x00);
@@ -453,13 +459,16 @@ bool RA8876::initMemory(SdramInfo *info) {
 
   //Serial.print("SDRAR: "); Serial.println(sdrar);  // Expected: 0x29 (41 decimal)
   writeReg(RA8876_REG_SDRAR, sdrar);
+  //AddLog(LOG_LEVEL_INFO, PSTR(">> sdrar %02x"), sdrar);
 
   //Serial.print("SDRMD: "); Serial.println(sdrmd);
   writeReg(RA8876_REG_SDRMD, sdrmd);
+  //AddLog(LOG_LEVEL_INFO, PSTR(">> sdrmd %02x"), sdrmd);
 
   //Serial.print("sdramRefreshRate: "); Serial.println(sdramRefreshRate);
   writeReg(RA8876_REG_SDR_REF_ITVL0, sdramRefreshRate & 0xFF);
   writeReg(RA8876_REG_SDR_REF_ITVL1, sdramRefreshRate >> 8);
+  //AddLog(LOG_LEVEL_INFO, PSTR(">> sdramRefreshRate %02x"), sdramRefreshRate);
 
   // Trigger SDRAM initialization
   writeReg(RA8876_REG_SDRCR, 0x01);
@@ -502,6 +511,9 @@ bool RA8876::initDisplay() {
   ccr &= 0xE7;  // 24-bit LCD output
   ccr &= 0xFE;  // 8-bit host data bus
   writeReg(RA8876_REG_CCR, ccr);
+  
+  //AddLog(LOG_LEVEL_INFO, PSTR(">> ccr %02x"), ccr);
+	  
 
   writeReg(RA8876_REG_MACR, 0x00);  // Direct write, left-to-right-top-to-bottom memory
 
@@ -513,11 +525,15 @@ bool RA8876::initDisplay() {
   dpcr |= 0x80;  // Panel fetches PDAT at PCLK falling edge
   writeReg(RA8876_REG_DPCR, dpcr);
 
+  //AddLog(LOG_LEVEL_INFO, PSTR(">> dpcr %02x"), dpcr);
+  
   uint8_t pcsr = readReg(RA8876_REG_PCSR);
   pcsr |= 0x80;  // XHSYNC polarity high
   pcsr |= 0x40;  // XVSYNC polarity high
   pcsr &= 0xDF;  // XDE polarity high
   writeReg(RA8876_REG_PCSR, pcsr);
+  
+  //AddLog(LOG_LEVEL_INFO, PSTR(">> pcsr %02x"), pcsr);
 
   // Set display width
   writeReg(RA8876_REG_HDWR, (m_displayInfo->width / 8) - 1);
@@ -595,11 +611,15 @@ bool RA8876::initDisplay() {
   else if (m_depth == 24)
     aw_color |= 0x02;
   writeReg(RA8876_REG_AW_COLOR, aw_color);
+  
+  //AddLog(LOG_LEVEL_INFO, PSTR(">> aw_color %02x"), aw_color);
 
   // Turn on display
   dpcr = readReg(RA8876_REG_DPCR);
   dpcr |= 0x40;  // Display on
   writeReg(RA8876_REG_DPCR, dpcr);
+  
+  //AddLog(LOG_LEVEL_INFO, PSTR(">> dpcr %02x"), dpcr);
 
   // TODO: Track backlight pin and turn on backlight
 
@@ -1341,14 +1361,14 @@ bool RA8876::utouch_Init(char **name) {
 
   uint8_t val; 
   _readByte(RA_FT5206_VENDID_REG, 1, &val);
-  //AddLog(LOG_LEVEL_INFO, PSTR("UTDBG %02x"), val);
+  ////AddLog(LOG_LEVEL_INFO, PSTR("UTDBG %02x"), val);
 
   if (val != RA_FT5206_VENDID) {
     return false;
   }
   
   _readByte(RA_FT5206_CHIPID_REG, 1, &val);
-  //AddLog(LOG_LEVEL_INFO, PSTR("UTDBG %02x"), val);
+  ////AddLog(LOG_LEVEL_INFO, PSTR("UTDBG %02x"), val);
 
   if (val != RA_FT5316_CHIPID) {
     return false;
