@@ -236,7 +236,11 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
               if (wire_n == 1) {
                 wire = &Wire;
               } else {
+#ifdef ESP32               
                 wire = &Wire1;
+#else
+                wire = &Wire;
+#endif
               }
               spec_init = _UDSP_I2C;
             }
