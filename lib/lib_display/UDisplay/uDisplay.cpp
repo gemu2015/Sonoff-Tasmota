@@ -29,7 +29,7 @@
 extern int Cache_WriteBack_Addr(uint32_t addr, uint32_t size);
 
 
-//#define UDSP_DEBUG
+#define UDSP_DEBUG
 
 #ifndef UDSP_LBSIZE
 #define UDSP_LBSIZE 256
@@ -1954,28 +1954,27 @@ void IRAM_ATTR ut_touch_irq(void) {
 // universal touch driver
 bool uDisplay::utouch_Init(char **name) {
   *name = ut_name;
-  if (ut_reset >= 0) {
-    pinMode(ut_reset, OUTPUT);
-    digitalWrite(ut_reset, HIGH);
-    delay(10);
-    digitalWrite(ut_reset, LOW);
-    delay(5);
-    digitalWrite(ut_reset, HIGH);
-    delay(10);
-  }
-  if (ut_irq >= 0) {
-    pinMode(ut_irq, INPUT );
-    attachInterrupt(ut_irq, ut_touch_irq, FALLING);
-  }
-
-  if (ut_spi_nr == spi_nr) {
-    ut_spi = uspi;
-  } else {
-    // not yet
-    ut_spi = nullptr;
-  }
-
   if (ut_init_code) {
+    if (ut_reset >= 0) {
+      pinMode(ut_reset, OUTPUT);
+      digitalWrite(ut_reset, HIGH);
+      delay(10);
+      digitalWrite(ut_reset, LOW);
+      delay(5);
+      digitalWrite(ut_reset, HIGH);
+      delay(10);
+    }
+    if (ut_irq >= 0) {
+      pinMode(ut_irq, INPUT );
+      attachInterrupt(ut_irq, ut_touch_irq, FALLING);
+    }
+
+    if (ut_spi_nr == spi_nr) {
+      ut_spi = uspi;
+    } else {
+      // not yet
+      ut_spi = nullptr;
+    }
     return ut_execute(ut_init_code);
   }
   return false;
