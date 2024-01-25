@@ -91,10 +91,6 @@ uint32_t DS3231ReadTime(void) {
   return MakeTime(tm);
 }
 
-BM8563 *Get_BM8563(void) {
-  return &bm8563_driver.Rtc;
-}
-
 /*-------------------------------------------------------------------------------------------*\
  * Read temperature from DS3231 internal sensor, return as float
 \*-------------------------------------------------------------------------------------------*/
@@ -192,6 +188,10 @@ struct {
   bool rtc_ready = false;
   bool ntp_time_ok = false;
 } bm8563_driver;
+
+BM8563 *Get_BM8563(void) {
+  return &bm8563_driver.Rtc;
+}
 
 uint32_t BM8563GetUtc(void) {
   RTC_TimeTypeDef RTCtime;

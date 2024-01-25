@@ -45,6 +45,8 @@ internal I2C devices
 #include "M5EPD.h"
 #include "BM8563.h"
 
+BM8563 *Get_BM8563(void);
+
 struct M5EPD_globs {
   BM8563 *Rtc;
   M5EPD m5epd;
