@@ -2821,6 +2821,9 @@ void uDisplay::ut_trans(char **sp, uint8_t **code) {
   uint16_t memsize = (uint32_t)ut_code - (uint32_t)tmp_code;
   // allocate memory
   //AddLog(LOG_LEVEL_INFO, PSTR("UT-code: %d bytes"),memsize);
+#ifdef UDSP_DEBUG
+  Serial.printf("Utouch code size : %d\n", memsize);
+#endif
   uint8_t *mp = (uint8_t*)malloc(memsize + 2);
   if (mp) {
     memmove(mp, tmp_code, memsize);
