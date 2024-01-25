@@ -30,6 +30,8 @@
 #include <SPI.h>
 #include <renderer.h>
 #include "M5EPD_Driver.h"
+#include "tasmota_options.h"
+#include <Wire.h>
 
 #define DISPLAY_INIT_MODE 0
 #define DISPLAY_INIT_PARTIAL 1
@@ -58,8 +60,16 @@ public:
     void ep_update_area(uint16_t xp, uint16_t yp, uint16_t width, uint16_t height, uint8_t mode);
     void RotConvert(int16_t *x, int16_t *y, int16_t *w, int16_t *h);
     void TS_RotConvert(int16_t *x, int16_t *y);
+#ifdef USE_UNIVERSAL_TOUCH
+    // universal touch driver
+    bool utouch_Init(char **name);
+    uint16_t touched(void);
+    int16_t getPoint_x();
+    int16_t getPoint_y();
+#endif // USE_UNIVERSAL_TOUCH
 
 private:
+
   uint16_t width;
   uint16_t height;
   uint16_t xp;
@@ -72,6 +82,14 @@ private:
   boolean nswapped;
   uint8_t upd_mode;
   M5EPD_Driver EPD = M5EPD_Driver();
+  uint8_t read(uint16_t addr);
+  void read(uint16_t addr, uint8_t *buf, uint16_t len);
+  void write(uint16_t addr, uint8_t data);
+  char ut_name[8];
+  u_int16_t t_xp;
+  u_int16_t t_yp;
+  TwoWire *wire;
+  uint8_t i2caddr;
 };
 
 #endif /* M5EPD4IN7_H */

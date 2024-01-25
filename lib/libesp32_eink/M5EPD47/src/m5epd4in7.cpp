@@ -135,6 +135,73 @@ void M5Epd47::TS_RotConvert(int16_t *x, int16_t *y) {
   *y = height - *y;
 }
 
+void M5Epd47::read(uint16_t addr, uint8_t *buf, uint16_t len) {
+    wire->flush();
+    wire->beginTransmission(i2caddr);
+    wire->write((uint8_t)(addr >> 8));
+    wire->write((uint8_t)addr);
+    wire->endTransmission(false);
+    wire->requestFrom((int)i2caddr, (int)len);
+    wire->readBytes(buf, len);
+}
+
+uint8_t M5Epd47::read(uint16_t addr) {
+    wire->flush();
+    wire->beginTransmission(i2caddr);
+    wire->write((uint8_t)(addr >> 8));
+    wire->write((uint8_t)addr);
+    wire->endTransmission(false);
+    wire->requestFrom((uint8_t)i2caddr, (uint8_t)1);
+    return wire->read();
+}
+
+void M5Epd47::write(uint16_t addr, uint8_t data) {
+    wire->beginTransmission(i2caddr);
+    wire->write((uint8_t)(addr >> 8));
+    wire->write((uint8_t)addr);
+    wire->write(data);
+    wire->endTransmission(true);
+}
+
+bool M5Epd47::utouch_Init(char **name) {
+  *name = ut_name;
+  strcpy(ut_name, "GT911");
+
+  wire = &Wire1;
+  i2caddr = 0x5d;
+  uint8_t buff[4];
+  read(0x8140, buff, 4);
+  if ((buff[0] == '9') && (buff[1] == '1') && (buff[2] == '1')) {
+    return true;
+  }
+  return false;
+}
+
+uint16_t M5Epd47::touched(void) {
+  uint8_t iob = read(0x814e);
+  if (!(iob & 0x80)) {
+    return 0;
+  }
+  uint8_t buff[8];
+  read(0x8150, buff, 8);
+  write(0x814E, 0);
+
+  t_xp = buff[1] << 8;
+  t_xp |= buff[0];
+
+  t_yp = buff[3] << 8;
+  t_yp |= buff[2];
+  return 1;
+}
+
+int16_t M5Epd47::getPoint_x(void) {
+  return t_xp;
+}
+
+int16_t M5Epd47::getPoint_y(void) {
+  return t_yp;
+}
+
 //displaytext [up0:0:960:5:2]
 // needs to be rot converted
 void M5Epd47::ep_update_area(uint16_t x, uint16_t y, uint16_t awidth, uint16_t aheight, uint8_t mode) {

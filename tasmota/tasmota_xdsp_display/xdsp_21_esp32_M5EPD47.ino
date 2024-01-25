@@ -76,6 +76,9 @@ void M5EpdInitDriver47(void) {
 #ifdef USE_GT911   
     GT911_Touch_Init(&Wire1, -1, -1, M5EPD47_HEIGHT, M5EPD47_WIDTH);
 #endif
+#ifdef USE_UNIVERSAL_TOUCH
+    utouch_Touch_Init();
+#endif
 #endif // USE_TOUCH_BUTTONS
 
     m5epd47_init_done = true;
