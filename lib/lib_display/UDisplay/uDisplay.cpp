@@ -1146,9 +1146,9 @@ Renderer *uDisplay::Init(void) {
 
     _panel_config->clk_src = LCD_CLK_SRC_PLL160M;
 
-    if (spi_speed > 14) {
-      spi_speed = 14;
-    }
+    //if (spi_speed > 14) {
+      //spi_speed = 14;
+    //}
     _panel_config->timings.pclk_hz = spi_speed*1000000;
     _panel_config->timings.h_res = gxs;
     _panel_config->timings.v_res = gys;
