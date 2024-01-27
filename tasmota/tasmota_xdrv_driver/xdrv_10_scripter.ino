@@ -12170,7 +12170,7 @@ int32_t url2file(uint8_t fref, char *url) {
 }
 #endif
 
-#define HTTP_DEBUG
+//#define HTTP_DEBUG
 int32_t http_req(char *host, char *header, char *request) {
   WiFiClient http_client;
   HTTPClient http;
