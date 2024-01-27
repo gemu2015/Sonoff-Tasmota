@@ -4116,13 +4116,26 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto nfuncexit;
         }
         if (!strncmp_XP(lp, XPSTR("http("), 5)) {
-          char host[SCRIPT_MAXSSIZE];
-          lp = GetStringArgument(lp + 5, OPER_EQU, host, 0);
-          SCRIPT_SKIP_SPACES
-          char request[SCRIPT_MAXSSIZE];
-          lp = GetStringArgument(lp, OPER_EQU, request, 0);
-          SCRIPT_SKIP_SPACES
-          fvar = http_req(host, request);
+          char *host;
+          lp = GetLongIString(lp + 5, &host);
+          if (host) {
+            char *request;
+            SCRIPT_SKIP_SPACES
+            lp = GetLongIString(lp, &request);
+            if (request) {
+              SCRIPT_SKIP_SPACES
+              char header[SCRIPT_MAXSSIZE];
+              header[0] = 0;
+              if (*lp != ')') {
+                lp = GetStringArgument(lp, OPER_EQU, header, 0);
+              }
+              fvar = http_req(host, header, request);
+              free(host);
+              free(request);
+            } else {
+              free(host);
+            }
+          }
           goto nfuncexit;
         }
 #ifdef USE_LIGHT
@@ -12157,13 +12170,19 @@ int32_t url2file(uint8_t fref, char *url) {
 }
 #endif
 
-int32_t http_req(char *host, char *request) {
+#define HTTP_DEBUG
+int32_t http_req(char *host, char *header, char *request) {
   WiFiClient http_client;
   HTTPClient http;
   int32_t httpCode = 0;
   uint8_t mode = 0;
-  char hbuff[128];
+  char hbuff[256];
   strcpy(hbuff, "http://");
+  bool debug = false;
+  if (*host == '@') {
+    host++;
+    debug = true;
+  }
   strcat(hbuff, host);
 
   if (*request == '_') {
@@ -12173,6 +12192,9 @@ int32_t http_req(char *host, char *request) {
 
 #ifdef HTTP_DEBUG
   AddLog(LOG_LEVEL_INFO, PSTR("SCR: HTTP heap %d"), ESP_getFreeHeap());
+  AddLog(LOG_LEVEL_INFO, PSTR("SCR: HTTP host %s"), hbuff);
+  AddLog(LOG_LEVEL_INFO, PSTR("SCR: HTTP request %s"), request);
+  AddLog(LOG_LEVEL_INFO, PSTR("SCR: HTTP header %s"), header);
 #endif
 
   if (!mode) {
@@ -12180,12 +12202,18 @@ int32_t http_req(char *host, char *request) {
     strcat(hbuff, request);
     //AddLog(LOG_LEVEL_INFO, PSTR("HTTP GET %s"),hbuff);
     http.begin(http_client, hbuff);
+    if (*header) {
+      http.addHeader("Authorization", header);
+    }
     httpCode = http.GET();
   } else {
     // POST
     //AddLog(LOG_LEVEL_INFO, PSTR("HTTP POST %s - %s"),hbuff, request);
     http.begin(http_client, hbuff);
-    http.addHeader("Content-Type", "text/plain");
+    if (*header) {
+      http.addHeader("Authorization", header);
+      http.addHeader("Content-Type", "text/plain");
+    }
     httpCode = http.POST(request);
   }
 
@@ -12200,9 +12228,11 @@ int32_t http_req(char *host, char *request) {
   strlcpy(TasmotaGlobal.mqtt_data, http.getString().c_str(), ResponseSize());
 #endif
 
-#ifdef HTTP_DEBUG
-  AddLog(LOG_LEVEL_INFO, PSTR("SCR: HTTP MQTT BUFFER %s"), ResponseData());
-#endif
+//#ifdef HTTP_DEBUG
+  if (debug) {
+    AddLog(LOG_LEVEL_INFO, PSTR("SCR: HTTP MQTT BUFFER %s"), TasmotaGlobal.mqtt_data.c_str());
+  }
+//#endif
 
 //  AddLog(LOG_LEVEL_INFO, PSTR("JSON %s"), wd_jstr);
 //  TasmotaGlobal.mqtt_data = wd_jstr;
