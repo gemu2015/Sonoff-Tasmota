@@ -6525,13 +6525,39 @@ char *GetLongIString(char *lp, char **dstr) {
     lp = GetStringArgument(lp, OPER_EQU, *dstr, 0);
   } else {
     lp++;
-    char *cp = strchr(lp, '"');
+
+    char *cp;
+#if 0
+    cp = strchr(lp, '"');
     if (cp) {
       uint16_t slen = (uint32_t)cp - (uint32_t)lp;
       *dstr = (char*)calloc(slen + 2, 1);
       if (!*dstr) return lp;
-      memmove(*dstr, lp, slen);
+      memmove(*dstr, lp , slen);
+#else   
+    char *llp = lp;
+ loop:
+    cp = strchr(lp, '"');
+    if (cp) {
+      if (*(cp - 1) == '\\') {
+        lp = cp + 1;
+        goto loop;
+      }
+      uint16_t slen = (uint32_t)cp - (uint32_t)llp;
+      *dstr = (char*)calloc(slen + 2, 1);
+      if (!*dstr) return lp;
+      memmove(*dstr, llp , slen);
+      // Get_esc_char
+      char *tp = *dstr;
+      while (*llp != '"') {
+        char iob;
+        llp = Get_esc_char(llp, &iob);
+        *tp++ = iob;
+      }
+      *tp = 0;
+#endif
       lp = cp + 1;
+      //AddLog(LOG_LEVEL_INFO, PSTR("long string: %s"), *dstr);
     } else {
       // error
     }
