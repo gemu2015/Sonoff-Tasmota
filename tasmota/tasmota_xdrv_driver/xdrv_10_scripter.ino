@@ -3792,6 +3792,29 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto nfuncexit;
         }
 
+        if (!strncmp_XP(lp, XPSTR("frln("), 5)) {
+          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
+          uint8_t find = fvar;
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
+          if (glob_script_mem.file_flags[find].is_open) {
+            // read line
+            char instr[256];
+            fread_str_fp(&glob_script_mem.files[find], instr, sizeof(instr), fvar);
+            if (sp) strlcpy(sp, instr, glob_script_mem.max_ssize);
+          }
+          len = 0;
+          lp++;
+          goto strexit;
+        }
+        if (!strncmp_XP(lp, XPSTR("ft("), 3)) {
+          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
+          uint8_t find = fvar;
+          if (glob_script_mem.file_flags[find].is_open) {
+            fvar = glob_script_mem.files[find].position();
+          }
+          goto nfuncexit;
+        }
+
         if (!strncmp_XP(lp, XPSTR("fcs("), 4)) {
           lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           uint8_t find = fvar;
