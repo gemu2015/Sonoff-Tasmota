@@ -10389,14 +10389,46 @@ uint32_t fsize;
   } else {
 #ifdef USE_FEXTRACT
     if (glob_script_mem.to_time > glob_script_mem.from_time) {
-      char ts[32];
-      s2tstamp(ts, sizeof(ts), glob_script_mem.from_time, 0);
-      int32_t fo_from = opt_fext(&file, ts, ts, 1);
-      s2tstamp(ts, sizeof(ts), glob_script_mem.to_time, 0);
+      char tsf[32];
+      s2tstamp(tsf, sizeof(tsf), glob_script_mem.from_time, 0);
+      char tst[32];
+      s2tstamp(tst, sizeof(tst), glob_script_mem.to_time, 0);
+      int32_t fo_from;
+      int32_t fo_to;
+
       //int32_t fo_to = opt_fext(&file, ts, ts, 2);
-      int32_t fo_to = extract_from_file(&file,  ts, ts, -3, 0, 0, 0, 0);
-      if (fo_to < 0) {
-        fo_to = extract_from_file(&file,  ts, ts, -1, 0, 0, 0, 0);
+      // check if index file available
+      
+      char *cp = strchr(path, '.');
+      if (cp) {
+        *cp = 0;
+        strcat(path, ".ind");
+        File fp = ufsp->open(path, FS_FILE_READ);
+        if (fp > 0) {
+          fo_from = opt_fext(&fp, tsf, tsf, 1);
+          fo_to = extract_from_file(&fp,  tst, tst, -3, 0, 0, 0, 0);
+          // read file offsets
+          //AddLog(LOG_LEVEL_INFO, PSTR(">>> 1 %d - %d"), fo_from, fo_to);
+          fp.seek(fo_from, SeekSet);
+          fp.readStringUntil('\t');
+          String str1 = fp.readStringUntil('\n');
+          fo_from = str1.toInt();
+          fp.seek(fo_to, SeekSet);
+          fp.readStringUntil('\t');
+          String str2 = fp.readStringUntil('\n');
+          fo_to = str2.toInt();
+          //AddLog(LOG_LEVEL_INFO, PSTR(">>> 2 %s - %s"), str1.c_str(), str2.c_str());
+          fp.close();
+        } else {
+          goto slowacc;
+        }
+      } else {
+        slowacc:
+        fo_from = opt_fext(&file, tsf, tsf, 1);
+        fo_to = extract_from_file(&file,  tst, tst, -3, 0, 0, 0, 0);
+        if (fo_to < 0) {
+          fo_to = extract_from_file(&file,  tst, tst, -1, 0, 0, 0, 0);
+        }
       }
       if (fo_from >= 0 && fo_to >= 0) {
         script_copy_file(&file, 0, fo_from, fo_to, 1, &client);
