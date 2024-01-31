@@ -10395,10 +10395,7 @@ uint32_t fsize;
       s2tstamp(tst, sizeof(tst), glob_script_mem.to_time, 0);
       int32_t fo_from;
       int32_t fo_to;
-
-      //int32_t fo_to = opt_fext(&file, ts, ts, 2);
       // check if index file available
-      
       char *cp = strchr(path, '.');
       if (cp) {
         *cp = 0;
@@ -10408,17 +10405,18 @@ uint32_t fsize;
           fo_from = opt_fext(&fp, tsf, tsf, 1);
           fo_to = extract_from_file(&fp,  tst, tst, -3, 0, 0, 0, 0);
           // read file offsets
-          //AddLog(LOG_LEVEL_INFO, PSTR(">>> 1 %d - %d"), fo_from, fo_to);
-          fp.seek(fo_from, SeekSet);
-          fp.readStringUntil('\t');
-          String str1 = fp.readStringUntil('\n');
-          fo_from = str1.toInt();
-          fp.seek(fo_to, SeekSet);
-          fp.readStringUntil('\t');
-          String str2 = fp.readStringUntil('\n');
-          fo_to = str2.toInt();
-          //AddLog(LOG_LEVEL_INFO, PSTR(">>> 2 %s - %s"), str1.c_str(), str2.c_str());
-          fp.close();
+          if (fo_from > 0 && fo_to > 0) {
+            fp.seek(fo_from, SeekSet);
+            fp.readStringUntil('\t');
+            fo_from = fp.readStringUntil('\n').toInt();
+            fp.seek(fo_to, SeekSet);
+            fp.readStringUntil('\t');
+            fo_to = fp.readStringUntil('\n').toInt();
+            fp.close();
+          } else {
+            fp.close();
+            goto slowacc;
+          }
         } else {
           goto slowacc;
         }
