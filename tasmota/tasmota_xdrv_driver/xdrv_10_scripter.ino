@@ -8138,7 +8138,7 @@ bool script_OneWireCrc8(uint8_t *addr) {
 }
 
 int32_t script_ow(uint8_t sel, uint32_t val) {
-uint32_t res = 0;
+int32_t res = 0;
 uint8_t bits;
 bool invert = false;
 ScriptOneWire *ow = &glob_script_mem.ow;
@@ -8295,8 +8295,10 @@ ScriptOneWire *ow = &glob_script_mem.ow;
             data[cnt] = ow->ds->read();
           }
           if (script_OneWireCrc8(data)) {
-            res = data[0];
-            res |= data[1] << 8;
+            int16_t ires;
+            ires = data[0];
+            ires |= data[1] << 8;
+            res = ires;
           } else {
             res = 0;
           }
@@ -8314,8 +8316,10 @@ ScriptOneWire *ow = &glob_script_mem.ow;
             data[cnt] = ow->dsh->read();
           }
           if (script_OneWireCrc8(data)) {
-            res = data[0];
-            res |= data[1] << 8;
+            int16_t ires;
+            ires = data[0];
+            ires |= data[1] << 8;
+            res = ires;
           } else {
             res = 0;
           }
