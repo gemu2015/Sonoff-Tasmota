@@ -54,19 +54,20 @@ String Powerwall::getAuthCookie() {
     WiFiClientSecure *httpsClient = new WiFiClientSecure;
 #endif
     httpsClient->setInsecure();
-    httpsClient->setTimeout(10000);
+    httpsClient->setTimeout(2000);
 
     int retry = 0;
 
 #define PW_RETRIES 5
     while ((!httpsClient->connect(powerwall_ip, 443)) && (retry < PW_RETRIES)) {
         delay(100);
-        Serial.print(".");
+        //Serial.print(".");
         retry++;
     }
 
     if (retry >= PW_RETRIES) {
         delete httpsClient;
+        AddLog(LOG_LEVEL_DEBUG, PSTR("PWL: connection failed"));
         return ("CONN-FAIL");
     }
 
@@ -139,12 +140,13 @@ String Powerwall::GetRequest(String url, String authCookie) {
 
     while ((!httpsClient->connect(powerwall_ip, 443)) && (retry < 15)) {
         delay(100);
-        Serial.print(".");
+        //Serial.print(".");
         retry++;
     }
 
     if (retry >= 15) {
         delete httpsClient;
+        AddLog(LOG_LEVEL_DEBUG, PSTR("PWL: connection failed"));
         return ("CONN-FAIL");
     }
 
@@ -177,6 +179,7 @@ String Powerwall::GetRequest(String url, String authCookie) {
 
     String result = httpsClient->readStringUntil('\n');
     delete httpsClient;
+    AddLog(LOG_LEVEL_DEBUG, PSTR("PWL: result: %s"),result.c_str());
     return result;
 }
 
