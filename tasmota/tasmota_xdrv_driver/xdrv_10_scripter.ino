@@ -12339,6 +12339,13 @@ int32_t http_req(char *host, char *header, char *request) {
 Powerwall powerwall = Powerwall();
 
 int32_t call2pwl(const char *url) {
+  
+  if (*url == '@') {
+    //pass full url
+    powerwall.powerwall_ip[0] = 0;
+    url++;
+  }
+
   uint8_t debug = 0;
   if (*url == 'D') {
     url++;
@@ -12349,6 +12356,7 @@ int32_t call2pwl(const char *url) {
     url++;
     cookie = "";
   }
+
   String result = powerwall.GetRequest(String(url), cookie);
   //AddLog(LOG_LEVEL_INFO, PSTR("PWL: result: %s"), result.c_str());
 

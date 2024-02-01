@@ -8,9 +8,8 @@
 
 class Powerwall {
    private:
-    const char* powerwall_ip;
-    String tesla_email;
-    String tesla_password;
+    char tesla_email[32];
+    char tesla_password[32];
     String authCookie;
     
    public:
@@ -20,13 +19,16 @@ class Powerwall {
     String GetRequest(String url);
     String AuthCookie();
     void resetAuthCookie();
+    char powerwall_ip[64];
 };
 
 
 Powerwall::Powerwall() {
-    powerwall_ip   = POWERWALL_IP_CONFIG;
-    tesla_email    = TESLA_EMAIL;
-    tesla_password = TESLA_PASSWORD;
+    strcpy(powerwall_ip, POWERWALL_IP_CONFIG);
+    strcpy(tesla_email, TESLA_EMAIL);
+    strcpy(tesla_password, TESLA_PASSWORD);
+    //tesla_email    = TESLA_EMAIL;
+    //tesla_password = TESLA_PASSWORD;
     authCookie     = "";
 }
 
@@ -66,14 +68,18 @@ String Powerwall::getAuthCookie() {
     }
 
     if (retry >= PW_RETRIES) {
-        delete httpsClient;
+        //String response = httpsClient->readStringUntil('\n');
         AddLog(LOG_LEVEL_DEBUG, PSTR("PWL: connection failed"));
+        delete httpsClient;
         return ("CONN-FAIL");
     }
 
     AddLog(LOG_LEVEL_DEBUG, PSTR("PWL: connected"));
 
-    String dataString = "{\"username\":\"customer\",\"email\":\"" + tesla_email + "\",\"password\":\"" + tesla_password + "\",\"force_sm_off\":false}";
+    String s_tesla_email = tesla_email;
+    String s_tesla_password = tesla_password;
+
+    String dataString = "{\"username\":\"customer\",\"email\":\"" + s_tesla_email + "\",\"password\":\"" + s_tesla_password + "\",\"force_sm_off\":false}";
 
     String payload = String("POST ") + apiLoginURL + " HTTP/1.1\r\n" +
                       "Host: " + powerwall_ip + "\r\n" +
@@ -145,8 +151,9 @@ String Powerwall::GetRequest(String url, String authCookie) {
     }
 
     if (retry >= 15) {
-        delete httpsClient;
+        //String response = httpsClient->readStringUntil('\n');
         AddLog(LOG_LEVEL_DEBUG, PSTR("PWL: connection failed"));
+        delete httpsClient;
         return ("CONN-FAIL");
     }
 
