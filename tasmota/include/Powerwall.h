@@ -20,7 +20,32 @@ class Powerwall {
     String AuthCookie();
     void resetAuthCookie();
     char powerwall_ip[64];
+    String Pwl_test(String);
 };
+
+String Powerwall::Pwl_test(String ip) {
+    AddLog(LOG_LEVEL_INFO, PSTR("PWL: tryto open %s"), ip.c_str());
+    //WiFiClientSecure *httpsClient = new WiFiClientSecure;
+    BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024,1024);
+
+    httpsClient->setInsecure();
+    httpsClient->setTimeout(1000);
+    int retry = 0;
+    while ((!httpsClient->connect(ip.c_str(), 443)) && (retry < 5)) {
+        delay(100);
+        //Serial.print(".");
+        retry++;
+    }
+
+    if (retry >= 5) {
+        AddLog(LOG_LEVEL_INFO, PSTR("PWL: failed"));
+    } else {
+        AddLog(LOG_LEVEL_INFO, PSTR("PWL: connected"));
+    }
+    httpsClient->stop();
+    delete httpsClient;
+    return "\n";
+}
 
 
 Powerwall::Powerwall() {
@@ -194,7 +219,7 @@ String Powerwall::GetRequest(String url, String authCookie) {
  * this is getting called if there was no provided authCookie in powerwallGetRequest(String url, String authCookie)
  */
 String Powerwall::GetRequest(String url) {
-    return (GetRequest(url, getAuthCookie()));
+    return Pwl_test(url);
+    //return (GetRequest(url, getAuthCookie()));
 }
-
 #endif
