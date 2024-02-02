@@ -12345,12 +12345,6 @@ int32_t call2pwl(const char *url) {
     return 0;
   }
   
-  if (*url == '@') {
-    //pass full url
-    powerwall.powerwall_ip[0] = 0;
-    url++;
-  }
-
   uint8_t debug = 0;
   if (*url == 'D') {
     url++;
