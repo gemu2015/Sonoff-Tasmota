@@ -12340,8 +12340,10 @@ Powerwall powerwall = Powerwall();
 
 int32_t call2pwl(const char *url) {
   
-  powerwall.GetRequest(String(url));
-  return 0;
+  if (*url == '@') {
+    powerwall.GetRequest(String(url));
+    return 0;
+  }
   
   if (*url == '@') {
     //pass full url
