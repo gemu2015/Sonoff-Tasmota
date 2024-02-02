@@ -219,7 +219,10 @@ String Powerwall::GetRequest(String url, String authCookie) {
  * this is getting called if there was no provided authCookie in powerwallGetRequest(String url, String authCookie)
  */
 String Powerwall::GetRequest(String url) {
-    return Pwl_test(url);
-    //return (GetRequest(url, getAuthCookie()));
+    if (url[0] == '@') {
+        url = url.substring(1);
+        return Pwl_test(url);
+    }
+    return (GetRequest(url, getAuthCookie()));
 }
 #endif
