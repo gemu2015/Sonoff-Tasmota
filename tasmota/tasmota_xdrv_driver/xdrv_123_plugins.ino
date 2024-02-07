@@ -640,7 +640,11 @@ EspFlashBaseEndAddress(void)
 // first version assumes module to be smaller then 2*SPI_FLASH_SEC_SIZE
 // we only use full sectors and align to sector size
 #define SPEC_SCRIPT_FLASH 0x000F2000
+#ifdef ESP8266
 #define FLASH_BASE_OFFSET 0x40200000
+#else
+#define FLASH_BASE_OFFSET 0x3F400000
+#endif
 uint32_t Module_CheckFree(uint32_t size, uint8_t *fdesc) {
 uint8_t flag = 0;
 #ifdef ESP8266
@@ -760,18 +764,23 @@ void AddModules(void) {
   uint32_t free_flash_end = (ESP_getSketchSize() + ESP.getFreeSketchSpace());
   pagesize = SPI_FLASH_SEC_SIZE;
   flashbase = FLASH_BASE_OFFSET;
-#endif
-#ifdef ESP32
-  uint32_t free_flash_start = ESP_getSketchSize();  //EspFlashBaseAddress();
-  uint32_t free_flash_end = (ESP_getSketchSize() + ESP.getFreeSketchSpace()); //EspFlashBaseEndAddress();
-  pagesize = SPI_FLASH_MMU_PAGE_SIZE;
-  flashbase = 0x40200000;
-#endif
-
- // 00210000: 00400000: 400d758c:
+   // 00210000: 00400000: 400d758c:
   // align to sector start
   free_flash_start =  (free_flash_start + pagesize) & (pagesize-1^0xffffffff);
   free_flash_end   =  (free_flash_end + pagesize) & (pagesize-1^0xffffffff);
+#endif
+#ifdef ESP32
+  //uint32_t free_flash_start = ESP_getSketchSize();  //EspFlashBaseAddress();
+  //uint32_t free_flash_end = (ESP_getSketchSize() + ESP.getFreeSketchSpace()); //EspFlashBaseEndAddress();
+  //pagesize = SPI_FLASH_MMU_PAGE_SIZE;
+  //flashbase = 0x40200000;
+  pagesize = SPI_FLASH_SEC_SIZE;
+  uint32_t free_flash_start = FlashWriteStartSector() * SPI_FLASH_SEC_SIZE;
+  uint32_t free_flash_end = FlashWriteMaxSector() * SPI_FLASH_SEC_SIZE;
+  flashbase = FLASH_BASE_OFFSET;
+  AddLog(LOG_LEVEL_INFO,PSTR("start: %08x, end: %08x"),free_flash_start, free_flash_end);
+  return;
+#endif
 
   uint16_t module = 0;
   uint32_t *lp = (uint32_t*) ( flashbase + free_flash_start );

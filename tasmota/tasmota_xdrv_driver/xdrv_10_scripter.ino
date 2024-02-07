@@ -3194,6 +3194,14 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           }
           goto nfuncexit;
         }
+        if (!strncmp_XP(lp, XPSTR("dump("), 5)) {
+          // get and return integer
+          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
+          uint32_t ivar = *(uint32_t*)&fvar;
+          ivar = *(uint32_t*)ivar;
+          *(uint32_t*)&fvar = ivar; 
+          goto nfuncexit;
+        }
         break;
       case 'e':
         if (!strncmp_XP(vname, XPSTR("epoch"), 5)) {
