@@ -471,6 +471,8 @@ void InitModules(void) {
     modules[cnt].mod_addr = 0;
   }
 
+  SetFlashBase();
+
 // read driver from filesystem
 #if defined(EXECUTE_IN_RAM) || defined(EXECUTE_IN_FLASH)
   uint32_t size;
@@ -645,28 +647,57 @@ EspFlashBaseEndAddress(void)
 #else
 #define FLASH_BASE_OFFSET 0x3F400000
 #endif
-uint32_t Module_CheckFree(uint32_t size, uint8_t *fdesc) {
-uint8_t flag = 0;
+
+
+uint32_t free_flash_start;
+uint32_t free_flash_end;
+uint32_t flashbase;
+uint32_t pagesize;
+
+#ifdef ESP32
+const esp_partition_t *flash_pptr;
+#endif
+
+void SetFlashBase(void) {
 #ifdef ESP8266
-uint32_t free_flash_start = ESP_getSketchSize();
-uint32_t free_flash_end = (ESP_getSketchSize() + ESP.getFreeSketchSpace());
+  free_flash_start = ESP_getSketchSize();
+  free_flash_end = (ESP_getSketchSize() + ESP.getFreeSketchSpace());
+  pagesize = SPI_FLASH_SEC_SIZE;
+  flashbase = FLASH_BASE_OFFSET;
+   // 00210000: 00400000: 400d758c:
+  // align to sector start
+  free_flash_start =  (free_flash_start + pagesize) & (pagesize-1^0xffffffff);
+  free_flash_end   =  (free_flash_end + pagesize) & (pagesize-1^0xffffffff);
 #endif
 #ifdef ESP32
-uint32_t free_flash_start = ESP_getSketchSize();  //EspFlashBaseAddress();
-uint32_t free_flash_end = (ESP_getSketchSize() + ESP.getFreeSketchSpace()); //EspFlashBaseEndAddress();
+  pagesize = SPI_FLASH_SEC_SIZE;
+  flash_pptr = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_TEST, "custom");
+  
+  //static esp_partition_mmap_handle_t map_handle;
+  // const void *out_ptr;
+  // esp_err_t err =esp_partition_mmap(flash_pptr, 0, flash_pptr->size, ESP_PARTITION_MMAP_DATA, &out_ptr, &map_handle);
+
+  static spi_flash_mmap_handle_t map_handle;
+  const void *out_ptr;
+  esp_err_t err =esp_partition_mmap(flash_pptr, 0, flash_pptr->size, SPI_FLASH_MMAP_DATA, &out_ptr, &map_handle);
+
+  free_flash_start = (uint32_t)out_ptr;
+  free_flash_end = free_flash_start + flash_pptr->size;
+  flashbase = 0;
+  //AddLog(LOG_LEVEL_INFO,PSTR("start: %08x, end: %08x"),free_flash_start, free_flash_end);
 #endif
+}
+
+uint32_t Module_CheckFree(uint32_t size, uint8_t *fdesc) {
+uint8_t flag = 0;
 
 uint32_t aoffset;
 uint32_t eeprom_block;
 
-  // align to sector start
-  free_flash_start =  (free_flash_start + SPI_FLASH_SEC_SIZE) & (SPI_FLASH_SEC_SIZE-1^0xffffffff);
-  free_flash_end   =  (free_flash_end + SPI_FLASH_SEC_SIZE) & (SPI_FLASH_SEC_SIZE-1^0xffffffff);
-
   //AddLog(LOG_LEVEL_INFO,PSTR(">>> %08x  - %08x"),free_flash_start,free_flash_end );
 
   if (flag == 0) {
-    aoffset = FLASH_BASE_OFFSET;
+    aoffset = flashbase;
     eeprom_block = free_flash_start;
   } else {
     aoffset = 0;
@@ -719,7 +750,7 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
   if (!eeprom_block) {
     return 0;
   }
-  uint32_t aoffset = FLASH_BASE_OFFSET;
+  uint32_t aoffset = flashbase;
   uint32_t *lwp=(uint32_t*)fdesc;
   const FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
   uint32_t old_pc = (uint32_t)fm->end_of_module - (size - 4);
@@ -749,6 +780,10 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
     eeprom_block += SPI_FLASH_SEC_SIZE;
   }
 #endif
+
+#ifdef ESP32
+  esp_err_t err = esp_partition_write(flash_pptr, eeprom_block - free_flash_start, (void*)lwp, size);
+#endif
   return new_pc;
 }
 
@@ -757,31 +792,6 @@ void testcall(void) {
 }
 
 void AddModules(void) {
-  uint32_t flashbase;
-  uint32_t pagesize;
-#ifdef ESP8266
-  uint32_t free_flash_start = ESP_getSketchSize();
-  uint32_t free_flash_end = (ESP_getSketchSize() + ESP.getFreeSketchSpace());
-  pagesize = SPI_FLASH_SEC_SIZE;
-  flashbase = FLASH_BASE_OFFSET;
-   // 00210000: 00400000: 400d758c:
-  // align to sector start
-  free_flash_start =  (free_flash_start + pagesize) & (pagesize-1^0xffffffff);
-  free_flash_end   =  (free_flash_end + pagesize) & (pagesize-1^0xffffffff);
-#endif
-#ifdef ESP32
-  //uint32_t free_flash_start = ESP_getSketchSize();  //EspFlashBaseAddress();
-  //uint32_t free_flash_end = (ESP_getSketchSize() + ESP.getFreeSketchSpace()); //EspFlashBaseEndAddress();
-  //pagesize = SPI_FLASH_MMU_PAGE_SIZE;
-  //flashbase = 0x40200000;
-  pagesize = SPI_FLASH_SEC_SIZE;
-  uint32_t free_flash_start = FlashWriteStartSector() * SPI_FLASH_SEC_SIZE;
-  uint32_t free_flash_end = FlashWriteMaxSector() * SPI_FLASH_SEC_SIZE;
-  flashbase = FLASH_BASE_OFFSET;
-  AddLog(LOG_LEVEL_INFO,PSTR("start: %08x, end: %08x"),free_flash_start, free_flash_end);
-  return;
-#endif
-
   uint16_t module = 0;
   uint32_t *lp = (uint32_t*) ( flashbase + free_flash_start );
   for (uint32_t addr = free_flash_start; addr < free_flash_end; addr += pagesize) {
@@ -937,7 +947,7 @@ void Unlink_Module(uint32_t module) {
     // remove from module table, erase flash
     if ((uint32_t)modules[module].mod_addr != (uint32_t)&module_header) {
 
-      ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - FLASH_BASE_OFFSET) / SPI_FLASH_SEC_SIZE);
+      ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - flashbase) / SPI_FLASH_SEC_SIZE);
     }
     modules[module].mod_addr = 0;
     AddLog(LOG_LEVEL_INFO,PSTR("module %d unlinked"),module + 1);
@@ -966,7 +976,7 @@ void Update_Module_Data(uint32_t module, uint32_t *data) {
     }
     uint32_t *buff = (uint32_t *)calloc(SPI_FLASH_SEC_SIZE / 4 , 4);
     if (buff) {
-      ESP.flashRead((uint32_t)modules[module].mod_addr-FLASH_BASE_OFFSET, buff, SPI_FLASH_SEC_SIZE);
+      ESP.flashRead((uint32_t)modules[module].mod_addr-flashbase, buff, SPI_FLASH_SEC_SIZE);
       FLASH_MODULE *fm = (FLASH_MODULE*)buff;
       //AddLog(LOG_LEVEL_INFO,PSTR("read flash: %08x"),fm->sync);
       if (fm->sync == MODULE_SYNC) {
@@ -976,8 +986,8 @@ void Update_Module_Data(uint32_t module, uint32_t *data) {
         }
         // rewrite modified module
         //AddLog(LOG_LEVEL_INFO,PSTR("write flash"));
-        ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - FLASH_BASE_OFFSET) / SPI_FLASH_SEC_SIZE);
-        ESP.flashWrite((uint32_t)modules[module].mod_addr - FLASH_BASE_OFFSET, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
+        ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - flashbase) / SPI_FLASH_SEC_SIZE);
+        ESP.flashWrite((uint32_t)modules[module].mod_addr - flashbase, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
       }
       free(buff);
     }
@@ -1025,7 +1035,7 @@ int32_t Init_module(uint32_t module) {
       AddLog(LOG_LEVEL_INFO,PSTR("reinit memory link of module %d"), module + 1);
       uint32_t *buff = (uint32_t *)calloc(SPI_FLASH_SEC_SIZE / 4 , 4);
       if (buff) {
-        ESP.flashRead((uint32_t)modules[module].mod_addr-FLASH_BASE_OFFSET, buff, SPI_FLASH_SEC_SIZE);
+        ESP.flashRead((uint32_t)modules[module].mod_addr-flashbase, buff, SPI_FLASH_SEC_SIZE);
         FLASH_MODULE *fm = (FLASH_MODULE*)buff;
         if (fm->sync == MODULE_SYNC) {
           
@@ -1035,8 +1045,8 @@ int32_t Init_module(uint32_t module) {
           lp = (uint32_t*)&fm->jtab;
           *lp = (uint32_t)&MODULE_JUMPTABLE;
 
-          ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - FLASH_BASE_OFFSET) / SPI_FLASH_SEC_SIZE);
-          ESP.flashWrite((uint32_t)modules[module].mod_addr - FLASH_BASE_OFFSET, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
+          ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - flashbase) / SPI_FLASH_SEC_SIZE);
+          ESP.flashWrite((uint32_t)modules[module].mod_addr - flashbase, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
         }
         free(buff);
       }

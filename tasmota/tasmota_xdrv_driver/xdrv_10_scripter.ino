@@ -3198,7 +3198,12 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           // get and return integer
           lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           uint32_t ivar = *(uint32_t*)&fvar;
+#ifdef ESP32
           ivar = *(uint32_t*)ivar;
+#endif
+#ifdef ESP8266
+          ivar = *(uint32_t*)ivar;
+#endif
           *(uint32_t*)&fvar = ivar; 
           goto nfuncexit;
         }
