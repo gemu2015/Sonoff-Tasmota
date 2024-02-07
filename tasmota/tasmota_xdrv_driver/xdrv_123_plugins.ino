@@ -840,8 +840,8 @@ void Module_mdir(void) {
       if (index > 0) {
         ResponseAppend_P(PSTR(","));
       }
-      ResponseAppend_P(PSTR("\"MOD #%d\":{\"name\":\"%s\",\"addr\":\"%08x\",\"size\":%d,\"type\":\"%s\",\"rev\":%d,\"mem\":%d,\"init\":%d}"),cnt + 1, name, modules[cnt].mod_addr,
-       modules[cnt].mod_size, type, rev, modules[cnt].mem_size, modules[cnt].flags.initialized);
+      ResponseAppend_P(PSTR("\"MOD #%d\":{\"name\":\"%s\",\"addr\":\"%08x\",\"size\":%d,\"type\":\"%s\",\"rev\":%d.%d,\"mem\":%d,\"init\":%d}"),cnt + 1, name, modules[cnt].mod_addr,
+       modules[cnt].mod_size, type, (rev>>16),(rev&0xff), modules[cnt].mem_size, modules[cnt].flags.initialized);
        index++;
     }
   }
@@ -902,6 +902,7 @@ void LinkModule(uint8_t *mp, uint32_t size, char *name) {
 
 #ifdef ESP32
     modules[cnt].mod_addr = (void *) Store_Module(mp, size, &offset, 1, cnt);
+    free(mp);
 #else
     modules[cnt].mod_addr = (void *) Store_Module(mp, size, &offset, 0, cnt);
     free(mp);
@@ -946,8 +947,12 @@ void Unlink_Module(uint32_t module) {
     }
     // remove from module table, erase flash
     if ((uint32_t)modules[module].mod_addr != (uint32_t)&module_header) {
-
+#ifdef ESP8266
       ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - flashbase) / SPI_FLASH_SEC_SIZE);
+#endif
+#ifdef ESP32
+      esp_err_t err = esp_partition_erase_range(flash_pptr, (uint32_t)modules[module].mod_addr - free_flash_start, SPI_FLASH_SEC_SIZE);
+#endif
     }
     modules[module].mod_addr = 0;
     AddLog(LOG_LEVEL_INFO,PSTR("module %d unlinked"),module + 1);
@@ -976,6 +981,7 @@ void Update_Module_Data(uint32_t module, uint32_t *data) {
     }
     uint32_t *buff = (uint32_t *)calloc(SPI_FLASH_SEC_SIZE / 4 , 4);
     if (buff) {
+#ifdef ESP8266
       ESP.flashRead((uint32_t)modules[module].mod_addr-flashbase, buff, SPI_FLASH_SEC_SIZE);
       FLASH_MODULE *fm = (FLASH_MODULE*)buff;
       //AddLog(LOG_LEVEL_INFO,PSTR("read flash: %08x"),fm->sync);
@@ -989,7 +995,9 @@ void Update_Module_Data(uint32_t module, uint32_t *data) {
         ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - flashbase) / SPI_FLASH_SEC_SIZE);
         ESP.flashWrite((uint32_t)modules[module].mod_addr - flashbase, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
       }
+#endif
       free(buff);
+    
     }
     if (flag) {
       Init_module(module);
@@ -1035,6 +1043,7 @@ int32_t Init_module(uint32_t module) {
       AddLog(LOG_LEVEL_INFO,PSTR("reinit memory link of module %d"), module + 1);
       uint32_t *buff = (uint32_t *)calloc(SPI_FLASH_SEC_SIZE / 4 , 4);
       if (buff) {
+#ifdef ESP8266
         ESP.flashRead((uint32_t)modules[module].mod_addr-flashbase, buff, SPI_FLASH_SEC_SIZE);
         FLASH_MODULE *fm = (FLASH_MODULE*)buff;
         if (fm->sync == MODULE_SYNC) {
@@ -1048,6 +1057,7 @@ int32_t Init_module(uint32_t module) {
           ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - flashbase) / SPI_FLASH_SEC_SIZE);
           ESP.flashWrite((uint32_t)modules[module].mod_addr - flashbase, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
         }
+#endif
         free(buff);
       }
     }
@@ -1495,7 +1505,9 @@ int32_t flash_bindir(uint8_t sel, char *path) {
         uint32_t addr = bindir.address;
         uint32_t psiz;
         while (tsize> 0) {
+#ifdef ESP8266
           ESP.flashRead(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
+#endif
           fm = (FLASH_DATA_MODULE*)buff;
           if (fm->sync == MODULE_SYNC) {
             if (!strcmp(fm->name, path)) {
@@ -1528,6 +1540,7 @@ int32_t flash_bindir(uint8_t sel, char *path) {
           memcpy(buff, (uint8_t*)&fm, sizeof(FLASH_DATA_MODULE));
           uint16_t s = file.read(buff + sizeof(FLASH_DATA_MODULE), SPI_FLASH_SEC_SIZE - sizeof(FLASH_DATA_MODULE));
           size -= s;
+#ifdef ESP8266
           ESP.flashEraseSector(addr / SPI_FLASH_SEC_SIZE);
           ESP.flashWrite(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
           addr += SPI_FLASH_SEC_SIZE;
@@ -1537,6 +1550,7 @@ int32_t flash_bindir(uint8_t sel, char *path) {
             ESP.flashWrite(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
             size -= s;
           }
+#endif
           free(buff);
           file.close();
           return 0;
@@ -1556,7 +1570,9 @@ int32_t flash_bindir(uint8_t sel, char *path) {
           uint32_t addr = bindir.address;
           uint32_t psiz;
           while (tsize> 0) {
+#ifdef ESP8266
             ESP.flashRead(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
+#endif
             fm = (FLASH_DATA_MODULE*)buff;
             if (fm->sync == MODULE_SYNC) {
               if (!strcmp(fm->name, path)) {
