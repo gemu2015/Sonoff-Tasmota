@@ -76,12 +76,17 @@ const char kModuleCommands[] PROGMEM = "|"// no Prefix
   "unlink" "|"
   "iniz" "|"
   "deiniz" "|"
-  "dump" "|"
-  "list"
+  "dump"
+#ifdef USE_FLASH_BDIR 
+  "|" "list"
+#endif
   ;
 
 void (* const ModuleCommand[])(void) PROGMEM = {
-  &Module_mdir,  &Module_link, &Module_unlink, &Module_iniz, &Module_deiniz, &Module_dump, &BinDir_list
+  &Module_mdir,  &Module_link, &Module_unlink, &Module_iniz, &Module_deiniz, &Module_dump
+#ifdef USE_FLASH_BDIR 
+   ,&BinDir_list
+#endif
 };
 
 void Serial_print(const char *txt) {
@@ -694,24 +699,6 @@ uint8_t *Load_Module(char *path, uint32_t *rsize) {
 #endif  
 }
 
-
-/*
-ESP.getFlashChipRealSize()
-ESP.getFlashChipSize()
-ESP_getSketchSize()
-ESP.getFreeSketchSpace()
-Espplugins.flashbaseAddress(void)
-Espplugins.flashbaseEndAddress(void)
-*/
-
-// patch calls and store to flash
-// first version assumes module to be smaller then 2*SPI_FLASH_SEC_SIZE
-// we only use full sectors and align to sector size
-
-
-
-
-
 uint32_t Module_CheckFree(uint32_t size, uint8_t *fdesc) {
 uint8_t flag = 0;
 
@@ -1005,7 +992,7 @@ void Update_Module_Data(uint32_t module, uint32_t *data) {
     uint32_t *buff = (uint32_t *)calloc(SPI_FLASH_SEC_SIZE / 4 , 4);
     if (buff) {
 #ifdef ESP8266
-      ESP.flashRead((uint32_t)modules[module].mod_addr-plugins.flashbase, buff, SPI_FLASH_SEC_SIZE);
+      ESP.flashRead((uint32_t)modules[module].mod_addr - plugins.flashbase, buff, SPI_FLASH_SEC_SIZE);
       FLASH_MODULE *fm = (FLASH_MODULE*)buff;
       //AddLog(LOG_LEVEL_INFO,PSTR("read flash: %08x"),fm->sync);
       if (fm->sync == MODULE_SYNC) {
@@ -1016,7 +1003,19 @@ void Update_Module_Data(uint32_t module, uint32_t *data) {
         // rewrite modified module
         //AddLog(LOG_LEVEL_INFO,PSTR("write flash"));
         ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - plugins.flashbase) / SPI_FLASH_SEC_SIZE);
-        ESP.flashWrite((uint32_t)modules[module].mod_addr - plugins.flashbase, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
+        ESP.flashWrite((uint32_t)modules[module].mod_addr - plugins.flashbase, (uint32_t*)(uint32_t*)buff, SPI_FLASH_SEC_SIZE);
+      }
+#endif
+#ifdef ESP32
+      esp_err_t err = esp_partition_read(plugins.flash_pptr, (uint32_t)modules[module].mod_addr - plugins.free_flash_start, (void*)buff, SPI_FLASH_SEC_SIZE);
+      FLASH_MODULE *fm = (FLASH_MODULE*)buff;
+      //AddLog(LOG_LEVEL_INFO,PSTR("read flash: %08x"),fm->sync);
+      if (fm->sync == MODULE_SYNC) {
+        //AddLog(LOG_LEVEL_INFO,PSTR("modify data"));
+        for (uint16_t cnt = 0; cnt < MAX_MOD_STORES; cnt++ ) {
+          fm->ms[cnt].value = *data++;
+        }
+        err = esp_partition_write(plugins.flash_pptr, (uint32_t)modules[module].mod_addr - plugins.free_flash_start, (void*)buff, SPI_FLASH_SEC_SIZE);
       }
 #endif
       free(buff);
@@ -1081,6 +1080,18 @@ int32_t Init_module(uint32_t module) {
           ESP.flashWrite((uint32_t)modules[module].mod_addr - plugins.flashbase, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
         }
 #endif
+
+#ifdef ESP32
+        esp_err_t err = esp_partition_read(plugins.flash_pptr, (uint32_t)modules[module].mod_addr - plugins.free_flash_start, (void*)buff, SPI_FLASH_SEC_SIZE);
+         FLASH_MODULE *fm = (FLASH_MODULE*)buff;
+        if (fm->sync == MODULE_SYNC) {
+          uint32_t *lp = (uint32_t*)&fm->mtv;
+          *lp = (uint32_t)&modules[module];
+          lp = (uint32_t*)&fm->jtab;
+          *lp = (uint32_t)&MODULE_JUMPTABLE;
+          err = esp_partition_write(plugins.flash_pptr, (uint32_t)modules[module].mod_addr - plugins.free_flash_start, (void*)buff, SPI_FLASH_SEC_SIZE);
+        }
+#endif
         free(buff);
       }
     }
@@ -1138,14 +1149,6 @@ void Module_dump(void) {
       }
     }
   }
-  ResponseCmndDone();
-}
-
-void BinDir_list(void) {
-#ifdef USE_FLASH_BDIR
-  flash_bindir(0, (char*)"");
-  flash_bindir(1, (char*)"");
-#endif
   ResponseCmndDone();
 }
 
@@ -1420,12 +1423,22 @@ void Module_HandleUploadLoop(void) {
   }
 }
   
-
+/* =========================================================== */
+// BINDIR section
+/* =========================================================== */
 #ifdef USE_FLASH_BDIR
 struct BINDIR {
 uint32_t address;
 uint32_t size;
 } bindir;
+
+void BinDir_list(void) {
+#ifdef USE_FLASH_BDIR
+  flash_bindir(0, (char*)"");
+  flash_bindir(1, (char*)"");
+#endif
+  ResponseCmndDone();
+}
 
 #define MODULE_SYNC 0x55aaFC4A
 // 32 bytes header
@@ -1612,6 +1625,9 @@ int32_t flash_bindir(uint8_t sel, char *path) {
   return 0;
 }
 #endif // USE_FLASH_BDIR
+/* =========================================================== */
+// end BINDIR section
+/* =========================================================== */
 
 
 /*********************************************************************************************\
