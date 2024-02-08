@@ -110,6 +110,8 @@ size_t tmod_write1TS(TasmotaSerial *ts, uint8_t val);
 #ifdef ESP32
 void twi_readFrom(uint8_t address, uint8_t* data, uint8_t length);
 #endif
+bool tmod_I2cSetDevice(uint32_t addr);
+void tmod_I2cSetActiveFound(uint32_t addr, const char *types);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -126,9 +128,9 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&Wire,
 #endif
   JMPTBL&Serial,
-  JMPTBL&I2cSetDevice,
+  JMPTBL&tmod_I2cSetDevice,
   //JMPTBL&I2cSetActiveFound,
-  JMPTBL(void (*)(uint32_t addr, const char *types, uint8_t bus))&I2cSetActiveFound,
+  JMPTBL&tmod_I2cSetActiveFound,
 
   //void I2cSetActiveFound(uint32_t addr, const char *types, uint32_t bus = 0);
   //void I2cSetActiveFound(uint32_t addr, const char *types, uint32_t bus)
@@ -283,6 +285,14 @@ void tmod_endTransmission(TwoWire *wp, bool flag) {
 }
 void tmod_requestFrom(TwoWire *wp, uint8_t addr, uint8_t num) {
   wp->requestFrom(addr, num);
+}
+
+bool tmod_I2cSetDevice(uint32_t addr) {
+  return I2cSetDevice(addr);
+}
+
+void tmod_I2cSetActiveFound(uint32_t addr, const char *types) {
+  I2cSetActiveFound(addr, types);
 }
 
 int tmod_read(TwoWire *wp) {
@@ -657,7 +667,6 @@ void ModuleWebSensor() {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
         //fm->mod_func_execute(&modules[cnt], MODFUNC_WEB_SENSOR);
         fm->mod_func_execute(MODFUNC_WEB_SENSOR);
-
       }
     }
   }
@@ -1099,7 +1108,7 @@ int32_t Init_module(uint32_t module) {
     modules[module].flags.every_second = 1;
     modules[module].flags.web_sensor = 1;
     modules[module].flags.json_append = 1;
-    AddLog(LOG_LEVEL_INFO,PSTR("module %d inizialized"),module + 1);
+    AddLog(LOG_LEVEL_INFO,PSTR("module %d inizialized: %d"),module + 1, result);
     return 1;
   }
   return 0;
