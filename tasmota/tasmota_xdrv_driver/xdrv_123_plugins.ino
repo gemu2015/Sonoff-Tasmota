@@ -526,11 +526,12 @@ void Setplugins(void) {
 
     const void *out_ptr;
     esp_err_t err =esp_partition_mmap(plugins.flash_pptr, 0, plugins.flash_pptr->size, SPI_FLASH_MMAP_DATA, &out_ptr, &plugins.map_handle);
+    //esp_err_t err =esp_partition_mmap(plugins.flash_pptr, 0, plugins.flash_pptr->size, SPI_FLASH_MMAP_INST, &out_ptr, &plugins.map_handle);
 
     plugins.free_flash_start = (uint32_t)out_ptr;
     plugins.free_flash_end = plugins.free_flash_start + plugins.flash_pptr->size;
     plugins.flashbase = 0;
-    //AddLog(LOG_LEVEL_INFO,PSTR("start: %08x, end: %08x"),plugins.free_flash_start, plugins.free_flash_end);
+    AddLog(LOG_LEVEL_INFO,PSTR("Plugins-> start: %08x, end: %08x"),plugins.free_flash_start, plugins.free_flash_end);
     plugins.ready = true;
   } else {
     plugins.ready = false;
@@ -1282,9 +1283,23 @@ void Module_upload() {
 
   WSContentSend_P(HTTP_MODULES_CSS);
 
+#ifdef ESP32
+  void *vp = malloc(sizeof(FLASH_MODULE) + 4);
+  if (!vp) {
+    return;
+  }
+#endif
+
   for (uint16_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
     if (modules[cnt].mod_addr) {
+#ifdef ESP32    
+      const FLASH_MODULE *fm = (const FLASH_MODULE*)vp;
+      esp_err_t err = esp_partition_read(plugins.flash_pptr, (uint32_t)modules[cnt].mod_addr - plugins.free_flash_start, vp, sizeof(FLASH_MODULE));
+#endif
+
+#ifdef ESP8266 
       const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
+#endif
       const uint32_t volatile mtype = fm->type;
       const uint32_t volatile rev = fm->revision;
       char name[16];
@@ -1339,7 +1354,6 @@ void Module_upload() {
         }
       }
       WSContentSend_P(PSTR("</td>"));
-    
       const char *cp;
       uint8_t uval;
       if (modules[cnt].flags.initialized) {
@@ -1352,9 +1366,12 @@ void Module_upload() {
       char enblid[8];
       sprintf_P(enblid,PSTR("enb%d"),cnt);
       WSContentSend_P(HTTP_MODULES_COMMONc, cp, uval, enblid, cnt + 1);
-  
+
     }
   }
+#ifdef ESP32
+  free(vp);      
+#endif
 
   WSContentSend_P(HTTP_MODULES_TEND);
 
