@@ -23,13 +23,30 @@ replace the linker file local.eagle.app.v6.common.ld by the one provided in plug
   the module section must be inserted as shown below after *(.ver_number)
     _irom0_text_start = ABSOLUTE(.);
     *(.ver_number)
-	/* start modules */
+	/* start plugins */
 	*(.text.mod_desc)
 	*(.text.mod_string)
 	*(.text.mod_*)
 	*(.text.mod_part)
 	*(.text.mod_end)
-	/* end modules */
+	/* end plugins */
+
+esp32 linker file = sections.ld
+
+    /** CPU will try to prefetch up to 16 bytes of
+      * of instructions. This means that any configuration (e.g. MMU, PMS) must allow
+      * safe access to up to 16 bytes after the last real instruction, add
+      * dummy bytes to ensure this
+      */
+    . += _esp_flash_mmap_prefetch_pad_size;
+
+	/* start plugins */
+	*(.plugin.mod_desc)
+	*(.plugin.mod_string)
+	*(.plugin.mod_part.literal)
+	*(.plugin.mod_part)
+	*(.plugin.mod_end)
+	/* end plugins */
 
 move grepmodule-firmware.py to folder Tools
 and place this into your platform_override.ini:

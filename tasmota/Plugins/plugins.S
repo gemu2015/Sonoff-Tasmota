@@ -1,6 +1,7 @@
 
 #if defined(ESP8266) || defined(ESP32)
     
+    /*
     .section .text.mod_part
     .align 4
     .global j_mulsf3
@@ -18,14 +19,19 @@
     l32i.n	a4, sp, 4
     addi	sp, sp, 8
     ret.n
-
+*/
+#ifdef ESP8266
     .section .text.mod_part
+#else
+    .section .plugin.mod_part
+#endif
     .align 4
     .global gettbl
     .type   gettbl,@function
     gettbl:
     l32r	a2, module_header+48
     ret.n
+    
 #endif
 
 

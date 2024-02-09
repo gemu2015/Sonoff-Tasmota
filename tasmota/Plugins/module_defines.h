@@ -139,10 +139,17 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 
 // essential defines -----------------------------------------------------------------------
 // linker sections
+#ifdef ESP8266
 #define SECTION_DESC ".text.mod_desc"
 #define SECTION_STRING ".text.mod_string"
 #define SECTION_PART ".text.mod_part"
 #define SECTION_END ".text.mod_end"
+#else
+#define SECTION_DESC ".plugin.mod_desc"
+#define SECTION_STRING ".plugin.mod_string"
+#define SECTION_PART ".plugin.mod_part"
+#define SECTION_END ".plugin.mod_end"
+#endif
 //KEEP (*(SORT(.text.mod.*)))
 
 
@@ -155,7 +162,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 
 //#define MODULE_DESC __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE
 #define MODULE_PART __attribute__((section(SECTION_PART)))
-#define MODULE_END __attribute__((section(SECTION_END))) static void  END_OF_MODULE(void) {__asm__ __volatile__(".word 0x4AFCAA55");}
+#define MODULE_END __attribute__((section(SECTION_END),aligned(4))) static void  END_OF_MODULE(void) {__asm__ __volatile__(".align 4\n.word 0x4AFCAA55");}
 
 
 //redefine_extname oldname newname
@@ -178,7 +185,12 @@ __asm__  (\
 
 //#define PROGMEM  __attribute__((section(".irom.text")))
 #undef PROGMEM
+#ifdef ESP8266
 #define PROGMEM  __attribute__((section(".text.mod_string"),aligned(4)))
+#else
+#define PROGMEM  __attribute__((section(".plugin.mod_string"),aligned(4)))
+#endif
+
 
 //#define PSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[0];}))
 #undef PSTR
@@ -199,6 +211,19 @@ __asm__  (\
 #define GFB(A)  pgm_read_byte(&A[mt->execution_offset])
 
 extern "C" { MODULES_TABLE *gettbl(void); };
+
+//#ifdef ESP32
+#if 0
+extern const FLASH_MODULE module_header;
+MODULE_PART MODULES_TABLE *gettbl();
+MODULES_TABLE *gettbl() {
+  //__asm volatile("l32r	a2, module_header+48");
+  //__asm volatile("ret.n");
+  //const FLASH_MODULE *mh = &module_header;
+  //return (MODULES_TABLE*)mh->mtv;
+  return 0;
+}
+#endif
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
