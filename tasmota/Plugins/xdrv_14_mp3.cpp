@@ -188,7 +188,10 @@ uint16_t MP3_Checksum(uint8_t *array) {
 \*********************************************************************************************/
 
 int32_t MP3PlayerInit() {
+
+  Serial.printf(">>>> 1");
   ALLOCMEM
+  Serial.printf(">>>> 2");
 
   // should be in settings
   //player_type = DY_SV17F;

@@ -38,7 +38,7 @@ if env["PIOPLATFORM"] == "espressif32" :
                         xname = fp.read(16)
                         fname = xname.decode('ascii') 
                         name = fname.replace('\x00','')
-                        mod_file = dir_path + "/" + name + ".bin"
+                        mod_file = dir_path + "/" + name + "_32.bin"
                         if os.path.isfile(mod_file):
                             os.remove(mod_file)
                         fwp = open(mod_file, "wb")
