@@ -528,8 +528,8 @@ void Setplugins(void) {
     // esp_err_t err =esp_partition_mmap(plugins.flash_pptr, 0, plugins.flash_pptr->size, ESP_PARTITION_MMAP_DATA, &out_ptr, &map_handle);
 
     const void *out_ptr;
-    esp_err_t err =esp_partition_mmap(plugins.flash_pptr, 0, plugins.flash_pptr->size, SPI_FLASH_MMAP_DATA, &out_ptr, &plugins.map_handle);
-    //esp_err_t err =esp_partition_mmap(plugins.flash_pptr, 0, plugins.flash_pptr->size, SPI_FLASH_MMAP_INST, &out_ptr, &plugins.map_handle);
+    //esp_err_t err = esp_partition_mmap(plugins.flash_pptr, 0, plugins.flash_pptr->size, SPI_FLASH_MMAP_DATA, &out_ptr, &plugins.map_handle);
+    esp_err_t err = esp_partition_mmap(plugins.flash_pptr, 0, plugins.flash_pptr->size, SPI_FLASH_MMAP_INST, &out_ptr, &plugins.map_handle);
 
     plugins.free_flash_start = (uint32_t)out_ptr;
     plugins.free_flash_end = plugins.free_flash_start + plugins.flash_pptr->size;
@@ -758,6 +758,8 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
   if (!eeprom_block) {
     return 0;
   }
+
+#ifdef ESP8266
   uint32_t aoffset = plugins.flashbase;
   uint32_t *lwp=(uint32_t*)fdesc;
   const FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
@@ -776,7 +778,26 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
   *lp = (uint32_t)&modules[index];
   lp = (uint32_t*)&fm->jtab;
   *lp = (uint32_t)&MODULE_JUMPTABLE;
+#endif
 
+#ifdef ESP32
+  FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
+  uint32_t old_mptr = (uint32_t)fm->end_of_module - size - 4;
+  uint32_t offset = eeprom_block - old_mptr;
+  fm->execution_offset = offset;
+  uint32_t *lp =  (uint32_t*)&fm->mod_func_execute;
+  *lp = ((uint32_t)fm->mod_func_execute + offset);
+  *lp =  (uint32_t*)&fm->end_of_module;
+  *lp = ((uint32_t)fm->end_of_module + offset); 
+  fm->mtv = (uint32_t)&modules[index];
+
+
+  fm->jtab = (uint32_t)&MODULE_JUMPTABLE;
+  AddLog(LOG_LEVEL_INFO, PSTR("Module offset: %08x:"),old_mptr);
+  uint32_t *lwp=(uint32_t*)fdesc;
+  uint32_t new_pc = (uint32_t)eeprom_block + offset;
+  *ioffset = offset;
+#endif
 
 #ifdef ESP8266
 //  AddLog(LOG_LEVEL_INFO, PSTR("Module offset %x: %x: %x: %x: %x: %x"),old_pc, new_pc, offset, corr_pc, (uint32_t)fm->mod_func_execute, (uint32_t)&module_header);
@@ -858,7 +879,7 @@ void Module_mdir(void) {
       if (index > 0) {
         ResponseAppend_P(PSTR(","));
       }
-      ResponseAppend_P(PSTR("\"MOD #%d\":{\"name\":\"%s\",\"addr\":\"%08x\",\"size\":%d,\"type\":\"%s\",\"rev\":%d.%d,\"mem\":%d,\"init\":%d}"),cnt + 1, name, modules[cnt].mod_addr,
+      ResponseAppend_P(PSTR("\"MOD #%d\":{\"name\":\"%s\",\"addr\":\"%08x\",\"ex-offs\":\"%08x\", \"size\":%d,\"type\":\"%s\",\"rev\":%d.%d,\"mem\":%d,\"init\":%d}"),cnt + 1, name, modules[cnt].mod_addr, modules[cnt].execution_offset,
        modules[cnt].mod_size, type, (rev>>16),(rev&0xff), modules[cnt].mem_size, modules[cnt].flags.initialized);
        index++;
     }
