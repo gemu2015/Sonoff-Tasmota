@@ -787,7 +787,7 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
   fm->execution_offset = offset;
   uint32_t *lp =  (uint32_t*)&fm->mod_func_execute;
   *lp = ((uint32_t)fm->mod_func_execute + offset);
-  *lp =  (uint32_t*)&fm->end_of_module;
+  lp =  (uint32_t*)&fm->end_of_module;
   *lp = ((uint32_t)fm->end_of_module + offset); 
   fm->mtv = (uint32_t)&modules[index];
 
