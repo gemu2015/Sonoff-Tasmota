@@ -2,9 +2,10 @@ Import("env")
 
 import os
 import shutil
+import pathlib
 import tasmotapiolib
 import binascii
-
+from os.path import join
 
 #MODULE_SYNC = 0x55aaFC4A
 

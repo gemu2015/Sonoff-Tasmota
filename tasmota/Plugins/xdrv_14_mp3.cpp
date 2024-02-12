@@ -189,9 +189,11 @@ uint16_t MP3_Checksum(uint8_t *array) {
 
 int32_t MP3PlayerInit() {
 
-  Serial.printf(">>>> 1");
+  return 99;
+
+  //Serial.printf(">>>> 1");
   ALLOCMEM
-  Serial.printf(">>>> 2");
+  //Serial.printf(">>>> 2");
 
   // should be in settings
   //player_type = DY_SV17F;
@@ -404,7 +406,6 @@ void MP3Player_Deinit() {
 \*********************************************************************************************/
 
 static int32_t mod_func_execute(uint32_t sel) {
-  Serial.printf(">>>> 0");
   bool result = false;
   switch (sel) {
     case FUNC_INIT:
