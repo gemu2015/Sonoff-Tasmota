@@ -409,6 +409,7 @@ static int32_t mod_func_execute(uint32_t sel) {
   bool result = false;
   switch (sel) {
     case FUNC_INIT:
+    return 99;
       result = MP3PlayerInit();
       break;
     case FUNC_COMMAND:

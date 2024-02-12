@@ -482,10 +482,12 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *offset, uint8_t f
 #ifdef ESP8266
 #undef FLASH_BASE_OFFSET
 #define FLASH_BASE_OFFSET 0x40200000
+#undef MODUL_END_OFFSET
 #define MODUL_END_OFFSET 4
 #else
 #undef FLASH_BASE_OFFSET
 #define FLASH_BASE_OFFSET 0x3F400000
+#undef MODUL_END_OFFSET
 #define MODUL_END_OFFSET 8
 #endif
 
