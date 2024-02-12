@@ -212,6 +212,18 @@ __asm__  (\
 
 extern "C" { MODULES_TABLE *gettbl(void); };
 
+
+//extern "C" {  const uint32_t xmodule_end;}
+/*
+__asm__  (\
+  ".section .text.mod_end\n"\
+  ".align 4\n"\
+  ".global xmodule_end\n"\
+  "xmodule_end:"\
+  ".word 0x4AFCAA55"
+);
+*/
+
 //#ifdef ESP32
 #if 0
 extern const FLASH_MODULE module_header;
