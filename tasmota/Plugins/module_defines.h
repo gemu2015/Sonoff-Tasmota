@@ -224,16 +224,12 @@ __asm__  (\
 );
 */
 
-//#ifdef ESP32
-#if 0
+#ifdef ESP32
 extern const FLASH_MODULE module_header;
 MODULE_PART MODULES_TABLE *gettbl();
 MODULES_TABLE *gettbl() {
-  //__asm volatile("l32r	a2, module_header+48");
-  //__asm volatile("ret.n");
-  //const FLASH_MODULE *mh = &module_header;
-  //return (MODULES_TABLE*)mh->mtv;
-  return 0;
+  const FLASH_MODULE *mh = &module_header;
+  return (MODULES_TABLE*)mh->mtv;
 }
 #endif
 

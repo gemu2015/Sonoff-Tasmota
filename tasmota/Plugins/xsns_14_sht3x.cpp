@@ -208,7 +208,7 @@ void SHT3X_Deinit() {
 \*********************************************************************************************/
 
 int32_t mod_func_execute(uint32_t sel) {
-  bool result = false;
+  int32_t result = false;
   switch (sel) {
     case FUNC_INIT:
       result = Sht3x_Detect();

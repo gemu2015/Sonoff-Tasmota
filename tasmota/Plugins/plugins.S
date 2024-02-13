@@ -1,6 +1,6 @@
 
-#if defined(ESP8266) || defined(ESP32)
-    
+#ifdef ESP8266
+
     /*
     .section .text.mod_part
     .align 4

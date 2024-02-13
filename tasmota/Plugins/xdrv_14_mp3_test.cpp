@@ -434,7 +434,7 @@ void MOD_FUNC(MP3Player_Deinit) {
 \*********************************************************************************************/
 
 int32_t MOD_FUNC(mod_func_execute, uint32_t sel) {
-  bool result = false;
+  int32_t result = false;
   switch (sel) {
     case FUNC_INIT:
       result = CALL_MOD_FUNC(MP3PlayerInit);
