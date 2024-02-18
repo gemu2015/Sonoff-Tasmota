@@ -112,6 +112,8 @@ void twi_readFrom(uint8_t address, uint8_t* data, uint8_t length);
 #endif
 bool tmod_I2cSetDevice(uint32_t addr);
 void tmod_I2cSetActiveFound(uint32_t addr, const char *types);
+int tmod_strncasecmp_P(const char* s1, const char *s2, size_t len);
+char *copyStr(const char * str);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -191,7 +193,7 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&XdrvMailbox,
   JMPTBL&GetCommandCode,
   JMPTBL&strlen,
-  JMPTBL&strncasecmp_P,
+  JMPTBL&tmod_strncasecmp_P,
   JMPTBL&toupper,
   JMPTBL&iscale,
   JMPTBL&tmod_deleteTS,
@@ -230,7 +232,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&WSContentSend_THD,
   JMPTBL&strncpy_P,
   JMPTBL&isprint,
-  JMPTBL&tmod_isinf
+  JMPTBL&tmod_isinf,
+  JMPTBL&copyStr
 };
 
 
@@ -269,6 +272,19 @@ bool MT_DecodeCommand(const char* haystack, void (* const MyCommand[])(void)) {
   return false;
 }
 */
+
+
+int tmod_strncasecmp_P(const char *s1, const char *s2, size_t len) {
+#ifdef ESP32
+  char *sx = copyStr(s2);
+  int res = strncasecmp_P(s1, sx, len);
+  free(sx);
+  return res;
+#endif
+#ifdef ESP8266
+  return strncasecmp_P(s1, s2, len);
+#endif
+}
 
 void AddlogT(char* txt) {
    AddLog(LOG_LEVEL_INFO ,PSTR("%s"), txt);

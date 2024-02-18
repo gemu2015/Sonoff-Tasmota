@@ -188,24 +188,7 @@ uint16_t MP3_Checksum(uint8_t *array) {
 \*********************************************************************************************/
 
 int32_t MP3PlayerInit() {
-
-  //Serial.printf(">>>> 1");
   ALLOCMEM
-
-/*
-  MODULES_TABLE *mt = gettbl();
-
-  void (* const *jt)() = mt->jt;
-  mt->mem_size = sizeof(MODULE_MEMORY);
-  mt->mem_size += mt->mem_size % 4;
-  mt->mod_memory = jcalloc(mt->mem_size / 4, 4);
-  if (!mt->mod_memory) {return -1;};
-  MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;
-  SETTINGS *jsettings = mt->settings;;
-  FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
-*/
-
-  //Serial.printf(">>>> 2");
 
   // should be in settings
   //player_type = DY_SV17F;

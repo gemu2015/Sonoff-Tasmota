@@ -124,7 +124,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jstrncpy(A,B,C)                 (( char *(*)(char *, const char *, size_t) )   jt[97])(A,B,C)   
 #define jisprint(A)                     (( int (*)(int) )                              jt[98])(A)
 #define jisinf(A)                       (( bool (*)(float) )                           jt[99])(A)
-
+#define jcopyStr(A)                     (( char *(*)(const char *) )                   jt[100])(A)
 
 
 // Arduino macros
@@ -136,10 +136,13 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #endif
 #define fldsiz(name, field) (sizeof(((name *)0)->field))
 
+#ifdef ESP8266
+#define PLUGIN_CODE_TEXT
+#endif
 
 // essential defines -----------------------------------------------------------------------
 // linker sections
-#ifdef ESP8266
+#ifdef PLUGIN_CODE_TEXT
 #define SECTION_DESC ".text.mod_desc"
 #define SECTION_STRING ".text.mod_string"
 #define SECTION_PART ".text.mod_part"
@@ -161,7 +164,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define END_OF_MODULE end_of_module
 
 //#define MODULE_DESC __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE
-#define MODULE_PART __attribute__((section(SECTION_PART)))
+#define MODULE_PART __attribute__((section(SECTION_PART),aligned(4)))
 #define MODULE_END __attribute__((section(SECTION_END),aligned(4))) static void  END_OF_MODULE(void) {__asm__ __volatile__(".align 4\n.word 0x4AFCAA55");}
 
 
@@ -183,9 +186,11 @@ __asm__  (\
 };
 */
 
+
+
 //#define PROGMEM  __attribute__((section(".irom.text")))
 #undef PROGMEM
-#ifdef ESP8266
+#ifdef PLUGIN_CODE_TEXT
 #define PROGMEM  __attribute__((section(".text.mod_string"),aligned(4)))
 #else
 #define PROGMEM  __attribute__((section(".plugin.mod_string"),aligned(4)))
@@ -224,13 +229,34 @@ __asm__  (\
 );
 */
 
-#ifdef ESP32
+//#ifdef ESP32
+#if 0
 extern const FLASH_MODULE module_header;
 MODULE_PART MODULES_TABLE *gettbl();
+
 MODULES_TABLE *gettbl() {
-  const FLASH_MODULE *mh = &module_header;
-  return (MODULES_TABLE*)mh->mtv;
+  //const FLASH_MODULE *mh = &module_header;
+  //return (MODULES_TABLE*)mh->mtv;
+  //return (MODULES_TABLE*)*((uint32_t*)&module_header+12);
+  //{__asm__ __volatile__("l32r	a2, module_header + 48"); };
+  {__asm__ __volatile__(".align 4");}
+  {__asm__ __volatile__("entry a1,32");}
+  {__asm__ __volatile__("l32r	a2, module_header+48");}
+  {__asm__ __volatile__("retw.n");}
+
 }
+
+/*
+{__asm__ __volatile__(".align 4");}
+{__asm__ __volatile__(".global gettbl");}
+{__asm__ __volatile__(".type   gettbl,@function");}
+{__asm__ __volatile__(".section .plugin.mod_part");}
+{__asm__ __volatile__(".align 4");}
+{__asm__ __volatile__("gettbl:");}
+{__asm__ __volatile__("entry a1,32");}
+{__asm__ __volatile__("l32r	a2, module_header+48");}
+{__asm__ __volatile__("retw.n");}
+*/
 #endif
 
 extern "C" {
@@ -444,6 +470,7 @@ typedef struct {
 #define   FastPrecisePowf  jFastPrecisePowf
 #define   isnan jisnan
 #define   isinf jisinf
+#define   copyStr jcopyStr
 #define   tmod__mulsf3  jfmul
 #define   tmod__divsf3  jfdiv
 #define   tmod__addsf3  jfadd

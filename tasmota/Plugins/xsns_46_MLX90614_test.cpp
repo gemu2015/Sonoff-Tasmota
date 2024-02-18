@@ -17,7 +17,7 @@
 
 #include "tasmota_options.h" 
 
-#ifdef USE_MLX90614_MOD
+#ifdef USE_MLX90614_TEST_MOD
 
 #include "module.h"
 #include "module_defines.h"
@@ -69,7 +69,21 @@ const char mlxdev[] PROGMEM = "MLX90614";
 
 
 int32_t Init_MLX90614() {
-  ALLOCMEM 
+  ALLOCMEM
+/*
+  MODULES_TABLE *mt = gettbl();
+  void (* const *jt)() = mt->jt;
+  
+  mt->mem_size = sizeof(MODULE_MEMORY);
+  mt->mem_size += mt->mem_size % 4;
+  mt->mod_memory = jcalloc(mt->mem_size / 4, 4);
+  if (!mt->mod_memory) {return -1;};
+  MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;
+  SETTINGS *jsettings = mt->settings;
+  FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
+*/
+
+  AddLog(LOG_LEVEL_INFO,PSTR("mlx init"));
 
   // now init variables here
   ready = false;
@@ -120,11 +134,15 @@ void MLX90614_Show(uint32_t json) {
   ftostrfd(obj_temp, jsettings->flag2.temperature_resolution, obj_tstr);
   char amb_tstr[16];
   ftostrfd(amb_temp, jsettings->flag2.temperature_resolution, amb_tstr);
+  char *cp;
   if (json) {
-    ResponseAppend_P(GSTR(JSON_IRTMP), obj_tstr, amb_tstr);
+    cp = copyStr(GSTR(JSON_IRTMP));
+    ResponseAppend_P(cp, obj_tstr, amb_tstr);
   } else {
-    WSContentSend_PD(GSTR(HTTP_IRTMP), obj_tstr, amb_tstr);
+    cp = copyStr(GSTR(HTTP_IRTMP));
+    WSContentSend_PD(cp, obj_tstr, amb_tstr);
   }
+  free(cp);
 }
 
 uint16_t MLX90614_read16(uint8_t addr, uint8_t a) {
