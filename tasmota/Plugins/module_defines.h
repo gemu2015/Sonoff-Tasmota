@@ -269,10 +269,16 @@ extern MODULES_TABLE modules[];
 
 // counter 7 config 2  R/W = 0x3FF5705C
 
+#ifdef ESP32
+#undef GET_MTBL
+#define GET_MTBL MODULES_TABLE *mt = (MODULES_TABLE*)*(uint32_t*)GLOB_MOD_REG;
+#else
+#undef GET_MTBL
+#define GET_MTBL MODULES_TABLE *mt = gettbl()
+#endif
 
-
-#define SETREGS MODULES_TABLE *mt = gettbl(); MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
-#define ALLOCMEM MODULES_TABLE *mt = gettbl(); void (* const *jt)() = mt->jt;mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
+#define SETREGS GET_MTBL; MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
+#define ALLOCMEM GET_MTBL; void (* const *jt)() = mt->jt;mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
 #define RETMEM if (mt->mem_size) {jfree(mt->mod_memory);mt->mem_size = 0;}
 #define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE MODULE_HEADER = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,END_OF_MODULE,0,0,(uint32_t)&modules,(uint32_t)&MODULE_JUMPTABLE,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
 #define MOD_FUNC(A, ...) A(MODULES_TABLE *mt, ##__VA_ARGS__)
@@ -280,6 +286,8 @@ extern MODULES_TABLE modules[];
 
 #define CALL_MOD_FUNC(A, ...) A(mt, ##__VA_ARGS__)
 
+
+#define MOD_RESULT bool
 
 #define STRBUFFER
 

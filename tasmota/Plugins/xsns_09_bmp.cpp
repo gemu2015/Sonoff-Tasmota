@@ -469,8 +469,8 @@ void BME_Deinit() {
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
-int32_t mod_func_execute(uint32_t sel) {
-  int32_t result = false;
+MOD_RESULT mod_func_execute(uint32_t sel) {
+  MOD_RESULT result = false;
   switch (sel) {
     case FUNC_INIT:
       result = Init_BME();

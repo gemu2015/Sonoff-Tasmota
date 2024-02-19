@@ -186,11 +186,12 @@ uint16_t MP3_Checksum(uint8_t *array) {
 \*********************************************************************************************/
 
 int32_t MP3PlayerInit() {
+ 
+ 
+ //GET_MTBL;
+ // return (uint32_t)mt;
 
-// MODULES_TABLE *mt = gettbl();
-//  return (uint32_t)mt;
-
-
+  #if 1
   ALLOCMEM
 
   // should be in settings
@@ -206,6 +207,7 @@ int32_t MP3PlayerInit() {
   MP3Player_Deinit();
 
   return -1;
+  #endif
 } 
 
 int32_t MP3_Init() {
@@ -405,8 +407,8 @@ void MP3Player_Deinit() {
  * Interface
 \*********************************************************************************************/
 
-static int32_t mod_func_execute(uint32_t sel) {
-  int32_t result = false;
+MOD_RESULT mod_func_execute(uint32_t sel) {
+  MOD_RESULT result = false;
   switch (sel) {
     case FUNC_INIT:
       result = MP3PlayerInit();
