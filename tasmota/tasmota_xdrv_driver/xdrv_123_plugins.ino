@@ -111,7 +111,7 @@ size_t tmod_write1TS(TasmotaSerial *ts, uint8_t val);
 void twi_readFrom(uint8_t address, uint8_t* data, uint8_t length);
 #endif
 bool tmod_I2cSetDevice(uint32_t addr);
-void tmod_I2cSetActiveFound(uint32_t addr, const char *types);
+void tmod_I2cSetActiveFound(uint32_t addr, const char *types, uint32_t bus);
 int tmod_strncasecmp_P(const char* s1, const char *s2, size_t len);
 char *copyStr(const char * str);
 
@@ -307,8 +307,8 @@ bool tmod_I2cSetDevice(uint32_t addr) {
   return I2cSetDevice(addr);
 }
 
-void tmod_I2cSetActiveFound(uint32_t addr, const char *types) {
-  I2cSetActiveFound(addr, types);
+void tmod_I2cSetActiveFound(uint32_t addr, const char *types, uint32_t bus) {
+  I2cSetActiveFound(addr, types, bus);
 }
 
 int tmod_read(TwoWire *wp) {

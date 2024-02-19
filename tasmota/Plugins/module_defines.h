@@ -287,7 +287,7 @@ extern MODULES_TABLE modules[];
 #define CALL_MOD_FUNC(A, ...) A(mt, ##__VA_ARGS__)
 
 
-#define MOD_RESULT bool
+#define MOD_RESULT int32_t
 
 #define STRBUFFER
 

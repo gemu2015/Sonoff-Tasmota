@@ -70,18 +70,6 @@ const char mlxdev[] PROGMEM = "MLX90614";
 
 int32_t Init_MLX90614() {
   ALLOCMEM
-/*
-  MODULES_TABLE *mt = gettbl();
-  void (* const *jt)() = mt->jt;
-  
-  mt->mem_size = sizeof(MODULE_MEMORY);
-  mt->mem_size += mt->mem_size % 4;
-  mt->mod_memory = jcalloc(mt->mem_size / 4, 4);
-  if (!mt->mod_memory) {return -1;};
-  MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;
-  SETTINGS *jsettings = mt->settings;
-  FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
-*/
 
   AddLog(LOG_LEVEL_INFO,PSTR("mlx init"));
 
@@ -93,8 +81,12 @@ int32_t Init_MLX90614() {
     return -1;
   }
   char *cp = copyStr(GSTR(mlxdev));
+
+  AddLog(LOG_LEVEL_INFO,PSTR("mlx init 2"));
   I2cSetActiveFound(I2_ADR_IRT, cp, 0);
+  AddLog(LOG_LEVEL_INFO,PSTR("mlx init 3"));
   free(cp);
+  AddLog(LOG_LEVEL_INFO,PSTR("mlx init 4"));
   initialized = true;
   ready = true;
   return ready;
@@ -194,7 +186,7 @@ uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len) {
 
 void MLX90614_Deinit() {
   SETREGS
-  I2cResetActive(I2_ADR_IRT,1);
+  I2cResetActive(I2_ADR_IRT, 1);
   RETMEM
 }
 
