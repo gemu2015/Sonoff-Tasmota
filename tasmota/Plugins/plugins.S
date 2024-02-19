@@ -1,9 +1,9 @@
 
-//#ifdef ESP8266
+#ifdef ESP8266
 //#if !CONFIG_IDF_TARGET_ESP32C3 && !defined(CONFIG_IDF_TARGET_ESP32S3) && !defined(CONFIG_IDF_TARGET_ESP32C2)
 //#if !CONFIG_IDF_TARGET_ESP32C3 && !CONFIG_IDF_TARGET_ESP32C6
 
-#if 0
+//#if 0
     /*
     .section .text.mod_part
     .align 4

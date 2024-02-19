@@ -77,3 +77,5 @@ typedef struct {
 
 
 
+//slow RTC MEM
+#define GLOB_MOD_REG 0x50001ff0

@@ -229,20 +229,23 @@ __asm__  (\
 );
 */
 
-//#ifdef ESP32
-#if 0
+#ifdef ESP32
+//#if 0
 extern const FLASH_MODULE module_header;
 MODULE_PART MODULES_TABLE *gettbl();
 
 MODULES_TABLE *gettbl() {
+
+  return (MODULES_TABLE*)*(uint32_t*)GLOB_MOD_REG;
+
   //const FLASH_MODULE *mh = &module_header;
   //return (MODULES_TABLE*)mh->mtv;
   //return (MODULES_TABLE*)*((uint32_t*)&module_header+12);
   //{__asm__ __volatile__("l32r	a2, module_header + 48"); };
-  {__asm__ __volatile__(".align 4");}
-  {__asm__ __volatile__("entry a1,32");}
-  {__asm__ __volatile__("l32r	a2, module_header+48");}
-  {__asm__ __volatile__("retw.n");}
+  //{__asm__ __volatile__(".align 4");}
+  //{__asm__ __volatile__("entry a1,32");}
+  //{__asm__ __volatile__("l32r	a2, module_header+48");}
+  //{__asm__ __volatile__("retw.n");}
 
 }
 
@@ -263,6 +266,9 @@ extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
 }
 extern MODULES_TABLE modules[];
+
+// counter 7 config 2  R/W = 0x3FF5705C
+
 
 
 #define SETREGS MODULES_TABLE *mt = gettbl(); MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;

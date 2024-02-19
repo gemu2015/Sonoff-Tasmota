@@ -526,6 +526,16 @@ bool ready;
 
 MODULES_TABLE modules[MAX_PLUGINS];
 
+#define MOD_EXEC(A)  fm->mod_func_execute(A)
+
+#ifdef ESP8266
+#undef SET_MOD_REG
+#define SET_MOD_REG(A)
+#else
+#undef SET_MOD_REG
+#define SET_MOD_REG(A) *(uint32_t*)GLOB_MOD_REG=(uint32_t)&modules[A];
+#endif
+
 void Setplugins(void) {
 
 #ifdef ESP8266
@@ -649,8 +659,9 @@ void Module_Execute(uint32_t sel) {
     if (modules[cnt].mod_addr) {
       if (modules[cnt].flags.initialized && modules[cnt].flags.every_second) {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-        //fm->mod_func_execute(&modules[cnt], sel);
-        fm->mod_func_execute(sel);
+        //fm->mod_func_execute(sel);
+        SET_MOD_REG(cnt);
+        MOD_EXEC(sel);
       }
     }
   }
@@ -662,8 +673,9 @@ bool result = false;
     if (modules[cnt].mod_addr) {
       if (modules[cnt].flags.initialized) {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-        //result = fm->mod_func_execute(&modules[cnt], sel);
-        result = fm->mod_func_execute(sel);
+        //result = fm->mod_func_execute(sel);
+        SET_MOD_REG(cnt);
+        result = MOD_EXEC(sel);
         if (result) break;
       }
     }
@@ -676,8 +688,9 @@ void ModuleWebSensor() {
     if (modules[cnt].mod_addr) {
       if (modules[cnt].flags.initialized && modules[cnt].flags.web_sensor) {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-        //fm->mod_func_execute(&modules[cnt], MODFUNC_WEB_SENSOR);
-        fm->mod_func_execute(MODFUNC_WEB_SENSOR);
+        //fm->mod_func_execute(MODFUNC_WEB_SENSOR);
+        SET_MOD_REG(cnt);
+        MOD_EXEC(MODFUNC_WEB_SENSOR);
       }
     }
   }
@@ -688,8 +701,9 @@ void ModuleJsonAppend() {
     if (modules[cnt].mod_addr) {
       if (modules[cnt].flags.initialized && modules[cnt].flags.json_append) {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-        //fm->mod_func_execute(&modules[cnt], MODFUNC_JSON_APPEND);
-        fm->mod_func_execute(MODFUNC_JSON_APPEND);
+        //fm->mod_func_execute(MODFUNC_JSON_APPEND);
+        SET_MOD_REG(cnt);
+        MOD_EXEC(MODFUNC_JSON_APPEND);
       }
     }
   }
@@ -1122,7 +1136,6 @@ int32_t mod_func_execute(uint32_t sel);
 int32_t Init_module(uint32_t module) {
   if (modules[module].mod_addr && !modules[module].flags.initialized) {
     const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
-    //int32_t result = fm->mod_func_execute(&modules[module], MODFUNC_INIT);
     uint32_t mtv = fm->mtv;
     uint32_t jtab = fm->jtab;
 
@@ -1160,8 +1173,10 @@ int32_t Init_module(uint32_t module) {
         free(buff);
       }
     }
-    int32_t result = fm->mod_func_execute(MODFUNC_INIT);
-    //int32_t result = mod_func_execute(MODFUNC_INIT);
+    //int32_t result = fm->mod_func_execute(MODFUNC_INIT);
+    SET_MOD_REG(module);
+    int32_t result = MOD_EXEC(MODFUNC_INIT);
+    
     modules[module].flags.every_second = 1;
     modules[module].flags.web_sensor = 1;
     modules[module].flags.json_append = 1;
@@ -1188,8 +1203,9 @@ void Module_iniz(void) {
 void Deiniz_module(uint32_t module) {
   if (modules[module].mod_addr && modules[module].flags.initialized) {
     const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
-    //int32_t result = fm->mod_func_execute(&modules[module], FUNC_DEINIT);
-    int32_t result = fm->mod_func_execute(FUNC_DEINIT);
+    //int32_t result = fm->mod_func_execute(FUNC_DEINIT);
+    SET_MOD_REG(module);
+    int32_t result = MOD_EXEC(FUNC_DEINIT);
     modules[module].flags.data = 0;
     AddLog(LOG_LEVEL_INFO,PSTR("module %d deinizialized"),module + 1);
   }

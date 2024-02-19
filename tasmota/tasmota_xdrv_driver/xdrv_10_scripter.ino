@@ -3194,19 +3194,6 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           }
           goto nfuncexit;
         }
-        if (!strncmp_XP(lp, XPSTR("dump("), 5)) {
-          // get and return integer
-          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
-          uint32_t ivar = *(uint32_t*)&fvar;
-#ifdef ESP32
-          ivar = *(uint32_t*)ivar;
-#endif
-#ifdef ESP8266
-          ivar = *(uint32_t*)ivar;
-#endif
-          *(uint32_t*)&fvar = ivar; 
-          goto nfuncexit;
-        }
         break;
       case 'e':
         if (!strncmp_XP(vname, XPSTR("epoch"), 5)) {
@@ -4811,6 +4798,14 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto nfuncexit;
         }
 #endif
+        if (!strncmp_XP(lp, XPSTR("rwd("), 4)) {
+          // get and return integer
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
+          uint32_t ivar = *(uint32_t*)&fvar;
+          ivar = *(uint32_t*)ivar;
+          *(uint32_t*)&fvar = ivar; 
+          goto nfuncexit;
+        }
         break;
 
       case 's':
@@ -6148,7 +6143,17 @@ extern char *SML_GetSVal(uint32_t index);
           goto nfuncexit;
         }
 #endif
+        if (!strncmp_XP(lp, XPSTR("wwd("), 4)) {
+          // write integer
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
+          uint32_t ivar = *(uint32_t*)&fvar;
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
+          uint32_t lval = *(uint32_t*)&fvar;
+          *(uint32_t*)ivar = lval;
+          goto nfuncexit;
+        }
         break;
+
       case 'y':
         if (!strncmp_XP(vname, XPSTR("year"), 4)) {
           fvar = RtcTime.year;
