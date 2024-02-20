@@ -49,7 +49,7 @@ keywords if then else endif, or, and are better readable for beginners (others m
 // float = 4, double = 8 bytes
 
 
-const uint8_t SCRIPT_VERS[2] = {5, 2};
+const uint8_t SCRIPT_VERS[2] = {5, 3};
 
 #define SCRIPT_DEBUG 0
 
@@ -9673,6 +9673,19 @@ uint32_t options = 0;
 #ifdef USE_SCRIPT_SERIAL
   options |= 0x01000000;
 #endif
+#ifdef USE_SCRIPT_ONEWIRE
+  options |= 0x02000000;
+#endif
+#ifdef USE_SCRIPT_TCP_SERVER
+  options |= 0x04000000;
+#endif
+#ifdef USE_SML_SCRIPT_CMD
+  options |= 0x08000000;
+#endif
+#ifdef TESLA_POWERWALL
+  options |= 0x10000000;
+#endif
+
 
   Response_P(PSTR("{\"script\":{\"vers\":%d.%d,\"opts\":%08x}}"), SCRIPT_VERS[0], SCRIPT_VERS[1], options);
 }
