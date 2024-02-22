@@ -135,6 +135,7 @@ void M5Epd47::TS_RotConvert(int16_t *x, int16_t *y) {
   *y = height - *y;
 }
 
+#ifdef USE_UNIVERSAL_TOUCH
 void M5Epd47::read(uint16_t addr, uint8_t *buf, uint16_t len) {
     wire->flush();
     wire->beginTransmission(i2caddr);
@@ -201,6 +202,7 @@ int16_t M5Epd47::getPoint_x(void) {
 int16_t M5Epd47::getPoint_y(void) {
   return t_yp;
 }
+#endif // USE_UNIVERSAL_TOUCH
 
 //displaytext [up0:0:960:5:2]
 // needs to be rot converted
