@@ -32,7 +32,7 @@ MODULE_PART int32_t Sr04T_Detect();
 MODULE_PART void Sr04T_Show(bool json);
 MODULE_PART void Sr04T_Read();
 MODULE_PART void Sr04T_Deinit();
-MODULE_PART int32_t mod_func_execute(uint32_t sel);
+MODULE_PART MOD_RESULT mod_func_execute(uint32_t sel);
 
 MODULE_END
 
