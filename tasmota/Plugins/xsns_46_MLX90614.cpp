@@ -36,7 +36,7 @@ MODULE_PART void MLX90614_Deinit();
 MODULE_PART float MLX90614_GetValue(uint32_t reg);
 MODULE_PART void MLX90614_Every_Second();
 MODULE_PART void MLX90614_Show(uint32_t json);
-MODULE_PART int32_t mod_func_execute(uint32_t sel);
+MODULE_PART MOD_RESULT mod_func_execute(uint32_t sel);
 
 MODULE_END
 
@@ -202,7 +202,7 @@ MOD_RESULT mod_func_execute(uint32_t sel) {
       MLX90614_Deinit();
       break;
   }
-  return result;
+  return result; 
 }
 
 #endif // USE_MLX90614
