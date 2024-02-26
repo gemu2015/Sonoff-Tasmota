@@ -166,9 +166,13 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define END_OF_MODULE end_of_module
 
 //#define MODULE_DESC __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE
+#ifdef ESP32
 #define MODULE_PART __attribute__((section(SECTION_PART),aligned(4)))
 #define MODULE_END __attribute__((section(SECTION_END),aligned(4))) static void  END_OF_MODULE(void) {__asm__ __volatile__(".align 4\n.word 0x4AFCAA55");}
-
+#else
+#define MODULE_PART __attribute__((section(SECTION_PART)))
+#define MODULE_END __attribute__((section(SECTION_END))) static void  END_OF_MODULE(void) {__asm__ __volatile__(".word 0x4AFCAA55");}
+#endif
 
 //redefine_extname oldname newname
 //#pragma redefine_extname myroutine __fixed_myroutine
