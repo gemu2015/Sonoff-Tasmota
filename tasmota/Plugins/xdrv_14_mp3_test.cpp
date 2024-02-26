@@ -186,10 +186,11 @@ uint16_t MP3_Checksum(uint8_t *array) {
 \*********************************************************************************************/
 
 int32_t MP3PlayerInit() {
-  ALLOCMEM
+  //ALLOCMEM
 
   return 0;
 
+#if 0
   // should be in settings
   //player_type = DY_SV17F;
   player_type = mp->ms[1].value;
@@ -202,6 +203,7 @@ int32_t MP3PlayerInit() {
 
   MP3Player_Deinit();
 
+#endif
   return -1;
 } 
 

@@ -1243,8 +1243,9 @@ void Module_dump(void) {
   if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAX_PLUGINS)) {
     uint8_t module = XdrvMailbox.payload - 1;
     if (modules[module].mod_addr) {
+      uint16_t size = modules[module].mod_size;
       uint32_t *lp = (uint32_t*) modules[module].mod_addr;
-      for (uint32_t cnt = 0; cnt < 16; cnt ++) {
+      for (uint32_t cnt = 0; cnt < (size / 32) + 1; cnt ++) {
         AddLog(LOG_LEVEL_INFO,PSTR("%08x: %08x %08x %08x %08x %08x %08x %08x %08x"),lp,lp[0],lp[1],lp[2],lp[3],lp[4],lp[5],lp[6],lp[7]);
         lp += 8;
       }
