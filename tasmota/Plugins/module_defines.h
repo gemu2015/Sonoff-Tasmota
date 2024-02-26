@@ -124,7 +124,9 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jstrncpy(A,B,C)                 (( char *(*)(char *, const char *, size_t) )   jt[97])(A,B,C)   
 #define jisprint(A)                     (( int (*)(int) )                              jt[98])(A)
 #define jisinf(A)                       (( bool (*)(float) )                           jt[99])(A)
-
+#define jcopyStr(A)                     (( char *(*)(const char *) )                   jt[100])(A)
+#define jsetClockStretchLimit(BUS,A)    (( void (*)(TwoWire*,uint32_t) )               jt[101])(BUS,A)
+#define jwriten(BUS,BUF,LEN)            (( void (*)(TwoWire*,uint8_t*,uint32_t) )      jt[102])(BUS,BUF,LEN)
 
 
 // Arduino macros
@@ -136,13 +138,23 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #endif
 #define fldsiz(name, field) (sizeof(((name *)0)->field))
 
+#ifdef ESP8266
+#define PLUGIN_CODE_TEXT
+#endif
 
 // essential defines -----------------------------------------------------------------------
 // linker sections
+#ifdef PLUGIN_CODE_TEXT
 #define SECTION_DESC ".text.mod_desc"
 #define SECTION_STRING ".text.mod_string"
 #define SECTION_PART ".text.mod_part"
 #define SECTION_END ".text.mod_end"
+#else
+#define SECTION_DESC ".plugin.mod_desc"
+#define SECTION_STRING ".plugin.mod_string"
+#define SECTION_PART ".plugin.mod_part"
+#define SECTION_END ".plugin.mod_end"
+#endif
 //KEEP (*(SORT(.text.mod.*)))
 
 
@@ -154,9 +166,13 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define END_OF_MODULE end_of_module
 
 //#define MODULE_DESC __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE
+#ifdef ESP32
+#define MODULE_PART __attribute__((section(SECTION_PART),aligned(4)))
+#define MODULE_END __attribute__((section(SECTION_END),aligned(4))) static void  END_OF_MODULE(void) {__asm__ __volatile__(".align 4\n.word 0x4AFCAA55");}
+#else
 #define MODULE_PART __attribute__((section(SECTION_PART)))
 #define MODULE_END __attribute__((section(SECTION_END))) static void  END_OF_MODULE(void) {__asm__ __volatile__(".word 0x4AFCAA55");}
-
+#endif
 
 //redefine_extname oldname newname
 //#pragma redefine_extname myroutine __fixed_myroutine
@@ -176,9 +192,16 @@ __asm__  (\
 };
 */
 
+
+
 //#define PROGMEM  __attribute__((section(".irom.text")))
 #undef PROGMEM
+#ifdef PLUGIN_CODE_TEXT
 #define PROGMEM  __attribute__((section(".text.mod_string"),aligned(4)))
+#else
+#define PROGMEM  __attribute__((section(".plugin.mod_string"),aligned(4)))
+#endif
+
 
 //#define PSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[0];}))
 #undef PSTR
@@ -200,14 +223,68 @@ __asm__  (\
 
 extern "C" { MODULES_TABLE *gettbl(void); };
 
+
+//extern "C" {  const uint32_t xmodule_end;}
+/*
+__asm__  (\
+  ".section .text.mod_end\n"\
+  ".align 4\n"\
+  ".global xmodule_end\n"\
+  "xmodule_end:"\
+  ".word 0x4AFCAA55"
+);
+*/
+
+#ifdef ESP32
+//#if 0
+extern const FLASH_MODULE module_header;
+MODULE_PART MODULES_TABLE *gettbl();
+
+MODULES_TABLE *gettbl() {
+
+  return (MODULES_TABLE*)*(uint32_t*)GLOB_MOD_REG;
+
+  //const FLASH_MODULE *mh = &module_header;
+  //return (MODULES_TABLE*)mh->mtv;
+  //return (MODULES_TABLE*)*((uint32_t*)&module_header+12);
+  //{__asm__ __volatile__("l32r	a2, module_header + 48"); };
+  //{__asm__ __volatile__(".align 4");}
+  //{__asm__ __volatile__("entry a1,32");}
+  //{__asm__ __volatile__("l32r	a2, module_header+48");}
+  //{__asm__ __volatile__("retw.n");}
+
+}
+
+/*
+{__asm__ __volatile__(".align 4");}
+{__asm__ __volatile__(".global gettbl");}
+{__asm__ __volatile__(".type   gettbl,@function");}
+{__asm__ __volatile__(".section .plugin.mod_part");}
+{__asm__ __volatile__(".align 4");}
+{__asm__ __volatile__("gettbl:");}
+{__asm__ __volatile__("entry a1,32");}
+{__asm__ __volatile__("l32r	a2, module_header+48");}
+{__asm__ __volatile__("retw.n");}
+*/
+#endif
+
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
 }
 extern MODULES_TABLE modules[];
 
+// counter 7 config 2  R/W = 0x3FF5705C
 
-#define SETREGS MODULES_TABLE *mt = gettbl(); MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
-#define ALLOCMEM MODULES_TABLE *mt = gettbl(); void (* const *jt)() = mt->jt;mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
+#ifdef ESP32
+#undef GET_MTBL
+#define GET_MTBL MODULES_TABLE *mt = (MODULES_TABLE*)*(uint32_t*)GLOB_MOD_REG;
+#else
+#undef GET_MTBL
+#define GET_MTBL MODULES_TABLE *mt = gettbl()
+#endif
+
+#define SETREGS GET_MTBL; MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
+#define ALLOCMEM GET_MTBL; void (* const *jt)() = mt->jt;mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
 #define RETMEM if (mt->mem_size) {jfree(mt->mod_memory);mt->mem_size = 0;}
 #define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE MODULE_HEADER = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,END_OF_MODULE,0,0,(uint32_t)&modules,(uint32_t)&MODULE_JUMPTABLE,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
 #define MOD_FUNC(A, ...) A(MODULES_TABLE *mt, ##__VA_ARGS__)
@@ -215,6 +292,8 @@ extern MODULES_TABLE modules[];
 
 #define CALL_MOD_FUNC(A, ...) A(mt, ##__VA_ARGS__)
 
+
+#define MOD_RESULT int32_t
 
 #define STRBUFFER
 
@@ -411,6 +490,7 @@ typedef struct {
 #define   FastPrecisePowf  jFastPrecisePowf
 #define   isnan jisnan
 #define   isinf jisinf
+#define   copyStr jcopyStr
 #define   tmod__mulsf3  jfmul
 #define   tmod__divsf3  jfdiv
 #define   tmod__addsf3  jfadd
@@ -437,6 +517,9 @@ typedef struct {
 #define   memcpy_P jmemmove
 #define   strncpy jstrncpy
 #define   isprint jisprint
+#define   setClockStretchLimit(VAL) jsetClockStretchLimit(jWire, VAL)
+#define   writen(BUF,LEN) jwriten(jWire,BUF,LEN)
+#define free jfree
 
 /*
 #define RENAME_LIBRARY(GCC_NAME, AEABI_NAME)		\
@@ -495,5 +578,5 @@ jnewTS(RPIN,TPIN)               (( void* (*)(int32_t,int32_t) )                j
 */
 
 
-#define MOD_RESULT int32_t
+
 
