@@ -32,7 +32,7 @@ MODULE_PART int32_t Sr04T_Detect();
 MODULE_PART void Sr04T_Show(bool json);
 MODULE_PART void Sr04T_Read();
 MODULE_PART void Sr04T_Deinit();
-MODULE_PART MOD_RESULT mod_func_execute(uint32_t sel);
+MODULE_PART int32_t mod_func_execute(uint32_t sel);
 
 MODULE_END
 
@@ -128,8 +128,8 @@ void Sr04T_Deinit() {
  * Interface
 \*********************************************************************************************/
 
-MOD_RESULT mod_func_execute(uint32_t sel) {
-  MOD_RESULT result = false;
+int32_t mod_func_execute(uint32_t sel) {
+  bool result = false;
 
   switch (sel) {
     case FUNC_INIT:

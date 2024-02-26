@@ -198,7 +198,7 @@ void RDM6300_Deinit() {
 \*********************************************************************************************/
 
 int32_t mod_func_execute(uint32_t sel) {
-  int32_t result = false;
+  bool result = false;
 
   switch (sel) {
     case FUNC_INIT:

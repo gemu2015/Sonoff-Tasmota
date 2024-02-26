@@ -904,9 +904,9 @@ void SCD30_Deinit() {
  * Interface
 \*********************************************************************************************/
 
-MOD_RESULT mod_func_execute(uint32_t sel) {
+int32_t mod_func_execute(uint32_t sel) {
   SETREGS
-  MOD_RESULT result = false;
+  bool result = false;
 
   // https://github.com/arendst/Tasmota/issues/15438 and datasheet (The boot-up time is < 2 s.)
 /*

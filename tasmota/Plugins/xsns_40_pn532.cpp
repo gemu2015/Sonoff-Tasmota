@@ -1034,9 +1034,9 @@ void PN532_Deinit() {
  * Interface
 \*********************************************************************************************/
 
-MOD_RESULT mod_func_execute(uint32_t sel) {
+int32_t mod_func_execute(uint32_t sel) {
   SETREGS
-  MOD_RESULT result = false;
+  bool result = false;
 
   switch (sel) {
       case FUNC_INIT:

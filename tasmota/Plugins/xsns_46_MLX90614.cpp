@@ -184,7 +184,7 @@ void MLX90614_Deinit() {
  * Interface
 \*********************************************************************************************/
 MOD_RESULT mod_func_execute(uint32_t sel) {
-  MOD_RESULT result = false;
+  bool result = false;
   switch (sel) {
     case FUNC_INIT:
       result = Init_MLX90614();
