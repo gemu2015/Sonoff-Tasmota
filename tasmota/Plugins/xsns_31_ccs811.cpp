@@ -122,38 +122,17 @@ CCS811 ccs;
 #define CCS811_ADDRESS  0x5A
 
 bool CCS811_Detect(void) {
-  //ALLOCMEM
-  GET_MTBL;
-  void (* const *jt)() = mt->jt;
-  mt->mem_size = sizeof(MODULE_MEMORY);
+  ALLOCMEM
 
-  return false;
-
-  mt->mem_size += mt->mem_size % 4;
-
-    
-
-  mt->mod_memory = jcalloc(mt->mem_size / 4, 4);
-  if (!mt->mod_memory) {return -1;};
-  MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;
-  SETTINGS *jsettings = mt->settings;
-  FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
-
-
-
-#if 0
   ready = false;
   tcnt = 0;
   ecnt = 0;
   CCS811_ready = 0;
 
-  
-
   if (!I2cSetDevice(CCS811_ADDRESS)) {
     CCS811_Deinit();
     return false;
   }
-  return false;
 
   if (!CCS811_begin(CCS811_ADDRESS)) {
     char *cp = copyStr(GSTR(CCS811_dev));
@@ -163,7 +142,7 @@ bool CCS811_Detect(void) {
     initialized = true;
     return true;
   }
-  #endif
+
   return false;
 }
 
@@ -182,9 +161,11 @@ void CCS811_Update(void) {
         TVOC = CCS811_getTVOC();
         eCO2 = CCS811_geteCO2();
         CCS811_ready = 1;
-        //if (TasmotaGlobal.global_update && (TasmotaGlobal.humidity > 0) && !isnan(TasmotaGlobal.temperature_celsius)) {
-        //  CCS811_setEnvironmentalData((uint8_t)TasmotaGlobal.humidity, TasmotaGlobal.temperature_celsius);
-        //}
+        if (GetTasmotaGlobal(2) && (GetTasmotaGlobal(3) > 0) && !isnan(JGetTasmotaGf(0))) {
+          uint16_t hum = GetTasmotaGlobal(3);
+          float temp = JGetTasmotaGf(0);
+          CCS811_setEnvironmentalData(hum, temp);
+        }
         ecnt = 0;
       }
     } else {
@@ -216,6 +197,7 @@ void CCS811_Show(bool json) {
 
 void CCS811_Deinit(void) {
   SETREGS
+  I2cResetActive(CCS811_ADDRESS, 1);
   RETMEM
 }
 
@@ -239,6 +221,9 @@ MOD_RESULT result = false;
         break;
       case FUNC_WEB_SENSOR:
         CCS811_Show(0);
+        break;
+      case FUNC_DEINIT:
+        CCS811_Deinit();
         break;
   }
   return result;

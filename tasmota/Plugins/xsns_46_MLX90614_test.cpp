@@ -71,8 +71,6 @@ const char mlxdev[] PROGMEM = "MLX90614";
 int32_t Init_MLX90614() {
   ALLOCMEM
 
-  AddLog(LOG_LEVEL_INFO,PSTR("mlx init"));
-
   // now init variables here
   ready = false;
 
@@ -81,12 +79,8 @@ int32_t Init_MLX90614() {
     return -1;
   }
   char *cp = copyStr(GSTR(mlxdev));
-
-  AddLog(LOG_LEVEL_INFO,PSTR("mlx init 2"));
   I2cSetActiveFound(I2_ADR_IRT, cp, 0);
-  AddLog(LOG_LEVEL_INFO,PSTR("mlx init 3"));
   free(cp);
-  AddLog(LOG_LEVEL_INFO,PSTR("mlx init 4"));
   initialized = true;
   ready = true;
   return ready;

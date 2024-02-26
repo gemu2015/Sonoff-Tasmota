@@ -127,6 +127,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jcopyStr(A)                     (( char *(*)(const char *) )                   jt[100])(A)
 #define jsetClockStretchLimit(BUS,A)    (( void (*)(TwoWire*,uint32_t) )               jt[101])(BUS,A)
 #define jwriten(BUS,BUF,LEN)            (( void (*)(TwoWire*,uint8_t*,uint32_t) )      jt[102])(BUS,BUF,LEN)
+#define jmodff(A,B)                     (( float (*)(float,float*) )                   jt[103])(A,B)                     
 
 
 // Arduino macros
@@ -520,7 +521,7 @@ typedef struct {
 #define   setClockStretchLimit(VAL) jsetClockStretchLimit(jWire, VAL)
 #define   writen(BUF,LEN) jwriten(jWire,BUF,LEN)
 #define free jfree
-
+#define modff jmodff
 /*
 #define RENAME_LIBRARY(GCC_NAME, AEABI_NAME)		\
   __asm__ (".globl\t__aeabi_" #AEABI_NAME "\n"		\

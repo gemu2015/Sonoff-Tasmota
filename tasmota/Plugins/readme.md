@@ -56,7 +56,7 @@ extra_scripts           = ${esp_defaults.extra_scripts}
 
 1. copy the .ino file you want to convert to the plugins directory and rename to .cpp
 2. modify the source according to the sample files.
-3. add calls not yet in the vector table. in header and xdrv121
+3. add calls not yet in the vector table. in header and xdrv123
 4. enable generation of assembly listings and examine the assembly files.
 add these to build_flags:
 -save-temps=obj

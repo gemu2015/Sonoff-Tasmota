@@ -59,7 +59,6 @@ MODULE_PART void CCS811_setDriveMode(uint8_t mode);
 */
 /**************************************************************************/
 MODULE_PART sint8_t CCS811_begin(uint8_t addr) {
-	return 0;
 	SETREGS
 	ccs.i2c_addr = addr;
 #ifdef ESP8266
@@ -72,6 +71,7 @@ MODULE_PART sint8_t CCS811_begin(uint8_t addr) {
 
 	//check that the HW id is correct
 	uint8_t hwvers = CCS811_read8(CCS811_HW_ID);
+
 	if (hwvers != CCS811_HW_ID_CODE) {
 		return 1;
 	}
@@ -89,7 +89,6 @@ MODULE_PART sint8_t CCS811_begin(uint8_t addr) {
 	if (!ccs.stat.FW_MODE) {
 		return 3;
 	}
-
 
 	CCS811_disableInterrupt();
 
@@ -170,8 +169,8 @@ MODULE_PART uint8_t CCS811_readData() {
 		uint8_t buf[8];
 		CCS811_read(CCS811_ALG_RESULT_DATA, buf, 8);
 
-		eCO2 = ((uint16_t)buf[0] << 8) | ((uint16_t)buf[1]);
-		TVOC = ((uint16_t)buf[2] << 8) | ((uint16_t)buf[3]);
+		ccs._eCO2 = ((uint16_t)buf[0] << 8) | ((uint16_t)buf[1]);
+		ccs._TVOC = ((uint16_t)buf[2] << 8) | ((uint16_t)buf[3]);
 
 		//if (ccs.stat.ERROR)
 		//	return buf[5];
@@ -188,8 +187,7 @@ MODULE_PART uint8_t CCS811_readData() {
     @param temperature the temperature in degrees C as a decimal number. For 25.5 degrees C, pass in 25.5
 */
 /**************************************************************************/
-#if 0
-MODULE_PART void CCS811_setEnvironmentalData(uint8_t humidity, double temperature) {
+MODULE_PART void CCS811_setEnvironmentalData(uint8_t humidity, float temperature) {
 	SETREGS
 	/* Humidity is stored as an unsigned 16 bits in 1/512%RH. The
 	default value is 50% = 0x64, 0x00. As an example 48.5%
@@ -205,19 +203,26 @@ MODULE_PART void CCS811_setEnvironmentalData(uint8_t humidity, double temperatur
 
 	uint8_t hum_perc = humidity << 1;
 
-	float fractional = modf(temperature, &temperature);
-	uint16_t temp_high = (((uint16_t)temperature + 25) << 9);
-	uint16_t temp_low = ((uint16_t)(fractional / 0.001953125) & 0x1FF);
+	// crashes always ?????
+	// float temp;
+	// float frac = modff(temperature, &temp);
+
+	float frac = 0;
+
+	uint16_t temp_high = ((tmod__fixunssfsi(temperature) + 25) << 9);
+
+	
+	float divs = tmod__divsf3(frac, 0.001953125);
+	uint16_t temp_low = (tmod__fixunssfsi(divs) & 0x1FF);
 
 	uint16_t temp_conv = (temp_high | temp_low);
 
-	uint8_t buf[] = {hum_perc, 0x00,
-		(uint8_t)((temp_conv >> 8) & 0xFF), (uint8_t)(temp_conv & 0xFF)};
+	uint8_t buf[] = {hum_perc, 0x00, (uint8_t)((temp_conv >> 8) & 0xFF), (uint8_t)(temp_conv & 0xFF)};
 
 	CCS811_write(CCS811_ENV_DATA, buf, 4);
 
 }
-#endif
+
 /**************************************************************************/
 /*!
     @brief  calculate the temperature using the onboard NTC resistor.

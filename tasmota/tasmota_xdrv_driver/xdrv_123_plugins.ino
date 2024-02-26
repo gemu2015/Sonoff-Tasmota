@@ -237,8 +237,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_isinf,
   JMPTBL&copyStr,
   JMPTBL&tmod_setClockStretchLimit,
-  JMPTBL&tmod_writen
-
+  JMPTBL&tmod_writen,
+  JMPTBL&modff
 };
 
 
@@ -324,7 +324,9 @@ void tmod_I2cSetActiveFound(uint32_t addr, const char *types, uint32_t bus) {
 }
 
 void tmod_setClockStretchLimit(TwoWire *wp, uint32_t val) {
+ #ifdef ESP8266 
   wp->setClockStretchLimit(val);
+#endif
 }
 
 

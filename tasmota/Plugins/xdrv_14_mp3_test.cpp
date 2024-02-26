@@ -186,13 +186,9 @@ uint16_t MP3_Checksum(uint8_t *array) {
 \*********************************************************************************************/
 
 int32_t MP3PlayerInit() {
- 
- 
- //GET_MTBL;
- // return (uint32_t)mt;
-
-  #if 1
   ALLOCMEM
+
+  return 0;
 
   // should be in settings
   //player_type = DY_SV17F;
@@ -207,7 +203,6 @@ int32_t MP3PlayerInit() {
   MP3Player_Deinit();
 
   return -1;
-  #endif
 } 
 
 int32_t MP3_Init() {
@@ -219,13 +214,15 @@ int32_t MP3_Init() {
 
   if (ts) {
     // start serial communication fixed to 9600 baud
-    if (beginTS(ts,9600)) {
+    if (beginTS(ts, 9600)) {
       flushTS(ts);
       delay(10);
       MP3_CMD(MP3_CMD_RESET, MP3_CMD_RESET_VALUE);    // reset the player to defaults
       delay(100);
       MP3_CMD(MP3_CMD_VOLUME, MP3_VOLUME);            // after reset set volume depending on the entry in the my_user_config.h
-      AddLog(LOG_LEVEL_INFO, GSTR(started), player_txpin);
+      char *cp = copyStr(GSTR(started));
+      AddLog(LOG_LEVEL_INFO, cp, player_txpin);
+      free(cp);
       return 0;
     }
   }
