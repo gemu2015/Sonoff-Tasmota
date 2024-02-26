@@ -1,3 +1,56 @@
+
+enum
+    {
+        CCS811_STATUS = 0x00,
+        CCS811_MEAS_MODE = 0x01,
+        CCS811_ALG_RESULT_DATA = 0x02,
+        CCS811_RAW_DATA = 0x03,
+        CCS811_ENV_DATA = 0x05,
+        CCS811_NTC = 0x06,
+        CCS811_THRESHOLDS = 0x10,
+        CCS811_BASELINE = 0x11,
+        CCS811_HW_ID = 0x20,
+        CCS811_HW_VERSION = 0x21,
+        CCS811_FW_BOOT_VERSION = 0x23,
+        CCS811_FW_APP_VERSION = 0x24,
+        CCS811_ERROR_ID = 0xE0,
+        CCS811_SW_RESET = 0xFF,
+    };
+
+	//bootloader registers
+	enum
+	{
+		CCS811_BOOTLOADER_APP_ERASE = 0xF1,
+		CCS811_BOOTLOADER_APP_DATA = 0xF2,
+		CCS811_BOOTLOADER_APP_VERIFY = 0xF3,
+		CCS811_BOOTLOADER_APP_START = 0xF4
+	};
+
+	enum
+	{
+		CCS811_DRIVE_MODE_IDLE = 0x00,
+		CCS811_DRIVE_MODE_1SEC = 0x01,
+		CCS811_DRIVE_MODE_10SEC = 0x02,
+		CCS811_DRIVE_MODE_60SEC = 0x03,
+		CCS811_DRIVE_MODE_250MS = 0x04,
+	};
+
+
+
+
+
+#define CCS811_HW_ID_CODE			0x81
+#define CCS811_REF_RESISTOR			100000
+
+MODULE_PART void CCS811_SWReset();
+MODULE_PART uint8_t CCS811_read8(byte reg);
+MODULE_PART void CCS811_read(uint8_t reg, uint8_t *buf, uint8_t num);
+MODULE_PART void CCS811_write8(byte reg, byte value);
+MODULE_PART void CCS811_write(uint8_t reg, uint8_t *buf, uint8_t num);
+MODULE_PART void CCS811_disableInterrupt();
+MODULE_PART void CCS811_setDriveMode(uint8_t mode);
+
+
 /**************************************************************************/
 /*!
     @brief  Setups the I2C interface and hardware and checks for communication.
@@ -6,32 +59,52 @@
 */
 /**************************************************************************/
 MODULE_PART sint8_t CCS811_begin(uint8_t addr) {
-	_i2caddr = addr;
-	_i2c_init();
-	SWReset();
+	return 0;
+	SETREGS
+	ccs.i2c_addr = addr;
+#ifdef ESP8266
+	setClockStretchLimit(1000);
+#endif
+
+	CCS811_SWReset();
+
 	delay(100);
+
 	//check that the HW id is correct
-	if (this->read8(CCS811_HW_ID) != CCS811_HW_ID_CODE) {
-		return -1;
+	uint8_t hwvers = CCS811_read8(CCS811_HW_ID);
+	if (hwvers != CCS811_HW_ID_CODE) {
+		return 1;
 	}
-	//try to start the app
-	this->write(CCS811_BOOTLOADER_APP_START, NULL, 0);
+
+	CCS811_write(CCS811_BOOTLOADER_APP_START,NULL,0);
+
 	delay(100);
+	
+	ccs.stat.data = CCS811_read8(CCS811_STATUS);
 
-	//make sure there are no errors and we have entered application mode
-	if (checkError()) {
-	 return -2;
- 	}
-	if (!_status.FW_MODE) {
-	 return -3;
-  }
+	if (ccs.stat.ERROR) {
+		return 2;
+	}
 
-	disableInterrupt();
+	if (!ccs.stat.FW_MODE) {
+		return 3;
+	}
 
-	//default to read every second
-	setDriveMode(CCS811_DRIVE_MODE_1SEC);
+
+	CCS811_disableInterrupt();
+
+	CCS811_setDriveMode(CCS811_DRIVE_MODE_1SEC);
 
 	return 0;
+}
+
+MODULE_PART uint16_t CCS811_getTVOC() {
+	SETREGS
+	return ccs._TVOC;
+}
+MODULE_PART uint16_t CCS811_geteCO2() {
+	SETREGS
+	return ccs._eCO2;
 }
 
 /**************************************************************************/
@@ -39,9 +112,10 @@ MODULE_PART sint8_t CCS811_begin(uint8_t addr) {
     @brief  sample rate of the sensor.
     @param  mode one of CCS811_DRIVE_MODE_IDLE, CCS811_DRIVE_MODE_1SEC, CCS811_DRIVE_MODE_10SEC, CCS811_DRIVE_MODE_60SEC, CCS811_DRIVE_MODE_250MS.
 */
-MODULE_PART void CSC811_setDriveMode(uint8_t mode) {
-	_meas_mode.DRIVE_MODE = mode;
-	this->write8(CCS811_MEAS_MODE, _meas_mode.get());
+MODULE_PART void CCS811_setDriveMode(uint8_t mode) {
+	SETREGS
+	ccs.meas.DRIVE_MODE = mode;
+	CCS811_write8(CCS811_MEAS_MODE, ccs.meas.data);
 }
 
 /**************************************************************************/
@@ -49,9 +123,10 @@ MODULE_PART void CSC811_setDriveMode(uint8_t mode) {
     @brief  enable the data ready interrupt pin on the device.
 */
 /**************************************************************************/
-MODULE_PART void CSC811_enableInterrupt() {
-	_meas_mode.INT_DATARDY = 1;
-	this->write8(CCS811_MEAS_MODE, _meas_mode.get());
+MODULE_PART void CCS811_enableInterrupt() {
+	SETREGS
+	ccs.meas.INTERRUPT = 1;
+	CCS811_write8(CCS811_MEAS_MODE, ccs.meas.data);
 }
 
 /**************************************************************************/
@@ -59,9 +134,10 @@ MODULE_PART void CSC811_enableInterrupt() {
     @brief  disable the data ready interrupt pin on the device
 */
 /**************************************************************************/
-MODULE_PART void CSC811_disableInterrupt() {
-	_meas_mode.INT_DATARDY = 0;
-	this->write8(CCS811_MEAS_MODE, _meas_mode.get());
+MODULE_PART void CCS811_disableInterrupt() {
+	SETREGS
+	ccs.meas.INTERRUPT = 0;
+	CCS811_write8(CCS811_MEAS_MODE, ccs.meas.data);
 }
 
 /**************************************************************************/
@@ -70,9 +146,11 @@ MODULE_PART void CSC811_disableInterrupt() {
     @returns True if data is ready, false otherwise.
 */
 /**************************************************************************/
-MODULE_PART bool CSC811_available() {
-	_status.set(read8(CCS811_STATUS));
-	if (!_status.DATA_READY)
+MODULE_PART bool CCS811_available() {
+	//_status.set(read8(CCS811_STATUS));
+	SETREGS
+	ccs.stat.data = CCS811_read8(CCS811_STATUS);
+	if (!ccs.stat.DATA_READY)
 		return false;
 	else return true;
 }
@@ -83,20 +161,23 @@ MODULE_PART bool CSC811_available() {
     @returns 0 if no error, error code otherwise.
 */
 /**************************************************************************/
-MODULE_PART uint8_t CSC811_readData() {
-	if (!available())
+MODULE_PART uint8_t CCS811_readData() {
+	SETREGS
+
+	if (!CCS811_available())
 		return false;
 	else {
 		uint8_t buf[8];
-		this->read(CCS811_ALG_RESULT_DATA, buf, 8);
+		CCS811_read(CCS811_ALG_RESULT_DATA, buf, 8);
 
-		_eCO2 = ((uint16_t)buf[0] << 8) | ((uint16_t)buf[1]);
-		_TVOC = ((uint16_t)buf[2] << 8) | ((uint16_t)buf[3]);
+		eCO2 = ((uint16_t)buf[0] << 8) | ((uint16_t)buf[1]);
+		TVOC = ((uint16_t)buf[2] << 8) | ((uint16_t)buf[3]);
 
-		if (_status.ERROR)
-			return buf[5];
+		//if (ccs.stat.ERROR)
+		//	return buf[5];
 
-		else return 0;
+		//else return 0;
+		return 0;
 	}
 }
 
@@ -107,7 +188,9 @@ MODULE_PART uint8_t CSC811_readData() {
     @param temperature the temperature in degrees C as a decimal number. For 25.5 degrees C, pass in 25.5
 */
 /**************************************************************************/
-MODULE_PART void CSC811_setEnvironmentalData(uint8_t humidity, double temperature) {
+#if 0
+MODULE_PART void CCS811_setEnvironmentalData(uint8_t humidity, double temperature) {
+	SETREGS
 	/* Humidity is stored as an unsigned 16 bits in 1/512%RH. The
 	default value is 50% = 0x64, 0x00. As an example 48.5%
 	humidity would be 0x61, 0x00.*/
@@ -131,19 +214,21 @@ MODULE_PART void CSC811_setEnvironmentalData(uint8_t humidity, double temperatur
 	uint8_t buf[] = {hum_perc, 0x00,
 		(uint8_t)((temp_conv >> 8) & 0xFF), (uint8_t)(temp_conv & 0xFF)};
 
-	this->write(CCS811_ENV_DATA, buf, 4);
+	CCS811_write(CCS811_ENV_DATA, buf, 4);
 
 }
-
+#endif
 /**************************************************************************/
 /*!
     @brief  calculate the temperature using the onboard NTC resistor.
     @returns temperature as a double.
 */
 /**************************************************************************/
-MODULE_PART double CSC811_calculateTemperature() {
+#if 0
+MODULE_PART double CCS811_calculateTemperature() {
+	SETREGS
 	uint8_t buf[4];
-	this->read(CCS811_NTC, buf, 4);
+	CCS811_read(CCS811_NTC, buf, 4);
 
 	uint32_t vref = ((uint32_t)buf[0] << 8) | buf[1];
 	uint32_t vntc = ((uint32_t)buf[2] << 8) | buf[3];
@@ -157,10 +242,11 @@ MODULE_PART double CSC811_calculateTemperature() {
 	ntc_temp += 1.0 / (25 + 273.15); // 3
 	ntc_temp = 1.0 / ntc_temp; // 4
 	ntc_temp -= 273.15; // 5
-	return ntc_temp - _tempOffset;
+	//return ntc_temp - _tempOffset;
+	return ntc_temp;
 
 }
-
+#endif
 /**************************************************************************/
 /*!
     @brief  set interrupt thresholds
@@ -169,11 +255,12 @@ MODULE_PART double CSC811_calculateTemperature() {
     @param hysteresis optional histeresis level. Defaults to 50
 */
 /**************************************************************************/
-MODULE_PART void CSC811_setThresholds(uint16_t low_med, uint16_t med_high, uint8_t hysteresis) {
+MODULE_PART void CCS811_setThresholds(uint16_t low_med, uint16_t med_high, uint8_t hysteresis) {
+	SETREGS
 	uint8_t buf[] = {(uint8_t)((low_med >> 8) & 0xF), (uint8_t)(low_med & 0xF),
 	(uint8_t)((med_high >> 8) & 0xF), (uint8_t)(med_high & 0xF), hysteresis};
 
-	this->write(CCS811_THRESHOLDS, buf, 5);
+	CCS811_write(CCS811_THRESHOLDS, buf, 5);
 }
 
 /**************************************************************************/
@@ -181,10 +268,11 @@ MODULE_PART void CSC811_setThresholds(uint16_t low_med, uint16_t med_high, uint8
     @brief  trigger a software reset of the device
 */
 /**************************************************************************/
-MODULE_PART void CSC811_SWReset() {
+MODULE_PART void CCS811_SWReset() {
+	SETREGS
 	//reset sequence from the datasheet
 	uint8_t seq[] = {0x11, 0xE5, 0x72, 0x8A};
-	this->write(CCS811_SW_RESET, seq, 4);
+	CCS811_write(CCS811_SW_RESET, seq, 4);
 }
 
 /**************************************************************************/
@@ -193,9 +281,10 @@ MODULE_PART void CSC811_SWReset() {
     @returns the error bits from the status register of the device.
 */
 /**************************************************************************/
-MODULE_PART bool CSC811_checkError() {
-	_status.set(read8(CCS811_STATUS));
-	return _status.ERROR;
+MODULE_PART bool CCS811_checkError() {
+	SETREGS
+	ccs.stat.data = CCS811_read8(CCS811_STATUS);
+	return ccs.stat.ERROR;
 }
 
 /**************************************************************************/
@@ -205,8 +294,9 @@ MODULE_PART bool CSC811_checkError() {
     @param  value the value to write
 */
 /**************************************************************************/
-MODULE_PART void CSC811_write8(byte reg, byte value) {
-	this->write(reg, &value, 1);
+MODULE_PART void CCS811_write8(byte reg, byte value) {
+	SETREGS
+	CCS811_write(reg, &value, 1);
 }
 
 /**************************************************************************/
@@ -216,20 +306,15 @@ MODULE_PART void CSC811_write8(byte reg, byte value) {
     @returns one byte of register data
 */
 /**************************************************************************/
-MODULE_PART uint8_t CSC811_read8(byte reg) {
+MODULE_PART uint8_t CCS811_read8(byte reg) {
+	SETREGS
 	uint8_t ret;
-	this->read(reg, &ret, 1);
+	CCS811_read(reg, &ret, 1);
 	return ret;
 }
 
-MODULE_PART void CSC811__i2c_init() {
-	Wire.begin();
-#ifdef ESP8266
-	Wire.setClockStretchLimit(1000);
-#endif
-}
-
-MODULE_PART void CSC811_read(uint8_t reg, uint8_t *buf, uint8_t num) {
+MODULE_PART void CCS811_read(uint8_t reg, uint8_t *buf, uint8_t num) {
+	SETREGS
 	uint8_t value;
 	uint8_t pos = 0;
 
@@ -237,21 +322,22 @@ MODULE_PART void CSC811_read(uint8_t reg, uint8_t *buf, uint8_t num) {
 	while( pos < num) {
 
 		uint8_t read_now = min((uint8_t)32, (uint8_t)(num - pos));
-		Wire.beginTransmission((uint8_t)_i2caddr);
-		Wire.write((uint8_t)reg + pos);
-		Wire.endTransmission();
-		Wire.requestFrom((uint8_t)_i2caddr, read_now);
+		beginTransmission(ccs.i2c_addr);
+		write(reg + pos);
+		endTransmission(false);
+		requestFrom(ccs.i2c_addr, read_now);
 
 		for (int i=0; i<read_now; i++) {
-			buf[pos] = Wire.read();
+			buf[pos] = read();
 			pos++;
 		}
 	}
 }
 
-MODULE_PART void CSC811_write(uint8_t reg, uint8_t *buf, uint8_t num) {
-	Wire.beginTransmission((uint8_t)_i2caddr);
-	Wire.write((uint8_t)reg);
-	Wire.write((uint8_t *)buf, num);
-	Wire.endTransmission();
+MODULE_PART void CCS811_write(uint8_t reg, uint8_t *buf, uint8_t num) {
+	SETREGS
+	beginTransmission(ccs.i2c_addr);
+	write(reg);
+	writen(buf, num);
+	endTransmission(false);
 }

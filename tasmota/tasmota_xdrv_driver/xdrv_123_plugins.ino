@@ -114,6 +114,8 @@ bool tmod_I2cSetDevice(uint32_t addr);
 void tmod_I2cSetActiveFound(uint32_t addr, const char *types, uint32_t bus);
 int tmod_strncasecmp_P(const char* s1, const char *s2, size_t len);
 char *copyStr(const char * str);
+void tmod_setClockStretchLimit(TwoWire *wp, uint32_t val);
+void tmod_writen(TwoWire *wp, uint8_t *buf, uint32_t len);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -233,7 +235,10 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&strncpy_P,
   JMPTBL&isprint,
   JMPTBL&tmod_isinf,
-  JMPTBL&copyStr
+  JMPTBL&copyStr,
+  JMPTBL&tmod_setClockStretchLimit,
+  JMPTBL&tmod_writen
+
 };
 
 
@@ -296,6 +301,13 @@ void tmod_beginTransmission(TwoWire *wp, uint8_t addr) {
 void tmod_write(TwoWire *wp, uint8_t val) {
   wp->write(val);
 }
+
+void tmod_writen(TwoWire *wp, uint8_t *buf, uint32_t len) {
+  wp->write(buf, len);
+}
+
+
+
 void tmod_endTransmission(TwoWire *wp, bool flag) {
   wp->endTransmission(flag);
 }
@@ -310,6 +322,11 @@ bool tmod_I2cSetDevice(uint32_t addr) {
 void tmod_I2cSetActiveFound(uint32_t addr, const char *types, uint32_t bus) {
   I2cSetActiveFound(addr, types, bus);
 }
+
+void tmod_setClockStretchLimit(TwoWire *wp, uint32_t val) {
+  wp->setClockStretchLimit(val);
+}
+
 
 int tmod_read(TwoWire *wp) {
   return wp->read();
