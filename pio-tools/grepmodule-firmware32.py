@@ -49,6 +49,23 @@ if env["PIOPLATFORM"] == "espressif32" :
                         fwp.write(dummy)
                         fwp.write(xname)
                         size += 28
+                    if arch == 2 and type <= 4:
+                        print("found start sync")
+                        start = 1
+                        dummy = fp.read(4)
+                        xname = fp.read(16)
+                        fname = xname.decode('ascii') 
+                        name = fname.replace('\x00','')
+                        mod_file = dir_path + "/" + name + "_32r.bin"
+                        if os.path.isfile(mod_file):
+                            os.remove(mod_file)
+                        fwp = open(mod_file, "wb")
+                        fwp.write(msync)
+                        fwp.write(xarch)
+                        fwp.write(xtype)
+                        fwp.write(dummy)
+                        fwp.write(xname)
+                        size += 28
 
                 if start > 0 and msync[0] == 0x55 and msync[1] == 0xaa and msync[2] == 0xfc and msync[3] == 0x4a:
                     start = 2

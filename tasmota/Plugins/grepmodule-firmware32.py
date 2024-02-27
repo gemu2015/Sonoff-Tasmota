@@ -32,6 +32,23 @@ if env["PIOPLATFORM"] == "espressif32" :
                     arch = int.from_bytes(xarch, "little")
                     xtype = fp.read(4)
                     type = int.from_bytes(xtype, "little")
+                    if arch == 0 and type <= 4:
+                        print("found start sync")
+                        start = 1
+                        dummy = fp.read(4)
+                        xname = fp.read(16)
+                        fname = xname.decode('ascii') 
+                        name = fname.replace('\x00','')
+                        mod_file = dir_path + "/" + name + ".bin"
+                        if os.path.isfile(mod_file):
+                            os.remove(mod_file)
+                        fwp = open(mod_file, "wb")
+                        fwp.write(msync)
+                        fwp.write(xarch)
+                        fwp.write(xtype)
+                        fwp.write(dummy)
+                        fwp.write(xname)
+                        size += 28
                     if arch == 1 and type <= 4:
                         print("found start sync")
                         start = 1
@@ -40,6 +57,23 @@ if env["PIOPLATFORM"] == "espressif32" :
                         fname = xname.decode('ascii') 
                         name = fname.replace('\x00','')
                         mod_file = dir_path + "/" + name + "_32.bin"
+                        if os.path.isfile(mod_file):
+                            os.remove(mod_file)
+                        fwp = open(mod_file, "wb")
+                        fwp.write(msync)
+                        fwp.write(xarch)
+                        fwp.write(xtype)
+                        fwp.write(dummy)
+                        fwp.write(xname)
+                        size += 28
+                    if arch == 2 and type <= 4:
+                        print("found start sync")
+                        start = 1
+                        dummy = fp.read(4)
+                        xname = fp.read(16)
+                        fname = xname.decode('ascii') 
+                        name = fname.replace('\x00','')
+                        mod_file = dir_path + "/" + name + "_32r.bin"
                         if os.path.isfile(mod_file):
                             os.remove(mod_file)
                         fwp = open(mod_file, "wb")

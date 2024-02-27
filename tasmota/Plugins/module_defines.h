@@ -241,9 +241,9 @@ __asm__  (\
 extern const FLASH_MODULE module_header;
 MODULE_PART MODULES_TABLE *gettbl();
 
-MODULES_TABLE *gettbl() {
-
-  return (MODULES_TABLE*)*(uint32_t*)GLOB_MOD_REG;
+//MODULES_TABLE *gettbl() {
+//  return (MODULES_TABLE*)*(uint32_t*)GLOB_MOD_REG;
+//}
 
   //const FLASH_MODULE *mh = &module_header;
   //return (MODULES_TABLE*)mh->mtv;
@@ -254,7 +254,7 @@ MODULES_TABLE *gettbl() {
   //{__asm__ __volatile__("l32r	a2, module_header+48");}
   //{__asm__ __volatile__("retw.n");}
 
-}
+
 
 /*
 {__asm__ __volatile__(".align 4");}

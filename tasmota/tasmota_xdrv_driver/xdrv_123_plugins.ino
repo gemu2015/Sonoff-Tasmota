@@ -572,10 +572,6 @@ void Setplugins(void) {
   plugins.pagesize = SPI_FLASH_SEC_SIZE;
   plugins.flash_pptr = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_TEST, "custom");
   if (plugins.flash_pptr) {
-    //static esp_partition_mmap_handle_t map_handle;
-    // const void *out_ptr;
-    // esp_err_t err =esp_partition_mmap(plugins.flash_pptr, 0, plugins.flash_pptr->size, ESP_PARTITION_MMAP_DATA, &out_ptr, &map_handle);
-
     const void *out_ptr;
     //esp_err_t err = esp_partition_mmap(plugins.flash_pptr, 0, plugins.flash_pptr->size, SPI_FLASH_MMAP_DATA, &out_ptr, &plugins.map_handle);
     esp_err_t err = esp_partition_mmap(plugins.flash_pptr, 0, plugins.flash_pptr->size, SPI_FLASH_MMAP_INST, &out_ptr, &plugins.map_handle);
