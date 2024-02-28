@@ -306,8 +306,6 @@ void tmod_writen(TwoWire *wp, uint8_t *buf, uint32_t len) {
   wp->write(buf, len);
 }
 
-
-
 void tmod_endTransmission(TwoWire *wp, bool flag) {
   wp->endTransmission(flag);
 }
@@ -530,7 +528,11 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *offset, uint8_t f
 #undef FLASH_BASE_OFFSET
 #define FLASH_BASE_OFFSET 0x3F400000
 #undef MODUL_END_OFFSET
+#ifdef __riscv
 #define MODUL_END_OFFSET 8
+#else
+#define MODUL_END_OFFSET 8
+#endif
 #endif
 
 struct PLUGINS {
@@ -969,20 +971,11 @@ void LinkModule(uint8_t *mp, uint32_t size, char *name) {
       return;
     }
 
-#ifdef ESP8266 
-    if (fm->arch != ARCH_ESP8266) {
+    if (fm->arch != CURR_ARCH) {
       free(mp);
       AddLog(LOG_LEVEL_INFO,PSTR("module architecture error"));
       return;
     }
-#endif
-#ifdef ESP32
-    if (fm->arch != ARCH_ESP32) {
-      free(mp);
-      AddLog(LOG_LEVEL_INFO,PSTR("module architecture error"));
-      return;
-    }
-#endif
 
     Unlink_Named_Module(name);
 

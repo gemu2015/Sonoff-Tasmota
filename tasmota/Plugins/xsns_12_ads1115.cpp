@@ -227,9 +227,7 @@ int32_t Init_ADS1115() {
       if (I2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONVERT, 0) &&
           I2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONFIG, 0)) {
         Ads1115StartComparator(i, ADS1115_REG_CONFIG_MODE_CONTIN);
-        char *cp = copyStr(GSTR(moddev));
-        I2cSetActiveFound(Ads1115.address, cp, 0);
-        free(cp);
+        I2cSetActiveFound(Ads1115.address, GSTR(moddev), 0);
         Ads1115.found[i] = 1;
         Ads1115.count++;
       }

@@ -121,7 +121,7 @@ const char S_JSON_MP3_COMMAND[] PROGMEM = "{\"MP3%s\"}";
 const char kMP3_Commands[] PROGMEM = "Track|Play|Pause|Stop|Volume|EQ|Device|Reset|DAC|TYPE";
 const char d_mp3[] PROGMEM = "MP3";
 const char started[] PROGMEM = "mp3 inizialized with TRX pin %d";
-const char xxxlog[] PROGMEM = "command %s - %d";
+//const char xxxlog[] PROGMEM = "command %s - %d";
 
 typedef struct {
   uint8_t player_type;
@@ -186,28 +186,7 @@ uint16_t MP3_Checksum(uint8_t *array) {
 \*********************************************************************************************/
 
 int32_t MP3PlayerInit() {
-//  ALLOCMEM
-
-  MODULES_TABLE *mt = (MODULES_TABLE*)*(uint32_t*)GLOB_MOD_REG;
-
-  return (int32_t)mt;
-
-#if 0
-  void (* const *jt)() = mt->jt;
-  mt->mem_size = sizeof(MODULE_MEMORY);
-  mt->mem_size += mt->mem_size % 4;
-  
-
-  mt->mod_memory = jcalloc(mt->mem_size / 4, 4);
-  if (!mt->mod_memory) {return -1;};
-  MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;
-  SETTINGS *jsettings = mt->settings;
-  FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
-
-
-  
-
-
+  ALLOCMEM
   // should be in settings
   //player_type = DY_SV17F;
   player_type = mp->ms[1].value;
@@ -220,9 +199,8 @@ int32_t MP3PlayerInit() {
 
   MP3Player_Deinit();
 
-
   return -1;
-#endif
+
 } 
 
 int32_t MP3_Init() {

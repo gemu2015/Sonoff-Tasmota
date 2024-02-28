@@ -9,7 +9,7 @@ enum {ARCH_ESP8266, ARCH_ESP32,ARCH_ESP32_RV};
 #ifdef ESP8266
 #define CURR_ARCH ARCH_ESP8266
 #else
-#ifdef CONFIG_IDF_TARGET_ESP32C3
+#ifdef __riscv
 #define CURR_ARCH ARCH_ESP32_RV
 #else
 #define CURR_ARCH ARCH_ESP32
