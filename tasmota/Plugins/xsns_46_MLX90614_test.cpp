@@ -78,9 +78,16 @@ int32_t Init_MLX90614() {
     MLX90614_Deinit();
     return -1;
   }
+
+
+#if 0
+  I2cSetActiveFound(I2_ADR_IRT, GSTR(mlxdev), 0);
+#else
   char *cp = copyStr(GSTR(mlxdev));
   I2cSetActiveFound(I2_ADR_IRT, cp, 0);
   free(cp);
+#endif
+
   initialized = true;
   ready = true;
   return ready;

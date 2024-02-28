@@ -320,7 +320,14 @@ bool tmod_I2cSetDevice(uint32_t addr) {
 }
 
 void tmod_I2cSetActiveFound(uint32_t addr, const char *types, uint32_t bus) {
+//#ifdef ESP8266
+#if 1  
   I2cSetActiveFound(addr, types, bus);
+#else
+  char *cp = copyStr(types);
+  I2cSetActiveFound(addr, cp, bus);
+  free(cp);
+#endif
 }
 
 void tmod_setClockStretchLimit(TwoWire *wp, uint32_t val) {
