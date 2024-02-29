@@ -1561,21 +1561,21 @@ TS_FLOAT Get_MFilter(uint8_t index) {
 void Set_MFilter(uint8_t index, TS_FLOAT invar);
 void Set_MFilter(uint8_t index, TS_FLOAT invar) {
   uint8_t *mp = (uint8_t*)glob_script_mem.mfilt;
-  for (uint8_t count = 0; count<MAXFILT; count++) {
+  for (uint8_t count = 0; count < MAXFILT; count++) {
     struct M_FILT *mflp = (struct M_FILT*)mp;
-    if (count==index) {
+    if (count == index) {
       if (mflp->numvals & OR_FILT_MASK) {
         // moving average
         mflp->maccu -= mflp->rbuff[mflp->index];
         mflp->maccu += invar;
         mflp->rbuff[mflp->index] = invar;
         mflp->index++;
-        if (mflp->index>=(mflp->numvals&AND_FILT_MASK)) mflp->index = 0;
+        if (mflp->index >= (mflp->numvals & AND_FILT_MASK)) mflp->index = 0;
       } else {
         // median
         mflp->rbuff[mflp->index] = invar;
         mflp->index++;
-        if (mflp->index>=mflp->numvals) mflp->index = 0;
+        if (mflp->index >= mflp->numvals) mflp->index = 0;
       }
       break;
     }

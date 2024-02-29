@@ -95,6 +95,9 @@
 
 #define MP3_DEFAULT DY_SV17F
 
+#pragma GCC push_options
+#pragma GCC optimize ("-O1")
+
 MODULE_DESCRIPTOR("MP3PLAYER",MODULE_TYPE_DRIVER,MP3PLAYER_REV,"TXD",MP3_DEFAULT_TX_PIN,"TYPE",0x01000101,"",0,"",0)
 
 // all functions must be declared MUDULE_PART
@@ -181,11 +184,13 @@ uint16_t MP3_Checksum(uint8_t *array) {
 }
 
 /*********************************************************************************************\
- * init player
+xtensa-esp32-elf-objdump -d ./.pio/build/tasmota32-4M/firmware.elf >dissasm.txt
+risc-esp32-elf-objdump -d ./.pio/build/tasmota32-4M/firmware.elf >dissasm.txt
+
  * define serial tx port fixed with 9600 baud
 \*********************************************************************************************/
 
-int32_t MP3PlayerInit() {
+int32_t MP3PlayerInit() { 
   ALLOCMEM
   // should be in settings
   //player_type = DY_SV17F;
@@ -401,7 +406,7 @@ void MP3Player_Deinit() {
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
-
+#pragma GCC optimize ("-O0")
 MOD_RESULT mod_func_execute(uint32_t sel) {
   MOD_RESULT result = false;
   switch (sel) {
@@ -418,4 +423,5 @@ MOD_RESULT mod_func_execute(uint32_t sel) {
   return result;
 }
 
+#pragma GCC pop_options
 #endif  // USE_MP3_PLAYER

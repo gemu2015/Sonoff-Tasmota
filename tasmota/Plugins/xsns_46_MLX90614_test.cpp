@@ -69,6 +69,8 @@ const char mlxdev[] PROGMEM = "MLX90614";
 
 
 int32_t Init_MLX90614() {
+
+  return 1;
   ALLOCMEM
 
   // now init variables here
