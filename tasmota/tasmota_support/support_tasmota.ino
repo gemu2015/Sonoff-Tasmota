@@ -1025,8 +1025,13 @@ bool MqttShowSensor(bool call_show_sensor) {
       }
       if (2 == add_comma) {
         float dewpoint = CalcTempHumToDew(TasmotaGlobal.temperature_celsius, TasmotaGlobal.humidity);
-        ResponseAppend_P(PSTR("%s\"" D_JSON_DEWPOINT "\":%*_f"),
-          (add_comma)?",":"", Settings->flag2.temperature_resolution, &dewpoint);
+        ResponseAppend_P(PSTR(",\"" D_JSON_DEWPOINT "\":%*_f"),
+          Settings->flag2.temperature_resolution, &dewpoint);
+#ifdef USE_HEAT_INDEX
+        float heatindex = CalcTemHumToHeatIndex(TasmotaGlobal.temperature_celsius, TasmotaGlobal.humidity);
+        ResponseAppend_P(PSTR(",\"" D_JSON_HEATINDEX "\":%*_f"),
+          Settings->flag2.temperature_resolution, &heatindex);
+#endif  // USE_HEAT_INDEX
       }
       if (TasmotaGlobal.pressure_hpa != 0) {
         float p = ConvertPressure(TasmotaGlobal.pressure_hpa);
@@ -2098,24 +2103,29 @@ void GpioInit(void)
 #ifdef USE_SPI
 #ifdef ESP8266
   if (!TasmotaGlobal.soft_spi_enabled) {
-    bool valid_cs = (ValidSpiPinUsed(GPIO_SPI_CS) ||
-                     ValidSpiPinUsed(GPIO_RC522_CS) ||
-                     (ValidSpiPinUsed(GPIO_NRF24_CS) && ValidSpiPinUsed(GPIO_NRF24_DC)) ||
-                     ValidSpiPinUsed(GPIO_ILI9341_CS) ||
-                     ValidSpiPinUsed(GPIO_ILI9341_DC) || // there are also boards without cs
-                     ValidSpiPinUsed(GPIO_EPAPER29_CS) ||
-                     ValidSpiPinUsed(GPIO_EPAPER42_CS) ||
-                     ValidSpiPinUsed(GPIO_ILI9488_CS) ||
-                     ValidSpiPinUsed(GPIO_SSD1351_CS) ||
-                     ValidSpiPinUsed(GPIO_RA8876_CS) ||
-                     ValidSpiPinUsed(GPIO_ST7789_DC) ||  // ST7789 CS may be omitted so chk DC too
-                     ValidSpiPinUsed(GPIO_ST7789_CS) ||
-                     (ValidSpiPinUsed(GPIO_SSD1331_CS) && ValidSpiPinUsed(GPIO_SSD1331_DC)) ||
-                     ValidSpiPinUsed(GPIO_SDCARD_CS) ||
-                     ValidSpiPinUsed(GPIO_MCP2515_CS)
-                    );
-    // If SPI_CS and/or SPI_DC is used they must be valid
-    TasmotaGlobal.spi_enabled = (valid_cs) ? SPI_MOSI_MISO : SPI_NONE;
+    uint32_t spi_mosi = (14 == Pin(GPIO_SPI_CLK)) && (13 == Pin(GPIO_SPI_MOSI)) ? SPI_MOSI : SPI_NONE;
+    uint32_t spi_miso = (14 == Pin(GPIO_SPI_CLK)) && (12 == Pin(GPIO_SPI_MISO)) ? SPI_MISO : SPI_NONE;
+    TasmotaGlobal.spi_enabled = spi_mosi + spi_miso;
+    if (!TasmotaGlobal.spi_enabled) {
+      bool valid_cs = (ValidSpiPinUsed(GPIO_SPI_CS) ||
+                      ValidSpiPinUsed(GPIO_RC522_CS) ||
+                      (ValidSpiPinUsed(GPIO_NRF24_CS) && ValidSpiPinUsed(GPIO_NRF24_DC)) ||
+                      ValidSpiPinUsed(GPIO_ILI9341_CS) ||
+                      ValidSpiPinUsed(GPIO_ILI9341_DC) || // there are also boards without cs
+                      ValidSpiPinUsed(GPIO_EPAPER29_CS) ||
+                      ValidSpiPinUsed(GPIO_EPAPER42_CS) ||
+                      ValidSpiPinUsed(GPIO_ILI9488_CS) ||
+                      ValidSpiPinUsed(GPIO_SSD1351_CS) ||
+                      ValidSpiPinUsed(GPIO_RA8876_CS) ||
+                      ValidSpiPinUsed(GPIO_ST7789_DC) ||  // ST7789 CS may be omitted so chk DC too
+                      ValidSpiPinUsed(GPIO_ST7789_CS) ||
+                      (ValidSpiPinUsed(GPIO_SSD1331_CS) && ValidSpiPinUsed(GPIO_SSD1331_DC)) ||
+                      ValidSpiPinUsed(GPIO_SDCARD_CS) ||
+                      ValidSpiPinUsed(GPIO_MCP2515_CS)
+                      );
+      // If SPI_CS and/or SPI_DC is used they must be valid
+      TasmotaGlobal.spi_enabled = (valid_cs) ? SPI_MOSI_MISO : SPI_NONE;
+    }
     if (TasmotaGlobal.spi_enabled) {
       TasmotaGlobal.my_module.io[12] = AGPIO(GPIO_SPI_MISO);
       SetPin(12, AGPIO(GPIO_SPI_MISO));

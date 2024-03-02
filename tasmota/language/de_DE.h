@@ -48,7 +48,7 @@
 #define D_MONTH3LIST "JanFebMärAprMaiJunJulAugSepOktNovDez"
 
 // Non JSON decimal separator
-#define D_DECIMAL_SEPARATOR "."
+#define D_DECIMAL_SEPARATOR ","
 
 // Common
 #define D_ABSOLUTE_HUMIDITY "Abs․ Feuchtigkeit"
@@ -119,6 +119,7 @@
 #define D_GROUP "Gruppe"
 #define D_HOST "Host"
 #define D_HALL_EFFECT "Hall Effekt"
+#define D_HEATINDEX "Hitzeindex"
 #define D_HOSTNAME "Hostname"
 #define D_HUMIDITY "Feuchtigkeit"
 #define D_ILLUMINANCE "Beleuchtungsstärke"
@@ -554,6 +555,7 @@
 #define D_THERMOSTAT_SENSOR           "Aktuelle Temperatur"
 #define D_THERMOSTAT_GRADIENT         "Temperaturänderung"
 #define D_THERMOSTAT_DUTY_CYCLE       "Aussteuergrad"
+#define D_THERMOSTAT_VALVE_POSITION   "Ventilöffnung"
 #define D_THERMOSTAT_CYCLE_TIME       "Periodendauer"
 #define D_THERMOSTAT_PI_AUTOTUNE      "Auto PI-Abstimmung"
 #define D_THERMOSTAT_CONTROL_METHOD   "Reglertyp"
@@ -775,6 +777,10 @@
 #define D_SENSOR_MAX31855_CLK  "MX31855 CLK"
 #define D_SENSOR_MAX31855_DO   "MX31855 DO"
 #define D_SENSOR_MAX31865_CS   "MX31865 CS"
+#define D_GPIO_LORA_CS         "LoRa CS"
+#define D_GPIO_LORA_RST        "LoRa Rst"
+#define D_GPIO_LORA_BUSY       "LoRa Busy"
+#define D_GPIO_LORA_DI         "LoRa DI"    // Suffix "0","1","2"
 #define D_SENSOR_NRG_SEL       "HLWBL SEL"  // Suffix "i"
 #define D_SENSOR_NRG_CF1       "HLWBL CF1"
 #define D_SENSOR_HLW_CF        "HLW8012 CF"

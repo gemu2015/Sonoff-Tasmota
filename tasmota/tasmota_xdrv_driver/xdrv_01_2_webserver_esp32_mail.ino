@@ -219,9 +219,7 @@ uint16_t SendMail(char *buffer) {
                 message.sender.name = sname;
                 message.sender.email = from;
                 message.subject = subject;
-                //message.addRecipient("user1", to);
-                message.addRecipient(from, to);
-                
+                message.addRecipient("user1", to);
                 message.html.charSet = "utf-8";
                 message.text.charSet = "utf-8";
                 message.text.transfer_encoding = Content_Transfer_Encoding::enc_base64;

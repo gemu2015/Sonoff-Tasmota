@@ -36,6 +36,7 @@
 #define D_JSON_AP "AP"                   // Access Point
 #define D_JSON_APMAC_ADDRESS "APMac"
 #define D_JSON_APPENDED "Appended"
+#define D_JSON_BANDWIDTH "Bandwidth"
 #define D_JSON_BAUDRATE "Baudrate"
 #define D_JSON_BLINK "Blink"
 #define D_JSON_BLOCKED_LOOP "Blocked Loop"
@@ -47,6 +48,7 @@
 #define D_JSON_BUILDDATETIME "BuildDateTime"
 #define D_JSON_CHANNEL "Channel"
 #define D_JSON_CO2 "CarbonDioxide"
+#define D_JSON_CODINGRATE4 "CodingRate4"
 #define D_JSON_COMMAND "Command"
 #define D_JSON_CONFIDENCE "Confidence"
 #define D_JSON_CONFIG_HOLDER "CfgHolder"
@@ -55,7 +57,9 @@
 #define D_JSON_COREVERSION "Core"
 #define D_JSON_COUNT "Count"
 #define D_JSON_COUNTER "Counter"
+#define D_JSON_CRC_BYTES "CrcBytes"
 #define D_JSON_CURRENT "Current"         // As in Voltage and Current
+#define D_JSON_CURRENT_LIMIT "CurrentLimit"
 #define D_JSON_CURRENT_NEUTRAL "CurrentNeutral"
 #define D_JSON_DARKNESS "Darkness"
 #define D_JSON_DATA "Data"
@@ -95,6 +99,7 @@
 #define D_JSON_HALLEFFECT "HallEffect"
 #define D_JSON_HALTING "Halting"
 #define D_JSON_HEAPSIZE "Heap"
+#define D_JSON_HEATINDEX "HeatIndex"
 #define D_JSON_HIGH "High"
 #define D_JSON_HOST_NOT_FOUND "Host not found"
 #define D_JSON_FILE_NOT_FOUND "File not found"
@@ -103,6 +108,7 @@
 #define D_JSON_HUMIDITY "Humidity"
 #define D_JSON_ID "Id"
 #define D_JSON_ILLUMINANCE "Illuminance"
+#define D_JSON_IMPLICIT_HEADER "ImplicitHeader"
 #define D_JSON_IMPORT_ACTIVE "ImportActive"
 #define D_JSON_IMPORT_POWER "ImportPower"
 #define D_JSON_IMPORT_REACTIVE "ImportReactive"
@@ -129,6 +135,7 @@
 #define D_JSON_NONE "None"
 #define D_JSON_OR "or"
 #define D_JSON_ORP "ORP"
+#define D_JSON_OUTPUT_POWER "OutputPower"
 #define D_JSON_O2 "Oxygen"
 #define D_JSON_PERIOD "Period"
 #define D_JSON_PH "pH"
@@ -140,6 +147,7 @@
 #define D_JSON_APPARENT_POWERUSAGE "ApparentPower"
 #define D_JSON_REACTIVE_POWERUSAGE "ReactivePower"
 #define D_JSON_RANGE "Range"
+#define D_JSON_PREAMBLE_LENGTH "PreambleLength"
 #define D_JSON_PRESSURE "Pressure"
 #define D_JSON_PRESSUREATSEALEVEL "SeaPressure"
 #define D_JSON_PRESSURE_UNIT "PressureUnit"
@@ -172,6 +180,7 @@
 #define D_JSON_SIZE "Size"
 #define D_JSON_SPEED "Speed"
 #define D_JSON_SPEED_UNIT "SpeedUnit"
+#define D_JSON_SPREADING_FACTOR "SpreadingFactor"
 #define D_JSON_SSID "SSId"
 #define D_JSON_STAGE "Stage"
 #define D_JSON_STARTDST "StartDST"       // Start Daylight Savings Time
@@ -184,6 +193,7 @@
 #define D_JSON_SUNSET "Sunset"
 #define D_JSON_SWITCH "Switch"
 #define D_JSON_SYNC "Sync"
+#define D_JSON_SYNCWORD "SyncWord"
 #define D_JSON_TEMPERATURE "Temperature"
 #define D_JSON_TEMPERATURE_UNIT "TempUnit"
 #define D_JSON_TIME "Time"
@@ -527,6 +537,7 @@
 // Commands xdrv_05_irremote.ino
 #define D_CMND_IRSEND "IRSend"
   #define D_JSON_INVALID_JSON "Invalid JSON"
+  #define D_JSON_INVALID_HEXDATA "Invalid Hex data"
   #define D_JSON_INVALID_RAWDATA "Invalid RawData"
   #define D_JSON_NO_BUFFER_SPACE "No buffer space"
   #define D_JSON_PROTOCOL_NOT_SUPPORTED "Protocol not supported"
@@ -700,6 +711,7 @@
 #define D_CMND_ZIGBEE_SCAN "Scan"
   #define D_JSON_ZIGBEE_SCAN "ZbScan"
 #define D_CMND_ZIGBEE_CIE "CIE"
+#define D_CMND_ZIGBEE_EMULATION "Emulation"
 #define D_CMND_ZIGBEE_ENROLL "Enroll"
 #define D_CMND_ZIGBEE_LOAD "Load"
 #define D_CMND_ZIGBEE_LOADDUMP "LoadDump"
@@ -753,6 +765,7 @@
 #define D_CMND_SHUTTER_TILTINCDEC "TiltChange"
 #define D_CMND_SHUTTER_MOTORSTOP "MotorStop"
 #define D_CMND_SHUTTER_SETUP "Setup"
+#define D_CMD_SHUTTER_EXTRASTOPRELAY "StopRelay"
 
 // Commands xdrv_32_hotplug.ino
 #define D_CMND_HOTPLUG "HotPlug"
@@ -947,6 +960,7 @@ const char HTTP_SNS_F_ABS_HUM[]     PROGMEM = "{s}%s "  D_ABSOLUTE_HUMIDITY   "{
 
 const char HTTP_SNS_HUM[]           PROGMEM = "{s}%s "  D_HUMIDITY            "{m}%s " D_UNIT_PERCENT             "{e}";
 const char HTTP_SNS_DEW[]           PROGMEM = "{s}%s "  D_DEWPOINT            "{m}%s " D_UNIT_DEGREE            "%c{e}";
+const char HTTP_SNS_HEATINDEX[]     PROGMEM = "{s}%s "  D_HEATINDEX           "{m}%s " D_UNIT_DEGREE            "%c{e}";
 const char HTTP_SNS_PRESSURE[]      PROGMEM = "{s}%s "  D_PRESSURE            "{m}%s "                          "%s{e}";
 const char HTTP_SNS_SEAPRESSURE[]   PROGMEM = "{s}%s "  D_PRESSUREATSEALEVEL  "{m}%s "                          "%s{e}";
 const char HTTP_SNS_ANALOG[]        PROGMEM = "{s}%s "  D_ANALOG_INPUT      "%d{m}%d"                             "{e}";

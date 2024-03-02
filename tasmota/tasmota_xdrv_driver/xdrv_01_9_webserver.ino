@@ -408,7 +408,7 @@ const char HTTP_COUNTER[] PROGMEM =
   "<br><div id='t' style='text-align:center;'></div>";
 
 const char HTTP_END[] PROGMEM =
-  "<div style='text-align:right;font-size:11px;'><hr/><a href='https://bit.ly/tasmota' target='_blank' style='color:#aaa;'>Tasmota %s%s " D_BY " Theo Arends</a></div>"
+  "<div style='text-align:right;font-size:11px;'><hr/><a href='https://bit.ly/tasmota' target='_blank' style='color:#aaa;'>Tasmota %s %s " D_BY " Theo Arends</a></div>"
   "</div>"
   "</body>"
   "</html>";
@@ -718,7 +718,8 @@ bool HttpCheckPriviledgedAccess(bool autorequestauth = true)
       if ((referer.indexOf(hostname) == 7) || (referer.indexOf(WiFi.localIP().toString()) == 7)) {
         return true;
       }
-#if defined(ESP32) && CONFIG_IDF_TARGET_ESP32 && defined(USE_ETHERNET)
+//#if defined(ESP32) && CONFIG_IDF_TARGET_ESP32 && defined(USE_ETHERNET)
+#if defined(ESP32) && defined(USE_ETHERNET)
       hostname = EthernetHostname();
       hostname.toUpperCase();
       // TODO rework if IPv6
@@ -934,7 +935,8 @@ void WSContentSendStyle_P(const char* formatP, ...) {
         (lip && sip) ? ", " : "",
         (sip) ? WiFi.softAPIP().toString().c_str() : "");
     }
-#if defined(ESP32) && CONFIG_IDF_TARGET_ESP32 && defined(USE_ETHERNET)
+//#if defined(ESP32) && CONFIG_IDF_TARGET_ESP32 && defined(USE_ETHERNET)
+#if defined(ESP32) && defined(USE_ETHERNET)
     eip = EthernetHasIP();
     if (eip) {
       WSContentSend_P(PSTR("%s%s%s (%s)"),          // tasmota-eth.local (192.168.2.13)
@@ -1025,6 +1027,10 @@ void WSContentSend_THD(const char *types, float f_temperature, float f_humidity)
   WSContentSend_PD(HTTP_SNS_HUM, types, parameter);
   dtostrfd(CalcTempHumToDew(f_temperature, f_humidity), Settings->flag2.temperature_resolution, parameter);
   WSContentSend_PD(HTTP_SNS_DEW, types, parameter, TempUnit());
+#ifdef USE_HEAT_INDEX
+  dtostrfd(CalcTemHumToHeatIndex(f_temperature, f_humidity), Settings->flag2.temperature_resolution, parameter);
+  WSContentSend_PD(HTTP_SNS_HEATINDEX, types, parameter, TempUnit());
+#endif  // USE_HEAT_INDEX
 }
 
 void WSContentEnd(void) {
@@ -2404,7 +2410,7 @@ void HandleInformation(void) {
   // }2 = </th><td>
   WSContentSend_P(HTTP_SCRIPT_INFO_BEGIN);
   WSContentSend_P(PSTR("<table style='width:100%%'><tr><th>"));
-  WSContentSend_P(PSTR(D_PROGRAM_VERSION "}2%s%s%s"), TasmotaGlobal.version, TasmotaGlobal.image_name, GetCodeCores().c_str());
+  WSContentSend_P(PSTR(D_PROGRAM_VERSION "}2%s %s %s"), TasmotaGlobal.version, TasmotaGlobal.image_name, GetCodeCores().c_str());
   WSContentSend_P(PSTR("}1" D_BUILD_DATE_AND_TIME "}2%s"), GetBuildDateAndTime().c_str());
   WSContentSend_P(PSTR("}1" D_CORE_AND_SDK_VERSION "}2" ARDUINO_CORE_RELEASE "/%s"), ESP.getSdkVersion());
   WSContentSend_P(PSTR("}1" D_UPTIME "}2%s"), GetUptime().c_str());
@@ -2469,7 +2475,8 @@ void HandleInformation(void) {
     WSContentSend_P(PSTR("}1" D_DNS_SERVER "2}2%_I"), Settings->ipv4_address[4]);
 #endif // USE_IPV6
   }
-#if defined(ESP32) && CONFIG_IDF_TARGET_ESP32 && defined(USE_ETHERNET)
+//#if defined(ESP32) && CONFIG_IDF_TARGET_ESP32 && defined(USE_ETHERNET)
+#if defined(ESP32) && defined(USE_ETHERNET)
   if (EthernetHasIP()) {
     if (show_hr) {
       WSContentSeparatorIThin();

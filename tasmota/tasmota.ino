@@ -294,11 +294,6 @@ HardwareSerial TasConsole = Serial;         // Only serial interface
 
 char EmptyStr[1] = { 0 };                   // Provide a pointer destination to an empty char string
 
-typedef struct {
-  uint32_t time;
-  String   command;
-} tTimedCmnd;
-
 struct TasmotaGlobal_t {
   uint32_t global_update;                   // Timestamp of last global temperature and humidity update
   uint32_t baudrate;                        // Current Serial baudrate
@@ -413,8 +408,6 @@ struct TasmotaGlobal_t {
   uint8_t pwm_dimmer_led_bri;               // Adjusted brightness LED level
 #endif  // USE_PWM_DIMMER
 
-  tTimedCmnd timed_cmnd[MAX_TIMED_CMND];    // Timed command buffer
-
 #ifdef MQTT_DATA_STRING
   String mqtt_data;                         // Buffer filled by Response functions
 #else
@@ -441,9 +434,8 @@ struct TasmotaGlobal_t {
 
 TSettings* Settings = nullptr;
 
-#include <LinkedList.h>
-LinkedList<String> backlog;                 // Command backlog implemented with LinkedList
-#define BACKLOG_EMPTY (backlog.size() == 0)
+LList<char*> backlog;                       // Command backlog implemented with TasmotaLList
+#define BACKLOG_EMPTY (backlog.isEmpty())
 
 /*********************************************************************************************\
  * Main
@@ -723,7 +715,8 @@ void setup(void) {
   }
 
   // Thehackbox inserts "release" or "commit number" before compiling using sed -i -e 's/PSTR("(%s)")/PSTR("(85cff52-%s)")/g' tasmota.ino
-  snprintf_P(TasmotaGlobal.image_name, sizeof(TasmotaGlobal.image_name), PSTR("(%s)"), PSTR(CODE_IMAGE_STR));  // Results in (85cff52-tasmota) or (release-tasmota)
+  // Github inserts "release" or "commit number" before compiling using sed -i -e 's/TASMOTA_SHA_SHORT/TASMOTA_SHA_SHORT 85cff52-/g' tasmota_version.h
+  snprintf_P(TasmotaGlobal.image_name, sizeof(TasmotaGlobal.image_name), PSTR("(" STR(TASMOTA_SHA_SHORT) "%s)"), PSTR(CODE_IMAGE_STR));  // Results in (85cff52-tasmota) or (release-tasmota)
 
   Format(TasmotaGlobal.mqtt_client, SettingsText(SET_MQTT_CLIENT), sizeof(TasmotaGlobal.mqtt_client));
   Format(TasmotaGlobal.mqtt_topic, SettingsText(SET_MQTT_TOPIC), sizeof(TasmotaGlobal.mqtt_topic));
@@ -778,8 +771,6 @@ void setup(void) {
   if (bitRead(Settings->rule_enabled, 0)) Run_Scripter(">BS",3,0);
 #endif
 
-  XdrvCall(FUNC_ACTIVE);         // FUNC_ACTIVE
-
   TasmotaGlobal.rules_flag.system_init = 1;
 }
 
@@ -788,19 +779,42 @@ void BacklogLoop(void) {
     if (!BACKLOG_EMPTY && !TasmotaGlobal.backlog_mutex) {
       TasmotaGlobal.backlog_mutex = true;
       bool nodelay = false;
-      bool nodelay_detected = false;
-      String cmd;
       do {
-        cmd = backlog.shift();
-        nodelay_detected = !strncasecmp_P(cmd.c_str(), PSTR(D_CMND_NODELAY), strlen(D_CMND_NODELAY));
-        if (nodelay_detected) { nodelay = true; }
-      } while (!BACKLOG_EMPTY && nodelay_detected);
-      if (!nodelay_detected) {
-        ExecuteCommand((char*)cmd.c_str(), SRC_BACKLOG);
+        char* cmd = *backlog.head();
+        backlog.removeHead();
+/*
+        // This adds 32 bytes
+        char* cmd = *backlog.removeHead();
+*/
+        if (!strncasecmp_P(cmd, PSTR(D_CMND_NODELAY), strlen(D_CMND_NODELAY))) {
+          free(cmd);
+          nodelay = true;
+        } else {
+          ExecuteCommand(cmd, SRC_BACKLOG);
+          free(cmd);
+          if (nodelay || TasmotaGlobal.backlog_nodelay) {
+            TasmotaGlobal.backlog_timer = millis();  // Reset backlog_timer which has been set by ExecuteCommand (CommandHandler)
+          }
+          break;
+        }
+      } while (!BACKLOG_EMPTY);
+/*
+      // This adds 96 bytes
+      for (auto &cmd : backlog) {
+        backlog.remove(&cmd);
+        if (!strncasecmp_P(cmd, PSTR(D_CMND_NODELAY), strlen(D_CMND_NODELAY))) {
+          free(cmd);
+          nodelay = true;
+        } else {
+          ExecuteCommand(cmd, SRC_BACKLOG);
+          free(cmd);
+          if (nodelay || TasmotaGlobal.backlog_nodelay) {
+            TasmotaGlobal.backlog_timer = millis();  // Reset backlog_timer which has been set by ExecuteCommand (CommandHandler)
+          }
+          break;
+        }
       }
-      if (nodelay || TasmotaGlobal.backlog_nodelay) {
-        TasmotaGlobal.backlog_timer = millis();  // Reset backlog_timer which has been set by ExecuteCommand (CommandHandler)
-      }
+*/
       TasmotaGlobal.backlog_mutex = false;
     }
     if (BACKLOG_EMPTY) {
@@ -872,6 +886,7 @@ void Scheduler(void) {
   if (TimeReached(state_second)) {
     SetNextTimeInterval(state_second, 1000);
     PerformEverySecond();
+    XdrvCall(FUNC_ACTIVE);
     XdrvXsnsCall(FUNC_EVERY_SECOND);
   }
 

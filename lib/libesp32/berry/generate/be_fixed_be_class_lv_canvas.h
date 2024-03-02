@@ -13,6 +13,6 @@ static be_define_const_map(
 BE_EXPORT_VARIABLE be_define_const_class(
     be_class_lv_canvas,
     0,
-    (bclass *)&be_class_lv_img,
+    (bclass *)&be_class_lv_image,
     lv_canvas
 );
