@@ -96,7 +96,7 @@
 #define MP3_DEFAULT DY_SV17F
 
 #pragma GCC push_options
-#pragma GCC optimize ("-O1")
+#pragma GCC optimize ("-O3")
 
 MODULE_DESCRIPTOR("MP3PLAYER",MODULE_TYPE_DRIVER,MP3PLAYER_REV,"TXD",MP3_DEFAULT_TX_PIN,"TYPE",0x01000101,"",0,"",0)
 
