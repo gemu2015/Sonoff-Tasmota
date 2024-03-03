@@ -11,8 +11,8 @@
 #endif
 
 
-//#ifdef ESP32
-#if 0
+#ifdef ESP32
+//#if 0
     .section .plugin.mod_part
     .align 4
     .global gettbl
@@ -21,6 +21,7 @@
     entry a1,32
     l32r	a2, module_header+48
     retw.n
+#endif
 
 
 
@@ -97,6 +98,5 @@ static inline void xt_utils_set_cycle_count(uint32_t ccount)
     l32i.n	a4, sp, 4
     addi	sp, sp, 8
     ret.n
-#endif
 
 #endif

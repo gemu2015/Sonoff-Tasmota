@@ -95,8 +95,6 @@
 
 #define MP3_DEFAULT DY_SV17F
 
-#pragma GCC push_options
-#pragma GCC optimize ("-O3")
 
 MODULE_DESCRIPTOR("MP3PLAYER",MODULE_TYPE_DRIVER,MP3PLAYER_REV,"TXD",MP3_DEFAULT_TX_PIN,"TYPE",0x01000101,"",0,"",0)
 
@@ -184,18 +182,17 @@ uint16_t MP3_Checksum(uint8_t *array) {
 }
 
 /*********************************************************************************************\
-xtensa-esp32-elf-objdump -d ./.pio/build/tasmota32-4M/firmware.elf >dissasm.txt
-risc-esp32-elf-objdump -d ./.pio/build/tasmota32-4M/firmware.elf >dissasm.txt
-
  * define serial tx port fixed with 9600 baud
 \*********************************************************************************************/
 
 int32_t MP3PlayerInit() { 
   ALLOCMEM
+
   // should be in settings
   //player_type = DY_SV17F;
   player_type = mp->ms[1].value;
   player_type &= 3;
+
 
   if (!MP3_Init()) {
     initialized = true;
@@ -223,9 +220,7 @@ int32_t MP3_Init() {
       MP3_CMD(MP3_CMD_RESET, MP3_CMD_RESET_VALUE);    // reset the player to defaults
       delay(100);
       MP3_CMD(MP3_CMD_VOLUME, MP3_VOLUME);            // after reset set volume depending on the entry in the my_user_config.h
-      char *cp = copyStr(GSTR(started));
-      AddLog(LOG_LEVEL_INFO, cp, player_txpin);
-      free(cp);
+      AddLog(LOG_LEVEL_INFO, GSTR(started), player_txpin);
       return 0;
     }
   }
@@ -252,30 +247,29 @@ void MP3_SendCmd(uint8_t *scmd, uint8_t len) {
 
 void MP3_CMD(uint8_t mp3cmd, uint16_t val) {
   SETREGS
+  uint8_t scmd[10];
 
   if (player_type == DVP_MINI) {
-    uint8_t i       = 0;
-    uint8_t cmd[10];  // = {0x7e,0xff,6,0,0,0,0,0,0,0xef}; // fill array
-    cmd[0]          = 0x7e;
-    cmd[1]          = 0xff;
-    cmd[2]          = 6;
-    cmd[3]          = mp3cmd;                         // mp3 command value
-    cmd[4]          = 0;                              // feedback, 1=yes, 0=no, yet not use
-    cmd[5]          = val>>8;                         // data value, shift 8 byte right
-    cmd[6]          = val;                            // data value low byte
-    cmd[7]          = 0;
-    cmd[8]          = 0;
-    cmd[9]          = 0xef;
-    uint16_t chks   = MP3_Checksum(&cmd[1]);          // see calculate the checksum
-    cmd[7]          = chks>>8;                        // checksum. shift 8 byte right
-    cmd[8]          = chks;                           // checksum low byte
-    writeTS(ts, cmd, sizeof(cmd));               // write mp3 data array to player
+    // = {0x7e,0xff,6,0,0,0,0,0,0,0xef}; // fill array
+    scmd[0]          = 0x7e;
+    scmd[1]          = 0xff;
+    scmd[2]          = 6;
+    scmd[3]          = mp3cmd;                         // mp3 command value
+    scmd[4]          = 0;                              // feedback, 1=yes, 0=no, yet not use
+    scmd[5]          = val>>8;                         // data value, shift 8 byte right
+    scmd[6]          = val;                            // data value low byte
+    scmd[7]          = 0;
+    scmd[8]          = 0;
+    scmd[9]          = 0xef;
+    uint16_t chks   = MP3_Checksum(&scmd[1]);          // see calculate the checksum
+    scmd[7]          = chks>>8;                        // checksum. shift 8 byte right
+    scmd[8]          = chks;                           // checksum low byte
+    writeTS(ts, scmd, sizeof(scmd));               // write mp3 data array to player
     delay(1000);
     if (mp3cmd == MP3_CMD_RESET) {
       MP3_CMD(MP3_CMD_VOLUME, MP3_VOLUME);            // after reset set volume depending on the entry in the my_user_config.h
     }
   } else {
-    uint8_t scmd[8];
     uint8_t len = 0;
     scmd[0]=0xAA;
     switch (mp3cmd) {
@@ -284,7 +278,8 @@ void MP3_CMD(uint8_t mp3cmd, uint16_t val) {
         scmd[2]=0x02;
         scmd[3]=val>>8;
         scmd[4]=val;
-        MP3_SendCmd(scmd, 5);
+        len= 5;
+        break;
       case MP3_CMD_PLAY:
         scmd[1]=0x02;
         scmd[2]=0x00;
@@ -308,7 +303,6 @@ void MP3_CMD(uint8_t mp3cmd, uint16_t val) {
     }
     MP3_SendCmd(scmd, len);
   }
-
 }
 
 /*********************************************************************************************\
@@ -406,7 +400,7 @@ void MP3Player_Deinit() {
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
-#pragma GCC optimize ("-O0")
+//#pragma GCC optimize ("-O0")
 MOD_RESULT mod_func_execute(uint32_t sel) {
   MOD_RESULT result = false;
   switch (sel) {
@@ -423,5 +417,4 @@ MOD_RESULT mod_func_execute(uint32_t sel) {
   return result;
 }
 
-#pragma GCC pop_options
 #endif  // USE_MP3_PLAYER

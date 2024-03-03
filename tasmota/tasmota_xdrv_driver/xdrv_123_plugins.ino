@@ -116,6 +116,9 @@ int tmod_strncasecmp_P(const char* s1, const char *s2, size_t len);
 char *copyStr(const char * str);
 void tmod_setClockStretchLimit(TwoWire *wp, uint32_t val);
 void tmod_writen(TwoWire *wp, uint8_t *buf, uint32_t len);
+int tmod_snprintf_P(char *s, size_t n,  const char *format, va_list va);
+int tmod_ResponseAppend_P(const char* format, va_list va);
+void tmod_WSContentSend_PD(const char* format, va_list va);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -140,8 +143,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   //void I2cSetActiveFound(uint32_t addr, const char *types, uint32_t bus)
 
   JMPTBL&AddLog,
-  JMPTBL&ResponseAppend_P,
-  JMPTBL&WSContentSend_PD,
+  JMPTBL&tmod_ResponseAppend_P,
+  JMPTBL&tmod_WSContentSend_PD,
   JMPTBL&ftostrfd,
   JMPTBL&calloc,
   JMPTBL&fscale,
@@ -156,7 +159,7 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&I2cWrite16,
   JMPTBL&I2cRead16,
   JMPTBL&I2cValidRead16,
-  JMPTBL&snprintf_P,
+  JMPTBL&tmod_snprintf_P,
   //JMPTBL&XdrvRulesProcess,
   JMPTBL(bool (*)(bool teleperiod))&XdrvRulesProcess,
   JMPTBL&ResponseJsonEnd,
@@ -280,16 +283,60 @@ bool MT_DecodeCommand(const char* haystack, void (* const MyCommand[])(void)) {
 
 
 int tmod_strncasecmp_P(const char *s1, const char *s2, size_t len) {
+#ifdef ESP8266
+  return strncasecmp_P(s1, s2, len);
+#endif
 #ifdef ESP32
   char *sx = copyStr(s2);
   int res = strncasecmp_P(s1, sx, len);
   free(sx);
   return res;
 #endif
+
+}
+
+int tmod_snprintf_P(char *s, size_t n,  const char *format, va_list va) {
+
 #ifdef ESP8266
-  return strncasecmp_P(s1, s2, len);
+  int res = snprintf_P(s, n, format, va);
+  return res;
+#endif
+#ifdef ESP32
+  char *fcopy = copyStr(format);
+  int res = snprintf_P(s, n, fcopy, va);
+  free(fcopy);
+  return res;
 #endif
 }
+
+int tmod_ResponseAppend_P(const char* format, va_list va) {
+
+#ifdef ESP8266
+  int res = ResponseAppend_P(format, va);
+  return res;
+#endif
+#ifdef ESP32
+  char *fcopy = copyStr(format);
+  int res = ResponseAppend_P(fcopy, va);
+  free(fcopy);
+  return res;
+#endif
+}
+
+void tmod_WSContentSend_PD(const char* format, va_list va) {
+
+#ifdef ESP8266
+  WSContentSend_PD(format, va);
+#endif
+#ifdef ESP32
+  char *fcopy = copyStr(format);
+  WSContentSend_PD(fcopy, va);
+  free(fcopy);
+#endif
+}
+
+
+
 
 void AddlogT(char* txt) {
    AddLog(LOG_LEVEL_INFO ,PSTR("%s"), txt);
@@ -318,8 +365,7 @@ bool tmod_I2cSetDevice(uint32_t addr) {
 }
 
 void tmod_I2cSetActiveFound(uint32_t addr, const char *types, uint32_t bus) {
-//#ifdef ESP8266
-#if 1  
+#ifdef ESP8266
   I2cSetActiveFound(addr, types, bus);
 #else
   char *cp = copyStr(types);
@@ -562,8 +608,13 @@ MODULES_TABLE modules[MAX_PLUGINS];
 #undef SET_MOD_REG
 #define SET_MOD_REG(A)
 #else
+#ifdef __riscv
 #undef SET_MOD_REG
 #define SET_MOD_REG(A) *(uint32_t*)GLOB_MOD_REG=(uint32_t)&modules[A];
+#else
+#undef SET_MOD_REG
+#define SET_MOD_REG(A)
+#endif
 #endif
 
 void Setplugins(void) {
@@ -1031,6 +1082,11 @@ void Unlink_Named_Module(char *name) {
       if (cp) {
         *cp = 0;
       }
+      cp = strchr(nam, '_');
+      if (cp) {
+        *cp = 0;
+      }
+
       uint32_t lval[4];
       uint32_t *lp = (uint32_t*)&fm->name[0];
       for (uint32_t cnt = 0; cnt < 4; cnt++) {
@@ -1512,6 +1568,10 @@ bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
 
 void Module_upload_stop(void) {
   if (plugins.module_input_buffer) {
+    char *cp = strchr(plugins.mod_name, '_');
+    if (cp) {
+      *cp = 0;
+    }
     LinkModule(plugins.module_input_buffer, plugins.module_bytes_read, plugins.mod_name);
   }
 }

@@ -49,7 +49,7 @@ typedef struct {
 
 typedef struct {
   char name[MOD_STORE_NAMESIZE];
-  MD_TYPE value;
+  volatile MD_TYPE value;
 } MODULE_STORE;
 
 #define MAX_MOD_STORES 4

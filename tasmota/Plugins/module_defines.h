@@ -19,9 +19,9 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jSerial                         ( HardwareSerial*)                             jt[2]
 #define jI2cSetDevice(A)                (( bool (*)(uint32_t) )                        jt[3])(A)
 #define jI2cSetActiveFound(A,B,C)       (( void (*)(uint32_t,const char *, uint32_t) ) jt[4])(A,B,C)
-#define jAddLog(A,...)                  (( void (*)(uint32_t,const char * formatP, ...) ) jt[5])(A,__VA_ARGS__)
-#define jResponseAppend_P(...)          (( void (*)(const char * formatP, ...) )       jt[6])(__VA_ARGS__)
-#define jWSContentSend_PD(...)          (( void (*)(const char * formatP, ...) )       jt[7])(__VA_ARGS__)
+#define jAddLog(A,...)                  (( void (*)(uint32_t,const char *, ...) )      jt[5])(A,##__VA_ARGS__)
+#define jResponseAppend_P(A,...)        (( void (*)(const char *, ...) )               jt[6])(A,##__VA_ARGS__)
+#define jWSContentSend_PD(A,...)        (( void (*)(const char *, ...) )               jt[7])(A,##__VA_ARGS__)
 #define jftostrfd(A,B,C)                (( char *(*)(float, uint8_t, char*) )          jt[8])(A,B,C)
 #define jcalloc(A,B)                    (( void *(*)(size_t, size_t) )                 jt[9])(A,B)
 // 10
@@ -34,18 +34,18 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jread(BUS)                      (( int (*)(TwoWire*) )                         jt[16])(BUS)
 #define fshowhex(VAL)                   (( void (*)(uint32_t) )                        jt[17])(VAL)
 #define jfree(MEM)                      (( void (*)(void*) )                           jt[18])(MEM)
-#define jI2cWrite16(ADDR,REG,VAL,BUS)       (( bool (*)(uint8_t, uint8_t, uint16_t, uint8_t) )      jt[19])(ADDR,REG,VAL,BUS)
+#define jI2cWrite16(ADDR,REG,VAL,BUS)   (( bool (*)(uint8_t, uint8_t, uint16_t, uint8_t) )      jt[19])(ADDR,REG,VAL,BUS)
 // 20
-#define jI2cRead16(ADDR,REG,BUS)            (( uint16_t (*)(uint8_t, uint8_t, uint8_t) )  jt[20])(ADDR,REG,BUS)
-#define jI2cValidRead16(DATA,ADDR,REG,BUS)  (( bool (*)(uint16_t *,uint8_t,uint8_t,uint8_t) )      jt[21])(DATA,ADDR,REG,BUS)
-#define jsnprintf_P(...)                (( void (*)(...) )                             jt[22])(__VA_ARGS__)
+#define jI2cRead16(ADDR,REG,BUS)        (( uint16_t (*)(uint8_t, uint8_t, uint8_t) )  jt[20])(ADDR,REG,BUS)
+#define jI2cValidRead16(DATA,ADDR,REG,BUS)  (( bool (*)(uint16_t *,uint8_t,uint8_t,uint8_t) )   jt[21])(DATA,ADDR,REG,BUS)
+#define jsnprintf_P(A,B,C,...)          (( void (*)(char *,size_t,const char *,...) )  jt[22])(A,B,C,##__VA_ARGS__)
 #define jXdrvRulesProcess(A)            (( bool (*)(bool) )                            jt[23])(A)
 #define jResponseJsonEnd                (( void (*)(void) )                            jt[24])
 #define jdelay(A)                       (( void (*)(uint32_t) )                        jt[25])(A)
 #define jI2cActive(A)                   (( bool (*)(uint32_t) )                        jt[26])(A)
 #define jResponseJsonEndEnd             (( void (*)(void) )                            jt[27])
 #define jIndexSeparator                 (( char (*)(void) )                            jt[28])
-#define jResponse_P(...)                (( int (*)(const char * formatP, ...) )        jt[29])(__VA_ARGS__)
+#define jResponse_P(A,...)                (( int (*)(const char * formatP, ...) )      jt[29])(A,##__VA_ARGS__)
 // 30
 #define jI2cResetActive(REG,CNT)        (( void (*)(uint32_t, uint32_t) )              jt[30])(REG,CNT)
 #define jisnan(FVAL)                    (( bool (*)(float) )                           jt[31])(FVAL)
@@ -91,11 +91,11 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jstrtoul(A,B,C)                 (( uint32_t (*)(const char *,char **, int) )   jt[68])(A,B,C)
 #define jAddLogBuffer(A,B,C)            (( void (*)(uint32_t,uint8_t*, uint32_t) )     jt[69])(A,B,C)
 // 70
-#define jResponseTime_P(...)            (( int (*)(const char*, ...) )                 jt[70])(__VA_ARGS__)
+#define jResponseTime_P(A,...)            (( int (*)(const char*, ...) )                 jt[70])(A,##__VA_ARGS__)
 #define jClaimSerial                    (( void (*)(void) )                            jt[71])
 #define jhardwareSerial(TSER)           (( bool (*)(void*) )                           jt[72])(TSER)
 #define jmillis                         (( uint32_t (*)(void) )                        jt[73])
-#define jsprintf_P(A,B,...)             (( void (*)(char*,const char * formatP,... ) ) jt[74])(A,B,__VA_ARGS__)
+#define jsprintf_P(A,B,...)             (( void (*)(char*,const char * formatP,... ) ) jt[74])(A,B,##__VA_ARGS__)
 #define jAddlogT(TXT)                   (( void (*)(char*) )                           jt[75])(TXT)
 #define jtmod__divsi3(A,B)              (( int32_t (*)(int32_t,int32_t) )              jt[76])(A,B)
 #define jtmod__udivsi3(A,B)             (( uint32_t (*)(uint32_t,uint32_t) )           jt[77])(A,B)
@@ -168,12 +168,15 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 
 //#define MODULE_DESC __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE
 #ifdef ESP32
-#define MODULE_PART __attribute__((section(SECTION_PART),aligned(4)))
+//#define MODULE_PART __attribute__( (section(SECTION_PART),aligned(4))) 
+#define MODULE_PART __attribute__( (section(SECTION_PART),aligned(4))) __attribute__( (optimize("no-stack-protector")) ) 
 #define MODULE_END __attribute__((section(SECTION_END),aligned(4))) static void  END_OF_MODULE(void) {__asm__ __volatile__(".align 4\n.word 0x4AFCAA55");}
 #else
 #define MODULE_PART __attribute__((section(SECTION_PART)))
 #define MODULE_END __attribute__((section(SECTION_END))) static void  END_OF_MODULE(void) {__asm__ __volatile__(".word 0x4AFCAA55");}
 #endif
+
+// #pragma GCC optimize ("-fno-stack-protector")
 
 //redefine_extname oldname newname
 //#pragma redefine_extname myroutine __fixed_myroutine
@@ -182,6 +185,16 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 //  return 0x12345678;
 //}
 
+//#pragma GCC push_options
+//#pragma GCC optimize ("-Og")
+//#pragma GCC optimize ("-O3")
+//#pragma GCC optimize ("-fno-stack-protector")
+//#pragma GCC pop_options
+
+/*
+xtensa-esp32-elf-objdump -d ./.pio/build/tasmota32-4M/firmware.elf >dissasm.txt
+riscv-esp32-elf-objdump -d ./.pio/build/tasmota32c3-4M/firmware.elf >dissasm.txt
+*/
 /*
 __asm__  (\
   ".section .text.mod_part\n"\
@@ -278,14 +291,19 @@ extern MODULES_TABLE modules[];
 
 #ifdef ESP32
 #undef GET_MTBL
-#define GET_MTBL MODULES_TABLE *mt = (MODULES_TABLE*)*(uint32_t*)GLOB_MOD_REG;
-#else
+//#define GET_MTBL MODULES_TABLE *mt = (MODULES_TABLE*)*(uint32_t*)GLOB_MOD_REG;
+#define GET_MTBL volatile MODULES_TABLE *mt = gettbl()
+#undef GET_JT
+#define GET_JT void (* const *jt)() = mt->jt
+//#define GET_JT volatile void (* const *jt)() = 0
 #undef GET_MTBL
 #define GET_MTBL MODULES_TABLE *mt = gettbl()
+#undef GET_JT
+#define GET_JT void (* const *jt)() = mt->jt
 #endif
 
-#define SETREGS GET_MTBL; MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;void (* const *jt)() = mt->jt;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
-#define ALLOCMEM GET_MTBL; void (* const *jt)() = mt->jt;mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
+#define SETREGS GET_MTBL; MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;GET_JT;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
+#define ALLOCMEM GET_MTBL; GET_JT; mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
 #define RETMEM if (mt->mem_size) {jfree(mt->mod_memory);mt->mem_size = 0;}
 #define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE MODULE_HEADER = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,END_OF_MODULE,0,0,(uint32_t)&modules,(uint32_t)&MODULE_JUMPTABLE,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
 #define MOD_FUNC(A, ...) A(MODULES_TABLE *mt, ##__VA_ARGS__)

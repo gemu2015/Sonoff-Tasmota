@@ -24,6 +24,7 @@
 
 #define MLX90614_REV  1<<16|2
 
+
 // this is the structure of the module:
 // descripotr, code, end
 MODULE_DESCRIPTOR("MLX90614", MODULE_TYPE_SENSOR, MLX90614_REV,"",0,"",0,"",0,"",0)
@@ -69,8 +70,6 @@ const char mlxdev[] PROGMEM = "MLX90614";
 
 
 int32_t Init_MLX90614() {
-
-  return 1;
   ALLOCMEM
 
   // now init variables here
@@ -81,14 +80,7 @@ int32_t Init_MLX90614() {
     return -1;
   }
 
-
-#if 0
   I2cSetActiveFound(I2_ADR_IRT, GSTR(mlxdev), 0);
-#else
-  char *cp = copyStr(GSTR(mlxdev));
-  I2cSetActiveFound(I2_ADR_IRT, cp, 0);
-  free(cp);
-#endif
 
   initialized = true;
   ready = true;
@@ -131,13 +123,10 @@ void MLX90614_Show(uint32_t json) {
   ftostrfd(amb_temp, jsettings->flag2.temperature_resolution, amb_tstr);
   char *cp;
   if (json) {
-    cp = copyStr(GSTR(JSON_IRTMP));
-    ResponseAppend_P(cp, obj_tstr, amb_tstr);
+    ResponseAppend_P(GSTR(JSON_IRTMP), obj_tstr, amb_tstr);
   } else {
-    cp = copyStr(GSTR(HTTP_IRTMP));
-    WSContentSend_PD(cp, obj_tstr, amb_tstr);
+    WSContentSend_PD(GSTR(HTTP_IRTMP), obj_tstr, amb_tstr);
   }
-  free(cp);
 }
 
 uint16_t MLX90614_read16(uint8_t addr, uint8_t a) {

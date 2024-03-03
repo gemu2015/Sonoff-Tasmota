@@ -167,10 +167,12 @@ const char moddev1[] PROGMEM = "ADS1115%c%02x";
 const char moddev2[] PROGMEM = "{\"%s\":{";
 const char moddev3[] PROGMEM = "%s\"A%ddiv10\":%d";
 const char moddev4[] PROGMEM = ",\"%s\":{";
-const char moddev5[] PROGMEM = "%s\"A%d\":%d";
+const char moddev5[] PROGMEM = "\"A1\":%d,\"A2\":%d,\"A3\":%d,\"A4\":%d}";
+
+//const char moddev5[] PROGMEM = "%s\"A%d\":%d";
 const char moddev6[] PROGMEM = ",";
 const char moddev7[] PROGMEM = "";
-const char moddev8[] PROGMEM = "{s}%s Analog%d{m}%d{e}";
+const char moddev8[] PROGMEM = "{s}%s Analog %d{m}%d{e}";
 
 //Ads1115StartComparator(channel, ADS1115_REG_CONFIG_MODE_SINGLE);
 //Ads1115StartComparator(channel, ADS1115_REG_CONFIG_MODE_CONTIN);
@@ -245,6 +247,7 @@ int32_t Init_ADS1115() {
 // Create the identifier of the the selected sensor
 void Ads1115Label(char* label, uint32_t maxsize, uint8_t address) {
   SETREGS
+
   if (1 == Ads1115.count) {
     // "ADS1115":{"A0":3240,"A1":3235,"A2":3269,"A3":3269}
     snprintf_P(label, maxsize, GSTR(moddev));
@@ -289,7 +292,17 @@ void AdsEvery250ms() {
         bool first = true;
         for (uint32_t i = 0; i < 4; i++) {
           if (bitRead(changed, i)) {
+#ifdef ESP8266            
             ResponseAppend_P(GSTR(moddev3), (first) ? GSTR(moddev7) : GSTR(moddev6), i, Ads1115.last_values[t][i]);
+#endif
+#ifdef ESP32
+            char *s2 = copyStr(GSTR(moddev7));
+            char *s3 = copyStr(GSTR(moddev6));
+            ResponseAppend_P(GSTR(moddev3), (first) ? s2 : s3, i, Ads1115.last_values[t][i]);
+            free(s2);
+            free(s3);
+#endif
+
             first = false;
           }
         }
@@ -324,14 +337,12 @@ void ADS1115_Show(bool json) {
 
       if (json) {
         ResponseAppend_P(GSTR(moddev4), label);
-        for (uint32_t i = 0; i < 4; i++) {
-          ResponseAppend_P(GSTR(moddev5), (0 == i) ? GSTR(moddev7) : GSTR(moddev6), i, values[i]);
-        }
+        ResponseAppend_P(GSTR(moddev5), values[0], values[1], values[2], values[3]);
         ResponseJsonEnd();
       }
       else {
         for (uint32_t i = 0; i < 4; i++) {
-          WSContentSend_PD(GSTR(moddev8), label, i, values[i]);
+          WSContentSend_PD(GSTR(moddev8), label, i + 1, values[i]);
         }
       }
     }
@@ -344,7 +355,7 @@ void ADS1115_Deinit() {
 
   for (uint32_t t = 0; t < fldsiz(ADS1115,addresses); t++) {
     if (Ads1115.found[t]) {
-      I2cResetActive(Ads1115.addresses[t],1);
+      I2cResetActive(Ads1115.addresses[t], 1);
     }
   }
   RETMEM
@@ -375,6 +386,5 @@ static int32_t mod_func_execute(uint32_t sel) {
   }
   return result;
 }
-
 
 #endif  // USE_ADS1115
