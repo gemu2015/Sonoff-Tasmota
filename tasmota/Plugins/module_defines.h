@@ -176,6 +176,35 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define MODULE_END __attribute__((section(SECTION_END))) static void  END_OF_MODULE(void) {__asm__ __volatile__(".word 0x4AFCAA55");}
 #endif
 
+
+#ifdef ESP32
+#ifdef __riscv
+#undef MODULE_PSTART
+
+#define MODULE_PSTART
+ //   _Pragma("GCC options push") \
+ //    _Pragma("GCC optimize ("-O1")")
+
+#undef MODULE_PEND
+#define MODULE_PEND
+  //  _Pragma("GCC options pop") \
+
+#else
+#undef MODULE_PSTART
+#define MODULE_PSTART
+#undef MODULE_PEND
+#define MODULE_PEND
+#endif
+#endif
+
+#ifdef ESP8266
+#undef MODULE_PSTART
+#define MODULE_PSTART
+#undef MODULE_PEND
+#define MODULE_PEND
+#endif
+
+
 // #pragma GCC optimize ("-fno-stack-protector")
 
 //redefine_extname oldname newname
@@ -193,7 +222,12 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 
 /*
 xtensa-esp32-elf-objdump -d ./.pio/build/tasmota32-4M/firmware.elf >dissasm.txt
-riscv-esp32-elf-objdump -d ./.pio/build/tasmota32c3-4M/firmware.elf >dissasm.txt
+riscv32-esp-elf-objdump -d ./.pio/build/tasmota32c3-4M/firmware.elf >dissasm.txt
+
+risc
+dump defect
+
+
 */
 /*
 __asm__  (\
@@ -290,12 +324,20 @@ extern MODULES_TABLE modules[];
 // counter 7 config 2  R/W = 0x3FF5705C
 
 #ifdef ESP32
+// esp32
+#ifdef __riscv
 #undef GET_MTBL
-//#define GET_MTBL MODULES_TABLE *mt = (MODULES_TABLE*)*(uint32_t*)GLOB_MOD_REG;
+#define GET_MTBL volatile MODULES_TABLE *mt = (MODULES_TABLE*)*(uint32_t*)GLOB_MOD_REG;
+#else
+#undef GET_MTBL
 #define GET_MTBL volatile MODULES_TABLE *mt = gettbl()
+#endif
+
 #undef GET_JT
 #define GET_JT void (* const *jt)() = mt->jt
-//#define GET_JT volatile void (* const *jt)() = 0
+
+#else
+// esp8266
 #undef GET_MTBL
 #define GET_MTBL MODULES_TABLE *mt = gettbl()
 #undef GET_JT

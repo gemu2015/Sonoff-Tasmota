@@ -894,7 +894,7 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
   *lp = ((uint32_t)fm->end_of_module + offset); 
   fm->mtv = (uint32_t)&modules[index];
   fm->jtab = (uint32_t)&MODULE_JUMPTABLE;
-  AddLog(LOG_LEVEL_INFO, PSTR("Module offset: %08x:"),old_mptr);
+  //AddLog(LOG_LEVEL_INFO, PSTR("Module offset: %08x:"),old_mptr);
   uint32_t *lwp=(uint32_t*)fdesc;
   uint32_t new_pc = (uint32_t)eeprom_block;
   *ioffset = offset;
@@ -1253,7 +1253,7 @@ int32_t Init_module(uint32_t module) {
     modules[module].flags.every_second = 1;
     modules[module].flags.web_sensor = 1;
     modules[module].flags.json_append = 1;
-    AddLog(LOG_LEVEL_INFO,PSTR("module %d inizialized: %d"),module + 1, result);
+    AddLog(LOG_LEVEL_INFO,PSTR("module %d inizialized: %08x"),module + 1, result);
     return 1;
   }
   return 0;
@@ -1300,6 +1300,7 @@ void Module_dump(void) {
       uint16_t size = modules[module].mod_size;
       uint32_t *lp = (uint32_t*) modules[module].mod_addr;
       for (uint32_t cnt = 0; cnt < (size / 32) + 1; cnt ++) {
+        char sbuff[128];
         AddLog(LOG_LEVEL_INFO,PSTR("%08x: %08x %08x %08x %08x %08x %08x %08x %08x"),lp,lp[0],lp[1],lp[2],lp[3],lp[4],lp[5],lp[6],lp[7]);
         lp += 8;
       }

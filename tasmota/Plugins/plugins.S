@@ -12,7 +12,16 @@
 
 
 #ifdef ESP32
-//#if 0
+#ifdef __riscv
+    .section .plugin.mod_part
+    .align 4
+    .global gettbl
+    .type   gettbl,@function
+    gettbl:
+    //la a0,  module_header+48
+    lw a0, module_header+48
+    ret
+#else
     .section .plugin.mod_part
     .align 4
     .global gettbl
@@ -21,6 +30,7 @@
     entry a1,32
     l32r	a2, module_header+48
     retw.n
+#endif
 #endif
 
 
