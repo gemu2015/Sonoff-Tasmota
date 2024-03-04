@@ -40,6 +40,11 @@
 
 #define CCS811_REV  1<<16|2
 
+#pragma GCC push_options
+#ifdef __riscv
+#pragma GCC optimize ("-O0")
+#endif
+
 MODULE_DESCRIPTOR("CCS811", MODULE_TYPE_SENSOR, CCS811_REV,"",0,"",0,"",0,"",0)
 // all functions must be declared MUDULE_PART
 MODULE_PART bool CCS811_Detect(void);
@@ -229,5 +234,6 @@ MOD_RESULT result = false;
   return result;
 }
 
+#pragma GCC pop_options
 #endif  // USE_CCS811
 

@@ -54,6 +54,11 @@
 
 #define SCD30_REV  1<<16|2
 
+#pragma GCC push_options
+#ifdef __riscv
+#pragma GCC optimize ("-O0")
+#endif
+
 MODULE_DESCRIPTOR("SCD30", MODULE_TYPE_SENSOR, SCD30_REV,"",0,"",0,"",0,"",0)
 // all functions must be declared MUDULE_PART
 MODULE_PART int32_t SCD30_Detect();
@@ -937,4 +942,5 @@ int32_t mod_func_execute(uint32_t sel) {
   return result;
 }
 
+#pragma GCC pop_options
 #endif  // USE_SCD30_MOD

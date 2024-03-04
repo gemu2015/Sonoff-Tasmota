@@ -119,6 +119,11 @@ typedef int32_t temperature_t;
 typedef uint32_t pressure_t;
 typedef uint32_t humidity_t;
 
+#pragma GCC push_options
+#ifdef __riscv
+#pragma GCC optimize ("-O0")
+#endif
+
 // this is the structure of the module:
 // descripotr, code, end
 MODULE_DESCRIPTOR("BMXx80", MODULE_TYPE_SENSOR, BMX_REV,"",0,"",0,"",0,"",0)
@@ -491,4 +496,5 @@ int32_t mod_func_execute(uint32_t sel) {
   return result;
 }
 
+#pragma GCC pop_options
 #endif // USE_BME_MOD

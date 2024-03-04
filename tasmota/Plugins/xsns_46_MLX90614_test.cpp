@@ -24,6 +24,10 @@
 
 #define MLX90614_REV  1<<16|2
 
+#pragma GCC push_options
+#ifdef __riscv
+#pragma GCC optimize ("-O0")
+#endif
 
 // this is the structure of the module:
 // descripotr, code, end
@@ -207,4 +211,5 @@ MOD_RESULT mod_func_execute(uint32_t sel) {
   return result;
 }
 
+#pragma GCC pop_options
 #endif // USE_MLX90614

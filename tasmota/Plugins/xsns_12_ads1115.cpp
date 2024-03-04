@@ -127,6 +127,11 @@ CONFIG REGISTER
 #define ADS1115_REG_CONFIG_CQUE_4CONV   (0x0002)  // Assert ALERT/RDY after four conversions
 #define ADS1115_REG_CONFIG_CQUE_NONE    (0x0003)  // Disable the comparator and put ALERT/RDY in high state (default)
 
+#pragma GCC push_options
+#ifdef __riscv
+#pragma GCC optimize ("-O0")
+#endif
+
 // this must be at the beginning
 MODULE_DESCRIPTOR("ADS1115",MODULE_TYPE_SENSOR,ADS1115_REV,"",0,"",0,"",0,"",0)
 
@@ -387,4 +392,5 @@ static int32_t mod_func_execute(uint32_t sel) {
   return result;
 }
 
+#pragma GCC pop_options
 #endif  // USE_ADS1115

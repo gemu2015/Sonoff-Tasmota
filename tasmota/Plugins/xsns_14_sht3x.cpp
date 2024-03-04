@@ -39,6 +39,10 @@
 
 #define SHT3X_REV  1<<16|2
 
+#pragma GCC push_options
+#ifdef __riscv
+#pragma GCC optimize ("-O0")
+#endif
 
 MODULE_DESCRIPTOR("SHT3X",MODULE_TYPE_SENSOR,SHT3X_REV,"",0,"",0,"",0,"",0)
 MODULE_PART int32_t Sht3x_Detect();
@@ -226,4 +230,5 @@ int32_t mod_func_execute(uint32_t sel) {
   return result;
 }
 
+#pragma GCC pop_options
 #endif  // USE_SHT3X

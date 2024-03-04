@@ -576,7 +576,7 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *offset, uint8_t f
 
 #ifdef __riscv
 #undef MODUL_END_OFFSET
-#define MODUL_END_OFFSET 4
+#define MODUL_END_OFFSET 20
 #else
 #undef MODUL_END_OFFSET
 #define MODUL_END_OFFSET 8
@@ -1294,18 +1294,52 @@ void Module_deiniz(void) {
 
 // dump module hex 32 bit words
 void Module_dump(void) {
+
+#if 1
+  if (XdrvMailbox.data_len) {
+    
+    char *cp = XdrvMailbox.data;
+    uint16_t module = strtol(cp, &cp, 10);
+    if (module >= 1 && module <= MAX_PLUGINS) {
+      module--;
+
+      int16_t block = 0;
+
+      if (*cp == ' ') {
+        cp++;
+        block = strtol(cp, &cp, 10);
+        if (block < 0 || block >= 8 ) {
+          block = 0;
+        }
+      }
+      uint16_t size = 512;
+      uint32_t *lp = (uint32_t*) modules[module].mod_addr;
+      lp += (512 / sizeof(uint32_t)) * block; 
+      for (uint32_t cnt = 0; cnt < (size / 32) + 1; cnt ++) {
+        AddLog(LOG_LEVEL_INFO,PSTR("%08x: %08x %08x %08x %08x %08x %08x %08x %08x"),lp,lp[0],lp[1],lp[2],lp[3],lp[4],lp[5],lp[6],lp[7]);
+        lp += 8;
+      }
+
+    }
+  }
+
+#else  
   if ((XdrvMailbox.payload >= 1) && (XdrvMailbox.payload <= MAX_PLUGINS)) {
     uint8_t module = XdrvMailbox.payload - 1;
     if (modules[module].mod_addr) {
       uint16_t size = modules[module].mod_size;
+#ifdef __riscv
+      // actually should test for single core
+      size = 512;
+#endif      
       uint32_t *lp = (uint32_t*) modules[module].mod_addr;
       for (uint32_t cnt = 0; cnt < (size / 32) + 1; cnt ++) {
-        char sbuff[128];
         AddLog(LOG_LEVEL_INFO,PSTR("%08x: %08x %08x %08x %08x %08x %08x %08x %08x"),lp,lp[0],lp[1],lp[2],lp[3],lp[4],lp[5],lp[6],lp[7]);
         lp += 8;
       }
     }
   }
+#endif
   ResponseCmndDone();
 }
 

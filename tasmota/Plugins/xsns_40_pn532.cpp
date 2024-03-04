@@ -110,6 +110,11 @@ typedef struct {
 
 #define PN532_REV  1<<16|2
 
+#pragma GCC push_options
+#ifdef __riscv
+#pragma GCC optimize ("-O0")
+#endif
+
 #ifdef USE_PN532_DATA_FUNCTION
 MODULE_DESCRIPTOR("PN532_D", MODULE_TYPE_SENSOR, PN532_REV,"RXD",3,"TXD",1,"MODE",0x01000101,"",0)
 #else
@@ -1070,4 +1075,5 @@ int32_t mod_func_execute(uint32_t sel) {
   return result;
 }
 
+#pragma GCC pop_options
 #endif  // USE_PN532_HSU_MOD
