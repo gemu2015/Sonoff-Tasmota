@@ -48,6 +48,17 @@ esp32 linker file = sections.ld
 	*(.plugin.mod_end)
 	/* end plugins */
 
+	esp32 needs an extra partition where binaries are stored (custom)
+	example:
+	# Name,   Type, SubType, Offset,  Size, Flags
+	nvs,      data, nvs,     0x9000,  0x5000,
+	otadata,  data, ota,     0xe000,  0x2000,
+	safeboot, app,  factory, 0x10000, 0xD0000,
+	app0,     app,  ota_0,   0xE0000, 0x2C0000,
+	custom,   app,  test,    0x3A0000,0x10000,
+	spiffs,   data, spiffs,  0x3B0000,0x50000,
+
+
 move grepmodule-firmware.py to folder Tools
 and place this into your platform_override.ini:
 extra_scripts           = ${esp_defaults.extra_scripts}

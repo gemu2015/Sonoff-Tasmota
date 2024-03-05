@@ -631,6 +631,7 @@ char *eval_sub(char *lp, TS_FLOAT *fvar, char *rstr);
 int32_t script_ow(uint8_t sel, uint32_t val);
 int32_t script_logfile_write(char *path, char *payload, uint32_t size);
 void script_sort_array(TS_FLOAT *array, uint16_t size);
+uint32_t Touch_Status(int32_t sel);
 
 void ScriptEverySecond(void) {
 

@@ -224,9 +224,14 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 xtensa-esp32-elf-objdump -d ./.pio/build/tasmota32-4M/firmware.elf >dissasm.txt
 riscv32-esp-elf-objdump -d ./.pio/build/tasmota32c3-4M/firmware.elf >dissasm.txt
 
-risc
-dump defect
+riscv_save - riscv_restore
 
+gcc -Q --help=optimizers
+gcc -Q --help=target
+
+riscv32-esp-elf-gcc -Q -O0 --help=optimizers >opts_0
+riscv32-esp-elf-gcc -Q -O3 --help=optimizers >opts_3
+diff opts_0 opts_3 | grep enabled
 
 */
 /*
@@ -327,7 +332,8 @@ extern MODULES_TABLE modules[];
 // esp32
 #ifdef __riscv
 #undef GET_MTBL
-#define GET_MTBL volatile MODULES_TABLE *mt = (MODULES_TABLE*)*(uint32_t*)GLOB_MOD_REG;
+//#define GET_MTBL volatile MODULES_TABLE *mt = (MODULES_TABLE*)*(uint32_t*)GLOB_MOD_REG;
+#define GET_MTBL volatile MODULES_TABLE *mt = gettbl()
 #else
 #undef GET_MTBL
 #define GET_MTBL volatile MODULES_TABLE *mt = gettbl()
