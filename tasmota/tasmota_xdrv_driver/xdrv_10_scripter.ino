@@ -285,7 +285,7 @@ extern Renderer *renderer;
 #define EPOCH_OFFSET 1546300800
 #endif
 
-enum {OPER_EQU=1,OPER_PLS,OPER_MIN,OPER_MUL,OPER_DIV,OPER_PLSEQU,OPER_MINEQU,OPER_MULEQU,OPER_DIVEQU,OPER_EQUEQU,OPER_NOTEQU,OPER_GRTEQU,OPER_LOWEQU,OPER_GRT,OPER_LOW,OPER_PERC,OPER_XOR,OPER_AND,OPER_OR,OPER_ANDEQU,OPER_OREQU,OPER_XOREQU,OPER_PERCEQU,OPER_SHLEQU,OPER_SHREQU,OPER_SHL,OPER_SHR};
+enum {OPER_EQU=1,OPER_PLS,OPER_MIN,OPER_MUL,OPER_DIV,OPER_PLSEQU,OPER_MINEQU,OPER_MULEQU,OPER_DIVEQU,OPER_EQUEQU,OPER_NOTEQU,OPER_GRTEQU,OPER_LOWEQU,OPER_GRT,OPER_LOW,OPER_PERC,OPER_XOR,OPER_AND,OPER_OR,OPER_ANDEQU,OPER_OREQU,OPER_XOREQU,OPER_PERCEQU,OPER_SHLEQU,OPER_SHREQU,OPER_SHL,OPER_SHR,OPER_NONE};
 enum {SCRIPT_LOGLEVEL=1,SCRIPT_TELEPERIOD,SCRIPT_EVENT_HANDLED,SML_JSON_ENABLE,SCRIPT_EPOFFS,SCRIPT_CBSIZE};
 
 
@@ -2416,11 +2416,9 @@ char *isargs(char *lp, uint32_t isind) {
   uint8_t slen = 0;
   for (uint32_t cnt = 0; cnt < SCRIPT_IS_STRING_MAXSIZE; cnt++) {
     if (*lp == '\n' || *lp == '"' || *lp == 0) {
-      lp++;
       if (cnt > 0 && !slen) {
         slen++;
       }
-      glob_script_mem.siro_num[isind] = slen;
       break;
     }
     if (*lp == '|') {
@@ -2428,6 +2426,8 @@ char *isargs(char *lp, uint32_t isind) {
     }
     lp++;
   }
+  lp++;
+  glob_script_mem.siro_num[isind] = slen;
 
   glob_script_mem.si_num[isind] = fvar;
   if (glob_script_mem.si_num[isind] > 0) {
@@ -6328,6 +6328,9 @@ char *getop(char *lp, uint8_t *operand) {
                 return lp + 1;
             }
             break;
+        default:
+          *operand = OPER_NONE;
+          break;
     }
     *operand = 0;
     return lp;
@@ -6938,7 +6941,7 @@ exit0:
   slp = lp;
   numeric = 1;
   lp = GetNumericArgument(lp, OPER_EQU, dfvar, gv);
-  if (glob_script_mem.glob_error==1) {
+  if (glob_script_mem.glob_error == 1) {
     // was string, not number
 	  char cmpstr[SCRIPT_MAXSSIZE];
     lp = slp;
@@ -6962,25 +6965,26 @@ exit0:
     lp = GetNumericArgument(lp, OPER_EQU, &fvar1, gv);
     switch (lastop) {
       case OPER_EQUEQU:
-          res = (*dfvar==fvar1);
+          res = (*dfvar == fvar1);
           break;
       case OPER_NOTEQU:
-          res = (*dfvar!=fvar1);
+          res = (*dfvar != fvar1);
           break;
       case OPER_LOW:
-          res = (*dfvar<fvar1);
+          res = (*dfvar < fvar1);
           break;
       case OPER_LOWEQU:
-          res = (*dfvar<=fvar1);
+          res = (*dfvar <= fvar1);
           break;
       case OPER_GRT:
-          res = (*dfvar>fvar1);
+          res = (*dfvar > fvar1);
           break;
       case OPER_GRTEQU:
-          res = (*dfvar>=fvar1);
+          res = (*dfvar >= fvar1);
           break;
       default:
           // error
+          res = 0;
           break;
     }
 
