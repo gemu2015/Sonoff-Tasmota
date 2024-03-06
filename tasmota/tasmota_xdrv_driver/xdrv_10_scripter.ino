@@ -10899,6 +10899,7 @@ uint32_t cnt;
 #define WSO_FORCESUBFILE 64
 #define WSO_STOP_DIV 0x80
 
+
 void WCS_DIV(uint8_t flag) {
   if (flag & WSO_NODIV) return;
   if (flag & WSO_STOP_DIV) {
@@ -11064,6 +11065,11 @@ uint8_t optflg = 0;
 const char *gc_str;
 
   Replace_Cmd_Vars(lp1, 1, tmp, sizeof(tmp));
+
+  if (mc=='§') {
+    WSContentSend_P(PSTR("%s"), tmp);
+    return;
+  }
 
   char *lin = tmp;
 
