@@ -49,7 +49,7 @@ keywords if then else endif, or, and are better readable for beginners (others m
 // float = 4, double = 8 bytes
 
 
-const uint8_t SCRIPT_VERS[2] = {5, 3};
+const uint8_t SCRIPT_VERS[2] = {5, 2};
 
 #define SCRIPT_DEBUG 0
 
@@ -285,7 +285,7 @@ extern Renderer *renderer;
 #define EPOCH_OFFSET 1546300800
 #endif
 
-enum {OPER_EQU=1,OPER_PLS,OPER_MIN,OPER_MUL,OPER_DIV,OPER_PLSEQU,OPER_MINEQU,OPER_MULEQU,OPER_DIVEQU,OPER_EQUEQU,OPER_NOTEQU,OPER_GRTEQU,OPER_LOWEQU,OPER_GRT,OPER_LOW,OPER_PERC,OPER_XOR,OPER_AND,OPER_OR,OPER_ANDEQU,OPER_OREQU,OPER_XOREQU,OPER_PERCEQU,OPER_SHLEQU,OPER_SHREQU,OPER_SHL,OPER_SHR,OPER_NONE};
+enum {OPER_EQU=1,OPER_PLS,OPER_MIN,OPER_MUL,OPER_DIV,OPER_PLSEQU,OPER_MINEQU,OPER_MULEQU,OPER_DIVEQU,OPER_EQUEQU,OPER_NOTEQU,OPER_GRTEQU,OPER_LOWEQU,OPER_GRT,OPER_LOW,OPER_PERC,OPER_XOR,OPER_AND,OPER_OR,OPER_ANDEQU,OPER_OREQU,OPER_XOREQU,OPER_PERCEQU,OPER_SHLEQU,OPER_SHREQU,OPER_SHL,OPER_SHR};
 enum {SCRIPT_LOGLEVEL=1,SCRIPT_TELEPERIOD,SCRIPT_EVENT_HANDLED,SML_JSON_ENABLE,SCRIPT_EPOFFS,SCRIPT_CBSIZE};
 
 
@@ -631,7 +631,6 @@ char *eval_sub(char *lp, TS_FLOAT *fvar, char *rstr);
 int32_t script_ow(uint8_t sel, uint32_t val);
 int32_t script_logfile_write(char *path, char *payload, uint32_t size);
 void script_sort_array(TS_FLOAT *array, uint16_t size);
-uint32_t Touch_Status(int32_t sel);
 
 void ScriptEverySecond(void) {
 
@@ -1562,21 +1561,21 @@ TS_FLOAT Get_MFilter(uint8_t index) {
 void Set_MFilter(uint8_t index, TS_FLOAT invar);
 void Set_MFilter(uint8_t index, TS_FLOAT invar) {
   uint8_t *mp = (uint8_t*)glob_script_mem.mfilt;
-  for (uint8_t count = 0; count < MAXFILT; count++) {
+  for (uint8_t count = 0; count<MAXFILT; count++) {
     struct M_FILT *mflp = (struct M_FILT*)mp;
-    if (count == index) {
+    if (count==index) {
       if (mflp->numvals & OR_FILT_MASK) {
         // moving average
         mflp->maccu -= mflp->rbuff[mflp->index];
         mflp->maccu += invar;
         mflp->rbuff[mflp->index] = invar;
         mflp->index++;
-        if (mflp->index >= (mflp->numvals & AND_FILT_MASK)) mflp->index = 0;
+        if (mflp->index>=(mflp->numvals&AND_FILT_MASK)) mflp->index = 0;
       } else {
         // median
         mflp->rbuff[mflp->index] = invar;
         mflp->index++;
-        if (mflp->index >= mflp->numvals) mflp->index = 0;
+        if (mflp->index>=mflp->numvals) mflp->index = 0;
       }
       break;
     }
@@ -2401,7 +2400,6 @@ void script_sort_string_array(uint8_t num) {
 
 
 char *isargs(char *lp, uint32_t isind) {
-  AddLog(LOG_LEVEL_INFO, PSTR("SCR: >>> %s - %d"), lp, isind);
   TS_FLOAT fvar;
   lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
   SCRIPT_SKIP_SPACES
@@ -2415,12 +2413,6 @@ char *isargs(char *lp, uint32_t isind) {
   }
   char *sstart = lp;
   uint8_t slen = 0;
-
-  char *cp = strchr(lp, '"');
-  if (cp) {
-    lp = cp + 1;
-    return lp;
-  }
   for (uint32_t cnt = 0; cnt < SCRIPT_IS_STRING_MAXSIZE; cnt++) {
     if (*lp == '\n' || *lp == '"' || *lp == 0) {
       lp++;
@@ -2435,7 +2427,6 @@ char *isargs(char *lp, uint32_t isind) {
     }
     lp++;
   }
-  AddLog(LOG_LEVEL_INFO, PSTR("SCR: >>> %s - %d"), sstart, slen);
 
   glob_script_mem.si_num[isind] = fvar;
   if (glob_script_mem.si_num[isind] > 0) {
@@ -3201,6 +3192,19 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           } else {
             fvar = 0;
           }
+          goto nfuncexit;
+        }
+        if (!strncmp_XP(lp, XPSTR("dump("), 5)) {
+          // get and return integer
+          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
+          uint32_t ivar = *(uint32_t*)&fvar;
+#ifdef ESP32
+          ivar = *(uint32_t*)ivar;
+#endif
+#ifdef ESP8266
+          ivar = *(uint32_t*)ivar;
+#endif
+          *(uint32_t*)&fvar = ivar; 
           goto nfuncexit;
         }
         break;
@@ -4807,14 +4811,6 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto nfuncexit;
         }
 #endif
-        if (!strncmp_XP(lp, XPSTR("rwd("), 4)) {
-          // get and return integer
-          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
-          uint32_t ivar = *(uint32_t*)&fvar;
-          ivar = *(uint32_t*)ivar;
-          *(uint32_t*)&fvar = ivar; 
-          goto nfuncexit;
-        }
         break;
 
       case 's':
@@ -6152,17 +6148,7 @@ extern char *SML_GetSVal(uint32_t index);
           goto nfuncexit;
         }
 #endif
-        if (!strncmp_XP(lp, XPSTR("wwd("), 4)) {
-          // write integer
-          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
-          uint32_t ivar = *(uint32_t*)&fvar;
-          lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
-          uint32_t lval = *(uint32_t*)&fvar;
-          *(uint32_t*)ivar = lval;
-          goto nfuncexit;
-        }
         break;
-
       case 'y':
         if (!strncmp_XP(vname, XPSTR("year"), 4)) {
           fvar = RtcTime.year;
@@ -6336,9 +6322,6 @@ char *getop(char *lp, uint8_t *operand) {
                 return lp + 1;
             }
             break;
-        default:
-          *operand = OPER_NONE;
-          break;
     }
     *operand = 0;
     return lp;
@@ -6949,7 +6932,7 @@ exit0:
   slp = lp;
   numeric = 1;
   lp = GetNumericArgument(lp, OPER_EQU, dfvar, gv);
-  if (glob_script_mem.glob_error == 1) {
+  if (glob_script_mem.glob_error==1) {
     // was string, not number
 	  char cmpstr[SCRIPT_MAXSSIZE];
     lp = slp;
@@ -6973,26 +6956,25 @@ exit0:
     lp = GetNumericArgument(lp, OPER_EQU, &fvar1, gv);
     switch (lastop) {
       case OPER_EQUEQU:
-          res = (*dfvar == fvar1);
+          res = (*dfvar==fvar1);
           break;
       case OPER_NOTEQU:
-          res = (*dfvar != fvar1);
+          res = (*dfvar!=fvar1);
           break;
       case OPER_LOW:
-          res = (*dfvar < fvar1);
+          res = (*dfvar<fvar1);
           break;
       case OPER_LOWEQU:
-          res = (*dfvar <= fvar1);
+          res = (*dfvar<=fvar1);
           break;
       case OPER_GRT:
-          res = (*dfvar > fvar1);
+          res = (*dfvar>fvar1);
           break;
       case OPER_GRTEQU:
-          res = (*dfvar >= fvar1);
+          res = (*dfvar>=fvar1);
           break;
       default:
           // error
-          res = 0;
           break;
     }
 
@@ -9686,19 +9668,6 @@ uint32_t options = 0;
 #ifdef USE_SCRIPT_SERIAL
   options |= 0x01000000;
 #endif
-#ifdef USE_SCRIPT_ONEWIRE
-  options |= 0x02000000;
-#endif
-#ifdef USE_SCRIPT_TCP_SERVER
-  options |= 0x04000000;
-#endif
-#ifdef USE_SML_SCRIPT_CMD
-  options |= 0x08000000;
-#endif
-#ifdef TESLA_POWERWALL
-  options |= 0x10000000;
-#endif
-
 
   Response_P(PSTR("{\"script\":{\"vers\":%d.%d,\"opts\":%08x}}"), SCRIPT_VERS[0], SCRIPT_VERS[1], options);
 }
