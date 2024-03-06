@@ -2480,14 +2480,16 @@ char iob = *cp;
 char *isget(char *lp, char *sp, uint32_t isind, struct GVARS *gv) {
 TS_FLOAT fvar;
   lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
+  uint8_t index = fvar;
   SCRIPT_SKIP_SPACES
   char str[SCRIPT_MAXSSIZE];
   str[0] = 0;
-  uint8_t index = fvar;
+  
   if (index < 1) index = 1;
   index--;
   if (gv) gv->strind = index;
   glob_script_mem.sind_num = isind;
+
   if (glob_script_mem.last_index_string[isind]) {
     if (!glob_script_mem.si_num[isind]) {
       if (index <= glob_script_mem.siro_num[isind]) {
@@ -11058,6 +11060,8 @@ int32_t web_send_file(char mc, char *fname) {
   return -2;
 }
 
+//#define SCRIPT_WEB_DEBUG
+
 char *web_send_line(char mc, char *lp1) {
 char tmp[256];
 char center[10];
@@ -11065,12 +11069,6 @@ uint8_t optflg = 0;
 const char *gc_str;
 
   Replace_Cmd_Vars(lp1, 1, tmp, sizeof(tmp));
-
-  if (mc=='§') {
-    WSContentSend_P(PSTR("%s"), tmp);
-    return;
-  }
-
   char *lin = tmp;
 
   if (!strncmp(lin, "so(", 3)) {
@@ -11101,7 +11099,9 @@ const char *gc_str;
   if ((dogui && !(specopt & WSO_FORCEGUI)) || (!dogui && (specopt & WSO_FORCEGUI))) {
   //if ( ((!mc && (*lin != '$')) || (mc == 'w' && (*lin != '$'))) && (!(specopt & WSO_FORCEMAIN)) || (specopt & WSO_FORCEGUI)) {
     // normal web section
-    //AddLog(LOG_LEVEL_INFO, PSTR("normal %s"), lin);
+#ifdef SCRIPT_WEB_DEBUG    
+    AddLog(LOG_LEVEL_INFO, PSTR("WEB GUI section"));
+#endif
     if (*lin == '@') {
       lin++;
       optflg = 1;
@@ -11509,7 +11509,9 @@ const char *gc_str;
     // end standard web interface
   } else {
     //  main section interface
-    //AddLog(LOG_LEVEL_INFO, PSTR("main %s"), lin);
+#ifdef SCRIPT_WEB_DEBUG    
+    AddLog(LOG_LEVEL_INFO, PSTR("WEB main section"));
+#endif
     if ( (*lin == mc) || (mc == 'z') || (specopt & WSO_FORCEMAIN)) {
 
 #ifdef USE_GOOGLE_CHARTS
@@ -11519,8 +11521,10 @@ const char *gc_str;
         }
       }
 exgc:
+#ifdef SCRIPT_WEB_DEBUG    
+      AddLog(LOG_LEVEL_INFO, PSTR("WEB GC section"));
+#endif
       char *lp;
-
       char *cp = strstr_P(lin, PSTR("insa("));
       if (cp) {
         // insert array
