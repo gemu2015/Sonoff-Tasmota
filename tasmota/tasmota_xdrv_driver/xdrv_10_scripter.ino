@@ -2401,6 +2401,7 @@ void script_sort_string_array(uint8_t num) {
 
 
 char *isargs(char *lp, uint32_t isind) {
+  AddLog(LOG_LEVEL_INFO, PSTR("SCR: >>> %s - %d"), lp, isind);
   TS_FLOAT fvar;
   lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
   SCRIPT_SKIP_SPACES
@@ -2414,11 +2415,19 @@ char *isargs(char *lp, uint32_t isind) {
   }
   char *sstart = lp;
   uint8_t slen = 0;
+
+  char *cp = strchr(lp, '"');
+  if (cp) {
+    lp = cp + 1;
+    return lp;
+  }
   for (uint32_t cnt = 0; cnt < SCRIPT_IS_STRING_MAXSIZE; cnt++) {
     if (*lp == '\n' || *lp == '"' || *lp == 0) {
+      lp++;
       if (cnt > 0 && !slen) {
         slen++;
       }
+      glob_script_mem.siro_num[isind] = slen;
       break;
     }
     if (*lp == '|') {
@@ -2426,8 +2435,7 @@ char *isargs(char *lp, uint32_t isind) {
     }
     lp++;
   }
-  lp++;
-  glob_script_mem.siro_num[isind] = slen;
+  AddLog(LOG_LEVEL_INFO, PSTR("SCR: >>> %s - %d"), sstart, slen);
 
   glob_script_mem.si_num[isind] = fvar;
   if (glob_script_mem.si_num[isind] > 0) {

@@ -129,7 +129,7 @@ CONFIG REGISTER
 
 #pragma GCC push_options
 #ifdef __riscv
-#pragma GCC optimize ("-O0")
+#pragma GCC optimize ("-Og")
 #endif
 
 // this must be at the beginning

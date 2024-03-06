@@ -576,7 +576,8 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *offset, uint8_t f
 
 #ifdef __riscv
 #undef MODUL_END_OFFSET
-#define MODUL_END_OFFSET 20
+//#define MODUL_END_OFFSET 20
+#define MODUL_END_OFFSET 4
 #else
 #undef MODUL_END_OFFSET
 #define MODUL_END_OFFSET 8

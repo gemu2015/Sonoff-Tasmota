@@ -26,7 +26,7 @@
 
 #pragma GCC push_options
 #ifdef __riscv
-#pragma GCC optimize ("-O0")
+#pragma GCC optimize ("-Og")
 #endif
 
 // this is the structure of the module:
@@ -105,11 +105,14 @@ float MLX90614_GetValue(uint32_t reg) {
   SETREGS
   uint16_t val = 0;
   float ret = 0;
+
   val = MLX90614_read16(I2_ADR_IRT, reg);
   if (val & 0x8000) {
     ret = -999;
   } else {
-    ret = fscale(val, (float)0.02, (float)273.15);
+    //ret = fscale(val, (float)0.02, (float)273.15);
+    ret = fscale(val, 1, 1);
+
     //ret = ((float)val * (float)0.02) - (float)273.15;
   }
   return ret;
@@ -202,7 +205,7 @@ MOD_RESULT mod_func_execute(uint32_t sel) {
       MLX90614_Show(0);
       break;
     case FUNC_EVERY_SECOND:
-      MLX90614_Every_Second();
+      //MLX90614_Every_Second();
       break;
     case FUNC_DEINIT:
       MLX90614_Deinit();
