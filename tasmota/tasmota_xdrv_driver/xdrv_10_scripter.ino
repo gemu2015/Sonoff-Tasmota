@@ -49,7 +49,7 @@ keywords if then else endif, or, and are better readable for beginners (others m
 // float = 4, double = 8 bytes
 
 
-const uint8_t SCRIPT_VERS[2] = {5, 2};
+const uint8_t SCRIPT_VERS[2] = {5, 3};
 
 #define SCRIPT_DEBUG 0
 
@@ -631,6 +631,7 @@ char *eval_sub(char *lp, TS_FLOAT *fvar, char *rstr);
 int32_t script_ow(uint8_t sel, uint32_t val);
 int32_t script_logfile_write(char *path, char *payload, uint32_t size);
 void script_sort_array(TS_FLOAT *array, uint16_t size);
+uint32_t Touch_Status(int32_t sel);
 
 void ScriptEverySecond(void) {
 
@@ -1561,21 +1562,21 @@ TS_FLOAT Get_MFilter(uint8_t index) {
 void Set_MFilter(uint8_t index, TS_FLOAT invar);
 void Set_MFilter(uint8_t index, TS_FLOAT invar) {
   uint8_t *mp = (uint8_t*)glob_script_mem.mfilt;
-  for (uint8_t count = 0; count<MAXFILT; count++) {
+  for (uint8_t count = 0; count < MAXFILT; count++) {
     struct M_FILT *mflp = (struct M_FILT*)mp;
-    if (count==index) {
+    if (count == index) {
       if (mflp->numvals & OR_FILT_MASK) {
         // moving average
         mflp->maccu -= mflp->rbuff[mflp->index];
         mflp->maccu += invar;
         mflp->rbuff[mflp->index] = invar;
         mflp->index++;
-        if (mflp->index>=(mflp->numvals&AND_FILT_MASK)) mflp->index = 0;
+        if (mflp->index >= (mflp->numvals & AND_FILT_MASK)) mflp->index = 0;
       } else {
         // median
         mflp->rbuff[mflp->index] = invar;
         mflp->index++;
-        if (mflp->index>=mflp->numvals) mflp->index = 0;
+        if (mflp->index >= mflp->numvals) mflp->index = 0;
       }
       break;
     }
@@ -3194,19 +3195,6 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           }
           goto nfuncexit;
         }
-        if (!strncmp_XP(lp, XPSTR("dump("), 5)) {
-          // get and return integer
-          lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
-          uint32_t ivar = *(uint32_t*)&fvar;
-#ifdef ESP32
-          ivar = *(uint32_t*)ivar;
-#endif
-#ifdef ESP8266
-          ivar = *(uint32_t*)ivar;
-#endif
-          *(uint32_t*)&fvar = ivar; 
-          goto nfuncexit;
-        }
         break;
       case 'e':
         if (!strncmp_XP(vname, XPSTR("epoch"), 5)) {
@@ -4811,6 +4799,14 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto nfuncexit;
         }
 #endif
+        if (!strncmp_XP(lp, XPSTR("rwd("), 4)) {
+          // get and return integer
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
+          uint32_t ivar = *(uint32_t*)&fvar;
+          ivar = *(uint32_t*)ivar;
+          *(uint32_t*)&fvar = ivar; 
+          goto nfuncexit;
+        }
         break;
 
       case 's':
@@ -6148,7 +6144,17 @@ extern char *SML_GetSVal(uint32_t index);
           goto nfuncexit;
         }
 #endif
+        if (!strncmp_XP(lp, XPSTR("wwd("), 4)) {
+          // write integer
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
+          uint32_t ivar = *(uint32_t*)&fvar;
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
+          uint32_t lval = *(uint32_t*)&fvar;
+          *(uint32_t*)ivar = lval;
+          goto nfuncexit;
+        }
         break;
+
       case 'y':
         if (!strncmp_XP(vname, XPSTR("year"), 4)) {
           fvar = RtcTime.year;
@@ -9668,6 +9674,19 @@ uint32_t options = 0;
 #ifdef USE_SCRIPT_SERIAL
   options |= 0x01000000;
 #endif
+#ifdef USE_SCRIPT_ONEWIRE
+  options |= 0x02000000;
+#endif
+#ifdef USE_SCRIPT_TCP_SERVER
+  options |= 0x04000000;
+#endif
+#ifdef USE_SML_SCRIPT_CMD
+  options |= 0x08000000;
+#endif
+#ifdef TESLA_POWERWALL
+  options |= 0x10000000;
+#endif
+
 
   Response_P(PSTR("{\"script\":{\"vers\":%d.%d,\"opts\":%08x}}"), SCRIPT_VERS[0], SCRIPT_VERS[1], options);
 }
