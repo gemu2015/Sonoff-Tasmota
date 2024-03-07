@@ -84,6 +84,13 @@ const uint8_t SCRIPT_VERS[2] = {5, 3};
 //#define SCRIPT_MAX_SBSIZE SCRIPT_MAXSSIZE
 #define SCRIPT_MAX_SBSIZE glob_script_mem.max_ssize
 
+#ifndef SCRIPT_GC_OPTIONS_SIZE
+#define SCRIPT_GC_OPTIONS_SIZE 320
+#endif
+
+#ifndef SCRIPT_WS_LINE_SIZE
+#define SCRIPT_WS_LINE_SIZE 256
+#endif
 
 #ifndef SCRIPT_CMDMEM
 #define SCRIPT_CMDMEM 512
@@ -3805,7 +3812,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           if (glob_script_mem.file_flags[find].is_open) {
             // read line
-            char instr[256];
+            char instr[SCRIPT_MAX_SBSIZE];
             fread_str_fp(&glob_script_mem.files[find], instr, sizeof(instr), fvar);
             if (sp) strlcpy(sp, instr, glob_script_mem.max_ssize);
           }
@@ -7753,16 +7760,20 @@ getnext:
                 goto next_line;
             } else if (!strncmp(lp, "=(", 2)) {
                 lp += 2;
-                char str[128];
-                str[0] = '>';
-                lp = GetStringArgument(lp, OPER_EQU, &str[1], 0);
-                lp++;
-                //execute_script(str);
-                char *svd_sp = glob_script_mem.scriptptr;
-                strcat(str, "\n#");
-                glob_script_mem.scriptptr = str;
-                Run_script_sub(">", 1, gv);
-                glob_script_mem.scriptptr = svd_sp;
+                //char str[128];
+                char *str = (char*)calloc(128, 1);
+                if (str) {
+                  str[0] = '>';
+                  lp = GetStringArgument(lp, OPER_EQU, &str[1], 0);
+                  lp++;
+                  //execute_script(str);
+                  char *svd_sp = glob_script_mem.scriptptr;
+                  strcat(str, "\n#");
+                  glob_script_mem.scriptptr = str;
+                  Run_script_sub(">", 1, gv);
+                  glob_script_mem.scriptptr = svd_sp;
+                  free(str);
+                }
             }
 
             // check for variable result
@@ -9262,7 +9273,7 @@ void Script_Check_Hue(String *response) {
   if (!bitRead(Settings->rule_enabled, 0)) return;
 
   uint8_t hue_script_found = Run_Scripter1(">H", -2, 0);
-  if (hue_script_found!=99) return;
+  if (hue_script_found != 99) return;
 
   char tmp[256];
   uint8_t hue_devs = 0;
@@ -9568,34 +9579,38 @@ bool Script_SubCmd(void) {
 
   int32_t pl = XdrvMailbox.payload;
 
-  char cmdbuff[128];
-  char *cp = cmdbuff;
-  *cp++ = '#';
-  strlcpy(cp, command, sizeof(cmdbuff) - 1);
-  uint8_t tlen = strlen(command);
-  cp += tlen;
-  if (XdrvMailbox.data_len > 0) {
-    *cp++ = '(';
-    uint32_t max_space = sizeof(cmdbuff) - tlen - 4;  // 4 = #()0
-    uint32_t max_len = min(XdrvMailbox.data_len, max_space);
-    strncpy(cp, XdrvMailbox.data, max_len);
-    cp += max_len;
-    *cp++ = ')';
-    *cp = 0;
-  }
-  //toLog(cmdbuff);
-  uint32_t res = Run_Scripter1(cmdbuff, tlen + 1, 0);
-  //AddLog(LOG_LEVEL_INFO,">>%d",res);
-  if (res) {
-    return false;
-  }
-  else {
-    cp = XdrvMailbox.data;
-    while (*cp==' ') cp++;
-    if (isdigit(*cp) || *cp=='-') {
-      Response_P(S_JSON_COMMAND_NVALUE, command, XdrvMailbox.payload);
-    } else {
-      Response_P(S_JSON_COMMAND_SVALUE, command, XdrvMailbox.data);
+  //char cmdbuff[128];
+  char *cmdbuff = (char*)malloc(128);
+  if (cmdbuff) {
+    char *cp = cmdbuff;
+    *cp++ = '#';
+    strlcpy(cp, command, sizeof(cmdbuff) - 1);
+    uint8_t tlen = strlen(command);
+    cp += tlen;
+    if (XdrvMailbox.data_len > 0) {
+      *cp++ = '(';
+      uint32_t max_space = sizeof(cmdbuff) - tlen - 4;  // 4 = #()0
+      uint32_t max_len = min(XdrvMailbox.data_len, max_space);
+      strncpy(cp, XdrvMailbox.data, max_len);
+      cp += max_len;
+      *cp++ = ')';
+      *cp = 0;
+    }
+    //toLog(cmdbuff);
+    uint32_t res = Run_Scripter1(cmdbuff, tlen + 1, 0);
+    free(cmdbuff);
+    //AddLog(LOG_LEVEL_INFO,">>%d",res);
+    if (res) {
+      return false;
+    }
+    else {
+      cp = XdrvMailbox.data;
+      while (*cp==' ') cp++;
+      if (isdigit(*cp) || *cp=='-') {
+        Response_P(S_JSON_COMMAND_NVALUE, command, XdrvMailbox.payload);
+      } else {
+        Response_P(S_JSON_COMMAND_SVALUE, command, XdrvMailbox.data);
+      }
     }
   }
   return true;
@@ -11065,12 +11080,11 @@ int32_t web_send_file(char mc, char *fname) {
 }
 
 //#define SCRIPT_WEB_DEBUG
-#define WS_LINE_SIZE 256
 #define WS_LINE_RETURN free(tmp); return 0;
 
 char *web_send_line(char mc, char *lp1) {
 //char tmp[256];
-char *tmp = (char*)malloc(WS_LINE_SIZE);
+char *tmp = (char*)malloc(SCRIPT_WS_LINE_SIZE);
 if (!tmp) {
   return 0;
 }
@@ -11079,7 +11093,7 @@ char center[10];
 uint8_t optflg = 0;
 const char *gc_str;
 
-  Replace_Cmd_Vars(lp1, 1, tmp, WS_LINE_SIZE);
+  Replace_Cmd_Vars(lp1, 1, tmp, SCRIPT_WS_LINE_SIZE);
   char *lin = tmp;
 
   if (!strncmp(lin, "so(", 3)) {
@@ -11601,8 +11615,8 @@ exgc:
         SCRIPT_SKIP_SPACES
 
         const char *func;
-        //char options[312];
-        char *options = (char*)malloc(312);
+        //char options[SCRIPT_GC_OPTIONS_SIZE];
+        char *options = (char*)malloc(SCRIPT_GC_OPTIONS_SIZE);
         if (!options) {
           WS_LINE_RETURN
         }
@@ -11979,7 +11993,11 @@ exgc:
 void script_send_email_body(void(*func)(char *)) {
 uint8_t msect = Run_Scripter1(">m", -2, 0);
   if (msect == 99) {
-    char tmp[256];
+    //char tmp[256];
+    char *tmp = (char*)malloc(256);
+    if (!tmp) {
+      return;
+    }
     char *lp = glob_script_mem.section_ptr + 2;
     while (lp) {
       while (*lp == SCRIPT_EOL) {
@@ -12002,6 +12020,7 @@ uint8_t msect = Run_Scripter1(">m", -2, 0);
         lp++;
       }
     }
+    free(tmp);
   } else {
     //client->println("*");
     func((char*)"*");
@@ -12013,7 +12032,11 @@ uint8_t msect = Run_Scripter1(">m", -2, 0);
 void ScriptJsonAppend(void) {
   uint8_t web_script = Run_Scripter1(">J", -2, 0);
   if (web_script==99) {
-    char tmp[256];
+    //char tmp[256];
+    char *tmp = (char*)malloc(256);
+    if (!tmp) {
+      return;
+    }
     char *lp = glob_script_mem.section_ptr + 2;
     while (lp) {
       while (*lp == SCRIPT_EOL) {
@@ -12040,6 +12063,7 @@ void ScriptJsonAppend(void) {
         lp++;
       }
     }
+    free(tmp);
   }
 }
 #endif //USE_SCRIPT_JSON_EXPORT
@@ -12317,7 +12341,11 @@ int32_t http_req(char *host, char *header, char *request) {
   HTTPClient http;
   int32_t httpCode = 0;
   uint8_t mode = 0;
-  char hbuff[256];
+  //char hbuff[256];
+  char *hbuff = (char*)malloc(256);
+  if (!hbuff) {
+    return -1;
+  }
   strcpy(hbuff, "http://");
   bool debug = false;
   if (*host == '@') {
@@ -12357,6 +12385,7 @@ int32_t http_req(char *host, char *header, char *request) {
     }
     httpCode = http.POST(request);
   }
+  free(hbuff);
 
 #ifdef HTTP_DEBUG
   AddLog(LOG_LEVEL_INFO, PSTR("SCR: HTTP RESULT %s"), http.getString().c_str());
