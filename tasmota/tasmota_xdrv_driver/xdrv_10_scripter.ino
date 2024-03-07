@@ -81,6 +81,10 @@ const uint8_t SCRIPT_VERS[2] = {5, 3};
 #define SCRIPT_MAXSSIZE 48
 #endif
 
+//#define SCRIPT_MAX_SBSIZE SCRIPT_MAXSSIZE
+#define SCRIPT_MAX_SBSIZE glob_script_mem.max_ssize
+
+
 #ifndef SCRIPT_CMDMEM
 #define SCRIPT_CMDMEM 512
 #endif
@@ -1148,7 +1152,7 @@ char *script;
     for (uint16_t count = 0; count < glob_script_mem.numvars; count++) {
       char *cp = glob_script_mem.glob_vnp + glob_script_mem.vnp_offset[count];
       if (dvtp[count].bits.is_string) {
-        strlcpy(string, glob_script_mem.glob_snp + (dvtp[count].index * glob_script_mem.max_ssize), SCRIPT_MAXSSIZE);
+        strlcpy(string, glob_script_mem.glob_snp + (dvtp[count].index * glob_script_mem.max_ssize), SCRIPT_MAX_SBSIZE);
       } else {
         f2char(glob_script_mem.fvars[dvtp[count].index], glob_script_mem.script_dprec, glob_script_mem.script_lzero, string, '.');
       }
@@ -1319,7 +1323,7 @@ void Script_PollUdp(void) {
 #ifdef SCRIPT_DEBUG_UDP
             AddLog(LOG_LEVEL_DEBUG, PSTR("SCR: string var found - %s - %d - %d"), vnam, res, index);
 #endif
-            strlcpy(sp, cp + 1, SCRIPT_MAXSSIZE);
+            strlcpy(sp, cp + 1, SCRIPT_MAX_SBSIZE);
           } else {
             // error var not found
           }
@@ -1346,7 +1350,7 @@ void script_udp_sendvar(char *vname, TS_FLOAT *fp, char *sp) {
   if (!glob_script_mem.udp_flags.udp_used) return;
   if (!glob_script_mem.udp_flags.udp_connected) return;
 
-  char sbuf[SCRIPT_MAXSSIZE + 4];
+  char sbuf[SCRIPT_MAX_SBSIZE + 4];
   strcpy(sbuf, "=>");
   strcat(sbuf, vname);
   strcat(sbuf, "=");
@@ -2380,7 +2384,7 @@ void script_sort_string_array(uint8_t num) {
   if (!sa) {
     return;
   }
-  char temp[SCRIPT_MAXSSIZE];
+  char temp[SCRIPT_MAX_SBSIZE];
   bool swapped;
   do {
     swapped = false;
@@ -2437,7 +2441,7 @@ char *isargs(char *lp, uint32_t isind) {
 
     glob_script_mem.last_index_string[isind] = (char*)calloc(glob_script_mem.max_ssize * glob_script_mem.si_num[isind], 1);
     for (uint32_t cnt = 0; cnt < glob_script_mem.siro_num[isind]; cnt++) {
-      char str[SCRIPT_MAXSSIZE];
+      char str[SCRIPT_MAX_SBSIZE];
       GetTextIndexed(str, sizeof(str), cnt, sstart);
       strlcpy(glob_script_mem.last_index_string[isind] + (cnt * glob_script_mem.max_ssize), str, glob_script_mem.max_ssize);
     }
@@ -2482,7 +2486,7 @@ TS_FLOAT fvar;
   lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
   uint8_t index = fvar;
   SCRIPT_SKIP_SPACES
-  char str[SCRIPT_MAXSSIZE];
+  char str[SCRIPT_MAX_SBSIZE];
   str[0] = 0;
   
   if (index < 1) index = 1;
@@ -2575,8 +2579,6 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, TS_FLOAT *fp, char *
         return lp;
     }
 
-
-
     if (*lp == '"') {
       lp++;
       while (*lp != '"') {
@@ -2663,7 +2665,7 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, TS_FLOAT *fp, char *
                     if (fp) *fp = fvar;
                 } else {
                     *vtype = STYPE;  //|index;
-                    if (sp) strlcpy(sp, glob_script_mem.glob_snp + (index * glob_script_mem.max_ssize), SCRIPT_MAXSSIZE);
+                    if (sp) strlcpy(sp, glob_script_mem.glob_snp + (index * glob_script_mem.max_ssize), SCRIPT_MAX_SBSIZE);
                 }
                 return lp + len;
             }
@@ -2680,7 +2682,7 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, TS_FLOAT *fp, char *
 
 #ifdef USE_SCRIPT_FULL_JSON_PARSER
   // epoch offset missing in this version
-      char str_value[SCRIPT_MAXSSIZE];
+      char str_value[SCRIPT_MAX_SBSIZE];
       str_value[0]=0;
       TS_FLOAT fv;
       uint32_t res = JsonParsePath(gv->jo, vname, '#', &fv, str_value, sizeof(str_value));
@@ -2707,7 +2709,7 @@ nexit:
           *vtype = STR_RES;
           tind->bits.constant = 1;
           tind->bits.is_string = 1;
-          if (sp) strlcpy(sp, str_value, SCRIPT_MAXSSIZE);
+          if (sp) strlcpy(sp, str_value, SCRIPT_MAX_SBSIZE);
           return lp + len;
         }
       }
@@ -2793,7 +2795,7 @@ nexit:
                 *vtype = STR_RES;
                 tind->bits.constant = 1;
                 tind->bits.is_string = 1;
-                if (sp) strlcpy(sp, str_value, SCRIPT_MAXSSIZE);
+                if (sp) strlcpy(sp, str_value, SCRIPT_MAX_SBSIZE);
                 return lp + len;
               }
 
@@ -2840,7 +2842,7 @@ chknext:
         }
 
         if (!strncmp_XP(lp, XPSTR("asc("), 4)) {
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, str, gv);
           fvar = str[0];
           goto nfuncexit;
@@ -2954,9 +2956,9 @@ chknext:
           lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
           switch ((uint8_t)fvar) {
             case 0:
-              { char ssid[SCRIPT_MAXSSIZE];
+              { char ssid[SCRIPT_MAX_SBSIZE];
               lp = GetStringArgument(lp, OPER_EQU, ssid, 0);
-              char pw[SCRIPT_MAXSSIZE];
+              char pw[SCRIPT_MAX_SBSIZE];
               lp = GetStringArgument(lp, OPER_EQU, pw, 0);
               IPAddress local_IP(192,168,189,1);
               IPAddress gateway(192,168,189,1);
@@ -3013,7 +3015,7 @@ chknext:
 #ifdef USE_FLASH_BDIR
         if (!strncmp_XP(lp, XPSTR("bdir("), 5)) {
           lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           if (fvar > 1) {
             lp = GetStringArgument(lp, OPER_EQU, str, 0);
           }
@@ -3092,7 +3094,7 @@ chknext:
 #endif
 #ifdef USE_FEXTRACT
         if (!strncmp_XP(lp, XPSTR("cts("), 4)) {
-          char tsin[SCRIPT_MAXSSIZE];
+          char tsin[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, tsin, 0);
           SCRIPT_SKIP_SPACES
           int8_t flg = -1;
@@ -3100,7 +3102,7 @@ chknext:
             lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
             flg = fvar;
           }
-          char tsout[SCRIPT_MAXSSIZE];
+          char tsout[SCRIPT_MAX_SBSIZE];
           cnvts(tsout, tsin, flg);
           if (sp) strlcpy(sp, tsout, glob_script_mem.max_ssize);
           lp++;
@@ -3272,7 +3274,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 //#define DEBUG_FS
 #ifdef USE_SCRIPT_FATFS
         if (!strncmp_XP(lp, XPSTR("fo("), 3)) {
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
           while (*lp == ' ') lp++;
           uint8_t mode = 0;
@@ -3355,7 +3357,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto nfuncexit;
         }
         if (!strncmp_XP(lp, XPSTR("fw("), 3)) {
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           lp = ForceStringVar(lp + 3, str);
           while (*lp == ' ') lp++;
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
@@ -3416,7 +3418,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
              options = fvar;
           }
           uint8_t index = 0;
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           char *cp = str;
           if (glob_script_mem.file_flags[find].is_open) {
             if (glob_script_mem.file_flags[find].is_dir) {
@@ -3519,7 +3521,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto nfuncexit;
         }
         if (!strncmp_XP(lp, XPSTR("fd("), 3)) {
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
           ufsp->remove(str);
           goto nfuncexit;
@@ -3566,7 +3568,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 #endif //ESP32 && USE_WEBCAM
 #ifdef USE_SCRIPT_FATFS_EXT
         if (!strncmp_XP(lp, XPSTR("fe("), 3)) {
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
           // execute script
           File ef = ufsp->open(str, FS_FILE_READ);
@@ -3587,7 +3589,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto nfuncexit;
         }
         if (!strncmp_XP(lp, XPSTR("fmd("), 4)) {
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, str, 0);
           fvar = ufsp->mkdir(str);
           goto nfuncexit;
@@ -3602,13 +3604,13 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto nfuncexit;
         }
         if (!strncmp_XP(lp, XPSTR("frd("), 4)) {
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, str, 0);
           fvar = ufsp->rmdir(str);
           goto nfuncexit;
         }
         if (!strncmp_XP(lp, XPSTR("fx("), 3)) {
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
           if (ufsp->exists(str)) fvar = 1;
           else fvar = 0;
@@ -3622,11 +3624,11 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         }
         if (!strncmp_XP(lp, XPSTR("frn("), 4)) {
           // rename a file
-          char fn_from[SCRIPT_MAXSSIZE];
+          char fn_from[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, fn_from, 0);
           SCRIPT_SKIP_SPACES
 
-          char fn_to[SCRIPT_MAXSSIZE];
+          char fn_to[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp, OPER_EQU, fn_to, 0);
           SCRIPT_SKIP_SPACES
 
@@ -3766,7 +3768,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           SCRIPT_SKIP_SPACES
 
           if (find >= SFS_MAX) find = SFS_MAX - 1;
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           if (glob_script_mem.file_flags[find].is_open) {
             uint8_t first = 0;
             for (uint32_t cnt = 0; cnt < alen; cnt++) {
@@ -3824,7 +3826,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           uint8_t find = fvar;
           SCRIPT_SKIP_SPACES
-          char delim[SCRIPT_MAXSSIZE];
+          char delim[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp, OPER_EQU, delim, 0);
           SCRIPT_SKIP_SPACES
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
@@ -3837,7 +3839,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
             delimc = *lp;
             lp++;
           }
-          char fstr[SCRIPT_MAXSSIZE];
+          char fstr[SCRIPT_MAX_SBSIZE];
           fstr[0] = 0;
           bool match = false;
           uint8_t dstrlen = strlen(delim);
@@ -3887,7 +3889,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 #endif // USE_SCRIPT_FATFS_EXT
         if (!strncmp_XP(lp, XPSTR("fl1("), 4) || !strncmp_XP(lp, XPSTR("fl2("), 4) )  {
           uint8_t lknum = *(lp + 2) & 3;
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, str, 0);
           if (lknum < 1 || lknum > 2) lknum = 1;
           strlcpy(glob_script_mem.flink[lknum - 1], str, 14);
@@ -3946,7 +3948,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         }
 #ifdef USE_WEBSEND_RESPONSE
         if (!strncmp_XP(lp, XPSTR("gwr("), 4)) {
-          char delim[SCRIPT_MAXSSIZE];
+          char delim[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, delim, 0);
           SCRIPT_SKIP_SPACES
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
@@ -3958,7 +3960,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
             lp++;
           }
 
-          char rstring[SCRIPT_MAXSSIZE];
+          char rstring[SCRIPT_MAX_SBSIZE];
           rstring[0] = 0;
           int8_t index = fvar;
           char *wd = ResponseData();
@@ -4028,10 +4030,10 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 
 #ifdef SCRIPT_GET_HTTPS_JP
         if (!strncmp_XP(lp, XPSTR("gjp("), 4)) {
-          char host[SCRIPT_MAXSSIZE];
+          char host[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, host, 0);
           SCRIPT_SKIP_SPACES
-          char path[SCRIPT_MAXSSIZE];
+          char path[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp, OPER_EQU, path, 0);
           fvar = call2https(host, path);
           goto nfuncexit;
@@ -4040,7 +4042,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 
 #ifdef TESLA_POWERWALL
         if (!strncmp_XP(lp, XPSTR("gpwl("), 5)) {
-          char path[SCRIPT_MAXSSIZE];
+          char path[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 5, OPER_EQU, path, 0);
           fvar = call2pwl(path);
           goto nfuncexit;
@@ -4109,13 +4111,13 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto strexit;
         }
         if (!strncmp_XP(lp, XPSTR("hd("), 3)) {
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
           fvar = strtol(str, NULL, 16);
           goto nfuncexit;
         }
         if (!strncmp_XP(lp, XPSTR("hf("), 3)) {
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
           SCRIPT_SKIP_SPACES
           if (strlen(str) != 8) {
@@ -4152,7 +4154,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
             lp = GetLongIString(lp, &request);
             if (request) {
               SCRIPT_SKIP_SPACES
-              char header[SCRIPT_MAXSSIZE];
+              char header[SCRIPT_MAX_SBSIZE];
               header[0] = 0;
               if (*lp != ')') {
                 lp = GetStringArgument(lp, OPER_EQU, header, 0);
@@ -4201,7 +4203,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         }
 #endif
         if (!strncmp_XP(lp, XPSTR("hstr("), 5)) {
-          char hstr[SCRIPT_MAXSSIZE];
+          char hstr[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 5, OPER_EQU, hstr, 0);
           uint16_t cnt;
           uint16_t slen = strlen(hstr);
@@ -4219,10 +4221,10 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 
       case 'i':
         if (!strncmp_XP(lp, XPSTR("ins("), 4)) {
-          char s1[SCRIPT_MAXSSIZE];
+          char s1[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, s1, 0);
           SCRIPT_SKIP_SPACES
-          char s2[SCRIPT_MAXSSIZE];
+          char s2[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp, OPER_EQU, s2, 0);
           SCRIPT_SKIP_SPACES
           char *cp = strstr(s1, s2);
@@ -4369,7 +4371,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           switch (selector) {
             case 0:
               // start streaming
-              char url[SCRIPT_MAXSSIZE];
+              char url[SCRIPT_MAX_SBSIZE];
               lp = GetStringArgument(lp, OPER_EQU, url, 0);
               TS_FLOAT xp, yp, scale ;
               lp = GetNumericArgument(lp, OPER_EQU, &xp, 0);
@@ -4435,9 +4437,9 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 #ifdef USE_UFILESYS
 #ifdef USE_SCRIPT_FATFS_EXT
         if (!strncmp_XP(lp, XPSTR("lfw("), 4)) {
-          char path[SCRIPT_MAXSSIZE];
+          char path[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, path, 0);
-          char payload[SCRIPT_MAXSSIZE];
+          char payload[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp, OPER_EQU, payload, 0);
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, 0);
           // write to logfile
@@ -4637,7 +4639,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         }
 #if  defined(ESP32) && (defined(USE_I2S_AUDIO) || defined(USE_TTGO_WATCH) || defined(USE_M5STACK_CORE2))
         if (!strncmp_XP(lp, XPSTR("pl("), 3)) {
-          char path[SCRIPT_MAXSSIZE];
+          char path[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 3, OPER_EQU, path, 0);
           Play_mp3(path);
           len++;
@@ -4730,7 +4732,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           uint16_t alen;
           TS_FLOAT *array;
           lp = get_array_by_name(lp + 4, &array, &alen, 0);
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp, OPER_EQU, str, 0);
           uint32_t raddr = strtol(str, NULL, 16);
           raddr &= 0xfffffffc;
@@ -4759,7 +4761,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 /*
 #if defined(ESP32) && (defined(USE_I2S_AUDIO) || defined(USE_M5STACK_CORE2) || defined(ESP32S3_BOX) || defined(USE_I2S_MIC))
         if (!strncmp_XP(lp, XPSTR("rec("), 4)) {
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, str, 0);
           //SCRIPT_SKIP_SPACES
           //lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
@@ -4841,13 +4843,13 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto exit;
         }
         if (!strncmp_XP(lp, XPSTR("sl("), 3)) {
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
           fvar = strlen(str);
           goto nfuncexit;
         }
         if (!strncmp_XP(lp, XPSTR("sb("), 3)) {
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
           SCRIPT_SKIP_SPACES
           TS_FLOAT fvar1;
@@ -4867,7 +4869,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto strexit;
         }
         if (!strncmp_XP(lp, XPSTR("st("), 3)) {
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
           SCRIPT_SKIP_SPACES
           char token[2];
@@ -4906,7 +4908,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
               } else {
                 // get string before token
                 fvar = -fvar;
-                char cstr[SCRIPT_MAXSSIZE];
+                char cstr[SCRIPT_MAX_SBSIZE];
                 strcpy(cstr, str);
                 for (uint8_t cnt = 1; cnt <= fvar; cnt++) {
                   if (cnt == fvar - 1) {
@@ -4949,7 +4951,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
             isint = is_int_var(lp);
           }
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           if (isint) {
             double dvar = *(int32_t*)&fvar;
             f2char(dvar, dprec, lzero, str, dsep);
@@ -4963,7 +4965,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         }
 #if  defined(ESP32) && (defined(USE_I2S_AUDIO) || defined(USE_TTGO_WATCH) || defined(USE_M5STACK_CORE2))
         if (!strncmp_XP(lp, XPSTR("say("), 4)) {
-          char text[SCRIPT_MAXSSIZE];
+          char text[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, text, 0);
           Say(text);
           len++;
@@ -5046,7 +5048,7 @@ extern char *SML_GetSVal(uint32_t index);
           if (fvar > 0) {
             if (sp) strlcpy(sp, SML_GetSVal(fvar), glob_script_mem.max_ssize);
           } else {
-            char sbuff[SCRIPT_MAXSSIZE];
+            char sbuff[SCRIPT_MAX_SBSIZE];
             fvar = fabs(fvar);
             if (fvar < 1) {
               fvar = 1;
@@ -5068,13 +5070,13 @@ extern char *SML_GetSVal(uint32_t index);
             lp = GetNumericArgument(lp, OPER_EQU, &fvar3, gv);
             fvar = SML_SetBaud(fvar1, fvar3);
           } else if (fvar2 == 1) {
-            char str[SCRIPT_MAXSSIZE];
+            char str[SCRIPT_MAX_SBSIZE];
             lp = GetStringArgument(lp, OPER_EQU, str, 0);
             fvar = SML_Write(fvar1, str);
           } else if (fvar2 == 2) {
-            char str[SCRIPT_MAXSSIZE];
+            char str[SCRIPT_MAX_SBSIZE];
             str[0] = 0;
-            fvar = SML_Read(fvar1, str, SCRIPT_MAXSSIZE);
+            fvar = SML_Read(fvar1, str, SCRIPT_MAX_SBSIZE);
             if (sp) strlcpy(sp, str, glob_script_mem.max_ssize);
             lp++;
             len = 0;
@@ -5186,7 +5188,7 @@ extern char *SML_GetSVal(uint32_t index);
           goto nfuncexit;
         }
         if (!strncmp_XP(lp, XPSTR("sw("), 3)) {
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
           fvar = -1;
           if (glob_script_mem.sp) {
@@ -5232,7 +5234,7 @@ extern char *SML_GetSVal(uint32_t index);
         }
         if (!strncmp_XP(lp, XPSTR("sr("), 3)) {
           uint16_t size = glob_script_mem.max_ssize;
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           memset(str, 0, size);
           lp += 3;
           uint8_t runt = 0;
@@ -5652,8 +5654,8 @@ extern char *SML_GetSVal(uint32_t index);
 #ifdef USE_FEXTRACT
         if (!strncmp_XP(lp, XPSTR("s2t("), 4)) {
           lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
-          char str[SCRIPT_MAXSSIZE];
-          s2tstamp(str, SCRIPT_MAXSSIZE, fvar, 0);
+          char str[SCRIPT_MAX_SBSIZE];
+          s2tstamp(str, SCRIPT_MAX_SBSIZE, fvar, 0);
           if (sp) strlcpy(sp, str, glob_script_mem.max_ssize);
           len = 0;
           goto strexit;
@@ -5778,7 +5780,7 @@ extern char *SML_GetSVal(uint32_t index);
 
 #ifdef USE_FEXTRACT
         if (!strncmp_XP(lp, XPSTR("tso("), 4)) {
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, str, 0);
           fvar = -1;
           SCRIPT_SKIP_SPACES
@@ -5796,7 +5798,7 @@ extern char *SML_GetSVal(uint32_t index);
           goto strexit;
         }
         if (!strncmp_XP(lp, XPSTR("tsn("), 4)) {
-          char str[SCRIPT_MAXSSIZE];
+          char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, str, 0);
           fvar = tstamp2l(str);
           goto nfuncexit;
@@ -5842,11 +5844,11 @@ extern char *SML_GetSVal(uint32_t index);
           goto notfound;
         }
         if (!strncmp_XP(lp, XPSTR("udp("), 4)) {
-          char url[SCRIPT_MAXSSIZE];
+          char url[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, url, 0);
           TS_FLOAT port;
           lp = GetNumericArgument(lp, OPER_EQU, &port, gv);
-          char payload[SCRIPT_MAXSSIZE];
+          char payload[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp, OPER_EQU, payload, 0);
           fvar = udp_call(url, port, payload);
           goto nfuncexit;
@@ -5964,7 +5966,7 @@ extern char *SML_GetSVal(uint32_t index);
         }
 #ifdef xUSE_SHINE
         if (!strncmp_XP(vname, XPSTR("wav2mp3("), 8)) {
-          char path[SCRIPT_MAXSSIZE];
+          char path[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 8, OPER_EQU, path, 0);
           fvar = wav2mp3(path);
           goto nfuncexit;
@@ -6015,7 +6017,7 @@ extern char *SML_GetSVal(uint32_t index);
         }
         if (!strncmp_XP(lp, XPSTR("wsrs("), 5)) {
           fvar = 0;
-          char buff[SCRIPT_MAXSSIZE];
+          char buff[SCRIPT_MAX_SBSIZE];
           if (glob_script_mem.tcp_server) {
             if (glob_script_mem.tcp_client.connected()) {
                 uint16_t slen = glob_script_mem.tcp_client.available();
@@ -6033,7 +6035,7 @@ extern char *SML_GetSVal(uint32_t index);
         }
         if (!strncmp_XP(lp, XPSTR("wsws("), 5)) {
           fvar = 0;
-          char buff[SCRIPT_MAXSSIZE];
+          char buff[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 5, OPER_EQU, buff, 0);
           if (glob_script_mem.tcp_server) {
             if (glob_script_mem.tcp_client.connected()) {
@@ -6396,7 +6398,7 @@ char *GetStringArgument(char *lp, uint8_t lastop, char *cp, struct GVARS *gv) {
   uint8_t vtype;
   char *slp;
   struct T_INDEX ind;
-  char str[SCRIPT_MAXSSIZE],str1[SCRIPT_MAXSSIZE];
+  char str[SCRIPT_MAX_SBSIZE],str1[SCRIPT_MAX_SBSIZE];
   while (*lp == ' ') { lp++; } // skip leading spaces
   while (1) {
     lp = isvar(lp, &vtype, &ind, 0, str1, gv);
@@ -6566,7 +6568,7 @@ struct T_INDEX ind;
 char *GetLongIString(char *lp, char **dstr) {
   while (*lp == ' ') lp++;
   if (*lp != '"') {
-    *dstr = (char*)malloc(SCRIPT_MAXSSIZE);
+    *dstr = (char*)malloc(SCRIPT_MAX_SBSIZE);
     if (!*dstr) return lp;
     lp = GetStringArgument(lp, OPER_EQU, *dstr, 0);
   } else {
@@ -6751,7 +6753,7 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
     TS_FLOAT fvar;
     cp = srcbuf;
     struct T_INDEX ind;
-    char string[SCRIPT_MAXSSIZE];
+    char string[SCRIPT_MAX_SBSIZE];
     dstsize -= 2;
     for (count = 0; count < dstsize; count++) {
         if (srcsize && (*cp == SCRIPT_EOL)) break;
@@ -6944,14 +6946,14 @@ exit0:
   lp = GetNumericArgument(lp, OPER_EQU, dfvar, gv);
   if (glob_script_mem.glob_error==1) {
     // was string, not number
-	  char cmpstr[SCRIPT_MAXSSIZE];
+	  char cmpstr[SCRIPT_MAX_SBSIZE];
     lp = slp;
     numeric = 0;
     // get the string
     lp = isvar(lp, &vtype, &ind, 0, cmpstr, gv);
 	  lp = getop(lp, &lastop);
     // compare string
-    char str[SCRIPT_MAXSSIZE];
+    char str[SCRIPT_MAX_SBSIZE];
     lp = GetStringArgument(lp, OPER_EQU, str, gv);
     if (lastop==OPER_EQUEQU || lastop==OPER_NOTEQU) {
       res = strcmp(cmpstr, str);
@@ -7195,7 +7197,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
     if_state[ifstck] = 0;
     if_result[ifstck] = 0;
     if_exe[ifstck] = 1;
-    char cmpstr[SCRIPT_MAXSSIZE];
+    char cmpstr[SCRIPT_MAX_SBSIZE];
     TS_FLOAT *dfvar;
 
     TS_FLOAT fvar = 0, fvar1, sysvar, swvar;
@@ -7424,7 +7426,7 @@ getnext:
                   swflg = 1;
                 }
               } else {
-                char str[SCRIPT_MAXSSIZE];
+                char str[SCRIPT_MAX_SBSIZE];
                 lp = GetStringArgument(lp, OPER_EQU, str, 0);
                 if (!strcmp(cmpstr, str)) {
                     swflg = 0x81;
@@ -7465,7 +7467,7 @@ getnext:
                 // mismatch was string, not number
                 lp = slp;
                 glob_script_mem.glob_error = 0;
-                glob_script_mem.retstr = (char*)calloc(SCRIPT_MAXSSIZE, 1);
+                glob_script_mem.retstr = (char*)calloc(SCRIPT_MAX_SBSIZE, 1);
                 if (glob_script_mem.retstr) {
                   lp = GetStringArgument(lp, OPER_EQU, glob_script_mem.retstr, 0);
                 }
@@ -7987,7 +7989,7 @@ getnext:
                     sindex = index;
                     saindex = gv->strind;
                     // string result
-                    char str[SCRIPT_MAXSSIZE];
+                    char str[SCRIPT_MAX_SBSIZE];
                     SCRIPT_SKIP_SPACES
                     lp = getop(lp, &lastop);
 #ifdef SCRIPT_LM_SUB
@@ -9769,7 +9771,7 @@ bool ScriptCommand(void) {
         lp++;
         while (*lp==' ') lp++;
         TS_FLOAT fvar;
-        char str[SCRIPT_MAXSSIZE];
+        char str[SCRIPT_MAX_SBSIZE];
         glob_script_mem.glob_error = 0;
         TS_FLOAT *fpd = 0;
         uint16_t alend;
@@ -10844,7 +10846,7 @@ uint16_t cipos = 0;
 char *gc_send_labels(char *lp,uint32_t anum) {
   WSContentSend_P("[");
   for (uint32_t cnt = 0; cnt < anum + 1; cnt++) {
-    char label[SCRIPT_MAXSSIZE];
+    char label[SCRIPT_MAX_SBSIZE];
     lp = GetStringArgument(lp, OPER_EQU, label, 0);
     SCRIPT_SKIP_SPACES
     WSContentSend_P(SCRIPT_MSG_GTE1, label);
@@ -11063,14 +11065,21 @@ int32_t web_send_file(char mc, char *fname) {
 }
 
 //#define SCRIPT_WEB_DEBUG
+#define WS_LINE_SIZE 256
+#define WS_LINE_RETURN free(tmp); return 0;
 
 char *web_send_line(char mc, char *lp1) {
-char tmp[256];
+//char tmp[256];
+char *tmp = (char*)malloc(WS_LINE_SIZE);
+if (!tmp) {
+  return 0;
+}
+
 char center[10];
 uint8_t optflg = 0;
 const char *gc_str;
 
-  Replace_Cmd_Vars(lp1, 1, tmp, sizeof(tmp));
+  Replace_Cmd_Vars(lp1, 1, tmp, WS_LINE_SIZE);
   char *lin = tmp;
 
   if (!strncmp(lin, "so(", 3)) {
@@ -11078,7 +11087,7 @@ const char *gc_str;
     TS_FLOAT var;
     lin = GetNumericArgument(lin + 3, OPER_EQU, &var, 0);
     specopt = var;
-    return lin;
+    WS_LINE_RETURN
   }
 
   if (specopt & WSO_NOCENTER) {
@@ -11095,7 +11104,7 @@ const char *gc_str;
     specopt = WSO_FORCEPLAIN;
     lin = scripter_sub(lin + 1, 0);
     specopt = sflg;
-    return lin;
+    WS_LINE_RETURN
   }
 
   if ((dogui && !(specopt & WSO_FORCEGUI)) || (!dogui && (specopt & WSO_FORCEGUI))) {
@@ -11135,13 +11144,13 @@ const char *gc_str;
       char vname[16];
       ScriptGetVarname(vname, slp, sizeof(vname));
 
-      char left[SCRIPT_MAXSSIZE];
+      char left[SCRIPT_MAX_SBSIZE];
       lp = GetStringArgument(lp, OPER_EQU, left, 0);
       SCRIPT_SKIP_SPACES
-      char mid[SCRIPT_MAXSSIZE];
+      char mid[SCRIPT_MAX_SBSIZE];
       lp = GetStringArgument(lp, OPER_EQU, mid, 0);
       SCRIPT_SKIP_SPACES
-      char right[SCRIPT_MAXSSIZE];
+      char right[SCRIPT_MAX_SBSIZE];
       lp = GetStringArgument(lp, OPER_EQU, right, 0);
       SCRIPT_SKIP_SPACES
 
@@ -11158,7 +11167,7 @@ const char *gc_str;
       char vname[16];
       ScriptGetVarname(vname, slp, sizeof(vname));
 
-      char label[SCRIPT_MAXSSIZE];
+      char label[SCRIPT_MAX_SBSIZE];
       lp = GetStringArgument(lp, OPER_EQU, label, 0);
       const char *cp;
       uint8_t uval;
@@ -11185,7 +11194,7 @@ const char *gc_str;
       ScriptGetVarname(vname, slp, sizeof(vname));
 
       SCRIPT_SKIP_SPACES
-      char pulabel[SCRIPT_MAXSSIZE];
+      char pulabel[SCRIPT_MAX_SBSIZE];
       lp = GetStringArgument(lp, OPER_EQU, pulabel, 0);
       SCRIPT_SKIP_SPACES
 
@@ -11257,7 +11266,7 @@ const char *gc_str;
       ScriptGetVarname(vname, slp, sizeof(vname));
 
       SCRIPT_SKIP_SPACES
-      char pulabel[SCRIPT_MAXSSIZE];
+      char pulabel[SCRIPT_MAX_SBSIZE];
       lp = GetStringArgument(lp, OPER_EQU, pulabel, 0);
       SCRIPT_SKIP_SPACES
 
@@ -11325,10 +11334,10 @@ const char *gc_str;
         ScriptGetVarname(vname, slp, sizeof(vname));
 
         SCRIPT_SKIP_SPACES
-        char ontxt[SCRIPT_MAXSSIZE];
+        char ontxt[SCRIPT_MAX_SBSIZE];
         lp = GetStringArgument(lp, OPER_EQU, ontxt, 0);
         SCRIPT_SKIP_SPACES
-        char offtxt[SCRIPT_MAXSSIZE];
+        char offtxt[SCRIPT_MAX_SBSIZE];
         lp = GetStringArgument(lp, OPER_EQU, offtxt, 0);
 
         char *cp;
@@ -11366,7 +11375,7 @@ const char *gc_str;
       char vname[16];
       ScriptGetVarname(vname, slp, sizeof(vname));
       SCRIPT_SKIP_SPACES
-      char label[SCRIPT_MAXSSIZE];
+      char label[SCRIPT_MAX_SBSIZE];
       lp = GetStringArgument(lp, OPER_EQU, label, 0);
       SCRIPT_SKIP_SPACES
       uint16_t tsiz = 70;
@@ -11390,10 +11399,10 @@ const char *gc_str;
       // text
       char *lp = lin + 3;
       char *slp = lp;
-      char str[SCRIPT_MAXSSIZE];
+      char str[SCRIPT_MAX_SBSIZE];
       lp = ForceStringVar(lp, str);
       SCRIPT_SKIP_SPACES
-      char label[SCRIPT_MAXSSIZE];
+      char label[SCRIPT_MAX_SBSIZE];
       lp = GetStringArgument(lp, OPER_EQU, label, 0);
       char vname[16];
       ScriptGetVarname(vname, slp, sizeof(vname));
@@ -11413,14 +11422,14 @@ const char *gc_str;
         }
 
         if (*lp != ')') {
-          char type[SCRIPT_MAXSSIZE];
+          char type[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp, OPER_EQU, type, 0);
           SCRIPT_SKIP_SPACES
           // also requires min max values
-          char min[SCRIPT_MAXSSIZE];
+          char min[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp, OPER_EQU, min, 0);
           SCRIPT_SKIP_SPACES
-          char max[SCRIPT_MAXSSIZE];
+          char max[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp, OPER_EQU, max, 0);
           SCRIPT_SKIP_SPACES
           WCS_DIV(specopt);
@@ -11460,7 +11469,7 @@ const char *gc_str;
 
       bool isint = is_int_var(vname);
 
-      char label[SCRIPT_MAXSSIZE];
+      char label[SCRIPT_MAX_SBSIZE];
       lp = GetStringArgument(lp, OPER_EQU, label, 0);
       SCRIPT_SKIP_SPACES
       uint16_t tsiz = 200;
@@ -11567,7 +11576,7 @@ exgc:
         }
         lp++;
         WSContentSend_P(PSTR("%s"), lp);
-        return lp;
+        WS_LINE_RETURN
       }
 
       cp = strstr_P(lin, PSTR("=#"));
@@ -11583,7 +11592,7 @@ exgc:
         if (cp) {
           WSContentSend_P(PSTR("%s"), cp + 1);
         }
-        return lp;
+        WS_LINE_RETURN
       }
 
       if (!strncmp(lin, "gc(", 3)) {
@@ -11592,7 +11601,11 @@ exgc:
         SCRIPT_SKIP_SPACES
 
         const char *func;
-        char options[312];
+        //char options[312];
+        char *options = (char*)malloc(312);
+        if (!options) {
+          WS_LINE_RETURN
+        }
         uint8_t nanum = MAX_GARRAY;
         uint8_t y2f = 0;
         uint8_t tonly = 0;
@@ -11631,7 +11644,7 @@ exgc:
         if (type == 'e') {
           WSContentSend_P(SCRIPT_MSG_GTABLEbx, gc_str, chartindex);
           chartindex++;
-          return lp1;
+          WS_LINE_RETURN
         }
 
         char stacked[6];
@@ -11683,7 +11696,7 @@ exgc:
         lp = gc_get_arrays(lp, &arrays[0], &anum, &entries, &ipos);
 
         if (anum > nanum) {
-          return lp1;
+          WS_LINE_RETURN
           //goto nextwebline;
         }
 
@@ -11701,10 +11714,10 @@ exgc:
         if (gs_ctype == 'T') {
           if (anum && !(entries & 1)) {
             WSContentSend_P(SCRIPT_MSG_GTABLEa);
-            char label[SCRIPT_MAXSSIZE];
+            char label[SCRIPT_MAX_SBSIZE];
             lp = GetStringArgument(lp, OPER_EQU, label, 0);
             SCRIPT_SKIP_SPACES
-            char lab2[SCRIPT_MAXSSIZE];
+            char lab2[SCRIPT_MAX_SBSIZE];
             lab2[0] = 0;
             if (*lp != ')') {
               lp = GetStringArgument(lp, OPER_EQU, lab2, 0);
@@ -11750,10 +11763,11 @@ exgc:
             }
           }
           snprintf_P(options,sizeof(options), SCRIPT_MSG_GOPT4);
+          free(options);
         }
         if (tonly) {
           WSContentSend_P("]);");
-          return lp1;
+          WS_LINE_RETURN
           //goto nextwebline;
         }
       } else {
@@ -11764,7 +11778,7 @@ exgc:
 
         // now we have to export the values
         // fetch label part only once in combo string
-        char label[SCRIPT_MAXSSIZE];
+        char label[SCRIPT_MAX_SBSIZE];
         lp = GetStringArgument(lp, OPER_EQU, label, 0);
         SCRIPT_SKIP_SPACES
 
@@ -11867,11 +11881,11 @@ exgc:
         // table complete
         if (tonly) {
           WSContentSend_P("]);");
-          return lp1;
+          WS_LINE_RETURN
           //goto nextwebline;
         }
         // get header
-        char header[SCRIPT_MAXSSIZE];
+        char header[SCRIPT_MAX_SBSIZE];
         lp = GetStringArgument(lp, OPER_EQU, header, 0);
         SCRIPT_SKIP_SPACES
 
@@ -11954,7 +11968,7 @@ exgc:
 #endif //USE_GOOGLE_CHARTS
     }
   }
-  return lp1;
+  WS_LINE_RETURN
 }
 
 #endif //USE_SCRIPT_WEB_DISPLAY
@@ -12687,7 +12701,7 @@ int32_t lvgl_test(char **lpp, int32_t p) {
   TS_FLOAT xp, yp, xs, ys, min, max;
   lv_meter_scale_t * scale;
   lv_meter_indicator_t * indic;
-  char str[SCRIPT_MAXSSIZE];
+  char str[SCRIPT_MAX_SBSIZE];
   int32_t res = 0;
 
   switch (p) {
