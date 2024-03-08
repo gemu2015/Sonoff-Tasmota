@@ -2501,8 +2501,6 @@ TS_FLOAT fvar;
   if (gv) gv->strind = index;
   glob_script_mem.sind_num = isind;
 
-  delay(0);
-
   if (glob_script_mem.last_index_string[isind]) {
     if (!glob_script_mem.si_num[isind]) {
       if (index <= glob_script_mem.siro_num[isind]) {

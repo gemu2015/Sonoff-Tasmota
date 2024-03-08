@@ -130,3 +130,11 @@ shows a memory dump of plugin Nr x
 after a reboot all plugins persist 
 and if option A 7 is set all plugins are initialized too
 
+todoo:
+
+esp8266  	ready, ok, multiple drivers working stable
+esp32		ready, multiple function paramters sometimes failing,
+			have to disable stack check per function (inside macro, "no-stack-protector") 
+esp32 risc	floating point parameters crashing, multiple function parameters failing, 
+			have to disable save, restore epilog lib calls for complete project (-mno-save-restore)
+
