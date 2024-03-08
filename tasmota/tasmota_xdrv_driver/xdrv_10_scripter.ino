@@ -177,8 +177,13 @@ char *Get_esc_char(char *cp, char *esc_chr);
 #endif
 
 #ifdef ESP32
+#if !defined(ESP_IDF_VERSION) || (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
 #include <driver/i2s.h>
+#else
+#include <esp_adc/adc_oneshot.h>
+#include <esp_adc/adc_continuous.h>
 #endif
+#endif // ESP32
 
 #ifdef USE_SCRIPT_TIMER
 #include <Ticker.h>
@@ -576,6 +581,15 @@ struct SCRIPT_MEM {
 
 #ifdef SCRIPT_FULL_WEBPAGE
     uint8_t wsp;
+#endif
+
+#ifdef ESP8266
+    uint8_t pwmpin[5];
+#endif
+#ifdef ESP32
+    uint8_t pwmpin[8];
+    uint8 esp32_beep_pin;
+    TimerHandle_t beep_th;
 #endif
 
 } glob_script_mem;
@@ -7015,18 +7029,22 @@ exit10:
   return lp;
 }
 
+
 #ifdef ESP32
- 
-TimerHandle_t beep_th;
 void StopBeep( TimerHandle_t xTimer );
+
 
 void StopBeep( TimerHandle_t xTimer ) {
 #if !defined(ESP_IDF_VERSION) || (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
   ledcWriteTone(7, 0);
+#else
+  ledcWriteTone(glob_script_mem.esp32_beep_pin, 0);
 #endif
 
   xTimerStop(xTimer, 0);
 }
+
+
 
 void esp32_beep(int32_t freq ,uint32_t len) {
   if (freq<0) {
@@ -7035,45 +7053,59 @@ void esp32_beep(int32_t freq ,uint32_t len) {
     ledcSetup(7, 500, 10);
     ledcAttachPin(-freq, 7);
     ledcWriteTone(7, 0);
+#else
+    glob_script_mem.esp32_beep_pin = abs(freq);
+    if (glob_script_mem.esp32_beep_pin == 64) {
+      glob_script_mem.esp32_beep_pin = 0;
+    }
+    ledcAttach(glob_script_mem.esp32_beep_pin, 0, 10);
 #endif
-    if (!beep_th) {
-      beep_th = xTimerCreate("beep", 100, pdFALSE, ( void * ) 0, StopBeep);
+    if (!glob_script_mem.beep_th) {
+      glob_script_mem.beep_th = xTimerCreate("beep", 100, pdFALSE, ( void * ) 0, StopBeep);
     }
   } else {
-    if (!beep_th) return;
+    if (!glob_script_mem.beep_th) return;
     if (!freq) {
 #if !defined(ESP_IDF_VERSION) || (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
       ledcWriteTone(7, 0);
+#else
+      ledcWriteTone(glob_script_mem.esp32_beep_pin, 0);
 #endif
-      xTimerStop(beep_th, 10);
+      xTimerStop(glob_script_mem.beep_th, 10);
       return;
     }
     if (len < 10) return;
-    if (xTimerIsTimerActive(beep_th)) return;
+    if (xTimerIsTimerActive(glob_script_mem.beep_th)) return;
 #if !defined(ESP_IDF_VERSION) || (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
     ledcWriteTone(7, freq);
+#else
+    ledcWriteTone(glob_script_mem.esp32_beep_pin, freq);
 #endif
     uint32_t ticks = pdMS_TO_TICKS(len);
-    xTimerChangePeriod( beep_th, ticks, 10);
+    xTimerChangePeriod( glob_script_mem.beep_th, ticks, 10);
   }
 }
 
 #endif // ESP32
 
-uint8_t pwmpin[5];
-
 void esp_pwm(int32_t value, uint32 freq, uint32_t channel) {
 
 #ifdef ESP32
   if (channel < 1 || channel > 8) channel = 1;
-  channel += 7;
   if (value < 0) {
     if (value <= -64) value = 0;
     // set range to 10 bit
 #if !defined(ESP_IDF_VERSION) || (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
+    channel += 7;
     ledcSetup(channel, freq, 10);
     ledcAttachPin(-value, channel);
     ledcWrite(channel, 0);
+#else
+    glob_script_mem.pwmpin[channel - 1] = abs(value);
+    if (glob_script_mem.pwmpin[channel - 1] == 64) {
+      glob_script_mem.pwmpin[channel - 1] = 0;
+    }
+    ledcAttach(glob_script_mem.pwmpin[channel - 1], freq, 10);
 #endif
   } else {
     if (value > 1023) {
@@ -7081,6 +7113,8 @@ void esp_pwm(int32_t value, uint32 freq, uint32_t channel) {
     }
 #if !defined(ESP_IDF_VERSION) || (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
     ledcWrite(channel, value);
+#else
+    ledcWrite(glob_script_mem.pwmpin[channel - 1], value);
 #endif
   }
 #else
@@ -7089,15 +7123,15 @@ void esp_pwm(int32_t value, uint32 freq, uint32_t channel) {
   channel-=1;
   if (value < 0) {
     if (value <= -64) value = 0;
-    pwmpin[channel] = -value;
-    pinMode(pwmpin[channel], OUTPUT);
+    glob_script_mem.pwmpin[channel] = -value;
+    pinMode(glob_script_mem.pwmpin[channel], OUTPUT);
     analogWriteFreq(freq);
-    AnalogWrite(pwmpin[channel], 0);
+    AnalogWrite(glob_script_mem.pwmpin[channel], 0);
   } else {
     if (value > 1023) {
       value = 1023;
     }
-    AnalogWrite(pwmpin[channel], value);
+    AnalogWrite(glob_script_mem.pwmpin[channel], value);
   }
 #endif // ESP32
 }
