@@ -18,11 +18,10 @@
 */
 
 #ifdef ESP32
-#ifdef USE_DS18x20
+#ifdef USE_DS18x20x
 /*********************************************************************************************\
  * DS18B20 - Temperature - Multiple sensors
 \*********************************************************************************************/
-
 #define XSNS_05              5
 
 //#define DS18x20_USE_ID_AS_NAME     // Use last 3 bytes for naming of sensors

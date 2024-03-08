@@ -330,7 +330,9 @@ void ILI9488::DisplayOnff(int8_t on) {
 
     if (_bp>=0) {
   #ifdef ILI9488_DIMMER
+  #if !defined(ESP_IDF_VERSION) || (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
         ledcWrite(ESP32_PWM_CHANNEL,dimmer);
+  #endif
   #else
       digitalWrite(_bp,HIGH);
   #endif
@@ -345,7 +347,9 @@ void ILI9488::DisplayOnff(int8_t on) {
 
     if (_bp>=0) {
 #ifdef ILI9488_DIMMER
+#if !defined(ESP_IDF_VERSION) || (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
       ledcWrite(ESP32_PWM_CHANNEL,0);
+#endif
 #else
       digitalWrite(_bp,LOW);
 #endif
@@ -374,9 +378,11 @@ void ILI9488::begin(void) {
   pinMode(_mosi, OUTPUT);
   if (_bp>=0) {
 #ifdef ILI9488_DIMMER
+#if !defined(ESP_IDF_VERSION) || (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
       ledcSetup(ESP32_PWM_CHANNEL,4000,8);
       ledcAttachPin(_bp,ESP32_PWM_CHANNEL);
       ledcWrite(ESP32_PWM_CHANNEL,128);
+#endif
 #else
       pinMode(_bp, OUTPUT);
       digitalWrite(_bp,HIGH);

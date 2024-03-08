@@ -2310,7 +2310,7 @@ uint8_t pt_pin;
 
 #define MPT_DEBOUNCE 10
 
-void IRAM_ATTR MP_Timer(void) {
+static void IRAM_ATTR MP_Timer(void) {
   uint32_t level = digitalRead(pt_pin&0x3f);
   uint32_t ms = millis();
   uint32_t time;
@@ -7016,38 +7016,48 @@ exit10:
 }
 
 #ifdef ESP32
-
+ 
 TimerHandle_t beep_th;
 void StopBeep( TimerHandle_t xTimer );
 
 void StopBeep( TimerHandle_t xTimer ) {
+#if !defined(ESP_IDF_VERSION) || (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
   ledcWriteTone(7, 0);
+#endif
+
   xTimerStop(xTimer, 0);
 }
 
 void esp32_beep(int32_t freq ,uint32_t len) {
   if (freq<0) {
     if (freq <= -64) freq = 0;
+#if !defined(ESP_IDF_VERSION) || (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
     ledcSetup(7, 500, 10);
     ledcAttachPin(-freq, 7);
     ledcWriteTone(7, 0);
+#endif
     if (!beep_th) {
       beep_th = xTimerCreate("beep", 100, pdFALSE, ( void * ) 0, StopBeep);
     }
   } else {
     if (!beep_th) return;
     if (!freq) {
+#if !defined(ESP_IDF_VERSION) || (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
       ledcWriteTone(7, 0);
+#endif
       xTimerStop(beep_th, 10);
       return;
     }
     if (len < 10) return;
     if (xTimerIsTimerActive(beep_th)) return;
+#if !defined(ESP_IDF_VERSION) || (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
     ledcWriteTone(7, freq);
+#endif
     uint32_t ticks = pdMS_TO_TICKS(len);
     xTimerChangePeriod( beep_th, ticks, 10);
   }
 }
+
 #endif // ESP32
 
 uint8_t pwmpin[5];
@@ -7060,14 +7070,18 @@ void esp_pwm(int32_t value, uint32 freq, uint32_t channel) {
   if (value < 0) {
     if (value <= -64) value = 0;
     // set range to 10 bit
+#if !defined(ESP_IDF_VERSION) || (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
     ledcSetup(channel, freq, 10);
     ledcAttachPin(-value, channel);
     ledcWrite(channel, 0);
+#endif
   } else {
     if (value > 1023) {
       value = 1023;
     }
+#if !defined(ESP_IDF_VERSION) || (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
     ledcWrite(channel, value);
+#endif
   }
 #else
   // esp8266 default to range 0-1023
