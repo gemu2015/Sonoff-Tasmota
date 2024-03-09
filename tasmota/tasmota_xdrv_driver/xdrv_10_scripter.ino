@@ -4347,6 +4347,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 
 #ifdef ESP32
 #ifdef USE_I2S_AUDIO
+#if !defined(ESP_IDF_VERSION) || (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
         if (!strncmp_XP(lp, XPSTR("i2sw("), 5)) {
           TS_FLOAT port;
           lp = GetNumericArgument(lp + 5, OPER_EQU, &port, gv);
@@ -4370,6 +4371,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           }
           goto nfuncexit;
         }
+#endif
 #endif // USE_I2S_AUDIO
 #endif // ESP32
         if (!strncmp_XP(lp, XPSTR("i("), 2)) {
@@ -4660,7 +4662,11 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         if (!strncmp_XP(lp, XPSTR("pl("), 3)) {
           char path[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 3, OPER_EQU, path, 0);
+#if !defined(ESP_IDF_VERSION) || (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
           Play_mp3(path);
+#else
+          I2SPlayMp3(path);
+#endif
           len++;
           len = 0;
           goto exit;
@@ -4986,7 +4992,11 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         if (!strncmp_XP(lp, XPSTR("say("), 4)) {
           char text[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, text, 0);
+#if !defined(ESP_IDF_VERSION) || (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
           Say(text);
+#else
+          //CmndI2SSay(text);
+#endif
           len++;
           len = 0;
           goto exit;
