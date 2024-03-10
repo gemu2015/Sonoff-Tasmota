@@ -9,11 +9,11 @@ import binascii
 from os.path import join
 
 
-#platform = env.PioPlatform()
-#board = env.BoardConfig()
+platform = env.PioPlatform()
+board = env.BoardConfig()
 mcu = board.get("build.mcu", "esp32")
 
-print("patch linker file")
+print("patching linker file")
 
 if mcu == "esp8266":
         libpath = "/Users/gerhardmutz1/.platformio/packages/framework-arduinoespressif8266/tools/sdk/ld/eagle.app.v6.common.ld.h"
@@ -64,14 +64,6 @@ with open(libpath) as f:
 	        *(.plugin.mod_end)\n\
 	        /* end plugins */\n'
                         
-        insert = '/* start plugins */\n \
-	    *(.plugin.mod_desc)\n\
-	    *(.plugin.mod_string)\n\
-	    *(.plugin.mod_part.literal)\n\
-	    *(.plugin.mod_part)\n\
-	    *(.plugin.mod_end)\n\
-	    /* end plugins */\n'
-
 
         out = part1 + insert + part2
 
@@ -79,7 +71,3 @@ with open(libpath) as f:
             wf.write(out)
             wf.close()
     
-
-
-#env.AddPostAction("$BUILD_DIR/${PROGNAME}.elf", [obj_dump_after_elf])
-    #python3 patch_linker_file.py

@@ -59,10 +59,17 @@ esp32 linker file = sections.ld
 	spiffs,   data, spiffs,  0x3B0000,0x50000,
 
 
-move grepmodule-firmware.py to folder Tools
-and place this into your platform_override.ini:
+add these entries to extra_scripts:
+
 extra_scripts           = ${esp_defaults.extra_scripts}
-                          Tools/grepmodule-firmware.py
+                        pre:Tasmota/Plugins/patch_linker_file.py
+                        post:Tasmota/Plugins/grepmodule-firmware.py
+                        post:pio-tools/obj-dump.py
+
+this patches all linker files, so you do not need to do it manually
+also an asm file is generated with which you can check for unwanted library calls
+and the plugin is extracted from the binary, according to the selected cpu
+ending .bin (esp8266) _32.bin (tensilica ESP32) _32r.bin (riscv ESP32)
 
 
 1. copy the .ino file you want to convert to the plugins directory and rename to .cpp
