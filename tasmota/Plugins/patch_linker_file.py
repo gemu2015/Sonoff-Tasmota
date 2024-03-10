@@ -70,4 +70,8 @@ with open(libpath) as f:
         with open(libpath, "w") as wf:
             wf.write(out)
             wf.close()
+
+        print("patch complete")
     
+    else :
+        print("already patched")

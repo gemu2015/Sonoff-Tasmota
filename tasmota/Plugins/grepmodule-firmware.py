@@ -9,7 +9,6 @@ from os.path import join
 
 #MODULE_SYNC = 0x55aaFC4A
 
-murks=0
 #if env["PIOPLATFORM"] == "espressif32" :
 if 1==1 :
 
