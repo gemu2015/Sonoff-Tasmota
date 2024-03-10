@@ -9,43 +9,22 @@
 # How to solidify (needs an ESP32 with PSRAM)
 #-
 
-import path 
+import path
 path.remove("haspmota.bec")
-import solidify
-var haspmota
 load('haspmota.be')
-
-var classes = [
-  "page", "obj", "scr",
-  "btn", "switch", "checkbox",
-  "label", "spinner", "line", "img", "roller", "btnmatrix",
-  "bar", "slider", "arc", "textarea", "dropdown",
-  "qrcode", "chart"
-]
-var f = open("haspmota.c", "w")
-for c:classes
-  solidify.dump(haspmota.HASPmota.("lvh_"+c), true, f)
-end
-solidify.dump(haspmota, true, f)
-f.close()
-print("Ok")
+global.solidify_haspmota()
 
 -#
 var haspmota = module("haspmota")
 
 #################################################################################
-#################################################################################
-# Class `lvh_obj` encapsulating `lv_obj``
+# Class `lvh_root`
 #
-# Provide a mapping for virtual members
-# Stores the associated page and object id
+# Allows to map either a `lv_obj` for LVGL or arbitrary object
 #
-# Adds specific virtual members used by HASPmota
 #################################################################################
-#################################################################################
-class lvh_obj
-  static var _lv_class = lv.obj     # _lv_class refers to the lvgl class encapsulated, and is overriden by subclasses
-  static var _lv_part2_selector     # selector for secondary part (like knob of arc)
+class lvh_root
+  static var _lv_class = nil        # _lv_class refers to the lvgl class encapsulated, and is overriden by subclasses
 
   # attributes to ignore when set at object level (they are managed by page)
   static var _attr_ignore = [
@@ -102,6 +81,9 @@ class lvh_obj
     "bg_grad_dir": "style_bg_grad_dir",
     "line_color": "style_line_color",
     "line_rounded": "style_line_rounded",
+    "line_dash_gap": "style_line_dash_gap",
+    "line_dash_width": "style_line_dash_width",
+    "line_opa": "style_line_opa",
     "arc_color": "style_arc_color",
     "arc_opa": "style_arc_opa",
     "arc_rounded": "style_arc_rounded",
@@ -157,14 +139,14 @@ class lvh_obj
   # Instance variables
   var id                                    # (int) object hasp id
   var _lv_obj                               # native lvgl object
-  var _lv_label                             # sub-label if exists
   var _page                                 # parent page object
-  var _action                               # value of the HASPmota `action` attribute, shouldn't be called `self.action` since we want to trigger the set/member functions
+  var _parent_lvh                               # parent HASPmota object if 'parentid' was set, or 'nil'
   var _meta                                 # free form metadata
 
   #====================================================================
   # Rule engine to map value and text to rules
   # hence enabling auto-updates ob objects
+  var _val                                  # last known value, useful for graceful initialization
   var _val_rule                             # rule pattern to map the `val` attribute
   var _val_rule_formula                     # Berry fragment to transform the value grabbed from rule
   var _val_rule_function                    # compiled function
@@ -251,14 +233,81 @@ class lvh_obj
   end
 
   #====================================================================
+  #  parse_font
+  #
+  # For HASPmota compatiblity, default to "robotocondensed-latin1"
+  # However we propose an extension to allow for other font names
+  #
+  # Arg1: (int) font size for `robotocondensed-latin1`
+  #  or
+  # Arg1: (string) "font_name-font_size", ex: "montserrat-20"
+  #====================================================================
+  def parse_font(t)
+    var font
+    if type(t) == 'int'
+      try
+        font = lv.font_embedded("robotocondensed", t)
+      except ..
+        try
+          font = lv.font_embedded("montserrat", t)
+        except ..
+          print("HSP: Unsupported font:", t)
+          return nil
+        end
+      end
+    elif type(t) == 'string'
+      import string
+      import re
+      # look for 'A:name.font' style font file name
+      var drive_split = string.split(t, ':', 1)
+      var fn_split = string.split(t, '-')
+
+      var name = t
+      var sz = 0
+      var is_ttf = false
+      var is_binary = (size(drive_split) > 1 && size(drive_split[0]))
+
+      if size(fn_split) >= 2
+        sz = int(fn_split[-1])
+        name = fn_split[0..-2].concat('-')    # rebuild the font name
+      end
+      if re.match(".*\\.ttf$", name)
+        # ttf font
+        name = string.split(name, ':')[-1]      # remove A: if any
+        is_ttf = true
+      end
+
+      if is_ttf
+        font = lv.load_freetype_font(name, sz, 0)
+      elif is_binary
+        # font is from disk
+        font = lv.load_font(t)
+      elif sz > 0 && size(name) > 0              # looks good, let's have a try
+        try
+          font = lv.font_embedded(name, sz)
+        except ..
+          print("HSP: Unsupported font:", t)
+        end
+      end
+    end
+    if font != nil
+      return font
+    else
+      print("HSP: Unsupported font:", t)
+    end
+  end
+
+  #====================================================================
   # init HASPmota object from its jsonl definition
   #
   # arg1: LVGL parent object (used to create a sub-object)
   # arg2: `jline` JSONL definition of the object from HASPmota template (used in sub-classes)
   # arg3: (opt) LVGL object if it already exists and was created prior to init()
+  # arg4: HASPmota parent object defined by `parentid`
   #====================================================================
-  def init(parent, page, jline, obj)
+  def init(parent, page, jline, obj, parent_lvh)
     self._page = page
+    self._parent_lvh = parent_lvh
     if obj == nil && self._lv_class
       var obj_class = self._lv_class    # assign to a var to distinguish from method call
       self._lv_obj = obj_class(parent)  # instanciate LVGL object
@@ -269,10 +318,14 @@ class lvh_obj
   end
 
   #====================================================================
-  # post-init, to be overriden and used by certain classes
+  # called once all attributes have been parsed
+  # and gives an opportunity to clean up or refresh
   #====================================================================
-  def post_init()
-    self.register_event_cb()
+  def post_config()
+    # set again value, because the first time the range might not have been valid
+    if (self._val != nil)
+      self.set_val(self._val)
+    end
   end
 
   #####################################################################
@@ -285,6 +338,283 @@ class lvh_obj
   def get_obj()
     return self._lv_obj
   end
+
+  #====================================================================
+  # set_text: create a `lv_label` sub object to the current object
+  # (default case, may be overriden by object that directly take text)
+  #====================================================================
+  def set_text(t)
+  end
+  def get_text()
+    return nil
+  end
+
+  #- ------------------------------------------------------------#
+  # `digits_to_style` 
+  # 
+  # Convert a 2 digits style descriptor to LVGL style modifier
+  # See https://www.openhasp.com/0.6.3/design/styling/
+  #
+  #
+  # 00 = main part of the object (i.e. the background)
+  # 10 = the indicator or needle, highlighting the the current value
+  # 20 = the knob which can be used the change the value
+  # 30 = the background of the items/buttons
+  # 40 = the items/buttons
+  # 50 = the selected item
+  # 60 = major ticks of the gauge object
+  # 70 = the text cursor
+  # 80 = the scrollbar
+  # 90 = other special part, not listed above
+  #
+  # LV_PART_MAIN         = 0x000000,   /**< A background like rectangle*/
+  # LV_PART_SCROLLBAR    = 0x010000,   /**< The scrollbar(s)*/
+  # LV_PART_INDICATOR    = 0x020000,   /**< Indicator, e.g. for slider, bar, switch, or the tick box of the checkbox*/
+  # LV_PART_KNOB         = 0x030000,   /**< Like handle to grab to adjust the value*/
+  # LV_PART_SELECTED     = 0x040000,   /**< Indicate the currently selected option or section*/
+  # LV_PART_ITEMS        = 0x050000,   /**< Used if the widget has multiple similar elements (e.g. table cells)*/
+  # LV_PART_CURSOR       = 0x060000,   /**< Mark a specific place e.g. for text area's cursor or on a chart*/
+  # LV_PART_CUSTOM_FIRST = 0x080000,    /**< Extension point for custom widgets*/
+  # LV_PART_ANY          = 0x0F0000,    /**< Special value can be used in some functions to target all parts*/
+  #
+  # 00 = default styling
+  # 01 = styling for toggled state
+  # 02 = styling for pressed, not toggled state
+  # 03 = styling for pressed and toggled state
+  # 04 = styling for disabled not toggled state
+  # 05 = styling for disabled and toggled state
+  #
+  # LV_STATE_DEFAULT     =  0x0000,
+  # LV_STATE_CHECKED     =  0x0001,
+  # LV_STATE_FOCUSED     =  0x0002,
+  # LV_STATE_FOCUS_KEY   =  0x0004,
+  # LV_STATE_EDITED      =  0x0008,
+  # LV_STATE_HOVERED     =  0x0010,
+  # LV_STATE_PRESSED     =  0x0020,
+  # LV_STATE_SCROLLED    =  0x0040,
+  # LV_STATE_DISABLED    =  0x0080,
+
+  # LV_STATE_USER_1      =  0x1000,
+  # LV_STATE_USER_2      =  0x2000,
+  # LV_STATE_USER_3      =  0x4000,
+  # LV_STATE_USER_4      =  0x8000,
+  #
+  #- ------------------------------------------------------------#
+  static var _digit2part = [
+    lv.PART_MAIN,         # 00
+    lv.PART_INDICATOR,    # 10
+    lv.PART_KNOB,         # 20
+    lv.PART_ITEMS,        # 30    TODO
+    lv.PART_ITEMS,        # 40
+    lv.PART_SELECTED,     # 50
+    lv.PART_ITEMS,        # 60
+    lv.PART_CURSOR,       # 70
+    lv.PART_SCROLLBAR,    # 80
+    lv.PART_CUSTOM_FIRST, # 90
+  ]
+  static var _digit2state = [
+    lv.STATE_DEFAULT,                     # 00
+    lv.STATE_CHECKED,                     # 01
+    lv.STATE_PRESSED,                     # 02
+    lv.STATE_CHECKED | lv.STATE_PRESSED,  # 03
+    lv.STATE_DISABLED,                    # 04
+    lv.STATE_DISABLED | lv.STATE_PRESSED, # 05
+  ]
+  def digits_to_style(digits)
+    if digits == nil    return 0    end     # lv.PART_MAIN | lv.STATE_DEFAULT
+    var first_digit = (digits / 10) % 10
+    var second_digit = digits % 10
+    var val = 0     # lv.PART_MAIN | lv.STATE_DEFAULT
+    if first_digit >= 0 && first_digit < size(self._digit2part)
+      val = val | self._digit2part[first_digit]
+    else
+      val = nil
+    end
+    if second_digit >= 0 && second_digit < size(self._digit2state)
+      val = val | self._digit2state[second_digit]
+    else
+      val = nil
+    end
+    if val == nil
+      raise "value_error", f"invalid style suffix {digits:02i}"
+    end
+    return val
+  end
+
+  #====================================================================
+  #  Metadata
+  #
+  #====================================================================
+  def set_meta(t)
+    self._meta = t
+  end
+  def get_meta()
+    return self._meta
+  end
+
+  #====================================================================
+  #  Rule based updates of `val` and `text`
+  #
+  # `val_rule`: rule pattern to grab a value, ex: `ESP32#Temperature`
+  # `val_rule_formula`: formula in Berry to transform the value
+  #                     Ex: `val * 10`
+  # `text_rule`: rule pattern to grab a value for text, ex: `ESP32#Temparature`
+  # `text_rule_format`: format used by `format()`
+  #                     Ex: `%.1f °C`
+  #====================================================================
+  def remove_val_rule()
+    if self._val_rule != nil
+      tasmota.remove_rule(self._val_rule, self)
+    end
+  end
+  def set_val_rule(t)
+    # remove previous rule if any
+    self.remove_val_rule()
+
+    self._val_rule = str(t)
+    tasmota.add_rule(self._val_rule, / val -> self.val_rule_matched(val), self)
+  end
+  def get_val_rule()
+    return self._val_rule
+  end
+  # text_rule
+  def remove_text_rule()
+    if self._text_rule != nil
+      tasmota.remove_rule(self._text_rule, self)
+    end
+  end
+  def set_text_rule(t)
+    # remove previous rule if any
+    self.remove_text_rule()
+
+    self._text_rule = str(t)
+    tasmota.add_rule(self._text_rule, / val -> self.text_rule_matched(val), self)
+  end
+  def get_text_rule()
+    return self._text_rule
+  end
+  def set_text_rule_format(t)
+    self._text_rule_format = str(t)
+  end
+  def get_text_rule_format()
+    return self._text_rule_format
+  end
+  # formula that gets compiled as Berry code
+  def set_val_rule_formula(t)
+    self._val_rule_formula = str(t)
+    var code = "return / val -> (" + self._val_rule_formula + ")"
+    try
+      var func = compile(code)
+      self._val_rule_function = func()
+    except .. as e, m
+      print(format("HSP: failed to compile '%s' - %s (%s)", code, e, m))
+    end
+  end
+  def get_val_rule_formula()
+    return self._val_rule_formula
+  end
+  # formula that gets compiled as Berry code
+  def set_text_rule_formula(t)
+    self._text_rule_formula = str(t)
+    var code = "return / val -> (" + self._text_rule_formula + ")"
+    try
+      var func = compile(code)
+      self._text_rule_function = func()
+    except .. as e, m
+      print(format("HSP: failed to compile '%s' - %s (%s)", code, e, m))
+    end
+  end
+  def get_text_rule_formula()
+    return self._text_rule_formula
+  end
+  # rule matched for val
+  def val_rule_matched(val)
+
+    # print(">> rule matched", "val=", val)
+    var val_n = real(val)         # force float type
+    if val_n == nil  return false end   # if the matched value is not a number, ignore
+    var func = self._val_rule_function
+    if func != nil
+      try
+        val_n = func(val_n)
+      except .. as e, m
+        print(format("HSP: failed to run self._val_rule_function - %s (%s)", e, m))
+      end
+    end
+
+    self.val = int(val_n)         # set value, truncate to int
+    return false                  # propagate the event further
+  end
+  # rule matched for text
+  def text_rule_matched(val)
+
+    # print(">> rule matched text", "val=", val)
+    if type(val) == 'int'
+      val = real(val)           # force float type
+    end
+
+    var func = self._text_rule_function
+    if func != nil
+      try
+        val = func(val)
+      except .. as e, m
+        print(format("HSP: failed to run self._text_rule_function - %s (%s)", e, m))
+      end
+    end
+
+    var fmt = self._text_rule_format
+    if type(fmt) == 'string'
+      fmt = format(fmt, val)
+    else
+      fmt = ""
+    end
+
+    self.text = fmt
+    return false                  # propagate the event further
+  end
+end
+
+#################################################################################
+#################################################################################
+# Class `lvh_obj` encapsulating `lv_obj``
+#
+# Provide a mapping for virtual members
+# Stores the associated page and object id
+#
+# Adds specific virtual members used by HASPmota
+#################################################################################
+#################################################################################
+class lvh_obj : lvh_root
+  static var _lv_class = lv.obj     # _lv_class refers to the lvgl class encapsulated, and is overriden by subclasses
+  static var _lv_part2_selector     # selector for secondary part (like knob of arc)
+
+  #====================================================================
+  # Instance variables
+  var _lv_label                             # sub-label if exists
+  var _action                               # value of the HASPmota `action` attribute, shouldn't be called `self.action` since we want to trigger the set/member functions
+
+  #====================================================================
+  # init HASPmota object from its jsonl definition
+  #
+  # arg1: LVGL parent object (used to create a sub-object)
+  # arg2: `jline` JSONL definition of the object from HASPmota template (used in sub-classes)
+  # arg3: (opt) LVGL object if it already exists and was created prior to init()
+  # arg4: HASPmota parent object defined by `parentid`
+  #====================================================================
+  def init(parent, page, jline, obj, parent_lvh)
+    super(self).init(parent, page, jline, obj, parent_lvh)
+  end
+
+  #====================================================================
+  # post-init, to be overriden and used by certain classes
+  #====================================================================
+  def post_init()
+    self.register_event_cb()
+  end
+
+  #####################################################################
+  # General Setters and Getters
+  #####################################################################
 
   #====================================================================
   # Value of the `action` attribute
@@ -312,7 +642,7 @@ class lvh_obj
   # hold = LV_EVENT_LONG_PRESSED_REPEAT
   # changed = LV_EVENT_VALUE_CHANGED
   #====================================================================
-  static _event_map = {
+  static var _event_map = {
     lv.EVENT_PRESSED:             "down",
     lv.EVENT_CLICKED:             "up",
     lv.EVENT_PRESS_LOST:          "lost",
@@ -468,20 +798,25 @@ class lvh_obj
   #====================================================================
   def check_label()
     if self._lv_label == nil
-      self._lv_label = lv.label(self.get_obj())
-      self._lv_label.set_align(lv.ALIGN_CENTER);
+      import introspect
+      if introspect.contains(self._lv_obj, "set_text")
+        # if the `set_text` method exist, then use the native label
+        self._lv_label = self._lv_obj
+      else
+        # otherwise create a sub-label object
+        self._lv_label = lv.label(self.get_obj())
+        self._lv_label.set_align(lv.ALIGN_CENTER);
+      end
     end
   end
   def set_text(t)
     self.check_label()
     self._lv_label.set_text(str(t))
   end
-  def set_value_str(t) self.set_text(t) end
   def get_text()
     if self._lv_label == nil return nil end
     return self._lv_label.get_text()
   end
-  def get_value_str() return self.get_text() end
 
   # mode
   def set_mode(t)
@@ -542,56 +877,9 @@ class lvh_obj
   # Arg1: (string) "font_name-font_size", ex: "montserrat-20"
   #====================================================================
   def set_text_font(t)
-    # self.check_label()
-    var font
-    if type(t) == 'int'
-      try
-        font = lv.font_embedded("robotocondensed", t)
-      except ..
-        try
-          font = lv.font_embedded("montserrat", t)
-        except ..
-          return
-        end
-      end
-    elif type(t) == 'string'
-      import string
-      import re
-      # look for 'A:name.font' style font file name
-      var drive_split = string.split(t, ':', 1)
-      var fn_split = string.split(t, '-')
-
-      var name = t
-      var sz = 0
-      var is_ttf = false
-      var is_binary = (size(drive_split) > 1 && size(drive_split[0]))
-
-      if size(fn_split) >= 2
-        sz = int(fn_split[-1])
-        name = fn_split[0..-2].concat('-')    # rebuild the font name
-      end
-      if re.match(".*\\.ttf$", name)
-        # ttf font
-        name = string.split(name, ':')[-1]      # remove A: if any
-        is_ttf = true
-      end
-
-      if is_ttf
-        font = lv.load_freetype_font(name, sz, 0)
-      elif is_binary
-        # font is from disk
-        font = lv.load_font(t)
-      elif sz > 0 && size(name) > 0              # looks good, let's have a try
-        try
-          font = lv.font_embedded(name, sz)
-        except ..
-        end
-      end
-    end
+    var font = self.parse_font(t)
     if font != nil
       self._lv_obj.set_style_text_font(font, 0 #- lv.PART_MAIN | lv.STATE_DEFAULT -#)
-    else
-      print("HSP: Unsupported font:", t)
     end
   end
   def get_text_font()
@@ -686,6 +974,7 @@ class lvh_obj
   end
 
   def set_val(t)
+    self._val = t
     self._lv_obj.set_value(t)
   end
   def get_val()
@@ -703,98 +992,6 @@ class lvh_obj
     if self._lv_part2_selector != nil
       return self._lv_obj.get_style_radius(self._lv_part2_selector | lv.STATE_DEFAULT)
     end
-  end
-
-  #- ------------------------------------------------------------#
-  # `digits_to_style` 
-  # 
-  # Convert a 2 digits style descriptor to LVGL style modifier
-  # See https://www.openhasp.com/0.6.3/design/styling/
-  #
-  #
-  # 00 = main part of the object (i.e. the background)
-  # 10 = the indicator or needle, highlighting the the current value
-  # 20 = the knob which can be used the change the value
-  # 30 = the background of the items/buttons
-  # 40 = the items/buttons
-  # 50 = the selected item
-  # 60 = major ticks of the gauge object
-  # 70 = the text cursor
-  # 80 = the scrollbar
-  # 90 = other special part, not listed above
-  #
-  # LV_PART_MAIN         = 0x000000,   /**< A background like rectangle*/
-  # LV_PART_SCROLLBAR    = 0x010000,   /**< The scrollbar(s)*/
-  # LV_PART_INDICATOR    = 0x020000,   /**< Indicator, e.g. for slider, bar, switch, or the tick box of the checkbox*/
-  # LV_PART_KNOB         = 0x030000,   /**< Like handle to grab to adjust the value*/
-  # LV_PART_SELECTED     = 0x040000,   /**< Indicate the currently selected option or section*/
-  # LV_PART_ITEMS        = 0x050000,   /**< Used if the widget has multiple similar elements (e.g. table cells)*/
-  # LV_PART_CURSOR       = 0x060000,   /**< Mark a specific place e.g. for text area's cursor or on a chart*/
-  # LV_PART_CUSTOM_FIRST = 0x080000,    /**< Extension point for custom widgets*/
-  # LV_PART_ANY          = 0x0F0000,    /**< Special value can be used in some functions to target all parts*/
-  #
-  # 00 = default styling
-  # 01 = styling for toggled state
-  # 02 = styling for pressed, not toggled state
-  # 03 = styling for pressed and toggled state
-  # 04 = styling for disabled not toggled state
-  # 05 = styling for disabled and toggled state
-  #
-  # LV_STATE_DEFAULT     =  0x0000,
-  # LV_STATE_CHECKED     =  0x0001,
-  # LV_STATE_FOCUSED     =  0x0002,
-  # LV_STATE_FOCUS_KEY   =  0x0004,
-  # LV_STATE_EDITED      =  0x0008,
-  # LV_STATE_HOVERED     =  0x0010,
-  # LV_STATE_PRESSED     =  0x0020,
-  # LV_STATE_SCROLLED    =  0x0040,
-  # LV_STATE_DISABLED    =  0x0080,
-
-  # LV_STATE_USER_1      =  0x1000,
-  # LV_STATE_USER_2      =  0x2000,
-  # LV_STATE_USER_3      =  0x4000,
-  # LV_STATE_USER_4      =  0x8000,
-  #
-  #- ------------------------------------------------------------#
-  static var _digit2part = [
-    lv.PART_MAIN,         # 00
-    lv.PART_INDICATOR,    # 10
-    lv.PART_KNOB,         # 20
-    lv.PART_ITEMS,        # 30    TODO
-    lv.PART_ITEMS,        # 40
-    lv.PART_SELECTED,     # 50
-    lv.PART_ITEMS,        # 60
-    lv.PART_CURSOR,       # 70
-    lv.PART_SCROLLBAR,    # 80
-    lv.PART_CUSTOM_FIRST, # 90
-  ]
-  static var _digit2state = [
-    lv.STATE_DEFAULT,                     # 00
-    lv.STATE_CHECKED,                     # 01
-    lv.STATE_PRESSED,                     # 02
-    lv.STATE_CHECKED | lv.STATE_PRESSED,  # 03
-    lv.STATE_DISABLED,                    # 04
-    lv.STATE_DISABLED | lv.STATE_PRESSED, # 05
-  ]
-  def digits_to_style(digits)
-    if digits == nil    return 0    end     # lv.PART_MAIN | lv.STATE_DEFAULT
-    var first_digit = (digits / 10) % 10
-    var second_digit = digits % 10
-    var val = 0     # lv.PART_MAIN | lv.STATE_DEFAULT
-    if first_digit >= 0 && first_digit < size(self._digit2part)
-      val = val | self._digit2part[first_digit]
-    else
-      val = nil
-    end
-    if second_digit >= 0 && second_digit < size(self._digit2state)
-      val = val | self._digit2state[second_digit]
-    else
-      val = nil
-    end
-    if val == nil
-      raise "value_error", f"invalid style suffix {digits:02i}"
-    end
-    return val
   end
 
   #- ------------------------------------------------------------#
@@ -943,137 +1140,6 @@ class lvh_obj
     end
   end
 
-  #====================================================================
-  #  Metadata
-  #
-  #====================================================================
-  def set_meta(t)
-    self._meta = t
-  end
-  def get_meta()
-    return self._meta
-  end
-
-  #====================================================================
-  #  Rule based updates of `val` and `text`
-  #
-  # `val_rule`: rule pattern to grab a value, ex: `ESP32#Temperature`
-  # `val_rule_formula`: formula in Berry to transform the value
-  #                     Ex: `val * 10`
-  # `text_rule`: rule pattern to grab a value for text, ex: `ESP32#Temparature`
-  # `text_rule_format`: format used by `format()`
-  #                     Ex: `%.1f °C`
-  #====================================================================
-  def remove_val_rule()
-    if self._val_rule != nil
-      tasmota.remove_rule(self._val_rule, self)
-    end
-  end
-  def set_val_rule(t)
-    # remove previous rule if any
-    self.remove_val_rule()
-
-    self._val_rule = str(t)
-    tasmota.add_rule(self._val_rule, / val -> self.val_rule_matched(val), self)
-  end
-  def get_val_rule()
-    return self._val_rule
-  end
-  # text_rule
-  def remove_text_rule()
-    if self._text_rule != nil
-      tasmota.remove_rule(self._text_rule, self)
-    end
-  end
-  def set_text_rule(t)
-    # remove previous rule if any
-    self.remove_text_rule()
-
-    self._text_rule = str(t)
-    tasmota.add_rule(self._text_rule, / val -> self.text_rule_matched(val), self)
-  end
-  def get_text_rule()
-    return self._text_rule
-  end
-  def set_text_rule_format(t)
-    self._text_rule_format = str(t)
-  end
-  def get_text_rule_format()
-    return self._text_rule_format
-  end
-  # formula that gets compiled as Berry code
-  def set_val_rule_formula(t)
-    self._val_rule_formula = str(t)
-    var code = "return / val -> (" + self._val_rule_formula + ")"
-    try
-      var func = compile(code)
-      self._val_rule_function = func()
-    except .. as e, m
-      print(format("HSP: failed to compile '%s' - %s (%s)", code, e, m))
-    end
-  end
-  def get_val_rule_formula()
-    return self._val_rule_formula
-  end
-  # formula that gets compiled as Berry code
-  def set_text_rule_formula(t)
-    self._text_rule_formula = str(t)
-    var code = "return / val -> (" + self._text_rule_formula + ")"
-    try
-      var func = compile(code)
-      self._text_rule_function = func()
-    except .. as e, m
-      print(format("HSP: failed to compile '%s' - %s (%s)", code, e, m))
-    end
-  end
-  def get_text_rule_formula()
-    return self._text_rule_formula
-  end
-  # rule matched for val
-  def val_rule_matched(val)
-
-    # print(">> rule matched", "val=", val)
-    var val_n = real(val)         # force float type
-    if val_n == nil  return false end   # if the matched value is not a number, ignore
-    var func = self._val_rule_function
-    if func != nil
-      try
-        val_n = func(val_n)
-      except .. as e, m
-        print(format("HSP: failed to run self._val_rule_function - %s (%s)", e, m))
-      end
-    end
-
-    self.val = int(val_n)         # set value, truncate to int
-    return false                  # propagate the event further
-  end
-  # rule matched for text
-  def text_rule_matched(val)
-
-    # print(">> rule matched text", "val=", val)
-    if type(val) == 'int'
-      val = real(val)           # force float type
-    end
-
-    var func = self._text_rule_function
-    if func != nil
-      try
-        val = func(val)
-      except .. as e, m
-        print(format("HSP: failed to run self._text_rule_function - %s (%s)", e, m))
-      end
-    end
-
-    var fmt = self._text_rule_format
-    if type(fmt) == 'string'
-      fmt = format(fmt, val)
-    else
-      fmt = ""
-    end
-
-    self.text = fmt
-    return false                  # propagate the event further
-  end
 end
 
 #################################################################################
@@ -1086,7 +1152,7 @@ end
 #  label
 #====================================================================
 class lvh_label : lvh_obj
-  static _lv_class = lv.label
+  static var _lv_class = lv.label
   # label do not need a sub-label
   def post_init()
     self._lv_label = self._lv_obj   # the label is also the object itself
@@ -1098,8 +1164,9 @@ end
 #  arc
 #====================================================================
 class lvh_arc : lvh_obj
-  static _lv_class = lv.arc
-  static _lv_part2_selector = lv.PART_KNOB
+  static var _lv_class = lv.arc
+  static var _lv_part2_selector = lv.PART_KNOB
+  var _label_angle                  # nil if none
 
   # line_width converts to arc_width
   def set_line_width(t, style_modifier)
@@ -1117,9 +1184,11 @@ class lvh_arc : lvh_obj
 
   def set_min(t)
     self._lv_obj.set_range(int(t), self.get_max())
+    self.refresh_label_to_angle()
   end
   def set_max(t)
     self._lv_obj.set_range(self.get_min(), int(t))
+    self.refresh_label_to_angle()
   end
   def get_min()
     return self._lv_obj.get_min_value()
@@ -1140,16 +1209,45 @@ class lvh_arc : lvh_obj
   def get_type()
     return self._lv_obj.get_mode()
   end
+  # force refresh after set_val
+  def set_val(t)
+    super(self).set_val(t)
+    self.refresh_label_to_angle()
+  end
+  # force refresh after set_text
+  def set_text(t)
+    super(self).set_text(t)
+    self.refresh_label_to_angle()
+  end
+  #====================================================================
+  # `label_to_angle`
+  # ability to turn and offset the label.
+  # value is the offset in pixels to move the label
+  def set_label_to_angle(t)
+    self._label_angle = int(t)
+    self.refresh_label_to_angle()
+  end
+  def refresh_label_to_angle()
+    if (self._label_angle != nil && self._lv_label != nil)
+      self._lv_obj.rotate_obj_to_angle(self._lv_label, self._label_angle)
+    end
+  end
+  # update after parsing
+  def post_config()
+    super(self).post_config()   # not needed yet
+    self.refresh_label_to_angle()
+  end
 end
 
 #====================================================================
 #  switch
 #====================================================================
 class lvh_switch : lvh_obj
-  static _lv_class = lv.switch
-  static _lv_part2_selector = lv.PART_KNOB
+  static var _lv_class = lv.switch
+  static var _lv_part2_selector = lv.PART_KNOB
   # map val to toggle
   def set_val(t)
+    self._val = t
     return self.set_toggle(t)
   end
   def get_val()
@@ -1161,7 +1259,7 @@ end
 #  spinner
 #====================================================================
 class lvh_spinner : lvh_arc
-  static _lv_class = lv.spinner
+  static var _lv_class = lv.spinner
   var _speed, _angle
 
   # init
@@ -1187,7 +1285,9 @@ end
 #  img
 #====================================================================
 class lvh_img : lvh_obj
-  static _lv_class = lv.image
+  static var _lv_class = lv.image
+  var _raw                        # used to store raw image in RAM
+  var _imd_dsc
 
   def set_auto_size(v)
     if v
@@ -1202,31 +1302,65 @@ class lvh_img : lvh_obj
   def get_angle()
     return self._lv_obj.get_angle()
   end
+  #- ------------------------------------------------------------#
+  # `src` virtual setter
+  # If source is `tasmota_logo`, use the embedded logo
+  #- ------------------------------------------------------------#
+  def set_src(t)
+    if (t == 'tasmota_logo')
+      self._lv_obj.set_tasmota_logo()
+    else
+      self._lv_obj.set_src(t)
+    end
+  end
+  #- ------------------------------------------------------------#
+  # `raw` virtual setter
+  # Decode base64
+  #- ------------------------------------------------------------#
+  def set_raw(t)
+    self._raw = bytes().fromb64(t)
+    var img_dsc = lv.lv_image_dsc()
+    
+    img_dsc.header_cf = lv.COLOR_FORMAT_RAW
+    #img_dsc.header_w = 0
+    #img_dsc.header_h = 0
+    img_dsc.data_size = size(self._raw)
+    img_dsc.data = self._raw._buffer()
+    self._imd_dsc = img_dsc
+
+    self._lv_obj.set_src(img_dsc)
+  end
 end
 
 #====================================================================
 #  qrcode
 #====================================================================
 class lvh_qrcode : lvh_obj
-  static _lv_class = lv.qrcode
+  static var _lv_class = lv.qrcode
+  var qr_text                         # any change needs the text to be update again
 
-
+  def _update()
+    var t = self.qr_text
+    if (t != nil)
+      self._lv_obj.update(t, size(t))
+    end
+  end
   # ignore attributes, spinner can't be changed once created
-  def set_qr_size(t)                  self._lv_obj.set_size(t)                              end
-  def set_size(t)                     self._lv_obj.set_size(t)                              end
+  def set_qr_size(t)                  self._lv_obj.set_size(t)                              self._update()  end
+  def set_size(t)                     self._lv_obj.set_size(t)                              self._update()  end
   def get_qr_size() end
   def get_size() end
-  def set_qr_dark_color(t)            self._lv_obj.set_dark_color(self.parse_color(t))      end
-  def set_dark_color(t)               self._lv_obj.set_dark_color(self.parse_color(t))      end
+  def set_qr_dark_color(t)            self._lv_obj.set_dark_color(self.parse_color(t))      self._update()  end
+  def set_dark_color(t)               self._lv_obj.set_dark_color(self.parse_color(t))      self._update()  end
   def get_qr_dark_color() end
   def get_dark_color() end
-  def set_qr_light_color(t)            self._lv_obj.set_light_color(self.parse_color(t))     end
-  def set_light_color(t)               self._lv_obj.set_light_color(self.parse_color(t))     end
+  def set_qr_light_color(t)            self._lv_obj.set_light_color(self.parse_color(t))     self._update()  end
+  def set_light_color(t)               self._lv_obj.set_light_color(self.parse_color(t))     self._update()  end
   def get_qr_light_color() end
   def get_light_color() end
   def set_qr_text(t)
-    t = str(t)
-    self._lv_obj.update(t, size(t))
+    self.qr_text = str(t)
+    self._update()
   end
   def get_qr_text() end
 end
@@ -1235,9 +1369,10 @@ end
 #  slider
 #====================================================================
 class lvh_slider : lvh_obj
-  static _lv_class = lv.slider
+  static var _lv_class = lv.slider
 
   def set_val(t)
+    self._val = t
     self._lv_obj.set_value(t, 0)    # add second parameter - no animation
   end
   def set_min(t)
@@ -1258,9 +1393,10 @@ end
 #  roller
 #====================================================================
 class lvh_roller : lvh_obj
-  static _lv_class = lv.roller
+  static var _lv_class = lv.roller
 
   def set_val(t)
+    self._val = t
     self._lv_obj.set_selected(t, 0)    # add second parameter - no animation
   end
   def get_val()
@@ -1287,13 +1423,37 @@ class lvh_roller : lvh_obj
 end
 
 #====================================================================
+#  led
+#====================================================================
+class lvh_led : lvh_obj
+  static var _lv_class = lv.led
+
+  # `val` is a synonym for `brightness`
+  def set_val(t)
+    self._val = t
+    self._lv_obj.set_brightness(t)
+  end
+  def get_val()
+    return self._lv_obj.get_brightness()
+  end
+
+  def set_color(t)
+    var v = self.parse_color(t)
+    self._lv_obj.set_color(v)
+  end
+  def get_color()
+  end
+end
+
+#====================================================================
 #  dropdown
 #====================================================================
 class lvh_dropdown : lvh_obj
-  static _lv_class = lv.dropdown
-  static _dir = [ lv.DIR_BOTTOM, lv.DIR_TOP, lv.DIR_LEFT, lv.DIR_RIGHT ] # 0 = down, 1 = up, 2 = left, 3 = right
+  static var _lv_class = lv.dropdown
+  static var _dir = [ lv.DIR_BOTTOM, lv.DIR_TOP, lv.DIR_LEFT, lv.DIR_RIGHT ] # 0 = down, 1 = up, 2 = left, 3 = right
 
   def set_val(t)
+    self._val = t
     self._lv_obj.set_selected(t, 0)    # add second parameter - no animation
   end
   def get_val()
@@ -1354,11 +1514,162 @@ class lvh_dropdown : lvh_obj
 end
 
 class lvh_bar : lvh_obj
-  static _lv_class = lv.bar
+  static var _lv_class = lv.bar
   
   def set_val(t)
+    self._val = t
     self._lv_obj.set_value(t, lv.ANIM_OFF)
   end
+  def set_min(t)
+    self._lv_obj.set_range(int(t), self._lv_obj.get_max_value())
+  end
+  def set_max(t)
+    self._lv_obj.set_range(self._lv_obj.get_min_value(), int(t))
+  end
+  def get_min()
+    return self._lv_obj.get_min_value()
+  end
+  def get_max()
+    return self._lv_obj.get_max_value()
+  end
+
+end
+
+#====================================================================
+#  spangroup
+#====================================================================
+class lvh_spangroup : lvh_obj
+  static var _lv_class = lv.spangroup
+  # label do not need a sub-label
+  def post_init()
+    self._lv_obj.set_mode(lv.SPAN_MODE_BREAK)           # use lv.SPAN_MODE_BREAK by default
+    self._lv_obj.refr_mode()
+    super(self).post_init()         # call super -- not needed
+  end
+  # refresh mode
+  def refr_mode()
+    self._lv_obj.refr_mode()
+  end
+end
+
+#====================================================================
+#  span
+#====================================================================
+class lvh_span : lvh_root
+  static var _lv_class = nil
+  # label do not need a sub-label
+  var _style                          # style object
+
+  def post_init()
+    self._lv_obj = nil                # default to nil object, whatever it was initialized with
+    # check if it is the parent is a spangroup
+    if isinstance(self._parent_lvh, self._page._oh.lvh_spangroup)
+      # print(">>> GOOD")
+      self._lv_obj = self._parent_lvh._lv_obj.new_span()
+      self._style = self._lv_obj.get_style()
+    end
+    # super(self).post_init()         # call super - not needed for lvh_root
+  end
+
+  #====================================================================
+  def set_text(t)
+    self._lv_obj.set_text(str(t))
+  end
+
+  #====================================================================
+  def set_text_font(t)
+    var font = self.parse_font(t)
+    if font != nil
+      self._style.set_text_font(font)
+      self._parent_lvh.refr_mode()
+    end
+  end
+  
+  #- ------------------------------------------------------------#
+  #  Internal utility functions
+  #
+  #  Mapping of virtual attributes
+  #
+  #- ------------------------------------------------------------#
+  # There are no attributes that can be read from `lv.style``
+  # so we don't need virtual members
+  #- ------------------------------------------------------------#
+  # def member(k)
+  #   import string
+  #   import introspect
+
+  #   do
+  #     var prefix = k[0..3]
+  #     if prefix == "set_" || prefix == "get_" return end    # avoid recursion
+  #   end
+
+  #   # if attribute name is in ignore list, abort
+  #   if self._attr_ignore.find(k) != nil return end
+
+  #   # first check if there is a method named `get_X()`
+  #   var f = introspect.get(self, "get_" + k)
+  #   if type(f) == 'function'
+  #     # print(f">>>: setmember local method set_{k}")
+  #     return f(self)
+  #   end
+
+  #   # finally try any `get_XXX` within the LVGL object
+  #   f = introspect.get(self._style, "get_" + k)
+  #   if type(f) == 'function'                  # found and function, call it
+  #     return f(self._style)
+  #   end
+
+  #   # fallback to exception if attribute unknown or not a function
+  #   return module("undefined")
+  # end
+
+  #- ------------------------------------------------------------#
+  # `setmember` virtual setter
+  # trimmed down version for style only
+  #- ------------------------------------------------------------#
+  def setmember(k, v)
+    import string
+    import introspect
+
+    do
+      # print(">>>: span setmember", k, v)
+      var prefix = k[0..3]
+      if prefix == "set_" || prefix == "get_" return end      # avoid infinite loop
+    end
+
+    # if attribute name is in ignore list, abort
+    if self._attr_ignore.find(k) != nil return end
+
+    # first check if there is a method named `set_X()`
+    var f = introspect.get(self, "set_" + k)
+    if type(f) == 'function'
+      # print(f">>>: setmember local method set_{k}")
+      f(self, v)
+      return
+    end
+
+    # simply check if a method `set_{k}` exists
+    f = introspect.get(self._style, "set_" + k)    # look at style
+    # print(f">>>: span name={'set_' + k} {f=}")
+    if (type(f) == 'function')
+      # if the attribute contains 'color', convert to lv_color
+      if self.is_color_attribute(k)
+        v = self.parse_color(v)
+      end
+      # invoke
+      try
+        f(self._style, v)
+        self._parent_lvh.refr_mode()
+      except .. as e, m
+        raise e, m + " for " + k
+      end
+      return nil
+    else
+      print("HSP: Could not find function set_" + k)
+    end
+
+  end
+
 end
 
 #################################################################################
@@ -1366,71 +1677,121 @@ end
 # Adapted to getting values one after the other
 #################################################################################
 class lvh_chart : lvh_obj
-  static _lv_class = lv.chart
+  static var _lv_class = lv.chart
   # ser1/ser2 contains the first/second series of data
-  var ser1, ser2
+  var _ser1, _ser2
   # y_min/y_max contain the main range for y. Since LVGL does not have getters, we need to memorize on our side the lates tvalues
-  var y_min, y_max
+  var _y_min, _y_max
   # h_div/v_div contain the horizontal and vertical divisions, we need to memorize values because both are set from same API
-  var h_div, v_div
+  var _h_div, _v_div
 
   def post_init()
     # default values from LVGL are 0..100
-    self.y_min = 0
-    self.y_max = 100
+    self._y_min = 0
+    self._y_max = 100
     # default values
     #define LV_CHART_HDIV_DEF 3
     #define LV_CHART_VDIV_DEF 5
-    self.h_div = 3
-    self.v_div = 5
+    self._h_div = 3
+    self._v_div = 5
 
     self._lv_obj.set_update_mode(lv.CHART_UPDATE_MODE_SHIFT)
 
-    self.ser1 = self._lv_obj.add_series(lv.color(0xEE4444), lv.CHART_AXIS_PRIMARY_Y)
-    self.ser2 = self._lv_obj.add_series(lv.color(0x44EE44), lv.CHART_AXIS_PRIMARY_Y)
+    self._ser1 = self._lv_obj.add_series(lv.color(0xEE4444), lv.CHART_AXIS_PRIMARY_Y)
+    self._ser2 = self._lv_obj.add_series(lv.color(0x44EE44), lv.CHART_AXIS_PRIMARY_Y)
   end
 
   def add_point(v)
-    self._lv_obj.set_next_value(self.ser1, v)
+    self._lv_obj.set_next_value(self._ser1, v)
   end
   def add_point2(v)
-    self._lv_obj.set_next_value(self.ser2, v)
+    self._lv_obj.set_next_value(self._ser2, v)
   end
 
   def set_val(v)
+    self._val = v
     self.add_point(v)
   end
   def set_val2(v)
     self.add_point2(v)
   end
   def get_y_min()
-    return self.y_min
+    return self._y_min
   end
   def get_y_max()
-    return self.y_max
+    return self._y_max
   end
-  def set_y_min(y_min)
-    self.y_min = y_min
-    self._lv_obj.set_range(lv.CHART_AXIS_PRIMARY_Y, self.y_min, self.y_max)
+  def set_y_min(_y_min)
+    self._y_min = _y_min
+    self._lv_obj.set_range(lv.CHART_AXIS_PRIMARY_Y, self._y_min, self._y_max)
   end
-  def set_y_max(y_max)
-    self.y_max = y_max
-    self._lv_obj.set_range(lv.CHART_AXIS_PRIMARY_Y, self.y_min, self.y_max)
+  def set_y_max(_y_max)
+    self._y_max = _y_max
+    self._lv_obj.set_range(lv.CHART_AXIS_PRIMARY_Y, self._y_min, self._y_max)
   end
 
   def set_series1_color(color)
-    self._lv_obj.set_series_color(self.ser1, color)
+    self._lv_obj.set_series_color(self._ser1, color)
   end
   def set_series2_color(color)
-    self._lv_obj.set_series_color(self.ser2, color)
+    self._lv_obj.set_series_color(self._ser2, color)
   end
-  def set_h_div_line_count(h_div)
-    self.h_div = h_div
-    self._lv_obj.set_div_line_count(self.h_div, self.v_div)
+  def set_h_div_line_count(_h_div)
+    self._h_div = _h_div
+    self._lv_obj.set_div_line_count(self._h_div, self._v_div)
   end
-  def set_v_div_line_count(v_div)
-    self.v_div = v_div
-    self._lv_obj.set_div_line_count(self.h_div, self.v_div)
+  def set_v_div_line_count(_v_div)
+    self._v_div = _v_div
+    self._lv_obj.set_div_line_count(self._h_div, self._v_div)
+  end
+end
+
+#====================================================================
+#  line
+#====================================================================
+class lvh_line : lvh_obj
+  static var _lv_class = lv.line
+  var _lv_points          # needs to save to avoid garbage collection
+  # list of points
+  def set_points(t)
+    if isinstance(t, list)
+      var pts = []
+      for p: t
+        if (isinstance(p, list) && size(p) == 2)
+          var pt = lv.point()
+          pt.x = int(p[0])
+          pt.y = int(p[1])
+          pts.push(pt)
+        end
+      end
+      var pt_arr = lv.point_arr(pts)
+      self._lv_points = pt_arr
+      self._lv_obj.set_points(pt_arr, size(pts))
+    else
+      print(f"HSP: 'line' wrong format for 'points' {t}")
+    end
+  end
+end
+
+#====================================================================
+#  btnmatrix
+#====================================================================
+class lvh_btnmatrix : lvh_obj
+  static var _lv_class = lv.btnmatrix
+  var _options                      # need to keep the reference alive to avoid GC
+  var _options_arr                  # need to keep the reference alive to avoid GC
+  
+  def set_options(l)
+    if (isinstance(l, list))
+      self._options = l
+      self._options_arr = lv.str_arr(l)
+      self._lv_obj.set_map(self._options_arr)
+    else
+      print("HTP: 'btnmatrix' needs 'options' to be a list of strings")
+    end
+  end
+  def get_options()
+    return self._options
   end
 end
 
@@ -1440,13 +1801,11 @@ end
 # and doesn't have any specific behavior
 #
 #################################################################################
-class lvh_btn : lvh_obj         static _lv_class = lv.btn         end
-class lvh_btnmatrix : lvh_obj   static _lv_class = lv.btnmatrix   end
-class lvh_checkbox : lvh_obj    static _lv_class = lv.checkbox    end
-class lvh_line : lvh_obj        static _lv_class = lv.line        end
-class lvh_textarea : lvh_obj    static _lv_class = lv.textarea    end
+class lvh_btn : lvh_obj         static var _lv_class = lv.btn         end
+class lvh_checkbox : lvh_obj    static var _lv_class = lv.checkbox    end
+class lvh_textarea : lvh_obj    static var _lv_class = lv.textarea    end
 # special case for scr (which is actually lv_obj)
-class lvh_scr : lvh_obj         static _lv_class = nil            end    # no class for screen
+class lvh_scr : lvh_obj         static var _lv_class = nil            end    # no class for screen
 
 
 #################################################################################
@@ -1620,6 +1979,8 @@ class HASPmota
   var event_cb                          # the low-level callback for the closure to be registered
 
   # assign lvh_page to a static attribute
+  static lvh_root = lvh_root
+	static lvh_obj = lvh_obj
   static lvh_page = lvh_page
   static lvh_scr = lvh_scr
   # assign all classes as static attributes
@@ -1629,7 +1990,6 @@ class HASPmota
   static lvh_label = lvh_label
  	# static lvh_led = lvh_led
 	static lvh_spinner = lvh_spinner
-	static lvh_obj = lvh_obj
 	static lvh_line = lvh_line
 	static lvh_img = lvh_img
 	static lvh_dropdown = lvh_dropdown
@@ -1645,6 +2005,9 @@ class HASPmota
  	# static lvh_linemeter = lvh_linemeter
  	# static lvh_gauge = lvh_gauge
 	static lvh_textarea = lvh_textarea    # additional?
+  static lvh_led = lvh_led
+  static lvh_spangroup = lvh_spangroup
+  static lvh_span = lvh_span
   static lvh_qrcode = lvh_qrcode
   # special cases
   static lvh_chart = lvh_chart
@@ -2011,8 +2374,9 @@ class HASPmota
       var parent_lvgl
       var parent_id = int(jline.find("parentid"))
 
+      var parent_obj
       if parent_id != nil
-        var parent_obj = lvh_page_cur.get_obj(parent_id)        # get parent object
+        parent_obj = lvh_page_cur.get_obj(parent_id)        # get parent object
         if parent_obj != nil   parent_lvgl = parent_obj._lv_obj end  # parent 
       end
       if parent_lvgl == nil
@@ -2049,7 +2413,7 @@ class HASPmota
       end
       
       # instanciate the object, passing the lvgl screen as parent object
-      obj_lvh = obj_class(parent_lvgl, page, jline, lv_instance)
+      obj_lvh = obj_class(parent_lvgl, page, jline, lv_instance, parent_obj)
 
       # add object to page object
       lvh_page_cur.add_obj(obj_id, obj_lvh)
@@ -2084,6 +2448,9 @@ class HASPmota
       # introspect.set(obj, k, jline[k])
       obj_lvh.(k) = jline[k]
     end
+
+    # finally call 'post_config()' when all attributes are set, which gives an opportunity to clean or refresh
+    obj_lvh.post_config()
   end
 end
 haspmota.HASPmota = HASPmota
@@ -2100,6 +2467,56 @@ haspmota.HASPmota = HASPmota
 haspmota.init = def (m)         # `init(m)` is called during first `import haspmota`
   var oh = m.HASPmota
   return oh()
+end
+
+#################################################################################
+# Solidify
+#################################################################################
+def solidify_haspmota()
+  import path 
+  path.remove("haspmota.bec")
+  import solidify
+  import introspect
+
+  var classes = [
+    "root",
+    "page", "obj", "scr",
+    "btn", "switch", "checkbox",
+    "label", "spinner", "line", "img", "roller", "btnmatrix",
+    "bar", "slider", "arc", "textarea", "led", "dropdown",
+    "qrcode", "chart", "spangroup", "span",
+    # new internal names
+    "button", "image", "buttonmatrix",
+  ]
+  var f = open("be_lv_haspmota.c", "w")
+  f.write(
+  '/********************************************************************\n'
+  ' * Tasmota HASPmota solidified\n'
+  ' *******************************************************************/\n'
+  '#include "be_constobj.h"\n'
+  '\n'
+  '#ifdef USE_LVGL\n'
+  '#ifdef USE_LVGL_HASPMOTA\n'
+  '\n'
+  )
+  for c:classes
+    f.write(f'extern const bclass be_class_lv_{c};\n')
+  end
+
+  for c:classes
+    if introspect.contains(haspmota.HASPmota, "lvh_"+c)
+      solidify.dump(haspmota.HASPmota.("lvh_"+c), true, f)
+    end
+  end
+  solidify.dump(haspmota, true, f)
+
+  f.write(
+  '\n'
+  '#endif // USE_LVGL_HASPMOTA\n'
+  '#endif // USE_LVGL\n'
+  )
+  f.close()
+  print("Ok")
 end
 
 global.haspmota = haspmota

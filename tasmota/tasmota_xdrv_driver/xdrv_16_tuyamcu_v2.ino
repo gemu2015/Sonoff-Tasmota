@@ -130,6 +130,8 @@
 
 #define TUYA_BYTE_TIMEOUT_MS   500
 
+#define HEARTBEAT_INTERVAL_S   15
+
 #define TUYAREAD32FROMPTR(x) (((uint8_t*)x)[0] << 24 | ((uint8_t*)x)[1] << 16 | ((uint8_t*)x)[2] << 8 | ((uint8_t*)x)[3])
 
 enum {
@@ -189,17 +191,6 @@ typedef struct TUYA_STRUCT_tag {
   // e.g. 7 is ack to 6 and 8
   // if state is TUYA_STARTUP_STATE_WAIT_ACK_CMD
   uint8_t expectedResponseCmd;
-
-//  uint8_t rxedDPids[TUYA_MAX_STORED_DPs];
-//  uint8_t rxedDPidType[TUYA_MAX_STORED_DPs];
-  // DPValues are changed by every TUYA_CMD_STATE
-//  uint32_t rxedDPvalues[TUYA_MAX_STORED_DPs];
-  // DPValues are changed by every TUYA_CMD_STATE
-//  uint32_t desiredDPvalues[TUYA_MAX_STORED_DPs];
-  // set to 1 if desired value changed
-//  uint8_t toSet[TUYA_MAX_STORED_DPs];
-  // set to 1 if a DP is to be sent
-  uint8_t requestSend;
 
   uint16_t Levels[5];       // Array to store the values of TuyaMCU channels
   uint16_t Snapshot[5];     // Array to store a snapshot of Tasmota actual channel values
@@ -897,7 +888,7 @@ void Tuya_statemachine(int cmd = -1, int len = 0, unsigned char *payload = (unsi
       for (i = 0; i < pTuya->numRxedDPids; i++){
         TUYA_DP_STORE *dp = &pTuya->DPStore[i];
         // if set requested, and MCU has reported at least once
-        if (dp->toSet && dp->rxed){
+        if (dp->toSet) {
           // if value is different
           if ((dp->rxedValueLen != dp->desiredValueLen) || memcmp(dp->rxedValue, dp->desiredValue, dp->desiredValueLen)){
             uint8_t send = 1;
@@ -1066,7 +1057,6 @@ void TuyaPostState(uint8_t id, uint8_t type, uint8_t *value, int len = 4){
           memcpy(dp->desiredValue, value, len);
           dp->desiredValueLen = len;
           dp->toSet = 1;
-          pTuya->requestSend = 1;
           AddLog(LOG_LEVEL_DEBUG, PSTR("TYA: DP%d des v set (0x%x,%d)"), id, dp->desiredValue[0], dp->desiredValueLen);
 
           if (TuyaDpIdIsDimmer(id)){
@@ -1092,7 +1082,6 @@ void TuyaPostState(uint8_t id, uint8_t type, uint8_t *value, int len = 4){
         memcpy(dp->desiredValue, value, len);
         dp->desiredValueLen = len;
         dp->toSet = 1;
-        pTuya->requestSend = 1;
         AddLog(LOG_LEVEL_DEBUG, PSTR("TYA: NEW DP %d desiredvalue set (0x%08x len %d)"), id, dp->desiredValue[0], dp->desiredValueLen);
       } else {
         AddLog(LOG_LEVEL_ERROR, PSTR("TYA: DP %d value over len (%d > %d)"), id, len, TUYA_MAX_STRING_SIZE);
@@ -2529,7 +2518,7 @@ bool Xdrv16(uint32_t function) {
         //if (TuyaSerial && pTuya->wifi_state != TuyaGetTuyaWifiState()) { TuyaSetWifiLed(); }
         if (!pTuya->low_power_mode) {
           pTuya->heartbeat_timer++;
-          if (pTuya->heartbeat_timer > 10) {
+          if (pTuya->heartbeat_timer >= HEARTBEAT_INTERVAL_S) {
             pTuya->heartbeat_timer = 0;
             pTuya->send_heartbeat = 1;
           }
