@@ -1235,7 +1235,7 @@ int32_t Init_module(uint32_t module) {
 
 #ifdef ESP32
         esp_err_t err = esp_partition_read(plugins.flash_pptr, (uint32_t)modules[module].mod_addr - plugins.free_flash_start, (void*)buff, SPI_FLASH_SEC_SIZE);
-         FLASH_MODULE *fm = (FLASH_MODULE*)buff;
+        FLASH_MODULE *fm = (FLASH_MODULE*)buff;
         if (fm->sync == MODULE_SYNC) {
           uint32_t *lp = (uint32_t*)&fm->mtv;
           *lp = (uint32_t)&modules[module];

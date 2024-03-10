@@ -2,13 +2,16 @@ Import("env")
 
 import os
 import shutil
+import pathlib
 import tasmotapiolib
 import binascii
-
+from os.path import join
 
 #MODULE_SYNC = 0x55aaFC4A
 
-if env["PIOPLATFORM"] != "espressif32" :
+murks=0
+#if env["PIOPLATFORM"] == "espressif32" :
+if 1==1 :
 
     def grep_module(source, target, env):
         #print("searching binary for module ")
@@ -32,7 +35,7 @@ if env["PIOPLATFORM"] != "espressif32" :
                     xtype = fp.read(4)
                     type = int.from_bytes(xtype, "little")
                     if arch == 0 and type <= 4:
-                        #print("found start sync")
+                        print("found start sync")
                         start = 1
                         dummy = fp.read(4)
                         xname = fp.read(16)
@@ -48,8 +51,42 @@ if env["PIOPLATFORM"] != "espressif32" :
                         fwp.write(dummy)
                         fwp.write(xname)
                         size += 28
+                    if arch == 1 and type <= 4:
+                        print("found start sync")
+                        start = 1
+                        dummy = fp.read(4)
+                        xname = fp.read(16)
+                        fname = xname.decode('ascii') 
+                        name = fname.replace('\x00','')
+                        mod_file = dir_path + "/" + name + "_32.bin"
+                        if os.path.isfile(mod_file):
+                            os.remove(mod_file)
+                        fwp = open(mod_file, "wb")
+                        fwp.write(msync)
+                        fwp.write(xarch)
+                        fwp.write(xtype)
+                        fwp.write(dummy)
+                        fwp.write(xname)
+                        size += 28
+                    if arch == 2 and type <= 4:
+                        print("found start sync")
+                        start = 1
+                        dummy = fp.read(4)
+                        xname = fp.read(16)
+                        fname = xname.decode('ascii') 
+                        name = fname.replace('\x00','')
+                        mod_file = dir_path + "/" + name + "_32r.bin"
+                        if os.path.isfile(mod_file):
+                            os.remove(mod_file)
+                        fwp = open(mod_file, "wb")
+                        fwp.write(msync)
+                        fwp.write(xarch)
+                        fwp.write(xtype)
+                        fwp.write(dummy)
+                        fwp.write(xname)
+                        size += 28
 
-                if msync[0] == 0x55 and msync[1] == 0xaa and msync[2] == 0xfc and msync[3] == 0x4a:
+                if start > 0 and msync[0] == 0x55 and msync[1] == 0xaa and msync[2] == 0xfc and msync[3] == 0x4a:
                     start = 2
                     size += 4
                     #print("found end sync")
