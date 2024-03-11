@@ -336,8 +336,6 @@ void tmod_WSContentSend_PD(const char* format, va_list va) {
 }
 
 
-
-
 void AddlogT(char* txt) {
    AddLog(LOG_LEVEL_INFO ,PSTR("%s"), txt);
 }
@@ -611,12 +609,16 @@ MODULES_TABLE modules[MAX_PLUGINS];
 #else
 #ifdef __riscv
 #undef SET_MOD_REG
-#define SET_MOD_REG(A) *(uint32_t*)GLOB_MOD_REG=(uint32_t)&modules[A];
+#define SET_MOD_REG(A)
+// *(uint32_t*)GLOB_MOD_REG=(uint32_t)&modules[A];
 #else
 #undef SET_MOD_REG
 #define SET_MOD_REG(A)
 #endif
 #endif
+
+
+#define ESP32_PLUGIN_HSIZE SPI_FLASH_SEC_SIZE
 
 void Setplugins(void) {
 
@@ -1159,15 +1161,18 @@ void Update_Module_Data(uint32_t module, uint32_t *data) {
       }
 #endif
 #ifdef ESP32
-      esp_err_t err = esp_partition_read(plugins.flash_pptr, (uint32_t)modules[module].mod_addr - plugins.free_flash_start, (void*)buff, SPI_FLASH_SEC_SIZE);
+      uint32_t offset = (uint32_t)modules[module].mod_addr - plugins.free_flash_start;
+      AddLog(LOG_LEVEL_INFO, PSTR("part offset: %08x"), offset);
+      esp_err_t err = esp_partition_read(plugins.flash_pptr, offset, (void*)buff, ESP32_PLUGIN_HSIZE);
       FLASH_MODULE *fm = (FLASH_MODULE*)buff;
       //AddLog(LOG_LEVEL_INFO,PSTR("read flash: %08x"),fm->sync);
       if (fm->sync == MODULE_SYNC) {
-        //AddLog(LOG_LEVEL_INFO,PSTR("modify data"));
+        AddLog(LOG_LEVEL_INFO,PSTR("modify data"));
         for (uint16_t cnt = 0; cnt < MAX_MOD_STORES; cnt++ ) {
           fm->ms[cnt].value = *data++;
         }
-        err = esp_partition_write(plugins.flash_pptr, (uint32_t)modules[module].mod_addr - plugins.free_flash_start, (void*)buff, SPI_FLASH_SEC_SIZE);
+        err = esp_partition_erase_range(plugins.flash_pptr, offset, ESP32_PLUGIN_HSIZE);
+        err = esp_partition_write(plugins.flash_pptr, offset, (void*)buff, ESP32_PLUGIN_HSIZE);
       }
 #endif
       free(buff);
@@ -1234,14 +1239,15 @@ int32_t Init_module(uint32_t module) {
 #endif
 
 #ifdef ESP32
-        esp_err_t err = esp_partition_read(plugins.flash_pptr, (uint32_t)modules[module].mod_addr - plugins.free_flash_start, (void*)buff, SPI_FLASH_SEC_SIZE);
+        uint32_t offset = (uint32_t)modules[module].mod_addr - plugins.free_flash_start;
+        esp_err_t err = esp_partition_read(plugins.flash_pptr, offset, (void*)buff, ESP32_PLUGIN_HSIZE);
         FLASH_MODULE *fm = (FLASH_MODULE*)buff;
         if (fm->sync == MODULE_SYNC) {
-          uint32_t *lp = (uint32_t*)&fm->mtv;
-          *lp = (uint32_t)&modules[module];
-          lp = (uint32_t*)&fm->jtab;
-          *lp = (uint32_t)&MODULE_JUMPTABLE;
-          err = esp_partition_write(plugins.flash_pptr, (uint32_t)modules[module].mod_addr - plugins.free_flash_start, (void*)buff, SPI_FLASH_SEC_SIZE);
+          AddLog(LOG_LEVEL_INFO, PSTR("part update"));
+          fm->mtv = (uint32_t)&modules[module];
+          fm->jtab = (uint32_t)&MODULE_JUMPTABLE;
+          err = esp_partition_erase_range(plugins.flash_pptr, offset, ESP32_PLUGIN_HSIZE);
+          err = esp_partition_write(plugins.flash_pptr, offset, (void*)buff, ESP32_PLUGIN_HSIZE);
         }
 #endif
         free(buff);
