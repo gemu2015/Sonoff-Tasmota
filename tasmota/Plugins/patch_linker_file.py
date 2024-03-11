@@ -13,32 +13,27 @@ platform = env.PioPlatform()
 board = env.BoardConfig()
 mcu = board.get("build.mcu", "esp32")
 
-#packages_dir = platform.DirPath()
-#print(packages_dir)
-
 
 print("patching linker file")
 
-packages_dir="/Users/gerhardmutz1/.platformio/packages"
-
 if mcu == "esp8266":
-        libpath = packages_dir+"/framework-arduinoespressif8266/tools/sdk/ld/eagle.app.v6.common.ld.h"
+        libpath = platform.get_package_dir("framework-arduinoespressif8266")+"/tools/sdk/ld/eagle.app.v6.common.ld.h"
         match = "*(.ver_number)"
         mlen = 0
 if mcu == "esp32":
-        libpath = packages_dir+"/framework-arduinoespressif32/tools/sdk/esp32/ld/sections.ld"
+        libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/sdk/esp32/ld/sections.ld"
         match = '+= _esp_flash_mmap_prefetch_pad_size;'
         mlen = len(match)
 if mcu == "esp32s2":
-        libpath = packages_dir+"/framework-arduinoespressif32/tools/sdk/esp32s2/ld/sections.ld"
+        libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/sdk/esp32s2/ld/sections.ld"
         match = '+= _esp_flash_mmap_prefetch_pad_size;'
         mlen = len(match)
 if mcu == "esp32s3":
-        libpath = packages_dir+"/framework-arduinoespressif32/tools/sdk/esp32s3/ld/sections.ld"
+        libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/sdk/esp32s3/ld/sections.ld"
         match = '+= _esp_flash_mmap_prefetch_pad_size;'
         mlen = len(match)
 if mcu == "esp32c3":
-        libpath = packages_dir+"/framework-arduinoespressif32/tools/sdk/esp32c3/ld/sections.ld"
+        libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/sdk/esp32c3/ld/sections.ld"
         match = '+= _esp_flash_mmap_prefetch_pad_size;'
         mlen = len(match)
 
