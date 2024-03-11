@@ -9640,7 +9640,7 @@ bool Script_SubCmd(void) {
   if (cmdbuff) {
     char *cp = cmdbuff;
     *cp++ = '#';
-    strlcpy(cp, command, sizeof(cmdbuff) - 1);
+    strlcpy(cp, command, 128 - 1);
     uint8_t tlen = strlen(command);
     cp += tlen;
     if (XdrvMailbox.data_len > 0) {
@@ -12064,7 +12064,7 @@ uint8_t msect = Run_Scripter1(">m", -2, 0);
       }
       if (*lp!=';') {
         // send this line to smtp
-        Replace_Cmd_Vars(lp, 1, tmp, sizeof(tmp));
+        Replace_Cmd_Vars(lp, 1, tmp, 256);
         //client->println(tmp);
         func(tmp);
       }
@@ -12107,7 +12107,7 @@ void ScriptJsonAppend(void) {
           // subroutine
           lp = scripter_sub(lp + 1, 0);
         } else {
-          Replace_Cmd_Vars(lp, 1, tmp, sizeof(tmp));
+          Replace_Cmd_Vars(lp, 1, tmp, 256);
           ResponseAppend_P(PSTR("%s"), tmp);
         }
       }
