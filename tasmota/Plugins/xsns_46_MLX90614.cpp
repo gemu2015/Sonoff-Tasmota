@@ -104,10 +104,11 @@ float MLX90614_GetValue(uint32_t reg) {
   float ret = 0;
   val = MLX90614_read16(I2_ADR_IRT, reg);
   if (val & 0x8000) {
-    ret = -999;
+    ret = FPC_n999;
   } else {
-    ret = fscale(val, (float)0.02, (float)273.15);
+    //ret = fscale(val, (float)0.02, (float)273.15);
     //ret = ((float)val * (float)0.02) - (float)273.15;
+    ret = fscale(val, FPC_0x02, FPC_273x15);
   }
   return ret;
 }

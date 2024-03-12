@@ -595,13 +595,13 @@ typedef struct {
 
 // floating point constants must be defined here
 #ifdef __riscv
-#define FLC_n999 jfl_const(-999,1)
-#define FLC_0x02 jfl_const(2,100)
-#define FLC_273x15 jfl_const(27315,100)
+#define FPC_n999 jfl_const(-999,1)
+#define FPC_0x02 jfl_const(2,100)
+#define FPC_273x15 jfl_const(27315,100)
 #else
-#define FLC_n999 -999
-#define FLC_0x02 0.02
-#define FLC_273x15 273.15
+#define FPC_n999 -999
+#define FPC_0x02 0.02
+#define FPC_273x15 273.15
 #endif
 
 #ifdef __riscv
