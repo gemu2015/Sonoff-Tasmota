@@ -95,13 +95,8 @@
 
 #define MP3_DEFAULT DY_SV17F
 
-//#include "set_gcc_opts.h"
-#pragma GCC push_options
 
-#ifdef __riscv
-#pragma GCC optimize ("Og")
-#endif
-
+PUSH_OPTIONS
 
 MODULE_DESCRIPTOR("MP3PLAYER",MODULE_TYPE_DRIVER,MP3PLAYER_REV,"TXD",MP3_DEFAULT_TX_PIN,"TYPE",0x01000101,"",0,"",0)
 
@@ -424,5 +419,5 @@ MOD_RESULT mod_func_execute(uint32_t sel) {
   return result;
 }
 
-#pragma GCC pop_options
+PULL_OPTIONS
 #endif  // USE_MP3_PLAYER

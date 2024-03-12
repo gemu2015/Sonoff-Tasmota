@@ -119,10 +119,7 @@ typedef int32_t temperature_t;
 typedef uint32_t pressure_t;
 typedef uint32_t humidity_t;
 
-#pragma GCC push_options
-#ifdef __riscv
-#pragma GCC optimize ("-Og")
-#endif
+PUSH_OPTIONS
 
 // this is the structure of the module:
 // descripotr, code, end
@@ -496,5 +493,5 @@ int32_t mod_func_execute(uint32_t sel) {
   return result;
 }
 
-#pragma GCC pop_options
+PULL_OPTIONS
 #endif // USE_BME_MOD

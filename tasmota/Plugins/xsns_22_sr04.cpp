@@ -26,10 +26,7 @@
 
 #define SR04TV3_REV  1<<16|2
 
-#pragma GCC push_options
-#ifdef __riscv
-#pragma GCC optimize ("-Og")
-#endif
+PUSH_OPTIONS
 
 MODULE_DESCRIPTOR("SR04TV3", MODULE_TYPE_SENSOR, SR04TV3_REV,"RECPIN",3,"",0,"",0,"",0)
 // all functions must be declared MUDULE_PART
@@ -157,5 +154,5 @@ int32_t mod_func_execute(uint32_t sel) {
   return result;
 }
 
-#pragma GCC pop_options
+PULL_OPTIONS
 #endif  // USE_SR04T

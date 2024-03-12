@@ -24,10 +24,8 @@
 
 #define MLX90614_REV  1<<16|2
 
-#pragma GCC push_options
-#ifdef __riscv
-#pragma GCC optimize ("-Og")
-#endif
+
+PUSH_OPTIONS
 
 // this is the structure of the module:
 // descripotr, code, end
@@ -102,6 +100,8 @@ void MLX90614_Every_Second() {
 
 }
 
+
+
 float MLX90614_GetValue(uint32_t reg) {
   SETREGS
   uint16_t val = 0;
@@ -109,13 +109,11 @@ float MLX90614_GetValue(uint32_t reg) {
 
   val = MLX90614_read16(I2_ADR_IRT, reg);
   if (val & 0x8000) {
-    //ret = -999;
-    ret = fl_const(-999,1);
+    ret = FPC_n999;
   } else {
-    //ret = fscale(val, (float)0.02, (float)273.15);
-    ret = fscale(val, fl_const(2,100), fl_const(27315,100));
-
     //ret = ((float)val * (float)0.02) - (float)273.15;
+    //ret = fscale(val, (float)0.02, (float)273.15);
+    ret = fscale(val, FPC_0x02, FPC_273x15);
   }
   return ret;
 }
@@ -216,5 +214,5 @@ MOD_RESULT mod_func_execute(uint32_t sel) {
   return result;
 }
 
-#pragma GCC pop_options
+PULL_OPTIONS
 #endif // USE_MLX90614

@@ -593,6 +593,35 @@ typedef struct {
 
 #define FLCONST(A,B) jfl_const(A,B)
 
+// floating point constants must be defined here
+#ifdef __riscv
+#define FLC_n999 jfl_const(-999,1)
+#define FLC_0x02 jfl_const(2,100)
+#define FLC_273x15 jfl_const(27315,100)
+#else
+#define FLC_n999 -999
+#define FLC_0x02 0.02
+#define FLC_273x15 273.15
+#endif
+
+#ifdef __riscv
+#define PUSH_OPTIONS _Pragma("GCC push_options")\
+_Pragma("GCC optimize (\"-Og\")")
+#define PULL_OPTIONS _Pragma("GCC pop_options")
+#else
+#define PUSH_OPTIONS
+#define PULL_OPTIONS
+#endif
+
+//#pragma GCC optimize ("Og")
+
+/*
+#define PUSH_OPTIONS \
+#ifdef __riscv \
+#pragma GCC push_options \
+#pragma GCC optimize ("-Og") \
+#endif
+*/
 
 /*
 #define RENAME_LIBRARY(GCC_NAME, AEABI_NAME)		\

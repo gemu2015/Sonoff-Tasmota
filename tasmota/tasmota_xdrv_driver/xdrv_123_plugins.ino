@@ -313,23 +313,23 @@ int tmod_strncasecmp_P(const char *s1, const char *s2, size_t len) {
 }
 
 int tmod_snprintf_P(char *s, size_t n,  const char *format, va_list va) {
-
+int res = 0;
 #ifdef ESP32
   char *fcopy = copyStr(format);
-  int res = snprintf_P(s, n, fcopy, va);
+  res = snprintf_P(s, n, fcopy, va);
   free(fcopy);
-  return res;
 #endif
+  return res;
 }
 
 int tmod_ResponseAppend_P(const char* format, va_list va) {
-
+  int res = 0;
 #ifdef ESP32
   char *fcopy = copyStr(format);
-  int res = ResponseAppend_P(fcopy, va);
+  res = ResponseAppend_P(fcopy, va);
   free(fcopy);
-  return res;
 #endif
+  return res;
 }
 
 

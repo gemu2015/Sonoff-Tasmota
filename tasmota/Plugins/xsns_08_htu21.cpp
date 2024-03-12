@@ -59,10 +59,7 @@
 
 #define HTU21_CRC8_POLYNOM  0x13100
 
-#pragma GCC push_options
-#ifdef __riscv
-#pragma GCC optimize ("-Og")
-#endif
+PUSH_OPTIONS
 
 #define HTU_REV  1<<16|2
 
@@ -338,5 +335,5 @@ int32_t mod_func_execute(uint32_t sel) {
   return result;
 }
 
-#pragma GCC pop_options
+PULL_OPTIONS
 #endif  // USE_HTU_MOD

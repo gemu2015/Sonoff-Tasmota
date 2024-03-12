@@ -68,10 +68,7 @@ typedef struct {
 
 #define SPS30_REV  1<<16|2
 
-#pragma GCC push_options
-#ifdef __riscv
-#pragma GCC optimize ("-Og")
-#endif
+PUSH_OPTIONS
 
 // all functions must be declared MUDULE_PART
 MODULE_DESCRIPTOR("SPS30", MODULE_TYPE_SENSOR, SPS30_REV,"",0,"",0,"",0,"",0)
@@ -392,6 +389,6 @@ int32_t mod_func_execute(uint32_t sel) {
   return result;
 }
 
-#pragma GCC pop_options
+PULL_OPTIONS
 #endif  // USE_SPS30
 
