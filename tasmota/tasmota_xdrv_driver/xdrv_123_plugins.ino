@@ -930,7 +930,7 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
       ssize = size;
     }
     err = esp_partition_write(plugins.flash_pptr, offset, (void*)lwp, ssize);
-    lwp += ESP32_PLUGIN_HSIZE / 4;
+    lwp += ESP32_PLUGIN_HSIZE / sizeof(uint32_t);
     offset += ESP32_PLUGIN_HSIZE;
     size -= ESP32_PLUGIN_HSIZE;
   }
