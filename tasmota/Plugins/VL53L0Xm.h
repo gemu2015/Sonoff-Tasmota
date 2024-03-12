@@ -31,14 +31,21 @@
 
 // Constructors ////////////////////////////////////////////////////////////////
 
-void VL53L0X_VL53L0X(void)
-  : address(ADDRESS_DEFAULT)
-  , io_timeout(0) // no timeout
-  , did_timeout(false)
-
 
 
 // Public Methods //////////////////////////////////////////////////////////////
+
+uint8_t VL53L0X_getAddress(void) {
+  SETREGS
+  return address; 
+}
+
+void setTimeout(uint16_t timeout) {
+  io_timeout = timeout;
+}
+uint16_t getTimeout(void) {
+  return io_timeout;
+}
 
 void VL53L0X_setAddress(uint8_t new_addr) {
   SETREGS

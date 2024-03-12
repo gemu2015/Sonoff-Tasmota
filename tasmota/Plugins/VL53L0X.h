@@ -88,10 +88,25 @@
 
 enum vcselPeriodType { VcselPeriodPreRange, VcselPeriodFinalRange };
 
-    MODULE_PART void setAddress(uint8_t new_addr);
-    MODULE_PART  uint8_t getAddress(void) { return address; }
+      // TCC: Target CentreCheck
+      // MSRC: Minimum Signal Rate Check
+      // DSS: Dynamic Spad Selection
 
-    MODULE_PART bool init(bool io_2v8 = true);
+      typedef struct  {
+        boolean tcc, msrc, dss, pre_range, final_range;
+      }SequenceStepEnables;
+
+      typedef struct  {
+        uint16_t pre_range_vcsel_period_pclks, final_range_vcsel_period_pclks;
+
+        uint16_t msrc_dss_tcc_mclks, pre_range_mclks, final_range_mclks;
+        uint32_t msrc_dss_tcc_us,    pre_range_us,    final_range_us;
+      }SequenceStepTimeouts;
+
+    MODULE_PART void setAddress(uint8_t new_addr);
+    MODULE_PART  uint8_t getAddress(void);
+
+    MODULE_PART bool init(bool io_2v8);
 
     MODULE_PART void writeReg(uint8_t reg, uint8_t value);
     MODULE_PART void writeReg16Bit(uint8_t reg, uint16_t value);
@@ -117,8 +132,8 @@ enum vcselPeriodType { VcselPeriodPreRange, VcselPeriodFinalRange };
     MODULE_PART uint16_t readRangeContinuousMillimeters(void);
     MODULE_PART uint16_t readRangeSingleMillimeters(void);
 
-    MODULE_PART inline void setTimeout(uint16_t timeout) { io_timeout = timeout; }
-    MODULE_PART inline uint16_t getTimeout(void) { return io_timeout; }
+    MODULE_PART void setTimeout(uint16_t timeout);
+    MODULE_PART uint16_t getTimeout(void);
     MODULE_PART bool timeoutOccurred(void);
     MODULE_PART bool getSpadInfo(uint8_t * count, bool * type_is_aperture);
 
@@ -132,21 +147,6 @@ enum vcselPeriodType { VcselPeriodPreRange, VcselPeriodFinalRange };
     MODULE_PART uint32_t timeoutMclksToMicroseconds(uint16_t timeout_period_mclks, uint8_t vcsel_period_pclks);
     MODULE_PART uint32_t timeoutMicrosecondsToMclks(uint32_t timeout_period_us, uint8_t vcsel_period_pclks);
 
-
-      // TCC: Target CentreCheck
-      // MSRC: Minimum Signal Rate Check
-      // DSS: Dynamic Spad Selection
-
-      struct SequenceStepEnables {
-        boolean tcc, msrc, dss, pre_range, final_range;
-      };
-
-      struct SequenceStepTimeouts {
-        uint16_t pre_range_vcsel_period_pclks, final_range_vcsel_period_pclks;
-
-        uint16_t msrc_dss_tcc_mclks, pre_range_mclks, final_range_mclks;
-        uint32_t msrc_dss_tcc_us,    pre_range_us,    final_range_us;
-      };
 
     typedef struct {
       uint8_t last_status; // status of last I2C transmission

@@ -24,7 +24,7 @@
 #include "module.h"
 #include "module_defines.h"
 
-#include "VL53L0Xm.h"
+#include "VL53L0X.h"
 
 /*********************************************************************************************\
  * VL53L0x time of flight sensor
@@ -93,13 +93,13 @@ MODULE_END
 
 #define VL53LXX_MAX_SENSORS 1
 
+const char HTTP_SNS_F_DISTANCE_CM[] PROGMEM = "{s}Distance{m}%1_f cm{e}";
 
 //VL53L0X VL53L0X_device[VL53LXX_MAX_SENSORS];
 
-typdef struct {
+typedef struct {
   uint16_t distance;
-  uint16_t distance_prev;
-  uint16_t buffer[5];
+  uint16_t buffer[USE_VL_MEDIAN_SIZE];
   uint8_t ready;
   uint8_t index;
 } VLX_DATA;
@@ -107,7 +107,7 @@ typdef struct {
 typedef struct {
   bool VL53L0X_xshut;
   bool VL53L0X_detected;
-  VLX_DATA Vl53l0x_data[VL53LXX_MAX_SENSORS];
+  VLX_DATA Vl53l0x_data;
   VLX_MEM vlx_mem;
 } MODULE_MEMORY;
 
@@ -123,7 +123,7 @@ typedef struct {
 #define last_status mem->vlx_mem.last_status
 
 
-#include "VL53L0Xm.h"
+//#include "VL53L0Xm.h"
 
 /********************************************************************************************/
 
@@ -131,144 +131,118 @@ int32_t VL53L0X_Detect(void) {
 ALLOCMEM
 
   VL53L0X_detected = false;
-  VL53L0X_xshut = 0
+  
+  if (I2cSetDevice(VL53L0X_ADDRESS)) {
+    I2cSetActiveFound(VL53L0X_ADDRESS, PSTR("VL53L0X"), 0);
 
-  for (uint32_t i = 0; i < VL53LXX_MAX_SENSORS; i++) {
-    //if (PinUsed(GPIO_VL53LXX_XSHUT1, i) || (!VL53L0X_xshut)) {
-    if (!VL53L0X_xshut) {
-        //if (VL53L0X_xshut) { pinMode(Pin(GPIO_VL53LXX_XSHUT1, i), INPUT); delay(1); }
-        //if (!I2cSetDevice(VL53L0X_ADDRESS) && !I2cSetDevice((uint8_t)(VL53L0X_XSHUT_ADDRESS+i))) { return; } // Detection for unconfigured OR configured sensor
-        if (I2cSetDevice(VL53L0X_ADDRESS)) {
-          if (VL53L0X_init()) {
-            I2cSetActive(addr, 0);
-            AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_I2C D_SENSOR " VL53L0X %d " D_SENSOR_DETECTED " - " D_NEW_ADDRESS " 0x%02X"), i+1, addr);
-          } else {
-            I2cSetActiveFound(addr, "VL53L0X", 0);
-          }
-          VL53L0X_setTimeout(500);
+    if (VL53L0X_init()) {
+      //AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_I2C D_SENSOR " VL53L0X %d " D_SENSOR_DETECTED " - " D_NEW_ADDRESS " 0x%02X"), i+1, addr);
+    } else {
+      VL53L0X_Deinit();
+      return false;
+    }
+
+    VL53L0X_setTimeout(500);
 
 #if defined VL53L0X_LONG_RANGE
-            // lower the return signal rate limit (default is 0.25 MCPS)
-            VL53L0X_setSignalRateLimit(0.1);
-            // increase laser pulse periods (defaults are 14 and 10 PCLKs)
-            VL53L0X_setVcselPulsePeriod(VcselPeriodPreRange, 18);
-            VL53L0X_setVcselPulsePeriod(VcselPeriodFinalRange, 14);
+    // lower the return signal rate limit (default is 0.25 MCPS)
+    VL53L0X_setSignalRateLimit(0.1);
+    // increase laser pulse periods (defaults are 14 and 10 PCLKs)
+    VL53L0X_setVcselPulsePeriod(VcselPeriodPreRange, 18);
+    VL53L0X_setVcselPulsePeriod(VcselPeriodFinalRange, 14);
 #endif
 #if defined VL53L0X_HIGH_SPEED
-            // reduce timing budget to 20 ms (default is about 33 ms)
-            VL53L0X_setMeasurementTimingBudget(20000);
+    // reduce timing budget to 20 ms (default is about 33 ms)
+    VL53L0X_setMeasurementTimingBudget(20000);
 #elif defined VL53L0X_HIGH_ACCURACY
-            // increase timing budget to 200 ms
-            VL53L0X_setMeasurementTimingBudget(200000);
+    // increase timing budget to 200 ms
+    VL53L0X_setMeasurementTimingBudget(200000);
 #endif
-            // Start continuous back-to-back mode (take readings as
-            // fast as possible).  To use continuous timed mode
-            // instead, provide a desired inter-measurement period in
-            // ms (e.g. sensor.startContinuous(100)).
-            VL53L0X_startContinuous();
+    // Start continuous back-to-back mode (take readings as
+    // fast as possible).  To use continuous timed mode
+    // instead, provide a desired inter-measurement period in
+    // ms (e.g. sensor.startContinuous(100)).
+    VL53L0X_startContinuous();
 
-            Vl53l0x_data[i].ready = 1;
-            Vl53l0x_data[i].index = 0;
-            VL53L0X_detected = true;
-        } else {
-            AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_I2C D_SENSOR " VL53L0X %d - " D_FAILED_TO_START), i+1);
-        }
-    }
+    Vl53l0x_data.ready = 1;
+    Vl53l0x_data.index = 0;
+    VL53L0X_detected = true;
+
   }
 
   if (VL53L0X_detected == false) {
-    Vl53l0_Deinit();
+    VL53L0X_Deinit();
   }
   return VL53L0X_detected;
 }
 
 void VL53L0X_Every_250MSecond(void) {
   SETREGS
-  for (uint32_t i = 0; i < VL53LXX_MAX_SENSORS; i++) {
-    if (PinUsed(GPIO_VL53LXX_XSHUT1, i) || (!VL53L0X_xshut)) {
-        uint16_t dist = VL53L0X_device[i].readRangeContinuousMillimeters();
-        if ((0 == dist) || (dist > 2200)) {
-            dist = 9999;
-        }
+
+  if (!VL53L0X_detected) {
+    return;
+  }
+
+  uint16_t dist = VL53L0X_readRangeContinuousMillimeters();
+  if ((0 == dist) || (dist > 2200)) {
+    dist = 9999;
+  }
 
 #ifdef USE_VL_MEDIAN
-        // store in ring buffer
-        Vl53l0x_data[i].buffer[Vl53l0x_data[i].index] = dist;
-        Vl53l0x_data[i].index++;
-        if (Vl53l0x_data[i].index >= USE_VL_MEDIAN_SIZE) {
-            Vl53l0x_data[i].index = 0;
-        }
+  // store in ring buffer
+  Vl53l0x_data.buffer[Vl53l0x_data.index] = dist;
+  Vl53l0x_data.index++;
+  if (Vl53l0x_data.index >= USE_VL_MEDIAN_SIZE) {
+    Vl53l0x_data.index = 0;
+  }
 
-        // sort list and take median
-        uint16_t tbuff[USE_VL_MEDIAN_SIZE];
-        memmove(tbuff, Vl53l0x_data[i].buffer, sizeof(tbuff));
-        uint16_t tmp;
-        uint8_t flag;
-        for (uint32_t ocnt = 0; ocnt < USE_VL_MEDIAN_SIZE; ocnt++) {
-            flag = 0;
-            for (uint32_t count = 0; count < USE_VL_MEDIAN_SIZE -1; count++) {
-            if (tbuff[count] > tbuff[count +1]) {
-                tmp = tbuff[count];
-                tbuff[count] = tbuff[count +1];
-                tbuff[count +1] = tmp;
-                flag = 1;
-            }
-            }
-            if (!flag) { break; }
-        }
-        Vl53l0x_data[i].distance = tbuff[(USE_VL_MEDIAN_SIZE -1) / 2];
-#else
-        Vl53l0x_data[i].distance = dist;
-#endif
+  // sort list and take median
+  uint16_t tbuff[USE_VL_MEDIAN_SIZE];
+  memmove(tbuff, Vl53l0x_data.buffer, sizeof(tbuff));
+  uint16_t tmp;
+  uint8_t flag;
+  for (uint32_t ocnt = 0; ocnt < USE_VL_MEDIAN_SIZE; ocnt++) {
+    flag = 0;
+    for (uint32_t count = 0; count < USE_VL_MEDIAN_SIZE -1; count++) {
+      if (tbuff[count] > tbuff[count +1]) {
+        tmp = tbuff[count];
+        tbuff[count] = tbuff[count +1];
+        tbuff[count +1] = tmp;
+        flag = 1;
+      }
     }
-    if (!VL53L0X_xshut) { break; }
+    if (!flag) { break; }
   }
-}
+  Vl53l0x_data.distance = tbuff[(USE_VL_MEDIAN_SIZE -1) / 2];
+#else
+  Vl53l0x_data.distance = dist;
+#endif
 
-#ifdef USE_DOMOTICZ
-void Vl53l0Every_Second(void) {
-  SETREGS
-  if (abs(Vl53l0x_data[0].distance - Vl53l0x_data[0].distance_prev) > 8) {
-    Vl53l0x_data[0].distance_prev = Vl53l0x_data[0].distance;
-    float distance = (float)Vl53l0x_data[0].distance / 10;  // cm
-    DomoticzFloatSensor(DZ_ILLUMINANCE, distance);
-  }
 }
-#endif  // USE_DOMOTICZ
 
 void VL53L0X_Show(boolean json) {
   SETREGS
-  for (uint32_t i = 0; i < VL53LXX_MAX_SENSORS; i++) {
-    char types[12] = "VL53L0X";
-    if (VL53L0X_xshut) {
-      snprintf_P(types, sizeof(types), PSTR("VL53L0X%c%d"), IndexSeparator(), i +1);
-    }
-    if (PinUsed(GPIO_VL53LXX_XSHUT1, i) || (!VL53L0X_xshut)) {
-      float distance = (Vl53l0x_data[i].distance == 9999) ? NAN : (float)Vl53l0x_data[i].distance / 10;  // cm
-      if (json) {
-        ResponseAppend_P(PSTR(",\"%s\":{\"" D_JSON_DISTANCE "\":%1_f}"), types, &distance);
-#ifdef USE_WEBSERVER
-      } else {
-        WSContentSend_PD(HTTP_SNS_F_DISTANCE_CM, types, &distance);
-#endif
-      }
-    }
-    if (VL53L0X_device[i].timeoutOccurred()) {
-      AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_I2C "Timeout waiting for %s"), types);
-    }
-    if (!VL53L0X_xshut) { break; }
+
+  if (!VL53L0X_detected) {
+    return;
   }
-#ifdef USE_DOMOTICZ
-  if (json && (0 == TasmotaGlobal.tele_period)){
-    float distance = (float)Vl53l0x_data[0].distance / 10;  // cm
-    DomoticzFloatSensor(DZ_ILLUMINANCE, distance);
+
+
+  float distance = (Vl53l0x_data.distance == 9999) ? NAN : (float)Vl53l0x_data.distance / 10;  // cm
+  if (json) {
+    ResponseAppend_P(PSTR(",\"VL53L0X\":{\"Distance\":%1_f}"), &distance);
+  } else {
+    WSContentSend_PD(HTTP_SNS_F_DISTANCE_CM, &distance);
   }
-#endif  // USE_DOMOTICZ
+  if (VL53L0X_timeoutOccurred()) {
+      //AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_I2C "Timeout waiting for %s"), types);
+  }
+  
 }
 
 void  VL53L0X_Deinit() {
   SETREGS
-  I2cResetActive(I2_ADR_IRT, 0);
+  I2cResetActive(VL53L0X_ADDRESS, 0);
   RETMEM
 }
 
