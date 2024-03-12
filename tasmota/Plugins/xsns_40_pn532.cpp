@@ -35,6 +35,7 @@
 \*********************************************************************************************/
 
 #define PN532_I2_ADDR                               0x24
+#pragma GCC optimize ("-Og")
 
 //SDA/TXD
 //SCL/RXD
@@ -149,6 +150,9 @@ bool PN532_Init() {
   if (mode) {
     if (I2cSetDevice(PN532_I2_ADDR)) {
       I2cSetActiveFound(PN532_I2_ADDR, PSTR("PN532"), 0);
+    } else {
+      PN532_Deinit();
+      return false;
     }
   } else {
     ts = NewTS(rec, trx);
@@ -158,7 +162,10 @@ bool PN532_Init() {
           ClaimSerial();
         }
       }
-    } 
+    } else {
+      PN532_Deinit();
+      return false;
+    }
   }
 
   PN532_wakeup();
@@ -1027,8 +1034,13 @@ void PN532_Show() {
 
 void PN532_Deinit() {
   SETREGS
-  if (ts) deleteTS(ts);
-  ts = nullptr;
+
+  if (mode) {
+    I2cResetActive(PN532_I2_ADDR, 0);
+  } else {
+    if (ts) deleteTS(ts);
+    ts = nullptr;
+  }
   RETMEM
 }
 
