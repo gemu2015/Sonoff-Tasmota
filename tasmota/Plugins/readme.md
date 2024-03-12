@@ -1,6 +1,6 @@
 Plugins
 =======
-plugins are relocatable binary drivers for tasmota (now supported for esp8266, esp32, esp32-c3)
+plugins are relocatable binary drivers for tasmota (now supported for esp8266, esp32, esp32-s2, esp32-s3, esp32-c3)
 they may be linked and unlinked during runtime (no reboot needed)
 in theory any tasmota driver (light, energy, sensor or drv) may be
 converted to relocatable format.

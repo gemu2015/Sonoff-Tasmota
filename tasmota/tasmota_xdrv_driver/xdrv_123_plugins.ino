@@ -921,14 +921,23 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
 
 #ifdef ESP32
   //AddLog(LOG_LEVEL_INFO, PSTR("save module: %08x, size: %d"),eeprom_block, size);
-  esp_err_t err = esp_partition_write(plugins.flash_pptr, eeprom_block - plugins.free_flash_start, (void*)lwp, size);
+  offset = eeprom_block - plugins.free_flash_start;
+  uint8_t blocks = (size / ESP32_PLUGIN_HSIZE) + 1;
+  for (uint8_t cnt = 0; cnt < blocks; cnt++) {
+    esp_err_t err = err = esp_partition_erase_range(plugins.flash_pptr, offset, ESP32_PLUGIN_HSIZE);
+    uint32_t ssize = ESP32_PLUGIN_HSIZE;
+    if (size < ESP32_PLUGIN_HSIZE) {
+      ssize = size;
+    }
+    err = esp_partition_write(plugins.flash_pptr, offset, (void*)lwp, ssize);
+    lwp += ESP32_PLUGIN_HSIZE / 4;
+    offset += ESP32_PLUGIN_HSIZE;
+    size -= ESP32_PLUGIN_HSIZE;
+  }
 #endif
   return new_pc;
 }
 
-void testcall(void) {
-  AddLog(LOG_LEVEL_INFO,PSTR("was called"));
-}
 
 void AddModules(void) {
   uint16_t module = 0;
