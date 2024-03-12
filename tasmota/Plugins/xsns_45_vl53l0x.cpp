@@ -85,10 +85,10 @@ PUSH_OPTIONS
 // this is the structure of the module:
 // descripotr, code, end
 MODULE_DESCRIPTOR("VL53L0", MODULE_TYPE_SENSOR, VL53L0_REV,"",0,"",0,"",0,"",0)
-MODULE_PART int32_t Vl53l0Detect();
-MODULE_PART void Vl53l0Every_250MSecond(void);
-MODULE_PART void Vl53l0Show(boolean json);
-MODULE_PART void Vl53l0Deinit();
+MODULE_PART int32_t VL53L0X_Detect();
+MODULE_PART void VL53L0X_250MSecond(void);
+MODULE_PART void VL53L0X_Show(boolean json);
+MODULE_PART void VL53L0X_Deinit();
 MODULE_END
 
 #define VL53LXX_MAX_SENSORS 1
@@ -100,78 +100,90 @@ typdef struct {
   uint16_t distance;
   uint16_t distance_prev;
   uint16_t buffer[5];
-  uint8_t ready = 0;
+  uint8_t ready;
   uint8_t index;
 } VLX_DATA;
 
 typedef struct {
   bool VL53L0X_xshut;
   bool VL53L0X_detected;
-  VLX_DATA data[VL53LXX_MAX_SENSORS];
-  VLX_MEM mem;
+  VLX_DATA Vl53l0x_data[VL53LXX_MAX_SENSORS];
+  VLX_MEM vlx_mem;
 } MODULE_MEMORY;
+
+// ease memory objects
+#define VL53L0X_xshut mem->VL53L0X_xshut
+#define VL53L0X_detected mem->VL53L0X_detected
+#define Vl53l0x_data mem->Vl53l0x_data
+#define io_timeout mem->vlx_mem.io_timeout
+#define did_timeout mem->vlx_mem.did_timeout
+#define timeout_start_ms mem->vlx_mem.timeout_start_ms
+#define stop_variable mem->vlx_mem.stop_variable
+#define measurement_timing_budget_us mem->vlx_mem.measurement_timing_budget_us
+#define last_status mem->vlx_mem.last_status
+
 
 #include "VL53L0Xm.h"
 
 /********************************************************************************************/
 
-void Vl53l0_Detect(void) {
+int32_t VL53L0X_Detect(void) {
+ALLOCMEM
+
+  VL53L0X_detected = false;
+  VL53L0X_xshut = 0
 
   for (uint32_t i = 0; i < VL53LXX_MAX_SENSORS; i++) {
-    if (PinUsed(GPIO_VL53LXX_XSHUT1, i)) {
-      pinMode(Pin(GPIO_VL53LXX_XSHUT1, i), OUTPUT);
-      digitalWrite(Pin(GPIO_VL53LXX_XSHUT1, i), i==0 ? 1 : 0);
-      VL53L0X_xshut = true;
-    }
-  }
-
-  for (uint32_t i = 0; i < VL53LXX_MAX_SENSORS; i++) {
-    if (PinUsed(GPIO_VL53LXX_XSHUT1, i) || (!VL53L0X_xshut)) {
-        if (VL53L0X_xshut) { pinMode(Pin(GPIO_VL53LXX_XSHUT1, i), INPUT); delay(1); }
-        if (!I2cSetDevice(VL53L0X_ADDRESS) && !I2cSetDevice((uint8_t)(VL53L0X_XSHUT_ADDRESS+i))) { return; } // Detection for unconfigured OR configured sensor
-        if (VL53L0X_device[i].init()) {
-            if (VL53L0X_xshut) { VL53L0X_device[i].setAddress((uint8_t)(VL53L0X_XSHUT_ADDRESS+i)); }
-            uint8_t addr = VL53L0X_device[i].getAddress();
-            if (VL53L0X_xshut) {
-                I2cSetActive(addr);
-                AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_I2C D_SENSOR " VL53L0X %d " D_SENSOR_DETECTED " - " D_NEW_ADDRESS " 0x%02X"), i+1, addr);
-            } else {
-                I2cSetActiveFound(addr, "VL53L0X");
-            }
-            VL53L0X_device[i].setTimeout(500);
+    //if (PinUsed(GPIO_VL53LXX_XSHUT1, i) || (!VL53L0X_xshut)) {
+    if (!VL53L0X_xshut) {
+        //if (VL53L0X_xshut) { pinMode(Pin(GPIO_VL53LXX_XSHUT1, i), INPUT); delay(1); }
+        //if (!I2cSetDevice(VL53L0X_ADDRESS) && !I2cSetDevice((uint8_t)(VL53L0X_XSHUT_ADDRESS+i))) { return; } // Detection for unconfigured OR configured sensor
+        if (I2cSetDevice(VL53L0X_ADDRESS)) {
+          if (VL53L0X_init()) {
+            I2cSetActive(addr, 0);
+            AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_I2C D_SENSOR " VL53L0X %d " D_SENSOR_DETECTED " - " D_NEW_ADDRESS " 0x%02X"), i+1, addr);
+          } else {
+            I2cSetActiveFound(addr, "VL53L0X", 0);
+          }
+          VL53L0X_setTimeout(500);
 
 #if defined VL53L0X_LONG_RANGE
             // lower the return signal rate limit (default is 0.25 MCPS)
-            VL53L0X_device[i].setSignalRateLimit(0.1);
+            VL53L0X_setSignalRateLimit(0.1);
             // increase laser pulse periods (defaults are 14 and 10 PCLKs)
-            VL53L0X_device[i].setVcselPulsePeriod(VL53L0X::VcselPeriodPreRange, 18);
-            VL53L0X_device[i].setVcselPulsePeriod(VL53L0X::VcselPeriodFinalRange, 14);
+            VL53L0X_setVcselPulsePeriod(VcselPeriodPreRange, 18);
+            VL53L0X_setVcselPulsePeriod(VcselPeriodFinalRange, 14);
 #endif
 #if defined VL53L0X_HIGH_SPEED
             // reduce timing budget to 20 ms (default is about 33 ms)
-            VL53L0X_device[i].setMeasurementTimingBudget(20000);
+            VL53L0X_setMeasurementTimingBudget(20000);
 #elif defined VL53L0X_HIGH_ACCURACY
             // increase timing budget to 200 ms
-            VL53L0X_device[i].setMeasurementTimingBudget(200000);
+            VL53L0X_setMeasurementTimingBudget(200000);
 #endif
             // Start continuous back-to-back mode (take readings as
             // fast as possible).  To use continuous timed mode
             // instead, provide a desired inter-measurement period in
             // ms (e.g. sensor.startContinuous(100)).
-            VL53L0X_device[i].startContinuous();
+            VL53L0X_startContinuous();
 
             Vl53l0x_data[i].ready = 1;
             Vl53l0x_data[i].index = 0;
             VL53L0X_detected = true;
-            if (!VL53L0X_xshut) { break; }
         } else {
             AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_I2C D_SENSOR " VL53L0X %d - " D_FAILED_TO_START), i+1);
         }
     }
   }
+
+  if (VL53L0X_detected == false) {
+    Vl53l0_Deinit();
+  }
+  return VL53L0X_detected;
 }
 
-void Vl53l0_Every_250MSecond(void) {
+void VL53L0X_Every_250MSecond(void) {
+  SETREGS
   for (uint32_t i = 0; i < VL53LXX_MAX_SENSORS; i++) {
     if (PinUsed(GPIO_VL53LXX_XSHUT1, i) || (!VL53L0X_xshut)) {
         uint16_t dist = VL53L0X_device[i].readRangeContinuousMillimeters();
@@ -215,6 +227,7 @@ void Vl53l0_Every_250MSecond(void) {
 
 #ifdef USE_DOMOTICZ
 void Vl53l0Every_Second(void) {
+  SETREGS
   if (abs(Vl53l0x_data[0].distance - Vl53l0x_data[0].distance_prev) > 8) {
     Vl53l0x_data[0].distance_prev = Vl53l0x_data[0].distance;
     float distance = (float)Vl53l0x_data[0].distance / 10;  // cm
@@ -223,7 +236,8 @@ void Vl53l0Every_Second(void) {
 }
 #endif  // USE_DOMOTICZ
 
-void Vl53l0_Show(boolean json) {
+void VL53L0X_Show(boolean json) {
+  SETREGS
   for (uint32_t i = 0; i < VL53LXX_MAX_SENSORS; i++) {
     char types[12] = "VL53L0X";
     if (VL53L0X_xshut) {
@@ -252,7 +266,7 @@ void Vl53l0_Show(boolean json) {
 #endif  // USE_DOMOTICZ
 }
 
-void  Vl53l0_Deinit() {
+void  VL53L0X_Deinit() {
   SETREGS
   I2cResetActive(I2_ADR_IRT, 0);
   RETMEM
@@ -267,19 +281,19 @@ bool Xsns45(uint32_t function) {
 
   switch (function) {
       case FUNC_INIT:
-        result = Vl53l0_Detect();
+        result = VL53L0X_Detect();
         break;
       case FUNC_EVERY_250_MSECOND:
-        Vl53l0_Every_250MSecond();
+        VL53L0X_Every_250MSecond();
         break;
       case FUNC_JSON_APPEND:
-        Vl53l0_Show(1);
+        VL53L0X_Show(1);
         break;
       case FUNC_WEB_SENSOR:
-        Vl53l0_Show(0);
+        VL53L0X_Show(0);
         break;
       case FUNC_DEINIT:
-        Vl53l0_Deinit();
+        VL53L0X_Deinit();
         break;
   }
   return result;

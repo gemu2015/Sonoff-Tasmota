@@ -132,8 +132,6 @@ enum vcselPeriodType { VcselPeriodPreRange, VcselPeriodFinalRange };
     MODULE_PART uint32_t timeoutMclksToMicroseconds(uint16_t timeout_period_mclks, uint8_t vcsel_period_pclks);
     MODULE_PART uint32_t timeoutMicrosecondsToMclks(uint32_t timeout_period_us, uint8_t vcsel_period_pclks);
 
-    typedef struct {
-      uint8_t last_status; // status of last I2C transmission
 
       // TCC: Target CentreCheck
       // MSRC: Minimum Signal Rate Check
@@ -150,15 +148,16 @@ enum vcselPeriodType { VcselPeriodPreRange, VcselPeriodFinalRange };
         uint32_t msrc_dss_tcc_us,    pre_range_us,    final_range_us;
       };
 
+    typedef struct {
+      uint8_t last_status; // status of last I2C transmission
       uint8_t address;
       uint16_t io_timeout;
       bool did_timeout;
       uint16_t timeout_start_ms;
-
       uint8_t stop_variable; // read by init and used when starting measurement; is StopVariable field of VL53L0X_DevData_t structure in API
       uint32_t measurement_timing_budget_us;
     } VLX_MEM;
-    
+
 #endif
 
 
