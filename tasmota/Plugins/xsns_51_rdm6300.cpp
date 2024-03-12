@@ -46,7 +46,7 @@
 
 #pragma GCC push_options
 #ifdef __riscv
-#pragma GCC optimize ("-O0")
+#pragma GCC optimize ("-Og")
 #endif
 
 MODULE_DESCRIPTOR("RDM6300",MODULE_TYPE_SENSOR,RDM6300_REV,"RXD",RDM6300_DEFAULT_REC_PIN,"",0,"",0,"",0)

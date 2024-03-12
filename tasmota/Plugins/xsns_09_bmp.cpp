@@ -121,7 +121,7 @@ typedef uint32_t humidity_t;
 
 #pragma GCC push_options
 #ifdef __riscv
-#pragma GCC optimize ("-O0")
+#pragma GCC optimize ("-Og")
 #endif
 
 // this is the structure of the module:
@@ -466,7 +466,7 @@ void    BME_Show(uint32_t json) {
 
 void BME_Deinit() {
   SETREGS
-  I2cResetActive(i2c_addr, 1);
+  I2cResetActive(i2c_addr, 0);
   RETMEM
 }
 

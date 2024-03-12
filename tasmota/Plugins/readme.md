@@ -13,6 +13,9 @@ e.g. floating point math generates builtin calls.
 therefore several float math functions are provided to circumvent builtin calls.
 e.g. you may not write  a = b / c  with float variables.
 you must use a = fdiv(b, c)
+since RISCV ESPs use special floating point constants from ROM memory
+to circumvent this, we have to specify those constants as fractions  with FLCONST(x, y) 
+so specify 273.15  as FLCONST(27315, 100)
 
 
 how to create relocatable plugins:

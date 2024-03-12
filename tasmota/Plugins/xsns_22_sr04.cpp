@@ -28,7 +28,7 @@
 
 #pragma GCC push_options
 #ifdef __riscv
-#pragma GCC optimize ("-O0")
+#pragma GCC optimize ("-Og")
 #endif
 
 MODULE_DESCRIPTOR("SR04TV3", MODULE_TYPE_SENSOR, SR04TV3_REV,"RECPIN",3,"",0,"",0,"",0)

@@ -52,7 +52,7 @@ typedef struct {
 
 #pragma GCC push_options
 #ifdef __riscv
-#pragma GCC optimize ("-O0")
+#pragma GCC optimize ("-Og")
 #endif
 
 // all functions must be declared MUDULE_PART
@@ -341,7 +341,7 @@ void SGP30_Show(bool json) {
 
 void SGP30_Deinit() {
   SETREGS
-  I2cResetActive(SGP30_ADDRESS, 1);
+  I2cResetActive(SGP30_ADDRESS, 0);
   RETMEM
 }
 

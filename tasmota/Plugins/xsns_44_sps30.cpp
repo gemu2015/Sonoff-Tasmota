@@ -70,7 +70,7 @@ typedef struct {
 
 #pragma GCC push_options
 #ifdef __riscv
-#pragma GCC optimize ("-O0")
+#pragma GCC optimize ("-Og")
 #endif
 
 // all functions must be declared MUDULE_PART
@@ -358,7 +358,7 @@ bool SPS30_command() {
 
 void SPS30_Deinit() {
   SETREGS
-  I2cResetActive(SPS30_ADDR, 1);
+  I2cResetActive(SPS30_ADDR, 0);
   RETMEM
 }
 

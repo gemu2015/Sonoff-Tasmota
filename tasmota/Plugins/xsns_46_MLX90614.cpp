@@ -26,7 +26,7 @@
 
 #pragma GCC push_options
 #ifdef __riscv
-#pragma GCC optimize ("-O0")
+#pragma GCC optimize ("-Og")
 #endif
 
 // this is the structure of the module:
@@ -181,7 +181,7 @@ uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len) {
 
 void MLX90614_Deinit() {
   SETREGS
-  I2cResetActive(I2_ADR_IRT,1);
+  I2cResetActive(I2_ADR_IRT, 0);
   RETMEM
 }
 

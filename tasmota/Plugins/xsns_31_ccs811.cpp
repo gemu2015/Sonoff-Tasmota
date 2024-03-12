@@ -42,7 +42,7 @@
 
 #pragma GCC push_options
 #ifdef __riscv
-#pragma GCC optimize ("-O0")
+#pragma GCC optimize ("-Og")
 #endif
 
 MODULE_DESCRIPTOR("CCS811", MODULE_TYPE_SENSOR, CCS811_REV,"",0,"",0,"",0,"",0)
@@ -202,7 +202,7 @@ void CCS811_Show(bool json) {
 
 void CCS811_Deinit(void) {
   SETREGS
-  I2cResetActive(CCS811_ADDRESS, 1);
+  I2cResetActive(CCS811_ADDRESS, 0);
   RETMEM
 }
 

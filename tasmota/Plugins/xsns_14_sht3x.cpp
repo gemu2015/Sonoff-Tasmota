@@ -41,7 +41,7 @@
 
 #pragma GCC push_options
 #ifdef __riscv
-#pragma GCC optimize ("-O0")
+#pragma GCC optimize ("-Og")
 #endif
 
 MODULE_DESCRIPTOR("SHT3X",MODULE_TYPE_SENSOR,SHT3X_REV,"",0,"",0,"",0,"",0)
@@ -202,7 +202,7 @@ void SHT3X_Show(bool json) {
 void SHT3X_Deinit() {
   SETREGS
   for (uint32_t i = 0; i < sht3x_count; i++) {
-    I2cResetActive(sht3x_sensors[i].address,1);
+    I2cResetActive(sht3x_sensors[i].address, 0);
   }
   RETMEM
 }

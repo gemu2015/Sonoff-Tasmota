@@ -61,7 +61,7 @@
 
 #pragma GCC push_options
 #ifdef __riscv
-#pragma GCC optimize ("-O0")
+#pragma GCC optimize ("-Og")
 #endif
 
 #define HTU_REV  1<<16|2
@@ -307,7 +307,7 @@ void HTU_Show(bool json) {
 
 void HTU_Deinit() {
   SETREGS
-  I2cResetActive(Htu.address,1);
+  I2cResetActive(Htu.address, 0);
   RETMEM
 }
 

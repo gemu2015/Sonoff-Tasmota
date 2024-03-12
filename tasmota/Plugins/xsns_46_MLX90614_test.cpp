@@ -99,6 +99,7 @@ void MLX90614_Every_Second() {
   obj_temp = MLX90614_GetValue(MLX90614_TOBJ1);
   amb_temp = MLX90614_GetValue(MLX90614_TA);
 
+
 }
 
 float MLX90614_GetValue(uint32_t reg) {
@@ -108,10 +109,11 @@ float MLX90614_GetValue(uint32_t reg) {
 
   val = MLX90614_read16(I2_ADR_IRT, reg);
   if (val & 0x8000) {
-    ret = -999;
+    //ret = -999;
+    ret = fl_const(-999,1);
   } else {
     //ret = fscale(val, (float)0.02, (float)273.15);
-    ret = fscale(val, 1, 1);
+    ret = fscale(val, fl_const(2,100), fl_const(27315,100));
 
     //ret = ((float)val * (float)0.02) - (float)273.15;
   }
@@ -185,7 +187,7 @@ uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len) {
 
 void MLX90614_Deinit() {
   SETREGS
-  I2cResetActive(I2_ADR_IRT, 1);
+  I2cResetActive(I2_ADR_IRT, 0);
   RETMEM
 }
 
@@ -205,7 +207,7 @@ MOD_RESULT mod_func_execute(uint32_t sel) {
       MLX90614_Show(0);
       break;
     case FUNC_EVERY_SECOND:
-      //MLX90614_Every_Second();
+      MLX90614_Every_Second();
       break;
     case FUNC_DEINIT:
       MLX90614_Deinit();

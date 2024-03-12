@@ -360,7 +360,7 @@ void ADS1115_Deinit() {
 
   for (uint32_t t = 0; t < fldsiz(ADS1115,addresses); t++) {
     if (Ads1115.found[t]) {
-      I2cResetActive(Ads1115.addresses[t], 1);
+      I2cResetActive(Ads1115.addresses[t], 0);
     }
   }
   RETMEM

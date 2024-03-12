@@ -56,7 +56,7 @@
 
 #pragma GCC push_options
 #ifdef __riscv
-#pragma GCC optimize ("-O0")
+#pragma GCC optimize ("-Og")
 #endif
 
 MODULE_DESCRIPTOR("SCD30", MODULE_TYPE_SENSOR, SCD30_REV,"",0,"",0,"",0,"",0)
@@ -899,7 +899,7 @@ void SCD30_Show(bool json) {
 
 void SCD30_Deinit() {
   SETREGS
-  I2cResetActive(SCD30_ADDRESS, 1);
+  I2cResetActive(SCD30_ADDRESS, 0);
   RETMEM
 }
 

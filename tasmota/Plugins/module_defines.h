@@ -47,7 +47,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jIndexSeparator                 (( char (*)(void) )                            jt[28])
 #define jResponse_P(A,...)                (( int (*)(const char * formatP, ...) )      jt[29])(A,##__VA_ARGS__)
 // 30
-#define jI2cResetActive(REG,CNT)        (( void (*)(uint32_t, uint32_t) )              jt[30])(REG,CNT)
+#define jI2cResetActive(REG,BUS)        (( void (*)(uint32_t, uint32_t) )              jt[30])(REG,BUS)
 #define jisnan(FVAL)                    (( bool (*)(float) )                           jt[31])(FVAL)
 #define jConvertTemp(FVAL)              (( float (*)(float) )                          jt[32])(FVAL)
 #define jConvertHumidity(FVAL)          (( float (*)(float) )                          jt[33])(FVAL)
@@ -128,6 +128,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jsetClockStretchLimit(BUS,A)    (( void (*)(TwoWire*,uint32_t) )               jt[101])(BUS,A)
 #define jwriten(BUS,BUF,LEN)            (( void (*)(TwoWire*,uint8_t*,uint32_t) )      jt[102])(BUS,BUF,LEN)
 #define jmodff(A,B)                     (( float (*)(float,float*) )                   jt[103])(A,B)                     
+#define jfl_const(A,B)                  (( float (*)(int32_t,int32_t) )                jt[104])(A,B) 
 
 
 // Arduino macros
@@ -588,6 +589,11 @@ typedef struct {
 #define   writen(BUF,LEN) jwriten(jWire,BUF,LEN)
 #define free jfree
 #define modff jmodff
+#define fl_const jfl_const
+
+#define FLCONST(A,B) jfl_const(A,B)
+
+
 /*
 #define RENAME_LIBRARY(GCC_NAME, AEABI_NAME)		\
   __asm__ (".globl\t__aeabi_" #AEABI_NAME "\n"		\
