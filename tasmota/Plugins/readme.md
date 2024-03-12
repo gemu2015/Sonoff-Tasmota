@@ -1,6 +1,6 @@
 Plugins
 =======
-plugins are relocatable binary drivers for tasmota (currently only ESP8266 supported)
+plugins are relocatable binary drivers for tasmota (now supported for esp8266, esp32, esp32-c3)
 they may be linked and unlinked during runtime (no reboot needed)
 in theory any tasmota driver (light, energy, sensor or drv) may be
 converted to relocatable format.
@@ -20,39 +20,12 @@ so specify 273.15  as FLCONST(27315, 100)
 
 how to create relocatable plugins:
 
-currentl yonly esp8266 is supported
-replace the linker file local.eagle.app.v6.common.ld by the one provided in plugins dir
-( the file is automatically generated and must be checked on new espressif versions)
-  the module section must be inserted as shown below after *(.ver_number)
-    _irom0_text_start = ABSOLUTE(.);
-    *(.ver_number)
-	/* start plugins */
-	*(.text.mod_desc)
-	*(.text.mod_string)
-	*(.text.mod_*)
-	*(.text.mod_part)
-	*(.text.mod_end)
-	/* end plugins */
+linker files are automatically patched for all cpu types by this python script: patch_linker_file.py
+binaries are automatically extracted from firmware.bin by this python script: grepmodule-firmware.py
 
-esp32 linker file = sections.ld
+esp32 needs an extra partition where binaries are stored (custom)
+example:
 
-    /** CPU will try to prefetch up to 16 bytes of
-      * of instructions. This means that any configuration (e.g. MMU, PMS) must allow
-      * safe access to up to 16 bytes after the last real instruction, add
-      * dummy bytes to ensure this
-      */
-    . += _esp_flash_mmap_prefetch_pad_size;
-
-	/* start plugins */
-	*(.plugin.mod_desc)
-	*(.plugin.mod_string)
-	*(.plugin.mod_part.literal)
-	*(.plugin.mod_part)
-	*(.plugin.mod_end)
-	/* end plugins */
-
-	esp32 needs an extra partition where binaries are stored (custom)
-	example:
 	# Name,   Type, SubType, Offset,  Size, Flags
 	nvs,      data, nvs,     0x9000,  0x5000,
 	otadata,  data, ota,     0xe000,  0x2000,
@@ -78,15 +51,21 @@ ending .bin (esp8266) _32.bin (tensilica ESP32) _32r.bin (riscv ESP32)
 1. copy the .ino file you want to convert to the plugins directory and rename to .cpp
 2. modify the source according to the sample files.
 3. add calls not yet in the vector table. in header and xdrv123
-4. enable generation of assembly listings and examine the assembly files.
-add these to build_flags:
--save-temps=obj
--fverbose-asm
+assembly file firmware.asm is created by above scripts
+
 5. no other section may appear then
 .text.mod_desc
 .text.mod_string
 .text.mod_part
 .text.mod_end
+
+or for ESP32
+.plugin.mod_desc
+.plugin.mod_string
+.plugin.mod_part.literal
+.plugin.mod_part
+.plugin.mod_end
+
 6. examine call instructions, no call to external symbol may appear
 
 7. enable these defines and only one plugin 
@@ -123,7 +102,7 @@ link /plugin.bin
 links a plugin from filesystem to the next free memory slot. or upload via web ui
 
 unlink X
-unlinks (deletes) the plugin Nr x from system
+unlinks (deletes) the plugin Nr x from system, 0 deletes all plugins from system
 
 iniz X
 initializes the plugin Nr x (attaches it to Tasmota) iniz 0 initializes all drivers
@@ -143,8 +122,8 @@ and if option A 7 is set all plugins are initialized too
 todoo:
 
 esp8266  	ready, ok, multiple drivers working stable
-esp32		ready, multiple function paramters sometimes failing,
-			have to disable stack check per function (inside macro, "no-stack-protector") 
-esp32 risc	floating point parameters crashing, multiple function parameters failing, 
+esp32		ready
+			have to disable stack check per function (solved inside macro, "no-stack-protector") 
+esp32 risc	ready
 			have to disable save, restore epilog lib calls for complete project (-mno-save-restore)
 
