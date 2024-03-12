@@ -103,48 +103,54 @@ enum vcselPeriodType { VcselPeriodPreRange, VcselPeriodFinalRange };
         uint32_t msrc_dss_tcc_us,    pre_range_us,    final_range_us;
       }SequenceStepTimeouts;
 
-    MODULE_PART void setAddress(uint8_t new_addr);
-    MODULE_PART  uint8_t getAddress(void);
+    MODULE_PART void VL53L0X_setAddress(uint8_t new_addr);
+    MODULE_PART  uint8_t VL53L0X_getAddress(void);
 
-    MODULE_PART bool init(bool io_2v8);
+    MODULE_PART bool VL53L0X_init(bool io_2v8);
 
-    MODULE_PART void writeReg(uint8_t reg, uint8_t value);
-    MODULE_PART void writeReg16Bit(uint8_t reg, uint16_t value);
-    MODULE_PART void writeReg32Bit(uint8_t reg, uint32_t value);
-    MODULE_PART uint8_t readReg(uint8_t reg);
-    MODULE_PART uint16_t readReg16Bit(uint8_t reg);
-    MODULE_PART uint32_t readReg32Bit(uint8_t reg);
+    MODULE_PART void VL53L0X_writeReg(uint8_t reg, uint8_t value);
+    MODULE_PART void VL53L0X_writeReg16Bit(uint8_t reg, uint16_t value);
+    MODULE_PART void VL53L0X_writeReg32Bit(uint8_t reg, uint32_t value);
+    MODULE_PART uint8_t VL53L0X_readReg(uint8_t reg);
+    MODULE_PART uint16_t VL53L0X_readReg16Bit(uint8_t reg);
+    MODULE_PART uint32_t VL53L0X_readReg32Bit(uint8_t reg);
 
-    MODULE_PART void writeMulti(uint8_t reg, uint8_t const * src, uint8_t count);
-    MODULE_PART void readMulti(uint8_t reg, uint8_t * dst, uint8_t count);
+    MODULE_PART void VL53L0X_writeMulti(uint8_t reg, uint8_t const * src, uint8_t count);
+    MODULE_PART void VL53L0X_readMulti(uint8_t reg, uint8_t * dst, uint8_t count);
 
-    MODULE_PART bool setSignalRateLimit(float limit_Mcps);
-    MODULE_PART float getSignalRateLimit(void);
+    MODULE_PART bool VL53L0X_setSignalRateLimit(float limit_Mcps);
+    MODULE_PART float VL53L0X_getSignalRateLimit(void);
 
-    MODULE_PART bool setMeasurementTimingBudget(uint32_t budget_us);
-    MODULE_PART uint32_t getMeasurementTimingBudget(void);
+    MODULE_PART bool sVL53L0X_etMeasurementTimingBudget(uint32_t budget_us);
+    MODULE_PART uint32_t VL53L0X_getMeasurementTimingBudget(void);
 
-    MODULE_PART bool setVcselPulsePeriod(vcselPeriodType type, uint8_t period_pclks);
-    MODULE_PART uint8_t getVcselPulsePeriod(vcselPeriodType type);
+    MODULE_PART bool VL53L0X_setVcselPulsePeriod(vcselPeriodType type, uint8_t period_pclks);
+    MODULE_PART uint8_t VL53L0X_getVcselPulsePeriod(vcselPeriodType type);
 
-    MODULE_PART void startContinuous(uint32_t period_ms = 0);
-    MODULE_PART void stopContinuous(void);
-    MODULE_PART uint16_t readRangeContinuousMillimeters(void);
-    MODULE_PART uint16_t readRangeSingleMillimeters(void);
+    MODULE_PART void VL53L0X_startContinuous(uint32_t period_ms = 0);
+    MODULE_PART void VL53L0X_stopContinuous(void);
+    MODULE_PART uint16_t VL53L0X_readRangeContinuousMillimeters(void);
+    MODULE_PART uint16_t VL53L0X_readRangeSingleMillimeters(void);
 
-    MODULE_PART void setTimeout(uint16_t timeout);
-    MODULE_PART uint16_t getTimeout(void);
-    MODULE_PART bool timeoutOccurred(void);
-    MODULE_PART bool getSpadInfo(uint8_t * count, bool * type_is_aperture);
+    MODULE_PART void VL53L0X_setTimeout(uint16_t timeout);
+    MODULE_PART uint16_t VL53L0X_getTimeout(void);
+    MODULE_PART bool VL53L0X_timeoutOccurred(void);
+    MODULE_PART bool VL53L0X_getSpadInfo(uint8_t * count, bool * type_is_aperture);
 
-    MODULE_PART void getSequenceStepEnables(SequenceStepEnables * enables);
-    MODULE_PART void getSequenceStepTimeouts(SequenceStepEnables const * enables, SequenceStepTimeouts * timeouts);
+    MODULE_PART bool VL53L0X_setMeasurementTimingBudget(uint32_t budget_us);
+    MODULE_PART bool VL53L0X_setMeasurementTimingBudget(uint32_t budget_us);
+    MODULE_PART bool VL53L0X_checkTimeoutExpired();
+    MODULE_PART uint32_t VL53L0X_timeoutMicrosecondsToMclks(uint32_t timeout_period_us, uint8_t vcsel_period_pclks);
 
-    MODULE_PART bool performSingleRefCalibration(uint8_t vhv_init_byte);
 
-    MODULE_PART uint16_t decodeTimeout(uint16_t value);
-    MODULE_PART uint16_t encodeTimeout(uint16_t timeout_mclks);
-    MODULE_PART uint32_t timeoutMclksToMicroseconds(uint16_t timeout_period_mclks, uint8_t vcsel_period_pclks);
+    MODULE_PART void VL53L0X_getSequenceStepEnables(SequenceStepEnables * enables);
+    MODULE_PART void VL53L0X_getSequenceStepTimeouts(SequenceStepEnables const * enables, SequenceStepTimeouts * timeouts);
+
+    MODULE_PART bool VL53L0X_performSingleRefCalibration(uint8_t vhv_init_byte);
+
+    MODULE_PART uint16_t VL53L0X_decodeTimeout(uint16_t value);
+    MODULE_PART uint16_t VL53L0X_encodeTimeout(uint16_t timeout_mclks);
+    MODULE_PART uint32_t VL53L0X_timeoutMclksToMicroseconds(uint16_t timeout_period_mclks, uint8_t vcsel_period_pclks);
     MODULE_PART uint32_t timeoutMicrosecondsToMclks(uint32_t timeout_period_us, uint8_t vcsel_period_pclks);
 
 

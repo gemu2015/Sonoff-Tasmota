@@ -89,13 +89,14 @@ MODULE_PART int32_t VL53L0X_Detect();
 MODULE_PART void VL53L0X_250MSecond(void);
 MODULE_PART void VL53L0X_Show(boolean json);
 MODULE_PART void VL53L0X_Deinit();
+MODULE_PART MOD_RESULT mod_func_execute(uint32_t sel);
 MODULE_END
 
 #define VL53LXX_MAX_SENSORS 1
 
 const char HTTP_SNS_F_DISTANCE_CM[] PROGMEM = "{s}Distance{m}%1_f cm{e}";
 
-//VL53L0X VL53L0X_device[VL53LXX_MAX_SENSORS];
+
 
 typedef struct {
   uint16_t distance;
@@ -113,6 +114,7 @@ typedef struct {
 
 // ease memory objects
 #define VL53L0X_xshut mem->VL53L0X_xshut
+#define address mem->vlx_mem.address
 #define VL53L0X_detected mem->VL53L0X_detected
 #define Vl53l0x_data mem->Vl53l0x_data
 #define io_timeout mem->vlx_mem.io_timeout
@@ -123,7 +125,7 @@ typedef struct {
 #define last_status mem->vlx_mem.last_status
 
 
-//#include "VL53L0Xm.h"
+#include "VL53L0Xm.h"
 
 /********************************************************************************************/
 
@@ -135,7 +137,7 @@ ALLOCMEM
   if (I2cSetDevice(VL53L0X_ADDRESS)) {
     I2cSetActiveFound(VL53L0X_ADDRESS, PSTR("VL53L0X"), 0);
 
-    if (VL53L0X_init()) {
+    if (VL53L0X_init(0)) {
       //AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_I2C D_SENSOR " VL53L0X %d " D_SENSOR_DETECTED " - " D_NEW_ADDRESS " 0x%02X"), i+1, addr);
     } else {
       VL53L0X_Deinit();
@@ -250,10 +252,10 @@ void  VL53L0X_Deinit() {
  * Interface
 \*********************************************************************************************/
 
-bool Xsns45(uint32_t function) {
+MOD_RESULT mod_func_execute(uint32_t sel){
   bool result = false;
 
-  switch (function) {
+  switch (sel) {
       case FUNC_INIT:
         result = VL53L0X_Detect();
         break;
