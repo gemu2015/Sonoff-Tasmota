@@ -185,6 +185,64 @@ char *Get_esc_char(char *cp, char *esc_chr);
 #endif
 #endif // ESP32
 
+#ifdef SCRIPT_FULL_OPTIONS
+
+#undef USE_BUTTON_EVENT
+#define USE_BUTTON_EVENT
+#undef USE_SCRIPT_JSON_EXPORT
+#define USE_SCRIPT_JSON_EXPORT
+#undef USE_SCRIPT_SUB_COMMAND
+#define USE_SCRIPT_SUB_COMMAND
+#undef USE_SCRIPT_STATUS
+#define USE_SCRIPT_STATUS
+#undef SCRIPT_POWER_SECTION
+#define SCRIPT_POWER_SECTION
+#undef SUPPORT_MQTT_EVENT
+#define SUPPORT_MQTT_EVENT
+#undef USE_SCRIPT_WEB_DISPLAY
+#define USE_SCRIPT_WEB_DISPLAY
+#undef SCRIPT_FULL_WEBPAGE
+#define SCRIPT_FULL_WEBPAGE
+#undef USE_WEBSEND_RESPONSE
+#define USE_WEBSEND_RESPONSE
+#undef USE_ANGLE_FUNC
+#define USE_ANGLE_FUNC
+#undef USE_SCRIPT_FATFS_EXT
+#define USE_SCRIPT_FATFS_EXT
+#undef USE_SCRIPT_TASK
+#define USE_SCRIPT_TASK
+#undef USE_SCRIPT_GLOBVARS
+#define USE_SCRIPT_GLOBVARS
+#undef USE_SCRIPT_I2C
+#define USE_SCRIPT_I2C
+#undef USE_SCRIPT_SERIAL
+#define USE_SCRIPT_SERIAL
+#undef USE_SCRIPT_TIMER
+#define USE_SCRIPT_TIMER
+#undef LARGE_ARRAYS
+#define LARGE_ARRAYS
+#undef SCRIPT_LARGE_VNBUFF
+#define SCRIPT_LARGE_VNBUFF
+#undef USE_GOOGLE_CHARTS
+#define USE_GOOGLE_CHARTS
+#undef USE_FEXTRACT
+#define USE_FEXTRACT
+#undef USE_SCRIPT_SPI
+#define USE_SCRIPT_SPI
+#undef USE_SCRIPT_TCP_SERVER
+#define USE_SCRIPT_TCP_SERVER
+#undef USE_SCRIPT_ONEWIRE
+#define USE_SCRIPT_ONEWIRE
+#undef USE_SCRIPT_INT
+#define USE_SCRIPT_INT
+#undef USE_SCRIPT_FULL_JSON_PARSER
+#define USE_SCRIPT_FULL_JSON_PARSER
+#undef USE_HTML_CALLBACK
+#define USE_HTML_CALLBACK
+
+#endif
+
+
 #ifdef USE_SCRIPT_TIMER
 #include <Ticker.h>
 Ticker Script_ticker1;
@@ -4618,6 +4676,10 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto nfuncexit;
         }
 #endif
+        if (!strncmp_XP(vname, XPSTR("maca"), 4)) {
+          if (sp) strlcpy(sp, NetworkUniqueId().c_str(), glob_script_mem.max_ssize);
+          goto strexit;
+        }
         break;
 
       case 'n':
