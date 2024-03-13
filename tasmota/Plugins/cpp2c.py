@@ -1,6 +1,7 @@
 # convert c++ to c helper
 Import('env')
 import pathlib
+import os
 
 # convert with an esp8266 project
 # copy c++ files to new folder
@@ -11,14 +12,14 @@ import pathlib
 # now edit remaining issues
 
 # edit this path
-#path = '/Users/gerhardmutz1/Desktop/vl53l0x-arduino-1.02/VL53L0X.cpp'
-path = '/Users/gerhardmutz1/Desktop/BM8563_RTC/src/BM8563.cpp'
+path = '/Users/gerhardmutz1/Desktop/vl53l0x-arduino-1.02/VL53L0X.cpp'
+#path = '/Users/gerhardmutz1/Desktop/BM8563_RTC/src/BM8563.cpp'
 
 dpath = "tasmota/plugins/"
 fname =  pathlib.PurePath(path).stem
 dfname = fname
 fname += "_cpp.txt"
-dfname += "_exe.h"
+dfname += "_c.h"
 
 print("preprocess: " + fname)
 
@@ -27,11 +28,13 @@ board = env.BoardConfig()
 mcu = board.get("build.mcu", "esp32")
 
 
+intermediate =  dpath + fname
+
 # preprocess, also adds all header files 
-env.Execute("xtensa-lx106-elf-cpp " + path + " > " + dpath + fname )
+env.Execute("xtensa-lx106-elf-cpp " + path + " > " +intermediate )
 
 # prepro done, scan for class
-with open(dpath + fname) as f:
+with open(intermediate) as f:
     data = f.read()
     f.close()
 
@@ -94,11 +97,6 @@ while cnt < len(lines):
     openbr += cline.count("{")
     closebr += cline.count("}")
     cnt+=1
-    #if len(oline) > 0 :
-        #fwp.write(oline+'\n')
-    #if opnold != openbr :
-        #if openbr == closebr :
-            #print("new func")
 
 print("body scan ready")
 
@@ -118,13 +116,16 @@ for func in func_names:
    #print(fname)
    source = source.replace(func + '(', fname)
 
+# set Wire prefix
+wire_prefix = "Wire."
+#wire_prefix = "myWire->"
 
-# replace keywords, Wire vectors -> must be replaced with Texteditor
-source = source.replace("Wire.beginTransmission", "beginTransmission")
-source = source.replace("Wire.endTransmission()", "endTransmission(true)")
-source = source.replace("Wire.write", "write")
-source = source.replace("Wire.read", "read")
-source = source.replace("Wire.requestFrom", "requestFrom")
+# replace keywords
+source = source.replace(wire_prefix+"beginTransmission", "beginTransmission")
+source = source.replace(wire_prefix+"endTransmission()", "endTransmission(true)")
+source = source.replace(wire_prefix+"write", "write")
+source = source.replace(wire_prefix+"read", "read")
+source = source.replace(wire_prefix+"requestFrom", "requestFrom")
 source = source.replace("public:", "")
 source = source.replace("private:", "")
 
@@ -147,6 +148,8 @@ while cnt < len(lines):
 fwp.close()
 
 print("c file created")
+
+os.remove(intermediate)
 
 #print(openbr)
 #print(closebr)

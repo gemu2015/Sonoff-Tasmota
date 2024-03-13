@@ -1,5 +1,4 @@
 VL53L0X {
- 
   enum regAddr {
     SYSRANGE_START = 0x00,
     SYSTEM_THRESH_HIGH = 0x0C,
@@ -72,8 +71,8 @@ VL53L0X {
  MODULE_PART  uint8_t VL53L0X_readReg(uint8_t reg);
  MODULE_PART  uint16_t VL53L0X_readReg16Bit(uint8_t reg);
  MODULE_PART  uint32_t VL53L0X_readReg32Bit(uint8_t reg);
- MODULE_PART  void VL53L0X_writeMulti(uint8_t reg, uint8_t const* src, uint8_t count);
- MODULE_PART  void VL53L0X_readMulti(uint8_t reg, uint8_t* dst, uint8_t count);
+ MODULE_PART  void VL53L0X_writeMulti(uint8_t reg, uint8_t const *src, uint8_t count);
+ MODULE_PART  void VL53L0X_readMulti(uint8_t reg, uint8_t *dst, uint8_t count);
  MODULE_PART  bool VL53L0X_setSignalRateLimit(float limit_Mcps);
  MODULE_PART  float VL53L0X_getSignalRateLimit(void);
  MODULE_PART  bool VL53L0X_setMeasurementTimingBudget(uint32_t budget_us);
@@ -87,7 +86,6 @@ VL53L0X {
  MODULE_PART  inline void VL53L0X_setTimeout(uint16_t timeout) { io_timeout = timeout; }
  MODULE_PART  inline uint16_t VL53L0X_getTimeout(void) { return io_timeout; }
  MODULE_PART  bool VL53L0X_timeoutOccurred(void);
- 
   struct SequenceStepEnables {
     boolean tcc, msrc, dss, pre_range, final_range;
   };
@@ -102,18 +100,20 @@ VL53L0X {
   uint16_t timeout_start_ms;
   uint8_t stop_variable;
   uint32_t measurement_timing_budget_us;
- MODULE_PART  bool VL53L0X_getSpadInfo(uint8_t* count, bool* type_is_aperture);
- MODULE_PART  void VL53L0X_getSequenceStepEnables(SequenceStepEnables* enables);
- MODULE_PART  void VL53L0X_getSequenceStepTimeouts(SequenceStepEnables const* enables, SequenceStepTimeouts* timeouts);
+ MODULE_PART  bool VL53L0X_getSpadInfo(uint8_t *count, bool *type_is_aperture);
+ MODULE_PART  void VL53L0X_getSequenceStepEnables(SequenceStepEnables *enables);
+ MODULE_PART  void VL53L0X_getSequenceStepTimeouts(SequenceStepEnables const *enables,
+                               SequenceStepTimeouts *timeouts);
  MODULE_PART  bool VL53L0X_performSingleRefCalibration(uint8_t vhv_init_byte);
  MODULE_PART  static uint16_t VL53L0X_decodeTimeout(uint16_t value);
  MODULE_PART  static uint16_t VL53L0X_encodeTimeout(uint16_t timeout_mclks);
- MODULE_PART  static uint32_t VL53L0X_timeoutMclksToMicroseconds(uint16_t timeout_period_mclks, uint8_t vcsel_period_pclks);
- MODULE_PART  static uint32_t VL53L0X_timeoutMicrosecondsToMclks(uint32_t timeout_period_us, uint8_t vcsel_period_pclks);
+ MODULE_PART  static uint32_t VL53L0X_timeoutMclksToMicroseconds(uint16_t timeout_period_mclks,
+                                             uint8_t vcsel_period_pclks);
+ MODULE_PART  static uint32_t VL53L0X_timeoutMicrosecondsToMclks(uint32_t timeout_period_us,
+                                             uint8_t vcsel_period_pclks);
 };
 VL53L0X_VL53L0X(void)
-    : address(0b0101001),
-      io_timeout(0)
+    : address(0b0101001), io_timeout(0)
       ,
       did_timeout(false) {}
 void VL53L0X_setAddress(uint8_t new_addr) {
@@ -148,7 +148,8 @@ bool VL53L0X_init(bool io_2v8) {
   VL53L0X_writeReg(DYNAMIC_SPAD_NUM_REQUESTED_REF_SPAD, 0x2C);
   VL53L0X_writeReg(0xFF, 0x00);
   VL53L0X_writeReg(GLOBAL_CONFIG_REF_EN_START_SELECT, 0xB4);
-  uint8_t first_spad_to_enable = spad_type_is_aperture ? 12 : 0;
+  uint8_t first_spad_to_enable =
+      spad_type_is_aperture ? 12 : 0;
   uint8_t spads_enabled = 0;
   for (uint8_t i = 0; i < 48; i++) {
     if (i < first_spad_to_enable || spads_enabled == spad_count) {
@@ -309,7 +310,7 @@ uint32_t VL53L0X_readReg32Bit(uint8_t reg) {
   value |= read();
   return value;
 }
-void VL53L0X_writeMulti(uint8_t reg, uint8_t const* src, uint8_t count) {
+void VL53L0X_writeMulti(uint8_t reg, uint8_t const *src, uint8_t count) {
   beginTransmission(address);
   write(reg);
   while (count-- > 0) {
@@ -317,7 +318,7 @@ void VL53L0X_writeMulti(uint8_t reg, uint8_t const* src, uint8_t count) {
   }
   last_status = endTransmission(true);
 }
-void VL53L0X_readMulti(uint8_t reg, uint8_t* dst, uint8_t count) {
+void VL53L0X_readMulti(uint8_t reg, uint8_t *dst, uint8_t count) {
   beginTransmission(address);
   write(reg);
   last_status = endTransmission(true);
@@ -330,16 +331,19 @@ bool VL53L0X_setSignalRateLimit(float limit_Mcps) {
   if (limit_Mcps < 0 || limit_Mcps > 511.99) {
     return false;
   }
-  VL53L0X_writeReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT, limit_Mcps * (1 << 7));
+  VL53L0X_writeReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT,
+                limit_Mcps * (1 << 7));
   return true;
 }
 float VL53L0X_getSignalRateLimit(void) {
-  return (float)VL53L0X_readReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT) / (1 << 7);
+  return (float)VL53L0X_readReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT) /
+         (1 << 7);
 }
 bool VL53L0X_setMeasurementTimingBudget(uint32_t budget_us) {
   SequenceStepEnables enables;
   SequenceStepTimeouts timeouts;
-  uint16_t const StartOverhead = 1320;
+  uint16_t const StartOverhead =
+      1320;
   uint16_t const EndOverhead = 960;
   uint16_t const MsrcOverhead = 660;
   uint16_t const TccOverhead = 590;
@@ -370,12 +374,13 @@ bool VL53L0X_setMeasurementTimingBudget(uint32_t budget_us) {
       return false;
     }
     uint32_t final_range_timeout_us = budget_us - used_budget_us;
-    uint16_t final_range_timeout_mclks =
-        VL53L0X_timeoutMicrosecondsToMclks(final_range_timeout_us, timeouts.final_range_vcsel_period_pclks);
+    uint16_t final_range_timeout_mclks = VL53L0X_timeoutMicrosecondsToMclks(
+        final_range_timeout_us, timeouts.final_range_vcsel_period_pclks);
     if (enables.pre_range) {
       final_range_timeout_mclks += timeouts.pre_range_mclks;
     }
-    VL53L0X_writeReg16Bit(FINAL_RANGE_CONFIG_TIMEOUT_MACROP_HI, VL53L0X_encodeTimeout(final_range_timeout_mclks));
+    VL53L0X_writeReg16Bit(FINAL_RANGE_CONFIG_TIMEOUT_MACROP_HI,
+                  VL53L0X_encodeTimeout(final_range_timeout_mclks));
     measurement_timing_budget_us = budget_us;
   }
   return true;
@@ -383,7 +388,8 @@ bool VL53L0X_setMeasurementTimingBudget(uint32_t budget_us) {
 uint32_t VL53L0X_getMeasurementTimingBudget(void) {
   SequenceStepEnables enables;
   SequenceStepTimeouts timeouts;
-  uint16_t const StartOverhead = 1910;
+  uint16_t const StartOverhead =
+      1910;
   uint16_t const EndOverhead = 960;
   uint16_t const MsrcOverhead = 660;
   uint16_t const TccOverhead = 590;
@@ -418,74 +424,81 @@ bool VL53L0X_setVcselPulsePeriod(vcselPeriodType type, uint8_t period_pclks) {
   VL53L0X_getSequenceStepTimeouts(&enables, &timeouts);
   if (type == VcselPeriodPreRange) {
     switch (period_pclks) {
-      case 12:
-        VL53L0X_writeReg(PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x18);
-        break;
-      case 14:
-        VL53L0X_writeReg(PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x30);
-        break;
-      case 16:
-        VL53L0X_writeReg(PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x40);
-        break;
-      case 18:
-        VL53L0X_writeReg(PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x50);
-        break;
-      default:
-        return false;
+    case 12:
+      VL53L0X_writeReg(PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x18);
+      break;
+    case 14:
+      VL53L0X_writeReg(PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x30);
+      break;
+    case 16:
+      VL53L0X_writeReg(PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x40);
+      break;
+    case 18:
+      VL53L0X_writeReg(PRE_RANGE_CONFIG_VALID_PHASE_HIGH, 0x50);
+      break;
+    default:
+      return false;
     }
     VL53L0X_writeReg(PRE_RANGE_CONFIG_VALID_PHASE_LOW, 0x08);
     VL53L0X_writeReg(PRE_RANGE_CONFIG_VCSEL_PERIOD, vcsel_period_reg);
-    uint16_t new_pre_range_timeout_mclks = VL53L0X_timeoutMicrosecondsToMclks(timeouts.pre_range_us, period_pclks);
-    VL53L0X_writeReg16Bit(PRE_RANGE_CONFIG_TIMEOUT_MACROP_HI, VL53L0X_encodeTimeout(new_pre_range_timeout_mclks));
-    uint16_t new_msrc_timeout_mclks = VL53L0X_timeoutMicrosecondsToMclks(timeouts.msrc_dss_tcc_us, period_pclks);
-    VL53L0X_writeReg(MSRC_CONFIG_TIMEOUT_MACROP, (new_msrc_timeout_mclks > 256) ? 255 : (new_msrc_timeout_mclks - 1));
+    uint16_t new_pre_range_timeout_mclks =
+        VL53L0X_timeoutMicrosecondsToMclks(timeouts.pre_range_us, period_pclks);
+    VL53L0X_writeReg16Bit(PRE_RANGE_CONFIG_TIMEOUT_MACROP_HI,
+                  VL53L0X_encodeTimeout(new_pre_range_timeout_mclks));
+    uint16_t new_msrc_timeout_mclks =
+        VL53L0X_timeoutMicrosecondsToMclks(timeouts.msrc_dss_tcc_us, period_pclks);
+    VL53L0X_writeReg(MSRC_CONFIG_TIMEOUT_MACROP, (new_msrc_timeout_mclks > 256)
+                                             ? 255
+                                             : (new_msrc_timeout_mclks - 1));
   } else if (type == VcselPeriodFinalRange) {
     switch (period_pclks) {
-      case 8:
-        VL53L0X_writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x10);
-        VL53L0X_writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_LOW, 0x08);
-        VL53L0X_writeReg(GLOBAL_CONFIG_VCSEL_WIDTH, 0x02);
-        VL53L0X_writeReg(ALGO_PHASECAL_CONFIG_TIMEOUT, 0x0C);
-        VL53L0X_writeReg(0xFF, 0x01);
-        VL53L0X_writeReg(ALGO_PHASECAL_LIM, 0x30);
-        VL53L0X_writeReg(0xFF, 0x00);
-        break;
-      case 10:
-        VL53L0X_writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x28);
-        VL53L0X_writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_LOW, 0x08);
-        VL53L0X_writeReg(GLOBAL_CONFIG_VCSEL_WIDTH, 0x03);
-        VL53L0X_writeReg(ALGO_PHASECAL_CONFIG_TIMEOUT, 0x09);
-        VL53L0X_writeReg(0xFF, 0x01);
-        VL53L0X_writeReg(ALGO_PHASECAL_LIM, 0x20);
-        VL53L0X_writeReg(0xFF, 0x00);
-        break;
-      case 12:
-        VL53L0X_writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x38);
-        VL53L0X_writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_LOW, 0x08);
-        VL53L0X_writeReg(GLOBAL_CONFIG_VCSEL_WIDTH, 0x03);
-        VL53L0X_writeReg(ALGO_PHASECAL_CONFIG_TIMEOUT, 0x08);
-        VL53L0X_writeReg(0xFF, 0x01);
-        VL53L0X_writeReg(ALGO_PHASECAL_LIM, 0x20);
-        VL53L0X_writeReg(0xFF, 0x00);
-        break;
-      case 14:
-        VL53L0X_writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x48);
-        VL53L0X_writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_LOW, 0x08);
-        VL53L0X_writeReg(GLOBAL_CONFIG_VCSEL_WIDTH, 0x03);
-        VL53L0X_writeReg(ALGO_PHASECAL_CONFIG_TIMEOUT, 0x07);
-        VL53L0X_writeReg(0xFF, 0x01);
-        VL53L0X_writeReg(ALGO_PHASECAL_LIM, 0x20);
-        VL53L0X_writeReg(0xFF, 0x00);
-        break;
-      default:
-        return false;
+    case 8:
+      VL53L0X_writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x10);
+      VL53L0X_writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_LOW, 0x08);
+      VL53L0X_writeReg(GLOBAL_CONFIG_VCSEL_WIDTH, 0x02);
+      VL53L0X_writeReg(ALGO_PHASECAL_CONFIG_TIMEOUT, 0x0C);
+      VL53L0X_writeReg(0xFF, 0x01);
+      VL53L0X_writeReg(ALGO_PHASECAL_LIM, 0x30);
+      VL53L0X_writeReg(0xFF, 0x00);
+      break;
+    case 10:
+      VL53L0X_writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x28);
+      VL53L0X_writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_LOW, 0x08);
+      VL53L0X_writeReg(GLOBAL_CONFIG_VCSEL_WIDTH, 0x03);
+      VL53L0X_writeReg(ALGO_PHASECAL_CONFIG_TIMEOUT, 0x09);
+      VL53L0X_writeReg(0xFF, 0x01);
+      VL53L0X_writeReg(ALGO_PHASECAL_LIM, 0x20);
+      VL53L0X_writeReg(0xFF, 0x00);
+      break;
+    case 12:
+      VL53L0X_writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x38);
+      VL53L0X_writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_LOW, 0x08);
+      VL53L0X_writeReg(GLOBAL_CONFIG_VCSEL_WIDTH, 0x03);
+      VL53L0X_writeReg(ALGO_PHASECAL_CONFIG_TIMEOUT, 0x08);
+      VL53L0X_writeReg(0xFF, 0x01);
+      VL53L0X_writeReg(ALGO_PHASECAL_LIM, 0x20);
+      VL53L0X_writeReg(0xFF, 0x00);
+      break;
+    case 14:
+      VL53L0X_writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x48);
+      VL53L0X_writeReg(FINAL_RANGE_CONFIG_VALID_PHASE_LOW, 0x08);
+      VL53L0X_writeReg(GLOBAL_CONFIG_VCSEL_WIDTH, 0x03);
+      VL53L0X_writeReg(ALGO_PHASECAL_CONFIG_TIMEOUT, 0x07);
+      VL53L0X_writeReg(0xFF, 0x01);
+      VL53L0X_writeReg(ALGO_PHASECAL_LIM, 0x20);
+      VL53L0X_writeReg(0xFF, 0x00);
+      break;
+    default:
+      return false;
     }
     VL53L0X_writeReg(FINAL_RANGE_CONFIG_VCSEL_PERIOD, vcsel_period_reg);
-    uint16_t new_final_range_timeout_mclks = VL53L0X_timeoutMicrosecondsToMclks(timeouts.final_range_us, period_pclks);
+    uint16_t new_final_range_timeout_mclks =
+        VL53L0X_timeoutMicrosecondsToMclks(timeouts.final_range_us, period_pclks);
     if (enables.pre_range) {
       new_final_range_timeout_mclks += timeouts.pre_range_mclks;
     }
-    VL53L0X_writeReg16Bit(FINAL_RANGE_CONFIG_TIMEOUT_MACROP_HI, VL53L0X_encodeTimeout(new_final_range_timeout_mclks));
+    VL53L0X_writeReg16Bit(FINAL_RANGE_CONFIG_TIMEOUT_MACROP_HI,
+                  VL53L0X_encodeTimeout(new_final_range_timeout_mclks));
   } else {
     return false;
   }
@@ -567,7 +580,7 @@ bool VL53L0X_timeoutOccurred() {
   did_timeout = false;
   return tmp;
 }
-bool VL53L0X_getSpadInfo(uint8_t* count, bool* type_is_aperture) {
+bool VL53L0X_getSpadInfo(uint8_t *count, bool *type_is_aperture) {
   uint8_t tmp;
   VL53L0X_writeReg(0x80, 0x01);
   VL53L0X_writeReg(0xFF, 0x01);
@@ -598,7 +611,7 @@ bool VL53L0X_getSpadInfo(uint8_t* count, bool* type_is_aperture) {
   VL53L0X_writeReg(0x80, 0x00);
   return true;
 }
-void VL53L0X_getSequenceStepEnables(SequenceStepEnables* enables) {
+void VL53L0X_getSequenceStepEnables(SequenceStepEnables *enables) {
   uint8_t sequence_config = VL53L0X_readReg(SYSTEM_SEQUENCE_CONFIG);
   enables->tcc = (sequence_config >> 4) & 0x1;
   enables->dss = (sequence_config >> 3) & 0x1;
@@ -606,24 +619,30 @@ void VL53L0X_getSequenceStepEnables(SequenceStepEnables* enables) {
   enables->pre_range = (sequence_config >> 6) & 0x1;
   enables->final_range = (sequence_config >> 7) & 0x1;
 }
-void VL53L0X_getSequenceStepTimeouts(SequenceStepEnables const* enables, SequenceStepTimeouts* timeouts) {
-  timeouts->pre_range_vcsel_period_pclks = VL53L0X_getVcselPulsePeriod(VcselPeriodPreRange);
+void VL53L0X_getSequenceStepTimeouts(SequenceStepEnables const *enables,
+                                      SequenceStepTimeouts *timeouts) {
+  timeouts->pre_range_vcsel_period_pclks =
+      VL53L0X_getVcselPulsePeriod(VcselPeriodPreRange);
   timeouts->msrc_dss_tcc_mclks = VL53L0X_readReg(MSRC_CONFIG_TIMEOUT_MACROP) + 1;
-  timeouts->msrc_dss_tcc_us =
-      VL53L0X_timeoutMclksToMicroseconds(timeouts->msrc_dss_tcc_mclks, timeouts->pre_range_vcsel_period_pclks);
-  timeouts->pre_range_mclks = VL53L0X_decodeTimeout(VL53L0X_readReg16Bit(PRE_RANGE_CONFIG_TIMEOUT_MACROP_HI));
-  timeouts->pre_range_us =
-      VL53L0X_timeoutMclksToMicroseconds(timeouts->pre_range_mclks, timeouts->pre_range_vcsel_period_pclks);
-  timeouts->final_range_vcsel_period_pclks = VL53L0X_getVcselPulsePeriod(VcselPeriodFinalRange);
-  timeouts->final_range_mclks = VL53L0X_decodeTimeout(VL53L0X_readReg16Bit(FINAL_RANGE_CONFIG_TIMEOUT_MACROP_HI));
+  timeouts->msrc_dss_tcc_us = VL53L0X_timeoutMclksToMicroseconds(
+      timeouts->msrc_dss_tcc_mclks, timeouts->pre_range_vcsel_period_pclks);
+  timeouts->pre_range_mclks =
+      VL53L0X_decodeTimeout(VL53L0X_readReg16Bit(PRE_RANGE_CONFIG_TIMEOUT_MACROP_HI));
+  timeouts->pre_range_us = VL53L0X_timeoutMclksToMicroseconds(
+      timeouts->pre_range_mclks, timeouts->pre_range_vcsel_period_pclks);
+  timeouts->final_range_vcsel_period_pclks =
+      VL53L0X_getVcselPulsePeriod(VcselPeriodFinalRange);
+  timeouts->final_range_mclks =
+      VL53L0X_decodeTimeout(VL53L0X_readReg16Bit(FINAL_RANGE_CONFIG_TIMEOUT_MACROP_HI));
   if (enables->pre_range) {
     timeouts->final_range_mclks -= timeouts->pre_range_mclks;
   }
-  timeouts->final_range_us =
-      VL53L0X_timeoutMclksToMicroseconds(timeouts->final_range_mclks, timeouts->final_range_vcsel_period_pclks);
+  timeouts->final_range_us = VL53L0X_timeoutMclksToMicroseconds(
+      timeouts->final_range_mclks, timeouts->final_range_vcsel_period_pclks);
 }
 uint16_t VL53L0X_decodeTimeout(uint16_t reg_val) {
-  return (uint16_t)((reg_val & 0x00FF) << (uint16_t)((reg_val & 0xFF00) >> 8)) + 1;
+  return (uint16_t)((reg_val & 0x00FF) << (uint16_t)((reg_val & 0xFF00) >> 8)) +
+         1;
 }
 uint16_t VL53L0X_encodeTimeout(uint16_t timeout_mclks) {
   uint32_t ls_byte = 0;
@@ -639,13 +658,17 @@ uint16_t VL53L0X_encodeTimeout(uint16_t timeout_mclks) {
     return 0;
   }
 }
-uint32_t VL53L0X_timeoutMclksToMicroseconds(uint16_t timeout_period_mclks, uint8_t vcsel_period_pclks) {
-  uint32_t macro_period_ns = ((((uint32_t)2304 * (vcsel_period_pclks)*1655) + 500) / 1000);
-  return ((timeout_period_mclks * macro_period_ns) + (macro_period_ns / 2)) / 1000;
+uint32_t VL53L0X_timeoutMclksToMicroseconds(uint16_t timeout_period_mclks,
+                                             uint8_t vcsel_period_pclks) {
+  uint32_t macro_period_ns = ((((uint32_t)2304 * (vcsel_period_pclks) * 1655) + 500) / 1000);
+  return ((timeout_period_mclks * macro_period_ns) + (macro_period_ns / 2)) /
+         1000;
 }
-uint32_t VL53L0X_timeoutMicrosecondsToMclks(uint32_t timeout_period_us, uint8_t vcsel_period_pclks) {
-  uint32_t macro_period_ns = ((((uint32_t)2304 * (vcsel_period_pclks)*1655) + 500) / 1000);
-  return (((timeout_period_us * 1000) + (macro_period_ns / 2)) / macro_period_ns);
+uint32_t VL53L0X_timeoutMicrosecondsToMclks(uint32_t timeout_period_us,
+                                             uint8_t vcsel_period_pclks) {
+  uint32_t macro_period_ns = ((((uint32_t)2304 * (vcsel_period_pclks) * 1655) + 500) / 1000);
+  return (((timeout_period_us * 1000) + (macro_period_ns / 2)) /
+          macro_period_ns);
 }
 bool VL53L0X_performSingleRefCalibration(uint8_t vhv_init_byte) {
   VL53L0X_writeReg(SYSRANGE_START,
