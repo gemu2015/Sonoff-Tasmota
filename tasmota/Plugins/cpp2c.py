@@ -31,7 +31,10 @@ mcu = board.get("build.mcu", "esp32")
 intermediate =  dpath + fname
 
 # preprocess, also adds all header files 
-env.Execute("xtensa-lx106-elf-cpp " + path + " > " +intermediate )
+if mcu == "esp8266":
+    env.Execute("xtensa-lx106-elf-cpp " + path + " > " +intermediate )
+if mcu == "esp32":
+    env.Execute("xtensa-esp32-elf-cpp " + path + " > " +intermediate )
 
 # prepro done, scan for class
 with open(intermediate) as f:
