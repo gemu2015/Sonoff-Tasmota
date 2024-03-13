@@ -1,7 +1,8 @@
-# convert c++ to c
+# convert c++ to c helper
 Import('env')
 import pathlib
 
+# convert with an esp8266 project
 # copy c++ files to new folder
 # reformat files with https://formatter.org/cpp-formatter
 # correct or remove #include entries
@@ -9,13 +10,14 @@ import pathlib
 # run script
 # now edit remaining issues
 
-path = '/Users/gerhardmutz1/Desktop/vl53l0x-arduino-1.02/VL53L0X.cpp'
-#path = '/Users/gerhardmutz1/Desktop/Smart-Home/Tasmota/Development/Sonoff-Tasmota/lib/lib_i2c/vl53l0x-arduino-1.02/VL53L0X.cpp'
+# edit this path
+#path = '/Users/gerhardmutz1/Desktop/vl53l0x-arduino-1.02/VL53L0X.cpp'
+path = '/Users/gerhardmutz1/Desktop/BM8563_RTC/src/BM8563.cpp'
 
 dpath = "tasmota/plugins/"
 fname =  pathlib.PurePath(path).stem
+dfname = fname
 fname += "_cpp.txt"
-dfname = pathlib.PurePath(path).stem
 dfname += "_exe.h"
 
 print("preprocess: " + fname)
@@ -23,6 +25,9 @@ print("preprocess: " + fname)
 platform = env.PioPlatform()
 board = env.BoardConfig()
 mcu = board.get("build.mcu", "esp32")
+
+
+# preprocess, also adds all header files 
 env.Execute("xtensa-lx106-elf-cpp " + path + " > " + dpath + fname )
 
 # prepro done, scan for class
@@ -114,7 +119,7 @@ for func in func_names:
    source = source.replace(func + '(', fname)
 
 
-# replace keywords
+# replace keywords, Wire vectors -> must be replaced with Texteditor
 source = source.replace("Wire.beginTransmission", "beginTransmission")
 source = source.replace("Wire.endTransmission()", "endTransmission(true)")
 source = source.replace("Wire.write", "write")
@@ -139,9 +144,9 @@ while cnt < len(lines):
         if oline[0] != '#' :
             fwp.write(oline+'\n')
     
-#fwp.write(source)
-
 fwp.close()
+
+print("c file created")
 
 #print(openbr)
 #print(closebr)
