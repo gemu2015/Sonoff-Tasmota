@@ -326,10 +326,11 @@ const char S_JSON_SPS30_s[] PROGMEM = "stopped";
 bool SPS30_command() {
   SETREGS
   char command[CMDSZ];
-  bool serviced = true;
+  bool serviced = false;
   uint8_t disp_len = strlen((char*)GSTR(SPS30));
 
   if (!strncasecmp_P(XdrvMailbox->topic, GSTR(SPS30), disp_len)) {  // prefix
+    serviced = true;
     int command_code = GetCommandCode(command, sizeof(command), XdrvMailbox->topic + disp_len, GSTR(kSPS30_Commands));
     switch (command_code) {
       case CMND_SPS30_Start:
@@ -346,9 +347,10 @@ bool SPS30_command() {
       default:
         serviced = false;
     }
+    Response_P(GSTR(S_JSON_SPS30_COMMAND), sps30_running?GSTR(S_JSON_SPS30_r):GSTR(S_JSON_SPS30_s));
   }
 
-  Response_P(GSTR(S_JSON_SPS30_COMMAND), sps30_running?GSTR(S_JSON_SPS30_r):GSTR(S_JSON_SPS30_s));
+  
 
   return serviced;
 }
