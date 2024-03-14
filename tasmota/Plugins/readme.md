@@ -21,6 +21,11 @@ another problem ist that we would need at least 3 types of binaries multiplied b
 
 how to create relocatable plugins:
 
+several python scripts help in converting (see instruction in script)
+prep_driver.py  converts a tasmota driver to a .cpp file and does already a lot of needed convertsion
+cpp2c.py converts a c++ class file to pure c (needed for c++ library files)
+
+
 linker files are automatically patched for all cpu types by this python script: patch_linker_file.py
 binaries are automatically extracted from firmware.bin by this python script: grepmodule-firmware.py
 

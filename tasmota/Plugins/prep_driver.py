@@ -1,20 +1,20 @@
-# convert tasmota driver
 Import('env')
 import pathlib
 import os
 
 # convert with an esp8266 project
+# copy tasmota driver into plugins directory
 # reformat files with https://formatter.org/cpp-formatter
 # correct or remove #include entries
-# run script
+# edit file name below, run script, driver.cpp is created
 # now edit remaining issues
+
+# edit this path
+file = 'xsns_70_veml6075.ino'
 
 platform = env.PioPlatform()
 board = env.BoardConfig()
 mcu = board.get("build.mcu", "esp32")
-
-# edit this path
-file = 'xsns_70_veml6075.ino'
 
 dpath = "tasmota/plugins/"
 fpath =  dpath + file
