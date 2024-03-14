@@ -17,11 +17,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "tasmota_options.h"
-#ifdef USE_VEML6075_MOD
-#include "module.h"
-#include "module_defines.h"
-
+#ifdef USE_VEML6075
 
 
 /*********************************************************************************************\
@@ -130,64 +126,30 @@ veml6075configRegister veml6075Config;
 
 /********************************************************************************************/
 
-/********************************************************************************************/
-PUSH_OPTIONS
-MODULE_DESCRIPTOR("veml6075",MODULE_TYPE_SENSOR,1<<16|2,"",0,"",0,"",0,"",0)
-MODULE_PART uint16_t VEML6075read16
-MODULE_PART void VEML6075write16
-MODULE_PART float VEML6075calcUVA
-MODULE_PART float VEML6075calcUVB
-MODULE_PART float VEML6075calcUVI
-MODULE_PART void VEML6075SetHD
-MODULE_PART uint8_t VEML6075ReadHD
-MODULE_PART void VEML6075SetUvIt
-MODULE_PART uint8_t VEML6075GetUvIt
-MODULE_PART void VEML6075Pwr
-MODULE_PART uint8_t VEML6075GetPwr
-MODULE_PART void VEML6075ReadData
-MODULE_PART bool VEML6075init
-MODULE_PART bool VEML6075Detect
-MODULE_PART void VEML6075EverySecond
-MODULE_PART bool VEML6075Cmd
-MODULE_PART void VEML6075Show
-MODULE_PART void VEML6075Deinit
-MODULE_PART bool mod_func_execute
-MODULE_END
-/********************************************************************************************/
-uint16_t VEML6075read16(uint8_t reg) {
-SETREGS
- 
+uint16_t VEML6075read16(uint8_t reg) { 
   uint16_t swap = I2cRead16(VEML6075_ADDR, reg, 0);
   uint16_t ret = ((swap & 0xFF) << 8) | (swap >> 8);
   return ret;
 }
 
 void VEML6075write16(uint8_t reg, uint16_t val) {
-SETREGS
-
   uint16_t swap = ((val & 0xFF) << 8) | (val >> 8);
   I2cWrite16(VEML6075_ADDR, reg, swap, 0);
 }
 
 float VEML6075calcUVA(void) {
-SETREGS
-
   float uva_calc = veml6075_sensor.uva_raw - (VEML6075_DEFAULT_UVA_A_COEFF * veml6075_sensor.comp1) -
                    (VEML6075_DEFAULT_UVA_B_COEFF * veml6075_sensor.comp2);
   return uva_calc;
 }
 
 float VEML6075calcUVB(void) {
-SETREGS
-
   float uvb_calc = veml6075_sensor.uvb_raw - (VEML6075_DEFAULT_UVB_C_COEFF * veml6075_sensor.comp1) -
                    (VEML6075_DEFAULT_UVB_D_COEFF * veml6075_sensor.comp2);
   return uvb_calc;
 }
 
 float VEML6075calcUVI(void) {
-SETREGS
-
   float uvi_calc = ((veml6075_sensor.uva * UVA_RESPONSIVITY[veml6075_sensor.inttime]) +
                     (veml6075_sensor.uvb * UVB_RESPONSIVITY[veml6075_sensor.inttime])) /
                    2;
@@ -195,22 +157,16 @@ SETREGS
 }
 
 void VEML6075SetHD(uint8_t val) {
-SETREGS
-
   veml6075Config.hd = val;
   VEML6075write16(VEML6075_REG_CONF, veml6075Config.config);
 }
 
 uint8_t VEML6075ReadHD(void) {
-SETREGS
-
   veml6075Config.config = VEML6075read16(VEML6075_REG_CONF);
   return veml6075Config.hd;
 }
 
 void VEML6075SetUvIt(uint8_t val) {
-SETREGS
-
   veml6075Config.inttime = val;
   VEML6075Pwr(1);
   VEML6075write16(VEML6075_REG_CONF, veml6075Config.config);
@@ -218,29 +174,21 @@ SETREGS
 }
 
 uint8_t VEML6075GetUvIt(void) {
-SETREGS
-
   veml6075Config.config = VEML6075read16(VEML6075_REG_CONF);
   return veml6075Config.inttime;
 }
 
 void VEML6075Pwr(uint8_t val) {
-SETREGS
-
   veml6075Config.pwr = val;
   VEML6075write16(VEML6075_REG_CONF, veml6075Config.config);
 }
 
 uint8_t VEML6075GetPwr(void) {
-SETREGS
-
   veml6075Config.config = VEML6075read16(VEML6075_REG_CONF);
   return veml6075Config.pwr;
 }
 
 void VEML6075ReadData(void) {
-SETREGS
-
   veml6075_sensor.uva_raw = VEML6075read16(VEML6075_REG_UVA);
   veml6075_sensor.uvb_raw = VEML6075read16(VEML6075_REG_UVB);
   veml6075_sensor.comp1 = VEML6075read16(VEML6075_REG_UVCOMP1);
@@ -252,8 +200,6 @@ SETREGS
 }
 
 bool VEML6075init(void) {
-SETREGS
-
   uint8_t id = VEML6075read16(VEML6075_REG_ID);
   if (id == VEML6075_CHIP_ID)  // Sensor id
     return true;
@@ -261,8 +207,6 @@ SETREGS
 }
 
 bool VEML6075Detect(void) {
-ALLOCMEM
-
   if (!I2cSetDevice(veml6075_sensor.address)) return false;
 
   if (VEML6075init()) {
@@ -273,15 +217,11 @@ ALLOCMEM
   return true;
 }
 
-void VEML6075EverySecond(void) {
-SETREGS
- 
+void VEML6075EverySecond(void) { 
   VEML6075ReadData();
 }
 
 bool VEML6075Cmd(void) {
-SETREGS
-
   char command[CMDSZ];
   uint8_t name_len = strlen(D_NAME_VEML6075);
   if (!strncasecmp_P(XdrvMailbox.topic, PSTR(D_NAME_VEML6075), name_len)) {
@@ -321,8 +261,6 @@ SETREGS
 }
 
 void VEML6075Show(bool json) {
-SETREGS
-
   char s_uvindex[FLOATSZ];
   dtostrfd(veml6075_sensor.uvi, 1, s_uvindex);
 
@@ -338,8 +276,6 @@ SETREGS
 }
 
 void VEML6075Deinit() {
-SETREGS
-
   SETREGS
   I2cResetActive(veml6075_sensor.address, 0);
   RETMEM
@@ -349,7 +285,7 @@ SETREGS
  * Interface
 \*********************************************************************************************/
 
-bool mod_func_execute(uint32_t function) {
+bool Xsns70(uint32_t function) {
   bool result = false;
   switch (function) {
       case FUNC_INIT:
@@ -374,6 +310,4 @@ bool mod_func_execute(uint32_t function) {
   return result;
 }
 
-
-PULL_OPTIONS
 #endif  // USE_VEML6075
