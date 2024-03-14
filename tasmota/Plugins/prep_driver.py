@@ -38,6 +38,7 @@ muse = "USE_" + module.upper()
 lines = source.split("\n")
 
 func_list = []
+func_args = []
 func_names = []
 
 print("scan for functions")
@@ -54,20 +55,23 @@ while cnt < len(lines):
         index = cline.find("(")
         p1 = cline[:index]
         p2 = p1.split(" ")
+        i2 = cline.find(")")
+        p3 = cline[index:i2+1]
         func_list.append(p2)
         func_names.append(p2[-1])
-
+        func_args.append(p3)
 
 def_func = []
 
+fcnt = 0
 for func in func_list:
-   if len(func) > 1 and len(func) < 3 :
-    if len(func[1]) > 0 :
-        fname = func
-        def_func.append(func)
+    if len(func) > 1 and len(func) < 3 :
+        if len(func[1]) > 0 :
+            func.append(func_args[fcnt])
+            def_func.append(func)
+    fcnt += 1
 
 # insert these into file
-
 for func in def_func:
     sstr = func[0] + " " + func[1]
     index = source.find(sstr)
@@ -84,7 +88,6 @@ for func in def_func:
             regvar = "\nSETREGS\n"
         source = part1 + part3 + regvar + part4
 
-
 if type == "xsns" :
    mod_type = "MODULE_TYPE_SENSOR"
 if type == "xdrv" :
@@ -93,12 +96,12 @@ if type == "xdrv" :
 istr = "/********************************************************************************************/\n"
 istr += "PUSH_OPTIONS\n"
 #istr += "MODULE_DESCRIPTOR(\"MP3PLAYER\"," + mod_type + "," + mod_rev + ",\"\",0,\"\",0,\"\",0,\"\",0)\n"
-istr += "MODULE_DESCRIPTOR(\"" + module + "\"," + mod_type + "," + "1<<16|2" + ",\"\",0,\"\",0,\"\",0,\"\",0)\n"
+istr += "MODULE_DESCRIPTOR(\"" + module.upper() + "\"," + mod_type + "," + "1<<16|2" + ",\"\",0,\"\",0,\"\",0,\"\",0)\n"
 
 for func in def_func:
-    fname = "MODULE_PART " + func[0] + " " + func[1]
+    fname = "MODULE_PART " + func[0] + " " + func[1] + func[2]
     #print(fname)
-    istr += fname + "\n"
+    istr += fname + ";\n"
 
 istr += "MODULE_END\n"
 istr += "/********************************************************************************************/\n"
@@ -119,9 +122,44 @@ source = part1 + "\nPULL_OPTIONS\n" + part2
 istr = "#include \"tasmota_options.h\"\n#ifdef " + muse + "_MOD\n"
 istr += "#include \"module.h\"\n"
 istr += "#include \"module_defines.h\"\n"
+istr += "#include \"../Tasmota/include/i18n.h\"\n"
 
 source = source.replace("#ifdef "+muse, istr)
 
+# search for MODULE_MEMORY
+'''
+typedef struct {
+  uint8_t veml6075_active = 0;
+  veml6075configRegister veml6075Config;
+  VEML6075STRUCT veml6075_sensor;
+} MODULE_MEMORY;
+'''
+
+memvars = []
+
+index = source.find("MODULE_MEMORY")
+if index < 0 :
+    print("MODULE_MEMORY missing")
+else :
+    part1 = source[0:index]
+    index = part1.rindex("{")
+    part1 = part1[index:]
+    # memory structure
+    lines = part1.split("\n")
+    cnt = 1
+    while cnt < len(lines) - 1:
+        oline = lines[cnt].strip()[:-1]
+        oline = oline.split(" ")
+        cnt += 1
+        memvars.append(oline[1])
+
+istr = ""
+for func in memvars:
+    istr += "#define " + func + " mem->" + func + "\n"
+
+source = source.replace("MODULE_MEMORY;", "MODULE_MEMORY;\n\n" + istr)
+
+source = source.replace("XdrvMailbox.", "XdrvMailbox->")
 
 
 

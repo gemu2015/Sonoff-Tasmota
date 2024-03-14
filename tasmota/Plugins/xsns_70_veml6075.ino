@@ -69,12 +69,6 @@ const float UVB_RESPONSIVITY[] PROGMEM = {
 #define D_NAME_VEML6075 "VEML6075"
 #define D_UVA_INTENSITY "UVA intensity"
 #define D_UVB_INTENSITY "UVB intensity"
-#define D_UNIT_WATT_METER_QUADRAT "W/m²"
-#define D_JSON_UV_INDEX "UvIndex"
-#define D_JSON_UV_INDEX_TEXT "UvIndexText"
-#define D_CMND_VEML6075_POWER "power"
-#define D_CMND_VEML6075_DYNAMIC "dynamic"
-#define D_CMND_VEML6075_INTTIME "inttime"
 
 
 const char HTTP_SNS_UVA[] PROGMEM = "{s}%s " D_UVA_INTENSITY "{m}%d " D_UNIT_WATT_METER_QUADRAT "{e}";
@@ -93,7 +87,7 @@ enum VEML6075_Commands {  // commands for Console
 };
 
 // global variables
-struct VEML6075STRUCT {
+typedef struct  {
   char types[9] = D_NAME_VEML6075;
   uint8_t address = VEML6075_ADDR;
   uint8_t inttime = 0;
@@ -105,9 +99,9 @@ struct VEML6075STRUCT {
   uint16_t comp2 = 0;
   uint16_t conf = 0;
   float uvi = 0.0f;
-} veml6075_sensor;
+} VEML6075STRUCT;
 
-uint8_t veml6075_active = 0;
+
 
 // typedef of config register
 typedef union {
@@ -122,7 +116,11 @@ typedef union {
   uint16_t config;
 } veml6075configRegister;
 
-veml6075configRegister veml6075Config;
+typedef struct {
+  uint8_t veml6075_active;
+  veml6075configRegister veml6075Config;
+  VEML6075STRUCT veml6075_sensor;
+} MODULE_MEMORY;
 
 /********************************************************************************************/
 
@@ -262,7 +260,8 @@ bool VEML6075Cmd(void) {
 
 void VEML6075Show(bool json) {
   char s_uvindex[FLOATSZ];
-  dtostrfd(veml6075_sensor.uvi, 1, s_uvindex);
+  dtostrf(veml6075_sensor.uvi, 1, 1, s_uvindex);
+
 
   if (json) {
     ResponseAppend_P(JSON_SNS_VEML6075, D_NAME_VEML6075, veml6075_sensor.uva, veml6075_sensor.uvb, s_uvindex);
@@ -275,8 +274,7 @@ void VEML6075Show(bool json) {
   }
 }
 
-void VEML6075Deinit() {
-  SETREGS
+void VEML6075Deinit(void) {
   I2cResetActive(veml6075_sensor.address, 0);
   RETMEM
 }
@@ -285,7 +283,7 @@ void VEML6075Deinit() {
  * Interface
 \*********************************************************************************************/
 
-bool Xsns70(uint32_t function) {
+int32_t Xsns70(uint32_t function) {
   bool result = false;
   switch (function) {
       case FUNC_INIT:

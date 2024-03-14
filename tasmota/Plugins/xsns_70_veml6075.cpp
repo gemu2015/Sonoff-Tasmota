@@ -21,6 +21,7 @@
 #ifdef USE_VEML6075_MOD
 #include "module.h"
 #include "module_defines.h"
+#include "../Tasmota/include/i18n.h"
 
 
 
@@ -73,12 +74,6 @@ const float UVB_RESPONSIVITY[] PROGMEM = {
 #define D_NAME_VEML6075 "VEML6075"
 #define D_UVA_INTENSITY "UVA intensity"
 #define D_UVB_INTENSITY "UVB intensity"
-#define D_UNIT_WATT_METER_QUADRAT "W/m²"
-#define D_JSON_UV_INDEX "UvIndex"
-#define D_JSON_UV_INDEX_TEXT "UvIndexText"
-#define D_CMND_VEML6075_POWER "power"
-#define D_CMND_VEML6075_DYNAMIC "dynamic"
-#define D_CMND_VEML6075_INTTIME "inttime"
 
 
 const char HTTP_SNS_UVA[] PROGMEM = "{s}%s " D_UVA_INTENSITY "{m}%d " D_UNIT_WATT_METER_QUADRAT "{e}";
@@ -97,7 +92,7 @@ enum VEML6075_Commands {  // commands for Console
 };
 
 // global variables
-struct VEML6075STRUCT {
+typedef struct  {
   char types[9] = D_NAME_VEML6075;
   uint8_t address = VEML6075_ADDR;
   uint8_t inttime = 0;
@@ -109,9 +104,9 @@ struct VEML6075STRUCT {
   uint16_t comp2 = 0;
   uint16_t conf = 0;
   float uvi = 0.0f;
-} veml6075_sensor;
+} VEML6075STRUCT;
 
-uint8_t veml6075_active = 0;
+
 
 // typedef of config register
 typedef union {
@@ -126,32 +121,41 @@ typedef union {
   uint16_t config;
 } veml6075configRegister;
 
-veml6075configRegister veml6075Config;
+typedef struct {
+  uint8_t veml6075_active;
+  veml6075configRegister veml6075Config;
+  VEML6075STRUCT veml6075_sensor;
+} MODULE_MEMORY;
+
+#define veml6075_active mem->veml6075_active
+#define veml6075Config mem->veml6075Config
+#define veml6075_sensor mem->veml6075_sensor
+
 
 /********************************************************************************************/
 
 /********************************************************************************************/
 PUSH_OPTIONS
-MODULE_DESCRIPTOR("veml6075",MODULE_TYPE_SENSOR,1<<16|2,"",0,"",0,"",0,"",0)
-MODULE_PART uint16_t VEML6075read16
-MODULE_PART void VEML6075write16
-MODULE_PART float VEML6075calcUVA
-MODULE_PART float VEML6075calcUVB
-MODULE_PART float VEML6075calcUVI
-MODULE_PART void VEML6075SetHD
-MODULE_PART uint8_t VEML6075ReadHD
-MODULE_PART void VEML6075SetUvIt
-MODULE_PART uint8_t VEML6075GetUvIt
-MODULE_PART void VEML6075Pwr
-MODULE_PART uint8_t VEML6075GetPwr
-MODULE_PART void VEML6075ReadData
-MODULE_PART bool VEML6075init
-MODULE_PART bool VEML6075Detect
-MODULE_PART void VEML6075EverySecond
-MODULE_PART bool VEML6075Cmd
-MODULE_PART void VEML6075Show
-MODULE_PART void VEML6075Deinit
-MODULE_PART bool mod_func_execute
+MODULE_DESCRIPTOR("VEML6075",MODULE_TYPE_SENSOR,1<<16|2,"",0,"",0,"",0,"",0)
+MODULE_PART uint16_t VEML6075read16(uint8_t reg);
+MODULE_PART void VEML6075write16(uint8_t reg, uint16_t val);
+MODULE_PART float VEML6075calcUVA(void);
+MODULE_PART float VEML6075calcUVB(void);
+MODULE_PART float VEML6075calcUVI(void);
+MODULE_PART void VEML6075SetHD(uint8_t val);
+MODULE_PART uint8_t VEML6075ReadHD(void);
+MODULE_PART void VEML6075SetUvIt(uint8_t val);
+MODULE_PART uint8_t VEML6075GetUvIt(void);
+MODULE_PART void VEML6075Pwr(uint8_t val);
+MODULE_PART uint8_t VEML6075GetPwr(void);
+MODULE_PART void VEML6075ReadData(void);
+MODULE_PART bool VEML6075init(void);
+MODULE_PART bool VEML6075Detect(void);
+MODULE_PART void VEML6075EverySecond(void);
+MODULE_PART bool VEML6075Cmd(void);
+MODULE_PART void VEML6075Show(bool json);
+MODULE_PART void VEML6075Deinit(void);
+MODULE_PART int32_t mod_func_execute(uint32_t function);
 MODULE_END
 /********************************************************************************************/
 uint16_t VEML6075read16(uint8_t reg) {
@@ -284,29 +288,29 @@ SETREGS
 
   char command[CMDSZ];
   uint8_t name_len = strlen(D_NAME_VEML6075);
-  if (!strncasecmp_P(XdrvMailbox.topic, PSTR(D_NAME_VEML6075), name_len)) {
-    uint32_t command_code = GetCommandCode(command, sizeof(command), XdrvMailbox.topic + name_len, kVEML6075_Commands);
+  if (!strncasecmp_P(XdrvMailbox->topic, PSTR(D_NAME_VEML6075), name_len)) {
+    uint32_t command_code = GetCommandCode(command, sizeof(command), XdrvMailbox->topic + name_len, kVEML6075_Commands);
     switch (command_code) {
       case CMND_VEML6075_PWR:
-        if (XdrvMailbox.data_len) {
-          if (2 >= XdrvMailbox.payload) {
-            VEML6075Pwr(XdrvMailbox.payload);
+        if (XdrvMailbox->data_len) {
+          if (2 >= XdrvMailbox->payload) {
+            VEML6075Pwr(XdrvMailbox->payload);
           }
         }
         Response_P(S_JSON_VEML6075_COMMAND_NVALUE, command, VEML6075GetPwr());
         break;
       case CMND_VEML6075_SET_HD:
-        if (XdrvMailbox.data_len) {
-          if (2 >= XdrvMailbox.payload) {
-            VEML6075SetHD(XdrvMailbox.payload);
+        if (XdrvMailbox->data_len) {
+          if (2 >= XdrvMailbox->payload) {
+            VEML6075SetHD(XdrvMailbox->payload);
           }
         }
         Response_P(S_JSON_VEML6075_COMMAND_NVALUE, command, VEML6075ReadHD());
         break;
       case CMND_VEML6075_SET_UVIT:
-        if (XdrvMailbox.data_len) {
-          if (4 >= XdrvMailbox.payload) {
-            VEML6075SetUvIt(XdrvMailbox.payload);
+        if (XdrvMailbox->data_len) {
+          if (4 >= XdrvMailbox->payload) {
+            VEML6075SetUvIt(XdrvMailbox->payload);
           }
         }
         Response_P(S_JSON_VEML6075_COMMAND_NVALUE, command, VEML6075GetUvIt());
@@ -324,7 +328,8 @@ void VEML6075Show(bool json) {
 SETREGS
 
   char s_uvindex[FLOATSZ];
-  dtostrfd(veml6075_sensor.uvi, 1, s_uvindex);
+  dtostrf(veml6075_sensor.uvi, 1, 1, s_uvindex);
+
 
   if (json) {
     ResponseAppend_P(JSON_SNS_VEML6075, D_NAME_VEML6075, veml6075_sensor.uva, veml6075_sensor.uvb, s_uvindex);
@@ -337,10 +342,9 @@ SETREGS
   }
 }
 
-void VEML6075Deinit() {
+void VEML6075Deinit(void) {
 SETREGS
 
-  SETREGS
   I2cResetActive(veml6075_sensor.address, 0);
   RETMEM
 }
@@ -349,7 +353,7 @@ SETREGS
  * Interface
 \*********************************************************************************************/
 
-bool mod_func_execute(uint32_t function) {
+int32_t mod_func_execute(uint32_t function) {
   bool result = false;
   switch (function) {
       case FUNC_INIT:
