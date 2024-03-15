@@ -610,8 +610,7 @@ SETREGS
 
   if (DS18X20Data.sensors > 1) {
     // DS18B20-1
-    snprintf_P(DS18X20Data.name, sizeof(DS18X20Data.name), PSTR("%s%c%d"), DS18X20Data.name, IndexSeparator(),
-               sensor + 1);
+    snprintf_P(DS18X20Data.name, sizeof(DS18X20Data.name), PSTR("%s%c%d"), DS18X20Data.name, IndexSeparator(), sensor + 1);
   }
 }
 
@@ -661,8 +660,6 @@ SETREGS
 
   for (uint32_t i = 0; i < DS18X20Data.sensors; i++) {
     uint8_t index = ds18x20_sensor[i].index;
-
-    ds18x20_sensor[index].valid = true;
 
     if (ds18x20_sensor[index].valid) {  // Check for valid temperature
       Ds18x20Name(i);
