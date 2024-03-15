@@ -154,7 +154,7 @@ MODULE_PART bool VEML6075Detect(void);
 MODULE_PART void VEML6075EverySecond(void);
 MODULE_PART bool VEML6075Cmd(void);
 MODULE_PART void VEML6075Show(bool json);
-MODULE_PART void VEML6075Deinit(void);
+MODULE_PART void VEML6075_Deinit(void);
 MODULE_PART int32_t mod_func_execute(uint32_t function);
 MODULE_END
 /********************************************************************************************/
@@ -342,13 +342,12 @@ SETREGS
   }
 }
 
-void VEML6075Deinit(void) {
+
+void VEML6075_Deinit(void) {
 SETREGS
 
-  I2cResetActive(veml6075_sensor.address, 0);
-  RETMEM
+RETMEM
 }
-
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
@@ -370,10 +369,11 @@ int32_t mod_func_execute(uint32_t function) {
         break;
       case FUNC_WEB_SENSOR:
         VEML6075Show(0);
-        break;
-      case FUNC_DEINIT:
-        VEML6075Deinit();
-        break;
+        break; 
+			case FUNC_DEINIT:
+				VEML6075_Deinit();
+				break;
+
   }
   return result;
 }

@@ -10,7 +10,9 @@ import os
 # now edit remaining issues
 
 # edit this path
-file = 'xsns_70_veml6075.ino'
+#file = 'xsns_70_veml6075.ino'
+file = 'xsns_05_ds18x20.ino'
+
 
 platform = env.PioPlatform()
 board = env.BoardConfig()
@@ -33,6 +35,19 @@ module = fpart[2]
 module = module.split(".")[0]
 
 muse = "USE_" + module.upper()
+
+source = source.replace("unsigned char", "uint8_t")
+source = source.replace("TasmotaGlobal.uptime", "GetTasmotaGlobal(4)")
+source = source.replace("TasmotaGlobal.tele_period", "GetTasmotaGlobal(1)")
+
+
+deinit = module.upper() + "_Deinit"
+index = source.rindex("/****")
+part1 = source[0:index]
+part2 = source[index:]
+
+# insert deinit
+source = part1 + "void " + deinit + "(void) {\nRETMEM\n}\n" + part2
 
 # loop for functions in source
 lines = source.split("\n")
@@ -67,13 +82,15 @@ fcnt = 0
 for func in func_list:
     if len(func) > 1 and len(func) < 3 :
         if len(func[1]) > 0 :
-            func.append(func_args[fcnt])
-            def_func.append(func)
+            if func[0][0] != '#':
+                func.append(func_args[fcnt])
+                def_func.append(func)
+                print(func)
     fcnt += 1
 
 # insert these into file
 for func in def_func:
-    sstr = func[0] + " " + func[1]
+    sstr = func[0] + " " + func[1] + '('
     index = source.find(sstr)
     part1 = source[0:index]
     part2 = source[index:]
@@ -81,8 +98,8 @@ for func in def_func:
     part3 = part2[0:index]
     part4 = part2[index:]
 
-    if sstr.find("mod_func_execute")<0 :
-        if sstr.find("Detect")>0 :
+    if sstr.find("mod_func_execute") < 0 :
+        if sstr.find("Detect") > 0 :
             regvar = "\nALLOCMEM\n"
         else :
             regvar = "\nSETREGS\n"
@@ -126,6 +143,8 @@ istr += "#include \"../Tasmota/include/i18n.h\"\n"
 
 source = source.replace("#ifdef "+muse, istr)
 
+print(muse)
+
 # search for MODULE_MEMORY
 '''
 typedef struct {
@@ -155,6 +174,9 @@ else :
 
 istr = ""
 for func in memvars:
+    brind = func.find("[")
+    if brind > 0 :
+        func = func[0:brind]
     istr += "#define " + func + " mem->" + func + "\n"
 
 source = source.replace("MODULE_MEMORY;", "MODULE_MEMORY;\n\n" + istr)
@@ -162,6 +184,14 @@ source = source.replace("MODULE_MEMORY;", "MODULE_MEMORY;\n\n" + istr)
 source = source.replace("XdrvMailbox.", "XdrvMailbox->")
 
 
+index = source.rindex("}")
+index = source.rfind("}", 0, index)
+index = source.rfind("\n", 0, index)
+
+part1 = source[0:index]
+part2 = source[index:]
+
+source = part1 + "\n\t\t\tcase FUNC_DEINIT:\n\t\t\t\t" + deinit + "();\n\t\t\t\tbreak;\n" + part2
 
 fwp = open(dfname, "w")
 fwp.write(source)

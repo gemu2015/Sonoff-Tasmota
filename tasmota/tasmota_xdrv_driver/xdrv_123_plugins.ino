@@ -253,9 +253,13 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_setClockStretchLimit,
   JMPTBL&tmod_writen,
   JMPTBL&modff,
-  JMPTBL&fl_const
+  JMPTBL&fl_const,
+  JMPTBL&WSContentSend_Temp,
+  JMPTBL&delayMicroseconds,
+  JMPTBL&digitalRead,
+  JMPTBL&digitalWrite,
+  JMPTBL&pinMode
 };
-
 
 #ifdef ESP32
 void twi_readFrom(uint8_t address, uint8_t* data, uint8_t length) {
@@ -527,6 +531,9 @@ uint32_t GetTasmotaGlobal(uint32_t sel) {
       break;
     case 3:
       return TasmotaGlobal.humidity;
+      break;
+    case 4:
+      return TasmotaGlobal.uptime;
       break;
   }
   return 0;

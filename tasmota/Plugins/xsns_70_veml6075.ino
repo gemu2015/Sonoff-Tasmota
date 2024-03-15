@@ -274,10 +274,6 @@ void VEML6075Show(bool json) {
   }
 }
 
-void VEML6075Deinit(void) {
-  I2cResetActive(veml6075_sensor.address, 0);
-  RETMEM
-}
 
 /*********************************************************************************************\
  * Interface
@@ -300,10 +296,7 @@ int32_t Xsns70(uint32_t function) {
         break;
       case FUNC_WEB_SENSOR:
         VEML6075Show(0);
-        break;
-      case FUNC_DEINIT:
-        VEML6075Deinit();
-        break;
+        break; 
   }
   return result;
 }

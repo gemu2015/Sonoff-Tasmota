@@ -129,6 +129,12 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jwriten(BUS,BUF,LEN)            (( void (*)(TwoWire*,uint8_t*,uint32_t) )      jt[102])(BUS,BUF,LEN)
 #define jmodff(A,B)                     (( float (*)(float,float*) )                   jt[103])(A,B)                     
 #define jfl_const(A,B)                  (( float (*)(int32_t,int32_t) )                jt[104])(A,B) 
+#define jWSContentSend_Temp(A,B)        (( void (*)(const char *, float) )             jt[105])(A,B)
+#define jdelayMicroseconds(A)           (( void (*)(uint32_t) )                        jt[106])(A)
+#define jdigitalRead(A)                 (( int (*)(uint8_t) )                          jt[107])(A)
+#define jdigitalWrite(A,B)              (( void (*)(uint8_t, uint8_t) )                jt[108])(A,B)
+#define jpinMode(A,B)                   (( void (*)(uint8_t, uint8_t) )                jt[109])(A,B)
+
 
 
 // Arduino macros
@@ -590,6 +596,12 @@ typedef struct {
 #define free jfree
 #define modff jmodff
 #define fl_const jfl_const
+#define WSContentSend_Temp jWSContentSend_Temp
+#define delayMicroseconds jdelayMicroseconds
+#define digitalRead jdigitalRead
+#define digitalWrite jdigitalWrite
+#define pinMode jpinMode
+#define sprintf jsprintf_P
 
 #define FLCONST(A,B) jfl_const(A,B)
 
@@ -677,8 +689,9 @@ jnewTS(RPIN,TPIN)               (( void* (*)(int32_t,int32_t) )                j
 #define jreadTS(TSER,BUF,SIZE)          (( size_t (*)(void*,uint8_t*,uint32_t) )       jt[64])(TSER,BUF,SIZE)
 #define jread1TS(TSER)                  (( int (*)(void*) )                            jt[65])(TSER)
 #define javailTS(TSER)                  (( uint8_t (*)(void*) )                        jt[66])(TSER)
+
+
+__floatunsisf
+
+
 */
-
-
-
-
