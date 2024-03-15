@@ -907,7 +907,6 @@ void SCD30_Deinit() {
 \*********************************************************************************************/
 
 int32_t mod_func_execute(uint32_t sel) {
-  SETREGS
   bool result = false;
 
   // https://github.com/arendst/Tasmota/issues/15438 and datasheet (The boot-up time is < 2 s.)
@@ -924,7 +923,10 @@ int32_t mod_func_execute(uint32_t sel) {
       SCD30_Update();
       break;
     case FUNC_COMMAND:
-      result = DecodeCommand(kScd30Commands, kScd30Command);
+      {
+        SETREGS
+        result = DecodeCommand(kScd30Commands, kScd30Command);
+      }
       break;
     case FUNC_JSON_APPEND:
       SCD30_Show(1);

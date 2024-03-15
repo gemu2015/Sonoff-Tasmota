@@ -582,11 +582,13 @@ void Ds18x20Show(bool json) {
         for (uint32_t j = 0; j < 6; j++) {
           sprintf(address + 2 * j, "%02X", ds18x20_sensor[index].address[6 - j]);  // Skip sensor type and crc
         }
+#if 0
         char temp[16];
         ftostrfd(ds18x20_sensor[index].temperature, 2, temp);
-
-        //ResponseAppend_P(PSTR(",\"%s\":{\"" D_JSON_ID "\":\"%s\",\"" D_JSON_TEMPERATURE "\":%*_f}"), DS18X20Data.name, address, Settings->flag2.temperature_resolution, &ds18x20_sensor[index].temperature);
         ResponseAppend_P(PSTR(",\"%s\":{\"" D_JSON_ID "\":\"%s\",\"" D_JSON_TEMPERATURE "\":%s}"), DS18X20Data.name, address, Settings->flag2.temperature_resolution, temp);
+#else
+        ResponseAppend_P(PSTR(",\"%s\":{\"" D_JSON_ID "\":\"%s\",\"" D_JSON_TEMPERATURE "\":%*_f}"), DS18X20Data.name, address, Settings->flag2.temperature_resolution, &ds18x20_sensor[index].temperature);
+#endif
 
 #ifdef USE_DOMOTICZ
         if ((0 == TasmotaGlobal.tele_period) && (0 == i)) {

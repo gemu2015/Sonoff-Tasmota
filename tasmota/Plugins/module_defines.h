@@ -108,8 +108,8 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jtmod__fixunssfsi(A)            (( uint32_t (*)(float) )                       jt[83])(A)
 #define jtmod__umodsi3(A,B)             (( uint32_t (*)(uint32_t,uint32_t) )           jt[84])(A,B)
 #define jtwi_readFrom(A,B,C,D)(( unsigned char (*)(uint8_t,uint8_t*,unsigned int,uint8_t) ) jt[85])(A,B,C,D)
-//#define jDecodeCommand(A,B,C)           (( bool (*)(const char*, void (* const x[])(MODULES_TABLE*),MODULES_TABLE*))   jt[86])(A,B,C)
-#define jDecodeCommand(A,B)           (( bool (*)(const char*, void (* const x[])(void)))   jt[86])(A,B)
+#define jDecodeCommand(A,B,C)           (( bool (*)(const char*, void (* const x[])(void),MODULES_TABLE* )) jt[86])(A,B,C)
+//#define jDecodeCommand(A,B)           (( bool (*)(const char*, void (* const x[])(void)))   jt[86])(A,B)
 
 #define jResponseCmndDone               (( void (*)(void) )                            jt[87])
 #define jbwriteTS(TSER,VAL)             (( size_t (*)(void*,uint8_t) )                 jt[88])(TSER,VAL)
@@ -134,7 +134,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jdigitalRead(A)                 (( int (*)(uint8_t) )                          jt[107])(A)
 #define jdigitalWrite(A,B)              (( void (*)(uint8_t, uint8_t) )                jt[108])(A,B)
 #define jpinMode(A,B)                   (( void (*)(uint8_t, uint8_t) )                jt[109])(A,B)
-
+#define jstrchr(A,B)                    (( char *(*)(char *, char) )                   jt[110])(A,B)
 
 
 // Arduino macros
@@ -357,7 +357,7 @@ extern MODULES_TABLE modules[];
 #define GET_JT void (* const *jt)() = mt->jt
 #endif
 
-#define SETREGS GET_MTBL; MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;GET_JT;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
+#define SETREGS GET_MTBL; MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;GET_JT;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;SETTINGS *jsettings = mt->settings;
 #define ALLOCMEM GET_MTBL; GET_JT; mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
 #define RETMEM if (mt->mem_size) {jfree(mt->mod_memory);mt->mem_size = 0;}
 #define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE MODULE_HEADER = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,END_OF_MODULE,0,0,(uint32_t)&modules,(uint32_t)&MODULE_JUMPTABLE,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
@@ -574,7 +574,7 @@ typedef struct {
 #define   tmod__fixunssfsi jtmod__fixunssfsi
 #define   tmod__umodsi3 jtmod__umodsi3
 #define   twi_readFrom jtwi_readFrom
-#define   DecodeCommand(A,B) jDecodeCommand(A,B)
+#define   DecodeCommand(A,B) jDecodeCommand(A,B,mt)
 #define   ResponseCmndDone jResponseCmndDone
 #define   bwriteTS jbwriteTS
 #define   memcmp jmemcmp
@@ -602,6 +602,9 @@ typedef struct {
 #define digitalWrite jdigitalWrite
 #define pinMode jpinMode
 #define sprintf jsprintf_P
+#define Settings jsettings
+#define strchr jstrchr
+
 
 #define FLCONST(A,B) jfl_const(A,B)
 

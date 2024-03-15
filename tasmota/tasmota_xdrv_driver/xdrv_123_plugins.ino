@@ -105,7 +105,7 @@ int tmod_read1TS(TasmotaSerial *ts);
 uint8_t tmod_availTS(TasmotaSerial *ts);
 bool hardwareSerialTS(TasmotaSerial *ts);
 void AddlogT(char* txt);
-bool MT_DecodeCommand(const char* haystack, void (* const InCommand[])(void));
+bool MT_DecodeCommand(const char* haystack, void (* const InCommand[])(void), MODULES_TABLE *mt);
 size_t tmod_write1TS(TasmotaSerial *ts, uint8_t val);
 #ifdef ESP32
 void twi_readFrom(uint8_t address, uint8_t* data, uint8_t length);
@@ -235,7 +235,7 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod__fixunssfsi,
   JMPTBL&tmod__umodsi3,
   JMPTBL&twi_readFrom,
-  JMPTBL&DecodeCommand,
+  JMPTBL&MT_DecodeCommand,
   JMPTBL&ResponseCmndDone,
   JMPTBL&tmod_write1TS,
   JMPTBL&memcmp_P,
@@ -258,7 +258,9 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&delayMicroseconds,
   JMPTBL&digitalRead,
   JMPTBL&digitalWrite,
-  JMPTBL&pinMode
+  JMPTBL&pinMode,
+  JMPTBL&strchr
+
 };
 
 #ifdef ESP32
@@ -273,35 +275,45 @@ float fl_const(int32_t m, int32_t d) {
   return (float)m / (float)d;
 }
 
-/*
-bool MT_DecodeCommand(const char* haystack, void (* const MyCommand[])(void)) {
+// modified decode command, no synonyms
+bool MT_DecodeCommand(const char* haystack, void (* const MyCommand[])(void), MODULES_TABLE *mt) {
 
-  haystack += mt->execution_offset;
-  MyCommand += (mt->execution_offset >> 2);
-  
+  haystack+=mt->execution_offset;
+
+  const uint8_t *synonyms = nullptr;
   GetTextIndexed(XdrvMailbox.command, CMDSZ, 0, haystack);  // Get prefix if available
+
   int prefix_length = strlen(XdrvMailbox.command);
-  char prefix[prefix_length + 1];
-  snprintf_P(prefix, sizeof(prefix), XdrvMailbox.topic);  // Copy prefix part only
   if (prefix_length) {
+    char prefix[prefix_length +1];
+    snprintf_P(prefix, sizeof(prefix), XdrvMailbox.topic);  // Copy prefix part only
     if (strcasecmp(prefix, XdrvMailbox.command)) {
       return false;                                         // Prefix not in command
     }
   }
+  size_t syn_count = synonyms ? pgm_read_byte(synonyms) : 0;
   int command_code = GetCommandCode(XdrvMailbox.command + prefix_length, CMDSZ, XdrvMailbox.topic + prefix_length, haystack);
-  if (command_code > 0) {
-    XdrvMailbox.command_code = command_code - 1;
-    uint32_t lval = (uint32_t)MyCommand[XdrvMailbox.command_code];
-    lval += mt->execution_offset;
-    void (* const cmdaddr)(MODULES_TABLE *mt) = (void (* const)(MODULES_TABLE *mt))lval;
-    //AddLog(LOG_LEVEL_INFO,PSTR(">>> %08x - %08x"), lval, mt->execution_offset );
-    cmdaddr(mt);
+  if (command_code > 0) {                                   // Skip prefix
+    if (command_code > syn_count) {
+      // We passed the synonyms zone, it's a regular command
+      XdrvMailbox.command_code = command_code - 1 - syn_count;
+      uint32_t *lp = (uint32_t*)MyCommand;
+      lp += mt->execution_offset / 4;
+      uint32_t lval = lp[XdrvMailbox.command_code];
+      lval += mt->execution_offset;
+      void (*Command)(void) = (void (*)(void))lval;
+      Command();
+
+      //MyCommand[XdrvMailbox.command_code]();
+    } else {
+      // We have a SetOption synonym
+      XdrvMailbox.index = pgm_read_byte(synonyms + command_code);
+      CmndSetoptionBase(0);
+    }
     return true;
   }
   return false;
 }
-*/
-
 
 int tmod_strncasecmp_P(const char *s1, const char *s2, size_t len) {
 #ifdef ESP8266
@@ -1547,12 +1559,13 @@ void Module_upload() {
               }
             }
           } else {
-            // selector 1
-            uint8_t from = val32 >> 16;
+            // selector 1 
+            int8_t from = (val32 >> 16);
+            int8_t spin = val32 & 0xff;
             uint8_t to = val32 >> 8;
-            for (uint8_t pins = from; pins <= to; pins++) {
+            for (int8_t pins = from; pins <= to; pins++) {
               char sel[10];
-              if ((val32 & 0xff) == pins) {
+              if (spin == pins) {
                 strcpy_P(sel, PSTR("selected"));
               } else {
                 sel[0] = 0;

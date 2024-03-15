@@ -350,8 +350,6 @@ bool SPS30_command() {
     Response_P(GSTR(S_JSON_SPS30_COMMAND), sps30_running?GSTR(S_JSON_SPS30_r):GSTR(S_JSON_SPS30_s));
   }
 
-  
-
   return serviced;
 }
 

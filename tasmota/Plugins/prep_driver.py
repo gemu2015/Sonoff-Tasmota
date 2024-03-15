@@ -11,7 +11,7 @@ import os
 
 # edit this path
 #file = 'xsns_70_veml6075.ino'
-file = 'xsns_05_ds18x20.ino'
+file = 'xxsns_05_ds18x20.ino'
 
 
 platform = env.PioPlatform()

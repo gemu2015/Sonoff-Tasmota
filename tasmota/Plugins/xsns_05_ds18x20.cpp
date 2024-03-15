@@ -69,7 +69,7 @@ typedef struct {
   uint8_t valid;
   int8_t pins_id;
 #ifdef DS18x20_USE_ID_ALIAS
-  char *alias = (char *)calloc(DS18X20_ALIAS_LEN, 1);
+  char alias[DS18X20_ALIAS_LEN];
 #endif  // DS18x20_USE_ID_ALIAS
 } DSS;
 
@@ -100,11 +100,16 @@ typedef struct {
 #define W1_MATCH_ROM 0x55
 #define W1_SEARCH_ROM 0xF0
 
+#undef MAX_DSB
+#define MAX_DSB 1
+
 typedef struct {
 uint8_t onewire_last_discrepancy;
 uint8_t onewire_last_family_discrepancy;
 bool onewire_last_device_flag;
 uint8_t onewire_rom_id[8];
+uint8_t delay_low[2];
+uint8_t delay_high[2];
 DSX DS18X20Data;
 DSPINS ds18x20_gpios[MAX_DSB];
 DSS ds18x20_sensor[DS18X20_MAX_SENSORS];
@@ -117,13 +122,14 @@ DSS ds18x20_sensor[DS18X20_MAX_SENSORS];
 #define DS18X20Data mem->DS18X20Data
 #define ds18x20_gpios mem->ds18x20_gpios
 #define ds18x20_sensor mem->ds18x20_sensor
-
+#define delay_low mem->delay_low
+#define delay_high mem->delay_high
 
 /*------------------------------------------------------------------------------------------*/
 
 /********************************************************************************************/
 PUSH_OPTIONS
-MODULE_DESCRIPTOR("DS18X20",MODULE_TYPE_SENSOR,1<<16|2,"",0,"",0,"",0,"",0)
+MODULE_DESCRIPTOR("DS18X20",MODULE_TYPE_SENSOR,1<<16|2,"DAT",13,"DM",0x01ff10ff,"",0,"",0)
 MODULE_PART uint8_t OneWireReset(void);
 MODULE_PART void OneWireWriteBit(uint8_t v);
 MODULE_PART uint8_t OneWire1ReadBit(void);
@@ -133,7 +139,7 @@ MODULE_PART uint8_t OneWireRead(void);
 MODULE_PART void OneWireSelect(const uint8_t rom[8]);
 MODULE_PART uint8_t OneWireSearch(uint8_t *newAddr);
 MODULE_PART bool OneWireCrc8(uint8_t *addr);
-MODULE_PART void Ds18x20Init(void);
+MODULE_PART int32_t Ds18x20Init(void);
 MODULE_PART void Ds18x20Convert(void);
 MODULE_PART bool Ds18x20Read(uint8_t sensor);
 MODULE_PART void Ds18x20Name(uint8_t sensor);
@@ -185,9 +191,6 @@ SETREGS
 
 void OneWireWriteBit(uint8_t v) {
 SETREGS
-
-  static const uint8_t delay_low[2] = {65, 10};
-  static const uint8_t delay_high[2] = {5, 55};
 
   v &= 1;
   if (!DS18X20Data.dual_mode) {
@@ -370,12 +373,17 @@ SETREGS
 
 /********************************************************************************************/
 
-void Ds18x20Init(void) {
-SETREGS
+int32_t Ds18x20Init(void) {
+ALLOCMEM
+  
+  delay_low[0] = 65;
+  delay_low[1] = 10;
+  delay_high[0] = 5;
+  delay_high[1] = 55;
 
-  DS18X20Data.gpios = 0;
+  /*
   for (uint32_t pins = 0; pins < MAX_DSB; pins++) {
-    /*
+
     if (PinUsed(GPIO_DSB, pins)) {
       ds18x20_gpios[pins].pin = Pin(GPIO_DSB, pins);
 
@@ -384,14 +392,26 @@ SETREGS
         ds18x20_gpios[pins].pin_out = Pin(GPIO_DSB_OUT, pins);
       }
       DS18X20Data.gpios++;
-    }*/
+    }
+  }*/
+
+  ds18x20_gpios[0].pin = mp->ms[0].value & 0xff;
+  int8_t sel = (mp->ms[1].value & 0xff);
+  if (sel < 0) {
+    ds18x20_gpios[0].dual_mode = false;
+  } else {
+    ds18x20_gpios[0].dual_mode = false;
+    ds18x20_gpios[0].pin_out = sel;
   }
+  DS18X20Data.gpios = 1;
+
+  //player_type = mp->ms[1].value;
+  //player_type &= 3;
 
   uint64_t ids[DS18X20_MAX_SENSORS];
   DS18X20Data.sensors = 0;
-  DS18X20Data.input_mode = Settings->flag3.ds18x20_internal_pullup
-                               ? INPUT_PULLUP
-                               : INPUT;  // SetOption74 - Enable internal pullup for single DS18x20 sensor
+  DS18X20Data.input_mode = Settings->flag3.ds18x20_internal_pullup ? INPUT_PULLUP : INPUT;   
+ // SetOption74 - Enable internal pullup for single DS18x20 sensor
 
   for (uint32_t pins = 0; pins < DS18X20Data.gpios; pins++) {
     DS18X20Data.pin = ds18x20_gpios[pins].pin;
@@ -441,6 +461,14 @@ SETREGS
   }
 
   AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_DSB D_SENSORS_FOUND " %d"), DS18X20Data.sensors);
+
+  if (!DS18X20Data.sensors) {
+    return false;
+  } else {
+    initialized = true;
+    return true;
+  }
+
 }
 
 void Ds18x20Convert(void) {
@@ -561,7 +589,7 @@ SETREGS
 #ifdef DS18x20_USE_ID_AS_NAME
   char address[17];
   for (uint32_t j = 0; j < 3; j++) {
-    sprintf(address + 2 * j, "%02X", ds18x20_sensor[sensor_index].address[3 - j]);  // Only last 3 bytes
+    sprintf_P(address + 2 * j, PSTR("%02X"), ds18x20_sensor[sensor_index].address[3 - j]);  // Only last 3 bytes
   }
   // DS18B20-8EC44C
   snprintf_P(DS18X20Data.name, sizeof(DS18X20Data.name), PSTR("%s%c%s"), DS18X20Data.name, IndexSeparator(), address);
@@ -634,10 +662,13 @@ SETREGS
   for (uint32_t i = 0; i < DS18X20Data.sensors; i++) {
     uint8_t index = ds18x20_sensor[i].index;
 
+    ds18x20_sensor[index].valid = true;
+
     if (ds18x20_sensor[index].valid) {  // Check for valid temperature
       Ds18x20Name(i);
 
       if (json) {
+        
         if (Settings->flag5.ds18x20_mean) {
           if ((0 == GetTasmotaGlobal(1)) && ds18x20_sensor[index].numread) {
             //ds18x20_sensor[index].temperature = ds18x20_sensor[index].temp_sum / ds18x20_sensor[index].numread;
@@ -647,13 +678,9 @@ SETREGS
         }
         char address[17];
         for (uint32_t j = 0; j < 6; j++) {
-          sprintf(address + 2 * j, "%02X", ds18x20_sensor[index].address[6 - j]);  // Skip sensor type and crc
+          sprintf_P(address + 2 * j, PSTR("%02X"), ds18x20_sensor[index].address[6 - j]);  // Skip sensor type and crc
         }
-        char temp[16];
-        ftostrfd(ds18x20_sensor[index].temperature, 2, temp);
-
-        //ResponseAppend_P(PSTR(",\"%s\":{\"" D_JSON_ID "\":\"%s\",\"" D_JSON_TEMPERATURE "\":%*_f}"), DS18X20Data.name, address, Settings->flag2.temperature_resolution, &ds18x20_sensor[index].temperature);
-        ResponseAppend_P(PSTR(",\"%s\":{\"" D_JSON_ID "\":\"%s\",\"" D_JSON_TEMPERATURE "\":%s}"), DS18X20Data.name, address, Settings->flag2.temperature_resolution, temp);
+        ResponseAppend_P(PSTR(",\"%s\":{\"" D_JSON_ID "\":\"%s\",\"" D_JSON_TEMPERATURE "\":%*_f}"), DS18X20Data.name, address, Settings->flag2.temperature_resolution, &ds18x20_sensor[index].temperature);
 
 #ifdef USE_DOMOTICZ
         if ((0 == GetTasmotaGlobal(1)) && (0 == i)) {
@@ -665,6 +692,7 @@ SETREGS
           KnxSensor(KNX_TEMPERATURE, ds18x20_sensor[index].temperature);
         }
 #endif  // USE_KNX
+
 #ifdef USE_WEBSERVER
       } else {
         WSContentSend_Temp(DS18X20Data.name, ds18x20_sensor[index].temperature);
@@ -683,20 +711,22 @@ void (*const DSCommand[])(void) PROGMEM = {&CmndDSAlias};
 void CmndDSAlias(void) {
 SETREGS
 
+  // Ds18Alias B99A451F64FF,murks
+
   // Ds18Alias 430516707FA6FF28,SensorName - Use SensorName instead of DS18B20
   // Ds18Alias 430516707FA6FF28,0          - Disable alias (default)
-  char Argument1[XdrvMailbox->data_len];
-  char Argument2[XdrvMailbox->data_len];
+  char *Argument1;
+  char *Argument2;
   char address[17];
 
-  if (ArgC() == 2) {
-    ArgV(Argument1, 1);
-    ArgV(Argument2, 2);
-    TrimSpace(Argument2);
-
+  char *cp = strchr(XdrvMailbox->data, ',');
+  if (cp) {
+    *cp = 0;
+    Argument1 = XdrvMailbox->data;
+    Argument2 = cp + 1;
     for (uint32_t i = 0; i < DS18X20Data.sensors; i++) {
       for (uint32_t j = 0; j < 8; j++) {
-        sprintf(address + 2 * j, "%02X", ds18x20_sensor[i].address[7 - j]);
+        sprintf_P(address + 2 * j, PSTR("%02X"), ds18x20_sensor[i].address[7 - j]);
       }
       if (!strncmp(Argument1, address, 12) && Argument2[0]) {
         snprintf_P(ds18x20_sensor[i].alias, DS18X20_ALIAS_LEN, PSTR("%s"), Argument2);
@@ -704,27 +734,26 @@ SETREGS
       }
     }
   }
-
   Response_P(PSTR("{"));
   for (uint32_t i = 0; i < DS18X20Data.sensors; i++) {
     Ds18x20Name(i);
     char address[17];
     for (uint32_t j = 0; j < 8; j++) {
-      sprintf(address + 2 * j, "%02X",
-              ds18x20_sensor[ds18x20_sensor[i].index].address[7 - j]);  // Skip sensor type and crc
+      sprintf_P(address + 2 * j, PSTR("%02X"), ds18x20_sensor[ds18x20_sensor[i].index].address[7 - j]);  // Skip sensor type and crc
     }
     ResponseAppend_P(PSTR("\"%s\":{\"" D_JSON_ID "\":\"%s\"}"), DS18X20Data.name, address);
     if (i < DS18X20Data.sensors - 1) {
       ResponseAppend_P(PSTR(","));
     }
+
   }
   ResponseAppend_P(PSTR("}"));
 }
 #endif  // DS18x20_USE_ID_ALIAS
 
+
 void DS18X20_Deinit(void) {
 SETREGS
-
 RETMEM
 }
 /*********************************************************************************************\
@@ -735,7 +764,7 @@ int32_t mod_func_execute(uint32_t function) {
   bool result = false;
   switch (function) {
       case FUNC_INIT:
-        Ds18x20Init();
+        result = Ds18x20Init();
         break;
       case FUNC_EVERY_SECOND:
         Ds18x20EverySecond();
@@ -750,7 +779,10 @@ int32_t mod_func_execute(uint32_t function) {
 #endif  // USE_WEBSERVER
 #ifdef DS18x20_USE_ID_ALIAS
       case FUNC_COMMAND:
-        result = DecodeCommand(kds18Commands, DSCommand);
+        {
+          SETREGS
+          result = DecodeCommand(kds18Commands, DSCommand);
+        }
         break;
 #endif  // DS18x20_USE_ID_ALIAS
 			case FUNC_DEINIT:
