@@ -135,7 +135,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jdigitalWrite(A,B)              (( void (*)(uint8_t, uint8_t) )                jt[108])(A,B)
 #define jpinMode(A,B)                   (( void (*)(uint8_t, uint8_t) )                jt[109])(A,B)
 #define jstrchr(A,B)                    (( char *(*)(char *, char) )                   jt[110])(A,B)
-
+#define jtrimm(A)                       (( char *(*)(char *) )                         jt[111])(A)
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -607,6 +607,7 @@ typedef struct {
 #define sprintf jsprintf_P
 #define Settings jsettings
 #define strchr jstrchr
+#define trimm jtrimm
 
 
 #define FLCONST(A,B) jfl_const(A,B)

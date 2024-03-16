@@ -120,6 +120,7 @@ int tmod_snprintf_P(char *s, size_t n,  const char *format, va_list va);
 int tmod_ResponseAppend_P(const char* format, va_list va);
 void tmod_WSContentSend_PD(const char* format, va_list va);
 float fl_const(int32_t m, int32_t d);
+char *tm_trim(char *s);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -259,9 +260,22 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&digitalRead,
   JMPTBL&digitalWrite,
   JMPTBL&pinMode,
-  JMPTBL&strchr
+  JMPTBL&strchr,
+  JMPTBL&tm_trim
 
 };
+
+
+char *tm_trim(char *s) {
+    char *ptr;
+    if (!s)
+        return NULL;   // handle NULL string
+    if (!*s)
+        return s;      // handle empty string
+    for (ptr = s + strlen(s) - 1; (ptr >= s) && isspace(*ptr); --ptr);
+    ptr[1] = '\0';
+    return s;
+}
 
 #ifdef ESP32
 void twi_readFrom(uint8_t address, uint8_t* data, uint8_t length) {

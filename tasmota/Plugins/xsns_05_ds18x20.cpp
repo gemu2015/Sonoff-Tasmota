@@ -603,8 +603,7 @@ SETREGS
   if (ds18x20_sensor[sensor_index].alias[0] && (ds18x20_sensor[sensor_index].alias[0] != '0')) {
     if (isdigit(ds18x20_sensor[sensor_index].alias[0])) {
       // DS18Sens-1
-      snprintf_P(DS18X20Data.name, sizeof(DS18X20Data.name), PSTR("DS18Sens%c%d"), IndexSeparator(),
-                 atoi(ds18x20_sensor[sensor_index].alias));
+      snprintf_P(DS18X20Data.name, sizeof(DS18X20Data.name), PSTR("DS18Sens%c%d"), IndexSeparator(), atoi(ds18x20_sensor[sensor_index].alias));
     } else {
       // UserText
       snprintf_P(DS18X20Data.name, sizeof(DS18X20Data.name), PSTR("%s"), ds18x20_sensor[sensor_index].alias);
@@ -716,7 +715,7 @@ void (*const DSCommand[])(void) PROGMEM = {&CmndDSAlias};
 void CmndDSAlias(void) {
 SETREGS
 
-  // Ds18Alias B99A451F64FF,murks
+// Ds18Alias  6AB99A451F64FF28  ,  Garten
 
   // Ds18Alias 430516707FA6FF28,SensorName - Use SensorName instead of DS18B20
   // Ds18Alias 430516707FA6FF28,0          - Disable alias (default)
@@ -729,6 +728,8 @@ SETREGS
     *cp = 0;
     Argument1 = XdrvMailbox->data;
     Argument2 = cp + 1;
+    Argument1 = trimm(Argument1);
+    Argument2 = trimm(Argument2);
     for (uint32_t i = 0; i < DS18X20Data.sensors; i++) {
       for (uint32_t j = 0; j < 8; j++) {
         sprintf_P(address + 2 * j, PSTR("%02X"), ds18x20_sensor[i].address[7 - j]);
