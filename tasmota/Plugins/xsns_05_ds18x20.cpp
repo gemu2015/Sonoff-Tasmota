@@ -584,7 +584,7 @@ SETREGS
     }
   }
   // DS18B20
-  GetTextIndexed(DS18X20Data.name, sizeof(DS18X20Data.name), index, kDs18x20Types);
+  GetTextIndexed(DS18X20Data.name, sizeof(DS18X20Data.name), index, GSTR(kDs18x20Types));
 
 #ifdef DS18x20_USE_ID_AS_NAME
   char address[17];
@@ -678,6 +678,9 @@ SETREGS
           sprintf_P(address + 2 * j, PSTR("%02X"), ds18x20_sensor[index].address[6 - j]);  // Skip sensor type and crc
         }
         ResponseAppend_P(PSTR(",\"%s\":{\"" D_JSON_ID "\":\"%s\",\"" D_JSON_TEMPERATURE "\":%*_f}"), DS18X20Data.name, address, Settings->flag2.temperature_resolution, &ds18x20_sensor[index].temperature);
+ //= {"Time":"2024-03-15T16:36:15","DS18B20_1":{"Id":"1ABEE9086461","Temperature":16.6},"DS18B20_2":{"Id":"C178441F64FF","Temperature":35.4},"EBUS":{"Collector":55.5,"Solarstorage":50.4,"Solarpump":0},"TempUnit":"C"}
+
+
 
 #ifdef USE_DOMOTICZ
         if ((0 == GetTasmotaGlobal(1)) && (0 == i)) {

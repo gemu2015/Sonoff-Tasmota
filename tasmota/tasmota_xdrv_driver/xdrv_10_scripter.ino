@@ -11894,7 +11894,7 @@ exgc:
               }
             }
           }
-          snprintf_P(options,sizeof(options), SCRIPT_MSG_GOPT4);
+          snprintf_P(options, SCRIPT_GC_OPTIONS_SIZE, SCRIPT_MSG_GOPT4);
           free(options);
         }
         if (tonly) {
@@ -12023,10 +12023,10 @@ exgc:
 
         switch (gs_ctype) {
           case 't':
-            snprintf_P(options, sizeof(options), SCRIPT_MSG_GOPT2);
+            snprintf_P(options, SCRIPT_GC_OPTIONS_SIZE, SCRIPT_MSG_GOPT2);
             break;
           default:
-            snprintf_P(options, sizeof(options), SCRIPT_MSG_GOPT1, header, stacked);
+            snprintf_P(options, SCRIPT_GC_OPTIONS_SIZE, SCRIPT_MSG_GOPT1, header, stacked);
             break;
         }
         // check for 2 axis option
@@ -12044,7 +12044,7 @@ exgc:
           char maxstr2[16];
           dtostrfd(max2, 3, maxstr2);
           //snprintf_P(options, sizeof(options), SCRIPT_MSG_GOPT3, header, (uint32_t)max1, (uint32_t)max2, func);
-          snprintf_P(options, sizeof(options), SCRIPT_MSG_GOPT3, header, stacked, maxstr1, maxstr2, func);
+          snprintf_P(options, SCRIPT_GC_OPTIONS_SIZE, SCRIPT_MSG_GOPT3, header, stacked, maxstr1, maxstr2, func);
         } else {
           SCRIPT_SKIP_SPACES
           if (gs_ctype != 'g') {
@@ -12060,7 +12060,7 @@ exgc:
               char maxstr2[16];
               dtostrfd(max2, 3, maxstr2);
               //nprintf_P(options, sizeof(options), SCRIPT_MSG_GOPT6, header, (uint32_t)max1, (uint32_t)max2, func);
-              snprintf_P(options, sizeof(options), SCRIPT_MSG_GOPT6, header, stacked, maxstr1, maxstr2, func);
+              snprintf_P(options, SCRIPT_GC_OPTIONS_SIZE, SCRIPT_MSG_GOPT6, header, stacked, maxstr1, maxstr2, func);
             }
           }
         }
@@ -12077,7 +12077,7 @@ exgc:
           SCRIPT_SKIP_SPACES
           TS_FLOAT redTo = maxValue;
           TS_FLOAT yellowTo = redFrom;
-          snprintf_P(options, sizeof(options), SCRIPT_MSG_GAUGEOPT, (uint32_t)maxValue, (uint32_t)redFrom, (uint32_t)redTo,
+          snprintf_P(options, SCRIPT_GC_OPTIONS_SIZE, SCRIPT_MSG_GAUGEOPT, (uint32_t)maxValue, (uint32_t)redFrom, (uint32_t)redTo,
             (uint32_t)yellowFrom, (uint32_t)yellowTo);
           }
         }
