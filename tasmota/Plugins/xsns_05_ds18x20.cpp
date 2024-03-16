@@ -579,13 +579,15 @@ SETREGS
 
   uint32_t index = sizeof(ds18x20_chipids);
   uint8_t ids[sizeof(ds18x20_chipids)];
-  memmove_P(ids, GU8(ds18x20_chipids), sizeof(ids));
+  memmove_P(ids, GSTR(ds18x20_chipids), sizeof(ids));
 
   while (--index) {
     if (ds18x20_sensor[sensor_index].address[0] == ids[index]) {
       break;
     }
   }
+
+
   // DS18B20
   GetTextIndexed(DS18X20Data.name, sizeof(DS18X20Data.name), index, GSTR(kDs18x20Types));
 
