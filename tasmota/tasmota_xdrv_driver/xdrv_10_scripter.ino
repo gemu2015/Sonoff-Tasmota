@@ -718,10 +718,15 @@ struct SCRIPT_MEM {
     uint16_t uplsize;
     uint8_t sc_state;
 
+    uint8_t tasm_cmd_activ = 0;
+
 } glob_script_mem;
 
 
-uint8_t tasm_cmd_activ = 0;
+void script_setaflg(uint8_t flg) {
+  glob_script_mem.tasm_cmd_activ = flg;
+}
+
 void flt2char(TS_FLOAT num, char *nbuff);
 
 void flt2char(TS_FLOAT num, char *nbuff) {
@@ -7326,7 +7331,7 @@ int16_t retval;
   if (!glob_script_mem.scriptptr) {
     return -99;
   }
-  if (tasm_cmd_activ && tlen >= 0) return 0;
+  if (glob_script_mem.tasm_cmd_activ && tlen >= 0) return 0;
 
   struct GVARS gv;
   gv.jo = 0;
@@ -7342,7 +7347,7 @@ int16_t retval;
       return -99;
     }
 
-    if (tasm_cmd_activ && tlen >= 0) return 0;
+    if (glob_script_mem.tasm_cmd_activ && tlen >= 0) return 0;
 
     struct GVARS gv;
 
@@ -7905,19 +7910,19 @@ getnext:
                     else toLog(&tmp[5]);
                   } else {
                     if (!sflag) {
-                      tasm_cmd_activ = 1;
+                      glob_script_mem.tasm_cmd_activ = 1;
                       AddLog(glob_script_mem.script_loglevel&0x7f, PSTR("SCR: performs \"%s\""), tmp);
                     } else if (sflag == 2) {
                       // allow recursive call
                     } else {
-                      tasm_cmd_activ = 1;
+                      glob_script_mem.tasm_cmd_activ = 1;
                       svmqtt = Settings->flag.mqtt_enabled;  // SetOption3 - Enable MQTT
                       swll = Settings->weblog_level;
                       Settings->flag.mqtt_enabled = 0;       // SetOption3 - Enable MQTT
                       Settings->weblog_level = 0;
                     }
                     ExecuteCommand((char*)tmp, SRC_RULE);
-                    tasm_cmd_activ = 0;
+                    glob_script_mem.tasm_cmd_activ = 0;
                     if (sflag == 1) {
                       Settings->flag.mqtt_enabled = svmqtt;  // SetOption3  - Enable MQTT
                       Settings->weblog_level = swll;
@@ -9734,7 +9739,7 @@ void Script_Handle_Hue(String path) {
 bool Script_SubCmd(void) {
   if (!bitRead(Settings->rule_enabled, 0)) return false;
 
-  if (tasm_cmd_activ) return false;
+  if (glob_script_mem.tasm_cmd_activ) return false;
   //AddLog(LOG_LEVEL_INFO,PSTR(">> %s, %s, %d, %d "),XdrvMailbox.topic, XdrvMailbox.data, XdrvMailbox.payload, XdrvMailbox.index);
 
   char command[CMDSZ];
@@ -9905,7 +9910,7 @@ bool ScriptCommand(void) {
   bool serviced = true;
   uint8_t index = XdrvMailbox.index;
 
-  if (tasm_cmd_activ) return false;
+  if (glob_script_mem.tasm_cmd_activ) return false;
 
   int command_code = GetCommandCode(command, sizeof(command), XdrvMailbox.topic, kScriptCommands);
   if (-1 == command_code) {
