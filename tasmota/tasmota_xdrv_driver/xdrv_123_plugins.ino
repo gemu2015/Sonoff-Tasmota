@@ -1636,6 +1636,7 @@ bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
     size *= SPI_FLASH_SEC_SIZE;
     plugins.module_input_buffer = (uint8_t *)calloc(size / 4 + 4, 4);
     if (!plugins.module_input_buffer) {
+      AddLog(LOG_LEVEL_INFO,PSTR("memory error"));
       return false;
     }
     plugins.module_input_ptr = plugins.module_input_buffer;

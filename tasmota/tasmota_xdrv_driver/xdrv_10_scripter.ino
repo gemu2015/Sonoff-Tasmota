@@ -1196,7 +1196,7 @@ char *script;
     }
 
     // variables usage info
-    AddLog(LOG_LEVEL_INFO, PSTR("SCR: nv=%d, tv=%d, vns=%d, vmem=%d, smem=%d"), nvars, svars, index, glob_script_mem.script_mem_size, glob_script_mem.script_size);
+    AddLog(LOG_LEVEL_INFO, PSTR("SCR: nv=%d, tv=%d, vns=%d, vmem=%d, smem=%d, gmem=%d"), nvars, svars, index, glob_script_mem.script_mem_size, glob_script_mem.script_size, sizeof(glob_script_mem));
 
     // copy string variables
     char *cp1 = glob_script_mem.glob_snp;

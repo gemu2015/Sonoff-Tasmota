@@ -618,7 +618,7 @@ int32_t SCD30_Detect() {
   ready = false;
 
   Scd30.data_valid = false;
-  initialized = 1;
+  initialized = false;
 
   if (I2cSetDevice(SCD30_ADDRESS)) {
 
