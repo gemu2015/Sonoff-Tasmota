@@ -540,7 +540,7 @@ typedef struct {
 
 #define SFS_MAX 4
 // global memory
-struct SCRIPT_MEM {
+typedef struct {
     TS_FLOAT *fvars; // number var pointer
     TS_FLOAT *s_fvars; // shadow var pointer
     struct T_INDEX *type; // type and index pointer
@@ -720,7 +720,9 @@ struct SCRIPT_MEM {
 
     uint8_t tasm_cmd_activ = 0;
 
-} glob_script_mem;
+} SCRIPT_MEM;
+
+SCRIPT_MEM glob_script_mem;
 
 
 void script_setaflg(uint8_t flg) {
@@ -1269,7 +1271,8 @@ char *script;
     }
 
     // variables usage info
-    AddLog(LOG_LEVEL_INFO, PSTR("SCR: nv=%d, tv=%d, vns=%d, vmem=%d, smem=%d, gmem=%d"), nvars, svars, index, glob_script_mem.script_mem_size, glob_script_mem.script_size, sizeof(glob_script_mem));
+    uint32_t tot_mem = sizeof(glob_script_mem) + glob_script_mem.script_mem_size + glob_script_mem.script_size + index;
+    AddLog(LOG_LEVEL_INFO, PSTR("SCR: nv=%d, tv=%d, vns=%d, vmem=%d, smem=%d, gmem=%d, tmem=%d "), nvars, svars, index, glob_script_mem.script_mem_size, glob_script_mem.script_size, sizeof(glob_script_mem), tot_mem);
 
     // copy string variables
     char *cp1 = glob_script_mem.glob_snp;
