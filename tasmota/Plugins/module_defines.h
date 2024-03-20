@@ -13,6 +13,10 @@ typedef struct {
 
 extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 
+#ifdef ESP8266
+#define portMUX_TYPE void
+#endif
+
 // vector table calls
 #define jWire                           ( TwoWire*)                                    jt[0]
 #define jWire1                          ( TwoWire*)                                    jt[1]
@@ -108,8 +112,11 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jtmod__fixunssfsi(A)            (( uint32_t (*)(float) )                       jt[83])(A)
 #define jtmod__umodsi3(A,B)             (( uint32_t (*)(uint32_t,uint32_t) )           jt[84])(A,B)
 #define jtwi_readFrom(A,B,C,D)(( unsigned char (*)(uint8_t,uint8_t*,unsigned int,uint8_t) ) jt[85])(A,B,C,D)
+#ifdef ESP8266
 #define jDecodeCommand(A,B,C)           (( bool (*)(const char*, void (* const x[])(void),MODULES_TABLE* )) jt[86])(A,B,C)
-//#define jDecodeCommand(A,B)           (( bool (*)(const char*, void (* const x[])(void)))   jt[86])(A,B)
+#else
+#define jDecodeCommand(A,B,C)           (( bool (*)(const char*, void (* const x[])(void),volatile MODULES_TABLE* )) jt[86])(A,B,C)
+#endif
 
 #define jResponseCmndDone               (( void (*)(void) )                            jt[87])
 #define jbwriteTS(TSER,VAL)             (( size_t (*)(void*,uint8_t) )                 jt[88])(TSER,VAL)
@@ -136,6 +143,13 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jpinMode(A,B)                   (( void (*)(uint8_t, uint8_t) )                jt[109])(A,B)
 #define jstrchr(A,B)                    (( char *(*)(char *, char) )                   jt[110])(A,B)
 #define jtrimm(A)                       (( char *(*)(char *) )                         jt[111])(A)
+#define jvTaskEnterCritical(A)          (( void (*)(portMUX_TYPE *) )                  jt[112])(A)
+#define jvTaskExitCritical(A)           (( void (*)(portMUX_TYPE *) )                  jt[113])(A)
+#define jdirectRead(A)                  (( uint32_t (*)(uint32_t) )                    jt[114])(A)
+#define jdirectWriteLow(A)              (( void (*)(uint32_t) )                        jt[115])(A)
+#define jdirectWriteHigh(A)             (( void (*)(uint32_t) )                        jt[116])(A)
+#define jdirectModeInput(A)             (( void (*)(uint32_t) )                        jt[117])(A)
+#define jdirectModeOutput(A)            (( void (*)(uint32_t) )                        jt[118])(A)
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -608,6 +622,13 @@ typedef struct {
 #define Settings jsettings
 #define strchr jstrchr
 #define trimm jtrimm
+#define vTaskEnterCritical jvTaskEnterCritical
+#define vTaskExitCritical jvTaskExitCritical
+#define directRead jdirectRead
+#define directWriteLow jdirectWriteLow
+#define directWriteHigh jdirectWriteHigh
+#define directModeInput jdirectModeInput
+#define directModeOutput jdirectModeOutput
 
 
 #define FLCONST(A,B) jfl_const(A,B)

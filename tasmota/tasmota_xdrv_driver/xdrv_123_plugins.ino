@@ -121,6 +121,13 @@ int tmod_ResponseAppend_P(const char* format, va_list va);
 void tmod_WSContentSend_PD(const char* format, va_list va);
 float fl_const(int32_t m, int32_t d);
 char *tm_trim(char *s);
+void tmod_vTaskEnterCritical( void * );
+void tmod_vTaskExitCritical( void * );
+uint32_t directRead(uint32_t pin);
+void directWriteLow(uint32_t pin);
+void directWriteHigh(uint32_t pin);
+void directModeInput(uint32_t pin);
+void directModeOutput(uint32_t pin);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -261,9 +268,151 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&digitalWrite,
   JMPTBL&pinMode,
   JMPTBL&strchr,
-  JMPTBL&tm_trim
-
+  JMPTBL&tm_trim,
+  JMPTBL&tmod_vTaskEnterCritical,
+  JMPTBL&tmod_vTaskExitCritical,
+  JMPTBL&directRead,
+  JMPTBL&directWriteLow,
+  JMPTBL&directWriteHigh,
+  JMPTBL&directModeInput,
+  JMPTBL&directModeOutput
 };
+
+void tmod_vTaskEnterCritical( void *mux ) {
+#ifdef ESP32
+  *(portMUX_TYPE*)mux = portMUX_INITIALIZER_UNLOCKED;
+  portENTER_CRITICAL((portMUX_TYPE*)mux);
+#endif
+}
+
+void tmod_vTaskExitCritical( void *mux ) {
+#ifdef ESP32
+  portEXIT_CRITICAL((portMUX_TYPE*)mux);
+#endif
+}
+
+
+#ifdef ESP32
+#include <driver/rtc_io.h>
+#endif
+
+/* esp8266
+#define DIRECT_READ(base, mask)         ((GPI & (mask)) ? 1 : 0)    //GPIO_IN_ADDRESS
+#define DIRECT_MODE_INPUT(base, mask)   (GPE &= ~(mask))            //GPIO_ENABLE_W1TC_ADDRESS
+#define DIRECT_MODE_OUTPUT(base, mask)  (GPE |= (mask))             //GPIO_ENABLE_W1TS_ADDRESS
+#define DIRECT_WRITE_LOW(base, mask)    (GPOC = (mask))             //GPIO_OUT_W1TC_ADDRESS
+#define DIRECT_WRITE_HIGH(base, mask)   (GPOS = (mask))             //GPIO_OUT_W1TS_ADDRESS
+*/
+
+uint32_t IRAM_ATTR directRead(uint32_t pin) {
+#ifdef ESP32
+    //return digitalRead(pin);               // Works most of the time
+//    return gpio_ll_get_level(&GPIO, pin);  // The hal is not public api, don't use in application code
+//#if CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6
+#if SOC_GPIO_PIN_COUNT <= 32
+    return (GPIO.in.val >> pin) & 0x1;
+#else  // ESP32 with over 32 gpios
+    if ( pin < 32 )
+        return (GPIO.in >> pin) & 0x1;
+    else
+        return (GPIO.in1.val >> (pin - 32)) & 0x1;
+#endif
+#endif
+#ifdef ESP8266
+  return digitalRead(pin);
+#endif
+    return 0;
+}
+
+
+void IRAM_ATTR directWriteLow(uint32_t pin) {
+    //digitalWrite(pin, 0);                  // Works most of the time
+    //return;
+//    gpio_ll_set_level(&GPIO, pin, 0);      // The hal is not public api, don't use in application code
+#ifdef ESP32
+//#if CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6
+#if SOC_GPIO_PIN_COUNT <= 32
+    GPIO.out_w1tc.val = ((uint32_t)1 << pin);
+#else  // ESP32 with over 32 gpios
+    if ( pin < 32 )
+        GPIO.out_w1tc = ((uint32_t)1 << pin);
+    else
+        GPIO.out1_w1tc.val = ((uint32_t)1 << (pin - 32));
+#endif
+#endif
+#ifdef ESP8266
+  digitalWrite(pin, LOW);
+#endif
+}
+
+void IRAM_ATTR directWriteHigh(uint32_t pin) {
+    //digitalWrite(pin, 1);                  // Works most of the time
+    //return;
+//    gpio_ll_set_level(&GPIO, pin, 1);      // The hal is not public api, don't use in application code
+
+#ifdef ESP32
+//#if CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6
+#if SOC_GPIO_PIN_COUNT <= 32
+    GPIO.out_w1ts.val = ((uint32_t)1 << pin);
+#else  // ESP32 with over 32 gpios
+    if ( pin < 32 )
+        GPIO.out_w1ts = ((uint32_t)1 << pin);
+    else
+        GPIO.out1_w1ts.val = ((uint32_t)1 << (pin - 32));
+#endif
+#endif
+#ifdef ESP8266
+  digitalWrite(pin, HIGH);
+#endif
+}
+
+void IRAM_ATTR directModeInput(uint32_t pin) {
+   // pinMode(pin, INPUT);                   // Too slow - doesn't work
+   // return;
+//    gpio_ll_output_disable(&GPIO, pin);    // The hal is not public api, don't use in application code
+
+#ifdef ESP32
+    if ( digitalPinIsValid(pin) ) {
+        // Input
+//#if CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6
+#if SOC_GPIO_PIN_COUNT <= 32
+        GPIO.enable_w1tc.val = ((uint32_t)1 << (pin));
+#else  // ESP32 with over 32 gpios
+        if ( pin < 32 )
+            GPIO.enable_w1tc = ((uint32_t)1 << pin);
+        else
+            GPIO.enable1_w1tc.val = ((uint32_t)1 << (pin - 32));
+#endif
+    }
+#endif   
+#ifdef ESP8266
+  pinMode(pin, INPUT);
+#endif
+}
+
+
+void IRAM_ATTR directModeOutput(uint32_t pin) {
+   // pinMode(pin, OUTPUT);                 // Too slow - doesn't work
+  //return;
+//    gpio_ll_output_enable(&GPIO, pin);    // The hal is not public api, don't use in application code
+#ifdef ESP32
+    if ( digitalPinCanOutput(pin) ) {
+        // Output
+//#if CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6
+#if SOC_GPIO_PIN_COUNT <= 32
+        GPIO.enable_w1ts.val = ((uint32_t)1 << (pin));
+#else  // ESP32 with over 32 gpios
+        if ( pin < 32 )
+            GPIO.enable_w1ts = ((uint32_t)1 << pin);
+        else
+            GPIO.enable1_w1ts.val = ((uint32_t)1 << (pin - 32));
+#endif
+    }
+#endif
+#ifdef ESP8266
+  pinMode(pin, OUTPUT);
+#endif
+}
 
 
 char *tm_trim(char *s) {

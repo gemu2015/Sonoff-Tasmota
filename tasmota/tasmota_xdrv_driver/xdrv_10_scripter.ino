@@ -689,8 +689,6 @@ typedef struct {
     bool script_download_busy;
 #endif
 
-
-
 #if defined(ESP32) && defined(ESP32_FAST_MUX)
 #define MUX_SIZE 128
     struct FAST_PIN_MUX {
@@ -712,7 +710,6 @@ typedef struct {
       char *tstart;
     } esp32_tasks[2];
 #endif
-
 
     uint8_t *script_ex_ptr;
     uint16_t uplsize;
@@ -12133,9 +12130,11 @@ exgc:
         WSContentSend_P(SCRIPT_MSG_GTABLEb, options);
         WSContentSend_P(SCRIPT_MSG_GTABLEbx, gc_str, glob_script_mem.chartindex);
         glob_script_mem.chartindex++;
+        if (options) free(options);
       } else {
         WSContentSend_P(PSTR("%s"), lin);
       }
+      
 #else
 
       if (mc != 'z') {
@@ -12148,7 +12147,9 @@ exgc:
           //  WSContentSend_P(PSTR("%s"),lin);
 #endif //USE_GOOGLE_CHARTS
     }
+    
   }
+  
   WS_LINE_RETURN
 }
 

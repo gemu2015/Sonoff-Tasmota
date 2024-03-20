@@ -23,6 +23,7 @@
 #include "module_defines.h"
 #include "../Tasmota/include/i18n.h"
 
+
 /*********************************************************************************************\
  * DS18B20 - Temperature - Multiple sensors
 \*********************************************************************************************/
@@ -93,6 +94,27 @@ typedef struct {
   bool dual_mode;  // Single pin mode
 } DSX;
 
+#ifdef ESP32
+//#define t_noInterrupts() {portMUX_TYPE mux; vTaskEnterCritical(&mux)
+//#define t_interrupts() vTaskExitCritical(&mux);}
+#define t_noInterrupts noInterrupts
+#define t_interrupts interrupts
+
+#define DIRECT_WRITE_LOW(A) directWriteLow(A)
+#define DIRECT_WRITE_HIGH(A) directWriteHigh(A)
+#define DIRECT_MODE_OUTPUT(A) directModeOutput(A)
+#define DIRECT_MODE_INPUT(A,B) directModeInput(A)
+#define DIRECT_READ(A) directRead(A)
+#else
+#define t_noInterrupts noInterrupts
+#define t_interrupts interrupts
+#define DIRECT_WRITE_LOW(A) digitalWrite(A, LOW)
+#define DIRECT_WRITE_HIGH(A) digitalWrite(A, HIGH)
+#define DIRECT_MODE_OUTPUT(A) pinMode(A, OUTPUT)
+#define DIRECT_MODE_INPUT(A,B) pinMode(A, B)
+#define DIRECT_READ(A) digitalRead(A)
+#endif
+
 /*********************************************************************************************\
  * Embedded tuned OneWire library
 \*********************************************************************************************/
@@ -129,7 +151,7 @@ DSS ds18x20_sensor[DS18X20_MAX_SENSORS];
 
 /********************************************************************************************/
 PUSH_OPTIONS
-MODULE_DESCRIPTOR("DS18X20",MODULE_TYPE_SENSOR,1<<16|2,"DAT",13,"DM",0x01ff10ff,"",0,"",0)
+MODULE_DESCRIPTOR("DS18X20",MODULE_TYPE_SENSOR,1<<16|2,"DAT",16,"DM",0x01ff10ff,"",0,"",0)
 MODULE_PART uint8_t OneWireReset(void);
 MODULE_PART void OneWireWriteBit(uint8_t v);
 MODULE_PART uint8_t OneWire1ReadBit(void);
@@ -152,39 +174,44 @@ MODULE_END
 /********************************************************************************************/
 uint8_t OneWireReset(void) {
 SETREGS
+uint8_t r;
 
   uint8_t retries = 125;
 
   if (!DS18X20Data.dual_mode) {
-    pinMode(DS18X20Data.pin, DS18X20Data.input_mode);
+    t_noInterrupts();
+    DIRECT_MODE_INPUT(DS18X20Data.pin, DS18X20Data.input_mode);
     do {
       if (--retries == 0) {
         return 0;
       }
       delayMicroseconds(2);
-    } while (!digitalRead(DS18X20Data.pin));
-    pinMode(DS18X20Data.pin, OUTPUT);
-    digitalWrite(DS18X20Data.pin, LOW);
+    } while (!DIRECT_READ(DS18X20Data.pin));
+    DIRECT_MODE_OUTPUT(DS18X20Data.pin);
+    DIRECT_WRITE_LOW(DS18X20Data.pin);
     delayMicroseconds(480);
-    pinMode(DS18X20Data.pin, DS18X20Data.input_mode);
+    DIRECT_MODE_INPUT(DS18X20Data.pin, DS18X20Data.input_mode);
     delayMicroseconds(70);
-    uint8_t r = !digitalRead(DS18X20Data.pin);
+    r = !DIRECT_READ(DS18X20Data.pin);
     delayMicroseconds(410);
+    t_interrupts();
     return r;
   } else {
-    digitalWrite(DS18X20Data.pin_out, HIGH);
+    t_noInterrupts();
+    DIRECT_WRITE_HIGH(DS18X20Data.pin_out);
     do {
       if (--retries == 0) {
         return 0;
       }
       delayMicroseconds(2);
-    } while (!digitalRead(DS18X20Data.pin));
-    digitalWrite(DS18X20Data.pin_out, LOW);
+    } while (!DIRECT_READ(DS18X20Data.pin));
+    DIRECT_WRITE_LOW(DS18X20Data.pin_out);
     delayMicroseconds(480);
-    digitalWrite(DS18X20Data.pin_out, HIGH);
+    DIRECT_WRITE_HIGH(DS18X20Data.pin_out);
     delayMicroseconds(70);
-    uint8_t r = !digitalRead(DS18X20Data.pin);
+    r = !DIRECT_READ(DS18X20Data.pin);
     delayMicroseconds(410);
+    t_interrupts();
     return r;
   }
 }
@@ -192,42 +219,48 @@ SETREGS
 void OneWireWriteBit(uint8_t v) {
 SETREGS
 
+  t_noInterrupts();
   v &= 1;
   if (!DS18X20Data.dual_mode) {
-    digitalWrite(DS18X20Data.pin, LOW);
-    pinMode(DS18X20Data.pin, OUTPUT);
+    DIRECT_WRITE_LOW(DS18X20Data.pin);
+    DIRECT_MODE_OUTPUT(DS18X20Data.pin);
     delayMicroseconds(delay_low[v]);
-    digitalWrite(DS18X20Data.pin, HIGH);
+    DIRECT_WRITE_HIGH(DS18X20Data.pin);
   } else {
-    digitalWrite(DS18X20Data.pin_out, LOW);
+    DIRECT_WRITE_LOW(DS18X20Data.pin_out);
     delayMicroseconds(delay_low[v]);
-    digitalWrite(DS18X20Data.pin_out, HIGH);
+    DIRECT_WRITE_HIGH(DS18X20Data.pin_out);
   }
   delayMicroseconds(delay_high[v]);
+  t_interrupts();
 }
 
 uint8_t OneWire1ReadBit(void) {
 SETREGS
-
-  pinMode(DS18X20Data.pin, OUTPUT);
-  digitalWrite(DS18X20Data.pin, LOW);
+uint8_t r;
+  t_noInterrupts();
+  DIRECT_MODE_OUTPUT(DS18X20Data.pin);
+  DIRECT_WRITE_LOW(DS18X20Data.pin);
   delayMicroseconds(3);
-  pinMode(DS18X20Data.pin, DS18X20Data.input_mode);
+  DIRECT_MODE_INPUT(DS18X20Data.pin, DS18X20Data.input_mode);
   delayMicroseconds(10);
-  uint8_t r = digitalRead(DS18X20Data.pin);
+  r = DIRECT_READ(DS18X20Data.pin);
   delayMicroseconds(53);
+  t_interrupts();
   return r;
 }
 
 uint8_t OneWire2ReadBit(void) {
 SETREGS
-
-  digitalWrite(DS18X20Data.pin_out, LOW);
+  uint8_t r;
+  t_noInterrupts();
+  DIRECT_WRITE_LOW(DS18X20Data.pin_out);
   delayMicroseconds(3);
-  digitalWrite(DS18X20Data.pin_out, HIGH);
+  DIRECT_WRITE_HIGH(DS18X20Data.pin_out);
   delayMicroseconds(10);
-  uint8_t r = digitalRead(DS18X20Data.pin);
+  r = DIRECT_READ(DS18X20Data.pin);
   delayMicroseconds(53);
+  t_interrupts();
   return r;
 }
 
@@ -236,9 +269,11 @@ SETREGS
 void OneWireWrite(uint8_t v) {
 SETREGS
 
+  t_noInterrupts();
   for (uint8_t bit_mask = 0x01; bit_mask; bit_mask <<= 1) {
     OneWireWriteBit((bit_mask & v) ? 1 : 0);
   }
+  t_interrupts();
 }
 
 uint8_t OneWireRead(void) {
@@ -247,11 +282,13 @@ SETREGS
   uint8_t r = 0;
 
   if (!DS18X20Data.dual_mode) {
+    t_noInterrupts();
     for (uint8_t bit_mask = 0x01; bit_mask; bit_mask <<= 1) {
       if (OneWire1ReadBit()) {
         r |= bit_mask;
       }
     }
+    t_interrupts();
   } else {
     for (uint8_t bit_mask = 0x01; bit_mask; bit_mask <<= 1) {
       if (OneWire2ReadBit()) {
@@ -381,6 +418,7 @@ ALLOCMEM
   delay_high[0] = 5;
   delay_high[1] = 55;
 
+
   /*
   for (uint32_t pins = 0; pins < MAX_DSB; pins++) {
 
@@ -418,8 +456,8 @@ ALLOCMEM
     DS18X20Data.dual_mode = ds18x20_gpios[pins].dual_mode;
     if (ds18x20_gpios[pins].dual_mode) {
       DS18X20Data.pin_out = ds18x20_gpios[pins].pin_out;
-      pinMode(DS18X20Data.pin_out, OUTPUT);
-      pinMode(DS18X20Data.pin, DS18X20Data.input_mode);
+      DIRECT_MODE_OUTPUT(DS18X20Data.pin_out);
+      DIRECT_MODE_INPUT(DS18X20Data.pin, DS18X20Data.input_mode);
     }
 
     onewire_last_discrepancy = 0;
@@ -463,6 +501,7 @@ ALLOCMEM
   AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_DSB D_SENSORS_FOUND " %d"), DS18X20Data.sensors);
 
   if (!DS18X20Data.sensors) {
+    DS18X20_Deinit();
     return false;
   } else {
     initialized = true;
