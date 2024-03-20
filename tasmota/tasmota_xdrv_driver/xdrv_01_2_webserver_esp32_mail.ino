@@ -399,7 +399,7 @@ void smtpCallback(SMTP_Status status) {
     AddLog(LOG_LEVEL_INFO, PSTR("Message sent success: %d"),status.completedCount());
 
     //Serial.printf("Message sent failled: %d\n", status.failedCount());
-    AddLog(LOG_LEVEL_INFO, PSTR("Message sent failled: %d"),status.failedCount());
+    AddLog(LOG_LEVEL_INFO, PSTR("Message sent failed: %d"),status.failedCount());
 
     //Serial.println("----------------\n");
     struct tm dt;
@@ -418,9 +418,9 @@ void smtpCallback(SMTP_Status status) {
       //Serial.printf("Date/Time: %d/%d/%d %d:%d:%d\n", dt.tm_year + 1900, dt.tm_mon + 1, dt.tm_mday, dt.tm_hour, dt.tm_min, dt.tm_sec);
       AddLog(LOG_LEVEL_INFO, PSTR("Date/Time: %d/%d/%d %d:%d:%d"), dt.tm_year + 1900, dt.tm_mon + 1, dt.tm_mday, dt.tm_hour, dt.tm_min, dt.tm_sec);
       //Serial.printf("Recipient: %s\n", result.recipients);
-      AddLog(LOG_LEVEL_INFO, PSTR("Recipient: %s"),result.recipients);
+      AddLog(LOG_LEVEL_INFO, PSTR("Recipient: %s"),result.recipients.c_str());
       //Serial.printf("Subject: %s\n", result.subject);
-      AddLog(LOG_LEVEL_INFO, PSTR("Subject: %s"),result.subject);
+      AddLog(LOG_LEVEL_INFO, PSTR("Subject: %s"),result.subject.c_str());
     }
     //Serial.println("----------------\n");
   }
