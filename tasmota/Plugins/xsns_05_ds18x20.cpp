@@ -717,7 +717,6 @@ SETREGS
           }
         }
         char address[17];
-        address[0] = 0;
         for (uint32_t j = 0; j < 6; j++) {
           sprintf_P(address + 2 * j, PSTR("%02X"), ds18x20_sensor[index].address[6 - j]);  // Skip sensor type and crc
         }
@@ -813,10 +812,10 @@ int32_t mod_func_execute(uint32_t function) {
         result = Ds18x20Init();
         break;
       case FUNC_EVERY_SECOND:
-        //Ds18x20EverySecond();
+        Ds18x20EverySecond();
         break;
       case FUNC_JSON_APPEND:
-        //Ds18x20Show(1);
+        Ds18x20Show(1);
         break;
 #ifdef USE_WEBSERVER
       case FUNC_WEB_SENSOR:
