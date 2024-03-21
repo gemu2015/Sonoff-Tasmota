@@ -117,6 +117,7 @@ char *copyStr(const char * str);
 void tmod_setClockStretchLimit(TwoWire *wp, uint32_t val);
 void tmod_writen(TwoWire *wp, uint8_t *buf, uint32_t len);
 int tmod_snprintf_P(char *s, size_t n,  const char *format, va_list va);
+int tmod_sprintf_P(char *s, const char *format, va_list va);
 int tmod_ResponseAppend_P(const char* format, va_list va);
 void tmod_WSContentSend_PD(const char* format, va_list va);
 float fl_const(int32_t m, int32_t d);
@@ -231,7 +232,11 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&ClaimSerial,
   JMPTBL&hardwareSerialTS,
   JMPTBL&millis,
+#if defined(ESP8266) || defined(__riscv)
   JMPTBL&sprintf_P,
+#else
+  JMPTBL&tmod_sprintf_P,
+#endif
   JMPTBL&AddlogT,
   JMPTBL&tmod__divsi3,
   JMPTBL&tmod__udivsi3,
@@ -306,7 +311,7 @@ void tmod_vTaskExitCritical( void *mux ) {
 
 uint32_t IRAM_ATTR directRead(uint32_t pin) {
 #ifdef ESP32
-    //return digitalRead(pin);               // Works most of the time
+//    return digitalRead(pin);               // Works most of the time
 //    return gpio_ll_get_level(&GPIO, pin);  // The hal is not public api, don't use in application code
 //#if CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6
 #if SOC_GPIO_PIN_COUNT <= 32
@@ -321,7 +326,7 @@ uint32_t IRAM_ATTR directRead(uint32_t pin) {
 #ifdef ESP8266
   return digitalRead(pin);
 #endif
-    return 0;
+
 }
 
 
@@ -496,6 +501,16 @@ int res = 0;
 #ifdef ESP32
   char *fcopy = copyStr(format);
   res = snprintf_P(s, n, fcopy, va);
+  free(fcopy);
+#endif
+  return res;
+}
+
+int tmod_sprintf_P(char *s, const char *format, va_list va) {
+int res = 0;
+#ifdef ESP32
+  char *fcopy = copyStr(format);
+  res = sprintf_P(s, fcopy, va);
   free(fcopy);
 #endif
   return res;
