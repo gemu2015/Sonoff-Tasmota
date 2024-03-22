@@ -129,6 +129,7 @@ void directWriteLow(uint32_t pin);
 void directWriteHigh(uint32_t pin);
 void directModeInput(uint32_t pin);
 void directModeOutput(uint32_t pin);
+char * tmod_GetTextIndexed(char* destination, size_t destination_size, uint32_t index, const char* haystack);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -194,7 +195,11 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&ConvertHumidity,
   JMPTBL&TempHumDewShow,
   JMPTBL&strlcpy,
+#if defined(ESP8266) || defined(__riscv)
   JMPTBL&GetTextIndexed,
+#else
+  JMPTBL&tmod_GetTextIndexed,
+#endif
   JMPTBL&GetTasmotaGlobal,
   JMPTBL&tmod_iseq,
   JMPTBL&tmod_fdiv,
@@ -254,7 +259,11 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&memcmp_P,
   JMPTBL&ToHex_P,
   JMPTBL&memset,
+#if defined(ESP8266) || defined(__riscv)
   JMPTBL&memmove_P,
+#else
+  JMPTBL&tmod_memmove_P,
+#endif
   JMPTBL&ResponseCmndNumber,
   JMPTBL&ResponseCmndFloat,
   JMPTBL&ResponseAppendTHD,
@@ -446,21 +455,33 @@ float fl_const(int32_t m, int32_t d) {
 // modified decode command, no synonyms
 bool MT_DecodeCommand(const char* haystack, void (* const MyCommand[])(void), MODULES_TABLE *mt) {
 
-  haystack+=mt->execution_offset;
+  haystack += mt->execution_offset;
+
+#ifdef ESP32
+  char *cph = copyStr(haystack);
+  if (!cph) {
+    return false;
+  }
+#else
+  const char *cph = haystack;
+#endif
 
   const uint8_t *synonyms = nullptr;
-  GetTextIndexed(XdrvMailbox.command, CMDSZ, 0, haystack);  // Get prefix if available
+  GetTextIndexed(XdrvMailbox.command, CMDSZ, 0, cph);  // Get prefix if available
 
   int prefix_length = strlen(XdrvMailbox.command);
   if (prefix_length) {
     char prefix[prefix_length +1];
     snprintf_P(prefix, sizeof(prefix), XdrvMailbox.topic);  // Copy prefix part only
     if (strcasecmp(prefix, XdrvMailbox.command)) {
+#ifdef ESP32
+      free(cph);
+#endif
       return false;                                         // Prefix not in command
     }
   }
   size_t syn_count = synonyms ? pgm_read_byte(synonyms) : 0;
-  int command_code = GetCommandCode(XdrvMailbox.command + prefix_length, CMDSZ, XdrvMailbox.topic + prefix_length, haystack);
+  int command_code = GetCommandCode(XdrvMailbox.command + prefix_length, CMDSZ, XdrvMailbox.topic + prefix_length, cph);
   if (command_code > 0) {                                   // Skip prefix
     if (command_code > syn_count) {
       // We passed the synonyms zone, it's a regular command
@@ -478,9 +499,32 @@ bool MT_DecodeCommand(const char* haystack, void (* const MyCommand[])(void), MO
       XdrvMailbox.index = pgm_read_byte(synonyms + command_code);
       CmndSetoptionBase(0);
     }
+#ifdef ESP32
+    free(cph);
+#endif
     return true;
   }
+#ifdef ESP32
+  free(cph);
+#endif
   return false;
+}
+
+
+void tmod_memmove_P(void *dst, const void *src, size_t size) {
+  uint32_t buff[size/4 + 1];
+  uint32_t *lp = (uint32_t*) src;
+  for (uint32_t cnt = 0; cnt < size / 4 + 1; cnt++) {
+    buff[cnt] = *lp++;
+  }
+  memmove(dst, buff, size);
+}
+
+char * tmod_GetTextIndexed(char* destination, size_t destination_size, uint32_t index, const char* haystack) {
+  char *sx = copyStr(haystack);
+  char *retval = GetTextIndexed(destination, destination_size, index, sx);
+  free(sx);
+  return retval;
 }
 
 int tmod_strncasecmp_P(const char *s1, const char *s2, size_t len) {

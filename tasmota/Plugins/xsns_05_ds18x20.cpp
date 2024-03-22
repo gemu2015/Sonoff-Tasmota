@@ -95,11 +95,8 @@ typedef struct {
 } DSX;
 
 #ifdef ESP32
-//#define t_noInterrupts() {portMUX_TYPE mux; vTaskEnterCritical(&mux)
-//#define t_interrupts() vTaskExitCritical(&mux);}
-#define t_noInterrupts noInterrupts
-#define t_interrupts interrupts
-
+#define t_noInterrupts() {portMUX_TYPE mux; vTaskEnterCritical(&mux)
+#define t_interrupts() vTaskExitCritical(&mux);}
 #define DIRECT_WRITE_LOW(A) directWriteLow(A)
 #define DIRECT_WRITE_HIGH(A) directWriteHigh(A)
 #define DIRECT_MODE_OUTPUT(A) directModeOutput(A)
@@ -433,6 +430,8 @@ ALLOCMEM
     }
   }*/
 
+
+
   ds18x20_gpios[0].pin = mp->ms[0].value & 0xff;
   int8_t sel = (mp->ms[1].value & 0xff);
   if (sel < 0) {
@@ -443,8 +442,8 @@ ALLOCMEM
   }
   DS18X20Data.gpios = 1;
 
-  //player_type = mp->ms[1].value;
-  //player_type &= 3;
+  // this needed by esp32 !!!! ???
+  pinMode(ds18x20_gpios[0].pin, OUTPUT);
 
   uint64_t ids[DS18X20_MAX_SENSORS];
   DS18X20Data.sensors = 0;
@@ -498,7 +497,7 @@ ALLOCMEM
     }
   }
 
-  AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_DSB D_SENSORS_FOUND " %d"), DS18X20Data.sensors);
+  AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_DSB D_SENSORS_FOUND " %d"), DS18X20Data.sensors);
 
   if (!DS18X20Data.sensors) {
     DS18X20_Deinit();
@@ -617,16 +616,14 @@ SETREGS
   uint32_t sensor_index = ds18x20_sensor[sensor].index;
 
   uint32_t index = sizeof(ds18x20_chipids);
-  uint8_t ids[sizeof(ds18x20_chipids)];
+  uint8_t ids[index];
   memmove_P(ids, GSTR(ds18x20_chipids), sizeof(ids));
-
+  
   while (--index) {
     if (ds18x20_sensor[sensor_index].address[0] == ids[index]) {
       break;
     }
   }
-
-
   // DS18B20
   GetTextIndexed(DS18X20Data.name, sizeof(DS18X20Data.name), index, GSTR(kDs18x20Types));
 
@@ -673,6 +670,10 @@ SETREGS
     return;
   }
 #endif
+
+  //ds18x20_sensor[0].valid = 1;
+  //return;
+
   if (GetTasmotaGlobal(4) & 1
 #ifdef W1_PARASITE_POWER
       // if more than 1 sensor and only parasite power: convert every cycle
@@ -717,10 +718,15 @@ SETREGS
           }
         }
         char address[17];
+        address[0] = 0;
         for (uint32_t j = 0; j < 6; j++) {
           sprintf_P(address + 2 * j, PSTR("%02X"), ds18x20_sensor[index].address[6 - j]);  // Skip sensor type and crc
         }
-        ResponseAppend_P(PSTR(",\"%s\":{\"" D_JSON_ID "\":\"%s\",\"" D_JSON_TEMPERATURE "\":%*_f}"), DS18X20Data.name, address, Settings->flag2.temperature_resolution, &ds18x20_sensor[index].temperature);
+        char tstr[10];
+        ftostrfd(ds18x20_sensor[index].temperature, Settings->flag2.temperature_resolution, tstr);
+        //this only works on esp8266:  ResponseAppend_P(PSTR(",\"%s\":{\"" D_JSON_ID "\":\"%s\",\"" D_JSON_TEMPERATURE "\":%*_f}"), DS18X20Data.name, address, Settings->flag2.temperature_resolution, &ds18x20_sensor[index].temperature);
+        ResponseAppend_P(PSTR(",\"%s\":{\"" D_JSON_ID "\":\"%s\",\"" D_JSON_TEMPERATURE "\":%s}"), DS18X20Data.name, address, tstr);
+
  //= {"Time":"2024-03-15T16:36:15","DS18B20_1":{"Id":"1ABEE9086461","Temperature":16.6},"DS18B20_2":{"Id":"C178441F64FF","Temperature":35.4},"EBUS":{"Collector":55.5,"Solarstorage":50.4,"Solarpump":0},"TempUnit":"C"}
 
 
