@@ -289,7 +289,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&directWriteLow,
   JMPTBL&directWriteHigh,
   JMPTBL&directModeInput,
-  JMPTBL&directModeOutput
+  JMPTBL&directModeOutput,
+  JMPTBL&CalcTempHumToAbsHum
 };
 
 void tmod_vTaskEnterCritical( void *mux ) {

@@ -46,7 +46,6 @@ MODULE_PART int32_t Sht3x_Detect();
 MODULE_PART void SHT3X_Show(bool json);
 MODULE_PART void SHT3X_Deinit();
 MODULE_PART bool Sht3xRead(float &t, float &h, uint8_t sht3x_address);
-MODULE_PART float Calc_AbsoluteHumidity(float temperature, float humidity);
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
 MODULE_END
 
@@ -140,36 +139,6 @@ int32_t Sht3x_Detect() {
   return sht3x_count;
 }
 
-float Calc_AbsoluteHumidity(float temperature, float humidity) {
-  SETREGS
-  //taken from https://carnotcycle.wordpress.com/2012/08/04/how-to-convert-relative-humidity-to-absolute-humidity/
-  //precision is about 0.1°C in range -30 to 35°C
-  //August-Roche-Magnus 	6.1094 exp(17.625 x T)/(T + 243.04)
-  //Buck (1981) 		6.1121 exp(17.502 x T)/(T + 240.97)
-  //reference https://www.eas.ualberta.ca/jdwilson/EAS372_13/Vomel_CIRES_satvpformulae.html
-  float temp = NAN;
-  const float mw = 18.01534f; 	// molar mass of water g/mol
-  const float r = 8.31447215f; 	// Universal gas constant J/mol/K
-
-  if (isnan(temperature) || isnan(humidity) ) {
-    return NAN;
-  }
-
-  //temp = FastPrecisePowf(2.718281828f, (17.67f * temperature) / (temperature + 243.5f));
-  float p1 = tmod__mulsf3(17.67f , temperature);
-  float p2 = tmod__addsf3(temperature , 243.5f);
-  temp = FastPrecisePowf(2.718281828f, tmod__divsf3(p1, p2));
-
-  //return (6.112f * temp * humidity * 2.1674) / (273.15 + temperature); 	//simplified version
-  //return (6.112f * temp * humidity * mw) / ((273.15f + temperature) * r); 	//long version
-  p1 = (tmod__mulsf3(6.112f , tmod__mulsf3(temp ,tmod__mulsf3(humidity , mw))));
-
-  p2 = tmod__mulsf3(tmod__addsf3(273.15f , temperature), r);
-  
-  return  tmod__divsf3(p1, p2);
-}
-
-
 void SHT3X_Show(bool json) {
   SETREGS
   for (uint32_t i = 0; i < sht3x_count; i++) {
@@ -184,7 +153,7 @@ void SHT3X_Show(bool json) {
       }
       TempHumDewShow(json, ((0 == GetTasmotaGlobal(1)) && (0 == i)), types, t, h);
 
-      float abshum =  Calc_AbsoluteHumidity(t, h);
+      float abshum =  CalcTempHumToAbsHum(t, h);
       char abs_hum[32];
       ftostrfd(abshum, 4, abs_hum);
       if (!json) {

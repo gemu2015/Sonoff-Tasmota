@@ -135,7 +135,6 @@ MODULE_PART void BME_Show(uint32_t json);
 MODULE_PART void BME_Deinit();
 MODULE_PART void BME_Every_Second();
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
-MODULE_PART float Calc_AbsoluteHumidity(float temperature, float humidity);
 MODULE_PART humidity_t compensateHumidity(int32_t adc_H);
 MODULE_PART temperature_t compensateTemperature(int32_t adc_T);
 MODULE_PART pressure_t compensatePressure(int32_t adc_P);
@@ -366,38 +365,6 @@ humidity_t    compensateHumidity(int32_t adc_H) {
   return (uint32_t)(v_x1_u32r>>12);
 }
 
-float    Calc_AbsoluteHumidity(float temperature, float humidity) {
-  SETREGS
-  //taken from https://carnotcycle.wordpress.com/2012/08/04/how-to-convert-relative-humidity-to-absolute-humidity/
-  //precision is about 0.1°C in range -30 to 35°C
-  //August-Roche-Magnus 	6.1094 exp(17.625 x T)/(T + 243.04)
-  //Buck (1981) 		6.1121 exp(17.502 x T)/(T + 240.97)
-  //reference https://www.eas.ualberta.ca/jdwilson/EAS372_13/Vomel_CIRES_satvpformulae.html
-  float ctmp = NAN;
-  const float mw = 18.01534f; 	// molar mass of water g/mol
-  const float r = 8.31447215f; 	// Universal gas constant J/mol/K
-
-  if (isnan(temperature) || isnan(humidity) ) {
-    return NAN;
-  }
-
-  //ctmp = FastPrecisePowf(2.718281828f, (17.67f * temperature) / (temperature + 243.5f));
-  float p1 = tmod__mulsf3(17.67f , temperature);
-  float p2 = tmod__addsf3(temperature , 243.5f);
-
-  ctmp = FastPrecisePowf(2.718281828f, tmod__divsf3(p1, p2));
-
-  //return (6.112f * ctmp * humidity * 2.1674) / (273.15 + temperature); 	//simplified version
-  //return (6.112f * ctmp * humidity * mw) / ((273.15f + temperature) * r); 	//long version
-  p1 = (tmod__mulsf3(6.112f , tmod__mulsf3(ctmp ,tmod__mulsf3(humidity , mw))));
-
-  p2 = tmod__mulsf3(tmod__addsf3(273.15f , temperature), r);
-  
-  return  tmod__divsf3(p1, p2);
-}
-
-
-
 void    BME_Every_Second() {
   SETREGS
 
@@ -417,7 +384,7 @@ void    BME_Every_Second() {
     r_hum =  compensateHumidity(r_hum); // Uses value calculated by compensateTemperature.
     hum = fscale(r_hum, (float)0.00097656, (float)0);
   
-    abshum =  Calc_AbsoluteHumidity(temp, hum);
+    abshum =  CalcTempHumToAbsHum(temp, hum);
     
   }
 

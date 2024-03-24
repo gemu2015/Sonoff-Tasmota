@@ -150,6 +150,9 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jdirectWriteHigh(A)             (( void (*)(uint32_t) )                        jt[116])(A)
 #define jdirectModeInput(A)             (( void (*)(uint32_t) )                        jt[117])(A)
 #define jdirectModeOutput(A)            (( void (*)(uint32_t) )                        jt[118])(A)
+#define jCalcTempHumToAbsHum(A,B)       (( float (*)(float,float) )                    jt[119])(A,B)
+
+
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -629,6 +632,7 @@ typedef struct {
 #define directWriteHigh jdirectWriteHigh
 #define directModeInput jdirectModeInput
 #define directModeOutput jdirectModeOutput
+#define CalcTempHumToAbsHum jCalcTempHumToAbsHum
 
 
 #define FLCONST(A,B) jfl_const(A,B)

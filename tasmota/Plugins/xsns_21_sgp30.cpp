@@ -61,7 +61,6 @@ MODULE_PART bool SGP30_IAQmeasure();
 MODULE_PART bool getIAQBaseline(uint16_t *eco2_base, uint16_t *tvoc_base);
 MODULE_PART bool readWordFromCommand(uint8_t command[], uint8_t commandLength, uint16_t delayms, uint16_t *readdata, uint8_t readlen);
 MODULE_PART uint8_t generateCRC(uint8_t *data, uint8_t datalen);
-MODULE_PART float Calc_AbsoluteHumidity(float temperature, float humidity);
 MODULE_PART bool setHumidity(uint32_t absolute_humidity);
 MODULE_PART void SGP30_Every_Second();
 MODULE_PART void SGP30_Show(bool json);
@@ -246,36 +245,6 @@ uint8_t generateCRC(uint8_t *data, uint8_t datalen) {
 }
 
 
-float Calc_AbsoluteHumidity(float temperature, float humidity) {
-  SETREGS
-  //taken from https://carnotcycle.wordpress.com/2012/08/04/how-to-convert-relative-humidity-to-absolute-humidity/
-  //precision is about 0.1°C in range -30 to 35°C
-  //August-Roche-Magnus 	6.1094 exp(17.625 x T)/(T + 243.04)
-  //Buck (1981) 		6.1121 exp(17.502 x T)/(T + 240.97)
-  //reference https://www.eas.ualberta.ca/jdwilson/EAS372_13/Vomel_CIRES_satvpformulae.html
-  float temp = NAN;
-  const float mw = 18.01534f; 	// molar mass of water g/mol
-  const float r = 8.31447215f; 	// Universal gas constant J/mol/K
-
-  if (isnan(temperature) || isnan(humidity) ) {
-    return NAN;
-  }
-
-  //temp = FastPrecisePowf(2.718281828f, (17.67f * temperature) / (temperature + 243.5f));
-  float p1 = tmod__mulsf3(17.67f , temperature);
-  float p2 = tmod__addsf3(temperature , 243.5f);
-  temp = FastPrecisePowf(2.718281828f, tmod__divsf3(p1, p2));
-
-  //return (6.112f * temp * humidity * 2.1674) / (273.15 + temperature); 	//simplified version
-  //return (6.112f * temp * humidity * mw) / ((273.15f + temperature) * r); 	//long version
-  p1 = (tmod__mulsf3(6.112f , tmod__mulsf3(temp ,tmod__mulsf3(humidity , mw))));
-
-  p2 = tmod__mulsf3(tmod__addsf3(273.15f , temperature), r);
-  
-  return  tmod__divsf3(p1, p2);
-}
-
-
 #define SAVE_PERIOD 30
 
 void SGP30_Every_Second() {
@@ -291,7 +260,7 @@ void SGP30_Every_Second() {
 
   if (GetTasmotaGlobal(2) && (GetTasmotaGlobal(3) > 0) && !isnan(JGetTasmotaGf(0))) {
     // abs hum in mg/m3
-    abshum = Calc_AbsoluteHumidity(JGetTasmotaGf(0), tmod__floatunsisf(GetTasmotaGlobal(3)));
+    abshum = CalcTempHumToAbsHum(JGetTasmotaGf(0), tmod__floatunsisf(GetTasmotaGlobal(3)));
     setHumidity(tmod__fixunssfsi(tmod__mulsf3(abshum , 1000)));
   }
 
