@@ -228,7 +228,7 @@ void VL53L0X_Show(boolean json) {
 
 
   //float distance = (Vl53l0x_data.distance == 9999) ? NAN : (float)Vl53l0x_data.distance / 10;  // cm 
-  float distance = jfdiv(jtofloat(Vl53l0x_data.distance) , 10.0);
+  float distance = fdiv(tofloat(Vl53l0x_data.distance) , 10.0);
 
   char dstr[16];
   ftostrfd(distance, 1, dstr);
@@ -241,7 +241,7 @@ void VL53L0X_Show(boolean json) {
   }
 
   if (VL53L0X_timeoutOccurred()) {
-    //AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_I2C "Timeout waiting for %s"), types);
+    AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_I2C "Timeout waiting for VL53L0X"));
   }
   
 }

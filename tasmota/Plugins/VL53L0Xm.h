@@ -27,7 +27,18 @@
 // Calculate macro period in *nanoseconds* from VCSEL period in PCLKs
 // based on VL53L0X_calc_macro_period_ps()
 // PLL_period_ps = 1655; macro_period_vclks = 2304
-#define calcMacroPeriod(vcsel_period_pclks) ((((uint32_t)2304 * (vcsel_period_pclks)*1655) + 500) / 1000)
+//#define calcMacroPeriod(vcsel_period_pclks) ((((uint32_t)2304 * (vcsel_period_pclks)*1655) + 500) / 1000)
+
+uint32_t calcMacroPeriod(uint32_t pclks) {
+SETREGS
+ 
+  uint32_t lval = ((uint32_t)2304 * (pclks*1655) + 500);
+  lval =  udivsi3(lval , 1000);
+  return lval;
+
+}
+
+
 
 // Constructors ////////////////////////////////////////////////////////////////
 
@@ -402,19 +413,36 @@ void VL53L0X_readMulti(uint8_t reg, uint8_t* dst, uint8_t count) {
 // Defaults to 0.25 MCPS as initialized by the ST API and this library.
 bool VL53L0X_setSignalRateLimit(float limit_Mcps) {
   SETREGS
-  if (limit_Mcps < 0 || limit_Mcps > 511.99) {
+
+  //if (limit_Mcps < 0 || limit_Mcps > 511.99) {
+  //  return false;
+  //}
+
+  if (ltsf2(limit_Mcps,0)) {
+    return false;
+  } 
+
+  if (gtsf2(limit_Mcps, 511.99)) {
     return false;
   }
 
+   uint16_t wval = fixunssfsi(fmul(limit_Mcps, (1 << 7)));
+
   // Q9.7 fixed point format (9 integer bits, 7 fractional bits)
-  VL53L0X_writeReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT, limit_Mcps * (1 << 7));
+  //VL53L0X_writeReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT, limit_Mcps * (1 << 7));
+  VL53L0X_writeReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT, wval);
+
   return true;
 }
 
 // Get the return signal rate limit check value in MCPS
 float VL53L0X_getSignalRateLimit(void) {
   SETREGS
-  return (float)VL53L0X_readReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT) / (1 << 7);
+  float fval =  floatunsisf(VL53L0X_readReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT));
+  fval = fdiv(fval , 128.0);
+  return fval;
+
+  //return (float)VL53L0X_readReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT)/ (1 << 7);
 }
 
 // Set the measurement timing budget in microseconds, which is the time allowed
@@ -969,7 +997,10 @@ uint32_t VL53L0X_timeoutMclksToMicroseconds(uint16_t timeout_period_mclks, uint8
   SETREGS
   uint32_t macro_period_ns = calcMacroPeriod(vcsel_period_pclks);
 
-  return ((timeout_period_mclks * macro_period_ns) + (macro_period_ns / 2)) / 1000;
+  uint32_t lval = ((timeout_period_mclks * macro_period_ns) + (macro_period_ns / 2) );
+  lval = udivsi3(lval, 1000);
+
+  return  lval;
 }
 
 // Convert sequence step timeout from microseconds to MCLKs with given VCSEL period in PCLKs
@@ -978,7 +1009,11 @@ uint32_t VL53L0X_timeoutMicrosecondsToMclks(uint32_t timeout_period_us, uint8_t 
   SETREGS
   uint32_t macro_period_ns = calcMacroPeriod(vcsel_period_pclks);
 
-  return (((timeout_period_us * 1000) + (macro_period_ns / 2)) / macro_period_ns);
+  uint32_t lval = (timeout_period_us * 1000) + (macro_period_ns / 2);
+  lval = udivsi3(lval, macro_period_ns);
+  return lval;
+
+  //return (((timeout_period_us * 1000) + (macro_period_ns / 2)) / macro_period_ns);
 }
 
 // based on VL53L0X_perform_single_ref_calibration()

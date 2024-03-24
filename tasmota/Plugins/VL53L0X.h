@@ -103,6 +103,9 @@ enum vcselPeriodType { VcselPeriodPreRange, VcselPeriodFinalRange };
         uint32_t msrc_dss_tcc_us,    pre_range_us,    final_range_us;
       }SequenceStepTimeouts;
 
+
+    MODULE_PART uint32_t calcMacroPeriod(uint32_t pclks);
+
     MODULE_PART void VL53L0X_setAddress(uint8_t new_addr);
     MODULE_PART  uint8_t VL53L0X_getAddress(void);
 
