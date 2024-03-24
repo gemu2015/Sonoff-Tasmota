@@ -633,6 +633,7 @@ typedef struct {
 #define directModeInput jdirectModeInput
 #define directModeOutput jdirectModeOutput
 #define CalcTempHumToAbsHum jCalcTempHumToAbsHum
+#define tofloat jtofloat
 
 
 #define FLCONST(A,B) jfl_const(A,B)

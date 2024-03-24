@@ -787,6 +787,7 @@ bool VL53L0X_checkTimeoutExpired() {
 // single-shot range measurement)
 uint16_t VL53L0X_readRangeContinuousMillimeters(void) {
   SETREGS
+
   startTimeout();
   while ((VL53L0X_readReg(RESULT_INTERRUPT_STATUS) & 0x07) == 0) {
     if (VL53L0X_checkTimeoutExpired()) {

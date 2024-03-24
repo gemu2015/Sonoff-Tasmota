@@ -24,8 +24,6 @@
 #include "module.h"
 #include "module_defines.h"
 
-#include "VL53L0X.h"
-
 /*********************************************************************************************\
  * VL53L0x time of flight sensor
  *
@@ -71,6 +69,7 @@
 #define USE_VL_MEDIAN
 #define USE_VL_MEDIAN_SIZE 5   // Odd number of samples median detection
 
+#include "../Tasmota/include/i18n.h"
 #include "VL53L0X.h"
 
 #define VL53L0X_ADDRESS 0x29
@@ -86,17 +85,13 @@ PUSH_OPTIONS
 // descripotr, code, end
 MODULE_DESCRIPTOR("VL53L0", MODULE_TYPE_SENSOR, VL53L0_REV,"",0,"",0,"",0,"",0)
 MODULE_PART int32_t VL53L0X_Detect();
-MODULE_PART void VL53L0X_250MSecond(void);
+MODULE_PART void VL53L0X_Every_250MSecond(void);
 MODULE_PART void VL53L0X_Show(boolean json);
 MODULE_PART void VL53L0X_Deinit();
 MODULE_PART MOD_RESULT mod_func_execute(uint32_t sel);
 MODULE_END
 
 #define VL53LXX_MAX_SENSORS 1
-
-const char HTTP_SNS_F_DISTANCE_CM[] PROGMEM = "{s}Distance{m}%1_f cm{e}";
-
-
 
 typedef struct {
   uint16_t distance;
@@ -124,7 +119,7 @@ typedef struct {
 #define measurement_timing_budget_us mem->vlx_mem.measurement_timing_budget_us
 #define last_status mem->vlx_mem.last_status
 
-
+// library
 #include "VL53L0Xm.h"
 
 /********************************************************************************************/
@@ -138,7 +133,7 @@ ALLOCMEM
     I2cSetActiveFound(VL53L0X_ADDRESS, PSTR("VL53L0X"), 0);
 
     if (VL53L0X_init(0)) {
-      //AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_I2C D_SENSOR " VL53L0X %d " D_SENSOR_DETECTED " - " D_NEW_ADDRESS " 0x%02X"), i+1, addr);
+      AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_I2C D_SENSOR " VL53L0X %d " D_SENSOR_DETECTED " - " D_NEW_ADDRESS " 0x%02X"), 1, VL53L0X_ADDRESS);
     } else {
       VL53L0X_Deinit();
       return false;
@@ -164,11 +159,12 @@ ALLOCMEM
     // fast as possible).  To use continuous timed mode
     // instead, provide a desired inter-measurement period in
     // ms (e.g. sensor.startContinuous(100)).
-    VL53L0X_startContinuous();
+    VL53L0X_startContinuous(0);
 
     Vl53l0x_data.ready = 1;
     Vl53l0x_data.index = 0;
     VL53L0X_detected = true;
+    initialized = true;
 
   }
 
@@ -187,10 +183,11 @@ void VL53L0X_Every_250MSecond(void) {
 
   uint16_t dist = VL53L0X_readRangeContinuousMillimeters();
   if ((0 == dist) || (dist > 2200)) {
-    dist = 9999;
+   // dist = 9999;
   }
 
 #ifdef USE_VL_MEDIAN
+
   // store in ring buffer
   Vl53l0x_data.buffer[Vl53l0x_data.index] = dist;
   Vl53l0x_data.index++;
@@ -230,14 +227,21 @@ void VL53L0X_Show(boolean json) {
   }
 
 
-  float distance = (Vl53l0x_data.distance == 9999) ? NAN : (float)Vl53l0x_data.distance / 10;  // cm
+  //float distance = (Vl53l0x_data.distance == 9999) ? NAN : (float)Vl53l0x_data.distance / 10;  // cm 
+  float distance = jfdiv(jtofloat(Vl53l0x_data.distance) , 10.0);
+
+  char dstr[16];
+  ftostrfd(distance, 1, dstr);
+
+
   if (json) {
-    ResponseAppend_P(PSTR(",\"VL53L0X\":{\"Distance\":%1_f}"), &distance);
+    ResponseAppend_P(PSTR(",\"VL53L0X\":{\"Distance\":%s}"), dstr);
   } else {
-    WSContentSend_PD(HTTP_SNS_F_DISTANCE_CM, &distance);
+    WSContentSend_PD(PSTR("{s}Distance{m}%s cm{e}"), dstr);
   }
+
   if (VL53L0X_timeoutOccurred()) {
-      //AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_I2C "Timeout waiting for %s"), types);
+    //AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_I2C "Timeout waiting for %s"), types);
   }
   
 }

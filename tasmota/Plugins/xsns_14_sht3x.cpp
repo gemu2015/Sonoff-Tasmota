@@ -84,7 +84,7 @@ bool Sht3xRead(float &t, float &h, uint8_t sht3x_address) {
   if (SHTC3_ADDR == sht3x_address) {
     write(0x35);                  // Wake from
     write(0x17);                  // sleep
-    endTransmission(false);
+    endTransmission(true);
     beginTransmission(sht3x_address);
     write(0x78);                  // Disable clock stretching ( I don't think that wire library support clock stretching )
     write(0x66);                  // High resolution
@@ -92,7 +92,8 @@ bool Sht3xRead(float &t, float &h, uint8_t sht3x_address) {
     write(0x2C);                  // Enable clock stretching
     write(0x06);                  // High repeatability
   }
-  if (endTransmission(false) != 0) {   // Stop I2C transmission
+  if (endTransmission(true) != 0) {   // Stop I2C transmission
+    AddLog(LOG_LEVEL_INFO,PSTR("i2c error"));
     return false;
   }
   delay(30);                           // Timing verified with logic analyzer (10 is to short)
@@ -100,13 +101,14 @@ bool Sht3xRead(float &t, float &h, uint8_t sht3x_address) {
   for (uint32_t i = 0; i < 6; i++) {
     data[i] = read();             // cTemp msb, cTemp lsb, cTemp crc, humidity msb, humidity lsb, humidity crc
   };
+
   t = jfdiv( jtofloat(((data[0] << 8) | data[1] ) * 175), 65535.0);
   t = jfdiff(t, 45);
-  //t = jConvertTemp((float)( ( ( (data[0] << 8) | data[1] ) * 175) / 65535.0) - 45);
+  //t = ConvertTemp((float)( ( ( (data[0] << 8) | data[1] ) * 175) / 65535.0) - 45);
   t = ConvertTemp(t);
 
   h = jfdiv( jtofloat(((data[3] << 8) | data[4] ) * 100), 65535.0);
-//  h = jConvertHumidity((float)((((data[3] << 8) | data[4]) * 100) / 65535.0));
+//  h = ConvertHumidity((float)((((data[3] << 8) | data[4]) * 100) / 65535.0));
   h = ConvertHumidity(h);
   return (!jisnan(t) && !jisnan(h) && !jiseq(h));
 }
@@ -120,7 +122,11 @@ int32_t Sht3x_Detect() {
   sht3x_addresses[2] = SHTC3_ADDR;
 
   for (uint32_t i = 0; i < SHT3X_MAX_SENSORS; i++) {
-    if (I2cActive(sht3x_addresses[i])) { continue; }
+    // if (I2cActive(sht3x_addresses[i])) { continue; }
+    if (!I2cSetDevice(sht3x_addresses[i])) {
+      continue;
+    }
+
     float t;
     float h;
     if (Sht3xRead(t, h, sht3x_addresses[i])) {
@@ -134,7 +140,7 @@ int32_t Sht3x_Detect() {
   if (sht3x_count) {
     initialized = true;
   } else {
-      (SHT3X_Deinit);
+      SHT3X_Deinit();
   }
   return sht3x_count;
 }
