@@ -5893,7 +5893,7 @@ void directWriteHigh(uint32_t pin);
 void directModeInput(uint32_t pin);
 void directModeOutput(uint32_t pin);
 
-#if 1
+#if 0
         if (!strncmp_XP(lp, XPSTR("test("), 5)) {
           lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           uint32_t sel = fvar;
