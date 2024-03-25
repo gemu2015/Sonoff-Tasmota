@@ -82,7 +82,7 @@ PUSH_OPTIONS
 
 // this is the structure of the module:
 // descripotr, code, end
-MODULE_DESCRIPTOR("VL53L0", MODULE_TYPE_SENSOR, VL53L0_REV, "", 0, "", 0, "", 0, "", 0)
+MODULE_DESCRIPTOR("VL53L0", MODULE_TYPE_SENSOR, VL53L0_REV, "RMODE", 0x01000200, "", 0, "", 0, "", 0)
 MODULE_PART int32_t VL53L0X_Detect();
 MODULE_PART void VL53L0X_Every_250MSecond(void);
 MODULE_PART void VL53L0X_Show(boolean json);
@@ -101,6 +101,7 @@ typedef struct {
 
 typedef struct {
   bool VL53L0X_xshut;
+  uint8_t range_mode;
   bool VL53L0X_detected;
   VLX_DATA Vl53l0x_data;
   VLX_MEM vlx_mem;
@@ -117,6 +118,7 @@ typedef struct {
 #define stop_variable mem->vlx_mem.stop_variable
 #define measurement_timing_budget_us mem->vlx_mem.measurement_timing_budget_us
 #define last_status mem->vlx_mem.last_status
+#define range_mode mem->range_mode
 
 // library
 #include "VL53L0X_c.h"
@@ -127,6 +129,8 @@ int32_t VL53L0X_Detect(void) {
   ALLOCMEM
 
   VL53L0X_detected = false;
+
+  range_mode = mp->ms[0].value & 0xff;
 
   if (I2cSetDevice(VL53L0X_ADDRESS)) {
     I2cSetActiveFound(VL53L0X_ADDRESS, PSTR("VL53L0X"), 0);
@@ -141,20 +145,26 @@ int32_t VL53L0X_Detect(void) {
 
     VL53L0X_setTimeout(500);
 
-#if defined VL53L0X_LONG_RANGE
-    // lower the return signal rate limit (default is 0.25 MCPS)
-    VL53L0X_setSignalRateLimit(0.1);
-    // increase laser pulse periods (defaults are 14 and 10 PCLKs)
-    VL53L0X_setVcselPulsePeriod(VcselPeriodPreRange, 18);
-    VL53L0X_setVcselPulsePeriod(VcselPeriodFinalRange, 14);
-#endif
-#if defined VL53L0X_HIGH_SPEED
-    // reduce timing budget to 20 ms (default is about 33 ms)
-    VL53L0X_setMeasurementTimingBudget(20000);
-#elif defined VL53L0X_HIGH_ACCURACY
-    // increase timing budget to 200 ms
-    VL53L0X_setMeasurementTimingBudget(200000);
-#endif
+//#if defined VL53L0X_LONG_RANGE
+    if (range_mode == 1) {
+      // lower the return signal rate limit (default is 0.25 MCPS)
+      VL53L0X_setSignalRateLimit(0.1);
+      // increase laser pulse periods (defaults are 14 and 10 PCLKs)
+      VL53L0X_setVcselPulsePeriod(VcselPeriodPreRange, 18);
+      VL53L0X_setVcselPulsePeriod(VcselPeriodFinalRange, 14);
+    }
+//#endif
+
+//#if defined VL53L0X_HIGH_SPEED
+    if (range_mode == 2) {
+      // reduce timing budget to 20 ms (default is about 33 ms)
+      VL53L0X_setMeasurementTimingBudget(20000);
+    } else {
+//#elif defined VL53L0X_HIGH_ACCURACY
+      // increase timing budget to 200 ms
+      VL53L0X_setMeasurementTimingBudget(200000);
+    }
+//#endif
     // Start continuous back-to-back mode (take readings as
     // fast as possible).  To use continuous timed mode
     // instead, provide a desired inter-measurement period in
