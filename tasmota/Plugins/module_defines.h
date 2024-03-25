@@ -644,7 +644,7 @@ typedef struct {
 
 
 
-#define FLCONST(A,B) jfl_const(A,B)
+#define FPC(A,B) jfl_const(A,B)
 
 // floating point constants must be defined here
 #ifdef __riscv
@@ -656,6 +656,10 @@ typedef struct {
 #define FPC_0x02 0.02
 #define FPC_273x15 273.15
 #endif
+
+
+
+
 
 #ifdef __riscv
 #define PUSH_OPTIONS _Pragma("GCC push_options")\
