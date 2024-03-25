@@ -119,7 +119,7 @@ typedef struct {
 #define last_status mem->vlx_mem.last_status
 
 // library
-#include "VL53L0Xm.h"
+#include "VL53L0X_c.h"
 
 /********************************************************************************************/
 
