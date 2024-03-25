@@ -76,6 +76,8 @@ bool VL53L0X_init(bool io_2v8) {
   SETREGS
   // VL53L0X_DataInit() begin
 
+    address = ADDRESS_DEFAULT;
+
   // sensor uses 1V8 mode for I/O by default; switch to 2V8 mode if necessary
   if (io_2v8) {
     VL53L0X_writeReg(VHV_CONFIG_PAD_SCL_SDA__EXTSUP_HV,
@@ -332,7 +334,7 @@ uint8_t VL53L0X_readReg(uint8_t reg) {
 
   beginTransmission(address);
   write(reg);
-  last_status = endTransmission(false);
+  last_status = endTransmission(true);
 
   requestFrom(address, (uint8_t)1);
   value = read();
@@ -347,7 +349,7 @@ uint16_t VL53L0X_readReg16Bit(uint8_t reg) {
 
   beginTransmission(address);
   write(reg);
-  last_status = endTransmission(false);
+  last_status = endTransmission(true);
 
   requestFrom(address, (uint8_t)2);
   value = (uint16_t)read() << 8;  // value high byte
@@ -363,7 +365,7 @@ uint32_t VL53L0X_readReg32Bit(uint8_t reg) {
 
   beginTransmission(address);
   write(reg);
-  last_status = endTransmission(false);
+  last_status = endTransmission(true);
 
   requestFrom(address, (uint8_t)4);
   value = (uint32_t)read() << 24;  // value highest byte
@@ -394,7 +396,7 @@ void VL53L0X_readMulti(uint8_t reg, uint8_t* dst, uint8_t count) {
   SETREGS
   beginTransmission(address);
   write(reg);
-  last_status = endTransmission(false);
+  last_status = endTransmission(true);
 
   requestFrom(address, count);
 
@@ -632,7 +634,7 @@ bool VL53L0X_setVcselPulsePeriod(vcselPeriodType type, uint8_t period_pclks) {
     VL53L0X_writeReg(PRE_RANGE_CONFIG_VCSEL_PERIOD, vcsel_period_reg);
 
     // update timeouts
-
+ 
     // set_sequence_step_timeout() begin
     // (SequenceStepId == VL53L0X_SEQUENCESTEP_PRE_RANGE)
 

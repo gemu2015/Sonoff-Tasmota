@@ -183,7 +183,7 @@ void VL53L0X_Every_250MSecond(void) {
 
   uint16_t dist = VL53L0X_readRangeContinuousMillimeters();
   if ((0 == dist) || (dist > 2200)) {
-   // dist = 9999;
+    dist = 9999;
   }
 
 #ifdef USE_VL_MEDIAN
