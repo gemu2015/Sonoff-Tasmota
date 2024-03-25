@@ -30,15 +30,12 @@
 //#define calcMacroPeriod(vcsel_period_pclks) ((((uint32_t)2304 * (vcsel_period_pclks)*1655) + 500) / 1000)
 
 uint32_t calcMacroPeriod(uint32_t pclks) {
-SETREGS
- 
-  uint32_t lval = ((uint32_t)2304 * (pclks*1655) + 500);
-  lval =  udivsi3(lval , 1000);
+  SETREGS
+
+  uint32_t lval = ((uint32_t)2304 * (pclks * 1655) + 500);
+  lval = udivsi3(lval, 1000);
   return lval;
-
 }
-
-
 
 // Constructors ////////////////////////////////////////////////////////////////
 
@@ -76,7 +73,7 @@ bool VL53L0X_init(bool io_2v8) {
   SETREGS
   // VL53L0X_DataInit() begin
 
-    address = ADDRESS_DEFAULT;
+  address = ADDRESS_DEFAULT;
 
   // sensor uses 1V8 mode for I/O by default; switch to 2V8 mode if necessary
   if (io_2v8) {
@@ -416,22 +413,22 @@ void VL53L0X_readMulti(uint8_t reg, uint8_t* dst, uint8_t count) {
 bool VL53L0X_setSignalRateLimit(float limit_Mcps) {
   SETREGS
 
-  //if (limit_Mcps < 0 || limit_Mcps > 511.99) {
+  // if (limit_Mcps < 0 || limit_Mcps > 511.99) {
   //  return false;
   //}
 
-  if (ltsf2(limit_Mcps,0)) {
+  if (ltsf2(limit_Mcps, 0)) {
     return false;
-  } 
+  }
 
   if (gtsf2(limit_Mcps, 511.99)) {
     return false;
   }
 
-   uint16_t wval = fixunssfsi(fmul(limit_Mcps, (1 << 7)));
+  uint16_t wval = fixunssfsi(fmul(limit_Mcps, (1 << 7)));
 
   // Q9.7 fixed point format (9 integer bits, 7 fractional bits)
-  //VL53L0X_writeReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT, limit_Mcps * (1 << 7));
+  // VL53L0X_writeReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT, limit_Mcps * (1 << 7));
   VL53L0X_writeReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT, wval);
 
   return true;
@@ -440,11 +437,11 @@ bool VL53L0X_setSignalRateLimit(float limit_Mcps) {
 // Get the return signal rate limit check value in MCPS
 float VL53L0X_getSignalRateLimit(void) {
   SETREGS
-  float fval =  floatunsisf(VL53L0X_readReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT));
-  fval = fdiv(fval , 128.0);
+  float fval = floatunsisf(VL53L0X_readReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT));
+  fval = fdiv(fval, 128.0);
   return fval;
 
-  //return (float)VL53L0X_readReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT)/ (1 << 7);
+  // return (float)VL53L0X_readReg16Bit(FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT)/ (1 << 7);
 }
 
 // Set the measurement timing budget in microseconds, which is the time allowed
@@ -634,7 +631,7 @@ bool VL53L0X_setVcselPulsePeriod(vcselPeriodType type, uint8_t period_pclks) {
     VL53L0X_writeReg(PRE_RANGE_CONFIG_VCSEL_PERIOD, vcsel_period_reg);
 
     // update timeouts
- 
+
     // set_sequence_step_timeout() begin
     // (SequenceStepId == VL53L0X_SEQUENCESTEP_PRE_RANGE)
 
@@ -999,10 +996,10 @@ uint32_t VL53L0X_timeoutMclksToMicroseconds(uint16_t timeout_period_mclks, uint8
   SETREGS
   uint32_t macro_period_ns = calcMacroPeriod(vcsel_period_pclks);
 
-  uint32_t lval = ((timeout_period_mclks * macro_period_ns) + (macro_period_ns / 2) );
+  uint32_t lval = ((timeout_period_mclks * macro_period_ns) + (macro_period_ns / 2));
   lval = udivsi3(lval, 1000);
 
-  return  lval;
+  return lval;
 }
 
 // Convert sequence step timeout from microseconds to MCLKs with given VCSEL period in PCLKs
@@ -1015,7 +1012,7 @@ uint32_t VL53L0X_timeoutMicrosecondsToMclks(uint32_t timeout_period_us, uint8_t 
   lval = udivsi3(lval, macro_period_ns);
   return lval;
 
-  //return (((timeout_period_us * 1000) + (macro_period_ns / 2)) / macro_period_ns);
+  // return (((timeout_period_us * 1000) + (macro_period_ns / 2)) / macro_period_ns);
 }
 
 // based on VL53L0X_perform_single_ref_calibration()

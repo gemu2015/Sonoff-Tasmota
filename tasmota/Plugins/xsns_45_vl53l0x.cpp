@@ -17,7 +17,7 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "tasmota_options.h" 
+#include "tasmota_options.h"
 
 #ifdef USE_VL53L0X_MOOD
 
@@ -49,7 +49,6 @@
  *
 \*********************************************************************************************/
 
-
 // Uncomment this line to use long range mode. This
 // increases the sensitivity of the sensor and extends its
 // potential range, but increases the likelihood of getting
@@ -67,7 +66,7 @@
 //#define VL53L0X_HIGH_ACCURACY
 
 #define USE_VL_MEDIAN
-#define USE_VL_MEDIAN_SIZE 5   // Odd number of samples median detection
+#define USE_VL_MEDIAN_SIZE 5  // Odd number of samples median detection
 
 #include "../Tasmota/include/i18n.h"
 #include "VL53L0X.h"
@@ -77,13 +76,13 @@
 #define VL53L0X_XSHUT_ADDRESS 0x78
 #endif
 
-#define VL53L0_REV  1<<16|2
+#define VL53L0_REV 1 << 16 | 2
 
 PUSH_OPTIONS
 
 // this is the structure of the module:
 // descripotr, code, end
-MODULE_DESCRIPTOR("VL53L0", MODULE_TYPE_SENSOR, VL53L0_REV,"",0,"",0,"",0,"",0)
+MODULE_DESCRIPTOR("VL53L0", MODULE_TYPE_SENSOR, VL53L0_REV, "", 0, "", 0, "", 0, "", 0)
 MODULE_PART int32_t VL53L0X_Detect();
 MODULE_PART void VL53L0X_Every_250MSecond(void);
 MODULE_PART void VL53L0X_Show(boolean json);
@@ -125,15 +124,16 @@ typedef struct {
 /********************************************************************************************/
 
 int32_t VL53L0X_Detect(void) {
-ALLOCMEM
+  ALLOCMEM
 
   VL53L0X_detected = false;
-  
+
   if (I2cSetDevice(VL53L0X_ADDRESS)) {
     I2cSetActiveFound(VL53L0X_ADDRESS, PSTR("VL53L0X"), 0);
 
     if (VL53L0X_init(0)) {
-      AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_I2C D_SENSOR " VL53L0X %d " D_SENSOR_DETECTED " - " D_NEW_ADDRESS " 0x%02X"), 1, VL53L0X_ADDRESS);
+      AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_I2C D_SENSOR " VL53L0X %d " D_SENSOR_DETECTED " - " D_NEW_ADDRESS " 0x%02X"), 1,
+             VL53L0X_ADDRESS);
     } else {
       VL53L0X_Deinit();
       return false;
@@ -165,7 +165,6 @@ ALLOCMEM
     Vl53l0x_data.index = 0;
     VL53L0X_detected = true;
     initialized = true;
-
   }
 
   if (VL53L0X_detected == false) {
@@ -202,21 +201,22 @@ void VL53L0X_Every_250MSecond(void) {
   uint8_t flag;
   for (uint32_t ocnt = 0; ocnt < USE_VL_MEDIAN_SIZE; ocnt++) {
     flag = 0;
-    for (uint32_t count = 0; count < USE_VL_MEDIAN_SIZE -1; count++) {
-      if (tbuff[count] > tbuff[count +1]) {
+    for (uint32_t count = 0; count < USE_VL_MEDIAN_SIZE - 1; count++) {
+      if (tbuff[count] > tbuff[count + 1]) {
         tmp = tbuff[count];
-        tbuff[count] = tbuff[count +1];
-        tbuff[count +1] = tmp;
+        tbuff[count] = tbuff[count + 1];
+        tbuff[count + 1] = tmp;
         flag = 1;
       }
     }
-    if (!flag) { break; }
+    if (!flag) {
+      break;
+    }
   }
-  Vl53l0x_data.distance = tbuff[(USE_VL_MEDIAN_SIZE -1) / 2];
+  Vl53l0x_data.distance = tbuff[(USE_VL_MEDIAN_SIZE - 1) / 2];
 #else
   Vl53l0x_data.distance = dist;
 #endif
-
 }
 
 void VL53L0X_Show(boolean json) {
@@ -226,13 +226,11 @@ void VL53L0X_Show(boolean json) {
     return;
   }
 
-
-  //float distance = (Vl53l0x_data.distance == 9999) ? NAN : (float)Vl53l0x_data.distance / 10;  // cm 
-  float distance = fdiv(tofloat(Vl53l0x_data.distance) , 10.0);
+  // float distance = (Vl53l0x_data.distance == 9999) ? NAN : (float)Vl53l0x_data.distance / 10;  // cm
+  float distance = fdiv(tofloat(Vl53l0x_data.distance), 10.0);
 
   char dstr[16];
   ftostrfd(distance, 1, dstr);
-
 
   if (json) {
     ResponseAppend_P(PSTR(",\"VL53L0X\":{\"Distance\":%s}"), dstr);
@@ -243,10 +241,9 @@ void VL53L0X_Show(boolean json) {
   if (VL53L0X_timeoutOccurred()) {
     AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_I2C "Timeout waiting for VL53L0X"));
   }
-  
 }
 
-void  VL53L0X_Deinit() {
+void VL53L0X_Deinit() {
   SETREGS
   I2cResetActive(VL53L0X_ADDRESS, 0);
   RETMEM
@@ -256,25 +253,25 @@ void  VL53L0X_Deinit() {
  * Interface
 \*********************************************************************************************/
 
-MOD_RESULT mod_func_execute(uint32_t sel){
+MOD_RESULT mod_func_execute(uint32_t sel) {
   bool result = false;
 
   switch (sel) {
-      case FUNC_INIT:
-        result = VL53L0X_Detect();
-        break;
-      case FUNC_EVERY_250_MSECOND:
-        VL53L0X_Every_250MSecond();
-        break;
-      case FUNC_JSON_APPEND:
-        VL53L0X_Show(1);
-        break;
-      case FUNC_WEB_SENSOR:
-        VL53L0X_Show(0);
-        break;
-      case FUNC_DEINIT:
-        VL53L0X_Deinit();
-        break;
+    case FUNC_INIT:
+      result = VL53L0X_Detect();
+      break;
+    case FUNC_EVERY_250_MSECOND:
+      VL53L0X_Every_250MSecond();
+      break;
+    case FUNC_JSON_APPEND:
+      VL53L0X_Show(1);
+      break;
+    case FUNC_WEB_SENSOR:
+      VL53L0X_Show(0);
+      break;
+    case FUNC_DEINIT:
+      VL53L0X_Deinit();
+      break;
   }
   return result;
 }
