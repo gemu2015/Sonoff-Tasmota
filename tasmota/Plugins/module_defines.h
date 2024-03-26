@@ -659,6 +659,9 @@ typedef struct {
 #define FPC_0 jfl_const(0,0)
 #endif
 
+// floating point zero is always global symbol on esp32 
+//FPC_0
+
 
 // tensilica immediate is only -2048 to 2047
 // all others must be coded with ICONST

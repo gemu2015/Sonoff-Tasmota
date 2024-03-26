@@ -413,7 +413,7 @@ void VL53L0X_readMulti(uint8_t reg, uint8_t* dst, uint8_t count) {
 bool VL53L0X_setSignalRateLimit(float limit_Mcps) {
   SETREGS
 
-  // if (limit_Mcps < 0 || limit_Mcps > 511.99) {
+  //if (limit_Mcps < 0 || limit_Mcps > 511.99) {
   //  return false;
   //}
 
