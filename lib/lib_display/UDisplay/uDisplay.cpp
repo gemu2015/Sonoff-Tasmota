@@ -22,7 +22,6 @@
 
 #ifdef ESP32
 #include "esp8266toEsp32.h"
-#include <driver/spi_common_internal.h>
 #endif
 
 #include "tasmota_options.h"
@@ -688,6 +687,8 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
     ep_mode = 2;
   }
 
+
+#ifdef USE_ESP32_S3
 void UfsCheckSDCardInit(void);
 
   if (spec_init == _UDSP_SPI) {
@@ -697,7 +698,7 @@ void UfsCheckSDCardInit(void);
     // reininit SD card
     UfsCheckSDCardInit();
   }
-
+#endif
 
 #ifdef UDSP_DEBUG
   Serial.printf("Device : %s\n", dname);
