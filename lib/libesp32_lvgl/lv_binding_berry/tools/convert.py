@@ -35,9 +35,10 @@ lv_widgets = ['obj',
               'dropdown', 'image', 'label', 'line', 'roller', 'slider',
               'switch', 'table', 'textarea',
               # added in LVGL 9
-              'spangroup', 'span', 'scale',
+              'spangroup', 'span',
+              'scale_section', 'scale',   # 'scale_section' needs to be before 'scale' to capture more selective first
               ]
-lv_widgets_no_class = ['span']      # widgets that don't have a lv_obj class
+lv_widgets_no_class = ['span', 'scale_section']      # widgets that don't have a lv_obj class
 # extra widgets
 lv_widgets = lv_widgets + [ 'chart', 'imagebutton', 'led', 'msgbox', 'spinbox', 'spinner', 'keyboard', 'tabview', 'tileview' , 'list',
                             'animimg', 'calendar', 'menu']
@@ -243,13 +244,14 @@ class type_mapper_class:
   skipping_type = [
     "bvm *",                      # Berry
     "lv_global_t *",              # reading globals is not useful in Berry
-    "lv_event_dsc_t *",           # internal implementation, use functions instead
+    # "lv_event_dsc_t *",           # internal implementation, use functions instead
     "lv_draw_task_t *",           # skip low-level tasks for now
     "lv_draw_buf_t *",            # low-level
     "lv_calendar_date_t *",       # skip calendar for now
     "lv_vector_dsc_t",            # see later if we need this
     "lv_point_precise_t",         # see later if we need this
     "void **",                    # edge case of lv_animimg_get_src()
+    "va_list",
     "lv_matrix_t *",
     "lv_event_list_t *",
     "lv_style_value_t *",
@@ -338,6 +340,7 @@ class type_mapper_class:
     "lv_style_res_t": "i",
     # LVGL 9
     "lv_image_align_t": "i",
+    "lv_text_flag_t": "i",
     "lv_display_rotation_t": "i",
     "lv_color_format_t": "i",
     "lv_value_precise_t": "i",
@@ -347,7 +350,6 @@ class type_mapper_class:
     "lv_span_mode_t": "i",
     "lv_vector_path_t *": "c",    # treat as opaque pointer
     "lv_vector_dsc_t *": "c",     # treat as opaque pointer
-    "lv_scale_section_t *": "c",  # treat as opaque pointer
     "lv_point_t *": "c",          # treat as opaque pointer
     "lv_hit_test_info_t *": "c",  # treat as opaque pointer
     "lv_screen_load_anim_t": "i",
@@ -363,6 +365,7 @@ class type_mapper_class:
     "lv_menu_mode_header_t": "i",
     "lv_menu_mode_root_back_button_t": "i",
     "lv_point_precise_t []": "lv_point_arr",
+    "lv_obj_point_transform_flag_t": "i",
 
     "int32_t *": "lv_int_arr",
     "int32_t []": "lv_int_arr",
@@ -408,6 +411,7 @@ class type_mapper_class:
     "lv_draw_arc_dsc_t *": "lv_draw_arc_dsc",
     "lv_point_precise_t *": "lv_point_precise",
     "lv_draw_image_dsc_t *": "lv_draw_image_dsc",
+    "lv_event_dsc_t *": "lv_event_dsc",
 
     "_lv_obj_t *": "lv_obj",
     "lv_obj_t *": "lv_obj",
@@ -422,6 +426,7 @@ class type_mapper_class:
     "lv_indev_t *": "lv_indev",
     "lv_point_t []": "lv_point_arr",
     "lv_span_t *": "lv_span",
+    "lv_scale_section_t *": "lv_scale_section",  # treat as opaque pointer
     # "lv_image_header_t *": "lv_image_header",
     "lv_image_dsc_t *": "lv_image_dsc",
     "lv_ts_calibration_t *": "lv_ts_calibration",
@@ -888,6 +893,7 @@ extern int lv_x_member(bvm *vm);
 extern int lv_x_tostring(bvm *vm);       // generic function
 
 extern int lv_be_style_init(bvm *vm);
+extern int lv_be_style_del(bvm *vm);
 extern int lv_be_anim_init(bvm *vm);
 extern int lv_x_tostring(bvm *vm);
 
@@ -899,20 +905,6 @@ extern int lvbe_theme_create(bvm *vm);
 """)
 
 # expose all extern definitions:
-# Ex:
-#
-# /* `lv_canvas` external functions definitions */
-# extern int lvbe_canvas_create(bvm *vm);
-# extern int lvbe_canvas_set_buffer(bvm *vm);
-# ...
-#
-for subtype, flv in lv.items():
-  print(f"/* `lv_{subtype}` external functions definitions */")
-  for f in sorted(flv, key=lambda x: x.be_name):
-    print(f"extern int {f.c_func_name}(bvm *vm);")
-  
-  print()
-
 for subtype, flv in lv.items():
   print(f"""extern int be_ntv_lv_{subtype}_init(bvm *vm);""")
 
@@ -934,6 +926,7 @@ print("""
 class be_class_lv_style (scope: global, name: lv_style, strings: weak) {
     _p, var
     init, func(lv_be_style_init)
+    del, func(lv_be_style_del)
     tostring, func(lv_x_tostring)
     member, func(lv_x_member)
 }

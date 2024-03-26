@@ -3,33 +3,63 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - Development
 
-## [13.4.0.2]
+## [13.4.0.3]
+### Added
+- Zigbee support for attributes of type `uint48` used by energy monitoring (#20992)
+- Support for EU863-870 LoRaWanBridge
+- Added GPIO for SPI for Universal Touch Screen
+
+### Breaking Changed
+
+
+### Changed
+- ESP32 LVGL library from v9.0.0 to v9.1.0 (#21008)
+- berry.exe (pre-compiled for Windows) updated to latest Berry patches
+
+### Fixed
+- BTHome, prep BLE5 (#20989)
+- Scripter google char memory leak (#20995)
+- HASPmota demo and robotocondensed fonts (#21014)
+- Berry walrus bug when assigning to self (#21015)
+
+### Removed
+
+
+
+## [13.4.0.2] 20240318
 ### Added
 - Berry `path.rename()` (#20840)
 - HASPmota support for spangroup (styled text) (#20852)
 - HASPmota support for led (#20857)
 - HASPmota improve arc and img (#20894)
-- Berry add `string.starstwith`, `string.endswith` and `%q` format
+- Berry `string.startswith`, `string.endswith` and `%q` format (#20909)
+- LVGL `lv.draw_label_dsc` and `lv_bar.get_indic_area` (#20936)
+- HASPmota support for scale, percentages (#20974)
+- Support for ESP32-S3 120Mhz (#20973)
+- Support for MCP23S08 (#20971)
 
 ### Breaking Changed
 - Drop support for old (insecure) fingerprint format (#20842)
 - LVGL remove embedded typicons font (#20872)
+- LVGL remove `textarea` and `spinbox` from binaries (#20916)
 
 ### Changed
 - LVGL optimize fonts and add icons (#20880)
 - LVGL improved readability of montserrat-10 (#20900)
+- HASPmota moved to a distinct library `lv_haspmota` (#20929)
+- HASPmota solidify server-side (#20938)
+- Refactor Platformio script `post_esp32.py` (#20966)
 
 ### Fixed
 - Berry bug when parsing ternary operator (#20839)
 - HASPmota widgets line, btnmatrix, qrcode, bar, checkbox (#20881)
 - Filesystem save of JSON settings data
-
-### Removed
-
+- Berry fix walrus with member or index (#20939)
+- TuyaV2 suppressed dimmer updates from MQTT (#20950)
 
 ## [13.4.0.1] 20240229
 ### Added
-- Experimental support for LoRa
+- Support for LoRa
 - HASPmota `p<x>b<y>.delete` to delete an object (#20735)
 - LVGL and HASPmota typicons font (#20742)
 - HASPmota more attributes (#20744)
@@ -988,6 +1018,7 @@ All notable changes to this project will be documented in this file.
 - DNS lookup for .local domains (#16273)
 - Button response delay regression from v12.0.2.4 (#16319)
 - Lost module name in GUI regression from v12.0.2.4 - 20220803 (#16324)
+- LVGL fix descriptors Berry mapping
 
 ## [12.1.0.1] 20220825
 ### Added

@@ -20,16 +20,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <pgmspace.h>
+
 #include "ESPFtpServer.h"
 #include <time.h>
-
 
 #ifdef ESP32
 #undef F
 #define F(A) A
 #endif
-
 
 void FtpServer::begin (String uname, String pword, FS *ufp) {
 
