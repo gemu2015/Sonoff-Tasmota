@@ -688,13 +688,14 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
     ep_mode = 2;
   }
 
+void UfsCheckSDCardInit(void);
+
   if (spec_init == _UDSP_SPI) {
-    // restore spi pins, let cs high
-    //if (spi_bus_get_attr(spi_host) != NULL) {
-      // reinitialze spi bus
-      SPI.end();
-      SPI.begin(spi_clk, spi_miso, spi_mosi, -1);
-    //}
+    // special case, assuming sd card and display on same spi bus
+    // end spi in case it was running
+    SPI.end();
+    // reininit SD card
+    UfsCheckSDCardInit();
   }
 
 
