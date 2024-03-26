@@ -158,11 +158,11 @@ int32_t VL53L0X_Detect(void) {
 //#if defined VL53L0X_HIGH_SPEED
     if (range_mode == 2) {
       // reduce timing budget to 20 ms (default is about 33 ms)
-      VL53L0X_setMeasurementTimingBudget(20000);
+      VL53L0X_setMeasurementTimingBudget(ICONST(20000));
     } else {
 //#elif defined VL53L0X_HIGH_ACCURACY
       // increase timing budget to 200 ms
-      VL53L0X_setMeasurementTimingBudget(200000);
+      VL53L0X_setMeasurementTimingBudget(ICONST(200000));
     }
 //#endif
     // Start continuous back-to-back mode (take readings as
@@ -191,8 +191,8 @@ void VL53L0X_Every_250MSecond(void) {
   }
 
   uint16_t dist = VL53L0X_readRangeContinuousMillimeters();
-  if ((0 == dist) || (dist > 2200)) {
-    dist = 9999;
+  if ((0 == dist) || (dist > ICONST(2200))) {
+    dist = ICONST(9999); 
   }
 
 #ifdef USE_VL_MEDIAN

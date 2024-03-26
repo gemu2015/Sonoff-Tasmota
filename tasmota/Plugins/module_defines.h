@@ -651,14 +651,23 @@ typedef struct {
 #define FPC_n999 jfl_const(-999,1)
 #define FPC_0x02 jfl_const(2,100)
 #define FPC_273x15 jfl_const(27315,100)
+#define FPC_0 jfl_const(0,0)
 #else
 #define FPC_n999 -999
 #define FPC_0x02 0.02
 #define FPC_273x15 273.15
+#define FPC_0 jfl_const(0,0)
 #endif
 
 
+// tensilica immediate is only -2048 to 2047
+// all others must be coded with ICONST
 
+#ifdef ESP8266
+#define ICONST(A) A
+#else
+#define ICONST(A) fixunssfsi(A)
+#endif
 
 
 #ifdef __riscv

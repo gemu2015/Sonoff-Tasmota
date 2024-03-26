@@ -116,13 +116,13 @@ float MLX90614_GetValue(uint32_t reg) {
 void MLX90614_Show(uint32_t json) {
   SETREGS
 
-  SETTINGS *jsettings = mt->settings;
+  SETTINGS *settings = mt->settings;
 
   if (ready == false) return;
   char obj_tstr[16];
-  ftostrfd(obj_temp, jsettings->flag2.temperature_resolution, obj_tstr);
+  ftostrfd(obj_temp, settings->flag2.temperature_resolution, obj_tstr);
   char amb_tstr[16];
-  ftostrfd(amb_temp, jsettings->flag2.temperature_resolution, amb_tstr);
+  ftostrfd(amb_temp, settings->flag2.temperature_resolution, amb_tstr);
   if (json) {
     ResponseAppend_P(GSTR(JSON_IRTMP), obj_tstr, amb_tstr);
   } else {

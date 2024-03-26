@@ -450,6 +450,7 @@ void twi_readFrom(uint8_t address, uint8_t* data, uint8_t length) {
 
 
 float fl_const(int32_t m, int32_t d) {
+  if (d == 0 ) return 0;
   return (float)m / (float)d;
 }
 

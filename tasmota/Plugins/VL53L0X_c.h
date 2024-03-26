@@ -417,7 +417,7 @@ bool VL53L0X_setSignalRateLimit(float limit_Mcps) {
   //  return false;
   //}
 
-  if (ltsf2(limit_Mcps, 0)) {
+  if (ltsf2(limit_Mcps, FPC_0)) {
     return false;
   }
 
@@ -464,7 +464,7 @@ bool VL53L0X_setMeasurementTimingBudget(uint32_t budget_us) {
   uint16_t const PreRangeOverhead = 660;
   uint16_t const FinalRangeOverhead = 550;
 
-  uint32_t const MinTimingBudget = 20000;
+  uint32_t  MinTimingBudget = ICONST(20000);
 
   if (budget_us < MinTimingBudget) {
     return false;
@@ -819,7 +819,7 @@ uint16_t VL53L0X_readRangeContinuousMillimeters(void) {
   while ((VL53L0X_readReg(RESULT_INTERRUPT_STATUS) & 0x07) == 0) {
     if (VL53L0X_checkTimeoutExpired()) {
       did_timeout = true;
-      return 65535;
+      return ICONST(65535);
     }
   }
 
@@ -852,7 +852,7 @@ uint16_t VL53L0X_readRangeSingleMillimeters(void) {
   while (VL53L0X_readReg(SYSRANGE_START) & 0x01) {
     if (VL53L0X_checkTimeoutExpired()) {
       did_timeout = true;
-      return 65535;
+      return ICONST(65535);
     }
   }
 
@@ -951,8 +951,7 @@ void VL53L0X_getSequenceStepTimeouts(SequenceStepEnables const* enables, Sequenc
     timeouts->final_range_mclks -= timeouts->pre_range_mclks;
   }
 
-  timeouts->final_range_us =
-      VL53L0X_timeoutMclksToMicroseconds(timeouts->final_range_mclks, timeouts->final_range_vcsel_period_pclks);
+  timeouts->final_range_us = VL53L0X_timeoutMclksToMicroseconds(timeouts->final_range_mclks, timeouts->final_range_vcsel_period_pclks);
 }
 
 // Decode sequence step timeout in MCLKs from register value
