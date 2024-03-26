@@ -537,6 +537,11 @@
 #define D_ENERGY_YESTERDAY "Энергия вчера"
 #define D_ENERGY_TOTAL "Энергия всего"
 
+// xsns_100_ina3221.ino
+#define  D_UNIT_CHARGE                    "Ah"
+#define  D_CHARGE                         "Charge"    
+#define  D_ENERGY                         "Energy"
+
 // xdrv_27_shutter.ino
 #define D_OPEN "Отрыть"
 #define D_CLOSE "Закрыть"
@@ -707,6 +712,10 @@
 #define D_SENSOR_SPI_MISO      "SPI MISO"
 #define D_SENSOR_SPI_MOSI      "SPI MOSI"
 #define D_SENSOR_SPI_CLK       "SPI CLK"
+#define D_SENSOR_SDIO_CMD      "SDIO CMD"
+#define D_GPIO_TS_SPI_CS       "TS SPI CS"
+#define D_GPIO_TS_RST          "TS RST"
+#define D_GPIO_TS_IRQ          "TS IRQ"
 #define D_SENSOR_SDIO_CMD      "SDIO CMD"
 #define D_SENSOR_SDIO_CLK      "SDIO CLK"
 #define D_SENSOR_SDIO_D0       "SDIO D0"

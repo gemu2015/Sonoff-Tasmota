@@ -536,6 +536,11 @@
 #define D_ENERGY_YESTERDAY "Énergie hier"
 #define D_ENERGY_TOTAL "Énergie totale"
 
+// xsns_100_ina3221.ino
+#define  D_UNIT_CHARGE                    "Ah"
+#define  D_CHARGE                         "Charge"    
+#define  D_ENERGY                         "Energy"
+
 // xdrv_27_shutter.ino
 #define D_OPEN "Ouvert"
 #define D_CLOSE "Fermé"
@@ -707,6 +712,10 @@
 #define D_SENSOR_SPI_MOSI      "SPI MOSI"
 #define D_SENSOR_SPI_CLK       "SPI Clk"
 #define D_SENSOR_SDIO_CMD      "SDIO Cmd"
+#define D_GPIO_TS_SPI_CS       "TS SPI CS"
+#define D_GPIO_TS_RST          "TS RST"
+#define D_GPIO_TS_IRQ          "TS IRQ"
+#define D_SENSOR_SDIO_CMD      "SDIO CMD"
 #define D_SENSOR_SDIO_CLK      "SDIO Clk"
 #define D_SENSOR_SDIO_D0       "SDIO D0"
 #define D_SENSOR_SDIO_D1       "SDIO D1"
