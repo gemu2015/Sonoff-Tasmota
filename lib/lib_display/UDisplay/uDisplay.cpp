@@ -22,6 +22,7 @@
 
 #ifdef ESP32
 #include "esp8266toEsp32.h"
+#include <driver/spi_common_internal.h>
 #endif
 
 #include "tasmota_options.h"
@@ -686,6 +687,16 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
     // 5 table mode
     ep_mode = 2;
   }
+
+  if (spec_init == _UDSP_SPI) {
+    // restore spi pins, let cs high
+    //if (spi_bus_get_attr(spi_host) != NULL) {
+      // reinitialze spi bus
+      SPI.end();
+      SPI.begin(spi_clk, spi_miso, spi_mosi, -1);
+    //}
+  }
+
 
 #ifdef UDSP_DEBUG
   Serial.printf("Device : %s\n", dname);
