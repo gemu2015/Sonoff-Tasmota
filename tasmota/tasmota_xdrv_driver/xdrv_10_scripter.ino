@@ -4461,6 +4461,18 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           }
           goto nfuncexit;
         }
+
+        if (!strncmp_XP(lp, XPSTR("in2("), 4)) {
+          // create new i2c port on bus 2
+          uint8_t sda;
+          uint8_t scl;
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
+          sda = fvar;
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
+          scl = fvar;
+          fvar = script_i2c(14, sda, scl);
+          goto nfuncexit;
+        }
 #endif // USE_SCRIPT_I2C
 
 #ifdef ESP32
@@ -12756,7 +12768,7 @@ uint32_t script_i2c(uint8_t sel, uint16_t val, uint32_t val1) {
   uint32_t rval = 0;
   uint8_t bytes = 1;
 
-  if (sel > 0) {
+  if (sel > 0 && sel < 14) {
     if (!glob_script_mem.script_i2c_wire) return 0;
   }
 
@@ -12811,7 +12823,17 @@ uint32_t script_i2c(uint8_t sel, uint16_t val, uint32_t val1) {
       }
       glob_script_mem.script_i2c_wire->endTransmission();
       break;
-
+    case 14:
+ #ifdef ESP32
+      Wire1.end();
+      Wire1.begin(val & 0x7f, val1);
+      glob_script_mem.script_i2c_wire = &Wire1;
+      TasmotaGlobal.i2c_enabled_2 = true;
+      if (val & 128) {
+        XsnsCall(FUNC_INIT);
+      }
+ #endif     
+      break;
   }
   return rval;
 }
