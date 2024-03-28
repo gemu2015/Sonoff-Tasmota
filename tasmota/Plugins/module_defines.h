@@ -160,10 +160,10 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jWebGetArg(A,B,C)               (( void (*)(const char*,char*,size_t) )        jt[126])(A,B,C)
 #define jWebRestart(A)                  (( void (*)(uint32_t) )                        jt[127])(A)
 #define jWebServer_hasArg(A)            (( bool (*)(const char *) )                    jt[128])(A)
-#define jWebServer_on(A,B,C)            (( void (*)(const char *, void (*)(void),uint8_t) ) jt[129])(A,B,C)
+#define jWebServer_on(A,B,C)          (( void (*)(const char *, void (*)(void),uint8_t) ) jt[129])(A,B,C)
 #define jatoi(A)                        (( int (*)(const char *) )                     jt[130])(A)
 #define jstrcpy_P(A,B)                  (( char *(*)(char *, const char *) )           jt[131])(A,B)
-
+#define SetTasmotaGlobal(A,B)           (( void (*)(uint32_t,uint32_t) )               jt[132])(A,B)
 
 
 // Arduino macros
@@ -663,7 +663,7 @@ typedef struct {
 #define WebGetArg jWebGetArg
 #define WebRestart jWebRestart
 #define WebServer_hasArg jWebServer_hasArg
-#define WebServer_on(A,B) jWebServer_on(A,B,HTTP_ANY)
+#define WebServer_on(A,B) jWebServer_on(A,(void (*)(void)) ((uint32_t)B + mt->execution_offset),HTTP_ANY)
 #define atoi jatoi
 #undef strcpy_P
 #define strcpy_P jstrcpy_P

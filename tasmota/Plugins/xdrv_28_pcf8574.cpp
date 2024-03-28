@@ -67,8 +67,10 @@ MODULE_PART void Pcf8574SwitchRelay(void);
 MODULE_PART int32_t Pcf8574Init(void);
 MODULE_PART void HandlePcf8574(void);
 MODULE_PART void Pcf8574SaveSettings(void);
+MODULE_PART void Pcf8574_AddButton();
+MODULE_PART void Pcf8574_SetHandler();
 MODULE_PART void PCF8574_Deinit(void);
-MODULE_PART int32_t mod_func_execute(uint8_t function);
+MODULE_PART int32_t mod_func_execute(uint32_t function);
 MODULE_END
 /********************************************************************************************/
 void Pcf8574SwitchRelay(void) {
@@ -104,6 +106,11 @@ SETREGS
 
 int32_t Pcf8574Init(void) {
 ALLOCMEM
+
+
+  rel_inverted = GetTasmotaGlobal(5);
+  devices_present = GetTasmotaGlobal(6);
+
 
   uint8_t pcf8574_address = PCF8574_ADDR1;
   while ((Pcf8574.max_devices < MAX_PCF8574) && (pcf8574_address < PCF8574_ADDR2 + 8)) {
@@ -157,6 +164,9 @@ ALLOCMEM
     PCF8574_Deinit();
     return false;
   }
+
+  SetTasmotaGlobal(5 , rel_inverted);
+  SetTasmotaGlobal(6, devices_present);
   initialized = true;
   return true;
 }
@@ -212,22 +222,27 @@ SETREGS
     return;
   }
 
-  WSContentStart_P(D_CONFIGURE_PCF8574);
+  WSContentStart_P(GSTR(D_CONFIGURE_PCF8574));
   WSContentSendStyle();
-  WSContentSend_P(HTTP_FORM_I2C_PCF8574_1, (Settings->flag3.pcf8574_ports_inverted)
+  WSContentSend_P(GSTR(HTTP_FORM_I2C_PCF8574_1), (Settings->flag3.pcf8574_ports_inverted)
                                                ? " checked"
                                                : "");  // SetOption81 - Invert all ports on PCF8574 devices
-  WSContentSend_P(HTTP_TABLE100);
+  WSContentSend_P(GSTR(HTTP_TABLE100));
   for (uint32_t idx = 0; idx < Pcf8574.max_devices; idx++) {
     for (uint32_t idx2 = 0; idx2 < 8; idx2++) {  // 8 ports on PCF8574
       uint8_t helper = 1 << idx2;
-      WSContentSend_P(HTTP_FORM_I2C_PCF8574_2, idx + 1, idx2, idx2 + 8 * idx, idx2 + 8 * idx,
-                      ((helper & Settings->pcf8574_config[idx]) >> idx2 == 0) ? " selected " : " ",
-                      ((helper & Settings->pcf8574_config[idx]) >> idx2 == 1) ? " selected " : " ");
+      char s1[10];
+      char s2[2];
+      strcpy_P(s1, PSTR(" selected"));
+      s2[0] = ' ';
+      s2[1] = 0;
+      WSContentSend_P(GSTR(HTTP_FORM_I2C_PCF8574_2), idx + 1, idx2, idx2 + 8 * idx, idx2 + 8 * idx,
+                      ((helper & Settings->pcf8574_config[idx]) >> idx2 == 0) ? s1 : s2,
+                      ((helper & Settings->pcf8574_config[idx]) >> idx2 == 1) ? s1 : s2);
     }
   }
   WSContentSend_P(PSTR("</table>"));
-  WSContentSend_P(HTTP_FORM_END);
+  WSContentSend_P(GSTR(HTTP_FORM_END));
   WSContentSpaceButton(BUTTON_CONFIGURATION, true);
   WSContentStop();
 }
@@ -270,9 +285,19 @@ SETREGS
 }
 #endif  // USE_WEBSERVER
 
+void Pcf8574_AddButton() {
+  SETREGS
+  WSContentSend_P(GSTR(HTTP_BTN_MENU_PCF8574));
+}
+
+void Pcf8574_SetHandler() {
+  SETREGS
+  WebServer_on(PSTR("/pcf"), HandlePcf8574);
+}
+
 void PCF8574_Deinit(void) {
 SETREGS
-
+  I2cResetActive(PCF8574_ADDR1, 0);
 RETMEM
 }
 /*********************************************************************************************\
@@ -280,32 +305,25 @@ RETMEM
 \*********************************************************************************************/
 
 int32_t mod_func_execute(uint32_t function) {
-
   bool result = false;
 
-  if (FUNC_INIT == function) {
-    result = Pcf8574Init();
-  } else {
-    { SETREGS
-      if (Pcf8574.type) {
-        switch (function) {
+  switch (function) {
+          case FUNC_INIT:
+            result = Pcf8574Init();
+            break;
           case FUNC_SET_POWER:
             Pcf8574SwitchRelay();
             break;
-#ifdef USE_WEBSERVER
           case FUNC_WEB_ADD_BUTTON:
-            WSContentSend_P(HTTP_BTN_MENU_PCF8574);
+            Pcf8574_AddButton();
             break;
           case FUNC_WEB_ADD_HANDLER:
-            WebServer_on("/" WEB_HANDLE_PCF8574, HandlePcf8574);
+            Pcf8574_SetHandler();
             break;
-#endif  // USE_WEBSERVER
           case FUNC_DEINIT:
 				    PCF8574_Deinit();
 				    break;
-        }
-      }
-    }
+        
   }
   return result;
 }

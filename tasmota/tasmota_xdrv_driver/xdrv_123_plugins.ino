@@ -134,6 +134,7 @@ char * tmod_GetTextIndexed(char* destination, size_t destination_size, uint32_t 
 bool WebServer_hasArg(const char * str);
 void tmod_WSContentStart_P(const char* title);
 char * tmod_strcpy_P(char *dst , const char *src);
+void tmod_WebServer_on(const char * prefix, void (*func)(void), uint8_t method ,MODULES_TABLE *mt);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -316,8 +317,10 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&WebServer_hasArg,
   JMPTBL&WebServer_on,
   JMPTBL&atoi,
-  JMPTBL&tmod_strcpy_P
+  JMPTBL&tmod_strcpy_P,
+  JMPTBL&SetTasmotaGlobal
 };
+
 
 
 char * tmod_strcpy_P(char *dst , const char *src)  {
@@ -818,8 +821,25 @@ uint32_t GetTasmotaGlobal(uint32_t sel) {
     case 4:
       return TasmotaGlobal.uptime;
       break;
+    case 5:
+      return TasmotaGlobal.rel_inverted;
+      break;
+    case 6:
+      return TasmotaGlobal.devices_present;
+      break;
   }
   return 0;
+}
+
+void SetTasmotaGlobal(uint32_t sel, uint32_t val) {
+  switch (sel) {
+    case 5:
+      TasmotaGlobal.rel_inverted = val;
+      break;
+    case 6:
+      TasmotaGlobal.devices_present = val;
+      break;
+  }
 }
 
 float GetTasmotaGlobalf(uint32_t sel) {
