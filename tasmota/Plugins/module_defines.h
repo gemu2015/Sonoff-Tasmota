@@ -151,6 +151,18 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jdirectModeInput(A)             (( void (*)(uint32_t) )                        jt[117])(A)
 #define jdirectModeOutput(A)            (( void (*)(uint32_t) )                        jt[118])(A)
 #define jCalcTempHumToAbsHum(A,B)       (( float (*)(float,float) )                    jt[119])(A,B)
+#define jWSContentSend_P(A,...)         (( void (*)(const char *, ...) )               jt[120])(A,##__VA_ARGS__)
+#define jHttpCheckPriviledgedAccess(A)  (( bool (*)(void) )                            jt[121])
+#define jWSContentStart_P(A)            (( void (*)(const char *) )                    jt[122])(A)
+#define jWSContentSendStyle             (( void (*)(void) )                            jt[123])
+#define jWSContentSpaceButton(A,B)      (( void (*)(uint32_t,bool) )                   jt[124])(A,B)
+#define jWSContentStop                  (( void (*)(void) )                            jt[125])
+#define jWebGetArg(A,B,C)               (( void (*)(const char*,char*,size_t) )        jt[126])(A,B,C)
+#define jWebRestart(A)                  (( void (*)(uint32_t) )                        jt[127])(A)
+#define jWebServer_hasArg(A)            (( bool (*)(const char *) )                    jt[128])(A)
+#define jWebServer_on(A,B,C)            (( void (*)(const char *, void (*)(void),uint8_t) ) jt[129])(A,B,C)
+#define jatoi(A)                        (( int (*)(const char *) )                     jt[130])(A)
+#define jstrcpy_P(A,B)                  (( char *(*)(char *, const char *) )           jt[131])(A,B)
 
 
 
@@ -543,6 +555,7 @@ typedef struct {
 #define   ResponseJsonEnd jResponseJsonEnd
 #define   XdrvRulesProcess jXdrvRulesProcess
 #define   WSContentSend_PD jWSContentSend_PD
+#define   WSContentSend_P jWSContentSend_P
 #define   I2cValidRead16 jI2cValidRead16
 #define   I2cResetActive jI2cResetActive
 #define   ftostrfd jftostrfd
@@ -641,7 +654,19 @@ typedef struct {
 #define gtsf2 jgtsf2
 #define floatunsisf jtmod__floatunsisf
 #define udivsi3 jtmod__udivsi3
-
+#define HttpCheckPriviledgedAccess jHttpCheckPriviledgedAccess
+#define WSContentStart_P jWSContentStart_P
+#define WebServer jWebServer
+#define WSContentSendStyle jWSContentSendStyle
+#define WSContentSpaceButton jWSContentSpaceButton
+#define WSContentStop jWSContentStop
+#define WebGetArg jWebGetArg
+#define WebRestart jWebRestart
+#define WebServer_hasArg jWebServer_hasArg
+#define WebServer_on(A,B) jWebServer_on(A,B,HTTP_ANY)
+#define atoi jatoi
+#undef strcpy_P
+#define strcpy_P jstrcpy_P
 
 
 #define FPC(A,B) jfl_const(A,B)

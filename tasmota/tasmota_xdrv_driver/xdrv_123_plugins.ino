@@ -120,6 +120,7 @@ int tmod_snprintf_P(char *s, size_t n,  const char *format, va_list va);
 int tmod_sprintf_P(char *s, const char *format, va_list va);
 int tmod_ResponseAppend_P(const char* format, va_list va);
 void tmod_WSContentSend_PD(const char* format, va_list va);
+void tmod_WSContentSend_P(const char* format, va_list va);
 float fl_const(int32_t m, int32_t d);
 char *tm_trim(char *s);
 void tmod_vTaskEnterCritical( void * );
@@ -130,6 +131,9 @@ void directWriteHigh(uint32_t pin);
 void directModeInput(uint32_t pin);
 void directModeOutput(uint32_t pin);
 char * tmod_GetTextIndexed(char* destination, size_t destination_size, uint32_t index, const char* haystack);
+bool WebServer_hasArg(const char * str);
+void tmod_WSContentStart_P(const char* title);
+char * tmod_strcpy_P(char *dst , const char *src);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -290,8 +294,43 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&directWriteHigh,
   JMPTBL&directModeInput,
   JMPTBL&directModeOutput,
-  JMPTBL&CalcTempHumToAbsHum
+  JMPTBL&CalcTempHumToAbsHum,
+#if defined(ESP8266) || defined(__riscv)
+  JMPTBL&WSContentSend_P,
+#else
+  JMPTBL&tmod_WSContentSend_P,
+#endif
+  JMPTBL&HttpCheckPriviledgedAccess,
+#if defined(ESP8266) || defined(__riscv)
+  JMPTBL&tmod_WSContentStart_P,
+#else
+#endif
+  JMPTBL&WSContentSendStyle,
+  JMPTBL&WSContentSpaceButton,
+  JMPTBL&WSContentStop,
+#if defined(ESP8266) || defined(__riscv)
+  JMPTBL&WebGetArg,
+#else
+#endif
+  JMPTBL&WebRestart,
+  JMPTBL&WebServer_hasArg,
+  JMPTBL&WebServer_on,
+  JMPTBL&atoi,
+  JMPTBL&tmod_strcpy_P
 };
+
+
+char * tmod_strcpy_P(char *dst , const char *src)  {
+  return strcpy_P(dst, src);
+} 
+
+bool WebServer_hasArg(const char * str) {
+  return 0;
+}
+
+void tmod_WSContentStart_P(const char* title) {
+  WSContentStart_P(title);
+}
 
 void tmod_vTaskEnterCritical( void *mux ) {
 #ifdef ESP32
@@ -577,6 +616,14 @@ void tmod_WSContentSend_PD(const char* format, va_list va) {
 #ifdef ESP32
   char *fcopy = copyStr(format);
   WSContentSend_PD(fcopy, va);
+  free(fcopy);
+#endif
+}
+
+void tmod_WSContentSend_P(const char* format, va_list va) {
+#ifdef ESP32
+  char *fcopy = copyStr(format);
+  WSContentSend_P(fcopy, va);
   free(fcopy);
 #endif
 }
@@ -2123,12 +2170,16 @@ bool Xdrv123(uint32_t function) {
         }
       }
       break;
-    case FUNC_INIT:
+    case FUNC_PRE_INIT:
       InitModules();
+      break;
+    case FUNC_INIT:
       break;
     case FUNC_EVERY_100_MSECOND:
     case FUNC_EVERY_250_MSECOND:
     case FUNC_EVERY_SECOND:
+    case FUNC_WEB_ADD_BUTTON:
+    case FUNC_SET_POWER:
       if (plugins.ready) {
         Module_Execute(function);
       }
@@ -2158,6 +2209,7 @@ bool Xdrv123(uint32_t function) {
         Webserver->on("/mo_upl", Module_upload);
         Webserver->on("/modu", HTTP_GET, Module_upload);
         Webserver->on("/modu", HTTP_POST,[](){Webserver->sendHeader(F("Location"),F("/modu"));Webserver->send(303);}, Module_HandleUploadLoop);
+        Module_Execute(function);
       }
       break;
       

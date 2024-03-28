@@ -10,9 +10,15 @@ import os
 # now edit remaining issues
 
 # edit this path
-#file = 'xsns_70_veml6075.ino'
-file = 'xxsns_05_ds18x20.ino'
+#file = 'xdrv_28_pcf8574.ino'
 
+def ireplace(old, new, text):
+    """ 
+    Replace case insensitive
+    Raises ValueError if string not found
+    """
+    index_l = text.lower().index(old.lower())
+    return text[:index_l] + new + text[index_l + len(old):] 
 
 platform = env.PioPlatform()
 board = env.BoardConfig()
@@ -28,9 +34,13 @@ with open(fpath) as f:
     f.close()
 
 fpart = file.split("_")
-dnum = "Xsns"+fpart[1]
+#dnum = "Xsns"+fpart[1]
+dnum = fpart[0]+fpart[1]
 type = fpart[0]
-source = source.replace(dnum, "mod_func_execute")
+#source = source.replace(dnum, "mod_func_execute")
+
+source = ireplace(dnum, "mod_func_execute", source)
+
 module = fpart[2]
 module = module.split(".")[0]
 
@@ -65,16 +75,17 @@ while cnt < len(lines):
     cline = oline.strip()
     #print(cline)
     cnt+=1
-    if cline.count("(") :
-        # function definition, get function name
-        index = cline.find("(")
-        p1 = cline[:index]
-        p2 = p1.split(" ")
-        i2 = cline.find(")")
-        p3 = cline[index:i2+1]
-        func_list.append(p2)
-        func_names.append(p2[-1])
-        func_args.append(p3)
+    if cline.startswith("//") == False and cline.startswith("/*") == False:
+        if cline.count("(") :
+            # function definition, get function name
+            index = cline.find("(")
+            p1 = cline[:index]
+            p2 = p1.split(" ")
+            i2 = cline.find(")")
+            p3 = cline[index:i2+1]
+            func_list.append(p2)
+            func_names.append(p2[-1])
+            func_args.append(p3)
 
 def_func = []
 
