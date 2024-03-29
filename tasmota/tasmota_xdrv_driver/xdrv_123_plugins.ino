@@ -642,6 +642,8 @@ void tmod_WebGetArg(const char* arg, char* out, size_t max) {
 #else
   char *fcopy = copyStr(arg);
   WebGetArg(fcopy, out, max);
+  String s = Webserver->arg(fcopy);
+  strlcpy(out, s.c_str(), max);
   free(fcopy);
 #endif
 }
@@ -841,22 +843,22 @@ bool hardwareSerialTS(TasmotaSerial *ts) {
 
 uint32_t GetTasmotaGlobal(uint32_t sel) {
   switch (sel) {
-    case 1:
+    case tele_period:
       return TasmotaGlobal.tele_period;
       break;
-    case 2:
+    case global_update:
       return TasmotaGlobal.global_update;
       break;
-    case 3:
+    case humidity:
       return TasmotaGlobal.humidity;
       break;
-    case 4:
+    case uptime:
       return TasmotaGlobal.uptime;
       break;
-    case 5:
+    case rel_inverted:
       return TasmotaGlobal.rel_inverted;
       break;
-    case 6:
+    case devices_present:
       return TasmotaGlobal.devices_present;
       break;
   }
@@ -865,10 +867,10 @@ uint32_t GetTasmotaGlobal(uint32_t sel) {
 
 void SetTasmotaGlobal(uint32_t sel, uint32_t val) {
   switch (sel) {
-    case 5:
+    case rel_inverted:
       TasmotaGlobal.rel_inverted = val;
       break;
-    case 6:
+    case devices_present:
       TasmotaGlobal.devices_present = val;
       break;
   }

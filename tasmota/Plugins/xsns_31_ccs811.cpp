@@ -163,9 +163,9 @@ void CCS811_Update(void) {
         TVOC = CCS811_getTVOC();
         eCO2 = CCS811_geteCO2();
         CCS811_ready = 1;
-        if (GetTasmotaGlobal(2) && (GetTasmotaGlobal(3) > 0) && !isnan(JGetTasmotaGf(0))) {
-          uint16_t hum = GetTasmotaGlobal(3);
-          float temp = JGetTasmotaGf(0);
+        if (GetTasmotaGlobal(global_update) && (GetTasmotaGlobal(humidity) > 0) && !isnan(JGetTasmotaGf(temperature_celsius))) {
+          uint16_t hum = GetTasmotaGlobal(humidity);
+          float temp = JGetTasmotaGf(temperature_celsius);
           CCS811_setEnvironmentalData(hum, temp);
         }
         ecnt = 0;

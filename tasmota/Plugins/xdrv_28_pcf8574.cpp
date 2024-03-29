@@ -109,7 +109,6 @@ SETREGS
 int32_t Pcf8574Init(void) {
 ALLOCMEM
 
-
   rel_inverted = GetTasmotaGlobal(5);
   devices_present = GetTasmotaGlobal(6);
 
