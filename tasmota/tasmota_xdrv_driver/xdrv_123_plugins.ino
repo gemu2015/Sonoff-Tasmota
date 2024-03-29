@@ -134,7 +134,7 @@ char * tmod_GetTextIndexed(char* destination, size_t destination_size, uint32_t 
 bool WebServer_hasArg(const char * str);
 void tmod_WSContentStart_P(const char* title);
 char * tmod_strcpy_P(char *dst , const char *src);
-void tmod_WebServer_on(const char * prefix, void (*func)(void), uint8_t method ,MODULES_TABLE *mt);
+void tmod_WebServer_on(const char * prefix, void (*func)(void), uint8_t method);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -302,37 +302,59 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_WSContentSend_P,
 #endif
   JMPTBL&HttpCheckPriviledgedAccess,
-#if defined(ESP8266) || defined(__riscv)
   JMPTBL&tmod_WSContentStart_P,
-#else
-#endif
   JMPTBL&WSContentSendStyle,
   JMPTBL&WSContentSpaceButton,
   JMPTBL&WSContentStop,
-#if defined(ESP8266) || defined(__riscv)
-  JMPTBL&WebGetArg,
-#else
-#endif
+  JMPTBL&tmod_WebGetArg,
   JMPTBL&WebRestart,
   JMPTBL&WebServer_hasArg,
-  JMPTBL&WebServer_on,
+  JMPTBL&tmod_WebServer_on,
   JMPTBL&atoi,
   JMPTBL&tmod_strcpy_P,
   JMPTBL&SetTasmotaGlobal
 };
 
 
+void tmod_WebServer_on(const char * prefix, void (*func)(void), uint8_t method) {
+#if defined(ESP8266) || defined(__riscv)
+  WebServer_on(prefix, func, method);
+#else
+  char *fcopy = copyStr(prefix);
+  WebServer_on(fcopy, func, method);
+  free(fcopy);
+#endif
+}
+
+
 
 char * tmod_strcpy_P(char *dst , const char *src)  {
+#if defined(ESP8266) || defined(__riscv)
   return strcpy_P(dst, src);
+#else
+  char *fcopy = copyStr(src);
+  char *out = strcpy_P(dst, fcopy);
+  free(fcopy);
+  return out;
+#endif
 } 
 
 bool WebServer_hasArg(const char * str) {
-  return 0;
+  //return Webserver->hasArg(str);
+  char *fcopy = copyStr(str);
+  bool out = Webserver->hasArg(fcopy);
+  free(fcopy);
+  return out;
 }
 
 void tmod_WSContentStart_P(const char* title) {
-  WSContentStart_P(title);
+#if defined(ESP8266) || defined(__riscv)
+   WSContentStart_P(title);
+#else
+  char *fcopy = copyStr(title);
+  WSContentStart_P(fcopy);
+  free(fcopy);
+#endif
 }
 
 void tmod_vTaskEnterCritical( void *mux ) {
@@ -612,6 +634,16 @@ int tmod_ResponseAppend_P(const char* format, va_list va) {
   free(fcopy);
 #endif
   return res;
+}
+
+void tmod_WebGetArg(const char* arg, char* out, size_t max) {
+#if defined(ESP8266) || defined(__riscv)
+  WebGetArg(arg, out, max);
+#else
+  char *fcopy = copyStr(arg);
+  WebGetArg(fcopy, out, max);
+  free(fcopy);
+#endif
 }
 
 
@@ -1786,8 +1818,12 @@ void Module_upload() {
 
   WSContentSend_P(MOD_FORM_FILE_UPGc, WebColor(COL_TEXT), MAX_PLUGINS, MOD_FreeSlots());
 
+#ifdef EXECUTE_FROM_BINARY
+  WSContentSend_P(MOD_FORM_FILE_UPG, PSTR("Plugin upload disabled"));
+#else
   WSContentSend_P(MOD_FORM_FILE_UPG, PSTR("Plugin upload"));
-  
+#endif
+
   WSContentSend_P(PSTR("<div>"));
   WSContentSend_P(HTTP_MODULES_SCRIPT);
   WSContentSend_P(HTTP_SCRIPT_ROOT, Settings->web_refresh, Settings->web_refresh);

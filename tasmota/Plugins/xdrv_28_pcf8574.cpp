@@ -52,11 +52,13 @@ typedef struct {
   PCF8574 Pcf8574;
   uint8_t devices_present;
   uint8_t rel_inverted;
+  bool handler_up;
 } MODULE_MEMORY;
 
 #define Pcf8574 mem->Pcf8574
 #define devices_present mem->devices_present
 #define rel_inverted mem->rel_inverted
+#define handler_up mem->handler_up
 
 
 
@@ -200,8 +202,9 @@ const char HTTP_FORM_I2C_PCF8574_1[] PROGMEM =
     "<p><input id='b1' name='b1' type='checkbox'%s><b>" D_INVERT_PORTS "</b></p><hr/>";
 
 const char HTTP_FORM_I2C_PCF8574_2[] PROGMEM = "<tr><td><b>" D_DEVICE " %d " D_PORT
-                                               " %d</b></td><td style='width:100px'><select id='i2cs%d' name='i2cs%d'>"
-                                               "<option%s value='0'>" D_DEVICE_INPUT
+                                               " %d</b></td><td style='width:100px'><select id='i2cs%d' name='i2cs%d'>";
+
+const char HTTP_FORM_I2C_PCF8574_2b[] PROGMEM = "<option%s value='0'>" D_DEVICE_INPUT
                                                "</option>"
                                                "<option%s value='1'>" D_DEVICE_OUTPUT
                                                "</option>"
@@ -216,31 +219,42 @@ SETREGS
 
   AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_HTTP D_CONFIGURE_PCF8574));
 
-  if (WebServer_hasArg("save")) {
+  if ( WebServer_hasArg(PSTR("save")) ) {
     Pcf8574SaveSettings();
     WebRestart(1);
     return;
   }
 
-  WSContentStart_P(GSTR(D_CONFIGURE_PCF8574));
+  WSContentStart_P(PSTR(D_CONFIGURE_PCF8574));
   WSContentSendStyle();
+
+  char s1[12];
+  char s2[2];
+  strcpy_P(s1, PSTR(" checked"));
+  s2[0] = 0;
+
   WSContentSend_P(GSTR(HTTP_FORM_I2C_PCF8574_1), (Settings->flag3.pcf8574_ports_inverted)
-                                               ? " checked"
-                                               : "");  // SetOption81 - Invert all ports on PCF8574 devices
+                                               ? s1
+                                               : s2);  // SetOption81 - Invert all ports on PCF8574 devices
   WSContentSend_P(GSTR(HTTP_TABLE100));
+
+  strcpy_P(s1, PSTR(" selected"));
+  s2[0] = ' ';
+  s2[1] = 0;
+
   for (uint32_t idx = 0; idx < Pcf8574.max_devices; idx++) {
     for (uint32_t idx2 = 0; idx2 < 8; idx2++) {  // 8 ports on PCF8574
-      uint8_t helper = 1 << idx2;
-      char s1[10];
-      char s2[2];
-      strcpy_P(s1, PSTR(" selected"));
-      s2[0] = ' ';
-      s2[1] = 0;
-      WSContentSend_P(GSTR(HTTP_FORM_I2C_PCF8574_2), idx + 1, idx2, idx2 + 8 * idx, idx2 + 8 * idx,
+      uint8_t helper = 1 << idx2;    
+
+      // esp32 tensililca via valist connot support so many parameters
+      WSContentSend_P(GSTR(HTTP_FORM_I2C_PCF8574_2), idx + 1, idx2, idx2 + 8 * idx, idx2 + 8 * idx);
+      WSContentSend_P(GSTR(HTTP_FORM_I2C_PCF8574_2b),
                       ((helper & Settings->pcf8574_config[idx]) >> idx2 == 0) ? s1 : s2,
                       ((helper & Settings->pcf8574_config[idx]) >> idx2 == 1) ? s1 : s2);
+    
     }
   }
+  
   WSContentSend_P(PSTR("</table>"));
   WSContentSend_P(GSTR(HTTP_FORM_END));
   WSContentSpaceButton(BUTTON_CONFIGURATION, true);
@@ -255,7 +269,7 @@ SETREGS
 
   // AddLog_P(LOG_LEVEL_DEBUG, PSTR("PCF: Start working on Save arguements: inverted:%d")), WebServer->hasArg("b1");
 
-  Settings->flag3.pcf8574_ports_inverted = WebServer_hasArg("b1");  // SetOption81 - Invert all ports on PCF8574 devices
+  Settings->flag3.pcf8574_ports_inverted = WebServer_hasArg(PSTR("b1"));  // SetOption81 - Invert all ports on PCF8574 devices
   for (byte idx = 0; idx < Pcf8574.max_devices; idx++) {
     byte count = 0;
     byte n = Settings->pcf8574_config[idx];
@@ -288,11 +302,10 @@ SETREGS
 void Pcf8574_AddButton() {
   SETREGS
   WSContentSend_P(GSTR(HTTP_BTN_MENU_PCF8574));
-}
-
-void Pcf8574_SetHandler() {
-  SETREGS
-  WebServer_on(PSTR("/pcf"), HandlePcf8574);
+  if (!handler_up) {
+    WebServer_on(PSTR("/pcf"), HandlePcf8574);
+    handler_up = true;
+  }
 }
 
 void PCF8574_Deinit(void) {
@@ -316,9 +329,6 @@ int32_t mod_func_execute(uint32_t function) {
             break;
           case FUNC_WEB_ADD_BUTTON:
             Pcf8574_AddButton();
-            break;
-          case FUNC_WEB_ADD_HANDLER:
-            Pcf8574_SetHandler();
             break;
           case FUNC_DEINIT:
 				    PCF8574_Deinit();
