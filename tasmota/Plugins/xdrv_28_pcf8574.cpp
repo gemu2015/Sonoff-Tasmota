@@ -201,9 +201,8 @@ const char HTTP_FORM_I2C_PCF8574_1[] PROGMEM =
     "<p><input id='b1' name='b1' type='checkbox'%s><b>" D_INVERT_PORTS "</b></p><hr/>";
 
 const char HTTP_FORM_I2C_PCF8574_2[] PROGMEM = "<tr><td><b>" D_DEVICE " %d " D_PORT
-                                               " %d</b></td><td style='width:100px'><select id='i2cs%d' name='i2cs%d'>";
-
-const char HTTP_FORM_I2C_PCF8574_2b[] PROGMEM = "<option%s value='0'>" D_DEVICE_INPUT
+                                               " %d</b></td><td style='width:100px'><select id='i2cs%d' name='i2cs%d'>"
+                                               "<option%s value='0'>" D_DEVICE_INPUT
                                                "</option>"
                                                "<option%s value='1'>" D_DEVICE_OUTPUT
                                                "</option>"
@@ -235,6 +234,7 @@ SETREGS
   WSContentSend_P(GSTR(HTTP_FORM_I2C_PCF8574_1), (Settings->flag3.pcf8574_ports_inverted)
                                                ? s1
                                                : s2);  // SetOption81 - Invert all ports on PCF8574 devices
+
   WSContentSend_P(GSTR(HTTP_TABLE100));
 
   strcpy_P(s1, PSTR(" selected"));
@@ -245,9 +245,8 @@ SETREGS
     for (uint32_t idx2 = 0; idx2 < 8; idx2++) {  // 8 ports on PCF8574
       uint8_t helper = 1 << idx2;    
 
-      // esp32 tensililca via valist connot support so many parameters
-      WSContentSend_P(GSTR(HTTP_FORM_I2C_PCF8574_2), idx + 1, idx2, idx2 + 8 * idx, idx2 + 8 * idx);
-      WSContentSend_P(GSTR(HTTP_FORM_I2C_PCF8574_2b),
+      uint32_t idn = idx2 + 8 * idx;
+      WSContentSend_P(GSTR(HTTP_FORM_I2C_PCF8574_2), idx + 1, idx2, idn, idn,
                       ((helper & Settings->pcf8574_config[idx]) >> idx2 == 0) ? s1 : s2,
                       ((helper & Settings->pcf8574_config[idx]) >> idx2 == 1) ? s1 : s2);
     

@@ -116,11 +116,11 @@ int tmod_strncasecmp_P(const char* s1, const char *s2, size_t len);
 char *copyStr(const char * str);
 void tmod_setClockStretchLimit(TwoWire *wp, uint32_t val);
 void tmod_writen(TwoWire *wp, uint8_t *buf, uint32_t len);
-int tmod_snprintf_P(char *s, size_t n,  const char *format, va_list va);
-int tmod_sprintf_P(char *s, const char *format, va_list va);
-int tmod_ResponseAppend_P(const char* format, va_list va);
-void tmod_WSContentSend_PD(const char* format, va_list va);
-void tmod_WSContentSend_P(const char* format, va_list va);
+int tmod_snprintf_P(char *s, size_t n,  const char *format, ...);
+int tmod_sprintf_P(char *s, const char *format, ...);
+int tmod_ResponseAppend_P(const char* format, ...);
+void tmod_WSContentSend_PD(const char* format, ...);
+void tmod_WSContentSend_P(const char* format, ...);
 float fl_const(int32_t m, int32_t d);
 char *tm_trim(char *s);
 void tmod_vTaskEnterCritical( void * );
@@ -606,31 +606,57 @@ int tmod_strncasecmp_P(const char *s1, const char *s2, size_t len) {
 
 }
 
-int tmod_snprintf_P(char *s, size_t n,  const char *format, va_list va) {
+int tmod_snprintf_P(char *str, size_t strSize,  const char *format, ...) {
 int res = 0;
 #ifdef ESP32
   char *fcopy = copyStr(format);
-  res = snprintf_P(s, n, fcopy, va);
+  va_list arglist;
+  va_start(arglist, format);
+  res = vsnprintf_P(str, strSize, fcopy, arglist);
+  va_end(arglist);
   free(fcopy);
 #endif
   return res;
 }
 
-int tmod_sprintf_P(char *s, const char *format, va_list va) {
+#define SIZE_IRRELEVANT 0x7fffffff
+
+int tmod_sprintf_P(char *str, const char *format, ...) {
 int res = 0;
 #ifdef ESP32
   char *fcopy = copyStr(format);
-  res = sprintf_P(s, fcopy, va);
+  va_list arglist;
+  va_start(arglist, format);
+  res = vsnprintf_P(str, SIZE_IRRELEVANT, fcopy, arglist);
+  va_end(arglist);
   free(fcopy);
 #endif
   return res;
 }
 
-int tmod_ResponseAppend_P(const char* format, va_list va) {
+int tmod_ResponseAppend_P(const char* format, ...) {
   int res = 0;
 #ifdef ESP32
   char *fcopy = copyStr(format);
-  res = ResponseAppend_P(fcopy, va);
+   // This uses char strings. Be aware of sending %% if % is needed
+#ifdef MQTT_DATA_STRING
+  va_list arg;
+  va_start(arg, format);
+  char* mqtt_data = ext_vsnprintf_malloc_P(fcopy, arg);
+  va_end(arg);
+  if (mqtt_data != nullptr) {
+    TasmotaGlobal.mqtt_data += mqtt_data;
+    free(mqtt_data);
+  }
+  res = TasmotaGlobal.mqtt_data.length();
+#else
+  va_list args;
+  va_start(args, format);
+  int mlen = ResponseLength();
+  int len = ext_vsnprintf_P(TasmotaGlobal.mqtt_data + mlen, ResponseSize() - mlen, fcopy, args);
+  va_end(args);
+  res = len + mlen;
+#endif
   free(fcopy);
 #endif
   return res;
@@ -644,26 +670,36 @@ void tmod_WebGetArg(const char* arg, char* out, size_t max) {
   WebGetArg(fcopy, out, max);
   String s = Webserver->arg(fcopy);
   strlcpy(out, s.c_str(), max);
+  AddLog(LOG_LEVEL_INFO,PSTR(">>> %s - %s"), fcopy, out);
   free(fcopy);
 #endif
 }
 
 
-void tmod_WSContentSend_PD(const char* format, va_list va) {
+void tmod_WSContentSend_PD(const char* format, ...) {
 #ifdef ESP32
   char *fcopy = copyStr(format);
-  WSContentSend_PD(fcopy, va);
+  va_list arg;
+  va_start(arg, format);
+  _WSContentSendBuffer(true, fcopy, arg);
+  va_end(arg);
   free(fcopy);
 #endif
 }
 
-void tmod_WSContentSend_P(const char* format, va_list va) {
+void tmod_WSContentSend_P(const char* format, ...) {
 #ifdef ESP32
   char *fcopy = copyStr(format);
-  WSContentSend_P(fcopy, va);
+  //WSContentSend_P(fcopy, va);
+  va_list arg;
+  va_start(arg, format);
+  _WSContentSendBuffer(false, fcopy, arg);
+  va_end(arg);
   free(fcopy);
 #endif
 }
+
+
 
 void AddlogT(char* txt) {
    AddLog(LOG_LEVEL_INFO ,PSTR("%s"), txt);

@@ -556,6 +556,9 @@ typedef struct {
 #define   XdrvRulesProcess jXdrvRulesProcess
 #define   WSContentSend_PD jWSContentSend_PD
 #define   WSContentSend_P jWSContentSend_P
+
+//#define   WSContentSend_P(A,...) {char *xyz=jcopyStr(A); jWSContentSend_P(xyz,__VA_ARGS__); free(xyz);}
+
 #define   I2cValidRead16 jI2cValidRead16
 #define   I2cResetActive jI2cResetActive
 #define   ftostrfd jftostrfd
