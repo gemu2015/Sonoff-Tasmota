@@ -984,6 +984,7 @@ char   mod_name[16];
 bool ready;
 } plugins;
 
+// 35 + 8 x MODULES_TABLE (28) = about 260 Bytes
 MODULES_TABLE modules[MAX_PLUGINS];
 
 #define MOD_EXEC(A)  fm->mod_func_execute(A)
