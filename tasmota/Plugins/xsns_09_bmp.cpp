@@ -323,18 +323,17 @@ pressure_t    compensatePressure(int32_t adc_P) {
   SETREGS
   int32_t var1, var2;
   uint32_t p;
-  var1 = (((int32_t)_t_fine)>>1) - (int32_t)64000;
+  var1 = (((int32_t)_t_fine)>>1) - (int32_t)ICONST(64000);
   var2 = (((var1>>2) * (var1>>2)) >> 11 ) * ((int32_t)bmc._dig_P6);
   var2 = var2 + ((var1*((int32_t)bmc._dig_P5))<<1);
   var2 = (var2>>2)+(((int32_t)bmc._dig_P4)<<16);
   var1 = (((bmc._dig_P3 * (((var1>>2) * (var1>>2)) >> 13 )) >> 3) + ((((int32_t)bmc._dig_P2) * var1)>>1))>>18;
-  var1 =((((32768+var1))*((int32_t)bmc._dig_P1))>>15);
-  if (var1 == 0)
-  {
+  var1 =((((ICONST(32768)+var1))*((int32_t)bmc._dig_P1))>>15);
+  if (var1 == 0) {
     return 0; // avoid exception caused by division by zero
   }
-  p = (((uint32_t)(((int32_t)1048576)-adc_P)-(var2>>12)))*3125;
-  if (p < 0x80000000) {
+  p = (((uint32_t)(((int32_t)ICONST(1048576))-adc_P)-(var2>>12)))*ICONST(3125);
+  if (p < ICONST(0x80000000)) {
     // p = (p << 1) / ((uint32_t)var1);
     p = tmod__udivsi3((p << 1) , (uint32_t)var1);
   } else {
@@ -354,14 +353,14 @@ pressure_t    compensatePressure(int32_t adc_P) {
 humidity_t    compensateHumidity(int32_t adc_H) {
   SETREGS
   int32_t v_x1_u32r;
-  v_x1_u32r = (_t_fine - ((int32_t)76800));
+  v_x1_u32r = (_t_fine - ((int32_t)ICONST(76800)));
   v_x1_u32r = (((((adc_H << 14) - (((int32_t)bmc._dig_H4) << 20) - (((int32_t)bmc._dig_H5) * v_x1_u32r)) +
       ((int32_t)16384)) >> 15) * (((((((v_x1_u32r * ((int32_t)bmc._dig_H6)) >> 10) * (((v_x1_u32r *
-      ((int32_t)bmc._dig_H3)) >> 11) + ((int32_t)32768))) >> 10) + ((int32_t)2097152)) *
-      ((int32_t)bmc._dig_H2) + 8192) >> 14));
+      ((int32_t)bmc._dig_H3)) >> 11) + ((int32_t)ICONST(32768)))) >> 10) + ((int32_t)ICONST(2097152))) *
+      ((int32_t)bmc._dig_H2) + ICONST(8192)) >> 14));
   v_x1_u32r = (v_x1_u32r - (((((v_x1_u32r >> 15) * (v_x1_u32r >> 15)) >> 7) * ((int32_t)bmc._dig_H1)) >> 4));
   v_x1_u32r = (v_x1_u32r < 0 ? 0 : v_x1_u32r);
-  v_x1_u32r = (v_x1_u32r > 419430400 ? 419430400 : v_x1_u32r);
+  v_x1_u32r = (v_x1_u32r > ICONST(419430400) ? ICONST(419430400) : v_x1_u32r);
   return (uint32_t)(v_x1_u32r>>12);
 }
 
@@ -375,15 +374,14 @@ void    BME_Every_Second() {
   
   r_temp =  compensateTemperature(r_temp); // First call this before calling the other compensate functions.
   r_press =  compensatePressure(r_press); // Uses value calculated by compensateTemperature.
-  temp =  fscale(r_temp, (float)0.01, (float)0);
-  press = fscale(r_press, (float)0.01, (float)0);
+  temp =  fscale(r_temp, FPC_0x01, FPC_0);
+  press = fscale(r_press, FPC_0x01, FPC_0);
 
 
   if (type == BME280_CHIPID) {
     uint16_t r_hum =  BME_Read(BME280_HUMIDITY, 2);
     r_hum =  compensateHumidity(r_hum); // Uses value calculated by compensateTemperature.
-    hum = fscale(r_hum, (float)0.00097656, (float)0);
-  
+    hum = fscale(r_hum, FPC_0x00097656, FPC_0);
     abshum =  CalcTempHumToAbsHum(temp, hum);
     
   }
@@ -396,14 +394,14 @@ void    BME_Show(uint32_t json) {
 
   if (ready == false) return;
 
-  SETTINGS *jsettings = mt->settings;
+  SETTINGS *settings = mt->settings;
 
   char temp_tstr[16];
-  ftostrfd(temp, jsettings->flag2.temperature_resolution, temp_tstr);
+  ftostrfd(temp, settings->flag2.temperature_resolution, temp_tstr);
   char press_tstr[16];
-  ftostrfd(press, jsettings->flag2.pressure_resolution, press_tstr);
+  ftostrfd(press, settings->flag2.pressure_resolution, press_tstr);
   char hum_tstr[16];
-  ftostrfd(hum, jsettings->flag2.humidity_resolution, hum_tstr);
+  ftostrfd(hum, settings->flag2.humidity_resolution, hum_tstr);
   char ahum_tstr[16];
   ftostrfd(abshum, 4, ahum_tstr);
   

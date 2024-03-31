@@ -677,14 +677,19 @@ typedef struct {
 // floating point constants must be defined here
 #ifdef __riscv
 #define FPC_n999 jfl_const(-999,1)
+#define FPC_0x01 jfl_const(1,100)
 #define FPC_0x02 jfl_const(2,100)
 #define FPC_273x15 jfl_const(27315,100)
+#define FPC_0x00097656 jfl_const(97656,100000000)
 #define FPC_0 jfl_const(0,0)
 #else
 #define FPC_n999 -999
+#define FPC_0x01 0.01
 #define FPC_0x02 0.02
 #define FPC_273x15 273.15
+#define FPC_0x00097656 0.00097656
 #define FPC_0 jfl_const(0,0)
+
 #endif
 
 // floating point zero is always global symbol on esp32 
@@ -697,7 +702,11 @@ typedef struct {
 #ifdef ESP8266
 #define ICONST(A) A
 #else
+#ifdef __riscv
+#define ICONST(A) A
+#else
 #define ICONST(A) fixunssfsi(A)
+#endif
 #endif
 
 
