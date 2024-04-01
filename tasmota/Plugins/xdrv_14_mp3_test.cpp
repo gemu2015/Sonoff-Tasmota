@@ -318,8 +318,7 @@ bool MP3PlayerCmd() {
   size_t disp_len = strlen((char*)GSTR(d_mp3));
 
   if (!strncasecmp_P(XdrvMailbox->topic, GSTR(d_mp3), disp_len)) {  // prefix
-    char *cp = copyStr(GSTR(kMP3_Commands));
-    int command_code = GetCommandCode(command, sizeof(command), XdrvMailbox->topic + disp_len, cp);
+    int command_code = GetCommandCode(command, sizeof(command), XdrvMailbox->topic + disp_len, GSTR(kMP3_Commands));
     switch (command_code) {
       case CMND_MP3_TRACK:
       case CMND_MP3_VOLUME:
@@ -384,7 +383,6 @@ play_default:
     	  serviced = false;
     	break;
     }
-    free(cp);
   } else {
     return false;
   }

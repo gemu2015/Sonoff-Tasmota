@@ -364,6 +364,9 @@ humidity_t    compensateHumidity(int32_t adc_H) {
   return (uint32_t)(v_x1_u32r>>12);
 }
 
+// all float constants must be in progmem
+const float FP_CONST[] PROGMEM = {0, 0.01, 0.00097656};
+
 void    BME_Every_Second() {
   SETREGS
 
@@ -374,14 +377,14 @@ void    BME_Every_Second() {
   
   r_temp =  compensateTemperature(r_temp); // First call this before calling the other compensate functions.
   r_press =  compensatePressure(r_press); // Uses value calculated by compensateTemperature.
-  temp =  fscale(r_temp, FPC_0x01, FPC_0);
-  press = fscale(r_press, FPC_0x01, FPC_0);
+  temp =  fscale(r_temp, FLTC(1), FLTC(0));
+  press = fscale(r_press, FLTC(1), FLTC(0));
 
 
   if (type == BME280_CHIPID) {
     uint16_t r_hum =  BME_Read(BME280_HUMIDITY, 2);
     r_hum =  compensateHumidity(r_hum); // Uses value calculated by compensateTemperature.
-    hum = fscale(r_hum, FPC_0x00097656, FPC_0);
+    hum = fscale(r_hum, FLTC(2), FLTC(0));
     abshum =  CalcTempHumToAbsHum(temp, hum);
     
   }

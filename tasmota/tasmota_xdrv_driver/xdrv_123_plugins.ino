@@ -226,7 +226,7 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_flushTS,
   JMPTBL&tmod_beginTS,
   JMPTBL&XdrvMailbox,
-  JMPTBL&GetCommandCode,
+  JMPTBL&tmod_GetCommandCode,
   JMPTBL&strlen,
   JMPTBL&tmod_strncasecmp_P,
   JMPTBL&toupper,
@@ -518,6 +518,13 @@ void twi_readFrom(uint8_t address, uint8_t* data, uint8_t length) {
 float fl_const(int32_t m, int32_t d) {
   if (d == 0 ) return 0;
   return (float)m / (float)d;
+}
+
+int tmod_GetCommandCode(char* destination, size_t destination_size, const char* needle, const char* haystack) {
+  char *cph = copyStr(haystack);
+  int res = GetCommandCode(destination, destination_size, needle, cph);
+  free(cph);
+  return res;
 }
 
 // modified decode command, no synonyms

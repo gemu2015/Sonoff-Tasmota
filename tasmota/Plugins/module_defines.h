@@ -300,6 +300,10 @@ __asm__  (\
 #define GU8(LABEL) (const uint8_t *)LABEL+mt->execution_offset
 #define GFLT(LABEL) (float *) ((char *)LABEL+mt->execution_offset)
 
+// all floating point constants must be in progmem and named FP_CONST
+#define FLTC(INDEX) *(float *) ((char *)&FP_CONST[INDEX]+mt->execution_offset)
+
+
 //#define VTABLE(A) void (*const A[])(MODULES_TABLE*) PROGMEM
 #define VTABLE(A) void (*const A[])(void) PROGMEM
 
@@ -710,7 +714,8 @@ typedef struct {
 #ifdef __riscv
 #define ICONST(A) A
 #else
-#define ICONST(A) fixunssfsi(A)
+//#define ICONST(A) fixunssfsi(A)
+#define ICONST(A) fixsfti(A)
 #endif
 #endif
 
