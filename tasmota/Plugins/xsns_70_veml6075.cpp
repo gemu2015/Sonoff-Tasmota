@@ -169,21 +169,40 @@ void VEML6075write16(uint8_t reg, uint16_t val) {
 float VEML6075calcUVA(void) {
   SETREGS
 
-  float uva_calc = veml6075_sensor.uva_raw - (VEML6075_DEFAULT_UVA_A_COEFF * veml6075_sensor.comp1) - (VEML6075_DEFAULT_UVA_B_COEFF * veml6075_sensor.comp2);
+  //float uva_calc = veml6075_sensor.uva_raw - (VEML6075_DEFAULT_UVA_A_COEFF * veml6075_sensor.comp1) - (VEML6075_DEFAULT_UVA_B_COEFF * veml6075_sensor.comp2);
+  float fvar1 = fmul(VEML6075_DEFAULT_UVA_A_COEFF, floatunsisf(veml6075_sensor.comp1));
+  float fvar2 = fmul(VEML6075_DEFAULT_UVA_B_COEFF, floatunsisf(veml6075_sensor.comp2));
+
+  float uva_calc = fdiff(floatunsisf(veml6075_sensor.uva_raw), fadd(fvar1, fvar2));
+
   return uva_calc;
 }
 
 float VEML6075calcUVB(void) {
   SETREGS
 
-  float uvb_calc = veml6075_sensor.uvb_raw - (VEML6075_DEFAULT_UVB_C_COEFF * veml6075_sensor.comp1) - (VEML6075_DEFAULT_UVB_D_COEFF * veml6075_sensor.comp2);
+  //float uvb_calc = veml6075_sensor.uvb_raw - (VEML6075_DEFAULT_UVB_C_COEFF * veml6075_sensor.comp1) - (VEML6075_DEFAULT_UVB_D_COEFF * veml6075_sensor.comp2);
+  float fvar1 = fmul(VEML6075_DEFAULT_UVB_C_COEFF, floatunsisf(veml6075_sensor.comp1));
+  float fvar2 = fmul(VEML6075_DEFAULT_UVB_D_COEFF, floatunsisf(veml6075_sensor.comp2));
+
+  float uvb_calc = fdiff(floatunsisf(veml6075_sensor.uvb_raw), fadd(fvar1, fvar2));
+
   return uvb_calc;
 }
 
 float VEML6075calcUVI(void) {
   SETREGS
 
-  float uvi_calc = ((veml6075_sensor.uva * UVA_RESPONSIVITY[veml6075_sensor.inttime]) + (veml6075_sensor.uvb * UVB_RESPONSIVITY[veml6075_sensor.inttime])) / 2;
+  //float uvi_calc = ((veml6075_sensor.uva * UVA_RESPONSIVITY[veml6075_sensor.inttime]) + (veml6075_sensor.uvb * UVB_RESPONSIVITY[veml6075_sensor.inttime])) / 2;
+
+  float faresp = *GFLT(&UVA_RESPONSIVITY[veml6075_sensor.inttime]);
+  float fbresp = *GFLT(&UVB_RESPONSIVITY[veml6075_sensor.inttime]);
+
+  float fvar1 = fmul(floatunsisf(veml6075_sensor.uva), faresp);
+  float fvar2 = fmul(floatunsisf(veml6075_sensor.uvb), fbresp);
+
+  float uvi_calc = fadd(fvar1, fvar2);
+
   return uvi_calc;
 }
 
@@ -239,8 +258,8 @@ void VEML6075ReadData(void) {
   veml6075_sensor.comp1 = VEML6075read16(VEML6075_REG_UVCOMP1);
   veml6075_sensor.comp2 = VEML6075read16(VEML6075_REG_UVCOMP2);
   veml6075_sensor.inttime = VEML6075GetUvIt();
-  veml6075_sensor.uva = VEML6075calcUVA();
-  veml6075_sensor.uvb = VEML6075calcUVB();
+  veml6075_sensor.uva = fixunssfsi(VEML6075calcUVA());
+  veml6075_sensor.uvb = fixunssfsi(VEML6075calcUVB());
   veml6075_sensor.uvi = VEML6075calcUVI();
 }
 
@@ -289,7 +308,7 @@ bool VEML6075Cmd(void) {
   //uint8_t name_len = strlen(PSTR(D_NAME_VEML6075));
   uint8_t name_len = 8;
   if (!strncasecmp_P(XdrvMailbox->topic, PSTR(D_NAME_VEML6075), name_len)) {
-    uint32_t command_code = GetCommandCode(command, sizeof(command), XdrvMailbox->topic + name_len, kVEML6075_Commands);
+    uint32_t command_code = GetCommandCode(command, sizeof(command), XdrvMailbox->topic + name_len, GSTR(kVEML6075_Commands));
     switch (command_code) {
       case CMND_VEML6075_PWR:
         if (XdrvMailbox->data_len) {
@@ -328,8 +347,8 @@ void VEML6075Show(bool json) {
   SETREGS
 
   char s_uvindex[FLOATSZ];
-  dtostrf(veml6075_sensor.uvi, 1, 1, s_uvindex);
-
+  ftostrfd(veml6075_sensor.uvi, 1, s_uvindex);
+  
   if (json) {
     ResponseAppend_P(GSTR(JSON_SNS_VEML6075), veml6075_sensor.types, veml6075_sensor.uva, veml6075_sensor.uvb, s_uvindex);
 #ifdef USE_WEBSERVER
@@ -354,16 +373,16 @@ int32_t mod_func_execute(uint32_t function) {
       result = VEML6075Detect();
       break;
     case FUNC_EVERY_SECOND:
-     // VEML6075EverySecond();
+      VEML6075EverySecond();
       break;
     case FUNC_COMMAND:
       result = VEML6075Cmd();
       break;
     case FUNC_JSON_APPEND:
-     // VEML6075Show(1);
+      VEML6075Show(1);
       break;
     case FUNC_WEB_SENSOR:
-     // VEML6075Show(0);
+      VEML6075Show(0);
       break;
     case FUNC_DEINIT:
       VEML6075_Deinit();

@@ -297,7 +297,7 @@ __asm__  (\
 #define PSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[mt->execution_offset];}))
 #define GSTR(LABEL) (const char *)LABEL+mt->execution_offset
 #define GU8(LABEL) (const uint8_t *)LABEL+mt->execution_offset
-
+#define GFLT(LABEL) (float *) ((char *)LABEL+mt->execution_offset)
 
 //#define VTABLE(A) void (*const A[])(MODULES_TABLE*) PROGMEM
 #define VTABLE(A) void (*const A[])(void) PROGMEM
@@ -604,6 +604,8 @@ typedef struct {
 #define   tmod__divsf3  jfdiv
 #define   tmod__addsf3  jfadd
 #define   tmod__subsf3  jfdiff
+#define   fadd  jfadd
+#define   fdiff  jfdiff
 #define   GetTasmotaGlobalf JGetTasmotaGlobalf
 #define   tmod__muldi3 jtmod__muldi3
 #define   tmod__fixunssfsi jtmod__fixunssfsi
@@ -650,6 +652,8 @@ typedef struct {
 #define directModeOutput jdirectModeOutput
 #define CalcTempHumToAbsHum jCalcTempHumToAbsHum
 #define tofloat jtofloat
+
+
 #define fdiv jfdiv
 #define fmul jfmul
 #define fixunssfsi tmod__fixunssfsi
