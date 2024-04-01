@@ -312,7 +312,9 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_WebServer_on,
   JMPTBL&atoi,
   JMPTBL&tmod_strcpy_P,
-  JMPTBL&SetTasmotaGlobal
+  JMPTBL&SetTasmotaGlobal,
+  JMPTBL&tmod_fixsfti
+
 };
 
 
@@ -787,6 +789,10 @@ float tmod__floatunsisf(uint32_t in) {
 }
 
 uint32_t tmod__fixunssfsi(float in) {
+  return in;
+}
+
+int32_t tmod_fixsfti(float in) {
   return in;
 }
 
