@@ -58,6 +58,7 @@ typedef struct {
 
 // define memory used
 typedef struct {
+  TwoWire *xWire;
   uint8_t sht3x_count;
   uint8_t sht3x_addresses[3];
   SHT3XSTRUCT sht3x_sensors[SHT3X_MAX_SENSORS];
@@ -122,19 +123,21 @@ int32_t Sht3x_Detect() {
   sht3x_addresses[1] = SHT3X_ADDR_VDD;
   sht3x_addresses[2] = SHTC3_ADDR;
 
-  for (uint32_t i = 0; i < SHT3X_MAX_SENSORS; i++) {
-    // if (I2cActive(sht3x_addresses[i])) { continue; }
-    if (!I2cSetDevice(sht3x_addresses[i])) {
-      continue;
-    }
+  for (uint32_t bus = 1; bus <= 2; bus++) {
+    SETWIRE(bus);
+    for (uint32_t i = 0; i < SHT3X_MAX_SENSORS; i++) {
+      if (!I2cSetDevice(sht3x_addresses[i])) {
+        continue;
+      }
 
-    float t;
-    float h;
-    if (Sht3xRead(t, h, sht3x_addresses[i])) {
-      sht3x_sensors[sht3x_count].address = sht3x_addresses[i];
-      GetTextIndexed(sht3x_sensors[sht3x_count].types, sizeof(sht3x_sensors[sht3x_count].types), i, GSTR(kShtTypes3));
-      I2cSetActiveFound(sht3x_sensors[sht3x_count].address, sht3x_sensors[sht3x_count].types, 0);
-      sht3x_count++;
+      float t;
+      float h;
+      if (Sht3xRead(t, h, sht3x_addresses[i])) {
+        sht3x_sensors[sht3x_count].address = sht3x_addresses[i];
+        GetTextIndexed(sht3x_sensors[sht3x_count].types, sizeof(sht3x_sensors[sht3x_count].types), i, GSTR(kShtTypes3));
+        I2cSetActiveFound(sht3x_sensors[sht3x_count].address, sht3x_sensors[sht3x_count].types, 0);
+        sht3x_count++;
+      }
     }
   }
   

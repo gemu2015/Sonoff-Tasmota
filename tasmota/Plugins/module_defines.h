@@ -543,17 +543,17 @@ typedef struct {
 #define TasmotaSerial  void
 //#define TwoWire xTwoWire
 
-#define   beginTransmission(ADDR) jbeginTransmission(jWire, ADDR)
-#define   write(CMD) jwrite(jWire, CMD)
-#define   endTransmission(BUS) jendTransmission(jWire, BUS)
-#define   requestFrom(ADDR,NUM)  jrequestFrom(jWire, ADDR, NUM)
-#define   read() jread(jWire)
+#define   beginTransmission(ADDR) jbeginTransmission(mem->xWire, ADDR)
+#define   write(CMD) jwrite(mem->xWire, CMD)
+#define   endTransmission(BUS) jendTransmission(mem->xWire, BUS)
+#define   requestFrom(ADDR,NUM)  jrequestFrom(mem->xWire, ADDR, NUM)
+#define   read() jread(mem->xWire)
 #define   I2cRead8 jI2cRead8
 #define   I2cRead16 jI2cRead16
 #define   I2cWrite16 jI2cWrite16
 #define   I2cWrite8 jI2cWrite8
 #define   delay jdelay
-#define   available() javailable(jWire)
+#define   available() javailable(mem->xWire)
 #define   ConvertHumidity jConvertHumidity
 #define   GetTextIndexed jGetTextIndexed
 #define   I2cSetActiveFound jI2cSetActiveFound
@@ -647,8 +647,8 @@ typedef struct {
 #define   memcpy_P jmemmove
 #define   strncpy jstrncpy
 #define   isprint jisprint
-#define   setClockStretchLimit(VAL) jsetClockStretchLimit(jWire, VAL)
-#define   writen(BUF,LEN) jwriten(jWire,BUF,LEN)
+#define   setClockStretchLimit(VAL) jsetClockStretchLimit(mem->xWire, VAL)
+#define   writen(BUF,LEN) jwriten(mem->xWire,BUF,LEN)
 #define free jfree
 #define modff jmodff
 #define fl_const jfl_const
@@ -733,7 +733,7 @@ typedef struct {
 #endif
 #endif
 
-
+#define SETWIRE(A) if (A==1) {mem->xWire = jWire;} else {mem->xWire = jWire1;} 
 
 #ifdef __riscv
 #define PUSH_OPTIONS _Pragma("GCC push_options")\
