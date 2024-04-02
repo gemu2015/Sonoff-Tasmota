@@ -82,6 +82,8 @@ const char JSON_SNS_AHUM[] PROGMEM = ",\"aHumidity\":%s}";
 int32_t SGP30_Init() {
   ALLOCMEM
 
+  SETWIRE(0);
+
   ready = false;
   sgp30_ready = false;
 

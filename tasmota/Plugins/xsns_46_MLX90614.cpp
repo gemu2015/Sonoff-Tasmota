@@ -74,6 +74,8 @@ const char mlxdev[] PROGMEM = "MLX90614";
 int32_t Init_MLX90614() {
   ALLOCMEM 
 
+ SETWIRE(0);
+ 
   // now init variables here
   ready = false;
 
@@ -99,17 +101,20 @@ void MLX90614_Every_Second() {
 
 }
 
+// all float constants must be in progmem
+const float FP_CONST[] PROGMEM = {-999, 0.02, 273.15};
+
 float MLX90614_GetValue(uint32_t reg) {
   SETREGS
   uint16_t val = 0;
   float ret = 0;
   val = MLX90614_read16(I2_ADR_IRT, reg);
   if (val & 0x8000) {
-    ret = FPC_n999;
+    ret = FLTC(0);
   } else {
     //ret = fscale(val, (float)0.02, (float)273.15);
     //ret = ((float)val * (float)0.02) - (float)273.15;
-    ret = fscale(val, FPC_0x02, FPC_273x15);
+    ret = fscale(val, FLTC(1), FLTC(2));
   }
   return ret;
 }

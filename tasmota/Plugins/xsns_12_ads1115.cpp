@@ -219,6 +219,8 @@ int16_t Ads1115GetConversion(uint8_t channel) {
 int32_t Init_ADS1115() {
   ALLOCMEM
 
+  SETWIRE(0);
+
   Ads1115.addresses[0] = ADS1115_ADDRESS_ADDR_GND;
   Ads1115.addresses[1] = ADS1115_ADDRESS_ADDR_VDD;
   Ads1115.addresses[2] = ADS1115_ADDRESS_ADDR_SDA;

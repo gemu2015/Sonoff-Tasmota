@@ -105,6 +105,8 @@ STGLOB
 int32_t Pcf8574Init(void) {
 ALLOCMEM
 STGLOB
+  
+  SETWIRE(0);
 
   uint8_t pcf8574_address = PCF8574_ADDR1;
   while ((Pcf8574.max_devices < MAX_PCF8574) && (pcf8574_address < PCF8574_ADDR2 + 8)) {

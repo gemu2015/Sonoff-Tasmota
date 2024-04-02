@@ -39,7 +39,7 @@
 
 //SDA/TXD
 //SCL/RXD
-#define USE_PN532_DATA_FUNCTION
+//#define USE_PN532_DATA_FUNCTION
 
 #define PN532_INVALID_ACK                           -1
 #define PN532_TIMEOUT                               -2
@@ -140,6 +140,8 @@ MODULE_END
 
 bool PN532_Init() {
   ALLOCMEM
+  
+  SETWIRE(0);
   
   ready = false;
   rec = mp->ms[0].value;

@@ -129,11 +129,13 @@ typedef struct {
 int32_t VL53L0X_Detect(void) {
   ALLOCMEM
 
+ SETWIRE(0);
+ 
   VL53L0X_detected = false;
 
   range_mode = mp->ms[0].value & 0xff;
 
-  if (I2cSetDevice(VL53L0X_ADDRES, 0)) {
+  if (I2cSetDevice(VL53L0X_ADDRESS, 0)) {
     I2cSetActiveFound(VL53L0X_ADDRESS, PSTR("VL53L0X"), 0);
 
     if (VL53L0X_init(0)) {

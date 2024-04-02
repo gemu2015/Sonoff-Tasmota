@@ -616,6 +616,8 @@ int SCD30_stopMeasuring() {
 int32_t SCD30_Detect() {
   ALLOCMEM
 
+  SETWIRE(0);
+  
   ready = false;
 
   Scd30.data_valid = false;

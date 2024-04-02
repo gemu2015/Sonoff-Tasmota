@@ -245,6 +245,7 @@ bool HTU_Read() {
 
 int32_t HTU_Detect() {
   ALLOCMEM
+  SETWIRE(0);
 
   Htu.jdelay_humidity = 6;
 

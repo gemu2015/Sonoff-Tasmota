@@ -66,7 +66,7 @@ int32_t Sr04T_Detect() {
   ts = NewTS(recpin, -1);
  
   if (ts) {
-    if (beginTS(ts, 9600)) {
+    if (beginTS(ts, ICONST(9600))) {
       AddLog(LOG_LEVEL_INFO, GSTR(started), recpin);
       initialized = true;
       ready = true;

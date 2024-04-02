@@ -200,9 +200,11 @@ const char JSON_BMPend[] PROGMEM = "}";
 const char HTTP_SNS_AHUM[] PROGMEM = "{s}%s Abs Humidity{m}%s g/m3{e}";
 const char BMEtypes[] PROGMEM = "BMP180|BME280|BMP280|BME680";
 
-int32_t    Init_BME() {
+int32_t Init_BME() {
   ALLOCMEM
  
+  SETWIRE(0);
+
   // now init variables here
   ready = false;
 

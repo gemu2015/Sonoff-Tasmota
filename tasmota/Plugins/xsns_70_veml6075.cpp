@@ -276,6 +276,8 @@ bool VEML6075init(void) {
 bool VEML6075Detect(void) {
   ALLOCMEM
 
+ SETWIRE(0);
+ 
   veml6075_sensor.address = VEML6075_ADDR;
   strcpy_P(veml6075_sensor.types, PSTR(D_NAME_VEML6075));
 

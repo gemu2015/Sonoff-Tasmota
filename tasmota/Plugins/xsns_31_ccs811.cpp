@@ -127,6 +127,8 @@ typedef struct {
 bool CCS811_Detect(void) {
   ALLOCMEM
 
+  SETWIRE(0);
+
   ready = false;
   tcnt = 0;
   ecnt = 0;

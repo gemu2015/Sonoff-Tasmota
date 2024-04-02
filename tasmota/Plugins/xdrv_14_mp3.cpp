@@ -213,7 +213,7 @@ int32_t MP3_Init() {
 
   if (ts) {
     // start serial communication fixed to 9600 baud
-    if (beginTS(ts,9600)) {
+    if (beginTS(ts,ICONST(9600))) {
       flushTS(ts);
       delay(10);
       MP3_CMD(MP3_CMD_RESET, MP3_CMD_RESET_VALUE);    // reset the player to defaults

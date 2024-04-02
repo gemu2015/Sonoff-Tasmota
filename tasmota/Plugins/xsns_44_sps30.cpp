@@ -95,7 +95,8 @@ const char SPS30_serial[] PROGMEM = "sps30 found with serial: %s";
 int32_t SPS30_Init() {
   ALLOCMEM
 
-
+ SETWIRE(0);
+ 
   if (!I2cSetDevice(SPS30_ADDR, 0)) { 
     goto exit;
   }
@@ -225,16 +226,14 @@ void SPS30_Every_Second() {
   }
   secs++;
 
-  SETTINGS *jsettings = mt->settings;
-
   if (secs > 3600) {
     secs = 0;
     // should auto clean once per week runtime
     // so count hours, should be in Settings
-    jsettings->sps30_inuse_hours++;
-    if (jsettings->sps30_inuse_hours > (7*24)) {
+    Settings->sps30_inuse_hours++;
+    if (Settings->sps30_inuse_hours > (7*24)) {
       CmdClean();
-      jsettings->sps30_inuse_hours = 0;
+      Settings->sps30_inuse_hours = 0;
     }
   }
 

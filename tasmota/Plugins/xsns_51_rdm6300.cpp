@@ -91,7 +91,7 @@ int32_t RDM6300_Init() {
   ts = NewTS(recpin, -1);
 
   if (ts) {
-    if (beginTS(ts, RDM6300_BAUDRATE)) {
+    if (beginTS(ts, ICONST(RDM6300_BAUDRATE))) {
       if (hardwareSerial(ts)) {
         ClaimSerial();
       }
