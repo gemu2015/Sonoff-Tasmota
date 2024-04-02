@@ -47,8 +47,13 @@ module = module.split(".")[0]
 muse = "USE_" + module.upper()
 
 source = source.replace("unsigned char", "uint8_t")
-source = source.replace("TasmotaGlobal.uptime", "GetTasmotaGlobal(4)")
-source = source.replace("TasmotaGlobal.tele_period", "GetTasmotaGlobal(1)")
+source = source.replace("TasmotaGlobal.uptime", "GetTasmotaGlobal->uptime")
+source = source.replace("TasmotaGlobal.tele_period", "GetTasmotaGlobal->tele_period")
+source = source.replace("TasmotaGlobal.global_update", "GetTasmotaGlobal->global_update")
+source = source.replace("TasmotaGlobal.temperature_celsius", "GetTasmotaGlobal->temperature_celsius")
+source = source.replace("TasmotaGlobal.humidity", "GetTasmotaGlobal->humidity")
+source = source.replace("TasmotaGlobal.rel_inverted", "GetTasmotaGlobal->rel_inverted")
+source = source.replace("TasmotaGlobal.devices_present", "GetTasmotaGlobal->devices_present")
 
 
 deinit = module.upper() + "_Deinit"

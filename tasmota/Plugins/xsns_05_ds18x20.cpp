@@ -658,7 +658,7 @@ SETREGS
 
 void Ds18x20EverySecond(void) {
 SETREGS
-
+STGLOB
   if (!DS18X20Data.sensors) {
     return;
   }
@@ -674,7 +674,7 @@ SETREGS
   //ds18x20_sensor[0].valid = 1;
   //return;
 
-  if (GetTasmotaGlobal(4) & 1
+  if (TasmotaGlobal->uptime & 1
 #ifdef W1_PARASITE_POWER
       // if more than 1 sensor and only parasite power: convert every cycle
       || DS18X20Data.sensors >= 2
@@ -701,7 +701,7 @@ SETREGS
 
 void Ds18x20Show(bool json) {
 SETREGS
-
+STGLOB
   for (uint32_t i = 0; i < DS18X20Data.sensors; i++) {
     uint8_t index = ds18x20_sensor[i].index;
 
@@ -711,7 +711,7 @@ SETREGS
       if (json) {
         
         if (Settings->flag5.ds18x20_mean) {
-          if ((0 == GetTasmotaGlobal(1)) && ds18x20_sensor[index].numread) {
+          if ((0 == TasmotaGlobal->tele_period) && ds18x20_sensor[index].numread) {
             //ds18x20_sensor[index].temperature = ds18x20_sensor[index].temp_sum / ds18x20_sensor[index].numread;
             ds18x20_sensor[index].temperature = jfdiv(ds18x20_sensor[index].temp_sum , jtofloat(ds18x20_sensor[index].numread));
             ds18x20_sensor[index].numread = 0;
@@ -732,12 +732,12 @@ SETREGS
 
 
 #ifdef USE_DOMOTICZ
-        if ((0 == GetTasmotaGlobal(1)) && (0 == i)) {
+        if ((0 == TasmotaGlobal->tele_period) && (0 == i)) {
           DomoticzFloatSensor(DZ_TEMP, ds18x20_sensor[index].temperature);
         }
 #endif  // USE_DOMOTICZ
 #ifdef USE_KNX
-        if ((0 == GetTasmotaGlobal(1)) && (0 == i)) {
+        if ((0 == TasmotaGlobal->tele_period) && (0 == i)) {
           KnxSensor(KNX_TEMPERATURE, ds18x20_sensor[index].temperature);
         }
 #endif  // USE_KNX

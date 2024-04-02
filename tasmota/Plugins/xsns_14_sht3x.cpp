@@ -147,6 +147,8 @@ int32_t Sht3x_Detect() {
 
 void SHT3X_Show(bool json) {
   SETREGS
+  STGLOB
+  
   for (uint32_t i = 0; i < sht3x_count; i++) {
     float t;
     float h;
@@ -157,7 +159,7 @@ void SHT3X_Show(bool json) {
         char *types = sht3x_sensors[i].types;
         snprintf_P(types, sizeof(types), GSTR(kShtTypes), types, IndexSeparator(), sht3x_sensors[i].address);
       }
-      TempHumDewShow(json, ((0 == GetTasmotaGlobal(1)) && (0 == i)), types, t, h);
+      TempHumDewShow(json, ((0 == TasmotaGlobal->tele_period) && (0 == i)), types, t, h);
 
       float abshum =  CalcTempHumToAbsHum(t, h);
       char abs_hum[32];

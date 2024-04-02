@@ -297,8 +297,9 @@ void HTU_EverySecond() {
 
 void HTU_Show(bool json) {
   SETREGS
+  STGLOB
   if (Htu.valid) {
-    TempHumDewShow(json, (0 == GetTasmotaGlobal(1)), Htu.types, Htu.temperature, Htu.humidity);
+    TempHumDewShow(json, (0 == TasmotaGlobal->tele_period), Htu.types, Htu.temperature, Htu.humidity);
   }
 }
 

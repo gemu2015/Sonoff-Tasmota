@@ -249,6 +249,8 @@ uint8_t generateCRC(uint8_t *data, uint8_t datalen) {
 
 void SGP30_Every_Second() {
   SETREGS
+  STGLOB
+
   if (!ready) return;
 
   sgp30_ready = false;
@@ -258,9 +260,9 @@ void SGP30_Every_Second() {
 
  // if (TasmotaGlobal.global_update && (TasmotaGlobal.humidity > 0) && !isnan(TasmotaGlobal.temperature_celsius)) {
 
-  if (GetTasmotaGlobal(2) && (GetTasmotaGlobal(3) > 0) && !isnan(JGetTasmotaGf(0))) {
+  if (TasmotaGlobal->global_update && (floatunsisf(TasmotaGlobal->humidity) > 0) && !isnan(TasmotaGlobal->temperature_celsius)) {
     // abs hum in mg/m3
-    abshum = CalcTempHumToAbsHum(JGetTasmotaGf(0), tmod__floatunsisf(GetTasmotaGlobal(3)));
+    abshum = CalcTempHumToAbsHum(TasmotaGlobal->temperature_celsius, TasmotaGlobal->humidity);
     setHumidity(tmod__fixunssfsi(tmod__mulsf3(abshum , 1000)));
   }
 
@@ -281,9 +283,11 @@ void SGP30_Every_Second() {
 
 void SGP30_Show(bool json) {
   SETREGS
+  STGLOB
+
   if (sgp30_ready) {
     char abs_hum[33];
-    bool ahum_available = GetTasmotaGlobal(2) && (GetTasmotaGlobal(3) > 0) && !isnan(JGetTasmotaGf(0));
+    bool ahum_available = TasmotaGlobal->global_update && (floatunsisf(TasmotaGlobal->humidity) > 0) && !isnan(TasmotaGlobal->temperature_celsius);
     if (ahum_available) {
         // has humidity + temperature
         ftostrfd(abshum, 4, abs_hum);
@@ -338,6 +342,6 @@ int32_t mod_func_execute(uint32_t sel) {
   return result;
 }
 
-PULL_OPTIONSPULL_OPTIONS
+PULL_OPTIONS
 #endif  // USE_SGP30_MOD
 

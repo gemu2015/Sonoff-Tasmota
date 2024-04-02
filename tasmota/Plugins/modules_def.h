@@ -76,7 +76,7 @@ typedef struct {
 } FLASH_MODULE;
 
 enum {
-  temperature_celsius = 0, tele_period, global_update, humidity, uptime, rel_inverted, devices_present
+  temperature_celsius = 0, tele_period, global_update, humidity, uptime, rel_inverted, devices_present 
 };
 
 
