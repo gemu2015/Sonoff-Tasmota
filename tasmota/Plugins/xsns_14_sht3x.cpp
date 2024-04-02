@@ -72,6 +72,7 @@ typedef struct {
 const char kShtTypes3[] PROGMEM = "SHT3X|SHT3X|SHTC3";
 const char kShtTypes[] PROGMEM = "%s%c%02X";
 const char HTTP_SNS_AHUM[] PROGMEM = "{s}%s Abs Humidity{m}%s g/m3{e}";
+const float FP_CONST[] PROGMEM = {65535, 45};
 
 bool Sht3xRead(float &t, float &h, uint8_t sht3x_address) {
   SETREGS
@@ -97,20 +98,20 @@ bool Sht3xRead(float &t, float &h, uint8_t sht3x_address) {
     return false;
   }
   delay(30);                           // Timing verified with logic analyzer (10 is to short)
-  requestFrom(sht3x_address, (uint8_t)6);   // Request 6 bytes of data
+  requestFrom(sht3x_address, 6);   // Request 6 bytes of data
   for (uint32_t i = 0; i < 6; i++) {
     data[i] = read();             // cTemp msb, cTemp lsb, cTemp crc, humidity msb, humidity lsb, humidity crc
   };
 
-  t = jfdiv( jtofloat(((data[0] << 8) | data[1] ) * 175), 65535.0);
-  t = jfdiff(t, 45);
+  t = fdiv( tofloat(((data[0] << 8) | data[1] ) * 175), FLTC(0));
+  t = fdiff(t, FLTC(1));
   //t = ConvertTemp((float)( ( ( (data[0] << 8) | data[1] ) * 175) / 65535.0) - 45);
   t = ConvertTemp(t);
 
-  h = jfdiv( jtofloat(((data[3] << 8) | data[4] ) * 100), 65535.0);
+  h = fdiv( tofloat(((data[3] << 8) | data[4] ) * 100), FLTC(0));
 //  h = ConvertHumidity((float)((((data[3] << 8) | data[4]) * 100) / 65535.0));
   h = ConvertHumidity(h);
-  return (!jisnan(t) && !jisnan(h) && !jiseq(h));
+  return (!isnan(t) && !isnan(h) && !iseq(h));
 }
 
 /********************************************************************************************/

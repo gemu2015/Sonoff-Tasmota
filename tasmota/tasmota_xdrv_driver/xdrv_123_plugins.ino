@@ -726,11 +726,11 @@ void tmod_writen(TwoWire *wp, uint8_t *buf, uint32_t len) {
   wp->write(buf, len);
 }
 
-void tmod_endTransmission(TwoWire *wp, bool flag) {
-  wp->endTransmission(flag);
+uint8_t tmod_endTransmission(TwoWire *wp, bool flag) {
+  return wp->endTransmission(flag);
 }
-void tmod_requestFrom(TwoWire *wp, uint8_t addr, uint8_t num) {
-  wp->requestFrom(addr, num);
+size_t tmod_requestFrom(TwoWire *wp, uint8_t addr, uint8_t num) {
+  return wp->requestFrom(addr, num);
 }
 
 bool tmod_I2cSetDevice(uint32_t addr) {

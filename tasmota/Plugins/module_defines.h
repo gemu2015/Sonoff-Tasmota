@@ -34,7 +34,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jbeginTransmission(BUS,ADDR)    (( void (*)(TwoWire*,uint8_t) )                jt[12])(BUS,ADDR)
 #define jwrite(BUS,VAL)                 (( size_t (*)(TwoWire*,uint8_t) )              jt[13])(BUS,VAL)
 #define jendTransmission(BUS,VAL)       (( uint8_t (*)(TwoWire*,bool) )                jt[14])(BUS,VAL)
-#define jrequestFrom(BUS,ADDR,NUM)      (( size_t (*)(TwoWire*,uint8_t,uint8_t) )      jt[15])(BUS,ADDR,NUM)
+#define jrequestFrom(BUS,ADDR,NUM)      (( size_t (*)(TwoWire*,uint8_t,size_t) )       jt[15])(BUS,ADDR,NUM)
 #define jread(BUS)                      (( int (*)(TwoWire*) )                         jt[16])(BUS)
 #define fshowhex(VAL)                   (( void (*)(uint32_t) )                        jt[17])(VAL)
 #define jfree(MEM)                      (( void (*)(void*) )                           jt[18])(MEM)
@@ -673,6 +673,7 @@ typedef struct {
 
 
 #define fdiv jfdiv
+#define iseq jiseq
 #define fmul jfmul
 #define fixunssfsi tmod__fixunssfsi
 #define ltsf2 jltsf2
