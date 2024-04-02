@@ -263,7 +263,7 @@ void SGP30_Every_Second() {
 
  // if (TasmotaGlobal.global_update && (TasmotaGlobal.humidity > 0) && !isnan(TasmotaGlobal.temperature_celsius)) {
 
-  if (TasmotaGlobal->global_update && (floatunsisf(TasmotaGlobal->humidity) > 0) && !isnan(TasmotaGlobal->temperature_celsius)) {
+  if (TasmotaGlobal->global_update && (fixunssfsi(TasmotaGlobal->humidity) > 0) && !isnan(TasmotaGlobal->temperature_celsius)) {
     // abs hum in mg/m3
     abshum = CalcTempHumToAbsHum(TasmotaGlobal->temperature_celsius, TasmotaGlobal->humidity);
     setHumidity(tmod__fixunssfsi(tmod__mulsf3(abshum , 1000)));
@@ -290,7 +290,7 @@ void SGP30_Show(bool json) {
 
   if (sgp30_ready) {
     char abs_hum[33];
-    bool ahum_available = TasmotaGlobal->global_update && (floatunsisf(TasmotaGlobal->humidity) > 0) && !isnan(TasmotaGlobal->temperature_celsius);
+    bool ahum_available = TasmotaGlobal->global_update && (fixunssfsi(TasmotaGlobal->humidity) > 0) && !isnan(TasmotaGlobal->temperature_celsius);
     if (ahum_available) {
         // has humidity + temperature
         ftostrfd(abshum, 4, abs_hum);

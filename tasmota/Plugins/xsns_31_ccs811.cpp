@@ -168,8 +168,8 @@ void CCS811_Update(void) {
         TVOC = CCS811_getTVOC();
         eCO2 = CCS811_geteCO2();
         CCS811_ready = 1;
-        if (TasmotaGlobal->global_update && (floatunsisf(TasmotaGlobal->humidity) > 0) && !isnan(TasmotaGlobal->temperature_celsius)) {
-          uint16_t hum = floatunsisf(TasmotaGlobal->humidity);
+        if (TasmotaGlobal->global_update && (fixunssfsi(TasmotaGlobal->humidity) > 0) && !isnan(TasmotaGlobal->temperature_celsius)) {
+          uint16_t hum = fixunssfsi(TasmotaGlobal->humidity); 
           float temp = TasmotaGlobal->temperature_celsius;
           CCS811_setEnvironmentalData(hum, temp);
         }
