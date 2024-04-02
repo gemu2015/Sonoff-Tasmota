@@ -135,6 +135,7 @@ bool WebServer_hasArg(const char * str);
 void tmod_WSContentStart_P(const char* title);
 char * tmod_strcpy_P(char *dst , const char *src);
 void tmod_WebServer_on(const char * prefix, void (*func)(void), uint8_t method);
+void *tmod_gtbl(void);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -313,8 +314,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&atoi,
   JMPTBL&tmod_strcpy_P,
   JMPTBL&SetTasmotaGlobal,
-  JMPTBL&tmod_fixsfti
-
+  JMPTBL&tmod_fixsfti,
+  JMPTBL&tmod_gtbl
 };
 
 
@@ -889,6 +890,22 @@ void tmod_flushTS(TasmotaSerial *ts) {
 bool hardwareSerialTS(TasmotaSerial *ts) {
   return  ts->hardwareSerial();
 }
+
+
+const void * TGTAB[] PROGMEM = {
+  &TasmotaGlobal.tele_period,
+  &TasmotaGlobal.global_update,
+  &TasmotaGlobal.temperature_celsius,
+  &TasmotaGlobal.humidity,
+  &TasmotaGlobal.uptime,
+  &TasmotaGlobal.rel_inverted,
+  &TasmotaGlobal.devices_present
+};
+
+void *tmod_gtbl(void) {
+  return TGTAB;
+}
+
 
 uint32_t GetTasmotaGlobal(uint32_t sel) {
   switch (sel) {

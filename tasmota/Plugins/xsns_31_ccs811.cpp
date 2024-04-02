@@ -151,6 +151,7 @@ bool CCS811_Detect(void) {
 // Perform every n second
 void CCS811_Update(void) {
   SETREGS
+
   if (!ready) {
     return;
   }

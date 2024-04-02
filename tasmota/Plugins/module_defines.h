@@ -165,7 +165,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jstrcpy_P(A,B)                  (( char *(*)(char *, const char *) )           jt[131])(A,B)
 #define SetTasmotaGlobal(A,B)           (( void (*)(uint32_t,uint32_t) )               jt[132])(A,B)
 #define fixsfti(A)                      (( int32_t (*)(float) )                        jt[133])(A)
-
+#define gtgtbl                          (( void *(*)(void) )                           jt[134])
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -283,6 +283,19 @@ __asm__  (\
 */
 
 
+typedef struct { 
+  uint16_t *tele_period;
+  uint32_t *global_update;
+  float *temperature_celsius;
+  float *humidity;
+  uint32_t *uptime;
+  power_t *rel_inverted;
+  uint8_t *devices_present;
+} GTBL;
+
+#define STGLOB  GTBL *tgbl = (GTBL*) gtgtbl();
+
+#define TasmotaGlobal  *tgbl
 
 //#define PROGMEM  __attribute__((section(".irom.text")))
 #undef PROGMEM
