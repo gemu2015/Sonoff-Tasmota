@@ -101,13 +101,14 @@ typedef struct {
 } CCS811;
 
 typedef struct {
-uint8_t CCS811_ready;
-uint16_t eCO2;
-uint16_t TVOC;
-uint8_t tcnt;
-uint8_t ecnt;
-bool ready;
-CCS811 ccs;
+  TwoWire *xWire;
+  uint8_t CCS811_ready;
+  uint16_t eCO2;
+  uint16_t TVOC;
+  uint8_t tcnt;
+  uint8_t ecnt;
+  bool ready;
+  CCS811 ccs;
 } MODULE_MEMORY;
 
 // ease memory objects
@@ -131,7 +132,7 @@ bool CCS811_Detect(void) {
   ecnt = 0;
   CCS811_ready = 0;
 
-  if (!I2cSetDevice(CCS811_ADDRESS)) {
+  if (!I2cSetDevice(CCS811_ADDRESS, 0)) {
     CCS811_Deinit();
     return false;
   }

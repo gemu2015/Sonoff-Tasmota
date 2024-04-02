@@ -156,6 +156,7 @@ typedef struct {
 
 
 typedef struct {
+  TwoWire *xWire;
   ADS1115 Ads1115;
   bool ready;
 } MODULE_MEMORY;
@@ -226,7 +227,7 @@ int32_t Init_ADS1115() {
   for (uint32_t i = 0; i < fldsiz(ADS1115,addresses); i++) {
     if (!Ads1115.found[i]) {
       Ads1115.address = Ads1115.addresses[i];
-      if (!I2cSetDevice(Ads1115.address)) { continue; }
+      if (!I2cSetDevice(Ads1115.address, 0)) { continue; }
       uint16_t buffer;
       if (I2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONVERT, 0) &&
           I2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONFIG, 0)) {

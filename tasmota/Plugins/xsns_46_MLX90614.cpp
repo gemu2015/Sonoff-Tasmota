@@ -53,6 +53,7 @@ MODULE_END
 
 // all memory must be in struct MODULE_MEMORY
 typedef struct {
+  TwoWire *xWire;
   float obj_temp;
   float amb_temp;
   bool ready;
@@ -76,7 +77,7 @@ int32_t Init_MLX90614() {
   // now init variables here
   ready = false;
 
-  if (!I2cSetDevice(I2_ADR_IRT)) {
+  if (!I2cSetDevice(I2_ADR_IRT, 0)) {
     MLX90614_Deinit();
     return -1;
   }

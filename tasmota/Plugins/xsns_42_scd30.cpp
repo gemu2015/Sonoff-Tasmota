@@ -105,6 +105,7 @@ typedef struct {
 } DRV;
 
 typedef struct {
+  TwoWire *xWire;
   uint8_t ready;
   SCD30 Scd30;
   DRV drv;
@@ -620,7 +621,7 @@ int32_t SCD30_Detect() {
   Scd30.data_valid = false;
   initialized = false;
 
-  if (I2cSetDevice(SCD30_ADDRESS)) {
+  if (I2cSetDevice(SCD30_ADDRESS, 0)) {
 
     SCD30_begin(SCD30_ADDRESS);
 

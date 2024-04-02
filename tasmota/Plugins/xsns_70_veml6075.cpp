@@ -116,6 +116,7 @@ typedef union {
 } veml6075configRegister;
 
 typedef struct {
+  TwoWire *xWire;
   uint8_t veml6075_active;
   veml6075configRegister veml6075Config;
   VEML6075STRUCT veml6075_sensor;
@@ -278,7 +279,7 @@ bool VEML6075Detect(void) {
   veml6075_sensor.address = VEML6075_ADDR;
   strcpy_P(veml6075_sensor.types, PSTR(D_NAME_VEML6075));
 
-  if (!I2cSetDevice(veml6075_sensor.address)) {
+  if (!I2cSetDevice(veml6075_sensor.address, 0)) {
     VEML6075_Deinit();
     return false;
   }

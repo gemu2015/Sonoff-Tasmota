@@ -55,6 +55,7 @@ typedef struct {
 } SPS30_DATA;
 
 typedef struct {
+  TwoWire *xWire;
   SPS30_DATA sps30_result;
   bool sps30_running;
   bool ready;
@@ -95,7 +96,7 @@ int32_t SPS30_Init() {
   ALLOCMEM
 
 
-  if (!I2cSetDevice(SPS30_ADDR)) { 
+  if (!I2cSetDevice(SPS30_ADDR, 0)) { 
     goto exit;
   }
 

@@ -96,6 +96,7 @@ typedef struct {
 
 // define memory used
 typedef struct {
+  TwoWire *xWire;
   HTU Htu;
 } MODULE_MEMORY;
 
@@ -249,7 +250,7 @@ int32_t HTU_Detect() {
 
   Htu.address = HTU21_ADDR;
   //if (I2cActive(Htu.address)) {
-  if (!I2cSetDevice(Htu.address)) { 
+  if (!I2cSetDevice(Htu.address, 0)) { 
     HTU_Deinit();
     return - 1;
   }

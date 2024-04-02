@@ -50,6 +50,7 @@ typedef struct  {
 
 
 typedef struct {
+  TwoWire *xWire;
   PCF8574 Pcf8574;
   bool handler_up;
 } MODULE_MEMORY;
@@ -109,7 +110,7 @@ STGLOB
   while ((Pcf8574.max_devices < MAX_PCF8574) && (pcf8574_address < PCF8574_ADDR2 + 8)) {
     //  AddLog_P2(LOG_LEVEL_DEBUG, PSTR("PCF: Probing addr: 0x%x for PCF8574"), pcf8574_address);
 
-    if (I2cSetDevice(pcf8574_address)) {
+    if (I2cSetDevice(pcf8574_address, 0)) {
       Pcf8574.type = true;
 
       Pcf8574.address[Pcf8574.max_devices] = pcf8574_address;

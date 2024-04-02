@@ -165,6 +165,7 @@ typedef struct {
 
 // all memory must be in struct MODULE_MEMORY
 typedef struct {
+  TwoWire *xWire;
   float hum;
   float abshum;
   float temp;
@@ -207,7 +208,7 @@ int32_t    Init_BME() {
 
   i2c_addr = BME280_I2C_ADDRESS1;
 
-  if (!I2cSetDevice(i2c_addr)) {
+  if (!I2cSetDevice(i2c_addr, 0)) {
     BME_Deinit();
     return -1;
   }

@@ -110,7 +110,7 @@ size_t tmod_write1TS(TasmotaSerial *ts, uint8_t val);
 #ifdef ESP32
 void twi_readFrom(uint8_t address, uint8_t* data, uint8_t length);
 #endif
-bool tmod_I2cSetDevice(uint32_t addr);
+bool tmod_I2cSetDevice(uint32_t addr, uint32_t bus);
 void tmod_I2cSetActiveFound(uint32_t addr, const char *types, uint32_t bus);
 int tmod_strncasecmp_P(const char* s1, const char *s2, size_t len);
 char *copyStr(const char * str);
@@ -733,8 +733,8 @@ size_t tmod_requestFrom(TwoWire *wp, uint8_t addr, uint8_t num) {
   return wp->requestFrom(addr, num);
 }
 
-bool tmod_I2cSetDevice(uint32_t addr) {
-  return I2cSetDevice(addr);
+bool tmod_I2cSetDevice(uint32_t addr, uint32_t bus) {
+  return I2cSetDevice(addr, bus);
 }
 
 void tmod_I2cSetActiveFound(uint32_t addr, const char *types, uint32_t bus) {

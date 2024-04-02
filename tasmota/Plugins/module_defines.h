@@ -21,7 +21,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jWire                           ( TwoWire*)                                    jt[0]
 #define jWire1                          ( TwoWire*)                                    jt[1]
 #define jSerial                         ( HardwareSerial*)                             jt[2]
-#define jI2cSetDevice(A)                (( bool (*)(uint32_t) )                        jt[3])(A)
+#define jI2cSetDevice(ADDR,BUS)         (( bool (*)(uint32_t,uint32_t) )               jt[3])(ADDR,BUS)
 #define jI2cSetActiveFound(A,B,C)       (( void (*)(uint32_t,const char *, uint32_t) ) jt[4])(A,B,C)
 #define jAddLog(A,...)                  (( void (*)(uint32_t,const char *, ...) )      jt[5])(A,##__VA_ARGS__)
 #define jResponseAppend_P(A,...)        (( void (*)(const char *, ...) )               jt[6])(A,##__VA_ARGS__)
@@ -733,7 +733,7 @@ typedef struct {
 #endif
 #endif
 
-#define SETWIRE(A) if (A==1) {mem->xWire = jWire;} else {mem->xWire = jWire1;} 
+#define SETWIRE(A) if (A==0) {mem->xWire = jWire;} else {mem->xWire = jWire1;} 
 
 #ifdef __riscv
 #define PUSH_OPTIONS _Pragma("GCC push_options")\

@@ -94,6 +94,7 @@ typedef struct PN532 {
 
 // all memory must be in struct MODULE_MEMORY
 typedef struct {
+  TwoWire *xWire;
   bool ready;
   uint8_t mode;
   PN532 Pn532;
@@ -148,7 +149,7 @@ bool PN532_Init() {
   Pn532.scantimer = 0;
 
   if (mode) {
-    if (I2cSetDevice(PN532_I2_ADDR)) {
+    if (I2cSetDevice(PN532_I2_ADDR, 0)) {
       I2cSetActiveFound(PN532_I2_ADDR, PSTR("PN532"), 0);
     } else {
       PN532_Deinit();

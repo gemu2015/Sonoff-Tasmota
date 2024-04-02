@@ -100,6 +100,7 @@ typedef struct {
 } VLX_DATA;
 
 typedef struct {
+  TwoWire *xWire;
   bool VL53L0X_xshut;
   uint8_t range_mode;
   bool VL53L0X_detected;
@@ -132,7 +133,7 @@ int32_t VL53L0X_Detect(void) {
 
   range_mode = mp->ms[0].value & 0xff;
 
-  if (I2cSetDevice(VL53L0X_ADDRESS)) {
+  if (I2cSetDevice(VL53L0X_ADDRES, 0)) {
     I2cSetActiveFound(VL53L0X_ADDRESS, PSTR("VL53L0X"), 0);
 
     if (VL53L0X_init(0)) {

@@ -29,6 +29,7 @@
 
 // all memory must be in struct MODULE_MEMORY
 typedef struct {
+  TwoWire *xWire;
   bool sgp30_ready;
   bool ready;
   uint8_t secs;
@@ -84,7 +85,7 @@ int32_t SGP30_Init() {
   ready = false;
   sgp30_ready = false;
 
-  if (!I2cSetDevice(SGP30_ADDRESS)) { 
+  if (!I2cSetDevice(SGP30_ADDRESS, 0)) { 
     goto exit; 
   }
 

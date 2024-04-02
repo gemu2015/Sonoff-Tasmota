@@ -123,10 +123,10 @@ int32_t Sht3x_Detect() {
   sht3x_addresses[1] = SHT3X_ADDR_VDD;
   sht3x_addresses[2] = SHTC3_ADDR;
 
-  for (uint32_t bus = 1; bus <= 2; bus++) {
+  for (uint32_t bus = 0; bus < 2; bus++) {
     SETWIRE(bus);
     for (uint32_t i = 0; i < SHT3X_MAX_SENSORS; i++) {
-      if (!I2cSetDevice(sht3x_addresses[i])) {
+      if (!I2cSetDevice(sht3x_addresses[i], bus)) {
         continue;
       }
 
@@ -138,6 +138,9 @@ int32_t Sht3x_Detect() {
         I2cSetActiveFound(sht3x_sensors[sht3x_count].address, sht3x_sensors[sht3x_count].types, 0);
         sht3x_count++;
       }
+    }
+    if (sht3x_count) {
+      break;
     }
   }
   
