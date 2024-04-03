@@ -42,6 +42,9 @@ to doo:
 #include "./Plugins/modules_def.h"
 #include <TasmotaSerial.h>
 
+// minimal plugin rev
+#define MINREV 0x00010003
+
 #ifdef EXECUTE_FROM_BINARY
 extern const FLASH_MODULE module_header;
 #else
@@ -1466,11 +1469,20 @@ void LinkModule(uint8_t *mp, uint32_t size, char *name) {
       return;
     }
 
+
+
     if (fm->arch != CURR_ARCH) {
       free(mp);
-      AddLog(LOG_LEVEL_INFO,PSTR("module architecture error"));
+      AddLog(LOG_LEVEL_INFO,PSTR("plugin architecture error"));
       return;
     }
+
+    if (fm->revision < MINREV) {
+      free(mp);
+      AddLog(LOG_LEVEL_INFO,PSTR("plugin revision to old"));
+      return;
+    }
+    
 
     Unlink_Named_Module(name);
 
