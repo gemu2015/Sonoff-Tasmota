@@ -392,6 +392,8 @@ void tmod_vTaskExitCritical( void *mux ) {
 */
 
 uint32_t IRAM_ATTR directRead(uint32_t pin) {
+#if ESP_IDF_VERSION_MAJOR < 5 
+
 #ifdef ESP32
 //    return digitalRead(pin);               // Works most of the time
 //    return gpio_ll_get_level(&GPIO, pin);  // The hal is not public api, don't use in application code
@@ -408,11 +410,12 @@ uint32_t IRAM_ATTR directRead(uint32_t pin) {
 #ifdef ESP8266
   return digitalRead(pin);
 #endif
-
+#endif
 }
 
 
 void IRAM_ATTR directWriteLow(uint32_t pin) {
+#if ESP_IDF_VERSION_MAJOR < 5 
     //digitalWrite(pin, 0);                  // Works most of the time
     //return;
 //    gpio_ll_set_level(&GPIO, pin, 0);      // The hal is not public api, don't use in application code
@@ -429,6 +432,7 @@ void IRAM_ATTR directWriteLow(uint32_t pin) {
 #endif
 #ifdef ESP8266
   digitalWrite(pin, LOW);
+#endif
 #endif
 }
 
