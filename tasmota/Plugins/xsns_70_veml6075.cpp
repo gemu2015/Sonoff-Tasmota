@@ -130,7 +130,7 @@ typedef struct {
 
 /********************************************************************************************/
 PUSH_OPTIONS
-MODULE_DESCRIPTOR("VEML6075", MODULE_TYPE_SENSOR, 1 << 16 | 2, "", 0, "", 0, "", 0, "", 0)
+MODULE_DESCRIPTOR("VEML6075", MODULE_TYPE_SENSOR, 1 << 16 | 3, "", 0, "", 0, "", 0, "", 0)
 MODULE_PART uint16_t VEML6075read16(uint8_t reg);
 MODULE_PART void VEML6075write16(uint8_t reg, uint16_t val);
 MODULE_PART float VEML6075calcUVA(void);

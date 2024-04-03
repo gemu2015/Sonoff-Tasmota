@@ -60,7 +60,7 @@ typedef struct {
 
 /********************************************************************************************/
 PUSH_OPTIONS
-MODULE_DESCRIPTOR("PCF8574",MODULE_TYPE_DRIVER,1<<16|2,"",0,"",0,"",0,"",0)
+MODULE_DESCRIPTOR("PCF8574",MODULE_TYPE_DRIVER,1<<16|3,"",0,"",0,"",0,"",0)
 MODULE_PART void Pcf8574SwitchRelay(void);
 MODULE_PART int32_t Pcf8574Init(void);
 MODULE_PART void HandlePcf8574(void);

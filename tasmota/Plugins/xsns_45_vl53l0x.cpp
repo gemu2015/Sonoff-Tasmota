@@ -76,7 +76,7 @@
 #define VL53L0X_XSHUT_ADDRESS 0x78
 #endif
 
-#define VL53L0_REV 1 << 16 | 2
+#define VL53L0_REV 1 << 16 | 3
 
 PUSH_OPTIONS
 

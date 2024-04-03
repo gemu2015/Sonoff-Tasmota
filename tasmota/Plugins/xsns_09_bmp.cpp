@@ -22,7 +22,7 @@
 #include "module.h"
 #include "module_defines.h"
 
-#define BMX_REV  1<<16|2
+#define BMX_REV  1<<16|3
 
 #define BME280_I2C_ADDRESS1  (0x76)
 #define BME280_I2C_ADDRESS2  (0x77)
@@ -400,14 +400,12 @@ void    BME_Show(uint32_t json) {
 
   if (ready == false) return;
 
-  SETTINGS *settings = mt->settings;
-
   char temp_tstr[16];
-  ftostrfd(temp, settings->flag2.temperature_resolution, temp_tstr);
+  ftostrfd(temp, Settings->flag2.temperature_resolution, temp_tstr);
   char press_tstr[16];
-  ftostrfd(press, settings->flag2.pressure_resolution, press_tstr);
+  ftostrfd(press, Settings->flag2.pressure_resolution, press_tstr);
   char hum_tstr[16];
-  ftostrfd(hum, settings->flag2.humidity_resolution, hum_tstr);
+  ftostrfd(hum, Settings->flag2.humidity_resolution, hum_tstr);
   char ahum_tstr[16];
   ftostrfd(abshum, 4, ahum_tstr);
   

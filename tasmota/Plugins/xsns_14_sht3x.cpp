@@ -37,7 +37,7 @@
 
 #define SHT3X_MAX_SENSORS   3
 
-#define SHT3X_REV  1<<16|2
+#define SHT3X_REV  1<<16|3
 
 PUSH_OPTIONS
 

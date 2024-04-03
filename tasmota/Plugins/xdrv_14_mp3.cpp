@@ -88,7 +88,7 @@
  * https://www.dfrobot.com/wiki/index.php/DFPlayer_Mini_SKU:DFR0299
 \*********************************************************************************************/
 
-#define MP3PLAYER_REV 1<<16|2
+#define MP3PLAYER_REV 1<<16|3
 
 #define DVP_MINI 0
 #define DY_SV17F 1

@@ -34,14 +34,18 @@ typedef union {
 
 typedef struct {
   void *mod_addr;
-  uint32_t mod_size;
   void (* const *jt)(void);
   void *mod_memory;
   uint16_t mem_size;
-  uint32_t execution_offset;
-  TSettings *settings;
+ // uint32_t execution_offset;
   MOD_FLAGS flags;
 } MODULES_TABLE;
+
+
+//#define EXEC_OFFSET mt->execution_offset
+
+#define EXEC_OFFSET ((FLASH_MODULE*)mt->mod_addr)->execution_offset
+
 
 #define MD_TYPE uint32_t
 

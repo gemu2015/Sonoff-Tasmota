@@ -110,7 +110,7 @@ typedef struct {
 #define trx mem->trx
 #define mode mem->mode
 
-#define PN532_REV  1<<16|2
+#define PN532_REV  1<<16|3
 
 PUSH_OPTIONS
 
@@ -222,7 +222,7 @@ int16_t PN532_getResponseLength(uint8_t buf[], uint8_t len, uint16_t timeout) {
     // request for last respond msg again
     beginTransmission(PN532_I2_ADDR);
     for (uint16_t i = 0; i < sizeof(PN532_NACK); ++i) {
-      write(pgm_read_byte(&PN532_NACK[mt->execution_offset+i]));
+      write(pgm_read_byte(&PN532_NACK[EXEC_OFFSET + i]));
     }
     endTransmission(true);
 
@@ -476,7 +476,7 @@ int8_t PN532_readAckFrame() {
       return PN532_TIMEOUT;
     }
   }
-  if (memcmp(&ackBuf, &PN532_ACK[mt->execution_offset], sizeof(PN532_ACK))) {
+  if (memcmp(&ackBuf, &PN532_ACK[EXEC_OFFSET], sizeof(PN532_ACK))) {
     return PN532_INVALID_ACK;
   }
   return 0;
@@ -728,8 +728,8 @@ uint8_t PN532_ntag21x_probe() {
   }
 
   for (uint8_t i = 0; i < NTAG_CNT; i++) {
-    if (0 == memcmp_P(&Pn532.packetbuffer[3], &NTAG[(tmod__udivsi3(mt->execution_offset , 7)) + i].version[0],6)) {
-      memcpy_P(&result,&NTAG[(tmod__udivsi3(mt->execution_offset , 7)) + i].confPage,sizeof(result));
+    if (0 == memcmp_P(&Pn532.packetbuffer[3], &NTAG[(tmod__udivsi3(EXEC_OFFSET , 7)) + i].version[0],6)) {
+      memcpy_P(&result,&NTAG[(tmod__udivsi3(EXEC_OFFSET , 7)) + i].confPage,sizeof(result));
     }
   }
   return result; //Return configuration page address

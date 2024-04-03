@@ -166,6 +166,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define SetTasmotaGlobal(A,B)           (( void (*)(uint32_t,uint32_t) )               jt[132])(A,B)
 #define fixsfti(A)                      (( int32_t (*)(float) )                        jt[133])(A)
 #define gtgtbl                          (( void *(*)(void) )                           jt[134])
+#define asettings                       ( SETTINGS **)                                 jt[135]
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -308,27 +309,27 @@ typedef struct {
 
 //#define PSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[0];}))
 #undef PSTR
-#define PSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[mt->execution_offset];}))
-#define GSTR(LABEL) (const char *)LABEL+mt->execution_offset
-#define GU8(LABEL) (const uint8_t *)LABEL+mt->execution_offset
-#define GFLT(LABEL) (float *) ((char *)LABEL+mt->execution_offset)
+#define PSTR(s) (__extension__({static const char __c[] PROGMEM = (s); &__c[EXEC_OFFSET];}))
+#define GSTR(LABEL) (const char *)LABEL+EXEC_OFFSET
+#define GU8(LABEL) (const uint8_t *)LABEL+EXEC_OFFSET
+#define GFLT(LABEL) (float *) ((char *)LABEL+EXEC_OFFSET)
 
 // all floating point constants must be in progmem and named FP_CONST
-#define FLTC(INDEX) *(float *) ((char *)&FP_CONST[INDEX]+mt->execution_offset)
+#define FLTC(INDEX) *(float *) ((char *)&FP_CONST[INDEX]+EXEC_OFFSET)
 
 
 //#define VTABLE(A) void (*const A[])(MODULES_TABLE*) PROGMEM
 #define VTABLE(A) void (*const A[])(void) PROGMEM
 
-#define GVT(LABEL) ( void (**)(MODULES_TABLE*) ) ((char *)LABEL+mt->execution_offset)
+#define GVT(LABEL) ( void (**)(MODULES_TABLE*) ) ((char *)LABEL+EXEC_OFFSET)
 
 #define FSTRING(A) const char A[] PROGMEM 
 #define FU8ARRAY(A) const uint8_t A[] PROGMEM 
-#define GU8A(LABEL) (const uint8_t *)LABEL+mt->execution_offset
+#define GU8A(LABEL) (const uint8_t *)LABEL+EXEC_OFFSET
 
-#define PARRAY(A,...) (__extension__({static const unsigned char __c[] PROGMEM = {A,...}; &__c[mt->execution_offset];}))
+#define PARRAY(A,...) (__extension__({static const unsigned char __c[] PROGMEM = {A,...}; &__c[EXEC_OFFSET];}))
 
-#define GFB(A)  pgm_read_byte(&A[mt->execution_offset])
+#define GFB(A)  pgm_read_byte(&A[EXEC_OFFSET])
 
 extern "C" { MODULES_TABLE *gettbl(void); };
 
@@ -406,8 +407,8 @@ extern MODULES_TABLE modules[];
 #define GET_JT void (* const *jt)() = mt->jt
 #endif
 
-#define SETREGS GET_MTBL; MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;GET_JT;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;SETTINGS *jsettings = mt->settings;
-#define ALLOCMEM GET_MTBL; GET_JT; mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = mt->settings;;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
+#define SETREGS GET_MTBL; MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;GET_JT;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;SETTINGS *jsettings = *asettings;
+#define ALLOCMEM GET_MTBL; GET_JT; mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = *asettings;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
 #define RETMEM if (mt->mem_size) {jfree(mt->mod_memory);mt->mem_size = 0;}
 #define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE MODULE_HEADER = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,END_OF_MODULE,0,0,(uint32_t)&modules,(uint32_t)&MODULE_JUMPTABLE,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
 #define MOD_FUNC(A, ...) A(MODULES_TABLE *mt, ##__VA_ARGS__)
@@ -474,8 +475,8 @@ case FUNC_COMMAND:
 #define LABEL_(a) MERGE_(lbl_, a)
 #define UNAME LABEL_(__LINE__)
 #define SUNAME "UNAME"
-#define GPSTR(VAR,FUNC) const char *VAR = (const char*)&FUNC + mt->execution_offset; fshowhex((uint32_t)VAR);
-//#define jPSTR(LABEL) (__extension__({ (const char *)&LABEL[0]+mt->execution_offset;}))
+#define GPSTR(VAR,FUNC) const char *VAR = (const char*)&FUNC + EXEC_OFFSET; fshowhex((uint32_t)VAR);
+//#define jPSTR(LABEL) (__extension__({ (const char *)&LABEL[0]+EXEC_OFFSET;}))
 #define CAT2(a,b) a##b
 #define CAT(a,b) CAT2(a,b)
 #define UNIQUE_ID CAT(_uid_,__COUNTER__)
@@ -484,10 +485,10 @@ case FUNC_COMMAND:
 // on esp8266 passing of PGMP strings works, on ESP32 fails and must be copied to ram buffer before passing pointer
 // this implementation only supports one PSTR per call
 #ifdef ESP8266
-#define yPSTR(LABEL) (const char *)LABEL+mt->execution_offset
+#define yPSTR(LABEL) (const char *)LABEL+EXEC_OFFSET
 #define STRBUFFER
 #else
-#define yPSTR(LABEL) __extension__( {_copy32((uint32_t*)((const char *)LABEL+mt->execution_offset), mem->cbuffer); (const char *)mem->cbuffer;} )
+#define yPSTR(LABEL) __extension__( {_copy32((uint32_t*)((const char *)LABEL+EXEC_OFFSET), mem->cbuffer); (const char *)mem->cbuffer;} )
 #define STRBUFFER uint32_t cbuffer[STRBUFFSIZE];
 #endif
 
@@ -689,7 +690,7 @@ typedef struct {
 #define WebGetArg jWebGetArg
 #define WebRestart jWebRestart
 #define WebServer_hasArg jWebServer_hasArg
-#define WebServer_on(A,B) jWebServer_on(A,(void (*)(void)) ((uint32_t)B + mt->execution_offset),HTTP_ANY)
+#define WebServer_on(A,B) jWebServer_on(A,(void (*)(void)) ((uint32_t)B + EXEC_OFFSET),HTTP_ANY)
 #define atoi jatoi
 #undef strcpy_P
 #define strcpy_P jstrcpy_P

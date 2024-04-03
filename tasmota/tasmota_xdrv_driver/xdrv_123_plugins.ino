@@ -95,6 +95,7 @@ void Serial_print(const char *txt) {
   Serial.printf_P(PSTR("test: %s\n"),txt);
 }
 
+
 TasmotaSerial *tmod_newTS(int32_t rpin, int32_t tpin);
 int tmod_beginTS(TasmotaSerial *ts, uint32_t baud);
 size_t tmod_writeTS(TasmotaSerial *ts, char *buf, uint32_t size);
@@ -315,7 +316,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_strcpy_P,
   JMPTBL&SetTasmotaGlobal,
   JMPTBL&tmod_fixsfti,
-  JMPTBL&tmod_gtbl
+  JMPTBL&tmod_gtbl,
+  JMPTBL&Settings
 };
 
 
@@ -531,7 +533,7 @@ int tmod_GetCommandCode(char* destination, size_t destination_size, const char* 
 // modified decode command, no synonyms
 bool MT_DecodeCommand(const char* haystack, void (* const MyCommand[])(void), MODULES_TABLE *mt) {
 
-  haystack += mt->execution_offset;
+  haystack += EXEC_OFFSET;
 
 #ifdef ESP32
   char *cph = copyStr(haystack);
@@ -563,9 +565,9 @@ bool MT_DecodeCommand(const char* haystack, void (* const MyCommand[])(void), MO
       // We passed the synonyms zone, it's a regular command
       XdrvMailbox.command_code = command_code - 1 - syn_count;
       uint32_t *lp = (uint32_t*)MyCommand;
-      lp += mt->execution_offset / 4;
+      lp += EXEC_OFFSET / 4;
       uint32_t lval = lp[XdrvMailbox.command_code];
-      lval += mt->execution_offset;
+      lval += EXEC_OFFSET;
       void (*Command)(void) = (void (*)(void))lval;
       Command();
 
@@ -1012,10 +1014,22 @@ uint16_t module_bytes_read;
 uint16_t module_size;
 char   mod_name[16];
 bool ready;
+#ifdef EXECUTE_FROM_BINARY
+uint16_t mod_size;
+#endif
 } plugins;
 
-// 35 + 8 x MODULES_TABLE (28) = about 260 Bytes
+// 35 + 8 x MODULES_TABLE (18*8 = 144) = about 179 Bytes
 MODULES_TABLE modules[MAX_PLUGINS];
+
+#ifdef EXECUTE_FROM_BINARY
+#undef Get_mod_size
+#define Get_mod_size plugins.mod_size
+#else
+#undef Get_mod_size
+#define Get_mod_size fm->size
+#endif
+
 
 #define MOD_EXEC(A)  fm->mod_func_execute(A)
 
@@ -1129,13 +1143,13 @@ void InitModules(void) {
 
   const FLASH_MODULE *fm = (FLASH_MODULE*)modules[0].mod_addr;
   modules[0].jt = MODULE_JUMPTABLE;
-  modules[0].execution_offset = offset;
+  //modules[0].execution_offset = offset;
 #ifdef ESP8266
-  modules[0].mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[0].mod_addr + 4;
+  plugins.mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[0].mod_addr + 4;
 #else
-  modules[0].mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[0].mod_addr + 8;
+  plugins.mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[0].mod_addr + 8;
 #endif
-  modules[0].settings = Settings;
+  //modules[0].settings = Settings;
 
   modules[0].flags.data = 0;
 
@@ -1360,9 +1374,9 @@ void AddModules(void) {
       // add module
       modules[module].mod_addr = (FLASH_MODULE*)lp;
       modules[module].jt = MODULE_JUMPTABLE;
-      modules[module].execution_offset = fm->execution_offset;
-      modules[module].mod_size = fm->size;
-      modules[module].settings = Settings;
+      //modules[module].execution_offset = fm->execution_offset;
+      //modules[module].mod_size = fm->size;
+      //modules[module].settings = Settings;
       modules[module].flags.data = 0;
       if (TasmotaGlobal.gpio_optiona.shelly_pro) {
         Init_module(module);
@@ -1408,8 +1422,8 @@ void Module_mdir(void) {
       if (index > 0) {
         ResponseAppend_P(PSTR(","));
       }
-      ResponseAppend_P(PSTR("\"MOD #%d\":{\"name\":\"%s\",\"addr\":\"%08x\",\"ex-offs\":\"%08x\", \"size\":%d,\"type\":\"%s\",\"rev\":%d.%d,\"mem\":%d,\"init\":%d}"),cnt + 1, name, modules[cnt].mod_addr, modules[cnt].execution_offset,
-       modules[cnt].mod_size, type, (rev>>16),(rev&0xff), modules[cnt].mem_size, modules[cnt].flags.initialized);
+      ResponseAppend_P(PSTR("\"MOD #%d\":{\"name\":\"%s\",\"addr\":\"%08x\",\"ex-offs\":\"%08x\", \"size\":%d,\"type\":\"%s\",\"rev\":%d.%d,\"mem\":%d,\"init\":%d}"),cnt + 1, name, modules[cnt].mod_addr, fm->execution_offset,
+       Get_mod_size, type, (rev>>16),(rev&0xff), modules[cnt].mem_size, modules[cnt].flags.initialized);
        index++;
     }
   }
@@ -1487,9 +1501,9 @@ void LinkModule(uint8_t *mp, uint32_t size, char *name) {
     const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
     modules[cnt].jt = MODULE_JUMPTABLE;
     //modules[cnt].mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[cnt].mod_addr + MODUL_END_OFFSET;
-    modules[cnt].mod_size = (uint32_t)fm->size;
-    modules[cnt].execution_offset = offset;
-    modules[cnt].settings = Settings;
+    //modules[cnt].mod_size = (uint32_t)fm->size;
+    //modules[cnt].execution_offset = offset;
+    //modules[cnt].settings = Settings;
     modules[cnt].flags.data = 0;
     
     AddLog(LOG_LEVEL_INFO,PSTR("module %s loaded at slot %d"), name, cnt + 1);
@@ -1929,7 +1943,7 @@ void Module_upload() {
       char srev[8];
       float frev = (float)(rev >> 16) + (float)(rev & 0xffff)/100;
       dtostrf(frev, 1, 2, srev);
-      WSContentSend_P(HTTP_MODULES_COMMONa, "808080", cnt + 1, name, type, srev, modules[cnt].mod_size, modules[cnt].mem_size);
+      WSContentSend_P(HTTP_MODULES_COMMONa, "808080", cnt + 1, name, type, srev, Get_mod_size, modules[cnt].mem_size);
 
       WSContentSend_P(PSTR("<td>"));
       for (uint8_t xcnt = 0; xcnt < MAX_MOD_STORES; xcnt++) {
