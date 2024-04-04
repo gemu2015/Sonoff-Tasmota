@@ -11862,6 +11862,7 @@ exgc:
         if (type == 'e') {
           WSContentSend_P(SCRIPT_MSG_GTABLEbx, gc_str, glob_script_mem.chartindex);
           glob_script_mem.chartindex++;
+          if (options) free(options);
           WS_LINE_RETURN
         }
 
@@ -11914,6 +11915,7 @@ exgc:
         lp = gc_get_arrays(lp, &arrays[0], &anum, &entries, &ipos);
 
         if (anum > nanum) {
+          if (options) free(options);
           WS_LINE_RETURN
           //goto nextwebline;
         }
@@ -11981,10 +11983,11 @@ exgc:
             }
           }
           snprintf_P(options, SCRIPT_GC_OPTIONS_SIZE, SCRIPT_MSG_GOPT4);
-          free(options);
+          if (options) free(options);
         }
         if (tonly) {
           WSContentSend_P("]);");
+          if (options) free(options);
           WS_LINE_RETURN
           //goto nextwebline;
         }
@@ -12099,6 +12102,7 @@ exgc:
         // table complete
         if (tonly) {
           WSContentSend_P("]);");
+          if (options) free(options);
           WS_LINE_RETURN
           //goto nextwebline;
         }
