@@ -446,6 +446,10 @@ void tmod_vTaskExitCritical( void *mux ) {
 #include <driver/rtc_io.h>
 #endif
 
+#if ESP_IDF_VERSION_MAJOR >= 5
+#include "soc/gpio_periph.h"
+#endif // ESP_IDF_VERSION_MAJOR >= 5
+
 /* esp8266
 #define DIRECT_READ(base, mask)         ((GPI & (mask)) ? 1 : 0)    //GPIO_IN_ADDRESS
 #define DIRECT_MODE_INPUT(base, mask)   (GPE &= ~(mask))            //GPIO_ENABLE_W1TC_ADDRESS
@@ -455,7 +459,6 @@ void tmod_vTaskExitCritical( void *mux ) {
 */
 
 uint32_t IRAM_ATTR directRead(uint32_t pin) {
-#if ESP_IDF_VERSION_MAJOR < 5 
 
 #ifdef ESP32
 //    return digitalRead(pin);               // Works most of the time
@@ -473,12 +476,10 @@ uint32_t IRAM_ATTR directRead(uint32_t pin) {
 #ifdef ESP8266
   return digitalRead(pin);
 #endif
-#endif
 }
 
 
 void IRAM_ATTR directWriteLow(uint32_t pin) {
-#if ESP_IDF_VERSION_MAJOR < 5 
     //digitalWrite(pin, 0);                  // Works most of the time
     //return;
 //    gpio_ll_set_level(&GPIO, pin, 0);      // The hal is not public api, don't use in application code
@@ -496,11 +497,9 @@ void IRAM_ATTR directWriteLow(uint32_t pin) {
 #ifdef ESP8266
   digitalWrite(pin, LOW);
 #endif
-#endif
 }
 
 void IRAM_ATTR directWriteHigh(uint32_t pin) {
-#if ESP_IDF_VERSION_MAJOR < 5 
     //digitalWrite(pin, 1);                  // Works most of the time
     //return;
 //    gpio_ll_set_level(&GPIO, pin, 1);      // The hal is not public api, don't use in application code
@@ -519,11 +518,9 @@ void IRAM_ATTR directWriteHigh(uint32_t pin) {
 #ifdef ESP8266
   digitalWrite(pin, HIGH);
 #endif
-#endif
 }
 
 void IRAM_ATTR directModeInput(uint32_t pin) {
-#if ESP_IDF_VERSION_MAJOR < 5 
    // pinMode(pin, INPUT);                   // Too slow - doesn't work
    // return;
 //    gpio_ll_output_disable(&GPIO, pin);    // The hal is not public api, don't use in application code
@@ -545,12 +542,10 @@ void IRAM_ATTR directModeInput(uint32_t pin) {
 #ifdef ESP8266
   pinMode(pin, INPUT);
 #endif
-#endif
 }
 
 
 void IRAM_ATTR directModeOutput(uint32_t pin) {
-#if ESP_IDF_VERSION_MAJOR < 5 
    // pinMode(pin, OUTPUT);                 // Too slow - doesn't work
   //return;
 //    gpio_ll_output_enable(&GPIO, pin);    // The hal is not public api, don't use in application code
@@ -570,7 +565,6 @@ void IRAM_ATTR directModeOutput(uint32_t pin) {
 #endif
 #ifdef ESP8266
   pinMode(pin, OUTPUT);
-#endif
 #endif
 }
 
