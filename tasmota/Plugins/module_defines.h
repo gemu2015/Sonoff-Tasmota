@@ -167,6 +167,13 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define fixsfti(A)                      (( int32_t (*)(float) )                        jt[133])(A)
 #define gtgtbl                          (( void *(*)(void) )                           jt[134])
 #define asettings                       ( SETTINGS **)                                 jt[135]
+#define getspi(A)                       (( void *(*)(uint_8))                          jt[136])(A)
+#define spi_begin(A,B,C,D,E)            (( void (*)(void *,uint_8,int8_t,int8_t,int8_t )) jt[137])(A,B,C,D,E)
+#define spi_write(A,B)                  (( void (*)(void *,uint_8))                     jt[138])(A,B)
+#define spi_writeBytes(A,B,C)           (( void (*)(void *,uint_8*,uint32_t))           jt[139])(A,B,C)
+#define spi_Transaction(A,B,C)          (( void (*)(void *,uint_8,SPISettings))         jt[140])(A,B,C)
+#define spi_transfer(A,B)               (( uint8_t (*)(void *,uint_8))                  jt[141])(A,B)
+
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -292,6 +299,8 @@ typedef struct {
   uint32_t *uptime;
   power_t *rel_inverted;
   uint8_t *devices_present;
+  uint8_t *spi_enabled;
+  uint8_t *soft_spi_enabled;
 } GTBL;
 
 #define STGLOB  GTBL *tgbl = (GTBL*) gtgtbl();

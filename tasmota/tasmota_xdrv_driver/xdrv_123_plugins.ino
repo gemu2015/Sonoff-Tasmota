@@ -140,6 +140,12 @@ void tmod_WSContentStart_P(const char* title);
 char * tmod_strcpy_P(char *dst , const char *src);
 void tmod_WebServer_on(const char * prefix, void (*func)(void), uint8_t method);
 void *tmod_gtbl(void);
+SPIClass *tmod_getspi(uint8_t sel);
+void tmod_spi_begin(SPIClass *spi, uint8_t flg, int8_t sck, int8_t miso, int8_t mosi);
+void tmod_spi_write(SPIClass *spi, uint8_t data);
+void tmod_spi_writebytes(SPIClass *spi, const uint8_t * data, uint32_t size);
+void tmod_Transaction(SPIClass *spi, uint8_t flg, SPISettings settings);
+uint8_t tmod_transfer(SPIClass *spi, uint8_t data);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -320,8 +326,65 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&SetTasmotaGlobal,
   JMPTBL&tmod_fixsfti,
   JMPTBL&tmod_gtbl,
-  JMPTBL&Settings
+  JMPTBL&Settings,
+  JMPTBL&tmod_getspi,
+  JMPTBL&tmod_spi_begin,
+  JMPTBL&tmod_spi_write,
+  JMPTBL&tmod_spi_writebytes,
+  JMPTBL&tmod_Transaction,
+  JMPTBL&tmod_transfer
 };
+
+
+
+SPIClass *tmod_getspi(uint8_t sel) {
+  if (!sel) {
+    return &SPI;
+  } else {
+#ifdef ESP32
+    return &SPI;
+    //return &SPI1;
+#else
+    return &SPI;
+#endif    
+  }
+}
+
+void tmod_spi_begin(SPIClass *spi, uint8_t flg, int8_t sck, int8_t miso, int8_t mosi) {
+#ifdef ESP32 
+  if (!flg) {
+    spi->begin(sck, miso, mosi, -1);
+  } else {
+    spi->end();
+  }
+#else
+  if (!flg) {
+    spi->begin();
+  } else {
+    spi->end();
+  }
+#endif
+}
+
+void tmod_spi_write(SPIClass *spi, uint8_t data) {
+  spi->write(data);
+}
+
+void tmod_spi_writebytes(SPIClass *spi, const uint8_t * data, uint32_t size) {
+  spi->writeBytes(data, size);
+}
+
+void tmod_Transaction(SPIClass *spi, uint8_t flg, SPISettings settings) {
+  if (!flg) {
+    spi->beginTransaction(settings);
+  } else {
+    spi->endTransaction();
+  }
+}
+
+uint8_t tmod_transfer(SPIClass *spi, uint8_t data) {
+  return spi->transfer(data);
+}
 
 
 void tmod_WebServer_on(const char * prefix, void (*func)(void), uint8_t method) {
@@ -437,6 +500,7 @@ void IRAM_ATTR directWriteLow(uint32_t pin) {
 }
 
 void IRAM_ATTR directWriteHigh(uint32_t pin) {
+#if ESP_IDF_VERSION_MAJOR < 5 
     //digitalWrite(pin, 1);                  // Works most of the time
     //return;
 //    gpio_ll_set_level(&GPIO, pin, 1);      // The hal is not public api, don't use in application code
@@ -455,9 +519,11 @@ void IRAM_ATTR directWriteHigh(uint32_t pin) {
 #ifdef ESP8266
   digitalWrite(pin, HIGH);
 #endif
+#endif
 }
 
 void IRAM_ATTR directModeInput(uint32_t pin) {
+#if ESP_IDF_VERSION_MAJOR < 5 
    // pinMode(pin, INPUT);                   // Too slow - doesn't work
    // return;
 //    gpio_ll_output_disable(&GPIO, pin);    // The hal is not public api, don't use in application code
@@ -479,10 +545,12 @@ void IRAM_ATTR directModeInput(uint32_t pin) {
 #ifdef ESP8266
   pinMode(pin, INPUT);
 #endif
+#endif
 }
 
 
 void IRAM_ATTR directModeOutput(uint32_t pin) {
+#if ESP_IDF_VERSION_MAJOR < 5 
    // pinMode(pin, OUTPUT);                 // Too slow - doesn't work
   //return;
 //    gpio_ll_output_enable(&GPIO, pin);    // The hal is not public api, don't use in application code
@@ -502,6 +570,7 @@ void IRAM_ATTR directModeOutput(uint32_t pin) {
 #endif
 #ifdef ESP8266
   pinMode(pin, OUTPUT);
+#endif
 #endif
 }
 
@@ -908,7 +977,9 @@ const void * TGTAB[] PROGMEM = {
   &TasmotaGlobal.humidity,
   &TasmotaGlobal.uptime,
   &TasmotaGlobal.rel_inverted,
-  &TasmotaGlobal.devices_present
+  &TasmotaGlobal.devices_present,
+  &TasmotaGlobal.spi_enabled,
+  &TasmotaGlobal.soft_spi_enabled
 };
 
 void *tmod_gtbl(void) {
@@ -1076,8 +1147,11 @@ void Setplugins(void) {
   if (plugins.flash_pptr) {
     const void *out_ptr;
     //esp_err_t err = esp_partition_mmap(plugins.flash_pptr, 0, plugins.flash_pptr->size, SPI_FLASH_MMAP_DATA, &out_ptr, &plugins.map_handle);
+#if ESP_IDF_VERSION_MAJOR < 5 
     esp_err_t err = esp_partition_mmap(plugins.flash_pptr, 0, plugins.flash_pptr->size, SPI_FLASH_MMAP_INST, &out_ptr, &plugins.map_handle);
-
+#else
+    esp_err_t err = esp_partition_mmap(plugins.flash_pptr, 0, plugins.flash_pptr->size, ESP_PARTITION_MMAP_INST, &out_ptr, &plugins.map_handle);
+#endif
     plugins.free_flash_start = (uint32_t)out_ptr;
     plugins.free_flash_end = plugins.free_flash_start + plugins.flash_pptr->size;
     plugins.flashbase = 0;
