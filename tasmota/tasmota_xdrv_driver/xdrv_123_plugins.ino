@@ -1395,6 +1395,9 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
   *lp = (uint32_t)&modules[index];
   lp = (uint32_t*)&fm->jtab;
   *lp = (uint32_t)&MODULE_JUMPTABLE;
+  // original module adress
+  lp = (uint32_t*)&fm->mod_start_org;
+  *lp = old_pc;
 #endif
 
 #ifdef ESP32
@@ -1406,8 +1409,12 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
   *lp = ((uint32_t)fm->mod_func_execute + offset);
   lp =  (uint32_t*)&fm->end_of_module;
   *lp = ((uint32_t)fm->end_of_module + offset); 
+  lp =  (uint32_t*)&fm->mod_start_org;
+  *lp = old_mptr;
+
   fm->mtv = (uint32_t)&modules[index];
   fm->jtab = (uint32_t)&MODULE_JUMPTABLE;
+  
   //AddLog(LOG_LEVEL_INFO, PSTR("Module offset: %08x:"),old_mptr);
   uint32_t *lwp=(uint32_t*)fdesc;
   uint32_t new_pc = (uint32_t)eeprom_block;
@@ -1746,8 +1753,12 @@ int32_t Init_module(uint32_t module) {
     const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
     uint32_t mtv = fm->mtv;
     uint32_t jtab = fm->jtab;
+    uint32_t exoffs = fm->execution_offset;
+    // recalc execution offset
+    uint32_t mfe_org = (uint32_t)fm->mod_start_org;
+    uint32_t coffs = (uint32_t)fm - mfe_org;
 
-    if (((uint32_t)&modules[module] != mtv) || ((uint32_t)&MODULE_JUMPTABLE != jtab)) {
+    if (((uint32_t)&modules[module] != mtv) || ((uint32_t)&MODULE_JUMPTABLE != jtab) || (exoffs != coffs)) {
       AddLog(LOG_LEVEL_INFO,PSTR("reinit memory link of module %d"), module + 1);
       uint32_t *buff = (uint32_t *)calloc(SPI_FLASH_SEC_SIZE / 4 , 4);
       if (buff) {
@@ -1761,6 +1772,9 @@ int32_t Init_module(uint32_t module) {
 
           lp = (uint32_t*)&fm->jtab;
           *lp = (uint32_t)&MODULE_JUMPTABLE;
+
+          lp = (uint32_t*)&fm->execution_offset;
+          *lp = coffs;
 
           ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - plugins.flashbase) / SPI_FLASH_SEC_SIZE);
           ESP.flashWrite((uint32_t)modules[module].mod_addr - plugins.flashbase, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
