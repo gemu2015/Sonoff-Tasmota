@@ -716,12 +716,29 @@ int res = 0;
   return res;
 }
 
+/*
 int tmod_ResponseAppend_P(const char* format, ...) {
   int res = 0;
 #ifdef ESP32
   char *fcopy = copyStr(format);
    // This uses char strings. Be aware of sending %% if % is needed
-#ifdef MQTT_DATA_STRING
+  va_list args;
+  va_start(args, format);
+  int mlen = ResponseLength();
+  int len = ext_vsnprintf_P((char*)TasmotaGlobal.mqtt_data.c_str() + mlen, ResponseSize() - mlen, fcopy, args);
+  va_end(args);
+  res = len + mlen;
+  free(fcopy);
+#endif
+  return res;
+}
+*/
+
+int tmod_ResponseAppend_P(const char* format, ...)  // Content send snprintf_P char data
+{
+#ifdef ESP32
+  // This uses char strings. Be aware of sending %% if % is needed
+  char *fcopy = copyStr(format);
   va_list arg;
   va_start(arg, format);
   char* mqtt_data = ext_vsnprintf_malloc_P(fcopy, arg);
@@ -730,19 +747,10 @@ int tmod_ResponseAppend_P(const char* format, ...) {
     TasmotaGlobal.mqtt_data += mqtt_data;
     free(mqtt_data);
   }
-  res = TasmotaGlobal.mqtt_data.length();
-#else
-  va_list args;
-  va_start(args, format);
-  int mlen = ResponseLength();
-  int len = ext_vsnprintf_P(TasmotaGlobal.mqtt_data + mlen, ResponseSize() - mlen, fcopy, args);
-  va_end(args);
-  res = len + mlen;
 #endif
-  free(fcopy);
-#endif
-  return res;
+  return TasmotaGlobal.mqtt_data.length();
 }
+
 
 void tmod_WebGetArg(const char* arg, char* out, size_t max) {
 #if defined(ESP8266) || defined(__riscv)
