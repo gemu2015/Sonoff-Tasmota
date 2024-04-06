@@ -17,7 +17,6 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
 #include "tasmota_options.h"
 
 #ifdef USE_HTU_MOD
@@ -31,40 +30,39 @@
  * I2C Address: 0x40
 \*********************************************************************************************/
 
+#define HTU21_ADDR 0x40
 
-#define HTU21_ADDR          0x40
+#define SI7013_CHIPID 0x0D
+#define SI7020_CHIPID 0x14
+#define SI7021_CHIPID 0x15
+#define HTU21_CHIPID 0x32
 
-#define SI7013_CHIPID       0x0D
-#define SI7020_CHIPID       0x14
-#define SI7021_CHIPID       0x15
-#define HTU21_CHIPID        0x32
+#define HTU21_READTEMP 0xE3
+#define HTU21_READHUM 0xE5
+#define HTU21_WRITEREG 0xE6
+#define HTU21_READREG 0xE7
+#define HTU21_RESET 0xFE
+#define HTU21_HEATER_WRITE 0x51
+#define HTU21_HEATER_READ 0x11
+#define HTU21_SERIAL2_READ1 0xFC /* Read 3rd two Serial bytes */
+#define HTU21_SERIAL2_READ2 0xC9 /* Read 4th two Serial bytes */
 
-#define HTU21_READTEMP      0xE3
-#define HTU21_READHUM       0xE5
-#define HTU21_WRITEREG      0xE6
-#define HTU21_READREG       0xE7
-#define HTU21_RESET         0xFE
-#define HTU21_HEATER_WRITE  0x51
-#define HTU21_HEATER_READ   0x11
-#define HTU21_SERIAL2_READ1 0xFC    /* Read 3rd two Serial bytes */
-#define HTU21_SERIAL2_READ2 0xC9    /* Read 4th two Serial bytes */
+#define HTU21_HEATER_ON 0x04
+#define HTU21_HEATER_OFF 0xFB
 
-#define HTU21_HEATER_ON     0x04
-#define HTU21_HEATER_OFF    0xFB
+#define HTU21_RES_RH12_T14 0x00  // Default
+#define HTU21_RES_RH8_T12 0x01
+#define HTU21_RES_RH10_T13 0x80
+#define HTU21_RES_RH11_T11 0x81
 
-#define HTU21_RES_RH12_T14  0x00  // Default
-#define HTU21_RES_RH8_T12   0x01
-#define HTU21_RES_RH10_T13  0x80
-#define HTU21_RES_RH11_T11  0x81
-
-#define HTU21_CRC8_POLYNOM  0x13100
+#define HTU21_CRC8_POLYNOM 0x13100
 
 PUSH_OPTIONS
 
-#define HTU_REV  1<<16|3
+#define HTU_REV 1 << 16 | 3
 
 // define calls
-MODULE_DESCRIPTOR("HTU21",MODULE_TYPE_SENSOR,HTU_REV,"",0,"",0,"",0,"",0)
+MODULE_DESCRIPTOR("HTU21", MODULE_TYPE_SENSOR, HTU_REV, "", 0, "", 0, "", 0, "", 0)
 MODULE_PART int32_t HTU_Detect();
 MODULE_PART void HTU_Show(bool json);
 MODULE_PART void HTU_Deinit();
@@ -102,13 +100,12 @@ typedef struct {
 
 #define Htu mem->Htu
 
-
 /*********************************************************************************************/
 
 uint8_t HtuCheckCrc8(uint16_t data) {
   for (uint32_t bit = 0; bit < 16; bit++) {
     if (data & 0x8000) {
-      data =  (data << 1) ^ HTU21_CRC8_POLYNOM;
+      data = (data << 1) ^ HTU21_CRC8_POLYNOM;
     } else {
       data <<= 1;
     }
@@ -130,9 +127,9 @@ uint8_t HtuReadDeviceId() {
   endTransmission(0);
 
   requestFrom(HTU21_ADDR, 3);
-  deviceID  = read() << 8;
+  deviceID = read() << 8;
   deviceID |= read();
-  checksum  = read();
+  checksum = read();
   if (HtuCheckCrc8(deviceID) == checksum) {
     deviceID = deviceID >> 8;
   } else {
@@ -144,8 +141,8 @@ uint8_t HtuReadDeviceId() {
 void HtuSetResolution(uint8_t resolution) {
   SETREGS
   uint8_t current = I2cRead8(HTU21_ADDR, HTU21_READREG);
-  current &= 0x7E;          // Replace current resolution bits with 0
-  current |= resolution;    // Add new resolution bits to register
+  current &= 0x7E;        // Replace current resolution bits with 0
+  current |= resolution;  // Add new resolution bits to register
   I2cWrite8(HTU21_ADDR, HTU21_WRITEREG, current);
 }
 
@@ -154,21 +151,23 @@ void HtuReset() {
   beginTransmission(HTU21_ADDR);
   write(HTU21_RESET);
   endTransmission(0);
-  delay(15);                // Reset takes 15ms
+  delay(15);  // Reset takes 15ms
 }
 
 void HtuHeater(uint8_t heater) {
   SETREGS
   uint8_t current = I2cRead8(HTU21_ADDR, HTU21_READREG);
 
-  switch(heater)
-  {
-    case HTU21_HEATER_ON  : current |= heater;
-                            break;
-    case HTU21_HEATER_OFF : current &= heater;
-                            break;
-    default               : current &= heater;
-                            break;
+  switch (heater) {
+    case HTU21_HEATER_ON:
+      current |= heater;
+      break;
+    case HTU21_HEATER_OFF:
+      current &= heater;
+      break;
+    default:
+      current &= heater;
+      break;
   }
   I2cWrite8(HTU21_ADDR, HTU21_WRITEREG, current);
 }
@@ -182,58 +181,72 @@ void HTU_Init() {
 
 bool HTU_Read() {
   SETREGS
-  uint8_t  checksum = 0;
+  uint8_t checksum = 0;
   uint16_t sensorval = 0;
 
-  if (Htu.valid) { Htu.valid--; }
+  if (Htu.valid) {
+    Htu.valid--;
+  }
 
   beginTransmission(HTU21_ADDR);
   write(HTU21_READTEMP);
-  if (endTransmission(0) != 0) { return false; }           // In case of error
-  delay(Htu.jdelay_temp);                                       // Sensor time at max resolution
+  if (endTransmission(0) != 0) {
+    return false;
+  }                        // In case of error
+  delay(Htu.jdelay_temp);  // Sensor time at max resolution
 
   requestFrom(HTU21_ADDR, 3);
   if (3 == available()) {
-    sensorval = read() << 8;                              // MSB
-    sensorval |= read();                                  // LSB
+    sensorval = read() << 8;  // MSB
+    sensorval |= read();      // LSB
     checksum = read();
   }
-  if (HtuCheckCrc8(sensorval) != checksum) { return false; }   // Checksum mismatch
+  if (HtuCheckCrc8(sensorval) != checksum) {
+    return false;
+  }  // Checksum mismatch
 
-  //Htu.temperature = jConvertTemp(0.002681 * (float)sensorval - 46.85);
+  // Htu.temperature = jConvertTemp(0.002681 * (float)sensorval - 46.85);
   Htu.temperature = ConvertTemp(jfscale(sensorval, 0.002681, 46.85));
 
   beginTransmission(HTU21_ADDR);
   write(HTU21_READHUM);
-  if (endTransmission(0) != 0) { return false; }           // In case of error
-  delay(Htu.jdelay_humidity);                                   // Sensor time at max resolution
+  if (endTransmission(0) != 0) {
+    return false;
+  }                            // In case of error
+  delay(Htu.jdelay_humidity);  // Sensor time at max resolution
 
   requestFrom(HTU21_ADDR, 3);
   if (3 <= available()) {
-    sensorval = read() << 8;                              // MSB
-    sensorval |= read();                                  // LSB
+    sensorval = read() << 8;  // MSB
+    sensorval |= read();      // LSB
     checksum = read();
   }
-  if (HtuCheckCrc8(sensorval) != checksum) { return false; }   // Checksum mismatch
+  if (HtuCheckCrc8(sensorval) != checksum) {
+    return false;
+  }  // Checksum mismatch
 
-  sensorval ^= 0x02;                                           // clear status bits
-  //Htu.humidity = 0.001907 * (float)sensorval - 6;
-  Htu.humidity = jfdiff(jfmul(0.001907 , jtofloat(sensorval)),6);
+  sensorval ^= 0x02;  // clear status bits
+  // Htu.humidity = 0.001907 * (float)sensorval - 6;
+  Htu.humidity = jfdiff(jfmul(0.001907, jtofloat(sensorval)), 6);
 
-  //if (Htu.humidity > 100) { Htu.humidity = 100.0; }
-  if ( jgtsf2(Htu.humidity,100)) { Htu.humidity = 100.0; }
+  // if (Htu.humidity > 100) { Htu.humidity = 100.0; }
+  if (jgtsf2(Htu.humidity, 100)) {
+    Htu.humidity = 100.0;
+  }
 
-  //if (Htu.humidity < 0) { Htu.humidity = 0.01; }
-  if (jltsf2(Htu.humidity,0)) { Htu.humidity = 0.01; }
+  // if (Htu.humidity < 0) { Htu.humidity = 0.01; }
+  if (jltsf2(Htu.humidity, 0)) {
+    Htu.humidity = 0.01;
+  }
 
-  //if ((0.00 == Htu.humidity) && (0.00 == Htu.temperature)) {
-  if ((jeqsf2(0.00,Htu.humidity)) && (jeqsf2(0.00,Htu.temperature))) {
+  // if ((0.00 == Htu.humidity) && (0.00 == Htu.temperature)) {
+  if ((jeqsf2(0.00, Htu.humidity)) && (jeqsf2(0.00, Htu.temperature))) {
     Htu.humidity = 0.0;
   }
-  //if ((Htu.temperature > 0.00) && (Htu.temperature < 80.00)) {
-  if ((jgtsf2(Htu.temperature,0)) && (jltsf2(Htu.temperature,80))) {
-    //Htu.humidity = (-0.15) * (25 - Htu.temperature) + Htu.humidity;
-    Htu.humidity = jfadd( jfmul(-0.15 , jfdiff(25 , Htu.temperature) ) ,Htu.humidity);
+  // if ((Htu.temperature > 0.00) && (Htu.temperature < 80.00)) {
+  if ((jgtsf2(Htu.temperature, 0)) && (jltsf2(Htu.temperature, 80))) {
+    // Htu.humidity = (-0.15) * (25 - Htu.temperature) + Htu.humidity;
+    Htu.humidity = jfadd(jfmul(-0.15, jfdiff(25, Htu.temperature)), Htu.humidity);
   }
   Htu.humidity = ConvertHumidity(Htu.humidity);
 
@@ -250,10 +263,10 @@ int32_t HTU_Detect() {
   Htu.jdelay_humidity = 6;
 
   Htu.address = HTU21_ADDR;
-  //if (I2cActive(Htu.address)) {
-  if (!I2cSetDevice(Htu.address, 0)) { 
+  // if (I2cActive(Htu.address)) {
+  if (!I2cSetDevice(Htu.address, 0)) {
     HTU_Deinit();
-    return - 1;
+    return -1;
   }
 
   Htu.type = HtuReadDeviceId();
@@ -314,7 +327,6 @@ void HTU_Deinit() {
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
-
 
 int32_t mod_func_execute(uint32_t sel) {
   bool result = false;
