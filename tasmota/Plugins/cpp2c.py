@@ -12,8 +12,11 @@ import os
 # now edit remaining issues
 
 # edit this path
-path = '/Users/gerhardmutz1/Desktop/vl53l0x-arduino-1.02/VL53L0X.cpp'
+path = '/Users/gerhardmutz1/Desktop/BresserWeatherSensorReceiver-main/RadioLib-master/src/modules/CC1101/CC1101.cpp'
 #path = '/Users/gerhardmutz1/Desktop/BM8563_RTC/src/BM8563.cpp'
+
+# if only 1 class set to empty string
+searchclass ='CC1101'
 
 dpath = "tasmota/plugins/"
 fname =  pathlib.PurePath(path).stem
@@ -41,15 +44,19 @@ with open(intermediate) as f:
     data = f.read()
     f.close()
 
-index = data.find("class")
+index = data.find("class "+searchclass)
 check = data[index+6:index+20]
 source = data[index+6:]
 
 cname = check.split('{')[0]
-cnam = cname.replace(" ", "")
+cname = cname.split(' ')[0]
+cname = cname.replace(" ", "")
+cname = cname.replace(":", "")
 cname = cname.rstrip()
 
 print("found class: " + cname)
+#class CC1101: public PhysicalLayer {
+#    CC1101: public
 
 cl_class = cname + "::"
 cl_func = cname + "_"
