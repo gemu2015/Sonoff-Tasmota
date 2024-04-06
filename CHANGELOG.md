@@ -3,28 +3,52 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - Development
 
-## [13.4.0.3]
+## [13.4.0.4]
 ### Added
-- Zigbee support for attributes of type `uint48` used by energy monitoring (#20992)
-- Support for EU863-870 LoRaWanBridge
-- Added GPIO for SPI for Universal Touch Screen
+- Command ``PowerLock`` to disable power control of selected outputs (#21081)
+- Command ``Wifi 6`` to enable 11ax on ESP32 Core3
+- Berry `flash.current_ota` (#21097)
 
 ### Breaking Changed
 
+### Changed
+- Refactored Wifi for ESP32 to allow for Core3
+
+### Fixed
+- NeoPool hydrolysis unit for Hidrolife, Bionet and Generic device (#21098)
+
+### Removed
+- Unused `#define MQTT_DATA_STRING` support
+
+## [13.4.0.3] 20240402
+### Added
+- Zigbee support for attributes of type `uint48` used by energy monitoring (#20992)
+- Support for single channel EU863-870 LoRaWanBridge (#17790)
+- Support Azure iothub direct method (#21013)
+- Added GPIO for SPI for Universal Touch Screen (#21025)
+- Berry added `close()` to class `serial` (#21042)
+- Support for Domoticz non-persistent ``DzIdx5`` to ``DzIdx32`` and disabling DOMOTICZ_OUT_TOPIC subscribe using command ``DzIdx0 0`` (#21019)
+
+### Breaking Changed
+- Berry loading .be file does not generated .bec anymore (#21075)
 
 ### Changed
 - ESP32 LVGL library from v9.0.0 to v9.1.0 (#21008)
-- berry.exe (pre-compiled for Windows) updated to latest Berry patches
+- berry.exe (pre-compiled for Windows) updated to latest Berry patches (#21024)
+- Some `display.ini` to utouch (#21029)
+- ESP32 WiFi phy modes 11n and 11ax represented as HT20, HT40 and HE20 (#19350)
+- KNX format of energy to match specifications (#21074)
 
 ### Fixed
 - BTHome, prep BLE5 (#20989)
 - Scripter google char memory leak (#20995)
 - HASPmota demo and robotocondensed fonts (#21014)
 - Berry walrus bug when assigning to self (#21015)
+- Too restrictive checksum checks in Lib_teleinfo (#21033)
+- Color swap option for rgb displaytext (#21049)
 
 ### Removed
-
-
+- Berry `print "a"` syntax no longer supported (#21048)
 
 ## [13.4.0.2] 20240318
 ### Added

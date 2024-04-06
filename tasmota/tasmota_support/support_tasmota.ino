@@ -693,9 +693,9 @@ void ExecuteCommandPower(uint32_t device, uint32_t state, uint32_t source)
 
 #ifdef USE_SONOFF_IFAN
   if (IsModuleIfan()) {
-    TasmotaGlobal.blink_mask &= 1;   // No blinking on the fan relays
-    Settings->flag.interlock = 0;     // No interlock mode as it is already done by the microcontroller - CMND_INTERLOCK - Enable/disable interlock
-    Settings->pulse_timer[1] = 0;     // No pulsetimers on the fan relays
+    TasmotaGlobal.blink_mask &= 1;       // No blinking on the fan relays
+    Settings->flag.interlock = 0;        // No interlock mode as it is already done by the microcontroller - CMND_INTERLOCK - Enable/disable interlock
+    Settings->pulse_timer[1] = 0;        // No pulsetimers on the fan relays
     Settings->pulse_timer[2] = 0;
     Settings->pulse_timer[3] = 0;
   }
@@ -703,7 +703,7 @@ void ExecuteCommandPower(uint32_t device, uint32_t state, uint32_t source)
 
   bool publish_power = true;
   if ((state >= POWER_OFF_NO_STATE) && (state <= POWER_TOGGLE_NO_STATE)) {
-    state &= 3;                      // POWER_OFF, POWER_ON or POWER_TOGGLE
+    state &= 3;                          // POWER_OFF, POWER_ON or POWER_TOGGLE
     publish_power = false;
   }
 
@@ -712,26 +712,31 @@ void ExecuteCommandPower(uint32_t device, uint32_t state, uint32_t source)
   }
   TasmotaGlobal.active_device = device;
 
+  if (bitRead(Settings->power_lock, device -1)) {
+    AddLog(LOG_LEVEL_INFO, PSTR("CMD: Power%d is LOCKED"), device);
+    state = POWER_SHOW_STATE;            // Only show state. Make no change
+  }
+
   if (state != POWER_SHOW_STATE) {
     SetPulseTimer((device -1) % MAX_PULSETIMERS, 0);
   }
 
-  static bool interlock_mutex = false;    // Interlock power command pending
-  power_t mask = 1 << (device -1);        // Device to control
+  static bool interlock_mutex = false;   // Interlock power command pending
+  power_t mask = 1 << (device -1);       // Device to control
   if (state <= POWER_TOGGLE) {
     if ((TasmotaGlobal.blink_mask & mask)) {
       TasmotaGlobal.blink_mask &= (POWER_MASK ^ mask);  // Clear device mask
       MqttPublishPowerBlinkState(device);
     }
 
-    if (Settings->flag.interlock &&        // CMND_INTERLOCK - Enable/disable interlock
+    if (Settings->flag.interlock &&      // CMND_INTERLOCK - Enable/disable interlock
         !interlock_mutex &&
         ((POWER_ON == state) || ((POWER_TOGGLE == state) && !(TasmotaGlobal.power & mask)))
        ) {
-      interlock_mutex = true;                           // Clear all but masked relay in interlock group if new set requested
+      interlock_mutex = true;            // Clear all but masked relay in interlock group if new set requested
       bool perform_interlock_delay = false;
       for (uint32_t i = 0; i < MAX_INTERLOCKS; i++) {
-        if (Settings->interlock[i] & mask) {             // Find interlock group
+        if (Settings->interlock[i] & mask) {  // Find interlock group
           for (uint32_t j = 0; j < TasmotaGlobal.devices_present; j++) {
             power_t imask = 1 << j;
             if ((Settings->interlock[i] & imask) && (TasmotaGlobal.power & imask) && (mask != imask)) {
@@ -739,11 +744,11 @@ void ExecuteCommandPower(uint32_t device, uint32_t state, uint32_t source)
               perform_interlock_delay = true;
             }
           }
-          break;                                        // An interlocked relay is only present in one group so quit
+          break;                         // An interlocked relay is only present in one group so quit
         }
       }
       if (perform_interlock_delay) {
-        delay(50);                                // Add some delay to make sure never have more than one relay on
+        delay(50);                       // Add some delay to make sure never have more than one relay on
       }
       interlock_mutex = false;
     }
@@ -791,7 +796,7 @@ void ExecuteCommandPower(uint32_t device, uint32_t state, uint32_t source)
     }
     TasmotaGlobal.blink_timer = millis() + 100;
     TasmotaGlobal.blink_counter = ((!Settings->blinkcount) ? 64000 : (Settings->blinkcount *2)) +1;
-    TasmotaGlobal.blink_mask |= mask;  // Set device mask
+    TasmotaGlobal.blink_mask |= mask;    // Set device mask
     MqttPublishPowerBlinkState(device);
     return;
   }
@@ -877,9 +882,9 @@ void MqttShowState(void)
 
   if (!TasmotaGlobal.global_state.wifi_down) {
     int32_t rssi = WiFi.RSSI();
-    ResponseAppend_P(PSTR(",\"" D_JSON_WIFI "\":{\"" D_JSON_AP "\":%d,\"" D_JSON_SSID "\":\"%s\",\"" D_JSON_BSSID "\":\"%s\",\"" D_JSON_CHANNEL "\":%d,\"" D_JSON_WIFI_MODE "\":\"11%c\",\"" D_JSON_RSSI "\":%d,\"" D_JSON_SIGNAL "\":%d,\"" D_JSON_LINK_COUNT "\":%d,\"" D_JSON_DOWNTIME "\":\"%s\"}"),
+    ResponseAppend_P(PSTR(",\"" D_JSON_WIFI "\":{\"" D_JSON_AP "\":%d,\"" D_JSON_SSID "\":\"%s\",\"" D_JSON_BSSID "\":\"%s\",\"" D_JSON_CHANNEL "\":%d,\"" D_JSON_WIFI_MODE "\":\"%s\",\"" D_JSON_RSSI "\":%d,\"" D_JSON_SIGNAL "\":%d,\"" D_JSON_LINK_COUNT "\":%d,\"" D_JSON_DOWNTIME "\":\"%s\"}"),
       Settings->sta_active +1, EscapeJSONString(SettingsText(SET_STASSID1 + Settings->sta_active)).c_str(), WiFi.BSSIDstr().c_str(), WiFi.channel(),
-      pgm_read_byte(&kWifiPhyMode[WiFi.getPhyMode() & 0x3]), WifiGetRssiAsQuality(rssi), rssi,
+      WifiGetPhyMode().c_str(), WifiGetRssiAsQuality(rssi), rssi,
       WifiLinkCount(), WifiDowntime().c_str());
   }
 

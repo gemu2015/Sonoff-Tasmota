@@ -2587,7 +2587,7 @@ void CmndBLEAdv(void){
 
 
 //////////////////////////////////////////////////////////////
-// Determine what to do with advertismaents
+// Determine what to do with advertisements
 // BLEAdv0 -> suppress MQTT about devices found
 // BLEAdv1 -> send MQTT about devices found after each scan
 void CmndBLEDebug(void){
@@ -3123,7 +3123,6 @@ static void BLEPostMQTTSeenDevices(int type) {
   int remains = 0;
   nextSeenDev = 0;
 
-#ifdef MQTT_DATA_STRING
   int maxlen = 1024;
   char dest[maxlen];
   do {
@@ -3132,20 +3131,6 @@ static void BLEPostMQTTSeenDevices(int type) {
     // no retain - this is present devices, not historic
     MqttPublishPrefixTopicRulesProcess_P((1 == type) ? TELE : STAT, PSTR("BLE"));
   } while (remains);
-#else
-  memset(TasmotaGlobal.mqtt_data, 0, sizeof(TasmotaGlobal.mqtt_data));
-  int timelen = ResponseTime_P(PSTR(""));
-  char *dest = TasmotaGlobal.mqtt_data + timelen;
-  int maxlen = ResponseSize() -20 -timelen;
-
-//  if (!TasmotaGlobal.ota_state_flag){
-  do {
-    remains = getSeenDevicesToJson(dest, maxlen);
-    // no retain - this is present devices, not historic
-    MqttPublishPrefixTopicRulesProcess_P((1== type) ? TELE : STAT, PSTR("BLE"));
-  } while (remains);
-//  }
-#endif
 }
 
 static void BLEPostMQTT(bool onlycompleted) {
