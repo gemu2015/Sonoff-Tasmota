@@ -73,10 +73,9 @@
 
 #ifdef USE_MP3_PLAYER_MOD
 
-#define XDRV_14             14
+#define XDRV_14 14
 
 //#define MODULE_HEADER module_header_XDRV_14
-
 
 #include "module.h"
 #include "module_defines.h"
@@ -88,7 +87,7 @@
  * https://www.dfrobot.com/wiki/index.php/DFPlayer_Mini_SKU:DFR0299
 \*********************************************************************************************/
 
-#define MP3PLAYER_REV 1<<16|3
+#define MP3PLAYER_REV 1 << 16 | 3
 
 #define DVP_MINI 0
 #define DY_SV17F 1
@@ -97,8 +96,8 @@
 
 PUSH_OPTIONS
 
-MODULE_DESCRIPTOR("MP3PLAYER",MODULE_TYPE_DRIVER,MP3PLAYER_REV,"TXD",MP3_DEFAULT_TX_PIN,"TYPE",0x01000101,"",0,"",0)
-
+MODULE_DESCRIPTOR("MP3PLAYER", MODULE_TYPE_DRIVER, MP3PLAYER_REV, "TXD", MP3_DEFAULT_TX_PIN, "TYPE", 0x01000101, "", 0,
+                  "", 0)
 
 // all functions must be declared MUDULE_PART
 MODULE_PART uint16_t MP3_Checksum(uint8_t *array);
@@ -110,7 +109,6 @@ MODULE_PART bool MP3PlayerCmd();
 MODULE_PART void MP3Player_Deinit();
 MODULE_PART static int32_t mod_func_execute(uint32_t sel);
 MODULE_END
-
 
 /*********************************************************************************************\
  * constants
@@ -139,35 +137,37 @@ typedef struct {
  * enumerationsines
 \*********************************************************************************************/
 
-enum MP3_Commands {                                 // commands useable in console or rules
-  CMND_MP3_TRACK,                                   // MP3Track 001...255
-  CMND_MP3_PLAY,                                    // MP3Play, after pause or normal start to play
-  CMND_MP3_PAUSE,                                   // MP3Pause
-  CMND_MP3_STOP,                                    // MP3Stop, real stop, original version was pause function
-  CMND_MP3_VOLUME,                                  // MP3Volume 0..100
-  CMND_MP3_EQ,                                      // MP3EQ 0..5
-  CMND_MP3_DEVICE,                                  // sd-card: 02, usb-stick: 01
-  CMND_MP3_RESET,                                   // MP3Reset, a fresh and default restart
-  CMND_MP3_DAC,                                     // set dac, 1=off, 0=on, DAC is turned on (0) by default
-  CMND_MP3_SETTYPE                                  // set player type 0=default 1=DY_SV17F
- };
-
+enum MP3_Commands {  // commands useable in console or rules
+  CMND_MP3_TRACK,    // MP3Track 001...255
+  CMND_MP3_PLAY,     // MP3Play, after pause or normal start to play
+  CMND_MP3_PAUSE,    // MP3Pause
+  CMND_MP3_STOP,     // MP3Stop, real stop, original version was pause function
+  CMND_MP3_VOLUME,   // MP3Volume 0..100
+  CMND_MP3_EQ,       // MP3EQ 0..5
+  CMND_MP3_DEVICE,   // sd-card: 02, usb-stick: 01
+  CMND_MP3_RESET,    // MP3Reset, a fresh and default restart
+  CMND_MP3_DAC,      // set dac, 1=off, 0=on, DAC is turned on (0) by default
+  CMND_MP3_SETTYPE   // set player type 0=default 1=DY_SV17F
+};
 
 /*********************************************************************************************\
  * command defines
 \*********************************************************************************************/
 
-#define MP3_CMD_RESET_VALUE 0                       // mp3 reset command value
+#define MP3_CMD_RESET_VALUE 0  // mp3 reset command value
 // player commands
-#define MP3_CMD_TRACK       0x03                    // specify playback of a track, e.g. MP3Track 003
-#define MP3_CMD_PLAY        0x0d                    // Play, works as a normal play on a real MP3 Player, starts at 001.mp3 file on the selected device
-#define MP3_CMD_PAUSE       0x0e                    // Pause, was original designed as stop, see data sheet
-#define MP3_CMD_STOP        0x16                    // Stop, it's a real stop now, in the original version it was a pause command
-#define MP3_CMD_VOLUME      0x06                    // specifies the volume and means a console input as 0..100
-#define MP3_CMD_EQ          0x07                    // specify EQ(0/1/2/3/4/5), 0:Normal, 1:Pop, 2:Rock, 3:Jazz, 4:Classic, 5:Bass
-#define MP3_CMD_DEVICE      0x09                    // specify playback device, USB=1, SD-Card=2, default is 2 also after reset or power down/up
-#define MP3_CMD_RESET       0x0C                    // send a reset command to start fresh
-#define MP3_CMD_DAC         0x1A                    // activate or deactivate the DAC output for an external amplifier, DAC is turned on by default
+#define MP3_CMD_TRACK 0x03  // specify playback of a track, e.g. MP3Track 003
+#define MP3_CMD_PLAY \
+  0x0d  // Play, works as a normal play on a real MP3 Player, starts at 001.mp3 file on the selected device
+#define MP3_CMD_PAUSE 0x0e   // Pause, was original designed as stop, see data sheet
+#define MP3_CMD_STOP 0x16    // Stop, it's a real stop now, in the original version it was a pause command
+#define MP3_CMD_VOLUME 0x06  // specifies the volume and means a console input as 0..100
+#define MP3_CMD_EQ 0x07      // specify EQ(0/1/2/3/4/5), 0:Normal, 1:Pop, 2:Rock, 3:Jazz, 4:Classic, 5:Bass
+#define MP3_CMD_DEVICE \
+  0x09                      // specify playback device, USB=1, SD-Card=2, default is 2 also after reset or power down/up
+#define MP3_CMD_RESET 0x0C  // send a reset command to start fresh
+#define MP3_CMD_DAC \
+  0x1A  // activate or deactivate the DAC output for an external amplifier, DAC is turned on by default
 
 /*********************************************************************************************\
  * calculate the checksum
@@ -178,7 +178,7 @@ uint16_t MP3_Checksum(uint8_t *array) {
   for (uint32_t i = 0; i < 6; i++) {
     checksum += array[i];
   }
-  checksum = checksum^0xffff;
+  checksum = checksum ^ 0xffff;
   return checksum + 1;
 }
 
@@ -191,7 +191,7 @@ int32_t MP3PlayerInit() {
   ALLOCMEM
 
   // should be in settings
-  //player_type = DY_SV17F;
+  // player_type = DY_SV17F;
   player_type = mp->ms[1].value;
   player_type &= 3;
 
@@ -202,7 +202,7 @@ int32_t MP3PlayerInit() {
 
   MP3Player_Deinit();
   return -1;
-} 
+}
 
 int32_t MP3_Init() {
   SETREGS
@@ -213,19 +213,18 @@ int32_t MP3_Init() {
 
   if (ts) {
     // start serial communication fixed to 9600 baud
-    if (beginTS(ts,ICONST(9600))) {
+    if (beginTS(ts, ICONST(9600))) {
       flushTS(ts);
       delay(10);
-      MP3_CMD(MP3_CMD_RESET, MP3_CMD_RESET_VALUE);    // reset the player to defaults
+      MP3_CMD(MP3_CMD_RESET, MP3_CMD_RESET_VALUE);  // reset the player to defaults
       delay(100);
-      MP3_CMD(MP3_CMD_VOLUME, MP3_VOLUME);            // after reset set volume depending on the entry in the my_user_config.h
+      MP3_CMD(MP3_CMD_VOLUME, MP3_VOLUME);  // after reset set volume depending on the entry in the my_user_config.h
       AddLog(LOG_LEVEL_INFO, GSTR(started), player_txpin);
       return 0;
     }
   }
   return -1;
 }
-
 
 /*********************************************************************************************\
  * specific for DY_SV17F
@@ -248,53 +247,53 @@ void MP3_CMD(uint8_t mp3cmd, uint16_t val) {
   SETREGS
 
   if (player_type == DVP_MINI) {
-    uint8_t i       = 0;
+    uint8_t i = 0;
     uint8_t cmd[10];  // = {0x7e,0xff,6,0,0,0,0,0,0,0xef}; // fill array
-    cmd[0]          = 0x7e;
-    cmd[1]          = 0xff;
-    cmd[2]          = 6;
-    cmd[3]          = mp3cmd;                         // mp3 command value
-    cmd[4]          = 0;                              // feedback, 1=yes, 0=no, yet not use
-    cmd[5]          = val>>8;                         // data value, shift 8 byte right
-    cmd[6]          = val;                            // data value low byte
-    cmd[7]          = 0;
-    cmd[8]          = 0;
-    cmd[9]          = 0xef;
-    uint16_t chks   = MP3_Checksum(&cmd[1]);          // see calculate the checksum
-    cmd[7]          = chks>>8;                        // checksum. shift 8 byte right
-    cmd[8]          = chks;                           // checksum low byte
-    writeTS(ts, cmd, sizeof(cmd));               // write mp3 data array to player
+    cmd[0] = 0x7e;
+    cmd[1] = 0xff;
+    cmd[2] = 6;
+    cmd[3] = mp3cmd;    // mp3 command value
+    cmd[4] = 0;         // feedback, 1=yes, 0=no, yet not use
+    cmd[5] = val >> 8;  // data value, shift 8 byte right
+    cmd[6] = val;       // data value low byte
+    cmd[7] = 0;
+    cmd[8] = 0;
+    cmd[9] = 0xef;
+    uint16_t chks = MP3_Checksum(&cmd[1]);  // see calculate the checksum
+    cmd[7] = chks >> 8;                     // checksum. shift 8 byte right
+    cmd[8] = chks;                          // checksum low byte
+    writeTS(ts, cmd, sizeof(cmd));          // write mp3 data array to player
     delay(1000);
     if (mp3cmd == MP3_CMD_RESET) {
-      MP3_CMD(MP3_CMD_VOLUME, MP3_VOLUME);            // after reset set volume depending on the entry in the my_user_config.h
+      MP3_CMD(MP3_CMD_VOLUME, MP3_VOLUME);  // after reset set volume depending on the entry in the my_user_config.h
     }
   } else {
     uint8_t scmd[8];
     uint8_t len = 0;
-    scmd[0]=0xAA;
+    scmd[0] = 0xAA;
     switch (mp3cmd) {
       case MP3_CMD_TRACK:
-        scmd[1]=0x07;
-        scmd[2]=0x02;
-        scmd[3]=val>>8;
-        scmd[4]=val;
+        scmd[1] = 0x07;
+        scmd[2] = 0x02;
+        scmd[3] = val >> 8;
+        scmd[4] = val;
         MP3_SendCmd(scmd, 5);
       case MP3_CMD_PLAY:
-        scmd[1]=0x02;
-        scmd[2]=0x00;
-        scmd[3]=0xAC;
+        scmd[1] = 0x02;
+        scmd[2] = 0x00;
+        scmd[3] = 0xAC;
         len = 4;
         break;
       case MP3_CMD_STOP:
-        scmd[1]=0x10;
-        scmd[2]=0x00;
-        scmd[3]=0xBA;
+        scmd[1] = 0x10;
+        scmd[2] = 0x00;
+        scmd[3] = 0xBA;
         len = 4;
         break;
       case MP3_CMD_VOLUME:
-        scmd[1]=0x13;
-        scmd[2]=0x01;
-        scmd[3]=val;
+        scmd[1] = 0x13;
+        scmd[2] = 0x01;
+        scmd[3] = val;
         len = 4;
         break;
       default:
@@ -302,7 +301,6 @@ void MP3_CMD(uint8_t mp3cmd, uint16_t val) {
     }
     MP3_SendCmd(scmd, len);
   }
-
 }
 
 /*********************************************************************************************\
@@ -313,7 +311,7 @@ bool MP3PlayerCmd() {
   SETREGS
   char command[CMDSZ];
   bool serviced = true;
-  uint8_t disp_len = strlen((char*)GSTR(d_mp3));
+  uint8_t disp_len = strlen((char *)GSTR(d_mp3));
 
   if (!strncasecmp_P(XdrvMailbox->topic, GSTR(d_mp3), disp_len)) {  // prefix
     int command_code = GetCommandCode(command, sizeof(command), XdrvMailbox->topic + disp_len, GSTR(kMP3_Commands));
@@ -327,14 +325,24 @@ bool MP3PlayerCmd() {
       case CMND_MP3_SETTYPE:
         // play a track, set volume, select EQ, sepcify file device
         if (XdrvMailbox->data_len > 0) {
-          if (command_code == CMND_MP3_TRACK)  { MP3_CMD(MP3_CMD_TRACK,  XdrvMailbox->payload); }
-          if (command_code == CMND_MP3_VOLUME) {
-              MP3_CMD(MP3_CMD_VOLUME, iscale(XdrvMailbox->payload,30,100));
+          if (command_code == CMND_MP3_TRACK) {
+            MP3_CMD(MP3_CMD_TRACK, XdrvMailbox->payload);
           }
-          if (command_code == CMND_MP3_EQ)     { MP3_CMD(MP3_CMD_EQ,     XdrvMailbox->payload); }
-          if (command_code == CMND_MP3_DEVICE) { MP3_CMD(MP3_CMD_DEVICE, XdrvMailbox->payload); }
-          if (command_code == CMND_MP3_DAC)    { MP3_CMD(MP3_CMD_DAC,    XdrvMailbox->payload); }
-          if (command_code == CMND_MP3_SETTYPE) { player_type = XdrvMailbox->payload & 1; }
+          if (command_code == CMND_MP3_VOLUME) {
+            MP3_CMD(MP3_CMD_VOLUME, iscale(XdrvMailbox->payload, 30, 100));
+          }
+          if (command_code == CMND_MP3_EQ) {
+            MP3_CMD(MP3_CMD_EQ, XdrvMailbox->payload);
+          }
+          if (command_code == CMND_MP3_DEVICE) {
+            MP3_CMD(MP3_CMD_DEVICE, XdrvMailbox->payload);
+          }
+          if (command_code == CMND_MP3_DAC) {
+            MP3_CMD(MP3_CMD_DAC, XdrvMailbox->payload);
+          }
+          if (command_code == CMND_MP3_SETTYPE) {
+            player_type = XdrvMailbox->payload & 1;
+          }
         }
         Response_P(GSTR(S_JSON_MP3_COMMAND_NVALUE), command, XdrvMailbox->payload);
         break;
@@ -342,12 +350,20 @@ bool MP3PlayerCmd() {
       case CMND_MP3_PAUSE:
       case CMND_MP3_STOP:
       case CMND_MP3_RESET:
-play_default:
+      play_default:
         // play or re-play after pause, pause, stop,
-        if (command_code == CMND_MP3_PLAY)     { MP3_CMD(MP3_CMD_PLAY,   0); }
-        if (command_code == CMND_MP3_PAUSE)    { MP3_CMD(MP3_CMD_PAUSE,  0); }
-        if (command_code == CMND_MP3_STOP)     { MP3_CMD(MP3_CMD_STOP,   0); }
-        if (command_code == CMND_MP3_RESET)    { MP3_CMD(MP3_CMD_RESET,  0); }
+        if (command_code == CMND_MP3_PLAY) {
+          MP3_CMD(MP3_CMD_PLAY, 0);
+        }
+        if (command_code == CMND_MP3_PAUSE) {
+          MP3_CMD(MP3_CMD_PAUSE, 0);
+        }
+        if (command_code == CMND_MP3_STOP) {
+          MP3_CMD(MP3_CMD_STOP, 0);
+        }
+        if (command_code == CMND_MP3_RESET) {
+          MP3_CMD(MP3_CMD_RESET, 0);
+        }
         Response_P(GSTR(S_JSON_MP3_COMMAND), command, XdrvMailbox->payload);
         break;
 
@@ -364,7 +380,7 @@ play_default:
           char *cp = XdrvMailbox->data;
           scmd[4] = *cp;
           for (uint8_t i = 1; i < XdrvMailbox->data_len; i++) {
-            if (cp[i]=='.') {
+            if (cp[i] == '.') {
               scmd[i + 4] = '*';
             } else {
               scmd[i + 4] = toupper(cp[i]);
@@ -378,9 +394,9 @@ play_default:
         }
         break;
       default:
-    	  // else for Unknown command
-    	  serviced = false;
-    	break;
+        // else for Unknown command
+        serviced = false;
+        break;
     }
   } else {
     return false;
@@ -394,7 +410,6 @@ void MP3Player_Deinit() {
   ts = nullptr;
   RETMEM
 }
-
 
 /*********************************************************************************************\
  * Interface

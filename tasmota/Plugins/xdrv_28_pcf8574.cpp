@@ -17,12 +17,11 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
 #include "tasmota_options.h"
 #ifdef USE_PCF8574_MOD
+#include "../Tasmota/include/i18n.h"
 #include "module.h"
 #include "module_defines.h"
-#include "../Tasmota/include/i18n.h"
 
 /*********************************************************************************************\
  * PCF8574 - I2C IO Expander
@@ -37,7 +36,7 @@
 #define PCF8574_ADDR1 0x20  // PCF8574
 #define PCF8574_ADDR2 0x38  // PCF8574A
 
-typedef struct  {
+typedef struct {
   int error;
   uint8_t pin[64];
   uint8_t address[MAX_PCF8574];
@@ -47,7 +46,6 @@ typedef struct  {
   char stype[9];
   bool type;
 } PCF8574;
-
 
 typedef struct {
   TwoWire *xWire;
@@ -60,7 +58,7 @@ typedef struct {
 
 /********************************************************************************************/
 PUSH_OPTIONS
-MODULE_DESCRIPTOR("PCF8574",MODULE_TYPE_DRIVER,1<<16|3,"",0,"",0,"",0,"",0)
+MODULE_DESCRIPTOR("PCF8574", MODULE_TYPE_DRIVER, 1 << 16 | 3, "", 0, "", 0, "", 0, "", 0)
 MODULE_PART void Pcf8574SwitchRelay(void);
 MODULE_PART int32_t Pcf8574Init(void);
 MODULE_PART void HandlePcf8574(void);
@@ -72,8 +70,8 @@ MODULE_PART int32_t mod_func_execute(uint32_t function);
 MODULE_END
 /********************************************************************************************/
 void Pcf8574SwitchRelay(void) {
-SETREGS
-STGLOB
+  SETREGS
+  STGLOB
   for (uint32_t i = 0; i < TasmotaGlobal->devices_present; i++) {
     uint8_t relay_state = bitRead(XdrvMailbox->index, i);
 
@@ -103,9 +101,9 @@ STGLOB
 }
 
 int32_t Pcf8574Init(void) {
-ALLOCMEM
-STGLOB
-  
+  ALLOCMEM
+  STGLOB
+
   SETWIRE(0);
 
   uint8_t pcf8574_address = PCF8574_ADDR1;
@@ -134,9 +132,10 @@ STGLOB
     for (uint32_t i = 0; i < sizeof(Pcf8574.pin); i++) {
       Pcf8574.pin[i] = 99;
     }
-    TasmotaGlobal->devices_present = TasmotaGlobal->devices_present -
-                      Pcf8574.max_connected_ports;  // reset no of devices to avoid duplicate ports on duplicate init.
-    Pcf8574.max_connected_ports = 0;                // reset no of devices to avoid duplicate ports on duplicate init.
+    TasmotaGlobal->devices_present =
+        TasmotaGlobal->devices_present -
+        Pcf8574.max_connected_ports;  // reset no of devices to avoid duplicate ports on duplicate init.
+    Pcf8574.max_connected_ports = 0;  // reset no of devices to avoid duplicate ports on duplicate init.
     for (uint32_t idx = 0; idx < Pcf8574.max_devices; idx++) {  // suport up to 8 boards PCF8574
 
       AddLog(LOG_LEVEL_DEBUG, PSTR("PCF: Device %d config 0x%02x"), idx + 1, Settings->pcf8574_config[idx]);
@@ -147,13 +146,15 @@ STGLOB
         // Settings->power>>i&1, devices_present);
         if (_result > 0) {
           Pcf8574.pin[TasmotaGlobal->devices_present] = i + 8 * idx;
-          bitWrite(TasmotaGlobal->rel_inverted, TasmotaGlobal->devices_present, Settings->flag3.pcf8574_ports_inverted);  // SetOption81 - Invert all ports on PCF8574 devices
+          bitWrite(TasmotaGlobal->rel_inverted, TasmotaGlobal->devices_present,
+                   Settings->flag3.pcf8574_ports_inverted);  // SetOption81 - Invert all ports on PCF8574 devices
           TasmotaGlobal->devices_present++;
           Pcf8574.max_connected_ports++;
         }
       }
     }
-    AddLog(LOG_LEVEL_INFO, PSTR("PCF: Total devices %d, PCF8574 output ports %d"), Pcf8574.max_devices, Pcf8574.max_connected_ports);
+    AddLog(LOG_LEVEL_INFO, PSTR("PCF: Total devices %d, PCF8574 output ports %d"), Pcf8574.max_devices,
+           Pcf8574.max_connected_ports);
   }
 
   if (!Pcf8574.type) {
@@ -173,13 +174,13 @@ STGLOB
 
 #define WEB_HANDLE_PCF8574 "pcf"
 
-const char HTTP_TABLE100[] PROGMEM =
-  "<table style='width:100%%'>";
+const char HTTP_TABLE100[] PROGMEM = "<table style='width:100%%'>";
 
 const char HTTP_FORM_END[] PROGMEM =
-  "<br>"
-  "<button name='save' type='submit' class='button bgrn'>" D_SAVE "</button>"
-  "</form></fieldset>";
+    "<br>"
+    "<button name='save' type='submit' class='button bgrn'>" D_SAVE
+    "</button>"
+    "</form></fieldset>";
 
 #define BUTTON_CONFIGURATION 3
 
@@ -202,7 +203,7 @@ const char HTTP_FORM_I2C_PCF8574_2[] PROGMEM = "<tr><td><b>" D_DEVICE " %d " D_P
                                                "</select></td></tr>";
 
 void HandlePcf8574(void) {
-SETREGS
+  SETREGS
 
   if (!HttpCheckPriviledgedAccess()) {
     return;
@@ -210,7 +211,7 @@ SETREGS
 
   AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_HTTP D_CONFIGURE_PCF8574));
 
-  if ( WebServer_hasArg(PSTR("save")) ) {
+  if (WebServer_hasArg(PSTR("save"))) {
     Pcf8574SaveSettings();
     WebRestart(1);
     return;
@@ -225,8 +226,8 @@ SETREGS
   s2[0] = 0;
 
   WSContentSend_P(GSTR(HTTP_FORM_I2C_PCF8574_1), (Settings->flag3.pcf8574_ports_inverted)
-                                               ? s1
-                                               : s2);  // SetOption81 - Invert all ports on PCF8574 devices
+                                                     ? s1
+                                                     : s2);  // SetOption81 - Invert all ports on PCF8574 devices
 
   WSContentSend_P(GSTR(HTTP_TABLE100));
 
@@ -236,16 +237,15 @@ SETREGS
 
   for (uint32_t idx = 0; idx < Pcf8574.max_devices; idx++) {
     for (uint32_t idx2 = 0; idx2 < 8; idx2++) {  // 8 ports on PCF8574
-      uint8_t helper = 1 << idx2;    
+      uint8_t helper = 1 << idx2;
 
       uint32_t idn = idx2 + 8 * idx;
       WSContentSend_P(GSTR(HTTP_FORM_I2C_PCF8574_2), idx + 1, idx2, idn, idn,
                       ((helper & Settings->pcf8574_config[idx]) >> idx2 == 0) ? s1 : s2,
                       ((helper & Settings->pcf8574_config[idx]) >> idx2 == 1) ? s1 : s2);
-    
     }
   }
-  
+
   WSContentSend_P(PSTR("</table>"));
   WSContentSend_P(GSTR(HTTP_FORM_END));
   WSContentSpaceButton(BUTTON_CONFIGURATION, true);
@@ -253,15 +253,16 @@ SETREGS
 }
 
 void Pcf8574SaveSettings(void) {
-SETREGS
-STGLOB
+  SETREGS
+  STGLOB
 
   char stemp[7];
   char tmp[100];
 
   // AddLog_P(LOG_LEVEL_DEBUG, PSTR("PCF: Start working on Save arguements: inverted:%d")), WebServer->hasArg("b1");
 
-  Settings->flag3.pcf8574_ports_inverted = WebServer_hasArg(PSTR("b1"));  // SetOption81 - Invert all ports on PCF8574 devices
+  Settings->flag3.pcf8574_ports_inverted =
+      WebServer_hasArg(PSTR("b1"));  // SetOption81 - Invert all ports on PCF8574 devices
   for (byte idx = 0; idx < Pcf8574.max_devices; idx++) {
     byte count = 0;
     byte n = Settings->pcf8574_config[idx];
@@ -301,9 +302,9 @@ void Pcf8574_AddButton() {
 }
 
 void PCF8574_Deinit(void) {
-SETREGS
+  SETREGS
   I2cResetActive(PCF8574_ADDR1, 0);
-RETMEM
+  RETMEM
 }
 /*********************************************************************************************\
  * Interface
@@ -313,25 +314,21 @@ int32_t mod_func_execute(uint32_t function) {
   bool result = false;
 
   switch (function) {
-          case FUNC_INIT:
-            result = Pcf8574Init();
-            break;
-          case FUNC_SET_POWER:
-            Pcf8574SwitchRelay();
-            break;
-          case FUNC_WEB_ADD_BUTTON:
-            Pcf8574_AddButton();
-            break;
-          case FUNC_DEINIT:
-				    PCF8574_Deinit();
-				    break;
-        
+    case FUNC_INIT:
+      result = Pcf8574Init();
+      break;
+    case FUNC_SET_POWER:
+      Pcf8574SwitchRelay();
+      break;
+    case FUNC_WEB_ADD_BUTTON:
+      Pcf8574_AddButton();
+      break;
+    case FUNC_DEINIT:
+      PCF8574_Deinit();
+      break;
   }
   return result;
 }
 
 PULL_OPTIONS
 #endif  // USE_PCF8574
-
-
-
