@@ -19,9 +19,9 @@
 
 #include "tasmota_options.h"
 #ifdef USE_VEML6075_MOD
+#include "../Tasmota/include/i18n.h"
 #include "module.h"
 #include "module_defines.h"
-#include "../Tasmota/include/i18n.h"
 
 /*********************************************************************************************\
  * VEML6075 UVA/UVB/UVINDEX Sensor
@@ -76,7 +76,8 @@ const float UVB_RESPONSIVITY[] PROGMEM = {
 const char HTTP_SNS_UVA[] PROGMEM = "{s}%s " D_UVA_INTENSITY "{m}%d " D_UNIT_WATT_METER_QUADRAT "{e}";
 const char HTTP_SNS_UVB[] PROGMEM = "{s}%s " D_UVB_INTENSITY "{m}%d " D_UNIT_WATT_METER_QUADRAT "{e}";
 const char HTTP_SNS_UVINDEX[] PROGMEM = "{s}%s " D_UV_INDEX "{m}%s {e}";
-const char JSON_SNS_VEML6075[] PROGMEM = ",\"%s\":{\"" D_JSON_UVA_INTENSITY "\":%d,\"" D_JSON_UVB_INTENSITY "\":%d,\"" D_JSON_UV_INDEX "\":%s}";
+const char JSON_SNS_VEML6075[] PROGMEM =
+    ",\"%s\":{\"" D_JSON_UVA_INTENSITY "\":%d,\"" D_JSON_UVB_INTENSITY "\":%d,\"" D_JSON_UV_INDEX "\":%s}";
 const char S_JSON_VEML6075_COMMAND_NVALUE[] PROGMEM = "{\"" D_NAME_VEML6075 "\":{\"%s\":%d}}";
 
 const char kVEML6075_Commands[] PROGMEM = D_CMND_VEML6075_POWER "|" D_CMND_VEML6075_DYNAMIC "|" D_CMND_VEML6075_INTTIME;
@@ -170,7 +171,8 @@ void VEML6075write16(uint8_t reg, uint16_t val) {
 float VEML6075calcUVA(void) {
   SETREGS
 
-  //float uva_calc = veml6075_sensor.uva_raw - (VEML6075_DEFAULT_UVA_A_COEFF * veml6075_sensor.comp1) - (VEML6075_DEFAULT_UVA_B_COEFF * veml6075_sensor.comp2);
+  // float uva_calc = veml6075_sensor.uva_raw - (VEML6075_DEFAULT_UVA_A_COEFF * veml6075_sensor.comp1) -
+  // (VEML6075_DEFAULT_UVA_B_COEFF * veml6075_sensor.comp2);
   float fvar1 = fmul(VEML6075_DEFAULT_UVA_A_COEFF, floatunsisf(veml6075_sensor.comp1));
   float fvar2 = fmul(VEML6075_DEFAULT_UVA_B_COEFF, floatunsisf(veml6075_sensor.comp2));
 
@@ -182,7 +184,8 @@ float VEML6075calcUVA(void) {
 float VEML6075calcUVB(void) {
   SETREGS
 
-  //float uvb_calc = veml6075_sensor.uvb_raw - (VEML6075_DEFAULT_UVB_C_COEFF * veml6075_sensor.comp1) - (VEML6075_DEFAULT_UVB_D_COEFF * veml6075_sensor.comp2);
+  // float uvb_calc = veml6075_sensor.uvb_raw - (VEML6075_DEFAULT_UVB_C_COEFF * veml6075_sensor.comp1) -
+  // (VEML6075_DEFAULT_UVB_D_COEFF * veml6075_sensor.comp2);
   float fvar1 = fmul(VEML6075_DEFAULT_UVB_C_COEFF, floatunsisf(veml6075_sensor.comp1));
   float fvar2 = fmul(VEML6075_DEFAULT_UVB_D_COEFF, floatunsisf(veml6075_sensor.comp2));
 
@@ -194,7 +197,8 @@ float VEML6075calcUVB(void) {
 float VEML6075calcUVI(void) {
   SETREGS
 
-  //float uvi_calc = ((veml6075_sensor.uva * UVA_RESPONSIVITY[veml6075_sensor.inttime]) + (veml6075_sensor.uvb * UVB_RESPONSIVITY[veml6075_sensor.inttime])) / 2;
+  // float uvi_calc = ((veml6075_sensor.uva * UVA_RESPONSIVITY[veml6075_sensor.inttime]) + (veml6075_sensor.uvb *
+  // UVB_RESPONSIVITY[veml6075_sensor.inttime])) / 2;
 
   float faresp = *GFLT(&UVA_RESPONSIVITY[veml6075_sensor.inttime]);
   float fbresp = *GFLT(&UVB_RESPONSIVITY[veml6075_sensor.inttime]);
@@ -276,8 +280,8 @@ bool VEML6075init(void) {
 bool VEML6075Detect(void) {
   ALLOCMEM
 
- SETWIRE(0);
- 
+  SETWIRE(0);
+
   veml6075_sensor.address = VEML6075_ADDR;
   strcpy_P(veml6075_sensor.types, PSTR(D_NAME_VEML6075));
 
@@ -308,10 +312,11 @@ bool VEML6075Cmd(void) {
   SETREGS
 
   char command[CMDSZ];
-  //uint8_t name_len = strlen(PSTR(D_NAME_VEML6075));
+  // uint8_t name_len = strlen(PSTR(D_NAME_VEML6075));
   uint8_t name_len = 8;
   if (!strncasecmp_P(XdrvMailbox->topic, PSTR(D_NAME_VEML6075), name_len)) {
-    uint32_t command_code = GetCommandCode(command, sizeof(command), XdrvMailbox->topic + name_len, GSTR(kVEML6075_Commands));
+    uint32_t command_code =
+        GetCommandCode(command, sizeof(command), XdrvMailbox->topic + name_len, GSTR(kVEML6075_Commands));
     switch (command_code) {
       case CMND_VEML6075_PWR:
         if (XdrvMailbox->data_len) {
@@ -351,9 +356,10 @@ void VEML6075Show(bool json) {
 
   char s_uvindex[FLOATSZ];
   ftostrfd(veml6075_sensor.uvi, 1, s_uvindex);
-  
+
   if (json) {
-    ResponseAppend_P(GSTR(JSON_SNS_VEML6075), veml6075_sensor.types, veml6075_sensor.uva, veml6075_sensor.uvb, s_uvindex);
+    ResponseAppend_P(GSTR(JSON_SNS_VEML6075), veml6075_sensor.types, veml6075_sensor.uva, veml6075_sensor.uvb,
+                     s_uvindex);
 #ifdef USE_WEBSERVER
   } else {
     WSContentSend_PD(GSTR(HTTP_SNS_UVA), veml6075_sensor.types, veml6075_sensor.uva);
@@ -363,10 +369,10 @@ void VEML6075Show(bool json) {
   }
 }
 
-void VEML6075_Deinit(void){
-SETREGS
-  I2cResetActive(VEML6075_ADDR, 0);                        
-RETMEM
+void VEML6075_Deinit(void) {
+  SETREGS
+  I2cResetActive(VEML6075_ADDR, 0);
+  RETMEM
 }
 
 int32_t mod_func_execute(uint32_t function) {

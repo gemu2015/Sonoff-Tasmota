@@ -17,18 +17,18 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "tasmota_options.h" 
+#include "tasmota_options.h"
 
 #ifdef USE_SR04T_MOD
 
 #include "module.h"
 #include "module_defines.h"
 
-#define SR04TV3_REV  1<<16|3
+#define SR04TV3_REV 1 << 16 | 3
 
 PUSH_OPTIONS
 
-MODULE_DESCRIPTOR("SR04TV3", MODULE_TYPE_SENSOR, SR04TV3_REV,"RECPIN",3,"",0,"",0,"",0)
+MODULE_DESCRIPTOR("SR04TV3", MODULE_TYPE_SENSOR, SR04TV3_REV, "RECPIN", 3, "", 0, "", 0, "", 0)
 // all functions must be declared MUDULE_PART
 MODULE_PART int32_t Sr04T_Detect();
 MODULE_PART void Sr04T_Show(bool json);
@@ -64,7 +64,7 @@ int32_t Sr04T_Detect() {
   recpin = mp->ms[0].value;
 
   ts = NewTS(recpin, -1);
- 
+
   if (ts) {
     if (beginTS(ts, ICONST(9600))) {
       AddLog(LOG_LEVEL_INFO, GSTR(started), recpin);
@@ -82,13 +82,13 @@ void Sr04T_Read() {
   if (!ready) {
     return;
   }
-  int16_t wval = 0; 
+  int16_t wval = 0;
   while (availTS(ts)) {
     for (uint16_t cnt = 0; cnt < 3; cnt++) {
       sbuff[cnt] = sbuff[cnt + 1];
     }
     sbuff[3] = readbTS(ts);
-    
+
     if (sbuff[0] == 0xff) {
       uint8_t sum = sbuff[0] + sbuff[1] + sbuff[2];
       if (sum == sbuff[3]) {
@@ -97,13 +97,12 @@ void Sr04T_Read() {
     }
   }
   distance = fscale(wval, (float)0.1, (float)0);
-/*
-  Product response FF 07 A1 A7
-Where the check code SUM = A7 = (0x07 + 0xA1 + 0Xff) & 0x00ff 0x07 is the high data of the distance;
-0xA1 is the lower data of the distance;
-Distance value is 0x07A1; converted to decimal for 1953; unit: mm
-*/
-
+  /*
+    Product response FF 07 A1 A7
+  Where the check code SUM = A7 = (0x07 + 0xA1 + 0Xff) & 0x00ff 0x07 is the high data of the distance;
+  0xA1 is the lower data of the distance;
+  Distance value is 0x07A1; converted to decimal for 1953; unit: mm
+  */
 }
 
 void Sr04T_Show(bool json) {

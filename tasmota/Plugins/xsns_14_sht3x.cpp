@@ -17,7 +17,6 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
 #include "tasmota_options.h"
 
 #ifdef USE_SHT3X_MOD
@@ -30,18 +29,17 @@
  * I2C Address: 0x44, 0x45 or 0x70 (SHTC3)
 \*********************************************************************************************/
 
+#define SHT3X_ADDR_GND 0x44  // address pin low (GND)
+#define SHT3X_ADDR_VDD 0x45  // address pin high (VDD)
+#define SHTC3_ADDR 0x70      // address for shtc3 sensor
 
-#define SHT3X_ADDR_GND      0x44       // address pin low (GND)
-#define SHT3X_ADDR_VDD      0x45       // address pin high (VDD)
-#define SHTC3_ADDR          0x70       // address for shtc3 sensor
+#define SHT3X_MAX_SENSORS 3
 
-#define SHT3X_MAX_SENSORS   3
-
-#define SHT3X_REV  1<<16|3
+#define SHT3X_REV 1 << 16 | 3
 
 PUSH_OPTIONS
 
-MODULE_DESCRIPTOR("SHT3X",MODULE_TYPE_SENSOR,SHT3X_REV,"",0,"",0,"",0,"",0)
+MODULE_DESCRIPTOR("SHT3X", MODULE_TYPE_SENSOR, SHT3X_REV, "", 0, "", 0, "", 0, "", 0)
 MODULE_PART int32_t Sht3x_Detect();
 MODULE_PART void SHT3X_Show(bool json);
 MODULE_PART void SHT3X_Deinit();
@@ -49,12 +47,10 @@ MODULE_PART bool Sht3xRead(float &t, float &h, uint8_t sht3x_address);
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
 MODULE_END
 
-
 typedef struct {
-  uint8_t address;    // I2C bus address
-  char types[6];      // Sensor type name and address - "SHT3X-0xXX"
+  uint8_t address;  // I2C bus address
+  char types[6];    // Sensor type name and address - "SHT3X-0xXX"
 } SHT3XSTRUCT;
-
 
 // define memory used
 typedef struct {
@@ -67,7 +63,6 @@ typedef struct {
 #define sht3x_count mem->sht3x_count
 #define sht3x_addresses mem->sht3x_addresses
 #define sht3x_sensors mem->sht3x_sensors
-
 
 // define strings used
 const char kShtTypes3[] PROGMEM = "SHT3X|SHT3X|SHTC3";
@@ -84,33 +79,33 @@ bool Sht3xRead(float &t, float &h, uint8_t sht3x_address) {
 
   beginTransmission(sht3x_address);
   if (SHTC3_ADDR == sht3x_address) {
-    write(0x35);                  // Wake from
-    write(0x17);                  // sleep
+    write(0x35);  // Wake from
+    write(0x17);  // sleep
     endTransmission(true);
     beginTransmission(sht3x_address);
-    write(0x78);                  // Disable clock stretching ( I don't think that wire library support clock stretching )
-    write(0x66);                  // High resolution
+    write(0x78);  // Disable clock stretching ( I don't think that wire library support clock stretching )
+    write(0x66);  // High resolution
   } else {
-    write(0x2C);                  // Enable clock stretching
-    write(0x06);                  // High repeatability
+    write(0x2C);  // Enable clock stretching
+    write(0x06);  // High repeatability
   }
-  if (endTransmission(true) != 0) {   // Stop I2C transmission
-    AddLog(LOG_LEVEL_INFO,PSTR("i2c error"));
+  if (endTransmission(true) != 0) {  // Stop I2C transmission
+    AddLog(LOG_LEVEL_INFO, PSTR("i2c error"));
     return false;
   }
-  delay(30);                           // Timing verified with logic analyzer (10 is to short)
-  requestFrom(sht3x_address, 6);   // Request 6 bytes of data
+  delay(30);                      // Timing verified with logic analyzer (10 is to short)
+  requestFrom(sht3x_address, 6);  // Request 6 bytes of data
   for (uint32_t i = 0; i < 6; i++) {
-    data[i] = read();             // cTemp msb, cTemp lsb, cTemp crc, humidity msb, humidity lsb, humidity crc
+    data[i] = read();  // cTemp msb, cTemp lsb, cTemp crc, humidity msb, humidity lsb, humidity crc
   };
 
-  t = fdiv( tofloat(((data[0] << 8) | data[1] ) * 175), FLTC(0));
+  t = fdiv(tofloat(((data[0] << 8) | data[1]) * 175), FLTC(0));
   t = fdiff(t, FLTC(1));
-  //t = ConvertTemp((float)( ( ( (data[0] << 8) | data[1] ) * 175) / 65535.0) - 45);
+  // t = ConvertTemp((float)( ( ( (data[0] << 8) | data[1] ) * 175) / 65535.0) - 45);
   t = ConvertTemp(t);
 
-  h = fdiv( tofloat(((data[3] << 8) | data[4] ) * 100), FLTC(0));
-//  h = ConvertHumidity((float)((((data[3] << 8) | data[4]) * 100) / 65535.0));
+  h = fdiv(tofloat(((data[3] << 8) | data[4]) * 100), FLTC(0));
+  //  h = ConvertHumidity((float)((((data[3] << 8) | data[4]) * 100) / 65535.0));
   h = ConvertHumidity(h);
   return (!isnan(t) && !isnan(h) && !iseq(h));
 }
@@ -143,11 +138,11 @@ int32_t Sht3x_Detect() {
       break;
     }
   }
-  
+
   if (sht3x_count) {
     initialized = true;
   } else {
-      SHT3X_Deinit();
+    SHT3X_Deinit();
   }
   return sht3x_count;
 }
@@ -155,7 +150,7 @@ int32_t Sht3x_Detect() {
 void SHT3X_Show(bool json) {
   SETREGS
   STGLOB
-  
+
   for (uint32_t i = 0; i < sht3x_count; i++) {
     float t;
     float h;
@@ -168,13 +163,12 @@ void SHT3X_Show(bool json) {
       }
       TempHumDewShow(json, ((0 == TasmotaGlobal->tele_period) && (0 == i)), types, t, h);
 
-      float abshum =  CalcTempHumToAbsHum(t, h);
+      float abshum = CalcTempHumToAbsHum(t, h);
       char abs_hum[32];
       ftostrfd(abshum, 4, abs_hum);
       if (!json) {
         WSContentSend_PD(GSTR(HTTP_SNS_AHUM), types, abs_hum);
       } else {
-        
       }
     }
   }
@@ -199,13 +193,13 @@ int32_t mod_func_execute(uint32_t sel) {
       result = Sht3x_Detect();
       break;
     case FUNC_JSON_APPEND:
-        SHT3X_Show(1);
+      SHT3X_Show(1);
       break;
     case FUNC_WEB_SENSOR:
-        SHT3X_Show(0);
+      SHT3X_Show(0);
       break;
     case FUNC_DEINIT:
-        SHT3X_Deinit();
+      SHT3X_Deinit();
       break;
   }
   return result;

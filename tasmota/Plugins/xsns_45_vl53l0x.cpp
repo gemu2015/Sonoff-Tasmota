@@ -129,8 +129,8 @@ typedef struct {
 int32_t VL53L0X_Detect(void) {
   ALLOCMEM
 
- SETWIRE(0);
- 
+  SETWIRE(0);
+
   VL53L0X_detected = false;
 
   range_mode = mp->ms[0].value & 0xff;
@@ -148,7 +148,7 @@ int32_t VL53L0X_Detect(void) {
 
     VL53L0X_setTimeout(500);
 
-//#if defined VL53L0X_LONG_RANGE
+    //#if defined VL53L0X_LONG_RANGE
     if (range_mode == 1) {
       // lower the return signal rate limit (default is 0.25 MCPS)
       VL53L0X_setSignalRateLimit(0.1);
@@ -156,18 +156,18 @@ int32_t VL53L0X_Detect(void) {
       VL53L0X_setVcselPulsePeriod(VcselPeriodPreRange, 18);
       VL53L0X_setVcselPulsePeriod(VcselPeriodFinalRange, 14);
     }
-//#endif
+    //#endif
 
-//#if defined VL53L0X_HIGH_SPEED
+    //#if defined VL53L0X_HIGH_SPEED
     if (range_mode == 2) {
       // reduce timing budget to 20 ms (default is about 33 ms)
       VL53L0X_setMeasurementTimingBudget(ICONST(20000));
     } else {
-//#elif defined VL53L0X_HIGH_ACCURACY
+      //#elif defined VL53L0X_HIGH_ACCURACY
       // increase timing budget to 200 ms
       VL53L0X_setMeasurementTimingBudget(ICONST(200000));
     }
-//#endif
+    //#endif
     // Start continuous back-to-back mode (take readings as
     // fast as possible).  To use continuous timed mode
     // instead, provide a desired inter-measurement period in
@@ -195,7 +195,7 @@ void VL53L0X_Every_250MSecond(void) {
 
   uint16_t dist = VL53L0X_readRangeContinuousMillimeters();
   if ((0 == dist) || (dist > ICONST(2200))) {
-    dist = ICONST(9999); 
+    dist = ICONST(9999);
   }
 
 #ifdef USE_VL_MEDIAN

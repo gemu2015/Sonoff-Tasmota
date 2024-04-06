@@ -18,12 +18,10 @@
 */
 #include "tasmota_options.h"
 
-
 #ifdef USE_RDM6300_MOD
 
 #include "module.h"
 #include "module_defines.h"
-
 
 /*********************************************************************************************\
  * Seeed studio Grove / RDM630 / RDM6300 125kHz rfid reader
@@ -35,22 +33,20 @@
  *    Versn --------- Tag ---------
 \*********************************************************************************************/
 
-
 #define RDM6300_DEFAULT_REC_PIN 3
-#define RDM6300_BAUDRATE   9600
-#define RDM_TIMEOUT        100
-#define RDM6300_BLOCK      20   // 2 seconds block time
+#define RDM6300_BAUDRATE 9600
+#define RDM_TIMEOUT 100
+#define RDM6300_BLOCK 20  // 2 seconds block time
 
-
-#define RDM6300_REV 1<<16|3
+#define RDM6300_REV 1 << 16 | 3
 
 PUSH_OPTIONS
 
-MODULE_DESCRIPTOR("RDM6300",MODULE_TYPE_SENSOR,RDM6300_REV,"RXD",RDM6300_DEFAULT_REC_PIN,"",0,"",0,"",0)
+MODULE_DESCRIPTOR("RDM6300", MODULE_TYPE_SENSOR, RDM6300_REV, "RXD", RDM6300_DEFAULT_REC_PIN, "", 0, "", 0, "", 0)
 
 // all functions must be declared MUDULE_PART
-MODULE_PART uint8_t RDM6300_HexNibble( char chr);
-MODULE_PART void RDM6300_HexStringToArray( uint8_t array[], uint8_t len, char buffer[]);
+MODULE_PART uint8_t RDM6300_HexNibble(char chr);
+MODULE_PART void RDM6300_HexStringToArray(uint8_t array[], uint8_t len, char buffer[]);
 MODULE_PART int32_t RDM6300_Init();
 MODULE_PART void RDM6300_Deinit();
 MODULE_PART void RDM6300_ScanForTag();
@@ -63,9 +59,7 @@ const char started[] PROGMEM = "RDM6300 inizialized with REC pin %d";
 const char HHTP_UID[] PROGMEM = "{s}RDM6300 UID{m}%08X {e}";
 const char JSON_UID[] PROGMEM = ",\"RDM6300\":{\"UID\":\"%08X\"}}";
 
-
 /*********************************************************************************************/
-
 
 typedef struct {
   uint8_t recpin;
@@ -74,7 +68,7 @@ typedef struct {
   uint8_t block_time;
   TasmotaSerial *ts;
 } MODULE_MEMORY;
- 
+
 #define ts mem->ts
 #define recpin mem->recpin
 #define ready mem->ready
@@ -105,40 +99,46 @@ int32_t RDM6300_Init() {
   return -1;
 }
 
-uint8_t RDM6300_HexNibble( char chr) {
+uint8_t RDM6300_HexNibble(char chr) {
   uint8_t rVal = 0;
-  if (isdigit(chr)) { rVal = chr - '0'; }
-  else if (chr >= 'A' && chr <= 'F') { rVal = chr + 10 - 'A'; }
-  else if (chr >= 'a' && chr <= 'f') { rVal = chr + 10 - 'a'; }
+  if (isdigit(chr)) {
+    rVal = chr - '0';
+  } else if (chr >= 'A' && chr <= 'F') {
+    rVal = chr + 10 - 'A';
+  } else if (chr >= 'a' && chr <= 'f') {
+    rVal = chr + 10 - 'a';
+  }
   return rVal;
 }
 
 // Convert hex string to int array
-void RDM6300_HexStringToArray( uint8_t array[], uint8_t len, char buffer[]) {
+void RDM6300_HexStringToArray(uint8_t array[], uint8_t len, char buffer[]) {
   char *cp = buffer;
   for (uint32_t i = 0; i < len; i++) {
-    uint8_t val = RDM6300_HexNibble( *cp++) << 4;
-    array[i] = val | RDM6300_HexNibble( *cp++);
+    uint8_t val = RDM6300_HexNibble(*cp++) << 4;
+    array[i] = val | RDM6300_HexNibble(*cp++);
   }
 }
 
-
 void RDM6300_ScanForTag() {
   SETREGS
-  if (!ready) { return; }
+  if (!ready) {
+    return;
+  }
 
   if (block_time > 0) {
     block_time--;
     while (availTS(ts)) {
-      readbTS(ts);               // Flush serial buffer
+      readbTS(ts);  // Flush serial buffer
     }
     return;
   }
 
   if (availTS(ts)) {
-
     char c = readbTS(ts);
-    if (c != 2) { return; }                // Head marker
+    if (c != 2) {
+      return;
+    }  // Head marker
 
     // read rest of message 11 more bytes
     char rdm_buffer[14];
@@ -151,31 +151,39 @@ void RDM6300_ScanForTag() {
       if (availTS(ts)) {
         c = readbTS(ts);
         rdm_buffer[rdm_index++] = c;
-        if (3 == c) { break; }             // Tail marker
-        if (rdm_index > 14) { break; }     // Illegal message
+        if (3 == c) {
+          break;
+        }  // Tail marker
+        if (rdm_index > 14) {
+          break;
+        }  // Illegal message
       }
       if ((millis() - cmillis) > RDM_TIMEOUT) {
-        return;                            // Timeout
+        return;  // Timeout
       }
     }
 
-    AddLogBuffer(LOG_LEVEL_DEBUG, (uint8_t*)rdm_buffer, sizeof(rdm_buffer));
+    AddLogBuffer(LOG_LEVEL_DEBUG, (uint8_t *)rdm_buffer, sizeof(rdm_buffer));
 
-    if (rdm_buffer[13] != 3) { return; }   // Tail marker
+    if (rdm_buffer[13] != 3) {
+      return;
+    }  // Tail marker
 
-    block_time = RDM6300_BLOCK;        // Block for 2 seconds
+    block_time = RDM6300_BLOCK;  // Block for 2 seconds
 
     uint8_t rdm_array[6];
-    RDM6300_HexStringToArray( rdm_array, sizeof(rdm_array), (char*)rdm_buffer +1);
+    RDM6300_HexStringToArray(rdm_array, sizeof(rdm_array), (char *)rdm_buffer + 1);
     uint8_t accu = 0;
     for (uint32_t count = 0; count < 5; count++) {
-      accu ^= rdm_array[count];            // Calc checksum,
+      accu ^= rdm_array[count];  // Calc checksum,
     }
-    if (accu != rdm_array[5]) { return; }  // Checksum error
+    if (accu != rdm_array[5]) {
+      return;
+    }  // Checksum error
 
     rdm_buffer[11] = '\0';
     uint32_t tuid = strtoul(rdm_buffer + 3, nullptr, 16);
-    if (tuid > 0) {                         // Ignore false positive all zeros
+    if (tuid > 0) {  // Ignore false positive all zeros
       uid = tuid;
       ResponseTime_P(GSTR(JSON_UID), uid);
       MqttPublishTeleSensor();
@@ -185,7 +193,9 @@ void RDM6300_ScanForTag() {
 
 void RDM6300_Show() {
   SETREGS
-  if (!ready) { return; }
+  if (!ready) {
+    return;
+  }
   WSContentSend_PD(GSTR(HHTP_UID), uid);
 }
 

@@ -18,56 +18,54 @@
 
 */
 
-
-#include "tasmota_options.h" 
+#include "tasmota_options.h"
 
 #ifdef USE_SCD30_MOD
 /*********************************************************************************************\
  * SCD30 NDIR CO2 Temperature and Humidity sensor
 \*********************************************************************************************/
 
-
 //#define SCD30_DEBUG
 
-#define SCD30_ADDRESS                 0x61
+#define SCD30_ADDRESS 0x61
 
-#define SCD30_MAX_MISSED_READS        3
-#define SCD30_STATE_NO_ERROR          0
-#define SCD30_STATE_ERROR_DATA_CRC    1
-#define SCD30_STATE_ERROR_READ_MEAS   2
-#define SCD30_STATE_ERROR_SOFT_RESET  3
-#define SCD30_STATE_ERROR_I2C_RESET   4
-#define SCD30_STATE_ERROR_UNKNOWN     5
+#define SCD30_MAX_MISSED_READS 3
+#define SCD30_STATE_NO_ERROR 0
+#define SCD30_STATE_ERROR_DATA_CRC 1
+#define SCD30_STATE_ERROR_READ_MEAS 2
+#define SCD30_STATE_ERROR_SOFT_RESET 3
+#define SCD30_STATE_ERROR_I2C_RESET 4
+#define SCD30_STATE_ERROR_UNKNOWN 5
 
-#define ERROR_SCD30_NO_ERROR                        0
-#define ERROR_SCD30_NO_DATA                0x80000000
-#define ERROR_SCD30_CO2_ZERO               0x90000000
-#define ERROR_SCD30_UNKNOWN_ERROR           0x1000000
-#define ERROR_SCD30_CRC_ERROR               0x2000000
-#define ERROR_SCD30_NOT_ENOUGH_BYTES_ERROR  0x3000000
-#define ERROR_SCD30_NOT_FOUND_ERROR         0x4000000
-#define ERROR_SCD30_NOT_A_NUMBER_ERROR      0x5000000
-#define ERROR_SCD30_INVALID_VALUE           0x6000000
+#define ERROR_SCD30_NO_ERROR 0
+#define ERROR_SCD30_NO_DATA 0x80000000
+#define ERROR_SCD30_CO2_ZERO 0x90000000
+#define ERROR_SCD30_UNKNOWN_ERROR 0x1000000
+#define ERROR_SCD30_CRC_ERROR 0x2000000
+#define ERROR_SCD30_NOT_ENOUGH_BYTES_ERROR 0x3000000
+#define ERROR_SCD30_NOT_FOUND_ERROR 0x4000000
+#define ERROR_SCD30_NOT_A_NUMBER_ERROR 0x5000000
+#define ERROR_SCD30_INVALID_VALUE 0x6000000
 
 #include "module.h"
 #include "module_defines.h"
 
-#define SCD30_REV  1<<16|3
+#define SCD30_REV 1 << 16 | 3
 
 PUSH_OPTIONS
 
-MODULE_DESCRIPTOR("SCD30", MODULE_TYPE_SENSOR, SCD30_REV,"",0,"",0,"",0,"",0)
+MODULE_DESCRIPTOR("SCD30", MODULE_TYPE_SENSOR, SCD30_REV, "", 0, "", 0, "", 0, "", 0)
 // all functions must be declared MUDULE_PART
 MODULE_PART int32_t SCD30_Detect();
 MODULE_PART void SCD30_Show(bool json);
 MODULE_PART void SCD30_Update();
 MODULE_PART void CmndScd30Altitude();
-MODULE_PART void  CmndScd30AutoMode();
-MODULE_PART void  CmndScd30Calibrate();
-MODULE_PART void  CmndScd30Firmware();
-MODULE_PART void  CmndScd30Interval();
-MODULE_PART void  CmndScd30Pressure();
-MODULE_PART void  CmndScd30TempOffset();
+MODULE_PART void CmndScd30AutoMode();
+MODULE_PART void CmndScd30Calibrate();
+MODULE_PART void CmndScd30Firmware();
+MODULE_PART void CmndScd30Interval();
+MODULE_PART void CmndScd30Pressure();
+MODULE_PART void CmndScd30TempOffset();
 MODULE_PART void SCD30_Deinit();
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
 
@@ -97,11 +95,11 @@ typedef struct {
 
 typedef struct {
   uint8_t i2cAddress;
-  //TwoWire *pWire;
+  // TwoWire *pWire;
   uint16_t ambientPressure;
   uint16_t co2History[SCD30_MEDIAN_FILTER_SIZE];
   uint16_t co2EAverage;
-  int8_t co2NewDataLocation; // location to put new CO2 data for median filter
+  int8_t co2NewDataLocation;  // location to put new CO2 data for median filter
 } DRV;
 
 typedef struct {
@@ -117,11 +115,11 @@ typedef struct {
 
 // SCD30 driver
 
-
 MODULE_PART void SCD30_begin(uint8_t addr);
 
 MODULE_PART int SCD30_softReset();
-MODULE_PART int SCD30_clearI2CBus(); // this is a HARD reset of the IC2 bus to restore communication, it will disrupt the bus
+MODULE_PART int
+SCD30_clearI2CBus();  // this is a HARD reset of the IC2 bus to restore communication, it will disrupt the bus
 
 MODULE_PART int SCD30_getAltitudeCompensation(uint16_t *pHeight_meter);
 MODULE_PART int SCD30_getAmbientPressure(uint16_t *pAirPressure_mbar);
@@ -143,9 +141,9 @@ MODULE_PART int SCD30_setTemperatureOffset(float offset_degC);
 MODULE_PART int SCD30_setTemperatureOffset(uint16_t offset_centiDegC);
 
 MODULE_PART int SCD30_beginMeasuring();
-MODULE_PART int SCD30_beginMeasuring(uint16_t airPressure_mbar); // also sets ambient pressure offset in mbar/hPascal
+MODULE_PART int SCD30_beginMeasuring(uint16_t airPressure_mbar);  // also sets ambient pressure offset in mbar/hPascal
 MODULE_PART int SCD30_isDataAvailable(bool *pIsAvailable);
-MODULE_PART int SCD30_readMeasurement(uint16 *pCO2_ppm,uint16 *pCO2EAvg_ppm,float *pTemperature,float *pHumidity);
+MODULE_PART int SCD30_readMeasurement(uint16 *pCO2_ppm, uint16 *pCO2EAvg_ppm, float *pTemperature, float *pHumidity);
 MODULE_PART int SCD30_stopMeasuring();
 
 MODULE_PART uint8_t SCD30_computeCRC8(uint8_t data[], uint8_t len);
@@ -153,38 +151,36 @@ MODULE_PART int SCD30_sendBytes(void *pInput, uint8_t len);
 MODULE_PART int SCD30_getBytes(void *pOutput, uint8_t len);
 MODULE_PART int SCD30_sendCommand(uint16_t command);
 MODULE_PART int SCD30_sendCommandArguments(uint16_t command, uint16_t arguments);
-MODULE_PART int SCD30_get16BitRegCheckCRC(void* pInput, uint16_t* pData);
-MODULE_PART int SCD30_get32BitRegCheckCRC(void* pInput, float* pData);
-MODULE_PART int SCD30_sendCommand(uint16_t registerAddress, uint16_t* pData);
-MODULE_PART int SCD30_readRegister(uint16_t registerAddress, uint16_t* pData);
-MODULE_PART uint16_t SCD30_opt_med5(uint16_t * p);
+MODULE_PART int SCD30_get16BitRegCheckCRC(void *pInput, uint16_t *pData);
+MODULE_PART int SCD30_get32BitRegCheckCRC(void *pInput, float *pData);
+MODULE_PART int SCD30_sendCommand(uint16_t registerAddress, uint16_t *pData);
+MODULE_PART int SCD30_readRegister(uint16_t registerAddress, uint16_t *pData);
+MODULE_PART uint16_t SCD30_opt_med5(uint16_t *p);
 
-
-#define COMMAND_SCD30_CONTINUOUS_MEASUREMENT      0x0010
-#define COMMAND_SCD30_MEASUREMENT_INTERVAL        0x4600
-#define COMMAND_SCD30_GET_DATA_READY              0x0202
-#define COMMAND_SCD30_READ_MEASUREMENT            0x0300
-#define COMMAND_SCD30_CALIBRATION_TYPE            0x5306
+#define COMMAND_SCD30_CONTINUOUS_MEASUREMENT 0x0010
+#define COMMAND_SCD30_MEASUREMENT_INTERVAL 0x4600
+#define COMMAND_SCD30_GET_DATA_READY 0x0202
+#define COMMAND_SCD30_READ_MEASUREMENT 0x0300
+#define COMMAND_SCD30_CALIBRATION_TYPE 0x5306
 #define COMMAND_SCD30_FORCED_RECALIBRATION_FACTOR 0x5204
-#define COMMAND_SCD30_TEMPERATURE_OFFSET          0x5403
-#define COMMAND_SCD30_ALTITUDE_COMPENSATION       0x5102
-#define COMMAND_SCD30_SOFT_RESET                  0xD304
-#define COMMAND_SCD30_GET_FW_VERSION              0xD100
-#define COMMAND_SCD30_STOP_MEASUREMENT            0x0104
+#define COMMAND_SCD30_TEMPERATURE_OFFSET 0x5403
+#define COMMAND_SCD30_ALTITUDE_COMPENSATION 0x5102
+#define COMMAND_SCD30_SOFT_RESET 0xD304
+#define COMMAND_SCD30_GET_FW_VERSION 0xD100
+#define COMMAND_SCD30_STOP_MEASUREMENT 0x0104
 
 #define SCD30_DATA_REGISTER_BYTES 2
 #define SCD30_DATA_REGISTER_WITH_CRC 3
 #define SCD30_MEAS_BYTES 18
 
-
 void SCD30_begin(uint8_t addr) {
-    SETREGS
-    drv.i2cAddress = addr;
-    drv.co2NewDataLocation = -1; // indicates there is no data, so the 1st data point needs to fill up the median filter
+  SETREGS
+  drv.i2cAddress = addr;
+  drv.co2NewDataLocation = -1;  // indicates there is no data, so the 1st data point needs to fill up the median filter
 #ifdef ESP8266
 //    this->pWire->setClockStretchLimit(200000);
 #endif
-    drv.ambientPressure = 0;
+  drv.ambientPressure = 0;
 }
 
 /*---------------------------------------------------------------------------
@@ -193,71 +189,78 @@ void SCD30_begin(uint8_t addr) {
  Job : optimized search of the median of 5 values
  Notice : found on sci.image.processing cannot go faster unless assumptions are made on the nature of the input signal.
  ---------------------------------------------------------------------------*/
-#define PIX_SORT(a,b) { if ((a)>(b)) PIX_SWAP((a),(b)); }
-#define PIX_SWAP(a,b) { uint16_t temp=(a);(a)=(b);(b)=temp; }
+#define PIX_SORT(a, b)                 \
+  {                                    \
+    if ((a) > (b)) PIX_SWAP((a), (b)); \
+  }
+#define PIX_SWAP(a, b)   \
+  {                      \
+    uint16_t temp = (a); \
+    (a) = (b);           \
+    (b) = temp;          \
+  }
 
-uint16_t SCD30_opt_med5(uint16_t * p) {
-    PIX_SORT(p[0], p[1]);
-    PIX_SORT(p[3], p[4]);
-    PIX_SORT(p[0], p[3]);
-    PIX_SORT(p[1], p[4]);
-    PIX_SORT(p[1], p[2]);
-    PIX_SORT(p[2], p[3]);
-    PIX_SORT(p[1], p[2]);
-    return(p[2]);
+uint16_t SCD30_opt_med5(uint16_t *p) {
+  PIX_SORT(p[0], p[1]);
+  PIX_SORT(p[3], p[4]);
+  PIX_SORT(p[0], p[3]);
+  PIX_SORT(p[1], p[4]);
+  PIX_SORT(p[1], p[2]);
+  PIX_SORT(p[2], p[3]);
+  PIX_SORT(p[1], p[2]);
+  return (p[2]);
 }
 
 // twi_status() attempts to read out any data left that is holding SDA low, so a new transaction can take place
 // something like (http://www.forward.com.au/pfod/ArduinoProgramming/I2C_ClearBus/index.html)
 int SCD30_clearI2CBus() {
-/*
-#ifdef ESP8266
-    return (twi_status());
-#else
-    return 0;
-#endif
-*/
-    return 0;
+  /*
+  #ifdef ESP8266
+      return (twi_status());
+  #else
+      return 0;
+  #endif
+  */
+  return 0;
 }
 
 uint8_t SCD30_computeCRC8(uint8_t data[], uint8_t len) {
-// Computes the CRC that the SCD30 uses
-  uint8_t crc = 0xFF; //Init with 0xFF
+  // Computes the CRC that the SCD30 uses
+  uint8_t crc = 0xFF;  // Init with 0xFF
 
-  for (uint8_t x = 0 ; x < len ; x++) {
-    crc ^= data[x]; // XOR-in the next input byte
-    for (uint8_t i = 0 ; i < 8 ; i++)
-    {
+  for (uint8_t x = 0; x < len; x++) {
+    crc ^= data[x];  // XOR-in the next input byte
+    for (uint8_t i = 0; i < 8; i++) {
       if ((crc & 0x80) != 0)
         crc = (uint8_t)((crc << 1) ^ 0x31);
       else
         crc <<= 1;
     }
   }
-  return crc; //No output reflection
+  return crc;  // No output reflection
 }
 
 // Sends stream of bytes to device
 int SCD30_sendBytes(void *pInput, uint8_t len) {
   SETREGS
-    uint8_t *pBytes = (uint8_t *) pInput;
-    int result;
-    uint8_t errorBytes = 0;
-    beginTransmission(drv.i2cAddress);
-    for (uint8_t cnt = 0; cnt < len; cnt++) {
-      write(pBytes[cnt]);
-    }
-    //errorBytes = len - (write(pBytes, len));
-    result = endTransmission(true);
-    result <<= 8;
-    result |= errorBytes;
-    return (result);
+  uint8_t *pBytes = (uint8_t *)pInput;
+  int result;
+  uint8_t errorBytes = 0;
+  beginTransmission(drv.i2cAddress);
+  for (uint8_t cnt = 0; cnt < len; cnt++) {
+    write(pBytes[cnt]);
+  }
+  // errorBytes = len - (write(pBytes, len));
+  result = endTransmission(true);
+  result <<= 8;
+  result |= errorBytes;
+  return (result);
 }
 
 // Gets a number of bytes from device
 int SCD30_getBytes(void *pOutput, uint8_t len) {
   SETREGS
-  uint8_t *pBytes = (uint8_t *) pOutput;
+  uint8_t *pBytes = (uint8_t *)pOutput;
   uint8_t result;
 
   result = requestFrom(drv.i2cAddress, len);
@@ -275,7 +278,7 @@ int SCD30_getBytes(void *pOutput, uint8_t len) {
   return (ERROR_SCD30_UNKNOWN_ERROR);
 }
 
-//Sends just a command, no arguments, no CRC
+// Sends just a command, no arguments, no CRC
 int SCD30_sendCommand(uint16_t command) {
   SETREGS
   uint8_t data[2];
@@ -285,7 +288,7 @@ int SCD30_sendCommand(uint16_t command) {
   return error;
 }
 
-//Sends a command along with arguments and CRC
+// Sends a command along with arguments and CRC
 int SCD30_sendCommandArguments(uint16_t command, uint16_t arguments) {
   SETREGS
   uint8_t data[5];
@@ -293,19 +296,19 @@ int SCD30_sendCommandArguments(uint16_t command, uint16_t arguments) {
   data[1] = command & 0xFF;
   data[2] = arguments >> 8;
   data[3] = arguments & 0xFF;
-  data[4] = SCD30_computeCRC8(&data[2], 2); //Calc CRC on the arguments only, not the command
+  data[4] = SCD30_computeCRC8(&data[2], 2);  // Calc CRC on the arguments only, not the command
   int error = SCD30_sendBytes(data, sizeof(data));
   return error;
 }
 
-int SCD30_get16BitRegCheckCRC(void* pInput, uint16_t *pData) {
+int SCD30_get16BitRegCheckCRC(void *pInput, uint16_t *pData) {
   SETREGS
-  uint8_t *pBytes = (uint8_t *) pInput;
+  uint8_t *pBytes = (uint8_t *)pInput;
   uint8_t expectedCRC = SCD30_computeCRC8(pBytes, SCD30_DATA_REGISTER_BYTES);
   if (expectedCRC != pBytes[SCD30_DATA_REGISTER_BYTES]) {
     return (ERROR_SCD30_CRC_ERROR);
   }
-  *pData = (uint16_t) pBytes[0] << 8 | pBytes[1]; // data from SCD30 is Big-Endian
+  *pData = (uint16_t)pBytes[0] << 8 | pBytes[1];  // data from SCD30 is Big-Endian
   return (ERROR_SCD30_NO_ERROR);
 }
 
@@ -315,7 +318,7 @@ int SCD30_get32BitRegCheckCRC(void *pInput, float *pData) {
   SETREGS
   uint16_t tempU16High;
   uint16_t tempU16Low;
-  uint8_t *pBytes = (uint8_t *) pInput;
+  uint8_t *pBytes = (uint8_t *)pInput;
   uint32_t rawInt = 0;
 
   int error = SCD30_get16BitRegCheckCRC(pBytes, &tempU16High);
@@ -333,7 +336,7 @@ int SCD30_get32BitRegCheckCRC(void *pInput, float *pData) {
   rawInt <<= 16;
   rawInt |= tempU16Low;
 
-  *pData =  * (float *) &rawInt;
+  *pData = *(float *)&rawInt;
 
   if (isnan(*pData) || isinf(*pData)) {
     return (ERROR_SCD30_NOT_A_NUMBER_ERROR);
@@ -342,14 +345,14 @@ int SCD30_get32BitRegCheckCRC(void *pInput, float *pData) {
   return (ERROR_SCD30_NO_ERROR);
 }
 
-//Gets two bytes (and check CRC) from SCD30
-int SCD30_readRegister(uint16_t registerAddress, uint16_t* pData) {
+// Gets two bytes (and check CRC) from SCD30
+int SCD30_readRegister(uint16_t registerAddress, uint16_t *pData) {
   SETREGS
   int error = SCD30_sendCommand(registerAddress);
   if (error) {
     return (error);
   }
-  delay(1); // the SCD30 uses clock streching to give it time to prepare data, waiting here makes it work
+  delay(1);  // the SCD30 uses clock streching to give it time to prepare data, waiting here makes it work
   uint8_t data[SCD30_DATA_REGISTER_WITH_CRC];
   error = SCD30_getBytes(data, sizeof(data));
   if (error) {
@@ -444,7 +447,7 @@ int SCD30_setAmbientPressure(uint16_t airPressure_mbar) {
   SETREGS
   drv.ambientPressure = airPressure_mbar;
   return 0;
-  //return (SCD30_beginMeasuring(drv.ambientPressure));
+  // return (SCD30_beginMeasuring(drv.ambientPressure));
 }
 
 int SCD30_setAutoSelfCalibration() {
@@ -455,7 +458,7 @@ int SCD30_setAutoSelfCalibration() {
 
 int SCD30_setCalibrationType(bool isAuto) {
   SETREGS
-  bool value = !!isAuto; // using NOT operator twice makes sure value is 0 or 1
+  bool value = !!isAuto;  // using NOT operator twice makes sure value is 0 or 1
   return (SCD30_sendCommandArguments(COMMAND_SCD30_CALIBRATION_TYPE, value));
 }
 
@@ -480,10 +483,9 @@ int SCD30_setMeasurementInterval(uint16_t time_sec) {
 int SCD30_setTemperatureOffset(float offset_degC) {
   SETREGS
   uint16_t offset_centiDegC;
-  //if (offset_degC >= 0) {
+  // if (offset_degC >= 0) {
   if (jgtsf2(offset_degC, 0)) {
-
-    //offset_centiDegC = (uint16_t) offset_degC * 100;
+    // offset_centiDegC = (uint16_t) offset_degC * 100;
     offset_centiDegC = tmod__fixunssfsi(offset_degC) * 100;
     return (SCD30_sendCommandArguments(COMMAND_SCD30_TEMPERATURE_OFFSET, offset_centiDegC));
   } else {
@@ -498,15 +500,14 @@ int SCD30_setTemperatureOffset(uint16_t offset_centiDegC) {
 
 int SCD30_beginMeasuring() {
   SETREGS
-  return(SCD30_sendCommandArguments(COMMAND_SCD30_CONTINUOUS_MEASUREMENT, drv.ambientPressure));
-  //return (SCD30_beginMeasuring(drv.ambientPressure));
+  return (SCD30_sendCommandArguments(COMMAND_SCD30_CONTINUOUS_MEASUREMENT, drv.ambientPressure));
+  // return (SCD30_beginMeasuring(drv.ambientPressure));
 }
-
 
 int SCD30_beginMeasuring(uint16_t airPressure_mbar) {
   SETREGS
   drv.ambientPressure = airPressure_mbar;
-  return(SCD30_sendCommandArguments(COMMAND_SCD30_CONTINUOUS_MEASUREMENT, drv.ambientPressure));
+  return (SCD30_sendCommandArguments(COMMAND_SCD30_CONTINUOUS_MEASUREMENT, drv.ambientPressure));
 }
 
 int SCD30_isDataAvailable(bool *pIsAvailable) {
@@ -519,8 +520,7 @@ int SCD30_isDataAvailable(bool *pIsAvailable) {
   return (error);
 }
 
-
-int SCD30_readMeasurement(uint16 *pCO2_ppm, uint16 *pCO2EAvg_ppm, float *pTemperature, float *pHumidity ) {
+int SCD30_readMeasurement(uint16 *pCO2_ppm, uint16 *pCO2EAvg_ppm, float *pTemperature, float *pHumidity) {
   SETREGS
   bool isAvailable = false;
   int error = 0;
@@ -541,7 +541,7 @@ int SCD30_readMeasurement(uint16 *pCO2_ppm, uint16 *pCO2EAvg_ppm, float *pTemper
   if (error) {
     return (error);
   }
-  delay(1); // the SCD30 uses clock streching to give it time to prepare data, waiting here makes it work
+  delay(1);  // the SCD30 uses clock streching to give it time to prepare data, waiting here makes it work
 
   uint8_t bytes[SCD30_MEAS_BYTES];
   // there are (6) 16-bit values, each with a CRC in the measurement data
@@ -566,17 +566,16 @@ int SCD30_readMeasurement(uint16 *pCO2_ppm, uint16 *pCO2EAvg_ppm, float *pTemper
     return (error);
   }
 
-
-  //if (tempCO2 == 0) {
+  // if (tempCO2 == 0) {
   if (jiseq(tempCO2)) {
     return (ERROR_SCD30_CO2_ZERO);
   }
 
   if (drv.co2NewDataLocation < 0) {
-    //drv.co2EAverage =  tempCO2;
-    drv.co2EAverage =  jtmod__fixunssfsi(tempCO2);
+    // drv.co2EAverage =  tempCO2;
+    drv.co2EAverage = jtmod__fixunssfsi(tempCO2);
     for (int x = 0; x < SCD30_MEDIAN_FILTER_SIZE; x++) {
-      //drv.co2History[x] = tempCO2;
+      // drv.co2History[x] = tempCO2;
       drv.co2History[x] = tmod__fixunssfsi(tempCO2);
       drv.co2NewDataLocation = 1;
     }
@@ -595,7 +594,7 @@ int SCD30_readMeasurement(uint16 *pCO2_ppm, uint16 *pCO2EAvg_ppm, float *pTemper
 
   *pCO2_ppm = SCD30_opt_med5(temp);
   if (pCO2EAvg_ppm) {
-    int16_t delta = (int16_t) *pCO2_ppm - (int16_t) drv.co2EAverage;
+    int16_t delta = (int16_t)*pCO2_ppm - (int16_t)drv.co2EAverage;
     int16_t change = delta / 32;
     drv.co2EAverage += change;
     *pCO2EAvg_ppm = drv.co2EAverage;
@@ -617,42 +616,40 @@ int32_t SCD30_Detect() {
   ALLOCMEM
 
   SETWIRE(0);
-  
+
   ready = false;
 
   Scd30.data_valid = false;
   initialized = false;
 
   if (I2cSetDevice(SCD30_ADDRESS, 0)) {
-
     SCD30_begin(SCD30_ADDRESS);
 
     uint8_t major = 0;
     uint8_t minor = 0;
-  
-    if (SCD30_getFirmwareVersion(&major, &minor)) { 
-      goto exit; 
+
+    if (SCD30_getFirmwareVersion(&major, &minor)) {
+      goto exit;
     }
-  
+
     if (SCD30_getMeasurementInterval(&Scd30.interval)) {
-      goto exit; 
+      goto exit;
     }
     if (SCD30_beginMeasuring()) {
-      goto exit; 
+      goto exit;
     }
-    
+
     AddLog(LOG_LEVEL_INFO, PSTR("SCD30: FW v%d.%d"), major, minor);
     I2cSetActiveFound(SCD30_ADDRESS, PSTR("SCD30"), 0);
     initialized = 1;
     ready = true;
     return ready;
   }
-  
-  exit:
+
+exit:
   SCD30_Deinit();
   return ready;
 }
-
 
 // gets data from the sensor every 3 seconds or so to give the sensor time to gather new data
 void SCD30_Update() {
@@ -678,47 +675,55 @@ void SCD30_Update() {
             Scd30.error_state = SCD30_STATE_ERROR_DATA_CRC;
             Scd30.error_count++;
 #ifdef SCD30_DEBUG
-            AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: CRC error, CRC error: %ld, CO2 zero: %ld, good: %ld, no data: %ld, sc30_reset: %ld, i2c_reset: %ld"),
-              Scd30.error_count, Scd30.co2_zero_count, Scd30.good_measure_count, Scd30.data_not_available_count, Scd30.reset_count, Scd30.i2c_reset_count);
+            AddLog(LOG_LEVEL_ERROR,
+                   PSTR("SCD30: CRC error, CRC error: %ld, CO2 zero: %ld, good: %ld, no data: %ld, sc30_reset: %ld, "
+                        "i2c_reset: %ld"),
+                   Scd30.error_count, Scd30.co2_zero_count, Scd30.good_measure_count, Scd30.data_not_available_count,
+                   Scd30.reset_count, Scd30.i2c_reset_count);
 #endif
             break;
 
           case ERROR_SCD30_CO2_ZERO:
             Scd30.co2_zero_count++;
 #ifdef SCD30_DEBUG
-            AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: CO2 zero, CRC error: %ld, CO2 zero: %ld, good: %ld, no data: %ld, sc30_reset: %ld, i2c_reset: %ld"),
-              Scd30.error_count, Scd30.co2_zero_count, Scd30.good_measure_count, Scd30.data_not_available_count, Scd30.reset_count, Scd30.i2c_reset_count);
+            AddLog(LOG_LEVEL_ERROR,
+                   PSTR("SCD30: CO2 zero, CRC error: %ld, CO2 zero: %ld, good: %ld, no data: %ld, sc30_reset: %ld, "
+                        "i2c_reset: %ld"),
+                   Scd30.error_count, Scd30.co2_zero_count, Scd30.good_measure_count, Scd30.data_not_available_count,
+                   Scd30.reset_count, Scd30.i2c_reset_count);
 #endif
             break;
 
           default: {
             Scd30.error_state = SCD30_STATE_ERROR_READ_MEAS;
 #ifdef SCD30_DEBUG
-            AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: Update: ReadMeasurement error: 0x%lX, counter: %ld"), error, Scd30.loop_count);
+            AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: Update: ReadMeasurement error: 0x%lX, counter: %ld"), error,
+                   Scd30.loop_count);
 #endif
-             return;
-          }
-          break;
+            return;
+          } break;
         }
-      }
-      break;
+      } break;
 
       case SCD30_STATE_ERROR_DATA_CRC: {
-        //Scd30.data_valid = false;
+        // Scd30.data_valid = false;
 #ifdef SCD30_DEBUG
-        AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: in error state: %d, good: %ld, no data: %ld, sc30 reset: %ld, i2c reset: %ld"),
-          Scd30.error_state, Scd30.good_measure_count, Scd30.data_not_available_count, Scd30.reset_count, Scd30.i2c_reset_count);
+        AddLog(LOG_LEVEL_ERROR,
+               PSTR("SCD30: in error state: %d, good: %ld, no data: %ld, sc30 reset: %ld, i2c reset: %ld"),
+               Scd30.error_state, Scd30.good_measure_count, Scd30.data_not_available_count, Scd30.reset_count,
+               Scd30.i2c_reset_count);
         AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: got CRC error, try again, counter: %ld"), Scd30.loop_count);
 #endif
         Scd30.error_state = ERROR_SCD30_NO_ERROR;
-      }
-      break;
+      } break;
 
       case SCD30_STATE_ERROR_READ_MEAS: {
-        //Scd30.data_valid = false;
+        // Scd30.data_valid = false;
 #ifdef SCD30_DEBUG
-        AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: in error state: %d, good: %ld, no data: %ld, sc30 reset: %ld, i2c reset: %ld"),
-          Scd30.error_state, Scd30.good_measure_count, Scd30.data_not_available_count, Scd30.reset_count, Scd30.i2c_reset_count);
+        AddLog(LOG_LEVEL_ERROR,
+               PSTR("SCD30: in error state: %d, good: %ld, no data: %ld, sc30 reset: %ld, i2c reset: %ld"),
+               Scd30.error_state, Scd30.good_measure_count, Scd30.data_not_available_count, Scd30.reset_count,
+               Scd30.i2c_reset_count);
         AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: not answering, sending soft reset, counter: %ld"), Scd30.loop_count);
 #endif
         Scd30.reset_count++;
@@ -736,14 +741,15 @@ void SCD30_Update() {
         } else {
           Scd30.error_state = ERROR_SCD30_NO_ERROR;
         }
-      }
-      break;
+      } break;
 
       case SCD30_STATE_ERROR_SOFT_RESET: {
-        //Scd30.data_valid = false;
+        // Scd30.data_valid = false;
 #ifdef SCD30_DEBUG
-        AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: in error state: %d, good: %ld, no data: %ld, sc30 reset: %ld, i2c reset: %ld"),
-          Scd30.error_state, Scd30.good_measure_count, Scd30.data_not_available_count, Scd30.reset_count, Scd30.i2c_reset_count);
+        AddLog(LOG_LEVEL_ERROR,
+               PSTR("SCD30: in error state: %d, good: %ld, no data: %ld, sc30 reset: %ld, i2c reset: %ld"),
+               Scd30.error_state, Scd30.good_measure_count, Scd30.data_not_available_count, Scd30.reset_count,
+               Scd30.i2c_reset_count);
         AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: clearing i2c bus"));
 #endif
         Scd30.i2c_reset_count++;
@@ -756,15 +762,14 @@ void SCD30_Update() {
         } else {
           Scd30.error_state = ERROR_SCD30_NO_ERROR;
         }
-      }
-      break;
+      } break;
 
       default: {
-        //Scd30.data_valid = false;
+        // Scd30.data_valid = false;
 #ifdef SCD30_DEBUG
         AddLog(LOG_LEVEL_ERROR, PSTR("SCD30: unknown error state: 0x%lX"), Scd30.error_state);
 #endif
-        Scd30.error_state = SCD30_STATE_ERROR_SOFT_RESET; // try again
+        Scd30.error_state = SCD30_STATE_ERROR_SOFT_RESET;  // try again
       }
     }
 
@@ -777,10 +782,12 @@ void SCD30_Update() {
 /*********************************************************************************************\
  * Command Scd30
 \*********************************************************************************************/
-const char kScd30Commands[] PROGMEM = "Scd30|"  // Prefix
-  "Alt|Auto|Cal|FW|Int|Pres|TOff";
-void (*const kScd30Command[])(void) PROGMEM = { &CmndScd30Altitude, &CmndScd30AutoMode, &CmndScd30Calibrate, &CmndScd30Firmware, &CmndScd30Interval, &CmndScd30Pressure, &CmndScd30TempOffset };
-
+const char kScd30Commands[] PROGMEM =
+    "Scd30|"  // Prefix
+    "Alt|Auto|Cal|FW|Int|Pres|TOff";
+void (*const kScd30Command[])(void) PROGMEM = {&CmndScd30Altitude,  &CmndScd30AutoMode, &CmndScd30Calibrate,
+                                               &CmndScd30Firmware,  &CmndScd30Interval, &CmndScd30Pressure,
+                                               &CmndScd30TempOffset};
 
 void CmndScd30Altitude() {
   SETREGS
@@ -794,8 +801,7 @@ void CmndScd30Altitude() {
   ResponseCmndNumber(value);
 };
 
-
-void  CmndScd30AutoMode() {
+void CmndScd30AutoMode() {
   SETREGS
   uint16_t value = 0;
   if (XdrvMailbox->data_len > 0) {
@@ -807,7 +813,7 @@ void  CmndScd30AutoMode() {
   ResponseCmndNumber(value);
 };
 
-void  CmndScd30Calibrate() {
+void CmndScd30Calibrate() {
   SETREGS
   uint16_t value = 0;
   if (XdrvMailbox->data_len > 0) {
@@ -819,22 +825,22 @@ void  CmndScd30Calibrate() {
   ResponseCmndNumber(value);
 };
 
-void  CmndScd30Firmware() {
+void CmndScd30Firmware() {
   SETREGS
   uint8_t major = 0;
   uint8_t minor = 0;
   int error = 0;
   SCD30_getFirmwareVersion(&major, &minor);
   if (!error) {
-    //float firmware = major + ((float)minor / 100);
+    // float firmware = major + ((float)minor / 100);
     // float firmware = fscale(minor, 0.01, tmod__floatsisf(major));
-    //ResponseCmndFloat(firmware, 2);
+    // ResponseCmndFloat(firmware, 2);
     uint16_t value = major << 8 | minor;
     ResponseCmndNumber(value);
   }
 };
 
-void  CmndScd30Interval() {
+void CmndScd30Interval() {
   SETREGS
   uint16_t value = 0;
   if (XdrvMailbox->data_len > 0) {
@@ -849,7 +855,7 @@ void  CmndScd30Interval() {
   ResponseCmndNumber(value);
 };
 
-void  CmndScd30Pressure() {
+void CmndScd30Pressure() {
   SETREGS
   uint16_t value = 0;
   if (XdrvMailbox->data_len > 0) {
@@ -861,7 +867,7 @@ void  CmndScd30Pressure() {
   ResponseCmndNumber(value);
 };
 
-void  CmndScd30TempOffset() {
+void CmndScd30TempOffset() {
   SETREGS
   uint16_t value = 0;
   if (XdrvMailbox->data_len > 0) {
@@ -875,8 +881,8 @@ void  CmndScd30TempOffset() {
 
 /********************************************************************************************/
 
-const char HTTP_SNS_CO2[]           PROGMEM = "{s}%s CO2{m}%d ppm{e}";
-const char HTTP_SNS_CO2EAVG[]       PROGMEM = "{s}%s eCO2{m}%d ppm{e}";
+const char HTTP_SNS_CO2[] PROGMEM = "{s}%s CO2{m}%d ppm{e}";
+const char HTTP_SNS_CO2EAVG[] PROGMEM = "{s}%s eCO2{m}%d ppm{e}";
 
 void SCD30_Show(bool json) {
   SETREGS
@@ -903,8 +909,6 @@ void SCD30_Deinit() {
   RETMEM
 }
 
-
-
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
@@ -913,11 +917,11 @@ int32_t mod_func_execute(uint32_t sel) {
   bool result = false;
 
   // https://github.com/arendst/Tasmota/issues/15438 and datasheet (The boot-up time is < 2 s.)
-/*
-  if (FUNC_INIT == function) {
-    Scd30Detect();
-  }
-*/
+  /*
+    if (FUNC_INIT == function) {
+      Scd30Detect();
+    }
+  */
   switch (sel) {
     case FUNC_INIT:
       result = SCD30_Detect();
@@ -925,12 +929,10 @@ int32_t mod_func_execute(uint32_t sel) {
     case FUNC_EVERY_SECOND:
       SCD30_Update();
       break;
-    case FUNC_COMMAND:
-      {
-        SETREGS
-        result = DecodeCommand(kScd30Commands, kScd30Command);
-      }
-      break;
+    case FUNC_COMMAND: {
+      SETREGS
+      result = DecodeCommand(kScd30Commands, kScd30Command);
+    } break;
     case FUNC_JSON_APPEND:
       SCD30_Show(1);
       break;

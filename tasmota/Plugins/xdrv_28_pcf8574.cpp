@@ -19,9 +19,10 @@
 
 #include "tasmota_options.h"
 #ifdef USE_PCF8574_MOD
-#include "../Tasmota/include/i18n.h"
+
 #include "module.h"
 #include "module_defines.h"
+#include "../Tasmota/include/i18n.h"
 
 /*********************************************************************************************\
  * PCF8574 - I2C IO Expander

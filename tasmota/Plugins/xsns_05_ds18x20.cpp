@@ -19,9 +19,10 @@
 
 #include "tasmota_options.h"
 #ifdef USE_DS18X20_MOD
-#include "../Tasmota/include/i18n.h"
+
 #include "module.h"
 #include "module_defines.h"
+#include "../Tasmota/include/i18n.h"
 
 /*********************************************************************************************\
  * DS18B20 - Temperature - Multiple sensors
