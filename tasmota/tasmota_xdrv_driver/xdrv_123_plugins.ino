@@ -129,11 +129,11 @@ float fl_const(int32_t m, int32_t d);
 char *tm_trim(char *s);
 void tmod_vTaskEnterCritical( void * );
 void tmod_vTaskExitCritical( void * );
-uint32_t directRead(uint32_t pin);
-void directWriteLow(uint32_t pin);
-void directWriteHigh(uint32_t pin);
-void directModeInput(uint32_t pin);
-void directModeOutput(uint32_t pin);
+uint32_t IRAM_ATTR directRead(uint32_t pin);
+void IRAM_ATTR directWriteLow(uint32_t pin);
+void IRAM_ATTR directWriteHigh(uint32_t pin);
+void IRAM_ATTR directModeInput(uint32_t pin);
+void IRAM_ATTR directModeOutput(uint32_t pin);
 char * tmod_GetTextIndexed(char* destination, size_t destination_size, uint32_t index, const char* haystack);
 bool WebServer_hasArg(const char * str);
 void tmod_WSContentStart_P(const char* title);
@@ -459,7 +459,7 @@ void tmod_vTaskExitCritical( void *mux ) {
 #define DIRECT_WRITE_HIGH(base, mask)   (GPOS = (mask))             //GPIO_OUT_W1TS_ADDRESS
 */
 
-uint32_t IRAM_ATTR directRead(uint32_t pin) {
+uint32_t directRead(uint32_t pin) {
 
 #ifdef ESP32
 //    return digitalRead(pin);               // Works most of the time
@@ -480,7 +480,7 @@ uint32_t IRAM_ATTR directRead(uint32_t pin) {
 }
 
 
-void IRAM_ATTR directWriteLow(uint32_t pin) {
+void directWriteLow(uint32_t pin) {
     //digitalWrite(pin, 0);                  // Works most of the time
     //return;
 //    gpio_ll_set_level(&GPIO, pin, 0);      // The hal is not public api, don't use in application code
@@ -500,7 +500,7 @@ void IRAM_ATTR directWriteLow(uint32_t pin) {
 #endif
 }
 
-void IRAM_ATTR directWriteHigh(uint32_t pin) {
+void directWriteHigh(uint32_t pin) {
     //digitalWrite(pin, 1);                  // Works most of the time
     //return;
 //    gpio_ll_set_level(&GPIO, pin, 1);      // The hal is not public api, don't use in application code
@@ -521,7 +521,7 @@ void IRAM_ATTR directWriteHigh(uint32_t pin) {
 #endif
 }
 
-void IRAM_ATTR directModeInput(uint32_t pin) {
+void directModeInput(uint32_t pin) {
    // pinMode(pin, INPUT);                   // Too slow - doesn't work
    // return;
 //    gpio_ll_output_disable(&GPIO, pin);    // The hal is not public api, don't use in application code
@@ -546,7 +546,7 @@ void IRAM_ATTR directModeInput(uint32_t pin) {
 }
 
 
-void IRAM_ATTR directModeOutput(uint32_t pin) {
+void directModeOutput(uint32_t pin) {
    // pinMode(pin, OUTPUT);                 // Too slow - doesn't work
   //return;
 //    gpio_ll_output_enable(&GPIO, pin);    // The hal is not public api, don't use in application code
