@@ -146,6 +146,7 @@ void tmod_spi_write(SPIClass *spi, uint8_t data);
 void tmod_spi_writebytes(SPIClass *spi, const uint8_t * data, uint32_t size);
 void tmod_Transaction(SPIClass *spi, uint8_t flg, SPISettings settings);
 uint8_t tmod_transfer(SPIClass *spi, uint8_t data);
+char* ftostrfd(float number, unsigned char prec, char *s);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);

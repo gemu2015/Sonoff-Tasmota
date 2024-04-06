@@ -19,10 +19,9 @@
 
 #include "tasmota_options.h"
 #ifdef USE_DS18X20_MOD
+#include "../Tasmota/include/i18n.h"
 #include "module.h"
 #include "module_defines.h"
-#include "../Tasmota/include/i18n.h"
-
 
 /*********************************************************************************************\
  * DS18B20 - Temperature - Multiple sensors
@@ -75,10 +74,10 @@ typedef struct {
 } DSS;
 
 typedef struct {
-  int8_t pin;          // Shelly GPIO3 input only
-  int8_t pin_out;      // Shelly GPIO00 output only
+  int8_t pin;      // Shelly GPIO3 input only
+  int8_t pin_out;  // Shelly GPIO00 output only
   bool dual_mode;  // Single pin mode
-} DSPINS; 
+} DSPINS;
 
 typedef struct {
 #ifdef W1_PARASITE_POWER
@@ -87,20 +86,25 @@ typedef struct {
 #endif
   char name[17];
   uint8_t sensors;
-  uint8_t gpios;           // Count of GPIO found
+  uint8_t gpios;       // Count of GPIO found
   uint8_t input_mode;  // INPUT or INPUT_PULLUP (=2)
   int8_t pin;          // Shelly GPIO3 input only
   int8_t pin_out;      // Shelly GPIO00 output only
-  bool dual_mode;  // Single pin mode
+  bool dual_mode;      // Single pin mode
 } DSX;
 
 #ifdef ESP32
-#define t_noInterrupts() {portMUX_TYPE mux; vTaskEnterCritical(&mux)
-#define t_interrupts() vTaskExitCritical(&mux);}
+#define t_noInterrupts() \
+  {                      \
+    portMUX_TYPE mux;    \
+    vTaskEnterCritical(&mux)
+#define t_interrupts()     \
+  vTaskExitCritical(&mux); \
+  }
 #define DIRECT_WRITE_LOW(A) directWriteLow(A)
 #define DIRECT_WRITE_HIGH(A) directWriteHigh(A)
 #define DIRECT_MODE_OUTPUT(A) directModeOutput(A)
-#define DIRECT_MODE_INPUT(A,B) directModeInput(A)
+#define DIRECT_MODE_INPUT(A, B) directModeInput(A)
 #define DIRECT_READ(A) directRead(A)
 #else
 #define t_noInterrupts noInterrupts
@@ -108,7 +112,7 @@ typedef struct {
 #define DIRECT_WRITE_LOW(A) digitalWrite(A, LOW)
 #define DIRECT_WRITE_HIGH(A) digitalWrite(A, HIGH)
 #define DIRECT_MODE_OUTPUT(A) pinMode(A, OUTPUT)
-#define DIRECT_MODE_INPUT(A,B) pinMode(A, B)
+#define DIRECT_MODE_INPUT(A, B) pinMode(A, B)
 #define DIRECT_READ(A) digitalRead(A)
 #endif
 
@@ -123,15 +127,15 @@ typedef struct {
 #define MAX_DSB 1
 
 typedef struct {
-uint8_t onewire_last_discrepancy;
-uint8_t onewire_last_family_discrepancy;
-bool onewire_last_device_flag;
-uint8_t onewire_rom_id[8];
-uint8_t delay_low[2];
-uint8_t delay_high[2];
-DSX DS18X20Data;
-DSPINS ds18x20_gpios[MAX_DSB];
-DSS ds18x20_sensor[DS18X20_MAX_SENSORS];
+  uint8_t onewire_last_discrepancy;
+  uint8_t onewire_last_family_discrepancy;
+  bool onewire_last_device_flag;
+  uint8_t onewire_rom_id[8];
+  uint8_t delay_low[2];
+  uint8_t delay_high[2];
+  DSX DS18X20Data;
+  DSPINS ds18x20_gpios[MAX_DSB];
+  DSS ds18x20_sensor[DS18X20_MAX_SENSORS];
 } MODULE_MEMORY;
 
 #define onewire_last_discrepancy mem->onewire_last_discrepancy
@@ -148,7 +152,7 @@ DSS ds18x20_sensor[DS18X20_MAX_SENSORS];
 
 /********************************************************************************************/
 PUSH_OPTIONS
-MODULE_DESCRIPTOR("DS18X20",MODULE_TYPE_SENSOR,1<<16|3,"DAT",16,"DM",0x01ff10ff,"",0,"",0)
+MODULE_DESCRIPTOR("DS18X20", MODULE_TYPE_SENSOR, 1 << 16 | 3, "DAT", 16, "DM", 0x01ff10ff, "", 0, "", 0)
 MODULE_PART uint8_t OneWireReset(void);
 MODULE_PART void OneWireWriteBit(uint8_t v);
 MODULE_PART uint8_t OneWire1ReadBit(void);
@@ -170,8 +174,8 @@ MODULE_PART int32_t mod_func_execute(uint32_t function);
 MODULE_END
 /********************************************************************************************/
 uint8_t OneWireReset(void) {
-SETREGS
-uint8_t r;
+  SETREGS
+  uint8_t r;
 
   uint8_t retries = 125;
 
@@ -214,7 +218,7 @@ uint8_t r;
 }
 
 void OneWireWriteBit(uint8_t v) {
-SETREGS
+  SETREGS
 
   t_noInterrupts();
   v &= 1;
@@ -233,8 +237,8 @@ SETREGS
 }
 
 uint8_t OneWire1ReadBit(void) {
-SETREGS
-uint8_t r;
+  SETREGS
+  uint8_t r;
   t_noInterrupts();
   DIRECT_MODE_OUTPUT(DS18X20Data.pin);
   DIRECT_WRITE_LOW(DS18X20Data.pin);
@@ -248,7 +252,7 @@ uint8_t r;
 }
 
 uint8_t OneWire2ReadBit(void) {
-SETREGS
+  SETREGS
   uint8_t r;
   t_noInterrupts();
   DIRECT_WRITE_LOW(DS18X20Data.pin_out);
@@ -264,7 +268,7 @@ SETREGS
 /*------------------------------------------------------------------------------------------*/
 
 void OneWireWrite(uint8_t v) {
-SETREGS
+  SETREGS
 
   t_noInterrupts();
   for (uint8_t bit_mask = 0x01; bit_mask; bit_mask <<= 1) {
@@ -274,7 +278,7 @@ SETREGS
 }
 
 uint8_t OneWireRead(void) {
-SETREGS
+  SETREGS
 
   uint8_t r = 0;
 
@@ -297,7 +301,7 @@ SETREGS
 }
 
 void OneWireSelect(const uint8_t rom[8]) {
-SETREGS
+  SETREGS
 
   OneWireWrite(W1_MATCH_ROM);
   for (uint32_t i = 0; i < 8; i++) {
@@ -306,7 +310,7 @@ SETREGS
 }
 
 uint8_t OneWireSearch(uint8_t *newAddr) {
-SETREGS
+  SETREGS
 
   uint8_t id_bit_number = 1;
   uint8_t last_zero = 0;
@@ -386,7 +390,7 @@ SETREGS
 }
 
 bool OneWireCrc8(uint8_t *addr) {
-SETREGS
+  SETREGS
 
   uint8_t crc = 0;
   uint8_t len = 8;
@@ -408,13 +412,12 @@ SETREGS
 /********************************************************************************************/
 
 int32_t Ds18x20Init(void) {
-ALLOCMEM
-  
+  ALLOCMEM
+
   delay_low[0] = 65;
   delay_low[1] = 10;
   delay_high[0] = 5;
   delay_high[1] = 55;
-
 
   /*
   for (uint32_t pins = 0; pins < MAX_DSB; pins++) {
@@ -429,8 +432,6 @@ ALLOCMEM
       DS18X20Data.gpios++;
     }
   }*/
-
-
 
   ds18x20_gpios[0].pin = mp->ms[0].value & 0xff;
   int8_t sel = (mp->ms[1].value & 0xff);
@@ -447,8 +448,8 @@ ALLOCMEM
 
   uint64_t ids[DS18X20_MAX_SENSORS];
   DS18X20Data.sensors = 0;
-  DS18X20Data.input_mode = Settings->flag3.ds18x20_internal_pullup ? INPUT_PULLUP : INPUT;   
- // SetOption74 - Enable internal pullup for single DS18x20 sensor
+  DS18X20Data.input_mode = Settings->flag3.ds18x20_internal_pullup ? INPUT_PULLUP : INPUT;
+  // SetOption74 - Enable internal pullup for single DS18x20 sensor
 
   for (uint32_t pins = 0; pins < DS18X20Data.gpios; pins++) {
     DS18X20Data.pin = ds18x20_gpios[pins].pin;
@@ -506,11 +507,10 @@ ALLOCMEM
     initialized = true;
     return true;
   }
-
 }
 
 void Ds18x20Convert(void) {
-SETREGS
+  SETREGS
 
   for (uint8_t i = 0; i < DS18X20Data.gpios; i++) {
     DS18X20Data.pin = ds18x20_gpios[i].pin;
@@ -530,7 +530,7 @@ SETREGS
 }
 
 bool Ds18x20Read(uint8_t sensor) {
-SETREGS
+  SETREGS
 
   float temperature;
   uint8_t data[9];
@@ -554,8 +554,8 @@ SETREGS
       switch (ds18x20_sensor[index].address[0]) {
         case DS18S20_CHIPID: {
           int16_t tempS = (((data[1] << 8) | (data[0] & 0xFE)) << 3) | ((0x10 - data[6]) & 0x0F);
-          //temperature = ConvertTemp(tempS * 0.0625f - 0.250f);
-          float t = jfmul( jtofloat(tempS), 0.0625f);
+          // temperature = ConvertTemp(tempS * 0.0625f - 0.250f);
+          float t = jfmul(jtofloat(tempS), 0.0625f);
           t = jfdiff(t, 0.250f);
           t = ConvertTemp(t);
           break;
@@ -581,15 +581,15 @@ SETREGS
             temp12 = (~temp12) + 1;
             sign = -1;
           }
-          //temperature = ConvertTemp(sign * temp12 * 0.0625f);  // Divide by 16
-          float t = jfmul( jtofloat(sign * temp12), 0.0625f);
+          // temperature = ConvertTemp(sign * temp12 * 0.0625f);  // Divide by 16
+          float t = jfmul(jtofloat(sign * temp12), 0.0625f);
           temperature = ConvertTemp(t);
           break;
         }
         case MAX31850_CHIPID: {
           int16_t temp14 = (data[1] << 8) + (data[0] & 0xFC);
-          //temperature = ConvertTemp(temp14 * 0.0625f);  // Divide by 16
-          float t = jfmul( jtofloat(temp14), 0.0625f);
+          // temperature = ConvertTemp(temp14 * 0.0625f);  // Divide by 16
+          float t = jfmul(jtofloat(temp14), 0.0625f);
           temperature = ConvertTemp(t);
           break;
         }
@@ -599,8 +599,8 @@ SETREGS
         if (ds18x20_sensor[index].numread++ == 0) {
           ds18x20_sensor[index].temp_sum = 0;
         }
-        //ds18x20_sensor[index].temp_sum += temperature;
-        ds18x20_sensor[index].temp_sum = jfadd(ds18x20_sensor[index].temp_sum , temperature);
+        // ds18x20_sensor[index].temp_sum += temperature;
+        ds18x20_sensor[index].temp_sum = jfadd(ds18x20_sensor[index].temp_sum, temperature);
       }
       ds18x20_sensor[index].valid = SENSOR_MAX_MISS;
       return true;
@@ -611,14 +611,14 @@ SETREGS
 }
 
 void Ds18x20Name(uint8_t sensor) {
-SETREGS
+  SETREGS
 
   uint32_t sensor_index = ds18x20_sensor[sensor].index;
 
   uint32_t index = sizeof(ds18x20_chipids);
   uint8_t ids[index];
   memmove_P(ids, GSTR(ds18x20_chipids), sizeof(ids));
-  
+
   while (--index) {
     if (ds18x20_sensor[sensor_index].address[0] == ids[index]) {
       break;
@@ -639,7 +639,8 @@ SETREGS
   if (ds18x20_sensor[sensor_index].alias[0] && (ds18x20_sensor[sensor_index].alias[0] != '0')) {
     if (isdigit(ds18x20_sensor[sensor_index].alias[0])) {
       // DS18Sens-1
-      snprintf_P(DS18X20Data.name, sizeof(DS18X20Data.name), PSTR("DS18Sens%c%d"), IndexSeparator(), atoi(ds18x20_sensor[sensor_index].alias));
+      snprintf_P(DS18X20Data.name, sizeof(DS18X20Data.name), PSTR("DS18Sens%c%d"), IndexSeparator(),
+                 atoi(ds18x20_sensor[sensor_index].alias));
     } else {
       // UserText
       snprintf_P(DS18X20Data.name, sizeof(DS18X20Data.name), PSTR("%s"), ds18x20_sensor[sensor_index].alias);
@@ -650,15 +651,16 @@ SETREGS
 
   if (DS18X20Data.sensors > 1) {
     // DS18B20-1
-    snprintf_P(DS18X20Data.name, sizeof(DS18X20Data.name), PSTR("%s%c%d"), DS18X20Data.name, IndexSeparator(), sensor + 1);
+    snprintf_P(DS18X20Data.name, sizeof(DS18X20Data.name), PSTR("%s%c%d"), DS18X20Data.name, IndexSeparator(),
+               sensor + 1);
   }
 }
 
 /********************************************************************************************/
 
 void Ds18x20EverySecond(void) {
-SETREGS
-STGLOB
+  SETREGS
+  STGLOB
   if (!DS18X20Data.sensors) {
     return;
   }
@@ -671,8 +673,8 @@ STGLOB
   }
 #endif
 
-  //ds18x20_sensor[0].valid = 1;
-  //return;
+  // ds18x20_sensor[0].valid = 1;
+  // return;
 
   if (TasmotaGlobal->uptime & 1
 #ifdef W1_PARASITE_POWER
@@ -700,8 +702,8 @@ STGLOB
 }
 
 void Ds18x20Show(bool json) {
-SETREGS
-STGLOB
+  SETREGS
+  STGLOB
   for (uint32_t i = 0; i < DS18X20Data.sensors; i++) {
     uint8_t index = ds18x20_sensor[i].index;
 
@@ -709,11 +711,11 @@ STGLOB
       Ds18x20Name(i);
 
       if (json) {
-        
         if (Settings->flag5.ds18x20_mean) {
           if ((0 == TasmotaGlobal->tele_period) && ds18x20_sensor[index].numread) {
-            //ds18x20_sensor[index].temperature = ds18x20_sensor[index].temp_sum / ds18x20_sensor[index].numread;
-            ds18x20_sensor[index].temperature = jfdiv(ds18x20_sensor[index].temp_sum , jtofloat(ds18x20_sensor[index].numread));
+            // ds18x20_sensor[index].temperature = ds18x20_sensor[index].temp_sum / ds18x20_sensor[index].numread;
+            ds18x20_sensor[index].temperature =
+                jfdiv(ds18x20_sensor[index].temp_sum, jtofloat(ds18x20_sensor[index].numread));
             ds18x20_sensor[index].numread = 0;
           }
         }
@@ -724,12 +726,14 @@ STGLOB
         }
         char tstr[10];
         ftostrfd(ds18x20_sensor[index].temperature, Settings->flag2.temperature_resolution, tstr);
-        //this only works on esp8266:  ResponseAppend_P(PSTR(",\"%s\":{\"" D_JSON_ID "\":\"%s\",\"" D_JSON_TEMPERATURE "\":%*_f}"), DS18X20Data.name, address, Settings->flag2.temperature_resolution, &ds18x20_sensor[index].temperature);
-        ResponseAppend_P(PSTR(",\"%s\":{\"" D_JSON_ID "\":\"%s\",\"" D_JSON_TEMPERATURE "\":%s}"), DS18X20Data.name, address, tstr);
+        // this only works on esp8266:  ResponseAppend_P(PSTR(",\"%s\":{\"" D_JSON_ID "\":\"%s\",\"" D_JSON_TEMPERATURE
+        // "\":%*_f}"), DS18X20Data.name, address, Settings->flag2.temperature_resolution,
+        // &ds18x20_sensor[index].temperature);
+        ResponseAppend_P(PSTR(",\"%s\":{\"" D_JSON_ID "\":\"%s\",\"" D_JSON_TEMPERATURE "\":%s}"), DS18X20Data.name,
+                         address, tstr);
 
- //= {"Time":"2024-03-15T16:36:15","DS18B20_1":{"Id":"1ABEE9086461","Temperature":16.6},"DS18B20_2":{"Id":"C178441F64FF","Temperature":35.4},"EBUS":{"Collector":55.5,"Solarstorage":50.4,"Solarpump":0},"TempUnit":"C"}
-
-
+        //=
+        //{"Time":"2024-03-15T16:36:15","DS18B20_1":{"Id":"1ABEE9086461","Temperature":16.6},"DS18B20_2":{"Id":"C178441F64FF","Temperature":35.4},"EBUS":{"Collector":55.5,"Solarstorage":50.4,"Solarpump":0},"TempUnit":"C"}
 
 #ifdef USE_DOMOTICZ
         if ((0 == TasmotaGlobal->tele_period) && (0 == i)) {
@@ -758,9 +762,9 @@ const char kds18Commands[] PROGMEM = "DS18|"  // prefix
 void (*const DSCommand[])(void) PROGMEM = {&CmndDSAlias};
 
 void CmndDSAlias(void) {
-SETREGS
+  SETREGS
 
-// Ds18Alias  6AB99A451F64FF28  ,  Garten
+  // Ds18Alias  6AB99A451F64FF28  ,  Garten
 
   // Ds18Alias 430516707FA6FF28,SensorName - Use SensorName instead of DS18B20
   // Ds18Alias 430516707FA6FF28,0          - Disable alias (default)
@@ -790,23 +794,19 @@ SETREGS
     Ds18x20Name(i);
     char address[17];
     for (uint32_t j = 0; j < 8; j++) {
-      sprintf_P(address + 2 * j, PSTR("%02X"), ds18x20_sensor[ds18x20_sensor[i].index].address[7 - j]);  // Skip sensor type and crc
+      sprintf_P(address + 2 * j, PSTR("%02X"),
+                ds18x20_sensor[ds18x20_sensor[i].index].address[7 - j]);  // Skip sensor type and crc
     }
     ResponseAppend_P(PSTR("\"%s\":{\"" D_JSON_ID "\":\"%s\"}"), DS18X20Data.name, address);
     if (i < DS18X20Data.sensors - 1) {
       ResponseAppend_P(PSTR(","));
     }
-
   }
   ResponseAppend_P(PSTR("}"));
 }
 #endif  // DS18x20_USE_ID_ALIAS
 
-
-void DS18X20_Deinit(void) {
-SETREGS
-RETMEM
-}
+void DS18X20_Deinit(void){SETREGS RETMEM}
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
@@ -814,36 +814,32 @@ RETMEM
 int32_t mod_func_execute(uint32_t function) {
   bool result = false;
   switch (function) {
-      case FUNC_INIT:
-        result = Ds18x20Init();
-        break;
-      case FUNC_EVERY_SECOND:
-        Ds18x20EverySecond();
-        break;
-      case FUNC_JSON_APPEND:
-        Ds18x20Show(1);
-        break;
+    case FUNC_INIT:
+      result = Ds18x20Init();
+      break;
+    case FUNC_EVERY_SECOND:
+      Ds18x20EverySecond();
+      break;
+    case FUNC_JSON_APPEND:
+      Ds18x20Show(1);
+      break;
 #ifdef USE_WEBSERVER
-      case FUNC_WEB_SENSOR:
-        Ds18x20Show(0);
-        break;
+    case FUNC_WEB_SENSOR:
+      Ds18x20Show(0);
+      break;
 #endif  // USE_WEBSERVER
 #ifdef DS18x20_USE_ID_ALIAS
-      case FUNC_COMMAND:
-        {
-          SETREGS
-          result = DecodeCommand(kds18Commands, DSCommand);
-        }
-        break;
+    case FUNC_COMMAND: {
+      SETREGS
+      result = DecodeCommand(kds18Commands, DSCommand);
+    } break;
 #endif  // DS18x20_USE_ID_ALIAS
-			case FUNC_DEINIT:
-				DS18X20_Deinit();
-				break;
-
+    case FUNC_DEINIT:
+      DS18X20_Deinit();
+      break;
   }
   return result;
 }
-
 
 PULL_OPTIONS
 #endif  // USE_DS18x20
