@@ -2327,7 +2327,6 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
   for (uint32_t cnt = 0; cnt < strlen(ending); cnt++) {
     estr[cnt] = tolower(ending[cnt]);
   }
-  estr[3] = 0;
 
   if (!strcmp(estr,"rgb")) {
     // special rgb format
