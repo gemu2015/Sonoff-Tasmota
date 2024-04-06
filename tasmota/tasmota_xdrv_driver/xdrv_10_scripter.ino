@@ -4521,14 +4521,39 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           uint8_t selector = fvar;
           switch (selector) {
             case 0:
-              // start streaming
-              char url[SCRIPT_MAX_SBSIZE];
-              lp = GetStringArgument(lp, OPER_EQU, url, 0);
-              TS_FLOAT xp, yp, scale ;
-              lp = GetNumericArgument(lp, OPER_EQU, &xp, 0);
-              lp = GetNumericArgument(lp, OPER_EQU, &yp, 0);
-              lp = GetNumericArgument(lp, OPER_EQU, &scale, 0);
-              fvar = fetch_jpg(0, url, xp, yp, scale);
+              { 
+                // start streaming
+                char url[SCRIPT_MAX_SBSIZE];
+                lp = GetStringArgument(lp, OPER_EQU, url, 0);
+                TS_FLOAT xp, yp, scale ;
+                lp = GetNumericArgument(lp, OPER_EQU, &xp, 0);
+                lp = GetNumericArgument(lp, OPER_EQU, &yp, 0);
+                lp = GetNumericArgument(lp, OPER_EQU, &scale, 0);
+                fvar = fetch_jpg(0, url, xp, yp, scale);
+              }
+              break;
+            case 1:
+              {
+                char file[SCRIPT_MAX_SBSIZE];
+                lp = GetStringArgument(lp, OPER_EQU, file, 0);
+                File fp;
+                fp = ufsp->open(file, FS_FILE_READ);
+                if (fp) {
+                  uint32_t size = fp.size();
+                  uint8_t *mem = (uint8_t *)special_malloc(size);
+                  if (mem) {
+                    uint8_t res = fp.read(mem, size);
+                    uint16_t xsize;
+                    uint16_t ysize;
+                    get_jpeg_size(mem, size, &xsize, &ysize);
+                    xsize &= 0x7ff;
+                    ysize &= 0x7ff;
+                    fvar = (xsize << 11) | ysize;
+                    free(mem);
+                    fp.close();
+                  }
+                }
+              }
               break;
             default:
               // other cmds

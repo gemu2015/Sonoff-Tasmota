@@ -2364,7 +2364,7 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
     }
 #endif
     fp.close();
-  } else if (!strcmp(estr,"jpg")) {
+  } else if (!strcmp(estr,"jpg") || !strcmp(estr,"jpeg")) {
     // jpeg files on ESP32 with more memory
 #ifdef ESP32
 #ifdef JPEG_PICTS
