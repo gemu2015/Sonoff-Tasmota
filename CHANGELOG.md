@@ -12,10 +12,12 @@ All notable changes to this project will be documented in this file.
 ### Breaking Changed
 
 ### Changed
-- Refactored Wifi for ESP32 to allow for Core3
+- ESP32 refactored Wifi for ESP32 Core3 release (#21106)
+- ESP32 Core3 platform update from 2024.02.10 to 2024.04.10 (#21114)
 
 ### Fixed
 - NeoPool hydrolysis unit for Hidrolife, Bionet and Generic device (#21098)
+- M5Core2 LoRa868 module receive exception
 
 ### Removed
 - Unused `#define MQTT_DATA_STRING` support
@@ -98,6 +100,7 @@ All notable changes to this project will be documented in this file.
 - ESP32 Core3 SPI ethernet support for all models
 - Berry class `int64` made immutable (#20727)
 - LVGL make lv_touch_3_buttons more responsive (#20728)
+- ESP32 Core3 platform update from 2024.01.12 to 2024.02.10 (#20730)
 - HASPmota fix and improve demo with pixel-perfect fonts (#20734)
 - NeoPool webUI pH alarms (4 & 5) completed (#20743)
 - Matter reduce memory usage when reading with wildcards (#20809)
