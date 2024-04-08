@@ -68,14 +68,13 @@ typedef struct {
   char name[16];
   // 32 => 0x20
   int32_t (*mod_func_execute)(uint32_t);
-  int32_t (*mod_func_execute_org)(uint32_t);
   MD_TYPE size;
-  // 40 => 0x2c
+  // 36 => 0x28
   MD_TYPE execution_offset;
-  // 48 => 0x30
+  // 44 => 0x2c
   MD_TYPE mtv;
   MD_TYPE jtab;
-  // 56 = 0x38
+  // 52 = 0x34
   uint32_t mod_start_org;
   void (*end_of_module)(void);
   // 56

@@ -1381,15 +1381,14 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
 
 #ifdef ESP8266  
   const FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
-  uint32_t new_pc = (uint32_t)eeprom_block + plugins.flashbase;
+  uint32_t new_pc = (uint32_t)eeprom_block;
 
   uint32_t offset = new_pc - fm->mod_start_org;
-  uint32_t *lp = (uint32_t*)&fm->execution_offset;
+  uint32_t *lp = (uint32_t*)&fm->execution_offset; 
   *lp = offset;
   
-  uint32_t corr_pc = (uint32_t)fm->mod_func_execute_org + fm->execution_offset;
   lp = (uint32_t*)&fm->mod_func_execute;
-  *lp = corr_pc;
+  *lp = (uint32_t)fm->mod_func_execute + fm->execution_offset;;
   
   lp = (uint32_t*)&fm->mtv;
   *lp = (uint32_t)&modules[index];

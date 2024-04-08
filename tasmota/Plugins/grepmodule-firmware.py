@@ -90,7 +90,7 @@ if 1==1 :
                     size += 4
                     print("found end sync")
                     # set module size 
-                    fwp.seek(40)
+                    fwp.seek(36)
                     sizeb = size.to_bytes( 4, "little" )
                     fwp.write(sizeb)
                     fwp.close()
