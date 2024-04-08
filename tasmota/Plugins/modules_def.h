@@ -68,15 +68,16 @@ typedef struct {
   char name[16];
   // 32 => 0x20
   int32_t (*mod_func_execute)(uint32_t);
+  void (*end_of_module)(void);
   MD_TYPE size;
-  // 36 => 0x28
+  // 40 => 0x28
   MD_TYPE execution_offset;
   // 44 => 0x2c
   MD_TYPE mtv;
   MD_TYPE jtab;
   // 52 = 0x34
   uint32_t mod_start_org;
-  void (*end_of_module)(void);
+  
   // 56
   MODULE_STORE ms[MAX_MOD_STORES];
 } FLASH_MODULE;
