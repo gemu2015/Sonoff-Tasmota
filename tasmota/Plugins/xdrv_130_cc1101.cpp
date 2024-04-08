@@ -58,7 +58,7 @@ typedef struct {
 
 //#include "cc1101_c.h"
 
-#define CC1101_REV 1<<16|3
+#define CC1101_REV 1 << 16 | 4
 
 PUSH_OPTIONS
 

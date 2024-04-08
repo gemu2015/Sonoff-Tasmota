@@ -12,11 +12,11 @@ import os
 # now edit remaining issues
 
 # edit this path
-path = '/Users/gerhardmutz1/Desktop/BresserWeatherSensorReceiver-main/RadioLib-master/src/modules/CC1101/CC1101.cpp'
+path = '/Users/gerhardmutz1/Desktop/Module/Module.cpp'
 #path = '/Users/gerhardmutz1/Desktop/BM8563_RTC/src/BM8563.cpp'
 
 # if only 1 class set to empty string
-searchclass ='CC1101'
+searchclass ='Module'
 
 dpath = "tasmota/plugins/"
 fname =  pathlib.PurePath(path).stem
@@ -60,6 +60,8 @@ print("found class: " + cname)
 
 cl_class = cname + "::"
 cl_func = cname + "_"
+
+source = source.replace(cl_class, cl_func)
 
 # loop for functions in source
 lines = source.split("\n")
@@ -113,18 +115,18 @@ print("body scan ready")
 #insert module definition 
 for func in func_list:
     fdef = ""
-    for part in func :
-        fdef += ' ' + part
-    #print(fdef)
-    source = source.replace(fdef + '(', "MODULE_PART " + fdef + '(')
+    if len(func) > 1 :
+        for part in func :
+            fdef += ' ' + part
+        source = source.replace(fdef + '(', "MODULE_PART " +  func[0] + " " + cl_func + func[1] + '(')
+
 
 # replace class names
 source = source.replace(cl_class, "")
 
-for func in func_names:
-   fname = cl_func + func + '('
-   #print(fname)
-   source = source.replace(func + '(', fname)
+#for func in func_names:
+#   fname = cl_func + func + '('
+#   source = source.replace(func + '(', fname)
 
 # set Wire prefix
 wire_prefix = "Wire."
@@ -139,6 +141,21 @@ source = source.replace(wire_prefix+"requestFrom", "requestFrom")
 source = source.replace("public:", "")
 source = source.replace("private:", "")
 
+'''
+for func in func_list:
+    if len(func) > 1 :
+        sstr = func[0] + " " +  cl_func + func[1] + '('
+        print(func)
+        index = source.find(sstr)
+        if index > 0 :
+            part1 = source[0:index]
+            part2 = source[index:]
+            index = part2.find(') {')
+            part3 = part2[0:index]
+            part4 = part2[index:]
+            regvar = "\nSETREGS\n"
+            source = part1 + part3 + regvar + part4
+'''
 
 # split again
 lines = source.split("\n")

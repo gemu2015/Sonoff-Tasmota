@@ -26,7 +26,6 @@
 #endif
 
 #include "../include/tasmota_template.h"
-
 #include "../include/tasmota_types.h"
 
 extern TSettings* Settings;
@@ -39,58 +38,9 @@ extern TSettings* Settings;
 
 #include "modules_def.h"
 
-
-/* linker sections
-*(.text.mod_desc)
-*(.text.mod_string)
-*(.text.mod*)
-*(.text.mod_end)
-*/
-
-
-//static int32_t mod_func_execute(MODULES_TABLE *, uint32_t);
 static int32_t mod_func_execute(uint32_t);
-
 static void end_of_module(void);
 
 #endif
-
-
-
-/*
-
-// *.h file
-// ...
-#ifdef __cplusplus
-#define EXTERNC extern "C"
-#else
-#define EXTERNC
-#endif
-
-typedef void* mylibrary_mytype_t;
-
-EXTERNC mylibrary_mytype_t mylibrary_mytype_init();
-EXTERNC void mylibrary_mytype_destroy(mylibrary_mytype_t mytype);
-EXTERNC void mylibrary_mytype_doit(mylibrary_mytype_t self, int param);
-
-#undef EXTERNC
-// ...
-
-// *.cpp file
-mylibrary_mytype_t mylibrary_mytype_init() {
-  return new MyType;
-}
-
-void mylibrary_mytype_destroy(mylibrary_mytype_t untyped_ptr) {
-   MyType* typed_ptr = static_cast<MyType*>(untyped_ptr);
-   delete typed_ptr;
-}
-
-void mylibrary_mytype_doit(mylibrary_mytype_t untyped_self, int param) {
-   MyType* typed_self = static_cast<MyType*>(untyped_self);
-   typed_self->doIt(param);
-}
-
-*/
 
 #endif // _MODULE_H_

@@ -19,9 +19,10 @@
 
 #include "tasmota_options.h"
 #ifdef USE_VEML6075_MOD
-#include "../Tasmota/include/i18n.h"
+
 #include "module.h"
 #include "module_defines.h"
+#include "../Tasmota/include/i18n.h"
 
 /*********************************************************************************************\
  * VEML6075 UVA/UVB/UVINDEX Sensor
