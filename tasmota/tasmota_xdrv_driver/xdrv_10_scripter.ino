@@ -11044,7 +11044,7 @@ char *gc_get_arrays(char *lp, TS_FLOAT **arrays, uint8_t *ranum, uint16_t *rentr
 char *gc_get_arrays(char *lp, TS_FLOAT **arrays, uint8_t *ranum, uint16_t *rentries, uint16_t *ipos) {
 struct T_INDEX ind;
 uint8_t vtype;
-uint16 entries = 0;
+uint16_t entries = 0;
 uint16_t cipos = 0;
 
   uint8_t anum = 0;
@@ -12062,7 +12062,7 @@ exgc:
             todflg = -2;
             lp += 4;
           }
-          uint16 segments = 1;
+          uint16_t segments = 1;
           for (uint32_t cnt = 0; cnt < strlen(lp); cnt++) {
             if (lp[cnt] == '|') {
               segments++;
