@@ -153,7 +153,7 @@ typedef struct {
 
 /********************************************************************************************/
 PUSH_OPTIONS
-MODULE_DESCRIPTOR("DS18X20", MODULE_TYPE_SENSOR, 1 << 16 | 3, "DAT", 16, "DM", 0x01ff10ff, "", 0, "", 0)
+MODULE_DESCRIPTOR("DS18X20", MODULE_TYPE_SENSOR, 1 << 16 | 4, "DAT", 16, "DM", 0x01ff10ff, "", 0, "", 0)
 MODULE_PART uint8_t OneWireReset(void);
 MODULE_PART void OneWireWriteBit(uint8_t v);
 MODULE_PART uint8_t OneWire1ReadBit(void);

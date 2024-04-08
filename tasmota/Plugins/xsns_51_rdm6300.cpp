@@ -38,7 +38,7 @@
 #define RDM_TIMEOUT 100
 #define RDM6300_BLOCK 20  // 2 seconds block time
 
-#define RDM6300_REV 1 << 16 | 3
+#define RDM6300_REV 1 << 16 | 4
 
 PUSH_OPTIONS
 

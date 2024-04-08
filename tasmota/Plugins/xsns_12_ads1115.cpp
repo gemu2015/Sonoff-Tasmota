@@ -26,7 +26,7 @@
 #include "module.h"
 #include "module_defines.h"
 
-#define ADS1115_REV 1 << 16 | 3
+#define ADS1115_REV 1 << 16 | 4
 
 /*********************************************************************************************\
  * ADS1115 - 4 channel 16BIT A/D converter

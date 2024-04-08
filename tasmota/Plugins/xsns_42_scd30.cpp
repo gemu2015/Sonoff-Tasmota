@@ -50,7 +50,7 @@
 #include "module.h"
 #include "module_defines.h"
 
-#define SCD30_REV 1 << 16 | 3
+#define SCD30_REV 1 << 16 | 4
 
 PUSH_OPTIONS
 

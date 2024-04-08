@@ -22,7 +22,7 @@
 #include "module.h"
 #include "module_defines.h"
 
-#define MLX90614_REV  1<<16|3
+#define MLX90614_REV  1 << 16 | 4
 
 PUSH_OPTIONS
 

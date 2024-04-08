@@ -66,7 +66,7 @@ typedef struct {
 #define ready mem->ready
 #define secs mem->secs
 
-#define SPS30_REV 1 << 16 | 3
+#define SPS30_REV 1 << 16 | 4
 
 PUSH_OPTIONS
 

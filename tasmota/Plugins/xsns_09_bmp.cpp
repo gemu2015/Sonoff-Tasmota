@@ -21,7 +21,7 @@
 #include "module.h"
 #include "module_defines.h"
 
-#define BMX_REV 1 << 16 | 3
+#define BMX_REV 1 << 16 | 4
 
 #define BME280_I2C_ADDRESS1 (0x76)
 #define BME280_I2C_ADDRESS2 (0x77)

@@ -167,12 +167,13 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define fixsfti(A)                      (( int32_t (*)(float) )                        jt[133])(A)
 #define gtgtbl                          (( void *(*)(void) )                           jt[134])
 #define asettings                       ( SETTINGS **)                                 jt[135]
-#define getspi(A)                       (( void *(*)(uint_8))                          jt[136])(A)
-#define spi_begin(A,B,C,D,E)            (( void (*)(void *,uint_8,int8_t,int8_t,int8_t )) jt[137])(A,B,C,D,E)
-#define spi_write(A,B)                  (( void (*)(void *,uint_8))                     jt[138])(A,B)
-#define spi_writeBytes(A,B,C)           (( void (*)(void *,uint_8*,uint32_t))           jt[139])(A,B,C)
-#define spi_Transaction(A,B,C)          (( void (*)(void *,uint_8,SPISettings))         jt[140])(A,B,C)
-#define spi_transfer(A,B)               (( uint8_t (*)(void *,uint_8))                  jt[141])(A,B)
+#define getspi(A)                       (( void *(*)(uint8_t))                          jt[136])(A)
+#define jspi_begin(A,B,C,D,E)           (( void (*)(void *,uint8_t,int8_t,int8_t,int8_t )) jt[137])(A,B,C,D,E)
+#define jspi_write(A,B)                 (( void (*)(void *,uint8_t))                     jt[138])(A,B)
+#define jspi_writeBytes(A,B,C)          (( void (*)(void *,uint8_t*,uint32_t))           jt[139])(A,B,C)
+#define jspi_Transaction(A,B,C)         (( void (*)(void *,uint8_t,SPISettings))         jt[140])(A,B,C)
+#define jspi_transfer(A,B)              (( uint8_t (*)(void *,uint8_t))                  jt[141])(A,B)
+
 
 
 // Arduino macros
@@ -419,7 +420,7 @@ extern MODULES_TABLE modules[];
 #define SETREGS GET_MTBL; MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;GET_JT;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;SETTINGS *jsettings = *asettings;
 #define ALLOCMEM GET_MTBL; GET_JT; mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = *asettings;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
 #define RETMEM if (mt->mem_size) {jfree(mt->mod_memory);mt->mem_size = 0;}
-#define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE MODULE_HEADER = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,END_OF_MODULE,0,0,(uint32_t)&modules,(uint32_t)&MODULE_JUMPTABLE,mod_func_execute,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
+#define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE MODULE_HEADER = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,mod_func_execute,0,0,(uint32_t)&modules,(uint32_t)&MODULE_JUMPTABLE,(uint32_t)&module_header,END_OF_MODULE,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
 #define MOD_FUNC(A, ...) A(MODULES_TABLE *mt, ##__VA_ARGS__)
 //#define MOD_FUNC(A, ...) A(##__VA_ARGS__)
 
@@ -703,6 +704,14 @@ typedef struct {
 #define atoi jatoi
 #undef strcpy_P
 #define strcpy_P jstrcpy_P
+#define GETSPI(A) mem->spi = getspi(A);
+
+#define spi_begin() jspi_begin(mem->spi,0,-1,-1,-1)
+#define spi_end() jspi_begin(mem->spi,1,-1,-1,-1)
+#define spiBeginTransaction() jspi_Transaction(mem->spi,0,0)
+#define spiEndTransaction() jspi_Transaction(mem->spi,1,0)
+
+#define this mem
 
 
 #define FPC(A,B) jfl_const(A,B)

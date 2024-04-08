@@ -27,34 +27,42 @@
 #include "module_defines.h"
 
 /*********************************************************************************************/
+
 typedef struct {
-  uint8_t cs;
+  uint8_t SPIreadCommand;
+  uint8_t SPIwriteCommand;
+} MOD;
+
+typedef struct {
+  int8_t csPin;
+  int8_t irqPin;
+  int8_t rstPin;
+  int8_t gpioPin;
+
   void *spi;
-  Module* mod;
-  float frequency = 434.0;
-  float bitRate = 4.8;
-  uint8_t rawRSSI = 0;
-  uint8_t rawLQI = 0;
-  uint8_t modulation = 0b00000000;
-  size_t packetLength = 0;
-  bool packetLengthQueried = false;
-  uint8_t packetLengthConfig = 0b00000001;
-  bool promiscuous = false;
-  bool crcOn = true;
-  bool directModeEnabled = true;
-  int8_t power = 10;
+  //Module* mod;
+  float frequency;
+  float bitRate;
+  uint8_t rawRSSI;
+  uint8_t rawLQI;
+  uint8_t modulation;
+  size_t packetLength;
+  bool packetLengthQueried;
+  uint8_t packetLengthConfig;
+  bool promiscuous;
+  bool crcOn;
+  bool directModeEnabled;
+  int8_t power;
+  MOD mod;
 } MODULE_MEMORY;
 
-#define cs mem->cs
-#define spi mem->spi
-
-#include "cc1101_c.h"
+//#include "cc1101_c.h"
 
 #define CC1101_REV 1<<16|3
 
 PUSH_OPTIONS
 
-MODULE_DESCRIPTOR("CC1101",MODULE_TYPE_DRIVER,CC1101_REV,"CS",15,"",0,"",0,"",0)
+MODULE_DESCRIPTOR("CC1101",MODULE_TYPE_DRIVER,CC1101_REV,"CS",15,"GDO",5,"",0,"",0)
 
 // all functions must be declared MUDULE_PART
 MODULE_PART int32_t CC1101_Init();
@@ -67,18 +75,41 @@ MODULE_END
  * constants
 \*********************************************************************************************/
 
-
-
 int32_t CC1101_Init() { 
   ALLOCMEM
 
-  initialized = true;
-  return 0;
+  STGLOB
+
+  this->irqPin = -1;
+  this->rstPin = -1;
+  this->frequency = 434.0;
+  this->bitRate = 4.8;
+  this->modulation = 0b00000000;
+  this->crcOn = true;
+  this->directModeEnabled = true;
+  this->power = 10;
+
+  if (TasmotaGlobal->spi_enabled) {
+    this->csPin = mp->ms[0].value;
+    pinMode(this->csPin, OUTPUT);
+    digitalWrite(this->csPin, HIGH);
+    this->gpioPin = mp->ms[1].value;
+    pinMode(this->gpioPin, INPUT_PULLUP);
+    GETSPI(0)
+    spi_begin();
+
+    initialized = true;
+    return true;
+  }
+  
+  CC1101_Deinit();
+  return false;
 } 
 
 
 void CC1101_Deinit() {
   SETREGS
+  spi_end();
   RETMEM
 }
 
@@ -86,7 +117,6 @@ void CC1101_Deinit() {
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
-//#pragma GCC optimize ("-O0")
 MOD_RESULT mod_func_execute(uint32_t sel) {
   MOD_RESULT result = false;
   switch (sel) {

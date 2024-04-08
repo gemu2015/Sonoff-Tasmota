@@ -43,7 +43,7 @@ to doo:
 #include <TasmotaSerial.h>
 
 // minimal plugin rev
-#define MINREV 0x00010003
+#define MINREV 0x00010004
 
 #ifdef EXECUTE_FROM_BINARY
 extern const FLASH_MODULE module_header;
@@ -1379,49 +1379,39 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
     return 0;
   }
 
-#ifdef ESP8266
-  uint32_t aoffset = plugins.flashbase;
-  uint32_t *lwp=(uint32_t*)fdesc;
+#ifdef ESP8266  
   const FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
-  uint32_t old_pc = (uint32_t)fm->end_of_module - (size - MODUL_END_OFFSET);
-  uint32_t new_pc = (uint32_t)eeprom_block + aoffset;
-  uint32_t offset = new_pc - old_pc;
-  *ioffset = offset;
-  uint32_t corr_pc = (uint32_t)fm->mod_func_execute + offset;
-  uint32_t *lp = (uint32_t*)&fm->mod_func_execute;
-  *lp = corr_pc;
-  lp = (uint32_t*)&fm->end_of_module;
-  *lp = (uint32_t)fm->end_of_module + offset;
-  lp = (uint32_t*)&fm->execution_offset;
+  uint32_t new_pc = (uint32_t)eeprom_block + plugins.flashbase;
+
+  uint32_t offset = new_pc - fm->mod_start_org;
+  uint32_t *lp = (uint32_t*)&fm->execution_offset;
   *lp = offset;
+  
+  uint32_t corr_pc = (uint32_t)fm->mod_func_execute_org + fm->execution_offset;
+  lp = (uint32_t*)&fm->mod_func_execute;
+  *lp = corr_pc;
+  
   lp = (uint32_t*)&fm->mtv;
   *lp = (uint32_t)&modules[index];
+
   lp = (uint32_t*)&fm->jtab;
   *lp = (uint32_t)&MODULE_JUMPTABLE;
-  // original module adress
-  lp = (uint32_t*)&fm->mod_start_org;
-  *lp = old_pc;
+
+  uint32_t *lwp=(uint32_t*)fdesc;
 #endif
 
 #ifdef ESP32
   FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
-  uint32_t old_mptr = (uint32_t)fm->end_of_module - (size - MODUL_END_OFFSET);
-  uint32_t offset = eeprom_block - old_mptr;
-  fm->execution_offset = offset;
-  uint32_t *lp =  (uint32_t*)&fm->mod_func_execute;
-  *lp = ((uint32_t)fm->mod_func_execute + offset);
-  lp =  (uint32_t*)&fm->end_of_module;
-  *lp = ((uint32_t)fm->end_of_module + offset); 
-  lp =  (uint32_t*)&fm->mod_start_org;
-  *lp = old_mptr;
+  fm->execution_offset = (uint32_t)eeprom_block - fm->mod_start_org;
+
+  uint32_t *lp = (uint32_t*)&fm->mod_func_execute;
+  *lp = (uint32_t)fm->mod_func_execute + fm->execution_offset;
 
   fm->mtv = (uint32_t)&modules[index];
   fm->jtab = (uint32_t)&MODULE_JUMPTABLE;
-  
-  //AddLog(LOG_LEVEL_INFO, PSTR("Module offset: %08x:"),old_mptr);
+
   uint32_t *lwp=(uint32_t*)fdesc;
-  uint32_t new_pc = (uint32_t)eeprom_block;
-  *ioffset = offset;
+  uint32_t new_pc = eeprom_block;
 #endif
 
 #ifdef ESP8266
@@ -1437,7 +1427,7 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
 
 #ifdef ESP32
   //AddLog(LOG_LEVEL_INFO, PSTR("save module: %08x, size: %d"),eeprom_block, size);
-  offset = eeprom_block - plugins.free_flash_start;
+  uint32_t offset = eeprom_block - plugins.free_flash_start;
   uint8_t blocks = (size / ESP32_PLUGIN_HSIZE) + 1;
   for (uint8_t cnt = 0; cnt < blocks; cnt++) {
     esp_err_t err = err = esp_partition_erase_range(plugins.flash_pptr, offset, ESP32_PLUGIN_HSIZE);

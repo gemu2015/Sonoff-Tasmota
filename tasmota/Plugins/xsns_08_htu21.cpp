@@ -59,7 +59,7 @@
 
 PUSH_OPTIONS
 
-#define HTU_REV 1 << 16 | 3
+#define HTU_REV 1 << 16 | 4
 
 // define calls
 MODULE_DESCRIPTOR("HTU21", MODULE_TYPE_SENSOR, HTU_REV, "", 0, "", 0, "", 0, "", 0)

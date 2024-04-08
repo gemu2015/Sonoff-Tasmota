@@ -38,7 +38,7 @@
 
 #define EVERYNSECONDS 5
 
-#define CCS811_REV  1<<16|3
+#define CCS811_REV  1<<16 | 4
 
 PUSH_OPTIONS
 

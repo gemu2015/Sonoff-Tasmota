@@ -110,7 +110,7 @@ typedef struct {
 #define trx mem->trx
 #define mode mem->mode
 
-#define PN532_REV 1 << 16 | 3
+#define PN532_REV 1 << 16 | 4
 
 PUSH_OPTIONS
 

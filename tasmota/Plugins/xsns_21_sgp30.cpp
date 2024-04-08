@@ -48,7 +48,7 @@ typedef struct {
 #define eCO2_base mem->eCO2_base
 #define abshum mem->abshum
 
-#define SGP30_REV 1 << 16 | 3
+#define SGP30_REV 1 << 16 | 4
 
 PUSH_OPTIONS
 
