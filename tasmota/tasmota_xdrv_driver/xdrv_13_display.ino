@@ -1144,7 +1144,7 @@ extern FS *ffsp;
               delete buttons[num];
             }
             if (renderer) {
-              buttons[num]= new VButton();
+              buttons[num] = new VButton();
               if (buttons[num]) {
                 if (!sbt) {
                   buttons[num]->vpower.slider = 0;

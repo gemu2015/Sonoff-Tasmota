@@ -5924,13 +5924,14 @@ extern char *SML_GetSVal(uint32_t index);
 #endif //USE_TOUCH_BUTTONS
 #endif //USE_DISPLAY
 
-uint32_t directRead(uint32_t pin);
-void directWriteLow(uint32_t pin);
-void directWriteHigh(uint32_t pin);
-void directModeInput(uint32_t pin);
-void directModeOutput(uint32_t pin);
-
 #if 0
+/*
+uint32_t tmod_directRead(uint32_t pin);
+void tmod_directWriteLow(uint32_t pin);
+void tmod_directWriteHigh(uint32_t pin);
+void tmod_directModeInput(uint32_t pin);
+void tmod_directModeOutput(uint32_t pin);
+*/
         if (!strncmp_XP(lp, XPSTR("test("), 5)) {
           lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           uint32_t sel = fvar;
@@ -5939,19 +5940,19 @@ void directModeOutput(uint32_t pin);
 
           switch (sel) {
             case 0:
-              fvar = directRead(pin);
+              fvar = tmod_directRead(pin);
               break;
             case 1:
-              directWriteLow(pin);
+              tmod_directWriteLow(pin);
               break;
             case 2:
-              directWriteHigh(pin);
+              tmod_directWriteHigh(pin);
               break;
             case 3:
-              directModeInput(pin);
+              tmod_directModeInput(pin);
               break;
             case 4:
-              directModeOutput(pin);
+              tmod_directModeOutput(pin);
               break;
 
           }
