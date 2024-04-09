@@ -372,6 +372,8 @@ extern FS *ffsp;
 #define UFSYS_SIZE 8192
 #endif
 
+#define SSIZE_PSTORE (uint16_t *) (glob_script_mem.script_pram + glob_script_mem.script_pram_size - 2)
+
 #define FAT_SCRIPT_NAME "/script.txt"
 
 #endif // USE_UFILESYS
@@ -8817,7 +8819,7 @@ void Scripter_save_pvars(void) {
         uint16_t len = 0;
         TS_FLOAT *fa = Get_MFAddr(index, &len, 0);
         mlen += sizeof(TS_FLOAT) * len;
-        if (mlen>glob_script_mem.script_pram_size) {
+        if (mlen > glob_script_mem.script_pram_size) {
           vtp[count].bits.is_permanent = 0;
           return;
         }
@@ -8826,7 +8828,7 @@ void Scripter_save_pvars(void) {
         }
       } else {
         mlen += sizeof(TS_FLOAT);
-        if (mlen>glob_script_mem.script_pram_size) {
+        if (mlen > glob_script_mem.script_pram_size) {
           vtp[count].bits.is_permanent = 0;
           return;
         }
@@ -8841,7 +8843,7 @@ void Scripter_save_pvars(void) {
       char *sp = glob_script_mem.glob_snp + (index * glob_script_mem.max_ssize);
       uint8_t slen = strlen(sp);
       mlen += slen + 1;
-      if (mlen>glob_script_mem.script_pram_size) {
+      if (mlen > glob_script_mem.script_pram_size) {
         vtp[count].bits.is_permanent = 0;
         return;
       }
@@ -9986,17 +9988,18 @@ void execute_script(char *script) {
 #define D_CMND_SCRIPT "Script"
 #define D_CMND_SUBSCRIBE "Subscribe"
 #define D_CMND_UNSUBSCRIBE "Unsubscribe"
-#define D_CMND_BUFFERSIZE "Bsize"
+#define D_CMND_BUFFERSIZE "ScriptSize"
 
-enum ScriptCommands { CMND_SCRIPT,CMND_SUBSCRIBE, CMND_UNSUBSCRIBE, CMND_SUBTEST, CMND_BSIZE};
+enum ScriptCommands { CMND_SCRIPT,CMND_SUBSCRIBE, CMND_UNSUBSCRIBE, CMND_BSIZE, CMND_SUBTEST};
 const char kScriptCommands[] PROGMEM = D_CMND_SCRIPT "|" D_CMND_SUBSCRIBE "|" D_CMND_UNSUBSCRIBE
-#ifdef DEBUG_MQTT_EVENT
-  "|" "SUBTEST"
-#endif
 #ifdef USE_UFILESYS
   "|" D_CMND_BUFFERSIZE
 #endif
+#ifdef DEBUG_MQTT_EVENT
+  "|" "SUBTEST"
+#endif
 ;
+
 bool ScriptCommand(void) {
   char command[CMDSZ];
   bool serviced = true;
@@ -10101,10 +10104,19 @@ bool ScriptCommand(void) {
 #endif
 #endif //SUPPORT_MQTT_EVENT
 #ifdef USE_UFILESYS
+#ifdef SCRIPT_VARBSIZE  
     } else if (CMND_BSIZE  == command_code) {
       // set script buffer size
+      if (XdrvMailbox.payload >= 1000) {
+        *SSIZE_PSTORE = XdrvMailbox.payload;
+        TasmotaGlobal.restart_flag = 2;
+      }
+      Response_P(PSTR("{\"script buffer\":%d}"), *SSIZE_PSTORE);
+      serviced = true;
 #endif
-    }
+#endif
+    
+  }
   return serviced;
 }
 
@@ -13348,10 +13360,23 @@ bool Xdrv10(uint32_t function) {
       glob_script_mem.script_pram = (uint8_t*)Settings->script_pram[0];
       glob_script_mem.script_pram_size = PMEM_SIZE;
       
-
 #ifdef USE_UFILESYS
       if (ufs_type) {
+#ifdef SCRIPT_VARBSIZE
+        glob_script_mem.script_pram = (uint8_t*)Settings->rules[0];
+        glob_script_mem.script_pram_size = MAX_SCRIPT_SIZE;
+        uint16_t sbsize = *SSIZE_PSTORE;
+        if (sbsize > UFSYS_SIZE) {
+          sbsize = UFSYS_SIZE;
+        }
+        if (sbsize < 1000) {
+          sbsize = 1000;
+        }
+        glob_script_mem.ufs_script_size = sbsize;
+#else
         glob_script_mem.ufs_script_size = UFSYS_SIZE;
+#endif
+
         // we have a file system
         AddLog(LOG_LEVEL_INFO,PSTR("SCR: ufilesystem found"));
         char *script;
