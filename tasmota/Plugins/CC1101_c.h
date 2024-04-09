@@ -558,6 +558,9 @@
 #define GpioLevelLow LOW
 #define GpioLevelHigh HIGH
 
+#define RADIOLIB_MODULE_SPI_TIMEOUT                             (1000)
+#define RADIOLIB_STATIC_ARRAY_SIZE   (256)
+
 enum OpMode_t {
       /*!
         \brief End of table marker, use \ref END_OF_MODE_TABLE constant instead.
@@ -575,9 +578,9 @@ enum OpMode_t {
       MODE_TX,
     };
 
-
 // module
 MODULE_PART void mod_setRfSwitchState(uint8_t mode);
+MODULE_PART const RfSwitchMode_t* mod_findRfSwitchMode(uint8_t mode);
 MODULE_PART int16_t mod_SPIgetRegValue(uint16_t reg, uint8_t msb, uint8_t lsb);
 MODULE_PART int16_t mod_SPIsetRegValue(uint16_t reg, uint8_t value, uint8_t msb, uint8_t lsb, uint8_t checkInterval, uint8_t checkMask);
 MODULE_PART void mod_SPIreadRegisterBurst(uint16_t reg, size_t numBytes, uint8_t* inBytes);
@@ -587,6 +590,8 @@ MODULE_PART void mod_SPIwriteRegisterBurst(uint16_t reg, uint8_t* data, size_t n
 MODULE_PART void mod_setRfSwitchPins(uint32_t rxEn, uint32_t txEn);
 MODULE_PART void mod_setRfSwitchTable(const uint32_t (&pins)[3], const RfSwitchMode_t table[]);
 MODULE_PART void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataIn, size_t numBytes);
+MODULE_PART int16_t mod_SPItransferStream(uint8_t* cmd, uint8_t cmdLen, bool write, uint8_t* dataOut, uint8_t* dataIn, size_t numBytes, bool waitForGpio, uint32_t timeout);
+MODULE_PART void mod_spiTransfer(uint8_t* out, size_t len, uint8_t* in);
 
 void mod_setRfSwitchState(uint8_t mode) {
   SETREGS
@@ -599,11 +604,22 @@ void mod_setRfSwitchState(uint8_t mode) {
   // set pins
   const uint32_t *value = &row->values[0];
   for (size_t i = 0; i < RFSWITCH_MAX_PINS; i++) {
-    uint32_t pin = this->rfSwitchPins[i];
+    uint32_t pin = this->mod.rfSwitchPins[i];
     if (pin != RADIOLIB_NC)
       digitalWrite(pin, *value);
     ++value;
   }
+}
+
+const RfSwitchMode_t *mod_findRfSwitchMode(uint8_t mode) {
+  SETREGS
+  const RfSwitchMode_t *row = this->mod.rfSwitchTable;
+  while (row && row->mode != MODE_END_OF_TABLE) {
+    if (row->mode == mode)
+      return row;
+    ++row;
+  }
+  return nullptr;
 }
 
 int16_t mod_SPIgetRegValue(uint16_t reg, uint8_t msb, uint8_t lsb) {
@@ -660,10 +676,10 @@ int16_t mod_SPIsetRegValue(uint16_t reg, uint8_t value, uint8_t msb, uint8_t lsb
 
 void mod_SPIreadRegisterBurst(uint16_t reg, size_t numBytes, uint8_t* inBytes) {
   SETREGS
-  if(!SPIstreamType) {
-    mod_SPItransfer(SPIreadCommand, reg, NULL, inBytes, numBytes);
+  if(!this->mod.SPIstreamType) {
+    mod_SPItransfer(this->mod.SPIreadCommand, reg, NULL, inBytes, numBytes);
   } else {
-    uint8_t cmd[] = { SPIreadCommand, (uint8_t)((reg >> 8) & 0xFF), (uint8_t)(reg & 0xFF) };
+    uint8_t cmd[] = { this->mod.SPIreadCommand, (uint8_t)((reg >> 8) & 0xFF), (uint8_t)(reg & 0xFF) };
     mod_SPItransferStream(cmd, 3, false, NULL, inBytes, numBytes, true, RADIOLIB_MODULE_SPI_TIMEOUT);
   }
 }
@@ -671,10 +687,10 @@ void mod_SPIreadRegisterBurst(uint16_t reg, size_t numBytes, uint8_t* inBytes) {
 uint8_t mod_SPIreadRegister(uint16_t reg) {
   SETREGS
   uint8_t resp = 0;
-  if(!SPIstreamType) {
-    mod_SPItransfer(SPIreadCommand, reg, NULL, &resp, 1);
+  if(!this->mod.SPIstreamType) {
+    mod_SPItransfer(this->mod.SPIreadCommand, reg, NULL, &resp, 1);
   } else {
-    uint8_t cmd[] = { SPIreadCommand, (uint8_t)((reg >> 8) & 0xFF), (uint8_t)(reg & 0xFF) };
+    uint8_t cmd[] = { this->mod.SPIreadCommand, (uint8_t)((reg >> 8) & 0xFF), (uint8_t)(reg & 0xFF) };
     mod_SPItransferStream(cmd, 3, false, NULL, &resp, 1, true, RADIOLIB_MODULE_SPI_TIMEOUT);
   }
   return(resp);
@@ -682,59 +698,76 @@ uint8_t mod_SPIreadRegister(uint16_t reg) {
 
 void mod_SPIwriteRegisterBurst(uint16_t reg, uint8_t* data, size_t numBytes) {
   SETREGS
-  if(!SPIstreamType) {
-    mod_SPItransfer(SPIwriteCommand, reg, data, NULL, numBytes);
+  if(!this->mod.SPIstreamType) {
+    mod_SPItransfer(this->mod.SPIwriteCommand, reg, data, NULL, numBytes);
   } else {
-    uint8_t cmd[] = { SPIwriteCommand, (uint8_t)((reg >> 8) & 0xFF), (uint8_t)(reg & 0xFF) };
+    uint8_t cmd[] = { this->mod.SPIwriteCommand, (uint8_t)((reg >> 8) & 0xFF), (uint8_t)(reg & 0xFF) };
     mod_SPItransferStream(cmd, 3, true, data, NULL, numBytes, true, RADIOLIB_MODULE_SPI_TIMEOUT);
   }
 }
 
 void mod_SPIwriteRegister(uint16_t reg, uint8_t data) {
   SETREGS
-  if(!SPIstreamType) {
-    mod_SPItransfer(SPIwriteCommand, reg, &data, NULL, 1);
+  if(!this->mod.SPIstreamType) {
+    mod_SPItransfer(this->mod.SPIwriteCommand, reg, &data, NULL, 1);
   } else {
-    uint8_t cmd[] = { SPIwriteCommand, (uint8_t)((reg >> 8) & 0xFF), (uint8_t)(reg & 0xFF) };
+    uint8_t cmd[] = { this->mod.SPIwriteCommand, (uint8_t)((reg >> 8) & 0xFF), (uint8_t)(reg & 0xFF) };
     mod_SPItransferStream(cmd, 3, true, &data, NULL, 1, true, RADIOLIB_MODULE_SPI_TIMEOUT);
   }
 }
 
+int16_t mod_SPItransferStream(uint8_t* cmd, uint8_t cmdLen, bool write, uint8_t* dataOut, uint8_t* dataIn, size_t numBytes, bool waitForGpio, uint32_t timeout) {
+  return 0;
+}
 void mod_setRfSwitchPins(uint32_t rxEn, uint32_t txEn) {
   SETREGS
   // This can be on the stack, setRfSwitchTable copies the contents
   const uint32_t pins[] = {
     rxEn, txEn, RADIOLIB_NC,
   };
+
+
+  #define END_OF_MODE_TABLE 0xaa
+
   
   // This must be static, since setRfSwitchTable stores a reference.
   static const RfSwitchMode_t table[] = {
-    { MODE_IDLE,  {this->hal->GpioLevelLow,  this->hal->GpioLevelLow} },
-    { MODE_RX,    {this->hal->GpioLevelHigh, this->hal->GpioLevelLow} },
-    { MODE_TX,    {this->hal->GpioLevelLow,  this->hal->GpioLevelHigh} },
+    { MODE_IDLE,  {GpioLevelLow,  GpioLevelLow} },
+    { MODE_RX,    {GpioLevelHigh, GpioLevelLow} },
+    { MODE_TX,    {GpioLevelLow,  GpioLevelHigh} },
     END_OF_MODE_TABLE,
   };
   mod_setRfSwitchTable(pins, table);
 }
 
+#define GpioModeOutput OUTPUT
+
 void mod_setRfSwitchTable(const uint32_t (&pins)[3], const RfSwitchMode_t table[]) {
   SETREGS
-  memcpy(this->rfSwitchPins, pins, sizeof(this->rfSwitchPins));
-  this->rfSwitchTable = table;
+  memcpy(this->mod.rfSwitchPins, pins, sizeof(this->mod.rfSwitchPins));
+  this->mod.rfSwitchTable = table;
   for(size_t i = 0; i < RFSWITCH_MAX_PINS; i++)
-    pinMode(pins[i], this->hal->GpioModeOutput);
+    pinMode(pins[i], GpioModeOutput);
 }
+
+void mod_spiTransfer(uint8_t* out, size_t len, uint8_t* in) {
+  SETREGS
+  for(size_t i = 0; i < len; i++) {
+    in[i] = spiTransfer(out[i]);
+  }
+}
+
 
 void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataIn, size_t numBytes) {
   SETREGS
   // prepare the buffers
-  size_t buffLen = this->SPIaddrWidth/8 + numBytes;
+  size_t buffLen = this->mod.SPIaddrWidth/8 + numBytes;
   uint8_t buffOut[RADIOLIB_STATIC_ARRAY_SIZE];
   uint8_t buffIn[RADIOLIB_STATIC_ARRAY_SIZE];
   uint8_t* buffOutPtr = buffOut;
 
   // copy the command
-  if (this->SPIaddrWidth <= 8) {
+  if (this->mod.SPIaddrWidth <= 8) {
     *(buffOutPtr++) = reg | cmd;
   } else {
     *(buffOutPtr++) = (reg >> 8) | cmd;
@@ -742,33 +775,33 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
   }
 
   // copy the data
-  if (cmd == SPIwriteCommand) {
+  if (cmd == this->mod.SPIwriteCommand) {
     memcpy(buffOutPtr, dataOut, numBytes);
   } else {
-    memset(buffOutPtr, this->SPInopCommand, numBytes);
+    memset(buffOutPtr, this->mod.SPInopCommand, numBytes);
   }
 
   // do the transfer
   spiBeginTransaction();
   digitalWrite(this->csPin, GpioLevelLow);
-  spiTransfer(buffOut, buffLen, buffIn);
+  mod_spiTransfer(buffOut, buffLen, buffIn);
   digitalWrite(this->csPin, GpioLevelHigh);
   spiEndTransaction();
   
   // copy the data
-  if (cmd == SPIreadCommand) {
-    memcpy(dataIn, &buffIn[this->SPIaddrWidth/8], numBytes);
+  if (cmd == this->mod.SPIreadCommand) {
+    memcpy(dataIn, &buffIn[this->mod.SPIaddrWidth/8], numBytes);
   }
 
   // print debug information
   #if RADIOLIB_DEBUG_SPI
     uint8_t* debugBuffPtr = NULL;
-    if(cmd == SPIwriteCommand) {
+    if(cmd == this->mod.SPIwriteCommand) {
       RADIOLIB_DEBUG_SPI_PRINT("W\t%X\t", reg);
-      debugBuffPtr = &buffOut[this->SPIaddrWidth/8];
-    } else if(cmd == SPIreadCommand) {
+      debugBuffPtr = &buffOut[this->mod.SPIaddrWidth/8];
+    } else if(cmd == this->mod.SPIreadCommand) {
       RADIOLIB_DEBUG_SPI_PRINT("R\t%X\t", reg);
-      debugBuffPtr = &buffIn[this->SPIaddrWidth/8];
+      debugBuffPtr = &buffIn[this->mod.SPIaddrWidth/8];
     }
     for(size_t n = 0; n < numBytes; n++) {
       RADIOLIB_DEBUG_SPI_PRINT_NOTAG("%X\t", debugBuffPtr[n]);
@@ -778,19 +811,16 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
 
 }
 
-
-
- MODULE_PART  CC1101_CC1101(Module* module);
  MODULE_PART  int16_t CC1101_begin(float freq = 434.0, float br = 4.8,
                 float freqDev = 5.0, float rxBw = 58.0,
                 int8_t pwr = 10, uint8_t preambleLength = 16);
  MODULE_PART  void CC1101_reset();
- MODULE_PART  int16_t CC1101_transmit(uint8_t* data, size_t len, uint8_t addr = 0) override;
- MODULE_PART  int16_t CC1101_receive(uint8_t* data, size_t len) override;
- MODULE_PART MODULE_PART  int16_t CC1101_CC1101_standby() override;
- MODULE_PART MODULE_PART  int16_t CC1101_CC1101_standby(uint8_t mode) override;
- MODULE_PART MODULE_PART  int16_t CC1101_CC1101_transmitDirect(uint32_t frf = 0) override;
- MODULE_PART MODULE_PART  int16_t CC1101_CC1101_receiveDirect() override;
+ MODULE_PART  int16_t CC1101_transmit(uint8_t* data, size_t len, uint8_t addr = 0);
+ MODULE_PART  int16_t CC1101_receive(uint8_t* data, size_t len);
+ MODULE_PART MODULE_PART  int16_t CC1101_standby();
+ MODULE_PART MODULE_PART  int16_t CC1101_standbyp(uint8_t mode);
+ MODULE_PART MODULE_PART  int16_t CC1101_transmitDirect(uint32_t frf = 0);
+ MODULE_PART MODULE_PART  int16_t CC1101_receiveDirect();
  MODULE_PART  int16_t CC1101_transmitDirectAsync(uint32_t frf = 0);
  MODULE_PART  int16_t CC1101_receiveDirectAsync();
  MODULE_PART  int16_t CC1101_packetMode();
@@ -802,16 +832,16 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
  MODULE_PART  void CC1101_clearPacketReceivedAction();
  MODULE_PART  void CC1101_setPacketSentAction(void (*func)(void));
  MODULE_PART  void CC1101_clearPacketSentAction();
- MODULE_PART  int16_t CC1101_startTransmit(uint8_t* data, size_t len, uint8_t addr = 0) override;
- MODULE_PART  int16_t CC1101_finishTransmit() override;
+ MODULE_PART  int16_t CC1101_startTransmit(uint8_t* data, size_t len, uint8_t addr = 0);
+ MODULE_PART  int16_t CC1101_finishTransmit();
  MODULE_PART MODULE_PART  int16_t CC1101_CC1101_startReceive();
  MODULE_PART MODULE_PART  int16_t CC1101_CC1101_startReceive(uint32_t timeout, uint16_t irqFlags, uint16_t irqMask, size_t len);
- MODULE_PART  int16_t CC1101_readData(uint8_t* data, size_t len) override;
+ MODULE_PART  int16_t CC1101_readData(uint8_t* data, size_t len);
  MODULE_PART  int16_t CC1101_setFrequency(float freq);
  MODULE_PART  int16_t CC1101_setBitRate(float br);
  MODULE_PART  int16_t CC1101_setRxBandwidth(float rxBw);
  MODULE_PART  int16_t CC1101_autoSetRxBandwidth();
- MODULE_PART  int16_t CC1101_setFrequencyDeviation(float freqDev) override;
+ MODULE_PART  int16_t CC1101_setFrequencyDeviation(float freqDev);
  MODULE_PART  int16_t CC1101_getFrequencyDeviation(float* freqDev);
  MODULE_PART  int16_t CC1101_setOutputPower(int8_t pwr);
  MODULE_PART MODULE_PART  int16_t CC1101_CC1101_setSyncWord(uint8_t syncH, uint8_t syncL, uint8_t maxErrBits = 0, bool requireCarrierSense = false);
@@ -821,8 +851,8 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
  MODULE_PART  int16_t CC1101_disableAddressFiltering();
  MODULE_PART  int16_t CC1101_setOOK(bool enableOOK);
  MODULE_PART  float CC1101_getRSSI();
- MODULE_PART  uint8_t CC1101_getLQI() const;
- MODULE_PART  size_t CC1101_getPacketLength(bool update = true) override;
+ MODULE_PART  uint8_t CC1101_getLQI();
+ MODULE_PART  size_t CC1101_getPacketLength(bool update = true);
  MODULE_PART  int16_t CC1101_fixedPacketLengthMode(uint8_t len = 63);
  MODULE_PART  int16_t CC1101_variablePacketLengthMode(uint8_t maxLen = 63);
  MODULE_PART  int16_t CC1101_enableSyncWordFiltering(uint8_t maxErrBits = 0, bool requireCarrierSense = false);
@@ -830,8 +860,8 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
  MODULE_PART  int16_t CC1101_setCrcFiltering(bool enable = true);
  MODULE_PART  int16_t CC1101_setPromiscuousMode(bool enable = true, bool requireCarrierSense = false);
  MODULE_PART  bool CC1101_getPromiscuousMode();
- MODULE_PART  int16_t CC1101_setDataShaping(uint8_t sh) override;
- MODULE_PART  int16_t CC1101_setEncoding(uint8_t encoding) override;
+ MODULE_PART  int16_t CC1101_setDataShaping(uint8_t sh);
+ MODULE_PART  int16_t CC1101_setEncoding(uint8_t encoding);
  MODULE_PART  void CC1101_setRfSwitchPins(uint32_t rxEn, uint32_t txEn);
  MODULE_PART  void CC1101_setRfSwitchTable(const uint32_t (&pins)[RFSWITCH_MAX_PINS], const RfSwitchMode_t table[]);
  MODULE_PART  uint8_t CC1101_randomByte();
@@ -839,8 +869,6 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
  MODULE_PART  void CC1101_setDirectAction(void (*func)(void));
  MODULE_PART  void CC1101_readBit(uint32_t pin);
  MODULE_PART  int16_t CC1101_setDIOMapping(uint32_t pin, uint32_t value);
- protected:
- MODULE_PART  Module* CC1101_getMod();
  MODULE_PART  int16_t CC1101_SPIgetRegValue(uint8_t reg, uint8_t msb = 7, uint8_t lsb = 0);
  MODULE_PART  int16_t CC1101_SPIsetRegValue(uint8_t reg, uint8_t value, uint8_t msb = 7, uint8_t lsb = 0, uint8_t checkInterval = 2);
  MODULE_PART  void CC1101_SPIreadRegisterBurst(uint8_t reg, uint8_t numBytes, uint8_t* inBytes);
@@ -850,7 +878,6 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
  MODULE_PART  void CC1101_SPIsendCommand(uint8_t cmd);
  
 
-
  MODULE_PART  int16_t CC1101_config();
  MODULE_PART MODULE_PART  int16_t CC1101_CC1101_transmitDirect(bool sync, uint32_t frf);
  MODULE_PART MODULE_PART  int16_t CC1101_CC1101_receiveDirect(bool sync);
@@ -858,13 +885,16 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
  MODULE_PART  static void CC1101_getExpMant(float target, uint16_t mantOffset, uint8_t divExp, uint8_t expMax, uint8_t& exp, uint8_t& mant);
  MODULE_PART  int16_t CC1101_setPacketMode(uint8_t mode, uint16_t len);
 
+#define GpioModeInput INPUT_PULLUP
+
+#define RADIOLIB_DEBUG_BASIC_PRINTLN
 
 int16_t CC1101_begin(float freq, float br, float freqDev, float rxBw, int8_t pwr, uint8_t preambleLength) {
   SETREGS
   this->mod.SPIreadCommand = 0b10000000;
   this->mod.SPIwriteCommand = 0b00000000;
   //mod_init();
-  pinModethis->irqPin, GpioModeInput);
+  pinMode(this->irqPin, GpioModeInput);
   uint8_t i = 0;
   bool flagFound = false;
   while ((i < 10) && !flagFound) {
@@ -873,18 +903,22 @@ int16_t CC1101_begin(float freq, float br, float freqDev, float rxBw, int8_t pwr
         (version == 0x17)) {
       flagFound = true;
     } else {
-      RADIOLIB_DEBUG_BASIC_PRINTLN("CC1101 not found! (%d of 10 tries) RADIOLIB_CC1101_REG_VERSION == 0x%04X, expected 0x0004/0x0014",
-                                   i + 1, version);
+      //RADIOLIB_DEBUG_BASIC_PRINTLN("CC1101 not found! (%d of 10 tries) RADIOLIB_CC1101_REG_VERSION == 0x%04X, expected 0x0004/0x0014",
+      //                             i + 1, version);
+      AddLog(LOG_LEVEL_INFO, PSTR("CC1101 not found! (%d of 10 tries) RADIOLIB_CC1101_REG_VERSION == 0x%04X, expected 0x0004/0x0014"),i + 1, version);
+
       delay(10);
       i++;
     }
   }
   if (!flagFound) {
-    RADIOLIB_DEBUG_BASIC_PRINTLN("No CC1101 found!");
+    //RADIOLIB_DEBUG_BASIC_PRINTLN("No CC1101 found!");
+    AddLog(LOG_LEVEL_INFO, PSTR("No CC1101 found!"));
     //mod_term();
     return (RADIOLIB_ERR_CHIP_NOT_FOUND);
   } else {
-    RADIOLIB_DEBUG_BASIC_PRINTLN("M\tCC1101");
+    //RADIOLIB_DEBUG_BASIC_PRINTLN("M\tCC1101");
+    AddLog(LOG_LEVEL_INFO, PSTR("M\tCC1101"));
   }
   int16_t state = CC1101_config();
   RADIOLIB_ASSERT(state);
@@ -956,7 +990,7 @@ int16_t CC1101_receive(uint8_t* data, size_t len) {
   while (digitalRead(this->irqPin)) {
     yield();
     if (millis() - start > timeout) {
-      CC1101_CC1101_standby();
+      CC1101_standby();
       CC1101_SPIsendCommand(0x3A);
       return (RADIOLIB_ERR_RX_TIMEOUT);
     }
@@ -965,19 +999,19 @@ int16_t CC1101_receive(uint8_t* data, size_t len) {
   while (!digitalRead(this->irqPin)) {
     yield();
     if (millis() - start > timeout) {
-      CC1101_CC1101_standby();
+      CC1101_standby();
       CC1101_SPIsendCommand(0x3A);
       return (RADIOLIB_ERR_RX_TIMEOUT);
     }
   }
   return (CC1101_readData(data, len));
 }
-int16_t CC1101_CC1101_standby() {
+int16_t CC1101_standby() {
   SETREGS
   CC1101_SPIsendCommand(0x36);
   uint32_t start = millis();
   while (CC1101_SPIgetRegValue(0x35, 4, 0) != 0x01) {
-    mod->hal->yield();
+    yield();
     if (millis() - start > 100) {
       return (RADIOLIB_ERR_UNKNOWN);
     }
@@ -985,10 +1019,10 @@ int16_t CC1101_CC1101_standby() {
   mod_setRfSwitchState(MODE_IDLE);
   return (RADIOLIB_ERR_NONE);
 }
-int16_t CC1101_CC1101_standby(uint8_t mode) {
+int16_t CC1101_standbyp(uint8_t mode) {
   SETREGS
   (void)mode;
-  return (CC1101_CC1101_standby());
+  return (CC1101_standby());
 }
 int16_t CC1101_CC1101_transmitDirect(uint32_t frf) { return CC1101_CC1101_transmitDirect(true, frf); }
 int16_t CC1101_transmitDirectAsync(uint32_t frf) { return CC1101_CC1101_transmitDirect(false, frf); }
@@ -1012,8 +1046,9 @@ int16_t CC1101_CC1101_receiveDirect() {
 }
 int16_t CC1101_receiveDirectAsync() {
   SETREGS
-  return CC1101_CC1101_receiveDirect(false); }
+  return CC1101_CC1101_receiveDirect(false); 
 }
+
 int16_t CC1101_CC1101_receiveDirect(bool sync) {
   SETREGS
   mod_setRfSwitchState(MODE_RX);
@@ -1030,51 +1065,58 @@ int16_t CC1101_packetMode() {
   state |= CC1101_SPIsetRegValue(0x08, 0b00000100 | mem->packetLengthConfig, 2, 0);
   return (state);
 }
+
+
+#define GpioInterruptRising RISING
+#define GpioInterruptFalling FALLING
+
 void CC1101_setGdo0Action(void (*func)(void), uint32_t dir) {
   SETREGS
-  attachInterrupt(pinToInterrupt(this->irqPin), func, dir);
+  //attachInterrupt(pinToInterrupt(this->irqPin), func, dir);
 }
 void CC1101_clearGdo0Action() { 
   SETREGS
-  detachInterrupt(pinToInterrupt(this->irqPin)); 
+  //detachInterrupt(pinToInterrupt(this->irqPin)); 
 }
 void CC1101_setPacketReceivedAction(void (*func)(void)) { 
   SETREGS
-  mem->CC1101_setGdo0Action(func, GpioInterruptRising);
+  CC1101_setGdo0Action(func, GpioInterruptRising);
 }
 void CC1101_clearPacketReceivedAction() {
   SETREGS
-  mem->CC1101_clearGdo0Action();
+  CC1101_clearGdo0Action();
 }
 void CC1101_setPacketSentAction(void (*func)(void)) {
   SETREGS
-  mem->CC1101_setGdo2Action(func, GpioInterruptFalling);
+  CC1101_setGdo2Action(func, GpioInterruptFalling);
 }
 void CC1101_clearPacketSentAction() {
   SETREGS
-  mem->CC1101_clearGdo2Action();
+  CC1101_clearGdo2Action();
 }
+
 void CC1101_setGdo2Action(void (*func)(void), uint32_t dir) {
   SETREGS
   if (this->gpioPin == RADIOLIB_NC) {
     return;
   }
   pinMode(this->gpioPin, GpioModeInput);
-  attachInterrupt(pinToInterrupt(this->gpioPin, func, dir);
+  //attachInterrupt(pinToInterrupt(this->gpioPin, func, dir);
 }
+
 void CC1101_clearGdo2Action() {
   SETREGS
   if (this->gpioPin == RADIOLIB_NC) {
     return;
   }
-  detachInterrupt(pinToInterrupt(this->gpioPin));
+  //detachInterrupt(pinToInterrupt(this->gpioPin));
 }
 int16_t CC1101_startTransmit(uint8_t* data, size_t len, uint8_t addr) {
   SETREGS
   if (len > 63) {
     return (RADIOLIB_ERR_PACKET_TOO_LONG);
   }
-  CC1101_CC1101_standby();
+  CC1101_standby();
   CC1101_SPIsendCommand(0x3B);
   int16_t state = CC1101_SPIsetRegValue(0x00, 0x06, 5, 0);
   RADIOLIB_ASSERT(state);
@@ -1092,14 +1134,14 @@ int16_t CC1101_startTransmit(uint8_t* data, size_t len, uint8_t addr) {
 }
 int16_t CC1101_finishTransmit() {
   SETREGS
-  int16_t state = CC1101_CC1101_standby();
+  int16_t state = CC1101_standby();
   RADIOLIB_ASSERT(state);
   CC1101_SPIsendCommand(0x3B);
   return (state);
 }
 int16_t CC1101_CC1101_startReceive() {
   SETREGS
-  int16_t state = CC1101_CC1101_standby();
+  int16_t state = CC1101_standby();
   RADIOLIB_ASSERT(state);
   CC1101_SPIsendCommand(0x3A);
   state = CC1101_SPIsetRegValue(0x02, 0b01000000 | 0x06, 6, 0);
@@ -1140,7 +1182,7 @@ int16_t CC1101_readData(uint8_t* data, size_t len) {
   }
   mem->packetLengthQueried = false;
   if (CC1101_SPIgetRegValue(0x17, 3, 2) == 0b00000000) {
-    CC1101_CC1101_standby();
+    CC1101_standby();
     CC1101_SPIsendCommand(0x3A);
   }
   return (state);
@@ -1395,7 +1437,7 @@ float CC1101_getRSSI() {
   }
   return (rssi);
 }
-uint8_t CC1101_getLQI() const {
+uint8_t CC1101_getLQI() {
   SETREGS
   return (mem->rawLQI);
 }
@@ -1484,7 +1526,7 @@ bool CC1101_getPromiscuousMode() {
 }
 int16_t CC1101_setDataShaping(uint8_t sh) {
   SETREGS
-  int16_t state = CC1101_CC1101_standby();
+  int16_t state = CC1101_standby();
   RADIOLIB_ASSERT(state);
   switch (sh) {
     case RADIOLIB_SHAPING_NONE:
@@ -1500,7 +1542,7 @@ int16_t CC1101_setDataShaping(uint8_t sh) {
 }
 int16_t CC1101_setEncoding(uint8_t encoding) {
   SETREGS
-  int16_t state = CC1101_CC1101_standby();
+  int16_t state = CC1101_standby();
   RADIOLIB_ASSERT(state);
   switch (encoding) {
     case RADIOLIB_ENCODING_NRZ:
@@ -1521,11 +1563,11 @@ int16_t CC1101_setEncoding(uint8_t encoding) {
 }
 void CC1101_setRfSwitchPins(uint32_t rxEn, uint32_t txEn) {
   SETREGS
-  mod_CC1101_setRfSwitchPins(rxEn, txEn);
+  mod_setRfSwitchPins(rxEn, txEn);
 }
 void CC1101_setRfSwitchTable(const uint32_t (&pins)[RFSWITCH_MAX_PINS], const RfSwitchMode_t table[]) {
   SETREGS
-  mod_CC1101_setRfSwitchTable(pins, table);
+  mod_setRfSwitchTable(pins, table);
 }
 uint8_t CC1101_randomByte() {
   SETREGS
@@ -1548,7 +1590,7 @@ void CC1101_setDirectAction(void (*func)(void)) {
 }
 void CC1101_readBit(uint32_t pin) {
   SETREGS
-  updateDirectBuffer((uint8_t)digitalRead(pin));
+  //updateDirectBuffer((uint8_t)digitalRead(pin));
 }
 int16_t CC1101_setDIOMapping(uint32_t pin, uint32_t value) {
   SETREGS
@@ -1561,7 +1603,7 @@ int16_t CC1101_config() {
   SETREGS
   CC1101_reset();
   delay(150);
-  CC1101_CC1101_standby();
+  CC1101_standby();
   int16_t state = CC1101_SPIsetRegValue(0x18, 0b00010000, 5, 4);
   state |= CC1101_SPIsetRegValue(0x18, 0b00000000, 1, 1);
   RADIOLIB_ASSERT(state);
@@ -1613,54 +1655,55 @@ int16_t CC1101_setPacketMode(uint8_t mode, uint16_t len) {
   mem->packetLengthConfig = mode;
   return (state);
 }
-Module* CC1101_getMod() {
-  SETREGS
-  return (this->mod);
-}
+
 int16_t CC1101_SPIgetRegValue(uint8_t reg, uint8_t msb, uint8_t lsb) {
   SETREGS
   if ((reg > 0x2E) && (reg < 0x3E)) {
     reg |= 0b01000000;
   }
-  return (mod_CC1101_SPIgetRegValue(reg, msb, lsb));
+  return (mod_SPIgetRegValue(reg, msb, lsb));
 }
 int16_t CC1101_SPIsetRegValue(uint8_t reg, uint8_t value, uint8_t msb, uint8_t lsb, uint8_t checkInterval) {
   SETREGS
   if ((reg > 0x2E) && (reg < 0x3E)) {
     reg |= 0b01000000;
   }
-  return (mod_CC1101_SPIsetRegValue(reg, value, msb, lsb, checkInterval));
+  return (mod_SPIsetRegValue(reg, value, msb, lsb, checkInterval, 0));
 }
 void CC1101_SPIreadRegisterBurst(uint8_t reg, uint8_t numBytes, uint8_t* inBytes) {
   SETREGS
-  mod_CC1101_SPIreadRegisterBurst(reg | 0b01000000, numBytes, inBytes);
+  mod_SPIreadRegisterBurst(reg | 0b01000000, numBytes, inBytes);
 }
 uint8_t CC1101_SPIreadRegister(uint8_t reg) {
   SETREGS
   if ((reg > 0x2E) && (reg < 0x3E)) {
     reg |= 0b01000000;
   }
-  return (mod_CC1101_SPIreadRegister(reg));
+  return (mod_SPIreadRegister(reg));
 }
 void CC1101_SPIwriteRegister(uint8_t reg, uint8_t data) {
   SETREGS
   if ((reg > 0x2E) && (reg < 0x3E)) {
     reg |= 0b01000000;
   }
-  return (mod_CC1101_SPIwriteRegister(reg, data));
+  return (mod_SPIwriteRegister(reg, data));
 }
 void CC1101_SPIwriteRegisterBurst(uint8_t reg, uint8_t* data, size_t len) {
   SETREGS
-  mod_CC1101_SPIwriteRegisterBurst(reg | 0b01000000, data, len);
+  mod_SPIwriteRegisterBurst(reg | 0b01000000, data, len);
 }
+
+
+#define RADIOLIB_DEBUG_SPI_PRINTLN
+
 void CC1101_SPIsendCommand(uint8_t cmd) {
   SETREGS
   digitalWrite(this->csPin, GpioLevelLow);
   spiBeginTransaction();
   uint8_t status = 0;
-  spiTransfer(&cmd, 1, &status);
+  mod_spiTransfer(&cmd, 1, &status);
   spiEndTransaction();
   digitalWrite(this->csPin, GpioLevelHigh);
-  RADIOLIB_DEBUG_SPI_PRINTLN("CMD\tW\t%02X\t%02X", cmd, status);
-  (void)status;
+  //RADIOLIB_DEBUG_SPI_PRINTLN("CMD\tW\t%02X\t%02X", cmd, status);
+  AddLog(LOG_LEVEL_INFO, PSTR("CMD\tW\t%02X\t%02X"), cmd, status);
 }

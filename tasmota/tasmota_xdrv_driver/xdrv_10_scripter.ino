@@ -366,6 +366,7 @@ enum {SCRIPT_LOGLEVEL=1,SCRIPT_TELEPERIOD,SCRIPT_EVENT_HANDLED,SML_JSON_ENABLE,S
 #ifdef USE_UFILESYS
 extern uint8_t ufs_type;
 extern FS *ufsp;
+extern FS *ffsp;
 
 #ifndef UFSYS_SIZE
 #define UFSYS_SIZE 8192
@@ -716,6 +717,8 @@ typedef struct {
     uint8_t sc_state;
 
     uint8_t tasm_cmd_activ = 0;
+
+  uint16_t ufs_script_size;
 
 } SCRIPT_MEM;
 
@@ -1602,6 +1605,23 @@ TS_FLOAT *Get_MFAddr(uint8_t index, uint16_t *len, uint16_t *ipos) {
   }
   return 0;
 }
+
+FS *script_file_path(char *path) {
+  if (!strncmp_P(path, PSTR("/ffs/"), 5)) {
+    memmove(path, path + 4, strlen(path) + 1);
+    return ffsp;
+  }
+  if (!strncmp_P(path, PSTR("/sdfs/"), 6)) {
+    memmove(path, path + 5, strlen(path) + 1);
+    return ufsp;
+  }
+  if (path[0] != '/') {
+    memmove(path + 1, path, strlen(path) + 1);
+    path[0] = '/';
+  }
+  return ufsp;
+}
+
 
 char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, TS_FLOAT *fp, char *sp, struct GVARS *gv);
 char *get_array_by_name(char *lp, TS_FLOAT **fp, uint16_t *alen, uint16_t *ipos);
@@ -3413,6 +3433,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         if (!strncmp_XP(lp, XPSTR("fo("), 3)) {
           char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
+          FS *cfp = script_file_path(str);
           while (*lp == ' ') lp++;
           uint8_t mode = 0;
           if ((*lp == 'r') || (*lp == 'w') || (*lp == 'a')) {
@@ -3439,7 +3460,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 #ifdef DEBUG_FS
                 AddLog(LOG_LEVEL_INFO, PSTR("SCR: open file for read %d"), cnt);
 #endif
-                glob_script_mem.files[cnt] = ufsp->open(str, FS_FILE_READ);
+                glob_script_mem.files[cnt] = cfp->open(str, FS_FILE_READ);
                 if (glob_script_mem.files[cnt].isDirectory()) {
                   glob_script_mem.files[cnt].rewindDirectory();
                   glob_script_mem.file_flags[cnt].is_dir = 1;
@@ -3449,12 +3470,12 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
               }
               else {
                 if (mode == 1) {
-                  glob_script_mem.files[cnt] = ufsp->open(str,FS_FILE_WRITE);
+                  glob_script_mem.files[cnt] = cfp->open(str,FS_FILE_WRITE);
 #ifdef DEBUG_FS
                   AddLog(LOG_LEVEL_INFO, PSTR("SCR: open file for write %d"), cnt);
 #endif
                 } else {
-                  glob_script_mem.files[cnt] = ufsp->open(str,FS_FILE_APPEND);
+                  glob_script_mem.files[cnt] = cfp->open(str,FS_FILE_APPEND);
 #ifdef DEBUG_FS
                   AddLog(LOG_LEVEL_INFO, PSTR("SCR: open file for append %d"), cnt);
 #endif
@@ -3660,7 +3681,8 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         if (!strncmp_XP(lp, XPSTR("fd("), 3)) {
           char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
-          ufsp->remove(str);
+          FS *cfp = script_file_path(str);
+          cfp->remove(str);
           goto nfuncexit;
         }
 #ifdef USE_UFILESYS
@@ -3728,7 +3750,8 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         if (!strncmp_XP(lp, XPSTR("fmd("), 4)) {
           char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, str, 0);
-          fvar = ufsp->mkdir(str);
+          FS *cfp = script_file_path(str);
+          fvar = cfp->mkdir(str);
           goto nfuncexit;
         }
         if (!strncmp_XP(lp, XPSTR("fmt("), 4)) {
@@ -3743,13 +3766,15 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         if (!strncmp_XP(lp, XPSTR("frd("), 4)) {
           char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, str, 0);
-          fvar = ufsp->rmdir(str);
+          FS *cfp = script_file_path(str);
+          fvar = cfp->rmdir(str);
           goto nfuncexit;
         }
         if (!strncmp_XP(lp, XPSTR("fx("), 3)) {
           char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
-          if (ufsp->exists(str)) fvar = 1;
+          FS *cfp = script_file_path(str);
+          if (cfp->exists(str)) fvar = 1;
           else fvar = 0;
           goto nfuncexit;
         }
@@ -3768,8 +3793,8 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           char fn_to[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp, OPER_EQU, fn_to, 0);
           SCRIPT_SKIP_SPACES
-
-          fvar = ufsp->rename(fn_from, fn_to);
+          FS *cfp = script_file_path(fn_from);
+          fvar = cfp->rename(fn_from, fn_to);
           goto nfuncexit;
         }
 
@@ -4537,7 +4562,8 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
                 char file[SCRIPT_MAX_SBSIZE];
                 lp = GetStringArgument(lp, OPER_EQU, file, 0);
                 File fp;
-                fp = ufsp->open(file, FS_FILE_READ);
+                FS *cfp = script_file_path(file);
+                fp = cfp->open(file, FS_FILE_READ);
                 if (fp) {
                   uint32_t size = fp.size();
                   uint8_t *mem = (uint8_t *)special_malloc(size);
@@ -9960,12 +9986,15 @@ void execute_script(char *script) {
 #define D_CMND_SCRIPT "Script"
 #define D_CMND_SUBSCRIBE "Subscribe"
 #define D_CMND_UNSUBSCRIBE "Unsubscribe"
+#define D_CMND_BUFFERSIZE "Bsize"
 
-
-enum ScriptCommands { CMND_SCRIPT,CMND_SUBSCRIBE, CMND_UNSUBSCRIBE, CMND_SUBTEST};
+enum ScriptCommands { CMND_SCRIPT,CMND_SUBSCRIBE, CMND_UNSUBSCRIBE, CMND_SUBTEST, CMND_BSIZE};
 const char kScriptCommands[] PROGMEM = D_CMND_SCRIPT "|" D_CMND_SUBSCRIBE "|" D_CMND_UNSUBSCRIBE
 #ifdef DEBUG_MQTT_EVENT
   "|" "SUBTEST"
+#endif
+#ifdef USE_UFILESYS
+  "|" D_CMND_BUFFERSIZE
 #endif
 ;
 bool ScriptCommand(void) {
@@ -10071,6 +10100,10 @@ bool ScriptCommand(void) {
       serviced = true;
 #endif
 #endif //SUPPORT_MQTT_EVENT
+#ifdef USE_UFILESYS
+    } else if (CMND_BSIZE  == command_code) {
+      // set script buffer size
+#endif
     }
   return serviced;
 }
@@ -13314,23 +13347,25 @@ bool Xdrv10(uint32_t function) {
       glob_script_mem.FLAGS.eeprom = false;
       glob_script_mem.script_pram = (uint8_t*)Settings->script_pram[0];
       glob_script_mem.script_pram_size = PMEM_SIZE;
+      
 
 #ifdef USE_UFILESYS
       if (ufs_type) {
+        glob_script_mem.ufs_script_size = UFSYS_SIZE;
         // we have a file system
         AddLog(LOG_LEVEL_INFO,PSTR("SCR: ufilesystem found"));
         char *script;
-        script = (char*)special_malloc(UFSYS_SIZE + 4);
+        script = (char*)special_malloc(glob_script_mem.ufs_script_size + 4);
         if (!script) break;
-        memset(script, 0, UFSYS_SIZE);
+        memset(script, 0, glob_script_mem.ufs_script_size);
         glob_script_mem.script_ram = script;
-        glob_script_mem.script_size = UFSYS_SIZE;
+        glob_script_mem.script_size = glob_script_mem.ufs_script_size;
         if (ufsp->exists(FAT_SCRIPT_NAME)) {
           File file = ufsp->open(FAT_SCRIPT_NAME, FS_FILE_READ);
-          file.read((uint8_t*)script, UFSYS_SIZE);
+          file.read((uint8_t*)script, glob_script_mem.ufs_script_size);
           file.close();
         }
-        script[UFSYS_SIZE - 1] = 0;
+        script[glob_script_mem.ufs_script_size - 1] = 0;
         // use rules storage for permanent vars
         glob_script_mem.script_pram = (uint8_t*)Settings->rules[0];
         glob_script_mem.script_pram_size = MAX_SCRIPT_SIZE;

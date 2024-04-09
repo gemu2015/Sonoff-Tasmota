@@ -171,7 +171,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jspi_begin(A,B,C,D,E)           (( void (*)(void *,uint8_t,int8_t,int8_t,int8_t )) jt[137])(A,B,C,D,E)
 #define jspi_write(A,B)                 (( void (*)(void *,uint8_t))                     jt[138])(A,B)
 #define jspi_writeBytes(A,B,C)          (( void (*)(void *,uint8_t*,uint32_t))           jt[139])(A,B,C)
-#define jspi_Transaction(A,B,C)         (( void (*)(void *,uint8_t,SPISettings))         jt[140])(A,B,C)
+#define jspi_Transaction(A,B,C)         (( void (*)(void *,uint8_t,uint32_t))         jt[140])(A,B,C)
 #define jspi_transfer(A,B)              (( uint8_t (*)(void *,uint8_t))                  jt[141])(A,B)
 
 
@@ -710,6 +710,10 @@ typedef struct {
 #define spi_end() jspi_begin(mem->spi,1,-1,-1,-1)
 #define spiBeginTransaction() jspi_Transaction(mem->spi,0,0)
 #define spiEndTransaction() jspi_Transaction(mem->spi,1,0)
+#define spiTransfer(A) jspi_transfer(mem->spi,A)
+
+
+#define yield() delay(0)
 
 #define this mem
 

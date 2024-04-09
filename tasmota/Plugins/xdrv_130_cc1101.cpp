@@ -28,9 +28,26 @@
 
 /*********************************************************************************************/
 
+#define RFSWITCH_MAX_PINS 3
+
+#define RADIOLIB_NC                                 (0xFFFFFFFF)
+
+typedef struct {
+  /*! \brief RF switching mode, one of \ref OpMode_t or a custom radio-defined value. */
+  uint8_t mode;
+  /*! \brief Output pin values */
+  uint32_t values[RFSWITCH_MAX_PINS];
+} RfSwitchMode_t;
+
 typedef struct {
   uint8_t SPIreadCommand;
   uint8_t SPIwriteCommand;
+  uint8_t SPIstreamType;
+  uint32_t rfSwitchPins[RFSWITCH_MAX_PINS] = { RADIOLIB_NC, RADIOLIB_NC, RADIOLIB_NC };
+  const RfSwitchMode_t *rfSwitchTable = nullptr;
+  uint8_t SPIaddrWidth = 8;
+  uint8_t SPInopCommand = 0x00;
+  uint8_t SPIstatusCommand = 0x00;
 } MOD;
 
 typedef struct {
@@ -56,7 +73,7 @@ typedef struct {
   MOD mod;
 } MODULE_MEMORY;
 
-//#include "cc1101_c.h"
+#include "cc1101_c.h"
 
 #define CC1101_REV 1 << 16 | 4
 
@@ -97,7 +114,8 @@ int32_t CC1101_Init() {
     pinMode(this->gpioPin, INPUT_PULLUP);
     GETSPI(0)
     spi_begin();
-
+    int16_t res = CC1101_begin(868.3, 8.21, 57.136417, 270, 10, 32);
+  
     initialized = true;
     return true;
   }
