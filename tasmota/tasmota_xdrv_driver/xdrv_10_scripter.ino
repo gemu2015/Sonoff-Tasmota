@@ -1608,6 +1608,7 @@ TS_FLOAT *Get_MFAddr(uint8_t index, uint16_t *len, uint16_t *ipos) {
   return 0;
 }
 
+#ifdef USE_UFILESYS
 FS *script_file_path(char *path) {
   if (!strncmp_P(path, PSTR("/ffs/"), 5)) {
     memmove(path, path + 4, strlen(path) + 1);
@@ -1623,7 +1624,7 @@ FS *script_file_path(char *path) {
   }
   return ufsp;
 }
-
+#endif
 
 char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, TS_FLOAT *fp, char *sp, struct GVARS *gv);
 char *get_array_by_name(char *lp, TS_FLOAT **fp, uint16_t *alen, uint16_t *ipos);
@@ -10104,7 +10105,7 @@ bool ScriptCommand(void) {
 #endif
 #endif //SUPPORT_MQTT_EVENT
 #ifdef USE_UFILESYS
-#ifdef SCRIPT_VARBSIZE  
+#ifndef NO_SCRIPT_VARBSIZE  
     } else if (CMND_BSIZE  == command_code) {
       // set script buffer size
       if (XdrvMailbox.payload >= 1000) {
@@ -13362,7 +13363,7 @@ bool Xdrv10(uint32_t function) {
       
 #ifdef USE_UFILESYS
       if (ufs_type) {
-#ifdef SCRIPT_VARBSIZE
+#ifndef NO_SCRIPT_VARBSIZE
         glob_script_mem.script_pram = (uint8_t*)Settings->rules[0];
         glob_script_mem.script_pram_size = MAX_SCRIPT_SIZE;
         uint16_t sbsize = *SSIZE_PSTORE;

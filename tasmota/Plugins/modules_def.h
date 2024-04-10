@@ -77,6 +77,7 @@ typedef struct {
   MD_TYPE jtab;
   // 52 = 0x34
   uint32_t mod_start_org;
+  int32_t (*mod_func_execute_org)(uint32_t);
   
   // 56
   MODULE_STORE ms[MAX_MOD_STORES];
