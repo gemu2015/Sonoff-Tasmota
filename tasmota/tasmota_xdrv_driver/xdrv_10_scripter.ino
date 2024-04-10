@@ -13371,7 +13371,7 @@ bool Xdrv10(uint32_t function) {
           sbsize = UFSYS_SIZE;
         }
         if (sbsize < 1000) {
-          sbsize = 1000;
+          sbsize = UFSYS_SIZE;
         }
         glob_script_mem.ufs_script_size = sbsize;
 #else
