@@ -144,7 +144,7 @@ SPIClass *tmod_getspi(uint8_t sel);
 void tmod_spi_begin(SPIClass *spi, uint8_t flg, int8_t sck, int8_t miso, int8_t mosi);
 void tmod_spi_write(SPIClass *spi, uint8_t data);
 void tmod_spi_writebytes(SPIClass *spi, const uint8_t * data, uint32_t size);
-void tmod_Transaction(SPIClass *spi, uint8_t flg, SPISettings settings);
+void tmod_Transaction(SPIClass *spi, uint8_t flg, uint32_t spibaud);
 uint8_t tmod_transfer(SPIClass *spi, uint8_t data);
 char* ftostrfd(float number, unsigned char prec, char *s);
 
@@ -375,8 +375,9 @@ void tmod_spi_writebytes(SPIClass *spi, const uint8_t * data, uint32_t size) {
   spi->writeBytes(data, size);
 }
 
-void tmod_Transaction(SPIClass *spi, uint8_t flg, SPISettings settings) {
+void tmod_Transaction(SPIClass *spi, uint8_t flg, uint32_t spibaud) {
   if (!flg) {
+    SPISettings settings = SPISettings(spibaud, MSBFIRST, SPI_MODE0);
     spi->beginTransaction(settings);
   } else {
     spi->endTransaction();

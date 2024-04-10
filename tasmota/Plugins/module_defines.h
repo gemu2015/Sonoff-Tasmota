@@ -708,7 +708,7 @@ typedef struct {
 
 #define spi_begin() jspi_begin(mem->spi,0,-1,-1,-1)
 #define spi_end() jspi_begin(mem->spi,1,-1,-1,-1)
-#define spiBeginTransaction() jspi_Transaction(mem->spi,0,0)
+#define spiBeginTransaction() jspi_Transaction(mem->spi,0,this->mod.spibaud)
 #define spiEndTransaction() jspi_Transaction(mem->spi,1,0)
 #define spiTransfer(A) jspi_transfer(mem->spi,A)
 

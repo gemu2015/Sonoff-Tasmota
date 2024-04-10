@@ -811,16 +811,14 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
 
 }
 
- MODULE_PART  int16_t CC1101_begin(float freq = 434.0, float br = 4.8,
-                float freqDev = 5.0, float rxBw = 58.0,
-                int8_t pwr = 10, uint8_t preambleLength = 16);
+ MODULE_PART  int16_t CC1101_begin(float freq = 434.0, float br = 4.8,float freqDev = 5.0, float rxBw = 58.0,int8_t pwr = 10, uint8_t preambleLength = 16);
  MODULE_PART  void CC1101_reset();
- MODULE_PART  int16_t CC1101_transmit(uint8_t* data, size_t len, uint8_t addr = 0);
+ MODULE_PART  int16_t CC1101_transmit(uint8_t* data, size_t len, uint8_t addr);
  MODULE_PART  int16_t CC1101_receive(uint8_t* data, size_t len);
- MODULE_PART MODULE_PART  int16_t CC1101_standby();
- MODULE_PART MODULE_PART  int16_t CC1101_standbyp(uint8_t mode);
- MODULE_PART MODULE_PART  int16_t CC1101_transmitDirect(uint32_t frf = 0);
- MODULE_PART MODULE_PART  int16_t CC1101_receiveDirect();
+ MODULE_PART  int16_t CC1101_standby();
+ MODULE_PART  int16_t CC1101_standbyp(uint8_t mode);
+ MODULE_PART  int16_t CC1101_transmitDirect(uint32_t frf = 0);
+ MODULE_PART  int16_t CC1101_receiveDirect();
  MODULE_PART  int16_t CC1101_transmitDirectAsync(uint32_t frf = 0);
  MODULE_PART  int16_t CC1101_receiveDirectAsync();
  MODULE_PART  int16_t CC1101_packetMode();
@@ -834,8 +832,8 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
  MODULE_PART  void CC1101_clearPacketSentAction();
  MODULE_PART  int16_t CC1101_startTransmit(uint8_t* data, size_t len, uint8_t addr = 0);
  MODULE_PART  int16_t CC1101_finishTransmit();
- MODULE_PART MODULE_PART  int16_t CC1101_CC1101_startReceive();
- MODULE_PART MODULE_PART  int16_t CC1101_CC1101_startReceive(uint32_t timeout, uint16_t irqFlags, uint16_t irqMask, size_t len);
+ MODULE_PART  int16_t CC1101_CC1101_startReceive();
+ MODULE_PART  int16_t CC1101_CC1101_startReceive(uint32_t timeout, uint16_t irqFlags, uint16_t irqMask, size_t len);
  MODULE_PART  int16_t CC1101_readData(uint8_t* data, size_t len);
  MODULE_PART  int16_t CC1101_setFrequency(float freq);
  MODULE_PART  int16_t CC1101_setBitRate(float br);
@@ -844,10 +842,10 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
  MODULE_PART  int16_t CC1101_setFrequencyDeviation(float freqDev);
  MODULE_PART  int16_t CC1101_getFrequencyDeviation(float* freqDev);
  MODULE_PART  int16_t CC1101_setOutputPower(int8_t pwr);
- MODULE_PART MODULE_PART  int16_t CC1101_CC1101_setSyncWord(uint8_t syncH, uint8_t syncL, uint8_t maxErrBits = 0, bool requireCarrierSense = false);
- MODULE_PART MODULE_PART  int16_t CC1101_CC1101_setSyncWord(uint8_t* syncWord, uint8_t len, uint8_t maxErrBits = 0, bool requireCarrierSense = false);
+ MODULE_PART  int16_t CC1101_CC1101_setSyncWord(uint8_t syncH, uint8_t syncL, uint8_t maxErrBits = 0, bool requireCarrierSense = false);
+ MODULE_PART  int16_t CC1101_CC1101_setSyncWord(uint8_t* syncWord, uint8_t len, uint8_t maxErrBits = 0, bool requireCarrierSense = false);
  MODULE_PART  int16_t CC1101_setPreambleLength(uint8_t preambleLength, uint8_t qualityThreshold);
- MODULE_PART  int16_t CC1101_setNodeAddress(uint8_t nodeAddr, uint8_t numBroadcastAddrs = 0);
+ MODULE_PART  int16_t CC1101_setNodeAddress(uint8_t nodeAddr, uint8_t numBroadcastAddrs);
  MODULE_PART  int16_t CC1101_disableAddressFiltering();
  MODULE_PART  int16_t CC1101_setOOK(bool enableOOK);
  MODULE_PART  float CC1101_getRSSI();
@@ -879,8 +877,8 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
  
 
  MODULE_PART  int16_t CC1101_config();
- MODULE_PART MODULE_PART  int16_t CC1101_CC1101_transmitDirect(bool sync, uint32_t frf);
- MODULE_PART MODULE_PART  int16_t CC1101_CC1101_receiveDirect(bool sync);
+ MODULE_PART  int16_t CC1101_CC1101_transmitDirect(bool sync, uint32_t frf);
+ MODULE_PART  int16_t CC1101_CC1101_receiveDirect(bool sync);
  MODULE_PART  int16_t CC1101_directMode(bool sync);
  MODULE_PART  static void CC1101_getExpMant(float target, uint16_t mantOffset, uint8_t divExp, uint8_t expMax, uint8_t& exp, uint8_t& mant);
  MODULE_PART  int16_t CC1101_setPacketMode(uint8_t mode, uint16_t len);
@@ -893,24 +891,34 @@ int16_t CC1101_begin(float freq, float br, float freqDev, float rxBw, int8_t pwr
   SETREGS
   this->mod.SPIreadCommand = 0b10000000;
   this->mod.SPIwriteCommand = 0b00000000;
+  this->mod.SPIaddrWidth = 8;
+  this->mod.rfSwitchPins[0] = RADIOLIB_NC;
+  this->mod.rfSwitchPins[1] = RADIOLIB_NC;
+  this->mod.rfSwitchPins[2] = RADIOLIB_NC;
+
+  this->mod.spibaud = 20000;
   //mod_init();
-  pinMode(this->irqPin, GpioModeInput);
+  if (this->irqPin >= 0) {
+    pinMode(this->irqPin, GpioModeInput);
+  }
   uint8_t i = 0;
   bool flagFound = false;
+
   while ((i < 10) && !flagFound) {
     int16_t version = CC1101_getChipVersion();
-    if ((version == 0x14) || (version == 0x04) ||
-        (version == 0x17)) {
+
+    if ((version == 0x14) || (version == 0x04) || (version == 0x17)) {
       flagFound = true;
     } else {
       //RADIOLIB_DEBUG_BASIC_PRINTLN("CC1101 not found! (%d of 10 tries) RADIOLIB_CC1101_REG_VERSION == 0x%04X, expected 0x0004/0x0014",
       //                             i + 1, version);
-      AddLog(LOG_LEVEL_INFO, PSTR("CC1101 not found! (%d of 10 tries) RADIOLIB_CC1101_REG_VERSION == 0x%04X, expected 0x0004/0x0014"),i + 1, version);
+      AddLog(LOG_LEVEL_INFO, PSTR("CC1101 not found! (%d of 10 tries) RADIOLIB_CC1101_REG_VERSION == 0x%04X, expected 0x04/0x14/0x17"),i + 1, version);
 
       delay(10);
       i++;
     }
   }
+ 
   if (!flagFound) {
     //RADIOLIB_DEBUG_BASIC_PRINTLN("No CC1101 found!");
     AddLog(LOG_LEVEL_INFO, PSTR("No CC1101 found!"));
@@ -920,6 +928,7 @@ int16_t CC1101_begin(float freq, float br, float freqDev, float rxBw, int8_t pwr
     //RADIOLIB_DEBUG_BASIC_PRINTLN("M\tCC1101");
     AddLog(LOG_LEVEL_INFO, PSTR("M\tCC1101"));
   }
+
   int16_t state = CC1101_config();
   RADIOLIB_ASSERT(state);
   state = CC1101_setFrequency(freq);
@@ -1059,8 +1068,7 @@ int16_t CC1101_CC1101_receiveDirect(bool sync) {
 }
 int16_t CC1101_packetMode() {
   SETREGS
-  int16_t state = CC1101_SPIsetRegValue(0x07,
-                                 0b00000000 | 0b00000100 | 0b00000000, 3, 0);
+  int16_t state = CC1101_SPIsetRegValue(0x07, 0b00000000 | 0b00000100 | 0b00000000, 3, 0);
   state |= CC1101_SPIsetRegValue(0x08, 0b00000000 | 0b00000000, 6, 4);
   state |= CC1101_SPIsetRegValue(0x08, 0b00000100 | mem->packetLengthConfig, 2, 0);
   return (state);
@@ -1160,7 +1168,7 @@ int16_t CC1101_CC1101_startReceive(uint32_t timeout, uint16_t irqFlags, uint16_t
 }
 int16_t CC1101_readData(uint8_t* data, size_t len) {
   SETREGS
-  size_t length = CC1101_getPacketLength();
+  size_t length = CC1101_getPacketLength(true);
   if ((len != 0) && (len < length)) {
     length = len;
   }
@@ -1172,8 +1180,8 @@ int16_t CC1101_readData(uint8_t* data, size_t len) {
   bool isAppendStatus = CC1101_SPIgetRegValue(0x07, 2, 2) == 0b00000100;
   int16_t state = RADIOLIB_ERR_NONE;
   if (isAppendStatus) {
-    mem->rawRSSI = CC1101_SPIgetRegValue(0x3F);
-    uint8_t val = CC1101_SPIgetRegValue(0x3F);
+    mem->rawRSSI = CC1101_SPIgetRegValue(0x3F, 7, 0);
+    uint8_t val = CC1101_SPIgetRegValue(0x3F, 7, 0);
     mem->rawLQI = val & 0x7F;
     if (mem->crcOn && (val & 0b10000000) == 0b00000000) {
       mem->packetLengthQueried = false;
@@ -1582,7 +1590,7 @@ uint8_t CC1101_randomByte() {
 }
 int16_t CC1101_getChipVersion() {
   SETREGS
-  return (CC1101_SPIgetRegValue(0x31));
+  return (CC1101_SPIgetRegValue(0x31, 7, 0));
 }
 void CC1101_setDirectAction(void (*func)(void)) {
   SETREGS
@@ -1658,6 +1666,7 @@ int16_t CC1101_setPacketMode(uint8_t mode, uint16_t len) {
 
 int16_t CC1101_SPIgetRegValue(uint8_t reg, uint8_t msb, uint8_t lsb) {
   SETREGS
+
   if ((reg > 0x2E) && (reg < 0x3E)) {
     reg |= 0b01000000;
   }

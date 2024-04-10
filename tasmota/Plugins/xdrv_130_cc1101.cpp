@@ -23,6 +23,7 @@
 
 #define XDRV_130             130
 
+#include <SPI.h>
 #include "module.h"
 #include "module_defines.h"
 
@@ -41,13 +42,14 @@ typedef struct {
 
 typedef struct {
   uint8_t SPIreadCommand;
-  uint8_t SPIwriteCommand;
+  uint8_t SPIwriteCommand; 
   uint8_t SPIstreamType;
-  uint32_t rfSwitchPins[RFSWITCH_MAX_PINS] = { RADIOLIB_NC, RADIOLIB_NC, RADIOLIB_NC };
-  const RfSwitchMode_t *rfSwitchTable = nullptr;
-  uint8_t SPIaddrWidth = 8;
-  uint8_t SPInopCommand = 0x00;
-  uint8_t SPIstatusCommand = 0x00;
+  uint32_t rfSwitchPins[RFSWITCH_MAX_PINS];
+  const RfSwitchMode_t *rfSwitchTable;
+  uint8_t SPIaddrWidth;
+  uint8_t SPInopCommand;
+  uint8_t SPIstatusCommand;
+  uint32_t spibaud;
 } MOD;
 
 typedef struct {
@@ -112,7 +114,7 @@ int32_t CC1101_Init() {
     digitalWrite(this->csPin, HIGH);
     this->gpioPin = mp->ms[1].value;
     pinMode(this->gpioPin, INPUT_PULLUP);
-    GETSPI(0)
+    GETSPI(0);
     spi_begin();
     int16_t res = CC1101_begin(868.3, 8.21, 57.136417, 270, 10, 32);
   
