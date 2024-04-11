@@ -173,14 +173,14 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jspi_writeBytes(A,B,C)          (( void (*)(void *,uint8_t*,uint32_t))           jt[139])(A,B,C)
 #define jspi_Transaction(A,B,C)         (( void (*)(void *,uint8_t,uint32_t))            jt[140])(A,B,C)
 #define jspi_transfer(A,B)              (( uint8_t (*)(void *,uint8_t))                  jt[141])(A,B)
-#define jfile_open(A,B)                 (( void * (*)(const char*,char))                       jt[142])(A,B)
+#define jfile_open(A,B)                 (( void * (*)(const char*,char))                 jt[142])(A,B)
 #define jfile_close(A)                  (( void (*)(void*))                              jt[143])(A)
 #define jfile_seek(A,B,C)               (( int32_t (*)(void*,uint32_t,uint32_t))         jt[144])(A,B,C)
 #define jfile_read(A,B,C)               (( int32_t (*)(void*,void*,uint32_t))           jt[145])(A,B,C)
 #define jfile_write(A,B,C)              (( int32_t (*)(void*,void*,uint32_t))           jt[146])(A,B,C)
 #define jCharToFloat(A)                 (( float (*)(char*))                            jt[147])(A)
 #define jAddLogData(A,B)                (( void  (*)(uint32_t,const char*))             jt[148])(A,B)
-
+#define jfexists(A)                     (( int32_t (*)(const char*))                    jt[149])(A)
 
 
 
@@ -733,6 +733,10 @@ typedef struct {
 
 #define CharToFloat jCharToFloat
 #define AddLogData jAddLogData
+#define calloc jcalloc
+#define fexists jfexists
+
+#define __divsi3 jtmod__divsi3
 
 //size_t fread ( void * ptr, size_t size, size_t count, FILE * stream );
 

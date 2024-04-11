@@ -346,8 +346,27 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_file_read,
   JMPTBL&tmod_file_write,
   JMPTBL&CharToFloat,
-  JMPTBL&tmod_AddLogData
+  JMPTBL&tmod_AddLogData,
+  JMPTBL&tmod_file_exists
+
 };
+
+
+uint32_t tmod_file_exists(const char *path) {
+#ifdef USE_UFILESYS
+  char *cpath = copyStr(path);
+#ifdef USE_SCRIPT  
+  FS *cfp = script_file_path(cpath);
+#else
+  FS *cfp = ufsp;
+#endif
+
+  int32_t result;
+  result = cfp->exists(cpath);
+  free(cpath);
+#endif
+  return result;
+}
 
 
 void tmod_AddLogData(uint32_t loglevel, const char* log_data) {
@@ -367,14 +386,21 @@ class File *tmod_file_open(char *path, char mode) {
   switch (mode) {
     case 'r':
       temp_file = cfp->open(cpath, FS_FILE_READ);
+      break;
     case 'w':
       temp_file = cfp->open(cpath, FS_FILE_WRITE);
+      break;
     case 'a':
-      temp_file = cfp->open(cpath, FS_FILE_APPEND);     
+      temp_file = cfp->open(cpath, FS_FILE_APPEND);
+      break;
   }
 #endif
   free(cpath);
-  return &temp_file;
+  if (temp_file > 0) {
+    return &temp_file;
+  } else {
+    return nullptr;
+  }
 }
 
 void tmod_file_close(class File *fp) {
