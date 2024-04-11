@@ -176,8 +176,13 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jfile_open(A,B)                 (( void * (*)(const char*,char))                       jt[142])(A,B)
 #define jfile_close(A)                  (( void (*)(void*))                              jt[143])(A)
 #define jfile_seek(A,B,C)               (( int32_t (*)(void*,uint32_t,uint32_t))         jt[144])(A,B,C)
-#define jfile_read(A,B,C)               (( int32_t (*)(void*,void*,uint32_t))         jt[145])(A,B,C)
-#define jfile_write(A,B,C)              (( int32_t (*)(void*,void*,uint32_t))         jt[146])(A,B,C)
+#define jfile_read(A,B,C)               (( int32_t (*)(void*,void*,uint32_t))           jt[145])(A,B,C)
+#define jfile_write(A,B,C)              (( int32_t (*)(void*,void*,uint32_t))           jt[146])(A,B,C)
+#define jCharToFloat(A)                 (( float (*)(char*))                            jt[147])(A)
+#define jAddLogData(A,B)                (( void  (*)(uint32_t,const char*))             jt[148])(A,B)
+
+
+
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -713,7 +718,7 @@ typedef struct {
 
 #define spi_begin() jspi_begin(mem->spi,0,-1,-1,-1)
 #define spi_end() if (mem->spi) jspi_begin(mem->spi,1,-1,-1,-1)
-#define spiBeginTransaction() jspi_Transaction(mem->spi,0,this->mod.spibaud)
+#define spiBeginTransaction() jspi_Transaction(mem->spi,0,this->spibaud)
 #define spiEndTransaction() jspi_Transaction(mem->spi,1,0)
 #define spiTransfer(A) jspi_transfer(mem->spi,A)
 
@@ -725,6 +730,9 @@ typedef struct {
 
 #define fread(A,B,C,D)   jfile_read(D,A,B*C) 
 #define fwrite(A,B,C,D) jfile_write(D,A,B*C)
+
+#define CharToFloat jCharToFloat
+#define AddLogData jAddLogData
 
 //size_t fread ( void * ptr, size_t size, size_t count, FILE * stream );
 

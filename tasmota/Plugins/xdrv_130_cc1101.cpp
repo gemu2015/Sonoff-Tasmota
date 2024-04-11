@@ -49,11 +49,11 @@ typedef struct {
   uint8_t SPIaddrWidth;
   uint8_t SPInopCommand;
   uint8_t SPIstatusCommand;
-  uint32_t spibaud;
 } MOD;
 
 typedef struct {
   int8_t csPin;
+  uint32_t spibaud;
   int8_t irqPin;
   int8_t rstPin;
   int8_t gpioPin;
@@ -108,15 +108,6 @@ int32_t CC1101_Init() {
   this->crcOn = true;
   this->directModeEnabled = true;
   this->power = 10;
-  char buff[32];
-  strcpy_P(buff, PSTR("alles murks"));
-
-  strcpy_P(buff, PSTR("alles sfdsfg murks"));
-
-  File_p *fp;
-  fp = fopen(PSTR("/murks"), 'w');
-  fwrite(buff, 1, strlen(buff), fp);
-  fclose(fp);
 
   initialized = true;
   return true;

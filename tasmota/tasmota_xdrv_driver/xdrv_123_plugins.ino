@@ -152,6 +152,7 @@ void tmod_file_close(class File *fp);
 int32_t tmod_file_seek(class File *fp, uint32_t pos, uint32_t mode);
 int32_t tmod_file_read(class File *fp, uint8_t *buff, uint32_t size);
 int32_t tmod_file_write(class File *fp, uint8_t *buff, uint32_t size);
+void tmod_AddLogData(uint32_t loglevel, const char* log_data);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -343,9 +344,15 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_file_close,
   JMPTBL&tmod_file_seek,
   JMPTBL&tmod_file_read,
-  JMPTBL&tmod_file_write
+  JMPTBL&tmod_file_write,
+  JMPTBL&CharToFloat,
+  JMPTBL&tmod_AddLogData
 };
 
+
+void tmod_AddLogData(uint32_t loglevel, const char* log_data) {
+  AddLogData(loglevel,log_data);
+}
 
 static File temp_file;
 
