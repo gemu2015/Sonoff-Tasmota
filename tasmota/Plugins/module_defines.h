@@ -171,16 +171,13 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jspi_begin(A,B,C,D,E)           (( void (*)(void *,uint8_t,int8_t,int8_t,int8_t )) jt[137])(A,B,C,D,E)
 #define jspi_write(A,B)                 (( void (*)(void *,uint8_t))                     jt[138])(A,B)
 #define jspi_writeBytes(A,B,C)          (( void (*)(void *,uint8_t*,uint32_t))           jt[139])(A,B,C)
-#define jspi_Transaction(A,B,C)         (( void (*)(void *,uint8_t,uint32_t))         jt[140])(A,B,C)
+#define jspi_Transaction(A,B,C)         (( void (*)(void *,uint8_t,uint32_t))            jt[140])(A,B,C)
 #define jspi_transfer(A,B)              (( uint8_t (*)(void *,uint8_t))                  jt[141])(A,B)
-
-
-open
-seek
-read
-write
-close
-
+#define jfile_open(A,B)                 (( void * (*)(const char*,char))                       jt[142])(A,B)
+#define jfile_close(A)                  (( void (*)(void*))                              jt[143])(A)
+#define jfile_seek(A,B,C)               (( int32_t (*)(void*,uint32_t,uint32_t))         jt[144])(A,B,C)
+#define jfile_read(A,B,C)               (( int32_t (*)(void*,void*,uint32_t))         jt[145])(A,B,C)
+#define jfile_write(A,B,C)              (( int32_t (*)(void*,void*,uint32_t))         jt[146])(A,B,C)
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -329,6 +326,8 @@ typedef struct {
 #define GSTR(LABEL) (const char *)LABEL+EXEC_OFFSET
 #define GU8(LABEL) (const uint8_t *)LABEL+EXEC_OFFSET
 #define GFLT(LABEL) (float *) ((char *)LABEL+EXEC_OFFSET)
+#define PU8(s) (__extension__({static const uint8_t __c[] PROGMEM = (s); &__c[EXEC_OFFSET];}))
+
 
 // all floating point constants must be in progmem and named FP_CONST
 #define FLTC(INDEX) *(float *) ((char *)&FP_CONST[INDEX]+EXEC_OFFSET)
@@ -713,11 +712,25 @@ typedef struct {
 #define GETSPI(A) mem->spi = getspi(A);
 
 #define spi_begin() jspi_begin(mem->spi,0,-1,-1,-1)
-#define spi_end() jspi_begin(mem->spi,1,-1,-1,-1)
+#define spi_end() if (mem->spi) jspi_begin(mem->spi,1,-1,-1,-1)
 #define spiBeginTransaction() jspi_Transaction(mem->spi,0,this->mod.spibaud)
 #define spiEndTransaction() jspi_Transaction(mem->spi,1,0)
 #define spiTransfer(A) jspi_transfer(mem->spi,A)
 
+#define fopen(A,B)  jfile_open(A,B)
+#define fclose(A) jfile_close(A)
+#define fseek(A,B,C) jfile_seek(A,B,C)
+//#define fread(A,B,C)   jfile_read(A,B,C) 
+//#define fwrite(A,B,C) jfile_write(A,B,C)
+
+#define fread(A,B,C,D)   jfile_read(D,A,B*C) 
+#define fwrite(A,B,C,D) jfile_write(D,A,B*C)
+
+//size_t fread ( void * ptr, size_t size, size_t count, FILE * stream );
+
+
+
+#define File_p void
 
 #define yield() delay(0)
 

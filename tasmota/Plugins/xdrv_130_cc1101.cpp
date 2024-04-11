@@ -57,7 +57,6 @@ typedef struct {
   int8_t irqPin;
   int8_t rstPin;
   int8_t gpioPin;
-
   void *spi;
   //Module* mod;
   float frequency;
@@ -94,6 +93,8 @@ MODULE_END
  * constants
 \*********************************************************************************************/
 
+//const uint8_t XYZ[] PROGMEM = {0x41,0x42,0x43,0x44,0x45};
+
 int32_t CC1101_Init() { 
   ALLOCMEM
 
@@ -107,6 +108,18 @@ int32_t CC1101_Init() {
   this->crcOn = true;
   this->directModeEnabled = true;
   this->power = 10;
+  char buff[32];
+  strcpy_P(buff, PSTR("alles murks"));
+
+  strcpy_P(buff, PSTR("alles sfdsfg murks"));
+
+  File_p *fp;
+  fp = fopen(PSTR("/murks"), 'w');
+  fwrite(buff, 1, strlen(buff), fp);
+  fclose(fp);
+
+  initialized = true;
+  return true;
 
   if (TasmotaGlobal->spi_enabled) {
     this->csPin = mp->ms[0].value;

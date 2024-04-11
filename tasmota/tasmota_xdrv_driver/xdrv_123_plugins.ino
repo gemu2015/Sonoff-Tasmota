@@ -147,11 +147,11 @@ void tmod_spi_writebytes(SPIClass *spi, const uint8_t * data, uint32_t size);
 void tmod_Transaction(SPIClass *spi, uint8_t flg, uint32_t spibaud);
 uint8_t tmod_transfer(SPIClass *spi, uint8_t data);
 char* ftostrfd(float number, unsigned char prec, char *s);
-fs::File tmod_file_open(char *path, char mode);
-void tmod_file_close(fs::File fp);
-int32_t tmod_file_seek(fs::File fp, uint32_t pos, uint32_t mode);
-int32_t tmod_file_read(fs::File fp, uint8_t *buff, uint32_t size);
-int32_t tmod_file_write(fs::File fp, uint8_t *buff, uint32_t size);
+class File * tmod_file_open(char *path, char mode);
+void tmod_file_close(class File *fp);
+int32_t tmod_file_seek(class File *fp, uint32_t pos, uint32_t mode);
+int32_t tmod_file_read(class File *fp, uint8_t *buff, uint32_t size);
+int32_t tmod_file_write(class File *fp, uint8_t *buff, uint32_t size);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -346,33 +346,56 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_file_write
 };
 
-fs::File tmod_file_open(char *path, char mode) {
-  char *cpath = copyStr(path);
-  FS *cfp = script_file_path(cpath);
 
+static File temp_file;
+
+class File *tmod_file_open(char *path, char mode) {
+#ifdef USE_UFILESYS
+  char *cpath = copyStr(path);
+#ifdef USE_SCRIPT  
+  FS *cfp = script_file_path(cpath);
+#else
+  FS *cfp = ufsp;
+#endif
   switch (mode) {
     case 'r':
-      return cfp->open(cpath, FS_FILE_READ);
+      temp_file = cfp->open(cpath, FS_FILE_READ);
     case 'w':
-      return cfp->open(cpath, FS_FILE_WRITE);
+      temp_file = cfp->open(cpath, FS_FILE_WRITE);
     case 'a':
-      return cfp->open(cpath, FS_FILE_APPEND);     
+      temp_file = cfp->open(cpath, FS_FILE_APPEND);     
   }
-  return (fs::File)nullptr;
+#endif
+  free(cpath);
+  return &temp_file;
 }
 
-void tmod_file_close(fs::File fp) {
-  fp.close();
+void tmod_file_close(class File *fp) {
+#ifdef USE_UFILESYS
+  fp->close();
+#endif
 }
 
-int32_t tmod_file_seek(fs::File fp, uint32_t pos, uint32_t mode) {
-  return fp.seek(pos, (fs::SeekMode)mode);
+int32_t tmod_file_seek(class File *fp, uint32_t pos, uint32_t mode) {
+#ifdef USE_UFILESYS
+  return fp->seek(pos, (fs::SeekMode)mode);
+#else
+  return 0;
+#endif
 }
-int32_t tmod_file_read(fs::File fp, uint8_t *buff, uint32_t size) {
-  return fp.read(buff, size);
+int32_t tmod_file_read(class File *fp, uint8_t *buff, uint32_t size) {
+#ifdef USE_UFILESYS
+  return fp->read(buff, size);
+#else
+  return 0;
+#endif
 }
-int32_t tmod_file_write(fs::File fp, uint8_t *buff, uint32_t size) {
-  return fp.write(buff, size);
+int32_t tmod_file_write(class File *fp, uint8_t *buff, uint32_t size) {
+#ifdef USE_UFILESYS
+  return fp->write(buff, size);
+#else
+  return 0;
+#endif
 }
 
 
