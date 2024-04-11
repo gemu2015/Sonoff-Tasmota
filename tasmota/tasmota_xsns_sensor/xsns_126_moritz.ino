@@ -17,7 +17,6 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
 // should always use EEPROM option
 /* to doo
 1. set Thermostat values sets
@@ -47,26 +46,24 @@ uint32_t last_moritz_task;
 SPISettings moritz_spiSettings;
 
 struct {
-   uint8_t moritz_on : 1;
-   uint8_t show_all : 1;
-   uint8_t pair_enable : 1;
-   uint8_t eeprom_found : 1;
-   uint8_t moritz_ready : 1;
-   uint8_t cc_on : 1;
-   uint8_t moritz_cs : 6;
+  uint8_t moritz_on : 1;
+  uint8_t show_all : 1;
+  uint8_t pair_enable : 1;
+  uint8_t eeprom_found : 1;
+  uint8_t moritz_ready : 1;
+  uint8_t cc_on : 1;
+  uint8_t moritz_cs : 6;
 } moritz_cfg;
-
-
 
 typedef union {
   uint8_t data;
   struct {
-      uint8_t type : 3;
-      uint8_t nu1 : 1;
-      uint8_t enabled : 1;
-      uint8_t is_open : 1;
-      uint8_t rf_error : 1;
-      uint8_t battery_low : 1;
+    uint8_t type : 3;
+    uint8_t nu1 : 1;
+    uint8_t enabled : 1;
+    uint8_t is_open : 1;
+    uint8_t rf_error : 1;
+    uint8_t battery_low : 1;
   };
 } MORITZ_TYPE;
 
@@ -96,11 +93,8 @@ struct MORITZ moritz_devices[MORITZ_MAX_DEVICES];
 #endif
 #endif
 
-
-#define M_EEP_WRITE(A,B,C) eeprom_writeBytes(A,B,(uint8_t*)C);
-#define M_EEP_READ(A,B,C) eeprom_readBytes(A,B,(uint8_t*)C);
-
-
+#define M_EEP_WRITE(A, B, C) eeprom_writeBytes(A, B, (uint8_t *)C);
+#define M_EEP_READ(A, B, C) eeprom_readBytes(A, B, (uint8_t *)C);
 
 #ifdef USE_24C256
 #undef EEPROM_START_OFFSET
@@ -116,205 +110,208 @@ void ccDump(void);
 void ccTX(void);
 void ccRX(void);
 uint8_t ccStrobe(uint8_t);
-void ccreg(char*);
-void ccsetpa(char*);
+void ccreg(char *);
+void ccsetpa(char *);
 uint8_t cc1100_sendbyte(uint8_t data);
 void cc1100_writeReg(uint8_t addr, uint8_t data);
 uint8_t cc1100_readReg(uint8_t addr);
 void set_ccoff(void);
 void set_ccon(void);
-void new_moritz(const char *hid,uint8_t type,uint8_t bs,uint8_t rfe,uint8_t bl,uint8_t rssi,uint8_t dtmp,uint16_t mtmp, uint8_t valve, uint8_t tmode);
+void new_moritz(const char *hid, uint8_t type, uint8_t bs, uint8_t rfe, uint8_t bl, uint8_t rssi, uint8_t dtmp, uint16_t mtmp,
+                uint8_t valve, uint8_t tmode);
 
 // must be defined
 #define USE_SCRIPT_WEB_DISPLAY
 
 // Configuration Registers
-#define CC1100_IOCFG2           0x00    // GDO2 output pin configuration
-#define CC1100_IOCFG1           0x01    // GDO1 output pin configuration
-#define CC1100_IOCFG0           0x02    // GDO0 output pin configuration
-#define CC1100_FIFOTHR          0x03    // RX FIFO and TX FIFO thresholds
-#define CC1100_SYNC1            0x04    // Sync word, high byte
-#define CC1100_SYNC0            0x05    // Sync word, low byte
-#define CC1100_PKTLEN           0x06    // Packet length
-#define CC1100_PKTCTRL1         0x07    // Packet automation control
-#define CC1100_PKTCTRL0         0x08    // Packet automation control
-#define CC1100_ADDR             0x09    // Device address
-#define CC1100_CHANNR           0x0A    // Channel number
-#define CC1100_FSCTRL1          0x0B    // Frequency synthesizer control
-#define CC1100_FSCTRL0          0x0C    // Frequency synthesizer control
-#define CC1100_FREQ2            0x0D    // Frequency control word, high byte
-#define CC1100_FREQ1            0x0E    // Frequency control word, middle byte
-#define CC1100_FREQ0            0x0F    // Frequency control word, low byte
-#define CC1100_MDMCFG4          0x10    // Modem configuration
-#define CC1100_MDMCFG3          0x11    // Modem configuration
-#define CC1100_MDMCFG2          0x12    // Modem configuration
-#define CC1100_MDMCFG1          0x13    // Modem configuration
-#define CC1100_MDMCFG0          0x14    // Modem configuration
-#define CC1100_DEVIATN          0x15    // Modem deviation setting
-#define CC1100_MCSM2            0x16    // Main Radio Cntrl State Machine config
-#define CC1100_MCSM1            0x17    // Main Radio Cntrl State Machine config
-#define CC1100_MCSM0            0x18    // Main Radio Cntrl State Machine config
-#define CC1100_FOCCFG           0x19    // Frequency Offset Compensation config
-#define CC1100_BSCFG            0x1A    // Bit Synchronization configuration
-#define CC1100_AGCCTRL2         0x1B    // AGC control
-#define CC1100_AGCCTRL1         0x1C    // AGC control
-#define CC1100_AGCCTRL0         0x1D    // AGC control
-#define CC1100_WOREVT1          0x1E    // High byte Event 0 timeout
-#define CC1100_WOREVT0          0x1F    // Low byte Event 0 timeout
-#define CC1100_WORCTRL          0x20    // Wake On Radio control
-#define CC1100_FREND1           0x21    // Front end RX configuration
-#define CC1100_FREND0           0x22    // Front end TX configuration
-#define CC1100_FSCAL3           0x23    // Frequency synthesizer calibration
-#define CC1100_FSCAL2           0x24    // Frequency synthesizer calibration
-#define CC1100_FSCAL1           0x25    // Frequency synthesizer calibration
-#define CC1100_FSCAL0           0x26    // Frequency synthesizer calibration
-#define CC1100_RCCTRL1          0x27    // RC oscillator configuration
-#define CC1100_RCCTRL0          0x28    // RC oscillator configuration
-#define CC1100_FSTEST           0x29    // Frequency synthesizer cal control
-#define CC1100_PTEST            0x2A    // Production test
-#define CC1100_AGCTEST          0x2B    // AGC test
-#define CC1100_TEST2            0x2C    // Various test settings
-#define CC1100_TEST1            0x2D    // Various test settings
-#define CC1100_TEST0            0x2E    // Various test settings
+#define CC1100_IOCFG2 0x00    // GDO2 output pin configuration
+#define CC1100_IOCFG1 0x01    // GDO1 output pin configuration
+#define CC1100_IOCFG0 0x02    // GDO0 output pin configuration
+#define CC1100_FIFOTHR 0x03   // RX FIFO and TX FIFO thresholds
+#define CC1100_SYNC1 0x04     // Sync word, high byte
+#define CC1100_SYNC0 0x05     // Sync word, low byte
+#define CC1100_PKTLEN 0x06    // Packet length
+#define CC1100_PKTCTRL1 0x07  // Packet automation control
+#define CC1100_PKTCTRL0 0x08  // Packet automation control
+#define CC1100_ADDR 0x09      // Device address
+#define CC1100_CHANNR 0x0A    // Channel number
+#define CC1100_FSCTRL1 0x0B   // Frequency synthesizer control
+#define CC1100_FSCTRL0 0x0C   // Frequency synthesizer control
+#define CC1100_FREQ2 0x0D     // Frequency control word, high byte
+#define CC1100_FREQ1 0x0E     // Frequency control word, middle byte
+#define CC1100_FREQ0 0x0F     // Frequency control word, low byte
+#define CC1100_MDMCFG4 0x10   // Modem configuration
+#define CC1100_MDMCFG3 0x11   // Modem configuration
+#define CC1100_MDMCFG2 0x12   // Modem configuration
+#define CC1100_MDMCFG1 0x13   // Modem configuration
+#define CC1100_MDMCFG0 0x14   // Modem configuration
+#define CC1100_DEVIATN 0x15   // Modem deviation setting
+#define CC1100_MCSM2 0x16     // Main Radio Cntrl State Machine config
+#define CC1100_MCSM1 0x17     // Main Radio Cntrl State Machine config
+#define CC1100_MCSM0 0x18     // Main Radio Cntrl State Machine config
+#define CC1100_FOCCFG 0x19    // Frequency Offset Compensation config
+#define CC1100_BSCFG 0x1A     // Bit Synchronization configuration
+#define CC1100_AGCCTRL2 0x1B  // AGC control
+#define CC1100_AGCCTRL1 0x1C  // AGC control
+#define CC1100_AGCCTRL0 0x1D  // AGC control
+#define CC1100_WOREVT1 0x1E   // High byte Event 0 timeout
+#define CC1100_WOREVT0 0x1F   // Low byte Event 0 timeout
+#define CC1100_WORCTRL 0x20   // Wake On Radio control
+#define CC1100_FREND1 0x21    // Front end RX configuration
+#define CC1100_FREND0 0x22    // Front end TX configuration
+#define CC1100_FSCAL3 0x23    // Frequency synthesizer calibration
+#define CC1100_FSCAL2 0x24    // Frequency synthesizer calibration
+#define CC1100_FSCAL1 0x25    // Frequency synthesizer calibration
+#define CC1100_FSCAL0 0x26    // Frequency synthesizer calibration
+#define CC1100_RCCTRL1 0x27   // RC oscillator configuration
+#define CC1100_RCCTRL0 0x28   // RC oscillator configuration
+#define CC1100_FSTEST 0x29    // Frequency synthesizer cal control
+#define CC1100_PTEST 0x2A     // Production test
+#define CC1100_AGCTEST 0x2B   // AGC test
+#define CC1100_TEST2 0x2C     // Various test settings
+#define CC1100_TEST1 0x2D     // Various test settings
+#define CC1100_TEST0 0x2E     // Various test settings
 
 // Status registers
-#define CC1100_PARTNUM          0x30    // Part number
-#define CC1100_VERSION          0x31    // Current version number
-#define CC1100_FREQEST          0x32    // Frequency offset estimate
-#define CC1100_LQI              0x33    // Demodulator estimate for link quality
-#define CC1100_RSSI             0x34    // Received signal strength indication
-#define CC1100_MARCSTATE        0x35    // Control state machine state
-#define CC1100_WORTIME1         0x36    // High byte of WOR timer
-#define CC1100_WORTIME0         0x37    // Low byte of WOR timer
-#define CC1100_PKTSTATUS        0x38    // Current GDOx status and packet status
-#define CC1100_VCO_VC_DAC       0x39    // Current setting from PLL cal module
-#define CC1100_TXBYTES          0x3A    // Underflow and # of bytes in TXFIFO
-#define CC1100_RXBYTES          0x3B    // Overflow and # of bytes in RXFIFO
+#define CC1100_PARTNUM 0x30     // Part number
+#define CC1100_VERSION 0x31     // Current version number
+#define CC1100_FREQEST 0x32     // Frequency offset estimate
+#define CC1100_LQI 0x33         // Demodulator estimate for link quality
+#define CC1100_RSSI 0x34        // Received signal strength indication
+#define CC1100_MARCSTATE 0x35   // Control state machine state
+#define CC1100_WORTIME1 0x36    // High byte of WOR timer
+#define CC1100_WORTIME0 0x37    // Low byte of WOR timer
+#define CC1100_PKTSTATUS 0x38   // Current GDOx status and packet status
+#define CC1100_VCO_VC_DAC 0x39  // Current setting from PLL cal module
+#define CC1100_TXBYTES 0x3A     // Underflow and # of bytes in TXFIFO
+#define CC1100_RXBYTES 0x3B     // Overflow and # of bytes in RXFIFO
 
 // Multi byte memory locations
-#define CC1100_PATABLE          0x3E
-#define CC1100_TXFIFO           0x3F
-#define CC1100_RXFIFO           0x3F
+#define CC1100_PATABLE 0x3E
+#define CC1100_TXFIFO 0x3F
+#define CC1100_RXFIFO 0x3F
 
 // Definitions for burst/single access to registers
-#define CC1100_WRITE_BURST      0x40
-#define CC1100_READ_SINGLE      0x80
-#define CC1100_READ_BURST       0xC0
+#define CC1100_WRITE_BURST 0x40
+#define CC1100_READ_SINGLE 0x80
+#define CC1100_READ_BURST 0xC0
 
 // Strobe commands
-#define CC1100_SRES             0x30        // Reset chip.
-#define CC1100_SFSTXON          0x31        // Enable and calibrate frequency synthesizer (if MCSM0.FS_AUTOCAL=1).
-                                            // If in RX/TX: Go to a wait state where only the synthesizer is
-                                            // running (for quick RX / TX turnaround).
-#define CC1100_SXOFF            0x32        // Turn off crystal oscillator.
-#define CC1100_SCAL             0x33        // Calibrate frequency synthesizer and turn it off
-                                            // (enables quick start).
-#define CC1100_SRX              0x34        // Enable RX. Perform calibration first if coming from IDLE and
-                                            // MCSM0.FS_AUTOCAL=1.
-#define CC1100_STX              0x35        // In IDLE state: Enable TX. Perform calibration first if
-                                            // MCSM0.FS_AUTOCAL=1. If in RX state and CCA is enabled:
-                                            // Only go to TX if channel is clear.
-#define CC1100_SIDLE            0x36        // Exit RX / TX, turn off frequency synthesizer and exit
-                                            // Wake-On-Radio mode if applicable.
-#define CC1100_SAFC             0x37        // Perform AFC adjustment of the frequency synthesizer
-#define CC1100_SWOR             0x38        // Start automatic RX polling sequence (Wake-on-Radio)
-#define CC1100_SPWD             0x39        // Enter power down mode when CSn goes high.
-#define CC1100_SFRX             0x3A        // Flush the RX FIFO buffer.
-#define CC1100_SFTX             0x3B        // Flush the TX FIFO buffer.
-#define CC1100_SWORRST          0x3C        // Reset real time clock.
-#define CC1100_SNOP             0x3D        // No operation. May be used to pad strobe commands to two
-                                            // bytes for simpler software.
-
+#define CC1100_SRES 0x30  // Reset chip.
+#define CC1100_SFSTXON \
+  0x31                     // Enable and calibrate frequency synthesizer (if MCSM0.FS_AUTOCAL=1).
+                           // If in RX/TX: Go to a wait state where only the synthesizer is
+                           // running (for quick RX / TX turnaround).
+#define CC1100_SXOFF 0x32  // Turn off crystal oscillator.
+#define CC1100_SCAL \
+  0x33  // Calibrate frequency synthesizer and turn it off
+        // (enables quick start).
+#define CC1100_SRX \
+  0x34  // Enable RX. Perform calibration first if coming from IDLE and
+        // MCSM0.FS_AUTOCAL=1.
+#define CC1100_STX \
+  0x35  // In IDLE state: Enable TX. Perform calibration first if
+        // MCSM0.FS_AUTOCAL=1. If in RX state and CCA is enabled:
+        // Only go to TX if channel is clear.
+#define CC1100_SIDLE \
+  0x36                       // Exit RX / TX, turn off frequency synthesizer and exit
+                             // Wake-On-Radio mode if applicable.
+#define CC1100_SAFC 0x37     // Perform AFC adjustment of the frequency synthesizer
+#define CC1100_SWOR 0x38     // Start automatic RX polling sequence (Wake-on-Radio)
+#define CC1100_SPWD 0x39     // Enter power down mode when CSn goes high.
+#define CC1100_SFRX 0x3A     // Flush the RX FIFO buffer.
+#define CC1100_SFTX 0x3B     // Flush the TX FIFO buffer.
+#define CC1100_SWORRST 0x3C  // Reset real time clock.
+#define CC1100_SNOP \
+  0x3D  // No operation. May be used to pad strobe commands to two
+        // bytes for simpler software.
 
 //------------------------------------------------------------------------------
 // Chip Status Byte
 //------------------------------------------------------------------------------
 
 // Bit fields in the chip status byte
-#define CC1100_STATUS_CHIP_RDYn_BM             0x80
-#define CC1100_STATUS_STATE_BM                 0x70
-#define CC1100_STATUS_FIFO_BYTES_AVAILABLE_BM  0x0F
+#define CC1100_STATUS_CHIP_RDYn_BM 0x80
+#define CC1100_STATUS_STATE_BM 0x70
+#define CC1100_STATUS_FIFO_BYTES_AVAILABLE_BM 0x0F
 
 // Chip states
-#define CC1100_STATE_IDLE                      0x00
-#define CC1100_STATE_RX                        0x10
-#define CC1100_STATE_TX                        0x20
-#define CC1100_STATE_FSTXON                    0x30
-#define CC1100_STATE_CALIBRATE                 0x40
-#define CC1100_STATE_SETTLING                  0x50
-#define CC1100_STATE_RX_OVERFLOW               0x60
-#define CC1100_STATE_TX_UNDERFLOW              0x70
-
+#define CC1100_STATE_IDLE 0x00
+#define CC1100_STATE_RX 0x10
+#define CC1100_STATE_TX 0x20
+#define CC1100_STATE_FSTXON 0x30
+#define CC1100_STATE_CALIBRATE 0x40
+#define CC1100_STATE_SETTLING 0x50
+#define CC1100_STATE_RX_OVERFLOW 0x60
+#define CC1100_STATE_TX_UNDERFLOW 0x70
 
 //------------------------------------------------------------------------------
 // Other register bit fields
 //------------------------------------------------------------------------------
-#define CC1100_LQI_CRC_OK_BM                   0x80
-#define CC1100_LQI_EST_BM                      0x7F
+#define CC1100_LQI_CRC_OK_BM 0x80
+#define CC1100_LQI_EST_BM 0x7F
 
-#define MARCSTATE_SLEEP            0x00
-#define MARCSTATE_IDLE             0x01
-#define MARCSTATE_XOFF             0x02
-#define MARCSTATE_VCOON_MC         0x03
-#define MARCSTATE_REGON_MC         0x04
-#define MARCSTATE_MANCAL           0x05
-#define MARCSTATE_VCOON            0x06
-#define MARCSTATE_REGON            0x07
-#define MARCSTATE_STARTCAL         0x08
-#define MARCSTATE_BWBOOST          0x09
-#define MARCSTATE_FS_LOCK          0x0A
-#define MARCSTATE_IFADCON          0x0B
-#define MARCSTATE_ENDCAL           0x0C
-#define MARCSTATE_RX               0x0D
-#define MARCSTATE_RX_END           0x0E
-#define MARCSTATE_RX_RST           0x0F
-#define MARCSTATE_TXRX_SWITCH      0x10
-#define MARCSTATE_RXFIFO_OVERFLOW  0x11
-#define MARCSTATE_FSTXON           0x12
-#define MARCSTATE_TX               0x13
-#define MARCSTATE_TX_END           0x14
-#define MARCSTATE_RXTX_SWITCH      0x15
+#define MARCSTATE_SLEEP 0x00
+#define MARCSTATE_IDLE 0x01
+#define MARCSTATE_XOFF 0x02
+#define MARCSTATE_VCOON_MC 0x03
+#define MARCSTATE_REGON_MC 0x04
+#define MARCSTATE_MANCAL 0x05
+#define MARCSTATE_VCOON 0x06
+#define MARCSTATE_REGON 0x07
+#define MARCSTATE_STARTCAL 0x08
+#define MARCSTATE_BWBOOST 0x09
+#define MARCSTATE_FS_LOCK 0x0A
+#define MARCSTATE_IFADCON 0x0B
+#define MARCSTATE_ENDCAL 0x0C
+#define MARCSTATE_RX 0x0D
+#define MARCSTATE_RX_END 0x0E
+#define MARCSTATE_RX_RST 0x0F
+#define MARCSTATE_TXRX_SWITCH 0x10
+#define MARCSTATE_RXFIFO_OVERFLOW 0x11
+#define MARCSTATE_FSTXON 0x12
+#define MARCSTATE_TX 0x13
+#define MARCSTATE_TX_END 0x14
+#define MARCSTATE_RXTX_SWITCH 0x15
 #define MARCSTATE_TXFIFO_UNDERFLOW 0x16
 
-typedef enum {
-  CC_Pin_Out = 0,
-  CC_Pin_CS,
-  CC_Pin_In
-} CC_PIN;
+typedef enum { CC_Pin_Out = 0, CC_Pin_CS, CC_Pin_In } CC_PIN;
 
-typedef enum {
-  GPIO_PIN_RESET = 0,
-  GPIO_PIN_SET
-} GPIO_PinState;
-
+typedef enum { GPIO_PIN_RESET = 0, GPIO_PIN_SET } GPIO_PinState;
 
 #undef CC1100_DEASSERT
 #undef CC1100_ASSERT
-#define CC1100_DEASSERT  	digitalWrite(moritz_cfg.moritz_cs,1);delayMicroseconds(50);SPI.endTransaction();
-#define CC1100_ASSERT    	SPI.beginTransaction(moritz_spiSettings);;delayMicroseconds(50);digitalWrite( moritz_cfg.moritz_cs,0)
+#define CC1100_DEASSERT                  \
+  digitalWrite(moritz_cfg.moritz_cs, 1); \
+  delayMicroseconds(50);                 \
+  SPI.endTransaction();
+#define CC1100_ASSERT                       \
+  SPI.beginTransaction(moritz_spiSettings); \
+  ;                                         \
+  delayMicroseconds(50);                    \
+  digitalWrite(moritz_cfg.moritz_cs, 0)
 
 //#define CC1100_SET_OUT		CC1100_OUT_PORT |= _BV(CC1100_OUT_PIN)
 //#define CC1100_CLEAR_OUT	CC1100_OUT_PORT &= ~_BV(CC1100_OUT_PIN)
 
 #define CCCOUNT 1
-#define INIT_MODE_OUT_CS_IN    0
-#define INIT_MODE_IN_CS_IN     1
+#define INIT_MODE_OUT_CS_IN 0
+#define INIT_MODE_IN_CS_IN 1
 
 #define REP_BINTIME 0
 #define REP_RSSI 1
 
 #define MAX_MORITZ_MSG 30
 
-//Internal Transceiver
-#define CC1100_0_CS_PIN		  12
-#define CC1100_0_CS_BASE	  AT91C_BASE_PIOA
-#define CC1100_0_OUT_PIN    30
-#define CC1100_0_OUT_BASE   AT91C_BASE_PIOA
-#define CC1100_0_IN_PIN     29
-#define CC1100_0_IN_BASE	  AT91C_BASE_PIOA
+// Internal Transceiver
+#define CC1100_0_CS_PIN 12
+#define CC1100_0_CS_BASE AT91C_BASE_PIOA
+#define CC1100_0_OUT_PIN 30
+#define CC1100_0_OUT_BASE AT91C_BASE_PIOA
+#define CC1100_0_IN_PIN 29
+#define CC1100_0_IN_BASE AT91C_BASE_PIOA
 
-//transceiver_t CCtransceiver[] = CCTRANSCEIVERS;
-
+// transceiver_t CCtransceiver[] = CCTRANSCEIVERS;
 
 void rf_moritz_init(void);
 void rf_moritz_task(void);
@@ -335,21 +332,20 @@ void moritz_func(char *in);
 #include "delay.h"                      // for my_delay_ms, my_delay_us
 #include "display.h"                    // for DC, DH2, DNL, DS_P
 #include "fband.h"                      // for checkFrequency
+#include "multi_CC.h"
+#include "rf_mode.h"
 #include "rf_moritz.h"
 #include "rf_receive.h"                 // for REP_RSSI, set_txrestore, etc
 #include "rf_send.h"                    // for credit_10ms
-#include "multi_CC.h"
-#include "rf_mode.h"
 */
 
-#define CC_INSTANCE       0
+#define CC_INSTANCE 0
 //#define TX_REPORT         (CC1101.tx_report[0])
-#define TX_REPORT         1
+#define TX_REPORT 1
 
-
-void moritz_sendraw(uint8_t* buf, int longPreamble);
-void moritz_sendAck(uint8_t* enc);
-void moritz_handleAutoAck(uint8_t* enc);
+void moritz_sendraw(uint8_t *buf, int longPreamble);
+void moritz_sendAck(uint8_t *enc);
+void moritz_handleAutoAck(uint8_t *enc);
 
 /*
  * CC1100_PKTCTRL0.LENGTH_CONFIG = 1 //Variable packet length mode. Packet length configured by the first byte after sync word
@@ -368,67 +364,61 @@ void moritz_handleAutoAck(uint8_t* enc);
  */
 
 const uint8_t PROGMEM MORITZ_CFG[60] = {
-//     0x00, 0x08,
-     0x00, 0x07, //IOCFG2: GDO2_CFG=7: Asserts when a packet has been received with CRC OK. De-asserts when the first byte is read from the RX FIFO
-     //0x02, 0x46, //IOCFG0
+    //     0x00, 0x08,
+    0x00, 0x07,  // IOCFG2: GDO2_CFG=7: Asserts when a packet has been received with CRC OK. De-asserts when the first byte is read from the
+                 // RX FIFO
+    // 0x02, 0x46, //IOCFG0
 
-     0x02, 0x3b, //IOCFG0
+    0x02, 0x3b,  // IOCFG0
 
-
-     0x04, 0xC6, //SYNC1
-     0x05, 0x26, //SYNC0
-     0x0B, 0x06, //FSCTRL1
-     0x10, 0xC8, //MDMCFG4 DRATE_E=8,
-     0x11, 0x93, //MDMCFG3 DRATE_M=147, data rate = (256+DRATE_M)*2^DRATE_E/2^28*f_xosc = (9992.599) 1kbit/s (at f_xosc=26 Mhz)
-     0x12, 0x03, //MDMCFG2 see above
-     0x13, 0x22,  //MDMCFG1 CHANSPC_E=2, NUM_PREAMBLE=2 (4 bytes), FEC_EN = 0 (disabled)
-    //0x13, 0x72,  //MDMCFG1 CHANSPC_E=2, NUM_PREAMBLE=7 (24 bytes), FEC_EN = 0 (disabled)
-     0x15, 0x34, //DEVIATN
-//     0x17, 0x00,
-     0x17, 0x3F, //MCSM1: TXOFF=RX, RXOFF=RX, CCA_MODE=3:If RSSI below threshold unless currently receiving a packet
-     0x18, 0x28, //MCSM0: PO_TIMEOUT=64, FS_AUTOCAL=2: When going from idle to RX or TX automatically
-     0x19, 0x16, //FOCCFG
-     0x1B, 0x43, //AGCTRL2
-     0x21, 0x56, //FREND1
-     0x25, 0x00, //FSCAL1
-     0x26, 0x11, //FSCAL0
-     0x0D, 0x21, //FREQ2
-     0x0E, 0x65, //FREQ1
-     0x0F, 0x6A, //FREQ0
-     0x07, 0x0C, //PKTCTRL1
-     0x16, 0x07, //MCSM2 RX_TIME = 7 (Timeout for sync word search in RX for both WOR mode and normal RX operation = Until end of packet) RX_TIME_QUAL=0 (check if sync word is found)
-     0x20, 0xF8, //WORCTRL, WOR_RES=00 (1.8-1.9 sec) EVENT1=7 (48, i.e. 1.333 – 1.385 ms)
-     0x1E, 0x87, //WOREVT1 EVENT0[high]
-     0x1F, 0x6B, //WOREVT0 EVENT0[low]
-     0x29, 0x59, //FSTEST
-     0x2C, 0x81, //TEST2
-     0x2D, 0x35, //TEST1
-     0x3E, 0xC3, //?? Readonly PATABLE?
-     0xff
-};
-
+    0x04, 0xC6,  // SYNC1
+    0x05, 0x26,  // SYNC0
+    0x0B, 0x06,  // FSCTRL1
+    0x10, 0xC8,  // MDMCFG4 DRATE_E=8,
+    0x11, 0x93,  // MDMCFG3 DRATE_M=147, data rate = (256+DRATE_M)*2^DRATE_E/2^28*f_xosc = (9992.599) 1kbit/s (at f_xosc=26 Mhz)
+    0x12, 0x03,  // MDMCFG2 see above
+    0x13, 0x22,  // MDMCFG1 CHANSPC_E=2, NUM_PREAMBLE=2 (4 bytes), FEC_EN = 0 (disabled)
+    // 0x13, 0x72,  //MDMCFG1 CHANSPC_E=2, NUM_PREAMBLE=7 (24 bytes), FEC_EN = 0 (disabled)
+    0x15, 0x34,  // DEVIATN
+    //     0x17, 0x00,
+    0x17, 0x3F,  // MCSM1: TXOFF=RX, RXOFF=RX, CCA_MODE=3:If RSSI below threshold unless currently receiving a packet
+    0x18, 0x28,  // MCSM0: PO_TIMEOUT=64, FS_AUTOCAL=2: When going from idle to RX or TX automatically
+    0x19, 0x16,  // FOCCFG
+    0x1B, 0x43,  // AGCTRL2
+    0x21, 0x56,  // FREND1
+    0x25, 0x00,  // FSCAL1
+    0x26, 0x11,  // FSCAL0
+    0x0D, 0x21,  // FREQ2
+    0x0E, 0x65,  // FREQ1
+    0x0F, 0x6A,  // FREQ0
+    0x07, 0x0C,  // PKTCTRL1
+    0x16, 0x07,  // MCSM2 RX_TIME = 7 (Timeout for sync word search in RX for both WOR mode and normal RX operation = Until end of packet)
+                 // RX_TIME_QUAL=0 (check if sync word is found)
+    0x20, 0xF8,  // WORCTRL, WOR_RES=00 (1.8-1.9 sec) EVENT1=7 (48, i.e. 1.333 – 1.385 ms)
+    0x1E, 0x87,  // WOREVT1 EVENT0[high]
+    0x1F, 0x6B,  // WOREVT0 EVENT0[low]
+    0x29, 0x59,  // FSTEST
+    0x2C, 0x81,  // TEST2
+    0x2D, 0x35,  // TEST1
+    0x3E, 0xC3,  //?? Readonly PATABLE?
+    0xff};
 
 #define DC display_char
 #define DS display_string
 #define DS_P display_string_P
-#define DU(a,b) display_udec(a,b,' ')
-#define DH(a,b) display_hex(a,b,'0')
+#define DU(a, b) display_udec(a, b, ' ')
+#define DH(a, b) display_hex(a, b, '0')
 #define DH2(a) display_hex2(a)
 #define DNL display_nl
-
 
 static uint8_t autoAckAddr[3] = {0, 0, 0};
 static uint8_t fakeWallThermostatAddr[3] = {0, 0, 0};
 static uint32_t lastSendingTicks = 0;
 
-
 #define my_delay_us delayMicroseconds
 #define my_delay_ms delay
 
-
-void display_char(char c) {
-  Serial.printf("%c",c);
-}
+void display_char(char c) { Serial.printf("%c", c); }
 
 void display_string(char *s) {
   while (*s) display_char(*s++);
@@ -436,10 +426,10 @@ void display_string(char *s) {
 
 void display_string_P(const char *s) {
   uint8_t c;
-    while ((c = pgm_read_byte(s))) {
-      display_char(c);
-      s++;
-    }
+  while ((c = pgm_read_byte(s))) {
+    display_char(c);
+    s++;
+  }
 }
 
 void display_nl(void) {
@@ -449,40 +439,35 @@ void display_nl(void) {
 
 void display_hex(uint16_t h, int8_t pad, uint8_t padc) {
   char buf[5];
-  uint8_t i=5;
+  uint8_t i = 5;
 
   buf[--i] = 0;
   do {
-    uint8_t m = h%16;
-    buf[--i] = (m < 10 ? '0'+m : 'A'+m-10);
+    uint8_t m = h % 16;
+    buf[--i] = (m < 10 ? '0' + m : 'A' + m - 10);
     h /= 16;
     pad--;
   } while (h);
 
-  while (--pad >= 0 && i > 0)
-    buf[--i] = padc;
-  DS(buf+i);
+  while (--pad >= 0 && i > 0) buf[--i] = padc;
+  DS(buf + i);
 }
 
-void display_hex2(uint8_t h) {
-  display_hex(h, 2, '0');
-}
+void display_hex2(uint8_t h) { display_hex(h, 2, '0'); }
 
 void ccRX(void) {
   uint8_t cnt = 0xff;
-  while(cnt-- && (ccStrobe(CC1100_SRX) & CC1100_STATUS_STATE_BM) != CC1100_STATE_RX)
-    my_delay_us(10);
+  while (cnt-- && (ccStrobe(CC1100_SRX) & CC1100_STATUS_STATE_BM) != CC1100_STATE_RX) my_delay_us(10);
 }
 
 void ccTX(void) {
   uint8_t cnt = 0xff;
-  //GIMSK  &= ~_BV(CC1100_INT);
+  // GIMSK  &= ~_BV(CC1100_INT);
 
   // Going from RX to TX does not work if there was a reception less than 0.5
   // sec ago. Due to CCA? Using IDLE helps to shorten this period(?)
   ccStrobe(CC1100_SIDLE);
-  while(cnt-- && (ccStrobe( CC1100_STX ) & 0x70) != 2)
-    my_delay_us(10);
+  while (cnt-- && (ccStrobe(CC1100_STX) & 0x70) != 2) my_delay_us(10);
 }
 
 void set_ccoff(void) {
@@ -491,7 +476,7 @@ void set_ccoff(void) {
 }
 
 void set_ccon(void) {
-  //ccInitChip();
+  // ccInitChip();
   moritz_cfg.cc_on = 1;
 }
 
@@ -533,66 +518,59 @@ ccInitChip(void) {
 }
 */
 
-
-
-uint8_t cc1100_sendbyte(uint8_t data) {
-  return SPI.transfer(data);
-}
+uint8_t cc1100_sendbyte(uint8_t data) { return SPI.transfer(data); }
 
 uint8_t cc1100_readReg(uint8_t addr) {
   CC1100_ASSERT;
-  cc1100_sendbyte( addr|CC1100_READ_BURST );
-  uint8_t ret = cc1100_sendbyte( 0 );
+  cc1100_sendbyte(addr | CC1100_READ_BURST);
+  uint8_t ret = cc1100_sendbyte(0);
   CC1100_DEASSERT;
   return ret;
 }
 
 void cc1100_writeReg(uint8_t addr, uint8_t data) {
   CC1100_ASSERT;
-  cc1100_sendbyte( addr|CC1100_WRITE_BURST );
-  cc1100_sendbyte( data );
+  cc1100_sendbyte(addr | CC1100_WRITE_BURST);
+  cc1100_sendbyte(data);
   CC1100_DEASSERT;
 }
 
 uint8_t ccStrobe(uint8_t strobe) {
   CC1100_ASSERT;
-  uint8_t ret = cc1100_sendbyte( strobe );
+  uint8_t ret = cc1100_sendbyte(strobe);
   CC1100_DEASSERT;
   return ret;
 }
 
 int fromhex(const char *in, uint8_t *out, uint8_t buflen) {
   uint8_t *op = out, c, h = 0, step = 0;
-  while((c = *in++)) {
-    if(c >= 'a')
-      c -= 'a'-'A';
-    if(c >= '0' && c <= '9') {
-      h |= c-'0';
-    } else if(c >= 'A' && c <= 'F') {
-      h |= c-'A'+10;
-    } else  {
-      if(c != ' ' && c != ':')
-        break;
+  while ((c = *in++)) {
+    if (c >= 'a') c -= 'a' - 'A';
+    if (c >= '0' && c <= '9') {
+      h |= c - '0';
+    } else if (c >= 'A' && c <= 'F') {
+      h |= c - 'A' + 10;
+    } else {
+      if (c != ' ' && c != ':') break;
       continue;
     }
-    if(step++) {
+    if (step++) {
       *op++ = h;
-      if(--buflen <= 0)
-        return (op-out);
+      if (--buflen <= 0) return (op - out);
       step = 0;
       h = 0;
     } else {
       h <<= 4;
     }
   }
-  return op-out;
+  return op - out;
 }
 
-#define MODE_UNKNOWN    0
-#define MODE_433_MHZ    1
-#define MODE_868_MHZ    2
+#define MODE_UNKNOWN 0
+#define MODE_433_MHZ 1
+#define MODE_868_MHZ 2
 
-//uint8_t frequencyMode = MODE_UNKNOWN;
+// uint8_t frequencyMode = MODE_UNKNOWN;
 
 /*
  * Check the frequency bits and set the frequencyMode value
@@ -617,11 +595,10 @@ void checkFrequency(void) {
   }
 
 */
-//  frequencyMode = MODE_868_MHZ;
+  //  frequencyMode = MODE_868_MHZ;
 }
 
 void set_txrestore() {
-
   if (TX_REPORT) {
     set_ccon();
     ccRX();
@@ -632,142 +609,134 @@ void set_txrestore() {
 
 void moritz_reset(void) {
   // Toggle chip select signal
-    CC1100_DEASSERT;
-    my_delay_us(30);
-    CC1100_ASSERT;
-    my_delay_us(100);  //30
-    CC1100_DEASSERT;
-    my_delay_us(200);  //45
-
-    ccStrobe( CC1100_SRES );                   // Send SRES command
-    my_delay_us(500);
-}
-
-void rf_moritz_init(void) {
-//  hal_CC_GDO_init(CC_INSTANCE,INIT_MODE_IN_CS_IN);
-//  hal_enable_CC_GDOin_int(CC_INSTANCE,false); // disable INT - we'll poll...
-
-  moritz_reset();
-
-// Toggle chip select signal
-/*
   CC1100_DEASSERT;
   my_delay_us(30);
   CC1100_ASSERT;
-  my_delay_us(30);
+  my_delay_us(100);  // 30
   CC1100_DEASSERT;
-  my_delay_us(45);
+  my_delay_us(200);  // 45
 
-  ccStrobe( CC1100_SRES );                   // Send SRES command
+  ccStrobe(CC1100_SRES);  // Send SRES command
   my_delay_us(500);
-  */
+}
+
+void rf_moritz_init(void) {
+  //  hal_CC_GDO_init(CC_INSTANCE,INIT_MODE_IN_CS_IN);
+  //  hal_enable_CC_GDOin_int(CC_INSTANCE,false); // disable INT - we'll poll...
+
+  moritz_reset();
+
+  // Toggle chip select signal
+  /*
+    CC1100_DEASSERT;
+    my_delay_us(30);
+    CC1100_ASSERT;
+    my_delay_us(30);
+    CC1100_DEASSERT;
+    my_delay_us(45);
+
+    ccStrobe( CC1100_SRES );                   // Send SRES command
+    my_delay_us(500);
+    */
 
   // load configuration
-  for (uint8_t i = 0; i<60; i += 2) {
-    if (pgm_read_byte( &MORITZ_CFG[i] )>0x40)
-      break;
+  for (uint8_t i = 0; i < 60; i += 2) {
+    if (pgm_read_byte(&MORITZ_CFG[i]) > 0x40) break;
 
-    cc1100_writeReg( pgm_read_byte(&MORITZ_CFG[i]),
-                     pgm_read_byte(&MORITZ_CFG[i+1]) );
+    cc1100_writeReg(pgm_read_byte(&MORITZ_CFG[i]), pgm_read_byte(&MORITZ_CFG[i + 1]));
   }
 
-  ccStrobe( CC1100_SCAL );
+  ccStrobe(CC1100_SCAL);
 
-  my_delay_ms(4); // 4ms: Found by trial and error
-  //This is ccRx() but without enabling the interrupt
+  my_delay_ms(4);  // 4ms: Found by trial and error
+  // This is ccRx() but without enabling the interrupt
   uint8_t cnt = 0xff;
-  //Enable RX. Perform calibration first if coming from IDLE and MCSM0.FS_AUTOCAL=1.
-  //Why do it multiple times?
-  while (cnt-- && (ccStrobe( CC1100_SRX ) & 0x70) != 1)
-    my_delay_us(10);
+  // Enable RX. Perform calibration first if coming from IDLE and MCSM0.FS_AUTOCAL=1.
+  // Why do it multiple times?
+  while (cnt-- && (ccStrobe(CC1100_SRX) & 0x70) != 1) my_delay_us(10);
 
   moritz_cfg.moritz_on = 1;
   checkFrequency();
 }
 
-void moritz_handleAutoAck(uint8_t* enc) {
-
-  if (enc[3] == 0x30 /* type ShutterContactState */
-    || enc[3] == 0x40 /* type SetTemperature */
-    || enc[3] == 0x50 /* type PushButtonState */
+void moritz_handleAutoAck(uint8_t *enc) {
+  if (enc[3] == 0x30    /* type ShutterContactState */
+      || enc[3] == 0x40 /* type SetTemperature */
+      || enc[3] == 0x50 /* type PushButtonState */
   ) {
     moritz_sendAck(enc);
   }
   return;
 
-  //Send acks to when required by "spec"
+  // Send acks to when required by "spec"
   if ((autoAckAddr[0] != 0 || autoAckAddr[1] != 0 || autoAckAddr[2] != 0) /* auto-ack enabled */
-      && (
-           enc[3] == 0x30 /* type ShutterContactState */
-        || enc[3] == 0x40 /* type SetTemperature */
-        || enc[3] == 0x50 /* type PushButtonState */
-        )
-      && enc[7] == autoAckAddr[0] /* dest */
-      && enc[8] == autoAckAddr[1]
-      && enc[9] == autoAckAddr[2])
+      && (enc[3] == 0x30                                                  /* type ShutterContactState */
+          || enc[3] == 0x40                                               /* type SetTemperature */
+          || enc[3] == 0x50                                               /* type PushButtonState */
+          ) &&
+      enc[7] == autoAckAddr[0] /* dest */
+      && enc[8] == autoAckAddr[1] && enc[9] == autoAckAddr[2])
     moritz_sendAck(enc);
 
   if ((fakeWallThermostatAddr[0] != 0 || fakeWallThermostatAddr[1] != 0 || fakeWallThermostatAddr[2] != 0) /* fake enabled */
-      && enc[0] == 11 /* len */
-      && enc[3] == 0x40 /* type SetTemperature */
-      && enc[7] == fakeWallThermostatAddr[0] /* dest */
-      && enc[8] == fakeWallThermostatAddr[1]
-      && enc[9] == fakeWallThermostatAddr[2])
+      && enc[0] == 11                                                                                      /* len */
+      && enc[3] == 0x40                                                                                    /* type SetTemperature */
+      && enc[7] == fakeWallThermostatAddr[0]                                                               /* dest */
+      && enc[8] == fakeWallThermostatAddr[1] && enc[9] == fakeWallThermostatAddr[2])
     moritz_sendAck(enc);
 
   return;
 }
 
 struct culpaket {
-  uint8_t  length;
-  uint8_t  messageCount;
-  uint8_t  flag;
-  uint8_t  groupid;
-  uint8_t  source[3];
-  uint8_t  dest[3];
-  uint8_t  rawType;
-  char     rawPayload[22];
-  uint8_t  forMe;
-  char     command[1];
-  uint8_t  Payloadlength;
+  uint8_t length;
+  uint8_t messageCount;
+  uint8_t flag;
+  uint8_t groupid;
+  uint8_t source[3];
+  uint8_t dest[3];
+  uint8_t rawType;
+  char rawPayload[22];
+  uint8_t forMe;
+  char command[1];
+  uint8_t Payloadlength;
 };
 
-enum  ThermostatControlMode {AUTO,MANUAL,TEMPORARY,BOOST};
+enum ThermostatControlMode { AUTO, MANUAL, TEMPORARY, BOOST };
 
 #define THERMOSTAT_STATE_TIME_PAYLOAD_LEN 6
 #define THERMOSTAT_STATE_MEAS_PAYLOAD_LEN 5
 #define THERMOSTAT_STATE_SHORT_PAYLOAD_LEN 3
 
-void moritz_sendMsg(uint8_t cmdId, uint32_t src,uint32_t dst, uint8_t *payload, uint8_t groupId, uint8_t flags, uint8_t plen) {
+void moritz_sendMsg(uint8_t cmdId, uint32_t src, uint32_t dst, uint8_t *payload, uint8_t groupId, uint8_t flags, uint8_t plen) {
   struct culpaket cp;
 
-//S0A 00 00 00 567890 051FFC
-//Z 0B 01 00 01 123456 051FFC 00 00 37
+  // S0A 00 00 00 567890 051FFC
+  // Z 0B 01 00 01 123456 051FFC 00 00 37
 
-  cp.length=10+plen; // payload length
-  cp.messageCount=1;
-  cp.flag=flags;
-  cp.groupid=groupId;
-  cp.source[0]=src>>16;
-  cp.source[1]=src>>8;
-  cp.source[2]=src;
-  cp.dest[0]=dst>>16;
-  cp.dest[1]=dst>>8;
-  cp.dest[2]=dst;
-  cp.rawType=0;
-  cp.rawPayload[0]=*payload;
+  cp.length = 10 + plen;  // payload length
+  cp.messageCount = 1;
+  cp.flag = flags;
+  cp.groupid = groupId;
+  cp.source[0] = src >> 16;
+  cp.source[1] = src >> 8;
+  cp.source[2] = src;
+  cp.dest[0] = dst >> 16;
+  cp.dest[1] = dst >> 8;
+  cp.dest[2] = dst;
+  cp.rawType = 0;
+  cp.rawPayload[0] = *payload;
 
-  uint8_t *ucp=(uint8_t *)&cp;
+  uint8_t *ucp = (uint8_t *)&cp;
   moritz_sendraw(ucp, 1);
 
 #ifdef MORITZ_SDEBUG
   DC('S');
-  for (uint8_t cnt=0;cnt<cp.length+1;cnt++) {
+  for (uint8_t cnt = 0; cnt < cp.length + 1; cnt++) {
     DH2(ucp[cnt]);
   }
   DNL();
 #endif
-
 }
 
 /* mode
@@ -779,32 +748,32 @@ void moritz_sendMsg(uint8_t cmdId, uint32_t src,uint32_t dst, uint8_t *payload, 
 5 => manual comfort
 6 => manual window
 */
-void SendModeTmp(uint32_t dst,uint8_t mode,float tmp) {
-uint8_t bc[8]={0,0x81,0x82,0x83,2,3,4,0};
-  mode=bc[mode&7];
-  if (tmp<=4.5) {
-    tmp=4.5;
+void SendModeTmp(uint32_t dst, uint8_t mode, float tmp) {
+  uint8_t bc[8] = {0, 0x81, 0x82, 0x83, 2, 3, 4, 0};
+  mode = bc[mode & 7];
+  if (tmp <= 4.5) {
+    tmp = 4.5;
   }
-  if (tmp>=30.5) {
-      tmp=30.5;
+  if (tmp >= 30.5) {
+    tmp = 30.5;
   }
   uint32_t man;
-  man=(moritz_addr[0]<<16)|(moritz_addr[1]<<8)|(moritz_addr[2]);
+  man = (moritz_addr[0] << 16) | (moritz_addr[1] << 8) | (moritz_addr[2]);
   uint8_t payload[2];
 
-  if (mode==0) {
-      payload[0] = 0x00;
-  } else if (mode==2) {
-      payload[0] = 0x41;
-  } else if (mode==3) {
-      payload[0] = 0x42;
-  } else if (mode==4) {
-      payload[0] = 0x43;
+  if (mode == 0) {
+    payload[0] = 0x00;
+  } else if (mode == 2) {
+    payload[0] = 0x41;
+  } else if (mode == 3) {
+    payload[0] = 0x42;
+  } else if (mode == 4) {
+    payload[0] = 0x43;
   } else {
-      payload[0]=((uint8_t)(tmp*2)&0x3f)|((mode&0x3)<<6);
+    payload[0] = ((uint8_t)(tmp * 2) & 0x3f) | ((mode & 0x3) << 6);
   }
 
-  moritz_sendMsg(40,man,dst,payload,1,0,1);
+  moritz_sendMsg(40, man, dst, payload, 1, 0, 1);
 }
 
 #if 0
@@ -831,43 +800,40 @@ void rf_moritz_task(void) {
   int16_t rssi;
   struct culpaket cp;
   uint8_t ctrlMode;
-  float measuredTemperature=0;
+  float measuredTemperature = 0;
 
   if (!moritz_cfg.moritz_on) return;
 
   // see if a CRC OK pkt has been arrived
-  uint8_t crc_ok = cc1100_readReg( CC1100_PKTSTATUS ); // crc ok
+  uint8_t crc_ok = cc1100_readReg(CC1100_PKTSTATUS);  // crc ok
   if (crc_ok & 4) {
+    // errata #1 does not affect us, because we wait until packet is completely received
+    enc[0] = cc1100_readReg(CC1100_RXFIFO) & 0x7f;  // read len
 
-    //errata #1 does not affect us, because we wait until packet is completely received
-    enc[0] = cc1100_readReg( CC1100_RXFIFO ) & 0x7f; // read len
-
-    if (enc[0]>=MAX_MORITZ_MSG) enc[0] = MAX_MORITZ_MSG-1;
+    if (enc[0] >= MAX_MORITZ_MSG) enc[0] = MAX_MORITZ_MSG - 1;
 
     CC1100_ASSERT;
-    cc1100_sendbyte( CC1100_READ_BURST | CC1100_RXFIFO );
+    cc1100_sendbyte(CC1100_READ_BURST | CC1100_RXFIFO);
 
-    for (uint8_t i=0; i<enc[0]; i++) {
-      enc[i+1] = cc1100_sendbyte( 0 );
+    for (uint8_t i = 0; i < enc[0]; i++) {
+      enc[i + 1] = cc1100_sendbyte(0);
     }
 
     // RSSI is appended to RXFIFO
-    rssi = cc1100_sendbyte( 0 );
+    rssi = cc1100_sendbyte(0);
     // And Link quality indicator, too
     /* LQI = */
-    cc1100_sendbyte( 0 );
+    cc1100_sendbyte(0);
 
     CC1100_DEASSERT;
 
-
     if (TX_REPORT & REP_BINTIME) {
       DC('z');
-      for (uint8_t i=0; i<=enc[0]; i++) DC( enc[i] );
+      for (uint8_t i = 0; i <= enc[0]; i++) DC(enc[i]);
     } else {
-
 #ifdef MORITZ_SDEBUG
       DC('Z');
-      for (uint8_t i=0; i<=enc[0]; i++) DH2( enc[i] );
+      for (uint8_t i = 0; i <= enc[0]; i++) DH2(enc[i]);
       if (TX_REPORT & REP_RSSI) DH2(rssi);
       DNL();
 #endif
@@ -878,33 +844,33 @@ void rf_moritz_task(void) {
       } else {
         rssi = rssi / 2 - 74;
       }
-      cp.messageCount=enc[1];
-      cp.flag=enc[2];
-      cp.rawType=enc[3];
-      memcpy(cp.source,&enc[4],3);
-      memcpy(cp.dest,&enc[7],3);
-      cp.groupid=enc[10];
-      cp.Payloadlength=enc[0]-10;
-      memcpy(cp.rawPayload,&enc[11],cp.Payloadlength);
+      cp.messageCount = enc[1];
+      cp.flag = enc[2];
+      cp.rawType = enc[3];
+      memcpy(cp.source, &enc[4], 3);
+      memcpy(cp.dest, &enc[7], 3);
+      cp.groupid = enc[10];
+      cp.Payloadlength = enc[0] - 10;
+      memcpy(cp.rawPayload, &enc[11], cp.Payloadlength);
 
-      uint32_t src=(cp.source[0]<<16)|(cp.source[1]<<8)|cp.source[2];
-      uint32_t dst=(cp.dest[0]<<16)|(cp.dest[1]<<8)|cp.dest[2];
+      uint32_t src = (cp.source[0] << 16) | (cp.source[1] << 8) | cp.source[2];
+      uint32_t dst = (cp.dest[0] << 16) | (cp.dest[1] << 8) | cp.dest[2];
 
       uint32_t man;
-      man=(moritz_addr[0]<<16)|(moritz_addr[1]<<8)|(moritz_addr[2]);
+      man = (moritz_addr[0] << 16) | (moritz_addr[1] << 8) | (moritz_addr[2]);
 
-      if (man==dst) {
-        cp.forMe=1;
+      if (man == dst) {
+        cp.forMe = 1;
       } else {
-        cp.forMe=0;
+        cp.forMe = 0;
       }
 
       if (cp.forMe) moritz_handleAutoAck(enc);
 
       char id[8];
-      id[0]=0;
-      for (uint8_t i=0;i<3;i++) {
-        sprintf_P(id,PSTR("%s%02X"),id,cp.source[i]);
+      id[0] = 0;
+      for (uint8_t i = 0; i < 3; i++) {
+        sprintf_P(id, PSTR("%s%02X"), id, cp.source[i]);
       }
 
       char params[256];
@@ -916,8 +882,8 @@ void rf_moritz_task(void) {
 #endif
           if (moritz_cfg.pair_enable) {
             uint8_t payload[1];
-            payload[0]=0;
-            moritz_sendMsg(3,man,src,payload,1,0,1);
+            payload[0] = 0;
+            moritz_sendMsg(3, man, src, payload, 1, 0, 1);
           }
           break;
         case 1:
@@ -939,22 +905,24 @@ void rf_moritz_task(void) {
 #endif
           if (moritz_cfg.pair_enable) {
             uint8_t payload[5];
-            payload[0]=  RtcTime.year;
-            payload[1]=  RtcTime.day_of_month;
-            payload[2]=  RtcTime.hour;
-            payload[3]=  RtcTime.minute|((RtcTime.month&0x0c)<<4);
-            payload[4]=  RtcTime.second|((RtcTime.month&0x03)<<6);
-            moritz_sendMsg(1,man,src,payload,1,4,5);
+            payload[0] = RtcTime.year;
+            payload[1] = RtcTime.day_of_month;
+            payload[2] = RtcTime.hour;
+            payload[3] = RtcTime.minute | ((RtcTime.month & 0x0c) << 4);
+            payload[4] = RtcTime.second | ((RtcTime.month & 0x03) << 6);
+            moritz_sendMsg(1, man, src, payload, 1, 4, 5);
           }
           break;
         case 0x30:
           // shutterContactState
           // isopen,rferror,batlow
           if (cp.forMe || (moritz_cfg.show_all)) {
-            sprintf_P(params,PSTR("\"id\":\"%s\",\"opn\":%d,\"rfe\":%d,\"bl\":%d,\"rssi\":%d"),id,(cp.rawPayload[0]>>1)&1,(cp.rawPayload[0]>>6)&1,(cp.rawPayload[0]>>7)&1,rssi);
-            new_moritz(&cp.source[0],1,(cp.rawPayload[0]>>1)&1,(cp.rawPayload[0]>>6)&1,(cp.rawPayload[0]>>7)&1,rssi,0,0,0,0);
+            sprintf_P(params, PSTR("\"id\":\"%s\",\"opn\":%d,\"rfe\":%d,\"bl\":%d,\"rssi\":%d"), id, (cp.rawPayload[0] >> 1) & 1,
+                      (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi);
+            new_moritz(&cp.source[0], 1, (cp.rawPayload[0] >> 1) & 1, (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi, 0, 0,
+                       0, 0);
             Moritz_Sort_List(0);
-            moritz_mqtt(id,"WC",params);
+            moritz_mqtt(id, "WC", params);
           }
           break;
         case 0x42:
@@ -967,15 +935,16 @@ void rf_moritz_task(void) {
           // pushButtonState
           // buttonnr,(0,1),rferror,batlow
           if (cp.forMe || (moritz_cfg.show_all)) {
-            sprintf_P(params,PSTR("\"id\":\"%s\",\"bn\":%d,\"rfe\":%d,\"bl\":%d,\"rssi\":%d"),id,cp.rawPayload[1]&1,(cp.rawPayload[0]>>6)&1,(cp.rawPayload[0]>>7)&1,rssi);
-            new_moritz(&cp.source[0],0,cp.rawPayload[1]&1,(cp.rawPayload[0]>>6)&1,(cp.rawPayload[0]>>7)&1,rssi,0,0,0,0);
+            sprintf_P(params, PSTR("\"id\":\"%s\",\"bn\":%d,\"rfe\":%d,\"bl\":%d,\"rssi\":%d"), id, cp.rawPayload[1] & 1,
+                      (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi);
+            new_moritz(&cp.source[0], 0, cp.rawPayload[1] & 1, (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi, 0, 0, 0, 0);
             Moritz_Sort_List(0);
-            moritz_mqtt(id,"PB",params);
+            moritz_mqtt(id, "PB", params);
           }
           break;
         case 0x60:
-          //ThermostatState
-          ctrlMode=cp.rawPayload[0]&3;
+          // ThermostatState
+          ctrlMode = cp.rawPayload[0] & 3;
           // ctrlMode = ThermostatControlMode 0 0-2;
           // dst status = 0,3
           // langateway = 0,4
@@ -983,29 +952,31 @@ void rf_moritz_task(void) {
           // valve position = 1
 
           // desiredTemperature = (2 & 0x7f) / 2.0;
-          if (cp.Payloadlength==THERMOSTAT_STATE_MEAS_PAYLOAD_LEN) {
-              if (ctrlMode != TEMPORARY) {
-                  uint16_t mTemp = (cp.rawPayload[3] & 0x1);
-                  mTemp <<= 8;
-                  mTemp |= ((cp.rawPayload[4]) & 0xff);
-                  measuredTemperature = mTemp / 10.0; // temperature over 25.5
-                                                      // uses extra bit in
-                                                      // desiredTemperature
-                                                      // byte
-                  if (measuredTemperature < 4.5) {
-                      measuredTemperature = 0;
-                  }
+          if (cp.Payloadlength == THERMOSTAT_STATE_MEAS_PAYLOAD_LEN) {
+            if (ctrlMode != TEMPORARY) {
+              uint16_t mTemp = (cp.rawPayload[3] & 0x1);
+              mTemp <<= 8;
+              mTemp |= ((cp.rawPayload[4]) & 0xff);
+              measuredTemperature = mTemp / 10.0;  // temperature over 25.5
+                                                   // uses extra bit in
+                                                   // desiredTemperature
+                                                   // byte
+              if (measuredTemperature < 4.5) {
+                measuredTemperature = 0;
               }
+            }
           }
           if (cp.forMe || (moritz_cfg.show_all)) {
-            char ts1[8],ts2[8];
-            float tmp=(float)(cp.rawPayload[2]&0x7f)/2.0;
-            dtostrfd(tmp,1,ts1);
-            dtostrfd(measuredTemperature,1,ts2);
-            sprintf_P(params,PSTR("\"id\":\"%s\",\"dtmp\":%s,\"mtmp\":%s,\"vpos\":%d,\"cmo\":%d,\"rfe\":%d,\"bl\":%d,\"rssi\":%d"),id,ts1,ts2,cp.rawPayload[1],ctrlMode,(cp.rawPayload[0]>>6)&1,(cp.rawPayload[0]>>7)&1,rssi);
-            new_moritz(&cp.source[0],2,cp.rawPayload[1]&1,(cp.rawPayload[0]>>6)&1,(cp.rawPayload[0]>>7)&1,rssi,measuredTemperature*10,(cp.rawPayload[2]&0x7f),cp.rawPayload[1],ctrlMode);
+            char ts1[8], ts2[8];
+            float tmp = (float)(cp.rawPayload[2] & 0x7f) / 2.0;
+            dtostrfd(tmp, 1, ts1);
+            dtostrfd(measuredTemperature, 1, ts2);
+            sprintf_P(params, PSTR("\"id\":\"%s\",\"dtmp\":%s,\"mtmp\":%s,\"vpos\":%d,\"cmo\":%d,\"rfe\":%d,\"bl\":%d,\"rssi\":%d"), id,
+                      ts1, ts2, cp.rawPayload[1], ctrlMode, (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi);
+            new_moritz(&cp.source[0], 2, cp.rawPayload[1] & 1, (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi,
+                       measuredTemperature * 10, (cp.rawPayload[2] & 0x7f), cp.rawPayload[1], ctrlMode);
             Moritz_Sort_List(0);
-            moritz_mqtt(id,"TERM",params);
+            moritz_mqtt(id, "TERM", params);
           }
           break;
         case 0x70:
@@ -1022,27 +993,27 @@ void rf_moritz_task(void) {
       }
     }
     return;
-} else {
-  #ifdef MORITZ_SDEBUG
-  //    Serial.printf("crc fail: %d\n",crc_ok);
-  #endif
-}
+  } else {
+#ifdef MORITZ_SDEBUG
+//    Serial.printf("crc fail: %d\n",crc_ok);
+#endif
+  }
 
-    if (cc1100_readReg( CC1100_MARCSTATE ) == 17) {
-      ccStrobe( CC1100_SFRX  );
-      ccStrobe( CC1100_SIDLE );
-      ccStrobe( CC1100_SRX   );
-    }
+  if (cc1100_readReg(CC1100_MARCSTATE) == 17) {
+    ccStrobe(CC1100_SFRX);
+    ccStrobe(CC1100_SIDLE);
+    ccStrobe(CC1100_SRX);
+  }
 }
 
 void moritz_send(char *in) {
   /* we are not affected by CC1101 errata #6, because MDMCFG2.SYNC_MODE != 0 */
   uint8_t dec[MAX_MORITZ_MSG];
 
-  uint8_t hblen = fromhex(in+1, dec, MAX_MORITZ_MSG-1);
+  uint8_t hblen = fromhex(in + 1, dec, MAX_MORITZ_MSG - 1);
 
-  if ((hblen-1) != dec[0]) {
-    //MULTICC_PREFIX();
+  if ((hblen - 1) != dec[0]) {
+    // MULTICC_PREFIX();
     DS_P(PSTR("LENERR\r\n"));
     return;
   }
@@ -1052,16 +1023,16 @@ void moritz_send(char *in) {
 #define MAX_CREDIT 3600
 // max 36 seconds burst / 100% of the hourly budget
 
-uint16_t credit_10ms = MAX_CREDIT/2;
+uint16_t credit_10ms = MAX_CREDIT / 2;
 volatile uint32_t ticks;
 
 /* longPreamble is necessary for unsolicited messages to wakeup the receiver */
 void moritz_sendraw(uint8_t *dec, int longPreamble) {
-  uint8_t hblen = dec[0]+1;
-  //1kb/s = 1 bit/ms. we send 1 sec preamble + hblen*8 bits
-  uint32_t sum = (longPreamble ? 100 : 0) + (hblen*8)/10;
+  uint8_t hblen = dec[0] + 1;
+  // 1kb/s = 1 bit/ms. we send 1 sec preamble + hblen*8 bits
+  uint32_t sum = (longPreamble ? 100 : 0) + (hblen * 8) / 10;
   if (credit_10ms < sum) {
-    //MULTICC_PREFIX();
+    // MULTICC_PREFIX();
     DS_P(PSTR("LOVF\r\n"));
     return;
   }
@@ -1072,15 +1043,14 @@ void moritz_sendraw(uint8_t *dec, int longPreamble) {
     rf_moritz_init();
   }
 
-
-  if (cc1100_readReg( CC1100_MARCSTATE ) != MARCSTATE_RX) { //error
-    //MULTICC_PREFIX();
+  if (cc1100_readReg(CC1100_MARCSTATE) != MARCSTATE_RX) {  // error
+    // MULTICC_PREFIX();
     DC('Z');
     DC('E');
     DC('R');
     DC('R');
     DC('1');
-    DH2(cc1100_readReg( CC1100_MARCSTATE ));
+    DH2(cc1100_readReg(CC1100_MARCSTATE));
     DNL();
     rf_moritz_init();
     return;
@@ -1091,11 +1061,10 @@ void moritz_sendraw(uint8_t *dec, int longPreamble) {
    * so we wait for 3 ticks.
    * This looks a bit cumbersome but handles overflows of ticks gracefully.
    */
-  //if (lastSendingTicks)
+  // if (lastSendingTicks)
   //  while (ticks == lastSendingTicks || ticks == lastSendingTicks+1)
   //    my_delay_ms(1);
   my_delay_ms(20);
-
 
   /* Enable TX. Perform calibration first if MCSM0.FS_AUTOCAL=1 (this is the case) (takes 809μs)
    * start sending - CC1101 will send preamble continuously until TXFIFO is filled.
@@ -1103,14 +1072,14 @@ void moritz_sendraw(uint8_t *dec, int longPreamble) {
    * It will not go into TX mode instantly if channel is not clear (see CCA_MODE), thus ccTX tries multiple times */
   ccTX();
 
-  if (cc1100_readReg( CC1100_MARCSTATE ) != MARCSTATE_TX) { //error
-    //MULTICC_PREFIX();
+  if (cc1100_readReg(CC1100_MARCSTATE) != MARCSTATE_TX) {  // error
+    // MULTICC_PREFIX();
     DC('Z');
     DC('E');
     DC('R');
     DC('R');
     DC('2');
-    DH2(cc1100_readReg( CC1100_MARCSTATE ));
+    DH2(cc1100_readReg(CC1100_MARCSTATE));
     DNL();
     rf_moritz_init();
     return;
@@ -1118,8 +1087,7 @@ void moritz_sendraw(uint8_t *dec, int longPreamble) {
 
   if (longPreamble) {
     /* Send preamble for 1 sec. Keep in mind that waiting for too long may trigger the watchdog (2 seconds on CUL) */
-    for(int i=0;i<10;++i)
-      my_delay_ms(100); //arg is uint_8, so loop
+    for (int i = 0; i < 10; ++i) my_delay_ms(100);  // arg is uint_8, so loop
   }
 
   // send
@@ -1132,29 +1100,27 @@ void moritz_sendraw(uint8_t *dec, int longPreamble) {
 
   CC1100_DEASSERT;
 
-  //Wait for sending to finish (CC1101 will go to RX state automatically
-  //after sending
+  // Wait for sending to finish (CC1101 will go to RX state automatically
+  // after sending
   uint8_t i;
-  uint8_t stat1,stat2;
-  for (i=0; i< 250;++i) {
-    stat1=cc1100_readReg( CC1100_MARCSTATE );
-    stat2=cc1100_readReg( CC1100_MARCSTATE );
-    if (stat1!=stat2)
-        continue;
-    if (stat1 == MARCSTATE_RX)
-      break; //now in RX, good
+  uint8_t stat1, stat2;
+  for (i = 0; i < 250; ++i) {
+    stat1 = cc1100_readReg(CC1100_MARCSTATE);
+    stat2 = cc1100_readReg(CC1100_MARCSTATE);
+    if (stat1 != stat2) continue;
+    if (stat1 == MARCSTATE_RX) break;  // now in RX, good
 
     my_delay_ms(1);
   }
 
-  if (cc1100_readReg( CC1100_MARCSTATE ) != MARCSTATE_RX) { //error
-    //MULTICC_PREFIX();
+  if (cc1100_readReg(CC1100_MARCSTATE) != MARCSTATE_RX) {  // error
+    // MULTICC_PREFIX();
     DC('Z');
     DC('E');
     DC('R');
     DC('R');
     DC('3');
-    DH2(cc1100_readReg( CC1100_MARCSTATE ));
+    DH2(cc1100_readReg(CC1100_MARCSTATE));
     DH2(stat1);
     DH2(i);
     DNL();
@@ -1167,16 +1133,16 @@ void moritz_sendraw(uint8_t *dec, int longPreamble) {
   lastSendingTicks = ticks;
 }
 
-void moritz_sendAck(uint8_t* enc) {
+void moritz_sendAck(uint8_t *enc) {
   uint8_t ackPacket[12];
-  ackPacket[0] = 11; /* len*/
-  ackPacket[1] = enc[1]; /* msgcnt */
-  ackPacket[2] = 0; /* flag */
-  ackPacket[3] = 2; /* type = Ack */
-  for (int i=0;i<3;++i) /* src = enc_dst*/
-    ackPacket[4+i] = enc[7+i];
-  for (int i=0;i<3;++i) /* dst = enc_src */
-    ackPacket[7+i] = enc[4+i];
+  ackPacket[0] = 11;          /* len*/
+  ackPacket[1] = enc[1];      /* msgcnt */
+  ackPacket[2] = 0;           /* flag */
+  ackPacket[3] = 2;           /* type = Ack */
+  for (int i = 0; i < 3; ++i) /* src = enc_dst*/
+    ackPacket[4 + i] = enc[7 + i];
+  for (int i = 0; i < 3; ++i) /* dst = enc_src */
+    ackPacket[7 + i] = enc[4 + i];
   ackPacket[10] = 0; /* groupid */
   ackPacket[11] = 0; /* payload */
 
@@ -1184,8 +1150,8 @@ void moritz_sendAck(uint8_t* enc) {
 
   moritz_sendraw(ackPacket, 0);
 
-  //Inform FHEM that we send an autoack
-  //MULTICC_PREFIX();
+  // Inform FHEM that we send an autoack
+  // MULTICC_PREFIX();
 #if 0
   DC('Z');
   for (uint8_t i=0; i < ackPacket[0]+1; i++)
@@ -1194,199 +1160,194 @@ void moritz_sendAck(uint8_t* enc) {
     DH2( 0 ); //fake some rssi
   DNL();
 #endif
-
 }
 
 void moritz_func(char *in) {
-  if (in[1] == 'r') {                // Reception on
+  if (in[1] == 'r') {  // Reception on
     rf_moritz_init();
-  } else if (in[1] == 's' || in[1] == 'f' ) {         // Send/Send fast
+  } else if (in[1] == 's' || in[1] == 'f') {  // Send/Send fast
     uint8_t dec[MAX_MORITZ_MSG];
-    uint8_t hblen = fromhex(in+2, dec, MAX_MORITZ_MSG-1);
-    if ((hblen-1) != dec[0]) {
-      //MULTICC_PREFIX();
+    uint8_t hblen = fromhex(in + 2, dec, MAX_MORITZ_MSG - 1);
+    if ((hblen - 1) != dec[0]) {
+      // MULTICC_PREFIX();
       DS_P(PSTR("LENERR\r\n"));
       return;
     }
     moritz_sendraw(dec, in[1] == 's');
-  } else if (in[1] == 'a') {         // Auto-Ack
-    fromhex(in+2, autoAckAddr, 3);
-  } else if (in[1] == 'w') {         // Fake Wall-Thermostat
-    fromhex(in+2, fakeWallThermostatAddr, 3);
-  } else {                          // Off
+  } else if (in[1] == 'a') {  // Auto-Ack
+    fromhex(in + 2, autoAckAddr, 3);
+  } else if (in[1] == 'w') {  // Fake Wall-Thermostat
+    fromhex(in + 2, fakeWallThermostatAddr, 3);
+  } else {  // Off
     moritz_cfg.moritz_on = 0;
   }
 }
 
-
-
 /********************************************************************************************/
 
-void moritz_mqtt(const char *hid,const char *type, char *payload) {
-
+void moritz_mqtt(const char *hid, const char *type, char *payload) {
 #ifdef USE_EEPROM
   struct MORITZ ml;
-  fromhex(hid,ml.id,3);
-  if ((find_MLabel(&ml)>=0) && ml.label[0]) {
-    ResponseTime_P(PSTR(",\"MO_%s_%s\":{\"enabled\":%d,%s}}"),type,ml.label,ml.mdata.enabled,payload);
+  fromhex(hid, ml.id, 3);
+  if ((find_MLabel(&ml) >= 0) && ml.label[0]) {
+    ResponseTime_P(PSTR(",\"MO_%s_%s\":{\"enabled\":%d,%s}}"), type, ml.label, ml.mdata.enabled, payload);
   } else {
-    ResponseTime_P(PSTR(",\"MORITZ_%s_%s\":{\"enabled\":%d,%s}}"),type,hid,ml.mdata.enabled,payload);
+    ResponseTime_P(PSTR(",\"MORITZ_%s_%s\":{\"enabled\":%d,%s}}"), type, hid, ml.mdata.enabled, payload);
   }
 #else
-  ResponseTime_P(PSTR(",\"MORITZ_%s_%s\":{%s}}"),type,hid,payload);
+  ResponseTime_P(PSTR(",\"MORITZ_%s_%s\":{%s}}"), type, hid, payload);
 #endif
   MqttPublishTeleSensor();
 }
 
-void new_moritz(uint8_t *hid,uint8_t type,uint8_t bs,uint8_t rfe,uint8_t bl,uint8_t rssi,uint8_t dtmp,uint16_t mtmp, uint8_t valve, uint8_t tmode) {
+void new_moritz(uint8_t *hid, uint8_t type, uint8_t bs, uint8_t rfe, uint8_t bl, uint8_t rssi, uint8_t dtmp, uint16_t mtmp, uint8_t valve,
+                uint8_t tmode) {
 #ifdef USE_EEPROM
-struct MORITZ mo;
+  struct MORITZ mo;
 #endif
-struct MORITZ *mp;
+  struct MORITZ *mp;
 
-  for (uint8_t cnt=0;cnt<MORITZ_MAX_DEVICES;cnt++) {
+  for (uint8_t cnt = 0; cnt < MORITZ_MAX_DEVICES; cnt++) {
 #ifdef USE_EEPROM
-    get_MLabel(cnt,&mo);
-    mp=&mo;
+    get_MLabel(cnt, &mo);
+    mp = &mo;
     if (mo.id[0] || mo.id[1] || mo.id[2]) {
 #else
     if (moritz_devices[cnt]) {
-      mp=moritz_devices[cnt];
+      mp = moritz_devices[cnt];
 #endif
-      if (mp->id[0]==hid[0] && mp->id[1]==hid[1] && mp->id[2]==hid[2]) {
-        mp->mdata.type=type;
-        mp->mdata.is_open=bs;
-        mp->mdata.rf_error=rfe;
-        mp->mdata.battery_low=bl;
-        mp->rssi=rssi;
-        mp->mtemperature=dtmp;
-        mp->dtemperature=mtmp;
-        mp->valve=valve;
-        mp->tmode=tmode;
+      if (mp->id[0] == hid[0] && mp->id[1] == hid[1] && mp->id[2] == hid[2]) {
+        mp->mdata.type = type;
+        mp->mdata.is_open = bs;
+        mp->mdata.rf_error = rfe;
+        mp->mdata.battery_low = bl;
+        mp->rssi = rssi;
+        mp->mtemperature = dtmp;
+        mp->dtemperature = mtmp;
+        mp->valve = valve;
+        mp->tmode = tmode;
 #ifdef USE_EEPROM
-        put_MLabel(cnt,mp);
+        put_MLabel(cnt, mp);
 #endif
         return;
       }
     }
   }
 
-  for (uint8_t cnt=0;cnt<MORITZ_MAX_DEVICES;cnt++) {
+  for (uint8_t cnt = 0; cnt < MORITZ_MAX_DEVICES; cnt++) {
 #ifdef USE_EEPROM
-    get_MLabel(cnt,&mo);
-    mp=&mo;
+    get_MLabel(cnt, &mo);
+    mp = &mo;
     if (!mo.id[0] && !mo.id[1] && !mo.id[2]) {
 #else
     if (!moritz_devices[cnt]) {
-      mp=(struct MORITZ*)calloc(sizeof(struct MORITZ),1);
+      mp = (struct MORITZ *)calloc(sizeof(struct MORITZ), 1);
       if (!mp) return;
-      moritz_devices[cnt]=mp;
+      moritz_devices[cnt] = mp;
 #endif
-      mp->mdata.type=type;
-      mp->mdata.is_open=bs;
-      mp->mdata.rf_error=rfe;
-      mp->mdata.battery_low=bl;
-      mp->rssi=rssi;
-      mp->mtemperature=dtmp;
-      mp->dtemperature=mtmp;
-      mp->valve=valve;
-      mp->tmode=tmode;
-      mp->id[0]=hid[0];
-      mp->id[1]=hid[1];
-      mp->id[2]=hid[2];
+      mp->mdata.type = type;
+      mp->mdata.is_open = bs;
+      mp->mdata.rf_error = rfe;
+      mp->mdata.battery_low = bl;
+      mp->rssi = rssi;
+      mp->mtemperature = dtmp;
+      mp->dtemperature = mtmp;
+      mp->valve = valve;
+      mp->tmode = tmode;
+      mp->id[0] = hid[0];
+      mp->id[1] = hid[1];
+      mp->id[2] = hid[2];
 #ifdef USE_EEPROM
-      put_MLabel(cnt,mp);
+      put_MLabel(cnt, mp);
 #endif
       break;
     }
   }
 }
 
-
 #ifdef USE_WEBSERVER
 const char HTTP_MORITZ_CSS[] PROGMEM =
-"{s}<head><style>rc{color:red;}gc{color:green;}yc{color:yellow;}</style></head>"
-"<table border='3' frame='void' style='width:800px;background-color:#00BFFF;'>"
-"<tr align='center';><th>TYPE</th><th align='left'>Moritz ID</th><th>RFE</th><th>BLOW</th><th>RSSI</th><th>MODE</th><th>enabled<br>target temp</th><th>state<br>actual temp</th></tr>";
-const char HTTP_MORITZ_TEND[] PROGMEM =
-"</table>{m}{e}";
+    "{s}<head><style>rc{color:red;}gc{color:green;}yc{color:yellow;}</style></head>"
+    "<table border='3' frame='void' style='width:800px;background-color:#00BFFF;'>"
+    "<tr align='center';><th>TYPE</th><th align='left'>Moritz "
+    "ID</th><th>RFE</th><th>BLOW</th><th>RSSI</th><th>MODE</th><th>enabled<br>target temp</th><th>state<br>actual temp</th></tr>";
+const char HTTP_MORITZ_TEND[] PROGMEM = "</table>{m}{e}";
 
 const char HTTP_MORITZ_COMMON[] PROGMEM =
-"<tr align='center' style ='background-color: #%s'>"
-"<td><yc>%s</yc></td> <td align='left'><input type='text' maxlength='%d' value='%s' onfocusin='pr(0)' onfocusout='pr(1)' onchange='miva(value,\"%s\")'></td> <td>%s</td><td>%s</td><td>%d dB</td>";
+    "<tr align='center' style ='background-color: #%s'>"
+    "<td><yc>%s</yc></td> <td align='left'><input type='text' maxlength='%d' value='%s' onfocusin='pr(0)' onfocusout='pr(1)' "
+    "onchange='miva(value,\"%s\")'></td> <td>%s</td><td>%s</td><td>%d dB</td>";
 
-//"<div><center><label><b>%s</b><input type='text'  value='%s' style='width:200px'  onfocusin='pr(0)' onfocusout='pr(1)' onchange='siva(value,\"%s\")'></label></div>";
+//"<div><center><label><b>%s</b><input type='text'  value='%s' style='width:200px'  onfocusin='pr(0)' onfocusout='pr(1)'
+//onchange='siva(value,\"%s\")'></label></div>";
 
-const char HTTP_MORITZ_PBUT[] PROGMEM =
-"<td></td><td></td><td>%s</td></tr>";
+const char HTTP_MORITZ_PBUT[] PROGMEM = "<td></td><td></td><td>%s</td></tr>";
 
-const char HTTP_MORITZ_WC[] PROGMEM =
-"<td></td><td><input type='checkbox' %s onchange='miva(%d,\"%s\")';></td><td>%s</td></tr>";
+const char HTTP_MORITZ_WC[] PROGMEM = "<td></td><td><input type='checkbox' %s onchange='miva(%d,\"%s\")';></td><td>%s</td></tr>";
 
 const char HTTP_MORITZ_THERM[] PROGMEM =
-"<td>%s</td><td><input   style='color:black;' min='10' max='30' step='0.5' value='%s' type='number'  onfocusin='pr(0)' onfocusout='pr(1)' onchange='miva(value,\"%s\")'>"
-"</td><td>%s ºC</td></tr>";
+    "<td>%s</td><td><input   style='color:black;' min='10' max='30' step='0.5' value='%s' type='number'  onfocusin='pr(0)' "
+    "onfocusout='pr(1)' onchange='miva(value,\"%s\")'>"
+    "</td><td>%s ºC</td></tr>";
 
 const char HTTP_MORITZ_SCRIPT[] PROGMEM =
-"<script>function miva(par,ivar){"
-  //"rfsh=1;"
-  "la('&moritz='+ivar+'_'+par);"
-  //"rfsh=0;"
-"}</script>";
-
+    "<script>function miva(par,ivar){"
+    //"rfsh=1;"
+    "la('&moritz='+ivar+'_'+par);"
+    //"rfsh=0;"
+    "}</script>";
 
 void Moritz_Check_HTML_Setvars(void) {
-
-  if (!HttpCheckPriviledgedAccess()) { return; }
+  if (!HttpCheckPriviledgedAccess()) {
+    return;
+  }
 
   if (Webserver->hasArg("moritz")) {
     String stmp = Webserver->arg("moritz");
     uint32_t ind;
-    char *cp=(char*)stmp.c_str();
-    if (!strncmp(cp,"lbl",3)) {
+    char *cp = (char *)stmp.c_str();
+    if (!strncmp(cp, "lbl", 3)) {
       // change label
-      cp+=3;
-      ind=strtol(cp,&cp,10);
+      cp += 3;
+      ind = strtol(cp, &cp, 10);
       cp++;
       struct MORITZ ml;
-      get_MLabel(ind,&ml);
+      get_MLabel(ind, &ml);
 #ifdef USE_EEPROM
-      strncpy(ml.label,cp,MMLSIZ);
+      strncpy(ml.label, cp, MMLSIZ);
 #else
 
 #endif
-      put_MLabel(ind,&ml);
-      AddLog(LOG_LEVEL_INFO, PSTR("Moritz set label of ind=%d to %s"),ind,cp);
+      put_MLabel(ind, &ml);
+      AddLog(LOG_LEVEL_INFO, PSTR("Moritz set label of ind=%d to %s"), ind, cp);
 
-    } else if (!strncmp(cp,"tmp",3)) {
+    } else if (!strncmp(cp, "tmp", 3)) {
       // set temperature
-      cp+=3;
-      ind=strtol(cp,&cp,10);
+      cp += 3;
+      ind = strtol(cp, &cp, 10);
       cp++;
-      float temp=CharToFloat(cp);
+      float temp = CharToFloat(cp);
       char ts1[16];
-      dtostrfd(temp,1,ts1);
+      dtostrfd(temp, 1, ts1);
       struct MORITZ ml;
 
-      get_MLabel(ind,&ml);
-      uint32_t dst=(ml.id[0]<<16)|(ml.id[1]<<8)|ml.id[2];
-      SendModeTmp(dst,1,temp);
+      get_MLabel(ind, &ml);
+      uint32_t dst = (ml.id[0] << 16) | (ml.id[1] << 8) | ml.id[2];
+      SendModeTmp(dst, 1, temp);
 
-      AddLog(LOG_LEVEL_INFO, PSTR("Moritz set temp of ind=%d to %s"),dst,ts1);
-    } else if (!strncmp(cp,"enb",3)) {
+      AddLog(LOG_LEVEL_INFO, PSTR("Moritz set temp of ind=%d to %s"), dst, ts1);
+    } else if (!strncmp(cp, "enb", 3)) {
       // enable sensor
-      cp+=3;
-      ind=strtol(cp,&cp,10);
+      cp += 3;
+      ind = strtol(cp, &cp, 10);
       cp++;
       struct MORITZ ml;
-      get_MLabel(ind,&ml);
-      ml.mdata.enabled=strtol(cp,&cp,10);
-      put_MLabel(ind,&ml);
-      AddLog(LOG_LEVEL_INFO, PSTR("Moritz set enabled of ind=%d to %d"),ind,ml.mdata.enabled);
+      get_MLabel(ind, &ml);
+      ml.mdata.enabled = strtol(cp, &cp, 10);
+      put_MLabel(ind, &ml);
+      AddLog(LOG_LEVEL_INFO, PSTR("Moritz set enabled of ind=%d to %d"), ind, ml.mdata.enabled);
     } else {
-
     }
-
   }
 }
 /*
@@ -1400,7 +1361,6 @@ void Moritz_Check_HTML_Setvars(void) {
   "}"
 "}</script>";*/
 
-
 /*
         0 => auto weekly  AW
         1 => manual       MN
@@ -1410,146 +1370,148 @@ void Moritz_Check_HTML_Setvars(void) {
         5 => manual comfort MC
         6 => manual window MW
         */
-const char *mmodes="AWMNVABOMEMCMW";
+const char *mmodes = "AWMNVABOMEMCMW";
 
 void moritz_show(void) {
-char ts1[8],ts2[8];
-char mod[3];
-char ma[9];
-char *lbl=ma;
-struct MORITZ mo;
-struct MORITZ *mp;
+  char ts1[8], ts2[8];
+  char mod[3];
+  char ma[9];
+  char *lbl = ma;
+  struct MORITZ mo;
+  struct MORITZ *mp;
 
   WSContentSend_P(HTTP_MORITZ_CSS);
 
-  for (uint16_t cnt=0;cnt<MORITZ_MAX_DEVICES;cnt++) {
+  for (uint16_t cnt = 0; cnt < MORITZ_MAX_DEVICES; cnt++) {
 #ifdef USE_EEPROM
-    get_MLabel(cnt,&mo);
-    mp=&mo;
+    get_MLabel(cnt, &mo);
+    mp = &mo;
     if (mo.id[0] || mo.id[1] || mo.id[2]) {
       if (mo.label[0]) {
-        lbl=mo.label;
+        lbl = mo.label;
       } else {
-        lbl=ma;
-        sprintf_P(lbl,PSTR("%02x%02x%02x"),mp->id[0],mp->id[1],mp->id[2]);
+        lbl = ma;
+        sprintf_P(lbl, PSTR("%02x%02x%02x"), mp->id[0], mp->id[1], mp->id[2]);
       }
 #else
     if (moritz_devices[cnt]) {
-      mp=moritz_devices[cnt];
-      lbl=ma;
-      sprintf_P(lbl,PSTR("%02x%02x%02x"),mp->id[0],mp->id[1],mp->id[2]);
+      mp = moritz_devices[cnt];
+      lbl = ma;
+      sprintf_P(lbl, PSTR("%02x%02x%02x"), mp->id[0], mp->id[1], mp->id[2]);
 #endif
 
-
-      const char *gc=PSTR("<gc>0</gc>");
-      const char *rc=PSTR("<rc>1</rc>");
+      const char *gc = PSTR("<gc>0</gc>");
+      const char *rc = PSTR("<rc>1</rc>");
 
       const char *rfes;
-      if (mp->mdata.rf_error) rfes=rc;
-      else rfes=gc;
+      if (mp->mdata.rf_error)
+        rfes = rc;
+      else
+        rfes = gc;
 
       const char *bls;
-      if (mp->mdata.battery_low) bls=rc;
-      else bls=gc;
+      if (mp->mdata.battery_low)
+        bls = rc;
+      else
+        bls = gc;
 
-      const char* pbstr=PSTR("<gc>ECO</gc>|<yc>AUTO</yc>");
-      const char* wcstr=PSTR("<gc>closed</gc>|<rc>open</rc>");
+      const char *pbstr = PSTR("<gc>ECO</gc>|<yc>AUTO</yc>");
+      const char *wcstr = PSTR("<gc>closed</gc>|<rc>open</rc>");
       char blbl[16];
 
       char lblid[16];
-      sprintf_P(lblid,PSTR("lbl%d"),cnt);
+      sprintf_P(lblid, PSTR("lbl%d"), cnt);
       char tmpid[16];
-      sprintf_P(tmpid,PSTR("tmp%d"),cnt);
+      sprintf_P(tmpid, PSTR("tmp%d"), cnt);
       char enblid[16];
-      sprintf_P(enblid,PSTR("enb%d"),cnt);
+      sprintf_P(enblid, PSTR("enb%d"), cnt);
 
       switch (mp->mdata.type) {
         case 0:
-          WSContentSend_P(HTTP_MORITZ_COMMON,"c0c0c0","PB",MMLSIZ-1,lbl,lblid,rfes,bls,mp->rssi);
+          WSContentSend_P(HTTP_MORITZ_COMMON, "c0c0c0", "PB", MMLSIZ - 1, lbl, lblid, rfes, bls, mp->rssi);
           GetTextIndexed(blbl, sizeof(blbl), mp->mdata.is_open, pbstr);
-          WSContentSend_P(HTTP_MORITZ_PBUT,blbl);
+          WSContentSend_P(HTTP_MORITZ_PBUT, blbl);
           break;
         case 1:
-          WSContentSend_P(HTTP_MORITZ_COMMON,"a0a0a0","WC",MMLSIZ-1,lbl,lblid,rfes,bls,mp->rssi);
+          WSContentSend_P(HTTP_MORITZ_COMMON, "a0a0a0", "WC", MMLSIZ - 1, lbl, lblid, rfes, bls, mp->rssi);
           GetTextIndexed(blbl, sizeof(blbl), mp->mdata.is_open, wcstr);
           const char *cp;
           uint8_t uval;
           if (mp->mdata.enabled) {
-            cp="checked='checked'";
-            uval=0;
+            cp = "checked='checked'";
+            uval = 0;
           } else {
-            cp="";
-            uval=1;
+            cp = "";
+            uval = 1;
           }
-          WSContentSend_P(HTTP_MORITZ_WC,cp,uval,enblid,blbl);
+          WSContentSend_P(HTTP_MORITZ_WC, cp, uval, enblid, blbl);
           break;
         case 2:
-          memmove(mod,&mmodes[mp->tmode*2],2);
-          mod[2]=0;
-          float tmp=(float)mp->dtemperature/2.0;
-          dtostrfd(tmp,1,ts1);
-          tmp=(float)mp->mtemperature/10.0;
-          dtostrfd(tmp,1,ts2);
-          WSContentSend_P(HTTP_MORITZ_COMMON,"808080","TH",MMLSIZ-1,lbl,lblid,rfes,bls,mp->rssi);
-          WSContentSend_P(HTTP_MORITZ_THERM,mod,ts1,tmpid,ts2);
+          memmove(mod, &mmodes[mp->tmode * 2], 2);
+          mod[2] = 0;
+          float tmp = (float)mp->dtemperature / 2.0;
+          dtostrfd(tmp, 1, ts1);
+          tmp = (float)mp->mtemperature / 10.0;
+          dtostrfd(tmp, 1, ts2);
+          WSContentSend_P(HTTP_MORITZ_COMMON, "808080", "TH", MMLSIZ - 1, lbl, lblid, rfes, bls, mp->rssi);
+          WSContentSend_P(HTTP_MORITZ_THERM, mod, ts1, tmpid, ts2);
           break;
       }
     }
   }
   WSContentSend_P(HTTP_MORITZ_TEND);
-
 }
 #endif
 
 #ifdef USE_SCRIPT
 // called from scripter
-int32_t mo_getvars(uint32_t index, uint32_t type,char *retval) {
+int32_t mo_getvars(uint32_t index, uint32_t type, char *retval) {
   struct MORITZ mo;
-  int32_t found=0;
+  int32_t found = 0;
 
   if (!moritz_cfg.moritz_ready) {
-    retval[0]='0';
-    retval[1]=0;
+    retval[0] = '0';
+    retval[1] = 0;
     return 0;
   }
 #ifdef USE_EEPROM
-  for (uint16_t cnt=0;cnt<MORITZ_MAX_DEVICES;cnt++) {
-
+  for (uint16_t cnt = 0; cnt < MORITZ_MAX_DEVICES; cnt++) {
 #ifdef USE_MORITZ_CACHE
-    //memmove(&mo,&moritz_devices[cnt],sizeof(struct MORITZ));
-    mo=moritz_devices[cnt];
+    // memmove(&mo,&moritz_devices[cnt],sizeof(struct MORITZ));
+    mo = moritz_devices[cnt];
 #else
-    get_MLabel(cnt,&mo);
+    get_MLabel(cnt, &mo);
 #endif
-  //  AddLog_P2(LOG_LEVEL_INFO, PSTR(">>: index=%d"), cnt);
+    //  AddLog_P2(LOG_LEVEL_INFO, PSTR(">>: index=%d"), cnt);
 
     if (mo.id[0] || mo.id[1] || mo.id[2]) {
-      if (mo.mdata.type==(type&3)) {
+      if (mo.mdata.type == (type & 3)) {
         //
         found++;
-        if (index>0 && index==found) {
+        if (index > 0 && index == found) {
           char rbf[32];
-          if (type&0x10) {
-            float tmp=(float)mo.dtemperature/2.0;
-            dtostrfd(tmp,1,retval);
-            tmp=(float)mo.mtemperature/10.0;
-            dtostrfd(tmp,1,rbf);
-            strcat(retval,",");
-            strcat(retval,rbf);
-            sprintf(rbf,",%d,%d",mo.valve,mo.tmode);
-            strcat(retval,rbf);
+          if (type & 0x10) {
+            float tmp = (float)mo.dtemperature / 2.0;
+            dtostrfd(tmp, 1, retval);
+            tmp = (float)mo.mtemperature / 10.0;
+            dtostrfd(tmp, 1, rbf);
+            strcat(retval, ",");
+            strcat(retval, rbf);
+            sprintf(rbf, ",%d,%d", mo.valve, mo.tmode);
+            strcat(retval, rbf);
           } else {
-            sprintf(retval,"%s,%d,%d,%d,%d,%d",mo.label,mo.mdata.enabled,mo.mdata.is_open,mo.mdata.rf_error,mo.mdata.battery_low,mo.rssi);
+            sprintf(retval, "%s,%d,%d,%d,%d,%d", mo.label, mo.mdata.enabled, mo.mdata.is_open, mo.mdata.rf_error, mo.mdata.battery_low,
+                    mo.rssi);
           }
           return found;
         }
       }
     } else {
-    //  break;
+      //  break;
     }
   }
 #endif
-  sprintf(retval,"%d",found);
+  sprintf(retval, "%d", found);
   return found;
 }
 #endif
@@ -1570,13 +1532,11 @@ int32_t mo_getvars(uint32_t index, uint32_t type,char *retval) {
 #define HW_SPI_CLK 14
 #endif
 
-
 void CC1101_Detect() {
-
   // init spi, must use hardware spi
-  if ((Pin(GPIO_SSPI_MOSI)==HW_SPI_MOSI) && (Pin(GPIO_SSPI_MISO)==HW_SPI_MISO) && (Pin(GPIO_SSPI_SCLK)==HW_SPI_CLK)) {
+  if ((Pin(GPIO_SSPI_MOSI) == HW_SPI_MOSI) && (Pin(GPIO_SSPI_MISO) == HW_SPI_MISO) && (Pin(GPIO_SSPI_SCLK) == HW_SPI_CLK)) {
   } else {
-    if ((Pin(GPIO_SPI_MOSI)>=0) && (Pin(GPIO_SPI_MISO)>=0) && (Pin(GPIO_SPI_CLK)>=0)) {
+    if ((Pin(GPIO_SPI_MOSI) >= 0) && (Pin(GPIO_SPI_MISO) >= 0) && (Pin(GPIO_SPI_CLK) >= 0)) {
     } else {
       return;
     }
@@ -1588,39 +1548,38 @@ void CC1101_Detect() {
     return;
   }
 
-  //AddLog_P2(LOG_LEVEL_INFO, PSTR("Moritz: cs=%d"), moritz_cs);
+  // AddLog_P2(LOG_LEVEL_INFO, PSTR("Moritz: cs=%d"), moritz_cs);
   pinMode(moritz_cfg.moritz_cs, OUTPUT);
   digitalWrite(moritz_cfg.moritz_cs, 1);
 
 #ifndef ESP32
   SPI.begin();
 #else
-  SPI.begin(Pin(GPIO_SPI_CLK),Pin(GPIO_SPI_MISO),Pin(GPIO_SPI_MOSI), -1);
+  SPI.begin(Pin(GPIO_SPI_CLK), Pin(GPIO_SPI_MISO), Pin(GPIO_SPI_MOSI), -1);
 #endif
 
-  //moritz_spiSettings = SPISettings(5000000, MSBFIRST, SPI_MODE0);
+  // moritz_spiSettings = SPISettings(5000000, MSBFIRST, SPI_MODE0);
   moritz_spiSettings = SPISettings(500000, MSBFIRST, SPI_MODE0);
   rf_moritz_init();
   moritz_cfg.moritz_ready = 1;
   moritz_cfg.show_all = 1;
   moritz_cfg.pair_enable = 0;
 
-  moritz_addr[0]=MORITZ_BASE_ADDRESS>>16;
-  moritz_addr[1]=(MORITZ_BASE_ADDRESS>>8)&0xff;
-  moritz_addr[2]=MORITZ_BASE_ADDRESS&0xff;
-  last_moritz_task=millis();
-
+  moritz_addr[0] = MORITZ_BASE_ADDRESS >> 16;
+  moritz_addr[1] = (MORITZ_BASE_ADDRESS >> 8) & 0xff;
+  moritz_addr[2] = MORITZ_BASE_ADDRESS & 0xff;
+  last_moritz_task = millis();
 
 #ifdef USE_EEPROM
-  moritz_cfg.eeprom_found = eeprom_init(MORITZ_MAX_DEVICES*sizeof(struct MORITZ));
+  moritz_cfg.eeprom_found = eeprom_init(MORITZ_MAX_DEVICES * sizeof(struct MORITZ));
   if (moritz_cfg.eeprom_found) {
     // check for new eeprom, erase all
     uint8_t buff[4];
-    M_EEP_READ(EEPROM_START_OFFSET, 4, (uint8_t*)buff);
-    if (buff[0]==0xff && buff[1]==0xff && buff[2]==0xff && buff[3]==0xff) {
-      uint8_t *buf=(uint8_t*)calloc(MORITZ_MAX_DEVICES*sizeof(struct MORITZ),1);
+    M_EEP_READ(EEPROM_START_OFFSET, 4, (uint8_t *)buff);
+    if (buff[0] == 0xff && buff[1] == 0xff && buff[2] == 0xff && buff[3] == 0xff) {
+      uint8_t *buf = (uint8_t *)calloc(MORITZ_MAX_DEVICES * sizeof(struct MORITZ), 1);
       if (buf) {
-        M_EEP_WRITE(EEPROM_START_OFFSET, MORITZ_MAX_DEVICES*sizeof(struct MORITZ),buf);
+        M_EEP_WRITE(EEPROM_START_OFFSET, MORITZ_MAX_DEVICES * sizeof(struct MORITZ), buf);
         free(buf);
       }
     }
@@ -1628,8 +1587,8 @@ void CC1101_Detect() {
 
 #ifdef USE_MORITZ_CACHE
   struct MORITZ mlr;
-  for (uint8_t cnt=0;cnt<MORITZ_MAX_DEVICES;cnt++) {
-    get_MLabel(cnt,&mlr);
+  for (uint8_t cnt = 0; cnt < MORITZ_MAX_DEVICES; cnt++) {
+    get_MLabel(cnt, &mlr);
   }
 #endif
 
@@ -1642,32 +1601,31 @@ void CC1101_Detect() {
 #endif
 }
 
-
 #ifdef USE_EEPROM
 
 void get_MLabel(uint8_t index, struct MORITZ *ml) {
   if (moritz_cfg.eeprom_found) {
-    M_EEP_READ(EEPROM_START_OFFSET+(index*sizeof(MORITZ)),sizeof(MORITZ),(char*)ml);
-    //sprintf(log_data,"r:%d:%02x%02x%02x %s",index,ml->id[0],ml->id[1],ml->id[2],ml->label);
-    //AddLog(LOG_LEVEL_INFO);
+    M_EEP_READ(EEPROM_START_OFFSET + (index * sizeof(MORITZ)), sizeof(MORITZ), (char *)ml);
+    // sprintf(log_data,"r:%d:%02x%02x%02x %s",index,ml->id[0],ml->id[1],ml->id[2],ml->label);
+    // AddLog(LOG_LEVEL_INFO);
 #ifdef USE_MORITZ_CACHE
-    moritz_devices[index]=*ml;
+    moritz_devices[index] = *ml;
 #endif
   } else {
-    ml->id[0]=0;
-    ml->id[1]=0;
-    ml->id[2]=0;
+    ml->id[0] = 0;
+    ml->id[1] = 0;
+    ml->id[2] = 0;
   }
 }
 
 void put_MLabel(uint8_t index, struct MORITZ *ml) {
   if (moritz_cfg.eeprom_found) {
-    M_EEP_WRITE(EEPROM_START_OFFSET+(index*sizeof(MORITZ)),sizeof(MORITZ),(char*)ml);
-    //sprintf(log_data,"w:%d:%02x%02x%02x %s",index,ml->id[0],ml->id[1],ml->id[2],ml->label);
-    //AddLog(LOG_LEVEL_INFO);
+    M_EEP_WRITE(EEPROM_START_OFFSET + (index * sizeof(MORITZ)), sizeof(MORITZ), (char *)ml);
+    // sprintf(log_data,"w:%d:%02x%02x%02x %s",index,ml->id[0],ml->id[1],ml->id[2],ml->label);
+    // AddLog(LOG_LEVEL_INFO);
 #ifdef USE_MORITZ_CACHE
-    //memmove(&moritz_devices[index],ml,sizeof(struct MORITZ));
-    moritz_devices[index]=*ml;
+    // memmove(&moritz_devices[index],ml,sizeof(struct MORITZ));
+    moritz_devices[index] = *ml;
 #endif
   }
 }
@@ -1675,12 +1633,12 @@ void put_MLabel(uint8_t index, struct MORITZ *ml) {
 void set_MLabel(struct MORITZ *ml) {
   struct MORITZ mlr;
 
-  for (uint8_t cnt=0;cnt<MORITZ_MAX_DEVICES;cnt++) {
-    get_MLabel(cnt,&mlr);
-    if (mlr.id[0]==0 && mlr.id[1]==0 && mlr.id[2]==0 && mlr.label[0]==0) break;
-    if (ml->id[0]==mlr.id[0] && ml->id[1]==mlr.id[1] && ml->id[2]==mlr.id[2]) {
-      strcpy(mlr.label,ml->label);
-      put_MLabel(cnt,&mlr);
+  for (uint8_t cnt = 0; cnt < MORITZ_MAX_DEVICES; cnt++) {
+    get_MLabel(cnt, &mlr);
+    if (mlr.id[0] == 0 && mlr.id[1] == 0 && mlr.id[2] == 0 && mlr.label[0] == 0) break;
+    if (ml->id[0] == mlr.id[0] && ml->id[1] == mlr.id[1] && ml->id[2] == mlr.id[2]) {
+      strcpy(mlr.label, ml->label);
+      put_MLabel(cnt, &mlr);
       return;
     }
   }
@@ -1688,43 +1646,43 @@ void set_MLabel(struct MORITZ *ml) {
 
 int32_t find_MLabel(struct MORITZ *ml) {
   struct MORITZ mlr;
-  for (uint8_t cnt=0;cnt<MORITZ_MAX_DEVICES;cnt++) {
-    get_MLabel(cnt,&mlr);
-    //AddLog_P2(LOG_LEVEL_INFO, PSTR("Moritz: index=%d,%d,%d"), mlr.id[0],mlr.id[1],mlr.id[2]);
-    if (ml->id[0]==mlr.id[0] && ml->id[1]==mlr.id[1] && ml->id[2]==mlr.id[2]) {
-      memcpy(ml->label,mlr.label,MMLSIZ);
-      ml->mdata.enabled=mlr.mdata.enabled;
+  for (uint8_t cnt = 0; cnt < MORITZ_MAX_DEVICES; cnt++) {
+    get_MLabel(cnt, &mlr);
+    // AddLog_P2(LOG_LEVEL_INFO, PSTR("Moritz: index=%d,%d,%d"), mlr.id[0],mlr.id[1],mlr.id[2]);
+    if (ml->id[0] == mlr.id[0] && ml->id[1] == mlr.id[1] && ml->id[2] == mlr.id[2]) {
+      memcpy(ml->label, mlr.label, MMLSIZ);
+      ml->mdata.enabled = mlr.mdata.enabled;
       return cnt;
     }
-    if (mlr.id[0]==0 && mlr.id[1]==0 && mlr.id[2]==0 && mlr.label[0]==0) {
-    //  break;
+    if (mlr.id[0] == 0 && mlr.id[1] == 0 && mlr.id[2] == 0 && mlr.label[0] == 0) {
+      //  break;
     }
   }
   return -1;
 }
 
 void Moritz_Sort_List(uint32_t pflag) {
-  struct MORITZ ml,ml1;
-  uint8_t flag=0;
+  struct MORITZ ml, ml1;
+  uint8_t flag = 0;
   while (1) {
-    flag=0;
-    for (uint8_t cnt=0;cnt<MORITZ_MAX_DEVICES-1;cnt++) {
-      get_MLabel(cnt,&ml);
-      get_MLabel(cnt+1,&ml1);
-      if (ml1.id[0]==0 && ml1.id[1]==0 && ml1.id[2]==0) break;
+    flag = 0;
+    for (uint8_t cnt = 0; cnt < MORITZ_MAX_DEVICES - 1; cnt++) {
+      get_MLabel(cnt, &ml);
+      get_MLabel(cnt + 1, &ml1);
+      if (ml1.id[0] == 0 && ml1.id[1] == 0 && ml1.id[2] == 0) break;
 
-/*
-      if (ml.id[0]==0 && ml.id[1]==0 && ml.id[2]==0) {
-        put_MLabel(cnt+1,&ml);
-        put_MLabel(cnt,&ml1);
-        flag=1;
-        continue;
-      }
-*/
-      if (ml1.mdata.type<ml.mdata.type) {
-        put_MLabel(cnt+1,&ml);
-        put_MLabel(cnt,&ml1);
-        flag=1;
+      /*
+            if (ml.id[0]==0 && ml.id[1]==0 && ml.id[2]==0) {
+              put_MLabel(cnt+1,&ml);
+              put_MLabel(cnt,&ml1);
+              flag=1;
+              continue;
+            }
+      */
+      if (ml1.mdata.type < ml.mdata.type) {
+        put_MLabel(cnt + 1, &ml);
+        put_MLabel(cnt, &ml1);
+        flag = 1;
       }
     }
     if (!flag) break;
@@ -1732,55 +1690,47 @@ void Moritz_Sort_List(uint32_t pflag) {
 
   if (!pflag) return;
 
-  for (uint8_t cnt=0;cnt<MORITZ_MAX_DEVICES;cnt++) {
-    get_MLabel(cnt,&ml);
+  for (uint8_t cnt = 0; cnt < MORITZ_MAX_DEVICES; cnt++) {
+    get_MLabel(cnt, &ml);
     if (ml.id[0] || ml.id[1] || ml.id[2]) {
       const char *tp;
       switch (ml.mdata.type) {
         case 0:
-          tp="PB";
+          tp = "PB";
           break;
         case 1:
-          tp="WC";
+          tp = "WC";
           break;
         case 2:
-          tp="TH";
+          tp = "TH";
           break;
       }
       char log_data[128];
-      sprintf_P(log_data,PSTR("%d-%s-%02x%02x%02x - %s"),cnt+1,tp,ml.id[0],ml.id[1],ml.id[2],ml.label);
+      sprintf_P(log_data, PSTR("%d-%s-%02x%02x%02x - %s"), cnt + 1, tp, ml.id[0], ml.id[1], ml.id[2], ml.label);
       AddLogData(LOG_LEVEL_INFO, log_data);
     }
   }
 }
 #else
-void get_MLabel(uint8_t index, struct MORITZ *ml) {
-}
-void put_MLabel(uint8_t index, struct MORITZ *ml) {
-}
-void set_MLabel(struct MORITZ *ml) {
-}
-int32_t find_MLabel(struct MORITZ *ml) {
-  return 0;
-}
-void Moritz_Sort_List(uint32_t pflag) {
-}
+void get_MLabel(uint8_t index, struct MORITZ *ml) {}
+void put_MLabel(uint8_t index, struct MORITZ *ml) {}
+void set_MLabel(struct MORITZ *ml) {}
+int32_t find_MLabel(struct MORITZ *ml) { return 0; }
+void Moritz_Sort_List(uint32_t pflag) {}
 #endif
-
 
 // 8 ms ticks
 void CC1101_loop(void) {
-  //rf_moritz_task();
+  // rf_moritz_task();
   if (moritz_cfg.moritz_ready) {
-    if (millis()-last_moritz_task>8) {
-    //  rf_moritz_init(); // >>><>>
+    if (millis() - last_moritz_task > 8) {
+      //  rf_moritz_init(); // >>><>>
       rf_moritz_task();
-      last_moritz_task=millis();
-      if (credit_10ms < MAX_CREDIT) // 10ms/1s == 1% -> allowed talk-time without CD
+      last_moritz_task = millis();
+      if (credit_10ms < MAX_CREDIT)  // 10ms/1s == 1% -> allowed talk-time without CD
         credit_10ms += 1;
       ticks++;
     }
-
   }
 }
 /* cmds:  (currently NOT permanently stored)
@@ -1802,158 +1752,155 @@ bool XSNS_126_cmd(void) {
   const char S_JSON_MORITZ[] = "{\"MORITZ\":{\"%s\":%d}}";
   const char S_JSON_MORITZ1[] = "{\"MORITZ\":{\"%s\":\"%s\"}}";
   if (XdrvMailbox.data_len > 0) {
-    char *cp=XdrvMailbox.data;
-    if (*cp=='s') {
+    char *cp = XdrvMailbox.data;
+    if (*cp == 's') {
       // show
       cp++;
-      if (*cp)  {
-        moritz_cfg.show_all = *cp&1;
+      if (*cp) {
+        moritz_cfg.show_all = *cp & 1;
       }
-      Response_P(S_JSON_MORITZ,"sa",moritz_cfg.show_all);
+      Response_P(S_JSON_MORITZ, "sa", moritz_cfg.show_all);
       return true;
-    } else if (*cp=='p') {
+    } else if (*cp == 'p') {
       // pair
       cp++;
-      if (*cp)  {
-        moritz_cfg.pair_enable = *cp&1;
+      if (*cp) {
+        moritz_cfg.pair_enable = *cp & 1;
       }
-      Response_P(S_JSON_MORITZ,"pm",moritz_cfg.pair_enable);
+      Response_P(S_JSON_MORITZ, "pm", moritz_cfg.pair_enable);
       return true;
-    } else if (*cp=='r') {
+    } else if (*cp == 'r') {
       // reset
       moritz_reset();
-      //cc1100_writeReg( 2, 0x3B );
-      Response_P(S_JSON_MORITZ,"reset",0);
+      // cc1100_writeReg( 2, 0x3B );
+      Response_P(S_JSON_MORITZ, "reset", 0);
       return true;
-    } else if (*cp=='i') {
+    } else if (*cp == 'i') {
       // init
       rf_moritz_init();
-      Response_P(S_JSON_MORITZ,"init",0);
+      Response_P(S_JSON_MORITZ, "init", 0);
       return true;
-    } else if (*cp=='a') {
+    } else if (*cp == 'a') {
       // add
       cp++;
-      while (*cp==' ') cp++;
-      uint32_t man=0;
+      while (*cp == ' ') cp++;
+      uint32_t man = 0;
       if (*cp) {
-        man=strtol(cp,0,16);
-        moritz_addr[0]=man>>16;
-        moritz_addr[1]=man>>8;
-        moritz_addr[2]=man;
+        man = strtol(cp, 0, 16);
+        moritz_addr[0] = man >> 16;
+        moritz_addr[1] = man >> 8;
+        moritz_addr[2] = man;
       }
       char ma[10];
-      sprintf_P(ma,PSTR("%02x%02x%02x"),moritz_addr[0],moritz_addr[1],moritz_addr[2]);
-      Response_P(S_JSON_MORITZ1,"ad",ma);
-    } else if (*cp=='t') {
+      sprintf_P(ma, PSTR("%02x%02x%02x"), moritz_addr[0], moritz_addr[1], moritz_addr[2]);
+      Response_P(S_JSON_MORITZ1, "ad", ma);
+    } else if (*cp == 't') {
       // set temp   hexid mode tmp
-      float tmp=0;
-      uint8_t mode=0;
-      uint32_t dst=0;
+      float tmp = 0;
+      uint8_t mode = 0;
+      uint32_t dst = 0;
       cp++;
-      while (*cp==' ') cp++;
+      while (*cp == ' ') cp++;
       if (*cp) {
-        dst=strtol(cp,&cp,16);
-        while (*cp==' ') cp++;
-        mode=strtol(cp,&cp,10);
-        while (*cp==' ') cp++;
-        tmp=CharToFloat(cp);
-        SendModeTmp(dst,mode,tmp);
+        dst = strtol(cp, &cp, 16);
+        while (*cp == ' ') cp++;
+        mode = strtol(cp, &cp, 10);
+        while (*cp == ' ') cp++;
+        tmp = CharToFloat(cp);
+        SendModeTmp(dst, mode, tmp);
       }
       char ms[32];
-      ms[0]=0;
+      ms[0] = 0;
       char tstr[8];
-      dtostrfd(tmp,1, tstr);
-      sprintf_P(ms,PSTR("%02x%02x%02x %02d %s"),dst>>16,(dst>>8)&0xff,dst&0xff,mode,tstr);
-      Response_P(S_JSON_MORITZ1,"send",ms);
+      dtostrfd(tmp, 1, tstr);
+      sprintf_P(ms, PSTR("%02x%02x%02x %02d %s"), dst >> 16, (dst >> 8) & 0xff, dst & 0xff, mode, tstr);
+      Response_P(S_JSON_MORITZ1, "send", ms);
     }
 #ifdef USE_EEPROM
-    else if (*cp=='l') {
+    else if (*cp == 'l') {
       // label
       struct MORITZ ml;
-      uint8_t index=0;
-      uint32_t man=0;
+      uint8_t index = 0;
+      uint32_t man = 0;
       char ms[32];
       cp++;
-      if (*cp=='c') {
+      if (*cp == 'c') {
         // clr list
-        memset(&ml,0,sizeof(struct MORITZ));
-        for (uint8_t cnt=0;cnt<MORITZ_MAX_DEVICES;cnt++) {
-          put_MLabel(cnt,&ml);
+        memset(&ml, 0, sizeof(struct MORITZ));
+        for (uint8_t cnt = 0; cnt < MORITZ_MAX_DEVICES; cnt++) {
+          put_MLabel(cnt, &ml);
         }
-        Response_P(S_JSON_MORITZ1,"label","clr list");
+        Response_P(S_JSON_MORITZ1, "label", "clr list");
         return serviced;
       }
-      if (*cp=='l') {
+      if (*cp == 'l') {
         // list all
         Moritz_Sort_List(1);
-        Response_P(S_JSON_MORITZ1,"label","list all");
+        Response_P(S_JSON_MORITZ1, "label", "list all");
         return serviced;
       }
-      if (*cp=='d') {
+      if (*cp == 'd') {
         // delete one
         cp++;
-        if (*cp=='a') {
+        if (*cp == 'a') {
 #ifdef USE_EEPROM
           // delete all unnamed entries
           struct MORITZ mo;
-          for (uint16_t cnt=0;cnt<MORITZ_MAX_DEVICES;cnt++) {
-            get_MLabel(cnt,&mo);
+          for (uint16_t cnt = 0; cnt < MORITZ_MAX_DEVICES; cnt++) {
+            get_MLabel(cnt, &mo);
             if (!mo.label[0]) {
-              memset(&mo,0,sizeof(struct MORITZ));
-              put_MLabel(cnt,&mo);
+              memset(&mo, 0, sizeof(struct MORITZ));
+              put_MLabel(cnt, &mo);
             }
           }
           Moritz_Sort_List(0);
-          Response_P(S_JSON_MORITZ1,"label","delete all unlabeled");
+          Response_P(S_JSON_MORITZ1, "label", "delete all unlabeled");
           return serviced;
 #endif
         } else {
-          while (*cp==' ') cp++;
+          while (*cp == ' ') cp++;
           if (*cp) {
-            man=strtol(cp,&cp,16);
-            ml.id[0]=man>>16;
-            ml.id[1]=man>>8;
-            ml.id[2]=man;
-            //AddLog_P2(LOG_LEVEL_INFO, PSTR("Moritz: index=%d,%d,%d"), ml.id[0],ml.id[1],ml.id[2]);
-            int32_t index=find_MLabel(&ml);
-            if (index>=0) {
-              memset(&ml,0,sizeof(struct MORITZ));
-              put_MLabel(index,&ml);
-              //AddLog_P2(LOG_LEVEL_INFO, PSTR("Moritz: index=%d"), index);
+            man = strtol(cp, &cp, 16);
+            ml.id[0] = man >> 16;
+            ml.id[1] = man >> 8;
+            ml.id[2] = man;
+            // AddLog_P2(LOG_LEVEL_INFO, PSTR("Moritz: index=%d,%d,%d"), ml.id[0],ml.id[1],ml.id[2]);
+            int32_t index = find_MLabel(&ml);
+            if (index >= 0) {
+              memset(&ml, 0, sizeof(struct MORITZ));
+              put_MLabel(index, &ml);
+              // AddLog_P2(LOG_LEVEL_INFO, PSTR("Moritz: index=%d"), index);
               Moritz_Sort_List(0);
             }
           }
         }
-        Response_P(S_JSON_MORITZ1,"label","delete one");
+        Response_P(S_JSON_MORITZ1, "label", "delete one");
         return serviced;
       }
 
-      while (*cp==' ') cp++;
+      while (*cp == ' ') cp++;
 
       if (*cp) {
-        man=strtol(cp,&cp,16);
-        ml.id[0]=man>>16;
-        ml.id[1]=man>>8;
-        ml.id[2]=man;
-        while (*cp==' ') cp++;
-        strlcpy(ml.label,cp,MMLSIZ);
+        man = strtol(cp, &cp, 16);
+        ml.id[0] = man >> 16;
+        ml.id[1] = man >> 8;
+        ml.id[2] = man;
+        while (*cp == ' ') cp++;
+        strlcpy(ml.label, cp, MMLSIZ);
         set_MLabel(&ml);
-        sprintf_P(ms,PSTR("%02x%02x%02x %s"),ml.id[0],ml.id[1],ml.id[2],ml.label);
+        sprintf_P(ms, PSTR("%02x%02x%02x %s"), ml.id[0], ml.id[1], ml.id[2], ml.label);
       }
-      Response_P(S_JSON_MORITZ1,"label",ms);
+      Response_P(S_JSON_MORITZ1, "label", ms);
     }
 #endif
   }
   return serviced;
 }
 
-
 #ifndef USE_SCRIPT
 // dummy
-void Script_Check_HTML_Setvars(void) {
-}
+void Script_Check_HTML_Setvars(void) {}
 #endif
-
 
 /*********************************************************************************************\
  * Interface
@@ -1963,38 +1910,38 @@ bool Xsns126(uint32_t function) {
   bool result = false;
 
   switch (function) {
-      case FUNC_PRE_INIT:
-        moritz_cfg.moritz_cs=CC100_CS;
-        CC1101_Detect();
-        break;
-      case FUNC_INIT:
+    case FUNC_PRE_INIT:
+      moritz_cfg.moritz_cs = CC100_CS;
+      CC1101_Detect();
+      break;
+    case FUNC_INIT:
       //  CC1101_Detect();
-        break;
-      case FUNC_LOOP:
-        CC1101_loop();
-        break;
-      case FUNC_WEB_ADD_HANDLER:
-        //Webserver->on("/moritz", HTTP_GET,Moritz_Check_HTML_Setvars);
-        break;
-      case FUNC_JSON_APPEND:
-        break;
+      break;
+    case FUNC_LOOP:
+      CC1101_loop();
+      break;
+    case FUNC_WEB_ADD_HANDLER:
+      // Webserver->on("/moritz", HTTP_GET,Moritz_Check_HTML_Setvars);
+      break;
+    case FUNC_JSON_APPEND:
+      break;
 #ifdef USE_WEBSERVER
-      case FUNC_WEB_ADD_MAIN_BUTTON:
-        WSContentSend_P(HTTP_MORITZ_SCRIPT);
-        break;
+    case FUNC_WEB_ADD_MAIN_BUTTON:
+      WSContentSend_P(HTTP_MORITZ_SCRIPT);
+      break;
 
-      case FUNC_WEB_SENSOR:
-        if (moritz_cfg.moritz_ready) {
-          Moritz_Check_HTML_Setvars();
-          moritz_show();
-        }
-        break;
+    case FUNC_WEB_SENSOR:
+      if (moritz_cfg.moritz_ready) {
+        Moritz_Check_HTML_Setvars();
+        moritz_show();
+      }
+      break;
 #endif  // USE_WEBSERVER
-      case FUNC_COMMAND_SENSOR:
-        if (XSNS_126 == XdrvMailbox.index) {
-          result = XSNS_126_cmd();
-        }
-        break;
+    case FUNC_COMMAND_SENSOR:
+      if (XSNS_126 == XdrvMailbox.index) {
+        result = XSNS_126_cmd();
+      }
+      break;
   }
   return result;
 }
