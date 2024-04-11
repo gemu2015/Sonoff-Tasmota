@@ -19,7 +19,7 @@
 
 #include "tasmota_options.h"
 
-#ifdef USE_CC1101_MOD
+#ifdef USE_CC1101_MOD 
 
 #define XDRV_130             130
 
@@ -75,7 +75,7 @@ typedef struct {
   MOD mod;
 } MODULE_MEMORY;
 
-#include "cc1101_c.h"
+#include "cc1101_c.h" 
 
 #define CC1101_REV 1 << 16 | 4
 

@@ -1,5 +1,28 @@
-
-
+/*
+	.global	__nesf2
+	.global	__gedf2
+	.global	__ledf2
+	.global	__mulsf3
+	.global	__gesf2
+	.global	__subsf3
+	.global	__divsf3
+	.global	__fixunssfsi
+  .global	_Z28CC1101_setFrequencyDeviationf
+	.global	__lesf2
+	.global	__divdf3
+  .global	_Z21CC1101_setRxBandwidthf
+	.global	__addsf3
+	.global	__gtsf2
+	.global	_Z25CC1101_autoSetRxBandwidthv
+	.global	_Z17CC1101_setBitRatef
+  .global	__fixunsdfsi
+	.global	_Z19CC1101_setFrequencyf
+	.global	_Z27CC1101_CC1101_receiveDirectb
+	.global	_Z25CC1101_receiveDirectAsyncv
+	.global	__adddf3
+memcpy
+memset
+*/
 /*!
   \brief No shaping.
 */
@@ -744,7 +767,7 @@ void mod_setRfSwitchPins(uint32_t rxEn, uint32_t txEn) {
 
 void mod_setRfSwitchTable(const uint32_t (&pins)[3], const RfSwitchMode_t table[]) {
   SETREGS
-  memcpy(this->mod.rfSwitchPins, pins, sizeof(this->mod.rfSwitchPins));
+  memmove(this->mod.rfSwitchPins, pins, sizeof(this->mod.rfSwitchPins));
   this->mod.rfSwitchTable = table;
   for(size_t i = 0; i < RFSWITCH_MAX_PINS; i++)
     pinMode(pins[i], GpioModeOutput);
@@ -776,7 +799,7 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
 
   // copy the data
   if (cmd == this->mod.SPIwriteCommand) {
-    memcpy(buffOutPtr, dataOut, numBytes);
+    memmove(buffOutPtr, dataOut, numBytes);
   } else {
     memset(buffOutPtr, this->mod.SPInopCommand, numBytes);
   }
@@ -790,7 +813,7 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
   
   // copy the data
   if (cmd == this->mod.SPIreadCommand) {
-    memcpy(dataIn, &buffIn[this->mod.SPIaddrWidth/8], numBytes);
+    memmove(dataIn, &buffIn[this->mod.SPIaddrWidth/8], numBytes);
   }
 
   // print debug information
