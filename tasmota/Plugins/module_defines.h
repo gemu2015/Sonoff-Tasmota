@@ -175,6 +175,12 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jspi_transfer(A,B)              (( uint8_t (*)(void *,uint8_t))                  jt[141])(A,B)
 
 
+open
+seek
+read
+write
+close
+
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)

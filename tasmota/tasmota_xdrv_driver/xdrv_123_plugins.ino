@@ -147,6 +147,11 @@ void tmod_spi_writebytes(SPIClass *spi, const uint8_t * data, uint32_t size);
 void tmod_Transaction(SPIClass *spi, uint8_t flg, uint32_t spibaud);
 uint8_t tmod_transfer(SPIClass *spi, uint8_t data);
 char* ftostrfd(float number, unsigned char prec, char *s);
+fs::File tmod_file_open(char *path, char mode);
+void tmod_file_close(fs::File fp);
+int32_t tmod_file_seek(fs::File fp, uint32_t pos, uint32_t mode);
+int32_t tmod_file_read(fs::File fp, uint8_t *buff, uint32_t size);
+int32_t tmod_file_write(fs::File fp, uint8_t *buff, uint32_t size);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -333,9 +338,42 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_spi_write,
   JMPTBL&tmod_spi_writebytes,
   JMPTBL&tmod_Transaction,
-  JMPTBL&tmod_transfer
+  JMPTBL&tmod_transfer,
+  JMPTBL&tmod_file_open,
+  JMPTBL&tmod_file_close,
+  JMPTBL&tmod_file_seek,
+  JMPTBL&tmod_file_read,
+  JMPTBL&tmod_file_write
 };
 
+fs::File tmod_file_open(char *path, char mode) {
+  char *cpath = copyStr(path);
+  FS *cfp = script_file_path(cpath);
+
+  switch (mode) {
+    case 'r':
+      return cfp->open(cpath, FS_FILE_READ);
+    case 'w':
+      return cfp->open(cpath, FS_FILE_WRITE);
+    case 'a':
+      return cfp->open(cpath, FS_FILE_APPEND);     
+  }
+  return (fs::File)nullptr;
+}
+
+void tmod_file_close(fs::File fp) {
+  fp.close();
+}
+
+int32_t tmod_file_seek(fs::File fp, uint32_t pos, uint32_t mode) {
+  return fp.seek(pos, (fs::SeekMode)mode);
+}
+int32_t tmod_file_read(fs::File fp, uint8_t *buff, uint32_t size) {
+  return fp.read(buff, size);
+}
+int32_t tmod_file_write(fs::File fp, uint8_t *buff, uint32_t size) {
+  return fp.write(buff, size);
+}
 
 
 SPIClass *tmod_getspi(uint8_t sel) {
@@ -2388,8 +2426,9 @@ bool Xdrv123(uint32_t function) {
     case FUNC_EVERY_250_MSECOND:
     case FUNC_EVERY_SECOND:
     case FUNC_WEB_ADD_BUTTON:
-    case FUNC_SET_POWER:
+    case FUNC_SET_POWER: 
     case FUNC_LOOP:
+    case FUNC_WEB_ADD_MAIN_BUTTON:
       if (plugins.ready) {
         Module_Execute(function);
       }

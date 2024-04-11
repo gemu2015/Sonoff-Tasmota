@@ -11,6 +11,7 @@ import os
 
 # edit this path
 #file = 'xdrv_28_pcf8574.ino'
+file = 'xsns_126_moritz.ino'
 
 def ireplace(old, new, text):
     """ 
@@ -129,7 +130,7 @@ if type == "xdrv" :
 istr = "/********************************************************************************************/\n"
 istr += "PUSH_OPTIONS\n"
 #istr += "MODULE_DESCRIPTOR(\"MP3PLAYER\"," + mod_type + "," + mod_rev + ",\"\",0,\"\",0,\"\",0,\"\",0)\n"
-istr += "MODULE_DESCRIPTOR(\"" + module.upper() + "\"," + mod_type + "," + "1<<16|2" + ",\"\",0,\"\",0,\"\",0,\"\",0)\n"
+istr += "MODULE_DESCRIPTOR(\"" + module.upper() + "\"," + mod_type + "," + "1<<16|4" + ",\"\",0,\"\",0,\"\",0,\"\",0)\n"
 
 for func in def_func:
     fname = "MODULE_PART " + func[0] + " " + func[1] + func[2]
