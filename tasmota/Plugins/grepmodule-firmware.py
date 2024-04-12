@@ -99,8 +99,8 @@ if 1==1 :
                 
         if start == 2:
             print("extracted module: "+name)
-            if size > 8192:
-                print("module size error")
+            #if size > 8192:
+            print(f"module size: {size}")
 
 
     #if not tasmotapiolib.is_env_set(tasmotapiolib.DISABLE_BIN_GZ, env):

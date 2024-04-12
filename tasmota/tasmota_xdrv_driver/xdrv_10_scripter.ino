@@ -3439,7 +3439,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           FS *cfp = script_file_path(str);
           while (*lp == ' ') lp++;
           uint8_t mode = 0;
-          if ((*lp == 'r') || (*lp == 'w') || (*lp == 'a')) {
+          if ((*lp == 'r') || (*lp == 'w') || (*lp == 'a') || (*lp == 'u')) {
             switch (*lp) {
               case 'r':
                 mode = 0;
@@ -3449,6 +3449,12 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
                 break;
               case 'a':
                 mode = 2;
+                break;
+              case 'u':
+                mode = 3;
+                break;
+              case 'U':
+                mode = 4;
                 break;
             }
             lp++;
@@ -3477,10 +3483,20 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 #ifdef DEBUG_FS
                   AddLog(LOG_LEVEL_INFO, PSTR("SCR: open file for write %d"), cnt);
 #endif
-                } else {
+                } else if (mode == 2) {
                   glob_script_mem.files[cnt] = cfp->open(str,FS_FILE_APPEND);
 #ifdef DEBUG_FS
                   AddLog(LOG_LEVEL_INFO, PSTR("SCR: open file for append %d"), cnt);
+#endif
+                } else if (mode == 3) {
+                  glob_script_mem.files[cnt] = cfp->open(str, "w+");
+#ifdef DEBUG_FS
+                  AddLog(LOG_LEVEL_INFO, PSTR("SCR: open file for write update %d"), cnt);
+#endif
+                }  else {
+                  glob_script_mem.files[cnt] = cfp->open(str, "r+");
+#ifdef DEBUG_FS
+                  AddLog(LOG_LEVEL_INFO, PSTR("SCR: open file for read update %d"), cnt);
 #endif
                 }
               }

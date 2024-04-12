@@ -26,7 +26,7 @@
 #ifdef USE_SPI
 #ifdef USE_MORITZ
 
-#define CC100_CS 0
+#define CC100_CS 15
 #define USE_MORITZ_CACHE
 #define XSNS_126 126
 
@@ -1534,6 +1534,7 @@ int32_t mo_getvars(uint32_t index, uint32_t type, char *retval) {
 
 void CC1101_Detect() {
   // init spi, must use hardware spi
+ #ifdef ESP32 
   if ((Pin(GPIO_SSPI_MOSI) == HW_SPI_MOSI) && (Pin(GPIO_SSPI_MISO) == HW_SPI_MISO) && (Pin(GPIO_SSPI_SCLK) == HW_SPI_CLK)) {
   } else {
     if ((Pin(GPIO_SPI_MOSI) >= 0) && (Pin(GPIO_SPI_MISO) >= 0) && (Pin(GPIO_SPI_CLK) >= 0)) {
@@ -1547,6 +1548,9 @@ void CC1101_Detect() {
   } else {
     return;
   }
+ #else
+  moritz_cfg.moritz_cs = 15;
+ #endif 
 
   // AddLog_P2(LOG_LEVEL_INFO, PSTR("Moritz: cs=%d"), moritz_cs);
   pinMode(moritz_cfg.moritz_cs, OUTPUT);

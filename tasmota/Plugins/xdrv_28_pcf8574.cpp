@@ -262,8 +262,7 @@ void Pcf8574SaveSettings(void) {
 
   // AddLog_P(LOG_LEVEL_DEBUG, PSTR("PCF: Start working on Save arguements: inverted:%d")), WebServer->hasArg("b1");
 
-  Settings->flag3.pcf8574_ports_inverted =
-      WebServer_hasArg(PSTR("b1"));  // SetOption81 - Invert all ports on PCF8574 devices
+  Settings->flag3.pcf8574_ports_inverted = WebServer_hasArg(PSTR("b1"));  // SetOption81 - Invert all ports on PCF8574 devices
   for (byte idx = 0; idx < Pcf8574.max_devices; idx++) {
     byte count = 0;
     byte n = Settings->pcf8574_config[idx];

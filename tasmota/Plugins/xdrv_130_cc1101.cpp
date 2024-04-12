@@ -109,9 +109,6 @@ int32_t CC1101_Init() {
   this->directModeEnabled = true;
   this->power = 10;
 
-  initialized = true;
-  return true;
-
   if (TasmotaGlobal->spi_enabled) {
     this->csPin = mp->ms[0].value;
     pinMode(this->csPin, OUTPUT);
@@ -119,7 +116,7 @@ int32_t CC1101_Init() {
     this->gpioPin = mp->ms[1].value;
     pinMode(this->gpioPin, INPUT_PULLUP);
     GETSPI(0);
-    spi_begin();
+    spi_begin(); 
     int16_t res = CC1101_begin(868.3, 8.21, 57.136417, 270, 10, 32);
   
     initialized = true;

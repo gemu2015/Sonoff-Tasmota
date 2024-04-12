@@ -181,7 +181,9 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jCharToFloat(A)                 (( float (*)(char*))                            jt[147])(A)
 #define jAddLogData(A,B)                (( void  (*)(uint32_t,const char*))             jt[148])(A,B)
 #define jfexists(A)                     (( int32_t (*)(const char*))                    jt[149])(A)
-
+#define jstrncmp_P(A,B,C)               (( int (*)(const char *, const char *, size_t)) jt[150])(A,B,C)
+#define jspecial_malloc(A)              (( void * (*)(uint32_t))                        jt[151])(A)
+#define jResponseCmndChar(A)            (( void (*)(char *))                            jt[152])(A)
 
 
 // Arduino macros
@@ -735,6 +737,9 @@ typedef struct {
 #define AddLogData jAddLogData
 #define calloc jcalloc
 #define fexists jfexists
+#define strncmp_P jstrncmp_P
+#define special_malloc jspecial_malloc
+#define ResponseCmndChar jResponseCmndChar
 
 #define __divsi3 jtmod__divsi3
 

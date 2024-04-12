@@ -834,15 +834,15 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
 
 }
 
- MODULE_PART  int16_t CC1101_begin(float freq = 434.0, float br = 4.8,float freqDev = 5.0, float rxBw = 58.0,int8_t pwr = 10, uint8_t preambleLength = 16);
+ MODULE_PART  int16_t CC1101_begin(float freq, float br, float freqDev, float rxBw, int8_t pwr, uint8_t preambleLength);
  MODULE_PART  void CC1101_reset();
  MODULE_PART  int16_t CC1101_transmit(uint8_t* data, size_t len, uint8_t addr);
  MODULE_PART  int16_t CC1101_receive(uint8_t* data, size_t len);
  MODULE_PART  int16_t CC1101_standby();
  MODULE_PART  int16_t CC1101_standbyp(uint8_t mode);
- MODULE_PART  int16_t CC1101_transmitDirect(uint32_t frf = 0);
+ MODULE_PART  int16_t CC1101_transmitDirect(uint32_t frf);
  MODULE_PART  int16_t CC1101_receiveDirect();
- MODULE_PART  int16_t CC1101_transmitDirectAsync(uint32_t frf = 0);
+ MODULE_PART  int16_t CC1101_transmitDirectAsync(uint32_t frf);
  MODULE_PART  int16_t CC1101_receiveDirectAsync();
  MODULE_PART  int16_t CC1101_packetMode();
  MODULE_PART  void CC1101_setGdo0Action(void (*func)(void), uint32_t dir);
@@ -853,7 +853,7 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
  MODULE_PART  void CC1101_clearPacketReceivedAction();
  MODULE_PART  void CC1101_setPacketSentAction(void (*func)(void));
  MODULE_PART  void CC1101_clearPacketSentAction();
- MODULE_PART  int16_t CC1101_startTransmit(uint8_t* data, size_t len, uint8_t addr = 0);
+ MODULE_PART  int16_t CC1101_startTransmit(uint8_t* data, size_t len, uint8_t addr);
  MODULE_PART  int16_t CC1101_finishTransmit();
  MODULE_PART  int16_t CC1101_CC1101_startReceive();
  MODULE_PART  int16_t CC1101_CC1101_startReceive(uint32_t timeout, uint16_t irqFlags, uint16_t irqMask, size_t len);
@@ -865,8 +865,8 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
  MODULE_PART  int16_t CC1101_setFrequencyDeviation(float freqDev);
  MODULE_PART  int16_t CC1101_getFrequencyDeviation(float* freqDev);
  MODULE_PART  int16_t CC1101_setOutputPower(int8_t pwr);
- MODULE_PART  int16_t CC1101_CC1101_setSyncWord(uint8_t syncH, uint8_t syncL, uint8_t maxErrBits = 0, bool requireCarrierSense = false);
- MODULE_PART  int16_t CC1101_CC1101_setSyncWord(uint8_t* syncWord, uint8_t len, uint8_t maxErrBits = 0, bool requireCarrierSense = false);
+ MODULE_PART  int16_t CC1101_CC1101_setSyncWord(uint8_t syncH, uint8_t syncL, uint8_t maxErrBits, bool requireCarrierSense);
+ MODULE_PART  int16_t CC1101_CC1101_setSyncWord(uint8_t* syncWord, uint8_t len, uint8_t maxErrBits, bool requireCarrierSense);
  MODULE_PART  int16_t CC1101_setPreambleLength(uint8_t preambleLength, uint8_t qualityThreshold);
  MODULE_PART  int16_t CC1101_setNodeAddress(uint8_t nodeAddr, uint8_t numBroadcastAddrs);
  MODULE_PART  int16_t CC1101_disableAddressFiltering();
@@ -874,12 +874,12 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
  MODULE_PART  float CC1101_getRSSI();
  MODULE_PART  uint8_t CC1101_getLQI();
  MODULE_PART  size_t CC1101_getPacketLength(bool update = true);
- MODULE_PART  int16_t CC1101_fixedPacketLengthMode(uint8_t len = 63);
- MODULE_PART  int16_t CC1101_variablePacketLengthMode(uint8_t maxLen = 63);
- MODULE_PART  int16_t CC1101_enableSyncWordFiltering(uint8_t maxErrBits = 0, bool requireCarrierSense = false);
- MODULE_PART  int16_t CC1101_disableSyncWordFiltering(bool requireCarrierSense = false);
- MODULE_PART  int16_t CC1101_setCrcFiltering(bool enable = true);
- MODULE_PART  int16_t CC1101_setPromiscuousMode(bool enable = true, bool requireCarrierSense = false);
+ MODULE_PART  int16_t CC1101_fixedPacketLengthMode(uint8_t len );
+ MODULE_PART  int16_t CC1101_variablePacketLengthMode(uint8_t maxLen);
+ MODULE_PART  int16_t CC1101_enableSyncWordFiltering(uint8_t maxErrBits, bool requireCarrierSense);
+ MODULE_PART  int16_t CC1101_disableSyncWordFiltering(bool requireCarrierSense);
+ MODULE_PART  int16_t CC1101_setCrcFiltering(bool enable);
+ MODULE_PART  int16_t CC1101_setPromiscuousMode(bool enable, bool requireCarrierSense);
  MODULE_PART  bool CC1101_getPromiscuousMode();
  MODULE_PART  int16_t CC1101_setDataShaping(uint8_t sh);
  MODULE_PART  int16_t CC1101_setEncoding(uint8_t encoding);
@@ -890,8 +890,8 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
  MODULE_PART  void CC1101_setDirectAction(void (*func)(void));
  MODULE_PART  void CC1101_readBit(uint32_t pin);
  MODULE_PART  int16_t CC1101_setDIOMapping(uint32_t pin, uint32_t value);
- MODULE_PART  int16_t CC1101_SPIgetRegValue(uint8_t reg, uint8_t msb = 7, uint8_t lsb = 0);
- MODULE_PART  int16_t CC1101_SPIsetRegValue(uint8_t reg, uint8_t value, uint8_t msb = 7, uint8_t lsb = 0, uint8_t checkInterval = 2);
+ MODULE_PART  int16_t CC1101_SPIgetRegValue(uint8_t reg, uint8_t msb, uint8_t lsb);
+ MODULE_PART  int16_t CC1101_SPIsetRegValue(uint8_t reg, uint8_t value, uint8_t msb, uint8_t lsb, uint8_t checkInterval);
  MODULE_PART  void CC1101_SPIreadRegisterBurst(uint8_t reg, uint8_t numBytes, uint8_t* inBytes);
  MODULE_PART  uint8_t CC1101_SPIreadRegister(uint8_t reg);
  MODULE_PART  void CC1101_SPIwriteRegisterBurst(uint8_t reg, uint8_t* data, size_t len);
@@ -912,6 +912,7 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
 
 int16_t CC1101_begin(float freq, float br, float freqDev, float rxBw, int8_t pwr, uint8_t preambleLength) {
   SETREGS
+
   this->mod.SPIreadCommand = 0b10000000;
   this->mod.SPIwriteCommand = 0b00000000;
   this->mod.SPIaddrWidth = 8;
@@ -919,7 +920,8 @@ int16_t CC1101_begin(float freq, float br, float freqDev, float rxBw, int8_t pwr
   this->mod.rfSwitchPins[1] = RADIOLIB_NC;
   this->mod.rfSwitchPins[2] = RADIOLIB_NC;
 
-  this->mod.spibaud = 20000;
+  this->spibaud = 20000;
+
   //mod_init();
   if (this->irqPin >= 0) {
     pinMode(this->irqPin, GpioModeInput);
@@ -951,6 +953,8 @@ int16_t CC1101_begin(float freq, float br, float freqDev, float rxBw, int8_t pwr
     //RADIOLIB_DEBUG_BASIC_PRINTLN("M\tCC1101");
     AddLog(LOG_LEVEL_INFO, PSTR("M\tCC1101"));
   }
+
+  return true;
 
   int16_t state = CC1101_config();
   RADIOLIB_ASSERT(state);

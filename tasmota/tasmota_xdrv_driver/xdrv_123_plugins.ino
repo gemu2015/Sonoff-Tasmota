@@ -347,9 +347,22 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_file_write,
   JMPTBL&CharToFloat,
   JMPTBL&tmod_AddLogData,
-  JMPTBL&tmod_file_exists
-
+  JMPTBL&tmod_file_exists,
+#if defined(ESP8266) || defined(__riscv)
+  JMPTBL&strncmp_P,
+#else
+  JMPTBL&tmod_strncmp_P,
+#endif
+  JMPTBL&special_malloc,
+  JMPTBL&ResponseCmndChar
 };
+
+int tmod_strncmp_P(const char * str1P, const char * str2P, size_t size) {
+  char *cp = copyStr(str2P);
+  int res = strncmp(str1P, cp, size);
+  free(cp);
+  return res;
+}
 
 
 uint32_t tmod_file_exists(const char *path) {
@@ -392,6 +405,12 @@ class File *tmod_file_open(char *path, char mode) {
       break;
     case 'a':
       temp_file = cfp->open(cpath, FS_FILE_APPEND);
+      break;
+    case 'u':
+      temp_file = cfp->open(cpath, "w+");
+      break;
+    case 'U':
+      temp_file = cfp->open(cpath, "r+");
       break;
   }
 #endif
@@ -2002,7 +2021,9 @@ uint16_t MOD_FreeSlots() {
 
 void Modul_Check_HTML_Setvars(void) {
 
-  if (!HttpCheckPriviledgedAccess()) { return; }
+  if (!HttpCheckPriviledgedAccess()) { 
+    return;
+  }
 
   if (Webserver->hasArg(F("modules"))) {
     String stmp = Webserver->arg(F("modules"));
@@ -2484,6 +2505,7 @@ bool Xdrv123(uint32_t function) {
     case FUNC_WEB_ADD_BUTTON:
     case FUNC_SET_POWER: 
     case FUNC_LOOP:
+    case FUNC_COMMAND_SENSOR:
     case FUNC_WEB_ADD_MAIN_BUTTON:
       if (plugins.ready) {
         Module_Execute(function);
@@ -2491,6 +2513,8 @@ bool Xdrv123(uint32_t function) {
       break;
     case FUNC_WEB_SENSOR:
       if (plugins.ready) {
+        //for (int i = 0; i < Webserver->args(); i++)
+        //    Serial.printf("Paramter[%i]: %s: %s\n", i, Webserver->argName(i).c_str(), Webserver->arg(i).c_str());
         Modul_Check_HTML_Setvars();
         ModuleWebSensor();
       }
