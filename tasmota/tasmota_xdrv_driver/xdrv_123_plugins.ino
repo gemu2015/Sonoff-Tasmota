@@ -470,7 +470,7 @@ void tmod_spi_begin(SPIClass *spi, uint8_t flg, int8_t sck, int8_t miso, int8_t 
 #ifdef ESP32 
   if (!flg) {
     if (sck < 0) {
-      sck = Pin(GPIO_SPI_SCLK);
+      sck = Pin(GPIO_SPI_CLK);
     }
     if (miso < 0) {
       miso = Pin(GPIO_SPI_MISO);
