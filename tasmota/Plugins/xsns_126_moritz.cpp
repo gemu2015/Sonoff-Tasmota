@@ -986,7 +986,7 @@ void rf_moritz_task(void) {
                       (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi);
             new_moritz((const char *)&cp.source[0], 1, (cp.rawPayload[0] >> 1) & 1, (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi, 0, 0, 0, 0);
             Moritz_Sort_List(0);
-            moritz_mqtt(id, "WC", params);
+            moritz_mqtt(id, PSTR("WC"), params);
           }
           break;
         case 0x42:
@@ -1003,7 +1003,7 @@ void rf_moritz_task(void) {
                       (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi);
             new_moritz((const char *)&cp.source[0], 0, cp.rawPayload[1] & 1, (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi, 0, 0, 0, 0);
             Moritz_Sort_List(0);
-            moritz_mqtt(id, "PB", params);
+            moritz_mqtt(id, PSTR("PB"), params);
           }
           break;
         case 0x60:
@@ -1045,7 +1045,7 @@ void rf_moritz_task(void) {
                       ts1, ts2, cp.rawPayload[1], ctrlMode, (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi);
             new_moritz((const char *)&cp.source[0], 2, cp.rawPayload[1] & 1, (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi, fixunssfsi(fmul(measuredTemperature, 10)), (cp.rawPayload[2] & 0x7f), cp.rawPayload[1], ctrlMode);
             Moritz_Sort_List(0);
-            moritz_mqtt(id, "TERM", params);
+            moritz_mqtt(id, PSTR("TERM"), params);
           }
           break;
         case 0x70:
@@ -1345,9 +1345,9 @@ const char HTTP_MORITZ_THERM[] PROGMEM =
 
 const char HTTP_MORITZ_SCRIPT[] PROGMEM =
     "<script>function miva(par,ivar){"
-    //"rfsh=1;"
+    "rfsh=1;"
     "la('&moritz='+ivar+'_'+par);"
-    //"rfsh=0;"
+    "rfsh=0;"
     "}</script>";
 
 void Moritz_Check_HTML_Setvars(void) {
@@ -1362,7 +1362,6 @@ SETREGS
   }
 
   if (WebServer_hasArg(PSTR("moritz")) ) {
-    //String stmp = Webserver_arg("moritz");
     char stmp[64];
     WebGetArg(PSTR("moritz"), stmp, sizeof(stmp));
 
@@ -1375,7 +1374,7 @@ SETREGS
       cp++;
       MORITZ_MEM ml;
       get_MLabel(ind, &ml);
-      strncpy(ml.label, cp, MMLSIZ);
+      strncpy_P(ml.label, cp, MMLSIZ);
       put_MLabel(ind, &ml);
       AddLog(LOG_LEVEL_INFO, PSTR("Moritz set label of ind=%d to %s"), ind, cp);
 
@@ -1483,22 +1482,31 @@ SETREGS
       char enblid[16];
       sprintf_P(enblid, PSTR("enb%d"), cnt);
 
+      char types[8];
+      strncpy_P(types, PSTR("PBWCTHWT"), 8);
+      char tp[3];
+      tp[2] = 0;
+      strncpy_P(tp, &types[(xmp->mdata.type & 3) * 2], 2);
+      char xid[8];
+
       switch (xmp->mdata.type) {
         case 0:
-          WSContentSend_P(GSTR(HTTP_MORITZ_COMMON), "c0c0c0", "PB", MMLSIZ - 1, lbl, lblid, rfes, bls, xmp->rssi);
+          strncpy_P(xid, PSTR("c0c0c0"), 6);
+          WSContentSend_P(GSTR(HTTP_MORITZ_COMMON), xid, tp, MMLSIZ - 1, lbl, lblid, rfes, bls, xmp->rssi);
           GetTextIndexed(blbl, sizeof(blbl), xmp->mdata.is_open, pbstr);
           WSContentSend_P(GSTR(HTTP_MORITZ_PBUT), blbl);
           break;
         case 1:
-          WSContentSend_P(GSTR(HTTP_MORITZ_COMMON), "a0a0a0", "WC", MMLSIZ - 1, lbl, lblid, rfes, bls, xmp->rssi);
+          strncpy_P(xid, PSTR("a0a0a0"), 6);
+          WSContentSend_P(GSTR(HTTP_MORITZ_COMMON), xid, tp, MMLSIZ - 1, lbl, lblid, rfes, bls, xmp->rssi);
           GetTextIndexed(blbl, sizeof(blbl), xmp->mdata.is_open, wcstr);
           const char *cp;
           uint8_t uval;
           if (xmp->mdata.enabled) {
-            cp = "checked='checked'";
+            cp = PSTR("checked='checked'");
             uval = 0;
           } else {
-            cp = "";
+            cp = PSTR("");
             uval = 1;
           }
           WSContentSend_P(GSTR(HTTP_MORITZ_WC), cp, uval, enblid, blbl);
@@ -1512,7 +1520,8 @@ SETREGS
           ftostrfd(tmp, 1, ts1);
           tmp = fdiv(tofloat(xmp->mtemperature) , 10.0);
           ftostrfd(tmp, 1, ts2);
-          WSContentSend_P(GSTR(HTTP_MORITZ_COMMON), "808080", "TH", MMLSIZ - 1, lbl, lblid, rfes, bls, xmp->rssi);
+          strncpy_P(xid, PSTR("808080"), 6);
+          WSContentSend_P(GSTR(HTTP_MORITZ_COMMON), xid, tp, MMLSIZ - 1, lbl, lblid, rfes, bls, xmp->rssi);
           WSContentSend_P(GSTR(HTTP_MORITZ_THERM), mod, ts1, tmpid, ts2);
           }
           break;
@@ -1726,26 +1735,50 @@ SETREGS
 
   if (!pflag) return;
 
+/*
+  07:34:39.162 1-PB-051ffc - Button
+07:34:39.163 2-WC-18799a - Arbeitszimmer Gerhard
+07:34:39.164 3-WC-1878e5 - 
+07:34:39.165 4-WC-18799f - 
+07:34:39.167 5-WC-1879e0 - 
+07:34:39.168 6-WC-1878e8 - 
+07:34:39.169 7-WC-1879b0 - 
+07:34:39.172 8-WC-1879a8 - 
+07:34:39.174 9-WC-188a1c - 
+07:34:39.177 10-TH-19879d - 
+07:34:39.180 11-TH-0e7b8e - 
+07:34:39.182 12-TH-0e8bd2 - 
+07:34:39.185 13-TH-0e8d48 - 
+07:34:39.187 14-TH-0e7bc5 - 
+07:34:39.190 15-TH-0e8d4d - 
+07:34:39.193 16-TH-0e8bec - 
+07:34:39.196 RSL: RESULT = {"MaxList":"Done"}
+*/
+
+  Response_P(PSTR("{\"MAX\":{"));
+
+  uint8_t first = 0;
   for (uint8_t cnt = 0; cnt < MORITZ_MAX_DEVICES; cnt++) {
     get_MLabel(cnt, &ml);
     if (ml.id[0] || ml.id[1] || ml.id[2]) {
-      const char *tp;
-      switch (ml.mdata.type) {
-        case 0:
-          tp = "PB";
-          break;
-        case 1:
-          tp = "WC";
-          break;
-        case 2:
-          tp = "TH";
-          break;
+      char types[8];
+      strncpy_P(types, PSTR("PBWCTHWT"), 8);
+      char tp[3];
+      tp[2] = 0;
+
+      strncpy_P(tp, &types[(ml.mdata.type & 3) * 2], 2);
+
+      if (first) {
+        ResponseAppend_P(PSTR(","));
       }
-      char log_data[128];
-      sprintf_P(log_data, PSTR("%d-%s-%02x%02x%02x - %s"), cnt + 1, tp, ml.id[0], ml.id[1], ml.id[2], ml.label);
-      AddLogData(LOG_LEVEL_INFO, log_data);
+      //char log_data[128];
+      //sprintf_P(log_data, PSTR("%d-%s-%02x%02x%02x - %s"), cnt + 1, tp, ml.id[0], ml.id[1], ml.id[2], ml.label);
+      //AddLogData(LOG_LEVEL_INFO, log_data);
+      ResponseAppend_P(PSTR("\"N%0d\":{\"MD\":\"%s\",\"ID\":\"%02x%02x%02x\",\"LBL\":\"%s\"}"),cnt + 1, tp, ml.id[0], ml.id[1], ml.id[2], ml.label);
+      first = 1;
     }
   }
+  ResponseJsonEnd();
 }
 
 // 8 ms ticks
@@ -1785,12 +1818,13 @@ MODULE_PART void Moritz_Reset();
 MODULE_PART void Moritz_Delete();
 MODULE_PART void Moritz_Delete_Unnamed();
 MODULE_PART void Moritz_SetLabel();
+MODULE_PART void Moritz_Pair();
 
 void Moritz_List() {
   SETREGS
   // list all
   Moritz_Sort_List(1);
-  ResponseCmndDone();
+  //ResponseCmndDone();
 }
 
 void Moritz_Reset() {
@@ -1857,10 +1891,19 @@ SETREGS
   ResponseCmndChar(ms);
 }
 
+void Moritz_Pair() {
+SETREGS
+  if (XdrvMailbox->data_len > 0) {
+    moritz_cfg.pair_enable = XdrvMailbox->payload;
+  }
+  ResponseCmndNumber(moritz_cfg.pair_enable);
+}
+
+
 const char Moritz_Commands[] PROGMEM =
     "Max|"  // Prefix
-    "List|Reset|Del|DelUn|Label|";
-void (*const Moritz_Command[])(void) PROGMEM = {&Moritz_List,&Moritz_Reset,&Moritz_Delete,&Moritz_Delete_Unnamed,&Moritz_SetLabel};
+    "List|Reset|Del|DelUn|Label|Pair";
+void (*const Moritz_Command[])(void) PROGMEM = {&Moritz_List,&Moritz_Reset,&Moritz_Delete,&Moritz_Delete_Unnamed,&Moritz_SetLabel,&Moritz_Pair};
 
 /*
 const char S_JSON_MORITZ[] PROGMEM = "{\"MORITZ\":{\"%s\":%d}}";

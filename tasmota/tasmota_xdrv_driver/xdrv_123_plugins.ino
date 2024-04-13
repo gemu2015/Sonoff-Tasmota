@@ -354,7 +354,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_strncmp_P,
 #endif
   JMPTBL&special_malloc,
-  JMPTBL&ResponseCmndChar
+  JMPTBL&ResponseCmndChar,
+  JMPTBL&strtol
 };
 
 int tmod_strncmp_P(const char * str1P, const char * str2P, size_t size) {
@@ -366,6 +367,7 @@ int tmod_strncmp_P(const char * str1P, const char * str2P, size_t size) {
 
 
 uint32_t tmod_file_exists(const char *path) {
+  int32_t result = 0;
 #ifdef USE_UFILESYS
   char *cpath = copyStr(path);
 #ifdef USE_SCRIPT  
@@ -373,11 +375,9 @@ uint32_t tmod_file_exists(const char *path) {
 #else
   FS *cfp = ufsp;
 #endif
-
-  int32_t result;
   result = cfp->exists(cpath);
   free(cpath);
-#endif
+#endif // USE_UFILESYS
   return result;
 }
 
@@ -413,13 +413,15 @@ class File *tmod_file_open(char *path, char mode) {
       temp_file = cfp->open(cpath, "r+");
       break;
   }
-#endif
   free(cpath);
   if (temp_file > 0) {
     return &temp_file;
   } else {
     return nullptr;
   }
+#else
+  return nullptr;
+#endif // USE_UFILESYS
 }
 
 void tmod_file_close(class File *fp) {

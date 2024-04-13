@@ -184,6 +184,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jstrncmp_P(A,B,C)               (( int (*)(const char *, const char *, size_t)) jt[150])(A,B,C)
 #define jspecial_malloc(A)              (( void * (*)(uint32_t))                        jt[151])(A)
 #define jResponseCmndChar(A)            (( void (*)(char *))                            jt[152])(A)
+#define jstrtol(A,B,C)                  (( int32_t (*)(char *, char **, size_t ))       jt[153])(A,B,C)
 
 
 // Arduino macros
@@ -669,6 +670,7 @@ typedef struct {
 #undef memcpy_P
 #define   memcpy_P jmemmove
 #define   strncpy jstrncpy
+#define   strncpy_P jstrncpy
 #define   isprint jisprint
 #define   setClockStretchLimit(VAL) jsetClockStretchLimit(mem->xWire, VAL)
 #define   writen(BUF,LEN) jwriten(mem->xWire,BUF,LEN)
@@ -693,7 +695,7 @@ typedef struct {
 #define directModeOutput jdirectModeOutput
 #define CalcTempHumToAbsHum jCalcTempHumToAbsHum
 #define tofloat jtofloat
-
+#define strtol jstrtol
 
 #define fdiv jfdiv
 #define iseq jiseq
