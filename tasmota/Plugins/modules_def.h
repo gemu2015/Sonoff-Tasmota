@@ -88,6 +88,9 @@ enum {
 };
 
 
+#define FUNC_QUERY_LOW 0x80000000
+#define FUNC_QUERY_HIGH 0xffffffff
+
 //slow RTC MEM
 #define GLOB_MOD_REG 0x50001ff0
 //#define GLOB_MOD_REG RTC_SLOW_MEM

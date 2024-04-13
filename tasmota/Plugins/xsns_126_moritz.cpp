@@ -126,9 +126,15 @@ typedef struct {
 #define fakeWallThermostatAddr mem->fakeWallThermostatAddr
 #define lastSendingTicks mem->lastSendingTicks
 
+#ifdef ESP32
+#define MORITZ_DEFAULT_CS 15
+#else
+#define MORITZ_DEFAULT_CS 2
+#endif
+
 /********************************************************************************************/
 PUSH_OPTIONS
-MODULE_DESCRIPTOR("MORITZ",MODULE_TYPE_SENSOR,1<<16|4,"CS",15,"",0,"",0,"",0)
+MODULE_DESCRIPTOR("MORITZ",MODULE_TYPE_SENSOR,1<<16|4,"CS",MORITZ_DEFAULT_CS,"",0,"",0,"",0)
 MODULE_PART void ccInitChip(void);
 MODULE_PART void cc_factory_reset(void);
 MODULE_PART void ccDump(void);
@@ -171,7 +177,7 @@ MODULE_PART void moritz_send(char *in);
 MODULE_PART void moritz_mqtt(const char *hid, const char *type, char *payload);
 MODULE_PART void Moritz_Check_HTML_Setvars(void);
 MODULE_PART void moritz_show(void);
-MODULE_PART int32_t mo_getvars(uint32_t index, uint32_t type, char *retval);
+MODULE_PART char *mo_getvars(uint32_t sel);
 MODULE_PART bool CC1101_Detect();
 MODULE_PART void get_MLabel(uint8_t index, MORITZ_MEM *ml);
 MODULE_PART void put_MLabel(uint8_t index, MORITZ_MEM *ml);
@@ -1542,53 +1548,54 @@ SETREGS
   WSContentSend_P(GSTR(HTTP_MORITZ_TEND));
 }
 
-
-#ifdef xUSE_SCRIPT
+#ifdef USE_SCRIPT
 // called from scripter
-int32_t mo_getvars(uint32_t index, uint32_t type, char *retval) {
+char *mo_getvars(uint32_t sel) {
 SETREGS
+
+  uint8_t index = sel & 0xff;
+  uint8_t type = sel >> 8;
+  char *retval = (char*)special_malloc(128); 
+  if (!retval) {
+    return nullptr;
+  }
 
   MORITZ_MEM mo;
   int32_t found = 0;
 
   if (!moritz_cfg.moritz_ready) {
-    retval[0] = '0';
-    retval[1] = 0;
-    return 0;
+    sprintf_P(retval, PSTR("not ready"));
+    return retval;
   }
 
   for (uint16_t cnt = 0; cnt < MORITZ_MAX_DEVICES; cnt++) {
-    mo = moritz_devices[cnt];
-    //  AddLog(LOG_LEVEL_INFO, PSTR("Moritz set label of ind=%d to %s"), ind, cp);_P2(LOG_LEVEL_INFO, PSTR(">>: index=%d"), cnt);
+    memmove(&mo, &moritz_devices[cnt] , sizeof(MORITZ_MEM));
 
     if (mo.id[0] || mo.id[1] || mo.id[2]) {
       if (mo.mdata.type == (type & 3)) {
         //
         found++;
         if (index > 0 && index == found) {
-          char rbf[32];
           if (type & 0x10) {
-            float tmp = fdiv(tofloat(mo.dtemperature) , 2.0);
-            ftostrfd(tmp, 1, retval);
-            tmp = fdiv(tofloat(mo.mtemperature) , 10.0);
-            ftostrfd(tmp, 1, rbf);
-            strcat(retval, ",");
-            strcat(retval, rbf);
-            sprintf(rbf, ",%d,%d", mo.valve, mo.tmode);
-            strcat(retval, rbf);
+            float dtmp = fdiv(tofloat(mo.dtemperature) , 2.0);
+            float mtmp = fdiv(tofloat(mo.mtemperature) , 10.0);
+            char dtmp_s[16];
+            char mtmp_s[16];
+            ftostrfd(dtmp, 1, dtmp_s);
+            ftostrfd(mtmp, 1, mtmp_s);
+            sprintf_P(retval, PSTR("%s,%d,%d,%d,%d,%d,%d,%s,%s"), mo.label, mo.mdata.enabled, mo.mdata.rf_error, mo.mdata.battery_low, mo.rssi, mo.valve, mo.tmode, dtmp_s, mtmp_s);
           } else {
-            sprintf(retval, "%s,%d,%d,%d,%d,%d", mo.label, mo.mdata.enabled, mo.mdata.is_open, mo.mdata.rf_error, mo.mdata.battery_low,
-                    mo.rssi);
+            sprintf_P(retval, PSTR("%s,%d,%d,%d,%d,%d"), mo.label, mo.mdata.enabled, mo.mdata.rf_error, mo.mdata.battery_low, mo.rssi, mo.mdata.is_open);
           }
-          return found;
+          return retval;
         }
       }
     } else {
       //  break;
     }
   }
-  sprintf(retval, "%d", found);
-  return found;
+  sprintf_P(retval, PSTR("not found"));
+  return retval;
 }
 #endif
 
@@ -1606,7 +1613,9 @@ ALLOCMEM
  
     credit_10ms = MAX_CREDIT / 2;
 
+#ifdef ESP8266
     spi_begin();
+#endif
 
     moritz_addr[0] = MORITZ_BASE_ADDRESS >> 16;
     moritz_addr[1] = (MORITZ_BASE_ADDRESS >> 8) & 0xff;
@@ -2103,6 +2112,12 @@ RETMEM
 int32_t mod_func_execute(uint32_t function) {
   bool result = false;
 
+#ifdef USE_SCRIPT
+  if (function > FUNC_QUERY_LOW && function < FUNC_QUERY_HIGH) {
+    return (int32_t)mo_getvars(function & 0xffffff);
+  }
+#endif
+
   switch (function) {
     case FUNC_INIT:
       result = CC1101_Detect();
@@ -2132,6 +2147,7 @@ int32_t mod_func_execute(uint32_t function) {
         result = DecodeCommand(Moritz_Commands, Moritz_Command);
       }
       break;
+
 		case FUNC_DEINIT:
 			MORITZ_Deinit();
 			break;	

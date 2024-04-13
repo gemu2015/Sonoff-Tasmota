@@ -469,6 +469,15 @@ SPIClass *tmod_getspi(uint8_t sel) {
 void tmod_spi_begin(SPIClass *spi, uint8_t flg, int8_t sck, int8_t miso, int8_t mosi) {
 #ifdef ESP32 
   if (!flg) {
+    if (sck < 0) {
+      sck = Pin(GPIO_SPI_SCLK);
+    }
+    if (miso < 0) {
+      miso = Pin(GPIO_SPI_MISO);
+    }
+    if (mosi < 0) {
+      mosi = Pin(GPIO_SPI_MOSI);
+    }
     spi->begin(sck, miso, mosi, -1);
   } else {
     spi->end();
@@ -1360,6 +1369,26 @@ void Module_Execute(uint32_t sel) {
     }
   }
 }
+
+
+#ifdef USE_SCRIPT
+char *Plugin_Query(uint8_t index, uint8_t sel) {
+char *result = 0;
+  for (uint8_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
+    if (modules[cnt].mod_addr) {
+      if (modules[cnt].flags.initialized) {
+        const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
+        result = (char*)MOD_EXEC(FUNC_QUERY_LOW | (sel << 8) | index );
+        if (result) {
+          return result;
+        }
+      }
+    }
+  }
+  return result;
+}
+
+#endif
 
 bool Module_Command(uint32_t sel) {
 bool result = false;

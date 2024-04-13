@@ -4760,7 +4760,8 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           len = 0;
           goto exit;
         }
-#ifdef USE_MORITZ
+#ifdef USE_BINPLUGINS
+char *Plugin_Query(uint8_t, uint8_t);
         if (!strncmp_XP(lp, XPSTR("mo("), 3)) {
           TS_FLOAT fvar1;
           lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar1, gv);
@@ -4768,14 +4769,21 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           TS_FLOAT fvar2;
           lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
           SCRIPT_SKIP_SPACES
-          char rbuff[64];
-          fvar = mo_getvars(fvar1, fvar2, rbuff);
+          char *rbuff = Plugin_Query(fvar1, fvar2);
+          if (rbuff) {
+            if (sp) strlcpy(sp, rbuff, glob_script_mem.max_ssize);
+            free (rbuff);
+          } else {
+            if (sp) {
+              strcpy_P(sp, PSTR("not found"));
+            }
+          }
           lp++;
-          if (sp) strlcpy(sp, rbuff, glob_script_mem.max_ssize);
           len = 0;
           goto strexit;
         }
-#endif //USE_MORITZ
+#endif //USE_BINPLUGINS
+
 #ifdef ESP32_FAST_MUX
         if (!strncmp_XP(lp, XPSTR("mux("), 4)) {
           lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);

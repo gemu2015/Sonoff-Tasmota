@@ -670,6 +670,7 @@ typedef struct {
 #undef memcpy_P
 #define   memcpy_P jmemmove
 #define   strncpy jstrncpy
+#undef strncpy_P
 #define   strncpy_P jstrncpy
 #define   isprint jisprint
 #define   setClockStretchLimit(VAL) jsetClockStretchLimit(mem->xWire, VAL)
