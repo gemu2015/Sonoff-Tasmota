@@ -986,7 +986,9 @@ void rf_moritz_task(void) {
                       (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi);
             new_moritz((const char *)&cp.source[0], 1, (cp.rawPayload[0] >> 1) & 1, (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi, 0, 0, 0, 0);
             Moritz_Sort_List(0);
-            moritz_mqtt(id, PSTR("WC"), params);
+            char type[3];
+            strcpy_P(type, PSTR("WC"));
+            moritz_mqtt(id, type, params);
           }
           break;
         case 0x42:
@@ -1003,7 +1005,9 @@ void rf_moritz_task(void) {
                       (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi);
             new_moritz((const char *)&cp.source[0], 0, cp.rawPayload[1] & 1, (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi, 0, 0, 0, 0);
             Moritz_Sort_List(0);
-            moritz_mqtt(id, PSTR("PB"), params);
+            char type[3];
+            strcpy_P(type, PSTR("PB"));
+            moritz_mqtt(id, type, params);
           }
           break;
         case 0x60:
@@ -1045,7 +1049,9 @@ void rf_moritz_task(void) {
                       ts1, ts2, cp.rawPayload[1], ctrlMode, (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi);
             new_moritz((const char *)&cp.source[0], 2, cp.rawPayload[1] & 1, (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi, fixunssfsi(fmul(measuredTemperature, 10)), (cp.rawPayload[2] & 0x7f), cp.rawPayload[1], ctrlMode);
             Moritz_Sort_List(0);
-            moritz_mqtt(id, PSTR("TERM"), params);
+            char type[5];
+            strcpy_P(type, PSTR("TERM"));
+            moritz_mqtt(id, type, params);
           }
           break;
         case 0x70:
@@ -1456,25 +1462,29 @@ SETREGS
         lbl = ma;
         sprintf_P(lbl, PSTR("%02x%02x%02x"), xmp->id[0], xmp->id[1], xmp->id[2]);
       }
-      const char *gc = PSTR("<gc>0</gc>");
-      const char *rc = PSTR("<rc>1</rc>");
+      char gc[12];
+      strcpy_P(gc, PSTR("<gc>0</gc>"));
+      char rc[12];
+      strcpy_P(rc, PSTR("<rc>1</rc>"));
 
-      const char *rfes;
+      char *rfes;
       if (xmp->mdata.rf_error)
         rfes = rc;
       else
         rfes = gc;
 
-      const char *bls;
+      char *bls;
       if (xmp->mdata.battery_low)
         bls = rc;
       else
         bls = gc;
 
-      const char *pbstr = PSTR("<gc>ECO</gc>|<yc>AUTO</yc>");
-      const char *wcstr = PSTR("<gc>closed</gc>|<rc>open</rc>");
+      char pbstr[30];
+      strcpy_P(pbstr, PSTR("<gc>ECO</gc>|<yc>AUTO</yc>"));
+      char wcstr[32];
+      strcpy_P(wcstr, PSTR("<gc>closed</gc>|<rc>open</rc>"));
+  
       char blbl[16];
-
       char lblid[16];
       sprintf_P(lblid, PSTR("lbl%d"), cnt);
       char tmpid[16];
@@ -1483,7 +1493,8 @@ SETREGS
       sprintf_P(enblid, PSTR("enb%d"), cnt);
 
       char types[8];
-      strncpy_P(types, PSTR("PBWCTHWT"), 8);
+      strcpy_P(types, PSTR("PBWCTHWT"));
+
       char tp[3];
       tp[2] = 0;
       strncpy_P(tp, &types[(xmp->mdata.type & 3) * 2], 2);
@@ -1500,13 +1511,13 @@ SETREGS
           strncpy_P(xid, PSTR("a0a0a0"), 6);
           WSContentSend_P(GSTR(HTTP_MORITZ_COMMON), xid, tp, MMLSIZ - 1, lbl, lblid, rfes, bls, xmp->rssi);
           GetTextIndexed(blbl, sizeof(blbl), xmp->mdata.is_open, wcstr);
-          const char *cp;
+          char cp[18];
           uint8_t uval;
           if (xmp->mdata.enabled) {
-            cp = PSTR("checked='checked'");
+            strcpy_P(cp, PSTR("checked='checked'"));
             uval = 0;
           } else {
-            cp = PSTR("");
+            cp[0] = 0;
             uval = 1;
           }
           WSContentSend_P(GSTR(HTTP_MORITZ_WC), cp, uval, enblid, blbl);
@@ -1734,26 +1745,6 @@ SETREGS
   }
 
   if (!pflag) return;
-
-/*
-  07:34:39.162 1-PB-051ffc - Button
-07:34:39.163 2-WC-18799a - Arbeitszimmer Gerhard
-07:34:39.164 3-WC-1878e5 - 
-07:34:39.165 4-WC-18799f - 
-07:34:39.167 5-WC-1879e0 - 
-07:34:39.168 6-WC-1878e8 - 
-07:34:39.169 7-WC-1879b0 - 
-07:34:39.172 8-WC-1879a8 - 
-07:34:39.174 9-WC-188a1c - 
-07:34:39.177 10-TH-19879d - 
-07:34:39.180 11-TH-0e7b8e - 
-07:34:39.182 12-TH-0e8bd2 - 
-07:34:39.185 13-TH-0e8d48 - 
-07:34:39.187 14-TH-0e7bc5 - 
-07:34:39.190 15-TH-0e8d4d - 
-07:34:39.193 16-TH-0e8bec - 
-07:34:39.196 RSL: RESULT = {"MaxList":"Done"}
-*/
 
   Response_P(PSTR("{\"MAX\":{"));
 
@@ -2054,6 +2045,52 @@ SETREGS
   }
   return serviced;
 }
+
+
+Arbeitszimmer Gerhard 	KEQ1088966
+Bad			KEQ1088070
+Flur			KEQ1088568
+Küche			KEQ1088661
+Arbeitszimmer Heidrun	KEQ1088961
+Schlafzimmer Gerhard	KEQ1307206
+Wohnzimmer vorne	KEQ1088586
+Wohnzimmer Veranda	KEQ1088038
+Keller			KEQ1088373
+
+
+
+var id1="sonoff.0.Alarmanlage.POWER";  // taste
+var id2="cul.0.MORITZ.1878e5.isopen";  // gerhard links
+var id3="cul.0.MORITZ.18799a.isopen";  // gerhard rechts
+var id4="cul.0.MORITZ.188a1c.isopen";  // bad
+var id5="cul.0.MORITZ.1879d7.isopen";  // arbeitszimmer heidrun
+var id6="cul.0.MORITZ.18799f.isopen";   // Flur
+var id7="cul.0.MORITZ.1879b0.isopen";   // Küche
+var id8="cul.0.MORITZ.1879a8.isopen";   // Wohnzimmer links
+var id9="cul.0.MORITZ.1879e0.isopen";  // Wohnzimmer rechts
+var id10="cul.0.MORITZ.1878e8.isopen";  // Wohnzimmertür
+
+
+12:23:38.926 1-PB-051ffc - Modebutton
+12:23:38.984 14-WC-18799a - AZ_Gerhard_rechts
+12:23:38.990 15-WC-1878e5 - AZ_Gerhard_links
+12:23:38.995 16-WC-1879a8 - Wohnzimmer_links
+12:23:39.000 17-WC-1879e0 - Wohnzimmer_rechts
+12:23:39.006 18-WC-18799f - Flur
+12:23:39.011 19-WC-1878e8 - Wohnzimmer_Tür
+12:23:39.016 20-WC-188a1c - Bad
+12:23:39.021 21-WC-1879b0 - Küche
+12:23:39.026 22-WC-1879d7 - AZ_Heidrun
+12:23:39.071 32-TH-0e8d4d - AZ_Gerhard
+12:23:39.077 33-TH-0e7bc5 - Wohnzimmer_Veranda
+12:23:39.082 34-TH-19879d - Schlafzimmer_Gerhard
+12:23:39.088 35-TH-0e8bd2 - Flur_Erdgeschoss
+12:23:39.093 36-TH-0e7b8e - Bad
+12:23:39.099 37-TH-0e8b84 - Flur_Keller
+12:23:39.104 38-TH-0e8bec - Wohnzimmer_vorne
+12:23:39.110 39-TH-0e8c31 - Küche
+12:23:39.115 40-TH-0e8d48 - AZ_Heidrun
+
 */
 
 void MORITZ_Deinit(void) {
