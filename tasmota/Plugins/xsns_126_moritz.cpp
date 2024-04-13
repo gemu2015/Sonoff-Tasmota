@@ -2057,8 +2057,6 @@ Wohnzimmer vorne	KEQ1088586
 Wohnzimmer Veranda	KEQ1088038
 Keller			KEQ1088373
 
-
-
 var id1="sonoff.0.Alarmanlage.POWER";  // taste
 var id2="cul.0.MORITZ.1878e5.isopen";  // gerhard links
 var id3="cul.0.MORITZ.18799a.isopen";  // gerhard rechts
