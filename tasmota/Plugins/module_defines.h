@@ -740,6 +740,7 @@ typedef struct {
 #define AddLogData jAddLogData
 #define calloc jcalloc
 #define fexists jfexists
+#undef strncmp_P
 #define strncmp_P jstrncmp_P
 #define special_malloc jspecial_malloc
 #define ResponseCmndChar jResponseCmndChar

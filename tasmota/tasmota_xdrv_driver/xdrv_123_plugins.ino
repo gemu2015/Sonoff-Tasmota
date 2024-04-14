@@ -138,6 +138,7 @@ char * tmod_GetTextIndexed(char* destination, size_t destination_size, uint32_t 
 bool WebServer_hasArg(const char * str);
 void tmod_WSContentStart_P(const char* title);
 char * tmod_strcpy_P(char *dst , const char *src);
+char * tmod_strncpy_P(char *dst , const char *src, size_t len);
 void tmod_WebServer_on(const char * prefix, void (*func)(void), uint8_t method);
 void *tmod_gtbl(void);
 SPIClass *tmod_getspi(uint8_t sel);
@@ -256,7 +257,11 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&MqttPublishTeleSensor,
   JMPTBL&strtoul,
   JMPTBL&AddLogBuffer,
+#if defined(ESP8266) || defined(__riscv)
   JMPTBL&ResponseTime_P,
+#else
+  JMPTBL&tmod_ResponseTime_P,
+#endif
   JMPTBL&ClaimSerial,
   JMPTBL&hardwareSerialTS,
   JMPTBL&millis,
@@ -291,7 +296,11 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&ResponseCmndFloat,
   JMPTBL&ResponseAppendTHD,
   JMPTBL&WSContentSend_THD,
+#if defined(ESP8266) || defined(__riscv)
   JMPTBL&strncpy_P,
+#else
+  JMPTBL&tmod_strncpy_P,
+#endif
   JMPTBL&isprint,
   JMPTBL&tmod_isinf,
   JMPTBL&copyStr,
@@ -524,6 +533,15 @@ void tmod_WebServer_on(const char * prefix, void (*func)(void), uint8_t method) 
 }
 
 
+char * tmod_strncpy_P(char *dst , const char *src, size_t len)  {
+  char *out = 0;
+#ifdef ESP32
+  char *fcopy = copyStr(src);
+  out = strncpy_P(dst, fcopy, len);
+  free(fcopy);
+#endif
+  return out;
+}
 
 char * tmod_strcpy_P(char *dst , const char *src)  {
 #if defined(ESP8266) || defined(__riscv)
@@ -812,6 +830,28 @@ int tmod_strncasecmp_P(const char *s1, const char *s2, size_t len) {
   return res;
 #endif
 
+}
+
+int tmod_ResponseTime_P(const char* format, ...)    // Content send snprintf_P char data
+{
+
+#ifdef ESP32
+  // This uses char strings. Be aware of sending %% if % is needed
+  char timestr[100];
+  TasmotaGlobal.mqtt_data = ResponseGetTime(Settings->flag2.time_format, timestr);
+
+  char *fcopy = copyStr(format);
+  va_list arg;
+  va_start(arg, format);
+  char* mqtt_data = ext_vsnprintf_malloc_P(fcopy, arg);
+  va_end(arg);
+  if (mqtt_data != nullptr) {
+    TasmotaGlobal.mqtt_data += mqtt_data;
+    free(mqtt_data);
+  }
+  free(fcopy);
+#endif
+  return TasmotaGlobal.mqtt_data.length();
 }
 
 int tmod_snprintf_P(char *str, size_t strSize,  const char *format, ...) {

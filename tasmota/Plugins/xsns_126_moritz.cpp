@@ -127,9 +127,9 @@ typedef struct {
 #define lastSendingTicks mem->lastSendingTicks
 
 #ifdef ESP32
-#define MORITZ_DEFAULT_CS 15
-#else
 #define MORITZ_DEFAULT_CS 2
+#else
+#define MORITZ_DEFAULT_CS 15
 #endif
 
 /********************************************************************************************/
@@ -169,7 +169,6 @@ MODULE_PART int fromhex(const char *in, uint8_t *out, uint8_t buflen);
 MODULE_PART void checkFrequency(void);
 MODULE_PART void set_txrestore();
 MODULE_PART void moritz_reset(void);
-MODULE_PART void rf_moritz_init(void);
 MODULE_PART void moritz_handleAutoAck(uint8_t *enc);
 MODULE_PART void moritz_sendMsg(uint8_t cmdId, uint32_t src, uint32_t dst, uint8_t *payload, uint8_t groupId, uint8_t flags, uint8_t plen);
 MODULE_PART void SendModeTmp(uint32_t dst, uint8_t mode, float tmp);
@@ -178,7 +177,7 @@ MODULE_PART void moritz_mqtt(const char *hid, const char *type, char *payload);
 MODULE_PART void Moritz_Check_HTML_Setvars(void);
 MODULE_PART void moritz_show(void);
 MODULE_PART char *mo_getvars(uint32_t sel);
-MODULE_PART bool CC1101_Detect();
+MODULE_PART bool Moritz_Detect();
 MODULE_PART void get_MLabel(uint8_t index, MORITZ_MEM *ml);
 MODULE_PART void put_MLabel(uint8_t index, MORITZ_MEM *ml);
 MODULE_PART void set_MLabel(MORITZ_MEM *ml);
@@ -196,7 +195,7 @@ MODULE_END
 
 #define MORITZ_FSIZE sizeof(MORITZ_MEM)*MORITZ_MAX_DEVICES
 
-const char EEP_FNAME[] PROGMEM = "/moritz_data.bin";
+const char EEP_FNAME[] PROGMEM = "/ffs/moritz_data.bin";
 
 void eeprom_writeBytes(uint32_t offset, uint32_t size, void *buff) {
   SETREGS
@@ -473,9 +472,6 @@ const uint8_t PROGMEM MORITZ_CFG_TABLE[60] = {
 #define DH2(a) display_hex2(a)
 #define DNL display_nl
 
-#define my_delay_us delayMicroseconds
-#define my_delay_ms delay
-
 void display_char(char c) {
 SETREGS
  Serial.printf("%c", c); 
@@ -527,7 +523,7 @@ SETREGS
 void ccRX(void) {
   SETREGS
   uint8_t cnt = 0xff;
-  while (cnt-- && (ccStrobe(CC1100_SRX) & CC1100_STATUS_STATE_BM) != CC1100_STATE_RX) my_delay_us(10);
+  while (cnt-- && (ccStrobe(CC1100_SRX) & CC1100_STATUS_STATE_BM) != CC1100_STATE_RX) delayMicroseconds(10);
 }
 
 void ccTX(void) {
@@ -538,7 +534,7 @@ void ccTX(void) {
   // Going from RX to TX does not work if there was a reception less than 0.5
   // sec ago. Due to CCA? Using IDLE helps to shorten this period(?)
   ccStrobe(CC1100_SIDLE);
-  while (cnt-- && (ccStrobe(CC1100_STX) & 0x70) != 2) my_delay_us(10);
+  while (cnt-- && (ccStrobe(CC1100_STX) & 0x70) != 2) delayMicroseconds(10);
 }
 
 void set_ccoff(void) {
@@ -659,48 +655,41 @@ SETREGS
 
   // Toggle chip select signal
   CC1100_DEASSERT;
-  my_delay_us(30);
+  delayMicroseconds(30);
   CC1100_ASSERT;
-  my_delay_us(100);  // 30
+  delayMicroseconds(100);  // 30
   CC1100_DEASSERT;
-  my_delay_us(200);  // 45
+  delayMicroseconds(200);  // 45
 
   ccStrobe(CC1100_SRES);  // Send SRES command
-  my_delay_us(500);
+  delayMicroseconds(500);
 }
 
 
 void rf_moritz_init(void) {
   SETREGS
-  //  hal_CC_GDO_init(CC_INSTANCE,INIT_MODE_IN_CS_IN);
-  //  hal_enable_CC_GDOin_int(CC_INSTANCE,false); // disable INT - we'll poll...
 
   moritz_reset();
 
   // load configuration
-  /*
-  for (uint8_t i = 0; i < 60; i += 2) {
-    if (pgm_read_byte(&MORITZ_CFG[i]) > 0x40) break;
-
-    cc1100_writeReg(pgm_read_byte(&MORITZ_CFG[i]), pgm_read_byte(&MORITZ_CFG[i + 1]));
-  }*/
-
-  uint8_t cfgbuf[sizeof(MORITZ_CFG_TABLE)];
-  memmove_P(cfgbuf, GU8(MORITZ_CFG_TABLE), sizeof(MORITZ_CFG_TABLE));
-
-  for (uint8_t i = 0; i < 60; i += 2) {
-    if (cfgbuf[i] > 0x40) break;
-    cc1100_writeReg(cfgbuf[i], cfgbuf[i + 1]);
+  uint8_t *cfgbuf = (uint8_t*)special_malloc(sizeof(MORITZ_CFG_TABLE));
+  if (cfgbuf) {
+    memmove_P(cfgbuf, GU8(MORITZ_CFG_TABLE), sizeof(MORITZ_CFG_TABLE));
+    for (uint8_t i = 0; i < 60; i += 2) {
+      if (cfgbuf[i] > 0x40) break;
+      cc1100_writeReg(cfgbuf[i], cfgbuf[i + 1]);
+    }
+    free(cfgbuf);
   }
-
   ccStrobe(CC1100_SCAL);
 
-  my_delay_ms(4);  // 4ms: Found by trial and error
+  delay(4);  // 4ms: Found by trial and error
+
   // This is ccRx() but without enabling the interrupt
   uint8_t cnt = 0xff;
   // Enable RX. Perform calibration first if coming from IDLE and MCSM0.FS_AUTOCAL=1.
   // Why do it multiple times?
-  while (cnt-- && (ccStrobe(CC1100_SRX) & 0x70) != 1) my_delay_us(10);
+  while (cnt-- && (ccStrobe(CC1100_SRX) & 0x70) != 1) delayMicroseconds(10);
 
   moritz_cfg.moritz_on = 1;
   checkFrequency();
@@ -1145,8 +1134,8 @@ void moritz_sendraw(uint8_t *dec, int longPreamble) {
    */
   // if (lastSendingTicks)
   //  while (ticks == lastSendingTicks || ticks == lastSendingTicks+1)
-  //    my_delay_ms(1);
-  my_delay_ms(20);
+  //    delay(1);
+  delay(20);
 
   /* Enable TX. Perform calibration first if MCSM0.FS_AUTOCAL=1 (this is the case) (takes 809μs)
    * start sending - CC1101 will send preamble continuously until TXFIFO is filled.
@@ -1169,7 +1158,7 @@ void moritz_sendraw(uint8_t *dec, int longPreamble) {
 
   if (longPreamble) {
     /* Send preamble for 1 sec. Keep in mind that waiting for too long may trigger the watchdog (2 seconds on CUL) */
-    for (int i = 0; i < 10; ++i) my_delay_ms(100);  // arg is uint_8, so loop
+    for (int i = 0; i < 10; ++i) delay(100);  // arg is uint_8, so loop
   }
 
   // send
@@ -1192,7 +1181,7 @@ void moritz_sendraw(uint8_t *dec, int longPreamble) {
     if (stat1 != stat2) continue;
     if (stat1 == MARCSTATE_RX) break;  // now in RX, good
 
-    my_delay_ms(1);
+    delay(1);
   }
 
   if (cc1100_readReg(CC1100_MARCSTATE) != MARCSTATE_RX) {  // error
@@ -1229,7 +1218,7 @@ void moritz_sendAck(uint8_t *enc) {
   ackPacket[10] = 0; /* groupid */
   ackPacket[11] = 0; /* payload */
 
-  my_delay_ms(20); /* by experiments */
+  delay(20); /* by experiments */
 
   moritz_sendraw(ackPacket, 0);
 
@@ -1450,7 +1439,7 @@ SETREGS
   }
 
   char ts1[8], ts2[8];
-  char mod[3];
+  char mod[8];
   char ma[9];
   char *lbl = ma;
   MORITZ_MEM mo;
@@ -1468,6 +1457,7 @@ SETREGS
         lbl = ma;
         sprintf_P(lbl, PSTR("%02x%02x%02x"), xmp->id[0], xmp->id[1], xmp->id[2]);
       }
+  
       char gc[12];
       strcpy_P(gc, PSTR("<gc>0</gc>"));
       char rc[12];
@@ -1498,7 +1488,7 @@ SETREGS
       char enblid[16];
       sprintf_P(enblid, PSTR("enb%d"), cnt);
 
-      char types[8];
+      char types[10];
       strcpy_P(types, PSTR("PBWCTHWT"));
 
       char tp[3];
@@ -1508,13 +1498,13 @@ SETREGS
 
       switch (xmp->mdata.type) {
         case 0:
-          strncpy_P(xid, PSTR("c0c0c0"), 6);
+          strcpy_P(xid, PSTR("c0c0c0"));
           WSContentSend_P(GSTR(HTTP_MORITZ_COMMON), xid, tp, MMLSIZ - 1, lbl, lblid, rfes, bls, xmp->rssi);
           GetTextIndexed(blbl, sizeof(blbl), xmp->mdata.is_open, pbstr);
           WSContentSend_P(GSTR(HTTP_MORITZ_PBUT), blbl);
           break;
         case 1:
-          strncpy_P(xid, PSTR("a0a0a0"), 6);
+          strcpy_P(xid, PSTR("a0a0a0"));
           WSContentSend_P(GSTR(HTTP_MORITZ_COMMON), xid, tp, MMLSIZ - 1, lbl, lblid, rfes, bls, xmp->rssi);
           GetTextIndexed(blbl, sizeof(blbl), xmp->mdata.is_open, wcstr);
           char cp[18];
@@ -1529,15 +1519,15 @@ SETREGS
           WSContentSend_P(GSTR(HTTP_MORITZ_WC), cp, uval, enblid, blbl);
           break;
         case 2:
-          { char tmodes[14];
-          strncpy_P(tmodes, GSTR(MODES), 14);
-          memmove(mod, &tmodes[xmp->tmode * 2], 2);
+          { char tmodes[16];
+          strcpy_P(tmodes, GSTR(MODES));
+          memmove_P(mod, &tmodes[xmp->tmode * 2], 2);
           mod[2] = 0;
           float tmp = fdiv(tofloat(xmp->dtemperature) , 2.0);
           ftostrfd(tmp, 1, ts1);
           tmp = fdiv(tofloat(xmp->mtemperature) , 10.0);
           ftostrfd(tmp, 1, ts2);
-          strncpy_P(xid, PSTR("808080"), 6);
+          strcpy_P(xid, PSTR("808080"));
           WSContentSend_P(GSTR(HTTP_MORITZ_COMMON), xid, tp, MMLSIZ - 1, lbl, lblid, rfes, bls, xmp->rssi);
           WSContentSend_P(GSTR(HTTP_MORITZ_THERM), mod, ts1, tmpid, ts2);
           }
@@ -1553,6 +1543,9 @@ SETREGS
 char *mo_getvars(uint32_t sel) {
 SETREGS
 
+  if (!moritz_cfg.moritz_ready) {
+    return 0;
+  }
   uint8_t index = sel & 0xff;
   uint8_t type = sel >> 8;
   char *retval = (char*)special_malloc(128); 
@@ -1569,7 +1562,7 @@ SETREGS
   }
 
   for (uint16_t cnt = 0; cnt < MORITZ_MAX_DEVICES; cnt++) {
-    memmove(&mo, &moritz_devices[cnt] , sizeof(MORITZ_MEM));
+    memmove_P(&mo, &moritz_devices[cnt] , sizeof(MORITZ_MEM));
 
     if (mo.id[0] || mo.id[1] || mo.id[2]) {
       if (mo.mdata.type == (type & 3)) {
@@ -1599,7 +1592,7 @@ SETREGS
 }
 #endif
 
-bool CC1101_Detect() {
+bool Moritz_Detect() {
 ALLOCMEM
 
   STGLOB
@@ -1609,13 +1602,11 @@ ALLOCMEM
     pinMode(moritz_cfg.moritz_cs, OUTPUT);
     digitalWrite(moritz_cfg.moritz_cs, HIGH);
     GETSPI(0);
-    this->spibaud = 500000;
+    this->spibaud = ICONST(500000);
  
-    credit_10ms = MAX_CREDIT / 2;
+    credit_10ms = ICONST(MAX_CREDIT/2);
 
-#ifdef ESP8266
     spi_begin();
-#endif
 
     moritz_addr[0] = MORITZ_BASE_ADDRESS >> 16;
     moritz_addr[1] = (MORITZ_BASE_ADDRESS >> 8) & 0xff;
@@ -1626,7 +1617,6 @@ ALLOCMEM
       // no eeprom file , generate one
       uint8_t *buf = (uint8_t *)calloc(MORITZ_FSIZE, 1);
       if (buf) {
-        //M_EEP_WRITE(EEPROM_START_OFFSET, MORITZ_MAX_DEVICES * sizeof(MORITZ_MEM), buf);
         File_p *fp;
         fp = fopen(GSTR(EEP_FNAME), 'w');
         if (fp) {
@@ -1638,18 +1628,12 @@ ALLOCMEM
     }
 
     rf_moritz_init();
+
     moritz_cfg.moritz_ready = 1;
     moritz_cfg.show_all = 1;
     moritz_cfg.pair_enable = 1;
-
-    M_EEP_READ(0, sizeof(moritz_devices) , moritz_devices);
-
-    /*
-    MORITZ_MEM mlr;
-    for (uint8_t cnt = 0; cnt < MORITZ_MAX_DEVICES; cnt++) {
-      get_MLabel(cnt, &mlr);
-    }
-    */
+    
+    eeprom_readBytes(0, sizeof(moritz_devices), moritz_devices);
 
     AddLog(LOG_LEVEL_INFO, PSTR("Moritz initialized"));
 
@@ -1674,8 +1658,8 @@ SETREGS
   // sprintf(log_data,"r:%d:%02x%02x%02x %s",index,ml->id[0],ml->id[1],ml->id[2],ml->label);
   // AddLog(LOG_LEVEL_INFO);
   //moritz_devices[index] = *ml;
-  //memmove(&moritz_devices[index] , ml, sizeof(MORITZ_MEM));
-  memmove(ml, &moritz_devices[index] , sizeof(MORITZ_MEM));
+  //memmove_P(&moritz_devices[index] , ml, sizeof(MORITZ_MEM));
+  memmove_P(ml, &moritz_devices[index] , sizeof(MORITZ_MEM));
 }
 
 void put_MLabel(uint8_t index, MORITZ_MEM *ml) {
@@ -1684,8 +1668,8 @@ SETREGS
   M_EEP_WRITE(EEPROM_START_OFFSET + (index * sizeof(MORITZ_MEM)), sizeof(MORITZ_MEM), (char *)ml);
     // sprintf(log_data,"w:%d:%02x%02x%02x %s",index,ml->id[0],ml->id[1],ml->id[2],ml->label);
     // AddLog(LOG_LEVEL_INFO);
-    // memmove(&moritz_devices[index],ml,sizeof(MORITZ_MEM));
-  memmove(&moritz_devices[index] , ml, sizeof(MORITZ_MEM));
+    // memmove_P(&moritz_devices[index],ml,sizeof(MORITZ_MEM));
+  memmove_P(&moritz_devices[index] , ml, sizeof(MORITZ_MEM));
   
 }
 
@@ -1697,7 +1681,7 @@ SETREGS
     get_MLabel(cnt, &mlr);
     if (mlr.id[0] == 0 && mlr.id[1] == 0 && mlr.id[2] == 0 && mlr.label[0] == 0) break;
     if (ml->id[0] == mlr.id[0] && ml->id[1] == mlr.id[1] && ml->id[2] == mlr.id[2]) {
-      strcpy(mlr.label, ml->label);
+      strcpy_P(mlr.label, ml->label);
       put_MLabel(cnt, &mlr);
       return;
     }
@@ -1762,7 +1746,7 @@ SETREGS
     get_MLabel(cnt, &ml);
     if (ml.id[0] || ml.id[1] || ml.id[2]) {
       char types[8];
-      strncpy_P(types, PSTR("PBWCTHWT"), 8);
+      strcpy_P(types, PSTR("PBWCTHWT"));
       char tp[3];
       tp[2] = 0;
 
@@ -1771,9 +1755,6 @@ SETREGS
       if (first) {
         ResponseAppend_P(PSTR(","));
       }
-      //char log_data[128];
-      //sprintf_P(log_data, PSTR("%d-%s-%02x%02x%02x - %s"), cnt + 1, tp, ml.id[0], ml.id[1], ml.id[2], ml.label);
-      //AddLogData(LOG_LEVEL_INFO, log_data);
       ResponseAppend_P(PSTR("\"N%0d\":{\"MD\":\"%s\",\"ID\":\"%02x%02x%02x\",\"LBL\":\"%s\"}"),cnt + 1, tp, ml.id[0], ml.id[1], ml.id[2], ml.label);
       first = 1;
     }
@@ -1787,10 +1768,9 @@ SETREGS
 
   if (moritz_cfg.moritz_ready) {
     if (millis() - last_moritz_task > 8) {
-    //if (millis() - last_moritz_task > 500) {
       rf_moritz_task();
       last_moritz_task = millis();
-      if (credit_10ms < MAX_CREDIT) {
+      if (credit_10ms < ICONST(MAX_CREDIT)) {
          // 10ms/1s == 1% -> allowed talk-time without CD
         credit_10ms += 1;
       }
@@ -1906,156 +1886,6 @@ const char Moritz_Commands[] PROGMEM =
 void (*const Moritz_Command[])(void) PROGMEM = {&Moritz_List,&Moritz_Reset,&Moritz_Delete,&Moritz_Delete_Unnamed,&Moritz_SetLabel,&Moritz_Pair};
 
 /*
-const char S_JSON_MORITZ[] PROGMEM = "{\"MORITZ\":{\"%s\":%d}}";
-const char S_JSON_MORITZ1[] PROGMEM = "{\"MORITZ\":{\"%s\":\"%s\"}}";
-bool Moritz_Cmd(void) {
-SETREGS
-
-  bool serviced = true;
-
-  if (XdrvMailbox->data_len > 0) {
-    char *cp = XdrvMailbox->data;
-    if (*cp == 's') {
-      // show
-      cp++;
-      if (*cp) {
-        moritz_cfg.show_all = *cp & 1;
-      }
-      Response_P(GSTR(S_JSON_MORITZ), "sa", moritz_cfg.show_all);
-      return true;
-    } else if (*cp == 'p') {
-      // pair
-      cp++;
-      if (*cp) {
-        moritz_cfg.pair_enable = *cp & 1;
-      }
-      Response_P(GSTR(S_JSON_MORITZ), "pm", moritz_cfg.pair_enable);
-      return true;
-    } else if (*cp == 'r') {
-      // reset
-      moritz_reset();
-      // cc1100_writeReg( 2, 0x3B );
-      Response_P(GSTR(S_JSON_MORITZ), "reset", 0);
-      return true;
-    } else if (*cp == 'i') {
-      // init
-      rf_moritz_init();
-      Response_P(GSTR(S_JSON_MORITZ), "init", 0);
-      return true;
-    } else if (*cp == 'a') {
-      // add
-      cp++;
-      while (*cp == ' ') cp++;
-      uint32_t man = 0;
-      if (*cp) {
-        man = strtol(cp, 0, 16);
-        moritz_addr[0] = man >> 16;
-        moritz_addr[1] = man >> 8;
-        moritz_addr[2] = man;
-      }
-      char ma[10];
-      sprintf_P(ma, PSTR("%02x%02x%02x"), moritz_addr[0], moritz_addr[1], moritz_addr[2]);
-      Response_P(GSTR(S_JSON_MORITZ1), "ad", ma);
-    } else if (*cp == 't') {
-      // set temp   hexid mode tmp
-      float tmp = 0;
-      uint8_t mode = 0;
-      uint32_t dst = 0;
-      cp++;
-      while (*cp == ' ') cp++;
-      if (*cp) {
-        dst = strtol(cp, &cp, 16);
-        while (*cp == ' ') cp++;
-        mode = strtol(cp, &cp, 10);
-        while (*cp == ' ') cp++;
-        tmp = CharToFloat(cp);
-        SendModeTmp(dst, mode, tmp);
-      }
-      char ms[32];
-      ms[0] = 0;
-      char tstr[8];
-      ftostrfd(tmp, 1, tstr);
-      sprintf_P(ms, PSTR("%02x%02x%02x %02d %s"), dst >> 16, (dst >> 8) & 0xff, dst & 0xff, mode, tstr);
-      Response_P(GSTR(S_JSON_MORITZ1), "send", ms);
-    }
-    else if (*cp == 'l') {
-      // label
-      MORITZ_MEM ml;
-      uint8_t index = 0;
-      uint32_t man = 0;
-      char ms[32];
-      cp++;
-      if (*cp == 'c') {
-        // clr list
-        memset(&ml, 0, sizeof(MORITZ_MEM));
-        for (uint8_t cnt = 0; cnt < MORITZ_MAX_DEVICES; cnt++) {
-          put_MLabel(cnt, &ml);
-        }
-        Response_P(GSTR(S_JSON_MORITZ1), "label", "clr list");
-        return serviced;
-      }
-      if (*cp == 'l') {
-        // list all
-        Moritz_Sort_List(1);
-        Response_P(GSTR(S_JSON_MORITZ1), "label", "list all");
-        return serviced;
-      }
-      if (*cp == 'd') {
-        // delete one
-        cp++;
-        if (*cp == 'a') {
-          // delete all unnamed entries
-          MORITZ_MEM mo;
-          for (uint16_t cnt = 0; cnt < MORITZ_MAX_DEVICES; cnt++) {
-            get_MLabel(cnt, &mo);
-            if (!mo.label[0]) {
-              memset(&mo, 0, sizeof(MORITZ_MEM));
-              put_MLabel(cnt, &mo);
-            }
-          }
-          Moritz_Sort_List(0);
-          Response_P(GSTR(S_JSON_MORITZ1), "label", "delete all unlabeled");
-          return serviced;
-        } else {
-          while (*cp == ' ') cp++;
-          if (*cp) {
-            man = strtol(cp, &cp, 16);
-            ml.id[0] = man >> 16;
-            ml.id[1] = man >> 8;
-            ml.id[2] = man;
-            // AddLog_P2(LOG_LEVEL_INFO, PSTR("Moritz: index=%d,%d,%d"), ml.id[0],ml.id[1],ml.id[2]);
-            int32_t index = find_MLabel(&ml);
-            if (index >= 0) {
-              memset(&ml, 0, sizeof(MORITZ_MEM));
-              put_MLabel(index, &ml);
-              // AddLog_P2(LOG_LEVEL_INFO, PSTR("Moritz: index=%d"), index);
-              Moritz_Sort_List(0);
-            }
-          }
-        }
-        Response_P(GSTR(S_JSON_MORITZ1), "label", "delete one");
-        return serviced;
-      }
-
-      while (*cp == ' ') cp++;
-
-      if (*cp) {
-        man = strtol(cp, &cp, 16);
-        ml.id[0] = man >> 16;
-        ml.id[1] = man >> 8;
-        ml.id[2] = man;
-        while (*cp == ' ') cp++;
-        strlcpy(ml.label, cp, MMLSIZ);
-        set_MLabel(&ml);
-        sprintf_P(ms, PSTR("%02x%02x%02x %s"), ml.id[0], ml.id[1], ml.id[2], ml.label);
-      }
-      Response_P(GSTR(S_JSON_MORITZ1), "label", ms);
-    }
-  }
-  return serviced;
-}
-
-
 Arbeitszimmer Gerhard 	KEQ1088966
 Bad			KEQ1088070
 Flur			KEQ1088568
@@ -2110,17 +1940,18 @@ RETMEM
 \*********************************************************************************************/
 
 int32_t mod_func_execute(uint32_t function) {
+  SETREGS
   bool result = false;
 
 #ifdef USE_SCRIPT
-  if (function > FUNC_QUERY_LOW && function < FUNC_QUERY_HIGH) {
-    return (int32_t)mo_getvars(function & 0xffffff);
+  if ((function & 0x80000000) != 0) {
+    return (int32_t)mo_getvars(function);
   }
 #endif
 
   switch (function) {
     case FUNC_INIT:
-      result = CC1101_Detect();
+      result = Moritz_Detect();
       break;
     case FUNC_LOOP:
       CC1101_loop();
@@ -2128,24 +1959,17 @@ int32_t mod_func_execute(uint32_t function) {
     case FUNC_JSON_APPEND:
       break;
     case FUNC_WEB_ADD_MAIN_BUTTON:
-      { SETREGS
-        if (moritz_cfg.moritz_ready) {
-          WSContentSend_P(GSTR(HTTP_MORITZ_SCRIPT));
-        }
+      if (moritz_cfg.moritz_ready) {
+        WSContentSend_P(GSTR(HTTP_MORITZ_SCRIPT));
       }
       break;
     case FUNC_WEB_SENSOR:
       Moritz_Check_HTML_Setvars();
       moritz_show();
       break;
-    case FUNC_COMMAND_SENSOR:
-      //result = Moritz_Cmd();
-      break;
 
     case FUNC_COMMAND:
-      { SETREGS
-        result = DecodeCommand(Moritz_Commands, Moritz_Command);
-      }
+      result = DecodeCommand(Moritz_Commands, Moritz_Command);
       break;
 
 		case FUNC_DEINIT:
