@@ -192,6 +192,8 @@ MODULE_PART int32_t mod_func_execute(uint32_t function);
 MODULE_END
 /********************************************************************************************/
 
+// all float constants must be in progmem
+const float FP_CONST[] PROGMEM = {0, 2.0, 10.0};
 
 #define MORITZ_FSIZE sizeof(MORITZ_MEM)*MORITZ_MAX_DEVICES
 
@@ -218,7 +220,6 @@ void eeprom_readBytes(uint32_t offset, uint32_t size, void *buff) {
     fclose(fp);
   }
 }
-
 
 // must be defined
 #define USE_SCRIPT_WEB_DISPLAY
@@ -860,7 +861,7 @@ void rf_moritz_task(void) {
   int16_t rssi;
   struct culpaket cp;
   uint8_t ctrlMode;
-  float measuredTemperature = 0;
+  float measuredTemperature = FLTC(0);
 
   if (!moritz_cfg.moritz_on) return;
 
@@ -1029,20 +1030,20 @@ void rf_moritz_task(void) {
                 measuredTemperature = 0;
               }
               */
-              measuredTemperature = fdiv(tofloat(mTemp), 10);
+              measuredTemperature = fdiv(tofloat(mTemp), FLTC(2));
               if (mTemp < 45) {
-                measuredTemperature = 0;
+                measuredTemperature = FLTC(0);
               }
             }
           }
           if (cp.forMe || (moritz_cfg.show_all)) {
             char ts1[8], ts2[8];
-            float tmp = fdiv(tofloat(cp.rawPayload[2] & 0x7f) , 2.0);
+            float tmp = fdiv(tofloat(cp.rawPayload[2] & 0x7f) ,FLTC(1));
             ftostrfd(tmp, 1, ts1);
             ftostrfd(measuredTemperature, 1, ts2);
             sprintf_P(params, PSTR("\"id\":\"%s\",\"dtmp\":%s,\"mtmp\":%s,\"vpos\":%d,\"cmo\":%d,\"rfe\":%d,\"bl\":%d,\"rssi\":%d"), id,
                       ts1, ts2, cp.rawPayload[1], ctrlMode, (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi);
-            new_moritz((const char *)&cp.source[0], 2, cp.rawPayload[1] & 1, (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi, fixunssfsi(fmul(measuredTemperature, 10)), (cp.rawPayload[2] & 0x7f), cp.rawPayload[1], ctrlMode);
+            new_moritz((const char *)&cp.source[0], 2, cp.rawPayload[1] & 1, (cp.rawPayload[0] >> 6) & 1, (cp.rawPayload[0] >> 7) & 1, rssi, fixunssfsi(fmul(measuredTemperature, FLTC(2))), (cp.rawPayload[2] & 0x7f), cp.rawPayload[1], ctrlMode);
             Moritz_Sort_List(0);
             char type[5];
             strcpy_P(type, PSTR("TERM"));
@@ -1431,6 +1432,7 @@ SETREGS
         */
 const char MODES[] PROGMEM = "AWMNVABOMEMCMW";
 
+
 void moritz_show(void) {
 SETREGS
 
@@ -1523,9 +1525,9 @@ SETREGS
           strcpy_P(tmodes, GSTR(MODES));
           memmove_P(mod, &tmodes[xmp->tmode * 2], 2);
           mod[2] = 0;
-          float tmp = fdiv(tofloat(xmp->dtemperature) , 2.0);
+          float tmp = fdiv(tofloat(xmp->dtemperature), FLTC(1));
           ftostrfd(tmp, 1, ts1);
-          tmp = fdiv(tofloat(xmp->mtemperature) , 10.0);
+          tmp = fdiv(tofloat(xmp->mtemperature), FLTC(2));
           ftostrfd(tmp, 1, ts2);
           strcpy_P(xid, PSTR("808080"));
           WSContentSend_P(GSTR(HTTP_MORITZ_COMMON), xid, tp, MMLSIZ - 1, lbl, lblid, rfes, bls, xmp->rssi);
@@ -1570,8 +1572,8 @@ SETREGS
         found++;
         if (index > 0 && index == found) {
           if (type & 0x10) {
-            float dtmp = fdiv(tofloat(mo.dtemperature) , 2.0);
-            float mtmp = fdiv(tofloat(mo.mtemperature) , 10.0);
+            float dtmp = fdiv(tofloat(mo.dtemperature) , FLTC(1));
+            float mtmp = fdiv(tofloat(mo.mtemperature) , FLTC(2));
             char dtmp_s[16];
             char mtmp_s[16];
             ftostrfd(dtmp, 1, dtmp_s);
@@ -1587,7 +1589,7 @@ SETREGS
       //  break;
     }
   }
-  sprintf_P(retval, PSTR("not found"));
+  sprintf_P(retval, PSTR("%d"), found);
   return retval;
 }
 #endif
