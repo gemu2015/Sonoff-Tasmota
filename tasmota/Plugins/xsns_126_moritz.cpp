@@ -460,7 +460,9 @@ const uint8_t PROGMEM MORITZ_CFG_TABLE[60] = {
 
 void display_char(char c) {
 SETREGS
- Serial.printf("%c", c); 
+#ifdef MORITZ_SDEBUG
+ Serial.printf("%c", c);
+#endif
 }
 
 void display_string(char *s) {
@@ -1611,7 +1613,7 @@ ALLOCMEM
 
     moritz_cfg.moritz_ready = 1;
     moritz_cfg.show_all = 1;
-    moritz_cfg.pair_enable = 1;
+    moritz_cfg.pair_enable = 0;
     
     eeprom_readBytes(0, sizeof(moritz_devices), moritz_devices);
 

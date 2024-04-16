@@ -66,8 +66,7 @@ typedef struct {
 } rgb_jpg_decoder;
 
 //input buffer
-static uint32_t _jpg_read(void * arg, size_t index, uint8_t *buf, size_t len)
-{
+static unsigned int _jpg_read(void * arg, size_t index, uint8_t *buf, size_t len) {
     rgb_jpg_decoder * jpeg = (rgb_jpg_decoder *)arg;
     if(buf) {
         memcpy(buf, jpeg->input + index, len);
@@ -122,6 +121,16 @@ static bool _rgb_write(void * arg, uint16_t x, uint16_t y, uint16_t w, uint16_t 
 
 esp_err_t esp_jpg_decode(size_t len, jpg_scale_t scale, jpg_reader_cb reader, jpg_writer_cb writer, void * arg);
 
+/*
+ 'uint32_t (*)(void*, size_t, uint8_t*, size_t)' 
+ 
+ {aka 'long unsigned int (*)(void*, unsigned int, unsigned char*, unsigned int)'} 
+ 
+ to 'jpg_reader_cb' 
+ {aka 'unsigned int (*)(void*, unsigned int, unsigned char*, unsigned int)'} [-fpermissive]
+ 
+  135 |     if(esp_jpg_decode(src_len, scale, _jpg_read, _rgb_write, (void*)&jpeg) != ESP_OK){
+    */
 
 bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t scale)
 {

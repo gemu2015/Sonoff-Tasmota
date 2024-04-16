@@ -250,9 +250,6 @@ void i2s_bridge_loop(void) {
       AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: remote cmd %d"), audio_i2s.bridge_mode.mode);
     }
   }
-
-
-
 }
 
 
