@@ -43,21 +43,6 @@
 // serial debug mode
 //#define MORITZ_SDEBUG
 
-extern struct TIME_T {
-  uint32_t      nanos;
-  uint8_t       second;
-  uint8_t       minute;
-  uint8_t       hour;
-  uint8_t       day_of_week;               // sunday is day 1
-  uint8_t       day_of_month;
-  uint8_t       month;
-  char          name_of_month[4];
-  uint16_t      day_of_year;
-  uint16_t      year;
-  uint32_t      days;
-  uint32_t      valid;
-} RtcTime;
-
 typedef struct {
   uint8_t moritz_on : 1;
   uint8_t show_all : 1;
@@ -779,15 +764,6 @@ SETREGS
 #endif
 }
 
-
-
-/*
-	.global	__lesf2
-	.global	__gesf2
-	.global	__addsf3
-	.global	__fixunssfsi
-  */
-
 /* mode
 0 => auto weekly
 1 => manual
@@ -857,6 +833,7 @@ SETREGS
 
 void rf_moritz_task(void) {
   SETREGS
+  STGLOB
   uint8_t enc[MAX_MORITZ_MSG];
   int16_t rssi;
   struct culpaket cp;
@@ -966,11 +943,12 @@ void rf_moritz_task(void) {
 #endif
           if (moritz_cfg.pair_enable) {
             uint8_t payload[5];
-            payload[0] = RtcTime.year;
-            payload[1] = RtcTime.day_of_month;
-            payload[2] = RtcTime.hour;
-            payload[3] = RtcTime.minute | ((RtcTime.month & 0x0c) << 4);
-            payload[4] = RtcTime.second | ((RtcTime.month & 0x03) << 6);
+            TIME_T *mt = tgbl->RtcTime;
+            payload[0] = mt->year;
+            payload[1] = mt->day_of_month;
+            payload[2] = mt->hour;
+            payload[3] = mt->minute | ((mt->month & 0x0c) << 4);
+            payload[4] = mt->second | ((mt->month & 0x03) << 6);
             moritz_sendMsg(1, man, src, payload, 1, 4, 5);
           }
           break;
@@ -1887,50 +1865,6 @@ const char Moritz_Commands[] PROGMEM =
     "List|Reset|Del|DelUn|Label|Pair";
 void (*const Moritz_Command[])(void) PROGMEM = {&Moritz_List,&Moritz_Reset,&Moritz_Delete,&Moritz_Delete_Unnamed,&Moritz_SetLabel,&Moritz_Pair};
 
-/*
-Arbeitszimmer Gerhard 	KEQ1088966
-Bad			KEQ1088070
-Flur			KEQ1088568
-Küche			KEQ1088661
-Arbeitszimmer Heidrun	KEQ1088961
-Schlafzimmer Gerhard	KEQ1307206
-Wohnzimmer vorne	KEQ1088586
-Wohnzimmer Veranda	KEQ1088038
-Keller			KEQ1088373
-
-var id1="sonoff.0.Alarmanlage.POWER";  // taste
-var id2="cul.0.MORITZ.1878e5.isopen";  // gerhard links
-var id3="cul.0.MORITZ.18799a.isopen";  // gerhard rechts
-var id4="cul.0.MORITZ.188a1c.isopen";  // bad
-var id5="cul.0.MORITZ.1879d7.isopen";  // arbeitszimmer heidrun
-var id6="cul.0.MORITZ.18799f.isopen";   // Flur
-var id7="cul.0.MORITZ.1879b0.isopen";   // Küche
-var id8="cul.0.MORITZ.1879a8.isopen";   // Wohnzimmer links
-var id9="cul.0.MORITZ.1879e0.isopen";  // Wohnzimmer rechts
-var id10="cul.0.MORITZ.1878e8.isopen";  // Wohnzimmertür
-
-
-12:23:38.926 1-PB-051ffc - Modebutton
-12:23:38.984 14-WC-18799a - AZ_Gerhard_rechts
-12:23:38.990 15-WC-1878e5 - AZ_Gerhard_links
-12:23:38.995 16-WC-1879a8 - Wohnzimmer_links
-12:23:39.000 17-WC-1879e0 - Wohnzimmer_rechts
-12:23:39.006 18-WC-18799f - Flur
-12:23:39.011 19-WC-1878e8 - Wohnzimmer_Tür
-12:23:39.016 20-WC-188a1c - Bad
-12:23:39.021 21-WC-1879b0 - Küche
-12:23:39.026 22-WC-1879d7 - AZ_Heidrun
-12:23:39.071 32-TH-0e8d4d - AZ_Gerhard
-12:23:39.077 33-TH-0e7bc5 - Wohnzimmer_Veranda
-12:23:39.082 34-TH-19879d - Schlafzimmer_Gerhard
-12:23:39.088 35-TH-0e8bd2 - Flur_Erdgeschoss
-12:23:39.093 36-TH-0e7b8e - Bad
-12:23:39.099 37-TH-0e8b84 - Flur_Keller
-12:23:39.104 38-TH-0e8bec - Wohnzimmer_vorne
-12:23:39.110 39-TH-0e8c31 - Küche
-12:23:39.115 40-TH-0e8d48 - AZ_Heidrun
-
-*/
 
 void MORITZ_Deinit(void) {
 SETREGS

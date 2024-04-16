@@ -301,6 +301,20 @@ __asm__  (\
 );\
 };
 */
+typedef struct {
+  uint32_t      nanos;
+  uint8_t       second;
+  uint8_t       minute;
+  uint8_t       hour;
+  uint8_t       day_of_week;               // sunday is day 1
+  uint8_t       day_of_month;
+  uint8_t       month;
+  char          name_of_month[4];
+  uint16_t      day_of_year;
+  uint16_t      year;
+  uint32_t      days;
+  uint32_t      valid;
+}TIME_T;
 
 
 typedef struct { 
@@ -313,9 +327,11 @@ typedef struct {
   uint8_t *devices_present;
   uint8_t *spi_enabled;
   uint8_t *soft_spi_enabled;
+  TIME_T *RtcTime;
 } GTBL;
 
 #define STGLOB  GTBL *tgbl = (GTBL*) gtgtbl();
+
 
 #define TasmotaGlobal  *tgbl
 
