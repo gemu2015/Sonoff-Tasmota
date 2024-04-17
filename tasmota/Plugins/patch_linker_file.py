@@ -16,6 +16,8 @@ mcu = board.get("build.mcu", "esp32")
 
 print("patching linker file")
 
+core3path = "framework-arduinoespressif32/tools/esp32-arduino-libs/esp32/ld/sections.ld"
+
 if mcu == "esp8266":
         libpath = platform.get_package_dir("framework-arduinoespressif8266")+"/tools/sdk/ld/eagle.app.v6.common.ld.h"
         match = "*(.ver_number)"
@@ -24,6 +26,7 @@ if mcu == "esp32":
         libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/sdk/esp32/ld/sections.ld"
         match = '+= _esp_flash_mmap_prefetch_pad_size;'
         mlen = len(match)
+
 if mcu == "esp32s2":
         libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/sdk/esp32s2/ld/sections.ld"
         match = '+= _esp_flash_mmap_prefetch_pad_size;'
@@ -38,6 +41,11 @@ if mcu == "esp32c3":
         libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/sdk/esp32c3/ld/sections.ld"
         match = '+= _esp_flash_mmap_prefetch_pad_size;'
         mlen = len(match)
+
+# idf5 has unique linker path
+filok = os.path.isfile(libpath)
+if filok == False :
+        libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/esp32-arduino-libs/esp32/ld/sections.ld"
 
 with open(libpath) as f:
     data = f.read()
