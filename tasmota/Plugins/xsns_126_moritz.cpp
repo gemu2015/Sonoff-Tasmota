@@ -31,9 +31,6 @@
 #include "module_defines.h"
 #include "../Tasmota/include/i18n.h"
 
-
-#define USE_MORITZ_CACHE
-
 #define XSNS_126 126
 
 // this id is used by maxcube
@@ -206,9 +203,6 @@ void eeprom_readBytes(uint32_t offset, uint32_t size, void *buff) {
   }
 }
 
-// must be defined
-#define USE_SCRIPT_WEB_DISPLAY
-
 // Configuration Registers
 #define CC1100_IOCFG2 0x00    // GDO2 output pin configuration
 #define CC1100_IOCFG1 0x01    // GDO1 output pin configuration
@@ -369,9 +363,6 @@ typedef enum { GPIO_PIN_RESET = 0, GPIO_PIN_SET } GPIO_PinState;
 #undef CC1100_ASSERT
 #define CC1100_DEASSERT digitalWrite(moritz_cfg.moritz_cs, 1);delayMicroseconds(50);spiEndTransaction();
 #define CC1100_ASSERT   spiBeginTransaction();delayMicroseconds(50);digitalWrite(moritz_cfg.moritz_cs, 0)
-
-//#define CC1100_SET_OUT		CC1100_OUT_PORT |= _BV(CC1100_OUT_PIN)
-//#define CC1100_CLEAR_OUT	CC1100_OUT_PORT &= ~_BV(CC1100_OUT_PIN)
 
 #define CCCOUNT 1
 #define INIT_MODE_OUT_CS_IN 0
@@ -786,7 +777,7 @@ SETREGS
 
   mode = bc[mode & 7];
 
-  uint16_t dtemp = fixunssfsi(fmul(tmp, 10));
+  uint16_t dtemp = fixunssfsi(fmul(tmp, FLTC(2)));
   
   if (dtemp <= 45) {
     dtemp = 45;
@@ -808,7 +799,9 @@ SETREGS
   } else if (mode == 4) {
     payload[0] = 0x43;
   } else {
-    payload[0] = ((udivsi3(dtemp , 5)) & 0x3f) | ((mode & 0x3) << 6);
+    uint8_t stemp = udivsi3(dtemp , 5);
+    payload[0] = (stemp & 0x3f) | ((mode & 0x3) << 6);
+    AddLog(LOG_LEVEL_INFO, PSTR("SendModeTmp %02x - %02x"), stemp, payload[0]);
   }
 
   moritz_sendMsg(40, man, dst, payload, 1, 0, 1);
@@ -830,7 +823,7 @@ MaxDriver.prototype.sendConfig = function (dest, comfortTemperature, ecoTemperat
 
 SETREGS
         };
-
+0E958C = 955788
 */
 
 void rf_moritz_task(void) {
@@ -912,6 +905,13 @@ void rf_moritz_task(void) {
       for (uint8_t i = 0; i < 3; i++) {
         sprintf_P(id, PSTR("%s%02X"), id, cp.source[i]);
       }
+
+      char did[8];
+      did[0] = 0;
+      for (uint8_t i = 0; i < 3; i++) {
+        sprintf_P(did, PSTR("%s%02X"), did, cp.dest[i]);
+      }
+      AddLog(LOG_LEVEL_INFO, PSTR("Moritz sid:%s, did:%s, forme:%d, rawtype:%02x"), id, did, cp.forMe, cp.rawType);
 
       char params[256];
       switch (cp.rawType) {
@@ -1067,7 +1067,7 @@ SETREGS
 
   if ((hblen - 1) != dec[0]) {
     // MULTICC_PREFIX();
-    DS_P(PSTR("LENERR\r\n"));
+    //DS_P(PSTR("LENERR\r\n"));
     return;
   }
   moritz_sendraw(dec, 1);
@@ -1084,8 +1084,11 @@ void moritz_sendraw(uint8_t *dec, int longPreamble) {
   uint32_t sum = (longPreamble ? 100 : 0) + (hblen * 8);
   sum = __divsi3(sum, 10);
   if (credit_10ms < sum) {
+    AddLog(LOG_LEVEL_INFO, PSTR("time budget error"));
+    /*
     // MULTICC_PREFIX();
     DS_P(PSTR("LOVF\r\n"));
+    */
     return;
   }
   credit_10ms -= sum;
@@ -1096,14 +1099,15 @@ void moritz_sendraw(uint8_t *dec, int longPreamble) {
   }
 
   if (cc1100_readReg(CC1100_MARCSTATE) != MARCSTATE_RX) {  // error
+    AddLog(LOG_LEVEL_INFO, PSTR("CC1100_MARCSTATE error"));
     // MULTICC_PREFIX();
-    DC('Z');
+    /* DC('Z');
     DC('E');
     DC('R');
     DC('R');
     DC('1');
     DH2(cc1100_readReg(CC1100_MARCSTATE));
-    DNL();
+    DNL(); */
     rf_moritz_init();
     return;
   }
@@ -1125,6 +1129,8 @@ void moritz_sendraw(uint8_t *dec, int longPreamble) {
   ccTX();
 
   if (cc1100_readReg(CC1100_MARCSTATE) != MARCSTATE_TX) {  // error
+    AddLog(LOG_LEVEL_INFO, PSTR("CC1100_MARCSTATE error TX"));
+    /*
     // MULTICC_PREFIX();
     DC('Z');
     DC('E');
@@ -1133,6 +1139,7 @@ void moritz_sendraw(uint8_t *dec, int longPreamble) {
     DC('2');
     DH2(cc1100_readReg(CC1100_MARCSTATE));
     DNL();
+    */
     rf_moritz_init();
     return;
   }
@@ -1166,6 +1173,8 @@ void moritz_sendraw(uint8_t *dec, int longPreamble) {
   }
 
   if (cc1100_readReg(CC1100_MARCSTATE) != MARCSTATE_RX) {  // error
+    AddLog(LOG_LEVEL_INFO, PSTR("CC1100_MARCSTATE error RX 2"));
+    /*
     // MULTICC_PREFIX();
     DC('Z');
     DC('E');
@@ -1176,6 +1185,7 @@ void moritz_sendraw(uint8_t *dec, int longPreamble) {
     DH2(stat1);
     DH2(i);
     DNL();
+    */
     rf_moritz_init();
   }
 
@@ -1781,6 +1791,7 @@ MODULE_PART void Moritz_Delete();
 MODULE_PART void Moritz_Delete_Unnamed();
 MODULE_PART void Moritz_SetLabel();
 MODULE_PART void Moritz_Pair();
+MODULE_PART void Moritz_Test();
 
 void Moritz_List() {
   SETREGS
@@ -1861,11 +1872,46 @@ SETREGS
   ResponseCmndNumber(moritz_cfg.pair_enable);
 }
 
+void Moritz_Test() {
+SETREGS
+  
+  uint32_t man = 0;
+  uint32_t mode = 0;
+  char *cp = XdrvMailbox->data;
+  while (*cp == ' ') cp++;
+  if (*cp) {
+    man = (moritz_addr[0] << 16) | (moritz_addr[1] << 8) | (moritz_addr[2]);
+    uint32_t dst = strtol(cp, &cp, 16);
+    while (*cp == ' ') cp++;
+    mode = *cp;
+    uint8_t payload[2];
+    switch (mode) {
+      case 'a':
+        payload[0] = 0;
+        break;
+      case 'v':
+        payload[0] = 0x41;
+        break;
+      case 'b':
+        payload[0] = 0x42;
+        break;
+      case 'c':
+        payload[0] = 0x43;
+        break;
+      default:
+        payload[0] = 0;
+    }
+    moritz_sendMsg(40, man, dst, payload, 1, 0, 1);
+  }
+  ResponseCmndNumber(mode);
+}
+
+
 
 const char Moritz_Commands[] PROGMEM =
     "Max|"  // Prefix
-    "List|Reset|Del|DelUn|Label|Pair";
-void (*const Moritz_Command[])(void) PROGMEM = {&Moritz_List,&Moritz_Reset,&Moritz_Delete,&Moritz_Delete_Unnamed,&Moritz_SetLabel,&Moritz_Pair};
+    "List|Reset|Del|DelUn|Label|Pair|Test";
+void (*const Moritz_Command[])(void) PROGMEM = {&Moritz_List,&Moritz_Reset,&Moritz_Delete,&Moritz_Delete_Unnamed,&Moritz_SetLabel,&Moritz_Pair,&Moritz_Test};
 
 
 void MORITZ_Deinit(void) {
