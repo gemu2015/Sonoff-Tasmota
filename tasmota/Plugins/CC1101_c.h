@@ -891,7 +891,7 @@ void mod_SPItransfer(uint8_t cmd, uint16_t reg, uint8_t* dataOut, uint8_t* dataI
  MODULE_PART  void CC1101_readBit(uint32_t pin);
  MODULE_PART  int16_t CC1101_setDIOMapping(uint32_t pin, uint32_t value);
  MODULE_PART  int16_t CC1101_SPIgetRegValue(uint8_t reg, uint8_t msb, uint8_t lsb);
- MODULE_PART  int16_t CC1101_SPIsetRegValue(uint8_t reg, uint8_t value, uint8_t msb, uint8_t lsb, uint8_t checkInterval);
+ MODULE_PART  int16_t CC1101_SPIsetRegValue(uint8_t reg, uint8_t value, uint8_t msb = 7, uint8_t lsb = 0, uint8_t checkInterval = 2);
  MODULE_PART  void CC1101_SPIreadRegisterBurst(uint8_t reg, uint8_t numBytes, uint8_t* inBytes);
  MODULE_PART  uint8_t CC1101_SPIreadRegister(uint8_t reg);
  MODULE_PART  void CC1101_SPIwriteRegisterBurst(uint8_t reg, uint8_t* data, size_t len);
