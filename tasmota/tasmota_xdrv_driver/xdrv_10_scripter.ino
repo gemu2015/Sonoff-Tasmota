@@ -2600,12 +2600,19 @@ char *isargs(char *lp, uint32_t isind) {
     if (glob_script_mem.si_num[isind] > MAX_SARRAY_NUM) {
       glob_script_mem.si_num[isind] = MAX_SARRAY_NUM;
     }
+    //glob_script_mem.last_index_string[isind] = (char*)calloc(glob_script_mem.max_ssize * glob_script_mem.si_num[isind], 1);
+    uint32_t sasize = glob_script_mem.max_ssize * glob_script_mem.si_num[isind];
+    glob_script_mem.last_index_string[isind] = (char*)special_malloc(sasize);
+    if (glob_script_mem.last_index_string[isind]) {
+      memset(glob_script_mem.last_index_string[isind], 0, sasize);
+      for (uint32_t cnt = 0; cnt < glob_script_mem.siro_num[isind]; cnt++) {
+        char str[SCRIPT_MAX_SBSIZE];
+        GetTextIndexed(str, sizeof(str), cnt, sstart);
+        strlcpy(glob_script_mem.last_index_string[isind] + (cnt * glob_script_mem.max_ssize), str, glob_script_mem.max_ssize);
+      }
+    } else {
+      // memory error
 
-    glob_script_mem.last_index_string[isind] = (char*)calloc(glob_script_mem.max_ssize * glob_script_mem.si_num[isind], 1);
-    for (uint32_t cnt = 0; cnt < glob_script_mem.siro_num[isind]; cnt++) {
-      char str[SCRIPT_MAX_SBSIZE];
-      GetTextIndexed(str, sizeof(str), cnt, sstart);
-      strlcpy(glob_script_mem.last_index_string[isind] + (cnt * glob_script_mem.max_ssize), str, glob_script_mem.max_ssize);
     }
   } else {
     glob_script_mem.last_index_string[isind] = sstart;
