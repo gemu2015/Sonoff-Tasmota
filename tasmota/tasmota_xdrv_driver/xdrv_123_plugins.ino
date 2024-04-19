@@ -33,11 +33,6 @@ to doo:
 #define XDRV_123             123
 
 //#define EXECUTE_FROM_BINARY
-//#define SAVE_DRIVER_TO_FILE
-
-//#define EXECUTE_IN_FLASH
-//#define SAVE_FLASH
-//#define DO_EXECUTE
 
 #include "./Plugins/modules_def.h"
 #include <TasmotaSerial.h>
@@ -173,12 +168,7 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_I2cSetDevice,
   //JMPTBL&I2cSetActiveFound,
   JMPTBL&tmod_I2cSetActiveFound,
-
-  //void I2cSetActiveFound(uint32_t addr, const char *types, uint32_t bus = 0);
-  //void I2cSetActiveFound(uint32_t addr, const char *types, uint32_t bus)
-
   JMPTBL&AddLog,
-
 #if defined(ESP8266) || defined(__riscv)
   JMPTBL&ResponseAppend_P,
   JMPTBL&WSContentSend_PD,
@@ -1155,7 +1145,7 @@ void *tmod_gtbl(void) {
   return TGTAB;
 }
 
-
+// deprecated
 uint32_t GetTasmotaGlobal(uint32_t sel) {
   switch (sel) {
     case tele_period:
@@ -1180,6 +1170,7 @@ uint32_t GetTasmotaGlobal(uint32_t sel) {
   return 0;
 }
 
+// deprecated
 void SetTasmotaGlobal(uint32_t sel, uint32_t val) {
   switch (sel) {
     case rel_inverted:
@@ -1218,6 +1209,8 @@ int32_t iscale(int32_t number, int32_t mulfac, int32_t divfac) {
   return (number * mulfac) / divfac;
 }
 
+/* ****************************** module handler ***********************************/
+
 uint8_t *Load_Module(char *path, uint32_t *rsize);
 uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *offset, uint8_t flag, uint8_t index);
 
@@ -1238,7 +1231,6 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *offset, uint8_t f
 
 #ifdef __riscv
 #undef MODUL_END_OFFSET
-//#define MODUL_END_OFFSET 20
 #define MODUL_END_OFFSET 4
 #else
 #undef MODUL_END_OFFSET
@@ -1335,39 +1327,7 @@ void InitModules(void) {
 
   strlcpy(plugins.mod_name, module_name, sizeof(plugins.mod_name));
 
-// read driver from filesystem
-#if defined(EXECUTE_IN_RAM) || defined(EXECUTE_IN_FLASH)
-  uint32_t size;
-  uint8_t *fdesc = Load_Module((char*)plugins.mod_name, &size);
-  if (!fdesc) return;
-#endif
-
-// this only works with esp32 and special malloc
-#ifdef EXECUTE_IN_RAM
-  const FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
-  uint32_t old_pc = (uint32_t)fm->end_of_module - size - MODUL_END_OFFSET;
-  uint32_t new_pc = (uint32_t)fdesc;
-  uint32_t offset = new_pc - old_pc;
-  uint32_t corr_pc = (uint32_t)fm->mod_func_execute+offset;
-  uint32_t *lp = (uint32_t*)&fm->mod_func_execute;
-  *lp = corr_pc;
-  AddLog(LOG_LEVEL_INFO, PSTR("Module offset %x: %x: %x: %x: %x: %x"),old_pc, new_pc, offset, corr_pc, (uint32_t)fm->mod_func_execute, (uint32_t)&module_header);
-
-  modules[0].mod_addr = (void *) &module_header;
-  fm = (FLASH_MODULE*)modules[0].mod_addr;
-  uint32_t pcc = *(uint32_t*)fm->mod_func_execute;
-  AddLog(LOG_LEVEL_INFO, PSTR("Rom %x: "),pcc);
-  modules[0].mod_addr = (void *)fdesc;
-  fm = (FLASH_MODULE*)modules[0].mod_addr;
-  pcc = *(uint32_t*)fm->mod_func_execute;
-  AddLog(LOG_LEVEL_INFO, PSTR("Ram %x: "),pcc);
-//return;
-#endif // EXECUTE_IN_RAM
-
   uint32_t offset = 0;
-#ifdef EXECUTE_IN_FLASH
-  modules[0].mod_addr = (void *) Store_Module(fdesc, size, &offset, 0, 0);
-#endif
 
 //  const FLASH_MODULE *xfm = (FLASH_MODULE*)&module_header;
 //  AddLog(LOG_LEVEL_INFO, PSTR("Module  %x: %x"), *(uint32_t*)corr_pc, *(uint32_t*)xfm->mod_func_execute);
@@ -1428,8 +1388,7 @@ char *result = 0;
   }
   return result;
 }
-
-#endif
+#endif // USE_SCRIPT
 
 bool Module_Command(uint32_t sel) {
 bool result = false;
@@ -1561,7 +1520,7 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
   *lp = (uint32_t)&MODULE_JUMPTABLE;
 
   uint32_t *lwp=(uint32_t*)fdesc;
-#endif
+#endif // ESP8266
 
 #ifdef ESP32
   FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
@@ -1575,7 +1534,7 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
 
   uint32_t *lwp=(uint32_t*)fdesc;
   uint32_t new_pc = eeprom_block;
-#endif
+#endif // ESP32
 
 #ifdef ESP8266
 //  AddLog(LOG_LEVEL_INFO, PSTR("Module offset %x: %x: %x: %x: %x: %x"),old_pc, new_pc, offset, corr_pc, (uint32_t)fm->mod_func_execute, (uint32_t)&module_header);
@@ -1586,7 +1545,7 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
     lwp += SPI_FLASH_SEC_SIZE / 4;
     eeprom_block += SPI_FLASH_SEC_SIZE;
   }
-#endif
+#endif // ESP8266
 
 #ifdef ESP32
   //AddLog(LOG_LEVEL_INFO, PSTR("save module: %08x, size: %d"),eeprom_block, size);
@@ -1603,7 +1562,7 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
     offset += ESP32_PLUGIN_HSIZE;
     size -= ESP32_PLUGIN_HSIZE;
   }
-#endif
+#endif // ESP32
   return new_pc;
 }
 
@@ -1695,7 +1654,6 @@ void Module_mdir(void) {
     }
   }
   #endif
-  //ResponseCmndDone();
   free(vp);
 }
 
@@ -1710,8 +1668,6 @@ void LinkModule(uint8_t *mp, uint32_t size, char *name) {
       return;
     }
 
-
-
     if (fm->arch != CURR_ARCH) {
       free(mp);
       AddLog(LOG_LEVEL_INFO,PSTR("plugin architecture error"));
@@ -1724,7 +1680,6 @@ void LinkModule(uint8_t *mp, uint32_t size, char *name) {
       return;
     }
     
-
     Unlink_Named_Module(name);
 
     uint8_t sfree = 0; 
@@ -1753,12 +1708,7 @@ void LinkModule(uint8_t *mp, uint32_t size, char *name) {
     //AddLog(LOG_LEVEL_INFO,PSTR("module stored in flash at: %08x"),modules[cnt].mod_addr);
     const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
     modules[cnt].jt = MODULE_JUMPTABLE;
-    //modules[cnt].mod_size = (uint32_t)fm->end_of_module - (uint32_t)modules[cnt].mod_addr + MODUL_END_OFFSET;
-    //modules[cnt].mod_size = (uint32_t)fm->size;
-    //modules[cnt].execution_offset = offset;
-    //modules[cnt].settings = Settings;
     modules[cnt].flags.data = 0;
-    
     AddLog(LOG_LEVEL_INFO,PSTR("module %s loaded at slot %d"), name, cnt + 1);
   } else {
     // error
@@ -1851,7 +1801,7 @@ void Update_Module_Data(uint32_t module, uint32_t *data) {
         ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - plugins.flashbase) / SPI_FLASH_SEC_SIZE);
         ESP.flashWrite((uint32_t)modules[module].mod_addr - plugins.flashbase, (uint32_t*)(uint32_t*)buff, SPI_FLASH_SEC_SIZE);
       }
-#endif
+#endif // ESP8266
 #ifdef ESP32
       uint32_t offset = (uint32_t)modules[module].mod_addr - plugins.free_flash_start;
       AddLog(LOG_LEVEL_INFO, PSTR("part offset: %08x"), offset);
@@ -1866,7 +1816,7 @@ void Update_Module_Data(uint32_t module, uint32_t *data) {
         err = esp_partition_erase_range(plugins.flash_pptr, offset, ESP32_PLUGIN_HSIZE);
         err = esp_partition_write(plugins.flash_pptr, offset, (void*)buff, ESP32_PLUGIN_HSIZE);
       }
-#endif
+#endif // ESP32
       free(buff);
     
     }
@@ -1935,7 +1885,7 @@ int32_t Init_module(uint32_t module) {
           ESP.flashEraseSector(((uint32_t)modules[module].mod_addr - plugins.flashbase) / SPI_FLASH_SEC_SIZE);
           ESP.flashWrite((uint32_t)modules[module].mod_addr - plugins.flashbase, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
         }
-#endif
+#endif // ESP8266
 
 #ifdef ESP32
         uint32_t offset = (uint32_t)modules[module].mod_addr - plugins.free_flash_start;
@@ -1948,7 +1898,7 @@ int32_t Init_module(uint32_t module) {
           err = esp_partition_erase_range(plugins.flash_pptr, offset, ESP32_PLUGIN_HSIZE);
           err = esp_partition_write(plugins.flash_pptr, offset, (void*)buff, ESP32_PLUGIN_HSIZE);
         }
-#endif
+#endif // EPS32
         free(buff);
       }
     }
@@ -2067,8 +2017,6 @@ const char HTTP_MODULES_SCRIPT[] PROGMEM =
   "}, 500);"
 "}";
 
-
-
 const char MOD_DIRECTORY[] PROGMEM =
   "<p><form action='" "mo_upl" "' method='get'><button>" "%s" "</button></form></p>";
 
@@ -2170,7 +2118,6 @@ void Module_upload() {
   WSContentSend_P(PSTR("</script>"));
 
   WSContentSend_P(HTTP_MODULES_CSS);
-
 
   uint32_t *vp = (uint32_t *)calloc(sizeof(FLASH_MODULE) / 4 , 4);
   if (!vp) {
@@ -2558,6 +2505,11 @@ bool Xdrv123(uint32_t function) {
   bool result = false;
 
   switch (function) {
+    case FUNC_PRE_INIT:
+      InitModules();
+      break;
+    case FUNC_INIT:
+      break;
     case FUNC_COMMAND:
     if (plugins.ready) {
         result = DecodeCommand(kModuleCommands, ModuleCommand);
@@ -2565,11 +2517,6 @@ bool Xdrv123(uint32_t function) {
           result = Module_Command(FUNC_COMMAND);
         }
       }
-      break;
-    case FUNC_PRE_INIT:
-      InitModules();
-      break;
-    case FUNC_INIT:
       break;
     case FUNC_EVERY_100_MSECOND:
     case FUNC_EVERY_250_MSECOND:
@@ -2585,8 +2532,6 @@ bool Xdrv123(uint32_t function) {
       break;
     case FUNC_WEB_SENSOR:
       if (plugins.ready) {
-        //for (int i = 0; i < Webserver->args(); i++)
-        //    Serial.printf("Paramter[%i]: %s: %s\n", i, Webserver->argName(i).c_str(), Webserver->arg(i).c_str());
         Modul_Check_HTML_Setvars();
         ModuleWebSensor();
       }
@@ -2613,13 +2558,11 @@ bool Xdrv123(uint32_t function) {
         Module_Execute(function);
       }
       break;
-      
     case FUNC_ACTIVE:
       result = true;
       break;
   }
   return result;
 }
-
 
 #endif  // USE_BINPLUGINS
