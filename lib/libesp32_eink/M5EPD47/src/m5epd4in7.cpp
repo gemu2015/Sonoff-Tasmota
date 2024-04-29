@@ -56,7 +56,7 @@ int32_t M5Epd47::Init(void) {
 //  hl = epd_hl_init(WAVEFORM);
   uint32_t size = width * height / 2;
   framebuffer = (uint8_t*)heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  lvgl_param.fluslines = 50;
+  lvgl_param.flushlines = 50;
 
   upd_mode = UPDATE_MODE_GL16;
 

@@ -406,7 +406,7 @@ void start_lvgl(const char * uconfig) {
   size_t lvgl_buffer_size;
   do {
     //lvgl_buffer_size = LV_HOR_RES_MAX * LV_BUFFER_ROWS;
-    uint32_t flushlines = renderer->lvgl_pars()->fluslines;
+    uint32_t flushlines = renderer->lvgl_pars()->flushlines;
     lvgl_buffer_size = renderer->width() * (flushlines ? flushlines:LV_BUFFER_ROWS);
     if (renderer->lvgl_pars()->use_dma) {
       lvgl_buffer_size /= 2;
