@@ -368,7 +368,7 @@ uint8_t data;
     }
   } else {
     //! Normal polling
-    if (xQueueReceive(ttgo_globs.g_event_queue_handle, &data, 5 / portTICK_RATE_MS) == pdPASS) {
+    if (xQueueReceive(ttgo_globs.g_event_queue_handle, &data, 5 / portTICK_PERIOD_MS) == pdPASS) {
       switch (data) {
 #ifdef USE_BMA423
         case Q_EVENT_BMA_INT:
