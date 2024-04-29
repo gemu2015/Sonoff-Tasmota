@@ -354,8 +354,121 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
 #endif
   JMPTBL&special_malloc,
   JMPTBL&ResponseCmndChar,
-  JMPTBL&strtol
+  JMPTBL&strtol,
+  JMPTBL&tmod_udp,
+  JMPTBL&tmod_i2s,
+#ifdef ESP32
+  JMPTBL&tmod_task_create,
+  JMPTBL&tmod_task_delete
+#else
+  JMPTBL&tmod_dummy,
+  JMPTBL&tmod_dummy
+#endif
 };
+
+
+#ifdef ESP32
+//uint32_t tmod_task_create(TaskFunction_t pvTaskCode, const char *constpcName, const uint32_t usStackDepth, void *constpvParameters, UBaseType_t uxPriority, TaskHandle_t *constpvCreatedTask, const BaseType_t xCoreID) {
+uint32_t tmod_task_create(uint32_t pvTaskCode, const char *constpcName, const uint32_t usStackDepth, void *constpvParameters, uint32_t uxPriority, void *constpvCreatedTask, uint32_t xCoreID) {
+  return (uint32_t) xTaskCreatePinnedToCore((TaskFunction_t)pvTaskCode, constpcName, usStackDepth, constpvParameters, (UBaseType_t)uxPriority, (TaskHandle_t*)constpvCreatedTask, (const BaseType_t)xCoreID);
+}
+uint32_t tmod_task_delete(uint32_t xTaskToDelete) {
+  vTaskDelete((TaskHandle_t)xTaskToDelete);
+  return 0;
+}
+#endif
+
+uint32_t tmod_dummy() {
+  return 0;
+}
+
+#ifdef ESP8266
+#include <i2s.h>
+#endif
+
+uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t p4, uint32_t p5) {
+  switch (sel) {
+    case 0:
+#ifdef ESP8266
+      return i2s_rxtx_begin(p2, p3);
+#else
+      return i2s_driver_install((i2s_port_t)p1, (i2s_config_t*)p2, p3, (void*)p4);
+#endif
+      break;
+    case 2:
+#ifdef ESP8266
+      i2s_end();
+#else
+      i2s_driver_uninstall((i2s_port_t)p1);
+#endif
+      break;
+    case 3:
+#ifdef ESP8266
+      i2s_set_rate(p2);
+#else
+      i2s_set_clk((i2s_port_t)p1, p2, p3, (i2s_channel_t)p4);
+#endif
+      break;
+    case 4:
+      break;
+    case 5:
+#ifdef ESP8266
+      { 
+        int16_t *left = (int16_t*)p2;
+        int16_t *right = (int16_t*)p2 + 2;
+        for (uint32_t cnt = 0; cnt < (p3 >> 2); cnt++) {
+          i2s_write_lr(*left++, *right++);
+        }
+        *(uint32_t*)p4 = p3;
+      } 
+#else   
+      //i2s_write(audio_i2s.i2s_port, (const uint8_t*)packet_buffer, len, &bytes_written, 0);
+      return i2s_write((i2s_port_t)p1, (const uint8_t*)p2, p3, (uint32_t*)p4, p5);
+#endif
+      //i2s_set_pin
+    case 6:
+#ifdef ESP8266
+      return i2s_read_sample((int16_t *)p2, (int16_t *)p3, p4); 
+#else
+      return i2s_read((i2s_port_t)p1, (char *)p2, p3, (uint32_t*)p4, p5);
+#endif
+  }
+  return 0;
+}
+
+
+uint32_t tmod_udp(WiFiUDP *udp, uint32_t sel, uint32_t p1, uint32_t p2) {
+  switch (sel & 0xff) {
+    case 0:
+      udp = new WiFiUDP;
+      return (uint32_t)udp;
+    case 1:
+      udp->stop();
+      break;
+    case 2:
+      return udp->begin(p1);
+    case 3:
+      return udp->parsePacket();
+    case 4:
+      return udp->available();
+    case 5:
+      return udp->read((uint8_t *)p1, p2);
+    case 6:
+      udp->flush();
+      break;
+    case 7:
+      return udp->beginPacket(p1, p2);
+    case 8:
+      return udp->write((const uint8_t*)p1, p2);
+    case 9:
+      return udp->endPacket();
+    case 99:
+      udp->stop();
+      delete udp;
+      break;
+  }
+  return 0;
+}
 
 int tmod_strncmp_P(const char * str1P, const char * str2P, size_t size) {
   char *cp = copyStr(str2P);

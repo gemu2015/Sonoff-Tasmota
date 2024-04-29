@@ -184,7 +184,16 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jstrncmp_P(A,B,C)               (( int (*)(const char *, const char *, size_t)) jt[150])(A,B,C)
 #define jspecial_malloc(A)              (( void * (*)(uint32_t))                        jt[151])(A)
 #define jResponseCmndChar(A)            (( void (*)(char *))                            jt[152])(A)
-#define jstrtol(A,B,C)                  (( int32_t (*)(char *, char **, size_t ))       jt[153])(A,B,C)
+#define jstrtol(A,B,C)                  (( int32_t (*)(char *,char **,size_t ))             jt[153])(A,B,C)
+#define judp(A,B,C,D)                   (( unt32_t (*)(void *,uint32_t,uint32_t,uint32_t )) jt[154])(A,B,C,D)
+#define ji2s(A,B,C,D,E,F)               (( unt32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t )) jt[155])(A,B,C,D,E,F)
+#define jtaskc(A,B,C,D,E,F,G)           (( unt32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t )) jt[156])(A,B,C,D,E,F,G)
+#define jtaskd(A)                       (( unt32_t (*)(uint32_t))                       jt[157])(A)
+
+//tmod_udp,
+//tmod_i2s,
+//tmod_task_create,
+//tmod_task_delete
 
 
 // Arduino macros
