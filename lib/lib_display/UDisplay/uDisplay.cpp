@@ -25,7 +25,7 @@
 #endif
 
 #ifdef USE_ESP32_S3
-#include "esp_cache.h"
+//#include "esp_cache.h"
 #endif // USE_ESP32_S3
 
 #include "tasmota_options.h"
