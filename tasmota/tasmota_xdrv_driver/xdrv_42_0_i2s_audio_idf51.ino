@@ -514,7 +514,9 @@ enum {
 
 // signal to an external Berry driver that we turn audio power on or off
 void I2SAudioPower(bool power) {
+#ifdef USE_BERRY 
   callBerryEventDispatcher(PSTR("audio"), PSTR("power"), power, nullptr, 0);
+#endif
 }
 
 //
