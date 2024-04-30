@@ -20,14 +20,14 @@
 // Location specific includes
 #ifndef ESP32_STAGE                         // ESP32 Stage has no core_version.h file. Disable include via PlatformIO Option
 #include <core_version.h>                   // Arduino_Esp8266 version information (ARDUINO_ESP8266_RELEASE and ARDUINO_ESP8266_RELEASE_2_7_1)
-#endif // ESP32_STAGE
+#endif  // ESP32_STAGE
 #include "include/tasmota_compat.h"
 #include "include/tasmota_version.h"        // Tasmota version information
 #include "include/tasmota.h"                // Enumeration used in my_user_config.h
 #include "my_user_config.h"                 // Fixed user configurable options
 #ifdef USE_TLS
-  #include <t_bearssl.h>                    // We need to include before "tasmota_globals.h" to take precedence over the BearSSL version in Arduino
-#endif // USE_TLS
+#include <t_bearssl.h>                      // We need to include before "tasmota_globals.h" to take precedence over the BearSSL version in Arduino
+#endif  // USE_TLS
 #include "include/tasmota_globals.h"        // Function prototypes and global configuration
 #include "include/i18n.h"                   // Language support configured by my_user_config.h
 #include "include/tasmota_template.h"       // Hardware configuration
@@ -36,7 +36,7 @@
 // If IPv6 is not support by the underlying esp-idf, disable it
 // ------------------------------------------------------------------------------------------
 #if !LWIP_IPV6
-  #undef USE_IPV6
+#undef USE_IPV6
 #endif
 
 // Libraries
@@ -44,10 +44,10 @@
 #include <ESP8266HTTPClient.h>              // Ota
 #include <ESP8266httpUpdate.h>              // Ota
 #ifdef ESP32
-  #ifdef USE_TLS
-  #include "HTTPUpdateLight.h"              // Ota over HTTPS for ESP32
-  #endif // USE_TLS
-#endif
+#ifdef USE_TLS
+#include "HTTPUpdateLight.h"                // Ota over HTTPS for ESP32
+#endif  // USE_TLS
+#endif  // ESP32
 #include <StreamString.h>                   // Webserver, Updater
 #include <ext_printf.h>
 #include <SBuffer.hpp>
@@ -56,20 +56,18 @@
 #include <JsonGenerator.h>
 #ifdef ESP8266
 #ifdef USE_ARDUINO_OTA
-  #include <ArduinoOTA.h>                   // Arduino OTA
-  #ifndef USE_DISCOVERY
-  #define USE_DISCOVERY
-  #endif
+#include <ArduinoOTA.h>                     // Arduino OTA
+#ifndef USE_DISCOVERY
+#define USE_DISCOVERY
+#endif  // USE_DISCOVERY
 #endif  // USE_ARDUINO_OTA
 #endif  // ESP8266
 #ifdef USE_DISCOVERY
-  #include <ESP8266mDNS.h>                  // MQTT, Webserver, Arduino OTA
+#include <ESP8266mDNS.h>                    // MQTT, Webserver, Arduino OTA
 #endif  // USE_DISCOVERY
-//#ifdef USE_I2C
-  #include <Wire.h>                         // I2C support library
-//#endif  // USE_I2C
+#include <Wire.h>                           // I2C support library
 #ifdef USE_SPI
-  #include <SPI.h>                          // SPI support, TFT, SDcard
+#include <SPI.h>                            // SPI support, TFT, SDcard
 #endif  // USE_SPI
 
 #ifdef USE_UFILESYS
@@ -92,22 +90,21 @@
 #endif  // ESP32
 #endif  // USE_UFILESYS
 
-#if ESP_IDF_VERSION_MAJOR >= 5
+#ifdef ESP32
 #include "include/tasconsole.h"
 #if SOC_USB_SERIAL_JTAG_SUPPORTED
 #include "hal/usb_serial_jtag_ll.h"
 #include "esp_private/rtc_clk.h"
 #endif  // SOC_USB_SERIAL_JTAG_SUPPORTED
-#endif  // ESP_IDF_VERSION_MAJOr
-
-// Structs
-#include "include/tasmota_types.h"
-
 #ifdef CONFIG_IDF_TARGET_ESP32
 #include "driver/gpio.h"
 #include "soc/efuse_reg.h"
 #include "bootloader_common.h"
 #endif
+#endif  // ESP32
+
+// Structs
+#include "include/tasmota_types.h"
 
 /*********************************************************************************************\
  * Global variables
@@ -138,8 +135,6 @@ struct WIFI {
   bool wifi_test_AP_TIMEOUT = false;
   bool wifi_Test_Restart = false;
   bool wifi_Test_Save_SSID2 = false;
-  // IPv6 support, not guarded with #if LWIP_IPV6 to avoid bloating code with ifdefs
-  bool ipv6_local_link_called = false;           // did we already enable IPv6 Local-Link address, needs to be redone at each reconnect
 } Wifi;
 
 typedef struct {
@@ -209,8 +204,6 @@ struct XDRVMAILBOX {
 WiFiUDP PortUdp;                            // UDP Syslog and Alexa
 
 #ifdef ESP32
-#if ESP_IDF_VERSION_MAJOR >= 5
-
 /*
 #if CONFIG_IDF_TARGET_ESP32C3 ||            // support USB via HWCDC using JTAG interface
     CONFIG_IDF_TARGET_ESP32C6 ||            // support USB via HWCDC using JTAG interface
@@ -226,70 +219,31 @@ bool tasconsole_serial = false;
 
 #if ARDUINO_USB_MODE
 //#warning **** TasConsole ARDUINO_USB_MODE ****
-#if (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5,1,3))
+#if !ARDUINO_USB_CDC_ON_BOOT
 HWCDC HWCDCSerial;
-#endif
+#endif  // ARDUINO_USB_CDC_ON_BOOT
 TASCONSOLE TasConsole{HWCDCSerial};         // ESP32C3/C6/S3 embedded USB using JTAG interface
 //#warning **** TasConsole uses HWCDC ****
 #else   // No ARDUINO_USB_MODE
 #include "USB.h"
 #include "USBCDC.h"
-//USBCDC USBSerial;                         // Already defined in USBCDC.cpp
+#if !ARDUINO_USB_CDC_ON_BOOT
+USBCDC USBSerial;                           // Already defined in USBCDC.cpp
+#endif  // ARDUINO_USB_CDC_ON_BOOT
 TASCONSOLE TasConsole{USBSerial};           // ESP32Sx embedded USB interface
 //#warning **** TasConsole uses USBCDC ****
 #endif  // ARDUINO_USB_MODE
 
-#else  // No USE_USB_CDC_CONSOLE
-TASCONSOLE TasConsole{Serial};
-bool tasconsole_serial = true;
-//#warning **** TasConsole uses Serial ****
-#endif  // USE_USB_CDC_CONSOLE
-#else   // No ESP32C3, S2 or S3
-TASCONSOLE TasConsole{Serial};
-bool tasconsole_serial = true;
-//#warning **** TasConsole uses Serial ****
-#endif  // ESP32C3, S2 or S3
-
-#else  // ESP_IDF_VERSION_MAJOR < 5
-
-/*
-#if CONFIG_IDF_TARGET_ESP32C3 ||            // support USB via HWCDC using JTAG interface
-    CONFIG_IDF_TARGET_ESP32C6 ||            // support USB via HWCDC using JTAG interface
-    CONFIG_IDF_TARGET_ESP32S2 ||            // support USB via USBCDC
-    CONFIG_IDF_TARGET_ESP32S3               // support USB via HWCDC using JTAG interface or USBCDC
-*/
-#if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
-
-//#if CONFIG_TINYUSB_CDC_ENABLED              // This define is not recognized here so use USE_USB_CDC_CONSOLE
-#ifdef USE_USB_CDC_CONSOLE
-//#warning **** TasConsole use USB ****
-
-#if ARDUINO_USB_MODE
-//#warning **** TasConsole ARDUINO_USB_MODE ****
-HWCDC TasConsole;                           // ESP32C3/C6/S3 embedded USB using JTAG interface
-bool tasconsole_serial = false;
-//#warning **** TasConsole uses HWCDC ****
-#else   // No ARDUINO_USB_MODE
-#include "USB.h"
-#include "USBCDC.h"
-USBCDC TasConsole;                          // ESP32Sx embedded USB interface
-bool tasconsole_serial = false;
-//#warning **** TasConsole uses USBCDC ****
-#endif  // ARDUINO_USB_MODE
-
 #else   // No USE_USB_CDC_CONSOLE
-HardwareSerial TasConsole = Serial;         // Fallback serial interface for ESP32C3, S2 and S3 if no USB_SERIAL defined
+TASCONSOLE TasConsole{Serial};
 bool tasconsole_serial = true;
 //#warning **** TasConsole uses Serial ****
 #endif  // USE_USB_CDC_CONSOLE
-
 #else   // No ESP32C3, S2 or S3
-HardwareSerial TasConsole = Serial;         // Fallback serial interface for non ESP32C3, S2 and S3
+TASCONSOLE TasConsole{Serial};
 bool tasconsole_serial = true;
 //#warning **** TasConsole uses Serial ****
 #endif  // ESP32C3, S2 or S3
-
-#endif  // ESP_IDF_VERSION_MAJOR >= 5
 
 #else   // No ESP32
 HardwareSerial TasConsole = Serial;         // Only serial interface
@@ -345,7 +299,7 @@ struct TasmotaGlobal_t {
   int16_t pwm_cur_phase[MAX_PWMS];          // Current phase values of PWMs as applied to GPIOs
   int16_t pwm_value[MAX_PWMS];              // Wanted values of PWMs after update - -1 means no change
   int16_t pwm_phase[MAX_PWMS];              // Wanted phase of PWMs after update - -1 means no change
-#endif // ESP32
+#endif  // ESP32
 
   bool serial_local;                        // Handle serial locally
   bool fallback_topic_flag;                 // Use Topic or FallbackTopic
@@ -425,7 +379,7 @@ struct TasmotaGlobal_t {
 
 #ifdef USE_BERRY
   bool berry_fast_loop_enabled = false;     // is Berry fast loop enabled, i.e. control is passed at each loop iteration
-#endif // USE_BERRY
+#endif  // USE_BERRY
 } TasmotaGlobal;
 
 TSettings* Settings = nullptr;
@@ -448,14 +402,8 @@ void setup(void) {
   // restore GPIO16/17 if no PSRAM is found
   if (!FoundPSRAM()) {
     // test if the CPU is not pico
-#if (ESP_IDF_VERSION_MAJOR >= 5)
     uint32_t pkg_version = bootloader_common_get_chip_ver_pkg();
     if (pkg_version <= 3) {   // D0WD, S0WD, D2WD
-#else // ESP_IDF_VERSION_MAJOR >= 5
-    uint32_t chip_ver = REG_GET_FIELD(EFUSE_BLK0_RDATA3_REG, EFUSE_RD_CHIP_VER_PKG);
-    uint32_t pkg_version = chip_ver & 0x7;
-    if (pkg_version <= 3) {   // D0WD, S0WD, D2WD
-#endif // ESP_IDF_VERSION_MAJOR >= 5
       gpio_reset_pin(GPIO_NUM_16);
       gpio_reset_pin(GPIO_NUM_17);
     }
@@ -489,13 +437,13 @@ void setup(void) {
   }
 #ifdef FIRMWARE_MINIMAL
   RtcReboot.fast_reboot_count = 0;    // Disable fast reboot and quick power cycle detection
-#else
+#else  // No FIRMWARE_MINIMAL
   if (ResetReason() == REASON_DEEP_SLEEP_AWAKE) {
     RtcReboot.fast_reboot_count = 0;  // Disable fast reboot and quick power cycle detection
   } else {
     RtcReboot.fast_reboot_count++;
   }
-#endif
+#endif  // FIRMWARE_MINIMAL
   RtcRebootSave();
 
   if (RtcSettingsLoad(0)) {
@@ -521,30 +469,23 @@ void setup(void) {
   }
 
 #ifdef ESP32
-#if ESP_IDF_VERSION_MAJOR >= 5
-
 #if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
 #ifdef USE_USB_CDC_CONSOLE
 
   bool is_connected_to_USB = false;
 #if SOC_USB_SERIAL_JTAG_SUPPORTED  // Not S2
-  rtc_clk_bbpll_add_consumer();    // Maybe unneeded
-  usb_serial_jtag_ll_ena_intr_mask(USB_SERIAL_JTAG_INTR_SOF);
-  usb_serial_jtag_ll_clr_intsts_mask(USB_SERIAL_JTAG_INTR_SOF);
-  // First check if USB cable is connected - maybe add a new SetOption to prevent this
-  for (uint32_t i = 0; i < 1000; i++) {  // Allow the host to send at least one SOF packet, 1ms should be enough but let's be very conservative here - maybe unneeded
-      is_connected_to_USB = ((usb_serial_jtag_ll_get_intraw_mask() & USB_SERIAL_JTAG_INTR_SOF) != 0);
+  for (uint32_t i = 0; i < 5; i++) {  // wait up to 250 ms - maybe a shorter time is enough
+      is_connected_to_USB = usb_serial_jtag_is_connected();
       if (is_connected_to_USB) { break; }
-      delay(1);
+      delay(50);
   }
-  rtc_clk_bbpll_remove_consumer();
 #else
   is_connected_to_USB = true;      // S2
 #endif  // SOC_USB_SERIAL_JTAG_SUPPORTED
 
   if (is_connected_to_USB) {
     TasConsole.setRxBufferSize(INPUT_BUFFER_SIZE);
-  //  TasConsole.setTxBufferSize(INPUT_BUFFER_SIZE);
+//    TasConsole.setTxBufferSize(INPUT_BUFFER_SIZE);
     TasConsole.begin(115200);    // Will always be 115200 bps
 #if !ARDUINO_USB_MODE
     USB.begin();                 // This needs a serial console with DTR/DSR support
@@ -574,31 +515,6 @@ void setup(void) {
   TasConsole = Serial;
 #endif  // ESP32C3, S2 or S3
 
-#else  // ESP_IDF_VERSION_MAJOR < 5
-
-  // Init command console (either serial or USB) preparing for AddLog use
-  Serial.begin(TasmotaGlobal.baudrate);
-  Serial.println();
-//  Serial.setRxBufferSize(INPUT_BUFFER_SIZE);  // Default is 256 chars
-#if CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
-#ifdef USE_USB_CDC_CONSOLE
-  TasConsole.setRxBufferSize(INPUT_BUFFER_SIZE);
-//  TasConsole.setTxBufferSize(INPUT_BUFFER_SIZE);
-  TasConsole.begin(115200);    // Will always be 115200 bps
-#if !ARDUINO_USB_MODE
-  USB.begin();                 // This needs a serial console with DTR/DSR support
-#endif  // No ARDUINO_USB_MODE
-  TasConsole.println();
-  AddLog(LOG_LEVEL_INFO, PSTR("CMD: Using USB CDC"));
-#else   // No USE_USB_CDC_CONSOLE
-  TasConsole = Serial;
-#endif  // USE_USB_CDC_CONSOLE
-#else   // No ESP32C3, S2 or S3
-  TasConsole = Serial;
-#endif  // ESP32C3, S2 or S3
-
-#endif  // ESP_IDF_VERSION_MAJOR >= 5
-
 #else   // No ESP32
   // Init command serial console preparing for AddLog use
   Serial.begin(TasmotaGlobal.baudrate);
@@ -614,18 +530,18 @@ void setup(void) {
   AddLog(LOG_LEVEL_INFO, PSTR("HDW: %s %s"), GetDeviceHardwareRevision().c_str(),
             FoundPSRAM() ? (CanUsePSRAM() ? "(PSRAM)" : "(PSRAM disabled)") : "" );
   // AddLog(LOG_LEVEL_DEBUG, PSTR("HDW: FoundPSRAM=%i CanUsePSRAM=%i"), FoundPSRAM(), CanUsePSRAM());
-  #if !defined(HAS_PSRAM_FIX)
+#if !defined(HAS_PSRAM_FIX)
   if (FoundPSRAM() && !CanUsePSRAM()) {
     AddLog(LOG_LEVEL_INFO, PSTR("HDW: PSRAM is disabled, requires specific compilation on this hardware (see doc)"));
   }
-  #endif
-#else // ESP32
+#endif  // HAS_PSRAM_FIX
+#else   // ESP8266
   AddLog(LOG_LEVEL_INFO, PSTR("HDW: %s"), GetDeviceHardware().c_str());
-#endif // ESP32
+#endif  // ESP32
 
 #ifdef USE_UFILESYS
   UfsInit();  // xdrv_50_filesystem.ino
-#endif
+#endif  // USE_UFILESYS
 
   SettingsLoad();
   SettingsDelta();
@@ -649,12 +565,12 @@ void setup(void) {
   if (ResetReason() != REASON_DEEP_SLEEP_AWAKE) {
 #ifdef ESP8266
     Settings->flag4.network_wifi = 1;           // Make sure we're in control
-#endif
+#endif  // ESP8266
 #ifdef ESP32
     if (!Settings->flag4.network_ethernet) {
       Settings->flag4.network_wifi = 1;         // Make sure we're in control
     }
-#endif
+#endif  // ESP32
   }
 
   TasmotaGlobal.stop_flash_rotate = Settings->flag.stop_flash_rotate;  // SetOption12 - Switch between dynamic or fixed slot flash save location
@@ -662,13 +578,13 @@ void setup(void) {
   TasmotaGlobal.sleep = Settings->sleep;
 #ifndef USE_EMULATION
   Settings->flag2.emulation = 0;
-#else
+#else   // No USE_EMULATION
 #ifndef USE_EMULATION_WEMO
   if (EMUL_WEMO == Settings->flag2.emulation) { Settings->flag2.emulation = 0; }
-#endif
+#endif  // USE_EMULATION_WEMO
 #ifndef USE_EMULATION_HUE
   if (EMUL_HUE == Settings->flag2.emulation) { Settings->flag2.emulation = 0; }
-#endif
+#endif  // USE_EMULATION_HUE
 #endif  // USE_EMULATION
 
 //  AddLog(LOG_LEVEL_INFO, PSTR("DBG: TasmotaGlobal size %d, data %100_H"), sizeof(TasmotaGlobal), (uint8_t*)&TasmotaGlobal);
@@ -714,10 +630,6 @@ void setup(void) {
   // Github inserts "release" or "commit number" before compiling using sed -i -e 's/TASMOTA_SHA_SHORT/TASMOTA_SHA_SHORT 85cff52-/g' tasmota_version.h
   snprintf_P(TasmotaGlobal.image_name, sizeof(TasmotaGlobal.image_name), PSTR("(" STR(TASMOTA_SHA_SHORT) "%s)"), PSTR(CODE_IMAGE_STR));  // Results in (85cff52-tasmota) or (release-tasmota)
 
-#if defined(ESP32) && (ESP_IDF_VERSION_MAJOR >= 5)
-  WiFi.begin();   // force wifi start so that the Mac address is known
-#endif
-
   Format(TasmotaGlobal.mqtt_client, SettingsText(SET_MQTT_CLIENT), sizeof(TasmotaGlobal.mqtt_client));
   Format(TasmotaGlobal.mqtt_topic, SettingsText(SET_MQTT_TOPIC), sizeof(TasmotaGlobal.mqtt_topic));
   if (strchr(SettingsText(SET_HOSTNAME), '%') != nullptr) {
@@ -745,7 +657,7 @@ void setup(void) {
   if (!TasmotaGlobal.no_autoexec) {
     BerryInit();                 // Load preinit.be
   }
-#endif // USE_BERRY
+#endif  // USE_BERRY
 
   XdrvXsnsCall(FUNC_PRE_INIT);   // FUNC_PRE_INIT
 
@@ -769,7 +681,7 @@ void setup(void) {
   XdrvXsnsCall(FUNC_INIT);       // FUNC_INIT
 #ifdef USE_SCRIPT
   if (bitRead(Settings->rule_enabled, 0)) Run_Scripter(">BS",3,0);
-#endif
+#endif  // USE_SCRIPT
 
   TasmotaGlobal.rules_flag.system_init = 1;
 }

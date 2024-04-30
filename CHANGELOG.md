@@ -3,24 +3,81 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - Development
 
-## [13.4.0.4]
+## [13.4.1.2]
+### Added
+- esp32_partition_app3904k_fs3392k partition scheme for 8MB ESP32S3
+- TCP Tx En GPIO type
+- Berry `webserver.content_close()`
+- HASPmota demo of Renaissance Watch for 480x480 displays
+
+### Breaking Changed
+- ESP32-C3 OTA binary name from `tasmota32c3cdc.bin` to `tasmota32c3.bin` with USB HWCDC and fallback to serial (#21212)
+- ESP32-C6 OTA binary name from `tasmota32c6cdc.bin` to `tasmota32c6.bin` with USB HWCDC and fallback to serial (#21212)
+- ESP32-S3 OTA binary name from `tasmota32s3cdc.bin` to `tasmota32s3.bin` with USB HWCDC and fallback to serial (#21212)
+
+### Changed
+- uDisplay fast drawing on RGB displays
+- HDMI CEC synchronously sends messages
+
+### Fixed
+- HASPmota `align` attribute and expand PNG cache
+- LVGL restore `lv_palette` functions
+- IPv6 support in safeboot
+- LVGL fix memory allocation of flush buffers
+- Berry `web_add_handler` called before `Webserver` is initialized
+- Put back wifi IPv6 workaround
+
+### Removed
+- LVGL disabled vector graphics
+
+## [13.4.1.1] 20240418
+### Added
+- HASPmota `dropdown_list` and fixes (#21208)
+- Support for SPL06_007 pressure and temperature sensor (#21185)
+
+### Breaking Changed
+- ESP32 Ethernet Phy Type number for DM9051 from 4 to 10 (#21204)
+
+### Changed
+- ESP32 Framework (Arduino Core) from v2.0.15 to v3.0.0 (#21180)
+- ESP32 Core3 platform update from 2024.04.11 to 2024.04.12 (#21199)
+
+### Fixed
+- HASPmota dropdown class "options" attribute (#21203)
+- ESP8266 physical button/switch control when no rules activated (#21187)
+
+### Removed
+- Support for ESP32 Arduino Core 2 (#21180)
+- SSD1351 driver replaced with uDisplay (#21184)
+- ST7789 driver replaced with uDisplay (#21184)
+
+## [13.4.0.4] 20240415
 ### Added
 - Command ``PowerLock`` to disable power control of selected outputs (#21081)
 - Command ``Wifi 6`` to enable 11ax on ESP32 Core3
 - Berry `flash.current_ota` (#21097)
 
 ### Breaking Changed
+- Removed dedicated touch drivers in favour of Universal Touch driver (#21146)
 
 ### Changed
 - ESP32 refactored Wifi for ESP32 Core3 release (#21106)
 - ESP32 Core3 platform update from 2024.02.10 to 2024.04.10 (#21114)
+- ESP32 Core3 platform update from 2024.04.10 to 2024.04.11 (#21142)
+- SGP4x Domoticz air quality value from raw to computed (#18880)
+- ESP32 Framework (Arduino Core) from v2.0.14 to v2.0.15
 
 ### Fixed
 - NeoPool hydrolysis unit for Hidrolife, Bionet and Generic device (#21098)
 - M5Core2 LoRa868 module receive exception
+- Fade out on CCT bulb with `SO92 1` (#21159)
 
 ### Removed
 - Unused `#define MQTT_DATA_STRING` support
+- ILI9341 driver replaced with uDisplay (#21169)
+- SSD1306 driver replaced with uDisplay (#21176)
+- SSD1331 driver replaced with uDisplay (#21177)
+- SSH1106 driver replaced with uDisplay (#21183)
 
 ## [13.4.0.3] 20240402
 ### Added
@@ -522,7 +579,7 @@ All notable changes to this project will be documented in this file.
 - `BrRestart` now supports web handlers to work after Berry restart
 
 ### Removed
-- Support for ESP32-C3 with chip rev below 3 (old development boards)
+- Support for ESP32-C3 with chip revision below 0.3 (old development boards)
 
 ## [13.0.0] 20230626
 - Release Qasim

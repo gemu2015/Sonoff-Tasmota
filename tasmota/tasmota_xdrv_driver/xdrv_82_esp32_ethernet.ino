@@ -36,14 +36,14 @@
  * GPIO12 = ETH POWER
  * GPIO18 = ETH MDIO
  * GPIO23 = ETH MDC
- * #define ETH_TYPE          ETH_PHY_LAN8720
+ * #define ETH_TYPE          0                   // LAN8720
  * #define ETH_CLKMODE       ETH_CLOCK_GPIO17_OUT
  * #define ETH_ADDRESS       0
  *
  * {"NAME":"wESP32","GPIO":[0,0,1,0,1,1,0,0,1,1,1,1,5568,5600,1,0,0,0,0,1,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,1],"FLAG":0,"BASE":1}
  * GPIO16 = ETH MDC
  * GPIO17 = ETH MDIO
- * #define ETH_TYPE          ETH_PHY_LAN8720
+ * #define ETH_TYPE          0                   // LAN8720
  * #define ETH_CLKMODE       ETH_CLOCK_GPIO0_IN
  * #define ETH_ADDRESS       0
  *
@@ -51,7 +51,7 @@
  * GPIO16 = Force Hi
  * GPIO18 = ETH MDIO
  * GPIO23 = ETH MDC
- * #define ETH_TYPE          ETH_PHY_LAN8720
+ * #define ETH_TYPE          0                   // LAN8720
  * #define ETH_CLKMODE       ETH_CLOCK_GPIO0_IN
  * #define ETH_ADDRESS       1
  *
@@ -78,11 +78,7 @@
 #endif
 
 #ifndef ETH_TYPE
-#if ESP_IDF_VERSION_MAJOR >= 5
-#define ETH_TYPE          ETH_PHY_LAN8720        // ETH.h eth_phy_type_t:   0 = ETH_PHY_LAN8720, 1 = ETH_PHY_TLK110/ETH_PHY_IP101, 2 = ETH_PHY_RTL8201, 3 = ETH_PHY_JL1101, 4 = ETH_PHY_DP83848, 5 = ETH_PHY_KSZ8041, 6 = ETH_PHY_KSZ8081, 7 = ETH_PHY_DM9051, 8 = ETH_PHY_W5500, 9 = ETH_PHY_KSZ8851
-#else
-#define ETH_TYPE          ETH_PHY_LAN8720        // ETH.h eth_phy_type_t:   0 = ETH_PHY_LAN8720, 1 = ETH_PHY_TLK110/ETH_PHY_IP101, 2 = ETH_PHY_RTL8201, 3 = ETH_PHY_DP83848, 4 = ETH_PHY_DM9051, 5 = ETH_PHY_KSZ8041, 6 = ETH_PHY_KSZ8081, 7 = ETH_PHY_JL1101
-#endif
+#define ETH_TYPE          0                      // 0 = LAN8720, 1 = TLK110/IP101, 2 = RTL8201, 3 = DP83848, 4 = RFU, 5 = KSZ8081, 6 = KSZ8041, 7 = JL1101, 8 = W5500, 9 = KSZ8851, 10 = DM9051
 #endif
 
 #ifndef ETH_CLKMODE
@@ -92,6 +88,19 @@
 
 #include <ETH.h>
 
+const uint8_t eth_type_xtable[] = {
+  0,     //  0 = LAN8720
+  1,     //  1 = TLK110/IP101
+  2,     //  2 = RTL8201
+  4,     //  3 = DP83848 (is 4 in core3)
+  0,     //  4 = RFU - Reserved for Future Use
+  6,     //  5 = KSZ8081 (is 6 in core3)
+  5,     //  6 = KSZ8041 (is 5 in core3)
+  3,     //  7 = JL1101 (is 3 in core3)
+  8,     //  8 = W5500 (is new in core3 and using SPI)
+  9,     //  9 = KSZ8851 (is new in core3 and using SPI)
+  7      // 10 = DM9051 (is 7 in core3 and using SPI)
+};
 char eth_hostname[sizeof(TasmotaGlobal.hostname)];
 uint8_t eth_config_change;
 
@@ -106,32 +115,6 @@ void EthernetEvent(arduino_event_t *event) {
       break;
 
     case ARDUINO_EVENT_ETH_CONNECTED:
-#ifdef USE_IPV6
-      ETH.enableIPv6();   // enable Link-Local
-      // workaround for the race condition in LWIP, see https://github.com/espressif/arduino-esp32/pull/9016#discussion_r1451774885
-      {
-        uint32_t i = 5;   // try 5 times only
-#if ESP_IDF_VERSION_MAJOR >= 5
-        while (esp_netif_create_ip6_linklocal(ETH.netif()) != ESP_OK) {
-          delay(1);
-          if (i-- == 0) {
-            AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_ETH ">>>> HELP"));
-            break;
-          }
-        }
-#else
-        while (esp_netif_create_ip6_linklocal(get_esp_interface_netif(ESP_IF_ETH)) != ESP_OK) {
-          delay(1);
-          if (i-- == 0) {
-            AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_ETH ">>>> HELP"));
-            break;
-          }
-        }
-#endif
-        AddLog(LOG_LEVEL_DEBUG_MORE, PSTR(D_LOG_ETH "ESP_IF_ETH i=%i"), i);
-      }
-#endif // USE_IPV6
-      
       AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_ETH D_CONNECTED " at %dMbps%s, Mac %s, Hostname %s"),
         ETH.linkSpeed(), (ETH.fullDuplex()) ? " Full Duplex" : "",
         ETH.macAddress().c_str(), eth_hostname
@@ -204,18 +187,18 @@ void EthernetSetIp(void) {
 void EthernetInit(void) {
   if (!Settings->flag4.network_ethernet) { return; }
 
-  int eth_type = Settings->eth_type;
+  int eth_type = eth_type_xtable[Settings->eth_type];
 #if CONFIG_ETH_USE_ESP32_EMAC
   if (WT32_ETH01 == TasmotaGlobal.module_type) {
     Settings->eth_address = 1;                    // EthAddress
-    Settings->eth_type = ETH_PHY_LAN8720;         // EthType
-    Settings->eth_clk_mode = ETH_CLOCK_GPIO0_IN;  // EthClockMode
+    Settings->eth_type = 0;                       // EthType 0 = LAN8720
+    Settings->eth_clk_mode = 0;                   // EthClockMode 0 = ETH_CLOCK_GPIO0_IN
   }
 #else  // No CONFIG_ETH_USE_ESP32_EMAC
   if (Settings->eth_type < 7) {
     Settings->eth_type = 8;                       // Select W5500 (SPI) for non-EMAC hardware
   }
-  eth_type = Settings->eth_type -7;               // As No EMAC support substract EMAC enums (According ETH.cpp debug info)
+  eth_type = eth_type_xtable[Settings->eth_type] -7;  // As No EMAC support substract EMAC enums (According ETH.cpp debug info)
 #endif  // CONFIG_ETH_USE_ESP32_EMAC
 
   if (Settings->eth_type < 7) {
@@ -243,14 +226,11 @@ void EthernetInit(void) {
   int eth_mdio = Pin(GPIO_ETH_PHY_MDIO);     // Ethernet SPI IRQ
   int eth_power = Pin(GPIO_ETH_PHY_POWER);   // Ethernet SPI RST
 
-#if ESP_IDF_VERSION_MAJOR >= 5
 #ifdef USE_IPV6
   ETH.enableIPv6();   // enable Link-Local
 #endif // USE_IPV6
-#endif // ESP_IDF_VERSION_MAJOR >= 5
 
   bool init_ok = false;
-#if ESP_IDF_VERSION_MAJOR >= 5
   if (Settings->eth_type < 7) {
 #if CONFIG_ETH_USE_ESP32_EMAC
     init_ok = (ETH.begin((eth_phy_type_t)eth_type, Settings->eth_address, eth_mdc, eth_mdio, eth_power, (eth_clock_mode_t)Settings->eth_clk_mode));
@@ -261,9 +241,6 @@ void EthernetInit(void) {
     SPI.begin(Pin(GPIO_SPI_CLK), Pin(GPIO_SPI_MISO), Pin(GPIO_SPI_MOSI), -1);
     init_ok = (ETH.begin((eth_phy_type_t)eth_type, Settings->eth_address, eth_mdc, eth_mdio, eth_power, SPI, ETH_PHY_SPI_FREQ_MHZ));
   }
-#else
-  init_ok = (ETH.begin(Settings->eth_address, eth_power, eth_mdc, eth_mdio, (eth_phy_type_t)Settings->eth_type, (eth_clock_mode_t)Settings->eth_clk_mode));
-#endif  // ESP_IDF_VERSION_MAJOR >= 5
   if (!init_ok) {
     AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_ETH "Bad EthType or init error"));
     return;
@@ -368,7 +345,7 @@ void CmndEthAddress(void) {
 }
 
 void CmndEthType(void) {
-  if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload <= 8)) {
+  if ((XdrvMailbox.payload >= 0) && (XdrvMailbox.payload < sizeof(eth_type_xtable))) {
     Settings->eth_type = XdrvMailbox.payload;
     TasmotaGlobal.restart_flag = 2;
   }

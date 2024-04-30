@@ -219,6 +219,7 @@ enum UserSelectablePins {
   GPIO_LORA_CS, GPIO_LORA_RST, GPIO_LORA_BUSY, GPIO_LORA_DI0, GPIO_LORA_DI1, GPIO_LORA_DI2, GPIO_LORA_DI3, GPIO_LORA_DI4, GPIO_LORA_DI5,  // LoRa SPI
   GPIO_TS_SPI_CS, GPIO_TS_RST, GPIO_TS_IRQ, // SPI for Universal Touch Screen
   GPIO_RN2XX3_TX, GPIO_RN2XX3_RX, GPIO_RN2XX3_RST,  // RN2XX3 LoRaWan node Serial interface
+  GPIO_TCP_TX_EN,                       // TCP to serial bridge, EN pin
   GPIO_SENSOR_END };
 
 // Error as warning to rethink GPIO usage with max 2045
@@ -485,6 +486,7 @@ const char kSensorNames[] PROGMEM =
   D_GPIO_LORA_CS "|" D_GPIO_LORA_RST "|" D_GPIO_LORA_BUSY "|" D_GPIO_LORA_DI "0|" D_GPIO_LORA_DI "1|" D_GPIO_LORA_DI "2|" D_GPIO_LORA_DI "3|" D_GPIO_LORA_DI "4|" D_GPIO_LORA_DI "5|"
   D_GPIO_TS_SPI_CS "|" D_GPIO_TS_RST "|" D_GPIO_TS_IRQ "|"
   D_GPIO_RN2XX3_TX "|" D_GPIO_RN2XX3_RX "|" D_GPIO_RN2XX3_RST "|"
+  D_SENSOR_TCP_TXD_EN "|"
   ;
 
 const char kSensorNamesFixed[] PROGMEM =
@@ -658,10 +660,11 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_TS_RST),                // Touch Reset
   AGPIO(GPIO_TS_IRQ),                // Touch IRQ
 #endif // USE_UNIVERSAL_TOUCH
-#ifdef USE_DISPLAY_ILI9341
-  AGPIO(GPIO_ILI9341_CS),
-  AGPIO(GPIO_ILI9341_DC),
-#endif  // USE_DISPLAY_ILI9341
+// REMOVED
+// #ifdef USE_DISPLAY_ILI9341
+//   AGPIO(GPIO_ILI9341_CS),
+//   AGPIO(GPIO_ILI9341_DC),
+// #endif  // USE_DISPLAY_ILI9341
 
 #ifdef USE_XPT2046
   AGPIO(GPIO_XPT2046_CS),               // XPT2046 SPI Chip Select
@@ -676,21 +679,24 @@ const uint16_t kGpioNiceList[] PROGMEM = {
 #ifdef USE_DISPLAY_EPAPER_42
   AGPIO(GPIO_EPAPER42_CS),
 #endif  // USE_DISPLAY_EPAPER_42
-#ifdef USE_DISPLAY_SSD1351
-  AGPIO(GPIO_SSD1351_CS),
-  AGPIO(GPIO_SSD1351_DC),
-#endif  // USE_DISPLAY_SSD1351
+// REMOVED
+// #ifdef USE_DISPLAY_SSD1351
+//   AGPIO(GPIO_SSD1351_CS),
+//   AGPIO(GPIO_SSD1351_DC),
+// #endif  // USE_DISPLAY_SSD1351
 #ifdef USE_DISPLAY_RA8876
   AGPIO(GPIO_RA8876_CS),
 #endif  // USE_DISPLAY_RA8876
-#ifdef USE_DISPLAY_ST7789
-  AGPIO(GPIO_ST7789_CS),
-  AGPIO(GPIO_ST7789_DC),
-#endif  // USE_DISPLAY_ST7789
-#ifdef USE_DISPLAY_SSD1331
-  AGPIO(GPIO_SSD1331_CS),
-  AGPIO(GPIO_SSD1331_DC),
-#endif  // USE_DISPLAY_SSD1331
+// REMOVED
+// #ifdef USE_DISPLAY_ST7789
+//   AGPIO(GPIO_ST7789_CS),
+//   AGPIO(GPIO_ST7789_DC),
+// #endif  // USE_DISPLAY_ST7789
+// REMOVED
+// #ifdef USE_DISPLAY_SSD1331
+//   AGPIO(GPIO_SSD1331_CS),
+//   AGPIO(GPIO_SSD1331_DC),
+// #endif  // USE_DISPLAY_SSD1331
 #ifdef USE_DISPLAY_MAX7219_MATRIX
   #undef USE_DISPLAY_MAX7219
   #undef USE_DISPLAY_TM1637
@@ -979,6 +985,7 @@ const uint16_t kGpioNiceList[] PROGMEM = {
 #ifdef USE_TCP_BRIDGE
   AGPIO(GPIO_TCP_TX),                   // TCP Serial bridge
   AGPIO(GPIO_TCP_RX),                   // TCP Serial bridge
+  AGPIO(GPIO_TCP_TX_EN),                // TCP Serial bridge EN
 #endif
 #ifdef USE_ZIGBEE
   AGPIO(GPIO_ZIGBEE_TX),                // Zigbee Serial interface

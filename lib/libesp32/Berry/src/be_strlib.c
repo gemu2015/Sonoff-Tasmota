@@ -21,6 +21,21 @@
 #define is_digit(c)     ((c) >= '0' && (c) <= '9')
 #define skip_space(s)   while (is_space(*(s))) { ++(s); }
 
+static int str_strncasecmp(const char *s1, const char *s2, size_t n)
+{
+    if (n == 0) return 0;
+
+    while (n-- != 0 && tolower(*s1) == tolower(*s2)) {
+        if (n == 0 || *s1 == '\0' || *s2 == '\0')
+            break;
+        s1++;
+        s2++;
+    }
+
+    return tolower(*(const unsigned char *)s1)
+        - tolower(*(const unsigned char *)s2);
+}
+
 typedef bint (*str_opfunc)(const char*, const char*, bint, bint);
 
 bstring* be_strcat(bvm *vm, bstring *s1, bstring *s2)
@@ -534,7 +549,7 @@ static const char* skip2dig(const char *s)
     return s;
 }
 
-static const char* get_mode(const char *str, char *buf)
+static const char* get_mode(const char *str, char *buf, size_t buf_len)
 {
     const char *p = str;
     while (*p && strchr(FLAGES, *p)) { /* skip flags */
@@ -545,8 +560,13 @@ static const char* get_mode(const char *str, char *buf)
         p = skip2dig(++p); /* skip width (2 digits at most) */
     }
     *(buf++) = '%';
-    strncpy(buf, str, p - str + 1);
-    buf[p - str + 1] = '\0';
+    size_t mode_size = p - str + 1;
+    /* Leave 2 bytes for the leading % and the trailing '\0' */
+    if (mode_size > buf_len - 2) { 
+        mode_size = buf_len - 2;
+    }
+    strncpy(buf, str, mode_size);
+    buf[mode_size] = '\0';
     return p;
 }
 
@@ -617,7 +637,7 @@ int be_str_format(bvm *vm)
             }
             pushstr(vm, format, p - format);
             concat2(vm);
-            p = get_mode(p + 1, mode);
+            p = get_mode(p + 1, mode, sizeof(mode));
             buf[0] = '\0';
             if (index > top && *p != '%') {
                 be_raise(vm, "runtime_error", be_pushfstring(vm,
@@ -964,7 +984,7 @@ static int str_startswith(bvm *vm)
         const char *p = be_tostring(vm, 2);
         size_t len = (size_t)be_strlen(vm, 2);
         if (case_insensitive) {
-            if (strncasecmp(s, p, len) == 0) {
+            if (str_strncasecmp(s, p, len) == 0) {
                 result = btrue;
             }
         } else {
@@ -991,7 +1011,7 @@ static int str_endswith(bvm *vm)
         const char *p = be_tostring(vm, 2);
         size_t len = (size_t)be_strlen(vm, 2);
         if (case_insensitive) {
-            if (strncasecmp(s + (int)strlen(s) - (int)len, p, len) == 0) {
+            if (str_strncasecmp(s + (int)strlen(s) - (int)len, p, len) == 0) {
                 result = btrue;
             }
         } else {
