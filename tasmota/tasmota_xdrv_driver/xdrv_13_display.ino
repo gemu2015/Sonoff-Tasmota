@@ -2321,7 +2321,9 @@ char ppath[16];
 #ifdef JPEG_PICTS
 #include "img_converters.h"
 #include "esp_jpg_decode.h"
+//int32_t jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, uint8_t scale);
 bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t scale);
+
 bool jpg2rgb565(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t scale);
 char get_jpeg_size(unsigned char* data, unsigned int data_size, unsigned short *width, unsigned short *height);
 #endif // JPEG_PICTS

@@ -75,6 +75,7 @@ static size_t _jpg_read(void * arg, size_t index, uint8_t *buf, size_t len)
     return len;
 }
 
+#if 1
 //output buffer and image width
 static bool _rgb_write(void * arg, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t *data)
 {
@@ -119,9 +120,7 @@ static bool _rgb_write(void * arg, uint16_t x, uint16_t y, uint16_t w, uint16_t 
     return true;
 }
 
-
 esp_err_t esp_jpg_decode(size_t len, jpg_scale_t scale, jpg_reader_cb reader, jpg_writer_cb writer, void * arg);
-
 
 bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t scale)
 {
@@ -137,6 +136,74 @@ bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t s
     }
     return true;
 }
+#else
+
+#include <ESP32_JPEG_Library.h>
+
+
+//static int32_t esp_jpeg_decoder_one_image(uint8_t *input_buf, int len, uint8_t *output_buf) {
+static int32_t jpg2rgb888(uint8_t *input_buf, size_t len, uint8_t * output_buf, uint8_t scale) {
+
+    int32_t ret = JPEG_ERR_OK;
+    //jpeg_error_t ret = JPEG_ERR_OK;
+    int inbuf_consumed = 0;
+
+    // Generate default configuration
+    jpeg_dec_config_t config = {
+        .output_type = JPEG_RAW_TYPE_RGB888,
+        .rotate = JPEG_ROTATE_0D,
+    };
+
+    // Empty handle to jpeg_decoder
+    jpeg_dec_handle_t *jpeg_dec = NULL;
+
+    // Create jpeg_dec
+    jpeg_dec = jpeg_dec_open(&config);
+
+    // Create io_callback handle
+    jpeg_dec_io_t *jpeg_io = (jpeg_dec_io_t *)calloc(1, sizeof(jpeg_dec_io_t));
+    if (jpeg_io == NULL) {
+        return JPEG_ERR_MEM;
+    }
+
+    // Create out_info handle
+    jpeg_dec_header_info_t *out_info = (jpeg_dec_header_info_t *)calloc(1, sizeof(jpeg_dec_header_info_t));
+    if (out_info == NULL) {
+        return JPEG_ERR_MEM;
+    }
+    // Set input buffer and buffer len to io_callback
+    jpeg_io->inbuf = input_buf;
+    jpeg_io->inbuf_len = len;
+
+    // Parse jpeg picture header and get picture for user and decoder
+    ret = jpeg_dec_parse_header(jpeg_dec, jpeg_io, out_info);
+    if (ret < 0) {
+        //Serial.println("JPEG decode parse failed");
+        AddLog(LOG_LEVEL_INFO, PSTR("JPEG decode parse failed"));
+        goto _exit;
+    }
+
+    jpeg_io->outbuf = output_buf;
+    inbuf_consumed = jpeg_io->inbuf_len - jpeg_io->inbuf_remain;
+    jpeg_io->inbuf = input_buf + inbuf_consumed;
+    jpeg_io->inbuf_len = jpeg_io->inbuf_remain;
+
+    // Start decode jpeg raw data
+    ret = jpeg_dec_process(jpeg_dec, jpeg_io);
+    if (ret < 0) {
+        //Serial.println("JPEG decode process failed");
+        AddLog(LOG_LEVEL_INFO, PSTR("JPEG decode process failed"));
+        goto _exit;
+    }
+
+_exit:
+    // Decoder deinitialize
+    jpeg_dec_close(jpeg_dec);
+    free(out_info);
+    free(jpeg_io);
+    return ret;
+}
+#endif
 
 // https://web.archive.org/web/20131016210645/http://www.64lines.com/jpeg-width-height
 //Gets the JPEG size from the array of data passed to the function, file reference: http://www.obrador.com/essentialjpeg/headerinfo.htm
