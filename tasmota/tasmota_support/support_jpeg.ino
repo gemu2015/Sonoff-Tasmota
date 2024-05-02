@@ -122,8 +122,7 @@ static bool _rgb_write(void * arg, uint16_t x, uint16_t y, uint16_t w, uint16_t 
 
 esp_err_t esp_jpg_decode(size_t len, jpg_scale_t scale, jpg_reader_cb reader, jpg_writer_cb writer, void * arg);
 
-bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t scale)
-{
+bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t scale) {
     rgb_jpg_decoder jpeg;
     jpeg.width = 0;
     jpeg.height = 0;
@@ -137,12 +136,13 @@ bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t s
     return true;
 }
 #else
-
+/*
 #include <ESP32_JPEG_Library.h>
 
 
 //static int32_t esp_jpeg_decoder_one_image(uint8_t *input_buf, int len, uint8_t *output_buf) {
-static int32_t jpg2rgb888(uint8_t *input_buf, size_t len, uint8_t * output_buf, uint8_t scale) {
+//static bool jpg2rgb888(uint8_t *input_buf, size_t len, uint8_t * output_buf, jpg_scale_t scale) {
+static bool jpg2rgb888(uint8_t *input_buf, size_t len, uint8_t * output_buf, uint8_t scale) {
 
     int32_t ret = JPEG_ERR_OK;
     //jpeg_error_t ret = JPEG_ERR_OK;
@@ -202,7 +202,7 @@ _exit:
     free(out_info);
     free(jpeg_io);
     return ret;
-}
+}*/
 #endif
 
 // https://web.archive.org/web/20131016210645/http://www.64lines.com/jpeg-width-height
