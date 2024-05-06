@@ -65,6 +65,8 @@ typedef struct {
         uint8_t *output;
 } rgb_jpg_decoder;
 
+
+#if 1
 //input buffer
 static size_t _jpg_read(void * arg, size_t index, uint8_t *buf, size_t len)
 {
@@ -75,7 +77,6 @@ static size_t _jpg_read(void * arg, size_t index, uint8_t *buf, size_t len)
     return len;
 }
 
-#if 1
 //output buffer and image width
 static bool _rgb_write(void * arg, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t *data)
 {
