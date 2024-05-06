@@ -385,6 +385,14 @@ uint32_t tmod_dummy() {
 #ifdef ESP8266
 #include <i2s.h>
 #endif
+#ifdef ESP32
+#if ESP_IDF_VERSION_MAJOR >= 5
+#include "driver/i2s_std.h"
+#include "driver/i2s_pdm.h"
+#else
+#include <driver/i2s.h>
+#endif
+#endif
 
 uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t p4, uint32_t p5) {
   switch (sel) {
@@ -392,21 +400,31 @@ uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t 
 #ifdef ESP8266
       return i2s_rxtx_begin(p2, p3);
 #else
+#if ESP_IDF_VERSION_MAJOR >= 5
+      return 0;
+#else
       return i2s_driver_install((i2s_port_t)p1, (i2s_config_t*)p2, p3, (void*)p4);
+#endif
 #endif
       break;
     case 2:
 #ifdef ESP8266
       i2s_end();
 #else
+#if ESP_IDF_VERSION_MAJOR >= 5
+#else
       i2s_driver_uninstall((i2s_port_t)p1);
+#endif
 #endif
       break;
     case 3:
 #ifdef ESP8266
       i2s_set_rate(p2);
 #else
+#if ESP_IDF_VERSION_MAJOR >= 5
+#else
       i2s_set_clk((i2s_port_t)p1, p2, p3, (i2s_channel_t)p4);
+#endif
 #endif
       break;
     case 4:
@@ -422,15 +440,22 @@ uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t 
         *(uint32_t*)p4 = p3;
       } 
 #else   
+#if ESP_IDF_VERSION_MAJOR >= 5
+#else
       //i2s_write(audio_i2s.i2s_port, (const uint8_t*)packet_buffer, len, &bytes_written, 0);
-      return i2s_write((i2s_port_t)p1, (const uint8_t*)p2, p3, (uint32_t*)p4, p5);
+      return i2s_write((i2s_port_t)p1, (const uint8_t*)p2, p3, (size_t*)p4, p5);
+#endif
 #endif
       //i2s_set_pin
     case 6:
 #ifdef ESP8266
       return i2s_read_sample((int16_t *)p2, (int16_t *)p3, p4); 
 #else
-      return i2s_read((i2s_port_t)p1, (char *)p2, p3, (uint32_t*)p4, p5);
+#if ESP_IDF_VERSION_MAJOR >= 5
+      break;
+#else
+      return i2s_read((i2s_port_t)p1, (char *)p2, p3, (size_t*)p4, p5);
+#endif
 #endif
   }
   return 0;
