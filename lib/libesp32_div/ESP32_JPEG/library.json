@@ -1,0 +1,14 @@
+{
+    "name": "JPEG decode",
+    "keywords": "JPEG",
+    "description": "Arduino Library for JPEG decode",
+    "authors": [
+        {
+            "name": "Espressif",
+            "maintainer": true
+        }
+    ],
+    "version": "1.0.0",
+    "frameworks": "arduino",
+    "platforms": "espressif32"
+}

@@ -22,7 +22,12 @@
 #ifdef JPEG_PICTS
 
 #include "img_converters.h"
+
+#ifdef USE_JPEG_IN_FLASH
+#include "alt_esp_jpg_decode.h"
+#else
 #include "esp_jpg_decode.h"
+#endif
 
 void rgb888_to_565(uint8_t *in, uint16_t *out, uint32_t len) {
 uint8_t red, grn, blu;
@@ -129,7 +134,9 @@ bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t s
     jpeg.output = out;
     jpeg.data_offset = 0;
 
-    if(esp_jpg_decode(src_len, scale, _jpg_read, _rgb_write, (void*)&jpeg) != ESP_OK){
+    esp_err_t err = esp_jpg_decode(src_len, scale, _jpg_read, _rgb_write, (void*)&jpeg);
+
+    if ( err != ESP_OK) {
         return false;
     }
     return true;
