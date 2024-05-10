@@ -18,7 +18,7 @@
 #include "esp_err.h"
 
 typedef size_t (* alt_jpg_reader_cb)(void * arg, size_t index, uint8_t *buf, size_t len);
-typedef int (* alt_jpg_writer_cb)(void * arg, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t *data);
+typedef bool (* alt_jpg_writer_cb)(void * arg, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t *data);
 
 esp_err_t alt_esp_jpg_decode(size_t len, u_int8_t scale, alt_jpg_reader_cb reader, alt_jpg_writer_cb writer, void * arg);
 

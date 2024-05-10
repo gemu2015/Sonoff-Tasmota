@@ -15,6 +15,10 @@
 
 #include "esp_system.h"
 
+#include <Arduino.h>
+extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
+enum LoggingLevels {LOG_LEVEL_NONE, LOG_LEVEL_ERROR, LOG_LEVEL_INFO, LOG_LEVEL_DEBUG, LOG_LEVEL_DEBUG_MORE};
+
 #if 1
 /*
 #if ESP_IDF_VERSION_MAJOR >= 4 // IDF 4+
@@ -33,12 +37,9 @@
 #include "rom/tjpgd.h"
 #endif
 */
-#include "Arduino.h"
+
 #include "alt_tjpgd.h"  // using software decoder
 
-
-extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
-enum LoggingLevels {LOG_LEVEL_NONE, LOG_LEVEL_ERROR, LOG_LEVEL_INFO, LOG_LEVEL_DEBUG, LOG_LEVEL_DEBUG_MORE};
 
 #if defined(ARDUINO_ARCH_ESP32) && defined(CONFIG_ARDUHAL_ESP_LOG)
 #include "esp32-hal-log.h"
@@ -103,7 +104,7 @@ static size_t _jpg_read(JDEC *decoder, uint8_t *buf, unsigned int len)
 }
 
 esp_err_t alt_esp_jpg_decode(size_t len, uint8_t scale, alt_jpg_reader_cb reader, alt_jpg_writer_cb writer, void * arg) {
-    static uint8_t work[3100];
+    static uint8_t work[4096];
     JDEC decoder;
     esp_jpg_decoder_t jpeg;
 
@@ -114,10 +115,10 @@ esp_err_t alt_esp_jpg_decode(size_t len, uint8_t scale, alt_jpg_reader_cb reader
     jpeg.scale = scale;
     jpeg.index = 0;
 
-    JRESULT jres = alt_jd_prepare(&decoder, _jpg_read, work, 3100, &jpeg);
+    JRESULT jres = alt_jd_prepare(&decoder, _jpg_read, work, 4096, &jpeg);
     if(jres != JDR_OK){
         //ESP_LOGE(TAG, "JPG Header Parse Failed! %s", jd_errors[jres]);
-        AddLog(LOG_LEVEL_INFO, PSTR("JPG Header Parse Failed! %s"), jd_errors[jres]);
+        AddLog(LOG_LEVEL_INFO, PSTR("JPG Header Parse Failed! %s - %d "), jd_errors[jres & 7], jres);
         return ESP_FAIL;
     }
 
@@ -133,7 +134,7 @@ esp_err_t alt_esp_jpg_decode(size_t len, uint8_t scale, alt_jpg_reader_cb reader
 
     if (jres != JDR_OK) {
         //ESP_LOGE(TAG, "JPG Decompression Failed! %s", jd_errors[jres]);
-        AddLog(LOG_LEVEL_INFO, PSTR("JPG Decompression Failed! %s"), jd_errors[jres]);
+        AddLog(LOG_LEVEL_INFO, PSTR("JPG Decompression Failed! %s"), jd_errors[jres & 7]);
         return ESP_FAIL;
     }
     //check if all data has been consumed.

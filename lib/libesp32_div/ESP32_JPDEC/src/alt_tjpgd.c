@@ -961,8 +961,9 @@ JRESULT alt_jd_prepare(
     jd->device = dev;       /* I/O device identifier */
 
     jd->inbuf = seg = alloc_pool(jd, JD_SZBUF);     /* Allocate stream input buffer */
-    if(!seg) return JDR_MEM1;
-
+    if(!seg) {
+        return JDR_MEM1 + 100;
+    }
     ofs = marker = 0;       /* Find SOI marker */
     do {
         if(jd->infunc(jd, seg, 1) != 1) return JDR_INP;     /* Err: SOI was not detected */
@@ -1057,9 +1058,9 @@ JRESULT alt_jd_prepare(
                 if(len < 256) len = 256;                    /* but at least 256 byte is required for IDCT */
                 jd->workbuf = alloc_pool(jd,
                                          len);          /* and it may occupy a part of following MCU working buffer for RGB output */
-                if(!jd->workbuf) return JDR_MEM1;           /* Err: not enough memory */
+                if(!jd->workbuf) return JDR_MEM1 + 101;           /* Err: not enough memory */
                 jd->mcubuf = alloc_pool(jd, (n + 2) * 64 * sizeof(jd_yuv_t));   /* Allocate MCU working buffer */
-                if(!jd->mcubuf) return JDR_MEM1;            /* Err: not enough memory */
+                if(!jd->mcubuf) return JDR_MEM1 + 102;            /* Err: not enough memory */
 
                 /* Align stream read offset to JD_SZBUF */
                 if(ofs %= JD_SZBUF) {

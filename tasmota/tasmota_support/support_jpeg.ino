@@ -81,7 +81,7 @@ static size_t _jpg_read(void * arg, size_t index, uint8_t *buf, size_t len)
 }
 
 //output buffer and image width
-static int _rgb_write(void * arg, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t *data)
+static bool _rgb_write(void * arg, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t *data)
 {
     rgb_jpg_decoder * jpeg = (rgb_jpg_decoder *)arg;
     if(!data){

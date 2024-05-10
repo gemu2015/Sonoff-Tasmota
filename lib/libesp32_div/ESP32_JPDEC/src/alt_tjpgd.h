@@ -12,6 +12,7 @@ extern "C" {
 #include <string.h>
 #include <stdint.h>
 
+
 #if JD_FASTDECODE >= 1
 typedef int16_t jd_yuv_t;
 #else
