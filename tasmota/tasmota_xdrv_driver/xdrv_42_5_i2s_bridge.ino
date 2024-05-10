@@ -20,6 +20,8 @@
 
 
 #ifdef ESP32
+#if ESP_IDF_VERSION_MAJOR < 5
+
 #if (defined(USE_I2S_AUDIO) || defined(USE_TTGO_WATCH) || defined(USE_M5STACK_CORE2) || defined(ESP32S3_BOX) || defined(USE_I2S_MIC))
 #ifdef I2S_BRIDGE
 
@@ -264,4 +266,5 @@ void I2SBridgeInit(void) {
 
 #endif // I2S_BRIDGE
 #endif // USE_I2S_AUDIO
+#endif
 #endif // ESP32
