@@ -70,8 +70,7 @@ static const char * jd_errors[] = {
     "Not supported JPEG standard"
 };
 
-static int _jpg_write(JDEC *decoder, void *bitmap, JRECT *rect)
-{
+static int _jpg_write(JDEC *decoder, void *bitmap, JRECT *rect) {
     uint16_t x = rect->left;
     uint16_t y = rect->top;
     uint16_t w = rect->right + 1 - x;
@@ -86,8 +85,7 @@ static int _jpg_write(JDEC *decoder, void *bitmap, JRECT *rect)
     return 0;
 }
 
-static size_t _jpg_read(JDEC *decoder, uint8_t *buf, unsigned int len)
-{
+static size_t _jpg_read(JDEC *decoder, uint8_t *buf, unsigned int len) {
     esp_jpg_decoder_t * jpeg = (esp_jpg_decoder_t *)decoder->device;
     if (jpeg->len && len > (jpeg->len - jpeg->index)) {
         len = jpeg->len - jpeg->index;
@@ -103,8 +101,13 @@ static size_t _jpg_read(JDEC *decoder, uint8_t *buf, unsigned int len)
     return len;
 }
 
+#define ALT_JPEG_WORKSIZE 4096
+
 esp_err_t alt_esp_jpg_decode(size_t len, uint8_t scale, alt_jpg_reader_cb reader, alt_jpg_writer_cb writer, void * arg) {
-    static uint8_t work[4096];
+    uint8_t *work = (uint8_t *)malloc(ALT_JPEG_WORKSIZE);
+    if (!work) {
+        return ESP_FAIL;
+    }
     JDEC decoder;
     esp_jpg_decoder_t jpeg;
 
@@ -115,10 +118,11 @@ esp_err_t alt_esp_jpg_decode(size_t len, uint8_t scale, alt_jpg_reader_cb reader
     jpeg.scale = scale;
     jpeg.index = 0;
 
-    JRESULT jres = alt_jd_prepare(&decoder, _jpg_read, work, 4096, &jpeg);
-    if(jres != JDR_OK){
+    JRESULT jres = alt_jd_prepare(&decoder, _jpg_read, work, ALT_JPEG_WORKSIZE, &jpeg);
+    if (jres != JDR_OK){
         //ESP_LOGE(TAG, "JPG Header Parse Failed! %s", jd_errors[jres]);
-        AddLog(LOG_LEVEL_INFO, PSTR("JPG Header Parse Failed! %s - %d "), jd_errors[jres & 7], jres);
+        AddLog(LOG_LEVEL_INFO, PSTR("JPG Header Parse Failed! %s"), jd_errors[jres]);
+        free(work);
         return ESP_FAIL;
     }
 
@@ -134,7 +138,8 @@ esp_err_t alt_esp_jpg_decode(size_t len, uint8_t scale, alt_jpg_reader_cb reader
 
     if (jres != JDR_OK) {
         //ESP_LOGE(TAG, "JPG Decompression Failed! %s", jd_errors[jres]);
-        AddLog(LOG_LEVEL_INFO, PSTR("JPG Decompression Failed! %s"), jd_errors[jres & 7]);
+        AddLog(LOG_LEVEL_INFO, PSTR("JPG Decompression Failed! %s"), jd_errors[jres]);
+        free(work);
         return ESP_FAIL;
     }
     //check if all data has been consumed.
@@ -142,12 +147,7 @@ esp_err_t alt_esp_jpg_decode(size_t len, uint8_t scale, alt_jpg_reader_cb reader
         _jpg_read(&decoder, NULL, len - jpeg.index);
     }
 
+    free(work);
     return ESP_OK;
 }
 #endif
-
-
-
-
-
-
