@@ -11,6 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+#include "alt_tjpgd.h"  // using software decoder
+
 #include "alt_esp_jpg_decode.h"
 
 #include "esp_system.h"
@@ -18,6 +21,13 @@
 #include <Arduino.h>
 extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 enum LoggingLevels {LOG_LEVEL_NONE, LOG_LEVEL_ERROR, LOG_LEVEL_INFO, LOG_LEVEL_DEBUG, LOG_LEVEL_DEBUG_MORE};
+
+//#define JPEG_IN_ROM
+
+#ifdef JPEG_IN_ROM
+JRESULT jd_prepare(JDEC * jd, size_t (*infunc)(JDEC *, uint8_t *, size_t), void * pool, size_t sz_pool, void * dev);
+JRESULT jd_decomp(JDEC * jd, int (*outfunc)(JDEC *, void *, JRECT *), uint8_t scale);
+#endif
 
 #if 1
 /*
@@ -38,7 +48,7 @@ enum LoggingLevels {LOG_LEVEL_NONE, LOG_LEVEL_ERROR, LOG_LEVEL_INFO, LOG_LEVEL_D
 #endif
 */
 
-#include "alt_tjpgd.h"  // using software decoder
+
 
 
 #if defined(ARDUINO_ARCH_ESP32) && defined(CONFIG_ARDUHAL_ESP_LOG)
@@ -118,7 +128,11 @@ esp_err_t alt_esp_jpg_decode(size_t len, uint8_t scale, alt_jpg_reader_cb reader
     jpeg.scale = scale;
     jpeg.index = 0;
 
+#ifdef JPEG_IN_ROM
+    JRESULT jres = jd_prepare(&decoder, _jpg_read, work, ALT_JPEG_WORKSIZE, &jpeg);
+#else
     JRESULT jres = alt_jd_prepare(&decoder, _jpg_read, work, ALT_JPEG_WORKSIZE, &jpeg);
+#endif   
     if (jres != JDR_OK){
         //ESP_LOGE(TAG, "JPG Header Parse Failed! %s", jd_errors[jres]);
         AddLog(LOG_LEVEL_INFO, PSTR("JPG Header Parse Failed! %s"), jd_errors[jres]);
@@ -132,7 +146,11 @@ esp_err_t alt_esp_jpg_decode(size_t len, uint8_t scale, alt_jpg_reader_cb reader
     //output start
     writer(arg, 0, 0, output_width, output_height, NULL);
     //output write
+#ifdef JPEG_IN_ROM
+    jres = jd_decomp(&decoder, _jpg_write, (uint8_t)jpeg.scale);
+#else
     jres = alt_jd_decomp(&decoder, _jpg_write, (uint8_t)jpeg.scale);
+#endif   
     //output end
     writer(arg, output_width, output_height, output_width, output_height, NULL);
 
