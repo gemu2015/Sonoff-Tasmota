@@ -81,7 +81,7 @@ static size_t _jpg_read(void * arg, size_t index, uint8_t *buf, size_t len)
 }
 
 //output buffer and image width
-static bool _rgb_write(void * arg, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t *data)
+static int _rgb_write(void * arg, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t *data)
 {
     rgb_jpg_decoder * jpeg = (rgb_jpg_decoder *)arg;
     if(!data){
@@ -124,7 +124,14 @@ static bool _rgb_write(void * arg, uint16_t x, uint16_t y, uint16_t w, uint16_t 
     return true;
 }
 
+
+#ifdef USE_JPEG_IN_FLASH
+#include <alt_esp_jpg_decode.h>
+esp_err_t alt_esp_jpg_decode(size_t len, uint8_t scale, alt_jpg_reader_cb reader, alt_jpg_writer_cb writer, void * arg);
+#else
 esp_err_t esp_jpg_decode(size_t len, jpg_scale_t scale, jpg_reader_cb reader, jpg_writer_cb writer, void * arg);
+#endif
+
 
 bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t scale) {
     rgb_jpg_decoder jpeg;
@@ -134,7 +141,11 @@ bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t s
     jpeg.output = out;
     jpeg.data_offset = 0;
 
+#ifdef USE_JPEG_IN_FLASH
+    esp_err_t err = alt_esp_jpg_decode(src_len, scale, _jpg_read, _rgb_write, (void*)&jpeg);
+#else
     esp_err_t err = esp_jpg_decode(src_len, scale, _jpg_read, _rgb_write, (void*)&jpeg);
+#endif
 
     if ( err != ESP_OK) {
         return false;
@@ -220,3 +231,4 @@ void createBitmapInfoHeader(uint32_t height, uint32_t width, uint8_t *infoHeader
 
 }
 #endif // USE_DISPLAY_DUMP
+

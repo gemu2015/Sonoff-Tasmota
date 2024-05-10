@@ -15,6 +15,7 @@
 
 #include "esp_system.h"
 
+#if 1
 /*
 #if ESP_IDF_VERSION_MAJOR >= 4 // IDF 4+
 #if CONFIG_IDF_TARGET_ESP32 // ESP32/PICO-D4
@@ -32,8 +33,12 @@
 #include "rom/tjpgd.h"
 #endif
 */
+#include "Arduino.h"
+#include "alt_tjpgd.h"  // using software decoder
 
-#include "tjpgd.h"  // using software decoder
+
+extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
+enum LoggingLevels {LOG_LEVEL_NONE, LOG_LEVEL_ERROR, LOG_LEVEL_INFO, LOG_LEVEL_DEBUG, LOG_LEVEL_DEBUG_MORE};
 
 #if defined(ARDUINO_ARCH_ESP32) && defined(CONFIG_ARDUHAL_ESP_LOG)
 #include "esp32-hal-log.h"
@@ -44,9 +49,9 @@ static const char* TAG = "esp_jpg_decode";
 #endif
 
 typedef struct {
-        jpg_scale_t scale;
-        jpg_reader_cb reader;
-        jpg_writer_cb writer;
+        uint8_t scale;
+        alt_jpg_reader_cb reader;
+        alt_jpg_writer_cb writer;
         void * arg;
         size_t len;
         size_t index;
@@ -64,7 +69,7 @@ static const char * jd_errors[] = {
     "Not supported JPEG standard"
 };
 
-static unsigned int _jpg_write(JDEC *decoder, void *bitmap, JRECT *rect)
+static int _jpg_write(JDEC *decoder, void *bitmap, JRECT *rect)
 {
     uint16_t x = rect->left;
     uint16_t y = rect->top;
@@ -80,7 +85,7 @@ static unsigned int _jpg_write(JDEC *decoder, void *bitmap, JRECT *rect)
     return 0;
 }
 
-static unsigned int _jpg_read(JDEC *decoder, uint8_t *buf, unsigned int len)
+static size_t _jpg_read(JDEC *decoder, uint8_t *buf, unsigned int len)
 {
     esp_jpg_decoder_t * jpeg = (esp_jpg_decoder_t *)decoder->device;
     if (jpeg->len && len > (jpeg->len - jpeg->index)) {
@@ -90,13 +95,14 @@ static unsigned int _jpg_read(JDEC *decoder, uint8_t *buf, unsigned int len)
         len = jpeg->reader(jpeg->arg, jpeg->index, buf, len);
         if (!len) {
             //ESP_LOGE(TAG, "Read Fail at %u/%u", jpeg->index, jpeg->len);
+            AddLog(LOG_LEVEL_INFO, PSTR("Read Fail at %u/%u"), jpeg->index, jpeg->len);
         }
         jpeg->index += len;
     }
     return len;
 }
 
-esp_err_t alt_esp_jpg_decode(size_t len, jpg_scale_t scale, jpg_reader_cb reader, jpg_writer_cb writer, void * arg) {
+esp_err_t alt_esp_jpg_decode(size_t len, uint8_t scale, alt_jpg_reader_cb reader, alt_jpg_writer_cb writer, void * arg) {
     static uint8_t work[3100];
     JDEC decoder;
     esp_jpg_decoder_t jpeg;
@@ -111,6 +117,7 @@ esp_err_t alt_esp_jpg_decode(size_t len, jpg_scale_t scale, jpg_reader_cb reader
     JRESULT jres = alt_jd_prepare(&decoder, _jpg_read, work, 3100, &jpeg);
     if(jres != JDR_OK){
         //ESP_LOGE(TAG, "JPG Header Parse Failed! %s", jd_errors[jres]);
+        AddLog(LOG_LEVEL_INFO, PSTR("JPG Header Parse Failed! %s"), jd_errors[jres]);
         return ESP_FAIL;
     }
 
@@ -126,6 +133,7 @@ esp_err_t alt_esp_jpg_decode(size_t len, jpg_scale_t scale, jpg_reader_cb reader
 
     if (jres != JDR_OK) {
         //ESP_LOGE(TAG, "JPG Decompression Failed! %s", jd_errors[jres]);
+        AddLog(LOG_LEVEL_INFO, PSTR("JPG Decompression Failed! %s"), jd_errors[jres]);
         return ESP_FAIL;
     }
     //check if all data has been consumed.
@@ -135,7 +143,7 @@ esp_err_t alt_esp_jpg_decode(size_t len, jpg_scale_t scale, jpg_reader_cb reader
 
     return ESP_OK;
 }
-
+#endif
 
 
 

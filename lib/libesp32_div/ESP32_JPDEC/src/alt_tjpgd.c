@@ -24,7 +24,7 @@
 /                     Some performance improvement.
 /----------------------------------------------------------------------------*/
 
-#include "tjpgd.h"
+#include "alt_tjpgd.h"
 
 
 #if JD_FASTDECODE == 2
@@ -1122,97 +1122,16 @@ JRESULT alt_jd_decomp(
     for(y = 0; y < jd->height; y += my) {       /* Vertical loop of MCUs */
         for(x = 0; x < jd->width; x += mx) {    /* Horizontal loop of MCUs */
             if(jd->nrst && rst++ == jd->nrst) {     /* Process restart interval if enabled */
-                rc = jd_restart(jd, rsc++);
+                rc = alt_jd_restart(jd, rsc++);
                 if(rc != JDR_OK) return rc;
                 rst = 1;
             }
-            rc = jd_mcu_load(jd);                  /* Load an MCU (decompress huffman coded stream, dequantize and apply IDCT) */
+            rc = alt_jd_mcu_load(jd);                  /* Load an MCU (decompress huffman coded stream, dequantize and apply IDCT) */
             if(rc != JDR_OK) return rc;
-            rc = jd_mcu_output(jd, outfunc, x, y); /* Output the MCU (YCbCr to RGB, scaling and output) */
+            rc = alt_jd_mcu_output(jd, outfunc, x, y); /* Output the MCU (YCbCr to RGB, scaling and output) */
             if(rc != JDR_OK) return rc;
         }
     }
 
     return rc;
-}
-
-#include "alt_esp_jpg_decode.h"
-
-
-typedef struct {
-        uint16_t width;
-        uint16_t height;
-        uint16_t data_offset;
-        const uint8_t *input;
-        uint8_t *output;
-} rgb_jpg_decoder;
-
-//input buffer
-static size_t __jpg_read(void * arg, size_t index, uint8_t *buf, size_t len)
-{
-    rgb_jpg_decoder * jpeg = (rgb_jpg_decoder *)arg;
-    if(buf) {
-        memcpy(buf, jpeg->input + index, len);
-    }
-    return len;
-}
-
-//output buffer and image width
-static bool __rgb_write(void * arg, uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint8_t *data)
-{
-    rgb_jpg_decoder * jpeg = (rgb_jpg_decoder *)arg;
-    if(!data){
-        if(x == 0 && y == 0){
-            //write start
-            jpeg->width = w;
-            jpeg->height = h;
-            //if output is null, this is BMP
-            if(!jpeg->output){
-                jpeg->output = (uint8_t *)malloc((w*h*3)+jpeg->data_offset);
-                if(!jpeg->output){
-                    return false;
-                }
-            }
-        } else {
-            //write end
-        }
-        return true;
-    }
-
-    size_t jw = jpeg->width*3;
-    size_t t = y * jw;
-    size_t b = t + (h * jw);
-    size_t l = x * 3;
-    uint8_t *out = jpeg->output+jpeg->data_offset;
-    uint8_t *o = out;
-    size_t iy, ix;
-
-    w = w * 3;
-
-    for(iy=t; iy<b; iy+=jw) {
-        o = out+iy+l;
-        for(ix=0; ix<w; ix+= 3) {
-            o[ix] = data[ix+2];
-            o[ix+1] = data[ix+1];
-            o[ix+2] = data[ix];
-        }
-        data+=w;
-    }
-    return true;
-}
-
-bool alt_jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, uint8_t scale) {
-    rgb_jpg_decoder jpeg;
-    jpeg.width = 0;
-    jpeg.height = 0;
-    jpeg.input = src;
-    jpeg.output = out;
-    jpeg.data_offset = 0;
-
-    esp_err_t err = alt_esp_jpg_decode(src_len, (jpg_scale_t)scale, __jpg_read, __rgb_write, (void*)&jpeg);
-
-    if ( err != ESP_OK) {
-        return false;
-    }
-    return true;
 }
