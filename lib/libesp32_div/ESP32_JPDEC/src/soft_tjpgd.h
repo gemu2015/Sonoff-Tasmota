@@ -86,15 +86,15 @@ struct JDEC {
 
 
 /* TJpgDec API functions */
-JRESULT alt_jd_prepare(JDEC * jd, size_t (*infunc)(JDEC *, uint8_t *, size_t), void * pool, size_t sz_pool, void * dev);
+JRESULT soft_jd_prepare(JDEC * jd, size_t (*infunc)(JDEC *, uint8_t *, size_t), void * pool, size_t sz_pool, void * dev);
 
-JRESULT alt_jd_decomp(JDEC * jd, int (*outfunc)(JDEC *, void *, JRECT *), uint8_t scale);
+JRESULT soft_jd_decomp(JDEC * jd, int (*outfunc)(JDEC *, void *, JRECT *), uint8_t scale);
 
-JRESULT alt_jd_mcu_load(JDEC * jd);
+JRESULT soft_jd_mcu_load(JDEC * jd);
 
-JRESULT alt_jd_mcu_output(JDEC * jd, int (*outfunc)(JDEC *, void *, JRECT *), unsigned int x, unsigned int y);
+JRESULT soft_jd_mcu_output(JDEC * jd, int (*outfunc)(JDEC *, void *, JRECT *), unsigned int x, unsigned int y);
 
-JRESULT alt_jd_restart(JDEC * jd, uint16_t rstn);
+JRESULT soft_jd_restart(JDEC * jd, uint16_t rstn);
 
 
 #ifdef __cplusplus

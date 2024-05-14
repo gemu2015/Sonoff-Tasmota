@@ -24,7 +24,7 @@
 /                     Some performance improvement.
 /----------------------------------------------------------------------------*/
 
-#include "alt_tjpgd.h"
+#include "soft_tjpgd.h"
 
 
 #if JD_FASTDECODE == 2
@@ -531,7 +531,7 @@ static int bitext(  /* >=0: extracted data, <0: error code */
 /* Process restart interval                                              */
 /*-----------------------------------------------------------------------*/
 
-JRESULT alt_jd_restart(
+JRESULT soft_jd_restart(
     JDEC * jd,      /* Pointer to the decompressor object */
     uint16_t rstn   /* Expected restert sequence number */
 )
@@ -732,7 +732,7 @@ static void block_idct(
 /* Load all blocks in an MCU into working buffer                         */
 /*-----------------------------------------------------------------------*/
 
-JRESULT alt_jd_mcu_load(
+JRESULT soft_jd_mcu_load(
     JDEC * jd       /* Pointer to the decompressor object */
 )
 {
@@ -823,7 +823,7 @@ JRESULT alt_jd_mcu_load(
 /* Output an MCU: Convert YCrCb to RGB and output it in RGB form         */
 /*-----------------------------------------------------------------------*/
 
-JRESULT alt_jd_mcu_output(
+JRESULT soft_jd_mcu_output(
     JDEC * jd,          /* Pointer to the decompressor object */
     int (*outfunc)(JDEC *, void *, JRECT *), /* RGB output function */
     unsigned int x,     /* MCU location in the image */
@@ -937,7 +937,7 @@ JRESULT alt_jd_mcu_output(
 #define LDB_WORD(ptr)       (uint16_t)(((uint16_t)*((uint8_t*)(ptr))<<8)|(uint16_t)*(uint8_t*)((ptr)+1))
 
 
-JRESULT alt_jd_prepare(
+JRESULT soft_jd_prepare(
     JDEC * jd,              /* Blank decompressor object */
     size_t (*infunc)(JDEC *, uint8_t *, size_t), /* JPEG strem input function */
     void * pool,            /* Working buffer for the decompression session */
@@ -1099,7 +1099,7 @@ JRESULT alt_jd_prepare(
 /* Start to decompress the JPEG picture                                  */
 /*-----------------------------------------------------------------------*/
 
-JRESULT alt_jd_decomp(
+JRESULT soft_jd_decomp(
     JDEC * jd,                              /* Initialized decompression object */
     int (*outfunc)(JDEC *, void *, JRECT *), /* RGB output function */
     uint8_t scale                           /* Output de-scaling factor (0 to 3) */
@@ -1123,13 +1123,13 @@ JRESULT alt_jd_decomp(
     for(y = 0; y < jd->height; y += my) {       /* Vertical loop of MCUs */
         for(x = 0; x < jd->width; x += mx) {    /* Horizontal loop of MCUs */
             if(jd->nrst && rst++ == jd->nrst) {     /* Process restart interval if enabled */
-                rc = alt_jd_restart(jd, rsc++);
+                rc = soft_jd_restart(jd, rsc++);
                 if(rc != JDR_OK) return rc;
                 rst = 1;
             }
-            rc = alt_jd_mcu_load(jd);                  /* Load an MCU (decompress huffman coded stream, dequantize and apply IDCT) */
+            rc = soft_jd_mcu_load(jd);                  /* Load an MCU (decompress huffman coded stream, dequantize and apply IDCT) */
             if(rc != JDR_OK) return rc;
-            rc = alt_jd_mcu_output(jd, outfunc, x, y); /* Output the MCU (YCbCr to RGB, scaling and output) */
+            rc = soft_jd_mcu_output(jd, outfunc, x, y); /* Output the MCU (YCbCr to RGB, scaling and output) */
             if(rc != JDR_OK) return rc;
         }
     }

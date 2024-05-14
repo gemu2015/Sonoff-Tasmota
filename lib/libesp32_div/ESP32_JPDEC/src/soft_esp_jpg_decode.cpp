@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "alt_tjpgd.h"  // using software decoder
+#include "soft_tjpgd.h"  // using software decoder
 
-#include "alt_esp_jpg_decode.h"
+#include "soft_esp_jpg_decode.h"
 
 #include "esp_system.h"
 
@@ -61,8 +61,8 @@ static const char* TAG = "esp_jpg_decode";
 
 typedef struct {
         uint8_t scale;
-        alt_jpg_reader_cb reader;
-        alt_jpg_writer_cb writer;
+        soft_jpg_reader_cb reader;
+        soft_jpg_writer_cb writer;
         void * arg;
         size_t len;
         size_t index;
@@ -111,10 +111,10 @@ static size_t _jpg_read(JDEC *decoder, uint8_t *buf, unsigned int len) {
     return len;
 }
 
-#define ALT_JPEG_WORKSIZE 4096
+#define soft_JPEG_WORKSIZE 4096
 
-esp_err_t alt_esp_jpg_decode(size_t len, uint8_t scale, alt_jpg_reader_cb reader, alt_jpg_writer_cb writer, void * arg) {
-    uint8_t *work = (uint8_t *)malloc(ALT_JPEG_WORKSIZE);
+esp_err_t soft_esp_jpg_decode(size_t len, uint8_t scale, soft_jpg_reader_cb reader, soft_jpg_writer_cb writer, void * arg) {
+    uint8_t *work = (uint8_t *)malloc(soft_JPEG_WORKSIZE);
     if (!work) {
         return ESP_FAIL;
     }
@@ -129,9 +129,9 @@ esp_err_t alt_esp_jpg_decode(size_t len, uint8_t scale, alt_jpg_reader_cb reader
     jpeg.index = 0;
 
 #ifdef JPEG_IN_ROM
-    JRESULT jres = jd_prepare(&decoder, _jpg_read, work, ALT_JPEG_WORKSIZE, &jpeg);
+    JRESULT jres = jd_prepare(&decoder, _jpg_read, work, soft_JPEG_WORKSIZE, &jpeg);
 #else
-    JRESULT jres = alt_jd_prepare(&decoder, _jpg_read, work, ALT_JPEG_WORKSIZE, &jpeg);
+    JRESULT jres = soft_jd_prepare(&decoder, _jpg_read, work, soft_JPEG_WORKSIZE, &jpeg);
 #endif   
     if (jres != JDR_OK){
         //ESP_LOGE(TAG, "JPG Header Parse Failed! %s", jd_errors[jres]);
@@ -149,7 +149,7 @@ esp_err_t alt_esp_jpg_decode(size_t len, uint8_t scale, alt_jpg_reader_cb reader
 #ifdef JPEG_IN_ROM
     jres = jd_decomp(&decoder, _jpg_write, (uint8_t)jpeg.scale);
 #else
-    jres = alt_jd_decomp(&decoder, _jpg_write, (uint8_t)jpeg.scale);
+    jres = soft_jd_decomp(&decoder, _jpg_write, (uint8_t)jpeg.scale);
 #endif   
     //output end
     writer(arg, output_width, output_height, output_width, output_height, NULL);
