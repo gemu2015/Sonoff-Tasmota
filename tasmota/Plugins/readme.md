@@ -22,7 +22,7 @@ another problem ist that we would need at least 3 types of binaries multiplied b
 how to create relocatable plugins:
 
 several python scripts help in converting (see instruction in script)
-prep_driver.py  converts a tasmota driver to a .cpp file and does already a lot of needed convertsion
+prep_driver.py  converts a tasmota driver to a .cpp file and does already a lot of needed conversion
 cpp2c.py converts a c++ class file to pure c (needed for c++ library files)
 
 
@@ -54,7 +54,7 @@ and the plugin is extracted from the binary, according to the selected cpu
 ending .bin (esp8266) _32.bin (tensilica ESP32) _32r.bin (riscv ESP32)
 
 
-1. copy the .ino file you want to convert to the plugins directory and rename to .cpp
+1. copy the .ino file you want to convert to the plugins directory
 2. modify the source according to the sample files.
 3. add calls not yet in the vector table. in header and xdrv123
 assembly file firmware.asm is created by above scripts
