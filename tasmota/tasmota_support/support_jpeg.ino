@@ -23,7 +23,7 @@
 
 #include "img_converters.h"
 
-#ifdef USE_JPEG_IN_FLASH
+#ifdef USE_SOFT_JPEG
 #include "soft_esp_jpg_decode.h"
 #else
 #include "esp_jpg_decode.h"
@@ -125,7 +125,7 @@ static bool _rgb_write(void * arg, uint16_t x, uint16_t y, uint16_t w, uint16_t 
 }
 
 
-#ifdef USE_JPEG_IN_FLASH
+#ifdef USE_SOFT_JPEG
 #include <soft_esp_jpg_decode.h>
 esp_err_t soft_esp_jpg_decode(size_t len, uint8_t scale, soft_jpg_reader_cb reader, soft_jpg_writer_cb writer, void * arg);
 #else
@@ -141,7 +141,7 @@ bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t s
     jpeg.output = out;
     jpeg.data_offset = 0;
 
-#ifdef USE_JPEG_IN_FLASH
+#ifdef USE_SOFT_JPEG
     esp_err_t err = soft_esp_jpg_decode(src_len, scale, _jpg_read, _rgb_write, (void*)&jpeg);
 #else
     esp_err_t err = esp_jpg_decode(src_len, scale, _jpg_read, _rgb_write, (void*)&jpeg);
