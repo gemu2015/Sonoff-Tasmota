@@ -1599,19 +1599,10 @@ uint32_t eeprom_block;
   while (addr < plugins.free_flash_end) {
       uint32_t blocksize = SPI_FLASH_SEC_SIZE;
       if (*lp == MODULE_SYNC) {
-        // check if name is equal
-        //const FLASH_MODULE *fr = (FLASH_MODULE*)lp;
-        //const FLASH_MODULE *fd = (FLASH_MODULE*)fdesc;
-        //if (!strcmp_P(fd->name, fr->name)) {
-          // module already exists
-          //eeprom_block = addr;
-          //break;
-        //}
-      
-        // skip address by module size
-        //blocksize = (fr->size / SPI_FLASH_SEC_SIZE) + 1;
-        // must align and increment addr
-        //blocksize *= SPI_FLASH_SEC_SIZE;
+        // get module size
+        const FLASH_MODULE *fm = (FLASH_MODULE*)lp;
+        blocksize = (fm->size / SPI_FLASH_SEC_SIZE) + 1;
+        blocksize *= SPI_FLASH_SEC_SIZE;
       } else {
         // free module block, check required size
         uint8_t blocks = (size / SPI_FLASH_SEC_SIZE) + 1;
