@@ -82,7 +82,7 @@ PUSH_OPTIONS
 
 // this is the structure of the module:
 // descripotr, code, end
-MODULE_DESCRIPTOR("VL53L0", MODULE_TYPE_SENSOR, VL53L0_REV, "RMODE", 0x01000200, "", 0, "", 0, "", 0)
+MODULE_DESCRIPTOR("VL53L0", MODULE_TYPE_SENSOR, VL53L0_REV, "RMODE", 0x01000300, "", 0, "", 0, "", 0)
 MODULE_PART int32_t VL53L0X_Detect();
 MODULE_PART void VL53L0X_Every_250MSecond(void);
 MODULE_PART void VL53L0X_Show(boolean json);
@@ -162,7 +162,9 @@ int32_t VL53L0X_Detect(void) {
     if (range_mode == 2) {
       // reduce timing budget to 20 ms (default is about 33 ms)
       VL53L0X_setMeasurementTimingBudget(ICONST(20000));
-    } else {
+    }
+
+    if (range_mode == 3) {
       //#elif defined VL53L0X_HIGH_ACCURACY
       // increase timing budget to 200 ms
       VL53L0X_setMeasurementTimingBudget(ICONST(200000));
