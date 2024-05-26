@@ -12086,7 +12086,6 @@ exgc:
             }
           }
           snprintf_P(options, SCRIPT_GC_OPTIONS_SIZE, SCRIPT_MSG_GOPT4);
-          if (options) free(options);
         }
         if (tonly) {
           WSContentSend_P("]);");
