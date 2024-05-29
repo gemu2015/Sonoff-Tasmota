@@ -1550,7 +1550,11 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
             memmove(&mp->sbuff[0], &mp->sbuff[6], mp->sbsiz - 6);
             SML_Decode(meters);
             if (mp->client) {
+#ifdef ESP8266
               mp->client->flush();
+#else
+              mp->client->clear();  // New with core3. Does what flush() did in core2;
+#endif
             }
             //Hexdump(mp->sbuff + 6, 10);
           }
@@ -2022,7 +2026,7 @@ void SML_Decode(uint8_t index) {
               } else {
                 mp++;
                 if (isdigit(*mp)) {
-                  uint8_t skip = strtol((char*)mp, (char**)&mp, 10);
+                  uint16_t skip = strtol((char*)mp, (char**)&mp, 10);
                   cp += skip;
                 }
               }
@@ -3643,7 +3647,11 @@ next_line:
   sml_globs.sml_mf = (struct SML_MEDIAN_FILTER*)calloc(sml_globs.maxvars, sizeof(struct SML_MEDIAN_FILTER));
 #endif
 
-  if (!sml_globs.maxvars || !sml_globs.meter_vars || !sml_globs.dvalid || !sml_globs.sml_mf) {
+  if (!sml_globs.maxvars || !sml_globs.meter_vars || !sml_globs.dvalid
+#ifdef USE_SML_MEDIAN_FILTER
+   || !sml_globs.sml_mf
+#endif
+  ) {
     AddLog(LOG_LEVEL_INFO, PSTR("sml memory error!"));
     return;
   }
