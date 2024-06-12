@@ -3,7 +3,7 @@
 static be_define_const_map_slots(be_class_webclient_map) {
     { be_const_key(write_file, 15), be_const_func(wc_writefile) },
     { be_const_key(PATCH, -1), be_const_func(wc_PATCH) },
-    { be_const_key(_X2Ew, -1), be_const_var(0) },
+    { be_const_key(_X2Ew, -1), be_const_var(1) },
     { be_const_key(get_bytes, 12), be_const_func(wc_getbytes) },
     { be_const_key(add_header, 11), be_const_func(wc_addheader) },
     { be_const_key(write_flash, -1), be_const_func(wc_writeflash) },
@@ -20,7 +20,7 @@ static be_define_const_map_slots(be_class_webclient_map) {
     { be_const_key(deinit, -1), be_const_func(wc_deinit) },
     { be_const_key(get_string, 21), be_const_func(wc_getstring) },
     { be_const_key(DELETE, 10), be_const_func(wc_DELETE) },
-    { be_const_key(_X2Ep, -1), be_const_var(1) },
+    { be_const_key(_X2Ep, -1), be_const_var(0) },
     { be_const_key(set_timeouts, -1), be_const_func(wc_set_timeouts) },
     { be_const_key(get_size, -1), be_const_func(wc_getsize) },
     { be_const_key(close, -1), be_const_func(wc_close) },

@@ -3,12 +3,133 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - Development
 
-## [13.4.1.2]
+## [14.1.0.2]
 ### Added
-- esp32_partition_app3904k_fs3392k partition scheme for 8MB ESP32S3
-- TCP Tx En GPIO type
-- Berry `webserver.content_close()`
-- HASPmota demo of Renaissance Watch for 480x480 displays
+
+### Breaking Changed
+
+### Changed
+- SerialBridge command ``SSerialSend9`` replaced by ``SSerialMode``
+
+### Fixed
+
+### Removed
+
+## [14.1.0.1] 20240611
+### Added
+- Berry solidification of `bytes` instances (#21558)
+- Matter support for Air Quality sensors (#21559)
+- Matter support for bridged Air Quality (#21597)
+- HASPmota rounds to nearest int values passed as 'real' (#21599)
+- Berry automatic rounding of float to int when calling C mapped functions (#21601)
+- Berry add `math.round` (#21602)
+- Support for QMP6988 temperature and pressure sensor
+
+### Changed
+- Matter refactoring of bridged devices (#21575)
+- ESP32 Core3 platform update from 2024.05.13 to 2024.06.10 (#21569)
+- Optional MQTT_TELE_RETAIN to Energy Margins message replaced by ``SensorRetain``
+- Matter filter suffix automatically added for sensors (#21589)
+- Display timing splash screen with display modes 1 to 5
+- ESP32 MI32 refactoring, bugfixes, generic device scanning (#21603)
+- Allow receive or send using SerialBridge
+
+### Fixed
+- Berry `input()` returns empty string and does not crash (#21565)
+
+## [Released]
+
+## [14.1.0] 20240603
+- Release Rachel
+
+## [14.0.0.4] 20240603
+### Added
+- SML FastExit for binary SML parsing (#21497)
+
+### Changed
+- GPIOViewer from v1.5.3 to v1.5.4 (No functional change)
+- TCP bridge increased baudrate selection (#21528)
+- Berry coc parser keeps order of variables (#21542)
+
+### Fixed
+- uDisplay Parallel display on Core3 (#21529)
+- LVGL exception when using tjpegd (#21544)
+
+### Removed
+- Deprecated code from drivers, `USE_TTGO_WATCH` and `USE_M5STACK_CORE2` (#21533)
+
+## [14.0.0.3] 20240530
+### Changed
+- ESP32 Core3 platform update from 2024.05.12 to 2024.05.13 (#21524)
+
+### Fixed
+- ESP32 slow response when using UDP as in emulation (#21470)
+
+## [14.0.0.2] 20240529
+### Added
+- Disabled watchdog for ESP32 and variants (#21509)
+
+### Changed
+- Update Telegram CA (Go Daddy Root Certificate Authority - G2)
+
+### Fixed
+- Telegram TLS fingerprint, remove CA validation (#21514)
+- ESP32 I2S multiple fixes (#21511)
+
+## [14.0.0.1] 20240527
+### Added
+- Enabled watchdog for ESP32 and variants (#21422)
+- Optional command ``WebRun`` (as WebQuery extension) (#21364)
+- Support for Knx dimmer and color (#21434)
+- Support for Matter 1.3 Water leak detectors (#21456)
+- Berry add reuse of methods for interface-like code reuse (#21500)
+
+### Changed
+- ESP32 compiler option from `target-align` to `no-target-align` (#21407)
+- On universal display remove default backlight power if a PWM channel is used for backlight
+- Berry binary compiled with gcc (#21426)
+- GPIOViewer from v1.5.2 to v1.5.3 (No functional change)
+- Berry allow easy solidification of external Berry (#21430)
+- ESP32 I2S audio improvements (#21433)
+- Support W5500 SPI ethernet using four SPI GPIOs only without IRQ and RESET
+- Berry change internal storage of parent class for methods (#21490)
+- ESP32 Core3 platform update from 2024.05.11 to 2024.05.12 (#21493)
+
+### Fixed
+- Domoticz re-subscribe on MQTT reconnect. Regression from v13.4.0.3 (#21281)
+- Watchdog restart or freeze if ``displaytext`` is more than 128 characters (#21401)
+- Avoid connection errors when switching to safeboot to upload OTA firmware (#21428)
+- Berry Leds matrix alternate more and error about 'bri' attribute (#21431)
+- Wrong timeout in `WebQuery` and `webclient` since Core3 (#21442)
+- Webradio crash with invalid url (#21446)
+- Zigbee crash when removing `ZbName` (#21449)
+- ESP32 BLE fix scanning (#21451)
+- I2S APLL not supported on all SOCs (#21483)
+- UfsServe watchdog on large folder (#21486)
+- Matter auto-fix IPv6 link-local zone id when network reconnects (#21494)
+- SML compile error when median-filter is disabled (#21495)
+- Hydreon RG15 malformed JSON string (#21508)
+
+### Removed
+- Support of old insecure fingerprint algorithm. Deprecated since v8.4.0 (#21417)
+
+## [14.0.0] 20240515
+- Release Rodney
+
+## [13.4.1.2] 20240515
+### Added
+- ESP32 esp32_partition_app3904k_fs3392k partition scheme for 8MB ESP32S3 (#21241)
+- TCP Serial bridge GPIO type `TCP Tx En` (#21269)
+- Berry `webserver.content_close()` (#21276)
+- ESP32 Compile option disabling PSRam check to avoid "blinking" of GPIO 16/17 at startup (#21282)
+- HASPmota demo of Renaissance Watch for 480x480 displays (#21290)
+- PlatformIO target reset (#21292)
+- Support for AHT30 Temperature and Humidity Sensor (#19922)
+- Berry wave file recorder (#21315)
+- Command ``Publish3`` to send binary data encoded as Hex, disabled in safeboot (21329)
+- Support for compile time hostname with `#define WIFI_DEFAULT_HOSTNAME` (#21236)
+- Berry `after_teleperiod` event matching `FUNC_AFTER_TELEPERIOD` (#21351)
+- GPIOViewer pin mode support
 
 ### Breaking Changed
 - ESP32-C3 OTA binary name from `tasmota32c3cdc.bin` to `tasmota32c3.bin` with USB HWCDC and fallback to serial (#21212)
@@ -16,19 +137,43 @@ All notable changes to this project will be documented in this file.
 - ESP32-S3 OTA binary name from `tasmota32s3cdc.bin` to `tasmota32s3.bin` with USB HWCDC and fallback to serial (#21212)
 
 ### Changed
-- uDisplay fast drawing on RGB displays
-- HDMI CEC synchronously sends messages
+- uDisplay fast drawing on RGB displays (#21257)
+- HDMI CEC synchronously sends messages (#21270)
+- Refactor I2S (#21291)
+- Command ``EthType`` option selection (#21317)
+- Zigbee startup event triggered after plugins are loaded (#21320)
+- Reduced safeboot size by 2.9KB (#21322)
+- Internal macro `APP_SLEEP` to `TASMOTA_SLEEP` to specify default sleep in ms (#21324)
+- ESP32 Core3 platform update from 2024.04.12 to 2024.05.10 (#21347)
+- Refactor Tensorflow (#21327)
+- Seriallog set to `SERIAL_LOG_LEVEL` at boot (#21363)
+- TLS Letsencrypt replace R3 CA with long-term ISRG_Root_X1 CA, which works with R3 and R10-R14 (#21352)
+- GPIOViewer from v1.5.0 to v1.5.2
+- ESP32 Core3 platform update from 2024.05.10 to 2024.05.11 (#21381)
+- Berry `Leds` uses native WS2812 driver by default (#21406)
+- Command ``Pixels`` initiates a restart before activation due to changed NeoPixelBus library (#21406)
 
 ### Fixed
-- HASPmota `align` attribute and expand PNG cache
-- LVGL restore `lv_palette` functions
-- IPv6 support in safeboot
-- LVGL fix memory allocation of flush buffers
-- Berry `web_add_handler` called before `Webserver` is initialized
-- Put back wifi IPv6 workaround
+- HASPmota `align` attribute and expand PNG cache (#21228)
+- LVGL restore `lv_palette` functions (#21232)
+- IPv6 support in safeboot (#21233)
+- LVGL fix memory allocation of flush buffers (#21256)
+- Neopool prevent possible multiple bus requests (#21267)
+- Berry `web_add_handler` called before `Webserver` is initialized (#21272)
+- Put back wifi IPv6 workaround (#21274)
+- Async HMDI CEC (#21287)
+- Berry `math.inf`, `math.isinf()` and fixed json ouput for `inf` and `nan` (#21304)
+- Compilation of Ethernet when SPI drivers are disabled (#21321)
+- Conflicting log_level definitions in NimBLE (#21337)
+- Avoid unwanted OTA upgrade when safeboot starts for the first time (#21360)
+- Matter broken NOCStruct types preventing pairing with HA (#21365)
+- jpeg compile core3 (#21387)
+- Berry `gpio.dac_voltage()` (#21403)
 
 ### Removed
-- LVGL disabled vector graphics
+- LVGL disabled vector graphics (#21242)
+- ESP32 IDF 4.4 based I2S code (#21188)
+- Crash recorder from safeboot (#21332)
 
 ## [13.4.1.1] 20240418
 ### Added
@@ -168,8 +313,6 @@ All notable changes to this project will be documented in this file.
 - Shutter inverted using internal commands (#20752)
 - HASPmota PSRAM memory leak (#20818)
 - Berry Memory leak in `import re` (#20823)
-
-## [Released]
 
 ## [13.4.0] 20240214
 - Release Quinta

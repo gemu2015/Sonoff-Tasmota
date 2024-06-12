@@ -9,7 +9,8 @@ extern const bclass be_class_Matter_Session_Store;
 /********************************************************************
 ** Solidified function: remove_session
 ********************************************************************/
-be_local_closure(Matter_Session_Store_remove_session,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_remove_session,   /* name */
   be_nested_proto(
     7,                          /* nstack */
     2,                          /* argc */
@@ -17,7 +18,7 @@ be_local_closure(Matter_Session_Store_remove_session,   /* name */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[ 4]) {     /* constants */
     /* K0   */  be_const_int(0),
@@ -54,7 +55,8 @@ be_local_closure(Matter_Session_Store_remove_session,   /* name */
 /********************************************************************
 ** Solidified function: gen_local_session_id
 ********************************************************************/
-be_local_closure(Matter_Session_Store_gen_local_session_id,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_gen_local_session_id,   /* name */
   be_nested_proto(
     6,                          /* nstack */
     1,                          /* argc */
@@ -62,7 +64,7 @@ be_local_closure(Matter_Session_Store_gen_local_session_id,   /* name */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[ 6]) {     /* constants */
     /* K0   */  be_nested_str_weak(crypto),
@@ -103,7 +105,8 @@ be_local_closure(Matter_Session_Store_gen_local_session_id,   /* name */
 /********************************************************************
 ** Solidified function: load_fabrics
 ********************************************************************/
-be_local_closure(Matter_Session_Store_load_fabrics,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_load_fabrics,   /* name */
   be_nested_proto(
     16,                          /* nstack */
     1,                          /* argc */
@@ -111,7 +114,7 @@ be_local_closure(Matter_Session_Store_load_fabrics,   /* name */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[27]) {     /* constants */
     /* K0   */  be_nested_str_weak(sessions),
@@ -144,8 +147,8 @@ be_local_closure(Matter_Session_Store_load_fabrics,   /* name */
     }),
     be_str_weak(load_fabrics),
     &be_const_str_solidified,
-    ( &(const binstruction[117]) {  /* code */
-      0xA802005F,  //  0000  EXBLK	0	#0061
+    ( &(const binstruction[115]) {  /* code */
+      0xA802005E,  //  0000  EXBLK	0	#0060
       0xB8060200,  //  0001  GETNGBL	R1	K1
       0x8C040302,  //  0002  GETMET	R1	R1	K2
       0x7C040200,  //  0003  CALL	R1	1
@@ -230,38 +233,36 @@ be_local_closure(Matter_Session_Store_load_fabrics,   /* name */
       0x58140013,  //  0052  LDCONST	R5	K19
       0xAC140200,  //  0053  CATCH	R5	1	0
       0xB0080000,  //  0054  RAISE	2	R0	R0
-      0xB8161200,  //  0055  GETNGBL	R5	K9
-      0x8C140B15,  //  0056  GETMET	R5	R5	K21
-      0x601C0018,  //  0057  GETGBL	R7	G24
-      0x58200016,  //  0058  LDCONST	R8	K22
-      0x6024000C,  //  0059  GETGBL	R9	G12
-      0x88280103,  //  005A  GETMBR	R10	R0	K3
-      0x7C240200,  //  005B  CALL	R9	1
-      0x7C1C0400,  //  005C  CALL	R7	2
-      0x58200017,  //  005D  LDCONST	R8	K23
-      0x7C140600,  //  005E  CALL	R5	3
-      0xA8040001,  //  005F  EXBLK	1	1
-      0x70020012,  //  0060  JMP		#0074
-      0xAC040002,  //  0061  CATCH	R1	0	2
-      0x7002000F,  //  0062  JMP		#0073
-      0x200C0318,  //  0063  NE	R3	R1	K24
-      0x780E000C,  //  0064  JMPF	R3	#0072
-      0xB80E1200,  //  0065  GETNGBL	R3	K9
-      0x8C0C0715,  //  0066  GETMET	R3	R3	K21
-      0x60140008,  //  0067  GETGBL	R5	G8
-      0x5C180200,  //  0068  MOVE	R6	R1
-      0x7C140200,  //  0069  CALL	R5	1
-      0x00163205,  //  006A  ADD	R5	K25	R5
-      0x00140B1A,  //  006B  ADD	R5	R5	K26
-      0x60180008,  //  006C  GETGBL	R6	G8
-      0x5C1C0400,  //  006D  MOVE	R7	R2
-      0x7C180200,  //  006E  CALL	R6	1
-      0x00140A06,  //  006F  ADD	R5	R5	R6
-      0x58180017,  //  0070  LDCONST	R6	K23
-      0x7C0C0600,  //  0071  CALL	R3	3
-      0x70020000,  //  0072  JMP		#0074
-      0xB0080000,  //  0073  RAISE	2	R0	R0
-      0x80000000,  //  0074  RET	0
+      0xB8162A00,  //  0055  GETNGBL	R5	K21
+      0x60180018,  //  0056  GETGBL	R6	G24
+      0x581C0016,  //  0057  LDCONST	R7	K22
+      0x6020000C,  //  0058  GETGBL	R8	G12
+      0x88240103,  //  0059  GETMBR	R9	R0	K3
+      0x7C200200,  //  005A  CALL	R8	1
+      0x7C180400,  //  005B  CALL	R6	2
+      0x581C0017,  //  005C  LDCONST	R7	K23
+      0x7C140400,  //  005D  CALL	R5	2
+      0xA8040001,  //  005E  EXBLK	1	1
+      0x70020011,  //  005F  JMP		#0072
+      0xAC040002,  //  0060  CATCH	R1	0	2
+      0x7002000E,  //  0061  JMP		#0071
+      0x200C0318,  //  0062  NE	R3	R1	K24
+      0x780E000B,  //  0063  JMPF	R3	#0070
+      0xB80E2A00,  //  0064  GETNGBL	R3	K21
+      0x60100008,  //  0065  GETGBL	R4	G8
+      0x5C140200,  //  0066  MOVE	R5	R1
+      0x7C100200,  //  0067  CALL	R4	1
+      0x00123204,  //  0068  ADD	R4	K25	R4
+      0x0010091A,  //  0069  ADD	R4	R4	K26
+      0x60140008,  //  006A  GETGBL	R5	G8
+      0x5C180400,  //  006B  MOVE	R6	R2
+      0x7C140200,  //  006C  CALL	R5	1
+      0x00100805,  //  006D  ADD	R4	R4	R5
+      0x58140017,  //  006E  LDCONST	R5	K23
+      0x7C0C0400,  //  006F  CALL	R3	2
+      0x70020000,  //  0070  JMP		#0072
+      0xB0080000,  //  0071  RAISE	2	R0	R0
+      0x80000000,  //  0072  RET	0
     })
   )
 );
@@ -271,7 +272,8 @@ be_local_closure(Matter_Session_Store_load_fabrics,   /* name */
 /********************************************************************
 ** Solidified function: find_children_fabrics
 ********************************************************************/
-be_local_closure(Matter_Session_Store_find_children_fabrics,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_find_children_fabrics,   /* name */
   be_nested_proto(
     6,                          /* nstack */
     2,                          /* argc */
@@ -279,7 +281,7 @@ be_local_closure(Matter_Session_Store_find_children_fabrics,   /* name */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     1,                          /* has sup protos */
-    ( &(const struct bproto*[ 1]) {
+    ( &(const struct bproto*[ 2]) {
       be_nested_proto(
         7,                          /* nstack */
         1,                          /* argc */
@@ -291,7 +293,7 @@ be_local_closure(Matter_Session_Store_find_children_fabrics,   /* name */
           be_local_const_upval(1, 3),
         }),
         0,                          /* has sup protos */
-        NULL,                       /* no sub protos */
+        NULL, 
         1,                          /* has constants */
         ( &(const bvalue[ 6]) {     /* constants */
         /* K0   */  be_nested_str_weak(active_fabrics),
@@ -336,6 +338,7 @@ be_local_closure(Matter_Session_Store_find_children_fabrics,   /* name */
           0x80000000,  //  001D  RET	0
         })
       ),
+    &be_class_Matter_Session_Store, 
     }),
     0,                          /* has constants */
     NULL,                       /* no const */
@@ -366,7 +369,8 @@ be_local_closure(Matter_Session_Store_find_children_fabrics,   /* name */
 /********************************************************************
 ** Solidified function: sessions_active
 ********************************************************************/
-be_local_closure(Matter_Session_Store_sessions_active,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_sessions_active,   /* name */
   be_nested_proto(
     7,                          /* nstack */
     1,                          /* argc */
@@ -374,7 +378,7 @@ be_local_closure(Matter_Session_Store_sessions_active,   /* name */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[ 6]) {     /* constants */
     /* K0   */  be_const_int(0),
@@ -418,7 +422,8 @@ be_local_closure(Matter_Session_Store_sessions_active,   /* name */
 /********************************************************************
 ** Solidified function: find_fabric_by_index
 ********************************************************************/
-be_local_closure(Matter_Session_Store_find_fabric_by_index,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_find_fabric_by_index,   /* name */
   be_nested_proto(
     6,                          /* nstack */
     2,                          /* argc */
@@ -426,7 +431,7 @@ be_local_closure(Matter_Session_Store_find_fabric_by_index,   /* name */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[ 3]) {     /* constants */
     /* K0   */  be_nested_str_weak(active_fabrics),
@@ -464,7 +469,8 @@ be_local_closure(Matter_Session_Store_find_fabric_by_index,   /* name */
 /********************************************************************
 ** Solidified function: active_fabrics
 ********************************************************************/
-be_local_closure(Matter_Session_Store_active_fabrics,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_active_fabrics,   /* name */
   be_nested_proto(
     3,                          /* nstack */
     1,                          /* argc */
@@ -472,7 +478,7 @@ be_local_closure(Matter_Session_Store_active_fabrics,   /* name */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[ 3]) {     /* constants */
     /* K0   */  be_nested_str_weak(remove_expired),
@@ -497,7 +503,8 @@ be_local_closure(Matter_Session_Store_active_fabrics,   /* name */
 /********************************************************************
 ** Solidified function: create_fabric
 ********************************************************************/
-be_local_closure(Matter_Session_Store_create_fabric,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_create_fabric,   /* name */
   be_nested_proto(
     4,                          /* nstack */
     1,                          /* argc */
@@ -505,7 +512,7 @@ be_local_closure(Matter_Session_Store_create_fabric,   /* name */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[ 2]) {     /* constants */
     /* K0   */  be_nested_str_weak(matter),
@@ -528,7 +535,8 @@ be_local_closure(Matter_Session_Store_create_fabric,   /* name */
 /********************************************************************
 ** Solidified function: count_active_fabrics
 ********************************************************************/
-be_local_closure(Matter_Session_Store_count_active_fabrics,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_count_active_fabrics,   /* name */
   be_nested_proto(
     3,                          /* nstack */
     1,                          /* argc */
@@ -536,7 +544,7 @@ be_local_closure(Matter_Session_Store_count_active_fabrics,   /* name */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[ 4]) {     /* constants */
     /* K0   */  be_nested_str_weak(remove_expired),
@@ -569,30 +577,30 @@ be_local_closure(Matter_Session_Store_count_active_fabrics,   /* name */
 /********************************************************************
 ** Solidified function: find_session_by_resumption_id
 ********************************************************************/
-be_local_closure(Matter_Session_Store_find_session_by_resumption_id,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_find_session_by_resumption_id,   /* name */
   be_nested_proto(
-    12,                          /* nstack */
+    11,                          /* nstack */
     2,                          /* argc */
     2,                          /* varg */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
-    ( &(const bvalue[ 9]) {     /* constants */
+    ( &(const bvalue[ 8]) {     /* constants */
     /* K0   */  be_const_int(0),
     /* K1   */  be_nested_str_weak(sessions),
-    /* K2   */  be_nested_str_weak(tasmota),
-    /* K3   */  be_nested_str_weak(log),
-    /* K4   */  be_nested_str_weak(MTR_X3A_X20session_X2Eresumption_id_X3D_X25s_X20vs_X20_X25s),
-    /* K5   */  be_nested_str_weak(resumption_id),
-    /* K6   */  be_nested_str_weak(shared_secret),
-    /* K7   */  be_nested_str_weak(update),
-    /* K8   */  be_const_int(1),
+    /* K2   */  be_nested_str_weak(log),
+    /* K3   */  be_nested_str_weak(MTR_X3A_X20session_X2Eresumption_id_X3D_X25s_X20vs_X20_X25s),
+    /* K4   */  be_nested_str_weak(resumption_id),
+    /* K5   */  be_nested_str_weak(shared_secret),
+    /* K6   */  be_nested_str_weak(update),
+    /* K7   */  be_const_int(1),
     }),
     be_str_weak(find_session_by_resumption_id),
     &be_const_str_solidified,
-    ( &(const binstruction[38]) {  /* code */
+    ( &(const binstruction[37]) {  /* code */
       0x5C080200,  //  0000  MOVE	R2	R1
       0x740A0001,  //  0001  JMPT	R2	#0004
       0x4C080000,  //  0002  LDNIL	R2
@@ -603,34 +611,33 @@ be_local_closure(Matter_Session_Store_find_session_by_resumption_id,   /* name *
       0x5C140600,  //  0007  MOVE	R5	R3
       0x7C100200,  //  0008  CALL	R4	1
       0x14100404,  //  0009  LT	R4	R2	R4
-      0x78120019,  //  000A  JMPF	R4	#0025
+      0x78120018,  //  000A  JMPF	R4	#0024
       0x94100602,  //  000B  GETIDX	R4	R3	R2
       0xB8160400,  //  000C  GETNGBL	R5	K2
-      0x8C140B03,  //  000D  GETMET	R5	R5	K3
-      0x601C0018,  //  000E  GETGBL	R7	G24
-      0x58200004,  //  000F  LDCONST	R8	K4
-      0x60240008,  //  0010  GETGBL	R9	G8
-      0x88280905,  //  0011  GETMBR	R10	R4	K5
-      0x7C240200,  //  0012  CALL	R9	1
-      0x60280008,  //  0013  GETGBL	R10	G8
-      0x5C2C0200,  //  0014  MOVE	R11	R1
-      0x7C280200,  //  0015  CALL	R10	1
-      0x7C1C0600,  //  0016  CALL	R7	3
-      0x54220003,  //  0017  LDINT	R8	4
-      0x7C140600,  //  0018  CALL	R5	3
-      0x88140905,  //  0019  GETMBR	R5	R4	K5
-      0x1C140A01,  //  001A  EQ	R5	R5	R1
-      0x78160006,  //  001B  JMPF	R5	#0023
-      0x88140906,  //  001C  GETMBR	R5	R4	K6
-      0x4C180000,  //  001D  LDNIL	R6
-      0x20140A06,  //  001E  NE	R5	R5	R6
-      0x78160002,  //  001F  JMPF	R5	#0023
-      0x8C140907,  //  0020  GETMET	R5	R4	K7
-      0x7C140200,  //  0021  CALL	R5	1
-      0x80040800,  //  0022  RET	1	R4
-      0x00080508,  //  0023  ADD	R2	R2	K8
-      0x7001FFE0,  //  0024  JMP		#0006
-      0x80000000,  //  0025  RET	0
+      0x60180018,  //  000D  GETGBL	R6	G24
+      0x581C0003,  //  000E  LDCONST	R7	K3
+      0x60200008,  //  000F  GETGBL	R8	G8
+      0x88240904,  //  0010  GETMBR	R9	R4	K4
+      0x7C200200,  //  0011  CALL	R8	1
+      0x60240008,  //  0012  GETGBL	R9	G8
+      0x5C280200,  //  0013  MOVE	R10	R1
+      0x7C240200,  //  0014  CALL	R9	1
+      0x7C180600,  //  0015  CALL	R6	3
+      0x541E0003,  //  0016  LDINT	R7	4
+      0x7C140400,  //  0017  CALL	R5	2
+      0x88140904,  //  0018  GETMBR	R5	R4	K4
+      0x1C140A01,  //  0019  EQ	R5	R5	R1
+      0x78160006,  //  001A  JMPF	R5	#0022
+      0x88140905,  //  001B  GETMBR	R5	R4	K5
+      0x4C180000,  //  001C  LDNIL	R6
+      0x20140A06,  //  001D  NE	R5	R5	R6
+      0x78160002,  //  001E  JMPF	R5	#0022
+      0x8C140906,  //  001F  GETMET	R5	R4	K6
+      0x7C140200,  //  0020  CALL	R5	1
+      0x80040800,  //  0021  RET	1	R4
+      0x00080507,  //  0022  ADD	R2	R2	K7
+      0x7001FFE1,  //  0023  JMP		#0006
+      0x80000000,  //  0024  RET	0
     })
   )
 );
@@ -640,7 +647,8 @@ be_local_closure(Matter_Session_Store_find_session_by_resumption_id,   /* name *
 /********************************************************************
 ** Solidified function: add_session
 ********************************************************************/
-be_local_closure(Matter_Session_Store_add_session,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_add_session,   /* name */
   be_nested_proto(
     6,                          /* nstack */
     3,                          /* argc */
@@ -648,7 +656,7 @@ be_local_closure(Matter_Session_Store_add_session,   /* name */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[ 3]) {     /* constants */
     /* K0   */  be_nested_str_weak(set_expire_in_seconds),
@@ -678,7 +686,8 @@ be_local_closure(Matter_Session_Store_add_session,   /* name */
 /********************************************************************
 ** Solidified function: find_session_source_id_unsecure
 ********************************************************************/
-be_local_closure(Matter_Session_Store_find_session_source_id_unsecure,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_find_session_source_id_unsecure,   /* name */
   be_nested_proto(
     9,                          /* nstack */
     3,                          /* argc */
@@ -686,7 +695,7 @@ be_local_closure(Matter_Session_Store_find_session_source_id_unsecure,   /* name
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[ 9]) {     /* constants */
     /* K0   */  be_nested_str_weak(get_session_by_source_node_id),
@@ -735,7 +744,8 @@ be_local_closure(Matter_Session_Store_find_session_source_id_unsecure,   /* name
 /********************************************************************
 ** Solidified function: every_second
 ********************************************************************/
-be_local_closure(Matter_Session_Store_every_second,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_every_second,   /* name */
   be_nested_proto(
     3,                          /* nstack */
     1,                          /* argc */
@@ -743,7 +753,7 @@ be_local_closure(Matter_Session_Store_every_second,   /* name */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[ 1]) {     /* constants */
     /* K0   */  be_nested_str_weak(remove_expired),
@@ -763,7 +773,8 @@ be_local_closure(Matter_Session_Store_every_second,   /* name */
 /********************************************************************
 ** Solidified function: get_session_by_local_session_id
 ********************************************************************/
-be_local_closure(Matter_Session_Store_get_session_by_local_session_id,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_get_session_by_local_session_id,   /* name */
   be_nested_proto(
     8,                          /* nstack */
     2,                          /* argc */
@@ -771,7 +782,7 @@ be_local_closure(Matter_Session_Store_get_session_by_local_session_id,   /* name
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[ 5]) {     /* constants */
     /* K0   */  be_nested_str_weak(sessions),
@@ -814,7 +825,8 @@ be_local_closure(Matter_Session_Store_get_session_by_local_session_id,   /* name
 /********************************************************************
 ** Solidified function: init
 ********************************************************************/
-be_local_closure(Matter_Session_Store_init,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_init,   /* name */
   be_nested_proto(
     4,                          /* nstack */
     2,                          /* argc */
@@ -822,7 +834,7 @@ be_local_closure(Matter_Session_Store_init,   /* name */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[ 5]) {     /* constants */
     /* K0   */  be_nested_str_weak(device),
@@ -853,7 +865,8 @@ be_local_closure(Matter_Session_Store_init,   /* name */
 /********************************************************************
 ** Solidified function: remove_expired
 ********************************************************************/
-be_local_closure(Matter_Session_Store_remove_expired,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_remove_expired,   /* name */
   be_nested_proto(
     3,                          /* nstack */
     1,                          /* argc */
@@ -861,7 +874,7 @@ be_local_closure(Matter_Session_Store_remove_expired,   /* name */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[ 3]) {     /* constants */
     /* K0   */  be_nested_str_weak(sessions),
@@ -887,7 +900,8 @@ be_local_closure(Matter_Session_Store_remove_expired,   /* name */
 /********************************************************************
 ** Solidified function: remove_redundant_fabric
 ********************************************************************/
-be_local_closure(Matter_Session_Store_remove_redundant_fabric,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_remove_redundant_fabric,   /* name */
   be_nested_proto(
     7,                          /* nstack */
     2,                          /* argc */
@@ -895,7 +909,7 @@ be_local_closure(Matter_Session_Store_remove_redundant_fabric,   /* name */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[ 6]) {     /* constants */
     /* K0   */  be_const_int(0),
@@ -943,7 +957,8 @@ be_local_closure(Matter_Session_Store_remove_redundant_fabric,   /* name */
 /********************************************************************
 ** Solidified function: add_fabric
 ********************************************************************/
-be_local_closure(Matter_Session_Store_add_fabric,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_add_fabric,   /* name */
   be_nested_proto(
     5,                          /* nstack */
     2,                          /* argc */
@@ -951,7 +966,7 @@ be_local_closure(Matter_Session_Store_add_fabric,   /* name */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[ 8]) {     /* constants */
     /* K0   */  be_nested_str_weak(matter),
@@ -997,7 +1012,8 @@ be_local_closure(Matter_Session_Store_add_fabric,   /* name */
 /********************************************************************
 ** Solidified function: get_session_by_source_node_id
 ********************************************************************/
-be_local_closure(Matter_Session_Store_get_session_by_source_node_id,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_get_session_by_source_node_id,   /* name */
   be_nested_proto(
     8,                          /* nstack */
     2,                          /* argc */
@@ -1005,7 +1021,7 @@ be_local_closure(Matter_Session_Store_get_session_by_source_node_id,   /* name *
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[ 5]) {     /* constants */
     /* K0   */  be_nested_str_weak(sessions),
@@ -1048,7 +1064,8 @@ be_local_closure(Matter_Session_Store_get_session_by_source_node_id,   /* name *
 /********************************************************************
 ** Solidified function: next_fabric_idx
 ********************************************************************/
-be_local_closure(Matter_Session_Store_next_fabric_idx,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_next_fabric_idx,   /* name */
   be_nested_proto(
     7,                          /* nstack */
     1,                          /* argc */
@@ -1056,7 +1073,7 @@ be_local_closure(Matter_Session_Store_next_fabric_idx,   /* name */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[ 6]) {     /* constants */
     /* K0   */  be_nested_str_weak(remove_expired),
@@ -1103,17 +1120,18 @@ be_local_closure(Matter_Session_Store_next_fabric_idx,   /* name */
 /********************************************************************
 ** Solidified function: save_fabrics
 ********************************************************************/
-be_local_closure(Matter_Session_Store_save_fabrics,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_save_fabrics,   /* name */
   be_nested_proto(
-    12,                          /* nstack */
+    11,                          /* nstack */
     1,                          /* argc */
     2,                          /* varg */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
-    ( &(const bvalue[29]) {     /* constants */
+    ( &(const bvalue[28]) {     /* constants */
     /* K0   */  be_nested_str_weak(json),
     /* K1   */  be_nested_str_weak(path),
     /* K2   */  be_nested_str_weak(remove_expired),
@@ -1134,22 +1152,21 @@ be_local_closure(Matter_Session_Store_save_fabrics,   /* name */
     /* K17  */  be_nested_str_weak(remove),
     /* K18  */  be_nested_str_weak(_FABRICS),
     /* K19  */  be_nested_str_weak(rename),
-    /* K20  */  be_nested_str_weak(tasmota),
-    /* K21  */  be_nested_str_weak(log),
-    /* K22  */  be_nested_str_weak(MTR_X3A_X20_X3DSaved_X20_X20_X20_X20_X20_X25s_X20fabric_X28s_X29_X20and_X20_X25s_X20session_X28s_X29),
-    /* K23  */  be_const_int(2),
-    /* K24  */  be_nested_str_weak(device),
-    /* K25  */  be_nested_str_weak(event_fabrics_saved),
-    /* K26  */  be_nested_str_weak(MTR_X3A_X20Saving_X20Fabrics_X20failed),
-    /* K27  */  be_nested_str_weak(MTR_X3A_X20Session_Store_X3A_X3Asave_X20Exception_X3A),
-    /* K28  */  be_nested_str_weak(_X7C),
+    /* K20  */  be_nested_str_weak(log),
+    /* K21  */  be_nested_str_weak(MTR_X3A_X20_X3DSaved_X20_X20_X20_X20_X20_X25s_X20fabric_X28s_X29_X20and_X20_X25s_X20session_X28s_X29),
+    /* K22  */  be_const_int(2),
+    /* K23  */  be_nested_str_weak(device),
+    /* K24  */  be_nested_str_weak(event_fabrics_saved),
+    /* K25  */  be_nested_str_weak(MTR_X3A_X20Saving_X20Fabrics_X20failed),
+    /* K26  */  be_nested_str_weak(MTR_X3A_X20Session_Store_X3A_X3Asave_X20Exception_X3A),
+    /* K27  */  be_nested_str_weak(_X7C),
     }),
     be_str_weak(save_fabrics),
     &be_const_str_solidified,
-    ( &(const binstruction[101]) {  /* code */
+    ( &(const binstruction[98]) {  /* code */
       0xA4060000,  //  0000  IMPORT	R1	K0
       0xA40A0200,  //  0001  IMPORT	R2	K1
-      0xA802004F,  //  0002  EXBLK	0	#0053
+      0xA802004D,  //  0002  EXBLK	0	#0051
       0x8C0C0102,  //  0003  GETMET	R3	R0	K2
       0x7C0C0200,  //  0004  CALL	R3	1
       0x580C0003,  //  0005  LDCONST	R3	K3
@@ -1207,47 +1224,44 @@ be_local_closure(Matter_Session_Store_save_fabrics,   /* name */
       0x88200104,  //  0039  GETMBR	R8	R0	K4
       0x88240112,  //  003A  GETMBR	R9	R0	K18
       0x7C180600,  //  003B  CALL	R6	3
-      0x781A000C,  //  003C  JMPF	R6	#004A
+      0x781A000B,  //  003C  JMPF	R6	#0049
       0xB81A2800,  //  003D  GETNGBL	R6	K20
-      0x8C180D15,  //  003E  GETMET	R6	R6	K21
-      0x60200018,  //  003F  GETGBL	R8	G24
-      0x58240016,  //  0040  LDCONST	R9	K22
-      0x5C280800,  //  0041  MOVE	R10	R4
-      0x5C2C0600,  //  0042  MOVE	R11	R3
-      0x7C200600,  //  0043  CALL	R8	3
-      0x58240017,  //  0044  LDCONST	R9	K23
-      0x7C180600,  //  0045  CALL	R6	3
-      0x88180118,  //  0046  GETMBR	R6	R0	K24
-      0x8C180D19,  //  0047  GETMET	R6	R6	K25
-      0x7C180200,  //  0048  CALL	R6	1
-      0x70020006,  //  0049  JMP		#0051
-      0xB81A2800,  //  004A  GETNGBL	R6	K20
-      0x8C180D15,  //  004B  GETMET	R6	R6	K21
-      0x60200018,  //  004C  GETGBL	R8	G24
-      0x5824001A,  //  004D  LDCONST	R9	K26
-      0x7C200200,  //  004E  CALL	R8	1
-      0x58240017,  //  004F  LDCONST	R9	K23
-      0x7C180600,  //  0050  CALL	R6	3
-      0xA8040001,  //  0051  EXBLK	1	1
-      0x70020010,  //  0052  JMP		#0064
-      0xAC0C0002,  //  0053  CATCH	R3	0	2
-      0x7002000D,  //  0054  JMP		#0063
-      0xB8162800,  //  0055  GETNGBL	R5	K20
-      0x8C140B15,  //  0056  GETMET	R5	R5	K21
-      0x601C0008,  //  0057  GETGBL	R7	G8
-      0x5C200600,  //  0058  MOVE	R8	R3
-      0x7C1C0200,  //  0059  CALL	R7	1
-      0x001E3607,  //  005A  ADD	R7	K27	R7
-      0x001C0F1C,  //  005B  ADD	R7	R7	K28
-      0x60200008,  //  005C  GETGBL	R8	G8
-      0x5C240800,  //  005D  MOVE	R9	R4
-      0x7C200200,  //  005E  CALL	R8	1
-      0x001C0E08,  //  005F  ADD	R7	R7	R8
-      0x58200017,  //  0060  LDCONST	R8	K23
-      0x7C140600,  //  0061  CALL	R5	3
-      0x70020000,  //  0062  JMP		#0064
-      0xB0080000,  //  0063  RAISE	2	R0	R0
-      0x80000000,  //  0064  RET	0
+      0x601C0018,  //  003E  GETGBL	R7	G24
+      0x58200015,  //  003F  LDCONST	R8	K21
+      0x5C240800,  //  0040  MOVE	R9	R4
+      0x5C280600,  //  0041  MOVE	R10	R3
+      0x7C1C0600,  //  0042  CALL	R7	3
+      0x58200016,  //  0043  LDCONST	R8	K22
+      0x7C180400,  //  0044  CALL	R6	2
+      0x88180117,  //  0045  GETMBR	R6	R0	K23
+      0x8C180D18,  //  0046  GETMET	R6	R6	K24
+      0x7C180200,  //  0047  CALL	R6	1
+      0x70020005,  //  0048  JMP		#004F
+      0xB81A2800,  //  0049  GETNGBL	R6	K20
+      0x601C0018,  //  004A  GETGBL	R7	G24
+      0x58200019,  //  004B  LDCONST	R8	K25
+      0x7C1C0200,  //  004C  CALL	R7	1
+      0x58200016,  //  004D  LDCONST	R8	K22
+      0x7C180400,  //  004E  CALL	R6	2
+      0xA8040001,  //  004F  EXBLK	1	1
+      0x7002000F,  //  0050  JMP		#0061
+      0xAC0C0002,  //  0051  CATCH	R3	0	2
+      0x7002000C,  //  0052  JMP		#0060
+      0xB8162800,  //  0053  GETNGBL	R5	K20
+      0x60180008,  //  0054  GETGBL	R6	G8
+      0x5C1C0600,  //  0055  MOVE	R7	R3
+      0x7C180200,  //  0056  CALL	R6	1
+      0x001A3406,  //  0057  ADD	R6	K26	R6
+      0x00180D1B,  //  0058  ADD	R6	R6	K27
+      0x601C0008,  //  0059  GETGBL	R7	G8
+      0x5C200800,  //  005A  MOVE	R8	R4
+      0x7C1C0200,  //  005B  CALL	R7	1
+      0x00180C07,  //  005C  ADD	R6	R6	R7
+      0x581C0016,  //  005D  LDCONST	R7	K22
+      0x7C140400,  //  005E  CALL	R5	2
+      0x70020000,  //  005F  JMP		#0061
+      0xB0080000,  //  0060  RAISE	2	R0	R0
+      0x80000000,  //  0061  RET	0
     })
   )
 );
@@ -1257,7 +1271,8 @@ be_local_closure(Matter_Session_Store_save_fabrics,   /* name */
 /********************************************************************
 ** Solidified function: create_session
 ********************************************************************/
-be_local_closure(Matter_Session_Store_create_session,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_create_session,   /* name */
   be_nested_proto(
     9,                          /* nstack */
     3,                          /* argc */
@@ -1265,7 +1280,7 @@ be_local_closure(Matter_Session_Store_create_session,   /* name */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[ 6]) {     /* constants */
     /* K0   */  be_nested_str_weak(get_session_by_local_session_id),
@@ -1308,7 +1323,8 @@ be_local_closure(Matter_Session_Store_create_session,   /* name */
 /********************************************************************
 ** Solidified function: remove_fabric
 ********************************************************************/
-be_local_closure(Matter_Session_Store_remove_fabric,   /* name */
+extern const bclass be_class_Matter_Session_Store;
+be_local_closure(class_Matter_Session_Store_remove_fabric,   /* name */
   be_nested_proto(
     7,                          /* nstack */
     2,                          /* argc */
@@ -1316,7 +1332,7 @@ be_local_closure(Matter_Session_Store_remove_fabric,   /* name */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    NULL,                       /* no sub protos */
+    &be_class_Matter_Session_Store, 
     1,                          /* has constants */
     ( &(const bvalue[ 7]) {     /* constants */
     /* K0   */  be_nested_str_weak(sessions),
@@ -1379,42 +1395,35 @@ be_local_class(Matter_Session_Store,
     be_nested_map(28,
     ( (struct bmapnode*) &(const bmapnode[]) {
         { be_const_key_weak(sessions, -1), be_const_var(1) },
-        { be_const_key_weak(remove_fabric, -1), be_const_closure(Matter_Session_Store_remove_fabric_closure) },
-        { be_const_key_weak(remove_session, -1), be_const_closure(Matter_Session_Store_remove_session_closure) },
-        { be_const_key_weak(active_fabrics, -1), be_const_closure(Matter_Session_Store_active_fabrics_closure) },
-        { be_const_key_weak(load_fabrics, 18), be_const_closure(Matter_Session_Store_load_fabrics_closure) },
+        { be_const_key_weak(remove_fabric, -1), be_const_closure(class_Matter_Session_Store_remove_fabric_closure) },
+        { be_const_key_weak(remove_session, -1), be_const_closure(class_Matter_Session_Store_remove_session_closure) },
+        { be_const_key_weak(active_fabrics, -1), be_const_closure(class_Matter_Session_Store_active_fabrics_closure) },
+        { be_const_key_weak(load_fabrics, 18), be_const_closure(class_Matter_Session_Store_load_fabrics_closure) },
         { be_const_key_weak(fabrics, -1), be_const_var(2) },
-        { be_const_key_weak(save_fabrics, -1), be_const_closure(Matter_Session_Store_save_fabrics_closure) },
+        { be_const_key_weak(save_fabrics, -1), be_const_closure(class_Matter_Session_Store_save_fabrics_closure) },
         { be_const_key_weak(_FABRICS_TEMP, 22), be_nested_str_weak(_X2F_matter_fabrics_X2Etmp) },
-        { be_const_key_weak(create_fabric, -1), be_const_closure(Matter_Session_Store_create_fabric_closure) },
-        { be_const_key_weak(find_fabric_by_index, -1), be_const_closure(Matter_Session_Store_find_fabric_by_index_closure) },
-        { be_const_key_weak(gen_local_session_id, 3), be_const_closure(Matter_Session_Store_gen_local_session_id_closure) },
-        { be_const_key_weak(sessions_active, 8), be_const_closure(Matter_Session_Store_sessions_active_closure) },
+        { be_const_key_weak(create_fabric, -1), be_const_closure(class_Matter_Session_Store_create_fabric_closure) },
+        { be_const_key_weak(find_fabric_by_index, -1), be_const_closure(class_Matter_Session_Store_find_fabric_by_index_closure) },
+        { be_const_key_weak(gen_local_session_id, 3), be_const_closure(class_Matter_Session_Store_gen_local_session_id_closure) },
+        { be_const_key_weak(sessions_active, 8), be_const_closure(class_Matter_Session_Store_sessions_active_closure) },
         { be_const_key_weak(_FABRICS, -1), be_nested_str_weak(_X2F_matter_fabrics_X2Ejson) },
-        { be_const_key_weak(get_session_by_source_node_id, -1), be_const_closure(Matter_Session_Store_get_session_by_source_node_id_closure) },
-        { be_const_key_weak(count_active_fabrics, 23), be_const_closure(Matter_Session_Store_count_active_fabrics_closure) },
-        { be_const_key_weak(add_session, 13), be_const_closure(Matter_Session_Store_add_session_closure) },
-        { be_const_key_weak(find_session_source_id_unsecure, -1), be_const_closure(Matter_Session_Store_find_session_source_id_unsecure_closure) },
-        { be_const_key_weak(every_second, -1), be_const_closure(Matter_Session_Store_every_second_closure) },
-        { be_const_key_weak(add_fabric, -1), be_const_closure(Matter_Session_Store_add_fabric_closure) },
-        { be_const_key_weak(init, -1), be_const_closure(Matter_Session_Store_init_closure) },
-        { be_const_key_weak(remove_redundant_fabric, -1), be_const_closure(Matter_Session_Store_remove_redundant_fabric_closure) },
-        { be_const_key_weak(get_session_by_local_session_id, 20), be_const_closure(Matter_Session_Store_get_session_by_local_session_id_closure) },
-        { be_const_key_weak(remove_expired, -1), be_const_closure(Matter_Session_Store_remove_expired_closure) },
-        { be_const_key_weak(find_session_by_resumption_id, -1), be_const_closure(Matter_Session_Store_find_session_by_resumption_id_closure) },
-        { be_const_key_weak(next_fabric_idx, -1), be_const_closure(Matter_Session_Store_next_fabric_idx_closure) },
-        { be_const_key_weak(find_children_fabrics, 6), be_const_closure(Matter_Session_Store_find_children_fabrics_closure) },
-        { be_const_key_weak(create_session, -1), be_const_closure(Matter_Session_Store_create_session_closure) },
+        { be_const_key_weak(get_session_by_source_node_id, -1), be_const_closure(class_Matter_Session_Store_get_session_by_source_node_id_closure) },
+        { be_const_key_weak(count_active_fabrics, 23), be_const_closure(class_Matter_Session_Store_count_active_fabrics_closure) },
+        { be_const_key_weak(add_session, 13), be_const_closure(class_Matter_Session_Store_add_session_closure) },
+        { be_const_key_weak(find_session_source_id_unsecure, -1), be_const_closure(class_Matter_Session_Store_find_session_source_id_unsecure_closure) },
+        { be_const_key_weak(every_second, -1), be_const_closure(class_Matter_Session_Store_every_second_closure) },
+        { be_const_key_weak(add_fabric, -1), be_const_closure(class_Matter_Session_Store_add_fabric_closure) },
+        { be_const_key_weak(init, -1), be_const_closure(class_Matter_Session_Store_init_closure) },
+        { be_const_key_weak(remove_redundant_fabric, -1), be_const_closure(class_Matter_Session_Store_remove_redundant_fabric_closure) },
+        { be_const_key_weak(get_session_by_local_session_id, 20), be_const_closure(class_Matter_Session_Store_get_session_by_local_session_id_closure) },
+        { be_const_key_weak(remove_expired, -1), be_const_closure(class_Matter_Session_Store_remove_expired_closure) },
+        { be_const_key_weak(find_session_by_resumption_id, -1), be_const_closure(class_Matter_Session_Store_find_session_by_resumption_id_closure) },
+        { be_const_key_weak(next_fabric_idx, -1), be_const_closure(class_Matter_Session_Store_next_fabric_idx_closure) },
+        { be_const_key_weak(find_children_fabrics, 6), be_const_closure(class_Matter_Session_Store_find_children_fabrics_closure) },
+        { be_const_key_weak(create_session, -1), be_const_closure(class_Matter_Session_Store_create_session_closure) },
         { be_const_key_weak(device, 1), be_const_var(0) },
     })),
     be_str_weak(Matter_Session_Store)
 );
-/*******************************************************************/
-
-void be_load_Matter_Session_Store_class(bvm *vm) {
-    be_pushntvclass(vm, &be_class_Matter_Session_Store);
-    be_setglobal(vm, "Matter_Session_Store");
-    be_pop(vm, 1);
-}
 /********************************************************************/
 /* End of solidification */

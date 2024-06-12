@@ -8,8 +8,9 @@
 
 class Powerwall {
    private:
-    char tesla_email[32];
-    char tesla_password[32];
+    const char* powerwall_ip;
+    String tesla_email;
+    String tesla_password;
     String authCookie;
     
    public:
@@ -19,41 +20,13 @@ class Powerwall {
     String GetRequest(String url);
     String AuthCookie();
     void resetAuthCookie();
-    char powerwall_ip[64];
-    String Pwl_test(String);
 };
-
-String Powerwall::Pwl_test(String ip) {
-    AddLog(LOG_LEVEL_INFO, PSTR("PWL: tryto open %s"), ip.c_str());
-    //WiFiClientSecure *httpsClient = new WiFiClientSecure;
-    BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024,1024);
-
-    httpsClient->setInsecure();
-    httpsClient->setTimeout(1000);
-    int retry = 0;
-    while ((!httpsClient->connect(ip.c_str(), 443)) && (retry < 5)) {
-        delay(100);
-        //Serial.print(".");
-        retry++;
-    }
-
-    if (retry >= 5) {
-        AddLog(LOG_LEVEL_INFO, PSTR("PWL: failed"));
-    } else {
-        AddLog(LOG_LEVEL_INFO, PSTR("PWL: connected"));
-    }
-    httpsClient->stop();
-    delete httpsClient;
-    return "\n";
-}
 
 
 Powerwall::Powerwall() {
-    strcpy(powerwall_ip, POWERWALL_IP_CONFIG);
-    strcpy(tesla_email, TESLA_EMAIL);
-    strcpy(tesla_password, TESLA_PASSWORD);
-    //tesla_email    = TESLA_EMAIL;
-    //tesla_password = TESLA_PASSWORD;
+    powerwall_ip   = POWERWALL_IP_CONFIG;
+    tesla_email    = TESLA_EMAIL;
+    tesla_password = TESLA_PASSWORD;
     authCookie     = "";
 }
 
@@ -74,37 +47,31 @@ String Powerwall::getAuthCookie() {
     String apiLoginURL = "/api/login/Basic";
 
 #ifdef ESP32
-    //WiFiClientSecure *httpsClient = new WiFiClientSecure;
-    BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024,1024);
+    WiFiClientSecure *httpsClient = new WiFiClientSecure;
 #else
    // BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024,1024);
     WiFiClientSecure *httpsClient = new WiFiClientSecure;
 #endif
     httpsClient->setInsecure();
-    httpsClient->setTimeout(2000);
+    httpsClient->setTimeout(10000);
 
     int retry = 0;
 
 #define PW_RETRIES 5
     while ((!httpsClient->connect(powerwall_ip, 443)) && (retry < PW_RETRIES)) {
         delay(100);
-        //Serial.print(".");
+        Serial.print(".");
         retry++;
     }
 
     if (retry >= PW_RETRIES) {
-        //String response = httpsClient->readStringUntil('\n');
-        AddLog(LOG_LEVEL_DEBUG, PSTR("PWL: connection failed"));
         delete httpsClient;
         return ("CONN-FAIL");
     }
 
     AddLog(LOG_LEVEL_DEBUG, PSTR("PWL: connected"));
 
-    String s_tesla_email = tesla_email;
-    String s_tesla_password = tesla_password;
-
-    String dataString = "{\"username\":\"customer\",\"email\":\"" + s_tesla_email + "\",\"password\":\"" + s_tesla_password + "\",\"force_sm_off\":false}";
+    String dataString = "{\"username\":\"customer\",\"email\":\"" + tesla_email + "\",\"password\":\"" + tesla_password + "\",\"force_sm_off\":false}";
 
     String payload = String("POST ") + apiLoginURL + " HTTP/1.1\r\n" +
                       "Host: " + powerwall_ip + "\r\n" +
@@ -152,8 +119,7 @@ String Powerwall::getAuthCookie() {
  */
 String Powerwall::GetRequest(String url, String authCookie) {
 #ifdef ESP32
-   // WiFiClientSecure *httpsClient = new WiFiClientSecure;
-    BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024,1024);
+    WiFiClientSecure *httpsClient = new WiFiClientSecure;
 #else
     //BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024,1024);
     WiFiClientSecure *httpsClient = new WiFiClientSecure;
@@ -171,13 +137,11 @@ String Powerwall::GetRequest(String url, String authCookie) {
 
     while ((!httpsClient->connect(powerwall_ip, 443)) && (retry < 15)) {
         delay(100);
-        //Serial.print(".");
+        Serial.print(".");
         retry++;
     }
 
     if (retry >= 15) {
-        //String response = httpsClient->readStringUntil('\n');
-        AddLog(LOG_LEVEL_DEBUG, PSTR("PWL: connection failed"));
         delete httpsClient;
         return ("CONN-FAIL");
     }
@@ -211,7 +175,6 @@ String Powerwall::GetRequest(String url, String authCookie) {
 
     String result = httpsClient->readStringUntil('\n');
     delete httpsClient;
-    AddLog(LOG_LEVEL_DEBUG, PSTR("PWL: result: %s"),result.c_str());
     return result;
 }
 
@@ -219,10 +182,7 @@ String Powerwall::GetRequest(String url, String authCookie) {
  * this is getting called if there was no provided authCookie in powerwallGetRequest(String url, String authCookie)
  */
 String Powerwall::GetRequest(String url) {
-    if (url[0] == '@') {
-        url = url.substring(1);
-        return Pwl_test(url);
-    }
     return (GetRequest(url, getAuthCookie()));
 }
+
 #endif

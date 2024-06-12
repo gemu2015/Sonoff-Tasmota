@@ -141,6 +141,20 @@ class Matter_TLV
         return self
       end
     end
+
+    #############################################################
+    # set value, equivalent to create_TLV() without allocation
+    #
+    # if value is `nil` replace with TLV.NULL
+    def set_or_nil(t, value)
+      self.reset()
+      if (value == nil)   t = 0x14  end   # force TLV.NULL
+      if value != nil || t == 0x14 #-t == matter.TLV.NULL-#   # put the actual number for performance
+        self.typ = t
+        self.val = value
+        return self
+      end
+    end
     
     #############################################################
     # neutral converter
@@ -261,9 +275,9 @@ class Matter_TLV
       elif item_type == TLV.NULL                       # null
         # do nothing
       elif item_type == TLV.EOC
-        tasmota.log("MTR: unexpected eoc", 3)
+        log("MTR: unexpected eoc", 3)
       else
-        tasmota.log("MTR: unexpected type: " + str(item_type), 3)
+        log("MTR: unexpected type: " + str(item_type), 3)
       end
       self.next_idx = idx
       return idx

@@ -84,6 +84,7 @@
 #define WIFI_SCAN_AT_RESTART   false             // [SetOption56] Scan Wi-Fi network at restart for configured AP's
 #define WIFI_SCAN_REGULARLY    true              // [SetOption57] Scan Wi-Fi network every 44 minutes for configured AP's
 #define WIFI_NO_SLEEP          false             // [SetOption127] Sets Wifi in no-sleep mode which improves responsiveness on some routers
+#define WIFI_DEFAULT_HOSTNAME  "%s-%04d"         // [Hostname] Expands to <MQTT_TOPIC>-<last 4 decimal chars of MAC address>
 
 // -- Syslog --------------------------------------
 #define SYS_LOG_HOST           ""                // [LogHost] (Linux) syslog host
@@ -101,20 +102,6 @@
 #define MQTT_WIFI_CLIENT_TIMEOUT 200             // [MqttWifiTimeout] Number of milliseconds before Mqtt Wi-Fi timeout
 
 #define MQTT_HOST              ""                // [MqttHost]
-
-// XXX temporary - leave for a few releases so people compiling in
-// fingerprints have a chance to update their configuration files
-#if !defined(USE_MQTT_TLS_DROP_OLD_FINGERPRINT) && defined(MQTT_FINGERPRINT1) || defined(MQTT_FINGERPRINT2)
-#error "The old TLS fingerprint format is being removed.\n\
-Please ensure your TLS fingerprint(s) are using the new version, then add\n\
-\n\
-#define USE_MQTT_TLS_DROP_OLD_FINGERPRINT\n\
-\n\
-to your user_config_override.h file.\n\
-\n\
-An online tool to calculate TLS fingerprints is available here at:\n\
-https://rya.nc/tasmota-fingerprint.html"
-#endif
 
 #define MQTT_FINGERPRINT1      0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00  // [MqttFingerprint1] (auto-learn)
 #define MQTT_FINGERPRINT2      0xDA,0x39,0xA3,0xEE,0x5E,0x6B,0x4B,0x0D,0x32,0x55,0xBF,0xEF,0x95,0x60,0x18,0x90,0xAF,0xD8,0x07,0x09  // [MqttFingerprint2] (invalid - value from sha1(""))
@@ -286,7 +273,7 @@ https://rya.nc/tasmota-fingerprint.html"
 #define APP_BISTABLE_PULSE     40                // [SetOption45] Pulse time in ms for two coil bistable latching relays
 
 #define APP_NORMAL_SLEEP       false             // [SetOption60] Enable normal sleep instead of dynamic sleep
-#define APP_SLEEP              0                 // [Sleep] Sleep time to lower energy consumption (0 = Off, 1 - 250 mSec),
+#define TASMOTA_SLEEP          50                // [Sleep] Sleep time to lower energy consumption (0 = Off, value in milliseconds),
 #define PWM_MAX_SLEEP          10                // Sleep will be lowered to this value when light is on, to avoid flickering, and when buzzer is on for better on/off period accuracy
 
 #define KEY_DEBOUNCE_TIME      50                // [ButtonDebounce] Number of mSeconds button press debounce time
@@ -434,7 +421,6 @@ https://rya.nc/tasmota-fingerprint.html"
 #define MQTT_LWT_OFFLINE       "Offline"         // MQTT LWT offline topic message
 #define MQTT_LWT_ONLINE        "Online"          // MQTT LWT online topic message
 
-#define MQTT_TELE_RETAIN       0                 // Tele messages may send retain flag (0 = off, 1 = on)
 #define MQTT_CLEAN_SESSION     1                 // Mqtt clean session connection (0 = No clean session, 1 = Clean session (default))
 #define MQTT_DISABLE_SSERIALRECEIVED 0           // 1 = Disable sserialreceived mqtt messages, 0 = Enable sserialreceived mqtt messages (default)
 #define MQTT_DISABLE_MODBUSRECEIVED  0           // 1 = Disable ModbusReceived mqtt messages, 0 = Enable ModbusReceived mqtt messages (default)
@@ -461,9 +447,6 @@ https://rya.nc/tasmota-fingerprint.html"
 //  #define USE_MQTT_AWS_IOT                       // [Deprecated] Enable MQTT for AWS IoT - requires a private key (+11.9k code, +0.4k mem)
                                                  //   Note: you need to generate a private key + certificate per device and update 'tasmota/tasmota_aws_iot.cpp'
                                                  //   Full documentation here: https://github.com/arendst/Tasmota/wiki/AWS-IoT
- #define USE_MQTT_TLS_DROP_OLD_FINGERPRINT          // If you use fingerprint (i.e. not CA) validation, the algorithm changed to a more secure one.
-                                                   // Any valid fingerprint with the old algo will be automatically updated to the new algo.
-                                                   // Enable this if you want to disable the old algo check, which should be more secure
 //  for USE_4K_RSA (support for 4096 bits certificates, instead of 2048), you need to uncommend `-DUSE_4K_RSA` in `build_flags` from `platform.ini` or `platform_override.ini`
 
 // -- MQTT - TLS - Azure IoT & IoT Central ---------
@@ -476,7 +459,7 @@ https://rya.nc/tasmota-fingerprint.html"
 
 // -- Telegram Protocol ---------------------------
 //#define USE_TELEGRAM                             // Support for Telegram protocol (+49k code, +7.0k mem and +4.8k additional during connection handshake)
-  #define USE_TELEGRAM_FINGERPRINT "\xB2\x72\x47\xA6\x69\x8C\x3C\x69\xF9\x58\x6C\xF3\x60\x02\xFB\x83\xFA\x8B\x1F\x23" // Telegram api.telegram.org TLS public key fingerpring
+  #define USE_TELEGRAM_FINGERPRINT "\x4E\x7F\xF5\x6D\x1E\x29\x40\x58\xAB\x84\xDE\x63\x69\x7B\xCD\xDF\x44\x2E\xD2\xF6" // Telegram api.telegram.org TLS public key fingerpring
 
 // -- KNX IP Protocol -----------------------------
 //#define USE_KNX                                  // Enable KNX IP Protocol Support (+9.4k code, +3k7 mem)
@@ -490,6 +473,7 @@ https://rya.nc/tasmota-fingerprint.html"
   #define USE_ENHANCED_GUI_WIFI_SCAN             // Enable Wi-Fi scan output with BSSID (+0k5 code)
 //  #define USE_WEBSEND_RESPONSE                   // Enable command WebSend response message (+1k code)
 //  #define USE_WEBGETCONFIG                       // Enable restoring config from external webserver (+0k6)
+//  #define USE_WEBRUN                             // Enable executing a tasmota command file from external web server (+0.4 code)
 //  #define USE_GPIO_VIEWER                        // Enable GPIO Viewer to see realtime GPIO states (+6k code)
 //    #define GV_SAMPLING_INTERVAL  100            // [GvSampling] milliseconds - Use Tasmota Scheduler (100) or Ticker (20..99,101..1000)
   #define USE_EMULATION_HUE                      // Enable Hue Bridge emulation for Alexa (+14k code, +2k mem common)
@@ -727,15 +711,18 @@ https://rya.nc/tasmota-fingerprint.html"
 //  #define USE_QMC5883L                           // [I2CDriver71] Enable QMC5883L magnetic induction sensor (I2C address 0x0D) (+0k8 code)
 //  #define USE_HMC5883L                           // [I2CDriver73] Enable HMC5883L magnetic induction sensor (I2C address 0x1E) (+1k3 code)
 //    #define QMC5883L_TEMP_SHIFT       23         // sensor temperature are not calibrated (only relativ measurement) and need an absolute ground value in °C (see datasheet)
-//    #define QMC5883L_OVERSAMPLE       1          // 0 .. 3 => 512, 256(default), 128, 64
-//    #define QMC5883L_GAUSS            0          // 0,1(default) => 2GAUSS, 8GAUSS(default)
-//    #define QMC5883L_FILTER           2          // 0 .. 3 => 10HZ, 50HZ, 109HZ(default), 200HZ
+//    #define QMC5883L_OVERSAMPLE       0          // 0 .. 3 => 512(default), 256, 128, 64
+//    #define QMC5883L_GAUSS            1          // 0,1(default) => 2GAUSS, 8GAUSS(default)
+//    #define QMC5883L_FILTER           0          // 0 .. 3 => 10HZ(default), 50HZ, 100HZ, 200HZ
 //  #define USE_INA3221                            // [I2CDriver72] Enable INA3221 3-channel DC voltage and current sensor (I2C address 0x40-0x44) (+3.2k code)
 //    #define INA3221_ADDRESS1                     // allow to change the 1st address to search for INA3221 to 0x41..0x43
 //    #define INA3221_MAX_COUNT                    // change the number of devices to search for (default 4).
 //                                                 // Both settings together allow to limit searching for INA3221 to only a subset of addresses
 //    #define  INA3221_CALC_CHARGE_AH              // calculate charge in Ah
 //    #define  INA3221_CALC_ENERGY_WH              // calculate energy in Wh
+//    #define  INA3221_SUPPLY_SIDE      0x7777     // the driver adds the measured Shunt Voltage to the Bus Voltage 
+                                                   // for the cannel with a negativ shunt (shunt <0) thus showing the values of the supply side (IN+) 
+                                                   // additionaly the bits set (bit 0,1,2) enable the scanning of the voltage in the according channel
 //  #define USE_PMSA003I                           // [I2cDriver78] Enable PMSA003I Air Quality Sensor (I2C address 0x12) (+1k8 code)
 //  #define USE_GDK101                             // [I2cDriver79] Enable GDK101 sensor (I2C addresses 0x18 - 0x1B) (+1k2 code)
 //    #define GDK101_SHOW_FW_VERSION
@@ -751,6 +738,7 @@ https://rya.nc/tasmota-fingerprint.html"
 //  #define MAX17043_ALERT_THRESHOLD 32            // [I2cDriver83] Define the alert threshold for low battery level percentage 1-32
 //  #define USE_AMSX915                            // [I2CDriver86] Enable AMS5915/AMS6915 pressure/temperature sensor (+1k2 code)
 //  #define USE_SPL06_007                          // [I2cDriver87] Enable SPL06_007 pressure and temperature sensor (I2C addresses 0x76) (+2k5 code)
+//  #define USE_QMP6988                            // [I2cDriver88] Enable QMP6988 pressure and temperature sensor (I2C address 0x56 or 0x70) (+2k9 code)
 
 //  #define USE_RTC_CHIPS                          // Enable RTC chip support and NTP server - Select only one
 //    #define USE_DS3231                           // [I2cDriver26] Enable DS3231 RTC (I2C address 0x68) (+1k2 code)
@@ -1026,6 +1014,9 @@ https://rya.nc/tasmota-fingerprint.html"
   #define USE_ZIGBEE_MAXTIME_LIGHT          60*60     // 1h
   #define USE_ZIGBEE_MAXTIME_LIFT           4*60*60   // 4h
 
+// -- Matter support (ESP32 and variants) ----------------------------
+#define MATTER_ENABLED    false                    // Is Matter enabled by default (ie `SO151 1`)
+
 // -- Other sensors/drivers -----------------------
 
 //#define USE_SHIFT595                             // Add support for 74xx595 8-bit shift registers (+0k7 code)
@@ -1118,6 +1109,8 @@ https://rya.nc/tasmota-fingerprint.html"
 
 #ifdef ESP32
 
+//#define USE_ESP32_WDT                            // Enable Watchdog for ESP32, trigger a restart if loop has not responded for 5s, and if `yield();` was not called
+
 #define SET_ESP32_STACK_SIZE  (8 * 1024)         // Set the stack size for Tasmota. The default value is 8192 for Arduino, some builds might need to increase it
 
 #ifdef SOC_TOUCH_VERSION_1                       // ESP32
@@ -1140,15 +1133,15 @@ https://rya.nc/tasmota-fingerprint.html"
 
 //#define USE_ETHERNET                             // Add support for ethernet (+20k code)
 //  #define USE_WT32_ETH01                         // Add support for Wireless-Tag WT32-ETH01
-//  #define ETH_TYPE          0                    // [EthType] 0 = LAN8720, 1 = TLK110/IP101, 2 = RTL8201, 3 = DP83848, 4 = RFU, 5 = KSZ8081, 6 = KSZ8041, 7 = JL1101, 8 = W5500, 9 = KSZ8851, 10 = DM9051
+//  #define ETH_TYPE          0                    // [EthType] 0 = LAN8720, 1 = TLK110/IP101, 2 = RTL8201, 3 = DP83848, 4 = DM9051, 5 = KSZ8081, 6 = KSZ8041, 7 = JL1101, 8 = W5500, 9 = KSZ8851
 //  #define ETH_ADDRESS       1                    // [EthAddress] 0 = PHY0 .. 31 = PHY31
 //  #define ETH_CLKMODE       0                    // [EthClockMode] 0 = ETH_CLOCK_GPIO0_IN, 1 = ETH_CLOCK_GPIO0_OUT, 2 = ETH_CLOCK_GPIO16_OUT, 3 = ETH_CLOCK_GPIO17_OUT
   // Olimex ESP32-PoE
-  #define ETH_TYPE          0                    // [EthType] 0 = LAN8720, 1 = TLK110/IP101, 2 = RTL8201, 3 = DP83848, 4 = RFU, 5 = KSZ8081, 6 = KSZ8041, 7 = JL1101, 8 = W5500, 9 = KSZ8851, 10 = DM9051
+  #define ETH_TYPE          0                    // [EthType] 0 = LAN8720, 1 = TLK110/IP101, 2 = RTL8201, 3 = DP83848, 4 = DM9051, 5 = KSZ8081, 6 = KSZ8041, 7 = JL1101, 8 = W5500, 9 = KSZ8851
   #define ETH_ADDRESS       0                    // [EthAddress] 0 = PHY0 .. 31 = PHY31
   #define ETH_CLKMODE       3                    // [EthClockMode] 0 = ETH_CLOCK_GPIO0_IN, 1 = ETH_CLOCK_GPIO0_OUT, 2 = ETH_CLOCK_GPIO16_OUT, 3 = ETH_CLOCK_GPIO17_OUT
   // wESP32-PoE
-//  #define ETH_TYPE          0                    // [EthType] 0 = LAN8720, 1 = TLK110/IP101, 2 = RTL8201, 3 = DP83848, 4 = RFU, 5 = KSZ8081, 6 = KSZ8041, 7 = JL1101, 8 = W5500, 9 = KSZ8851, 10 = DM9051
+//  #define ETH_TYPE          0                    // [EthType] 0 = LAN8720, 1 = TLK110/IP101, 2 = RTL8201, 3 = DP83848, 4 = DM9051, 5 = KSZ8081, 6 = KSZ8041, 7 = JL1101, 8 = W5500, 9 = KSZ8851
 //  #define ETH_ADDRESS       0                    // [EthAddress] 0 = PHY0 .. 31 = PHY31
 //  #define ETH_CLKMODE       0                    // [EthClockMode] 0 = ETH_CLOCK_GPIO0_IN, 1 = ETH_CLOCK_GPIO0_OUT, 2 = ETH_CLOCK_GPIO16_OUT, 3 = ETH_CLOCK_GPIO17_OUT
 
@@ -1248,6 +1241,10 @@ https://rya.nc/tasmota-fingerprint.html"
     #define BE_LV_WIDGET_SPAN
     // #define BE_LV_WIDGET_TABVIEW
     // #define BE_LV_WIDGET_TILEVIEW
+
+// -- Matter protocol ---------------------------------
+  // #define USE_MATTER_DEVICE                      // Enable Matter device support (+420KB)
+                                                    // Enabled by default in standard ESP32 binary
 
 #endif  // ESP32
 

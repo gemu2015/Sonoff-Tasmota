@@ -63,7 +63,7 @@ class Matter_Plugin_Sensor_Contact : Matter_Plugin_Device
     if !self.VIRTUAL
       var switch_str = "Switch" + str(self.tasmota_switch_index)
 
-      var j = tasmota.cmd("Status 8", true)
+      var j = tasmota.cmd("Status 10", true)
       if j != nil   j = j.find("StatusSNS") end
       if j != nil && j.contains(switch_str)
         var state = (j.find(switch_str) == "ON")
@@ -87,11 +87,7 @@ class Matter_Plugin_Sensor_Contact : Matter_Plugin_Device
     # ====================================================================================================
     if   cluster == 0x0045              # ========== Boolean State ==========
       if   attribute == 0x0000          #  ---------- StateValue / bool ----------
-        if self.shadow_contact != nil
-          return tlv_solo.set(TLV.BOOL, self.shadow_contact)
-        else
-          return tlv_solo.set(TLV.NULL, nil)
-        end
+        return tlv_solo.set_or_nil(TLV.BOOL, self.shadow_contact)
       end
 
     end
@@ -102,17 +98,51 @@ class Matter_Plugin_Sensor_Contact : Matter_Plugin_Device
   # update_virtual
   #
   # Update internal state for virtual devices
-  def update_virtual(payload_json)
-    var val_onoff = payload_json.find("Contact")
-    if val_onoff != nil
-      val_onoff = bool(val_onoff)
-      if self.shadow_contact != val_onoff
-        self.attribute_updated(0x0045, 0x0000)
-        self.shadow_contact = val_onoff
-      end
-    end
-    super(self).update_virtual(payload_json)
+  def update_virtual(payload)
+    self.shadow_contact = self._parse_update_virtual(payload, "Contact", self.shadow_contact, bool, 0x0045, 0x0000)
+    super(self).update_virtual(payload)
   end
 
+  #############################################################
+  # For Bridge devices
+  #############################################################
+  #############################################################
+  # Stub for updating shadow values (local copies of what we published to the Matter gateway)
+  #
+  # This call is synnchronous and blocking.
+  def parse_status(data, index)
+    if index == 10                             # Status 10
+      var state = false
+
+      state = (data.find("Switch" + str(self.tasmota_switch_index)) == "ON")
+
+      if self.shadow_contact != nil && self.shadow_contact != bool(state)
+        self.attribute_updated(0x0045, 0x0000)
+      end
+      self.shadow_contact = state
+    end
+  end
+
+  #############################################################
+  # web_values
+  #
+  # Show values of the remote device as HTML
+  def web_values()
+    import webserver
+    self.web_values_prefix()        # display '| ' and name if present
+    webserver.content_send(format("Contact%i %s", self.tasmota_switch_index, self.web_value_onoff(self.shadow_contact)))
+  end
+
+  # Show prefix before web value
+  def web_values_prefix()
+    import webserver
+    var name = self.get_name()
+    if !name
+      name = "Switch" + str(self.tasmota_switch_index)
+    end
+    webserver.content_send(format(self.PREFIX, name ? webserver.html_escape(name) : ""))
+  end
+  #############################################################
+  #############################################################
 end
 matter.Plugin_Sensor_Contact = Matter_Plugin_Sensor_Contact

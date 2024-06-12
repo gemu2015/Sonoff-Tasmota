@@ -19,9 +19,6 @@
 */
 
 #ifdef ESP32
-
-#if ESP_IDF_VERSION_MAJOR < 5
-
 #ifdef ESP32S3_BOX
 #include <driver/i2s.h>
 #include <es8156.h>
@@ -154,5 +151,5 @@ void W8960_Init1(void) {
   }
 }
 #endif // USE_W8960
-#endif
+
 #endif // ESP32

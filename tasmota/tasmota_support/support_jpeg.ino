@@ -22,12 +22,7 @@
 #ifdef JPEG_PICTS
 
 #include "img_converters.h"
-
-#ifdef USE_SOFT_JPEG
-#include "soft_esp_jpg_decode.h"
-#else
 #include "esp_jpg_decode.h"
-#endif
 
 void rgb888_to_565(uint8_t *in, uint16_t *out, uint32_t len) {
 uint8_t red, grn, blu;
@@ -125,15 +120,11 @@ static bool _rgb_write(void * arg, uint16_t x, uint16_t y, uint16_t w, uint16_t 
 }
 
 
-#ifdef USE_SOFT_JPEG
-#include <soft_esp_jpg_decode.h>
-esp_err_t soft_esp_jpg_decode(size_t len, uint8_t scale, soft_jpg_reader_cb reader, soft_jpg_writer_cb writer, void * arg);
-#else
 esp_err_t esp_jpg_decode(size_t len, jpg_scale_t scale, jpg_reader_cb reader, jpg_writer_cb writer, void * arg);
-#endif
 
 
-bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t scale) {
+bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t scale)
+{
     rgb_jpg_decoder jpeg;
     jpeg.width = 0;
     jpeg.height = 0;
@@ -141,13 +132,7 @@ bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t s
     jpeg.output = out;
     jpeg.data_offset = 0;
 
-#ifdef USE_SOFT_JPEG
-    esp_err_t err = soft_esp_jpg_decode(src_len, scale, _jpg_read, _rgb_write, (void*)&jpeg);
-#else
-    esp_err_t err = esp_jpg_decode(src_len, scale, _jpg_read, _rgb_write, (void*)&jpeg);
-#endif
-
-    if ( err != ESP_OK) {
+    if(esp_jpg_decode(src_len, scale, _jpg_read, _rgb_write, (void*)&jpeg) != ESP_OK){
         return false;
     }
     return true;
@@ -231,4 +216,3 @@ void createBitmapInfoHeader(uint32_t height, uint32_t width, uint8_t *infoHeader
 
 }
 #endif // USE_DISPLAY_DUMP
-

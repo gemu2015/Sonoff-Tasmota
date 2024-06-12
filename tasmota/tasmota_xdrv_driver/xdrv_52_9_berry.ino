@@ -37,6 +37,7 @@ extern "C" {
 #include "be_vm.h"
 #include "ZipReadFS.h"
 #include "ccronexpr.h"
+#include "berry_custom.h"
 
 extern "C" {
   extern void be_load_custom_libs(bvm *vm);
@@ -984,6 +985,9 @@ bool Xdrv52(uint32_t function)
 
     case FUNC_JSON_APPEND:
       callBerryEventDispatcher(PSTR("json_append"), nullptr, 0, nullptr);
+      break;
+    case FUNC_AFTER_TELEPERIOD:
+      callBerryEventDispatcher(PSTR("after_teleperiod"), nullptr, 0, nullptr);
       break;
 
     case FUNC_BUTTON_PRESSED:

@@ -3,10 +3,10 @@
 static be_define_const_map_slots(be_class_AudioInputI2S_map) {
     { be_const_key_weak(read_bytes, -1), be_const_func(be_audio_input_i2s_read_bytes) },
     { be_const_key_weak(init, -1), be_const_ctype_func(be_audio_input_i2s_init) },
-    { be_const_key_weak(peak, -1), be_const_var(0) },
+    { be_const_key_weak(peak, -1), be_const_var(1) },
     { be_const_key_weak(set_gain, -1), be_const_ctype_func(be_audio_input_set_gain) },
     { be_const_key_weak(rms_bytes, -1), be_const_static_ctype_func(be_audio_input_i2s_rms_bytes) },
-    { be_const_key_weak(_X2Ep, 9), be_const_var(1) },
+    { be_const_key_weak(_X2Ep, 9), be_const_var(0) },
     { be_const_key_weak(begin, -1), be_const_ctype_func(be_audio_input_i2s_begin) },
     { be_const_key_weak(get_bits_per_sample, -1), be_const_ctype_func(be_audio_input_i2s_get_bits_per_sample) },
     { be_const_key_weak(set_lowpass_alpha, 7), be_const_ctype_func(be_audio_input_i2s_set_lowpass_alpha) },

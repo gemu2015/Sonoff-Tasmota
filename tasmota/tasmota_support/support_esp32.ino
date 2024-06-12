@@ -70,6 +70,15 @@ size_t getArduinoLoopTaskStackSize(void) {
 
 #include <nvs.h>
 
+bool NvmExists(const char *sNvsName) {
+  nvs_handle_t handle;
+  if (nvs_open(sNvsName, NVS_READONLY, &handle) != ESP_OK) {
+    return false;
+  }
+  nvs_close(handle);
+  return true;
+}
+
 bool NvmLoad(const char *sNvsName, const char *sName, void *pSettings, unsigned nSettingsLen) {
   nvs_handle_t handle;
   esp_err_t result = nvs_open(sNvsName, NVS_READONLY, &handle);
@@ -177,8 +186,12 @@ void QPCWrite(const void *pSettings, unsigned nSettingsLen) {
 }
 
 bool OtaFactoryRead(void) {
-  uint32_t pOtaLoader;
-  NvmLoad("otal", "otal", &pOtaLoader, sizeof(pOtaLoader));
+  uint32_t pOtaLoader = 0;
+  if (NvmExists("otal")) {
+    NvmLoad("otal", "otal", &pOtaLoader, sizeof(pOtaLoader));
+  } else {
+    OtaFactoryWrite(pOtaLoader);
+  }
   return pOtaLoader;
 }
 
@@ -564,19 +577,15 @@ uint32_t ESP_getMaxAllocPsram(void) {
 }
 
 extern "C" {
-  #if ESP_IDF_VERSION_MAJOR >= 5
-    // bool IRAM_ATTR __attribute__((pure)) esp_psram_is_initialized(void)
-    bool esp_psram_is_initialized(void);
-  #else
-    bool esp_spiram_is_initialized(void);
-  #endif
+  // bool IRAM_ATTR __attribute__((pure)) esp_psram_is_initialized(void)
+  bool esp_psram_is_initialized(void);
 }
 
 // this function is a replacement for `psramFound()`.
 // `psramFound()` can return true even if no PSRAM is actually installed
 // This new version also checks `esp_spiram_is_initialized` to know if the PSRAM is initialized
 bool FoundPSRAM(void) {
-#if CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6 || DISABLE_PSRAMCHECK
+#if CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6 || DISABLE_PSRAMCHECK || CORE32SOLO1
   return psramFound();
 #else
   return psramFound() && esp_psram_is_initialized();
@@ -735,11 +744,7 @@ typedef struct {
   bool rev3 = (chip_revision >= 300);
 //  bool single_core = (1 == ESP.getChipCores());
   bool single_core = (1 == chip_info.cores);
-
-  uint32_t pkg_version = 0;
-#if (ESP_IDF_VERSION_MAJOR >= 5)
-  pkg_version = bootloader_common_get_chip_ver_pkg();
-#endif
+  uint32_t pkg_version = bootloader_common_get_chip_ver_pkg();
 
   switch (chip_model) {
     case 0:
@@ -918,11 +923,7 @@ String GetDeviceHardwareRevision(void) {
 
   esp_chip_info_t chip_info;
   esp_chip_info(&chip_info);
-#if ESP_IDF_VERSION_MAJOR >= 5
   uint32_t chip_revision = chip_info.revision;       // 16-bit chip revision number (in format MXX; where M - wafer major version, XX - wafer minor version)
-#else
-  uint32_t chip_revision = chip_info.full_revision;  // 16-bit chip revision number (in format MXX; where M - wafer major version, XX - wafer minor version)
-#endif
   char revision[16];
   snprintf_P(revision, sizeof(revision), PSTR(" v%d.%d"), chip_revision / 100, chip_revision % 100);
   result += revision;                  // ESP32-C3 v0.3
