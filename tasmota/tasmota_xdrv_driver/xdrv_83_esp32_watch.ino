@@ -256,6 +256,7 @@ void TTGO_enableLDO3(bool en = true) {
 
 void TTGO_audio_power(bool power) { // Not every watch has audio
     TTGO_enableLDO3(power);
+    AddLog(LOG_LEVEL_INFO, PSTR("audio power %d"),power);
 }
 
 const char TTGO_Commands[] PROGMEM = "TTGO|"
