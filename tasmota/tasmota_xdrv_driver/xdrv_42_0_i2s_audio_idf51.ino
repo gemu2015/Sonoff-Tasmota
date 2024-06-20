@@ -923,8 +923,25 @@ int32_t I2SPlayMp3(const char *path) {
   }
   audio_i2s_mp3.mp3->begin(audio_i2s_mp3.id3, audio_i2s.out);
 
+#if 0
+#define MP3_TIMEOUT 30000
+    uint32_t tout = millis();
+    while (audio_i2s_mp3.mp3->isRunning()) {
+      if (!audio_i2s_mp3.mp3->loop()) {
+        audio_i2s_mp3.mp3->stop();
+        break;
+      }
+      OsWatchLoop();
+      if (millis()-tout > MP3_TIMEOUT) {
+        break;
+      }
+    }
+    audio_i2s_mp3.mp3->stop();
+    mp3_delete();
+#else
   // Always use a task
   xTaskCreatePinnedToCore(I2sMp3Task, "MP3", 8192, NULL, 3, &audio_i2s_mp3.mp3_task_handle, 1);
+#endif
   return I2S_OK;
 }
 
