@@ -6250,16 +6250,24 @@ void tmod_directModeOutput(uint32_t pin);
         if (!strncmp_XP(lp, XPSTR("wso("), 4)) {
           TS_FLOAT port;
           lp = GetNumericArgument(lp + 4, OPER_EQU, &port, gv);
-          glob_script_mem.tcp_server = new WiFiServer(port);
-          fvar = 0;
-          if (!glob_script_mem.tcp_server) {
-            fvar = -1;
-          } else  {
-            AddLog(LOG_LEVEL_INFO, PSTR("tcp server started"));
+          if (TasmotaGlobal.global_state.wifi_down) {
+            fvar = - 2;
+          } else {
+            if (glob_script_mem.tcp_server) {
+              glob_script_mem.tcp_client.stop();
+              glob_script_mem.tcp_server->stop();
+              delete glob_script_mem.tcp_server;
+            }
+            glob_script_mem.tcp_server = new WiFiServer(port);
+            fvar = 0;
+            if (!glob_script_mem.tcp_server) {
+              fvar = -1;
+            } else  {
+              glob_script_mem.tcp_server->begin();
+              glob_script_mem.tcp_server->setNoDelay(true);
+              AddLog(LOG_LEVEL_INFO, PSTR("tcp server started"));
+            }
           }
-          glob_script_mem.tcp_server->begin();
-          glob_script_mem.tcp_server->setNoDelay(true);
-
           goto nfuncexit;
         }
         if (!strncmp_XP(lp, XPSTR("wsc("), 4)) {
