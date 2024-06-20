@@ -122,24 +122,33 @@ The latter links can be used for OTA upgrades too like ``OtaUrl https://ota.tasm
 ## Changelog v14.1.0.2
 ### Added
 - Support for QMP6988 temperature and pressure sensor
+- Support for Sonoff WTS01 temperature sensor using SerialBridge in ``SSerialMode 3``
+- Extend command ``SetOption147 1`` to disable publish of IRReceived MQTT messages [#21574](https://github.com/arendst/Tasmota/issues/21574)
 - Berry solidification of `bytes` instances [#21558](https://github.com/arendst/Tasmota/issues/21558)
 - Berry automatic rounding of float to int when calling C mapped functions [#21601](https://github.com/arendst/Tasmota/issues/21601)
 - Berry add `math.round` [#21602](https://github.com/arendst/Tasmota/issues/21602)
+- Berry `classof` extended to class methods [#21615](https://github.com/arendst/Tasmota/issues/21615)
 - HASPmota rounds to nearest int values passed as 'real' [#21599](https://github.com/arendst/Tasmota/issues/21599)
 - Matter support for Air Quality sensors [#21559](https://github.com/arendst/Tasmota/issues/21559)
-- Matter support for bridged Air Quality (#21597)[#21597](https://github.com/arendst/Tasmota/issues/21597)
+- Matter support for bridged Air Quality [#21597](https://github.com/arendst/Tasmota/issues/21597)
+- Matter add internal debug option [#21634](https://github.com/arendst/Tasmota/issues/21634)
+- Matter add Fan support (virtual only) [#21637](https://github.com/arendst/Tasmota/issues/21637)
 
 ### Changed
 - Optional MQTT_TELE_RETAIN to Energy Margins message replaced by ``SensorRetain``
 - Display timing splash screen with display modes 1 to 5
 - Allow receive or send using SerialBridge
 - SerialBridge command ``SSerialSend9`` replaced by ``SSerialMode``
+- SML replace vars in descriptor and line [#21622](https://github.com/arendst/Tasmota/issues/21622)
+- NeoPool using temperature as only frequently changing value for NPTeleperiod [#21628](https://github.com/arendst/Tasmota/issues/21628)
 - ESP32 Core3 platform update from 2024.05.13 to 2024.06.10 [#21569](https://github.com/arendst/Tasmota/issues/21569)
 - ESP32 MI32 refactoring, bugfixes, generic device scanning [#21603](https://github.com/arendst/Tasmota/issues/21603)
 - Matter refactoring of bridged devices [#21575](https://github.com/arendst/Tasmota/issues/21575)
 - Matter filter suffix automatically added for sensors [#21589](https://github.com/arendst/Tasmota/issues/21589)
+- Matter support for Rain sensor [#21633](https://github.com/arendst/Tasmota/issues/21633)
 
 ### Fixed
 - Berry `input()` returns empty string and does not crash [#21565](https://github.com/arendst/Tasmota/issues/21565)
+- Matter interverted attributes 0xFFF9 and 0xFFFB [#21636](https://github.com/arendst/Tasmota/issues/21636)
 
 ### Removed

@@ -85,6 +85,7 @@ extern const bclass be_class_Matter_QRCode;
 #include "solidify/solidified_Matter_Module.h"
 
 #include "../generate/be_matter_clusters.h"
+#include "../generate/be_matter_events.h"
 #include "../generate/be_matter_opcodes.h"
 #include "../generate/be_matter_vendors.h"
 
@@ -188,6 +189,16 @@ const char* matter_get_command_name(uint16_t cluster, uint16_t command) {
 }
 BE_FUNC_CTYPE_DECLARE(matter_get_command_name, "s", "ii")
 
+const char* matter_get_event_name(uint16_t cluster, uint8_t event) {
+  for (const matter_event_t * ev = matter_Events; ev->cluster != 0xFFFF; ev++) {
+    if (ev->cluster == cluster && ev->event == event) {
+      return ev->name;
+    }
+  }
+  return NULL;
+}
+BE_FUNC_CTYPE_DECLARE(matter_get_event_name, "s", "ii")
+
 // Convert an IP address from string to raw bytes
 extern const void* matter_get_ip_bytes(const char* ip_str, size_t* ret_len);
 BE_FUNC_CTYPE_DECLARE(matter_get_ip_bytes, "&", "s")
@@ -216,6 +227,7 @@ extern const bclass be_class_Matter_TLV;   // need to declare it upfront because
 #include "solidify/solidified_Matter_IM_Message.h"
 #include "solidify/solidified_Matter_IM_Subscription.h"
 #include "solidify/solidified_Matter_IM.h"
+#include "solidify/solidified_Matter_EventHandler.h"
 #include "solidify/solidified_Matter_Control_Message.h"
 #include "solidify/solidified_Matter_Plugin_0.h"
 #include "solidify/solidified_Matter_Base38.h"
@@ -252,12 +264,18 @@ extern const bclass be_class_Matter_TLV;   // need to declare it upfront because
 #include "solidify/solidified_Matter_Plugin_9_Virt_Sensor_Illuminance.h"
 #include "solidify/solidified_Matter_Plugin_3_Sensor_Humidity.h"
 #include "solidify/solidified_Matter_Plugin_9_Virt_Sensor_Humidity.h"
-#include "solidify/solidified_Matter_Plugin_2_Sensor_Occupancy.h"
-#include "solidify/solidified_Matter_Plugin_2_Sensor_OnOff.h"
-#include "solidify/solidified_Matter_Plugin_2_Sensor_Contact.h"
-#include "solidify/solidified_Matter_Plugin_2_Sensor_Waterleak.h"
+#include "solidify/solidified_Matter_Plugin_2_Sensor_Boolean.h"
+#include "solidify/solidified_Matter_Plugin_3_Sensor_Occupancy.h"
+#include "solidify/solidified_Matter_Plugin_3_Sensor_OnOff.h"
+#include "solidify/solidified_Matter_Plugin_3_Sensor_Contact.h"
+#include "solidify/solidified_Matter_Plugin_3_Sensor_Rain.h"
+#include "solidify/solidified_Matter_Plugin_3_Sensor_Waterleak.h"
+#include "solidify/solidified_Matter_Plugin_2_Fan.h"
+#include "solidify/solidified_Matter_Plugin_2_Sensor_GenericSwitch.h"
+#include "solidify/solidified_Matter_Plugin_9_Virt_Fan.h"
 #include "solidify/solidified_Matter_Plugin_9_Virt_Sensor_Contact.h"
 #include "solidify/solidified_Matter_Plugin_9_Virt_Sensor_Occupancy.h"
+#include "solidify/solidified_Matter_Plugin_9_Virt_Sensor_Rain.h"
 #include "solidify/solidified_Matter_Plugin_9_Virt_Sensor_Waterleak.h"
 #include "solidify/solidified_Matter_Plugin_8_Bridge_OnOff.h"
 #include "solidify/solidified_Matter_Plugin_8_Bridge_Light0.h"
@@ -272,6 +290,7 @@ extern const bclass be_class_Matter_TLV;   // need to declare it upfront because
 #include "solidify/solidified_Matter_Plugin_8_Bridge_Sensor_Contact.h"
 #include "solidify/solidified_Matter_Plugin_8_Bridge_Sensor_Flow.h"
 #include "solidify/solidified_Matter_Plugin_8_Bridge_Sensor_Air_Quality.h"
+#include "solidify/solidified_Matter_Plugin_8_Bridge_Sensor_Rain.h"
 #include "solidify/solidified_Matter_Plugin_8_Bridge_Sensor_Waterleak.h"
 #include "solidify/solidified_Matter_Plugin_z_All.h"
 #include "solidify/solidified_Matter_zz_Device.h"
@@ -322,6 +341,7 @@ module matter (scope: global, strings: weak) {
   is_attribute_writable, ctype_func(matter_is_attribute_writable)
   is_attribute_reportable, ctype_func(matter_is_attribute_reportable)
   get_command_name, ctype_func(matter_get_command_name)
+  get_event_name, ctype_func(matter_get_event_name)
   get_opcode_name, ctype_func(matter_get_opcode_name)
   TLV, class(be_class_Matter_TLV)
   sort, closure(module_matter_sort_closure)
@@ -330,6 +350,11 @@ module matter (scope: global, strings: weak) {
   consolidate_clusters, closure(module_matter_consolidate_clusters_closure)
   UC_LIST, closure(module_matter_UC_LIST_closure)
   Profiler, class(be_class_Matter_Profiler)
+
+  // EVents priority levels
+  EVENT_DEBUG, int(0)
+  EVENT_INFO, int(1)
+  EVENT_CRITICAL, int(2)
 
   // Status codes
   SUCCESS, int(0x00)
@@ -422,6 +447,10 @@ module matter (scope: global, strings: weak) {
   // Message Handler
   Frame, class(be_class_Matter_Frame)
   MessageHandler, class(be_class_Matter_MessageHandler)
+
+  // Event Handler
+  EventHandler, class(be_class_Matter_EventHandler)
+  EventQueued, class(be_class_Matter_EventQueued)
 
   // Interation Model
   Path, class(be_class_Matter_Path)
