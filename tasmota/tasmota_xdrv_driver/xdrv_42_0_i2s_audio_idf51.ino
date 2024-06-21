@@ -838,15 +838,25 @@ int32_t I2SPrepareRx(void) {
 
 #if defined(USE_I2S_MP3) || defined(USE_I2S_WEBRADIO)
 void I2sMp3Task(void *arg) {
-  audio_i2s_mp3.task_running = true;
-  while (audio_i2s_mp3.mp3->isRunning() && audio_i2s_mp3.task_running) {
+
+  while (audio_i2s_mp3.mp3->isRunning()) {
+    if (!audio_i2s_mp3.mp3->loop()) {
+        audio_i2s_mp3.mp3->stop();
+        break;
+    }
+    vTaskDelay(pdMS_TO_TICKS(1));
+  }
+/*
+    audio_i2s_mp3.task_running = true;
+    while (audio_i2s_mp3.mp3->isRunning() && audio_i2s_mp3.task_running) {
     if (!audio_i2s_mp3.mp3->loop()) {
         audio_i2s_mp3.task_running == false;
     }
     vTaskDelay(pdMS_TO_TICKS(1));
   }
-  audio_i2s.out->flush();
-  audio_i2s_mp3.mp3->stop();
+*/
+  //audio_i2s.out->flush();
+  //audio_i2s_mp3.mp3->stop();
   I2sStopPlaying();
   mp3_delete();
   audio_i2s_mp3.mp3_task_handle = nullptr;
@@ -903,7 +913,10 @@ int32_t I2SPlayMp3(const char *path) {
 
   // check if the filename starts with '/', if not add it
   char fname[64];
-  if (path[0] != '/') {
+  if (*path == '+') {
+    path++;
+  }
+  if (*path != '/') {
     snprintf(fname, sizeof(fname), "/%s", path);
   } else {
     snprintf(fname, sizeof(fname), "%s", path);
