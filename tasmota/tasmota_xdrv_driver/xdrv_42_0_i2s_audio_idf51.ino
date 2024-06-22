@@ -82,8 +82,8 @@ struct AUDIO_I2S_MP3_t {
 
 #if defined(USE_I2S_MP3) || defined(USE_I2S_WEBRADIO) || defined(USE_SHINE) || defined(MP3_MIC_STREAM)
   AudioGeneratorMP3 *decoder = NULL;
-  TaskHandle_t mp3_task_handle;
-  TaskHandle_t mic_task_handle;
+  TaskHandle_t mp3_task_handle = nullptr;
+  TaskHandle_t mic_task_handle = nullptr;
 #endif // defined(USE_I2S_MP3) || defined(USE_I2S_WEBRADIO)
 
   char mic_path[32];
@@ -839,28 +839,21 @@ int32_t I2SPrepareRx(void) {
 #if defined(USE_I2S_MP3) || defined(USE_I2S_WEBRADIO)
 void I2sMp3Task(void *arg) {
 
-  while (audio_i2s_mp3.mp3->isRunning()) {
-    if (!audio_i2s_mp3.mp3->loop()) {
-        audio_i2s_mp3.mp3->stop();
-        break;
-    }
-    vTaskDelay(pdMS_TO_TICKS(1));
-  }
-/*
     audio_i2s_mp3.task_running = true;
     while (audio_i2s_mp3.mp3->isRunning() && audio_i2s_mp3.task_running) {
     if (!audio_i2s_mp3.mp3->loop()) {
         audio_i2s_mp3.task_running == false;
+        break;
     }
     vTaskDelay(pdMS_TO_TICKS(1));
   }
-*/
-  //audio_i2s.out->flush();
-  //audio_i2s_mp3.mp3->stop();
+  audio_i2s.out->flush();
+  audio_i2s_mp3.mp3->stop();
   I2sStopPlaying();
   mp3_delete();
   audio_i2s_mp3.mp3_task_handle = nullptr;
   audio_i2s_mp3.task_has_ended = true;
+  audio_i2s_mp3.task_running == false;
   vTaskDelete(NULL);
 }
 #endif // defined(USE_I2S_MP3) || defined(USE_I2S_WEBRADIO)
@@ -881,6 +874,7 @@ void I2sMp3WrTask(void *arg){
     if (audio_i2s_mp3.decoder && audio_i2s_mp3.decoder->isRunning()) {
       if (!audio_i2s_mp3.decoder->loop()) {
         audio_i2s_mp3.task_running = false;
+        break;
       }
       vTaskDelay(pdMS_TO_TICKS(1));
     }
@@ -900,6 +894,9 @@ void I2sStopPlaying() {
   I2sWebRadioStopPlaying();
 #endif
   I2SAudioPower(false);
+
+  //audio_i2s.out->stopTx();
+
 }
 
 #ifdef USE_I2S_MP3

@@ -483,7 +483,8 @@ int32_t TasmotaI2S::consumeSamples(int16_t *samples, size_t count) {
   }
   if (err && err != ESP_ERR_TIMEOUT) {
     AddLog(LOG_LEVEL_INFO, "I2S: Could not write samples (count=%i): %i", count, err);
-    return -1;
+    //return -1;
+    return 0;
   }
   return i2s_bytes_written;
 }
