@@ -296,6 +296,8 @@
     #define ARDUHAL_LOG_LEVEL_DEBUG     4
     #define ARDUHAL_LOG_LEVEL_VERBOSE   5
 
+    #undef DEBUG_ESP_PORT
+
     #if defined(ARDUINO_ARCH_RP2040) && defined(DEBUG_RP2040_PORT)
         #define DEBUG_PORT DEBUG_RP2040_PORT
     #elif defined(DEBUG_ESP_PORT)
@@ -303,7 +305,8 @@
     #endif
     
     // Set desired level here!
-    #define CORE_DEBUG_LEVEL ARDUHAL_LOG_LEVEL_INFO
+    #undef CORE_DEBUG_LEVEL
+    #define CORE_DEBUG_LEVEL ARDUHAL_LOG_LEVEL_NONE
 
     #if defined(DEBUG_PORT) && CORE_DEBUG_LEVEL > ARDUHAL_LOG_LEVEL_NONE
         #define log_e(...) { DEBUG_PORT.printf("%s(), l.%d: ",__func__, __LINE__); DEBUG_PORT.printf(__VA_ARGS__); DEBUG_PORT.println(); }
@@ -346,7 +349,8 @@
     #define ARDUHAL_LOG_LEVEL_VERBOSE   5
 
     // Set desired level here!
-    #define CORE_DEBUG_LEVEL ARDUHAL_LOG_LEVEL_INFO
+    #undef CORE_DEBUG_LEVEL
+    #define CORE_DEBUG_LEVEL ARDUHAL_LOG_LEVEL_NONE
 
     #if defined(DEBUG_ESP_PORT) && CORE_DEBUG_LEVEL > ARDUHAL_LOG_LEVEL_NONE
         #define log_e(...) { printf(__VA_ARGS__); println(); }

@@ -76,7 +76,7 @@ void CC1101_Bresser_task(void) {
         ws.clearSlots();
 
         if (ws.getMessage() == DECODE_OK) {
-            AddLog(LOG_LEVEL_INFO, PSTR("received event "));
+            AddLog(LOG_LEVEL_DEBUG, PSTR("received bresser meessage!"));
             cc1101_bresser.decode_status = DECODE_OK;
             memmove(ws.sensor_copy, ws.sensor, sizeof(ws.sensor));
         }
@@ -151,20 +151,19 @@ void C1101_Bresser_Show(boolean json) {
         ResponseAppend_P(PSTR(",\"Bresser\":{\"ID\":%8x,\"Type\":%x,\"Chan\":%d,\"Stat\":%d,\"Batt\":\"%-3s\",\"RSSI\":%1_f"),\
             static_cast<int> (ws.sensor_copy[i].sensor_id), ws.sensor_copy[i].s_type, ws.sensor_copy[i].chan, ws.sensor_copy[i].startup, ws.sensor_copy[i].battery_ok ? "OK " : "Low", &ws.sensor_copy[i].rssi);
         
-              return;
-              
         if (ws.sensor_copy[i].w.temp_ok) {
             ResponseAppend_P(PSTR(",\"Temp\":%1_f"), &ws.sensor_copy[i].w.temp_c);
         }
+
         if (ws.sensor_copy[i].w.humidity_ok) {
-            ResponseAppend_P(PSTR(",\"Hum\":%1_f"), &ws.sensor_copy[i].w.humidity);
+            ResponseAppend_P(PSTR(",\"Hum\":%d"), ws.sensor_copy[i].w.humidity);
         }
-  
+
         if (ws.sensor_copy[i].w.wind_ok) {
             ResponseAppend_P(PSTR(",\"WMAX\":%1_f,\"WAVG\":%1_f,\"CWDIR\":%1_f"), &ws.sensor_copy[i].w.wind_gust_meter_sec, &ws.sensor_copy[i].w.wind_avg_meter_sec, &ws.sensor_copy[i].w.wind_direction_deg);
         }
         if (ws.sensor_copy[i].w.rain_ok) {
-            ResponseAppend_P(PSTR(",\"Hum\":%1_f"), &ws.sensor_copy[i].w.rain_mm);
+            ResponseAppend_P(PSTR(",\"Rain\":%1_f"), &ws.sensor_copy[i].w.rain_mm);
         }
 
 #if defined BRESSER_6_IN_1 || defined BRESSER_7_IN_1
@@ -175,7 +174,7 @@ void C1101_Bresser_Show(boolean json) {
 
 #if defined BRESSER_7_IN_1
         if (ws.sensor_copy[i].w.light_ok) {
-            ResponseAppend_P(PSTR(",\"UVidx\":%1_f"), &ws.sensor_copy[i].w.light_klx);
+            ResponseAppend_P(PSTR(",\"Light\":%1_f"), &ws.sensor_copy[i].w.light_klx);
         }
 #endif
 
@@ -191,8 +190,6 @@ bool Xsns125(uint32_t function) {
   bool result = false;
 
   switch (function) {
-      case FUNC_MODULE_INIT:
-        break;
       case FUNC_INIT:
         CC1101_Bresser_Detect();
         break;
