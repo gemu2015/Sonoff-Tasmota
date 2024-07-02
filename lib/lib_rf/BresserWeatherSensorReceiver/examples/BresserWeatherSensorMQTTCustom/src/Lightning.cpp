@@ -77,6 +77,7 @@
 #include <Arduino.h>
 #include "Lightning.h"
 
+#undef RTC_DATA_ATTR
 #define RTC_DATA_ATTR
 
 #if !defined(LIGHTNING_USE_PREFS) && !defined(INSIDE_UNITTEST)
