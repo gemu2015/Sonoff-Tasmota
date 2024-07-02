@@ -42,7 +42,7 @@ void CC1101_Bresser_Detect(void) {
   cc1101_bresser.cs = 0;
   cc1101_bresser.ready = 0;
 
-  if (Pin(GPIO_SPI_MOSI) && Pin(GPIO_SPI_MISO) && Pin(GPIO_SPI_CLK) && Pin(GPIO_SPI_CS)) {
+  if (Pin(GPIO_SPI_MOSI) && Pin(GPIO_SPI_MISO) && Pin(GPIO_SPI_CLK) && Pin(GPIO_SPI_CS) && Pin(GPIO_CC1101_GDO0)) {
     cc1101_bresser.cs = Pin(GPIO_SPI_CS);
     cc1101_bresser.found = 1;
   } else {
@@ -62,7 +62,7 @@ void CC1101_Bresser_Detect(void) {
     cc1101_bresser.spi_settings = SPISettings(5000000, MSBFIRST, SPI_MODE3);
 
  // rec_cs, rec_irq, rec_res, rec_gpio
-    ws.begin(cc1101_bresser.cs,5, -1, -1);
+    ws.begin(cc1101_bresser.cs, Pin(GPIO_CC1101_GDO0), -1, -1);
     cc1101_bresser.decode_status = DECODE_INVALID;
     cc1101_bresser.ready = 1;
 }
