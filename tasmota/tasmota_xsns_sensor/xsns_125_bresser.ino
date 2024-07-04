@@ -85,30 +85,30 @@ void CC1101_Bresser_task(void) {
 
 
 const char HTTP_Bresser1[] PROGMEM =
- "{s}Bresser %1d ID" "{m}%8x" "{e}"
- "{s}Bresser %1d Type" "{m}%x" "{e}"
- "{s}Bresser %1d Chan" "{m}%d" "{e}"
- "{s}Bresser %1d Stat" "{m}%d" "{e}"
- "{s}Bresser %1d Batt" "{m}%-3s" "{e}"
- "{s}Bresser %1d RSSI" "{m}%1_f dBm" "{e}"
+ "{s}%s ID" "{m}%8x" "{e}"
+ "{s}%s Type" "{m}%x" "{e}"
+ "{s}%s Chan" "{m}%d" "{e}"
+ "{s}%s Stat" "{m}%d" "{e}"
+ "{s}%s Batt" "{m}%-3s" "{e}"
+ "{s}%s RSSI" "{m}%1_f dBm" "{e}"
  ;
 
 const char HTTP_Bresser2[] PROGMEM =
- "{s}Bresser %1d WMAX" "{m}%1_f" "{e}"
- "{s}Bresser %1d WAVG" "{m}%1_f" "{e}"
- "{s}Bresser %1d CWDIR" "{m}%1_f" "{e}"
+ "{s}%s WMAX" "{m}%1_f" "{e}"
+ "{s}%s WAVG" "{m}%1_f" "{e}"
+ "{s}%s CWDIR" "{m}%1_f" "{e}"
  ;
 
 const char HTTP_Bresser3[] PROGMEM =
- "{s}Bresser %1d RAIN" "{m}%1_f" "{e}"
+ "{s}%s RAIN" "{m}%1_f" "{e}"
 ;
 
 const char HTTP_Bresser4[] PROGMEM =
- "{s}Bresser %1d UVidx" "{m}%1_f" "{e}"
+ "{s}%s UVidx" "{m}%1_f" "{e}"
 ;
 
 const char HTTP_Bresser5[] PROGMEM =
- "{s}Bresser %1d Light" "{m}%1_f" "{e}"
+ "{s}%s Light" "{m}%1_f" "{e}"
 ;
 
 void C1101_Bresser_Show(boolean json) {
@@ -127,66 +127,75 @@ void C1101_Bresser_Show(boolean json) {
                 continue;
             }
 
-            WSContentSend_PD(HTTP_Bresser1, i + 1, static_cast<int> (ws.sensor_copy[i].sensor_id), i + 1,  ws.sensor_copy[i].s_type, i + 1, ws.sensor_copy[i].chan, i + 1, ws.sensor_copy[i].startup, i + 1, ws.sensor_copy[i].battery_ok ? "OK " : "Low", i + 1, &ws.sensor_copy[i].rssi);
+            char label[16];
+            sprintf_P(label,PSTR("Bresser %1d"), i + 1);
+
+            WSContentSend_PD(HTTP_Bresser1, label, static_cast<int> (ws.sensor_copy[i].sensor_id), label,  ws.sensor_copy[i].s_type, label, ws.sensor_copy[i].chan, label, ws.sensor_copy[i].startup, label, ws.sensor_copy[i].battery_ok ? "OK " : "Low", label, &ws.sensor_copy[i].rssi);
 
             if ((ws.sensor_copy[i].w.temp_ok) && (ws.sensor_copy[i].w.humidity_ok)) {
-                char label[16];
-                sprintf_P(label,PSTR("Bresser %1d"), i + 1);
                 TempHumDewShow(json, (0 == TasmotaGlobal.tele_period), label, ws.sensor_copy[i].w.temp_c, ws.sensor_copy[i].w.humidity);
             }
 
             if (ws.sensor_copy[i].w.wind_ok) {
-                WSContentSend_PD(HTTP_Bresser2, i + 1, &ws.sensor_copy[i].w.wind_gust_meter_sec, i + 1, &ws.sensor_copy[i].w.wind_avg_meter_sec, i + 1, &ws.sensor_copy[i].w.wind_direction_deg);
+                WSContentSend_PD(HTTP_Bresser2, label, &ws.sensor_copy[i].w.wind_gust_meter_sec, label, &ws.sensor_copy[i].w.wind_avg_meter_sec, label, &ws.sensor_copy[i].w.wind_direction_deg);
             }
 
             if (ws.sensor_copy[i].w.rain_ok) {
-                WSContentSend_PD(HTTP_Bresser3, i + 1, &ws.sensor_copy[i].w.rain_mm);
+                WSContentSend_PD(HTTP_Bresser3, label, &ws.sensor_copy[i].w.rain_mm);
             }
 
 #if defined BRESSER_6_IN_1 || defined BRESSER_7_IN_1
             if (ws.sensor_copy[i].w.uv_ok) {
-                WSContentSend_PD(HTTP_Bresser4, i + 1, &ws.sensor_copy[i].w.uv);
+                WSContentSend_PD(HTTP_Bresser4, label, &ws.sensor_copy[i].w.uv);
             }
 #endif
 
 #ifdef BRESSER_7_IN_1
             if (ws.sensor_copy[i].w.light_ok) {
-                WSContentSend_PD(HTTP_Bresser5, i + 1, &ws.sensor_copy[i].w.light_klx);
+                WSContentSend_PD(HTTP_Bresser5, label, &ws.sensor_copy[i].w.light_klx);
             }
 #endif
         }
     } else {
-        ResponseAppend_P(PSTR(",\"Bresser\":{\"ID\":%8x,\"Type\":%x,\"Chan\":%d,\"Stat\":%d,\"Batt\":\"%-3s\",\"RSSI\":%1_f"),\
-            static_cast<int> (ws.sensor_copy[i].sensor_id), ws.sensor_copy[i].s_type, ws.sensor_copy[i].chan, ws.sensor_copy[i].startup, ws.sensor_copy[i].battery_ok ? "OK " : "Low", &ws.sensor_copy[i].rssi);
+
+        for (int i = 0; i < NUM_SENSORS; i++) {
+
+            if (ws.sensor_copy[i].rssi == 0) {
+                continue;
+            }
+
+            ResponseAppend_P(PSTR(",\"Bresser %1d\":{\"ID\":%8x,\"Type\":%x,\"Chan\":%d,\"Stat\":%d,\"Batt\":\"%-3s\",\"RSSI\":%1_f"),\
+                i + 1, static_cast<int> (ws.sensor_copy[i].sensor_id), ws.sensor_copy[i].s_type, ws.sensor_copy[i].chan, ws.sensor_copy[i].startup, ws.sensor_copy[i].battery_ok ? "OK " : "Low", &ws.sensor_copy[i].rssi);
         
-        if (ws.sensor_copy[i].w.temp_ok) {
-            ResponseAppend_P(PSTR(",\"Temp\":%1_f"), &ws.sensor_copy[i].w.temp_c);
-        }
+            if (ws.sensor_copy[i].w.temp_ok) {
+                ResponseAppend_P(PSTR(",\"Temp\":%1_f"), &ws.sensor_copy[i].w.temp_c);
+            }
 
-        if (ws.sensor_copy[i].w.humidity_ok) {
-            ResponseAppend_P(PSTR(",\"Hum\":%d"), ws.sensor_copy[i].w.humidity);
-        }
+            if (ws.sensor_copy[i].w.humidity_ok) {
+                ResponseAppend_P(PSTR(",\"Hum\":%d"), ws.sensor_copy[i].w.humidity);
+            }
 
-        if (ws.sensor_copy[i].w.wind_ok) {
-            ResponseAppend_P(PSTR(",\"WMAX\":%1_f,\"WAVG\":%1_f,\"CWDIR\":%1_f"), &ws.sensor_copy[i].w.wind_gust_meter_sec, &ws.sensor_copy[i].w.wind_avg_meter_sec, &ws.sensor_copy[i].w.wind_direction_deg);
-        }
-        if (ws.sensor_copy[i].w.rain_ok) {
-            ResponseAppend_P(PSTR(",\"Rain\":%1_f"), &ws.sensor_copy[i].w.rain_mm);
-        }
+            if (ws.sensor_copy[i].w.wind_ok) {
+                ResponseAppend_P(PSTR(",\"WMAX\":%1_f,\"WAVG\":%1_f,\"CWDIR\":%1_f"), &ws.sensor_copy[i].w.wind_gust_meter_sec, &ws.sensor_copy[i].w.wind_avg_meter_sec, &ws.sensor_copy[i].w.wind_direction_deg);
+            }
+            if (ws.sensor_copy[i].w.rain_ok) {
+                ResponseAppend_P(PSTR(",\"Rain\":%1_f"), &ws.sensor_copy[i].w.rain_mm);
+            }
 
 #if defined BRESSER_6_IN_1 || defined BRESSER_7_IN_1
-        if (ws.sensor_copy[i].w.uv_ok) {
-            ResponseAppend_P(PSTR(",\"UVidx\":%1_f"), &ws.sensor_copy[i].w.uv);
-        }
+            if (ws.sensor_copy[i].w.uv_ok) {
+                ResponseAppend_P(PSTR(",\"UVidx\":%1_f"), &ws.sensor_copy[i].w.uv);
+            }
 #endif
 
 #if defined BRESSER_7_IN_1
-        if (ws.sensor_copy[i].w.light_ok) {
-            ResponseAppend_P(PSTR(",\"Light\":%1_f"), &ws.sensor_copy[i].w.light_klx);
-        }
+            if (ws.sensor_copy[i].w.light_ok) {
+                ResponseAppend_P(PSTR(",\"Light\":%1_f"), &ws.sensor_copy[i].w.light_klx);
+            }
 #endif
 
-        ResponseJsonEnd();
+            ResponseJsonEnd();
+        }
     }
 }
 
