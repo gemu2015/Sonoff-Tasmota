@@ -111,6 +111,15 @@ const char HTTP_Bresser5[] PROGMEM =
  "{s}%s Light" "{m}%1_f" "{e}"
 ;
 
+const char HTTP_Bresser6[] PROGMEM =
+ "{s}%s Temperature" "{m}%1_f" "{e}"
+ "{s}%s Moisture" "{m}%d" "{e}"
+;
+
+const char HTTP_Bresser7[] PROGMEM =
+ "{s}%s Pool Temperature" "{m}%1_f" "{e}"
+;
+
 void C1101_Bresser_Show(boolean json) {
     if (cc1101_bresser.decode_status != DECODE_OK) {
         return;
@@ -132,30 +141,42 @@ void C1101_Bresser_Show(boolean json) {
 
             WSContentSend_PD(HTTP_Bresser1, label, static_cast<int> (ws.sensor_copy[i].sensor_id), label,  ws.sensor_copy[i].s_type, label, ws.sensor_copy[i].chan, label, ws.sensor_copy[i].startup, label, ws.sensor_copy[i].battery_ok ? "OK " : "Low", label, &ws.sensor_copy[i].rssi);
 
-            if ((ws.sensor_copy[i].w.temp_ok) && (ws.sensor_copy[i].w.humidity_ok)) {
-                TempHumDewShow(json, (0 == TasmotaGlobal.tele_period), label, ws.sensor_copy[i].w.temp_c, ws.sensor_copy[i].w.humidity);
-            }
+            if (ws.sensor_copy[i].s_type == SENSOR_TYPE_SOIL) {
+                WSContentSend_PD(HTTP_Bresser6, label, &ws.sensor_copy[i].soil.temp_c, label, ws.sensor_copy[i].soil.moisture);
+            } else if (ws.sensor_copy[i].s_type == SENSOR_TYPE_POOL_THERMO) {
+                WSContentSend_PD(HTTP_Bresser7, label, &ws.sensor_copy[i].w.temp_c);
+            } else if (ws.sensor_copy[i].s_type == SENSOR_TYPE_THERMO_HYGRO) {
+                if ((ws.sensor_copy[i].w.temp_ok) && (ws.sensor_copy[i].w.humidity_ok)) {
+                    TempHumDewShow(json, (0 == TasmotaGlobal.tele_period), label, ws.sensor_copy[i].w.temp_c, ws.sensor_copy[i].w.humidity);
+                }
+            } else {
+ 
+                if ((ws.sensor_copy[i].w.temp_ok) && (ws.sensor_copy[i].w.humidity_ok)) {
+                    TempHumDewShow(json, (0 == TasmotaGlobal.tele_period), label, ws.sensor_copy[i].w.temp_c, ws.sensor_copy[i].w.humidity);
+                }
 
-            if (ws.sensor_copy[i].w.wind_ok) {
-                WSContentSend_PD(HTTP_Bresser2, label, &ws.sensor_copy[i].w.wind_gust_meter_sec, label, &ws.sensor_copy[i].w.wind_avg_meter_sec, label, &ws.sensor_copy[i].w.wind_direction_deg);
-            }
+                if (ws.sensor_copy[i].w.wind_ok) {
+                    WSContentSend_PD(HTTP_Bresser2, label, &ws.sensor_copy[i].w.wind_gust_meter_sec, label, &ws.sensor_copy[i].w.wind_avg_meter_sec, label, &ws.sensor_copy[i].w.wind_direction_deg);
+                }
 
-            if (ws.sensor_copy[i].w.rain_ok) {
-                WSContentSend_PD(HTTP_Bresser3, label, &ws.sensor_copy[i].w.rain_mm);
-            }
+                if (ws.sensor_copy[i].w.rain_ok) {
+                    WSContentSend_PD(HTTP_Bresser3, label, &ws.sensor_copy[i].w.rain_mm);
+                }
 
 #if defined BRESSER_6_IN_1 || defined BRESSER_7_IN_1
-            if (ws.sensor_copy[i].w.uv_ok) {
-                WSContentSend_PD(HTTP_Bresser4, label, &ws.sensor_copy[i].w.uv);
-            }
+                if (ws.sensor_copy[i].w.uv_ok) {
+                    WSContentSend_PD(HTTP_Bresser4, label, &ws.sensor_copy[i].w.uv);
+                }
 #endif
 
 #ifdef BRESSER_7_IN_1
-            if (ws.sensor_copy[i].w.light_ok) {
-                WSContentSend_PD(HTTP_Bresser5, label, &ws.sensor_copy[i].w.light_klx);
-            }
+                if (ws.sensor_copy[i].w.light_ok) {
+                    WSContentSend_PD(HTTP_Bresser5, label, &ws.sensor_copy[i].w.light_klx);
+                }
 #endif
+            }
         }
+
     } else {
 
         for (int i = 0; i < NUM_SENSORS; i++) {
@@ -167,32 +188,49 @@ void C1101_Bresser_Show(boolean json) {
             ResponseAppend_P(PSTR(",\"Bresser %1d\":{\"ID\":%8x,\"Type\":%x,\"Chan\":%d,\"Stat\":%d,\"Batt\":\"%-3s\",\"RSSI\":%1_f"),\
                 i + 1, static_cast<int> (ws.sensor_copy[i].sensor_id), ws.sensor_copy[i].s_type, ws.sensor_copy[i].chan, ws.sensor_copy[i].startup, ws.sensor_copy[i].battery_ok ? "OK " : "Low", &ws.sensor_copy[i].rssi);
         
-            if (ws.sensor_copy[i].w.temp_ok) {
-                ResponseAppend_P(PSTR(",\"Temp\":%1_f"), &ws.sensor_copy[i].w.temp_c);
-            }
 
-            if (ws.sensor_copy[i].w.humidity_ok) {
-                ResponseAppend_P(PSTR(",\"Hum\":%d"), ws.sensor_copy[i].w.humidity);
-            }
+            if (ws.sensor_copy[i].s_type == SENSOR_TYPE_SOIL) {
+                ResponseAppend_P(PSTR(",\"STEMP\":%1_f,\"SMOIST\":%d"), &ws.sensor_copy[i].soil.temp_c, ws.sensor_copy[i].soil.moisture);
+            } else if (ws.sensor_copy[i].s_type == SENSOR_TYPE_POOL_THERMO) {
+                if (ws.sensor_copy[i].w.temp_ok) {
+                    ResponseAppend_P(PSTR(",\"Temp\":%1_f"), &ws.sensor_copy[i].w.temp_c);
+                }
+            } else if (ws.sensor_copy[i].s_type == SENSOR_TYPE_THERMO_HYGRO) {
+                if (ws.sensor_copy[i].w.temp_ok) {
+                    ResponseAppend_P(PSTR(",\"Temp\":%1_f"), &ws.sensor_copy[i].w.temp_c);
+                }
+                if (ws.sensor_copy[i].w.humidity_ok) {
+                    ResponseAppend_P(PSTR(",\"Hum\":%d"), ws.sensor_copy[i].w.humidity);
+                }
+            } else {
 
-            if (ws.sensor_copy[i].w.wind_ok) {
-                ResponseAppend_P(PSTR(",\"WMAX\":%1_f,\"WAVG\":%1_f,\"CWDIR\":%1_f"), &ws.sensor_copy[i].w.wind_gust_meter_sec, &ws.sensor_copy[i].w.wind_avg_meter_sec, &ws.sensor_copy[i].w.wind_direction_deg);
-            }
-            if (ws.sensor_copy[i].w.rain_ok) {
-                ResponseAppend_P(PSTR(",\"Rain\":%1_f"), &ws.sensor_copy[i].w.rain_mm);
-            }
+                if (ws.sensor_copy[i].w.temp_ok) {
+                    ResponseAppend_P(PSTR(",\"Temp\":%1_f"), &ws.sensor_copy[i].w.temp_c);
+                }
+
+                if (ws.sensor_copy[i].w.humidity_ok) {
+                    ResponseAppend_P(PSTR(",\"Hum\":%d"), ws.sensor_copy[i].w.humidity);
+                }
+
+                if (ws.sensor_copy[i].w.wind_ok) {
+                    ResponseAppend_P(PSTR(",\"WMAX\":%1_f,\"WAVG\":%1_f,\"CWDIR\":%1_f"), &ws.sensor_copy[i].w.wind_gust_meter_sec, &ws.sensor_copy[i].w.wind_avg_meter_sec, &ws.sensor_copy[i].w.wind_direction_deg);
+                }
+                if (ws.sensor_copy[i].w.rain_ok) {
+                    ResponseAppend_P(PSTR(",\"Rain\":%1_f"), &ws.sensor_copy[i].w.rain_mm);
+                }
 
 #if defined BRESSER_6_IN_1 || defined BRESSER_7_IN_1
-            if (ws.sensor_copy[i].w.uv_ok) {
-                ResponseAppend_P(PSTR(",\"UVidx\":%1_f"), &ws.sensor_copy[i].w.uv);
-            }
+                if (ws.sensor_copy[i].w.uv_ok) {
+                    ResponseAppend_P(PSTR(",\"UVidx\":%1_f"), &ws.sensor_copy[i].w.uv);
+                }
 #endif
 
 #if defined BRESSER_7_IN_1
-            if (ws.sensor_copy[i].w.light_ok) {
-                ResponseAppend_P(PSTR(",\"Light\":%1_f"), &ws.sensor_copy[i].w.light_klx);
-            }
+                if (ws.sensor_copy[i].w.light_ok) {
+                    ResponseAppend_P(PSTR(",\"Light\":%1_f"), &ws.sensor_copy[i].w.light_klx);
+                }
 #endif
+            }
 
             ResponseJsonEnd();
         }
