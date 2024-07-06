@@ -63,6 +63,8 @@ void CC1101_Bresser_Detect(void) {
 
  // rec_cs, rec_irq, rec_res, rec_gpio
     ws.begin(cc1101_bresser.cs, Pin(GPIO_CC1101_GDO0), -1, -1);
+    // Clear all sensor data
+    ws.clearSlots();
     cc1101_bresser.decode_status = DECODE_INVALID;
     cc1101_bresser.ready = 1;
 }
@@ -72,9 +74,7 @@ void CC1101_Bresser_task(void) {
     if (cc1101_bresser.ready) {
         // Tries to receive radio message (non-blocking) and to decode it.
         // Timeout occurs after a small multiple of expected time-on-air.
-        // Clear all sensor data
-        ws.clearSlots();
-
+        
         if (ws.getMessage() == DECODE_OK) {
             AddLog(LOG_LEVEL_DEBUG, PSTR("received bresser meessage!"));
             cc1101_bresser.decode_status = DECODE_OK;
