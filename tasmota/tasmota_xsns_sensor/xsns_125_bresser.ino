@@ -85,6 +85,7 @@ void CC1101_Bresser_task(void) {
 
 
 const char HTTP_Bresser1[] PROGMEM =
+ "{s}<hr>{m}<hr>{e}"
  "{s}%s ID" "{m}%8x" "{e}"
  "{s}%s Type" "{m}%x" "{e}"
  "{s}%s Chan" "{m}%d" "{e}"
