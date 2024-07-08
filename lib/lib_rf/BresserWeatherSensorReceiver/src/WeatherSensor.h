@@ -89,6 +89,9 @@
 // Note: Depending on the environment, both variants are used!
 #include <M5Unified.h>
 #endif
+
+#define USE_CC1101
+
 #include <RadioLib.h>
 
 

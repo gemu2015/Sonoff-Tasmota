@@ -258,19 +258,19 @@
     #endif
 #endif
 
-#define USE_CC1101
-#pragma message("Bresser CC1101")
+
 #undef LIGHTNING_USE_PREFS
 #undef RAINGAUGE_USE_PREFS
 #define DEBUG_ESP_PORT Serial
+
 
 // ------------------------------------------------------------------------------------------------
 // --- Radio Transceiver ---
 // ------------------------------------------------------------------------------------------------
 // Select type of receiver module (if not yet defined based on the assumptions above)
 #if ( !defined(USE_CC1101) && !defined(USE_SX1276) && !defined(USE_SX1262) )
-    //#define USE_CC1101
-    #define USE_SX1276
+    #define USE_CC1101
+    //#define USE_SX1276
     //#define USE_SX1262
 #endif
 
@@ -385,6 +385,12 @@
         #define log_v(...) {}
      #endif
 #endif
+
+
+#define USE_CC1101
+#undef USE_SX1262
+#undef USE_SX1276
+#pragma message("Bresser CC1101")
 
 #if ( (defined(USE_CC1101) && defined(USE_SX1276)) || \
       (defined(USE_SX1276) && defined(USE_SX1262)) || \
