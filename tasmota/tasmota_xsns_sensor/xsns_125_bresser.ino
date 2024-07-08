@@ -18,13 +18,16 @@
 */
 
 
-#include <WeatherSensorCfg.h>
-#include <WeatherSensor.h>
-
 #ifdef USE_SPI
 #ifdef USE_CC1101_BRESSER
 
+#define USE_CC1101
+
 #define XSNS_125 125
+
+
+#include <WeatherSensorCfg.h>
+#include <WeatherSensor.h>
 
 WeatherSensor ws;
 
