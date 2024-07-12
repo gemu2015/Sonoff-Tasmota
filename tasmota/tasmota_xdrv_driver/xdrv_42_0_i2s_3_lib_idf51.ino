@@ -326,7 +326,7 @@ bool TasmotaI2S::beginTx(void) {
     uint8_t zero_buffer[240] = {0};
     size_t sz;
     for(int i = 0;i < 6;i++){
-      i2s_channel_preload_data(_tx_handle, zero_buffer, sizeof(zero_buffer), &sz); // preload DMA buffer with silence
+     // i2s_channel_preload_data(_tx_handle, zero_buffer, sizeof(zero_buffer), &sz); // preload DMA buffer with silence
     }
     err = i2s_channel_enable(_tx_handle);
   }
@@ -334,6 +334,8 @@ bool TasmotaI2S::beginTx(void) {
   if (err != ERR_OK){
     return false;
   }
+
+
   _tx_running = true;
   AddLog(LOG_LEVEL_DEBUG, "I2S: begin _tx_running succeeded");
   return true;
