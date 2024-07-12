@@ -839,8 +839,8 @@ int32_t I2SPrepareRx(void) {
 #if defined(USE_I2S_MP3) || defined(USE_I2S_WEBRADIO)
 void I2sMp3Task(void *arg) {
 
-    audio_i2s_mp3.task_running = true;
-    while (audio_i2s_mp3.mp3->isRunning() && audio_i2s_mp3.task_running) {
+  audio_i2s_mp3.task_running = true;
+  while (audio_i2s_mp3.mp3->isRunning() && audio_i2s_mp3.task_running) {
     if (!audio_i2s_mp3.mp3->loop()) {
         audio_i2s_mp3.task_running == false;
         break;
