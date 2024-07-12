@@ -933,7 +933,7 @@ int32_t I2SPlayMp3(const char *path) {
   }
   audio_i2s_mp3.mp3->begin(audio_i2s_mp3.id3, audio_i2s.out);
 
-#if 1
+#if 0
 #define MP3_TIMEOUT 30000
     uint32_t tout = millis();
     while (audio_i2s_mp3.mp3->isRunning()) {
