@@ -82,8 +82,8 @@ struct AUDIO_I2S_MP3_t {
 
 #if defined(USE_I2S_MP3) || defined(USE_I2S_WEBRADIO) || defined(USE_SHINE) || defined(MP3_MIC_STREAM)
   AudioGeneratorMP3 *decoder = NULL;
-  TaskHandle_t mp3_task_handle = nullptr;
-  TaskHandle_t mic_task_handle = nullptr;
+  TaskHandle_t mp3_task_handle;
+  TaskHandle_t mic_task_handle;
 #endif // defined(USE_I2S_MP3) || defined(USE_I2S_WEBRADIO)
 
   char mic_path[32];
@@ -530,7 +530,6 @@ void I2SAudioPower(bool power) {
 #ifdef USE_TTGO_WATCH
   TTGO_audio_power(power);
 #endif
-
 }
 
 //
@@ -724,8 +723,8 @@ void I2sInit(void) {
                       audio_i2s.Settings->tx.slot_mask, audio_i2s.Settings->rx.slot_mask);
     if (tx) {
       i2s->setTxMode(audio_i2s.Settings->tx.mode);
-      i2s->setTxChannels(audio_i2s.Settings->tx.channels);
-      i2s->setRate(audio_i2s.Settings->tx.sample_rate);
+      // i2s->setTxChannels(audio_i2s.Settings->tx.channels);
+      // i2s->setRate(audio_i2s.Settings->tx.sample_rate);
     }
     if (rx) {
       i2s->setRxMode(audio_i2s.Settings->rx.mode);
@@ -792,20 +791,7 @@ void I2sInit(void) {
 //
 // Returns `I2S_OK` if ok to send to output or error code
 int32_t I2SPrepareTx(void) {
-
-  if(audio_i2s_mp3.task_running){
-    audio_i2s_mp3.task_running = false;
-    while(!audio_i2s_mp3.task_has_ended){
-      delay(1);
-    }
-  }
-
-  if (audio_i2s_mp3.mic_task_handle) {
-    audio_i2s_mp3.mic_stop = 1;
-    while (audio_i2s_mp3.mic_stop) {
-      delay(1);
-    }
-  }
+  I2sStopPlaying();
   
   AddLog(LOG_LEVEL_DEBUG, "I2S: I2SPrepareTx out=%p", audio_i2s.out);
   if (!audio_i2s.out) { return I2S_ERR_OUTPUT_NOT_CONFIGURED; }
@@ -838,22 +824,18 @@ int32_t I2SPrepareRx(void) {
 
 #if defined(USE_I2S_MP3) || defined(USE_I2S_WEBRADIO)
 void I2sMp3Task(void *arg) {
-
   audio_i2s_mp3.task_running = true;
   while (audio_i2s_mp3.mp3->isRunning() && audio_i2s_mp3.task_running) {
     if (!audio_i2s_mp3.mp3->loop()) {
-        audio_i2s_mp3.task_running == false;
-        break;
+        audio_i2s_mp3.task_running = false;
     }
     vTaskDelay(pdMS_TO_TICKS(1));
   }
   audio_i2s.out->flush();
   audio_i2s_mp3.mp3->stop();
-  I2sStopPlaying();
   mp3_delete();
   audio_i2s_mp3.mp3_task_handle = nullptr;
   audio_i2s_mp3.task_has_ended = true;
-  audio_i2s_mp3.task_running == false;
   vTaskDelete(NULL);
 }
 #endif // defined(USE_I2S_MP3) || defined(USE_I2S_WEBRADIO)
@@ -862,8 +844,7 @@ void I2sStatusCallback(void *cbData, int code, const char *string) {
   const char *ptr = reinterpret_cast<const char *>(cbData);
   (void) code;
   (void) ptr;
-  //strncpy_P(status, string, sizeof(status)-1);
-  //status[sizeof(status)-1] = 0;
+  AddLog(LOG_LEVEL_DEBUG, "I2S: -> %s", string);
 }
 
 #ifdef USE_I2S_MP3
@@ -874,13 +855,12 @@ void I2sMp3WrTask(void *arg){
     if (audio_i2s_mp3.decoder && audio_i2s_mp3.decoder->isRunning()) {
       if (!audio_i2s_mp3.decoder->loop()) {
         audio_i2s_mp3.task_running = false;
-        break;
       }
       vTaskDelay(pdMS_TO_TICKS(1));
     }
   }
   audio_i2s.out->flush();
-  I2sStopPlaying();
+  I2sWebRadioStopPlaying();
   audio_i2s_mp3.mp3_task_handle = nullptr;
   audio_i2s_mp3.task_has_ended = true;
   vTaskDelete(NULL);
@@ -889,14 +869,23 @@ void I2sMp3WrTask(void *arg){
 #endif // USE_I2S_MP3
 
 void I2sStopPlaying() {
-
-#ifdef USE_I2S_WEBRADIO
-  I2sWebRadioStopPlaying();
-#endif
   I2SAudioPower(false);
 
-  //audio_i2s.out->stopTx();
-
+  if(audio_i2s_mp3.task_running){
+    audio_i2s_mp3.task_running = false;
+    while(audio_i2s_mp3.task_has_ended == false){
+      delay(10);
+    }
+    while(audio_i2s_mp3.mp3){
+      delay(10);
+    }
+  }
+  if (audio_i2s_mp3.mic_task_handle) {
+    audio_i2s_mp3.mic_stop = 1;
+    while (audio_i2s_mp3.mic_stop) {
+      delay(10);
+    }
+  }
 }
 
 #ifdef USE_I2S_MP3
@@ -904,16 +893,13 @@ void I2sStopPlaying() {
 //
 // Returns I2S_error_t
 int32_t I2SPlayMp3(const char *path) {
-  int32_t i2s_err = I2S_OK;
-  if ((i2s_err = I2SPrepareTx()) != I2S_OK) { return i2s_err; }
-  if (audio_i2s_mp3.decoder || audio_i2s_mp3.mp3) return I2S_ERR_DECODER_IN_USE;
+  int32_t i2s_err = I2SPrepareTx();
+  if ((i2s_err) != I2S_OK) { return i2s_err; }
+  if (audio_i2s_mp3.mp3) return I2S_ERR_DECODER_IN_USE;
 
   // check if the filename starts with '/', if not add it
   char fname[64];
-  if (*path == '+') {
-    path++;
-  }
-  if (*path != '/') {
+  if (path[0] != '/') {
     snprintf(fname, sizeof(fname), "/%s", path);
   } else {
     snprintf(fname, sizeof(fname), "%s", path);
@@ -933,43 +919,23 @@ int32_t I2SPlayMp3(const char *path) {
   }
   audio_i2s_mp3.mp3->begin(audio_i2s_mp3.id3, audio_i2s.out);
 
-#if 0
-#define MP3_TIMEOUT 30000
-    uint32_t tout = millis();
-    while (audio_i2s_mp3.mp3->isRunning()) {
-      if (!audio_i2s_mp3.mp3->loop()) {
-        audio_i2s_mp3.mp3->stop();
-        break;
-      }
-      OsWatchLoop();
-      if (millis()-tout > MP3_TIMEOUT) {
-        break;
-      }
-    }
-    audio_i2s_mp3.mp3->stop();
-    I2sStopPlaying();
-    mp3_delete();
-    audio_i2s.out->stopTx();
-#else
   // Always use a task
   xTaskCreatePinnedToCore(I2sMp3Task, "MP3", 8192, NULL, 3, &audio_i2s_mp3.mp3_task_handle, 1);
-#endif
   return I2S_OK;
 }
-
 
 void mp3_delete(void) {
   delete audio_i2s_mp3.file;
   delete audio_i2s_mp3.id3;
   delete audio_i2s_mp3.mp3;
-  audio_i2s_mp3.mp3=nullptr;
+  audio_i2s_mp3.mp3 = nullptr;
 
-//
-  if (audio_i2s_mp3.decoder) {
-    audio_i2s_mp3.decoder->stop();
-    delete audio_i2s_mp3.decoder;
-    audio_i2s_mp3.decoder = NULL;
-  }
+  // if (audio_i2s_mp3.decoder) {
+    // audio_i2s_mp3.decoder->stop();
+    // delete audio_i2s_mp3.decoder;
+    // audio_i2s_mp3.decoder = nullptr;
+    // AddLog(LOG_LEVEL_DEBUG, "I2S: audio_i2s_mp3.decoder = nullptr");
+  // }
 }
 #endif // USE_I2S_MP3
 
@@ -1011,16 +977,12 @@ void CmndI2SStop(void) {
     ResponseCmndChar("I2S output not configured");
     return;
   }
-  I2sStopPlaying();
+  audio_i2s.out->setGain(0);
   ResponseCmndDone();
 }
 
 #ifdef USE_I2S_MP3
 void CmndI2SPlay(void) {
-  if (I2SPrepareTx()) {
-    ResponseCmndChar("I2S output not configured");
-    return;
-  }
   if (XdrvMailbox.data_len > 0) {
     int32_t err = I2SPlayMp3(XdrvMailbox.data);
     // display return message

@@ -48,7 +48,6 @@ void I2SWrStatusCB(void *cbData, int code, const char *str){
 
 void Webradio(const char *url) {
   // allocate buffers if not already done
-  Serial.printf(">>>> 1\n");
   if (Audio_webradio.preallocateBuffer == NULL) {
     Audio_webradio.preallocateBuffer = special_malloc(preallocateBufferSize);
   }
@@ -69,8 +68,6 @@ void Webradio(const char *url) {
     return;
   }
 
-  Serial.printf(">>>> 2\n");
-
   Audio_webradio.ifile = new AudioFileSourceICYStream();
   Audio_webradio.ifile->RegisterMetadataCB(I2sMDCallback, NULL);
   Audio_webradio.ifile->RegisterStatusCB(I2SWrStatusCB, NULL);
@@ -78,21 +75,23 @@ void Webradio(const char *url) {
     I2sWebRadioStopPlaying();
     return;
   }
+  AddLog(LOG_LEVEL_INFO, "I2S: did connect to %s",url);
 
-  Serial.printf(">>>> 3\n");
-  
   I2SAudioPower(true);
   Audio_webradio.buff = new AudioFileSourceBuffer(Audio_webradio.ifile, Audio_webradio.preallocateBuffer, preallocateBufferSize);
+  if(Audio_webradio.buff == nullptr){
+    return;
+  }
   Audio_webradio.buff->RegisterStatusCB(I2sStatusCallback, NULL);
   audio_i2s_mp3.decoder = new AudioGeneratorMP3(Audio_webradio.preallocateCodec, preallocateCodecSize);
+  if(audio_i2s_mp3.decoder == nullptr){
+    return;
+  }
   audio_i2s_mp3.decoder->RegisterStatusCB(I2sStatusCallback, NULL);
   audio_i2s_mp3.decoder->begin(Audio_webradio.buff, audio_i2s.out);
   if (!audio_i2s_mp3.decoder->isRunning()) {
     I2sStopPlaying();
   }
-
-
-  Serial.printf(">>>> 4\n");
 
   AddLog(LOG_LEVEL_DEBUG,PSTR("I2S: will launch webradio task"));
   xTaskCreatePinnedToCore(I2sMp3WrTask, "MP3-WR", 8192, NULL, 3, &audio_i2s_mp3.mp3_task_handle, 1);
