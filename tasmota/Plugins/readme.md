@@ -17,7 +17,7 @@ since RISCV ESPs use special floating point constants from ROM memory
 to circumvent this, we have to specify those constants as fractions  with FLCONST(x, y) 
 so specify 273.15  as FLCONST(27315, 100)
 another problem ist that we would need at least 3 types of binaries multiplied by language variants
-
+the driver handler itself uses about 18,3 kB of flash 
 
 how to create relocatable plugins:
 

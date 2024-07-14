@@ -930,6 +930,8 @@ void mp3_delete(void) {
   delete audio_i2s_mp3.mp3;
   audio_i2s_mp3.mp3 = nullptr;
 
+  I2SAudioPower(false);
+
   // if (audio_i2s_mp3.decoder) {
     // audio_i2s_mp3.decoder->stop();
     // delete audio_i2s_mp3.decoder;
