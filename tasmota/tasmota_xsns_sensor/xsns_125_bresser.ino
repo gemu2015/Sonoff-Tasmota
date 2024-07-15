@@ -89,7 +89,7 @@ void CC1101_Bresser_task(void) {
 
 const char HTTP_Bresser1[] PROGMEM =
  "{s}<hr>{m}<hr>{e}"
- "{s}%s ID" "{m}%8x" "{e}"
+ "{s}%s ID" "{m}%08x" "{e}"
  "{s}%s Type" "{m}%x" "{e}"
  "{s}%s Chan" "{m}%d" "{e}"
  "{s}%s Stat" "{m}%d" "{e}"
@@ -131,6 +131,8 @@ void C1101_Bresser_Show(boolean json) {
 
     // This example uses only a single slot in the sensor data array
     int const i = 0;
+
+    // probably should sort sensors here
 
     if (!json) {
 
@@ -189,7 +191,7 @@ void C1101_Bresser_Show(boolean json) {
                 continue;
             }
 
-            ResponseAppend_P(PSTR(",\"Bresser %1d\":{\"ID\":%8x,\"Type\":%x,\"Chan\":%d,\"Stat\":%d,\"Batt\":\"%-3s\",\"RSSI\":%1_f"),\
+            ResponseAppend_P(PSTR(",\"Bresser_%1d\":{\"ID\":\"%08x\",\"Type\":%x,\"Chan\":%d,\"Stat\":%d,\"Batt\":\"%-3s\",\"RSSI\":%1_f"),\
                 i + 1, static_cast<int> (ws.sensor_copy[i].sensor_id), ws.sensor_copy[i].s_type, ws.sensor_copy[i].chan, ws.sensor_copy[i].startup, ws.sensor_copy[i].battery_ok ? "OK " : "Low", &ws.sensor_copy[i].rssi);
         
 
