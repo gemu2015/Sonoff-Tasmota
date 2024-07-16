@@ -361,7 +361,7 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_i2s,
 #ifdef ESP32
   JMPTBL&tmod_task_create,
-  JMPTBL&tmod_task_delete
+  JMPTBL&tmod_task_delete,
 #else
   JMPTBL&tmod_dummy,
   JMPTBL&tmod_dummy,

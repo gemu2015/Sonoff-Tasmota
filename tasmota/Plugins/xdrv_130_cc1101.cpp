@@ -19,7 +19,7 @@
 
 #include "tasmota_options.h"
 
-#ifdef USE_CC1101_MOD 
+#ifdef USE_CC1101_MOD
 
 #define XDRV_130             130
 
