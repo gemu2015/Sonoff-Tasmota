@@ -417,13 +417,13 @@ void BME_Show(uint32_t json) {
   } else {
     if (type == BME280_CHIPID) {
       TempHumDewShow(json, 0, typestr, temp, hum);
-      char s1[16];
+      char s1[32];
       WSContentSend_PD(GSTR(HTTP_SNS_AHUM), typestr, Plugin_Get_SensorNames(s1, iD_ABSOLUTE_HUMIDITY), ahum_tstr);
     } else {
-      char s1[16];
+      char s1[32];
       WSContentSend_PD(GSTR(HTTP_BMP_T), typestr, Plugin_Get_SensorNames(s1, iD_TEMPERATURE), temp_tstr);
     }
-    char s1[16];
+    char s1[32];
     WSContentSend_PD(GSTR(HTTP_BMP_P), typestr, Plugin_Get_SensorNames(s1, iD_PRESSURE), press_tstr);
   }
 }

@@ -67,7 +67,7 @@ typedef struct {
 // define strings used
 const char kShtTypes3[] PROGMEM = "SHT3X|SHT3X|SHTC3";
 const char kShtTypes[] PROGMEM = "%s%c%02X";
-const char HTTP_SNS_AHUM[] PROGMEM = "{s}%s Abs Humidity{m}%s g/m3{e}";
+const char HTTP_SNS_AHUM[] PROGMEM = "{s}%s %s{m}%s g/m3{e}";
 const float FP_CONST[] PROGMEM = {65535, 45};
 
 bool Sht3xRead(float &t, float &h, uint8_t sht3x_address) {
@@ -167,7 +167,8 @@ void SHT3X_Show(bool json) {
       char abs_hum[32];
       ftostrfd(abshum, 4, abs_hum);
       if (!json) {
-        WSContentSend_PD(GSTR(HTTP_SNS_AHUM), types, abs_hum);
+        char s1[32];
+        WSContentSend_PD(GSTR(HTTP_SNS_AHUM), types, Plugin_Get_SensorNames(s1, iD_ABSOLUTE_HUMIDITY), abs_hum);
       } else {
       }
     }

@@ -250,7 +250,8 @@ void VL53L0X_Show(boolean json) {
   if (json) {
     ResponseAppend_P(PSTR(",\"VL53L0X\":{\"Distance\":%s}"), dstr);
   } else {
-    WSContentSend_PD(PSTR("{s}Distance{m}%s cm{e}"), dstr);
+    char s1[32];
+    WSContentSend_PD(PSTR("{s}%s{m}%s cm{e}"), Plugin_Get_SensorNames(s1, iD_DISTANCE), dstr);
   }
 
   if (VL53L0X_timeoutOccurred()) {

@@ -1354,7 +1354,8 @@ const char plugin_sensor_names[] PROGMEM =
 D_TEMPERATURE "|"
 D_PRESSURE "|"
 D_HUMIDITY "|"
-D_ABSOLUTE_HUMIDITY "|";
+D_ABSOLUTE_HUMIDITY "|"
+D_DISTANCE "|";
 
 
 #define TYPESIZE 32
