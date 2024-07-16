@@ -156,6 +156,7 @@ extern "C" {
 }
 
 #define JMPTBL (void (*)())
+
 // this vector table table must contain all api calls needed by module
 // and in sync with vectortable in module.h
 void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
