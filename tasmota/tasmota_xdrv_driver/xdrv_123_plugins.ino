@@ -149,6 +149,7 @@ int32_t tmod_file_seek(class File *fp, uint32_t pos, uint32_t mode);
 int32_t tmod_file_read(class File *fp, uint8_t *buff, uint32_t size);
 int32_t tmod_file_write(class File *fp, uint8_t *buff, uint32_t size);
 void tmod_AddLogData(uint32_t loglevel, const char* log_data);
+char *Plugin_Get_SensorNames(char *type, uint32_t index);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -362,8 +363,9 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_task_delete
 #else
   JMPTBL&tmod_dummy,
-  JMPTBL&tmod_dummy
+  JMPTBL&tmod_dummy,
 #endif
+  JMPTBL&Plugin_Get_SensorNames
 };
 
 
@@ -1345,6 +1347,20 @@ float fscale(int32_t number, float mulfac, float subfac) {
 
 int32_t iscale(int32_t number, int32_t mulfac, int32_t divfac) {
   return (number * mulfac) / divfac;
+}
+
+
+const char plugin_sensor_names[] PROGMEM = 
+D_TEMPERATURE "|"
+D_PRESSURE "|"
+D_HUMIDITY "|"
+D_ABSOLUTE_HUMIDITY "|";
+
+
+#define TYPESIZE 32
+char *Plugin_Get_SensorNames(char *type, uint32_t index) {
+  GetTextIndexed(type, TYPESIZE, index, plugin_sensor_names);
+  return type;
 }
 
 /* ****************************** module handler ***********************************/

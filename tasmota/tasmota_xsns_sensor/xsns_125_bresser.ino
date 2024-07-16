@@ -1,7 +1,7 @@
 /*
   xsns_96_cc1101.ino - CC1101 radio_modem support
 
-  Copyright (C) 2020  Gerhard Mutz and Rudolf Koenig (culfw)
+  Copyright (C) 2024  Gerhard Mutz and Matthias Prinke (BresserWetherSensorReceiver)
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -25,7 +25,6 @@
 
 #define XSNS_125 125
 
-
 #include <WeatherSensorCfg.h>
 #include <WeatherSensor.h>
 
@@ -40,7 +39,7 @@ struct CC1101_BRESSER {
 } cc1101_bresser;
 
 
-void CC1101_Bresser_Detect(void) {
+void CC1101_Bresser_Init(void) {
   cc1101_bresser.found = 0;
   cc1101_bresser.cs = 0;
   cc1101_bresser.ready = 0;
@@ -128,9 +127,6 @@ void C1101_Bresser_Show(boolean json) {
     if (cc1101_bresser.decode_status != DECODE_OK) {
         return;
     }
-
-    // This example uses only a single slot in the sensor data array
-    int const i = 0;
 
     // probably should sort sensors here
 
@@ -252,7 +248,7 @@ bool Xsns125(uint32_t function) {
 
   switch (function) {
       case FUNC_INIT:
-        CC1101_Bresser_Detect();
+        CC1101_Bresser_Init();
         break;
       case FUNC_EVERY_100_MSECOND:
         CC1101_Bresser_task();

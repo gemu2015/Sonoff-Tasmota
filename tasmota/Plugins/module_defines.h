@@ -189,6 +189,8 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define ji2s(A,B,C,D,E,F)               (( unt32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t )) jt[155])(A,B,C,D,E,F)
 #define jtaskc(A,B,C,D,E,F,G)           (( unt32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t )) jt[156])(A,B,C,D,E,F,G)
 #define jtaskd(A)                       (( unt32_t (*)(uint32_t))                       jt[157])(A)
+#define jPlugin_Get_SensorNames(A,B)    (( char *(*)(char *,uint32_t))                  jt[158])(A,B)
+
 
 //tmod_udp,
 //tmod_i2s,
@@ -769,6 +771,7 @@ typedef struct {
 #define strncmp_P jstrncmp_P
 #define special_malloc jspecial_malloc
 #define ResponseCmndChar jResponseCmndChar
+#define Plugin_Get_SensorNames jPlugin_Get_SensorNames
 
 #define __divsi3 jtmod__divsi3
 

@@ -188,14 +188,15 @@ typedef struct {
 
 #define ready mem->ready
 
+const char BMEtypes[] PROGMEM = "BMP180|BME280|BMP280|BME680";
 // all text defines must be here
-const char HTTP_BMP_T[] PROGMEM = "{s}%s Temperatur{m}%s C{e}";
-const char HTTP_BMP_P[] PROGMEM = "{s}%s Luftdruck {m}%s hp{e}";
+const char HTTP_BMP_T[] PROGMEM = "{s}%s %s{m}%s C{e}";
+const char HTTP_BMP_P[] PROGMEM = "{s}%s %s{m}%s hp{e}";
+const char HTTP_SNS_AHUM[] PROGMEM = "{s}%s %s{m}%s g/m3{e}";
+
 const char JSON_BMP[] PROGMEM = ",\"%s\":{\"Temperature\":%s,\"Pressure\":%s";
 const char JSON_BME[] PROGMEM = ",\"Humidity\":%s,\"AbsHumidity\":%s}";
 const char JSON_BMPend[] PROGMEM = "}";
-const char HTTP_SNS_AHUM[] PROGMEM = "{s}%s Abs Humidity{m}%s g/m3{e}";
-const char BMEtypes[] PROGMEM = "BMP180|BME280|BMP280|BME680";
 
 int32_t Init_BME() {
   ALLOCMEM
@@ -416,11 +417,14 @@ void BME_Show(uint32_t json) {
   } else {
     if (type == BME280_CHIPID) {
       TempHumDewShow(json, 0, typestr, temp, hum);
-      WSContentSend_PD(GSTR(HTTP_SNS_AHUM), typestr, ahum_tstr);
+      char s1[16];
+      WSContentSend_PD(GSTR(HTTP_SNS_AHUM), typestr, Plugin_Get_SensorNames(s1, iD_ABSOLUTE_HUMIDITY), ahum_tstr);
     } else {
-      WSContentSend_PD(GSTR(HTTP_BMP_T), typestr, temp_tstr);
+      char s1[16];
+      WSContentSend_PD(GSTR(HTTP_BMP_T), typestr, Plugin_Get_SensorNames(s1, iD_TEMPERATURE), temp_tstr);
     }
-    WSContentSend_PD(GSTR(HTTP_BMP_P), typestr, press_tstr);
+    char s1[16];
+    WSContentSend_PD(GSTR(HTTP_BMP_P), typestr, Plugin_Get_SensorNames(s1, iD_PRESSURE), press_tstr);
   }
 }
 
