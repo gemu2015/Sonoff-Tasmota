@@ -20,6 +20,7 @@
 
 #include "module.h"
 #include "module_defines.h"
+#include "../Tasmota/include/i18n.h"
 
 #define BMX_REV 1 << 16 | 4
 
@@ -194,8 +195,8 @@ const char HTTP_BMP_T[] PROGMEM = "{s}%s %s{m}%s C{e}";
 const char HTTP_BMP_P[] PROGMEM = "{s}%s %s{m}%s hp{e}";
 const char HTTP_SNS_AHUM[] PROGMEM = "{s}%s %s{m}%s g/m3{e}";
 
-const char JSON_BMP[] PROGMEM = ",\"%s\":{\"Temperature\":%s,\"Pressure\":%s";
-const char JSON_BME[] PROGMEM = ",\"Humidity\":%s,\"AbsHumidity\":%s}";
+const char JSON_BMP[] PROGMEM = ",\"%s\":{\"" D_JSON_TEMPERATURE "\":%s,\"" D_JSON_PRESSURE "\":%s";
+const char JSON_BME[] PROGMEM = ",\"" D_JSON_HUMIDITY "\":%s,\"" D_JSON_AHUM "\":%s}";
 const char JSON_BMPend[] PROGMEM = "}";
 
 int32_t Init_BME() {
