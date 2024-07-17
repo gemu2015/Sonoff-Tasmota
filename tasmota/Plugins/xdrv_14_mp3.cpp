@@ -72,7 +72,6 @@
 #include "tasmota_options.h"
 
 #ifdef USE_MP3_PLAYER_MOD
-
 #define XDRV_14 14
 
 //#define MODULE_HEADER module_header_XDRV_14

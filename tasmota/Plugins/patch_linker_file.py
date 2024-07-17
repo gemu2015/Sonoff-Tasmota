@@ -23,28 +23,29 @@ if mcu == "esp8266":
         match = "*(.ver_number)"
         mlen = 0
 if mcu == "esp32":
-        libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/sdk/esp32/ld/sections.ld"
+        libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/esp32-arduino-libs/esp32/ld/sections.ld"
         match = '+= _esp_flash_mmap_prefetch_pad_size;'
         mlen = len(match)
 
 if mcu == "esp32s2":
-        libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/sdk/esp32s2/ld/sections.ld"
+        libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/esp32-arduino-libs/esp32s2/ld/sections.ld"
         match = '+= _esp_flash_mmap_prefetch_pad_size;'
         mlen = len(match)
 if mcu == "esp32s3":
         # has 4 variants (opi_opi,opi_qspi,qio_opi,qio_qspi, )
         memory_type = env.BoardConfig().get("build.arduino.memory_type", "qio_qspi")
-        libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/sdk/esp32s3/"+memory_type+"/sections.ld"
+        libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/esp32-arduino-libs/esp32s3/"+memory_type+"/sections.ld"
         match = '+= _esp_flash_mmap_prefetch_pad_size;'
         mlen = len(match)
 if mcu == "esp32c3":
-        libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/sdk/esp32c3/ld/sections.ld"
+        libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/esp32-arduino-libs/esp32c3/ld/sections.ld"
         match = '+= _esp_flash_mmap_prefetch_pad_size;'
         mlen = len(match)
 
 # idf5 has unique linker path
 filok = os.path.isfile(libpath)
 if filok == False :
+        print("take default path")
         libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/esp32-arduino-libs/esp32/ld/sections.ld"
 
 with open(libpath) as f:
