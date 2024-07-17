@@ -234,6 +234,9 @@ void VL53L0X_Every_250MSecond(void) {
 #endif
 }
 
+// all float constants must be in progmem
+const float FP_CONST[] PROGMEM = {10};
+
 void VL53L0X_Show(boolean json) {
   SETREGS
 
@@ -242,16 +245,13 @@ void VL53L0X_Show(boolean json) {
   }
 
   // float distance = (Vl53l0x_data.distance == 9999) ? NAN : (float)Vl53l0x_data.distance / 10;  // cm
-  float distance = fdiv(tofloat(Vl53l0x_data.distance), 10.0);
-
-  char dstr[16];
-  ftostrfd(distance, 1, dstr);
+  float distance = fdiv(tofloat(Vl53l0x_data.distance),  FLTC(0));
 
   if (json) {
-    ResponseAppend_P(PSTR(",\"VL53L0X\":{\"Distance\":%s}"), dstr);
+    ResponseAppend_P(PSTR(",\"VL53L0X\":{\"Distance\":%1_f}"), &distance);
   } else {
     char s1[32];
-    WSContentSend_PD(PSTR("{s}%s{m}%s cm{e}"), Plugin_Get_SensorNames(s1, iD_DISTANCE), dstr);
+    WSContentSend_PD(PSTR("{s}VL53L0X %s{m}%1_f cm{e}"), Plugin_Get_SensorNames(s1, iD_DISTANCE), &distance);
   }
 
   if (VL53L0X_timeoutOccurred()) {
