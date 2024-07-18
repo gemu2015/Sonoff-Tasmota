@@ -14,12 +14,14 @@ therefore several float math functions are provided to circumvent builtin calls.
 e.g. you may not write  a = b / c  with float variables.
 you must use a = fdiv(b, c)
 since RISCV ESPs use special floating point constants from ROM memory
-to circumvent this, we have to specify those constants as fractions  with FLCONST(x, y) 
-so specify 273.15  as FLCONST(27315, 100)
-another problem ist that we would need at least 3 types of binaries multiplied by language variants
-the driver handler itself uses about 18,3 kB of flash 
+to circumvent this, all floating point constants must be in PROGMEM
+
+another problem ist that we would need at least 3 types of binaries
+the driver handler itself uses about 19 kB of flash 
 
 how to create relocatable plugins:
+
+Toolchain:
 
 several python scripts help in converting (see instruction in script)
 prep_driver.py  converts a tasmota driver to a .cpp file and does already a lot of needed conversion
