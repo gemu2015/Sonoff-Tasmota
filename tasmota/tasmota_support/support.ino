@@ -2651,6 +2651,27 @@ void AddLogMissed(const char *sensor, uint32_t misses)
   AddLog(LOG_LEVEL_DEBUG, PSTR("SNS: %s missed %d"), sensor, SENSOR_MAX_MISS - misses);
 }
 
+#ifdef ESP32
+SPIClass *Init_SPI_Bus(uint32 bus) {
+  SPIClass *spi;
+  if (1 == bus) {
+    if (TasmotaGlobal.spi_enabled) {
+      spi = &SPI;
+      spi->begin(Pin(GPIO_SPI_CLK, 0), Pin(GPIO_SPI_MISO, 0), Pin(GPIO_SPI_MISO, 0), -1);
+      return spi;
+    }
+  }
+  if (2 == bus) {
+    if (TasmotaGlobal.spi_enabled2) {
+      spi = new SPIClass(HSPI);
+      spi->begin(Pin(GPIO_SPI_CLK, 1), Pin(GPIO_SPI_MISO, 1), Pin(GPIO_SPI_MISO, 1), -1);
+      return spi;
+    }
+  }
+  return nullptr;
+}
+#endif // ESP32
+
 void AddLogSpi(uint32_t hardware, int clk, int mosi, int miso) {
   uint32_t enabled = TasmotaGlobal.soft_spi_enabled;
   char hwswbus[8];
