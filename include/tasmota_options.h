@@ -22,7 +22,6 @@
 
 #include "../tasmota/my_user_config.h"
 #include "../tasmota/include/tasmota_configurations.h"
-#include "../tasmota/include/gpio_designators.h"
 
 
 #endif // __TASMOTA_INCLUDE__
