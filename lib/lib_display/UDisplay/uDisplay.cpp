@@ -30,6 +30,7 @@
 
 #include "tasmota_options.h"
 
+
 extern int Cache_WriteBack_Addr(uint32_t addr, uint32_t size);
 
 
@@ -2020,11 +2021,31 @@ bool uDisplay::utouch_Init(char **name) {
       attachInterrupt(ut_irq, ut_touch_irq, FALLING);
     }
 
+extern int Pin(uint32_t gpio, uint32_t index);
+
     if (ut_spi_nr == spi_nr) {
+      // same as display
       ut_spi = uspi;
     } else {
-      // not yet
       ut_spi = nullptr;
+      if (ut_spi_nr == 1) {
+        int8_t ut_spi_clk = Pin(GPIO_SPI_CLK, 0);
+        int8_t ut_spi_miso = Pin(GPIO_SPI_MISO, 0);
+        int8_t ut_spi_mosi = Pin(GPIO_SPI_MOSI, 0);
+        if (ut_spi_clk >= 0 && ut_spi_miso >= 0 && ut_spi_mosi >= 0) {
+          ut_spi = &SPI;
+          uspi->begin(ut_spi_clk, ut_spi_miso, ut_spi_mosi, -1);
+        }
+      } else {
+        // not yet
+        int8_t ut_spi_clk = Pin(GPIO_SPI_CLK, 1);
+        int8_t ut_spi_miso = Pin(GPIO_SPI_MISO, 1);
+        int8_t ut_spi_mosi = Pin(GPIO_SPI_MOSI, 1);
+        if (ut_spi_clk >= 0 && ut_spi_miso >= 0 && ut_spi_mosi >= 0) {
+          ut_spi = new SPIClass(HSPI);
+          uspi->begin(ut_spi_clk, ut_spi_miso, ut_spi_mosi, -1);
+        }
+      }
     }
     return ut_execute(ut_init_code);
   }
