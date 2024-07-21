@@ -2657,14 +2657,14 @@ SPIClass *Init_SPI_Bus(uint32 bus) {
   if (1 == bus) {
     if (TasmotaGlobal.spi_enabled) {
       spi = &SPI;
-      spi->begin(Pin(GPIO_SPI_CLK, 0), Pin(GPIO_SPI_MISO, 0), Pin(GPIO_SPI_MISO, 0), -1);
+      spi->begin(Pin(GPIO_SPI_CLK, 0), Pin(GPIO_SPI_MISO, 0), Pin(GPIO_SPI_MOSI, 0), -1);
       return spi;
     }
   }
   if (2 == bus) {
     if (TasmotaGlobal.spi_enabled2) {
       spi = new SPIClass(HSPI);
-      spi->begin(Pin(GPIO_SPI_CLK, 1), Pin(GPIO_SPI_MISO, 1), Pin(GPIO_SPI_MISO, 1), -1);
+      spi->begin(Pin(GPIO_SPI_CLK, 1), Pin(GPIO_SPI_MISO, 1), Pin(GPIO_SPI_MOSI, 1), -1);
       return spi;
     }
   }
