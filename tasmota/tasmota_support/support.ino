@@ -2651,7 +2651,8 @@ void AddLogMissed(const char *sensor, uint32_t misses)
   AddLog(LOG_LEVEL_DEBUG, PSTR("SNS: %s missed %d"), sensor, SENSOR_MAX_MISS - misses);
 }
 
-#ifdef ESP32
+#ifdef ESP32 
+#ifndef FIRMWARE_SAFEBOOT
 SPIClass *Init_SPI_Bus(uint32 bus) {
   SPIClass *spi;
   if (1 == bus) {
@@ -2670,6 +2671,7 @@ SPIClass *Init_SPI_Bus(uint32 bus) {
   }
   return nullptr;
 }
+#endif // FIRMWARE_SAFEBOOT
 #endif // ESP32
 
 void AddLogSpi(uint32_t hardware, int clk, int mosi, int miso) {
