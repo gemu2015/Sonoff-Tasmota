@@ -93,19 +93,19 @@ void epd_end_frame();
  * This sequence of operations allows for pipelining data preparation and
  * transfer, reducing total refresh times.
  */
-void IRAM_ATTR epd_output_row(uint32_t output_time_dus);
+void epd_output_row(uint32_t output_time_dus);
 
 /** Skip a row without writing to it. */
-void IRAM_ATTR epd_skip();
+void epd_skip();
 
 /**
  * Get the currently writable line buffer.
  */
-uint8_t IRAM_ATTR *epd_get_current_buffer();
+uint8_t *epd_get_current_buffer();
 
 /**
  * Switches front and back line buffer.
  * If the switched-to line buffer is currently in use,
  * this function blocks until transmission is done.
  */
-void IRAM_ATTR epd_switch_buffer();
+void epd_switch_buffer();
