@@ -86,11 +86,11 @@
 
 // Select appropriate sensor message format(s)
 // Comment out unused decoders to save operation time/power
-#define BRESSER_5_IN_1
-#define BRESSER_6_IN_1
-#define BRESSER_7_IN_1
-#define BRESSER_LIGHTNING
-#define BRESSER_LEAKAGE
+//#define BRESSER_5_IN_1
+//#define BRESSER_6_IN_1
+//#define BRESSER_7_IN_1
+//#define BRESSER_LIGHTNING
+//#define BRESSER_LEAKAGE
 
 
 // ------------------------------------------------------------------------------------------------
