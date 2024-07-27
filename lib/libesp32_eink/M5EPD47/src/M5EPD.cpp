@@ -70,8 +70,8 @@ uint16_t AdcRead(uint32_t pin, uint32_t factor);
   * @retval ADC Raw data
   */
 uint32_t M5EPD::getBatteryRaw() {
-    return AdcRead(BAT_ADC_CHANNEL, 2);
-
+    //return AdcRead(BAT_ADC_CHANNEL, 2);
+    return 0;
     //return adc1_get_raw(BAT_ADC_CHANNEL);
 }
 
@@ -80,15 +80,15 @@ uint32_t M5EPD::getBatteryRaw() {
   */
 uint32_t M5EPD::getBatteryVoltage() {
     uint32_t adc_raw_value = 0;
-    /*
     for (uint16_t i = 0; i < ADC_FILTER_SAMPLE; i++) {
-        adc_raw_value += adc1_get_raw(BAT_ADC_CHANNEL);
+        //adc_raw_value += adc1_get_raw(BAT_ADC_CHANNEL);
+        adc_raw_value += analogReadMilliVolts(BAT_ADC_CHANNEL);
     }
-    adc_raw_value = adc_raw_value / ADC_FILTER_SAMPLE;
-    */
+    //adc_raw_value = adc_raw_value / ADC_FILTER_SAMPLE;
+    //uint32_t voltage = adc_raw_value / ADC_FILTER_SAMPLE / SCALE;
+    uint32_t voltage = adc_raw_value / ADC_FILTER_SAMPLE * 2;
 
-    adc_raw_value = getBatteryRaw();
-    uint32_t voltage = (uint32_t)(esp_adc_cal_raw_to_voltage(adc_raw_value, _adc_chars) / SCALE);
+    //uint32_t voltage = (uint32_t)(esp_adc_cal_raw_to_voltage(adc_raw_value, _adc_chars) / SCALE);
     return voltage;
 }
 
