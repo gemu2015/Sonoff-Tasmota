@@ -46,7 +46,7 @@
 class M5Epd47 : public Renderer  {
 public:
     M5Epd47(int16_t width, int16_t height);
-    int  Init(void);
+    int32_t  Init(void);
     void drawPixel(int16_t x, int16_t y, uint16_t color);
     void fillScreen(uint16_t color);
     void Updateframe();
