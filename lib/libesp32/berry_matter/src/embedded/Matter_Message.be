@@ -215,7 +215,7 @@ class Matter_Frame
     raw.add(self.x_flags, 1)
     # opcode (mandatory)
     raw.add(self.opcode, 1)
-    raw.add(self.exchange_id & 0xFFFF, 2)
+    raw.add((self.exchange_id != nil) ? self.exchange_id & 0xFFFF : 0, 2)
     raw.add(self.protocol_id, 2)
     if self.x_flag_a    raw.add(self.ack_message_counter, 4) end
     # finally payload
@@ -224,7 +224,6 @@ class Matter_Frame
       raw .. payload
     end
 
-    # self.debug(raw)
     self.raw = raw
     return raw
   end

@@ -99,7 +99,6 @@ class Matter_Plugin
   static var UPDATE_COMMANDS = []
   var device                                # reference to the `device` global object
   var endpoint                              # current endpoint
-  var clusters                              # map from cluster to list of attributes, typically constructed from CLUSTERS hierachy
   var tick                                  # tick value when it was last updated
   var node_label                            # name of the endpoint, used only in bridge mode, "" if none
 
@@ -118,7 +117,6 @@ class Matter_Plugin
   def init(device, endpoint, config)
     self.device = device
     self.endpoint = endpoint
-    self.clusters = self.get_clusters()
     self.parse_configuration(config)
     self.node_label = config.find("name", "")
   end
@@ -183,36 +181,12 @@ class Matter_Plugin
   #############################################################
   # generate a new event
   #
-  def publish_event(cluster, event, priority, data)
-    var event_ib = matter.EventDataIB()
-    var event_path = matter.EventPathIB()
-    event_path.endpoint = self.endpoint
-    event_path.cluster = cluster
-    event_path.event = event
-    event_ib.path = event_path
-    event_ib.priority = priority
-    event_ib.event_number = self.device.events.get_next_event_no()
-    event_ib.epoch_timestamp = tasmota.rtc('utc')
-    if (event_ib.epoch_timestamp < 1700000000)    event_ib.epoch_timestamp = nil  end    # no valid time
-    event_ib.data = data
-    if tasmota.loglevel(3)
-      var data_str = str(event_ib.data)
-      if (cluster == 0x0028) && (event == 0x00)
-        # put the software version in a readable format
-        var val = event_ib.data.val
-        data_str = format("%i.%i.%i.%i", (val >> 24) & 0xFF, (val >> 16) & 0xFF, (val >> 8) & 0xFF, val & 0xFF)
-      end
-      var priority_str = (priority == 2) ? "CRIT  " : (priority == 1) ? "INFO  " : "DEBUG "
-      var event_name = matter.get_event_name(cluster, event)
-      event_name = (event_name != nil) ? "(" + event_name + ") " : ""
-      log(f"MTR: +Add_Event ({priority_str}{event_ib.event_number:8s}) [{event_path.endpoint:02X}]{event_path.cluster:04X}/{event_path.event:02X} {event_name}- {data_str}", 2)
-    end
-    if tasmota.loglevel(4)
-      log(f"MTR: Publishing event {event_ib}", 4)
-    end
-
-    self.device.events.queue_event(event_ib)
+  def publish_event(cluster, event_id, priority, data0, data1, data2)
+    self.device.events.publish_event(self.endpoint, cluster, event_id, true #-urgent-#, priority, data0, data1, data2)
   end
+  # def publish_event_non_urgent(cluster, event, priority, data0, data1, data2)
+  #   self.device.events.publish_event(self.endpoint, cluster, event, false #-non_urgent-#, priority, data0, data1, data2)
+  # end
 #- testing
 
 var root = matter_device.plugins[0]
@@ -301,20 +275,26 @@ matter_device.events.dump()
     return self.endpoint
   end
   def get_cluster_list_sorted()
-    return self.device.k2l(self.clusters)
+    return self.device.k2l(self.CLUSTERS)
   end
   def contains_cluster(cluster)
-    return self.clusters.contains(cluster)
+    return self.CLUSTERS.contains(cluster)
   end
-  def get_attribute_list(cluster)
-    return self.clusters.find(cluster, [])
+  # def get_attribute_list(cluster)
+  #   return self.clusters.find(cluster, [])
+  # end
+  # returns as a constant bytes of 16-bit ints, big endian
+  def get_attribute_list_bytes(cluster)
+    return self.CLUSTERS.find(cluster, nil)
   end
   def contains_attribute(cluster, attribute)
-    var attr_list = self.clusters.find(cluster)
+    var attr_list = self.CLUSTERS.find(cluster)
+    # log(f"MTR: contains_attribute {cluster=} {attribute=} {attr_list=}")
     if attr_list != nil
       var idx = 0
-      while idx < size(attr_list)
-        if attr_list[idx] == attribute
+      var attr_sz = size(attr_list) / 2     # group of 16-bit integers, big endian
+      while idx < attr_sz
+        if attr_list.get(idx * 2, -2) == attribute
           return true
         end
         idx += 1
@@ -383,10 +363,11 @@ matter_device.events.dump()
       return gcl                        # return empty list
     elif attribute == 0xFFFB            # AttributeList
       var acli = TLV.Matter_TLV_array()
-      var attr_list = self.get_attribute_list(cluster)
+      var attr_list_bytes = self.get_attribute_list_bytes(cluster)
+      var attr_list_bytes_sz = (attr_list_bytes != nil) ? size(attr_list_bytes) : 0
       var idx = 0
-      while idx < size(attr_list)
-        acli.add_TLV(nil, TLV.U2, attr_list[idx])
+      while idx < attr_list_bytes_sz
+        acli.add_TLV(nil, TLV.U2, attr_list_bytes.get(idx * 2, -2))
         idx += 1
       end
       return acli                       # TODO, empty list for now

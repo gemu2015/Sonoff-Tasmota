@@ -50,6 +50,8 @@ class Matter_MessageHandler
   def send_simple_ack(frame, reliable)
     if frame.x_flag_r                   # nothing to respond, check if we need a standalone ack
       var resp = frame.build_standalone_ack(reliable)
+      # special case, the local_session_id is not the one from the session
+      resp.local_session_id = frame.local_session_id
       resp.encode_frame()
       if tasmota.loglevel(4)
         log(format("MTR: <Ack       (%6i) ack=%i id=%i %s", resp.session.local_session_id, resp.ack_message_counter, resp.message_counter, reliable ? '{reliable}' : ''), 4)
@@ -84,7 +86,6 @@ class Matter_MessageHandler
   def msg_received(raw, addr, port)
     var ret = false
 
-    matter.profiler.log("msg_received")
     try
       # log("MTR: MessageHandler::msg_received raw="+raw.tohex(), 4)
       var frame = matter.Frame(self, raw, addr, port)
@@ -125,7 +126,8 @@ class Matter_MessageHandler
           var op_name = matter.get_opcode_name(frame.opcode)
           if !op_name   op_name = format("0x%02X", frame.opcode) end
           if tasmota.loglevel(3)
-            log(format("MTR: >Received  (%6i) %s rid=%i exch=%i from [%s]:%i", session.local_session_id, op_name, frame.message_counter, frame.exchange_id, addr, port), 3)
+            log(format("MTR: >Received  (%6i) %s from [%s]:%i", session.local_session_id, op_name, addr, port), 3)
+            # log(format("MTR: >Received  (%6i) %s rid=%i exch=%i from [%s]:%i", session.local_session_id, op_name, frame.message_counter, frame.exchange_id, addr, port), 3)
           end
         else
           if tasmota.loglevel(4)
@@ -167,7 +169,7 @@ class Matter_MessageHandler
         end
         
         var decrypt_ok = frame.decrypt()
-        matter.profiler.log("msg_received_header_frame_decrypted")
+        # matter.profiler.log("msg_received_header_frame_decrypted")
         if !decrypt_ok     return false end
 
         # matter.profiler.log("msg_received_payload_undecoded")
@@ -198,9 +200,7 @@ class Matter_MessageHandler
           ret = true
         elif protocol_id == 0x0001  # PROTOCOL_ID_INTERACTION_MODEL
           # dispatch to IM Protocol Messages
-          matter.profiler.log("process_IM_start")
           ret = self.im.process_incoming(frame)
-          matter.profiler.log("process_IM_end")
           # if `ret` is true, we have something to send
           if ret
             self.im.send_enqueued(self)
@@ -247,7 +247,6 @@ class Matter_MessageHandler
   #   msg.exchange_id:      exchange id (int)
   #   msg.local_session_id: local session (for logging)
   def send_response_frame(msg)
-    matter.profiler.log("send_response_frame")
     self.device.msg_send(msg)
   end
 
@@ -259,9 +258,9 @@ class Matter_MessageHandler
   end
 
   #############################################################
-  # dispatch every 250ms click to sub-objects that need it
-  def every_250ms()
-    self.im.every_250ms()
+  # dispatch every 50ms click to sub-objects that need it
+  def every_50ms()
+    self.im.every_50ms()
   end
 
 end

@@ -3,35 +3,39 @@
 * Generated code, don't edit                                         *
 \********************************************************************/
 #include "be_constobj.h"
+// compact class 'Matter_Plugin_Sensor_OnOff' ktab size: 12, total: 14 (saved 16 bytes)
+static const bvalue be_ktab_class_Matter_Plugin_Sensor_OnOff[12] = {
+  /* K0   */  be_nested_str_weak(matter),
+  /* K1   */  be_nested_str_weak(TLV),
+  /* K2   */  be_nested_str_weak(cluster),
+  /* K3   */  be_nested_str_weak(attribute),
+  /* K4   */  be_nested_str_weak(update_shadow_lazy),
+  /* K5   */  be_const_int(0),
+  /* K6   */  be_nested_str_weak(set),
+  /* K7   */  be_nested_str_weak(BOOL),
+  /* K8   */  be_nested_str_weak(shadow_bool_value),
+  /* K9   */  be_nested_str_weak(read_attribute),
+  /* K10  */  be_nested_str_weak(_X2C_X22OnOff_X22_X3A_X25s),
+  /* K11  */  be_nested_str_weak(attribute_updated),
+};
+
 
 extern const bclass be_class_Matter_Plugin_Sensor_OnOff;
 
 /********************************************************************
 ** Solidified function: read_attribute
 ********************************************************************/
-extern const bclass be_class_Matter_Plugin_Sensor_OnOff;
 be_local_closure(class_Matter_Plugin_Sensor_OnOff_read_attribute,   /* name */
   be_nested_proto(
     12,                          /* nstack */
     4,                          /* argc */
-    2,                          /* varg */
+    10,                          /* varg */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    &be_class_Matter_Plugin_Sensor_OnOff, 
+    NULL,                       /* no sub protos */
     1,                          /* has constants */
-    ( &(const bvalue[10]) {     /* constants */
-    /* K0   */  be_nested_str_weak(matter),
-    /* K1   */  be_nested_str_weak(TLV),
-    /* K2   */  be_nested_str_weak(cluster),
-    /* K3   */  be_nested_str_weak(attribute),
-    /* K4   */  be_nested_str_weak(update_shadow_lazy),
-    /* K5   */  be_const_int(0),
-    /* K6   */  be_nested_str_weak(set),
-    /* K7   */  be_nested_str_weak(BOOL),
-    /* K8   */  be_nested_str_weak(shadow_bool_value),
-    /* K9   */  be_nested_str_weak(read_attribute),
-    }),
+    &be_ktab_class_Matter_Plugin_Sensor_OnOff,     /* shared constants */
     be_str_weak(read_attribute),
     &be_const_str_solidified,
     ( &(const binstruction[25]) {  /* code */
@@ -69,28 +73,24 @@ be_local_closure(class_Matter_Plugin_Sensor_OnOff_read_attribute,   /* name */
 /********************************************************************
 ** Solidified function: append_state_json
 ********************************************************************/
-extern const bclass be_class_Matter_Plugin_Sensor_OnOff;
 be_local_closure(class_Matter_Plugin_Sensor_OnOff_append_state_json,   /* name */
   be_nested_proto(
     5,                          /* nstack */
     1,                          /* argc */
-    2,                          /* varg */
+    10,                          /* varg */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    &be_class_Matter_Plugin_Sensor_OnOff, 
+    NULL,                       /* no sub protos */
     1,                          /* has constants */
-    ( &(const bvalue[ 2]) {     /* constants */
-    /* K0   */  be_nested_str_weak(_X2C_X22OnOff_X22_X3A_X25s),
-    /* K1   */  be_nested_str_weak(shadow_bool_value),
-    }),
+    &be_ktab_class_Matter_Plugin_Sensor_OnOff,     /* shared constants */
     be_str_weak(append_state_json),
     &be_const_str_solidified,
     ( &(const binstruction[ 7]) {  /* code */
       0x60040018,  //  0000  GETGBL	R1	G24
-      0x58080000,  //  0001  LDCONST	R2	K0
+      0x5808000A,  //  0001  LDCONST	R2	K10
       0x600C0009,  //  0002  GETGBL	R3	G9
-      0x88100101,  //  0003  GETMBR	R4	R0	K1
+      0x88100108,  //  0003  GETMBR	R4	R0	K8
       0x7C0C0200,  //  0004  CALL	R3	1
       0x7C040400,  //  0005  CALL	R1	2
       0x80040200,  //  0006  RET	1	R1
@@ -103,27 +103,23 @@ be_local_closure(class_Matter_Plugin_Sensor_OnOff_append_state_json,   /* name *
 /********************************************************************
 ** Solidified function: value_updated
 ********************************************************************/
-extern const bclass be_class_Matter_Plugin_Sensor_OnOff;
 be_local_closure(class_Matter_Plugin_Sensor_OnOff_value_updated,   /* name */
   be_nested_proto(
     5,                          /* nstack */
     1,                          /* argc */
-    2,                          /* varg */
+    10,                          /* varg */
     0,                          /* has upvals */
     NULL,                       /* no upvals */
     0,                          /* has sup protos */
-    &be_class_Matter_Plugin_Sensor_OnOff, 
+    NULL,                       /* no sub protos */
     1,                          /* has constants */
-    ( &(const bvalue[ 2]) {     /* constants */
-    /* K0   */  be_nested_str_weak(attribute_updated),
-    /* K1   */  be_const_int(0),
-    }),
+    &be_ktab_class_Matter_Plugin_Sensor_OnOff,     /* shared constants */
     be_str_weak(value_updated),
     &be_const_str_solidified,
     ( &(const binstruction[ 5]) {  /* code */
-      0x8C040100,  //  0000  GETMET	R1	R0	K0
+      0x8C04010B,  //  0000  GETMET	R1	R0	K11
       0x540E0005,  //  0001  LDINT	R3	6
-      0x58100001,  //  0002  LDCONST	R4	K1
+      0x58100005,  //  0002  LDCONST	R4	K5
       0x7C040600,  //  0003  CALL	R1	3
       0x80000000,  //  0004  RET	0
     })
@@ -145,86 +141,12 @@ be_local_class(Matter_Plugin_Sensor_OnOff,
         { be_const_key_weak(CLUSTERS, -1), be_const_simple_instance(be_nested_simple_instance(&be_class_map, {
         be_const_map( *     be_nested_map(6,
     ( (struct bmapnode*) &(const bmapnode[]) {
-        { be_const_key_int(6, -1), be_const_simple_instance(be_nested_simple_instance(&be_class_list, {
-        be_const_list( *     be_nested_list(7,
-    ( (struct bvalue*) &(const bvalue[]) {
-        be_const_int(0),
-        be_const_int(65528),
-        be_const_int(65529),
-        be_const_int(65530),
-        be_const_int(65531),
-        be_const_int(65532),
-        be_const_int(65533),
-    }))    ) } )) },
-        { be_const_key_int(5, -1), be_const_simple_instance(be_nested_simple_instance(&be_class_list, {
-        be_const_list( *     be_nested_list(12,
-    ( (struct bvalue*) &(const bvalue[]) {
-        be_const_int(0),
-        be_const_int(1),
-        be_const_int(2),
-        be_const_int(3),
-        be_const_int(4),
-        be_const_int(5),
-        be_const_int(65528),
-        be_const_int(65529),
-        be_const_int(65530),
-        be_const_int(65531),
-        be_const_int(65532),
-        be_const_int(65533),
-    }))    ) } )) },
-        { be_const_key_int(57, -1), be_const_simple_instance(be_nested_simple_instance(&be_class_list, {
-        be_const_list( *     be_nested_list(12,
-    ( (struct bvalue*) &(const bvalue[]) {
-        be_const_int(3),
-        be_const_int(5),
-        be_const_int(10),
-        be_const_int(15),
-        be_const_int(17),
-        be_const_int(18),
-        be_const_int(65528),
-        be_const_int(65529),
-        be_const_int(65530),
-        be_const_int(65531),
-        be_const_int(65532),
-        be_const_int(65533),
-    }))    ) } )) },
-        { be_const_key_int(3, 2), be_const_simple_instance(be_nested_simple_instance(&be_class_list, {
-        be_const_list( *     be_nested_list(8,
-    ( (struct bvalue*) &(const bvalue[]) {
-        be_const_int(0),
-        be_const_int(1),
-        be_const_int(65528),
-        be_const_int(65529),
-        be_const_int(65530),
-        be_const_int(65531),
-        be_const_int(65532),
-        be_const_int(65533),
-    }))    ) } )) },
-        { be_const_key_int(4, -1), be_const_simple_instance(be_nested_simple_instance(&be_class_list, {
-        be_const_list( *     be_nested_list(7,
-    ( (struct bvalue*) &(const bvalue[]) {
-        be_const_int(0),
-        be_const_int(65528),
-        be_const_int(65529),
-        be_const_int(65530),
-        be_const_int(65531),
-        be_const_int(65532),
-        be_const_int(65533),
-    }))    ) } )) },
-        { be_const_key_int(29, 1), be_const_simple_instance(be_nested_simple_instance(&be_class_list, {
-        be_const_list( *     be_nested_list(10,
-    ( (struct bvalue*) &(const bvalue[]) {
-        be_const_int(0),
-        be_const_int(1),
-        be_const_int(2),
-        be_const_int(3),
-        be_const_int(65528),
-        be_const_int(65529),
-        be_const_int(65530),
-        be_const_int(65531),
-        be_const_int(65532),
-        be_const_int(65533),
-    }))    ) } )) },
+        { be_const_key_int(6, -1), be_const_bytes_instance(0000FFF8FFF9FFFAFFFBFFFCFFFD) },
+        { be_const_key_int(5, -1), be_const_bytes_instance(000000010002000300040005FFF8FFF9FFFAFFFBFFFCFFFD) },
+        { be_const_key_int(57, -1), be_const_bytes_instance(00030005000A000F00110012FFF8FFF9FFFAFFFBFFFCFFFD) },
+        { be_const_key_int(3, 2), be_const_bytes_instance(00000001FFF8FFF9FFFAFFFBFFFCFFFD) },
+        { be_const_key_int(4, -1), be_const_bytes_instance(0000FFF8FFF9FFFAFFFBFFFCFFFD) },
+        { be_const_key_int(29, 1), be_const_bytes_instance(0000000100020003FFF8FFF9FFFAFFFBFFFCFFFD) },
     }))    ) } )) },
         { be_const_key_weak(append_state_json, -1), be_const_closure(class_Matter_Plugin_Sensor_OnOff_append_state_json_closure) },
         { be_const_key_weak(TYPES, 6), be_const_simple_instance(be_nested_simple_instance(&be_class_map, {

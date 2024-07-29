@@ -49,7 +49,6 @@ class Matter_Plugin_Root : Matter_Plugin
   # Constructor
   def init(device, endpoint, config)
     super(self).init(device, endpoint, config)
-
     self.publish_event(0x0028, 0x00, matter.EVENT_CRITICAL, matter.TLV.Matter_TLV_item().set(matter.TLV.U4, tasmota.version()))   # Event StartUp - Software Version
     self.publish_event(0x0033, 0x03, matter.EVENT_CRITICAL, matter.TLV.Matter_TLV_item().set(matter.TLV.U1, 1))   # Event BootReason - PowerOnReboot - TODO if we need to refine
   end
@@ -222,7 +221,7 @@ class Matter_Plugin_Root : Matter_Plugin
       elif attribute == 0x0001          #  ---------- VendorName / string ----------
         return tlv_solo.set(TLV.UTF1, "Tasmota")
       elif attribute == 0x0002          #  ---------- VendorID / vendor-id ----------
-        return tlv_solo.set(TLV.U2, self.device.vendorid)    # Vendor ID reserved for development
+        return tlv_solo.set(TLV.U2, self.device.VENDOR_ID)    # Vendor ID reserved for development
       elif attribute == 0x0003          #  ---------- ProductName / string ----------
         return tlv_solo.set(TLV.UTF1, tasmota.cmd("DeviceName", true)['DeviceName'])
       elif attribute == 0x0004          #  ---------- ProductID / u16 (opt) ----------

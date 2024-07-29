@@ -209,7 +209,8 @@ extern int matter_publish_command(bvm *vm);
 
 extern const bclass be_class_Matter_TLV;   // need to declare it upfront because of circular reference
 #include "solidify/solidified_Matter_Path_0.h"
-#include "solidify/solidified_Matter_Path_1_Generator.h"
+#include "solidify/solidified_Matter_Path_1_PathGenerator.h"
+#include "solidify/solidified_Matter_Path_1_EventGenerator.h"
 #include "solidify/solidified_Matter_TLV.h"
 #include "solidify/solidified_Matter_IM_Data.h"
 #include "solidify/solidified_Matter_UDPServer.h"
@@ -271,7 +272,7 @@ extern const bclass be_class_Matter_TLV;   // need to declare it upfront because
 #include "solidify/solidified_Matter_Plugin_3_Sensor_Rain.h"
 #include "solidify/solidified_Matter_Plugin_3_Sensor_Waterleak.h"
 #include "solidify/solidified_Matter_Plugin_2_Fan.h"
-#include "solidify/solidified_Matter_Plugin_2_Sensor_GenericSwitch.h"
+#include "solidify/solidified_Matter_Plugin_2_Sensor_GenericSwitch_Btn.h"
 #include "solidify/solidified_Matter_Plugin_9_Virt_Fan.h"
 #include "solidify/solidified_Matter_Plugin_9_Virt_Sensor_Contact.h"
 #include "solidify/solidified_Matter_Plugin_9_Virt_Sensor_Occupancy.h"
@@ -455,12 +456,13 @@ module matter (scope: global, strings: weak) {
   // Interation Model
   Path, class(be_class_Matter_Path)
   PathGenerator, class(be_class_Matter_PathGenerator)
+  EventGenerator, class(be_class_Matter_EventGenerator)
   IM_Status, class(be_class_Matter_IM_Status)
   IM_InvokeResponse, class(be_class_Matter_IM_InvokeResponse)
   IM_WriteResponse, class(be_class_Matter_IM_WriteResponse)
-  IM_ReportData, class(be_class_Matter_IM_ReportData)
-  IM_ReportDataSubscribed, class(be_class_Matter_IM_ReportDataSubscribed)
-  IM_SubscribeResponse, class(be_class_Matter_IM_SubscribeResponse)
+  IM_ReportData_Pull, class(be_class_Matter_IM_ReportData_Pull)
+  IM_ReportDataSubscribed_Pull, class(be_class_Matter_IM_ReportDataSubscribed_Pull)
+  IM_SubscribeResponse_Pull, class(be_class_Matter_IM_SubscribeResponse_Pull)
   IM_SubscribedHeartbeat, class(be_class_Matter_IM_SubscribedHeartbeat)
   IM_Subscription, class(be_class_Matter_IM_Subscription)
   IM_Subscription_Shop, class(be_class_Matter_IM_Subscription_Shop)

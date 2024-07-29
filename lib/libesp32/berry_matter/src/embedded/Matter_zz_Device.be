@@ -55,8 +55,6 @@ class Matter_Device
   var commissioning_instance_eth      # random instance name for commissioning (mDNS)
   var hostname_wifi                   # MAC-derived hostname for commissioning
   var hostname_eth                    # MAC-derived hostname for commissioning
-  var vendorid
-  var productid
   # mDNS active announces
   var mdns_pase_eth                   # do we have an active PASE mDNS announce for eth
   var mdns_pase_wifi                  # do we have an active PASE mDNS announce for wifi
@@ -69,12 +67,6 @@ class Matter_Device
   var disable_bridge_mode             # default is bridge mode, this flag disables this mode for some non-compliant controllers
   var next_ep                         # next endpoint to be allocated for bridge, start at 1
   var debug                           # debug mode, output all values when responding to read request with wildcard
-  # context for PBKDF
-  var root_iterations                 # PBKDF number of iterations
-  # PBKDF information used only during PASE (freed afterwards)
-  var root_salt
-  var root_w0
-  var root_L
   # cron equivalent to call `read_sensors()` regularly and dispatch to all entpoints
   var probe_sensor_time               # number of milliseconds to wait between each `read_sensors()` or `nil` if none active
   var probe_sensor_timestamp          # timestamp for `read_sensors()` probe (in millis())
@@ -95,11 +87,7 @@ class Matter_Device
     self.plugins = []
     self.plugins_persist = false                  # plugins need to saved only when the first fabric is associated
     self.plugins_config_remotes = {}
-    self.vendorid = self.VENDOR_ID
-    self.productid = self.PRODUCT_ID
-    self.root_iterations = self.PBKDF_ITERATIONS
-    self.next_ep = 1                              # start at endpoint 1 for dynamically allocated endpoints
-    self.root_salt = crypto.random(16)
+    self.next_ep = 2                              # start at endpoint 2 for dynamically allocated endpoints (1 reserved for aggregator)
     self.ipv4only = false
     self.disable_bridge_mode = false
     self.load_param()
@@ -173,8 +161,21 @@ class Matter_Device
     tasmota.publish_result(format('{"Matter":{"Commissioning":1,"PairingCode":"%s","QRCode":"%s"}}', pairing_code, qr_code), 'Matter')
 
     # compute PBKDF
-    self._compute_pbkdf(self.root_passcode, self.root_iterations, self.root_salt)
-    self.start_basic_commissioning(timeout_s, self.root_iterations, self.root_discriminator, self.root_salt, self.root_w0, #-self.root_w1,-# self.root_L, nil)
+    import crypto
+    var root_salt = crypto.random(16)
+
+    # Compute the PBKDF parameters for SPAKE2+ from root parameters
+    var passcode = bytes().add(self.root_passcode, 4)
+
+    var tv = crypto.PBKDF2_HMAC_SHA256().derive(passcode, root_salt, self.PBKDF_ITERATIONS, 80)
+    var w0s = tv[0..39]
+    var w1s = tv[40..79]
+
+    var root_w0 = crypto.EC_P256().mod(w0s)
+    var w1 = crypto.EC_P256().mod(w1s)    # w1 is temporarily computed then discarded
+    # self.root_w1 = crypto.EC_P256().mod(w1s)
+    var root_L = crypto.EC_P256().public_key(w1)
+    self.start_basic_commissioning(timeout_s, self.PBKDF_ITERATIONS, self.root_discriminator, root_salt, root_w0, #-self.root_w1,-# root_L, nil)
   end
 
   #####################################################################
@@ -234,57 +235,34 @@ class Matter_Device
   #############################################################
   # Stop PASE commissioning, mostly called when CASE is about to start
   def stop_basic_commissioning()
+    var n = nil
     if self.is_root_commissioning_open()
       tasmota.publish_result('{"Matter":{"Commissioning":0}}', 'Matter')
     end
-    self.commissioning_open = nil
+    self.commissioning_open = n
 
     self.mdns_remove_PASE()
 
     # clear any PBKDF information to free memory
-    self.commissioning_iterations = nil
-    self.commissioning_discriminator = nil
-    self.commissioning_salt = nil
-    self.commissioning_w0 = nil
+    self.commissioning_iterations = n
+    self.commissioning_discriminator = n
+    self.commissioning_salt = n
+    self.commissioning_w0 = n
     # self.commissioning_w1 = nil
-    self.commissioning_L = nil
-    self.commissioning_admin_fabric = nil
+    self.commissioning_L = n
+    self.commissioning_admin_fabric = n
   end
   def is_commissioning_open()
     return self.commissioning_open != nil
   end
   
   #############################################################
-  # (internal) Compute the PBKDF parameters for SPAKE2+ from root parameters
-  #
-  def _compute_pbkdf(passcode_int, iterations, salt)
-    import crypto
-    var passcode = bytes().add(passcode_int, 4)
-
-    var tv = crypto.PBKDF2_HMAC_SHA256().derive(passcode, salt, iterations, 80)
-    var w0s = tv[0..39]
-    var w1s = tv[40..79]
-
-    self.root_w0 = crypto.EC_P256().mod(w0s)
-    var w1 = crypto.EC_P256().mod(w1s)    # w1 is temporarily computed then discarded
-    # self.root_w1 = crypto.EC_P256().mod(w1s)
-    self.root_L = crypto.EC_P256().public_key(w1)
-
-    # log("MTR: ******************************", 4)
-    # log("MTR: salt          = " + self.root_salt.tohex(), 4)
-    # log("MTR: passcode_hex  = " + passcode.tohex(), 4)
-    # log("MTR: w0            = " + self.root_w0.tohex(), 4)
-    # log("MTR: L             = " + self.root_L.tohex(), 4)
-    # log("MTR: ******************************", 4)
-  end
-
-  #############################################################
   # Compute QR Code content - can be done only for root PASE
   def compute_qrcode_content()
     var raw = bytes().resize(11)    # we don't use TLV Data so it's only 88 bits or 11 bytes
     # version is `000` dont touch
-    raw.setbits(3, 16, self.vendorid)
-    raw.setbits(19, 16, self.productid)
+    raw.setbits(3, 16, self.VENDOR_ID)
+    raw.setbits(19, 16, self.PRODUCT_ID)
     # custom flow = 0 (offset=35, len=2)
     raw.setbits(37, 8, 0x04)        # already on IP network
     raw.setbits(45, 12, self.root_discriminator & 0xFFF)
@@ -308,11 +286,50 @@ class Matter_Device
     return ret
   end
 
+  #####################################################################
+  # Driver handling of buttons
+  #####################################################################
+  # Attach driver `button_pressed`
+  def button_pressed(cmd, idx)
+  	var state = (idx >> 16) & 0xFF
+  	var last_state = (idx >> 8) & 0xFF
+  	var index = (idx & 0xFF)
+    var press_counter = (idx >> 24) & 0xFF
+    self.button_handler(index + 1, (state != last_state) ? 1 : 0, state ? 0 : 1, press_counter)  # invert state, originally '0' means press, turn it into '1'
+  end
+  # Attach driver `button_multi_pressed`
+  def button_multi_pressed(cmd, idx)
+    var press_counter = (idx >> 8) & 0xFF
+    var index = (idx & 0xFF)
+    self.button_handler(index + 1, 2, 0, press_counter)
+  end
+  #####################################################################
+  # Centralize to a single call
+  #
+  # Args:
+  #   - button: (int) button number (base 1)
+  #   - mode: (int) 0=static report every second, 1=button state changed (immediate), 2=multi-press status (delayed)
+  #   - state: 1=button pressed, 0=button released, 2..5+=multi-press complete
+  def button_handler(button, mode, state, press_counter)
+    # log(f"MTR: button_handler({button=}, {mode=}, {state=})", 3)
+    # call all plugins, use a manual loop to avoid creating a new object
+    var idx = 0
+    import introspect
+    while idx < size(self.plugins)
+      var pi = self.plugins[idx]
+      if introspect.contains(pi, "button_handler")
+        self.plugins[idx].button_handler(button, mode, state, press_counter)
+      end
+      idx += 1
+    end
+  end
+
   #############################################################
   # dispatch every second click to sub-objects that need it
   def every_second()
     self.sessions.every_second()
     self.message_handler.every_second()
+    self.events.every_second()      # periodically remove bytes() representation of events
     if self.commissioning_open != nil && tasmota.time_reached(self.commissioning_open)    # timeout reached, close provisioning
       self.commissioning_open = nil
     end
@@ -321,7 +338,6 @@ class Matter_Device
   #############################################################
   # dispatch every 250ms to all plugins
   def every_250ms()
-    self.message_handler.every_250ms()
     # call read_sensors if needed
     self.read_sensors_scheduler()
     # call all plugins, use a manual loop to avoid creating a new object
@@ -380,9 +396,11 @@ class Matter_Device
   end
 
   #############################################################
+  # dispatch every 50ms
   # ticks
   def every_50ms()
     self.tick += 1
+    self.message_handler.every_50ms()
   end
 
   #############################################################
@@ -450,10 +468,6 @@ class Matter_Device
     import mdns
 
     self.stop_basic_commissioning()    # close all PASE commissioning information
-    # clear any PBKDF information to free memory
-    self.root_w0 = nil
-    # self.root_w1 = nil
-    self.root_L = nil
 
     self.mdns_announce_op_discovery(fabric)
   end
@@ -518,8 +532,6 @@ class Matter_Device
   #############################################################
   # Proceed to attribute expansion (used for Attribute Read/Write/Subscribe)
   #
-  # Called only when expansion is needed, so we don't need to report any error since they are ignored
-  #
   # calls `cb(pi, ctx, direct)` for each attribute expanded.
   # `pi`: plugin instance targeted by the attribute (via endpoint). Note: nothing is sent if the attribute is not declared in supported attributes in plugin.
   # `ctx`: context object with `endpoint`, `cluster`, `attribute` (no `command`)
@@ -530,68 +542,44 @@ class Matter_Device
     var endpoint = ctx.endpoint
     var cluster = ctx.cluster
     var attribute = ctx.attribute
-    var endpoint_found = false                # did any endpoint match
-    var cluster_found = false
-    var attribute_found = false
-
-    var direct = (ctx.endpoint != nil) && (ctx.cluster != nil) && (ctx.attribute != nil) # true if the target is a precise attribute, false if it results from an expansion and error are ignored
-
-    # log(f"MTR: process_attribute_expansion {str(ctx))}", 4)
 
     # build the generator for all endpoint/cluster/attributes candidates
     var path_generator = matter.PathGenerator(self)
-    path_generator.start(ctx, nil)      # TODO add session if we think it's needed later
+    path_generator.start(endpoint, cluster, attribute)
 
+    var direct = path_generator.is_direct()
     var concrete_path
-    while ((concrete_path := path_generator.next()) != nil)
-      var finished = cb(path_generator.get_pi(), concrete_path, direct)   # call the callback with the plugin and the context
-      if direct && finished     return end
-    end
-
-    # we didn't have any successful match, report an error if direct (non-expansion request)
-    if direct
-      # since it's a direct request, ctx has already the correct endpoint/cluster/attribute
-      if   !path_generator.endpoint_found      ctx.status = matter.UNSUPPORTED_ENDPOINT
-      elif !path_generator.cluster_found       ctx.status = matter.UNSUPPORTED_CLUSTER
-      elif !path_generator.attribute_found     ctx.status = matter.UNSUPPORTED_ATTRIBUTE
-      else                      ctx.status = matter.UNREPORTABLE_ATTRIBUTE
-      end
-      cb(nil, ctx, true)
+    while ((concrete_path := path_generator.next_attribute()) != nil)
+      var finished = cb(path_generator.get_pi(), concrete_path)   # call the callback with the plugin and the context
     end
   end
 
   #############################################################
   # Optimized version for a single endpoint/cluster/attribute
   #
-  # Retrieve the plugin for a read
+  # Retrieve the plugin for a read, or nil if not found
+  # In case of error, ctx.status is updated accordingly
   def resolve_attribute_read_solo(ctx)
     var endpoint = ctx.endpoint
-    # var endpoint_found = false                # did any endpoint match
     var cluster = ctx.cluster
-    # var cluster_found = false
     var attribute = ctx.attribute
-    # var attribute_found = false
 
     # all 3 elements must be non-nil
-    if endpoint == nil || cluster == nil || attribute == nil      return nil    end
+    if (endpoint == nil) || (cluster == nil) || (attribute == nil)      return nil    end
 
     # look for plugin
     var pi = self.find_plugin_by_endpoint(endpoint)
-    if pi == nil                                # endpoint not found
+    if (pi == nil)
       ctx.status = matter.UNSUPPORTED_ENDPOINT
       return nil
-    end
-
-    # check cluster
-    if !pi.contains_cluster(cluster)
-      ctx.status = matter.UNSUPPORTED_CLUSTER
-      return nil
-    end
-
-    # attribute list
-    if !pi.contains_attribute(cluster, attribute)
-      ctx.status = matter.UNSUPPORTED_ATTRIBUTE
-      return nil
+    else
+      if   !pi.contains_cluster(cluster)
+        ctx.status = matter.UNSUPPORTED_CLUSTER
+        return nil
+      elif !pi.contains_attribute(cluster, attribute)
+        ctx.status = matter.UNSUPPORTED_ATTRIBUTE
+        return nil
+      end
     end
 
     # all good
@@ -902,7 +890,7 @@ class Matter_Device
     import crypto
 
     var services = {
-      "VP":str(self.vendorid) + "+" + str(self.productid),
+      "VP": f"{self.VENDOR_ID}+{self.PRODUCT_ID}",
       "D": self.commissioning_discriminator,
       "CM":1,                           # requires passcode
       "T":0,                            # no support for TCP
@@ -928,7 +916,7 @@ class Matter_Device
         subtype = "_S" + str((self.commissioning_discriminator & 0xF00) >> 8)
         log("MTR: adding subtype: "+subtype, 3)
         mdns.add_subtype("_matterc", "_udp", self.commissioning_instance_eth, self.hostname_eth, subtype)
-        subtype = "_V" + str(self.vendorid)
+        subtype = "_V" + str(self.VENDOR_ID)
         log("MTR: adding subtype: "+subtype, 3)
         mdns.add_subtype("_matterc", "_udp", self.commissioning_instance_eth, self.hostname_eth, subtype)
         subtype = "_CM1"
@@ -950,7 +938,7 @@ class Matter_Device
         subtype = "_S" + str((self.commissioning_discriminator & 0xF00) >> 8)
         log("MTR: adding subtype: "+subtype, 3)
         mdns.add_subtype("_matterc", "_udp", self.commissioning_instance_wifi, self.hostname_wifi, subtype)
-        subtype = "_V" + str(self.vendorid)
+        subtype = "_V" + str(self.VENDOR_ID)
         log("MTR: adding subtype: "+subtype, 3)
         mdns.add_subtype("_matterc", "_udp", self.commissioning_instance_wifi, self.hostname_wifi, subtype)
         subtype = "_CM1"
@@ -1102,22 +1090,52 @@ class Matter_Device
 
     # check if we have a light
     var endpoint = matter.START_ENDPOINT
-    var light_present = false
+    var light_present = 0
 
     import light
-    var light_status = light.get()
+    var light_status = light.get(0)
     if light_status != nil
       var channels_count = size(light_status.find('channels', ""))
+      light_present = 1
       if channels_count > 0
         if   channels_count == 1
           m[str(endpoint)] = {'type':'light1'}
+          endpoint += 1
+          # check if we have secondary Dimmer lights (SetOption68 1)
+          var idx = 1
+          var light_status_i
+          while (light_status_i := light.get(idx)) != nil
+            m[str(endpoint)] = {'type':'light1','light':idx + 1}    # arg is 1-based so add 1
+            endpoint += 1
+            light_present += 1
+            idx += 1
+          end
         elif channels_count == 2
           m[str(endpoint)] = {'type':'light2'}
-        else
+          endpoint += 1
+        elif channels_count == 3
           m[str(endpoint)] = {'type':'light3'}
+          endpoint += 1
+          # check if we have a split second light (SetOption37 128) with 4/5 channels
+          var light_status1 = light.get(1)
+          if (light_status1 != nil)
+            var channels_count1 = size(light_status1.find('channels', ""))
+
+            if (channels_count1 == 1)
+              m[str(endpoint)] = {'type':'light1'}
+              endpoint += 1
+              light_present += 1
+            elif (channels_count1 == 2)
+              m[str(endpoint)] = {'type':'light2'}
+              endpoint += 1
+              light_present += 1
+            end
+          end
+        elif channels_count == 4
+          # not supported yet
+        else # only option left is 5 channels
+          # not supported yet
         end
-        light_present = true
-        endpoint += 1
       end
     end
 
@@ -1156,7 +1174,7 @@ class Matter_Device
     # how many relays are present
     var relay_count = size(tasmota.get_power())
     var relay_index = 0         # start at index 0
-    if light_present    relay_count -= 1  end       # last power is taken for lights
+    relay_count -= light_present  # last power(s) taken for lights
 
     while relay_index < relay_count
       if relays_reserved.find(relay_index) == nil   # if relay is actual relay
