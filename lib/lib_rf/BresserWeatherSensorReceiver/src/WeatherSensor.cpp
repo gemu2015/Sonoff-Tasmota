@@ -1257,6 +1257,25 @@ DecodeStatus WeatherSensor::decodeBresser7In1Payload(const uint8_t *msg, uint8_t
         sensor[slot].voc.hcho_init = (msgw[5] & 0x0f) == 0x0f;
         sensor[slot].voc.voc_init  = msgw[22] == 0x0f;
     }
+// the moisture sensor might present valid readings but does not have the hardware
+    else if (s_type == SENSOR_TYPE_SOIL)
+    {
+
+        int temp_raw = (msg[20] & 0x0f) + ((msg[20] & 0xf0) >> 4) * 10 + (msg[21] & 0x0f) * 100;
+        if (msg[25] & 0x0f)
+        {
+            temp_raw = -temp_raw;
+        }
+        sensor[slot].w.temp_c = temp_raw * 0.1f;
+
+        sensor[slot].w.humidity = (msg[22] & 0x0f) + ((msg[22] & 0xf0) >> 4) * 10;
+
+        int const moisture_map[] = {0, 7, 13, 20, 27, 33, 40, 47, 53, 60, 67, 73, 80, 87, 93, 99}; // scale is 20/3
+        sensor[slot].w.humidity_ok = false;
+        sensor[slot].soil.moisture = moisture_map[sensor[slot].w.humidity - 1];
+        sensor[slot].soil.temp_c = sensor[slot].w.temp_c;
+        
+    }
 
     return DECODE_OK;
 }
