@@ -168,7 +168,7 @@ bool M5Epd47::utouch_Init(char **name) {
   *name = ut_name;
   strcpy(ut_name, "GT911");
 
-  wire = &Wire;
+  wire = &Wire1;
   i2caddr = 0x5d;
   uint8_t buff[4];
   read(0x8140, buff, 4);
