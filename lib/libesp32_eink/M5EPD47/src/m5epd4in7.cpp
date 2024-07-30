@@ -39,7 +39,7 @@
 #include "m5epd4in7.h"
 #include "M5EPD_Driver.h"
 #include "M5EPD.h"
-
+#include "tasmota_options.h"
 
 uint16_t M5Epd47::GetColorFromIndex(uint8_t index) {
   return index & 0xf;
