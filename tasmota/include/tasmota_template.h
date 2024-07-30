@@ -222,6 +222,7 @@ enum UserSelectablePins {
   GPIO_TCP_TX_EN,                       // TCP to serial bridge, EN pin
   GPIO_ASR650X_TX, GPIO_ASR650X_RX,     // ASR650X LoRaWan node Serial interface
   GPIO_WOOLIIS_RX,                      // Wooliis Battery capacity monitor Serial RX
+  GPIO_ADC_VOLTAGE, GPIO_ADC_CURRENT,   // Analog Voltage and Current
   GPIO_SENSOR_END };
 
 // Error as warning to rethink GPIO usage with max 2045
@@ -232,7 +233,7 @@ enum ProgramSelectablePins {
   GPIO_USER,           // User configurable needs to be 2047
   GPIO_MAX };
 
-#define MAX_OPTIONS_A  7                   // Increase if more bits are used from GpioOptionABits
+#define MAX_OPTIONS_A  8                   // Increase if more bits are used from GpioOptionABits
 
 typedef union {                            // Restricted by MISRA-C Rule 18.4 but so useful...
   uint32_t data;                           // Allow bit manipulation using SetOption
@@ -244,7 +245,7 @@ typedef union {                            // Restricted by MISRA-C Rule 18.4 bu
     uint32_t rotary_mi_desk : 1;           // bit 4 (v9.5.0.5)   - Option_A5 - (Rotary) Enable Mi Desk emulation
     uint32_t linkind_support : 1;          // bit 5 (v10.1.0.4)  - Option_A6 - (Light) LinkInd support
     uint32_t shelly_pro : 1;               // bit 6 (v12.2.0.1)  - Option_A7 - (Device) Shelly Pro
-    uint32_t spare07 : 1;                  // bit 7
+    uint32_t ifan04_h : 1;                 // bit 7 (v14.1.0.4)  - Option_A8 - (Device) Sonoff ifan04-H
     uint32_t spare08 : 1;                  // bit 8
     uint32_t spare09 : 1;                  // bit 9
     uint32_t spare10 : 1;                  // bit 10
@@ -491,6 +492,7 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_TCP_TXD_EN "|"
   D_GPIO_ASR650X_TX "|" D_GPIO_ASR650X_RX "|"
   D_SENSOR_WOOLIIS_RX "|"
+  D_SENSOR_ADC_VOLTAGE "|" D_SENSOR_ADC_CURRENT "|"
   ;
 
 const char kSensorNamesFixed[] PROGMEM =
@@ -1224,6 +1226,11 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_ETH_PHY_MDC),
   AGPIO(GPIO_ETH_PHY_MDIO),             // Ethernet
 #endif  // USE_ETHERNET
+#ifdef USE_BIOPDU
+  AGPIO(GPIO_BIOPDU_PZEM0XX_TX),        // Biomine BioPDU pins
+  AGPIO(GPIO_BIOPDU_PZEM016_RX),
+  AGPIO(GPIO_BIOPDU_BIT) + 3,
+#endif
 
 /*-------------------------------------------------------------------------------------------*\
  * ESP32 multiple Analog / Digital converter inputs
@@ -1239,12 +1246,8 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_ADC_JOY) + MAX_ADCS,       // Joystick
   AGPIO(GPIO_ADC_PH) + MAX_ADCS,        // Analog PH Sensor
   AGPIO(GPIO_ADC_MQ) + MAX_ADCS,        // Analog MQ Sensor
-
-#ifdef USE_BIOPDU
-  AGPIO(GPIO_BIOPDU_PZEM0XX_TX),  // Biomine BioPDU pins
-  AGPIO(GPIO_BIOPDU_PZEM016_RX),
-  AGPIO(GPIO_BIOPDU_BIT) + 3,
-#endif
+  AGPIO(GPIO_ADC_VOLTAGE) + MAX_ADCS,   // Voltage
+  AGPIO(GPIO_ADC_CURRENT) + MAX_ADCS,   // Current
 #endif  // ESP32
 };
 
@@ -1265,22 +1268,26 @@ const uint16_t kAdcNiceList[] PROGMEM = {
   AGPIO(GPIO_ADC_JOY),                    // Joystick
   AGPIO(GPIO_ADC_PH),                     // Analog PH Sensor
   AGPIO(GPIO_ADC_MQ),                     // Analog MQ Sensor
+  AGPIO(GPIO_ADC_VOLTAGE),                // Voltage
+  AGPIO(GPIO_ADC_CURRENT),                // Current
 };
 #endif  // ESP8266
 
 // User selectable ADC functionality
 enum UserSelectableAdc {
-  ADC_NONE,           // Not used
-  ADC_INPUT,          // Analog input
-  ADC_TEMP,           // Thermistor
-  ADC_LIGHT,          // Light sensor
-  ADC_BUTTON,         // Button
-  ADC_BUTTON_INV,
-  ADC_RANGE,          // Range
-  ADC_CT_POWER,       // Current
-  ADC_JOY,            // Joystick
-  ADC_PH,             // Analog PH Sensor
-  ADC_MQ,             // Analog MQ Sensor
+  ADC_NONE,           // 0 = Not used
+  ADC_INPUT,          // 1 = Analog input
+  ADC_TEMP,           // 2 = Thermistor
+  ADC_LIGHT,          // 3 =Light sensor
+  ADC_BUTTON,         // 4 =Button
+  ADC_BUTTON_INV,     // 5 = Inverted button
+  ADC_RANGE,          // 6 = Range
+  ADC_CT_POWER,       // 7 = Current
+  ADC_JOY,            // 8 = Joystick
+  ADC_PH,             // 9 = Analog PH Sensor
+  ADC_MQ,             // 10 = Analog MQ Sensor
+  ADC_VOLTAGE,        // 11 = Voltage
+  ADC_CURRENT,        // 12 = Current
 //  ADC_SWITCH,         // Switch
 //  ADC_SWITCH_INV,
   ADC_END };
