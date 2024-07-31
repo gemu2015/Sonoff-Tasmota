@@ -10,7 +10,7 @@
 #include "GT911.h"
 #include "M5EPD_Driver.h"
 
-//#include "esp_adc_cal.h"
+#include "esp_adc_cal.h"
 
 #define M5EPD_MAIN_PWR_PIN 2
 #define M5EPD_CS_PIN 15
@@ -68,7 +68,10 @@ public:
 private:
     bool _is_adc_start;
     bool _isInited;
-    //esp_adc_cal_characteristics_t *_adc_chars;
+
+#if ESP_IDF_VERSION_MAJOR < 5
+    esp_adc_cal_characteristics_t *_adc_chars;
+#endif
 };
 
 extern M5EPD M5;

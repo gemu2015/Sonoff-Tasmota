@@ -48,10 +48,14 @@ void M5EPD::begin() {
 
 }
 
+
+//#define BATTERY_CORE2 
+
 /** @brief Initialize ADC to read voltage, will use ADC_UNIT_1
   */
 void M5EPD::BatteryADCBegin() {
-    /*
+
+#ifdef BATTERY_CORE2
     if (_is_adc_start) {
         return;
     }
@@ -60,37 +64,52 @@ void M5EPD::BatteryADCBegin() {
     adc1_config_channel_atten(BAT_ADC_CHANNEL, ADC_ATTEN_DB_11);
     _adc_chars = (esp_adc_cal_characteristics_t *)calloc(1, sizeof(esp_adc_cal_characteristics_t));
     esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, BASE_VOLATAGE, _adc_chars);
-*/
+#endif
 }
 
+#ifdef BATTERY_CORE2
+uint32_t M5EPD::getBatteryRaw() {
+    return adc1_get_raw(BAT_ADC_CHANNEL);
+}
 
-uint16_t AdcRead(uint32_t pin, uint32_t factor);
+uint32_t M5EPD::getBatteryVoltage() {
+    uint32_t adc_raw_value = 0;
+    for (uint16_t i = 0; i < ADC_FILTER_SAMPLE; i++) {
+        adc_raw_value += adc1_get_raw(BAT_ADC_CHANNEL);
+    }
 
+    adc_raw_value = adc_raw_value / ADC_FILTER_SAMPLE;
+    uint32_t voltage = (uint32_t)(esp_adc_cal_raw_to_voltage(adc_raw_value, _adc_chars) / SCALE);
+    return voltage;
+}
+#else
 /** @brief Read raw data of ADC
   * @retval ADC Raw data
   */
 uint32_t M5EPD::getBatteryRaw() {
-    //return AdcRead(BAT_ADC_CHANNEL, 2);
-    return 0;
     //return adc1_get_raw(BAT_ADC_CHANNEL);
+    return analogReadMilliVolts(BAT_ADC_CHANNEL);
 }
 
 /** @brief Read battery voltage
   * @retval voltage in mV
   */
 uint32_t M5EPD::getBatteryVoltage() {
+    return analogReadMilliVolts(BAT_ADC_CHANNEL);
     uint32_t adc_raw_value = 0;
     for (uint16_t i = 0; i < ADC_FILTER_SAMPLE; i++) {
         //adc_raw_value += adc1_get_raw(BAT_ADC_CHANNEL);
         adc_raw_value += analogReadMilliVolts(BAT_ADC_CHANNEL);
+        delay(1);
     }
-    //adc_raw_value = adc_raw_value / ADC_FILTER_SAMPLE;
-    //uint32_t voltage = adc_raw_value / ADC_FILTER_SAMPLE / SCALE;
-    uint32_t voltage = adc_raw_value / ADC_FILTER_SAMPLE * 2;
 
+    adc_raw_value = adc_raw_value / ADC_FILTER_SAMPLE;
     //uint32_t voltage = (uint32_t)(esp_adc_cal_raw_to_voltage(adc_raw_value, _adc_chars) / SCALE);
+    uint32_t voltage = (uint32_t)adc_raw_value * 2;
+
     return voltage;
 }
+#endif
 
 
 void M5EPD::shutdown() {
