@@ -115,7 +115,7 @@ void M5EPDShow(uint32_t json) {
   if (!M5EPD_globs.ready) return;
   float bvolt = (float)M5EPD_globs.m5epd.getBatteryVoltage()/1000.0;
   if (json) {
-    ResponseAppend_P(PSTR(",\"M5EPD\":{\"BV\":%1.3f}"), bvolt);
+    ResponseAppend_P(PSTR(",\"M5EPD\":{\"BV\":%3_f}"), &bvolt);
   } else {
     WSContentSend_Voltage(BATTERY, bvolt);
   }
