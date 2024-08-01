@@ -150,6 +150,7 @@ int32_t tmod_file_read(class File *fp, uint8_t *buff, uint32_t size);
 int32_t tmod_file_write(class File *fp, uint8_t *buff, uint32_t size);
 void tmod_AddLogData(uint32_t loglevel, const char* log_data);
 char *Plugin_Get_SensorNames(char *type, uint32_t index);
+char *tmod_Run_Scripter(char *sect);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -366,9 +367,18 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_dummy,
   JMPTBL&tmod_dummy,
 #endif
-  JMPTBL&Plugin_Get_SensorNames
+  JMPTBL&Plugin_Get_SensorNames,
+  JMPTBL&tmod_Run_Scripter
 };
 
+
+char *tmod_Run_Scripter(char *sect) {
+  uint8_t meter_script = Run_Scripter(sect, -2, 0);
+  if (meter_script != 99) {
+    return nullptr;
+  }
+  return glob_script_mem.section_ptr;
+}
 
 #ifdef ESP32
 //uint32_t tmod_task_create(TaskFunction_t pvTaskCode, const char *constpcName, const uint32_t usStackDepth, void *constpvParameters, UBaseType_t uxPriority, TaskHandle_t *constpvCreatedTask, const BaseType_t xCoreID) {

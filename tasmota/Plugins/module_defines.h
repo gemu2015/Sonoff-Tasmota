@@ -190,7 +190,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jtaskc(A,B,C,D,E,F,G)           (( unt32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t )) jt[156])(A,B,C,D,E,F,G)
 #define jtaskd(A)                       (( unt32_t (*)(uint32_t))                       jt[157])(A)
 #define jPlugin_Get_SensorNames(A,B)    (( char *(*)(char *,uint32_t))                  jt[158])(A,B)
-
+#define GetScriptSection(A)             (( char *(*)(char *))                           jt[159])(A)
 
 //tmod_udp,
 //tmod_i2s,

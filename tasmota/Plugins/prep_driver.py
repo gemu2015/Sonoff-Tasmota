@@ -11,7 +11,7 @@ import os
 
 # edit this path
 #file = 'xdrv_28_pcf8574.ino'
-#file = 'xsns_126_moritz.ino'
+file = 'xsns_53_sml.ino'
 
 def ireplace(old, new, text):
     """ 

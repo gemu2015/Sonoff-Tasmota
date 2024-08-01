@@ -792,6 +792,7 @@ int32_t script_ow(uint8_t sel, uint32_t val);
 int32_t script_logfile_write(char *path, char *payload, uint32_t size);
 void script_sort_array(TS_FLOAT *array, uint16_t size);
 uint32_t Touch_Status(int32_t sel);
+int32_t play_wave(char *path);
 
 void ScriptEverySecond(void) {
 
@@ -4951,7 +4952,16 @@ char *Plugin_Query(uint8_t, uint8_t);
           len += 1;
           goto exit;
         }
-
+#ifdef ESP8266
+#ifdef USE_PLAY_WAVE
+        if (!strncmp_XP(lp, XPSTR("pwav("), 5)) {
+          char str[SCRIPT_MAX_SBSIZE];
+          lp = GetStringArgument(lp + 5, OPER_EQU, str, 0);
+          fvar = play_wave(str);
+          goto nfuncexit;
+        }
+#endif
+#endif
         break;
 
       case 'r':
@@ -6620,6 +6630,64 @@ char *getop(char *lp, uint8_t *operand) {
     *operand = 0;
     return lp;
 }
+
+
+#ifdef ESP8266
+#ifdef USE_PLAY_WAVE
+
+#include <i2s.h>
+#include <i2s_reg.h>
+/*
+i2S on ESP8266
+dout  = 3   	(RX)
+clk   = 15	  (D8)
+ws    = 2		  (D4)
+*/
+
+
+int32_t play_wave(char *path) {
+File wf = ufsp->open(path, FS_FILE_READ);
+  if (!wf) {
+    return -1;
+  }
+
+  int16_t buffer[512]; 
+
+  int32_t fsize = wf.size();
+ 
+  // check for RIFF
+  char buff[4];
+   wf.readBytes((char*)buff, 4);
+  if (buff[0] != 0x52 && buff[1] != 0x49 && buff[2] != 0x46 && buff[3] != 0x46) {
+    wf.close();
+    return -2;
+  }
+  // read rest of header we assume 1 channel 8 khz
+  wf.readBytes((char*)buffer, 40);
+  fsize -= 44;
+
+  i2s_begin();
+  i2s_set_rate(8000);
+  
+  while (wf.position() < fsize) {
+    int numBytes = _min(sizeof(buffer), fsize - wf.position() - 1);
+    int bytesread = wf.readBytes((char*)buffer, numBytes);
+    if (!bytesread) {
+      break;
+    }
+    for (int i = 0; i < numBytes / 2; i++) {
+      i2s_write_sample(buffer[i]);
+      OsWatchLoop();
+    }
+  }
+
+  i2s_end();
+
+  wf.close();
+  return 0;
+}
+#endif
+#endif
 
 #ifdef USE_SCRIPT_FATFS_EXT
 #ifdef USE_UFILESYS
