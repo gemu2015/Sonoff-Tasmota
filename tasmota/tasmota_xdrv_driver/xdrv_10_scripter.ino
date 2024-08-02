@@ -6645,6 +6645,39 @@ ws    = 2		  (D4)
 */
 
 
+// RIFF header
+typedef struct {
+    uint32_t ChunkID; //"RIFF"
+    uint32_t ChunkSize; //"36 + sizeof(wav_data_t) + data"
+    uint32_t Format; // "WAV"
+} wav_riff_t;
+
+// FMT header
+typedef struct {
+    uint32_t Subchunk1ID; //"fmt "
+    uint32_t Subchunk1Size; //16 (PCM)
+    uint16_t AudioFormat; // 1 'cause PCM
+    uint16_t NumChannels; // mono = 1; stereo = 2
+    uint32_t SampleRate; // 8000, 44100, etc.
+    uint32_t ByteRate; //== SampleRate * NumChannels * byte
+    uint16_t BlockAlign; //== NumChannels * bytePerSample
+    uint16_t BytesPerSample; //8 byte = 8, 16 byte = 16, etc.
+} wav_fmt_t;
+
+// Data header
+typedef struct {
+    uint32_t Subchunk2ID; //"data"
+    uint32_t Subchunk2Size; //== NumSamples * NumChannels * bytePerSample/8
+} wav_data_t;
+
+
+// complete header
+typedef struct {
+    wav_riff_t Riff;
+    wav_fmt_t Fmt;
+    wav_data_t Data;
+} wav_header_t;
+
 int32_t play_wave(char *path) {
 File wf = ufsp->open(path, FS_FILE_READ);
   if (!wf) {
@@ -6653,22 +6686,22 @@ File wf = ufsp->open(path, FS_FILE_READ);
 
   int16_t buffer[512]; 
 
-  int32_t fsize = wf.size();
+  uint32_t fsize = wf.size();
  
   // check for RIFF
-  char buff[4];
-   wf.readBytes((char*)buff, 4);
-  if (buff[0] != 0x52 && buff[1] != 0x49 && buff[2] != 0x46 && buff[3] != 0x46) {
+   wf.readBytes((char*)buffer, sizeof(wav_header_t));
+   wav_header_t *wh = (wav_header_t *)buffer;
+   // 0x52494646
+  if (wh->Riff.ChunkID != 0x46464952 && wh->Fmt.NumChannels != 1) {
     wf.close();
     return -2;
   }
   // read rest of header we assume 1 channel 8 khz
-  wf.readBytes((char*)buffer, 40);
-  fsize -= 44;
+  fsize -= sizeof(wav_header_t);
 
   i2s_begin();
-  i2s_set_rate(8000);
-  
+  i2s_set_rate(wh->Fmt.SampleRate);
+
   while (wf.position() < fsize) {
     int numBytes = _min(sizeof(buffer), fsize - wf.position() - 1);
     int bytesread = wf.readBytes((char*)buffer, numBytes);

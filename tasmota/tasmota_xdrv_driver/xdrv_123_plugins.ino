@@ -411,7 +411,9 @@ uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t 
   switch (sel) {
     case 0:
 #ifdef ESP8266
-      return i2s_rxtx_begin(p2, p3);
+      // return i2s_rxtx_begin(p2, p3);
+      i2s_begin();
+      return 0;
 #else
 #if ESP_IDF_VERSION_MAJOR >= 5
       return 0;
@@ -420,7 +422,7 @@ uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t 
 #endif
 #endif
       break;
-    case 2:
+    case 1:
 #ifdef ESP8266
       i2s_end();
 #else
@@ -430,7 +432,7 @@ uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t 
 #endif
 #endif
       break;
-    case 3:
+    case 2:
 #ifdef ESP8266
       i2s_set_rate(p2);
 #else
@@ -440,9 +442,7 @@ uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t 
 #endif
 #endif
       break;
-    case 4:
-      break;
-    case 5:
+    case 3:
 #ifdef ESP8266
       { 
         int16_t *left = (int16_t*)p2;
@@ -451,7 +451,8 @@ uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t 
           i2s_write_lr(*left++, *right++);
         }
         *(uint32_t*)p4 = p3;
-      } 
+      }
+      break;
 #else   
 #if ESP_IDF_VERSION_MAJOR >= 5
 #else
@@ -460,7 +461,7 @@ uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t 
 #endif
 #endif
       //i2s_set_pin
-    case 6:
+    case 4:
 #ifdef ESP8266
       return i2s_read_sample((int16_t *)p2, (int16_t *)p3, p4); 
 #else
@@ -470,6 +471,17 @@ uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t 
       return i2s_read((i2s_port_t)p1, (char *)p2, p3, (size_t*)p4, p5);
 #endif
 #endif
+    case 5:
+#ifdef ESP8266
+      { 
+        int16_t *mono = (int16_t*)p2;
+        for (uint32_t cnt = 0; cnt < (p3 >> 1); cnt++) {
+          i2s_write_sample(*mono++);
+        }
+        *(uint32_t*)p4 = (p3 << 1);
+      }
+#endif // ESP8266
+      break;
   }
   return 0;
 }
