@@ -25,31 +25,6 @@
 #include "module.h"
 #include "module_defines.h"
 
-#define I2S_REV 1 << 16 | 4
-
-
-PUSH_OPTIONS
-
-MODULE_DESCRIPTOR("I2SAUDIO", MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0)
-
-// all functions must be declared MUDULE_PART
-MODULE_PART int32_t I2SAudio_Init();
-MODULE_PART void I2S_PlayWave(void);
-MODULE_PART void I2SAudio_Deinit();
-MODULE_PART int32_t mod_func_execute(uint32_t sel);
-MODULE_END
-
-
-typedef struct {
-  uint16_t dummy;
-} MODULE_MEMORY;
-
-int32_t I2SAudio_Init() {
-  ALLOCMEM
-
-  initialized = true;
-  return 0;
-}
 
 // RIFF header
 typedef struct {
@@ -84,8 +59,33 @@ typedef struct {
     wav_data_t Data;
 } wav_header_t;
 
+
+typedef struct {
+  uint16_t dummy;
+} MODULE_MEMORY;
+
+#define I2S_REV 1 << 16 | 4
+
+PUSH_OPTIONS
+
+MODULE_DESCRIPTOR("I2SAUDIO", MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0)
+
+// all functions must be declared MUDULE_PART
+MODULE_PART int32_t I2SAudio_Init();
+MODULE_PART void I2S_PlayWave(void);
+MODULE_PART void I2SAudio_Deinit();
+MODULE_PART int32_t mod_func_execute(uint32_t sel);
+MODULE_END
+
 const char S_JSON_FNF[] PROGMEM = "{\"File %s not found\"}";
 const char S_JSON_ILLF[] PROGMEM = "{\"Illegal File format\"}";
+
+int32_t I2SAudio_Init() {
+  ALLOCMEM
+
+  initialized = true;
+  return 0;
+}
 
 void I2S_PlayWave(void) {
   SETREGS
@@ -104,8 +104,6 @@ void I2S_PlayWave(void) {
 
   int16_t buffer[512]; 
 
-  uint32_t fsize = fsize(wf);
- 
   // check for RIFF
   fread((char*)buffer, 1, sizeof(wav_header_t), wf);
  
@@ -117,14 +115,10 @@ void I2S_PlayWave(void) {
     return;
   }
 
-  // read rest of header we assume 1 channel 8 khz
-  fsize -= sizeof(wav_header_t);
-
   i2s_begin();
 
   i2s_set_rate(wh->Fmt.SampleRate);
 
-  //while (fpos(wf) < fsize) {
   while (1) {
     uint32_t bytesread = fread((char*)buffer, 1, sizeof(buffer), wf);
     if (!bytesread) {
