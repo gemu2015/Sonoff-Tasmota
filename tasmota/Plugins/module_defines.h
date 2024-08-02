@@ -185,12 +185,15 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jspecial_malloc(A)              (( void * (*)(uint32_t))                        jt[151])(A)
 #define jResponseCmndChar(A)            (( void (*)(char *))                            jt[152])(A)
 #define jstrtol(A,B,C)                  (( int32_t (*)(char *,char **,size_t ))             jt[153])(A,B,C)
-#define judp(A,B,C,D)                   (( unt32_t (*)(void *,uint32_t,uint32_t,uint32_t )) jt[154])(A,B,C,D)
-#define ji2s(A,B,C,D,E,F)               (( unt32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t )) jt[155])(A,B,C,D,E,F)
-#define jtaskc(A,B,C,D,E,F,G)           (( unt32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t )) jt[156])(A,B,C,D,E,F,G)
-#define jtaskd(A)                       (( unt32_t (*)(uint32_t))                       jt[157])(A)
+#define judp(A,B,C,D)                   (( uint32_t (*)(void *,uint32_t,uint32_t,uint32_t )) jt[154])(A,B,C,D)
+#define ji2s(A,B,C,D,E,F)               (( uint32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t )) jt[155])(A,B,C,D,E,F)
+#define jtaskc(A,B,C,D,E,F,G)           (( uint32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t )) jt[156])(A,B,C,D,E,F,G)
+#define jtaskd(A)                       (( uint32_t (*)(uint32_t))                       jt[157])(A)
 #define jPlugin_Get_SensorNames(A,B)    (( char *(*)(char *,uint32_t))                  jt[158])(A,B)
 #define GetScriptSection(A)             (( char *(*)(char *))                           jt[159])(A)
+#define jfile_size(A)                   (( uint32_t (*)(void*))                         jt[160])(A)
+#define jfile_getpos(A)                 (( uint32_t (*)(void*))                         jt[161])(A)
+#define jOsWatchLoop()                  (( void (*)(void))                              jt[162])
 
 //tmod_udp,
 //tmod_i2s,
@@ -762,6 +765,15 @@ typedef struct {
 
 #define fread(A,B,C,D)   jfile_read(D,A,B*C) 
 #define fwrite(A,B,C,D) jfile_write(D,A,B*C)
+#define fsize(A) jfile_size(A)
+#define fpos(A) jfile_getpos(A)
+#define OsWatchLoop jOsWatchLoop
+
+#define i2s_begin(A) ji2s(0,0,0,0,0,0)
+#define i2s_end(A) ji2s(1,0,0,0,0,0)
+#define i2s_set_rate(A) ji2s(2,A,0,0,0,0)
+#define i2s_write_sample(A) ji2s(5,A,0,0,0,0)
+
 
 #define CharToFloat jCharToFloat
 #define AddLogData jAddLogData

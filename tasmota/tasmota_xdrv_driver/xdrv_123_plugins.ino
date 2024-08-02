@@ -148,6 +148,7 @@ void tmod_file_close(class File *fp);
 int32_t tmod_file_seek(class File *fp, uint32_t pos, uint32_t mode);
 int32_t tmod_file_read(class File *fp, uint8_t *buff, uint32_t size);
 int32_t tmod_file_write(class File *fp, uint8_t *buff, uint32_t size);
+uint32_t tmod_file_size(class File *fp);
 void tmod_AddLogData(uint32_t loglevel, const char* log_data);
 char *Plugin_Get_SensorNames(char *type, uint32_t index);
 char *tmod_Run_Scripter(char *sect);
@@ -368,7 +369,10 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_dummy,
 #endif
   JMPTBL&Plugin_Get_SensorNames,
-  JMPTBL&tmod_Run_Scripter
+  JMPTBL&tmod_Run_Scripter,
+  JMPTBL&tmod_file_size,
+  JMPTBL&tmod_file_pos,
+  JMPTBL&OsWatchLoop
 };
 
 
@@ -434,7 +438,7 @@ uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t 
       break;
     case 2:
 #ifdef ESP8266
-      i2s_set_rate(p2);
+      i2s_set_rate(p1);
 #else
 #if ESP_IDF_VERSION_MAJOR >= 5
 #else
@@ -473,13 +477,7 @@ uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t 
 #endif
     case 5:
 #ifdef ESP8266
-      { 
-        int16_t *mono = (int16_t*)p2;
-        for (uint32_t cnt = 0; cnt < (p3 >> 1); cnt++) {
-          i2s_write_sample(*mono++);
-        }
-        *(uint32_t*)p4 = (p3 << 1);
-      }
+      i2s_write_sample(p1);
 #endif // ESP8266
       break;
   }
@@ -609,6 +607,22 @@ int32_t tmod_file_read(class File *fp, uint8_t *buff, uint32_t size) {
 int32_t tmod_file_write(class File *fp, uint8_t *buff, uint32_t size) {
 #ifdef USE_UFILESYS
   return fp->write(buff, size);
+#else
+  return 0;
+#endif
+}
+
+uint32_t tmod_file_size(class File *fp) {
+#ifdef USE_UFILESYS
+  return fp->size();
+#else
+  return 0;
+#endif
+}
+
+uint32_t tmod_file_pos(class File *fp) {
+#ifdef USE_UFILESYS
+  return fp->position();
 #else
   return 0;
 #endif
