@@ -2199,7 +2199,11 @@ void uDisplay::pushColorsMono(uint16_t *data, uint16_t len, bool rgb16_swap) {
     seta_yp1++;
     for (uint32_t x = seta_xp1; x < seta_xp2; x++) {
       uint16_t color = *data++;
-      if (bpp == 1) color = (color & rgb16_to_mono_mask) ? 1 : 0;
+      if (lvgl_param.invert_bw) {
+        if (bpp == 1) color = (color & rgb16_to_mono_mask) ? 0 : 1;
+      } else {
+        if (bpp == 1) color = (color & rgb16_to_mono_mask) ? 1 : 0;
+      }
       drawPixel(x, y, color);   // todo - inline the method to save speed
       len--;
       if (!len) return;         // failsafe - exist if len (pixel number) is exhausted
