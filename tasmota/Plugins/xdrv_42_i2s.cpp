@@ -61,18 +61,33 @@ typedef struct {
 
 
 typedef struct {
-  uint16_t dummy;
+  uint8_t dout_pin;
+  uint8_t bck_pin;
+  uint8_t ws_pin;
+  uint8_t gain_div;
+  void *i2sp;
 } MODULE_MEMORY;
+
+#define dout_pin mem->dout_pin
+#define bck_pin mem->bck_pin
+#define ws_pin mem->ws_pin
+#define i2sp mem->i2sp
+#define gain_div mem->gain_div
 
 #define I2S_REV 1 << 16 | 4
 
 PUSH_OPTIONS
 
+#ifdef ESP8266
 MODULE_DESCRIPTOR("I2SAUDIO", MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0)
+#else
+MODULE_DESCRIPTOR("I2SAUDIO", MODULE_TYPE_DRIVER, I2S_REV, "DOUT", 17, "BCK", 10, "WS", 18, "", 0)
+#endif
 
 // all functions must be declared MUDULE_PART
 MODULE_PART int32_t I2SAudio_Init();
 MODULE_PART void I2S_PlayWave(void);
+MODULE_PART void SetGain(void);
 MODULE_PART void I2SAudio_Deinit();
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
 MODULE_END
@@ -82,6 +97,13 @@ const char S_JSON_ILLF[] PROGMEM = "{\"Illegal File format\"}";
 
 int32_t I2SAudio_Init() {
   ALLOCMEM
+
+  dout_pin = mp->ms[0].value;
+  bck_pin = mp->ms[1].value;
+  ws_pin = mp->ms[2].value;
+
+
+  gain_div = 2;
 
   initialized = true;
   return 0;
@@ -115,9 +137,9 @@ void I2S_PlayWave(void) {
     return;
   }
 
-  i2s_begin();
+  i2sp = i2s_begin(dout_pin, bck_pin, ws_pin);
 
-  i2s_set_rate(wh->Fmt.SampleRate);
+  i2s_set_rate(i2sp, wh->Fmt.SampleRate);
 
   while (1) {
     uint32_t bytesread = fread((char*)buffer, 1, sizeof(buffer), wf);
@@ -125,12 +147,13 @@ void I2S_PlayWave(void) {
       break;
     }
     for (uint32_t i = 0; i < bytesread / 2; i++) {
-      i2s_write_sample(buffer[i]);
-      OsWatchLoop();
+      buffer[i] /= gain_div;
     }
+    i2s_write_samples(i2sp, buffer, bytesread / 2);
+    OsWatchLoop();
   }
 
-  i2s_end();
+  i2s_end(i2sp);
 
   fclose(wf);
 
@@ -139,12 +162,32 @@ void I2S_PlayWave(void) {
   return;
 }
 
+void SetGain(void) {
+  SETREGS
+  uint8_t gain;
 
+  if (XdrvMailbox->data_len > 0) {
+    char *cp = XdrvMailbox->data;
+    while (*cp == ' ') cp++;
+    gain = strtol(cp, &cp, 10);
+    if (gain > 100) {
+        gain = 100;
+    }
+    if (gain < 1) {
+      gain = 1;
+    }
+    gain_div = 100 / gain;
+  } else {
+    gain = 100 / gain_div;
+  }
+  ResponseCmndNumber(gain);
+
+}
 
 const char I2S_Commands[] PROGMEM =
     "I2S|"  // Prefix
-    "pw";
-void (*const I2S_Command[])(void) PROGMEM = {&I2S_PlayWave};
+    "pw|gain";
+void (*const I2S_Command[])(void) PROGMEM = {&I2S_PlayWave,&SetGain};
 
 void I2SAudio_Deinit() {
   SETREGS

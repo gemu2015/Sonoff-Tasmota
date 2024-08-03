@@ -194,6 +194,8 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jfile_size(A)                   (( uint32_t (*)(void*))                         jt[160])(A)
 #define jfile_getpos(A)                 (( uint32_t (*)(void*))                         jt[161])(A)
 #define jOsWatchLoop()                  (( void (*)(void))                              jt[162])
+#define double_dispatch(A,B,C)          (( double (*)(uint32_t,double,double))          jt[163])(A,B,C)
+
 
 //tmod_udp,
 //tmod_i2s,
@@ -769,10 +771,17 @@ typedef struct {
 #define fpos(A) jfile_getpos(A)
 #define OsWatchLoop jOsWatchLoop
 
-#define i2s_begin(A) ji2s(0,0,0,0,0,0)
-#define i2s_end(A) ji2s(1,0,0,0,0,0)
-#define i2s_set_rate(A) ji2s(2,A,0,0,0,0)
-#define i2s_write_sample(A) ji2s(5,A,0,0,0,0)
+#define i2s_begin(A,B,C) (void*)ji2s(0,0,A,B,C,0)
+#define i2s_end(A) ji2s(1,(uint32_t)A,0,0,0,0)
+#define i2s_set_rate(A,B) ji2s(2,(uint32_t)A,B,0,0,0)
+#define i2s_write_sample(A,B) ji2s(5,(uint32_t)A,B,0,0,0)
+#define i2s_write_samples(A,B,C) ji2s(3,(uint32_t)A,(uint32_t)B,C,0,0)
+
+
+#define dadd(A,B) double_dispatch(0,A,B)
+#define dsub(A,B) double_dispatch(1,A,B)
+#define dmul(A,B) double_dispatch(2,A,B)
+#define ddiv(A,B) double_dispatch(3,A,B)
 
 
 #define CharToFloat jCharToFloat

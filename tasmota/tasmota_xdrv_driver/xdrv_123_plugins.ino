@@ -149,9 +149,11 @@ int32_t tmod_file_seek(class File *fp, uint32_t pos, uint32_t mode);
 int32_t tmod_file_read(class File *fp, uint8_t *buff, uint32_t size);
 int32_t tmod_file_write(class File *fp, uint8_t *buff, uint32_t size);
 uint32_t tmod_file_size(class File *fp);
+uint32_t tmod_file_pos(class File *fp);
 void tmod_AddLogData(uint32_t loglevel, const char* log_data);
 char *Plugin_Get_SensorNames(char *type, uint32_t index);
 char *tmod_Run_Scripter(char *sect);
+double tmod_double_dispatch(uint32_t sel, double a, double b);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -372,10 +374,33 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_Run_Scripter,
   JMPTBL&tmod_file_size,
   JMPTBL&tmod_file_pos,
-  JMPTBL&OsWatchLoop
+  JMPTBL&OsWatchLoop,
+  JMPTBL&tmod_double_dispatch
 };
 
+#define USE_DOUBLE_DISPATCH
 
+
+double tmod_double_dispatch(uint32_t sel, double a, double b) {
+  double result = 0;
+#ifdef USE_DOUBLE_DISPATCH 
+  switch (sel) {
+    case 0:
+      result = a + b;
+      break;
+    case 1:
+      result = a - b;
+      break;
+    case 2:
+      result = a * b;
+      break;
+    case 3:
+      result = a / b;
+      break;
+  }
+#endif
+  return result;
+}
 char *tmod_Run_Scripter(char *sect) {
   uint8_t meter_script = Run_Scripter(sect, -2, 0);
   if (meter_script != 99) {
@@ -412,74 +437,118 @@ uint32_t tmod_dummy() {
 #endif
 
 uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t p4, uint32_t p5) {
+#ifdef ESP32
+i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
+#endif
+
   switch (sel) {
     case 0:
 #ifdef ESP8266
-      // return i2s_rxtx_begin(p2, p3);
       i2s_begin();
       return 0;
-#else
-#if ESP_IDF_VERSION_MAJOR >= 5
-      return 0;
-#else
-      return i2s_driver_install((i2s_port_t)p1, (i2s_config_t*)p2, p3, (void*)p4);
 #endif
+#ifdef ESP32
+      {
+      i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
+      /* Allocate a new TX channel and get the handle of this channel */
+      i2s_new_channel(&chan_cfg, &tx_handle, NULL);
+
+      i2s_std_config_t std_cfg = {
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(8000),
+        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+        .gpio_cfg = {
+          .mclk = I2S_GPIO_UNUSED,
+          .bclk = (gpio_num_t)p3,
+          .ws = (gpio_num_t)p4,
+          .dout = (gpio_num_t)p2,
+          .din = I2S_GPIO_UNUSED,
+          .invert_flags = {
+            .mclk_inv = false,
+            .bclk_inv = false,
+            .ws_inv = false,
+          },
+        },
+      };
+      /* Initialize the channel */
+      i2s_channel_init_std_mode(tx_handle, &std_cfg);
+      /* Before writing data, start the TX channel first */
+      i2s_channel_enable(tx_handle);
+      AddLog(LOG_LEVEL_INFO,PSTR("I2S Init %d - %d - %d"), p2, p3, p4);
+      return (uint32_t)tx_handle;
+      }
+      
 #endif
       break;
     case 1:
 #ifdef ESP8266
       i2s_end();
-#else
-#if ESP_IDF_VERSION_MAJOR >= 5
-#else
-      i2s_driver_uninstall((i2s_port_t)p1);
 #endif
+#ifdef ESP32
+      {
+      i2s_channel_disable(tx_handle);
+      i2s_del_channel(tx_handle);
+      AddLog(LOG_LEVEL_INFO,PSTR("I2S Exit"));
+      }
 #endif
       break;
     case 2:
 #ifdef ESP8266
-      i2s_set_rate(p1);
-#else
-#if ESP_IDF_VERSION_MAJOR >= 5
-#else
-      i2s_set_clk((i2s_port_t)p1, p2, p3, (i2s_channel_t)p4);
+      i2s_set_rate(p2);
 #endif
+#ifdef ESP32
+      {
+      const i2s_std_clk_config_t clk_cfg = {
+        .sample_rate_hz = p2,
+        .clk_src = I2S_CLK_SRC_DEFAULT
+      };
+      //i2s_channel_disable(tx_handle);
+      //i2s_channel_reconfig_std_clock(tx_handle, &clk_cfg);
+      //i2s_channel_enable(tx_handle);
+      AddLog(LOG_LEVEL_INFO,PSTR("I2S Setrate %d"), p2);
+      }
 #endif
       break;
     case 3:
+      // write samples
 #ifdef ESP8266
       { 
+        /*
         int16_t *left = (int16_t*)p2;
         int16_t *right = (int16_t*)p2 + 2;
         for (uint32_t cnt = 0; cnt < (p3 >> 2); cnt++) {
           i2s_write_lr(*left++, *right++);
         }
         *(uint32_t*)p4 = p3;
+        */
+        int16_t *swp = (int16_t*)p2;
+        for (uint32_t cnt = 0; cnt < p3; cnt++) {
+          i2s_write_sample(*swp++);
+        }
       }
+#endif 
+#ifdef ESP32
+      i2s_channel_write(tx_handle, (uint8_t *)p2, p3 * 2, nullptr, 100);
+#endif
       break;
-#else   
-#if ESP_IDF_VERSION_MAJOR >= 5
-#else
-      //i2s_write(audio_i2s.i2s_port, (const uint8_t*)packet_buffer, len, &bytes_written, 0);
-      return i2s_write((i2s_port_t)p1, (const uint8_t*)p2, p3, (size_t*)p4, p5);
-#endif
-#endif
-      //i2s_set_pin
     case 4:
+      // read samples
 #ifdef ESP8266
       return i2s_read_sample((int16_t *)p2, (int16_t *)p3, p4); 
-#else
-#if ESP_IDF_VERSION_MAJOR >= 5
+#endif
+
+#ifdef ESP32
+#endif
       break;
-#else
-      return i2s_read((i2s_port_t)p1, (char *)p2, p3, (size_t*)p4, p5);
-#endif
-#endif
     case 5:
+      // write one sample
 #ifdef ESP8266
-      i2s_write_sample(p1);
+      i2s_write_sample(p2);
 #endif // ESP8266
+#ifdef ESP32
+      int16_t src_buf = p2;
+      i2s_channel_write(tx_handle, &src_buf, 2, nullptr, 5);
       break;
+#endif // ESP32
   }
   return 0;
 }
