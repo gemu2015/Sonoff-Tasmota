@@ -505,9 +505,9 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
 #ifdef ESP32
       {
       i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(p2);
-      //i2s_channel_disable(tx_handle);
+      i2s_channel_disable(tx_handle);
       i2s_channel_reconfig_std_clock(tx_handle, &clk_cfg);
-      //i2s_channel_enable(tx_handle);
+      i2s_channel_enable(tx_handle);
       //AddLog(LOG_LEVEL_INFO,PSTR("I2S Setrate %d"), p2);
       }
 #endif
