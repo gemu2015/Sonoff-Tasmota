@@ -154,6 +154,7 @@ void tmod_AddLogData(uint32_t loglevel, const char* log_data);
 char *Plugin_Get_SensorNames(char *type, uint32_t index);
 char *tmod_Run_Scripter(char *sect);
 double tmod_double_dispatch(uint32_t sel, double a, double b);
+uint32_t tmod_task_create(TASKPARS *tp);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -410,9 +411,14 @@ char *tmod_Run_Scripter(char *sect) {
 }
 
 #ifdef ESP32
-//uint32_t tmod_task_create(TaskFunction_t pvTaskCode, const char *constpcName, const uint32_t usStackDepth, void *constpvParameters, UBaseType_t uxPriority, TaskHandle_t *constpvCreatedTask, const BaseType_t xCoreID) {
-uint32_t tmod_task_create(uint32_t pvTaskCode, const char *constpcName, const uint32_t usStackDepth, void *constpvParameters, uint32_t uxPriority, void *constpvCreatedTask, uint32_t xCoreID) {
-  return (uint32_t) xTaskCreatePinnedToCore((TaskFunction_t)pvTaskCode, constpcName, usStackDepth, constpvParameters, (UBaseType_t)uxPriority, (TaskHandle_t*)constpvCreatedTask, (const BaseType_t)xCoreID);
+uint32_t tmod_task_create(TASKPARS *tp) {
+  uint32_t result;
+  char *cp = copyStr(tp->constpcName);
+  AddLog(LOG_LEVEL_INFO,PSTR("task Init %s - %d"), cp, tp->usStackDepth);
+
+  result = xTaskCreatePinnedToCore(tp->pvTaskCode, cp, tp->usStackDepth, tp->constpvParameters, (UBaseType_t)tp->uxPriority, (TaskHandle_t*)tp->constpvCreatedTask, (const BaseType_t)tp->xCoreID);
+  free(cp);
+  return result;
 }
 uint32_t tmod_task_delete(uint32_t xTaskToDelete) {
   vTaskDelete((TaskHandle_t)xTaskToDelete);

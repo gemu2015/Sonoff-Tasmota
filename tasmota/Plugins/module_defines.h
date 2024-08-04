@@ -187,7 +187,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jstrtol(A,B,C)                  (( int32_t (*)(char *,char **,size_t ))             jt[153])(A,B,C)
 #define judp(A,B,C,D)                   (( uint32_t (*)(void *,uint32_t,uint32_t,uint32_t )) jt[154])(A,B,C,D)
 #define ji2s(A,B,C,D,E,F)               (( uint32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t )) jt[155])(A,B,C,D,E,F)
-#define jtaskc(A,B,C,D,E,F,G)           (( uint32_t (*)(void (*)(void*),const char *,uint32_t,void *,uint32_t,void *,uint32_t )) jt[156])(A,B,C,D,E,F,G)
+#define jtaskc(A)                       (( uint32_t (*)(TASKPARS* ))                    jt[156])(A)
 #define jtaskd(A)                       (( uint32_t (*)(uint32_t))                       jt[157])(A)
 #define jPlugin_Get_SensorNames(A,B)    (( char *(*)(char *,uint32_t))                  jt[158])(A,B)
 #define GetScriptSection(A)             (( char *(*)(char *))                           jt[159])(A)
@@ -772,7 +772,9 @@ typedef struct {
 #define i2s_write_sample(A,B) ji2s(5,(uint32_t)A,B,0,0,0)
 #define i2s_write_samples(A,B,C) ji2s(3,(uint32_t)A,(uint32_t)B,C,0,0)
 
-#define xTaskCreatePinnedToCore(A,B,C,D,E,F,G)   jtaskc(A, B, C, D, E, F, G)
+
+#define xTaskCreatePinnedToCore(A)   jtaskc(A)
+#define vTaskDelete(A)   jtaskd(A)
 
 #define dadd(A,B) double_dispatch(0,A,B)
 #define dsub(A,B) double_dispatch(1,A,B)

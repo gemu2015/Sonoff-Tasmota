@@ -35,6 +35,16 @@ typedef union {
 } MOD_FLAGS;
 
 typedef struct {
+  void (*pvTaskCode)(void*);
+  const char *constpcName;
+  uint32_t usStackDepth;
+  void *constpvParameters;
+  uint32_t uxPriority;
+  void *constpvCreatedTask;
+  uint32_t xCoreID;
+} TASKPARS;
+
+typedef struct {
   void *mod_addr;
   void (* const *jt)(void);
   void *mod_memory;

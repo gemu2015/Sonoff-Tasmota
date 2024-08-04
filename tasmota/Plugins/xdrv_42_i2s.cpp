@@ -60,12 +60,17 @@ typedef struct {
 } wav_header_t;
 
 
+#ifdef ESP32
+#define USE_I2S_TASK
+#endif
+
 typedef struct {
   uint8_t dout_pin;
   uint8_t bck_pin;
   uint8_t ws_pin;
   uint8_t gain_div;
   void *i2sp;
+  uint8_t busy;
 } MODULE_MEMORY;
 
 #define dout_pin mem->dout_pin
@@ -73,6 +78,9 @@ typedef struct {
 #define ws_pin mem->ws_pin
 #define i2sp mem->i2sp
 #define gain_div mem->gain_div
+#define busy mem->busy
+
+
 
 #define I2S_REV 1 << 16 | 4
 
@@ -95,7 +103,7 @@ MODULE_END
 
 const char S_JSON_FNF[] PROGMEM = "{\"File %s not found\"}";
 const char S_JSON_ILLF[] PROGMEM = "{\"Illegal File format\"}";
-
+const char tname[] PROGMEM = "I2STASK";
 
 int32_t I2SAudio_Init() {
   ALLOCMEM
@@ -107,25 +115,50 @@ int32_t I2SAudio_Init() {
 
   gain_div = 2;
 
+  busy = false;
+
   initialized = true;
   return 0;
 }
 
 
-//#define USE_I2S_TASK
-
 #ifdef USE_I2S_TASK
 void I2sTask(void *path) {
   SETREGS
+  File_p *wf;
+  wf = fopen((char*)path, 'r');
+
+  int16_t buffer[512];
+  // skip header
+  fread((char*)&buffer, 1, sizeof(wav_header_t), wf);
+
   while (1) {
-    AddLog(LOG_LEVEL_INFO, PSTR("task"));
-    delay(1000);
+    uint32_t bytesread = fread((char*)buffer, 1, sizeof(buffer), wf);
+    if (!bytesread) {
+      break;
+    }
+    for (uint32_t i = 0; i < bytesread / 2; i++) {
+      buffer[i] /= gain_div;
+    }
+    i2s_write_samples(i2sp, buffer, bytesread / 2);
   }
+
+  i2s_end(i2sp);
+  
+  fclose(wf);
+
+  busy = false;
+  
+  vTaskDelete(0);
 }
 #endif
 
 void I2S_PlayWave(void) {
   SETREGS
+
+  if (busy) {
+    return;
+  }
 
   char *cp = XdrvMailbox->data;
   while (*cp == ' ') cp++;
@@ -149,19 +182,27 @@ void I2S_PlayWave(void) {
     Response_P(GSTR(S_JSON_ILLF));
     return;
   }
+  
+  i2sp = i2s_begin(dout_pin, bck_pin, ws_pin);
+  i2s_set_rate(i2sp, wh.Fmt.SampleRate);
+
+  busy = true;
 
 #ifdef USE_I2S_TASK
   fclose(wf);
 
-  xTaskCreatePinnedToCore(GVOID(I2sTask), PSTR("I2STASK"), 8192, (void*)cp, 3, NULL, 1);
+  TASKPARS tp;
+  tp.pvTaskCode = GVOID(I2sTask);
+  tp.constpcName = GSTR(tname);
+  tp.usStackDepth = ICONST(8192);
+  tp.constpvParameters = cp;
+  tp.uxPriority = 3;
+  tp.constpvCreatedTask = nullptr;
+  tp.xCoreID = 1;
+  int32_t err = xTaskCreatePinnedToCore(&tp);
 #else
 
   int16_t buffer[512]; 
-
-  i2sp = i2s_begin(dout_pin, bck_pin, ws_pin);
-
-  i2s_set_rate(i2sp, wh.Fmt.SampleRate);
-
   while (1) {
     uint32_t bytesread = fread((char*)buffer, 1, sizeof(buffer), wf);
     if (!bytesread) {
@@ -177,6 +218,8 @@ void I2S_PlayWave(void) {
   i2s_end(i2sp);
 
   fclose(wf);
+
+  busy = false;
 #endif
 
   ResponseCmndDone();
