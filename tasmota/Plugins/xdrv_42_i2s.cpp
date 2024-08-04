@@ -86,6 +86,7 @@ MODULE_DESCRIPTOR("I2SAUDIO", MODULE_TYPE_DRIVER, I2S_REV, "DOUT", 17, "BCK", 10
 
 // all functions must be declared MUDULE_PART
 MODULE_PART int32_t I2SAudio_Init();
+MODULE_PART void I2sTask(void *arg);
 MODULE_PART void I2S_PlayWave(void);
 MODULE_PART void SetGain(void);
 MODULE_PART void I2SAudio_Deinit();
@@ -94,6 +95,7 @@ MODULE_END
 
 const char S_JSON_FNF[] PROGMEM = "{\"File %s not found\"}";
 const char S_JSON_ILLF[] PROGMEM = "{\"Illegal File format\"}";
+
 
 int32_t I2SAudio_Init() {
   ALLOCMEM
@@ -109,6 +111,19 @@ int32_t I2SAudio_Init() {
   return 0;
 }
 
+
+//#define USE_I2S_TASK
+
+#ifdef USE_I2S_TASK
+void I2sTask(void *path) {
+  SETREGS
+  while (1) {
+    AddLog(LOG_LEVEL_INFO, PSTR("task"));
+    delay(1000);
+  }
+}
+#endif
+
 void I2S_PlayWave(void) {
   SETREGS
 
@@ -123,23 +138,29 @@ void I2S_PlayWave(void) {
     Response_P(GSTR(S_JSON_FNF), cp);
     return;
   }
-
-  int16_t buffer[512]; 
+  wav_header_t wh;
 
   // check for RIFF
-  fread((char*)buffer, 1, sizeof(wav_header_t), wf);
+  fread((char*)&wh, 1, sizeof(wav_header_t), wf);
  
-   wav_header_t *wh = (wav_header_t *)buffer;
    // 0x52494646
-  if (wh->Riff.ChunkID != 0x46464952 && wh->Fmt.NumChannels != 1) {
+  if (wh.Riff.ChunkID != 0x46464952 && wh.Fmt.NumChannels != 1) {
     fclose(wf);
     Response_P(GSTR(S_JSON_ILLF));
     return;
   }
 
+#ifdef USE_I2S_TASK
+  fclose(wf);
+
+  xTaskCreatePinnedToCore(GVOID(I2sTask), PSTR("I2STASK"), 8192, (void*)cp, 3, NULL, 1);
+#else
+
+  int16_t buffer[512]; 
+
   i2sp = i2s_begin(dout_pin, bck_pin, ws_pin);
 
-  i2s_set_rate(i2sp, wh->Fmt.SampleRate);
+  i2s_set_rate(i2sp, wh.Fmt.SampleRate);
 
   while (1) {
     uint32_t bytesread = fread((char*)buffer, 1, sizeof(buffer), wf);
@@ -156,6 +177,7 @@ void I2S_PlayWave(void) {
   i2s_end(i2sp);
 
   fclose(wf);
+#endif
 
   ResponseCmndDone();
 

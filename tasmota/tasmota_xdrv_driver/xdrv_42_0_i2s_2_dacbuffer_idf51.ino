@@ -138,13 +138,13 @@ bool dac_task_start(void* _dac_handle) {
   // create task
   if (dac_task_handle == NULL) {
     // Create task
-    xTaskCreatePinnedToCore(
+    PinnedToCore(
       dac_buffer_filling_task,  /* Function to implement the task */
       "dac_buffer_fill",        /* Name of the task */
       1024,                     /* Stack size in words */
       NULL,                     /* Task input parameter */
       1,                        /* Priority of the task */
-      &dac_task_handle,         /* Task handle. */
+      &dacz_task_handle,         /* Task handle. */
       0);                       /* Core where the task should run */
   }
   return true;
