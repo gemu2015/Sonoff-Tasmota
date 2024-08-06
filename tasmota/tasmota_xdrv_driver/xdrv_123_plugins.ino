@@ -155,6 +155,8 @@ char *Plugin_Get_SensorNames(char *type, uint32_t index);
 char *tmod_Run_Scripter(char *sect);
 double tmod_double_dispatch(uint32_t sel, double a, double b);
 uint32_t tmod_task_create(TASKPARS *tp);
+int64_t tmod_double2long(double in);
+double tmod_long2double(int64_t in);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -376,7 +378,9 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_file_size,
   JMPTBL&tmod_file_pos,
   JMPTBL&OsWatchLoop,
-  JMPTBL&tmod_double_dispatch
+  JMPTBL&tmod_double_dispatch,
+  JMPTBL&tmod_double2long,
+  JMPTBL&tmod_long2double
 };
 
 #define USE_DOUBLE_DISPATCH
@@ -402,6 +406,16 @@ double tmod_double_dispatch(uint32_t sel, double a, double b) {
 #endif
   return result;
 }
+
+int64_t tmod_double2long(double in) {
+  return in;
+}
+
+double tmod_long2double(int64_t in) {
+  return in;
+}
+
+
 char *tmod_Run_Scripter(char *sect) {
   uint8_t meter_script = Run_Scripter(sect, -2, 0);
   if (meter_script != 99) {
@@ -461,7 +475,6 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
 
       i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(8000),
-        //.slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
         .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
         .gpio_cfg = {
           .mclk = I2S_GPIO_UNUSED,
@@ -476,6 +489,27 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
           },
         },
       };
+
+      i2s_slot_mode_t channels;
+      if (0 == (p5 >> 16)) {
+        channels = I2S_SLOT_MODE_MONO;
+      } else {
+        channels = I2S_SLOT_MODE_STEREO;
+      }
+      uint8_t mode = p5 & 3;
+      if (mode > 2) mode = 2;
+      switch (mode) {
+        case 0:
+          std_cfg.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
+          break;
+        case 1:
+          std_cfg.slot_cfg = I2S_STD_PCM_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
+          break;
+        case 2:
+          std_cfg.slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
+          break;
+      }
+
       /* Initialize the channel */
       i2s_channel_init_std_mode(tx_handle, &std_cfg);
       /* Before writing data, start the TX channel first */

@@ -195,7 +195,8 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jfile_getpos(A)                 (( uint32_t (*)(void*))                         jt[161])(A)
 #define jOsWatchLoop()                  (( void (*)(void))                              jt[162])
 #define double_dispatch(A,B,C)          (( double (*)(uint32_t,double,double))          jt[163])(A,B,C)
-
+#define d2i64(A)                        (( double (*)(int64_t))                         jt[164])(A)
+#define i642d(A)                        (( int64_t (*)(double))                         jt[165])(A)
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -766,7 +767,7 @@ typedef struct {
 #define fpos(A) jfile_getpos(A)
 #define OsWatchLoop jOsWatchLoop
 
-#define i2s_begin(A,B,C) (void*)ji2s(0,0,A,B,C,0)
+#define i2s_begin(A,B,C,D) (void*)ji2s(0,0,A,B,C,D)
 #define i2s_end(A) ji2s(1,(uint32_t)A,0,0,0,0)
 #define i2s_set_rate(A,B) ji2s(2,(uint32_t)A,B,0,0,0)
 #define i2s_write_sample(A,B) ji2s(5,(uint32_t)A,B,0,0,0)
@@ -780,6 +781,7 @@ typedef struct {
 #define dsub(A,B) double_dispatch(1,A,B)
 #define dmul(A,B) double_dispatch(2,A,B)
 #define ddiv(A,B) double_dispatch(3,A,B)
+
 
 
 #define CharToFloat jCharToFloat

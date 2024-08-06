@@ -71,6 +71,7 @@ typedef struct {
   uint8_t gain_div;
   void *i2sp;
   uint8_t busy;
+  uint8_t mode;
 } MODULE_MEMORY;
 
 #define dout_pin mem->dout_pin
@@ -79,8 +80,7 @@ typedef struct {
 #define i2sp mem->i2sp
 #define gain_div mem->gain_div
 #define busy mem->busy
-
-
+#define mode mem->mode
 
 #define I2S_REV 1 << 16 | 4
 
@@ -89,7 +89,7 @@ PUSH_OPTIONS
 #ifdef ESP8266
 MODULE_DESCRIPTOR("I2SAUDIO", MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0)
 #else
-MODULE_DESCRIPTOR("I2SAUDIO", MODULE_TYPE_DRIVER, I2S_REV, "DOUT", 17, "BCK", 10, "WS", 18, "", 0)
+MODULE_DESCRIPTOR("I2SAUDIO", MODULE_TYPE_DRIVER, I2S_REV, "DOUT", 17, "BCK", 10, "WS", 18, "MODE", 0x01000200)
 #endif
 
 // all functions must be declared MUDULE_PART
@@ -101,6 +101,12 @@ MODULE_PART void I2SAudio_Deinit();
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
 MODULE_END
 
+#define USE_MP3
+
+#ifdef USE_MP3 
+#include "mp3_decoder_c.h"
+#endif
+
 const char S_JSON_FNF[] PROGMEM = "{\"File %s not found\"}";
 const char S_JSON_ILLF[] PROGMEM = "{\"Illegal File format\"}";
 const char tname[] PROGMEM = "I2STASK";
@@ -111,8 +117,13 @@ int32_t I2SAudio_Init() {
   dout_pin = mp->ms[0].value;
   bck_pin = mp->ms[1].value;
   ws_pin = mp->ms[2].value;
+  mode = mp->ms[3].value;
 
-
+/*
+  double dv = 12.34;
+  int64_t iv = d2i64(dv);
+  double xv = i642d(iv);
+*/
   gain_div = 2;
 
   busy = false;
@@ -183,7 +194,7 @@ void I2S_PlayWave(void) {
     return;
   }
   
-  i2sp = i2s_begin(dout_pin, bck_pin, ws_pin);
+  i2sp = i2s_begin(dout_pin, bck_pin, ws_pin, mode);
   i2s_set_rate(i2sp, wh.Fmt.SampleRate);
 
   busy = true;
