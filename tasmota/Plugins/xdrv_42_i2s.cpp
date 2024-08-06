@@ -101,10 +101,28 @@ MODULE_PART void I2SAudio_Deinit();
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
 MODULE_END
 
-#define USE_MP3
+//#define USE_MP3
 
-#ifdef USE_MP3 
-#include "mp3_decoder_c.h"
+#ifdef USE_MP3
+#if 1
+#include "mp3-decoder/mp3_decoder_c.h"
+#else
+#include "libhelix-mp3/bitstream_c.h"
+#include "libhelix-mp3/buffers_c.h"
+#include "libhelix-mp3/dct32_c.h"
+#include "libhelix-mp3/dequant_c.h"
+#include "libhelix-mp3/dqchan_c.h"
+#include "libhelix-mp3/huffman_c.h"
+#include "libhelix-mp3/hufftabs_c.h"
+#include "libhelix-mp3/imdct_c.h"
+#include "libhelix-mp3/mp3dec_c.h"
+#include "libhelix-mp3/mp3tabs_c.h"
+#include "libhelix-mp3/polyphase_c.h"
+#include "libhelix-mp3/scalfact_c.h"
+#include "libhelix-mp3/stproc_c.h"
+#include "libhelix-mp3/subband_c.h"
+#include "libhelix-mp3/trigtabs_c.h"
+#endif
 #endif
 
 const char S_JSON_FNF[] PROGMEM = "{\"File %s not found\"}";
