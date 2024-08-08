@@ -286,6 +286,7 @@ class WeatherSensor {
             float    rssi;             //!< received signal strength indicator in dBm
             uint8_t  s_type;           //!< sensor type
             uint8_t  chan;             //!< channel
+            uint8_t  rec_count;
             bool     startup = false;  //!< startup after reset / battery change
             bool     battery_ok;       //!< battery o.k.
             bool     valid;            //!< data valid (but not necessarily complete)

@@ -94,6 +94,7 @@ const char HTTP_Bresser1[] PROGMEM =
  "{s}%s Stat" "{m}%d" "{e}"
  "{s}%s Batt" "{m}%-3s" "{e}"
  "{s}%s RSSI" "{m}%1_f dBm" "{e}"
+ "{s}%s RCNT" "{m}%d" "{e}"
  ;
 
 const char HTTP_Bresser2[] PROGMEM =
@@ -141,7 +142,7 @@ void C1101_Bresser_Show(boolean json) {
             char label[16];
             sprintf_P(label,PSTR("Bresser %1d"), i + 1);
 
-            WSContentSend_PD(HTTP_Bresser1, label, static_cast<int> (ws.sensor_copy[i].sensor_id), label,  ws.sensor_copy[i].s_type, label, ws.sensor_copy[i].chan, label, ws.sensor_copy[i].startup, label, ws.sensor_copy[i].battery_ok ? "OK " : "Low", label, &ws.sensor_copy[i].rssi);
+            WSContentSend_PD(HTTP_Bresser1, label, static_cast<int> (ws.sensor_copy[i].sensor_id), label,  ws.sensor_copy[i].s_type, label, ws.sensor_copy[i].chan, label, ws.sensor_copy[i].startup, label, ws.sensor_copy[i].battery_ok ? "OK " : "Low", label, &ws.sensor_copy[i].rssi, label, ws.sensor_copy[i].rec_count);
 
             if (ws.sensor_copy[i].s_type == SENSOR_TYPE_SOIL) {
                 WSContentSend_PD(HTTP_Bresser6, label, &ws.sensor_copy[i].soil.temp_c, label, ws.sensor_copy[i].soil.moisture);
@@ -187,8 +188,8 @@ void C1101_Bresser_Show(boolean json) {
                 continue;
             }
 
-            ResponseAppend_P(PSTR(",\"Bresser_%1d\":{\"ID\":\"%08x\",\"Type\":%x,\"Chan\":%d,\"Stat\":%d,\"Batt\":\"%-3s\",\"RSSI\":%1_f"),\
-                i + 1, static_cast<int> (ws.sensor_copy[i].sensor_id), ws.sensor_copy[i].s_type, ws.sensor_copy[i].chan, ws.sensor_copy[i].startup, ws.sensor_copy[i].battery_ok ? "OK " : "Low", &ws.sensor_copy[i].rssi);
+            ResponseAppend_P(PSTR(",\"Bresser_%1d\":{\"ID\":\"%08x\",\"Type\":%x,\"Chan\":%d,\"Stat\":%d,\"Batt\":\"%-3s\",\"RSSI\":%1_f,\"RCNT\":%d"),\
+                i + 1, static_cast<int> (ws.sensor_copy[i].sensor_id), ws.sensor_copy[i].s_type, ws.sensor_copy[i].chan, ws.sensor_copy[i].startup, ws.sensor_copy[i].battery_ok ? "OK " : "Low", &ws.sensor_copy[i].rssi, ws.sensor_copy[i].rec_count);
         
 
             if (ws.sensor_copy[i].s_type == SENSOR_TYPE_SOIL) {

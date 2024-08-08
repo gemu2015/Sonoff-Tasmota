@@ -722,6 +722,7 @@ DecodeStatus WeatherSensor::decodeBresser5In1Payload(const uint8_t *msg, uint8_t
     sensor[slot].battery_ok = (msg[25] & 0x80) ? false : true;
     sensor[slot].valid = true;
     sensor[slot].rssi = rssi;
+    sensor[slot].rec_count++;
     sensor[slot].complete = true;
 
     int temp_raw = (msg[20] & 0x0f) + ((msg[20] & 0xf0) >> 4) * 10 + (msg[21] & 0x0f) * 100;
@@ -1006,6 +1007,7 @@ DecodeStatus WeatherSensor::decodeBresser6In1Payload(const uint8_t *msg, uint8_t
         humidity_ok = false;
         sensor[slot].soil.moisture = moisture_map[sensor[slot].w.humidity - 1];
         sensor[slot].soil.temp_c = temp;
+        sensor[slot].rec_count++;
     }
 
     // Update per-slot status flags
@@ -1033,6 +1035,7 @@ DecodeStatus WeatherSensor::decodeBresser6In1Payload(const uint8_t *msg, uint8_t
 
     // Save rssi to sensor specific data set
     sensor[slot].rssi = rssi;
+    sensor[slot].rec_count++;
 
     return DECODE_OK;
 }
@@ -1185,6 +1188,7 @@ DecodeStatus WeatherSensor::decodeBresser7In1Payload(const uint8_t *msg, uint8_t
     sensor[slot].valid = true;
     sensor[slot].complete = true;
     sensor[slot].rssi = rssi;
+    sensor[slot].rec_count++;
 
     if (s_type == SENSOR_TYPE_WEATHER1)
     {
@@ -1366,6 +1370,7 @@ DecodeStatus WeatherSensor::decodeBresserLightningPayload(const uint8_t *msg, ui
     sensor[slot].chan = 0;
     sensor[slot].battery_ok = !battery_low;
     sensor[slot].rssi = rssi;
+    sensor[slot].rec_count++;
     sensor[slot].valid = true;
     sensor[slot].complete = true;
 
@@ -1468,6 +1473,7 @@ DecodeStatus WeatherSensor::decodeBresserLeakagePayload(const uint8_t *msg, uint
     sensor[slot].startup = (msg[6] & 0x8) == 0x00;
     sensor[slot].battery_ok = (msg[7] & 0x30) != 0x00;
     sensor[slot].rssi = rssi;
+    sensor[slot].rec_count++;
     sensor[slot].valid = true;
     sensor[slot].complete = true;
     sensor[slot].leak.alarm = (alarm && !no_alarm);
