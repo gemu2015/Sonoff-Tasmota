@@ -457,6 +457,25 @@ const uint32_t csa[8][2] PROGMEM = {
  *   see PolyphaseStereo() and PolyphaseMono()
  */
 
+typedef struct { 
+MP3FrameInfo_t *m_MP3FrameInfo;
+SFBandTable_t m_SFBandTable;
+StereoMode_t m_sMode;  /* mono/stereo mode */
+MPEGVersion_t m_MPEGVersion;  /* version ID */
+FrameHeader_t *m_FrameHeader;
+SideInfoSub_t m_SideInfoSub[m_MAX_NGRAN][m_MAX_NCHAN];
+SideInfo_t *m_SideInfo;
+CriticalBandInfo_t m_CriticalBandInfo[m_MAX_NCHAN];  /* filled in dequantizer, used in joint stereo reconstruction */
+DequantInfo_t *m_DequantInfo;
+HuffmanInfo_t *m_HuffmanInfo;
+IMDCTInfo_t *m_IMDCTInfo;
+ScaleFactorInfoSub_t m_ScaleFactorInfoSub[m_MAX_NGRAN][m_MAX_NCHAN];
+ScaleFactorJS_t *m_ScaleFactorJS;
+SubbandInfo_t *m_SubbandInfo;
+MP3DecInfo_t *m_MP3DecInfo;
+} MP3_MEM;
+
+
 // prototypes
 MODULE_PART bool MP3Decoder_AllocateBuffers(void);
 MODULE_PART void MP3Decoder_FreeBuffers();

@@ -25,6 +25,7 @@
 #include "module.h"
 #include "module_defines.h"
 
+#define USE_MP3
 
 // RIFF header
 typedef struct {
@@ -64,6 +65,14 @@ typedef struct {
 #define USE_I2S_TASK
 #endif
 
+
+#ifdef USE_MP3
+#include "mp3-decoder/mp3_decoder.h"
+#endif
+
+
+PUSH_OPTIONS
+
 typedef struct {
   uint8_t dout_pin;
   uint8_t bck_pin;
@@ -72,6 +81,11 @@ typedef struct {
   void *i2sp;
   uint8_t busy;
   uint8_t mode;
+
+#ifdef USE_MP3
+  MP3_MEM mp3m;
+#endif
+
 } MODULE_MEMORY;
 
 #define dout_pin mem->dout_pin
@@ -81,11 +95,9 @@ typedef struct {
 #define gain_div mem->gain_div
 #define busy mem->busy
 #define mode mem->mode
+#define mp3m mem->mp3m
 
 #define I2S_REV 1 << 16 | 4
-
-PUSH_OPTIONS
-
 #ifdef ESP8266
 MODULE_DESCRIPTOR("I2SAUDIO", MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0)
 #else
@@ -96,12 +108,13 @@ MODULE_DESCRIPTOR("I2SAUDIO", MODULE_TYPE_DRIVER, I2S_REV, "DOUT", 17, "BCK", 10
 MODULE_PART int32_t I2SAudio_Init();
 MODULE_PART void I2sTask(void *arg);
 MODULE_PART void I2S_PlayWave(void);
+MODULE_PART void I2S_PlayMP3(void);
 MODULE_PART void SetGain(void);
 MODULE_PART void I2SAudio_Deinit();
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
 MODULE_END
 
-//#define USE_MP3
+
 
 #ifdef USE_MP3
 #if 1
@@ -124,6 +137,10 @@ MODULE_END
 #include "libhelix-mp3/trigtabs_c.h"
 #endif
 #endif
+
+
+
+
 
 const char S_JSON_FNF[] PROGMEM = "{\"File %s not found\"}";
 const char S_JSON_ILLF[] PROGMEM = "{\"Illegal File format\"}";
@@ -278,10 +295,37 @@ void SetGain(void) {
 
 }
 
+void I2S_PlayMP3(void) {
+  SETREGS
+
+#ifdef USE_MP3
+
+  if (busy) {
+    return;
+  }
+
+  char *cp = XdrvMailbox->data;
+  while (*cp == ' ') cp++;
+
+  File_p *wf;
+  wf = fopen(cp, 'r');
+  if (!wf) {
+    // file not found
+    Response_P(GSTR(S_JSON_FNF), cp);
+    return;
+  }
+
+  MP3Decoder_AllocateBuffers();
+
+
+  MP3Decoder_FreeBuffers();
+#endif
+}
+
 const char I2S_Commands[] PROGMEM =
     "I2S|"  // Prefix
-    "pw|gain";
-void (*const I2S_Command[])(void) PROGMEM = {&I2S_PlayWave,&SetGain};
+    "pw|gain/play";
+void (*const I2S_Command[])(void) PROGMEM = {&I2S_PlayWave,&SetGain,&I2S_PlayMP3};
 
 void I2SAudio_Deinit() {
   SETREGS
