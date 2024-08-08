@@ -4,7 +4,7 @@
 #include "Arduino.h"
 #include "assert.h"
 
-
+#undef log_d
 #define log_d
 
 static const uint8_t  m_HUFF_PAIRTABS          =32;

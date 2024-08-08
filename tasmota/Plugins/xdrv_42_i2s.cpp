@@ -65,7 +65,6 @@ typedef struct {
 #define USE_I2S_TASK
 #endif
 
-
 #ifdef USE_MP3
 #include "mp3-decoder/mp3_decoder.h"
 #endif
@@ -137,10 +136,6 @@ MODULE_END
 #include "libhelix-mp3/trigtabs_c.h"
 #endif
 #endif
-
-
-
-
 
 const char S_JSON_FNF[] PROGMEM = "{\"File %s not found\"}";
 const char S_JSON_ILLF[] PROGMEM = "{\"Illegal File format\"}";
