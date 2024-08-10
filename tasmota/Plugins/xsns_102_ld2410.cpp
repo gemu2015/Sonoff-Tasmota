@@ -734,21 +734,25 @@ void CmndLd2410EngineeringStart(void) {
  * Presentation
 \*********************************************************************************************/
 
-#define D_MOVING_ENERGY_T "Moving target"
-#define D_STATIC_ENERGY_T "Static target"
-#define D_LD2410_PIN_STATE "Out port state"
-#define D_LD2410_LIGHT "Light sensor"
+#define xD_MOVING_DISTANCE "Moving Distance"
+#define xD_STATIC_DISTANCE "Static Distance"
+#define xD_DETECT_DISTANCE "Detect Distance"
+
+#define xD_MOVING_ENERGY_T "Moving target"
+#define xD_STATIC_ENERGY_T "Static target"
+#define xD_LD2410_PIN_STATE "Out port state"
+#define xD_LD2410_LIGHT "Light sensor"
 
 
 const char HTTP_SNS_LD2410_CM[] PROGMEM =
-  "{s}LD2410 " D_MOVING_DISTANCE "{m}%1_f " D_UNIT_CENTIMETER "{e}"
-  "{s}LD2410 " D_STATIC_DISTANCE "{m}%1_f " D_UNIT_CENTIMETER "{e}"
-  "{s}LD2410 " D_DETECT_DISTANCE "{m}%1_f " D_UNIT_CENTIMETER "{e}";
+  "{s}LD2410 " xD_MOVING_DISTANCE "{m}%1_f " D_UNIT_CENTIMETER "{e}"
+  "{s}LD2410 " xD_STATIC_DISTANCE "{m}%1_f " D_UNIT_CENTIMETER "{e}"
+  "{s}LD2410 " xD_DETECT_DISTANCE "{m}%1_f " D_UNIT_CENTIMETER "{e}";
 const char HTTP_SNS_LD2410_ENG[] PROGMEM =
-  "{s}LD2410 " D_MOVING_ENERGY_T "{m}%d %d %d %d %d %d %d %d %d{e}"
-  "{s}LD2410 " D_STATIC_ENERGY_T "{m}%d %d %d %d %d %d %d %d %d{e}"
-  "{s}LD2410 " D_LD2410_LIGHT "{m}%d{e}"
-  "{s}LD2410 " D_LD2410_PIN_STATE "{m}%d{e}";
+  "{s}LD2410 " xD_MOVING_ENERGY_T "{m}%d %d %d %d %d %d %d %d %d{e}"
+  "{s}LD2410 " xD_STATIC_ENERGY_T "{m}%d %d %d %d %d %d %d %d %d{e}"
+  "{s}LD2410 " xD_LD2410_LIGHT "{m}%d{e}"
+  "{s}LD2410 " xD_LD2410_PIN_STATE "{m}%d{e}";
 
 
 void Ld2410Show(bool json) {
