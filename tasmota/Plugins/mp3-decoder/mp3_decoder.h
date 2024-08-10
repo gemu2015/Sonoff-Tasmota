@@ -477,7 +477,7 @@ MP3DecInfo_t *m_MP3DecInfo;
 
 
 // prototypes
-MODULE_PART bool MP3Decoder_AllocateBuffers(void);
+MODULE_PART uint32_t MP3Decoder_AllocateBuffers(void);
 MODULE_PART void MP3Decoder_FreeBuffers();
 MODULE_PART int  MP3Decode( unsigned char *inbuf, int *bytesLeft, short *outbuf, int useSize);
 MODULE_PART void MP3GetLastFrameInfo();

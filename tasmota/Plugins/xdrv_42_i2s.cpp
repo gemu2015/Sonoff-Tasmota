@@ -107,6 +107,10 @@ MODULE_DESCRIPTOR("I2SAUDIO", MODULE_TYPE_DRIVER, I2S_REV, "DOUT", 17, "BCK", 10
 MODULE_PART int32_t I2SAudio_Init();
 MODULE_PART void I2sTask(void *arg);
 MODULE_PART void I2S_PlayWave(void);
+MODULE_PART bool mp3_begin();
+MODULE_PART bool mp3_isRunning();
+MODULE_PART bool mp3_loop();
+MODULE_PART bool mp3_stop();
 MODULE_PART void I2S_PlayMP3(void);
 MODULE_PART void SetGain(void);
 MODULE_PART void I2SAudio_Deinit();
@@ -139,6 +143,9 @@ MODULE_END
 
 const char S_JSON_FNF[] PROGMEM = "{\"File %s not found\"}";
 const char S_JSON_ILLF[] PROGMEM = "{\"Illegal File format\"}";
+#ifdef USE_MP3
+const char S_JSON_MEMERR[] PROGMEM = "{\"out of memory\"}";
+#endif
 const char tname[] PROGMEM = "I2STASK";
 
 int32_t I2SAudio_Init() {
@@ -155,6 +162,15 @@ int32_t I2SAudio_Init() {
   double xv = i642d(iv);
 */
   gain_div = 2;
+
+#ifdef USE_MP3
+  uint32_t mp3mem = MP3Decoder_AllocateBuffers();
+  if (!mp3mem) {
+    Response_P(GSTR(S_JSON_MEMERR));
+    return false;
+  }
+  mt->mem_size += mp3mem;
+#endif
 
   busy = false;
 
@@ -225,7 +241,8 @@ void I2S_PlayWave(void) {
   }
   
   i2sp = i2s_begin(dout_pin, bck_pin, ws_pin, mode);
-  i2s_set_rate(i2sp, wh.Fmt.SampleRate);
+  // default is 1 channel
+  i2s_set_rate(i2sp, wh.Fmt.SampleRate, mode, 1);
 
   busy = true;
 
@@ -290,6 +307,22 @@ void SetGain(void) {
 
 }
 
+bool mp3_begin() {
+  return 0;
+}
+bool mp3_isRunning() {
+  return 0;
+}
+
+bool mp3_loop() {
+  return 0;
+}
+
+bool mp3_stop() {
+  return 0;
+}
+
+
 void I2S_PlayMP3(void) {
   SETREGS
 
@@ -310,10 +343,26 @@ void I2S_PlayMP3(void) {
     return;
   }
 
-  MP3Decoder_AllocateBuffers();
+  mp3_begin();
 
+  if (mp3_isRunning()) {
+    if (!mp3_loop()) {
+      mp3_stop();
+      break;
+    }
+  }
+
+  fclose(wf);
+  
+/*
+  if (!MP3Decoder_AllocateBuffers()) {
+    Response_P(GSTR(S_JSON_MEMERR));
+    return;
+  }
 
   MP3Decoder_FreeBuffers();
+*/
+
 #endif
 }
 
@@ -324,6 +373,9 @@ void (*const I2S_Command[])(void) PROGMEM = {&I2S_PlayWave,&SetGain,&I2S_PlayMP3
 
 void I2SAudio_Deinit() {
   SETREGS
+#ifdef USE_MP3
+  MP3Decoder_FreeBuffers();
+#endif
   RETMEM
 }
 

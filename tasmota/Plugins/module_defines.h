@@ -197,6 +197,10 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define double_dispatch(A,B,C)          (( double (*)(uint32_t,double,double))          jt[163])(A,B,C)
 #define d2i64(A)                        (( double (*)(int64_t))                         jt[164])(A)
 #define i642d(A)                        (( int64_t (*)(double))                         jt[165])(A)
+#define jMqttPublishSensor()            (( void (*)(void))                              jt[166])
+#define jParseParameters(A,B)           (( uint32_t (*)(uint32_t,uint32_t *))           jt[167])(A,B)
+
+
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -769,7 +773,7 @@ typedef struct {
 
 #define i2s_begin(A,B,C,D) (void*)ji2s(0,0,A,B,C,D)
 #define i2s_end(A) ji2s(1,(uint32_t)A,0,0,0,0)
-#define i2s_set_rate(A,B) ji2s(2,(uint32_t)A,B,0,0,0)
+#define i2s_set_rate(A,B,C,D) ji2s(2,(uint32_t)A,B,C,D,0)
 #define i2s_write_sample(A,B) ji2s(5,(uint32_t)A,B,0,0,0)
 #define i2s_write_samples(A,B,C) ji2s(3,(uint32_t)A,(uint32_t)B,C,0,0)
 
@@ -782,6 +786,8 @@ typedef struct {
 #define dmul(A,B) double_dispatch(2,A,B)
 #define ddiv(A,B) double_dispatch(3,A,B)
 
+#define MqttPublishSensor jMqttPublishSensor
+#define ParseParameters jParseParameters
 
 
 #define CharToFloat jCharToFloat

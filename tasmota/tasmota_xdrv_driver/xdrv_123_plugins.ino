@@ -380,8 +380,11 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&OsWatchLoop,
   JMPTBL&tmod_double_dispatch,
   JMPTBL&tmod_double2long,
-  JMPTBL&tmod_long2double
+  JMPTBL&tmod_long2double,
+  JMPTBL&MqttPublishSensor,
+  JMPTBL&ParseParameters
 };
+
 
 #define USE_DOUBLE_DISPATCH
 
@@ -538,9 +541,34 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
 #endif
 #ifdef ESP32
       {
-      i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(p2);
       i2s_channel_disable(tx_handle);
+
+      i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(p2);
       i2s_channel_reconfig_std_clock(tx_handle, &clk_cfg);
+
+      i2s_std_slot_config_t slot_cfg;
+
+      i2s_slot_mode_t channels;
+      if (1 == p4) {
+        channels = I2S_SLOT_MODE_MONO;
+      } else {
+        channels = I2S_SLOT_MODE_STEREO;
+      }
+      uint8_t mode = p3 & 3;
+      if (mode > 2) mode = 2;
+      switch (mode) {
+        case 0:
+          slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
+          break;
+        case 1:
+          slot_cfg = I2S_STD_PCM_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
+          break;
+        case 2:
+          slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
+          break;
+      }
+      i2s_channel_reconfig_std_slot(tx_handle, &slot_cfg);
+
       i2s_channel_enable(tx_handle);
       //AddLog(LOG_LEVEL_INFO,PSTR("I2S Setrate %d"), p2);
       }

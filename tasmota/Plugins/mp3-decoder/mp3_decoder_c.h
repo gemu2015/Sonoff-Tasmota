@@ -1597,11 +1597,12 @@ void MP3Decoder_ClearBuffer(void) {
     // ESP32, PSRAM is too slow, prefer SRAM
    // #define __malloc_heap_psram(size) \
    //     heap_caps_malloc_prefer(size, 2, MALLOC_CAP_DEFAULT|MALLOC_CAP_INTERNAL, MALLOC_CAP_DEFAULT|MALLOC_CAP_SPIRAM)
-   #define __malloc_heap_psram(size) special_malloc(size)
 #endif
 
+#define __malloc_heap_psram(size) special_malloc(size)
 
-bool MP3Decoder_AllocateBuffers(void) {
+
+uint32_t MP3Decoder_AllocateBuffers(void) {
     SETREGS
     if(!mp3m.m_MP3DecInfo)       {mp3m.m_MP3DecInfo    = (MP3DecInfo_t*)    __malloc_heap_psram(sizeof(MP3DecInfo_t)   );}
     if(!mp3m.m_FrameHeader)      {mp3m.m_FrameHeader   = (FrameHeader_t*)   __malloc_heap_psram(sizeof(FrameHeader_t)  );}
@@ -1617,10 +1618,12 @@ bool MP3Decoder_AllocateBuffers(void) {
        !mp3m.m_DequantInfo || !mp3m.m_IMDCTInfo || !mp3m.m_SubbandInfo || !mp3m.m_MP3FrameInfo) {
         MP3Decoder_FreeBuffers();
         //log_e("not enough memory to allocate mp3decoder buffers");
-        return false;
+        return 0;
     }
     MP3Decoder_ClearBuffer();
-    return true;
+
+    uint32_t memory = sizeof(MP3DecInfo_t) + sizeof(FrameHeader_t) + sizeof(SideInfo_t) + sizeof(ScaleFactorJS_t) + sizeof(HuffmanInfo_t) + sizeof(DequantInfo_t) + sizeof(IMDCTInfo_t) + sizeof(SubbandInfo_t) + sizeof(MP3FrameInfo_t);
+    return memory;
 }
 /***********************************************************************************************************************
  * Function:    MP3Decoder_FreeBuffers
