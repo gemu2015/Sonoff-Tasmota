@@ -135,3 +135,26 @@ esp32		ready
 esp32 risc	ready
 			have to disable save, restore epilog lib calls for complete project (-mno-save-restore)
 
+
+List of already ported drivers:
+
+i2saudio(esp8266 + esp32)
+mp3player
+sht3x
+bmpx
+vl530x
+cc1101-eqmax
+veml6075
+rdm6300
+pn532 (serial+i2c)
+mlx90614
+sps30
+scd30
+sgp30
+ccs811
+sr04
+ads1115
+htu21
+ds18x20
+pcf8574
+ld2410
