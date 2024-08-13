@@ -109,6 +109,7 @@ MODULE_PART void Ld2410SetBaudrate(uint32_t index);
 MODULE_PART void Ld2410Every100MSecond(void);
 MODULE_PART void Ld2410EverySecond(void);
 MODULE_PART int32_t Ld2410Detect(void);
+MODULE_PART uint8_t *preset_params(uint32_t cnt);
 MODULE_PART void Ld2410Response(void);
 MODULE_PART void CmndLd2410Duration(void);
 MODULE_PART void CmndLd2410MovingSensitivity(void);
@@ -370,6 +371,14 @@ void Ld2410SetConfigMode(void) {
   Ld2410SendCommand(LD2410_CMND_START_CONFIGURATION, value, sizeof(value));
 }
 
+uint8_t *preset_params(uint32_t cnt) {
+  SETREGS
+  uint8_t *params = (uint8_t *)calloc(cnt, 1);
+  params[6] = 0x01;
+  params[12] = 0x02;
+  return params;
+}
+
 void Ld2410SetMaxDistancesAndNoneDuration(uint32_t max_moving_distance_range, uint32_t max_static_distance_range, uint32_t no_one_duration) {
   SETREGS
   // 0x60
@@ -381,11 +390,9 @@ void Ld2410SetMaxDistancesAndNoneDuration(uint32_t max_moving_distance_range, ui
   uint8_t msb_nd = (no_one_duration >> 8) & 0xFF;
   
   //uint8_t value[18] = { 0x00, 0x00, (uint8_t)max_moving_distance_range, 0x00, 0x00, 0x00, 0x01, 0x00, (uint8_t)max_static_distance_range, 0x00, 0x00, 0x00, 0x02, 0x00, lsb_nd, msb_nd, 0x00, 0x00 };
-  uint8_t *value = (uint8_t *)calloc(18, 1);
+  uint8_t *value = preset_params(18); 
   value[2] = max_moving_distance_range;
-  value[6] = 0x01; 
   value[8] = max_static_distance_range;
-  value[12] = 0x02; 
   value[14] = lsb_nd;
   value[15] = msb_nd;
 
@@ -401,11 +408,9 @@ void Ld2410SetGateSensitivity(uint32_t gate, uint32_t moving_sensitivity, uint32
   // 00 00 03 00 00 00 01 00 28 00 00 00 02 00 28 00 00 00
   // gate |          3|motio|         40|stati|         40
   //uint8_t value[18] = { 0x00, 0x00, (uint8_t)gate, 0x00, 0x00, 0x00, 0x01, 0x00, (uint8_t)moving_sensitivity, 0x00, 0x00, 0x00, 0x02, 0x00, (uint8_t)static_sensitivity, 0x00, 0x00, 0x00 };
-  uint8_t *value = (uint8_t *)calloc(18, 1);
+  uint8_t *value = preset_params(18);
   value[2] = gate;
-  value[6] = 0x01; 
   value[8] = moving_sensitivity;
-  value[12] = 0x02; 
   value[14] = static_sensitivity;
   Ld2410SendCommand(LD2410_CMND_SET_SENSITIVITY, value, sizeof(value));
   free(value);
@@ -418,12 +423,10 @@ void Ld2410SetAllSensitivity(uint32_t sensitivity) {
   // 00 00 FF FF 00 00 01 00 28 00 00 00 02 00 28 00 00 00
   // gate |all gates  |motio|         40|stati|         40
   //uint8_t value[18] = { 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x01, 0x00, (uint8_t)sensitivity, 0x00, 0x00, 0x00, 0x02, 0x00, (uint8_t)sensitivity, 0x00, 0x00, 0x00 };
-  uint8_t *value = (uint8_t *)calloc(18, 1);
+  uint8_t *value = preset_params(18);
   value[2] = 0xff;
   value[3] = 0xff;
-  value[6] = 0x01; 
   value[8] = sensitivity;
-  value[12] = 0x02; 
   value[14] = sensitivity;
 
   Ld2410SendCommand(LD2410_CMND_SET_SENSITIVITY, value, sizeof(value));
@@ -734,9 +737,9 @@ void CmndLd2410EngineeringStart(void) {
  * Presentation
 \*********************************************************************************************/
 
-#define xD_MOVING_DISTANCE "Moving Distance"
-#define xD_STATIC_DISTANCE "Static Distance"
-#define xD_DETECT_DISTANCE "Detect Distance"
+#define xD_MOVING_DISTANCE "Moving"
+#define xD_STATIC_DISTANCE "Static"
+#define xD_DETECT_DISTANCE "Detected"
 
 #define xD_MOVING_ENERGY_T "Moving target"
 #define xD_STATIC_ENERGY_T "Static target"
@@ -744,10 +747,11 @@ void CmndLd2410EngineeringStart(void) {
 #define xD_LD2410_LIGHT "Light sensor"
 
 
+
 const char HTTP_SNS_LD2410_CM[] PROGMEM =
-  "{s}LD2410 " xD_MOVING_DISTANCE "{m}%1_f " D_UNIT_CENTIMETER "{e}"
-  "{s}LD2410 " xD_STATIC_DISTANCE "{m}%1_f " D_UNIT_CENTIMETER "{e}"
-  "{s}LD2410 " xD_DETECT_DISTANCE "{m}%1_f " D_UNIT_CENTIMETER "{e}";
+  "{s}LD2410 %s - " xD_MOVING_DISTANCE "{m}%1_f " D_UNIT_CENTIMETER "{e}"
+  "{s}LD2410 %s - " xD_STATIC_DISTANCE "{m}%1_f " D_UNIT_CENTIMETER "{e}"
+  "{s}LD2410 %s - " xD_DETECT_DISTANCE "{m}%1_f " D_UNIT_CENTIMETER "{e}";
 const char HTTP_SNS_LD2410_ENG[] PROGMEM =
   "{s}LD2410 " xD_MOVING_ENERGY_T "{m}%d %d %d %d %d %d %d %d %d{e}"
   "{s}LD2410 " xD_STATIC_ENERGY_T "{m}%d %d %d %d %d %d %d %d %d{e}"
@@ -766,7 +770,9 @@ void Ld2410Show(bool json) {
     ResponseAppend_P(PSTR(",\"LD2410\":{\"" D_JSON_DISTANCE "\":[%1_f,%1_f,%1_f],\"" D_JSON_ENERGY "\":[%d,%d]}"),
       &moving_distance, &static_distance, &detect_distance, LD2410.moving_energy, LD2410.static_energy);
   } else {
-    WSContentSend_PD(GSTR(HTTP_SNS_LD2410_CM), &moving_distance, &static_distance, &detect_distance);
+    char s1[32];
+    Plugin_Get_SensorNames(s1, iD_DISTANCE);
+    WSContentSend_PD(GSTR(HTTP_SNS_LD2410_CM), s1, &moving_distance, s1, &static_distance, s1, &detect_distance);
     if (LD2410.web_engin_mode == 1) {
       WSContentSend_PD(GSTR(HTTP_SNS_LD2410_ENG), 
           LD2410.engineering.moving_gate_energy[0],LD2410.engineering.moving_gate_energy[1],LD2410.engineering.moving_gate_energy[2],

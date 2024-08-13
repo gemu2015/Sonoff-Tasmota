@@ -112,7 +112,7 @@ MODULE_PART bool mp3_isRunning();
 MODULE_PART bool mp3_loop();
 MODULE_PART bool mp3_stop();
 MODULE_PART void I2S_PlayMP3(void);
-MODULE_PART void SetGain(void);
+MODULE_PART void SetVolume(void);
 MODULE_PART void I2SAudio_Deinit();
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
 MODULE_END
@@ -285,7 +285,7 @@ void I2S_PlayWave(void) {
   return;
 }
 
-void SetGain(void) {
+void SetVolume(void) {
   SETREGS
   uint8_t gain;
 
@@ -345,7 +345,7 @@ void I2S_PlayMP3(void) {
 
   mp3_begin();
 
-  if (mp3_isRunning()) {
+  while (mp3_isRunning()) {
     if (!mp3_loop()) {
       mp3_stop();
       break;
@@ -355,6 +355,24 @@ void I2S_PlayMP3(void) {
   fclose(wf);
   
 /*
+
+//  audio.connecttoFS(SD, "/320k_test.mp3");
+//  audio.connecttoFS(SD, "test.wav");
+  audio.connecttohost("http://air.ofr.fm:8008/jazz/mp3/128");
+//  audio.connecttospeech("Миска вареників з картоплею та шкварками, змащених салом!", "uk-UA");
+}
+
+void loop() {
+    audio.loop();
+    if(Serial.available()){ // put streamURL in serial monitor
+        audio.stopSong();
+        String r=Serial.readString(); 
+        r.trim();
+        if(r.length()>5) audio.connecttohost(r.c_str());
+        log_i("free heap=%i", ESP.getFreeHeap());
+    }
+}
+
   if (!MP3Decoder_AllocateBuffers()) {
     Response_P(GSTR(S_JSON_MEMERR));
     return;
@@ -368,8 +386,8 @@ void I2S_PlayMP3(void) {
 
 const char I2S_Commands[] PROGMEM =
     "I2S|"  // Prefix
-    "pw|gain/play";
-void (*const I2S_Command[])(void) PROGMEM = {&I2S_PlayWave,&SetGain,&I2S_PlayMP3};
+    "pw|vol/play";
+void (*const I2S_Command[])(void) PROGMEM = {&I2S_PlayWave,&SetVolume,&I2S_PlayMP3};
 
 void I2SAudio_Deinit() {
   SETREGS
