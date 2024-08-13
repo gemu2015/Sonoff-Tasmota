@@ -528,13 +528,9 @@ enum {
 
 // signal to an external Berry driver that we turn audio power on or off
 void I2SAudioPower(bool power) {
-#ifdef USE_BERRY
   callBerryEventDispatcher(PSTR("audio"), PSTR("power"), power, nullptr, 0);
-#endif
-#ifdef USE_TTGO_WATCH
-  TTGO_audio_power(power);
-#endif
 }
+
 //
 // I2SSettingsLoad(erase:bool)
 //
@@ -932,8 +928,6 @@ void mp3_delete(void) {
   delete audio_i2s_mp3.id3;
   delete audio_i2s_mp3.mp3;
   audio_i2s_mp3.mp3 = nullptr;
-
-  I2SAudioPower(false);
 
   // if (audio_i2s_mp3.decoder) {
     // audio_i2s_mp3.decoder->stop();

@@ -36,9 +36,9 @@ While fallback or downgrading is common practice it was never supported due to S
 
 This release will be supported from ESP8266/Arduino library Core version **2.7.7** due to reported security and stability issues on previous Core version. This will also support gzipped binaries.
 
-This release will be supported from ESP32/Arduino library Core version **3.0.2**.
+This release will be supported from ESP32/Arduino library Core version **3.0.4**.
 
-Support of ESP8266 Core versions before 2.7.7 and ESP32 Core versions before 3.0.2 have been removed.
+Support of ESP8266 Core versions before 2.7.7 and ESP32 Core versions before 3.0.4 have been removed.
 
 ### Known issues with v14.1.0
 
@@ -85,7 +85,7 @@ Historical binaries can be downloaded from
 The latter links can be used for OTA upgrades too like ``OtaUrl http://ota.tasmota.com/tasmota/release/tasmota.bin.gz``
 
 ### ESP32, ESP32-C2, ESP32-C3, ESP32-C6, ESP32-S2 and ESP32-S3 based
-The following binary downloads have been compiled with ESP32/Arduino library core version **3.0.2**.
+The following binary downloads have been compiled with ESP32/Arduino library core version **3.0.4**.
 
 - **tasmota32.bin** = The Tasmota version with most drivers including additional sensors and KNX for 4M+ flash.  **RECOMMENDED RELEASE BINARY**
 - **tasmota32solo1.bin** = The Tasmota version with most drivers including additional sensors and KNX for single core ESP32 and 4M+ flash.
@@ -121,14 +121,16 @@ The latter links can be used for OTA upgrades too like ``OtaUrl https://ota.tasm
 
 ## Changelog v14.1.0.4
 ### Added
+- Command ``AdcGpio<gpio> <parameters>`` to better support ADC configuration
 - Support for QMP6988 temperature and pressure sensor
 - Support for Sonoff WTS01 temperature sensor using SerialBridge in ``SSerialMode 3``
 - Support for Sonoff iFan04-H using template [#16402](https://github.com/arendst/Tasmota/issues/16402)
 - Support for Sonoff POWCT Ring [#21131](https://github.com/arendst/Tasmota/issues/21131)
 - Support for Wooliis Hall Effect Coulometer or Battery capacity monitor [#21732](https://github.com/arendst/Tasmota/issues/21732)
-- Analog GPIO ``ADC Input`` with ``AdcParam<x> 1,<start_range>,<end_range>,<margin>,1`` provide direct light control 
-- Analog GPIO ``ADC Voltage`` with ``AdcParam<x> 11,<start_range>,<end_range>,<lowest_voltage>,<highest_voltage>`` provide energy monitoring with dc voltage 
-- Analog GPIO ``ADC Current`` with ``AdcParam<x> 12,<start_range>,<end_range>,<lowest_current>,<highest_current>`` provide energy monitoring with dc voltage 
+- Analog GPIO ``ADC Input`` with ``AdcGpio<pin> <start_range>,<end_range>,<margin>,1`` provide direct light control 
+- Analog GPIO ``ADC Voltage`` with ``AdcGpio<pin> <start_range>,<end_range>,<lowest_voltage>,<highest_voltage>`` provide energy monitoring with dc voltage 
+- Analog GPIO ``ADC Current`` with ``AdcGpio<pin> <start_range>,<end_range>,<lowest_current>,<highest_current>`` provide energy monitoring with dc voltage 
+- Rule and Scripter xdrv sensor polling
 - Skip MQTT response if command is prefixed with underscore [#21740](https://github.com/arendst/Tasmota/issues/21740)
 - Skip MQTT response if commands are executed prefixed with ``Backlog2`` (no delay) or ``Backlog3`` [#21740](https://github.com/arendst/Tasmota/issues/21740)
 - Extend command ``SetOption147 1`` to disable publish of IRReceived MQTT messages [#21574](https://github.com/arendst/Tasmota/issues/21574)
@@ -146,6 +148,11 @@ The latter links can be used for OTA upgrades too like ``OtaUrl https://ota.tasm
 - Berry `int64` added `low32()` and `high32()` methods, used in Matter [#21728](https://github.com/arendst/Tasmota/issues/21728)
 - Berry `webserver_async` [#21836](https://github.com/arendst/Tasmota/issues/21836)
 - Berry cam module and img class [#21743](https://github.com/arendst/Tasmota/issues/21743)
+- Berry new type "addr" to ctypes mapping [#21883](https://github.com/arendst/Tasmota/issues/21883)
+- Berry `file.savecode()` [#21884](https://github.com/arendst/Tasmota/issues/21884)
+- Berry `solidify.nocompact()` and reduce size of Matter UI [#21885](https://github.com/arendst/Tasmota/issues/21885)
+- Berry `zigbee.find()` [#21889](https://github.com/arendst/Tasmota/issues/21889)
+- Berry `zigbee.started()` [#21895](https://github.com/arendst/Tasmota/issues/21895)
 - HASPmota rounds to nearest int values passed as 'real' [#21599](https://github.com/arendst/Tasmota/issues/21599)
 - Matter support for Air Quality sensors [#21559](https://github.com/arendst/Tasmota/issues/21559)
 - Matter support for bridged Air Quality [#21597](https://github.com/arendst/Tasmota/issues/21597)
@@ -157,11 +164,17 @@ The latter links can be used for OTA upgrades too like ``OtaUrl https://ota.tasm
 - Matter improve internal `inspect`for superclasses [#21824](https://github.com/arendst/Tasmota/issues/21824)
 - Matter support for split lights (`SetOption68 1` and `SetOption37 128`) [#21834](https://github.com/arendst/Tasmota/issues/21834)
 
+### Breaking Changed
+- Berry `energy` module support for 8 phases and move to pseudo-arrays [#21887](https://github.com/arendst/Tasmota/issues/21887)
+
 ### Changed
 - ESP8266 platform update from 2024.01.01 to 2024.06.00 [#21668](https://github.com/arendst/Tasmota/issues/21668)
 - ESP8266 Framework (Arduino Core) from v2.7.6 to v2.7.7 [#21668](https://github.com/arendst/Tasmota/issues/21668)
-- ESP32 platform update from 2024.05.13 to 2024.07.11 [#21765](https://github.com/arendst/Tasmota/issues/21765)
-- ESP32 Framework (Arduino Core) from v3.0.0 to v3.0.2 [#21694](https://github.com/arendst/Tasmota/issues/21694)
+- ESP32 platform update from 2024.05.13 to 2024.08.10 [#21893](https://github.com/arendst/Tasmota/issues/21893)
+- ESP32 Framework (Arduino Core) from v3.0.0 to v3.0.4 [#21893](https://github.com/arendst/Tasmota/issues/21893)
+- Rule and Scripter sensor polling
+- Refactored Analog driver to better support multiple channels
+- GUI name of Analog<x> to ADC<x>
 - Optional MQTT_TELE_RETAIN to Energy Margins message replaced by ``SensorRetain``
 - Display timing splash screen with display modes 1 to 5
 - Allow receive or send using SerialBridge
@@ -173,6 +186,7 @@ The latter links can be used for OTA upgrades too like ``OtaUrl https://ota.tasm
 - ESP32 MI32 refactoring, bugfixes, generic device scanning [#21603](https://github.com/arendst/Tasmota/issues/21603)
 - ESP32 MI32 improve parser [#21648](https://github.com/arendst/Tasmota/issues/21648)
 - ESP32 TM1621 number overflow from "9999" to "12E3" [#21131](https://github.com/arendst/Tasmota/issues/21131)
+- Zigbee loads device data early before MCU startup [#21917](https://github.com/arendst/Tasmota/issues/21917)
 - Berry updated precompiled Windows binary [#21858](https://github.com/arendst/Tasmota/issues/21858)
 - Berry simplified `module persist` [#21812](https://github.com/arendst/Tasmota/issues/21812)
 - Berry consolidated constants for solidified classes reduces Flash size [#2185](https://github.com/arendst/Tasmota/issues/2185)
@@ -180,11 +194,13 @@ The latter links can be used for OTA upgrades too like ``OtaUrl https://ota.tasm
 - Matter filter suffix automatically added for sensors [#21589](https://github.com/arendst/Tasmota/issues/21589)
 - Matter support for Rain sensor [#21633](https://github.com/arendst/Tasmota/issues/21633)
 - Matter refactor reading of multiple attributes to reduce memory pressure [#21675](https://github.com/arendst/Tasmota/issues/21675)
+- Matter improve encoding of attributes to reduce flash size [#21864](https://github.com/arendst/Tasmota/issues/21864)
 
 ### Fixed
 - On universal display remove default backlight power if a single PWM channel is used for backlight. Regression from 14.0.0.1 [#21726](https://github.com/arendst/Tasmota/issues/21726)
 - Shutter MQTT on inverted shutter [#21663](https://github.com/arendst/Tasmota/issues/21663)
 - Scripter TCP server [#21660](https://github.com/arendst/Tasmota/issues/21660)
+- Filesystem SD MMC free space display [#21869](https://github.com/arendst/Tasmota/issues/21869)
 - ESP32 allow use of UART0 with enabled USB_CDC_CONSOLE [#21496](https://github.com/arendst/Tasmota/issues/21496)
 - ESP32 I2S fixes [#21770](https://github.com/arendst/Tasmota/issues/21770)
 - ESP32 Resistive Touch xpt for 2 spi busses [#21814](https://github.com/arendst/Tasmota/issues/21814)

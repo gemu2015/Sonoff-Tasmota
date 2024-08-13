@@ -23,11 +23,10 @@ import matter
 
 class Matter_Device
   static var UDP_PORT = 5540          # this is the default port for group multicast, we also use it for unicast
-  static var PBKDF_ITERATIONS = 1000  # I don't see any reason to choose a different number
   static var VENDOR_ID = 0xFFF1
   static var PRODUCT_ID = 0x8000
   static var FILENAME = "_matter_device.json"
-  static var PASE_TIMEOUT = 10*60     # default open commissioning window (10 minutes)
+  static var EP = 2                   # first available endpoint number for devices
   var started                         # is the Matter Device started (configured, mDNS and UDPServer started)
   var plugins                         # list of plugins instances
   var plugins_persist                 # true if plugins configuration needs to be saved
@@ -37,27 +36,13 @@ class Matter_Device
   var udp_server                      # `matter.UDPServer()` object
   var profiler
   var message_handler                 # `matter.MessageHandler()` object
+  var commissioning                   # `matter.Commissioning()` object
+  var autoconf                        # `matter.Autoconf()` objects
   var sessions                        # `matter.Session_Store()` objet
   var ui
   var tick                            # increment at each tick, avoids to repeat too frequently some actions
   # Events
   var events                          # Event handler
-  # Commissioning open
-  var commissioning_open              # timestamp for timeout of commissioning (millis()) or `nil` if closed
-  var commissioning_iterations        # current PBKDF number of iterations
-  var commissioning_discriminator     # commissioning_discriminator
-  var commissioning_salt              # current salt
-  var commissioning_w0                # current w0 (SPAKE2+)
-  var commissioning_L                 # current L (SPAKE2+)
-  var commissioning_admin_fabric      # the fabric that opened the currint commissioning window, or `nil` for default
-  # information about the device
-  var commissioning_instance_wifi     # random instance name for commissioning (mDNS)
-  var commissioning_instance_eth      # random instance name for commissioning (mDNS)
-  var hostname_wifi                   # MAC-derived hostname for commissioning
-  var hostname_eth                    # MAC-derived hostname for commissioning
-  # mDNS active announces
-  var mdns_pase_eth                   # do we have an active PASE mDNS announce for eth
-  var mdns_pase_wifi                  # do we have an active PASE mDNS announce for wifi
   # for brige mode, list of HTTP_remote objects (only one instance per remote object)
   var http_remotes                    # map of 'domain:port' to `Matter_HTTP_remote` instance or `nil` if no bridges
   # saved in parameters
@@ -87,9 +72,10 @@ class Matter_Device
     self.plugins = []
     self.plugins_persist = false                  # plugins need to saved only when the first fabric is associated
     self.plugins_config_remotes = {}
-    self.next_ep = 2                              # start at endpoint 2 for dynamically allocated endpoints (1 reserved for aggregator)
+    self.next_ep = self.EP                        # start at endpoint 2 for dynamically allocated endpoints (1 reserved for aggregator)
     self.ipv4only = false
     self.disable_bridge_mode = false
+    self.commissioning = matter.Commissioning(self)
     self.load_param()
 
     self.sessions = matter.Session_Store(self)
@@ -114,8 +100,7 @@ class Matter_Device
         end, "matter_start")
     end
 
-    self._init_basic_commissioning()
-
+    self.commissioning.init_basic_commissioning()
     tasmota.add_driver(self)
 
     self.register_commands()
@@ -131,51 +116,9 @@ class Matter_Device
 
     self._start_udp(self.UDP_PORT)
 
-    self.start_mdns_announce_hostnames()
+    self.commissioning.start_mdns_announce_hostnames()
 
     self.started = true
-  end
-
-  #############################################################
-  # Start Basic Commissioning Window if needed at startup
-  def _init_basic_commissioning()
-    # if no fabric is configured, automatically open commissioning at restart
-    if self.sessions.count_active_fabrics() == 0
-      self.start_root_basic_commissioning()
-    end
-  end
-
-  #############################################################
-  # Start Basic Commissioning with root parameters
-  #
-  # Open window for `timeout_s` (default 10 minutes)
-  def start_root_basic_commissioning(timeout_s)
-    if timeout_s == nil   timeout_s = self.PASE_TIMEOUT end
-
-    # show Manual pairing code in logs
-    var pairing_code = self.compute_manual_pairing_code()
-    log(format("MTR: Manual pairing code: %s", pairing_code), 2)
-    
-    # output MQTT
-    var qr_code = self.compute_qrcode_content()
-    tasmota.publish_result(format('{"Matter":{"Commissioning":1,"PairingCode":"%s","QRCode":"%s"}}', pairing_code, qr_code), 'Matter')
-
-    # compute PBKDF
-    import crypto
-    var root_salt = crypto.random(16)
-
-    # Compute the PBKDF parameters for SPAKE2+ from root parameters
-    var passcode = bytes().add(self.root_passcode, 4)
-
-    var tv = crypto.PBKDF2_HMAC_SHA256().derive(passcode, root_salt, self.PBKDF_ITERATIONS, 80)
-    var w0s = tv[0..39]
-    var w1s = tv[40..79]
-
-    var root_w0 = crypto.EC_P256().mod(w0s)
-    var w1 = crypto.EC_P256().mod(w1s)    # w1 is temporarily computed then discarded
-    # self.root_w1 = crypto.EC_P256().mod(w1s)
-    var root_L = crypto.EC_P256().public_key(w1)
-    self.start_basic_commissioning(timeout_s, self.PBKDF_ITERATIONS, self.root_discriminator, root_salt, root_w0, #-self.root_w1,-# root_L, nil)
   end
 
   #####################################################################
@@ -184,7 +127,7 @@ class Matter_Device
     if fabric != nil
       log("MTR: removing fabric " + fabric.get_fabric_id().copy().reverse().tohex(), 2)
       self.message_handler.im.subs_shop.remove_by_fabric(fabric)
-      self.mdns_remove_op_discovery(fabric)
+      self.commissioning.mdns_remove_op_discovery(fabric)
       self.sessions.remove_fabric(fabric)
     end
     # var sub_fabrics = self.sessions.find_children_fabrics(fabric_parent.get_fabric_index())
@@ -199,91 +142,6 @@ class Matter_Device
     #   end
     # end
     self.sessions.save_fabrics()
-  end
-
-  #############################################################
-  # Start Basic Commissioning Window with custom parameters
-  def start_basic_commissioning(timeout_s, iterations, discriminator, salt, w0, L, admin_fabric)
-    self.commissioning_open = tasmota.millis() + timeout_s * 1000
-    self.commissioning_iterations = iterations
-    self.commissioning_discriminator = discriminator
-    self.commissioning_salt = salt
-    self.commissioning_w0 = w0
-    self.commissioning_L  = L
-    self.commissioning_admin_fabric = admin_fabric
-
-    if tasmota.wifi()['up'] || tasmota.eth()['up']
-      self.mdns_announce_PASE()
-    else
-      tasmota.add_rule("Wifi#Connected", def ()
-          self.mdns_announce_PASE()
-          tasmota.remove_rule("Wifi#Connected", "mdns_announce_PASE")
-        end, "mdns_announce_PASE")
-        tasmota.add_rule("Eth#Connected", def ()
-            self.mdns_announce_PASE()
-            tasmota.remove_rule("Eth#Connected", "mdns_announce_PASE")
-          end, "mdns_announce_PASE")
-    end
-  end
-
-  #############################################################
-  # Is root commissioning currently open. Mostly for UI to know if QRCode needs to be shown.
-  def is_root_commissioning_open()
-    return self.commissioning_open != nil && self.commissioning_admin_fabric == nil
-  end
-
-  #############################################################
-  # Stop PASE commissioning, mostly called when CASE is about to start
-  def stop_basic_commissioning()
-    var n = nil
-    if self.is_root_commissioning_open()
-      tasmota.publish_result('{"Matter":{"Commissioning":0}}', 'Matter')
-    end
-    self.commissioning_open = n
-
-    self.mdns_remove_PASE()
-
-    # clear any PBKDF information to free memory
-    self.commissioning_iterations = n
-    self.commissioning_discriminator = n
-    self.commissioning_salt = n
-    self.commissioning_w0 = n
-    # self.commissioning_w1 = nil
-    self.commissioning_L = n
-    self.commissioning_admin_fabric = n
-  end
-  def is_commissioning_open()
-    return self.commissioning_open != nil
-  end
-  
-  #############################################################
-  # Compute QR Code content - can be done only for root PASE
-  def compute_qrcode_content()
-    var raw = bytes().resize(11)    # we don't use TLV Data so it's only 88 bits or 11 bytes
-    # version is `000` dont touch
-    raw.setbits(3, 16, self.VENDOR_ID)
-    raw.setbits(19, 16, self.PRODUCT_ID)
-    # custom flow = 0 (offset=35, len=2)
-    raw.setbits(37, 8, 0x04)        # already on IP network
-    raw.setbits(45, 12, self.root_discriminator & 0xFFF)
-    raw.setbits(57, 27, self.root_passcode & 0x7FFFFFF)
-    # padding (offset=84 len=4)
-    return "MT:" + matter.Base38.encode(raw)
-  end
-
-
-  #############################################################
-  # Compute the 11 digits manual pairing code (wihout vendorid nor productid) p.223
-  # <BR>
-  # can be done only for root PASE (we need the passcode, but we don't get it with OpenCommissioningWindow command)
-  def compute_manual_pairing_code()
-    var digit_1 = (self.root_discriminator & 0x0FFF) >> 10
-    var digit_2_6 = ((self.root_discriminator & 0x0300) << 6) | (self.root_passcode & 0x3FFF)
-    var digit_7_10 = (self.root_passcode >> 14)
-
-    var ret = format("%1i%05i%04i", digit_1, digit_2_6, digit_7_10)
-    ret += matter.Verhoeff.checksum(ret)
-    return ret
   end
 
   #####################################################################
@@ -330,9 +188,7 @@ class Matter_Device
     self.sessions.every_second()
     self.message_handler.every_second()
     self.events.every_second()      # periodically remove bytes() representation of events
-    if self.commissioning_open != nil && tasmota.time_reached(self.commissioning_open)    # timeout reached, close provisioning
-      self.commissioning_open = nil
-    end
+    self.commissioning.every_second()
   end
 
   #############################################################
@@ -438,50 +294,6 @@ class Matter_Device
     log("MTR: Starting UDP server on port: " + str(port), 2)
     self.udp_server = matter.UDPServer(self, "", port)
     self.udp_server.start(/ raw, addr, port -> self.msg_received(raw, addr, port))
-  end
-
-  #############################################################
-  # Start Operational Discovery for this session
-  #
-  # Deferred until next tick.
-  def start_operational_discovery_deferred(fabric)
-    # defer to next click
-    tasmota.set_timer(0, /-> self.start_operational_discovery(fabric))
-  end
-
-  #############################################################
-  # Start Commissioning Complete for this session
-  #
-  # Deferred until next tick.
-  def start_commissioning_complete_deferred(session)
-    # defer to next click
-    tasmota.set_timer(0, /-> self.start_commissioning_complete(session))
-  end
-
-  #############################################################
-  # Start Operational Discovery for this session
-  #
-  # Stop Basic Commissioning and clean PASE specific values (to save memory).
-  # Announce fabric entry in mDNS.
-  def start_operational_discovery(fabric)
-    import crypto
-    import mdns
-
-    self.stop_basic_commissioning()    # close all PASE commissioning information
-
-    self.mdns_announce_op_discovery(fabric)
-  end
-
-  #############################################################
-  # Commissioning Complete
-  #
-  # Stop basic commissioning.
-  def start_commissioning_complete(session)
-    var fabric = session.get_fabric()
-    var fabric_id = fabric.get_fabric_id().copy().reverse().tohex()
-    var vendor_name = fabric.get_admin_vendor_name()
-    log(f"MTR: --- Commissioning complete for Fabric '{fabric_id}' (Vendor {vendor_name}) ---", 2)
-    self.stop_basic_commissioning()     # by default close commissioning when it's complete
   end
 
 
@@ -694,6 +506,14 @@ class Matter_Device
   end
 
   #############################################################
+  # Reset configuration like a fresh new device
+  def reset_param()
+    self.plugins_persist = false
+    self.next_ep = self.EP
+    self.save_param()
+  end
+
+  #############################################################
   # Load Matter Device parameters
   def load_param()
     import crypto
@@ -734,7 +554,7 @@ class Matter_Device
       dirty = true
     end
     if self.root_passcode == nil
-      self.root_passcode = self.generate_random_passcode()
+      self.root_passcode = self.commissioning.generate_random_passcode()
       dirty = true
     end
     if dirty    self.save_param() end
@@ -749,48 +569,6 @@ class Matter_Device
       param_log += format(" %s:%s", k, plugin_conf[k])
     end
     return param_log
-  end
-
-  #############################################################
-  # Load plugins configuration from json
-  #
-  # 'config' is a map
-  # Ex:
-  #   {'32': {'filter': 'AXP192#Temperature', 'type': 'temperature'}, '40': {'filter': 'BMP280#Pressure', 'type': 'pressure'}, '34': {'filter': 'SHT3X#Temperature', 'type': 'temperature'}, '33': {'filter': 'BMP280#Temperature', 'type': 'temperature'}, '1': {'relay': 0, 'type': 'relay'}, '56': {'filter': 'SHT3X#Humidity', 'type': 'humidity'}, '0': {'type': 'root'}}
-  def _instantiate_plugins_from_config(config)
-    var endpoints = self.k2l_num(config)
-
-    # start with mandatory endpoint 0 for root node
-    self.plugins.push(matter.Plugin_Root(self, 0, {}))
-    log("MTR: Configuring endpoints", 2)
-    log(format("MTR:   endpoint = %5i type:%s%s", 0, 'root', ''), 2)
-
-    # always include an aggregator for dynamic endpoints
-    self.plugins.push(matter.Plugin_Aggregator(self, matter.AGGREGATOR_ENDPOINT, {}))
-    log(format("MTR:   endpoint = %5i type:%s%s", matter.AGGREGATOR_ENDPOINT, 'aggregator', ''), 2)
-
-    for ep: endpoints
-      if ep == 0  continue end          # skip endpoint 0
-      try
-        var plugin_conf = config[str(ep)]
-        # log(format("MTR: endpoint %i config %s", ep, plugin_conf), 3)
-
-        var pi_class_name = plugin_conf.find('type')
-        if pi_class_name == nil   log("MTR: no class name, skipping", 3)  continue end
-        if pi_class_name == 'root'  log("MTR: only one root node allowed", 3)  continue end
-        var pi_class = self.plugins_classes.find(pi_class_name)
-        if pi_class == nil        log("MTR: unknown class name '"+str(pi_class_name)+"' skipping", 2)  continue  end
-
-        var pi = pi_class(self, ep, plugin_conf)
-        self.plugins.push(pi)
-
-        log(format("MTR:   endpoint = %5i type:%s%s", ep, pi_class_name, self.conf_to_log(plugin_conf)), 2)
-      except .. as e, m
-        log("MTR: Exception" + str(e) + "|" + str(m), 2)
-      end
-    end
-
-    tasmota.publish_result('{"Matter":{"Initialized":1}}', 'Matter')
   end
 
   #############################################################
@@ -815,245 +593,12 @@ class Matter_Device
   end
 
   #############################################################
-  # mDNS Configuration
-  #############################################################
-  # Start mDNS and announce hostnames for Wifi and ETH from MAC
-  #
-  # When the announce is active, `hostname_wifi` and `hostname_eth`
-  # are defined
-  def start_mdns_announce_hostnames()
-    if tasmota.wifi()['up']
-      self._mdns_announce_hostname(false)
-    else
-      tasmota.add_rule("Wifi#Connected", def ()
-          self._mdns_announce_hostname(false)
-          tasmota.remove_rule("Wifi#Connected", "matter_mdns_host")
-        end, "matter_mdns_host")
-    end
-
-    if tasmota.eth()['up']
-      self._mdns_announce_hostname(true)
-    else
-      tasmota.add_rule("Eth#Connected", def ()
-          self._mdns_announce_hostname(true)
-          tasmota.remove_rule("Eth#Connected", "matter_mdns_host")
-        end, "matter_mdns_host")
-    end
-  end
-
-  #############################################################
-  # Start UDP mDNS announcements hostname
-  # This announcement is independant from commissioning windows
-  #
-  # eth is `true` if ethernet turned up, `false` is wifi turned up
-  def _mdns_announce_hostname(is_eth)
-    import mdns
-    import string
-
-    mdns.start()
-
-    try
-      if is_eth
-        # Add Hostname (based on MAC) with IPv4/IPv6 addresses
-        var eth = tasmota.eth()
-        self.hostname_eth  = string.replace(eth.find("mac"), ':', '')
-        if !self.ipv4only || !eth.contains('ip6local')
-          # log(format("MTR: calling mdns.add_hostname(%s, %s, %s)", self.hostname_eth, eth.find('ip6local',''), eth.find('ip','')), 4)
-          mdns.add_hostname(self.hostname_eth, eth.find('ip6local',''), eth.find('ip',''), eth.find('ip6',''))
-        else
-          log(format("MTR: calling mdns.add_hostname(%s, %s)", self.hostname_eth, eth.find('ip','')), 3)
-          mdns.add_hostname(self.hostname_eth, eth.find('ip',''))
-        end
-      else
-        var wifi = tasmota.wifi()
-        self.hostname_wifi = string.replace(wifi.find("mac"), ':', '')
-        if !self.ipv4only || !wifi.contains('ip6local')
-          # log(format("MTR: calling mdns.add_hostname(%s, %s, %s)", self.hostname_wifi, wifi.find('ip6local',''), wifi.find('ip','')), 4)
-          mdns.add_hostname(self.hostname_wifi, wifi.find('ip6local',''), wifi.find('ip',''), wifi.find('ip6',''))
-        else
-          log(format("MTR: calling mdns.add_hostname(%s, %s)", self.hostname_wifi, wifi.find('ip','')), 3)
-          mdns.add_hostname(self.hostname_wifi, wifi.find('ip',''))
-        end
-      end
-      log(format("MTR: start mDNS on %s host '%s.local'", is_eth ? "eth" : "wifi", is_eth ? self.hostname_eth : self.hostname_wifi), 3)
-    except .. as e, m
-      log("MTR: Exception" + str(e) + "|" + str(m), 2)
-    end
-
-    self.mdns_announce_op_discovery_all_fabrics()
-  end
-
-  #############################################################
-  # Announce MDNS for PASE commissioning
-  def mdns_announce_PASE()
-    import mdns
-    import crypto
-
-    var services = {
-      "VP": f"{self.VENDOR_ID}+{self.PRODUCT_ID}",
-      "D": self.commissioning_discriminator,
-      "CM":1,                           # requires passcode
-      "T":0,                            # no support for TCP
-      "SII":5000, "SAI":300
-    }
-
-    self.commissioning_instance_wifi = crypto.random(8).tohex()    # 16 characters random hostname
-    self.commissioning_instance_eth = crypto.random(8).tohex()    # 16 characters random hostname
-
-    try
-      if self.hostname_eth
-        # Add Matter `_matterc._udp` service
-        # log(format("MTR: calling mdns.add_service(%s, %s, %i, %s, %s, %s)", "_matterc", "_udp", 5540, str(services), self.commissioning_instance_eth, self.hostname_eth), 4)
-        mdns.add_service("_matterc", "_udp", 5540, services, self.commissioning_instance_eth, self.hostname_eth)
-        self.mdns_pase_eth = true
-
-        log(format("MTR: announce mDNS on %s '%s' ptr to `%s.local`", "eth", self.commissioning_instance_eth, self.hostname_eth), 2)
-
-        # `mdns.add_subtype(service:string, proto:string, instance:string, hostname:string, subtype:string) -> nil`
-        var subtype = "_L" + str(self.commissioning_discriminator & 0xFFF)
-        log("MTR: adding subtype: "+subtype, 3)
-        mdns.add_subtype("_matterc", "_udp", self.commissioning_instance_eth, self.hostname_eth, subtype)
-        subtype = "_S" + str((self.commissioning_discriminator & 0xF00) >> 8)
-        log("MTR: adding subtype: "+subtype, 3)
-        mdns.add_subtype("_matterc", "_udp", self.commissioning_instance_eth, self.hostname_eth, subtype)
-        subtype = "_V" + str(self.VENDOR_ID)
-        log("MTR: adding subtype: "+subtype, 3)
-        mdns.add_subtype("_matterc", "_udp", self.commissioning_instance_eth, self.hostname_eth, subtype)
-        subtype = "_CM1"
-        log("MTR: adding subtype: "+subtype, 3)
-        mdns.add_subtype("_matterc", "_udp", self.commissioning_instance_eth, self.hostname_eth, subtype)
-      end
-      if self.hostname_wifi
-
-        # log(format("MTR: calling mdns.add_service(%s, %s, %i, %s, %s, %s)", "_matterc", "_udp", 5540, str(services), self.commissioning_instance_wifi, self.hostname_wifi), 4)
-        mdns.add_service("_matterc", "_udp", 5540, services, self.commissioning_instance_wifi, self.hostname_wifi)
-        self.mdns_pase_wifi = true
-
-        log(format("MTR: starting mDNS on %s '%s' ptr to `%s.local`", "wifi", self.commissioning_instance_wifi, self.hostname_wifi), 3)
-
-        # `mdns.add_subtype(service:string, proto:string, instance:string, hostname:string, subtype:string) -> nil`
-        var subtype = "_L" + str(self.commissioning_discriminator & 0xFFF)
-        log("MTR: adding subtype: "+subtype, 3)
-        mdns.add_subtype("_matterc", "_udp", self.commissioning_instance_wifi, self.hostname_wifi, subtype)
-        subtype = "_S" + str((self.commissioning_discriminator & 0xF00) >> 8)
-        log("MTR: adding subtype: "+subtype, 3)
-        mdns.add_subtype("_matterc", "_udp", self.commissioning_instance_wifi, self.hostname_wifi, subtype)
-        subtype = "_V" + str(self.VENDOR_ID)
-        log("MTR: adding subtype: "+subtype, 3)
-        mdns.add_subtype("_matterc", "_udp", self.commissioning_instance_wifi, self.hostname_wifi, subtype)
-        subtype = "_CM1"
-        log("MTR: adding subtype: "+subtype, 3)
-        mdns.add_subtype("_matterc", "_udp", self.commissioning_instance_wifi, self.hostname_wifi, subtype)
-      end
-    except .. as e, m
-      log("MTR: Exception" + str(e) + "|" + str(m), 2)
-    end
-
-  end
-
-  #############################################################
-  # MDNS remove any PASE announce
-  def mdns_remove_PASE()
-    import mdns
-
-    try
-      if self.mdns_pase_eth
-        log(format("MTR: calling mdns.remove_service(%s, %s, %s, %s)", "_matterc", "_udp", self.commissioning_instance_eth, self.hostname_eth), 3)
-        log(format("MTR: remove mDNS on %s '%s'", "eth", self.commissioning_instance_eth), 3)
-        self.mdns_pase_eth = false
-        mdns.remove_service("_matterc", "_udp", self.commissioning_instance_eth, self.hostname_eth)
-      end
-      if self.mdns_pase_wifi
-        log(format("MTR: calling mdns.remove_service(%s, %s, %s, %s)", "_matterc", "_udp", self.commissioning_instance_wifi, self.hostname_wifi), 3)
-        log(format("MTR: remove mDNS on %s '%s'", "wifi", self.commissioning_instance_wifi), 3)
-        self.mdns_pase_wifi = false
-        mdns.remove_service("_matterc", "_udp", self.commissioning_instance_wifi, self.hostname_wifi)
-      end
-    except .. as e, m
-      log("MTR: Exception" + str(e) + "|" + str(m), 2)
-    end
-  end
-
-  #############################################################
-  # Start UDP mDNS announcements for commissioning for all persisted sessions
-  def mdns_announce_op_discovery_all_fabrics()
-    for fabric: self.sessions.active_fabrics()
-      if fabric.get_device_id() && fabric.get_fabric_id()
-        self.mdns_announce_op_discovery(fabric)
-      end
-    end
-  end
-
-  #############################################################
-  # Start UDP mDNS announcements for commissioning
-  def mdns_announce_op_discovery(fabric)
-    import mdns
-    try
-      var device_id = fabric.get_device_id().copy().reverse()
-      var k_fabric = fabric.get_fabric_compressed()
-      var op_node = k_fabric.tohex() + "-" + device_id.tohex()
-      log("MTR: Operational Discovery node = " + op_node, 3)
-
-      # mdns
-      if (tasmota.eth().find("up"))
-        log(format("MTR: adding mDNS on %s '%s' ptr to `%s.local`", "eth", op_node, self.hostname_eth), 3)
-        mdns.add_service("_matter","_tcp", 5540, nil, op_node, self.hostname_eth)
-        var subtype = "_I" + k_fabric.tohex()
-        log("MTR: adding subtype: "+subtype, 3)
-        mdns.add_subtype("_matter", "_tcp", op_node, self.hostname_eth, subtype)
-      end
-      if (tasmota.wifi().find("up"))
-        log(format("MTR: adding mDNS on %s '%s' ptr to `%s.local`", "wifi", op_node, self.hostname_wifi), 3)
-        mdns.add_service("_matter","_tcp", 5540, nil, op_node, self.hostname_wifi)
-        var subtype = "_I" + k_fabric.tohex()
-        log("MTR: adding subtype: "+subtype, 3)
-        mdns.add_subtype("_matter", "_tcp", op_node, self.hostname_wifi, subtype)
-      end
-    except .. as e, m
-      log("MTR: Exception" + str(e) + "|" + str(m), 2)
-    end
-  end
-
-  #############################################################
-  # Remove all mDNS announces for all fabrics
-  def mdns_remove_op_discovery_all_fabrics()
-    for fabric: self.sessions.active_fabrics()
-      if fabric.get_device_id() && fabric.get_fabric_id()
-        self.mdns_remove_op_discovery(fabric)
-      end
-    end
-  end
-
-  #############################################################
-  # Remove mDNS announce for fabric
-  def mdns_remove_op_discovery(fabric)
-    import mdns
-    try
-      var device_id = fabric.get_device_id().copy().reverse()
-      var k_fabric = fabric.get_fabric_compressed()
-      var op_node = k_fabric.tohex() + "-" + device_id.tohex()
-
-      # mdns
-      if (tasmota.eth().find("up"))
-        log(format("MTR: remove mDNS on %s '%s'", "eth", op_node), 3)
-        mdns.remove_service("_matter", "_tcp", op_node, self.hostname_eth)
-      end
-      if (tasmota.wifi().find("up"))
-        log(format("MTR: remove mDNS on %s '%s'", "wifi", op_node), 3)
-        mdns.remove_service("_matter", "_tcp", op_node, self.hostname_wifi)
-      end
-    except .. as e, m
-      log("MTR: Exception" + str(e) + "|" + str(m), 2)
-    end
-  end
-
-  #############################################################
   # Try to clean MDNS entries before restart.
   #
   # Called by Tasmota loop as a Tasmota driver.
   def save_before_restart()
-    self.stop_basic_commissioning()
-    self.mdns_remove_op_discovery_all_fabrics()
+    self.commissioning.stop_basic_commissioning()
+    self.commissioning.mdns_remove_op_discovery_all_fabrics()
   end
 
   #############################################################
@@ -1065,183 +610,20 @@ class Matter_Device
     import json
 
     if size(self.plugins) > 0   return end                    # already configured
+    if (self.autoconf == nil)   self.autoconf = matter.Autoconf(self)   end
 
     if !self.plugins_persist
-      self.plugins_config = self.autoconf_device_map()
+      self.plugins_config = self.autoconf.autoconf_device_map()
       self.plugins_config_remotes = {}
       self.adjust_next_ep()
       log("MTR: autoconfig = " + str(self.plugins_config), 3)
     end
-    self._instantiate_plugins_from_config(self.plugins_config)
+    self.autoconf.instantiate_plugins_from_config(self.plugins_config)
 
     if !self.plugins_persist && self.sessions.count_active_fabrics() > 0
       self.plugins_persist = true
       self.save_param()
     end
-  end
-
-  #############################################################
-  # Autoconfigure device from template to map
-  #
-  # Applies only if there are no plugins already configured
-  def autoconf_device_map()
-    import json
-    var m = {}
-
-    # check if we have a light
-    var endpoint = matter.START_ENDPOINT
-    var light_present = 0
-
-    import light
-    var light_status = light.get(0)
-    if light_status != nil
-      var channels_count = size(light_status.find('channels', ""))
-      light_present = 1
-      if channels_count > 0
-        if   channels_count == 1
-          m[str(endpoint)] = {'type':'light1'}
-          endpoint += 1
-          # check if we have secondary Dimmer lights (SetOption68 1)
-          var idx = 1
-          var light_status_i
-          while (light_status_i := light.get(idx)) != nil
-            m[str(endpoint)] = {'type':'light1','light':idx + 1}    # arg is 1-based so add 1
-            endpoint += 1
-            light_present += 1
-            idx += 1
-          end
-        elif channels_count == 2
-          m[str(endpoint)] = {'type':'light2'}
-          endpoint += 1
-        elif channels_count == 3
-          m[str(endpoint)] = {'type':'light3'}
-          endpoint += 1
-          # check if we have a split second light (SetOption37 128) with 4/5 channels
-          var light_status1 = light.get(1)
-          if (light_status1 != nil)
-            var channels_count1 = size(light_status1.find('channels', ""))
-
-            if (channels_count1 == 1)
-              m[str(endpoint)] = {'type':'light1'}
-              endpoint += 1
-              light_present += 1
-            elif (channels_count1 == 2)
-              m[str(endpoint)] = {'type':'light2'}
-              endpoint += 1
-              light_present += 1
-            end
-          end
-        elif channels_count == 4
-          # not supported yet
-        else # only option left is 5 channels
-          # not supported yet
-        end
-      end
-    end
-
-    # handle shutters before relays (as we steal relays for shutters)
-    var r_st13 = tasmota.cmd("Status 13", true)     # issue `Status 13`
-    var relays_reserved = []                        # list of relays that are used for non-relay (shutters)
-    log("MTR: Status 13 = "+str(r_st13), 3)
-
-    if r_st13 != nil && r_st13.contains('StatusSHT')
-      r_st13 = r_st13['StatusSHT']        # skip root
-      # Shutter is enabled, iterate
-      var idx = 0
-      while true
-        var k = 'SHT' + str(idx)                    # SHT is zero based
-        if !r_st13.contains(k)   break     end           # no more SHTxxx
-        var d = r_st13[k]
-        log(format("MTR: '%s' = %s", k, str(d)), 3)
-        var relay1 = d.find('Relay1', -1)           # relay base 1 or -1 if none
-        var relay2 = d.find('Relay2', -1)           # relay base 1 or -1 if none
-
-        if relay1 > 0    relays_reserved.push(relay1 - 1)    end   # mark relay1/2 as non-relays
-        if relay2 > 0    relays_reserved.push(relay2 - 1)    end
-
-        log(f"MTR: {relay1=} {relay2=}", 3)
-        # is there tilt support
-        var tilt_array = d.find('TiltConfig')
-        var tilt_config = tilt_array && (tilt_array[2] > 0)
-        # add shutter to definition
-        m[str(endpoint)] = {'type': tilt_config ? 'shutter+tilt' : 'shutter', 'shutter':idx}
-        endpoint += 1
-        idx += 1
-      end
-
-    end
-
-    # how many relays are present
-    var relay_count = size(tasmota.get_power())
-    var relay_index = 0         # start at index 0
-    relay_count -= light_present  # last power(s) taken for lights
-
-    while relay_index < relay_count
-      if relays_reserved.find(relay_index) == nil   # if relay is actual relay
-        m[str(endpoint)] = {'type':'relay','relay':relay_index + 1}     # Relay index start with 1
-        endpoint += 1
-      end
-      relay_index += 1
-    end
-
-    # auto-detect sensors
-    var sensors = json.load(tasmota.read_sensors())
-
-    var sensors_list = self.autoconf_sensors_list(sensors)
-
-    for s: sensors_list
-      m[str(endpoint)] = s
-      endpoint += 1
-    end
-
-    # tasmota.publish_result('{"Matter":{"Initialized":1}}', 'Matter')    # MQTT is not yet connected
-    return m
-  end
-
-
-  #############################################################
-  # Autoconfigure from sensors
-  #
-  # Returns an ordered list
-  def autoconf_sensors_list(sensors)
-    var ret = []
-    # temperature sensors
-    for k1:self.k2l(sensors)
-      var sensor_2 = sensors[k1]
-      if isinstance(sensor_2, map) && sensor_2.contains("Temperature")
-        var temp_rule = k1 + "#Temperature"
-        ret.push({'type':'temperature','filter':temp_rule})
-      end
-    end
-
-    # pressure sensors
-    for k1:self.k2l(sensors)
-      var sensor_2 = sensors[k1]
-      if isinstance(sensor_2, map) && sensor_2.contains("Pressure")
-        var temp_rule = k1 + "#Pressure"
-        ret.push({'type':'pressure','filter':temp_rule})
-      end
-    end
-
-    # light sensors
-    for k1:self.k2l(sensors)
-      var sensor_2 = sensors[k1]
-      if isinstance(sensor_2, map) && sensor_2.contains("Illuminance")
-        var temp_rule = k1 + "#Illuminance"
-        ret.push({'type':'illuminance','filter':temp_rule})
-      end
-    end
-
-    # huidity sensors
-    for k1:self.k2l(sensors)
-      var sensor_2 = sensors[k1]
-      if isinstance(sensor_2, map) && sensor_2.contains("Humidity")
-        var temp_rule = k1 + "#Humidity"
-        ret.push({'type':'humidity','filter':temp_rule})
-      end
-    end
-
-    return ret
   end
 
   # get keys of a map in sorted order
@@ -1409,23 +791,6 @@ class Matter_Device
   end
 
   #####################################################################
-  # Generate random passcode
-  #####################################################################
-  static var PASSCODE_INVALID = [ 0, 11111111, 22222222, 33333333, 44444444, 55555555, 66666666, 77777777, 88888888, 99999999, 12345678, 87654321]
-  def generate_random_passcode()
-    import crypto
-    var passcode
-    while true
-      passcode = crypto.random(4).get(0, 4) & 0x7FFFFFF
-      if passcode > 0x5F5E0FE     continue      end         # larger than allowed
-      for inv: self.PASSCODE_INVALID
-        if passcode == inv    passcode = nil    end
-      end
-      if passcode != nil    return passcode     end
-    end
-  end
-
-  #####################################################################
   # Manager HTTP remotes
   #####################################################################
   # register new http remote
@@ -1523,9 +888,9 @@ class Matter_Device
   def MtrJoin(cmd_found, idx, payload, payload_json)
     var payload_int = int(payload)
     if payload_int
-      self.start_root_basic_commissioning()
+      self.commissioning.start_root_basic_commissioning()
     else
-      self.stop_basic_commissioning()
+      self.commissioning.stop_basic_commissioning()
     end
     tasmota.resp_cmnd_done()
   end

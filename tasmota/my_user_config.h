@@ -431,9 +431,9 @@
 #define MQTT_LWT_OFFLINE       "Offline"         // MQTT LWT offline topic message
 #define MQTT_LWT_ONLINE        "Online"          // MQTT LWT online topic message
 
-#define MQTT_CLEAN_SESSION     1                 // Mqtt clean session connection (0 = No clean session, 1 = Clean session (default))
-#define MQTT_DISABLE_SSERIALRECEIVED 0           // 1 = Disable sserialreceived mqtt messages, 0 = Enable sserialreceived mqtt messages (default)
-#define MQTT_DISABLE_MODBUSRECEIVED  0           // 1 = Disable ModbusReceived mqtt messages, 0 = Enable ModbusReceived mqtt messages (default)
+#define MQTT_CLEAN_SESSION     1                 // [SetOption140] Mqtt clean session connection (0 = No clean session, 1 = Clean session (default))
+#define MQTT_DISABLE_SSERIALRECEIVED 0           // [SetOption147] 1 = Disable SSerialReceived/IrReceived mqtt messages, 0 = Enable these mqtt messages (default)
+#define MQTT_DISABLE_MODBUSRECEIVED  0           // [SetOption158] 1 = Disable ModbusReceived mqtt messages, 0 = Enable ModbusReceived mqtt messages (default)
 
 // -- MQTT - Domoticz -----------------------------
 #define USE_DOMOTICZ                             // Enable Domoticz (+6k code, +0.3k mem)
@@ -906,6 +906,7 @@
 //#define USE_SDM630                               // Add support for Eastron SDM630-Modbus energy monitor (+0k6 code)
   #define SDM630_SPEED         9600              // SDM630-Modbus RS485 serial speed (default: 9600 baud)
 //  #define SDM630_IMPORT                          // Show import active energy in MQTT and Web (+0k3 code)
+//  #define SDM630_HIGH_UPDATE_RATE                //  SDM630-Modbus improved readout with higher update rate (+0k1 RAM)
 //#define USE_DDS2382                              // Add support for Hiking DDS2382 Modbus energy monitor (+0k6 code)
   #define DDS2382_SPEED        9600              // Hiking DDS2382 Modbus RS485 serial speed (default: 9600 baud)
 //#define USE_DDSU666                              // Add support for Chint DDSU666 Modbus energy monitor (+0k6 code)
@@ -1026,7 +1027,7 @@
   #define USE_ZIGBEE_MAXTIME_LIFT           4*60*60   // 4h
 
 // -- Matter support (ESP32 and variants) ----------------------------
-#define MATTER_ENABLED    false                    // Is Matter enabled by default (ie `SO151 1`)
+#define MATTER_ENABLED    false                    // [SetOption151] Is Matter enabled by default
 
 // -- Other sensors/drivers -----------------------
 
