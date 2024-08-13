@@ -155,6 +155,100 @@ typedef struct SensorMap {
 } SensorMap;
 #endif
 
+        struct Weather {
+            bool     temp_ok = false;         //!< temperature o.k. (only 6-in-1)
+            bool     humidity_ok = false;     //!< humidity o.k.
+            bool     light_ok = false;        //!< light o.k. (only 7-in-1)
+            bool     uv_ok = false;           //!< uv radiation o.k. (only 6-in-1)
+            bool     wind_ok = false;         //!< wind speed/direction o.k. (only 6-in-1)
+            bool     rain_ok = false;         //!< rain gauge level o.k.
+            float    temp_c = 0.0;            //!< temperature in degC
+            float    light_klx = 0.0;         //!< Light KLux (only 7-in-1)
+            float    light_lux = 0.0;         //!< Light lux (only 7-in-1)
+            float    uv = 0.0;                //!< uv radiation (only 6-in-1)
+            float    rain_mm = 0.0;           //!< rain gauge level in mm
+            #ifdef WIND_DATA_FLOATINGPOINT   
+            float    wind_direction_deg = 0.0;  //!< wind direction in deg
+            float    wind_gust_meter_sec = 0.0; //!< wind speed (gusts) in m/s
+            float    wind_avg_meter_sec = 0.0;  //!< wind speed (avg)   in m/s
+            #endif
+            #ifdef WIND_DATA_FIXEDPOINT
+            // For LoRa_Serialization:
+            //   fixed point integer with 1 decimal -
+            //   saves two bytes compared to "RawFloat"
+            uint16_t wind_direction_deg_fp1 = 0;  //!< wind direction in deg (fixed point int w. 1 decimal)
+            uint16_t wind_gust_meter_sec_fp1 = 0; //!< wind speed (gusts) in m/s (fixed point int w. 1 decimal)
+            uint16_t wind_avg_meter_sec_fp1 = 0;  //!< wind speed (avg)   in m/s (fixed point int w. 1 decimal)
+            #endif
+            uint8_t  humidity = 0;                //!< humidity in %
+        };
+        
+        struct Soil {
+            float    temp_c;                //!< temperature in degC
+            uint8_t  moisture;              //!< moisture in % (only 6-in-1)
+        };
+
+        struct Lightning {
+            uint8_t  distance_km;           //!< lightning distance in km (only lightning)
+            uint16_t strike_count;          //!< lightning strike counter (only lightning)
+            uint16_t unknown1;              //!< unknown part 1
+            uint16_t unknown2;              //!< unknown part 2
+
+        };
+
+        struct Leakage {
+            bool     alarm;                 //!< water leakage alarm (only water leakage)
+        };
+
+        struct AirPM {
+            uint16_t pm_1_0;                //!< air quality PM1.0 in µg/m³
+            uint16_t pm_2_5;                //!< air quality PM2.5 in µg/m³
+            uint16_t pm_10;                 //!< air quality PM10  in µg/m³
+            uint16_t pm_1_0_init;           //!< measurement value invalid due to initialization
+            bool     pm_2_5_init;           //!< measurement value invalid due to initialization
+            bool     pm_10_init;            //!< measurement value invalid due to initialization
+        };
+
+        struct AirCO2 {
+            uint16_t co2_ppm;               //!< CO2 concentration in ppm
+            bool     co2_init;              //!< measurement value invalid due to initialization
+        };
+
+        struct AirVOC {
+            uint16_t hcho_ppb;              //!< formaldehyde concentrartion in ppb
+            uint8_t voc_level;              //!< volatile organic oompounds; 1 - bad air quality .. 5 - very good air quality
+            bool hcho_init;                 //!< measurement value invalid due to initialization
+            bool voc_init;                  //!< measurement value invalid due to initialization
+        };
+
+#if 0
+        /**
+         * \struct Sensor
+         *
+         * \brief sensor data and status flags
+         */
+        struct Sensor {
+            uint32_t sensor_id;        //!< sensor ID (5-in-1: 1 byte / 6-in-1: 4 bytes / 7-in-1: 2 bytes)
+            float    rssi;             //!< received signal strength indicator in dBm
+            uint8_t  s_type;           //!< sensor type
+            uint8_t  chan;             //!< channel
+            uint8_t  rec_count;
+            bool     startup = false;  //!< startup after reset / battery change
+            bool     battery_ok;       //!< battery o.k.
+            bool     valid;            //!< data valid (but not necessarily complete)
+            bool     complete;         //!< data is split into two separate messages is complete (only 6-in-1 WS)
+            union {
+                struct Weather      w;
+                struct Soil         soil;
+                struct Lightning    lgt;
+                struct Leakage      leak;
+                struct AirPM        pm;
+                struct AirCO2       co2;
+                struct AirVOC       voc;
+            };
+        };
+#endif
+    
 
 /*!
   \class WeatherSensor
@@ -210,6 +304,7 @@ class WeatherSensor {
         */
         DecodeStatus    decodeMessage(const uint8_t *msg, uint8_t msgSize);
 
+#if 0
         struct Weather {
             bool     temp_ok = false;         //!< temperature o.k. (only 6-in-1)
             bool     humidity_ok = false;     //!< humidity o.k.
@@ -275,6 +370,7 @@ class WeatherSensor {
             bool hcho_init;                 //!< measurement value invalid due to initialization
             bool voc_init;                  //!< measurement value invalid due to initialization
         };
+#endif
 
         /**
          * \struct Sensor
@@ -301,12 +397,12 @@ class WeatherSensor {
                 struct AirVOC       voc;
             };
 
-            Sensor ()
+             Sensor ()
             {
                 memset(this, 0, sizeof(*this));
             };
-        };
 
+        };
         typedef struct Sensor sensor_t;    //!< Shortcut for struct Sensor
         sensor_t sensor[NUM_SENSORS];      //!< sensor data array
         float    rssi = 0.0;               //!< received signal strength indicator in dBm

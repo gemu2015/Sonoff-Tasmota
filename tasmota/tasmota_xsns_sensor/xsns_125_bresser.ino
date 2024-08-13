@@ -30,6 +30,27 @@
 
 WeatherSensor ws;
 
+struct WS_Sensor {
+    uint32_t sensor_id;        //!< sensor ID (5-in-1: 1 byte / 6-in-1: 4 bytes / 7-in-1: 2 bytes)
+    float    rssi;             //!< received signal strength indicator in dBm
+    uint8_t  s_type;           //!< sensor type
+    uint8_t  chan;             //!< channel
+    uint8_t  rec_count;
+    bool     startup;          //!< startup after reset / battery change
+    bool     battery_ok;       //!< battery o.k.
+    bool     valid;            //!< data valid (but not necessarily complete)
+    bool     complete;         //!< data is split into two separate messages is complete (only 6-in-1 WS)
+    union {
+                struct Weather      w;
+                struct Soil         soil;
+                struct Lightning    lgt;
+                struct Leakage      leak;
+                struct AirPM        pm;
+                struct AirCO2       co2;
+                struct AirVOC       voc;
+    };      
+};
+
 struct CC1101_BRESSER {
     uint8_t found;
     uint8_t cs;
@@ -130,6 +151,8 @@ void C1101_Bresser_Show(boolean json) {
     }
 
     // probably should sort sensors here
+
+    bresser_bubbleSort((struct WS_Sensor*)&ws.sensor_copy[0], NUM_SENSORS);
 
     if (!json) {
 
@@ -239,6 +262,33 @@ void C1101_Bresser_Show(boolean json) {
         }
     }
 }
+
+
+
+// sort by sensor type
+void bresser_bubbleSort(struct WS_Sensor *sens, uint32_t n) {
+    for (uint32_t i = 0; i < n; i++) {
+        if (!sens[i].rssi) sens[i].s_type = 99;
+    }
+    for (uint32_t i = 0; i < n - 1; i++) {
+        bool swapped = false;
+        for (uint32_t j = 0; j < n - i - 1; j++) {
+            if (sens[j].s_type && (sens[j].s_type > sens[j + 1].s_type)) {
+                //swap
+                uint8_t temp[sizeof(ws.sensor)];
+                memmove(&temp, &sens[j], sizeof(ws.sensor));
+                memmove(&sens[j], &sens[j + 1], sizeof(ws.sensor));
+                memmove(&sens[j + 1], &temp, sizeof(ws.sensor));
+                swapped = true;
+            }
+        }
+        if (swapped == false) {
+            break;
+        }
+    }
+}
+
+
 
 /*********************************************************************************************\
  * Interface
