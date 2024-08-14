@@ -10752,7 +10752,8 @@ uint32_t fsize;
 
     if (renderer && renderer->framebuffer) {
       uint8_t *bp = renderer->framebuffer;
-      uint8_t *lbuf = (uint8_t*)special_malloc(Settings->display_width * 3 + 2);
+      uint16_t *dwp = (uint16_t* )renderer->framebuffer;
+      uint8_t *lbuf = (uint8_t*)special_malloc(Settings->display_width * 3 + 6);
       memset(lbuf, 0, Settings->display_width * 3);
       if (!lbuf) return -3;
       uint8_t dmflg = 0;
@@ -10830,6 +10831,14 @@ uint32_t fsize;
 #endif
               }
             }
+          } if (bpp == 16) {
+            // RGB
+            for (uint32_t cols = 0; cols < Settings->display_width; cols++) {
+              uint16_t color = *dwp++;
+              *--lbp = color >> 10; // R
+              *--lbp = (color >> 5) & 0x3f; // G
+              *--lbp = color & 0x1f; // B
+            }
           } else {
             // one bit
             for (uint32_t cols = 0; cols < Settings->display_width; cols += 8) {
@@ -10850,6 +10859,7 @@ uint32_t fsize;
             }
           }
           client.write((const char*)lbuf, Settings->display_width * 3);
+          client.flush();
         }
       }
       if (lbuf) free(lbuf);
