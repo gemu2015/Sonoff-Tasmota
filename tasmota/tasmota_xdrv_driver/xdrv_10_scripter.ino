@@ -185,6 +185,12 @@ char *Get_esc_char(char *cp, char *esc_chr);
 #endif
 #endif // ESP32
 
+#ifdef ESP32
+#include "driver/i2s_std.h"
+#include "driver/i2s_pdm.h"
+#endif
+
+
 #ifdef SCRIPT_FULL_OPTIONS
 
 #undef USE_BUTTON_EVENT
@@ -722,7 +728,14 @@ typedef struct {
 
   uint16_t ufs_script_size;
 
+#ifdef USE_PLAY_WAVE
+#ifdef ESP32
+  i2s_chan_handle_t tx_handle;
+#endif
+#endif
+
 } SCRIPT_MEM;
+
 
 SCRIPT_MEM glob_script_mem;
 
@@ -4952,7 +4965,7 @@ char *Plugin_Query(uint8_t, uint8_t);
           len += 1;
           goto exit;
         }
-#ifdef ESP8266
+
 #ifdef USE_PLAY_WAVE
         if (!strncmp_XP(lp, XPSTR("pwav("), 5)) {
           char str[SCRIPT_MAX_SBSIZE];
@@ -4960,8 +4973,7 @@ char *Plugin_Query(uint8_t, uint8_t);
           fvar = play_wave(str);
           goto nfuncexit;
         }
-#endif
-#endif
+#endif // USE_PLAY_WAVE
         break;
 
       case 'r':
@@ -6632,9 +6644,10 @@ char *getop(char *lp, uint8_t *operand) {
 }
 
 
-#ifdef ESP8266
+
 #ifdef USE_PLAY_WAVE
 
+#ifdef ESP8266
 #include <i2s.h>
 #include <i2s_reg.h>
 /*
@@ -6643,6 +6656,7 @@ dout  = 3   	(RX)
 clk   = 15	  (D8)
 ws    = 2		  (D4)
 */
+#endif // ESP8266
 
 
 // RIFF header
@@ -6678,7 +6692,50 @@ typedef struct {
     wav_data_t Data;
 } wav_header_t;
 
+
+
 int32_t play_wave(char *path) {
+
+
+#ifdef ESP32
+  if (path[0] == 'i' && path[1] == ':') {
+    // get esp32 i2s pins
+    char *cp = &path[2];
+    uint8_t bck = strtol(cp, &cp, 10);
+    cp++;
+    uint8_t ws = strtol(cp, &cp, 10);
+    cp++;
+    uint8_t dout = strtol(cp, &cp, 10);
+    cp++;
+    uint8_t mode = strtol(cp, &cp, 10);
+
+    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
+    /* Allocate a new TX channel and get the handle of this channel */
+    i2s_new_channel(&chan_cfg, &glob_script_mem.tx_handle, NULL);
+
+    i2s_std_config_t std_cfg = {
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(8000),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+        .gpio_cfg = {
+          .mclk = I2S_GPIO_UNUSED,
+          .bclk = (gpio_num_t)bck,
+          .ws = (gpio_num_t)ws,
+          .dout = (gpio_num_t)dout,
+          .din = I2S_GPIO_UNUSED,
+          .invert_flags = {
+            .mclk_inv = false,
+            .bclk_inv = false,
+            .ws_inv = false,
+          },
+        },
+    };
+
+    /* Initialize the channel */
+    i2s_channel_init_std_mode(glob_script_mem.tx_handle, &std_cfg);
+    return 0;
+  }
+#endif
+
 File wf = ufsp->open(path, FS_FILE_READ);
   if (!wf) {
     return -1;
@@ -6699,6 +6756,7 @@ File wf = ufsp->open(path, FS_FILE_READ);
   // read rest of header we assume 1 channel 8 khz
   fsize -= sizeof(wav_header_t);
 
+#ifdef ESP8266
   i2s_begin();
   i2s_set_rate(wh->Fmt.SampleRate);
 
@@ -6715,12 +6773,27 @@ File wf = ufsp->open(path, FS_FILE_READ);
   }
 
   i2s_end();
+#endif // ESP8266
+
+#ifdef ESP32
+  i2s_channel_enable(glob_script_mem.tx_handle);
+  while (wf.position() < fsize) {
+    int numBytes = _min(sizeof(buffer), fsize - wf.position() - 1);
+    int bytesread = wf.readBytes((char*)buffer, numBytes);
+    if (!bytesread) {
+      break;
+    }
+    i2s_channel_write(glob_script_mem.tx_handle, buffer, numBytes, nullptr, 100);
+    OsWatchLoop();
+  }
+  i2s_channel_disable(glob_script_mem.tx_handle);
+#endif // ESP32
 
   wf.close();
   return 0;
 }
-#endif
-#endif
+#endif // USE_PLAY_WAVE
+
 
 #ifdef USE_SCRIPT_FATFS_EXT
 #ifdef USE_UFILESYS
