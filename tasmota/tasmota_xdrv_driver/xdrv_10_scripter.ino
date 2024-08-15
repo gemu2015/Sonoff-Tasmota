@@ -10837,6 +10837,9 @@ uint32_t fsize;
             dwp = renderer->rgb_fb + ((Settings->display_height - lins - 1) * Settings->display_width);
             for (uint32_t cols = 0; cols < Settings->display_width; cols++) {
               uint16_t color = *dwp++;
+              if (renderer->lvgl_pars()->swap_color) {
+                color = (color >> 8) | (color << 8);
+              }
               *lbp++ = (color &0x001f) << 3; // B  (5 bit)
               *lbp++ = (color &0x07e0) >> 3; // >> 5 G (6 bit)
               *lbp++ = (color &0xf800) >> 8; // >> 10 R (5 bit)
