@@ -6693,7 +6693,7 @@ typedef struct {
 } wav_header_t;
 
 
-
+// we assume 1 channel with 8khz
 int32_t play_wave(char *path) {
 
 
@@ -6710,12 +6710,24 @@ int32_t play_wave(char *path) {
     uint8_t mode = strtol(cp, &cp, 10);
 
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
-    /* Allocate a new TX channel and get the handle of this channel */
     i2s_new_channel(&chan_cfg, &glob_script_mem.tx_handle, NULL);
 
-    i2s_std_config_t std_cfg = {
+    i2s_std_slot_config_t slot_cfg;
+    switch (mode) {
+        case 0:
+          slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
+          break;
+        case 1:
+          slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
+          break;
+        default:
+          slot_cfg = I2S_STD_PCM_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
+          break;
+    }
+
+    i2s_std_config_t std_cfg = { 
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(8000),
-        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+        .slot_cfg = slot_cfg,
         .gpio_cfg = {
           .mclk = I2S_GPIO_UNUSED,
           .bclk = (gpio_num_t)bck,
@@ -6753,7 +6765,6 @@ File wf = ufsp->open(path, FS_FILE_READ);
     wf.close();
     return -2;
   }
-  // read rest of header we assume 1 channel 8 khz
   fsize -= sizeof(wav_header_t);
 
 #ifdef ESP8266
