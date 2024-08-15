@@ -10750,9 +10750,9 @@ uint32_t fsize;
     #define fileHeaderSize 14
     #define infoHeaderSize 40
 
-    if (renderer && renderer->framebuffer) {
+     if (renderer && (renderer->framebuffer || renderer->rgb_fb)) {
       uint8_t *bp = renderer->framebuffer;
-      uint16_t *dwp = (uint16_t* )renderer->framebuffer;
+      uint16_t *dwp = renderer->rgb_fb;
       uint8_t *lbuf = (uint8_t*)special_malloc(Settings->display_width * 3 + 6);
       memset(lbuf, 0, Settings->display_width * 3);
       if (!lbuf) return -3;
@@ -10831,13 +10831,15 @@ uint32_t fsize;
 #endif
               }
             }
-          } if (bpp == 16) {
-            // RGB
+          } else if (bpp == 16) {
+            // RGB displays have RAM display buffer only ESP32 S3
+            lbp = lbuf;
+            dwp = renderer->rgb_fb + ((Settings->display_height - lins - 1) * Settings->display_width);
             for (uint32_t cols = 0; cols < Settings->display_width; cols++) {
               uint16_t color = *dwp++;
-              *--lbp = color >> 10; // R
-              *--lbp = (color >> 5) & 0x3f; // G
-              *--lbp = color & 0x1f; // B
+              *lbp++ = (color &0x001f) << 3; // B  (5 bit)
+              *lbp++ = (color &0x07e0) >> 3; // >> 5 G (6 bit)
+              *lbp++ = (color &0xf800) >> 8; // >> 10 R (5 bit)
             }
           } else {
             // one bit
