@@ -611,10 +611,22 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
       i2s_write_sample(p2);
 #endif // ESP8266
 #ifdef ESP32
-      int16_t src_buf = p2;
-      i2s_channel_write(tx_handle, &src_buf, 2, nullptr, 5);
+      {
+        int16_t src_buf = p2;
+        i2s_channel_write(tx_handle, &src_buf, 2, nullptr, 5);
+      }
       break;
 #endif // ESP32
+    case 6:
+#ifdef ESP32
+      return i2s_channel_enable(tx_handle);
+#endif
+      break;
+    case 7:
+#ifdef ESP32
+      return i2s_channel_disable(tx_handle);
+#endif
+      break;
   }
   return 0;
 }

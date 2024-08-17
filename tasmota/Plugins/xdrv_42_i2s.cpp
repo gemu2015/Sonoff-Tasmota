@@ -25,7 +25,9 @@
 #include "module.h"
 #include "module_defines.h"
 
+#ifdef ESP32
 #define USE_MP3
+#endif
 
 // RIFF header
 typedef struct {
@@ -80,9 +82,16 @@ typedef struct {
   void *i2sp;
   uint8_t busy;
   uint8_t mode;
-
+  File_p *wf;
 #ifdef USE_MP3
   MP3_MEM mp3m;
+  int16_t *m_outBuff;
+  uint8_t *m_inBuff;
+  int m_bytesLeft;
+  bool running;
+  uint8_t chans;
+  uint16_t input_bytes;
+  uint32_t filepos;
 #endif
 
 } MODULE_MEMORY;
@@ -95,6 +104,17 @@ typedef struct {
 #define busy mem->busy
 #define mode mem->mode
 #define mp3m mem->mp3m
+#define wf mem->wf
+#define m_outBuff mem->m_outBuff
+#define m_inBuff mem->m_inBuff
+#define m_bytesLeft mem->m_bytesLeft
+#define running mem->running
+#define chans mem->chans
+#define input_bytes mem->input_bytes
+#define filepos mem->filepos
+
+// esp8266 i2s pins : DOUT = 3(RX), BCK = 15(D8), WS = 2(D4)
+
 
 #define I2S_REV 1 << 16 | 4
 #ifdef ESP8266
@@ -105,18 +125,17 @@ MODULE_DESCRIPTOR("I2SAUDIO", MODULE_TYPE_DRIVER, I2S_REV, "DOUT", 17, "BCK", 10
 
 // all functions must be declared MUDULE_PART
 MODULE_PART int32_t I2SAudio_Init();
-MODULE_PART void I2sTask(void *arg);
-MODULE_PART void I2S_PlayWave(void);
+MODULE_PART void I2sTask(void);
+MODULE_PART void I2sTaskMP3(void);
+MODULE_PART void I2S_Play(void);
 MODULE_PART bool mp3_begin();
 MODULE_PART bool mp3_isRunning();
 MODULE_PART bool mp3_loop();
 MODULE_PART bool mp3_stop();
-MODULE_PART void I2S_PlayMP3(void);
 MODULE_PART void SetVolume(void);
 MODULE_PART void I2SAudio_Deinit();
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
 MODULE_END
-
 
 
 #ifdef USE_MP3
@@ -143,6 +162,7 @@ MODULE_END
 
 const char S_JSON_FNF[] PROGMEM = "{\"File %s not found\"}";
 const char S_JSON_ILLF[] PROGMEM = "{\"Illegal File format\"}";
+const char S_JSON_BUSY[] PROGMEM = "{\"audio is busy\"}";
 #ifdef USE_MP3
 const char S_JSON_MEMERR[] PROGMEM = "{\"out of memory\"}";
 #endif
@@ -156,20 +176,25 @@ int32_t I2SAudio_Init() {
   ws_pin = mp->ms[2].value;
   mode = mp->ms[3].value;
 
-/*
-  double dv = 12.34;
-  int64_t iv = d2i64(dv);
-  double xv = i642d(iv);
-*/
   gain_div = 2;
 
+  i2sp = i2s_begin(dout_pin, bck_pin, ws_pin, mode);
+
 #ifdef USE_MP3
+
+#define OUTBUFF_SIZE 1024 * 4
+#define INBUFF_SIZE 1024
+
   uint32_t mp3mem = MP3Decoder_AllocateBuffers();
   if (!mp3mem) {
     Response_P(GSTR(S_JSON_MEMERR));
     return false;
   }
   mt->mem_size += mp3mem;
+  m_outBuff = (int16_t*)special_malloc(OUTBUFF_SIZE);
+  mt->mem_size += OUTBUFF_SIZE;
+  m_inBuff = (uint8_t*)special_malloc(INBUFF_SIZE);
+  mt->mem_size += INBUFF_SIZE;
 #endif
 
   busy = false;
@@ -180,10 +205,8 @@ int32_t I2SAudio_Init() {
 
 
 #ifdef USE_I2S_TASK
-void I2sTask(void *path) {
+void I2sTask(void) {
   SETREGS
-  File_p *wf;
-  wf = fopen((char*)path, 'r');
 
   int16_t buffer[512];
   // skip header
@@ -199,28 +222,28 @@ void I2sTask(void *path) {
     }
     i2s_write_samples(i2sp, buffer, bytesread / 2);
   }
-
-  i2s_end(i2sp);
   
   fclose(wf);
 
+  i2s_disable_tx(i2sp);
+  
   busy = false;
   
   vTaskDelete(0);
 }
 #endif
 
-void I2S_PlayWave(void) {
+void I2S_Play(void) {
   SETREGS
 
   if (busy) {
+    Response_P(GSTR(S_JSON_BUSY));
     return;
   }
 
   char *cp = XdrvMailbox->data;
   while (*cp == ' ') cp++;
 
-  File_p *wf;
   wf = fopen(cp, 'r');
 
   if (!wf) {
@@ -228,60 +251,91 @@ void I2S_PlayWave(void) {
     Response_P(GSTR(S_JSON_FNF), cp);
     return;
   }
-  wav_header_t wh;
 
-  // check for RIFF
-  fread((char*)&wh, 1, sizeof(wav_header_t), wf);
- 
-   // 0x52494646
-  if (wh.Riff.ChunkID != 0x46464952 && wh.Fmt.NumChannels != 1) {
-    fclose(wf);
-    Response_P(GSTR(S_JSON_ILLF));
+  // check file extension
+  char *ep = strchr(cp, '.');
+  if (!ep) {
+    Response_P(GSTR(S_JSON_ILLF), cp);
     return;
   }
-  
-  i2sp = i2s_begin(dout_pin, bck_pin, ws_pin, mode);
-  // default is 1 channel
-  i2s_set_rate(i2sp, wh.Fmt.SampleRate, mode, 1);
 
-  busy = true;
+  ep++;
+
+  if (!strncmp_P(ep, PSTR("wav"), 3)) {
+    // play wav file
+    wav_header_t wh;
+
+    // check for RIFF
+    fread((char*)&wh, 1, sizeof(wav_header_t), wf);
+ 
+    // 0x52494646
+    if (wh.Riff.ChunkID != 0x46464952 && wh.Fmt.NumChannels != 1) {
+      fclose(wf);
+      Response_P(GSTR(S_JSON_ILLF));
+      return;
+    }
+  
+    // default is 1 channel
+    i2s_set_rate(i2sp, wh.Fmt.SampleRate, mode, 1);
+
+    busy = true;
 
 #ifdef USE_I2S_TASK
-  fclose(wf);
-
-  TASKPARS tp;
-  tp.pvTaskCode = GVOID(I2sTask);
-  tp.constpcName = GSTR(tname);
-  tp.usStackDepth = ICONST(8192);
-  tp.constpvParameters = cp;
-  tp.uxPriority = 3;
-  tp.constpvCreatedTask = nullptr;
-  tp.xCoreID = 1;
-  int32_t err = xTaskCreatePinnedToCore(&tp);
+    TASKPARS tp;
+    tp.pvTaskCode = GVOID(I2sTask);
+    tp.constpcName = GSTR(tname);
+    tp.usStackDepth = ICONST(8192);
+    tp.constpvParameters = cp;
+    tp.uxPriority = 3;
+    tp.constpvCreatedTask = nullptr;
+    tp.xCoreID = 1;
+    int32_t err = xTaskCreatePinnedToCore(&tp);
 #else
 
-  int16_t buffer[512]; 
-  while (1) {
-    uint32_t bytesread = fread((char*)buffer, 1, sizeof(buffer), wf);
-    if (!bytesread) {
-      break;
+    int16_t buffer[512]; 
+    while (1) {
+      uint32_t bytesread = fread((char*)buffer, 1, sizeof(buffer), wf);
+      if (!bytesread) {
+        break;
+      }
+      for (uint32_t i = 0; i < bytesread / 2; i++) {
+        buffer[i] /= gain_div;
+      }
+      i2s_write_samples(i2sp, buffer, bytesread / 2);
+      OsWatchLoop();
     }
-    for (uint32_t i = 0; i < bytesread / 2; i++) {
-      buffer[i] /= gain_div;
+
+    fclose(wf);
+
+    i2s_disable_tx(i2sp);
+
+    busy = false;
+#endif
+  } else {
+#ifdef USE_MP3
+    if (!strncmp_P(ep, PSTR("mp3"), 3)) {
+      // play mp3 file
+      TASKPARS tp;
+      tp.pvTaskCode = GVOID(I2sTaskMP3);
+      tp.constpcName = GSTR(tname);
+      tp.usStackDepth = ICONST(8192);
+      tp.constpvParameters = cp;
+      tp.uxPriority = 3;
+      tp.constpvCreatedTask = nullptr;
+      tp.xCoreID = 1;
+      int32_t err = xTaskCreatePinnedToCore(&tp);
+      busy = true;
+    } else {
+      Response_P(GSTR(S_JSON_ILLF), cp);
+      return;
     }
-    i2s_write_samples(i2sp, buffer, bytesread / 2);
-    OsWatchLoop();
+#else
+    Response_P(GSTR(S_JSON_ILLF), cp);
+    return;
+#endif
   }
 
-  i2s_end(i2sp);
-
-  fclose(wf);
-
-  busy = false;
-#endif
-
   ResponseCmndDone();
-
   return;
 }
 
@@ -307,41 +361,77 @@ void SetVolume(void) {
 
 }
 
+#ifdef USE_MP3
 bool mp3_begin() {
+  SETREGS
+
+  input_bytes = fread((char*)m_inBuff, 1, INBUFF_SIZE, wf);
+  m_bytesLeft = input_bytes;
+
+  int16_t m_decodeError = MP3GetNextFrameInfo(m_inBuff);
+
+  uint32_t srate = MP3GetSampRate();
+  chans = MP3GetChannels();
+
+  i2s_set_rate(i2sp, srate, mode, chans);
+
+  filepos = 0;
+
+  AddLog(LOG_LEVEL_INFO, PSTR("mp3 srate = %d, channels = %d"), srate, chans); 
+
+  i2s_enable_tx(i2sp);
+  running = true;
   return 0;
 }
 bool mp3_isRunning() {
-  return 0;
+  SETREGS
+  return running;
 }
 
+#define MIN_SIZE 1024
+
 bool mp3_loop() {
-  return 0;
+SETREGS
+
+  fseek(wf, filepos, SEEK_SET);
+
+  uint32_t bytesread = fread((char*)m_inBuff, 1, INBUFF_SIZE, wf);
+  if (!bytesread) {
+    running = false;
+    return false;
+  }
+
+  m_bytesLeft = bytesread;
+
+  int16_t m_decodeError = MP3Decode(m_inBuff, &m_bytesLeft, m_outBuff, 0);
+  
+  uint32_t bytesDecoded = bytesread - m_bytesLeft;
+
+  filepos += bytesDecoded;
+
+  uint32_t samples = MP3GetOutputSamps();
+
+  uint32_t m_validSamples = samples; // chans;
+
+  for (uint32_t i = 0; i < m_validSamples; i++) {
+    m_outBuff[i] /= gain_div;
+  }
+
+  i2s_write_samples(i2sp, m_outBuff, m_validSamples);
+  
+  OsWatchLoop();
+
+  return running;
 }
 
 bool mp3_stop() {
+SETREGS
+  i2s_disable_tx(i2sp);
   return 0;
 }
 
-
-void I2S_PlayMP3(void) {
+void I2sTaskMP3(void) {
   SETREGS
-
-#ifdef USE_MP3
-
-  if (busy) {
-    return;
-  }
-
-  char *cp = XdrvMailbox->data;
-  while (*cp == ' ') cp++;
-
-  File_p *wf;
-  wf = fopen(cp, 'r');
-  if (!wf) {
-    // file not found
-    Response_P(GSTR(S_JSON_FNF), cp);
-    return;
-  }
 
   mp3_begin();
 
@@ -353,47 +443,28 @@ void I2S_PlayMP3(void) {
   }
 
   fclose(wf);
+
+  i2s_disable_tx(i2sp);
   
-/*
-
-//  audio.connecttoFS(SD, "/320k_test.mp3");
-//  audio.connecttoFS(SD, "test.wav");
-  audio.connecttohost("http://air.ofr.fm:8008/jazz/mp3/128");
-//  audio.connecttospeech("Миска вареників з картоплею та шкварками, змащених салом!", "uk-UA");
+  busy = false;
+  
+  vTaskDelete(0);
 }
-
-void loop() {
-    audio.loop();
-    if(Serial.available()){ // put streamURL in serial monitor
-        audio.stopSong();
-        String r=Serial.readString(); 
-        r.trim();
-        if(r.length()>5) audio.connecttohost(r.c_str());
-        log_i("free heap=%i", ESP.getFreeHeap());
-    }
-}
-
-  if (!MP3Decoder_AllocateBuffers()) {
-    Response_P(GSTR(S_JSON_MEMERR));
-    return;
-  }
-
-  MP3Decoder_FreeBuffers();
-*/
-
 #endif
-}
 
 const char I2S_Commands[] PROGMEM =
     "I2S|"  // Prefix
-    "pw|vol/play";
-void (*const I2S_Command[])(void) PROGMEM = {&I2S_PlayWave,&SetVolume,&I2S_PlayMP3};
+    "play|vol";
+void (*const I2S_Command[])(void) PROGMEM = {&I2S_Play,&SetVolume};
 
 void I2SAudio_Deinit() {
   SETREGS
 #ifdef USE_MP3
   MP3Decoder_FreeBuffers();
+  if (m_outBuff) free(m_outBuff);
+  if (m_inBuff) free(m_inBuff);  
 #endif
+  i2s_end(i2sp);
   RETMEM
 }
 

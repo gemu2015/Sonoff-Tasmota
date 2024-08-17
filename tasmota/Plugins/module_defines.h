@@ -776,7 +776,8 @@ typedef struct {
 #define i2s_set_rate(A,B,C,D) ji2s(2,(uint32_t)A,B,C,D,0)
 #define i2s_write_sample(A,B) ji2s(5,(uint32_t)A,B,0,0,0)
 #define i2s_write_samples(A,B,C) ji2s(3,(uint32_t)A,(uint32_t)B,C,0,0)
-
+#define i2s_enable_tx(A) ji2s(6,(uint32_t)A,0,0,0,0)
+#define i2s_disable_tx(A) ji2s(7,(uint32_t)A,0,0,0,0)
 
 #define xTaskCreatePinnedToCore(A)   jtaskc(A)
 #define vTaskDelete(A)   jtaskd(A)

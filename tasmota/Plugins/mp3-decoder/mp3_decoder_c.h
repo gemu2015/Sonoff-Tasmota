@@ -9,6 +9,7 @@
 
 #include "../pgmspace_32.h"
 
+
 /* clip to range [-2^n, 2^n - 1] */
 #if 0 //Fast on ARM:
 #define CLIP_2N(y, n) { \
@@ -748,6 +749,7 @@ int UnpackFrameHeader(unsigned char *buf){
     if ((buf[0] & m_SYNCWORDH) != m_SYNCWORDH || (buf[1] & m_SYNCWORDL) != m_SYNCWORDL){return -1;}
     /* read header fields - use bitmasks instead of GetBits() for speed, since format never varies */
     verIdx = (buf[1] >> 3) & 0x03;
+
     mp3m.m_MPEGVersion = (MPEGVersion_t) (verIdx == 0 ? MPEG25 : ((verIdx & 0x01) ? MPEG1 : MPEG2));
     mp3m.m_FrameHeader->layer = 4 - ((buf[1] >> 1) & 0x03); /* easy mapping of index to layer number, 4 = error */
     mp3m.m_FrameHeader->crc = 1 - ((buf[1] >> 0) & 0x01);
@@ -760,6 +762,7 @@ int UnpackFrameHeader(unsigned char *buf){
     mp3m.m_FrameHeader->copyFlag = (buf[3] >> 3) & 0x01;
     mp3m.m_FrameHeader->origFlag = (buf[3] >> 2) & 0x01;
     mp3m.m_FrameHeader->emphasis = (buf[3] >> 0) & 0x03;
+
     /* check parameters to avoid indexing tables with bad values */
     if (mp3m.m_FrameHeader->srIdx == 3 || mp3m.m_FrameHeader->layer == 4 || mp3m.m_FrameHeader->brIdx == 15) {return -1;}
     /* for readability (we reference sfBandTable many times in decoder) */
@@ -767,6 +770,7 @@ int UnpackFrameHeader(unsigned char *buf){
     if (mp3m.m_sMode != Joint) /* just to be safe (dequant, stproc check fh->modeExt) */
         mp3m.m_FrameHeader->modeExt = 0;
     /* init user-accessible data */
+
     mp3m.m_MP3DecInfo->nChans = (mp3m.m_sMode == Mono ? 1 : 2);
     mp3m.m_MP3DecInfo->samprate = samplerateTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->srIdx];
     mp3m.m_MP3DecInfo->nGrans = (mp3m.m_MPEGVersion == MPEG1 ? m_NGRANS_MPEG1 : m_NGRANS_MPEG2);
@@ -778,14 +782,17 @@ int UnpackFrameHeader(unsigned char *buf){
      *  copy the pre-calculated actual free bitrate into it in mp3dec.c (according to the spec,
      *  this shouldn't be necessary, since it should be either all frames free or none free)
      */
+
     if (mp3m.m_FrameHeader->brIdx) {
-        mp3m.m_MP3DecInfo->bitrate=((int) bitrateTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->layer - 1][mp3m.m_FrameHeader->brIdx]) * 1000;
+        mp3m.m_MP3DecInfo->bitrate=((int) pgm_read_word(&bitrateTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->layer - 1][mp3m.m_FrameHeader->brIdx])) * 1000;
+
         /* nSlots = total frame bytes (from table) - sideInfo bytes - header - CRC (if present) + pad (if present) */
-        mp3m.m_MP3DecInfo->nSlots= (int) slotTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->srIdx][mp3m.m_FrameHeader->brIdx]
-                - (int) sideBytesTab[mp3m.m_MPEGVersion][(mp3m.m_sMode == Mono ? 0 : 1)] - 4
+        mp3m.m_MP3DecInfo->nSlots= (int) pgm_read_word(&slotTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->srIdx][mp3m.m_FrameHeader->brIdx])
+                - (int) pgm_read_word(&sideBytesTab[mp3m.m_MPEGVersion][(mp3m.m_sMode == Mono ? 0 : 1)]) - 4
                 - (mp3m.m_FrameHeader->crc ? 2 : 0) + (mp3m.m_FrameHeader->paddingBit ? 1 : 0);
     }
     /* load crc word, if enabled, and return length of frame header (in bytes) */
+
     if (mp3m.m_FrameHeader->crc) {
         mp3m.m_FrameHeader->CRCWord = ((int) buf[4] << 8 | (int) buf[5] << 0);
         return 6;
@@ -1405,6 +1412,7 @@ int MP3Decode( unsigned char *inbuf, int *bytesLeft, short *outbuf, int useSize)
         return ERR_MP3_INVALID_FRAMEHEADER; /* don't clear outbuf since we don't know size (failed to parse header) */
     }
     inbuf += fhBytes;
+
     /* unpack side info */
     siBytes = UnpackSideInfo( inbuf);
     if (siBytes < 0) {
