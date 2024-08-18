@@ -173,12 +173,12 @@ bool getIAQBaseline(uint16_t *eco2_base, uint16_t *tvoc_base) {
 
 bool setHumidity(uint32_t absolute_humidity) {
   SETREGS
-  if (absolute_humidity > 256000) {
+  if (absolute_humidity > ICONST(256000)) {
     return false;
   }
 
   // uint16_t ah_scaled = (uint16_t)(((uint64_t)absolute_humidity * 256 * 16777) >> 24);
-  uint64_t llval = tmod__muldi3(absolute_humidity << 8, 16777);
+  uint64_t llval = tmod__muldi3(absolute_humidity << 8, ICONST(16777));
   uint16_t ah_scaled = llval >> 24;
   uint8_t command[5];
   command[0] = 0x20;

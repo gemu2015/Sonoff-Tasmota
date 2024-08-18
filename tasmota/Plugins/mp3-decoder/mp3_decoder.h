@@ -201,8 +201,6 @@ typedef struct MP3DecInfo {
 } MP3DecInfo_t;
 
 
-
-
 /* format = Q31
  * #define M_PI 3.14159265358979323846
  * double u = 2.0 * M_PI / 9.0;
@@ -213,24 +211,29 @@ typedef struct MP3DecInfo {
  * float c4 = sin(2*u);
  */
 
+const int c9_x[] PROGMEM = {0x6ed9eba1, 0x620dbe8b, 0x163a1a7e, 0x5246dd49, 0x7e0e2e32 };
+const int c3_0[] PROGMEM = {0x6ed9eba1};
+const int c6[3] PROGMEM = { 0x7ba3751d, 0x5a82799a, 0x2120fb83 };
+const uint32_t c18[9] PROGMEM = { 0x7f834ed0, 0x7ba3751d, 0x7401e4c1, 0x68d9f964, 0x5a82799a, 0x496af3e2, 0x36185aee, 0x2120fb83, 0x0b27eb5c};
+
+/*
 const int c9_0 = 0x6ed9eba1;
 const int c9_1 = 0x620dbe8b;
 const int c9_2 = 0x163a1a7e;
 const int c9_3 = 0x5246dd49;
 const int c9_4 = 0x7e0e2e32;
 
+const int c3_0 = 0x6ed9eba1; // format = Q31, cos(pi/6)
+const int c6[3] = { 0x7ba3751d, 0x5a82799a, 0x2120fb83 }; // format = Q31, cos(((0:2) + 0.5) * (pi/6))
 
+// format = Q31
+// cos(((0:8) + 0.5) * (pi/18))
 
-const int c3_0 = 0x6ed9eba1; /* format = Q31, cos(pi/6) */
-const int c6[3] = { 0x7ba3751d, 0x5a82799a, 0x2120fb83 }; /* format = Q31, cos(((0:2) + 0.5) * (pi/6)) */
-
-/* format = Q31
- * cos(((0:8) + 0.5) * (pi/18))
- */
 const uint32_t c18[9] = { 0x7f834ed0, 0x7ba3751d, 0x7401e4c1, 0x68d9f964, 0x5a82799a, 0x496af3e2, 0x36185aee, 0x2120fb83, 0x0b27eb5c};
+*/
 
 /* scale factor lengths (num bits) */
-const char m_SFLenTab[16][2] = { {0, 0}, {0, 1}, {0, 2}, {0, 3}, {3, 0}, {1, 1}, {1, 2}, {1, 3},
+const char  m_SFLenTab[16][2] PROGMEM = { {0, 0}, {0, 1}, {0, 2}, {0, 3}, {3, 0}, {1, 1}, {1, 2}, {1, 3},
                                  {2, 1}, {2, 2}, {2, 3}, {3, 1}, {3, 2}, {3, 3}, {4, 2}, {4, 3}};
 
 /* NRTab[size + 3*is_right][block type][partition]
@@ -243,7 +246,7 @@ const char m_SFLenTab[16][2] = { {0, 0}, {0, 1}, {0, 2}, {0, 3}, {3, 0}, {1, 1},
  *   NRTab[x][1][y]   --> (NRTab[x][1][y])   / 3
  *   NRTab[x][2][>=1] --> (NRTab[x][2][>=1]) / 3  (first partition is long block)
  */
-const char NRTab[6][3][4] = {
+const char NRTab[6][3][4] PROGMEM = {
     {{ 6,  5, 5, 5}, {3, 3, 3, 3}, {6, 3, 3, 3}},
     {{ 6,  5, 7, 3}, {3, 3, 4, 2}, {6, 3, 4, 2}},
     {{11, 10, 0, 0}, {6, 6, 0, 0}, {6, 3, 6, 0}},
@@ -255,7 +258,7 @@ const char NRTab[6][3][4] = {
 
 
 /* optional pre-emphasis for high-frequency scale factor bands */
-const char preTab[22] = { 0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,2,2,3,3,3,2,0 };
+const char preTab[22] PROGMEM = { 0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,2,2,3,3,3,2,0 };
 
 /* pow(2,-i/4) for i=0..3, Q31 format */
 const int pow14[4] PROGMEM = {
@@ -416,7 +419,8 @@ const int ISFIIP[2][2] PROGMEM = {
     {0x40000000, 0x40000000}, /* mid-side on */
 };
 
-const unsigned char uniqueIDTab[8] = {0x5f, 0x4b, 0x43, 0x5f, 0x5f, 0x4a, 0x52, 0x5f};
+// not used
+//const unsigned char uniqueIDTab[8] = {0x5f, 0x4b, 0x43, 0x5f, 0x5f, 0x4a, 0x52, 0x5f};
 
 /* anti-alias coefficients - see spec Annex B, table 3-B.9
  *   csa[0][i] = CSi, csa[1][i] = CAi
@@ -528,8 +532,14 @@ MODULE_PART void imdct12(int *x, int *out);
 MODULE_PART int IMDCT12x3(int *xCurr, int *xPrev, int *y, int btPrev, int blockIdx, int gb);
 MODULE_PART int HybridTransform(int *xCurr, int *xPrev, int y[m_BLOCK_SIZE][m_NBANDS], SideInfoSub_t *sis, BlockCount_t *bc);
 MODULE_PART inline uint64_t SAR64(uint64_t x, int n) {return x >> n;}
-MODULE_PART inline int MULSHIFT32(int x, int y) { int z; z = (uint64_t) x * (uint64_t) y >> 32; return z;}
-MODULE_PART inline uint64_t MADD64(uint64_t sum64, int x, int y) {sum64 += (uint64_t) x * (uint64_t) y; return sum64;}/* returns 64-bit value in [edx:eax] */
+//MODULE_PART inline int MULSHIFT32(int x, int y) { int z; z = (uint64_t) x * (uint64_t) y >> 32; return z;}
+#define MULSHIFT32(x, y) (__muldi3((uint64_t) x , (uint64_t) y) >> 32)
+
+//MODULE_PART inline uint64_t MADD64(uint64_t sum64, int x, int y) {sum64 += (uint64_t) x * (uint64_t) y; return sum64;}/* returns 64-bit value in [edx:eax] */
+#define MADD64(x, y) __muldi3(x, y)
+
+
+
 MODULE_PART inline uint64_t xSAR64(uint64_t x, int n){return x >> n;}
 MODULE_PART inline int FASTABS(int x){ return __builtin_abs(x);} //xtensa has a fast abs instruction //fb
 #define CLZ(x) __builtin_clz(x) //fb

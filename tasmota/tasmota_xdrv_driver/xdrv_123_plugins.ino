@@ -382,7 +382,9 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_double2long,
   JMPTBL&tmod_long2double,
   JMPTBL&MqttPublishSensor,
-  JMPTBL&ParseParameters
+  JMPTBL&ParseParameters,
+  JMPTBL&tmod__modsi3,
+  JMPTBL&tmod__ashldi3
 };
 
 
@@ -1383,6 +1385,13 @@ int64_t tmod__muldi3(int64_t p1, int64_t p2) {
   return p1 * p2;
 }
 
+int32_t tmod__modsi3(int32_t p1, int32_t p2) {
+  return p1 % p2;
+}
+
+int64_t tmod__ashldi3(int64_t p1, int32_t p2) {
+  return p1 << p2;
+}
 
 
 float tmod_fdiv(float p1, float p2) {
@@ -1777,7 +1786,8 @@ uint8_t *Load_Module(char *path, uint32_t *rsize) {
   uint8_t *fdesc = (uint8_t *)calloc(size / 4 + 4, 4);
 #endif
 #ifdef ESP32
-  uint8_t *fdesc = (uint8_t *)heap_caps_malloc(size + 4, MALLOC_CAP_EXEC);
+  //uint8_t *fdesc = (uint8_t *)heap_caps_malloc(size + 4, MALLOC_CAP_EXEC);
+  uint8_t *fdesc = (uint8_t *)special_malloc(size + 4);
 #endif
   if (!fdesc) return 0;
   fp.read(fdesc, size);
@@ -1807,13 +1817,18 @@ uint32_t eeprom_block;
       } else {
         // free module block, check required size
         uint8_t blocks = (size / SPI_FLASH_SEC_SIZE) + 1;
+        //AddLog(LOG_LEVEL_INFO, PSTR("needed blocks: %d"), blocks);
         uint32_t *bp = lp;
         uint8_t free = 1;
         for (uint32_t cnt = 0; cnt < blocks; cnt++) {
           if (*bp == MODULE_SYNC) {
             free = 0;
           }
-          bp += SPI_FLASH_SEC_SIZE;
+          bp += SPI_FLASH_SEC_SIZE / 4;
+          if ((uint32_t)bp >= plugins.free_flash_end) {
+            break;
+          }
+          //AddLog(LOG_LEVEL_INFO, PSTR("blocks: %d - %d"), cnt, free);
         }
         if (free) {
           eeprom_block = addr;
@@ -1822,15 +1837,22 @@ uint32_t eeprom_block;
       }
       lp += (blocksize / 4);
       addr += blocksize;
+      //AddLog(LOG_LEVEL_INFO, PSTR("progress: %d"), addr);
+      yield();
   }
   return eeprom_block;
 }
 
 uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t flag, uint8_t index) {
+
+  //AddLog(LOG_LEVEL_INFO, PSTR("store module size: %d"), size);
+
   uint32_t eeprom_block = Module_CheckFree(size);
   if (!eeprom_block) {
     return 0;
   }
+
+  //AddLog(LOG_LEVEL_INFO, PSTR(" >>>"));
 
 #ifdef ESP8266  
   const FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
@@ -1874,11 +1896,12 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
     ESP.flashWrite(eeprom_block , lwp, SPI_FLASH_SEC_SIZE);
     lwp += SPI_FLASH_SEC_SIZE / 4;
     eeprom_block += SPI_FLASH_SEC_SIZE;
+    yield();
   }
 #endif // ESP8266
 
 #ifdef ESP32
-  //AddLog(LOG_LEVEL_INFO, PSTR("save module: %08x, size: %d"),eeprom_block, size);
+  AddLog(LOG_LEVEL_INFO, PSTR("save module: %08x, size: %d"),eeprom_block, size);
   uint32_t offset = eeprom_block - plugins.free_flash_start;
   uint8_t blocks = (size / ESP32_PLUGIN_HSIZE) + 1;
   for (uint8_t cnt = 0; cnt < blocks; cnt++) {
@@ -1891,6 +1914,8 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
     lwp += ESP32_PLUGIN_HSIZE / sizeof(uint32_t);
     offset += ESP32_PLUGIN_HSIZE;
     size -= ESP32_PLUGIN_HSIZE;
+    yield();
+    //AddLog(LOG_LEVEL_INFO, PSTR("progress: %d"),offset);
   }
 #endif // ESP32
   return new_pc;
@@ -2564,7 +2589,7 @@ bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
     plugins.module_size = fm->size;
     uint32_t size = (fm->size / SPI_FLASH_SEC_SIZE) + 1 ;
     size *= SPI_FLASH_SEC_SIZE;
-    plugins.module_input_buffer = (uint8_t *)calloc(size / 4 + 4, 4);
+    plugins.module_input_buffer = (uint8_t *)special_malloc(size + 4);
     if (!plugins.module_input_buffer) {
       AddLog(LOG_LEVEL_INFO,PSTR("memory error"));
       return false;
@@ -2572,6 +2597,10 @@ bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
     plugins.module_input_ptr = plugins.module_input_buffer;
     //Module_CheckFree(size, upload.filename.c_str());
   }
+
+  delay(0);
+
+  //AddLog(LOG_LEVEL_INFO,PSTR("progress; %d"),plugins.module_bytes_read);
 
   if ((plugins.module_size - plugins.module_bytes_read) > current_size) {
     memcpy(plugins.module_input_ptr, upload_buf, current_size);

@@ -199,6 +199,8 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define i642d(A)                        (( int64_t (*)(double))                         jt[165])(A)
 #define jMqttPublishSensor()            (( void (*)(void))                              jt[166])
 #define jParseParameters(A,B)           (( uint32_t (*)(uint32_t,uint32_t *))           jt[167])(A,B)
+#define jtmod__modsi3(A,B)              (( int32_t (*)(int32_t,int32_t) )               jt[168])(A,B)
+#define jtmod__ashldi3(A,B)             (( int64_t (*)(int64_t,int32_t) )               jt[169])(A,B)
 
 
 
@@ -367,7 +369,8 @@ typedef struct {
 #define GFLT(LABEL) (float *) ((char *)LABEL+EXEC_OFFSET)
 #define PU8(s) (__extension__({static const uint8_t __c[] PROGMEM = (s); &__c[EXEC_OFFSET];}))
 #define GVOID(LABEL) (void (*)(void*))((uint8_t*)LABEL+EXEC_OFFSET)
-
+#define GU16p(LABEL) (const unsigned short *) ((uint8_t *)LABEL+EXEC_OFFSET)
+#define GU32p(LABEL) (const int *) ((uint8_t *)LABEL+EXEC_OFFSET)
 
 // all floating point constants must be in progmem and named FP_CONST
 #define FLTC(INDEX) *(float *) ((char *)&FP_CONST[INDEX]+EXEC_OFFSET)
@@ -802,6 +805,10 @@ typedef struct {
 #define Plugin_Get_SensorNames jPlugin_Get_SensorNames
 
 #define __divsi3 jtmod__divsi3
+#define __udivsi3 jtmod__udivsi3
+#define __modsi3 jtmod__modsi3
+#define __muldi3 jtmod__muldi3
+#define __ashldi3 jtmod__ashldi3
 
 //size_t fread ( void * ptr, size_t size, size_t count, FILE * stream );
 

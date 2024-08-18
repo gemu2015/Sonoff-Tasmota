@@ -25,9 +25,12 @@
 #include "module.h"
 #include "module_defines.h"
 
+
 #ifdef ESP32
 #define USE_MP3
 #endif
+
+//#define USE_MP3
 
 // RIFF header
 typedef struct {
@@ -113,14 +116,19 @@ typedef struct {
 #define input_bytes mem->input_bytes
 #define filepos mem->filepos
 
-// esp8266 i2s pins : DOUT = 3(RX), BCK = 15(D8), WS = 2(D4)
+// esp8266 fixed i2s pins : DOUT = 3(RX), BCK = 15(D8), WS = 2(D4)
 
+#ifdef USE_MP3
+#define MODNAME "I2SAUDIOM"
+#else
+#define MODNAME "I2SAUDIO"
+#endif
 
 #define I2S_REV 1 << 16 | 4
 #ifdef ESP8266
-MODULE_DESCRIPTOR("I2SAUDIO", MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0)
+MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0)
 #else
-MODULE_DESCRIPTOR("I2SAUDIO", MODULE_TYPE_DRIVER, I2S_REV, "DOUT", 17, "BCK", 10, "WS", 18, "MODE", 0x01000200)
+MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", 17, "BCK", 10, "WS", 18, "MODE", 0x01000200)
 #endif
 
 // all functions must be declared MUDULE_PART
@@ -218,7 +226,7 @@ void I2sTask(void) {
       break;
     }
     for (uint32_t i = 0; i < bytesread / 2; i++) {
-      buffer[i] /= gain_div;
+      buffer[i] = __divsi3(buffer[i], gain_div);
     }
     i2s_write_samples(i2sp, buffer, bytesread / 2);
   }
@@ -299,7 +307,7 @@ void I2S_Play(void) {
         break;
       }
       for (uint32_t i = 0; i < bytesread / 2; i++) {
-        buffer[i] /= gain_div;
+        buffer[i] = __divsi3(buffer[i], gain_div);
       }
       i2s_write_samples(i2sp, buffer, bytesread / 2);
       OsWatchLoop();
@@ -353,9 +361,9 @@ void SetVolume(void) {
     if (gain < 1) {
       gain = 1;
     }
-    gain_div = 100 / gain;
+    gain_div = __divsi3(100, gain);
   } else {
-    gain = 100 / gain_div;
+    gain = __divsi3(100 , gain_div);
   }
   ResponseCmndNumber(gain);
 
@@ -414,7 +422,7 @@ SETREGS
   uint32_t m_validSamples = samples; // chans;
 
   for (uint32_t i = 0; i < m_validSamples; i++) {
-    m_outBuff[i] /= gain_div;
+    m_outBuff[i] = __divsi3(m_outBuff[i], gain_div);
   }
 
   i2s_write_samples(i2sp, m_outBuff, m_validSamples);
