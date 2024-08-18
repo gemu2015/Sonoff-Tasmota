@@ -536,7 +536,9 @@ MODULE_PART int HybridTransform(int *xCurr, int *xPrev, int y[m_BLOCK_SIZE][m_NB
 #define SAR64 __lshrdi3
 
 //MODULE_PART inline int MULSHIFT32(int x, int y) { int z; z = (uint64_t) x * (uint64_t) y >> 32; return z;}
-#define MULSHIFT32(x, y) (__muldi3((uint64_t) x , (uint64_t) y) >> 32)
+//#define MULSHIFT32(x, y) (int)(__muldi3((uint64_t) x , (uint64_t) y) >> 32)
+MODULE_PART int MULSHIFT32(int x, int y);
+
 
 //MODULE_PART inline uint64_t MADD64(uint64_t sum64, int x, int y) {sum64 += (uint64_t) x * (uint64_t) y; return sum64;}/* returns 64-bit value in [edx:eax] */
 #define MADD64(x, y) __muldi3(x, y)

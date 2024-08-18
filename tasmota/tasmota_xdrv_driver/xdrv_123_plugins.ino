@@ -434,7 +434,7 @@ char *tmod_Run_Scripter(char *sect) {
 uint32_t tmod_task_create(TASKPARS *tp) {
   uint32_t result;
   char *cp = copyStr(tp->constpcName);
-  AddLog(LOG_LEVEL_INFO,PSTR("task Init %s - %d"), cp, tp->usStackDepth);
+  //AddLog(LOG_LEVEL_INFO,PSTR("task Init %s - %d"), cp, tp->usStackDepth);
 
   result = xTaskCreatePinnedToCore(tp->pvTaskCode, cp, tp->usStackDepth, tp->constpvParameters, (UBaseType_t)tp->uxPriority, (TaskHandle_t*)tp->constpvCreatedTask, (const BaseType_t)tp->xCoreID);
   free(cp);

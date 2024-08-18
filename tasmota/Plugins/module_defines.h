@@ -472,6 +472,9 @@ extern MODULES_TABLE modules[];
 #define MOD_FUNC(A, ...) A(MODULES_TABLE *mt, ##__VA_ARGS__)
 //#define MOD_FUNC(A, ...) A(##__VA_ARGS__)
 
+#define SETMINREGS GET_MTBL; GET_JT;
+
+
 #define CALL_MOD_FUNC(A, ...) A(mt, ##__VA_ARGS__)
 
 

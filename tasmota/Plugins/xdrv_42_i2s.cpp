@@ -30,7 +30,7 @@
 #define USE_MP3
 #endif
 
-//#define USE_MP3
+#define USE_MP3
 
 // RIFF header
 typedef struct {
@@ -141,6 +141,8 @@ MODULE_PART bool mp3_isRunning();
 MODULE_PART bool mp3_loop();
 MODULE_PART bool mp3_stop();
 MODULE_PART void SetVolume(void);
+MODULE_PART void execute(void);
+
 MODULE_PART void I2SAudio_Deinit();
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
 MODULE_END
@@ -460,10 +462,13 @@ void I2sTaskMP3(void) {
 }
 #endif
 
+void execute(void) {
+}
+
 const char I2S_Commands[] PROGMEM =
     "I2S|"  // Prefix
-    "play|vol";
-void (*const I2S_Command[])(void) PROGMEM = {&I2S_Play,&SetVolume};
+    "play|vol|ex";
+void (*const I2S_Command[])(void) PROGMEM = {&I2S_Play,&SetVolume,&execute};
 
 void I2SAudio_Deinit() {
   SETREGS

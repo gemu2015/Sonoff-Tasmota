@@ -4368,3 +4368,11 @@ void PolyphaseStereo(short *pcm, int *vbuf, const uint32_t *coefBase){
         pcm += 2;
     }
 }
+
+
+int MULSHIFT32(int x, int y) { 
+    SETMINREGS
+    int z = __muldi3((uint64_t) x , (uint64_t) y) >> 32;
+    return z;
+ }
+ 
