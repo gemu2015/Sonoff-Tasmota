@@ -384,7 +384,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&MqttPublishSensor,
   JMPTBL&ParseParameters,
   JMPTBL&tmod__modsi3,
-  JMPTBL&tmod__ashldi3
+  JMPTBL&tmod__ashldi3,
+  JMPTBL&tmod__lshrdi3
 };
 
 
@@ -1389,10 +1390,13 @@ int32_t tmod__modsi3(int32_t p1, int32_t p2) {
   return p1 % p2;
 }
 
-int64_t tmod__ashldi3(int64_t p1, int32_t p2) {
+int64_t tmod__ashldi3(int64_t p1, uint32_t p2) {
   return p1 << p2;
 }
 
+uint64_t tmod__lshrdi3(uint64_t p1, uint32_t p2) {
+  return p1 >> p2;
+}
 
 float tmod_fdiv(float p1, float p2) {
   return p1 / p2;

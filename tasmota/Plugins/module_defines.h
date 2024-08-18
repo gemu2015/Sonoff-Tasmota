@@ -201,7 +201,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jParseParameters(A,B)           (( uint32_t (*)(uint32_t,uint32_t *))           jt[167])(A,B)
 #define jtmod__modsi3(A,B)              (( int32_t (*)(int32_t,int32_t) )               jt[168])(A,B)
 #define jtmod__ashldi3(A,B)             (( int64_t (*)(int64_t,int32_t) )               jt[169])(A,B)
-
+#define jtmod__lshrdi3(A,B)             (( uint64_t (*)(uint64_t,uint32_t) )               jt[170])(A,B)
 
 
 // Arduino macros
@@ -809,6 +809,7 @@ typedef struct {
 #define __modsi3 jtmod__modsi3
 #define __muldi3 jtmod__muldi3
 #define __ashldi3 jtmod__ashldi3
+#define __lshrdi3 jtmod__lshrdi3
 
 //size_t fread ( void * ptr, size_t size, size_t count, FILE * stream );
 

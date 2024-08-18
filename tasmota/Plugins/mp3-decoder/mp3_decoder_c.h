@@ -53,7 +53,9 @@ const uint32_t m_SQRTHALF               =0x5a82799a;  // sqrt(0.5) in Q31 format
 #define m_IMDCT_SCALE            2   // additional scaling (by sqrt(2)) for fast IMDCT36
 #define m_NGRANS_MPEG1           2
 #define m_NGRANS_MPEG2           1
-#define m_SQRTHALF               0x5a82799a  // sqrt(0.5) in Q31 format
+//#define m_SQRTHALF               0x5a82799a  // sqrt(0.5) in Q31 format
+const uint32_t m_SQRTHALF[] PROGMEM = {0x5a82799a,0x08000000,0x20000000,0x40000000};
+
 #endif
 
 const unsigned short huffTable[4242] PROGMEM = {
@@ -670,6 +672,28 @@ const uint32_t m_COS2_3 = 0x52036742;  /* Q29 */
 const uint32_t m_COS3_0 = 0x4545e9ef;  /* Q31 */
 const uint32_t m_COS3_1 = 0x539eba45;  /* Q30 */
 const uint32_t m_COS4_0 = 0x5a82799a;  /* Q31 */
+
+const uint32_t m_dcttab[48] PROGMEM = { // faster in ROM
+    /* first pass */
+     m_COS0_0,  m_COS0_15, m_COS1_0,    /* 31, 27, 31 */
+     m_COS0_1,  m_COS0_14, m_COS1_1,    /* 31, 29, 31 */
+     m_COS0_2,  m_COS0_13, m_COS1_2,    /* 31, 29, 31 */
+     m_COS0_3,  m_COS0_12, m_COS1_3,    /* 31, 30, 31 */
+     m_COS0_4,  m_COS0_11, m_COS1_4,    /* 31, 30, 31 */
+     m_COS0_5,  m_COS0_10, m_COS1_5,    /* 31, 31, 30 */
+     m_COS0_6,  m_COS0_9,  m_COS1_6,    /* 31, 31, 30 */
+     m_COS0_7,  m_COS0_8,  m_COS1_7,    /* 31, 31, 28 */
+    /* second pass */
+     m_COS2_0,  m_COS2_3,  m_COS3_0,   /* 31, 29, 31 */
+     m_COS2_1,  m_COS2_2,  m_COS3_1,   /* 31, 31, 30 */
+    -m_COS2_0, -m_COS2_3,  m_COS3_0,   /* 31, 29, 31 */
+    -m_COS2_1, -m_COS2_2,  m_COS3_1,   /* 31, 31, 30 */
+     m_COS2_0,  m_COS2_3,  m_COS3_0,   /* 31, 29, 31 */
+     m_COS2_1,  m_COS2_2,  m_COS3_1,   /* 31, 31, 30 */
+    -m_COS2_0, -m_COS2_3,  m_COS3_0,   /* 31, 29, 31 */
+    -m_COS2_1, -m_COS2_2,  m_COS3_1,   /* 31, 31, 30 */
+};
+
 #else
 #define m_COS0_0 0x4013c251
 #define m_COS0_1 0x40b345bd
@@ -709,9 +733,6 @@ const uint32_t m_COS4_0 = 0x5a82799a;  /* Q31 */
 #define mm_COS2_3 0xADFC98BE
 #define mm_COS2_2 0x8CCD9441
 
-#endif
-
-
 const uint32_t m_dcttab[48] PROGMEM = { // faster in ROM
     /* first pass */
      m_COS0_0,  m_COS0_15, m_COS1_0,    /* 31, 27, 31 */
@@ -732,6 +753,11 @@ const uint32_t m_dcttab[48] PROGMEM = { // faster in ROM
     mm_COS2_0, mm_COS2_3,  m_COS3_0,   /* 31, 29, 31 */
     mm_COS2_1, mm_COS2_2,  m_COS3_1,   /* 31, 31, 30 */
 };
+
+#endif
+
+
+
 
 /***********************************************************************************************************************
  * B I T S T R E A M
@@ -1535,6 +1561,8 @@ int MP3Decode( unsigned char *inbuf, int *bytesLeft, short *outbuf, int useSize)
     }
     inbuf += fhBytes;
 
+    //AddLog(LOG_LEVEL_INFO, PSTR(">>> 1"));
+
     /* unpack side info */
     siBytes = UnpackSideInfo( inbuf);
     if (siBytes < 0) {
@@ -1543,8 +1571,6 @@ int MP3Decode( unsigned char *inbuf, int *bytesLeft, short *outbuf, int useSize)
     }
     inbuf += siBytes;
     *bytesLeft -= (fhBytes + siBytes);
-
-    AddLog(LOG_LEVEL_INFO, PSTR(">>> 1"));
 
     /* if free mode, need to calculate bitrate and nSlots manually, based on frame size */
     if (mp3m.m_MP3DecInfo->bitrate == 0 || mp3m.m_MP3DecInfo->freeBitrateFlag) {
@@ -1565,7 +1591,7 @@ int MP3Decode( unsigned char *inbuf, int *bytesLeft, short *outbuf, int useSize)
         mp3m.m_MP3DecInfo->nSlots = mp3m.m_MP3DecInfo->freeBitrateSlots + CheckPadBit(); /* add pad byte, if required */
     }
 
-    AddLog(LOG_LEVEL_INFO, PSTR(">>> 2"));
+    //AddLog(LOG_LEVEL_INFO, PSTR(">>> 2"));
 
     /* useSize != 0 means we're getting reformatted (RTP) packets (see RFC 3119)
      *  - calling function assembles "self-contained" MP3 frames by shifting any main_data
@@ -1621,7 +1647,8 @@ int MP3Decode( unsigned char *inbuf, int *bytesLeft, short *outbuf, int useSize)
         }
     }
 
-    AddLog(LOG_LEVEL_INFO, PSTR(">>> 3"));
+    //AddLog(LOG_LEVEL_INFO, PSTR(">>> 3"));
+
     bitOffset = 0;
     mainBits = mp3m.m_MP3DecInfo->mainDataBytes * 8;
 
@@ -1636,6 +1663,8 @@ int MP3Decode( unsigned char *inbuf, int *bytesLeft, short *outbuf, int useSize)
             huffBlockBits = mp3m.m_MP3DecInfo->part23Length[gr][ch] - sfBlockBits;
             mainPtr += offset;
             mainBits -= sfBlockBits;
+
+            //AddLog(LOG_LEVEL_INFO, PSTR(">>> 3a"));
 
             if (offset < 0 || mainBits < huffBlockBits) {
                 MP3ClearBadFrame(outbuf);
@@ -1652,13 +1681,16 @@ int MP3Decode( unsigned char *inbuf, int *bytesLeft, short *outbuf, int useSize)
             mainBits -= (8 * offset - prevBitOffset + bitOffset);
         }
 
-        AddLog(LOG_LEVEL_INFO, PSTR(">>> 4"));
+        //AddLog(LOG_LEVEL_INFO, PSTR(">>> 3b"));
+
         /* dequantize coefficients, decode stereo, reorder short blocks */
         if (MP3Dequantize( gr) < 0) {
             MP3ClearBadFrame(outbuf);
             return ERR_MP3_INVALID_DEQUANTIZE;
         }
-        AddLog(LOG_LEVEL_INFO, PSTR(">>> 4a"));
+
+        //AddLog(LOG_LEVEL_INFO, PSTR(">>> 3c"));
+   
         /* alias reduction, inverse MDCT, overlap-add, frequency inversion */
         for (ch = 0; ch < mp3m.m_MP3DecInfo->nChans; ch++) {
             if (IMDCT( gr, ch) < 0) {
@@ -1666,17 +1698,25 @@ int MP3Decode( unsigned char *inbuf, int *bytesLeft, short *outbuf, int useSize)
                 return ERR_MP3_INVALID_IMDCT;
             }
         }
-        AddLog(LOG_LEVEL_INFO, PSTR(">>> 4b"));
+
+        //AddLog(LOG_LEVEL_INFO, PSTR(">>> 4"));
+
         /* subband transform - if stereo, interleaves pcm LRLRLR */
-        if (Subband(outbuf + gr * mp3m.m_MP3DecInfo->nGranSamps * mp3m.m_MP3DecInfo->nChans) < 0) {
+        uint32_t offset = gr * mp3m.m_MP3DecInfo->nGranSamps * mp3m.m_MP3DecInfo->nChans;
+
+        //AddLog(LOG_LEVEL_INFO, PSTR(">>> 4a"));
+
+        if (Subband(outbuf + offset) < 0) {
             MP3ClearBadFrame(outbuf);
             return ERR_MP3_INVALID_SUBBAND;
         }
-        AddLog(LOG_LEVEL_INFO, PSTR(">>> 4c"));
+
     }
-    AddLog(LOG_LEVEL_INFO, PSTR(">>> 5"));
+
+    //AddLog(LOG_LEVEL_INFO, PSTR(">>> end"));
+
     MP3GetLastFrameInfo();
-    AddLog(LOG_LEVEL_INFO, PSTR(">>> 6"));
+ 
     return ERR_MP3_NONE;
 }
 
@@ -2076,6 +2116,8 @@ int DecodeHuffmanQuads(int *vwxy, int nVals, int tabIdx, int bitsLeft, unsigned 
     if(bitsLeft<=0) return 0;
 
 
+    //AddLog(LOG_LEVEL_INFO, PSTR("DecodeHuffmanQuads 1"));
+
     //tBase = (unsigned char *) quadTable + quadTabOffset[tabIdx];
     //maxBits = quadTabMaxBits[tabIdx];
 
@@ -2089,6 +2131,8 @@ int DecodeHuffmanQuads(int *vwxy, int nVals, int tabIdx, int bitsLeft, unsigned 
     cachedBits = (8-bitOffset) & 0x07;
     if(cachedBits)cache=(unsigned int)(*buf++) << (32 - cachedBits);
     bitsLeft -= cachedBits;
+
+    //AddLog(LOG_LEVEL_INFO, PSTR("DecodeHuffmanQuads 2"));
 
     i = padBits = 0;
     while (i < (nVals - 3)) {
@@ -2158,6 +2202,8 @@ int DecodeHuffmanQuads(int *vwxy, int nVals, int tabIdx, int bitsLeft, unsigned 
         }
     }
 
+    //AddLog(LOG_LEVEL_INFO, PSTR("DecodeHuffmanQuads 3"));
+
     /* decoded max number of quad values */
     return i;
 }
@@ -2199,6 +2245,9 @@ int DecodeHuffman(unsigned char *buf, int *bitOffset, int huffBlockBits, int gr,
     if (huffBlockBits < 0)
         return -1;
 
+
+    //AddLog(LOG_LEVEL_INFO, PSTR("DecodeHuffman 1"));
+
     /* figure out region boundaries (the first 2*bigVals coefficients divided into 3 regions) */
     if (sis->winSwitchFlag && sis->blockType == 2) {
         if (sis->mixedBlock == 0) {
@@ -2219,6 +2268,8 @@ int DecodeHuffman(unsigned char *buf, int *bitOffset, int huffBlockBits, int gr,
         r1Start = mp3m.m_SFBandTable.l[sis->region0Count + 1];
         r2Start = mp3m.m_SFBandTable.l[sis->region0Count + 1 + sis->region1Count + 1];
     }
+
+    //AddLog(LOG_LEVEL_INFO, PSTR("DecodeHuffman 2"));
 
     /* offset rEnd index by 1 so first region = rEnd[1] - rEnd[0], etc. */
     rEnd[3] = (m_MAX_NSAMP < (2 * sis->nBigvals) ? m_MAX_NSAMP : (2 * sis->nBigvals));
@@ -2243,6 +2294,7 @@ int DecodeHuffman(unsigned char *buf, int *bitOffset, int huffBlockBits, int gr,
         *bitOffset = (bitsUsed + *bitOffset) & 0x07;
         bitsLeft -= bitsUsed;
     }
+    //AddLog(LOG_LEVEL_INFO, PSTR("DecodeHuffman 3"));
 
     /* decode Huffman quads (if any) */
     mp3m.m_HuffmanInfo->nonZeroBound[ch] += DecodeHuffmanQuads(mp3m.m_HuffmanInfo->huffDecBuf[ch] + rEnd[3],
@@ -2259,6 +2311,8 @@ int DecodeHuffman(unsigned char *buf, int *bitOffset, int huffBlockBits, int gr,
      */
     buf += (bitsLeft + *bitOffset) >> 3;
     *bitOffset = (bitsLeft + *bitOffset) & 0x07;
+
+    //AddLog(LOG_LEVEL_INFO, PSTR("DecodeHuffman 4"));
 
     return (buf - startBuf);
 }
@@ -2297,11 +2351,17 @@ int MP3Dequantize(int gr){
     cbi = &mp3m.m_CriticalBandInfo[0];
     mOut[0] = mOut[1] = 0;
 
+
+
+    //AddLog(LOG_LEVEL_INFO, PSTR("MP3Dequantize 1"));
+
     /* dequantize all the samples in each channel */
     for (ch = 0; ch < mp3m.m_MP3DecInfo->nChans; ch++) {
         mp3m.m_HuffmanInfo->gb[ch] = DequantChannel(mp3m.m_HuffmanInfo->huffDecBuf[ch], mp3m.m_DequantInfo->workBuf,
                 &mp3m.m_HuffmanInfo->nonZeroBound[ch], &mp3m.m_SideInfoSub[gr][ch], &mp3m.m_ScaleFactorInfoSub[gr][ch], &cbi[ch]);
     }
+
+    //AddLog(LOG_LEVEL_INFO, PSTR("MP3Dequantize 2"));
 
     /* joint stereo processing assumes one guard bit in input samples
      * it's extremely rare not to have at least one gb, so if this is the case
@@ -2319,6 +2379,8 @@ int MP3Dequantize(int gr){
         }
     }
 
+    //AddLog(LOG_LEVEL_INFO, PSTR("MP3Dequantize 3"));
+
     /* do mid-side stereo processing, if enabled */
     if (mp3m.m_FrameHeader->modeExt >> 1) {
         if (mp3m.m_FrameHeader->modeExt & 0x01) {
@@ -2335,6 +2397,8 @@ int MP3Dequantize(int gr){
         MidSideProc(mp3m.m_HuffmanInfo->huffDecBuf, nSamps, mOut);
     }
 
+    //AddLog(LOG_LEVEL_INFO, PSTR("MP3Dequantize 4"));
+
     /* do intensity stereo processing, if enabled */
     if (mp3m.m_FrameHeader->modeExt & 0x01) {
         nSamps = mp3m.m_HuffmanInfo->nonZeroBound[0];
@@ -2347,6 +2411,8 @@ int MP3Dequantize(int gr){
         }
     }
 
+    //AddLog(LOG_LEVEL_INFO, PSTR("MP3Dequantize 5"));
+
     /* adjust guard bit count and nonZeroBound if we did any stereo processing */
     if (mp3m.m_FrameHeader->modeExt) {
         mp3m.m_HuffmanInfo->gb[0] = CLZ(mOut[0]) - 1;
@@ -2356,6 +2422,8 @@ int MP3Dequantize(int gr){
         mp3m.m_HuffmanInfo->nonZeroBound[0] = nSamps;
         mp3m.m_HuffmanInfo->nonZeroBound[1] = nSamps;
     }
+
+    //AddLog(LOG_LEVEL_INFO, PSTR("MP3Dequantize 6"));
 
     /* output format Q(DQ_FRACBITS_OUT) */
     return 0;
@@ -2390,10 +2458,18 @@ int DequantBlock(int *inbuf, int *outbuf, int num, int scale){
 
     //tab16 = pow43_14[scale & 0x3];
 
+    //AddLog(LOG_LEVEL_INFO, PSTR("DequantBlock 1"));
+
     const int *p43_14 = (const int*)((uint8_t *)pow43_14+EXEC_OFFSET);
     tab16 = &p43_14[scale & 0x3];
     
-    scalef = pow14[scale & 0x3];
+    //scalef = pow14[scale & 0x3];
+
+    const int *p14 = (const int*)((uint8_t *)pow14+EXEC_OFFSET);
+    scalef = p14[scale & 0x3];
+
+    //AddLog(LOG_LEVEL_INFO, PSTR("DequantBlock 2"));
+
     scalei =((scale >> 2) < 31 ? (scale >> 2) : 31 );
     //scalei = MIN(scale >> 2, 31);   /* smallest input scale = -47, so smallest scalei = -12 */
 
@@ -2416,6 +2492,7 @@ int DequantBlock(int *inbuf, int *outbuf, int num, int scale){
             y = (scalei < 0) ? y << -scalei : y >> scalei;
         } else {
             if (x < 64) {
+                //AddLog(LOG_LEVEL_INFO, PSTR("DequantBlock 2a"));
                 //y = pow43[x-16];
                 const int *p43 = (const int*)((uint8_t *)pow43+EXEC_OFFSET);
                 y = p43[x-16];
@@ -2423,20 +2500,25 @@ int DequantBlock(int *inbuf, int *outbuf, int num, int scale){
                 y = MULSHIFT32(y, scalef);
                 shift = scalei - 3;
             } else {
+                //AddLog(LOG_LEVEL_INFO, PSTR("DequantBlock 2b"));
                 /* normalize to [0x40000000, 0x7fffffff] */
                 x <<= 17;
                 shift = 0;
-                if (x < 0x08000000)
+
+                const unsigned int *sh = (const unsigned int *) ((uint8_t *)m_SQRTHALF+EXEC_OFFSET);
+
+                if (x < sh[1])
                     x <<= 4, shift += 4;
-                if (x < 0x20000000)
+                if (x < sh[2])
                     x <<= 2, shift += 2;
-                if (x < 0x40000000)
+                if (x < sh[3])
                     x <<= 1, shift += 1;
 
                 //coef = (x < m_SQRTHALF) ? poly43lo : poly43hi;
                 const unsigned int *lop = (const unsigned int *) ((uint8_t *)poly43lo+EXEC_OFFSET);
                 const unsigned int *hip = (const unsigned int *) ((uint8_t *)poly43hi+EXEC_OFFSET);
-                coef = (x < ICONST(m_SQRTHALF)) ? lop : hip;
+                
+                coef = (x < sh[0]) ? lop : hip;
 
                 /* polynomial */
                 y = coef[0];
@@ -2458,6 +2540,8 @@ int DequantBlock(int *inbuf, int *outbuf, int num, int scale){
                 shift = scalei - p2e[shift];
 
             }
+
+            //AddLog(LOG_LEVEL_INFO, PSTR("DequantBlock 2c"));
 
             /* integer scale */
             if (shift < 0) {
@@ -2512,6 +2596,8 @@ int DequantChannel(int *sampleBuf, int *workBuf, int *nonZeroBound,  SideInfoSub
     typedef int ARRAY3[3];  /* for short-block reordering */
     ARRAY3 *buf;    /* short block reorder */
 
+    //AddLog(LOG_LEVEL_INFO, PSTR("DequantChannel 1"));
+
     /* set default start/end points for short/long blocks - will update with non-zero cb info */
     if (sis->blockType == 2) {
         // cbStartL = 0;
@@ -2534,6 +2620,8 @@ int DequantChannel(int *sampleBuf, int *workBuf, int *nonZeroBound,  SideInfoSub
     gbMask = 0;
     i = 0;
 
+    //AddLog(LOG_LEVEL_INFO, PSTR("DequantChannel 2"));
+
     /* sfactScale = 0 --> quantizer step size = 2
      * sfactScale = 1 --> quantizer step size = sqrt(2)
      *   so sfactMultiplier = 2 or 4 (jump through globalGain by powers of 2 or sqrt(2))
@@ -2548,6 +2636,8 @@ int DequantChannel(int *sampleBuf, int *workBuf, int *nonZeroBound,  SideInfoSub
     if (mp3m.m_FrameHeader->modeExt >> 1)
          globalGain -= 2;
     globalGain += m_IMDCT_SCALE;      /* scale everything by sqrt(2), for fast IMDCT36 */
+
+    //AddLog(LOG_LEVEL_INFO, PSTR("DequantChannel 3"));
 
     /* long blocks */
     for (cb = 0; cb < cbEndL; cb++) {
@@ -2573,6 +2663,8 @@ int DequantChannel(int *sampleBuf, int *workBuf, int *nonZeroBound,  SideInfoSub
         if (i >= *nonZeroBound)
             break;
     }
+
+    //AddLog(LOG_LEVEL_INFO, PSTR("DequantChannel 4"));
 
     /* set cbi (Type, EndS[], EndSMax will be overwritten if we proceed to do short blocks) */
     cbi->cbType = 0;            /* long only */
@@ -2616,6 +2708,8 @@ int DequantChannel(int *sampleBuf, int *workBuf, int *nonZeroBound,  SideInfoSub
             break;
     }
 
+    //AddLog(LOG_LEVEL_INFO, PSTR("DequantChannel 5"));
+
     /* i = last non-zero INPUT sample processed, which corresponds to highest possible non-zero
      *     OUTPUT sample (after reorder)
      * however, the original nzb is no longer necessarily true
@@ -2637,7 +2731,19 @@ int DequantChannel(int *sampleBuf, int *workBuf, int *nonZeroBound,  SideInfoSub
     cbi->cbEndSMax = (cbi->cbEndSMax > cbMax[1] ? cbi->cbEndSMax : cbMax[1]);
     cbi->cbEndSMax = (cbi->cbEndSMax > cbMax[2] ? cbi->cbEndSMax : cbMax[2]);
 
+
+    //AddLog(LOG_LEVEL_INFO, PSTR("DequantChannel 6"));
+
     return CLZ(gbMask) - 1;
+}
+
+uint32_t my_clz(uint32_t in) {
+    uint32_t lz = 32;
+    while (in) {
+        in >>= 1;
+        --lz;
+    }
+    return lz;
 }
 
 /***********************************************************************************************************************
@@ -3196,7 +3302,8 @@ int FreqInvertRescale(int *y, int *xPrev, int blockIdx, int es) {
 void idct9(int *x) {
     SETREGS
 
-    AddLog(LOG_LEVEL_INFO, PSTR("idct9 1"));
+    //AddLog(LOG_LEVEL_INFO, PSTR("idct9 1"));
+
     int a1, a2, a3, a4, a5, a6, a7, a8, a9;
     int a10, a11, a12, a13, a14, a15, a16, a17, a18;
     int a19, a20, a21, a22, a23, a24, a25, a26, a27;
@@ -3240,10 +3347,8 @@ void idct9(int *x) {
     m12 = MULSHIFT32(c9_4, a9);
 */
 
-AddLog(LOG_LEVEL_INFO, PSTR("idct9 1a"));
     const int *c9xp = (const int *) ((uint8_t *)c9_x+EXEC_OFFSET);
     m1 = MULSHIFT32(c9xp[0], x3);
-AddLog(LOG_LEVEL_INFO, PSTR("idct9 1b"));
     m3 = MULSHIFT32(c9xp[0], a10);
     m5 = MULSHIFT32(c9xp[1], a5);
     m6 = MULSHIFT32(c9xp[2], a6);
@@ -3253,8 +3358,6 @@ AddLog(LOG_LEVEL_INFO, PSTR("idct9 1b"));
     m10 = MULSHIFT32(c9xp[4], a7);
     m11 = MULSHIFT32(c9xp[3], a3);
     m12 = MULSHIFT32(c9xp[4], a9);
-
-    AddLog(LOG_LEVEL_INFO, PSTR("idct9 2"));
 
     a12 = x[0] + (x[6] >> 1);
     a13 = a12 + (m1 << 1);
@@ -3292,6 +3395,8 @@ AddLog(LOG_LEVEL_INFO, PSTR("idct9 1b"));
     x[7] = x7;
     x8 = a23 - a19;
     x[8] = x8;
+
+    //AddLog(LOG_LEVEL_INFO, PSTR("idct9 2"));
 }
 
 
@@ -3329,13 +3434,14 @@ AddLog(LOG_LEVEL_INFO, PSTR("idct9 1b"));
 int IMDCT36(int *xCurr, int *xPrev, int *y, int btCurr, int btPrev, int blockIdx, int gb){
     SETREGS
 
-    AddLog(LOG_LEVEL_INFO, PSTR("IMDCT36 0"));
+
+    //AddLog(LOG_LEVEL_INFO, PSTR("IMDCT36 1"));
 
     int i, es;
     //int xBuf[18];
     //int xPrevWin[18];
-    int *xBuf = (int*)calloc(18, 4);
-    int *xPrevWin = (int*)calloc(18, 4);
+    int *xBuf = (int*)calloc(18, sizeof(int));
+    int *xPrevWin = (int*)calloc(18, sizeof(int));
 
     int acc1, acc2, s, d, t, mOut;
     int xo, xe, c, *xp, yLo, yHi;
@@ -3369,14 +3475,13 @@ int IMDCT36(int *xCurr, int *xPrev, int *y, int btCurr, int btPrev, int blockIdx
     xBuf[9] >>= 1;
     xBuf[0] >>= 1;
 
-    AddLog(LOG_LEVEL_INFO, PSTR("IMDCT36 2"));
+    //AddLog(LOG_LEVEL_INFO, PSTR("IMDCT36 2"));
 
     /* do 9-point IDCT on even and odd */
     idct9(xBuf + 0); /* even */
     idct9(xBuf + 9); /* odd */
 
-    AddLog(LOG_LEVEL_INFO, PSTR("IMDCT36 2a"));
-
+    //AddLog(LOG_LEVEL_INFO, PSTR("IMDCT36 2a"));
 
     const uint32_t *c18p = (const uint32_t *) ((uint8_t *)c18+EXEC_OFFSET);
 
@@ -3402,25 +3507,25 @@ int IMDCT36(int *xCurr, int *xPrev, int *y, int btCurr, int btPrev, int blockIdx
             (*xPrev++) = xe + xo; /* symmetry - xPrev[i] = xPrev[17-i] for long blocks */
             t = s - d;
 
+            //AddLog(LOG_LEVEL_INFO, PSTR("IMDCT36 2b"));
             yLo = (d + (MULSHIFT32(t, *wp++) << 2));
             yHi = (s + (MULSHIFT32(t, *wp++) << 2));
             y[(i) * m_NBANDS] = yLo;
             y[(17 - i) * m_NBANDS] = yHi;
+            //AddLog(LOG_LEVEL_INFO, PSTR("IMDCT36 2c"));
             mOut |= FASTABS(yLo);
             mOut |= FASTABS(yHi);
+            //AddLog(LOG_LEVEL_INFO, PSTR("IMDCT36 2d"));
         }
-        AddLog(LOG_LEVEL_INFO, PSTR("IMDCT36 3x"));
     } else {
         /* slower method - either prev or curr is using window type != 0 so do full 36-point window
          * output xPrevWin has at least 3 guard bits (xPrev has 2, gain 1 in WinPrevious)
          */
-        AddLog(LOG_LEVEL_INFO, PSTR("IMDCT36 3x0"));
+
+        //AddLog(LOG_LEVEL_INFO, PSTR("IMDCT36 3"));
         WinPrevious(xPrev, xPrevWin, btPrev);
 
         //wp = imdctWin[btCurr];
-
-
-AddLog(LOG_LEVEL_INFO, PSTR("IMDCT36 3"));
 
         wp = imdctWin[btCurr];
         wp += EXEC_OFFSET >> 2;
@@ -3445,8 +3550,7 @@ AddLog(LOG_LEVEL_INFO, PSTR("IMDCT36 3"));
         }
     }
 
-
-AddLog(LOG_LEVEL_INFO, PSTR("IMDCT36 4"));
+    //AddLog(LOG_LEVEL_INFO, PSTR("IMDCT36 9"));
 
     xPrev -= 9;
     mOut |= FreqInvertRescale(y, xPrev, blockIdx, es);
@@ -3646,8 +3750,9 @@ int HybridTransform(int *xCurr, int *xPrev, int y[m_BLOCK_SIZE][m_NBANDS], SideI
     // >>>> assert(bc->nBlocksTotal <= m_NBANDS);
     // >>>> assert(bc->nBlocksPrev  <= m_NBANDS);
 
+    //AddLog(LOG_LEVEL_INFO, PSTR("HybridTransform 1"));
+
     mOut = 0;
-    AddLog(LOG_LEVEL_INFO, PSTR("HybridTransform 0"));
 
     /* do long blocks, if any */
     for (i = 0; i < bc->nBlocksLong; i++) {
@@ -3667,7 +3772,7 @@ int HybridTransform(int *xCurr, int *xPrev, int y[m_BLOCK_SIZE][m_NBANDS], SideI
         xPrev += 9;
     }
 
-    AddLog(LOG_LEVEL_INFO, PSTR("HybridTransform 1"));
+    //AddLog(LOG_LEVEL_INFO, PSTR("HybridTransform 2"));
 
     /* do short blocks (if any) */
     for (; i < bc->nBlocksTotal; i++) {
@@ -3683,7 +3788,7 @@ int HybridTransform(int *xCurr, int *xPrev, int y[m_BLOCK_SIZE][m_NBANDS], SideI
     }
     nBlocksOut = i;
 
-    AddLog(LOG_LEVEL_INFO, PSTR("HybridTransform 2"));
+    //AddLog(LOG_LEVEL_INFO, PSTR("HybridTransform 3"));
 
     /* window and overlap prev if prev longer that current */
     for (; i < bc->nBlocksPrev; i++) {
@@ -3714,7 +3819,7 @@ int HybridTransform(int *xCurr, int *xPrev, int y[m_BLOCK_SIZE][m_NBANDS], SideI
             nBlocksOut = i;
     }
 
-    AddLog(LOG_LEVEL_INFO, PSTR("HybridTransform 3"));
+    //AddLog(LOG_LEVEL_INFO, PSTR("HybridTransform 4"));
 
     /* clear rest of blocks */
     for (; i < 32; i++) {
@@ -3723,6 +3828,8 @@ int HybridTransform(int *xCurr, int *xPrev, int y[m_BLOCK_SIZE][m_NBANDS], SideI
     }
 
     bc->gbOut = CLZ(mOut) - 1;
+
+    //AddLog(LOG_LEVEL_INFO, PSTR("HybridTransform 5"));
 
     return nBlocksOut;
 }
@@ -3759,7 +3866,8 @@ int IMDCT( int gr, int ch) {
     blockCutoff = __divsi3(mp3m.m_SFBandTable.l[(mp3m.m_MPEGVersion == MPEG1 ? 8 : 6)], 18); /* same as 3* num short sfb's in spec */
 
 
-     AddLog(LOG_LEVEL_INFO, PSTR("><<< 10x"));
+    //AddLog(LOG_LEVEL_INFO, PSTR("IMDCT 1"));
+
 
     if (mp3m.m_SideInfoSub[gr][ch].blockType != 2) {
         /* all long transforms */
@@ -3778,16 +3886,19 @@ int IMDCT( int gr, int ch) {
         nBfly = 0;
     }
 
-    AddLog(LOG_LEVEL_INFO, PSTR("><<< 10a"));
+
+    //AddLog(LOG_LEVEL_INFO, PSTR("IMDCT 2"));
 
     AntiAlias(mp3m.m_HuffmanInfo->huffDecBuf[ch], nBfly);
     int x=mp3m.m_HuffmanInfo->nonZeroBound[ch];
     int y=nBfly * 18 + 8;
     mp3m.m_HuffmanInfo->nonZeroBound[ch]=(x>y ? x: y);
 
-    // >>>> assert(mp3m.m_HuffmanInfo->nonZeroBound[ch] <= m_MAX_NSAMP);
 
-     AddLog(LOG_LEVEL_INFO, PSTR("><<< 10b"));
+    //AddLog(LOG_LEVEL_INFO, PSTR("IMDCT 3"));
+
+
+    // >>>> assert(mp3m.m_HuffmanInfo->nonZeroBound[ch] <= m_MAX_NSAMP);
 
     /* for readability, use a struct instead of passing a million parameters to HybridTransform() */
     //bc.nBlocksTotal = (mp3m.m_HuffmanInfo->nonZeroBound[ch] + 17) / 18;
@@ -3800,8 +3911,6 @@ int IMDCT( int gr, int ch) {
     bc.currWinSwitch = (mp3m.m_SideInfoSub[gr][ch].mixedBlock ? blockCutoff : 0);
     bc.gbIn = mp3m.m_HuffmanInfo->gb[ch];
 
-     AddLog(LOG_LEVEL_INFO, PSTR("><<< 10c"));
-
     mp3m.m_IMDCTInfo->numPrevIMDCT[ch] = HybridTransform(mp3m.m_HuffmanInfo->huffDecBuf[ch], mp3m.m_IMDCTInfo->overBuf[ch],
             mp3m.m_IMDCTInfo->outBuf[ch], &mp3m.m_SideInfoSub[gr][ch], &bc);
     mp3m.m_IMDCTInfo->prevType[ch] = mp3m.m_SideInfoSub[gr][ch].blockType;
@@ -3810,7 +3919,7 @@ int IMDCT( int gr, int ch) {
 
     // >>>> assert(mp3m.m_IMDCTInfo->numPrevIMDCT[ch] <= m_NBANDS);
 
-     AddLog(LOG_LEVEL_INFO, PSTR("><<< 10d"));
+     //AddLog(LOG_LEVEL_INFO, PSTR("IMDCT 4"));
 
     /* output has gained 2 int bits */
     return 0;
@@ -3852,13 +3961,16 @@ int Subband( short *pcmBuf) {
     } else {
         /* mono */
         for (b = 0; b < m_BLOCK_SIZE; b++) {
+            //AddLog(LOG_LEVEL_INFO, PSTR("Subband 1"));
             FDCT32(mp3m.m_IMDCTInfo->outBuf[0][b], mp3m.m_SubbandInfo->vbuf + 0 * 32, mp3m.m_SubbandInfo->vindex,
                     (b & 0x01), mp3m.m_IMDCTInfo->gb[0]);
+            //AddLog(LOG_LEVEL_INFO, PSTR("Subband 2"));
             PolyphaseMono(pcmBuf, mp3m.m_SubbandInfo->vbuf + mp3m.m_SubbandInfo->vindex + m_VBUF_LENGTH * (b & 0x01),
             (const uint32_t *) ((uint8_t *)polyCoef+EXEC_OFFSET));
                     //polyCoef);
             mp3m.m_SubbandInfo->vindex = (mp3m.m_SubbandInfo->vindex - (b & 0x01)) & 7;
             pcmBuf += m_NBANDS;
+            //AddLog(LOG_LEVEL_INFO, PSTR("Subband 3"));
         }
     }
 
@@ -4101,6 +4213,8 @@ void PolyphaseMono(short *pcm, int *vbuf, const uint32_t *coefBase){
     uint64_t sum1L, sum2L, rndVal;
 
     rndVal = (uint64_t)( 1ULL << ((m_DQ_FRACBITS_OUT - 2 - 2 - 15) - 1 + (32 - m_CSHIFT)) );
+
+    //AddLog(LOG_LEVEL_INFO, PSTR("PolyphaseMono 1"));
 
     /* special case, output sample 0 */
     coef = coefBase;

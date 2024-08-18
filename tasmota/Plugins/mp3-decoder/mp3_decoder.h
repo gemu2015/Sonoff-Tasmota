@@ -531,15 +531,29 @@ MODULE_PART int IMDCT36(int *xCurr, int *xPrev, int *y, int btCurr, int btPrev, 
 MODULE_PART void imdct12(int *x, int *out);
 MODULE_PART int IMDCT12x3(int *xCurr, int *xPrev, int *y, int btPrev, int blockIdx, int gb);
 MODULE_PART int HybridTransform(int *xCurr, int *xPrev, int y[m_BLOCK_SIZE][m_NBANDS], SideInfoSub_t *sis, BlockCount_t *bc);
-MODULE_PART inline uint64_t SAR64(uint64_t x, int n) {return x >> n;}
+
+//MODULE_PART inline uint64_t SAR64(uint64_t x, int n) {  return x >> n;}
+#define SAR64 __lshrdi3
+
 //MODULE_PART inline int MULSHIFT32(int x, int y) { int z; z = (uint64_t) x * (uint64_t) y >> 32; return z;}
 #define MULSHIFT32(x, y) (__muldi3((uint64_t) x , (uint64_t) y) >> 32)
 
 //MODULE_PART inline uint64_t MADD64(uint64_t sum64, int x, int y) {sum64 += (uint64_t) x * (uint64_t) y; return sum64;}/* returns 64-bit value in [edx:eax] */
 #define MADD64(x, y) __muldi3(x, y)
 
+MODULE_PART uint32_t my_clz(uint32_t in);
 
+//MODULE_PART 
+inline uint64_t xSAR64(uint64_t x, int n){return x >> n;}
 
-MODULE_PART inline uint64_t xSAR64(uint64_t x, int n){return x >> n;}
-MODULE_PART inline int FASTABS(int x){ return __builtin_abs(x);} //xtensa has a fast abs instruction //fb
-#define CLZ(x) __builtin_clz(x) //fb
+//MODULE_PART inline int FASTABS(int x){ return __builtin_abs(x);} //xtensa has a fast abs instruction //fb
+MODULE_PART int FASTABS(int x) {
+    if (x < 0) {
+        return -x;
+    } 
+    return x;
+} ;
+
+//#define CLZ(x) __builtin_clz(x) //fb
+#define CLZ(x) my_clz(x) //fb
+
