@@ -137,6 +137,7 @@ MODULE_PART void I2sTask(void);
 MODULE_PART void I2sTaskMP3(void);
 MODULE_PART void I2S_Play(void);
 MODULE_PART bool mp3_begin();
+MODULE_PART uint32_t Get_tag(uint8_t * buff);
 MODULE_PART bool mp3_isRunning();
 MODULE_PART bool mp3_loop();
 MODULE_PART bool mp3_stop();
@@ -334,7 +335,6 @@ void I2S_Play(void) {
       tp.constpvCreatedTask = nullptr;
       tp.xCoreID = 1;
       int32_t err = xTaskCreatePinnedToCore(&tp);
-      busy = true;
     } else {
       Response_P(GSTR(S_JSON_ILLF), cp);
       return;
@@ -372,13 +372,31 @@ void SetVolume(void) {
 }
 
 #ifdef USE_MP3
+uint32_t Get_tag(uint8_t * buff) {
+  if (buff[0] == 'T' && buff[1] == 'A' && buff[2] == 'G') {
+    return 128;
+  } 
+  if (buff[0] == 'I' && buff[1] == 'D' && buff[2] == '3') {
+    uint32_t size = buff[6] << 21 | buff[7] << 14 | buff[8] << 7 | buff[9];
+    return size + 10; 
+  }
+  return 0;
+}
+
+
 bool mp3_begin() {
   SETREGS
 
   input_bytes = fread((char*)m_inBuff, 1, INBUFF_SIZE, wf);
-  m_bytesLeft = input_bytes;
-
-  int16_t m_decodeError = MP3GetNextFrameInfo(m_inBuff);
+  uint32_t tag = Get_tag(m_inBuff);
+  uint8_t *cp = m_inBuff;
+  cp += tag;
+  input_bytes -= tag;
+  int16_t m_decodeError = MP3GetNextFrameInfo(cp);
+  if (m_decodeError) {
+    AddLog(LOG_LEVEL_INFO, PSTR("mp3 header error = %d"), m_decodeError);
+    return true;
+  }
 
   uint32_t srate = MP3GetSampRate();
   chans = MP3GetChannels();
@@ -390,8 +408,10 @@ bool mp3_begin() {
   AddLog(LOG_LEVEL_INFO, PSTR("mp3 srate = %d, channels = %d"), srate, chans); 
 
   i2s_enable_tx(i2sp);
+  
+  busy = true;
   running = true;
-  return 0;
+  return false;
 }
 bool mp3_isRunning() {
   SETREGS
@@ -403,18 +423,27 @@ bool mp3_isRunning() {
 bool mp3_loop() {
 SETREGS
 
-  fseek(wf, filepos, SEEK_SET);
+  uint32_t bytesread;
+  uint32_t tag = 1;
+  while (tag) {
+    fseek(wf, filepos, SEEK_SET);
+    bytesread = fread((char*)m_inBuff, 1, INBUFF_SIZE, wf);
+    if (!bytesread) {
+      running = false;
+      return false;
+    }
+    tag = Get_tag(m_inBuff);
+    filepos += tag;
+  }
+  m_bytesLeft = bytesread;
 
-  uint32_t bytesread = fread((char*)m_inBuff, 1, INBUFF_SIZE, wf);
-  if (!bytesread) {
+  int16_t m_decodeError = MP3Decode(m_inBuff, &m_bytesLeft, m_outBuff, 0);
+  if (m_decodeError) {
+    AddLog(LOG_LEVEL_INFO, PSTR("mp3 header error = %d"), m_decodeError);
     running = false;
     return false;
   }
 
-  m_bytesLeft = bytesread;
-
-  int16_t m_decodeError = MP3Decode(m_inBuff, &m_bytesLeft, m_outBuff, 0);
-  
   uint32_t bytesDecoded = bytesread - m_bytesLeft;
 
   filepos += bytesDecoded;
@@ -443,19 +472,17 @@ SETREGS
 void I2sTaskMP3(void) {
   SETREGS
 
-  mp3_begin();
-
-  while (mp3_isRunning()) {
-    if (!mp3_loop()) {
-      mp3_stop();
-      break;
+  if (!mp3_begin()) {
+    while (mp3_isRunning()) {
+      if (!mp3_loop()) {
+        mp3_stop();
+        break;
+      }
     }
   }
 
-  fclose(wf);
-
   i2s_disable_tx(i2sp);
-  
+  fclose(wf);
   busy = false;
   
   vTaskDelete(0);
