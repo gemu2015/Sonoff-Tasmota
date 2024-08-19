@@ -7,6 +7,8 @@
 #undef log_d
 #define log_d
 
+
+#if 0
 static const uint8_t  m_HUFF_PAIRTABS          =32;
 static const uint8_t  m_BLOCK_SIZE             =18;
 static const uint8_t  m_NBANDS                 =32;
@@ -17,6 +19,18 @@ static const uint16_t m_MAINBUF_SIZE           =1940;
 static const uint8_t  m_MAX_NGRAN              =2;     // max granules
 static const uint8_t  m_MAX_NCHAN              =2;     // max channels
 static const uint16_t m_MAX_NSAMP              =576;   // max samples per channel, per granule
+#else
+#define m_HUFF_PAIRTABS          32
+#define m_BLOCK_SIZE             18
+#define m_NBANDS                 32
+#define m_MAX_REORDER_SAMPS      (192-126)*3
+#define m_VBUF_LENGTH            17*2* m_NBANDS
+#define m_MAX_SCFBD              4
+#define m_MAINBUF_SIZE           1940
+#define m_MAX_NGRAN              2
+#define m_MAX_NCHAN              2
+#define m_MAX_NSAMP              576
+#endif
 
 enum {
     ERR_MP3_NONE =                  0,
@@ -285,6 +299,7 @@ const int pow2frac[8] PROGMEM = {
     0x50a28be6, 0x7fffffff, 0x6597fa94, 0x50a28be6
 };
 
+#if 0
 const uint16_t m_HUFF_OFFSET_01=  0;
 const uint16_t m_HUFF_OFFSET_02=  9 + m_HUFF_OFFSET_01;
 const uint16_t m_HUFF_OFFSET_03= 65 + m_HUFF_OFFSET_02;
@@ -300,6 +315,23 @@ const uint16_t m_HUFF_OFFSET_13=185 + m_HUFF_OFFSET_12;
 const uint16_t m_HUFF_OFFSET_15=497 + m_HUFF_OFFSET_13;
 const uint16_t m_HUFF_OFFSET_16=580 + m_HUFF_OFFSET_15;
 const uint16_t m_HUFF_OFFSET_24=651 + m_HUFF_OFFSET_16;
+#else
+#define m_HUFF_OFFSET_01  0
+#define m_HUFF_OFFSET_02  9+m_HUFF_OFFSET_01
+#define m_HUFF_OFFSET_03 65+m_HUFF_OFFSET_02
+#define m_HUFF_OFFSET_05 65+m_HUFF_OFFSET_03
+#define m_HUFF_OFFSET_06 257+m_HUFF_OFFSET_05
+#define m_HUFF_OFFSET_07 129+m_HUFF_OFFSET_06
+#define m_HUFF_OFFSET_08 110+m_HUFF_OFFSET_07
+#define m_HUFF_OFFSET_09 280+m_HUFF_OFFSET_08
+#define m_HUFF_OFFSET_10  93+m_HUFF_OFFSET_09
+#define m_HUFF_OFFSET_11 320+m_HUFF_OFFSET_10
+#define m_HUFF_OFFSET_12 296+m_HUFF_OFFSET_11
+#define m_HUFF_OFFSET_13 185+m_HUFF_OFFSET_12
+#define m_HUFF_OFFSET_15 497+m_HUFF_OFFSET_13
+#define m_HUFF_OFFSET_16 580+m_HUFF_OFFSET_15
+#define m_HUFF_OFFSET_24 651+m_HUFF_OFFSET_16
+#endif
 
 const int huffTabOffset[m_HUFF_PAIRTABS] PROGMEM = {
     0,                   m_HUFF_OFFSET_01,    m_HUFF_OFFSET_02,    m_HUFF_OFFSET_03,
@@ -370,7 +402,7 @@ const int/*short*/samplesPerFrameTab[3][3] PROGMEM = { { 384, 1152, 1152 }, /* M
 };
 
 /* layers 1, 2, 3 */
-const short bitsPerSlotTab[3] = { 32, 8, 8 };
+//const short bitsPerSlotTab[3] = PROGMEM { 32, 8, 8 };
 
 /* indexing = [version][mono/stereo]
  * number of bytes in side info section of bitstream

@@ -39,7 +39,7 @@ typedef struct {
     uint32_t Format; // "WAV"
 } wav_riff_t;
 
-// FMT header
+// FMT header 
 typedef struct {
     uint32_t Subchunk1ID; //"fmt "
     uint32_t Subchunk1Size; //16 (PCM)
@@ -119,9 +119,9 @@ typedef struct {
 // esp8266 fixed i2s pins : DOUT = 3(RX), BCK = 15(D8), WS = 2(D4)
 
 #ifdef USE_MP3
-#define MODNAME "I2SAUDIOM"
-#else
 #define MODNAME "I2SAUDIO"
+#else
+#define MODNAME "I2SWAV"
 #endif
 
 #define I2S_REV 1 << 16 | 4

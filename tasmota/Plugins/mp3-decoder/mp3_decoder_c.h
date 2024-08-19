@@ -9,6 +9,11 @@
 
 #include "../pgmspace_32.h"
 
+#define pgm_read_byte_inlined pgm_read_byte_inlined_32
+#define pgm_read_word_inlined pgm_read_word_inlined_32
+#define pgm_read_float_unaligned pgm_read_float_unaligned_32
+#define pgm_read_dword_unaligned pgm_read_dword_unaligned_32
+
 #define NO_RELOC
 
 /* clip to range [-2^n, 2^n - 1] */
@@ -1552,7 +1557,7 @@ int MP3Decode( unsigned char *inbuf, int *bytesLeft, short *outbuf, int useSize)
     int offset, bitOffset, mainBits, gr, ch, fhBytes, siBytes, freeFrameBytes;
     int prevBitOffset, sfBlockBits, huffBlockBits;
     unsigned char *mainPtr;
-    static uint8_t underflowCounter = 0; // http://macslons-irish-pub-radio.stream.laut.fm/macslons-irish-pub-radio
+    uint8_t underflowCounter = 0; // http://macslons-irish-pub-radio.stream.laut.fm/macslons-irish-pub-radio
 
     /* unpack frame header */
     fhBytes = UnpackFrameHeader(inbuf);
@@ -2837,7 +2842,7 @@ void IntensityProcMPEG1(int x[m_MAX_NCHAN][m_MAX_NSAMP], int nSamps,  ScaleFacto
     sampsLeft = nSamps - i; /* process to length of left */
     // isfTab = (int *) ISFMpeg1[midSideFlag];
     const int *isp =  ISFMpeg1[midSideFlag];
-    isp += EXEC_OFFSET;
+    isp += EXEC_OFFSET >> 2;
 
     isfTab = (int *)isp;
 
@@ -2960,7 +2965,7 @@ void IntensityProcMPEG2(int x[m_MAX_NCHAN][m_MAX_NSAMP], int nSamps,
     (void) mixFlag;
 
     isfTab = (int *) ISFMpeg2[sfjs->intensityScale][midSideFlag];
-    isfTab += EXEC_OFFSET;
+    isfTab += EXEC_OFFSET >> 2;
     mOutL = mOutR = 0;
 
     /* fill buffer with illegal intensity positions (depending on slen) */
@@ -4030,7 +4035,7 @@ void FDCT32(int *buf, int *dest, int offset, int oddBlock, int gb) {
     SETREGS
     int i, s, tmp, es;
     const int *cptr = (const int*)m_dcttab;
-    cptr += EXEC_OFFSET;
+    cptr += EXEC_OFFSET >> 2;
     int a0, a1, a2, a3, a4, a5, a6, a7;
     int b0, b1, b2, b3, b4, b5, b6, b7;
 	int *d;

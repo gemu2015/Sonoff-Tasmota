@@ -1,9 +1,10 @@
 /* PGMSPACE.H - Accessor utilities/types for accessing PROGMEM data */
 
-#ifndef _PGMSPACE_H_
-#define _PGMSPACE_H_
+#ifndef _PGMSPACE_H_32_
+#define _PGMSPACE_H_32_
 
 #ifdef ESP32
+//#ifdef ESP8266
 
 #include <stdint.h>
 /* 
@@ -174,14 +175,14 @@ extern "C" {
       :"1"(addr) \
       :"a15");
 
-static inline uint8_t pgm_read_byte_inlined(const void* addr) {
+MODULE_PART uint8_t pgm_read_byte_inlined_32(const void* addr) {
   uint32_t res;
   pgm_read_with_offset(addr, res);
   return (uint8_t) res;     /* This masks the lower byte from the returned word */
 }
 
 /* Although this says "word", it's actually 16 bit, i.e. half word on Xtensa */
-static inline uint16_t pgm_read_word_inlined(const void* addr) {
+MODULE_PART uint16_t pgm_read_word_inlined_32(const void* addr) {
   uint32_t res;
   pgm_read_with_offset(addr, res);
   return (uint16_t) res;    /* This masks the lower half-word from the returned word */
@@ -189,7 +190,7 @@ static inline uint16_t pgm_read_word_inlined(const void* addr) {
 
 /* Can't legally cast bits of uint32_t to a float w/o conversion or std::memcpy, which is inefficient. */
 /* The ASM block doesn't care the type, so just pass in what C thinks is a float and return in custom fcn. */
-static inline float pgm_read_float_unaligned(const void *addr) {
+MODULE_PART float pgm_read_float_unaligned_32(const void *addr) {
   float res;
   pgm_read_with_offset(addr, res);
   return res;
@@ -197,8 +198,8 @@ static inline float pgm_read_float_unaligned(const void *addr) {
 #undef pgm_read_byte
 #undef pgm_read_word_aligned
 
-#define pgm_read_byte(addr)                pgm_read_byte_inlined(addr)
-#define pgm_read_word_aligned(addr)        pgm_read_word_inlined(addr)
+#define pgm_read_byte(addr)                pgm_read_byte_inlined_32(addr)
+#define pgm_read_word_aligned(addr)        pgm_read_word_inlined_32(addr)
 
 #undef pgm_read_dword_aligned
 #undef pgm_read_float_aligned
@@ -214,14 +215,14 @@ static inline float pgm_read_float_unaligned(const void *addr) {
     #define pgm_read_ptr_aligned(addr)     (*(const void* const*)(addr))
 #endif
 
-static inline uint32_t pgm_read_dword_unaligned(const void *addr) {
+MODULE_PART uint32_t pgm_read_dword_unaligned_32(const void *addr) {
   uint32_t res;
   pgm_read_dword_with_offset(addr, res);
   return res;
 }
 
-#define pgm_read_ptr_unaligned(addr)   ((void*)pgm_read_dword_unaligned(addr))
-#define pgm_read_word_unaligned(addr)  ((uint16_t)(pgm_read_dword_unaligned(addr) & 0xffff))
+#define pgm_read_ptr_unaligned(addr)   ((void*)pgm_read_dword_unaligned_32(addr))
+#define pgm_read_word_unaligned(addr)  ((uint16_t)(pgm_read_dword_unaligned_32(addr) & 0xffff))
 
 
 // Allow selection of _aligned or _unaligned, but default to _unaligned for Arduino compatibility
@@ -237,14 +238,14 @@ static inline uint32_t pgm_read_dword_unaligned(const void *addr) {
 
 #if PGM_READ_UNALIGNED
     #define pgm_read_word(a)   pgm_read_word_unaligned(a)
-    #define pgm_read_dword(a)  pgm_read_dword_unaligned(a)
-    #define pgm_read_float(a)  pgm_read_float_unaligned(a)
-    #define pgm_read_ptr(a)    pgm_read_ptr_unaligned(a)
+    #define pgm_read_dword(a)  pgm_read_dword_unaligned_32(a)
+    #define pgm_read_float(a)  pgm_read_float_unaligned_32(a)
+    #define pgm_read_ptr(a)    pgm_read_ptr_unaligned_32(a)
 #else
-    #define pgm_read_word(a)   pgm_read_word_aligned(a)
-    #define pgm_read_dword(a)  pgm_read_dword_aligned(a)
-    #define pgm_read_float(a)  pgm_read_float_aligned(a)
-    #define pgm_read_ptr(a)    pgm_read_ptr_aligned(a)
+    #define pgm_read_word(a)   pgm_read_word_aligned_32(a)
+    #define pgm_read_dword(a)  pgm_read_dword_aligned_32(a)
+    #define pgm_read_float(a)  pgm_read_float_aligned_32(a)
+    #define pgm_read_ptr(a)    pgm_read_ptr_aligned_32(a)
 #endif
 
 
