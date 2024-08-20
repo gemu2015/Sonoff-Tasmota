@@ -39,10 +39,8 @@ typedef unsigned short prog_uint16_t;
 typedef long prog_int32_t;
 typedef unsigned long prog_uint32_t;
 
-#define PROGMEM
 #define PGM_P         const char *
 #define PGM_VOID_P    const void *
-#define PSTR(s)       (s)
 #define _SFR_BYTE(n)  (n)
 
 #define pgm_read_byte(addr)   (*(const unsigned char *)(addr))
@@ -58,6 +56,8 @@ typedef unsigned long prog_uint32_t;
   typeof(addr) _addr = (addr); \
   *(const float *)(_addr); \
 })
+
+#undef pgm_read_ptr
 #define pgm_read_ptr(addr) ({ \
   typeof(addr) _addr = (addr); \
   *(void * const *)(_addr); \
@@ -76,6 +76,7 @@ typedef unsigned long prog_uint32_t;
 #define pgm_read_float_far(addr)  pgm_read_float(addr)
 #define pgm_read_ptr_far(addr)    pgm_read_ptr(addr)
 
+/*
 #define memcmp_P      memcmp
 #define memccpy_P     memccpy
 #define memmem_P      memmem
@@ -95,6 +96,7 @@ typedef unsigned long prog_uint32_t;
 #define sprintf_P     sprintf
 #define snprintf_P    snprintf
 #define vsnprintf_P   vsnprintf
+*/
 
 #else
 

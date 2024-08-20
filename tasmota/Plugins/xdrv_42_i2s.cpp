@@ -171,6 +171,9 @@ MODULE_END
 #endif
 #endif
 
+#define OUTBUFF_SIZE 1024 * 4
+#define INBUFF_SIZE 1024
+
 const char S_JSON_FNF[] PROGMEM = "{\"File %s not found\"}";
 const char S_JSON_ILLF[] PROGMEM = "{\"Illegal File format\"}";
 const char S_JSON_BUSY[] PROGMEM = "{\"audio is busy\"}";
@@ -178,6 +181,7 @@ const char S_JSON_BUSY[] PROGMEM = "{\"audio is busy\"}";
 const char S_JSON_MEMERR[] PROGMEM = "{\"out of memory\"}";
 #endif
 const char tname[] PROGMEM = "I2STASK";
+const uint32_t i32_const[3] PROGMEM = {OUTBUFF_SIZE, 8192, 0x46464952 }; 
 
 int32_t I2SAudio_Init() {
   ALLOCMEM
@@ -193,16 +197,16 @@ int32_t I2SAudio_Init() {
 
 #ifdef USE_MP3
 
-#define OUTBUFF_SIZE 1024 * 4
-#define INBUFF_SIZE 1024
-
   uint32_t mp3mem = MP3Decoder_AllocateBuffers();
   if (!mp3mem) {
     Response_P(GSTR(S_JSON_MEMERR));
     return false;
   }
+
+  const uint32_t *icp = (const uint32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+
   mt->mem_size += mp3mem;
-  m_outBuff = (int16_t*)special_malloc(OUTBUFF_SIZE);
+  m_outBuff = (int16_t*)special_malloc(icp[0]);
   mt->mem_size += OUTBUFF_SIZE;
   m_inBuff = (uint8_t*)special_malloc(INBUFF_SIZE);
   mt->mem_size += INBUFF_SIZE;
@@ -272,6 +276,8 @@ void I2S_Play(void) {
 
   ep++;
 
+  const uint32_t *icp = (const uint32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+
   if (!strncmp_P(ep, PSTR("wav"), 3)) {
     // play wav file
     wav_header_t wh;
@@ -280,7 +286,7 @@ void I2S_Play(void) {
     fread((char*)&wh, 1, sizeof(wav_header_t), wf);
  
     // 0x52494646
-    if (wh.Riff.ChunkID != 0x46464952 && wh.Fmt.NumChannels != 1) {
+    if (wh.Riff.ChunkID != icp[2] && wh.Fmt.NumChannels != 1) {
       fclose(wf);
       Response_P(GSTR(S_JSON_ILLF));
       return;
@@ -295,7 +301,7 @@ void I2S_Play(void) {
     TASKPARS tp;
     tp.pvTaskCode = GVOID(I2sTask);
     tp.constpcName = GSTR(tname);
-    tp.usStackDepth = ICONST(8192);
+    tp.usStackDepth = icp[1];
     tp.constpvParameters = cp;
     tp.uxPriority = 3;
     tp.constpvCreatedTask = nullptr;
@@ -329,7 +335,7 @@ void I2S_Play(void) {
       TASKPARS tp;
       tp.pvTaskCode = GVOID(I2sTaskMP3);
       tp.constpcName = GSTR(tname);
-      tp.usStackDepth = ICONST(8192);
+      tp.usStackDepth = icp[1];
       tp.constpvParameters = cp;
       tp.uxPriority = 3;
       tp.constpvCreatedTask = nullptr;
@@ -449,6 +455,8 @@ SETREGS
   filepos += bytesDecoded;
 
   uint32_t samples = MP3GetOutputSamps();
+
+  AddLog(LOG_LEVEL_INFO, PSTR("mp3 samples = %d"), samples); 
 
   uint32_t m_validSamples = samples; // chans;
 

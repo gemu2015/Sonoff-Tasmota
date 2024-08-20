@@ -15,6 +15,9 @@ e.g. you may not write  a = b / c  with float variables.
 you must use a = fdiv(b, c)
 since RISCV ESPs use special floating point constants from ROM memory
 to circumvent this, all floating point constants must be in PROGMEM
+we have to check also all l32r instructions since the compiler wants to put some
+arbitrary constants also in rom (we must put them in PROGMEM)
+especially all const larger than 12 bit and all float constants 
 
 another problem ist that we would need at least 3 types of binaries
 the driver handler itself uses about 19 kB of flash 

@@ -279,7 +279,8 @@ const int pow14[4] PROGMEM = {
     0x7fffffff, 0x6ba27e65, 0x5a82799a, 0x4c1bf829
 };
 
-
+const uint32_t iconst[4] PROGMEM = { 0x80000000, 0x3fffffff, 0x5a82799a, m_VBUF_LENGTH};
+const uint64_t ulconst[1] PROGMEM = { 1 };
 /*
  * Minimax polynomial approximation to pow(x, 4/3), over the range
  *  poly43lo: x = [0.5, 0.7071]
@@ -510,6 +511,11 @@ ScaleFactorJS_t *m_ScaleFactorJS;
 SubbandInfo_t *m_SubbandInfo;
 MP3DecInfo_t *m_MP3DecInfo;
 } MP3_MEM;
+
+
+const uint32_t xize[13] PROGMEM = {sizeof(MP3DecInfo_t),sizeof(ScaleFactorInfoSub_t)*(m_MAX_NGRAN *m_MAX_NCHAN), sizeof(SideInfo_t), sizeof(FrameHeader_t),
+sizeof(HuffmanInfo_t), sizeof(DequantInfo_t), sizeof(IMDCTInfo_t), sizeof(SubbandInfo_t), sizeof(CriticalBandInfo_t)*m_MAX_NCHAN,
+sizeof(ScaleFactorJS_t), sizeof(SideInfoSub_t)*(m_MAX_NGRAN *m_MAX_NCHAN), sizeof(SFBandTable_t), sizeof(MP3FrameInfo_t)};
 
 
 // prototypes
