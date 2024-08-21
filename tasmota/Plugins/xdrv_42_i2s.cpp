@@ -142,7 +142,7 @@ MODULE_PART bool mp3_isRunning();
 MODULE_PART bool mp3_loop();
 MODULE_PART bool mp3_stop();
 MODULE_PART void SetVolume(void);
-MODULE_PART void execute(void);
+MODULE_PART void WebRadio(void);
 
 MODULE_PART void I2SAudio_Deinit();
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
@@ -171,12 +171,13 @@ MODULE_END
 #endif
 #endif
 
-#define OUTBUFF_SIZE 1024 * 6
+#define OUTBUFF_SIZE 1024 * 10
 #define INBUFF_SIZE 1024
 
 const char S_JSON_FNF[] PROGMEM = "{\"File %s not found\"}";
 const char S_JSON_ILLF[] PROGMEM = "{\"Illegal File format\"}";
 const char S_JSON_BUSY[] PROGMEM = "{\"audio is busy\"}";
+const char S_JSON_STOPSND[] PROGMEM = "{\"audio stopped\"}";
 #ifdef USE_MP3
 const char S_JSON_MEMERR[] PROGMEM = "{\"out of memory\"}";
 #endif
@@ -207,7 +208,7 @@ int32_t I2SAudio_Init() {
 
   mt->mem_size += mp3mem;
   m_outBuff = (int16_t*)special_malloc(icp[0]);
-  mt->mem_size += OUTBUFF_SIZE;
+  mt->mem_size += icp[0];
   m_inBuff = (uint8_t*)special_malloc(INBUFF_SIZE);
   mt->mem_size += INBUFF_SIZE;
 #endif
@@ -251,13 +252,19 @@ void I2sTask(void) {
 void I2S_Play(void) {
   SETREGS
 
-  if (busy) {
-    Response_P(GSTR(S_JSON_BUSY));
-    return;
-  }
-
   char *cp = XdrvMailbox->data;
   while (*cp == ' ') cp++;
+
+  if (busy) {
+    if (!*cp) {
+      // stop running sound
+      running = 0;
+      Response_P(GSTR(S_JSON_STOPSND));
+    } else {
+      Response_P(GSTR(S_JSON_BUSY));
+    }
+    return;
+  }
 
   wf = fopen(cp, 'r');
 
@@ -456,6 +463,11 @@ SETREGS
 
   uint32_t samples = MP3GetOutputSamps();
 
+  const uint32_t *icp = (const uint32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+  if (samples > icp[0] >> 1) {
+    AddLog(LOG_LEVEL_INFO, PSTR("mp3 buffer overflow = %d"), samples);
+  }
+ 
   //AddLog(LOG_LEVEL_INFO, PSTR("mp3 samples = %d"), samples); 
 
   uint32_t m_validSamples = samples; // chans;
@@ -497,13 +509,30 @@ void I2sTaskMP3(void) {
 }
 #endif
 
-void execute(void) {
+void WebRadio(void) {
+  SETREGS
+
+  char *cp = XdrvMailbox->data;
+  while (*cp == ' ') cp++;
+
+  if (busy) {
+    if (!*cp) {
+      // stop running sound
+      running = 0;
+      Response_P(GSTR(S_JSON_STOPSND));
+    } else {
+      Response_P(GSTR(S_JSON_BUSY));
+    }
+    return;
+  }
+
+
 }
 
 const char I2S_Commands[] PROGMEM =
     "I2S|"  // Prefix
-    "play|vol|ex";
-void (*const I2S_Command[])(void) PROGMEM = {&I2S_Play,&SetVolume,&execute};
+    "play|vol|wr";
+void (*const I2S_Command[])(void) PROGMEM = {&I2S_Play,&SetVolume,&WebRadio};
 
 void I2SAudio_Deinit() {
   SETREGS

@@ -1507,11 +1507,13 @@ void MP3GetLastFrameInfo() {
         mp3m.m_MP3FrameInfo->nChans=mp3m.m_MP3DecInfo->nChans;
         mp3m.m_MP3FrameInfo->samprate=mp3m.m_MP3DecInfo->samprate;
         mp3m.m_MP3FrameInfo->bitsPerSample=16;
-        //mp3m.m_MP3FrameInfo->outputSamps=mp3m.m_MP3DecInfo->nChans * (int) samplesPerFrameTab[mp3m.m_MPEGVersion][mp3m.m_MP3DecInfo->layer-1];
-        int *srt = (int *)&samplesPerFrameTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->layer - 1];
+ #if 0
+        mp3m.m_MP3FrameInfo->outputSamps=mp3m.m_MP3DecInfo->nChans * (int) samplesPerFrameTab[mp3m.m_MPEGVersion][mp3m.m_MP3DecInfo->layer-1];
+ #else
+        int *srt = (int *)&mp3m.m_MP3DecInfo->nChans * (int) samplesPerFrameTab[mp3m.m_MPEGVersion][mp3m.m_MP3DecInfo->layer-1];
         srt += EXEC_OFFSET >> 2;
         mp3m.m_MP3FrameInfo->outputSamps = *srt;
-
+#endif
         mp3m.m_MP3FrameInfo->layer=mp3m.m_MP3DecInfo->layer;
         mp3m.m_MP3FrameInfo->version=mp3m.m_MPEGVersion;
     }
