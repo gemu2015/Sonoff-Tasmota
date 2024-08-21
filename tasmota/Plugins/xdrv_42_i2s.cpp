@@ -30,7 +30,7 @@
 #define USE_MP3
 #endif
 
-#define USE_MP3
+//#define USE_MP3
 
 // RIFF header
 typedef struct {
@@ -86,12 +86,12 @@ typedef struct {
   uint8_t busy;
   uint8_t mode;
   File_p *wf;
+  bool running;
 #ifdef USE_MP3
   MP3_MEM mp3m;
   int16_t *m_outBuff;
   uint8_t *m_inBuff;
   int m_bytesLeft;
-  bool running;
   uint8_t chans;
   uint16_t input_bytes;
   uint32_t filepos;
@@ -171,7 +171,7 @@ MODULE_END
 #endif
 #endif
 
-#define OUTBUFF_SIZE 1024 * 10
+#define OUTBUFF_SIZE 1024 * 6
 #define INBUFF_SIZE 1024
 
 const char S_JSON_FNF[] PROGMEM = "{\"File %s not found\"}";
@@ -182,7 +182,8 @@ const char S_JSON_STOPSND[] PROGMEM = "{\"audio stopped\"}";
 const char S_JSON_MEMERR[] PROGMEM = "{\"out of memory\"}";
 #endif
 const char tname[] PROGMEM = "I2STASK";
-const uint32_t i32_const[3] PROGMEM = {OUTBUFF_SIZE, 8192, 0x46464952 }; 
+const uint32_t ui32_const[3] PROGMEM = {OUTBUFF_SIZE, 8192, 0x46464952 }; 
+const int32_t i32_const[2] PROGMEM = {32768, -32768}; 
 
 int32_t I2SAudio_Init() {
   ALLOCMEM
@@ -192,7 +193,7 @@ int32_t I2SAudio_Init() {
   ws_pin = mp->ms[2].value;
   mode = mp->ms[3].value;
 
-  gain_div = 2;
+  gain_div = 1<<6;  // = 1
 
   i2sp = i2s_begin(dout_pin, bck_pin, ws_pin, mode);
 
@@ -204,7 +205,7 @@ int32_t I2SAudio_Init() {
     return false;
   }
 
-  const uint32_t *icp = (const uint32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+  const uint32_t *icp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
 
   mt->mem_size += mp3mem;
   m_outBuff = (int16_t*)special_malloc(icp[0]);
@@ -219,22 +220,33 @@ int32_t I2SAudio_Init() {
   return 0;
 }
 
+   
 
 #ifdef USE_I2S_TASK
 void I2sTask(void) {
   SETREGS
 
+  const uint32_t *icp = (const uint32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+  int32_t pclamp = icp[0];
+  int32_t mclamp = icp[1];
+
   int16_t buffer[512];
   // skip header
   fread((char*)&buffer, 1, sizeof(wav_header_t), wf);
 
-  while (1) {
+  while (running) {
     uint32_t bytesread = fread((char*)buffer, 1, sizeof(buffer), wf);
     if (!bytesread) {
+      running = 0;
       break;
     }
     for (uint32_t i = 0; i < bytesread / 2; i++) {
-      buffer[i] = __divsi3(buffer[i], gain_div);
+        int32_t v = (buffer[i] * gain_div) >> 6;
+        if (v < mclamp) {
+          v = mclamp;
+        } else if (v > pclamp) {
+          v = pclamp;
+        }
     }
     i2s_write_samples(i2sp, buffer, bytesread / 2);
   }
@@ -283,7 +295,7 @@ void I2S_Play(void) {
 
   ep++;
 
-  const uint32_t *icp = (const uint32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+  const uint32_t *icp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
 
   if (!strncmp_P(ep, PSTR("wav"), 3)) {
     // play wav file
@@ -304,6 +316,8 @@ void I2S_Play(void) {
 
     busy = true;
 
+    running = true;
+
 #ifdef USE_I2S_TASK
     TASKPARS tp;
     tp.pvTaskCode = GVOID(I2sTask);
@@ -317,13 +331,23 @@ void I2S_Play(void) {
 #else
 
     int16_t buffer[512]; 
+    const uint32_t *icp = (const uint32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+    int32_t pclamp = icp[0];
+    int32_t mclamp = icp[1];
+
     while (1) {
       uint32_t bytesread = fread((char*)buffer, 1, sizeof(buffer), wf);
       if (!bytesread) {
         break;
       }
       for (uint32_t i = 0; i < bytesread / 2; i++) {
-        buffer[i] = __divsi3(buffer[i], gain_div);
+        int32_t v = (buffer[i] * gain_div) >> 6;
+        if (v < mclamp) {
+          v = mclamp;
+        } else if (v > pclamp) {
+          v = pclamp;
+        }
+        buffer[i] = (int16_t)(v & 0xffff);
       }
       i2s_write_samples(i2sp, buffer, bytesread / 2);
       OsWatchLoop();
@@ -364,7 +388,10 @@ void I2S_Play(void) {
 
 void SetVolume(void) {
   SETREGS
-  uint8_t gain;
+  uint16_t gain;
+
+
+  // virtual bool SetGain(float f) { if (f>4.0) f = 4.0; if (f<0.0) f=0.0; gainF2P6 = (uint8_t)(f*(1<<6)); return true; }
 
   if (XdrvMailbox->data_len > 0) {
     char *cp = XdrvMailbox->data;
@@ -376,12 +403,11 @@ void SetVolume(void) {
     if (gain < 1) {
       gain = 1;
     }
-    gain_div = __divsi3(100, gain);
-  } else {
-    gain = __divsi3(100 , gain_div);
-  }
+    float xgain = fmul(fdiv(floatunsisf(gain) , floatunsisf(100)), floatunsisf(128));
+    gain_div = fixunssfsi(xgain);
+  } 
+  gain = fixunssfsi(fmul(fdiv(floatunsisf(gain_div) , floatunsisf(128)), floatunsisf(100)));
   ResponseCmndNumber(gain);
-
 }
 
 #ifdef USE_MP3
@@ -395,7 +421,6 @@ uint32_t Get_tag(uint8_t * buff) {
   }
   return 0;
 }
-
 
 bool mp3_begin() {
   SETREGS
@@ -426,15 +451,22 @@ bool mp3_begin() {
   running = true;
   return false;
 }
+
+/*
 bool mp3_isRunning() {
   SETREGS
   return running;
 }
+*/
 
 #define MIN_SIZE 1024
 
 bool mp3_loop() {
 SETREGS
+
+  const uint32_t *xicp = (const uint32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+  int32_t pclamp = xicp[0];
+  int32_t mclamp = xicp[1];
 
   uint32_t bytesread;
   uint32_t tag = 1;
@@ -463,23 +495,25 @@ SETREGS
 
   uint32_t samples = MP3GetOutputSamps();
 
-  const uint32_t *icp = (const uint32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+  const uint32_t *icp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
   if (samples > icp[0] >> 1) {
     AddLog(LOG_LEVEL_INFO, PSTR("mp3 buffer overflow = %d"), samples);
+  } else {
+
+    uint32_t m_validSamples = samples; // chans;
+
+    for (uint32_t i = 0; i < m_validSamples; i++) {
+      int32_t v = (m_outBuff[i] * gain_div) >> 6;
+        if (v < mclamp) {
+          v = mclamp;
+        } else if (v > pclamp) {
+          v = pclamp;
+        }
+        m_outBuff[i] = (int16_t)(v & 0xffff);
+    }
+
+    i2s_write_samples(i2sp, m_outBuff, m_validSamples);
   }
- 
-  //AddLog(LOG_LEVEL_INFO, PSTR("mp3 samples = %d"), samples); 
-
-  uint32_t m_validSamples = samples; // chans;
-
-  for (uint32_t i = 0; i < m_validSamples; i++) {
-    m_outBuff[i] = __divsi3(m_outBuff[i], gain_div);
-  }
-
-  i2s_write_samples(i2sp, m_outBuff, m_validSamples);
-  
-  OsWatchLoop();
-
   return running;
 }
 
@@ -492,8 +526,9 @@ SETREGS
 void I2sTaskMP3(void) {
   SETREGS
 
+
   if (!mp3_begin()) {
-    while (mp3_isRunning()) {
+    while (running) {
       if (!mp3_loop()) {
         mp3_stop();
         break;
