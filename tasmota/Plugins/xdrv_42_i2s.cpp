@@ -403,10 +403,10 @@ void SetVolume(void) {
     if (gain < 1) {
       gain = 1;
     }
-    float xgain = fmul(fdiv(floatunsisf(gain) , floatunsisf(100)), floatunsisf(128));
+    float xgain = fmul(fdiv(floatunsisf(gain) , floatunsisf(100)), floatunsisf(64));
     gain_div = fixunssfsi(xgain);
   } 
-  gain = fixunssfsi(fmul(fdiv(floatunsisf(gain_div) , floatunsisf(128)), floatunsisf(100)));
+  gain = fixunssfsi(fmul(fdiv(floatunsisf(gain_div) , floatunsisf(64)), floatunsisf(100)));
   ResponseCmndNumber(gain);
 }
 
