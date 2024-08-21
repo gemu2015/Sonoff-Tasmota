@@ -876,7 +876,6 @@ int UnpackFrameHeader(unsigned char *buf){
 
 #else
     SFBandTable_t *sfbp = (SFBandTable_t *)&sfBandTable[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->srIdx];
-    //sfbp += EXEC_OFFSET / sizeof(SFBandTable_t);
     uint8_t *cp = (uint8_t*)sfbp;
     cp += EXEC_OFFSET;
     sfbp = (SFBandTable_t*)cp;
@@ -1508,7 +1507,11 @@ void MP3GetLastFrameInfo() {
         mp3m.m_MP3FrameInfo->nChans=mp3m.m_MP3DecInfo->nChans;
         mp3m.m_MP3FrameInfo->samprate=mp3m.m_MP3DecInfo->samprate;
         mp3m.m_MP3FrameInfo->bitsPerSample=16;
-        mp3m.m_MP3FrameInfo->outputSamps=mp3m.m_MP3DecInfo->nChans * (int) samplesPerFrameTab[mp3m.m_MPEGVersion][mp3m.m_MP3DecInfo->layer-1];
+        //mp3m.m_MP3FrameInfo->outputSamps=mp3m.m_MP3DecInfo->nChans * (int) samplesPerFrameTab[mp3m.m_MPEGVersion][mp3m.m_MP3DecInfo->layer-1];
+        int *srt = (int *)&samplesPerFrameTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->layer - 1];
+        srt += EXEC_OFFSET >> 2;
+        mp3m.m_MP3FrameInfo->outputSamps = *srt;
+
         mp3m.m_MP3FrameInfo->layer=mp3m.m_MP3DecInfo->layer;
         mp3m.m_MP3FrameInfo->version=mp3m.m_MPEGVersion;
     }
@@ -1757,7 +1760,7 @@ int MP3Decode( unsigned char *inbuf, int *bytesLeft, short *outbuf, int useSize)
 
     }
 
-    //AddLog(LOG_LEVEL_INFO, PSTR(">>> end"));
+    //AddLog(LOG_LEVEL_INFO, PSTR(">>> end layer = %d"),mp3m.m_MP3DecInfo->layer);
 
     MP3GetLastFrameInfo();
  
@@ -1992,22 +1995,22 @@ int DecodeHuffmanPairs(int *xy, int nVals, int tabIdx, int bitsLeft, unsigned ch
 
     if ((nVals & 0x01)) { 
         AddLog(LOG_LEVEL_INFO, PSTR("assert(!(nVals & 0x01))"));
-        log_d("assert(!(nVals & 0x01))");
+        //log_d("assert(!(nVals & 0x01))");
         return -1;
     }
     if (!(tabIdx < m_HUFF_PAIRTABS)){
         AddLog(LOG_LEVEL_INFO, PSTR("assert(tabIdx < m_HUFF_PAIRTABS)"));
-        log_d("assert(tabIdx < m_HUFF_PAIRTABS)");
+        //log_d("assert(tabIdx < m_HUFF_PAIRTABS)");
         return -1;
     }
     if (!(tabIdx >= 0)){
         AddLog(LOG_LEVEL_INFO, PSTR("(tabIdx >= 0)"));
-        log_d("(tabIdx >= 0)");
+        //log_d("(tabIdx >= 0)");
         return -1;
     }
     if (!(tabType != invalidTab)){
         AddLog(LOG_LEVEL_INFO, PSTR("(tabType != invalidTab)"));
-        log_d("(tabType != invalidTab)");
+        //log_d("(tabType != invalidTab)");
         return -1;
     }
 
@@ -2978,10 +2981,8 @@ void IntensityProcMPEG1(int x[m_MAX_NCHAN][m_MAX_NSAMP], int nSamps,  ScaleFacto
     }
     sampsLeft = nSamps - i; /* process to length of left */
     // isfTab = (int *) ISFMpeg1[midSideFlag];
-    const int *isp =  ISFMpeg1[midSideFlag];
-    isp += EXEC_OFFSET >> 2;
-
-    isfTab = (int *)isp;
+    isfTab =  (int *) ISFMpeg1[midSideFlag];
+    isfTab += EXEC_OFFSET >> 2;
 
     mOutL = mOutR = 0;
 
@@ -4091,6 +4092,9 @@ int IMDCT( int gr, int ch) {
  **********************************************************************************************************************/
 int Subband( short *pcmBuf) {
     SETREGS
+
+    //AddLog(LOG_LEVEL_INFO, PSTR("Subband 1"));
+
     int b;
     if (mp3m.m_MP3DecInfo->nChans == 2) {
         /* stereo */
@@ -4451,6 +4455,10 @@ void PolyphaseStereo(short *pcm, int *vbuf, const uint32_t *coefBase){
     //.literal .LC39, 4224
 
     SETREGS
+
+    //AddLog(LOG_LEVEL_INFO, PSTR("PolyphaseStereo 1"));
+
+
     int i;
     const uint32_t *coef;
     int *vb1;

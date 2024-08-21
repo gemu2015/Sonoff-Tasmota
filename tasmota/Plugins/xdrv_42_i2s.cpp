@@ -171,7 +171,7 @@ MODULE_END
 #endif
 #endif
 
-#define OUTBUFF_SIZE 1024 * 4
+#define OUTBUFF_SIZE 1024 * 6
 #define INBUFF_SIZE 1024
 
 const char S_JSON_FNF[] PROGMEM = "{\"File %s not found\"}";
@@ -456,7 +456,7 @@ SETREGS
 
   uint32_t samples = MP3GetOutputSamps();
 
-  AddLog(LOG_LEVEL_INFO, PSTR("mp3 samples = %d"), samples); 
+  //AddLog(LOG_LEVEL_INFO, PSTR("mp3 samples = %d"), samples); 
 
   uint32_t m_validSamples = samples; // chans;
 
