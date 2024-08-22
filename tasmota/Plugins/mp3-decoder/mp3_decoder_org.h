@@ -4,6 +4,10 @@
 #include "Arduino.h"
 #include "assert.h"
 
+#undef log_d
+#define log_d
+
+#if 0
 static const uint8_t  m_HUFF_PAIRTABS          =32;
 static const uint8_t  m_BLOCK_SIZE             =18;
 static const uint8_t  m_NBANDS                 =32;
@@ -14,6 +18,20 @@ static const uint16_t m_MAINBUF_SIZE           =1940;
 static const uint8_t  m_MAX_NGRAN              =2;     // max granules
 static const uint8_t  m_MAX_NCHAN              =2;     // max channels
 static const uint16_t m_MAX_NSAMP              =576;   // max samples per channel, per granule
+#else
+
+#define m_HUFF_PAIRTABS          32
+#define m_BLOCK_SIZE             18
+#define m_NBANDS                 32
+#define m_MAX_REORDER_SAMPS      (192-126)*3      // largest critical band for short blocks (see sfBandTable)
+#define m_VBUF_LENGTH            17*2* m_NBANDS    // for double-sized vbuf FIFO
+#define m_MAX_SCFBD              4     // max scalefactor bands per channel
+#define m_MAINBUF_SIZE           1940
+#define m_MAX_NGRAN              2     // max granules
+#define m_MAX_NCHAN              2     // max channels
+#define m_MAX_NSAMP              576   // max samples per channel, per granule
+#endif
+
 
 enum {
     ERR_MP3_NONE =                  0,
@@ -210,24 +228,26 @@ typedef struct MP3DecInfo {
  * float c4 = sin(2*u);
  */
 
+#if 0
 const int32_t c9_0 = 0x6ed9eba1;
 const int32_t c9_1 = 0x620dbe8b;
 const int32_t c9_2 = 0x163a1a7e;
 const int32_t c9_3 = 0x5246dd49;
 const int32_t c9_4 = 0x7e0e2e32;
-
-
-
 const int32_t c3_0 = 0x6ed9eba1; /* format = Q31, cos(pi/6) */
-const int32_t c6[3] = { 0x7ba3751d, 0x5a82799a, 0x2120fb83 }; /* format = Q31, cos(((0:2) + 0.5) * (pi/6)) */
+#else
+const int32_t c3_tab[6] PROGMEM = {0x6ed9eba1,0x620dbe8b,0x163a1a7e,0x5246dd49,0x7e0e2e32,0x6ed9eba1};
+#endif
+
+const int32_t c6[3] PROGMEM = { 0x7ba3751d, 0x5a82799a, 0x2120fb83 }; /* format = Q31, cos(((0:2) + 0.5) * (pi/6)) */
 
 /* format = Q31
  * cos(((0:8) + 0.5) * (pi/18))
  */
-const uint32_t c18[9] = { 0x7f834ed0, 0x7ba3751d, 0x7401e4c1, 0x68d9f964, 0x5a82799a, 0x496af3e2, 0x36185aee, 0x2120fb83, 0x0b27eb5c};
+const uint32_t c18[9] PROGMEM = { 0x7f834ed0, 0x7ba3751d, 0x7401e4c1, 0x68d9f964, 0x5a82799a, 0x496af3e2, 0x36185aee, 0x2120fb83, 0x0b27eb5c};
 
 /* scale factor lengths (num bits) */
-const char m_SFLenTab[16][2] = { {0, 0}, {0, 1}, {0, 2}, {0, 3}, {3, 0}, {1, 1}, {1, 2}, {1, 3},
+const char m_SFLenTab[16][2] PROGMEM = { {0, 0}, {0, 1}, {0, 2}, {0, 3}, {3, 0}, {1, 1}, {1, 2}, {1, 3},
                                  {2, 1}, {2, 2}, {2, 3}, {3, 1}, {3, 2}, {3, 3}, {4, 2}, {4, 3}};
 
 /* NRTab[size + 3*is_right][block type][partition]
@@ -240,7 +260,7 @@ const char m_SFLenTab[16][2] = { {0, 0}, {0, 1}, {0, 2}, {0, 3}, {3, 0}, {1, 1},
  *   NRTab[x][1][y]   --> (NRTab[x][1][y])   / 3
  *   NRTab[x][2][>=1] --> (NRTab[x][2][>=1]) / 3  (first partition is long block)
  */
-const char NRTab[6][3][4] = {
+const char NRTab[6][3][4] PROGMEM = {
     {{ 6,  5, 5, 5}, {3, 3, 3, 3}, {6, 3, 3, 3}},
     {{ 6,  5, 7, 3}, {3, 3, 4, 2}, {6, 3, 4, 2}},
     {{11, 10, 0, 0}, {6, 6, 0, 0}, {6, 3, 6, 0}},
@@ -252,7 +272,7 @@ const char NRTab[6][3][4] = {
 
 
 /* optional pre-emphasis for high-frequency scale factor bands */
-const char preTab[22] = { 0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,2,2,3,3,3,2,0 };
+const char preTab[22] PROGMEM = { 0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,2,2,3,3,3,2,0 };
 
 /* pow(2,-i/4) for i=0..3, Q31 format */
 const int32_t pow14[4] PROGMEM = {
@@ -279,6 +299,8 @@ const int32_t pow2frac[8] PROGMEM = {
     0x50a28be6, 0x7fffffff, 0x6597fa94, 0x50a28be6
 };
 
+
+#if 0
 const uint16_t m_HUFF_OFFSET_01=  0;
 const uint16_t m_HUFF_OFFSET_02=  9 + m_HUFF_OFFSET_01;
 const uint16_t m_HUFF_OFFSET_03= 65 + m_HUFF_OFFSET_02;
@@ -294,6 +316,23 @@ const uint16_t m_HUFF_OFFSET_13=185 + m_HUFF_OFFSET_12;
 const uint16_t m_HUFF_OFFSET_15=497 + m_HUFF_OFFSET_13;
 const uint16_t m_HUFF_OFFSET_16=580 + m_HUFF_OFFSET_15;
 const uint16_t m_HUFF_OFFSET_24=651 + m_HUFF_OFFSET_16;
+#else
+#define m_HUFF_OFFSET_01  0
+#define m_HUFF_OFFSET_02  9 + m_HUFF_OFFSET_01
+#define m_HUFF_OFFSET_03 65 + m_HUFF_OFFSET_02
+#define m_HUFF_OFFSET_05 65 + m_HUFF_OFFSET_03
+#define m_HUFF_OFFSET_06 257 + m_HUFF_OFFSET_05
+#define m_HUFF_OFFSET_07 129 + m_HUFF_OFFSET_06
+#define m_HUFF_OFFSET_08 110 + m_HUFF_OFFSET_07
+#define m_HUFF_OFFSET_09 280 + m_HUFF_OFFSET_08
+#define m_HUFF_OFFSET_10 93 + m_HUFF_OFFSET_09
+#define m_HUFF_OFFSET_11 320 + m_HUFF_OFFSET_10
+#define m_HUFF_OFFSET_12 296 + m_HUFF_OFFSET_11
+#define m_HUFF_OFFSET_13 185 + m_HUFF_OFFSET_12
+#define m_HUFF_OFFSET_15 497 + m_HUFF_OFFSET_13
+#define m_HUFF_OFFSET_16 580 + m_HUFF_OFFSET_15
+#define m_HUFF_OFFSET_24 651 + m_HUFF_OFFSET_16
+#endif
 
 const int32_t huffTabOffset[m_HUFF_PAIRTABS] PROGMEM = {
     0,                   m_HUFF_OFFSET_01,    m_HUFF_OFFSET_02,    m_HUFF_OFFSET_03,
@@ -364,7 +403,7 @@ const uint16_t samplesPerFrameTab[3][3] PROGMEM = { { 384, 1152, 1152 }, /* MPEG
 };
 
 /* layers 1, 2, 3 */
-const uint8_t bitsPerSlotTab[3] = { 32, 8, 8 };
+const uint8_t bitsPerSlotTab[3] PROGMEM = { 32, 8, 8 };
 
 /* indexing = [version][mono/stereo]
  * number of bytes in side info section of bitstream
@@ -413,7 +452,7 @@ const int32_t ISFIIP[2][2] PROGMEM = {
     {0x40000000, 0x40000000}, /* mid-side on */
 };
 
-const uint8_t uniqueIDTab[8] = {0x5f, 0x4b, 0x43, 0x5f, 0x5f, 0x4a, 0x52, 0x5f};
+const uint8_t uniqueIDTab[8] PROGMEM = {0x5f, 0x4b, 0x43, 0x5f, 0x5f, 0x4a, 0x52, 0x5f};
 
 /* anti-alias coefficients - see spec Annex B, table 3-B.9
  *   csa[0][i] = CSi, csa[1][i] = CAi
@@ -472,6 +511,10 @@ SubbandInfo_t *m_SubbandInfo;
 MP3DecInfo_t *m_MP3DecInfo;
 } MP3_MEM;
 
+const uint32_t xize[13] PROGMEM = {sizeof(MP3DecInfo_t),sizeof(ScaleFactorInfoSub_t)*(m_MAX_NGRAN *m_MAX_NCHAN), sizeof(SideInfo_t), sizeof(FrameHeader_t),
+sizeof(HuffmanInfo_t), sizeof(DequantInfo_t), sizeof(IMDCTInfo_t), sizeof(SubbandInfo_t), sizeof(CriticalBandInfo_t)*m_MAX_NCHAN,
+sizeof(ScaleFactorJS_t), sizeof(SideInfoSub_t)*(m_MAX_NGRAN *m_MAX_NCHAN), sizeof(SFBandTable_t), sizeof(MP3FrameInfo_t)};
+
 // prototypes
 uint32_t MP3Decoder_AllocateBuffers(void);
 bool MP3Decoder_IsInit();
@@ -524,21 +567,29 @@ void imdct12(int32_t *x, int32_t *out);
 int32_t IMDCT12x3(int32_t *xCurr, int32_t *xPrev, int32_t *y, int32_t btPrev, int32_t blockIdx, int32_t gb);
 int32_t HybridTransform(int32_t *xCurr, int32_t *xPrev, int32_t y[m_BLOCK_SIZE][m_NBANDS], SideInfoSub_t *sis, BlockCount_t *bc);
 inline uint64_t SAR64(uint64_t x, int32_t n) {return x >> n;}
-//inline int32_t MULSHIFT32(int32_t x, int32_t y) { int32_t z; z = (uint64_t) x * (uint64_t) y >> 32; return z;}
-inline uint64_t MADD64(uint64_t sum64, int32_t x, int32_t y) {sum64 += (uint64_t) x * (uint64_t) y; return sum64;}/* returns 64-bit value in [edx:eax] */
-inline uint64_t xSAR64(uint64_t x, int32_t n){return x >> n;}
-inline int32_t FASTABS(int32_t x){ return __builtin_abs(x);} //xtensa has a fast abs instruction //fb
+//#define SAR64 __lshrdi3
 
-#define CLZ(x) __builtin_clz(x) //fb
+//inline int32_t MULSHIFT32(int32_t x, int32_t y) { int32_t z; z = (uint64_t) x * (uint64_t) y >> 32; return z;}
+
+inline uint64_t MADD64(uint64_t sum64, int32_t x, int32_t y) {sum64 += (uint64_t) x * (uint64_t) y; return sum64;}/* returns 64-bit value in [edx:eax] */
+//#define MADD64(x, y) __muldi3(x, y)
+
+//inline int32_t FASTABS(int32_t x){ return __builtin_abs(x);} //xtensa has a fast abs instruction //fb
+int32_t FASTABS(int32_t x);
+
+//#define CLZ(x) __builtin_clz(x) //fb
+uint32_t my_clz(uint32_t in);
+
+#define CLZ(x) my_clz(x) //fb
 
 #ifdef __riscv
-int MULSHIFT32(int x, int y) { 
+int32_t MULSHIFT32(int32_t x, int32_t y) { 
     SETMINREGS
     int z = __muldi3((uint64_t) x , (uint64_t) y) >> 32;
     return z;
  }
 #else
-static __inline int MULSHIFT32(int x, int y) {
+static __inline int32_t MULSHIFT32(int32_t x, int32_t y) {
     /* important rules for smull RdLo, RdHi, Rm, Rs:
      *     RdHi and Rm can't be the same register
      *     RdLo and Rm can't be the same register
@@ -549,7 +600,7 @@ static __inline int MULSHIFT32(int x, int y) {
      *   which one is returned. (If this were a function call, returning y (R1) would
      *   require an extra "mov r0, r1")
      */
-    int ret;
+    int32_t ret;
     asm volatile ("mulsh %0, %1, %2" : "=r" (ret) : "r" (x), "r" (y));
     return ret;
 }

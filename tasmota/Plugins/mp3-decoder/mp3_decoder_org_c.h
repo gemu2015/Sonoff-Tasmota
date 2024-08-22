@@ -1170,6 +1170,16 @@ int32_t UnpackScaleFactors( uint8_t *buf, int32_t *bitOffset, int32_t bitsAvail,
  * M P 3 D E C
  ****************************************************************************************************************************************************/
 
+
+int32_t findSync(uint8_t* buf, uint16_t offset, uint16_t nBytes) { // lambda, inner function
+    for (int32_t i = 0; i < nBytes - 1; i++) {
+        if ((buf[i + offset] & m_SYNCWORDH) == m_SYNCWORDH && (buf[i + offset + 1] & m_SYNCWORDL) == m_SYNCWORDL) {
+            return i;
+        }
+    }
+    return (int32_t) - 1;
+};
+
 /*****************************************************************************************************************************************************
  * Function:    MP3FindSyncWord
  *
@@ -1188,19 +1198,9 @@ int32_t MP3FindSyncWord(uint8_t *buf, int32_t nBytes) {
     const uint8_t mp3FHsize = 4; // frame header size
     uint8_t firstFH[4];
 
-    //————————————————————————————————————————————————————————————————————————————————————————————————————————
-    auto findSync = [&](uint8_t* buf, uint16_t offset, uint16_t len) { // lambda, inner function
-        for (int32_t i = 0; i < nBytes - 1; i++) {
-            if ((buf[i + offset] & m_SYNCWORDH) == m_SYNCWORDH && (buf[i + offset + 1] & m_SYNCWORDL) == m_SYNCWORDL){
-                return i;
-            }
-        }
-        return (int32_t)-1;
-    };
-    //————————————————————————————————————————————————————————————————————————————————————————————————————————
     /* find byte-aligned syncword - need 12 (MPEG 1,2) or 11 (MPEG 2.5) matching bits */
    int32_t pos = findSync(buf, 0, nBytes);
-    if(pos == -1) return pos; // syncword not found
+    if (pos == -1) return pos; // syncword not found
     nBytes -= pos;
 
     while(nBytes > 0){
@@ -1541,8 +1541,13 @@ int32_t MP3Decode( uint8_t *inbuf, int32_t *bytesLeft, int16_t *outbuf, int32_t 
  *
  **********************************************************************************************************************/
 void MP3Decoder_ClearBuffer(void) {
+    //SETREGS
+    //const uint32_t *st = (const uint32_t *) ((uint8_t *)xize+EXEC_OFFSET);
+    const uint32_t *st = (const uint32_t *) ((uint8_t *)xize);
+
 
     /* important to do this - DSP primitives assume a bunch of state variables are 0 on first use */
+/*
     memset( mp3m.m_MP3DecInfo,         0, sizeof(MP3DecInfo_t));                                    //Clear MP3DecInfo
     memset(&mp3m.m_ScaleFactorInfoSub, 0, sizeof(ScaleFactorInfoSub_t)*(m_MAX_NGRAN *m_MAX_NCHAN)); //Clear ScaleFactorInfo
     memset( mp3m.m_SideInfo,           0, sizeof(SideInfo_t));                                      //Clear SideInfo
@@ -1556,6 +1561,22 @@ void MP3Decoder_ClearBuffer(void) {
     memset(&mp3m.m_SideInfoSub,        0, sizeof(SideInfoSub_t)*(m_MAX_NGRAN *m_MAX_NCHAN));        //Clear SideInfoSub
     memset(&mp3m.m_SFBandTable,        0, sizeof(SFBandTable_t));                                   //Clear SFBandTable
     memset( mp3m.m_MP3FrameInfo,       0, sizeof(MP3FrameInfo_t));                                  //Clear MP3FrameInfo
+    */
+
+    /* important to do this - DSP primitives assume a bunch of state variables are 0 on first use */
+    memset( mp3m.m_MP3DecInfo,         0, st[0]);                                    //Clear MP3DecInfo
+    memset(&mp3m.m_ScaleFactorInfoSub, 0, st[1]); //Clear ScaleFactorInfo
+    memset( mp3m.m_SideInfo,           0, st[2]);                                      //Clear SideInfo
+    memset( mp3m.m_FrameHeader,        0, st[3]);                                   //Clear FrameHeader
+    memset( mp3m.m_HuffmanInfo,        0, st[4]);                                   //Clear HuffmanInfo
+    memset( mp3m.m_DequantInfo,        0, st[5]);                                   //Clear DequantInfo
+    memset( mp3m.m_IMDCTInfo,          0, st[6]);                                     //Clear IMDCTInfo
+    memset( mp3m.m_SubbandInfo,        0, st[7]);                                   //Clear SubbandInfo
+    memset(&mp3m.m_CriticalBandInfo,   0, st[8]);                  //Clear CriticalBandInfo
+    memset( mp3m.m_ScaleFactorJS,      0, st[9]);                                 //Clear ScaleFactorJS
+    memset(&mp3m.m_SideInfoSub,        0, st[10]);        //Clear SideInfoSub
+    memset(&mp3m.m_SFBandTable,        0, st[11]);                                   //Clear SFBandTable
+    memset( mp3m.m_MP3FrameInfo,       0, st[12]);                                  //Clear MP3FrameInfo
 
     return;
 
@@ -1580,16 +1601,44 @@ void MP3Decoder_ClearBuffer(void) {
 #ifdef CONFIG_IDF_TARGET_ESP32S3
     // ESP32-S3: If there is PSRAM, prefer it
     #define __malloc_heap_psram(size) \
-        heap_caps_malloc_prefer(size, 2, MALLOC_CAP_DEFAULT|MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT|MALLOC_CAP_INTERNAL)
+       // heap_caps_malloc_prefer(size, 2, MALLOC_CAP_DEFAULT|MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT|MALLOC_CAP_INTERNAL)
 #else
     // ESP32, PSRAM is too slow, prefer SRAM
     #define __malloc_heap_psram(size) \
-        heap_caps_malloc_prefer(size, 2, MALLOC_CAP_DEFAULT|MALLOC_CAP_INTERNAL, MALLOC_CAP_DEFAULT|MALLOC_CAP_SPIRAM)
+       // heap_caps_malloc_prefer(size, 2, MALLOC_CAP_DEFAULT|MALLOC_CAP_INTERNAL, MALLOC_CAP_DEFAULT|MALLOC_CAP_SPIRAM)
 #endif
 
-uint32_t MP3Decoder_AllocateBuffers(void) {
-    memset(&mp3m,0,sizeof(MP3_MEM));
+#ifdef USE_MP3_PSRAM
+#undef __malloc_heap_psram
+#define __malloc_heap_psram(size) special_malloc(size)
+#else
+#undef __malloc_heap_psram
+#define __malloc_heap_psram(size) calloc(size>>2, 4)
+#endif
 
+/*const uint32_t xize[13] PROGMEM = {
+sizeof(MP3DecInfo_t), 0
+sizeof(ScaleFactorInfoSub_t)*(m_MAX_NGRAN *m_MAX_NCHAN), 1 
+sizeof(SideInfo_t), 2
+sizeof(FrameHeader_t), 3
+sizeof(HuffmanInfo_t), 4
+sizeof(DequantInfo_t), 5
+sizeof(IMDCTInfo_t), 6
+sizeof(SubbandInfo_t), 7
+sizeof(CriticalBandInfo_t)*m_MAX_NCHAN, 8
+sizeof(ScaleFactorJS_t), 9
+sizeof(SideInfoSub_t)*(m_MAX_NGRAN *m_MAX_NCHAN), 10
+sizeof(SFBandTable_t), 11
+sizeof(MP3FrameInfo_t)}; 12
+*/
+
+uint32_t MP3Decoder_AllocateBuffers(void) {
+    //SETREGS
+
+    //const uint32_t *st = (const uint32_t *) ((uint8_t *)xize+EXEC_OFFSET);
+    const uint32_t *st = (const uint32_t *) (uint8_t *)xize;
+
+/*
     if(!mp3m.m_MP3DecInfo)       {mp3m.m_MP3DecInfo    = (MP3DecInfo_t*)    __malloc_heap_psram(sizeof(MP3DecInfo_t)   );}
     if(!mp3m.m_FrameHeader)      {mp3m.m_FrameHeader   = (FrameHeader_t*)   __malloc_heap_psram(sizeof(FrameHeader_t)  );}
     if(!mp3m.m_SideInfo)         {mp3m.m_SideInfo      = (SideInfo_t*)      __malloc_heap_psram(sizeof(SideInfo_t)     );}
@@ -1599,18 +1648,28 @@ uint32_t MP3Decoder_AllocateBuffers(void) {
     if(!mp3m.m_IMDCTInfo)        {mp3m.m_IMDCTInfo     = (IMDCTInfo_t*)     __malloc_heap_psram(sizeof(IMDCTInfo_t)    );}
     if(!mp3m.m_SubbandInfo)      {mp3m.m_SubbandInfo   = (SubbandInfo_t*)   __malloc_heap_psram(sizeof(SubbandInfo_t)  );}
     if(!mp3m.m_MP3FrameInfo)     {mp3m.m_MP3FrameInfo  = (MP3FrameInfo_t*)  __malloc_heap_psram(sizeof(MP3FrameInfo_t) );}
+ */   
+    if(!mp3m.m_MP3DecInfo)       {mp3m.m_MP3DecInfo    = (MP3DecInfo_t*)    __malloc_heap_psram(st[0]);}
+    if(!mp3m.m_FrameHeader)      {mp3m.m_FrameHeader   = (FrameHeader_t*)   __malloc_heap_psram(st[3]);}
+    if(!mp3m.m_SideInfo)         {mp3m.m_SideInfo      = (SideInfo_t*)      __malloc_heap_psram(st[2]);}
+    if(!mp3m.m_ScaleFactorJS)    {mp3m.m_ScaleFactorJS = (ScaleFactorJS_t*) __malloc_heap_psram(st[9]);}
+    if(!mp3m.m_HuffmanInfo)      {mp3m.m_HuffmanInfo   = (HuffmanInfo_t*)   __malloc_heap_psram(st[4]);}
+    if(!mp3m.m_DequantInfo)      {mp3m.m_DequantInfo   = (DequantInfo_t*)   __malloc_heap_psram(st[5]);}
+    if(!mp3m.m_IMDCTInfo)        {mp3m.m_IMDCTInfo     = (IMDCTInfo_t*)     __malloc_heap_psram(st[6]);}
+    if(!mp3m.m_SubbandInfo)      {mp3m.m_SubbandInfo   = (SubbandInfo_t*)   __malloc_heap_psram(st[7]);}
+    if(!mp3m.m_MP3FrameInfo)     {mp3m.m_MP3FrameInfo  = (MP3FrameInfo_t*)  __malloc_heap_psram(st[12]);}
 
     if(!mp3m.m_MP3DecInfo || !mp3m.m_FrameHeader || !mp3m.m_SideInfo || !mp3m.m_ScaleFactorJS || !mp3m.m_HuffmanInfo ||
        !mp3m.m_DequantInfo || !mp3m.m_IMDCTInfo || !mp3m.m_SubbandInfo || !mp3m.m_MP3FrameInfo) {
         MP3Decoder_FreeBuffers();
-        log_e("not enough memory to allocate mp3decoder buffers");
+        //log_e("not enough memory to allocate mp3decoder buffers");
         return 0;
     }
     MP3Decoder_ClearBuffer();
 
     uint32_t memory = 0;
     for (uint16_t cnt = 0; cnt < 13; cnt++) {
-    //    memory += st[cnt];
+        memory += st[cnt];
     }
     
     return memory;
@@ -2990,6 +3049,7 @@ void idct9(int32_t *x) {
     a11 = a4 - x8; /* ie x[2] - x[4] - x[8] */
 
     /* do the << 1 as constant shifts where mX is actually used (free, no stall or extra inst.) */
+ #if 0   
     m1 = MULSHIFT32(c9_0, x3);
     m3 = MULSHIFT32(c9_0, a10);
     m5 = MULSHIFT32(c9_1, a5);
@@ -3000,6 +3060,19 @@ void idct9(int32_t *x) {
     m10 = MULSHIFT32(c9_4, a7);
     m11 = MULSHIFT32(c9_3, a3);
     m12 = MULSHIFT32(c9_4, a9);
+#else
+    const int32_t  *ct = c3_tab;
+    m1 = MULSHIFT32(ct[0], x3);
+    m3 = MULSHIFT32(ct[0], a10);
+    m5 = MULSHIFT32(ct[1], a5);
+    m6 = MULSHIFT32(ct[2], a6);
+    m7 = MULSHIFT32(ct[1], a8);
+    m8 = MULSHIFT32(ct[2], a5);
+    m9 = MULSHIFT32(ct[3], a9);
+    m10 = MULSHIFT32(ct[4], a7);
+    m11 = MULSHIFT32(ct[3], a3);
+    m12 = MULSHIFT32(ct[4], a9);
+#endif
 
     a12 = x[0] + (x[6] >> 1);
     a13 = a12 + (m1 << 1);
@@ -3202,14 +3275,18 @@ void imdct12(int32_t *x, int32_t *out) {
     x0 >>= 1;
     x1 >>= 1;
 
-    a0 = MULSHIFT32(c3_0, x2) << 1;
+    const int32_t  *ct = c3_tab;
+
+    //a0 = MULSHIFT32(c3_0, x2) << 1;
+    a0 = MULSHIFT32(ct[5], x2) << 1;
     a1 = x0 + (x4 >> 1);
     a2 = x0 - x4;
     x0 = a1 + a0;
     x2 = a2;
     x4 = a1 - a0;
 
-    a0 = MULSHIFT32(c3_0, x3) << 1;
+    //a0 = MULSHIFT32(c3_0, x3) << 1;
+    a0 = MULSHIFT32(ct[5], x3) << 1;
     a1 = x1 + (x5 >> 1);
     a2 = x1 - x5;
 
@@ -3577,7 +3654,7 @@ int32_t Subband(int16_t *pcmBuf) {
 	buf[16+i] = b2 + b3;    buf[31-i] = MULSHIFT32(*cptr++, b3 - b2) << (s2); \
 }
 
-static const uint8_t FDCT32s1s2[16] = {5,3,3,2,2,1,1,1, 1,1,1,1,1,2,2,4};
+const uint8_t FDCT32s1s2[16] PROGMEM = {5,3,3,2,2,1,1,1, 1,1,1,1,1,2,2,4};
 
 void FDCT32(int32_t *buf, int32_t *dest, int32_t offset, int32_t oddBlock, int32_t gb) {
     int32_t i, s, tmp, es;
@@ -3876,4 +3953,24 @@ void PolyphaseStereo(int16_t *pcm, int32_t *vbuf, const uint32_t *coefBase){
         pcm += 2;
     }
 }
+
+
+int32_t FASTABS(int32_t x) {
+    if (x < 0) {
+        return -x;
+    } 
+    return x;
+} ;
+
+uint32_t my_clz(uint32_t in) {
+    uint32_t lz = 32;
+    while (in) {
+        in >>= 1;
+        --lz;
+    }
+    return lz;
+}
+
+
+
 #endif

@@ -154,6 +154,7 @@ MODULE_END
 
 #ifdef USE_MP3
 //#include "mp3-decoder/mp3_decoder_c.h"
+#include "mp3-decoder/mp3_decoder_org_c.h"
 #endif
 
 #define OUTBUFF_SIZE 1024 * 6
