@@ -1,4 +1,7 @@
 #if 1
+
+#include "../pgmspace_32.h"
+
 /*
  * mp3_decoder.cpp
  * libhelix_HMP3DECODER
@@ -24,6 +27,7 @@
 }
 #endif
 
+/*
 const uint8_t  m_SYNCWORDH              =0xff;
 const uint8_t  m_SYNCWORDL              =0xe0;
 const uint8_t  m_DQ_FRACBITS_OUT        =25;  // number of fraction bits in output of dequant
@@ -35,6 +39,20 @@ const uint8_t  m_SIBYTES_MPEG2_STEREO   =17;
 const uint8_t  m_IMDCT_SCALE            =2;   // additional scaling (by sqrt(2)) for fast IMDCT36
 const uint8_t  m_NGRANS_MPEG1           =2;
 const uint8_t  m_NGRANS_MPEG2           =1;
+*/
+
+#define m_SYNCWORDH              0xff
+#define m_SYNCWORDL              0xe0
+#define m_DQ_FRACBITS_OUT        25  // number of fraction bits in output of dequant
+#define m_CSHIFT                 12  // coefficients have 12 leading sign bits for early-terminating mulitplies
+#define m_SIBYTES_MPEG1_MONO     17
+#define m_SIBYTES_MPEG1_STEREO   32
+#define m_SIBYTES_MPEG2_MONO     9
+#define m_SIBYTES_MPEG2_STEREO   17
+#define m_IMDCT_SCALE            2   // additional scaling (by sqrt(2)) for fast IMDCT36
+#define m_NGRANS_MPEG1           2
+#define m_NGRANS_MPEG2           1
+
 const uint32_t m_SQRTHALF               =0x5a82799a;  // sqrt(0.5) in Q31 format
 
 /*
@@ -54,8 +72,6 @@ ScaleFactorJS_t *m_ScaleFactorJS;
 SubbandInfo_t *m_SubbandInfo;
 MP3DecInfo_t *m_MP3DecInfo;
 */
-
-MP3_MEM mp3m;
 
 const uint16_t huffTable[4242] PROGMEM = {
     /* huffTable01[9] */
@@ -753,13 +769,20 @@ int32_t CalcBitsUsed(BitStreamInfo_t *bsi, uint8_t *startBuf, int32_t startOffse
 }
 //----------------------------------------------------------------------------------------------------------------------
 int32_t CheckPadBit(){
+    SETMEMREGS
     return (mp3m.m_FrameHeader->paddingBit ? 1 : 0);
 }
 //----------------------------------------------------------------------------------------------------------------------
 int32_t UnpackFrameHeader(uint8_t *buf){
-   int32_t verIdx;
+    SETMEMREGS
+
+    AddLog(LOG_LEVEL_INFO, PSTR("UnpackFrameHeader 1"));
+
+    int32_t verIdx;
     /* validate pointers and sync word */
-    if ((buf[0] & m_SYNCWORDH) != m_SYNCWORDH || (buf[1] & m_SYNCWORDL) != m_SYNCWORDL){return -1;}
+    if ((buf[0] & m_SYNCWORDH) != m_SYNCWORDH || (buf[1] & m_SYNCWORDL) != m_SYNCWORDL){
+        return -1;
+    }
     /* read header fields - use bitmasks instead of GetBits() for speed, since format never varies */
     verIdx = (buf[1] >> 3) & 0x03;
     mp3m.m_MPEGVersion = (MPEGVersion_t) (verIdx == 0 ? MPEG25 : ((verIdx & 0x01) ? MPEG1 : MPEG2));
@@ -774,31 +797,79 @@ int32_t UnpackFrameHeader(uint8_t *buf){
     mp3m.m_FrameHeader->copyFlag = (buf[3] >> 3) & 0x01;
     mp3m.m_FrameHeader->origFlag = (buf[3] >> 2) & 0x01;
     mp3m.m_FrameHeader->emphasis = (buf[3] >> 0) & 0x03;
+
     /* check parameters to avoid indexing tables with bad values */
-    if (mp3m.m_FrameHeader->srIdx == 3 || mp3m.m_FrameHeader->layer == 4 || mp3m.m_FrameHeader->brIdx == 15) {return -1;}
+    if (mp3m.m_FrameHeader->srIdx == 3 || mp3m.m_FrameHeader->layer == 4 || mp3m.m_FrameHeader->brIdx == 15) {
+        return -1;
+    }
     /* for readability (we reference sfBandTable many times in decoder) */
+
+    AddLog(LOG_LEVEL_INFO, PSTR("UnpackFrameHeader 2"));
+#if 0
     mp3m.m_SFBandTable = sfBandTable[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->srIdx];
-    if (mp3m.m_sMode != Joint) /* just to be safe (dequant, stproc check fh->modeExt) */
+#else
+    SFBandTable_t *sfbp = (SFBandTable_t *)&sfBandTable[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->srIdx];
+    uint8_t *cp = (uint8_t*)sfbp;
+    cp += EXEC_OFFSET;
+    sfbp = (SFBandTable_t*)cp;
+    memmove(&mp3m.m_SFBandTable, sfbp, sizeof(SFBandTable_t));
+#endif
+    /* just to be safe (dequant, stproc check fh->modeExt) */
+    if (mp3m.m_sMode != Joint) {
         mp3m.m_FrameHeader->modeExt = 0;
+    }
     /* init user-accessible data */
     mp3m.m_MP3DecInfo->nChans = (mp3m.m_sMode == Mono ? 1 : 2);
+
+
+    AddLog(LOG_LEVEL_INFO, PSTR("UnpackFrameHeader 3"));
+
+#if 0
     mp3m.m_MP3DecInfo->samprate = samplerateTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->srIdx];
     mp3m.m_MP3DecInfo->nGrans = (mp3m.m_MPEGVersion == MPEG1 ? m_NGRANS_MPEG1 : m_NGRANS_MPEG2);
-    mp3m.m_MP3DecInfo->nGranSamps = ((int32_t) samplesPerFrameTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->layer - 1])/mp3m.m_MP3DecInfo->nGrans;
+    mp3m.m_MP3DecInfo->nGranSamps = ((int) samplesPerFrameTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->layer - 1])/mp3m.m_MP3DecInfo->nGrans;
     mp3m.m_MP3DecInfo->layer = mp3m.m_FrameHeader->layer;
+#else
+    int32_t *srt = (int32_t *)&samplerateTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->srIdx];
+    srt += EXEC_OFFSET >> 2;
+    mp3m.m_MP3DecInfo->samprate = *srt;
+    mp3m.m_MP3DecInfo->nGrans = (mp3m.m_MPEGVersion == MPEG1 ? m_NGRANS_MPEG1 : m_NGRANS_MPEG2);
+    srt = (uint32_t *)&samplesPerFrameTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->layer - 1];
+    srt += EXEC_OFFSET >> 2;
+    //mp3m.m_MP3DecInfo->nGranSamps = *srt / mp3m.m_MP3DecInfo->nGrans;
+    mp3m.m_MP3DecInfo->nGranSamps = __divsi3(*srt, mp3m.m_MP3DecInfo->nGrans);
+    mp3m.m_MP3DecInfo->layer = mp3m.m_FrameHeader->layer;
+#endif
+
+    AddLog(LOG_LEVEL_INFO, PSTR("UnpackFrameHeader 4"));
 
     /* get bitrate and nSlots from table, unless brIdx == 0 (free mode) in which case caller must figure it out himself
      * question - do we want to overwrite mp3DecInfo->bitrate with 0 each time if it's free mode, and
      *  copy the pre-calculated actual free bitrate into it in mp3dec.c (according to the spec,
      *  this shouldn't be necessary, since it should be either all frames free or none free)
      */
-    if (mp3m.m_FrameHeader->brIdx) {
-        mp3m.m_MP3DecInfo->bitrate=((int32_t) bitrateTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->layer - 1][mp3m.m_FrameHeader->brIdx]) * 1000;
+#if 0
+        mp3m.m_MP3DecInfo->bitrate=((int) bitrateTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->layer - 1][mp3m.m_FrameHeader->brIdx]) * 1000;
         /* nSlots = total frame bytes (from table) - sideInfo bytes - header - CRC (if present) + pad (if present) */
-        mp3m.m_MP3DecInfo->nSlots= (int32_t) slotTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->srIdx][mp3m.m_FrameHeader->brIdx]
-                - (int32_t) sideBytesTab[mp3m.m_MPEGVersion][(mp3m.m_sMode == Mono ? 0 : 1)] - 4
+        mp3m.m_MP3DecInfo->nSlots= (int) slotTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->srIdx][mp3m.m_FrameHeader->brIdx]
+                - (int) sideBytesTab[mp3m.m_MPEGVersion][(mp3m.m_sMode == Mono ? 0 : 1)] - 4
                 - (mp3m.m_FrameHeader->crc ? 2 : 0) + (mp3m.m_FrameHeader->paddingBit ? 1 : 0);
-    }
+#else
+        int16_t *brt = (int16_t *)&bitrateTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->layer - 1][mp3m.m_FrameHeader->brIdx];
+        brt += EXEC_OFFSET >> 1;
+        mp3m.m_MP3DecInfo->bitrate = (int) pgm_read_word(brt) * 1000;
+
+        int16_t *slt = (int16_t *) &slotTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->srIdx][mp3m.m_FrameHeader->brIdx];
+        slt += EXEC_OFFSET >> 1;
+        int32_t *stb = (int32_t *) &sideBytesTab[mp3m.m_MPEGVersion][(mp3m.m_sMode == Mono ? 0 : 1)];
+        stb += EXEC_OFFSET >> 2;
+
+        mp3m.m_MP3DecInfo->nSlots= (int) pgm_read_word(slt)
+                - (int32_t) *stb - 4
+                - (mp3m.m_FrameHeader->crc ? 2 : 0) + (mp3m.m_FrameHeader->paddingBit ? 1 : 0);
+#endif
+
+    AddLog(LOG_LEVEL_INFO, PSTR("UnpackFrameHeader end"));
     /* load crc word, if enabled, and return length of frame header (in bytes) */
     if (mp3m.m_FrameHeader->crc) {
         mp3m.m_FrameHeader->CRCWord = ((int32_t) buf[4] << 8 | (int32_t) buf[5] << 0);
@@ -810,7 +881,8 @@ int32_t UnpackFrameHeader(uint8_t *buf){
 }
 //----------------------------------------------------------------------------------------------------------------------
 int32_t UnpackSideInfo( uint8_t *buf) {
-   int32_t gr, ch, bd, nBytes;
+    SETMEMREGS
+    int32_t gr, ch, bd, nBytes;
     BitStreamInfo_t bitStreamInfo, *bsi;
 
     SideInfoSub_t *sis;
@@ -904,10 +976,10 @@ int32_t UnpackSideInfo( uint8_t *buf) {
  *                (make sure dequantizer follows same convention)
  *              Illegal Intensity Position = 7 (always) for MPEG1 scale factors
  **********************************************************************************************************************/
-void UnpackSFMPEG1(BitStreamInfo_t *bsi, SideInfoSub_t *sis,
-                   ScaleFactorInfoSub_t *sfis, int32_t *scfsi, int32_t gr, ScaleFactorInfoSub_t *sfisGr0){
-   int32_t sfb;
-   int32_t slen0, slen1;
+void UnpackSFMPEG1(BitStreamInfo_t *bsi, SideInfoSub_t *sis, ScaleFactorInfoSub_t *sfis, int32_t *scfsi, int32_t gr, ScaleFactorInfoSub_t *sfisGr0){
+    SETMEMREGS
+    int32_t sfb;
+    int32_t slen0, slen1;
     /* these can be 0, so make sure GetBits(bsi, 0) returns 0 (no >> 32 or anything) */
     slen0 = (int32_t)m_SFLenTab[sis->sfCompress][0];
     slen1 = (int32_t)m_SFLenTab[sis->sfCompress][1];
@@ -987,11 +1059,10 @@ void UnpackSFMPEG1(BitStreamInfo_t *bsi, SideInfoSub_t *sis,
  *
  * Notes:       Illegal Intensity Position = (2^slen) - 1 for MPEG2 scale factors
  **********************************************************************************************************************/
-void UnpackSFMPEG2(BitStreamInfo_t *bsi, SideInfoSub_t *sis,
-                   ScaleFactorInfoSub_t *sfis, int32_t gr, int32_t ch, int32_t modeExt, ScaleFactorJS_t *sfjs){
-
-   int32_t i, sfb, sfcIdx, btIdx, nrIdx;// iipTest;
-   int32_t slen[4], nr[4];
+void UnpackSFMPEG2(BitStreamInfo_t *bsi, SideInfoSub_t *sis,ScaleFactorInfoSub_t *sfis, int32_t gr, int32_t ch, int32_t modeExt, ScaleFactorJS_t *sfjs){
+    SETMEMREGS
+    int32_t i, sfb, sfcIdx, btIdx, nrIdx;// iipTest;
+    int32_t slen[4], nr[4];
    int32_t sfCompress, preFlag, intensityScale;
     (void)gr;
     sfCompress = sis->sfCompress;
@@ -1140,7 +1211,8 @@ void UnpackSFMPEG2(BitStreamInfo_t *bsi, SideInfoSub_t *sis,
  * Return:      length (in bytes) of scale factor data, -1 if null input pointers
  **********************************************************************************************************************/
 int32_t UnpackScaleFactors( uint8_t *buf, int32_t *bitOffset, int32_t bitsAvail, int32_t gr, int32_t ch){
-   int32_t bitsUsed;
+    SETMEMREGS
+    int32_t bitsUsed;
     uint8_t *startBuf;
     BitStreamInfo_t bitStreamInfo, *bsi;
 
@@ -1171,7 +1243,7 @@ int32_t UnpackScaleFactors( uint8_t *buf, int32_t *bitOffset, int32_t bitsAvail,
  ****************************************************************************************************************************************************/
 
 
-int32_t findSync(uint8_t* buf, uint16_t offset, uint16_t nBytes) { // lambda, inner function
+MODULE_PART int32_t findSync(uint8_t* buf, uint16_t offset, uint16_t nBytes) { // lambda, inner function
     for (int32_t i = 0; i < nBytes - 1; i++) {
         if ((buf[i + offset] & m_SYNCWORDH) == m_SYNCWORDH && (buf[i + offset + 1] & m_SYNCWORDL) == m_SYNCWORDL) {
             return i;
@@ -1194,12 +1266,12 @@ int32_t findSync(uint8_t* buf, uint16_t offset, uint16_t nBytes) { // lambda, in
  *              -1 if sync not found after searching nBytes
  ****************************************************************************************************************************************************/
 int32_t MP3FindSyncWord(uint8_t *buf, int32_t nBytes) {
-
+    SETMEMREGS
     const uint8_t mp3FHsize = 4; // frame header size
     uint8_t firstFH[4];
 
     /* find byte-aligned syncword - need 12 (MPEG 1,2) or 11 (MPEG 2.5) matching bits */
-   int32_t pos = findSync(buf, 0, nBytes);
+    int32_t pos = findSync(buf, 0, nBytes);
     if (pos == -1) return pos; // syncword not found
     nBytes -= pos;
 
@@ -1300,6 +1372,7 @@ int32_t MP3FindFreeSync(uint8_t *buf, uint8_t firstFH[4], int32_t nBytes){
  * Notes:       call this right after calling MP3Decode
  **********************************************************************************************************************/
 void MP3GetLastFrameInfo() {
+    SETMEMREGS
     if (mp3m.m_MP3DecInfo->layer != 3){
         mp3m.m_MP3FrameInfo->bitrate=0;
         mp3m.m_MP3FrameInfo->nChans=0;
@@ -1309,22 +1382,43 @@ void MP3GetLastFrameInfo() {
         mp3m.m_MP3FrameInfo->layer=0;
         mp3m.m_MP3FrameInfo->version=0;
     }
-    else{
+    else {
         mp3m.m_MP3FrameInfo->bitrate=mp3m.m_MP3DecInfo->bitrate;
         mp3m.m_MP3FrameInfo->nChans=mp3m.m_MP3DecInfo->nChans;
         mp3m.m_MP3FrameInfo->samprate=mp3m.m_MP3DecInfo->samprate;
         mp3m.m_MP3FrameInfo->bitsPerSample=16;
-        mp3m.m_MP3FrameInfo->outputSamps=mp3m.m_MP3DecInfo->nChans
-                * (int32_t) samplesPerFrameTab[mp3m.m_MPEGVersion][mp3m.m_MP3DecInfo->layer-1];
+ #if 0
+        mp3m.m_MP3FrameInfo->outputSamps=mp3m.m_MP3DecInfo->nChans * (int) samplesPerFrameTab[mp3m.m_MPEGVersion][mp3m.m_MP3DecInfo->layer-1];
+ #else
+        int *srt = (int *)&samplesPerFrameTab[mp3m.m_MPEGVersion][mp3m.m_MP3DecInfo->layer-1];
+        srt += EXEC_OFFSET >> 2;
+        mp3m.m_MP3FrameInfo->outputSamps = mp3m.m_MP3DecInfo->nChans * *srt;
+#endif
         mp3m.m_MP3FrameInfo->layer=mp3m.m_MP3DecInfo->layer;
         mp3m.m_MP3FrameInfo->version=mp3m.m_MPEGVersion;
     }
 }
-int32_t MP3GetSampRate(){return mp3m.m_MP3FrameInfo->samprate;}
-int32_t MP3GetChannels(){return mp3m.m_MP3FrameInfo->nChans;}
-int32_t MP3GetBitsPerSample(){return mp3m.m_MP3FrameInfo->bitsPerSample;}
-int32_t MP3GetBitrate(){return mp3m.m_MP3FrameInfo->bitrate;}
-int32_t MP3GetOutputSamps(){return mp3m.m_MP3FrameInfo->outputSamps;}
+
+int32_t MP3GetSampRate() {
+    SETMEMREGS
+    return mp3m.m_MP3FrameInfo->samprate;
+}
+int32_t MP3GetChannels() {
+    SETMEMREGS
+    return mp3m.m_MP3FrameInfo->nChans;
+}
+int32_t MP3GetBitsPerSample() {
+    SETMEMREGS
+    return mp3m.m_MP3FrameInfo->bitsPerSample;
+}
+int32_t MP3GetBitrate() {
+    SETMEMREGS
+    return mp3m.m_MP3FrameInfo->bitrate;
+}
+int32_t MP3GetOutputSamps() {
+    SETMEMREGS
+    return mp3m.m_MP3FrameInfo->outputSamps;
+}
 /***********************************************************************************************************************
  * Function:    MP3GetNextFrameInfo
  *
@@ -1338,7 +1432,7 @@ int32_t MP3GetOutputSamps(){return mp3m.m_MP3FrameInfo->outputSamps;}
  * Return:      error code, defined in mp3dec.h (0 means no error, < 0 means error)
  **********************************************************************************************************************/
 int32_t MP3GetNextFrameInfo(uint8_t *buf) {
-
+    SETMEMREGS
     if (UnpackFrameHeader( buf) == -1 || mp3m.m_MP3DecInfo->layer != 3)
         return ERR_MP3_INVALID_FRAMEHEADER;
 
@@ -1359,7 +1453,8 @@ int32_t MP3GetNextFrameInfo(uint8_t *buf) {
  * Return:      none
  **********************************************************************************************************************/
 void MP3ClearBadFrame(int16_t *outbuf) {
-   int32_t i;
+    SETMEMREGS
+    int32_t i;
     for (i = 0; i < mp3m.m_MP3DecInfo->nGrans * mp3m.m_MP3DecInfo->nGranSamps * mp3m.m_MP3DecInfo->nChans; i++)
         outbuf[i] = 0;
 }
@@ -1382,9 +1477,10 @@ void MP3ClearBadFrame(int16_t *outbuf) {
  * Notes:       switching useSize on and off between frames in the same stream
  *                is not supported (bit reservoir is not maintained if useSize on)
  **********************************************************************************************************************/
-int32_t MP3Decode( uint8_t *inbuf, int32_t *bytesLeft, int16_t *outbuf, int32_t useSize){
-   int32_t offset, bitOffset, mainBits, gr, ch, fhBytes, siBytes, freeFrameBytes;
-   int32_t prevBitOffset, sfBlockBits, huffBlockBits;
+int32_t MP3Decode( uint8_t *inbuf, int32_t *bytesLeft, int16_t *outbuf, int32_t useSize) {
+    SETMEMREGS
+    int32_t offset, bitOffset, mainBits, gr, ch, fhBytes, siBytes, freeFrameBytes;
+    int32_t prevBitOffset, sfBlockBits, huffBlockBits;
     uint8_t *mainPtr;
     static uint8_t underflowCounter = 0; // http://macslons-irish-pub-radio.stream.laut.fm/macslons-irish-pub-radio
 
@@ -1453,7 +1549,7 @@ int32_t MP3Decode( uint8_t *inbuf, int32_t *bytesLeft, int16_t *outbuf, int32_t 
             memmove(mp3m.m_MP3DecInfo->mainBuf,
                     mp3m.m_MP3DecInfo->mainBuf + mp3m.m_MP3DecInfo->mainDataBytes - mp3m.m_MP3DecInfo->mainDataBegin,
                     mp3m.m_MP3DecInfo->mainDataBegin);
-            memcpy (mp3m.m_MP3DecInfo->mainBuf + mp3m.m_MP3DecInfo->mainDataBegin, inbuf,
+            memmove (mp3m.m_MP3DecInfo->mainBuf + mp3m.m_MP3DecInfo->mainDataBegin, inbuf,
                     mp3m.m_MP3DecInfo->nSlots);
 
             mp3m.m_MP3DecInfo->mainDataBytes = mp3m.m_MP3DecInfo->mainDataBegin + mp3m.m_MP3DecInfo->nSlots;
@@ -1463,7 +1559,7 @@ int32_t MP3Decode( uint8_t *inbuf, int32_t *bytesLeft, int16_t *outbuf, int32_t 
         } else {
             /* not enough data in bit reservoir from previous frames (perhaps starting in middle of file) */
             underflowCounter ++;
-            memcpy(mp3m.m_MP3DecInfo->mainBuf + mp3m.m_MP3DecInfo->mainDataBytes, inbuf, mp3m.m_MP3DecInfo->nSlots);
+            memmove(mp3m.m_MP3DecInfo->mainBuf + mp3m.m_MP3DecInfo->mainDataBytes, inbuf, mp3m.m_MP3DecInfo->nSlots);
             mp3m.m_MP3DecInfo->mainDataBytes += mp3m.m_MP3DecInfo->nSlots;
             inbuf += mp3m.m_MP3DecInfo->nSlots;
             *bytesLeft -= (mp3m.m_MP3DecInfo->nSlots);
@@ -1541,7 +1637,7 @@ int32_t MP3Decode( uint8_t *inbuf, int32_t *bytesLeft, int16_t *outbuf, int32_t 
  *
  **********************************************************************************************************************/
 void MP3Decoder_ClearBuffer(void) {
-    //SETREGS
+    SETMEMREGS
     //const uint32_t *st = (const uint32_t *) ((uint8_t *)xize+EXEC_OFFSET);
     const uint32_t *st = (const uint32_t *) ((uint8_t *)xize);
 
@@ -1633,7 +1729,7 @@ sizeof(MP3FrameInfo_t)}; 12
 */
 
 uint32_t MP3Decoder_AllocateBuffers(void) {
-    //SETREGS
+    SETMEMREGS
 
     //const uint32_t *st = (const uint32_t *) ((uint8_t *)xize+EXEC_OFFSET);
     const uint32_t *st = (const uint32_t *) (uint8_t *)xize;
@@ -1687,6 +1783,7 @@ uint32_t MP3Decoder_AllocateBuffers(void) {
 
  **********************************************************************************************************************/
 bool MP3Decoder_IsInit(void) {
+    SETMEMREGS
     if(!mp3m.m_MP3DecInfo || !mp3m.m_FrameHeader || !mp3m.m_SideInfo || !mp3m.m_ScaleFactorJS || !mp3m.m_HuffmanInfo ||
        !mp3m.m_DequantInfo || !mp3m.m_IMDCTInfo || !mp3m.m_SubbandInfo || !mp3m.m_MP3FrameInfo) {
         return false;
@@ -1706,8 +1803,8 @@ bool MP3Decoder_IsInit(void) {
  *
  * Notes:       safe to call even if some buffers were not allocated
  **********************************************************************************************************************/
-void MP3Decoder_FreeBuffers()
-{
+void MP3Decoder_FreeBuffers() {
+    SETMEMREGS
 //    uint32_t i = ESP.getFreeHeap();
 
     if(mp3m.m_MP3DecInfo)        {free(mp3m.m_MP3DecInfo);      mp3m.m_MP3DecInfo=NULL;}
@@ -1749,8 +1846,9 @@ void MP3Decoder_FreeBuffers()
  **********************************************************************************************************************/
 // no improvement with section=data
 int32_t DecodeHuffmanPairs(int32_t *xy, int32_t nVals, int32_t tabIdx, int32_t bitsLeft, uint8_t *buf, int32_t bitOffset){
-   int32_t i, x, y;
-   int32_t cachedBits, padBits, len, startBits, linBits, maxBits, minBits;
+    SETMEMREGS
+    int32_t i, x, y;
+    int32_t cachedBits, padBits, len, startBits, linBits, maxBits, minBits;
     HuffTabType_t tabType;
     uint16_t cw, *tBase, *tCurr;
     uint32_t cache;
@@ -1771,10 +1869,22 @@ int32_t DecodeHuffmanPairs(int32_t *xy, int32_t nVals, int32_t tabIdx, int32_t b
 //    assert(tabIdx >= 0);
 //    assert(tabType != invalidTab);
 
-    if((nVals & 0x01)){log_d("assert(!(nVals & 0x01))"); return -1;}
-    if(!(tabIdx < m_HUFF_PAIRTABS)){log_d("assert(tabIdx < m_HUFF_PAIRTABS)"); return -1;}
-    if(!(tabIdx >= 0)){log_d("(tabIdx >= 0)"); return -1;}
-    if(!(tabType != invalidTab)){log_d("(tabType != invalidTab)"); return -1;}
+    if ((nVals & 0x01)) {
+        log_d("assert(!(nVals & 0x01))");
+        return -1;
+    }
+    if  (!(tabIdx < m_HUFF_PAIRTABS)) {
+        log_d("assert(tabIdx < m_HUFF_PAIRTABS)");
+        return -1;
+    }
+    if (!(tabIdx >= 0)) {
+        log_d("(tabIdx >= 0)");
+        return -1;
+    }
+    if (!(tabType != invalidTab)) {
+        log_d("(tabType != invalidTab)");
+        return -1;
+    }
 
 
     /* initially fill cache with any partial byte */
@@ -1986,7 +2096,8 @@ int32_t DecodeHuffmanPairs(int32_t *xy, int32_t nVals, int32_t tabIdx, int32_t b
  * Notes:        si_huff.bit tests every vwxy output in both quad tables
  **********************************************************************************************************************/
 // no improvement with section=data
-int32_t DecodeHuffmanQuads(int32_t *vwxy, int32_t nVals, int32_t tabIdx, int32_t bitsLeft, uint8_t *buf, int32_t bitOffset){
+int32_t DecodeHuffmanQuads(int32_t *vwxy, int32_t nVals, int32_t tabIdx, int32_t bitsLeft, uint8_t *buf, int32_t bitOffset) {
+    SETMEMREGS
    int32_t i, v, w, x, y;
    int32_t len, maxBits, cachedBits, padBits;
     uint32_t cache;
@@ -2098,10 +2209,10 @@ int32_t DecodeHuffmanQuads(int32_t *vwxy, int32_t nVals, int32_t tabIdx, int32_t
  *                out of bits prematurely (invalid bitstream)
  **********************************************************************************************************************/
 // .data about 1ms faster per frame
-int32_t DecodeHuffman(uint8_t *buf, int32_t *bitOffset, int32_t huffBlockBits, int32_t gr, int32_t ch){
-
-   int32_t r1Start, r2Start, rEnd[4]; /* region boundaries */
-   int32_t i, w, bitsUsed, bitsLeft;
+int32_t DecodeHuffman(uint8_t *buf, int32_t *bitOffset, int32_t huffBlockBits, int32_t gr, int32_t ch) {
+    SETMEMREGS
+    int32_t r1Start, r2Start, rEnd[4]; /* region boundaries */
+    int32_t i, w, bitsUsed, bitsLeft;
     uint8_t *startBuf = buf;
 
     SideInfoSub_t *sis;
@@ -2199,8 +2310,9 @@ int32_t DecodeHuffman(uint8_t *buf, int32_t *bitOffset, int32_t huffBlockBits, i
  *              Equivalently, we can think of the dequantized coefficients as
  *                Q(DQ_FRACBITS_OUT - 15) with no implicit bias.
  **********************************************************************************************************************/
-int32_t MP3Dequantize(int32_t gr){
-   int32_t i, ch, nSamps, mOut[2];
+int32_t MP3Dequantize(int32_t gr) {
+    SETMEMREGS
+    int32_t i, ch, nSamps, mOut[2];
     CriticalBandInfo_t *cbi;
     cbi = &mp3m.m_CriticalBandInfo[0];
     mOut[0] = mOut[1] = 0;
@@ -2287,11 +2399,12 @@ int32_t MP3Dequantize(int32_t gr){
  *
  * Return:      bitwise-OR of the unsigned outputs (for guard bit calculations)
  **********************************************************************************************************************/
-int32_t DequantBlock(int32_t *inbuf, int32_t *outbuf, int32_t num, int32_t scale){
-   int32_t tab4[4];
-   int32_t scalef, scalei, shift;
-   int32_t sx, x, y;
-   int32_t mask = 0;
+int32_t DequantBlock(int32_t *inbuf, int32_t *outbuf, int32_t num, int32_t scale) {
+    SETMEMREGS
+    int32_t tab4[4];
+    int32_t scalef, scalei, shift;
+    int32_t sx, x, y;
+    int32_t mask = 0;
     const int32_t *tab16;
     const uint32_t *coef;
 
@@ -2390,14 +2503,13 @@ int32_t DequantBlock(int32_t *inbuf, int32_t *outbuf, int32_t num, int32_t scale
  *
  * Notes:       dequantized samples in Q(DQ_FRACBITS_OUT) format
  **********************************************************************************************************************/
-int32_t DequantChannel(int32_t *sampleBuf, int32_t *workBuf, int32_t *nonZeroBound,  SideInfoSub_t *sis, ScaleFactorInfoSub_t *sfis,
-                                                                                              CriticalBandInfo_t *cbi)
-{
-   int32_t i, j, w, cb;
-   int32_t /* cbStartL, */ cbEndL, cbStartS, cbEndS;
-   int32_t nSamps, nonZero, sfactMultiplier, gbMask;
-   int32_t globalGain, gainI;
-   int32_t cbMax[3];
+int32_t DequantChannel(int32_t *sampleBuf, int32_t *workBuf, int32_t *nonZeroBound,  SideInfoSub_t *sis, ScaleFactorInfoSub_t *sfis, CriticalBandInfo_t *cbi) {
+    SETMEMREGS
+    int32_t i, j, w, cb;
+    int32_t /* cbStartL, */ cbEndL, cbStartS, cbEndS;
+    int32_t nSamps, nonZero, sfactMultiplier, gbMask;
+    int32_t globalGain, gainI;
+    int32_t cbMax[3];
     typedef int32_t ARRAY3[3];  /* for short-block reordering */
     ARRAY3 *buf;    /* short block reorder */
 
@@ -2544,8 +2656,9 @@ int32_t DequantChannel(int32_t *sampleBuf, int32_t *workBuf, int32_t *nonZeroBou
  *
  * Notes:       assume at least 1 GB in input
  **********************************************************************************************************************/
-void MidSideProc(int32_t x[m_MAX_NCHAN][m_MAX_NSAMP], int32_t nSamps, int32_t mOut[2]){
-   int32_t i, xr, xl, mOutL, mOutR;
+void MidSideProc(int32_t x[m_MAX_NCHAN][m_MAX_NSAMP], int32_t nSamps, int32_t mOut[2]) {
+    SETMEMREGS
+    int32_t i, xr, xl, mOutL, mOutR;
 
     /* L = (M+S)/sqrt(2), R = (M-S)/sqrt(2)
      * NOTE: 1/sqrt(2) done in DequantChannel() - see comments there
@@ -2584,13 +2697,13 @@ void MidSideProc(int32_t x[m_MAX_NCHAN][m_MAX_NSAMP], int32_t nSamps, int32_t mO
  *
  **********************************************************************************************************************/
 void IntensityProcMPEG1(int32_t x[m_MAX_NCHAN][m_MAX_NSAMP], int32_t nSamps,  ScaleFactorInfoSub_t *sfis,
-                                                    CriticalBandInfo_t *cbi, int32_t midSideFlag, int32_t mixFlag, int32_t mOut[2])
-{
-   int32_t i = 0, j = 0, n = 0, cb = 0, w = 0;
-   int32_t sampsLeft, isf, mOutL, mOutR, xl, xr;
-   int32_t fl, fr, fls[3], frs[3];
-   int32_t cbStartL = 0, cbStartS = 0, cbEndL = 0, cbEndS = 0;
-   int32_t *isfTab;
+                                                    CriticalBandInfo_t *cbi, int32_t midSideFlag, int32_t mixFlag, int32_t mOut[2]) {
+    SETMEMREGS
+    int32_t i = 0, j = 0, n = 0, cb = 0, w = 0;
+    int32_t sampsLeft, isf, mOutL, mOutR, xl, xr;
+    int32_t fl, fr, fls[3], frs[3];
+    int32_t cbStartL = 0, cbStartS = 0, cbEndL = 0, cbEndS = 0;
+    int32_t *isfTab;
     (void) mixFlag;
 
     /* NOTE - this works fine for mixed blocks, as long as the switch point starts in the
@@ -2700,6 +2813,7 @@ void IntensityProcMPEG1(int32_t x[m_MAX_NCHAN][m_MAX_NSAMP], int32_t nSamps,  Sc
 void IntensityProcMPEG2(int32_t x[m_MAX_NCHAN][m_MAX_NSAMP], int32_t nSamps,
          ScaleFactorInfoSub_t *sfis, CriticalBandInfo_t *cbi,
         ScaleFactorJS_t *sfjs, int32_t midSideFlag, int32_t mixFlag, int32_t mOut[2]) {
+    SETMEMREGS
    int32_t i, j, k, n, r, cb, w;
    int32_t fl, fr, mOutL, mOutR, xl, xr;
    int32_t sampsLeft;
@@ -2920,8 +3034,9 @@ void AntiAlias(int32_t *x, int32_t nBfly){
  *                sign bit, short blocks can have one addition but max gain < 1.0)
  **********************************************************************************************************************/
 
-void WinPrevious(int32_t *xPrev, int32_t *xPrevWin, int32_t btPrev){
-   int32_t i, x, *xp, *xpwLo, *xpwHi, wLo, wHi;
+void WinPrevious(int32_t *xPrev, int32_t *xPrevWin, int32_t btPrev) {
+    SETMEMREGS
+    int32_t i, x, *xp, *xpwLo, *xpwHi, wLo, wHi;
     const uint32_t *wpLo, *wpHi;
 
     xp = xPrev;
@@ -2983,7 +3098,7 @@ void WinPrevious(int32_t *xPrev, int32_t *xPrevWin, int32_t btPrev){
  **********************************************************************************************************************/
 
 int32_t FreqInvertRescale(int32_t *y, int32_t *xPrev, int32_t blockIdx, int32_t es) {
-
+    SETMEMREGS
 	if (es == 0) {
 		/* fast case - frequency invert only (no rescaling) */
 		if (blockIdx & 0x01) {
@@ -3019,6 +3134,7 @@ int32_t FreqInvertRescale(int32_t *y, int32_t *xPrev, int32_t blockIdx, int32_t 
 
 /* require at least 3 guard bits in x[] to ensure no overflow */
 void idct9(int32_t *x) {
+    SETMEMREGS
    int32_t a1, a2, a3, a4, a5, a6, a7, a8, a9;
    int32_t a10, a11, a12, a13, a14, a15, a16, a17, a18;
    int32_t a19, a20, a21, a22, a23, a24, a25, a26, a27;
@@ -3144,7 +3260,8 @@ void idct9(int32_t *x) {
  **********************************************************************************************************************/
 // barely faster in RAM
 
-int32_t IMDCT36(int32_t *xCurr, int32_t *xPrev, int32_t *y, int32_t btCurr, int32_t btPrev, int32_t blockIdx, int32_t gb){
+int32_t IMDCT36(int32_t *xCurr, int32_t *xPrev, int32_t *y, int32_t btCurr, int32_t btPrev, int32_t blockIdx, int32_t gb) {
+    SETMEMREGS
    int32_t i, es, xBuf[18], xPrevWin[18];
    int32_t acc1, acc2, s, d, t, mOut;
    int32_t xo, xe, c, *xp, yLo, yHi;
@@ -3329,6 +3446,7 @@ void imdct12(int32_t *x, int32_t *out) {
  **********************************************************************************************************************/
 // barely faster in RAM
 int32_t IMDCT12x3(int32_t *xCurr, int32_t *xPrev, int32_t *y, int32_t btPrev, int32_t blockIdx, int32_t gb){
+    SETMEMREGS
    int32_t i, es, mOut, yLo, xBuf[18], xPrevWin[18]; /* need temp buffer for reordering short blocks */
     const uint32_t *wp;
     es = 0;
@@ -3417,6 +3535,7 @@ int32_t IMDCT12x3(int32_t *xCurr, int32_t *xPrev, int32_t *y, int32_t btPrev, in
  *                (including overlap-add)
  **********************************************************************************************************************/
 int32_t HybridTransform(int32_t *xCurr, int32_t *xPrev, int32_t y[m_BLOCK_SIZE][m_NBANDS], SideInfoSub_t *sis, BlockCount_t *bc){
+    SETMEMREGS
    int32_t xPrevWin[18], currWinIdx, prevWinIdx;
    int32_t i, j, nBlocksOut, nonZero, mOut;
    int32_t fiBit, xp;
@@ -3518,7 +3637,8 @@ int32_t HybridTransform(int32_t *xCurr, int32_t *xPrev, int32_t y[m_BLOCK_SIZE][
 // a bit faster in RAM
 /*__attribute__ ((section (".data")))*/
 int32_t IMDCT(int32_t gr, int32_t ch) {
-   int32_t nBfly, blockCutoff;
+    SETMEMREGS
+    int32_t nBfly, blockCutoff;
     BlockCount_t bc;
 
     /* m_SideInfo is an array of up to 4 structs, stored as gr0ch0, gr0ch1, gr1ch0, gr1ch1 */
@@ -3589,7 +3709,8 @@ int32_t IMDCT(int32_t gr, int32_t ch) {
  * Return:      0 on success,  -1 if null input pointers
  **********************************************************************************************************************/
 int32_t Subband(int16_t *pcmBuf) {
-   int32_t b;
+    SETMEMREGS
+    int32_t b;
     if (mp3m.m_MP3DecInfo->nChans == 2) {
         /* stereo */
         for (b = 0; b < m_BLOCK_SIZE; b++) {
@@ -3657,6 +3778,7 @@ int32_t Subband(int16_t *pcmBuf) {
 const uint8_t FDCT32s1s2[16] PROGMEM = {5,3,3,2,2,1,1,1, 1,1,1,1,1,2,2,4};
 
 void FDCT32(int32_t *buf, int32_t *dest, int32_t offset, int32_t oddBlock, int32_t gb) {
+    SETMEMREGS
     int32_t i, s, tmp, es;
     const int32_t *cptr = (const int32_t*)m_dcttab;
     int32_t a0, a1, a2, a3, a4, a5, a6, a7;
@@ -3827,7 +3949,8 @@ short ClipToShort(int32_t x, int32_t fracBits){
  *
  * Return:      none
  **********************************************************************************************************************/
-void PolyphaseMono(int16_t *pcm, int32_t *vbuf, const uint32_t *coefBase){
+void PolyphaseMono(int16_t *pcm, int32_t *vbuf, const uint32_t *coefBase) {
+    SETMEMREGS
    int32_t i;
     const uint32_t *coef;
    int32_t *vb1;
@@ -3892,7 +4015,8 @@ void PolyphaseMono(int16_t *pcm, int32_t *vbuf, const uint32_t *coefBase){
  *
  * Notes:       interleaves PCM samples LRLRLR...
  **********************************************************************************************************************/
-void PolyphaseStereo(int16_t *pcm, int32_t *vbuf, const uint32_t *coefBase){
+void PolyphaseStereo(int16_t *pcm, int32_t *vbuf, const uint32_t *coefBase) {
+    SETMEMREGS
    int32_t i;
     const uint32_t *coef;
    int32_t *vb1;

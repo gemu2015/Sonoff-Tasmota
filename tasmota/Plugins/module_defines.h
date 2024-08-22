@@ -232,6 +232,17 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #endif
 //KEEP (*(SORT(.text.mod.*)))
 
+/*
+#undef SECTION_DESC
+#undef SECTION_STRING
+#undef SECTION_PART
+#undef SECTION_END
+
+#define SECTION_DESC ".text.mod_part"
+#define SECTION_STRING ".text.mod_part"
+#define SECTION_PART ".text.mod_part"
+#define SECTION_END ".text.mod_part"
+*/
 
 #ifndef MODULE_HEADER
 #define MODULE_HEADER module_header
@@ -473,7 +484,7 @@ extern MODULES_TABLE modules[];
 //#define MOD_FUNC(A, ...) A(##__VA_ARGS__)
 
 #define SETMINREGS GET_MTBL; GET_JT;
-
+#define SETMEMREGS GET_MTBL; GET_JT;MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;
 
 #define CALL_MOD_FUNC(A, ...) A(mt, ##__VA_ARGS__)
 

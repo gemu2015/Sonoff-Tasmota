@@ -397,7 +397,7 @@ const int32_t samplerateTab[3][3] PROGMEM = {
 /* indexing = [version][layer]
  * number of samples in one frame (per channel)
  */
-const uint16_t samplesPerFrameTab[3][3] PROGMEM = { { 384, 1152, 1152 }, /* MPEG1 */
+const uint32_t samplesPerFrameTab[3][3] PROGMEM = { { 384, 1152, 1152 }, /* MPEG1 */
 { 384, 1152, 576 }, /* MPEG2 */
 { 384, 1152, 576 }, /* MPEG2.5 */
 };
@@ -408,7 +408,7 @@ const uint8_t bitsPerSlotTab[3] PROGMEM = { 32, 8, 8 };
 /* indexing = [version][mono/stereo]
  * number of bytes in side info section of bitstream
  */
-const uint8_t sideBytesTab[3][2] PROGMEM = { { 17, 32 }, /* MPEG-1:   mono, stereo */
+const uint32_t sideBytesTab[3][2] PROGMEM = { { 17, 32 }, /* MPEG-1:   mono, stereo */
 { 9, 17 }, /* MPEG-2:   mono, stereo */
 { 9, 17 }, /* MPEG-2.5: mono, stereo */
 };
@@ -516,80 +516,80 @@ sizeof(HuffmanInfo_t), sizeof(DequantInfo_t), sizeof(IMDCTInfo_t), sizeof(Subban
 sizeof(ScaleFactorJS_t), sizeof(SideInfoSub_t)*(m_MAX_NGRAN *m_MAX_NCHAN), sizeof(SFBandTable_t), sizeof(MP3FrameInfo_t)};
 
 // prototypes
-uint32_t MP3Decoder_AllocateBuffers(void);
-bool MP3Decoder_IsInit();
-void MP3Decoder_FreeBuffers();
-int32_t  MP3Decode( uint8_t *inbuf, int32_t *bytesLeft, int16_t *outbuf, int32_t useSize);
-void MP3GetLastFrameInfo();
-int32_t  MP3GetNextFrameInfo(uint8_t *buf);
-int32_t  MP3FindSyncWord(uint8_t *buf, int32_t nBytes);
-int32_t  MP3GetSampRate();
-int32_t  MP3GetChannels();
-int32_t  MP3GetBitsPerSample();
-int32_t  MP3GetBitrate();
-int32_t  MP3GetOutputSamps();
+MODULE_PART uint32_t MP3Decoder_AllocateBuffers(void);
+MODULE_PART bool MP3Decoder_IsInit();
+MODULE_PART void MP3Decoder_FreeBuffers();
+MODULE_PART int32_t  MP3Decode( uint8_t *inbuf, int32_t *bytesLeft, int16_t *outbuf, int32_t useSize);
+MODULE_PART void MP3GetLastFrameInfo();
+MODULE_PART int32_t  MP3GetNextFrameInfo(uint8_t *buf);
+MODULE_PART int32_t  MP3FindSyncWord(uint8_t *buf, int32_t nBytes);
+MODULE_PART int32_t  MP3GetSampRate();
+MODULE_PART int32_t  MP3GetChannels();
+MODULE_PART int32_t  MP3GetBitsPerSample();
+MODULE_PART int32_t  MP3GetBitrate();
+MODULE_PART int32_t  MP3GetOutputSamps();
 
 //internally used
-void MP3Decoder_ClearBuffer(void);
-void PolyphaseMono(int16_t *pcm, int32_t *vbuf, const uint32_t* coefBase);
-void PolyphaseStereo(int16_t *pcm, int32_t *vbuf, const uint32_t* coefBase);
-void SetBitstreamPointer(BitStreamInfo_t *bsi, int32_t nBytes, uint8_t *buf);
-uint32_t GetBits(BitStreamInfo_t *bsi, int32_t nBits);
-int32_t CalcBitsUsed(BitStreamInfo_t *bsi, uint8_t *startBuf, int32_t startOffset);
-int32_t DequantChannel(int32_t *sampleBuf, int32_t *workBuf, int32_t *nonZeroBound, SideInfoSub_t *sis, ScaleFactorInfoSub_t *sfis, CriticalBandInfo_t *cbi);
-void MidSideProc(int32_t x[m_MAX_NCHAN][m_MAX_NSAMP], int32_t nSamps, int32_t mOut[2]);
-void IntensityProcMPEG1(int32_t x[m_MAX_NCHAN][m_MAX_NSAMP], int32_t nSamps, ScaleFactorInfoSub_t *sfis,	CriticalBandInfo_t *cbi, int32_t midSideFlag, int32_t mixFlag, int32_t mOut[2]);
-void IntensityProcMPEG2(int32_t x[m_MAX_NCHAN][m_MAX_NSAMP], int32_t nSamps, ScaleFactorInfoSub_t *sfis, CriticalBandInfo_t *cbi, ScaleFactorJS_t *sfjs, int32_t midSideFlag, int32_t mixFlag, int32_t mOut[2]);
-void FDCT32(int32_t *x, int32_t *d, int32_t offset, int32_t oddBlock, int32_t gb);// __attribute__ ((section (".data")));
-int32_t CheckPadBit();
-int32_t UnpackFrameHeader(uint8_t *buf);
-int32_t UnpackSideInfo(uint8_t *buf);
-int32_t DecodeHuffman( uint8_t *buf, int32_t *bitOffset, int32_t huffBlockBits, int32_t gr, int32_t ch);
-int32_t MP3Dequantize( int32_t gr);
-int32_t IMDCT( int32_t gr, int32_t ch);
-int32_t UnpackScaleFactors( uint8_t *buf, int32_t *bitOffset, int32_t bitsAvail, int32_t gr, int32_t ch);
-int32_t Subband(int16_t *pcmBuf);
-int16_t ClipToShort(int32_t x, int32_t fracBits);
-void RefillBitstreamCache(BitStreamInfo_t *bsi);
-void UnpackSFMPEG1(BitStreamInfo_t *bsi, SideInfoSub_t *sis, ScaleFactorInfoSub_t *sfis, int32_t *scfsi, int32_t gr, ScaleFactorInfoSub_t *sfisGr0);
-void UnpackSFMPEG2(BitStreamInfo_t *bsi, SideInfoSub_t *sis, ScaleFactorInfoSub_t *sfis, int32_t gr, int32_t ch, int32_t modeExt, ScaleFactorJS_t *sfjs);
-int32_t MP3FindFreeSync(uint8_t *buf, uint8_t firstFH[4], int32_t nBytes);
-void MP3ClearBadFrame( int16_t *outbuf);
-int32_t DecodeHuffmanPairs(int32_t *xy, int32_t nVals, int32_t tabIdx, int32_t bitsLeft, uint8_t *buf, int32_t bitOffset);
-int32_t DecodeHuffmanQuads(int32_t *vwxy, int32_t nVals, int32_t tabIdx, int32_t bitsLeft, uint8_t *buf, int32_t bitOffset);
-int32_t DequantBlock(int32_t *inbuf, int32_t *outbuf, int32_t num, int32_t scale);
-void AntiAlias(int32_t *x, int32_t nBfly);
-void WinPrevious(int32_t *xPrev, int32_t *xPrevWin, int32_t btPrev);
-int32_t FreqInvertRescale(int32_t *y, int32_t *xPrev, int32_t blockIdx, int32_t es);
-void idct9(int32_t *x);
-int32_t IMDCT36(int32_t *xCurr, int32_t *xPrev, int32_t *y, int32_t btCurr, int32_t btPrev, int32_t blockIdx, int32_t gb);
-void imdct12(int32_t *x, int32_t *out);
-int32_t IMDCT12x3(int32_t *xCurr, int32_t *xPrev, int32_t *y, int32_t btPrev, int32_t blockIdx, int32_t gb);
-int32_t HybridTransform(int32_t *xCurr, int32_t *xPrev, int32_t y[m_BLOCK_SIZE][m_NBANDS], SideInfoSub_t *sis, BlockCount_t *bc);
-inline uint64_t SAR64(uint64_t x, int32_t n) {return x >> n;}
+MODULE_PART void MP3Decoder_ClearBuffer(void);
+MODULE_PART void PolyphaseMono(int16_t *pcm, int32_t *vbuf, const uint32_t* coefBase);
+MODULE_PART void PolyphaseStereo(int16_t *pcm, int32_t *vbuf, const uint32_t* coefBase);
+MODULE_PART void SetBitstreamPointer(BitStreamInfo_t *bsi, int32_t nBytes, uint8_t *buf);
+MODULE_PART uint32_t GetBits(BitStreamInfo_t *bsi, int32_t nBits);
+MODULE_PART int32_t CalcBitsUsed(BitStreamInfo_t *bsi, uint8_t *startBuf, int32_t startOffset);
+MODULE_PART int32_t DequantChannel(int32_t *sampleBuf, int32_t *workBuf, int32_t *nonZeroBound, SideInfoSub_t *sis, ScaleFactorInfoSub_t *sfis, CriticalBandInfo_t *cbi);
+MODULE_PART void MidSideProc(int32_t x[m_MAX_NCHAN][m_MAX_NSAMP], int32_t nSamps, int32_t mOut[2]);
+MODULE_PART void IntensityProcMPEG1(int32_t x[m_MAX_NCHAN][m_MAX_NSAMP], int32_t nSamps, ScaleFactorInfoSub_t *sfis,	CriticalBandInfo_t *cbi, int32_t midSideFlag, int32_t mixFlag, int32_t mOut[2]);
+MODULE_PART void IntensityProcMPEG2(int32_t x[m_MAX_NCHAN][m_MAX_NSAMP], int32_t nSamps, ScaleFactorInfoSub_t *sfis, CriticalBandInfo_t *cbi, ScaleFactorJS_t *sfjs, int32_t midSideFlag, int32_t mixFlag, int32_t mOut[2]);
+MODULE_PART void FDCT32(int32_t *x, int32_t *d, int32_t offset, int32_t oddBlock, int32_t gb);// __attribute__ ((section (".data")));
+MODULE_PART int32_t CheckPadBit();
+MODULE_PART int32_t UnpackFrameHeader(uint8_t *buf);
+MODULE_PART int32_t UnpackSideInfo(uint8_t *buf);
+MODULE_PART int32_t DecodeHuffman( uint8_t *buf, int32_t *bitOffset, int32_t huffBlockBits, int32_t gr, int32_t ch);
+MODULE_PART int32_t MP3Dequantize( int32_t gr);
+MODULE_PART int32_t IMDCT( int32_t gr, int32_t ch);
+MODULE_PART int32_t UnpackScaleFactors( uint8_t *buf, int32_t *bitOffset, int32_t bitsAvail, int32_t gr, int32_t ch);
+MODULE_PART int32_t Subband(int16_t *pcmBuf);
+MODULE_PART int16_t ClipToShort(int32_t x, int32_t fracBits);
+MODULE_PART void RefillBitstreamCache(BitStreamInfo_t *bsi);
+MODULE_PART void UnpackSFMPEG1(BitStreamInfo_t *bsi, SideInfoSub_t *sis, ScaleFactorInfoSub_t *sfis, int32_t *scfsi, int32_t gr, ScaleFactorInfoSub_t *sfisGr0);
+MODULE_PART void UnpackSFMPEG2(BitStreamInfo_t *bsi, SideInfoSub_t *sis, ScaleFactorInfoSub_t *sfis, int32_t gr, int32_t ch, int32_t modeExt, ScaleFactorJS_t *sfjs);
+MODULE_PART int32_t MP3FindFreeSync(uint8_t *buf, uint8_t firstFH[4], int32_t nBytes);
+MODULE_PART void MP3ClearBadFrame( int16_t *outbuf);
+MODULE_PART int32_t DecodeHuffmanPairs(int32_t *xy, int32_t nVals, int32_t tabIdx, int32_t bitsLeft, uint8_t *buf, int32_t bitOffset);
+MODULE_PART int32_t DecodeHuffmanQuads(int32_t *vwxy, int32_t nVals, int32_t tabIdx, int32_t bitsLeft, uint8_t *buf, int32_t bitOffset);
+MODULE_PART int32_t DequantBlock(int32_t *inbuf, int32_t *outbuf, int32_t num, int32_t scale);
+MODULE_PART void AntiAlias(int32_t *x, int32_t nBfly);
+MODULE_PART void WinPrevious(int32_t *xPrev, int32_t *xPrevWin, int32_t btPrev);
+MODULE_PART int32_t FreqInvertRescale(int32_t *y, int32_t *xPrev, int32_t blockIdx, int32_t es);
+MODULE_PART void idct9(int32_t *x);
+MODULE_PART int32_t IMDCT36(int32_t *xCurr, int32_t *xPrev, int32_t *y, int32_t btCurr, int32_t btPrev, int32_t blockIdx, int32_t gb);
+MODULE_PART void imdct12(int32_t *x, int32_t *out);
+MODULE_PART int32_t IMDCT12x3(int32_t *xCurr, int32_t *xPrev, int32_t *y, int32_t btPrev, int32_t blockIdx, int32_t gb);
+MODULE_PART int32_t HybridTransform(int32_t *xCurr, int32_t *xPrev, int32_t y[m_BLOCK_SIZE][m_NBANDS], SideInfoSub_t *sis, BlockCount_t *bc);
+MODULE_PART inline uint64_t SAR64(uint64_t x, int32_t n) {return x >> n;}
 //#define SAR64 __lshrdi3
 
 //inline int32_t MULSHIFT32(int32_t x, int32_t y) { int32_t z; z = (uint64_t) x * (uint64_t) y >> 32; return z;}
 
-inline uint64_t MADD64(uint64_t sum64, int32_t x, int32_t y) {sum64 += (uint64_t) x * (uint64_t) y; return sum64;}/* returns 64-bit value in [edx:eax] */
+MODULE_PART inline uint64_t MADD64(uint64_t sum64, int32_t x, int32_t y) {sum64 += (uint64_t) x * (uint64_t) y; return sum64;}/* returns 64-bit value in [edx:eax] */
 //#define MADD64(x, y) __muldi3(x, y)
 
 //inline int32_t FASTABS(int32_t x){ return __builtin_abs(x);} //xtensa has a fast abs instruction //fb
-int32_t FASTABS(int32_t x);
+MODULE_PART int32_t FASTABS(int32_t x);
 
 //#define CLZ(x) __builtin_clz(x) //fb
-uint32_t my_clz(uint32_t in);
+MODULE_PART uint32_t my_clz(uint32_t in);
 
 #define CLZ(x) my_clz(x) //fb
 
 #ifdef __riscv
-int32_t MULSHIFT32(int32_t x, int32_t y) { 
+MODULE_PART int32_t MULSHIFT32(int32_t x, int32_t y) { 
     SETMINREGS
     int z = __muldi3((uint64_t) x , (uint64_t) y) >> 32;
     return z;
  }
 #else
-static __inline int32_t MULSHIFT32(int32_t x, int32_t y) {
+MODULE_PART static __inline int32_t MULSHIFT32(int32_t x, int32_t y) {
     /* important rules for smull RdLo, RdHi, Rm, Rs:
      *     RdHi and Rm can't be the same register
      *     RdLo and Rm can't be the same register

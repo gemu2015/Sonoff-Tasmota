@@ -794,7 +794,6 @@ int UnpackFrameHeader(unsigned char *buf){
     if ((buf[0] & m_SYNCWORDH) != m_SYNCWORDH || (buf[1] & m_SYNCWORDL) != m_SYNCWORDL){return -1;}
     //if ((buf[0] & swh) != swh || (buf[1] & swl) != swl){return -1;}
 
-
     /* read header fields - use bitmasks instead of GetBits() for speed, since format never varies */
     verIdx = (buf[1] >> 3) & 0x03;
 
