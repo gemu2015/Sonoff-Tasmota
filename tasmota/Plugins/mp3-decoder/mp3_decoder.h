@@ -521,10 +521,10 @@ sizeof(ScaleFactorJS_t), sizeof(SideInfoSub_t)*(m_MAX_NGRAN *m_MAX_NCHAN), sizeo
 // prototypes
 MODULE_PART uint32_t MP3Decoder_AllocateBuffers(void);
 MODULE_PART void MP3Decoder_FreeBuffers();
-MODULE_PART int  MP3Decode( unsigned char *inbuf, int *bytesLeft, short *outbuf, int useSize);
+MODULE_PART int32_t  MP3Decode( uint8_t *inbuf, int32_t *bytesLeft, int16_t *outbuf, int32_t useSize);
 MODULE_PART void MP3GetLastFrameInfo();
-MODULE_PART int  MP3GetNextFrameInfo(unsigned char *buf);
-MODULE_PART int  MP3FindSyncWord(unsigned char *buf, int nBytes);
+MODULE_PART int  MP3GetNextFrameInfo(uint8_t *buf);
+MODULE_PART int  MP3FindSyncWord(uint8_t *buf, int32_t nBytes);
 MODULE_PART int  MP3GetSampRate();
 MODULE_PART int  MP3GetChannels();
 MODULE_PART int  MP3GetBitsPerSample();

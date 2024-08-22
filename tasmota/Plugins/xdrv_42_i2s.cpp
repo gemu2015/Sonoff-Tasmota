@@ -74,9 +74,9 @@ typedef struct {
 #endif
 
 #ifdef USE_MP3
-#include "mp3-decoder/mp3_decoder.h"
+//#include "mp3-decoder/mp3_decoder.h"
+#include "mp3-decoder/mp3_decoder_org.h"
 #endif
-
 
 PUSH_OPTIONS
 
@@ -94,7 +94,7 @@ typedef struct {
   MP3_MEM mp3m;
   int16_t *m_outBuff;
   uint8_t *m_inBuff;
-  int m_bytesLeft;
+  int32_t m_bytesLeft;
   uint8_t chans;
   uint16_t input_bytes;
   uint32_t filepos;
@@ -153,7 +153,7 @@ MODULE_END
 
 
 #ifdef USE_MP3
-#include "mp3-decoder/mp3_decoder_c.h"
+//#include "mp3-decoder/mp3_decoder_c.h"
 #endif
 
 #define OUTBUFF_SIZE 1024 * 6
