@@ -656,121 +656,65 @@ const int ISFMpeg2[2][2][16] PROGMEM = {
         0x05a82799, 0x03ffffff, 0x02d413cc, 0x01ffffff, 0x016a09e6, 0x00ffffff, 0x00b504f3, 0x007fffff }   }
 };
 
-#if 0
-const uint32_t m_COS0_0 = 0x4013c251;  /* Q31 */
-const uint32_t m_COS0_1 = 0x40b345bd;  /* Q31 */
-const uint32_t m_COS0_2 = 0x41fa2d6d;  /* Q31 */
-const uint32_t m_COS0_3 = 0x43f93421;  /* Q31 */
-const uint32_t m_COS0_4 = 0x46cc1bc4;  /* Q31 */
-const uint32_t m_COS0_5 = 0x4a9d9cf0;  /* Q31 */
-const uint32_t m_COS0_6 = 0x4fae3711;  /* Q31 */
-const uint32_t m_COS0_7 = 0x56601ea7;  /* Q31 */
-const uint32_t m_COS0_8 = 0x5f4cf6eb;  /* Q31 */
-const uint32_t m_COS0_9 = 0x6b6fcf26;  /* Q31 */
-const uint32_t m_COS0_10= 0x7c7d1db3;  /* Q31 */
-const uint32_t m_COS0_11= 0x4ad81a97;  /* Q30 */
-const uint32_t m_COS0_12= 0x5efc8d96;  /* Q30 */
-const uint32_t m_COS0_13= 0x41d95790;  /* Q29 */
-const uint32_t m_COS0_14= 0x6d0b20cf;  /* Q29 */
-const uint32_t m_COS0_15= 0x518522fb;  /* Q27 */
-const uint32_t m_COS1_0 = 0x404f4672;  /* Q31 */
-const uint32_t m_COS1_1 = 0x42e13c10;  /* Q31 */
-const uint32_t m_COS1_2 = 0x48919f44;  /* Q31 */
-const uint32_t m_COS1_3 = 0x52cb0e63;  /* Q31 */
-const uint32_t m_COS1_4 = 0x64e2402e;  /* Q31 */
-const uint32_t m_COS1_5 = 0x43e224a9;  /* Q30 */
-const uint32_t m_COS1_6 = 0x6e3c92c1;  /* Q30 */
-const uint32_t m_COS1_7 = 0x519e4e04;  /* Q28 */
-const uint32_t m_COS2_0 = 0x4140fb46;  /* Q31 */
-const uint32_t m_COS2_1 = 0x4cf8de88;  /* Q31 */
-const uint32_t m_COS2_2 = 0x73326bbf;  /* Q31 */
-const uint32_t m_COS2_3 = 0x52036742;  /* Q29 */
-const uint32_t m_COS3_0 = 0x4545e9ef;  /* Q31 */
-const uint32_t m_COS3_1 = 0x539eba45;  /* Q30 */
-const uint32_t m_COS4_0 = 0x5a82799a;  /* Q31 */
 
-const uint32_t m_dcttab[48] PROGMEM = { // faster in ROM
-    /* first pass */
-     m_COS0_0,  m_COS0_15, m_COS1_0,    /* 31, 27, 31 */
-     m_COS0_1,  m_COS0_14, m_COS1_1,    /* 31, 29, 31 */
-     m_COS0_2,  m_COS0_13, m_COS1_2,    /* 31, 29, 31 */
-     m_COS0_3,  m_COS0_12, m_COS1_3,    /* 31, 30, 31 */
-     m_COS0_4,  m_COS0_11, m_COS1_4,    /* 31, 30, 31 */
-     m_COS0_5,  m_COS0_10, m_COS1_5,    /* 31, 31, 30 */
-     m_COS0_6,  m_COS0_9,  m_COS1_6,    /* 31, 31, 30 */
-     m_COS0_7,  m_COS0_8,  m_COS1_7,    /* 31, 31, 28 */
-    /* second pass */
-     m_COS2_0,  m_COS2_3,  m_COS3_0,   /* 31, 29, 31 */
-     m_COS2_1,  m_COS2_2,  m_COS3_1,   /* 31, 31, 30 */
-    -m_COS2_0, -m_COS2_3,  m_COS3_0,   /* 31, 29, 31 */
-    -m_COS2_1, -m_COS2_2,  m_COS3_1,   /* 31, 31, 30 */
-     m_COS2_0,  m_COS2_3,  m_COS3_0,   /* 31, 29, 31 */
-     m_COS2_1,  m_COS2_2,  m_COS3_1,   /* 31, 31, 30 */
-    -m_COS2_0, -m_COS2_3,  m_COS3_0,   /* 31, 29, 31 */
-    -m_COS2_1, -m_COS2_2,  m_COS3_1,   /* 31, 31, 30 */
+#define COS0_0  0x4013c251	/* Q31 */
+#define COS0_1  0x40b345bd	/* Q31 */
+#define COS0_2  0x41fa2d6d	/* Q31 */
+#define COS0_3  0x43f93421	/* Q31 */
+#define COS0_4  0x46cc1bc4	/* Q31 */
+#define COS0_5  0x4a9d9cf0	/* Q31 */
+#define COS0_6  0x4fae3711	/* Q31 */
+#define COS0_7  0x56601ea7	/* Q31 */
+#define COS0_8  0x5f4cf6eb	/* Q31 */
+#define COS0_9  0x6b6fcf26	/* Q31 */
+#define COS0_10 0x7c7d1db3	/* Q31 */
+#define COS0_11 0x4ad81a97	/* Q30 */
+#define COS0_12 0x5efc8d96	/* Q30 */
+#define COS0_13 0x41d95790	/* Q29 */
+#define COS0_14 0x6d0b20cf	/* Q29 */
+#define COS0_15 0x518522fb	/* Q27 */
+
+#define COS1_0  0x404f4672	/* Q31 */
+#define COS1_1  0x42e13c10	/* Q31 */
+#define COS1_2  0x48919f44	/* Q31 */
+#define COS1_3  0x52cb0e63	/* Q31 */
+#define COS1_4  0x64e2402e	/* Q31 */
+#define COS1_5  0x43e224a9	/* Q30 */
+#define COS1_6  0x6e3c92c1	/* Q30 */
+#define COS1_7  0x519e4e04	/* Q28 */
+
+#define COS2_0  0x4140fb46	/* Q31 */
+#define COS2_1  0x4cf8de88	/* Q31 */
+#define COS2_2  0x73326bbf	/* Q31 */
+#define COS2_3  0x52036742	/* Q29 */
+
+#define COS3_0  0x4545e9ef	/* Q31 */
+#define COS3_1  0x539eba45	/* Q30 */
+
+#define COS4_0  0x5a82799a	/* Q31 */
+
+// faster in ROM
+static const int m_dcttab[48] PROGMEM = {
+	/* first pass */
+	COS0_0, COS0_15, COS1_0,	/* 31, 27, 31 */
+	COS0_1, COS0_14, COS1_1,	/* 31, 29, 31 */
+	COS0_2, COS0_13, COS1_2,	/* 31, 29, 31 */
+	COS0_3, COS0_12, COS1_3,	/* 31, 30, 31 */
+	COS0_4, COS0_11, COS1_4,	/* 31, 30, 31 */
+	COS0_5, COS0_10, COS1_5,	/* 31, 31, 30 */
+	COS0_6, COS0_9,  COS1_6,	/* 31, 31, 30 */
+	COS0_7, COS0_8,  COS1_7,	/* 31, 31, 28 */
+	/* second pass */
+	 COS2_0,  COS2_3, COS3_0,	/* 31, 29, 31 */
+	 COS2_1,  COS2_2, COS3_1,	/* 31, 31, 30 */
+	-COS2_0, -COS2_3, COS3_0, 	/* 31, 29, 31 */
+	-COS2_1, -COS2_2, COS3_1, 	/* 31, 31, 30 */
+	 COS2_0,  COS2_3, COS3_0, 	/* 31, 29, 31 */
+	 COS2_1,  COS2_2, COS3_1, 	/* 31, 31, 30 */
+	-COS2_0, -COS2_3, COS3_0, 	/* 31, 29, 31 */
+	-COS2_1, -COS2_2, COS3_1, 	/* 31, 31, 30 */
 };
 
-#else
-#define m_COS0_0 0x4013c251
-#define m_COS0_1 0x40b345bd
-#define m_COS0_2 0x41fa2d6d
-#define m_COS0_3 0x43f93421
-#define m_COS0_4 0x46cc1bc4
-#define m_COS0_5 0x4a9d9cf0
-#define m_COS0_6 0x4fae3711
-#define m_COS0_7 0x56601ea7
-#define m_COS0_8 0x5f4cf6eb
-#define m_COS0_9 0x6b6fcf26
-#define m_COS0_10 0x7c7d1db3
-#define m_COS0_11 0x4ad81a97
-#define m_COS0_12 0x5efc8d96
-#define m_COS0_13 0x41d95790
-#define m_COS0_14 0x6d0b20cf
-#define m_COS0_15 0x518522fb
-#define m_COS1_0 0x404f4672
-#define m_COS1_1 0x42e13c10
-#define m_COS1_2 0x48919f44
-#define m_COS1_3 0x52cb0e63
-#define m_COS1_4 0x64e2402e
-#define m_COS1_5 0x43e224a9
-#define m_COS1_6 0x6e3c92c1
-#define m_COS1_7 0x519e4e04
-#define m_COS2_0 0x4140fb46
-#define m_COS2_1 0x4cf8de88
-#define m_COS2_2 0x73326bbf
-#define m_COS2_3 0x52036742
-#define m_COS3_0 0x4545e9ef
-#define m_COS3_1 0x539eba45
-#define m_COS4_0 0x5a82799a
-
-// neg values
-#define mm_COS2_0 0xBEBF04BA
-#define mm_COS2_1 0xB3072178
-#define mm_COS2_3 0xADFC98BE
-#define mm_COS2_2 0x8CCD9441
-
-const uint32_t m_dcttab[48] PROGMEM = { // faster in ROM
-    /* first pass */
-     m_COS0_0,  m_COS0_15, m_COS1_0,    /* 31, 27, 31 */
-     m_COS0_1,  m_COS0_14, m_COS1_1,    /* 31, 29, 31 */
-     m_COS0_2,  m_COS0_13, m_COS1_2,    /* 31, 29, 31 */
-     m_COS0_3,  m_COS0_12, m_COS1_3,    /* 31, 30, 31 */
-     m_COS0_4,  m_COS0_11, m_COS1_4,    /* 31, 30, 31 */
-     m_COS0_5,  m_COS0_10, m_COS1_5,    /* 31, 31, 30 */
-     m_COS0_6,  m_COS0_9,  m_COS1_6,    /* 31, 31, 30 */
-     m_COS0_7,  m_COS0_8,  m_COS1_7,    /* 31, 31, 28 */
-    /* second pass */
-     m_COS2_0,  m_COS2_3,  m_COS3_0,   /* 31, 29, 31 */
-     m_COS2_1,  m_COS2_2,  m_COS3_1,   /* 31, 31, 30 */
-    mm_COS2_0, mm_COS2_3,  m_COS3_0,   /* 31, 29, 31 */
-    mm_COS2_1, mm_COS2_2,  m_COS3_1,   /* 31, 31, 30 */
-     m_COS2_0,  m_COS2_3,  m_COS3_0,   /* 31, 29, 31 */
-     m_COS2_1,  m_COS2_2,  m_COS3_1,   /* 31, 31, 30 */
-    mm_COS2_0, mm_COS2_3,  m_COS3_0,   /* 31, 29, 31 */
-    mm_COS2_1, mm_COS2_2,  m_COS3_1,   /* 31, 31, 30 */
-};
-
-#endif
 
 
 /***********************************************************************************************************************
@@ -1848,8 +1792,11 @@ void MP3Decoder_ClearBuffer(void) {
    //     heap_caps_malloc_prefer(size, 2, MALLOC_CAP_DEFAULT|MALLOC_CAP_INTERNAL, MALLOC_CAP_DEFAULT|MALLOC_CAP_SPIRAM)
 #endif
 
+#ifdef USE_MP3_PSRAM
 #define __malloc_heap_psram(size) special_malloc(size)
-
+#else
+#define __malloc_heap_psram(size) calloc(size>>2,4)
+#endif
 
 /*const uint32_t xize[13] PROGMEM = {
 sizeof(MP3DecInfo_t), 0
@@ -4547,9 +4494,3 @@ void PolyphaseStereo(short *pcm, int *vbuf, const uint32_t *coefBase){
 }
 
 
-int MULSHIFT32(int x, int y) { 
-    SETMINREGS
-    int z = __muldi3((uint64_t) x , (uint64_t) y) >> 32;
-    return z;
- }
- 

@@ -26,6 +26,9 @@
 #include "module_defines.h"
 
 
+//#define USE_MP3_PSRAM
+
+
 #ifdef ESP32
 #define USE_MP3
 #endif
@@ -150,25 +153,7 @@ MODULE_END
 
 
 #ifdef USE_MP3
-#if 1
 #include "mp3-decoder/mp3_decoder_c.h"
-#else
-#include "libhelix-mp3/bitstream_c.h"
-#include "libhelix-mp3/buffers_c.h"
-#include "libhelix-mp3/dct32_c.h"
-#include "libhelix-mp3/dequant_c.h"
-#include "libhelix-mp3/dqchan_c.h"
-#include "libhelix-mp3/huffman_c.h"
-#include "libhelix-mp3/hufftabs_c.h"
-#include "libhelix-mp3/imdct_c.h"
-#include "libhelix-mp3/mp3dec_c.h"
-#include "libhelix-mp3/mp3tabs_c.h"
-#include "libhelix-mp3/polyphase_c.h"
-#include "libhelix-mp3/scalfact_c.h"
-#include "libhelix-mp3/stproc_c.h"
-#include "libhelix-mp3/subband_c.h"
-#include "libhelix-mp3/trigtabs_c.h"
-#endif
 #endif
 
 #define OUTBUFF_SIZE 1024 * 6
@@ -182,8 +167,8 @@ const char S_JSON_STOPSND[] PROGMEM = "{\"audio stopped\"}";
 const char S_JSON_MEMERR[] PROGMEM = "{\"out of memory\"}";
 #endif
 const char tname[] PROGMEM = "I2STASK";
-const uint32_t ui32_const[3] PROGMEM = {OUTBUFF_SIZE, 8192, 0x46464952 }; 
-const int32_t i32_const[2] PROGMEM = {32768, -32768}; 
+const uint32_t ui32_const[4] PROGMEM = {OUTBUFF_SIZE, 8192, 0x46464952 , INBUFF_SIZE}; 
+const int32_t i32_const[3] PROGMEM = {32768, -32768, INBUFF_SIZE}; 
 
 int32_t I2SAudio_Init() {
   ALLOCMEM
@@ -208,10 +193,10 @@ int32_t I2SAudio_Init() {
   const uint32_t *icp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
 
   mt->mem_size += mp3mem;
-  m_outBuff = (int16_t*)special_malloc(icp[0]);
+  m_outBuff = (int16_t*)calloc(icp[0]/2,2);
   mt->mem_size += icp[0];
-  m_inBuff = (uint8_t*)special_malloc(INBUFF_SIZE);
-  mt->mem_size += INBUFF_SIZE;
+  m_inBuff = (uint8_t*)calloc(icp[3],1);
+  mt->mem_size += icp[3];
 #endif
 
   busy = false;
@@ -425,7 +410,7 @@ uint32_t Get_tag(uint8_t * buff) {
 bool mp3_begin() {
   SETREGS
 
-  input_bytes = fread((char*)m_inBuff, 1, INBUFF_SIZE, wf);
+  input_bytes = fread((char*)m_inBuff, 1, 1024, wf);
   uint32_t tag = Get_tag(m_inBuff);
   uint8_t *cp = m_inBuff;
   cp += tag;
@@ -472,7 +457,7 @@ SETREGS
   uint32_t tag = 1;
   while (tag) {
     fseek(wf, filepos, SEEK_SET);
-    bytesread = fread((char*)m_inBuff, 1, INBUFF_SIZE, wf);
+    bytesread = fread((char*)m_inBuff, 1, xicp[2], wf);
     if (!bytesread) {
       running = false;
       return false;
@@ -498,6 +483,7 @@ SETREGS
   const uint32_t *icp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
   if (samples > icp[0] >> 1) {
     AddLog(LOG_LEVEL_INFO, PSTR("mp3 buffer overflow = %d"), samples);
+    running = 0;
   } else {
 
     uint32_t m_validSamples = samples; // chans;
@@ -525,7 +511,6 @@ SETREGS
 
 void I2sTaskMP3(void) {
   SETREGS
-
 
   if (!mp3_begin()) {
     while (running) {

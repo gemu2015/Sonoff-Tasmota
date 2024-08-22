@@ -575,7 +575,7 @@ MODULE_PART int HybridTransform(int *xCurr, int *xPrev, int y[m_BLOCK_SIZE][m_NB
 
 //MODULE_PART inline int MULSHIFT32(int x, int y) { int z; z = (uint64_t) x * (uint64_t) y >> 32; return z;}
 //#define MULSHIFT32(x, y) (int)(__muldi3((uint64_t) x , (uint64_t) y) >> 32)
-MODULE_PART int MULSHIFT32(int x, int y);
+//MODULE_PART int MULSHIFT32(int x, int y);
 
 
 //MODULE_PART inline uint64_t MADD64(uint64_t sum64, int x, int y) {sum64 += (uint64_t) x * (uint64_t) y; return sum64;}/* returns 64-bit value in [edx:eax] */
@@ -597,3 +597,87 @@ MODULE_PART int FASTABS(int x) {
 //#define CLZ(x) __builtin_clz(x) //fb
 #define CLZ(x) my_clz(x) //fb
 
+#ifdef __riscv
+MODULE_PART int MULSHIFT32(int x, int y) { 
+    SETMINREGS
+    int z = __muldi3((uint64_t) x , (uint64_t) y) >> 32;
+    return z;
+ }
+#else
+ MODULE_PART static __inline int MULSHIFT32(int x, int y) {
+    /* important rules for smull RdLo, RdHi, Rm, Rs:
+     *     RdHi and Rm can't be the same register
+     *     RdLo and Rm can't be the same register
+     *     RdHi and RdLo can't be the same register
+     * Note: Rs determines early termination (leading sign bits) so if you want to specify
+     *   which operand is Rs, put it in the SECOND argument (y)
+     * For inline assembly, x and y are not assumed to be R0, R1 so it shouldn't matter
+     *   which one is returned. (If this were a function call, returning y (R1) would
+     *   require an extra "mov r0, r1")
+     */
+    int ret;
+    asm volatile ("mulsh %0, %1, %2" : "=r" (ret) : "r" (x), "r" (y));
+    return ret;
+}
+#endif
+
+#if 0
+#include "xtensa/config/core-isa.h"
+
+typedef long long Word64;
+
+static __inline Word64 MADD64(Word64 sum64, int x, int y)
+{
+    return (sum64 + ((long long)x * y));
+}
+
+#if XCHAL_HAVE_MUL32_HIGH
+
+static __inline int MULSHIFT32(int x, int y)
+{
+    /* important rules for smull RdLo, RdHi, Rm, Rs:
+     *     RdHi and Rm can't be the same register
+     *     RdLo and Rm can't be the same register
+     *     RdHi and RdLo can't be the same register
+     * Note: Rs determines early termination (leading sign bits) so if you want to specify
+     *   which operand is Rs, put it in the SECOND argument (y)
+     * For inline assembly, x and y are not assumed to be R0, R1 so it shouldn't matter
+     *   which one is returned. (If this were a function call, returning y (R1) would
+     *   require an extra "mov r0, r1")
+     */
+    int ret;
+    asm volatile ("mulsh %0, %1, %2" : "=r" (ret) : "r" (x), "r" (y));
+    return ret;
+}
+
+#else
+
+#error Missing definition of MULSHIFT32
+
+#endif
+
+#if XCHAL_HAVE_ABS
+
+static __inline int FASTABS(int x)
+{
+    int ret;
+    asm volatile ("abs %0, %1" : "=r" (ret) : "r" (x));
+    return ret;
+}
+
+#else
+
+#error Missing definition of FASTABS
+
+#endif
+
+static __inline Word64 SAR64(Word64 x, int n)
+{
+    return x >> n;
+}
+
+static __inline int CLZ(int x)
+{
+    return __builtin_clz(x);
+}
+#endif
