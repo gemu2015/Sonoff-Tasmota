@@ -238,15 +238,15 @@ const int32_t c9_3 = 0x5246dd49;
 const int32_t c9_4 = 0x7e0e2e32;
 const int32_t c3_0 = 0x6ed9eba1; /* format = Q31, cos(pi/6) */
 #else
-const int32_t c3_tab[6] MP3_PROGMEM = {0x6ed9eba1,0x620dbe8b,0x163a1a7e,0x5246dd49,0x7e0e2e32,0x6ed9eba1};
+const int32_t c3_tab[6] PROGMEM = {0x6ed9eba1,0x620dbe8b,0x163a1a7e,0x5246dd49,0x7e0e2e32,0x6ed9eba1};
 #endif
 
-const int32_t c6[3] MP3_PROGMEM = { 0x7ba3751d, 0x5a82799a, 0x2120fb83 }; /* format = Q31, cos(((0:2) + 0.5) * (pi/6)) */
+const int32_t c6[3] PROGMEM = { 0x7ba3751d, 0x5a82799a, 0x2120fb83 }; /* format = Q31, cos(((0:2) + 0.5) * (pi/6)) */
 
 /* format = Q31
  * cos(((0:8) + 0.5) * (pi/18))
  */
-const uint32_t c18[9] MP3_PROGMEM = { 0x7f834ed0, 0x7ba3751d, 0x7401e4c1, 0x68d9f964, 0x5a82799a, 0x496af3e2, 0x36185aee, 0x2120fb83, 0x0b27eb5c};
+const uint32_t c18[9] PROGMEM = { 0x7f834ed0, 0x7ba3751d, 0x7401e4c1, 0x68d9f964, 0x5a82799a, 0x496af3e2, 0x36185aee, 0x2120fb83, 0x0b27eb5c};
 
 /* scale factor lengths (num bits) */
 const char m_SFLenTab[16][2] MP3_PROGMEM = { {0, 0}, {0, 1}, {0, 2}, {0, 3}, {3, 0}, {1, 1}, {1, 2}, {1, 3},
