@@ -10,12 +10,6 @@ MODULE_PART void W8960_Write(uint8_t reg_addr, uint16_t data) {
   reg_addr <<= 1;
   reg_addr |=  ((data >> 8) & 1);
   data &= 0xff;
-/*
-  ws8960wire->beginTransmission(W8960_ADDR);
-  ws8960wire->write(reg_addr);
-  ws8960wire->write(data);
-  ws8960wire->endTransmission();
-*/
 
 	I2C_beginTransmission(W8960_ADDR);
 	I2C_write(reg_addr);
