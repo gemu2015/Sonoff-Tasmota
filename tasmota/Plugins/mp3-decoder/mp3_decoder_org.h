@@ -336,7 +336,7 @@ const uint16_t m_HUFF_OFFSET_24=651 + m_HUFF_OFFSET_16;
 #define m_HUFF_OFFSET_24 651 + m_HUFF_OFFSET_16
 #endif
 
-const int32_t huffTabOffset[m_HUFF_PAIRTABS] MP3_PROGMEM = {
+const int32_t huffTabOffset[m_HUFF_PAIRTABS] PROGMEM = {
     0,                   m_HUFF_OFFSET_01,    m_HUFF_OFFSET_02,    m_HUFF_OFFSET_03,
     0,                   m_HUFF_OFFSET_05,    m_HUFF_OFFSET_06,    m_HUFF_OFFSET_07,
     m_HUFF_OFFSET_08,    m_HUFF_OFFSET_09,    m_HUFF_OFFSET_10,    m_HUFF_OFFSET_11,
