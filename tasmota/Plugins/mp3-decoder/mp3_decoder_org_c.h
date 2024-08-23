@@ -1647,8 +1647,8 @@ int32_t MP3Decode( uint8_t *inbuf, int32_t *bytesLeft, int16_t *outbuf, int32_t 
  **********************************************************************************************************************/
 void MP3Decoder_ClearBuffer(void) {
     SETMEMREGS
-    //const uint32_t *st = (const uint32_t *) ((uint8_t *)xize+EXEC_OFFSET);
-    const uint32_t *st = (const uint32_t *) ((uint8_t *)xize);
+    //const uint32_t *st = (const uint32_t *) ((uint8_t *)memsize_tab+EXEC_OFFSET);
+    const uint32_t *st = (const uint32_t *) ((uint8_t *)memsize_tab);
 
 
     /* important to do this - DSP primitives assume a bunch of state variables are 0 on first use */
@@ -1721,7 +1721,7 @@ void MP3Decoder_ClearBuffer(void) {
 #define __malloc_heap_psram(size) calloc(size>>2, 4)
 #endif
 
-/*const uint32_t xize[13] MP3_PROGMEM = {
+/*const uint32_t memsize_tab[13] MP3_PROGMEM = {
 sizeof(MP3DecInfo_t), 0
 sizeof(ScaleFactorInfoSub_t)*(m_MAX_NGRAN *m_MAX_NCHAN), 1 
 sizeof(SideInfo_t), 2
@@ -1740,8 +1740,8 @@ sizeof(MP3FrameInfo_t)}; 12
 uint32_t MP3Decoder_AllocateBuffers(void) {
     SETMEMREGS
 
-    //const uint32_t *st = (const uint32_t *) ((uint8_t *)xize+EXEC_OFFSET);
-    const uint32_t *st = (const uint32_t *) (uint8_t *)xize;
+    //const uint32_t *st = (const uint32_t *) ((uint8_t *)memsize_tab+EXEC_OFFSET);
+    const uint32_t *st = (const uint32_t *) (uint8_t *)memsize_tab;
 
 /*
     if(!mp3m.m_MP3DecInfo)       {mp3m.m_MP3DecInfo    = (MP3DecInfo_t*)    __malloc_heap_psram(sizeof(MP3DecInfo_t)   );}
