@@ -274,10 +274,10 @@ const char NRTab[6][3][4] PROGMEM = {
 
 
 /* optional pre-emphasis for high-frequency scale factor bands */
-const char preTab[22] MP3_PROGMEM = { 0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,2,2,3,3,3,2,0 };
+const char preTab[22] PROGMEM = { 0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,2,2,3,3,3,2,0 };
 
 /* pow(2,-i/4) for i=0..3, Q31 format */
-const int32_t pow14[4] MP3_PROGMEM = {
+const int32_t pow14[4] PROGMEM = {
     0x7fffffff, 0x6ba27e65, 0x5a82799a, 0x4c1bf829
 };
 
@@ -290,13 +290,13 @@ const int32_t pow14[4] MP3_PROGMEM = {
  * Relative error < 1E-7
  * Coefs are scaled by 4, 2, 1, 0.5, 0.25
  */
-const uint32_t poly43lo[5] MP3_PROGMEM = { 0x29a0bda9, 0xb02e4828, 0x5957aa1b, 0x236c498d, 0xff581859 };
-const uint32_t poly43hi[5] MP3_PROGMEM = { 0x10852163, 0xd333f6a4, 0x46e9408b, 0x27c2cef0, 0xfef577b4 };
+const uint32_t poly43lo[5] PROGMEM = { 0x29a0bda9, 0xb02e4828, 0x5957aa1b, 0x236c498d, 0xff581859 };
+const uint32_t poly43hi[5] PROGMEM = { 0x10852163, 0xd333f6a4, 0x46e9408b, 0x27c2cef0, 0xfef577b4 };
 
 /* pow(2, i*4/3) as exp and frac */
-const int32_t pow2exp[8] MP3_PROGMEM = { 14, 13, 11, 10, 9, 7, 6, 5 };
+const int32_t pow2exp[8] PROGMEM = { 14, 13, 11, 10, 9, 7, 6, 5 };
 
-const int32_t pow2frac[8] MP3_PROGMEM = {
+const int32_t pow2frac[8] PROGMEM = {
     0x6597fa94, 0x50a28be6, 0x7fffffff, 0x6597fa94,
     0x50a28be6, 0x7fffffff, 0x6597fa94, 0x50a28be6
 };
@@ -382,8 +382,8 @@ const HuffTabLookup_t huffTabLookup[m_HUFF_PAIRTABS] PROGMEM = {
 };
 
 
-const int32_t quadTabOffset[2] MP3_PROGMEM = {0, 64};
-const int32_t quadTabMaxBits[2] MP3_PROGMEM = {6, 4};
+const int32_t quadTabOffset[2] PROGMEM = {0, 64};
+const int32_t quadTabMaxBits[2] PROGMEM = {6, 4};
 
 /* indexing = [version][samplerate index]
  * sample rate of frame (Hz)
@@ -405,7 +405,7 @@ const uint32_t samplesPerFrameTab[3][3] PROGMEM = { { 384, 1152, 1152 }, /* MPEG
 };
 
 /* layers 1, 2, 3 */
-const uint8_t bitsPerSlotTab[3] MP3_PROGMEM = { 32, 8, 8 };
+//const uint8_t bitsPerSlotTab[3] PROGMEM = { 32, 8, 8 };
 
 /* indexing = [version][mono/stereo]
  * number of bytes in side info section of bitstream
@@ -449,18 +449,18 @@ const SFBandTable_t sfBandTable[3][3] PROGMEM = {
  *
  * illegal intensity position scalefactors (see comments on ISFMpeg1)
  */
-const int32_t ISFIIP[2][2] MP3_PROGMEM = {
+const int32_t ISFIIP[2][2] PROGMEM = {
     {0x40000000, 0x00000000}, /* mid-side off */
     {0x40000000, 0x40000000}, /* mid-side on */
 };
 
-const uint8_t uniqueIDTab[8] MP3_PROGMEM = {0x5f, 0x4b, 0x43, 0x5f, 0x5f, 0x4a, 0x52, 0x5f};
+//const uint8_t uniqueIDTab[8] PROGMEM = {0x5f, 0x4b, 0x43, 0x5f, 0x5f, 0x4a, 0x52, 0x5f};
 
 /* anti-alias coefficients - see spec Annex B, table 3-B.9
  *   csa[0][i] = CSi, csa[1][i] = CAi
  * format = Q31
  */
-const uint32_t csa[8][2] MP3_PROGMEM = {
+const uint32_t csa[8][2] PROGMEM = {
     {0x6dc253f0, 0xbe2500aa},
     {0x70dcebe4, 0xc39e4949},
     {0x798d6e73, 0xd7e33f4a},

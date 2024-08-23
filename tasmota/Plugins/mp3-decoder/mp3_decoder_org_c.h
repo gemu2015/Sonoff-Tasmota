@@ -2571,7 +2571,11 @@ int32_t DequantChannel(int32_t *sampleBuf, int32_t *workBuf, int32_t *nonZeroBou
 
         nonZero = 0;
         nSamps = mp3m.m_SFBandTable.l[cb + 1] - mp3m.m_SFBandTable.l[cb];
-        gainI = 210 - globalGain + sfactMultiplier * (sfis->l[cb] + (sis->preFlag ? (int32_t)preTab[cb] : 0));
+        //gainI = 210 - globalGain + sfactMultiplier * (sfis->l[cb] + (sis->preFlag ? (int32_t)preTab[cb] : 0));
+        const char *pt = &preTab[cb];
+        pt += EXEC_OFFSET;
+        int32_t ptb = (int32_t)pgm_read_byte(pt);
+        gainI = 210 - globalGain + sfactMultiplier * (sfis->l[cb] + (sis->preFlag ? ptb : 0));
 
         nonZero |= DequantBlock(sampleBuf + i, sampleBuf + i, nSamps, gainI);
         i += nSamps;
