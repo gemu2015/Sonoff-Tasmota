@@ -443,6 +443,7 @@ typedef union {
     uint8_t SO_DWS74_BUG : 1;
     uint8_t SO_OBIS_LINE : 1;
     uint8_t SO_TRX_INVERT : 1;
+    uint8_t SO_DISS_PULL : 1;
   };
 } SO_FLAGS;
 
@@ -3639,6 +3640,9 @@ next_line:
 
 #ifdef ESP32
         mp->meter_ss->begin(mp->params, smode, mp->srcpin, mp->trxpin, mp->so_flags.SO_TRX_INVERT);
+        if (mp->so_flags.SO_DISS_PULL) {
+          gpio_pullup_dis((gpio_num_t)mp->srcpin);
+        }
 #ifdef USE_ESP32_SW_SERIAL
 				mp->meter_ss->setRxBufferSize(mp->sibsiz);
 #endif
@@ -3770,6 +3774,9 @@ uint32_t SML_Write(int32_t meter, char *hstr) {
     Serial.begin(baud, (SerialConfig)smode);
 #else
     meter_desc[meter].meter_ss->begin(baud, smode, sml_globs.mp[meter].srcpin, sml_globs.mp[meter].trxpin, sml_globs.mp[meter].so_flags.SO_TRX_INVERT);
+    if (sml_globs.mp[meter].so_flags.SO_DISS_PULL) {
+      gpio_pullup_dis((gpio_num_t)sml_globs.mp[meter].srcpin);
+    }
 #endif
   }
   return 1;
