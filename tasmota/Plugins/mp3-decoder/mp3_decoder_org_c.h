@@ -1,4 +1,3 @@
-#if 1
 
 #include "../pgmspace_32.h"
 
@@ -9,7 +8,6 @@
  *  Created on: 26.10.2018
  *  Updated on: 27.05.2024
  */
-#include "mp3_decoder_org.h"
 /* clip to range [-2^n, 2^n - 1] */
 #if 0 //Fast on ARM:
 #define CLIP_2N(y, n) { \
@@ -53,7 +51,11 @@ const uint8_t  m_NGRANS_MPEG2           =1;
 #define m_NGRANS_MPEG1           2
 #define m_NGRANS_MPEG2           1
 
-const uint32_t m_SQRTHALF               =0x5a82799a;  // sqrt(0.5) in Q31 format
+//const uint32_t m_SQRTHALF               =0x5a82799a;  // sqrt(0.5) in Q31 format
+
+#define m_SQRTHALF 0x5a82799a
+
+const uint32_t m_tSQRTHALF[] PROGMEM = {0x5a82799a,0x08000000,0x20000000,0x40000000};
 
 /*
 MP3FrameInfo_t *m_MP3FrameInfo;
@@ -1797,7 +1799,7 @@ bool MP3Decoder_IsInit(void) {
        !mp3m.m_DequantInfo || !mp3m.m_IMDCTInfo || !mp3m.m_SubbandInfo || !mp3m.m_MP3FrameInfo) {
         return false;
     }
-    return true;
+    return true; 
 }
 /***********************************************************************************************************************
  * Function:    MP3Decoder_FreeBuffers
@@ -2401,6 +2403,9 @@ int32_t MP3Dequantize(int32_t gr) {
  * D Q C H A N
  **********************************************************************************************************************/
 
+
+#define CODE_ORG
+
 /***********************************************************************************************************************
  * Function:    DequantBlock
  *
@@ -2424,8 +2429,20 @@ int32_t DequantBlock(int32_t *inbuf, int32_t *outbuf, int32_t num, int32_t scale
     const int32_t *tab16;
     const uint32_t *coef;
 
+#if 0
     tab16 = pow43_14[scale & 0x3];
+#else
+    tab16 = pow43_14[scale & 0x3];
+    tab16 += EXEC_OFFSET >> 2;
+#endif
+
+#if 0
     scalef = pow14[scale & 0x3];
+#else
+    const int32_t *p14 = (const int32_t*)((uint8_t *)pow14+EXEC_OFFSET);
+    scalef = p14[scale & 0x3];
+#endif
+
     scalei =((scale >> 2) < 31 ? (scale >> 2) : 31 );
     //scalei = MIN(scale >> 2, 31);   /* smallest input scale = -47, so smallest scalei = -12 */
 
@@ -2438,9 +2455,21 @@ int32_t DequantBlock(int32_t *inbuf, int32_t *outbuf, int32_t num, int32_t scale
     tab4[2] = tab16[2] >> shift;
     tab4[3] = tab16[3] >> shift;
 
+
+#if 0
+#else
+    uint32_t pmask = p14[0];
+    const int32_t *p43 = (const int32_t*)((uint8_t *)pow43+EXEC_OFFSET);
+    const uint32_t *sh = (const uint32_t *) ((uint8_t *)m_tSQRTHALF+EXEC_OFFSET);
+#endif
+
     do {
         sx = *inbuf++;
+#if 0
         x = sx & 0x7fffffff;    /* sx = sign|mag */
+#else
+        x = sx & pmask;    /* sx = sign|mag */
+#endif
         if (x < 4) {
             y = tab4[x];
         } else if (x < 16) {
@@ -2448,7 +2477,11 @@ int32_t DequantBlock(int32_t *inbuf, int32_t *outbuf, int32_t num, int32_t scale
             y = (scalei < 0) ? y << -scalei : y >> scalei;
         } else {
             if (x < 64) {
+#if 1         
                 y = pow43[x-16];
+#else
+                y = p43[x-16];
+#endif
                 /* fractional scale */
                 y = MULSHIFT32(y, scalef);
                 shift = scalei - 3;
@@ -2456,22 +2489,39 @@ int32_t DequantBlock(int32_t *inbuf, int32_t *outbuf, int32_t num, int32_t scale
                 /* normalize to [0x40000000, 0x7fffffff] */
                 x <<= 17;
                 shift = 0;
+#if 0
                 if (x < 0x08000000)
                     x <<= 4, shift += 4;
                 if (x < 0x20000000)
                     x <<= 2, shift += 2;
                 if (x < 0x40000000)
                     x <<= 1, shift += 1;
+#else
 
+                if (x < sh[1])
+                    x <<= 4, shift += 4;
+                if (x < sh[2])
+                    x <<= 2, shift += 2;
+                if (x < sh[3])
+                    x <<= 1, shift += 1;
+#endif
+
+#if 0  
                 coef = (x < m_SQRTHALF) ? poly43lo : poly43hi;
-
+#else
+                const uint32_t *lop = (const uint32_t *) ((uint8_t *)poly43lo+EXEC_OFFSET);
+                const uint32_t *hip = (const uint32_t *) ((uint8_t *)poly43hi+EXEC_OFFSET);
+                coef = (x < sh[0]) ? lop : hip;
+#endif
                 /* polynomial */
                 y = coef[0];
                 y = MULSHIFT32(y, x) + coef[1];
                 y = MULSHIFT32(y, x) + coef[2];
                 y = MULSHIFT32(y, x) + coef[3];
                 y = MULSHIFT32(y, x) + coef[4];
-                y = MULSHIFT32(y, pow2frac[shift]) << 3;
+                //y = MULSHIFT32(y, pow2frac[shift]) << 3;
+                const int32_t *p2f = (const int32_t *) ((uint8_t *)pow2frac+EXEC_OFFSET);
+                y = MULSHIFT32(y, p2f[shift]) << 3;
 
                 /* fractional scale */
                 y = MULSHIFT32(y, scalef);
@@ -2481,10 +2531,18 @@ int32_t DequantBlock(int32_t *inbuf, int32_t *outbuf, int32_t num, int32_t scale
             /* integer scale */
             if (shift < 0) {
                 shift = -shift;
+#if 0
                 if (y > (0x7fffffff >> shift))
-                    y = 0x7fffffff;     /* clip */
+                    y = 0x7fffffff;     // clip
                 else
                     y <<= shift;
+#else
+                if (y > (pmask >> shift)) {
+                    y = pmask;     /* clip */
+                } else {
+                    y <<= shift;
+                }
+#endif
             } else {
                 y >>= shift;
             }
@@ -4122,6 +4180,3 @@ uint32_t my_clz(uint32_t in) {
     return lz;
 }
 
-
-
-#endif

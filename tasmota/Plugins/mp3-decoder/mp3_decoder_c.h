@@ -2539,9 +2539,9 @@ int DequantBlock(int *inbuf, int *outbuf, int num, int scale) {
 
     //AddLog(LOG_LEVEL_INFO, PSTR("DequantBlock 1"));
 
-    const int *p43_14 = (const int*)((uint8_t *)pow43_14+EXEC_OFFSET);
-    tab16 = &p43_14[scale & 0x3];
-    
+    tab16 = pow43_14[scale & 0x3];
+    tab16 += EXEC_OFFSET >> 2;
+
     //scalef = pow14[scale & 0x3];
 
     const int *p14 = (const int*)((uint8_t *)pow14+EXEC_OFFSET);

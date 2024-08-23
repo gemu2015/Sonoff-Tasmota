@@ -8,7 +8,7 @@
 #define log_d
 
 
-#if 0
+#if 0 
 static const uint8_t  m_HUFF_PAIRTABS          =32;
 static const uint8_t  m_BLOCK_SIZE             =18;
 static const uint8_t  m_NBANDS                 =32;
