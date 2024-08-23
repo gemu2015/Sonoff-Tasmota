@@ -4891,7 +4891,7 @@ char *Plugin_Query(uint8_t, uint8_t);
           len++;
           goto exit;
         }
-#if  defined(ESP32) && (defined(USE_I2S_AUDIO) || defined(USE_TTGO_WATCH) || defined(USE_M5STACK_CORE2))
+#if  defined(ESP32) && defined(USE_I2S_AUDIO)
         if (!strncmp_XP(lp, XPSTR("pl("), 3)) {
           char path[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 3, OPER_EQU, path, 0);

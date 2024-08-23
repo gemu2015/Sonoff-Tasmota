@@ -72,6 +72,8 @@ void TTGO_Init(void) {
   ttgo_globs.i2c = new I2CBus();
   TTGO_initPower();
 
+  TTGO_audio_power(1);
+
 #ifdef USE_BMA423
   ttgo_globs.bma = new BMA(*ttgo_globs.i2c);
   if (ttgo_globs.bma->begin()) {
