@@ -973,8 +973,16 @@ void UnpackSFMPEG1(BitStreamInfo_t *bsi, SideInfoSub_t *sis, ScaleFactorInfoSub_
     int32_t sfb;
     int32_t slen0, slen1;
     /* these can be 0, so make sure GetBits(bsi, 0) returns 0 (no >> 32 or anything) */
-    slen0 = (int32_t)m_SFLenTab[sis->sfCompress][0];
-    slen1 = (int32_t)m_SFLenTab[sis->sfCompress][1];
+    //slen0 = (int32_t)m_SFLenTab[sis->sfCompress][0];
+    //slen1 = (int32_t)m_SFLenTab[sis->sfCompress][1];
+
+    const char *sfl1 = &m_SFLenTab[sis->sfCompress][0];
+    const char *sfl2 = &m_SFLenTab[sis->sfCompress][1];
+    sfl1 += EXEC_OFFSET;
+    sfl2 += EXEC_OFFSET;
+    slen0 = (int32_t)pgm_read_byte(sfl1);
+    slen1 = (int32_t)pgm_read_byte(sfl2);
+
     if (sis->blockType == 2){
         /* short block, type 2 (implies winSwitchFlag == 1) */
         if (sis->mixedBlock){
@@ -1128,10 +1136,19 @@ void UnpackSFMPEG2(BitStreamInfo_t *bsi, SideInfoSub_t *sis,ScaleFactorInfoSub_t
     }
     /* set index based on block type: (0,1,3) --> 0, (2 non-mixed) --> 1, (2 mixed) ---> 2 */
     btIdx = 0;
-    if (sis->blockType == 2)
+    if (sis->blockType == 2) {
         btIdx = (sis->mixedBlock ? 2 : 1);
-    for (i = 0; i < 4; i++)
-        nr[i] = (int32_t)NRTab[sfcIdx][btIdx][i];
+    }
+
+    //for (i = 0; i < 4; i++) {
+    //    nr[i] = (int32_t)NRTab[sfcIdx][btIdx][i];
+    //}
+
+    for (i = 0; i < 4; i++) {
+        const char *nrtp = &NRTab[sfcIdx][btIdx][i];
+        nrtp += EXEC_OFFSET;
+        nr[i] = pgm_read_byte(nrtp);
+    }
 
     /* save intensity stereo scale factor info */
     if( (modeExt & 0x01) && (ch == 1) ) {

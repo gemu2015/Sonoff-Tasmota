@@ -249,7 +249,7 @@ const int32_t c6[3] PROGMEM = { 0x7ba3751d, 0x5a82799a, 0x2120fb83 }; /* format 
 const uint32_t c18[9] PROGMEM = { 0x7f834ed0, 0x7ba3751d, 0x7401e4c1, 0x68d9f964, 0x5a82799a, 0x496af3e2, 0x36185aee, 0x2120fb83, 0x0b27eb5c};
 
 /* scale factor lengths (num bits) */
-const char m_SFLenTab[16][2] MP3_PROGMEM = { {0, 0}, {0, 1}, {0, 2}, {0, 3}, {3, 0}, {1, 1}, {1, 2}, {1, 3},
+const char m_SFLenTab[16][2] PROGMEM = { {0, 0}, {0, 1}, {0, 2}, {0, 3}, {3, 0}, {1, 1}, {1, 2}, {1, 3},
                                  {2, 1}, {2, 2}, {2, 3}, {3, 1}, {3, 2}, {3, 3}, {4, 2}, {4, 3}};
 
 /* NRTab[size + 3*is_right][block type][partition]
@@ -262,7 +262,7 @@ const char m_SFLenTab[16][2] MP3_PROGMEM = { {0, 0}, {0, 1}, {0, 2}, {0, 3}, {3,
  *   NRTab[x][1][y]   --> (NRTab[x][1][y])   / 3
  *   NRTab[x][2][>=1] --> (NRTab[x][2][>=1]) / 3  (first partition is long block)
  */
-const char NRTab[6][3][4] MP3_PROGMEM = {
+const char NRTab[6][3][4] PROGMEM = {
     {{ 6,  5, 5, 5}, {3, 3, 3, 3}, {6, 3, 3, 3}},
     {{ 6,  5, 7, 3}, {3, 3, 4, 2}, {6, 3, 4, 2}},
     {{11, 10, 0, 0}, {6, 6, 0, 0}, {6, 3, 6, 0}},
