@@ -26,7 +26,7 @@
 #include "module_defines.h"
 
 //#define USE_MP3_PSRAM
-
+#define USE_WM8960
 
 #ifdef ESP32
 #define USE_MP3
@@ -97,6 +97,9 @@ typedef struct {
   uint16_t input_bytes;
   uint32_t filepos;
 #endif
+#ifdef USE_WM8960
+ TwoWire *xWire;
+#endif
 
 } MODULE_MEMORY;
 
@@ -139,12 +142,13 @@ MODULE_PART void I2sTaskMP3(void);
 MODULE_PART void I2S_Play(void);
 MODULE_PART bool mp3_begin();
 MODULE_PART uint32_t Get_tag(uint8_t * buff);
-MODULE_PART bool mp3_isRunning();
 MODULE_PART bool mp3_loop();
 MODULE_PART bool mp3_stop();
 MODULE_PART void SetVolume(void);
 MODULE_PART void WebRadio(void);
-
+MODULE_PART int32_t W8960_Init(void);
+MODULE_PART void W8960_Write(uint8_t reg_addr, uint16_t data);
+MODULE_PART void W8960_SetGain(uint8_t sel, uint16_t value);
 MODULE_PART void I2SAudio_Deinit();
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
 MODULE_END
@@ -164,6 +168,11 @@ const char S_JSON_STOPSND[] PROGMEM = "{\"audio stopped\"}";
 #ifdef USE_MP3
 const char S_JSON_MEMERR[] PROGMEM = "{\"out of memory\"}";
 #endif
+#ifdef USE_WM8960
+const char S_JSON_WMERR[] PROGMEM = "{\"WM8960 error\"}";
+#endif
+
+
 const char tname[] PROGMEM = "I2STASK";
 const uint32_t ui32_const[4] PROGMEM = {OUTBUFF_SIZE, 8192, 0x46464952 , INBUFF_SIZE}; 
 const int32_t i32_const[3] PROGMEM = {32768, -32768, INBUFF_SIZE}; 
@@ -185,7 +194,7 @@ int32_t I2SAudio_Init() {
   uint32_t mp3mem = MP3Decoder_AllocateBuffers();
   if (!mp3mem) {
     Response_P(GSTR(S_JSON_MEMERR));
-    return false;
+    return -1;
   }
 
   const uint32_t *icp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
@@ -197,13 +206,18 @@ int32_t I2SAudio_Init() {
   mt->mem_size += icp[3];
 #endif
 
-  busy = false;
+#ifdef USE_WM8960
+  if (W8960_Init() < 0) {
+      I2SAudio_Deinit();
+      Response_P(GSTR(S_JSON_WMERR));
+      return -2;
+  }
+#endif
 
+  busy = false;
   initialized = true;
   return 0;
 }
-
-   
 
 #ifdef USE_I2S_TASK
 void I2sTask(void) {
@@ -435,15 +449,6 @@ bool mp3_begin() {
   return false;
 }
 
-/*
-bool mp3_isRunning() {
-  SETREGS
-  return running;
-}
-*/
-
-#define MIN_SIZE 1024
-
 bool mp3_loop() {
 SETREGS
 
@@ -527,6 +532,10 @@ void I2sTaskMP3(void) {
 }
 #endif
 
+#ifdef USE_WM8960
+#include "mp3-decoder/wm8960_c.h"
+#endif
+
 void WebRadio(void) {
   SETREGS
 
@@ -543,8 +552,6 @@ void WebRadio(void) {
     }
     return;
   }
-
-
 }
 
 const char I2S_Commands[] PROGMEM =
@@ -560,6 +567,9 @@ void I2SAudio_Deinit() {
   if (m_inBuff) free(m_inBuff);  
 #endif
   i2s_end(i2sp);
+#ifdef USE_WM8960
+  I2cResetActive(W8960_ADDR, 0);
+#endif
   RETMEM
 }
 

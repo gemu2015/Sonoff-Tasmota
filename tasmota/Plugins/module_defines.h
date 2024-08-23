@@ -796,6 +796,11 @@ typedef struct {
 #define ParseParameters jParseParameters
 
 
+#define I2C_beginTransmission beginTransmission
+#define I2C_endTransmission endTransmission
+#define I2C_write write
+#define I2C_SETWIRE SETWIRE
+
 #define CharToFloat jCharToFloat
 #define AddLogData jAddLogData
 #define calloc jcalloc

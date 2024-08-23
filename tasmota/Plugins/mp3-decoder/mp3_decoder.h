@@ -513,7 +513,7 @@ MP3DecInfo_t *m_MP3DecInfo;
 } MP3_MEM;
 
 
-const uint32_t xize[13] PROGMEM = {sizeof(MP3DecInfo_t),sizeof(ScaleFactorInfoSub_t)*(m_MAX_NGRAN *m_MAX_NCHAN), sizeof(SideInfo_t), sizeof(FrameHeader_t),
+const uint32_t memsize_tab[13] PROGMEM = {sizeof(MP3DecInfo_t),sizeof(ScaleFactorInfoSub_t)*(m_MAX_NGRAN *m_MAX_NCHAN), sizeof(SideInfo_t), sizeof(FrameHeader_t),
 sizeof(HuffmanInfo_t), sizeof(DequantInfo_t), sizeof(IMDCTInfo_t), sizeof(SubbandInfo_t), sizeof(CriticalBandInfo_t)*m_MAX_NCHAN,
 sizeof(ScaleFactorJS_t), sizeof(SideInfoSub_t)*(m_MAX_NGRAN *m_MAX_NCHAN), sizeof(SFBandTable_t), sizeof(MP3FrameInfo_t)};
 
