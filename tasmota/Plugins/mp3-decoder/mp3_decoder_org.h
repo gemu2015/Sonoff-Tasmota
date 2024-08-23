@@ -7,6 +7,8 @@
 #undef log_d
 #define log_d
 
+#define MP3_PROGMEM
+
 #if 0
 static const uint8_t  m_HUFF_PAIRTABS          =32;
 static const uint8_t  m_BLOCK_SIZE             =18;
@@ -236,18 +238,18 @@ const int32_t c9_3 = 0x5246dd49;
 const int32_t c9_4 = 0x7e0e2e32;
 const int32_t c3_0 = 0x6ed9eba1; /* format = Q31, cos(pi/6) */
 #else
-const int32_t c3_tab[6] PROGMEM = {0x6ed9eba1,0x620dbe8b,0x163a1a7e,0x5246dd49,0x7e0e2e32,0x6ed9eba1};
+const int32_t c3_tab[6] MP3_PROGMEM = {0x6ed9eba1,0x620dbe8b,0x163a1a7e,0x5246dd49,0x7e0e2e32,0x6ed9eba1};
 #endif
 
-const int32_t c6[3] PROGMEM = { 0x7ba3751d, 0x5a82799a, 0x2120fb83 }; /* format = Q31, cos(((0:2) + 0.5) * (pi/6)) */
+const int32_t c6[3] MP3_PROGMEM = { 0x7ba3751d, 0x5a82799a, 0x2120fb83 }; /* format = Q31, cos(((0:2) + 0.5) * (pi/6)) */
 
 /* format = Q31
  * cos(((0:8) + 0.5) * (pi/18))
  */
-const uint32_t c18[9] PROGMEM = { 0x7f834ed0, 0x7ba3751d, 0x7401e4c1, 0x68d9f964, 0x5a82799a, 0x496af3e2, 0x36185aee, 0x2120fb83, 0x0b27eb5c};
+const uint32_t c18[9] MP3_PROGMEM = { 0x7f834ed0, 0x7ba3751d, 0x7401e4c1, 0x68d9f964, 0x5a82799a, 0x496af3e2, 0x36185aee, 0x2120fb83, 0x0b27eb5c};
 
 /* scale factor lengths (num bits) */
-const char m_SFLenTab[16][2] PROGMEM = { {0, 0}, {0, 1}, {0, 2}, {0, 3}, {3, 0}, {1, 1}, {1, 2}, {1, 3},
+const char m_SFLenTab[16][2] MP3_PROGMEM = { {0, 0}, {0, 1}, {0, 2}, {0, 3}, {3, 0}, {1, 1}, {1, 2}, {1, 3},
                                  {2, 1}, {2, 2}, {2, 3}, {3, 1}, {3, 2}, {3, 3}, {4, 2}, {4, 3}};
 
 /* NRTab[size + 3*is_right][block type][partition]
@@ -260,7 +262,7 @@ const char m_SFLenTab[16][2] PROGMEM = { {0, 0}, {0, 1}, {0, 2}, {0, 3}, {3, 0},
  *   NRTab[x][1][y]   --> (NRTab[x][1][y])   / 3
  *   NRTab[x][2][>=1] --> (NRTab[x][2][>=1]) / 3  (first partition is long block)
  */
-const char NRTab[6][3][4] PROGMEM = {
+const char NRTab[6][3][4] MP3_PROGMEM = {
     {{ 6,  5, 5, 5}, {3, 3, 3, 3}, {6, 3, 3, 3}},
     {{ 6,  5, 7, 3}, {3, 3, 4, 2}, {6, 3, 4, 2}},
     {{11, 10, 0, 0}, {6, 6, 0, 0}, {6, 3, 6, 0}},
@@ -272,10 +274,10 @@ const char NRTab[6][3][4] PROGMEM = {
 
 
 /* optional pre-emphasis for high-frequency scale factor bands */
-const char preTab[22] PROGMEM = { 0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,2,2,3,3,3,2,0 };
+const char preTab[22] MP3_PROGMEM = { 0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,2,2,3,3,3,2,0 };
 
 /* pow(2,-i/4) for i=0..3, Q31 format */
-const int32_t pow14[4] PROGMEM = {
+const int32_t pow14[4] MP3_PROGMEM = {
     0x7fffffff, 0x6ba27e65, 0x5a82799a, 0x4c1bf829
 };
 
@@ -288,13 +290,13 @@ const int32_t pow14[4] PROGMEM = {
  * Relative error < 1E-7
  * Coefs are scaled by 4, 2, 1, 0.5, 0.25
  */
-const uint32_t poly43lo[5] PROGMEM = { 0x29a0bda9, 0xb02e4828, 0x5957aa1b, 0x236c498d, 0xff581859 };
-const uint32_t poly43hi[5] PROGMEM = { 0x10852163, 0xd333f6a4, 0x46e9408b, 0x27c2cef0, 0xfef577b4 };
+const uint32_t poly43lo[5] MP3_PROGMEM = { 0x29a0bda9, 0xb02e4828, 0x5957aa1b, 0x236c498d, 0xff581859 };
+const uint32_t poly43hi[5] MP3_PROGMEM = { 0x10852163, 0xd333f6a4, 0x46e9408b, 0x27c2cef0, 0xfef577b4 };
 
 /* pow(2, i*4/3) as exp and frac */
-const int32_t pow2exp[8] PROGMEM = { 14, 13, 11, 10, 9, 7, 6, 5 };
+const int32_t pow2exp[8] MP3_PROGMEM = { 14, 13, 11, 10, 9, 7, 6, 5 };
 
-const int32_t pow2frac[8] PROGMEM = {
+const int32_t pow2frac[8] MP3_PROGMEM = {
     0x6597fa94, 0x50a28be6, 0x7fffffff, 0x6597fa94,
     0x50a28be6, 0x7fffffff, 0x6597fa94, 0x50a28be6
 };
@@ -334,7 +336,7 @@ const uint16_t m_HUFF_OFFSET_24=651 + m_HUFF_OFFSET_16;
 #define m_HUFF_OFFSET_24 651 + m_HUFF_OFFSET_16
 #endif
 
-const int32_t huffTabOffset[m_HUFF_PAIRTABS] PROGMEM = {
+const int32_t huffTabOffset[m_HUFF_PAIRTABS] MP3_PROGMEM = {
     0,                   m_HUFF_OFFSET_01,    m_HUFF_OFFSET_02,    m_HUFF_OFFSET_03,
     0,                   m_HUFF_OFFSET_05,    m_HUFF_OFFSET_06,    m_HUFF_OFFSET_07,
     m_HUFF_OFFSET_08,    m_HUFF_OFFSET_09,    m_HUFF_OFFSET_10,    m_HUFF_OFFSET_11,
@@ -344,7 +346,7 @@ const int32_t huffTabOffset[m_HUFF_PAIRTABS] PROGMEM = {
     m_HUFF_OFFSET_24,    m_HUFF_OFFSET_24,    m_HUFF_OFFSET_24,    m_HUFF_OFFSET_24,
     m_HUFF_OFFSET_24,    m_HUFF_OFFSET_24,    m_HUFF_OFFSET_24,    m_HUFF_OFFSET_24,};
 
-const HuffTabLookup_t huffTabLookup[m_HUFF_PAIRTABS] PROGMEM = {
+const HuffTabLookup_t huffTabLookup[m_HUFF_PAIRTABS] MP3_PROGMEM = {
     { 0,  noBits },
     { 0,  oneShot },
     { 0,  oneShot },
@@ -380,8 +382,8 @@ const HuffTabLookup_t huffTabLookup[m_HUFF_PAIRTABS] PROGMEM = {
 };
 
 
-const int32_t quadTabOffset[2] PROGMEM = {0, 64};
-const int32_t quadTabMaxBits[2] PROGMEM = {6, 4};
+const int32_t quadTabOffset[2] MP3_PROGMEM = {0, 64};
+const int32_t quadTabMaxBits[2] MP3_PROGMEM = {6, 4};
 
 /* indexing = [version][samplerate index]
  * sample rate of frame (Hz)
@@ -403,7 +405,7 @@ const uint32_t samplesPerFrameTab[3][3] PROGMEM = { { 384, 1152, 1152 }, /* MPEG
 };
 
 /* layers 1, 2, 3 */
-const uint8_t bitsPerSlotTab[3] PROGMEM = { 32, 8, 8 };
+const uint8_t bitsPerSlotTab[3] MP3_PROGMEM = { 32, 8, 8 };
 
 /* indexing = [version][mono/stereo]
  * number of bytes in side info section of bitstream
@@ -447,18 +449,18 @@ const SFBandTable_t sfBandTable[3][3] PROGMEM = {
  *
  * illegal intensity position scalefactors (see comments on ISFMpeg1)
  */
-const int32_t ISFIIP[2][2] PROGMEM = {
+const int32_t ISFIIP[2][2] MP3_PROGMEM = {
     {0x40000000, 0x00000000}, /* mid-side off */
     {0x40000000, 0x40000000}, /* mid-side on */
 };
 
-const uint8_t uniqueIDTab[8] PROGMEM = {0x5f, 0x4b, 0x43, 0x5f, 0x5f, 0x4a, 0x52, 0x5f};
+const uint8_t uniqueIDTab[8] MP3_PROGMEM = {0x5f, 0x4b, 0x43, 0x5f, 0x5f, 0x4a, 0x52, 0x5f};
 
 /* anti-alias coefficients - see spec Annex B, table 3-B.9
  *   csa[0][i] = CSi, csa[1][i] = CAi
  * format = Q31
  */
-const uint32_t csa[8][2] PROGMEM = {
+const uint32_t csa[8][2] MP3_PROGMEM = {
     {0x6dc253f0, 0xbe2500aa},
     {0x70dcebe4, 0xc39e4949},
     {0x798d6e73, 0xd7e33f4a},
@@ -511,7 +513,7 @@ SubbandInfo_t *m_SubbandInfo;
 MP3DecInfo_t *m_MP3DecInfo;
 } MP3_MEM;
 
-const uint32_t xize[13] PROGMEM = {sizeof(MP3DecInfo_t),sizeof(ScaleFactorInfoSub_t)*(m_MAX_NGRAN *m_MAX_NCHAN), sizeof(SideInfo_t), sizeof(FrameHeader_t),
+const uint32_t xize[13] MP3_PROGMEM = {sizeof(MP3DecInfo_t),sizeof(ScaleFactorInfoSub_t)*(m_MAX_NGRAN *m_MAX_NCHAN), sizeof(SideInfo_t), sizeof(FrameHeader_t),
 sizeof(HuffmanInfo_t), sizeof(DequantInfo_t), sizeof(IMDCTInfo_t), sizeof(SubbandInfo_t), sizeof(CriticalBandInfo_t)*m_MAX_NCHAN,
 sizeof(ScaleFactorJS_t), sizeof(SideInfoSub_t)*(m_MAX_NGRAN *m_MAX_NCHAN), sizeof(SFBandTable_t), sizeof(MP3FrameInfo_t)};
 

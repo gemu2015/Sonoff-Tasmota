@@ -232,18 +232,6 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #endif
 //KEEP (*(SORT(.text.mod.*)))
 
-/*
-#undef SECTION_DESC
-#undef SECTION_STRING
-#undef SECTION_PART
-#undef SECTION_END
-
-#define SECTION_DESC ".text.mod_part"
-#define SECTION_STRING ".text.mod_part"
-#define SECTION_PART ".text.mod_part"
-#define SECTION_END ".text.mod_part"
-*/
-
 #ifndef MODULE_HEADER
 #define MODULE_HEADER module_header
 #endif

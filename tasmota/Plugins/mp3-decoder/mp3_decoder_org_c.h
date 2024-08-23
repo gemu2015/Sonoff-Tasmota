@@ -73,7 +73,7 @@ SubbandInfo_t *m_SubbandInfo;
 MP3DecInfo_t *m_MP3DecInfo;
 */
 
-const uint16_t huffTable[4242] PROGMEM = {
+const uint16_t huffTable[4242] MP3_PROGMEM = {
     /* huffTable01[9] */
     0xf003, 0x3112, 0x3101, 0x2011, 0x2011, 0x1000, 0x1000, 0x1000, 0x1000,
     /* huffTable02[65] */
@@ -452,7 +452,7 @@ const uint16_t huffTable[4242] PROGMEM = {
     0xf001, 0x1a42, 0x1872, 0xf001, 0x1801, 0x1081, 0xf001, 0x1701, 0x1071,
 };
 /* pow(2,-i/4) * pow(j,4/3) for i=0..3 j=0..15, Q25 format */
-const int32_t pow43_14[4][16] PROGMEM = { /* Q28 */
+const int32_t pow43_14[4][16] MP3_PROGMEM = { /* Q28 */
 {   0x00000000, 0x10000000, 0x285145f3, 0x453a5cdb, 0x0cb2ff53, 0x111989d6,
     0x15ce31c8, 0x1ac7f203, 0x20000000, 0x257106b9, 0x2b16b4a3, 0x30ed74b4,
     0x36f23fa5, 0x3d227bd3, 0x437be656, 0x49fc823c, },
@@ -471,7 +471,7 @@ const int32_t pow43_14[4][16] PROGMEM = { /* Q28 */
 };
 
 /* pow(j,4/3) for j=16..63, Q23 format */
-const int32_t pow43[48] PROGMEM = {
+const int32_t pow43[48] MP3_PROGMEM = {
     0x1428a2fa, 0x15db1bd6, 0x1796302c, 0x19598d85, 0x1b24e8bb, 0x1cf7fcfa,
     0x1ed28af2, 0x20b4582a, 0x229d2e6e, 0x248cdb55, 0x26832fda, 0x28800000,
     0x2a832287, 0x2c8c70a8, 0x2e9bc5d8, 0x30b0ff99, 0x32cbfd4a, 0x34eca001,
@@ -482,7 +482,7 @@ const int32_t pow43[48] PROGMEM = {
     0x70416360, 0x72d7e8b0, 0x75722ef9, 0x78102b85, 0x7ab1d3ec, 0x7d571e09,
 };
 
-const uint32_t polyCoef[264] PROGMEM = {
+const uint32_t polyCoef[264] MP3_PROGMEM = {
     /* shuffled vs. original from 0, 1, ... 15 to 0, 15, 2, 13, ... 14, 1 */
     0x00000000, 0x00000074, 0x00000354, 0x0000072c, 0x00001fd4, 0x00005084, 0x000066b8, 0x000249c4,
     0x00049478, 0xfffdb63c, 0x000066b8, 0xffffaf7c, 0x00001fd4, 0xfffff8d4, 0x00000354, 0xffffff8c,
@@ -531,7 +531,7 @@ const uint32_t polyCoef[264] PROGMEM = {
  * }
  * coef32[30] *= 0.5;   / *** for initial back butterfly (i.e. two-point DCT) *** /
  */
-const int32_t coef32[31] PROGMEM = {
+const int32_t coef32[31] MP3_PROGMEM = {
     0x7fd8878d, 0x7e9d55fc, 0x7c29fbee, 0x78848413, 0x73b5ebd0, 0x6dca0d14, 0x66cf811f, 0x5ed77c89,
     0x55f5a4d2, 0x4c3fdff3, 0x41ce1e64, 0x36ba2013, 0x2b1f34eb, 0x1f19f97b, 0x12c8106e, 0x0647d97c,
     0x7f62368f, 0x7a7d055b, 0x70e2cbc6, 0x62f201ac, 0x5133cc94, 0x3c56ba70, 0x25280c5d, 0x0c8bd35e,
@@ -543,7 +543,7 @@ const int32_t coef32[31] PROGMEM = {
  *      fastWin[2*j+1] = c(j)*(s(j) - c(j))
  * format = Q30
  */
-const uint32_t fastWin36[18] PROGMEM = {
+const uint32_t fastWin36[18] MP3_PROGMEM = {
         0x42aace8b, 0xc2e92724, 0x47311c28, 0xc95f619a, 0x4a868feb, 0xd0859d8c,
         0x4c913b51, 0xd8243ea0, 0x4d413ccc, 0xe0000000, 0x4c913b51, 0xe7dbc161,
         0x4a868feb, 0xef7a6275, 0x47311c28, 0xf6a09e67, 0x42aace8b, 0xfd16d8dd
@@ -554,7 +554,7 @@ const uint32_t fastWin36[18] PROGMEM = {
  *  A = length of codeword
  *  B = codeword
  */
-const uint8_t quadTable[64+16] PROGMEM = {
+const uint8_t quadTable[64+16] MP3_PROGMEM = {
     /* table A */
     0x6b, 0x6f, 0x6d, 0x6e, 0x67, 0x65, 0x59, 0x59, 0x56, 0x56, 0x53, 0x53, 0x5a, 0x5a, 0x5c, 0x5c,
     0x42, 0x42, 0x42, 0x42, 0x41, 0x41, 0x41, 0x41, 0x44, 0x44, 0x44, 0x44, 0x48, 0x48, 0x48, 0x48,
@@ -608,7 +608,7 @@ const int16_t slotTab[3][3][15] PROGMEM = {
     },
 };
 
-const uint32_t imdctWin[4][36] PROGMEM = {
+const uint32_t imdctWin[4][36] MP3_PROGMEM = {
     {
     0x02aace8b, 0x07311c28, 0x0a868fec, 0x0c913b52, 0x0d413ccd, 0x0c913b52, 0x0a868fec, 0x07311c28,
     0x02aace8b, 0xfd16d8dd, 0xf6a09e66, 0xef7a6275, 0xe7dbc161, 0xe0000000, 0xd8243e9f, 0xd0859d8b,
@@ -635,12 +635,12 @@ const uint32_t imdctWin[4][36] PROGMEM = {
     0xe7dbc161, 0xef7a6275, 0xf6a09e66, 0xfd16d8dd  },
 };
 
-const int32_t ISFMpeg1[2][7] PROGMEM = {
+const int32_t ISFMpeg1[2][7] MP3_PROGMEM = {
     {0x00000000, 0x0d8658ba, 0x176cf5d0, 0x20000000, 0x28930a2f, 0x3279a745, 0x40000000},
     {0x00000000, 0x13207f5c, 0x2120fb83, 0x2d413ccc, 0x39617e16, 0x4761fa3d, 0x5a827999}
 };
 
-const int32_t ISFMpeg2[2][2][16] PROGMEM = {
+const int32_t ISFMpeg2[2][2][16] MP3_PROGMEM = {
 {   {   /* intensityScale off, mid-side off */
         0x40000000, 0x35d13f32, 0x2d413ccc, 0x260dfc14, 0x1fffffff, 0x1ae89f99, 0x16a09e66, 0x1306fe0a,
         0x0fffffff, 0x0d744fcc, 0x0b504f33, 0x09837f05, 0x07ffffff, 0x06ba27e6, 0x05a82799, 0x04c1bf82 },
@@ -687,7 +687,7 @@ const uint32_t m_COS3_0 = 0x4545e9ef;  /* Q31 */
 const uint32_t m_COS3_1 = 0x539eba45;  /* Q30 */
 const uint32_t m_COS4_0 = 0x5a82799a;  /* Q31 */
 
-const uint32_t m_dcttab[48] PROGMEM = { // faster in ROM
+const uint32_t m_dcttab[48] MP3_PROGMEM = { // faster in ROM
     /* first pass */
      m_COS0_0,  m_COS0_15, m_COS1_0,    /* 31, 27, 31 */
      m_COS0_1,  m_COS0_14, m_COS1_1,    /* 31, 29, 31 */
@@ -776,8 +776,6 @@ int32_t CheckPadBit(){
 int32_t UnpackFrameHeader(uint8_t *buf){
     SETMEMREGS
 
-    AddLog(LOG_LEVEL_INFO, PSTR("UnpackFrameHeader 1"));
-
     int32_t verIdx;
     /* validate pointers and sync word */
     if ((buf[0] & m_SYNCWORDH) != m_SYNCWORDH || (buf[1] & m_SYNCWORDL) != m_SYNCWORDL){
@@ -804,7 +802,6 @@ int32_t UnpackFrameHeader(uint8_t *buf){
     }
     /* for readability (we reference sfBandTable many times in decoder) */
 
-    AddLog(LOG_LEVEL_INFO, PSTR("UnpackFrameHeader 2"));
 #if 0
     mp3m.m_SFBandTable = sfBandTable[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->srIdx];
 #else
@@ -822,15 +819,13 @@ int32_t UnpackFrameHeader(uint8_t *buf){
     mp3m.m_MP3DecInfo->nChans = (mp3m.m_sMode == Mono ? 1 : 2);
 
 
-    AddLog(LOG_LEVEL_INFO, PSTR("UnpackFrameHeader 3"));
-
 #if 0
     mp3m.m_MP3DecInfo->samprate = samplerateTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->srIdx];
     mp3m.m_MP3DecInfo->nGrans = (mp3m.m_MPEGVersion == MPEG1 ? m_NGRANS_MPEG1 : m_NGRANS_MPEG2);
     mp3m.m_MP3DecInfo->nGranSamps = ((int) samplesPerFrameTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->layer - 1])/mp3m.m_MP3DecInfo->nGrans;
     mp3m.m_MP3DecInfo->layer = mp3m.m_FrameHeader->layer;
 #else
-    int32_t *srt = (int32_t *)&samplerateTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->srIdx];
+    uint32_t *srt = (uint32_t *)&samplerateTab[mp3m.m_MPEGVersion][mp3m.m_FrameHeader->srIdx];
     srt += EXEC_OFFSET >> 2;
     mp3m.m_MP3DecInfo->samprate = *srt;
     mp3m.m_MP3DecInfo->nGrans = (mp3m.m_MPEGVersion == MPEG1 ? m_NGRANS_MPEG1 : m_NGRANS_MPEG2);
@@ -840,8 +835,6 @@ int32_t UnpackFrameHeader(uint8_t *buf){
     mp3m.m_MP3DecInfo->nGranSamps = __divsi3(*srt, mp3m.m_MP3DecInfo->nGrans);
     mp3m.m_MP3DecInfo->layer = mp3m.m_FrameHeader->layer;
 #endif
-
-    AddLog(LOG_LEVEL_INFO, PSTR("UnpackFrameHeader 4"));
 
     /* get bitrate and nSlots from table, unless brIdx == 0 (free mode) in which case caller must figure it out himself
      * question - do we want to overwrite mp3DecInfo->bitrate with 0 each time if it's free mode, and
@@ -869,7 +862,6 @@ int32_t UnpackFrameHeader(uint8_t *buf){
                 - (mp3m.m_FrameHeader->crc ? 2 : 0) + (mp3m.m_FrameHeader->paddingBit ? 1 : 0);
 #endif
 
-    AddLog(LOG_LEVEL_INFO, PSTR("UnpackFrameHeader end"));
     /* load crc word, if enabled, and return length of frame header (in bytes) */
     if (mp3m.m_FrameHeader->crc) {
         mp3m.m_FrameHeader->CRCWord = ((int32_t) buf[4] << 8 | (int32_t) buf[5] << 0);
@@ -1390,7 +1382,7 @@ void MP3GetLastFrameInfo() {
  #if 0
         mp3m.m_MP3FrameInfo->outputSamps=mp3m.m_MP3DecInfo->nChans * (int) samplesPerFrameTab[mp3m.m_MPEGVersion][mp3m.m_MP3DecInfo->layer-1];
  #else
-        int *srt = (int *)&samplesPerFrameTab[mp3m.m_MPEGVersion][mp3m.m_MP3DecInfo->layer-1];
+        uint32_t *srt = (uint32_t *)&samplesPerFrameTab[mp3m.m_MPEGVersion][mp3m.m_MP3DecInfo->layer-1];
         srt += EXEC_OFFSET >> 2;
         mp3m.m_MP3FrameInfo->outputSamps = mp3m.m_MP3DecInfo->nChans * *srt;
 #endif
@@ -1712,7 +1704,7 @@ void MP3Decoder_ClearBuffer(void) {
 #define __malloc_heap_psram(size) calloc(size>>2, 4)
 #endif
 
-/*const uint32_t xize[13] PROGMEM = {
+/*const uint32_t xize[13] MP3_PROGMEM = {
 sizeof(MP3DecInfo_t), 0
 sizeof(ScaleFactorInfoSub_t)*(m_MAX_NGRAN *m_MAX_NCHAN), 1 
 sizeof(SideInfo_t), 2
@@ -3775,7 +3767,7 @@ int32_t Subband(int16_t *pcmBuf) {
 	buf[16+i] = b2 + b3;    buf[31-i] = MULSHIFT32(*cptr++, b3 - b2) << (s2); \
 }
 
-const uint8_t FDCT32s1s2[16] PROGMEM = {5,3,3,2,2,1,1,1, 1,1,1,1,1,2,2,4};
+const uint8_t FDCT32s1s2[16] MP3_PROGMEM = {5,3,3,2,2,1,1,1, 1,1,1,1,1,2,2,4};
 
 void FDCT32(int32_t *buf, int32_t *dest, int32_t offset, int32_t oddBlock, int32_t gb) {
     SETMEMREGS
