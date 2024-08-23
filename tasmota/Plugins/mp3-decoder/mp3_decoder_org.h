@@ -346,7 +346,7 @@ const int32_t huffTabOffset[m_HUFF_PAIRTABS] MP3_PROGMEM = {
     m_HUFF_OFFSET_24,    m_HUFF_OFFSET_24,    m_HUFF_OFFSET_24,    m_HUFF_OFFSET_24,
     m_HUFF_OFFSET_24,    m_HUFF_OFFSET_24,    m_HUFF_OFFSET_24,    m_HUFF_OFFSET_24,};
 
-const HuffTabLookup_t huffTabLookup[m_HUFF_PAIRTABS] MP3_PROGMEM = {
+const HuffTabLookup_t huffTabLookup[m_HUFF_PAIRTABS] PROGMEM = {
     { 0,  noBits },
     { 0,  oneShot },
     { 0,  oneShot },

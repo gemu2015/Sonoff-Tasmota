@@ -73,7 +73,7 @@ SubbandInfo_t *m_SubbandInfo;
 MP3DecInfo_t *m_MP3DecInfo;
 */
 
-const uint16_t huffTable[4242] MP3_PROGMEM = {
+const uint16_t huffTable[4242] PROGMEM = {
     /* huffTable01[9] */
     0xf003, 0x3112, 0x3101, 0x2011, 0x2011, 0x1000, 0x1000, 0x1000, 0x1000,
     /* huffTable02[65] */
@@ -1852,32 +1852,48 @@ int32_t DecodeHuffmanPairs(int32_t *xy, int32_t nVals, int32_t tabIdx, int32_t b
         return -1;
     startBits = bitsLeft;
 
+#if 0
     tBase = (uint16_t *) (huffTable + huffTabOffset[tabIdx]);
     linBits = huffTabLookup[tabIdx].linBits;
     tabType = (HuffTabType_t)huffTabLookup[tabIdx].tabType;
-
+#else
+    
+    //tBase = (unsigned short *) (huffTable + huffTabOffset[tabIdx]);
+    tBase = (unsigned short *) ((uint8_t *)huffTable+EXEC_OFFSET);
+    const int *op = (const int *) ((uint8_t *)huffTabOffset+EXEC_OFFSET);
+    tBase += op[tabIdx];
+    
+    //linBits = huffTabLookup[tabIdx].linBits;
+    HuffTabLookup_t *htl = (HuffTabLookup_t*)((uint8_t *)huffTabLookup+EXEC_OFFSET);
+    linBits = htl[tabIdx].linBits;
+    //tabType = (HuffTabType_t)huffTabLookup[tabIdx].tabType;
+    tabType = (HuffTabType_t)htl[tabIdx].tabType;
+#endif
 //    assert(!(nVals & 0x01));
 //    assert(tabIdx < m_HUFF_PAIRTABS);
 //    assert(tabIdx >= 0);
 //    assert(tabType != invalidTab);
 
-    if ((nVals & 0x01)) {
-        log_d("assert(!(nVals & 0x01))");
+    if ((nVals & 0x01)) { 
+        AddLog(LOG_LEVEL_INFO, PSTR("assert(!(nVals & 0x01))"));
+        //log_d("assert(!(nVals & 0x01))");
         return -1;
     }
-    if  (!(tabIdx < m_HUFF_PAIRTABS)) {
-        log_d("assert(tabIdx < m_HUFF_PAIRTABS)");
+    if (!(tabIdx < m_HUFF_PAIRTABS)){
+        AddLog(LOG_LEVEL_INFO, PSTR("assert(tabIdx < m_HUFF_PAIRTABS)"));
+        //log_d("assert(tabIdx < m_HUFF_PAIRTABS)");
         return -1;
     }
-    if (!(tabIdx >= 0)) {
-        log_d("(tabIdx >= 0)");
+    if (!(tabIdx >= 0)){
+        AddLog(LOG_LEVEL_INFO, PSTR("(tabIdx >= 0)"));
+        //log_d("(tabIdx >= 0)");
         return -1;
     }
-    if (!(tabType != invalidTab)) {
-        log_d("(tabType != invalidTab)");
+    if (!(tabType != invalidTab)){
+        AddLog(LOG_LEVEL_INFO, PSTR("(tabType != invalidTab)"));
+        //log_d("(tabType != invalidTab)");
         return -1;
     }
-
 
     /* initially fill cache with any partial byte */
     cache = 0;
