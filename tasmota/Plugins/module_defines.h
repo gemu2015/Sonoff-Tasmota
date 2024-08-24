@@ -201,8 +201,8 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jParseParameters(A,B)           (( uint32_t (*)(uint32_t,uint32_t *))           jt[167])(A,B)
 #define jtmod__modsi3(A,B)              (( int32_t (*)(int32_t,int32_t) )               jt[168])(A,B)
 #define jtmod__ashldi3(A,B)             (( int64_t (*)(int64_t,int32_t) )               jt[169])(A,B)
-#define jtmod__lshrdi3(A,B)             (( uint64_t (*)(uint64_t,uint32_t) )               jt[170])(A,B)
-
+#define jtmod__lshrdi3(A,B)             (( uint64_t (*)(uint64_t,uint32_t) )            jt[170])(A,B)
+#define jtmod_wifi(A,B,C,D)            (( uint32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t) ) jt[171])(A,B,C,D)
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -783,6 +783,37 @@ typedef struct {
 #define i2s_write_samples(A,B,C) ji2s(3,(uint32_t)A,(uint32_t)B,C,0,0)
 #define i2s_enable_tx(A) ji2s(6,(uint32_t)A,0,0,0,0)
 #define i2s_disable_tx(A) ji2s(7,(uint32_t)A,0,0,0,0)
+
+#define WiFiClient() (void*)jtmod_wifi(0,0,0,0)
+#define client_connect(A,B,C) (int32_t)jtmod_wifi(1,(uint32)A,(uint32)B,C)
+#define client_connected(A) (int32_t)jtmod_wifi(2,(uint32)A,0,0)
+#define client_available(A) (int32_t)jtmod_wifi(3,(uint32)A,0,0)
+#define client_read(A) (uint8_t)jtmod_wifi(4,(uint32)A,0,0)
+#define client_readn(A,B,C) (int32_t)jtmod_wifi(5,(uint32)A,(uint32_t)B,C)
+#define client_stop(A) jtmod_wifi(6,(uint32)A,0,0)
+#define client_delete(A) jtmod_wifi(7,(uint32)A,0,0)
+
+#define WiFiClientSecure() (void*)jtmod_wifi(10,0,0,0)
+#define sclient_connect(A,B,C) (int32_t)jtmod_wifi(11,(uint32)A,(uint32)B,C)
+#define sclient_connected(A) (int32_t)jtmod_wifi(12,(uint32)A,0,0)
+#define sclient_available(A) (int32_t)jtmod_wifi(13,(uint32)A,0,0)
+#define sclient_read(A) (uint8_t)jtmod_wifi(14,(uint32)A,0,0)
+#define sclient_readn(A,B,C) (int32_t)jtmod_wifi(15,(uint32)A,(uint32_t)B,C)
+#define sclient_stop(A) jtmod_wifi(16,(uint32)A,0,0)
+#define sclient_setInsecure(A) jtmod_wifi(18,(uint32)A,0,0)
+#define sclient_setTimeout(A,B) jtmod_wifi(19,(uint32)A,B,0)
+
+
+#define HTTP() (void*)jtmod_wifi(30,0,0,0)
+#define http_end(A) jtmod_wifi(31,(uint32)A,0,0)
+#define http_delete(A) jtmod_wifi(32,(uint32)A,0,0)
+#define http_begin(A,B,C) jtmod_wifi(33,(uint32)A,B,(uint32_t)C)
+#define http_setReuse(A,B) jtmod_wifi(34,(uint32)A,B,0)
+#define http_GET(A) (uint8_t)jtmod_wifi(35,(uint32)A,0,0)
+#define http_getSize(A) (int32_t)jtmod_wifi(36,(uint32)A,0,0)
+#define http_connected(A) (int32_t)jtmod_wifi(37,(uint32)A,0,0)
+#define http_getStreamPtr(A) (void*)jtmod_wifi(38,(uint32)A,0,0)
+
 
 #define xTaskCreatePinnedToCore(A)   jtaskc(A)
 #define vTaskDelete(A)   jtaskd(A)

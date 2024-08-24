@@ -16,13 +16,12 @@
 */
 
 
-#include <Arduino.h>
-#include <ESP8266SAM.h>
-
+#include "ESP8266SAM.h"
 #include "reciter.h"
 #include "sam.h"
 #include "SamData.h"
 
+#if 0
 SamData* samdata;
 
 // Thunk from C to C++ with a this-> pointer
@@ -100,3 +99,4 @@ void ESP8266SAM::SetVoice(enum SAMVoice voice)
   }
 }
 
+#endif

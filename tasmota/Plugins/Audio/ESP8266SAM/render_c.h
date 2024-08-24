@@ -359,8 +359,9 @@ pos48315:
 
 
 //void Code47574()
-void Render()
-{
+void Render() {
+	SETREGS
+
 	unsigned char phase1 = 0;  //mem43
 	unsigned char phase2 = 0;
 	unsigned char phase3 = 0;

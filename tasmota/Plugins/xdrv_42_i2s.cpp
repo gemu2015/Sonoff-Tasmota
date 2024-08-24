@@ -27,6 +27,8 @@
 
 #define USE_MP3_PSRAM
 #define USE_WM8960
+//#define USE_WEBRADIO
+//#define USE_SAY
 
 #ifdef ESP32
 #define USE_MP3
@@ -100,7 +102,9 @@ typedef struct {
 #ifdef USE_WM8960
  TwoWire *xWire;
 #endif
-
+#ifdef USE_WEBRADIO
+  void *client;
+#endif
 } MODULE_MEMORY;
 
 #define dout_pin mem->dout_pin
@@ -119,6 +123,7 @@ typedef struct {
 #define chans mem->chans
 #define input_bytes mem->input_bytes
 #define filepos mem->filepos
+#define client mem->client
 
 // esp8266 fixed i2s pins : DOUT = 3(RX), BCK = 15(D8), WS = 2(D4)
 
@@ -139,6 +144,7 @@ MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", 17, "BCK", 10, "
 MODULE_PART int32_t I2SAudio_Init();
 MODULE_PART void I2sTask(void);
 MODULE_PART void I2sTaskMP3(void);
+MODULE_PART void I2sTaskWR(void);
 MODULE_PART void I2S_Play(void);
 MODULE_PART bool mp3_begin();
 MODULE_PART uint32_t Get_tag(uint8_t * buff);
@@ -146,6 +152,7 @@ MODULE_PART bool mp3_loop();
 MODULE_PART bool mp3_stop();
 MODULE_PART void SetVolume(void);
 MODULE_PART void WebRadio(void);
+MODULE_PART void Say(void);
 MODULE_PART int32_t W8960_Init(void);
 MODULE_PART void W8960_Write(uint8_t reg_addr, uint16_t data);
 MODULE_PART void W8960_SetGain(uint8_t sel, uint16_t value);
@@ -176,6 +183,7 @@ const char S_JSON_WMERR[] PROGMEM = "{\"WM8960 error\"}";
 const char tname[] PROGMEM = "I2STASK";
 const uint32_t ui32_const[4] PROGMEM = {OUTBUFF_SIZE, 8192, 0x46464952 , INBUFF_SIZE}; 
 const int32_t i32_const[3] PROGMEM = {32768, -32768, INBUFF_SIZE}; 
+
 
 int32_t I2SAudio_Init() {
   ALLOCMEM
@@ -536,9 +544,55 @@ void I2sTaskMP3(void) {
 #include "Audio/WM8960/wm8960_c.h"
 #endif
 
+#ifdef USE_SAY
+#define DEBUG_ESP8266SAM_LIB 0
+#define PrintRule
+#define PrintPhonemes
+#define PrintOutput
+#include "Audio/ESP8266SAM/sam_c.h"
+#include "Audio/ESP8266SAM/render_c.h"
+#include "Audio/ESP8266SAM/reciter_c.h"
+#endif
+
+void Say(void) {
+  SETREGS
+#ifdef USE_SAY
+#endif
+}
+
+#ifdef USE_WEBRADIO
+
+// webradio task
+void I2sTaskWR(void) {
+  SETREGS
+  i2s_enable_tx(i2sp);
+
+  //uint8_t *buff;
+
+  while (client_connected(client)) {
+    while (client_available(client) && running) {
+      client_read(client);
+        //client_readn(client, buff, 5);
+    }
+    if (!running) {
+      break;
+    }
+  }
+
+  client_stop(client);
+  client_delete(client);
+
+  i2s_disable_tx(i2sp);
+
+  busy = false;
+  
+  vTaskDelete(0);
+}
+#endif
+
 void WebRadio(void) {
   SETREGS
-
+#ifdef USE_WEBRADIO
   char *cp = XdrvMailbox->data;
   while (*cp == ' ') cp++;
 
@@ -552,12 +606,37 @@ void WebRadio(void) {
     }
     return;
   }
+
+  //WDR2	i2swr http://wdr-wdr2-aachenundregion.icecastssl.wdr.de/wdr/wdr2/aachenundregion/mp3/128/stream.mp3
+
+  client = WiFiClient();
+  int32_t err = client_connect(client, cp, 80);
+  if (!err) {
+      client_delete(client);
+      AddLog(LOG_LEVEL_INFO, PSTR("WR could not connect TCP to %s"),cp);
+      return;
+  }
+// play webradio file
+  const uint32_t *icp = (const uint32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+  TASKPARS tp;
+  tp.pvTaskCode = GVOID(I2sTaskWR);
+  tp.constpcName = GSTR(tname);
+  tp.usStackDepth = icp[1];
+  tp.constpvParameters = cp;
+  tp.uxPriority = 3;
+  tp.constpvCreatedTask = nullptr;
+  tp.xCoreID = 1;
+  err = xTaskCreatePinnedToCore(&tp);
+
+  busy = true;
+  ResponseCmndDone();
+#endif
 }
 
 const char I2S_Commands[] PROGMEM =
     "I2S|"  // Prefix
-    "play|vol|wr";
-void (*const I2S_Command[])(void) PROGMEM = {&I2S_Play,&SetVolume,&WebRadio};
+    "play|vol|say|wr";
+void (*const I2S_Command[])(void) PROGMEM = {&I2S_Play,&SetVolume,&Say,&WebRadio};
 
 void I2SAudio_Deinit() {
   SETREGS

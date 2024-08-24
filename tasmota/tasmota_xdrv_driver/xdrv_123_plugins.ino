@@ -386,7 +386,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&ParseParameters,
   JMPTBL&tmod__modsi3,
   JMPTBL&tmod__ashldi3,
-  JMPTBL&tmod__lshrdi3
+  JMPTBL&tmod__lshrdi3,
+  JMPTBL&tmod_wifi,
 };
 
 
@@ -448,6 +449,98 @@ uint32_t tmod_task_delete(uint32_t xTaskToDelete) {
 #endif
 
 uint32_t tmod_dummy() {
+  return 0;
+}
+
+uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2,  uint32_t p3) {
+#ifdef ESP32
+  WiFiClient *client =(WiFiClient*) p1;
+  BearSSL::WiFiClientSecure_light *sclient =(BearSSL::WiFiClientSecure_light*) p1;
+  HTTPClient *http = (HTTPClient*) p1;
+  switch (sel) {
+    case 0:
+      client = new WiFiClient;
+      return (uint32_t)client;
+    case 1:
+    {
+      int32_t err = client->connect((char*)p2, p3);
+      AddLog(LOG_LEVEL_INFO,PSTR("connect %s - %d - %d"), (char*)p2, p3, err);
+      return err;
+    }
+    case 2:
+      return client->connected();
+    case 3:
+      return client->available();
+    case 4:
+      return client->read();
+    case 5:
+      return client->read((uint8_t*)p2, p3);
+    case 6:
+      client->stop();
+      break;
+    case 7:
+      delete client;
+      break;
+
+ #ifdef ESP32
+    case 10:
+      sclient = new BearSSL::WiFiClientSecure_light(1024,1024);;
+      return (uint32_t)sclient;
+    case 11:
+    {
+      int32_t err = sclient->connect((char*)p2, p3);
+      AddLog(LOG_LEVEL_INFO,PSTR("connect %s - %d - %d"), (char*)p2, p3, err);
+      return err;
+    }
+    case 12:
+      return sclient->connected();
+    case 13:
+      return sclient->available();
+    case 14:
+      return sclient->read();
+    case 15:
+      return sclient->read((uint8_t*)p2, p3);
+    case 16:
+      sclient->stop();
+      break;
+    case 17:
+      delete sclient;
+      break;
+   case 18:
+      sclient->setInsecure();
+      break;
+    case 19:
+      sclient->setTimeout(p2);
+#endif
+
+    // class http
+    case 30:
+      http = new HTTPClient;
+      return (uint32_t)http;
+    case 31:
+      http->end();
+      break;
+    case 32:
+      delete http;
+      break;
+    case 33:
+      http->begin(String((char*)p2), (char*)p3);
+      break;
+    case 34:
+      http->setReuse(p2);
+      break;
+    case 35:
+      return http->GET();
+    case 36:
+      return http->getSize();
+    case 37:
+      return http->connected();
+    case 38:
+      // returns client
+      return (uint32_t)http->getStreamPtr();
+
+  }
+#endif // ESP32
   return 0;
 }
 

@@ -20,8 +20,7 @@ void Code37055(unsigned char mem59)
 	return;
 }
 
-void Code37066(unsigned char mem58)
-{
+void Code37066(unsigned char mem58) {
 	X = mem58;
 	X++;
 	A = inputtemp[X];
@@ -29,12 +28,10 @@ void Code37066(unsigned char mem58)
 	A = pgm_read_byte(tab36376+Y); //tab36376[Y];
 }
 
-unsigned char GetRuleByte(unsigned short mem62, unsigned char Y)
-{
+unsigned char GetRuleByte(unsigned short mem62, unsigned char Y) {
 	unsigned int address = mem62;
 
-	if (mem62 >= 37541)
-	{
+	if (mem62 >= 37541) {
 		address -= 37541;
 		return pgm_read_byte(rules2+address+Y); //rules2[address+Y];
 	}
@@ -89,8 +86,7 @@ pos36550:
 
 
 pos36554:
-	while(1)
-	{
+	while(1) {
 		mem61++;
 		X = mem61;
 		A = inputtemp[X];

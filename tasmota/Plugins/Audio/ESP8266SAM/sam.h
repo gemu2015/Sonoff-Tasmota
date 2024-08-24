@@ -5,18 +5,18 @@
 extern "C" {
 #endif
 
-void SetInput(char *_input);
-void SetSpeed(unsigned char _speed);
-void SetPitch(unsigned char _pitch);
-void SetMouth(unsigned char _mouth);
-void SetThroat(unsigned char _throat);
-void EnableSingmode(int x);
+MODULE_PART void SetInput(char *_input);
+MODULE_PART void SetSpeed(unsigned char _speed);
+MODULE_PART void SetPitch(unsigned char _pitch);
+MODULE_PART void SetMouth(unsigned char _mouth);
+MODULE_PART void SetThroat(unsigned char _throat);
+MODULE_PART void EnableSingmode(int x);
 
-int SAMMain( void (*cb)(void *, unsigned char), void *cbdata );
+MODULE_PART int SAMMain( void (*cb)(void *, unsigned char), void *cbdata );
 
-int GetBufferLength();
+MODULE_PART int GetBufferLength();
 
-int SAMPrepare();
+MODULE_PART int SAMPrepare();
 
 
 
