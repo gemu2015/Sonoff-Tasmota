@@ -1,8 +1,4 @@
-#include <Wire.h>
-#include <string.h>
-#include "esp_log.h"
 #include "wm8960.h"
-
 
 MODULE_PART void W8960_Write(uint8_t reg_addr, uint16_t data) {
   SETMEMREGS

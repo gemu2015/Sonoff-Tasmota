@@ -25,7 +25,7 @@
 #include "module.h"
 #include "module_defines.h"
 
-//#define USE_MP3_PSRAM
+#define USE_MP3_PSRAM
 #define USE_WM8960
 
 #ifdef ESP32
@@ -73,7 +73,7 @@ typedef struct {
 #endif
 
 #ifdef USE_MP3
-#include "mp3-decoder/mp3_decoder.h"
+#include "Audio/MP3/mp3_decoder.h"
 #endif
 
 PUSH_OPTIONS
@@ -128,7 +128,7 @@ typedef struct {
 #define MODNAME "I2SWAV"
 #endif
 
-#define I2S_REV 1 << 16 | 4
+#define I2S_REV 1 << 16 | 5
 #ifdef ESP8266
 MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0)
 #else
@@ -155,7 +155,7 @@ MODULE_END
 
 
 #ifdef USE_MP3
-#include "mp3-decoder/mp3_decoder_c.h"
+#include "Audio/MP3/mp3_decoder_c.h"
 #endif
 
 #define OUTBUFF_SIZE 1024 * 6
@@ -533,7 +533,7 @@ void I2sTaskMP3(void) {
 #endif
 
 #ifdef USE_WM8960
-#include "mp3-decoder/wm8960_c.h"
+#include "Audio/WM8960/wm8960_c.h"
 #endif
 
 void WebRadio(void) {

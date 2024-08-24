@@ -39,6 +39,7 @@ to doo:
 
 // minimal plugin rev
 #define MINREV 0x00010004
+#define CURR_MINREV 0x00010005
 
 #ifdef EXECUTE_FROM_BINARY
 extern const FLASH_MODULE module_header;
@@ -2038,6 +2039,13 @@ void LinkModule(uint8_t *mp, uint32_t size, char *name) {
       AddLog(LOG_LEVEL_INFO,PSTR("plugin revision to old"));
       return;
     }
+
+    if (fm->revision < CURR_MINREV ) {
+      free(mp);
+      AddLog(LOG_LEVEL_INFO,PSTR("plugin hander revision to old"));
+      return;
+    }
+    
     
     Unlink_Named_Module(name);
 

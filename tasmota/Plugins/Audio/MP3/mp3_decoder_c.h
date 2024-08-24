@@ -7,7 +7,7 @@
  */
 //#include "mp3_decoder.h"
 
-#include "../pgmspace_32.h"
+#include "../../pgmspace_32.h"
 
 #define pgm_read_byte_inlined pgm_read_byte_inlined_32
 #define pgm_read_word_inlined pgm_read_word_inlined_32
