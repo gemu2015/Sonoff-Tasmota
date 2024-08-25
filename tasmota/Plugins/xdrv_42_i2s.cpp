@@ -25,13 +25,14 @@
 #include "module.h"
 #include "module_defines.h"
 
-#define USE_MP3_PSRAM
+// select a codec
 #define USE_WM8960
-//#define USE_WEBRADIO
 //#define USE_SAY
 
 #ifdef ESP32
+#define USE_MP3_PSRAM
 #define USE_MP3
+#define USE_WEBRADIO
 #endif
 
 //#define USE_MP3
