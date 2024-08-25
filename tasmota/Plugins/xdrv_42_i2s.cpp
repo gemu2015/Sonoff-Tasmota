@@ -27,10 +27,11 @@
 
 // select a codec
 #define USE_WM8960
+
 //#define USE_SAY
 
 #ifdef ESP32
-#define USE_MP3_PSRAM
+//#define USE_MP3_PSRAM
 #define USE_MP3
 #define USE_WEBRADIO
 #endif
@@ -104,7 +105,8 @@ typedef struct {
  TwoWire *xWire;
 #endif
 #ifdef USE_WEBRADIO
-  void *client;
+  void *http;
+  void *wclient;
 #endif
 } MODULE_MEMORY;
 
@@ -124,7 +126,8 @@ typedef struct {
 #define chans mem->chans
 #define input_bytes mem->input_bytes
 #define filepos mem->filepos
-#define client mem->client
+#define wclient mem->wclient
+#define http mem->http
 
 // esp8266 fixed i2s pins : DOUT = 3(RX), BCK = 15(D8), WS = 2(D4)
 
@@ -568,20 +571,18 @@ void I2sTaskWR(void) {
   SETREGS
   i2s_enable_tx(i2sp);
 
-  //uint8_t *buff;
-
-  while (client_connected(client)) {
-    while (client_available(client) && running) {
-      client_read(client);
-        //client_readn(client, buff, 5);
+  while (client_connected(wclient)) {
+    while (client_available(wclient) && running) {
+      client_read(wclient);
+        //client_readn(wclient, buff, 5);
     }
     if (!running) {
       break;
     }
   }
 
-  client_stop(client);
-  client_delete(client);
+  client_stop(wclient);
+  client_delete(wclient);
 
   i2s_disable_tx(i2sp);
 
@@ -590,6 +591,8 @@ void I2sTaskWR(void) {
   vTaskDelete(0);
 }
 #endif
+
+#include <HTTPClient.h>
 
 void WebRadio(void) {
   SETREGS
@@ -610,6 +613,75 @@ void WebRadio(void) {
 
   //WDR2	i2swr http://wdr-wdr2-aachenundregion.icecastssl.wdr.de/wdr/wdr2/aachenundregion/mp3/128/stream.mp3
 
+  wclient = New_WiFiClient();
+  http = New_HTTP();
+
+  if (!http_begin(http, wclient, cp)) {
+    http_delete(http);
+    AddLog(LOG_LEVEL_INFO, PSTR("WR could not connect TCP to %s"),cp);
+    return;
+  }
+
+  //http_addHeader(http, PSTR("Icy-MetaData"), "1");
+
+  //static const char *hdr[] = { "icy-metaint", "icy-name", "icy-genre", "icy-br" };
+
+  //http_collectHeaders(http, hdr, 4 );
+
+  http_setReuse(http, true);
+
+  http_setFollowRedirects(http, HTTPC_FORCE_FOLLOW_REDIRECTS);
+
+  int32_t code = http_GET(http);
+
+/*
+  if (http_hasHeader(http, hdr[0])) {
+    char *ret = http_header(http, hdr[0]);
+    icyMetaInt = 1; // ret.toInt();
+  } else {
+    icyMetaInt = 0;
+  }
+*/
+
+  int32_t size = http_getSize(http);
+
+  AddLog(LOG_LEVEL_INFO, PSTR("WR code %d - %d"),code, size);
+
+  http_end(http);
+  client_delete(wclient);
+  http_delete(http);
+
+/*
+
+
+  int code = http.GET();
+  if (http.hasHeader(hdr[0])) {
+    String ret = http.header(hdr[0]);
+    icyMetaInt = ret.toInt();
+  } else {
+    icyMetaInt = 0;
+  }
+  if (http.hasHeader(hdr[1])) {
+    String ret = http.header(hdr[1]);
+//    cb.md("SiteName", false, ret.c_str());
+  }
+  if (http.hasHeader(hdr[2])) {
+    String ret = http.header(hdr[2]);
+//    cb.md("Genre", false, ret.c_str());
+  }
+  if (http.hasHeader(hdr[3])) {
+    String ret = http.header(hdr[3]);
+//    cb.md("Bitrate", false, ret.c_str());
+  }
+
+  icyByteCount = 0;
+  size = http.getSize();
+  strncpy(saveURL, url, sizeof(saveURL));
+  saveURL[sizeof(saveURL)-1] = 0;
+  return true;
+  */
+
+/*
   client = WiFiClient();
   int32_t err = client_connect(client, cp, 80);
   if (!err) {
@@ -617,6 +689,8 @@ void WebRadio(void) {
       AddLog(LOG_LEVEL_INFO, PSTR("WR could not connect TCP to %s"),cp);
       return;
   }
+
+
 // play webradio file
   const uint32_t *icp = (const uint32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
   TASKPARS tp;
@@ -628,6 +702,7 @@ void WebRadio(void) {
   tp.constpvCreatedTask = nullptr;
   tp.xCoreID = 1;
   err = xTaskCreatePinnedToCore(&tp);
+*/
 
   busy = true;
   ResponseCmndDone();

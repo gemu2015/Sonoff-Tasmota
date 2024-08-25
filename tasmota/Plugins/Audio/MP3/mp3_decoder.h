@@ -51,25 +51,25 @@ enum {
 };
 
 typedef struct MP3FrameInfo {
-    int bitrate;
-    int nChans;
-    int samprate;
-    int bitsPerSample;
-    int outputSamps;
-    int layer;
-    int version;
+    int32_t bitrate;
+    int32_t nChans;
+    int32_t samprate;
+    int32_t bitsPerSample;
+    int32_t outputSamps;
+    int32_t layer;
+    int32_t version;
 } MP3FrameInfo_t;
 
 typedef struct SFBandTable {
-    int/*short*/ l[23];
-    int/*short*/ s[14];
+    int32_t/*short*/ l[23];
+    int32_t/*short*/ s[14];
 } SFBandTable_t;
 
 typedef struct BitStreamInfo {
-    unsigned char *bytePtr;
-    unsigned int iCache;
-    int cachedBits;
-    int nBytes;
+    uint8_t *bytePtr;
+    uint32_t iCache;
+    int32_t cachedBits;
+    int32_t nBytes;
 } BitStreamInfo_t;
 
 typedef enum {          /* map these to the corresponding 2-bit values in the frame header */
@@ -86,57 +86,57 @@ typedef enum {          /* map to 0,1,2 to make table indexing easier */
 } MPEGVersion_t;
 
 typedef struct FrameHeader {
-    int layer;              /* layer index (1, 2, or 3) */
-    int crc;                /* CRC flag: 0 = disabled, 1 = enabled */
-    int brIdx;              /* bitrate index (0 - 15) */
-    int srIdx;              /* sample rate index (0 - 2) */
-    int paddingBit;         /* padding flag: 0 = no padding, 1 = single pad byte */
-    int privateBit;         /* unused */
-    int modeExt;            /* used to decipher joint stereo mode */
-    int copyFlag;           /* copyright flag: 0 = no, 1 = yes */
-    int origFlag;           /* original flag: 0 = copy, 1 = original */
-    int emphasis;           /* deemphasis mode */
-    int CRCWord;            /* CRC word (16 bits, 0 if crc not enabled) */
+    int32_t layer;              /* layer index (1, 2, or 3) */
+    int32_t crc;                /* CRC flag: 0 = disabled, 1 = enabled */
+    int32_t brIdx;              /* bitrate index (0 - 15) */
+    int32_t srIdx;              /* sample rate index (0 - 2) */
+    int32_t paddingBit;         /* padding flag: 0 = no padding, 1 = single pad byte */
+    int32_t privateBit;         /* unused */
+    int32_t modeExt;            /* used to decipher joint stereo mode */
+    int32_t copyFlag;           /* copyright flag: 0 = no, 1 = yes */
+    int32_t origFlag;           /* original flag: 0 = copy, 1 = original */
+    int32_t emphasis;           /* deemphasis mode */
+    int32_t CRCWord;            /* CRC word (16 bits, 0 if crc not enabled) */
 } FrameHeader_t;
 
 typedef struct SideInfoSub {
-    int part23Length;       /* number of bits in main data */
-    int nBigvals;           /* 2x this = first set of Huffman cw's (maximum amplitude can be > 1) */
-    int globalGain;         /* overall gain for dequantizer */
-    int sfCompress;         /* unpacked to figure out number of bits in scale factors */
-    int winSwitchFlag;      /* window switching flag */
-    int blockType;          /* block type */
-    int mixedBlock;         /* 0 = regular block (all short or long), 1 = mixed block */
-    int tableSelect[3];     /* index of Huffman tables for the big values regions */
-    int subBlockGain[3];    /* subblock gain offset, relative to global gain */
-    int region0Count;       /* 1+region0Count = num scale factor bands in first region of bigvals */
-    int region1Count;       /* 1+region1Count = num scale factor bands in second region of bigvals */
-    int preFlag;            /* for optional high frequency boost */
-    int sfactScale;         /* scaling of the scalefactors */
-    int count1TableSelect;  /* index of Huffman table for quad codewords */
+    int32_t part23Length;       /* number of bits in main data */
+    int32_t nBigvals;           /* 2x this = first set of Huffman cw's (maximum amplitude can be > 1) */
+    int32_t globalGain;         /* overall gain for dequantizer */
+    int32_t sfCompress;         /* unpacked to figure out number of bits in scale factors */
+    int32_t winSwitchFlag;      /* window switching flag */
+    int32_t blockType;          /* block type */
+    int32_t mixedBlock;         /* 0 = regular block (all short or long), 1 = mixed block */
+    int32_t tableSelect[3];     /* index of Huffman tables for the big values regions */
+    int32_t subBlockGain[3];    /* subblock gain offset, relative to global gain */
+    int32_t region0Count;       /* 1+region0Count = num scale factor bands in first region of bigvals */
+    int32_t region1Count;       /* 1+region1Count = num scale factor bands in second region of bigvals */
+    int32_t preFlag;            /* for optional high frequency boost */
+    int32_t sfactScale;         /* scaling of the scalefactors */
+    int32_t count1TableSelect;  /* index of Huffman table for quad codewords */
 } SideInfoSub_t;
 
 typedef struct SideInfo {
-    int mainDataBegin;
-    int privateBits;
-    int scfsi[m_MAX_NCHAN][m_MAX_SCFBD];                /* 4 scalefactor bands per channel */
+    int32_t mainDataBegin;
+    int32_t privateBits;
+    int32_t scfsi[m_MAX_NCHAN][m_MAX_SCFBD];                /* 4 scalefactor bands per channel */
 } SideInfo_t;
 
 typedef struct {
-    int cbType;             /* pure long = 0, pure short = 1, mixed = 2 */
-    int cbEndS[3];          /* number nonzero short cb's, per subbblock */
-    int cbEndSMax;          /* max of cbEndS[] */
-    int cbEndL;             /* number nonzero long cb's  */
+    int32_t cbType;             /* pure long = 0, pure short = 1, mixed = 2 */
+    int32_t cbEndS[3];          /* number nonzero short cb's, per subbblock */
+    int32_t cbEndSMax;          /* max of cbEndS[] */
+    int32_t cbEndL;             /* number nonzero long cb's  */
 } CriticalBandInfo_t;
 
 typedef struct DequantInfo {
-    int workBuf[m_MAX_REORDER_SAMPS];             /* workbuf for reordering short blocks */
+    int32_t workBuf[m_MAX_REORDER_SAMPS];             /* workbuf for reordering short blocks */
 } DequantInfo_t;
 
 typedef struct HuffmanInfo {
-    int huffDecBuf[m_MAX_NCHAN][m_MAX_NSAMP];       /* used both for decoded Huffman values and dequantized coefficients */
-    int nonZeroBound[m_MAX_NCHAN];                /* number of coeffs in huffDecBuf[ch] which can be > 0 */
-    int gb[m_MAX_NCHAN];                          /* minimum number of guard bits in huffDecBuf[ch] */
+    int32_t huffDecBuf[m_MAX_NCHAN][m_MAX_NSAMP];       /* used both for decoded Huffman values and dequantized coefficients */
+    int32_t nonZeroBound[m_MAX_NCHAN];                /* number of coeffs in huffDecBuf[ch] which can be > 0 */
+    int32_t gb[m_MAX_NCHAN];                          /* minimum number of guard bits in huffDecBuf[ch] */
 } HuffmanInfo_t;
 
 typedef enum HuffTabType {
@@ -150,28 +150,28 @@ typedef enum HuffTabType {
 } HuffTabType_t;
 
 typedef struct HuffTabLookup {
-    int linBits;
-    int  tabType; /*HuffTabType*/
+    int32_t linBits;
+    int32_t  tabType; /*HuffTabType*/
 } HuffTabLookup_t;
 
 typedef struct IMDCTInfo {
-    int outBuf[m_MAX_NCHAN][m_BLOCK_SIZE][m_NBANDS];  /* output of IMDCT */
-    int overBuf[m_MAX_NCHAN][m_MAX_NSAMP / 2];      /* overlap-add buffer (by symmetry, only need 1/2 size) */
-    int numPrevIMDCT[m_MAX_NCHAN];                /* how many IMDCT's calculated in this channel on prev. granule */
-    int prevType[m_MAX_NCHAN];
-    int prevWinSwitch[m_MAX_NCHAN];
-    int gb[m_MAX_NCHAN];
+    int32_t outBuf[m_MAX_NCHAN][m_BLOCK_SIZE][m_NBANDS];  /* output of IMDCT */
+    int32_t overBuf[m_MAX_NCHAN][m_MAX_NSAMP / 2];      /* overlap-add buffer (by symmetry, only need 1/2 size) */
+    int32_t numPrevIMDCT[m_MAX_NCHAN];                /* how many IMDCT's calculated in this channel on prev. granule */
+    int32_t prevType[m_MAX_NCHAN];
+    int32_t prevWinSwitch[m_MAX_NCHAN];
+    int32_t gb[m_MAX_NCHAN];
 } IMDCTInfo_t;
 
 typedef struct BlockCount {
-    int nBlocksLong;
-    int nBlocksTotal;
-    int nBlocksPrev;
-    int prevType;
-    int prevWinSwitch;
-    int currWinSwitch;
-    int gbIn;
-    int gbOut;
+    int32_t nBlocksLong;
+    int32_t nBlocksTotal;
+    int32_t nBlocksPrev;
+    int32_t prevType;
+    int32_t prevWinSwitch;
+    int32_t currWinSwitch;
+    int32_t gbIn;
+    int32_t gbOut;
 } BlockCount_t;
 
 typedef struct ScaleFactorInfoSub {    /* max bits in scalefactors = 5, so use char's to save space */
@@ -180,9 +180,9 @@ typedef struct ScaleFactorInfoSub {    /* max bits in scalefactors = 5, so use c
 } ScaleFactorInfoSub_t;
 
 typedef struct ScaleFactorJS { /* used in MPEG 2, 2.5 intensity (joint) stereo only */
-    int intensityScale;
-    int slen[4];
-    int nr[4];
+    int32_t intensityScale;
+    int32_t slen[4];
+    int32_t nr[4];
 } ScaleFactorJS_t;
 
 /* NOTE - could get by with smaller vbuf if memory is more important than speed
@@ -190,28 +190,28 @@ typedef struct ScaleFactorJS { /* used in MPEG 2, 2.5 intensity (joint) stereo o
  *   last 15 blocks to shift them down one, a hardware style FIFO)
  */
 typedef struct SubbandInfo {
-    int vbuf[m_MAX_NCHAN * m_VBUF_LENGTH];      /* vbuf for fast DCT-based synthesis PQMF - double size for speed (no modulo indexing) */
-    int vindex;                             /* internal index for tracking position in vbuf */
+    int32_t vbuf[m_MAX_NCHAN * m_VBUF_LENGTH];      /* vbuf for fast DCT-based synthesis PQMF - double size for speed (no modulo indexing) */
+    int32_t vindex;                             /* internal index for tracking position in vbuf */
 } SubbandInfo_t;
 
 typedef struct MP3DecInfo {
     /* buffer which must be large enough to hold largest possible main_data section */
-    unsigned char mainBuf[m_MAINBUF_SIZE];
+    uint8_t mainBuf[m_MAINBUF_SIZE];
     /* special info for "free" bitrate files */
-    int freeBitrateFlag;
-    int freeBitrateSlots;
+    int32_t freeBitrateFlag;
+    int32_t freeBitrateSlots;
     /* user-accessible info */
-    int bitrate;
-    int nChans;
-    int samprate;
-    int nGrans;             /* granules per frame */
-    int nGranSamps;         /* samples per granule */
-    int nSlots;
-    int layer;
+    int32_t bitrate;
+    int32_t nChans;
+    int32_t samprate;
+    int32_t nGrans;             /* granules per frame */
+    int32_t nGranSamps;         /* samples per granule */
+    int32_t nSlots;
+    int32_t layer;
 
-    int mainDataBegin;
-    int mainDataBytes;
-    int part23Length[m_MAX_NGRAN][m_MAX_NCHAN];
+    int32_t mainDataBegin;
+    int32_t mainDataBytes;
+    int32_t part23Length[m_MAX_NGRAN][m_MAX_NCHAN];
 } MP3DecInfo_t;
 
 
@@ -225,9 +225,9 @@ typedef struct MP3DecInfo {
  * float c4 = sin(2*u);
  */
 
-const int c9_x[] PROGMEM = {0x6ed9eba1, 0x620dbe8b, 0x163a1a7e, 0x5246dd49, 0x7e0e2e32 };
-const int c3_0[] PROGMEM = {0x6ed9eba1};
-const int c6[3] PROGMEM = { 0x7ba3751d, 0x5a82799a, 0x2120fb83 };
+const int32_t c9_x[] PROGMEM = {0x6ed9eba1, 0x620dbe8b, 0x163a1a7e, 0x5246dd49, 0x7e0e2e32 };
+const int32_t c3_0[] PROGMEM = {0x6ed9eba1};
+const int32_t c6[3] PROGMEM = { 0x7ba3751d, 0x5a82799a, 0x2120fb83 };
 const uint32_t c18[9] PROGMEM = { 0x7f834ed0, 0x7ba3751d, 0x7401e4c1, 0x68d9f964, 0x5a82799a, 0x496af3e2, 0x36185aee, 0x2120fb83, 0x0b27eb5c};
 
 /*
@@ -275,7 +275,7 @@ const char NRTab[6][3][4] PROGMEM = {
 const char preTab[22] PROGMEM = { 0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,2,2,3,3,3,2,0 };
 
 /* pow(2,-i/4) for i=0..3, Q31 format */
-const int pow14[4] PROGMEM = {
+const int32_t pow14[4] PROGMEM = {
     0x7fffffff, 0x6ba27e65, 0x5a82799a, 0x4c1bf829
 };
 
@@ -289,13 +289,13 @@ const uint64_t ulconst[1] PROGMEM = { 1 };
  * Relative error < 1E-7
  * Coefs are scaled by 4, 2, 1, 0.5, 0.25
  */
-const unsigned int poly43lo[5] PROGMEM = { 0x29a0bda9, 0xb02e4828, 0x5957aa1b, 0x236c498d, 0xff581859 };
-const unsigned int poly43hi[5] PROGMEM = { 0x10852163, 0xd333f6a4, 0x46e9408b, 0x27c2cef0, 0xfef577b4 };
+const uint32_t poly43lo[5] PROGMEM = { 0x29a0bda9, 0xb02e4828, 0x5957aa1b, 0x236c498d, 0xff581859 };
+const uint32_t poly43hi[5] PROGMEM = { 0x10852163, 0xd333f6a4, 0x46e9408b, 0x27c2cef0, 0xfef577b4 };
 
 /* pow(2, i*4/3) as exp and frac */
-const int pow2exp[8] PROGMEM = { 14, 13, 11, 10, 9, 7, 6, 5 };
+const int32_t pow2exp[8] PROGMEM = { 14, 13, 11, 10, 9, 7, 6, 5 };
 
-const int pow2frac[8] PROGMEM = {
+const int32_t pow2frac[8] PROGMEM = {
     0x6597fa94, 0x50a28be6, 0x7fffffff, 0x6597fa94,
     0x50a28be6, 0x7fffffff, 0x6597fa94, 0x50a28be6
 };
@@ -334,7 +334,7 @@ const uint16_t m_HUFF_OFFSET_24=651 + m_HUFF_OFFSET_16;
 #define m_HUFF_OFFSET_24 651+m_HUFF_OFFSET_16
 #endif
 
-const int huffTabOffset[m_HUFF_PAIRTABS] PROGMEM = {
+const int32_t huffTabOffset[m_HUFF_PAIRTABS] PROGMEM = {
     0,                   m_HUFF_OFFSET_01,    m_HUFF_OFFSET_02,    m_HUFF_OFFSET_03,
     0,                   m_HUFF_OFFSET_05,    m_HUFF_OFFSET_06,    m_HUFF_OFFSET_07,
     m_HUFF_OFFSET_08,    m_HUFF_OFFSET_09,    m_HUFF_OFFSET_10,    m_HUFF_OFFSET_11,
@@ -380,13 +380,13 @@ const HuffTabLookup_t huffTabLookup[m_HUFF_PAIRTABS] PROGMEM = {
 };
 
 
-const int quadTabOffset[2] PROGMEM = {0, 64};
-const int quadTabMaxBits[2] PROGMEM = {6, 4};
+const int32_t quadTabOffset[2] PROGMEM = {0, 64};
+const int32_t quadTabMaxBits[2] PROGMEM = {6, 4};
 
 /* indexing = [version][samplerate index]
  * sample rate of frame (Hz)
  */
-const int samplerateTab[3][3] PROGMEM = {
+const int32_t samplerateTab[3][3] PROGMEM = {
         { 44100, 48000, 32000 }, /* MPEG-1 */
         { 22050, 24000, 16000 }, /* MPEG-2 */
         { 11025, 12000, 8000  }, /* MPEG-2.5 */
@@ -397,7 +397,7 @@ const int samplerateTab[3][3] PROGMEM = {
 /* indexing = [version][layer]
  * number of samples in one frame (per channel)
  */
-const int/*short*/samplesPerFrameTab[3][3] PROGMEM = { { 384, 1152, 1152 }, /* MPEG1 */
+const int32_t/*short*/samplesPerFrameTab[3][3] PROGMEM = { { 384, 1152, 1152 }, /* MPEG1 */
 { 384, 1152, 576 }, /* MPEG2 */
 { 384, 1152, 576 }, /* MPEG2.5 */
 };
@@ -408,7 +408,7 @@ const int/*short*/samplesPerFrameTab[3][3] PROGMEM = { { 384, 1152, 1152 }, /* M
 /* indexing = [version][mono/stereo]
  * number of bytes in side info section of bitstream
  */
-const int/*short*/sideBytesTab[3][2] PROGMEM = { { 17, 32 }, /* MPEG-1:   mono, stereo */
+const int32_t/*short*/sideBytesTab[3][2] PROGMEM = { { 17, 32 }, /* MPEG-1:   mono, stereo */
 { 9, 17 }, /* MPEG-2:   mono, stereo */
 { 9, 17 }, /* MPEG-2.5: mono, stereo */
 };
@@ -447,13 +447,13 @@ const SFBandTable_t sfBandTable[3][3] PROGMEM = {
  *
  * illegal intensity position scalefactors (see comments on ISFMpeg1)
  */
-const int ISFIIP[2][2] PROGMEM = {
+const int32_t ISFIIP[2][2] PROGMEM = {
     {0x40000000, 0x00000000}, /* mid-side off */
     {0x40000000, 0x40000000}, /* mid-side on */
 };
 
 // not used
-//const unsigned char uniqueIDTab[8] = {0x5f, 0x4b, 0x43, 0x5f, 0x5f, 0x4a, 0x52, 0x5f};
+//const uint8_t uniqueIDTab[8] = {0x5f, 0x4b, 0x43, 0x5f, 0x5f, 0x4a, 0x52, 0x5f};
 
 /* anti-alias coefficients - see spec Annex B, table 3-B.9
  *   csa[0][i] = CSi, csa[1][i] = CAi
@@ -523,71 +523,71 @@ MODULE_PART uint32_t MP3Decoder_AllocateBuffers(void);
 MODULE_PART void MP3Decoder_FreeBuffers();
 MODULE_PART int32_t  MP3Decode( uint8_t *inbuf, int32_t *bytesLeft, int16_t *outbuf, int32_t useSize);
 MODULE_PART void MP3GetLastFrameInfo();
-MODULE_PART int  MP3GetNextFrameInfo(uint8_t *buf);
-MODULE_PART int  MP3FindSyncWord(uint8_t *buf, int32_t nBytes);
-MODULE_PART int  MP3GetSampRate();
-MODULE_PART int  MP3GetChannels();
-MODULE_PART int  MP3GetBitsPerSample();
-MODULE_PART int  MP3GetBitrate();
-MODULE_PART int  MP3GetOutputSamps();
+MODULE_PART int32_t  MP3GetNextFrameInfo(uint8_t *buf);
+MODULE_PART int32_t  MP3FindSyncWord(uint8_t *buf, int32_t nBytes);
+MODULE_PART int32_t  MP3GetSampRate();
+MODULE_PART int32_t  MP3GetChannels();
+MODULE_PART int32_t  MP3GetBitsPerSample();
+MODULE_PART int32_t  MP3GetBitrate();
+MODULE_PART int32_t  MP3GetOutputSamps();
 
 //internally used
 MODULE_PART void MP3Decoder_ClearBuffer(void);
-MODULE_PART void PolyphaseMono(short *pcm, int *vbuf, const uint32_t *coefBase);
-MODULE_PART void PolyphaseStereo(short *pcm, int *vbuf, const uint32_t *coefBase);
-MODULE_PART void SetBitstreamPointer(BitStreamInfo_t *bsi, int nBytes, unsigned char *buf);
-MODULE_PART unsigned int GetBits(BitStreamInfo_t *bsi, int nBits);
-MODULE_PART int CalcBitsUsed(BitStreamInfo_t *bsi, unsigned char *startBuf, int startOffset);
-MODULE_PART int DequantChannel(int *sampleBuf, int *workBuf, int *nonZeroBound, SideInfoSub_t *sis, ScaleFactorInfoSub_t *sfis, CriticalBandInfo_t *cbi);
-MODULE_PART void MidSideProc(int x[m_MAX_NCHAN][m_MAX_NSAMP], int nSamps, int mOut[2]);
-MODULE_PART void IntensityProcMPEG1(int x[m_MAX_NCHAN][m_MAX_NSAMP], int nSamps, ScaleFactorInfoSub_t *sfis,	CriticalBandInfo_t *cbi, int midSideFlag, int mixFlag, int mOut[2]);
-MODULE_PART void IntensityProcMPEG2(int x[m_MAX_NCHAN][m_MAX_NSAMP], int nSamps, ScaleFactorInfoSub_t *sfis, CriticalBandInfo_t *cbi, ScaleFactorJS_t *sfjs, int midSideFlag, int mixFlag, int mOut[2]);
-MODULE_PART void FDCT32(int *x, int *d, int offset, int oddBlock, int gb);// __attribute__ ((section (".data")));
+MODULE_PART void PolyphaseMono(short *pcm, int32_t *vbuf, const uint32_t *coefBase);
+MODULE_PART void PolyphaseStereo(short *pcm, int32_t *vbuf, const uint32_t *coefBase);
+MODULE_PART void SetBitstreamPointer(BitStreamInfo_t *bsi, int32_t nBytes, uint8_t *buf);
+MODULE_PART uint32_t GetBits(BitStreamInfo_t *bsi, int32_t nBits);
+MODULE_PART int32_t CalcBitsUsed(BitStreamInfo_t *bsi, uint8_t *startBuf, int32_t startOffset);
+MODULE_PART int32_t DequantChannel(int32_t *sampleBuf, int32_t *workBuf, int32_t *nonZeroBound, SideInfoSub_t *sis, ScaleFactorInfoSub_t *sfis, CriticalBandInfo_t *cbi);
+MODULE_PART void MidSideProc(int32_t x[m_MAX_NCHAN][m_MAX_NSAMP], int32_t nSamps, int32_t mOut[2]);
+MODULE_PART void IntensityProcMPEG1(int32_t x[m_MAX_NCHAN][m_MAX_NSAMP], int32_t nSamps, ScaleFactorInfoSub_t *sfis,	CriticalBandInfo_t *cbi, int32_t midSideFlag, int32_t mixFlag, int32_t mOut[2]);
+MODULE_PART void IntensityProcMPEG2(int32_t x[m_MAX_NCHAN][m_MAX_NSAMP], int32_t nSamps, ScaleFactorInfoSub_t *sfis, CriticalBandInfo_t *cbi, ScaleFactorJS_t *sfjs, int32_t midSideFlag, int32_t mixFlag, int32_t mOut[2]);
+MODULE_PART void FDCT32(int32_t *x, int32_t *d, int32_t offset, int32_t oddBlock, int32_t gb);// __attribute__ ((section (".data")));
 MODULE_PART void FreeBuffers();
-MODULE_PART int CheckPadBit();
-MODULE_PART int UnpackFrameHeader(unsigned char *buf);
-MODULE_PART int UnpackSideInfo(unsigned char *buf);
-MODULE_PART int DecodeHuffman( unsigned char *buf, int *bitOffset, int huffBlockBits, int gr, int ch);
-MODULE_PART int MP3Dequantize( int gr);
-MODULE_PART int IMDCT( int gr, int ch);
-MODULE_PART int UnpackScaleFactors( unsigned char *buf, int *bitOffset, int bitsAvail, int gr, int ch);
-MODULE_PART int Subband(short *pcmBuf);
-MODULE_PART short ClipToShort(int x, int fracBits);
+MODULE_PART int32_t CheckPadBit();
+MODULE_PART int32_t UnpackFrameHeader(uint8_t *buf);
+MODULE_PART int32_t UnpackSideInfo(uint8_t *buf);
+MODULE_PART int32_t DecodeHuffman( uint8_t *buf, int32_t *bitOffset, int32_t huffBlockBits, int32_t gr, int32_t ch);
+MODULE_PART int32_t MP3Dequantize( int32_t gr);
+MODULE_PART int32_t IMDCT( int32_t gr, int32_t ch);
+MODULE_PART int32_t UnpackScaleFactors( uint8_t *buf, int32_t *bitOffset, int32_t bitsAvail, int32_t gr, int32_t ch);
+MODULE_PART int32_t Subband(short *pcmBuf);
+MODULE_PART short ClipToShort(int32_t x, int32_t fracBits);
 MODULE_PART void RefillBitstreamCache(BitStreamInfo_t *bsi);
-MODULE_PART void UnpackSFMPEG1(BitStreamInfo_t *bsi, SideInfoSub_t *sis, ScaleFactorInfoSub_t *sfis, int *scfsi, int gr, ScaleFactorInfoSub_t *sfisGr0);
-MODULE_PART void UnpackSFMPEG2(BitStreamInfo_t *bsi, SideInfoSub_t *sis, ScaleFactorInfoSub_t *sfis, int gr, int ch, int modeExt, ScaleFactorJS_t *sfjs);
-MODULE_PART int MP3FindFreeSync(unsigned char *buf, unsigned char firstFH[4], int nBytes);
+MODULE_PART void UnpackSFMPEG1(BitStreamInfo_t *bsi, SideInfoSub_t *sis, ScaleFactorInfoSub_t *sfis, int32_t *scfsi, int32_t gr, ScaleFactorInfoSub_t *sfisGr0);
+MODULE_PART void UnpackSFMPEG2(BitStreamInfo_t *bsi, SideInfoSub_t *sis, ScaleFactorInfoSub_t *sfis, int32_t gr, int32_t ch, int32_t modeExt, ScaleFactorJS_t *sfjs);
+MODULE_PART int32_t MP3FindFreeSync(uint8_t *buf, uint8_t firstFH[4], int32_t nBytes);
 MODULE_PART void MP3ClearBadFrame( short *outbuf);
-MODULE_PART int DecodeHuffmanPairs(int *xy, int nVals, int tabIdx, int bitsLeft, unsigned char *buf, int bitOffset);
-MODULE_PART int DecodeHuffmanQuads(int *vwxy, int nVals, int tabIdx, int bitsLeft, unsigned char *buf, int bitOffset);
-MODULE_PART int DequantBlock(int *inbuf, int *outbuf, int num, int scale);
-MODULE_PART void AntiAlias(int *x, int nBfly);
-MODULE_PART void WinPrevious(int *xPrev, int *xPrevWin, int btPrev);
-MODULE_PART int FreqInvertRescale(int *y, int *xPrev, int blockIdx, int es);
-MODULE_PART void idct9(int *x);
-MODULE_PART int IMDCT36(int *xCurr, int *xPrev, int *y, int btCurr, int btPrev, int blockIdx, int gb);
-MODULE_PART void imdct12(int *x, int *out);
-MODULE_PART int IMDCT12x3(int *xCurr, int *xPrev, int *y, int btPrev, int blockIdx, int gb);
-MODULE_PART int HybridTransform(int *xCurr, int *xPrev, int y[m_BLOCK_SIZE][m_NBANDS], SideInfoSub_t *sis, BlockCount_t *bc);
+MODULE_PART int32_t DecodeHuffmanPairs(int32_t *xy, int32_t nVals, int32_t tabIdx, int32_t bitsLeft, uint8_t *buf, int32_t bitOffset);
+MODULE_PART int32_t DecodeHuffmanQuads(int32_t *vwxy, int32_t nVals, int32_t tabIdx, int32_t bitsLeft, uint8_t *buf, int32_t bitOffset);
+MODULE_PART int32_t DequantBlock(int32_t *inbuf, int32_t *outbuf, int32_t num, int32_t scale);
+MODULE_PART void AntiAlias(int32_t *x, int32_t nBfly);
+MODULE_PART void WinPrevious(int32_t *xPrev, int32_t *xPrevWin, int32_t btPrev);
+MODULE_PART int32_t FreqInvertRescale(int32_t *y, int32_t *xPrev, int32_t blockIdx, int32_t es);
+MODULE_PART void idct9(int32_t *x);
+MODULE_PART int32_t IMDCT36(int32_t *xCurr, int32_t *xPrev, int32_t *y, int32_t btCurr, int32_t btPrev, int32_t blockIdx, int32_t gb);
+MODULE_PART void imdct12(int32_t *x, int32_t *out);
+MODULE_PART int32_t IMDCT12x3(int32_t *xCurr, int32_t *xPrev, int32_t *y, int32_t btPrev, int32_t blockIdx, int32_t gb);
+MODULE_PART int32_t HybridTransform(int32_t *xCurr, int32_t *xPrev, int32_t y[m_BLOCK_SIZE][m_NBANDS], SideInfoSub_t *sis, BlockCount_t *bc);
 
 //MODULE_PART inline uint64_t SAR64(uint64_t x, int n) {  return x >> n;}
 #define SAR64 __lshrdi3
 
-//MODULE_PART inline int MULSHIFT32(int x, int y) { int z; z = (uint64_t) x * (uint64_t) y >> 32; return z;}
+//MODULE_PART inline int32_t MULSHIFT32(int32_t x, int32_t y) { int32_t z; z = (uint64_t) x * (uint64_t) y >> 32; return z;}
 //#define MULSHIFT32(x, y) (int)(__muldi3((uint64_t) x , (uint64_t) y) >> 32)
-//MODULE_PART int MULSHIFT32(int x, int y);
+//MODULE_PART int32_t MULSHIFT32(int32_t x, int32_t y);
 
 
-//MODULE_PART inline uint64_t MADD64(uint64_t sum64, int x, int y) {sum64 += (uint64_t) x * (uint64_t) y; return sum64;}/* returns 64-bit value in [edx:eax] */
+//MODULE_PART inline uint64_t MADD64(uint64_t sum64, int32_t x, int32_t y) {sum64 += (uint64_t) x * (uint64_t) y; return sum64;}/* returns 64-bit value in [edx:eax] */
 #define MADD64(x, y) __muldi3(x, y)
 
 MODULE_PART uint32_t my_clz(uint32_t in);
 
 //MODULE_PART 
-inline uint64_t xSAR64(uint64_t x, int n){return x >> n;}
+inline uint64_t xSAR64(uint64_t x, int32_t n){return x >> n;}
 
-//MODULE_PART inline int FASTABS(int x){ return __builtin_abs(x);} //xtensa has a fast abs instruction //fb
-MODULE_PART int FASTABS(int x) {
+//MODULE_PART inline int FASTABS(int32_t x){ return __builtin_abs(x);} //xtensa has a fast abs instruction //fb
+MODULE_PART int32_t FASTABS(int32_t x) {
     if (x < 0) {
         return -x;
     } 
@@ -598,13 +598,13 @@ MODULE_PART int FASTABS(int x) {
 #define CLZ(x) my_clz(x) //fb
 
 #ifdef __riscv
-MODULE_PART int MULSHIFT32(int x, int y) { 
+MODULE_PART int32_t MULSHIFT32(int32_t x, int32_t y) { 
     SETMINREGS
-    int z = __muldi3((uint64_t) x , (uint64_t) y) >> 32;
+    int32_t z = __muldi3((uint64_t) x , (uint64_t) y) >> 32;
     return z;
  }
 #else
- MODULE_PART static __inline int MULSHIFT32(int x, int y) {
+ MODULE_PART static __inline int32_t MULSHIFT32(int32_t x, int32_t y) {
     /* important rules for smull RdLo, RdHi, Rm, Rs:
      *     RdHi and Rm can't be the same register
      *     RdLo and Rm can't be the same register
@@ -615,7 +615,7 @@ MODULE_PART int MULSHIFT32(int x, int y) {
      *   which one is returned. (If this were a function call, returning y (R1) would
      *   require an extra "mov r0, r1")
      */
-    int ret;
+    int32_t ret;
     asm volatile ("mulsh %0, %1, %2" : "=r" (ret) : "r" (x), "r" (y));
     return ret;
 }
@@ -626,14 +626,14 @@ MODULE_PART int MULSHIFT32(int x, int y) {
 
 typedef long long Word64;
 
-static __inline Word64 MADD64(Word64 sum64, int x, int y)
+static __inline Word64 MADD64(Word64 sum64, int32_t x, int32_t y)
 {
     return (sum64 + ((long long)x * y));
 }
 
 #if XCHAL_HAVE_MUL32_HIGH
 
-static __inline int MULSHIFT32(int x, int y)
+static __inline int32_t MULSHIFT32(int32_t x, int32_t y)
 {
     /* important rules for smull RdLo, RdHi, Rm, Rs:
      *     RdHi and Rm can't be the same register
@@ -645,7 +645,7 @@ static __inline int MULSHIFT32(int x, int y)
      *   which one is returned. (If this were a function call, returning y (R1) would
      *   require an extra "mov r0, r1")
      */
-    int ret;
+    int32_t ret;
     asm volatile ("mulsh %0, %1, %2" : "=r" (ret) : "r" (x), "r" (y));
     return ret;
 }
@@ -658,9 +658,9 @@ static __inline int MULSHIFT32(int x, int y)
 
 #if XCHAL_HAVE_ABS
 
-static __inline int FASTABS(int x)
+static __inline int32_t FASTABS(int32_t x)
 {
-    int ret;
+    int32_t ret;
     asm volatile ("abs %0, %1" : "=r" (ret) : "r" (x));
     return ret;
 }
@@ -671,12 +671,12 @@ static __inline int FASTABS(int x)
 
 #endif
 
-static __inline Word64 SAR64(Word64 x, int n)
+static __inline Word64 SAR64(Word64 x, int32_t n)
 {
     return x >> n;
 }
 
-static __inline int CLZ(int x)
+static __inline int32_t CLZ(int32_t x)
 {
     return __builtin_clz(x);
 }

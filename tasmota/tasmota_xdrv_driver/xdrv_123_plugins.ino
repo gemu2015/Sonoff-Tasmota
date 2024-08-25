@@ -464,7 +464,6 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2,  uint32_t p3) {
     case 1:
     {
       int32_t err = client->connect((char*)p2, p3);
-      AddLog(LOG_LEVEL_INFO,PSTR("connect %s - %d - %d"), (char*)p2, p3, err);
       return err;
     }
     case 2:
@@ -489,7 +488,6 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2,  uint32_t p3) {
     case 11:
     {
       int32_t err = sclient->connect((char*)p2, p3);
-      AddLog(LOG_LEVEL_INFO,PSTR("connect %s - %d - %d"), (char*)p2, p3, err);
       return err;
     }
     case 12:
@@ -524,8 +522,7 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2,  uint32_t p3) {
       delete http;
       break;
     case 33:
-      http->begin(String((char*)p2), (char*)p3);
-      break;
+      return http->begin((NetworkClient&)*(NetworkClient*)p2, (char*)p3);
     case 34:
       http->setReuse(p2);
       break;
@@ -538,7 +535,35 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2,  uint32_t p3) {
     case 38:
       // returns client
       return (uint32_t)http->getStreamPtr();
-
+    case 39:
+      { 
+        char *cp2 = copyStr((char*)p2);
+        char *cp3 = copyStr((char*)p3);
+        http->addHeader((const char*)cp2, (const char*)cp3);
+        free(cp2);
+        free(cp3);
+        break;
+      }
+    case 40:
+      http->collectHeaders((const char**)p2, p3);
+      break;
+    case 41:
+      {
+      char *cp = copyStr((char*)p2);
+      String hd = http->header(cp);
+      free(cp);
+      return (uint32_t) hd.c_str();
+      }
+    case 42:
+      {
+        char *cp = copyStr((char*)p2);
+        bool hd = http->hasHeader(cp);
+        free(cp);
+        return hd;
+      }
+    case 43:
+      http->setFollowRedirects((followRedirects_t)p2);
+      break;
   }
 #endif // ESP32
   return 0;
