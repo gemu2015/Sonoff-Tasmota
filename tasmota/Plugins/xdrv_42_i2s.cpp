@@ -101,6 +101,8 @@ typedef struct {
   uint16_t input_bytes;
   uint32_t filepos;
 #endif
+  int32_t pclamp;
+  int32_t mclamp;
 #ifdef USE_WM8960
  TwoWire *xWire;
 #endif
@@ -128,6 +130,8 @@ typedef struct {
 #define filepos mem->filepos
 #define wclient mem->wclient
 #define http mem->http
+#define pclamp mem->pclamp
+#define mclamp mem->mclamp
 
 // esp8266 fixed i2s pins : DOUT = 3(RX), BCK = 15(D8), WS = 2(D4)
 
@@ -160,6 +164,7 @@ MODULE_PART void Say(void);
 MODULE_PART int32_t W8960_Init(void);
 MODULE_PART void W8960_Write(uint8_t reg_addr, uint16_t data);
 MODULE_PART void W8960_SetGain(uint8_t sel, uint16_t value);
+MODULE_PART void Write_Samples(int16_t *buffer, uint32_t samples);
 MODULE_PART void I2SAudio_Deinit();
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
 MODULE_END
@@ -186,7 +191,7 @@ const char S_JSON_WMERR[] PROGMEM = "{\"WM8960 error\"}";
 
 const char tname[] PROGMEM = "I2STASK";
 const uint32_t ui32_const[4] PROGMEM = {OUTBUFF_SIZE, 8192, 0x46464952 , INBUFF_SIZE}; 
-const int32_t i32_const[3] PROGMEM = {32768, -32768, INBUFF_SIZE}; 
+const int32_t i32_const[2] PROGMEM = {32768, -32768}; 
 
 
 int32_t I2SAudio_Init() {
@@ -201,21 +206,28 @@ int32_t I2SAudio_Init() {
 
   i2sp = i2s_begin(dout_pin, bck_pin, ws_pin, mode);
 
+  const int32_t *icp = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+  pclamp = icp[0];
+  mclamp = icp[1];
+
 #ifdef USE_MP3
 
   uint32_t mp3mem = MP3Decoder_AllocateBuffers();
-  if (!mp3mem) {
+
+  const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
+
+  mt->mem_size += mp3mem;
+  m_outBuff = (int16_t*)calloc(uicp[0]/2, 2);
+  mt->mem_size += uicp[0];
+  m_inBuff = (uint8_t*)calloc(uicp[3], 1);
+  mt->mem_size += uicp[3];
+
+  if (!mp3mem || !m_outBuff || !m_inBuff) {
+    I2SAudio_Deinit();
     Response_P(GSTR(S_JSON_MEMERR));
     return -1;
   }
 
-  const uint32_t *icp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
-
-  mt->mem_size += mp3mem;
-  m_outBuff = (int16_t*)calloc(icp[0]/2,2);
-  mt->mem_size += icp[0];
-  m_inBuff = (uint8_t*)calloc(icp[3],1);
-  mt->mem_size += icp[3];
 #endif
 
 #ifdef USE_WM8960
@@ -235,10 +247,6 @@ int32_t I2SAudio_Init() {
 void I2sTask(void) {
   SETREGS
 
-  const uint32_t *icp = (const uint32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
-  int32_t pclamp = icp[0];
-  int32_t mclamp = icp[1];
-
   int16_t buffer[512];
   // skip header
   fread((char*)&buffer, 1, sizeof(wav_header_t), wf);
@@ -249,15 +257,9 @@ void I2sTask(void) {
       running = 0;
       break;
     }
-    for (uint32_t i = 0; i < bytesread / 2; i++) {
-        int32_t v = (buffer[i] * gain_div) >> 6;
-        if (v < mclamp) {
-          v = mclamp;
-        } else if (v > pclamp) {
-          v = pclamp;
-        }
-    }
-    i2s_write_samples(i2sp, buffer, bytesread / 2);
+
+    Write_Samples(buffer, bytesread / 2);
+
   }
   
   fclose(wf);
@@ -304,7 +306,7 @@ void I2S_Play(void) {
 
   ep++;
 
-  const uint32_t *icp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
+  const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
 
   if (!strncmp_P(ep, PSTR("wav"), 3)) {
     // play wav file
@@ -314,7 +316,7 @@ void I2S_Play(void) {
     fread((char*)&wh, 1, sizeof(wav_header_t), wf);
  
     // 0x52494646
-    if (wh.Riff.ChunkID != icp[2] && wh.Fmt.NumChannels != 1) {
+    if (wh.Riff.ChunkID != uicp[2] && wh.Fmt.NumChannels != 1) {
       fclose(wf);
       Response_P(GSTR(S_JSON_ILLF));
       return;
@@ -331,7 +333,7 @@ void I2S_Play(void) {
     TASKPARS tp;
     tp.pvTaskCode = GVOID(I2sTask);
     tp.constpcName = GSTR(tname);
-    tp.usStackDepth = icp[1];
+    tp.usStackDepth = uicp[1];
     tp.constpvParameters = cp;
     tp.uxPriority = 3;
     tp.constpvCreatedTask = nullptr;
@@ -339,26 +341,14 @@ void I2S_Play(void) {
     int32_t err = xTaskCreatePinnedToCore(&tp);
 #else
 
-    int16_t buffer[512]; 
-    const uint32_t *icp = (const uint32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
-    int32_t pclamp = icp[0];
-    int32_t mclamp = icp[1];
+    int16_t buffer[512];
 
     while (1) {
       uint32_t bytesread = fread((char*)buffer, 1, sizeof(buffer), wf);
       if (!bytesread) {
         break;
       }
-      for (uint32_t i = 0; i < bytesread / 2; i++) {
-        int32_t v = (buffer[i] * gain_div) >> 6;
-        if (v < mclamp) {
-          v = mclamp;
-        } else if (v > pclamp) {
-          v = pclamp;
-        }
-        buffer[i] = (int16_t)(v & 0xffff);
-      }
-      i2s_write_samples(i2sp, buffer, bytesread / 2);
+      Write_Samples(buffer, bytesread / 2);
       OsWatchLoop();
     }
 
@@ -375,7 +365,7 @@ void I2S_Play(void) {
       TASKPARS tp;
       tp.pvTaskCode = GVOID(I2sTaskMP3);
       tp.constpcName = GSTR(tname);
-      tp.usStackDepth = icp[1];
+      tp.usStackDepth = uicp[1];
       tp.constpvParameters = cp;
       tp.uxPriority = 3;
       tp.constpvCreatedTask = nullptr;
@@ -398,8 +388,6 @@ void I2S_Play(void) {
 void SetVolume(void) {
   SETREGS
   uint16_t gain;
-
-
   // virtual bool SetGain(float f) { if (f>4.0) f = 4.0; if (f<0.0) f=0.0; gainF2P6 = (uint8_t)(f*(1<<6)); return true; }
 
   if (XdrvMailbox->data_len > 0) {
@@ -420,6 +408,23 @@ void SetVolume(void) {
 }
 
 #ifdef USE_MP3
+
+void Write_Samples(int16_t *buffer, uint32_t samples) {
+SETMEMREGS
+
+  for (uint32_t i = 0; i < samples; i++) {
+    int32_t v = (buffer[i] * gain_div) >> 6;
+    if (v < mclamp) {
+      v = mclamp;
+    } else if (v > pclamp) {
+      v = pclamp;
+    }
+    buffer[i] = (int16_t)(v & 0xffff);
+  }
+
+  i2s_write_samples(i2sp, buffer, samples);
+}  
+
 uint32_t Get_tag(uint8_t * buff) {
   if (buff[0] == 'T' && buff[1] == 'A' && buff[2] == 'G') {
     return 128;
@@ -464,15 +469,13 @@ bool mp3_begin() {
 bool mp3_loop() {
 SETREGS
 
-  const uint32_t *xicp = (const uint32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
-  int32_t pclamp = xicp[0];
-  int32_t mclamp = xicp[1];
+  const uint32_t *icp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
 
   uint32_t bytesread;
   uint32_t tag = 1;
   while (tag) {
     fseek(wf, filepos, SEEK_SET);
-    bytesread = fread((char*)m_inBuff, 1, xicp[2], wf);
+    bytesread = fread((char*)m_inBuff, 1, icp[3], wf);
     if (!bytesread) {
       running = false;
       return false;
@@ -495,7 +498,6 @@ SETREGS
 
   uint32_t samples = MP3GetOutputSamps();
 
-  const uint32_t *icp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
   if (samples > icp[0] >> 1) {
     AddLog(LOG_LEVEL_INFO, PSTR("mp3 buffer overflow = %d"), samples);
     running = 0;
@@ -503,17 +505,8 @@ SETREGS
 
     uint32_t m_validSamples = samples; // chans;
 
-    for (uint32_t i = 0; i < m_validSamples; i++) {
-      int32_t v = (m_outBuff[i] * gain_div) >> 6;
-        if (v < mclamp) {
-          v = mclamp;
-        } else if (v > pclamp) {
-          v = pclamp;
-        }
-        m_outBuff[i] = (int16_t)(v & 0xffff);
-    }
+    Write_Samples(m_outBuff, m_validSamples);
 
-    i2s_write_samples(i2sp, m_outBuff, m_validSamples);
   }
   return running;
 }
@@ -569,25 +562,58 @@ void Say(void) {
 // webradio task
 void I2sTaskWR(void) {
   SETREGS
+
+  running = true;
+  AddLog(LOG_LEVEL_INFO, PSTR("WR Task started"));
+
   i2s_enable_tx(i2sp);
 
-  while (client_connected(wclient)) {
-    while (client_available(wclient) && running) {
-      client_read(wclient);
-        //client_readn(wclient, buff, 5);
+  const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
+  uint32_t len = uicp[3];
+
+  wclient = http_getStreamPtr(http);
+
+  AddLog(LOG_LEVEL_INFO, PSTR("WR Task started 2"));
+
+  uint32_t count = 0;
+  while (running) {
+    uint32_t start = millis();
+    while ((client_available(wclient) < len) && (millis() - start < 500)) {
+      delay(1);
     }
-    if (!running) {
+
+    uint32_t avail = client_available(wclient);
+    if (!avail) {
       break;
     }
+
+    count++;
+    if (count%10 == 0) {
+      AddLog(LOG_LEVEL_INFO, PSTR(">> rec %d - %d"), avail, count);
+    }
+    client_readn(wclient, m_outBuff, len);
+
+    if (!http_connected(http)) {
+      break;
+    }
+
   }
 
-  client_stop(wclient);
-  client_delete(wclient);
+  AddLog(LOG_LEVEL_INFO, PSTR("WR Task stop"));
+
+  //client_stop(wclient);
+  //client_delete(wclient);
+
+  http_end(http);
+  http_delete(http);
 
   i2s_disable_tx(i2sp);
 
+  running = false;
   busy = false;
   
+  AddLog(LOG_LEVEL_INFO, PSTR("WR Task stopped"));
+
   vTaskDelete(0);
 }
 #endif
@@ -600,7 +626,7 @@ void WebRadio(void) {
   char *cp = XdrvMailbox->data;
   while (*cp == ' ') cp++;
 
-  if (busy) {
+  if (busy == true) {
     if (!*cp) {
       // stop running sound
       running = 0;
@@ -613,7 +639,9 @@ void WebRadio(void) {
 
   //WDR2	i2swr http://wdr-wdr2-aachenundregion.icecastssl.wdr.de/wdr/wdr2/aachenundregion/mp3/128/stream.mp3
 
-  wclient = New_WiFiClient();
+  if (!wclient) {
+    wclient = New_WiFiClient();
+  }
   http = New_HTTP();
 
   if (!http_begin(http, wclient, cp)) {
@@ -647,9 +675,11 @@ void WebRadio(void) {
 
   AddLog(LOG_LEVEL_INFO, PSTR("WR code %d - %d"),code, size);
 
+/*
   http_end(http);
   client_delete(wclient);
   http_delete(http);
+*/
 
 /*
 
@@ -681,28 +711,17 @@ void WebRadio(void) {
   return true;
   */
 
-/*
-  client = WiFiClient();
-  int32_t err = client_connect(client, cp, 80);
-  if (!err) {
-      client_delete(client);
-      AddLog(LOG_LEVEL_INFO, PSTR("WR could not connect TCP to %s"),cp);
-      return;
-  }
-
-
 // play webradio file
-  const uint32_t *icp = (const uint32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+  const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
   TASKPARS tp;
   tp.pvTaskCode = GVOID(I2sTaskWR);
   tp.constpcName = GSTR(tname);
-  tp.usStackDepth = icp[1];
+  tp.usStackDepth = uicp[1];
   tp.constpvParameters = cp;
   tp.uxPriority = 3;
   tp.constpvCreatedTask = nullptr;
   tp.xCoreID = 1;
-  err = xTaskCreatePinnedToCore(&tp);
-*/
+  xTaskCreatePinnedToCore(&tp);
 
   busy = true;
   ResponseCmndDone();
