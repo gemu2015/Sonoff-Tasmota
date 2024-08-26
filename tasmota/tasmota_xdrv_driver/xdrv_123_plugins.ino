@@ -452,7 +452,7 @@ uint32_t tmod_dummy() {
   return 0;
 }
 
-uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2,  uint32_t p3) {
+uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t p4) {
 #ifdef ESP32
   WiFiClient *client =(WiFiClient*) p1;
   BearSSL::WiFiClientSecure_light *sclient =(BearSSL::WiFiClientSecure_light*) p1;
@@ -545,7 +545,21 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2,  uint32_t p3) {
         break;
       }
     case 40:
-      http->collectHeaders((const char**)p2, p3);
+      { // gets array of char pointers without execoffset
+        const char *hdr[8];
+        const char **sap = (const char**)p2;
+        if (p3 > 8) p3  = 8;
+        MODULES_TABLE *mt = (MODULES_TABLE *)p4;
+        for (uint32_t cnt = 0; cnt < p3; cnt++) {
+          hdr[cnt] = sap[cnt];
+          hdr[cnt] += EXEC_OFFSET;
+          hdr[cnt] = copyStr(hdr[cnt]);
+        }
+        http->collectHeaders(hdr, p3);
+        for (uint32_t cnt = 0; cnt < p3; cnt++) {
+          free((void*)hdr[cnt]);
+        }
+      }
       break;
     case 41:
       {

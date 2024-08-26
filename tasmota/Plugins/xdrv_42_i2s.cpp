@@ -25,15 +25,14 @@
 #include "module.h"
 #include "module_defines.h"
 
-// select a codec
-#define USE_WM8960
-
 //#define USE_SAY
 
 #ifdef ESP32
 //#define USE_MP3_PSRAM
 #define USE_MP3
 #define USE_WEBRADIO
+// select a codec
+#define USE_WM8960
 #endif
 
 //#define USE_MP3
@@ -407,7 +406,6 @@ void SetVolume(void) {
   ResponseCmndNumber(gain);
 }
 
-#ifdef USE_MP3
 
 void Write_Samples(int16_t *buffer, uint32_t samples) {
 SETMEMREGS
@@ -424,6 +422,9 @@ SETMEMREGS
 
   i2s_write_samples(i2sp, buffer, samples);
 }  
+
+
+#ifdef USE_MP3
 
 uint32_t Get_tag(uint8_t * buff) {
   if (buff[0] == 'T' && buff[1] == 'A' && buff[2] == 'G') {
@@ -618,10 +619,23 @@ void I2sTaskWR(void) {
 }
 #endif
 
+#ifdef ESP32
 #include <HTTPClient.h>
+#endif
+
+const char head_1[] PROGMEM = "Icy-MetaData";
+const char head_2[] PROGMEM = "1";
+
+const char hdr_1[] PROGMEM = "icy-metaint";
+const char hdr_2[] PROGMEM = "icy-name";
+const char hdr_3[] PROGMEM = "icy-genre";
+const char hdr_4[] PROGMEM = "icy-br";
+
+const uint32_t hdr[] PROGMEM = { (uint32_t)hdr_1, (uint32_t)hdr_2, (uint32_t)hdr_3, (uint32_t)hdr_4 };
 
 void WebRadio(void) {
   SETREGS
+
 #ifdef USE_WEBRADIO
   char *cp = XdrvMailbox->data;
   while (*cp == ' ') cp++;
@@ -646,15 +660,13 @@ void WebRadio(void) {
 
   if (!http_begin(http, wclient, cp)) {
     http_delete(http);
-    AddLog(LOG_LEVEL_INFO, PSTR("WR could not connect TCP to %s"),cp);
+    AddLog(LOG_LEVEL_INFO, PSTR("WR could not connect to %s"),cp);
     return;
   }
 
-  //http_addHeader(http, PSTR("Icy-MetaData"), "1");
+  http_addHeader(http, GSTR(head_1), GSTR(head_2));
 
-  //static const char *hdr[] = { "icy-metaint", "icy-name", "icy-genre", "icy-br" };
-
-  //http_collectHeaders(http, hdr, 4 );
+  http_collectHeaders(http, GUI32p(hdr), 4 );
 
   http_setReuse(http, true);
 
@@ -662,14 +674,16 @@ void WebRadio(void) {
 
   int32_t code = http_GET(http);
 
-/*
-  if (http_hasHeader(http, hdr[0])) {
-    char *ret = http_header(http, hdr[0]);
-    icyMetaInt = 1; // ret.toInt();
+  uint32_t has_bitrate;
+
+  if (http_hasHeader(http, PSTR("icy-br"))) {
+    char *ret = http_header(http, PSTR("icy-br"));
+    AddLog(LOG_LEVEL_INFO, PSTR("WR br = %d"),ret);
+    has_bitrate = 1; // ret.toInt();
   } else {
-    icyMetaInt = 0;
+    has_bitrate = 0;
   }
-*/
+
 
   int32_t size = http_getSize(http);
 
@@ -710,7 +724,10 @@ void WebRadio(void) {
   saveURL[sizeof(saveURL)-1] = 0;
   return true;
   */
-
+#if 1
+  http_end(http);
+  http_delete(http);
+#else
 // play webradio file
   const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
   TASKPARS tp;
@@ -724,6 +741,8 @@ void WebRadio(void) {
   xTaskCreatePinnedToCore(&tp);
 
   busy = true;
+#endif
+
   ResponseCmndDone();
 #endif
 }
