@@ -97,6 +97,7 @@ typedef struct {
   uint8_t *m_inBuff;
   int32_t m_bytesLeft;
   uint8_t chans;
+  uint8_t force_mono;
   uint16_t input_bytes;
   uint32_t filepos;
 #endif
@@ -131,6 +132,7 @@ typedef struct {
 #define http mem->http
 #define pclamp mem->pclamp
 #define mclamp mem->mclamp
+#define force_mono mem->force_mono
 
 // esp8266 fixed i2s pins : DOUT = 3(RX), BCK = 15(D8), WS = 2(D4)
 
@@ -151,7 +153,7 @@ MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", 17, "BCK", 10, "
 MODULE_PART int32_t I2SAudio_Init();
 MODULE_PART void I2sTask(void);
 MODULE_PART void I2sTaskMP3(void);
-MODULE_PART void I2sTaskWR(void);
+MODULE_PART void I2sTaskWR(char *);
 MODULE_PART void I2S_Play(void);
 MODULE_PART bool mp3_begin();
 MODULE_PART uint32_t Get_tag(uint8_t * buff);
@@ -227,6 +229,7 @@ int32_t I2SAudio_Init() {
     return -1;
   }
 
+  force_mono = 1;
 #endif
 
 #ifdef USE_WM8960
@@ -410,16 +413,40 @@ void SetVolume(void) {
 void Write_Samples(int16_t *buffer, uint32_t samples) {
 SETMEMREGS
 
-  for (uint32_t i = 0; i < samples; i++) {
-    int32_t v = (buffer[i] * gain_div) >> 6;
-    if (v < mclamp) {
-      v = mclamp;
-    } else if (v > pclamp) {
-      v = pclamp;
+  if (chans == 2 && force_mono) {
+    for (uint32_t i = 0; i < samples; i += 2) {
+      int16_t s_left;
+      int32_t v = (buffer[i] * gain_div) >> 6;
+      if (v < mclamp) {
+        v = mclamp;
+      } else if (v > pclamp) {
+        v = pclamp;
+      }
+      s_left = (int16_t)(v & 0xffff);
+      int16_t s_right;
+      v = (buffer[i + 1] * gain_div) >> 6;
+      if (v < mclamp) {
+        v = mclamp;
+      } else if (v > pclamp) {
+        v = pclamp;
+      }
+      s_right = (int16_t)(v & 0xffff);
+      v = ((int32_t)s_left + (int32_t)s_right) / 2;
+      buffer[i] = v;
+      buffer[i + 1] = v;
     }
-    buffer[i] = (int16_t)(v & 0xffff);
+  } else {
+    // Stereo + Mono
+    for (uint32_t i = 0; i < samples; i++) {
+      int32_t v = (buffer[i] * gain_div) >> 6;
+      if (v < mclamp) {
+        v = mclamp;
+      } else if (v > pclamp) {
+        v = pclamp;
+      }
+      buffer[i] = (int16_t)(v & 0xffff);
+    }
   }
-
   i2s_write_samples(i2sp, buffer, samples);
 }  
 
@@ -470,13 +497,13 @@ bool mp3_begin() {
 bool mp3_loop() {
 SETREGS
 
-  const uint32_t *icp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
+  const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
 
   uint32_t bytesread;
   uint32_t tag = 1;
   while (tag) {
     fseek(wf, filepos, SEEK_SET);
-    bytesread = fread((char*)m_inBuff, 1, icp[3], wf);
+    bytesread = fread((char*)m_inBuff, 1, uicp[3], wf);
     if (!bytesread) {
       running = false;
       return false;
@@ -499,7 +526,7 @@ SETREGS
 
   uint32_t samples = MP3GetOutputSamps();
 
-  if (samples > icp[0] >> 1) {
+  if (samples > uicp[0] >> 1) {
     AddLog(LOG_LEVEL_INFO, PSTR("mp3 buffer overflow = %d"), samples);
     running = 0;
   } else {
@@ -560,19 +587,91 @@ void Say(void) {
 
 #ifdef USE_WEBRADIO
 
+#ifdef ESP32
+#include <HTTPClient.h>
+#endif
+
+const char head_1[] PROGMEM = "Icy-MetaData";
+const char head_2[] PROGMEM = "1";
+
+const char hdr_1[] PROGMEM = "icy-metaint";
+const char hdr_2[] PROGMEM = "icy-name";
+const char hdr_3[] PROGMEM = "icy-genre";
+const char hdr_4[] PROGMEM = "icy-br";
+
+const uint32_t hdr[] PROGMEM = { (uint32_t)hdr_1, (uint32_t)hdr_2, (uint32_t)hdr_3, (uint32_t)hdr_4 };
+
 // webradio task
-void I2sTaskWR(void) {
+void I2sTaskWR(char *url) {
   SETREGS
 
-  running = true;
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task started"));
 
+  //WDR2	i2swr http://wdr-wdr2-aachenundregion.icecastssl.wdr.de/wdr/wdr2/aachenundregion/mp3/128/stream.mp3
+ //       i2swr http://icecast.ndr.de/ndr/njoy/live/mp3/128/stream.mp3
+
+  if (!wclient) {
+    wclient = New_WiFiClient();
+  }
+
+  if (!http) {
+    http = New_HTTP();
+  }
+
+  bool res = http_begin(http, wclient, url);
+  
+  int32_t code = 0;
+
+  if (!res) {
+exit:
+    http_end(http);
+    //http_delete(http);
+    AddLog(LOG_LEVEL_INFO, PSTR("WR could not connect to %s err: %d"),url, code);
+    busy = false;
+    free(url);
+    vTaskDelete(0);
+  }
+
+  http_addHeader(http, GSTR(head_1), GSTR(head_2));
+
+  http_collectHeaders(http, GUI32p(hdr), 4 );
+
+  http_setReuse(http, false);
+
+  http_setFollowRedirects(http, HTTPC_FORCE_FOLLOW_REDIRECTS);
+
+  code = http_GET(http);
+  
+  if (code < 0) {
+    goto exit;
+  }
+
+  uint32_t has_bitrate;
+
+  if (http_hasHeader(http, PSTR("icy-br"))) {
+    char *ret = http_header(http, PSTR("icy-br"));
+    AddLog(LOG_LEVEL_INFO, PSTR("WR br = %d"),ret);
+    has_bitrate = 1; // ret.toInt();
+  } else {
+    has_bitrate = 0;
+  }
+
+  int32_t size = http_getSize(http);
+
+  AddLog(LOG_LEVEL_INFO, PSTR("WR code %d - %d"),code, size);
+
+#if 0
+  http_end(http);
+  //http_delete(http);
+  busy = false;
+#else
+  running = true;
   i2s_enable_tx(i2sp);
 
   const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
   uint32_t len = uicp[3];
 
-  wclient = http_getStreamPtr(http);
+  //wclient = http_getStreamPtr(http);
 
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task started 2"));
 
@@ -602,36 +701,22 @@ void I2sTaskWR(void) {
 
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task stop"));
 
-  //client_stop(wclient);
-  //client_delete(wclient);
-
   http_end(http);
-  http_delete(http);
+  //http_delete(http);
 
   i2s_disable_tx(i2sp);
 
   running = false;
   busy = false;
   
-  AddLog(LOG_LEVEL_INFO, PSTR("WR Task stopped"));
+#endif
 
+  AddLog(LOG_LEVEL_INFO, PSTR("WR Task stopped"));
+  free(url);
   vTaskDelete(0);
 }
 #endif
 
-#ifdef ESP32
-#include <HTTPClient.h>
-#endif
-
-const char head_1[] PROGMEM = "Icy-MetaData";
-const char head_2[] PROGMEM = "1";
-
-const char hdr_1[] PROGMEM = "icy-metaint";
-const char hdr_2[] PROGMEM = "icy-name";
-const char hdr_3[] PROGMEM = "icy-genre";
-const char hdr_4[] PROGMEM = "icy-br";
-
-const uint32_t hdr[] PROGMEM = { (uint32_t)hdr_1, (uint32_t)hdr_2, (uint32_t)hdr_3, (uint32_t)hdr_4 };
 
 void WebRadio(void) {
   SETREGS
@@ -651,100 +736,25 @@ void WebRadio(void) {
     return;
   }
 
-  //WDR2	i2swr http://wdr-wdr2-aachenundregion.icecastssl.wdr.de/wdr/wdr2/aachenundregion/mp3/128/stream.mp3
+  busy = true;
 
-  if (!wclient) {
-    wclient = New_WiFiClient();
-  }
-  http = New_HTTP();
-
-  if (!http_begin(http, wclient, cp)) {
-    http_delete(http);
-    AddLog(LOG_LEVEL_INFO, PSTR("WR could not connect to %s"),cp);
-    return;
-  }
-
-  http_addHeader(http, GSTR(head_1), GSTR(head_2));
-
-  http_collectHeaders(http, GUI32p(hdr), 4 );
-
-  http_setReuse(http, true);
-
-  http_setFollowRedirects(http, HTTPC_FORCE_FOLLOW_REDIRECTS);
-
-  int32_t code = http_GET(http);
-
-  uint32_t has_bitrate;
-
-  if (http_hasHeader(http, PSTR("icy-br"))) {
-    char *ret = http_header(http, PSTR("icy-br"));
-    AddLog(LOG_LEVEL_INFO, PSTR("WR br = %d"),ret);
-    has_bitrate = 1; // ret.toInt();
-  } else {
-    has_bitrate = 0;
-  }
-
-
-  int32_t size = http_getSize(http);
-
-  AddLog(LOG_LEVEL_INFO, PSTR("WR code %d - %d"),code, size);
-
-/*
-  http_end(http);
-  client_delete(wclient);
-  http_delete(http);
-*/
-
-/*
-
-
-  int code = http.GET();
-  if (http.hasHeader(hdr[0])) {
-    String ret = http.header(hdr[0]);
-    icyMetaInt = ret.toInt();
-  } else {
-    icyMetaInt = 0;
-  }
-  if (http.hasHeader(hdr[1])) {
-    String ret = http.header(hdr[1]);
-//    cb.md("SiteName", false, ret.c_str());
-  }
-  if (http.hasHeader(hdr[2])) {
-    String ret = http.header(hdr[2]);
-//    cb.md("Genre", false, ret.c_str());
-  }
-  if (http.hasHeader(hdr[3])) {
-    String ret = http.header(hdr[3]);
-//    cb.md("Bitrate", false, ret.c_str());
-  }
-
-  icyByteCount = 0;
-  size = http.getSize();
-  strncpy(saveURL, url, sizeof(saveURL));
-  saveURL[sizeof(saveURL)-1] = 0;
-  return true;
-  */
-#if 1
-  http_end(http);
-  http_delete(http);
-#else
+#define URL_SIZE 256
 // play webradio file
+  char *urlcopy = (char*)special_malloc(URL_SIZE);
+  strncpy (urlcopy, cp, URL_SIZE);
   const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
   TASKPARS tp;
   tp.pvTaskCode = GVOID(I2sTaskWR);
   tp.constpcName = GSTR(tname);
   tp.usStackDepth = uicp[1];
-  tp.constpvParameters = cp;
+  tp.constpvParameters = urlcopy;
   tp.uxPriority = 3;
   tp.constpvCreatedTask = nullptr;
   tp.xCoreID = 1;
   xTaskCreatePinnedToCore(&tp);
-
-  busy = true;
 #endif
 
   ResponseCmndDone();
-#endif
 }
 
 const char I2S_Commands[] PROGMEM =

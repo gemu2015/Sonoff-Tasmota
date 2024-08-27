@@ -203,6 +203,7 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jtmod__ashldi3(A,B)             (( int64_t (*)(int64_t,int32_t) )               jt[169])(A,B)
 #define jtmod__lshrdi3(A,B)             (( uint64_t (*)(uint64_t,uint32_t) )            jt[170])(A,B)
 #define jtmod_wifi(A,B,C,D,E)           (( uint32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t) ) jt[171])(A,B,C,D,E)
+#define iUrlEncode(A)                   (( char * (*)(char *))                          jt[171])(A)
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -807,18 +808,18 @@ typedef struct {
 #define New_HTTP() (void*)jtmod_wifi(30,0,0,0,0)
 #define http_end(A) jtmod_wifi(31,(uint32_t)A,0,0,0)
 #define http_delete(A) jtmod_wifi(32,(uint32_t)A,0,0,0)
-#define http_begin(A,B,C) jtmod_wifi(33,(uint32_t)A,(uint32_t)B,(uint32_t)C,0)
+#define http_begin(A,B,C) (bool)jtmod_wifi(33,(uint32_t)A,(uint32_t)B,(uint32_t)C,0)
 #define http_setReuse(A,B) jtmod_wifi(34,(uint32_t)A,B,0,0)
-#define http_GET(A) (uint8_t)jtmod_wifi(35,(uint32_t)A,0,0,0)
+#define http_GET(A) (int32_t)jtmod_wifi(35,(uint32_t)A,0,0,0)
 #define http_getSize(A) (int32_t)jtmod_wifi(36,(uint32_t)A,0,0,0)
-#define http_connected(A) (int32_t)jtmod_wifi(37,(uint32_t)A,0,0,0)
+#define http_connected(A) (bool)jtmod_wifi(37,(uint32_t)A,0,0,0)
 #define http_getStreamPtr(A) (void*)jtmod_wifi(38,(uint32_t)A,0,0,0)
 #define http_addHeader(A,B,C) jtmod_wifi(39,(uint32_t)A,(uint32_t)B,(uint32_t)C,0)
 #define http_collectHeaders(A,B,C) jtmod_wifi(40,(uint32_t)A,(uint32_t)B,(uint32_t)C,(uint32_t)mt)
 #define http_header(A,B)(char*)jtmod_wifi(41,(uint32_t)A,(uint32_t)B,0,0)
 #define http_hasHeader(A,B) jtmod_wifi(42,(uint32_t)A,(uint32_t)B,0,0)
 #define http_setFollowRedirects(A,B) jtmod_wifi(43,(uint32_t)A,(uint32_t)B,0,0)
-
+#define http_begin1(A,B,C) (bool)jtmod_wifi(44,(uint32_t)A,(uint32_t)B,(uint32_t)C,0)
 
 
 

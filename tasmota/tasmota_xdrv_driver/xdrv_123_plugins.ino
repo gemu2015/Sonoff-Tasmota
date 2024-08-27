@@ -75,14 +75,15 @@ const char kModuleCommands[] PROGMEM = "|"// no Prefix
   "unlink" "|"
   "iniz" "|"
   "deiniz" "|"
-  "dump"
+  "dump" "|"
+  "chkp"
 #ifdef USE_FLASH_BDIR 
   "|" "list"
 #endif
   ;
 
 void (* const ModuleCommand[])(void) PROGMEM = {
-  &Module_mdir,  &Module_link, &Module_unlink, &Module_iniz, &Module_deiniz, &Module_dump
+  &Module_mdir,  &Module_link, &Module_unlink, &Module_iniz, &Module_deiniz, &Module_dump, &Check_partition
 #ifdef USE_FLASH_BDIR 
    ,&BinDir_list
 #endif
@@ -387,7 +388,7 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod__modsi3,
   JMPTBL&tmod__ashldi3,
   JMPTBL&tmod__lshrdi3,
-  JMPTBL&tmod_wifi,
+  JMPTBL&tmod_wifi
 };
 
 
@@ -452,6 +453,8 @@ uint32_t tmod_dummy() {
   return 0;
 }
 
+//WiFiClient xclient;
+
 uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t p4) {
 #ifdef ESP32
   WiFiClient *client =(WiFiClient*) p1;
@@ -460,6 +463,7 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
   switch (sel) {
     case 0:
       client = new WiFiClient;
+      //AddLog(LOG_LEVEL_INFO,PSTR(">>> %8x"),(uint32_t)client);
       return (uint32_t)client;
     case 1:
     {
@@ -522,7 +526,11 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
       delete http;
       break;
     case 33:
-      return http->begin((NetworkClient&)*(NetworkClient*)p2, (char*)p3);
+      {
+      WiFiClient *client = (WiFiClient*)p2;
+      //AddLog(LOG_LEVEL_INFO,PSTR(">>> %8x"),(uint32_t)client);
+      return http->begin(*client, (char*)p3);
+      }
     case 34:
       http->setReuse(p2);
       break;
@@ -577,6 +585,11 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
       }
     case 43:
       http->setFollowRedirects((followRedirects_t)p2);
+      break;
+    case 44:
+      {
+      //return http->begin(xclient, (char*)p3);
+      }
       break;
   }
 #endif // ESP32
@@ -2492,6 +2505,41 @@ void Module_dump(void) {
 #endif
   ResponseCmndDone();
 }
+
+#include <MD5Builder.h>
+
+void Check_partition(void) {
+  const esp_partition_t *pptr;
+  
+  pptr = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_TEST, "custom");
+  if (pptr) {
+     AddLog(LOG_LEVEL_INFO,PSTR("custom plugin partition already there!"));
+  }
+
+  // partition talble is aways at 0x8000
+  esp_partition_t spiffs;
+
+  esp_partition_iterator_t iterator = NULL;
+  esp_partition_type_t part_type = ESP_PARTITION_TYPE_ANY;
+  const esp_partition_t *next_partition = NULL;
+  iterator = esp_partition_find(part_type, ESP_PARTITION_SUBTYPE_ANY, NULL);
+  while (iterator) {
+    next_partition = esp_partition_get(iterator);
+    if (next_partition != NULL) {
+      AddLog(LOG_LEVEL_INFO,PSTR("partition addr: 0x%06x; size: 0x%06x; label: %s"), next_partition->address, next_partition->size, next_partition->label);
+      if (!pptr) {
+        if (!strcmp(next_partition->label, "spiffs")) {
+          //
+          AddLog(LOG_LEVEL_INFO,PSTR("spiffs partition found!"));
+          memmove(&spiffs, next_partition, sizeof(esp_partition_t));
+        }
+      }
+      iterator = esp_partition_next(iterator);
+    }
+  }
+  ResponseCmndDone();
+}
+
 
 const char HTTP_MODULES_CSS[] PROGMEM =
 "<head><style>rc{color:red;}gc{color:green;}yc{color:yellow;}</style></head>"
