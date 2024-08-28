@@ -127,6 +127,14 @@ show a JSON list of linked plugins
 dump X
 shows a memory dump of plugin Nr x
 
+ESP32 only
+chkpt
+check partition map
+chkpt aX  add custom partition needed for plugins X = optional number 1..4 times 64kb partition size (size is stolen from spiffs)
+chkpt r remove custom partition
+both options immediately restart ESP
+
+
 after a reboot all plugins persist 
 and if option A 7 is set all plugins are initialized too
 
