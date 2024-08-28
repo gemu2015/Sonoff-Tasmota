@@ -76,7 +76,6 @@ const char kModuleCommands[] PROGMEM = "|"// no Prefix
   "iniz" "|"
   "deiniz" "|"
   "dump" "|"
-  "chkp"
 #ifdef USE_FLASH_BDIR 
   "|" "list"
 #endif
@@ -88,6 +87,13 @@ void (* const ModuleCommand[])(void) PROGMEM = {
    ,&BinDir_list
 #endif
 };
+
+#ifdef ESP32
+const char kModuleCommands1[] PROGMEM = "|" "chkpt";
+void (* const ModuleCommand1[])(void) PROGMEM = {
+ &Check_partition
+};
+#endif // ESP32
 
 void Serial_print(const char *txt) {
   //Serial.printf("test: %x %x\n",(uint32_t)txt, *(uint32_t*)txt);
@@ -455,6 +461,9 @@ uint32_t tmod_dummy() {
 
 //WiFiClient xclient;
 
+WiFiClient plugin_client;
+HTTPClient plugin_http;
+
 uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t p4) {
 #ifdef ESP32
   WiFiClient *client =(WiFiClient*) p1;
@@ -590,6 +599,24 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
       {
       //return http->begin(xclient, (char*)p3);
       }
+      break;
+    case 50:
+      {
+        bool res = plugin_http.begin(plugin_client, (char*)p2);
+        if (!res) {
+          return 0;
+        }
+        static const char *hdr[] = { "icy-metaint", "icy-name", "icy-genre", "icy-br" };
+        plugin_http.addHeader("Icy-MetaData", "1");
+        plugin_http.collectHeaders( hdr, 4 );
+        plugin_http.setReuse(true);
+        plugin_http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+        return plugin_http.GET();
+      }
+    case 51:
+      return (uint32_t)&plugin_http;
+    case 52:
+      plugin_http.end();
       break;
   }
 #endif // ESP32
@@ -2506,6 +2533,8 @@ void Module_dump(void) {
   ResponseCmndDone();
 }
 
+
+#ifdef ESP32
 #include <MD5Builder.h>
 
 void Check_partition(void) {
@@ -2517,18 +2546,80 @@ void Check_partition(void) {
   }
 
   // partition talble is aways at 0x8000
-/*  typedef struct {
-    esp_flash_t* flash_chip;            //!< SPI flash chip on which the partition resides
-    esp_partition_type_t type;          //!< partition type (app/data)
-    esp_partition_subtype_t subtype;    //!< partition subtype
-    uint32_t address;                   //!< starting address of the partition in flash
-    uint32_t size;                      //!< size of the partition, in bytes
-    uint32_t erase_size;                //!< size the erase operation should be aligned to
-    char label[17];                     //!< partition label, zero-terminated ASCII string
-    bool encrypted;                     //!< flag is set to true if partition is encrypted
-    bool readonly;                      //!< flag is set to true if partition is read-only
-} esp_partition_t;
+/*
+typedef struct {
+    uint32_t offset;
+    uint32_t size;
+} esp_partition_pos_t;
+
+typedef struct {
+    uint16_t magic;
+    uint8_t  type;
+    uint8_t  subtype;
+    esp_partition_pos_t pos;
+    uint8_t  label[16];
+    uint32_t flags;
+} esp_partition_info_t;
 */
+
+  #define PART_OFFSET 0x8000
+
+  uint8_t *mp = (uint8_t*)calloc(SPI_FLASH_SEC_SIZE >> 2, 4);
+  esp_err_t ret = esp_flash_read(NULL, mp, PART_OFFSET, SPI_FLASH_SEC_SIZE);
+  if (ret) { 
+    AddLog(LOG_LEVEL_INFO, "partition read error:", ret);
+  } else {
+    if (mp[0] != 0xAA || mp[1] != 0x50) {
+      AddLog(LOG_LEVEL_INFO, "partition table not valid");
+    } else {
+      int num_partitions;
+      ret = esp_partition_table_verify((const esp_partition_info_t *)mp, false, &num_partitions);
+      if (!ret) {
+        AddLog(LOG_LEVEL_INFO, "partition table is valid: %d entries", num_partitions);
+        esp_partition_info_t spiffs;
+        bool custom = false;
+        int8_t hasspiffs = -1;
+        esp_partition_info_t *peptr = (esp_partition_info_t*)mp;
+        for (uint32_t cnt = 0; cnt < num_partitions; cnt++) {
+          AddLog(LOG_LEVEL_INFO,PSTR("partition addr: 0x%06x; size: 0x%06x; label: %s"), peptr->pos.offset, peptr->pos.size, peptr->label);
+          if (!strcmp((char*)peptr->label, "spiffs")) {
+            AddLog(LOG_LEVEL_INFO,PSTR("spiffs partition found!"));
+            memmove(&spiffs, peptr, sizeof(esp_partition_info_t));
+            hasspiffs = cnt;
+          }
+          if (!strcmp((char*)peptr->label, "custom")) {
+            AddLog(LOG_LEVEL_INFO,PSTR("custom partition found!"));
+            custom = true;
+          }
+          peptr++;
+          if (peptr->magic != ESP_PARTITION_MAGIC) {
+            break;
+          }
+        }
+        if (custom == true) {
+          AddLog(LOG_LEVEL_INFO,PSTR("custom already there!"));
+        } else {
+          if (hasspiffs < 0) {
+            AddLog(LOG_LEVEL_INFO,PSTR("no spiffs partition found!"));
+          } else {
+            // we may path spiffs
+            AddLog(LOG_LEVEL_INFO,PSTR("spiffs may be patched!"));
+          }
+        }
+      }
+    }
+  }
+
+
+// ESP_PARTITION_MAGIC_MD5
+// esp_partition_is_flash_region_writable
+//esp_err_t esp_partition_table_verify(const esp_partition_info_t *partition_table, bool log_errors, int *num_partitions);
+  //ret = esp_flash_erase_region(NULL, page_addr, SPI_FLASH_SEC_SIZE);
+  //esp_flash_write(NULL, buffer, page_addr, SPI_FLASH_SEC_SIZE);
+
+  free(mp);
+
+/*
   esp_partition_t spiffs;
 
   esp_partition_iterator_t iterator = NULL;
@@ -2549,9 +2640,10 @@ void Check_partition(void) {
       iterator = esp_partition_next(iterator);
     }
   }
+  */
   ResponseCmndDone();
 }
-
+#endif // ESP32
 
 const char HTTP_MODULES_CSS[] PROGMEM =
 "<head><style>rc{color:red;}gc{color:green;}yc{color:yellow;}</style></head>"
@@ -3074,11 +3166,15 @@ bool Xdrv123(uint32_t function) {
     case FUNC_INIT:
       break;
     case FUNC_COMMAND:
-    if (plugins.ready) {
+      if (plugins.ready) {
         result = DecodeCommand(kModuleCommands, ModuleCommand);
         if (!result) {
           result = Module_Command(FUNC_COMMAND);
         }
+      } else {
+#ifdef ESP32
+        result = DecodeCommand(kModuleCommands1, ModuleCommand1);
+#endif
       }
       break;
     case FUNC_EVERY_100_MSECOND:

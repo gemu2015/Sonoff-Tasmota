@@ -607,9 +607,43 @@ void I2sTaskWR(char *url) {
 
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task started"));
 
+  int32_t res = icecast_open(url);
+
+  AddLog(LOG_LEVEL_INFO, PSTR("icecast res: %d"),res);
+
+/*
+  if (res < 0) {
+    icecast_end();
+    AddLog(LOG_LEVEL_INFO, PSTR("WR could not connect to %s err: %d"),url, res);
+    busy = false;
+    free(url);
+    vTaskDelete(0);
+  }
+  */
+
+  http = icecast_http();
+
+  wclient = http_getStreamPtr(http);
+
+  AddLog(LOG_LEVEL_INFO, PSTR("icecast >>: %8x - %8x"),(uint32_t)http,(uint32_t)wclient);
+
+
+  icecast_end();
+
+  free(url);
+  vTaskDelete(0);
+
+/*
+  icecast_end();
+  busy = false;
+  free(url);
+  vTaskDelete(0);
+*/
+
   //WDR2	i2swr http://wdr-wdr2-aachenundregion.icecastssl.wdr.de/wdr/wdr2/aachenundregion/mp3/128/stream.mp3
  //       i2swr http://icecast.ndr.de/ndr/njoy/live/mp3/128/stream.mp3
 
+#if 0
   if (!wclient) {
     wclient = New_WiFiClient();
   }
@@ -622,7 +656,6 @@ void I2sTaskWR(char *url) {
   
   int32_t code = 0;
 
-  if (!res) {
 exit:
     http_end(http);
     //http_delete(http);
@@ -659,6 +692,8 @@ exit:
   int32_t size = http_getSize(http);
 
   AddLog(LOG_LEVEL_INFO, PSTR("WR code %d - %d"),code, size);
+
+#endif
 
 #if 0
   http_end(http);
@@ -701,8 +736,9 @@ exit:
 
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task stop"));
 
-  http_end(http);
+  //http_end(http);
   //http_delete(http);
+  icecast_end();
 
   i2s_disable_tx(i2sp);
 

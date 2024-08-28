@@ -65,7 +65,7 @@ void CC1101_Bresser_Init(void) {
   cc1101_bresser.cs = 0;
   cc1101_bresser.ready = 0;
 
-  if (Pin(GPIO_SPI_MOSI) && Pin(GPIO_SPI_MISO) && Pin(GPIO_SPI_CLK) && Pin(GPIO_SPI_CS) && Pin(GPIO_CC1101_GDO0)) {
+  if (PinUsed(GPIO_SPI_MOSI) && PinUsed(GPIO_SPI_MISO) && PinUsed(GPIO_SPI_CLK) && PinUsed(GPIO_SPI_CS) && PinUsed(GPIO_CC1101_GDO0)) {
     cc1101_bresser.cs = Pin(GPIO_SPI_CS);
     cc1101_bresser.found = 1;
   } else {

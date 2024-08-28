@@ -821,7 +821,9 @@ typedef struct {
 #define http_setFollowRedirects(A,B) jtmod_wifi(43,(uint32_t)A,(uint32_t)B,0,0)
 #define http_begin1(A,B,C) (bool)jtmod_wifi(44,(uint32_t)A,(uint32_t)B,(uint32_t)C,0)
 
-
+#define icecast_open(A) jtmod_wifi(50,0,(uint32_t)A,0,0)
+#define icecast_http() (void*)jtmod_wifi(51,0,0,0,0)
+#define icecast_end() jtmod_wifi(52,0,0,0,0)
 
 #define xTaskCreatePinnedToCore(A)   jtaskc(A)
 #define vTaskDelete(A)   jtaskd(A)
