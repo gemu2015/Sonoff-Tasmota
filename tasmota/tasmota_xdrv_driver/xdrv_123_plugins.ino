@@ -637,7 +637,7 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
 #endif
 
 uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t p4, uint32_t p5) {
-#ifdef ESP32
+#if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
 i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
 #endif
 
@@ -647,7 +647,7 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
       i2s_begin();
       return 0;
 #endif
-#ifdef ESP32
+#if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
       {
       i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
       /* Allocate a new TX channel and get the handle of this channel */
@@ -704,7 +704,7 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
 #ifdef ESP8266
       i2s_end();
 #endif
-#ifdef ESP32
+#if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
       {
       i2s_channel_disable(tx_handle);
       i2s_del_channel(tx_handle);
@@ -716,7 +716,7 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
 #ifdef ESP8266
       i2s_set_rate(p2);
 #endif
-#ifdef ESP32
+#if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
       {
       i2s_channel_disable(tx_handle);
 
@@ -769,7 +769,7 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
         }
       }
 #endif 
-#ifdef ESP32
+#if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
       i2s_channel_write(tx_handle, (uint8_t *)p2, p3 * 2, nullptr, 100);
 #endif
       break;
@@ -779,7 +779,7 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
       return i2s_read_sample((int16_t *)p2, (int16_t *)p3, p4); 
 #endif
 
-#ifdef ESP32
+#if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
 #endif
       break;
     case 5:
@@ -787,7 +787,7 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
 #ifdef ESP8266
       i2s_write_sample(p2);
 #endif // ESP8266
-#ifdef ESP32
+#if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
       {
         int16_t src_buf = p2;
         i2s_channel_write(tx_handle, &src_buf, 2, nullptr, 5);
@@ -795,12 +795,12 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
       break;
 #endif // ESP32
     case 6:
-#ifdef ESP32
+#if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
       return i2s_channel_enable(tx_handle);
 #endif
       break;
     case 7:
-#ifdef ESP32
+#if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
       return i2s_channel_disable(tx_handle);
 #endif
       break;
