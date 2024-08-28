@@ -76,6 +76,7 @@ const char kModuleCommands[] PROGMEM = "|"// no Prefix
   "iniz" "|"
   "deiniz" "|"
   "dump" "|"
+  "chkpt"
 #ifdef USE_FLASH_BDIR 
   "|" "list"
 #endif
@@ -2543,6 +2544,29 @@ void Check_partition(void) {
   pptr = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_TEST, "custom");
   if (pptr) {
      AddLog(LOG_LEVEL_INFO,PSTR("custom plugin partition already there!"));
+     ResponseCmndDone();
+     return;
+  }
+
+  uint32_t custom_size = 0x10000; // 64k default size
+  uint8_t update = 0;
+  if (XdrvMailbox.data_len) { 
+    char *cp = XdrvMailbox.data;
+    while (*cp == ' ') cp++;
+    if (*cp == 'u') {
+      update = 1;
+      cp++;
+      uint32_t fac = strtol(cp, &cp, 10);
+      if (fac > 4) {
+        fac = 4;
+      }
+      if (!fac) {
+        fac = 1;
+      }
+      custom_size *= fac;
+    } else if (*cp == 'r') {
+      // remove not yet
+    }
   }
 
   // partition talble is aways at 0x8000
@@ -2564,6 +2588,8 @@ typedef struct {
 
   #define PART_OFFSET 0x8000
 
+  int num_partitions;
+
   uint8_t *mp = (uint8_t*)calloc(SPI_FLASH_SEC_SIZE >> 2, 4);
   esp_err_t ret = esp_flash_read(NULL, mp, PART_OFFSET, SPI_FLASH_SEC_SIZE);
   if (ret) { 
@@ -2571,12 +2597,10 @@ typedef struct {
   } else {
     if (mp[0] != 0xAA || mp[1] != 0x50) {
       AddLog(LOG_LEVEL_INFO, "partition table not valid");
-    } else {
-      int num_partitions;
+    } else {    
       ret = esp_partition_table_verify((const esp_partition_info_t *)mp, false, &num_partitions);
       if (!ret) {
         AddLog(LOG_LEVEL_INFO, "partition table is valid: %d entries", num_partitions);
-        esp_partition_info_t spiffs;
         bool custom = false;
         int8_t hasspiffs = -1;
         esp_partition_info_t *peptr = (esp_partition_info_t*)mp;
@@ -2584,7 +2608,6 @@ typedef struct {
           AddLog(LOG_LEVEL_INFO,PSTR("partition addr: 0x%06x; size: 0x%06x; label: %s"), peptr->pos.offset, peptr->pos.size, peptr->label);
           if (!strcmp((char*)peptr->label, "spiffs")) {
             AddLog(LOG_LEVEL_INFO,PSTR("spiffs partition found!"));
-            memmove(&spiffs, peptr, sizeof(esp_partition_info_t));
             hasspiffs = cnt;
           }
           if (!strcmp((char*)peptr->label, "custom")) {
@@ -2602,45 +2625,69 @@ typedef struct {
           if (hasspiffs < 0) {
             AddLog(LOG_LEVEL_INFO,PSTR("no spiffs partition found!"));
           } else {
-            // we may path spiffs
+            // we may patch spiffs
             AddLog(LOG_LEVEL_INFO,PSTR("spiffs may be patched!"));
+            // reiterate
+            esp_partition_info_t *peptr = (esp_partition_info_t*)mp;
+            for (uint32_t cnt = 0; cnt < num_partitions; cnt++) {
+              if (cnt == hasspiffs) {
+                if (hasspiffs == num_partitions - 1) {
+                  // spiffs is last partition
+                  // shrink spiffs size by 64k
+                  peptr->pos.size -= custom_size;
+                  uint32_t custom_offset = peptr->pos.offset + peptr->pos.size;
+                  memmove(peptr + 1, peptr, sizeof(esp_partition_info_t));
+                  peptr++;
+                  // insert custom part
+                  peptr->pos.offset = custom_offset;
+                  peptr->pos.size = custom_size;
+                  peptr->type = PART_TYPE_APP;
+                  peptr->subtype = PART_SUBTYPE_TEST;
+                  strcpy((char*)peptr->label,"custom");
+                  num_partitions++;
+
+                  // scan again
+                  esp_partition_info_t *peptr = (esp_partition_info_t*)mp;
+                  for (uint32_t cnt = 0; cnt < num_partitions; cnt++) {
+                    AddLog(LOG_LEVEL_INFO,PSTR("partition addr: 0x%06x; size: 0x%06x; label: %s"), peptr->pos.offset, peptr->pos.size, peptr->label);
+                    peptr++;
+                  }
+                  ret = esp_partition_table_verify((const esp_partition_info_t *)mp, false, &num_partitions);
+                  AddLog(LOG_LEVEL_INFO, "partition table status: %d entries : %d", num_partitions, ret);
+                  break;
+                }
+              }
+              peptr++;
+            }
           }
         }
       }
     }
   }
 
+  if (update) {
+    MD5Builder md5;
+    md5.begin();
+    md5.add(mp, num_partitions * sizeof(esp_partition_info_t));
+    md5.calculate();
+    uint8_t result[16];
+    md5.getBytes(result);
+    uint8_t *end_offset = mp + (num_partitions * sizeof(esp_partition_info_t));
+    end_offset[0] = 0xeb;
+    end_offset[1] = 0xeb;
+    memmove(end_offset + 16, result, 16);
 
-// ESP_PARTITION_MAGIC_MD5
-// esp_partition_is_flash_region_writable
-//esp_err_t esp_partition_table_verify(const esp_partition_info_t *partition_table, bool log_errors, int *num_partitions);
-  //ret = esp_flash_erase_region(NULL, page_addr, SPI_FLASH_SEC_SIZE);
-  //esp_flash_write(NULL, buffer, page_addr, SPI_FLASH_SEC_SIZE);
+    // ESP_PARTITION_MAGIC_MD5
+    // esp_partition_is_flash_region_writable
+    ret = esp_flash_erase_region(NULL, PART_OFFSET, SPI_FLASH_SEC_SIZE);
+    ret = esp_flash_write(NULL, mp, PART_OFFSET, SPI_FLASH_SEC_SIZE);
+  
+    // restart immediately
+    ESP_Restart();
+  }
 
   free(mp);
 
-/*
-  esp_partition_t spiffs;
-
-  esp_partition_iterator_t iterator = NULL;
-  esp_partition_type_t part_type = ESP_PARTITION_TYPE_ANY;
-  const esp_partition_t *next_partition = NULL;
-  iterator = esp_partition_find(part_type, ESP_PARTITION_SUBTYPE_ANY, NULL);
-  while (iterator) {
-    next_partition = esp_partition_get(iterator);
-    if (next_partition != NULL) {
-      AddLog(LOG_LEVEL_INFO,PSTR("partition addr: 0x%06x; size: 0x%06x; label: %s"), next_partition->address, next_partition->size, next_partition->label);
-      if (!pptr) {
-        if (!strcmp(next_partition->label, "spiffs")) {
-          //
-          AddLog(LOG_LEVEL_INFO,PSTR("spiffs partition found!"));
-          memmove(&spiffs, next_partition, sizeof(esp_partition_t));
-        }
-      }
-      iterator = esp_partition_next(iterator);
-    }
-  }
-  */
   ResponseCmndDone();
 }
 #endif // ESP32
