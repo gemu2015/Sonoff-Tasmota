@@ -2213,12 +2213,13 @@ void LinkModule(uint8_t *mp, uint32_t size, char *name) {
       return;
     }
 
+/*
     if (fm->revision < CURR_MINREV ) {
       free(mp);
-      AddLog(LOG_LEVEL_INFO,PSTR("plugin hander revision to old"));
+      AddLog(LOG_LEVEL_INFO,PSTR("plugin handler revision to old"));
       return;
     }
-    
+ */   
     
     Unlink_Named_Module(name);
 
@@ -2538,23 +2539,32 @@ void Module_dump(void) {
 #ifdef ESP32
 #include <MD5Builder.h>
 
+
+bool scan_ptable(uint8_t *mp, uint32_t num) {
+  int num_partitions = num;
+  esp_partition_info_t *peptr = (esp_partition_info_t*)mp;
+  for (uint32_t cnt = 0; cnt < num_partitions; cnt++) {
+    AddLog(LOG_LEVEL_INFO,PSTR("partition addr: 0x%06x; size: 0x%06x; label: %s"), peptr->pos.offset, peptr->pos.size, peptr->label);
+    peptr++;
+  }
+  esp_err_t ret = esp_partition_table_verify((const esp_partition_info_t *)mp, false, &num_partitions);
+  AddLog(LOG_LEVEL_INFO, "partition table status: err: %d - entries: %d", ret, num_partitions);
+  return ret;
+}
+
+// show or add(aX) or remove(r) custom partition (X 1..4, optional size extender time 64k)
+// we steel the size from the spiffs partition
 void Check_partition(void) {
   const esp_partition_t *pptr;
   
-  pptr = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_TEST, "custom");
-  if (pptr) {
-     AddLog(LOG_LEVEL_INFO,PSTR("custom plugin partition already there!"));
-     ResponseCmndDone();
-     return;
-  }
-
   uint32_t custom_size = 0x10000; // 64k default size
-  uint8_t update = 0;
+  uint8_t add = 0;
+  uint8_t remove = 0;
   if (XdrvMailbox.data_len) { 
     char *cp = XdrvMailbox.data;
     while (*cp == ' ') cp++;
-    if (*cp == 'u') {
-      update = 1;
+    if (*cp == 'a') {
+      add = 1;
       cp++;
       uint32_t fac = strtol(cp, &cp, 10);
       if (fac > 4) {
@@ -2565,7 +2575,24 @@ void Check_partition(void) {
       }
       custom_size *= fac;
     } else if (*cp == 'r') {
-      // remove not yet
+      remove = 1;
+    }
+  }
+
+  if (add || remove) {
+    pptr = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_TEST, "custom");
+    if (pptr) {
+      if (add) {
+        AddLog(LOG_LEVEL_INFO,PSTR("custom plugin partition already there!"));
+        ResponseCmndDone();
+        return;
+      }
+    } else {
+      if (remove) {
+        AddLog(LOG_LEVEL_INFO,PSTR("custom plugin partition already removed!"));
+        ResponseCmndDone();
+        return;
+      }
     }
   }
 
@@ -2607,11 +2634,11 @@ typedef struct {
         for (uint32_t cnt = 0; cnt < num_partitions; cnt++) {
           AddLog(LOG_LEVEL_INFO,PSTR("partition addr: 0x%06x; size: 0x%06x; label: %s"), peptr->pos.offset, peptr->pos.size, peptr->label);
           if (!strcmp((char*)peptr->label, "spiffs")) {
-            AddLog(LOG_LEVEL_INFO,PSTR("spiffs partition found!"));
+            //AddLog(LOG_LEVEL_INFO,PSTR("spiffs partition found!"));
             hasspiffs = cnt;
           }
           if (!strcmp((char*)peptr->label, "custom")) {
-            AddLog(LOG_LEVEL_INFO,PSTR("custom partition found!"));
+            //AddLog(LOG_LEVEL_INFO,PSTR("custom partition found!"));
             custom = true;
           }
           peptr++;
@@ -2620,13 +2647,23 @@ typedef struct {
           }
         }
         if (custom == true) {
-          AddLog(LOG_LEVEL_INFO,PSTR("custom already there!"));
+          if (remove && hasspiffs > 0) {
+            AddLog(LOG_LEVEL_INFO,PSTR("may remove custom!"));
+            // assuming custom directly after spiffs
+            esp_partition_info_t *peptr = (esp_partition_info_t*)mp;
+            peptr += hasspiffs;
+            esp_partition_info_t *peptr_custom = peptr + 1;
+            peptr->pos.size += peptr_custom->pos.size;
+            memset(peptr_custom, 0, sizeof(esp_partition_info_t));
+            memset(peptr_custom + 1, 0xff, sizeof(esp_partition_info_t));
+            num_partitions--;
+          }
         } else {
           if (hasspiffs < 0) {
             AddLog(LOG_LEVEL_INFO,PSTR("no spiffs partition found!"));
           } else {
             // we may patch spiffs
-            AddLog(LOG_LEVEL_INFO,PSTR("spiffs may be patched!"));
+            AddLog(LOG_LEVEL_INFO,PSTR("may add custom!"));
             // reiterate
             esp_partition_info_t *peptr = (esp_partition_info_t*)mp;
             for (uint32_t cnt = 0; cnt < num_partitions; cnt++) {
@@ -2644,16 +2681,7 @@ typedef struct {
                   peptr->type = PART_TYPE_APP;
                   peptr->subtype = PART_SUBTYPE_TEST;
                   strcpy((char*)peptr->label,"custom");
-                  num_partitions++;
-
-                  // scan again
-                  esp_partition_info_t *peptr = (esp_partition_info_t*)mp;
-                  for (uint32_t cnt = 0; cnt < num_partitions; cnt++) {
-                    AddLog(LOG_LEVEL_INFO,PSTR("partition addr: 0x%06x; size: 0x%06x; label: %s"), peptr->pos.offset, peptr->pos.size, peptr->label);
-                    peptr++;
-                  }
-                  ret = esp_partition_table_verify((const esp_partition_info_t *)mp, false, &num_partitions);
-                  AddLog(LOG_LEVEL_INFO, "partition table status: %d entries : %d", num_partitions, ret);
+                  num_partitions++;             
                   break;
                 }
               }
@@ -2665,23 +2693,32 @@ typedef struct {
     }
   }
 
-  if (update) {
-    MD5Builder md5;
-    md5.begin();
-    md5.add(mp, num_partitions * sizeof(esp_partition_info_t));
-    md5.calculate();
-    uint8_t result[16];
-    md5.getBytes(result);
-    uint8_t *end_offset = mp + (num_partitions * sizeof(esp_partition_info_t));
-    end_offset[0] = 0xeb;
-    end_offset[1] = 0xeb;
-    memmove(end_offset + 16, result, 16);
+  MD5Builder md5;
+  md5.begin();
+  md5.add(mp, num_partitions * sizeof(esp_partition_info_t));
+  md5.calculate();
+  uint8_t result[16];
+  md5.getBytes(result);
+  uint8_t *end_offset = mp + (num_partitions * sizeof(esp_partition_info_t));
+  end_offset[0] = 0xeb;
+  end_offset[1] = 0xeb;
+  memmove(end_offset + 16, result, 16);
 
+#if 0
+  File wf = ufsp->open("/partition.bin", FS_FILE_WRITE);
+  wf.write(mp, SPI_FLASH_SEC_SIZE);
+  wf.close();
+#endif
+
+  if (add || remove) {
+    scan_ptable(mp, num_partitions);
+  }
+
+  if (add || remove) {
     // ESP_PARTITION_MAGIC_MD5
     // esp_partition_is_flash_region_writable
     ret = esp_flash_erase_region(NULL, PART_OFFSET, SPI_FLASH_SEC_SIZE);
     ret = esp_flash_write(NULL, mp, PART_OFFSET, SPI_FLASH_SEC_SIZE);
-  
     // restart immediately
     ESP_Restart();
   }
