@@ -3287,50 +3287,52 @@ dddef_exit:
             if (*lp1 != ',') goto next_line;
             lp1++;
             mmp->tsecs = strtol(lp1, &lp1, 10);
+            // optional values to send
             if (*lp1 == ',') {
               lp1++;
-              // look ahead
-              uint16_t txlen = 0;
-              uint16_t tx_entries = 1;
+              // look ahead, lp points to next line
+#define SML_TRX_BUFF_SIZE 1024
+              char *txbuff = (char *)malloc(SML_TRX_BUFF_SIZE);
+              if (!txbuff) {
+                goto dddef_exit;
+              }
+              char *txb1 = txbuff;
               char *txp = lp1;
-              while (*txp) {
-                if (*txp == ',') tx_entries++;
-                if (*txp == SCRIPT_EOL) {
-                  if (tx_entries > 1) {
-                    if (*(txp - 1) != ',' ) {
-                      break;
-                    }
-                    // line ends with ,
+              uint16_t tx_entries = 1;
+              uint16_t txlen = 0;
+              while (1) {
+                if (!*lp1 || (*lp1 == SCRIPT_EOL)) {
+                  if (*(lp1 - 1) == ',') {
+                    // line ends with comma, add another line
+                    while (*lp == SCRIPT_EOL) lp++;
+#ifdef SML_REPLACE_VARS
+                    Replace_Cmd_Vars(lp, 1, dstbuf, sizeof(dstbuf));
+                    lp += SML_getlinelen(lp);
+				            lp1 = dstbuf;
+#else   
+                    lp1 = lp;
+                    lp += SML_getlinelen(lp);
+#endif
                   } else {
-                    // single entry
                     break;
                   }
                 }
-                txp++;
+                if (*lp1 == ',') tx_entries++;
+                *txb1++ = *lp1++;
                 txlen++;
-              }
-              if (txlen) {
-                mmp->txmem = (char*)calloc(txlen + 2, 1);
-								memory += txlen + 2;
-                if (mmp->txmem) {
-                  // now copy send blocks
-                  char *txp = lp1;
-                  uint16_t tind = 0;
-                  for (uint32_t cnt = 0; cnt < txlen; cnt++) {
-                      if (*txp == SCRIPT_EOL) {
-                        txp++;
-                      } else {
-                        mmp->txmem[tind] = *txp++;
-                        tind++;
-                      }
-                  }
+                if (txlen >= SML_TRX_BUFF_SIZE - 2) {
+                  break;
                 }
-                //AddLog(LOG_LEVEL_INFO, PSTR(">>> %s - %d"), meter_desc[index].txmem, txlen);
-                mmp->index = 0;
-                mmp->max_index = tx_entries;
-                sml_globs.sml_send_blocks++;
-                lp1 += txlen;
               }
+              // tx lines complete
+              *txb1 = 0;
+              //AddLog(LOG_LEVEL_INFO, PSTR("SML: >>> %s - %d - %d"), txbuff, txlen, tx_entries);
+              mmp->txmem = (char*)realloc(txbuff, txlen + 2);
+              memory += txlen + 2;
+              mmp->index = 0;
+              mmp->max_index = tx_entries;
+              sml_globs.sml_send_blocks++;
+              // end collect transmit values
             }
           }
           if (*lp1 == SCRIPT_EOL) lp1--;

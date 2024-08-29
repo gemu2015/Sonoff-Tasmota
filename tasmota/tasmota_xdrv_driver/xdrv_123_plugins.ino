@@ -2536,6 +2536,11 @@ void Module_dump(void) {
 }
 
 
+#ifdef ESP8266
+void Check_partition(void) {
+}
+#endif
+
 #ifdef ESP32
 #include <MD5Builder.h>
 
