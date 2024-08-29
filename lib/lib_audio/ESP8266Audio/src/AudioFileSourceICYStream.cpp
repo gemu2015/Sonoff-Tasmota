@@ -54,6 +54,8 @@ bool AudioFileSourceICYStream::open(const char *url)
   http.setReuse(true);
   http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
   int code = http.GET();
+  //Serial.printf(">>> http: %d",code);
+
   if (http.hasHeader(hdr[0])) {
     String ret = http.header(hdr[0]);
     icyMetaInt = ret.toInt();

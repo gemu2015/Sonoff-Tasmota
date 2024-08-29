@@ -781,6 +781,12 @@ void I2sInit(void) {
     audio_i2s_mp3.mp3ram = special_malloc(preallocateCodecSize);
   }
 #endif // USE_I2S_MP3
+
+#ifdef USE_WM8960
+#include <wm8960.h>
+  W8960_Init(&Wire);
+#endif
+
   AddLog(LOG_LEVEL_DEBUG, "I2S: I2sInit done");
 }
 
