@@ -366,7 +366,7 @@ typedef struct R55_PLL_K_3_t{
 }__attribute__((packed, aligned(2))) R55_PLL_K_3_t;
 
 
-void W8960_Init(TwoWire *tw);
-void W8960_SetGain(uint8_t sel, uint16_t value);
+int32_t pW8960_Init(void);
+void pW8960_SetGain(uint8_t sel, uint16_t value);
 
 #endif

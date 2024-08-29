@@ -32,10 +32,12 @@
 #define USE_MP3
 #define USE_WEBRADIO
 // select a codec
-//#define USE_WM8960
+#define USE_WM8960
 #endif
 
 //#define USE_MP3
+
+int32_t pW8960_Init();
 
 // RIFF header
 typedef struct {
@@ -91,13 +93,13 @@ typedef struct {
   uint8_t mode;
   File_p *wf;
   bool running;
+  uint8_t force_mono;
+  uint8_t chans;
 #ifdef USE_MP3
   MP3_MEM mp3m;
   int16_t *m_outBuff;
   uint8_t *m_inBuff;
   int32_t m_bytesLeft;
-  uint8_t chans;
-  uint8_t force_mono;
   uint16_t input_bytes;
   uint32_t filepos;
 #endif
@@ -189,9 +191,11 @@ const char S_JSON_MEMERR[] PROGMEM = "{\"out of memory\"}";
 const char S_JSON_WMERR[] PROGMEM = "{\"WM8960 error\"}";
 #endif
 
+#define TASK_STACK 8192
+//#define TASK_STACK 12000
 
 const char tname[] PROGMEM = "I2STASK";
-const uint32_t ui32_const[4] PROGMEM = {OUTBUFF_SIZE, 8192, 0x46464952 , INBUFF_SIZE}; 
+const uint32_t ui32_const[4] PROGMEM = {OUTBUFF_SIZE, TASK_STACK, 0x46464952 , INBUFF_SIZE}; 
 const int32_t i32_const[2] PROGMEM = {32768, -32768}; 
 
 
@@ -229,11 +233,12 @@ int32_t I2SAudio_Init() {
     return -1;
   }
 
+  chans = 1;
   force_mono = 1;
 #endif
 
 #ifdef USE_WM8960
-  if (W8960_Init() < 0) {
+  if (pW8960_Init() < 0) {
       I2SAudio_Deinit();
       Response_P(GSTR(S_JSON_WMERR));
       return -2;
@@ -566,7 +571,7 @@ void I2sTaskMP3(void) {
 #endif
 
 #ifdef USE_WM8960
-#include "Audio/WM8960/wm8960_c.h"
+#include "Audio/WM8960/p_wm8960_c.h"
 #endif
 
 #ifdef USE_SAY
@@ -607,11 +612,10 @@ void I2sTaskWR(char *url) {
 
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task started"));
 
+
+#if 0
   int32_t res = icecast_open(url);
-
   AddLog(LOG_LEVEL_INFO, PSTR("icecast res: %d"),res);
-
-/*
   if (res < 0) {
     icecast_end();
     AddLog(LOG_LEVEL_INFO, PSTR("WR could not connect to %s err: %d"),url, res);
@@ -619,31 +623,23 @@ void I2sTaskWR(char *url) {
     free(url);
     vTaskDelete(0);
   }
-  */
-
   http = icecast_http();
-
   wclient = http_getStreamPtr(http);
-
   AddLog(LOG_LEVEL_INFO, PSTR("icecast >>: %8x - %8x"),(uint32_t)http,(uint32_t)wclient);
-
-
   icecast_end();
-
   free(url);
   vTaskDelete(0);
-
-/*
   icecast_end();
   busy = false;
   free(url);
   vTaskDelete(0);
-*/
+#endif
+
 
   //WDR2	i2swr http://wdr-wdr2-aachenundregion.icecastssl.wdr.de/wdr/wdr2/aachenundregion/mp3/128/stream.mp3
  //       i2swr http://icecast.ndr.de/ndr/njoy/live/mp3/128/stream.mp3
 
-#if 0
+
   if (!wclient) {
     wclient = New_WiFiClient();
   }
@@ -654,11 +650,11 @@ void I2sTaskWR(char *url) {
 
   bool res = http_begin(http, wclient, url);
   
+  
   int32_t code = 0;
 
-exit:
+  if (!res) {
     http_end(http);
-    //http_delete(http);
     AddLog(LOG_LEVEL_INFO, PSTR("WR could not connect to %s err: %d"),url, code);
     busy = false;
     free(url);
@@ -669,14 +665,18 @@ exit:
 
   http_collectHeaders(http, GUI32p(hdr), 4 );
 
-  http_setReuse(http, false);
+  http_setReuse(http, true);
 
   http_setFollowRedirects(http, HTTPC_FORCE_FOLLOW_REDIRECTS);
 
   code = http_GET(http);
   
   if (code < 0) {
-    goto exit;
+    http_end(http);
+    AddLog(LOG_LEVEL_INFO, PSTR("WR could not connect to %s err: %d"),url, code);
+    busy = false;
+    free(url);
+    vTaskDelete(0);
   }
 
   uint32_t has_bitrate;
@@ -693,11 +693,9 @@ exit:
 
   AddLog(LOG_LEVEL_INFO, PSTR("WR code %d - %d"),code, size);
 
-#endif
 
 #if 0
   http_end(http);
-  //http_delete(http);
   busy = false;
 #else
   running = true;
@@ -706,7 +704,6 @@ exit:
   const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
   uint32_t len = uicp[3];
 
-  //wclient = http_getStreamPtr(http);
 
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task started 2"));
 
@@ -736,9 +733,7 @@ exit:
 
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task stop"));
 
-  //http_end(http);
-  //http_delete(http);
-  icecast_end();
+  http_end(http);
 
   i2s_disable_tx(i2sp);
 
@@ -776,7 +771,7 @@ void WebRadio(void) {
 
 #define URL_SIZE 256
 // play webradio file
-  char *urlcopy = (char*)special_malloc(URL_SIZE);
+  char *urlcopy = (char*)calloc(URL_SIZE, 1);
   strncpy (urlcopy, cp, URL_SIZE);
   const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
   TASKPARS tp;
@@ -794,7 +789,7 @@ void WebRadio(void) {
 }
 
 const char I2S_Commands[] PROGMEM =
-    "I2S|"  // Prefix
+    "I2X|"  // Prefix
     "play|vol|say|wr";
 void (*const I2S_Command[])(void) PROGMEM = {&I2S_Play,&SetVolume,&Say,&WebRadio};
 

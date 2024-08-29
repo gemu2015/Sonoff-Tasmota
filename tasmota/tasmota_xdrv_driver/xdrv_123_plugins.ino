@@ -76,14 +76,15 @@ const char kModuleCommands[] PROGMEM = "|"// no Prefix
   "iniz" "|"
   "deiniz" "|"
   "dump" "|"
-  "chkpt"
+  "chkpt" "|"
+  "xt"
 #ifdef USE_FLASH_BDIR 
   "|" "list"
 #endif
   ;
 
 void (* const ModuleCommand[])(void) PROGMEM = {
-  &Module_mdir,  &Module_link, &Module_unlink, &Module_iniz, &Module_deiniz, &Module_dump, &Check_partition
+  &Module_mdir,  &Module_link, &Module_unlink, &Module_iniz, &Module_deiniz, &Module_dump, &Check_partition, &Test_prog
 #ifdef USE_FLASH_BDIR 
    ,&BinDir_list
 #endif
@@ -2535,6 +2536,21 @@ void Module_dump(void) {
   ResponseCmndDone();
 }
 
+
+void Test_prog(void) {
+  bool res = plugin_http.begin(plugin_client, "http://wdr-wdr2-aachenundregion.icecastssl.wdr.de/wdr/wdr2/aachenundregion/mp3/128/stream.mp3");
+  if (!res) {
+    AddLog(LOG_LEVEL_INFO,PSTR("could not connect"));
+    return;
+  }
+  static const char *hdr[] = { "icy-metaint", "icy-name", "icy-genre", "icy-br" };
+  plugin_http.addHeader("Icy-MetaData", "1");
+  plugin_http.collectHeaders( hdr, 4 );
+  plugin_http.setReuse(true);
+  plugin_http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
+  int32_t code = plugin_http.GET();
+  AddLog(LOG_LEVEL_INFO,PSTR("result: %d"), code);
+}
 
 #ifdef ESP8266
 void Check_partition(void) {
