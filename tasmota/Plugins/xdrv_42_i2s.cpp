@@ -612,98 +612,11 @@ void I2sTaskWR(char *url) {
 
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task started"));
 
-
-#if 0
-  int32_t res = icecast_open(url);
-  AddLog(LOG_LEVEL_INFO, PSTR("icecast res: %d"),res);
-  if (res < 0) {
-    icecast_end();
-    AddLog(LOG_LEVEL_INFO, PSTR("WR could not connect to %s err: %d"),url, res);
-    busy = false;
-    free(url);
-    vTaskDelete(0);
-  }
-  http = icecast_http();
-  wclient = http_getStreamPtr(http);
-  AddLog(LOG_LEVEL_INFO, PSTR("icecast >>: %8x - %8x"),(uint32_t)http,(uint32_t)wclient);
-  icecast_end();
-  free(url);
-  vTaskDelete(0);
-  icecast_end();
-  busy = false;
-  free(url);
-  vTaskDelete(0);
-#endif
-
-
-  //WDR2	i2swr http://wdr-wdr2-aachenundregion.icecastssl.wdr.de/wdr/wdr2/aachenundregion/mp3/128/stream.mp3
- //       i2swr http://icecast.ndr.de/ndr/njoy/live/mp3/128/stream.mp3
-
-
-  if (!wclient) {
-    wclient = New_WiFiClient();
-  }
-
-  if (!http) {
-    http = New_HTTP();
-  }
-
-  bool res = http_begin(http, wclient, url);
-  
-  
-  int32_t code = 0;
-
-  if (!res) {
-    http_end(http);
-    AddLog(LOG_LEVEL_INFO, PSTR("WR could not connect to %s err: %d"),url, code);
-    busy = false;
-    free(url);
-    vTaskDelete(0);
-  }
-
-  http_addHeader(http, GSTR(head_1), GSTR(head_2));
-
-  http_collectHeaders(http, GUI32p(hdr), 4 );
-
-  http_setReuse(http, true);
-
-  http_setFollowRedirects(http, HTTPC_FORCE_FOLLOW_REDIRECTS);
-
-  code = http_GET(http);
-  
-  if (code < 0) {
-    http_end(http);
-    AddLog(LOG_LEVEL_INFO, PSTR("WR could not connect to %s err: %d"),url, code);
-    busy = false;
-    free(url);
-    vTaskDelete(0);
-  }
-
-  uint32_t has_bitrate;
-
-  if (http_hasHeader(http, PSTR("icy-br"))) {
-    char *ret = http_header(http, PSTR("icy-br"));
-    AddLog(LOG_LEVEL_INFO, PSTR("WR br = %d"),ret);
-    has_bitrate = 1; // ret.toInt();
-  } else {
-    has_bitrate = 0;
-  }
-
-  int32_t size = http_getSize(http);
-
-  AddLog(LOG_LEVEL_INFO, PSTR("WR code %d - %d"),code, size);
-
-
-#if 0
-  http_end(http);
-  busy = false;
-#else
   running = true;
   i2s_enable_tx(i2sp);
 
   const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
   uint32_t len = uicp[3];
-
 
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task started 2"));
 
@@ -735,29 +648,33 @@ void I2sTaskWR(char *url) {
 
   http_end(http);
 
+  http_delete(http);
+  http = 0;
+  client_delete(wclient);
+  wclient = 0;
+
   i2s_disable_tx(i2sp);
 
   running = false;
   busy = false;
   
-#endif
-
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task stopped"));
-  free(url);
   vTaskDelete(0);
 }
 #endif
 
+// i2xwr http://dispatcher.rndfnk.com/hr/hr3/live/mp3/48/stream.mp3
+// i2xwr http://wdr-1live-live.icecast.wdr.de/wdr/1live/live/mp3/128/stream.mp3
 
 void WebRadio(void) {
   SETREGS
 
 #ifdef USE_WEBRADIO
-  char *cp = XdrvMailbox->data;
-  while (*cp == ' ') cp++;
+  char *url = XdrvMailbox->data;
+  while (*url == ' ') url++;
 
   if (busy == true) {
-    if (!*cp) {
+    if (!*url) {
       // stop running sound
       running = 0;
       Response_P(GSTR(S_JSON_STOPSND));
@@ -767,18 +684,67 @@ void WebRadio(void) {
     return;
   }
 
+#if 0
+  int32_t xres = icecast_open(url);
+  AddLog(LOG_LEVEL_INFO, PSTR("icecast res: %d"),xres);
+  icecast_end();
+  return;
+#else
+
+  if (!wclient) {
+    wclient = New_WiFiClient();
+  }
+
+  if (!http) {
+    http = New_HTTP();
+  }
+
+  bool res = http_begin(http, wclient, url);
+  
+  if (!res) {
+    http_end(http);
+    AddLog(LOG_LEVEL_INFO, PSTR("WR could not connect to %s"),url);
+    return;
+  }
+
+  http_addHeader(http, GSTR(head_1), GSTR(head_2));
+
+  http_collectHeaders(http, GUI32p(hdr), 4 );
+
+  http_setReuse(http, true);
+
+  http_setFollowRedirects(http, HTTPC_FORCE_FOLLOW_REDIRECTS);
+
+  int32_t code = http_GET(http);
+  
+  AddLog(LOG_LEVEL_INFO, PSTR("WR result: %d"), code);
+  
+ /* 
+  uint32_t has_bitrate;
+
+  if (http_hasHeader(http, PSTR("icy-br"))) {
+    char *ret = http_header(http, PSTR("icy-br"));
+    AddLog(LOG_LEVEL_INFO, PSTR("WR br = %d"),ret);
+    has_bitrate = 1; // ret.toInt();
+  } else {
+    has_bitrate = 0;
+  }
+
+  int32_t size = http_getSize(http);
+*/
+#endif
+
   busy = true;
 
 #define URL_SIZE 256
 // play webradio file
   char *urlcopy = (char*)calloc(URL_SIZE, 1);
-  strncpy (urlcopy, cp, URL_SIZE);
   const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
   TASKPARS tp;
   tp.pvTaskCode = GVOID(I2sTaskWR);
   tp.constpcName = GSTR(tname);
   tp.usStackDepth = uicp[1];
-  tp.constpvParameters = urlcopy;
+  tp.constpvParameters = url;
   tp.uxPriority = 3;
   tp.constpvCreatedTask = nullptr;
   tp.xCoreID = 1;

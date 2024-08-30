@@ -605,6 +605,8 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
     case 50:
       {
         bool res = plugin_http.begin(plugin_client, (char*)p2);
+        //bool res = plugin_http.begin(plugin_client, "http://wdr-wdr2-aachenundregion.icecastssl.wdr.de/wdr/wdr2/aachenundregion/mp3/128/stream.mp3");
+
         if (!res) {
           return 0;
         }
@@ -620,6 +622,10 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
     case 52:
       plugin_http.end();
       break;
+    case 53:
+      Test_prog();
+      break;
+
   }
 #endif // ESP32
   return 0;
@@ -2538,6 +2544,15 @@ void Module_dump(void) {
 
 
 void Test_prog(void) {
+
+#if 0
+  int32_t code =  tmod_wifi(50, 0, (uint32_t)"http://wdr-wdr2-aachenundregion.icecastssl.wdr.de/wdr/wdr2/aachenundregion/mp3/128/stream.mp3", 0, 0);
+
+  AddLog(LOG_LEVEL_INFO,PSTR("result: %d"), code);
+
+  tmod_wifi(52, 0, 0, 0, 0);
+
+#else
   bool res = plugin_http.begin(plugin_client, "http://wdr-wdr2-aachenundregion.icecastssl.wdr.de/wdr/wdr2/aachenundregion/mp3/128/stream.mp3");
   if (!res) {
     AddLog(LOG_LEVEL_INFO,PSTR("could not connect"));
@@ -2550,6 +2565,8 @@ void Test_prog(void) {
   plugin_http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
   int32_t code = plugin_http.GET();
   AddLog(LOG_LEVEL_INFO,PSTR("result: %d"), code);
+  plugin_http.end();
+#endif
 }
 
 #ifdef ESP8266
