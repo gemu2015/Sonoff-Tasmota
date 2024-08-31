@@ -826,6 +826,10 @@ typedef struct {
 #define icecast_end() jtmod_wifi(52,0,0,0,0)
 #define icecast_test() jtmod_wifi(53,0,0,0,0)
 
+
+#define GetHostbyName(A,B) jtmod_wifi(60,0,(uint32_t)A,(uint32_t)B,0)
+
+
 #define xTaskCreatePinnedToCore(A)   jtaskc(A)
 #define vTaskDelete(A)   jtaskd(A)
 

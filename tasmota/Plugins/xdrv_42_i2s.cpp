@@ -691,6 +691,14 @@ void WebRadio(void) {
   return;
 #else
 
+  char curr_ip[16];
+
+  GetHostbyName(url, curr_ip);
+
+  AddLog(LOG_LEVEL_INFO, PSTR("ip = %s"), curr_ip);
+
+  return;
+
   if (!wclient) {
     wclient = New_WiFiClient();
   }
@@ -706,6 +714,9 @@ void WebRadio(void) {
     AddLog(LOG_LEVEL_INFO, PSTR("WR could not connect to %s"),url);
     return;
   }
+
+  // without this delay it fails mostly ??????
+  delay(100);
 
   http_addHeader(http, GSTR(head_1), GSTR(head_2));
 

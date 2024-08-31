@@ -119,6 +119,10 @@
 #endif
 
 
+#ifndef SML_TRX_BUFF_SIZE
+#define SML_TRX_BUFF_SIZE 1024
+#endif
+
 #ifdef USE_SML_CANBUS
 
 #ifdef ESP8266
@@ -3291,7 +3295,6 @@ dddef_exit:
             if (*lp1 == ',') {
               lp1++;
               // look ahead, lp points to next line
-#define SML_TRX_BUFF_SIZE 1024
               char *txbuff = (char *)malloc(SML_TRX_BUFF_SIZE);
               if (!txbuff) {
                 goto dddef_exit;

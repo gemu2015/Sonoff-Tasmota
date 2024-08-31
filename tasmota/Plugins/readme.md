@@ -20,7 +20,7 @@ arbitrary constants also in rom (we must put them in PROGMEM)
 especially all const larger than 12 bit and all float constants 
 
 another problem ist that we would need at least 3 types of binaries
-the driver handler itself uses about 19 kB of flash 
+the driver handler itself uses about 20 kB of flash 
 
 how to create relocatable plugins:
 
@@ -35,15 +35,7 @@ linker files are automatically patched for all cpu types by this python script: 
 binaries are automatically extracted from firmware.bin by this python script: grepmodule-firmware.py
 
 esp32 needs an extra partition where binaries are stored (custom)
-example:
-
-	# Name,   Type, SubType, Offset,  Size, Flags
-	nvs,      data, nvs,     0x9000,  0x5000,
-	otadata,  data, ota,     0xe000,  0x2000,
-	safeboot, app,  factory, 0x10000, 0xD0000,
-	app0,     app,  ota_0,   0xE0000, 0x2C0000,
-	custom,   app,  test,    0x3A0000,0x10000,
-	spiffs,   data, spiffs,  0x3B0000,0x50000,
+this can be created and deleted by cmd chkpt see below.
 
 
 add these entries to extra_scripts:

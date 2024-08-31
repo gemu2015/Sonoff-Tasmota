@@ -461,16 +461,20 @@ uint32_t tmod_dummy() {
   return 0;
 }
 
-//WiFiClient xclient;
-
 WiFiClient plugin_client;
 HTTPClient plugin_http;
 
+#if defined(ESP32) && defined(USE_TLS)
+#include "WiFiClientSecureLightBearSSL.h"
+#endif
+
 uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t p4) {
-#ifdef ESP32
   WiFiClient *client =(WiFiClient*) p1;
-  BearSSL::WiFiClientSecure_light *sclient =(BearSSL::WiFiClientSecure_light*) p1;
   HTTPClient *http = (HTTPClient*) p1;
+#if defined(ESP32) && defined(USE_TLS)
+  BearSSL::WiFiClientSecure_light *sclient =(BearSSL::WiFiClientSecure_light*) p1;
+#endif
+
   switch (sel) {
     case 0:
       client = new WiFiClient;
@@ -496,7 +500,7 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
       delete client;
       break;
 
- #ifdef ESP32
+#if defined(ESP32) && defined(USE_TLS)
     case 10:
       sclient = new BearSSL::WiFiClientSecure_light(1024,1024);;
       return (uint32_t)sclient;
@@ -524,7 +528,7 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
       break;
     case 19:
       sclient->setTimeout(p2);
-#endif
+#endif // ESP32 + USE_TLS
 
     // class http
     case 30:
@@ -625,9 +629,20 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
     case 53:
       Test_prog();
       break;
-
+    case 60:
+    { IPAddress ip;
+      bool res = WifiHostByName((const char*)p2, ip);
+      if (res == true) {
+        String sres = ip.toString();
+        strcpy((char *)p3, sres.c_str());
+      } else {
+        *(char*)p3 = 0;
+      }
+      return res;
+    }
+    default:
+      return 0;
   }
-#endif // ESP32
   return 0;
 }
 
