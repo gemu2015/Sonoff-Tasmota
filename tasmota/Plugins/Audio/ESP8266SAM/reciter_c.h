@@ -10,8 +10,8 @@ unsigned char A, X, Y;
 
 #define inputtemp (samdata->reciter.inputtemp)
 
-void Code37055(unsigned char mem59)
-{
+void Code37055(unsigned char mem59) {
+	SETREGS
 	X = mem59;
 	X--;
 	A = inputtemp[X];
@@ -21,6 +21,7 @@ void Code37055(unsigned char mem59)
 }
 
 void Code37066(unsigned char mem58) {
+	SETREGS
 	X = mem58;
 	X++;
 	A = inputtemp[X];
@@ -29,6 +30,7 @@ void Code37066(unsigned char mem58) {
 }
 
 unsigned char GetRuleByte(unsigned short mem62, unsigned char Y) {
+	SETREGS
 	unsigned int address = mem62;
 
 	if (mem62 >= 37541) {
@@ -39,8 +41,14 @@ unsigned char GetRuleByte(unsigned short mem62, unsigned char Y) {
 	return pgm_read_byte(rules+address+Y); //rules[address+Y];
 }
 
-int TextToPhonemes(char *input) // Code36484
-{
+void murks(void) {
+	SETREGS
+}
+
+// Code36484
+int xTextToPhonemes(char *inbuff) {
+	SETREGS
+
 	//unsigned char *tab39445 = &mem[39445];   //input and output
 	//unsigned char mem29;
 	unsigned char mem56;      //output position for phonemes
@@ -65,7 +73,7 @@ int TextToPhonemes(char *input) // Code36484
 	do
 	{
 		//pos36499:
-		A = input[Y] & 127;
+		A = inbuff[Y] & 127;
 		if ( A >= 112) A = A & 95;
 		else if ( A >= 96) A = A & 79;
 
@@ -96,7 +104,7 @@ pos36554:
 			mem56++;
 			X = mem56;
 			A = 155;
-			input[X] = 155;
+			inbuff[X] = 155;
 			//goto pos36542;
 			//			Code39771(); 	//Code39777();
 			return 1;
@@ -111,7 +119,7 @@ pos36554:
 		mem56++;
 		X = mem56;
 		A = '.';
-		input[X] = '.';
+		inbuff[X] = '.';
 	} //while
 
 
@@ -134,7 +142,7 @@ pos36554:
 	mem56++;
 	X = mem56;
 	if (X > 120) goto pos36654;
-	input[X] = A;
+	inbuff[X] = A;
 	goto pos36554;
 
 	// -----
@@ -142,7 +150,7 @@ pos36554:
 	//36653 is unknown. Contains position
 
 pos36654:
-	input[X] = 155;
+	inbuff[X] = 155;
 	A = mem61;
 	mem36653 = A;
 	//	mem29 = A; // not used
@@ -535,7 +543,7 @@ pos37461:
 	{
 		mem56++;
 		X = mem56;
-		input[X] = A;
+		inbuff[X] = A;
 	}
 
 	//37478: BIT 57

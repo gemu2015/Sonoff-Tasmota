@@ -13,8 +13,8 @@
 typedef struct {
 	unsigned char speed;
 	unsigned char pitch;
-	static unsigned char mouth;
-	static unsigned char throat;
+	unsigned char mouth;
+	unsigned char throat;
 	int singmode = 0;
 	unsigned char mem39;
 	unsigned char mem44;
@@ -191,6 +191,7 @@ int SAMMain( void (*cb)(void *, unsigned char), void *cbd ) {
 }
 
 int SAMPrepare() {
+SETREGS
   Init();
   phonemeindex[255] = 32; //to prevent buffer overflow
 
@@ -219,6 +220,7 @@ int SAMPrepare() {
 
 //void Code48547()
 void PrepareOutput() {
+	SETREGS
 	sam.A = 0;
 	sam.X = 0;
 	sam.Y = 0;
@@ -263,6 +265,7 @@ void PrepareOutput() {
 
 //void Code48431()
 void InsertBreath() {
+	SETREGS
 	unsigned char mem54;
 	unsigned char mem55;
 	unsigned char index; //variable Y
@@ -326,6 +329,7 @@ void InsertBreath() {
 
 //void Code41883()
 void CopyStress() {
+	SETREGS
     // loop thought all the phonemes to be output
 	unsigned char pos=0; //mem66
 	while(1)
@@ -368,6 +372,7 @@ void CopyStress() {
 
 //void Code41014()
 void Insert(unsigned char position/*var57*/, unsigned char mem60, unsigned char mem59, unsigned char mem58) {
+	SETREGS
 	int i;
 	for(i=253; i >= position; i--) // ML : always keep last safe-guarding 255
 	{
@@ -434,6 +439,7 @@ void Insert(unsigned char position/*var57*/, unsigned char mem60, unsigned char 
 // the index 255 is placed at the end of the phonemeIndexTable[], and the
 // function returns with a 1 indicating success.
 int Parser1() {
+	SETREGS
 	int i;
 	unsigned char sign1;
 	unsigned char sign2;
@@ -563,6 +569,7 @@ pos41134:
 //change phonemelength depedendent on stress
 //void Code41203()
 void SetPhonemeLength() {
+	SETREGS
 	unsigned char A;
 	int position = 0;
 	while(phonemeindex[position] != 255 )
@@ -582,6 +589,7 @@ void SetPhonemeLength() {
 
 
 void Code41240() {
+	SETREGS
 	unsigned char pos=0;
 
 	while(phonemeindex[pos] != 255)
@@ -648,6 +656,7 @@ void Code41240() {
 
 //void Code41397()
 void Parser2() {
+	SETREGS
 	if (DEBUG_ESP8266SAM_LIB) printf("Parser2\n");
 	unsigned char pos = 0; //mem66;
 	unsigned char mem58 = 0;
@@ -1096,6 +1105,7 @@ pos41812:
 
 //void Code48619()
 void AdjustLengths() {
+	SETREGS
 
     // LENGTHEN VOWELS PRECEDING PUNCTUATION
     //

@@ -25,14 +25,12 @@
 SamData* samdata;
 
 // Thunk from C to C++ with a this-> pointer
-void ESP8266SAM::OutputByteCallback(void *cbdata, unsigned char b)
-{
+void ESP8266SAM_OutputByteCallback(void *cbdata, unsigned char b) {
   ESP8266SAM *sam = static_cast<ESP8266SAM*>(cbdata);
   sam->OutputByte(b);
 }
 
-void ESP8266SAM::OutputByte(unsigned char b)
-{
+void ESP8266SAM_OutputByte(unsigned char b) {
   // Xvert unsigned 8 to signed 16...
   int16_t s16 = b;// s16 -= 128; //s16 *= 128;
   int16_t sample[2];
@@ -41,8 +39,7 @@ void ESP8266SAM::OutputByte(unsigned char b)
   while (!output->ConsumeSample(sample)) yield();
 }
   
-bool ESP8266SAM::Say(AudioOutput *out, const char *str)
-{
+bool ESP8266SAM_Say(AudioOutput *out, const char *str) {
   if (!str || strlen(str)>254) return false; // Only can speak up to 1 page worth of data...
   samdata = new SamData;
   if (samdata == nullptr)
@@ -65,9 +62,7 @@ bool ESP8266SAM::Say(AudioOutput *out, const char *str)
   if (throat) ::SetThroat(throat);
 
   // Input massaging
-  char input[256];
-  for (int i=0; str[i]; i++)
-    input[i] = toupper((int)str[i]);
+   
   input[strlen(str)] = 0;
 
   // To phonemes
@@ -86,8 +81,7 @@ bool ESP8266SAM::Say(AudioOutput *out, const char *str)
   return true;
 }
 
-void ESP8266SAM::SetVoice(enum SAMVoice voice)
-{
+void ESP8266SAM_SetVoice(enum SAMVoice voice) {
   switch (voice) {
     case VOICE_ELF: SetSpeed(72); SetPitch(64); SetThroat(110); SetMouth(160); break;
     case VOICE_ROBOT: SetSpeed(92); SetPitch(60); SetThroat(190); SetMouth(190); break;

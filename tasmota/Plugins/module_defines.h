@@ -205,6 +205,9 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jtmod_wifi(A,B,C,D,E)           (( uint32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t) ) jt[171])(A,B,C,D,E)
 #define iUrlEncode(A)                   (( char * (*)(char *))                          jt[171])(A)
 
+
+strncat_P
+
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
 #define bitSet(value, bit) ((value) |= (1UL << (bit)))

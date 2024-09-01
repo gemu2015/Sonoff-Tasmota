@@ -7,7 +7,7 @@ extern "C" {
 
 //int TextToPhonemes(char *input, char *output);
 
-int TextToPhonemes(char *input);
+//MODULE_PART int TextToPhonemes(char *input);
 
 #ifdef __cplusplus
 }

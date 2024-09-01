@@ -98,8 +98,8 @@ void Output8Bit(int index, unsigned char A)
 // 172=amplitude1
 // 173=amplitude2
 // 174=amplitude3
-unsigned char Read(unsigned char p, unsigned char Y)
-{
+unsigned char Read(unsigned char p, unsigned char Y) {
+	SETREGS
 	switch(p)
 	{
 	case 168: return pitches[Y];
@@ -114,8 +114,8 @@ unsigned char Read(unsigned char p, unsigned char Y)
 	return 0;
 }
 
-void Write(unsigned char p, unsigned char Y, unsigned char value)
-{
+void Write(unsigned char p, unsigned char Y, unsigned char value) {
+	SETREGS
 
 	switch(p)
 	{
@@ -188,8 +188,8 @@ void Write(unsigned char p, unsigned char Y, unsigned char value)
 
 
 // Code48227()
-void RenderSample(unsigned char *mem66)
-{
+void RenderSample(unsigned char *mem66) {
+	SETREGS
 	int tempA;
 	// current phoneme's index
 	mem49 = Y;
@@ -904,26 +904,26 @@ pos48159:
 // index X. A rising inflection is used for questions, and
 // a falling inflection is used for statements.
 
-void AddInflection(unsigned char mem48, unsigned char phase1)
-{
+void AddInflection(unsigned char mem48, unsigned char phase1) {
+	SETMEMREGS
 	//pos48372:
 	//	mem48 = 255;
 //pos48376:
 
     // store the location of the punctuation
-	mem49 = X;
-	A = X;
-	int Atemp = A;
+	sam.mem49 = sam.X;
+	sam.A = sam.X;
+	int Atemp = sam.A;
 
 	// backup 30 frames
-	A = A - 30;
+	sam.A = sam.A - 30;
 	// if index is before buffer, point to start of buffer
-	if (Atemp <= 30) A=0;
-	X = A;
+	if (Atemp <= 30) sam.A=0;
+	sam.X = sam.A;
 
 	// FIXME: Explain this fix better, it's not obvious
 	// ML : A =, fixes a problem with invalid pitch with '.'
-	while( (A=pitches[X]) == 127) X++;
+	while( (sam.A=pitches[sam.X]) == 127) sam.X++;
 
 
 pos48398:
@@ -931,20 +931,20 @@ pos48398:
 	//48399: ADC 48
 
 	// add the inflection direction
-	A += mem48;
-	phase1 = A;
+	sam.A += mem48;
+	phase1 = sam.A;
 
 	// set the inflection
-	pitches[X] = A;
+	pitches[sam.X] = sam.A;
 pos48406:
 
     // increment the position
-	X++;
+	sam.X++;
 
 	// exit if the punctuation has been reached
-	if (X == mem49) return; //goto pos47615;
-	if (pitches[X] == 255) goto pos48406;
-	A = phase1;
+	if (sam.X == mem49) return; //goto pos47615;
+	if (pitches[sam.X] == 255) goto pos48406;
+	sam.A = phase1;
 	goto pos48398;
 }
 
@@ -972,8 +972,8 @@ const unsigned char mouthFormants48_53[6] PROGMEM = {19, 27, 21, 27, 18, 13};
         // formant 2 frequencies (throat) 48..53
 const unsigned char throatFormants48_53[6] PROGMEM = {72, 39, 31, 43, 30, 34};
 
-void SetMouthThroat(unsigned char mouth, unsigned char throat)
-{
+void SetMouthThroat(unsigned char mouth, unsigned char throat) {
+	SETMEMREGS
 	unsigned char initialFrequency;
 	unsigned char newFrequency = 0;
 	//unsigned char mouth; //mem38880

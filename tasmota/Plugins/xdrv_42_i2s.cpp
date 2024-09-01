@@ -25,19 +25,23 @@
 #include "module.h"
 #include "module_defines.h"
 
-//#define USE_SAY
+#define USE_SAY
 
 #ifdef ESP32
-//#define USE_MP3_PSRAM
+#define USE_MP3_PSRAM
 #define USE_MP3
 #define USE_WEBRADIO
 // select a codec
 #define USE_WM8960
 #endif
 
-//#define USE_MP3
 
 int32_t pW8960_Init();
+
+
+#ifdef USE_SAY
+#include "Audio/ESP8266SAM/SamData.h"
+#endif
 
 // RIFF header
 typedef struct {
@@ -95,6 +99,7 @@ typedef struct {
   bool running;
   uint8_t force_mono;
   uint8_t chans;
+  uint16_t srate;
 #ifdef USE_MP3
   MP3_MEM mp3m;
   int16_t *m_outBuff;
@@ -112,6 +117,11 @@ typedef struct {
   void *http;
   void *wclient;
 #endif
+
+#ifdef USE_SAY
+  SamData *samdata;
+#endif
+
 } MODULE_MEMORY;
 
 #define dout_pin mem->dout_pin
@@ -135,6 +145,8 @@ typedef struct {
 #define pclamp mem->pclamp
 #define mclamp mem->mclamp
 #define force_mono mem->force_mono
+#define srate mem->srate
+#define samdata mem->samdata
 
 // esp8266 fixed i2s pins : DOUT = 3(RX), BCK = 15(D8), WS = 2(D4)
 
@@ -184,7 +196,7 @@ const char S_JSON_FNF[] PROGMEM = "{\"File %s not found\"}";
 const char S_JSON_ILLF[] PROGMEM = "{\"Illegal File format\"}";
 const char S_JSON_BUSY[] PROGMEM = "{\"audio is busy\"}";
 const char S_JSON_STOPSND[] PROGMEM = "{\"audio stopped\"}";
-#ifdef USE_MP3
+#if defined(USE_MP3) || defined(USE_SAY)
 const char S_JSON_MEMERR[] PROGMEM = "{\"out of memory\"}";
 #endif
 #ifdef USE_WM8960
@@ -483,7 +495,7 @@ bool mp3_begin() {
     return true;
   }
 
-  uint32_t srate = MP3GetSampRate();
+  srate = MP3GetSampRate();
   chans = MP3GetChannels();
 
   i2s_set_rate(i2sp, srate, mode, chans);
@@ -582,11 +594,84 @@ void I2sTaskMP3(void) {
 #include "Audio/ESP8266SAM/sam_c.h"
 #include "Audio/ESP8266SAM/render_c.h"
 #include "Audio/ESP8266SAM/reciter_c.h"
+
+void OutputByteCallback(void *cbdata, unsigned char b) {
+  SETREGS
+  int16_t s16 = b;// s16 -= 128; //s16 *= 128;
+  int16_t sample[2];
+  sample[0] = s16;
+  sample[1] = s16;
+  Write_Samples(sample, 1);
+  delay(0);
+}
 #endif
 
 void Say(void) {
   SETREGS
 #ifdef USE_SAY
+  chans = 1;
+  force_mono = 1;
+  srate = 22050;
+  i2s_set_rate(i2sp, srate, mode, chans);
+
+  char *cp = XdrvMailbox->data;
+  while (*cp == ' ') cp++;
+  if (busy == true) {
+    if (!*cp) {
+      // stop running sound
+      running = 0;
+      Response_P(GSTR(S_JSON_STOPSND));
+    } else {
+      Response_P(GSTR(S_JSON_BUSY));
+    }
+    return;
+  }
+
+  samdata = (SamData *)special_malloc(sizeof(SamData));
+  if (!samdata) {
+    // memory error
+    Response_P(GSTR(S_JSON_MEMERR));
+    return;
+  }
+
+  char inbuff[256];
+
+  for (uint32_t i = 0; i < sizeof(inbuff) - 1; i++) {
+    if (!*cp) {
+      inbuff[i] = 0;
+      break;
+    }
+    inbuff[i] = toupper(*cp++);
+  }
+
+  bool singmode = false;
+  bool phonetic = false;
+
+// To phonemes
+  if (phonetic) {
+    strncat(inbuff, "\x9b", sizeof(inbuff));
+  } else {
+    strncat(inbuff, "[", sizeof(inbuff));
+    if ( !xTextToPhonemes(&inbuff[0]) ) {
+      free(samdata);
+      Response_P(GSTR(S_JSON_MEMERR));
+      return; // ERROR
+    }
+  }
+
+  running = true;
+  i2s_enable_tx(i2sp);
+
+  SetInput(inbuff);
+  SAMMain(OutputByteCallback, samdata);
+  
+  free (samdata);
+
+  i2s_disable_tx(i2sp);
+  running = false;
+  busy = false;
+  ResponseCmndDone();
+
 #endif
 }
 

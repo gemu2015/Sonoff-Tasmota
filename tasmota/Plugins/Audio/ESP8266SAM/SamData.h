@@ -14,10 +14,8 @@ extern "C" {
 
 #define SAMDATA
 
-typedef struct s_samdata
-{
-    struct render
-    {
+typedef struct s_samdata {
+    struct render {
         unsigned char pitches[256]; // tab43008
         unsigned char frequency1[256];
         unsigned char frequency2[256];
@@ -30,8 +28,7 @@ typedef struct s_samdata
     struct reciter {
         unsigned char inputtemp[256];
     } reciter;
-    struct sam
-    {
+    struct sam {
         char input[256]; //tab39445
         unsigned char stress[256]; //numbers from 0 to 8
         unsigned char phonemeLength[256]; //tab40160
