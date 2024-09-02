@@ -5,16 +5,14 @@
  *      Author: chris.l
  */
 
-#ifndef SAMDATA_H_
-#define SAMDATA_H_
+#ifndef samdata_H_
+#define samdata_H_
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define SAMDATA
-
-typedef struct s_samdata {
+typedef struct {
 
     unsigned char speed;
 	unsigned char pitch;
@@ -40,6 +38,9 @@ typedef struct s_samdata {
     uint8_t freq1data[80];
     uint8_t freq2data[80];
     uint8_t freq3data[80];
+    
+    uint8_t xflags1[82];
+    uint8_t xflags2[82];
 
     struct reciter {
         unsigned char inputtemp[256];
@@ -67,6 +68,7 @@ typedef struct {
         unsigned char amplitude3[256];
         unsigned char sampledConsonantFlag[256]; // tab44800
 } SAM_RENDER;
+
 
 
 #define input samdata->sam.input
@@ -102,6 +104,11 @@ typedef struct {
 #define outcb samdata->outcb
 #define outcbdata samdata->outcbdata
 
+#define xflags1    samdata->xflags1
+#define xflags2    samdata->xflags2
+
+
+
 #ifdef __cplusplus
 }
 #endif
@@ -110,4 +117,4 @@ typedef struct {
 const int32_t uconst[] PROGMEM  = {2559,3071,3073};
 
 
-#endif /* SAMDATA_H_ */
+#endif /* samdata_H_ */

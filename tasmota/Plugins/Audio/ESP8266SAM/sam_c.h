@@ -239,7 +239,7 @@ void InsertBreath() {
 		if (mem55 < 232) {
 			if (index != 254) // ML : Prevents an index out of bounds problem
 			{
-				samdata->A = flags2[index]&1;
+				samdata->A = xflags2[index]&1;
 				if(samdata->A != 0)
 				{
 					samdata->X++;
@@ -294,7 +294,7 @@ void CopyStress() {
 		if (samdata->Y == 255) return;
 
 		// if CONSONANT_FLAG set, skip - only vowels get stress
-		if ((flags[samdata->Y] & 64) == 0) {pos++; continue;}
+		if ((xflags1[samdata->Y] & 64) == 0) {pos++; continue;}
 		// get the next phoneme
 		samdata->Y = phonemeindex[pos+1];
 		if (samdata->Y == 255) //prevent buffer overflow
@@ -302,7 +302,7 @@ void CopyStress() {
 			pos++; continue;
 		} else
 		// if the following phoneme is a vowel, skip
-		if ((flags[samdata->Y] & 128) == 0)  {pos++; continue;}
+		if ((xflags1[samdata->Y] & 128) == 0)  {pos++; continue;}
 
         // get the stress value at the next position
 		samdata->Y = stress[pos+1];
@@ -503,8 +503,15 @@ pos41134:
 		samdata->Y = 8;
 
        // WALK BACK THROUGH TABLE LOOKING FOR A MATCH
-		while( (sign1 != pgm_read_byte(stressInputTable + samdata->Y)/*stressInputTable[Y]*/) && (samdata->Y > 0)) {
-  // DECREMENT INDEX
+	   	//while( (sign1 != pgm_read_byte(stressInputTable + samdata->Y)/*stressInputTable[Y]*/) && (samdata->Y > 0)) {
+		while (1) {
+			const uint8_t *cp = stressInputTable + samdata->Y;
+			cp += EXEC_OFFSET;
+			if (sign1 != pgm_read_byte(cp) && samdata->Y > 0) {
+			} else {
+				break;
+			}
+  			// DECREMENT INDEX
 			samdata->Y--;
 		}
 
@@ -557,10 +564,10 @@ void Code41240() {
 		unsigned char index; //register AC
 		samdata->X = pos;
 		index = phonemeindex[pos];
-		if ((flags[index] & 2) == 0) {
+		if ((xflags1[index] & 2) == 0) {
 			pos++;
 			continue;
-		} else if ((flags[index] & 1) == 0) {
+		} else if ((xflags1[index] & 1) == 0) {
 			//Insert(pos + 1, index + 1, pgm_read_byte(&phonemeLengthTable[index + 1]), stress[pos]);
 			const uint8_t *cp = &phonemeLengthTable[index + 1];
 			cp += EXEC_OFFSET;
@@ -581,7 +588,7 @@ void Code41240() {
 		} while (samdata->A == 0);
 
 		if (samdata->A != 255) {
-			if ((flags[samdata->A] & 8) != 0)  {pos++; continue;}
+			if ((xflags1[samdata->A] & 8) != 0)  {pos++; continue;}
 			if ((samdata->A == 36) || (samdata->A == 37)) {pos++; continue;} // '/H' '/X'
 		}
 
@@ -666,13 +673,13 @@ void Parser2() {
 
 
 // Check for DIPHTONG
-		if ((flags[samdata->A] & 16) == 0) goto pos41457;
+		if ((xflags1[samdata->A] & 16) == 0) goto pos41457;
 
 // Not a diphthong. Get the stress
 		mem58 = stress[pos];
 
 // End in IY sound?
-		samdata->A = flags[samdata->Y] & 32;
+		samdata->A = xflags1[samdata->Y] & 32;
 
 // If ends with IY, use YX, else use WX
 		if (samdata->A == 0) samdata->A = 20; else samdata->A = 21;    // 'WX' = 20 'YX' = 21
@@ -746,7 +753,7 @@ pos41503:
 
 		samdata->Y = samdata->A;
 // VOWEL set?
-		samdata->A = flags[samdata->A] & 128;
+		samdata->A = xflags1[samdata->A] & 128;
 
 // Skip if not a vowel
 		if (samdata->A != 0) {
@@ -767,11 +774,11 @@ pos41503:
 
 // Check for end of buffer flag
 					if (samdata->Y == 255) //buffer overflow
-// ??? Not sure about these flags
+// ??? Not sure about these xflags1
      					samdata->A = 65&128;
 					else
-// And VOWEL flag to current phoneme's flags
-     					samdata->A = flags[samdata->Y] & 128;
+// And VOWEL flag to current phoneme's xflags1
+     					samdata->A = xflags1[samdata->Y] & 128;
 
 // If following phonemes is not a pause
 					if (samdata->A != 0) {
@@ -833,7 +840,7 @@ pos41503:
 
 
 // If vowel flag is set change R to RX
-		samdata->A = flags[samdata->A] & 128;
+		samdata->A = xflags1[samdata->A] & 128;
 		if (DEBUG_ESP8266SAM_LIB) printf("RULE: R -> RX\n");
 		if (samdata->A != 0) phonemeindex[pos] = 18;  // 'RX'
 
@@ -851,7 +858,7 @@ pos41611:
 		if (samdata->A == 24)    // 'L'
 		{
 // If prior phoneme does not have VOWEL flag set, move to next phoneme
-			if ((flags[phonemeindex[pos - 1]] & 128) == 0) {pos++; continue;}
+			if ((xflags1[phonemeindex[pos - 1]] & 128) == 0) {pos++; continue;}
 // Prior phoneme has VOWEL flag set, so change L to LX and move to next phoneme
 			if (DEBUG_ESP8266SAM_LIB) printf("RULE: <VOWEL> L -> <VOWEL> LX\n");
 			phonemeindex[samdata->X] = 19;     // 'LX'
@@ -892,7 +899,7 @@ pos41611:
 				phonemeindex[pos] = 75; // ML : prevents an index out of bounds problem
 			} else {
 // VOWELS AND DIPHTONGS ENDING WITH IY SOUND flag set?
-				samdata->A = flags[samdata->Y] & 32;
+				samdata->A = xflags1[samdata->Y] & 32;
 				if (DEBUG_ESP8266SAM_LIB) if (samdata->A == 0) printf("RULE: K <VOWEL OR DIPHTONG NOT ENDING WITH IY> -> KX <VOWEL OR DIPHTONG NOT ENDING WITH IY>\n");
 // Replace with KX
 				if (samdata->A == 0) phonemeindex[pos] = 75;  // 'KX'
@@ -918,7 +925,7 @@ pos41611:
 			}
 			else
 // If diphtong ending with YX, move continue processing next phoneme
-			if ((flags[index] & 32) != 0) {pos++; continue;}
+			if ((xflags1[index] & 32) != 0) {pos++; continue;}
 // replace G with GX and continue processing next phoneme
 			if (DEBUG_ESP8266SAM_LIB) printf("RULE: G <VOWEL OR DIPHTONG NOT ENDING WITH IY> -> GX <VOWEL OR DIPHTONG NOT ENDING WITH IY>\n");
 			phonemeindex[pos] = 63; // 'GX'
@@ -936,7 +943,7 @@ pos41611:
 		samdata->Y = phonemeindex[pos];
 		//pos41719:
 // Replace with softer version?
-		samdata->A = flags[samdata->Y] & 1;
+		samdata->A = xflags1[samdata->Y] & 1;
 		if (samdata->A == 0) goto pos41749;
 		samdata->A = phonemeindex[pos-1];
 		if (samdata->A != 32)    // 'S'
@@ -965,7 +972,7 @@ pos41749:
 		{
 // ALVEOLAR flag set?
 			samdata->Y = phonemeindex[samdata->X-1];
-			samdata->A = flags2[samdata->Y] & 4;
+			samdata->A = xflags2[samdata->Y] & 4;
 // If not set, continue processing next phoneme
 			if (samdata->A == 0) {pos++; continue;}
 			if (DEBUG_ESP8266SAM_LIB) printf("RULE: <ALVEOLAR> UW -> <ALVEOLAR> UX\n");
@@ -1021,7 +1028,7 @@ pos41812:
 
 
 // If prior phoneme is not a vowel, continue processing phonemes
-		if ((flags[phonemeindex[samdata->X - 1]] & 128) == 0) {pos++; continue;}
+		if ((xflags1[phonemeindex[samdata->X - 1]] & 128) == 0) {pos++; continue;}
 
 // Get next phoneme
 		samdata->X++;
@@ -1030,7 +1037,7 @@ pos41812:
 // Is the next phoneme a pause?
 		if (samdata->A != 0) {
 // If next phoneme is not a pause, continue processing phonemes
-			if ((flags[samdata->A] & 128) == 0) {pos++; continue;}
+			if ((xflags1[samdata->A] & 128) == 0) {pos++; continue;}
 // If next phoneme is stressed, continue processing phonemes
 // FIXME: How does a pause get stressed?
 			if (stress[samdata->X] != 0) {pos++; continue;}
@@ -1044,7 +1051,7 @@ pos41812:
 				samdata->A = 65 & 128;
 			else
 // Is next phoneme a vowel or ER?
-				samdata->A = flags[samdata->A] & 128;
+				samdata->A = xflags1[samdata->A] & 128;
 			if (DEBUG_ESP8266SAM_LIB) if (samdata->A != 0) printf("RULE: Soften T or D following vowel or ER and preceding a pause -> DX\n");
 			if (samdata->A != 0) phonemeindex[pos] = 30;  // 'DX'
 		}
@@ -1091,7 +1098,7 @@ MODULE_PART void AdjustLengths() {
 		if (index == 255) break;
 
 		// not punctuation?
-		if ((flags2[index] & 1) == 0) {
+		if ((xflags2[index] & 1) == 0) {
             // skip
 			samdata->X++;
 			continue;
@@ -1113,7 +1120,7 @@ pos48644:
 		index = phonemeindex[samdata->X];
 
 		if (index != 255) //inserted to prevent access overrun
-		if ((flags[index] & 128) == 0) goto pos48644; // if not a vowel, continue looping
+		if ((xflags1[index] & 128) == 0) goto pos48644; // if not a vowel, continue looping
 
 		//pos48657:
 		do {
@@ -1122,9 +1129,9 @@ pos48644:
 
 			if (index != 255)//inserted to prevent access overrun
 			// test for fricative/unvoiced or not voiced
-			if (((flags2[index] & 32) == 0) || ((flags[index] & 4) != 0))     //nochmal �berpr�fen
+			if (((xflags2[index] & 32) == 0) || ((xflags1[index] & 4) != 0))     //nochmal �berpr�fen
 			{
-				//A = flags[Y] & 4;
+				//A = xflags1[Y] & 4;
 				//if(A == 0) goto pos48688;
 
                 // get the phoneme length
@@ -1164,20 +1171,20 @@ if (DEBUG_ESP8266SAM_LIB) printf("phoneme %d (%c%c) length %d\n", samdata->X, si
 		if (index == 255) return;
 
 		// vowel?
-		samdata->A = flags[index] & 128;
+		samdata->A = xflags1[index] & 128;
 		if (samdata->A != 0) {
             // get next phoneme
 			samdata->X++;
 			index = phonemeindex[samdata->X];
 
-			// get flags
+			// get xflags1
 			if (index == 255)
 				samdata->mem56 = 65; // use if end marker
 			else
-				samdata->mem56 = flags[index];
+				samdata->mem56 = xflags1[index];
 
             // not a consonant
-			if ((flags[index] & 64) == 0) {
+			if ((xflags1[index] & 64) == 0) {
                 // RX or LX?
 				if ((index == 18) || (index == 19))  // 'RX' & 'LX'
 				{
@@ -1186,7 +1193,7 @@ if (DEBUG_ESP8266SAM_LIB) printf("phoneme %d (%c%c) length %d\n", samdata->X, si
 					index = phonemeindex[samdata->X];
 
 					// next phoneme a consonant?
-					if ((flags[index] & 64) != 0) {
+					if ((xflags1[index] & 64) != 0) {
                         // RULE: <VOWEL> RX | LX <CONSONANT>
 
 
@@ -1280,7 +1287,7 @@ if (DEBUG_ESP8266SAM_LIB) printf("phoneme %d (%c%c) length %d\n", samdata->X-1, 
         //       Set stop consonant length to 5
 
         // nasal?
-        if((flags2[index] & 8) != 0) {
+        if((xflags2[index] & 8) != 0) {
 
             // M*, N*, NX,
 
@@ -1292,7 +1299,7 @@ if (DEBUG_ESP8266SAM_LIB) printf("phoneme %d (%c%c) length %d\n", samdata->X-1, 
             if (index == 255)
                samdata->A = 65&2;  //prevent buffer overflow
             else
-                samdata->A = flags[index] & 2; // check for stop consonant
+                samdata->A = xflags1[index] & 2; // check for stop consonant
 
 
             // is next phoneme a stop consonant?
@@ -1329,7 +1336,7 @@ if (DEBUG_ESP8266SAM_LIB) printf("phoneme %d (%c%c) length %d\n", samdata->X-1, 
         //       Shorten both to (length/2 + 1)
 
         // (voiced) stop consonant?
-        if ((flags[index] & 2) != 0) {
+        if ((xflags1[index] & 2) != 0) {
             // B*, D*, G*, GX
 
             // move past silence
@@ -1345,7 +1352,7 @@ if (DEBUG_ESP8266SAM_LIB) printf("phoneme %d (%c%c) length %d\n", samdata->X-1, 
             {
                 // ignore, overflow code
                 if ((65 & 2) == 0) {loopIndex++; continue;}
-            } else if ((flags[index] & 2) == 0) {
+            } else if ((xflags1[index] & 2) == 0) {
                 // if another stop consonant, move ahead
                 loopIndex++;
                 continue;
@@ -1382,14 +1389,14 @@ if (DEBUG_ESP8266SAM_LIB) printf("phoneme %d (%c%c) length %d\n", debugX-1, sign
         //       Decrease <DIPHTONG> by 2
 
         // liquic consonant?
-        if ((flags2[index] & 16) != 0) {
+        if ((xflags2[index] & 16) != 0) {
             // R*, L*, W*, Y*
 
             // get the prior phoneme
             index = phonemeindex[samdata->X-1];
 
             // prior phoneme a stop consonant>
-            if((flags[index] & 2) != 0)
+            if((xflags1[index] & 2) != 0)
                              // Rule: <LIQUID CONSONANT> <DIPHTONG>
 
 if (DEBUG_ESP8266SAM_LIB) printf("RULE: <LIQUID CONSONANT> <DIPHTONG> - decrease by 2\n");

@@ -115,8 +115,8 @@ typedef struct {
 #define mclamp mem->mclamp
 #define force_mono mem->force_mono
 #define srate mem->srate
-#define samdata mem->samdata
 #define samrender mem->samrender
+#define samdata mem->samdata
 
 // esp8266 fixed i2s pins : DOUT = 3(RX), BCK = 15(D8), WS = 2(D4)
 
@@ -623,6 +623,17 @@ void Say(void) {
     cp = &org_freq3data[cnt];
     cp += EXEC_OFFSET;
     freq3data[cnt] = pgm_read_byte(cp);
+  }
+  for (uint16_t cnt = 0; cnt < 81; cnt++) {
+    const uint8_t *cp = &org_flags1[cnt];
+    cp += EXEC_OFFSET;
+    xflags1[cnt] = pgm_read_byte(cp);
+  }
+
+  for (uint16_t cnt = 0; cnt < 78; cnt++) {
+    const uint8_t *cp = &org_flags2[cnt];
+    cp += EXEC_OFFSET;
+    xflags2[cnt] = pgm_read_byte(cp);
   }
 
   char inbuff[256];
