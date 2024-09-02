@@ -385,10 +385,23 @@ do {
 		frequency1[samdata->X] = freq1data[samdata->Y];     // F1 frequency
 		frequency2[samdata->X] = freq2data[samdata->Y];     // F2 frequency
 		frequency3[samdata->X] = freq3data[samdata->Y];     // F3 frequency
-		amplitude1[samdata->X] = pgm_read_byte(&ampl1data[samdata->Y]);     // F1 amplitude
-		amplitude2[samdata->X] = pgm_read_byte(&ampl2data[samdata->Y]);     // F2 amplitude
-		amplitude3[samdata->X] = pgm_read_byte(&ampl3data[samdata->Y]);     // F3 amplitude
-		sampledConsonantFlag[samdata->X] = pgm_read_byte(&sampledConsonantFlags[samdata->Y]);        // phoneme data for sampled consonants
+		//amplitude1[samdata->X] = pgm_read_byte(&ampl1data[samdata->Y]);     // F1 amplitude
+		cp = &ampl1data[samdata->Y];
+		cp += EXEC_OFFSET;
+		amplitude1[samdata->X] = pgm_read_byte(cp); 
+		//amplitude2[samdata->X] = pgm_read_byte(&ampl2data[samdata->Y]);     // F2 amplitude
+		cp = &ampl2data[samdata->Y];
+		cp += EXEC_OFFSET;
+		amplitude2[samdata->X] = pgm_read_byte(cp); 
+		//amplitude3[samdata->X] = pgm_read_byte(&ampl3data[samdata->Y]);     // F3 amplitude
+		cp = &ampl3data[samdata->Y];
+		cp += EXEC_OFFSET;
+		amplitude3[samdata->X] = pgm_read_byte(cp); 
+		//sampledConsonantFlag[samdata->X] = pgm_read_byte(&sampledConsonantFlags[samdata->Y]);        // phoneme data for sampled consonants
+		cp = &sampledConsonantFlags[samdata->Y];
+		cp += EXEC_OFFSET;
+		sampledConsonantFlag[samdata->X] = pgm_read_byte(cp); 
+
 		pitches[samdata->X] = pitch + phase1;      // pitch
 		samdata->X++;
 		phase2--;
@@ -396,8 +409,7 @@ do {
 	samdata->mem44++;
 } while(samdata->mem44 != 0);
 yield();
-if (DEBUG_ESP8266SAM_LIB)
-{
+if (DEBUG_ESP8266SAM_LIB) {
         PrintOutput(sampledConsonantFlag, frequency1, frequency2, frequency3, amplitude1, amplitude2, amplitude3, pitches);
 }
 // -------------------
@@ -550,23 +562,49 @@ if (DEBUG_ESP8266SAM_LIB)
 
         // get the ranking of each phoneme
 		samdata->X = samdata->A;
-		samdata->mem56 = pgm_read_byte(blendRank+samdata->A); //blendRank[A];
-		samdata->A = pgm_read_byte(blendRank+samdata->Y); //blendRank[Y];
+		//samdata->mem56 = pgm_read_byte(blendRank+samdata->A); //blendRank[A];
+		const uint8_t *cp = blendRank + samdata->A;
+		cp += EXEC_OFFSET;
+		samdata->mem56 = pgm_read_byte(cp); 
+
+		//samdata->A = pgm_read_byte(blendRank+samdata->Y); //blendRank[Y];
+		cp = blendRank + samdata->Y;
+		cp += EXEC_OFFSET;
+		samdata->A = pgm_read_byte(cp); 
 
 		// compare the rank - lower rank value is stronger
 		if (samdata->A == samdata->mem56) {
             // same rank, so use out blend lengths from each phoneme
-			phase1 = pgm_read_byte(outBlendLength+samdata->Y);//outBlendLength[Y];
-			phase2 = pgm_read_byte(outBlendLength+samdata->X);//outBlendLength[X];
+			//phase1 = pgm_read_byte(outBlendLength+samdata->Y);//outBlendLength[Y];
+			cp = outBlendLength + samdata->Y;
+			cp += EXEC_OFFSET;
+			phase1 = pgm_read_byte(cp); 
+
+			//phase2 = pgm_read_byte(outBlendLength+samdata->X);//outBlendLength[X];
+			cp = outBlendLength + samdata->X;
+			cp += EXEC_OFFSET;
+			phase2 = pgm_read_byte(cp); 
 		} else if (samdata->A < samdata->mem56) {
             // first phoneme is stronger, so us it's blend lengths
-			phase1 = pgm_read_byte(inBlendLength+samdata->X);//inBlendLength[X];
-			phase2 = pgm_read_byte(outBlendLength+samdata->X);//outBlendLength[X];
+			//phase1 = pgm_read_byte(inBlendLength+samdata->X);//inBlendLength[X];
+			cp = inBlendLength + samdata->X;
+			cp += EXEC_OFFSET;
+			phase1 = pgm_read_byte(cp); 
+			//phase2 = pgm_read_byte(outBlendLength+samdata->X);//outBlendLength[X];
+			cp = outBlendLength + samdata->X;
+			cp += EXEC_OFFSET;
+			phase2 = pgm_read_byte(cp); 
 		} else {
             // second phoneme is stronger, so use it's blend lengths
             // note the out/in are swapped
-			phase1 = pgm_read_byte(outBlendLength+samdata->Y);//outBlendLength[Y];
-			phase2 = pgm_read_byte(inBlendLength+samdata->Y);//inBlendLength[Y];
+			//phase1 = pgm_read_byte(outBlendLength+samdata->Y);//outBlendLength[Y];
+			cp = outBlendLength + samdata->Y;
+			cp += EXEC_OFFSET;
+			phase1 = pgm_read_byte(cp); 
+			//phase2 = pgm_read_byte(inBlendLength+samdata->Y);//inBlendLength[Y];
+			cp = inBlendLength + samdata->Y;
+			cp += EXEC_OFFSET;
+			phase2 = pgm_read_byte(cp); 
 		}
 
 		samdata->Y = samdata->mem44;
@@ -722,9 +760,18 @@ if (DEBUG_ESP8266SAM_LIB)
 
 	//amplitude rescaling
 	for (i = 255; i >= 0; i--) {
-		amplitude1[i] = pgm_read_byte(amplitudeRescale + amplitude1[i]);//amplitudeRescale[amplitude1[i]];
-		amplitude2[i] = pgm_read_byte(amplitudeRescale + amplitude2[i]);//amplitudeRescale[amplitude2[i]];
-		amplitude3[i] = pgm_read_byte(amplitudeRescale + amplitude3[i]);//amplitudeRescale[amplitude3[i]];
+		//amplitude1[i] = pgm_read_byte(amplitudeRescale + amplitude1[i]);//amplitudeRescale[amplitude1[i]];
+		const uint8_t *cp = amplitudeRescale + amplitude1[i];
+		cp += EXEC_OFFSET;
+		amplitude1[i] = pgm_read_byte(cp);
+		//amplitude2[i] = pgm_read_byte(amplitudeRescale + amplitude2[i]);//amplitudeRescale[amplitude2[i]];
+		cp = amplitudeRescale + amplitude2[i];
+		cp += EXEC_OFFSET;
+		amplitude2[i] = pgm_read_byte(cp);
+		//amplitude3[i] = pgm_read_byte(amplitudeRescale + amplitude3[i]);//amplitudeRescale[amplitude3[i]];
+		cp = amplitudeRescale + amplitude3[i];
+		cp += EXEC_OFFSET;
+		amplitude3[i] = pgm_read_byte(cp);
 	}
 
 	samdata->Y = 0;
@@ -770,9 +817,19 @@ if (DEBUG_ESP8266SAM_LIB)
 			unsigned int p3 = phase3 * 256;
 
 			for (int k=0; k<5; k++) {
-				signed char sp1 = (signed char)pgm_read_byte(&sinus[0xff & (p1>>8)]);
-				signed char sp2 = (signed char)pgm_read_byte(&sinus[0xff & (p2>>8)]);
-				signed char rp3 = (signed char)pgm_read_byte(&rectangle[0xff & (p3>>8)]);
+				//signed char sp1 = (signed char)pgm_read_byte(&sinus[0xff & (p1>>8)]);
+				const uint8_t *cp = (const uint8_t *)&sinus[0xff & (p1>>8)];
+				cp += EXEC_OFFSET;
+				signed char sp1 = (signed char)pgm_read_byte(cp);
+				//signed char sp2 = (signed char)pgm_read_byte(&sinus[0xff & (p2>>8)]);
+				cp = (const uint8_t *)&sinus[0xff & (p2>>8)];
+				cp += EXEC_OFFSET;
+				signed char sp2 = (signed char)pgm_read_byte(cp);
+				//signed char rp3 = (signed char)pgm_read_byte(&rectangle[0xff & (p3>>8)]);
+				cp = (const uint8_t *)&sinus[0xff & (p3>>8)];
+				cp += EXEC_OFFSET;
+				signed char rp3 = (signed char)pgm_read_byte(cp);
+
 				signed int sin1 = sp1 * ((unsigned char)amplitude1[samdata->Y] & 0x0f);
 				signed int sin2 = sp2 * ((unsigned char)amplitude2[samdata->Y] & 0x0f);
 				signed int rect = rp3 * ((unsigned char)amplitude3[samdata->Y] & 0x0f);
@@ -925,12 +982,18 @@ void SetMouthThroat(unsigned char _mouth, unsigned char _throat) {
 	// recalculate formant frequencies 5..29 for the mouth (F1) and throat (F2)
 	while(pos != 30) {
 		// recalculate mouth frequency
-		initialFrequency = pgm_read_byte(&mouthFormants5_29[pos]);
+		//initialFrequency = pgm_read_byte(&mouthFormants5_29[pos]);
+		const uint8_t *cp = &mouthFormants5_29[pos];
+		cp += EXEC_OFFSET;
+		initialFrequency = pgm_read_byte(cp);
 		if (initialFrequency != 0) newFrequency = trans(_mouth, initialFrequency);
 		freq1data[pos] = newFrequency;
-
 		// recalculate throat frequency
-		initialFrequency = pgm_read_byte(&throatFormants5_29[pos]);
+		//initialFrequency = pgm_read_byte(&throatFormants5_29[pos]);
+		const uint8_t *cp = &throatFormants5_29[pos];
+		cp += EXEC_OFFSET;
+		initialFrequency = pgm_read_byte(cp);
+
 		if(initialFrequency != 0) newFrequency = trans(_throat, initialFrequency);
 		freq2data[pos] = newFrequency;
 		pos++;
