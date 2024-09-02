@@ -19,7 +19,10 @@ const unsigned char timetable[5][5] PROGMEM =
 
 MODULE_PART void Output8BitAry(int index, unsigned char ary[5]) {
 	SETMEMREGS
-	int newbufferpos =  bufferpos + pgm_read_byte(&timetable[oldtimetableindex][index]);
+	//int newbufferpos =  bufferpos + pgm_read_byte(&timetable[oldtimetableindex][index]);
+	const uint8_t *cp = &timetable[oldtimetableindex][index];
+	cp += EXEC_OFFSET;
+	int newbufferpos =  bufferpos + pgm_read_byte(cp);
 	int bp0 = __divsi3(bufferpos, 50);
 	int bp1 = __divsi3(newbufferpos, 50);
 	int k = 0;
@@ -155,7 +158,11 @@ MODULE_PART void RenderSample(unsigned char *mem66) {
 	// /X                     4          0x17
 
     // get value from the table
-	samdata->mem53 = pgm_read_byte(tab48426+samdata->X); //tab48426[X];
+	//samdata->mem53 = pgm_read_byte(tab48426+samdata->X); //tab48426[X];
+	const uint8_t *cp = tab48426 + samdata->X;
+	cp += EXEC_OFFSET;
+	samdata->mem53 = pgm_read_byte(cp); //tab48426[X];
+
 	samdata->mem47 = samdata->X;      //46016+mem[56]*256
 
 	// voiced sample?
@@ -177,7 +184,10 @@ pos48274:
 
 	// get the next sample from the table
     // mem47*256 = offset to start of samples
-	samdata->A = pgm_read_byte(sampleTable + samdata->mem47*256+samdata->Y); // sampleTable[mem47*256+Y];
+	//samdata->A = pgm_read_byte(sampleTable + samdata->mem47*256+samdata->Y); // sampleTable[mem47*256+Y];
+	cp = sampleTable + samdata->mem47*256+samdata->Y;
+	cp += EXEC_OFFSET;
+	samdata->A = pgm_read_byte(cp); // sampleTable[mem47*256+Y];
 pos48280:
 
     // left shift to get the high bit
@@ -236,7 +246,10 @@ pos48315:
 		//A = Read(mem47, Y);
 
 		// fetch value from table
-		samdata->A = pgm_read_byte(sampleTable + samdata->mem47*256+samdata->Y); //sampleTable[mem47*256+Y];
+		//samdata->A = pgm_read_byte(sampleTable + samdata->mem47*256+samdata->Y); //sampleTable[mem47*256+Y];
+		cp = sampleTable + samdata->mem47*256+samdata->Y;
+		cp += EXEC_OFFSET;
+		samdata->A = pgm_read_byte(cp); //sampleTable[mem47*256+Y];
 
         // loop 8 times
 		//pos48327:
@@ -357,7 +370,11 @@ do {
 	//	pos47615:
 
     // get the stress amount (more stress = higher pitch)
-	phase1 = pgm_read_byte(tab47492 + stressOutput[samdata->Y] + 1); // tab47492[stressOutput[Y] + 1];
+	//phase1 = pgm_read_byte(tab47492 + stressOutput[samdata->Y] + 1); // tab47492[stressOutput[Y] + 1];
+	const uint8_t *cp = tab47492 + stressOutput[samdata->Y] + 1;
+	cp += EXEC_OFFSET;
+	phase1 = pgm_read_byte(cp); // tab47492[stressOutput[Y] + 1];
+
 
     // get number of frames to write
 	phase2 = phonemeLengthOutput[samdata->Y];
