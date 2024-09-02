@@ -16,7 +16,11 @@ MODULE_PART void Code37055(unsigned char mem59) {
 	samdata->X--;
 	samdata->A = inputtemp[samdata->X];
 	samdata->Y = samdata->A;
-	samdata->A = pgm_read_byte(tab36376+samdata->Y); //tab36376[Y];
+	//samdata->A = pgm_read_byte(tab36376+samdata->Y); //tab36376[Y];
+	const uint8_t *cp = tab36376 + samdata->Y;
+	cp += EXEC_OFFSET;
+	samdata->A = pgm_read_byte(cp);
+
 	return;
 }
 
@@ -26,7 +30,11 @@ MODULE_PART void Code37066(unsigned char mem58) {
 	samdata->X++;
 	samdata->A = inputtemp[samdata->X];
 	samdata->Y = samdata->A;
-	samdata->A = pgm_read_byte(tab36376+samdata->Y); //tab36376[Y];
+	//samdata->A = pgm_read_byte(tab36376+samdata->Y); //tab36376[Y];
+	const uint8_t *cp = tab36376 + samdata->Y;
+	cp += EXEC_OFFSET;
+	samdata->A = pgm_read_byte(cp);
+
 }
 
 MODULE_PART unsigned char GetRuleByte(unsigned short mem62, unsigned char Y) {
@@ -37,10 +45,18 @@ MODULE_PART unsigned char GetRuleByte(unsigned short mem62, unsigned char Y) {
 
 	if (mem62 >= icp[4]) {
 		address -= icp[4];
-		return pgm_read_byte(rules2 + address + Y); //rules2[address+Y];
+		//return pgm_read_byte(rules2 + address + Y); //rules2[address+Y];
+		const char *cp = rules2 + address + Y;
+		cp += EXEC_OFFSET;
+		return pgm_read_byte(cp);
+
 	}
 	address -= icp[5];
-	return pgm_read_byte(rules + address + Y); //rules[address+Y];
+	//return pgm_read_byte(rules + address + Y); //rules[address+Y];
+	const char *cp = rules + address + Y;
+	cp += EXEC_OFFSET;
+	return pgm_read_byte(cp);
+
 }
 
 // Code36484
@@ -113,7 +129,11 @@ pos36554:
 		if (samdata->A != '.') break;
 		samdata->X++;
 		samdata->Y = inputtemp[samdata->X];
-		samdata->A = pgm_read_byte(tab36376+samdata->Y)/*tab36376[Y]*/ & 1;
+		//samdata->A = pgm_read_byte(tab36376+samdata->Y)/*tab36376[Y]*/ & 1;
+		const uint8_t *cp = tab36376 + samdata->Y;
+		cp += EXEC_OFFSET;
+		samdata->A = pgm_read_byte(cp);
+
 		if (samdata->A != 0) break;
 		mem56++;
 		samdata->X = mem56;
@@ -123,9 +143,15 @@ pos36554:
 
 
 	//pos36607:
+	{
 	samdata->A = mem64;
 	samdata->Y = samdata->A;
-	samdata->A = pgm_read_byte(tab36376 + samdata->A); //tab36376[A];
+	//samdata->A = pgm_read_byte(tab36376 + samdata->A); //tab36376[A];
+	const uint8_t *cp = tab36376 + samdata->A;
+	cp += EXEC_OFFSET;
+	samdata->A = pgm_read_byte(cp);
+	}
+
 	mem57 = samdata->A;
 	if ((samdata->A & 2) != 0) {
 		mem62 = icp[4];
@@ -168,7 +194,14 @@ pos36677:
 
 	// go to the right rules for this character.
 	samdata->X = mem64 - 'A';
-	mem62 = pgm_read_byte(&tab37489[samdata->X]) | (pgm_read_byte(&tab37515[samdata->X])<<8);
+	{
+	//mem62 = pgm_read_byte(&tab37489[samdata->X]) | (pgm_read_byte(&tab37515[samdata->X])<<8);
+	const uint8_t *cp1 = &tab37489[samdata->X];
+	const uint8_t *cp2 = &tab37515[samdata->X];
+	cp1 += EXEC_OFFSET;
+	cp2 += EXEC_OFFSET;
+	mem62 = pgm_read_byte(cp1) | (pgm_read_byte(cp2)<<8);
+	}
 
 	// -------------------------------------
 	// go to next rule
@@ -242,7 +275,11 @@ pos36791:
 		//36800: BPL 36805
 		if ((samdata->A & 128) != 0) goto pos37180;
 		samdata->X = samdata->A & 127;
-		samdata->A = pgm_read_byte(tab36376+samdata->X)/*tab36376[X]*/ & 128;
+		//samdata->A = pgm_read_byte(tab36376+samdata->X)/*tab36376[X]*/ & 128;
+		const uint8_t *cp = tab36376 + samdata->X;
+		cp += EXEC_OFFSET;
+		samdata->A = pgm_read_byte(cp);
+
 		if (samdata->A == 0) break;
 		samdata->X = mem59-1;
 		samdata->A = inputtemp[samdata->X];
@@ -357,7 +394,13 @@ pos37077:
 	samdata->X++;
 	samdata->Y = inputtemp[samdata->X];
 	samdata->X--;
-	samdata->A = pgm_read_byte(tab36376+samdata->Y)/*tab36376[Y]*/ & 128;
+	{
+	//samdata->A = pgm_read_byte(tab36376+samdata->Y)/*tab36376[Y]*/ & 128;
+	const uint8_t *cp = tab36376+samdata->Y;
+	cp += EXEC_OFFSET;
+	samdata->A = pgm_read_byte(cp);
+	}
+
 	if(samdata->A == 0) goto pos37108;
 	samdata->X++;
 	samdata->A = inputtemp[samdata->X];
@@ -412,7 +455,13 @@ pos37184:
 	samdata->A = GetRuleByte(mem62,samdata->Y);
 	mem57 = samdata->A;
 	samdata->X = samdata->A;
-	samdata->A = pgm_read_byte(tab36376+samdata->X)/*tab36376[X]*/ & 128;
+	{
+	//samdata->A = pgm_read_byte(tab36376+samdata->X)/*tab36376[X]*/ & 128;
+	const uint8_t *cp = tab36376+samdata->X;
+	cp += EXEC_OFFSET;
+	samdata->A = pgm_read_byte(cp);
+	}
+
 	if(samdata->A == 0) goto pos37226;
 	samdata->X = mem58+1;
 	samdata->A = inputtemp[samdata->X];

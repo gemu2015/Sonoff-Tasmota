@@ -433,12 +433,19 @@ pos41095:
 
          // GET FIRST CHARACTER AT POSITION Y IN signInputTable
          // --> should change name to PhonemeNameTable1
-		samdata->A = pgm_read_byte(signInputTable1 + samdata->Y);//signInputTable1[Y];
+		//samdata->A = pgm_read_byte(signInputTable1 + samdata->Y);//signInputTable1[Y];
+		const uint8_t *cp = signInputTable1 + samdata->Y;
+		cp += EXEC_OFFSET;
+		samdata->A = pgm_read_byte(cp);
 
 		// FIRST CHARACTER MATCHES?
 		if (samdata->A == sign1) {
            // GET THE CHARACTER FROM THE PhonemeSecondLetterTable
-			samdata->A = pgm_read_byte(signInputTable2 + samdata->Y);//signInputTable2[Y];
+			//samdata->A = pgm_read_byte(signInputTable2 + samdata->Y);//signInputTable2[Y];
+			const uint8_t *cp = signInputTable2 + samdata->Y;
+			cp += EXEC_OFFSET;
+			samdata->A = pgm_read_byte(cp);
+
 			// NOT A SPECIAL AND MATCHES SECOND CHARACTER?
 			if ((samdata->A != '*') && (samdata->A == sign2)) {
                // STORE THE INDEX OF THE PHONEME INTO THE phomeneIndexTable
@@ -468,9 +475,16 @@ pos41095:
 		samdata->Y = 0;
 pos41134:
 // DOES THE PHONEME IN THE TABLE END WITH '*'?
-		if (pgm_read_byte(signInputTable2 + samdata->Y)/*signInputTable2[Y]*/ == '*') {
+			//if (pgm_read_byte(signInputTable2 + samdata->Y)/*signInputTable2[Y]*/ == '*') {
+			cp = signInputTable2 + samdata->Y;
+			cp += EXEC_OFFSET;
+
+		if (pgm_read_byte(cp)/*signInputTable2[Y]*/ == '*') {
 // DOES THE FIRST CHARACTER MATCH THE FIRST LETTER OF THE PHONEME
-			if (pgm_read_byte(signInputTable1 + samdata->Y)/*]signInputTable1[Y]*/ == sign1) {
+			//if (pgm_read_byte(signInputTable1 + samdata->Y)/*]signInputTable1[Y]*/ == sign1) {
+			const uint8_t *cp = signInputTable1 + samdata->Y;
+			cp += EXEC_OFFSET;
+			if (pgm_read_byte(cp)/*]signInputTable1[Y]*/ == sign1) {
                 // SAVE THE POSITION AND MOVE AHEAD
 				phonemeindex[position] = samdata->Y;
 				// ADVANCE THE POINTER
@@ -519,9 +533,16 @@ void SetPhonemeLength() {
 		A = stress[position];
 		//41218: BMI 41229
 		if ((A == 0) || ((A&128) != 0)) {
-			phonemeLength[position] = pgm_read_byte(&phonemeLengthTable[phonemeindex[position]]);
+			//phonemeLength[position] = pgm_read_byte(&phonemeLengthTable[phonemeindex[position]]);
+			const uint8_t *cp = &phonemeLengthTable[phonemeindex[position]];
+			cp += EXEC_OFFSET;
+			phonemeLength[position] = pgm_read_byte(cp);
+
 		} else {
-			phonemeLength[position] = pgm_read_byte(&phonemeStressedLengthTable[phonemeindex[position]]);
+			//phonemeLength[position] = pgm_read_byte(&phonemeStressedLengthTable[phonemeindex[position]]);
+			const uint8_t *cp = &phonemeStressedLengthTable[phonemeindex[position]];
+			cp += EXEC_OFFSET;
+			phonemeLength[position] = pgm_read_byte(cp);
 		}
 		position++;
 	}
@@ -540,8 +561,16 @@ void Code41240() {
 			pos++;
 			continue;
 		} else if ((flags[index] & 1) == 0) {
-			Insert(pos + 1, index + 1, pgm_read_byte(&phonemeLengthTable[index + 1]), stress[pos]);
-			Insert(pos + 2, index + 2, pgm_read_byte(&phonemeLengthTable[index + 2]), stress[pos]);
+			//Insert(pos + 1, index + 1, pgm_read_byte(&phonemeLengthTable[index + 1]), stress[pos]);
+			const uint8_t *cp = &phonemeLengthTable[index + 1];
+			cp += EXEC_OFFSET;
+			Insert(pos + 1, index + 1, pgm_read_byte(cp), stress[pos]);
+
+			//Insert(pos + 2, index + 2, pgm_read_byte(&phonemeLengthTable[index + 2]), stress[pos]);
+			cp = &phonemeLengthTable[index + 2];
+			cp += EXEC_OFFSET;
+			Insert(pos + 2, index + 1, pgm_read_byte(cp), stress[pos]);
+
 			pos += 3;
 			continue;
 		}
@@ -556,8 +585,16 @@ void Code41240() {
 			if ((samdata->A == 36) || (samdata->A == 37)) {pos++; continue;} // '/H' '/X'
 		}
 
-		Insert(pos + 1, index + 1, pgm_read_byte(&phonemeLengthTable[index + 1]), stress[pos]);
-		Insert(pos + 2, index + 2, pgm_read_byte(&phonemeLengthTable[index + 2]), stress[pos]);
+		//Insert(pos + 1, index + 1, pgm_read_byte(&phonemeLengthTable[index + 1]), stress[pos]);
+		const uint8_t *cp = &phonemeLengthTable[index + 1];
+		cp += EXEC_OFFSET;
+		Insert(pos + 1, index + 1, pgm_read_byte(cp), stress[pos]);
+
+		//Insert(pos + 2, index + 2, pgm_read_byte(&phonemeLengthTable[index + 2]), stress[pos]);
+		cp = &phonemeLengthTable[index + 2];
+		cp += EXEC_OFFSET;
+		Insert(pos + 2, index + 1, pgm_read_byte(cp), stress[pos]);
+
 		pos += 3;
 	};
 
