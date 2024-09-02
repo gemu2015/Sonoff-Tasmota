@@ -14,9 +14,9 @@ extern "C" {
 
 #define SAMDATA
 
-/*
-typedef struct {
-	unsigned char speed;
+typedef struct s_samdata {
+
+    unsigned char speed;
 	unsigned char pitch;
 	unsigned char mouth;
 	unsigned char throat;
@@ -35,27 +35,16 @@ typedef struct {
     unsigned char lastAry[5];
     void (*outcb)(void *, unsigned char);
     void *outcbdata;
-
-// contains the final soundbuffer
 	int bufferpos;
-//char *buffer = NULL;
-} sam_mem;
-*/
 
-typedef struct s_samdata {
-    struct render {
-        unsigned char pitches[256]; // tab43008
-        unsigned char frequency1[256];
-        unsigned char frequency2[256];
-        unsigned char frequency3[256];
-        unsigned char amplitude1[256];
-        unsigned char amplitude2[256];
-        unsigned char amplitude3[256];
-        unsigned char sampledConsonantFlag[256]; // tab44800
-    } render;
+    uint8_t freq1data[80];
+    uint8_t freq2data[80];
+    uint8_t freq3data[80];
+
     struct reciter {
         unsigned char inputtemp[256];
     } reciter;
+
     struct sam {
         char input[256]; //tab39445
         unsigned char stress[256]; //numbers from 0 to 8
@@ -66,32 +55,18 @@ typedef struct s_samdata {
         unsigned char phonemeLengthOutput[60]; //tab47416
     } sam;
 
-    uint8_t freq1data[80];
-    uint8_t freq2data[80];
-    uint8_t freq3data[80];
-    
-	unsigned char speed;
-	unsigned char pitch;
-	unsigned char mouth;
-	unsigned char throat;
-	int singmode = 0;
-	unsigned char mem39;
-	unsigned char mem44;
-	unsigned char mem47;
-	unsigned char mem49;
-	unsigned char mem50;
-	unsigned char mem51;
-	unsigned char mem53;
-	unsigned char mem56;
-	unsigned char mem59;
-	unsigned char A, X, Y;
-    unsigned char oldtimetableindex;
-    unsigned char lastAry[5];
-    void (*outcb)(void *, unsigned char);
-    void *outcbdata;
-	int bufferpos;
 } SamData;
 
+typedef struct {
+        unsigned char pitches[256]; // tab43008
+        unsigned char frequency1[256];
+        unsigned char frequency2[256];
+        unsigned char frequency3[256];
+        unsigned char amplitude1[256];
+        unsigned char amplitude2[256];
+        unsigned char amplitude3[256];
+        unsigned char sampledConsonantFlag[256]; // tab44800
+} SAM_RENDER;
 
 
 #define input samdata->sam.input
@@ -109,14 +84,15 @@ typedef struct s_samdata {
 #define freq2data    samdata->freq2data
 #define freq3data    samdata->freq3data
 
-#define pitches    samdata->render.pitches
-#define frequency1 samdata->render.frequency1
-#define frequency2 samdata->render.frequency2
-#define frequency3 samdata->render.frequency3
-#define amplitude1 samdata->render.amplitude1
-#define amplitude2 samdata->render.amplitude2
-#define amplitude3 samdata->render.amplitude3
-#define sampledConsonantFlag samdata->render.sampledConsonantFlag
+#define pitches    samrender->pitches
+#define frequency1 samrender->frequency1
+#define frequency2 samrender->frequency2
+#define frequency3 samrender->frequency3
+#define amplitude1 samrender->amplitude1
+#define amplitude2 samrender->amplitude2
+#define amplitude3 samrender->amplitude3
+#define sampledConsonantFlag samrender->sampledConsonantFlag
+
 #define pitch    samdata->pitch
 #define speed    samdata->speed
 #define singmode    samdata->singmode

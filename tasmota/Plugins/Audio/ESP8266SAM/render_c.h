@@ -22,8 +22,8 @@ MODULE_PART void Output8BitAry(int index, unsigned char ary[5]) {
 	int newbufferpos =  bufferpos + pgm_read_byte(&timetable[oldtimetableindex][index]);
 	int bp0 = __divsi3(bufferpos, 50);
 	int bp1 = __divsi3(newbufferpos, 50);
-	int k=0;
-	for (int i=bp0; i<bp1; i++, k++) {
+	int k = 0;
+	for (int i = bp0; i < bp1; i++, k++) {
 		outcb(outcbdata, lastAry[k]);
 	}
 	memmove(lastAry, ary, 5);
@@ -45,34 +45,34 @@ MODULE_PART void Output8Bit(int index, unsigned char A) {
 // 172=amplitude1
 // 173=amplitude2
 // 174=amplitude3
+
+
 MODULE_PART unsigned char Read(unsigned char p, unsigned char Y) {
 	SETMEMREGS
-	switch(p) {
-	case 168: return pitches[Y];
-	case 169: return frequency1[Y];
-	case 170: return frequency2[Y];
-	case 171: return frequency3[Y];
-	case 172: return amplitude1[Y];
-	case 173: return amplitude2[Y];
-	case 174: return amplitude3[Y];
+	unsigned char *tabtab[] = {pitches, frequency1, frequency2, frequency3, amplitude1, amplitude2, amplitude3};
+	unsigned char res = 0;
+	unsigned char *rp;
+	unsigned char **rpt = tabtab;
+	if (p < 168 || p > 174) {
+		return 0;
 	}
-	//printf("Error reading to tables");
-	return 0;
+	p -= 168;
+	rp = rpt[p];
+	return rp[Y];
 }
 
 MODULE_PART void Write(unsigned char p, unsigned char Y, unsigned char value) {
 	SETMEMREGS
-
-	switch(p) {
-	case 168: pitches[Y] = value; return;
-	case 169: frequency1[Y] = value;  return;
-	case 170: frequency2[Y] = value;  return;
-	case 171: frequency3[Y] = value;  return;
-	case 172: amplitude1[Y] = value;  return;
-	case 173: amplitude2[Y] = value;  return;
-	case 174: amplitude3[Y] = value;  return;
+	unsigned char *tabtab[] = {pitches, frequency1, frequency2, frequency3, amplitude1, amplitude2, amplitude3};
+	unsigned char res = 0;
+	unsigned char *rp;
+	unsigned char **rpt = tabtab;
+	if (p < 168 || p > 174) {
+		return;
 	}
-	//printf("Error writing to tables\n");
+	p -= 168;
+	rp = rpt[p];
+	rp[p] = Y;
 }
 
 

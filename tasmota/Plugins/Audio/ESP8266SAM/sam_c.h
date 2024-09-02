@@ -1046,8 +1046,7 @@ MODULE_PART void AdjustLengths() {
 
     // iterate through the phoneme list
 	unsigned char loopIndex=0;
-	while(1)
-	{
+	while (1) {
         // get a phoneme
 		index = phonemeindex[samdata->X];
 
@@ -1055,8 +1054,7 @@ MODULE_PART void AdjustLengths() {
 		if (index == 255) break;
 
 		// not punctuation?
-		if((flags2[index] & 1) == 0)
-		{
+		if ((flags2[index] & 1) == 0) {
             // skip
 			samdata->X++;
 			continue;
@@ -1072,23 +1070,22 @@ pos48644:
 		samdata->X--;
 
 		// stop once the beginning is reached
-		if(samdata->X == 0) break;
+		if (samdata->X == 0) break;
 
 		// get the preceding phoneme
 		index = phonemeindex[samdata->X];
 
 		if (index != 255) //inserted to prevent access overrun
-		if((flags[index] & 128) == 0) goto pos48644; // if not a vowel, continue looping
+		if ((flags[index] & 128) == 0) goto pos48644; // if not a vowel, continue looping
 
 		//pos48657:
-		do
-		{
+		do {
             // test for vowel
 			index = phonemeindex[samdata->X];
 
 			if (index != 255)//inserted to prevent access overrun
 			// test for fricative/unvoiced or not voiced
-			if(((flags2[index] & 32) == 0) || ((flags[index] & 4) != 0))     //nochmal �berpr�fen
+			if (((flags2[index] & 32) == 0) || ((flags[index] & 4) != 0))     //nochmal �berpr�fen
 			{
 				//A = flags[Y] & 4;
 				//if(A == 0) goto pos48688;
@@ -1121,8 +1118,7 @@ if (DEBUG_ESP8266SAM_LIB) printf("phoneme %d (%c%c) length %d\n", samdata->X, si
 	loopIndex = 0;
 	//pos48697
 
-	while(1)
-	{
+	while (1) {
         // get a phoneme
 		samdata->X = loopIndex;
 		index = phonemeindex[samdata->X];
@@ -1132,21 +1128,19 @@ if (DEBUG_ESP8266SAM_LIB) printf("phoneme %d (%c%c) length %d\n", samdata->X, si
 
 		// vowel?
 		samdata->A = flags[index] & 128;
-		if (samdata->A != 0)
-		{
+		if (samdata->A != 0) {
             // get next phoneme
 			samdata->X++;
 			index = phonemeindex[samdata->X];
 
 			// get flags
 			if (index == 255)
-			samdata->mem56 = 65; // use if end marker
+				samdata->mem56 = 65; // use if end marker
 			else
-			samdata->mem56 = flags[index];
+				samdata->mem56 = flags[index];
 
             // not a consonant
-			if ((flags[index] & 64) == 0)
-			{
+			if ((flags[index] & 64) == 0) {
                 // RX or LX?
 				if ((index == 18) || (index == 19))  // 'RX' & 'LX'
 				{
@@ -1183,14 +1177,12 @@ if (DEBUG_ESP8266SAM_LIB) printf("phoneme %d (%c%c) length %d\n", loopIndex, sig
 			// Got here if not <VOWEL>
 
             // not voiced
-			if ((samdata->mem56 & 4) == 0)
-			{
-
+			if ((samdata->mem56 & 4) == 0) {
                  // Unvoiced
                  // *, .*, ?*, ,*, -*, DX, S*, SH, F*, TH, /H, /X, CH, P*, T*, K*, KX
 
                 // not an unvoiced plosive?
-				if((samdata->mem56 & 1) == 0) {
+				if ((samdata->mem56 & 1) == 0) {
                     // move ahead
                     loopIndex++;
                     continue;
@@ -1251,8 +1243,7 @@ if (DEBUG_ESP8266SAM_LIB) printf("phoneme %d (%c%c) length %d\n", samdata->X-1, 
         //       Set stop consonant length to 5
 
         // nasal?
-        if((flags2[index] & 8) != 0)
-        {
+        if((flags2[index] & 8) != 0) {
 
             // M*, N*, NX,
 
@@ -1301,13 +1292,11 @@ if (DEBUG_ESP8266SAM_LIB) printf("phoneme %d (%c%c) length %d\n", samdata->X-1, 
         //       Shorten both to (length/2 + 1)
 
         // (voiced) stop consonant?
-        if((flags[index] & 2) != 0)
-        {
+        if ((flags[index] & 2) != 0) {
             // B*, D*, G*, GX
 
             // move past silence
-            do
-            {
+            do {
                 // move ahead
                 samdata->X++;
                 index = phonemeindex[samdata->X];
@@ -1356,8 +1345,7 @@ if (DEBUG_ESP8266SAM_LIB) printf("phoneme %d (%c%c) length %d\n", debugX-1, sign
         //       Decrease <DIPHTONG> by 2
 
         // liquic consonant?
-        if ((flags2[index] & 16) != 0)
-        {
+        if ((flags2[index] & 16) != 0) {
             // R*, L*, W*, Y*
 
             // get the prior phoneme

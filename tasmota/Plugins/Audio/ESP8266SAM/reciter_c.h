@@ -33,17 +33,22 @@ MODULE_PART unsigned char GetRuleByte(unsigned short mem62, unsigned char Y) {
 	SETMEMREGS
 	unsigned int address = mem62;
 
-	if (mem62 >= 37541) {
-		address -= 37541;
-		return pgm_read_byte(rules2+address+Y); //rules2[address+Y];
+	const int32_t *icp = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+
+	if (mem62 >= icp[4]) {
+		address -= icp[4];
+		return pgm_read_byte(rules2 + address + Y); //rules2[address+Y];
 	}
-	address -= 32000;
-	return pgm_read_byte(rules+address+Y); //rules[address+Y];
+	address -= icp[5];
+	return pgm_read_byte(rules + address + Y); //rules[address+Y];
 }
 
 // Code36484
 MODULE_PART int TextToPhonemes(char *inbuff) {
 	SETMEMREGS
+
+
+	const int32_t *icp = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
 
 	//unsigned char *tab39445 = &mem[39445];   //input and output
 	//unsigned char mem29;
@@ -66,8 +71,7 @@ MODULE_PART int TextToPhonemes(char *inbuff) {
 	// because input will be overwritten by phonemes
 	samdata->X = 1;
 	samdata->Y = 0;
-	do
-	{
+	do {
 		//pos36499:
 		samdata->A = inbuff[samdata->Y] & 127;
 		if ( samdata->A >= 112) samdata->A = samdata->A & 95;
@@ -121,10 +125,10 @@ pos36554:
 	//pos36607:
 	samdata->A = mem64;
 	samdata->Y = samdata->A;
-	samdata->A = pgm_read_byte(tab36376+samdata->A); //tab36376[A];
+	samdata->A = pgm_read_byte(tab36376 + samdata->A); //tab36376[A];
 	mem57 = samdata->A;
-	if ((samdata->A&2) != 0) {
-		mem62 = 37541;
+	if ((samdata->A & 2) != 0) {
+		mem62 = icp[4];
 		goto pos36700;
 	}
 

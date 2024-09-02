@@ -88,6 +88,7 @@ typedef struct {
 
 #ifdef USE_SAY
   SamData *samdata;
+  SAM_RENDER *samrender;
 #endif
 
 } MODULE_MEMORY;
@@ -115,7 +116,7 @@ typedef struct {
 #define force_mono mem->force_mono
 #define srate mem->srate
 #define samdata mem->samdata
-#define sam_mem mem->sam_mem
+#define samrender mem->samrender
 
 // esp8266 fixed i2s pins : DOUT = 3(RX), BCK = 15(D8), WS = 2(D4)
 
@@ -177,7 +178,7 @@ const char S_JSON_WMERR[] PROGMEM = "{\"WM8960 error\"}";
 
 const char tname[] PROGMEM = "I2STASK";
 const uint32_t ui32_const[4] PROGMEM = {OUTBUFF_SIZE, TASK_STACK, 0x46464952 , INBUFF_SIZE}; 
-const int32_t i32_const[2] PROGMEM = {32768, -32768}; 
+const int32_t i32_const[6] PROGMEM = {32768, -32768, 22050, sizeof(SAM_RENDER), 37541, 32000}; 
 
 
 int32_t I2SAudio_Init() {
@@ -576,9 +577,12 @@ MODULE_PART void OutputByteCallback(void *cbdata, unsigned char b) {
 void Say(void) {
   SETREGS
 #ifdef USE_SAY
+
+  const int32_t *icp = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+
   chans = 1;
   force_mono = 1;
-  srate = 22050;
+  srate = icp[2];
   i2s_set_rate(i2sp, srate, mode, chans);
 
   char *cp = XdrvMailbox->data;
@@ -601,12 +605,19 @@ void Say(void) {
     return;
   }
 
+  samrender = (SAM_RENDER *)special_malloc(icp[3]); 
+  if (!samrender) {
+    // memory error
+    free(samdata);
+    Response_P(GSTR(S_JSON_MEMERR));
+    return;
+  }
+
   for (uint16_t cnt = 0; cnt < 80; cnt++) {
     freq1data[cnt] = pgm_read_byte(&org_freq1data[cnt]);
     freq2data[cnt] = pgm_read_byte(&org_freq2data[cnt]);
     freq3data[cnt] = pgm_read_byte(&org_freq3data[cnt]);
   }
-
 
   char inbuff[256];
 
@@ -633,6 +644,7 @@ void Say(void) {
     strncat_P(inbuff, PSTR("["), sizeof(inbuff));
     if ( !TextToPhonemes(&inbuff[0]) ) {
       free(samdata);
+      free(samrender);
       Response_P(GSTR(S_JSON_MEMERR));
       return; // ERROR
     }
@@ -645,6 +657,7 @@ void Say(void) {
   SAMMain(OutputByteCallback, samdata);
   
   free(samdata);
+  free(samrender);
 
   i2s_disable_tx(i2sp);
   running = false;
