@@ -204,9 +204,9 @@ extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
 #define jtmod__lshrdi3(A,B)             (( uint64_t (*)(uint64_t,uint32_t) )            jt[170])(A,B)
 #define jtmod_wifi(A,B,C,D,E)           (( uint32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t) ) jt[171])(A,B,C,D,E)
 #define iUrlEncode(A)                   (( char * (*)(char *))                          jt[171])(A)
-
-
-strncat_P
+#define jstrncat_P(A,B,C)               (( void *(*)(char *,const char*,uint32_t))      jt[172])(A,B,C)
+#define jpgm_read_byte(A)               (( uint8_t(*)(const void *))                    jt[173])(A)
+#define jpgm_read_word(A)               (( uint16_t(*)(const void *))                   jt[174])(A)
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -394,6 +394,10 @@ typedef struct {
 
 extern "C" { MODULES_TABLE *gettbl(void); };
 
+#undef pgm_read_byte
+#undef pgm_read_word
+#define pgm_read_byte jpgm_read_byte
+#define pgm_read_word jpgm_read_word
 
 //extern "C" {  const uint32_t xmodule_end;}
 /*
@@ -693,6 +697,7 @@ typedef struct {
 #define   tmod__muldi3 jtmod__muldi3
 #define   tmod__fixunssfsi jtmod__fixunssfsi
 #define   tmod__umodsi3 jtmod__umodsi3
+#define   __umodsi3 jtmod__umodsi3
 #define   twi_readFrom jtwi_readFrom
 #define   DecodeCommand(A,B) jDecodeCommand(A,B,mt)
 #define   ResponseCmndDone jResponseCmndDone
@@ -835,6 +840,10 @@ typedef struct {
 
 #define xTaskCreatePinnedToCore(A)   jtaskc(A)
 #define vTaskDelete(A)   jtaskd(A)
+
+
+#define strncat_P jstrncat_P
+
 
 #define dadd(A,B) double_dispatch(0,A,B)
 #define dsub(A,B) double_dispatch(1,A,B)

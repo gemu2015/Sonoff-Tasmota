@@ -43,39 +43,7 @@ int32_t pW8960_Init();
 #include "Audio/ESP8266SAM/SamData.h"
 #endif
 
-// RIFF header
-typedef struct {
-    uint32_t ChunkID; //"RIFF"
-    uint32_t ChunkSize; //"36 + sizeof(wav_data_t) + data"
-    uint32_t Format; // "WAV"
-} wav_riff_t;
-
-// FMT header 
-typedef struct {
-    uint32_t Subchunk1ID; //"fmt "
-    uint32_t Subchunk1Size; //16 (PCM)
-    uint16_t AudioFormat; // 1 'cause PCM
-    uint16_t NumChannels; // mono = 1; stereo = 2
-    uint32_t SampleRate; // 8000, 44100, etc.
-    uint32_t ByteRate; //== SampleRate * NumChannels * byte
-    uint16_t BlockAlign; //== NumChannels * bytePerSample
-    uint16_t BytesPerSample; //8 byte = 8, 16 byte = 16, etc.
-} wav_fmt_t;
-
-// Data header
-typedef struct {
-    uint32_t Subchunk2ID; //"data"
-    uint32_t Subchunk2Size; //== NumSamples * NumChannels * bytePerSample/8
-} wav_data_t;
-
-
-// complete header
-typedef struct {
-    wav_riff_t Riff;
-    wav_fmt_t Fmt;
-    wav_data_t Data;
-} wav_header_t;
-
+#include "Audio/wav_header.h"
 
 #ifdef ESP32
 #define USE_I2S_TASK
@@ -147,6 +115,7 @@ typedef struct {
 #define force_mono mem->force_mono
 #define srate mem->srate
 #define samdata mem->samdata
+#define sam_mem mem->sam_mem
 
 // esp8266 fixed i2s pins : DOUT = 3(RX), BCK = 15(D8), WS = 2(D4)
 
@@ -588,19 +557,17 @@ void I2sTaskMP3(void) {
 
 #ifdef USE_SAY
 #define DEBUG_ESP8266SAM_LIB 0
-#define PrintRule
-#define PrintPhonemes
-#define PrintOutput
+#include "Audio/ESP8266SAM/esp8266sam_debug_c.h"
 #include "Audio/ESP8266SAM/sam_c.h"
 #include "Audio/ESP8266SAM/render_c.h"
 #include "Audio/ESP8266SAM/reciter_c.h"
 
-void OutputByteCallback(void *cbdata, unsigned char b) {
+MODULE_PART void OutputByteCallback(void *cbdata, unsigned char b) {
   SETREGS
   int16_t s16 = b;// s16 -= 128; //s16 *= 128;
   int16_t sample[2];
-  sample[0] = s16;
-  sample[1] = s16;
+  sample[0] = s16 << 7;
+  sample[1] = s16 << 7;
   Write_Samples(sample, 1);
   delay(0);
 }
@@ -634,6 +601,13 @@ void Say(void) {
     return;
   }
 
+  for (uint16_t cnt = 0; cnt < 80; cnt++) {
+    freq1data[cnt] = pgm_read_byte(&org_freq1data[cnt]);
+    freq2data[cnt] = pgm_read_byte(&org_freq2data[cnt]);
+    freq3data[cnt] = pgm_read_byte(&org_freq3data[cnt]);
+  }
+
+
   char inbuff[256];
 
   for (uint32_t i = 0; i < sizeof(inbuff) - 1; i++) {
@@ -644,15 +618,20 @@ void Say(void) {
     inbuff[i] = toupper(*cp++);
   }
 
-  bool singmode = false;
+  singmode = false;
   bool phonetic = false;
+
+  speed = 72;
+  pitch = 64;
+  mouth = 128;
+  throat = 128;
 
 // To phonemes
   if (phonetic) {
-    strncat(inbuff, "\x9b", sizeof(inbuff));
+    strncat_P(inbuff, PSTR("\x9b"), sizeof(inbuff));
   } else {
-    strncat(inbuff, "[", sizeof(inbuff));
-    if ( !xTextToPhonemes(&inbuff[0]) ) {
+    strncat_P(inbuff, PSTR("["), sizeof(inbuff));
+    if ( !TextToPhonemes(&inbuff[0]) ) {
       free(samdata);
       Response_P(GSTR(S_JSON_MEMERR));
       return; // ERROR
@@ -665,7 +644,7 @@ void Say(void) {
   SetInput(inbuff);
   SAMMain(OutputByteCallback, samdata);
   
-  free (samdata);
+  free(samdata);
 
   i2s_disable_tx(i2sp);
   running = false;

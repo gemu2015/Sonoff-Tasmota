@@ -1,11 +1,6 @@
 #ifndef RECITERTABS_H
 #define RECITERTABS_H
 
-//#include <pgmspace.h>
-//#include "esp8266sam_debug.h"
-#if DEBUG_ESP8266SAM_LIB
-  #define PROGMEM
-#endif
 
 //some flags
 const unsigned char tab36376[] PROGMEM  =

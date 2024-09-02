@@ -4,7 +4,7 @@
 //#include <pgmspace.h>
 //#include "esp8266sam_debug.h"
 #if DEBUG_ESP8266SAM_LIB
-  #define PROGMEM
+
 #endif
 
 //tab40672

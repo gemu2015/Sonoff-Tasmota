@@ -1,54 +1,11 @@
-//#include <stdio.h>
-//#include <string.h>
-//#include <stdlib.h> // abs()
-
 #include "render.h"
 #include "RenderTabs.h"
-
-//#include "esp8266sam_debug.h"
-//#include <pgmspace.h>
 #include "SamData.h"
 
-unsigned char wait1 = 7;
-unsigned char wait2 = 6;
-
-extern unsigned char A, X, Y;
-extern unsigned char mem44;
-extern unsigned char mem47;
-extern unsigned char mem49;
-extern unsigned char mem39;
-extern unsigned char mem50;
-extern unsigned char mem51;
-extern unsigned char mem53;
-extern unsigned char mem56;
-
-extern unsigned char speed;
-extern unsigned char pitch;
-extern int singmode;
-
-#define phonemeIndexOutput (samdata->sam.phonemeIndexOutput)
-#define stressOutput (samdata->sam.stressOutput)
-#define phonemeLengthOutput (samdata->sam.phonemeLengthOutput)
-#define pitches    (samdata->render.pitches)
-#define frequency1 (samdata->render.frequency1)
-#define frequency2 (samdata->render.frequency2)
-#define frequency3 (samdata->render.frequency3)
-#define amplitude1 (samdata->render.amplitude1)
-#define amplitude2 (samdata->render.amplitude2)
-#define amplitude3 (samdata->render.amplitude3)
-#define sampledConsonantFlag (samdata->render.sampledConsonantFlag)
 
 void AddInflection(unsigned char mem48, unsigned char phase1);
 unsigned char trans(unsigned char mem39212, unsigned char mem39213);
 
-
-// contains the final soundbuffer
-extern int bufferpos;
-//extern char *buffer;
-
-#ifndef ESP8266
-static void yield() { /* NOOP */ }
-#endif
 
 //timetable for more accurate c64 simulation
 const unsigned char timetable[5][5] PROGMEM =
@@ -60,33 +17,23 @@ const unsigned char timetable[5][5] PROGMEM =
 	{199, 0, 0, 54, 54}
 };
 
-extern void (*outcb)(void *, unsigned char);
-extern void *outcbdata;
-static unsigned char oldtimetableindex = 0;
-static unsigned char lastAry[5];
-void Output8BitAry(int index, unsigned char ary[5])
-{
+MODULE_PART void Output8BitAry(int index, unsigned char ary[5]) {
+	SETMEMREGS
 	int newbufferpos =  bufferpos + pgm_read_byte(&timetable[oldtimetableindex][index]);
-	int bp0 = bufferpos / 50;
-	int bp1 = newbufferpos / 50;
+	int bp0 = __divsi3(bufferpos, 50);
+	int bp1 = __divsi3(newbufferpos, 50);
 	int k=0;
-	for (int i=bp0; i<bp1; i++, k++) outcb(outcbdata, lastAry[k]);
-	memcpy(lastAry, ary, 5);
+	for (int i=bp0; i<bp1; i++, k++) {
+		outcb(outcbdata, lastAry[k]);
+	}
+	memmove(lastAry, ary, 5);
 	bufferpos = newbufferpos;
 	oldtimetableindex = index;
 }
-void Output8Bit(int index, unsigned char A)
-{
+MODULE_PART void Output8Bit(int index, unsigned char A) {
 	unsigned char ary[5] = {A,A,A,A,A};
 	Output8BitAry(index, ary);
 }
-
-
-
-
-
-
-
 
 
 //written by me because of different table positions.
@@ -98,10 +45,9 @@ void Output8Bit(int index, unsigned char A)
 // 172=amplitude1
 // 173=amplitude2
 // 174=amplitude3
-unsigned char Read(unsigned char p, unsigned char Y) {
-	SETREGS
-	switch(p)
-	{
+MODULE_PART unsigned char Read(unsigned char p, unsigned char Y) {
+	SETMEMREGS
+	switch(p) {
 	case 168: return pitches[Y];
 	case 169: return frequency1[Y];
 	case 170: return frequency2[Y];
@@ -114,11 +60,10 @@ unsigned char Read(unsigned char p, unsigned char Y) {
 	return 0;
 }
 
-void Write(unsigned char p, unsigned char Y, unsigned char value) {
-	SETREGS
+MODULE_PART void Write(unsigned char p, unsigned char Y, unsigned char value) {
+	SETMEMREGS
 
-	switch(p)
-	{
+	switch(p) {
 	case 168: pitches[Y] = value; return;
 	case 169: frequency1[Y] = value;  return;
 	case 170: frequency2[Y] = value;  return;
@@ -188,19 +133,19 @@ void Write(unsigned char p, unsigned char Y, unsigned char value) {
 
 
 // Code48227()
-void RenderSample(unsigned char *mem66) {
-	SETREGS
+MODULE_PART void RenderSample(unsigned char *mem66) {
+	SETMEMREGS
 	int tempA;
 	// current phoneme's index
-	mem49 = Y;
+	samdata->mem49 = samdata->Y;
 
 	// mask low three bits and subtract 1 get value to
 	// convert 0 bits on unvoiced samples.
-	A = mem39&7;
-	X = A-1;
+	samdata->A = samdata->mem39&7;
+	samdata->X = samdata->A - 1;
 
     // store the result
-	mem56 = X;
+	samdata->mem56 = samdata->X;
 
 	// determine which offset to use from table { 0x18, 0x1A, 0x17, 0x17, 0x17 }
 	// T, S, Z                0          0x18
@@ -210,47 +155,45 @@ void RenderSample(unsigned char *mem66) {
 	// /X                     4          0x17
 
     // get value from the table
-	mem53 = pgm_read_byte(tab48426+X); //tab48426[X];
-	mem47 = X;      //46016+mem[56]*256
+	samdata->mem53 = pgm_read_byte(tab48426+samdata->X); //tab48426[X];
+	samdata->mem47 = samdata->X;      //46016+mem[56]*256
 
 	// voiced sample?
-	A = mem39 & 248;
-	if(A == 0)
-	{
+	samdata->A = samdata->mem39 & 248;
+	if(samdata->A == 0) {
         // voiced phoneme: Z*, ZH, V*, DH
-		Y = mem49;
-		A = pitches[mem49] >> 4;
+		samdata->Y = samdata->mem49;
+		samdata->A = pitches[samdata->mem49] >> 4;
 
 		// jump to voiced portion
 		goto pos48315;
 	}
 
-	Y = A ^ 255;
+	samdata->Y = samdata->A ^ 255;
 pos48274:
 
     // step through the 8 bits in the sample
-	mem56 = 8;
+	samdata->mem56 = 8;
 
 	// get the next sample from the table
     // mem47*256 = offset to start of samples
-	A = pgm_read_byte(sampleTable + mem47*256+Y); // sampleTable[mem47*256+Y];
+	samdata->A = pgm_read_byte(sampleTable + samdata->mem47*256+samdata->Y); // sampleTable[mem47*256+Y];
 pos48280:
 
     // left shift to get the high bit
-	tempA = A;
-	A = A << 1;
+	tempA = samdata->A;
+	samdata->A = samdata->A << 1;
 	//48281: BCC 48290
 
 	// bit not set?
-	if ((tempA & 128) == 0)
-	{
+	if ((tempA & 128) == 0) {
         // convert the bit to value from table
-		X = mem53;
+		samdata->X = samdata->mem53;
 		//mem[54296] = X;
         // output the byte
-		Output8Bit(1, (X&0xf)*16);
+		Output8Bit(1, (samdata->X&0xf)*16);
 		// if X != 0, exit loop
-		if(X != 0) goto pos48296;
+		if(samdata->X != 0) goto pos48296;
 	}
 
 	// output a 5 for the on bit
@@ -259,23 +202,22 @@ pos48280:
 	//48295: NOP
 pos48296:
 
-	X = 0;
+	samdata->X = 0;
 
     // decrement counter
-	mem56--;
+	samdata->mem56--;
 
 	// if not done, jump to top of loop
-	if (mem56 != 0) goto pos48280;
+	if (samdata->mem56 != 0) goto pos48280;
 
 	// increment position
-	Y++;
-	if (Y != 0) goto pos48274;
+	samdata->Y++;
+	if (samdata->Y != 0) goto pos48274;
 
 	// restore values and return
-	mem44 = 1;
-	Y = mem49;
+	samdata->mem44 = 1;
+	samdata->Y = samdata->mem49;
 	return;
-
 
 	unsigned char phase1;
 
@@ -283,48 +225,43 @@ pos48315:
 // handle voiced samples here
 
    // number of samples?
-	phase1 = A ^ 255;
+	phase1 = samdata->A ^ 255;
 
-	Y = *mem66;
-	do
-	{
+	samdata->Y = *mem66;
+	do {
 		//pos48321:
 
         // shift through all 8 bits
-		mem56 = 8;
+		samdata->mem56 = 8;
 		//A = Read(mem47, Y);
 
 		// fetch value from table
-		A = pgm_read_byte(sampleTable + mem47*256+Y); //sampleTable[mem47*256+Y];
+		samdata->A = pgm_read_byte(sampleTable + samdata->mem47*256+samdata->Y); //sampleTable[mem47*256+Y];
 
         // loop 8 times
 		//pos48327:
-		do
-		{
+		do {
 			//48327: ASL A
 			//48328: BCC 48337
 
 			// left shift and check high bit
-			tempA = A;
-			A = A << 1;
-			if ((tempA & 128) != 0)
-			{
+			tempA = samdata->A;
+			samdata->A = samdata->A << 1;
+			if ((tempA & 128) != 0) {
                 // if bit set, output 26
-				X = 26;
-				Output8Bit(3, (X&0xf)*16);
-			} else
-			{
+				samdata->X = 26;
+				Output8Bit(3, (samdata->X&0xf)*16);
+			} else {
 				//timetable 4
 				// bit is not set, output a 6
-				X=6;
-				Output8Bit(4, (X&0xf)*16);
+				samdata->X=6;
+				Output8Bit(4, (samdata->X&0xf)*16);
 			}
-
-			mem56--;
-		} while(mem56 != 0);
+			samdata->mem56--;
+		} while(samdata->mem56 != 0);
 
         // move ahead in the table
-		Y++;
+		samdata->Y++;
 
 		// continue until counter done
 		phase1++;
@@ -333,10 +270,10 @@ pos48315:
 	//	if (phase1 != 0) goto pos48321;
 
 	// restore values and return
-	A = 1;
-	mem44 = 1;
-	*mem66 = Y;
-	Y = mem49;
+	samdata->A = 1;
+	samdata->mem44 = 1;
+	*mem66 = samdata->Y;
+	samdata->Y = samdata->mem49;
 	return;
 }
 
@@ -359,8 +296,8 @@ pos48315:
 
 
 //void Code47574()
-void Render() {
-	SETREGS
+MODULE_PART void Render() {
+	SETMEMREGS
 
 	unsigned char phase1 = 0;  //mem43
 	unsigned char phase2 = 0;
@@ -371,11 +308,12 @@ void Render() {
 	unsigned char speedcounter = 0; //mem45
 	unsigned char mem48 = 0;
 	int i;
-	if (phonemeIndexOutput[0] == 255) return; //exit if no data
-
-	A = 0;
-	X = 0;
-	mem44 = 0;
+	if (phonemeIndexOutput[0] == 255) {
+		return; //exit if no data
+	}
+	samdata->A = 0;
+	samdata->X = 0;
+	samdata->mem44 = 0;
 
 
 // CREATE FRAMES
@@ -388,22 +326,20 @@ void Render() {
 
 
 // pos47587:
-do
-{
+do {
     // get the index
-	Y = mem44;
+	samdata->Y = samdata->mem44;
 	// get the phoneme at the index
-	A = phonemeIndexOutput[mem44];
-	mem56 = A;
+	samdata->A = phonemeIndexOutput[samdata->mem44];
+	samdata->mem56 = samdata->A;
 
 	// if terminal phoneme, exit the loop
-	if (A == 255) break;
+	if (samdata->A == 255) break;
 
 	// period phoneme *.
-	if (A == 1)
-	{
+	if (samdata->A == 1) {
        // add rising inflection
-		A = 1;
+		samdata->A = 1;
 		mem48 = 1;
 		//goto pos48376;
 		AddInflection(mem48, phase1);
@@ -413,8 +349,7 @@ do
 	*/
 
 	// question mark phoneme?
-	if (A == 2)
-	{
+	if (samdata->A == 2) {
         // create falling inflection
 		mem48 = 255;
 		AddInflection(mem48, phase1);
@@ -422,28 +357,27 @@ do
 	//	pos47615:
 
     // get the stress amount (more stress = higher pitch)
-	phase1 = pgm_read_byte(tab47492 + stressOutput[Y] + 1); // tab47492[stressOutput[Y] + 1];
+	phase1 = pgm_read_byte(tab47492 + stressOutput[samdata->Y] + 1); // tab47492[stressOutput[Y] + 1];
 
     // get number of frames to write
-	phase2 = phonemeLengthOutput[Y];
-	Y = mem56;
+	phase2 = phonemeLengthOutput[samdata->Y];
+	samdata->Y = samdata->mem56;
 
 	// copy from the source to the frames list
-	do
-	{
-		frequency1[X] = freq1data[Y];     // F1 frequency
-		frequency2[X] = freq2data[Y];     // F2 frequency
-		frequency3[X] = freq3data[Y];     // F3 frequency
-		amplitude1[X] = pgm_read_byte(&ampl1data[Y]);     // F1 amplitude
-		amplitude2[X] = pgm_read_byte(&ampl2data[Y]);     // F2 amplitude
-		amplitude3[X] = pgm_read_byte(&ampl3data[Y]);     // F3 amplitude
-		sampledConsonantFlag[X] = pgm_read_byte(&sampledConsonantFlags[Y]);        // phoneme data for sampled consonants
-		pitches[X] = pitch + phase1;      // pitch
-		X++;
+	do {
+		frequency1[samdata->X] = freq1data[samdata->Y];     // F1 frequency
+		frequency2[samdata->X] = freq2data[samdata->Y];     // F2 frequency
+		frequency3[samdata->X] = freq3data[samdata->Y];     // F3 frequency
+		amplitude1[samdata->X] = pgm_read_byte(&ampl1data[samdata->Y]);     // F1 amplitude
+		amplitude2[samdata->X] = pgm_read_byte(&ampl2data[samdata->Y]);     // F2 amplitude
+		amplitude3[samdata->X] = pgm_read_byte(&ampl3data[samdata->Y]);     // F3 amplitude
+		sampledConsonantFlag[samdata->X] = pgm_read_byte(&sampledConsonantFlags[samdata->Y]);        // phoneme data for sampled consonants
+		pitches[samdata->X] = pitch + phase1;      // pitch
+		samdata->X++;
 		phase2--;
 	} while(phase2 != 0);
-	mem44++;
-} while(mem44 != 0);
+	samdata->mem44++;
+} while(samdata->mem44 != 0);
 yield();
 if (DEBUG_ESP8266SAM_LIB)
 {
@@ -581,62 +515,58 @@ if (DEBUG_ESP8266SAM_LIB)
 //   241     2    10     2    65     1    96    59 * <-- OutBlendFrames = 1
 //   241     0     6     0    73     0    99    61
 
-	A = 0;
-	mem44 = 0;
-	mem49 = 0; // mem49 starts at as 0
-	X = 0;
+	samdata->A = 0;
+	samdata->mem44 = 0;
+	samdata->mem49 = 0; // mem49 starts at as 0
+	samdata->X = 0;
 	while(1) //while No. 1
 	{
 
         // get the current and following phoneme
-		Y = phonemeIndexOutput[X];
-		A = phonemeIndexOutput[X+1];
-		X++;
+		samdata->Y = phonemeIndexOutput[samdata->X];
+		samdata->A = phonemeIndexOutput[samdata->X+1];
+		samdata->X++;
 
 		// exit loop at end token
-		if (A == 255) break;//goto pos47970;
+		if (samdata->A == 255) break;//goto pos47970;
 
 
         // get the ranking of each phoneme
-		X = A;
-		mem56 = pgm_read_byte(blendRank+A); //blendRank[A];
-		A = pgm_read_byte(blendRank+Y); //blendRank[Y];
+		samdata->X = samdata->A;
+		samdata->mem56 = pgm_read_byte(blendRank+samdata->A); //blendRank[A];
+		samdata->A = pgm_read_byte(blendRank+samdata->Y); //blendRank[Y];
 
 		// compare the rank - lower rank value is stronger
-		if (A == mem56)
-		{
+		if (samdata->A == samdata->mem56) {
             // same rank, so use out blend lengths from each phoneme
-			phase1 = pgm_read_byte(outBlendLength+Y);//outBlendLength[Y];
-			phase2 = pgm_read_byte(outBlendLength+X);//outBlendLength[X];
-		} else
-		if (A < mem56)
-		{
+			phase1 = pgm_read_byte(outBlendLength+samdata->Y);//outBlendLength[Y];
+			phase2 = pgm_read_byte(outBlendLength+samdata->X);//outBlendLength[X];
+		} else if (samdata->A < samdata->mem56) {
             // first phoneme is stronger, so us it's blend lengths
-			phase1 = pgm_read_byte(inBlendLength+X);//inBlendLength[X];
-			phase2 = pgm_read_byte(outBlendLength+X);//outBlendLength[X];
-		} else
-		{
+			phase1 = pgm_read_byte(inBlendLength+samdata->X);//inBlendLength[X];
+			phase2 = pgm_read_byte(outBlendLength+samdata->X);//outBlendLength[X];
+		} else {
             // second phoneme is stronger, so use it's blend lengths
             // note the out/in are swapped
-			phase1 = pgm_read_byte(outBlendLength+Y);//outBlendLength[Y];
-			phase2 = pgm_read_byte(inBlendLength+Y);//inBlendLength[Y];
+			phase1 = pgm_read_byte(outBlendLength+samdata->Y);//outBlendLength[Y];
+			phase2 = pgm_read_byte(inBlendLength+samdata->Y);//inBlendLength[Y];
 		}
 
-		Y = mem44;
-		A = mem49 + phonemeLengthOutput[mem44]; // A is mem49 + length
-		mem49 = A; // mem49 now holds length + position
-		A = A + phase2; //Maybe Problem because of carry flag
+		samdata->Y = samdata->mem44;
+		samdata->A = samdata->mem49 + phonemeLengthOutput[samdata->mem44]; // A is mem49 + length
+		samdata->mem49 = samdata->A; // mem49 now holds length + position
+		samdata->A = samdata->A + phase2; //Maybe Problem because of carry flag
 
 		//47776: ADC 42
-		speedcounter = A;
-		mem47 = 168;
-		phase3 = mem49 - phase1; // what is mem49
-		A = phase1 + phase2; // total transition?
-		mem38 = A;
+		speedcounter = samdata->A;
+		samdata->mem47 = 168;
+		phase3 = samdata->mem49 - phase1; // what is mem49
+		samdata->A = phase1 + phase2; // total transition?
+		mem38 = samdata->A;
 
-		X = A;
-		X -= 2;
-		if ((X & 128) == 0)
+		samdata->X = samdata->A;
+		samdata->X -= 2;
+		if ((samdata->X & 128) == 0)
 		do   //while No. 2
 		{
 			//pos47810:
@@ -652,7 +582,7 @@ if (DEBUG_ESP8266SAM_LIB)
 
 			mem40 = mem38;
 
-			if (mem47 == 168)     // pitch
+			if (samdata->mem47 == 168)     // pitch
 			{
 
                // unlike the other values, the pitches[] interpolates from
@@ -661,62 +591,64 @@ if (DEBUG_ESP8266SAM_LIB)
 
 				unsigned char mem36, mem37;
 				// half the width of the current phoneme
-				mem36 = phonemeLengthOutput[mem44] >> 1;
+				mem36 = phonemeLengthOutput[samdata->mem44] >> 1;
 				// half the width of the next phoneme
-				mem37 = phonemeLengthOutput[mem44+1] >> 1;
+				mem37 = phonemeLengthOutput[samdata->mem44+1] >> 1;
 				// sum the values
 				mem40 = mem36 + mem37; // length of both halves
-				mem37 += mem49; // center of next phoneme
-				mem36 = mem49 - mem36; // center index of current phoneme
-				A = Read(mem47, mem37); // value at center of next phoneme - end interpolation value
+				mem37 += samdata->mem49; // center of next phoneme
+				mem36 = samdata->mem49 - mem36; // center index of current phoneme
+				samdata->A = Read(samdata->mem47, mem37); // value at center of next phoneme - end interpolation value
 				//A = mem[address];
 
-				Y = mem36; // start index of interpolation
-				mem53 = A - Read(mem47, mem36); // value to center of current phoneme
-			} else
-			{
+				samdata->Y = mem36; // start index of interpolation
+				samdata->mem53 = samdata->A - Read(samdata->mem47, mem36); // value to center of current phoneme
+			} else {
                 // value to interpolate to
-				A = Read(mem47, speedcounter);
+				samdata->A = Read(samdata->mem47, speedcounter);
 				// position to start interpolation from
-				Y = phase3;
+				samdata->Y = phase3;
 				// value to interpolate from
-				mem53 = A - Read(mem47, phase3);
+				samdata->mem53 = samdata->A - Read(samdata->mem47, phase3);
 			}
 
 			//Code47503(mem40);
 			// ML : Code47503 is division with remainder, and mem50 gets the sign
 
 			// calculate change per frame
-			signed char m53 = (signed char)mem53;
-			mem50 = mem53 & 128;
+			signed char m53 = (signed char)samdata->mem53;
+			samdata->mem50 = samdata->mem53 & 128;
 			unsigned char m53abs = abs(m53);
-			mem51 = m53abs % mem40; //abs((char)m53) % mem40;
-			mem53 = (unsigned char)((signed char)(m53) / mem40);
+			//samdata->mem51 = m53abs % mem40; //abs((char)m53) % mem40;
+			//samdata->mem53 = (unsigned char)((signed char)(m53) / mem40);
+			samdata->mem51 = __umodsi3(m53abs, mem40); //abs((char)m53) % mem40;
+			samdata->mem53 = (unsigned char)(__divsi3((signed char)(m53), mem40));
+
             // interpolation range
-			X = mem40; // number of frames to interpolate over
-			Y = phase3; // starting frame
+			samdata->X = mem40; // number of frames to interpolate over
+			samdata->Y = phase3; // starting frame
 
 
             // linearly interpolate values
 
-			mem56 = 0;
+			samdata->mem56 = 0;
 			//47907: CLC
 			//pos47908:
 			while(1)     //while No. 3
 			{
-				A = Read(mem47, Y) + mem53; //carry alway cleared
+				samdata->A = Read(samdata->mem47, samdata->Y) + samdata->mem53; //carry alway cleared
 
-				mem48 = A;
-				Y++;
-				X--;
-				if(X == 0) break;
+				mem48 = samdata->A;
+				samdata->Y++;
+				samdata->X--;
+				if(samdata->X == 0) break;
 
-				mem56 += mem51;
-				if (mem56 >= mem40)  //???
+				samdata->mem56 += samdata->mem51;
+				if (samdata->mem56 >= mem40)  //???
 				{
-					mem56 -= mem40; //carry? is set
+					samdata->mem56 -= mem40; //carry? is set
 					//if ((mem56 & 128)==0)
-					if ((mem50 & 128)==0)
+					if ((samdata->mem50 & 128)==0)
 					{
 						//47935: BIT 50
 						//47937: BMI 47943
@@ -724,23 +656,23 @@ if (DEBUG_ESP8266SAM_LIB)
 					} else mem48--;
 				}
 				//pos47945:
-				Write(mem47, Y, mem48);
+				Write(samdata->mem47, samdata->Y, mem48);
 			} //while No. 3
 
 			//pos47952:
-			mem47++;
+			samdata->mem47++;
 			//if (mem47 != 175) goto pos47810;
-		} while (mem47 != 175);     //while No. 2
+		} while (samdata->mem47 != 175);     //while No. 2
 		//pos47963:
-		mem44++;
-		X = mem44;
+		samdata->mem44++;
+		samdata->X = samdata->mem44;
 	}  //while No. 1
   yield();
 	//goto pos47701;
 	//pos47970:
 
     // add the length of this phoneme
-	mem48 = mem49 + phonemeLengthOutput[mem44];
+	mem48 = samdata->mem49 + phonemeLengthOutput[samdata->mem44];
 
 
 // ASSIGN PITCH CONTOUR
@@ -751,8 +683,7 @@ if (DEBUG_ESP8266SAM_LIB)
 
 
 	// don't adjust pitch if in sing mode
-	if (!singmode)
-	{
+	if (!singmode) {
         // iterate through the buffer
 		for(i=0; i<256; i++) {
             // subtract half the frequency of the formant 1.
@@ -764,7 +695,7 @@ if (DEBUG_ESP8266SAM_LIB)
 	phase1 = 0;
 	phase2 = 0;
 	phase3 = 0;
-	mem49 = 0;
+	samdata->mem49 = 0;
 	speedcounter = 72; //sam standard speed
 
 // RESCALE AMPLITUDE
@@ -773,23 +704,22 @@ if (DEBUG_ESP8266SAM_LIB)
 //
 
 	//amplitude rescaling
-	for(i=255; i>=0; i--)
-	{
+	for (i = 255; i >= 0; i--) {
 		amplitude1[i] = pgm_read_byte(amplitudeRescale + amplitude1[i]);//amplitudeRescale[amplitude1[i]];
 		amplitude2[i] = pgm_read_byte(amplitudeRescale + amplitude2[i]);//amplitudeRescale[amplitude2[i]];
 		amplitude3[i] = pgm_read_byte(amplitudeRescale + amplitude3[i]);//amplitudeRescale[amplitude3[i]];
 	}
 
-	Y = 0;
-	A = pitches[0];
-	mem44 = A;
-	X = A;
-	mem38 = A - (A>>2);     // 3/4*A ???
-yield();
-if (DEBUG_ESP8266SAM_LIB)
-{
+	samdata->Y = 0;
+	samdata->A = pitches[0];
+	samdata->mem44 = samdata->A;
+	samdata->X = samdata->A;
+	mem38 = samdata->A - (samdata->A>>2);     // 3/4*A ???
+	yield();
+	if (DEBUG_ESP8266SAM_LIB)
+	{
         PrintOutput(sampledConsonantFlag, frequency1, frequency2, frequency3, amplitude1, amplitude2, amplitude3, pitches);
-}
+	}
 
 // PROCESS THE FRAMES
 //
@@ -802,24 +732,20 @@ if (DEBUG_ESP8266SAM_LIB)
 
 	//finally the loop for sound output
 	//pos48078:
-	while(1)
-	{
+	while(1) {
         // get the sampled information on the phoneme
-		A = sampledConsonantFlag[Y];
-		mem39 = A;
+		samdata->A = sampledConsonantFlag[samdata->Y];
+		samdata->mem39 = samdata->A;
 
 		// unvoiced sampled phoneme?
-		A = A & 248;
-		if(A != 0)
-		{
+		samdata->A = samdata->A & 248;
+		if(samdata->A != 0) {
             // render the sample for the phoneme
 			RenderSample(&mem66);
-
 			// skip ahead two in the phoneme buffer
-			Y += 2;
+			samdata->Y += 2;
 			mem48 -= 2;
-		} else
-		{
+		} else {
             // simulate the glottal pulse and formants
 			unsigned char ary[5];
 			unsigned int p1 = phase1 * 256; // Fixed point integers because we need to divide later on
@@ -830,22 +756,22 @@ if (DEBUG_ESP8266SAM_LIB)
 				signed char sp1 = (signed char)pgm_read_byte(&sinus[0xff & (p1>>8)]);
 				signed char sp2 = (signed char)pgm_read_byte(&sinus[0xff & (p2>>8)]);
 				signed char rp3 = (signed char)pgm_read_byte(&rectangle[0xff & (p3>>8)]);
-				signed int sin1 = sp1 * ((unsigned char)amplitude1[Y] & 0x0f);
-				signed int sin2 = sp2 * ((unsigned char)amplitude2[Y] & 0x0f);
-				signed int rect = rp3 * ((unsigned char)amplitude3[Y] & 0x0f);
+				signed int sin1 = sp1 * ((unsigned char)amplitude1[samdata->Y] & 0x0f);
+				signed int sin2 = sp2 * ((unsigned char)amplitude2[samdata->Y] & 0x0f);
+				signed int rect = rp3 * ((unsigned char)amplitude3[samdata->Y] & 0x0f);
 				signed int mux = sin1 + sin2 + rect;
 				mux /= 32;
 				mux += 128; // Go from signed to unsigned amplitude
 				ary[k] = mux;
-				p1 += ((int)frequency1[Y]) * 256 / 4; // Compromise, this becomes a shift and works well
-				p2 += ((int)frequency2[Y]) * 256 / 4;
-				p3 += ((int)frequency3[Y]) * 256 / 4;
+				p1 += ((int)frequency1[samdata->Y]) * 256 / 4; // Compromise, this becomes a shift and works well
+				p2 += ((int)frequency2[samdata->Y]) * 256 / 4;
+				p3 += ((int)frequency3[samdata->Y]) * 256 / 4;
 			}
 			// output the accumulated value
 			Output8BitAry(0, ary);
 			speedcounter--;
 			if (speedcounter != 0) goto pos48155;
-			Y++; //go to next amplitude
+			samdata->Y++; //go to next amplitude
 
 			// decrement the frame count
 			mem48--;
@@ -857,17 +783,16 @@ if (DEBUG_ESP8266SAM_LIB)
 pos48155:
 
         // decrement the remaining length of the glottal pulse
-		mem44--;
+		samdata->mem44--;
 
 		// finished with a glottal pulse?
-		if(mem44 == 0)
-		{
+		if(samdata->mem44 == 0) {
 pos48159:
             // fetch the next glottal pulse length
-			A = pitches[Y];
-			mem44 = A;
-			A = A - (A>>2);
-			mem38 = A;
+			samdata->A = pitches[samdata->Y];
+			samdata->mem44 = samdata->A;
+			samdata->A = samdata->A - (samdata->A>>2);
+			mem38 = samdata->A;
 
 			// reset the formant wave generators to keep them in
 			// sync with the glottal pulse
@@ -881,12 +806,11 @@ pos48159:
 		mem38--;
 
 		// is the count non-zero and the sampled flag is zero?
-		if((mem38 != 0) || (mem39 == 0))
-		{
+		if((mem38 != 0) || (samdata->mem39 == 0)) {
             // reset the phase of the formants to match the pulse
-			phase1 += frequency1[Y];
-			phase2 += frequency2[Y];
-			phase3 += frequency3[Y];
+			phase1 += frequency1[samdata->Y];
+			phase2 += frequency2[samdata->Y];
+			phase3 += frequency3[samdata->Y];
 			continue;
 		}
 
@@ -904,26 +828,26 @@ pos48159:
 // index X. A rising inflection is used for questions, and
 // a falling inflection is used for statements.
 
-void AddInflection(unsigned char mem48, unsigned char phase1) {
+MODULE_PART void AddInflection(unsigned char mem48, unsigned char phase1) {
 	SETMEMREGS
 	//pos48372:
 	//	mem48 = 255;
 //pos48376:
 
     // store the location of the punctuation
-	sam.mem49 = sam.X;
-	sam.A = sam.X;
-	int Atemp = sam.A;
+	samdata->mem49 = samdata->X;
+	samdata->A = samdata->X;
+	int Atemp = samdata->A;
 
 	// backup 30 frames
-	sam.A = sam.A - 30;
+	samdata->A = samdata->A - 30;
 	// if index is before buffer, point to start of buffer
-	if (Atemp <= 30) sam.A=0;
-	sam.X = sam.A;
+	if (Atemp <= 30) samdata->A=0;
+	samdata->X = samdata->A;
 
 	// FIXME: Explain this fix better, it's not obvious
 	// ML : A =, fixes a problem with invalid pitch with '.'
-	while( (sam.A=pitches[sam.X]) == 127) sam.X++;
+	while( (samdata->A=pitches[samdata->X]) == 127) samdata->X++;
 
 
 pos48398:
@@ -931,20 +855,20 @@ pos48398:
 	//48399: ADC 48
 
 	// add the inflection direction
-	sam.A += mem48;
-	phase1 = sam.A;
+	samdata->A += mem48;
+	phase1 = samdata->A;
 
 	// set the inflection
-	pitches[sam.X] = sam.A;
+	pitches[samdata->X] = samdata->A;
 pos48406:
 
     // increment the position
-	sam.X++;
+	samdata->X++;
 
 	// exit if the punctuation has been reached
-	if (sam.X == mem49) return; //goto pos47615;
-	if (pitches[sam.X] == 255) goto pos48406;
-	sam.A = phase1;
+	if (samdata->X == samdata->mem49) return; //goto pos47615;
+	if (pitches[samdata->X] == 255) goto pos48406;
+	samdata->A = phase1;
 	goto pos48398;
 }
 
@@ -972,7 +896,7 @@ const unsigned char mouthFormants48_53[6] PROGMEM = {19, 27, 21, 27, 18, 13};
         // formant 2 frequencies (throat) 48..53
 const unsigned char throatFormants48_53[6] PROGMEM = {72, 39, 31, 43, 30, 34};
 
-void SetMouthThroat(unsigned char mouth, unsigned char throat) {
+void SetMouthThroat(unsigned char _mouth, unsigned char _throat) {
 	SETMEMREGS
 	unsigned char initialFrequency;
 	unsigned char newFrequency = 0;
@@ -982,16 +906,15 @@ void SetMouthThroat(unsigned char mouth, unsigned char throat) {
 	unsigned char pos = 5; //mem39216
 //pos38942:
 	// recalculate formant frequencies 5..29 for the mouth (F1) and throat (F2)
-	while(pos != 30)
-	{
+	while(pos != 30) {
 		// recalculate mouth frequency
 		initialFrequency = pgm_read_byte(&mouthFormants5_29[pos]);
-		if (initialFrequency != 0) newFrequency = trans(mouth, initialFrequency);
+		if (initialFrequency != 0) newFrequency = trans(_mouth, initialFrequency);
 		freq1data[pos] = newFrequency;
 
 		// recalculate throat frequency
 		initialFrequency = pgm_read_byte(&throatFormants5_29[pos]);
-		if(initialFrequency != 0) newFrequency = trans(throat, initialFrequency);
+		if(initialFrequency != 0) newFrequency = trans(_throat, initialFrequency);
 		freq2data[pos] = newFrequency;
 		pos++;
 	}
@@ -999,58 +922,55 @@ void SetMouthThroat(unsigned char mouth, unsigned char throat) {
 //pos39059:
 	// recalculate formant frequencies 48..53
 	pos = 48;
-	Y = 0;
-    while(pos != 54)
-    {
+	samdata->Y = 0;
+    while(pos != 54) {
 		// recalculate F1 (mouth formant)
-		initialFrequency = pgm_read_byte(&mouthFormants48_53[Y]);
-		newFrequency = trans(mouth, initialFrequency);
+		initialFrequency = pgm_read_byte(&mouthFormants48_53[samdata->Y]);
+		newFrequency = trans(_mouth, initialFrequency);
 		freq1data[pos] = newFrequency;
 
 		// recalculate F2 (throat formant)
-		initialFrequency = pgm_read_byte(&throatFormants48_53[Y]);
-		newFrequency = trans(throat, initialFrequency);
+		initialFrequency = pgm_read_byte(&throatFormants48_53[samdata->Y]);
+		newFrequency = trans(_throat, initialFrequency);
 		freq2data[pos] = newFrequency;
-		Y++;
+		samdata->Y++;
 		pos++;
 	}
 }
 
 
 //return = (mem39212*mem39213) >> 1
-unsigned char trans(unsigned char mem39212, unsigned char mem39213)
-{
+MODULE_PART unsigned char trans(unsigned char mem39212, unsigned char mem39213) {
+	SETMEMREGS
 	//pos39008:
 	unsigned char carry;
 	int temp;
 	unsigned char mem39214, mem39215;
-	A = 0;
+	samdata->A = 0;
 	mem39215 = 0;
 	mem39214 = 0;
-	X = 8;
-	do
-	{
+	samdata->X = 8;
+	do {
 		carry = mem39212 & 1;
 		mem39212 = mem39212 >> 1;
-		if (carry != 0)
-		{
+		if (carry != 0) {
 			/*
 						39018: LSR 39212
 						39021: BCC 39033
 						*/
 			carry = 0;
-			A = mem39215;
-			temp = (int)A + (int)mem39213;
-			A = A + mem39213;
+			samdata->A = mem39215;
+			temp = (int)samdata->A + (int)mem39213;
+			samdata->A = samdata->A + mem39213;
 			if (temp > 255) carry = 1;
-			mem39215 = A;
+			mem39215 = samdata->A;
 		}
 		temp = mem39215 & 1;
 		mem39215 = (mem39215 >> 1) | (carry?128:0);
 		carry = temp;
 		//39033: ROR 39215
-		X--;
-	} while (X != 0);
+		samdata->X--;
+	} while (samdata->X != 0);
 	temp = mem39214 & 128;
 	mem39214 = (mem39214 << 1) | (carry?1:0);
 	carry = temp;

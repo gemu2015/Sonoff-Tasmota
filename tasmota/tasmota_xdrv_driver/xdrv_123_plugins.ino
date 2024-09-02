@@ -167,6 +167,9 @@ double tmod_double_dispatch(uint32_t sel, double a, double b);
 uint32_t tmod_task_create(TASKPARS *tp);
 int64_t tmod_double2long(double in);
 double tmod_long2double(int64_t in);
+void *tmod_strncat(char *dst, char *src, uint32_t size);
+const uint8_t tmod_pgm_read_byte(uint8_t *ptr);
+const uint16_t tmod_pgm_read_word(uint16_t *ptr);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -396,12 +399,71 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod__modsi3,
   JMPTBL&tmod__ashldi3,
   JMPTBL&tmod__lshrdi3,
-  JMPTBL&tmod_wifi
+  JMPTBL&tmod_wifi,
+  JMPTBL&tmod_strncat,
+  JMPTBL&tmod_pgm_read_byte,
+  JMPTBL&tmod_pgm_read_word
 };
+
 
 
 #define USE_DOUBLE_DISPATCH
 
+
+#ifdef ESP32
+#ifndef __riscv
+#define pgm_read_with_offset_32(addr, res) \
+  asm("extui    %0, %1, 0, 2\n"     /* Extract offset within word (in bytes) */ \
+      "sub      %1, %1, %0\n"       /* Subtract offset from addr, yielding an aligned address */ \
+      "l32i.n   %1, %1, 0x0\n"      /* Load word from aligned address */ \
+      "ssa8l    %0\n"               /* Prepare to shift by offset (in bits) */ \
+      "src      %0, %1, %1\n"       /* Shift right; now the requested byte is the first one */ \
+      :"=r"(res), "=r"(addr) \
+      :"1"(addr) \
+      :);
+
+#define pgm_read_dword_with_offset_32(addr, res) \
+  asm("extui    %0, %1, 0, 2\n"     /* Extract offset within word (in bytes) */ \
+      "sub      %1, %1, %0\n"       /* Subtract offset from addr, yielding an aligned address */ \
+      "l32i     a15, %1, 0\n" \
+      "l32i     %1, %1, 4\n" \
+      "ssa8l    %0\n" \
+      "src      %0, %1, a15\n" \
+      :"=r"(res), "=r"(addr) \
+      :"1"(addr) \
+      :"a15");
+#endif
+#endif
+
+const uint8_t tmod_pgm_read_byte(uint8_t *ptr) {
+#ifdef ESP8266  
+  return pgm_read_byte(ptr);
+#endif
+#ifdef ESP32
+#ifndef __riscv
+ uint32_t res;
+  pgm_read_with_offset_32(addr, res);
+  return (uint8_t) res;
+#else
+ return (*(const unsigned char *)(ptr));
+#endif
+#endif
+}
+
+const uint16_t tmod_pgm_read_word(uint16_t *ptr) {
+#ifdef ESP8266 
+  return pgm_read_word(ptr);
+#endif
+#ifdef ESP32
+#ifndef __riscv
+ uint32_t res;
+  pgm_read_dword_with_offset_32(addr, res);
+  return (uint16_t) res;
+#else
+  return *(const uint16_t *)(ptr);
+#endif
+#endif
+}
 
 double tmod_double_dispatch(uint32_t sel, double a, double b) {
   double result = 0;
@@ -890,6 +952,14 @@ uint32_t tmod_file_exists(const char *path) {
 
 void tmod_AddLogData(uint32_t loglevel, const char* log_data) {
   AddLogData(loglevel,log_data);
+}
+
+void *tmod_strncat(char *dst, char *src, uint32_t size) {
+  void *res;
+  char *cp = copyStr(src);
+  res = strncat(dst, cp, size);
+  free(cp);
+  return res;
 }
 
 static File temp_file;
