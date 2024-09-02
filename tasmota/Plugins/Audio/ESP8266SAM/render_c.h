@@ -990,7 +990,7 @@ void SetMouthThroat(unsigned char _mouth, unsigned char _throat) {
 		freq1data[pos] = newFrequency;
 		// recalculate throat frequency
 		//initialFrequency = pgm_read_byte(&throatFormants5_29[pos]);
-		const uint8_t *cp = &throatFormants5_29[pos];
+		cp = &throatFormants5_29[pos];
 		cp += EXEC_OFFSET;
 		initialFrequency = pgm_read_byte(cp);
 
@@ -1005,12 +1005,20 @@ void SetMouthThroat(unsigned char _mouth, unsigned char _throat) {
 	samdata->Y = 0;
     while(pos != 54) {
 		// recalculate F1 (mouth formant)
-		initialFrequency = pgm_read_byte(&mouthFormants48_53[samdata->Y]);
+		//initialFrequency = pgm_read_byte(&mouthFormants48_53[samdata->Y]);
+		const uint8_t *cp = &mouthFormants48_53[samdata->Y];
+		cp += EXEC_OFFSET;
+		initialFrequency = pgm_read_byte(cp);
+
 		newFrequency = trans(_mouth, initialFrequency);
 		freq1data[pos] = newFrequency;
 
 		// recalculate F2 (throat formant)
-		initialFrequency = pgm_read_byte(&throatFormants48_53[samdata->Y]);
+		//initialFrequency = pgm_read_byte(&throatFormants48_53[samdata->Y]);
+		cp = &throatFormants48_53[samdata->Y];
+		cp += EXEC_OFFSET;
+		initialFrequency = pgm_read_byte(cp);
+
 		newFrequency = trans(_throat, initialFrequency);
 		freq2data[pos] = newFrequency;
 		samdata->Y++;
