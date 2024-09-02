@@ -29,8 +29,8 @@
 
 #ifdef ESP32
 #define USE_MP3_PSRAM
-#define USE_MP3
-#define USE_WEBRADIO
+//#define USE_MP3
+//#define USE_WEBRADIO
 // select a codec
 #define USE_WM8960
 #endif
@@ -614,9 +614,15 @@ void Say(void) {
   }
 
   for (uint16_t cnt = 0; cnt < 80; cnt++) {
-    freq1data[cnt] = pgm_read_byte(&org_freq1data[cnt]);
-    freq2data[cnt] = pgm_read_byte(&org_freq2data[cnt]);
-    freq3data[cnt] = pgm_read_byte(&org_freq3data[cnt]);
+    const uint8_t *cp = &org_freq1data[cnt];
+    cp += EXEC_OFFSET;
+    freq1data[cnt] = pgm_read_byte(cp);
+    cp = &org_freq2data[cnt];
+    cp += EXEC_OFFSET;
+    freq2data[cnt] = pgm_read_byte(cp);
+    cp = &org_freq3data[cnt];
+    cp += EXEC_OFFSET;
+    freq3data[cnt] = pgm_read_byte(cp);
   }
 
   char inbuff[256];
@@ -654,7 +660,11 @@ void Say(void) {
   i2s_enable_tx(i2sp);
 
   SetInput(inbuff);
-  SAMMain(OutputByteCallback, samdata);
+
+  uint8_t *vp = (uint8_t*)OutputByteCallback;
+  vp += EXEC_OFFSET;
+
+  SAMMain((void (*)(void*, unsigned char))vp, samdata);
   
   free(samdata);
   free(samrender);

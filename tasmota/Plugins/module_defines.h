@@ -841,7 +841,7 @@ typedef struct {
 #define xTaskCreatePinnedToCore(A)   jtaskc(A)
 #define vTaskDelete(A)   jtaskd(A)
 
-
+#undef strncat_P
 #define strncat_P jstrncat_P
 
 
