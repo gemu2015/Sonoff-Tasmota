@@ -75,7 +75,7 @@ MODULE_PART void Write(unsigned char p, unsigned char Y, unsigned char value) {
 	}
 	p -= 168;
 	rp = rpt[p];
-	rp[p] = Y;
+	rp[Y] = value;
 }
 
 
