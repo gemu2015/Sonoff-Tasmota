@@ -1,12 +1,12 @@
-
 #include "reciter.h"
 #include "ReciterTabs.h"
 #include "SamData.h"
 
+#define inputtemp (samdata->reciter.inputtemp)
 
-//extern int debug;
-
-#define inputtemp samdata->reciter.inputtemp
+//#define REG_A samdata->A
+//#define REG_X samdata->X
+//#define REG_Y samdata->Y
 
 
 MODULE_PART uint8_t Code37055(unsigned char IN) {
@@ -62,12 +62,16 @@ MODULE_PART unsigned char GetRuleByte(unsigned short mem62, unsigned char Y) {
 #endif
 }
 
-MODULE_PART int TextToPhonemes(char *_input) // Code36484
-{
+MODULE_PART int TextToPhonemes(char *_input) { // Code36484
 	SETMEMREGS
-	unsigned char A, X, Y;
-	//unsigned char *tab39445 = &mem[39445];   //_input and output
+	//unsigned char *tab39445 = &mem[39445];   //input and output
 	//unsigned char mem29;
+	uint8_t REG_A,REG_X,REG_Y;
+
+	const int32_t *icp = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+
+	const uint32_t limit = icp[4];
+
 	unsigned char mem56;      //output position for phonemes
 	unsigned char mem57;
 	unsigned char mem58;
@@ -83,94 +87,95 @@ MODULE_PART int TextToPhonemes(char *_input) // Code36484
 
 	inputtemp[0] = 32;
 
-	// secure copy of _input
-	// because _input will be overwritten by phonemes
-	X = 1;
-	Y = 0;
-	do
-	{
+	// secure copy of input
+	// because input will be overwritten by phonemes
+	REG_X = 1;
+	REG_Y = 0;
+	do {
 		//pos36499:
-		A = _input[Y] & 127;
-		if ( A >= 112) A = A & 95;
-		else if ( A >= 96) A = A & 79;
+		REG_A = _input[REG_Y] & 127;
+		if ( REG_A >= 112) {
+			REG_A = REG_A & 95;
+		}	else if ( REG_A >= 96) {
+			REG_A = REG_A & 79;
+		}
+		inputtemp[REG_X] = REG_A;
+		REG_X++;
+		REG_Y++;
+	} while (REG_Y != 255);
 
-		inputtemp[X] = A;
-		X++;
-		Y++;
-	} while (Y != 255);
 
-
-	X = 255;
-	inputtemp[X] = 27;
+	REG_X = 255;
+	inputtemp[REG_X] = 27;
 	mem61 = 255;
 
-
 pos36550:
-	A = 255;
+	REG_A = 255;
 	mem56 = 255;
 
-
 pos36554:
-	while(1)
-	{
+	while(1) {
 		mem61++;
-		X = mem61;
-		A = inputtemp[X];
-		mem64 = A;
-		if (A == '[')
-		{
+		REG_X = mem61;
+		REG_A = inputtemp[REG_X];
+		mem64 = REG_A;
+		if (REG_A == '[') {
 			mem56++;
-			X = mem56;
-			A = 155;
-			_input[X] = 155;
+			REG_X = mem56;
+			REG_A = 155;
+			_input[REG_X] = 155;
 			//goto pos36542;
 			//			Code39771(); 	//Code39777();
 			return 1;
 		}
 
 		//pos36579:
-		if (A != '.') break;
-		X++;
-		Y = inputtemp[X];
-		//A = pgm_read_byte(tab36376+Y)/*tab36376[Y]*/ & 1;
+		if (REG_A != '.') {
+			break;
+		}
+		REG_X++;
+		REG_Y = inputtemp[REG_X];
 		//REG_A = pgm_read_byte_inlined(tab36376+REG_Y)/*tab36376[Y]*/ & 1;
-		const uint8_t *cp = tab36376 + Y;
+		const uint8_t *cp = tab36376 + REG_Y;
 		cp += EXEC_OFFSET;
-		A = pgm_read_byte(cp) & 1;
+		REG_A = pgm_read_byte(cp) & 1;
 
-		if(A != 0) break;
+		if (REG_A != 0) {
+			break;
+		}
 		mem56++;
-		X = mem56;
-		A = '.';
-		_input[X] = '.';
+		REG_X = mem56;
+		REG_A = '.';
+		_input[REG_X] = '.';
 	} //while
 
 
 	//pos36607:
-	A = mem64;
-	Y = A;
-	//A = pgm_read_byte(tab36376+A); //tab36376[A];
+	REG_A = mem64;
+	REG_Y = REG_A;
 	//REG_A = pgm_read_byte_inlined(tab36376+REG_A); //tab36376[A];
-	const uint8_t *cp = tab36376 + A;
+	const uint8_t *cp = tab36376 + REG_A;
 	cp += EXEC_OFFSET;
-	A = pgm_read_byte(cp);
+	REG_A = pgm_read_byte(cp);
 
-	mem57 = A;
-	if((A&2) != 0)
-	{
-		mem62 = 37541;
+	mem57 = REG_A;
+	if ((REG_A&2) != 0) {
+		//mem62 = 37541;
+		mem62 = limit;
+		//const int32_t *icp = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+		//mem62 = icp[4];
 		goto pos36700;
 	}
 
 	//pos36630:
-	A = mem57;
-	if(A != 0) goto pos36677;
-	A = 32;
-	inputtemp[X] = ' ';
+	REG_A = mem57;
+	if (REG_A != 0) goto pos36677;
+	REG_A = 32;
+	inputtemp[REG_X] = ' ';
 	mem56++;
-	X = mem56;
-	if (X > 120) goto pos36654;
-	_input[X] = A;
+	REG_X = mem56;
+	if (REG_X > 120) goto pos36654;
+	_input[REG_X] = REG_A;
 	goto pos36554;
 
 	// -----
@@ -178,36 +183,35 @@ pos36554:
 	//36653 is unknown. Contains position
 
 pos36654:
-	_input[X] = 155;
-	A = mem61;
-	mem36653 = A;
+	_input[REG_X] = 155;
+	REG_A = mem61;
+	mem36653 = REG_A;
 	//	mem29 = A; // not used
 	//	Code36538(); das ist eigentlich
 	return 1;
 	//Code39771();
-	//go on if there is more _input ???
+	//go on if there is more input ???
 	mem61 = mem36653;
 	goto pos36550;
 
 pos36677:
-	A = mem57 & 128;
-	if(A == 0)
-	{
+	REG_A = mem57 & 128;
+	if (REG_A == 0) {
 		//36683: BRK
 		return 0;
 	}
 
 	// go to the right rules for this character.
-	X = mem64 - 'A';
-	//mem62 = pgm_read_byte(&tab37489[X]) | (pgm_read_byte(&tab37515[X])<<8);
+	REG_X = mem64 - 'A';
 	{
 		//mem62 = pgm_read_byte_inlined(&tab37489[REG_X]) | (pgm_read_byte_inlined(&tab37515[REG_X])<<8);
-		const uint8_t *cp1 = &tab37489[X];
-		const uint8_t *cp2 = &tab37515[X];
+		const uint8_t *cp1 = &tab37489[REG_X];
+		const uint8_t *cp2 = &tab37515[REG_X];
 		cp1 += EXEC_OFFSET;
 		cp2 += EXEC_OFFSET;
 		mem62 = pgm_read_byte(cp1) | (pgm_read_byte(cp2)<<8);
 	}
+
 	// -------------------------------------
 	// go to next rule
 	// -------------------------------------
@@ -215,100 +219,93 @@ pos36677:
 pos36700:
 
 	// find next rule
-	Y = 0;
-	do
-	{
+	REG_Y = 0;
+	do {
 		mem62 += 1;
-		A = GetRuleByte(mem62, Y);
-	} while ((A & 128) == 0);
-	Y++;
+		REG_A = GetRuleByte(mem62, REG_Y);
+	} while ((REG_A & 128) == 0);
+	REG_Y++;
 
 	//pos36720:
 	// find '('
-	while(1)
-	{
-		A = GetRuleByte(mem62, Y);
-		if (A == '(') break;
-		Y++;
+	while (1) {
+		REG_A = GetRuleByte(mem62, REG_Y);
+		if (REG_A == '(') break;
+		REG_Y++;
 	}
-	mem66 = Y;
+	mem66 = REG_Y;
 
 	//pos36732:
 	// find ')'
-	do
-	{
-		Y++;
-		A = GetRuleByte(mem62, Y);
-	} while(A != ')');
-	mem65 = Y;
+	do {
+		REG_Y++;
+		REG_A = GetRuleByte(mem62, REG_Y);
+	} while(REG_A != ')');
+	mem65 = REG_Y;
 
 	//pos36741:
 	// find '='
-	do
-	{
-		Y++;
-		A = GetRuleByte(mem62, Y);
-		A = A & 127;
-	} while (A != '=');
-	mem64 = Y;
+	do {
+		REG_Y++;
+		REG_A = GetRuleByte(mem62, REG_Y);
+		REG_A = REG_A & 127;
+	} while (REG_A != '=');
+	mem64 = REG_Y;
 
-	X = mem61;
-	mem60 = X;
+	REG_X = mem61;
+	mem60 = REG_X;
 
 	// compare the string within the bracket
-	Y = mem66;
-	Y++;
+	REG_Y = mem66;
+	REG_Y++;
 	//pos36759:
-	while(1)
-	{
-		mem57 = inputtemp[X];
-		A = GetRuleByte(mem62, Y);
-		if (A != mem57) goto pos36700;
-		Y++;
-		if(Y == mem65) break;
-		X++;
-		mem60 = X;
+	while(1) {
+		mem57 = inputtemp[REG_X];
+		REG_A = GetRuleByte(mem62, REG_Y);
+		if (REG_A != mem57) goto pos36700;
+		REG_Y++;
+		if (REG_Y == mem65) break;
+		REG_X++;
+		mem60 = REG_X;
 	}
 
 // the string in the bracket is correct
 
 //pos36787:
-	A = mem61;
+	REG_A = mem61;
 	mem59 = mem61;
 
 pos36791:
-	while(1)
-	{
+	while(1) {
 		mem66--;
-		Y = mem66;
-		A = GetRuleByte(mem62, Y);
-		mem57 = A;
+		REG_Y = mem66;
+		REG_A = GetRuleByte(mem62, REG_Y);
+		mem57 = REG_A;
 		//36800: BPL 36805
-		if ((A & 128) != 0) goto pos37180;
-		X = A & 127;
-		//A = pgm_read_byte(tab36376+X)/*tab36376[X]*/ & 128;
+		if ((REG_A & 128) != 0) goto pos37180;
+		REG_X = REG_A & 127;
 		//REG_A = pgm_read_byte_inlined(tab36376+REG_X)/*tab36376[X]*/ & 128;
-		const uint8_t *cp = tab36376 + X;
+		const uint8_t *cp = tab36376 + REG_X;
 		cp += EXEC_OFFSET;
-		A = pgm_read_byte(cp) & 128;
+		REG_A = pgm_read_byte(cp) & 128;
 
-		if (A == 0) break;
-		X = mem59-1;
-		A = inputtemp[X];
-		if (A != mem57) goto pos36700;
-		mem59 = X;
+		if (REG_A == 0) break;
+		REG_X = mem59-1;
+		REG_A = inputtemp[REG_X];
+		if (REG_A != mem57) goto pos36700;
+		mem59 = REG_X;
 	}
 
 //pos36833:
-	A = mem57;
-	if (A == ' ') goto pos36895;
-	if (A == '#') goto pos36910;
-	if (A == '.') goto pos36920;
-	if (A == '&') goto pos36935;
-	if (A == '@') goto pos36967;
-	if (A == '^') goto pos37004;
-	if (A == '+') goto pos37019;
-	if (A == ':') goto pos37040;
+	REG_A = mem57;
+	if (REG_A == ' ') goto pos36895;
+	if (REG_A == '#') goto pos36910;
+	if (REG_A == '.') goto pos36920;
+	if (REG_A == '&') goto pos36935;
+	if (REG_A == '@') goto pos36967;
+	if (REG_A == '^') goto pos37004;
+	if (REG_A == '+') goto pos37019;
+	if (REG_A == ':') goto pos37040;
 	//	Code42041();    //Error
 	//36894: BRK
 	return 0;
@@ -316,134 +313,135 @@ pos36791:
 	// --------------
 
 pos36895:
-	A = Code37055(mem59);X = mem59 - 1;
-	A = A & 128;
-	if(A != 0) goto pos36700;
+	REG_A = Code37055(mem59); REG_X = mem59 - 1;
+	REG_A = REG_A & 128;
+	if (REG_A != 0) goto pos36700;
 pos36905:
-	mem59 = X;
+	mem59 = REG_X;
 	goto pos36791;
 
 	// --------------
 
 pos36910:
-	A = Code37055(mem59);X = mem59 - 1;
-	A = A & 64;
-	if(A != 0) goto pos36905;
+	REG_A = Code37055(mem59); REG_X = mem59 - 1;
+	REG_A = Code37055(mem59); REG_X = mem59 - 1;
+	REG_A = REG_A & 64;
+	if (REG_A != 0) goto pos36905;
 	goto pos36700;
 
 	// --------------
 
 
 pos36920:
-	A = Code37055(mem59);X = mem59 - 1;
-	A = A & 8;
-	if(A == 0) goto pos36700;
+	REG_A = Code37055(mem59); REG_X = mem59 - 1;
+	REG_A = REG_A & 8;
+	if (REG_A == 0) goto pos36700;
 pos36930:
-	mem59 = X;
+	mem59 = REG_X;
 	goto pos36791;
 
 	// --------------
 
 pos36935:
-	A = Code37055(mem59);X = mem59 - 1;
-	A = A & 16;
-	if(A != 0) goto pos36930;
-	A = inputtemp[X];
-	if (A != 72) goto pos36700;
-	X--;
-	A = inputtemp[X];
-	if ((A == 67) || (A == 83)) goto pos36930;
+	REG_A = Code37055(mem59); REG_X = mem59 - 1;
+	REG_A = REG_A & 16;
+	if (REG_A != 0) goto pos36930;
+	REG_A = inputtemp[REG_X];
+	if (REG_A != 72) goto pos36700;
+	REG_X--;
+	REG_A = inputtemp[REG_X];
+	if ((REG_A == 67) || (REG_A == 83)) goto pos36930;
 	goto pos36700;
 
 	// --------------
 
 pos36967:
-	A = Code37055(mem59);X = mem59 - 1;
-	A = A & 4;
-	if(A != 0) goto pos36930;
-	A = inputtemp[X];
-	if (A != 72) goto pos36700;
-	if ((A != 84) && (A != 67) && (A != 83)) goto pos36700;
-	mem59 = X;
+	REG_A = Code37055(mem59); REG_X = mem59 - 1;
+	REG_A = REG_A & 4;
+	if (REG_A != 0) goto pos36930;
+	REG_A = inputtemp[REG_X];
+	if (REG_A != 72) goto pos36700;
+	if ((REG_A != 84) && (REG_A != 67) && (REG_A != 83)) goto pos36700;
+	mem59 = REG_X;
 	goto pos36791;
 
 	// --------------
 
 
 pos37004:
-	A = Code37055(mem59);X = mem59 - 1;
-	A = A & 32;
-	if(A == 0) goto pos36700;
+	REG_A = Code37055(mem59); REG_X = mem59 - 1;
+	REG_A = REG_A & 32;
+	if (REG_A == 0) goto pos36700;
 
 pos37014:
-	mem59 = X;
+	mem59 = REG_X;
 	goto pos36791;
 
 	// --------------
 
 pos37019:
-	X = mem59;
-	X--;
-	A = inputtemp[X];
-	if ((A == 'E') || (A == 'I') || (A == 'Y')) goto pos37014;
+	REG_X = mem59;
+	REG_X--;
+	REG_A = inputtemp[REG_X];
+	if ((REG_A == 'E') || (REG_A == 'I') || (REG_A == 'Y')) goto pos37014;
 	goto pos36700;
 	// --------------
 
 pos37040:
-	A = Code37055(mem59);X = mem59 - 1;
-	A = A & 32;
-	if(A == 0) goto pos36791;
-	mem59 = X;
+	REG_A = Code37055(mem59); REG_X = mem59 - 1;
+	REG_A = REG_A & 32;
+	if (REG_A == 0) goto pos36791;
+	mem59 = REG_X;
 	goto pos37040;
 
 //---------------------------------------
 
 
 pos37077:
-	X = mem58+1;
-	A = inputtemp[X];
-	if (A != 'E') goto pos37157;
-	X++;
-	Y = inputtemp[X];
-	X--;
-	//A = pgm_read_byte(tab36376+Y)/*tab36376[Y]*/ & 128;
+	REG_X = mem58 + 1;
+	REG_A = inputtemp[REG_X];
+	if (REG_A != 'E') goto pos37157;
+	REG_X++;
+	REG_Y = inputtemp[REG_X];
+	REG_X--;
 	//REG_A = pgm_read_byte_inlined(tab36376+REG_Y)/*tab36376[Y]*/ & 128;
-	cp = tab36376 + Y;
+	cp = tab36376 + REG_Y;
 	cp += EXEC_OFFSET;
-	A = pgm_read_byte(cp) & 128;
-	if(A == 0) goto pos37108;
-	X++;
-	A = inputtemp[X];
-	if (A != 'R') goto pos37113;
+	REG_A = pgm_read_byte(cp) & 128;
+
+	if (REG_A == 0) goto pos37108;
+	REG_X++;
+	REG_A = inputtemp[REG_X];
+	if (REG_A != 'R') goto pos37113;
 pos37108:
-	mem58 = X;
+	mem58 = REG_X;
 	goto pos37184;
 pos37113:
-	if ((A == 83) || (A == 68)) goto pos37108;  // 'S' 'D'
-	if (A != 76) goto pos37135; // 'L'
-	X++;
-	A = inputtemp[X];
-	if (A != 89) goto pos36700;
+	if ((REG_A == 83) || (REG_A == 68)) goto pos37108;  // 'S' 'D'
+	if (REG_A != 76) goto pos37135; // 'L'
+	REG_X++;
+	REG_A = inputtemp[REG_X];
+	if (REG_A != 89) goto pos36700;
 	goto pos37108;
 
 pos37135:
-	if (A != 70) goto pos36700;
-	X++;
-	A = inputtemp[X];
-	if (A != 85) goto pos36700;
-	X++;
-	A = inputtemp[X];
-	if (A == 76) goto pos37108;
+	if (REG_A != 70) goto pos36700;
+	REG_X++;
+	REG_A = inputtemp[REG_X];
+	if (REG_A != 85) goto pos36700;
+	REG_X++;
+	REG_A = inputtemp[REG_X];
+	if (REG_A == 76) goto pos37108;
 	goto pos36700;
 
 pos37157:
-	if (A != 73) goto pos36700;
-	X++;
-	A = inputtemp[X];
-	if (A != 78) goto pos36700;
-	X++;
-	A = inputtemp[X];
-	if (A == 71) goto pos37108;
+	if (REG_A != 73) goto pos36700;
+	REG_X++;
+	REG_A = inputtemp[REG_X];
+	if (REG_A != 78) goto pos36700;
+	REG_X++;
+	REG_A = inputtemp[REG_X];
+	if (REG_A == 71) goto pos37108;
 	//pos37177:
 	goto pos36700;
 
@@ -451,43 +449,42 @@ pos37157:
 
 pos37180:
 
-	A = mem60;
-	mem58 = A;
+	REG_A = mem60;
+	mem58 = REG_A;
 
 pos37184:
-	Y = mem65 + 1;
+	REG_Y = mem65 + 1;
 
 	//37187: CPY 64
 	//	if(? != 0) goto pos37194;
-	if(Y == mem64) goto pos37455;
-	mem65 = Y;
+	if (REG_Y == mem64) goto pos37455;
+	mem65 = REG_Y;
 	//37196: LDA (62),y
-	A = GetRuleByte(mem62, Y);
-	mem57 = A;
-	X = A;
-	//A = pgm_read_byte(tab36376+X)/*tab36376[X]*/ & 128;
+	REG_A = GetRuleByte(mem62, REG_Y);
+	mem57 = REG_A;
+	REG_X = REG_A;
 	//REG_A = pgm_read_byte_inlined(tab36376+REG_X)/*tab36376[X]*/ & 128;
-	cp = tab36376 + X;
+	cp = tab36376 + REG_X;
 	cp += EXEC_OFFSET;
-	A = pgm_read_byte(cp) & 128;
+	REG_A = pgm_read_byte(cp) & 128;
 
-	if(A == 0) goto pos37226;
-	X = mem58+1;
-	A = inputtemp[X];
-	if (A != mem57) goto pos36700;
-	mem58 = X;
+	if (REG_A == 0) goto pos37226;
+	REG_X = mem58 + 1;
+	REG_A = inputtemp[REG_X];
+	if (REG_A != mem57) goto pos36700;
+	mem58 = REG_X;
 	goto pos37184;
 pos37226:
-	A = mem57;
-	if (A == 32) goto pos37295;   // ' '
-	if (A == 35) goto pos37310;   // '#'
-	if (A == 46) goto pos37320;   // '.'
-	if (A == 38) goto pos37335;   // '&'
-	if (A == 64) goto pos37367;   // ''
-	if (A == 94) goto pos37404;   // ''
-	if (A == 43) goto pos37419;   // '+'
-	if (A == 58) goto pos37440;   // ':'
-	if (A == 37) goto pos37077;   // '%'
+	REG_A = mem57;
+	if (REG_A == 32) goto pos37295;   // ' '
+	if (REG_A == 35) goto pos37310;   // '#'
+	if (REG_A == 46) goto pos37320;   // '.'
+	if (REG_A == 38) goto pos37335;   // '&'
+	if (REG_A == 64) goto pos37367;   // ''
+	if (REG_A == 94) goto pos37404;   // ''
+	if (REG_A == 43) goto pos37419;   // '+'
+	if (REG_A == 58) goto pos37440;   // ':'
+	if (REG_A == 37) goto pos37077;   // '%'
 	//pos37291:
 	//	Code42041(); //Error
 	//37294: BRK
@@ -495,89 +492,89 @@ pos37226:
 
 	// --------------
 pos37295:
-	A = Code37066(mem58);X = mem58 + 1;
-	A = A & 128;
-	if(A != 0) goto pos36700;
+	REG_A = Code37066(mem58); REG_X = mem58 + 1;
+	REG_A = REG_A & 128;
+	if(REG_A != 0) goto pos36700;
 pos37305:
-	mem58 = X;
+	mem58 = REG_X;
 	goto pos37184;
 
 	// --------------
 
 pos37310:
-	A = Code37066(mem58);X = mem58 + 1;
-	A = A & 64;
-	if(A != 0) goto pos37305;
+	REG_A = Code37066(mem58); REG_X = mem58 + 1;
+	REG_A = REG_A & 64;
+	if(REG_A != 0) goto pos37305;
 	goto pos36700;
 
 	// --------------
 
 
 pos37320:
-	A = Code37066(mem58);X = mem58 + 1;
-	A = A & 8;
-	if(A == 0) goto pos36700;
+	REG_A = Code37066(mem58); REG_X = mem58 + 1;
+	REG_A = REG_A & 8;
+	if (REG_A == 0) goto pos36700;
 
 pos37330:
-	mem58 = X;
+	mem58 = REG_X;
 	goto pos37184;
 
 	// --------------
 
 pos37335:
-	A = Code37066(mem58);X = mem58 + 1;
-	A = A & 16;
-	if(A != 0) goto pos37330;
-	A = inputtemp[X];
-	if (A != 72) goto pos36700;
-	X++;
-	A = inputtemp[X];
-	if ((A == 67) || (A == 83)) goto pos37330;
+	REG_A = Code37066(mem58); REG_X = mem58 + 1;
+	REG_A = REG_A & 16;
+	if (REG_A != 0) goto pos37330;
+	REG_A = inputtemp[REG_X];
+	if (REG_A != 72) goto pos36700;
+	REG_X++;
+	REG_A = inputtemp[REG_X];
+	if ((REG_A == 67) || (REG_A == 83)) goto pos37330;
 	goto pos36700;
 
 	// --------------
 
 
 pos37367:
-	A = Code37066(mem58);X = mem58 + 1;
-	A = A & 4;
-	if(A != 0) goto pos37330;
-	A = inputtemp[X];
-	if (A != 72) goto pos36700;
-	if ((A != 84) && (A != 67) && (A != 83)) goto pos36700;
-	mem58 = X;
+	REG_A = Code37066(mem58); REG_X = mem58 + 1;
+	REG_A = REG_A & 4;
+	if (REG_A != 0) goto pos37330;
+	REG_A = inputtemp[REG_X];
+	if (REG_A != 72) goto pos36700;
+	if ((REG_A != 84) && (REG_A != 67) && (REG_A != 83)) goto pos36700;
+	mem58 = REG_X;
 	goto pos37184;
 
 	// --------------
 
 pos37404:
-	A = Code37066(mem58);X = mem58 + 1;
-	A = A & 32;
-	if(A == 0) goto pos36700;
+	REG_A = Code37066(mem58); REG_X = mem58 + 1;
+	REG_A = REG_A & 32;
+	if (REG_A == 0) goto pos36700;
 pos37414:
-	mem58 = X;
+	mem58 = REG_X;
 	goto pos37184;
 
 	// --------------
 
 pos37419:
-	X = mem58;
-	X++;
-	A = inputtemp[X];
-	if ((A == 69) || (A == 73) || (A == 89)) goto pos37414;
+	REG_X = mem58;
+	REG_X++;
+	REG_A = inputtemp[REG_X];
+	if ((REG_A == 69) || (REG_A == 73) || (REG_A == 89)) goto pos37414;
 	goto pos36700;
 
 // ----------------------
 
 pos37440:
 
-	A = Code37066(mem58);X = mem58 + 1;
-	A = A & 32;
-	if(A == 0) goto pos37184;
-	mem58 = X;
+	REG_A = Code37066(mem58); REG_X = mem58 + 1;
+	REG_A = REG_A & 32;
+	if (REG_A == 0) goto pos37184;
+	mem58 = REG_X;
 	goto pos37440;
 pos37455:
-	Y = mem64;
+	REG_Y = mem64;
 	mem61 = mem60;
 
 	if (DEBUG_ESP8266SAM_LIB)
@@ -585,14 +582,13 @@ pos37455:
 
 pos37461:
 	//37461: LDA (62),y
-	A = GetRuleByte(mem62, Y);
-	mem57 = A;
-	A = A & 127;
-	if (A != '=')
-	{
+	REG_A = GetRuleByte(mem62, REG_Y);
+	mem57 = REG_A;
+	REG_A = REG_A & 127;
+	if (REG_A != '=') {
 		mem56++;
-		X = mem56;
-		_input[X] = A;
+		REG_X = mem56;
+		_input[REG_X] = REG_A;
 	}
 
 	//37478: BIT 57
@@ -600,6 +596,6 @@ pos37461:
 	if ((mem57 & 128) == 0) goto pos37485; //???
 	goto pos36554;
 pos37485:
-	Y++;
+	REG_Y++;
 	goto pos37461;
 }
