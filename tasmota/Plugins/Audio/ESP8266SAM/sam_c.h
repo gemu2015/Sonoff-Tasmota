@@ -114,6 +114,7 @@ void Init() {
 //int Code39771()
 int SAMMain( void (*cb)(void *, unsigned char), void *cbd ) {
 	SETMEMREGS
+	uint8_t REG_A,REG_X,REG_Y;
   	outcb = cb;
   	outcbdata = cbd;
 	Init();
@@ -169,14 +170,14 @@ int SAMMain( void (*cb)(void *, unsigned char), void *cbd ) {
 	if (LOCAL_DEBUG)
 		PrintPhonemes(phonemeindex, phonemeLength, stress);
 	
-
 	PrepareOutput();
 
 	return 1;
 }
 
 int SAMPrepare() {
-SETMEMREGS
+	SETMEMREGS
+	uint8_t REG_A,REG_X,REG_Y;
   Init();
   phonemeindex[255] = 32; //to prevent buffer overflow
 
@@ -205,6 +206,7 @@ SETMEMREGS
 //void Code48547()
 void PrepareOutput() {
 	SETMEMREGS
+	uint8_t REG_A,REG_X,REG_Y;
 	REG_A = 0;
 	REG_X = 0;
 	REG_Y = 0;
@@ -246,6 +248,7 @@ void PrepareOutput() {
 //void Code48431()
 void InsertBreath() {
 	SETMEMREGS
+	uint8_t REG_A,REG_X,REG_Y;
 	unsigned char mem54;
 	unsigned char mem55;
 	unsigned char index; //variable Y
@@ -308,6 +311,7 @@ void InsertBreath() {
 //void Code41883()
 void CopyStress() {
 	SETMEMREGS
+	uint8_t REG_A,REG_X,REG_Y;
     // loop thought all the phonemes to be output
 	unsigned char pos=0; //mem66
 	while(1) {
@@ -416,6 +420,7 @@ void Insert(unsigned char position/*var57*/, unsigned char mem60, unsigned char 
 // function returns with a 1 indicating success.
 int Parser1() {
 	SETMEMREGS
+	uint8_t REG_A,REG_X,REG_Y;
 	int i;
 	unsigned char sign1;
 	unsigned char sign2;
@@ -582,6 +587,7 @@ void SetPhonemeLength() {
 
 void Code41240() {
 	SETMEMREGS
+	uint8_t REG_A,REG_X,REG_Y;
 	unsigned char pos=0;
 
 	while (phonemeindex[pos] != 255) {
@@ -659,6 +665,7 @@ void Code41240() {
 //void Code41397()
 void Parser2() {
 	SETMEMREGS
+	uint8_t REG_A,REG_X,REG_Y;
 	if (DEBUG_ESP8266SAM_LIB) {
 		printf("Parser2\n");
 	}
@@ -1100,7 +1107,7 @@ pos41812:
 //void Code48619()
 MODULE_PART void AdjustLengths() {
 	SETMEMREGS
-
+	uint8_t REG_A,REG_X,REG_Y;
     // LENGTHEN VOWELS PRECEDING PUNCTUATION
     //
     // Search for punctuation. If found, back up to the first vowel, then
@@ -1445,22 +1452,20 @@ if (DEBUG_ESP8266SAM_LIB) printf("phoneme %d (%c%c) length %d\n", REG_X, signInp
 // ML : Code47503 is division with remainder, and mem50 gets the sign
 MODULE_PART void Code47503(unsigned char mem52) {
 	SETMEMREGS
+	uint8_t REG_A,REG_X,REG_Y;
 	REG_Y = 0;
-	if ((samdata->mem53 & 128) != 0)
-	{
+	if ((samdata->mem53 & 128) != 0) {
 		samdata->mem53 = -samdata->mem53;
 		REG_Y = 128;
 	}
 	samdata->mem50 = REG_Y;
 	REG_A = 0;
-	for(REG_X=8; REG_X > 0; REG_X--)
-	{
+	for (REG_X=8; REG_X > 0; REG_X--) {
 		int temp = samdata->mem53;
 		samdata->mem53 = samdata->mem53 << 1;
 		REG_A = REG_A << 1;
 		if (temp >= 128) REG_A++;
-		if (REG_A >= mem52)
-		{
+		if (REG_A >= mem52) {
 			REG_A = REG_A - mem52;
 			samdata->mem53++;
 		}

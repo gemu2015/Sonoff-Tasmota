@@ -28,7 +28,7 @@ typedef struct {
 	unsigned char mem53;
 	unsigned char mem56;
 	unsigned char mem59;
-	unsigned char A, X, Y;
+	//unsigned char A, X, Y;
     unsigned char oldtimetableindex;
     unsigned char lastAry[5];
     void (*outcb)(void *, unsigned char);

@@ -402,7 +402,7 @@ pos37077:
 	//REG_A = pgm_read_byte_inlined(tab36376+REG_Y)/*tab36376[Y]*/ & 128;
 	cp = tab36376 + REG_Y;
 	cp += EXEC_OFFSET;
-	samdata->A = pgm_read_byte(cp) & 128;
+	REG_A = pgm_read_byte(cp) & 128;
 
 	if (REG_A == 0) goto pos37108;
 	REG_X++;
