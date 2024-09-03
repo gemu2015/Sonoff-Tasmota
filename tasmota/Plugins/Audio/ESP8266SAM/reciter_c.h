@@ -286,7 +286,12 @@ pos36791:
 		//36800: BPL 36805
 		if ((A & 128) != 0) goto pos37180;
 		X = A & 127;
-		A = pgm_read_byte(tab36376+X)/*tab36376[X]*/ & 128;
+		//A = pgm_read_byte(tab36376+X)/*tab36376[X]*/ & 128;
+		//REG_A = pgm_read_byte_inlined(tab36376+REG_X)/*tab36376[X]*/ & 128;
+		const uint8_t *cp = tab36376 + X;
+		cp += EXEC_OFFSET;
+		A = pgm_read_byte(cp) & 128;
+
 		if (A == 0) break;
 		X = mem59-1;
 		A = inputtemp[X];
@@ -401,7 +406,11 @@ pos37077:
 	X++;
 	Y = inputtemp[X];
 	X--;
-	A = pgm_read_byte(tab36376+Y)/*tab36376[Y]*/ & 128;
+	//A = pgm_read_byte(tab36376+Y)/*tab36376[Y]*/ & 128;
+	//REG_A = pgm_read_byte_inlined(tab36376+REG_Y)/*tab36376[Y]*/ & 128;
+	cp = tab36376 + Y;
+	cp += EXEC_OFFSET;
+	A = pgm_read_byte(cp) & 128;
 	if(A == 0) goto pos37108;
 	X++;
 	A = inputtemp[X];
@@ -456,7 +465,12 @@ pos37184:
 	A = GetRuleByte(mem62, Y);
 	mem57 = A;
 	X = A;
-	A = pgm_read_byte(tab36376+X)/*tab36376[X]*/ & 128;
+	//A = pgm_read_byte(tab36376+X)/*tab36376[X]*/ & 128;
+	//REG_A = pgm_read_byte_inlined(tab36376+REG_X)/*tab36376[X]*/ & 128;
+	cp = tab36376 + X;
+	cp += EXEC_OFFSET;
+	A = pgm_read_byte(cp) & 128;
+
 	if(A == 0) goto pos37226;
 	X = mem58+1;
 	A = inputtemp[X];
