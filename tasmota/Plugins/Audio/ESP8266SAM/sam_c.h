@@ -3,6 +3,8 @@
 #include "SamTabs.h"
 #include "SamData.h"
 
+// Software Automatic Mouth (SAM). 
+
 void SetInput(char *_input) {
 	SETMEMREGS
 	int i, l;
@@ -68,31 +70,6 @@ void Init() {
 	SetMouthThroat( mouth, throat);
 
 	bufferpos = 0;
-	// TODO, check for free the memory, 10 seconds of output should be more than enough
-//	buffer = malloc(22050*10);
-
-	/*
-	freq2data = &mem[45136];
-	freq1data = &mem[45056];
-	freq3data = &mem[45216];
-	*/
-	//pitches = &mem[43008];
-	/*
-	frequency1 = &mem[43264];
-	frequency2 = &mem[43520];
-	frequency3 = &mem[43776];
-	*/
-	/*
-	amplitude1 = &mem[44032];
-	amplitude2 = &mem[44288];
-	amplitude3 = &mem[44544];
-	*/
-	//phoneme = &mem[39904];
-	/*
-	ampl1data = &mem[45296];
-	ampl2data = &mem[45376];
-	ampl3data = &mem[45456];
-	*/
 
 	for(i = 0; i < 256; i++) {
 		stress[i] = 0;
@@ -163,8 +140,6 @@ int SAMMain( void (*cb)(void *, unsigned char), void *cbd ) {
 
 	//pos39848:
 	InsertBreath();
-
-
 
 	//mem[40158] = 255;
 	if (LOCAL_DEBUG)

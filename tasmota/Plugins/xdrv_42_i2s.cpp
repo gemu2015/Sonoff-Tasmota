@@ -29,7 +29,7 @@
 
 #ifdef ESP32
 #define USE_MP3_PSRAM
-//#define USE_MP3
+#define USE_MP3
 //#define USE_WEBRADIO
 // select a codec
 #define USE_WM8960
@@ -615,6 +615,9 @@ void Say(void) {
     return;
   }
 
+  memset(samdata, 0, sizeof(SamData));
+  memset(samrender, 0, icp[3]);
+
   for (uint16_t cnt = 0; cnt < 80; cnt++) {
     const uint8_t *cp = &org_freq1data[cnt];
     cp += EXEC_OFFSET;
@@ -639,6 +642,7 @@ void Say(void) {
   }
 
   char inbuff[256];
+  memset(inbuff, 0, sizeof(inbuff));
 
   for (uint32_t i = 0; i < sizeof(inbuff) - 1; i++) {
     if (!*cp) {
@@ -866,7 +870,7 @@ void WebRadio(void) {
 }
 
 const char I2S_Commands[] PROGMEM =
-    "I2X|"  // Prefix
+    "I2S|"  // Prefix
     "play|vol|say|wr";
 void (*const I2S_Command[])(void) PROGMEM = {&I2S_Play,&SetVolume,&Say,&WebRadio};
 
