@@ -6,39 +6,60 @@
 unsigned char A, X, Y;
 //extern int debug;
 
-//#define inputtemp samdata->reciter.inputtemp
-unsigned char inputtemp[256];
+#define inputtemp samdata->reciter.inputtemp
 
-MODULE_PART void Code37055(unsigned char mem59) {
+
+MODULE_PART uint8_t Code37055(unsigned char IN) {
 	SETMEMREGS
-	X = mem59;
-	X--;
-	A = inputtemp[X];
-	Y = A;
-	A = pgm_read_byte(tab36376+Y); //tab36376[Y];
-	return;
+/*
+	REG_X = mem59;
+	REG_X--;
+	REG_A = inputtemp[REG_X];
+	REG_Y = REG_A;
+*/
+	//REG_A = pgm_read_byte_inlined(tab36376 + REG_Y); //tab36376[Y];
+	const uint8_t *cp = tab36376 + inputtemp[IN - 1];
+	cp += EXEC_OFFSET;
+	return pgm_read_byte(cp);
 }
 
-MODULE_PART void Code37066(unsigned char mem58) {
-	SETMEMREGS
-	X = mem58;
-	X++;
-	A = inputtemp[X];
-	Y = A;
-	A = pgm_read_byte(tab36376+Y); //tab36376[Y];
+
+MODULE_PART uint8_t Code37066(unsigned char IN) {
+	SETMEMREGS	
+	//REG_A = pgm_read_byte_inlined(tab36376 + REG_Y); //tab36376[Y];
+	const uint8_t *cp = tab36376 + inputtemp[IN + 1];
+	cp += EXEC_OFFSET;
+	return pgm_read_byte(cp);
 }
 
 MODULE_PART unsigned char GetRuleByte(unsigned short mem62, unsigned char Y) {
 	SETMEMREGS
 	unsigned int address = mem62;
 
-	if (mem62 >= 37541)
-	{
+#if 0
+	if (mem62 >= 37541) {
 		address -= 37541;
-		return pgm_read_byte(rules2+address+Y); //rules2[address+Y];
+		return pgm_read_byte_inlined(rules2+address+Y); //rules2[address+Y];
 	}
 	address -= 32000;
-	return pgm_read_byte(rules+address+Y); //rules[address+Y];
+	return pgm_read_byte_inlined(rules+address+Y); //rules[address+Y];
+#else
+	const int32_t *icp = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+
+	if (mem62 >= icp[4]) {
+		address -= icp[4];
+		//return pgm_read_byte(rules2 + address + Y); //rules2[address+Y];
+		const char *cp = rules2 + address + Y;
+		cp += EXEC_OFFSET;
+		return pgm_read_byte(cp);
+
+	}
+	address -= icp[5];
+	//return pgm_read_byte(rules + address + Y); //rules[address+Y];
+	const char *cp = rules + address + Y;
+	cp += EXEC_OFFSET;
+	return pgm_read_byte(cp);
+#endif
 }
 
 MODULE_PART int TextToPhonemes(char *_input) // Code36484
@@ -272,7 +293,7 @@ pos36791:
 	// --------------
 
 pos36895:
-	Code37055(mem59);
+	A = Code37055(mem59);X = mem59 - 1;
 	A = A & 128;
 	if(A != 0) goto pos36700;
 pos36905:
@@ -282,7 +303,7 @@ pos36905:
 	// --------------
 
 pos36910:
-	Code37055(mem59);
+	A = Code37055(mem59);X = mem59 - 1;
 	A = A & 64;
 	if(A != 0) goto pos36905;
 	goto pos36700;
@@ -291,7 +312,7 @@ pos36910:
 
 
 pos36920:
-	Code37055(mem59);
+	A = Code37055(mem59);X = mem59 - 1;
 	A = A & 8;
 	if(A == 0) goto pos36700;
 pos36930:
@@ -301,7 +322,7 @@ pos36930:
 	// --------------
 
 pos36935:
-	Code37055(mem59);
+	A = Code37055(mem59);X = mem59 - 1;
 	A = A & 16;
 	if(A != 0) goto pos36930;
 	A = inputtemp[X];
@@ -314,7 +335,7 @@ pos36935:
 	// --------------
 
 pos36967:
-	Code37055(mem59);
+	A = Code37055(mem59);X = mem59 - 1;
 	A = A & 4;
 	if(A != 0) goto pos36930;
 	A = inputtemp[X];
@@ -327,7 +348,7 @@ pos36967:
 
 
 pos37004:
-	Code37055(mem59);
+	A = Code37055(mem59);X = mem59 - 1;
 	A = A & 32;
 	if(A == 0) goto pos36700;
 
@@ -346,7 +367,7 @@ pos37019:
 	// --------------
 
 pos37040:
-	Code37055(mem59);
+	A = Code37055(mem59);X = mem59 - 1;
 	A = A & 32;
 	if(A == 0) goto pos36791;
 	mem59 = X;
@@ -442,7 +463,7 @@ pos37226:
 
 	// --------------
 pos37295:
-	Code37066(mem58);
+	A = Code37066(mem58);X = mem58 + 1;
 	A = A & 128;
 	if(A != 0) goto pos36700;
 pos37305:
@@ -452,7 +473,7 @@ pos37305:
 	// --------------
 
 pos37310:
-	Code37066(mem58);
+	A = Code37066(mem58);X = mem58 + 1;
 	A = A & 64;
 	if(A != 0) goto pos37305;
 	goto pos36700;
@@ -461,7 +482,7 @@ pos37310:
 
 
 pos37320:
-	Code37066(mem58);
+	A = Code37066(mem58);X = mem58 + 1;
 	A = A & 8;
 	if(A == 0) goto pos36700;
 
@@ -472,7 +493,7 @@ pos37330:
 	// --------------
 
 pos37335:
-	Code37066(mem58);
+	A = Code37066(mem58);X = mem58 + 1;
 	A = A & 16;
 	if(A != 0) goto pos37330;
 	A = inputtemp[X];
@@ -486,7 +507,7 @@ pos37335:
 
 
 pos37367:
-	Code37066(mem58);
+	A = Code37066(mem58);X = mem58 + 1;
 	A = A & 4;
 	if(A != 0) goto pos37330;
 	A = inputtemp[X];
@@ -498,7 +519,7 @@ pos37367:
 	// --------------
 
 pos37404:
-	Code37066(mem58);
+	A = Code37066(mem58);X = mem58 + 1;
 	A = A & 32;
 	if(A == 0) goto pos36700;
 pos37414:
@@ -518,7 +539,7 @@ pos37419:
 
 pos37440:
 
-	Code37066(mem58);
+	A = Code37066(mem58);X = mem58 + 1;
 	A = A & 32;
 	if(A == 0) goto pos37184;
 	mem58 = X;
