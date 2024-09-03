@@ -31,6 +31,7 @@ void PrintPhonemes(unsigned char *phonemeindex, unsigned char *phonemeLength, un
 	}
 	printf("===========================================\n");
 	printf("\n");
+	//OsWatchLoop();
 }
 
 void PrintOutput(

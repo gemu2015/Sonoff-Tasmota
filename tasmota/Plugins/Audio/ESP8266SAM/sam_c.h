@@ -108,6 +108,9 @@ void Init() {
 
 }
 
+#define LOCAL_DEBUG DEBUG_ESP8266SAM_LIB
+//#define LOCAL_DEBUG 1
+
 //int Code39771()
 int SAMMain( void (*cb)(void *, unsigned char), void *cbd ) {
 	SETMEMREGS
@@ -116,19 +119,38 @@ int SAMMain( void (*cb)(void *, unsigned char), void *cbd ) {
 	Init();
 	phonemeindex[255] = 32; //to prevent buffer overflow
 
+
+	//if (LOCAL_DEBUG)
+		PrintPhonemes(phonemeindex, phonemeLength, stress);
+
 	if (!Parser1()) {
 		return 0;
 	}
+
+	if (LOCAL_DEBUG)
+		PrintPhonemes(phonemeindex, phonemeLength, stress);
+
 	Parser2();
+
+	if (LOCAL_DEBUG)
+		PrintPhonemes(phonemeindex, phonemeLength, stress);
+
 	CopyStress();
+	
+	if (LOCAL_DEBUG)
+		PrintPhonemes(phonemeindex, phonemeLength, stress);
+
 	SetPhonemeLength();
 	AdjustLengths();
+	
+	if (LOCAL_DEBUG)
+		PrintPhonemes(phonemeindex, phonemeLength, stress);
+
 	Code41240();
 	
-	if (DEBUG_ESP8266SAM_LIB) {
+	if (LOCAL_DEBUG)
 		PrintPhonemes(phonemeindex, phonemeLength, stress);
-	}
-
+	
 	do {
 		samdata->A = phonemeindex[samdata->X];
 		if (samdata->A > 80) {
@@ -141,10 +163,12 @@ int SAMMain( void (*cb)(void *, unsigned char), void *cbd ) {
 	//pos39848:
 	InsertBreath();
 
+
+
 	//mem[40158] = 255;
-	if (DEBUG_ESP8266SAM_LIB) {
+	if (LOCAL_DEBUG)
 		PrintPhonemes(phonemeindex, phonemeLength, stress);
-	}
+	
 
 	PrepareOutput();
 
@@ -536,10 +560,10 @@ void SetPhonemeLength() {
 	SETMEMREGS
 	unsigned char A;
 	int position = 0;
-	while(phonemeindex[position] != 255 ) {
+	while (phonemeindex[position] != 255 ) {
 		A = stress[position];
 		//41218: BMI 41229
-		if ((A == 0) || ((A&128) != 0)) {
+		if ((A == 0) || ((A & 128) != 0)) {
 			//phonemeLength[position] = pgm_read_byte(&phonemeLengthTable[phonemeindex[position]]);
 			const uint8_t *cp = &phonemeLengthTable[phonemeindex[position]];
 			cp += EXEC_OFFSET;
@@ -1287,7 +1311,7 @@ if (DEBUG_ESP8266SAM_LIB) printf("phoneme %d (%c%c) length %d\n", samdata->X-1, 
         //       Set stop consonant length to 5
 
         // nasal?
-        if((xflags2[index] & 8) != 0) {
+        if ((xflags2[index] & 8) != 0) {
 
             // M*, N*, NX,
 
@@ -1297,7 +1321,7 @@ if (DEBUG_ESP8266SAM_LIB) printf("phoneme %d (%c%c) length %d\n", samdata->X-1, 
 
             // end of buffer?
             if (index == 255)
-               samdata->A = 65&2;  //prevent buffer overflow
+               samdata->A = 65 & 2;  //prevent buffer overflow
             else
                 samdata->A = xflags1[index] & 2; // check for stop consonant
 
@@ -1396,7 +1420,7 @@ if (DEBUG_ESP8266SAM_LIB) printf("phoneme %d (%c%c) length %d\n", debugX-1, sign
             index = phonemeindex[samdata->X-1];
 
             // prior phoneme a stop consonant>
-            if((xflags1[index] & 2) != 0)
+            if ((xflags1[index] & 2) != 0)
                              // Rule: <LIQUID CONSONANT> <DIPHTONG>
 
 if (DEBUG_ESP8266SAM_LIB) printf("RULE: <LIQUID CONSONANT> <DIPHTONG> - decrease by 2\n");
