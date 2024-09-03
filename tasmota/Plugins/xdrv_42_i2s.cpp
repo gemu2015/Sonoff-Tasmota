@@ -93,6 +93,7 @@ typedef struct {
 
 } MODULE_MEMORY;
 
+
 #define dout_pin mem->dout_pin
 #define bck_pin mem->bck_pin
 #define ws_pin mem->ws_pin
@@ -599,6 +600,7 @@ void Say(void) {
   }
 
   samdata = (SamData *)special_malloc(sizeof(SamData));
+
   if (!samdata) {
     // memory error
     Response_P(GSTR(S_JSON_MEMERR));

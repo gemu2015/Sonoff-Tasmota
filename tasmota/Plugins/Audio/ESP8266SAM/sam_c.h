@@ -108,8 +108,8 @@ void Init() {
 
 }
 
-#define LOCAL_DEBUG DEBUG_ESP8266SAM_LIB
-//#define LOCAL_DEBUG 1
+//#define LOCAL_DEBUG DEBUG_ESP8266SAM_LIB
+#define LOCAL_DEBUG 1
 
 //int Code39771()
 int SAMMain( void (*cb)(void *, unsigned char), void *cbd ) {
@@ -120,7 +120,7 @@ int SAMMain( void (*cb)(void *, unsigned char), void *cbd ) {
 	phonemeindex[255] = 32; //to prevent buffer overflow
 
 
-	//if (LOCAL_DEBUG)
+	if (LOCAL_DEBUG)
 		PrintPhonemes(phonemeindex, phonemeLength, stress);
 
 	if (!Parser1()) {

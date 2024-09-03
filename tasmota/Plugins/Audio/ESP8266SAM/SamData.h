@@ -18,7 +18,7 @@ typedef struct {
 	unsigned char pitch;
 	unsigned char mouth;
 	unsigned char throat;
-	int singmode = 0;
+	int singmode;
 	unsigned char mem39;
 	unsigned char mem44;
 	unsigned char mem47;
