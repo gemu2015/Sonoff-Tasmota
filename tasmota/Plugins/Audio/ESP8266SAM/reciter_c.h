@@ -4,36 +4,32 @@
 
 #define inputtemp (samdata->reciter.inputtemp)
 
-#define REG_A samdata->A
-#define REG_X samdata->X
-#define REG_Y samdata->Y
+//#define REG_A samdata->A
+//#define REG_X samdata->X
+//#define REG_Y samdata->Y
 
 
-MODULE_PART void Code37055(unsigned char mem59) {
+MODULE_PART uint8_t Code37055(unsigned char IN) {
 	SETMEMREGS
-	
+/*
 	REG_X = mem59;
 	REG_X--;
 	REG_A = inputtemp[REG_X];
 	REG_Y = REG_A;
+*/
 	//REG_A = pgm_read_byte_inlined(tab36376 + REG_Y); //tab36376[Y];
-	const uint8_t *cp = tab36376 + REG_Y;
+	const uint8_t *cp = tab36376 + inputtemp[IN - 1];
 	cp += EXEC_OFFSET;
-	REG_A = pgm_read_byte(cp);
+	return pgm_read_byte(cp);
 }
 
 
-MODULE_PART void Code37066(unsigned char mem58) {
-	SETMEMREGS
-	
-	REG_X = mem58;
-	REG_X++;
-	REG_A = inputtemp[REG_X];
-	REG_Y = REG_A;
+MODULE_PART uint8_t Code37066(unsigned char IN) {
+	SETMEMREGS	
 	//REG_A = pgm_read_byte_inlined(tab36376 + REG_Y); //tab36376[Y];
-	const uint8_t *cp = tab36376 + REG_Y;
+	const uint8_t *cp = tab36376 + inputtemp[IN + 1];
 	cp += EXEC_OFFSET;
-	REG_A = pgm_read_byte(cp);
+	return pgm_read_byte(cp);
 }
 
 MODULE_PART unsigned char GetRuleByte(unsigned short mem62, unsigned char Y) {
@@ -70,6 +66,8 @@ MODULE_PART int TextToPhonemes(char *_input) { // Code36484
 	SETMEMREGS
 	//unsigned char *tab39445 = &mem[39445];   //input and output
 	//unsigned char mem29;
+	uint8_t REG_A,REG_X,REG_Y;
+
 	unsigned char mem56;      //output position for phonemes
 	unsigned char mem57;
 	unsigned char mem58;
@@ -310,7 +308,7 @@ pos36791:
 	// --------------
 
 pos36895:
-	Code37055(mem59);
+	REG_A = Code37055(mem59); REG_X = mem59 - 1;
 	REG_A = REG_A & 128;
 	if (REG_A != 0) goto pos36700;
 pos36905:
@@ -320,7 +318,8 @@ pos36905:
 	// --------------
 
 pos36910:
-	Code37055(mem59);
+	REG_A = Code37055(mem59); REG_X = mem59 - 1;
+	REG_A = Code37055(mem59); REG_X = mem59 - 1;
 	REG_A = REG_A & 64;
 	if (REG_A != 0) goto pos36905;
 	goto pos36700;
@@ -329,7 +328,7 @@ pos36910:
 
 
 pos36920:
-	Code37055(mem59);
+	REG_A = Code37055(mem59); REG_X = mem59 - 1;
 	REG_A = REG_A & 8;
 	if (REG_A == 0) goto pos36700;
 pos36930:
@@ -339,7 +338,7 @@ pos36930:
 	// --------------
 
 pos36935:
-	Code37055(mem59);
+	REG_A = Code37055(mem59); REG_X = mem59 - 1;
 	REG_A = REG_A & 16;
 	if (REG_A != 0) goto pos36930;
 	REG_A = inputtemp[REG_X];
@@ -352,7 +351,7 @@ pos36935:
 	// --------------
 
 pos36967:
-	Code37055(mem59);
+	REG_A = Code37055(mem59); REG_X = mem59 - 1;
 	REG_A = REG_A & 4;
 	if (REG_A != 0) goto pos36930;
 	REG_A = inputtemp[REG_X];
@@ -365,7 +364,7 @@ pos36967:
 
 
 pos37004:
-	Code37055(mem59);
+	REG_A = Code37055(mem59); REG_X = mem59 - 1;
 	REG_A = REG_A & 32;
 	if (REG_A == 0) goto pos36700;
 
@@ -384,7 +383,7 @@ pos37019:
 	// --------------
 
 pos37040:
-	Code37055(mem59);
+	REG_A = Code37055(mem59); REG_X = mem59 - 1;
 	REG_A = REG_A & 32;
 	if (REG_A == 0) goto pos36791;
 	mem59 = REG_X;
@@ -488,7 +487,7 @@ pos37226:
 
 	// --------------
 pos37295:
-	Code37066(mem58);
+	REG_A = Code37066(mem58); REG_X = mem58 + 1;
 	REG_A = REG_A & 128;
 	if(REG_A != 0) goto pos36700;
 pos37305:
@@ -498,7 +497,7 @@ pos37305:
 	// --------------
 
 pos37310:
-	Code37066(mem58);
+	REG_A = Code37066(mem58); REG_X = mem58 + 1;
 	REG_A = REG_A & 64;
 	if(REG_A != 0) goto pos37305;
 	goto pos36700;
@@ -507,7 +506,7 @@ pos37310:
 
 
 pos37320:
-	Code37066(mem58);
+	REG_A = Code37066(mem58); REG_X = mem58 + 1;
 	REG_A = REG_A & 8;
 	if (REG_A == 0) goto pos36700;
 
@@ -518,7 +517,7 @@ pos37330:
 	// --------------
 
 pos37335:
-	Code37066(mem58);
+	REG_A = Code37066(mem58); REG_X = mem58 + 1;
 	REG_A = REG_A & 16;
 	if (REG_A != 0) goto pos37330;
 	REG_A = inputtemp[REG_X];
@@ -532,7 +531,7 @@ pos37335:
 
 
 pos37367:
-	Code37066(mem58);
+	REG_A = Code37066(mem58); REG_X = mem58 + 1;
 	REG_A = REG_A & 4;
 	if (REG_A != 0) goto pos37330;
 	REG_A = inputtemp[REG_X];
@@ -544,7 +543,7 @@ pos37367:
 	// --------------
 
 pos37404:
-	Code37066(mem58);
+	REG_A = Code37066(mem58); REG_X = mem58 + 1;
 	REG_A = REG_A & 32;
 	if (REG_A == 0) goto pos36700;
 pos37414:
@@ -564,7 +563,7 @@ pos37419:
 
 pos37440:
 
-	Code37066(mem58);
+	REG_A = Code37066(mem58); REG_X = mem58 + 1;
 	REG_A = REG_A & 32;
 	if (REG_A == 0) goto pos37184;
 	mem58 = REG_X;
