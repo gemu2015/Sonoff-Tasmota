@@ -3,7 +3,7 @@
 #include "ReciterTabs.h"
 #include "SamData.h"
 
-unsigned char A, X, Y;
+
 //extern int debug;
 
 #define inputtemp samdata->reciter.inputtemp
@@ -65,6 +65,7 @@ MODULE_PART unsigned char GetRuleByte(unsigned short mem62, unsigned char Y) {
 MODULE_PART int TextToPhonemes(char *_input) // Code36484
 {
 	SETMEMREGS
+	unsigned char A, X, Y;
 	//unsigned char *tab39445 = &mem[39445];   //_input and output
 	//unsigned char mem29;
 	unsigned char mem56;      //output position for phonemes
@@ -131,7 +132,12 @@ pos36554:
 		if (A != '.') break;
 		X++;
 		Y = inputtemp[X];
-		A = pgm_read_byte(tab36376+Y)/*tab36376[Y]*/ & 1;
+		//A = pgm_read_byte(tab36376+Y)/*tab36376[Y]*/ & 1;
+		//REG_A = pgm_read_byte_inlined(tab36376+REG_Y)/*tab36376[Y]*/ & 1;
+		const uint8_t *cp = tab36376 + Y;
+		cp += EXEC_OFFSET;
+		A = pgm_read_byte(cp) & 1;
+
 		if(A != 0) break;
 		mem56++;
 		X = mem56;
@@ -143,7 +149,12 @@ pos36554:
 	//pos36607:
 	A = mem64;
 	Y = A;
-	A = pgm_read_byte(tab36376+A); //tab36376[A];
+	//A = pgm_read_byte(tab36376+A); //tab36376[A];
+	//REG_A = pgm_read_byte_inlined(tab36376+REG_A); //tab36376[A];
+	const uint8_t *cp = tab36376 + A;
+	cp += EXEC_OFFSET;
+	A = pgm_read_byte(cp);
+
 	mem57 = A;
 	if((A&2) != 0)
 	{
@@ -188,8 +199,15 @@ pos36677:
 
 	// go to the right rules for this character.
 	X = mem64 - 'A';
-	mem62 = pgm_read_byte(&tab37489[X]) | (pgm_read_byte(&tab37515[X])<<8);
-
+	//mem62 = pgm_read_byte(&tab37489[X]) | (pgm_read_byte(&tab37515[X])<<8);
+	{
+		//mem62 = pgm_read_byte_inlined(&tab37489[REG_X]) | (pgm_read_byte_inlined(&tab37515[REG_X])<<8);
+		const uint8_t *cp1 = &tab37489[X];
+		const uint8_t *cp2 = &tab37515[X];
+		cp1 += EXEC_OFFSET;
+		cp2 += EXEC_OFFSET;
+		mem62 = pgm_read_byte(cp1) | (pgm_read_byte(cp2)<<8);
+	}
 	// -------------------------------------
 	// go to next rule
 	// -------------------------------------
