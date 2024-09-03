@@ -7,7 +7,7 @@ extern unsigned const char signInputTable2[];
 
 MODULE_PART void PrintPhonemes(unsigned char *, unsigned char *, unsigned char *);
 
-//#define SAM_NO_DEBUG
+#define SAM_NO_DEBUG
 
 void PrintPhonemes(unsigned char *_phonemeindex, unsigned char *_phonemeLength, unsigned char *_stress) {
 SETMEMREGS

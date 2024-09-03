@@ -33,7 +33,7 @@ MODULE_PART void Code37066(unsigned char mem58) {
 	//REG_A = pgm_read_byte_inlined(tab36376 + REG_Y); //tab36376[Y];
 	const uint8_t *cp = tab36376 + REG_Y;
 	cp += EXEC_OFFSET;
-	REG_A= pgm_read_byte(cp);
+	REG_A = pgm_read_byte(cp);
 }
 
 MODULE_PART unsigned char GetRuleByte(unsigned short mem62, unsigned char Y) {
