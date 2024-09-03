@@ -20,7 +20,6 @@ MODULE_PART void Code37055(unsigned char mem59) {
 	const uint8_t *cp = tab36376 + samdata->Y;
 	cp += EXEC_OFFSET;
 	samdata->A = pgm_read_byte(cp);
-
 	return;
 }
 

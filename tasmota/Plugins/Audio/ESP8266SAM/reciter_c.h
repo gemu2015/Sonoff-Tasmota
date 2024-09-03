@@ -16,8 +16,10 @@ MODULE_PART void Code37055(unsigned char mem59) {
 	REG_X--;
 	REG_A = inputtemp[REG_X];
 	REG_Y = REG_A;
-	REG_A = pgm_read_byte_inlined(tab36376 + REG_Y); //tab36376[Y];
-
+	//REG_A = pgm_read_byte_inlined(tab36376 + REG_Y); //tab36376[Y];
+	const uint8_t *cp = tab36376 + REG_Y;
+	cp += EXEC_OFFSET;
+	samdata->A = pgm_read_byte(cp);
 }
 
 
@@ -87,13 +89,14 @@ MODULE_PART int TextToPhonemes(char *_input) { // Code36484
 	// because input will be overwritten by phonemes
 	REG_X = 1;
 	REG_Y = 0;
-	do
-	{
+	do {
 		//pos36499:
 		REG_A = _input[REG_Y] & 127;
-		if ( REG_A >= 112) REG_A = REG_A & 95;
-		else if ( REG_A >= 96) REG_A = REG_A & 79;
-
+		if ( REG_A >= 112) {
+			REG_A = REG_A & 95;
+		}	else if ( REG_A >= 96) {
+			REG_A = REG_A & 79;
+		}
 		inputtemp[REG_X] = REG_A;
 		REG_X++;
 		REG_Y++;
@@ -104,21 +107,17 @@ MODULE_PART int TextToPhonemes(char *_input) { // Code36484
 	inputtemp[REG_X] = 27;
 	mem61 = 255;
 
-
 pos36550:
 	REG_A = 255;
 	mem56 = 255;
 
-
 pos36554:
-	while(1)
-	{
+	while(1) {
 		mem61++;
 		REG_X = mem61;
 		REG_A = inputtemp[REG_X];
 		mem64 = REG_A;
-		if (REG_A == '[')
-		{
+		if (REG_A == '[') {
 			mem56++;
 			REG_X = mem56;
 			REG_A = 155;
@@ -129,11 +128,19 @@ pos36554:
 		}
 
 		//pos36579:
-		if (REG_A != '.') break;
+		if (REG_A != '.') {
+			break;
+		}
 		REG_X++;
 		REG_Y = inputtemp[REG_X];
-		REG_A = pgm_read_byte_inlined(tab36376+REG_Y)/*tab36376[Y]*/ & 1;
-		if(REG_A != 0) break;
+		//REG_A = pgm_read_byte_inlined(tab36376+REG_Y)/*tab36376[Y]*/ & 1;
+		const uint8_t *cp = tab36376 + REG_Y;
+		cp += EXEC_OFFSET;
+		samdata->A = pgm_read_byte(cp) & 1;
+
+		if (REG_A != 0) {
+			break;
+		}
 		mem56++;
 		REG_X = mem56;
 		REG_A = '.';
@@ -144,17 +151,22 @@ pos36554:
 	//pos36607:
 	REG_A = mem64;
 	REG_Y = REG_A;
-	REG_A = pgm_read_byte_inlined(tab36376+REG_A); //tab36376[A];
+	//REG_A = pgm_read_byte_inlined(tab36376+REG_A); //tab36376[A];
+	const uint8_t *cp = tab36376 + REG_A;
+	cp += EXEC_OFFSET;
+	REG_A = pgm_read_byte(cp);
+
 	mem57 = REG_A;
-	if((REG_A&2) != 0)
-	{
-		mem62 = 37541;
+	if ((REG_A&2) != 0) {
+		//mem62 = 37541;
+		const int32_t *icp = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+		mem62 = icp[4];
 		goto pos36700;
 	}
 
 	//pos36630:
 	REG_A = mem57;
-	if(REG_A != 0) goto pos36677;
+	if (REG_A != 0) goto pos36677;
 	REG_A = 32;
 	inputtemp[REG_X] = ' ';
 	mem56++;
@@ -181,15 +193,21 @@ pos36654:
 
 pos36677:
 	REG_A = mem57 & 128;
-	if(REG_A == 0)
-	{
+	if (REG_A == 0) {
 		//36683: BRK
 		return 0;
 	}
 
 	// go to the right rules for this character.
 	REG_X = mem64 - 'A';
-	mem62 = pgm_read_byte_inlined(&tab37489[REG_X]) | (pgm_read_byte_inlined(&tab37515[REG_X])<<8);
+	{
+		//mem62 = pgm_read_byte_inlined(&tab37489[REG_X]) | (pgm_read_byte_inlined(&tab37515[REG_X])<<8);
+		const uint8_t *cp1 = &tab37489[REG_X];
+		const uint8_t *cp2 = &tab37515[REG_X];
+		cp1 += EXEC_OFFSET;
+		cp2 += EXEC_OFFSET;
+		mem62 = pgm_read_byte(cp1) | (pgm_read_byte(cp2)<<8);
+	}
 
 	// -------------------------------------
 	// go to next rule
@@ -199,8 +217,7 @@ pos36700:
 
 	// find next rule
 	REG_Y = 0;
-	do
-	{
+	do {
 		mem62 += 1;
 		REG_A = GetRuleByte(mem62, REG_Y);
 	} while ((REG_A & 128) == 0);
@@ -208,8 +225,7 @@ pos36700:
 
 	//pos36720:
 	// find '('
-	while(1)
-	{
+	while(1) {
 		REG_A = GetRuleByte(mem62, REG_Y);
 		if (REG_A == '(') break;
 		REG_Y++;
@@ -218,8 +234,7 @@ pos36700:
 
 	//pos36732:
 	// find ')'
-	do
-	{
+	do {
 		REG_Y++;
 		REG_A = GetRuleByte(mem62, REG_Y);
 	} while(REG_A != ')');
@@ -227,8 +242,7 @@ pos36700:
 
 	//pos36741:
 	// find '='
-	do
-	{
+	do {
 		REG_Y++;
 		REG_A = GetRuleByte(mem62, REG_Y);
 		REG_A = REG_A & 127;
@@ -242,8 +256,7 @@ pos36700:
 	REG_Y = mem66;
 	REG_Y++;
 	//pos36759:
-	while(1)
-	{
+	while(1) {
 		mem57 = inputtemp[REG_X];
 		REG_A = GetRuleByte(mem62, REG_Y);
 		if (REG_A != mem57) goto pos36700;
@@ -260,8 +273,7 @@ pos36700:
 	mem59 = mem61;
 
 pos36791:
-	while(1)
-	{
+	while(1) {
 		mem66--;
 		REG_Y = mem66;
 		REG_A = GetRuleByte(mem62, REG_Y);
@@ -269,7 +281,11 @@ pos36791:
 		//36800: BPL 36805
 		if ((REG_A & 128) != 0) goto pos37180;
 		REG_X = REG_A & 127;
-		REG_A = pgm_read_byte_inlined(tab36376+REG_X)/*tab36376[X]*/ & 128;
+		//REG_A = pgm_read_byte_inlined(tab36376+REG_X)/*tab36376[X]*/ & 128;
+		const uint8_t *cp = tab36376 + REG_X;
+		cp += EXEC_OFFSET;
+		REG_A = pgm_read_byte(cp) & 128;
+
 		if (REG_A == 0) break;
 		REG_X = mem59-1;
 		REG_A = inputtemp[REG_X];
@@ -296,7 +312,7 @@ pos36791:
 pos36895:
 	Code37055(mem59);
 	REG_A = REG_A & 128;
-	if(REG_A != 0) goto pos36700;
+	if (REG_A != 0) goto pos36700;
 pos36905:
 	mem59 = REG_X;
 	goto pos36791;
@@ -306,7 +322,7 @@ pos36905:
 pos36910:
 	Code37055(mem59);
 	REG_A = REG_A & 64;
-	if(REG_A != 0) goto pos36905;
+	if (REG_A != 0) goto pos36905;
 	goto pos36700;
 
 	// --------------
@@ -315,7 +331,7 @@ pos36910:
 pos36920:
 	Code37055(mem59);
 	REG_A = REG_A & 8;
-	if(REG_A == 0) goto pos36700;
+	if (REG_A == 0) goto pos36700;
 pos36930:
 	mem59 = REG_X;
 	goto pos36791;
@@ -325,7 +341,7 @@ pos36930:
 pos36935:
 	Code37055(mem59);
 	REG_A = REG_A & 16;
-	if(REG_A != 0) goto pos36930;
+	if (REG_A != 0) goto pos36930;
 	REG_A = inputtemp[REG_X];
 	if (REG_A != 72) goto pos36700;
 	REG_X--;
@@ -338,7 +354,7 @@ pos36935:
 pos36967:
 	Code37055(mem59);
 	REG_A = REG_A & 4;
-	if(REG_A != 0) goto pos36930;
+	if (REG_A != 0) goto pos36930;
 	REG_A = inputtemp[REG_X];
 	if (REG_A != 72) goto pos36700;
 	if ((REG_A != 84) && (REG_A != 67) && (REG_A != 83)) goto pos36700;
@@ -351,7 +367,7 @@ pos36967:
 pos37004:
 	Code37055(mem59);
 	REG_A = REG_A & 32;
-	if(REG_A == 0) goto pos36700;
+	if (REG_A == 0) goto pos36700;
 
 pos37014:
 	mem59 = REG_X;
@@ -370,7 +386,7 @@ pos37019:
 pos37040:
 	Code37055(mem59);
 	REG_A = REG_A & 32;
-	if(REG_A == 0) goto pos36791;
+	if (REG_A == 0) goto pos36791;
 	mem59 = REG_X;
 	goto pos37040;
 
@@ -384,8 +400,12 @@ pos37077:
 	REG_X++;
 	REG_Y = inputtemp[REG_X];
 	REG_X--;
-	REG_A = pgm_read_byte_inlined(tab36376+REG_Y)/*tab36376[Y]*/ & 128;
-	if(REG_A == 0) goto pos37108;
+	//REG_A = pgm_read_byte_inlined(tab36376+REG_Y)/*tab36376[Y]*/ & 128;
+	cp = tab36376 + REG_Y;
+	cp += EXEC_OFFSET;
+	samdata->A = pgm_read_byte(cp) & 128;
+
+	if (REG_A == 0) goto pos37108;
 	REG_X++;
 	REG_A = inputtemp[REG_X];
 	if (REG_A != 'R') goto pos37113;
@@ -439,7 +459,11 @@ pos37184:
 	REG_A = GetRuleByte(mem62, REG_Y);
 	mem57 = REG_A;
 	REG_X = REG_A;
-	REG_A = pgm_read_byte_inlined(tab36376+REG_X)/*tab36376[X]*/ & 128;
+	//REG_A = pgm_read_byte_inlined(tab36376+REG_X)/*tab36376[X]*/ & 128;
+	cp = tab36376 + REG_X;
+	cp += EXEC_OFFSET;
+	REG_A = pgm_read_byte(cp) & 128;
+
 	if(REG_A == 0) goto pos37226;
 	REG_X = mem58+1;
 	REG_A = inputtemp[REG_X];
@@ -485,7 +509,7 @@ pos37310:
 pos37320:
 	Code37066(mem58);
 	REG_A = REG_A & 8;
-	if(REG_A == 0) goto pos36700;
+	if (REG_A == 0) goto pos36700;
 
 pos37330:
 	mem58 = REG_X;
@@ -496,7 +520,7 @@ pos37330:
 pos37335:
 	Code37066(mem58);
 	REG_A = REG_A & 16;
-	if(REG_A != 0) goto pos37330;
+	if (REG_A != 0) goto pos37330;
 	REG_A = inputtemp[REG_X];
 	if (REG_A != 72) goto pos36700;
 	REG_X++;
@@ -510,7 +534,7 @@ pos37335:
 pos37367:
 	Code37066(mem58);
 	REG_A = REG_A & 4;
-	if(REG_A != 0) goto pos37330;
+	if (REG_A != 0) goto pos37330;
 	REG_A = inputtemp[REG_X];
 	if (REG_A != 72) goto pos36700;
 	if ((REG_A != 84) && (REG_A != 67) && (REG_A != 83)) goto pos36700;
@@ -522,7 +546,7 @@ pos37367:
 pos37404:
 	Code37066(mem58);
 	REG_A = REG_A & 32;
-	if(REG_A == 0) goto pos36700;
+	if (REG_A == 0) goto pos36700;
 pos37414:
 	mem58 = REG_X;
 	goto pos37184;
@@ -542,7 +566,7 @@ pos37440:
 
 	Code37066(mem58);
 	REG_A = REG_A & 32;
-	if(REG_A == 0) goto pos37184;
+	if (REG_A == 0) goto pos37184;
 	mem58 = REG_X;
 	goto pos37440;
 pos37455:
@@ -557,8 +581,7 @@ pos37461:
 	REG_A = GetRuleByte(mem62, REG_Y);
 	mem57 = REG_A;
 	REG_A = REG_A & 127;
-	if (REG_A != '=')
-	{
+	if (REG_A != '=') {
 		mem56++;
 		REG_X = mem56;
 		_input[REG_X] = REG_A;

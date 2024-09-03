@@ -108,8 +108,8 @@ void Init() {
 
 }
 
-//#define LOCAL_DEBUG DEBUG_ESP8266SAM_LIB
-#define LOCAL_DEBUG 1
+#define LOCAL_DEBUG DEBUG_ESP8266SAM_LIB
+//#define LOCAL_DEBUG 1
 
 //int Code39771()
 int SAMMain( void (*cb)(void *, unsigned char), void *cbd ) {
