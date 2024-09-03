@@ -19,7 +19,7 @@ MODULE_PART void Code37055(unsigned char mem59) {
 	//REG_A = pgm_read_byte_inlined(tab36376 + REG_Y); //tab36376[Y];
 	const uint8_t *cp = tab36376 + REG_Y;
 	cp += EXEC_OFFSET;
-	samdata->A = pgm_read_byte(cp);
+	REG_A = pgm_read_byte(cp);
 }
 
 
@@ -136,7 +136,7 @@ pos36554:
 		//REG_A = pgm_read_byte_inlined(tab36376+REG_Y)/*tab36376[Y]*/ & 1;
 		const uint8_t *cp = tab36376 + REG_Y;
 		cp += EXEC_OFFSET;
-		samdata->A = pgm_read_byte(cp) & 1;
+		REG_A = pgm_read_byte(cp) & 1;
 
 		if (REG_A != 0) {
 			break;
