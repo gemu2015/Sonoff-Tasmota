@@ -30,7 +30,7 @@ if 1==1 :
 
                 if msync[0] == 0x4a and msync[1] == 0xfc and msync[2] == 0xaa and msync[3] == 0x55:
                     xarch = fp.read(4)
-                    arch = int.from_bytes(xarch, "little")
+                    arch = int.from_bytes(xarch, "little") & 0xf
                     xtype = fp.read(4)
                     type = int.from_bytes(xtype, "little")
                     if arch == 0 and type <= 4:

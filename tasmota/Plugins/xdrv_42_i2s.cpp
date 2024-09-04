@@ -32,7 +32,9 @@
 #define USE_MP3
 //#define USE_WEBRADIO
 // select a codec
-//#define USE_WM8960
+#ifndef __riscv
+#define USE_WM8960
+#endif
 #endif
 
 
@@ -127,11 +129,21 @@ typedef struct {
 #define MODNAME "I2SWAV"
 #endif
 
+#ifdef __riscv
+#define GPIO_DOUT 6
+#define GPIO_BCK 7
+#define GPIO_WS 8
+#else
+#define GPIO_DOUT 17
+#define GPIO_BCK 10
+#define GPIO_WS 18
+#endif
+
 #define I2S_REV 1 << 16 | 5
 #ifdef ESP8266
 MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0)
 #else
-MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", 17, "BCK", 10, "WS", 18, "MODE", 0x01000200)
+MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "BCK", GPIO_BCK, "WS", GPIO_WS, "MODE", 0x01000200)
 #endif
 
 // all functions must be declared MUDULE_PART

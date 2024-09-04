@@ -68,7 +68,9 @@ typedef struct {
   volatile MD_TYPE value;
 } MODULE_STORE;
 
+#ifndef MAX_MOD_STORES
 #define MAX_MOD_STORES 4
+#endif
 
 // this descriptor is in .text so only 32 bit access allowed
 #pragma pack(4)

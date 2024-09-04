@@ -1892,6 +1892,8 @@ uint16_t mod_size;
 #endif
 } plugins;
 
+
+
 // 35 + 8 x MODULES_TABLE (18*8 = 144) = about 179 Bytes
 MODULES_TABLE modules[MAX_PLUGINS];
 
@@ -2404,7 +2406,7 @@ void LinkModule(uint8_t *mp, uint32_t size, char *name) {
       return;
     }
 
-    if (fm->arch != CURR_ARCH) {
+    if ((fm->arch & 0x000000ff) != CURR_ARCH) {
       free(mp);
       AddLog(LOG_LEVEL_INFO,PSTR("plugin architecture error"));
       return;
@@ -2516,7 +2518,13 @@ void Read_Module_Data(uint32_t module, uint32_t *data) {
     FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
     if (fm->sync == MODULE_SYNC) {
       //AddLog(LOG_LEVEL_INFO,PSTR("read flash data:"));
-      for (uint16_t cnt = 0; cnt < MAX_MOD_STORES; cnt++ ) {
+      uint32_t num = fm->arch & 0xff000000;
+      if (num) {
+        num = num >> 24;
+      } else {
+        num = MAX_MOD_STORES;
+      }
+      for (uint16_t cnt = 0; cnt < num; cnt++ ) {
         *data = fm->ms[cnt].value;
         data++;
       }
@@ -2538,7 +2546,13 @@ void Update_Module_Data(uint32_t module, uint32_t *data) {
       //AddLog(LOG_LEVEL_INFO,PSTR("read flash: %08x"),fm->sync);
       if (fm->sync == MODULE_SYNC) {
         //AddLog(LOG_LEVEL_INFO,PSTR("modify data"));
-        for (uint16_t cnt = 0; cnt < MAX_MOD_STORES; cnt++ ) {
+        uint32_t num = fm->arch & 0xff000000;
+        if (num) {
+          num = num >> 24;
+        } else {
+          num = MAX_MOD_STORES;
+        }
+        for (uint16_t cnt = 0; cnt < num; cnt++ ) {
           fm->ms[cnt].value = *data++;
         }
         // rewrite modified module
@@ -2555,7 +2569,13 @@ void Update_Module_Data(uint32_t module, uint32_t *data) {
       //AddLog(LOG_LEVEL_INFO,PSTR("read flash: %08x"),fm->sync);
       if (fm->sync == MODULE_SYNC) {
         AddLog(LOG_LEVEL_INFO,PSTR("modify data"));
-        for (uint16_t cnt = 0; cnt < MAX_MOD_STORES; cnt++ ) {
+        uint32_t num = fm->arch & 0xff000000;
+        if (num) {
+          num = num >> 24;
+        } else {
+          num = MAX_MOD_STORES;
+        }
+        for (uint16_t cnt = 0; cnt < num; cnt++ ) {
           fm->ms[cnt].value = *data++;
         }
         err = esp_partition_erase_range(plugins.flash_pptr, offset, ESP32_PLUGIN_HSIZE);
@@ -3052,7 +3072,7 @@ void Modul_Check_HTML_Setvars(void) {
       uint8_t pind = strtol(cp, &cp, 10);
       
       // should better update values on closing menu
-      uint32_t vals[MAX_MOD_STORES];
+      uint32_t vals[16];
       Read_Module_Data(mind, vals);
       uint32_t old = vals[pinn] & 0xff;
       vals[pinn] = (vals[pinn] & 0xffffff00) | pind;
@@ -3103,7 +3123,8 @@ void Module_upload() {
 
   WSContentSend_P(HTTP_MODULES_CSS);
 
-  uint32_t *vp = (uint32_t *)calloc(sizeof(FLASH_MODULE) / 4 , 4);
+  // reserve space for larger headers
+  uint32_t *vp = (uint32_t *)calloc(sizeof(FLASH_MODULE) / 2 , 4);
   if (!vp) {
     return;
   }
@@ -3111,7 +3132,7 @@ void Module_upload() {
   for (uint16_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
     if (modules[cnt].mod_addr) {
       uint32_t *mp = (uint32_t*)modules[cnt].mod_addr;
-      for (uint16_t cnt = 0; cnt < sizeof(FLASH_MODULE) / 4; cnt++) {
+      for (uint16_t cnt = 0; cnt < sizeof(FLASH_MODULE) / 2; cnt++) {
         vp[cnt] = mp[cnt];
       }
 #if defined(ESP32)
@@ -3134,7 +3155,13 @@ void Module_upload() {
       WSContentSend_P(HTTP_MODULES_COMMONa, "808080", cnt + 1, name, type, srev, Get_mod_size, modules[cnt].mem_size);
 
       WSContentSend_P(PSTR("<td>"));
-      for (uint8_t xcnt = 0; xcnt < MAX_MOD_STORES; xcnt++) {
+      uint32_t num = fm->arch & 0xff000000;
+      if (num) {
+        num = num >> 24;
+      } else {
+        num = MAX_MOD_STORES;
+      }
+      for (uint8_t xcnt = 0; xcnt < num; xcnt++) {
         char name[8];
         strncpy(name, fm->ms[xcnt].name, 8);
         if (name[0]) {
@@ -3272,7 +3299,7 @@ bool Check_Arch(FLASH_MODULE *fm) {
       return false;
     }
 
-    if (fm->arch != CURR_ARCH) {
+    if ((fm->arch & 0x000000ff) != CURR_ARCH) {
       AddLog(LOG_LEVEL_INFO,PSTR("plugin architecture error"));
       plugins.upload_error = MOD_UPL_ERR_ARCH;
       return false;
@@ -3365,7 +3392,7 @@ bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
   delay(0);
   
   if (plugins.module_bytes_read == 0) {
-    AddLog(LOG_LEVEL_INFO,PSTR("progress bytes read 1; %d"),plugins.module_bytes_read);
+    //AddLog(LOG_LEVEL_INFO,PSTR("progress bytes read 1; %d"),plugins.module_bytes_read);
     memcpy(plugins.module_input_ptr, upload_buf, current_size);
     plugins.module_bytes_read += current_size;
     if (current_size < 2048) {
@@ -3374,7 +3401,7 @@ bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
       return false;
     }
   } else {
-    AddLog(LOG_LEVEL_INFO,PSTR("progress bytes read 2; %d"),plugins.module_bytes_read);
+    //AddLog(LOG_LEVEL_INFO,PSTR("progress bytes read 2; %d"),plugins.module_bytes_read);
     memcpy(plugins.module_input_ptr + plugins.module_bytes_read, upload_buf, current_size);
     Store_Module_Block(plugins.module_input_buffer, plugins.upload_slot);
     plugins.upload_start_block++;

@@ -476,6 +476,8 @@ extern MODULES_TABLE modules[];
 #define ALLOCMEM GET_MTBL; GET_JT; mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = *asettings;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
 #define RETMEM if (mt->mem_size) {jfree(mt->mod_memory);mt->mem_size = 0;}
 #define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE MODULE_HEADER = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,END_OF_MODULE,0,0,(uint32_t)&modules,(uint32_t)&MODULE_JUMPTABLE,(uint32_t)&module_header,mod_func_execute,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
+#define MODULE_DESCRIPTOR6(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4,GPIO5,PIN5,GPIO6,PIN6)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE MODULE_HEADER = {MODULE_SYNC,CURR_ARCH|MAX_MOD_STORES<<24,(TYPE),(REV),(NAME),mod_func_execute,END_OF_MODULE,0,0,(uint32_t)&modules,(uint32_t)&MODULE_JUMPTABLE,(uint32_t)&module_header,mod_func_execute,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4,GPIO5,PIN5,GPIO6,PIN6}};
+
 #define MOD_FUNC(A, ...) A(MODULES_TABLE *mt, ##__VA_ARGS__)
 //#define MOD_FUNC(A, ...) A(##__VA_ARGS__)
 
