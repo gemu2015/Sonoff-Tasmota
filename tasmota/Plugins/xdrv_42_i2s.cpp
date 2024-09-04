@@ -22,6 +22,7 @@
 #ifdef USE_I2S_MOD
 #define XDRV_42 42
 
+
 #include "module.h"
 #include "module_defines.h"
 
@@ -69,6 +70,7 @@ typedef struct {
   bool running;
   uint8_t force_mono;
   uint8_t chans;
+  uint8_t codec;
   uint16_t srate;
 #ifdef USE_MP3
   MP3_MEM mp3m;
@@ -120,6 +122,8 @@ typedef struct {
 #define srate mem->srate
 #define samrender mem->samrender
 #define samdata mem->samdata
+#define codec mem->codec
+
 
 // esp8266 fixed i2s pins : DOUT = 3(RX), BCK = 15(D8), WS = 2(D4)
 
@@ -144,6 +148,7 @@ typedef struct {
 MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0)
 #else
 MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "BCK", GPIO_BCK, "WS", GPIO_WS, "MODE", 0x01000200)
+//MODULE_DESCRIPTOR6(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "BCK", GPIO_BCK, "WS", GPIO_WS, "MODE", 0x01000200,"CODEC", 0x01000200,"", 0)
 #endif
 
 // all functions must be declared MUDULE_PART
@@ -201,6 +206,7 @@ int32_t I2SAudio_Init() {
   bck_pin = mp->ms[1].value;
   ws_pin = mp->ms[2].value;
   mode = mp->ms[3].value;
+  codec = mp->ms[4].value;
 
   gain_div = 1<<6;  // = 1
 
@@ -233,10 +239,12 @@ int32_t I2SAudio_Init() {
 #endif
 
 #ifdef USE_WM8960
-  if (pW8960_Init() < 0) {
+  if (1 == codec) {
+    if (pW8960_Init() < 0) {
       I2SAudio_Deinit();
       Response_P(GSTR(S_JSON_WMERR));
       return -2;
+    }
   }
 #endif
 

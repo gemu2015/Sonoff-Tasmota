@@ -69,7 +69,7 @@ typedef struct {
 } MODULE_STORE;
 
 #ifndef MAX_MOD_STORES
-#define MAX_MOD_STORES 4
+#define MAX_MOD_STORES 6
 #endif
 
 // this descriptor is in .text so only 32 bit access allowed

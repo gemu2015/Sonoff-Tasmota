@@ -17,7 +17,7 @@
 #endif
 //#include "tasmota_compat.h"
 #include "../include/tasmota.h"
-#include "i18n.h"
+#include "../include/i18n.h"
 #include "../include/tasmota_globals.h"
 
 
