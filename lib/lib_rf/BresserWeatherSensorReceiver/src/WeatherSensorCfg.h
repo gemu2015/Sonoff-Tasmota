@@ -180,80 +180,80 @@
 //#define ARDUINO_M5STACK_CORE2
 
 #if defined(ARDUINO_TTGO_LoRa32_V1)
-    #pragma message("ARDUINO_TTGO_LoRa32_V1 defined; using on-board transceiver")
+    ////#pragma message("ARDUINO_TTGO_LoRa32_V1 defined; using on-board transceiver")
     #define USE_SX1276
 
 #elif defined(ARDUINO_TTGO_LoRa32_V2)
-    #pragma message("ARDUINO_TTGO_LoRa32_V2 defined; using on-board transceiver")
-    #pragma message("LoRa DIO1 must be wired to GPIO33 manually!")
+    ////#pragma message("ARDUINO_TTGO_LoRa32_V2 defined; using on-board transceiver")
+    ////#pragma message("LoRa DIO1 must be wired to GPIO33 manually!")
     #define USE_SX1276
 
 #elif defined(ARDUINO_TTGO_LoRa32_v21new)
-    #pragma message("ARDUINO_TTGO_LoRa32_V21new defined; using on-board transceiver")
+    ////#pragma message("ARDUINO_TTGO_LoRa32_V21new defined; using on-board transceiver")
     #define USE_SX1276
 
 #elif defined(ARDUINO_heltec_wireless_stick)
-    #pragma message("ARDUINO_heltec_wireless_stick defined; using on-board transceiver")
-    #pragma message("Radio transceiver chip has to be configured manually: V2 -> USE_SX1276 / V3 -> USE_SX1262")
+    //#pragma message("ARDUINO_heltec_wireless_stick defined; using on-board transceiver")
+    //#pragma message("Radio transceiver chip has to be configured manually: V2 -> USE_SX1276 / V3 -> USE_SX1262")
     //#define USE_SX1276 // Heltec Wireless Stick V2
     #define USE_SX1262 // Heltec Wireless Stick V3
 
 #elif defined(ARDUINO_heltec_wireless_stick_v2)
-    #pragma message("ARDUINO_heltec_wireless_stick_v2 defined; using on-board transceiver")
+    //#pragma message("ARDUINO_heltec_wireless_stick_v2 defined; using on-board transceiver")
     #define USE_SX1276
 
 #elif defined(ARDUINO_heltec_wireless_stick_v3)
-    #pragma message("ARDUINO_heltec_wireless_stick_v3 defined; using on-board transceiver")
+    //#pragma message("ARDUINO_heltec_wireless_stick_v3 defined; using on-board transceiver")
     #define USE_SX1262
 
 #elif defined(ARDUINO_heltec_wifi_lora_32_V2)
-    #pragma message("ARDUINO_heltec_wifi_lora_32_V2 defined; using on-board transceiver")
+    //#pragma message("ARDUINO_heltec_wifi_lora_32_V2 defined; using on-board transceiver")
     #define USE_SX1276
 
 #elif defined(ARDUINO_heltec_wifi_32_lora_V3)
-    #pragma message("ARDUINO_heltec_wifi_32_lora_V3 defined; using on-board transceiver")
+    //#pragma message("ARDUINO_heltec_wifi_32_lora_V3 defined; using on-board transceiver")
     #define USE_SX1262
 
 #elif defined(ARDUINO_ADAFRUIT_FEATHER_ESP32S2)
-    #pragma message("ARDUINO_ADAFRUIT_FEATHER_ESP32S2 defined; assuming RFM95W FeatherWing will be used")
+    //#pragma message("ARDUINO_ADAFRUIT_FEATHER_ESP32S2 defined; assuming RFM95W FeatherWing will be used")
     #define USE_SX1276
 
 #elif defined(ARDUINO_FEATHER_ESP32)
-    #pragma message("ARDUINO_FEATHER_ESP32 defined; assuming RFM95W FeatherWing will be used")
+    //#pragma message("ARDUINO_FEATHER_ESP32 defined; assuming RFM95W FeatherWing will be used")
     #define USE_SX1276
-    #pragma message("Required wiring: A to RST, B to DIO1, D to DIO0, E to CS")
+    //#pragma message("Required wiring: A to RST, B to DIO1, D to DIO0, E to CS")
 
 #elif defined(ARDUINO_M5STACK_CORE2) || defined(ARDUINO_M5STACK_Core2)
     // Note: Depending on board package file date, either variant is used - 
     //       see https://github.com/espressif/arduino-esp32/issues/9423!
-    #pragma message("ARDUINO_M5STACK_CORE2 defined; assuming M5Stack Module LoRa868 will be used")
+    //#pragma message("ARDUINO_M5STACK_CORE2 defined; assuming M5Stack Module LoRa868 will be used")
     #define USE_SX1276
-    #pragma message("Required wiring: DIO1 to GPIO35")
+    //#pragma message("Required wiring: DIO1 to GPIO35")
 
 #elif defined(ARDUINO_AVR_FEATHER32U4)
-    #pragma message("ARDUINO_AVR_FEATHER32U4 defined; assuming this is the Adafruit Feather 32u4 RFM95 LoRa Radio")
+    //#pragma message("ARDUINO_AVR_FEATHER32U4 defined; assuming this is the Adafruit Feather 32u4 RFM95 LoRa Radio")
     #define USE_SX1276
 
 #elif defined(ARDUINO_ADAFRUIT_FEATHER_RP2040)
-    #pragma message("ARDUINO_ADAFRUIT_FEATHER_RP2040 defined; assuming assuming RFM95W FeatherWing will be used")
+    //#pragma message("ARDUINO_ADAFRUIT_FEATHER_RP2040 defined; assuming assuming RFM95W FeatherWing will be used")
     #define USE_SX1276
-    #pragma message("Required wiring: A to RST, B to DIO1, D to DIO0, E to CS")
+    //#pragma message("Required wiring: A to RST, B to DIO1, D to DIO0, E to CS")
 
 #elif defined(ARDUINO_ESP32_DEV) || defined(ARDUINO_DFROBOT_FIREBEETLE_ESP32)
     #define LORAWAN_NODE
     //#define FIREBEETLE_ESP32_COVER_LORA
 
     #if defined(FIREBEETLE_ESP32_COVER_LORA)
-        #pragma message("FIREBEETLE_ESP32_COVER_LORA defined; assuming this is a FireBeetle ESP32 with FireBeetle Cover LoRa")
+        //#pragma message("FIREBEETLE_ESP32_COVER_LORA defined; assuming this is a FireBeetle ESP32 with FireBeetle Cover LoRa")
         #define USE_SX1276
-        #pragma message("Required wiring: D2 to RESET, D3 to DIO0, D4 to CS, D5 to DIO1")
+        //#pragma message("Required wiring: D2 to RESET, D3 to DIO0, D4 to CS, D5 to DIO1")
 
     #elif defined(LORAWAN_NODE) 
-        #pragma message("LORAWAN_NODE defined; assuming this is the LoRaWAN_Node board (DFRobot Firebeetle32 + Adafruit RFM95W LoRa Radio)")
+        //#pragma message("LORAWAN_NODE defined; assuming this is the LoRaWAN_Node board (DFRobot Firebeetle32 + Adafruit RFM95W LoRa Radio)")
         #define USE_SX1276
 
     #else
-        #pragma message("ARDUINO_ESP32_DEV defined; if you use one of those boards, select either LORAWAN_NODE or FIREBEETLE_ESP32_COVER_LORA manually!")
+        //#pragma message("ARDUINO_ESP32_DEV defined; if you use one of those boards, select either LORAWAN_NODE or FIREBEETLE_ESP32_COVER_LORA manually!")
 
     #endif
 #endif
@@ -390,7 +390,7 @@
 #define USE_CC1101
 #undef USE_SX1262
 #undef USE_SX1276
-#pragma message("Bresser CC1101")
+//#pragma message("Bresser CC1101")
 
 #if ( (defined(USE_CC1101) && defined(USE_SX1276)) || \
       (defined(USE_SX1276) && defined(USE_SX1262)) || \
@@ -590,7 +590,7 @@
 
 #define STR_HELPER(x) #x
 #define STR(x) STR_HELPER(x)
-#pragma message("Receiver chip: " RECEIVER_CHIP)
-#pragma message("Pin config: RST->" STR(PIN_RECEIVER_RST) ", CS->" STR(PIN_RECEIVER_CS) ", GD0/G0/IRQ->" STR(PIN_RECEIVER_IRQ) ", GDO2/G1/GPIO->" STR(PIN_RECEIVER_GPIO) )
+//#pragma message("Receiver chip: " RECEIVER_CHIP)
+//#pragma message("Pin config: RST->" STR(PIN_RECEIVER_RST) ", CS->" STR(PIN_RECEIVER_CS) ", GD0/G0/IRQ->" STR(PIN_RECEIVER_IRQ) ", GDO2/G1/GPIO->" STR(PIN_RECEIVER_GPIO) )
 
 #endif
