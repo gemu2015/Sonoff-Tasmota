@@ -2369,9 +2369,6 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
       yp++;
     }
 #endif
-    if (scale) {
-      if (renderer) renderer->drawRect(xp, yp, xsize, ysize, GetColorFromIndex(scale));
-    }
     fp.close();
   } else if (!strcmp(estr,"jpg") || !strcmp(estr,"jpeg")) {
     // jpeg files on ESP32 with more memory
@@ -2445,9 +2442,6 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
 #ifdef ESP32
 #ifdef JPEG_PICTS
 #define JPG_DEFSIZE 150000
-
-void Draw_jpeg(uint8_t *mem, uint16_t jpgsize, uint16_t xp, uint16_t yp, uint8_t scale);
-
 void Draw_JPG_from_URL(char *url, uint16_t xp, uint16_t yp, uint8_t scale) {
   uint8_t *mem = 0;
   WiFiClient http_client;

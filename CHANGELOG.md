@@ -3,7 +3,63 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - Development
 
-## [14.1.0.4]
+## [14.2.0.3]
+### Added
+- Command ``SetOption69 1`` to enable Serial Bridge inverted Receive (#22000)
+- Zigbee Koenkk firmware 20240710 for Sonoff Zigbee ZBPro
+- Berry Zigbee improvements to prepare Matter
+- Matter Zigbee support for sensors: Temperature, Humidity, Pressure
+
+### Breaking Changed
+- Berry make `energy` modules changes from #21887 backwards compatible
+
+### Changed
+- ESP32 platform update from 2024.08.10 to 2024.08.11 (#22021)
+- ESP32 LVGL library from v9.1.0 to v9.2.0
+
+### Fixed
+- Matter fixed UI bug when no endpoints configured (#22008)
+- Zigbee extend timeout for MCU reboot from 5s to 10s (#22009)
+- Matter fix when Rules are disabled (#22016)
+- BearSSL panic on ESP8266 in rare conditions (#22017)
+- Crash when calling TasmotaSerial destructor when initialized with incorrect arguments
+- LVGL Added OpenHASP icons to font `montserrat-28`
+- Matter fail to report Shutter status if no shutter is configured in Tasmota
+- Matter fix Waterleak broken after Berry solidification optimisation #21885
+- Berry avoid `readbytes()` from crashing when file is too large
+- Zigbee avoid disabling console serial on ESP32 and improved log messages
+
+### Removed
+- Berry remove reuse of methods for interface-like code reuse #21500
+
+## [14.2.0.2] 20240823
+### Changed
+- Energy BL09xx command ``CurrentSet`` input changed from Ampere to milliAmpere
+- GPIOViewer from v1.5.5 to v1.5.6
+
+## [14.2.0.1] 20240821
+### Added
+- Energy Log level 4 message when (Calculated) Apparent Power is less than Active Power indicating wrong calibration (#20653)
+- Energy command ``PowerSet 60,230`` to calibrate both Current and Power with known resistive load of 60W at 230V using calibrated Voltage
+- Energy command ``CurrentSet 60,230`` to calibrate both Power and Current with known resistive load of 60W at 230V using calibrated Voltage
+
+### Changed
+- Energy force Apparent Power equals Active Power when (Calculated) Apparent Power is less than Active Power (#20653)
+
+### Fixed
+- Shutter timing registers overflow (#21966)
+- PZEM continue energy monitoring when one phase fails (#21968)
+- Energy calculation (#20653)
+
+### Removed
+- ESP8266 Analog input support using energy driver as only one channel is available
+
+## [Released]
+
+## [14.2.0] 20240814
+- Release Rita
+
+## [14.1.0.4] 20240814
 ### Added
 - Support for Sonoff iFan04-H using template (#16402)
 - Matter improve internal `inspect`for superclasses (#21824)
@@ -67,6 +123,7 @@ All notable changes to this project will be documented in this file.
 - ESP32 platform update from 2024.06.11 to 2024.07.10 (#21745)
 - ESP32 platform update from 2024.07.10 to 2024.07.11 (#21765)
 - Berry simplified `module persist` (#21812)
+- GPIOViewer from v1.5.4 to v1.5.5 (No functional change)
 
 ### Fixed
 - Berry `bytes.resize()` for large sizes (#21716)
@@ -127,8 +184,6 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Berry `input()` returns empty string and does not crash (#21565)
-
-## [Released]
 
 ## [14.1.0] 20240603
 - Release Rachel

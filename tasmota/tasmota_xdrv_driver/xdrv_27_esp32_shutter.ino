@@ -213,14 +213,12 @@ void ShutterAllowPreStartProcedure(uint8_t i) {
   // Prestart allow e.g. to release a LOCK or something else before the movement start
   // Anyway, as long var1 != 99 this is skipped (luckily)
 #ifdef USE_RULES
-  uint32_t uptime_Local = 0;
   AddLog(LOG_LEVEL_DEBUG_MORE, PSTR("SHT: Delay Start? var%d <99>=<%s>, max10s?"),i + 1, rules_vars[i]);
-  uptime_Local = TasmotaGlobal.uptime;
-  while (uptime_Local + 10 > TasmotaGlobal.uptime 
-          && (String)rules_vars[i] == "99") {
-    loop();
+  // wait for response from rules
+  uint32_t end_time = millis() + 10000;  // 10 seconds
+  while (!TimeReached(end_time) && (String)rules_vars[i] == "99") {
+    delay(1);
   }
-  //AddLog(LOG_LEVEL_DEBUG_MORE, PSTR("SHT: Delay Start. Done"));
 #endif  // USE_RULES
 }
 
@@ -1385,7 +1383,8 @@ void ShutterUpdateVelocity(uint8_t i)
 
 void ShutterWaitForMotorStart(uint8_t i)
 {
-  while (millis() < Shutter[i].last_stop_time + ShutterSettings.shutter_motorstop) {
+  uint32_t end_time = Shutter[i].last_stop_time + ShutterSettings.shutter_motorstop;
+  while (!TimeReached(end_time)) {
     loop();
   }
   //AddLog(LOG_LEVEL_DEBUG_MORE, PSTR("SHT: Stoptime done"));

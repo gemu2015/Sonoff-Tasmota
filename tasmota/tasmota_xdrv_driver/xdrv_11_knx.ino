@@ -595,8 +595,7 @@ void KNX_INIT(void)
   }
 #endif // USE_ENERGY_SENSOR
 
-//#ifdef USE_RULES
-#if defined(USE_RULES) || defined(USE_SCRIPT)
+#ifdef USE_RULES
   device_param[KNX_SLOT1-1].show = true;
   device_param[KNX_SLOT2-1].show = true;
   device_param[KNX_SLOT3-1].show = true;

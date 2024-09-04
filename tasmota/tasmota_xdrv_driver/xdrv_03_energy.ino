@@ -120,7 +120,7 @@ typedef struct {
   bool power_on;
 
 #ifdef USE_ENERGY_MARGIN_DETECTION
-  uint16_t power_history[ENERGY_MAX_PHASES][3];
+  uint16_t power_history[3][ENERGY_MAX_PHASES];
   uint8_t power_steady_counter;                 // Allow for power on stabilization
   uint8_t margin_stable;
   bool min_power_flag;
@@ -482,15 +482,15 @@ void EnergyMarginCheck(void) {
   for (uint32_t phase = 0; phase < Energy->phase_count; phase++) {
     uint16_t active_power = (uint16_t)(Energy->active_power[phase]);
 
-//    AddLog(LOG_LEVEL_DEBUG, PSTR("NRG: APower %d, HPower0 %d, HPower1 %d, HPower2 %d"), active_power, Energy->power_history[phase][0], Energy->power_history[phase][1], Energy->power_history[phase][2]);
+//    AddLog(LOG_LEVEL_DEBUG, PSTR("NRG: APower %d, HPower0 %d, HPower1 %d, HPower2 %d"), active_power, Energy->power_history[0][phase], Energy->power_history[1][phase], Energy->power_history[2][phase]);
 
     if (Settings->energy_power_delta[phase]) {
-      power_diff[phase] = active_power - Energy->power_history[phase][0];
+      power_diff[phase] = active_power - Energy->power_history[0][phase];
       uint16_t delta = abs(power_diff[phase]);
       bool threshold_met = false;
       if (delta > 0) {
         if (Settings->energy_power_delta[phase] < 101) {  // 1..100 = Percentage
-          uint16_t min_power = (Energy->power_history[phase][0] > active_power) ? active_power : Energy->power_history[phase][0];
+          uint16_t min_power = (Energy->power_history[0][phase] > active_power) ? active_power : Energy->power_history[0][phase];
           if (0 == min_power) { min_power++; }    // Fix divide by 0 exception (#6741)
           delta = (delta * 100) / min_power;
           if (delta >= Settings->energy_power_delta[phase]) {
@@ -503,16 +503,16 @@ void EnergyMarginCheck(void) {
         }
       }
       if (threshold_met) {
-        Energy->power_history[phase][1] = active_power;  // We only want one report so reset history
-        Energy->power_history[phase][2] = active_power;
+        Energy->power_history[1][phase] = active_power;  // We only want one report so reset history
+        Energy->power_history[2][phase] = active_power;
         jsonflg = true;
       } else {
         power_diff[phase] = 0;
       }
     }
-    Energy->power_history[phase][0] = Energy->power_history[phase][1];  // Shift in history every second allowing power changes to settle for up to three seconds
-    Energy->power_history[phase][1] = Energy->power_history[phase][2];
-    Energy->power_history[phase][2] = active_power;
+    Energy->power_history[0][phase] = Energy->power_history[1][phase];  // Shift in history every second allowing power changes to settle for up to three seconds
+    Energy->power_history[1][phase] = Energy->power_history[2][phase];
+    Energy->power_history[2][phase] = active_power;
   }
   if (jsonflg) {
     float power_diff_f[Energy->phase_count];
@@ -974,14 +974,54 @@ void EnergyCommandSetCalResponse(uint32_t cal_type) {
   }
 }
 
+void EnergyCommandSetCal(uint32_t cal_type) {
+  if (XdrvMailbox.data_len) {
+    // PowerSet 61.2
+    // CurrentSet 263
+    if (ArgC() > 1) {
+      // Calibrate current and power using calibrated voltage and known resistive load voltage and power
+      // PowerSet 60.0,230
+      // CurrentSet 60.0,230
+      char argument[32];
+      float Pgoal = CharToFloat(ArgV(argument, 1));    // 60.0    W
+      float Ugoal = CharToFloat(ArgV(argument, 2));    // 230     V
+      float Igoal = Pgoal / Ugoal;                     // 0.26087 A
+      float R = Ugoal / Igoal;                         // 881,666 Ohm
+
+      uint32_t channel = ((1 == XdrvMailbox.index -1) && (2 == Energy->phase_count)) ? 1 : 0;
+      float Umeas = Energy->voltage[channel];          // 232.0
+      // Calculate current and power based on measured voltage
+      float Ical = Umeas / R;                          // 0.26306 A
+      float Pcal = Umeas * Ical;                       // 61.03   W
+      Ical *= 1000;                                    // A to mA
+
+      uint32_t cal_type1 = ENERGY_CURRENT_CALIBRATION;
+      float cal1 = Ical;
+      float cal2 = Pcal;
+      if (ENERGY_CURRENT_CALIBRATION == cal_type) {
+        cal_type1 = ENERGY_POWER_CALIBRATION;
+        cal1 = Pcal;
+        cal2 = Ical;
+      }
+      XdrvMailbox.data = argument;
+      ext_snprintf_P(argument, sizeof(argument), PSTR("%5_f"), &cal1);
+      XdrvMailbox.data_len = strlen(argument);
+      EnergyCommandSetCalResponse(cal_type1);
+      ext_snprintf_P(argument, sizeof(argument), PSTR("%5_f"), &cal2);
+      XdrvMailbox.data_len = strlen(argument);
+    }
+  }
+  EnergyCommandSetCalResponse(cal_type);
+}
+
 void CmndPowerSet(void) {
-  EnergyCommandSetCalResponse(ENERGY_POWER_CALIBRATION);
+  EnergyCommandSetCal(ENERGY_POWER_CALIBRATION);
 }
 void CmndVoltageSet(void) {
   EnergyCommandSetCalResponse(ENERGY_VOLTAGE_CALIBRATION);
 }
 void CmndCurrentSet(void) {
-  EnergyCommandSetCalResponse(ENERGY_CURRENT_CALIBRATION);
+  EnergyCommandSetCal(ENERGY_CURRENT_CALIBRATION);
 }
 void CmndFrequencySet(void) {
   EnergyCommandSetCalResponse(ENERGY_FREQUENCY_CALIBRATION);
@@ -1184,6 +1224,10 @@ void EnergyShow(bool json) {
   if (!Energy->type_dc) {
     if (Energy->current_available && Energy->voltage_available) {
       for (uint32_t i = 0; i < Energy->phase_count; i++) {
+        if (0 == Energy->current[i]) {
+          Energy->active_power[i] = 0;
+        }
+
         apparent_power[i] = Energy->apparent_power[i];
         if (isnan(apparent_power[i])) {
           apparent_power[i] = Energy->voltage[i] * Energy->current[i];
@@ -1191,14 +1235,31 @@ void EnergyShow(bool json) {
         else if (0 == Energy->current[i]) {
           apparent_power[i] = 0;
         }
+/*        
         if (apparent_power[i] < Energy->active_power[i]) {  // Should be impossible
           Energy->active_power[i] = apparent_power[i];
         }
-
         power_factor[i] = Energy->power_factor[i];
         if (isnan(power_factor[i])) {
           power_factor[i] = (Energy->active_power[i] && apparent_power[i]) ? Energy->active_power[i] / apparent_power[i] : 0;
-          if (power_factor[i] > 1) {
+          if (power_factor[i] > 1) {  // Should not happen (Active > Apparent)
+            power_factor[i] = 1;
+          }
+        }
+*/
+        power_factor[i] = Energy->power_factor[i];
+        if (isnan(power_factor[i])) {
+          power_factor[i] = (Energy->active_power[i] && apparent_power[i]) ? Energy->active_power[i] / apparent_power[i] : 0;
+        }
+        if (apparent_power[i] < Energy->active_power[i]) {  // Should be impossible
+          if (apparent_power[i]) {
+            if ((power_factor[i] >= 1.02f) && (power_factor[i] < 2.0f)) {  // Skip below 2% and don't expect 50% differences
+              AddLog(LOG_LEVEL_DEBUG_MORE, PSTR("NRG: Calibrate as Active %3_fW > Apparent %3_fVA (PF = %4_f)"),
+                &Energy->active_power[i], &apparent_power[i], &power_factor[i]);
+            }
+          }
+          apparent_power[i] = Energy->active_power[i];  // Force apparent equal to active as mis-calibrated
+          if (power_factor[i] > 1) {                    // Should not happen (Active > Apparent)
             power_factor[i] = 1;
           }
         }
