@@ -32,7 +32,7 @@
 #define USE_MP3
 //#define USE_WEBRADIO
 // select a codec
-#define USE_WM8960
+//#define USE_WM8960
 #endif
 
 

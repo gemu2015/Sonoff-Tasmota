@@ -43,6 +43,9 @@ typedef unsigned long prog_uint32_t;
 #define PGM_VOID_P    const void *
 #define _SFR_BYTE(n)  (n)
 
+#undef pgm_read_byte
+#undef pgm_read_word
+
 #define pgm_read_byte(addr)   (*(const unsigned char *)(addr))
 #define pgm_read_word(addr) ({ \
   typeof(addr) _addr = (addr); \

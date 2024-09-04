@@ -21,7 +21,7 @@
 /* proof of concept only
 attempt to create relocatable flash module drivers
 with runtime link and unlink
-adds about 11,3k flash size
+adds about 20k flash size
 
 to doo:
 
@@ -102,7 +102,6 @@ void Serial_print(const char *txt) {
   //Serial.printf("test: %x\n",(uint32_t)txt);
   Serial.printf_P(PSTR("test: %s\n"),txt);
 }
-
 
 TasmotaSerial *tmod_newTS(int32_t rpin, int32_t tpin);
 int tmod_beginTS(TasmotaSerial *ts, uint32_t baud);
@@ -1829,6 +1828,17 @@ char *Plugin_Get_SensorNames(char *type, uint32_t index) {
 
 /* ****************************** module handler ***********************************/
 
+#define MOD_UPL_ERR_NONE 0
+#define MOD_UPL_ERR_SYNC 1
+#define MOD_UPL_ERR_ARCH 2
+#define MOD_UPL_ERR_OLD 3
+#define MOD_UPL_ERR_SLOTS 4
+#define MOD_UPL_ERR_MEM 5
+
+const char MOD_UPL_ERRMSG[] PROGMEM =
+"OK|SYNC|ARCH|OLD|SLOTS|MEM";
+
+
 uint8_t *Load_Module(char *path, uint32_t *rsize);
 uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *offset, uint8_t flag, uint8_t index);
 
@@ -1870,6 +1880,12 @@ uint8_t *module_input_ptr;
 uint16_t module_bytes_read;
 uint16_t module_size;
 char   mod_name[16];
+uint8_t upload_error;
+uint32_t eeprom_start_block;
+uint8_t upload_slot;
+uint8_t upload_start_block;
+uint8_t upload_start_flag;
+
 bool ready;
 #ifdef EXECUTE_FROM_BINARY
 uint16_t mod_size;
@@ -2069,7 +2085,7 @@ uint8_t *Load_Module(char *path, uint32_t *rsize) {
 #endif  
 }
 
-uint32_t Module_CheckFree(uint32_t size) {
+uint32_t Module_CheckFree(uint32_t size, uint16_t *block ) {
 uint32_t eeprom_block;
 
   eeprom_block = plugins.free_flash_start;
@@ -2077,6 +2093,7 @@ uint32_t eeprom_block;
   // search for free entry
   uint32_t *lp = (uint32_t*) ( plugins.flashbase + plugins.free_flash_start );
   uint32_t addr = plugins.free_flash_start;
+  uint16_t cblock = 0;
   while (addr < plugins.free_flash_end) {
       uint32_t blocksize = SPI_FLASH_SEC_SIZE;
       if (*lp == MODULE_SYNC) {
@@ -2102,23 +2119,29 @@ uint32_t eeprom_block;
         }
         if (free) {
           eeprom_block = addr;
+          *block = cblock;
           return eeprom_block;
           break;
         }
       }
       lp += (blocksize / 4);
       addr += blocksize;
+      cblock++;
       //AddLog(LOG_LEVEL_INFO, PSTR("progress: %d"), addr);
       yield();
   }
   return 0;
 }
 
+//#define OLD_LOADER
+
+
 uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t flag, uint8_t index) {
 
   //AddLog(LOG_LEVEL_INFO, PSTR("store module size: %d"), size);
 
-  uint32_t eeprom_block = Module_CheckFree(size);
+  uint16_t block;
+  uint32_t eeprom_block = Module_CheckFree(size, &block);
   if (!eeprom_block) {
     return 0;
   }
@@ -2191,6 +2214,93 @@ uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t 
 #endif // ESP32
   return new_pc;
 }
+
+#ifndef OLD_LOADER
+uint32_t Store_Module_Block(uint8_t *fdesc, uint8_t index) {
+
+  AddLog(LOG_LEVEL_INFO,PSTR("store: %d"), index);
+
+  //return 0;
+  uint32_t new_pc = 0;
+
+  uint32_t eeprom_block = plugins.eeprom_start_block;
+  uint32_t size = SPI_FLASH_SEC_SIZE;
+
+  uint32_t *lwp=(uint32_t*)fdesc;
+
+  if (!plugins.upload_start_block) {
+    // write 1. sector, correct header entries
+
+#ifdef ESP8266  
+    const FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
+    new_pc = (uint32_t)eeprom_block + plugins.flashbase;
+
+    uint32_t offset = new_pc - fm->mod_start_org;
+    uint32_t *lp = (uint32_t*)&fm->execution_offset; 
+    *lp = offset;
+  
+    lp = (uint32_t*)&fm->mod_func_execute;
+    *lp = (uint32_t)fm->mod_func_execute_org + fm->execution_offset;;
+  
+    lp = (uint32_t*)&fm->mtv;
+    *lp = (uint32_t)&modules[index];
+
+    lp = (uint32_t*)&fm->jtab;
+    *lp = (uint32_t)&MODULE_JUMPTABLE;
+
+#endif // ESP8266
+
+#ifdef ESP32
+    FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
+    fm->execution_offset = (uint32_t)eeprom_block - fm->mod_start_org;
+
+    uint32_t *lp = (uint32_t*)&fm->mod_func_execute;
+    *lp = (uint32_t)fm->mod_func_execute_org + fm->execution_offset;
+
+    fm->mtv = (uint32_t)&modules[index];
+    fm->jtab = (uint32_t)&MODULE_JUMPTABLE;
+    new_pc = eeprom_block;
+#endif // ESP32
+  }
+
+#ifdef ESP8266
+//  AddLog(LOG_LEVEL_INFO, PSTR("Module offset %x: %x: %x: %x: %x: %x"),old_pc, new_pc, offset, corr_pc, (uint32_t)fm->mod_func_execute, (uint32_t)&module_header);
+  uint8_t blocks = (size / SPI_FLASH_SEC_SIZE) + 1;
+  for (uint8_t cnt = 0; cnt < blocks; cnt++) {
+    ESP.flashEraseSector(eeprom_block / SPI_FLASH_SEC_SIZE);
+    ESP.flashWrite(eeprom_block , lwp, SPI_FLASH_SEC_SIZE);
+    lwp += SPI_FLASH_SEC_SIZE / 4;
+    eeprom_block += SPI_FLASH_SEC_SIZE;
+    yield();
+  }
+#endif // ESP8266
+
+#ifdef ESP32
+  AddLog(LOG_LEVEL_INFO, PSTR("save module: %08x, size: %d"),eeprom_block, size);
+  uint32_t offset = eeprom_block - plugins.free_flash_start;
+  uint8_t blocks = (size / ESP32_PLUGIN_HSIZE) + 1;
+  for (uint8_t cnt = 0; cnt < blocks; cnt++) {
+    esp_err_t err = err = esp_partition_erase_range(plugins.flash_pptr, offset, ESP32_PLUGIN_HSIZE);
+    uint32_t ssize = ESP32_PLUGIN_HSIZE;
+    if (size < ESP32_PLUGIN_HSIZE) {
+      ssize = size;
+    }
+    err = esp_partition_write(plugins.flash_pptr, offset, (void*)lwp, ssize);
+    lwp += ESP32_PLUGIN_HSIZE / sizeof(uint32_t);
+    offset += ESP32_PLUGIN_HSIZE;
+    size -= ESP32_PLUGIN_HSIZE;
+    yield();
+    //AddLog(LOG_LEVEL_INFO, PSTR("progress: %d"),offset);
+  }
+#endif // ESP32
+
+  if (!plugins.upload_start_block) {
+    Set_Module_Start(index, new_pc);
+  }
+  return new_pc;;
+}
+
+#endif
 
 
 void AddModules(void) {
@@ -2350,6 +2460,7 @@ void LinkModule(uint8_t *mp, uint32_t size, char *name) {
   }
 }
 
+
 void Unlink_Named_Module(char *name) {
   for (uint8_t module = 0; module < MAX_PLUGINS; module++) {
     if (modules[module].mod_addr) {
@@ -2460,7 +2571,7 @@ void Update_Module_Data(uint32_t module, uint32_t *data) {
   }
 }
 
-// link 1 module from file (or web, not yet)
+// link 1 module from file
 void Module_link(void) {
   uint8_t *fdesc = 0;
 
@@ -2885,8 +2996,13 @@ const char MOD_FORM_FILE_UPG[] PROGMEM =
   "<br><button type='submit' onclick='eb(\"f1\").style.display=\"none\";eb(\"f2\").style.display=\"block\";this.form.submit();'>" D_START " %s</button></form>"
   "<br>";
 
+
+//const char MOD_FORM_FILE_UPGc[] PROGMEM =
+//  "<div style='text-align:left;color:#%06x;'>" "Max Slots" " %d - " "Free Slots" " %d";
+
 const char MOD_FORM_FILE_UPGc[] PROGMEM =
-  "<div style='text-align:left;color:#%06x;'>" "Max Slots" " %d - " "Free Slots" " %d";
+  "<p><span style='text-align:left;color:#%06x;'>" "Max Slots" " %d - " "Free Slots" " %d" " - Status: </span>"
+  "<span style='text-align:right;color:%s;'>" "%s" "</span></p>";
 
 uint16_t MOD_FreeSlots() {
   uint16_t slots = 0;
@@ -2963,7 +3079,16 @@ void Module_upload() {
   WSContentSendStyle();
   WSContentSend_P(PSTR("Plugins Directory"));
 
-  WSContentSend_P(MOD_FORM_FILE_UPGc, WebColor(COL_TEXT), MAX_PLUGINS, MOD_FreeSlots());
+
+  char type[16];
+  char color[8];
+  if (plugins.upload_error) {
+    strcpy_P(color, "red");
+  } else {
+    strcpy_P(color, "green");
+  } 
+
+  WSContentSend_P(MOD_FORM_FILE_UPGc, WebColor(COL_TEXT), MAX_PLUGINS, MOD_FreeSlots(),color,GetTextIndexed(type, sizeof(type), plugins.upload_error, MOD_UPL_ERRMSG));
 
 #ifdef EXECUTE_FROM_BINARY
   WSContentSend_P(MOD_FORM_FILE_UPG, PSTR("Plugin upload disabled"));
@@ -3079,7 +3204,7 @@ void Module_upload() {
   Webserver->send(303);  
 }
 
-#define OLD_LOADER
+
 
 #ifdef OLD_LOADER
 bool Module_upload_start(const char* upload_filename) {
@@ -3096,7 +3221,9 @@ bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
     plugins.module_size = fm->size;
     uint32_t size = (fm->size / SPI_FLASH_SEC_SIZE) + 1 ;
     size *= SPI_FLASH_SEC_SIZE;
-    if (!Module_CheckFree(size)) {
+    uint16_t block;
+    plugins.eeprom_start_block = Module_CheckFree(size, &block);
+    if (!plugins.eeprom_start_block) {
       AddLog(LOG_LEVEL_INFO,PSTR("flash slot memory error"));
       return false;
     }
@@ -3138,23 +3265,41 @@ void Module_upload_stop(void) {
 
 #else
 bool Check_Arch(FLASH_MODULE *fm);
-
 bool Check_Arch(FLASH_MODULE *fm) {
     if (fm->sync != MODULE_SYNC) {
       AddLog(LOG_LEVEL_INFO,PSTR("module sync error"));
+      plugins.upload_error = MOD_UPL_ERR_SYNC;
       return false;
     }
 
     if (fm->arch != CURR_ARCH) {
       AddLog(LOG_LEVEL_INFO,PSTR("plugin architecture error"));
+      plugins.upload_error = MOD_UPL_ERR_ARCH;
       return false;
     }
 
     if (fm->revision < MINREV) {
       AddLog(LOG_LEVEL_INFO,PSTR("plugin revision to old"));
+      plugins.upload_error = MOD_UPL_ERR_OLD;
       return false;
     }    
     return true;
+}
+
+int8_t Check_Slots(void) {
+  for (uint8_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
+    if (!modules[cnt].mod_addr) {
+      return cnt;
+    }
+  }
+  return -1;
+}
+
+void Set_Module_Start(uint8_t slot, uint32_t start) {
+    modules[slot].mod_addr = (void *) start;
+    modules[slot].jt = MODULE_JUMPTABLE;
+    modules[slot].flags.data = 0;
+    AddLog(LOG_LEVEL_INFO,PSTR("module %s loaded at slot %d"), plugins.mod_name, slot + 1);
 }
 
 bool Module_upload_start(const char* upload_filename) {
@@ -3164,11 +3309,22 @@ bool Module_upload_start(const char* upload_filename) {
     *cp = 0;
   }
   plugins.module_bytes_read = 0;
+  plugins.upload_start_block = 0;
+  plugins.upload_start_flag = 0;
+  plugins.upload_error = MOD_UPL_ERR_NONE;
   return true;
 }
-bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
 
-  if (0 == plugins.module_bytes_read) {
+bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
+  int8_t slot = 0;
+
+  if (plugins.upload_error) {
+      return false;
+  }
+
+
+  if (0 == plugins.upload_start_flag) {
+    plugins.upload_start_flag = 1;
     // 1. block
     FLASH_MODULE *fm = (FLASH_MODULE*)upload_buf;
     if (!Check_Arch(fm)) {
@@ -3177,46 +3333,64 @@ bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
     
     Unlink_Named_Module(plugins.mod_name);
 
+    slot = Check_Slots();
+    if (slot < 0) {
+      plugins.upload_error = MOD_UPL_ERR_SLOTS;
+      return false;
+    }
+    plugins.upload_slot = slot;
+
     plugins.module_size = fm->size;
     uint32_t size = (fm->size / SPI_FLASH_SEC_SIZE) + 1 ;
     size *= SPI_FLASH_SEC_SIZE;
-    if (!Module_CheckFree(size)) {
+    uint16_t block;
+    plugins.eeprom_start_block = Module_CheckFree(size, &block);
+    if (!plugins.eeprom_start_block) {
       AddLog(LOG_LEVEL_INFO,PSTR("flash slot memory error"));
+      plugins.upload_error = MOD_UPL_ERR_MEM;
       return false;
     }
+
+    // allocate 1 sector size
     plugins.module_input_buffer = (uint8_t *)special_malloc(SPI_FLASH_SEC_SIZE + 4);
     if (!plugins.module_input_buffer) {
       AddLog(LOG_LEVEL_INFO,PSTR("memory error"));
+      plugins.upload_error = MOD_UPL_ERR_MEM;
       return false;
     }
+        
     plugins.module_input_ptr = plugins.module_input_buffer;
   }
 
   delay(0);
-
-  AddLog(LOG_LEVEL_INFO,PSTR("progress bytes read; %d"),plugins.module_bytes_read);
-  AddLog(LOG_LEVEL_INFO,PSTR("progress current size; %d"),current_size);
-  AddLog(LOG_LEVEL_INFO,PSTR("progress input ptr; %d"),plugins.module_input_ptr);
-
-  if ((SPI_FLASH_SEC_SIZE - plugins.module_bytes_read) > current_size) {
+  
+  if (plugins.module_bytes_read == 0) {
+    AddLog(LOG_LEVEL_INFO,PSTR("progress bytes read 1; %d"),plugins.module_bytes_read);
     memcpy(plugins.module_input_ptr, upload_buf, current_size);
     plugins.module_bytes_read += current_size;
-    plugins.module_input_ptr += current_size;
-    AddLog(LOG_LEVEL_INFO,PSTR("progress true"));
-    return true;
+    if (current_size < 2048) {
+      // last block
+      Store_Module_Block(plugins.module_input_buffer, plugins.upload_slot);
+      return false;
+    }
   } else {
-    current_size = SPI_FLASH_SEC_SIZE - plugins.module_bytes_read;
-    memcpy(plugins.module_input_ptr, upload_buf, current_size);
-    plugins.module_bytes_read += current_size;
-    plugins.module_input_ptr += current_size;
-    AddLog(LOG_LEVEL_INFO,PSTR("progress false"));
+    AddLog(LOG_LEVEL_INFO,PSTR("progress bytes read 2; %d"),plugins.module_bytes_read);
+    memcpy(plugins.module_input_ptr + plugins.module_bytes_read, upload_buf, current_size);
+    Store_Module_Block(plugins.module_input_buffer, plugins.upload_slot);
+    plugins.upload_start_block++;
+    plugins.eeprom_start_block += SPI_FLASH_SEC_SIZE;
+    plugins.module_bytes_read = 0;
+  }
+  if (current_size < 2048) {
     return false;
   }
+  
+  return true;
 }
 
 void Module_upload_stop(void) {
   if (plugins.module_input_buffer) {
-    //LinkModule(plugins.module_input_buffer, plugins.module_bytes_read, plugins.mod_name);
+    free(plugins.module_input_buffer);
   }
 }
 #endif
