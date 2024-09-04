@@ -32,10 +32,17 @@
 #define USE_MP3_PSRAM
 #define USE_MP3
 //#define USE_WEBRADIO
+
 // select a codec
-#ifndef __riscv
 #define USE_WM8960
-#endif
+// box lite
+// ES8156_init(); DAC
+// es7243e_init(); ADC
+// box full
+// ES8311_init(); DAC
+// es7210_init(); ADC
+
+
 #endif
 
 
