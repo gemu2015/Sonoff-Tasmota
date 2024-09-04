@@ -68,9 +68,12 @@ typedef struct {
   volatile MD_TYPE value;
 } MODULE_STORE;
 
-#ifndef MAX_MOD_STORES
-#define MAX_MOD_STORES 6
+#ifndef MAX_MOD_STORESn
+#define MAX_MOD_STORESn 6
 #endif
+
+#define MAX_MOD_STORES 4
+
 
 // this descriptor is in .text so only 32 bit access allowed
 #pragma pack(4)
@@ -94,7 +97,7 @@ typedef struct {
   int32_t (*mod_func_execute_org)(uint32_t);
   
   // 56
-  MODULE_STORE ms[MAX_MOD_STORES];
+  MODULE_STORE ms[MAX_MOD_STORESn];
 } FLASH_MODULE;
 
 enum {
