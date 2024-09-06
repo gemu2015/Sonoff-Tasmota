@@ -22,6 +22,10 @@
 #ifdef USE_I2S_MOD
 #define XDRV_42 42
 
+#ifdef ESP32
+#define MAX_MOD_STORES 6
+#endif
+
 
 #include "module.h"
 #include "module_defines.h"
@@ -31,7 +35,7 @@
 #ifdef ESP32
 #define USE_MP3_PSRAM
 #define USE_MP3
-//#define USE_WEBRADIO
+#define USE_WEBRADIO
 
 // select a codec
 #define USE_WM8960
@@ -153,6 +157,7 @@ typedef struct {
 #define I2S_REV 1 << 16 | 5
 #ifdef ESP8266
 MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0)
+//MODULE_DESCRIPTOR6(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0, "", 0, "", 0)
 #else
 //MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "BCK", GPIO_BCK, "WS", GPIO_WS, "MODE", 0x01000200)
 MODULE_DESCRIPTOR6(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "BCK", GPIO_BCK, "WS", GPIO_WS, "MODE", 0x01000200,"CODEC", 0x01000200,"", 0)
@@ -219,7 +224,8 @@ int32_t I2SAudio_Init() {
 
   i2sp = i2s_begin(dout_pin, bck_pin, ws_pin, mode);
 
-  const int32_t *icp = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+  // voltile is needed due to by eps8266 asm error
+  volatile const int32_t *icp = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
   pclamp = icp[0];
   mclamp = icp[1];
 
@@ -794,8 +800,8 @@ void I2sTaskWR(char *url) {
 }
 #endif
 
-// i2xwr http://dispatcher.rndfnk.com/hr/hr3/live/mp3/48/stream.mp3
-// i2xwr http://wdr-1live-live.icecast.wdr.de/wdr/1live/live/mp3/128/stream.mp3
+// i2swr http://dispatcher.rndfnk.com/hr/hr3/live/mp3/48/stream.mp3
+// i2swr http://wdr-1live-live.icecast.wdr.de/wdr/1live/live/mp3/128/stream.mp3
 
 void WebRadio(void) {
   SETREGS
@@ -822,13 +828,9 @@ void WebRadio(void) {
   return;
 #else
 
-  char curr_ip[16];
-
-  GetHostbyName(url, curr_ip);
-
-  AddLog(LOG_LEVEL_INFO, PSTR("ip = %s"), curr_ip);
-
-  return;
+  //char curr_ip[16];
+  //GetHostbyName(url, curr_ip);
+  //AddLog(LOG_LEVEL_INFO, PSTR("ip = %s"), curr_ip);
 
   if (!wclient) {
     wclient = New_WiFiClient();
@@ -861,19 +863,22 @@ void WebRadio(void) {
   
   AddLog(LOG_LEVEL_INFO, PSTR("WR result: %d"), code);
   
- /* 
+
+  uint32_t samplerate=44100;
+
   uint32_t has_bitrate;
 
   if (http_hasHeader(http, PSTR("icy-br"))) {
     char *ret = http_header(http, PSTR("icy-br"));
-    AddLog(LOG_LEVEL_INFO, PSTR("WR br = %d"),ret);
+    AddLog(LOG_LEVEL_INFO, PSTR("WR br = %s"),ret);
+    free(ret);
     has_bitrate = 1; // ret.toInt();
   } else {
     has_bitrate = 0;
   }
 
   int32_t size = http_getSize(http);
-*/
+
 #endif
 
   busy = true;

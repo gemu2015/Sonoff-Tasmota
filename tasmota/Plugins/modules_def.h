@@ -53,11 +53,7 @@ typedef struct {
   MOD_FLAGS flags;
 } MODULES_TABLE;
 
-
-//#define EXEC_OFFSET mt->execution_offset
-
 #define EXEC_OFFSET ((FLASH_MODULE*)mt->mod_addr)->execution_offset
-
 
 #define MD_TYPE uint32_t
 
@@ -68,37 +64,6 @@ typedef struct {
   volatile MD_TYPE value;
 } MODULE_STORE;
 
-#ifndef MAX_MOD_STORESn
-#define MAX_MOD_STORESn 6
-#endif
-
-#define MAX_MOD_STORES 4
-
-
-// this descriptor is in .text so only 32 bit access allowed
-#pragma pack(4)
-typedef struct {
-  MD_TYPE sync;
-  MD_TYPE arch;
-  MD_TYPE type;
-  MD_TYPE revision;
-  char name[16];
-  // 32 => 0x20
-  int32_t (*mod_func_execute)(uint32_t);
-  void (*end_of_module)(void);
-  MD_TYPE size;
-  // 40 => 0x28
-  MD_TYPE execution_offset;
-  // 44 => 0x2c
-  MD_TYPE mtv;
-  MD_TYPE jtab;
-  // 52 = 0x34
-  uint32_t mod_start_org;
-  int32_t (*mod_func_execute_org)(uint32_t);
-  
-  // 56
-  MODULE_STORE ms[MAX_MOD_STORESn];
-} FLASH_MODULE;
 
 enum {
   temperature_celsius = 0, tele_period, global_update, humidity, uptime, rel_inverted, devices_present 

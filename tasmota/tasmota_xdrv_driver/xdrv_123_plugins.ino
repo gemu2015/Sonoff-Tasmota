@@ -41,6 +41,35 @@ to doo:
 #define MINREV 0x00010004
 #define CURR_MINREV 0x00010005
 
+
+
+#define MAX_MOD_STORES 4
+// this descriptor is in flash so only 32 bit access allowed
+#pragma pack(4)
+typedef struct {
+  MD_TYPE sync;
+  MD_TYPE arch;
+  MD_TYPE type;
+  MD_TYPE revision;
+  char name[16];
+  // 32 => 0x20
+  int32_t (*mod_func_execute)(uint32_t);
+  void (*end_of_module)(void);
+  MD_TYPE size;
+  // 40 => 0x28
+  MD_TYPE execution_offset;
+  // 44 => 0x2c
+  MD_TYPE mtv;
+  MD_TYPE jtab;
+  // 52 = 0x34
+  uint32_t mod_start_org;
+  int32_t (*mod_func_execute_org)(uint32_t);
+  
+  // 56
+  MODULE_STORE ms[MAX_MOD_STORES];
+} FLASH_MODULE;
+
+
 #ifdef EXECUTE_FROM_BINARY
 extern const FLASH_MODULE module_header;
 #else
@@ -650,7 +679,9 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
       char *cp = copyStr((char*)p2);
       String hd = http->header(cp);
       free(cp);
-      return (uint32_t) hd.c_str();
+      cp = (char*)malloc(32);
+      strlcpy(cp, hd.c_str(), 32);
+      return (uint32_t) cp;
       }
     case 42:
       {
@@ -884,6 +915,12 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
       break;
     case 7:
 #if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
+      /* does not work ???
+      uint8_t zero_buffer[240] = {0};
+      for (uint32_t i = 0; i < 6; i++) {
+        i2s_channel_write(tx_handle, zero_buffer, sizeof(zero_buffer), nullptr, 5); // fill DMA buffer with silence
+      }
+      */
       return i2s_channel_disable(tx_handle);
 #endif
       break;
@@ -2135,99 +2172,14 @@ uint32_t eeprom_block;
   return 0;
 }
 
-//#define OLD_LOADER
-
-
-uint32_t Store_Module(uint8_t *fdesc, uint32_t size, uint32_t *ioffset, uint8_t flag, uint8_t index) {
-
-  //AddLog(LOG_LEVEL_INFO, PSTR("store module size: %d"), size);
-
-  uint16_t block;
-  uint32_t eeprom_block = Module_CheckFree(size, &block);
-  if (!eeprom_block) {
-    return 0;
-  }
-
-  //AddLog(LOG_LEVEL_INFO, PSTR(" >>>"));
-
-#ifdef ESP8266  
-  const FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
-  uint32_t new_pc = (uint32_t)eeprom_block + plugins.flashbase;
-
-  uint32_t offset = new_pc - fm->mod_start_org;
-  uint32_t *lp = (uint32_t*)&fm->execution_offset; 
-  *lp = offset;
-  
-  lp = (uint32_t*)&fm->mod_func_execute;
-  *lp = (uint32_t)fm->mod_func_execute_org + fm->execution_offset;;
-  
-  lp = (uint32_t*)&fm->mtv;
-  *lp = (uint32_t)&modules[index];
-
-  lp = (uint32_t*)&fm->jtab;
-  *lp = (uint32_t)&MODULE_JUMPTABLE;
-
-  uint32_t *lwp=(uint32_t*)fdesc;
-#endif // ESP8266
-
-#ifdef ESP32
-  FLASH_MODULE *fm = (FLASH_MODULE*)fdesc;
-  fm->execution_offset = (uint32_t)eeprom_block - fm->mod_start_org;
-
-  uint32_t *lp = (uint32_t*)&fm->mod_func_execute;
-  *lp = (uint32_t)fm->mod_func_execute_org + fm->execution_offset;
-
-  fm->mtv = (uint32_t)&modules[index];
-  fm->jtab = (uint32_t)&MODULE_JUMPTABLE;
-
-  uint32_t *lwp=(uint32_t*)fdesc;
-  uint32_t new_pc = eeprom_block;
-#endif // ESP32
-
-#ifdef ESP8266
-//  AddLog(LOG_LEVEL_INFO, PSTR("Module offset %x: %x: %x: %x: %x: %x"),old_pc, new_pc, offset, corr_pc, (uint32_t)fm->mod_func_execute, (uint32_t)&module_header);
-  uint8_t blocks = (size / SPI_FLASH_SEC_SIZE) + 1;
-  for (uint8_t cnt = 0; cnt < blocks; cnt++) {
-    ESP.flashEraseSector(eeprom_block / SPI_FLASH_SEC_SIZE);
-    ESP.flashWrite(eeprom_block , lwp, SPI_FLASH_SEC_SIZE);
-    lwp += SPI_FLASH_SEC_SIZE / 4;
-    eeprom_block += SPI_FLASH_SEC_SIZE;
-    yield();
-  }
-#endif // ESP8266
-
-#ifdef ESP32
-  AddLog(LOG_LEVEL_INFO, PSTR("save module: %08x, size: %d"),eeprom_block, size);
-  uint32_t offset = eeprom_block - plugins.free_flash_start;
-  uint8_t blocks = (size / ESP32_PLUGIN_HSIZE) + 1;
-  for (uint8_t cnt = 0; cnt < blocks; cnt++) {
-    esp_err_t err = err = esp_partition_erase_range(plugins.flash_pptr, offset, ESP32_PLUGIN_HSIZE);
-    uint32_t ssize = ESP32_PLUGIN_HSIZE;
-    if (size < ESP32_PLUGIN_HSIZE) {
-      ssize = size;
-    }
-    err = esp_partition_write(plugins.flash_pptr, offset, (void*)lwp, ssize);
-    lwp += ESP32_PLUGIN_HSIZE / sizeof(uint32_t);
-    offset += ESP32_PLUGIN_HSIZE;
-    size -= ESP32_PLUGIN_HSIZE;
-    yield();
-    //AddLog(LOG_LEVEL_INFO, PSTR("progress: %d"),offset);
-  }
-#endif // ESP32
-  return new_pc;
-}
-
-#ifndef OLD_LOADER
+// store a single Block to Flash
 uint32_t Store_Module_Block(uint8_t *fdesc, uint8_t index) {
 
-  AddLog(LOG_LEVEL_INFO,PSTR("store: %d"), index);
+  //AddLog(LOG_LEVEL_INFO,PSTR("store: %d"), index);
 
-  //return 0;
   uint32_t new_pc = 0;
 
   uint32_t eeprom_block = plugins.eeprom_start_block;
-  uint32_t size = SPI_FLASH_SEC_SIZE;
-
   uint32_t *lwp=(uint32_t*)fdesc;
 
   if (!plugins.upload_start_block) {
@@ -2267,33 +2219,17 @@ uint32_t Store_Module_Block(uint8_t *fdesc, uint8_t index) {
 
 #ifdef ESP8266
 //  AddLog(LOG_LEVEL_INFO, PSTR("Module offset %x: %x: %x: %x: %x: %x"),old_pc, new_pc, offset, corr_pc, (uint32_t)fm->mod_func_execute, (uint32_t)&module_header);
-  uint8_t blocks = (size / SPI_FLASH_SEC_SIZE) + 1;
-  for (uint8_t cnt = 0; cnt < blocks; cnt++) {
-    ESP.flashEraseSector(eeprom_block / SPI_FLASH_SEC_SIZE);
-    ESP.flashWrite(eeprom_block , lwp, SPI_FLASH_SEC_SIZE);
-    lwp += SPI_FLASH_SEC_SIZE / 4;
-    eeprom_block += SPI_FLASH_SEC_SIZE;
-    yield();
-  }
+  ESP.flashEraseSector(eeprom_block / SPI_FLASH_SEC_SIZE);
+  ESP.flashWrite(eeprom_block , lwp, SPI_FLASH_SEC_SIZE);
+  yield();
 #endif // ESP8266
 
 #ifdef ESP32
-  AddLog(LOG_LEVEL_INFO, PSTR("save module: %08x, size: %d"),eeprom_block, size);
+  //AddLog(LOG_LEVEL_INFO, PSTR("save module: %08x, size: %d"),eeprom_block, size);
   uint32_t offset = eeprom_block - plugins.free_flash_start;
-  uint8_t blocks = (size / ESP32_PLUGIN_HSIZE) + 1;
-  for (uint8_t cnt = 0; cnt < blocks; cnt++) {
-    esp_err_t err = err = esp_partition_erase_range(plugins.flash_pptr, offset, ESP32_PLUGIN_HSIZE);
-    uint32_t ssize = ESP32_PLUGIN_HSIZE;
-    if (size < ESP32_PLUGIN_HSIZE) {
-      ssize = size;
-    }
-    err = esp_partition_write(plugins.flash_pptr, offset, (void*)lwp, ssize);
-    lwp += ESP32_PLUGIN_HSIZE / sizeof(uint32_t);
-    offset += ESP32_PLUGIN_HSIZE;
-    size -= ESP32_PLUGIN_HSIZE;
-    yield();
-    //AddLog(LOG_LEVEL_INFO, PSTR("progress: %d"),offset);
-  }
+  esp_err_t err = err = esp_partition_erase_range(plugins.flash_pptr, offset, ESP32_PLUGIN_HSIZE);
+  err = esp_partition_write(plugins.flash_pptr, offset, (void*)lwp, ESP32_PLUGIN_HSIZE);
+  yield();
 #endif // ESP32
 
   if (!plugins.upload_start_block) {
@@ -2301,9 +2237,6 @@ uint32_t Store_Module_Block(uint8_t *fdesc, uint8_t index) {
   }
   return new_pc;;
 }
-
-#endif
-
 
 void AddModules(void) {
   uint16_t module = 0;
@@ -2395,72 +2328,6 @@ void Module_mdir(void) {
   free(vp);
 }
 
-void LinkModule(uint8_t *mp, uint32_t size, char *name) {
-  uint8_t cnt;
-  const FLASH_MODULE *fm = (FLASH_MODULE*)mp;
-
-  if (mp) {
-    if (fm->sync != MODULE_SYNC) {
-      free(mp);
-      AddLog(LOG_LEVEL_INFO,PSTR("module sync error"));
-      return;
-    }
-
-    if ((fm->arch & 0x000000ff) != CURR_ARCH) {
-      free(mp);
-      AddLog(LOG_LEVEL_INFO,PSTR("plugin architecture error"));
-      return;
-    }
-
-    if (fm->revision < MINREV) {
-      free(mp);
-      AddLog(LOG_LEVEL_INFO,PSTR("plugin revision to old"));
-      return;
-    }
-
-/*
-    if (fm->revision < CURR_MINREV ) {
-      free(mp);
-      AddLog(LOG_LEVEL_INFO,PSTR("plugin handler revision to old"));
-      return;
-    }
- */   
-    
-    Unlink_Named_Module(name);
-
-    uint8_t sfree = 0; 
-    for (cnt = 0; cnt < MAX_PLUGINS; cnt++) {
-      if (!modules[cnt].mod_addr) {
-        sfree = 1;
-        break;
-      }
-    }
-    if (!sfree) {
-      free(mp);
-      AddLog(LOG_LEVEL_INFO,PSTR("no free slot!"));
-      return;
-    }
-
-    uint32_t offset;
-  
-#ifdef ESP32
-    modules[cnt].mod_addr = (void *) Store_Module(mp, size, &offset, 1, cnt);
-    free(mp);
-#else
-    modules[cnt].mod_addr = (void *) Store_Module(mp, size, &offset, 0, cnt);
-    free(mp);
-#endif
-  
-    //AddLog(LOG_LEVEL_INFO,PSTR("module stored in flash at: %08x"),modules[cnt].mod_addr);
-    const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-    modules[cnt].jt = MODULE_JUMPTABLE;
-    modules[cnt].flags.data = 0;
-    AddLog(LOG_LEVEL_INFO,PSTR("module %s loaded at slot %d"), name, cnt + 1);
-  } else {
-    // error
-    AddLog(LOG_LEVEL_INFO,PSTR("module error"));
-  }
-}
 
 
 void Unlink_Named_Module(char *name) {
@@ -2598,8 +2465,8 @@ void Module_link(void) {
   if (XdrvMailbox.data_len) {
     uint32_t size;
 #ifdef USE_UFILESYS
-    uint8_t *mp = Load_Module(XdrvMailbox.data, &size);
-    LinkModule(mp, size, XdrvMailbox.data);
+   //uint8_t *mp = Load_Module(XdrvMailbox.data, &size);
+    //LinkModule(mp, size, XdrvMailbox.data);
 #endif
   }
   ResponseCmndDone();
@@ -3231,66 +3098,6 @@ void Module_upload() {
   Webserver->send(303);  
 }
 
-
-
-#ifdef OLD_LOADER
-bool Module_upload_start(const char* upload_filename) {
-  strlcpy(plugins.mod_name, upload_filename, sizeof(plugins.mod_name));
-  plugins.module_bytes_read = 0;
-  return true;
-}
-
-bool Module_upload_write(uint8_t *upload_buf, size_t current_size) {
-
-  if (0 == plugins.module_bytes_read) {
-    // 1. block
-    FLASH_MODULE *fm = (FLASH_MODULE*)upload_buf;
-    plugins.module_size = fm->size;
-    uint32_t size = (fm->size / SPI_FLASH_SEC_SIZE) + 1 ;
-    size *= SPI_FLASH_SEC_SIZE;
-    uint16_t block;
-    plugins.eeprom_start_block = Module_CheckFree(size, &block);
-    if (!plugins.eeprom_start_block) {
-      AddLog(LOG_LEVEL_INFO,PSTR("flash slot memory error"));
-      return false;
-    }
-    plugins.module_input_buffer = (uint8_t *)special_malloc(size + 4);
-    if (!plugins.module_input_buffer) {
-      AddLog(LOG_LEVEL_INFO,PSTR("memory error"));
-      return false;
-    }
-    plugins.module_input_ptr = plugins.module_input_buffer;
-  }
-
-  delay(0);
-
-  //AddLog(LOG_LEVEL_INFO,PSTR("progress; %d"),plugins.module_bytes_read);
-
-  if ((plugins.module_size - plugins.module_bytes_read) > current_size) {
-    memcpy(plugins.module_input_ptr, upload_buf, current_size);
-    plugins.module_bytes_read += current_size;
-    plugins.module_input_ptr += current_size;
-    return true;
-  } else {
-    current_size = plugins.module_size - plugins.module_bytes_read;
-    memcpy(plugins.module_input_ptr, upload_buf, current_size);
-    plugins.module_bytes_read += current_size;
-    plugins.module_input_ptr += current_size;
-    return false;
-  }
-}
-
-void Module_upload_stop(void) {
-  if (plugins.module_input_buffer) {
-    char *cp = strchr(plugins.mod_name, '_');
-    if (cp) {
-      *cp = 0;
-    }
-    LinkModule(plugins.module_input_buffer, plugins.module_bytes_read, plugins.mod_name);
-  }
-}
-
-#else
 bool Check_Arch(FLASH_MODULE *fm);
 bool Check_Arch(FLASH_MODULE *fm) {
     if (fm->sync != MODULE_SYNC) {
@@ -3420,8 +3227,6 @@ void Module_upload_stop(void) {
     free(plugins.module_input_buffer);
   }
 }
-#endif
-
 
 void Module_HandleUploadLoop(void) {
 
