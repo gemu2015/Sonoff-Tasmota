@@ -39,10 +39,10 @@ typedef struct {
   int32_t (*mod_func_execute_org)(uint32_t);
   
   // 56
-  MODULE_STORE ms[MAX_MOD_STORES];
+  MODULE_STORE ms[];
 } FLASH_MODULE;
 
-
+#define EXEC_OFFSET ((FLASH_MODULE*)mt->mod_addr)->execution_offset
 
 #ifdef ESP8266
 #define portMUX_TYPE void

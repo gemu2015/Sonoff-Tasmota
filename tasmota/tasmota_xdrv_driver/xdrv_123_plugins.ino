@@ -41,8 +41,6 @@ to doo:
 #define MINREV 0x00010004
 #define CURR_MINREV 0x00010005
 
-
-
 #define MAX_MOD_STORES 4
 // this descriptor is in flash so only 32 bit access allowed
 #pragma pack(4)
@@ -66,9 +64,10 @@ typedef struct {
   int32_t (*mod_func_execute_org)(uint32_t);
   
   // 56
-  MODULE_STORE ms[MAX_MOD_STORES];
+  MODULE_STORE ms[];
 } FLASH_MODULE;
 
+#define EXEC_OFFSET ((FLASH_MODULE*)mt->mod_addr)->execution_offset
 
 #ifdef EXECUTE_FROM_BINARY
 extern const FLASH_MODULE module_header;

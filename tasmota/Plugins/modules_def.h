@@ -53,7 +53,7 @@ typedef struct {
   MOD_FLAGS flags;
 } MODULES_TABLE;
 
-#define EXEC_OFFSET ((FLASH_MODULE*)mt->mod_addr)->execution_offset
+
 
 #define MD_TYPE uint32_t
 
