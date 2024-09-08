@@ -678,9 +678,15 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
       char *cp = copyStr((char*)p2);
       String hd = http->header(cp);
       free(cp);
-      cp = (char*)malloc(32);
-      strlcpy(cp, hd.c_str(), 32);
-      return (uint32_t) cp;
+      const char *sp = hd.c_str();
+      uint16_t len = strlen(sp);
+      if (len) {
+        cp = (char*)malloc(len + 2);
+        strlcpy(cp, sp, len);
+        return (uint32_t) cp;
+      } else {
+        return 0;
+      }
       }
     case 42:
       {

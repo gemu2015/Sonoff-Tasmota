@@ -24,6 +24,8 @@
 
 #ifdef ESP32
 #define MAX_MOD_STORES 6
+#else
+#define MAX_MOD_STORES 4
 #endif
 
 
@@ -99,6 +101,8 @@ typedef struct {
 #ifdef USE_WEBRADIO
   void *http;
   void *wclient;
+  uint16_t icyMetaInt;
+  char meta[64];
 #endif
 
 #ifdef USE_SAY
@@ -134,7 +138,8 @@ typedef struct {
 #define samrender mem->samrender
 #define samdata mem->samdata
 #define codec mem->codec
-
+#define icyMetaInt mem->icyMetaInt
+#define meta mem->meta
 
 // esp8266 fixed i2s pins : DOUT = 3(RX), BCK = 15(D8), WS = 2(D4)
 
@@ -160,7 +165,7 @@ MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "",
 //MODULE_DESCRIPTOR6(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0, "", 0, "", 0)
 #else
 //MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "BCK", GPIO_BCK, "WS", GPIO_WS, "MODE", 0x01000200)
-MODULE_DESCRIPTOR6(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "BCK", GPIO_BCK, "WS", GPIO_WS, "MODE", 0x01000200,"CODEC", 0x01000200,"", 0)
+MODULE_DESCRIPTOR6(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "BCK", GPIO_BCK, "WS", GPIO_WS, "MODE", 0x01000200,"CODEC", 0x01000201,"", 0)
 #endif
 
 // all functions must be declared MUDULE_PART
@@ -180,6 +185,7 @@ MODULE_PART int32_t W8960_Init(void);
 MODULE_PART void W8960_Write(uint8_t reg_addr, uint16_t data);
 MODULE_PART void W8960_SetGain(uint8_t sel, uint16_t value);
 MODULE_PART void Write_Samples(int16_t *buffer, uint32_t samples);
+MODULE_PART void I2sWrShow(bool json);
 MODULE_PART void I2SAudio_Deinit();
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
 MODULE_END
@@ -190,7 +196,7 @@ MODULE_END
 #endif
 
 #define OUTBUFF_SIZE 1024 * 6
-#define INBUFF_SIZE 1024
+#define INBUFF_SIZE 1024 * 2
 
 const char S_JSON_FNF[] PROGMEM = "{\"File %s not found\"}";
 const char S_JSON_ILLF[] PROGMEM = "{\"Illegal File format\"}";
@@ -208,7 +214,11 @@ const char S_JSON_WMERR[] PROGMEM = "{\"WM8960 error\"}";
 
 const char tname[] PROGMEM = "I2STASK";
 const uint32_t ui32_const[4] PROGMEM = {OUTBUFF_SIZE, TASK_STACK, 0x46464952 , INBUFF_SIZE}; 
-const int32_t i32_const[6] PROGMEM = {32768, -32768, 22050, sizeof(SAM_RENDER), 37541, 32000}; 
+const int32_t i32_const[7] PROGMEM = {32768, -32768, 22050, sizeof(SAM_RENDER), 37541, 32000, 44100}; 
+
+#define GET_OBS ucp[0]
+#define GET_IBS ucp[3]
+#define GET_TSTACK ucp[1]
 
 
 int32_t I2SAudio_Init() {
@@ -366,6 +376,8 @@ void I2S_Play(void) {
 
     int16_t buffer[512];
 
+
+    uint16_t   count=0;
     while (1) {
       uint32_t bytesread = fread((char*)buffer, 1, sizeof(buffer), wf);
       if (!bytesread) {
@@ -373,6 +385,7 @@ void I2S_Play(void) {
       }
       Write_Samples(buffer, bytesread / 2);
       OsWatchLoop();
+
     }
 
     fclose(wf);
@@ -411,8 +424,7 @@ void I2S_Play(void) {
 void SetVolume(void) {
   SETREGS
   uint16_t gain;
-  // virtual bool SetGain(float f) { if (f>4.0) f = 4.0; if (f<0.0) f=0.0; gainF2P6 = (uint8_t)(f*(1<<6)); return true; }
-
+ 
   if (XdrvMailbox->data_len > 0) {
     char *cp = XdrvMailbox->data;
     while (*cp == ' ') cp++;
@@ -433,6 +445,8 @@ void SetVolume(void) {
 
 void Write_Samples(int16_t *buffer, uint32_t samples) {
 SETMEMREGS
+
+  if (!samples) return;
 
   if (chans == 2 && force_mono) {
     for (uint32_t i = 0; i < samples; i += 2) {
@@ -608,6 +622,7 @@ MODULE_PART void OutputByteCallback(void *cbdata, unsigned char b) {
 }
 #endif
 
+// cuurently say is blocking also on esp32
 void Say(void) {
   SETREGS
 #ifdef USE_SAY
@@ -720,6 +735,7 @@ void Say(void) {
   free(samrender);
 
   i2s_disable_tx(i2sp);
+
   running = false;
   busy = false;
   ResponseCmndDone();
@@ -743,6 +759,9 @@ const char hdr_4[] PROGMEM = "icy-br";
 
 const uint32_t hdr[] PROGMEM = { (uint32_t)hdr_1, (uint32_t)hdr_2, (uint32_t)hdr_3, (uint32_t)hdr_4 };
 
+
+//#define DUMP
+
 // webradio task
 void I2sTaskWR(char *url) {
   SETREGS
@@ -750,36 +769,127 @@ void I2sTaskWR(char *url) {
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task started"));
 
   running = true;
+
   i2s_enable_tx(i2sp);
 
-  const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
-  uint32_t len = uicp[3];
+  volatile const uint32_t *ucp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
+  uint32_t ibsize = GET_IBS;
 
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task started 2"));
 
   uint32_t count = 0;
+  uint32_t buffer_bytes = 0;
+
+#ifdef DUMP 
+  File_p *fp;
+  fp = fopen(PSTR("/dump.bin"), 'w');
+#endif
+
+  int32_t bytesread;
+  uint32_t icycount = 0;
+
+  uint32_t avail;
   while (running) {
     uint32_t start = millis();
-    while ((client_available(wclient) < len) && (millis() - start < 500)) {
+    while (1) {
+      avail = client_available(wclient);
+      if (avail >= ibsize) {
+        break;
+      }
+      if (millis() - start > 1000) {
+        // timeout
+        avail = 0;
+        break;
+      }
       delay(1);
     }
-
-    uint32_t avail = client_available(wclient);
     if (!avail) {
+      AddLog(LOG_LEVEL_INFO, PSTR("timeout"));
       break;
     }
 
     count++;
-    if (count%10 == 0) {
-      AddLog(LOG_LEVEL_INFO, PSTR(">> rec %d - %d"), avail, count);
+    if (__umodsi3(count, 20) == 0) {
+      //AddLog(LOG_LEVEL_INFO, PSTR(">> rec %d - %d"), avail, count);
     }
-    client_readn(wclient, m_outBuff, len);
+
+ 
+    uint32_t bytestoread = ibsize - buffer_bytes;
+ 
+#if 1
+    bytesread = client_readn(wclient, m_inBuff + buffer_bytes, bytestoread);
+#else
+    uint8_t *ip = &m_inBuff[buffer_bytes];
+    if (icyMetaInt) {
+      for (uint32_t  cnt = 0; cnt < bytestoread; cnt++) {
+        *ip++ = client_read(wclient);
+        icycount +=  1;
+        if (icycount == icyMetaInt) {
+          uint16_t icylen = (client_read(wclient) << 4);
+          AddLog(LOG_LEVEL_INFO, PSTR("icylen = %d"), icylen);
+          if (icylen > 512) {
+            icylen = 512;
+          }
+          char icbuff [512];
+          client_readn(wclient, icbuff, icylen);
+          icycount = 0;
+        }
+      }
+    } else {
+      for (uint32_t  cnt = 0; cnt < bytestoread; cnt++) {
+        *ip++ = client_read(wclient);
+      }
+    }
+#endif
+
+#ifdef DUMP 
+    fwrite(m_inBuff, 1, ibsize, fp);
+    if (count >= 2000) {
+      break;
+    }
+#endif
+    
+    m_bytesLeft = buffer_bytes;
+
+    //AddLog(LOG_LEVEL_INFO, PSTR(">> icycnt %02x %02x %02x %02x"), m_inBuff[0], m_inBuff[1], m_inBuff[2], m_inBuff[3] );
+
+    int16_t m_decodeError = MP3Decode(m_inBuff, &m_bytesLeft, m_outBuff, 0);
+    if (m_decodeError) {
+      AddLog(LOG_LEVEL_INFO, PSTR("mp3 header error = %d"), m_decodeError);
+      break;
+    }
+
+    uint32_t sr = MP3GetSampRate();
+    if (sr && sr != srate) {
+      srate = sr;
+      chans = MP3GetChannels();
+      i2s_set_rate(i2sp, srate, mode, chans);
+    }
+
+    uint32_t bytesDecoded = buffer_bytes - m_bytesLeft;
+    buffer_bytes -= bytesDecoded;
+    memmove(m_inBuff, m_inBuff + bytesDecoded, ibsize - bytesDecoded);
+    
+    //AddLog(LOG_LEVEL_INFO, PSTR(">> %d"), bytesDecoded );
+
+    uint32_t samples = MP3GetOutputSamps();
+
+    if (samples > GET_OBS >> 1) {
+      AddLog(LOG_LEVEL_INFO, PSTR("mp3 output buffer overflow = %d"), samples);
+      running = 0;
+    } else {
+      Write_Samples(m_outBuff, samples);
+    }
 
     if (!http_connected(http)) {
       break;
     }
 
   }
+
+#ifdef DUMP 
+  fclose(fp);
+#endif
 
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task stop"));
 
@@ -802,6 +912,7 @@ void I2sTaskWR(char *url) {
 
 // i2swr http://dispatcher.rndfnk.com/hr/hr3/live/mp3/48/stream.mp3
 // i2swr http://wdr-1live-live.icecast.wdr.de/wdr/1live/live/mp3/128/stream.mp3
+// i2swr http://dispatcher.rndfnk.com/br/brklassik/live/mp3/low
 
 void WebRadio(void) {
   SETREGS
@@ -820,17 +931,6 @@ void WebRadio(void) {
     }
     return;
   }
-
-#if 0
-  int32_t xres = icecast_open(url);
-  AddLog(LOG_LEVEL_INFO, PSTR("icecast res: %d"),xres);
-  icecast_end();
-  return;
-#else
-
-  //char curr_ip[16];
-  //GetHostbyName(url, curr_ip);
-  //AddLog(LOG_LEVEL_INFO, PSTR("ip = %s"), curr_ip);
 
   if (!wclient) {
     wclient = New_WiFiClient();
@@ -863,43 +963,64 @@ void WebRadio(void) {
   
   AddLog(LOG_LEVEL_INFO, PSTR("WR result: %d"), code);
   
+  if (200 == code) {
+    volatile const int32_t *icp = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+    srate = icp[6];
+    uint32_t has_bitrate;
 
-  uint32_t samplerate=44100;
+    if (http_hasHeader(http, PSTR("icy-br"))) {
+      char *ret = http_header(http, PSTR("icy-br"));
+      AddLog(LOG_LEVEL_INFO, PSTR("WR br = %s"),ret);
+      free(ret);
+      has_bitrate = 1; // ret.toInt();
+    } else {
+      has_bitrate = 0;
+    }
 
-  uint32_t has_bitrate;
+    if (http_hasHeader(http, PSTR("icy-metaint"))) {
+      char *ret = http_header(http, PSTR("icy-metaint"));
+      AddLog(LOG_LEVEL_INFO, PSTR("ici metaint = %s"),ret);
+      icyMetaInt = strtol(ret, 0, 10);
+      free(ret);
+    } else {
+      icyMetaInt = 0;
+    }
 
-  if (http_hasHeader(http, PSTR("icy-br"))) {
-    char *ret = http_header(http, PSTR("icy-br"));
-    AddLog(LOG_LEVEL_INFO, PSTR("WR br = %s"),ret);
-    free(ret);
-    has_bitrate = 1; // ret.toInt();
-  } else {
-    has_bitrate = 0;
-  }
-
-  int32_t size = http_getSize(http);
-
-#endif
-
-  busy = true;
+    int32_t size = http_getSize(http);
+    busy = true;
 
 #define URL_SIZE 256
-// play webradio file
-  char *urlcopy = (char*)calloc(URL_SIZE, 1);
-  const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
-  TASKPARS tp;
-  tp.pvTaskCode = GVOID(I2sTaskWR);
-  tp.constpcName = GSTR(tname);
-  tp.usStackDepth = uicp[1];
-  tp.constpvParameters = url;
-  tp.uxPriority = 3;
-  tp.constpvCreatedTask = nullptr;
-  tp.xCoreID = 1;
-  xTaskCreatePinnedToCore(&tp);
+    // play webradio file
+    char *urlcopy = (char*)calloc(URL_SIZE, 1);
+    const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
+    TASKPARS tp;
+    tp.pvTaskCode = GVOID(I2sTaskWR);
+    tp.constpcName = GSTR(tname);
+    tp.usStackDepth = uicp[1];
+    tp.constpvParameters = url;
+    tp.uxPriority = 3;
+    tp.constpvCreatedTask = nullptr;
+    tp.xCoreID = 1;
+    xTaskCreatePinnedToCore(&tp);
 #endif
-
-  ResponseCmndDone();
+    ResponseCmndDone();
+  } else {
+    ResponseCmndNumber(code);
+  }
 }
+
+#ifdef USE_WEBRADIO
+void I2sWrShow(bool json) {
+  SETMEMREGS
+    if (running) {
+      if (json) {
+        ResponseAppend_P(PSTR(",\"WebRadio\":{\"Title\":\"%s\"}"), meta);
+      } else {
+        WSContentSend_PD(PSTR("{s}" "I2S_WR-Title" "{m}%s{e}"), meta);
+      }
+    }
+}
+#endif
 
 const char I2S_Commands[] PROGMEM =
     "I2S|"  // Prefix
@@ -934,6 +1055,14 @@ static int32_t mod_func_execute(uint32_t sel) {
     case FUNC_COMMAND:
       result = DecodeCommand(I2S_Commands, I2S_Command);
       break;
+#ifdef USE_WEBRADIO
+    case FUNC_WEB_SENSOR:
+      I2sWrShow(false);
+      break;
+    case FUNC_JSON_APPEND:
+      I2sWrShow(true);
+#endif
+    break;
     case FUNC_DEINIT:
       I2SAudio_Deinit();
       break;

@@ -781,6 +781,15 @@ int32_t CheckPadBit() {
     SETREGS
     return (mp3m.m_FrameHeader->paddingBit ? 1 : 0);
 }
+
+
+MODULE_PART bool Check_MP3_Sync(char *buf) {
+    if ((buf[0] & m_SYNCWORDH) != m_SYNCWORDH || (buf[1] & m_SYNCWORDL) != m_SYNCWORDL){
+        return 0;
+    }
+    return 1;
+}
+
 //----------------------------------------------------------------------------------------------------------------------
 int32_t UnpackFrameHeader(uint8_t *buf) {
     SETREGS
