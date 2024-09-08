@@ -36,8 +36,8 @@
 
 #ifdef ESP32
 #define USE_MP3_PSRAM
-#define USE_MP3
-#define USE_WEBRADIO
+//#define USE_MP3
+//#define USE_WEBRADIO
 
 // select a codec
 #define USE_WM8960
@@ -47,13 +47,9 @@
 // box full
 // ES8311_init(); DAC
 // es7210_init(); ADC
-
-
 #endif
 
-
 int32_t pW8960_Init();
-
 
 #ifdef USE_SAY
 #include "Audio/ESP8266SAM/SamData.h"
@@ -212,9 +208,16 @@ const char S_JSON_WMERR[] PROGMEM = "{\"WM8960 error\"}";
 #define TASK_STACK 8192
 //#define TASK_STACK 12000
 
+#ifdef USE_SAY
+#define RENDER_SIZE sizeof(SAM_RENDER)
+#else
+#define RENDER_SIZE 0
+#endif
+
+
 const char tname[] PROGMEM = "I2STASK";
 const uint32_t ui32_const[4] PROGMEM = {OUTBUFF_SIZE, TASK_STACK, 0x46464952 , INBUFF_SIZE}; 
-const int32_t i32_const[7] PROGMEM = {32768, -32768, 22050, sizeof(SAM_RENDER), 37541, 32000, 44100}; 
+const int32_t i32_const[7] PROGMEM = {32768, -32768, 22050, RENDER_SIZE, 37541, 32000, 44100}; 
 
 #define GET_OBS ucp[0]
 #define GET_IBS ucp[3]
@@ -994,11 +997,11 @@ void WebRadio(void) {
     tp.constpvCreatedTask = nullptr;
     tp.xCoreID = 1;
     xTaskCreatePinnedToCore(&tp);
-#endif
     ResponseCmndDone();
   } else {
     ResponseCmndNumber(code);
   }
+#endif
 }
 
 #ifdef USE_WEBRADIO

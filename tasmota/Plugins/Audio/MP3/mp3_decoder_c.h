@@ -1857,9 +1857,15 @@ uint32_t MP3Decoder_AllocateBuffers(void) {
     MP3Decoder_ClearBuffer();
 
     uint32_t memory = 0;
-    for (uint16_t cnt = 0; cnt < 13; cnt++) {
-        memory += st[cnt];
-    }
+    memory += st[0];
+    memory += st[3];
+    memory += st[2];
+    memory += st[9];
+    memory += st[4];
+    memory += st[5];
+    memory += st[6];
+    memory += st[7];
+    memory += st[12];
     
     return memory;
 }
