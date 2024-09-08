@@ -197,6 +197,7 @@ double tmod_long2double(int64_t in);
 void *tmod_strncat(char *dst, char *src, uint32_t size);
 const uint8_t tmod_pgm_read_byte(uint8_t *ptr);
 const uint16_t tmod_pgm_read_word(uint16_t *ptr);
+void *tmod_special_malloc(uint32_t size);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -401,7 +402,7 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
 #else
   JMPTBL&tmod_strncmp_P,
 #endif
-  JMPTBL&special_malloc,
+  JMPTBL&tmod_special_malloc,
   JMPTBL&ResponseCmndChar,
   JMPTBL&strtol,
   JMPTBL&tmod_udp,
@@ -550,8 +551,6 @@ uint32_t tmod_dummy() {
   return 0;
 }
 
-WiFiClient plugin_client;
-HTTPClient plugin_http;
 
 #if defined(ESP32) && defined(USE_TLS)
 #include "WiFiClientSecureLightBearSSL.h"
@@ -682,7 +681,7 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
       uint16_t len = strlen(sp);
       if (len) {
         cp = (char*)malloc(len + 2);
-        strlcpy(cp, sp, len);
+        strlcpy(cp, sp, len + 2);
         return (uint32_t) cp;
       } else {
         return 0;
@@ -704,24 +703,10 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
       }
       break;
     case 50:
-      {
-        bool res = plugin_http.begin(plugin_client, (char*)p2);
-        //bool res = plugin_http.begin(plugin_client, "http://wdr-wdr2-aachenundregion.icecastssl.wdr.de/wdr/wdr2/aachenundregion/mp3/128/stream.mp3");
-
-        if (!res) {
-          return 0;
-        }
-        static const char *hdr[] = { "icy-metaint", "icy-name", "icy-genre", "icy-br" };
-        plugin_http.addHeader("Icy-MetaData", "1");
-        plugin_http.collectHeaders( hdr, 4 );
-        plugin_http.setReuse(true);
-        plugin_http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-        return plugin_http.GET();
-      }
+      break;
     case 51:
-      return (uint32_t)&plugin_http;
+      break;
     case 52:
-      plugin_http.end();
       break;
     case 53:
       Test_prog();
@@ -966,6 +951,13 @@ uint32_t tmod_udp(WiFiUDP *udp, uint32_t sel, uint32_t p1, uint32_t p2) {
   }
   return 0;
 }
+
+void *tmod_special_malloc(uint32_t size) {
+  void *ptr = special_malloc(size);
+  memset(ptr, 0, size);
+  return ptr;
+};
+
 
 int tmod_strncmp_P(const char * str1P, const char * str2P, size_t size) {
   char *cp = copyStr(str2P);
@@ -2634,28 +2626,6 @@ void Module_dump(void) {
 
 void Test_prog(void) {
 
-#if 0
-  int32_t code =  tmod_wifi(50, 0, (uint32_t)"http://wdr-wdr2-aachenundregion.icecastssl.wdr.de/wdr/wdr2/aachenundregion/mp3/128/stream.mp3", 0, 0);
-
-  AddLog(LOG_LEVEL_INFO,PSTR("result: %d"), code);
-
-  tmod_wifi(52, 0, 0, 0, 0);
-
-#else
-  bool res = plugin_http.begin(plugin_client, "http://wdr-wdr2-aachenundregion.icecastssl.wdr.de/wdr/wdr2/aachenundregion/mp3/128/stream.mp3");
-  if (!res) {
-    AddLog(LOG_LEVEL_INFO,PSTR("could not connect"));
-    return;
-  }
-  static const char *hdr[] = { "icy-metaint", "icy-name", "icy-genre", "icy-br" };
-  plugin_http.addHeader("Icy-MetaData", "1");
-  plugin_http.collectHeaders( hdr, 4 );
-  plugin_http.setReuse(true);
-  plugin_http.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
-  int32_t code = plugin_http.GET();
-  AddLog(LOG_LEVEL_INFO,PSTR("result: %d"), code);
-  plugin_http.end();
-#endif
 }
 
 #ifdef ESP8266

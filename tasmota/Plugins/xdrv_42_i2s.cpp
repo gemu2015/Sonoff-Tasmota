@@ -36,8 +36,8 @@
 
 #ifdef ESP32
 #define USE_MP3_PSRAM
-//#define USE_MP3
-//#define USE_WEBRADIO
+#define USE_MP3
+#define USE_WEBRADIO
 
 // select a codec
 #define USE_WM8960
@@ -249,11 +249,18 @@ int32_t I2SAudio_Init() {
   const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
 
   mt->mem_size += mp3mem;
-  m_outBuff = (int16_t*)calloc(uicp[0]/2, 2);
-  mt->mem_size += uicp[0];
+
+#ifdef USE_MP3_PSRAM
+  m_inBuff = (uint8_t*)special_malloc(uicp[3]);
+  mt->mem_size += uicp[3];
+#else
   m_inBuff = (uint8_t*)calloc(uicp[3], 1);
   mt->mem_size += uicp[3];
+#endif
 
+  m_outBuff = (int16_t*)calloc(uicp[0]/2, 2);
+  mt->mem_size += uicp[0];
+  
   if (!mp3mem || !m_outBuff || !m_inBuff) {
     I2SAudio_Deinit();
     Response_P(GSTR(S_JSON_MEMERR));
@@ -758,7 +765,7 @@ const char head_2[] PROGMEM = "1";
 const char hdr_1[] PROGMEM = "icy-metaint";
 const char hdr_2[] PROGMEM = "icy-name";
 const char hdr_3[] PROGMEM = "icy-genre";
-const char hdr_4[] PROGMEM = "icy-br";
+const char hdr_4[] PROGMEM = "icy-sr";
 
 const uint32_t hdr[] PROGMEM = { (uint32_t)hdr_1, (uint32_t)hdr_2, (uint32_t)hdr_3, (uint32_t)hdr_4 };
 
@@ -961,31 +968,31 @@ void WebRadio(void) {
   if (200 == code) {
     volatile const int32_t *icp = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
     srate = icp[6];
-    uint32_t has_bitrate;
 
-    if (http_hasHeader(http, PSTR("icy-br"))) {
-      char *ret = http_header(http, PSTR("icy-br"));
-      AddLog(LOG_LEVEL_INFO, PSTR("WR br = %s"),ret);
+    if (http_hasHeader(http, GSTR(hdr_4))) {
+      char *ret = http_header(http, GSTR(hdr_4));
+      AddLog(LOG_LEVEL_INFO, PSTR("WR sr = %s"), ret);
+      srate = strtol(ret, 0, 10);
       free(ret);
-      has_bitrate = 1; // ret.toInt();
     } else {
-      has_bitrate = 0;
+      srate = icp[6];
     }
-
-    if (http_hasHeader(http, PSTR("icy-metaint"))) {
-      char *ret = http_header(http, PSTR("icy-metaint"));
-      AddLog(LOG_LEVEL_INFO, PSTR("ici metaint = %s"),ret);
+    
+    if (http_hasHeader(http, GSTR(hdr_1))) {
+      char *ret = http_header(http, GSTR(hdr_1));
+      AddLog(LOG_LEVEL_INFO, PSTR("ici metaint = %s"), ret);
       icyMetaInt = strtol(ret, 0, 10);
       free(ret);
     } else {
       icyMetaInt = 0;
     }
 
-    int32_t size = http_getSize(http);
+    //int32_t size = http_getSize(http);
+
     busy = true;
 
 #define URL_SIZE 256
-    // play webradio file
+    // play webradio stream
     char *urlcopy = (char*)calloc(URL_SIZE, 1);
     const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
     TASKPARS tp;

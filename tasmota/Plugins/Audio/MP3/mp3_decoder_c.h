@@ -1854,7 +1854,8 @@ uint32_t MP3Decoder_AllocateBuffers(void) {
         return 0;
     }
 
-    MP3Decoder_ClearBuffer();
+    // not needed since memory is always cleared
+    //MP3Decoder_ClearBuffer();
 
     uint32_t memory = 0;
     memory += st[0];
