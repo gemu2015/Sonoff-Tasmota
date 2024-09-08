@@ -2866,7 +2866,13 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, TS_FLOAT *fp, char *
       char str_value[SCRIPT_MAX_SBSIZE];
       str_value[0]=0;
       TS_FLOAT fv;
+#if 0
       uint32_t res = JsonParsePath(gv->jo, vname, '#', &fv, str_value, sizeof(str_value));
+#else
+      char vname_buff[64];
+      Replace_Cmd_Vars(vname, sizeof(vname), vname_buff , sizeof(vname_buff));
+      uint32_t res = JsonParsePath(gv->jo, vname_buff, '#', &fv, str_value, sizeof(str_value));
+#endif
       if (!res) {
         goto chknext;
       }

@@ -782,8 +782,6 @@ void I2sTaskWR(char *url) {
   volatile const uint32_t *ucp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
   uint32_t ibsize = GET_IBS;
 
-  AddLog(LOG_LEVEL_INFO, PSTR("WR Task started 2"));
-
   uint32_t buffer_bytes = 0;
 
   int32_t bytesread;
@@ -892,8 +890,6 @@ void I2sTaskWR(char *url) {
     }
 
   }
-
-  AddLog(LOG_LEVEL_INFO, PSTR("WR Task stop"));
 
   http_end(http);
 
