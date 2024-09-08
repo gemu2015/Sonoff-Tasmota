@@ -102,7 +102,7 @@ typedef struct {
   void *http;
   void *wclient;
   uint16_t icyMetaInt;
-  char meta[64];
+  char meta[128];
 #endif
 
 #ifdef USE_SAY
@@ -759,9 +759,6 @@ const char hdr_4[] PROGMEM = "icy-br";
 
 const uint32_t hdr[] PROGMEM = { (uint32_t)hdr_1, (uint32_t)hdr_2, (uint32_t)hdr_3, (uint32_t)hdr_4 };
 
-
-//#define DUMP
-
 // webradio task
 void I2sTaskWR(char *url) {
   SETREGS
@@ -777,13 +774,7 @@ void I2sTaskWR(char *url) {
 
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task started 2"));
 
-  uint32_t count = 0;
   uint32_t buffer_bytes = 0;
-
-#ifdef DUMP 
-  File_p *fp;
-  fp = fopen(PSTR("/dump.bin"), 'w');
-#endif
 
   int32_t bytesread;
   uint32_t icycount = 0;
@@ -808,50 +799,55 @@ void I2sTaskWR(char *url) {
       break;
     }
 
-    count++;
-    if (__umodsi3(count, 20) == 0) {
-      //AddLog(LOG_LEVEL_INFO, PSTR(">> rec %d - %d"), avail, count);
-    }
-
- 
     uint32_t bytestoread = ibsize - buffer_bytes;
  
-#if 1
-    bytesread = client_readn(wclient, m_inBuff + buffer_bytes, bytestoread);
-#else
     uint8_t *ip = &m_inBuff[buffer_bytes];
     if (icyMetaInt) {
-      for (uint32_t  cnt = 0; cnt < bytestoread; cnt++) {
-        *ip++ = client_read(wclient);
-        icycount +=  1;
-        if (icycount == icyMetaInt) {
-          uint16_t icylen = (client_read(wclient) << 4);
-          AddLog(LOG_LEVEL_INFO, PSTR("icylen = %d"), icylen);
-          if (icylen > 512) {
-            icylen = 512;
+      if (icyMetaInt - icycount < ibsize) {
+        // falls into buffer
+        for (uint32_t  cnt = 0; cnt < bytestoread; cnt++) {
+          *ip++ = client_read(wclient);
+          icycount +=  1;
+          if (icycount == icyMetaInt) {
+            uint16_t icylen = (client_read(wclient) << 4);
+            if (icylen) {
+              //AddLog(LOG_LEVEL_INFO, PSTR("icylen = %d"), icylen);
+              char buff[128];
+              if (icylen <= sizeof(buff)) {
+                client_readn(wclient, buff, icylen);
+                if (!strncmp_P(buff, PSTR("StreamTitle="), 12)) {
+                  for (uint32_t  cnt = 0; cnt < sizeof(meta); cnt++) {
+                    char iob = buff[12 + cnt];
+                    if (!iob || iob == ';') {
+                      meta[cnt] = 0;
+                      break;
+                    }
+                    meta[cnt] = iob;
+                  }
+                }
+              } else {
+                // throw away
+                for (uint32_t cnt = 0; cnt < icylen; cnt++) {
+                  client_read(wclient);
+                }
+              }
+            }
+            icycount = 0;
           }
-          char icbuff [512];
-          client_readn(wclient, icbuff, icylen);
-          icycount = 0;
         }
+      } else {
+        // read block
+        bytesread = client_readn(wclient, m_inBuff + buffer_bytes, bytestoread);
+        icycount += bytesread;
       }
     } else {
       for (uint32_t  cnt = 0; cnt < bytestoread; cnt++) {
         *ip++ = client_read(wclient);
       }
     }
-#endif
-
-#ifdef DUMP 
-    fwrite(m_inBuff, 1, ibsize, fp);
-    if (count >= 2000) {
-      break;
-    }
-#endif
     
-    m_bytesLeft = buffer_bytes;
-
-    //AddLog(LOG_LEVEL_INFO, PSTR(">> icycnt %02x %02x %02x %02x"), m_inBuff[0], m_inBuff[1], m_inBuff[2], m_inBuff[3] );
+    buffer_bytes = ibsize;
+    m_bytesLeft = ibsize;
 
     int16_t m_decodeError = MP3Decode(m_inBuff, &m_bytesLeft, m_outBuff, 0);
     if (m_decodeError) {
@@ -886,10 +882,6 @@ void I2sTaskWR(char *url) {
     }
 
   }
-
-#ifdef DUMP 
-  fclose(fp);
-#endif
 
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task stop"));
 
