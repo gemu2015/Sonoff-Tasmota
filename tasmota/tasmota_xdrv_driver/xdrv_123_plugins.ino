@@ -1774,7 +1774,8 @@ const void * TGTAB[] PROGMEM = {
   &TasmotaGlobal.devices_present,
   &TasmotaGlobal.spi_enabled,
   &TasmotaGlobal.soft_spi_enabled,
-  &RtcTime
+  &RtcTime,
+  &TasmotaGlobal.global_state;
 };
 
 void *tmod_gtbl(void) {

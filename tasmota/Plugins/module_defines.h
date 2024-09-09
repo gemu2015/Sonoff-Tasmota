@@ -383,10 +383,13 @@ typedef struct {
   uint8_t *spi_enabled;
   uint8_t *soft_spi_enabled;
   TIME_T *RtcTime;
+  StateBitfield *global_state;
 } GTBL;
 
 #define STGLOB  GTBL *tgbl = (GTBL*) gtgtbl();
 
+
+#define SCRIPT_EOL 10
 
 #define TasmotaGlobal  *tgbl
 

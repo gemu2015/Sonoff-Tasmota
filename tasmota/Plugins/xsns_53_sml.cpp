@@ -1717,7 +1717,7 @@ SETREGS
 void SML_Decode(uint8_t index) {
 SETREGS
 
-  const char *mptr = (const char*)sml_globs.meter_p;
+  char *mptr = (char*)sml_globs.meter_p;
   int8_t mindex;
   uint8_t *cp;
   uint8_t dindex = 0, vindex = 0;
@@ -1727,7 +1727,7 @@ SETREGS
     return;
   }
 
-  while (mp != NULL) {
+  while (mptr != NULL) {
     // check list of defines
     if (*mptr == 0) break;
 
@@ -1735,21 +1735,21 @@ SETREGS
     mindex = ((*mptr) & 7) - 1;
 
     if (mindex < 0 || mindex >= sml_globs.meters_used) mindex = 0;
-    mp += 2;
-    if (*mptr == '=' && *(mp+1) == 'h') {
-      mp = strchr(mp, '|');
-      if (mp) mptr++;
+    mptr += 2;
+    if (*mptr == '=' && *(mptr + 1) == 'h') {
+      mptr = strchr(mptr, '|');
+      if (mptr) mptr++;
       continue;
     }
 
-    if (*mptr == '=' && *(mp+1) == 's') {
-      mp = strchr(mp, '|');
-      if (mp) mptr++;
+    if (*mptr == '=' && *(mptr + 1) == 's') {
+      mptr = strchr(mptr, '|');
+      if (mptr) mptr++;
       continue;
     }
 
     // =d must handle dindex
-    if (*mptr == '=' && *(mp + 1) == 'd') {
+    if (*mptr == '=' && *(mptr + 1) == 'd') {
       if (index != mindex) {
         dindex++;
       }
@@ -1833,7 +1833,7 @@ SETREGS
           // only n indexes
           mptr++;
           while (*mptr == ' ') mptr++;
-          uint8_t ind = atoi(mp);
+          uint8_t ind = atoi(mptr);
           while (*mptr >= '0' && *mptr <= '9') mptr++;
           if (ind < 1 || ind > sml_globs.maxvars) ind = 1;
           uint32_t delay = atoi(mptr) * 1000;
@@ -2434,14 +2434,14 @@ nextsect:
 }
 
 //"1-0:1.8.0*255(@1," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-void SML_Immediate_MQTT(const char *mptr,uint8_t index,uint8_t mindex) {
+void SML_Immediate_MQTT(const char *mptr, uint8_t index, uint8_t mindex) {
 SETREGS
 
   char tpowstr[32];
   char jname[24];
 
   // we must skip sf,webname,unit
-  char *cp = strchr(mptr, ',');
+  char *cp = strchr((char*)mptr, ',');
   if (cp) {
     cp++;
     // wn
@@ -3034,13 +3034,19 @@ SETREGS
 
 	sml_globs.mptr = meter_desc;
 
-  uint8_t meter_script = Run_Scripter(">M", -2, 0);
-  if (meter_script != 99) {
+  //uint8_t meter_script = Run_Scripter(">M", -2, 0);
+  //if (meter_script != 99) {
+  //  AddLog(LOG_LEVEL_INFO, PSTR("no meter section found!"));
+  //  return;
+ // }
+//char *lp = glob_script_mem.section_ptr;
+
+  char *lp = GetScriptSection(">M");
+  if (!lp) {
     AddLog(LOG_LEVEL_INFO, PSTR("no meter section found!"));
     return;
   }
 
-  char *lp = glob_script_mem.section_ptr;
   uint8_t new_meters_used;
 
   // use script definition
@@ -3162,9 +3168,9 @@ SETREGS
             lp1++;
 #ifdef USE_SML_TCP
 #ifdef USE_SML_TCP_IP_STR
-            strcpy(mmptr->ip_addr, str);
+            strcpy(mmp->ip_addr, str);
 #else
-            mmptr->ip_addr.fromString(str);
+            mmp->ip_addr.fromString(str);
 #endif
 #endif
 
@@ -3178,56 +3184,56 @@ dddef_exit:
               return;
             }
           }
-          mmptr->srcpin = srcpin;
+          mmp->srcpin = srcpin;
           if (*lp1 != ',') goto next_line;
           lp1++;
-          mmptr->type = *lp1;
+          mmp->type = *lp1;
           lp1++;
           if (*lp1 != ',') {
             switch (*lp1) {
               case 'N':
                 lp1++;
-                mmptr->sopt = 0x10 | (*lp1 & 3);
+                mmp->sopt = 0x10 | (*lp1 & 3);
                 lp1++;
                 break;
               case 'E':
                 lp1++;
-                mmptr->sopt = 0x20 | (*lp1 & 3);
+                mmp->sopt = 0x20 | (*lp1 & 3);
                 lp1++;
                 break;
               case 'O':
                 lp1++;
-                mmptr->sopt = 0x30 | (*lp1 & 3);
+                mmp->sopt = 0x30 | (*lp1 & 3);
                 lp1++;
                 break;
               default:
-                mmptr->sopt = *lp1&7;
+                mmp->sopt = *lp1&7;
                 lp1++;
             }
           } else {
-            mmptr->sopt = 0;
+            mmp->sopt = 0;
           }
           lp1++;
-          mmptr->flag = strtol(lp1, &lp1, 10);
+          mmp->flag = strtol(lp1, &lp1, 10);
           if (*lp1 != ',') goto next_line;
           lp1++;
-          mmptr->params = strtol(lp1, &lp1, 10);
+          mmp->params = strtol(lp1, &lp1, 10);
           if (*lp1 != ',') goto next_line;
           lp1++;
-          mmptr->prefix[SML_PREFIX_SIZE - 1] = 0;
+          mmp->prefix[SML_PREFIX_SIZE - 1] = 0;
           for (uint32_t cnt = 0; cnt < SML_PREFIX_SIZE; cnt++) {
             if (*lp1 == SCRIPT_EOL || *lp1 == ',') {
-              mmptr->prefix[cnt] = 0;
+              mmp->prefix[cnt] = 0;
               break;
             }
-           mmptr->prefix[cnt] = *lp1++;
+           mmp->prefix[cnt] = *lp1++;
           }
           if (*lp1 == ',') {
             lp1++;
             // get TRX pin
-            mmptr->trxpin = strtol(lp1, &lp1, 10);
-            if (mmptr->srcpin != TCP_MODE_FLG) {
-              if (Gpio_used(mmptr->trxpin)) {
+            mmp->trxpin = strtol(lp1, &lp1, 10);
+            if (mmp->srcpin != TCP_MODE_FLG) {
+              if (Gpio_used(mmp->trxpin)) {
                 AddLog(LOG_LEVEL_INFO, PSTR("SML: Error: Duplicate GPIO %d defined. Not usable for TX in meter number %d"), meter_desc[index].trxpin, index + 1);
                 goto dddef_exit;
               }
@@ -3237,28 +3243,28 @@ dddef_exit:
               lp1++;
               if (*lp1 == 'i') {
                 lp1++;
-                mmptr->trx_en.trxenpol = 1;
+                mmp->trx_en.trxenpol = 1;
               } else {
-                mmptr->trx_en.trxenpol = 0;
+                mmp->trx_en.trxenpol = 0;
               }
-              mmptr->trx_en.trxenpin = strtol(lp1, &lp1, 10);
+              mmp->trx_en.trxenpin = strtol(lp1, &lp1, 10);
               if (*lp1 != ')') {
                 goto dddef_exit;
               }
               lp1++;
-              if (Gpio_used(mmptr->trx_en.trxenpin)) {
+              if (Gpio_used(mmp->trx_en.trxenpin)) {
                 AddLog(LOG_LEVEL_INFO, PSTR("SML: Error: Duplicate GPIO %d defined. Not usable for TX enable in meter number %d"), meter_desc[index].trx_en.trxenpin, index + 1);
                 goto dddef_exit;
               }
-              mmptr->trx_en.trxen = 1;
-              pinMode(mmptr->trx_en.trxenpin, OUTPUT);
-              digitalWrite(mmptr->trx_en.trxenpin, mmptr->trx_en.trxenpol);
+              mmp->trx_en.trxen = 1;
+              pinMode(mmp->trx_en.trxenpin, OUTPUT);
+              digitalWrite(mmp->trx_en.trxenpin, mmp->trx_en.trxenpol);
             } else {
-              mmptr->trx_en.trxen = 0;
+              mmp->trx_en.trxen = 0;
             }
             if (*lp1 != ',') goto next_line;
             lp1++;
-            mmptr->tsecs = strtol(lp1, &lp1, 10);
+            mmp->tsecs = strtol(lp1, &lp1, 10);
             // optional values to send
             if (*lp1 == ',') {
               lp1++;
@@ -3298,10 +3304,10 @@ dddef_exit:
               // tx lines complete
               *txb1 = 0;
               //AddLog(LOG_LEVEL_INFO, PSTR("SML: >>> %s - %d - %d"), txbuff, txlen, tx_entries);
-              mmptr->txmem = (char*)realloc(txbuff, txlen + 2);
+              mmp->txmem = (char*)realloc(txbuff, txlen + 2);
               memory += txlen + 2;
-              mmptr->index = 0;
-              mmptr->max_index = tx_entries;
+              mmp->index = 0;
+              mmp->max_index = tx_entries;
               sml_globs.sml_send_blocks++;
               // end collect transmit values
             }
@@ -4233,11 +4239,13 @@ MODBUS_TCP_HEADER tcph;
     }
   }
 #endif
+}
 
 #ifdef USE_SML_TCP
 int32_t sml_tcp_init(struct METER_DESC *mptr) {
   SETREGS
-  if (!TasmotaGlobal.global_state.wifi_down) {
+  STGLOB
+  if (!TasmotaGlobal->global_state.wifi_down) {
     if (!mptr->client) {
       // tcp mode
 #ifdef USE_SML_TCP_SECURE
@@ -4651,6 +4659,7 @@ RETMEM
 \*********************************************************************************************/
 
 int32_t mod_func_execute(uint32_t function) {
+  SETREGS
   bool result = false;
     switch (function) {
       case FUNC_INIT:
