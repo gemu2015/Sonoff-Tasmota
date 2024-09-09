@@ -2888,10 +2888,10 @@ nexit:
       } else {
         // string
         if (!strncmp_XP(str_value, XPSTR("ON"), 2)) {
-          if (fp) *fp = 1;
+          fv = 1;
           goto nexit;
         } else if (!strncmp_XP(str_value, XPSTR("OFF"), 3)) {
-          if (fp) *fp = 0;
+          fv = 0;
           goto nexit;
         } else {
           *vtype = STR_RES;
