@@ -80,6 +80,8 @@
 #define USE_SML_SCRIPT_CMD
 #endif
 
+#define NO_USE_SML_DECRYPT
+
 #ifndef NO_USE_SML_DECRYPT
 // allows 256 bit AES decryption
 #define USE_SML_DECRYPT
@@ -202,9 +204,9 @@ decryption flags (8 bits)
 //#define MODBUS_DEBUG
 
 
+
 PUSH_OPTIONS
 MODULE_DESCRIPTOR("SML",MODULE_TYPE_SENSOR,1<<16|4,"",0,"",0,"",0,"",0)
-MODULE_PART virtual ~SML_ESP32_SERIAL();
 MODULE_PART bool begin(uint32_t speed, uint32_t smode, int32_t recpin, int32_t trxpin, int32_t invert);
 MODULE_PART int peek(void);
 MODULE_PART int read(void);
@@ -216,31 +218,37 @@ MODULE_PART void updateBaudRate(uint32_t baud);
 MODULE_PART void rxRead(void);
 MODULE_PART void end();
 MODULE_PART void setbaud(uint32_t speed);
+
+#ifdef ESP32
+MODULE_PART virtual ~SML_ESP32_SERIAL();
 MODULE_PART void SML_ESP32_SERIAL::setbaud(uint32_t speed);
 MODULE_PART void SML_ESP32_SERIAL::end(void);
 MODULE_PART bool SML_ESP32_SERIAL::begin(uint32_t speed, uint32_t smode, int32_t recpin, int32_t trxpin, int32_t invert);
 MODULE_PART void SML_ESP32_SERIAL::flush(void);
 MODULE_PART int SML_ESP32_SERIAL::peek(void);
 MODULE_PART int SML_ESP32_SERIAL::read(void);
-MODULE_PART return hws->read();
-MODULE_PART int SML_ESP32_SERIAL::available(void);
-MODULE_PART return hws->available();
 MODULE_PART size_t SML_ESP32_SERIAL::write(uint8_t byte);
-MODULE_PART return hws->write(byte);
 MODULE_PART void SML_ESP32_SERIAL::setRxBufferSize(uint32_t size);
 MODULE_PART void SML_ESP32_SERIAL::updateBaudRate(uint32_t baud);
+MODULE_PART int SML_ESP32_SERIAL::available(void);
+#endif
+
+
+//MODULE_PART return hws->available();
+//MODULE_PART return hws->read();
+//MODULE_PART return hws->write(byte);
 MODULE_PART double sml_median_array(double *array, uint8_t len);
 MODULE_PART double sml_median(struct SML_MEDIAN_FILTER* mf, double in);
-MODULE_PART return sml_median_array(mf->buffer, MEDIAN_SIZE);
+//MODULE_PART return sml_median_array(mf->buffer, MEDIAN_SIZE);
 MODULE_PART uint16_t Serial_available();
-MODULE_PART return meter_desc[num].meter_ss->available();
-MODULE_PART return meter_desc[num].client->available();
+//MODULE_PART return meter_desc[num].meter_ss->available();
+//MODULE_PART return meter_desc[num].client->available();
 MODULE_PART uint8_t Serial_read();
-MODULE_PART return meter_desc[num].meter_ss->read();
-MODULE_PART return meter_desc[num].client->read();
+//MODULE_PART return meter_desc[num].meter_ss->read();
+//MODULE_PART return meter_desc[num].client->read();
 MODULE_PART uint8_t Serial_peek();
-MODULE_PART return meter_desc[num].meter_ss->peek();
-MODULE_PART return meter_desc[num].client->peek();
+//MODULE_PART return meter_desc[num].meter_ss->peek();
+//MODULE_PART return meter_desc[num].client->peek();
 MODULE_PART void sml_dump_start(char c);
 MODULE_PART void dump2log(void);
 MODULE_PART void Hexdump(uint8_t *sbuff, uint32_t slen);
@@ -260,17 +268,17 @@ MODULE_PART char *skip_double(char *cp);
 MODULE_PART uint8_t *sml_find(uint8_t *src, uint16_t ssize, uint8_t *pattern, uint16_t psize);
 MODULE_PART double sml_get_obis_value(uint8_t *data);
 MODULE_PART void SML_Decode(uint8_t index);
-MODULE_PART void SML_Immediate_MQTT(const char *mp,uint8_t index,uint8_t mindex);
+MODULE_PART void SML_Immediate_MQTT(const char *mptr,uint8_t index,uint8_t mindex);
 MODULE_PART void SML_Show(boolean json);
 MODULE_PART void SML_CounterIsr(void *arg);
-MODULE_PART if bitRead(sml_counter_pinstate, index);
+//MODULE_PART if bitRead(sml_counter_pinstate, index);
 MODULE_PART uint32_t SML_getlinelen(char *lp);
 MODULE_PART uint32_t SML_getscriptsize(char *lp);
 MODULE_PART uint32_t SML_getscriptsize(char *lp);
 MODULE_PART bool Gpio_used(uint8_t gpiopin);
 MODULE_PART char *SpecOptions(char *cp, uint32_t mnum);
 MODULE_PART uint16_t serial_dispatch(uint8_t meter, uint8_t sel);
-MODULE_PART return mp->meter_ss->available();
+//MODULE_PART return mptr->meter_ss->available();
 MODULE_PART int SML_print(const char *format, ...);
 MODULE_PART void reset_sml_vars(uint16_t maxmeters);
 MODULE_PART void SML_Init(void);
@@ -295,7 +303,7 @@ MODULE_PART uint8_t sml_hexnibble(char chr);
 MODULE_PART uint32_t sml_hex32(char *cp);
 MODULE_PART uint16_t sml_swap(uint16_t in);
 MODULE_PART void sml_tcp_send(uint32_t meter, uint8_t *sbuff, uint16_t slen);
-MODULE_PART int32_t sml_tcp_init(struct METER_DESC *mp);
+MODULE_PART int32_t sml_tcp_init(struct METER_DESC *mptr);
 MODULE_PART void sml_tcp_check(void);
 MODULE_PART void SML_Send_Seq(uint32_t meter, char *seq);
 MODULE_PART uint16_t MBUS_calculateCRC(uint8_t *frame, uint8_t num, uint16_t start);
@@ -306,242 +314,9 @@ MODULE_PART bool XSNS_53_cmd(void);
 MODULE_PART void InjektCounterValue(uint8_t meter, uint32_t counter, float rate);
 MODULE_PART void SML_CounterSaveState(void);
 MODULE_PART void SML_Deinit(void);
-MODULE_PART bool mod_func_execute(uint32_t function);
+MODULE_PART int32_t mod_func_execute(uint32_t function);
 MODULE_END
 /********************************************************************************************/
-
-// ESP32 combined hardware and software serial driver, software read only
-#ifdef ESP32
-#ifdef USE_ESP32_SW_SERIAL
-#ifndef ESP32_SWS_BUFFER_SIZE
-#define ESP32_SWS_BUFFER_SIZE 256
-#endif
-
-class SML_ESP32_SERIAL : public Stream {
-public:
-	SML_ESP32_SERIAL(uint32_t uart_index);
-  virtual ~SML_ESP32_SERIAL();
-  bool begin(uint32_t speed, uint32_t smode, int32_t recpin, int32_t trxpin, int32_t invert);
-  int peek(void);
-  int read(void) override;
-  size_t write(uint8_t byte) override;
-  int available(void) override;
-  void flush(void) override;
-  void setRxBufferSize(uint32_t size);
-  void updateBaudRate(uint32_t baud);
-  void rxRead(void);
-  void end();
-  using Print::write;
-private:
-  // Member variables
-  void setbaud(uint32_t speed);
-  uint32_t uart_index;
-  int8_t m_rx_pin;
-  int8_t m_tx_pin;
-  uint32_t cfgmode;
-  uint32_t ss_byte;
-  uint32_t ss_bstart;
-  uint32_t ss_index;
-  uint32_t m_bit_time;
-  uint32_t m_in_pos;
-  uint32_t m_out_pos;
-  uint16_t serial_buffer_size;
-  bool m_valid;
-  uint8_t *m_buffer;
-  HardwareSerial *hws;
-};
-
-
-void IRAM_ATTR sml_callRxRead(void *self) { ((SML_ESP32_SERIAL*)self)->rxRead(); };
-
-SML_ESP32_SERIAL::SML_ESP32_SERIAL(uint32_t index) {
-  uart_index = index;
-  m_valid = true;
-}
-
-SML_ESP32_SERIAL::~SML_ESP32_SERIAL(void) {
-  if (hws) {
-    hws->end();
-		delete(hws);
-  } else {
-    detachInterrupt(m_rx_pin);
-    if (m_buffer) {
-      free(m_buffer);
-    }
-  }
-}
-
-void SML_ESP32_SERIAL::setbaud(uint32_t speed) {
-#ifdef __riscv
-  m_bit_time = 1000000 / speed;
-#else
-  m_bit_time = ESP.getCpuFreqMHz() * 1000000 / speed;
-#endif
-}
-
-void SML_ESP32_SERIAL::end(void) {
-  if (m_buffer) {
-    free(m_buffer);
-  }
-}
-
-bool SML_ESP32_SERIAL::begin(uint32_t speed, uint32_t smode, int32_t recpin, int32_t trxpin, int32_t invert) {
-  if (!m_valid) { return false; }
-
-  m_buffer = 0;
-  if (recpin < 0) {
-    setbaud(speed);
-    m_rx_pin = -recpin;
-    serial_buffer_size = ESP32_SWS_BUFFER_SIZE;
-    m_buffer = (uint8_t*)malloc(serial_buffer_size);
-    if (m_buffer == NULL) return false;
-    pinMode(m_rx_pin, INPUT_PULLUP);
-    attachInterruptArg(m_rx_pin, sml_callRxRead, this, CHANGE);
-    m_in_pos = m_out_pos = 0;
-    hws = nullptr;
-  } else {
-    cfgmode = smode;
-    m_rx_pin = recpin;
-    m_tx_pin = trxpin;
-    hws = new HardwareSerial(uart_index);
-    if (hws) {
-      hws->begin(speed, cfgmode, m_rx_pin, m_tx_pin, invert);
-    }
-  }
-  return true;
-}
-
-void SML_ESP32_SERIAL::flush(void) {
-  if (hws) {
-    hws->flush();
-  } else {
-    m_in_pos = m_out_pos = 0;
-  }
-}
-
-int SML_ESP32_SERIAL::peek(void) {
-  if (hws) {
-    return  hws->peek();
-  } else {
-    if (m_in_pos == m_out_pos) return -1;
-    return m_buffer[m_out_pos];
-  }
-}
-
-int SML_ESP32_SERIAL::read(void) {
-  if (hws) {
-    return hws->read();
-  } else {
-    if (m_in_pos == m_out_pos) return -1;
-    uint32_t ch = m_buffer[m_out_pos];
-    m_out_pos = (m_out_pos + 1) % serial_buffer_size;
-    return ch;
-  }
-}
-
-int SML_ESP32_SERIAL::available(void) {
-  if (hws) {
-    return hws->available();
-  } else {
-    int avail = m_in_pos - m_out_pos;
-    if (avail < 0) avail += serial_buffer_size;
-    return avail;
-  }
-}
-
-size_t SML_ESP32_SERIAL::write(uint8_t byte) {
-  if (hws) {
-    return hws->write(byte);
-  }
-  return 0;
-}
-
-void SML_ESP32_SERIAL::setRxBufferSize(uint32_t size) {
-  if (hws) {
-    hws->setRxBufferSize(size);
-  } else {
-    if (m_buffer) {
-        free(m_buffer);
-    }
-    serial_buffer_size = size;
-    m_buffer = (uint8_t*)malloc(size);
-  }
-}
-void SML_ESP32_SERIAL::updateBaudRate(uint32_t baud) {
-  if (hws) {
-    hws->updateBaudRate(baud);
-  } else {
-    setbaud(baud);
-  }
-}
-
-// no wait mode only 8N1  (or 7X1, obis only, ignoring parity)
-void IRAM_ATTR SML_ESP32_SERIAL::rxRead(void) {
-  uint32_t diff;
-  uint32_t level;
-
-#define SML_LASTBIT 9
-
-  level = digitalRead(m_rx_pin);
-
-  if (!level && !ss_index) {
-    // start condition
-#ifdef __riscv
-    ss_bstart = micros() - (m_bit_time / 4);
-#else
-    ss_bstart = ESP.getCycleCount() - (m_bit_time / 4);
-#endif
-    ss_byte = 0;
-    ss_index++;
-  } else {
-    // now any bit changes go here
-    // calc bit number
-#ifdef __riscv
-    diff = (micros() - ss_bstart) / m_bit_time;
-#else
-    diff = (ESP.getCycleCount() - ss_bstart) / m_bit_time;
-#endif
-
-    if (!level && diff > SML_LASTBIT) {
-      // start bit of next byte, store  and restart
-      // leave irq at change
-      for (uint32_t i = ss_index; i <= SML_LASTBIT; i++) {
-        ss_byte |= (1 << i);
-      }
-      uint32_t next = (m_in_pos + 1) % serial_buffer_size;
-      if (next != (uint32_t)m_out_pos) {
-        m_buffer[m_in_pos] = ss_byte >> 1;
-        m_in_pos = next;
-      }
-#ifdef __riscv
-      ss_bstart = micros() - (m_bit_time / 4);
-#else
-      ss_bstart = ESP.getCycleCount() - (m_bit_time / 4);
-#endif
-      ss_byte = 0;
-      ss_index = 1;
-      return;
-    }
-    if (diff >= SML_LASTBIT) {
-      // bit zero was 0,
-      uint32_t next = (m_in_pos + 1) % serial_buffer_size;
-      if (next != (uint32_t)m_out_pos) {
-        m_buffer[m_in_pos] = ss_byte >> 1;
-        m_in_pos = next;
-      }
-      ss_byte = 0;
-      ss_index = 0;
-    } else {
-      // shift in
-      for (uint32_t i = ss_index; i < diff; i++) {
-        if (!level) ss_byte |= (1 << i);
-      }
-      ss_index = diff;
-    }
-  }
-}
-#endif // USE_ESP32_SW_SERIAL
-#endif // ESP32
 
 
 typedef union {
@@ -680,8 +455,6 @@ struct METER_DESC {
 #define MEDIAN_FILTER_FLG 0x10
 #define NO_SYNC_FLG 0x20
 
-struct METER_DESC  meter_desc[MAX_METERS];
-
 
 // this driver uses double because some meter vars would not fit in float
 //=====================================================
@@ -738,15 +511,21 @@ struct SML_GLOBS {
   struct SML_MEDIAN_FILTER *sml_mf;
 #endif
 	uint8_t *script_meter;
-	struct METER_DESC *mp;
+	struct METER_DESC *mptr;
   uint8_t to_cnt;
   bool ready;
 #ifdef USE_SML_CANBUS
   uint8_t twai_installed;
 #endif // USE_SML_CANBUS
-} sml_globs;
+};
 
+typedef struct {
+  struct METER_DESC  meter_desc[MAX_METERS];
+  struct SML_GLOBS sml_globs;
+} MODULE_MEMORY;
 
+#define meter_desc mem->meter_desc
+#define sml_globs mem->sml_globs
 
 #define SML_OPTIONS_JSON_ENABLE 1
 uint8_t sml_options = SML_OPTIONS_JSON_ENABLE;
@@ -896,33 +675,33 @@ SETREGS
   uint32_t d_lastms;
   uint8_t dchars[16];
 	uint8_t meter = (sml_globs.dump2log & 7) - 1;
-  uint8_t type = sml_globs.mp[meter].type;
+  uint8_t type = sml_globs.mptr[meter].type;
 
   //if (!SML_SAVAILABLE) return;
 	if (!sml_globs.log_data) return;
 
-  struct METER_DESC *mp = &meter_desc[meter];
+  struct METER_DESC *mptr = &meter_desc[meter];
 
 
 #ifdef USE_SML_DECRYPT
-	if (mp->use_crypt == true) {
+	if (mptr->use_crypt == true) {
 			d_lastms = millis();
       while ((millis() - d_lastms) < 50) {
         while (SML_SAVAILABLE) {
 					d_lastms = millis();
 					uint16_t logsiz;
 					uint8_t *payload;
-					if (mp->hp->readHanPort(&payload, &logsiz, mp->crypflags)) {
-						if (logsiz > mp->sbsiz) {
-							logsiz = mp->sbsiz;
+					if (mptr->hp->readHanPort(&payload, &logsiz, mptr->crypflags)) {
+						if (logsiz > mptr->sbsiz) {
+							logsiz = mptr->sbsiz;
 						}
-						memmove(mp->sbuff, payload, logsiz);
+						memmove(mptr->sbuff, payload, logsiz);
 						AddLog(LOG_LEVEL_INFO, PSTR("SML: decrypted block: %d bytes"), logsiz);
 						uint16_t index = 0;
 						while (logsiz) {
 							sml_dump_start('>');
 							for (uint16_t cnt = 0; cnt < 16; cnt++) {
-								sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x ", mp->sbuff[index++]);
+								sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x ", mptr->sbuff[index++]);
 								if (sml_globs.sml_logindex < sml_globs.logsize - 7) {
 				          sml_globs.sml_logindex += 3;
 				        }
@@ -936,8 +715,8 @@ SETREGS
 					} else {
 						// dump serial buffer
 						sml_dump_start(' ');
-						while (index < mp->spos) {
-							sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x ", mp->sbuff[index++]);
+						while (index < mptr->spos) {
+							sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x ", mptr->sbuff[index++]);
 							if (sml_globs.sml_logindex >= 32*3+2) {
 								AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
 								sml_dump_start(' ');
@@ -950,7 +729,7 @@ SETREGS
 				AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
 				sml_dump_start(' ');
 			}
-			mp->hp->len = 0;
+			mptr->hp->len = 0;
 			return;
 	}
 #endif
@@ -1075,21 +854,21 @@ SETREGS
 #ifdef USE_SML_CANBUS       
       case 'C':
  #ifdef ESP8266     
-        if (mp->mcp2515 == nullptr) break;
+        if (mptr->mcp2515 == nullptr) break;
         { struct can_frame canFrame;
-        while (mp->mcp2515->checkReceive()) {
-            if (mp->mcp2515->readMessage(&canFrame) == MCP2515::ERROR_OK) {
-              mp->sbuff[0] = canFrame.can_id >> 24;
-              mp->sbuff[1] = canFrame.can_id >> 16;
-              mp->sbuff[2] = canFrame.can_id >> 8;
-              mp->sbuff[3] = canFrame.can_id;
-              mp->sbuff[4] = canFrame.can_dlc;
+        while (mptr->mcp2515->checkReceive()) {
+            if (mptr->mcp2515->readMessage(&canFrame) == MCP2515::ERROR_OK) {
+              mptr->sbuff[0] = canFrame.can_id >> 24;
+              mptr->sbuff[1] = canFrame.can_id >> 16;
+              mptr->sbuff[2] = canFrame.can_id >> 8;
+              mptr->sbuff[3] = canFrame.can_id;
+              mptr->sbuff[4] = canFrame.can_dlc;
               for (int i = 0; i < canFrame.can_dlc; i++) {
-                mp->sbuff[5 + i] = canFrame.data[i];
+                mptr->sbuff[5 + i] = canFrame.data[i];
               }
               sml_dump_start(' ');
               for (uint8_t index = 0; index < canFrame.can_dlc + 5; index++) {
-                sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x", mp->sbuff[index]);
+                sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x", mptr->sbuff[index]);
                 sml_globs.sml_logindex += 2;
                 if (index == 3) {
                   sml_globs.log_data[sml_globs.sml_logindex] = ':';
@@ -1101,9 +880,9 @@ SETREGS
               sml_globs.log_data[sml_globs.sml_logindex] = 0;
               AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
             } else {
-              if (mp->mcp2515->checkError()) {
-                uint8_t errFlags = mp->mcp2515->getErrorFlags();
-                mp->mcp2515->clearRXnOVRFlags();
+              if (mptr->mcp2515->checkError()) {
+                uint8_t errFlags = mptr->mcp2515->getErrorFlags();
+                mptr->mcp2515->clearRXnOVRFlags();
                 AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Received error %d"), errFlags);
               }
             }
@@ -1120,17 +899,17 @@ SETREGS
         if (alerts_triggered & TWAI_ALERT_RX_DATA) {
           twai_message_t message;
           while (twai_receive(&message, 0) == ESP_OK) {
-            mp->sbuff[0] = message.identifier >> 24;
-            mp->sbuff[1] = message.identifier >> 16;
-            mp->sbuff[2] = message.identifier >> 8;
-            mp->sbuff[3] = message.identifier;
-            mp->sbuff[4] = message.data_length_code;
+            mptr->sbuff[0] = message.identifier >> 24;
+            mptr->sbuff[1] = message.identifier >> 16;
+            mptr->sbuff[2] = message.identifier >> 8;
+            mptr->sbuff[3] = message.identifier;
+            mptr->sbuff[4] = message.data_length_code;
             for (int i = 0; i < message.data_length_code; i++) {
-              mp->sbuff[5 + i] = message.data[i];
+              mptr->sbuff[5 + i] = message.data[i];
             }
             sml_dump_start(' ');
             for (uint8_t index = 0; index < message.data_length_code + 5; index++) {
-              sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x", mp->sbuff[index]);
+              sprintf(&sml_globs.log_data[sml_globs.sml_logindex], "%02x", mptr->sbuff[index]);
               sml_globs.sml_logindex += 2;
               if (index == 3) {
                   sml_globs.log_data[sml_globs.sml_logindex] = ':';
@@ -1574,27 +1353,27 @@ SETREGS
 
   uint32_t count;
 
-  struct METER_DESC *mp = &meter_desc[meters];
+  struct METER_DESC *mptr = &meter_desc[meters];
 
-  if (!mp->sbuff) return;
+  if (!mptr->sbuff) return;
 
 #ifdef USE_SML_DECRYPT
-	if (mp->use_crypt) {
-		if (mp->hp) {
-			uint32_t timediff = millis() - mp->lastms;
-			if (timediff > mp->tout_ms) {
-				mp->hp->len = 0;
-				mp->spos = 0;
+	if (mptr->use_crypt) {
+		if (mptr->hp) {
+			uint32_t timediff = millis() - mptr->lastms;
+			if (timediff > mptr->tout_ms) {
+				mptr->hp->len = 0;
+				mptr->spos = 0;
 				AddLog(LOG_LEVEL_DEBUG, PSTR("SML: sync"));
 			}
-			mp->lastms = millis();
+			mptr->lastms = millis();
 			uint16_t len;
 			uint8_t *payload;
-			if (mp->hp->readHanPort(&payload, &len, mp->crypflags)) {
-				if (len > mp->sbsiz) {
-					len = mp->sbsiz;
+			if (mptr->hp->readHanPort(&payload, &len, mptr->crypflags)) {
+				if (len > mptr->sbsiz) {
+					len = mptr->sbsiz;
 				}
-				memmove(mp->sbuff, payload, len);
+				memmove(mptr->sbuff, payload, len);
 				AddLog(LOG_LEVEL_DEBUG, PSTR("SML: decrypted block: %d bytes"), len);
 				SML_Decode(meters);
 			}
@@ -1603,46 +1382,46 @@ SETREGS
 	}
 #endif
 
-  if (mp->shift_mode) {
+  if (mptr->shift_mode) {
     // shift in
-    for (count = 0; count < mp->sbsiz - 1; count++) {
-      mp->sbuff[count] = mp->sbuff[count + 1];
+    for (count = 0; count < mptr->sbsiz - 1; count++) {
+      mptr->sbuff[count] = mptr->sbuff[count + 1];
     }
   }
     
   uint8_t iob;
-  if (mp->srcpin != TCP_MODE_FLG) {
-    iob = (uint8_t)mp->meter_ss->read(); 
+  if (mptr->srcpin != TCP_MODE_FLG) {
+    iob = (uint8_t)mptr->meter_ss->read(); 
   } else {
-    if (mp->client) {
-      iob = (uint8_t)mp->client->read();
+    if (mptr->client) {
+      iob = (uint8_t)mptr->client->read();
     } else {
       iob = 0;
     }
   }
 
-  switch (mp->type) {
+  switch (mptr->type) {
     case 'o':
       // asci obis
-      if (!(mp->so_flags.SO_OBIS_LINE)) {
-        mp->sbuff[mp->sbsiz - 1] = iob & 0x7f;
+      if (!(mptr->so_flags.SO_OBIS_LINE)) {
+        mptr->sbuff[mptr->sbsiz - 1] = iob & 0x7f;
       } else {
         iob &= 0x7f;
-        mp->sbuff[mp->spos] = iob;
-        mp->spos++;
-        if (mp->spos >= mp->sbsiz) {
-          mp->spos = 0;
+        mptr->sbuff[mptr->spos] = iob;
+        mptr->spos++;
+        if (mptr->spos >= mptr->sbsiz) {
+          mptr->spos = 0;
         }
         if ((iob == 0x0a) || (iob == 0x0d)) {
           SML_Decode(meters);
-          mp->spos = 0;
+          mptr->spos = 0;
         }
       }
       break;
     case 's':
       // binary obis = sml
-      mp->sbuff[mp->sbsiz - 1] = iob;
-      if (mp->sbuff[0] != SML_SYNC && ((mp->flag & NO_SYNC_FLG) == 0)) {
+      mptr->sbuff[mptr->sbsiz - 1] = iob;
+      if (mptr->sbuff[0] != SML_SYNC && ((mptr->flag & NO_SYNC_FLG) == 0)) {
         // Skip decoding, when buffer does not start with sync byte (0x77)
         sb_counter++;
         return;
@@ -1650,103 +1429,103 @@ SETREGS
       break;
     case 'r':
       // raw with shift
-      mp->sbuff[mp->sbsiz - 1] = iob;
+      mptr->sbuff[mptr->sbsiz - 1] = iob;
       break;
     case 'R':
       // raw without shift
 			{
-			uint32_t timediff = millis() - mp->lastms;
-			if (timediff > mp->tout_ms) {
-				mp->spos = 0;
+			uint32_t timediff = millis() - mptr->lastms;
+			if (timediff > mptr->tout_ms) {
+				mptr->spos = 0;
         SML_Decode(meters);
 				AddLog(LOG_LEVEL_DEBUG, PSTR("SML: sync"));
 			}
-			mp->lastms = millis();
-      mp->sbuff[mp->spos] = iob;
-      mp->spos++;
-      if (mp->spos > mp->sbsiz) {
-        mp->spos = 0;
+			mptr->lastms = millis();
+      mptr->sbuff[mptr->spos] = iob;
+      mptr->spos++;
+      if (mptr->spos > mptr->sbsiz) {
+        mptr->spos = 0;
       }
 			}
       break;
     case 'k':
       // Kamstrup
       if (iob == 0x40) {
-        mp->spos = 0;
+        mptr->spos = 0;
       } else if (iob == 0x0d) {
         uint8_t index = 0;
-        uint8_t *ucp = &mp->sbuff[0];
-        for (uint16_t cnt = 0; cnt < mp->spos; cnt++) {
-          uint8_t iob = mp->sbuff[cnt] ;
+        uint8_t *ucp = &mptr->sbuff[0];
+        for (uint16_t cnt = 0; cnt < mptr->spos; cnt++) {
+          uint8_t iob = mptr->sbuff[cnt] ;
           if (iob == 0x1b) {
-            *ucp++ = mp->sbuff[cnt + 1]  ^ 0xff;
+            *ucp++ = mptr->sbuff[cnt + 1]  ^ 0xff;
             cnt++;
           } else {
             *ucp++ = iob;
           }
           index++;
         }
-        uint16_t crc = KS_calculateCRC(&mp->sbuff[0], index);
+        uint16_t crc = KS_calculateCRC(&mptr->sbuff[0], index);
         if (!crc) {
           SML_Decode(meters);
         }
         sml_empty_receiver(meters);
-        mp->spos = 0;
+        mptr->spos = 0;
       } else {
-        mp->sbuff[mp->spos] = iob;
-        mp->spos++;
-        if (mp->spos >= mp->sbsiz) {
-          mp->spos = 0;
+        mptr->sbuff[mptr->spos] = iob;
+        mptr->spos++;
+        if (mptr->spos >= mptr->sbsiz) {
+          mptr->spos = 0;
         }
       }
       break;
     case 'm':
     case 'M':
       // modbus
-      mp->sbuff[mp->spos] = iob;
-      mp->spos++;
-      if (mp->spos >= mp->sbsiz) {
-        mp->spos = 0;
+      mptr->sbuff[mptr->spos] = iob;
+      mptr->spos++;
+      if (mptr->spos >= mptr->sbsiz) {
+        mptr->spos = 0;
       }
-      if (mp->srcpin == TCP_MODE_FLG) {
+      if (mptr->srcpin == TCP_MODE_FLG) {
         // tcp read
-        if (mp->spos >= 6) {
-          uint8_t tlen = (mp->sbuff[4] << 8) | mp->sbuff[5];
-          if (mp->spos == 6 + tlen) {
-            mp->spos = 0;
-            memmove(&mp->sbuff[0], &mp->sbuff[6], mp->sbsiz - 6);
+        if (mptr->spos >= 6) {
+          uint8_t tlen = (mptr->sbuff[4] << 8) | mptr->sbuff[5];
+          if (mptr->spos == 6 + tlen) {
+            mptr->spos = 0;
+            memmove(&mptr->sbuff[0], &mptr->sbuff[6], mptr->sbsiz - 6);
             SML_Decode(meters);
-            if (mp->client) {
-              mp->client->flush();
+            if (mptr->client) {
+              mptr->client->flush();
             }
-            //Hexdump(mp->sbuff + 6, 10);
+            //Hexdump(mptr->sbuff + 6, 10);
           }
         }
         break;
       }
 
-      if (mp->spos >= 3) {
-        uint32_t mlen = mp->sbuff[2] + 5;
-        if (mlen > mp->sbsiz) mlen = mp->sbsiz;
-        if (mp->spos >= mlen) {
+      if (mptr->spos >= 3) {
+        uint32_t mlen = mptr->sbuff[2] + 5;
+        if (mlen > mptr->sbsiz) mlen = mptr->sbsiz;
+        if (mptr->spos >= mlen) {
 #ifdef MODBUS_DEBUG
-          AddLog(LOG_LEVEL_INFO, PSTR("receive index >> %d"), mp->index);
-          Hexdump(mp->sbuff, 10);
+          AddLog(LOG_LEVEL_INFO, PSTR("receive index >> %d"), mptr->index);
+          Hexdump(mptr->sbuff, 10);
 #endif
           SML_Decode(meters);
           sml_empty_receiver(meters);
-          mp->spos = 0;
+          mptr->spos = 0;
         }
       }
       break;
     case 'p':
       // pzem
-      mp->sbuff[mp->spos] = iob;
-      mp->spos++;
-      if (mp->spos >= 7) {
+      mptr->sbuff[mptr->spos] = iob;
+      mptr->spos++;
+      if (mptr->spos >= 7) {
         SML_Decode(meters);
         sml_empty_receiver(meters);
-        mp->spos = 0;
+        mptr->spos = 0;
       }
       break;
     case 'v':
@@ -1754,12 +1533,12 @@ SETREGS
       if (iob == EBUS_SYNC) {
         sb_counter = 0;
         SML_Decode(meters);
-        mp->sbuff[0] = iob;
-        mp->spos = 1;
+        mptr->sbuff[0] = iob;
+        mptr->spos = 1;
       } else {
-        if (mp->spos < mp->sbsiz) {
-          mp->sbuff[mp->spos] = iob;
-          mp->spos++;
+        if (mptr->spos < mptr->sbsiz) {
+          mptr->sbuff[mptr->spos] = iob;
+          mptr->spos++;
         }
       }
       break;
@@ -1768,31 +1547,31 @@ SETREGS
       if (iob == EBUS_SYNC) {
         // should be end of telegramm
         // QQ,ZZ,PB,SB,NN ..... CRC, ACK SYNC
-        if (mp->spos > 5 && mp->spos > mp->sbuff[4] + 5) {
+        if (mptr->spos > 5 && mptr->spos > mptr->sbuff[4] + 5) {
           // get telegramm lenght
-          uint16_t tlen = mp->sbuff[4] + 5 + check_ebus_esc(mp->sbuff, mp->spos);
+          uint16_t tlen = mptr->sbuff[4] + 5 + check_ebus_esc(mptr->sbuff, mptr->spos);
           // test crc
-          if (mp->sbuff[tlen] == ebus_CalculateCRC(mp->sbuff, tlen)) {
-              ebus_esc(mp->sbuff, mp->spos);
+          if (mptr->sbuff[tlen] == ebus_CalculateCRC(mptr->sbuff, tlen)) {
+              ebus_esc(mptr->sbuff, mptr->spos);
               SML_Decode(meters);
           } else {
               // crc error
               AddLog(LOG_LEVEL_INFO, PSTR("ebus crc error"));
           }
         }
-        mp->spos = 0;
+        mptr->spos = 0;
         return;
       }
-      mp->sbuff[mp->spos] = iob;
-      mp->spos++;
-      if (mp->spos >= mp->sbsiz) {
-        mp->spos = 0;
+      mptr->sbuff[mptr->spos] = iob;
+      mptr->spos++;
+      if (mptr->spos >= mptr->sbsiz) {
+        mptr->spos = 0;
       }
       break;
   }
   sb_counter++;
 
-  if (mp->shift_mode) {
+  if (mptr->shift_mode) {
     SML_Decode(meters);
   }
 }
@@ -1807,23 +1586,23 @@ SETREGS
 uint32_t meters;
 
     for (meters = 0; meters < sml_globs.meters_used; meters++) {
-      struct METER_DESC *mp = &meter_desc[meters];
-      if (mp->type == 'C') continue;
-      if (mp->type != 'c') {
-        if (mp->srcpin != TCP_MODE_FLG) {
-          if (!mp->meter_ss) continue;
+      struct METER_DESC *mptr = &meter_desc[meters];
+      if (mptr->type == 'C') continue;
+      if (mptr->type != 'c') {
+        if (mptr->srcpin != TCP_MODE_FLG) {
+          if (!mptr->meter_ss) continue;
           // poll for serial input
           if (sml_globs.ser_act_LED_pin != 255 && (sml_globs.ser_act_meter_num == 0 || sml_globs.ser_act_meter_num - 1 == meters)) {
-            digitalWrite(sml_globs.ser_act_LED_pin, mp->meter_ss->available() && !digitalRead(sml_globs.ser_act_LED_pin)); // Invert LED, if queue is continuously full
+            digitalWrite(sml_globs.ser_act_LED_pin, mptr->meter_ss->available() && !digitalRead(sml_globs.ser_act_LED_pin)); // Invert LED, if queue is continuously full
           }
-          while (mp->meter_ss->available()) {
+          while (mptr->meter_ss->available()) {
             sml_shift_in(meters, 0);
           }
         } else {
 
 #ifdef USE_SML_TCP
-          if (mp->client) {    
-            while (mp->client->available()){
+          if (mptr->client) {    
+            while (mptr->client->available()){
               sml_shift_in(meters, 0);
             }
           }
@@ -1938,7 +1717,7 @@ SETREGS
 void SML_Decode(uint8_t index) {
 SETREGS
 
-  const char *mp = (const char*)sml_globs.meter_p;
+  const char *mptr = (const char*)sml_globs.meter_p;
   int8_t mindex;
   uint8_t *cp;
   uint8_t dindex = 0, vindex = 0;
@@ -1950,27 +1729,27 @@ SETREGS
 
   while (mp != NULL) {
     // check list of defines
-    if (*mp == 0) break;
+    if (*mptr == 0) break;
 
     // new section
-    mindex = ((*mp) & 7) - 1;
+    mindex = ((*mptr) & 7) - 1;
 
     if (mindex < 0 || mindex >= sml_globs.meters_used) mindex = 0;
     mp += 2;
-    if (*mp == '=' && *(mp+1) == 'h') {
+    if (*mptr == '=' && *(mp+1) == 'h') {
       mp = strchr(mp, '|');
-      if (mp) mp++;
+      if (mp) mptr++;
       continue;
     }
 
-    if (*mp == '=' && *(mp+1) == 's') {
+    if (*mptr == '=' && *(mp+1) == 's') {
       mp = strchr(mp, '|');
-      if (mp) mp++;
+      if (mp) mptr++;
       continue;
     }
 
     // =d must handle dindex
-    if (*mp == '=' && *(mp + 1) == 'd') {
+    if (*mptr == '=' && *(mp + 1) == 'd') {
       if (index != mindex) {
         dindex++;
       }
@@ -1982,39 +1761,39 @@ SETREGS
     cp = meter_desc[mindex].sbuff;
 
     // compare
-    if (*mp == '=') {
+    if (*mptr == '=') {
       // calculated entry, check syntax
-      mp++;
+      mptr++;
       // do math m 1+2+3
-      if (*mp == 'm' && !sb_counter) {
+      if (*mptr == 'm' && !sb_counter) {
         // only every 256 th byte
         // else it would be calculated every single serial byte
-        mp++;
-        while (*mp == ' ') mp++;
+        mptr++;
+        while (*mptr == ' ') mptr++;
         // 1. index
         double dvar;
         uint8_t opr;
         uint8_t mind;
         int32_t ind;
-        mind = strtol((char*)mp, (char**)&mp, 10);
+        mind = strtol((char*)mptr, (char**)&mptr, 10);
         if (mind < 1 || mind > sml_globs.maxvars) mind = 1;
         dvar = sml_globs.meter_vars[mind - 1];
-        while (*mp==' ') mp++;
+        while (*mptr==' ') mptr++;
         for (uint8_t p = 0; p < 8; p++) {
-          if (*mp == '@') {
+          if (*mptr == '@') {
             // store result
             sml_globs.meter_vars[vindex] = dvar;
-            mp++;
+            mptr++;
             break;
           }
-          opr = *mp;
-          mp++;
+          opr = *mptr;
+          mptr++;
           uint8_t iflg = 0;
-          if (*mp == '#') {
+          if (*mptr == '#') {
             iflg = 1;
-            mp++;
+            mptr++;
           }
-          ind = strtol((char*)mp, (char**)&mp, 10);
+          ind = strtol((char*)mptr, (char**)&mptr, 10);
           mind = ind;
           if (mind < 1 || mind > sml_globs.maxvars) mind = 1;
           switch (opr) {
@@ -2035,29 +1814,29 @@ SETREGS
                 else dvar /= sml_globs.meter_vars[mind - 1];
                 break;
           }
-          while (*mp==' ') mp++;
-          if (*mp == '@') {
+          while (*mptr==' ') mptr++;
+          if (*mptr == '@') {
             // store result
             sml_globs.meter_vars[vindex] = dvar;
-            mp++;
+            mptr++;
             break;
           }
         }
-        double fac = CharToDouble((char*)mp);
+        double fac = CharToDouble((char*)mptr);
         sml_globs.meter_vars[vindex] /= fac;
-        SML_Immediate_MQTT((const char*)mp, vindex, mindex);
+        SML_Immediate_MQTT((const char*)mptr, vindex, mindex);
         sml_globs.dvalid[vindex] = 1;
         // get sfac
-      } else if (*mp == 'd') {
+      } else if (*mptr == 'd') {
         // calc deltas d ind 10 (eg every 10 secs)
         if (dindex < MAX_DVARS) {
           // only n indexes
-          mp++;
-          while (*mp == ' ') mp++;
+          mptr++;
+          while (*mptr == ' ') mptr++;
           uint8_t ind = atoi(mp);
-          while (*mp >= '0' && *mp <= '9') mp++;
+          while (*mptr >= '0' && *mptr <= '9') mptr++;
           if (ind < 1 || ind > sml_globs.maxvars) ind = 1;
-          uint32_t delay = atoi(mp) * 1000;
+          uint32_t delay = atoi(mptr) * 1000;
           uint32_t dtime = millis() - sml_globs.dtimes[dindex];
           if (dtime > delay) {
             // calc difference
@@ -2073,7 +1852,7 @@ SETREGS
               sml_globs.dvalid[vindex] = 2;
 
 #ifdef USE_SML_MEDIAN_FILTER
-              if (sml_globs.mp[mindex].flag & MEDIAN_FILTER_FLG) {
+              if (sml_globs.mptr[mindex].flag & MEDIAN_FILTER_FLG) {
                 sml_globs.meter_vars[vindex] = sml_median(&sml_globs.sml_mf[vindex], dres);
               } else {
                 sml_globs.meter_vars[vindex] = dres;
@@ -2082,26 +1861,26 @@ SETREGS
               sml_globs.meter_vars[vindex] = dres;
 #endif
             }
-            mp=strchr(mp,'@');
-            if (mp) {
-              mp++;
-              double fac = CharToDouble((char*)mp);
+            mptr=strchr(mptr,'@');
+            if (mptr) {
+              mptr++;
+              double fac = CharToDouble((char*)mptr);
               sml_globs.meter_vars[vindex] /= fac;
-              SML_Immediate_MQTT((const char*)mp, vindex, mindex);
+              SML_Immediate_MQTT((const char*)mptr, vindex, mindex);
             }
           }
           //sml_globs.dvalid[vindex] = 1;
           dindex++;
         }
-      } else if (*mp == 'h') {
+      } else if (*mptr == 'h') {
         // skip html tag line
-        mp = strchr(mp, '|');
-        if (mp) mp++;
+        mptr = strchr(mptr, '|');
+        if (mptr) mptr++;
         continue;
-      } else if (*mp == 's') {
+      } else if (*mptr == 's') {
         // skip spec option tag line
-        mp = strchr(mp, '|');
-        if (mp) mp++;
+        mptr = strchr(mptr, '|');
+        if (mptr) mptr++;
         continue;
       }
     } else {
@@ -2109,47 +1888,47 @@ SETREGS
       uint8_t found = 1;
       double ebus_dval = 99;
       double mbus_dval = 99;
-      while (*mp != '@') {
+      while (*mptr != '@') {
         if (found == 0) {
           // skip rest of decoder part
-          mp++;
+          mptr++;
           continue;
         }
-        if (sml_globs.mp[mindex].type == 'o' || sml_globs.mp[mindex].type == 'c') {
-          if (*mp++ != *cp++) {
+        if (sml_globs.mptr[mindex].type == 'o' || sml_globs.mptr[mindex].type == 'c') {
+          if (*mptr++ != *cp++) {
             found = 0;
           }
         } else {
-          if (sml_globs.mp[mindex].type == 's') {
+          if (sml_globs.mptr[mindex].type == 's') {
             // sml
-            uint8_t val = hexnibble(*mp++) << 4;
-            val |= hexnibble(*mp++);
+            uint8_t val = hexnibble(*mptr++) << 4;
+            val |= hexnibble(*mptr++);
             if (val != *cp++) {
               found = 0;
             }
           } else {
             // ebus modbus pzem vbus or raw
-						if (!strncmp(mp, "pm(", 3)) {
+						if (!strncmp(mptr, "pm(", 3)) {
 							// pattern match
 							uint8_t dp = 0;
-							mp += 3;
+							mptr += 3;
 							// default to asci obis
 							uint8_t aflg = 3;
-							if (*mp == 'r') {
+							if (*mptr == 'r') {
 								aflg = 0;
-								mp++;
-							} else if (*mp == 'h') {
+								mptr++;
+							} else if (*mptr == 'h') {
 								aflg = 1;
-								mp++;
+								mptr++;
 							}
 							uint8_t pattern[64];
 							// check for obis pattern
 							for (uint32_t cnt = 0; cnt < sizeof(pattern); cnt++) {
-								if (*mp == '@' || !*mp) {
+								if (*mptr == '@' || !*mptr) {
 									break;
 								}
-								if (*mp == ')') {
-									mp++;
+								if (*mptr == ')') {
+									mptr++;
 									if ((aflg & 2) && (dp == 2)) {
 										pattern[cnt] = 0xff;
 										cnt++;
@@ -2184,173 +1963,173 @@ SETREGS
 								}
 								uint8_t iob;
 								if (aflg & 2) {
-									iob = strtol((char*)mp, (char**)&mp, 10);
-									if (*mp == '.') {
-										mp++;
+									iob = strtol((char*)mptr, (char**)&mptr, 10);
+									if (*mptr == '.') {
+										mptr++;
 										dp++;
 									}
 								} else {
-									iob = hexnibble(*mp++) << 4;
-									iob |= hexnibble(*mp++);
+									iob = hexnibble(*mptr++) << 4;
+									iob |= hexnibble(*mptr++);
 								}
 								pattern[cnt] = iob;
 							}
-						} else if (*mp == 'x') {
-              if (*(mp + 1) == 'x') {
+						} else if (*mptr == 'x') {
+              if (*(mptr + 1) == 'x') {
                 //ignore one byte
-                mp += 2;
+                mptr += 2;
                 cp++;
               } else {
-                mp++;
-                if (isdigit(*mp)) {
-                  uint32_t skip = strtol((char*)mp, (char**)&mp, 10);
+                mptr++;
+                if (isdigit(*mptr)) {
+                  uint32_t skip = strtol((char*)mptr, (char**)&mptr, 10);
                   cp += skip;
                 }
               }
-            } else if (!strncmp(mp, "U64", 3)) {
+            } else if (!strncmp(mptr, "U64", 3)) {
               uint32_t valh = (cp[0]<<24) | (cp[1]<<16) | (cp[2]<<8) | (cp[3]<<0);
               uint32_t vall = (cp[4]<<24) | (cp[5]<<16) | (cp[6]<<8) | (cp[7]<<0);
               uint64_t val = ((uint64_t)valh<<32) | vall;
-              mp += 3;
+              mptr += 3;
               cp += 8;
               ebus_dval = val;
               mbus_dval = val;
-            } else if (!strncmp(mp, "u64", 3)) {
+            } else if (!strncmp(mptr, "u64", 3)) {
               uint64_t valh = (cp[1]<<24) | (cp[0]<<16) | (cp[3]<<8) | (cp[2]<<0);
               uint64_t vall = (cp[5]<<24) | (cp[4]<<16) | (cp[7]<<8) | (cp[6]<<0);
               uint64_t val = ((uint64_t)valh<<32) | vall;
-              mp += 3;
+              mptr += 3;
               cp += 8;
               ebus_dval = val;
               mbus_dval = val;
-            } else if (!strncmp(mp, "U32", 3)) {
-              mp += 3;
+            } else if (!strncmp(mptr, "U32", 3)) {
+              mptr += 3;
               goto U32_do;
-            } else if (!strncmp(mp, "UUuuUUuu", 8)) {
-              mp += 8;
+            } else if (!strncmp(mptr, "UUuuUUuu", 8)) {
+              mptr += 8;
               U32_do:
               uint32_t val = (cp[0]<<24) | (cp[1]<<16) | (cp[2]<<8) | (cp[3]<<0);
               cp += 4;
-              if (*mp == 's') {
-                mp++;
+              if (*mptr == 's') {
+                mptr++;
                 // swap words
                 val = (val>>16) | (val<<16);
               }
               ebus_dval = val;
               mbus_dval = val;
-            } else if (!strncmp(mp, "u32", 3)) {
-              mp += 3;
+            } else if (!strncmp(mptr, "u32", 3)) {
+              mptr += 3;
               goto u32_do;
-            } else if (!strncmp(mp, "uuUUuuUU", 8)) {
-              mp += 8;
+            } else if (!strncmp(mptr, "uuUUuuUU", 8)) {
+              mptr += 8;
               u32_do:
               uint32_t val = (cp[1]<<24) | (cp[0]<<16) | (cp[3]<<8) | (cp[2]<<0);
               cp += 4;
-              if (*mp == 's') {
-                mp++;
+              if (*mptr == 's') {
+                mptr++;
                 // swap words
                 val = (val>>16) | (val<<16);
               }
               ebus_dval = val;
               mbus_dval = val;
-            } else if (!strncmp(mp, "UUuu", 4)) {
+            } else if (!strncmp(mptr, "UUuu", 4)) {
               uint16_t val = cp[1] | (cp[0]<<8);
               mbus_dval = val;
               ebus_dval = val;
-              mp += 4;
+              mptr += 4;
               cp += 2;
-            } else if (!strncmp(mp, "S32", 3)) {
-              mp += 3;
+            } else if (!strncmp(mptr, "S32", 3)) {
+              mptr += 3;
               goto S32_do;
-            } else if (!strncmp(mp, "SSssSSss", 8)) {
-              mp += 8;
+            } else if (!strncmp(mptr, "SSssSSss", 8)) {
+              mptr += 8;
               S32_do:
               int32_t val = (cp[0]<<24) | (cp[1]<<16) | (cp[2]<<8) | (cp[3]<<0);
               cp += 4;
-              if (*mp == 's') {
-                mp++;
+              if (*mptr == 's') {
+                mptr++;
                 // swap words
                 val = ((uint32_t)val>>16) | ((uint32_t)val<<16);
               }
               ebus_dval = val;
               mbus_dval = val;
-            } else if (!strncmp(mp, "s32", 3)) {
-              mp += 3;
+            } else if (!strncmp(mptr, "s32", 3)) {
+              mptr += 3;
               goto s32_do;
-            } else if (!strncmp(mp, "ssSSssSS", 8)) {
-              mp += 8;
+            } else if (!strncmp(mptr, "ssSSssSS", 8)) {
+              mptr += 8;
               s32_do:
               int32_t val = (cp[1]<<24) | (cp[0]<<16) | (cp[3]<<8) | (cp[2]<<0);
               cp += 4;
-              if (*mp == 's') {
-                mp++;
+              if (*mptr == 's') {
+                mptr++;
                 // swap words
                 val = ((uint32_t)val>>16) | ((uint32_t)val<<16);
               }
               ebus_dval = val;
               mbus_dval = val;
-            } else if (!strncmp(mp, "uuUU", 4)) {
+            } else if (!strncmp(mptr, "uuUU", 4)) {
               uint16_t val = cp[0] | (cp[1]<<8);
               mbus_dval = val;
               ebus_dval = val;
-              mp += 4;
+              mptr += 4;
               cp += 2;
-            } else if (!strncmp(mp, "uu", 2)) {
+            } else if (!strncmp(mptr, "uu", 2)) {
               uint8_t val = *cp++;
               mbus_dval = val;
               ebus_dval = val;
-              mp += 2;
-            } else if (!strncmp(mp, "ssSS", 4)) {
+              mptr += 2;
+            } else if (!strncmp(mptr, "ssSS", 4)) {
               int16_t val = *cp | (*(cp+1)<<8);
               mbus_dval = val;
               ebus_dval = val;
-              mp += 4;
+              mptr += 4;
               cp += 2;
-            } else if (!strncmp(mp, "SSss", 4)) {
+            } else if (!strncmp(mptr, "SSss", 4)) {
               int16_t val = cp[1] | (cp[0]<<8);
               mbus_dval = val;
               ebus_dval = val;
-              mp += 4;
+              mptr += 4;
               cp += 2;
-            } else if (!strncmp(mp,"ss", 2)) {
+            } else if (!strncmp(mptr,"ss", 2)) {
               int8_t val = *cp++;
               mbus_dval = val;
               ebus_dval = val;
-              mp += 2;
-            } else if (!strncmp(mp, "ffffffff", 8)) {
+              mptr += 2;
+            } else if (!strncmp(mptr, "ffffffff", 8)) {
               uint32_t val = (cp[0]<<24) | (cp[1]<<16) | (cp[2]<<8) | (cp[3]<<0);
               float *fp = (float*)&val;
               ebus_dval = *fp;
               mbus_dval = *fp;
-              mp += 8;
+              mptr += 8;
               cp += 4;
-            } else if (!strncmp(mp, "FFffFFff", 8)) {
+            } else if (!strncmp(mptr, "FFffFFff", 8)) {
               // reverse word float
               uint32_t val = (cp[1]<<0) | (cp[0]<<8) | (cp[3]<<16) | (cp[2]<<24);
               float *fp = (float*)&val;
               ebus_dval = *fp;
               mbus_dval = *fp;
-              mp += 8;
+              mptr += 8;
               cp += 4;
-            } else if (!strncmp(mp, "eeeeee", 6)) {
+            } else if (!strncmp(mptr, "eeeeee", 6)) {
               uint32_t val = (cp[0]<<16) | (cp[1]<<8) | (cp[2]<<0);
               mbus_dval = val;
-              mp += 6;
+              mptr += 6;
               cp += 3;
-            } else if (!strncmp(mp, "vvvvvv", 6)) {
+            } else if (!strncmp(mptr, "vvvvvv", 6)) {
               mbus_dval = (float)((cp[0]<<8) | (cp[1])) + ((float)cp[2]/10.0);
-              mp += 6;
+              mptr += 6;
               cp += 3;
-            } else if (!strncmp(mp, "cccccc", 6)) {
+            } else if (!strncmp(mptr, "cccccc", 6)) {
               mbus_dval = (float)((cp[0]<<8) | (cp[1])) + ((float)cp[2]/100.0);
-              mp += 6;
+              mptr += 6;
               cp += 3;
-            } else if (!strncmp(mp, "pppp", 4)) {
+            } else if (!strncmp(mptr, "pppp", 4)) {
               mbus_dval = (float)((cp[0]<<8) | cp[1]);
-              mp += 4;
+              mptr += 4;
               cp += 2;
-            }  else if (!strncmp(mp, "kstr", 4)) {
-              mp += 4;
+            }  else if (!strncmp(mptr, "kstr", 4)) {
+              mptr += 4;
               // decode the mantissa
               uint32_t x = 0;
               for (uint16_t i = 0; i < cp[1]; i++) {
@@ -2372,9 +2151,9 @@ SETREGS
               }
               mbus_dval = (double )(x * ifl);
 
-            } else if (!strncmp(mp, "bcd", 3)) {
-              mp += 3;
-              uint8_t digits = strtol((char*)mp, (char**)&mp, 10);
+            } else if (!strncmp(mptr, "bcd", 3)) {
+              mptr += 3;
+              uint8_t digits = strtol((char*)mptr, (char**)&mptr, 10);
               if (digits < 2) digits = 2;
               if (digits > 12) digits = 12;
               uint64_t bcdval = 0;
@@ -2388,26 +2167,26 @@ SETREGS
               }
               mbus_dval = bcdval;
               ebus_dval = bcdval;
-            } else if (*mp == 'v') {
+            } else if (*mptr == 'v') {
               // vbus values vul, vsl, vuwh, vuwl, wswh, vswl, vswh
               // vub3, vsb3 etc
-              mp++;
+              mptr++;
               int16_t offset = -1;
-              if (*mp == 'o') {
-                mp++;
-                offset = strtol((char*)mp, (char**)&mp, 10);
+              if (*mptr == 'o') {
+                mptr++;
+                offset = strtol((char*)mptr, (char**)&mptr, 10);
                 cp += (offset / 4) * 6;
               }
               uint8_t usign;
-              if (*mp == 'u') {
+              if (*mptr == 'u') {
                 usign = 1;
-              } else if (*mp == 's') {
+              } else if (*mptr == 's') {
                 usign = 0;
               }
-              mp++;
-              switch (*mp) {
+              mptr++;
+              switch (*mptr) {
                 case 'l':
-                  mp++;
+                  mptr++;
                   // get long value
                   if (usign) {
                     ebus_dval = vbus_get_septet(cp);
@@ -2416,7 +2195,7 @@ SETREGS
                   }
                   break;
                 case 'w':
-                  mp++;
+                  mptr++;
                   char wflg;
                   if (offset >= 0) {
                     if (offset % 4) {
@@ -2425,8 +2204,8 @@ SETREGS
                       wflg = 'l';
                     }
                   } else {
-                    wflg = *mp;
-                    mp++;
+                    wflg = *mptr;
+                    mptr++;
                   }
                   // get word value
                   if (wflg == 'h') {
@@ -2440,13 +2219,13 @@ SETREGS
                   }
                   break;
                 case 'b':
-                  mp++;
+                  mptr++;
                   char bflg;
                   if (offset >= 0) {
                     bflg = 0x30 | (offset % 4);
                   } else {
-                    bflg = *mp;
-                    mp++;
+                    bflg = *mptr;
+                    mptr++;
                   }
                   switch (bflg) {
                     case '3':
@@ -2468,7 +2247,7 @@ SETREGS
                   }
                   break;
                 case 't':
-                  mp++;
+                  mptr++;
                   { uint16_t time;
                     if (offset % 4) {
                       time = (vbus_get_septet(cp) >> 16) & 0xffff;
@@ -2482,8 +2261,8 @@ SETREGS
               cp += 6;
             }
             else {
-              uint8_t val = hexnibble(*mp++) << 4;
-              val |= hexnibble(*mp++);
+              uint8_t val = hexnibble(*mptr++) << 4;
+              val |= hexnibble(*mptr++);
               if (val != *cp++) {
                 found = 0;
               }
@@ -2494,25 +2273,25 @@ SETREGS
       if (found) {
         // matches, get value
         sml_globs.dvalid[vindex] = 1;
-        mp++;
+        mptr++;
 #if defined(ED300L) || defined(AS2020) || defined(DTZ541) || defined(USE_SML_SPECOPT)
         sml_globs.g_mindex = mindex;
 #endif
-        if (*mp == '#') {
+        if (*mptr == '#') {
           // get string value
           getstr:
-          mp++;
-          if (sml_globs.mp[mindex].type != 'v') {
-            if (sml_globs.mp[mindex].type == 'o') {
+          mptr++;
+          if (sml_globs.mptr[mindex].type != 'v') {
+            if (sml_globs.mptr[mindex].type == 'o') {
               uint32_t p;
               for (p = 0; p < METER_ID_SIZE - 2; p++) {
-                if (*cp == *mp) {
+                if (*cp == *mptr) {
                   break;
                 }
                 meter_desc[mindex].meter_id[p] = *cp++;
               }
               meter_desc[mindex].meter_id[p] = 0;
-            } else if (sml_globs.mp[mindex].type == 'k') {
+            } else if (sml_globs.mptr[mindex].type == 'k') {
               // 220901
               uint32_t date = mbus_dval;
               uint8_t year = date / 10000; // = 22
@@ -2526,15 +2305,15 @@ SETREGS
           }
         } else {
           double dval;
-          char type = sml_globs.mp[mindex].type;
+          char type = sml_globs.mptr[mindex].type;
           if (type != 'C' && type != 'e' && type != 'r' && type != 'R' && type != 'm' && type != 'M' && type != 'k' && type != 'p' && type != 'v') {
             // get numeric values
             if (type == 'o' || type == 'c') {
-              if (*mp == '(') {
-                mp++;
+              if (*mptr == '(') {
+                mptr++;
                 // skip this number of brackets
-                uint8_t toskip = strtol((char*)mp,(char**)&mp, 10);
-                mp++;
+                uint8_t toskip = strtol((char*)mptr,(char**)&mptr, 10);
+                mptr++;
                 char *lcp = (char*)cp;
                 if (toskip) {
                   char *bp = (char*)cp;
@@ -2547,17 +2326,17 @@ SETREGS
                     lcp = bp;
                   }
                 }
-                if (*mp == '#') {
+                if (*mptr == '#') {
                   cp = (uint8_t*)lcp;
                   goto getstr;
                 }
                 dval = CharToDouble((char*)lcp);
-              } else if (*mp == 's') {
-                  mp++;
-                  char delim = *mp;
-                  mp++;
-                  uint8_t toskip = strtol((char*)mp,(char**)&mp, 10);
-                  mp++;
+              } else if (*mptr == 's') {
+                  mptr++;
+                  char delim = *mptr;
+                  mptr++;
+                  uint8_t toskip = strtol((char*)mptr,(char**)&mptr, 10);
+                  mptr++;
                   char *lcp = (char*)cp;
                   if (toskip) {
                     char *bp = (char*)cp;
@@ -2579,24 +2358,24 @@ SETREGS
             }
           } else {
             // ebus pzem vbus or mbus or raw
-            if (*mp == 'b') {
-              mp++;
-              uint8_t shift = *mp&7;
+            if (*mptr == 'b') {
+              mptr++;
+              uint8_t shift = *mptr&7;
               ebus_dval = (uint32_t)ebus_dval >> shift;
               ebus_dval = (uint32_t)ebus_dval & 1;
-              mp+=2;
+              mptr+=2;
             }
-            if (*mp == 'i') {
+            if (*mptr == 'i') {
               // mbus index
-              mp++;
-              uint8_t mb_index = strtol((char*)mp, (char**)&mp, 10);
-              if (mb_index != sml_globs.mp[mindex].index) {
+              mptr++;
+              uint8_t mb_index = strtol((char*)mptr, (char**)&mptr, 10);
+              if (mb_index != sml_globs.mptr[mindex].index) {
                 goto nextsect;
               }
-              if (sml_globs.mp[mindex].type == 'k') {
+              if (sml_globs.mptr[mindex].type == 'k') {
                 // crc is already checked, get float value
                 dval = mbus_dval;
-                mp++;
+                mptr++;
               } else {
                 if (meter_desc[mindex].srcpin != TCP_MODE_FLG) {
                   uint16_t pos = meter_desc[mindex].sbuff[2] + 3;
@@ -2606,11 +2385,11 @@ SETREGS
                   if (highByte(crc) != meter_desc[mindex].sbuff[pos + 1]) goto nextsect;
                 }
                 dval = mbus_dval;
-                //AddLog(LOG_LEVEL_INFO, PSTR(">> %s"),mp);
-                mp++;
+                //AddLog(LOG_LEVEL_INFO, PSTR(">> %s"),mptr);
+                mptr++;
               }
             } else {
-              if (sml_globs.mp[mindex].type == 'p') {
+              if (sml_globs.mptr[mindex].type == 'p') {
                 uint8_t crc = SML_PzemCrc(&meter_desc[mindex].sbuff[0],6);
                 if (crc != meter_desc[mindex].sbuff[6]) goto nextsect;
                 dval = mbus_dval;
@@ -2620,7 +2399,7 @@ SETREGS
             }
           }
 #ifdef USE_SML_MEDIAN_FILTER
-          if (sml_globs.mp[mindex].flag & MEDIAN_FILTER_FLG) {
+          if (sml_globs.mptr[mindex].flag & MEDIAN_FILTER_FLG) {
             sml_globs.meter_vars[vindex] = sml_median(&sml_globs.sml_mf[vindex], dval);
           } else {
             sml_globs.meter_vars[vindex] = dval;
@@ -2629,17 +2408,17 @@ SETREGS
           sml_globs.meter_vars[vindex] = dval;
 #endif
 
-          //AddLog(LOG_LEVEL_INFO, PSTR(">> %s"),mp);
+          //AddLog(LOG_LEVEL_INFO, PSTR(">> %s"),mptr);
           // get scaling factor
-          double fac = CharToDouble((char*)mp);
+          double fac = CharToDouble((char*)mptr);
           // get optional offset to calibrate meter
-          char *cp = skip_double((char*)mp);
+          char *cp = skip_double((char*)mptr);
           if (cp && (*cp == '+' || *cp == '-')) {
             double offset = CharToDouble(cp);
             sml_globs.meter_vars[vindex] += offset;
           }
           sml_globs.meter_vars[vindex] /= fac;
-          SML_Immediate_MQTT((const char*)mp, vindex, mindex);
+          SML_Immediate_MQTT((const char*)mptr, vindex, mindex);
         }
       }
       //AddLog(LOG_LEVEL_INFO, PSTR("set valid in line %d"), vindex);
@@ -2649,20 +2428,20 @@ nextsect:
     if (vindex < sml_globs.maxvars - 1) {
       vindex++;
     }
-    mp = strchr(mp, '|');
-    if (mp) mp++;
+    mptr = strchr(mptr, '|');
+    if (mptr) mptr++;
   }
 }
 
 //"1-0:1.8.0*255(@1," D_TPWRIN ",kWh," DJ_TPWRIN ",4|"
-void SML_Immediate_MQTT(const char *mp,uint8_t index,uint8_t mindex) {
+void SML_Immediate_MQTT(const char *mptr,uint8_t index,uint8_t mindex) {
 SETREGS
 
   char tpowstr[32];
   char jname[24];
 
   // we must skip sf,webname,unit
-  char *cp = strchr(mp, ',');
+  char *cp = strchr(mptr, ',');
   if (cp) {
     cp++;
     // wn
@@ -2686,7 +2465,7 @@ SETREGS
         if (dp & 0x10) {
           // immediate mqtt
           DOUBLE2CHAR(sml_globs.meter_vars[index], dp & 0xf, tpowstr);
-          ResponseTime_P(PSTR(",\"%s\":{\"%s\":%s}}"), sml_globs.mp[mindex].prefix, jname, tpowstr);
+          ResponseTime_P(PSTR(",\"%s\":{\"%s\":%s}}"), sml_globs.mptr[mindex].prefix, jname, tpowstr);
           MqttPublishTeleSensor();
         }
       }
@@ -2704,58 +2483,58 @@ SETREGS
   char unit[8];
   char jname[24];
   int8_t index = 0, mid = 0;
-  char *mp = (char*)sml_globs.meter_p;
+  char *mptr = (char*)sml_globs.meter_p;
   char *cp, nojson = 0;
   //char b_mqtt_data[MESSZ];
   //b_mqtt_data[0]=0;
 
     if (!sml_globs.meters_used) return;
 
-    int8_t lastmind = ((*mp) & 7) - 1;
+    int8_t lastmind = ((*mptr) & 7) - 1;
     if (lastmind < 0 || lastmind >= sml_globs.meters_used) lastmind = 0;
-    while (mp != NULL) {
-        if (*mp == 0) break;
+    while (mptr != NULL) {
+        if (*mptr == 0) break;
         // setup sections
-        mindex = ((*mp) & 7) - 1;
+        mindex = ((*mptr) & 7) - 1;
 
         if (mindex < 0 || mindex >= sml_globs.meters_used) mindex = 0;
-        if (sml_globs.mp[mindex].prefix[0] == '*' && sml_globs.mp[mindex].prefix[1] == 0) {
+        if (sml_globs.mptr[mindex].prefix[0] == '*' && sml_globs.mptr[mindex].prefix[1] == 0) {
           nojson = 1;
         } else {
           nojson = 0;
         }
-        mp += 2;
-        if (*mp == '=' && *(mp + 1) == 'h') {
-          mp += 2;
+        mptr += 2;
+        if (*mptr == '=' && *(mptr + 1) == 'h') {
+          mptr += 2;
           // html tag
           if (json) {
-            mp = strchr(mp, '|');
-            if (mp) mp++;
+            mptr = strchr(mptr, '|');
+            if (mptr) mptr++;
             continue;
           }
           // web ui export
           uint8_t i;
           for (i = 0; i < sizeof(tpowstr) - 2; i++) {
-            if (*mp == '|' || *mp == 0) break;
-            tpowstr[i] = *mp++;
+            if (*mptr == '|' || *mptr == 0) break;
+            tpowstr[i] = *mptr++;
           }
           tpowstr[i] = 0;
           // export html
           //snprintf_P(b_mqtt_data, sizeof(b_mqtt_data), "%s{s}%s{e}", b_mqtt_data,tpowstr);
           WSContentSend_P(PSTR("<tr><td colspan=2>%s{e}"), tpowstr);
           // rewind, to ensure strchr
-          mp--;
-          mp = strchr(mp, '|');
-          if (mp) mp++;
+          mptr--;
+          mptr = strchr(mptr, '|');
+          if (mptr) mptr++;
           continue;
         }
-        if (*mp == '=' && *(mp + 1) == 's') {
-          mp = strchr(mp, '|');
-          if (mp) mp++;
+        if (*mptr == '=' && *(mptr + 1) == 's') {
+          mptr = strchr(mptr, '|');
+          if (mptr) mptr++;
           continue;
         }
         // skip compare section
-        cp = strchr(mp, '@');
+        cp = strchr(mptr, '@');
         if (cp) {
           cp++;
           tststr:
@@ -2769,7 +2548,7 @@ SETREGS
             }
             mid = 1;
           } else if (*cp == '(') {
-            if (sml_globs.mp[mindex].type == 'o') {
+            if (sml_globs.mptr[mindex].type == 'o') {
               cp++;
               strtol((char*)cp,(char**)&cp, 10);
               cp++;
@@ -2779,7 +2558,7 @@ SETREGS
             }
           } else if (*cp == 's') {
             // skip values
-            if (sml_globs.mp[mindex].type == 'o') {
+            if (sml_globs.mptr[mindex].type == 'o') {
               cp += 2;
               strtol((char*)cp,(char**)&cp, 10);
               cp++;
@@ -2841,9 +2620,9 @@ SETREGS
               //}
               // json export
               if (index == 0) {
-                  //snprintf_P(b_mqtt_data, sizeof(b_mqtt_data), "%s,\"%s\":{\"%s\":%s", b_mqtt_data,sml_globs.mp[mindex].prefix,jname,tpowstr);
+                  //snprintf_P(b_mqtt_data, sizeof(b_mqtt_data), "%s,\"%s\":{\"%s\":%s", b_mqtt_data,sml_globs.mptr[mindex].prefix,jname,tpowstr);
                   if (!nojson) {
-                    ResponseAppend_P(PSTR(",\"%s\":{\"%s\":%s"), sml_globs.mp[mindex].prefix, jname, tpowstr);
+                    ResponseAppend_P(PSTR(",\"%s\":{\"%s\":%s"), sml_globs.mptr[mindex].prefix, jname, tpowstr);
                   }
               }
               else {
@@ -2854,9 +2633,9 @@ SETREGS
                      ResponseAppend_P(PSTR("}"));
                    }
                     // and open new
-                    //snprintf_P(b_mqtt_data, sizeof(b_mqtt_data), "%s,\"%s\":{\"%s\":%s", b_mqtt_data,sml_globs.mp[mindex].prefix,jname,tpowstr);
+                    //snprintf_P(b_mqtt_data, sizeof(b_mqtt_data), "%s,\"%s\":{\"%s\":%s", b_mqtt_data,sml_globs.mptr[mindex].prefix,jname,tpowstr);
                   if (!nojson) {
-                    ResponseAppend_P(PSTR(",\"%s\":{\"%s\":%s"), sml_globs.mp[mindex].prefix, jname, tpowstr);
+                    ResponseAppend_P(PSTR(",\"%s\":{\"%s\":%s"), sml_globs.mptr[mindex].prefix, jname, tpowstr);
                   }
                   lastmind = mindex;
                 } else {
@@ -2871,7 +2650,7 @@ SETREGS
               // web ui export
               //snprintf_P(b_mqtt_data, sizeof(b_mqtt_data), "%s{s}%s %s: {m}%s %s{e}", b_mqtt_data,meter_desc[mindex].prefix,name,tpowstr,unit);
               if (strcmp(name, "*")) {
-                WSContentSend_P(PSTR("{s}%s %s{m}"), sml_globs.mp[mindex].prefix, name);  // Do not replace decimal separator in label
+                WSContentSend_P(PSTR("{s}%s %s{m}"), sml_globs.mptr[mindex].prefix, name);  // Do not replace decimal separator in label
                 WSContentSend_PD(PSTR("%s %s{e}"), tpowstr, unit); // Replace decimal separator in value
               }
             }
@@ -2881,8 +2660,8 @@ SETREGS
           index++;
         }
         // next section
-        mp = strchr(cp, '|');
-        if (mp) mp++;
+        mptr = strchr(cp, '|');
+        if (mptr) mptr++;
     }
     if (json) {
      //snprintf_P(b_mqtt_data, sizeof(b_mqtt_data), "%s}", b_mqtt_data);
@@ -2932,7 +2711,7 @@ SETREGS
   uint32_t time = millis();
   uint32_t debounce_time;
 
-  if (digitalRead(sml_globs.mp[sml_counters[index].sml_cnt_old_state].srcpin) == bitRead(sml_counter_pinstate, index)) {
+  if (digitalRead(sml_globs.mptr[sml_counters[index].sml_cnt_old_state].srcpin) == bitRead(sml_counter_pinstate, index)) {
     return;
   }
 
@@ -3021,49 +2800,49 @@ char *SpecOptions(char *cp, uint32_t mnum) {
 SETREGS
 
 // special option
-struct METER_DESC *mp = &meter_desc[mnum];
+struct METER_DESC *mptr = &meter_desc[mnum];
 	switch (*cp) {
 		case '1':
 			cp++;
 #ifdef USE_SML_SPECOPT
 			if (*cp == ',') {
 		    cp++;
-		    mp->so_obis1 = strtol(cp, &cp, 16);
+		    mptr->so_obis1 = strtol(cp, &cp, 16);
 		  }
 		  if (*cp == ',') {
 		    cp++;
-		    mp->so_fcode1 = strtol(cp, &cp, 16);
+		    mptr->so_fcode1 = strtol(cp, &cp, 16);
 		  }
 		  if (*cp == ',') {
 		    cp++;
-		    mp->so_bpos1 = strtol(cp, &cp, 10);
+		    mptr->so_bpos1 = strtol(cp, &cp, 10);
 		  }
 		  if (*cp == ',') {
 		    cp++;
-		    mp->so_fcode2 = strtol(cp, &cp, 16);
+		    mptr->so_fcode2 = strtol(cp, &cp, 16);
 		  }
 		  if (*cp == ',') {
 		    cp++;
-		    mp->so_bpos2 = strtol(cp, &cp, 10);
+		    mptr->so_bpos2 = strtol(cp, &cp, 10);
 		  }
 		  if (*cp == ',') {
 		    cp++;
-		    mp->so_obis2 = strtol(cp, &cp, 16);
+		    mptr->so_obis2 = strtol(cp, &cp, 16);
 		  }
 #endif
 			break;
  		case '2':
 			cp += 2;
-			mp->so_flags.data = strtol(cp, &cp, 16);
+			mptr->so_flags.data = strtol(cp, &cp, 16);
 			break;
 		case '3':
 			cp += 2;
-			mp->sbsiz = strtol(cp, &cp, 10);
+			mptr->sbsiz = strtol(cp, &cp, 10);
 			if (*cp == ',') {
 				cp++;
-				mp->sibsiz = strtol(cp, &cp, 10);
-				if (mp->sibsiz < SML_MINSB) {
-					mp->sibsiz = SML_MINSB;
+				mptr->sibsiz = strtol(cp, &cp, 10);
+				if (mptr->sibsiz < SML_MINSB) {
+					mptr->sibsiz = SML_MINSB;
 				}
 			}
 			if (*cp == ',') {
@@ -3076,7 +2855,7 @@ struct METER_DESC *mp = &meter_desc[mnum];
 #ifdef USE_SML_DECRYPT
 			meter_desc[mnum].use_crypt = true;
 			for (uint8_t cnt = 0; cnt < (SML_CRYPT_SIZE * 2); cnt += 2) {
-				mp->key[cnt / 2] = (sml_hexnibble(cp[cnt]) << 4) | sml_hexnibble(cp[cnt + 1]);
+				mptr->key[cnt / 2] = (sml_hexnibble(cp[cnt]) << 4) | sml_hexnibble(cp[cnt + 1]);
 			}
 			AddLog(LOG_LEVEL_INFO, PSTR("SML: crypto mode used for meter %d"), mnum + 1);
 			break;
@@ -3084,23 +2863,23 @@ struct METER_DESC *mp = &meter_desc[mnum];
 		case '5':
 			cp += 2;
 			for (uint8_t cnt = 0; cnt < (SML_CRYPT_SIZE * 2); cnt += 2) {
-				mp->auth[cnt / 2] = (sml_hexnibble(cp[cnt]) << 4) | sml_hexnibble(cp[cnt + 1]);
+				mptr->auth[cnt / 2] = (sml_hexnibble(cp[cnt]) << 4) | sml_hexnibble(cp[cnt + 1]);
 			}
 			break;
 #endif // USE_SML_AUTHKEY
     case 'A':
       cp += 2;
-      mp->crypflags = strtol(cp, &cp, 10);
+      mptr->crypflags = strtol(cp, &cp, 10);
       break;
 #endif // USE_SML_DECRYPT
 		case '6':
 			cp += 2;
-			mp->tout_ms = strtol(cp, &cp, 10);
+			mptr->tout_ms = strtol(cp, &cp, 10);
       break;
   	case '7':
 			cp += 2;
 #ifdef ESP32     
-			mp->uart_index = strtol(cp, &cp, 10);
+			mptr->uart_index = strtol(cp, &cp, 10);
 #endif // ESP32
 			break;
 
@@ -3108,7 +2887,7 @@ struct METER_DESC *mp = &meter_desc[mnum];
      case '8':
       cp += 2;
       for (uint8_t cnt = 0; cnt < SML_CAN_MASKS; cnt++) {
-				mp->can_masks[cnt] = sml_hex32(cp);
+				mptr->can_masks[cnt] = sml_hex32(cp);
         cp += 8;
         if (*cp != ',') {
           break;
@@ -3119,7 +2898,7 @@ struct METER_DESC *mp = &meter_desc[mnum];
     case '9':
       cp += 2;
       for (uint8_t cnt = 0; cnt < SML_CAN_FILTERS; cnt++) {
-				mp->can_filters[cnt] = sml_hex32(cp);
+				mptr->can_filters[cnt] = sml_hex32(cp);
         cp += 8;
         if (*cp != ',') {
           break;
@@ -3137,11 +2916,11 @@ struct METER_DESC *mp = &meter_desc[mnum];
 uint16_t serial_dispatch(uint8_t meter, uint8_t sel) {
 SETREGS
 
-	struct METER_DESC *mp = &meter_desc[meter];
+	struct METER_DESC *mptr = &meter_desc[meter];
 	if (!sel) {
-		return mp->meter_ss->available();
+		return mptr->meter_ss->available();
 	}
-	uint8_t iob = mp->meter_ss->read();
+	uint8_t iob = mptr->meter_ss->read();
 	return iob;
 }
 
@@ -3179,64 +2958,64 @@ SETREGS
 
   for (uint32_t meters = 0; meters < maxmeters; meters++) {
 
-		struct METER_DESC *mp = &meter_desc[meters];
-    mp->spos = 0;
-    mp->sbsiz = SML_BSIZ;
-    mp->sibsiz = TMSBSIZ;
-    if (mp->sbuff) {
-      free(mp->sbuff);
-      mp->sbuff = 0;
+		struct METER_DESC *mptr = &meter_desc[meters];
+    mptr->spos = 0;
+    mptr->sbsiz = SML_BSIZ;
+    mptr->sibsiz = TMSBSIZ;
+    if (mptr->sbuff) {
+      free(mptr->sbuff);
+      mptr->sbuff = 0;
     }
 #ifdef USE_SML_SPECOPT
-    mp->so_obis1 = 0;
-    mp->so_obis2 = 0;
+    mptr->so_obis1 = 0;
+    mptr->so_obis2 = 0;
 #endif
-    mp->so_flags.data = 0;
+    mptr->so_flags.data = 0;
     // addresses a bug in meter DWS74
 #ifdef DWS74_BUG
-    mp->so_flags.SO_DWS74_BUG = 1;
+    mptr->so_flags.SO_DWS74_BUG = 1;
 #endif
 
 #ifdef SML_OBIS_LINE
-    mp->so_flags.SO_OBIS_LINE = 1;
+    mptr->so_flags.SO_OBIS_LINE = 1;
 #endif
-    if (mp->txmem) {
-      free(mp->txmem);
-      mp->txmem = 0;
+    if (mptr->txmem) {
+      free(mptr->txmem);
+      mptr->txmem = 0;
     }
-    mp->txmem = 0;
-    mp->trxpin = -1;
-    if (mp->meter_ss) {
-        delete mp->meter_ss;
-        mp->meter_ss = NULL;
+    mptr->txmem = 0;
+    mptr->trxpin = -1;
+    if (mptr->meter_ss) {
+        delete mptr->meter_ss;
+        mptr->meter_ss = NULL;
     }
 
-		mp->lastms = millis();
-		mp->tout_ms = SML_STIMEOUT;
+		mptr->lastms = millis();
+		mptr->tout_ms = SML_STIMEOUT;
 
 #ifdef ESP32
-    mp->uart_index = -1;
+    mptr->uart_index = -1;
 #endif
 
 #ifdef USE_SML_CANBUS
     for (uint8_t cnt = 0; cnt < SML_CAN_MASKS; cnt++) {
-			mp->can_masks[cnt] = 0;
+			mptr->can_masks[cnt] = 0;
 		}
     for (uint8_t cnt = 0; cnt < SML_CAN_FILTERS; cnt++) {
-			mp->can_filters[cnt] = 0;
+			mptr->can_filters[cnt] = 0;
     }
 #endif // USE_SML_CANBUS
 
 #ifdef USE_SML_DECRYPT
-		if (mp->use_crypt) {
-			if (mp->hp) {
-				delete mp->hp;
-				mp->hp = NULL;
+		if (mptr->use_crypt) {
+			if (mptr->hp) {
+				delete mptr->hp;
+				mptr->hp = NULL;
 			}
 		}
-		mp->use_crypt = 0;
+		mptr->use_crypt = 0;
 #ifdef USE_SML_AUTHKEY
-		memset(mp->auth, 0, SML_CRYPT_SIZE);
+		memset(mptr->auth, 0, SML_CRYPT_SIZE);
 #endif
 #endif // USE_SML_DECRYPT
   }
@@ -3253,7 +3032,7 @@ SETREGS
     return;
   }
 
-	sml_globs.mp = meter_desc;
+	sml_globs.mptr = meter_desc;
 
   uint8_t meter_script = Run_Scripter(">M", -2, 0);
   if (meter_script != 99) {
@@ -3383,9 +3162,9 @@ SETREGS
             lp1++;
 #ifdef USE_SML_TCP
 #ifdef USE_SML_TCP_IP_STR
-            strcpy(mmp->ip_addr, str);
+            strcpy(mmptr->ip_addr, str);
 #else
-            mmp->ip_addr.fromString(str);
+            mmptr->ip_addr.fromString(str);
 #endif
 #endif
 
@@ -3399,56 +3178,56 @@ dddef_exit:
               return;
             }
           }
-          mmp->srcpin = srcpin;
+          mmptr->srcpin = srcpin;
           if (*lp1 != ',') goto next_line;
           lp1++;
-          mmp->type = *lp1;
+          mmptr->type = *lp1;
           lp1++;
           if (*lp1 != ',') {
             switch (*lp1) {
               case 'N':
                 lp1++;
-                mmp->sopt = 0x10 | (*lp1 & 3);
+                mmptr->sopt = 0x10 | (*lp1 & 3);
                 lp1++;
                 break;
               case 'E':
                 lp1++;
-                mmp->sopt = 0x20 | (*lp1 & 3);
+                mmptr->sopt = 0x20 | (*lp1 & 3);
                 lp1++;
                 break;
               case 'O':
                 lp1++;
-                mmp->sopt = 0x30 | (*lp1 & 3);
+                mmptr->sopt = 0x30 | (*lp1 & 3);
                 lp1++;
                 break;
               default:
-                mmp->sopt = *lp1&7;
+                mmptr->sopt = *lp1&7;
                 lp1++;
             }
           } else {
-            mmp->sopt = 0;
+            mmptr->sopt = 0;
           }
           lp1++;
-          mmp->flag = strtol(lp1, &lp1, 10);
+          mmptr->flag = strtol(lp1, &lp1, 10);
           if (*lp1 != ',') goto next_line;
           lp1++;
-          mmp->params = strtol(lp1, &lp1, 10);
+          mmptr->params = strtol(lp1, &lp1, 10);
           if (*lp1 != ',') goto next_line;
           lp1++;
-          mmp->prefix[SML_PREFIX_SIZE - 1] = 0;
+          mmptr->prefix[SML_PREFIX_SIZE - 1] = 0;
           for (uint32_t cnt = 0; cnt < SML_PREFIX_SIZE; cnt++) {
             if (*lp1 == SCRIPT_EOL || *lp1 == ',') {
-              mmp->prefix[cnt] = 0;
+              mmptr->prefix[cnt] = 0;
               break;
             }
-           mmp->prefix[cnt] = *lp1++;
+           mmptr->prefix[cnt] = *lp1++;
           }
           if (*lp1 == ',') {
             lp1++;
             // get TRX pin
-            mmp->trxpin = strtol(lp1, &lp1, 10);
-            if (mmp->srcpin != TCP_MODE_FLG) {
-              if (Gpio_used(mmp->trxpin)) {
+            mmptr->trxpin = strtol(lp1, &lp1, 10);
+            if (mmptr->srcpin != TCP_MODE_FLG) {
+              if (Gpio_used(mmptr->trxpin)) {
                 AddLog(LOG_LEVEL_INFO, PSTR("SML: Error: Duplicate GPIO %d defined. Not usable for TX in meter number %d"), meter_desc[index].trxpin, index + 1);
                 goto dddef_exit;
               }
@@ -3458,28 +3237,28 @@ dddef_exit:
               lp1++;
               if (*lp1 == 'i') {
                 lp1++;
-                mmp->trx_en.trxenpol = 1;
+                mmptr->trx_en.trxenpol = 1;
               } else {
-                mmp->trx_en.trxenpol = 0;
+                mmptr->trx_en.trxenpol = 0;
               }
-              mmp->trx_en.trxenpin = strtol(lp1, &lp1, 10);
+              mmptr->trx_en.trxenpin = strtol(lp1, &lp1, 10);
               if (*lp1 != ')') {
                 goto dddef_exit;
               }
               lp1++;
-              if (Gpio_used(mmp->trx_en.trxenpin)) {
+              if (Gpio_used(mmptr->trx_en.trxenpin)) {
                 AddLog(LOG_LEVEL_INFO, PSTR("SML: Error: Duplicate GPIO %d defined. Not usable for TX enable in meter number %d"), meter_desc[index].trx_en.trxenpin, index + 1);
                 goto dddef_exit;
               }
-              mmp->trx_en.trxen = 1;
-              pinMode(mmp->trx_en.trxenpin, OUTPUT);
-              digitalWrite(mmp->trx_en.trxenpin, mmp->trx_en.trxenpol);
+              mmptr->trx_en.trxen = 1;
+              pinMode(mmptr->trx_en.trxenpin, OUTPUT);
+              digitalWrite(mmptr->trx_en.trxenpin, mmptr->trx_en.trxenpol);
             } else {
-              mmp->trx_en.trxen = 0;
+              mmptr->trx_en.trxen = 0;
             }
             if (*lp1 != ',') goto next_line;
             lp1++;
-            mmp->tsecs = strtol(lp1, &lp1, 10);
+            mmptr->tsecs = strtol(lp1, &lp1, 10);
             // optional values to send
             if (*lp1 == ',') {
               lp1++;
@@ -3519,10 +3298,10 @@ dddef_exit:
               // tx lines complete
               *txb1 = 0;
               //AddLog(LOG_LEVEL_INFO, PSTR("SML: >>> %s - %d - %d"), txbuff, txlen, tx_entries);
-              mmp->txmem = (char*)realloc(txbuff, txlen + 2);
+              mmptr->txmem = (char*)realloc(txbuff, txlen + 2);
               memory += txlen + 2;
-              mmp->index = 0;
-              mmp->max_index = tx_entries;
+              mmptr->index = 0;
+              mmptr->max_index = tx_entries;
               sml_globs.sml_send_blocks++;
               // end collect transmit values
             }
@@ -3586,10 +3365,10 @@ next_line:
 
     // set serial buffers
   for (uint32_t meters = 0; meters < sml_globs.meters_used; meters++ ) {
-    struct METER_DESC *mp = &meter_desc[meters];
-    if (mp->sbsiz) {
-      mp->sbuff = (uint8_t*)calloc(mp->sbsiz, 1);
-			memory += mp->sbsiz;
+    struct METER_DESC *mptr = &meter_desc[meters];
+    if (mptr->sbsiz) {
+      mptr->sbuff = (uint8_t*)calloc(mptr->sbsiz, 1);
+			memory += mptr->sbsiz;
     }
   }
 
@@ -3604,24 +3383,24 @@ next_line:
 
   sml_counter_pinstate = 0;
   for (uint8_t meters = 0; meters < sml_globs.meters_used; meters++) {
-    METER_DESC *mp = &meter_desc[meters];
-    if (mp->type == 'c') {
-        if (mp->flag & ANALOG_FLG) {
+    METER_DESC *mptr = &meter_desc[meters];
+    if (mptr->type == 'c') {
+        if (mptr->flag & ANALOG_FLG) {
 
         } else {
           // counters, set to input with pullup
-          if (mp->flag & PULLUP_FLG) {
-            pinMode(mp->srcpin, INPUT_PULLUP);
+          if (mptr->flag & PULLUP_FLG) {
+            pinMode(mptr->srcpin, INPUT_PULLUP);
           } else {
-            pinMode(mp->srcpin, INPUT);
+            pinMode(mptr->srcpin, INPUT);
           }
           // check for irq mode
-          if (mp->params <= 0) {
+          if (mptr->params <= 0) {
             // init irq mode
             sml_counters[cindex].sml_cnt_old_state = meters;
-            sml_counters[cindex].sml_debounce = -sml_globs.mp[meters].params;
-            attachInterruptArg(mp->srcpin, SML_CounterIsr, &sml_cnt_index[cindex], CHANGE);
-            if (digitalRead(mp->srcpin) > 0) {
+            sml_counters[cindex].sml_debounce = -sml_globs.mptr[meters].params;
+            attachInterruptArg(mptr->srcpin, SML_CounterIsr, &sml_cnt_index[cindex], CHANGE);
+            if (digitalRead(mptr->srcpin) > 0) {
               sml_counter_pinstate |= (1 << cindex);
             }
             sml_counters[cindex].sml_counter_ltime = millis();
@@ -3631,41 +3410,41 @@ next_line:
           InjektCounterValue(meters, RtcSettings.pulse_counter[cindex], 0.0);
           cindex++;
         }
-    } else if (mp->type == 'C') {
+    } else if (mptr->type == 'C') {
 #ifdef USE_SML_CANBUS
 
 #ifdef ESP8266
-      mp->mcp2515 = nullptr;
+      mptr->mcp2515 = nullptr;
       if ( PinUsed(GPIO_SPI_MISO) && PinUsed(GPIO_SPI_MOSI) && PinUsed(GPIO_SPI_CLK) ) {
-        mp->mcp2515 = new MCP2515(mp->srcpin);
-        if (MCP2515::ERROR_OK != mp->mcp2515->reset()) {
+        mptr->mcp2515 = new MCP2515(mptr->srcpin);
+        if (MCP2515::ERROR_OK != mptr->mcp2515->reset()) {
           AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Failed to reset module"));
           return;
         }
 
-        if (MCP2515::ERROR_OK != mp->mcp2515->setBitrate((CAN_SPEED)(mp->params%100), (CAN_CLOCK)(mp->params/100))) {
+        if (MCP2515::ERROR_OK != mptr->mcp2515->setBitrate((CAN_SPEED)(mptr->params%100), (CAN_CLOCK)(mptr->params/100))) {
           AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Failed to set module bitrate"));
           return;
         }
 
-        //attachInterrupt(mp->trxpin, sml_canbus_irq, FALLING);
+        //attachInterrupt(mptr->trxpin, sml_canbus_irq, FALLING);
 
-        if (MCP2515::ERROR_OK != mp->mcp2515->setConfigMode()) {
+        if (MCP2515::ERROR_OK != mptr->mcp2515->setConfigMode()) {
           AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Failed to set config mode"));
         } else {
-          if (mp->can_filters[0]) mp->mcp2515->setFilter(MCP2515::RXF0, true, mp->can_filters[0]);
-          if (mp->can_filters[1]) mp->mcp2515->setFilter(MCP2515::RXF1, true, mp->can_filters[1]);
-          if (mp->can_filters[2]) mp->mcp2515->setFilter(MCP2515::RXF2, true, mp->can_filters[2]);
-          if (mp->can_filters[3]) mp->mcp2515->setFilter(MCP2515::RXF3, true, mp->can_filters[3]);
-          if (mp->can_filters[4]) mp->mcp2515->setFilter(MCP2515::RXF4, true, mp->can_filters[4]);
-          if (mp->can_filters[5]) mp->mcp2515->setFilter(MCP2515::RXF5, true, mp->can_filters[5]);
+          if (mptr->can_filters[0]) mptr->mcp2515->setFilter(MCP2515::RXF0, true, mptr->can_filters[0]);
+          if (mptr->can_filters[1]) mptr->mcp2515->setFilter(MCP2515::RXF1, true, mptr->can_filters[1]);
+          if (mptr->can_filters[2]) mptr->mcp2515->setFilter(MCP2515::RXF2, true, mptr->can_filters[2]);
+          if (mptr->can_filters[3]) mptr->mcp2515->setFilter(MCP2515::RXF3, true, mptr->can_filters[3]);
+          if (mptr->can_filters[4]) mptr->mcp2515->setFilter(MCP2515::RXF4, true, mptr->can_filters[4]);
+          if (mptr->can_filters[5]) mptr->mcp2515->setFilter(MCP2515::RXF5, true, mptr->can_filters[5]);
 
-          if (mp->can_masks[0]) mp->mcp2515->setFilterMask(MCP2515::MASK0, true, mp->can_masks[0]);
-          if (mp->can_masks[1]) mp->mcp2515->setFilterMask(MCP2515::MASK1, true, mp->can_masks[1]);
+          if (mptr->can_masks[0]) mptr->mcp2515->setFilterMask(MCP2515::MASK0, true, mptr->can_masks[0]);
+          if (mptr->can_masks[1]) mptr->mcp2515->setFilterMask(MCP2515::MASK1, true, mptr->can_masks[1]);
 
          }
 
-        if (MCP2515::ERROR_OK != mp->mcp2515->setNormalMode()) {
+        if (MCP2515::ERROR_OK != mptr->mcp2515->setNormalMode()) {
           AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Failed to set normal mode"));
           return;
         }
@@ -3676,14 +3455,14 @@ next_line:
       }
  #else
       // Initialize configuration structures using macro initializers
-      twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)mp->trxpin, (gpio_num_t)mp->srcpin, TWAI_MODE_NORMAL);
-      uint8_t qlen = mp->params/100;
+      twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)mptr->trxpin, (gpio_num_t)mptr->srcpin, TWAI_MODE_NORMAL);
+      uint8_t qlen = mptr->params/100;
       if (qlen < 8) {
         qlen = 8;
       }
       g_config.rx_queue_len = qlen;
       twai_timing_config_t t_config;
-      switch (mp->params%100) {
+      switch (mptr->params%100) {
         case 0:
           t_config = TWAI_TIMING_CONFIG_25KBITS();
           break;
@@ -3715,9 +3494,9 @@ next_line:
     
       twai_filter_config_t f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
-      if (mp->can_filters[0]) {
-        f_config.acceptance_code = mp->can_filters[0] << 3; 
-        f_config.acceptance_mask = mp->can_masks[0] << 3; 
+      if (mptr->can_filters[0]) {
+        f_config.acceptance_code = mptr->can_filters[0] << 3; 
+        f_config.acceptance_mask = mptr->can_masks[0] << 3; 
         f_config.single_filter = true;
       }
       sml_globs.twai_installed = false;
@@ -3746,101 +3525,99 @@ next_line:
 #endif // USE_SML_CANBUS
     } else {
       // serial input, init
-      if (mp->srcpin == TCP_MODE_FLG) {
+      if (mptr->srcpin == TCP_MODE_FLG) {
 #ifdef USE_SML_TCP
-        sml_tcp_init(mp);
-#endif
-        sml_tcp_init(mp);
+        sml_tcp_init(mptr);
 #endif
       } else {
         // serial mode
 #ifdef ESP8266
 #ifdef SPECIAL_SS
-        char type = mp->type;
+        char type = mptr->type;
         if (type == 'm' || type == 'M' || type == 'k' || type == 'p' || type == 'R' || type == 'v') {
-          mp->meter_ss = new TasmotaSerial(mp->srcpin, mp->trxpin, 1, 0, mp->sibsiz);
+          mptr->meter_ss = new TasmotaSerial(mptr->srcpin, mptr->trxpin, 1, 0, mptr->sibsiz);
         } else {
-          mp->meter_ss = new TasmotaSerial(mp->srcpin, mp->trxpin, 1, 1, mp->sibsiz);
+          mptr->meter_ss = new TasmotaSerial(mptr->srcpin, mptr->trxpin, 1, 1, mptr->sibsiz);
         }
 #else
-        mp->meter_ss = new TasmotaSerial(mp->srcpin, mp->trxpin, 1, 0, mp->sibsiz);
+        mptr->meter_ss = new TasmotaSerial(mptr->srcpin, mptr->trxpin, 1, 0, mptr->sibsiz);
 #endif  // SPECIAL_SS
 #endif // ESP8266
 
 #ifdef ESP32
         // use hardware serial
-        if (mp->uart_index >= 0) {
-          uart_index = mp->uart_index;
+        if (mptr->uart_index >= 0) {
+          uart_index = mptr->uart_index;
         }
         AddLog(LOG_LEVEL_INFO, PSTR("SML: uart used: %d"),uart_index);
 #ifdef USE_ESP32_SW_SERIAL
-        mp->meter_ss = new SML_ESP32_SERIAL(uart_index);
-        if (mp->srcpin >= 0) {
+        mptr->meter_ss = new SML_ESP32_SERIAL(uart_index);
+        if (mptr->srcpin >= 0) {
           if (uart_index == 0) { ClaimSerial(); }
           uart_index--;
           if (uart_index < 0) uart_index = 0;
         }
 #else
-        mp->meter_ss = new HardwareSerial(uart_index);
+        mptr->meter_ss = new HardwareSerial(uart_index);
         if (uart_index == 0) { ClaimSerial(); }
         uart_index--;
         if (uart_index < 0) uart_index = 0;
-        mp->meter_ss->setRxBufferSize(mp->sibsiz);
+        mptr->meter_ss->setRxBufferSize(mptr->sibsiz);
 #endif // USE_ESP32_SW_SERIAL
 
 #endif  // ESP32
 
         uint32_t smode = SERIAL_8N1;
 
-        if (mp->sopt & 0xf0) {
+        if (mptr->sopt & 0xf0) {
           // new serial config
-          switch (mp->sopt >> 4) {
+          switch (mptr->sopt >> 4) {
             case 1:
-              if ((mp->sopt & 1) == 1) smode = SERIAL_8N1;
+              if ((mptr->sopt & 1) == 1) smode = SERIAL_8N1;
               else smode = SERIAL_8N2;
               break;
             case 2:
-              if ((mp->sopt & 1) == 1) smode = SERIAL_8E1;
+              if ((mptr->sopt & 1) == 1) smode = SERIAL_8E1;
               else smode = SERIAL_8E2;
               break;
             case 3:
-              if ((mp->sopt & 1) == 1) smode = SERIAL_8O1;
+              if ((mptr->sopt & 1) == 1) smode = SERIAL_8O1;
               else smode = SERIAL_8O2;
               break;
           }
         } else {
           // deprecated serial config
-          if (mp->sopt == 2) {
+          if (mptr->sopt == 2) {
             smode = SERIAL_8N2;
           }
-          if (mp->type=='M') {
+          if (mptr->type=='M') {
             smode = SERIAL_8E1;
-            if (mp->sopt == 2) {
+            if (mptr->sopt == 2) {
               smode = SERIAL_8E2;
             }
           }
         }
 
 #ifdef ESP8266
-        if (mp->meter_ss->begin(mp->params)) {
-          mp->meter_ss->flush();
+        if (mptr->meter_ss->begin(mptr->params)) {
+          mptr->meter_ss->flush();
         }
-        if (mp->meter_ss->hardwareSerial()) {
-          Serial.begin(mp->params, (SerialConfig)smode);
+        if (mptr->meter_ss->hardwareSerial()) {
+          Serial.begin(mptr->params, (SerialConfig)smode);
           ClaimSerial();
-          if (mp->so_flags.SO_TRX_INVERT) {
+          if (mptr->so_flags.SO_TRX_INVERT) {
             U0C0 = U0C0 | BIT(UCRXI) | BIT(UCTXI); // Inverse RX, TX
           }
         }
 #endif  // ESP8266
 
 #ifdef ESP32
-        mp->meter_ss->begin(mp->params, smode, mp->srcpin, mp->trxpin, mp->so_flags.SO_TRX_INVERT);
-        if (mp->so_flags.SO_DISS_PULL) {
-          gpio_pullup_dis((gpio_num_t)mp->srcpin);
+        mptr->meter_ss->begin(mptr->params, smode, mptr->srcpin, mptr->trxpin, mptr->so_flags.SO_TRX_INVERT);
+        if (mptr->so_flags.SO_DISS_PULL) {
+          gpio_pullup_dis((gpio_num_t)mptr->srcpin);
         }
 #ifdef USE_ESP32_SW_SERIAL
-				mp->meter_ss->setRxBufferSize(mp->sibsiz);
+				mptr->meter_ss->setRxBufferSize(mptr->sibsiz);
 #endif
 #endif  // ESP32
       }
@@ -3858,8 +3635,6 @@ next_line:
 #ifdef USE_SML_MEDIAN_FILTER
    || !sml_globs.sml_mf
 #endif
-   || !sml_globs.sml_mf
-#endif
   ) {
     AddLog(LOG_LEVEL_INFO, PSTR("sml memory error!"));
     return;
@@ -3872,23 +3647,23 @@ next_line:
 
 // speed optimize shift flag
   for (uint32_t meters = 0; meters < sml_globs.meters_used; meters++ ) {
-    struct METER_DESC *mp = &meter_desc[meters];
-    char type = mp->type;
+    struct METER_DESC *mptr = &meter_desc[meters];
+    char type = mptr->type;
 
-    if (!(mp->so_flags.SO_OBIS_LINE)) {
-      mp->shift_mode = (type != 'e' && type != 'k' && type != 'm' && type != 'M' && type != 'p' && type != 'R' && type != 'v');
+    if (!(mptr->so_flags.SO_OBIS_LINE)) {
+      mptr->shift_mode = (type != 'e' && type != 'k' && type != 'm' && type != 'M' && type != 'p' && type != 'R' && type != 'v');
     } else {
-      mp->shift_mode = (type != 'o' && type != 'e' && type != 'k' && type != 'm' && type != 'M' && type != 'p' && type != 'R' && type != 'v');
+      mptr->shift_mode = (type != 'o' && type != 'e' && type != 'k' && type != 'm' && type != 'M' && type != 'p' && type != 'R' && type != 'v');
     }
 
 #ifdef USE_SML_DECRYPT
-		if (mp->use_crypt) {
+		if (mptr->use_crypt) {
 #ifdef USE_SML_AUTHKEY
-			mp->hp = new Han_Parser(serial_dispatch, meters, mp->key, mp->auth);
+			mptr->hp = new Han_Parser(serial_dispatch, meters, mptr->key, mptr->auth);
 #else
-			mp->hp = new Han_Parser(serial_dispatch, meters, mp->key, nullptr);
+			mptr->hp = new Han_Parser(serial_dispatch, meters, mptr->key, nullptr);
 #endif
-      mp->crypflags = 0;
+      mptr->crypflags = 0;
 		}
 #endif
   }
@@ -3911,7 +3686,7 @@ SETREGS
     meter_desc[meter].meter_ss->flush();
   }
   if (meter_desc[meter].meter_ss->hardwareSerial()) {
-    if (sml_globs.mp[meter].type=='M') {
+    if (sml_globs.mptr[meter].type=='M') {
       Serial.begin(br, SERIAL_8E1);
     }
   }
@@ -3920,10 +3695,10 @@ SETREGS
   meter_desc[meter].meter_ss->flush();
   meter_desc[meter].meter_ss->updateBaudRate(br);
   /*
-  if (sml_globs.mp[meter].type=='M') {
-    meter_desc.meter_ss[meter]->begin(br,SERIAL_8E1,sml_globs.mp[meter].srcpin,sml_globs.mp[meter].trxpin);
+  if (sml_globs.mptr[meter].type=='M') {
+    meter_desc.meter_ss[meter]->begin(br,SERIAL_8E1,sml_globs.mptr[meter].srcpin,sml_globs.mptr[meter].trxpin);
   } else {
-    meter_desc.meter_ss[meter]->begin(br,SERIAL_8N1,sml_globs.mp[meter].srcpin,sml_globs.mp[meter].trxpin);
+    meter_desc.meter_ss[meter]->begin(br,SERIAL_8N1,sml_globs.mptr[meter].srcpin,sml_globs.mptr[meter].trxpin);
   }*/
 #endif  // ESP32
   return 1;
@@ -3977,9 +3752,9 @@ SETREGS
 #ifdef ESP8266
     Serial.begin(baud, (SerialConfig)smode);
 #else
-    meter_desc[meter].meter_ss->begin(baud, smode, sml_globs.mp[meter].srcpin, sml_globs.mp[meter].trxpin, sml_globs.mp[meter].so_flags.SO_TRX_INVERT);
-    if (sml_globs.mp[meter].so_flags.SO_DISS_PULL) {
-      gpio_pullup_dis((gpio_num_t)sml_globs.mp[meter].srcpin);
+    meter_desc[meter].meter_ss->begin(baud, smode, sml_globs.mptr[meter].srcpin, sml_globs.mptr[meter].trxpin, sml_globs.mptr[meter].so_flags.SO_TRX_INVERT);
+    if (sml_globs.mptr[meter].so_flags.SO_DISS_PULL) {
+      gpio_pullup_dis((gpio_num_t)sml_globs.mptr[meter].srcpin);
     }
 #endif
   }
@@ -4000,26 +3775,26 @@ SETREGS
   meter--;
   if (!meter_desc[meter].meter_ss) return 0;
 
-  struct METER_DESC *mp = &meter_desc[meter];
+  struct METER_DESC *mptr = &meter_desc[meter];
 
-  if (!mp->spos) {
+  if (!mptr->spos) {
     return 0;
   }
 
-  mp->sbuff[mp->spos] = 0;
+  mptr->sbuff[mptr->spos] = 0;
 
   if (!hflg) {
-    strlcpy(str, (char*)&mp->sbuff[0], slen);
+    strlcpy(str, (char*)&mptr->sbuff[0], slen);
   } else {
     uint32_t index = 0;
-    for (uint32_t cnt = 0; cnt < mp->spos; cnt++) {
-      sprintf(str,"%02x", mp->sbuff[cnt]);
+    for (uint32_t cnt = 0; cnt < mptr->spos; cnt++) {
+      sprintf(str,"%02x", mptr->sbuff[cnt]);
       str += 2;
       index += 2;
       if (index >= slen - 2) break;
     }
   }
-  mp->spos = 0;
+  mptr->spos = 0;
   return 1;
 }
 
@@ -4042,11 +3817,11 @@ SETREGS
 uint32_t SML_Shift_Num(uint32_t meter, uint32_t shift) {
 SETREGS
 
-  struct METER_DESC *mp = &sml_globs.mp[meter];
-  if (shift > mp->sbsiz) shift = mp->sbsiz;
+  struct METER_DESC *mptr = &sml_globs.mptr[meter];
+  if (shift > mptr->sbsiz) shift = mptr->sbsiz;
   for (uint16_t cnt = 0; cnt < shift; cnt++) {
-     for (uint16_t count = 0; count < mp->sbsiz - 1; count++) {
-      mp->sbuff[count] = mp->sbuff[count + 1];
+     for (uint16_t count = 0; count < mptr->sbsiz - 1; count++) {
+      mptr->sbuff[count] = mptr->sbuff[count + 1];
       SML_Decode(meter);
     }
   }
@@ -4102,7 +3877,7 @@ void SML_Counter_Poll_1s(void) {
 SETREGS
 
 	for (uint32_t meter = 0; meter < sml_globs.meters_used; meter++) {
-		if (sml_globs.mp[meter].type == 'c') {
+		if (sml_globs.mptr[meter].type == 'c') {
 			SML_Decode(meter);
 		}
 	}
@@ -4121,19 +3896,19 @@ uint16_t meters, cindex = 0;
 uint32_t ctime = millis();
 
   for (meters = 0; meters < sml_globs.meters_used; meters++) {
-    if (sml_globs.mp[meters].type == 'c') {
+    if (sml_globs.mptr[meters].type == 'c') {
       // poll for counters and debouce
-      if (sml_globs.mp[meters].params > 0) {
-        if (ctime - sml_counters[cindex].sml_cnt_last_ts > sml_globs.mp[meters].params) {
+      if (sml_globs.mptr[meters].params > 0) {
+        if (ctime - sml_counters[cindex].sml_cnt_last_ts > sml_globs.mptr[meters].params) {
           sml_counters[cindex].sml_cnt_last_ts = ctime;
 
-          if (sml_globs.mp[meters].flag & ANALOG_FLG) {
+          if (sml_globs.mptr[meters].flag & ANALOG_FLG) {
             // analog mode, get next value
           } else {
             // poll digital input
             uint8_t state;
             sml_counters[cindex].sml_cnt_debounce <<= 1;
-            sml_counters[cindex].sml_cnt_debounce |= (digitalRead(sml_globs.mp[meters].srcpin) & 1) | 0x80;
+            sml_counters[cindex].sml_cnt_debounce |= (digitalRead(sml_globs.mptr[meters].srcpin) & 1) | 0x80;
             if (sml_counters[cindex].sml_cnt_debounce == 0xc0) {
               // is 1
               state = 1;
@@ -4155,19 +3930,19 @@ uint32_t ctime = millis();
           }
         }
 #ifdef DEBUG_CNT_LED1
-        if (cindex == 0) SetDBGLed(sml_globs.mp[meters].srcpin, DEBUG_CNT_LED1);
+        if (cindex == 0) SetDBGLed(sml_globs.mptr[meters].srcpin, DEBUG_CNT_LED1);
 #endif
 #ifdef DEBUG_CNT_LED2
-        if (cindex == 1) SetDBGLed(sml_globs.mp[meters].srcpin, DEBUG_CNT_LED2);
+        if (cindex == 1) SetDBGLed(sml_globs.mptr[meters].srcpin, DEBUG_CNT_LED2);
 #endif
       } else {
         if (ctime - sml_counters[cindex].sml_cnt_last_ts > 10) {
           sml_counters[cindex].sml_cnt_last_ts = ctime;
 #ifdef DEBUG_CNT_LED1
-          if (cindex == 0) SetDBGLed(sml_globs.mp[meters].srcpin, DEBUG_CNT_LED1);
+          if (cindex == 0) SetDBGLed(sml_globs.mptr[meters].srcpin, DEBUG_CNT_LED1);
 #endif
 #ifdef DEBUG_CNT_LED2
-          if (cindex == 1) SetDBGLed(sml_globs.mp[meters].srcpin, DEBUG_CNT_LED2);
+          if (cindex == 1) SetDBGLed(sml_globs.mptr[meters].srcpin, DEBUG_CNT_LED2);
 #endif
         }
 
@@ -4244,29 +4019,29 @@ SETREGS
   struct can_frame canFrame;
 
   for (uint32_t meter = 0; meter < sml_globs.meters_used; meter++) {
-    struct METER_DESC *mp = &sml_globs.mp[meter];
+    struct METER_DESC *mptr = &sml_globs.mptr[meter];
     uint8_t nCounter = 0;
 
-    if (mp->type != 'C') continue;
+    if (mptr->type != 'C') continue;
 
-    if (mp->mcp2515 == nullptr) continue;
+    if (mptr->mcp2515 == nullptr) continue;
 
-    while (mp->mcp2515->checkReceive() && nCounter <= SML_CAN_MAX_FRAMES) {
-      if (mp->mcp2515->readMessage(&canFrame) == MCP2515::ERROR_OK) {
-          mp->sbuff[0] = canFrame.can_id >> 24;
-          mp->sbuff[1] = canFrame.can_id >> 16;
-          mp->sbuff[2] = canFrame.can_id >> 8;
-          mp->sbuff[3] = canFrame.can_id;
-          mp->sbuff[4] = canFrame.can_dlc;
+    while (mptr->mcp2515->checkReceive() && nCounter <= SML_CAN_MAX_FRAMES) {
+      if (mptr->mcp2515->readMessage(&canFrame) == MCP2515::ERROR_OK) {
+          mptr->sbuff[0] = canFrame.can_id >> 24;
+          mptr->sbuff[1] = canFrame.can_id >> 16;
+          mptr->sbuff[2] = canFrame.can_id >> 8;
+          mptr->sbuff[3] = canFrame.can_id;
+          mptr->sbuff[4] = canFrame.can_dlc;
           for (int i = 0; i < canFrame.can_dlc; i++) {
-            mp->sbuff[5 + i] = canFrame.data[i];
+            mptr->sbuff[5 + i] = canFrame.data[i];
           }
           SML_Decode(meter);
           nCounter++;
       } else {
-        if (mp->mcp2515->checkError()) {
-          uint8_t errFlags = mp->mcp2515->getErrorFlags();
-          mp->mcp2515->clearRXnOVRFlags();
+        if (mptr->mcp2515->checkError()) {
+          uint8_t errFlags = mptr->mcp2515->getErrorFlags();
+          mptr->mcp2515->clearRXnOVRFlags();
           AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Received error %d"), errFlags);
           break;
         }
@@ -4276,10 +4051,10 @@ SETREGS
 #else
 
   for (uint32_t meter = 0; meter < sml_globs.meters_used; meter++) {
-    struct METER_DESC *mp = &sml_globs.mp[meter];
+    struct METER_DESC *mptr = &sml_globs.mptr[meter];
     uint8_t nCounter = 0;
 
-    if (mp->type != 'C') continue;
+    if (mptr->type != 'C') continue;
 
     if (sml_globs.twai_installed) {
         uint32_t alerts_triggered = sml_can_check_alerts();
@@ -4289,13 +4064,13 @@ SETREGS
           // One or more messages received. Handle all.
           twai_message_t message;
           while (twai_receive(&message, 0) == ESP_OK) {
-            mp->sbuff[0] = message.identifier >> 24;
-            mp->sbuff[1] = message.identifier >> 16;
-            mp->sbuff[2] = message.identifier >> 8;
-            mp->sbuff[3] = message.identifier;
-            mp->sbuff[4] = message.data_length_code;
+            mptr->sbuff[0] = message.identifier >> 24;
+            mptr->sbuff[1] = message.identifier >> 16;
+            mptr->sbuff[2] = message.identifier >> 8;
+            mptr->sbuff[3] = message.identifier;
+            mptr->sbuff[4] = message.data_length_code;
             for (int i = 0; i < message.data_length_code; i++) {
-              mp->sbuff[5 + i] = message.data[i];
+              mptr->sbuff[5 + i] = message.data[i];
             }
             SML_Decode(meter);
           }
@@ -4459,35 +4234,35 @@ MODBUS_TCP_HEADER tcph;
   }
 #endif
 
-
-int32_t sml_tcp_init(struct METER_DESC *mp) {
+#ifdef USE_SML_TCP
+int32_t sml_tcp_init(struct METER_DESC *mptr) {
   SETREGS
   if (!TasmotaGlobal.global_state.wifi_down) {
-    if (!mp->client) {
+    if (!mptr->client) {
       // tcp mode
 #ifdef USE_SML_TCP_SECURE
-      mp->client = new WiFiClientSecure;
+      mptr->client = new WiFiClientSecure;
       //client(new BearSSL::WiFiClientSecure_light(1024,1024)) {
-      mp->client->setInsecure();
+      mptr->client->setInsecure();
 #else        
-      mp->client = new WiFiClient;
+      mptr->client = new WiFiClient;
 #endif // USE_SML_TCP_SECURE
     }
-    int32_t err = mp->client->connect(mp->ip_addr, mp->params);
+    int32_t err = mptr->client->connect(mptr->ip_addr, mptr->params);
     char ipa[32];
 #ifdef USE_SML_TCP_IP_STR
-    strcpy(ipa, mp->ip_addr);
+    strcpy(ipa, mptr->ip_addr);
 #else
-    strcpy(ipa, mp->ip_addr.toString().c_str());
+    strcpy(ipa, mptr->ip_addr.toString().c_str());
 #endif
     if (!err) {
-      AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP to %s:%d"),ipa, mp->params);
+      AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP to %s:%d"),ipa, mptr->params);
     } else {
-      AddLog(LOG_LEVEL_INFO, PSTR("SML: connected TCP to %s:%d"),ipa, mp->params);
+      AddLog(LOG_LEVEL_INFO, PSTR("SML: connected TCP to %s:%d"),ipa, mptr->params);
     }
   } else {
     AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP since wifi is down"));
-    mp->client = nullptr;
+    mptr->client = nullptr;
     return -1;
   }
   return 0;
@@ -4504,13 +4279,13 @@ SETREGS
   if (sml_globs.to_cnt > TCP_TIMEOUT) {
     sml_globs.to_cnt = 0;
     for (uint32_t meter = 0; meter < sml_globs.meters_used; meter++) {
-      struct METER_DESC *mp = &sml_globs.mp[meter];
-		  if (mp->srcpin == TCP_MODE_FLG) {
-			  if (!mp->client) {
-          sml_tcp_init(mp);
+      struct METER_DESC *mptr = &sml_globs.mptr[meter];
+		  if (mptr->srcpin == TCP_MODE_FLG) {
+			  if (!mptr->client) {
+          sml_tcp_init(mptr);
         } else {
-          if (!mp->client->connected()) {
-            sml_tcp_init(mp);
+          if (!mptr->client->connected()) {
+            sml_tcp_init(mptr);
           }
         }
 		  }
@@ -4535,7 +4310,7 @@ SETREGS
     cp++;
   }
 
-  struct METER_DESC *mp = &meter_desc[meter];
+  struct METER_DESC *mptr = &meter_desc[meter];
   while (*cp) {
     if (!*cp || !*(cp+1)) break;
     if (*cp == ',') break;
@@ -4545,8 +4320,8 @@ SETREGS
     slen++;
     if (slen >= sizeof(sbuff)-6) break; // leave space for checksum
   }
-  if (mp->type == 'm' || mp->type == 'M' || mp->type == 'k') {
-    if (mp->type == 'k') {
+  if (mptr->type == 'm' || mptr->type == 'M' || mptr->type == 'k') {
+    if (mptr->type == 'k') {
       // kamstrup, append crc, cr
       *ucp++ = 0;
       *ucp++ = 0;
@@ -4589,12 +4364,12 @@ SETREGS
     }
 
   }
-  if (mp->type == 'o') {
+  if (mptr->type == 'o') {
     for (uint32_t cnt = 0; cnt < slen; cnt++) {
       sbuff[cnt] |= (CalcEvenParity(sbuff[cnt]) << 7);
     }
   }
-  if (mp->type == 'p') {
+  if (mptr->type == 'p') {
     *ucp++ = 0xc0;
     *ucp++ = 0xa8;
     *ucp++ = 1;
@@ -4604,21 +4379,21 @@ SETREGS
     slen += 6;
   }
 
-  if (mp->srcpin == TCP_MODE_FLG) {
+  if (mptr->srcpin == TCP_MODE_FLG) {
     sml_tcp_send(meter, sbuff, slen);
   } else {
-    if (mp->type == 'C') {
+    if (mptr->type == 'C') {
 
 #ifdef USE_SML__CANBUS
 #ifdef ESP8266
-      if (mp->mcp2515 != nullptr) {
+      if (mptr->mcp2515 != nullptr) {
         struct can_frame canMsg;
         canMsg.can_id = (uint32_t) (sbuff[0] << 24 | sbuff[1] << 16 | sbuff[2] << 8 | sbuff[3]);
         canMsg.can_dlc = sbuff[4];
         for (uint8_t i = 0; i < canMsg.can_dlc; i++) {
           canMsg.data[i] = sbuff[i + 5];
         }
-        mp->mcp2515->sendMessage(&canMsg);
+        mptr->mcp2515->sendMessage(&canMsg);
       }
 #else
       if (sml_globs.twai_installed) {
@@ -4647,15 +4422,15 @@ SETREGS
 #endif
 #endif // USE_SML_CANBUS
     } else { 
-      if (mp->trx_en.trxen) {
+      if (mptr->trx_en.trxen) {
         digitalWrite(meter_desc[meter].trx_en.trxenpin, meter_desc[meter].trx_en.trxenpol ^ 1);
       }
-      mp->meter_ss->flush();
-      mp->meter_ss->write(sbuff, slen);
-      if (mp->trx_en.trxen) {
+      mptr->meter_ss->flush();
+      mptr->meter_ss->write(sbuff, slen);
+      if (mptr->trx_en.trxen) {
         // must wait for all data sent
-        mp->meter_ss->flush();
-        digitalWrite(mp->trx_en.trxenpin, mp->trx_en.trxenpol);
+        mptr->meter_ss->flush();
+        digitalWrite(mptr->trx_en.trxenpin, mptr->trx_en.trxenpol);
       }
 
     }
@@ -4665,7 +4440,7 @@ SETREGS
 #ifdef SML_DUMP_OUT_ALL
     Hexdump(sbuff, slen);
 #else
-    uint8_t type = sml_globs.mp[(sml_globs.dump2log&7) - 1].type;
+    uint8_t type = sml_globs.mptr[(sml_globs.dump2log&7) - 1].type;
     if (type == 'm' || type == 'M' || type == 'k' || type == 'C') {
       Hexdump(sbuff, slen);
     }
@@ -4673,9 +4448,9 @@ SETREGS
   }
 
 #ifdef MODBUS_DEBUG
-  uint8_t type = mp->type;
+  uint8_t type = mptr->type;
   if (!sml_globs.dump2log && (type == 'm' || type == 'M' || type == 'k')) {
-    AddLog(LOG_LEVEL_INFO, PSTR("transmit index >> %d"),sml_globs.mp[meter].index);
+    AddLog(LOG_LEVEL_INFO, PSTR("transmit index >> %d"),sml_globs.mptr[meter].index);
     Hexdump(sbuff, slen);
   }
 #endif
@@ -4769,7 +4544,7 @@ SETREGS
         	cp++;
         	uint8_t index = atoi(cp);
         	if ((index & 7) > sml_globs.meters_used) index = 1;
-        	if (index > 0 && sml_globs.mp[(index & 7) - 1].type == 'c') {
+        	if (index > 0 && sml_globs.mptr[(index & 7) - 1].type == 'c') {
           	index = 0;
         	}
 					if (sml_globs.log_data) {
@@ -4796,7 +4571,7 @@ SETREGS
             RtcSettings.pulse_counter[index - 1] = cval;
             uint8_t cindex = 0;
             for (uint8_t meters = 0; meters < sml_globs.meters_used; meters++) {
-              if (sml_globs.mp[meters].type == 'c') {
+              if (sml_globs.mptr[meters].type == 'c') {
                 InjektCounterValue(meters, RtcSettings.pulse_counter[cindex], 0.0);
                 cindex++;
               }
@@ -4875,7 +4650,7 @@ RETMEM
  * Interface
 \*********************************************************************************************/
 
-bool mod_func_execute(uint32_t function) {
+int32_t mod_func_execute(uint32_t function) {
   bool result = false;
     switch (function) {
       case FUNC_INIT:

@@ -650,16 +650,16 @@ typedef struct {
 //#define TwoWire xTwoWire
 
 #define   beginTransmission(ADDR) jbeginTransmission(mem->xWire, ADDR)
-#define   write(CMD) jwrite(mem->xWire, CMD)
+#define   I2cWrite(CMD) jwrite(mem->xWire, CMD)
 #define   endTransmission(BUS) jendTransmission(mem->xWire, BUS)
 #define   requestFrom(ADDR,NUM)  jrequestFrom(mem->xWire, ADDR, NUM)
-#define   read() jread(mem->xWire)
+#define   I2cRead() jread(mem->xWire)
 #define   I2cRead8 jI2cRead8
 #define   I2cRead16 jI2cRead16
 #define   I2cWrite16 jI2cWrite16
 #define   I2cWrite8 jI2cWrite8
 #define   delay jdelay
-#define   available() javailable(mem->xWire)
+#define   I2cAvailable() javailable(mem->xWire)
 #define   ConvertHumidity jConvertHumidity
 #define   GetTextIndexed jGetTextIndexed
 #define   I2cSetActiveFound jI2cSetActiveFound
