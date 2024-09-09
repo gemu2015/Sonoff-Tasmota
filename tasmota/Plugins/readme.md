@@ -141,8 +141,9 @@ esp32 risc	ready
 
 List of already ported drivers:
 
-i2saudio(esp8266 + esp32) wav player
-mp3player
+i2saudio(esp8266) wav player + SAM (say)
+i2saudio(esp32) wav + mp3 player + Webradio + SAM (say)
+mp3player (extern hardware)
 sht3x
 bmpx
 vl530x
