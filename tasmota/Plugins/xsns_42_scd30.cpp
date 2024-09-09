@@ -248,7 +248,7 @@ int SCD30_sendBytes(void *pInput, uint8_t len) {
   uint8_t errorBytes = 0;
   beginTransmission(drv.i2cAddress);
   for (uint8_t cnt = 0; cnt < len; cnt++) {
-    write(pBytes[cnt]);
+    I2cWrite(pBytes[cnt]);
   }
   // errorBytes = len - (write(pBytes, len));
   result = endTransmission(true);
@@ -268,9 +268,9 @@ int SCD30_getBytes(void *pOutput, uint8_t len) {
     return (ERROR_SCD30_NOT_ENOUGH_BYTES_ERROR);
   }
 
-  if (available()) {
+  if (I2cAvailable()) {
     for (int x = 0; x < len; x++) {
-      pBytes[x] = read();
+      pBytes[x] = I2cRead();
     }
     return (ERROR_SCD30_NO_ERROR);
   }
@@ -881,8 +881,8 @@ void CmndScd30TempOffset() {
 
 /********************************************************************************************/
 
-const char HTTP_SNS_CO2[] PROGMEM = "{s}%s CO2{m}%d ppm{e}";
-const char HTTP_SNS_CO2EAVG[] PROGMEM = "{s}%s eCO2{m}%d ppm{e}";
+const char xHTTP_SNS_CO2[] PROGMEM = "{s}%s CO2{m}%d ppm{e}";
+const char xHTTP_SNS_CO2EAVG[] PROGMEM = "{s}%s eCO2{m}%d ppm{e}";
 
 void SCD30_Show(bool json) {
   SETREGS
@@ -896,8 +896,8 @@ void SCD30_Show(bool json) {
       ResponseAppendTHD(t, h);
       ResponseJsonEnd();
     } else {
-      WSContentSend_PD(GSTR(HTTP_SNS_CO2EAVG), PSTR("SCD30"), Scd30.co2e_avg);
-      WSContentSend_PD(GSTR(HTTP_SNS_CO2), PSTR("SCD30"), Scd30.co2);
+      WSContentSend_PD(GSTR(xHTTP_SNS_CO2EAVG), PSTR("SCD30"), Scd30.co2e_avg);
+      WSContentSend_PD(GSTR(xHTTP_SNS_CO2), PSTR("SCD30"), Scd30.co2);
       WSContentSend_THD(PSTR("SCD30"), t, h);
     }
   }

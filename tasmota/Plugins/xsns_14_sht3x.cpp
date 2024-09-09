@@ -79,15 +79,15 @@ bool Sht3xRead(float &t, float &h, uint8_t sht3x_address) {
 
   beginTransmission(sht3x_address);
   if (SHTC3_ADDR == sht3x_address) {
-    write(0x35);  // Wake from
-    write(0x17);  // sleep
+    I2cWrite(0x35);  // Wake from
+    I2cWrite(0x17);  // sleep
     endTransmission(true);
     beginTransmission(sht3x_address);
-    write(0x78);  // Disable clock stretching ( I don't think that wire library support clock stretching )
-    write(0x66);  // High resolution
+    I2cWrite(0x78);  // Disable clock stretching ( I don't think that wire library support clock stretching )
+    I2cWrite(0x66);  // High resolution
   } else {
-    write(0x2C);  // Enable clock stretching
-    write(0x06);  // High repeatability
+    I2cWrite(0x2C);  // Enable clock stretching
+    I2cWrite(0x06);  // High repeatability
   }
   if (endTransmission(true) != 0) {  // Stop I2C transmission
     AddLog(LOG_LEVEL_INFO, PSTR("i2c error"));
@@ -96,7 +96,7 @@ bool Sht3xRead(float &t, float &h, uint8_t sht3x_address) {
   delay(30);                      // Timing verified with logic analyzer (10 is to short)
   requestFrom(sht3x_address, 6);  // Request 6 bytes of data
   for (uint32_t i = 0; i < 6; i++) {
-    data[i] = read();  // cTemp msb, cTemp lsb, cTemp crc, humidity msb, humidity lsb, humidity crc
+    data[i] = I2cRead();  // cTemp msb, cTemp lsb, cTemp crc, humidity msb, humidity lsb, humidity crc
   };
 
   t = fdiv(tofloat(((data[0] << 8) | data[1]) * 175), FLTC(0));

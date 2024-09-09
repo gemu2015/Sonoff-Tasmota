@@ -241,18 +241,18 @@ uint32_t BME_Read(uint8_t reg, int8_t num) {
   SETREGS
 
   beginTransmission(i2c_addr);
-  write(reg);
+  I2cWrite(reg);
   endTransmission(false);
   requestFrom(i2c_addr, abs(num));
   uint32_t result = 0;
   if (num > 0) {
     for (uint16_t cnt = 0; cnt < num; cnt++) {
       result <<= 8;
-      result |= read();
+      result |= I2cRead();
     }
   } else {
-    result = read();
-    result |= read() << 8;
+    result = I2cRead();
+    result |= I2cRead() << 8;
   }
   return result;
 }
@@ -261,8 +261,8 @@ uint32_t BME_Write(uint8_t reg, int8_t val) {
   SETREGS
 
   beginTransmission(i2c_addr);
-  write(reg);
-  write(val);
+  I2cWrite(reg);
+  I2cWrite(val);
   return endTransmission(true);
 }
 

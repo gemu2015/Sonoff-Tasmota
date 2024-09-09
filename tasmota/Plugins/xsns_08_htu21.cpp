@@ -122,14 +122,14 @@ uint8_t HtuReadDeviceId() {
   uint8_t checksum = 0;
 
   beginTransmission(HTU21_ADDR);
-  write(HTU21_SERIAL2_READ1);
-  write(HTU21_SERIAL2_READ2);
+  I2cWrite(HTU21_SERIAL2_READ1);
+  I2cWrite(HTU21_SERIAL2_READ2);
   endTransmission(0);
 
   requestFrom(HTU21_ADDR, 3);
-  deviceID = read() << 8;
-  deviceID |= read();
-  checksum = read();
+  deviceID = I2cRead() << 8;
+  deviceID |= I2cRead();
+  checksum = I2cRead();
   if (HtuCheckCrc8(deviceID) == checksum) {
     deviceID = deviceID >> 8;
   } else {
@@ -149,7 +149,7 @@ void HtuSetResolution(uint8_t resolution) {
 void HtuReset() {
   SETREGS
   beginTransmission(HTU21_ADDR);
-  write(HTU21_RESET);
+  I2cWrite(HTU21_RESET);
   endTransmission(0);
   delay(15);  // Reset takes 15ms
 }
@@ -189,17 +189,17 @@ bool HTU_Read() {
   }
 
   beginTransmission(HTU21_ADDR);
-  write(HTU21_READTEMP);
+  I2cWrite(HTU21_READTEMP);
   if (endTransmission(0) != 0) {
     return false;
   }                        // In case of error
   delay(Htu.jdelay_temp);  // Sensor time at max resolution
 
   requestFrom(HTU21_ADDR, 3);
-  if (3 == available()) {
-    sensorval = read() << 8;  // MSB
-    sensorval |= read();      // LSB
-    checksum = read();
+  if (3 == I2cAvailable()) {
+    sensorval = I2cRead() << 8;  // MSB
+    sensorval |= I2cRead();      // LSB
+    checksum = I2cRead();
   }
   if (HtuCheckCrc8(sensorval) != checksum) {
     return false;
@@ -209,17 +209,17 @@ bool HTU_Read() {
   Htu.temperature = ConvertTemp(jfscale(sensorval, 0.002681, 46.85));
 
   beginTransmission(HTU21_ADDR);
-  write(HTU21_READHUM);
+  I2cWrite(HTU21_READHUM);
   if (endTransmission(0) != 0) {
     return false;
   }                            // In case of error
   delay(Htu.jdelay_humidity);  // Sensor time at max resolution
 
   requestFrom(HTU21_ADDR, 3);
-  if (3 <= available()) {
-    sensorval = read() << 8;  // MSB
-    sensorval |= read();      // LSB
-    checksum = read();
+  if (3 <= I2cAvailable()) {
+    sensorval = I2cRead() << 8;  // MSB
+    sensorval |= I2cRead();      // LSB
+    checksum = I2cRead();
   }
   if (HtuCheckCrc8(sensorval) != checksum) {
     return false;

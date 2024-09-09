@@ -142,8 +142,8 @@ void sps30_get_data(uint16_t cmd, uint8_t *data, uint8_t dlen) {
   memset(twi_buff, 0, sizeof(twi_buff));
 
   beginTransmission(SPS30_ADDR);
-  write(cmd >> 8);
-  write(cmd);
+  I2cWrite(cmd >> 8);
+  I2cWrite(cmd);
   endTransmission(true);  // true = default
 
   // need 60 bytes max
@@ -189,7 +189,7 @@ void sps30_cmd(uint16_t cmd) {
     num = 5;
   }
   for (uint16_t cnt = 0; cnt < num; cnt++) {
-    write(cmdb[cnt]);
+    I2cWrite(cmdb[cnt]);
   }
   endTransmission(true);
 }

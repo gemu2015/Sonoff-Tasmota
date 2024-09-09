@@ -139,7 +139,7 @@ uint16_t MLX90614_read16(uint8_t addr, uint8_t a) {
   uint16_t ret;
 
   beginTransmission(addr);
-  write(a);
+  I2cWrite(a);
   endTransmission(false);
 
   requestFrom(addr, (size_t)3);
@@ -147,10 +147,10 @@ uint16_t MLX90614_read16(uint8_t addr, uint8_t a) {
   buff[0] = addr << 1;
   buff[1] = a;
   buff[2] = (addr << 1) | 1;
-  buff[3] = read();
-  buff[4] = read();
+  buff[3] = I2cRead();
+  buff[4] = I2cRead();
   ret = buff[3] | (buff[4] << 8);
-  uint8_t pec = read();
+  uint8_t pec = I2cRead();
 
   return ret;
 

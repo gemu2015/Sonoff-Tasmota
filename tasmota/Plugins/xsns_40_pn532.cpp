@@ -39,7 +39,7 @@
 
 // SDA/TXD
 // SCL/RXD
-//#define USE_PN532_DATA_FUNCTION
+#define USE_PN532_DATA_FUNCTION
 
 #define PN532_INVALID_ACK -1
 #define PN532_TIMEOUT -2
@@ -196,7 +196,7 @@ int16_t PN532_getResponseLength(uint8_t buf[], uint8_t len, uint16_t timeout) {
 
   do {
     if (requestFrom(PN532_I2_ADDR, 6)) {
-      if (read() & 1) {  // check first byte --- status
+      if (I2cRead() & 1) {  // check first byte --- status
         break;           // PN532 is ready
       }
     }
@@ -208,19 +208,19 @@ int16_t PN532_getResponseLength(uint8_t buf[], uint8_t len, uint16_t timeout) {
     }
   } while (1);
 
-  if (0x00 != read() ||  // PREAMBLE
-      0x00 != read() ||  // STARTCODE1
-      0xFF != read()     // STARTCODE2
+  if (0x00 != I2cRead() ||  // PREAMBLE
+      0x00 != I2cRead() ||  // STARTCODE1
+      0xFF != I2cRead()     // STARTCODE2
   ) {
     return PN532_INVALID_FRAME;
   }
 
-  uint8_t length = read();
+  uint8_t length = I2cRead();
 
   // request for last respond msg again
   beginTransmission(PN532_I2_ADDR);
   for (uint16_t i = 0; i < sizeof(PN532_NACK); ++i) {
-    write(pgm_read_byte(&PN532_NACK[EXEC_OFFSET + i]));
+    I2cWrite(pgm_read_byte(&PN532_NACK[EXEC_OFFSET + i]));
   }
   endTransmission(true);
 
@@ -260,19 +260,19 @@ int8_t PN532_writeCommand(const uint8_t *header, uint8_t hlen, const uint8_t *bo
   if (mode) {
     beginTransmission(PN532_I2_ADDR);
 
-    write(PN532_PREAMBLE);
-    write(PN532_STARTCODE1);
-    write(PN532_STARTCODE2);
+    I2cWrite(PN532_PREAMBLE);
+    I2cWrite(PN532_STARTCODE1);
+    I2cWrite(PN532_STARTCODE2);
 
     uint8_t length = hlen + blen + 1;  // length of data field: TFI + DATA
-    write(length);
-    write(~length + 1);  // checksum of length
+    I2cWrite(length);
+    I2cWrite(~length + 1);  // checksum of length
 
-    write(PN532_HOSTTOPN532);
+    I2cWrite(PN532_HOSTTOPN532);
     uint8_t sum = PN532_HOSTTOPN532;  // sum of TFI + DATA
 
     for (uint8_t i = 0; i < hlen; i++) {
-      if (write(header[i])) {
+      if (I2cWrite(header[i])) {
         sum += header[i];
       } else {
         return PN532_INVALID_FRAME;
@@ -280,7 +280,7 @@ int8_t PN532_writeCommand(const uint8_t *header, uint8_t hlen, const uint8_t *bo
     }
 
     for (uint8_t i = 0; i < blen; i++) {
-      if (write(body[i])) {
+      if (I2cWrite(body[i])) {
         sum += body[i];
       } else {
         return PN532_INVALID_FRAME;
@@ -288,8 +288,8 @@ int8_t PN532_writeCommand(const uint8_t *header, uint8_t hlen, const uint8_t *bo
     }
 
     uint8_t checksum = ~sum + 1;  // checksum of TFI + DATA
-    write(checksum);
-    write(PN532_POSTAMBLE);
+    I2cWrite(checksum);
+    I2cWrite(PN532_POSTAMBLE);
 
     endTransmission(true);
 
@@ -338,7 +338,7 @@ int16_t PN532_readResponse(uint8_t buf[], uint8_t len, uint16_t timeout = 50) {
     // [RDY] 00 00 FF LEN LCS (TFI PD0 ... PDn) DCS 00
     do {
       if (requestFrom(PN532_I2_ADDR, 6 + length + 2)) {
-        if (read() & 1) {  // check first byte --- status
+        if (I2cRead() & 1) {  // check first byte --- status
           break;           // PN532 is ready
         }
       }
@@ -350,21 +350,21 @@ int16_t PN532_readResponse(uint8_t buf[], uint8_t len, uint16_t timeout = 50) {
       }
     } while (1);
 
-    if (0x00 != read() ||  // PREAMBLE
-        0x00 != read() ||  // STARTCODE1
-        0xFF != read()     // STARTCODE2
+    if (0x00 != I2cRead() ||  // PREAMBLE
+        0x00 != I2cRead() ||  // STARTCODE1
+        0xFF != I2cRead()     // STARTCODE2
     ) {
       return PN532_INVALID_FRAME;
     }
 
-    length = read();
+    length = I2cRead();
 
-    if (0 != (uint8_t)(length + read())) {  // checksum of length
+    if (0 != (uint8_t)(length + I2cRead())) {  // checksum of length
       return PN532_INVALID_FRAME;
     }
 
     uint8_t cmd = Pn532.command + 1;  // response command
-    if (PN532_PN532TOHOST != read() || (cmd) != read()) {
+    if (PN532_PN532TOHOST != I2cRead() || (cmd) != I2cRead()) {
       return PN532_INVALID_FRAME;
     }
 
@@ -375,15 +375,15 @@ int16_t PN532_readResponse(uint8_t buf[], uint8_t len, uint16_t timeout = 50) {
 
     uint8_t sum = PN532_PN532TOHOST + cmd;
     for (uint8_t i = 0; i < length; i++) {
-      buf[i] = read();
+      buf[i] = I2cRead();
       sum += buf[i];
     }
 
-    uint8_t checksum = read();
+    uint8_t checksum = I2cRead();
     if (0 != (uint8_t)(sum + checksum)) {
       return PN532_INVALID_FRAME;
     }
-    read();  // POSTAMBLE
+    I2cRead();  // POSTAMBLE
 
     return length;
   } else {
@@ -453,7 +453,7 @@ int8_t PN532_readAckFrame() {
     uint16_t time = 0;
     do {
       if (requestFrom(PN532_I2_ADDR, sizeof(PN532_ACK) + 1)) {
-        if (read() & 1) {  // check first byte --- status
+        if (I2cRead() & 1) {  // check first byte --- status
           break;           // PN532 is ready
         }
       }
@@ -466,7 +466,7 @@ int8_t PN532_readAckFrame() {
     } while (1);
 
     for (uint8_t i = 0; i < sizeof(PN532_ACK); i++) {
-      ackBuf[i] = read();
+      ackBuf[i] = I2cRead();
     }
 
   } else {

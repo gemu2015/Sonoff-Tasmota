@@ -297,8 +297,8 @@ bool VL53L0X_init(bool io_2v8) {
 void VL53L0X_writeReg(uint8_t reg, uint8_t value) {
   SETREGS
   beginTransmission(address);
-  write(reg);
-  write(value);
+  I2cWrite(reg);
+  I2cWrite(value);
   last_status = endTransmission(true);
 }
 
@@ -306,9 +306,9 @@ void VL53L0X_writeReg(uint8_t reg, uint8_t value) {
 void VL53L0X_writeReg16Bit(uint8_t reg, uint16_t value) {
   SETREGS
   beginTransmission(address);
-  write(reg);
-  write((value >> 8) & 0xFF);  // value high byte
-  write(value & 0xFF);         // value low byte
+  I2cWrite(reg);
+  I2cWrite((value >> 8) & 0xFF);  // value high byte
+  I2cWrite(value & 0xFF);         // value low byte
   last_status = endTransmission(true);
 }
 
@@ -316,11 +316,11 @@ void VL53L0X_writeReg16Bit(uint8_t reg, uint16_t value) {
 void VL53L0X_writeReg32Bit(uint8_t reg, uint32_t value) {
   SETREGS
   beginTransmission(address);
-  write(reg);
-  write((value >> 24) & 0xFF);  // value highest byte
-  write((value >> 16) & 0xFF);
-  write((value >> 8) & 0xFF);
-  write(value & 0xFF);  // value lowest byte
+  I2cWrite(reg);
+  I2cWrite((value >> 24) & 0xFF);  // value highest byte
+  I2cWrite((value >> 16) & 0xFF);
+  I2cWrite((value >> 8) & 0xFF);
+  I2cWrite(value & 0xFF);  // value lowest byte
   last_status = endTransmission(true);
 }
 
@@ -330,11 +330,11 @@ uint8_t VL53L0X_readReg(uint8_t reg) {
   uint8_t value;
 
   beginTransmission(address);
-  write(reg);
+  I2cWrite(reg);
   last_status = endTransmission(true);
 
   requestFrom(address, (uint8_t)1);
-  value = read();
+  value = I2cRead();
 
   return value;
 }
@@ -345,12 +345,12 @@ uint16_t VL53L0X_readReg16Bit(uint8_t reg) {
   uint16_t value;
 
   beginTransmission(address);
-  write(reg);
+  I2cWrite(reg);
   last_status = endTransmission(true);
 
   requestFrom(address, (uint8_t)2);
-  value = (uint16_t)read() << 8;  // value high byte
-  value |= read();                // value low byte
+  value = (uint16_t)I2cRead() << 8;  // value high byte
+  value |= I2cRead();                // value low byte
 
   return value;
 }
@@ -361,14 +361,14 @@ uint32_t VL53L0X_readReg32Bit(uint8_t reg) {
   uint32_t value;
 
   beginTransmission(address);
-  write(reg);
+  I2cWrite(reg);
   last_status = endTransmission(true);
 
   requestFrom(address, (uint8_t)4);
-  value = (uint32_t)read() << 24;  // value highest byte
-  value |= (uint32_t)read() << 16;
-  value |= (uint16_t)read() << 8;
-  value |= read();  // value lowest byte
+  value = (uint32_t)I2cRead() << 24;  // value highest byte
+  value |= (uint32_t)I2cRead() << 16;
+  value |= (uint16_t)I2cRead() << 8;
+  value |= I2cRead();  // value lowest byte
 
   return value;
 }
@@ -378,10 +378,10 @@ uint32_t VL53L0X_readReg32Bit(uint8_t reg) {
 void VL53L0X_writeMulti(uint8_t reg, uint8_t const* src, uint8_t count) {
   SETREGS
   beginTransmission(address);
-  write(reg);
+  I2cWrite(reg);
 
   while (count-- > 0) {
-    write(*(src++));
+    I2cWrite(*(src++));
   }
 
   last_status = endTransmission(true);
@@ -392,13 +392,13 @@ void VL53L0X_writeMulti(uint8_t reg, uint8_t const* src, uint8_t count) {
 void VL53L0X_readMulti(uint8_t reg, uint8_t* dst, uint8_t count) {
   SETREGS
   beginTransmission(address);
-  write(reg);
+  I2cWrite(reg);
   last_status = endTransmission(true);
 
   requestFrom(address, count);
 
   while (count-- > 0) {
-    *(dst++) = read();
+    *(dst++) = I2cRead();
   }
 }
 

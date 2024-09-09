@@ -195,7 +195,7 @@ bool readWordFromCommand(uint8_t command[], uint8_t commandLength, uint16_t dela
   SETREGS
   beginTransmission(SGP30_ADDRESS);
   for (uint8_t i = 0; i < commandLength; i++) {
-    write(command[i]);
+    I2cWrite(command[i]);
   }
   endTransmission(false);
 
@@ -211,7 +211,7 @@ bool readWordFromCommand(uint8_t command[], uint8_t commandLength, uint16_t dela
   }
   uint8_t replybuffer[replylen];
   for (uint8_t i = 0; i < replylen; i++) {
-    replybuffer[i] = read();
+    replybuffer[i] = I2cRead();
   }
 
   for (uint8_t i = 0; i < readlen; i++) {

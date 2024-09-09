@@ -654,6 +654,8 @@ typedef struct {
 
 #define   beginTransmission(ADDR) jbeginTransmission(mem->xWire, ADDR)
 #define   I2cWrite(CMD) jwrite(mem->xWire, CMD)
+#define   I2cWriten(BUF,LEN) jwriten(mem->xWire,BUF,LEN)
+
 #define   endTransmission(BUS) jendTransmission(mem->xWire, BUS)
 #define   requestFrom(ADDR,NUM)  jrequestFrom(mem->xWire, ADDR, NUM)
 #define   I2cRead() jread(mem->xWire)
@@ -896,7 +898,7 @@ typedef struct {
 
 #define I2C_beginTransmission beginTransmission
 #define I2C_endTransmission endTransmission
-#define I2C_write write
+#define I2C_write I2cWrite
 #define I2C_SETWIRE SETWIRE
 
 #define CharToFloat jCharToFloat
