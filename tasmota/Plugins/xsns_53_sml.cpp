@@ -616,7 +616,9 @@ SETREGS
   num--;
   if (meter_desc[num].srcpin != TCP_MODE_FLG) {
     if (!meter_desc[num].meter_ss) return 0;
-    return meter_desc[num].meter_ss->available();
+    //return meter_desc[num].meter_ss->available();
+    return availTS(meter_desc[num].meter_ss);
+    
   } else {
     if (meter_desc[num].client) {
       return meter_desc[num].client->available();
@@ -634,7 +636,8 @@ SETREGS
   num--;
   if (meter_desc[num].srcpin != TCP_MODE_FLG) {
     if (!meter_desc[num].meter_ss) return 0;
-    return meter_desc[num].meter_ss->read();
+    //return meter_desc[num].meter_ss->read();
+    return readbTS(meter_desc[num].meter_ss);
   } else {
     if (meter_desc[num].client) {
       return meter_desc[num].client->read();
