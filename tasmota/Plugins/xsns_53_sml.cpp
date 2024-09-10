@@ -87,6 +87,8 @@
 #define USE_SML_DECRYPT
 #endif
 
+#define NO_USE_SML_TCP
+
 #ifndef NO_USE_SML_TCP
 // modbus over TCP
 #define USE_SML_TCP
@@ -96,6 +98,9 @@
 // obis in line mode
 #define SML_OBIS_LINE
 #endif
+
+#define NO_USE_SML_CANBUS
+
 
 #ifdef ESP32
 #ifndef NO_USE_SML_CANBUS
