@@ -617,7 +617,7 @@ SETREGS
   if (meter_desc[num].srcpin != TCP_MODE_FLG) {
     if (!meter_desc[num].meter_ss) return 0;
     //return meter_desc[num].meter_ss->available();
-    return availTS(meter_desc[num].meter_ss);
+    return TSerial_Available(meter_desc[num].meter_ss);
     
   } else {
     if (meter_desc[num].client) {
@@ -637,7 +637,7 @@ SETREGS
   if (meter_desc[num].srcpin != TCP_MODE_FLG) {
     if (!meter_desc[num].meter_ss) return 0;
     //return meter_desc[num].meter_ss->read();
-    return readbTS(meter_desc[num].meter_ss);
+    return TSerial_Read(meter_desc[num].meter_ss);
   } else {
     if (meter_desc[num].client) {
       return meter_desc[num].client->read();
@@ -655,7 +655,8 @@ SETREGS
   num--;
   if (meter_desc[num].srcpin != TCP_MODE_FLG) {
     if (!meter_desc[num].meter_ss) return 0;
-    return meter_desc[num].meter_ss->peek();
+    //return meter_desc[num].meter_ss->peek();
+    return TSerial_Peek(meter_desc[num].meter_ss);
   } else {
     if (meter_desc[num].client) {
       return meter_desc[num].client->peek();
@@ -1351,8 +1352,12 @@ SETREGS
 void sml_empty_receiver(uint32_t meters) {
 SETREGS
 
-  while (meter_desc[meters].meter_ss->available()) {
-    meter_desc[meters].meter_ss->read();
+  //while (meter_desc[meters].meter_ss->available()) {
+  //  meter_desc[meters].meter_ss->read();
+  //}
+
+  while (TSerial_Available(meter_desc[meters].meter_ss)) {
+    TSerial_Read(meter_desc[meters].meter_ss);
   }
 }
 
@@ -1399,7 +1404,9 @@ SETREGS
     
   uint8_t iob;
   if (mptr->srcpin != TCP_MODE_FLG) {
-    iob = (uint8_t)mptr->meter_ss->read(); 
+    //iob = (uint8_t)mptr->meter_ss->read();
+    iob = (uint8_t)TSerial_Read(mptr->meter_ss); 
+
   } else {
     if (mptr->client) {
       iob = (uint8_t)mptr->client->read();
@@ -1504,7 +1511,8 @@ SETREGS
             memmove(&mptr->sbuff[0], &mptr->sbuff[6], mptr->sbsiz - 6);
             SML_Decode(meters);
             if (mptr->client) {
-              mptr->client->flush();
+              //mptr->client->flush();
+              TSerial_Flush(mptr->client);
             }
             //Hexdump(mptr->sbuff + 6, 10);
           }
@@ -1600,12 +1608,20 @@ uint32_t meters;
         if (mptr->srcpin != TCP_MODE_FLG) {
           if (!mptr->meter_ss) continue;
           // poll for serial input
+          //if (sml_globs.ser_act_LED_pin != 255 && (sml_globs.ser_act_meter_num == 0 || sml_globs.ser_act_meter_num - 1 == meters)) {
+          //  digitalWrite(sml_globs.ser_act_LED_pin, mptr->meter_ss->available() && !digitalRead(sml_globs.ser_act_LED_pin)); // Invert LED, if queue is continuously full
+          //}
+          //while (mptr->meter_ss->available()) {
+          //  sml_shift_in(meters, 0);
+          //}
+
           if (sml_globs.ser_act_LED_pin != 255 && (sml_globs.ser_act_meter_num == 0 || sml_globs.ser_act_meter_num - 1 == meters)) {
-            digitalWrite(sml_globs.ser_act_LED_pin, mptr->meter_ss->available() && !digitalRead(sml_globs.ser_act_LED_pin)); // Invert LED, if queue is continuously full
+            digitalWrite(sml_globs.ser_act_LED_pin, TSerial_Available(mptr->meter_ss) && !digitalRead(sml_globs.ser_act_LED_pin)); // Invert LED, if queue is continuously full
           }
-          while (mptr->meter_ss->available()) {
+          while (TSerial_Available(mptr->meter_ss)) {
             sml_shift_in(meters, 0);
           }
+          
         } else {
 
 #ifdef USE_SML_TCP
@@ -2697,14 +2713,15 @@ SETREGS
 }
 
 struct SML_COUNTER {
-  uint8_t sml_cnt_debounce;
-  uint8_t sml_cnt_old_state;
   uint32_t sml_cnt_last_ts;
   uint32_t sml_counter_ltime;
   uint32_t sml_counter_lfalltime;
   uint32_t sml_counter_pulsewidth;
   uint16_t sml_debounce;
   uint8_t sml_cnt_updated;
+  uint8_t sml_cnt_debounce;
+  uint8_t sml_cnt_old_state;
+  int8_t srcpin;
 } sml_counters[MAX_COUNTERS];
 
 uint8_t sml_counter_pinstate;
@@ -2713,7 +2730,7 @@ uint8_t sml_cnt_index[MAX_COUNTERS] =  { 0, 1, 2, 3 };
 void IRAM_ATTR SML_CounterIsr(void *arg);
 void SML_CounterIsr(void *arg) {
 SETREGS
-
+  STGLOB
   uint32_t index = *static_cast<uint8_t*>(arg);
 
   uint32_t time = millis();
@@ -2730,7 +2747,7 @@ SETREGS
   if bitRead(sml_counter_pinstate, index) {
 
     // falling edge
-    RtcSettings.pulse_counter[index]++;
+    RtcSettings->pulse_counter[index]++;
     sml_counters[index].sml_counter_pulsewidth = time - sml_counters[index].sml_counter_lfalltime;
     sml_counters[index].sml_counter_lfalltime = time;
     sml_counters[index].sml_cnt_updated = 1;
@@ -2797,7 +2814,11 @@ uint32_t SML_getscriptsize(char *lp) {
 bool Gpio_used(uint8_t gpiopin) {
 SETREGS
 
-  if ((gpiopin < nitems(TasmotaGlobal.gpio_pin)) && (TasmotaGlobal.gpio_pin[gpiopin] > 0)) {
+STGLOB
+
+  //if ((gpiopin < nitems(TasmotaGlobal->gpio_pin)) && (TasmotaGlobal->gpio_pin[gpiopin] > 0)) {
+  if (TasmotaGlobal->gpio_pin[gpiopin] > 0) {
+
     return true;
   }
   return false;
@@ -2925,10 +2946,16 @@ uint16_t serial_dispatch(uint8_t meter, uint8_t sel) {
 SETREGS
 
 	struct METER_DESC *mptr = &meter_desc[meter];
-	if (!sel) {
-		return mptr->meter_ss->available();
+	//if (!sel) {
+	//	return mptr->meter_ss->available();
+	//}
+	//uint8_t iob = mptr->meter_ss->read();
+
+  if (!sel) {
+		return TSerial_Available(mptr->meter_ss);
 	}
-	uint8_t iob = mptr->meter_ss->read();
+	uint8_t iob = TSerial_Read(mptr->meter_ss);
+  
 	return iob;
 }
 
@@ -2994,7 +3021,8 @@ SETREGS
     mptr->txmem = 0;
     mptr->trxpin = -1;
     if (mptr->meter_ss) {
-        delete mptr->meter_ss;
+        //delete mptr->meter_ss;
+        Del_TSerial(mptr->meter_ss);
         mptr->meter_ss = NULL;
     }
 
@@ -3033,6 +3061,8 @@ SETREGS
 void SML_Init(void) {
 SETREGS
 
+  STGLOB
+
 
   sml_globs.ready = false;
 
@@ -3049,12 +3079,13 @@ SETREGS
  // }
 //char *lp = glob_script_mem.section_ptr;
 
-  char *lp = GetScriptSection(">M");
+  char *lp = GetScriptSection((const char*)">M");
   if (!lp) {
     AddLog(LOG_LEVEL_INFO, PSTR("no meter section found!"));
     return;
   }
 
+  char *savelp = lp;
   uint8_t new_meters_used;
 
   // use script definition
@@ -3115,7 +3146,7 @@ SETREGS
 #endif
 
   sml_globs.sml_send_blocks = 0;
-  lp = glob_script_mem.section_ptr;
+  lp = savelp;
   struct METER_DESC *mmp;
   while (lp) {
       if (!section) {
@@ -3392,7 +3423,7 @@ next_line:
   uint8_t cindex = 0;
   // preloud counters
   for (uint8_t i = 0; i < MAX_COUNTERS; i++) {
-      RtcSettings.pulse_counter[i] = Settings->pulse_counter[i];
+      RtcSettings->pulse_counter[i] = Settings->pulse_counter[i];
       sml_counters[i].sml_cnt_last_ts = millis();
   }
 
@@ -3421,8 +3452,8 @@ next_line:
             sml_counters[cindex].sml_counter_ltime = millis();
           }
 
-          RtcSettings.pulse_counter[cindex] = Settings->pulse_counter[cindex];
-          InjektCounterValue(meters, RtcSettings.pulse_counter[cindex], 0.0);
+          RtcSettings->pulse_counter[cindex] = Settings->pulse_counter[cindex];
+          InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], 0.0);
           cindex++;
         }
     } else if (mptr->type == 'C') {
@@ -3547,15 +3578,24 @@ next_line:
       } else {
         // serial mode
 #ifdef ESP8266
+        TSPARS spars;
+        spars.rxpin = mptr->srcpin;
+        spars.txpin = mptr->trxpin;
+        spars.hwfb = 1;
+        spars.nwmode = 0;
+        spars.bsize = mptr->sibsiz;
+        spars.speed = mptr->params;
+        spars.invert = mptr->so_flags.SO_TRX_INVERT;
 #ifdef SPECIAL_SS
         char type = mptr->type;
         if (type == 'm' || type == 'M' || type == 'k' || type == 'p' || type == 'R' || type == 'v') {
-          mptr->meter_ss = new TasmotaSerial(mptr->srcpin, mptr->trxpin, 1, 0, mptr->sibsiz);
+          mptr->meter_ss = New_TSerial(&spars);
         } else {
-          mptr->meter_ss = new TasmotaSerial(mptr->srcpin, mptr->trxpin, 1, 1, mptr->sibsiz);
+          spars.nwmode = 1;
+          mptr->meter_ss = New_TSerial(&spars);
         }
 #else
-        mptr->meter_ss = new TasmotaSerial(mptr->srcpin, mptr->trxpin, 1, 0, mptr->sibsiz);
+        mptr->meter_ss = New_TSerial(&spars);
 #endif  // SPECIAL_SS
 #endif // ESP8266
 
@@ -3614,6 +3654,7 @@ next_line:
         }
 
 #ifdef ESP8266
+/*
         if (mptr->meter_ss->begin(mptr->params)) {
           mptr->meter_ss->flush();
         }
@@ -3624,6 +3665,17 @@ next_line:
             U0C0 = U0C0 | BIT(UCRXI) | BIT(UCTXI); // Inverse RX, TX
           }
         }
+*/
+        
+        if (TSerial_Begin(mptr->meter_ss, mptr->params)) {
+          TSerial_Flush(mptr->meter_ss);
+        }
+        if (TSerial_Hardwareserial(mptr->meter_ss)) {
+          //Serial.begin(mptr->params, (SerialConfig)smode);
+          ClaimSerial();
+        }
+
+
 #endif  // ESP8266
 
 #ifdef ESP32
@@ -3696,16 +3748,20 @@ SETREGS
   if (meter < 1 || meter > sml_globs.meters_used) return 0;
   meter--;
   if (!meter_desc[meter].meter_ss) return 0;
+
 #ifdef ESP8266
-  if (meter_desc[meter].meter_ss->begin(br)) {
-    meter_desc[meter].meter_ss->flush();
+  //if (meter_desc[meter].meter_ss->begin(br)) {
+  if (TSerial_Begin(meter_desc[meter].meter_ss, br)) {
+    //meter_desc[meter].meter_ss->flush();
+    TSerial_Flush(meter_desc[meter].meter_ss);
   }
-  if (meter_desc[meter].meter_ss->hardwareSerial()) {
+  if (TSerial_Hardwareserial(meter_desc[meter].meter_ss)) {
     if (sml_globs.mptr[meter].type=='M') {
       Serial.begin(br, SERIAL_8E1);
     }
   }
 #endif  // ESP8266
+
 #ifdef ESP32
   meter_desc[meter].meter_ss->flush();
   meter_desc[meter].meter_ss->updateBaudRate(br);
@@ -3907,6 +3963,7 @@ SETREGS
 void SML_Counter_Poll(void) {
 SETREGS
 
+STGLOB
 uint16_t meters, cindex = 0;
 uint32_t ctime = millis();
 
@@ -3936,10 +3993,10 @@ uint32_t ctime = millis();
               sml_counters[cindex].sml_cnt_old_state = state;
               if (state == 0) {
                 // inc counter
-                RtcSettings.pulse_counter[cindex]++;
+                RtcSettings->pulse_counter[cindex]++;
                 sml_counters[cindex].sml_counter_pulsewidth = ctime - sml_counters[cindex].sml_counter_lfalltime;
                 sml_counters[cindex].sml_counter_lfalltime = ctime;
-                InjektCounterValue(meters, RtcSettings.pulse_counter[cindex], 60000.0 / (float)sml_counters[cindex].sml_counter_pulsewidth);
+                InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], 60000.0 / (float)sml_counters[cindex].sml_counter_pulsewidth);
               }
             }
           }
@@ -3962,13 +4019,13 @@ uint32_t ctime = millis();
         }
 
         if (sml_counters[cindex].sml_cnt_updated) {
-          InjektCounterValue(meters, RtcSettings.pulse_counter[cindex], 60000.0 / (float)sml_counters[cindex].sml_counter_pulsewidth);
+          InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], 60000.0 / (float)sml_counters[cindex].sml_counter_pulsewidth);
           sml_counters[cindex].sml_cnt_updated = 0;
         }
 				// check timeout
 				uint32_t time = millis();
 				if ((time - sml_counters[cindex].sml_counter_lfalltime) > CNT_PULSE_TIMEOUT) {
-					InjektCounterValue(meters, RtcSettings.pulse_counter[cindex], 0);
+					InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], 0);
 					sml_counters[cindex].sml_counter_lfalltime = time;
 				}
       }
@@ -4254,7 +4311,9 @@ MODBUS_TCP_HEADER tcph;
 int32_t sml_tcp_init(struct METER_DESC *mptr) {
   SETREGS
   STGLOB
-  if (!TasmotaGlobal->global_state.wifi_down) {
+  StateBitfield test = TasmotaGlobal->global_state;
+
+  if (!test.wifi_down) {
     if (!mptr->client) {
       // tcp mode
 #ifdef USE_SML_TCP_SECURE
@@ -4442,11 +4501,18 @@ SETREGS
       if (mptr->trx_en.trxen) {
         digitalWrite(meter_desc[meter].trx_en.trxenpin, meter_desc[meter].trx_en.trxenpol ^ 1);
       }
-      mptr->meter_ss->flush();
-      mptr->meter_ss->write(sbuff, slen);
+      //mptr->meter_ss->flush();
+      //mptr->meter_ss->write(sbuff, slen);
+      //if (mptr->trx_en.trxen) {
+        // must wait for all data sent
+      //  mptr->meter_ss->flush();
+      //  digitalWrite(mptr->trx_en.trxenpin, mptr->trx_en.trxenpol);
+      //}
+      TSerial_Flush(mptr->meter_ss);
+      TSerial_Write(mptr->meter_ss, sbuff, slen);
       if (mptr->trx_en.trxen) {
         // must wait for all data sent
-        mptr->meter_ss->flush();
+        TSerial_Flush(mptr->meter_ss);
         digitalWrite(mptr->trx_en.trxenpin, mptr->trx_en.trxenpol);
       }
 
@@ -4552,6 +4618,7 @@ uint8_t parity=0;
 bool XSNS_53_cmd(void) {
 SETREGS
 
+  STGLOB
   bool serviced = true;
   if (XdrvMailbox->data_len > 0) {
       char *cp = XdrvMailbox->data;
@@ -4585,16 +4652,16 @@ SETREGS
           if (isdigit(*cp)) {
             uint32_t cval = atoi(cp);
             while (isdigit(*cp)) cp++;
-            RtcSettings.pulse_counter[index - 1] = cval;
+            RtcSettings->pulse_counter[index - 1] = cval;
             uint8_t cindex = 0;
             for (uint8_t meters = 0; meters < sml_globs.meters_used; meters++) {
               if (sml_globs.mptr[meters].type == 'c') {
-                InjektCounterValue(meters, RtcSettings.pulse_counter[cindex], 0.0);
+                InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], 0.0);
                 cindex++;
               }
             }
           }
-          ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"counter%d: %d\"}}"), index, RtcSettings.pulse_counter[index - 1]);
+          ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"counter%d: %d\"}}"), index, RtcSettings->pulse_counter[index - 1]);
       } else if (*cp == 'r') {
         // restart
         ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"restart\"}}"));
@@ -4635,6 +4702,7 @@ SETREGS
 void InjektCounterValue(uint8_t meter, uint32_t counter, float rate) {
 SETREGS
 
+  STGLOB
 
   snprintf((char*)&meter_desc[meter].sbuff[0], meter_desc[meter].sbsiz, "1-0:1.8.0*255(%d)", counter);
   SML_Decode(meter);
@@ -4650,9 +4718,9 @@ SETREGS
 
 void SML_CounterSaveState(void) {
 SETREGS
-
+  STGLOB
   for (byte i = 0; i < MAX_COUNTERS; i++) {
-      Settings->pulse_counter[i] = RtcSettings.pulse_counter[i];
+      Settings->pulse_counter[i] = RtcSettings->pulse_counter[i];
   }
 }
 

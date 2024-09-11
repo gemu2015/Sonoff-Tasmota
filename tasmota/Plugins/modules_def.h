@@ -53,6 +53,27 @@ typedef struct {
   MOD_FLAGS flags;
 } MODULES_TABLE;
 
+typedef struct {
+    int8_t rxpin;
+    int8_t txpin;
+    int8_t hwfb;
+    int8_t nwmode;
+    uint16_t bsize;
+    uint32_t speed;
+    int8_t invert;
+} TSPARS;
+
+typedef struct {
+  uint32_t cnt_last_ts;
+  uint32_t counter_ltime;
+  uint32_t counter_lfalltime;
+  uint32_t counter_pulsewidth;
+  uint16_t debounce;
+  uint8_t cnt_updated;
+  uint8_t cnt_debounce;
+  uint8_t cnt_old_state;
+  int8_t srcpin;
+} PLUGIN_COUNTER;
 
 
 #define MD_TYPE uint32_t

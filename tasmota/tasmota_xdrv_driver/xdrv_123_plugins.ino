@@ -131,6 +131,285 @@ void Serial_print(const char *txt) {
   Serial.printf_P(PSTR("test: %s\n"),txt);
 }
 
+// ESP32 combined hardware and software serial driver, software read only
+#ifdef ESP32
+
+#define USE_ESP32_SW_SERIAL
+
+#ifdef USE_ESP32_SW_SERIAL
+
+#ifndef ESP32_SWS_BUFFER_SIZE
+#define ESP32_SWS_BUFFER_SIZE 256
+#endif
+
+class PLUGIN_ESP32_SERIAL : public Stream {
+public:
+	PLUGIN_ESP32_SERIAL(uint32_t uart_index);
+  virtual ~PLUGIN_ESP32_SERIAL();
+  bool begin(uint32_t speed, uint32_t smode, int32_t recpin, int32_t trxpin, int32_t invert);
+  int peek(void);
+  int read(void) override;
+  size_t write(uint8_t) override;
+  int available(void) override;
+  void flush(void) override;
+  void setRxBufferSize(uint32_t size);
+  void updateBaudRate(uint32_t baud);
+  void plugin_rxRead(void);
+  void end();
+  using Print::write;
+private:
+  // Member variables
+  void setbaud(uint32_t speed);
+  uint32_t uart_index;
+  int8_t m_rx_pin;
+  int8_t m_tx_pin;
+  uint32_t cfgmode;
+  uint32_t ss_byte;
+  uint32_t ss_bstart;
+  uint32_t ss_index;
+  uint32_t m_bit_time;
+  uint32_t m_in_pos;
+  uint32_t m_out_pos;
+  uint16_t serial_buffer_size;
+  bool m_valid;
+  uint8_t *m_buffer;
+  HardwareSerial *hws;
+};
+
+void IRAM_ATTR plugin_callRxRead(void *self);
+
+void plugin_callRxRead(void *self) { 
+  ((PLUGIN_ESP32_SERIAL*)self)->plugin_rxRead(); 
+};
+
+PLUGIN_ESP32_SERIAL::PLUGIN_ESP32_SERIAL(uint32_t index) {
+  uart_index = index;
+  m_valid = true;
+}
+
+PLUGIN_ESP32_SERIAL::~PLUGIN_ESP32_SERIAL(void) {
+  if (hws) {
+    hws->end();
+		delete(hws);
+  } else {
+    detachInterrupt(m_rx_pin);
+    if (m_buffer) {
+      free(m_buffer);
+    }
+  }
+}
+
+void PLUGIN_ESP32_SERIAL::setbaud(uint32_t speed) {
+#ifdef __riscv
+  m_bit_time = 1000000 / speed;
+#else
+  m_bit_time = ESP.getCpuFreqMHz() * 1000000 / speed;
+#endif
+}
+
+void PLUGIN_ESP32_SERIAL::end(void) {
+  if (m_buffer) {
+    free(m_buffer);
+  }
+}
+
+bool PLUGIN_ESP32_SERIAL::begin(uint32_t speed, uint32_t smode, int32_t recpin, int32_t trxpin, int32_t invert) {
+  if (!m_valid) { return false; }
+
+  m_buffer = 0;
+  if (recpin < 0) {
+    setbaud(speed);
+    m_rx_pin = -recpin;
+    serial_buffer_size = ESP32_SWS_BUFFER_SIZE;
+    m_buffer = (uint8_t*)malloc(serial_buffer_size);
+    if (m_buffer == NULL) return false;
+    pinMode(m_rx_pin, INPUT_PULLUP);
+    attachInterruptArg(m_rx_pin, plugin_callRxRead, this, CHANGE);
+    m_in_pos = m_out_pos = 0;
+    hws = nullptr;
+  } else {
+    cfgmode = smode;
+    m_rx_pin = recpin;
+    m_tx_pin = trxpin;
+    hws = new HardwareSerial(uart_index);
+    if (hws) {
+      hws->begin(speed, cfgmode, m_rx_pin, m_tx_pin, invert);
+    }
+  }
+  return true;
+}
+
+void PLUGIN_ESP32_SERIAL::flush(void) {
+  if (hws) {
+    hws->flush();
+  } else {
+    m_in_pos = m_out_pos = 0;
+  }
+}
+
+int PLUGIN_ESP32_SERIAL::peek(void) {
+  if (hws) {
+    return  hws->peek();
+  } else {
+    if (m_in_pos == m_out_pos) return -1;
+    return m_buffer[m_out_pos];
+  }
+}
+
+int PLUGIN_ESP32_SERIAL::read(void) {
+  if (hws) {
+    return hws->read();
+  } else {
+    if (m_in_pos == m_out_pos) return -1;
+    uint32_t ch = m_buffer[m_out_pos];
+    m_out_pos = (m_out_pos + 1) % serial_buffer_size;
+    return ch;
+  }
+}
+
+int PLUGIN_ESP32_SERIAL::available(void) {
+  if (hws) {
+    return hws->available();
+  } else {
+    int avail = m_in_pos - m_out_pos;
+    if (avail < 0) avail += serial_buffer_size;
+    return avail;
+  }
+}
+
+size_t PLUGIN_ESP32_SERIAL::write(uint8_t v) {
+  if (hws) {
+    return hws->write(v);
+  }
+  return 0;
+}
+
+void PLUGIN_ESP32_SERIAL::setRxBufferSize(uint32_t size) {
+  if (hws) {
+    hws->setRxBufferSize(size);
+  } else {
+    if (m_buffer) {
+        free(m_buffer);
+    }
+    serial_buffer_size = size;
+    m_buffer = (uint8_t*)malloc(size);
+  }
+}
+void PLUGIN_ESP32_SERIAL::updateBaudRate(uint32_t baud) {
+  if (hws) {
+    hws->updateBaudRate(baud);
+  } else {
+    setbaud(baud);
+  }
+}
+
+// no wait mode only 8N1  (or 7X1, obis only, ignoring parity)
+
+void IRAM_ATTR PLUGIN_ESP32_SERIAL::plugin_rxRead(void) {
+  uint32_t diff;
+  uint32_t level;
+
+#define SML_LASTBIT 9
+
+  level = digitalRead(m_rx_pin);
+
+  if (!level && !ss_index) {
+    // start condition
+#ifdef __riscv
+    ss_bstart = micros() - (m_bit_time / 4);
+#else
+    ss_bstart = ESP.getCycleCount() - (m_bit_time / 4);
+#endif
+    ss_byte = 0;
+    ss_index++;
+  } else {
+    // now any bit changes go here
+    // calc bit number
+#ifdef __riscv
+    diff = (micros() - ss_bstart) / m_bit_time;
+#else
+    diff = (ESP.getCycleCount() - ss_bstart) / m_bit_time;
+#endif
+
+    if (!level && diff > SML_LASTBIT) {
+      // start bit of next byte, store  and restart
+      // leave irq at change
+      for (uint32_t i = ss_index; i <= SML_LASTBIT; i++) {
+        ss_byte |= (1 << i);
+      }
+      uint32_t next = (m_in_pos + 1) % serial_buffer_size;
+      if (next != (uint32_t)m_out_pos) {
+        m_buffer[m_in_pos] = ss_byte >> 1;
+        m_in_pos = next;
+      }
+#ifdef __riscv
+      ss_bstart = micros() - (m_bit_time / 4);
+#else
+      ss_bstart = ESP.getCycleCount() - (m_bit_time / 4);
+#endif
+      ss_byte = 0;
+      ss_index = 1;
+      return;
+    }
+    if (diff >= SML_LASTBIT) {
+      // bit zero was 0,
+      uint32_t next = (m_in_pos + 1) % serial_buffer_size;
+      if (next != (uint32_t)m_out_pos) {
+        m_buffer[m_in_pos] = ss_byte >> 1;
+        m_in_pos = next;
+      }
+      ss_byte = 0;
+      ss_index = 0;
+    } else {
+      // shift in
+      for (uint32_t i = ss_index; i < diff; i++) {
+        if (!level) ss_byte |= (1 << i);
+      }
+      ss_index = diff;
+    }
+  }
+}
+
+#endif // USE_ESP32_SW_SERIAL
+#endif // ESP32
+
+#define USE_PLUGIN_COUNTER
+
+#ifdef USE_PLUGIN_COUNTER
+
+PLUGIN_COUNTER *global_pcnt;
+uint8_t counter_pinstate;
+
+void IRAM_ATTR Plugin_CounterIsr(void *arg);
+void Plugin_CounterIsr(void *arg) {
+
+  uint32_t index = *static_cast<uint8_t*>(arg);
+
+  PLUGIN_COUNTER *pars = global_pcnt;
+  pars += index;
+
+  uint32_t time = millis();
+
+  if (digitalRead(pars->srcpin) == bitRead(counter_pinstate, index)) {
+    return;
+  }
+
+  uint32_t debounce_time = time - pars->counter_ltime;
+
+  if (debounce_time <= pars->debounce) return;
+
+  if bitRead(counter_pinstate, index) {
+    // falling edge
+    RtcSettings.pulse_counter[index]++;
+    pars->counter_pulsewidth = time - pars->counter_lfalltime;
+    pars->counter_lfalltime = time;
+    pars->cnt_updated = 1;
+  }
+  pars->counter_ltime = time;
+  counter_pinstate ^= (1 << index);
+}
+#endif
+
 TasmotaSerial *tmod_newTS(int32_t rpin, int32_t tpin);
 int tmod_beginTS(TasmotaSerial *ts, uint32_t baud);
 size_t tmod_writeTS(TasmotaSerial *ts, char *buf, uint32_t size);
@@ -198,6 +477,8 @@ void *tmod_strncat(char *dst, char *src, uint32_t size);
 const uint8_t tmod_pgm_read_byte(uint8_t *ptr);
 const uint16_t tmod_pgm_read_word(uint16_t *ptr);
 void *tmod_special_malloc(uint32_t size);
+uint32_t tmod_serialdispatch(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3);
+
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -430,7 +711,11 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_wifi,
   JMPTBL&tmod_strncat,
   JMPTBL&tmod_pgm_read_byte,
-  JMPTBL&tmod_pgm_read_word
+  JMPTBL&tmod_pgm_read_word,
+  JMPTBL&tmod_serialdispatch,
+  JMPTBL&dtostrfd,
+  JMPTBL&Replace_Cmd_Vars,
+  JMPTBL&PinUsed
 };
 
 
@@ -948,6 +1233,90 @@ uint32_t tmod_udp(WiFiUDP *udp, uint32_t sel, uint32_t p1, uint32_t p2) {
       udp->stop();
       delete udp;
       break;
+  }
+  return 0;
+}
+
+uint32_t tmod_serialdispatch(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3) {
+  TasmotaSerial *ts = (TasmotaSerial*)p1;
+ #ifdef ESP32
+  PLUGIN_ESP32_SERIAL *ps = (PLUGIN_ESP32_SERIAL*)p1;
+ #endif
+  switch (sel) {
+    case 0:
+      {
+      TSPARS *spars = (TSPARS*) p2; 
+      ts = new TasmotaSerial(spars->rxpin, spars->txpin, spars->hwfb, spars->nwmode, spars->bsize, spars->invert);
+      return (uint32_t)ts;
+      }
+      break;
+    case 1:
+      ts->end();
+    case 2:
+      delete ts;
+      break;
+    case 3:
+      return ts->begin(p2, p3);
+    case 4:
+      return ts->available();
+    case 5:
+      return ts->peek();
+    case 6:
+      return ts->read();
+    case 7:
+      {
+        uint8_t *p = (uint8_t*)p2;
+        for (uint32_t cnt = 0; cnt < p3; cnt++) {
+          ts->write(*p++);
+        }
+      }
+      break;
+    case 8:
+      ts->flush();
+      break;
+    case 9:
+      return ts->hardwareSerial();
+
+#ifdef ESP32
+    case 20:
+      ps = new PLUGIN_ESP32_SERIAL(p2);
+      return (uint32_t)ps;
+    case 21:
+      ps->end();
+      break;
+    case 22:
+      delete ps;
+      break;
+    case 23:
+      {
+      TSPARS *spars = (TSPARS*) p2; 
+      return ps->begin(spars->speed, spars->nwmode, spars->rxpin, spars->txpin, spars->invert);
+      }
+    case 24:
+      return ps->available();
+    case 25:
+      return ps->peek();
+    case 26:
+      return ps->read();
+    case 27:
+      {
+        uint8_t *p = (uint8_t*)p2;
+        for (uint32_t cnt = 0; cnt < p3; cnt++) {
+          ps->write(*p++);
+        }
+      }
+      break;
+    case 28:
+      ps->flush();
+      break;
+    case 29:
+      ps->updateBaudRate(p2);
+      break;   
+    case 30:
+      ps->setRxBufferSize(p2);
+      break;
+#endif
+
   }
   return 0;
 }
@@ -1775,7 +2144,9 @@ const void * TGTAB[] PROGMEM = {
   &TasmotaGlobal.spi_enabled,
   &TasmotaGlobal.soft_spi_enabled,
   &RtcTime,
-  &TasmotaGlobal.global_state
+  &TasmotaGlobal.global_state,
+  &TasmotaGlobal.gpio_pin,
+  &RtcSettings
 };
 
 void *tmod_gtbl(void) {

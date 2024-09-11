@@ -242,6 +242,10 @@ typedef struct {
 #define jstrncat_P(A,B,C)               (( void *(*)(char *,const char*,uint32_t))      jt[172])(A,B,C)
 #define jpgm_read_byte(A)               (( uint8_t(*)(const void *))                    jt[173])(A)
 #define jpgm_read_word(A)               (( uint16_t(*)(const void *))                   jt[174])(A)
+#define jspdispatch(A,B,C,D)            (( uint32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t) ) jt[175])(A,B,C,D)
+#define jdtostrfd(A,B,C)                (( char *(*)(double,unsigned char,char*))       jt[176])(A,B,C)
+#define jReplace_Cmd_Vars(A,B,C,D)      (( void (*)(uint32_t,uint32_t,uint32_t,uint32_t) ) jt[177])(A,B,C,D)
+#define PinUsed(A)                      (( bool(*)(uint32_t))                            jt[178])(A)
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -371,6 +375,29 @@ typedef struct {
   uint32_t      valid;
 }TIME_T;
 
+typedef struct {
+  uint16_t      valid;                     // 290  (RTC memory offset 100)
+  uint8_t       oswatch_blocked_loop;      // 292
+  uint8_t       ota_loader;                // 293
+  uint32_t      ex_energy_kWhtoday;        // 294
+  uint32_t      ex_energy_kWhtotal;        // 298
+  volatile uint32_t pulse_counter[MAX_COUNTERS];  // 29C - See #9521 why volatile
+  power_t       power;                     // 2AC
+  EnergyUsage   energy_usage;              // 2B0
+  uint32_t      nextwakeup;                // 2C8
+  uint32_t      baudrate;                  // 2CC
+  uint32_t      ultradeepsleep;            // 2D0
+  uint16_t      deepsleep_slip;            // 2D4
+  uint8_t       improv_state;              // 2D6
+
+  uint8_t       free_2d7[1];               // 2D7
+
+  int32_t       energy_kWhtoday_ph[3];     // 2D8
+  int32_t       energy_kWhtotal_ph[3];     // 2E4
+  int32_t       energy_kWhexport_ph[3];    // 2F0
+  uint32_t      utc_time;                  // 2FC
+} TRtcSettings;
+
 
 typedef struct { 
   uint16_t *tele_period;
@@ -384,9 +411,11 @@ typedef struct {
   uint8_t *soft_spi_enabled;
   TIME_T *RtcTime;
   StateBitfield *global_state;
+  uint16_t *gpio_pin[];
+  TRtcSettings *rtc;
 } GTBL;
 
-#define STGLOB  GTBL *tgbl = (GTBL*) gtgtbl();
+#define STGLOB  GTBL *tgbl = (GTBL*) gtgtbl(); TRtcSettings  *RtcSettings = tgbl->rtc;
 
 
 #define SCRIPT_EOL 10
@@ -808,6 +837,7 @@ typedef struct {
 #undef strcpy_P
 #define strcpy_P jstrcpy_P
 #define GETSPI(A) mem->spi = getspi(A);
+#define dtostrfd jdtostrfd
 
 #define spi_begin() jspi_begin(mem->spi,0,-1,-1,-1)
 #define spi_end() if (mem->spi) jspi_begin(mem->spi,1,-1,-1,-1)
@@ -870,6 +900,37 @@ typedef struct {
 #define http_hasHeader(A,B) jtmod_wifi(42,(uint32_t)A,(uint32_t)B,0,0)
 #define http_setFollowRedirects(A,B) jtmod_wifi(43,(uint32_t)A,(uint32_t)B,0,0)
 #define http_begin1(A,B,C) (bool)jtmod_wifi(44,(uint32_t)A,(uint32_t)B,(uint32_t)C,0)
+
+
+// tasmota serial
+#define New_TSerial(A) (void*)jspdispatch(0,(uint32_t)A,0,0)
+#define TSerial_End(A) jspdispatch(1,(uint32_t)A,0,0)
+#define Del_TSerial(A) jspdispatch(2,(uint32_t)A,0,0)
+#define TSerial_Begin(A,B) jspdispatch(3,(uint32_t)A,B,0)
+#define TSerial_Available(A) jspdispatch(4,(uint32_t)A,0,0)
+#define TSerial_Peek(A) jspdispatch(5,(uint32_t)A,0,0)
+#define TSerial_Read(A) jspdispatch(6,(uint32_t)A,0,0)
+#define TSerial_Write(A,B,C) jspdispatch(7,(uint32_t)A,(uint32_t)B,C)
+#define TSerial_Flush(A) jspdispatch(8,(uint32_t)A,0,0)
+#define TSerial_Hardwareserial(A) jspdispatch(9,(uint32_t)A,0,0)
+
+
+#define New_E32Serial (void*)jspdispatch(20,0,0,0)
+#define E32Serial_End(A) jspdispatch(21,(uint32_t)A,0,0)
+#define Del_E32Serial(A) jspdispatch(22,(uint32_t)A,0,0)
+#define E32Serial_Begin(A,B) jspdispatch(23,(uint32_t)A,B,0)
+#define E32Serial_Available(A) jspdispatch(24,(uint32_t)A,0,0)
+#define E32Serial_Peek(A) jspdispatch(25,(uint32_t)A,0,0)
+#define E32Serial_Read(A) jspdispatch(26,(uint32_t)A,0,0)
+#define E32Serial_Write(A,B,C) jspdispatch(27,(uint32_t)A,(uint32_t)B,C)
+#define E32Serial_Flush(A) jspdispatch(28,(uint32_t)A,0,0)
+
+#define E32Serial_SetBaudrate(A,B) jspdispatch(29,(uint32_t)A,B,0)
+#define E32Serial_RxBufferSize(A,B) jspdispatch(30,(uint32_t)A,B,0)
+
+#define Replace_Cmd_Vars(A,B,C,D) jReplace_Cmd_Vars((uint32_t)A,B,(uint32_t)C,D)
+
+
 
 #define icecast_open(A) jtmod_wifi(50,0,(uint32_t)A,0,0)
 #define icecast_http() (void*)jtmod_wifi(51,0,0,0,0)
