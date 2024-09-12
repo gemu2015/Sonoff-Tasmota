@@ -46,6 +46,7 @@ typedef struct {
 #endif
 } FLASH_MODULE;
 
+
 #define EXEC_OFFSET ((FLASH_MODULE*)mt->mod_addr)->execution_offset
 
 #ifdef ESP8266

@@ -293,9 +293,9 @@ void Script_ticker4_end(void) {
 #endif
 #endif
 
-#if defined(USE_SML_M) && defined (USE_SML_SCRIPT_CMD)
-extern uint8_t sml_options;
-#endif
+//#if defined(USE_SML_M) && defined (USE_SML_SCRIPT_CMD)
+//extern uint8_t sml_options;
+//#endif
 
 #if defined(EEP_SCRIPT_SIZE) && !defined(ESP32)
 
@@ -541,6 +541,7 @@ double SML_GetVal(uint32_t index);
 char *SML_GetSVal(uint32_t index);
 int32_t SML_Set_WStr(uint32_t meter, char *hstr);
 void SML_Decode(uint8_t index);
+uint32_t SML_SetOptions(uint32_t in);
 
 typedef struct {
   uint32_t (*SML_SetBaud)(uint32_t,uint32_t);
@@ -553,10 +554,11 @@ typedef struct {
   char * (*SML_GetSVal)(uint32_t);
   int32_t (*SML_Set_WStr)(uint32_t,char*);
   void (*SML_Decode)(uint8_t);
+  uint32_t (*SML_SetOptions)(uint32_t);
 } SML_TABLE;
 
 #ifdef USE_SML_M
-SML_TABLE smltab PROGMEM = {&SML_SetBaud,&sml_status,&SML_Write,&SML_Read,&sml_getv,&SML_Shift_Num,&SML_GetVal,&SML_GetSVal,&SML_Set_WStr};
+SML_TABLE smltab PROGMEM = {&SML_SetBaud,&sml_status,&SML_Write,&SML_Read,&sml_getv,&SML_Shift_Num,&SML_GetVal,&SML_GetSVal,&SML_Set_WStr,&SML_Decode,&SML_SetOptions};
 #endif
 
 #ifdef USE_SCRIPT_ONEWIRE
@@ -656,7 +658,7 @@ typedef struct {
     uint32_t from_time;
     uint32_t to_time;
 #endif
-#if defined(USE_SML_M) && defined(USE_SML_SCRIPT_CMD) && defined(USE_SCRIPT_SERIAL)
+#if (defined(USE_SML_M) || defined(USE_BINPLUGINS)) && defined(USE_SML_SCRIPT_CMD) && defined(USE_SCRIPT_SERIAL)
     char *hstr;
 #endif
 
@@ -5360,7 +5362,7 @@ char *Plugin_Query(uint16_t, uint8_t);
 #endif //USE_ANGLE_FUNC
 
 
-#if (defined(USE_SML_M) || defined(USE_BINPLUGINS))) && defined (USE_SML_SCRIPT_CMD)
+#if (defined(USE_SML_M) || defined(USE_BINPLUGINS)) && defined(USE_SML_SCRIPT_CMD)
         if (!strncmp_XP(lp, XPSTR("sml["), 4)) {
           lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           SCRIPT_SKIP_SPACES
@@ -5433,10 +5435,9 @@ char *Plugin_Query(uint16_t, uint8_t);
                   char *cp = glob_script_mem.glob_snp + (sindex * glob_script_mem.max_ssize);
                   fvar = smlp->SML_Set_WStr(fvar1, cp);
                 }
+              } else {
+                fvar = -99;
               }
-            } else {
-              fvar = -99;
-            }
             } else {
               fvar = smlp->sml_status(fvar1);
             }
@@ -5444,7 +5445,10 @@ char *Plugin_Query(uint16_t, uint8_t);
           goto nfuncexit;
         }
         if (!strncmp_XP(vname, XPSTR("smlj"), 4)) {
-          fvar = sml_options;
+          SML_TABLE *smlp = get_sml_table();
+          if (smlp) {
+            fvar = smlp->SML_SetOptions(0); // sml_options;
+          }
           tind->index = SML_JSON_ENABLE;
           goto exit_settable;
         }
@@ -5452,7 +5456,9 @@ char *Plugin_Query(uint16_t, uint8_t);
           lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           if (fvar < 1) fvar = 1;
           SML_TABLE *smlp = get_sml_table();
-          smlp->SML_Decode(fvar - 1);
+          if (smlp) {
+            smlp->SML_Decode(fvar - 1);
+          }
           goto nfuncexit;
         }
         if (!strncmp_XP(lp, XPSTR("smls("), 5)) {
@@ -5461,13 +5467,17 @@ char *Plugin_Query(uint16_t, uint8_t);
           if (meter < 1) meter = 1;
           lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
           SML_TABLE *smlp = get_sml_table();
-          smlp->SML_Shift_Num(meter - 1, fvar);
+          if (smlp) {
+            smlp->SML_Shift_Num(meter - 1, fvar);
+          }
           goto nfuncexit;
         }
         if (!strncmp_XP(lp, XPSTR("smlv["), 5)) {
           lp = GetNumericArgument(lp + 5, OPER_EQU, &fvar, gv);
           SML_TABLE *smlp = get_sml_table();
-          fvar = smlp->sml_getv(fvar);
+          if (smlp) {
+            fvar = smlp->sml_getv(fvar);
+          }
           goto nfuncexit;
         }
 #endif //USE_SML_M
@@ -8552,9 +8562,13 @@ getnext:
                             }
                             glob_script_mem.cmdbuffer_size = *dfvar;
                             break;
-#if defined(USE_SML_M) && defined (USE_SML_SCRIPT_CMD)
+#if (defined(USE_SML_M) || defined(USE_BINPLUGINS)) && defined(USE_SML_SCRIPT_CMD)
                           case SML_JSON_ENABLE:
-                            sml_options = *dfvar;
+                            //sml_options = *dfvar;
+                            SML_TABLE *smlp = get_sml_table();
+                            if (smlp) {
+                              fvar = smlp->SML_SetOptions(0x100 | (uint8_t) *dfvar); // sml_options;
+                            }
                             break;
 #endif
                         }
@@ -13836,7 +13850,7 @@ bool Xdrv10(uint32_t function) {
         Script_Check_Hue(0);
 #endif //USE_SCRIPT_HUE
 
-#if defined(USE_SML_M) && defined(USE_SML_SCRIPT_CMD) && defined(USE_SCRIPT_SERIAL)
+#if (defined(USE_SML_M) || defined(USE_BINPLUGINS)) && defined(USE_SML_SCRIPT_CMD) && defined(USE_SCRIPT_SERIAL)
       glob_script_mem.hstr = 0;
 #endif
       }

@@ -4776,10 +4776,38 @@ SETREGS
 }
 
 
+uint32_t SML_SetOptions(uint32_t in) {
+  if (in &0x100) {
+    sml_options = in;
+  }
+  return sml_options;
+}
+
+typedef struct {
+  uint32_t (*SML_SetBaud)(uint32_t,uint32_t);
+  uint32_t (*sml_status)(uint32_t);
+  uint32_t (*SML_Write)(int32_t,char*);
+  uint32_t (*SML_Read)(int32_t,char*,uint32_t);
+  uint32_t (*sml_getv)(uint32_t);
+  uint32_t (*SML_Shift_Num)(uint32_t,uint32_t);
+  double (*SML_GetVal)(uint32_t);
+  char * (*SML_GetSVal)(uint32_t);
+  int32_t (*SML_Set_WStr)(uint32_t,char*);
+  void (*SML_Decode)(uint8_t);
+  uint32_t (*SML_SetOptions)(uint32_t);
+} SML_TABLE;
+
 uint32_t SML_Getvars(uint16_t function) {
-  switch (function) {
+  switch (function & 15) {
     case 0:
       return 1;
+    case 1:
+      // must return adjusted jumptable here
+      return 0:
+    case 2:
+      return sml_options;
+    case 3:
+      sml_options = function >> 8;
       break;
   }
   return 0;

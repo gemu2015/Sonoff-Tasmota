@@ -3707,6 +3707,13 @@ next_line:
 
 #ifdef USE_SML_SCRIPT_CMD
 
+uint32_t SML_SetOptions(uint32_t in) {
+  if (in & 0x100) {
+    sml_options = in;
+  }
+  return sml_options;
+}
+
 uint32_t SML_SetBaud(uint32_t meter, uint32_t br) {
   if (sml_globs.ready == false) return 0;
   if (meter < 1 || meter > sml_globs.meters_used) return 0;
