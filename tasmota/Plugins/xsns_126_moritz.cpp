@@ -1929,7 +1929,11 @@ int32_t mod_func_execute(uint32_t function) {
 
 #ifdef USE_SCRIPT
   if ((function & 0x80000000) != 0) {
-    return (int32_t)mo_getvars(function);
+    if ((function >> 16)&0x7ff == 126) {
+      return (int32_t)mo_getvars(function);
+    } else {
+      return 0;
+    }
   }
 #endif
 

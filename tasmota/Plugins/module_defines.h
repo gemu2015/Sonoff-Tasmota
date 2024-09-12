@@ -225,7 +225,7 @@ typedef struct {
 #define jtaskc(A)                       (( uint32_t (*)(TASKPARS* ))                    jt[156])(A)
 #define jtaskd(A)                       (( uint32_t (*)(uint32_t))                       jt[157])(A)
 #define jPlugin_Get_SensorNames(A,B)    (( char *(*)(char *,uint32_t))                  jt[158])(A,B)
-#define GetScriptSection(A)             (( char *(*)(char *))                           jt[159])(A)
+#define GetScriptSection_P(A)           (( char *(*)(const char *))                     jt[159])(A)
 #define jfile_size(A)                   (( uint32_t (*)(void*))                         jt[160])(A)
 #define jfile_getpos(A)                 (( uint32_t (*)(void*))                         jt[161])(A)
 #define jOsWatchLoop()                  (( void (*)(void))                              jt[162])
@@ -411,7 +411,7 @@ typedef struct {
   uint8_t *soft_spi_enabled;
   TIME_T *RtcTime;
   StateBitfield *global_state;
-  uint16_t *gpio_pin[];
+  uint16_t *gpio_pin;
   TRtcSettings *rtc;
 } GTBL;
 
@@ -903,7 +903,7 @@ typedef struct {
 
 
 // tasmota serial
-#define New_TSerial(A) (void*)jspdispatch(0,(uint32_t)A,0,0)
+#define New_TSerial(A) (void*)jspdispatch(0,0,(uint32_t)A,0)
 #define TSerial_End(A) jspdispatch(1,(uint32_t)A,0,0)
 #define Del_TSerial(A) jspdispatch(2,(uint32_t)A,0,0)
 #define TSerial_Begin(A,B) jspdispatch(3,(uint32_t)A,B,0)

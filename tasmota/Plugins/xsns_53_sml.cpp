@@ -286,7 +286,9 @@ MODULE_PART uint16_t serial_dispatch(uint8_t meter, uint8_t sel);
 //MODULE_PART return mptr->meter_ss->available();
 MODULE_PART int SML_print(const char *format, ...);
 MODULE_PART void reset_sml_vars(uint16_t maxmeters);
-MODULE_PART void SML_Init(void);
+MODULE_PART void sml_free_vars(void);
+MODULE_PART int32_t SML_Init_0(void);
+MODULE_PART int32_t SML_Init(void);
 MODULE_PART uint32_t SML_SetBaud(uint32_t meter, uint32_t br);
 MODULE_PART uint32_t sml_status(uint32_t meter);
 MODULE_PART uint32_t SML_Write(int32_t meter, char *hstr);
@@ -318,6 +320,9 @@ MODULE_PART uint8_t CalcEvenParity(uint8_t data);
 MODULE_PART bool XSNS_53_cmd(void);
 MODULE_PART void InjektCounterValue(uint8_t meter, uint32_t counter, float rate);
 MODULE_PART void SML_CounterSaveState(void);
+MODULE_PART void SML_Restart(void);
+MODULE_PART void SML_dump(void);
+MODULE_PART uint32_t SML_Getvars(uint16_t function);
 MODULE_PART void SML_Deinit(void);
 MODULE_PART int32_t mod_func_execute(uint32_t function);
 MODULE_END
@@ -2813,12 +2818,9 @@ uint32_t SML_getscriptsize(char *lp) {
 
 bool Gpio_used(uint8_t gpiopin) {
 SETREGS
-
 STGLOB
-
   //if ((gpiopin < nitems(TasmotaGlobal->gpio_pin)) && (TasmotaGlobal->gpio_pin[gpiopin] > 0)) {
-  if (TasmotaGlobal->gpio_pin[gpiopin] > 0) {
-
+  if (tgbl->gpio_pin[gpiopin] > 0) {
     return true;
   }
   return false;
@@ -2990,7 +2992,6 @@ SETREGS
 void reset_sml_vars(uint16_t maxmeters) {
 SETREGS
 
-
   for (uint32_t meters = 0; meters < maxmeters; meters++) {
 
 		struct METER_DESC *mptr = &meter_desc[meters];
@@ -3057,38 +3058,8 @@ SETREGS
   }
 }
 
-
-void SML_Init(void) {
+void sml_free_vars(void) {
 SETREGS
-
-  STGLOB
-
-
-  sml_globs.ready = false;
-
-  if (!bitRead(Settings->rule_enabled, 0)) {
-    return;
-  }
-
-	sml_globs.mptr = meter_desc;
-
-  //uint8_t meter_script = Run_Scripter(">M", -2, 0);
-  //if (meter_script != 99) {
-  //  AddLog(LOG_LEVEL_INFO, PSTR("no meter section found!"));
-  //  return;
- // }
-//char *lp = glob_script_mem.section_ptr;
-
-  char *lp = GetScriptSection((const char*)">M");
-  if (!lp) {
-    AddLog(LOG_LEVEL_INFO, PSTR("no meter section found!"));
-    return;
-  }
-
-  char *savelp = lp;
-  uint8_t new_meters_used;
-
-  // use script definition
   if (sml_globs.script_meter) {
     // restart condition
     free(sml_globs.script_meter);
@@ -3116,15 +3087,56 @@ SETREGS
     }
 #endif
 #endif // USE_SML_CANBUS
-
     reset_sml_vars(sml_globs.meters_used);
   }
+ }
+
+int32_t SML_Init_0(void) {
+ALLOCMEM
+  int32_t result = SML_Init();
+  if (result) {
+    SML_Deinit();
+  }
+  return result;
+}
+
+int32_t SML_Init(void) {
+SETREGS
+
+  STGLOB
+
+  sml_globs.ready = false;
+
+  if (!bitRead(Settings->rule_enabled, 0)) {
+    return 1;
+  }
+
+	sml_globs.mptr = meter_desc;
+
+  //uint8_t meter_script = Run_Scripter(">M", -2, 0);
+  //if (meter_script != 99) {
+  //  AddLog(LOG_LEVEL_INFO, PSTR("no meter section found!"));
+  //  return;
+ // }
+//char *lp = glob_script_mem.section_ptr;
+
+  char *lp = GetScriptSection_P(PSTR(">M"));
+  if (!lp) {
+    AddLog(LOG_LEVEL_INFO, PSTR("no meter section found!"));
+    return 1;
+  }
+
+  char *savelp = lp;
+  uint8_t new_meters_used;
+
+  // use script definition
+  sml_free_vars();
 
   if (*lp == '>' && *(lp + 1) == 'M') {
     lp += 2;
     sml_globs.meters_used = strtol(lp, &lp, 10);
   } else {
-    return;
+    return 1;
   }
 
   sml_globs.maxvars = 0;
@@ -3154,7 +3166,7 @@ SETREGS
           lp += 2;
           section = 1;
           mlen = SML_getscriptsize(lp);
-          if (mlen == 0) return; // missing end #
+          if (mlen == 0) return 1; // missing end #
           sml_globs.script_meter = (uint8_t*)calloc(mlen, 1);
 					memory += mlen;
           if (!sml_globs.script_meter) {
@@ -3220,7 +3232,7 @@ SETREGS
 dddef_exit:
               if (sml_globs.script_meter) free(sml_globs.script_meter);
               sml_globs.script_meter = 0;
-              return;
+              return 1;
             }
           }
           mmp->srcpin = srcpin;
@@ -3406,6 +3418,7 @@ next_line:
         lp++;
       }
     }
+
     *tp = 0;
     sml_globs.meter_p = sml_globs.script_meter;
 
@@ -3465,12 +3478,12 @@ next_line:
         mptr->mcp2515 = new MCP2515(mptr->srcpin);
         if (MCP2515::ERROR_OK != mptr->mcp2515->reset()) {
           AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Failed to reset module"));
-          return;
+          return 1;
         }
 
         if (MCP2515::ERROR_OK != mptr->mcp2515->setBitrate((CAN_SPEED)(mptr->params%100), (CAN_CLOCK)(mptr->params/100))) {
           AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Failed to set module bitrate"));
-          return;
+          return 1;
         }
 
         //attachInterrupt(mptr->trxpin, sml_canbus_irq, FALLING);
@@ -3492,7 +3505,7 @@ next_line:
 
         if (MCP2515::ERROR_OK != mptr->mcp2515->setNormalMode()) {
           AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Failed to set normal mode"));
-          return;
+          return 1;
         }
 
         AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Initialized"));
@@ -3704,13 +3717,14 @@ next_line:
 #endif
   ) {
     AddLog(LOG_LEVEL_INFO, PSTR("sml memory error!"));
-    return;
+    return 1;
   }
 
   memory += sizeof(sml_globs) + sizeof(meter_desc) + sml_globs.maxvars * (sizeof(double) +  sizeof(uint8_t) + sizeof(struct SML_MEDIAN_FILTER));
 
-  AddLog(LOG_LEVEL_INFO, PSTR("meters: %d , decode lines: %d, memory used: %d bytes"), sml_globs.meters_used, sml_globs.maxvars, memory);
+  mt->mem_size = memory;
 
+  AddLog(LOG_LEVEL_INFO, PSTR("meters: %d , decode lines: %d, memory used: %d bytes"), sml_globs.meters_used, sml_globs.maxvars, memory);
 
 // speed optimize shift flag
   for (uint32_t meters = 0; meters < sml_globs.meters_used; meters++ ) {
@@ -3735,7 +3749,10 @@ next_line:
 #endif
   }
 
+  initialized = 1;
   sml_globs.ready = true;
+
+  return 0;
 }
 
 
@@ -4605,6 +4622,40 @@ uint8_t parity=0;
   return parity;
 }
 
+void SML_Restart(void) {
+SETREGS
+  ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"restart\"}}"));
+  SML_CounterSaveState();
+  SML_Init();
+  ResponseCmndDone();
+}
+
+void SML_dump(void) {
+SETREGS
+  uint8_t index = XdrvMailbox->payload;
+  if (sml_globs.ready) {
+    if ((index & 7) > sml_globs.meters_used) index = 1;
+    if (index > 0 && sml_globs.mptr[(index & 7) - 1].type == 'c') {
+      index = 0;
+    }
+		if (sml_globs.log_data) {
+			free(sml_globs.log_data);
+			sml_globs.log_data = 0;
+		}
+		if (index > 0) {
+			sml_globs.log_data = (char*)calloc(sml_globs.logsize, sizeof(char));
+		}
+    sml_globs.dump2log = index;
+    ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"dump: %d\"}}"), sml_globs.dump2log);
+	}
+  ResponseCmndNumber(index);
+}
+
+const char SML_Commands[] PROGMEM = "SML|"  // Prefix
+  "restart|dump";
+
+void (* const SML_Command[])(void) PROGMEM = {
+  &SML_Restart, &SML_dump};
 
 
 // dump to log shows serial data on console
@@ -4725,10 +4776,19 @@ SETREGS
 }
 
 
+uint32_t SML_Getvars(uint16_t function) {
+  switch (function) {
+    case 0:
+      return 1;
+      break;
+  }
+  return 0;
+}
+
 void SML_Deinit(void) {
 SETREGS
-
-RETMEM
+  sml_free_vars();
+  RETMEM
 }
 
 /*********************************************************************************************\
@@ -4738,9 +4798,16 @@ RETMEM
 int32_t mod_func_execute(uint32_t function) {
   SETREGS
   bool result = false;
+    if ((function & 0x80000000) != 0) {
+      if ((function >> 16)&0x7ff == XSNS_53) {
+        return SML_Getvars(function);
+      } else {
+        return 0;
+      }
+    }
     switch (function) {
       case FUNC_INIT:
-        SML_Init();
+        result = SML_Init_0();
         break;
       case FUNC_LOOP:
         if (bitRead(Settings->rule_enabled, 0)) {
@@ -4788,11 +4855,17 @@ int32_t mod_func_execute(uint32_t function) {
         }
         break;
 #endif  // USE_WEBSERVER
+
+      case FUNC_COMMAND:
+        result = DecodeCommand(SML_Commands, SML_Command);
+        break;
+#if 0        
       case FUNC_COMMAND_SENSOR:
         if (XSNS_53 == XdrvMailbox->index) {
           result = XSNS_53_cmd();
         }
         break;
+#endif
       case FUNC_SAVE_BEFORE_RESTART:
       case FUNC_SAVE_AT_MIDNIGHT:
         if (sml_globs.ready) {

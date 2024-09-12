@@ -809,7 +809,9 @@ double tmod_long2double(int64_t in) {
 
 
 char *tmod_Run_Scripter(char *sect) {
-  uint8_t meter_script = Run_Scripter(sect, -2, 0);
+  char *cp = copyStr(sect);
+  uint8_t meter_script = Run_Scripter(cp, -2, 0);
+  free(cp);
   if (meter_script != 99) {
     return nullptr;
   }
@@ -2415,13 +2417,13 @@ void Module_Execute(uint32_t sel) {
 
 
 #ifdef USE_SCRIPT
-char *Plugin_Query(uint8_t index, uint8_t sel) {
-char *result = 0;
+uint32_t Plugin_Query(uint16_t index, uint8_t sel) {
+char result = 0;
   for (uint8_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
     if (modules[cnt].mod_addr) {
       if (modules[cnt].flags.initialized) {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-        result = (char*)MOD_EXEC(FUNC_QUERY_LOW | (sel << 8) | index );
+        result = MOD_EXEC(FUNC_QUERY_LOW | (index << 16) | sel );
         if (result) {
           return result;
         }
@@ -3837,6 +3839,8 @@ bool Xdrv123(uint32_t function) {
     case FUNC_LOOP:
     case FUNC_COMMAND_SENSOR:
     case FUNC_WEB_ADD_MAIN_BUTTON:
+    case FUNC_SAVE_BEFORE_RESTART:
+    case FUNC_SAVE_AT_MIDNIGHT:
       if (plugins.ready) {
         Module_Execute(function);
       }
