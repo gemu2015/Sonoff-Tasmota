@@ -2282,7 +2282,7 @@ void uDisplay::pushColors(uint16_t *data, uint16_t len, boolean not_swapped) {
           }
         }
         uint16_t * flush_ptr = rgb_fb + (int32_t)seta_yp1 * _width + seta_xp1;
-        esp_cache_msync(flush_ptr, (seta_xp2 - seta_xp1) * 2, 0);
+        esp_cache_msync(flush_ptr, (seta_xp2 - seta_xp1) * 2, ESP_CACHE_MSYNC_FLAG_UNALIGNED | ESP_CACHE_MSYNC_FLAG_INVALIDATE);
         fb_y += _width;
         seta_yp1++;
         if (!lenc) break; 

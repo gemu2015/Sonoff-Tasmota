@@ -596,6 +596,7 @@ double buffer[MEDIAN_SIZE];
 int8_t index;
 };
 
+#define SML_OPTIONS_JSON_ENABLE 1
 
 struct SML_GLOBS {
   uint8_t sml_send_blocks;
@@ -629,12 +630,10 @@ struct SML_GLOBS {
 #ifdef USE_SML_CANBUS
   uint8_t twai_installed;
 #endif // USE_SML_CANBUS
+  uint8_t sml_options = SML_OPTIONS_JSON_ENABLE;
 } sml_globs;
 
 
-
-#define SML_OPTIONS_JSON_ENABLE 1
-uint8_t sml_options = SML_OPTIONS_JSON_ENABLE;
 
 #ifdef USE_SML_MEDIAN_FILTER
 
@@ -3713,9 +3712,9 @@ next_line:
 
 uint32_t SML_SetOptions(uint32_t in) {
   if (in & 0x100) {
-    sml_options = in;
+    sml_globs.sml_options = in;
   }
-  return sml_options;
+  return sml_globs.sml_options;
 }
 
 uint32_t SML_SetBaud(uint32_t meter, uint32_t br) {
@@ -4668,7 +4667,7 @@ bool Xsns53(uint32_t function) {
 					break;
       case FUNC_JSON_APPEND:
         if (sml_globs.ready) {
-          if (sml_options & SML_OPTIONS_JSON_ENABLE) {
+          if (sml_globs.sml_options & SML_OPTIONS_JSON_ENABLE) {
             SML_Show(1);
           }
         }

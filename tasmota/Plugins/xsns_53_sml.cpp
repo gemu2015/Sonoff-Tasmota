@@ -99,8 +99,8 @@
 #define SML_OBIS_LINE
 #endif
 
-#define NO_USE_SML_CANBUS
 
+#define NO_USE_SML_CANBUS
 
 #ifdef ESP32
 #ifndef NO_USE_SML_CANBUS
@@ -108,6 +108,8 @@
 #undef USE_SML_CANBUS
 #define USE_SML_CANBUS
 #endif
+#else
+#undef USE_SML_CANBUS
 #endif
 
 #ifdef USE_SML_TCP_SECURE
@@ -527,6 +529,7 @@ struct SML_GLOBS {
 #ifdef USE_SML_CANBUS
   uint8_t twai_installed;
 #endif // USE_SML_CANBUS
+  uint8_t sml_options;
 };
 
 typedef struct {
@@ -538,7 +541,6 @@ typedef struct {
 #define sml_globs mem->sml_globs
 
 #define SML_OPTIONS_JSON_ENABLE 1
-uint8_t sml_options = SML_OPTIONS_JSON_ENABLE;
 
 
 #ifdef USE_SML_MEDIAN_FILTER
@@ -3105,6 +3107,7 @@ ALLOCMEM
 
   sml_globs.logsize = SML_DUMP_SIZE;
   sml_globs.ser_act_LED_pin = 255;
+  sml_globs.sml_options = SML_OPTIONS_JSON_ENABLE;
 
   return result;
 }
@@ -4123,7 +4126,7 @@ SETREGS
     if (mptr->type != 'C') continue;
 
     if (mptr->mcp2515 == nullptr) continue;
-
+sf
     while (mptr->mcp2515->checkReceive() && nCounter <= SML_CAN_MAX_FRAMES) {
       if (mptr->mcp2515->readMessage(&canFrame) == MCP2515::ERROR_OK) {
           mptr->sbuff[0] = canFrame.can_id >> 24;
@@ -4785,12 +4788,12 @@ SETREGS
   }
 }
 
-
 uint32_t SML_SetOptions(uint32_t in) {
+  SETREGS
   if (in &0x100) {
-    sml_options = in;
+    sml_globs.sml_options = in;
   }
-  return sml_options;
+  return sml_globs.sml_options;
 }
 
 typedef struct {
@@ -4877,7 +4880,7 @@ int32_t mod_func_execute(uint32_t function) {
         break;
       case FUNC_JSON_APPEND:
         if (sml_globs.ready) {
-          if (sml_options & SML_OPTIONS_JSON_ENABLE) {
+          if (sml_globs.sml_options & SML_OPTIONS_JSON_ENABLE) {
             SML_Show(1);
           }
         }

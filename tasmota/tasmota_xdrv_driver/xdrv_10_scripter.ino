@@ -773,6 +773,7 @@ typedef struct {
 
 SCRIPT_MEM glob_script_mem;
 
+uint32_t Plugin_Query(uint16_t, uint8_t);
 
 void script_setaflg(uint8_t flg) {
   glob_script_mem.tasm_cmd_activ = flg;
@@ -4846,13 +4847,12 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto exit;
         }
 #ifdef USE_BINPLUGINS
-char *Plugin_Query(uint16_t, uint8_t);
         if (!strncmp_XP(lp, XPSTR("mo("), 3)) {
           TS_FLOAT fvar1;
           lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar1, gv);
           SCRIPT_SKIP_SPACES
 
-          char *rbuff = Plugin_Query(126, fvar1);
+          char *rbuff = (char*)Plugin_Query(126, fvar1);
           if (rbuff) {
             if (sp) strlcpy(sp, rbuff, glob_script_mem.max_ssize);
             free (rbuff);
