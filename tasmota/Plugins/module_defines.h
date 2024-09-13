@@ -907,7 +907,7 @@ typedef struct {
 #define New_TSerial(A) (void*)jspdispatch(0,0,(uint32_t)A,0)
 #define TSerial_End(A) jspdispatch(1,(uint32_t)A,0,0)
 #define Del_TSerial(A) jspdispatch(2,(uint32_t)A,0,0)
-#define TSerial_Begin(A,B) jspdispatch(3,(uint32_t)A,B,0)
+#define TSerial_Begin(A,B,C) jspdispatch(3,(uint32_t)A,B,C)
 #define TSerial_Available(A) jspdispatch(4,(uint32_t)A,0,0)
 #define TSerial_Peek(A) jspdispatch(5,(uint32_t)A,0,0)
 #define TSerial_Read(A) jspdispatch(6,(uint32_t)A,0,0)

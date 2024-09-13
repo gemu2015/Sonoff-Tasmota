@@ -61,7 +61,7 @@ const uint8_t SCRIPT_VERS[2] = {5, 3};
 #endif
 #define MAXNVARS MAXVARS-MAXSVARS
 
-#ifdef USE_SML_M
+#if (defined(USE_SML_M) || defined(USE_BINPLUGINS))
 #ifndef NO_USE_SML_SCRIPT_CMD
 // allows several sml cmds from scripts, as well as access to sml registers
 #undef USE_SML_SCRIPT_CMD
@@ -5363,6 +5363,7 @@ char *Plugin_Query(uint16_t, uint8_t);
 
 
 #if (defined(USE_SML_M) || defined(USE_BINPLUGINS)) && defined(USE_SML_SCRIPT_CMD)
+
         if (!strncmp_XP(lp, XPSTR("sml["), 4)) {
           lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           SCRIPT_SKIP_SPACES
