@@ -3127,22 +3127,22 @@ ALLOCMEM
   sml_globs.ser_act_LED_pin = 255;
   sml_globs.sml_options = SML_OPTIONS_JSON_ENABLE;
 
-  sml_globs.smltab.SML_SetBaud = SML_SetBaud;
-  sml_globs.smltab.sml_status = sml_status;
-  sml_globs.smltab.SML_Write = SML_Write;
-  sml_globs.smltab.SML_Read = SML_Read;
-  sml_globs.smltab.sml_getv = sml_getv;
-  sml_globs.smltab.SML_Shift_Num = SML_Shift_Num;
-  sml_globs.smltab.SML_GetVal = SML_GetVal;
-  sml_globs.smltab.SML_GetSVal = SML_GetSVal;
-  sml_globs.smltab.SML_Set_WStr = SML_Set_WStr;
-  sml_globs.smltab.SML_Decode = SML_Decode;
-  sml_globs.smltab.SML_SetOptions = SML_SetOptions;
+  sml_globs.smltab.SML_SetBaud = &SML_SetBaud;
+  sml_globs.smltab.sml_status = &sml_status;
+  sml_globs.smltab.SML_Write = &SML_Write;
+  sml_globs.smltab.SML_Read = &SML_Read;
+  sml_globs.smltab.sml_getv = &sml_getv;
+  sml_globs.smltab.SML_Shift_Num = &SML_Shift_Num;
+  sml_globs.smltab.SML_GetVal = &SML_GetVal;
+  sml_globs.smltab.SML_GetSVal = &SML_GetSVal;
+  sml_globs.smltab.SML_Set_WStr = &SML_Set_WStr;
+  sml_globs.smltab.SML_Decode = &SML_Decode;
+  sml_globs.smltab.SML_SetOptions = &SML_SetOptions;
 
   uint8_t **bpt = (uint8_t**)&sml_globs.smltab;
   for (uint32_t cnt = 0; cnt < 11; cnt++) {
-    *bpt += EXEC_OFFSET;
-    bpt++;
+   // *bpt += EXEC_OFFSET;
+   // bpt++;
   }
   return result;
 }
@@ -4860,7 +4860,7 @@ int32_t mod_func_execute(uint32_t function) {
   SETREGS
   bool result = false;
     if ((function & 0x80000000) != 0) {
-      if ((function >> 16)&0x7ff == XSNS_53) {
+      if (((function >> 16) & 0x7ff) == XSNS_53) {
         return SML_Getvars(function);
       } else {
         return 0;
