@@ -2702,7 +2702,11 @@ void SML_Show(boolean json) {
               // web ui export
               //snprintf_P(b_mqtt_data, sizeof(b_mqtt_data), "%s{s}%s %s: {m}%s %s{e}", b_mqtt_data,meter_desc[mindex].prefix,name,tpowstr,unit);
               if (strcmp(name, "*")) {
-                WSContentSend_P(PSTR("{s}%s %s{m}"), sml_globs.mp[mindex].prefix, name);  // Do not replace decimal separator in label
+                if (sml_globs.mp[mindex].prefix[0] == '*') {
+                  WSContentSend_P(PSTR("{s}%s{m}"), name);
+                } else {
+                  WSContentSend_P(PSTR("{s}%s %s{m}"), sml_globs.mp[mindex].prefix, name);  // Do not replace decimal separator in label
+                }
                 WSContentSend_PD(PSTR("%s %s{e}"), tpowstr, unit); // Replace decimal separator in value
               }
             }

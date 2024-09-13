@@ -714,7 +714,11 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_pgm_read_word,
   JMPTBL&tmod_serialdispatch,
   JMPTBL&dtostrfd,
+#ifdef USE_SCRIPT
   JMPTBL&Replace_Cmd_Vars,
+#else
+  JMPTBL&tmod_dummy,
+#endif
   JMPTBL&PinUsed
 };
 
@@ -809,6 +813,8 @@ double tmod_long2double(int64_t in) {
 
 
 char *tmod_Run_Scripter(char *sect) {
+
+#ifdef USE_SCRIPT  
   char *cp = copyStr(sect);
   uint8_t meter_script = Run_Scripter(cp, -2, 0);
   free(cp);
@@ -816,6 +822,9 @@ char *tmod_Run_Scripter(char *sect) {
     return nullptr;
   }
   return glob_script_mem.section_ptr;
+#else
+  return nullptr;
+#endif
 }
 
 #ifdef ESP32
@@ -1337,6 +1346,7 @@ int tmod_strncmp_P(const char * str1P, const char * str2P, size_t size) {
   return res;
 }
 
+extern FS *ufsp;
 
 uint32_t tmod_file_exists(const char *path) {
   int32_t result = 0;

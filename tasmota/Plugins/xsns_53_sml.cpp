@@ -2679,7 +2679,11 @@ SETREGS
               // web ui export
               //snprintf_P(b_mqtt_data, sizeof(b_mqtt_data), "%s{s}%s %s: {m}%s %s{e}", b_mqtt_data,meter_desc[mindex].prefix,name,tpowstr,unit);
               if (strcmp(name, "*")) {
-                WSContentSend_P(PSTR("{s}%s %s{m}"), sml_globs.mptr[mindex].prefix, name);  // Do not replace decimal separator in label
+                if (sml_globs.mptr[mindex].prefix[0] == '*') {
+                  WSContentSend_P(PSTR("{s}%s{m}"), name);
+                } else {
+                  WSContentSend_P(PSTR("{s}%s %s{m}"), sml_globs.mptr[mindex].prefix, name);  // Do not replace decimal separator in label
+                }
                 WSContentSend_PD(PSTR("%s %s{e}"), tpowstr, unit); // Replace decimal separator in value
               }
             }
@@ -4800,15 +4804,11 @@ typedef struct {
 uint32_t SML_Getvars(uint16_t function) {
   switch (function & 15) {
     case 0:
+      // mark plugin present
       return 1;
     case 1:
       // must return adjusted jumptable here
-      return 0:
-    case 2:
-      return sml_options;
-    case 3:
-      sml_options = function >> 8;
-      break;
+      return 0;
   }
   return 0;
 }

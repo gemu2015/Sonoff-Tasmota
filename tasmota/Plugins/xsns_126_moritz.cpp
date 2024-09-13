@@ -1538,6 +1538,7 @@ SETREGS
   if (!moritz_cfg.moritz_ready) {
     return 0;
   }
+
   uint8_t index = sel & 0xff;
   uint8_t type = sel >> 8;
   char *retval = (char*)special_malloc(128); 
