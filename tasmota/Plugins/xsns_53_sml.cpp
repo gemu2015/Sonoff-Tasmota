@@ -366,6 +366,22 @@ typedef union {
 #define SML_PREFIX_SIZE 8
 #endif
 
+uint32_t SML_SetOptions(uint32_t in);
+
+typedef struct {
+  uint32_t (*SML_SetBaud)(uint32_t,uint32_t);
+  uint32_t (*sml_status)(uint32_t);
+  uint32_t (*SML_Write)(int32_t,char*);
+  uint32_t (*SML_Read)(int32_t,char*,uint32_t);
+  uint32_t (*sml_getv)(uint32_t);
+  uint32_t (*SML_Shift_Num)(uint32_t,uint32_t);
+  double (*SML_GetVal)(uint32_t);
+  char * (*SML_GetSVal)(uint32_t);
+  int32_t (*SML_Set_WStr)(uint32_t,char*);
+  void (*SML_Decode)(uint8_t);
+  uint32_t (*SML_SetOptions)(uint32_t);
+} SML_TABLE;
+
 struct METER_DESC {
   int8_t srcpin;
   uint8_t type;
@@ -455,6 +471,7 @@ struct METER_DESC {
 #ifdef ESP32
   int8_t uart_index;
 #endif
+
 };
 
 
@@ -530,6 +547,7 @@ struct SML_GLOBS {
   uint8_t twai_installed;
 #endif // USE_SML_CANBUS
   uint8_t sml_options;
+  SML_TABLE smltab;
 };
 
 typedef struct {
@@ -3109,6 +3127,23 @@ ALLOCMEM
   sml_globs.ser_act_LED_pin = 255;
   sml_globs.sml_options = SML_OPTIONS_JSON_ENABLE;
 
+  sml_globs.smltab.SML_SetBaud = SML_SetBaud;
+  sml_globs.smltab.sml_status = sml_status;
+  sml_globs.smltab.SML_Write = SML_Write;
+  sml_globs.smltab.SML_Read = SML_Read;
+  sml_globs.smltab.sml_getv = sml_getv;
+  sml_globs.smltab.SML_Shift_Num = SML_Shift_Num;
+  sml_globs.smltab.SML_GetVal = SML_GetVal;
+  sml_globs.smltab.SML_GetSVal = SML_GetSVal;
+  sml_globs.smltab.SML_Set_WStr = SML_Set_WStr;
+  sml_globs.smltab.SML_Decode = SML_Decode;
+  sml_globs.smltab.SML_SetOptions = SML_SetOptions;
+
+  uint8_t **bpt = (uint8_t**)&sml_globs.smltab;
+  for (uint32_t cnt = 0; cnt < 11; cnt++) {
+    *bpt += EXEC_OFFSET;
+    bpt++;
+  }
   return result;
 }
 
@@ -4788,6 +4823,7 @@ SETREGS
   }
 }
 
+
 uint32_t SML_SetOptions(uint32_t in) {
   SETREGS
   if (in &0x100) {
@@ -4796,26 +4832,14 @@ uint32_t SML_SetOptions(uint32_t in) {
   return sml_globs.sml_options;
 }
 
-typedef struct {
-  uint32_t (*SML_SetBaud)(uint32_t,uint32_t);
-  uint32_t (*sml_status)(uint32_t);
-  uint32_t (*SML_Write)(int32_t,char*);
-  uint32_t (*SML_Read)(int32_t,char*,uint32_t);
-  uint32_t (*sml_getv)(uint32_t);
-  uint32_t (*SML_Shift_Num)(uint32_t,uint32_t);
-  double (*SML_GetVal)(uint32_t);
-  char * (*SML_GetSVal)(uint32_t);
-  int32_t (*SML_Set_WStr)(uint32_t,char*);
-  void (*SML_Decode)(uint8_t);
-  uint32_t (*SML_SetOptions)(uint32_t);
-} SML_TABLE;
-
 uint32_t SML_Getvars(uint16_t function) {
+  SETREGS
   switch (function & 15) {
     case 0:
       // mark plugin present
       return 1;
     case 1:
+      return (uint32_t)&sml_globs.smltab;
       // must return adjusted jumptable here
       return 0;
   }
