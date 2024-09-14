@@ -949,6 +949,14 @@ typedef struct {
 #define strncat_P jstrncat_P
 
 
+#define __adddf3(A,B) double_dispatch(0,A,B)
+#define __subdf3(A,B) double_dispatch(1,A,B)
+#define __muldf3(A,B) double_dispatch(2,A,B)
+#define __divdf3(A,B) double_dispatch(3,A,B)
+
+
+
+
 #define dadd(A,B) double_dispatch(0,A,B)
 #define dsub(A,B) double_dispatch(1,A,B)
 #define dmul(A,B) double_dispatch(2,A,B)
@@ -1332,6 +1340,35 @@ Runtime Function: complex long double __divxc3 (long double a, long double b, lo
 These functions return the quotient of a + ib and c + id (i.e., (a + ib) / (c + id)), following the rules of C99 Annex G.
 
 Next: Routines for decimal floating point emulation, Previous: Routines for integer arithmetic, Up: The GCC low-level runtime library   [Contents][Index]
+
+
+SML math
+
+__ltdf2
+	.global	__fixdfdi  double to long
+	.global	__floatdidf  long to double
+	.global	__divdf3
+	.global	__muldf3
+	.global	__subdf3
+
+
+	.global	__mulsf3
+	.global	__muldi3
+  
+  .global	__udivsi3 uin32 / uin32
+	.global	__umodsi3 uin32 % uin32
+
+  .global	__floatsidf int to double
+
+	.global	__floatunsidf
+	.global	__floatundidf
+	.global	__extendsfdf2
+	.global	__floatsisf
+	.global	__floatunsisf
+	.global	__fixdfsi
+	.global	__truncdfsf2
+	.global	__fixunsdfsi
+	__nedf2
 
 
 */

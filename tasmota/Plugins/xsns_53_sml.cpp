@@ -320,7 +320,7 @@ MODULE_PART uint16_t KS_calculateCRC(const uint8_t *frame, uint8_t num);
 MODULE_PART uint8_t SML_PzemCrc(uint8_t *data, uint8_t len);
 MODULE_PART uint8_t CalcEvenParity(uint8_t data);
 MODULE_PART bool XSNS_53_cmd(void);
-MODULE_PART void InjektCounterValue(uint8_t meter, uint32_t counter, float rate);
+MODULE_PART void InjektCounterValue(uint8_t meter, uint32_t counter, double rate);
 MODULE_PART void SML_CounterSaveState(void);
 MODULE_PART void SML_Restart(void);
 MODULE_PART void SML_dump(void);
@@ -1251,26 +1251,26 @@ SETREGS
     }
     dval = value;
     if (scaler == -1) {
-      dval /= SFPC_10;
+      dval = __divdf3(dval, SFPC_10);
     } else if (scaler == -2) {
-      dval /= SFPC_100;
+      dval = __divdf3(dval, SFPC_100);
     } else if (scaler == -3) {
-      dval /= SFPC_1000;
+      dval = __divdf3(dval, SFPC_1000);
     } else if (scaler == -4) {
-      dval /= SFPC_10000;
+      dval = __divdf3(dval, SFPC_10000);
     } else if (scaler == 1) {
-      dval *= SFPC_10;
+      dval = __divdf3(dval, SFPC_10);
     } else if (scaler == 2) {
-      dval *= SFPC_100;
+      dval = __divdf3(dval, SFPC_100);
     } else if (scaler == 3) {
-      dval *= SFPC_1000;
+      dval = __divdf3(dval, SFPC_1000);
     }
   #ifdef ED300L
     // decode current power OBIS 00 0F 07 00
     if (*cpx==0x00 && *(cpx+1)==0x0f && *(cpx+2)==0x07 && *(cpx+3)==0) {
         if (sml_globs.sml_status[sml_globs.g_mindex]&0x20) {
           // and invert sign on solar feed
-          dval *= SFPC_M1;
+          dval =__muldf3(dval, SFPC_M1);
         }
     }
   #endif
@@ -1279,7 +1279,7 @@ SETREGS
     if (*cpx==0x00 && *(cpx+1)==0x10 && *(cpx+2)==0x07 && *(cpx+3)==0) {
         if (sml_globs.sml_status[sml_globs.g_mindex]&0x08) {
           // and invert sign on solar feed
-          dval *= SFPC_M1;
+          dval =__muldf3(dval, SFPC_M1);
         }
     }
   #endif
@@ -1288,7 +1288,7 @@ SETREGS
     if (*cpx==0x00 && *(cpx+1)==0x10 && *(cpx+2)==0x07 && *(cpx+3)==0) {
         if (sml_globs.sml_status[sml_globs.g_mindex]&0x08) {
           // and invert sign on solar feed
-          dval *= SFPC_M1;
+          dval =__muldf3(dval, SFPC_M1);
         }
     }
   #endif
@@ -1298,7 +1298,7 @@ SETREGS
     if (ocode == meter_desc[sml_globs.g_mindex].so_obis2) {
       if (sml_globs.sml_status[sml_globs.g_mindex] & 1) {
         // and invert sign on solar feed
-        dval *= SFPC_M1;
+        dval =__muldf3(dval, SFPC_M1);
       }
     }
   #endif
@@ -1350,14 +1350,14 @@ SETREGS
     right = atoll(pt);                              // Decimal part
     while (isdigit(*pt)) {
       pt++;
-      right /= SFPC_10;
+      right = __divdf3(right, SFPC_10);
     }
   }
 
   double result = left + right;
   // Add negative sign
   if (sign < 0) {
-    result *= SFPC_M1;                              
+    result = __muldf3(result, SFPC_M1);                              
   }
   return result;
 }
@@ -1912,20 +1912,20 @@ SETREGS
           mind--;
           switch (opr) {
               case '+':
-                if (iflg) dvar += ind;
-                else dvar += sml_globs.meter_vars[mind];
+                if (iflg) dvar = __adddf3(dvar, ind);
+                else dvar = __adddf3(dvar, sml_globs.meter_vars[mind]);
                 break;
               case '-':
-                if (iflg) dvar -= ind;
-                else dvar -= sml_globs.meter_vars[mind];
+                if (iflg) dvar = __subdf3(dvar, ind);
+                else dvar = __subdf3(dvar, sml_globs.meter_vars[mind]);
                 break;
               case '*':
-                if (iflg) dvar *= ind;
-                else dvar *= sml_globs.meter_vars[mind];
+                if (iflg) dvar = __muldf3(dvar, ind);
+                else dvar = __muldf3(dvar, sml_globs.meter_vars[mind]);
                 break;
               case '/':
-                if (iflg) dvar /= ind;
-                else dvar /= sml_globs.meter_vars[mind];
+                if (iflg) dvar = __divdf3(dvar, ind);
+                else dvar = __divdf3(dvar, sml_globs.meter_vars[mind]);
                 break;
           }
           while (*mptr==' ') mptr++;
@@ -1937,7 +1937,7 @@ SETREGS
           }
         }
         double fac = CharToDouble((char*)mptr);
-        sml_globs.meter_vars[vindex] /= fac;
+        sml_globs.meter_vars[vindex] = __divdf3(sml_globs.meter_vars[vindex], fac);
         SML_Immediate_MQTT((const char*)mptr, vindex, mindex);
         sml_globs.dvalid[vindex] = 1;
         // get sfac
@@ -1956,9 +1956,13 @@ SETREGS
           if (dtime > delay) {
             // calc difference
             sml_globs.dtimes[dindex] = millis();
-            double vdiff = sml_globs.meter_vars[ind] - sml_globs.dvalues[dindex];
+            //double vdiff = sml_globs.meter_vars[ind] - sml_globs.dvalues[dindex];
+            double vdiff = __subdf3(sml_globs.meter_vars[ind], sml_globs.dvalues[dindex]);
             sml_globs.dvalues[dindex] = sml_globs.meter_vars[ind];
-            double dres = (double)SFPC_360000 * vdiff / ((double)dtime / SFPC_10000);
+            //double dres = (double)SFPC_360000 * vdiff / ((double)dtime / SFPC_10000);
+            double p1 = __muldf3(SFPC_360000, vdiff);
+            double p2 = __divdf3(dtime, SFPC_10000);
+            double dres = __divdf3(p1, p2);
 
             sml_globs.dvalid[vindex] += 1;
 
@@ -1980,7 +1984,7 @@ SETREGS
             if (mptr) {
               mptr++;
               double fac = CharToDouble((char*)mptr);
-              sml_globs.meter_vars[vindex] /= fac;
+              sml_globs.meter_vars[vindex] = __divdf3(sml_globs.meter_vars[vindex], fac);
               SML_Immediate_MQTT((const char*)mptr, vindex, mindex);
             }
           }
@@ -2059,11 +2063,11 @@ SETREGS
 											CosemData *item = (CosemData *)cp;
 											switch (item->base.type) {
             						case CosemTypeString:
-                					memcpy(meter_desc[mindex].meter_id, item->str.data, item->str.length);
+                					memmove(meter_desc[mindex].meter_id, item->str.data, item->str.length);
                 					meter_desc[mindex].meter_id[item->str.length] = 0;
                 					break;
             						case CosemTypeOctetString:
-                					memcpy(meter_desc[mindex].meter_id, item->oct.data, item->oct.length);
+                					memmove(meter_desc[mindex].meter_id, item->oct.data, item->oct.length);
                 					meter_desc[mindex].meter_id[item->oct.length] = 0;
                 					break;
 												default:
@@ -2232,15 +2236,24 @@ SETREGS
               mptr += 6;
               cp += 3;
             } else if (!strncmp_P(mptr, PSTR("vvvvvv"), 6)) {
-              mbus_dval = (float)((cp[0]<<8) | (cp[1])) + ((float)cp[2]/SFPC_10);
+              /// >>>>>>>
+              //mbus_dval = (float)((cp[0]<<8) | (cp[1])) + ((float)cp[2]/SFPC_10);
+              double p1 = (cp[0]<<8 | cp[1]);
+              double p2 = __divdf3(cp[2], SFPC_10);
+              mbus_dval = __adddf3(p2, p2);
+
               mptr += 6;
               cp += 3;
             } else if (!strncmp_P(mptr, PSTR("cccccc"), 6)) {
-              mbus_dval = (float)((cp[0]<<8) | (cp[1])) + ((float)cp[2]/SFPC_100);
+              //mbus_dval = (float)((cp[0]<<8) | (cp[1])) + ((float)cp[2]/SFPC_100);
+              double p1 = (cp[0]<<8 | cp[1]);
+              double p2 = __divdf3(cp[2], SFPC_100);
+              mbus_dval = __adddf3(p2, p2);
               mptr += 6;
               cp += 3;
             } else if (!strncmp_P(mptr, PSTR("pppp"), 4)) {
-              mbus_dval = (float)((cp[0]<<8) | cp[1]);
+              //mbus_dval = (float)((cp[0]<<8) | cp[1]);
+              mbus_dval = (cp[0]<<8 | cp[1]);
               mptr += 4;
               cp += 2;
             }  else if (!strncmp_P(mptr, PSTR("kstr"), 4)) {
@@ -2254,17 +2267,17 @@ SETREGS
               // decode the exponent
               int32_t i = cp[2] & 0x3f;
               if (cp[2] & 0x40) {
-                i *= SFPC_M1;
+                i = -1;
               };
               //float ifl = pow(10, i);
-              float ifl = SFPC_1;
+              double ifl = SFPC_1;
               for (uint16_t x = 1; x <= i; ++x) {
-                ifl *= SFPC_10;
+                ifl = __muldf3(ifl, SFPC_10);
               }
               if (cp[2] & 0x80) {
-                ifl *= SFPC_M1;
+                ifl = __muldf3(ifl, SFPC_M1);
               }
-              mbus_dval = (double )(x * ifl);
+              mbus_dval =  __muldf3(x, ifl);
 
             } else if (!strncmp_P(mptr, PSTR("bcd"), 3)) {
               mptr += 3;
@@ -2476,7 +2489,7 @@ SETREGS
             // ebus pzem vbus or mbus or raw
             if (*mptr == 'b') {
               mptr++;
-              uint8_t shift = *mptr&7;
+              uint8_t shift = *mptr & 7;
               ebus_dval = (uint32_t)ebus_dval >> shift;
               ebus_dval = (uint32_t)ebus_dval & 1;
               mptr+=2;
@@ -2531,9 +2544,9 @@ SETREGS
           char *cp = skip_double((char*)mptr);
           if (cp && (*cp == '+' || *cp == '-')) {
             double offset = CharToDouble(cp);
-            sml_globs.meter_vars[vindex] += offset;
+            sml_globs.meter_vars[vindex] =  __adddf3(sml_globs.meter_vars[vindex], offset);
           }
-          sml_globs.meter_vars[vindex] /= fac;
+          sml_globs.meter_vars[vindex] = __divdf3(sml_globs.meter_vars[vindex] ,fac);
           SML_Immediate_MQTT((const char*)mptr, vindex, mindex);
         }
       }
@@ -4126,7 +4139,7 @@ uint32_t ctime = millis();
                 RtcSettings->pulse_counter[cindex]++;
                 sml_counters[cindex].sml_counter_pulsewidth = ctime - sml_counters[cindex].sml_counter_lfalltime;
                 sml_counters[cindex].sml_counter_lfalltime = ctime;
-                InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], SFPC_60000 / (float)sml_counters[cindex].sml_counter_pulsewidth);
+                InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], __divdf3(SFPC_60000, (double)sml_counters[cindex].sml_counter_pulsewidth));
               }
             }
           }
@@ -4149,7 +4162,7 @@ uint32_t ctime = millis();
         }
 
         if (sml_counters[cindex].sml_cnt_updated) {
-          InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], SFPC_60000 / (float)sml_counters[cindex].sml_counter_pulsewidth);
+          InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], __divdf3(SFPC_60000, (double)sml_counters[cindex].sml_counter_pulsewidth));
           sml_counters[cindex].sml_cnt_updated = 0;
         }
 				// check timeout
@@ -4559,7 +4572,7 @@ SETREGS
       }
       *ucp++ = 0xd;
       slen = klen + 1;
-      memcpy(sbuff, ksbuff, slen);
+      memmove(sbuff, ksbuff, slen);
     } else {
       if (!rflg) {
         *ucp++ = 0;
@@ -4875,7 +4888,7 @@ SETREGS
   return serviced;
 }
 
-void InjektCounterValue(uint8_t meter, uint32_t counter, float rate) {
+void InjektCounterValue(uint8_t meter, uint32_t counter, double rate) {
 SETREGS
 
   STGLOB
