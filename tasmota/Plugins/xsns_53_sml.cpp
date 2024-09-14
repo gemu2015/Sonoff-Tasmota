@@ -499,6 +499,63 @@ struct METER_DESC {
 #define EBUS_ESC    0xa9
 
 
+
+//#ifndef FLT_MAX
+//#define FLT_MAX 99999999
+//#endif
+
+// double constants, including zero
+const double d_const[12] PROGMEM = {0,99999999,10,100,1000,10000,999999,-1,60000.0,360000.0,99,1};
+
+#define GETDCONSTP volatile const double *fpc = (const double *) ((uint8_t *)d_const+EXEC_OFFSET);
+#define SFPC_0 fpc[0]
+#define FLT_MAX fpc[1]
+
+#define SFPC_10 fpc[2]
+#define SFPC_100 fpc[3]
+#define SFPC_1000 fpc[4]
+#define SFPC_10000 fpc[5]
+#define SFPC_999999 fpc[6]
+#define SFPC_M1 fpc[7]
+#define SFPC_60000 fpc[8]
+#define SFPC_360000 fpc[9]
+#define SFPC_99 fpc[10]
+#define SFPC_1 fpc[11]
+
+#ifndef CNT_PULSE_TIMEOUT
+#define CNT_PULSE_TIMEOUT 5000
+#endif
+
+#ifndef METER_DEF_SIZE
+#define METER_DEF_SIZE 3000
+#endif
+
+const int32_t i32_const[6] PROGMEM = {0xffff,0xA001,0x10000,0x1021,CNT_PULSE_TIMEOUT,METER_DEF_SIZE}; 
+#define GETICONSTP volatile const int32_t *ipc = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+
+#define SIPC_FFFF ipc[0]
+#define SIPC_A001 ipc[1]
+#define SIPC_10000 ipc[2]
+#define SIPC_1021 ipc[3]
+#define CNT_PULSE_TOUT ipc[4]
+#define METER_DEF_SIZ ipc[5]
+
+
+const uint32_t ui32_const[2] PROGMEM = {0x80000000,0x7fffffff}; 
+#define GETUICONSTP volatile const int32_t *uipc = (const int32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
+
+#define SUIPC_0x80000000 uipc[0]
+#define SUIPC_0x7fffffff uipc[1]
+
+const uint64_t u64_const[3] PROGMEM = {10,0,1};
+
+#define GETU64CONSTP volatile const uint64_t *u64p = (const uint64_t *) ((uint8_t *)u64_const+EXEC_OFFSET);
+
+#define SU64C_10 u64p[0]
+#define SU64C_0 u64p[1]
+#define SU64C_1 u64p[2]
+
+
 // calulate deltas
 #define MAX_DVARS MAX_METERS*2
 
@@ -551,8 +608,8 @@ struct SML_GLOBS {
 };
 
 typedef struct {
-  struct METER_DESC  meter_desc[MAX_METERS];
   struct SML_GLOBS sml_globs;
+  struct METER_DESC  meter_desc[MAX_METERS];
 } MODULE_MEMORY;
 
 #define meter_desc mem->meter_desc
@@ -563,13 +620,10 @@ typedef struct {
 
 #ifdef USE_SML_MEDIAN_FILTER
 
-#ifndef FLT_MAX
-#define FLT_MAX 99999999
-#endif
-
 double sml_median_array(double *array, uint8_t len) {
 SETREGS
 
+      GETDCONSTP
       uint8_t ind[len];
       uint8_t mind = 0, index = 0, flg;
       double min = FLT_MAX;
@@ -1034,10 +1088,12 @@ SETREGS
 double sml_getvalue(uint8_t *cp, uint8_t index) {
 SETREGS
 
-uint8_t len,unit,type;
-int16_t scaler,result;
-int64_t value;
-double dval;
+  GETDCONSTP
+
+  uint8_t len,unit,type;
+  int16_t scaler,result;
+  int64_t value;
+  double dval;
 
   // scan for values
   // check status
@@ -1189,32 +1245,32 @@ double dval;
             }
             value = 0;
         } else {
-            value = 999999;
+            value = SFPC_999999;
             scaler = 0;
         }
     }
     dval = value;
     if (scaler == -1) {
-      dval /= 10;
+      dval /= SFPC_10;
     } else if (scaler == -2) {
-      dval /= 100;
+      dval /= SFPC_100;
     } else if (scaler == -3) {
-      dval /= 1000;
+      dval /= SFPC_1000;
     } else if (scaler == -4) {
-      dval /= 10000;
+      dval /= SFPC_10000;
     } else if (scaler == 1) {
-      dval *= 10;
+      dval *= SFPC_10;
     } else if (scaler == 2) {
-      dval *= 100;
+      dval *= SFPC_100;
     } else if (scaler == 3) {
-      dval *= 1000;
+      dval *= SFPC_1000;
     }
   #ifdef ED300L
     // decode current power OBIS 00 0F 07 00
     if (*cpx==0x00 && *(cpx+1)==0x0f && *(cpx+2)==0x07 && *(cpx+3)==0) {
         if (sml_globs.sml_status[sml_globs.g_mindex]&0x20) {
           // and invert sign on solar feed
-          dval*=-1;
+          dval *= SFPC_M1;
         }
     }
   #endif
@@ -1223,7 +1279,7 @@ double dval;
     if (*cpx==0x00 && *(cpx+1)==0x10 && *(cpx+2)==0x07 && *(cpx+3)==0) {
         if (sml_globs.sml_status[sml_globs.g_mindex]&0x08) {
           // and invert sign on solar feed
-          dval*=-1;
+          dval *= SFPC_M1;
         }
     }
   #endif
@@ -1232,7 +1288,7 @@ double dval;
     if (*cpx==0x00 && *(cpx+1)==0x10 && *(cpx+2)==0x07 && *(cpx+3)==0) {
         if (sml_globs.sml_status[sml_globs.g_mindex]&0x08) {
           // and invert sign on solar feed
-          dval*=-1;
+          dval *= SFPC_M1;
         }
     }
   #endif
@@ -1242,7 +1298,7 @@ double dval;
     if (ocode == meter_desc[sml_globs.g_mindex].so_obis2) {
       if (sml_globs.sml_status[sml_globs.g_mindex] & 1) {
         // and invert sign on solar feed
-        dval *= -1;
+        dval *= SFPC_M1;
       }
     }
   #endif
@@ -1269,6 +1325,8 @@ uint8_t sb_counter;
 double CharToDouble(const char *str) {
 SETREGS
 
+  GETDCONSTP
+
   // simple ascii to double, because atof or strtod are too large
   char strbuf[24];
 
@@ -1280,25 +1338,26 @@ SETREGS
   if (*pt == '-') { sign = -1; }
   if (*pt == '-' || *pt=='+') { pt++; }            // Skip any sign
 
-  double left = 0;
+  double left = SFPC_0;
   if (*pt != '.') {
     left = atoll(pt);                               // Get left part
     while (isdigit(*pt)) { pt++; }                 // Skip number
   }
 
-  double right = 0;
+  double right = SFPC_0;
   if (*pt == '.') {
     pt++;
     right = atoll(pt);                              // Decimal part
     while (isdigit(*pt)) {
       pt++;
-      right /= 10.0;
+      right /= SFPC_10;
     }
   }
 
   double result = left + right;
+  // Add negative sign
   if (sign < 0) {
-    return -result;                                // Add negative sign
+    result *= SFPC_M1;                              
   }
   return result;
 }
@@ -1767,6 +1826,9 @@ SETREGS
 void SML_Decode(uint8_t index) {
 SETREGS
 
+  GETDCONSTP
+  GETICONSTP
+
   char *mptr = (char*)sml_globs.meter_p;
   int8_t mindex;
   uint8_t *cp;
@@ -1827,7 +1889,8 @@ SETREGS
         int32_t ind;
         mind = strtol((char*)mptr, (char**)&mptr, 10);
         if (mind < 1 || mind > sml_globs.maxvars) mind = 1;
-        dvar = sml_globs.meter_vars[mind - 1];
+        mind--;
+        dvar = sml_globs.meter_vars[mind];
         while (*mptr==' ') mptr++;
         for (uint8_t p = 0; p < 8; p++) {
           if (*mptr == '@') {
@@ -1846,22 +1909,23 @@ SETREGS
           ind = strtol((char*)mptr, (char**)&mptr, 10);
           mind = ind;
           if (mind < 1 || mind > sml_globs.maxvars) mind = 1;
+          mind--;
           switch (opr) {
               case '+':
                 if (iflg) dvar += ind;
-                else dvar += sml_globs.meter_vars[mind - 1];
+                else dvar += sml_globs.meter_vars[mind];
                 break;
               case '-':
                 if (iflg) dvar -= ind;
-                else dvar -= sml_globs.meter_vars[mind - 1];
+                else dvar -= sml_globs.meter_vars[mind];
                 break;
               case '*':
                 if (iflg) dvar *= ind;
-                else dvar *= sml_globs.meter_vars[mind - 1];
+                else dvar *= sml_globs.meter_vars[mind];
                 break;
               case '/':
                 if (iflg) dvar /= ind;
-                else dvar /= sml_globs.meter_vars[mind - 1];
+                else dvar /= sml_globs.meter_vars[mind];
                 break;
           }
           while (*mptr==' ') mptr++;
@@ -1886,14 +1950,15 @@ SETREGS
           uint8_t ind = atoi(mptr);
           while (*mptr >= '0' && *mptr <= '9') mptr++;
           if (ind < 1 || ind > sml_globs.maxvars) ind = 1;
+          ind--;
           uint32_t delay = atoi(mptr) * 1000;
           uint32_t dtime = millis() - sml_globs.dtimes[dindex];
           if (dtime > delay) {
             // calc difference
             sml_globs.dtimes[dindex] = millis();
-            double vdiff = sml_globs.meter_vars[ind - 1] - sml_globs.dvalues[dindex];
-            sml_globs.dvalues[dindex] = sml_globs.meter_vars[ind - 1];
-            double dres = (double)360000.0 * vdiff / ((double)dtime / 10000.0);
+            double vdiff = sml_globs.meter_vars[ind] - sml_globs.dvalues[dindex];
+            sml_globs.dvalues[dindex] = sml_globs.meter_vars[ind];
+            double dres = (double)SFPC_360000 * vdiff / ((double)dtime / SFPC_10000);
 
             sml_globs.dvalid[vindex] += 1;
 
@@ -1936,8 +2001,8 @@ SETREGS
     } else {
       // compare value
       uint8_t found = 1;
-      double ebus_dval = 99;
-      double mbus_dval = 99;
+      double ebus_dval = SFPC_99;
+      double mbus_dval = SFPC_99;
       while (*mptr != '@') {
         if (found == 0) {
           // skip rest of decoder part
@@ -2167,11 +2232,11 @@ SETREGS
               mptr += 6;
               cp += 3;
             } else if (!strncmp_P(mptr, PSTR("vvvvvv"), 6)) {
-              mbus_dval = (float)((cp[0]<<8) | (cp[1])) + ((float)cp[2]/10.0);
+              mbus_dval = (float)((cp[0]<<8) | (cp[1])) + ((float)cp[2]/SFPC_10);
               mptr += 6;
               cp += 3;
             } else if (!strncmp_P(mptr, PSTR("cccccc"), 6)) {
-              mbus_dval = (float)((cp[0]<<8) | (cp[1])) + ((float)cp[2]/100.0);
+              mbus_dval = (float)((cp[0]<<8) | (cp[1])) + ((float)cp[2]/SFPC_100);
               mptr += 6;
               cp += 3;
             } else if (!strncmp_P(mptr, PSTR("pppp"), 4)) {
@@ -2189,15 +2254,15 @@ SETREGS
               // decode the exponent
               int32_t i = cp[2] & 0x3f;
               if (cp[2] & 0x40) {
-                i = -i;
+                i *= SFPC_M1;
               };
               //float ifl = pow(10, i);
-              float ifl = 1;
+              float ifl = SFPC_1;
               for (uint16_t x = 1; x <= i; ++x) {
-                ifl *= 10;
+                ifl *= SFPC_10;
               }
               if (cp[2] & 0x80) {
-                ifl = -ifl;
+                ifl *= SFPC_M1;
               }
               mbus_dval = (double )(x * ifl);
 
@@ -2206,14 +2271,15 @@ SETREGS
               uint8_t digits = strtol((char*)mptr, (char**)&mptr, 10);
               if (digits < 2) digits = 2;
               if (digits > 12) digits = 12;
-              uint64_t bcdval = 0;
-              uint64_t mfac = 1;
+              GETU64CONSTP
+              uint64_t bcdval = SU64C_0;
+              uint64_t mfac = SU64C_1;
               for (uint32_t cnt = 0; cnt < digits; cnt += 2) {
                 uint8_t iob = *cp++;
                 bcdval += (iob & 0xf) * mfac;
-                mfac *= 10;
+                mfac *= SU64C_10;
                 bcdval += (iob >> 4) * mfac;
-                mfac *= 10;
+                mfac *= SU64C_10;
               }
               mbus_dval = bcdval;
               ebus_dval = bcdval;
@@ -2260,12 +2326,12 @@ SETREGS
                   // get word value
                   if (wflg == 'h') {
                     // high word
-                    if (usign) ebus_dval = (vbus_get_septet(cp) >> 16) & 0xffff;
-                    else ebus_dval = (int16_t)((vbus_get_septet(cp) >> 16) & 0xffff);
+                    if (usign) ebus_dval = (vbus_get_septet(cp) >> 16) & SIPC_FFFF;
+                    else ebus_dval = (int16_t)((vbus_get_septet(cp) >> 16) & SIPC_FFFF);
                   } else {
                     // low word
-                    if (usign) ebus_dval = vbus_get_septet(cp) & 0xffff;
-                    else ebus_dval = (int16_t)(vbus_get_septet(cp) & 0xffff);
+                    if (usign) ebus_dval = vbus_get_septet(cp) & SIPC_FFFF;
+                    else ebus_dval = (int16_t)(vbus_get_septet(cp) & SIPC_FFFF);
                   }
                   break;
                 case 'b':
@@ -2300,9 +2366,9 @@ SETREGS
                   mptr++;
                   { uint16_t time;
                     if (offset % 4) {
-                      time = (vbus_get_septet(cp) >> 16) & 0xffff;
+                      time = (vbus_get_septet(cp) >> 16) & SIPC_FFFF;
                     } else {
-                      time = vbus_get_septet(cp) & 0xffff;
+                      time = vbus_get_septet(cp) & SIPC_FFFF;
                     }
                     sprintf_P(&meter_desc[index].meter_id[0], PSTR("%02d:%02d"), time / 60, time % 60);
                   }
@@ -2344,8 +2410,8 @@ SETREGS
             } else if (sml_globs.mptr[mindex].type == 'k') {
               // 220901
               uint32_t date = mbus_dval;
-              uint8_t year = date / 10000; // = 22
-              date -= year * 10000;
+              uint8_t year = date / SIPC_10000; // = 22
+              date -= year * SIPC_10000;
               uint8_t month = date / 100; // = 09
               uint8_t day = date % 100; // = 01
               sprintf_P(&meter_desc[mindex].meter_id[0], PSTR("%02d.%02d.%02d"), day, month, year);
@@ -2430,7 +2496,7 @@ SETREGS
                 if (meter_desc[mindex].srcpin != TCP_MODE_FLG) {
                   uint16_t pos = meter_desc[mindex].sbuff[2] + 3;
                   if (pos > (meter_desc[mindex].sbsiz - 2)) pos = meter_desc[mindex].sbsiz - 2;
-                  uint16_t crc = MBUS_calculateCRC(&meter_desc[mindex].sbuff[0], pos, 0xFFFF);
+                  uint16_t crc = MBUS_calculateCRC(&meter_desc[mindex].sbuff[0], pos, SIPC_FFFF);
                   if (lowByte(crc) != meter_desc[mindex].sbuff[pos]) goto nextsect;
                   if (highByte(crc) != meter_desc[mindex].sbuff[pos + 1]) goto nextsect;
                 }
@@ -2695,11 +2761,10 @@ SETREGS
                   }
                 }
               }
-
             } else {
               // web ui export
               //snprintf_P(b_mqtt_data, sizeof(b_mqtt_data), "%s{s}%s %s: {m}%s %s{e}", b_mqtt_data,meter_desc[mindex].prefix,name,tpowstr,unit);
-              if (strcmp(name, "*")) {
+              if (strncmp_P(name, PSTR("*"), 1)) {
                 if (sml_globs.mptr[mindex].prefix[0] == '*') {
                   WSContentSend_P(PSTR("{s}%s{m}"), name);
                 } else {
@@ -2786,10 +2851,6 @@ SETREGS
   sml_counter_pinstate ^= (1 << index);
 }
 
-#ifndef METER_DEF_SIZE
-#define METER_DEF_SIZE 3000
-#endif
-
 
 #ifdef SML_REPLACE_VARS
 
@@ -2811,7 +2872,7 @@ uint32_t cnt;
 
 uint32_t SML_getscriptsize(char *lp) {
 SETREGS
-
+GETICONSTP
 uint32_t mlen = 0;
 char dstbuf[SML_SRCBSIZE * 2];
   while (1) {
@@ -2829,8 +2890,9 @@ char dstbuf[SML_SRCBSIZE * 2];
 }
 #else
 uint32_t SML_getscriptsize(char *lp) {
+  GETICONSTP
   uint32_t mlen = 0;
-  for (uint32_t cnt = 0; cnt < METER_DEF_SIZE - 1; cnt++) {
+  for (uint32_t cnt = 0; cnt < METER_DEF_SIZ - 1; cnt++) {
     if (lp[cnt] == '\n' && lp[cnt + 1] == '#') {
       mlen = cnt + 3;
       break;
@@ -3152,6 +3214,9 @@ SETREGS
 
   STGLOB
 
+  GETDCONSTP
+  GETICONSTP
+
   sml_globs.ready = false;
 
   if (!bitRead(Settings->rule_enabled, 0)) {
@@ -3451,7 +3516,7 @@ dddef_exit:
             }
             *tp++ = *lp1++;
             index++;
-            if (index >= METER_DEF_SIZE) break;
+            if (index >= METER_DEF_SIZ) break;
           }
         }
       }
@@ -3513,7 +3578,7 @@ next_line:
           }
 
           RtcSettings->pulse_counter[cindex] = Settings->pulse_counter[cindex];
-          InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], 0.0);
+          InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], SFPC_0);
           cindex++;
         }
     } else if (mptr->type == 'C') {
@@ -3776,9 +3841,11 @@ next_line:
 // speed optimize shift flag
   for (uint32_t meters = 0; meters < sml_globs.meters_used; meters++ ) {
     struct METER_DESC *mptr = &meter_desc[meters];
-    char type = mptr->type;
+    volatile char type = mptr->type;
 
-    if (!(mptr->so_flags.SO_OBIS_LINE)) {
+    uint8_t iob = mptr->so_flags.SO_OBIS_LINE;
+
+    if (!iob) {
       mptr->shift_mode = (type != 'e' && type != 'k' && type != 'm' && type != 'M' && type != 'p' && type != 'R' && type != 'v');
     } else {
       mptr->shift_mode = (type != 'o' && type != 'e' && type != 'k' && type != 'm' && type != 'M' && type != 'p' && type != 'R' && type != 'v');
@@ -3793,7 +3860,7 @@ next_line:
 #endif
       mptr->crypflags = 0;
 		}
-#endif
+#endif // USE_SML_DECRYPT
   }
 
   initialized = 1;
@@ -3966,10 +4033,12 @@ SETREGS
 
 double SML_GetVal(uint32_t index) {
 SETREGS
-
-  if (sml_globs.ready == false) return 0;
+  
+  GETDCONSTP
+  if (sml_globs.ready == false) return SFPC_0;
   if (index < 1 || index > sml_globs.maxvars) { index = 1;}
-  return sml_globs.meter_vars[index - 1];
+  index--;
+  return sml_globs.meter_vars[index];
 }
 
 char *SML_GetSVal(uint32_t index) {
@@ -4018,15 +4087,12 @@ SETREGS
 	}
 }
 
-
-#ifndef CNT_PULSE_TIMEOUT
-#define CNT_PULSE_TIMEOUT 5000
-#endif
-
 // fast counter polling
 void SML_Counter_Poll(void) {
 SETREGS
 
+GETDCONSTP
+GETICONSTP
 STGLOB
 uint16_t meters, cindex = 0;
 uint32_t ctime = millis();
@@ -4060,7 +4126,7 @@ uint32_t ctime = millis();
                 RtcSettings->pulse_counter[cindex]++;
                 sml_counters[cindex].sml_counter_pulsewidth = ctime - sml_counters[cindex].sml_counter_lfalltime;
                 sml_counters[cindex].sml_counter_lfalltime = ctime;
-                InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], 60000.0 / (float)sml_counters[cindex].sml_counter_pulsewidth);
+                InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], SFPC_60000 / (float)sml_counters[cindex].sml_counter_pulsewidth);
               }
             }
           }
@@ -4083,13 +4149,13 @@ uint32_t ctime = millis();
         }
 
         if (sml_counters[cindex].sml_cnt_updated) {
-          InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], 60000.0 / (float)sml_counters[cindex].sml_counter_pulsewidth);
+          InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], SFPC_60000 / (float)sml_counters[cindex].sml_counter_pulsewidth);
           sml_counters[cindex].sml_cnt_updated = 0;
         }
 				// check timeout
 				uint32_t time = millis();
-				if ((time - sml_counters[cindex].sml_counter_lfalltime) > CNT_PULSE_TIMEOUT) {
-					InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], 0);
+				if ((time - sml_counters[cindex].sml_counter_lfalltime) > CNT_PULSE_TOUT) {
+					InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], SFPC_0);
 					sml_counters[cindex].sml_counter_lfalltime = time;
 				}
       }
@@ -4349,8 +4415,10 @@ SETREGS
 
 MODBUS_TCP_HEADER tcph;
 
+  GETICONSTP
+
   //tcph.T_ID = sml_swap(0x1234);
-  tcph.T_ID = random(0xffff);
+  tcph.T_ID = random(SIPC_FFFF);
 
   tcph.P_ID = 0;
   tcph.SIZE = sml_swap(6);
@@ -4441,6 +4509,8 @@ SETREGS
 void SML_Send_Seq(uint32_t meter, char *seq) {
 SETREGS
 
+  GETICONSTP
+
   uint8_t sbuff[48];
   uint8_t *ucp = sbuff, slen = 0;
   char *cp = seq;
@@ -4497,7 +4567,7 @@ SETREGS
         slen += 2;
       }
       // append crc
-      uint16_t crc = MBUS_calculateCRC(sbuff, slen, 0xFFFF);
+      uint16_t crc = MBUS_calculateCRC(sbuff, slen, SIPC_FFFF);
       *ucp++ = lowByte(crc);
       *ucp++ = highByte(crc);
       slen += 2;
@@ -4544,10 +4614,12 @@ SETREGS
           message.data[i] = sbuff[i + 5];
         }
 
+        GETUICONSTP
+
         message.flags = 0;
-        if (message.identifier & 0x80000000) {
+        if (message.identifier & SUIPC_0x80000000) {
           message.extd = 1;
-          message.identifier &= 0x7fffffff;
+          message.identifier &= SUIPC_0x7fffffff;
         }
 
         twai_clear_receive_queue();
@@ -4608,6 +4680,8 @@ SETREGS
 uint16_t MBUS_calculateCRC(uint8_t *frame, uint8_t num, uint16_t start) {
 SETREGS
 
+  GETICONSTP
+
   uint16_t crc, flag;
   //crc = 0xFFFF;
   crc = start;
@@ -4616,7 +4690,7 @@ SETREGS
     for (uint32_t j = 8; j; j--) {
       if ((crc & 0x0001) != 0) {        // If the LSB is set
         crc >>= 1;                      // Shift right and XOR 0xA001
-        crc ^= 0xA001;
+        crc ^= SIPC_A001;
       } else {                          // Else LSB is not set
         crc >>= 1;                      // Just shift right
       }
@@ -4629,6 +4703,8 @@ SETREGS
 uint16_t KS_calculateCRC(const uint8_t *frame, uint8_t num) {
 SETREGS
 
+  GETICONSTP
+
   uint32_t crc = 0;
   for (uint32_t i = 0; i < num; i++) {
       uint8_t mask = 0x80;
@@ -4639,9 +4715,9 @@ SETREGS
               crc |= 1;
           }
           mask >>= 1;
-          if (crc & 0x10000) {
-              crc &= 0xffff;
-              crc ^= 0x1021;
+          if (crc & SIPC_10000) {
+              crc &= SIPC_FFFF;
+              crc ^= SIPC_1021;
           }
       }
   }
@@ -4718,6 +4794,7 @@ bool XSNS_53_cmd(void) {
 SETREGS
 
   STGLOB
+  GETDCONSTP
   bool serviced = true;
   if (XdrvMailbox->data_len > 0) {
       char *cp = XdrvMailbox->data;
@@ -4755,7 +4832,7 @@ SETREGS
             uint8_t cindex = 0;
             for (uint8_t meters = 0; meters < sml_globs.meters_used; meters++) {
               if (sml_globs.mptr[meters].type == 'c') {
-                InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], 0.0);
+                InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], SFPC_0);
                 cindex++;
               }
             }
@@ -4806,9 +4883,11 @@ SETREGS
   snprintf_P((char*)&meter_desc[meter].sbuff[0], meter_desc[meter].sbsiz, PSTR("1-0:1.8.0*255(%d)"), counter);
   SML_Decode(meter);
 
+  GETDCONSTP
+
 	char freq[16];
 	freq[0] = 0;
-	if (rate) {
+	if (rate != SFPC_0) {
 		DOUBLE2CHAR(rate, 4, freq);
 	}
   snprintf_P((char*)&meter_desc[meter].sbuff[0], meter_desc[meter].sbsiz, PSTR("1-0:1.7.0*255(%s)"), freq);
@@ -4826,7 +4905,7 @@ SETREGS
 
 uint32_t SML_SetOptions(uint32_t in) {
   SETREGS
-  if (in &0x100) {
+  if (in & 0x100) {
     sml_globs.sml_options = in;
   }
   return sml_globs.sml_options;
@@ -4834,14 +4913,13 @@ uint32_t SML_SetOptions(uint32_t in) {
 
 uint32_t SML_Getvars(uint16_t function) {
   SETREGS
-  switch (function & 15) {
+  switch (function & 3) {
     case 0:
       // mark plugin present
       return 1;
     case 1:
-      return (uint32_t)&sml_globs.smltab;
       // must return adjusted jumptable here
-      return 0;
+      return (uint32_t)&sml_globs.smltab;
   }
   return 0;
 }
