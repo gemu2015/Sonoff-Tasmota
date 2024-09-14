@@ -470,6 +470,7 @@ void tmod_AddLogData(uint32_t loglevel, const char* log_data);
 char *Plugin_Get_SensorNames(char *type, uint32_t index);
 char *tmod_Run_Scripter(char *sect);
 double tmod_double_dispatch(uint32_t sel, double a, double b);
+int32_t tmod_double_cmp_dispatch(uint32_t sel, double a, double b);
 uint32_t tmod_task_create(TASKPARS *tp);
 int64_t tmod_double2long(double in);
 double tmod_long2double(int64_t in);
@@ -478,7 +479,13 @@ const uint8_t tmod_pgm_read_byte(uint8_t *ptr);
 const uint16_t tmod_pgm_read_word(uint16_t *ptr);
 void *tmod_special_malloc(uint32_t size);
 uint32_t tmod_serialdispatch(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3);
-
+double tmod_floatdidf(int64_t);
+double tmod_floatundidf(int64_t);
+double tmod_floatsidf(int32_t);
+double tmod_floatunsidf(uint32_t);
+int32_t tmod_fixdfdi(double);
+uint32_t tmod_fixunsdfsi(double);
+double tmod_extendsfdf2(float);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -719,9 +726,40 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
 #else
   JMPTBL&tmod_dummy,
 #endif
-  JMPTBL&PinUsed
+  JMPTBL&PinUsed,
+  JMPTBL&atoll,
+  JMPTBL&tmod_double_cmp_dispatch,
+  JMPTBL&tmod_floatdidf,
+  JMPTBL&tmod_floatundidf,
+  JMPTBL&tmod_floatsidf,
+  JMPTBL&tmod_floatunsidf,
+  JMPTBL&tmod_fixdfdi,
+  JMPTBL&tmod_fixunsdfsi,
+  JMPTBL&tmod_extendsfdf2
 };
 
+
+double tmod_floatdidf(int64_t in) {
+  return in;
+}
+double tmod_floatundidf(int64_t in) {
+  return in;
+}
+double tmod_floatsidf(int32_t in) {
+  return in;
+}
+double tmod_floatunsidf(uint32_t in) {
+  return in;
+}
+int32_t tmod_fixdfdi(double in) {
+  return in;
+}
+uint32_t tmod_fixunsdfsi(double in) {
+  return in;
+}
+double tmod_extendsfdf2(float in) {
+  return in;
+}
 
 
 #define USE_DOUBLE_DISPATCH
@@ -800,6 +838,20 @@ double tmod_double_dispatch(uint32_t sel, double a, double b) {
       break;
   }
 #endif
+  return result;
+}
+
+int32_t tmod_double_cmp_dispatch(uint32_t sel, double a, double b) {
+int32_t result = 0;
+
+  switch(sel) {
+    case 0:
+      result = a < b;
+      break;
+    case 1:
+      result = a != b;
+      break;
+  }
   return result;
 }
 

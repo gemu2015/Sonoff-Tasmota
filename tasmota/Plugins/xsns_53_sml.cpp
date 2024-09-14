@@ -547,14 +547,14 @@ const uint32_t ui32_const[2] PROGMEM = {0x80000000,0x7fffffff};
 #define SUIPC_0x80000000 uipc[0]
 #define SUIPC_0x7fffffff uipc[1]
 
-const uint64_t u64_const[3] PROGMEM = {10,0,1};
+const uint64_t u64_const[4] PROGMEM = {10,0,1,99999999};
 
 #define GETU64CONSTP volatile const uint64_t *u64p = (const uint64_t *) ((uint8_t *)u64_const+EXEC_OFFSET);
 
 #define SU64C_10 u64p[0]
 #define SU64C_0 u64p[1]
 #define SU64C_1 u64p[2]
-
+#define SU64C_99999999 u64p[3]
 
 // calulate deltas
 #define MAX_DVARS MAX_METERS*2
@@ -637,7 +637,8 @@ SETREGS
                   }
               }
               if (!flg) {
-                  if (array[mcnt] < min) {
+                  //if (array[mcnt] < min) {
+                  if (__ltdf2(array[mcnt], min)) {
                       min = array[mcnt];
                       mind = mcnt;
                   }
@@ -648,7 +649,7 @@ SETREGS
           min = FLT_MAX;
       }
       return array[ind[len / 2]];
-  }
+}
 
 
 // calc median
@@ -910,7 +911,7 @@ SETREGS
             	// new packet, plot last one
             	sml_globs.log_data[sml_globs.sml_logindex] = 0;
             	AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
-            	strcpy(&sml_globs.log_data[0], ": aa ");
+            	strcpy_P(&sml_globs.log_data[0], PSTR(": aa "));
             	sml_globs.sml_logindex = 5;
           	}
           	continue;
@@ -1245,11 +1246,12 @@ SETREGS
             }
             value = 0;
         } else {
-            value = SFPC_999999;
-            scaler = 0;
+          GETU64CONSTP
+          value = SU64C_99999999;
+          scaler = 0;
         }
     }
-    dval = value;
+    dval = __floatdidf(value);
     if (scaler == -1) {
       dval = __divdf3(dval, SFPC_10);
     } else if (scaler == -2) {
@@ -1340,21 +1342,21 @@ SETREGS
 
   double left = SFPC_0;
   if (*pt != '.') {
-    left = atoll(pt);                               // Get left part
+    left = __floatdidf(atoll(pt));                               // Get left part
     while (isdigit(*pt)) { pt++; }                 // Skip number
   }
 
   double right = SFPC_0;
   if (*pt == '.') {
     pt++;
-    right = atoll(pt);                              // Decimal part
+    right = __floatdidf(atoll(pt));                              // Decimal part
     while (isdigit(*pt)) {
       pt++;
       right = __divdf3(right, SFPC_10);
     }
   }
 
-  double result = left + right;
+  double result = __adddf3(left, right);
   // Add negative sign
   if (sign < 0) {
     result = __muldf3(result, SFPC_M1);                              
@@ -1907,24 +1909,25 @@ SETREGS
             mptr++;
           }
           ind = strtol((char*)mptr, (char**)&mptr, 10);
+          double flind = __floatunsidf(ind);
           mind = ind;
           if (mind < 1 || mind > sml_globs.maxvars) mind = 1;
           mind--;
           switch (opr) {
               case '+':
-                if (iflg) dvar = __adddf3(dvar, ind);
+                if (iflg) dvar = __adddf3(dvar, flind);
                 else dvar = __adddf3(dvar, sml_globs.meter_vars[mind]);
                 break;
               case '-':
-                if (iflg) dvar = __subdf3(dvar, ind);
+                if (iflg) dvar = __subdf3(dvar, flind);
                 else dvar = __subdf3(dvar, sml_globs.meter_vars[mind]);
                 break;
               case '*':
-                if (iflg) dvar = __muldf3(dvar, ind);
+                if (iflg) dvar = __muldf3(dvar, flind);
                 else dvar = __muldf3(dvar, sml_globs.meter_vars[mind]);
                 break;
               case '/':
-                if (iflg) dvar = __divdf3(dvar, ind);
+                if (iflg) dvar = __divdf3(dvar, flind);
                 else dvar = __divdf3(dvar, sml_globs.meter_vars[mind]);
                 break;
           }
@@ -1961,7 +1964,7 @@ SETREGS
             sml_globs.dvalues[dindex] = sml_globs.meter_vars[ind];
             //double dres = (double)SFPC_360000 * vdiff / ((double)dtime / SFPC_10000);
             double p1 = __muldf3(SFPC_360000, vdiff);
-            double p2 = __divdf3(dtime, SFPC_10000);
+            double p2 = __divdf3(__floatunsidf(dtime), SFPC_10000);
             double dres = __divdf3(p1, p2);
 
             sml_globs.dvalid[vindex] += 1;
@@ -2111,16 +2114,16 @@ SETREGS
               uint64_t val = ((uint64_t)valh<<32) | vall;
               mptr += 3;
               cp += 8;
-              ebus_dval = val;
-              mbus_dval = val;
+              ebus_dval = __floatundidf(val);
+              mbus_dval = ebus_dval;
             } else if (!strncmp_P(mptr, PSTR("u64"), 3)) {
               uint64_t valh = (cp[1]<<24) | (cp[0]<<16) | (cp[3]<<8) | (cp[2]<<0);
               uint64_t vall = (cp[5]<<24) | (cp[4]<<16) | (cp[7]<<8) | (cp[6]<<0);
               uint64_t val = ((uint64_t)valh<<32) | vall;
               mptr += 3;
               cp += 8;
-              ebus_dval = val;
-              mbus_dval = val;
+              ebus_dval = __floatundidf(val);
+              mbus_dval = ebus_dval;
             } else if (!strncmp_P(mptr, PSTR("U32"), 3)) {
               mptr += 3;
               goto U32_do;
@@ -2134,8 +2137,8 @@ SETREGS
                 // swap words
                 val = (val>>16) | (val<<16);
               }
-              ebus_dval = val;
-              mbus_dval = val;
+              ebus_dval = __floatundidf(val);
+              mbus_dval = ebus_dval;
             } else if (!strncmp_P(mptr, PSTR("u32"), 3)) {
               mptr += 3;
               goto u32_do;
@@ -2149,12 +2152,12 @@ SETREGS
                 // swap words
                 val = (val>>16) | (val<<16);
               }
-              ebus_dval = val;
-              mbus_dval = val;
+              ebus_dval = __floatundidf(val);
+              mbus_dval = ebus_dval;
             } else if (!strncmp_P(mptr, PSTR("UUuu"), 4)) {
               uint16_t val = cp[1] | (cp[0]<<8);
-              mbus_dval = val;
-              ebus_dval = val;
+              ebus_dval = __floatundidf(val);
+              mbus_dval = ebus_dval;
               mptr += 4;
               cp += 2;
             } else if (!strncmp_P(mptr, PSTR("S32"), 3)) {
@@ -2170,8 +2173,8 @@ SETREGS
                 // swap words
                 val = ((uint32_t)val>>16) | ((uint32_t)val<<16);
               }
-              ebus_dval = val;
-              mbus_dval = val;
+              ebus_dval = __floatundidf(val);
+              mbus_dval = ebus_dval;
             } else if (!strncmp_P(mptr, PSTR("s32"), 3)) {
               mptr += 3;
               goto s32_do;
@@ -2185,75 +2188,74 @@ SETREGS
                 // swap words
                 val = ((uint32_t)val>>16) | ((uint32_t)val<<16);
               }
-              ebus_dval = val;
-              mbus_dval = val;
+              ebus_dval = __floatundidf(val);
+              mbus_dval = ebus_dval;
             } else if (!strncmp_P(mptr, PSTR("uuUU"), 4)) {
               uint16_t val = cp[0] | (cp[1]<<8);
-              mbus_dval = val;
-              ebus_dval = val;
+              ebus_dval = __floatundidf(val);
+              mbus_dval = ebus_dval;
               mptr += 4;
               cp += 2;
             } else if (!strncmp_P(mptr, PSTR("uu"), 2)) {
               uint8_t val = *cp++;
-              mbus_dval = val;
-              ebus_dval = val;
+              ebus_dval = __floatundidf(val);
+              mbus_dval = ebus_dval;
               mptr += 2;
             } else if (!strncmp_P(mptr, PSTR("ssSS"), 4)) {
               int16_t val = *cp | (*(cp+1)<<8);
-              mbus_dval = val;
-              ebus_dval = val;
+              ebus_dval = __floatundidf(val);
+              mbus_dval = ebus_dval;
               mptr += 4;
               cp += 2;
             } else if (!strncmp_P(mptr, PSTR("SSss"), 4)) {
               int16_t val = cp[1] | (cp[0]<<8);
-              mbus_dval = val;
-              ebus_dval = val;
+              ebus_dval = __floatundidf(val);
+              mbus_dval = ebus_dval;
               mptr += 4;
               cp += 2;
             } else if (!strncmp_P(mptr, PSTR("ss"), 2)) {
               int8_t val = *cp++;
-              mbus_dval = val;
-              ebus_dval = val;
+              ebus_dval = __floatundidf(val);
+              mbus_dval = ebus_dval;
               mptr += 2;
             } else if (!strncmp_P(mptr, PSTR("ffffffff"), 8)) {
               uint32_t val = (cp[0]<<24) | (cp[1]<<16) | (cp[2]<<8) | (cp[3]<<0);
               float *fp = (float*)&val;
-              ebus_dval = *fp;
-              mbus_dval = *fp;
+              ebus_dval = __extendsfdf2(*fp);
+              mbus_dval = ebus_dval;
               mptr += 8;
               cp += 4;
             } else if (!strncmp_P(mptr, PSTR("FFffFFff"), 8)) {
               // reverse word float
               uint32_t val = (cp[1]<<0) | (cp[0]<<8) | (cp[3]<<16) | (cp[2]<<24);
               float *fp = (float*)&val;
-              ebus_dval = *fp;
-              mbus_dval = *fp;
+              ebus_dval = __extendsfdf2(*fp);
+              mbus_dval = ebus_dval;
               mptr += 8;
               cp += 4;
             } else if (!strncmp_P(mptr, PSTR("eeeeee"), 6)) {
               uint32_t val = (cp[0]<<16) | (cp[1]<<8) | (cp[2]<<0);
-              mbus_dval = val;
+              mbus_dval = __floatundidf(val);
               mptr += 6;
               cp += 3;
             } else if (!strncmp_P(mptr, PSTR("vvvvvv"), 6)) {
-              /// >>>>>>>
               //mbus_dval = (float)((cp[0]<<8) | (cp[1])) + ((float)cp[2]/SFPC_10);
-              double p1 = (cp[0]<<8 | cp[1]);
-              double p2 = __divdf3(cp[2], SFPC_10);
+              double p1 = __floatundidf((cp[0]<<8 | cp[1]));
+              double p2 = __divdf3(__floatundidf(cp[2]), SFPC_10);
               mbus_dval = __adddf3(p2, p2);
 
               mptr += 6;
               cp += 3;
             } else if (!strncmp_P(mptr, PSTR("cccccc"), 6)) {
               //mbus_dval = (float)((cp[0]<<8) | (cp[1])) + ((float)cp[2]/SFPC_100);
-              double p1 = (cp[0]<<8 | cp[1]);
-              double p2 = __divdf3(cp[2], SFPC_100);
+              double p1 = __floatundidf((cp[0]<<8 | cp[1]));
+              double p2 = __divdf3(__floatundidf(cp[2]), SFPC_100);
               mbus_dval = __adddf3(p2, p2);
               mptr += 6;
               cp += 3;
             } else if (!strncmp_P(mptr, PSTR("pppp"), 4)) {
               //mbus_dval = (float)((cp[0]<<8) | cp[1]);
-              mbus_dval = (cp[0]<<8 | cp[1]);
+              mbus_dval = __floatsidf((cp[0]<<8 | cp[1]));
               mptr += 4;
               cp += 2;
             }  else if (!strncmp_P(mptr, PSTR("kstr"), 4)) {
@@ -2277,7 +2279,7 @@ SETREGS
               if (cp[2] & 0x80) {
                 ifl = __muldf3(ifl, SFPC_M1);
               }
-              mbus_dval =  __muldf3(x, ifl);
+              mbus_dval =  __muldf3(__floatsidf(x), ifl);
 
             } else if (!strncmp_P(mptr, PSTR("bcd"), 3)) {
               mptr += 3;
@@ -2289,13 +2291,17 @@ SETREGS
               uint64_t mfac = SU64C_1;
               for (uint32_t cnt = 0; cnt < digits; cnt += 2) {
                 uint8_t iob = *cp++;
-                bcdval += (iob & 0xf) * mfac;
-                mfac *= SU64C_10;
-                bcdval += (iob >> 4) * mfac;
-                mfac *= SU64C_10;
+                //bcdval += (iob & 0xf) * mfac;
+                bcdval += __muldi3((iob & 0xf), mfac);
+                //mfac *= SU64C_10;
+                mfac = __muldi3(mfac, SU64C_10);
+                //bcdval += (iob >> 4) * mfac;
+                bcdval += __muldi3((iob >> 4), mfac);
+                //mfac *= SU64C_10;
+                mfac = __muldi3(mfac, SU64C_10);
               }
-              mbus_dval = bcdval;
-              ebus_dval = bcdval;
+              mbus_dval = __floatundidf(bcdval);
+              ebus_dval = mbus_dval;
             } else if (*mptr == 'v') {
               // vbus values vul, vsl, vuwh, vuwl, wswh, vswl, vswh
               // vub3, vsb3 etc
@@ -2318,9 +2324,9 @@ SETREGS
                   mptr++;
                   // get long value
                   if (usign) {
-                    ebus_dval = vbus_get_septet(cp);
+                    ebus_dval = __floatunsidf(vbus_get_septet(cp));
                   } else {
-                    ebus_dval = (int32_t)vbus_get_septet(cp);
+                    ebus_dval = __floatsidf((int32_t)vbus_get_septet(cp));
                   }
                   break;
                 case 'w':
@@ -2339,12 +2345,18 @@ SETREGS
                   // get word value
                   if (wflg == 'h') {
                     // high word
-                    if (usign) ebus_dval = (vbus_get_septet(cp) >> 16) & SIPC_FFFF;
-                    else ebus_dval = (int16_t)((vbus_get_septet(cp) >> 16) & SIPC_FFFF);
+                    if (usign) {
+                      ebus_dval = __floatunsidf((vbus_get_septet(cp) >> 16) & SIPC_FFFF);
+                    } else {
+                      ebus_dval = __floatsidf((int16_t)((vbus_get_septet(cp) >> 16) & SIPC_FFFF));
+                    }
                   } else {
                     // low word
-                    if (usign) ebus_dval = vbus_get_septet(cp) & SIPC_FFFF;
-                    else ebus_dval = (int16_t)(vbus_get_septet(cp) & SIPC_FFFF);
+                    if (usign) {
+                      ebus_dval = __floatunsidf(vbus_get_septet(cp) & SIPC_FFFF);
+                    } else {
+                      ebus_dval = __floatsidf((int16_t)(vbus_get_septet(cp) & SIPC_FFFF));
+                    }
                   }
                   break;
                 case 'b':
@@ -2358,20 +2370,32 @@ SETREGS
                   }
                   switch (bflg) {
                     case '3':
-                      if (usign) ebus_dval = vbus_get_septet(cp) >> 24;
-                      else ebus_dval = (int8_t)(vbus_get_septet(cp) >> 24);
+                      if (usign) {
+                        ebus_dval = __floatunsidf(vbus_get_septet(cp) >> 24);
+                      } else {
+                        ebus_dval = __floatsidf((int8_t)(vbus_get_septet(cp) >> 24));
+                      }
                       break;
                     case '2':
-                      if (usign) ebus_dval = (vbus_get_septet(cp) >> 16) & 0xff;
-                      else ebus_dval = (int8_t)((vbus_get_septet(cp) >> 16) & 0xff);
+                      if (usign) {
+                        ebus_dval = __floatunsidf((vbus_get_septet(cp) >> 16) & 0xff);
+                      } else {
+                        ebus_dval = __floatsidf((int8_t)((vbus_get_septet(cp) >> 16) & 0xff));
+                      }
                       break;
                     case '1':
-                      if (usign) ebus_dval = (vbus_get_septet(cp) >> 8) & 0xff;
-                      else ebus_dval = (int8_t)((vbus_get_septet(cp) >> 8) & 0xff);
+                      if (usign) {
+                        ebus_dval = __floatunsidf((vbus_get_septet(cp) >> 8) & 0xff);
+                      } else {
+                        ebus_dval = __floatsidf((int8_t)((vbus_get_septet(cp) >> 8) & 0xff));
+                      }
                       break;
                     case '0':
-                      if (usign) ebus_dval = vbus_get_septet(cp) & 0xff;
-                      else ebus_dval = (int8_t)(vbus_get_septet(cp) & 0xff);
+                      if (usign) {
+                        ebus_dval = __floatunsidf(vbus_get_septet(cp) & 0xff);
+                      } else {
+                        ebus_dval = __floatsidf((int8_t)(vbus_get_septet(cp) & 0xff));
+                      }
                       break;
                   }
                   break;
@@ -2383,7 +2407,9 @@ SETREGS
                     } else {
                       time = vbus_get_septet(cp) & SIPC_FFFF;
                     }
-                    sprintf_P(&meter_desc[index].meter_id[0], PSTR("%02d:%02d"), time / 60, time % 60);
+                    //sprintf_P(&meter_desc[index].meter_id[0], PSTR("%02d:%02d"), time / 60, time % 60);
+                    sprintf_P(&meter_desc[index].meter_id[0], PSTR("%02d:%02d"), __udivsi3(time, 60), __umodsi3(time, 60));
+
                   }
                   break;
               }
@@ -2422,11 +2448,17 @@ SETREGS
               meter_desc[mindex].meter_id[p] = 0;
             } else if (sml_globs.mptr[mindex].type == 'k') {
               // 220901
-              uint32_t date = mbus_dval;
-              uint8_t year = date / SIPC_10000; // = 22
+              uint32_t date = __fixunsdfsi(mbus_dval);
+              //uint8_t year = date / SIPC_10000; // = 22
+              //date -= year * SIPC_10000;
+              //uint8_t month = date / 100; // = 09
+              //uint8_t day = date % 100; // = 01
+              uint8_t year = __udivsi3(date, SIPC_10000); // = 22
               date -= year * SIPC_10000;
-              uint8_t month = date / 100; // = 09
-              uint8_t day = date % 100; // = 01
+              uint8_t month = __udivsi3(date, 100); // = 09
+              uint8_t day = __umodsi3(date, 100); // = 01
+
+
               sprintf_P(&meter_desc[mindex].meter_id[0], PSTR("%02d.%02d.%02d"), day, month, year);
             } else {
               sml_getvalue(cp, mindex);
@@ -2490,8 +2522,8 @@ SETREGS
             if (*mptr == 'b') {
               mptr++;
               uint8_t shift = *mptr & 7;
-              ebus_dval = (uint32_t)ebus_dval >> shift;
-              ebus_dval = (uint32_t)ebus_dval & 1;
+              ebus_dval = __floatundidf((uint32_t)__fixunsdfsi(ebus_dval) >> shift);
+              ebus_dval = __floatundidf((uint32_t)__fixunsdfsi(ebus_dval) & 1);
               mptr+=2;
             }
             if (*mptr == 'i') {
@@ -3216,8 +3248,8 @@ ALLOCMEM
 
   uint8_t **bpt = (uint8_t**)&sml_globs.smltab;
   for (uint32_t cnt = 0; cnt < 11; cnt++) {
-   // *bpt += EXEC_OFFSET;
-   // bpt++;
+    *bpt += EXEC_OFFSET;
+    bpt++;
   }
   return result;
 }
@@ -3965,7 +3997,8 @@ SETREGS
     }
 
 #ifdef ESP8266
-    Serial.begin(baud, (SerialConfig)smode);
+    // >>>> needs fix
+    //Serial.begin(baud, (SerialConfig)smode);
 #else
     meter_desc[meter].meter_ss->begin(baud, smode, sml_globs.mptr[meter].srcpin, sml_globs.mptr[meter].trxpin, sml_globs.mptr[meter].so_flags.SO_TRX_INVERT);
     if (sml_globs.mptr[meter].so_flags.SO_DISS_PULL) {
@@ -4139,7 +4172,7 @@ uint32_t ctime = millis();
                 RtcSettings->pulse_counter[cindex]++;
                 sml_counters[cindex].sml_counter_pulsewidth = ctime - sml_counters[cindex].sml_counter_lfalltime;
                 sml_counters[cindex].sml_counter_lfalltime = ctime;
-                InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], __divdf3(SFPC_60000, (double)sml_counters[cindex].sml_counter_pulsewidth));
+                InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], __divdf3(SFPC_60000, __floatunsidf(sml_counters[cindex].sml_counter_pulsewidth)));
               }
             }
           }
@@ -4162,7 +4195,7 @@ uint32_t ctime = millis();
         }
 
         if (sml_counters[cindex].sml_cnt_updated) {
-          InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], __divdf3(SFPC_60000, (double)sml_counters[cindex].sml_counter_pulsewidth));
+          InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], __divdf3(SFPC_60000, __floatunsidf(sml_counters[cindex].sml_counter_pulsewidth)));
           sml_counters[cindex].sml_cnt_updated = 0;
         }
 				// check timeout
@@ -4900,7 +4933,8 @@ SETREGS
 
 	char freq[16];
 	freq[0] = 0;
-	if (rate != SFPC_0) {
+	//if (rate != SFPC_0) {
+  if (__nedf2(rate, SFPC_0)) {
 		DOUBLE2CHAR(rate, 4, freq);
 	}
   snprintf_P((char*)&meter_desc[meter].sbuff[0], meter_desc[meter].sbsiz, PSTR("1-0:1.7.0*255(%s)"), freq);

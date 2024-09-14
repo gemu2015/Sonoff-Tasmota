@@ -247,6 +247,16 @@ typedef struct {
 #define jdtostrfd(A,B,C)                (( char *(*)(double,unsigned char,char*))       jt[176])(A,B,C)
 #define jReplace_Cmd_Vars(A,B,C,D)      (( void (*)(uint32_t,uint32_t,uint32_t,uint32_t) ) jt[177])(A,B,C,D)
 #define PinUsed(A)                      (( bool(*)(uint32_t))                            jt[178])(A)
+#define jatoll(A)                       (( int64_t(*)(char*))                            jt[179])(A)
+#define double_cdispatch(A,B,C)         (( int32_t (*)(uint32_t,double,double))          jt[180])(A,B,C)
+#define __floatdidf(A)                  (( double(*)(int64_t))                           jt[181])(A)
+#define __floatundidf(A)                (( double(*)(int64_t))                           jt[182])(A)
+#define __floatsidf(A)                  (( double(*)(int32_t))                           jt[183])(A)
+#define __floatunsidf(A)                (( double(*)(uint32_t))                          jt[184])(A)
+#define __fixdfdi(A)                    (( int32_t(*)(double))                           jt[185])(A)
+#define __fixunsdfsi(A)                 (( uint32_t(*)(double))                          jt[186])(A)
+#define __extendsfdf2(A)                (( double(*)(float))                             jt[187])(A)
+
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -815,6 +825,7 @@ typedef struct {
 #define CalcTempHumToAbsHum jCalcTempHumToAbsHum
 #define tofloat jtofloat
 #define strtol jstrtol
+#define atoll jatoll
 
 #define fdiv jfdiv
 #define iseq jiseq
@@ -955,6 +966,25 @@ typedef struct {
 #define __divdf3(A,B) double_dispatch(3,A,B)
 
 
+#define __ltdf2(A,B) double_cdispatch(0,A,B)
+#define __nedf2(A,B) double_cdispatch(1,A,B)
+
+// in64 to double
+//#define __floatdidf(A) d2i64(A)
+// uint64 to double
+//#define __floatundidf(A) d2i64(A)
+// in32 to double
+//#define __floatsidf(A) d2i64(A)
+// uint32 to double
+//#define __floatunsidf(A) d2i64(A)
+
+// double to int32
+//#define __fixdfdi(A) d2i64(A)
+// double to uint32
+//#define __fixunsdfsi(A) d2i64(A)
+
+// float to double
+//#define __extendsfdf2(A) d2i64(A)
 
 
 #define dadd(A,B) double_dispatch(0,A,B)
