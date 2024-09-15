@@ -24,9 +24,8 @@
 /* plugin driver to doo
 esp8266:
 1. tcp mode, ok needs testing
-2. counter, ok
-3. crypto mode (ams reader)
-4. remaining cmd options
+2. crypto mode (ams reader)
+
 
 esp32
 1. serial port
@@ -317,6 +316,8 @@ MODULE_PART uint32_t SML_SetOptions(uint32_t in);
 MODULE_PART void SML_Restart(void);
 MODULE_PART void SML_dump(void);
 MODULE_PART void SML_counter(void);
+MODULE_PART void SML_led(void);
+MODULE_PART void SML_meter(void);
 MODULE_PART uint32_t SML_Getvars(uint16_t function);
 MODULE_PART void SML_Deinit(void);
 MODULE_PART int32_t mod_func_execute(uint32_t function);
@@ -590,7 +591,7 @@ struct SML_GLOBS {
   uint32_t dtimes[MAX_DVARS];
   char sml_start;
   uint8_t dump2log = 0;
-  uint8_t ser_act_LED_pin = 255;
+  uint8_t ser_act_LED_pin;
   uint8_t ser_act_meter_num = 0;
   uint16_t sml_logindex;
   char *log_data;
@@ -3205,6 +3206,7 @@ ALLOCMEM
   int32_t result = SML_Init();
   if (result) {
     SML_Deinit();
+    return result;
   }
 
   sml_globs.logsize = SML_DUMP_SIZE;
@@ -4807,7 +4809,6 @@ SETREGS
 
 void SML_counter(void) {
   SETREGS
-
   STGLOB
   GETDCONSTP
   // set counter 1 - 4
@@ -4832,13 +4833,32 @@ void SML_counter(void) {
   }
 }
 
-const char SML_Commands[] PROGMEM = "SML|"  // Prefix
-  "restart|dump|counter";
+void SML_led(void) {
+  SETREGS
+  STGLOB
+  // serial activity LED-GPIO
+  if (XdrvMailbox->data_len > 0) {
+    sml_globs.ser_act_LED_pin = XdrvMailbox->payload;
+    if (Gpio_used(sml_globs.ser_act_LED_pin)) {
+      AddLog(LOG_LEVEL_INFO, PSTR("SML: Error: Duplicate GPIO %d defined. Not usable for LED."), sml_globs.ser_act_LED_pin);
+      sml_globs.ser_act_LED_pin = 255;
+    }
+    if (sml_globs.ser_act_LED_pin != 255) {
+      pinMode(sml_globs.ser_act_LED_pin, OUTPUT);
+    }      
+  }
+  ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"activity LED_pin: %d\"}}"), sml_globs.ser_act_LED_pin);
+}
 
-void (* const SML_Command[])(void) PROGMEM = {
-  &SML_Restart, &SML_dump, &SML_counter};
-
-
+void SML_meter(void) {
+  SETREGS
+  STGLOB
+  // meter number for serial activity
+  if (XdrvMailbox->data_len > 0) {
+    sml_globs.ser_act_meter_num = XdrvMailbox->payload;
+  }
+  ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"sml_globs.ser_act_meter_num: %d\"}}"), sml_globs.ser_act_meter_num);
+}
 
 #if 0
 // dump to log shows serial data on console
@@ -4848,92 +4868,14 @@ void (* const SML_Command[])(void) PROGMEM = {
 // restart driver => sensor53 r
 // meter number for monitoring serial activity => sensor53 m1, m2, m3 ... or m0 for all (default)
 // LED-GPIO for monitoring serial activity => sensor53 l2, l13, l15 ... or l255 for turn off (default)
-
-bool XSNS_53_cmd(void) {
-SETREGS
-
-  STGLOB
-  GETDCONSTP
-  bool serviced = true;
-  if (XdrvMailbox->data_len > 0) {
-      char *cp = XdrvMailbox->data;
-      if (*cp == 'd') {
-        // set dump mode
-				if (sml_globs.ready) {
-        	cp++;
-        	uint8_t index = atoi(cp);
-        	if ((index & 7) > sml_globs.meters_used) index = 1;
-        	if (index > 0 && sml_globs.mptr[(index & 7) - 1].type == 'c') {
-          	index = 0;
-        	}
-					if (sml_globs.log_data) {
-						free(sml_globs.log_data);
-						sml_globs.log_data = 0;
-					}
-
-					if (index > 0) {
-						sml_globs.log_data = (char*)calloc(sml_globs.logsize, sizeof(char));
-					}
-        	sml_globs.dump2log = index;
-        	ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"dump: %d\"}}"), sml_globs.dump2log);
-				}
-      } else if (*cp == 'c') {
-        // set counter
-          cp++;
-          uint8_t index = *cp&7;
-          if (index < 1 || index > MAX_COUNTERS) index = 1;
-          cp++;
-          while (*cp == ' ') cp++;
-          if (isdigit(*cp)) {
-            uint32_t cval = atoi(cp);
-            while (isdigit(*cp)) cp++;
-            RtcSettings->pulse_counter[index - 1] = cval;
-            uint8_t cindex = 0;
-            for (uint8_t meters = 0; meters < sml_globs.meters_used; meters++) {
-              if (sml_globs.mptr[meters].type == 'c') {
-                InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], SFPC_0);
-                cindex++;
-              }
-            }
-          }
-          ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"counter%d: %d\"}}"), index, RtcSettings->pulse_counter[index - 1]);
-      } else if (*cp == 'r') {
-        // restart
-        ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"restart\"}}"));
-        SML_CounterSaveState();
-        SML_Init();
-      } else if (*cp == 'm') {
-        // meter number for serial activity
-        cp++;
-        if (!isdigit(*cp)) {
-          ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"sml_globs.ser_act_meter_num: %d\"}}"), sml_globs.ser_act_meter_num);
-        } else {
-          sml_globs.ser_act_meter_num = atoi(cp);
-          ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"sml_globs.ser_act_meter_num: %d\"}}"), sml_globs.ser_act_meter_num);
-        }
-      } else if (*cp == 'l') {
-        // serial activity LED-GPIO
-        cp++;
-        if (!isdigit(*cp)) {
-          ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"sml_globs.ser_act_LED_pin: %d\"}}"), sml_globs.ser_act_LED_pin);
-        } else {
-          sml_globs.ser_act_LED_pin = atoi(cp);
-          if (Gpio_used(sml_globs.ser_act_LED_pin)) {
-            AddLog(LOG_LEVEL_INFO, PSTR("SML: Error: Duplicate GPIO %d defined. Not usable for LED."), sml_globs.ser_act_LED_pin);
-            sml_globs.ser_act_LED_pin = 255;
-          }
-          if (sml_globs.ser_act_LED_pin != 255) {
-            pinMode(sml_globs.ser_act_LED_pin, OUTPUT);
-          }
-          ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"sml_globs.ser_act_LED_pin: %d\"}}"), sml_globs.ser_act_LED_pin);
-        }
-      } else {
-        serviced = false;
-      }
-  }
-  return serviced;
-}
 #endif
+
+const char SML_Commands[] PROGMEM = "SML|"  // Prefix
+  "restart|dump|counter|led|meter";
+
+void (* const SML_Command[])(void) PROGMEM = {
+  &SML_Restart, &SML_dump, &SML_counter , &SML_led, &SML_meter};
+
 
 void InjektCounterValue(uint8_t meter, uint32_t counter, double rate) {
 SETREGS
