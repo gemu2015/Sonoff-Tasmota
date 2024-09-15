@@ -23,8 +23,10 @@
 
 /* plugin driver to doo
 esp8266:
-1. tcp mode
-2. crypto mode (ams reader)
+1. tcp mode, ok needs testing
+2. counter, ok needs testing
+3. crypto mode (ams reader)
+
 
 esp32
 1. serial port
@@ -42,7 +44,6 @@ esp32
 #define XSNS_53 53
 
 // this driver depends on use USE_SCRIPT !!!
-
 
 // debug counter input to led for counter1 and 2
 //#define DEBUG_CNT_LED1 2
