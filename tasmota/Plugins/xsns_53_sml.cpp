@@ -311,12 +311,12 @@ MODULE_PART uint16_t MBUS_calculateCRC(uint8_t *frame, uint8_t num, uint16_t sta
 MODULE_PART uint16_t KS_calculateCRC(const uint8_t *frame, uint8_t num);
 MODULE_PART uint8_t SML_PzemCrc(uint8_t *data, uint8_t len);
 MODULE_PART uint8_t CalcEvenParity(uint8_t data);
-MODULE_PART bool XSNS_53_cmd(void);
 MODULE_PART void InjektCounterValue(uint8_t meter, uint32_t counter, double rate);
 MODULE_PART void SML_CounterSaveState(void);
 MODULE_PART uint32_t SML_SetOptions(uint32_t in);
 MODULE_PART void SML_Restart(void);
 MODULE_PART void SML_dump(void);
+MODULE_PART void SML_counter(void);
 MODULE_PART uint32_t SML_Getvars(uint16_t function);
 MODULE_PART void SML_Deinit(void);
 MODULE_PART int32_t mod_func_execute(uint32_t function);
@@ -4804,13 +4804,43 @@ SETREGS
   ResponseCmndNumber(index);
 }
 
+
+void SML_counter(void) {
+  SETREGS
+
+  STGLOB
+  GETDCONSTP
+  // set counter 1 - 4
+  if ((XdrvMailbox->index > 0) && (XdrvMailbox->index <= MAX_COUNTERS)) {
+
+    if (XdrvMailbox->data_len > 0) {
+      uint8_t index = XdrvMailbox->index;
+      uint32_t cval = XdrvMailbox->payload;
+
+      RtcSettings->pulse_counter[index - 1] = cval;
+  
+      uint8_t cindex = 0;
+      for (uint8_t meters = 0; meters < sml_globs.meters_used; meters++) {
+        if (sml_globs.mptr[meters].type == 'c') {
+          InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], SFPC_0);
+          cindex++;
+        }
+      }
+      ResponseTime_P(PSTR(",\"SML\":{\"CMD\":\"counter%d: %d\"}}"), index, RtcSettings->pulse_counter[index - 1]);
+    }
+    ResponseCmndNumber(RtcSettings->pulse_counter[XdrvMailbox->index -1]);
+  }
+}
+
 const char SML_Commands[] PROGMEM = "SML|"  // Prefix
-  "restart|dump";
+  "restart|dump|counter";
 
 void (* const SML_Command[])(void) PROGMEM = {
-  &SML_Restart, &SML_dump};
+  &SML_Restart, &SML_dump, &SML_counter};
 
 
+
+#if 0
 // dump to log shows serial data on console
 // has to be off for normal use
 // in console sensor53 d1, d2, d3 ... or d0 for normal use
@@ -4903,6 +4933,7 @@ SETREGS
   }
   return serviced;
 }
+#endif
 
 void InjektCounterValue(uint8_t meter, uint32_t counter, double rate) {
 SETREGS
@@ -5028,13 +5059,7 @@ int32_t mod_func_execute(uint32_t function) {
       case FUNC_COMMAND:
         result = DecodeCommand(SML_Commands, SML_Command);
         break;
-#if 0        
-      case FUNC_COMMAND_SENSOR:
-        if (XSNS_53 == XdrvMailbox->index) {
-          result = XSNS_53_cmd();
-        }
-        break;
-#endif
+
       case FUNC_SAVE_BEFORE_RESTART:
       case FUNC_SAVE_AT_MIDNIGHT:
         if (sml_globs.ready) {
