@@ -73,6 +73,7 @@ typedef struct {
   uint8_t cnt_debounce;
   uint8_t cnt_old_state;
   int8_t srcpin;
+  uint8_t pinstate;
 } PLUGIN_COUNTER;
 
 

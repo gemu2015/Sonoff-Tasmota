@@ -378,7 +378,6 @@ void IRAM_ATTR PLUGIN_ESP32_SERIAL::plugin_rxRead(void) {
 #ifdef USE_PLUGIN_COUNTER
 
 PLUGIN_COUNTER *global_pcnt;
-uint8_t counter_pinstate;
 
 void IRAM_ATTR Plugin_CounterIsr(void *arg);
 void Plugin_CounterIsr(void *arg) {
@@ -390,7 +389,7 @@ void Plugin_CounterIsr(void *arg) {
 
   uint32_t time = millis();
 
-  if (digitalRead(pars->srcpin) == bitRead(counter_pinstate, index)) {
+  if (digitalRead(pars->srcpin) == pars->pinstate) {
     return;
   }
 
@@ -398,7 +397,7 @@ void Plugin_CounterIsr(void *arg) {
 
   if (debounce_time <= pars->debounce) return;
 
-  if bitRead(counter_pinstate, index) {
+  if (pars->pinstate) {
     // falling edge
     RtcSettings.pulse_counter[index]++;
     pars->counter_pulsewidth = time - pars->counter_lfalltime;
@@ -406,7 +405,7 @@ void Plugin_CounterIsr(void *arg) {
     pars->cnt_updated = 1;
   }
   pars->counter_ltime = time;
-  counter_pinstate ^= (1 << index);
+  pars->pinstate ^= 1;
 }
 #endif
 
@@ -941,6 +940,13 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
     case 7:
       delete client;
       break;
+    case 8:
+      return client->write((uint8_t*)p2, p3);
+    case 9:
+      return client->peek();
+    case 100:
+      client->flush();
+      break;
 
 #if defined(ESP32) && defined(USE_TLS)
     case 10:
@@ -1076,6 +1082,27 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
       }
       return res;
     }
+
+    case 70:
+      {
+      IPAddress *ip_addr = (IPAddress *)p1;
+      ip_addr->fromString((char*)p2);
+      }
+      break;
+    case 71:
+      {
+      IPAddress *ip_addr = (IPAddress *)p2;
+      strcpy((char*)p1, ip_addr->toString().c_str());
+      }
+      break;
+    case 72:
+      global_pcnt = (PLUGIN_COUNTER*)p1;
+      attachInterruptArg(p2, Plugin_CounterIsr, (void*)p3, p4);
+      break;
+    case 73:
+      detachInterrupt(p1);
+      break;      
+
     default:
       return 0;
   }

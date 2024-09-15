@@ -883,9 +883,18 @@ typedef struct {
 #define client_connected(A) (int32_t)jtmod_wifi(2,(uint32_t)A,0,0,0)
 #define client_available(A) (int32_t)jtmod_wifi(3,(uint32_t)A,0,0,0)
 #define client_read(A) (uint8_t)jtmod_wifi(4,(uint32_t)A,0,0,0)
+#define client_write(A,B,C) (uint32_t)jtmod_wifi(8,(uint32_t)A,(uint32_t)B,C,0)
 #define client_readn(A,B,C) (int32_t)jtmod_wifi(5,(uint32_t)A,(uint32_t)B,C,0)
 #define client_stop(A) jtmod_wifi(6,(uint32_t)A,0,0,0)
 #define client_delete(A) jtmod_wifi(7,(uint32_t)A,0,0,0)
+#define client_peek(A) jtmod_wifi(9,(uint32_t)A,0,0,0)
+#define client_flush(A) jtmod_wifi(100,(uint32_t)A,0,0,0)
+
+
+#define ipa_fromstring(A,B) jtmod_wifi(70,(uint32_t)A,(uint32_t)B,0,0)
+#define ipa_tostring(A,B) jtmod_wifi(71,(uint32_t)A,(uint32_t)B,0,0)
+#define attachInterruptArg(A,B,C,D) jtmod_wifi(73,(uint32_t)A,(uint32_t)B,(uint32_t)C,D)
+#define detachInterrupt(A) jtmod_wifi(74,A,0,0,0)
 
 #define New_WiFiClientSecure() (void*)jtmod_wifi(10,0,0,0,0)
 #define sclient_connect(A,B,C) (int32_t)jtmod_wifi(11,(uint32_t)A,(uint32_t)B,C,0)
@@ -949,6 +958,9 @@ typedef struct {
 #define icecast_http() (void*)jtmod_wifi(51,0,0,0,0)
 #define icecast_end() jtmod_wifi(52,0,0,0,0)
 #define icecast_test() jtmod_wifi(53,0,0,0,0)
+
+
+
 
 
 #define GetHostbyName(A,B) jtmod_wifi(60,0,(uint32_t)A,(uint32_t)B,0)

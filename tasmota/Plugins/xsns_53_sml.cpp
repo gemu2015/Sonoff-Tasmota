@@ -1,10 +1,10 @@
 /*
-  xsns_53_sml.ino - SML,OBIS,EBUS,RAW,COUNTER interface for Tasmota
+  xsns_53_sml.ino - SML,OBIS,EBUS,MODBUS,VBUS,CAN,RAW,COUNTER interface for Tasmota
 
   Created by Gerhard Mutz on 07.10.11.
   adapted for Tasmota
 
-  Copyright (C) 2021  Gerhard Mutz and Theo Arends
+  Copyright (C) 2024  Gerhard Mutz
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -18,6 +18,17 @@
 
   You should have received a copy of the GNU General Public License
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+*/
+
+/* plugin driver to doo
+esp8266:
+1. tcp mode
+2. crypto mode (ams reader)
+
+esp32
+1. serial port
+2. canbus
 
 */
 
@@ -37,8 +48,9 @@
 //#define DEBUG_CNT_LED1 2
 //#define DEBUG_CNT_LED1 2
 
-//#include <TasmotaSerial.h>
-
+// disable in plugin mode
+#define NO_USE_SML_CANBUS
+#define NO_USE_SML_DECRYPT
 
 // use special no wait serial driver, should be always on
 #ifndef ESP32
@@ -49,7 +61,6 @@
 #ifndef MAX_METERS
 #define MAX_METERS 5
 #endif
-
 
 /* additional defines
 	USE_ESP32_SW_SERIAL
@@ -80,14 +91,11 @@
 #define USE_SML_SCRIPT_CMD
 #endif
 
-#define NO_USE_SML_DECRYPT
 
 #ifndef NO_USE_SML_DECRYPT
 // allows 256 bit AES decryption
 #define USE_SML_DECRYPT
 #endif
-
-#define NO_USE_SML_TCP
 
 #ifndef NO_USE_SML_TCP
 // modbus over TCP
@@ -98,9 +106,6 @@
 // obis in line mode
 #define SML_OBIS_LINE
 #endif
-
-
-#define NO_USE_SML_CANBUS
 
 #ifdef ESP32
 #ifndef NO_USE_SML_CANBUS
@@ -210,8 +215,6 @@ decryption flags (8 bits)
 
 //#define MODBUS_DEBUG
 
-
-
 PUSH_OPTIONS
 MODULE_DESCRIPTOR("SML",MODULE_TYPE_SENSOR,1<<16|4,"",0,"",0,"",0,"",0)
 MODULE_PART bool begin(uint32_t speed, uint32_t smode, int32_t recpin, int32_t trxpin, int32_t invert);
@@ -241,21 +244,11 @@ MODULE_PART int SML_ESP32_SERIAL::available(void);
 #endif
 
 
-//MODULE_PART return hws->available();
-//MODULE_PART return hws->read();
-//MODULE_PART return hws->write(byte);
 MODULE_PART double sml_median_array(double *array, uint8_t len);
 MODULE_PART double sml_median(struct SML_MEDIAN_FILTER* mf, double in);
-//MODULE_PART return sml_median_array(mf->buffer, MEDIAN_SIZE);
 MODULE_PART uint16_t Serial_available();
-//MODULE_PART return meter_desc[num].meter_ss->available();
-//MODULE_PART return meter_desc[num].client->available();
 MODULE_PART uint8_t Serial_read();
-//MODULE_PART return meter_desc[num].meter_ss->read();
-//MODULE_PART return meter_desc[num].client->read();
 MODULE_PART uint8_t Serial_peek();
-//MODULE_PART return meter_desc[num].meter_ss->peek();
-//MODULE_PART return meter_desc[num].client->peek();
 MODULE_PART void sml_dump_start(char c);
 MODULE_PART void dump2log(void);
 MODULE_PART void Hexdump(uint8_t *sbuff, uint32_t slen);
@@ -278,14 +271,12 @@ MODULE_PART void SML_Decode(uint8_t index);
 MODULE_PART void SML_Immediate_MQTT(const char *mptr,uint8_t index,uint8_t mindex);
 MODULE_PART void SML_Show(boolean json);
 MODULE_PART void SML_CounterIsr(void *arg);
-//MODULE_PART if bitRead(sml_counter_pinstate, index);
 MODULE_PART uint32_t SML_getlinelen(char *lp);
 MODULE_PART uint32_t SML_getscriptsize(char *lp);
 MODULE_PART uint32_t SML_getscriptsize(char *lp);
 MODULE_PART bool Gpio_used(uint8_t gpiopin);
 MODULE_PART char *SpecOptions(char *cp, uint32_t mnum);
 MODULE_PART uint16_t serial_dispatch(uint8_t meter, uint8_t sel);
-//MODULE_PART return mptr->meter_ss->available();
 MODULE_PART int SML_print(const char *format, ...);
 MODULE_PART void reset_sml_vars(uint16_t maxmeters);
 MODULE_PART void sml_free_vars(void);
@@ -452,9 +443,9 @@ struct METER_DESC {
 
 
 #ifdef USE_SML_TCP_SECURE
-  WiFiClientSecure *client;
+  void *client;
 #else
-  WiFiClient *client;
+  void *client;
 #endif // USE_SML_TCP_SECURE
 
 #endif // USE_SML_TCP
@@ -571,6 +562,19 @@ double buffer[MEDIAN_SIZE];
 int8_t index;
 };
 
+typedef struct {
+  uint32_t sml_cnt_last_ts;
+  uint32_t sml_counter_ltime;
+  uint32_t sml_counter_lfalltime;
+  uint32_t sml_counter_pulsewidth;
+  uint16_t sml_debounce;
+  uint8_t sml_cnt_updated;
+  uint8_t sml_cnt_debounce;
+  uint8_t sml_cnt_old_state;
+  int8_t srcpin;
+  uint8_t pinstate;
+} SML_COUNTER;
+
 
 struct SML_GLOBS {
   uint8_t sml_send_blocks;
@@ -607,6 +611,8 @@ struct SML_GLOBS {
   uint8_t sml_options;
   SML_TABLE smltab;
   uint8_t sb_counter;
+  SML_COUNTER sml_counters[MAX_COUNTERS];
+  uint8_t sml_cnt_index[MAX_COUNTERS];
 }; 
 
 
@@ -703,11 +709,15 @@ SETREGS
     return TSerial_Available(meter_desc[num].meter_ss);
     
   } else {
+#ifdef USE_SML_TCP   
     if (meter_desc[num].client) {
-      return meter_desc[num].client->available();
+      return client_available(meter_desc[num].client);
     } else {
       return 0;
     }
+#else 
+    return 0;
+#endif
   }
 }
 
@@ -722,11 +732,15 @@ SETREGS
     //return meter_desc[num].meter_ss->read();
     return TSerial_Read(meter_desc[num].meter_ss);
   } else {
+#ifdef USE_SML_TCP
     if (meter_desc[num].client) {
-      return meter_desc[num].client->read();
+      return client_read(meter_desc[num].client);
     } else {
       return 0;
     }
+#else
+    return 0;
+#endif
   }
 }
 
@@ -741,11 +755,15 @@ SETREGS
     //return meter_desc[num].meter_ss->peek();
     return TSerial_Peek(meter_desc[num].meter_ss);
   } else {
+#ifdef USE_SML_TCP
     if (meter_desc[num].client) {
-      return meter_desc[num].client->peek();
+      return client_peek(meter_desc[num].client);
     } else {
       return 0;
     }
+#else
+    return 0;
+#endif
   }
 }
 
@@ -1496,11 +1514,15 @@ SETREGS
     iob = (uint8_t)TSerial_Read(mptr->meter_ss); 
 
   } else {
+#ifdef USE_SML_TCP
     if (mptr->client) {
-      iob = (uint8_t)mptr->client->read();
+      iob = (uint8_t)client_read(mptr->client);
     } else {
       iob = 0;
     }
+#else
+    iob = 0;
+#endif
   }
 
   switch (mptr->type) {
@@ -1599,8 +1621,7 @@ SETREGS
             memmove(&mptr->sbuff[0], &mptr->sbuff[6], mptr->sbsiz - 6);
             SML_Decode(meters);
             if (mptr->client) {
-              //mptr->client->flush();
-              TSerial_Flush(mptr->client);
+              client_flush(mptr->client);
             }
             //Hexdump(mptr->sbuff + 6, 10);
           }
@@ -1713,7 +1734,7 @@ uint32_t meters;
 
 #ifdef USE_SML_TCP
           if (mptr->client) {    
-            while (mptr->client->available()){
+            while (client_available(mptr->client)) {
               sml_shift_in(meters, 0);
             }
           }
@@ -2852,56 +2873,6 @@ SETREGS
 
 }
 
-
-#if 0
-struct SML_COUNTER {
-  uint32_t sml_cnt_last_ts;
-  uint32_t sml_counter_ltime;
-  uint32_t sml_counter_lfalltime;
-  uint32_t sml_counter_pulsewidth;
-  uint16_t sml_debounce;
-  uint8_t sml_cnt_updated;
-  uint8_t sml_cnt_debounce;
-  uint8_t sml_cnt_old_state;
-  int8_t srcpin;
-} sml_counters[MAX_COUNTERS];
-
-
-
-uint8_t sml_counter_pinstate;
-uint8_t sml_cnt_index[MAX_COUNTERS] =  { 0, 1, 2, 3 };
-
-
-void IRAM_ATTR SML_CounterIsr(void *arg);
-void SML_CounterIsr(void *arg) {
-SETREGS
-  STGLOB
-  uint32_t index = *static_cast<uint8_t*>(arg);
-
-  uint32_t time = millis();
-  uint32_t debounce_time;
-
-  if (digitalRead(sml_globs.mptr[sml_counters[index].sml_cnt_old_state].srcpin) == bitRead(sml_counter_pinstate, index)) {
-    return;
-  }
-
-  debounce_time = time - sml_counters[index].sml_counter_ltime;
-
-  if (debounce_time <= sml_counters[index].sml_debounce) return;
-
-  if bitRead(sml_counter_pinstate, index) {
-
-    // falling edge
-    RtcSettings->pulse_counter[index]++;
-    sml_counters[index].sml_counter_pulsewidth = time - sml_counters[index].sml_counter_lfalltime;
-    sml_counters[index].sml_counter_lfalltime = time;
-    sml_counters[index].sml_cnt_updated = 1;
-  }
-  sml_counters[index].sml_counter_ltime = time;
-  sml_counter_pinstate ^= (1 << index);
-}
-#endif
-
 #ifdef SML_REPLACE_VARS
 
 #ifndef SML_SRCBSIZE
@@ -3239,6 +3210,11 @@ ALLOCMEM
   sml_globs.ser_act_LED_pin = 255;
   sml_globs.sml_options = SML_OPTIONS_JSON_ENABLE;
 
+  sml_globs.sml_cnt_index[0] = 0;
+  sml_globs.sml_cnt_index[1] = 1;
+  sml_globs.sml_cnt_index[2] = 2;
+  sml_globs.sml_cnt_index[3] = 3;
+
   sml_globs.smltab.SML_SetBaud = &SML_SetBaud;
   sml_globs.smltab.sml_status = &sml_status;
   sml_globs.smltab.SML_Write = &SML_Write;
@@ -3383,9 +3359,10 @@ SETREGS
             lp1++;
 #ifdef USE_SML_TCP
 #ifdef USE_SML_TCP_IP_STR
-            strcpy(mmp->ip_addr, str);
+            strcpy_P(mmp->ip_addr, str);
 #else
-            mmp->ip_addr.fromString(str);
+            //mmp->ip_addr.fromString(str);
+            ipa_fromstring(&mmp->ip_addr, str);
 #endif
 #endif
 
@@ -3601,10 +3578,8 @@ next_line:
   // preloud counters
   for (uint8_t i = 0; i < MAX_COUNTERS; i++) {
       RtcSettings->pulse_counter[i] = Settings->pulse_counter[i];
-      // >>>>>> sml_counters[i].sml_cnt_last_ts = millis();
+      sml_globs.sml_counters[i].sml_cnt_last_ts = millis();
   }
-
-  //sml_counter_pinstate = 0; >>>>
 
   for (uint8_t meters = 0; meters < sml_globs.meters_used; meters++) {
     METER_DESC *mptr = &meter_desc[meters];
@@ -3621,13 +3596,14 @@ next_line:
           // check for irq mode
           if (mptr->params <= 0) {
             // init irq mode
-            // >>>> sml_counters[cindex].sml_cnt_old_state = meters;
-            // >>>>> sml_counters[cindex].sml_debounce = -sml_globs.mptr[meters].params;
+            sml_globs.sml_counters[cindex].sml_cnt_old_state = meters;
+            sml_globs.sml_counters[cindex].sml_debounce = -sml_globs.mptr[meters].params;
             //attachInterruptArg(mptr->srcpin, SML_CounterIsr, &sml_cnt_index[cindex], CHANGE);
+            attachInterruptArg(&sml_globs.sml_counters,  mptr->srcpin, &sml_globs.sml_cnt_index[cindex], CHANGE);
             if (digitalRead(mptr->srcpin) > 0) {
-              // sml_counter_pinstate |= (1 << cindex); >>>>>>
+              sml_globs.sml_counters[cindex].pinstate = 1;
             }
-            // >>>>> sml_counters[cindex].sml_counter_ltime = millis();
+            sml_globs.sml_counters[cindex].sml_counter_ltime = millis();
           }
 
           RtcSettings->pulse_counter[cindex] = Settings->pulse_counter[cindex];
@@ -4145,7 +4121,6 @@ SETREGS
 void SML_Counter_Poll(void) {
 SETREGS
 
-#if 0
 GETDCONSTP
 GETICONSTP
 STGLOB
@@ -4156,32 +4131,32 @@ uint32_t ctime = millis();
     if (sml_globs.mptr[meters].type == 'c') {
       // poll for counters and debouce   
       if (sml_globs.mptr[meters].params > 0) {
-        if (ctime - sml_counters[cindex].sml_cnt_last_ts > sml_globs.mptr[meters].params) {
-          sml_counters[cindex].sml_cnt_last_ts = ctime;
+        if (ctime - sml_globs.sml_counters[cindex].sml_cnt_last_ts > sml_globs.mptr[meters].params) {
+          sml_globs.sml_counters[cindex].sml_cnt_last_ts = ctime;
 
           if (sml_globs.mptr[meters].flag & ANALOG_FLG) {
             // analog mode, get next value
           } else {
             // poll digital input
             uint8_t state;
-            sml_counters[cindex].sml_cnt_debounce <<= 1;
-            sml_counters[cindex].sml_cnt_debounce |= (digitalRead(sml_globs.mptr[meters].srcpin) & 1) | 0x80;
-            if (sml_counters[cindex].sml_cnt_debounce == 0xc0) {
+            sml_globs.sml_counters[cindex].sml_cnt_debounce <<= 1;
+            sml_globs.sml_counters[cindex].sml_cnt_debounce |= (digitalRead(sml_globs.mptr[meters].srcpin) & 1) | 0x80;
+            if (sml_globs.sml_counters[cindex].sml_cnt_debounce == 0xc0) {
               // is 1
               state = 1;
             } else {
               // is 0, means switch down
               state = 0;
             }
-            if (sml_counters[cindex].sml_cnt_old_state != state) {
+            if (sml_globs.sml_counters[cindex].sml_cnt_old_state != state) {
               // state has changed
-              sml_counters[cindex].sml_cnt_old_state = state;
+              sml_globs.sml_counters[cindex].sml_cnt_old_state = state;
               if (state == 0) {
                 // inc counter
                 RtcSettings->pulse_counter[cindex]++;
-                sml_counters[cindex].sml_counter_pulsewidth = ctime - sml_counters[cindex].sml_counter_lfalltime;
-                sml_counters[cindex].sml_counter_lfalltime = ctime;
-                InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], __divdf3(SFPC_60000, __floatunsidf(sml_counters[cindex].sml_counter_pulsewidth)));
+                sml_globs.sml_counters[cindex].sml_counter_pulsewidth = ctime - sml_globs.sml_counters[cindex].sml_counter_lfalltime;
+                sml_globs.sml_counters[cindex].sml_counter_lfalltime = ctime;
+                InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], __divdf3(SFPC_60000, __floatunsidf(sml_globs.sml_counters[cindex].sml_counter_pulsewidth)));
               }
             }
           }          
@@ -4193,8 +4168,8 @@ uint32_t ctime = millis();
         if (cindex == 1) SetDBGLed(sml_globs.mptr[meters].srcpin, DEBUG_CNT_LED2);
 #endif
       } else {
-        if (ctime - sml_counters[cindex].sml_cnt_last_ts > 10) {
-          sml_counters[cindex].sml_cnt_last_ts = ctime;
+        if (ctime - sml_globs.sml_counters[cindex].sml_cnt_last_ts > 10) {
+          sml_globs.sml_counters[cindex].sml_cnt_last_ts = ctime;
 #ifdef DEBUG_CNT_LED1
           if (cindex == 0) SetDBGLed(sml_globs.mptr[meters].srcpin, DEBUG_CNT_LED1);
 #endif
@@ -4203,21 +4178,20 @@ uint32_t ctime = millis();
 #endif
         }
 
-        if (sml_counters[cindex].sml_cnt_updated) {
-          InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], __divdf3(SFPC_60000, __floatunsidf(sml_counters[cindex].sml_counter_pulsewidth)));
-          sml_counters[cindex].sml_cnt_updated = 0;
+        if (sml_globs.sml_counters[cindex].sml_cnt_updated) {
+          InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], __divdf3(SFPC_60000, __floatunsidf(sml_globs.sml_counters[cindex].sml_counter_pulsewidth)));
+          sml_globs.sml_counters[cindex].sml_cnt_updated = 0;
         }
 				// check timeout
 				uint32_t time = millis();
-				if ((time - sml_counters[cindex].sml_counter_lfalltime) > CNT_PULSE_TOUT) {
+				if ((time - sml_globs.sml_counters[cindex].sml_counter_lfalltime) > CNT_PULSE_TOUT) {
 					InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], SFPC_0);
-					sml_counters[cindex].sml_counter_lfalltime = time;
+					sml_globs.sml_counters[cindex].sml_counter_lfalltime = time;
 				}
       }
       cindex++;
     }
   }
-  #endif
 }
 
 #ifdef USE_SCRIPT
@@ -4488,37 +4462,36 @@ MODBUS_TCP_HEADER tcph;
 #ifdef USE_SML_TCP
   // AddLog(LOG_LEVEL_INFO, PSTR("slen >> %d "),slen);
   if (meter_desc[meter].client) {
-    if (meter_desc[meter].client->connected()) {
-      meter_desc[meter].client->write((uint8_t*)&tcph, 7 + slen - 3);
+    if (client_connected(meter_desc[meter].client)) {
+      client_write(meter_desc[meter].client, (uint8_t*)&tcph, 7 + slen - 3);
     }
   }
 #endif
 }
 
 #ifdef USE_SML_TCP
-// >>>>>>>>
 int32_t sml_tcp_init(struct METER_DESC *mptr) {
   SETREGS
   STGLOB
   StateBitfield test = TasmotaGlobal->global_state;
-
   if (!test.wifi_down) {
     if (!mptr->client) {
       // tcp mode
 #ifdef USE_SML_TCP_SECURE
-      mptr->client = new WiFiClientSecure;
+      mptr->client = New_WiFiClientSecure();
       //client(new BearSSL::WiFiClientSecure_light(1024,1024)) {
-      mptr->client->setInsecure();
+      sclient_setInsecure(mptr->client);
 #else        
-      mptr->client = new WiFiClient;
+      mptr->client = New_WiFiClient();
 #endif // USE_SML_TCP_SECURE
     }
-    int32_t err = mptr->client->connect(mptr->ip_addr, mptr->params);
+    int32_t err = client_connect(mptr->client, mptr->ip_addr, mptr->params);
     char ipa[32];
 #ifdef USE_SML_TCP_IP_STR
-    strcpy(ipa, mptr->ip_addr);
+    strcpy_P(ipa, mptr->ip_addr);
 #else
-    strcpy(ipa, mptr->ip_addr.toString().c_str());
+    //strcpy_P(ipa, mptr->ip_addr.toString().c_str());
+    ipa_tostring(ipa, &mptr->ip_addr);
 #endif
     if (!err) {
       AddLog(LOG_LEVEL_INFO, PSTR("SML: could not connect TCP to %s:%d"),ipa, mptr->params);
@@ -4549,7 +4522,7 @@ SETREGS
 			  if (!mptr->client) {
           sml_tcp_init(mptr);
         } else {
-          if (!mptr->client->connected()) {
+          if (!client_connected(mptr->client)) {
             sml_tcp_init(mptr);
           }
         }
@@ -4557,8 +4530,6 @@ SETREGS
 	  }
   }
 }
-
-
 #endif // USE_SML_TCP
 
 
