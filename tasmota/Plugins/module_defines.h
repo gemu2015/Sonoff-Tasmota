@@ -256,7 +256,8 @@ typedef struct {
 #define __fixdfdi(A)                    (( int32_t(*)(double))                           jt[185])(A)
 #define __fixunsdfsi(A)                 (( uint32_t(*)(double))                          jt[186])(A)
 #define __extendsfdf2(A)                (( double(*)(float))                             jt[187])(A)
-
+#define random(A)                       (( uint32_t(*)(uint32_t))                        jt[188])(A)
+#define realloc(A,B)                    (( void *(*)(void*,size_t))                      jt[189])(A,B)
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)

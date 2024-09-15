@@ -322,6 +322,7 @@ MODULE_PART uint8_t CalcEvenParity(uint8_t data);
 MODULE_PART bool XSNS_53_cmd(void);
 MODULE_PART void InjektCounterValue(uint8_t meter, uint32_t counter, double rate);
 MODULE_PART void SML_CounterSaveState(void);
+MODULE_PART uint32_t SML_SetOptions(uint32_t in);
 MODULE_PART void SML_Restart(void);
 MODULE_PART void SML_dump(void);
 MODULE_PART uint32_t SML_Getvars(uint16_t function);
@@ -605,7 +606,9 @@ struct SML_GLOBS {
 #endif // USE_SML_CANBUS
   uint8_t sml_options;
   SML_TABLE smltab;
-};
+  uint8_t sb_counter;
+}; 
+
 
 typedef struct {
   struct SML_GLOBS sml_globs;
@@ -1321,8 +1324,6 @@ SETREGS
   return rVal;
 }
 
-uint8_t sb_counter;
-
 // need double precision in this driver
 double CharToDouble(const char *str) {
 SETREGS
@@ -1334,7 +1335,7 @@ SETREGS
 
   strlcpy(strbuf, str, sizeof(strbuf));
   char *pt = strbuf;
-  while ((*pt != '\0') && isspace(*pt)) { pt++; }  // Trim leading spaces
+  while ((*pt != '\0') && (*pt == ' ')) { pt++; }  // Trim leading spaces
 
   signed char sign = 1;
   if (*pt == '-') { sign = -1; }
@@ -1525,7 +1526,7 @@ SETREGS
       mptr->sbuff[mptr->sbsiz - 1] = iob;
       if (mptr->sbuff[0] != SML_SYNC && ((mptr->flag & NO_SYNC_FLG) == 0)) {
         // Skip decoding, when buffer does not start with sync byte (0x77)
-        sb_counter++;
+        sml_globs.sb_counter++;
         return;
       }
       break;
@@ -1634,7 +1635,7 @@ SETREGS
     case 'v':
       // vbus
       if (iob == EBUS_SYNC) {
-        sb_counter = 0;
+        sml_globs.sb_counter = 0;
         SML_Decode(meters);
         mptr->sbuff[0] = iob;
         mptr->spos = 1;
@@ -1672,7 +1673,6 @@ SETREGS
       }
       break;
   }
-  sb_counter++;
 
   if (mptr->shift_mode) {
     SML_Decode(meters);
@@ -1680,7 +1680,7 @@ SETREGS
 }
 
 
-uint16_t sml_count = 0;
+//uint16_t sml_count = 0;
 
 // polled every 50 ms
 void SML_Poll(void) {
@@ -1879,7 +1879,7 @@ SETREGS
       // calculated entry, check syntax
       mptr++;
       // do math m 1+2+3
-      if (*mptr == 'm' && !sb_counter) {
+      if (*mptr == 'm' && !sml_globs.sb_counter) {
         // only every 256 th byte
         // else it would be calculated every single serial byte
         mptr++;
@@ -2852,6 +2852,8 @@ SETREGS
 
 }
 
+
+#if 0
 struct SML_COUNTER {
   uint32_t sml_cnt_last_ts;
   uint32_t sml_counter_ltime;
@@ -2864,8 +2866,11 @@ struct SML_COUNTER {
   int8_t srcpin;
 } sml_counters[MAX_COUNTERS];
 
+
+
 uint8_t sml_counter_pinstate;
 uint8_t sml_cnt_index[MAX_COUNTERS] =  { 0, 1, 2, 3 };
+
 
 void IRAM_ATTR SML_CounterIsr(void *arg);
 void SML_CounterIsr(void *arg) {
@@ -2895,7 +2900,7 @@ SETREGS
   sml_counters[index].sml_counter_ltime = time;
   sml_counter_pinstate ^= (1 << index);
 }
-
+#endif
 
 #ifdef SML_REPLACE_VARS
 
@@ -3106,7 +3111,7 @@ SETREGS
 	len = vsnprintf(NULL, 0, format, arg);
 	va_end(copy);
 	if (len >= sizeof(loc_buf)) {
-		temp = (char*)malloc(len + 1);
+		temp = (char*)special_malloc(len + 1);
 		if (temp == NULL) {
 	  	return 0;
 	  }
@@ -3248,7 +3253,9 @@ ALLOCMEM
 
   uint8_t **bpt = (uint8_t**)&sml_globs.smltab;
   for (uint32_t cnt = 0; cnt < 11; cnt++) {
+    //AddLog(LOG_LEVEL_INFO, PSTR(">>> 1 %08x"), (uint32_t)*bpt);
     *bpt += EXEC_OFFSET;
+    //AddLog(LOG_LEVEL_INFO, PSTR(">>> 2 %08x"), (uint32_t)*bpt);
     bpt++;
   }
   return result;
@@ -3478,7 +3485,7 @@ dddef_exit:
             if (*lp1 == ',') {
               lp1++;
               // look ahead, lp points to next line
-              char *txbuff = (char *)malloc(SML_TRX_BUFF_SIZE);
+              char *txbuff = (char *)special_malloc(SML_TRX_BUFF_SIZE);
               if (!txbuff) {
                 goto dddef_exit;
               }
@@ -3594,10 +3601,11 @@ next_line:
   // preloud counters
   for (uint8_t i = 0; i < MAX_COUNTERS; i++) {
       RtcSettings->pulse_counter[i] = Settings->pulse_counter[i];
-      sml_counters[i].sml_cnt_last_ts = millis();
+      // >>>>>> sml_counters[i].sml_cnt_last_ts = millis();
   }
 
-  sml_counter_pinstate = 0;
+  //sml_counter_pinstate = 0; >>>>
+
   for (uint8_t meters = 0; meters < sml_globs.meters_used; meters++) {
     METER_DESC *mptr = &meter_desc[meters];
     if (mptr->type == 'c') {
@@ -3613,13 +3621,13 @@ next_line:
           // check for irq mode
           if (mptr->params <= 0) {
             // init irq mode
-            sml_counters[cindex].sml_cnt_old_state = meters;
-            sml_counters[cindex].sml_debounce = -sml_globs.mptr[meters].params;
-            attachInterruptArg(mptr->srcpin, SML_CounterIsr, &sml_cnt_index[cindex], CHANGE);
+            // >>>> sml_counters[cindex].sml_cnt_old_state = meters;
+            // >>>>> sml_counters[cindex].sml_debounce = -sml_globs.mptr[meters].params;
+            //attachInterruptArg(mptr->srcpin, SML_CounterIsr, &sml_cnt_index[cindex], CHANGE);
             if (digitalRead(mptr->srcpin) > 0) {
-              sml_counter_pinstate |= (1 << cindex);
+              // sml_counter_pinstate |= (1 << cindex); >>>>>>
             }
-            sml_counters[cindex].sml_counter_ltime = millis();
+            // >>>>> sml_counters[cindex].sml_counter_ltime = millis();
           }
 
           RtcSettings->pulse_counter[cindex] = Settings->pulse_counter[cindex];
@@ -3933,7 +3941,7 @@ SETREGS
   }
   if (TSerial_Hardwareserial(meter_desc[meter].meter_ss)) {
     if (sml_globs.mptr[meter].type=='M') {
-      Serial.begin(br, SERIAL_8E1);
+      // >>>>>> Serial.begin(br, SERIAL_8E1);
     }
   }
 #endif  // ESP8266
@@ -4137,6 +4145,7 @@ SETREGS
 void SML_Counter_Poll(void) {
 SETREGS
 
+#if 0
 GETDCONSTP
 GETICONSTP
 STGLOB
@@ -4145,7 +4154,7 @@ uint32_t ctime = millis();
 
   for (meters = 0; meters < sml_globs.meters_used; meters++) {
     if (sml_globs.mptr[meters].type == 'c') {
-      // poll for counters and debouce
+      // poll for counters and debouce   
       if (sml_globs.mptr[meters].params > 0) {
         if (ctime - sml_counters[cindex].sml_cnt_last_ts > sml_globs.mptr[meters].params) {
           sml_counters[cindex].sml_cnt_last_ts = ctime;
@@ -4175,7 +4184,7 @@ uint32_t ctime = millis();
                 InjektCounterValue(meters, RtcSettings->pulse_counter[cindex], __divdf3(SFPC_60000, __floatunsidf(sml_counters[cindex].sml_counter_pulsewidth)));
               }
             }
-          }
+          }          
         }
 #ifdef DEBUG_CNT_LED1
         if (cindex == 0) SetDBGLed(sml_globs.mptr[meters].srcpin, DEBUG_CNT_LED1);
@@ -4208,6 +4217,7 @@ uint32_t ctime = millis();
       cindex++;
     }
   }
+  #endif
 }
 
 #ifdef USE_SCRIPT
@@ -4486,6 +4496,7 @@ MODBUS_TCP_HEADER tcph;
 }
 
 #ifdef USE_SML_TCP
+// >>>>>>>>
 int32_t sml_tcp_init(struct METER_DESC *mptr) {
   SETREGS
   STGLOB
