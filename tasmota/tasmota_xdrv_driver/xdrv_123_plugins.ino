@@ -392,7 +392,7 @@ void Plugin_CounterIsr(void *arg) {
   if (digitalRead(pars->srcpin) == pars->pinstate) {
     return;
   }
-
+  
   uint32_t debounce_time = time - pars->counter_ltime;
 
   if (debounce_time <= pars->debounce) return;
@@ -451,12 +451,15 @@ char * tmod_strcpy_P(char *dst , const char *src);
 char * tmod_strncpy_P(char *dst , const char *src, size_t len);
 void tmod_WebServer_on(const char * prefix, void (*func)(void), uint8_t method);
 void *tmod_gtbl(void);
+#ifdef USE_SPI
 SPIClass *tmod_getspi(uint8_t sel);
 void tmod_spi_begin(SPIClass *spi, uint8_t flg, int8_t sck, int8_t miso, int8_t mosi);
 void tmod_spi_write(SPIClass *spi, uint8_t data);
 void tmod_spi_writebytes(SPIClass *spi, const uint8_t * data, uint32_t size);
 void tmod_Transaction(SPIClass *spi, uint8_t flg, uint32_t spibaud);
 uint8_t tmod_transfer(SPIClass *spi, uint8_t data);
+#endif
+
 char* ftostrfd(float number, unsigned char prec, char *s);
 class File * tmod_file_open(char *path, char mode);
 void tmod_file_close(class File *fp);
@@ -671,12 +674,21 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_fixsfti,
   JMPTBL&tmod_gtbl,
   JMPTBL&Settings,
+  #ifdef USE_SPI
   JMPTBL&tmod_getspi,
   JMPTBL&tmod_spi_begin,
   JMPTBL&tmod_spi_write,
   JMPTBL&tmod_spi_writebytes,
   JMPTBL&tmod_Transaction,
   JMPTBL&tmod_transfer,
+  #else
+  JMPTBL&tmod_dummy,
+  JMPTBL&tmod_dummy,
+  JMPTBL&tmod_dummy,
+  JMPTBL&tmod_dummy,
+  JMPTBL&tmod_dummy,
+  JMPTBL&tmod_dummy,
+  #endif
   JMPTBL&tmod_file_open,
   JMPTBL&tmod_file_close,
   JMPTBL&tmod_file_seek,
@@ -1543,7 +1555,7 @@ uint32_t tmod_file_pos(class File *fp) {
 #endif
 }
 
-
+#ifdef USE_SPI
 SPIClass *tmod_getspi(uint8_t sel) {
   if (!sel) {
     return &SPI;
@@ -1602,6 +1614,7 @@ void tmod_Transaction(SPIClass *spi, uint8_t flg, uint32_t spibaud) {
 uint8_t tmod_transfer(SPIClass *spi, uint8_t data) {
   return spi->transfer(data);
 }
+#endif
 
 
 void tmod_WebServer_on(const char * prefix, void (*func)(void), uint8_t method) {
@@ -3900,7 +3913,31 @@ int32_t flash_bindir(uint8_t sel, char *path) {
 // end BINDIR section
 /* =========================================================== */
 
+/*
 
+enum XsnsFunctions { FUNC_SETTINGS_OVERRIDE, FUNC_SETUP_RING1, FUNC_SETUP_RING2, FUNC_PRE_INIT, FUNC_INIT, FUNC_ACTIVE, FUNC_ABOUT_TO_RESTART,
+                     FUNC_LOOP, FUNC_SLEEP_LOOP, FUNC_EVERY_50_MSECOND, FUNC_EVERY_100_MSECOND, FUNC_EVERY_200_MSECOND, FUNC_EVERY_250_MSECOND, FUNC_EVERY_SECOND,
+                     FUNC_RESET_SETTINGS, FUNC_RESTORE_SETTINGS, FUNC_SAVE_SETTINGS, FUNC_SAVE_AT_MIDNIGHT, FUNC_SAVE_BEFORE_RESTART, FUNC_INTERRUPT_STOP, FUNC_INTERRUPT_START,
+                     FUNC_AFTER_TELEPERIOD, FUNC_JSON_APPEND, FUNC_WEB_SENSOR, FUNC_WEB_COL_SENSOR,
+                     FUNC_MQTT_SUBSCRIBE, FUNC_MQTT_INIT,
+                     FUNC_SET_POWER, FUNC_SHOW_SENSOR, FUNC_ANY_KEY, FUNC_LED_LINK,
+                     FUNC_ENERGY_EVERY_SECOND, FUNC_ENERGY_RESET,
+                     FUNC_TELEPERIOD_RULES_PROCESS, FUNC_FREE_MEM,
+                     FUNC_WEB_ADD_BUTTON, FUNC_WEB_ADD_CONSOLE_BUTTON, FUNC_WEB_ADD_MANAGEMENT_BUTTON, FUNC_WEB_ADD_MAIN_BUTTON,
+                     FUNC_WEB_GET_ARG, FUNC_WEB_ADD_HANDLER, FUNC_SET_SCHEME, FUNC_HOTPLUG_SCAN, FUNC_TIME_SYNCED,
+                     FUNC_DEVICE_GROUP_ITEM,
+                     FUNC_NETWORK_UP, FUNC_NETWORK_DOWN,
+                     FUNC_return_result = 200,  // Insert function WITHOUT return results before here. Following functions return results
+                     FUNC_PIN_STATE, FUNC_MODULE_INIT, FUNC_ADD_BUTTON, FUNC_ADD_SWITCH, FUNC_BUTTON_PRESSED, FUNC_BUTTON_MULTI_PRESSED,
+                     FUNC_SET_DEVICE_POWER,
+                     FUNC_MQTT_DATA, FUNC_SERIAL,
+                     FUNC_COMMAND, FUNC_COMMAND_SENSOR, FUNC_COMMAND_DRIVER,
+                     FUNC_RULES_PROCESS,
+                     FUNC_SET_CHANNELS,
+                     FUNC_last_function         // Insert functions WITH return results before here
+                     };
+
+*/
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/

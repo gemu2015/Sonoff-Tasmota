@@ -893,8 +893,8 @@ typedef struct {
 
 #define ipa_fromstring(A,B) jtmod_wifi(70,(uint32_t)A,(uint32_t)B,0,0)
 #define ipa_tostring(A,B) jtmod_wifi(71,(uint32_t)A,(uint32_t)B,0,0)
-#define attachInterruptArg(A,B,C,D) jtmod_wifi(73,(uint32_t)A,(uint32_t)B,(uint32_t)C,D)
-#define detachInterrupt(A) jtmod_wifi(74,A,0,0,0)
+#define attachInterruptArg(A,B,C,D) jtmod_wifi(72,(uint32_t)A,(uint32_t)B,(uint32_t)C,D)
+#define detachInterrupt(A) jtmod_wifi(73,A,0,0,0)
 
 #define New_WiFiClientSecure() (void*)jtmod_wifi(10,0,0,0,0)
 #define sclient_connect(A,B,C) (int32_t)jtmod_wifi(11,(uint32_t)A,(uint32_t)B,C,0)

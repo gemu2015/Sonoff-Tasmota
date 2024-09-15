@@ -24,9 +24,9 @@
 /* plugin driver to doo
 esp8266:
 1. tcp mode, ok needs testing
-2. counter, ok needs testing
+2. counter, ok
 3. crypto mode (ams reader)
-
+4. remaining cmd options
 
 esp32
 1. serial port
@@ -3586,7 +3586,7 @@ next_line:
     METER_DESC *mptr = &meter_desc[meters];
     if (mptr->type == 'c') {
         if (mptr->flag & ANALOG_FLG) {
-
+          // not used
         } else {
           // counters, set to input with pullup
           if (mptr->flag & PULLUP_FLG) {
@@ -3600,7 +3600,7 @@ next_line:
             sml_globs.sml_counters[cindex].sml_cnt_old_state = meters;
             sml_globs.sml_counters[cindex].sml_debounce = -sml_globs.mptr[meters].params;
             //attachInterruptArg(mptr->srcpin, SML_CounterIsr, &sml_cnt_index[cindex], CHANGE);
-            attachInterruptArg(&sml_globs.sml_counters,  mptr->srcpin, &sml_globs.sml_cnt_index[cindex], CHANGE);
+            attachInterruptArg(&sml_globs.sml_counters,  mptr->srcpin, &sml_globs.sml_cnt_index[cindex], CHANGE); 
             if (digitalRead(mptr->srcpin) > 0) {
               sml_globs.sml_counters[cindex].pinstate = 1;
             }
