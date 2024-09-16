@@ -143,6 +143,7 @@ List of already ported drivers:
 
 i2saudio(esp8266) wav player + SAM (say)
 i2saudio(esp32) wav + mp3 player + Webradio + SAM (say)
+sml
 mp3player (extern hardware)
 sht3x
 bmpx
