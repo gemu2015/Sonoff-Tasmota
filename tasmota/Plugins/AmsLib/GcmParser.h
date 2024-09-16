@@ -1,7 +1,6 @@
 #ifndef _GCMPARSER_H
 #define _GCMPARSER_H
 
-#include "Arduino.h"
 #include "DataParser.h"
 
 #define GCM_TAG 0xDB
@@ -15,14 +14,15 @@ typedef struct GCMSizeDef {
 } __attribute__((packed)) GCMSizeDef;
 
 
-class GCMParser {
-public:
-    GCMParser(uint8_t *encryption_key, uint8_t *authentication_key);
-    int8_t parse(uint8_t *buf, DataParserContext &ctx);
-private:
+//class GCMParser {
+//public:
+    //GCMParser(uint8_t *encryption_key, uint8_t *authentication_key);
+    
+    int8_t GCMParser_parse(uint8_t *buf, DataParserContext &ctx);
+//private:
     uint8_t encryption_key[16];
     uint8_t authentication_key[16];
 		uint8_t use_auth = 0;
-};
+//};
 
 #endif

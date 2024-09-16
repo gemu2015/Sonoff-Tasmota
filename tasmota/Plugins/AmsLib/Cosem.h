@@ -1,7 +1,7 @@
 #ifndef _COSEM_H
 #define _COSEM_H
 
-#include "lwip/def.h"
+//#include "lwip/def.h"
 
 // Blue book, Table 2
 enum CosemType {

@@ -2,7 +2,6 @@
 #ifndef _HAN_PARSER_H
 #define _HAN_PARSER_H
 #if defined __cplusplus
-#include "Arduino.h"
 #include "DataParsers.h"
 #include "DataParser.h"
 #include "Cosem.h"
@@ -13,19 +12,19 @@
 int16_t serial_available(void);
 uint8_t serial_read(void);
 
-class Han_Parser
-{
-public:
+//class Han_Parser
+//{
+//public:
     Han_Parser(uint16_t (*)(uint8_t, uint8_t), uint8_t, uint8_t *, uint8_t *);
-    ~Han_Parser(void);
-    bool readHanPort(uint8_t **out, uint16_t *size, uint8_t flags);
-		int16_t unwrapData(uint8_t *buf, DataParserContext &context);
-		void printHanReadError(int16_t pos);
+ //   ~Han_Parser(void);
+    bool Han_Parser_readHanPort(uint8_t **out, uint16_t *size, uint8_t flags);
+		int16_t Han_Parser_unwrapData(uint8_t *buf, DataParserContext &context);
+		void Han_Parser_printHanReadError(int16_t pos);
 		uint8_t encryptionKey[16];
 		uint8_t authenticationKey[16];
     uint8_t hanBuffer[BUF_SIZE_HAN];
     int len = 0;
-private:
+//private:
     uint16_t (*dispatch)(uint8_t, uint8_t);
     int serial_available(void);
     int serial_read(void);
@@ -42,6 +41,6 @@ private:
     uint8_t meter;
 		bool serialInit = true;
 		bool Debug = true;
-};
+//};
 #endif
 #endif

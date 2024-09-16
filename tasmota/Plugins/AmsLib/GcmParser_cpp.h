@@ -6,7 +6,7 @@
 #include "lwip/def.h"
 #include <t_bearssl.h>
 
-GCMParser::GCMParser(uint8_t *encryption_key, uint8_t *authentication_key) {
+GCMParser_GCMParser(uint8_t *encryption_key, uint8_t *authentication_key) {
     memcpy(this->encryption_key, encryption_key, 16);
     memcpy(this->authentication_key, authentication_key, 16);
     use_auth = 0;
@@ -17,7 +17,7 @@ GCMParser::GCMParser(uint8_t *encryption_key, uint8_t *authentication_key) {
     }
 }
 
-int8_t GCMParser::parse(uint8_t *d, DataParserContext &ctx) {
+int8_t GCMParser_parse(uint8_t *d, DataParserContext &ctx) {
     if(ctx.length < 12) return DATA_PARSE_INCOMPLETE;
 
     uint8_t* ptr = (uint8_t*) d;

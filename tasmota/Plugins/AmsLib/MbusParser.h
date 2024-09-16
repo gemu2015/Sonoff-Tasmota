@@ -20,16 +20,16 @@ typedef struct MbusFooter {
 	uint8_t flag;
 } __attribute__((packed)) MbusFooter;
 
-class MBUSParser {
-public:
-    int8_t parse(uint8_t *buf, DataParserContext &ctx);
-		~MBUSParser(void);
-		uint16_t write(const uint8_t* d, DataParserContext &ctx);
-private:
+//class MBUSParser {
+//public:
+    int8_t MBUSParser_parse(uint8_t *buf, DataParserContext &ctx);
+//		~MBUSParser(void);
+		uint16_t MBUSParser_write(const uint8_t* d, DataParserContext &ctx);
+//private:
     uint8_t lastSequenceNumber = 0;
     uint16_t pos = 0;
     uint8_t *buf  = NULL;
     uint8_t checksum(const uint8_t* p, int len);
-};
+//};
 
 #endif

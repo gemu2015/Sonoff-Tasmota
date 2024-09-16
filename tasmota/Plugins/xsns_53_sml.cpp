@@ -24,11 +24,11 @@
 /* plugin driver to doo
 global:
 1. tcp mode, ok needs testing
-2. crypto mode (ams reader)
+2. crypto mode (ams reader) ok but lib still in main flash because very complex driver
 
 
 esp32
-2. canbus
+2. canbus, ok needs testing
 
 */
 
@@ -49,7 +49,8 @@ esp32
 
 // disable in plugin mode
 //#define NO_USE_SML_CANBUS
-#define NO_USE_SML_DECRYPT
+
+//#define NO_USE_SML_DECRYPT
 
 // use special no wait serial driver, should be always on
 #ifndef ESP32
@@ -630,6 +631,25 @@ typedef struct {
 #define SML_OPTIONS_JSON_ENABLE 1
 
 
+//#ifdef USE_SML_DECRYPT
+#if 0
+#include "/AmsLib/han_Parser_cpp.h"
+#include "/AmsLib/Cosem_cpp.h"
+#include "/AmsLib/crc_cpp.h"
+#include "/AmsLib/DataParser_cpp.h"
+#include "/AmsLib/DimsParser_cpp.h"
+#include "/AmsLib/GbtParser_cpp.h"
+#include "/AmsLib/DsmrParser.h"
+#include "/AmsLib/GcmParser_cpp.h"
+#include "/AmsLib/HdlcParser.h"
+#include "/AmsLib/hexutils_cpp.h"
+#include "/AmsLib/LibcParser_cpp.h"
+#include "/AmsLib/MbusParser_cpp.h"
+#include "/AmsLib/nthil_cpp.h"
+#include "/AmsLib/Time_cpp.h"
+#endif
+
+
 #ifdef USE_SML_MEDIAN_FILTER
 
 double sml_median_array(double *array, uint8_t len) {
@@ -805,7 +825,12 @@ SETREGS
 					d_lastms = millis();
 					uint16_t logsiz;
 					uint8_t *payload;
-					if (mptr->hp->readHanPort(&payload, &logsiz, mptr->crypflags)) {
+					//if (mptr->hp->readHanPort(&payload, &logsiz, mptr->crypflags)) {
+          HP_PARS hpars;
+          hpars.out = &payload;
+          hpars.size = &logsiz;
+          hpars.flags = mptr->crypflags;
+          if (ReadHanPort(mptr->hp, &hpars)) {
 						if (logsiz > mptr->sbsiz) {
 							logsiz = mptr->sbsiz;
 						}
@@ -1491,7 +1516,12 @@ SETREGS
 			mptr->lastms = millis();
 			uint16_t len;
 			uint8_t *payload;
-			if (mptr->hp->readHanPort(&payload, &len, mptr->crypflags)) {
+      HP_PARS hpars;
+      hpars.out = &payload;
+      hpars.size = &len;
+      hpars.flags = mptr->crypflags;
+      if (ReadHanPort(mptr->hp, &hpars)) {
+			//if (mptr->hp->readHanPort(&payload, &len, mptr->crypflags)) {
 				if (len > mptr->sbsiz) {
 					len = mptr->sbsiz;
 				}
@@ -3157,7 +3187,7 @@ SETREGS
 #ifdef USE_SML_DECRYPT
 		if (mptr->use_crypt) {
 			if (mptr->hp) {
-				delete mptr->hp;
+        DelHanParser(mptr->hp);
 				mptr->hp = NULL;
 			}
 		}
@@ -3895,10 +3925,16 @@ next_line:
 
 #ifdef USE_SML_DECRYPT
 		if (mptr->use_crypt) {
+      HP_PARS hpars;
+      hpars.sd = &serial_dispatch;
+      hpars.meter = meters;
+      hpars.key = mptr->key;
 #ifdef USE_SML_AUTHKEY
-			mptr->hp = new Han_Parser(serial_dispatch, meters, mptr->key, mptr->auth);
+      hpars.auth = mptr->auth;
+      mptr->hp = NewHanParser(&hpars);
 #else
-			mptr->hp = new Han_Parser(serial_dispatch, meters, mptr->key, nullptr);
+      hpars.auth = nullptr;
+			mptr->hp = NewHanParser(&hpars);
 #endif
       mptr->crypflags = 0;
 		}

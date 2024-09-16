@@ -77,6 +77,16 @@ typedef struct {
 } PLUGIN_COUNTER;
 
 
+typedef struct {
+  uint16_t (*sd)(uint8_t, uint8_t);
+  uint8_t meter;
+  uint8_t *key;
+  uint8_t *auth;
+  uint8_t **out;
+  uint16_t *size;
+  uint8_t flags;
+} HP_PARS;
+
 #define MD_TYPE uint32_t
 
 #define MOD_STORE_NAMESIZE 8

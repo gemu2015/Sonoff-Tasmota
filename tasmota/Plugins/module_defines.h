@@ -967,6 +967,9 @@ typedef struct {
 #define ptwai_read_alerts(A,B) jspdispatch(78,(uint32_t)A,(uint32_t)B,0)
 #define ptwai__clear_receive_queue() jspdispatch(79,0,0,0)
 
+#define NewHanParser(A) (Han_Parser*)jspdispatch(90,(uint32_t)A,0,0)
+#define DelHanParser(A) jspdispatch(91,(uint32_t)A,0,0)
+#define ReadHanPort(A,B) jspdispatch(92,(uint32_t)A,(uint32_t)B,0)
 
 #define Replace_Cmd_Vars(A,B,C,D) jReplace_Cmd_Vars((uint32_t)A,B,(uint32_t)C,D)
 
