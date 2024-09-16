@@ -22,13 +22,12 @@
 */
 
 /* plugin driver to doo
-esp8266:
+global:
 1. tcp mode, ok needs testing
 2. crypto mode (ams reader)
 
 
 esp32
-1. serial port
 2. canbus
 
 */
@@ -49,7 +48,7 @@ esp32
 //#define DEBUG_CNT_LED1 2
 
 // disable in plugin mode
-#define NO_USE_SML_CANBUS
+//#define NO_USE_SML_CANBUS
 #define NO_USE_SML_DECRYPT
 
 // use special no wait serial driver, should be always on
@@ -61,6 +60,9 @@ esp32
 #ifndef MAX_METERS
 #define MAX_METERS 5
 #endif
+
+
+#define 	USE_ESP32_SW_SERIAL
 
 /* additional defines
 	USE_ESP32_SW_SERIAL
@@ -150,7 +152,7 @@ esp32
 #define SML_CAN_FILTERS 6
 #include "mcp2515.h"
 #else
-// esp32 uses native twai
+// esp32 uses native twai_
 #undef SML_CAN_MASKS
 #undef SML_CAN_FILTERS
 #define SML_CAN_MASKS 1
@@ -228,22 +230,6 @@ MODULE_PART void updateBaudRate(uint32_t baud);
 MODULE_PART void rxRead(void);
 MODULE_PART void end();
 MODULE_PART void setbaud(uint32_t speed);
-
-#ifdef ESP32
-MODULE_PART virtual ~SML_ESP32_SERIAL();
-MODULE_PART void SML_ESP32_SERIAL::setbaud(uint32_t speed);
-MODULE_PART void SML_ESP32_SERIAL::end(void);
-MODULE_PART bool SML_ESP32_SERIAL::begin(uint32_t speed, uint32_t smode, int32_t recpin, int32_t trxpin, int32_t invert);
-MODULE_PART void SML_ESP32_SERIAL::flush(void);
-MODULE_PART int SML_ESP32_SERIAL::peek(void);
-MODULE_PART int SML_ESP32_SERIAL::read(void);
-MODULE_PART size_t SML_ESP32_SERIAL::write(uint8_t byte);
-MODULE_PART void SML_ESP32_SERIAL::setRxBufferSize(uint32_t size);
-MODULE_PART void SML_ESP32_SERIAL::updateBaudRate(uint32_t baud);
-MODULE_PART int SML_ESP32_SERIAL::available(void);
-#endif
-
-
 MODULE_PART double sml_median_array(double *array, uint8_t len);
 MODULE_PART double sml_median(struct SML_MEDIAN_FILTER* mf, double in);
 MODULE_PART uint16_t Serial_available();
@@ -324,6 +310,21 @@ MODULE_PART int32_t mod_func_execute(uint32_t function);
 MODULE_END
 /********************************************************************************************/
 
+#ifdef ESP32
+// redefine serial calls
+#undef Del_TSerial
+#define Del_TSerial Del_E32Serial
+#undef TSerial_Available
+#define TSerial_Available E32Serial_Available
+#undef TSerial_Peek
+#define TSerial_Peek E32Serial_Peek
+#undef TSerial_Read
+#define TSerial_Read E32Serial_Read
+#undef TSerial_Write
+#define TSerial_Write E32Serial_Write
+#undef TSerial_Flush
+#define TSerial_Flush E32Serial_Flush
+#endif
 
 typedef union {
   uint8_t data;
@@ -413,7 +414,7 @@ struct METER_DESC {
 #ifndef USE_ESP32_SW_SERIAL
   HardwareSerial *meter_ss;
 #else
-  SML_ESP32_SERIAL *meter_ss;
+  void *meter_ss;
 #endif
 #endif  // ESP32
 
@@ -1011,7 +1012,7 @@ SETREGS
         // Check if message is received
         if (alerts_triggered & TWAI_ALERT_RX_DATA) {
           twai_message_t message;
-          while (twai_receive(&message, 0) == ESP_OK) {
+          while (ptwai_receive(&message, 0) == ESP_OK) {
             mptr->sbuff[0] = message.identifier >> 24;
             mptr->sbuff[1] = message.identifier >> 16;
             mptr->sbuff[2] = message.identifier >> 8;
@@ -3191,8 +3192,8 @@ SETREGS
 #ifdef USE_SML_CANBUS
 #ifdef ESP32
     if (sml_globs.twai_installed) {
-      twai_stop();
-      twai_driver_uninstall();
+      ptwai_stop();
+      ptwai_driver_uninstall();
       sml_globs.twai_installed = false;
     }
 #endif
@@ -3297,7 +3298,7 @@ SETREGS
 	uint16_t memory = 0;
 
 #ifdef ESP32
-  uint32_t uart_index = SOC_UART_HP_NUM - 1;
+  uint32_t uart_index = E32_SOC_UART_HP_NUM - 1;
 #endif
 
   sml_globs.sml_send_blocks = 0;
@@ -3704,14 +3705,14 @@ next_line:
       }
       sml_globs.twai_installed = false;
       // Install TWAI driver
-      if (twai_driver_install(&g_config, &t_config, &f_config) == ESP_OK) {
+      if (ptwai_driver_install(&g_config, &t_config, &f_config) == ESP_OK) {
         AddLog(LOG_LEVEL_DEBUG, PSTR("Can driver installed"));
         // Start TWAI driver
-        if (twai_start() == ESP_OK) {
+        if (ptwai_start() == ESP_OK) {
           AddLog(LOG_LEVEL_DEBUG, PSTR("Can driver started"));
           // Reconfigure alerts to detect frame receive, Bus-Off error and RX queue full states
           uint32_t alerts_to_enable = TWAI_ALERT_RX_DATA | TWAI_ALERT_RX_QUEUE_FULL | TWAI_ALERT_TX_IDLE | TWAI_ALERT_TX_SUCCESS | TWAI_ALERT_TX_FAILED | TWAI_ALERT_ERR_PASS | TWAI_ALERT_BUS_ERROR;
-          if (twai_reconfigure_alerts(alerts_to_enable, NULL) == ESP_OK) {
+          if (ptwai_reconfigure_alerts(alerts_to_enable, NULL) == ESP_OK) {
             AddLog(LOG_LEVEL_DEBUG, PSTR("CAN Alerts reconfigured"));
             AddLog(LOG_LEVEL_INFO, PSTR("Can driver ready"));
             sml_globs.twai_installed = true;
@@ -3763,7 +3764,7 @@ next_line:
         }
         AddLog(LOG_LEVEL_INFO, PSTR("SML: uart used: %d"),uart_index);
 #ifdef USE_ESP32_SW_SERIAL
-        mptr->meter_ss = new SML_ESP32_SERIAL(uart_index);
+        mptr->meter_ss = New_E32Serial(uart_index);
         if (mptr->srcpin >= 0) {
           if (uart_index == 0) { ClaimSerial(); }
           uart_index--;
@@ -3836,12 +3837,21 @@ next_line:
 #endif  // ESP8266
 
 #ifdef ESP32
-        mptr->meter_ss->begin(mptr->params, smode, mptr->srcpin, mptr->trxpin, mptr->so_flags.SO_TRX_INVERT);
+        //mptr->meter_ss->begin(mptr->params, smode, mptr->srcpin, mptr->trxpin, mptr->so_flags.SO_TRX_INVERT);
+        TSPARS spars;
+        spars.rxpin = mptr->srcpin;
+        spars.txpin = mptr->trxpin;
+        spars.hwfb = 1;
+        spars.nwmode = smode;
+        spars.bsize = mptr->sibsiz;
+        spars.speed = mptr->params;
+        spars.invert = mptr->so_flags.SO_TRX_INVERT;
+        E32Serial_Begin(mptr->meter_ss, &spars);
         if (mptr->so_flags.SO_DISS_PULL) {
-          gpio_pullup_dis((gpio_num_t)mptr->srcpin);
+          jgpio_pullup_dis((gpio_num_t)mptr->srcpin);
         }
 #ifdef USE_ESP32_SW_SERIAL
-				mptr->meter_ss->setRxBufferSize(mptr->sibsiz);
+				E32Serial_RxBufferSize(mptr->meter_ss, mptr->sibsiz);
 #endif
 #endif  // ESP32
       }
@@ -3926,8 +3936,8 @@ SETREGS
 #endif  // ESP8266
 
 #ifdef ESP32
-  meter_desc[meter].meter_ss->flush();
-  meter_desc[meter].meter_ss->updateBaudRate(br);
+  TSerial_Flush(meter_desc[meter].meter_ss);
+  E32Serial_SetBaudrate(meter_desc[meter].meter_ss, br);
   /*
   if (sml_globs.mptr[meter].type=='M') {
     meter_desc.meter_ss[meter]->begin(br,SERIAL_8E1,sml_globs.mptr[meter].srcpin,sml_globs.mptr[meter].trxpin);
@@ -3983,13 +3993,35 @@ SETREGS
         break;
     }
 
+    struct METER_DESC *mptr = &meter_desc[meter];
+
 #ifdef ESP8266
     // >>>> needs fix
     //Serial.begin(baud, (SerialConfig)smode);
+    TSPARS spars;
+    spars.rxpin = mptr->srcpin;
+    spars.txpin = mptr->trxpin;
+    spars.hwfb = 1;
+    spars.nwmode = smode;
+    spars.bsize = mptr->sibsiz;
+    spars.speed = mptr->params;
+    spars.invert = mptr->so_flags.SO_TRX_INVERT;
+    mptr->meter_ss = New_TSerial(&spars);
+
 #else
-    meter_desc[meter].meter_ss->begin(baud, smode, sml_globs.mptr[meter].srcpin, sml_globs.mptr[meter].trxpin, sml_globs.mptr[meter].so_flags.SO_TRX_INVERT);
+    //meter_desc[meter].meter_ss->begin(baud, smode, sml_globs.mptr[meter].srcpin, sml_globs.mptr[meter].trxpin, sml_globs.mptr[meter].so_flags.SO_TRX_INVERT);
+    TSPARS spars;
+    spars.rxpin = mptr->srcpin;
+    spars.txpin = mptr->trxpin;
+    spars.hwfb = 1;
+    spars.nwmode = smode;
+    spars.bsize = mptr->sibsiz;
+    spars.speed = mptr->params;
+    spars.invert = mptr->so_flags.SO_TRX_INVERT;
+    E32Serial_Begin(mptr->meter_ss, &spars);
+
     if (sml_globs.mptr[meter].so_flags.SO_DISS_PULL) {
-      gpio_pullup_dis((gpio_num_t)sml_globs.mptr[meter].srcpin);
+      jgpio_pullup_dis((gpio_num_t)sml_globs.mptr[meter].srcpin);
     }
 #endif
   }
@@ -4208,9 +4240,9 @@ SETREGS
 
 
   uint32_t alerts_triggered;
-  twai_read_alerts(&alerts_triggered, pdMS_TO_TICKS(POLLING_RATE_MS));
-  twai_status_info_t twaistatus;
-  twai_get_status_info(&twaistatus);
+  ptwai_read_alerts(&alerts_triggered, pdMS_TO_TICKS(POLLING_RATE_MS));
+  twai_status_info_t twai_status;
+  ptwai_get_status_info(&twai_status);
 
   // Handle alerts
   if (alerts_triggered & TWAI_ALERT_ERR_PASS) {
@@ -4218,25 +4250,25 @@ SETREGS
   }
   if (alerts_triggered & TWAI_ALERT_BUS_ERROR) {
     AddLog(LOG_LEVEL_DEBUG, PSTR("Alert: A (Bit, Stuff, CRC, Form, ACK) error has occurred on the bus."));
-    AddLog(LOG_LEVEL_DEBUG, PSTR("Bus error count: %d"), twaistatus.bus_error_count);
+    AddLog(LOG_LEVEL_DEBUG, PSTR("Bus error count: %d"), twai_status.bus_error_count);
   }
   if (alerts_triggered & TWAI_ALERT_RX_QUEUE_FULL) {
     AddLog(LOG_LEVEL_DEBUG, PSTR("Alert: The RX queue is full causing a received frame to be lost."));
-    AddLog(LOG_LEVEL_DEBUG, PSTR("RX buffered: %d"), twaistatus.msgs_to_rx);
-    AddLog(LOG_LEVEL_DEBUG, PSTR("RX missed: %d"), twaistatus.rx_missed_count);
-    AddLog(LOG_LEVEL_DEBUG, PSTR("RX overrun %d"), twaistatus.rx_overrun_count);
+    AddLog(LOG_LEVEL_DEBUG, PSTR("RX buffered: %d"), twai_status.msgs_to_rx);
+    AddLog(LOG_LEVEL_DEBUG, PSTR("RX missed: %d"), twai_status.rx_missed_count);
+    AddLog(LOG_LEVEL_DEBUG, PSTR("RX overrun %d"), twai_status.rx_overrun_count);
   }
 
   if (alerts_triggered & TWAI_ALERT_TX_FAILED) {
     AddLog(LOG_LEVEL_DEBUG, PSTR("Alert: The Transmission failed."));
-    AddLog(LOG_LEVEL_DEBUG, PSTR("TX buffered: %d"), twaistatus.msgs_to_tx);
-    AddLog(LOG_LEVEL_DEBUG, PSTR("TX error: %d"), twaistatus.tx_error_counter);
-    AddLog(LOG_LEVEL_DEBUG, PSTR("TX failed: %d"), twaistatus.tx_failed_count);
+    AddLog(LOG_LEVEL_DEBUG, PSTR("TX buffered: %d"), twai_status.msgs_to_tx);
+    AddLog(LOG_LEVEL_DEBUG, PSTR("TX error: %d"), twai_status.tx_error_counter);
+    AddLog(LOG_LEVEL_DEBUG, PSTR("TX failed: %d"), twai_status.tx_failed_count);
   }
   
   if (alerts_triggered & TWAI_ALERT_TX_SUCCESS) {
     AddLog(LOG_LEVEL_DEBUG, PSTR("Alert: The Transmission was successful."));
-    AddLog(LOG_LEVEL_DEBUG, PSTR("TX buffered: %d"), twaistatus.msgs_to_tx);
+    AddLog(LOG_LEVEL_DEBUG, PSTR("TX buffered: %d"), twai_status.msgs_to_tx);
   }
 
   return alerts_triggered;
@@ -4298,7 +4330,7 @@ sf
         if (alerts_triggered & TWAI_ALERT_RX_DATA) {
           // One or more messages received. Handle all.
           twai_message_t message;
-          while (twai_receive(&message, 0) == ESP_OK) {
+          while (ptwai_receive(&message, 0) == ESP_OK) {
             mptr->sbuff[0] = message.identifier >> 24;
             mptr->sbuff[1] = message.identifier >> 16;
             mptr->sbuff[2] = message.identifier >> 8;
@@ -4653,10 +4685,10 @@ SETREGS
           message.identifier &= SUIPC_0x7fffffff;
         }
 
-        twai_clear_receive_queue();
+        ptwai_clear_receive_queue();
 
         // Queue message for transmission
-        if (twai_transmit(&message, pdMS_TO_TICKS(100)) == ESP_OK) {
+        if (ptwai_transmit(&message, pdMS_TO_TICKS(100)) == ESP_OK) {
           AddLog(LOG_LEVEL_DEBUG, PSTR("Can message queued for transmission"));
         } else {
           AddLog(LOG_LEVEL_DEBUG, PSTR("Failed to queue can message for transmission"));
@@ -4948,10 +4980,10 @@ int32_t mod_func_execute(uint32_t function) {
       }
     }
     switch (function) {
-      case FUNC_INIT:
+      case pFUNC_INIT:
         result = SML_Init_0();
         break;
-      case FUNC_LOOP:
+      case pFUNC_LOOP:
         if (bitRead(Settings->rule_enabled, 0)) {
           if (sml_globs.ready) {
             SML_Counter_Poll();
@@ -4966,14 +4998,14 @@ int32_t mod_func_execute(uint32_t function) {
           }
         }
         break;
-      case FUNC_EVERY_100_MSECOND:
+      case pFUNC_EVERY_100_MSECOND:
         if (bitRead(Settings->rule_enabled, 0)) {
           if (sml_globs.ready) {
             SML_Check_Send();
           }
         }
         break;
-			case FUNC_EVERY_SECOND:
+			case pFUNC_EVERY_SECOND:
 				if (bitRead(Settings->rule_enabled, 0)) {
 					if (sml_globs.ready) {
 						SML_Counter_Poll_1s();
@@ -4983,7 +5015,7 @@ int32_t mod_func_execute(uint32_t function) {
 					}
 				}
         break;
-      case FUNC_JSON_APPEND:
+      case pFUNC_JSON_APPEND:
         if (sml_globs.ready) {
           if (sml_globs.sml_options & SML_OPTIONS_JSON_ENABLE) {
             SML_Show(1);
@@ -4991,24 +5023,24 @@ int32_t mod_func_execute(uint32_t function) {
         }
         break;
 #ifdef USE_WEBSERVER
-      case FUNC_WEB_SENSOR:
+      case pFUNC_WEB_SENSOR:
         if (sml_globs.ready) {
           SML_Show(0);
         }
         break;
 #endif  // USE_WEBSERVER
 
-      case FUNC_COMMAND:
+      case pFUNC_COMMAND:
         result = DecodeCommand(SML_Commands, SML_Command);
         break;
 
-      case FUNC_SAVE_BEFORE_RESTART:
-      case FUNC_SAVE_AT_MIDNIGHT:
+      case pFUNC_SAVE_BEFORE_RESTART:
+      case pFUNC_SAVE_AT_MIDNIGHT:
         if (sml_globs.ready) {
           SML_CounterSaveState();
         }
         break;
-			case FUNC_DEINIT:
+			case pFUNC_DEINIT:
 				SML_Deinit();
 				break;
 

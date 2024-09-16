@@ -937,10 +937,10 @@ typedef struct {
 #define TSerial_Hardwareserial(A) jspdispatch(9,(uint32_t)A,0,0)
 
 
-#define New_E32Serial (void*)jspdispatch(20,0,0,0)
+#define New_E32Serial(A) (void*)jspdispatch(20,0,A,0)
 #define E32Serial_End(A) jspdispatch(21,(uint32_t)A,0,0)
 #define Del_E32Serial(A) jspdispatch(22,(uint32_t)A,0,0)
-#define E32Serial_Begin(A,B) jspdispatch(23,(uint32_t)A,B,0)
+#define E32Serial_Begin(A,B) jspdispatch(23,(uint32_t)A,(uint32_t)B,0)
 #define E32Serial_Available(A) jspdispatch(24,(uint32_t)A,0,0)
 #define E32Serial_Peek(A) jspdispatch(25,(uint32_t)A,0,0)
 #define E32Serial_Read(A) jspdispatch(26,(uint32_t)A,0,0)
@@ -950,17 +950,31 @@ typedef struct {
 #define E32Serial_SetBaudrate(A,B) jspdispatch(29,(uint32_t)A,B,0)
 #define E32Serial_RxBufferSize(A,B) jspdispatch(30,(uint32_t)A,B,0)
 
-#define Replace_Cmd_Vars(A,B,C,D) jReplace_Cmd_Vars((uint32_t)A,B,(uint32_t)C,D)
+#define E32_SOC_UART_HP_NUM jspdispatch(50,0,0,0)
 
+#define jgpio_pullup_dis(A) jspdispatch(51,A,0,0)
+
+
+// canbus
+#define ptwai_driver_install(A,B,C) jspdispatch(70,(uint32_t)A,(uint32_t)B,(uint32_t)C)
+#define ptwai_driver_uninstall() jspdispatch(71,0,0,0)
+#define ptwai_start() jspdispatch(72,0,0,0)
+#define ptwai_stop() jspdispatch(73,0,0,0)
+#define ptwai_reconfigure_alerts(A,B) jspdispatch(74,(uint32_t)A,(uint32_t)B,0)
+#define ptwai_get_status_info(A) jspdispatch(75,(uint32_t)A,0,0)
+#define ptwai_receive(A,B) jspdispatch(76,(uint32_t)A,(uint32_t)B,0)
+#define ptwai_transmit(A,B) jspdispatch(77,(uint32_t)A,(uint32_t)B,0)
+#define ptwai_read_alerts(A,B) jspdispatch(78,(uint32_t)A,(uint32_t)B,0)
+#define ptwai__clear_receive_queue() jspdispatch(79,0,0,0)
+
+
+#define Replace_Cmd_Vars(A,B,C,D) jReplace_Cmd_Vars((uint32_t)A,B,(uint32_t)C,D)
 
 
 #define icecast_open(A) jtmod_wifi(50,0,(uint32_t)A,0,0)
 #define icecast_http() (void*)jtmod_wifi(51,0,0,0,0)
 #define icecast_end() jtmod_wifi(52,0,0,0,0)
 #define icecast_test() jtmod_wifi(53,0,0,0,0)
-
-
-
 
 
 #define GetHostbyName(A,B) jtmod_wifi(60,0,(uint32_t)A,(uint32_t)B,0)

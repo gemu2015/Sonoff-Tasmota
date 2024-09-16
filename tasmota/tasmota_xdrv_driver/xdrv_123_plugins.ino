@@ -92,9 +92,6 @@ extern FS *ffsp;
 #define module_name "/module.bin"
 #endif
 
-#define MODFUNC_WEB_SENSOR FUNC_WEB_SENSOR
-#define MODFUNC_JSON_APPEND FUNC_JSON_APPEND
-#define MODFUNC_INIT FUNC_INIT
 
 //  command line commands
 const char kModuleCommands[] PROGMEM = "|"// no Prefix
@@ -1345,6 +1342,11 @@ uint32_t tmod_udp(WiFiUDP *udp, uint32_t sel, uint32_t p1, uint32_t p2) {
   return 0;
 }
 
+#ifdef ESP32
+#include <can.h>
+#include "driver/twai.h"
+#endif
+
 uint32_t tmod_serialdispatch(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3) {
   TasmotaSerial *ts = (TasmotaSerial*)p1;
  #ifdef ESP32
@@ -1398,6 +1400,7 @@ uint32_t tmod_serialdispatch(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3
     case 23:
       {
       TSPARS *spars = (TSPARS*) p2; 
+      // bool begin(uint32_t speed, uint32_t smode, int32_t recpin, int32_t trxpin, int32_t invert);
       return ps->begin(spars->speed, spars->nwmode, spars->rxpin, spars->txpin, spars->invert);
       }
     case 24:
@@ -1423,6 +1426,35 @@ uint32_t tmod_serialdispatch(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3
     case 30:
       ps->setRxBufferSize(p2);
       break;
+
+    case 50:
+      return SOC_UART_HP_NUM;
+    case 51:
+      gpio_pullup_dis((gpio_num_t)p1);
+      break;
+#endif
+
+#ifdef ESP32
+    case 70:
+      return twai_driver_install((twai_general_config_t *)p1, (twai_timing_config_t*)p2, (twai_filter_config_t*)p3);
+    case 71:
+      return twai_driver_uninstall();
+    case 72:
+      return twai_start();
+    case 73:
+      return twai_stop();
+    case 74:
+      return twai_reconfigure_alerts(p1, (uint32_t*)p2);
+    case 75:
+      return twai_get_status_info((twai_status_info_t*)p1);
+    case 76:
+      return twai_receive((twai_message_t*)p1, (TickType_t)p2);
+    case 77:
+      return twai_transmit((twai_message_t*)p1, (TickType_t)p2);
+    case 78:
+      return twai_read_alerts((uint32_t*)p1, (TickType_t)p2);
+    case 79:
+      return twai_clear_receive_queue();
 #endif
 
   }
@@ -2513,6 +2545,9 @@ void InitModules(void) {
 
 
 void Module_Execute(uint32_t sel) {
+  if (!plugins.ready) {
+    return;
+  }
   for (uint8_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
     if (modules[cnt].mod_addr) {
       if (modules[cnt].flags.initialized) {
@@ -2561,7 +2596,7 @@ void ModuleWebSensor() {
     if (modules[cnt].mod_addr) {
       if (modules[cnt].flags.initialized && modules[cnt].flags.web_sensor) {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-        MOD_EXEC(MODFUNC_WEB_SENSOR);
+        MOD_EXEC(pFUNC_WEB_SENSOR);
       }
     }
   }
@@ -2572,7 +2607,7 @@ void ModuleJsonAppend() {
     if (modules[cnt].mod_addr) {
       if (modules[cnt].flags.initialized && modules[cnt].flags.json_append) {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
-        MOD_EXEC(MODFUNC_JSON_APPEND);
+        MOD_EXEC(pFUNC_JSON_APPEND);
       }
     }
   }
@@ -3013,7 +3048,7 @@ int32_t Init_module(uint32_t module) {
         free(buff);
       }
     }
-    int32_t result = MOD_EXEC(MODFUNC_INIT);
+    int32_t result = MOD_EXEC(pFUNC_INIT);
     
     modules[module].flags.web_sensor = 1;
     modules[module].flags.json_append = 1;
@@ -3040,7 +3075,7 @@ void Module_iniz(void) {
 void Deiniz_module(uint32_t module) {
   if (modules[module].mod_addr && modules[module].flags.initialized) {
     const FLASH_MODULE *fm = (FLASH_MODULE*)modules[module].mod_addr;
-    int32_t result = MOD_EXEC(FUNC_DEINIT);
+    int32_t result = MOD_EXEC(pFUNC_DEINIT);
     modules[module].flags.data = 0;
     AddLog(LOG_LEVEL_INFO,PSTR("module %d deinizialized"),module + 1);
   }
@@ -3706,238 +3741,7 @@ void Module_HandleUploadLoop(void) {
       break;
   }
 }
-  
-/* =========================================================== */
-// BINDIR section
-/* =========================================================== */
-#ifdef USE_FLASH_BDIR
-struct BINDIR {
-uint32_t address;
-uint32_t size;
-} bindir;
 
-void BinDir_list(void) {
-#ifdef USE_FLASH_BDIR
-  flash_bindir(0, (char*)"");
-  flash_bindir(1, (char*)"");
-#endif
-  ResponseCmndDone();
-}
-
-#define MODULE_SYNC 0x55aaFC4A
-// 32 bytes header
-typedef struct {
-  uint32_t sync;
-  uint32_t arch; // architecture EPS8266, ESP32 variants
-  uint32_t type; 
-  uint32_t revision;
-  char name[16];
-  uint32_t dummy1;
-  uint32_t dummy2;
-  uint32_t size; // size of payload
-  uint16_t execution_offset; // execution offset, normally 32
-  uint16_t CRC; // checksum over payload
-} FLASH_DATA_MODULE;
-
-
-enum {DATA_TYPE_SENSOR, DATA_TYPE_LIGHT, DATA_TYPE_ENERGY, DATA_TYPE_DRIVER, DATA_TYPE_SCRIPT, DATA_TYPE_BERRY};
-//enum {ARCH_ESP8266, ARCH_ESP32, ARCH_ESP32S3, ARCH_ESP32C3};
-
-
-uint32_t flash_getbsiz(uint32_t size) {
-uint32_t psiz = (size + sizeof(FLASH_DATA_MODULE)) / SPI_FLASH_SEC_SIZE;
-  if ((size + sizeof(FLASH_DATA_MODULE)) % SPI_FLASH_SEC_SIZE) {
-    psiz += 1;
-  }
-  psiz *= SPI_FLASH_SEC_SIZE;
-  return psiz;
-}
-
-int32_t flash_bindir(uint8_t sel, char *path) {
-  switch (sel) {
-    case 0:
-#ifdef ESP32
-      // init
-      const esp_partition_t *part;
-      part = esp_partition_find_first(ESP_PARTITION_TYPE_ANY, ESP_PARTITION_SUBTYPE_ANY, "binary");
-      if (part) {
-        bindir.address = part->address;
-        bindir.size = part->size;
-        return bindir.size;
-      } else {
-        bindir.address = 0;
-        bindir.size = 0;
-        return 0;
-      }
-#endif
-#ifdef ESP8266
-      {
-        uint32_t chipsize = ESP.getFlashChipSize();
-        bindir.address =  (ESP_getSketchSize() + SPI_FLASH_SEC_SIZE) & (SPI_FLASH_SEC_SIZE-1^0xffffffff);
-        bindir.size = ESP.getFreeSketchSpace();
-      }
-#endif
-      break;
-    case 1:
-      // list
-      {
-        uint8_t *buff = (uint8_t*)malloc(SPI_FLASH_SEC_SIZE);
-        if (buff) {
-          FLASH_DATA_MODULE *fm;
-          int32_t tsize = bindir.size;
-          uint32_t addr = bindir.address;
-          uint32_t psiz;
-          uint16_t entry = 0;
-          AddLog(LOG_LEVEL_INFO,PSTR("Partition (%08x - %d kb)"), bindir.address, bindir.size / 1024);
-          while (tsize> 0) {
-            ESP.flashRead(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
-            fm = (FLASH_DATA_MODULE*)buff;
-            if (fm->sync == MODULE_SYNC) {
-              entry += 1;
-              AddLog(LOG_LEVEL_INFO,PSTR("entry-%02d %s - %08x - %d bytes"), entry, fm->name, addr, fm->size);
-              psiz = flash_getbsiz(fm->size);
-            } else {
-              psiz = SPI_FLASH_SEC_SIZE;
-            }          
-            tsize -= psiz;
-            addr += psiz;
-          }
-          free(buff);
-        }
-      }
-      break;
-    case 2:
-      // write, copy from file system
-      {
-        // find free entry
-        uint8_t *buff = (uint8_t*)malloc(SPI_FLASH_SEC_SIZE);
-        if (!buff) {
-          return -1;
-        }
-        FLASH_DATA_MODULE *fm;
-        int32_t tsize = bindir.size;
-        uint32_t addr = bindir.address;
-        uint32_t psiz;
-        while (tsize> 0) {
-#ifdef ESP8266
-          ESP.flashRead(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
-#endif
-          fm = (FLASH_DATA_MODULE*)buff;
-          if (fm->sync == MODULE_SYNC) {
-            if (!strcmp(fm->name, path)) {
-              // replace
-              break;
-            }
-            psiz = flash_getbsiz(fm->size);
-          } else {
-            break;
-          }
-          tsize -= psiz;
-          addr += psiz;
-        }
-        File file = ufsp->open(path, FS_FILE_READ);
-        if (file) {
-          int32_t size = file.size();
-          FLASH_DATA_MODULE fm;
-          fm.sync = MODULE_SYNC;
-#ifdef ESP8266
-          fm.arch = 0;
-#else          
-          fm.arch = 0;
-#endif
-          fm.type = 0;
-          fm.revision = 0;
-          strncpy(fm.name, path, sizeof(fm.name));
-          fm.size = size;
-          fm.execution_offset = 32;
-          fm.CRC = 0;
-          memcpy(buff, (uint8_t*)&fm, sizeof(FLASH_DATA_MODULE));
-          uint16_t s = file.read(buff + sizeof(FLASH_DATA_MODULE), SPI_FLASH_SEC_SIZE - sizeof(FLASH_DATA_MODULE));
-          size -= s;
-#ifdef ESP8266
-          ESP.flashEraseSector(addr / SPI_FLASH_SEC_SIZE);
-          ESP.flashWrite(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
-          addr += SPI_FLASH_SEC_SIZE;
-          while (size > 0) {
-            uint16_t s = file.read(buff, SPI_FLASH_SEC_SIZE);
-            ESP.flashEraseSector(addr / SPI_FLASH_SEC_SIZE);
-            ESP.flashWrite(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
-            size -= s;
-          }
-#endif
-          free(buff);
-          file.close();
-          return 0;
-        } else {
-          free(buff);
-          AddLog(LOG_LEVEL_INFO,PSTR("File %s not found"), path);
-        }
-      }
-      break;
-    case 3:
-      // get execution address and size
-      {
-        uint8_t *buff = (uint8_t*)malloc(SPI_FLASH_SEC_SIZE);
-        if (buff) {
-          FLASH_DATA_MODULE *fm;
-          int32_t tsize = bindir.size;
-          uint32_t addr = bindir.address;
-          uint32_t psiz;
-          while (tsize> 0) {
-#ifdef ESP8266
-            ESP.flashRead(addr, (uint32_t*)buff, SPI_FLASH_SEC_SIZE);
-#endif
-            fm = (FLASH_DATA_MODULE*)buff;
-            if (fm->sync == MODULE_SYNC) {
-              if (!strcmp(fm->name, path)) {
-                AddLog(LOG_LEVEL_INFO,PSTR(">>>> found %s - %d - %08x"), fm->name, fm->size, addr);
-                break;
-              }
-              psiz = flash_getbsiz(fm->size);
-            } else {
-              psiz = SPI_FLASH_SEC_SIZE;
-            }
-            tsize -= psiz;
-            addr += psiz;
-          }
-          free(buff);
-        }
-      }
-      break;
-  }
-
-  return 0;
-}
-#endif // USE_FLASH_BDIR
-/* =========================================================== */
-// end BINDIR section
-/* =========================================================== */
-
-/*
-
-enum XsnsFunctions { FUNC_SETTINGS_OVERRIDE, FUNC_SETUP_RING1, FUNC_SETUP_RING2, FUNC_PRE_INIT, FUNC_INIT, FUNC_ACTIVE, FUNC_ABOUT_TO_RESTART,
-                     FUNC_LOOP, FUNC_SLEEP_LOOP, FUNC_EVERY_50_MSECOND, FUNC_EVERY_100_MSECOND, FUNC_EVERY_200_MSECOND, FUNC_EVERY_250_MSECOND, FUNC_EVERY_SECOND,
-                     FUNC_RESET_SETTINGS, FUNC_RESTORE_SETTINGS, FUNC_SAVE_SETTINGS, FUNC_SAVE_AT_MIDNIGHT, FUNC_SAVE_BEFORE_RESTART, FUNC_INTERRUPT_STOP, FUNC_INTERRUPT_START,
-                     FUNC_AFTER_TELEPERIOD, FUNC_JSON_APPEND, FUNC_WEB_SENSOR, FUNC_WEB_COL_SENSOR,
-                     FUNC_MQTT_SUBSCRIBE, FUNC_MQTT_INIT,
-                     FUNC_SET_POWER, FUNC_SHOW_SENSOR, FUNC_ANY_KEY, FUNC_LED_LINK,
-                     FUNC_ENERGY_EVERY_SECOND, FUNC_ENERGY_RESET,
-                     FUNC_TELEPERIOD_RULES_PROCESS, FUNC_FREE_MEM,
-                     FUNC_WEB_ADD_BUTTON, FUNC_WEB_ADD_CONSOLE_BUTTON, FUNC_WEB_ADD_MANAGEMENT_BUTTON, FUNC_WEB_ADD_MAIN_BUTTON,
-                     FUNC_WEB_GET_ARG, FUNC_WEB_ADD_HANDLER, FUNC_SET_SCHEME, FUNC_HOTPLUG_SCAN, FUNC_TIME_SYNCED,
-                     FUNC_DEVICE_GROUP_ITEM,
-                     FUNC_NETWORK_UP, FUNC_NETWORK_DOWN,
-                     FUNC_return_result = 200,  // Insert function WITHOUT return results before here. Following functions return results
-                     FUNC_PIN_STATE, FUNC_MODULE_INIT, FUNC_ADD_BUTTON, FUNC_ADD_SWITCH, FUNC_BUTTON_PRESSED, FUNC_BUTTON_MULTI_PRESSED,
-                     FUNC_SET_DEVICE_POWER,
-                     FUNC_MQTT_DATA, FUNC_SERIAL,
-                     FUNC_COMMAND, FUNC_COMMAND_SENSOR, FUNC_COMMAND_DRIVER,
-                     FUNC_RULES_PROCESS,
-                     FUNC_SET_CHANNELS,
-                     FUNC_last_function         // Insert functions WITH return results before here
-                     };
-
-*/
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
@@ -3955,7 +3759,7 @@ bool Xdrv123(uint32_t function) {
       if (plugins.ready) {
         result = DecodeCommand(kModuleCommands, ModuleCommand);
         if (!result) {
-          result = Module_Command(FUNC_COMMAND);
+          result = Module_Command(pFUNC_COMMAND);
         }
       } else {
 #ifdef ESP32
@@ -3964,19 +3768,36 @@ bool Xdrv123(uint32_t function) {
       }
       break;
     case FUNC_EVERY_100_MSECOND:
-    case FUNC_EVERY_250_MSECOND:
-    case FUNC_EVERY_SECOND:
-    case FUNC_WEB_ADD_BUTTON:
-    case FUNC_SET_POWER: 
-    case FUNC_LOOP:
-    case FUNC_COMMAND_SENSOR:
-    case FUNC_WEB_ADD_MAIN_BUTTON:
-    case FUNC_SAVE_BEFORE_RESTART:
-    case FUNC_SAVE_AT_MIDNIGHT:
-      if (plugins.ready) {
-        Module_Execute(function);
-      }
+      Module_Execute(pFUNC_EVERY_100_MSECOND);
       break;
+    case FUNC_EVERY_250_MSECOND:
+      Module_Execute(pFUNC_EVERY_250_MSECOND);
+      break;
+    case FUNC_EVERY_SECOND:
+      Module_Execute(pFUNC_EVERY_SECOND);
+      break;
+    case FUNC_WEB_ADD_BUTTON:
+      Module_Execute(pFUNC_WEB_ADD_BUTTON);
+      break;
+    case FUNC_SET_POWER:
+      Module_Execute(pFUNC_SET_POWER);
+      break;
+    case FUNC_LOOP:
+      Module_Execute(pFUNC_LOOP);
+      break;
+    case FUNC_COMMAND_SENSOR:
+      Module_Execute(pFUNC_COMMAND_SENSOR);
+      break;
+    case FUNC_WEB_ADD_MAIN_BUTTON:
+      Module_Execute(pFUNC_WEB_ADD_MAIN_BUTTON);
+      break;
+    case FUNC_SAVE_BEFORE_RESTART:
+      Module_Execute(pFUNC_SAVE_BEFORE_RESTART);
+      break;
+    case FUNC_SAVE_AT_MIDNIGHT:
+      Module_Execute(pFUNC_SAVE_AT_MIDNIGHT);
+      break;
+
     case FUNC_WEB_SENSOR:
       if (plugins.ready) {
         Modul_Check_HTML_Setvars();
@@ -4002,7 +3823,7 @@ bool Xdrv123(uint32_t function) {
         Webserver->on("/mo_upl", Module_upload);
         Webserver->on("/modu", HTTP_GET, Module_upload);
         Webserver->on("/modu", HTTP_POST,[](){Webserver->sendHeader(F("Location"),F("/modu"));Webserver->send(303);}, Module_HandleUploadLoop);
-        Module_Execute(function);
+        Module_Execute(pFUNC_WEB_ADD_HANDLER);
       }
       break;
     case FUNC_ACTIVE:

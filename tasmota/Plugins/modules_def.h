@@ -18,7 +18,7 @@ enum {iD_TEMPERATURE,iD_PRESSURE,iD_HUMIDITY,iD_ABSOLUTE_HUMIDITY,iD_DISTANCE};
 #endif
 #endif
 
-#define FUNC_DEINIT 999
+#define pFUNC_DEINIT 999
 
 typedef union {
   uint8_t data;
@@ -57,7 +57,7 @@ typedef struct {
     int8_t rxpin;
     int8_t txpin;
     int8_t hwfb;
-    int8_t nwmode;
+    int32_t nwmode;
     uint16_t bsize;
     uint32_t speed;
     int8_t invert;
@@ -98,3 +98,26 @@ enum {
 //slow RTC MEM
 #define GLOB_MOD_REG 0x50001ff0
 //#define GLOB_MOD_REG RTC_SLOW_MEM
+
+enum pXsnsFunctions { pFUNC_SETTINGS_OVERRIDE, pFUNC_SETUP_RING1, pFUNC_SETUP_RING2, pFUNC_PRE_INIT, pFUNC_INIT, pFUNC_ACTIVE, pFUNC_ABOUT_TO_RESTART,
+                     pFUNC_LOOP, pFUNC_SLEEP_LOOP, pFUNC_EVERY_50_MSECOND, pFUNC_EVERY_100_MSECOND, pFUNC_EVERY_200_MSECOND, pFUNC_EVERY_250_MSECOND, pFUNC_EVERY_SECOND,
+                     pFUNC_RESET_SETTINGS, pFUNC_RESTORE_SETTINGS, pFUNC_SAVE_SETTINGS, pFUNC_SAVE_AT_MIDNIGHT, pFUNC_SAVE_BEFORE_RESTART, pFUNC_INTERRUPT_STOP, pFUNC_INTERRUPT_START,
+                     pFUNC_AFTER_TELEPERIOD, pFUNC_JSON_APPEND, pFUNC_WEB_SENSOR, pFUNC_WEB_COL_SENSOR,
+                     pFUNC_MQTT_SUBSCRIBE, pFUNC_MQTT_INIT,
+                     pFUNC_SET_POWER, pFUNC_SHOW_SENSOR, pFUNC_ANY_KEY, pFUNC_LED_LINK,
+                     pFUNC_ENERGY_EVERY_SECOND, pFUNC_ENERGY_RESET,
+                     pFUNC_TELEPERIOD_RULES_PROCESS, pFUNC_FREE_MEM,
+                     pFUNC_WEB_ADD_BUTTON, pFUNC_WEB_ADD_CONSOLE_BUTTON, pFUNC_WEB_ADD_MANAGEMENT_BUTTON, pFUNC_WEB_ADD_MAIN_BUTTON,
+                     pFUNC_WEB_GET_ARG, pFUNC_WEB_ADD_HANDLER, pFUNC_SET_SCHEME, pFUNC_HOTPLUG_SCAN, pFUNC_TIME_SYNCED,
+                     pFUNC_DEVICE_GROUP_ITEM,
+                     pFUNC_NETWORK_UP, pFUNC_NETWORK_DOWN,
+                     pFUNC_return_result = 200,  // Insert function WITHOUT return results before here. Following functions return results
+                     pFUNC_PIN_STATE, pFUNC_MODULE_INIT, pFUNC_ADD_BUTTON, pFUNC_ADD_SWITCH, pFUNC_BUTTON_PRESSED, pFUNC_BUTTON_MULTI_PRESSED,
+                     pFUNC_SET_DEVICE_POWER,
+                     pFUNC_MQTT_DATA, pFUNC_SERIAL,
+                     pFUNC_COMMAND, pFUNC_COMMAND_SENSOR, pFUNC_COMMAND_DRIVER,
+                     pFUNC_RULES_PROCESS,
+                     pFUNC_SET_CHANNELS,
+                     pFUNC_last_function         // Insert functions WITH return results before here
+                     };
+
