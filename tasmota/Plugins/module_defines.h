@@ -971,7 +971,11 @@ typedef struct {
 #define DelHanParser(A) jspdispatch(91,(uint32_t)A,0,0)
 #define ReadHanPort(A,B) jspdispatch(92,(uint32_t)A,(uint32_t)B,0)
 
+#define ValidPin(A) jspdispatch(100,A,A,0)
+
+
 #define Replace_Cmd_Vars(A,B,C,D) jReplace_Cmd_Vars((uint32_t)A,B,(uint32_t)C,D)
+
 
 
 #define icecast_open(A) jtmod_wifi(50,0,(uint32_t)A,0,0)

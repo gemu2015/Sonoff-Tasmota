@@ -1508,6 +1508,10 @@ uint32_t tmod_serialdispatch(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3
         return hp->readHanPort(hpp->out, hpp->size, hpp->flags);
       }
 #endif
+
+    case 100:
+      return ValidPin(p1, p2);
+
   }
   return 0;
 }

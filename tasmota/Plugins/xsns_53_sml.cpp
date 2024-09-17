@@ -36,6 +36,7 @@ esp32
 
 #ifdef USE_SML_M_MOD
 
+
 #include "module.h"
 #include "module_defines.h"
 
@@ -425,7 +426,7 @@ struct METER_DESC {
 #endif  // ESP8266
 
 #ifdef USE_SML_DECRYPT
-	bool use_crypt = false;
+	bool use_crypt;
   uint8_t crypflags;
 	uint8_t last_iob;
 	uint8_t key[SML_CRYPT_SIZE];
@@ -1114,21 +1115,21 @@ uint8_t *skip_sml(uint8_t *cp,int16_t *res) {
 SETREGS
 
     uint8_t len,len1,type;
-    len=*cp&0xf;
-    type=*cp&0x70;
-    if (type==0x70) {
+    len = *cp & 0xf;
+    type = *cp & 0x70;
+    if (type == 0x70) {
         // list, skip entries
         // list
         cp++;
         while (len--) {
-            len1=*cp&0x0f;
-            cp+=len1;
+            len1 = *cp & 0x0f;
+            cp += len1;
         }
-         *res=0;
+         *res = 0;
     } else {
         // skip len
-        *res=(signed char)*(cp+1);
-        cp+=len;
+        *res = (signed char)*(cp + 1);
+        cp += len;
     }
     return cp;
 }
@@ -1219,12 +1220,13 @@ SETREGS
   scaler = result;
 
   // get value
+  GETU64CONSTP
   type = *cp & 0x70;
   len = *cp & 0x0f;
   cp++;
     if (type == 0x50 || type == 0x60) {
         // shift into 64 bit
-        uint64_t uvalue = 0;
+        uint64_t uvalue = SU64C_0;
         uint8_t nlen = len;
         while (--nlen) {
             uvalue <<= 8;
@@ -1293,9 +1295,8 @@ SETREGS
                     str += 2;
                 }
             }
-            value = 0;
+            value = SU64C_0;
         } else {
-          GETU64CONSTP
           value = SU64C_99999999;
           scaler = 0;
         }
@@ -3412,6 +3413,10 @@ dddef_exit:
               sml_globs.script_meter = 0;
               return 1;
             }
+            if (!ValidPin(abs(srcpin))) {
+              AddLog(LOG_LEVEL_INFO, PSTR("SML: Error: forbidden GPIO %d defined. Not usable for RX in meter number %d"), abs(srcpin), index + 1);
+              goto dddef_exit;
+            }
           }
           mmp->srcpin = srcpin;
           if (*lp1 != ',') goto next_line;
@@ -3465,6 +3470,10 @@ dddef_exit:
             if (mmp->srcpin != TCP_MODE_FLG) {
               if (Gpio_used(mmp->trxpin)) {
                 AddLog(LOG_LEVEL_INFO, PSTR("SML: Error: Duplicate GPIO %d defined. Not usable for TX in meter number %d"), meter_desc[index].trxpin, index + 1);
+                goto dddef_exit;
+              }
+              if (!ValidPin(mmp->trxpin)) {
+                AddLog(LOG_LEVEL_INFO, PSTR("SML: Error: forbidden GPIO %d defined. Not usable for TX in meter number %d"), meter_desc[index].trxpin, index + 1);
                 goto dddef_exit;
               }
             }
@@ -3908,6 +3917,9 @@ next_line:
   }
 
   memory += sizeof(sml_globs) + sizeof(meter_desc) + sml_globs.maxvars * (sizeof(double) +  sizeof(uint8_t) + sizeof(struct SML_MEDIAN_FILTER));
+
+ // AddLog(LOG_LEVEL_INFO, PSTR(">>: %d - %d - %d"),sizeof(sml_globs), sizeof(meter_desc),sml_globs.maxvars * (sizeof(double) + sizeof(uint8_t) + sizeof(struct SML_MEDIAN_FILTER)));
+ // 324 - 540 - 159
 
   mt->mem_size = memory;
 
