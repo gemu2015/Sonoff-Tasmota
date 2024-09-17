@@ -3102,6 +3102,7 @@ SETREGS
 	return iob;
 }
 
+#if 0
 int SML_print(const char *format, ...) {
 SETREGS
 
@@ -3128,6 +3129,8 @@ SETREGS
 	}
 	return len;
 }
+#endif
+
 #endif // USE_SML_DECRYPT
 
 void reset_sml_vars(uint16_t maxmeters) {
@@ -3926,7 +3929,9 @@ next_line:
 #ifdef USE_SML_DECRYPT
 		if (mptr->use_crypt) {
       HP_PARS hpars;
-      hpars.sd = &serial_dispatch;
+      uint8_t *ucp = (uint8_t *)&serial_dispatch;
+      ucp += EXEC_OFFSET;
+      hpars.sd = (uint16_t (*)(uint8_t, uint8_t))ucp;
       hpars.meter = meters;
       hpars.key = mptr->key;
 #ifdef USE_SML_AUTHKEY

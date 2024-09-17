@@ -103,9 +103,6 @@ const char kModuleCommands[] PROGMEM = "|"// no Prefix
   "dump" "|"
   "chkpt" "|"
   "xt"
-#ifdef USE_FLASH_BDIR 
-  "|" "list"
-#endif
   ;
 
 void (* const ModuleCommand[])(void) PROGMEM = {
@@ -129,7 +126,7 @@ void Serial_print(const char *txt) {
 }
 
 // ESP32 combined hardware and software serial driver, software read only
-#ifdef ESP32
+#if defined(ESP32)
 
 #define USE_ESP32_SW_SERIAL
 
@@ -2107,7 +2104,7 @@ void tmod_WebGetArg(const char* arg, char* out, size_t max) {
   WebGetArg(fcopy, out, max);
   String s = Webserver->arg(fcopy);
   strlcpy(out, s.c_str(), max);
-  AddLog(LOG_LEVEL_INFO,PSTR(">>> %s - %s"), fcopy, out);
+  //AddLog(LOG_LEVEL_INFO,PSTR(">>> %s - %s"), fcopy, out);
   free(fcopy);
 #endif
 }
