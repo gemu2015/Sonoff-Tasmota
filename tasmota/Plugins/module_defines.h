@@ -1032,8 +1032,14 @@ typedef struct {
 
 #define I2C_beginTransmission beginTransmission
 #define I2C_endTransmission endTransmission
+#define I2C_requestFrom requestFrom
 #define I2C_write I2cWrite
+#define I2C_read I2cRead
 #define I2C_SETWIRE SETWIRE
+#define I2C_ResetActive I2cResetActive
+#define I2C_SetDevice I2cSetDevice
+#define I2C_SetActiveFound I2cSetActiveFound
+
 
 #define CharToFloat jCharToFloat
 #define AddLogData jAddLogData

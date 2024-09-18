@@ -74,17 +74,17 @@ const char mlxdev[] PROGMEM = "MLX90614";
 int32_t Init_MLX90614() {
   ALLOCMEM 
 
- SETWIRE(0);
+  I2C_SETWIRE(0);
  
   // now init variables here
   ready = false;
 
-  if (!I2cSetDevice(I2_ADR_IRT, 0)) {
+  if (!I2C_SetDevice(I2_ADR_IRT, 0)) {
     MLX90614_Deinit();
     return -1;
   }
  // char *cp = copyStr(GSTR(mlxdev));
-  I2cSetActiveFound(I2_ADR_IRT, GSTR(mlxdev), 0);
+  I2C_SetActiveFound(I2_ADR_IRT, GSTR(mlxdev), 0);
  // free(cp);
   initialized = true;
   ready = true;
@@ -138,19 +138,19 @@ uint16_t MLX90614_read16(uint8_t addr, uint8_t a) {
   SETREGS
   uint16_t ret;
 
-  beginTransmission(addr);
-  I2cWrite(a);
-  endTransmission(false);
+  I2C_beginTransmission(addr);
+  I2C_write(a);
+  I2C_endTransmission(false);
 
-  requestFrom(addr, (size_t)3);
+  I2C_requestFrom(addr, (size_t)3);
   uint8_t buff[5];
   buff[0] = addr << 1;
   buff[1] = a;
   buff[2] = (addr << 1) | 1;
-  buff[3] = I2cRead();
-  buff[4] = I2cRead();
+  buff[3] = I2C_read();
+  buff[4] = I2C_read();
   ret = buff[3] | (buff[4] << 8);
-  uint8_t pec = I2cRead();
+  uint8_t pec = I2C_read();
 
   return ret;
 
@@ -183,7 +183,7 @@ uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len) {
 
 void MLX90614_Deinit() {
   SETREGS
-  I2cResetActive(I2_ADR_IRT, 0);
+  I2C_ResetActive(I2_ADR_IRT, 0);
   RETMEM
 }
 
