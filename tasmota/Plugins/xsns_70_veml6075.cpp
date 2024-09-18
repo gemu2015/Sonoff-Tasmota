@@ -379,22 +379,22 @@ void VEML6075_Deinit(void) {
 int32_t mod_func_execute(uint32_t function) {
   bool result = false;
   switch (function) {
-    case FUNC_INIT:
+    case pFUNC_INIT:
       result = VEML6075Detect();
       break;
-    case FUNC_EVERY_SECOND:
+    case pFUNC_EVERY_SECOND:
       VEML6075EverySecond();
       break;
-    case FUNC_COMMAND:
+    case pFUNC_COMMAND:
       result = VEML6075Cmd();
       break;
-    case FUNC_JSON_APPEND:
+    case pFUNC_JSON_APPEND:
       VEML6075Show(1);
       break;
-    case FUNC_WEB_SENSOR:
+    case pFUNC_WEB_SENSOR:
       VEML6075Show(0);
       break;
-    case FUNC_DEINIT:
+    case pFUNC_DEINIT:
       VEML6075_Deinit();
       break;
   }

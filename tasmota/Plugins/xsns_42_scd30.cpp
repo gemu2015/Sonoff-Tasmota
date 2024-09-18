@@ -923,23 +923,23 @@ int32_t mod_func_execute(uint32_t sel) {
     }
   */
   switch (sel) {
-    case FUNC_INIT:
+    case pFUNC_INIT:
       result = SCD30_Detect();
       break;
-    case FUNC_EVERY_SECOND:
+    case pFUNC_EVERY_SECOND:
       SCD30_Update();
       break;
-    case FUNC_COMMAND: {
+    case pFUNC_COMMAND: {
       SETREGS
       result = DecodeCommand(kScd30Commands, kScd30Command);
     } break;
-    case FUNC_JSON_APPEND:
+    case pFUNC_JSON_APPEND:
       SCD30_Show(1);
       break;
-    case FUNC_WEB_SENSOR:
+    case pFUNC_WEB_SENSOR:
       SCD30_Show(0);
       break;
-    case FUNC_DEINIT:
+    case pFUNC_DEINIT:
       SCD30_Deinit();
       break;
   }

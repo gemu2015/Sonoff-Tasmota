@@ -1047,21 +1047,21 @@ static int32_t mod_func_execute(uint32_t sel) {
   SETREGS
   bool result = false;
   switch (sel) {
-    case FUNC_INIT:
+    case pFUNC_INIT:
       result = I2SAudio_Init();
       break;
-    case FUNC_COMMAND:
+    case pFUNC_COMMAND:
       result = DecodeCommand(I2S_Commands, I2S_Command);
       break;
 #ifdef USE_WEBRADIO
-    case FUNC_WEB_SENSOR:
+    case pFUNC_WEB_SENSOR:
       I2sWrShow(false);
       break;
-    case FUNC_JSON_APPEND:
+    case pFUNC_JSON_APPEND:
       I2sWrShow(true);
 #endif
     break;
-    case FUNC_DEINIT:
+    case pFUNC_DEINIT:
       I2SAudio_Deinit();
       break;
   }

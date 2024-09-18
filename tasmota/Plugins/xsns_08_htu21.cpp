@@ -331,19 +331,19 @@ void HTU_Deinit() {
 int32_t mod_func_execute(uint32_t sel) {
   bool result = false;
   switch (sel) {
-    case FUNC_INIT:
+    case pFUNC_INIT:
       result = HTU_Detect();
       break;
-    case FUNC_EVERY_SECOND:
+    case pFUNC_EVERY_SECOND:
       HTU_EverySecond();
       break;
-    case FUNC_JSON_APPEND:
+    case pFUNC_JSON_APPEND:
       HTU_Show(1);
       break;
-    case FUNC_WEB_SENSOR:
+    case pFUNC_WEB_SENSOR:
       HTU_Show(0);
       break;
-    case FUNC_DEINIT:
+    case pFUNC_DEINIT:
       HTU_Deinit();
       break;
   }

@@ -217,19 +217,19 @@ MOD_RESULT mod_func_execute(uint32_t sel) {
 MOD_RESULT result = false;
 
   switch (sel) {
-      case FUNC_INIT:
+      case pFUNC_INIT:
         result = CCS811_Detect();
         break;
-      case FUNC_EVERY_SECOND:
+      case pFUNC_EVERY_SECOND:
         CCS811_Update();
         break;
-      case FUNC_JSON_APPEND:
+      case pFUNC_JSON_APPEND:
         CCS811_Show(1);
         break;
-      case FUNC_WEB_SENSOR:
+      case pFUNC_WEB_SENSOR:
         CCS811_Show(0);
         break;
-      case FUNC_DEINIT:
+      case pFUNC_DEINIT:
         CCS811_Deinit();
         break;
   }

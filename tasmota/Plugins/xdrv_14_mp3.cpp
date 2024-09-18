@@ -417,13 +417,13 @@ void MP3Player_Deinit() {
 static int32_t mod_func_execute(uint32_t sel) {
   bool result = false;
   switch (sel) {
-    case FUNC_INIT:
+    case pFUNC_INIT:
       result = MP3PlayerInit();
       break;
-    case FUNC_COMMAND:
+    case pFUNC_COMMAND:
       result = MP3PlayerCmd();
       break;
-    case FUNC_DEINIT:
+    case pFUNC_DEINIT:
       MP3Player_Deinit();
       break;
   }

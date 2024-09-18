@@ -213,16 +213,16 @@ int32_t mod_func_execute(uint32_t sel) {
   bool result = false;
 
   switch (sel) {
-    case FUNC_INIT:
+    case pFUNC_INIT:
       RDM6300_Init();
       break;
-    case FUNC_EVERY_100_MSECOND:
+    case pFUNC_EVERY_100_MSECOND:
       RDM6300_ScanForTag();
       break;
-    case FUNC_WEB_SENSOR:
+    case pFUNC_WEB_SENSOR:
       RDM6300_Show();
       break;
-    case FUNC_DEINIT:
+    case pFUNC_DEINIT:
       RDM6300_Deinit();
       break;
   }

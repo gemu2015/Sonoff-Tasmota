@@ -815,27 +815,27 @@ void DS18X20_Deinit(void){SETREGS RETMEM}
 int32_t mod_func_execute(uint32_t function) {
   bool result = false;
   switch (function) {
-    case FUNC_INIT:
+    case pFUNC_INIT:
       result = Ds18x20Init();
       break;
-    case FUNC_EVERY_SECOND:
+    case pFUNC_EVERY_SECOND:
       Ds18x20EverySecond();
       break;
-    case FUNC_JSON_APPEND:
+    case pFUNC_JSON_APPEND:
       Ds18x20Show(1);
       break;
 #ifdef USE_WEBSERVER
-    case FUNC_WEB_SENSOR:
+    case pFUNC_WEB_SENSOR:
       Ds18x20Show(0);
       break;
 #endif  // USE_WEBSERVER
 #ifdef DS18x20_USE_ID_ALIAS
-    case FUNC_COMMAND: {
+    case pFUNC_COMMAND: {
       SETREGS
       result = DecodeCommand(kds18Commands, DSCommand);
     } break;
 #endif  // DS18x20_USE_ID_ALIAS
-    case FUNC_DEINIT:
+    case pFUNC_DEINIT:
       DS18X20_Deinit();
       break;
   }

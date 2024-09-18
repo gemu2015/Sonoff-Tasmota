@@ -190,16 +190,16 @@ void SHT3X_Deinit() {
 int32_t mod_func_execute(uint32_t sel) {
   bool result = false;
   switch (sel) {
-    case FUNC_INIT:
+    case pFUNC_INIT:
       result = Sht3x_Detect();
       break;
-    case FUNC_JSON_APPEND:
+    case pFUNC_JSON_APPEND:
       SHT3X_Show(1);
       break;
-    case FUNC_WEB_SENSOR:
+    case pFUNC_WEB_SENSOR:
       SHT3X_Show(0);
       break;
-    case FUNC_DEINIT:
+    case pFUNC_DEINIT:
       SHT3X_Deinit();
       break;
   }

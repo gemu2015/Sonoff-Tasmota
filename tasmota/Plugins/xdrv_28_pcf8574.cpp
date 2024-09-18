@@ -314,16 +314,16 @@ int32_t mod_func_execute(uint32_t function) {
   bool result = false;
 
   switch (function) {
-    case FUNC_INIT:
+    case pFUNC_INIT:
       result = Pcf8574Init();
       break;
-    case FUNC_SET_POWER:
+    case pFUNC_SET_POWER:
       Pcf8574SwitchRelay();
       break;
-    case FUNC_WEB_ADD_BUTTON:
+    case pFUNC_WEB_ADD_BUTTON:
       Pcf8574_AddButton();
       break;
-    case FUNC_DEINIT:
+    case pFUNC_DEINIT:
       PCF8574_Deinit();
       break;
   }

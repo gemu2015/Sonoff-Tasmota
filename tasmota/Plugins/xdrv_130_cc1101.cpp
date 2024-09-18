@@ -141,10 +141,10 @@ void CC1101_Deinit() {
 MOD_RESULT mod_func_execute(uint32_t sel) {
   MOD_RESULT result = false;
   switch (sel) {
-    case FUNC_INIT:
+    case pFUNC_INIT:
       result = CC1101_Init();
       break;
-    case FUNC_DEINIT:
+    case pFUNC_DEINIT:
       CC1101_Deinit();
       break;
   }

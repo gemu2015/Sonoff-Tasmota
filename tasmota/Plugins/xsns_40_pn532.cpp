@@ -1047,21 +1047,21 @@ int32_t mod_func_execute(uint32_t sel) {
   bool result = false;
 
   switch (sel) {
-    case FUNC_INIT:
+    case pFUNC_INIT:
       result = PN532_Init();
       break;
-    case FUNC_EVERY_250_MSECOND:
+    case pFUNC_EVERY_250_MSECOND:
       if (Pn532.scantimer > 0) {
         Pn532.scantimer--;
       } else {
         PN532_ScanForTag();
       }
       break;
-    case FUNC_WEB_SENSOR:
+    case pFUNC_WEB_SENSOR:
       PN532_Show();
       break;
 #ifdef USE_PN532_DATA_FUNCTION
-    case FUNC_COMMAND:
+    case pFUNC_COMMAND:
       result = DecodeCommand(PN532Commands, PN532Command);
       if (result == false) {
         AddLog(LOG_LEVEL_INFO, PSTR("NFC: PN532 - Next scanned tag"));
@@ -1070,7 +1070,7 @@ int32_t mod_func_execute(uint32_t sel) {
       }
       break;
 #endif  // USE_PN532_DATA_FUNCTION
-    case FUNC_DEINIT:
+    case pFUNC_DEINIT:
       PN532_Deinit();
       break;
   }

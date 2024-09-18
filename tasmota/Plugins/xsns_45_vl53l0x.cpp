@@ -273,19 +273,19 @@ MOD_RESULT mod_func_execute(uint32_t sel) {
   bool result = false;
 
   switch (sel) {
-    case FUNC_INIT:
+    case pFUNC_INIT:
       result = VL53L0X_Detect();
       break;
-    case FUNC_EVERY_250_MSECOND:
+    case pFUNC_EVERY_250_MSECOND:
       VL53L0X_Every_250MSecond();
       break;
-    case FUNC_JSON_APPEND:
+    case pFUNC_JSON_APPEND:
       VL53L0X_Show(1);
       break;
-    case FUNC_WEB_SENSOR:
+    case pFUNC_WEB_SENSOR:
       VL53L0X_Show(0);
       break;
-    case FUNC_DEINIT:
+    case pFUNC_DEINIT:
       VL53L0X_Deinit();
       break;
   }

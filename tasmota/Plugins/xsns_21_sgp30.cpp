@@ -325,19 +325,19 @@ int32_t mod_func_execute(uint32_t sel) {
   bool result = false;
 
   switch (sel) {
-    case FUNC_INIT:
+    case pFUNC_INIT:
       result = SGP30_Init();
       break;
-    case FUNC_EVERY_SECOND:
+    case pFUNC_EVERY_SECOND:
       SGP30_Every_Second();
       break;
-    case FUNC_JSON_APPEND:
+    case pFUNC_JSON_APPEND:
       SGP30_Show(1);
       break;
-    case FUNC_WEB_SENSOR:
+    case pFUNC_WEB_SENSOR:
       SGP30_Show(0);
       break;
-    case FUNC_DEINIT:
+    case pFUNC_DEINIT:
       SGP30_Deinit();
       break;
   }

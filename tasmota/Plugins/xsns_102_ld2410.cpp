@@ -799,31 +799,31 @@ int32_t mod_func_execute(uint32_t function) {
   bool result = false;
 
   switch (function) {
-      case FUNC_INIT:
+      case pFUNC_INIT:
         result = Ld2410Detect();
         break;
-      case FUNC_LOOP:
-      case FUNC_SLEEP_LOOP:
+      case pFUNC_LOOP:
+      case pFUNC_SLEEP_LOOP:
         Ld2410Input();
         break;
-      case FUNC_EVERY_100_MSECOND:
+      case pFUNC_EVERY_100_MSECOND:
         Ld2410Every100MSecond();
         break;
-      case FUNC_EVERY_SECOND:
+      case pFUNC_EVERY_SECOND:
         Ld2410EverySecond();
         break;
-      case FUNC_JSON_APPEND:
+      case pFUNC_JSON_APPEND:
         Ld2410Show(1);
         break;
-      case FUNC_WEB_SENSOR:
+      case pFUNC_WEB_SENSOR:
         Ld2410Show(0);
         break;
-      case FUNC_COMMAND:
+      case pFUNC_COMMAND:
       { SETREGS
         result = DecodeCommand(kLd2410Commands, Ld2410Command);
       }
         break;
-			case FUNC_DEINIT:
+			case pFUNC_DEINIT:
 				LD2410_Deinit();
 				break;
 

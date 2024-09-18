@@ -1939,29 +1939,29 @@ int32_t mod_func_execute(uint32_t function) {
 #endif
 
   switch (function) {
-    case FUNC_INIT:
+    case pFUNC_INIT:
       result = Moritz_Detect();
       break;
-    case FUNC_LOOP:
+    case pFUNC_LOOP:
       CC1101_loop();
       break;
-    case FUNC_JSON_APPEND:
+    case pFUNC_JSON_APPEND:
       break;
-    case FUNC_WEB_ADD_MAIN_BUTTON:
+    case pFUNC_WEB_ADD_MAIN_BUTTON:
       if (moritz_cfg.moritz_ready) {
         WSContentSend_P(GSTR(HTTP_MORITZ_SCRIPT));
       }
       break;
-    case FUNC_WEB_SENSOR:
+    case pFUNC_WEB_SENSOR:
       Moritz_Check_HTML_Setvars();
       moritz_show();
       break;
 
-    case FUNC_COMMAND:
+    case pFUNC_COMMAND:
       result = DecodeCommand(Moritz_Commands, Moritz_Command);
       break;
 
-		case FUNC_DEINIT:
+		case pFUNC_DEINIT:
 			MORITZ_Deinit();
 			break;	
 

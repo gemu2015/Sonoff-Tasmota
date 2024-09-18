@@ -360,22 +360,22 @@ int32_t mod_func_execute(uint32_t sel) {
   bool result = false;
 
   switch (sel) {
-    case FUNC_INIT:
+    case pFUNC_INIT:
       result = SPS30_Init();
       break;
-    case FUNC_EVERY_SECOND:
+    case pFUNC_EVERY_SECOND:
       SPS30_Every_Second();
       break;
-    case FUNC_JSON_APPEND:
+    case pFUNC_JSON_APPEND:
       SPS30_Show(1);
       break;
-    case FUNC_WEB_SENSOR:
+    case pFUNC_WEB_SENSOR:
       SPS30_Show(0);
       break;
-    case FUNC_COMMAND:
+    case pFUNC_COMMAND:
       result = SPS30_command();
       break;
-    case FUNC_DEINIT:
+    case pFUNC_DEINIT:
       SPS30_Deinit();
       break;
   }
