@@ -3921,10 +3921,6 @@ next_line:
  // AddLog(LOG_LEVEL_INFO, PSTR(">>: %d - %d - %d"),sizeof(sml_globs), sizeof(meter_desc),sml_globs.maxvars * (sizeof(double) + sizeof(uint8_t) + sizeof(struct SML_MEDIAN_FILTER)));
  // 324 - 540 - 159
 
-  mt->mem_size = memory;
-
-  AddLog(LOG_LEVEL_INFO, PSTR("meters: %d , decode lines: %d, memory used: %d bytes"), sml_globs.meters_used, sml_globs.maxvars, memory);
-
 // speed optimize shift flag
   for (uint32_t meters = 0; meters < sml_globs.meters_used; meters++ ) {
     struct METER_DESC *mptr = &meter_desc[meters];
@@ -3954,9 +3950,16 @@ next_line:
 			mptr->hp = NewHanParser(&hpars);
 #endif
       mptr->crypflags = 0;
+      // estimated han memory size
+      memory += 1320;
 		}
 #endif // USE_SML_DECRYPT
   }
+
+  mt->mem_size = memory;
+
+  AddLog(LOG_LEVEL_INFO, PSTR("meters: %d , decode lines: %d, memory used: %d bytes"), sml_globs.meters_used, sml_globs.maxvars, memory);
+
 
   initialized = 1;
   sml_globs.ready = true;
