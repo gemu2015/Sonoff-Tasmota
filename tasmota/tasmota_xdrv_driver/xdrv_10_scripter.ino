@@ -5028,7 +5028,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto exit;
         }
 
-#ifdef USE_PLAY_WAVE
+#if defined(USE_PLAY_WAVE) && defined(USE_UFILESYS)
         if (!strncmp_XP(lp, XPSTR("pwav("), 5)) {
           char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 5, OPER_EQU, str, 0);
@@ -6728,7 +6728,7 @@ char *getop(char *lp, uint8_t *operand) {
 
 
 
-#ifdef USE_PLAY_WAVE
+#if defined(USE_PLAY_WAVE) && defined(USE_UFILESYS)
 
 #ifdef ESP8266
 #include <i2s.h>

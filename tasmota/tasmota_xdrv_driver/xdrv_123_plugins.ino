@@ -483,6 +483,8 @@ int32_t tmod_fixdfdi(double);
 uint32_t tmod_fixunsdfsi(double);
 double tmod_extendsfdf2(float);
 uint32_t tmod_random(uint32_t par);
+double  tmod_floattidf(int64_t in);
+double  realloc_floatuntidf(uint64_t in);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -743,8 +745,19 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_fixunsdfsi,
   JMPTBL&tmod_extendsfdf2,
   JMPTBL&tmod_random,
-  JMPTBL&realloc
+  JMPTBL&realloc,
+  JMPTBL&tmod_floattidf,
+  JMPTBL&realloc_floatuntidf
 };
+
+
+double  tmod_floattidf(int64_t in) {
+  return in;
+}
+
+double  realloc_floatuntidf(uint64_t in) {
+  return in;
+}
 
 uint32_t tmod_random(uint32_t par) {
   return random(par);

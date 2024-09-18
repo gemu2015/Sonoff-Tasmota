@@ -249,8 +249,8 @@ typedef struct {
 #define PinUsed(A)                      (( bool(*)(uint32_t))                            jt[178])(A)
 #define jatoll(A)                       (( int64_t(*)(char*))                            jt[179])(A)
 #define double_cdispatch(A,B,C)         (( int32_t (*)(uint32_t,double,double))          jt[180])(A,B,C)
-#define __floatdidf(A)                  (( double(*)(int64_t))                           jt[181])(A)
-#define __floatundidf(A)                (( double(*)(int64_t))                           jt[182])(A)
+#define __floatdidf(A)                  (( double(*)(int32_t))                           jt[181])(A)
+#define __floatundidf(A)                (( double(*)(uint32_t))                          jt[182])(A)
 #define __floatsidf(A)                  (( double(*)(int32_t))                           jt[183])(A)
 #define __floatunsidf(A)                (( double(*)(uint32_t))                          jt[184])(A)
 #define __fixdfdi(A)                    (( int32_t(*)(double))                           jt[185])(A)
@@ -258,6 +258,9 @@ typedef struct {
 #define __extendsfdf2(A)                (( double(*)(float))                             jt[187])(A)
 #define random(A)                       (( uint32_t(*)(uint32_t))                        jt[188])(A)
 #define realloc(A,B)                    (( void *(*)(void*,size_t))                      jt[189])(A,B)
+#define __floattidf(A)                  (( double(*)(int64_t))                           jt[190])(A)
+#define __floatuntidf(A)                (( double(*)(uint64_t))                          jt[191])(A)
+
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)

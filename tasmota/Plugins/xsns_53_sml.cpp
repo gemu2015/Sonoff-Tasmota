@@ -1234,7 +1234,8 @@ SETREGS
         }
         if (type == 0x50) {
             // signed
-            switch (len - 1) {
+#if 0
+          switch (len - 1) {
                 case 1:
                     // byte
                     value = (signed char)uvalue;
@@ -1268,7 +1269,35 @@ SETREGS
                     // signed 64 bit
                     value = (int64_t)uvalue;
                     break;
+          }
+#else
+          len -= 1;
+          if (1 == len) {
+            // byte
+            value = (signed char)uvalue;
+          } else if (2 == len) {
+            // signed 16 bit
+            if (meter_desc[index].so_flags.SO_DWS74_BUG) {
+              if (scaler == -2) {
+                value = (uint32_t)uvalue;
+              } else {
+                value = (int16_t)uvalue;
+              }
+            } else {
+              value = (int16_t)uvalue;
             }
+          } else if (3 == len) {
+            // signed 24 bit
+            value = (int32_t)(uvalue << 8);
+            value /= 256;
+          } else if (4 == len) {
+            // signed 32 bit
+            value = (int32_t)uvalue;
+          } else {
+            // signed 64 bit
+            value = (int64_t)uvalue;
+          }
+#endif
         } else {
             // unsigned
             value = uvalue;
@@ -1843,41 +1872,44 @@ SETREGS
 }
 
 #ifdef USE_SML_DECRYPT
+
+MODULE_PART uint16_t _ntohs(uint16_t v) {
+  return (v >> 8) | (v << 8);
+}
+MODULE_PART uint32_t _ntohl(uint32_t v) {
+  return _ntohs(v >> 16) | (_ntohs((uint16_t) v) << 16);
+}
+
+MODULE_PART uint64_t _ntohll(uint64_t v) {
+  return _ntohl(v >> 32) | ((uint64_t)_ntohl((uint32_t) v) << 32);
+}
+
 double sml_get_obis_value(uint8_t *data) {
 SETREGS
-
-	double out = 0;
-	CosemData *item = (CosemData *)data;
-	switch (item->base.type) {
-		case CosemTypeLongSigned: {
-				out = ntohs(item->ls.data);
-				break;
-		}
-		case CosemTypeLongUnsigned: {
-				out = ntohs(item->lu.data);
-				break;
-		}
-		case CosemTypeDLongSigned: {
-				out = ntohl(item->dlu.data);
-				break;
-		}
-		case CosemTypeDLongUnsigned: {
-				out = ntohl(item->dlu.data);
-				break;
-		}
-		case CosemTypeLong64Signed: {
-				out = ntohll(item->l64s.data);
-				break;
-		}
-		case CosemTypeLong64Unsigned: {
-				out = ntohll(item->l64u.data);
-				break;
-		}
-	}
-	return out;
+  GETDCONSTP
+  CosemData *item = (CosemData *)data;
+  uint8_t type = item->base.type;
+  if (CosemTypeLongSigned == type) {
+    return __floatsidf(_ntohs(item->ls.data));
+  }
+  if (CosemTypeLongUnsigned == type) {
+    return __floatunsidf(_ntohs(item->lu.data));
+  }
+  if (CosemTypeDLongSigned == type) {
+    return __floatsidf(_ntohl(item->dlu.data));
+  }
+  if (CosemTypeDLongUnsigned == type) {
+    return __floatunsidf(_ntohl(item->dlu.data));
+  }
+  if (CosemTypeLong64Signed == type) {
+    return __floattidf(_ntohll(item->l64s.data));
+  }
+  if (CosemTypeLong64Unsigned == type) {
+    return __floatuntidf(_ntohll(item->l64u.data));
+  }
+	return SFPC_0;
 }
 #endif // USE_SML_DECRYPT
-
 
 
 void SML_Decode(uint8_t index) {
@@ -2974,6 +3006,8 @@ SETREGS
 
 // special option
 struct METER_DESC *mptr = &meter_desc[mnum];
+
+#if 0
 	switch (*cp) {
 		case '1':
 			cp++;
@@ -3082,6 +3116,133 @@ struct METER_DESC *mptr = &meter_desc[mnum];
 
 #endif // USE_SML_CANBUS
 	}
+
+#else
+	if ('1' == *cp) {
+		cp++;
+#ifdef USE_SML_SPECOPT
+		if (*cp == ',') {
+		  cp++;
+	    mptr->so_obis1 = strtol(cp, &cp, 16);
+	  }
+	  if (*cp == ',') {
+	    cp++;
+	    mptr->so_fcode1 = strtol(cp, &cp, 16);
+	  }
+		if (*cp == ',') {
+		  cp++;
+		  mptr->so_bpos1 = strtol(cp, &cp, 10);
+		}
+		if (*cp == ',') {
+		  cp++;
+		  mptr->so_fcode2 = strtol(cp, &cp, 16);
+		}
+		if (*cp == ',') {
+		  cp++;
+		  mptr->so_bpos2 = strtol(cp, &cp, 10);
+		}
+		if (*cp == ',') {
+		  cp++;
+		  mptr->so_obis2 = strtol(cp, &cp, 16);
+		}
+#endif
+    return cp;
+  }
+
+ 	if ('2' == *cp) {
+		cp += 2;
+		mptr->so_flags.data = strtol(cp, &cp, 16);
+		return cp;
+  }
+
+ 	if ('3' == *cp) {
+		cp += 2;
+		mptr->sbsiz = strtol(cp, &cp, 10);
+		if (*cp == ',') {
+			cp++;
+			mptr->sibsiz = strtol(cp, &cp, 10);
+			if (mptr->sibsiz < SML_MINSB) {
+				mptr->sibsiz = SML_MINSB;
+			}
+		}
+		if (*cp == ',') {
+			cp++;
+			sml_globs.logsize = strtol(cp, &cp, 10);
+    }
+    return cp;
+  }
+
+#ifdef USE_SML_DECRYPT
+ 	if ('4' == *cp) {
+		cp += 2;
+		meter_desc[mnum].use_crypt = true;
+		for (uint8_t cnt = 0; cnt < (SML_CRYPT_SIZE * 2); cnt += 2) {
+			mptr->key[cnt / 2] = (sml_hexnibble(cp[cnt]) << 4) | sml_hexnibble(cp[cnt + 1]);
+		}
+		AddLog(LOG_LEVEL_INFO, PSTR("SML: crypto mode used for meter %d"), mnum + 1);
+		return cp;
+  }
+
+#ifdef USE_SML_AUTHKEY
+ 	if ('5' == *cp) {
+		cp += 2;
+		for (uint8_t cnt = 0; cnt < (SML_CRYPT_SIZE * 2); cnt += 2) {
+			mptr->auth[cnt / 2] = (sml_hexnibble(cp[cnt]) << 4) | sml_hexnibble(cp[cnt + 1]);
+		}
+    return cp;
+  }
+#endif // USE_SML_AUTHKEY
+
+  if ('A' == *cp) {
+    cp += 2;
+    mptr->crypflags = strtol(cp, &cp, 10);
+    return cp;
+  }
+#endif // USE_SML_DECRYPT
+
+	if ('6' == *cp) {
+		cp += 2;
+		mptr->tout_ms = strtol(cp, &cp, 10);
+    return cp;
+  }
+
+  if ('7' == *cp) {
+		cp += 2;
+#ifdef ESP32     
+		mptr->uart_index = strtol(cp, &cp, 10);
+#endif // ESP32
+		return cp;
+  }
+
+#ifdef USE_SML_CANBUS
+  if ('8' == *cp) {
+    cp += 2;
+    for (uint8_t cnt = 0; cnt < SML_CAN_MASKS; cnt++) {
+			mptr->can_masks[cnt] = sml_hex32(cp);
+      cp += 8;
+      if (*cp != ',') {
+        break;
+      }
+      cp++;
+		}
+    return cp;
+  }
+
+  if ('9' == *cp) {
+    cp += 2;
+    for (uint8_t cnt = 0; cnt < SML_CAN_FILTERS; cnt++) {
+			mptr->can_filters[cnt] = sml_hex32(cp);
+      cp += 8;
+      if (*cp != ',') {
+        break;
+      }
+      cp++;
+		}
+    return cp;
+  }
+#endif // USE_SML_CANBUS
+	
+#endif
 	return cp;
 }
 
@@ -3959,7 +4120,6 @@ next_line:
   mt->mem_size = memory;
 
   AddLog(LOG_LEVEL_INFO, PSTR("meters: %d , decode lines: %d, memory used: %d bytes"), sml_globs.meters_used, sml_globs.maxvars, memory);
-
 
   initialized = 1;
   sml_globs.ready = true;
