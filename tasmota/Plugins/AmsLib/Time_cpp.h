@@ -27,12 +27,7 @@
   1.4  5  Sep 2014 - compatibility with Arduino 1.5.7
 */
 
-#if ARDUINO >= 100
-#include <Arduino.h> 
-#else
-#include <WProgram.h> 
-#endif
-
+#if 0
 #include "TimeLib.h"
 
 static tmElements_t tm;          // a cache of time elements
@@ -319,3 +314,4 @@ void setSyncInterval(time_t interval){ // set the number of seconds between re-s
   syncInterval = (uint32_t)interval;
   nextSyncTime = sysTime + syncInterval;
 }
+#endif

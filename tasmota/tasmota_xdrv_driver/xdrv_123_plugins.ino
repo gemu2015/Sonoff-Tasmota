@@ -747,7 +747,7 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_random,
   JMPTBL&realloc,
   JMPTBL&tmod_floattidf,
-  JMPTBL&realloc_floatuntidf
+  JMPTBL&tmod_floatuntidf
 };
 
 
@@ -755,7 +755,7 @@ double  tmod_floattidf(int64_t in) {
   return in;
 }
 
-double  realloc_floatuntidf(uint64_t in) {
+double  tmod_floatuntidf(uint64_t in) {
   return in;
 }
 

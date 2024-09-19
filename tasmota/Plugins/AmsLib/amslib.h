@@ -1,6 +1,10 @@
 // AMS lib defines
 
-#define "TimeLib.h"
+
+MODULE_PART uint16_t _ntohs(uint16_t v);
+MODULE_PART uint32_t _ntohl(uint32_t v);
+MODULE_PART uint64_t _ntohll(uint64_t v);
+
 
 // COSEM
 // Blue book, Table 2
@@ -85,9 +89,10 @@ typedef union {
     struct CosemLong64Signed l64s;
     struct CosemLong64Unsigned l64u;
     struct CosemDateTime dt;
-} CosemData; 
+} CosemData;
 
-time_t decodeCosemDateTime(CosemDateTime timestamp);
+
+MODULE_PART time_t decodeCosemDateTime(CosemDateTime timestamp);
 
 // CRC
 MODULE_PART uint16_t AMS_crc16(const uint8_t* p, int len);
@@ -139,7 +144,7 @@ typedef struct GBTHeader {
     uint8_t size;
 } __attribute__((packed)) GBTHeader;
 
-MODULE_PART int8_t GBTParser_parse(uint8_t *buf, DataParserContext &ctx);
+MODULE_PART int8_t GBTParser_parse(Han_Parser *hp, uint8_t *buf, DataParserContext &ctx);
 
 typedef struct {
 uint8_t lastSequenceNumber;
@@ -164,7 +169,7 @@ typedef struct GCMSizeDef {
 //public:
     //GCMParser(uint8_t *encryption_key, uint8_t *authentication_key);
     
-MODULE_PART int8_t GCMParser_parse(uint8_t *buf, DataParserContext &ctx);
+MODULE_PART int8_t GCMParser_parse(Han_Parser *hp, uint8_t *buf, DataParserContext &ctx);
 
 typedef struct {
 uint8_t encryption_key[16];
@@ -190,7 +195,7 @@ typedef struct HDLC3CtrlHcs {
     uint16_t hcs;
 } __attribute__((packed)) HDLC3CtrlHcs;
 
-MODULE_PART HDLCParser_parse(uint8_t *buf, DataParserContext &ctx);
+MODULE_PART int8_t HDLCParser_parse(uint8_t *buf, DataParserContext &ctx);
 
 // HEXUTILS
 MODULE_PART String AMS_toHex(uint8_t* in);
@@ -226,8 +231,8 @@ typedef struct MbusFooter {
 } __attribute__((packed)) MbusFooter;
 
 
-MODULE_PARTint8_t MBUSParser_parse(uint8_t *buf, DataParserContext &ctx);
-MODULE_PART uint16_t MBUSParser_write(const uint8_t* d, DataParserContext &ctx);
+MODULE_PART int8_t MBUSParser_parse(Han_Parser *hp, uint8_t *buf, DataParserContext &ctx);
+MODULE_PART uint16_t MBUSParser_write(Han_Parser *hp, const uint8_t* d, DataParserContext &ctx);
 MODULE_PART uint8_t checksum(const uint8_t* p, int len);
 
 typedef struct {
@@ -249,13 +254,13 @@ uint8_t serial_read(void);
 
 
 //Han_Parser(uint16_t (*)(uint8_t, uint8_t), uint8_t, uint8_t *, uint8_t *);
-
-MODULE_PART bool Han_Parser_readHanPort(uint8_t **out, uint16_t *size, uint8_t flags);
-MODULE_PART int16_t Han_Parser_unwrapData(uint8_t *buf, DataParserContext &context);
-MODULE_PART void Han_Parser_printHanReadError(int16_t pos);
-MODULE_PART int serial_available(void);
-MODULE_PART int serial_read(void);
-MODULE_PART int16_t serial_readBytes(uint8_t *, uint16_t);
+MODULE_PART Han_Parser *New_Han_Parser(uint16_t (dp)(uint8_t, uint8_t), uint8_t m, uint8_t *key, uint8_t *auth);
+MODULE_PART bool Han_Parser_readHanPort(Han_Parser *hp, uint8_t **out, uint16_t *size, uint8_t flags);
+MODULE_PART int16_t Han_Parser_unwrapData(Han_Parser *hp, uint8_t *buf, DataParserContext &context);
+MODULE_PART void Han_Parser_printHanReadError(Han_Parser *hp, int16_t pos);
+MODULE_PART int Han_Parser_serial_available(Han_Parser *hp);
+MODULE_PART int Han_Parser_serial_read(Han_Parser *hp);
+MODULE_PART int16_t Han_Parser_serial_readBytes(Han_Parser *hp, uint8_t *, uint16_t);
 
 typedef struct {
 uint8_t encryptionKey[16];
@@ -282,6 +287,6 @@ GBT_VARS gbt;
 GCM_VARS gcm;
 MBUS_VARS mbus;
 
-} HAN_VARS;
+} Han_Parser;
 
 

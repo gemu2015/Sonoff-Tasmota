@@ -365,16 +365,7 @@ riscv32-esp-elf-gcc -Q -O3 --help=optimizers >opts_3
 diff opts_0 opts_3 | grep enabled
 
 */
-/*
-__asm__  (\
-  ".section .text.mod_part\n"\
-  ".literal .xyz, 9600\n"\
-  ".align 4\n"\
-  "l32r	a2, .xyz	#,\n"\
-  "ret.n\n"\
-);\
-};
-*/
+
 typedef struct {
   uint32_t      nanos;
   uint8_t       second;
@@ -481,48 +472,10 @@ extern "C" { MODULES_TABLE *gettbl(void); };
 #define pgm_read_byte jpgm_read_byte
 #define pgm_read_word jpgm_read_word
 
-//extern "C" {  const uint32_t xmodule_end;}
-/*
-__asm__  (\
-  ".section .text.mod_end\n"\
-  ".align 4\n"\
-  ".global xmodule_end\n"\
-  "xmodule_end:"\
-  ".word 0x4AFCAA55"
-);
-*/
 
 #ifdef ESP32
-//#if 0
 extern const FLASH_MODULE module_header;
 MODULE_PART MODULES_TABLE *gettbl();
-
-//MODULES_TABLE *gettbl() {
-//  return (MODULES_TABLE*)*(uint32_t*)GLOB_MOD_REG;
-//}
-
-  //const FLASH_MODULE *mh = &module_header;
-  //return (MODULES_TABLE*)mh->mtv;
-  //return (MODULES_TABLE*)*((uint32_t*)&module_header+12);
-  //{__asm__ __volatile__("l32r	a2, module_header + 48"); };
-  //{__asm__ __volatile__(".align 4");}
-  //{__asm__ __volatile__("entry a1,32");}
-  //{__asm__ __volatile__("l32r	a2, module_header+48");}
-  //{__asm__ __volatile__("retw.n");}
-
-
-
-/*
-{__asm__ __volatile__(".align 4");}
-{__asm__ __volatile__(".global gettbl");}
-{__asm__ __volatile__(".type   gettbl,@function");}
-{__asm__ __volatile__(".section .plugin.mod_part");}
-{__asm__ __volatile__(".align 4");}
-{__asm__ __volatile__("gettbl:");}
-{__asm__ __volatile__("entry a1,32");}
-{__asm__ __volatile__("l32r	a2, module_header+48");}
-{__asm__ __volatile__("retw.n");}
-*/
 #endif
 
 extern "C" {
@@ -568,118 +521,10 @@ extern MODULES_TABLE modules[];
 
 #define CALL_MOD_FUNC(A, ...) A(mt, ##__VA_ARGS__)
 
-
 #define MOD_RESULT int32_t
 
 #define STRBUFFER
 
-
-    
-/*
-
-//#pragma GCC optimize ("O0")
-
- // TwoWire *wire;
-//#define wire mem->wire
- // INITWIRE(wire)
-
- // wire->xbeginTransmission(0xaa);
- // wire->xwrite(0xaa);
- // wire->xendTransmission(false);
-
-
-
-
-MODULE_PART void MOD_FUNC(cmd1);
-MODULE_PART void MOD_FUNC(cmd2);
-
-void MOD_FUNC(cmd1) {
-  SETREGS
- AddLog(LOG_LEVEL_INFO,PSTR("cmd 1"));
- ResponseCmndDone();
-}
-
-void MOD_FUNC(cmd2) {
-  SETREGS
-  AddLog(LOG_LEVEL_INFO,PSTR("cmd 2"));
-  ResponseCmndDone();
-}
-
-const char ksps30Commands[] PROGMEM = "mlx|start|stop";
-VTABLE(ksps30Command) = {&cmd1, &cmd2};
-
-case FUNC_COMMAND:
-      result = DecodeCommand(GSTR(ksps30Commands), GVT(ksps30Command));
-      break;
-      
-*/
-
-
-/*
-#define DATAMEM  __attribute__((section(".text.mod_table"),aligned(4)))
-#define DPSTR(LABEL,TEXT) extern "C" {  const char *LABEL(void);} __asm__  (\
-  ".section .text.mod_string\n"\
-  ".align 4\n"\
-  ".global " #LABEL "\n"\
-  #LABEL": .asciz "#TEXT" \n"\
-);
-#define MERGE_(a,b)  a##b
-#define LABEL_(a) MERGE_(lbl_, a)
-#define UNAME LABEL_(__LINE__)
-#define SUNAME "UNAME"
-#define GPSTR(VAR,FUNC) const char *VAR = (const char*)&FUNC + EXEC_OFFSET; fshowhex((uint32_t)VAR);
-//#define jPSTR(LABEL) (__extension__({ (const char *)&LABEL[0]+EXEC_OFFSET;}))
-#define CAT2(a,b) a##b
-#define CAT(a,b) CAT2(a,b)
-#define UNIQUE_ID CAT(_uid_,__COUNTER__)
-
-//#undef PSTR
-// on esp8266 passing of PGMP strings works, on ESP32 fails and must be copied to ram buffer before passing pointer
-// this implementation only supports one PSTR per call
-#ifdef ESP8266
-#define yPSTR(LABEL) (const char *)LABEL+EXEC_OFFSET
-#define STRBUFFER
-#else
-#define yPSTR(LABEL) __extension__( {_copy32((uint32_t*)((const char *)LABEL+EXEC_OFFSET), mem->cbuffer); (const char *)mem->cbuffer;} )
-#define STRBUFFER uint32_t cbuffer[STRBUFFSIZE];
-#endif
-
-
-
-#ifdef ESP32
-uint32_t _strlen32(uint32_t *sp) {
-  uint8_t len = 1;
-  while (1) {
-    uint32_t val = *sp++;
-    if (!(val & 0xff000000)) break;
-    if (!(val & 0x00ff0000)) break;
-    if (!(val & 0x0000ff00)) break;
-    if (!(val & 0x000000ff)) break;
-    len++;
-  };
-  return len;
-}
-
-#define STRBUFFSIZE 32
-void _copy32(uint32_t *src, uint32_t *dst) {
-  uint8_t len = _strlen32(src);
-  if (len > STRBUFFSIZE) len = STRBUFFSIZE;
-  for (uint8_t cnt = 0; cnt < len; cnt++) {
-    *dst++ = *src++;
-  }
-}
-#endif
-
-//#define SHIFT(cmd, bits) (((uint32_t)(cmd)) << (bits))
-//#define PACK1(c1,...)          ( SHIFT(c1, 0) )
-//#define PACK2(c1,c2,...)       ( SHIFT(c1, 8) | SHIFT(c2, 0) )
-//#define PACK3(c1,c2,c3,...)    ( SHIFT(c1,16) | SHIFT(c2, 8) | SHIFT(c3,0) )
-//#define PACK4(c1,c2,c3,c4,...) ( SHIFT(c1,24) | SHIFT(c2,16) | SHIFT(c3,8) | SHIFT(c4,0) )
-
-//#define MODULE_SYNC_END __attribute__((section(".text.mod_end"))); __asm__ __volatile__ (".align 4");
-//#define MODULE_STORAGE(IND,NAME,VALUE)  __attribute__((section(SECTION_DESC))) extern const MODULE_STORE storage[IND] = {NAME,VALUE};
-
-*/
 
 typedef struct {
   void (*xbeginTransmission)(uint8_t);
@@ -1127,7 +972,6 @@ _Pragma("GCC optimize (\"-Og\")")
 #endif
 #endif
 
-//#pragma GCC optimize ("Og")
 
 /*
 #define PUSH_OPTIONS \
@@ -1138,13 +982,7 @@ _Pragma("GCC optimize (\"-Og\")")
 */
 
 /*
-#define RENAME_LIBRARY(GCC_NAME, AEABI_NAME)		\
-  __asm__ (".globl\t__aeabi_" #AEABI_NAME "\n"		\
-	   RENAME_LIBRARY_SET "\t__aeabi_" #AEABI_NAME 	\
-	     ", __" #GCC_NAME "\n");
-       */
-
-#if 1
+#if 0
 #define RENAME_LIBRARY_SET ".set"
 #define RENAME_LIBRARY(GCC_NAME, AEABI_NAME)		\
   __asm__ (".globl\t__" #AEABI_NAME "\n"		\
@@ -1159,40 +997,10 @@ _Pragma("GCC optimize (\"-Og\")")
 #endif
 
 #define DECLARE_LIBRARY_RENAMES RENAME_LIBRARY (__muldf3, murks)
-
-
-//RENAME_LIBRARY (j_mulsf3, mulsf3)
-
-
-/*
-float my_mulsf3(float a, float b) {
-  void (* const *jt)() = gettbl()->jt;
-  return jfmul(a,b);
-}
 */
 
 
 /*
-  TwoWire xwire;
-  void (TwoWire::*pwire)();
-  pwire = &TwoWire::begin;
-  (xwire.*pwire)();
-  */
-
-//@code{DECLARE_LIBRARY_RENAMES} macro
-//(@pxref{Library Calls}
-
-/*
-jnewTS(RPIN,TPIN)               (( void* (*)(int32_t,int32_t) )                jt[53])(RPIN,TPIN)
-#define jwriteTS(TSER,BUF,SIZE)         (( size_t (*)(void*,uint8_t*,uint32_t) )       jt[54])(TSER,BUF,SIZE)
-#define jflushTS(TSER)                  (( void (*)(void*) )                           jt[55])(TSER)
-#define jbeginTS(TSER,BAUD)             (( int (*)(void*,uint32_t) )                   jt[56])(TSER,BAUD)
-#define jdeleteTS(TSER)                 (( void (*)(void*) )                           jt[63])(TSER)
-#define jreadTS(TSER,BUF,SIZE)          (( size_t (*)(void*,uint8_t*,uint32_t) )       jt[64])(TSER,BUF,SIZE)
-#define jread1TS(TSER)                  (( int (*)(void*) )                            jt[65])(TSER)
-#define javailTS(TSER)                  (( uint8_t (*)(void*) )                        jt[66])(TSER)
-
-
 Next: Routines for decimal floating point emulation, Previous: Routines for integer arithmetic, Up: The GCC low-level runtime library   [Contents][Index]
 
 4.2 Routines for floating point emulation

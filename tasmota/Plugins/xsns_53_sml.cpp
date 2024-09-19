@@ -136,8 +136,14 @@ esp32
 #define USE_SML_MEDIAN_FILTER
 #endif
 
+#define USE_HAN_LIB
+
 #ifdef USE_SML_DECRYPT
+#ifdef USE_HAN_LIB
 #include "han_Parser.h"
+#else
+#include "AmsLib/amslib.h"
+#endif
 #endif
 
 #ifndef SML_TRX_BUFF_SIZE
@@ -632,22 +638,12 @@ typedef struct {
 #define SML_OPTIONS_JSON_ENABLE 1
 
 
-//#ifdef USE_SML_DECRYPT
-#if 0
-#include "/AmsLib/han_Parser_cpp.h"
-#include "/AmsLib/Cosem_cpp.h"
-#include "/AmsLib/crc_cpp.h"
-#include "/AmsLib/DataParser_cpp.h"
-#include "/AmsLib/DimsParser_cpp.h"
-#include "/AmsLib/GbtParser_cpp.h"
-#include "/AmsLib/DsmrParser.h"
-#include "/AmsLib/GcmParser_cpp.h"
-#include "/AmsLib/HdlcParser.h"
-#include "/AmsLib/hexutils_cpp.h"
-#include "/AmsLib/LibcParser_cpp.h"
-#include "/AmsLib/MbusParser_cpp.h"
-#include "/AmsLib/nthil_cpp.h"
-#include "/AmsLib/Time_cpp.h"
+
+#ifdef USE_SML_DECRYPT
+#ifndef USE_HAN_LIB
+#include "AmsLib/Parsers_cpp.h"
+#include "AmsLib/Time_cpp.h"
+#endif
 #endif
 
 
@@ -1330,7 +1326,8 @@ SETREGS
           scaler = 0;
         }
     }
-    dval = __floatdidf(value);
+    //AddLog(LOG_LEVEL_INFO, PSTR(">>>> %d"), (uint32_t)value);
+    dval = __floattidf(value);
     if (scaler == -1) {
       dval = __divdf3(dval, SFPC_10);
     } else if (scaler == -2) {
