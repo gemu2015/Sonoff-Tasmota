@@ -16,6 +16,12 @@ IS_WINDOWS = sys.platform.startswith("win")
 def ensureBerry():
     BERRY_GEN_DIR = join(env.subst("$PROJECT_DIR"), "lib", "libesp32","berry")
     os.chdir(BERRY_GEN_DIR)
+    BERRY_GENERATE = join(BERRY_GEN_DIR,"generate")
+    if os.path.exists(BERRY_GENERATE) == False:
+        print("berry folder missing")
+        os.mkdir(BERRY_GENERATE)
+
+
     BERRY_EXECUTABLE = join(BERRY_GEN_DIR,"berry")
     if IS_WINDOWS:
         berry_executable = join(BERRY_GEN_DIR,"berry.exe")
@@ -137,6 +143,14 @@ def prepareBerryFiles(files):
 BERRY_SOLIDIFY_DIR = join(env.subst("$PROJECT_DIR"), "lib", "libesp32","berry_custom")
 HEADER_FILE_PATH = join(BERRY_SOLIDIFY_DIR,"src","modules.h")
 cleanFolder() # always clean up this folder
+
+BERRY_GEN_DIR = join(env.subst("$PROJECT_DIR"), "lib", "libesp32","berry")
+BERRY_GENERATE = join(BERRY_GEN_DIR,"generate")
+if os.path.exists(BERRY_GENERATE) == False:
+    print("berry folder missing")
+    os.mkdir(BERRY_GENERATE)
+
+
 try:
     files = env.GetProjectOption("custom_berry_solidify")
 except:
