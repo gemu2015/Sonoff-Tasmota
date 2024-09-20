@@ -2192,7 +2192,7 @@ SETREGS
               uint64_t val = ((uint64_t)valh<<32) | vall;
               mptr += 3;
               cp += 8;
-              ebus_dval = __floatundidf(val);
+              ebus_dval = double_ui64(val);
               mbus_dval = ebus_dval;
             } else if (!strncmp_P(mptr, PSTR("u64"), 3)) {
               uint64_t valh = (cp[1]<<24) | (cp[0]<<16) | (cp[3]<<8) | (cp[2]<<0);
@@ -2200,7 +2200,7 @@ SETREGS
               uint64_t val = ((uint64_t)valh<<32) | vall;
               mptr += 3;
               cp += 8;
-              ebus_dval = __floatundidf(val);
+              ebus_dval = double_ui32(val);
               mbus_dval = ebus_dval;
             } else if (!strncmp_P(mptr, PSTR("U32"), 3)) {
               mptr += 3;
@@ -2215,7 +2215,7 @@ SETREGS
                 // swap words
                 val = (val>>16) | (val<<16);
               }
-              ebus_dval = __floatundidf(val);
+              ebus_dval = double_ui32(val);
               mbus_dval = ebus_dval;
             } else if (!strncmp_P(mptr, PSTR("u32"), 3)) {
               mptr += 3;
@@ -2230,11 +2230,11 @@ SETREGS
                 // swap words
                 val = (val>>16) | (val<<16);
               }
-              ebus_dval = __floatundidf(val);
+              ebus_dval = double_ui32(val);
               mbus_dval = ebus_dval;
             } else if (!strncmp_P(mptr, PSTR("UUuu"), 4)) {
               uint16_t val = cp[1] | (cp[0]<<8);
-              ebus_dval = __floatundidf(val);
+              ebus_dval = double_ui32(val);
               mbus_dval = ebus_dval;
               mptr += 4;
               cp += 2;
@@ -2251,7 +2251,7 @@ SETREGS
                 // swap words
                 val = ((uint32_t)val>>16) | ((uint32_t)val<<16);
               }
-              ebus_dval = __floatundidf(val);
+              ebus_dval = double_i32(val);
               mbus_dval = ebus_dval;
             } else if (!strncmp_P(mptr, PSTR("s32"), 3)) {
               mptr += 3;
@@ -2266,34 +2266,34 @@ SETREGS
                 // swap words
                 val = ((uint32_t)val>>16) | ((uint32_t)val<<16);
               }
-              ebus_dval = __floatundidf(val);
+              ebus_dval = double_i32(val);
               mbus_dval = ebus_dval;
             } else if (!strncmp_P(mptr, PSTR("uuUU"), 4)) {
               uint16_t val = cp[0] | (cp[1]<<8);
-              ebus_dval = __floatundidf(val);
+              ebus_dval = double_ui32(val);
               mbus_dval = ebus_dval;
               mptr += 4;
               cp += 2;
             } else if (!strncmp_P(mptr, PSTR("uu"), 2)) {
               uint8_t val = *cp++;
-              ebus_dval = __floatundidf(val);
+              ebus_dval = double_ui32(val);
               mbus_dval = ebus_dval;
               mptr += 2;
             } else if (!strncmp_P(mptr, PSTR("ssSS"), 4)) {
               int16_t val = *cp | (*(cp+1)<<8);
-              ebus_dval = __floatundidf(val);
+              ebus_dval = double_i32(val);
               mbus_dval = ebus_dval;
               mptr += 4;
               cp += 2;
             } else if (!strncmp_P(mptr, PSTR("SSss"), 4)) {
               int16_t val = cp[1] | (cp[0]<<8);
-              ebus_dval = __floatundidf(val);
+              ebus_dval = double_i32(val);
               mbus_dval = ebus_dval;
               mptr += 4;
               cp += 2;
             } else if (!strncmp_P(mptr, PSTR("ss"), 2)) {
               int8_t val = *cp++;
-              ebus_dval = __floatundidf(val);
+              ebus_dval = double_i32(val);
               mbus_dval = ebus_dval;
               mptr += 2;
             } else if (!strncmp_P(mptr, PSTR("ffffffff"), 8)) {
@@ -2313,27 +2313,27 @@ SETREGS
               cp += 4;
             } else if (!strncmp_P(mptr, PSTR("eeeeee"), 6)) {
               uint32_t val = (cp[0]<<16) | (cp[1]<<8) | (cp[2]<<0);
-              mbus_dval = __floatundidf(val);
+              mbus_dval = double_i32(val);
               mptr += 6;
               cp += 3;
             } else if (!strncmp_P(mptr, PSTR("vvvvvv"), 6)) {
               //mbus_dval = (float)((cp[0]<<8) | (cp[1])) + ((float)cp[2]/SFPC_10);
-              double p1 = __floatundidf((cp[0]<<8 | cp[1]));
-              double p2 = __divdf3(__floatundidf(cp[2]), SFPC_10);
+              double p1 = double_ui32((cp[0]<<8 | cp[1]));
+              double p2 = __divdf3(double_ui32(cp[2]), SFPC_10);
               mbus_dval = __adddf3(p2, p2);
 
               mptr += 6;
               cp += 3;
             } else if (!strncmp_P(mptr, PSTR("cccccc"), 6)) {
               //mbus_dval = (float)((cp[0]<<8) | (cp[1])) + ((float)cp[2]/SFPC_100);
-              double p1 = __floatundidf((cp[0]<<8 | cp[1]));
-              double p2 = __divdf3(__floatundidf(cp[2]), SFPC_100);
+              double p1 = double_ui32((cp[0]<<8 | cp[1]));
+              double p2 = __divdf3(double_ui32(cp[2]), SFPC_100);
               mbus_dval = __adddf3(p2, p2);
               mptr += 6;
               cp += 3;
             } else if (!strncmp_P(mptr, PSTR("pppp"), 4)) {
               //mbus_dval = (float)((cp[0]<<8) | cp[1]);
-              mbus_dval = __floatsidf((cp[0]<<8 | cp[1]));
+              mbus_dval = double_ui32((cp[0]<<8 | cp[1]));
               mptr += 4;
               cp += 2;
             }  else if (!strncmp_P(mptr, PSTR("kstr"), 4)) {
@@ -2378,7 +2378,7 @@ SETREGS
                 //mfac *= SU64C_10;
                 mfac = __muldi3(mfac, SU64C_10);
               }
-              mbus_dval = __floatundidf(bcdval);
+              mbus_dval = double_ui64(bcdval);
               ebus_dval = mbus_dval;
             } else if (*mptr == 'v') {
               // vbus values vul, vsl, vuwh, vuwl, wswh, vswl, vswh
@@ -2402,9 +2402,9 @@ SETREGS
                   mptr++;
                   // get long value
                   if (usign) {
-                    ebus_dval = __floatunsidf(vbus_get_septet(cp));
+                    ebus_dval = double_ui32(vbus_get_septet(cp));
                   } else {
-                    ebus_dval = __floatsidf((int32_t)vbus_get_septet(cp));
+                    ebus_dval = double_ui32((int32_t)vbus_get_septet(cp));
                   }
                   break;
                 case 'w':
@@ -2424,16 +2424,16 @@ SETREGS
                   if (wflg == 'h') {
                     // high word
                     if (usign) {
-                      ebus_dval = __floatunsidf((vbus_get_septet(cp) >> 16) & SIPC_FFFF);
+                      ebus_dval = double_ui32((vbus_get_septet(cp) >> 16) & SIPC_FFFF);
                     } else {
-                      ebus_dval = __floatsidf((int16_t)((vbus_get_septet(cp) >> 16) & SIPC_FFFF));
+                      ebus_dval = double_i32((int16_t)((vbus_get_septet(cp) >> 16) & SIPC_FFFF));
                     }
                   } else {
                     // low word
                     if (usign) {
-                      ebus_dval = __floatunsidf(vbus_get_septet(cp) & SIPC_FFFF);
+                      ebus_dval = double_ui32(vbus_get_septet(cp) & SIPC_FFFF);
                     } else {
-                      ebus_dval = __floatsidf((int16_t)(vbus_get_septet(cp) & SIPC_FFFF));
+                      ebus_dval = double_i32((int16_t)(vbus_get_septet(cp) & SIPC_FFFF));
                     }
                   }
                   break;
@@ -2449,30 +2449,30 @@ SETREGS
                   switch (bflg) {
                     case '3':
                       if (usign) {
-                        ebus_dval = __floatunsidf(vbus_get_septet(cp) >> 24);
+                        ebus_dval = double_ui32(vbus_get_septet(cp) >> 24);
                       } else {
-                        ebus_dval = __floatsidf((int8_t)(vbus_get_septet(cp) >> 24));
+                        ebus_dval = double_i32((int8_t)(vbus_get_septet(cp) >> 24));
                       }
                       break;
                     case '2':
                       if (usign) {
-                        ebus_dval = __floatunsidf((vbus_get_septet(cp) >> 16) & 0xff);
+                        ebus_dval = double_ui32((vbus_get_septet(cp) >> 16) & 0xff);
                       } else {
-                        ebus_dval = __floatsidf((int8_t)((vbus_get_septet(cp) >> 16) & 0xff));
+                        ebus_dval = double_i32((int8_t)((vbus_get_septet(cp) >> 16) & 0xff));
                       }
                       break;
                     case '1':
                       if (usign) {
-                        ebus_dval = __floatunsidf((vbus_get_septet(cp) >> 8) & 0xff);
+                        ebus_dval = double_ui32((vbus_get_septet(cp) >> 8) & 0xff);
                       } else {
-                        ebus_dval = __floatsidf((int8_t)((vbus_get_septet(cp) >> 8) & 0xff));
+                        ebus_dval = double_i32((int8_t)((vbus_get_septet(cp) >> 8) & 0xff));
                       }
                       break;
                     case '0':
                       if (usign) {
-                        ebus_dval = __floatunsidf(vbus_get_septet(cp) & 0xff);
+                        ebus_dval = double_ui32(vbus_get_septet(cp) & 0xff);
                       } else {
-                        ebus_dval = __floatsidf((int8_t)(vbus_get_septet(cp) & 0xff));
+                        ebus_dval = double_i32((int8_t)(vbus_get_septet(cp) & 0xff));
                       }
                       break;
                   }
@@ -2600,8 +2600,8 @@ SETREGS
             if (*mptr == 'b') {
               mptr++;
               uint8_t shift = *mptr & 7;
-              ebus_dval = __floatundidf((uint32_t)__fixunsdfsi(ebus_dval) >> shift);
-              ebus_dval = __floatundidf((uint32_t)__fixunsdfsi(ebus_dval) & 1);
+              ebus_dval = double_ui32((uint32_t)__fixunsdfsi(ebus_dval) >> shift);
+              ebus_dval = double_ui32((uint32_t)__fixunsdfsi(ebus_dval) & 1);
               mptr+=2;
             }
             if (*mptr == 'i') {

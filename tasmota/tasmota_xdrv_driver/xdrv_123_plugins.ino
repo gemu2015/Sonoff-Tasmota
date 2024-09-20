@@ -477,7 +477,7 @@ const uint16_t tmod_pgm_read_word(uint16_t *ptr);
 void *tmod_special_malloc(uint32_t size);
 uint32_t tmod_serialdispatch(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3);
 double tmod_floatdidf(int64_t);
-double tmod_floatundidf(int64_t);
+double tmod_floatundidf(uint64_t);
 double tmod_floatsidf(int32_t);
 double tmod_floatunsidf(uint32_t);
 int32_t tmod_fixdfdi(double);
@@ -793,7 +793,7 @@ uint32_t tmod_random(uint32_t par) {
 double tmod_floatdidf(int64_t in) {
   return in;
 }
-double tmod_floatundidf(int64_t in) {
+double tmod_floatundidf(uint64_t in) {
   return in;
 }
 double tmod_floatsidf(int32_t in) {

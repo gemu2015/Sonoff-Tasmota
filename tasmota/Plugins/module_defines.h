@@ -272,7 +272,6 @@ typedef struct {
 #define vsnprintf_P(A,B,C,...)          (( int32_t (*)(char *,size_t,const char *,...))   jt[199])(A,B,C,##__VA_ARGS__)
 #define makeTime(A)                    (( time_t (*)(const tmElements_t))               jt[200])(A)
 
-//#define makeTime jmakeTime
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -827,19 +826,14 @@ typedef struct {
 #define ptwai_read_alerts(A,B) jspdispatch(78,(uint32_t)A,(uint32_t)B,0)
 #define ptwai__clear_receive_queue() jspdispatch(79,0,0,0)
 
-
-//#define NewHanParser(A) (Han_Parser*)jspdispatch(90,(uint32_t)A,0,0)
-//#define DelHanParser(A) jspdispatch(91,(uint32_t)A,0,0)
-//#define ReadHanPort(A,B) jspdispatch(92,(uint32_t)A,(uint32_t)B,0)
-
-#define NewHanParser(A)
-#define DelHanParser(A) jspdispatch(91,(uint32_t)A,0,0)
-#define ReadHanPort(A,B) jspdispatch(92,(uint32_t)A,(uint32_t)B,0)
-
 #define ValidPin(A) jspdispatch(100,A,A,0)
 
 #define Replace_Cmd_Vars(A,B,C,D) jReplace_Cmd_Vars((uint32_t)A,B,(uint32_t)C,D)
 
+#define double_i64 __floatsidf
+#define double_ui64 __floatundidf
+#define double_i32 __floatsidf
+#define double_ui32 __floatunsidf
 
 
 #define icecast_open(A) jtmod_wifi(50,0,(uint32_t)A,0,0)
