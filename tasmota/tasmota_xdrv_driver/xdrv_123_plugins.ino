@@ -21,7 +21,7 @@
 /* 
 relocatable flash module driver handler
 with runtime link and unlink
-adds about 20k flash size (with hanparser 25k)
+adds about 20k flash size 
 
 to doo:
 
@@ -36,6 +36,7 @@ to doo:
 
 #include "./Plugins/modules_def.h"
 #include <TasmotaSerial.h>
+#include "TimeLib.h"
 
 // minimal plugin rev
 #define MINREV 0x00010004
@@ -747,8 +748,34 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_random,
   JMPTBL&realloc,
   JMPTBL&tmod_floattidf,
-  JMPTBL&tmod_floatuntidf
+  JMPTBL&tmod_floatuntidf,
+  JMPTBL&br_aes_small_ctr_init,
+  JMPTBL&br_gcm_init,
+  JMPTBL&br_gcm_reset,
+  JMPTBL&br_gcm_aad_inject,
+  JMPTBL&br_gcm_flip,
+  JMPTBL&br_gcm_run,
+  JMPTBL&br_gcm_check_tag_trunc,
+#if defined(ESP8266) || defined(__riscv)
+  JMPTBL&vsnprintf_P,
+#else
+  JMPTBL&tmod_vsnprintf_P,
+#endif
+  JMPTBL&makeTime
 };
+
+int tmod_vsnprintf_P(char *s, size_t strSize, const char *format, ...) {
+  int res = 0;
+#ifdef ESP32
+  char *fcopy = copyStr(format);
+  va_list arglist;
+  va_start(arglist, format);
+  res = vsnprintf_P(s, strSize, fcopy, arglist);
+  va_end(arglist);
+  free(fcopy);
+#endif
+  return res;
+}
 
 
 double  tmod_floattidf(int64_t in) {
@@ -1357,39 +1384,6 @@ uint32_t tmod_udp(WiFiUDP *udp, uint32_t sel, uint32_t p1, uint32_t p2) {
 #include "driver/twai.h"
 #endif
 
-#define USE_HANPARSER
-
-#ifdef USE_HANPARSER
-#include "han_Parser.h"
-
-#ifndef USE_SML_M
-int SML_print(const char *format, ...) {
-	static char loc_buf[64];
-	char* temp = loc_buf;
-	int len;
-	va_list arg;
-	va_list copy;
-	va_start(arg, format);
-	va_copy(copy, arg);
-	len = vsnprintf(NULL, 0, format, arg);
-	va_end(copy);
-	if (len >= sizeof(loc_buf)) {
-		temp = (char*)special_malloc(len + 1);
-		if (temp == NULL) {
-	  	return 0;
-	  }
-	}
-	vsnprintf(temp, len + 1, format, arg);
-	AddLog(LOG_LEVEL_DEBUG, PSTR("SML: %s"),temp);
-	va_end(arg);
-	if (len >= sizeof(loc_buf)) {
-		free(temp);
-	}
-	return len;
-}
-#endif
-#endif // USE_HANPARSER
-
 
 uint32_t tmod_serialdispatch(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3) {
   TasmotaSerial *ts = (TasmotaSerial*)p1;
@@ -1501,30 +1495,10 @@ uint32_t tmod_serialdispatch(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3
       return twai_clear_receive_queue();
 #endif
 
-#ifdef USE_HANPARSER
-    case 90:
-      {
-        HP_PARS *hpp = (HP_PARS*)p1;
-        Han_Parser *hp = new Han_Parser(hpp->sd, hpp->meter, hpp->key, hpp->auth);
-        return (uint32_t)hp;
-      }
-    case 91:
-      { 
-        Han_Parser *hp = (Han_Parser *)p1;
-        delete hp;
-      }
-      break;
-    case 92:
-      { 
-        Han_Parser *hp = (Han_Parser *)p1;
-        HP_PARS *hpp = (HP_PARS*)p2;
-        return hp->readHanPort(hpp->out, hpp->size, hpp->flags);
-      }
-#endif
-
     case 100:
       return ValidPin(p1, p2);
 
+    
   }
   return 0;
 }

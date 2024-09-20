@@ -1,5 +1,44 @@
 // AMS lib defines
 
+#include "TimeLib.h"
+
+typedef struct {
+uint8_t lastSequenceNumber;
+uint16_t pos;
+uint8_t *buf;
+} GBT_VARS;
+
+typedef struct {
+uint8_t encryption_key[16];
+uint8_t authentication_key[16];
+uint8_t use_auth;
+} GCM_VARS;
+
+typedef struct {
+uint8_t lastSequenceNumber = 0;
+uint16_t pos = 0;
+uint8_t *buf  = NULL;
+} MBUS_VARS;
+
+#define BUF_SIZE_HAN (1280)
+
+typedef struct {
+uint8_t encryptionKey[16];
+uint8_t authenticationKey[16];
+uint8_t hanBuffer[BUF_SIZE_HAN];
+int len;
+uint16_t (*dispatch)(uint8_t, uint8_t);
+uint8_t encryption_key[16];
+uint8_t authentication_key[16];
+uint8_t meter;
+bool serialInit = true;
+bool Debug = true;
+
+GBT_VARS gbt;
+GCM_VARS gcm;
+MBUS_VARS mbus;
+
+} Han_Parser;
 
 MODULE_PART uint16_t _ntohs(uint16_t v);
 MODULE_PART uint32_t _ntohl(uint32_t v);
@@ -128,10 +167,10 @@ struct DataParserContext {
 };
 
 // DIMS
-MODULE_PART int8_t DLMSParser_parse(uint8_t *buf, DataParserContext &ctx);
+MODULE_PART int8_t DLMSParser_parse(Han_Parser *hp, uint8_t *buf, DataParserContext &ctx);
 
 // DSMR
-MODULE_PART int8_t DSMRParser_parse(uint8_t *buf, DataParserContext &ctx, bool verified);
+MODULE_PART int8_t DSMRParser_parse(Han_Parser *hp, uint8_t *buf, DataParserContext &ctx, bool verified);
 
 // GBT
 #define GBT_TAG 0xE0
@@ -146,11 +185,7 @@ typedef struct GBTHeader {
 
 MODULE_PART int8_t GBTParser_parse(Han_Parser *hp, uint8_t *buf, DataParserContext &ctx);
 
-typedef struct {
-uint8_t lastSequenceNumber;
-uint16_t pos;
-uint8_t *buf;
-} GBT_VARS;
+
 
 
 // GCM
@@ -168,14 +203,10 @@ typedef struct GCMSizeDef {
 //class GCMParser {
 //public:
     //GCMParser(uint8_t *encryption_key, uint8_t *authentication_key);
-    
+MODULE_PART void New_GCMParser(Han_Parser *hp, uint8_t *encryption_key, uint8_t *authentication_key);
 MODULE_PART int8_t GCMParser_parse(Han_Parser *hp, uint8_t *buf, DataParserContext &ctx);
 
-typedef struct {
-uint8_t encryption_key[16];
-uint8_t authentication_key[16];
-uint8_t use_auth;
-} GCM_VARS;
+
 
 // HDLC
 #define HDLC_FLAG 0x7E
@@ -195,12 +226,12 @@ typedef struct HDLC3CtrlHcs {
     uint16_t hcs;
 } __attribute__((packed)) HDLC3CtrlHcs;
 
-MODULE_PART int8_t HDLCParser_parse(uint8_t *buf, DataParserContext &ctx);
+MODULE_PART int8_t HDLCParser_parse(Han_Parser *hp, uint8_t *buf, DataParserContext &ctx);
 
 // HEXUTILS
 MODULE_PART String AMS_toHex(uint8_t* in);
 MODULE_PART String AMS_toHex(uint8_t* in, uint16_t size);
-MODULE_PART void AMS_fromHex(uint8_t *out, String in, uint16_t size);
+MODULE_PART void AMS_fromHex(uint8_t *out, char *in, uint16_t size);
 
 // LLC
 typedef struct LLCHeader {
@@ -209,7 +240,7 @@ typedef struct LLCHeader {
     uint8_t control;
 } __attribute__((packed)) LLCHeader;
 
-MODULE_PART int8_t LLCParser_parse(uint8_t *buf, DataParserContext &ctx);
+MODULE_PART int8_t LLCParser_parse(Han_Parser *hp, uint8_t *buf, DataParserContext &ctx);
 
 
 // MBUS
@@ -233,13 +264,7 @@ typedef struct MbusFooter {
 
 MODULE_PART int8_t MBUSParser_parse(Han_Parser *hp, uint8_t *buf, DataParserContext &ctx);
 MODULE_PART uint16_t MBUSParser_write(Han_Parser *hp, const uint8_t* d, DataParserContext &ctx);
-MODULE_PART uint8_t checksum(const uint8_t* p, int len);
-
-typedef struct {
-uint8_t lastSequenceNumber = 0;
-uint16_t pos = 0;
-uint8_t *buf  = NULL;
-} MBUS_VARS;
+MODULE_PART uint8_t MBUSParser_checksum(const uint8_t* p, int len);
 
 
 // NTOHL
@@ -247,14 +272,15 @@ uint64_t ntohll(uint64_t x);
 
 
 // HAN
-#define BUF_SIZE_HAN (1280)
+
 
 int16_t serial_available(void);
 uint8_t serial_read(void);
 
 
 //Han_Parser(uint16_t (*)(uint8_t, uint8_t), uint8_t, uint8_t *, uint8_t *);
-MODULE_PART Han_Parser *New_Han_Parser(uint16_t (dp)(uint8_t, uint8_t), uint8_t m, uint8_t *key, uint8_t *auth);
+MODULE_PART Han_Parser *New_Han_Parser(uint16_t (dp)(uint8_t, uint8_t), uint8_t m, uint8_t *key, uint8_t *auth, uint16 *size);
+MODULE_PART void Delete_Han_Parser(Han_Parser *hp);
 MODULE_PART bool Han_Parser_readHanPort(Han_Parser *hp, uint8_t **out, uint16_t *size, uint8_t flags);
 MODULE_PART int16_t Han_Parser_unwrapData(Han_Parser *hp, uint8_t *buf, DataParserContext &context);
 MODULE_PART void Han_Parser_printHanReadError(Han_Parser *hp, int16_t pos);
@@ -262,31 +288,6 @@ MODULE_PART int Han_Parser_serial_available(Han_Parser *hp);
 MODULE_PART int Han_Parser_serial_read(Han_Parser *hp);
 MODULE_PART int16_t Han_Parser_serial_readBytes(Han_Parser *hp, uint8_t *, uint16_t);
 
-typedef struct {
-uint8_t encryptionKey[16];
-uint8_t authenticationKey[16];
-uint8_t hanBuffer[BUF_SIZE_HAN];
-int len;
-uint16_t (*dispatch)(uint8_t, uint8_t);
 
-//HDLCParser *hdlcParser = NULL;
-//MBUSParser *mbusParser = NULL;
-//GBTParser *gbtParser = NULL;
-//GCMParser *gcmParser = NULL;
-//LLCParser *llcParser = NULL;
-//DLMSParser *dlmsParser = NULL;
-//DSMRParser *dsmrParser = NULL;
-
-uint8_t encryption_key[16];
-uint8_t authentication_key[16];
-uint8_t meter;
-bool serialInit = true;
-bool Debug = true;
-
-GBT_VARS gbt;
-GCM_VARS gcm;
-MBUS_VARS mbus;
-
-} Han_Parser;
 
 

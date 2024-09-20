@@ -136,7 +136,7 @@ esp32
 #define USE_SML_MEDIAN_FILTER
 #endif
 
-#define USE_HAN_LIB
+//#define USE_HAN_LIB
 
 #ifdef USE_SML_DECRYPT
 #ifdef USE_HAN_LIB
@@ -827,7 +827,8 @@ SETREGS
           hpars.out = &payload;
           hpars.size = &logsiz;
           hpars.flags = mptr->crypflags;
-          if (ReadHanPort(mptr->hp, &hpars)) {
+          //if (ReadHanPort(mptr->hp, &hpars)) {
+          if (Han_Parser_readHanPort(mptr->hp, hpars.out, hpars.size, hpars.flags)) {
 						if (logsiz > mptr->sbsiz) {
 							logsiz = mptr->sbsiz;
 						}
@@ -1547,8 +1548,9 @@ SETREGS
       hpars.out = &payload;
       hpars.size = &len;
       hpars.flags = mptr->crypflags;
-      if (ReadHanPort(mptr->hp, &hpars)) {
+      //if (ReadHanPort(mptr->hp, &hpars)) {
 			//if (mptr->hp->readHanPort(&payload, &len, mptr->crypflags)) {
+      if (Han_Parser_readHanPort(mptr->hp, hpars.out, hpars.size, hpars.flags)) {
 				if (len > mptr->sbsiz) {
 					len = mptr->sbsiz;
 				}
@@ -3248,10 +3250,6 @@ uint16_t serial_dispatch(uint8_t meter, uint8_t sel) {
 SETREGS
 
 	struct METER_DESC *mptr = &meter_desc[meter];
-	//if (!sel) {
-	//	return mptr->meter_ss->available();
-	//}
-	//uint8_t iob = mptr->meter_ss->read();
 
   if (!sel) {
 		return TSerial_Available(mptr->meter_ss);
@@ -3349,7 +3347,8 @@ SETREGS
 #ifdef USE_SML_DECRYPT
 		if (mptr->use_crypt) {
 			if (mptr->hp) {
-        DelHanParser(mptr->hp);
+        //DelHanParser(mptr->hp);
+        Delete_Han_Parser(mptr->hp);
 				mptr->hp = NULL;
 			}
 		}
@@ -4100,16 +4099,20 @@ next_line:
       hpars.sd = (uint16_t (*)(uint8_t, uint8_t))ucp;
       hpars.meter = meters;
       hpars.key = mptr->key;
+      uint16_t hpsize;
 #ifdef USE_SML_AUTHKEY
       hpars.auth = mptr->auth;
-      mptr->hp = NewHanParser(&hpars);
+      //mptr->hp = NewHanParser(&hpars);
+      mptr->hp = New_Han_Parser(hpars.sd, hpars.meter = meters, hpars.key, hpars.auth, &hpsize);
 #else
       hpars.auth = nullptr;
-			mptr->hp = NewHanParser(&hpars);
+			//mptr->hp = NewHanParser(&hpars);
+      mptr->hp = New_Han_Parser(hpars.sd, hpars.meter = meters, hpars.key, hpars.auth, &hpsize);
 #endif
+
       mptr->crypflags = 0;
       // estimated han memory size
-      memory += 1320;
+      memory += hpsize;
 		}
 #endif // USE_SML_DECRYPT
   }

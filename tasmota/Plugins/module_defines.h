@@ -261,6 +261,18 @@ typedef struct {
 #define __floattidf(A)                  (( double(*)(int64_t))                           jt[190])(A)
 #define __floatuntidf(A)                (( double(*)(uint64_t))                          jt[191])(A)
 
+#define br_aes_small_ctr_init(A,B,C)    (( void (*)(br_aes_small_ctr_keys*,const void*,size_t)) jt[192])(A,B,C)
+#define br_gcm_init(A,B,C)              (( void (*)(br_gcm_context*,const br_block_ctr_class**,br_ghash)) jt[193])(A,B,C)
+#define br_gcm_reset(A,B,C)             (( void (*)(br_gcm_context*,const void*,size_t)) jt[194])(A,B,C)
+#define br_gcm_aad_inject(A,B,C)        (( void (*)(br_gcm_context*,const void*,size_t)) jt[195])(A,B,C)
+#define br_gcm_flip(A)                  (( void (*)(br_gcm_context*))                    jt[196])(A)
+#define br_gcm_run(A,B,C,D)             (( void (*)(br_gcm_context*,int,void*,size_t))   jt[197])(A,B,C,D)
+#define br_gcm_check_tag_trunc(A,B,C)   (( int32_t (*)(br_gcm_context*,const void*,size_t)) jt[198])(A,B,C)
+
+#define vsnprintf_P(A,B,C,...)          (( int32_t (*)(char *,size_t,const char *,...))   jt[199])(A,B,C,##__VA_ARGS__)
+#define makeTime(A)                    (( time_t (*)(const tmElements_t))               jt[200])(A)
+
+//#define makeTime jmakeTime
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -815,12 +827,16 @@ typedef struct {
 #define ptwai_read_alerts(A,B) jspdispatch(78,(uint32_t)A,(uint32_t)B,0)
 #define ptwai__clear_receive_queue() jspdispatch(79,0,0,0)
 
-#define NewHanParser(A) (Han_Parser*)jspdispatch(90,(uint32_t)A,0,0)
+
+//#define NewHanParser(A) (Han_Parser*)jspdispatch(90,(uint32_t)A,0,0)
+//#define DelHanParser(A) jspdispatch(91,(uint32_t)A,0,0)
+//#define ReadHanPort(A,B) jspdispatch(92,(uint32_t)A,(uint32_t)B,0)
+
+#define NewHanParser(A)
 #define DelHanParser(A) jspdispatch(91,(uint32_t)A,0,0)
 #define ReadHanPort(A,B) jspdispatch(92,(uint32_t)A,(uint32_t)B,0)
 
 #define ValidPin(A) jspdispatch(100,A,A,0)
-
 
 #define Replace_Cmd_Vars(A,B,C,D) jReplace_Cmd_Vars((uint32_t)A,B,(uint32_t)C,D)
 
