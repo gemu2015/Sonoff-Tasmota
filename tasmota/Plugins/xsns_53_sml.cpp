@@ -51,7 +51,6 @@ esp32
 // disable in plugin mode
 //#define NO_USE_SML_CANBUS
 
-//#define NO_USE_SML_DECRYPT
 
 // use special no wait serial driver, should be always on
 #ifndef ESP32
@@ -139,11 +138,7 @@ esp32
 //#define USE_HAN_LIB
 
 #ifdef USE_SML_DECRYPT
-#ifdef USE_HAN_LIB
-#include "han_Parser.h"
-#else
 #include "AmsLib/amslib.h"
-#endif
 #endif
 
 #ifndef SML_TRX_BUFF_SIZE
@@ -640,10 +635,7 @@ typedef struct {
 
 
 #ifdef USE_SML_DECRYPT
-#ifndef USE_HAN_LIB
 #include "AmsLib/Parsers_cpp.h"
-#include "AmsLib/Time_cpp.h"
-#endif
 #endif
 
 
