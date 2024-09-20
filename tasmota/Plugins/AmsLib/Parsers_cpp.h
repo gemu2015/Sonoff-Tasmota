@@ -257,15 +257,15 @@ SETREGS
 
     br_gcm_context gcm_ctx;
   	br_aes_small_ctr_keys ctr_ctx;
-  	br_aes_small_ctr_init(&ctr_ctx, hp->gcm.encryption_key, 16);
-  	br_gcm_init(&gcm_ctx, &ctr_ctx.vtable, &br_ghash_ctmul32);
-    br_gcm_reset(&gcm_ctx, initialization_vector, 12);
+  	jbr_aes_small_ctr_init(&ctr_ctx, hp->gcm.encryption_key, 16);
+  	jbr_gcm_init(&gcm_ctx, &ctr_ctx.vtable, &br_ghash_ctmul32);
+    jbr_gcm_reset(&gcm_ctx, initialization_vector, 12);
     if (hp->gcm.use_auth && authkeylen > 0) {
-      br_gcm_aad_inject(&gcm_ctx, additional_authenticated_data, aadlen);
+      jbr_gcm_aad_inject(&gcm_ctx, additional_authenticated_data, aadlen);
     }
-    br_gcm_flip(&gcm_ctx);
-  	br_gcm_run(&gcm_ctx, 0, ptr , ctx.length - headersize);
-    if (hp->gcm.use_auth && authkeylen > 0 && br_gcm_check_tag_trunc(&gcm_ctx, authentication_tag, authkeylen) != 1) {
+    jbr_gcm_flip(&gcm_ctx);
+  	jbr_gcm_run(&gcm_ctx, 0, ptr , ctx.length - headersize);
+    if (hp->gcm.use_auth && authkeylen > 0 && jbr_gcm_check_tag_trunc(&gcm_ctx, authentication_tag, authkeylen) != 1) {
       return GCM_AUTH_FAILED;
     }
 

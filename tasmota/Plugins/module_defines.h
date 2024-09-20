@@ -46,6 +46,14 @@ typedef struct {
 #endif
 } FLASH_MODULE;
 
+#undef vsnprintf_P 
+#undef br_aes_small_ctr_init
+#undef br_gcm_init
+#undef br_gcm_reset
+#undef br_gcm_aad_inject
+#undef br_gcm_flip
+#undef br_gcm_run
+#undef br_gcm_check_tag_trunc
 
 #define EXEC_OFFSET ((FLASH_MODULE*)mt->mod_addr)->execution_offset
 
@@ -261,17 +269,16 @@ typedef struct {
 #define __floattidf(A)                  (( double(*)(int64_t))                           jt[190])(A)
 #define __floatuntidf(A)                (( double(*)(uint64_t))                          jt[191])(A)
 
-#define br_aes_small_ctr_init(A,B,C)    (( void (*)(br_aes_small_ctr_keys*,const void*,size_t)) jt[192])(A,B,C)
-#define br_gcm_init(A,B,C)              (( void (*)(br_gcm_context*,const br_block_ctr_class**,br_ghash)) jt[193])(A,B,C)
-#define br_gcm_reset(A,B,C)             (( void (*)(br_gcm_context*,const void*,size_t)) jt[194])(A,B,C)
-#define br_gcm_aad_inject(A,B,C)        (( void (*)(br_gcm_context*,const void*,size_t)) jt[195])(A,B,C)
-#define br_gcm_flip(A)                  (( void (*)(br_gcm_context*))                    jt[196])(A)
-#define br_gcm_run(A,B,C,D)             (( void (*)(br_gcm_context*,int,void*,size_t))   jt[197])(A,B,C,D)
-#define br_gcm_check_tag_trunc(A,B,C)   (( int32_t (*)(br_gcm_context*,const void*,size_t)) jt[198])(A,B,C)
+#define jbr_aes_small_ctr_init(A,B,C)    (( void (*)(br_aes_small_ctr_keys*,const void*,size_t)) jt[192])(A,B,C)
+#define jbr_gcm_init(A,B,C)              (( void (*)(br_gcm_context*,const br_block_ctr_class**,br_ghash)) jt[193])(A,B,C)
+#define jbr_gcm_reset(A,B,C)             (( void (*)(br_gcm_context*,const void*,size_t)) jt[194])(A,B,C)
+#define jbr_gcm_aad_inject(A,B,C)        (( void (*)(br_gcm_context*,const void*,size_t)) jt[195])(A,B,C)
+#define jbr_gcm_flip(A)                  (( void (*)(br_gcm_context*))                    jt[196])(A)
+#define jbr_gcm_run(A,B,C,D)             (( void (*)(br_gcm_context*,int,void*,size_t))   jt[197])(A,B,C,D)
+#define jbr_gcm_check_tag_trunc(A,B,C)   (( int32_t (*)(br_gcm_context*,const void*,size_t)) jt[198])(A,B,C)
 
 #define vsnprintf_P(A,B,C,...)          (( int32_t (*)(char *,size_t,const char *,...))   jt[199])(A,B,C,##__VA_ARGS__)
 #define makeTime(A)                    (( time_t (*)(const tmElements_t))               jt[200])(A)
-
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)

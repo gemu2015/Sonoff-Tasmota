@@ -1,6 +1,7 @@
 // AMS lib defines
 
 #include "TimeLib.h"
+#include <t_bearssl.h>
 
 typedef struct {
 uint8_t lastSequenceNumber;
