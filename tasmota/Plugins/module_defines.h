@@ -257,8 +257,8 @@ typedef struct {
 #define PinUsed(A)                      (( bool(*)(uint32_t))                            jt[178])(A)
 #define jatoll(A)                       (( int64_t(*)(char*))                            jt[179])(A)
 #define double_cdispatch(A,B,C)         (( int32_t (*)(uint32_t,double,double))          jt[180])(A,B,C)
-#define __floatdidf(A)                  (( double(*)(int32_t))                           jt[181])(A)
-#define __floatundidf(A)                (( double(*)(uint32_t))                          jt[182])(A)
+//#define __floatdidf(A)                  (( double(*)(int64_t))                           jt[181])(A)
+//#define __floatundidf(A)                (( double(*)(uint64_t))                          jt[182])(A)
 #define __floatsidf(A)                  (( double(*)(int32_t))                           jt[183])(A)
 #define __floatunsidf(A)                (( double(*)(uint32_t))                          jt[184])(A)
 #define __fixdfdi(A)                    (( int32_t(*)(double))                           jt[185])(A)
@@ -640,8 +640,7 @@ typedef struct {
 #define   tmod__divsf3  jfdiv
 #define   tmod__addsf3  jfadd
 #define   tmod__subsf3  jfdiff
-#define   fadd  jfadd
-#define   fdiff  jfdiff
+
 #define   GetTasmotaGlobalf JGetTasmotaGlobalf
 #define   tmod__muldi3 jtmod__muldi3
 #define   tmod__fixunssfsi jtmod__fixunssfsi
@@ -694,9 +693,8 @@ typedef struct {
 #define strtol jstrtol
 #define atoll jatoll
 
-#define fdiv jfdiv
+
 #define iseq jiseq
-#define fmul jfmul
 #define fixunssfsi tmod__fixunssfsi
 #define ltsf2 jltsf2
 #define gtsf2 jgtsf2
@@ -837,16 +835,32 @@ typedef struct {
 
 #define Replace_Cmd_Vars(A,B,C,D) jReplace_Cmd_Vars((uint32_t)A,B,(uint32_t)C,D)
 
-#define double_i64 __floatsidf
-#define double_ui64 __floatundidf
+// float and double conversions
+#define float_i32 jtmod__floatsisf
+#define float_ui32 jtmod__floatunsisf
+#define float_ui64 jtofloat
+#define i32_float
+#define ui32_float jtmod__fixunssfsi
+
+#define double_i64 __floattidf
+#define double_ui64 __floatuntidf
 #define double_i32 __floatsidf
 #define double_ui32 __floatunsidf
+#define i32_double __fixdfdi
+#define ui32_double __fixunsdfsi
+#define i64_double i642d
+#define double_float __extendsfdf2
 
+// float and double math
+#define fmul jfmul
+#define fadd jfadd
+#define fdiv jfdiv
+#define fdiff jfdiff
 
-#define icecast_open(A) jtmod_wifi(50,0,(uint32_t)A,0,0)
-#define icecast_http() (void*)jtmod_wifi(51,0,0,0,0)
-#define icecast_end() jtmod_wifi(52,0,0,0,0)
-#define icecast_test() jtmod_wifi(53,0,0,0,0)
+#define dadd(A,B) double_dispatch(0,A,B)
+#define ddiff(A,B) double_dispatch(1,A,B)
+#define dmul(A,B) double_dispatch(2,A,B)
+#define ddiv(A,B) double_dispatch(3,A,B)
 
 
 #define GetHostbyName(A,B) jtmod_wifi(60,0,(uint32_t)A,(uint32_t)B,0)
@@ -894,16 +908,30 @@ typedef struct {
 #define MqttPublishSensor jMqttPublishSensor
 #define ParseParameters jParseParameters
 
-
+#ifdef USE_SOFTWIRE
+#define I2C_SETWIRE(A) New_SWI2C(mp->ms[0].value, mp->ms[1].value);
+#define I2C_beginTransmission SWI2C_beginTransmission
+#define I2C_endTransmission SWI2C_endTransmission
+#define I2C_requestFrom(A,B) SWI2C_requestFrom(A,B,true)
+#define I2C_write SWI2C_Write
+#define I2C_read SWI2C_Read
+#define I2C_ResetActive(A,B) SWI2C_delete()
+#define I2C_SetDevice(A,B) SWI2C_SetDevice(A)
+#define I2C_SetActiveFound(A,B,C) SWI2C_SetActiveFound(A,B)
+#else
+#define I2C_SETWIRE SETWIRE
 #define I2C_beginTransmission beginTransmission
 #define I2C_endTransmission endTransmission
 #define I2C_requestFrom requestFrom
 #define I2C_write I2cWrite
 #define I2C_read I2cRead
-#define I2C_SETWIRE SETWIRE
 #define I2C_ResetActive I2cResetActive
 #define I2C_SetDevice I2cSetDevice
 #define I2C_SetActiveFound I2cSetActiveFound
+#endif
+
+
+
 
 
 #define CharToFloat jCharToFloat
@@ -1270,3 +1298,36 @@ __ltdf2
 
 
 */
+#if 0
+typedef struct {
+  uint8_t sda;
+  uint8_t scl;
+  uint8_t inputMode;
+  uint8_t delay_us;
+  uint16_t timeout_ms;
+  uint8_t rxBuffer[16];
+  uint8_t rxBufferSize;
+  uint8_t rxBufferIndex;
+  uint8_t rxBufferBytesRead;
+  uint8_t txAddress;
+  uint8_t txBuffer[16];
+  uint8_t txBufferSize;
+  uint8_t txBufferIndex;
+  bool transmissionInProgress;
+  bool allowClockStretch;
+  uint32_t lastmillis;
+} SWI2C_VARS;
+#else
+
+#define I2C_BUFFER_LENGTH 16
+typedef struct {
+  uint8_t rxBuffer[I2C_BUFFER_LENGTH];
+  uint8_t rxBufferIndex;
+  uint8_t rxBufferLength;
+  uint8_t isTransmitting;
+  uint8_t error;
+  uint8_t sda;
+  uint8_t scl;
+} SWI2C_VARS;
+
+#endif

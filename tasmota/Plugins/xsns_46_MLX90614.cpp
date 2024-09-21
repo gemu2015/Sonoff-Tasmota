@@ -19,6 +19,8 @@
 
 #ifdef USE_MLX90614_MOD
 
+#define USE_SOFTWIRE
+
 #include "module.h"
 #include "module_defines.h"
 
@@ -28,7 +30,15 @@ PUSH_OPTIONS
 
 // this is the structure of the module:
 // descripotr, code, end
+
+#define DEFAULT_SDA_PIN 12
+#define DEFAULT_SCL_PIN 14
+
+#ifdef USE_SOFTWIRE
+MODULE_DESCRIPTOR("MLX90614S", MODULE_TYPE_SENSOR, MLX90614_REV,"SDA",DEFAULT_SDA_PIN,"SCL",DEFAULT_SCL_PIN,"",0,"",0)
+#else
 MODULE_DESCRIPTOR("MLX90614", MODULE_TYPE_SENSOR, MLX90614_REV,"",0,"",0,"",0,"",0)
+#endif
 
 // all functions must be declared MUDULE_PART
 MODULE_PART int32_t Init_MLX90614();
@@ -50,20 +60,28 @@ MODULE_END
 #define MLX90614_TOBJ1  0x07
 #define MLX90614_TOBJ2  0x08
 
-
 // all memory must be in struct MODULE_MEMORY
 typedef struct {
-  TwoWire *xWire;
+  
   float obj_temp;
   float amb_temp;
   bool ready;
-  STRBUFFER
+#ifdef USE_SOFTWIRE
+  SWI2C_VARS *swv;
+#else
+  TwoWire *xWire;
+#endif
 } MODULE_MEMORY;
 
 // ease memory objects
 #define obj_temp mem->obj_temp
 #define amb_temp mem->amb_temp
 #define ready mem->ready
+#define swv mem->swv
+
+#ifdef USE_SOFTWIRE
+#include "Softwire/Softwire_cpp.h"
+#endif
 
 // text defines
 const char HTTP_IRTMP[] PROGMEM = "{s}MXL90614 OBJ-TEMP{m}%s C{e} {s}MXL90614 AMB-TEMP {m}%s C{e}";
@@ -74,18 +92,18 @@ const char mlxdev[] PROGMEM = "MLX90614";
 int32_t Init_MLX90614() {
   ALLOCMEM 
 
-  I2C_SETWIRE(0);
- 
   // now init variables here
   ready = false;
+
+  I2C_SETWIRE(0);
 
   if (!I2C_SetDevice(I2_ADR_IRT, 0)) {
     MLX90614_Deinit();
     return -1;
   }
- // char *cp = copyStr(GSTR(mlxdev));
+  
   I2C_SetActiveFound(I2_ADR_IRT, GSTR(mlxdev), 0);
- // free(cp);
+
   initialized = true;
   ready = true;
   return ready;
@@ -138,9 +156,9 @@ uint16_t MLX90614_read16(uint8_t addr, uint8_t a) {
   SETREGS
   uint16_t ret;
 
-  I2C_beginTransmission(addr);
+  I2C_beginTransmission(addr); 
   I2C_write(a);
-  I2C_endTransmission(false);
+  I2C_endTransmission(false); 
 
   I2C_requestFrom(addr, (size_t)3);
   uint8_t buff[5];
@@ -183,7 +201,9 @@ uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len) {
 
 void MLX90614_Deinit() {
   SETREGS
+  
   I2C_ResetActive(I2_ADR_IRT, 0);
+
   RETMEM
 }
 
