@@ -29,12 +29,12 @@
 PUSH_OPTIONS
 
 // this is the structure of the module:
-// descripotr, code, end
-
-#define DEFAULT_SDA_PIN 12
-#define DEFAULT_SCL_PIN 14
+// descriptor, code, end
 
 #ifdef USE_SOFTWIRE
+// software i2c needs to define pins
+#define DEFAULT_SDA_PIN 12
+#define DEFAULT_SCL_PIN 14
 MODULE_DESCRIPTOR("MLX90614S", MODULE_TYPE_SENSOR, MLX90614_REV,"SDA",DEFAULT_SDA_PIN,"SCL",DEFAULT_SCL_PIN,"",0,"",0)
 #else
 MODULE_DESCRIPTOR("MLX90614", MODULE_TYPE_SENSOR, MLX90614_REV,"",0,"",0,"",0,"",0)
@@ -66,11 +66,7 @@ typedef struct {
   float obj_temp;
   float amb_temp;
   bool ready;
-#ifdef USE_SOFTWIRE
-  SWI2C_VARS *swv;
-#else
-  TwoWire *xWire;
-#endif
+  TWIp *xWire;
 } MODULE_MEMORY;
 
 // ease memory objects

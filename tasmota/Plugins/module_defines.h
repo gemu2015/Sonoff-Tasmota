@@ -918,6 +918,8 @@ typedef struct {
 #define I2C_ResetActive(A,B) SWI2C_delete()
 #define I2C_SetDevice(A,B) SWI2C_SetDevice(A)
 #define I2C_SetActiveFound(A,B,C) SWI2C_SetActiveFound(A,B)
+#define TWIp SWI2C_VARS
+#define xWire swv
 #else
 #define I2C_SETWIRE SETWIRE
 #define I2C_beginTransmission beginTransmission
@@ -928,6 +930,7 @@ typedef struct {
 #define I2C_ResetActive I2cResetActive
 #define I2C_SetDevice I2cSetDevice
 #define I2C_SetActiveFound I2cSetActiveFound
+#define TWIp TwoWire
 #endif
 
 
