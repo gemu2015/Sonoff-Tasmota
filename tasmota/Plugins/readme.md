@@ -96,12 +96,11 @@ since we can not use the Pin assigments from Tasmota in all cases
 we could provide a pin select command for some drivers. 
 GUI solution for up to 4 pins is available with permanent save
 
-plugins may be loaded (linked) via file system or via upload
-in console "upload plugins"
+plugins may be loaded (linked) via WEBUI upload
 
 plugin driver commands:
 
-link /plugin.bin
+link /plugin.bin  no longer supported
 links a plugin from filesystem to the next free memory slot. or upload via web ui
 
 unlink X
@@ -153,6 +152,7 @@ veml6075
 rdm6300
 pn532 (serial+i2c)
 mlx90614
+mlx90614 with software i2c 
 sps30
 scd30
 sgp30
