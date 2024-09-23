@@ -16,7 +16,6 @@
   You should have received a copy of the GNU General Public License
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
-
 #include "tasmota_options.h"
 #ifdef USE_VEML6075_MOD
 
@@ -118,7 +117,7 @@ typedef union {
 } veml6075configRegister;
 
 typedef struct {
-  TwoWire *xWire;
+  TWIp *xWire;
   uint8_t veml6075_active;
   veml6075configRegister veml6075Config;
   VEML6075STRUCT veml6075_sensor;
@@ -157,7 +156,7 @@ MODULE_END
 uint16_t VEML6075read16(uint8_t reg) {
   SETREGS
 
-  uint16_t swap = I2cRead16(VEML6075_ADDR, reg, 0);
+  uint16_t swap = I2C_Read16(VEML6075_ADDR, reg, 0);
   uint16_t ret = ((swap & 0xFF) << 8) | (swap >> 8);
   return ret;
 }
@@ -166,7 +165,7 @@ void VEML6075write16(uint8_t reg, uint16_t val) {
   SETREGS
 
   uint16_t swap = ((val & 0xFF) << 8) | (val >> 8);
-  I2cWrite16(VEML6075_ADDR, reg, swap, 0);
+  I2C_Write16(VEML6075_ADDR, reg, swap, 0);
 }
 
 float VEML6075calcUVA(void) {
@@ -281,18 +280,18 @@ bool VEML6075init(void) {
 bool VEML6075Detect(void) {
   ALLOCMEM
 
-  SETWIRE(0);
+  I2C_SETWIRE(0);
 
   veml6075_sensor.address = VEML6075_ADDR;
   strcpy_P(veml6075_sensor.types, PSTR(D_NAME_VEML6075));
 
-  if (!I2cSetDevice(veml6075_sensor.address, 0)) {
+  if (!I2C_SetDevice(veml6075_sensor.address, 0)) {
     VEML6075_Deinit();
     return false;
   }
 
   if (VEML6075init()) {
-    I2cSetActiveFound(veml6075_sensor.address, veml6075_sensor.types, 0);
+    I2C_SetActiveFound(veml6075_sensor.address, veml6075_sensor.types, 0);
     VEML6075write16(VEML6075_REG_CONF, 0x10);  // set default
     veml6075_active = 1;
   } else {
@@ -372,7 +371,7 @@ void VEML6075Show(bool json) {
 
 void VEML6075_Deinit(void) {
   SETREGS
-  I2cResetActive(VEML6075_ADDR, 0);
+  I2C_ResetActive(VEML6075_ADDR, 0);
   RETMEM
 }
 

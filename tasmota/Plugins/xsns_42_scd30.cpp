@@ -103,7 +103,7 @@ typedef struct {
 } DRV;
 
 typedef struct {
-  TwoWire *xWire;
+  TWIp *xWire;
   uint8_t ready;
   SCD30 Scd30;
   DRV drv;
@@ -246,12 +246,12 @@ int SCD30_sendBytes(void *pInput, uint8_t len) {
   uint8_t *pBytes = (uint8_t *)pInput;
   int result;
   uint8_t errorBytes = 0;
-  beginTransmission(drv.i2cAddress);
+  I2C_beginTransmission(drv.i2cAddress);
   for (uint8_t cnt = 0; cnt < len; cnt++) {
-    I2cWrite(pBytes[cnt]);
+    I2C_write(pBytes[cnt]);
   }
   // errorBytes = len - (write(pBytes, len));
-  result = endTransmission(true);
+  result = I2C_endTransmission(true);
   result <<= 8;
   result |= errorBytes;
   return (result);
@@ -263,14 +263,14 @@ int SCD30_getBytes(void *pOutput, uint8_t len) {
   uint8_t *pBytes = (uint8_t *)pOutput;
   uint8_t result;
 
-  result = requestFrom(drv.i2cAddress, len);
+  result = I2C_requestFrom(drv.i2cAddress, len);
   if (len != result) {
     return (ERROR_SCD30_NOT_ENOUGH_BYTES_ERROR);
   }
 
-  if (I2cAvailable()) {
+  if (I2C_available()) {
     for (int x = 0; x < len; x++) {
-      pBytes[x] = I2cRead();
+      pBytes[x] = I2C_read();
     }
     return (ERROR_SCD30_NO_ERROR);
   }
@@ -615,14 +615,14 @@ int SCD30_stopMeasuring() {
 int32_t SCD30_Detect() {
   ALLOCMEM
 
-  SETWIRE(0);
+  I2C_SETWIRE(0);
 
   ready = false;
 
   Scd30.data_valid = false;
   initialized = false;
 
-  if (I2cSetDevice(SCD30_ADDRESS, 0)) {
+  if (I2C_SetDevice(SCD30_ADDRESS, 0)) {
     SCD30_begin(SCD30_ADDRESS);
 
     uint8_t major = 0;
@@ -640,7 +640,7 @@ int32_t SCD30_Detect() {
     }
 
     AddLog(LOG_LEVEL_INFO, PSTR("SCD30: FW v%d.%d"), major, minor);
-    I2cSetActiveFound(SCD30_ADDRESS, PSTR("SCD30"), 0);
+    I2C_SetActiveFound(SCD30_ADDRESS, PSTR("SCD30"), 0);
     initialized = 1;
     ready = true;
     return ready;
@@ -905,7 +905,7 @@ void SCD30_Show(bool json) {
 
 void SCD30_Deinit() {
   SETREGS
-  I2cResetActive(SCD30_ADDRESS, 0);
+  I2C_ResetActive(SCD30_ADDRESS, 0);
   RETMEM
 }
 

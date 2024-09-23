@@ -94,7 +94,7 @@ typedef struct {
 
 // define memory used
 typedef struct {
-  TwoWire *xWire;
+  TWIp *xWire;
   HTU Htu;
 } MODULE_MEMORY;
 
@@ -121,15 +121,15 @@ uint8_t HtuReadDeviceId() {
   uint16_t deviceID = 0;
   uint8_t checksum = 0;
 
-  beginTransmission(HTU21_ADDR);
-  I2cWrite(HTU21_SERIAL2_READ1);
-  I2cWrite(HTU21_SERIAL2_READ2);
-  endTransmission(0);
+  I2C_beginTransmission(HTU21_ADDR);
+  I2C_write(HTU21_SERIAL2_READ1);
+  I2C_write(HTU21_SERIAL2_READ2);
+  I2C_endTransmission(0);
 
   requestFrom(HTU21_ADDR, 3);
-  deviceID = I2cRead() << 8;
-  deviceID |= I2cRead();
-  checksum = I2cRead();
+  deviceID = I2C_read() << 8;
+  deviceID |= I2C_read();
+  checksum = I2C_read();
   if (HtuCheckCrc8(deviceID) == checksum) {
     deviceID = deviceID >> 8;
   } else {
@@ -140,23 +140,23 @@ uint8_t HtuReadDeviceId() {
 
 void HtuSetResolution(uint8_t resolution) {
   SETREGS
-  uint8_t current = I2cRead8(HTU21_ADDR, HTU21_READREG);
+  uint8_t current = I2C_Read8(HTU21_ADDR, HTU21_READREG);
   current &= 0x7E;        // Replace current resolution bits with 0
   current |= resolution;  // Add new resolution bits to register
-  I2cWrite8(HTU21_ADDR, HTU21_WRITEREG, current);
+  I2C_write8(HTU21_ADDR, HTU21_WRITEREG, current);
 }
 
 void HtuReset() {
   SETREGS
-  beginTransmission(HTU21_ADDR);
-  I2cWrite(HTU21_RESET);
-  endTransmission(0);
+  I2C_beginTransmission(HTU21_ADDR);
+  I2C_write(HTU21_RESET);
+  I2C_endTransmission(0);
   delay(15);  // Reset takes 15ms
 }
 
 void HtuHeater(uint8_t heater) {
   SETREGS
-  uint8_t current = I2cRead8(HTU21_ADDR, HTU21_READREG);
+  uint8_t current = I2C_Read8(HTU21_ADDR, HTU21_READREG);
 
   switch (heater) {
     case HTU21_HEATER_ON:
@@ -169,7 +169,7 @@ void HtuHeater(uint8_t heater) {
       current &= heater;
       break;
   }
-  I2cWrite8(HTU21_ADDR, HTU21_WRITEREG, current);
+  I2C_write8(HTU21_ADDR, HTU21_WRITEREG, current);
 }
 
 void HTU_Init() {
@@ -188,18 +188,18 @@ bool HTU_Read() {
     Htu.valid--;
   }
 
-  beginTransmission(HTU21_ADDR);
-  I2cWrite(HTU21_READTEMP);
-  if (endTransmission(0) != 0) {
+  I2C_beginTransmission(HTU21_ADDR);
+  I2C_write(HTU21_READTEMP);
+  if (I2C_endTransmission(0) != 0) {
     return false;
   }                        // In case of error
   delay(Htu.jdelay_temp);  // Sensor time at max resolution
 
   requestFrom(HTU21_ADDR, 3);
-  if (3 == I2cAvailable()) {
-    sensorval = I2cRead() << 8;  // MSB
-    sensorval |= I2cRead();      // LSB
-    checksum = I2cRead();
+  if (3 == I2C_available()) {
+    sensorval = I2C_read() << 8;  // MSB
+    sensorval |= I2C_read();      // LSB
+    checksum = I2C_read();
   }
   if (HtuCheckCrc8(sensorval) != checksum) {
     return false;
@@ -208,18 +208,18 @@ bool HTU_Read() {
   // Htu.temperature = jConvertTemp(0.002681 * (float)sensorval - 46.85);
   Htu.temperature = ConvertTemp(jfscale(sensorval, 0.002681, 46.85));
 
-  beginTransmission(HTU21_ADDR);
-  I2cWrite(HTU21_READHUM);
-  if (endTransmission(0) != 0) {
+  I2C_beginTransmission(HTU21_ADDR);
+  I2C_write(HTU21_READHUM);
+  if (I2C_endTransmission(0) != 0) {
     return false;
   }                            // In case of error
   delay(Htu.jdelay_humidity);  // Sensor time at max resolution
 
   requestFrom(HTU21_ADDR, 3);
-  if (3 <= I2cAvailable()) {
-    sensorval = I2cRead() << 8;  // MSB
-    sensorval |= I2cRead();      // LSB
-    checksum = I2cRead();
+  if (3 <= I2C_available()) {
+    sensorval = I2C_read() << 8;  // MSB
+    sensorval |= I2C_read();      // LSB
+    checksum = I2C_read();
   }
   if (HtuCheckCrc8(sensorval) != checksum) {
     return false;
@@ -258,13 +258,13 @@ bool HTU_Read() {
 
 int32_t HTU_Detect() {
   ALLOCMEM
-  SETWIRE(0);
+  I2C_SETWIRE(0);
 
   Htu.jdelay_humidity = 6;
 
   Htu.address = HTU21_ADDR;
   // if (I2cActive(Htu.address)) {
-  if (!I2cSetDevice(Htu.address, 0)) {
+  if (!I2C_SetDevice(Htu.address, 0)) {
     HTU_Deinit();
     return -1;
   }
@@ -320,7 +320,7 @@ void HTU_Show(bool json) {
 
 void HTU_Deinit() {
   SETREGS
-  I2cResetActive(Htu.address, 0);
+  I2C_ResetActive(Htu.address, 0);
   RETMEM
 }
 

@@ -908,15 +908,19 @@ typedef struct {
 #define MqttPublishSensor jMqttPublishSensor
 #define ParseParameters jParseParameters
 
-#ifdef USE_SOFTWIRE
+#ifdef USE_SOFTWIRE 
 #define MAX_I2C_Busses 1
 #define I2C_SETWIRE(A) New_SWI2C(mp->ms[0].value, mp->ms[1].value);
 #define I2C_beginTransmission SWI2C_beginTransmission
 #define I2C_endTransmission SWI2C_endTransmission
 #define I2C_requestFrom(A,B) SWI2C_requestFrom(A,B,true)
 #define I2C_write SWI2C_Write
-#define I2_WriteN SWI2C_Writen
+#define I2C_WriteN SWI2C_Writen
+#define I2C_write8 I2cWrite8
+
 #define I2C_read SWI2C_Read
+#define I2C_Read8 I2cRead8
+#define I2C_available I2cAvailable
 #define I2C_ResetActive(A,B) SWI2C_delete()
 #define I2C_SetDevice(A,B) SWI2C_SetDevice(A)
 #define I2C_SetActiveFound(A,B,C) SWI2C_SetActiveFound(A,B)
@@ -925,6 +929,7 @@ typedef struct {
 #define I2C_ValidRead16 SWI2C_ValidRead16
 #define I2C_Read16 SWI2C_Read16
 #define I2C_Write16 SWI2C_Write16
+#define I2C_readFrom twi_readFrom
 #else
 #define MAX_I2C_Busses 2
 #define I2C_SETWIRE SETWIRE
@@ -932,8 +937,12 @@ typedef struct {
 #define I2C_endTransmission endTransmission
 #define I2C_requestFrom requestFrom
 #define I2C_write I2cWrite
-#define I2_WriteN I2cWriten
+#define I2C_WriteN I2cWriten
+#define I2C_write8 I2cWrite8
+
 #define I2C_read I2cRead
+#define I2C_Read8 I2cRead8
+#define I2C_available I2cAvailable
 #define I2C_ResetActive I2cResetActive
 #define I2C_SetDevice I2cSetDevice
 #define I2C_SetActiveFound I2cSetActiveFound
@@ -941,6 +950,7 @@ typedef struct {
 #define I2C_ValidRead16 I2cValidRead16
 #define I2C_Read16 I2cRead16
 #define I2C_Write16 I2cWrite16
+#define I2C_readFrom twi_readFrom
 
 #endif
 

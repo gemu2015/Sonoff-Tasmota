@@ -296,32 +296,32 @@ bool VL53L0X_init(bool io_2v8) {
 // Write an 8-bit register
 void VL53L0X_writeReg(uint8_t reg, uint8_t value) {
   SETREGS
-  beginTransmission(address);
-  I2cWrite(reg);
-  I2cWrite(value);
-  last_status = endTransmission(true);
+  I2C_beginTransmission(address);
+  I2C_write(reg);
+  I2C_write(value);
+  last_status = I2C_endTransmission(true);
 }
 
 // Write a 16-bit register
 void VL53L0X_writeReg16Bit(uint8_t reg, uint16_t value) {
   SETREGS
-  beginTransmission(address);
-  I2cWrite(reg);
-  I2cWrite((value >> 8) & 0xFF);  // value high byte
-  I2cWrite(value & 0xFF);         // value low byte
-  last_status = endTransmission(true);
+  I2C_beginTransmission(address);
+  I2C_write(reg);
+  I2C_write((value >> 8) & 0xFF);  // value high byte
+  I2C_write(value & 0xFF);         // value low byte
+  last_status = I2C_endTransmission(true);
 }
 
 // Write a 32-bit register
 void VL53L0X_writeReg32Bit(uint8_t reg, uint32_t value) {
   SETREGS
-  beginTransmission(address);
-  I2cWrite(reg);
-  I2cWrite((value >> 24) & 0xFF);  // value highest byte
-  I2cWrite((value >> 16) & 0xFF);
-  I2cWrite((value >> 8) & 0xFF);
-  I2cWrite(value & 0xFF);  // value lowest byte
-  last_status = endTransmission(true);
+  I2C_beginTransmission(address);
+  I2C_write(reg);
+  I2C_write((value >> 24) & 0xFF);  // value highest byte
+  I2C_write((value >> 16) & 0xFF);
+  I2C_write((value >> 8) & 0xFF);
+  I2C_write(value & 0xFF);  // value lowest byte
+  last_status = I2C_endTransmission(true);
 }
 
 // Read an 8-bit register
@@ -329,12 +329,12 @@ uint8_t VL53L0X_readReg(uint8_t reg) {
   SETREGS
   uint8_t value;
 
-  beginTransmission(address);
-  I2cWrite(reg);
-  last_status = endTransmission(true);
+  I2C_beginTransmission(address);
+  I2C_write(reg);
+  last_status = I2C_endTransmission(true);
 
-  requestFrom(address, (uint8_t)1);
-  value = I2cRead();
+  I2C_requestFrom(address, (uint8_t)1);
+  value = I2C_read();
 
   return value;
 }
@@ -344,13 +344,13 @@ uint16_t VL53L0X_readReg16Bit(uint8_t reg) {
   SETREGS
   uint16_t value;
 
-  beginTransmission(address);
-  I2cWrite(reg);
-  last_status = endTransmission(true);
+  I2C_beginTransmission(address);
+  I2C_write(reg);
+  last_status = I2C_endTransmission(true);
 
-  requestFrom(address, (uint8_t)2);
-  value = (uint16_t)I2cRead() << 8;  // value high byte
-  value |= I2cRead();                // value low byte
+  I2C_requestFrom(address, (uint8_t)2);
+  value = (uint16_t)I2C_read() << 8;  // value high byte
+  value |= I2C_read();                // value low byte
 
   return value;
 }
@@ -360,15 +360,15 @@ uint32_t VL53L0X_readReg32Bit(uint8_t reg) {
   SETREGS
   uint32_t value;
 
-  beginTransmission(address);
-  I2cWrite(reg);
-  last_status = endTransmission(true);
+  I2C_beginTransmission(address);
+  I2C_write(reg);
+  last_status = I2C_endTransmission(true);
 
-  requestFrom(address, (uint8_t)4);
-  value = (uint32_t)I2cRead() << 24;  // value highest byte
-  value |= (uint32_t)I2cRead() << 16;
-  value |= (uint16_t)I2cRead() << 8;
-  value |= I2cRead();  // value lowest byte
+  I2C_requestFrom(address, (uint8_t)4);
+  value = (uint32_t)I2C_read() << 24;  // value highest byte
+  value |= (uint32_t)I2C_read() << 16;
+  value |= (uint16_t)I2C_read() << 8;
+  value |= I2C_read();  // value lowest byte
 
   return value;
 }
@@ -377,28 +377,28 @@ uint32_t VL53L0X_readReg32Bit(uint8_t reg) {
 // starting at the given register
 void VL53L0X_writeMulti(uint8_t reg, uint8_t const* src, uint8_t count) {
   SETREGS
-  beginTransmission(address);
-  I2cWrite(reg);
+  I2C_beginTransmission(address);
+  I2C_write(reg);
 
   while (count-- > 0) {
-    I2cWrite(*(src++));
+    I2C_write(*(src++));
   }
 
-  last_status = endTransmission(true);
+  last_status = I2C_endTransmission(true);
 }
 
 // Read an arbitrary number of bytes from the sensor, starting at the given
 // register, into the given array
 void VL53L0X_readMulti(uint8_t reg, uint8_t* dst, uint8_t count) {
   SETREGS
-  beginTransmission(address);
-  I2cWrite(reg);
-  last_status = endTransmission(true);
+  I2C_beginTransmission(address);
+  I2C_write(reg);
+  last_status = I2C_endTransmission(true);
 
-  requestFrom(address, count);
+  I2C_requestFrom(address, count);
 
   while (count-- > 0) {
-    *(dst++) = I2cRead();
+    *(dst++) = I2C_read();
   }
 }
 

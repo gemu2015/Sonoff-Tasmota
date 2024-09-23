@@ -54,7 +54,7 @@ typedef struct {
 } SPS30_DATA;
 
 typedef struct {
-  TwoWire *xWire;
+  TWIp *xWire;
   SPS30_DATA sps30_result;
   bool sps30_running;
   bool ready;
@@ -95,7 +95,7 @@ int32_t SPS30_Init() {
 
   SETWIRE(0);
 
-  if (!I2cSetDevice(SPS30_ADDR, 0)) {
+  if (!I2C_SetDevice(SPS30_ADDR, 0)) {
     goto exit;
   }
 
@@ -114,7 +114,7 @@ int32_t SPS30_Init() {
   ready = 1;
   initialized = 1;
   secs = 0;
-  I2cSetActiveFound(SPS30_ADDR, GSTR(SPS30), 0);
+  I2C_SetActiveFound(SPS30_ADDR, GSTR(SPS30), 0);
   return 0;
 }
 
@@ -141,22 +141,25 @@ void sps30_get_data(uint16_t cmd, uint8_t *data, uint8_t dlen) {
   uint8_t twi_buff[64];
   memset(twi_buff, 0, sizeof(twi_buff));
 
-  beginTransmission(SPS30_ADDR);
-  I2cWrite(cmd >> 8);
-  I2cWrite(cmd);
-  endTransmission(true);  // true = default
+  I2C_beginTransmission(SPS30_ADDR);
+  I2C_write(cmd >> 8);
+  I2C_write(cmd);
+  I2C_endTransmission(true);  // true = default
 
   // need 60 bytes max
   dlen /= 2;
   dlen *= 3;
 
 #ifdef ESP8266
-  twi_readFrom(SPS30_ADDR, twi_buff, dlen, 1);
+  I2C_readFrom(SPS30_ADDR, twi_buff, dlen, 1);
 #endif  // ESP8266
 
 #ifdef ESP32
-  Wire.requestFrom((uint16_t)SPS30_ADDR, dlen, true);
-  Wire.readBytes(twi_buff, dlen);
+  I2C_requestFrom((uint16_t)SPS30_ADDR, dlen, true);
+  for (uint32_t cnt = 0; cnt < dlen; cnt++) {
+    twi_buff[cnt] = I2C_read();
+  }
+  //Wire.readBytes(twi_buff, dlen);
 #endif  // ESP32
 
   uint8_t bind = 0;
@@ -177,7 +180,7 @@ void sps30_get_data(uint16_t cmd, uint8_t *data, uint8_t dlen) {
 void sps30_cmd(uint16_t cmd) {
   SETREGS
   unsigned char cmdb[6];
-  beginTransmission(SPS30_ADDR);
+  I2C_beginTransmission(SPS30_ADDR);
   cmdb[0] = cmd >> 8;
   cmdb[1] = cmd;
 
@@ -189,9 +192,9 @@ void sps30_cmd(uint16_t cmd) {
     num = 5;
   }
   for (uint16_t cnt = 0; cnt < num; cnt++) {
-    I2cWrite(cmdb[cnt]);
+    I2C_write(cmdb[cnt]);
   }
-  endTransmission(true);
+  I2C_endTransmission(true);
 }
 
 void SPS30_Every_Second() {
@@ -348,7 +351,7 @@ bool SPS30_command() {
 
 void SPS30_Deinit() {
   SETREGS
-  I2cResetActive(SPS30_ADDR, 0);
+  I2C_ResetActive(SPS30_ADDR, 0);
   RETMEM
 }
 
