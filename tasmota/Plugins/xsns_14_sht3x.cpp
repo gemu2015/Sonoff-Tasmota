@@ -70,13 +70,13 @@ typedef struct {
   SHT3XSTRUCT sht3x_sensors[SHT3X_MAX_SENSORS];
 } MODULE_MEMORY;
 
-#ifdef USE_SOFTWIRE
-#include "Softwire/Softwire_cpp.h"
-#endif 
-
 #define sht3x_count mem->sht3x_count
 #define sht3x_addresses mem->sht3x_addresses
 #define sht3x_sensors mem->sht3x_sensors
+
+#ifdef USE_SOFTWIRE
+#include "Softwire/Softwire_cpp.h"
+#endif 
 
 // define strings used
 const char kShtTypes3[] PROGMEM = "SHT3X|SHT3X|SHTC3";

@@ -241,6 +241,12 @@ SETREGS
   return value;
 }
 
+int SWI2C_available(void) {
+SETREGS
+  return swv->rxBufferIndex;
+}
+
+
 MODULE_PART bool SWI2C_SetDevice(uint32_t addr) {
   SETREGS
   SWI2C_beginTransmission((uint8_t)addr);
@@ -259,18 +265,60 @@ MODULE_PART void SWI2C_SetActiveFound(uint32_t addr, const char *types) {
 
 
 // to be implemented
-void SWI2C_Writen(uint8_t *buff, uint32_t len) {
+MODULE_PART void SWI2C_WriteN(uint8_t *buff, uint32_t len) {
+SETREGS
+  for (uint32_t cnt = 0; cnt < len; cnt++) {
+    SWI2C_Write(*buff++);
+  }
 }
 
-bool SWI2C_ValidRead16(uint16_t *data, uint8_t addr, uint8_t reg) {
-  return true;
+MODULE_PART bool SWI2C_ValidRead(uint8_t addr, uint8_t reg, uint8_t size, uint8_t bus, bool sendStop, uint32_t *I2C_buffer) {
+SETREGS
+  bool status = false;
+  SWI2C_beginTransmission(addr);                       // start transmission to device
+  SWI2C_Write(reg);                                    // sends register address to read from
+  if (0 == SWI2C_endTransmission(sendStop)) {          // Try to become I2C Master, send data and collect bytes, keep master status for next request...
+    SWI2C_requestFrom((int)addr, (int)size, true);           // send data n-bytes read
+    if (SWI2C_available() == size) {
+      for (uint32_t i = 0; i < size; i++) {
+        *I2C_buffer = *I2C_buffer << 8 | SWI2C_Read();   // receive DATA
+      }
+      status = true;                                    // 1 = OK
+    }
+  }
+  return status;
 }
 
-uint16_t SWI2C_Read16(uint8_t addr, uint8_t reg) {
-  return 0;
+
+MODULE_PART bool SWI2C_ValidRead16(uint16_t *data, uint8_t addr, uint8_t reg, uint8_t bus) {
+SETREGS
+  uint32_t I2C_buffer;
+  bool status = SWI2C_ValidRead(addr, reg, 2, 0, true, &I2C_buffer);
+  *data = (uint16_t)I2C_buffer;
+  return status;
 }
 
-bool SWI2C_Write16(uint8_t addr, uint8_t reg, uint32_t val) {
-return 0;
+MODULE_PART uint16_t SWI2C_Read16(uint8_t addr, uint8_t reg, uint8_t bus) {
+SETREGS
+  uint32_t I2C_buffer;
+  SWI2C_ValidRead(addr, reg, 2, 0, true, &I2C_buffer);
+  return (uint16_t)I2C_buffer;
+}
+
+
+MODULE_PART bool SWI2C_I2cWrite(uint8_t addr, uint8_t reg, uint32_t val, uint8_t size, uint8_t bus) {
+SETREGS
+  SWI2C_beginTransmission((uint8_t)addr);              // start transmission to device
+  SWI2C_Write(reg);                                   // sends register address to write to
+  uint8_t bytes = size;
+  while (bytes--) {
+    SWI2C_Write((val >> (8 * bytes)) & 0xFF);          // write data
+  }
+  SWI2C_endTransmission(true);
+}
+
+MODULE_PART bool SWI2C_Write16(uint8_t addr, uint8_t reg, uint32_t val, uint8_t bus) {
+SETREGS
+  return SWI2C_I2cWrite(addr, reg, val, 2, 0);   
 }
 

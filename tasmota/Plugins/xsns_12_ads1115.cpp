@@ -23,6 +23,8 @@
 
 #define XSNS_12 12
 
+//#define USE_SOFTWIRE
+
 #include "module.h"
 #include "module_defines.h"
 
@@ -129,7 +131,14 @@ CONFIG REGISTER
 PUSH_OPTIONS
 
 // this must be at the beginning
+#ifdef USE_SOFTWIRE
+// software i2c needs to define pins
+#define DEFAULT_SDA_PIN 12
+#define DEFAULT_SCL_PIN 14
+MODULE_DESCRIPTOR("ADS1115S", MODULE_TYPE_SENSOR, ADS1115_REV,"SDA",DEFAULT_SDA_PIN,"SCL",DEFAULT_SCL_PIN,"",0,"",0)
+#else
 MODULE_DESCRIPTOR("ADS1115", MODULE_TYPE_SENSOR, ADS1115_REV, "", 0, "", 0, "", 0, "", 0)
+#endif
 
 // all functions must be declared MUDULE_PART
 MODULE_PART int32_t Init_ADS1115();
@@ -160,6 +169,10 @@ typedef struct {
 
 #define Ads1115 mem->Ads1115
 #define ready mem->ready
+
+#ifdef USE_SOFTWIRE
+#include "Softwire/Softwire_cpp.h"
+#endif 
 
 // define text
 const char moddev[] PROGMEM = "ADS1115";
