@@ -909,6 +909,7 @@ typedef struct {
 #define ParseParameters jParseParameters
 
 #ifdef USE_SOFTWIRE
+#define MAX_I2C_Busses 1
 #define I2C_SETWIRE(A) New_SWI2C(mp->ms[0].value, mp->ms[1].value);
 #define I2C_beginTransmission SWI2C_beginTransmission
 #define I2C_endTransmission SWI2C_endTransmission
@@ -921,6 +922,7 @@ typedef struct {
 #define TWIp SWI2C_VARS
 #define xWire swv
 #else
+#define MAX_I2C_Busses 2
 #define I2C_SETWIRE SETWIRE
 #define I2C_beginTransmission beginTransmission
 #define I2C_endTransmission endTransmission

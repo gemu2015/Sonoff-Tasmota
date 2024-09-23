@@ -20,6 +20,9 @@
 #include "tasmota_options.h"
 
 #ifdef USE_SHT3X_MOD
+
+#define USE_SOFTWIRE
+
 #include "module.h"
 #include "module_defines.h"
 
@@ -39,7 +42,14 @@
 
 PUSH_OPTIONS
 
+#ifdef USE_SOFTWIRE
+// software i2c needs to define pins
+#define DEFAULT_SDA_PIN 12
+#define DEFAULT_SCL_PIN 14
+MODULE_DESCRIPTOR("SHT3XS", MODULE_TYPE_SENSOR, SHT3X_REV,"SDA",DEFAULT_SDA_PIN,"SCL",DEFAULT_SCL_PIN,"",0,"",0)
+#else
 MODULE_DESCRIPTOR("SHT3X", MODULE_TYPE_SENSOR, SHT3X_REV, "", 0, "", 0, "", 0, "", 0)
+#endif
 MODULE_PART int32_t Sht3x_Detect();
 MODULE_PART void SHT3X_Show(bool json);
 MODULE_PART void SHT3X_Deinit();
@@ -54,11 +64,15 @@ typedef struct {
 
 // define memory used
 typedef struct {
-  TwoWire *xWire;
+  TWIp *xWire;
   uint8_t sht3x_count;
   uint8_t sht3x_addresses[3];
   SHT3XSTRUCT sht3x_sensors[SHT3X_MAX_SENSORS];
 } MODULE_MEMORY;
+
+#ifdef USE_SOFTWIRE
+#include "Softwire/Softwire_cpp.h"
+#endif 
 
 #define sht3x_count mem->sht3x_count
 #define sht3x_addresses mem->sht3x_addresses
@@ -77,26 +91,26 @@ bool Sht3xRead(float &t, float &h, uint8_t sht3x_address) {
   t = jNAN;
   h = t;
 
-  beginTransmission(sht3x_address);
+  I2C_beginTransmission(sht3x_address);
   if (SHTC3_ADDR == sht3x_address) {
-    I2cWrite(0x35);  // Wake from
-    I2cWrite(0x17);  // sleep
-    endTransmission(true);
-    beginTransmission(sht3x_address);
-    I2cWrite(0x78);  // Disable clock stretching ( I don't think that wire library support clock stretching )
-    I2cWrite(0x66);  // High resolution
+    I2C_write(0x35);  // Wake from
+    I2C_write(0x17);  // sleep
+    I2C_endTransmission(true);
+    I2C_beginTransmission(sht3x_address);
+    I2C_write(0x78);  // Disable clock stretching ( I don't think that wire library support clock stretching )
+    I2C_write(0x66);  // High resolution
   } else {
-    I2cWrite(0x2C);  // Enable clock stretching
-    I2cWrite(0x06);  // High repeatability
+    I2C_write(0x2C);  // Enable clock stretching
+    I2C_write(0x06);  // High repeatability
   }
-  if (endTransmission(true) != 0) {  // Stop I2C transmission
+  if (I2C_endTransmission(true) != 0) {  // Stop I2C transmission
     AddLog(LOG_LEVEL_INFO, PSTR("i2c error"));
     return false;
   }
   delay(30);                      // Timing verified with logic analyzer (10 is to short)
-  requestFrom(sht3x_address, 6);  // Request 6 bytes of data
+  I2C_requestFrom(sht3x_address, 6);  // Request 6 bytes of data
   for (uint32_t i = 0; i < 6; i++) {
-    data[i] = I2cRead();  // cTemp msb, cTemp lsb, cTemp crc, humidity msb, humidity lsb, humidity crc
+    data[i] = I2C_read();  // cTemp msb, cTemp lsb, cTemp crc, humidity msb, humidity lsb, humidity crc
   };
 
   t = fdiv(tofloat(((data[0] << 8) | data[1]) * 175), FLTC(0));
@@ -118,10 +132,12 @@ int32_t Sht3x_Detect() {
   sht3x_addresses[1] = SHT3X_ADDR_VDD;
   sht3x_addresses[2] = SHTC3_ADDR;
 
-  for (uint32_t bus = 0; bus < 2; bus++) {
-    SETWIRE(bus);
+
+
+  for (uint32_t bus = 0; bus < MAX_I2C_Busses; bus++) {
+    I2C_SETWIRE(bus);
     for (uint32_t i = 0; i < SHT3X_MAX_SENSORS; i++) {
-      if (!I2cSetDevice(sht3x_addresses[i], bus)) {
+      if (!I2C_SetDevice(sht3x_addresses[i], bus)) {
         continue;
       }
 
@@ -130,7 +146,7 @@ int32_t Sht3x_Detect() {
       if (Sht3xRead(t, h, sht3x_addresses[i])) {
         sht3x_sensors[sht3x_count].address = sht3x_addresses[i];
         GetTextIndexed(sht3x_sensors[sht3x_count].types, sizeof(sht3x_sensors[sht3x_count].types), i, GSTR(kShtTypes3));
-        I2cSetActiveFound(sht3x_sensors[sht3x_count].address, sht3x_sensors[sht3x_count].types, 0);
+        I2C_SetActiveFound(sht3x_sensors[sht3x_count].address, sht3x_sensors[sht3x_count].types, 0);
         sht3x_count++;
       }
     }
@@ -178,7 +194,7 @@ void SHT3X_Show(bool json) {
 void SHT3X_Deinit() {
   SETREGS
   for (uint32_t i = 0; i < sht3x_count; i++) {
-    I2cResetActive(sht3x_sensors[i].address, 0);
+    I2C_ResetActive(sht3x_sensors[i].address, 0);
   }
   RETMEM
 }

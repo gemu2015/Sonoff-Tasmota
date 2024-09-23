@@ -72,7 +72,6 @@ typedef struct {
 #define obj_temp mem->obj_temp
 #define amb_temp mem->amb_temp
 #define ready mem->ready
-#define swv mem->swv
 
 #ifdef USE_SOFTWIRE
 #include "Softwire/Softwire_cpp.h"

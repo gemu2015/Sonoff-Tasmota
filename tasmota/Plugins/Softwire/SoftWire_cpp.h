@@ -10,6 +10,7 @@
 #define xsdaLow pinMode(swv->sda, OUTPUT);
 #define xsdaHigh pinMode(swv->sda, INPUT);
 
+#define swv mem->swv
 
 #define sclLow digitalWrite(swv->scl, LOW);
 #define sclHigh pinMode(swv->scl, INPUT);
