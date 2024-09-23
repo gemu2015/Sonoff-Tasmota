@@ -1053,6 +1053,7 @@ _Pragma("GCC optimize (\"-Og\")")
   __asm__ (".globl\t__c6xabi_" #AEABI_NAME "\n"		\
 	   ".set\t__c6xabi_" #AEABI_NAME			\
 	   ", __gnu_" #GCC_NAME "\n");
+     
 #define DECLARE_LIBRARY_RENAMES RENAME_LIBRARY (addsf3, murks)
 
 
