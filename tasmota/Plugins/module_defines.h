@@ -1048,13 +1048,43 @@ _Pragma("GCC optimize (\"-Og\")")
 
 */
 
-
+/*
 #define RENAME_LIBRARY(GCC_NAME, AEABI_NAME)			\
-  __asm__ (".globl\t__c6xabi_" #AEABI_NAME "\n"		\
-	   ".set\t__c6xabi_" #AEABI_NAME			\
-	   ", __gnu_" #GCC_NAME "\n");
-     
-#define DECLARE_LIBRARY_RENAMES RENAME_LIBRARY (addsf3, murks)
+  __asm__ (".global\t__" #AEABI_NAME "\n"		\
+	   ".set\t__" #AEABI_NAME			\
+	   ", __" #GCC_NAME "\n");
+*/
+
+/*
+#define RENAME_LIBRARY(OLD,NEW)						\
+__asm__ (".global\t__" #NEW "\n"						\
+	 "\t.set __" #NEW ",__" #OLD "\n"					\
+	 "\t.type\t__" #NEW ",@function\n");
+
+
+
+__asm__ (
+" .section .text.mod_part\n"
+" .align 4\n"
+" .global	xmurks\n"
+" .type   xmurks,@function\n"
+" xmurks:\n"
+" ret.n"
+);
+
+
+
+//#define DECLARE_LIBRARY_RENAMES 
+
+RENAME_LIBRARY (addsf3,murks)
+
+float __murks(float a,float b) {
+  return a+b;
+}
+*/
+
+
+
 
 
 /*
