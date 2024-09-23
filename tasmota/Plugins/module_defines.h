@@ -1029,6 +1029,8 @@ _Pragma("GCC optimize (\"-Og\")")
 #endif
 */
 
+
+
 /*
 #if 0
 #define RENAME_LIBRARY_SET ".set"
@@ -1044,8 +1046,14 @@ _Pragma("GCC optimize (\"-Og\")")
 	   ", __gnu_" #GCC_NAME "\n");
 #endif
 
-#define DECLARE_LIBRARY_RENAMES RENAME_LIBRARY (__muldf3, murks)
 */
+
+
+#define RENAME_LIBRARY(GCC_NAME, AEABI_NAME)			\
+  __asm__ (".globl\t__c6xabi_" #AEABI_NAME "\n"		\
+	   ".set\t__c6xabi_" #AEABI_NAME			\
+	   ", __gnu_" #GCC_NAME "\n");
+#define DECLARE_LIBRARY_RENAMES RENAME_LIBRARY (addsf3, murks)
 
 
 /*

@@ -19,7 +19,7 @@
 
 #ifdef USE_MLX90614_MOD
 
-#define USE_SOFTWIRE
+//#define USE_SOFTWIRE
 
 #include "module.h"
 #include "module_defines.h"
@@ -62,7 +62,6 @@ MODULE_END
 
 // all memory must be in struct MODULE_MEMORY
 typedef struct {
-  
   float obj_temp;
   float amb_temp;
   bool ready;
@@ -77,7 +76,7 @@ typedef struct {
 
 #ifdef USE_SOFTWIRE
 #include "Softwire/Softwire_cpp.h"
-#endif
+#endif 
 
 // text defines
 const char HTTP_IRTMP[] PROGMEM = "{s}MXL90614 OBJ-TEMP{m}%s C{e} {s}MXL90614 AMB-TEMP {m}%s C{e}";
@@ -90,6 +89,10 @@ int32_t Init_MLX90614() {
 
   // now init variables here
   ready = false;
+
+  float a = obj_temp;
+  float b = 2;
+  ready = a * b;
 
   I2C_SETWIRE(0);
 

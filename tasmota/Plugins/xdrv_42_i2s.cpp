@@ -989,7 +989,7 @@ void WebRadio(void) {
 
 #define URL_SIZE 256
     // play webradio stream
-    char *urlcopy = (char*)calloc(URL_SIZE, 1);
+    //char *urlcopy = (char*)calloc(URL_SIZE, 1);
     const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
     TASKPARS tp;
     tp.pvTaskCode = GVOID(I2sTaskWR);
