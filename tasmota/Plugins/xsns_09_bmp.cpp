@@ -18,6 +18,8 @@
 
 #ifdef USE_BME_MOD
 
+//#define USE_SOFTWIRE
+
 #include "module.h"
 #include "module_defines.h"
 #include "../Tasmota/include/i18n.h"
@@ -122,7 +124,14 @@ PUSH_OPTIONS
 
 // this is the structure of the module:
 // descripotr, code, end
+#ifdef USE_SOFTWIRE
+// software i2c needs to define pins
+#define DEFAULT_SDA_PIN 12
+#define DEFAULT_SCL_PIN 14
+MODULE_DESCRIPTOR("BMXx80S", MODULE_TYPE_SENSOR, BMX_REV,"SDA",DEFAULT_SDA_PIN,"SCL",DEFAULT_SCL_PIN,"",0,"",0)
+#else
 MODULE_DESCRIPTOR("BMXx80", MODULE_TYPE_SENSOR, BMX_REV, "", 0, "", 0, "", 0, "", 0)
+#endif
 
 // all functions must be declared MUDULE_PART
 MODULE_PART int32_t Init_BME();
@@ -163,7 +172,7 @@ typedef struct {
 
 // all memory must be in struct MODULE_MEMORY
 typedef struct {
-  TwoWire *xWire;
+  TWIp *xWire;
   float hum;
   float abshum;
   float temp;
@@ -186,8 +195,11 @@ typedef struct {
 #define abshum mem->abshum
 #define i2c_addr mem->i2c_addr
 #define bmc mem->bmc
-
 #define ready mem->ready
+
+#ifdef USE_SOFTWIRE
+#include "Softwire/Softwire_cpp.h"
+#endif 
 
 const char BMEtypes[] PROGMEM = "BMP180|BME280|BMP280|BME680";
 // all text defines must be here
@@ -202,14 +214,14 @@ const char JSON_BMPend[] PROGMEM = "}";
 int32_t Init_BME() {
   ALLOCMEM
 
-  SETWIRE(0);
+  I2C_SETWIRE(0);
 
   // now init variables here
   ready = false;
 
   i2c_addr = BME280_I2C_ADDRESS1;
 
-  if (!I2cSetDevice(i2c_addr, 0)) {
+  if (!I2C_SetDevice(i2c_addr, 0)) {
     BME_Deinit();
     return -1;
   }
@@ -228,7 +240,7 @@ int32_t Init_BME() {
   }
 
   GetTextIndexed(typestr, sizeof(typestr), index, GSTR(BMEtypes));
-  I2cSetActiveFound(i2c_addr, typestr, 0);
+  I2C_SetActiveFound(i2c_addr, typestr, 0);
 
   BME_readCalibrationData();
 
@@ -240,19 +252,19 @@ int32_t Init_BME() {
 uint32_t BME_Read(uint8_t reg, int8_t num) {
   SETREGS
 
-  beginTransmission(i2c_addr);
-  I2cWrite(reg);
-  endTransmission(false);
-  requestFrom(i2c_addr, abs(num));
+  I2C_beginTransmission(i2c_addr);
+  I2C_write(reg);
+  I2C_endTransmission(false);
+  I2C_requestFrom(i2c_addr, abs(num));
   uint32_t result = 0;
   if (num > 0) {
     for (uint16_t cnt = 0; cnt < num; cnt++) {
       result <<= 8;
-      result |= I2cRead();
+      result |= I2C_read();
     }
   } else {
-    result = I2cRead();
-    result |= I2cRead() << 8;
+    result = I2C_read();
+    result |= I2C_read() << 8;
   }
   return result;
 }
@@ -260,10 +272,10 @@ uint32_t BME_Read(uint8_t reg, int8_t num) {
 uint32_t BME_Write(uint8_t reg, int8_t val) {
   SETREGS
 
-  beginTransmission(i2c_addr);
-  I2cWrite(reg);
-  I2cWrite(val);
-  return endTransmission(true);
+  I2C_beginTransmission(i2c_addr);
+  I2C_write(reg);
+  I2C_write(val);
+  return I2C_endTransmission(true);
 }
 
 void BME_readCalibrationData() {
@@ -431,7 +443,7 @@ void BME_Show(uint32_t json) {
 
 void BME_Deinit() {
   SETREGS
-  I2cResetActive(i2c_addr, 0);
+  I2C_ResetActive(i2c_addr, 0);
   RETMEM
 }
 

@@ -258,3 +258,19 @@ MODULE_PART void SWI2C_SetActiveFound(uint32_t addr, const char *types) {
 }
 
 
+// to be implemented
+void SWI2C_Writen(uint8_t *buff, uint32_t len) {
+}
+
+bool SWI2C_ValidRead16(uint16_t *data, uint8_t addr, uint8_t reg) {
+  return true;
+}
+
+uint16_t SWI2C_Read16(uint8_t addr, uint8_t reg) {
+  return 0;
+}
+
+bool SWI2C_Write16(uint8_t addr, uint8_t reg, uint32_t val) {
+return 0;
+}
+

@@ -153,7 +153,7 @@ typedef struct {
 } ADS1115;
 
 typedef struct {
-  TwoWire *xWire;
+  TWIp *xWire;
   ADS1115 Ads1115;
   bool ready;
 } MODULE_MEMORY;
@@ -190,7 +190,7 @@ void Ads1115StartComparator(uint8_t channel, uint16_t mode) {
   config |= (ADS1115_REG_CONFIG_MUX_SINGLE_0 + (0x1000 * channel));
 
   // Write config register to the ADC
-  I2cWrite16(Ads1115.address, ADS1115_REG_POINTER_CONFIG, config, 0);
+  I2C_Write16(Ads1115.address, ADS1115_REG_POINTER_CONFIG, config, 0);
 }
 
 int16_t Ads1115GetConversion(uint8_t channel) {
@@ -199,12 +199,12 @@ int16_t Ads1115GetConversion(uint8_t channel) {
   // Wait for the conversion to complete
   delay(ADS1115_CONVERSIONDELAY);
   // Read the conversion results
-  I2cRead16(Ads1115.address, ADS1115_REG_POINTER_CONVERT, 0);
+  I2C_Read16(Ads1115.address, ADS1115_REG_POINTER_CONVERT, 0);
 
   Ads1115StartComparator(channel, ADS1115_REG_CONFIG_MODE_CONTIN);
   delay(ADS1115_CONVERSIONDELAY);
   // Read the conversion results
-  uint16_t res = I2cRead16(Ads1115.address, ADS1115_REG_POINTER_CONVERT, 0);
+  uint16_t res = I2C_Read16(Ads1115.address, ADS1115_REG_POINTER_CONVERT, 0);
   return (int16_t)res;
 }
 
@@ -213,7 +213,7 @@ int16_t Ads1115GetConversion(uint8_t channel) {
 int32_t Init_ADS1115() {
   ALLOCMEM
 
-  SETWIRE(0);
+  I2C_SETWIRE(0);
 
   Ads1115.addresses[0] = ADS1115_ADDRESS_ADDR_GND;
   Ads1115.addresses[1] = ADS1115_ADDRESS_ADDR_VDD;
@@ -223,14 +223,14 @@ int32_t Init_ADS1115() {
   for (uint32_t i = 0; i < fldsiz(ADS1115, addresses); i++) {
     if (!Ads1115.found[i]) {
       Ads1115.address = Ads1115.addresses[i];
-      if (!I2cSetDevice(Ads1115.address, 0)) {
+      if (!I2C_SetDevice(Ads1115.address, 0)) {
         continue;
       }
       uint16_t buffer;
-      if (I2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONVERT, 0) &&
-          I2cValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONFIG, 0)) {
+      if (I2C_ValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONVERT, 0) &&
+          I2C_ValidRead16(&buffer, Ads1115.address, ADS1115_REG_POINTER_CONFIG, 0)) {
         Ads1115StartComparator(i, ADS1115_REG_CONFIG_MODE_CONTIN);
-        I2cSetActiveFound(Ads1115.address, GSTR(moddev), 0);
+        I2C_SetActiveFound(Ads1115.address, GSTR(moddev), 0);
         Ads1115.found[i] = 1;
         Ads1115.count++;
       }
@@ -351,7 +351,7 @@ void ADS1115_Deinit() {
 
   for (uint32_t t = 0; t < fldsiz(ADS1115, addresses); t++) {
     if (Ads1115.found[t]) {
-      I2cResetActive(Ads1115.addresses[t], 0);
+      I2C_ResetActive(Ads1115.addresses[t], 0);
     }
   }
   RETMEM

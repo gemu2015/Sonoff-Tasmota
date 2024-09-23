@@ -21,6 +21,8 @@
 
 #ifdef USE_SGP30_MOD
 
+#define USE_SOFTWIRE
+
 #include "module.h"
 #include "module_defines.h"
 
@@ -28,7 +30,7 @@
 
 // all memory must be in struct MODULE_MEMORY
 typedef struct {
-  TwoWire *xWire;
+  TWIp *xWire;
   bool sgp30_ready;
   bool ready;
   uint8_t secs;
@@ -48,12 +50,23 @@ typedef struct {
 #define eCO2_base mem->eCO2_base
 #define abshum mem->abshum
 
+#ifdef USE_SOFTWIRE
+#include "Softwire/Softwire_cpp.h"
+#endif 
+
 #define SGP30_REV 1 << 16 | 4
 
 PUSH_OPTIONS
 
 // all functions must be declared MUDULE_PART
+#ifdef USE_SOFTWIRE
+// software i2c needs to define pins
+#define DEFAULT_SDA_PIN 12
+#define DEFAULT_SCL_PIN 14
+MODULE_DESCRIPTOR("SGP30S", MODULE_TYPE_SENSOR, SGP30_REV,"SDA",DEFAULT_SDA_PIN,"SCL",DEFAULT_SCL_PIN,"",0,"",0)
+#else
 MODULE_DESCRIPTOR("SGP30", MODULE_TYPE_SENSOR, SGP30_REV, "", 0, "", 0, "", 0, "", 0)
+#endif
 MODULE_PART int32_t SGP30_Init();
 MODULE_PART bool SGP30_IAQinit();
 MODULE_PART bool SGP30_Begin();
@@ -82,19 +95,19 @@ const char JSON_SNS_AHUM[] PROGMEM = ",\"aHumidity\":%s}";
 int32_t SGP30_Init() {
   ALLOCMEM
 
-  SETWIRE(0);
+  I2C_SETWIRE(0);
 
   ready = false;
   sgp30_ready = false;
 
-  if (!I2cSetDevice(SGP30_ADDRESS, 0)) {
+  if (!I2C_SetDevice(SGP30_ADDRESS, 0)) {
     goto exit;
   }
 
   if (SGP30_Begin()) {
     ready = true;
     initialized = true;
-    I2cSetActiveFound(SGP30_ADDRESS, GSTR(SGP30), 0);
+    I2C_SetActiveFound(SGP30_ADDRESS, GSTR(SGP30), 0);
     return 0;
   }
 
@@ -193,11 +206,11 @@ bool setHumidity(uint32_t absolute_humidity) {
 bool readWordFromCommand(uint8_t command[], uint8_t commandLength, uint16_t delayms, uint16_t *readdata,
                          uint8_t readlen) {
   SETREGS
-  beginTransmission(SGP30_ADDRESS);
+  I2C_beginTransmission(SGP30_ADDRESS);
   for (uint8_t i = 0; i < commandLength; i++) {
-    I2cWrite(command[i]);
+    I2C_write(command[i]);
   }
-  endTransmission(false);
+  I2C_endTransmission(false);
 
   delay(delayms);
 
@@ -206,12 +219,12 @@ bool readWordFromCommand(uint8_t command[], uint8_t commandLength, uint16_t dela
   }
 
   uint8_t replylen = readlen * (2 + 1);
-  if (requestFrom(SGP30_ADDRESS, replylen) != replylen) {
+  if (I2C_requestFrom(SGP30_ADDRESS, replylen) != replylen) {
     return false;
   }
   uint8_t replybuffer[replylen];
   for (uint8_t i = 0; i < replylen; i++) {
-    replybuffer[i] = I2cRead();
+    replybuffer[i] = I2C_read();
   }
 
   for (uint8_t i = 0; i < readlen; i++) {
@@ -313,7 +326,7 @@ void SGP30_Show(bool json) {
 
 void SGP30_Deinit() {
   SETREGS
-  I2cResetActive(SGP30_ADDRESS, 0);
+  I2C_ResetActive(SGP30_ADDRESS, 0);
   RETMEM
 }
 

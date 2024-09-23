@@ -49,7 +49,7 @@ typedef struct {
 } PCF8574;
 
 typedef struct {
-  TwoWire *xWire;
+  TWIp *xWire;
   PCF8574 Pcf8574;
   bool handler_up;
 } MODULE_MEMORY;
@@ -92,9 +92,9 @@ void Pcf8574SwitchRelay(void) {
         Pcf8574.pin_mask[board] &= ~(1 << (Pcf8574.pin[i] & 0x7));
       }
       if (oldpinmask != Pcf8574.pin_mask[board]) {
-        beginTransmission(Pcf8574.address[board]);
-        write(Pcf8574.pin_mask[board]);
-        Pcf8574.error = endTransmission(true);
+        I2C_beginTransmission(Pcf8574.address[board]);
+        I2C_write(Pcf8574.pin_mask[board]);
+        Pcf8574.error = I2C_endTransmission(true);
       }
       // pcf8574.write(Pcf8574.pin[i]&0x7, rel_inverted[i] ? !state : state);
     }
@@ -105,13 +105,13 @@ int32_t Pcf8574Init(void) {
   ALLOCMEM
   STGLOB
 
-  SETWIRE(0);
+  I2C_SETWIRE(0);
 
   uint8_t pcf8574_address = PCF8574_ADDR1;
   while ((Pcf8574.max_devices < MAX_PCF8574) && (pcf8574_address < PCF8574_ADDR2 + 8)) {
     //  AddLog_P2(LOG_LEVEL_DEBUG, PSTR("PCF: Probing addr: 0x%x for PCF8574"), pcf8574_address);
 
-    if (I2cSetDevice(pcf8574_address, 0)) {
+    if (I2C_SetDevice(pcf8574_address, 0)) {
       Pcf8574.type = true;
 
       Pcf8574.address[Pcf8574.max_devices] = pcf8574_address;
@@ -121,7 +121,7 @@ int32_t Pcf8574Init(void) {
       if (pcf8574_address >= PCF8574_ADDR2) {
         strcpy_P(Pcf8574.stype, PSTR("PCF8574A"));
       }
-      I2cSetActiveFound(pcf8574_address, Pcf8574.stype, 0);
+      I2C_SetActiveFound(pcf8574_address, Pcf8574.stype, 0);
     }
 
     pcf8574_address++;
@@ -303,7 +303,7 @@ void Pcf8574_AddButton() {
 
 void PCF8574_Deinit(void) {
   SETREGS
-  I2cResetActive(PCF8574_ADDR1, 0);
+  I2C_ResetActive(PCF8574_ADDR1, 0);
   RETMEM
 }
 /*********************************************************************************************\

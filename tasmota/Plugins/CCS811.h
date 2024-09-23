@@ -327,13 +327,13 @@ MODULE_PART void CCS811_read(uint8_t reg, uint8_t *buf, uint8_t num) {
 	while( pos < num) {
 
 		uint8_t read_now = min((uint8_t)32, (uint8_t)(num - pos));
-		beginTransmission(ccs.i2c_addr);
-		I2cWrite(reg + pos);
-		endTransmission(false);
-		requestFrom(ccs.i2c_addr, read_now);
+		I2C_beginTransmission(ccs.i2c_addr);
+		I2C_write(reg + pos);
+		I2C_endTransmission(false);
+		I2C_requestFrom(ccs.i2c_addr, read_now);
 
 		for (int i=0; i<read_now; i++) {
-			buf[pos] = I2cRead();
+			buf[pos] = I2C_read();
 			pos++;
 		}
 	}
@@ -341,8 +341,8 @@ MODULE_PART void CCS811_read(uint8_t reg, uint8_t *buf, uint8_t num) {
 
 MODULE_PART void CCS811_write(uint8_t reg, uint8_t *buf, uint8_t num) {
 	SETREGS
-	beginTransmission(ccs.i2c_addr);
-	I2cWrite(reg);
-	I2cWriten(buf, num);
-	endTransmission(false);
+	I2C_beginTransmission(ccs.i2c_addr);
+	I2C_write(reg);
+	I2_WriteN(buf, num);
+	I2C_endTransmission(false);
 }

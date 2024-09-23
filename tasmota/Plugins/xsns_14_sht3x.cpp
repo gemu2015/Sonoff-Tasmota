@@ -21,7 +21,7 @@
 
 #ifdef USE_SHT3X_MOD
 
-#define USE_SOFTWIRE
+//#define USE_SOFTWIRE
 
 #include "module.h"
 #include "module_defines.h"

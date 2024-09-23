@@ -101,7 +101,7 @@ typedef struct {
 } CCS811;
 
 typedef struct {
-  TwoWire *xWire;
+  TWIp *xWire;
   uint8_t CCS811_ready;
   uint16_t eCO2;
   uint16_t TVOC;
@@ -127,22 +127,20 @@ typedef struct {
 bool CCS811_Detect(void) {
   ALLOCMEM
 
-  SETWIRE(0);
+  I2C_SETWIRE(0);
 
   ready = false;
   tcnt = 0;
   ecnt = 0;
   CCS811_ready = 0;
 
-  if (!I2cSetDevice(CCS811_ADDRESS, 0)) {
+  if (!I2C_SetDevice(CCS811_ADDRESS, 0)) {
     CCS811_Deinit();
     return false;
   }
 
   if (!CCS811_begin(CCS811_ADDRESS)) {
-    char *cp = copyStr(GSTR(CCS811_dev));
-    I2cSetActiveFound(CCS811_ADDRESS, cp, 0);
-    free(cp);
+    I2C_SetActiveFound(CCS811_ADDRESS, GSTR(CCS811_dev), 0);
     ready = true;
     initialized = true;
     return true;
@@ -204,7 +202,7 @@ void CCS811_Show(bool json) {
 
 void CCS811_Deinit(void) {
   SETREGS
-  I2cResetActive(CCS811_ADDRESS, 0);
+  I2C_ResetActive(CCS811_ADDRESS, 0);
   RETMEM
 }
 
