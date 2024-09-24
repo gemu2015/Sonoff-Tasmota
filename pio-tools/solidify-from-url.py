@@ -147,7 +147,7 @@ cleanFolder() # always clean up this folder
 BERRY_GEN_DIR = join(env.subst("$PROJECT_DIR"), "lib", "libesp32","berry")
 BERRY_GENERATE = join(BERRY_GEN_DIR,"generate")
 if os.path.exists(BERRY_GENERATE) == False:
-    print("berry folder missing")
+    print("berry generate folder missing")
     os.mkdir(BERRY_GENERATE)
 
 
