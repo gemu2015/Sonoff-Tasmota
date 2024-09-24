@@ -1183,6 +1183,8 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
       {
       i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
       /* Allocate a new TX channel and get the handle of this channel */
+      chan_cfg.auto_clear = true;
+
       i2s_new_channel(&chan_cfg, &tx_handle, NULL);
 
       i2s_std_config_t std_cfg = {
