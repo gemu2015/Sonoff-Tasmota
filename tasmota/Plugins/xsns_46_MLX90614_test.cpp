@@ -75,6 +75,17 @@ const char mlxdev[] PROGMEM = "MLX90614";
 int32_t Init_MLX90614() {
   ALLOCMEM
 
+
+
+  TwoWire *wp = &Wire;
+  wp->setClock(300);
+  wp->pins(5,6);
+
+  float a = obj_temp;
+  float b = 2;
+  ready = a + b;
+
+  
  SETWIRE(0);
  
   // now init variables here

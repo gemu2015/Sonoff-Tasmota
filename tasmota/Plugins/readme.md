@@ -50,6 +50,17 @@ also an asm file is generated with which you can check for unwanted library call
 and the plugin is extracted from the binary, according to the selected cpu
 ending .bin (esp8266) _32.bin (tensilica ESP32) _32r.bin (riscv ESP32)
 
+these flags for ESP8266
+build_flags                 = ${esp82xx_defaults.build_flags} -save-temps=obj -fverbose-asm -fstack-usage
+
+these flags for ESP32 Tensilica
+build_unflags           = ${env:tasmota32_base.build_unflags} -fmerge-constants -fmerge-all-constants -fstack-protector
+build_flags             = ${env:tasmota32_base.build_flags} -fno-merge-constants -fno-merge-all-constants -fno-stack-protector
+
+these flags for ESP32 Risc
+build_unflags           = ${env:tasmota32_base.build_unflags} -mno-target-align -flto -msave-restore
+build_flags             = ${env:tasmota32_base.build_flags} -fno-lto -mno-save-restore -fno-merge-constants
+
 
 1. copy the .ino file you want to convert to the plugins directory
 2. modify the source according to the sample files.

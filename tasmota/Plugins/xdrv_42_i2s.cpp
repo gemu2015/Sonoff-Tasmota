@@ -386,7 +386,6 @@ void I2S_Play(void) {
 
     int16_t buffer[512];
 
-
     uint16_t   count=0;
     while (1) {
       uint32_t bytesread = fread((char*)buffer, 1, sizeof(buffer), wf);

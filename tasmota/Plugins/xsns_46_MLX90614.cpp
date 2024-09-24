@@ -89,10 +89,6 @@ int32_t Init_MLX90614() {
   // now init variables here
   ready = false;
 
-  float a = obj_temp;
-  float b = 2;
-  ready = a * b;
-
   I2C_SETWIRE(0);
 
   if (!I2C_SetDevice(I2_ADR_IRT, 0)) {
