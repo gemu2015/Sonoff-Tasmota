@@ -1,6 +1,8 @@
 #ifndef _MODULE_H_
 #define _MODULE_H_
 
+#undef  I2C_BUFFER_LENGTH
+
 #include <stdio.h>
 #include <stddef.h>
 #include <Wire.h>

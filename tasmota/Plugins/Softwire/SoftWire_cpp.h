@@ -43,7 +43,7 @@ SETREGS
   swv->sda = sda;
   swv->scl = scl;
   swv->rxBufferIndex = 0;
-  swv->rxBufferLength = I2C_BUFFER_LENGTH;
+  swv->rxBufferLength = SWI2C_BUFFER_LENGTH;
   swv->isTransmitting = false;
   swv->error = 0;
 
@@ -100,8 +100,8 @@ SETREGS
       SWI2C_endTransmission(false);
     }
     // clamp to buffer length
-    if(quantity > I2C_BUFFER_LENGTH){
-      quantity = I2C_BUFFER_LENGTH;
+    if(quantity > SWI2C_BUFFER_LENGTH){
+      quantity = SWI2C_BUFFER_LENGTH;
     }
     if (swv->isTransmitting) {
       localerror = !SWI2C_RepStart((address<<1) | I2C_READ);

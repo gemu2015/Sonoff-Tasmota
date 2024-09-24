@@ -1158,6 +1158,7 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
 #ifdef ESP8266
 #include <i2s.h>
 #endif
+
 #ifdef ESP32
 #if ESP_IDF_VERSION_MAJOR >= 5
 #include "driver/i2s_std.h"
@@ -1165,7 +1166,7 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
 #else
 #include <driver/i2s.h>
 #endif
-#endif
+#endif // ESP32
 
 uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t p4, uint32_t p5) {
 #if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
@@ -1330,8 +1331,8 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
       return i2s_channel_enable(tx_handle);
 #endif
       break;
-    case 7:
 #if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
+    case 7:
       /* does not work ???
       uint8_t zero_buffer[240] = {0};
       for (uint32_t i = 0; i < 6; i++) {
@@ -1339,8 +1340,9 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
       }
       */
       return i2s_channel_disable(tx_handle);
-#endif
-      break;
+    case 8:
+      return i2s_channel_register_event_callback(tx_handle, (const i2s_event_callbacks_t *)p2, (void *)p3);
+ #endif
   }
   return 0;
 }

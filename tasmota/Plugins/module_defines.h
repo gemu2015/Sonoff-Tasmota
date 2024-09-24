@@ -741,6 +741,8 @@ typedef struct {
 #define i2s_write_samples(A,B,C) ji2s(3,(uint32_t)A,(uint32_t)B,C,0,0)
 #define i2s_enable_tx(A) ji2s(6,(uint32_t)A,0,0,0,0)
 #define i2s_disable_tx(A) ji2s(7,(uint32_t)A,0,0,0,0)
+#define i2s_channel_register_event_callback(A,B,C) ji2s(8,(uint32_t)A,(uint32_t)B,(uint32_t)C,0,0)
+
 
 #define New_WiFiClient() (void*)jtmod_wifi(0,0,0,0,0)
 #define client_connect(A,B,C) (int32_t)jtmod_wifi(1,(uint32_t)A,(uint32_t)B,C,0)
@@ -1382,9 +1384,10 @@ typedef struct {
 } SWI2C_VARS;
 #else
 
-#define I2C_BUFFER_LENGTH 16
+
+#define SWI2C_BUFFER_LENGTH 16
 typedef struct {
-  uint8_t rxBuffer[I2C_BUFFER_LENGTH];
+  uint8_t rxBuffer[SWI2C_BUFFER_LENGTH];
   uint8_t rxBufferIndex;
   uint8_t rxBufferLength;
   uint8_t isTransmitting;

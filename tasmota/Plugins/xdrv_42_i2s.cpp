@@ -81,6 +81,7 @@ typedef struct {
   uint8_t chans;
   uint8_t codec;
   uint16_t srate;
+  uint8_t tx_ready;
 #ifdef USE_MP3
   MP3_MEM mp3m;
   int16_t *m_outBuff;
@@ -136,6 +137,7 @@ typedef struct {
 #define codec mem->codec
 #define icyMetaInt mem->icyMetaInt
 #define meta mem->meta
+#define tx_ready mem->tx_ready
 
 // esp8266 fixed i2s pins : DOUT = 3(RX), BCK = 15(D8), WS = 2(D4)
 
@@ -224,6 +226,48 @@ const int32_t i32_const[7] PROGMEM = {32768, -32768, 22050, RENDER_SIZE, 37541, 
 #define GET_TSTACK ucp[1]
 
 
+#ifdef ESP32
+#include "driver/i2s_types.h"
+//#include "driver/i2s_common.h"
+
+typedef struct {
+    i2s_isr_callback_t on_recv;             /**< Callback of data received event, only for RX channel
+                                             *   The event data includes DMA buffer address and size that just finished receiving data
+                                             */
+    i2s_isr_callback_t on_recv_q_ovf;       /**< Callback of receiving queue overflowed event, only for RX channel
+                                             *   The event data includes buffer size that has been overwritten
+                                             */
+    i2s_isr_callback_t on_sent;             /**< Callback of data sent event, only for TX channel
+                                             *   The event data includes DMA buffer address and size that just finished sending data
+                                             */
+    i2s_isr_callback_t on_send_q_ovf;       /**< Callback of sending queue overflowed event, only for TX channel
+                                             *   The event data includes buffer size that has been overwritten
+                                             */
+} i2s_event_callbacks_t;
+
+
+MODULE_PART bool i2s_tx_ready_callback(i2s_chan_handle_t handle, i2s_event_data_t *event, void *user_ctx) {
+SETMEMREGS
+    // handle TX ready
+    tx_ready = true;
+    return true;
+}
+
+MODULE_PART void I2S_Wait_Ready(void) {
+SETMEMREGS
+  return;
+  for (uint32_t cnt = 0; cnt < 500; cnt++) {
+    if (tx_ready == true) {
+      return;
+    }
+    delay(1);
+  }
+}
+#else
+MODULE_PART void I2S_Wait_Ready(void) {
+}
+#endif
+
 int32_t I2SAudio_Init() {
   ALLOCMEM
 
@@ -236,6 +280,15 @@ int32_t I2SAudio_Init() {
   gain_div = 1<<6;  // = 1
 
   i2sp = i2s_begin(dout_pin, bck_pin, ws_pin, mode);
+
+#ifdef ESP32
+  i2s_event_callbacks_t cbs;
+  cbs.on_recv = NULL;
+  cbs.on_recv_q_ovf = NULL;
+  cbs.on_sent = i2s_tx_ready_callback;
+  cbs.on_send_q_ovf = NULL;
+  i2s_channel_register_event_callback(i2sp, &cbs, nullptr);
+#endif
 
   // voltile is needed due to by eps8266 asm error
   volatile const int32_t *icp = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
@@ -307,6 +360,7 @@ void I2sTask(void) {
   
   fclose(wf);
 
+  I2S_Wait_Ready();
   i2s_disable_tx(i2sp);
   
   busy = false;
@@ -399,6 +453,7 @@ void I2S_Play(void) {
 
     fclose(wf);
 
+    I2S_Wait_Ready();
     i2s_disable_tx(i2sp);
 
     busy = false;
@@ -491,6 +546,7 @@ SETMEMREGS
       buffer[i] = (int16_t)(v & 0xffff);
     }
   }
+  tx_ready = false;
   i2s_write_samples(i2sp, buffer, samples);
 }  
 
@@ -585,6 +641,7 @@ SETREGS
 
 bool mp3_stop() {
 SETREGS
+  I2S_Wait_Ready();
   i2s_disable_tx(i2sp);
   return 0;
 }
@@ -601,6 +658,7 @@ void I2sTaskMP3(void) {
     }
   }
 
+  I2S_Wait_Ready();
   i2s_disable_tx(i2sp);
   fclose(wf);
   busy = false;
@@ -743,6 +801,7 @@ void Say(void) {
   free(samdata);
   free(samrender);
 
+  I2S_Wait_Ready();
   i2s_disable_tx(i2sp);
 
   running = false;
@@ -897,6 +956,8 @@ void I2sTaskWR(char *url) {
   client_delete(wclient);
   wclient = 0;
 
+
+  I2S_Wait_Ready();
   i2s_disable_tx(i2sp);
 
   running = false;

@@ -72,9 +72,13 @@ const char JSON_IRTMP[] PROGMEM = ",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}";
 const char mlxdev[] PROGMEM = "MLX90614";
 
 
+MODULE_PART float x_addsf3(float a, float b) {
+SETMINREGS
+  return fadd(a,b);
+}
+
 int32_t Init_MLX90614() {
   ALLOCMEM
-
 
 
   TwoWire *wp = &Wire;
@@ -84,12 +88,12 @@ int32_t Init_MLX90614() {
   float a = obj_temp;
   float b = 2;
   ready = a + b;
-
+  amb_temp = x_addsf3(a,b);
   
- SETWIRE(0);
+  SETWIRE(0);
  
   // now init variables here
-  ready = false;
+  //ready = false;
 
   if (!I2cSetDevice(I2_ADR_IRT, 0)) {
     MLX90614_Deinit();
@@ -111,23 +115,23 @@ void MLX90614_Every_Second() {
   obj_temp = MLX90614_GetValue(MLX90614_TOBJ1);
   amb_temp = MLX90614_GetValue(MLX90614_TA);
 
-
 }
 
 
+// all float constants must be in progmem
+const float FP_CONST[] PROGMEM = {-999, 0.02, 273.15};
 
 float MLX90614_GetValue(uint32_t reg) {
   SETREGS
   uint16_t val = 0;
   float ret = 0;
-
   val = MLX90614_read16(I2_ADR_IRT, reg);
   if (val & 0x8000) {
-    ret = FPC_n999;
+    ret = FLTC(0);
   } else {
-    //ret = ((float)val * (float)0.02) - (float)273.15;
     //ret = fscale(val, (float)0.02, (float)273.15);
-    ret = fscale(val, FPC_0x02, FPC_273x15);
+    //ret = ((float)val * (float)0.02) - (float)273.15;
+    ret = fscale(val, FLTC(1), FLTC(2));
   }
   return ret;
 }
@@ -135,14 +139,11 @@ float MLX90614_GetValue(uint32_t reg) {
 void MLX90614_Show(uint32_t json) {
   SETREGS
 
-  SETTINGS *jsettings = mt->settings;
-
   if (ready == false) return;
   char obj_tstr[16];
-  ftostrfd(obj_temp, jsettings->flag2.temperature_resolution, obj_tstr);
+  ftostrfd(obj_temp, Settings->flag2.temperature_resolution, obj_tstr);
   char amb_tstr[16];
-  ftostrfd(amb_temp, jsettings->flag2.temperature_resolution, amb_tstr);
-  char *cp;
+  ftostrfd(amb_temp, Settings->flag2.temperature_resolution, amb_tstr);
   if (json) {
     ResponseAppend_P(GSTR(JSON_IRTMP), obj_tstr, amb_tstr);
   } else {
@@ -154,19 +155,19 @@ uint16_t MLX90614_read16(uint8_t addr, uint8_t a) {
   SETREGS
   uint16_t ret;
 
-  beginTransmission(addr);
-  write(a);
-  endTransmission(false);
+  I2C_beginTransmission(addr); 
+  I2C_write(a);
+  I2C_endTransmission(false); 
 
-  requestFrom(addr, (size_t)3);
+  I2C_requestFrom(addr, (size_t)3);
   uint8_t buff[5];
   buff[0] = addr << 1;
   buff[1] = a;
   buff[2] = (addr << 1) | 1;
-  buff[3] = read();
-  buff[4] = read();
+  buff[3] = I2C_read();
+  buff[4] = I2C_read();
   ret = buff[3] | (buff[4] << 8);
-  uint8_t pec = read();
+  uint8_t pec = I2C_read();
 
   return ret;
 
@@ -199,7 +200,7 @@ uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len) {
 
 void MLX90614_Deinit() {
   SETREGS
-  I2cResetActive(I2_ADR_IRT, 0);
+  I2C_ResetActive(I2_ADR_IRT, 0);
   RETMEM
 }
 
@@ -209,19 +210,19 @@ void MLX90614_Deinit() {
 MOD_RESULT mod_func_execute(uint32_t sel) {
   MOD_RESULT result = false;
   switch (sel) {
-    case FUNC_INIT:
+    case pFUNC_INIT:
       result = Init_MLX90614();
       break;
-    case FUNC_JSON_APPEND:
+    case pFUNC_JSON_APPEND:
       MLX90614_Show(1);
       break;
-    case FUNC_WEB_SENSOR:
+    case pFUNC_WEB_SENSOR:
       MLX90614_Show(0);
       break;
-    case FUNC_EVERY_SECOND:
+    case pFUNC_EVERY_SECOND:
       MLX90614_Every_Second();
       break;
-    case FUNC_DEINIT:
+    case pFUNC_DEINIT:
       MLX90614_Deinit();
       break;
   }

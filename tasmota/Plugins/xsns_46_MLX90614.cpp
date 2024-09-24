@@ -195,9 +195,7 @@ uint8_t MLX90614_jcrc8(uint8_t *addr, uint8_t len) {
 
 void MLX90614_Deinit() {
   SETREGS
-  
   I2C_ResetActive(I2_ADR_IRT, 0);
-
   RETMEM
 }
 
