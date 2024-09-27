@@ -72,10 +72,19 @@ const char HTTP_IRTMP[] PROGMEM = "{s}MXL90614 OBJ-TEMP{m}%s C{e} {s}MXL90614 AM
 const char JSON_IRTMP[] PROGMEM = ",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}";
 const char mlxdev[] PROGMEM = "MLX90614";
 
+#include "cc1101.h"
+
+CC1101 ccx;
 
 int32_t Init_MLX90614() {
   ALLOCMEM
 
+  //CC1101 *cc = &ccx;
+  CC1101 *cc = new CC1101;
+
+  cc->reset();
+
+  delete cc;
 
   TwoWire *wp = &Wire;
   wp->setClock(300);

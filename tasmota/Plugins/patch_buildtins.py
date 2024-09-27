@@ -69,6 +69,8 @@ def find_and_patch(source, sub):
     #print(org_pos,copy_pos)
     if org_pos==0 or copy_pos==0:
         print(sub.decode("utf-8")+" already patched or not needed")
+        if (org_pos > 0):
+            print("missing implementation of: "+sub.decode("utf-8"))
     else:
         print("patching: "+sub.decode("utf-8"))
         patch = sub
@@ -93,11 +95,11 @@ def patch_builtins(source, target, env):
     source=bytearray(source)
 
     # list patches here
-    patches = ["__addsf3", "__subsf3", "__mulsf3", "__divsf3", "__nesf2"]
+    patches = ["__addsf3", "__subsf3", "__mulsf3", "__divsf3", "__nesf2", "_Znwj", "_ZdlPv",\
+    "__floatsisf", "__floatunsisf", "__floatundisf", "__fixsfsi", "__fixunssfsi"]
 
     for x in patches:
-        sub = bytearray(x, 'utf-8')
-        find_and_patch(source, sub)
+        find_and_patch(source, bytearray(x, 'utf-8'))
 
     #fpath = dpath + "test.o"
 

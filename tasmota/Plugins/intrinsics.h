@@ -22,6 +22,40 @@ SETMINREGS
   return fdiv(a,b);
 }
 
+MODULE_PART void *_Znwj(uint32_t size) {
+SETMINREGS
+    return calloc(size, 1);
+}
+
+void  _ZdlPv(void* ptr) {
+SETMINREGS
+    free(ptr);
+}
+
+float __floatsisf(int32_t in) {
+SETMINREGS
+    return float_i32(in);
+}
+
+float __floatunsisf(uint32_t in) {
+SETMINREGS
+    return float_ui32(in);
+}
+
+float __floatundisf(uint64_t in) {
+SETMINREGS
+    return float_ui64(in);
+}
+
+int32_t __fixsfsi(float in) {
+SETMINREGS
+    return i32_float(in);
+}
+
+uint32_t __fixunssfsi(float in) {
+SETMINREGS
+    return ui32_float(in);
+}
 
 
 
@@ -43,6 +77,7 @@ SETMINREGS
 40205a54:	f00d                	ret.n
 */
 
+// not yet in jumptable
 MODULE_PART int __nesf2(float a, float b) {
 SETMINREGS
   return 1;

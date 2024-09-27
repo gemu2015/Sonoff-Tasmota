@@ -310,6 +310,9 @@ enum RFSTATE
 #define PA_LowPower               0x60
 #define PA_LongDistance           0xC0
 
+
+ #define xMODULE_PART __attribute__((section(".text.mod_part")))
+
 /**
  * Class: CC1101
  * 
@@ -318,6 +321,7 @@ enum RFSTATE
  */
 class CC1101
 {
+
   private:
     /**
      * Atmega's SPI interface
@@ -333,7 +337,7 @@ class CC1101
      * 'buffer'	Data to be writen
      * 'len'	Data length
      */
-    void writeBurstReg(uint8_t regAddr, uint8_t* buffer, uint8_t len);
+    xMODULE_PART void writeBurstReg(uint8_t regAddr, uint8_t* buffer, uint8_t len);
 
     /**
      * readBurstReg
@@ -344,14 +348,14 @@ class CC1101
      * 'regAddr'	Register address
      * 'len'	Data length
      */
-    void readBurstReg(uint8_t * buffer, uint8_t regAddr, uint8_t len);
+    xMODULE_PART void readBurstReg(uint8_t * buffer, uint8_t regAddr, uint8_t len);
 
     /**
      * setRegsFromEeprom
      * 
      * Set registers from EEPROM
      */
-    void setRegsFromEeprom(void);
+    xMODULE_PART void setRegsFromEeprom(void);
 
   public:
     /*
@@ -437,12 +441,15 @@ class CC1101
      */
     void setCCregs(void);
 
+
+   
+
     /**
      * reset
      * 
      * Reset CC1101
      */
-    void reset(void);
+    xMODULE_PART void reset(void);
     
     /**
      * init
