@@ -833,6 +833,9 @@ void I2sTaskWR(char *url) {
 
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task started"));
 
+
+  // WiFi.setDNS(dns1, dns2);
+
   running = true;
 
   i2s_enable_tx(i2sp);
