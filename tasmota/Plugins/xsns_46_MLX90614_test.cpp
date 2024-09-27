@@ -74,7 +74,6 @@ const char mlxdev[] PROGMEM = "MLX90614";
 
 #include "cc1101.h"
 
-CC1101 ccx;
 
 int32_t Init_MLX90614() {
   ALLOCMEM

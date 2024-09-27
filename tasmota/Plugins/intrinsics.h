@@ -1,4 +1,4 @@
-// floating point intrinsics hook
+// floating point and other intrinsics hook
 
 // 36 bytes code about 60 bytes in total with vector
 // 16 instructions 30 in total on esp32 == 4,166 ns * 30 = 130 ns addition takes 8,7 us = 15 % slower
@@ -57,9 +57,7 @@ SETMINREGS
     return ui32_float(in);
 }
 
-
-
-/* 36 bytes __addsf3
+/* 36 bytes __addsf3 example code
 40205a30:	e0c112               	addi	a1, a1, -32
 40205a33:	076102               	s32i	a0, a1, 28
 40205a36:	0661c2               	s32i	a12, a1, 24
