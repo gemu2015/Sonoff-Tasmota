@@ -25,9 +25,6 @@ cfunc = ""
 org_pos = 0
 copy_pos = 0
 
-def string_to_array(s):
-    return [c for c in s]
-
 def array_find(index, arr1, arr2):
     m = len(arr1)
     n = len(arr2)
@@ -38,7 +35,7 @@ def array_find(index, arr1, arr2):
                 #copy = arr1[i:i+n+3]
                 #print(copy)
                 if arr1[i+n]==0:
-                    print("found org")
+                    #print("found org")
                     global org_pos
                     org_pos = i
                     return i
@@ -55,25 +52,33 @@ def array_find(index, arr1, arr2):
                             break
                     global cfunc
                     cfunc = arr1[istart:istop]
-                    print("found: "+str(cfunc))
+                    #print("found: "+str(cfunc))
                     global copy_pos
                     copy_pos = istart
                     return istart
     return -1
 
-def isSubset(arr1, arr2):
-    m = len(arr1)
-    n = len(arr2)
-    i = 0
-    j = 0
-    for i in range(n):
-        for j in range(m):
-            if(arr2[i] == arr1[j]):
-                break
-         
-        if (j == m):
-            return -1
-    return j
+    # always 2 functions to patch
+def find_and_patch(source, sub):
+    global org_pos
+    org_pos = 0
+    global copy_pos
+    copy_pos = 0
+    offset = array_find(0, source, sub)
+    offset = array_find(offset + len(sub), source, sub)
+    #print(org_pos,copy_pos)
+    if org_pos==0 or copy_pos==0:
+        print(sub.decode("utf-8")+" already patched or not needed")
+    else:
+        print("patching: "+sub.decode("utf-8"))
+        patch = sub
+        # patch with leading x
+        patch[0] = 120
+        patch.append(0)
+        #print(patch)
+        source[copy_pos:copy_pos+len(patch)] = patch
+        source[org_pos:org_pos+len(patch)] = patch
+
 
 def patch_builtins(source, target, env):
     print("patching buildtins: "+file)
@@ -81,66 +86,25 @@ def patch_builtins(source, target, env):
     directory = "/".join(list(path.split('/')[0:-1]))
     dpath = directory+"/src/Plugins/"
     fpath = dpath + file
-    #print(fpath)
-
+ 
     with open(fpath, mode='rb') as f:
         source = f.read()
         f.close()
-
     source=bytearray(source)
 
-    print(len(source))
- 
-    sub = bytearray("__addsf3", 'utf-8')
+    # list patches here
+    patches = ["__addsf3", "__subsf3", "__mulsf3", "__divsf3", "__nesf2"]
 
-    # always 2 functions to patch
-    global org_pos
-    orgpos = 0
-    global copy_pos
-    copy_pos = 0
-    offset = array_find(0, source, sub)
-    offset = array_find(offset + len(sub), source, sub)
+    for x in patches:
+        sub = bytearray(x, 'utf-8')
+        find_and_patch(source, sub)
 
-    if org_pos==0 or copy_pos==0:
-        print("already patched")
+    #fpath = dpath + "test.o"
 
-    print(org_pos,copy_pos)
+    with open(fpath, mode='wb') as f:
+        f.write(source)
+        f.close()
 
-    global cfunc
-    # replace org with copy and invalidate org
-    if org_pos > copy_pos:
-        # move part 1
-        len1 = copy_pos
-        len2 = org_pos - copy_pos - len(cfunc)
-        len3 = len(source) - org_pos - len(sub)
-        print(len1,len(cfunc),len2,len(sub),len3)
-
-        print(len1+len(cfunc)+len2+len(sub)+len3)
-             
-        sum = len1+len(cfunc)+len2+len(sub)+len3
-        print(len(source))
-
-        part1 = bytearray(len1)
-        part2 = bytearray(len2)
-        part3 = bytearray(len3)
-
-        part1[0:len1] = source[0:len1]
-        part2[0:len2] = source[copy_pos + len(cfunc):org_pos]
-        part3[0:len3] = source[org_pos + len(sub):len(source)]
-
-        source[copy_pos:len(sub)] = sub
-        source[copy_pos+len(sub):len2] = part2
-        source[copy_pos+len(sub)+len2:] = cfunc
-        source[copy_pos+len(sub)+len2+len(cfunc):] = part3
-
-
-        #fpath = dpath + "test.o"
-
-        with open(fpath, mode='wb') as f:
-            f.write(source)
-            f.close()
-
-        print (len(part1),len(part2),len(part3))
 
 env.AddPostAction("$BUILD_DIR/${PROGNAME}.bin", [patch_builtins])
 

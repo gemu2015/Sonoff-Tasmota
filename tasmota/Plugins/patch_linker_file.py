@@ -80,9 +80,9 @@ with open(libpath) as f:
 
         out = part1 + insert + part2
 
-        #with open(libpath, "w") as wf:
-        #    wf.write(out)
-        #    wf.close()
+        with open(libpath, "w") as wf:
+            wf.write(out)
+            wf.close()
 
         print("patch complete")
     
