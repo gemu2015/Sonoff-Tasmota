@@ -48,6 +48,7 @@ if filok == False :
         print("take default path")
         libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/esp32-arduino-libs/esp32/ld/sections.ld"
 
+print("link file path: "+libpath)
 with open(libpath) as f:
     data = f.read()
     f.close()
@@ -79,9 +80,9 @@ with open(libpath) as f:
 
         out = part1 + insert + part2
 
-        with open(libpath, "w") as wf:
-            wf.write(out)
-            wf.close()
+        #with open(libpath, "w") as wf:
+        #    wf.write(out)
+        #    wf.close()
 
         print("patch complete")
     
