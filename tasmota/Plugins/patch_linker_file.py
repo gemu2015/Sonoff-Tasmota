@@ -13,6 +13,13 @@ platform = env.PioPlatform()
 board = env.BoardConfig()
 mcu = board.get("build.mcu", "esp32")
 
+# core 3
+#    . += _esp_flash_mmap_prefetch_pad_size;
+#    _text_end = ABSOLUTE(.);
+
+# core 3.1
+#    . += 16;
+#    _text_end = ABSOLUTE(.);
 
 print("patching linker file")
 
@@ -24,22 +31,22 @@ if mcu == "esp8266":
         mlen = 0
 if mcu == "esp32":
         libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/esp32-arduino-libs/esp32/ld/sections.ld"
-        match = '+= _esp_flash_mmap_prefetch_pad_size;'
+        match = " _text_end = ABSOLUTE(.);"
         mlen = len(match)
 
 if mcu == "esp32s2":
         libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/esp32-arduino-libs/esp32s2/ld/sections.ld"
-        match = '+= _esp_flash_mmap_prefetch_pad_size;'
+        match = " _text_end = ABSOLUTE(.);"
         mlen = len(match)
 if mcu == "esp32s3":
         # has 4 variants (opi_opi,opi_qspi,qio_opi,qio_qspi, )
         memory_type = env.BoardConfig().get("build.arduino.memory_type", "qio_qspi")
         libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/esp32-arduino-libs/esp32s3/"+memory_type+"/sections.ld"
-        match = '+= _esp_flash_mmap_prefetch_pad_size;'
+        match = " _text_end = ABSOLUTE(.);"
         mlen = len(match)
 if mcu == "esp32c3":
         libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/esp32-arduino-libs/esp32c3/ld/sections.ld"
-        match = '+= _esp_flash_mmap_prefetch_pad_size;'
+        match = " _text_end = ABSOLUTE(.);"
         mlen = len(match)
 
 # idf5 has unique linker path
@@ -48,14 +55,23 @@ if filok == False :
         print("take default path")
         libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/esp32-arduino-libs/esp32/ld/sections.ld"
 
-print("link file path: "+libpath)
+#print("link file path: "+libpath)
 with open(libpath) as f:
     data = f.read()
     f.close()
 
     index = data.find("/* start plugins */")
     if index < 0 :
-        index = data.find(match)+mlen
+        index = data.find(match)
+        if index < 0:
+             # match not found, exit
+             print("could not patch linker file")
+             quit()
+             
+        # search back until ;
+        index = data.find(';', index - 10, index)
+        index += 2
+
         part1 = data[0:index]
         part2 = data[index:]
 
