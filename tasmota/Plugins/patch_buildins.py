@@ -15,13 +15,14 @@ with open(hpath, mode='r') as f:
         header = f.read()
         f.close()
 
-hparts = header.split("CURRENT_FILE ")
-fname = hparts[1].splitlines()
+file = ''
+search = "\n#define CURRENT_FILE "
+index = header.find(search)
+if index > 0:
+    hparts = header.split(search)
+    fname = hparts[1].splitlines()
+    file = fname[0].strip()
 
-file = fname[0].strip()
-if file == '':
-    # give object file
-    file = 'xsns_46_MLX90614_test.cpp.o'
 
 platform = env.PioPlatform()
 board = env.BoardConfig()
@@ -36,7 +37,7 @@ def array_find(index, arr1, arr2, flag):
     arr3 = [0]
 
     if flag==1:
-        # org has undefined char in the middle
+        # org has undefined chars in the middle
         # have to compare part 1 and then check for part2
         ssub = arr2.decode("utf-8")
         ssp = ssub.split('_')
@@ -95,6 +96,9 @@ def array_find(index, arr1, arr2, flag):
                         return istart
                     else:
                         # found part 1, compare part 2
+                        #actually we dont know for shure the delimiter
+                        # so we should find again
+                        # but for now we assume 2 chars delimiter 
                         x=len(arr3)
                         copy = arr1[i+n+2:i+n+2+x]
                         istart = 0
@@ -104,7 +108,7 @@ def array_find(index, arr1, arr2, flag):
                                     istart = x + 1
                                     break
                             org_pos = istart
-                            print("found: ",arr2.decode("utf-8")+"_"+arr3.decode("utf-8"))
+                            print("found class member: ",arr2.decode("utf-8")+"::"+arr3.decode("utf-8"))
                             return istart
     return -1
 
@@ -145,8 +149,8 @@ def find_and_patch(source, sub):
         source[org_pos:org_pos+len(patch)] = patch
 
 
-def patch_builtins(source, target, env):
-    print("patching buildtins: "+file)
+def patch_buildins(source, target, env):
+    print("patching buildins: "+file)
     path=str(target[0])
     directory = "/".join(list(path.split('/')[0:-1]))
     dpath = directory+"/src/Plugins/"
@@ -176,6 +180,6 @@ def patch_builtins(source, target, env):
         f.write(source)
         f.close()
 
-
-env.AddPostAction("$BUILD_DIR/${PROGNAME}.bin", [patch_builtins])
+if file != '':
+    env.AddPostAction("$BUILD_DIR/${PROGNAME}.bin", [patch_buildins])
 

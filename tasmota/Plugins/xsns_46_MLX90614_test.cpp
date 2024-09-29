@@ -19,7 +19,7 @@
 
 #ifdef USE_MLX90614_TEST_MOD
 
-#define USE_BP_DOUBLES
+//#define USE_BP_DOUBLES
 
 #include "module.h"
 #include "module_defines.h"
@@ -80,34 +80,6 @@ int32_t Init_MLX90614() {
   ALLOCMEM
 
   //SETWIRE(0);
-
-  float a = obj_temp;
-  float b = amb_temp;
-
-  if (a >= b) {
-    ready = 1;
-  }
-
-  if (a <= b) {
-    ready = 2;
-  }
-
-  if (a == b) {
-    ready =0;
-  }
-
-  if (a != b) {
-    ready = 5;
-  }
-
-  if (isnan(a)) {
-    ready = 3;
-  }
-
-  if (isinf(a)) {
-    ready = 9;
-  }
-
 
   xWire = &Wire;
 
