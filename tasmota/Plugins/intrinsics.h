@@ -1,7 +1,11 @@
 // floating point and other intrinsics hook
+// eases conversion, but has a memory and perfomace penalty
+// macros are prefered
+// however c++ classes need patching or converting to plain c
 
+// example memory usage addsf3
 // 36 bytes code about 60 bytes in total with vector
-// 16 instructions 30 in total on esp32 == 4,166 ns * 30 = 130 ns addition takes 8,7 us = 15 % slower
+// 16 instructions 30 in total on esp32 == 4,166 ns * 30 = 130 ns addition takes 8,7 us => 15 % slower
 MODULE_PART float __addsf3(float a, float b) {
 SETMINREGS
   return fadd(a,b);
@@ -120,6 +124,9 @@ SETMINREGS
 40205a54:	f00d                	ret.n
 */
 
+
+// uses a lot of memory, only enable when really needed
+// better use macros
 #ifdef USE_BP_DOUBLES
 
 MODULE_PART double __floattidf(int64_t in) {
