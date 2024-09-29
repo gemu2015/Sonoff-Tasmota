@@ -19,6 +19,8 @@
 
 #ifdef USE_MLX90614_TEST_MOD
 
+#define USE_BP_DOUBLES
+
 #include "module.h"
 #include "module_defines.h"
 #include "intrinsics.h"
@@ -29,7 +31,7 @@
 PUSH_OPTIONS
 
 // this is the structure of the module:
-// descripotr, code, end
+// descriptor, code, end
 MODULE_DESCRIPTOR("MLX90614", MODULE_TYPE_SENSOR, MLX90614_REV,"",0,"",0,"",0,"",0)
 
 // all functions must be declared MUDULE_PART
@@ -66,36 +68,49 @@ typedef struct {
 #define obj_temp mem->obj_temp
 #define amb_temp mem->amb_temp
 #define ready mem->ready
+#define xWire mem->xWire
 
 // text defines
 const char HTTP_IRTMP[] PROGMEM = "{s}MXL90614 OBJ-TEMP{m}%s C{e} {s}MXL90614 AMB-TEMP {m}%s C{e}";
 const char JSON_IRTMP[] PROGMEM = ",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}";
 const char mlxdev[] PROGMEM = "MLX90614";
 
-#include "cc1101.h"
-
 
 int32_t Init_MLX90614() {
   ALLOCMEM
 
-  //CC1101 *cc = &ccx;
-  CC1101 *cc = new CC1101;
-
-  cc->reset();
-
-  delete cc;
-
-  TwoWire *wp = &Wire;
-  wp->setClock(300);
-  wp->pins(5,6);
+  //SETWIRE(0);
 
   float a = obj_temp;
-  float b = 2;
-  ready = a + b;
+  float b = amb_temp;
+
+  if (a >= b) {
+    ready = 1;
+  }
+
+  if (a <= b) {
+    ready = 2;
+  }
+
+  if (a == b) {
+    ready =0;
+  }
+
+  if (a != b) {
+    ready = 5;
+  }
+
+  if (isnan(a)) {
+    ready = 3;
+  }
+
+  if (isinf(a)) {
+    ready = 9;
+  }
 
 
-  SETWIRE(0);
- 
+  xWire = &Wire;
+
   // now init variables here
   //ready = false;
 
@@ -159,21 +174,21 @@ uint16_t MLX90614_read16(uint8_t addr, uint8_t a) {
   SETREGS
   uint16_t ret;
 
-  I2C_beginTransmission(addr); 
-  I2C_write(a);
-  I2C_endTransmission(false); 
+  xWire->beginTransmission(addr);
+  xWire->write(a);
+  xWire->endTransmission(false); 
 
-  I2C_requestFrom(addr, (size_t)3);
+  xWire->requestFrom(addr, (size_t)3); 
   uint8_t buff[5];
   buff[0] = addr << 1;
   buff[1] = a;
   buff[2] = (addr << 1) | 1;
-  buff[3] = I2C_read();
-  buff[4] = I2C_read();
+  buff[3] = xWire->read();
+  buff[4] = xWire->read();
   ret = buff[3] | (buff[4] << 8);
-  uint8_t pec = I2C_read();
+  uint8_t pec = xWire->read();
 
-  return ret;
+  return ret; 
 
   uint8_t cpec = MLX90614_jcrc8(buff, sizeof(buff));
   //AddLog(LOG_LEVEL_INFO,PSTR("%x - %x"),pec, cpec);

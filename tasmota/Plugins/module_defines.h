@@ -77,7 +77,7 @@ typedef struct {
 #define sprint(A)                       (( void (*)(const char*) )                     jt[11])(A)
 #define jbeginTransmission(BUS,ADDR)    (( void (*)(TwoWire*,uint8_t) )                jt[12])(BUS,ADDR)
 #define jwrite(BUS,VAL)                 (( size_t (*)(TwoWire*,uint8_t) )              jt[13])(BUS,VAL)
-#define jendTransmission(BUS,VAL)       (( uint8_t (*)(TwoWire*,bool) )                jt[14])(BUS,VAL)
+#define jendTransmission(BUS,VAL)       (( uint8_t (*)(TwoWire*,uint8_t) )             jt[14])(BUS,VAL)
 #define jrequestFrom(BUS,ADDR,NUM)      (( size_t (*)(TwoWire*,uint8_t,size_t) )       jt[15])(BUS,ADDR,NUM)
 #define jread(BUS)                      (( int (*)(TwoWire*) )                         jt[16])(BUS)
 #define fshowhex(VAL)                   (( void (*)(uint32_t) )                        jt[17])(VAL)
@@ -115,7 +115,7 @@ typedef struct {
 #define javailable(WIRE)                (( uint8_t (*)(TwoWire*) )                     jt[46])(WIRE)
 #define jAddLogMissed(SENS,MISS)        (( void (*)(const char*,uint32_t) )            jt[47])(SENS,MISS)
 #define jNAN                            (( float (*)(void) )                           jt[48])()
-#define jgtsf2(P1,P2)                   (( bool (*)(float,float) )                     jt[49])(P1,P2)
+#define jgtsf2(P1,P2)                   (( int (*)(float,float) )                     jt[49])(P1,P2)
 // 50
 #define jltsf2(P1,P2)                   (( bool (*)(float,float) )                     jt[50])(P1,P2)
 #define jeqsf2(P1,P2)                   (( bool (*)(float,float) )                     jt[51])(P1,P2)
@@ -543,7 +543,7 @@ extern MODULES_TABLE modules[];
 
 #define STRBUFFER
 
-
+/*
 typedef struct {
   void (*xbeginTransmission)(uint8_t);
   uint8_t (*xendTransmission)(bool); 
@@ -553,18 +553,19 @@ typedef struct {
 }  xTwoWire;
 
 #define INITWIRE(A) A->xbeginTransmission = ( void (*)(uint8_t) ) jt[12];A->xendTransmission = ( uint8_t (*)(bool) ) jt[14];A->xread = ( uint8_t (*)() ) jt[16];A->xwrite = ( void (*)(uint8_t) ) jt[13];A->xrequestFrom = ( void (*)(uint8_t,uint8_t) ) jt[15];
+*/
 
 
 #define initialized mt->flags.initialized
 #define TasmotaSerial  void
 //#define TwoWire xTwoWire
 
-#define   beginTransmission(ADDR) jbeginTransmission(mem->xWire, ADDR)
+//#define   beginTransmission(ADDR) jbeginTransmission(mem->xWire, ADDR)
 #define   I2cWrite(CMD) jwrite(mem->xWire, CMD)
 #define   I2cWriten(BUF,LEN) jwriten(mem->xWire,BUF,LEN)
 
-#define   endTransmission(BUS) jendTransmission(mem->xWire, BUS)
-#define   requestFrom(ADDR,NUM)  jrequestFrom(mem->xWire, ADDR, NUM)
+//#define   endTransmission(BUS) jendTransmission(mem->xWire, BUS)
+//#define   requestFrom(ADDR,NUM)  jrequestFrom(mem->xWire, ADDR, NUM)
 #define   I2cRead() jread(mem->xWire)
 #define   I2cRead8 jI2cRead8
 #define   I2cRead16 jI2cRead16
@@ -874,15 +875,15 @@ typedef struct {
 #undef strncat_P
 #define strncat_P jstrncat_P
 
-
-#define p__adddf3(A,B) double_dispatch(0,A,B)
-#define p__subdf3(A,B) double_dispatch(1,A,B)
-#define p__muldf3(A,B) double_dispatch(2,A,B)
-#define p__divdf3(A,B) double_dispatch(3,A,B)
-
+#ifndef USE_BP_DOUBLES
+#define __adddf3(A,B) double_dispatch(0,A,B)
+#define __subdf3(A,B) double_dispatch(1,A,B)
+#define __muldf3(A,B) double_dispatch(2,A,B)
+#define __divdf3(A,B) double_dispatch(3,A,B)
 
 #define __ltdf2(A,B) double_cdispatch(0,A,B)
 #define __nedf2(A,B) double_cdispatch(1,A,B)
+#endif
 
 // in64 to double
 //#define __floatdidf(A) d2i64(A)

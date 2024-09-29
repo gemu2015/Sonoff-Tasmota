@@ -902,6 +902,12 @@ int32_t result = 0;
     case 1:
       result = a != b;
       break;
+    case 2:
+      result = a > b;
+      break;
+    case 3:
+      result = a == b;
+      break;
   }
   return result;
 }
