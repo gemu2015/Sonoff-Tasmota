@@ -80,3 +80,69 @@ MODULE_PART int __nesf2(float a, float b) {
 SETMINREGS
   return 1;
 }
+
+#ifdef USE_BP_DOUBLES
+
+MODULE_PART double __floattidf(int64_t in) {
+SETMINREGS
+  return p__floattidf(in);
+}
+
+MODULE_PART double __floatuntidf(uint64_t in) {
+SETMINREGS
+  return p__floatuntidf(in);
+}
+
+MODULE_PART double __floatsidf(int32_t in) {
+SETMINREGS
+  return p__floatsidf(in);
+}
+
+MODULE_PART double __floatunsidf(uint32_t in) {
+SETMINREGS
+  return p__floatunsidf(in);
+}
+
+MODULE_PART int32_t __fixdfdi(double in) {
+SETMINREGS
+  return p__fixdfdi(in);
+}
+
+MODULE_PART uint32_t __fixunsdfsi(double in) {
+SETMINREGS
+  return p__fixunsdfsi(in);
+}
+
+MODULE_PART int64_t __fixdfti(double in) {
+SETMINREGS
+  return i642d(in);
+}
+
+MODULE_PART double __extendsfdf2(float in) {
+SETMINREGS
+  return p__extendsfdf2(in);
+}
+
+MODULE_PART double __adddf3(double a, double b) {
+SETMINREGS
+  return dadd(a,b);
+}
+
+MODULE_PART double __subdf3(double a, double b) {
+SETMINREGS
+  return ddiff(a,b);
+}
+
+MODULE_PART double __muldf3(double a, double b) {
+SETMINREGS
+  return dmul(a,b);
+}
+
+MODULE_PART double __divdf3(double a, double b) {
+SETMINREGS
+  return ddiv(a,b);
+}
+#endif // USE_BP_DOUBLES
+
+// 744 bytes overhead with double, 216 without double
+

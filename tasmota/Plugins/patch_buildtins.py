@@ -96,7 +96,12 @@ def patch_builtins(source, target, env):
 
     # list patches here
     patches = ["__addsf3", "__subsf3", "__mulsf3", "__divsf3", "__nesf2", "_Znwj", "_ZdlPv",\
-    "__floatsisf", "__floatunsisf", "__floatundisf", "__fixsfsi", "__fixunssfsi"]
+    "__floatsisf", "__floatunsisf", "__floatundisf", "__fixsfsi", "__fixunssfsi",\
+    "__floattidf", "__floatuntidf", "__floatsidf", "__floatunsidf", "__fixdfdi",\
+    "__fixunsdfsi", "__fixdfti", "__extendsfdf2", "__adddf3", "__subdf3",\
+    "__muldf3", "__divdf3"]
+
+
 
     for x in patches:
         find_and_patch(source, bytearray(x, 'utf-8'))

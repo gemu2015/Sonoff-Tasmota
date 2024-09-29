@@ -259,15 +259,15 @@ typedef struct {
 #define double_cdispatch(A,B,C)         (( int32_t (*)(uint32_t,double,double))          jt[180])(A,B,C)
 //#define __floatdidf(A)                  (( double(*)(int64_t))                           jt[181])(A)
 //#define __floatundidf(A)                (( double(*)(uint64_t))                          jt[182])(A)
-#define __floatsidf(A)                  (( double(*)(int32_t))                           jt[183])(A)
-#define __floatunsidf(A)                (( double(*)(uint32_t))                          jt[184])(A)
-#define __fixdfdi(A)                    (( int32_t(*)(double))                           jt[185])(A)
-#define __fixunsdfsi(A)                 (( uint32_t(*)(double))                          jt[186])(A)
-#define __extendsfdf2(A)                (( double(*)(float))                             jt[187])(A)
+#define p__floatsidf(A)                  (( double(*)(int32_t))                           jt[183])(A)
+#define p__floatunsidf(A)                (( double(*)(uint32_t))                          jt[184])(A)
+#define p__fixdfdi(A)                    (( int32_t(*)(double))                           jt[185])(A)
+#define p__fixunsdfsi(A)                 (( uint32_t(*)(double))                          jt[186])(A)
+#define p__extendsfdf2(A)                (( double(*)(float))                             jt[187])(A)
 #define random(A)                       (( uint32_t(*)(uint32_t))                        jt[188])(A)
 #define realloc(A,B)                    (( void *(*)(void*,size_t))                      jt[189])(A,B)
-#define __floattidf(A)                  (( double(*)(int64_t))                           jt[190])(A)
-#define __floatuntidf(A)                (( double(*)(uint64_t))                          jt[191])(A)
+#define p__floattidf(A)                  (( double(*)(int64_t))                           jt[190])(A)
+#define p__floatuntidf(A)                (( double(*)(uint64_t))                          jt[191])(A)
 
 #define jbr_aes_small_ctr_init(A,B,C)    (( void (*)(br_aes_small_ctr_keys*,const void*,size_t)) jt[192])(A,B,C)
 #define jbr_gcm_init(A,B,C)              (( void (*)(br_gcm_context*,const br_block_ctr_class**,br_ghash)) jt[193])(A,B,C)
@@ -844,14 +844,14 @@ typedef struct {
 #define i32_float
 #define ui32_float jtmod__fixunssfsi
 
-#define double_i64 __floattidf
-#define double_ui64 __floatuntidf
-#define double_i32 __floatsidf
-#define double_ui32 __floatunsidf
-#define i32_double __fixdfdi
-#define ui32_double __fixunsdfsi
+#define double_i64 p__floattidf
+#define double_ui64 p__floatuntidf
+#define double_i32 p__floatsidf
+#define double_ui32 p__floatunsidf
+#define i32_double p__fixdfdi
+#define ui32_double p__fixunsdfsi
 #define i64_double i642d
-#define double_float __extendsfdf2
+#define double_float p__extendsfdf2
 
 // float and double math
 #define fmul jfmul
@@ -875,10 +875,10 @@ typedef struct {
 #define strncat_P jstrncat_P
 
 
-#define __adddf3(A,B) double_dispatch(0,A,B)
-#define __subdf3(A,B) double_dispatch(1,A,B)
-#define __muldf3(A,B) double_dispatch(2,A,B)
-#define __divdf3(A,B) double_dispatch(3,A,B)
+#define p__adddf3(A,B) double_dispatch(0,A,B)
+#define p__subdf3(A,B) double_dispatch(1,A,B)
+#define p__muldf3(A,B) double_dispatch(2,A,B)
+#define p__divdf3(A,B) double_dispatch(3,A,B)
 
 
 #define __ltdf2(A,B) double_cdispatch(0,A,B)
