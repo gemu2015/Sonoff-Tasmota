@@ -310,9 +310,6 @@ enum RFSTATE
 #define PA_LowPower               0x60
 #define PA_LongDistance           0xC0
 
-
- #define xMODULE_PART __attribute__((section(".text.mod_part")))
-
 /**
  * Class: CC1101
  * 
@@ -321,7 +318,6 @@ enum RFSTATE
  */
 class CC1101
 {
-
   private:
     /**
      * Atmega's SPI interface
@@ -337,7 +333,7 @@ class CC1101
      * 'buffer'	Data to be writen
      * 'len'	Data length
      */
-    xMODULE_PART void writeBurstReg(uint8_t regAddr, uint8_t* buffer, uint8_t len);
+    void writeBurstReg(uint8_t regAddr, uint8_t* buffer, uint8_t len);
 
     /**
      * readBurstReg
@@ -348,14 +344,14 @@ class CC1101
      * 'regAddr'	Register address
      * 'len'	Data length
      */
-    xMODULE_PART void readBurstReg(uint8_t * buffer, uint8_t regAddr, uint8_t len);
+    void readBurstReg(uint8_t * buffer, uint8_t regAddr, uint8_t len);
 
     /**
      * setRegsFromEeprom
      * 
      * Set registers from EEPROM
      */
-    xMODULE_PART void setRegsFromEeprom(void);
+    void setRegsFromEeprom(void);
 
   public:
     /*
@@ -393,7 +389,7 @@ class CC1101
      * 
      * Class constructor
      */
-    xMODULE_PART CC1101(void);
+    CC1101(void);
 
     /**
      * cmdStrobe
@@ -402,14 +398,14 @@ class CC1101
      * 
      * 'cmd'	Command strobe
      */
-    xMODULE_PART void cmdStrobe(uint8_t cmd);
+    void cmdStrobe(uint8_t cmd);
 
     /**
      * wakeUp
      * 
      * Wake up CC1101 from Power Down state
      */
-    xMODULE_PART void wakeUp(void);
+    void wakeUp(void);
 
     /**
      * readReg
@@ -422,7 +418,7 @@ class CC1101
      * Return:
      * 	Data byte returned by the CC1101 IC
      */
-    xMODULE_PART uint8_t readReg(uint8_t regAddr, uint8_t regType);
+    uint8_t readReg(uint8_t regAddr, uint8_t regType);
 
     /**
      * writeReg
@@ -432,24 +428,21 @@ class CC1101
      * 'regAddr'	Register address
      * 'value'	Value to be writen
      */
-    xMODULE_PART void writeReg(uint8_t regAddr, uint8_t value);
+    void writeReg(uint8_t regAddr, uint8_t value);
 
     /**
      * setCCregs
      * 
      * Configure CC1101 registers
      */
-    xMODULE_PART void setCCregs(void);
-
-
-   
+    void setCCregs(void);
 
     /**
      * reset
      * 
      * Reset CC1101
      */
-    xMODULE_PART void reset(void);
+    void reset(void);
     
     /**
      * init
@@ -458,7 +451,7 @@ class CC1101
      *
      * @param freq Carrier frequency
      */
-    xMODULE_PART void init(uint8_t freq=CFREQ_868);
+    void init(uint8_t freq=CFREQ_868);
 
     /**
      * setSyncWord
@@ -468,7 +461,7 @@ class CC1101
      * 'syncH'	Synchronization word - High byte
      * 'syncL'	Synchronization word - Low byte
      */
-    xMODULE_PART void setSyncWord(uint8_t syncH, uint8_t syncL);
+    void setSyncWord(uint8_t syncH, uint8_t syncL);
 
     /**
      * setSyncWord (overriding method)
@@ -477,7 +470,7 @@ class CC1101
      * 
      * 'syncH'	Synchronization word - pointer to 2-byte array
      */
-    xMODULE_PART void setSyncWord(uint8_t *sync);
+    void setSyncWord(uint8_t *sync);
 
     /**
      * setDevAddress
@@ -486,7 +479,7 @@ class CC1101
      * 
      * 'addr'	Device address
      */
-    xMODULE_PART void setDevAddress(uint8_t addr);
+    void setDevAddress(uint8_t addr);
 
     /**
      * setCarrierFreq
@@ -495,7 +488,7 @@ class CC1101
      * 
      * 'freq'	New carrier frequency
      */
-    xMODULE_PART void setCarrierFreq(uint8_t freq);
+    void setCarrierFreq(uint8_t freq);
     
     /**
      * setChannel
@@ -504,14 +497,14 @@ class CC1101
      * 
      * 'chnl'	Frequency channel
      */
-    xMODULE_PART void setChannel(uint8_t chnl);
+    void setChannel(uint8_t chnl);
 
     /**
      * setPowerDownState
      * 
      * Put CC1101 into power-down state
      */
-    xMODULE_PART void setPowerDownState();
+    void setPowerDownState();
     
     /**
      * sendData
@@ -524,7 +517,7 @@ class CC1101
      *    True if the transmission succeeds
      *    False otherwise
      */
-    xMODULE_PART bool sendData(CCPACKET packet);
+    bool sendData(CCPACKET packet);
 
     /**
      * receiveData
@@ -534,21 +527,21 @@ class CC1101
      * Return:
      * 	Amount of bytes received
      */
-    xMODULE_PART uint8_t receiveData(CCPACKET *packet);
+    uint8_t receiveData(CCPACKET *packet);
     
     /**
      * setRxState
      * 
      * Enter Rx state
      */
-    xMODULE_PART void setRxState(void);
+    void setRxState(void);
 
     /**
      * setTxState
      * 
      * Enter Tx state
      */
-    xMODULE_PART void setTxState(void);
+    void setTxState(void);
 };
 
 #endif
