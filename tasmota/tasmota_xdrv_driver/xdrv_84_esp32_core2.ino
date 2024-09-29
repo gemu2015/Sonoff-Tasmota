@@ -151,7 +151,7 @@ uint32_t Core2GetUtc(void) {
  * Called from xdrv_10_scripter.ino
 \*********************************************************************************************/
 
-extern uint8_t tbstate[3];
+uint8_t tbstate[3];
 
 // c2ps(a b)
 float Core2SetAxpPin(uint32_t sel, uint32_t val) {
