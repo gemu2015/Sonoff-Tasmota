@@ -1029,6 +1029,8 @@ typedef struct {
 
 #define SETWIRE(A) if (A==0) {mem->xWire = jWire;} else {mem->xWire = jWire1;} 
 
+#define xSETWIRE(A) if (A==0) {xWire = jWire;} else {xWire = jWire1;} 
+
 #ifdef __riscv
 #define PUSH_OPTIONS _Pragma("GCC push_options")\
 _Pragma("GCC optimize (\"-Og\")")

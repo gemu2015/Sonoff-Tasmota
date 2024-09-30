@@ -221,19 +221,19 @@ SETMINREGS
 #ifdef USE_BP_TWOWIRE
 
 // i2c class
-MODULE_PART void TWI_beginTransmission(TwoWire *mp, uint8_t addr) {
+MODULE_PART void TWI_beginTransmission(void *mp, uint8_t addr) {
 SETMINREGS 
-  jbeginTransmission(mp, addr);
+  jbeginTransmission((TwoWire*)mp, addr);
 }
 
-MODULE_PART void TWI_endTransmission(TwoWire *mp, uint8_t sendstop) {
+MODULE_PART void TWI_endTransmission(void *mp, uint8_t sendstop) {
 SETMINREGS
-  jendTransmission(mp, sendstop);
+  jendTransmission((TwoWire*)mp, sendstop);
 }
 
-MODULE_PART uint8_t TWI_requestFrom(TwoWire *mp, uint8_t address, uint8_t quantity) {
+MODULE_PART uint8_t TWI_requestFrom(void *mp, uint8_t address, uint8_t quantity) {
 SETMINREGS
-  return jrequestFrom(mp, address, quantity);
+  return jrequestFrom((TwoWire*)mp, address, quantity);
 }
 
 /* virtuals go via vectors anyhow

@@ -23,7 +23,6 @@ if index > 0:
     fname = hparts[1].splitlines()
     file = fname[0].strip()
 
-
 platform = env.PioPlatform()
 board = env.BoardConfig()
 mcu = board.get("build.mcu", "esp32")
@@ -45,8 +44,12 @@ def array_find(index, arr1, arr2, flag):
         arr2 = bytearray(ssp[0], 'utf-8')
         arr3 = bytearray(ssp[1], 'utf-8')
 
+    #print(arr2, flag)
     m = len(arr1)
     n = len(arr2)
+    global org_pos
+    global copy_pos
+    global cfunc
     for i in range(index, m):
 
         if arr1[i]==arr2[0]:
@@ -54,13 +57,12 @@ def array_find(index, arr1, arr2, flag):
             if copy == arr2:
                 #copy = arr1[i:i+n+3]
                 #print(copy)
-                global org_pos
-                global copy_pos
-                global cfunc
+                #global org_pos
+                #global copy_pos
+                #global cfunc
                 if flag==0:
                     if arr1[i+n]==0:
                         #print("found org")
-                        
                         org_pos = i
                         return i
                     else:
@@ -82,17 +84,20 @@ def array_find(index, arr1, arr2, flag):
                     # class
                     if flag==2:
                         # find copy
-                        istart = 0
+                        print("found copy class member: ",arr2.decode("utf-8"))
+                        istart = i
                         istop = 0
-                        for x in range(i, i - 5, -1):
+                        for x in range(i, i - 10, -1):
                             if arr1[x] == 0:
                                 istart = x + 1
                                 break
-                        for x in range(i, i + n + 4, 1):
+                        for x in range(i, i + n + 6, 1):
                             if arr1[x] == 0:
                                 istop = x
                                 break
                         copy_pos = istart
+                        cfunc = arr1[istart:istop]
+                        #print(cfunc, istart, istop)
                         return istart
                     else:
                         # found part 1, compare part 2
@@ -101,9 +106,9 @@ def array_find(index, arr1, arr2, flag):
                         # but for now we assume 2 chars delimiter 
                         x=len(arr3)
                         copy = arr1[i+n+2:i+n+2+x]
-                        istart = 0
+                        istart = i
                         if copy==arr3:
-                            for x in range(i, i - 5, -1):
+                            for x in range(i, i - (n + 5), -1):
                                 if arr1[x] == 0:
                                     istart = x + 1
                                     break
@@ -118,35 +123,49 @@ def find_and_patch(source, sub):
     org_pos = 0
     global copy_pos
     copy_pos = 0
+    classflg = 0
 
     if sub[0] != ord('_'):
         #print ("patch class")
+        classflg = 1
         ssub = sub.decode("utf-8")
         spstr = ssub.split('_')
         # find org
         sub = bytearray(spstr[2]+'_'+spstr[1], 'utf-8')
         offset = array_find(0, source, sub, 1)
+        org_pos = offset
         # find copy
         sub = bytearray(spstr[0]+'_'+spstr[1], 'utf-8')
-        offset = array_find(offset + len(sub), source, sub, 2)
+        offset = array_find(0, source, sub, 2)
+        copy_pos = offset
     else:
         offset = array_find(0, source, sub, 0)
         offset = array_find(offset + len(sub), source, sub, 0)
     
-    #print(org_pos,copy_pos)
-    if org_pos==0 or copy_pos==0:
+    print(org_pos,copy_pos)
+    if org_pos<=0 or copy_pos<=0:
         print(sub.decode("utf-8")+" already patched or not needed")
         if (org_pos > 0):
             print("missing implementation of: "+sub.decode("utf-8"))
     else:
-        print("patching: "+sub.decode("utf-8"))
-        patch = sub
-        # patch with leading x
-        patch[0] = 120
-        patch.append(0)
-        #print(patch)
-        source[copy_pos:copy_pos+len(patch)] = patch
-        source[org_pos:org_pos+len(patch)] = patch
+        if classflg == 0:
+            print("patching intrinsic: "+sub.decode("utf-8"))
+            patch = sub
+            # patch with leading x
+            patch[0] = 120
+            patch.append(0)
+            #print(patch)
+            source[copy_pos:copy_pos+len(patch)] = patch
+            source[org_pos:org_pos+len(patch)] = patch
+        else:
+            print("patching class: "+sub.decode("utf-8"))
+            patch = cfunc
+            #print(cfunc)
+            patch.append(0)
+            source[org_pos:org_pos+len(patch)] = patch
+            #patch[0] = 120
+            #source[copy_pos:copy_pos+len(patch)] = patch
+            
 
 
 def patch_buildins(source, target, env):
@@ -167,19 +186,23 @@ def patch_buildins(source, target, env):
     "__floattidf", "__floatuntidf", "__floatsidf", "__floatunsidf", "__fixdfdi",\
     "__fixunsdfsi", "__fixdfti", "__extendsfdf2", "__adddf3", "__subdf3",\
     "__muldf3", "__divdf3", "__ltdf2", "__gtdf2", "__nedf2", "__eqdf2",\
-    "__gtsf2", "__gesf2", "__ltsf2", "__lesf2", "__eqsf2", "__nesf2", "__unordsf2",\
-    "TWI_beginTransmission_TwoWire", "TWI_endTransmission_TwoWire","TWI_requestFrom_TwoWire",\
-    "TWI_write_TwoWire","TWI_read_TwoWire"]
+    "__gtsf2", "__gesf2", "__ltsf2", "__lesf2", "__eqsf2", "__nesf2", "__unordsf2"]
+
+    #"TWI_beginTransmission_TwoWire", "TWI_endTransmission_TwoWire","TWI_requestFrom_TwoWire",\
+    #"TWI_write_TwoWire","TWI_read_TwoWire"]
 
     for x in patches:
         find_and_patch(source, bytearray(x, 'utf-8'))
 
     #fpath = dpath + "test.o"
 
-    with open(fpath, mode='wb') as f:
-        f.write(source)
-        f.close()
+    #with open(fpath, mode='wb') as f:
+    #    f.write(source)
+    #    f.close()
 
 if file != '':
     env.AddPostAction("$BUILD_DIR/${PROGNAME}.bin", [patch_buildins])
 
+
+#_ZN7TwoWire17beginTransmissionEh
+#_Z21TWI_beginTransmissionPvh

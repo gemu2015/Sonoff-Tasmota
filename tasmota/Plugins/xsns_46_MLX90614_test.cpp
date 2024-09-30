@@ -14,12 +14,13 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
+ 
 #include "tasmota_options.h" 
 
 #ifdef USE_MLX90614_TEST_MOD
 
 //#define USE_BP_DOUBLES
+#define USE_BP_TWOWIRE
 
 #include "module.h"
 #include "module_defines.h"
@@ -62,7 +63,7 @@ typedef struct {
   float amb_temp;
   bool ready;
   STRBUFFER
-} MODULE_MEMORY;
+} MODULE_MEMORY; 
 
 // ease memory objects
 #define obj_temp mem->obj_temp
@@ -79,12 +80,14 @@ const char mlxdev[] PROGMEM = "MLX90614";
 int32_t Init_MLX90614() {
   ALLOCMEM
 
-  //SETWIRE(0);
-
-  xWire = &Wire;
+  xSETWIRE(0);
 
   // now init variables here
-  //ready = false;
+  ready = false;
+
+  ready = amb_temp * obj_temp / (float)(int)10;
+
+  
 
   if (!I2cSetDevice(I2_ADR_IRT, 0)) {
     MLX90614_Deinit();

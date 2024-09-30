@@ -9,7 +9,7 @@ no initialized variables, must initialize all variables in code
 all variables must be in one structure. all system calls must be vectorized
 (vector table with many calls already available)
 
-// this section is no longer needed:
+
 however there are limitations. no c++, only c allowed.
 most annoying thing however is to avoid intrinsic compiler functions.
 e.g. floating point math generates builtin calls.
@@ -17,7 +17,7 @@ therefore several float math functions are provided to circumvent builtin calls.
 e.g. you may not write  a = b / c  with float variables.
 you must use a = fdiv(b, c)
 
-// now all intrinsic functions can be redirected to vector table
+// patching intrinsics may be possible but not yet ready:
 c++ can be used and floating math does not need conversion
 but the appropriate hooks have to be added in intrinsics.h if not already there
 the intrinsics will be patched by the script patch_buildtins.py which modifies the object file of the current driver
@@ -25,6 +25,7 @@ thus the file name of the current created driver has to be edited in this file
 also if you add an instinsic it has to be added there
 this adds a performance loss of about 15 % for intrinsics and a small code size overhead
 you may still use the math functions like fdiv which do not have this performance loss
+
 
 
 since RISCV ESPs use special floating point constants from ROM memory
