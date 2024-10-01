@@ -6,26 +6,31 @@
 // example memory usage addsf3
 // 36 bytes code about 60 bytes in total with vector
 // 16 instructions 30 in total on esp32 == 4,166 ns * 30 = 130 ns addition takes 8,7 us => 15 % slower
-MODULE_PART float __addsf3(float a, float b) {
+
+
+extern "C" {
+
+MODULE_PART float _xaddsf3(float a, float b) {
 SETMINREGS
   return fadd(a,b);
 }
 
-MODULE_PART float __subsf3(float a, float b) {
+MODULE_PART float _xsubsf3(float a, float b) {
 SETMINREGS
   return fdiff(a,b);
 }
 
-MODULE_PART float __mulsf3(float a, float b) {
+MODULE_PART float _xmulsf3(float a, float b) {
 SETMINREGS
   return fmul(a,b);
 }
 
-MODULE_PART float __divsf3(float a, float b) {
+MODULE_PART float _xdivsf3(float a, float b) {
 SETMINREGS
   return fdiv(a,b);
 }
 
+/*
 MODULE_PART void *_Znwj(uint32_t size) {
 SETMINREGS
     return calloc(size, 1);
@@ -35,69 +40,70 @@ MODULE_PART void  _ZdlPv(void* ptr) {
 SETMINREGS
     free(ptr);
 }
+*/
 
-MODULE_PART float __floatsisf(int32_t in) {
+MODULE_PART float _xfloatsisf(int32_t in) {
 SETMINREGS
     return float_i32(in);
 }
 
-MODULE_PART float __floatunsisf(uint32_t in) {
+MODULE_PART float _xfloatunsisf(uint32_t in) {
 SETMINREGS
     return float_ui32(in);
 }
 
-MODULE_PART float __floatundisf(uint64_t in) {
+MODULE_PART float _xfloatundisf(uint64_t in) {
 SETMINREGS
     return float_ui64(in);
 }
 
-MODULE_PART int32_t __fixsfsi(float in) {
+MODULE_PART int32_t _xfixsfsi(float in) {
 SETMINREGS
     return i32_float(in);
 }
 
-MODULE_PART uint32_t __fixunssfsi(float in) {
+MODULE_PART uint32_t _xfixunssfsi(float in) {
 SETMINREGS
     return ui32_float(in);
 }
 
 // a > b
-MODULE_PART int __gtsf2 (float a, float b) {
+MODULE_PART int _xgtsf2 (float a, float b) {
 SETMINREGS
   return jgtsf2(a, b);
 }
 
 // a >= b
-MODULE_PART int __gesf2 (float a, float b) {
+MODULE_PART int _xgesf2 (float a, float b) {
 SETMINREGS
   return jgtsf2(a, b) | jeqsf2(a, b);
 }
 
 // a < b
-MODULE_PART int __ltsf2 (float a, float b) {
+MODULE_PART int _xltsf2 (float a, float b) {
 SETMINREGS
   return jltsf2(a, b);
 }
 
 // a <= b
-MODULE_PART int __lesf2 (float a, float b) {
+MODULE_PART int _xlesf2 (float a, float b) {
 SETMINREGS
   return jltsf2(a, b) | jeqsf2(a, b);
 }
 
 // a == b
-MODULE_PART int __eqsf2 (float a, float b) {
+MODULE_PART int _xeqsf2 (float a, float b) {
 SETMINREGS
   return jeqsf2(a, b);
 }
 
 // a != b
-MODULE_PART int __nesf2(float a, float b) {
+MODULE_PART int _xnesf2(float a, float b) {
 SETMINREGS
   return !jeqsf2(a, b);
 }
 
-MODULE_PART int __unordsf2 (float a, float b) {
+MODULE_PART int _xunordsf2 (float a, float b) {
 SETMINREGS
   return jisnan(a) | jisnan(b);
 }
@@ -106,7 +112,7 @@ SETMINREGS
 
 
 
-/* 36 bytes __addsf3 example code
+/* 36 bytes _xaddsf3 example code
 40205a30:	e0c112               	addi	a1, a1, -32
 40205a33:	076102               	s32i	a0, a1, 28
 40205a36:	0661c2               	s32i	a12, a1, 24
@@ -129,92 +135,94 @@ SETMINREGS
 // better use macros
 #ifdef USE_BP_DOUBLES
 
-MODULE_PART double __floattidf(int64_t in) {
+MODULE_PART double _xfloattidf(int64_t in) {
 SETMINREGS
-  return p__floattidf(in);
+  return p_xfloattidf(in);
 }
 
-MODULE_PART double __floatuntidf(uint64_t in) {
+MODULE_PART double _xfloatuntidf(uint64_t in) {
 SETMINREGS
-  return p__floatuntidf(in);
+  return p_xfloatuntidf(in);
 }
 
-MODULE_PART double __floatsidf(int32_t in) {
+MODULE_PART double _xfloatsidf(int32_t in) {
 SETMINREGS
-  return p__floatsidf(in);
+  return p_xfloatsidf(in);
 }
 
-MODULE_PART double __floatunsidf(uint32_t in) {
+MODULE_PART double _xfloatunsidf(uint32_t in) {
 SETMINREGS
-  return p__floatunsidf(in);
+  return p_xfloatunsidf(in);
 }
 
-MODULE_PART int32_t __fixdfdi(double in) {
+MODULE_PART int32_t _xfixdfdi(double in) {
 SETMINREGS
-  return p__fixdfdi(in);
+  return p_xfixdfdi(in);
 }
 
-MODULE_PART uint32_t __fixunsdfsi(double in) {
+MODULE_PART uint32_t _xfixunsdfsi(double in) {
 SETMINREGS
-  return p__fixunsdfsi(in);
+  return p_xfixunsdfsi(in);
 }
 
-MODULE_PART int64_t __fixdfti(double in) {
+MODULE_PART int64_t _xfixdfti(double in) {
 SETMINREGS
   return i642d(in);
 }
 
-MODULE_PART double __extendsfdf2(float in) {
+MODULE_PART double _xextendsfdf2(float in) {
 SETMINREGS
-  return p__extendsfdf2(in);
+  return p_xextendsfdf2(in);
 }
 
-MODULE_PART double __adddf3(double a, double b) {
+MODULE_PART double _xadddf3(double a, double b) {
 SETMINREGS
   return dadd(a,b);
 }
 
-MODULE_PART double __subdf3(double a, double b) {
+MODULE_PART double _xsubdf3(double a, double b) {
 SETMINREGS
   return ddiff(a,b);
 }
 
-MODULE_PART double __muldf3(double a, double b) {
+MODULE_PART double _xmuldf3(double a, double b) {
 SETMINREGS
   return dmul(a,b);
 }
 
-MODULE_PART double __divdf3(double a, double b) {
+MODULE_PART double _xdivdf3(double a, double b) {
 SETMINREGS
   return ddiv(a,b);
 }
 
 
 // a < b
-MODULE_PART int __ltdf2(double a, double b) {
+MODULE_PART int _xltdf2(double a, double b) {
 SETMINREGS
   return double_cdispatch(0,a,b);
 }
 
 // a > b
-MODULE_PART int __gtdf2(double a, double b) {
+MODULE_PART int _xgtdf2(double a, double b) {
 SETMINREGS
   return double_cdispatch(2,a,b);
 }
 
 // a != b
-MODULE_PART int __nedf2(double a, double b) {
+MODULE_PART int _xnedf2(double a, double b) {
 SETMINREGS
   return double_cdispatch(1,a,b);
 }
 
 // a == b
-MODULE_PART int __eqdf2(double a, double b) {
+MODULE_PART int _xeqdf2(double a, double b) {
 SETMINREGS
   return double_cdispatch(4,a,b);
 }
 
 #endif // USE_BP_DOUBLES
+
+}
 
 //#define USE_BP_TWOWIRE
 

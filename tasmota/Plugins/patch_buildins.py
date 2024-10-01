@@ -51,35 +51,32 @@ def array_find(index, arr1, arr2, flag):
     global copy_pos
     global cfunc
     for i in range(index, m):
-
         if arr1[i]==arr2[0]:
             copy = arr1[i:i+n]
             if copy == arr2:
-                #copy = arr1[i:i+n+3]
-                #print(copy)
-                #global org_pos
-                #global copy_pos
-                #global cfunc
                 if flag==0:
-                    if arr1[i+n]==0:
+                    return i
+                    #if arr1[i+n]==0:
                         #print("found org")
-                        org_pos = i
-                        return i
-                    else:
-                        istart = 0
-                        istop = 0
-                        for x in range(i, i - 5, -1):
-                            if arr1[x] == 0:
-                                istart = x + 1
-                                break
-                        for x in range(i, i + n + 4, 1):
-                            if arr1[x] == 0:
-                                istop = x
-                                break
-                        cfunc = arr1[istart:istop]
-                        #print("found: "+str(cfunc))
-                        copy_pos = istart
-                        return istart
+                    #    org_pos = i
+                    #    return i
+                    
+                    #else:
+                    #    return i
+                    #    istart = 0
+                    #    istop = 0
+                    #    for x in range(i, i - 5, -1):
+                    #        if arr1[x] == 0:
+                    #            istart = x + 1
+                    #            break
+                    #    for x in range(i, i + n + 4, 1):
+                    #        if arr1[x] == 0:
+                    #            istop = x
+                    #            break
+                    #    cfunc = arr1[istart:istop]
+                    #    print("found: "+str(cfunc))
+                    #    copy_pos = istart
+                    #    return istart
                 else:
                     # class
                     if flag==2:
@@ -115,6 +112,7 @@ def array_find(index, arr1, arr2, flag):
                             org_pos = istart
                             print("found class member: ",arr2.decode("utf-8")+"::"+arr3.decode("utf-8"))
                             return istart
+
     return -1
 
     # always 2 functions to patch
@@ -139,11 +137,14 @@ def find_and_patch(source, sub):
         offset = array_find(0, source, sub, 2)
         copy_pos = offset
     else:
-        offset = array_find(0, source, sub, 0)
-        offset = array_find(offset + len(sub), source, sub, 0)
+        print(sub)
+        org_pos = array_find(0, source, sub, 0)
+        sub[1] = 120
+        print(sub)
+        copy_pos = array_find(0, source, sub, 0)
     
     print(org_pos,copy_pos)
-    if org_pos<=0 or copy_pos<=0:
+    if org_pos<=0 or copy_pos<=0 or org_pos == copy_pos:
         print(sub.decode("utf-8")+" already patched or not needed")
         if (org_pos > 0):
             print("missing implementation of: "+sub.decode("utf-8"))
@@ -152,10 +153,9 @@ def find_and_patch(source, sub):
             print("patching intrinsic: "+sub.decode("utf-8"))
             patch = sub
             # patch with leading x
-            patch[0] = 120
             patch.append(0)
             #print(patch)
-            source[copy_pos:copy_pos+len(patch)] = patch
+            #source[copy_pos:copy_pos+len(patch)] = patch
             source[org_pos:org_pos+len(patch)] = patch
         else:
             print("patching class: "+sub.decode("utf-8"))
@@ -196,9 +196,9 @@ def patch_buildins(source, target, env):
 
     #fpath = dpath + "test.o"
 
-    #with open(fpath, mode='wb') as f:
-    #    f.write(source)
-    #    f.close()
+    with open(fpath, mode='wb') as f:
+        f.write(source)
+        f.close()
 
 if file != '':
     env.AddPostAction("$BUILD_DIR/${PROGNAME}.bin", [patch_buildins])

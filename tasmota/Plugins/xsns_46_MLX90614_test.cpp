@@ -20,11 +20,10 @@
 #ifdef USE_MLX90614_TEST_MOD
 
 //#define USE_BP_DOUBLES
-#define USE_BP_TWOWIRE
+//#define USE_BP_TWOWIRE
 
 #include "module.h"
 #include "module_defines.h"
-#include "intrinsics.h"
 
 #define MLX90614_REV  1 << 16 | 4
 
@@ -77,6 +76,9 @@ const char JSON_IRTMP[] PROGMEM = ",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}";
 const char mlxdev[] PROGMEM = "MLX90614";
 
 
+//#include "intrinsics.h"
+
+
 int32_t Init_MLX90614() {
   ALLOCMEM
 
@@ -87,7 +89,7 @@ int32_t Init_MLX90614() {
 
   ready = amb_temp * obj_temp / (float)(int)10;
 
-  
+    
 
   if (!I2cSetDevice(I2_ADR_IRT, 0)) {
     MLX90614_Deinit();
