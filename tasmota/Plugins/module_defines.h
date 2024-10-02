@@ -964,6 +964,7 @@ typedef struct {
 #define CharToFloat jCharToFloat
 #define AddLogData jAddLogData
 #define calloc jcalloc
+#define malloc(A) jcalloc(A,1)
 #define fexists jfexists
 #undef strncmp_P
 #define strncmp_P jstrncmp_P

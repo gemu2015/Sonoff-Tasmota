@@ -19,9 +19,6 @@
 
 #ifdef USE_MLX90614_TEST_MOD
 
-//#define USE_BP_DOUBLES
-//#define USE_BP_TWOWIRE
-
 #include "module.h"
 #include "module_defines.h"
 
@@ -76,20 +73,45 @@ const char JSON_IRTMP[] PROGMEM = ",\"MLX90614\":{\"OBJTMP\":%s,\"AMBTMP\":%s}";
 const char mlxdev[] PROGMEM = "MLX90614";
 
 
-//#include "intrinsics.h"
+#include "AXP192/AXP192_cpp.h"
+
+/*
+// new
+void*_Znwj(size_t size)
+{
+    void* p = malloc(size);
+    if (p == NULL) {
+        // abort();
+    }
+    return p;
+}
+
+// delete
+void  _ZdlPv(void* ptr)
+{
+    free(ptr);
+}
+*/
 
 
 int32_t Init_MLX90614() {
   ALLOCMEM
+
+  //AXP192 *axp = new AXP192;
+  AXP192 *axp = (AXP192*)malloc(sizeof(AXP192));
+
+  axp->begin();
+
+
+  //delete axp;
+  free(axp);
 
   xSETWIRE(0);
 
   // now init variables here
   ready = false;
 
-  ready = amb_temp * obj_temp / (float)(int)10;
-
-    
+  //ready = amb_temp * obj_temp / (float)(int)10;
 
   if (!I2cSetDevice(I2_ADR_IRT, 0)) {
     MLX90614_Deinit();
