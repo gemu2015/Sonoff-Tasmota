@@ -16,11 +16,8 @@
   You should have received a copy of the GNU General Public License
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
-
-// should always use EEPROM option
 /* to doo
 1. set Thermostat values sets
-2. set device names instead of hex id, ok (with eeprom)
 */
 
 #include "tasmota_options.h"
@@ -39,6 +36,7 @@
 
 // serial debug mode
 //#define MORITZ_SDEBUG
+#define MORITZ_DEBUG
 
 typedef struct {
   uint8_t moritz_on : 1;
@@ -920,6 +918,9 @@ void rf_moritz_task(void) {
 #ifdef MORITZ_SDEBUG
           Serial.printf("pair: \n");
 #endif
+#ifdef MORITZ_DEBUG
+          AddLog(LOG_LEVEL_INFO, PSTR("pair request"));
+#endif
           if (moritz_cfg.pair_enable) {
             uint8_t payload[1];
             payload[0] = 0;
@@ -931,17 +932,26 @@ void rf_moritz_task(void) {
 #ifdef MORITZ_SDEBUG
           Serial.printf("pingpong: \n");
 #endif
+#ifdef MORITZ_DEBUG
+          AddLog(LOG_LEVEL_INFO, PSTR("ping resquest"));
+#endif
           break;
         case 2:
           // ack
 #ifdef MORITZ_SDEBUG
           Serial.printf("ack: \n");
 #endif
+#ifdef MORITZ_DEBUG
+          AddLog(LOG_LEVEL_INFO, PSTR("ack request"));
+#endif
           break;
         case 3:
           // time
 #ifdef MORITZ_SDEBUG
           Serial.printf("time: \n");
+#endif
+#ifdef MORITZ_DEBUG
+          AddLog(LOG_LEVEL_INFO, PSTR("time request"));
 #endif
           if (moritz_cfg.pair_enable) {
             uint8_t payload[5];
@@ -955,6 +965,9 @@ void rf_moritz_task(void) {
           }
           break;
         case 0x30:
+#ifdef MORITZ_DEBUG
+          AddLog(LOG_LEVEL_INFO, PSTR("shutter contact state"));
+#endif
           // shutterContactState
           // isopen,rferror,batlow
           if (cp.forMe || (moritz_cfg.show_all)) {
@@ -972,8 +985,14 @@ void rf_moritz_task(void) {
 #ifdef MORITZ_SDEBUG
           Serial.printf("walltc: \n");
 #endif
+#ifdef MORITZ_DEBUG
+          AddLog(LOG_LEVEL_INFO, PSTR("wall thermo request"));
+#endif
           break;
         case 0x50:
+#ifdef MORITZ_DEBUG
+          AddLog(LOG_LEVEL_INFO, PSTR("pushbutton state"));
+#endif
           // pushButtonState
           // buttonnr,(0,1),rferror,batlow
           if (cp.forMe || (moritz_cfg.show_all)) {
@@ -988,6 +1007,9 @@ void rf_moritz_task(void) {
           break;
         case 0x60:
           // ThermostatState
+#ifdef MORITZ_DEBUG
+          AddLog(LOG_LEVEL_INFO, PSTR("thermostat state"));
+#endif
           ctrlMode = cp.rawPayload[0] & 3;
           // ctrlMode = ThermostatControlMode 0 0-2;
           // dst status = 0,3
@@ -1035,10 +1057,16 @@ void rf_moritz_task(void) {
 #ifdef MORITZ_SDEBUG
           Serial.printf("wallth: \n");
 #endif
+#ifdef MORITZ_DEBUG
+          AddLog(LOG_LEVEL_INFO, PSTR("wall thermo state"));
+#endif
           break;
         default:
 #ifdef MORITZ_SDEBUG
           Serial.printf("unknown: \n");
+#endif
+#ifdef MORITZ_DEBUG
+          AddLog(LOG_LEVEL_INFO, PSTR("unknown request"));
 #endif
           break;
       }
@@ -1885,23 +1913,34 @@ SETREGS
     uint32_t dst = strtol(cp, &cp, 16);
     while (*cp == ' ') cp++;
     mode = *cp;
-    uint8_t payload[2];
+    uint8_t payload[4];
     switch (mode) {
       case 'a':
-        payload[0] = 0;
+        mode = 0;
         break;
-      case 'v':
-        payload[0] = 0x41;
+      case 'm':
+        mode = 1;
         break;
       case 'b':
-        payload[0] = 0x42;
-        break;
-      case 'c':
-        payload[0] = 0x43;
+        mode = 3;
         break;
       default:
-        payload[0] = 0;
+        mode = 0;
     }
+    cp++;
+    while (*cp == ' ') cp++;
+    uint8_t temp = strtol(cp, &cp, 10);
+    temp *= 10;
+    if (temp <= 45) {
+      temp = 45;
+    }
+    if (temp >= 35) {
+      temp = 35;
+    }
+    temp *= 2;
+    temp <= 10;
+    // add temperature
+    payload[0] = mode << 6 | temp;
     moritz_sendMsg(40, man, dst, payload, 1, 0, 1);
   }
   ResponseCmndNumber(mode);
