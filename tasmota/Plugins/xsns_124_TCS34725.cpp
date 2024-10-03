@@ -26,7 +26,7 @@
 #define XSNS_104       104
 #define XI2C_55       55  // See I2CDEVICES.md
 
-#include <Adafruit_TCS34725.h>
+#include "TCS34725/Adafruit_TCS34725_cpp.h"
 // about 2,2 k flash
 
 //
@@ -64,11 +64,6 @@ PUSH_OPTIONS
 MODULE_DESCRIPTOR("TCS34725", MODULE_TYPE_SENSOR, TCS34725_REV,"",0,"",0,"",0,"",0)
 MODULE_END
 
-typedef struct {
-  TwoWire *xWire;
-  tcs34725 rgb_sensor;
-  bool ready;
-} MODULE_MEMORY; 
 
 // Autorange class for TCS34725
 class tcs34725 {
@@ -98,6 +93,16 @@ private:
   void setGainTime(void);
   Adafruit_TCS34725 tcs;
 };
+
+typedef struct {
+  TwoWire *xWire;
+  tcs34725 rgb_sensor;
+  bool ready;
+} MODULE_MEMORY;
+
+#define ready mem->ready
+#define rgb_sensor mem->rgb_sensor
+
 //
 // Gain/time combinations to use and the min/max limits for hysteresis
 // that avoid saturation. They should be in order from dim to bright.
@@ -154,6 +159,7 @@ MODULE_PART void tcs34725::getRawData_noDelay(uint16_t *r, uint16_t *g, uint16_t
 
 // Retrieve data from the sensor and do the calculations
 MODULE_PART void tcs34725::getData(void) {
+SETREGS
   // read the sensor and autorange if necessary
   tcs.getRawData(&r, &g, &b, &c);
   //getRawData_noDelay(&r, &g, &b, &c);
@@ -189,23 +195,28 @@ MODULE_PART void tcs34725::getData(void) {
   ct = TCS34725_CT_Coef * float(b_comp) / float(r_comp) + TCS34725_CT_Offset;
 }
 
-MODULE_PART void TCS34725_Detect() {
-  
-  if (!I2cSetDevice(TCS34725_ADDRESS)) {
-    return;
+MODULE_PART MOD_RESULT TCS34725_Detect() {
+ALLOCMEM
+
+  I2C_SETWIRE(0);
+
+  if (!I2C_SetDevice(TCS34725_ADDRESS, 0)) {
+    return false;
   }
-  if (rgb_sensor.begin()==true) {
-    TCS34725_ready=1;
-    I2cSetActiveFound(TCS34725_ADDRESS, "TCS34725");
+  if (rgb_sensor.begin() == true) {
+    ready=1;
+    I2C_SetActiveFound(TCS34725_ADDRESS, PSTR("TCS34725"), 0);
   } else {
     // error
     //AddLog_P(LOG_LEVEL_INFO, S_LOG_HTTP, PSTR("TCS34725 init error"));
   }
+  return true;
 }
 
 
 MODULE_PART void TCS34725_EverySecond() {
-  if (TCS34725_ready) {
+SETREGS
+  if (ready) {
     rgb_sensor.getData();
   }
 }
@@ -232,22 +243,24 @@ const char JSON_TCS34725[] PROGMEM = ",\"TCS34725\":{\"" D_LUX "\":%d,\"" D_COLO
 
 
 MODULE_PART void TCS34725_Show(boolean json) {
-  if (!TCS34725_ready) {
+SETREGS
+
+  if (!ready) {
     return;
   }
   if (json) {
-    ResponseAppend_P(JSON_TCS34725,(uint32_t)rgb_sensor.lux,(uint32_t)rgb_sensor.ct,(uint32_t)rgb_sensor.r,(uint32_t)rgb_sensor.g,(uint32_t)rgb_sensor.b,(uint32_t)rgb_sensor.c);
+    ResponseAppend_P(GSTR(JSON_TCS34725),(uint32_t)rgb_sensor.lux,(uint32_t)rgb_sensor.ct,(uint32_t)rgb_sensor.r,(uint32_t)rgb_sensor.g,(uint32_t)rgb_sensor.b,(uint32_t)rgb_sensor.c);
 #ifdef USE_WEBSERVER
   } else {
-    WSContentSend_PD(HTTP_SNS_TCS34725,(uint32_t)rgb_sensor.lux,(uint32_t)rgb_sensor.ct,(uint32_t)rgb_sensor.r,(uint32_t)rgb_sensor.g,(uint32_t)rgb_sensor.b,(uint32_t)rgb_sensor.c);
+    WSContentSend_PD(GSTR(HTTP_SNS_TCS34725),(uint32_t)rgb_sensor.lux,(uint32_t)rgb_sensor.ct,(uint32_t)rgb_sensor.r,(uint32_t)rgb_sensor.g,(uint32_t)rgb_sensor.b,(uint32_t)rgb_sensor.c);
 #endif
   }
 
 }
 
-MODULE_PART void MLX90614_Deinit() {
+MODULE_PART void TCS34725_Deinit() {
   SETREGS
-  I2C_ResetActive(I2_ADR_IRT, 0);
+  I2C_ResetActive(TCS34725_ADDRESS, 0);
   RETMEM
 }
 
@@ -256,11 +269,11 @@ MODULE_PART void MLX90614_Deinit() {
 \*********************************************************************************************/
 
 
-MOD_RESULT mod_func_execute(uint32_t sel) {
+MODULE_PART MOD_RESULT mod_func_execute(uint32_t sel) {
   bool result = false;
     switch (sel) {
       case pFUNC_INIT:
-        TCS34725_Detect();
+        result = TCS34725_Detect();
         break;
       case pFUNC_EVERY_SECOND:
         TCS34725_EverySecond();
@@ -271,7 +284,9 @@ MOD_RESULT mod_func_execute(uint32_t sel) {
       case pFUNC_WEB_SENSOR:
         TCS34725_Show(0);
         break;
-
+      case pFUNC_DEINIT:
+        TCS34725_Deinit();
+        break;
   }
   return result;
 }
