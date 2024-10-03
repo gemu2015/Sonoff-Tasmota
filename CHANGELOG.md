@@ -3,7 +3,36 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - Development
 
-## [14.2.0.4]
+## [14.2.0.6]
+### Added
+- Support for Sonoff SPM v1.3.0 (#13447)
+
+### Breaking Changed
+
+### Changed
+- ESP32 platform update from 2024.09.10 to 2024.09.30 and Framework (Arduino Core) from v3.0.5 to v3.1.0.240926 (#22203)
+
+### Fixed
+- ESP32 Range Extender compile error with core 3.0.0 (#22205)
+- HASPmota error when page '1' is not defined (#22220)
+- ESP32-S3 uDisplay force cache writes to RGB display (#22222)
+- ESP32 Dali compile error with core 3.x (#22214)
+
+### Removed
+
+## [14.2.0.5] 20240926
+### Added
+- ESP8266 support for I2C CLK on GPIO16 (#22199)
+- ESP8266 support for one-wire M1601 temperature sensor on DS18x20 GPIO (#21376)
+- Support for BL0906 up to 6 channel energy monitor as used in Athom EM2/EM6 (#22167)
+
+### Changed
+- ESP8266 platform update from 2024.06.00 to 2024.09.00 and Framework (Arduino Core) from v2.7.7 to v2.7.8 (#22199)
+
+### Fixed
+- HASPmota broken `changed` event (#22194)
+
+## [14.2.0.4] 20240924
 ### Added
 - HX711 optional calibration precision option on command ``Sensor34 2 <weight in gram> <precision>`` where `<precision>` is 1 to 20 (#13983)
 - Matter support for Zigbee Occupancy and Light 0/1/2 (OnOff / Dimmer / White Color Temperature) (#22110)
@@ -14,8 +43,6 @@ All notable changes to this project will be documented in this file.
 - ESP8266 experimental support for second I2C bus
 - Berry improve `int64` constructor (#22172)
 - MQTT warning if trying to connect without TLS on a port that normally uses TLS (#22175)
-
-### Breaking Changed
 
 ### Changed
 - Refactored I2C drivers HTU21, BH1750, SHT3x, iAQ and HYT
@@ -34,8 +61,8 @@ All notable changes to this project will be documented in this file.
 - Berry I2C to prepare M5Stack I2C STM32 based devices (#22143)
 - Autoconf prevent 'init.bat' from stopping on empty lines (#22158)
 - Compilation exception when metrics not found (#22170)
-
-### Removed
+- ESP8266 Exception 3 on tasmota-minimal caused by unaligned PROGMEM (#22169)
+- LVGL compilation of lv_menu (#22188)
 
 ## [14.2.0.3] 20240908
 ### Added
