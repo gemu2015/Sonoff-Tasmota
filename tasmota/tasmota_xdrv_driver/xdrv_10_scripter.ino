@@ -4849,10 +4849,14 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 #ifdef USE_BINPLUGINS
         if (!strncmp_XP(lp, XPSTR("mo("), 3)) {
           TS_FLOAT fvar1;
+          TS_FLOAT fvar2;
           lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar1, gv);
           SCRIPT_SKIP_SPACES
+          lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
+          SCRIPT_SKIP_SPACES
+          uint16_t par = ((uint8_t)fvar1) << 8 | (uint8_t)fvar2;
 
-          char *rbuff = (char*)Plugin_Query(126, fvar1);
+          char *rbuff = (char*)Plugin_Query(126, par);
           if (rbuff) {
             if (sp) strlcpy(sp, rbuff, glob_script_mem.max_ssize);
             free (rbuff);
