@@ -31,8 +31,9 @@
 #define XSNS_126 126
 
 // this id is used by maxcube
-//#define MORITZ_BASE_ADDRESS 0x567890
-#define MORITZ_BASE_ADDRESS 0x123456
+#define MAXCUBE_BASE_ADDRESS 0x567890
+//#define MORITZ_BASE_ADDRESS 0x123456
+#define MORITZ_BASE_ADDRESS 0x0E958C
 
 // serial debug mode
 //#define MORITZ_SDEBUG
@@ -94,6 +95,7 @@ typedef struct {
   uint8_t autoAckAddr[3];
   uint8_t fakeWallThermostatAddr[3];
   uint32_t lastSendingTicks;
+  uint8_t msgcnt;
 } MODULE_MEMORY;
 
 #define moritz_devices mem->moritz_devices
@@ -105,6 +107,7 @@ typedef struct {
 #define autoAckAddr mem->autoAckAddr
 #define fakeWallThermostatAddr mem->fakeWallThermostatAddr
 #define lastSendingTicks mem->lastSendingTicks
+#define msgcnt mem->msgcnt
 
 #ifdef ESP32
 #define MORITZ_DEFAULT_CS 2
@@ -150,7 +153,7 @@ MODULE_PART void checkFrequency(void);
 MODULE_PART void set_txrestore();
 MODULE_PART void moritz_reset(void);
 MODULE_PART void moritz_handleAutoAck(uint8_t *enc);
-MODULE_PART void moritz_sendMsg(uint8_t cmdId, uint32_t src, uint32_t dst, uint8_t *payload, uint8_t groupId, uint8_t flags, uint8_t plen);
+MODULE_PART void moritz_sendMsg(uint8_t cmdId, uint32_t src, uint32_t dst, uint8_t *payload, uint8_t groupId, uint8_t flags, uint8_t plen, uint8_t rawtype);
 MODULE_PART void SendModeTmp(uint32_t dst, uint8_t mode, float tmp);
 MODULE_PART void moritz_send(char *in);
 MODULE_PART void moritz_mqtt(const char *hid, const char *type, char *payload);
@@ -164,7 +167,7 @@ MODULE_PART void set_MLabel(MORITZ_MEM *ml);
 MODULE_PART int32_t find_MLabel(MORITZ_MEM *ml);
 MODULE_PART void Moritz_Sort_List(uint32_t pflag);
 MODULE_PART void CC1101_loop(void);
-MODULE_PART bool Moritz_Cmd(void);
+MODULE_PART void Moritz_Cmd(void);
 MODULE_PART void eeprom_writeBytes(uint32_t offset, uint32_t size, void *buff);
 MODULE_PART void eeprom_readBytes(uint32_t offset, uint32_t size, void *buff) ;
 MODULE_PART void MORITZ_Deinit(void);
@@ -706,23 +709,26 @@ struct culpaket {
   uint8_t length;
   uint8_t messageCount;
   uint8_t flag;
-  uint8_t groupid;
+  uint8_t command;   //uint8_t groupid; raw type on receive
   uint8_t source[3];
   uint8_t dest[3];
-  uint8_t rawType;
+  uint8_t groupid;
   char rawPayload[22];
+  uint8_t rawType;
   uint8_t forMe;
-  char command[1];
+  //char command;
   uint8_t Payloadlength;
 };
 
 enum ThermostatControlMode { AUTO, MANUAL, TEMPORARY, BOOST };
 
+#define DEFAULT_GROUPID 0
+
 #define THERMOSTAT_STATE_TIME_PAYLOAD_LEN 6
 #define THERMOSTAT_STATE_MEAS_PAYLOAD_LEN 5
 #define THERMOSTAT_STATE_SHORT_PAYLOAD_LEN 3
 
-void moritz_sendMsg(uint8_t cmdId, uint32_t src, uint32_t dst, uint8_t *payload, uint8_t groupId, uint8_t flags, uint8_t plen) {
+void moritz_sendMsg(uint8_t cmdId, uint32_t src, uint32_t dst, uint8_t *payload, uint8_t groupId, uint8_t flags, uint8_t plen, uint8_t rawtype) {
 SETREGS
 
   struct culpaket cp;
@@ -731,17 +737,29 @@ SETREGS
   // Z 0B 01 00 01 123456 051FFC 00 00 37
 
   cp.length = 10 + plen;  // payload length
-  cp.messageCount = 1;
+  cp.messageCount = msgcnt;
   cp.flag = flags;
-  cp.groupid = groupId;
+  cp.command = cmdId;
   cp.source[0] = src >> 16;
   cp.source[1] = src >> 8;
   cp.source[2] = src;
   cp.dest[0] = dst >> 16;
   cp.dest[1] = dst >> 8;
   cp.dest[2] = dst;
-  cp.rawType = 0;
-  cp.rawPayload[0] = *payload;
+  cp.groupid = groupId;
+  cp.rawType = rawtype;
+
+  for (uint32_t cnt = 0; cnt < plen; cnt++) {
+    cp.rawPayload[cnt] = *payload;
+    payload++;
+  }
+
+  msgcnt += 1;
+
+#ifdef MORITZ_DEBUG
+  AddLog(LOG_LEVEL_INFO, PSTR("Send: cmd: %d len: %d, group: %d, src: %06x, dst: %06x, type: %d, payload: %02x,%02x,%02x,%02x,%02x"),\
+   cmdId, cp.length, groupId, src, dst, rawtype, cp.rawPayload[0], cp.rawPayload[1], cp.rawPayload[2], cp.rawPayload[3], cp.rawPayload[4]);
+#endif
 
   uint8_t *ucp = (uint8_t *)&cp;
   moritz_sendraw(ucp, 1);
@@ -802,7 +820,7 @@ SETREGS
     AddLog(LOG_LEVEL_INFO, PSTR("SendModeTmp %02x - %02x"), stemp, payload[0]);
   }
 
-  moritz_sendMsg(40, man, dst, payload, 1, 0, 1);
+  moritz_sendMsg(0x40, man, dst, payload, DEFAULT_GROUPID, 0, 1, 0);
 }
 
 /*
@@ -909,12 +927,12 @@ void rf_moritz_task(void) {
       for (uint8_t i = 0; i < 3; i++) {
         sprintf_P(did, PSTR("%s%02X"), did, cp.dest[i]);
       }
-      AddLog(LOG_LEVEL_INFO, PSTR("Moritz sid:%s, did:%s, forme:%d, rawtype:%02x"), id, did, cp.forMe, cp.rawType);
+      AddLog(LOG_LEVEL_INFO, PSTR("Moritz sid:%s, did:%s, forme:%d, grpid: %d, rawtype:%02x"), id, did, cp.forMe, cp.groupid, cp.rawType);
 
       char params[256];
       switch (cp.rawType) {
         case 0:
-          // pairing
+          // pairing ping
 #ifdef MORITZ_SDEBUG
           Serial.printf("pair: \n");
 #endif
@@ -924,7 +942,7 @@ void rf_moritz_task(void) {
           if (moritz_cfg.pair_enable) {
             uint8_t payload[1];
             payload[0] = 0;
-            moritz_sendMsg(3, man, src, payload, 1, 0, 1);
+            moritz_sendMsg(1, man, src, payload, DEFAULT_GROUPID, 0, 1, 0);
           }
           break;
         case 1:
@@ -933,7 +951,7 @@ void rf_moritz_task(void) {
           Serial.printf("pingpong: \n");
 #endif
 #ifdef MORITZ_DEBUG
-          AddLog(LOG_LEVEL_INFO, PSTR("ping resquest"));
+          AddLog(LOG_LEVEL_INFO, PSTR("ping request"));
 #endif
           break;
         case 2:
@@ -942,8 +960,25 @@ void rf_moritz_task(void) {
           Serial.printf("ack: \n");
 #endif
 #ifdef MORITZ_DEBUG
-          AddLog(LOG_LEVEL_INFO, PSTR("ack request"));
+      switch (cp.rawPayload[0]) {
+        case 1:
+          AddLog(LOG_LEVEL_INFO, PSTR("ack ok"));
+          break;
+        case 0x81:
+          AddLog(LOG_LEVEL_INFO, PSTR("inv cmd"));
+          break;
+        case 0:
+          AddLog(LOG_LEVEL_INFO, PSTR("ignore cmd"));
+          break;
+        case 8:
+          AddLog(LOG_LEVEL_INFO, PSTR("therm cmd"));
+          break;
+        default:
+          AddLog(LOG_LEVEL_INFO, PSTR("unkown ack %d"), cp.rawPayload[0]);
+          break;
+      }
 #endif
+          //moritz_sendAck(enc);
           break;
         case 3:
           // time
@@ -953,15 +988,17 @@ void rf_moritz_task(void) {
 #ifdef MORITZ_DEBUG
           AddLog(LOG_LEVEL_INFO, PSTR("time request"));
 #endif
+
+// 18,04,10,92,a7
           if (moritz_cfg.pair_enable) {
             uint8_t payload[5];
             TIME_T *mt = tgbl->RtcTime;
-            payload[0] = mt->year;
+            payload[0] = mt->year - 2000;
             payload[1] = mt->day_of_month;
             payload[2] = mt->hour;
             payload[3] = mt->minute | ((mt->month & 0x0c) << 4);
             payload[4] = mt->second | ((mt->month & 0x03) << 6);
-            moritz_sendMsg(1, man, src, payload, 1, 4, 5);
+            moritz_sendMsg(3, man, src, payload, DEFAULT_GROUPID, 4, 5, 0);
           }
           break;
         case 0x30:
@@ -1061,6 +1098,11 @@ void rf_moritz_task(void) {
           AddLog(LOG_LEVEL_INFO, PSTR("wall thermo state"));
 #endif
           break;
+        case 0xF1:
+#ifdef MORITZ_DEBUG
+          AddLog(LOG_LEVEL_INFO, PSTR("wakeup"));
+#endif
+          break;
         default:
 #ifdef MORITZ_SDEBUG
           Serial.printf("unknown: \n");
@@ -1108,6 +1150,7 @@ SETREGS
 void moritz_sendraw(uint8_t *dec, int longPreamble) {
   SETREGS
   uint8_t hblen = dec[0] + 1;
+  
   // 1kb/s = 1 bit/ms. we send 1 sec preamble + hblen*8 bits
   uint32_t sum = (longPreamble ? 100 : 0) + (hblen * 8);
   sum = __divsi3(sum, 10);
@@ -1181,6 +1224,13 @@ void moritz_sendraw(uint8_t *dec, int longPreamble) {
   CC1100_ASSERT;
   cc1100_sendbyte(CC1100_WRITE_BURST | CC1100_TXFIFO);
 
+#ifdef MORITZ_DEBUG
+ // for (uint32_t cnt = 0; cnt < hblen; cnt++) {
+ //   AddLog(LOG_LEVEL_INFO, PSTR("> %d, %02x"), cnt, dec[cnt]); 
+ // }
+#endif
+
+
   for (uint8_t i = 0; i < hblen; i++) {
     cc1100_sendbyte(dec[i]);
   }
@@ -1235,9 +1285,17 @@ void moritz_sendAck(uint8_t *enc) {
   for (int i = 0; i < 3; ++i) /* dst = enc_src */
     ackPacket[7 + i] = enc[4 + i];
   ackPacket[10] = 0; /* groupid */
-  ackPacket[11] = 0; /* payload */
+  ackPacket[11] = 0; /* payload = OK */
 
   delay(20); /* by experiments */
+
+#ifdef MORITZ_DEBUG
+  uint32_t src = ackPacket[4] << 16 | ackPacket[5] << 8 | ackPacket[6];
+  uint32_t dst = ackPacket[7] << 16 | ackPacket[8] << 8 | ackPacket[9];
+
+  AddLog(LOG_LEVEL_INFO, PSTR("Send ack: cmd: %d len: %d, grp: %d, src: %06x, dst: %06x payload: %d"),\
+   ackPacket[3], ackPacket[0], ackPacket[10], src, dst, ackPacket[11]);
+#endif
 
   moritz_sendraw(ackPacket, 0);
 
@@ -1411,6 +1469,10 @@ SETREGS
       get_MLabel(ind, &ml);
       uint32_t dst = (ml.id[0] << 16) | (ml.id[1] << 8) | ml.id[2];
       SendModeTmp(dst, 1, temp);
+
+      ml.dtemperature = fixunssfsi(fmul(temp, FLTC(1)));
+      put_MLabel(ind, &ml);
+
 
       AddLog(LOG_LEVEL_INFO, PSTR("Moritz set temp of ind=%d to %s"), dst, ts1);
     } else if (!strncmp_P(cp, PSTR("enb"), 3)) {
@@ -1820,7 +1882,8 @@ MODULE_PART void Moritz_Delete();
 MODULE_PART void Moritz_Delete_Unnamed();
 MODULE_PART void Moritz_SetLabel();
 MODULE_PART void Moritz_Pair();
-MODULE_PART void Moritz_Test();
+MODULE_PART void Moritz_Cmd();
+MODULE_PART void Moritz_SetBaseAddr();
 
 void Moritz_List() {
   SETREGS
@@ -1901,7 +1964,50 @@ SETREGS
   ResponseCmndNumber(moritz_cfg.pair_enable);
 }
 
-void Moritz_Test() {
+void Moritz_SetBaseAddr() {
+SETREGS
+  char mstr[8];
+  if (XdrvMailbox->data_len > 0) {
+    char *cp = XdrvMailbox->data;
+    while (*cp == ' ') cp++;
+    uint32_t man = strtol(cp, &cp, 16);
+    moritz_addr[0] = man >> 16;
+    moritz_addr[1] = (man >> 8) & 0xff;
+    moritz_addr[2] = man & 0xff;
+  }
+  uint32_t man = (moritz_addr[0] << 16) | (moritz_addr[1] << 8) | (moritz_addr[2]);
+  sprintf_P(mstr, PSTR("%06x"), man);
+  ResponseCmndChar(mstr);
+}
+
+/*
+
+maxtest 0E8D4D r 0E958C
+maxtest 0E8D4D R 0E958C
+maxtest 0E8D4D d 0E958C 21
+maxtest 0E8D4D m 21
+
+maxtest 051FFC R 567890
+
+
+
+maxcmd 0E8C31 m 16
+
+
+maxbaddr 0E958C
+maxbaddr 123456
+
+raw types
+Cube : 0
+HeatingThermostat : 1
+HeatingThermostatPlus : 2
+WallMountedThermostat : 3
+ShutterContact : 4
+PushButton : 5
+
+*/
+
+void Moritz_Cmd() {
 SETREGS
   
   uint32_t man = 0;
@@ -1913,45 +2019,69 @@ SETREGS
     uint32_t dst = strtol(cp, &cp, 16);
     while (*cp == ' ') cp++;
     mode = *cp;
-    uint8_t payload[4];
-    switch (mode) {
-      case 'a':
-        mode = 0;
-        break;
-      case 'm':
+    uint8_t payload[2];
+    if (mode == 'a') {
+      mode = 0;
+    } else if (mode == 'm') {
         mode = 1;
-        break;
-      case 'b':
+    } else if (mode == 'b') {
         mode = 3;
-        break;
-      default:
-        mode = 0;
+    } else if (mode == 'd') {
+        mode = 4;
+    } else if (mode == 'r') {
+        mode = 10;
+    } else if (mode == 'R') {
+        mode = 11;
+    } else {
+      mode = 0;
     }
+
     cp++;
     while (*cp == ' ') cp++;
-    uint8_t temp = strtol(cp, &cp, 10);
-    temp *= 10;
-    if (temp <= 45) {
-      temp = 45;
+
+    if (mode < 10) {
+      if (mode == 4) {
+        mode = 1;
+        man = strtol(cp, &cp, 16);
+        while (*cp == ' ') cp++;
+      }
+
+      uint16_t temp = strtol(cp, &cp, 10);
+      temp *= 10;
+      if (temp <= 45) {
+        temp = 45;
+      }
+      if (temp >= 350) {
+        temp = 350;
+      }
+      temp = udivsi3(temp, 5);
+      // add temperature
+      payload[0] = mode << 6 | temp;
+      moritz_sendMsg(0x40, man, dst, payload, DEFAULT_GROUPID, 0, 1, 0);
+    } else {
+      man = strtol(cp, &cp, 16);
+      if (mode == 11) {
+        // factory reset
+        moritz_sendMsg(0xf0, man, dst, payload, DEFAULT_GROUPID, 0, 0, 0);
+      } else {
+        // unpair
+        uint8_t payload[5];
+        payload[0] = man >> 16;
+        payload[1] = man >> 8;
+        payload[2] = man;
+        payload[3] = 2;
+        moritz_sendMsg(0x21, man, dst, payload, DEFAULT_GROUPID, 0, 4, 0);
+      }
+      
     }
-    if (temp >= 35) {
-      temp = 35;
-    }
-    temp *= 2;
-    temp <= 10;
-    // add temperature
-    payload[0] = mode << 6 | temp;
-    moritz_sendMsg(40, man, dst, payload, 1, 0, 1);
   }
   ResponseCmndNumber(mode);
 }
 
-
-
 const char Moritz_Commands[] PROGMEM =
     "Max|"  // Prefix
-    "List|Reset|Del|DelUn|Label|Pair|Test";
-void (*const Moritz_Command[])(void) PROGMEM = {&Moritz_List,&Moritz_Reset,&Moritz_Delete,&Moritz_Delete_Unnamed,&Moritz_SetLabel,&Moritz_Pair,&Moritz_Test};
+    "List|Reset|Del|DelUn|Label|Pair|Cmd|Baddr";
+void (*const Moritz_Command[])(void) PROGMEM = {&Moritz_List,&Moritz_Reset,&Moritz_Delete,&Moritz_Delete_Unnamed,&Moritz_SetLabel,&Moritz_Pair,&Moritz_Cmd,&Moritz_SetBaseAddr};
 
 
 void MORITZ_Deinit(void) {
@@ -1975,6 +2105,16 @@ int32_t mod_func_execute(uint32_t function) {
       return 0;
     }
   }
+#endif
+
+#ifndef pFUNC_INIT
+#define pFUNC_INIT FUNC_INIT
+#define pFUNC_LOOP FUNC_LOOP
+#define pFUNC_JSON_APPEND FUNC_JSON_APPEND
+#define pFUNC_WEB_ADD_MAIN_BUTTON FUNC_WEB_ADD_MAIN_BUTTON
+#define pFUNC_WEB_SENSOR FUNC_WEB_SENSOR
+#define pFUNC_COMMAND FUNC_COMMAND
+#define pFUNC_DEINIT FUNC_DEINIT
 #endif
 
   switch (function) {
