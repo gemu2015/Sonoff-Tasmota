@@ -2095,7 +2095,7 @@ RETMEM
 
 int32_t mod_func_execute(uint32_t function) {
   SETREGS
-  bool result = false;
+  bool result = false; 
 
 #ifdef USE_SCRIPT
   if ((function & 0x80000000) != 0) {
