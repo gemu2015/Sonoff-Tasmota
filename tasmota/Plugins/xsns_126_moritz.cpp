@@ -1631,6 +1631,9 @@ SETREGS
 
   uint8_t index = sel & 0xff;
   uint8_t type = sel >> 8;
+
+  //AddLog(LOG_LEVEL_INFO, PSTR(">>> %d - %d"), index, type);
+
   char *retval = (char*)special_malloc(128); 
   if (!retval) {
     return nullptr;
@@ -2095,11 +2098,14 @@ RETMEM
 
 int32_t mod_func_execute(uint32_t function) {
   SETREGS
-  bool result = false; 
+  bool result = false;
 
 #ifdef USE_SCRIPT
-  if ((function & 0x80000000) != 0) {
-    if ((function >> 16)&0x7ff == 126) {
+  uint8_t tst = function >> 31;
+  if (tst) {
+    //AddLog(LOG_LEVEL_INFO, PSTR(">>>>> %08x"), function);
+    uint8_t module = function >> 16;
+    if (module == 126) {
       return (int32_t)mo_getvars(function);
     } else {
       return 0;
