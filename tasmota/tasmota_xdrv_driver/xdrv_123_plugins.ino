@@ -2092,6 +2092,7 @@ int tmod_ResponseAppend_P(const char* format, ...)  // Content send snprintf_P c
     TasmotaGlobal.mqtt_data += mqtt_data;
     free(mqtt_data);
   }
+  free(fcopy);
 #endif
   return TasmotaGlobal.mqtt_data.length();
 }
