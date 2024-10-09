@@ -1942,7 +1942,7 @@ bool MT_DecodeCommand(const char* haystack, void (* const MyCommand[])(void), MO
 
   int prefix_length = strlen(XdrvMailbox.command);
   if (prefix_length) {
-    char prefix[prefix_length +1];
+    char prefix[prefix_length + 1];
     snprintf_P(prefix, sizeof(prefix), XdrvMailbox.topic);  // Copy prefix part only
     if (strcasecmp(prefix, XdrvMailbox.command)) {
 #ifdef ESP32
@@ -2613,12 +2613,16 @@ void Module_Execute(uint32_t sel) {
 
 
 #ifdef USE_SCRIPT
-uint32_t Plugin_Query(uint16_t index, uint8_t sel) {
+uint32_t Plugin_Query(uint16_t index, uint8_t sel, char *params) {
 uint32_t result = 0;
   for (uint8_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
     if (modules[cnt].mod_addr) {
       if (modules[cnt].flags.initialized) {
         const FLASH_MODULE *fm = (FLASH_MODULE*)modules[cnt].mod_addr;
+        if (params) {
+          char **ccp = (char**)modules[cnt].mod_memory;
+          *ccp = params;
+        }
         result = MOD_EXEC(FUNC_QUERY_LOW | (index << 16) | sel );
         if (result) {
           return result;

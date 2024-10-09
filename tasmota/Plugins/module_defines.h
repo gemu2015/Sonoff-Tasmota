@@ -936,12 +936,13 @@ typedef struct {
 #else
 #define MAX_I2C_Busses 2
 #define I2C_SETWIRE SETWIRE
-#define I2C_beginTransmission beginTransmission
-#define I2C_endTransmission endTransmission
-#define I2C_requestFrom requestFrom
+#define I2C_beginTransmission(ADDR) jbeginTransmission(mem->xWire, ADDR)
+#define I2C_endTransmission(BUS) jendTransmission(mem->xWire, BUS)
+#define I2C_requestFrom(ADDR,NUM) jrequestFrom(mem->xWire, ADDR, NUM)
 #define I2C_write I2cWrite
 #define I2C_WriteN I2cWriten
 #define I2C_write8 I2cWrite8
+
 
 #define I2C_read I2cRead
 #define I2C_Read8 I2cRead8

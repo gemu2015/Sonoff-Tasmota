@@ -68,6 +68,9 @@ int32_t pW8960_Init();
 PUSH_OPTIONS
 
 typedef struct {
+#ifdef USE_SCRIPT
+  char *cmd_param;
+#endif
   uint8_t dout_pin;
   uint8_t bck_pin;
   uint8_t ws_pin;
@@ -138,6 +141,7 @@ typedef struct {
 #define icyMetaInt mem->icyMetaInt
 #define meta mem->meta
 #define tx_ready mem->tx_ready
+#define cmd_param mem->cmd_param
 
 // esp8266 fixed i2s pins : DOUT = 3(RX), BCK = 15(D8), WS = 2(D4)
 
@@ -171,7 +175,8 @@ MODULE_PART int32_t I2SAudio_Init();
 MODULE_PART void I2sTask(void);
 MODULE_PART void I2sTaskMP3(void);
 MODULE_PART void I2sTaskWR(char *);
-MODULE_PART void I2S_Play(void);
+MODULE_PART void I2S_Play(char *);
+MODULE_PART void I2S_Play_Cmd(void);
 MODULE_PART bool mp3_begin();
 MODULE_PART uint32_t Get_tag(uint8_t * buff);
 MODULE_PART bool mp3_loop();
@@ -184,6 +189,7 @@ MODULE_PART void W8960_Write(uint8_t reg_addr, uint16_t data);
 MODULE_PART void W8960_SetGain(uint8_t sel, uint16_t value);
 MODULE_PART void Write_Samples(int16_t *buffer, uint32_t samples);
 MODULE_PART void I2sWrShow(bool json);
+MODULE_PART int32_t i2s_script_cmd(uint32_t sel);
 MODULE_PART void I2SAudio_Deinit();
 MODULE_PART int32_t mod_func_execute(uint32_t sel);
 MODULE_END
@@ -218,7 +224,7 @@ const char S_JSON_WMERR[] PROGMEM = "{\"WM8960 error\"}";
 
 
 const char tname[] PROGMEM = "I2STASK";
-const uint32_t ui32_const[4] PROGMEM = {OUTBUFF_SIZE, TASK_STACK, 0x46464952 , INBUFF_SIZE}; 
+const uint32_t ui32_const[5] PROGMEM = {OUTBUFF_SIZE, TASK_STACK, 0x46464952 , INBUFF_SIZE,0x7fffffff}; 
 const int32_t i32_const[7] PROGMEM = {32768, -32768, 22050, RENDER_SIZE, 37541, 32000, 44100}; 
 
 #define GET_OBS ucp[0]
@@ -369,11 +375,8 @@ void I2sTask(void) {
 }
 #endif
 
-void I2S_Play(void) {
-  SETREGS
-
-  char *cp = XdrvMailbox->data;
-  while (*cp == ' ') cp++;
+void I2S_Play(char *cp) {
+SETREGS 
 
   if (busy) {
     if (!*cp) {
@@ -385,7 +388,7 @@ void I2S_Play(void) {
     }
     return;
   }
-
+  
   wf = fopen(cp, 'r');
 
   if (!wf) {
@@ -393,6 +396,8 @@ void I2S_Play(void) {
     Response_P(GSTR(S_JSON_FNF), cp);
     return;
   }
+
+  
 
   // check file extension
   char *ep = strchr(cp, '.');
@@ -480,8 +485,6 @@ void I2S_Play(void) {
     return;
 #endif
   }
-
-  ResponseCmndDone();
   return;
 }
 
@@ -1083,10 +1086,36 @@ void I2sWrShow(bool json) {
 }
 #endif
 
+void I2S_Play_Cmd(void) {
+  SETREGS
+
+  char *cp = XdrvMailbox->data;
+  while (*cp == ' ') cp++;
+
+  I2S_Play(cp);
+
+  ResponseCmndDone();
+}
+
 const char I2S_Commands[] PROGMEM =
     "I2S|"  // Prefix
     "play|vol|say|wr";
-void (*const I2S_Command[])(void) PROGMEM = {&I2S_Play,&SetVolume,&Say,&WebRadio};
+void (*const I2S_Command[])(void) PROGMEM = {&I2S_Play_Cmd,&SetVolume,&Say,&WebRadio};
+
+int32_t i2s_script_cmd(uint32_t sel) {
+SETREGS
+  
+  uint8_t index = sel & 0xff;
+  uint8_t type = sel >> 8;
+  if (type == 0) {
+    if (cmd_param) {      
+      I2S_Play(cmd_param);
+    }
+  }
+
+  return 0;
+}
+
 
 void I2SAudio_Deinit() {
   SETREGS
@@ -1102,6 +1131,7 @@ void I2SAudio_Deinit() {
   RETMEM
 }
 
+
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
@@ -1109,6 +1139,19 @@ void I2SAudio_Deinit() {
 static int32_t mod_func_execute(uint32_t sel) {
   SETREGS
   bool result = false;
+
+#ifdef USE_SCRIPT
+  uint8_t tst = sel >> 31;
+  if (tst) {
+    uint8_t module = sel >> 16;
+    if (module == 42) {
+      return i2s_script_cmd(sel);
+    } else {
+      return 0;
+    }
+  }
+#endif
+
   switch (sel) {
     case pFUNC_INIT:
       result = I2SAudio_Init();

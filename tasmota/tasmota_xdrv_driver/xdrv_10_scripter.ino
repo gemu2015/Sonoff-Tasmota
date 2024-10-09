@@ -773,7 +773,7 @@ typedef struct {
 
 SCRIPT_MEM glob_script_mem;
 
-uint32_t Plugin_Query(uint16_t, uint8_t);
+uint32_t Plugin_Query(uint16_t, uint8_t, char *);
 
 void script_setaflg(uint8_t flg) {
   glob_script_mem.tasm_cmd_activ = flg;
@@ -845,8 +845,8 @@ int32_t play_wave(char *path);
 
 #if defined(USE_BINPLUGINS) && !defined(USE_SML_M)
 SML_TABLE *get_sml_table(void) {
-  if (Plugin_Query(53, 0)) {
-    return (SML_TABLE*)Plugin_Query(53, 1);
+  if (Plugin_Query(53, 0, 0)) {
+    return (SML_TABLE*)Plugin_Query(53, 1, 0);
   } else {
     return 0;
   }
@@ -4856,7 +4856,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           SCRIPT_SKIP_SPACES
           uint16_t par = ((uint8_t)fvar1) << 8 | (uint8_t)fvar2;
 
-          char *rbuff = (char*)Plugin_Query(126, par);
+          char *rbuff = (char*)Plugin_Query(126, par, 0);
           if (rbuff) {
             if (sp) strlcpy(sp, rbuff, glob_script_mem.max_ssize);
             free (rbuff);
@@ -4971,6 +4971,18 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           goto exit;
         }
 #endif // USE_I2S_AUDIO
+
+#if defined(USE_BINPLUGINS) && !defined(USE_I2S_AUDIO)
+        if (!strncmp_XP(lp, XPSTR("pl("), 3)) {
+          char path[SCRIPT_MAX_SBSIZE];
+          lp = GetStringArgument(lp + 3, OPER_EQU, path, 0);
+          Plugin_Query(42, 0, path);
+          len++;
+          len = 0;
+          goto exit;
+        }
+#endif // USE_BINPLUGINS
+
         if (!strncmp_XP(lp, XPSTR("pd["), 3)) {
           GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
           uint8_t gpiopin = fvar;
