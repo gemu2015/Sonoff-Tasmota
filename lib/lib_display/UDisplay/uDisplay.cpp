@@ -674,6 +674,16 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
     if (*lp == '\n' || *lp == ' ') {   // Add space char
       lp++;
     } else {
+      char *lp1;
+      lp1 = strchr(lp, '\n');
+      if (!lp1) {
+        lp1 = strchr(lp, ' ');
+        if (!lp1) {
+          break;
+        }
+      }
+      lp = lp1 + 1;
+/*
       lp = strchr(lp, '\n');
       if (!lp) {
         lp = strchr(lp, ' ');
@@ -682,6 +692,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
         }
       }
       lp++;
+      */
     }
   }
 
