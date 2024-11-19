@@ -11,6 +11,13 @@
 
 #define AXP_ADDR 0X34
 
+
+#ifdef CONFIG_IDF_TARGET_ESP32C3
+#define USE_Wire Wire
+#else
+#define USE_Wire Wire1
+#endif
+
 #define PowerOff(x) SetSleep(x)
 
 class AXP192 {

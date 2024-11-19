@@ -5,6 +5,12 @@
 
 #define RTC_ADRESS 0x51
 
+#ifdef CONFIG_IDF_TARGET_ESP32C3
+#define USE_Wire Wire
+#else
+#define USE_Wire Wire1
+#endif
+
 typedef struct
 {
   uint8_t Hours;

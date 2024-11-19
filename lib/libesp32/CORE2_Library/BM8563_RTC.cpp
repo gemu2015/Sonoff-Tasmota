@@ -6,7 +6,7 @@ BM8563_RTC::BM8563_RTC()
 
 void BM8563_RTC::begin(void)
 {
-    Wire1.begin(21, 22);
+    USE_Wire.begin(21, 22);
     WriteReg(0x00,0x00);
     WriteReg(0x01,0x00);
     WriteReg(0x0D,0x00);
@@ -14,37 +14,37 @@ void BM8563_RTC::begin(void)
 
 void BM8563_RTC::WriteReg(uint8_t reg, uint8_t data)
 {
-    Wire1.beginTransmission(RTC_ADRESS);
-    Wire1.write(reg);
-    Wire1.write(data);
-    Wire1.endTransmission();
+    USE_Wire.beginTransmission(RTC_ADRESS);
+    USE_Wire.write(reg);
+    USE_Wire.write(data);
+    USE_Wire.endTransmission();
 }
 
 uint8_t BM8563_RTC::ReadReg(uint8_t reg)
 {
-    Wire1.beginTransmission(0x51);
-    Wire1.write(reg);
-    Wire1.endTransmission();
-    Wire1.requestFrom(0x51, 1);
-    return Wire1.read();
+    USE_Wire.beginTransmission(0x51);
+    USE_Wire.write(reg);
+    USE_Wire.endTransmission();
+    USE_Wire.requestFrom(0x51, 1);
+    return USE_Wire.read();
 }
 
 void BM8563_RTC::GetBm8563Time(void)
 {
-    Wire1.beginTransmission(0x51);
-    Wire1.write(0x02);
-    Wire1.endTransmission();
-    Wire1.requestFrom(0x51, 7);
-    while (Wire1.available())
+    USE_Wire.beginTransmission(0x51);
+    USE_Wire.write(0x02);
+    USE_Wire.endTransmission();
+    USE_Wire.requestFrom(0x51, 7);
+    while (USE_Wire.available())
     {
 
-        trdata[0] = Wire1.read();
-        trdata[1] = Wire1.read();
-        trdata[2] = Wire1.read();
-        trdata[3] = Wire1.read();
-        trdata[4] = Wire1.read();
-        trdata[5] = Wire1.read();
-        trdata[6] = Wire1.read();
+        trdata[0] = USE_Wire.read();
+        trdata[1] = USE_Wire.read();
+        trdata[2] = USE_Wire.read();
+        trdata[3] = USE_Wire.read();
+        trdata[4] = USE_Wire.read();
+        trdata[5] = USE_Wire.read();
+        trdata[6] = USE_Wire.read();
     }
 
     DataMask();
@@ -124,17 +124,17 @@ void BM8563_RTC::GetTime(RTC_TimeTypeDef *RTC_TimeStruct)
     //if()
     uint8_t buf[3] = {0};
 
-    Wire1.beginTransmission(0x51);
-    Wire1.write(0x02);
-    Wire1.endTransmission();
-    Wire1.requestFrom(0x51, 3);
+    USE_Wire.beginTransmission(0x51);
+    USE_Wire.write(0x02);
+    USE_Wire.endTransmission();
+    USE_Wire.requestFrom(0x51, 3);
 
-    while (Wire1.available())
+    while (USE_Wire.available())
     {
 
-        buf[0] = Wire1.read();
-        buf[1] = Wire1.read();
-        buf[2] = Wire1.read();
+        buf[0] = USE_Wire.read();
+        buf[1] = USE_Wire.read();
+        buf[2] = USE_Wire.read();
     }
 
     RTC_TimeStruct->Seconds = Bcd2ToByte(buf[0] & 0x7f); //秒
@@ -148,12 +148,12 @@ void BM8563_RTC::SetTime(RTC_TimeTypeDef *RTC_TimeStruct)
     if (RTC_TimeStruct == NULL)
         return;
 
-    Wire1.beginTransmission(0x51);
-    Wire1.write(0x02);
-    Wire1.write(ByteToBcd2(RTC_TimeStruct->Seconds));
-    Wire1.write(ByteToBcd2(RTC_TimeStruct->Minutes));
-    Wire1.write(ByteToBcd2(RTC_TimeStruct->Hours));
-    Wire1.endTransmission();
+    USE_Wire.beginTransmission(0x51);
+    USE_Wire.write(0x02);
+    USE_Wire.write(ByteToBcd2(RTC_TimeStruct->Seconds));
+    USE_Wire.write(ByteToBcd2(RTC_TimeStruct->Minutes));
+    USE_Wire.write(ByteToBcd2(RTC_TimeStruct->Hours));
+    USE_Wire.endTransmission();
 }
 
 void BM8563_RTC::GetDate(RTC_DateTypeDef *RTC_DateStruct)
@@ -161,18 +161,18 @@ void BM8563_RTC::GetDate(RTC_DateTypeDef *RTC_DateStruct)
 
     uint8_t buf[4] = {0};
 
-    Wire1.beginTransmission(0x51);
-    Wire1.write(0x05);
-    Wire1.endTransmission();
-    Wire1.requestFrom(0x51, 4);
+    USE_Wire.beginTransmission(0x51);
+    USE_Wire.write(0x05);
+    USE_Wire.endTransmission();
+    USE_Wire.requestFrom(0x51, 4);
 
-    while (Wire1.available())
+    while (USE_Wire.available())
     {
 
-        buf[0] = Wire1.read();
-        buf[1] = Wire1.read();
-        buf[2] = Wire1.read();
-        buf[3] = Wire1.read();
+        buf[0] = USE_Wire.read();
+        buf[1] = USE_Wire.read();
+        buf[2] = USE_Wire.read();
+        buf[3] = USE_Wire.read();
     }
 
     RTC_DateStruct->Date = Bcd2ToByte(buf[0] & 0x3f);
@@ -194,25 +194,25 @@ void BM8563_RTC::SetDate(RTC_DateTypeDef *RTC_DateStruct)
 
     if (RTC_DateStruct == NULL)
         return;
-    Wire1.beginTransmission(0x51);
-    Wire1.write(0x05);
-    Wire1.write(ByteToBcd2(RTC_DateStruct->Date));
-    Wire1.write(ByteToBcd2(RTC_DateStruct->WeekDay));
+    USE_Wire.beginTransmission(0x51);
+    USE_Wire.write(0x05);
+    USE_Wire.write(ByteToBcd2(RTC_DateStruct->Date));
+    USE_Wire.write(ByteToBcd2(RTC_DateStruct->WeekDay));
 
     if (RTC_DateStruct->Year < 2000)
     {
 
-        Wire1.write(ByteToBcd2(RTC_DateStruct->Month) | 0x80);
-        Wire1.write(ByteToBcd2((uint8_t)(RTC_DateStruct->Year % 100)));
+        USE_Wire.write(ByteToBcd2(RTC_DateStruct->Month) | 0x80);
+        USE_Wire.write(ByteToBcd2((uint8_t)(RTC_DateStruct->Year % 100)));
     }
     else
     {
         /* code */
-        Wire1.write(ByteToBcd2(RTC_DateStruct->Month) | 0x00);
-        Wire1.write(ByteToBcd2((uint8_t)(RTC_DateStruct->Year % 100)));
+        USE_Wire.write(ByteToBcd2(RTC_DateStruct->Month) | 0x00);
+        USE_Wire.write(ByteToBcd2((uint8_t)(RTC_DateStruct->Year % 100)));
     }
 
-    Wire1.endTransmission();
+    USE_Wire.endTransmission();
 }
 
 int BM8563_RTC::SetAlarmIRQ(int afterSeconds)
