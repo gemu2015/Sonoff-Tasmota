@@ -620,7 +620,6 @@ void KNX_INIT(void)
   }
 #endif // USE_ENERGY_SENSOR
 
-//#ifdef USE_RULES
 #if defined(USE_RULES) || defined(USE_SCRIPT)
   device_param[KNX_SLOT1-1].show = true;
   device_param[KNX_SLOT2-1].show = true;
@@ -719,7 +718,7 @@ void KNX_CB_Action(message_t const &msg, void *arg)
           }
         }
       }
-//#ifdef USE_RULES
+
 #if defined(USE_RULES) || defined(USE_SCRIPT)
       else if ((chan->type >= KNX_SLOT1) && (chan->type <= KNX_SLOT9)) // KNX RX SLOTs (write command)
       {
@@ -828,7 +827,7 @@ void KNX_CB_Action(message_t const &msg, void *arg)
         KNX_ANSWER_4BYTE_INT(msg.received_on, round(1000.0 * Energy->total_sum));
       }
 #endif // USE_ENERGY_SENSOR
-//#ifdef USE_RULES
+
 #if defined(USE_RULES) || defined(USE_SCRIPT)
 
       else if ((chan->type >= KNX_SLOT1) && (chan->type <= KNX_SLOT9)) // KNX RX SLOTs (read command)

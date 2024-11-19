@@ -135,10 +135,6 @@ void Init()
 void (*outcb)(void *, unsigned char) = NULL;
 void *outcbdata = NULL;
 
-
-#define LOCAL_DEBUG DEBUG_ESP8266SAM_LIB
-//#define LOCAL_DEBUG 1
-
 //int Code39771()
 int SAMMain( void (*cb)(void *, unsigned char), void *cbd )
 {
@@ -147,36 +143,14 @@ int SAMMain( void (*cb)(void *, unsigned char), void *cbd )
 	Init();
 	phonemeindex[255] = 32; //to prevent buffer overflow
 
-
-	if (LOCAL_DEBUG)
-		PrintPhonemes(phonemeindex, phonemeLength, stress);
-
 	if (!Parser1()) return 0;
-	
-	if (LOCAL_DEBUG)
+	if (DEBUG_ESP8266SAM_LIB)
 		PrintPhonemes(phonemeindex, phonemeLength, stress);
-	
 	Parser2();
-
-	if (LOCAL_DEBUG)
-	PrintPhonemes(phonemeindex, phonemeLength, stress);
-
 	CopyStress();
-
-	if (LOCAL_DEBUG)
-	PrintPhonemes(phonemeindex, phonemeLength, stress);
-
 	SetPhonemeLength();
 	AdjustLengths();
-
-	if (LOCAL_DEBUG)
-	PrintPhonemes(phonemeindex, phonemeLength, stress);
-
 	Code41240();
-
-	if (LOCAL_DEBUG)
-	PrintPhonemes(phonemeindex, phonemeLength, stress);
-
 	do
 	{
 		A = phonemeindex[X];
@@ -192,9 +166,10 @@ int SAMMain( void (*cb)(void *, unsigned char), void *cbd )
 	InsertBreath();
 
 	//mem[40158] = 255;
-	if (LOCAL_DEBUG)
+	if (DEBUG_ESP8266SAM_LIB)
+	{
 		PrintPhonemes(phonemeindex, phonemeLength, stress);
-	
+	}
 
 	PrepareOutput();
 
