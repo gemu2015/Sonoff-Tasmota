@@ -498,7 +498,11 @@ extern "C" {
 void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&Wire,
 #ifdef ESP32
+#ifdef USE_I2C_BUS2
   JMPTBL&Wire1,
+#else
+  JMPTBL&Wire,
+#endif
 #else
   JMPTBL&Wire,
 #endif
