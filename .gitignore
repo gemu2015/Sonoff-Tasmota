@@ -8,13 +8,17 @@
 *.o
 *.gcno
 *.gcda
+dependencies.lock
 
 ## Project files ######
+managed_components
 .platformio
 .pio
 .clang_complete
 .gcc-flags.json
 .cache
+.dummy
+sdkconfig.*
 data
 unpacked_fs
 unpacked_boards
