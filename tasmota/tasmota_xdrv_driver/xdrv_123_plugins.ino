@@ -103,7 +103,7 @@ const char kModuleCommands[] PROGMEM = "|"// no Prefix
   "deiniz" "|"
   "dump" "|"
   "chkpt" "|"
-  "xt"
+  "hbn"
   ;
 
 void (* const ModuleCommand[])(void) PROGMEM = {
@@ -114,9 +114,9 @@ void (* const ModuleCommand[])(void) PROGMEM = {
 };
 
 #ifdef ESP32
-const char kModuleCommands1[] PROGMEM = "|" "chkpt";
+const char kModuleCommands1[] PROGMEM = "|" "chkpt" "|" "hbn";
 void (* const ModuleCommand1[])(void) PROGMEM = {
- &Check_partition
+ &Check_partition, &Test_prog
 };
 #endif // ESP32
 
@@ -1125,7 +1125,7 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
     case 52:
       break;
     case 53:
-      Test_prog();
+      //Test_prog();
       break;
     case 60:
     { IPAddress ip;
@@ -3203,7 +3203,18 @@ void Module_dump(void) {
 
 
 void Test_prog(void) {
-
+  if (XdrvMailbox.data_len) {
+    IPAddress ip;
+    String sres;
+    bool res = WifiHostByName((const char*)XdrvMailbox.data, ip);
+    if (res == true) {
+      sres = ip.toString();
+    } else {
+      sres="null";
+    }
+    AddLog(LOG_LEVEL_INFO,PSTR("ip resolved: %s"), sres.c_str());
+  }
+  ResponseCmndDone();
 }
 
 #ifdef ESP8266
