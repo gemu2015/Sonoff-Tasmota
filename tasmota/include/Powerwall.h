@@ -4,7 +4,12 @@
 #define Powerwall_h
 
 // include libraries
+#ifdef ESP8266
 #include "WiFiClientSecureLightBearSSL.h"
+#else
+#include <WiFiClientSecure.h>
+#endif //ESP8266
+
 
 class Powerwall {
    private:
@@ -19,7 +24,7 @@ class Powerwall {
     String GetRequest(String url, String authCookie);
     String GetRequest(String url);
     String AuthCookie();
-    void resetAuthCookie();
+    String Pwl_test(String);
 };
 
 
@@ -33,8 +38,28 @@ Powerwall::Powerwall() {
 String Powerwall::AuthCookie() {
     return authCookie;
 }
-void Powerwall::resetAuthCookie() {
-    authCookie = "";
+
+
+String Powerwall::Pwl_test(String ip) {
+    AddLog(LOG_LEVEL_INFO, PSTR("PWL: try to open %s"), ip.c_str());
+    WiFiClientSecure *httpsClient = new WiFiClientSecure;
+    httpsClient->setInsecure();
+    httpsClient->setTimeout(1000);
+    int retry = 0;
+    while ((!httpsClient->connect(ip.c_str(), 443)) && (retry < 5)) {
+        delay(100);
+        //Serial.print(".");
+        retry++;
+    }
+
+    if (retry >= 5) {
+        AddLog(LOG_LEVEL_INFO, PSTR("PWL: failed"));
+    } else {
+        AddLog(LOG_LEVEL_INFO, PSTR("PWL: connected"));
+    }
+    httpsClient->stop();
+    delete httpsClient;
+    return "\n";
 }
 
 /**
@@ -53,14 +78,14 @@ String Powerwall::getAuthCookie() {
     WiFiClientSecure *httpsClient = new WiFiClientSecure;
 #endif
     httpsClient->setInsecure();
-    httpsClient->setTimeout(10000);
+    httpsClient->setTimeout(1000);
 
     int retry = 0;
 
 #define PW_RETRIES 5
     while ((!httpsClient->connect(powerwall_ip, 443)) && (retry < PW_RETRIES)) {
         delay(100);
-        Serial.print(".");
+        //Serial.print(".");
         retry++;
     }
 
@@ -82,9 +107,15 @@ String Powerwall::getAuthCookie() {
 
     httpsClient->println(payload);
 
+    uint32_t timeout = 500;
     while (httpsClient->connected()) {
         String response = httpsClient->readStringUntil('\n');
         if (response == "\r") {
+            break;
+        }
+        timeout--;
+        delay(10);
+        if (!timeout) {
             break;
         }
     }
@@ -102,6 +133,7 @@ String Powerwall::getAuthCookie() {
 
     authCookie = str_value;
 
+    httpsClient->stop();
     delete httpsClient;
     
     return authCookie;
@@ -125,7 +157,7 @@ String Powerwall::GetRequest(String url, String authCookie) {
     WiFiClientSecure *httpsClient = new WiFiClientSecure;
 #endif
     httpsClient->setInsecure();
-    httpsClient->setTimeout(10000);
+    httpsClient->setTimeout(1000);
     
     if (authCookie == "") {
         getAuthCookie();
@@ -135,9 +167,9 @@ String Powerwall::GetRequest(String url, String authCookie) {
 
     int retry = 0;
 
-    while ((!httpsClient->connect(powerwall_ip, 443)) && (retry < 15)) {
+    while ((!httpsClient->connect(powerwall_ip, 443)) && (retry < 5)) {
         delay(100);
-        Serial.print(".");
+        //Serial.print(".");
         retry++;
     }
 
@@ -152,6 +184,7 @@ String Powerwall::GetRequest(String url, String authCookie) {
                       "Cookie: " + "AuthCookie" + "=" + authCookie + "\r\n" +
                       "Connection: close\r\n\r\n");
 
+    uint32_t timeout = 500;
     while (httpsClient->connected()) {
         String response = httpsClient->readStringUntil('\n');
         char *cp =  (char*)response.c_str();
@@ -164,16 +197,21 @@ String Powerwall::GetRequest(String url, String authCookie) {
                 // in case of error 401, get new cookie
                 if (result == 401) {
                     authCookie = "";
-                    resetAuthCookie();
                 }
             }
         }
         if (response == "\r") {
             break;
         }
+        timeout--;
+        delay(10);
+        if (!timeout) {
+            break;
+        }
     }
 
     String result = httpsClient->readStringUntil('\n');
+    httpsClient->stop();
     delete httpsClient;
     return result;
 }
@@ -182,6 +220,10 @@ String Powerwall::GetRequest(String url, String authCookie) {
  * this is getting called if there was no provided authCookie in powerwallGetRequest(String url, String authCookie)
  */
 String Powerwall::GetRequest(String url) {
+    if (url[0] == '@') {
+        url = url.substring(1);
+        return Pwl_test(url);
+    }
     return (GetRequest(url, getAuthCookie()));
 }
 
