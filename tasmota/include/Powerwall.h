@@ -1,15 +1,10 @@
 
-// inspred by https://github.com/MoritzLerch/tesla-pv-display
+// inspired by https://github.com/MoritzLerch/tesla-pv-display
 #ifndef Powerwall_h
 #define Powerwall_h
 
 // include libraries
-#ifdef ESP8266
 #include "WiFiClientSecureLightBearSSL.h"
-#else
-#include <WiFiClientSecure.h>
-#endif //ESP8266
-
 
 class Powerwall {
    private:
@@ -39,10 +34,10 @@ String Powerwall::AuthCookie() {
     return authCookie;
 }
 
-
 String Powerwall::Pwl_test(String ip) {
     AddLog(LOG_LEVEL_INFO, PSTR("PWL: try to open %s"), ip.c_str());
-    WiFiClientSecure *httpsClient = new WiFiClientSecure;
+    //WiFiClientSecure *httpsClient = new WiFiClientSecure;
+    BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024, 1024);
     httpsClient->setInsecure();
     httpsClient->setTimeout(1000);
     int retry = 0;
@@ -72,7 +67,8 @@ String Powerwall::getAuthCookie() {
     String apiLoginURL = "/api/login/Basic";
 
 #ifdef ESP32
-    WiFiClientSecure *httpsClient = new WiFiClientSecure;
+    //WiFiClientSecure *httpsClient = new WiFiClientSecure;
+    BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024, 1024);
 #else
    // BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024,1024);
     WiFiClientSecure *httpsClient = new WiFiClientSecure;
@@ -151,7 +147,8 @@ String Powerwall::getAuthCookie() {
  */
 String Powerwall::GetRequest(String url, String authCookie) {
 #ifdef ESP32
-    WiFiClientSecure *httpsClient = new WiFiClientSecure;
+    //WiFiClientSecure *httpsClient = new WiFiClientSecure;
+    BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024, 1024);
 #else
     //BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024,1024);
     WiFiClientSecure *httpsClient = new WiFiClientSecure;
