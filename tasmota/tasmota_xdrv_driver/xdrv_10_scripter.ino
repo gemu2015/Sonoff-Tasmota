@@ -2585,19 +2585,23 @@ uint32_t match_vars(char *dvnam, TS_FLOAT **fp, char **sp, uint32_t *ind) {
     if (slen == olen && *cp == dvnam[0]) {
       if (!strncmp(cp, dvnam, olen)) {
         uint16_t index = vtp[count].index;
-        if (vtp[count].bits.is_string == 0) {
-          if (vtp[count].bits.is_filter) {
-            // error
-            return 0;
+        if (vtp[count].bits.global > 0) {
+          if (vtp[count].bits.is_string == 0) {
+            if (vtp[count].bits.is_filter) {
+              // error
+              return 0;
+            } else {
+              *fp = &glob_script_mem.fvars[index];
+              *ind = count;
+              return NUM_RES;
+            }
           } else {
-            *fp = &glob_script_mem.fvars[index];
+            *sp = glob_script_mem.glob_snp + (index * glob_script_mem.max_ssize);
             *ind = count;
-            return NUM_RES;
+            return STR_RES;
           }
         } else {
-          *sp = glob_script_mem.glob_snp + (index * glob_script_mem.max_ssize);
-          *ind = count;
-          return STR_RES;
+          return 0;
         }
       }
     }
