@@ -352,6 +352,7 @@ void alt_eeprom_readBytes(uint32_t adr, uint32_t len, uint8_t *buf) {
 #include <TasmotaSerial.h>
 
 #ifdef TESLA_POWERWALL
+#include "SSLClient/ESP_SSLClient.h"
 #include "include/powerwall.h"
 #endif
 
