@@ -10,13 +10,10 @@
 #define PWL_LOGLVL LOG_LEVEL_INFO
 
 // include libraries
-#ifdef USE_BEAR
-#include "WiFiClientSecureLightBearSSL.h"
-#else
 ESP_SSLClient ssl_client;
 //EthernetClient basic_client;
 WiFiClient basic_client;
-#endif
+
 
 class Powerwall {
    private:
@@ -136,30 +133,9 @@ String Powerwall::getAuthCookie() {
     AddLog(PWL_LOGLVL, PSTR("PWL: requesting new auth Cookie from %s"), powerwall_ip);
     String apiLoginURL = "/api/login/Basic";
 
-#ifdef USE_BEAR
-#ifdef ESP32
-    //WiFiClientSecure *httpsClient = new WiFiClientSecure;
-    BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024, 1024);
-#else
-   // BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024,1024);
-    WiFiClientSecure *httpsClient = new WiFiClientSecure;
-#endif
-    httpsClient->setInsecure();
-    httpsClient->setTimeout(1000);
-    int retry = 0;
-    while ((!httpsClient->connect(powerwall_ip, 443)) && (retry < PW_RETRIES)) {
-        delay(100);
-        //Serial.print(".");
-        retry++;
-    }
-    if (retry >= PW_RETRIES) {
-        delete httpsClient;
-        return ("CONN-FAIL");
-    }
-#else
-
     ssl_client.setInsecure();
-    //ssl_client.setBufferSizes(1024 /* rx */, 512 /* tx */);
+    ssl_client.setBufferSizes(1024 /* rx */, 512 /* tx */);
+    ssl_client.setTimeout(3000);
     ssl_client.setClient(&basic_client);
 
     int retry = 0;
@@ -176,8 +152,6 @@ String Powerwall::getAuthCookie() {
         return ("CONN-FAIL");
     }
 
-#endif
-
     AddLog(PWL_LOGLVL, PSTR("PWL: connected"));
 
     String dataString = "{\"username\":\"customer\",\"email\":\"" + tesla_email + "\",\"password\":\"" + tesla_password + "\",\"force_sm_off\":false}";
@@ -189,48 +163,44 @@ String Powerwall::getAuthCookie() {
                       "Content-Length: " + dataString.length() + "\r\n" +
                       "\r\n" + dataString + "\r\n\r\n";
 
-#if USE_BEAR
-    httpsClient->println(payload);
-    uint32_t timeout = 500;
-    while (httpsClient->connected()) {
-        String response = httpsClient->readStringUntil('\n');
-        if (response == "\r") {
-            break;
-        }
-        timeout--;
-        delay(10);
-        if (!timeout) {
-            break;
-        }
-    }
-    String jsonInput = httpsClient->readStringUntil('\n');
-#else
-
     AddLog(PWL_LOGLVL, PSTR("PWL: payload: %s"),payload.c_str());
 
     ssl_client.println(payload);
-    uint32_t timeout = 100;
 
     delay(1000);
 
-    uint8_t string[1200];
+    uint8_t flag = 0; 
 
+    uint8_t string[1200];
+    uint32_t dlen;
+    uint32_t timeout = 100;
     while (ssl_client.connected()) {
         if (ssl_client.available()) {
-            uint32_t dlen = ssl_client.available();
+            dlen = ssl_client.available();
             AddLog(PWL_LOGLVL, PSTR("PWL: available: %d"), dlen);
             String response = "";
-            //response = ssl_client.readStringUntil('\n');
-            //AddLog(PWL_LOGLVL, PSTR("PWL: response: %s"), response.c_str());
-            uint32_t cnt = 0;
-            while (ssl_client.available()) {
-                string[cnt] = ssl_client.read();
-                cnt++;
+#if 1
+            if (!flag) {
+                char c = ssl_client.peek();
+                AddLog(PWL_LOGLVL, PSTR("PWL: peek: %c"), c);
+                if (c != 'H') {
+                    AddLog(PWL_LOGLVL, PSTR("PWL: wrong response: %c"), c);
+                    ssl_client.stop();
+                    return "";
+                } else {
+                    ssl_client.read(string, 17);
+                    string[17] = 0;
+                    pHexdump(string, 17);
+                    AddLog(PWL_LOGLVL, PSTR("PWL: 1. response: %s"), string);
+                }
+                flag = 1;
             }
-            string[cnt] = 0;
+            response = ssl_client.readStringUntil('\n');
+            AddLog(PWL_LOGLVL, PSTR("PWL: response: %s"), response.c_str());
+ #else
+            ssl_client.read(string, dlen);
             pHexdump(string, dlen);
-
-            
+ #endif
             char *cp = (char*)response.c_str();
             if (!strncmp_P(cp, PSTR("HTTP"), 4)) {
                 char *sp = strchr(cp, ' ');
@@ -259,12 +229,13 @@ String Powerwall::getAuthCookie() {
     }
 
     String jsonInput;
-    if (ssl_client.connected() && ssl_client.available()) {
-        jsonInput = ssl_client.readStringUntil('\n');
+    dlen = ssl_client.available();
+    if (ssl_client.connected() && dlen) {
+        ssl_client.read(string, dlen);
+        string[dlen] = 0;
+        jsonInput = (char*)string;
         AddLog(PWL_LOGLVL, PSTR("PWL: jsonInput %s"),jsonInput.c_str());
     }
-
-#endif
 
 /*
 
@@ -291,7 +262,7 @@ String Powerwall::getAuthCookie() {
 	"loginTime": "2023-03-25T13:10:48.9029581+01:00"
 }
 */
-    char str_value[128];
+    char str_value[256];
     str_value[0] = 0;
     float fv;
     JsonParser parser((char*)jsonInput.c_str());
@@ -302,12 +273,8 @@ String Powerwall::getAuthCookie() {
 
     authCookie = str_value;
 
-#ifdef USE_BEAR
-    httpsClient->stop();
-    delete httpsClient;
-#else
     ssl_client.stop();
-#endif
+
     
     return authCookie;
 }
@@ -324,22 +291,10 @@ String Powerwall::getAuthCookie() {
  */
 String Powerwall::GetRequest(String url, String authCookie) {
     
-#ifdef USE_BEAR
-#ifdef ESP32
-    //WiFiClientSecure *httpsClient = new WiFiClientSecure;
-    BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024, 1024);
-#else
-    //BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024,1024);
-    WiFiClientSecure *httpsClient = new WiFiClientSecure;
-#endif
-    httpsClient->setInsecure();
-    httpsClient->setTimeout(1000);
-#else
     ssl_client.setInsecure();
-    ssl_client.setTimeout(1000);
+    ssl_client.setTimeout(3000);
     ssl_client.setClient(&basic_client);
-#endif
-    
+
     if (authCookie == "") {
         getAuthCookie();
     }
@@ -347,63 +302,6 @@ String Powerwall::GetRequest(String url, String authCookie) {
     AddLog(PWL_LOGLVL, PSTR("PWL: doing GET-request to %s - %s"), powerwall_ip, url.c_str());
 
     int retry = 0;
-
-#ifdef USE_BEAR
-    while ((!httpsClient->connect(powerwall_ip, 443)) && (retry < 5)) {
-        delay(100);
-        //Serial.print(".");
-        retry++;
-    }
-
-    if (retry >= 15) {
-        delete httpsClient;
-        return ("CONN-FAIL");
-    }
-
-    // HTTP/1.0 is used because of Chunked transfer encoding
-    String request = "GET " + url + " HTTP/1.0" + "\r\n" +
-                      "Host: " + powerwall_ip + "\r\n" +
-                      "Cookie: " + "AuthCookie" + "=" + authCookie + "\r\n" +
-                      "Connection: close\r\n\r\n"
-
-    httpsClient->print(String("GET ") + url + " HTTP/1.0" + "\r\n" +
-                      "Host: " + powerwall_ip + "\r\n" +
-                      "Cookie: " + "AuthCookie" + "=" + authCookie + "\r\n" +
-                      "Connection: close\r\n\r\n");
-
-    uint32_t timeout = 500;
-    while (httpsClient->connected()) {
-        String response = httpsClient->readStringUntil('\r');
-        char *cp =  (char*)response.c_str();
-        if (!strncmp_P(cp, PSTR("HTTP"), 4)) {
-            char *sp = strchr(cp, ' ');
-            if (sp) {
-                sp++;
-                uint16_t result = strtol(sp, 0, 10);
-                AddLog(PWL_LOGLVL, PSTR("PWL: result %d"), result);
-                // in case of error 401, get new cookie
-                if (result == 401) {
-                    authCookie = "";
-                } else if (result != 200) {
-                    httpsClient->stop();
-                    return "\n";
-                }
-            }
-        }
-        if (response == "\r") {
-            break;
-        }
-        timeout--;
-        delay(10);
-        if (!timeout) {
-            break;
-        }
-    }
-
-    String result = httpsClient->readStringUntil('\n');
-    httpsClient->stop();
-    delete httpsClient;
-#else
 
     while ((!ssl_client.connect(powerwall_ip, 443)) && (retry < PW_RETRIES)) {
         delay(100);
@@ -456,7 +354,6 @@ String Powerwall::GetRequest(String url, String authCookie) {
 
     String result = ssl_client.readStringUntil('\n');
     ssl_client.stop();
-#endif
 
     return result;
 }
