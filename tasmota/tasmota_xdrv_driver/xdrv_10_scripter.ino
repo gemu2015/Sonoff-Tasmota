@@ -4318,9 +4318,11 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 
 #ifdef TESLA_POWERWALL
         if (!strncmp_XP(lp, XPSTR("gpwl("), 5)) {
-          char path[SCRIPT_MAX_SBSIZE];
-          lp = GetStringArgument(lp + 5, OPER_EQU, path, 0);
+          char *path;
+          //lp = GetStringArgument(lp + 5, OPER_EQU, path, 0);
+          lp = GetLongIString(lp + 5, &path);
           fvar = call2pwl(path);
+          free(path);
           goto nfuncexit;
         }
 #endif
