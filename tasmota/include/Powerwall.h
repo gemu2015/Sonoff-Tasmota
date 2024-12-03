@@ -12,12 +12,11 @@
 // include libraries
 ESP_SSLClient ssl_client;
 //EthernetClient basic_client;
-WiFiClient basic_client;
-
+//WiFiClient basic_client;
+WiFiClientImpl basic_client;
 
 class Powerwall {
    private:
-    //const char* powerwall_ip;
     String powerwall_ip;
     String tesla_email;
     String tesla_password;
@@ -315,7 +314,7 @@ String Powerwall::GetRequest(String url, String in_authCookie) {
     AddLog(PWL_LOGLVL, PSTR("PWL: cookie %s"), in_authCookie.c_str());
 
     ssl_client.setInsecure();
-    ssl_client.setTimeout(3000);
+    ssl_client.setTimeout(5000);
     ssl_client.setClient(&basic_client);
     //ssl_client.setBufferSizes(4096 /* rx */, 512 /* tx */);
     ssl_client.setBufferSizes(16384, 512);
@@ -352,10 +351,17 @@ String Powerwall::GetRequest(String url, String in_authCookie) {
     AddLog(PWL_LOGLVL, PSTR("PWL: request: %s"), request.c_str());
 
     uint32_t timeout = 500;
+    int32_t chunked = 0;
     while (ssl_client.connected()) {
         if (ssl_client.available()) {
             String response = ssl_client.readStringUntil('\n');
             AddLog(PWL_LOGLVL, PSTR("PWL: result %s"), response.c_str());
+            if (chunked == -2) {
+                // process chunc size
+                chunked = strtol(response.c_str(), 0, 16);
+                AddLog(PWL_LOGLVL, PSTR("PWL: chunc size %d"), chunked);
+                break;
+            }
             char *cp =  (char*)response.c_str();
             if (!strncmp_P(cp, PSTR("HTTP"), 4)) {
                 char *sp = strchr(cp, ' ');
@@ -372,8 +378,18 @@ String Powerwall::GetRequest(String url, String in_authCookie) {
                     }
                 }
             }
+            if (!strncmp_P(cp, PSTR("Transfer-Encoding: chunked"), 26)) {
+                chunked = -1;
+                AddLog(PWL_LOGLVL, PSTR("PWL: chunked %d"), chunked);
+            }
+
             if (response == "\r") {
-                break;
+                if (chunked) {
+                    // skip
+                    chunked = -2;
+                } else {
+                    break;
+                }
             }
         }
         timeout--;
@@ -388,6 +404,7 @@ String Powerwall::GetRequest(String url, String in_authCookie) {
         dlen = ssl_client.available();
         AddLog(PWL_LOGLVL, PSTR("PWL: count %d, dlen %d"), count, dlen);
         delay(100);
+        yield();
     }
     
     if (dlen) {

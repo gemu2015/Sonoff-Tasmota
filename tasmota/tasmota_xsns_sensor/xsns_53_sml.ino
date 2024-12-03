@@ -1564,7 +1564,7 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
             mp->spos = 0;
             memmove(&mp->sbuff[0], &mp->sbuff[6], mp->sbsiz - 6);
 #ifdef MODBUS_DEBUG
-            AddLog(LOG_LEVEL_INFO, PSTR("receive index >> %d"), mp->index);
+            AddLog(LOG_LEVEL_INFO, PSTR("meter %d, receive index >> %d"), meters, mp->index);
             Hexdump(mp->sbuff, 10);
 #endif
             SML_Decode(meters);
@@ -1582,7 +1582,7 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
         if (mlen > mp->sbsiz) mlen = mp->sbsiz;
         if (mp->spos >= mlen) {
 #ifdef MODBUS_DEBUG
-          AddLog(LOG_LEVEL_INFO, PSTR("receive index >> %d"), mp->index);
+          AddLog(LOG_LEVEL_INFO, PSTR("meter %d, receive index >> %d"), meters, mp->index);
           Hexdump(mp->sbuff, 10);
 #endif
           SML_Decode(meters);
@@ -4451,7 +4451,7 @@ void SML_Send_Seq(uint32_t meter, char *seq) {
 #ifdef MODBUS_DEBUG
   uint8_t type = mp->type;
   if (!sml_globs.dump2log && (type == 'm' || type == 'M' || type == 'k')) {
-    AddLog(LOG_LEVEL_INFO, PSTR("transmit index >> %d"),sml_globs.mp[meter].index);
+    AddLog(LOG_LEVEL_INFO, PSTR("meter %d, transmit index >> %d"), meter, sml_globs.mp[meter].index);
     Hexdump(sbuff, slen);
   }
 #endif

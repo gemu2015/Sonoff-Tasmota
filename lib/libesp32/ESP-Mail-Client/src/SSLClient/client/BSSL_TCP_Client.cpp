@@ -58,7 +58,6 @@
 // #include <lwip/sockets.h>
 // #include <lwip/netdb.h>
 // #include <errno.h>
-
 #undef connect
 #undef write
 #undef read

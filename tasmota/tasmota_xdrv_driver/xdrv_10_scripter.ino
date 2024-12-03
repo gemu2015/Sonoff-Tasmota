@@ -7150,7 +7150,6 @@ char *GetLongIString(char *lp, char **dstr) {
     lp = GetStringArgument(lp, OPER_EQU, *dstr, 0);
   } else {
     lp++;
-
     char *cp;
 #if 0
     cp = strchr(lp, '"');
@@ -7159,7 +7158,7 @@ char *GetLongIString(char *lp, char **dstr) {
       *dstr = (char*)calloc(slen + 2, 1);
       if (!*dstr) return lp;
       memmove(*dstr, lp , slen);
-#else   
+#else
     char *llp = lp;
  loop:
     cp = strchr(lp, '"');
