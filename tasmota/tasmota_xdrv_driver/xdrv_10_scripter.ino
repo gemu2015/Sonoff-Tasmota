@@ -2844,15 +2844,15 @@ char *isvar(char *lp, uint8_t *vtype, struct T_INDEX *tind, TS_FLOAT *fp, char *
     }
 
     const char *term="\n\r ])=+-/*%><!^&|}{";
-    for (count = 0; count < sizeof(vname); count++) {
+    for (count = 0; count < sizeof(vname) - 1; count++) {
         char iob = lp[count];
         if (!iob || strchr(term, iob)) {
-            vname[count] = 0;
             break;
         }
         vname[count] = iob;
         len += 1;
     }
+    vname[count] = 0;
 
     if (!vname[0]) {
       // empty string
