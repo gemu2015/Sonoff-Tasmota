@@ -11,7 +11,7 @@
 #pragma once
 
 // for enable debugging
-#define ESP_SSLCLIENT_ENABLE_DEBUG
+//#define ESP_SSLCLIENT_ENABLE_DEBUG
 
 /** Call ssl_client.setDebugLevel(x) to set the debug
  * esp_ssl_debug_none = 0

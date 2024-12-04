@@ -6,8 +6,7 @@
 
 #define PW_RETRIES 2
 
-
-#define PWL_LOGLVL LOG_LEVEL_INFO
+#define PWL_LOGLVL LOG_LEVEL_DEBUG
 
 // include libraries
 ESP_SSLClient ssl_client;
@@ -399,27 +398,32 @@ String Powerwall::GetRequest(String url, String in_authCookie) {
         }
     }
 
-    uint16_t dlen;
-    for (uint32_t count = 0; count < 10; count++) {
-        dlen = ssl_client.available();
-        AddLog(PWL_LOGLVL, PSTR("PWL: count %d, dlen %d"), count, dlen);
-        delay(100);
-        yield();
-    }
-    
-    if (dlen) {
-        String result;
-        //result = ssl_client.readStringUntil('\n');
-        char string[dlen + 2];
-        ssl_client.read((uint8_t*)string, dlen);
-        ssl_client.stop();
-        string[dlen] = 0;
+    String result = "\r";
+
+    timeout = 100;
+    char *string = (char*)calloc(4096,1);
+    if (string) {
+        char *cp = string;
+        while (ssl_client.connected()) {
+            uint16_t dlen;
+            dlen = ssl_client.available();
+            if (dlen) {
+                ssl_client.read((uint8_t*)cp, dlen);
+                cp += dlen;
+                *cp = 0;
+            }
+            delay(10);
+            timeout--;
+            if (!timeout) {
+                break;
+            }
+        }
         AddLog(PWL_LOGLVL, PSTR("PWL: result %s"), string);
-        return string;
-    } else {
-        ssl_client.stop();
-        return "/r";
+        result = string;
+        free(string);
     }
+    ssl_client.stop();
+    return result;
 }
 
 /**
