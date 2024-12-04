@@ -41,7 +41,7 @@ class Powerwall {
 #endif
 
 #ifndef TESLA_PASSWORD
-    #define TESLA_EMAIL "password"
+    #define TESLA_PASSWORD "password"
 #endif
 
 #ifndef TESLA_POWERWALL_CTS1
