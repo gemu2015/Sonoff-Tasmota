@@ -1953,7 +1953,7 @@ uint32_t JsonParsePath(JsonParserObject *jobj, const char *spath, char delim, fl
   uint32_t res = 0;
   const char *cp = spath;
 #ifdef DEBUG_JSON_PARSE_PATH
-  AddLog(LOG_LEVEL_INFO, PSTR("JSON: parsing json key: %s from json: %s"), cp, jpath);
+  AddLog(LOG_LEVEL_INFO, PSTR("JSON: parsing json key: %s from json: %s"), cp, spath);
 #endif
   JsonParserObject obj = *jobj;
   JsonParserObject lastobj = obj;

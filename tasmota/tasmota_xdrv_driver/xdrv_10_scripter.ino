@@ -13048,21 +13048,6 @@ int32_t call2pwl(const char *url) {
   String result = powerwall.GetRequest(String(url), cookie);
   //AddLog(LOG_LEVEL_INFO, PSTR("PWL: result: %s"), result.c_str());
 
-  // shrink data size because it exceeds json parser maxsize
-  result.replace("communication_time", "ct");
-  result.replace("instant", "i");
-  result.replace("apparent", "a");
-  result.replace("reactive", "r");
-
-// custom replace
-#ifdef TESLA_POWERWALL_CTS1
-  result.replace(TESLA_POWERWALL_CTS1, "PW_CTS1");
-#endif
-
-#ifdef TESLA_POWERWALL_CTS2
-  result.replace(TESLA_POWERWALL_CTS2, "PW_CTS2");
-#endif
-
   if (result.length()>4095) {
     AddLog(LOG_LEVEL_INFO, PSTR("PWL: result overflow: %d"), result.length());
   }

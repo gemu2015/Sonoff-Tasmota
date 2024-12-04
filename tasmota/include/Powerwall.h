@@ -20,6 +20,8 @@ class Powerwall {
     String tesla_email;
     String tesla_password;
     String authCookie;
+    String cts1;
+    String cts2;
     
    public:
     Powerwall();
@@ -31,11 +33,33 @@ class Powerwall {
 };
 
 
+#ifndef POWERWALL_IP_CONFIG
+    #define POWERWALL_IP_CONFIG "192.168.188.60"
+#endif
+
+#ifndef TESLA_EMAIL
+    #define TESLA_EMAIL "email"
+#endif
+
+#ifndef TESLA_PASSWORD
+    #define TESLA_EMAIL "password"
+#endif
+
+#ifndef TESLA_POWERWALL_CTS1
+    #define TESLA_POWERWALL_CTS1 "cts1"
+#endif
+
+#ifndef TESLA_POWERWALL_CTS2
+    #define TESLA_POWERWALL_CTS2 "cts2"
+#endif
+
 Powerwall::Powerwall() {
     powerwall_ip   = POWERWALL_IP_CONFIG;
     tesla_email    = TESLA_EMAIL;
     tesla_password = TESLA_PASSWORD;
     authCookie     = "";
+    cts1 = TESLA_POWERWALL_CTS1;
+    cts2 = TESLA_POWERWALL_CTS2;
 }
 
 String Powerwall::AuthCookie() {
@@ -423,6 +447,22 @@ String Powerwall::GetRequest(String url, String in_authCookie) {
         free(string);
     }
     ssl_client.stop();
+
+    // custom replace
+    result.replace(cts1, "PW_CTS1");
+
+    result.replace(cts2, "PW_CTS2");
+
+    // shrink data size because it exceeds json parser maxsize
+    result.replace("communication_time", "ct");
+    result.replace("instant", "i");
+    result.replace("apparent", "a");
+    result.replace("reactive", "r");
+
+    result.replace("nominal_full_pack_energy", "f_p_e");
+    result.replace("nominal_energy_remaining", "n_e_r");
+    result.replace("backup_reserve_percent", "b_r_p");
+
     return result;
 }
 
@@ -442,6 +482,12 @@ String Powerwall::GetRequest(String url) {
             tesla_email = url.substring(0, pos);
             tesla_password = url.substring(pos + 1);
             //AddLog(PWL_LOGLVL, PSTR("PWL: %s - %s - %s"), powerwall_ip.c_str(), tesla_email.c_str(), tesla_password.c_str());
+            return "";
+        } if (url[1] == 'C') {
+            url = url.substring(2);
+            uint16_t pos = strcspn(url.c_str(), ",");
+            cts1 = url.substring(0, pos);
+            cts2 = url.substring(pos + 1);
             return "";
         } else {
             url = url.substring(1);
