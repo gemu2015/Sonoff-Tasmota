@@ -8,10 +8,9 @@
 
 #define PWL_LOGLVL LOG_LEVEL_DEBUG
 
-// include libraries
+// include libraries from email client
+// standard ssl does not work at all
 ESP_SSLClient ssl_client;
-//EthernetClient basic_client;
-//WiFiClient basic_client;
 WiFiClientImpl basic_client;
 
 class Powerwall {
@@ -108,28 +107,6 @@ String Powerwall::Pwl_test(String ip) {
     ssl_client.stop();
 
     return "\n";
-
-/*
-    //WiFiClientSecure *httpsClient = new WiFiClientSecure;
-    BearSSL::WiFiClientSecure_light *httpsClient = new BearSSL::WiFiClientSecure_light(1024, 1024);
-    httpsClient->setInsecure();
-    httpsClient->setTimeout(1000);
-    int retry = 0;
-    while ((!httpsClient->connect(ip.c_str(), 443)) && (retry < 5)) {
-        delay(100);
-        //Serial.print(".");
-        retry++;
-    }
-
-    if (retry >= 5) {
-        AddLog(LOG_LEVEL_INFO, PSTR("PWL: failed"));
-    } else {
-        AddLog(LOG_LEVEL_INFO, PSTR("PWL: connected"));
-    }
-    httpsClient->stop();
-    delete httpsClient;
-    return "\n";
-    */
 }
 
 
@@ -282,31 +259,6 @@ String Powerwall::getAuthCookie() {
         AddLog(PWL_LOGLVL, PSTR("PWL: jsonInput %s"),jsonInput.c_str());
     }
 
-/*
-
-
-08:03:48.983 PWL: response HTTP/1.1 200 OK
-08:03:48.995 PWL: response Cache-Control: no-cache, no-store
-08:03:49.007 PWL: response Set-Cookie: AuthCookie=9N8pmBS8IQ4BKeg4oVTOQzhsL_pnQyk-ShJLx98gM7X8RlvBh6TY7m63L6tfJ6_97jQx7PXqnCzHtGhjg-LD7A==; Path=/
-08:03:49.034 PWL: response Set-Cookie: UserRecord=eyJlbWFpbCI6ImdtdXR6MjAxMEBnb29nbGVtYWlsLmNvbSIsImZpcnN0bmFtZSI6IlRlc2xhIiwibGFzdG5hbWUiOiJFbmVyZ3kiLCJyb2xlcyI6WyJIb21lX093bmVyIl0sInRva2VuIjoiOU44cG1CUzhJUTRCS2VnNG9WVE9RemhzTF9wblF5ay1TaEpMeDk4Z003WDhSbHZCaDZUWTdtNjNMNnRmSjZfOTdqUXg3UFhxbkN6SHRHaGpnLUxEN0E9PSIsInByb3ZpZGVyIjoiQmFzaWMiLCJsb2dpblRpbWUiOiIyMDI0LTExLTI4VDA4OjAzOjQ5LjA2OTgyMzk1MyswMTowMCJ9; Path=/
-08:03:49.076 PWL: response Date: Thu, 28 Nov 2024 07:03:49 GMT
-08:03:49.087 PWL: response Content-Length: 267
-08:03:49.098 PWL: response Content-Type: text/plain; charset=utf-8
-08:03:49.109 PWL: response Connection: close
-08:03:49.120 PWL: response 
-
-{
-	"email": "",
-	"firstname": "Tesla",
-	"lastname": "Energy",
-	"roles": [
-		"Home_Owner"
-	],
-	"token": "OgiGHjoNvwx17SRIaYFIOWPJSaKBYwmMGc5K4...qaWbWjTuI3fa_8QW32ED5zg1A==",
-	"provider": "Basic",
-	"loginTime": "2023-03-25T13:10:48.9029581+01:00"
-}
-*/
     char str_value[256];
     str_value[0] = 0;
     float fv;
