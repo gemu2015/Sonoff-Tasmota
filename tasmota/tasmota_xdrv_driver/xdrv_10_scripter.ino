@@ -351,7 +351,7 @@ void alt_eeprom_readBytes(uint32_t adr, uint32_t len, uint8_t *buf) {
 
 #include <TasmotaSerial.h>
 
-#ifdef TESLA_POWERWALL
+#if defined(ESP32) && defined(TESLA_POWERWALL)
 #include "SSLClient/ESP_SSLClient.h"
 #include "include/powerwall.h"
 #endif
@@ -4316,7 +4316,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         }
 #endif //SCRIPT_GET_HTTPS_JP
 
-#ifdef TESLA_POWERWALL
+#if defined(ESP32) && defined(TESLA_POWERWALL)
         if (!strncmp_XP(lp, XPSTR("gpwl("), 5)) {
           char *path;
           //lp = GetStringArgument(lp + 5, OPER_EQU, path, 0);
@@ -13024,7 +13024,7 @@ int32_t http_req(char *host, char *header, char *request) {
 
 #ifdef SCRIPT_GET_HTTPS_JP
 
-#ifdef TESLA_POWERWALL
+#if defined(ESP32) && defined(TESLA_POWERWALL)
 Powerwall powerwall = Powerwall();
 
 int32_t call2pwl(const char *url) {
