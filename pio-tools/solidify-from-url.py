@@ -58,8 +58,7 @@ def addEntryToModtab(source):
     class_name = None
     is_module = False
 
-
-    pattern = (r'''(?<=module\()[^"].*''')  # module??
+    pattern = (r'''(?<=module\([\"\']).*[\"\']''')  # module??
     result =  re.findall(pattern,code)
     if len(result) > 0:
         class_name = result[0].replace("'","").replace('"','').replace(")","")

@@ -266,6 +266,9 @@ const char HTTP_HEAD_STYLE3[] PROGMEM =
   "<h3>%s</h3>"    // Module name
   "<h2>%s</h2>";   // Device name
 
+const char HTTP_MENU_HEAD[] PROGMEM =
+  "<div style='padding:0px 5px;text-align:center;'><h3><hr/>%s<hr/></h3></div>";
+
 const char HTTP_MSG_SLIDER_SHUTTER[] PROGMEM =
   "<td style='width:70%%'>"
   "<div style='padding:0px 2px;text-align:center;font-size:12px;'><span>%s</span>"
@@ -481,13 +484,11 @@ ESP8266WebServer *Webserver;
 struct WEB {
   String chunk_buffer = "";                         // Could be max 2 * CHUNKED_BUFFER_SIZE
   uint32_t upload_size = 0;
+  uint32_t light_shutter_button_mask;
+  uint32_t buttons_non_light_non_shutter;
   uint32_t slider_update_time = 0;
   int slider[LST_MAX];
-#ifdef ESP8266
-  int8_t shutter_slider[MAX_SHUTTERS];
-#else   // ESP32
   int8_t shutter_slider[16];                        // MAX_SHUTTERS_ESP32
-#endif  // ESP8266
   uint16_t upload_error = 0;
   uint8_t state = HTTP_OFF;
   uint8_t upload_file_type;
@@ -984,11 +985,12 @@ void WSContentSendStyle_P(const char* formatP, ...) {
   WebColor(COL_TEXT_WARNING),
 #endif
   WebColor(COL_TITLE),
-  (Web.initial_config) ? "" : (Settings->flag5.gui_module_name) ? "" : ModuleName().c_str(), SettingsTextEscaped(SET_DEVICENAME).c_str());
+  (Web.initial_config) ? "" : (Settings->flag5.gui_module_name) ? "" : ModuleName().c_str(),  // SetOption141 - (GUI) Disable display of GUI module name (1)
+  (Settings->flag6.gui_device_name) ? "" : SettingsTextEscaped(SET_DEVICENAME).c_str());      // SetOption163 - (GUI) Disable display of GUI device name (1)
 
   // SetOption53 - Show hostname and IP address in GUI main menu
 #if (RESTART_AFTER_INITIAL_WIFI_CONFIG)
-  if (Settings->flag3.gui_hostname_ip) {               // SetOption53  - (GUI) Show hostname and IP address in GUI main menu
+  if (Settings->flag3.gui_hostname_ip) {            // SetOption53 - (GUI) Show hostname and IP address in GUI main menu
 #else
   if ( Settings->flag3.gui_hostname_ip || ( (WiFi.getMode() == WIFI_AP_STA) && (!Web.initial_config) )  ) {
 #endif
@@ -1258,31 +1260,37 @@ int32_t IsShutterWebButton(uint32_t idx) {
 
 /*-------------------------------------------------------------------------------------------*/
 
-void WebGetDeviceCounts(uint32_t &buttons_non_light, uint32_t &buttons_non_light_non_shutter, uint32_t &shutter_button) {
-  buttons_non_light = TasmotaGlobal.devices_present;
+void WebGetDeviceCounts(void) {
+  Web.buttons_non_light_non_shutter = TasmotaGlobal.devices_present;
+  Web.light_shutter_button_mask = 0;       // Bitmask for each light and/or shutter button
 
 #ifdef USE_LIGHT
   // Chk for reduced toggle buttons used by lights
   if (TasmotaGlobal.light_type) {
-    // Find and skip light buttons (Lights are controlled by the last TasmotaGlobal.devices_present (or 2))
-    buttons_non_light = LightDevice() -1;
+    // Find and skip light buttons
+    uint32_t light_device = LightDevice();
+    uint32_t light_devices = LightDevices();
+    for (uint32_t button_idx = light_device; button_idx < (light_device + light_devices); button_idx++) {
+      Web.buttons_non_light_non_shutter--;
+      Web.light_shutter_button_mask |= (1 << (button_idx -1));  // Set button bit in bitmask
+    }
   }
 #endif  // USE_LIGHT
 
-  buttons_non_light_non_shutter = buttons_non_light;
-  shutter_button = 0;           // Bitmask for each button
 #ifdef USE_SHUTTER
   // Chk for reduced toggle buttons used by shutters
-  // Find and skip dedicated shutter buttons
-  if (buttons_non_light && Settings->flag3.shutter_mode) {  // SetOption80 - Enable shutter support
-    for (uint32_t button_idx = 1; button_idx <= buttons_non_light; button_idx++) {
+  if (Settings->flag3.shutter_mode) {  // SetOption80 - Enable shutter support
+    // Find and skip dedicated shutter buttons
+    for (uint32_t button_idx = 1; button_idx <= TasmotaGlobal.devices_present; button_idx++) {
       if (IsShutterWebButton(button_idx) != 0) {
-        buttons_non_light_non_shutter--;
-        shutter_button |= (1 << (button_idx -1));  // Set button bit in bitmask
+        Web.buttons_non_light_non_shutter--;
+        Web.light_shutter_button_mask |= (1 << (button_idx -1));  // Set button bit in bitmask
       }
     }
   }
 #endif  // USE_SHUTTER
+
+//  AddLog(LOG_LEVEL_DEBUG, PSTR("HTP: DP %d, BNLNS %d, SB %08X"), TasmotaGlobal.devices_present, Web.buttons_non_light_non_shutter, Web.light_shutter_button_mask);
 }
 
 #ifdef USE_LIGHT
@@ -1365,14 +1373,9 @@ void HandleRoot(void) {
 #ifndef FIRMWARE_MINIMAL
 
   if (TasmotaGlobal.devices_present) {
-    uint32_t buttons_non_light;
-    uint32_t buttons_non_light_non_shutter;
-    uint32_t shutter_button;
-    WebGetDeviceCounts(buttons_non_light, buttons_non_light_non_shutter, shutter_button);
-    uint32_t button_idx = 1;
+    WebGetDeviceCounts();
 
-    if (buttons_non_light_non_shutter) {   // Any non light AND non shutter button
-      // Display toggle buttons
+    if (Web.buttons_non_light_non_shutter) {   // Any non light AND non shutter button - Show toggle buttons
       WSContentSend_P(HTTP_TABLE100);      // "<table style='width:100%%'>"
       WSContentSend_P(PSTR("<tr>"));
 
@@ -1391,18 +1394,14 @@ void HandleRoot(void) {
 #endif  // USE_SONOFF_IFAN
 
         const uint32_t max_columns = 8;
-        uint32_t rows = buttons_non_light_non_shutter / max_columns;
-        if (buttons_non_light_non_shutter % max_columns) { rows++; }
-        uint32_t cols = buttons_non_light_non_shutter / rows;
-        if (buttons_non_light_non_shutter % rows) { cols++; }
+        uint32_t rows = Web.buttons_non_light_non_shutter / max_columns;
+        if (Web.buttons_non_light_non_shutter % max_columns) { rows++; }
+        uint32_t cols = Web.buttons_non_light_non_shutter / rows;
+        if (Web.buttons_non_light_non_shutter % rows) { cols++; }
 
         uint32_t button_ptr = 0;
-        for (button_idx = 1; button_idx <= buttons_non_light; button_idx++) {
-
-#ifdef USE_SHUTTER
-          if (bitRead(shutter_button, button_idx -1)) { continue; }  // Skip non-sequential shutter button
-#endif  // USE_SHUTTER
-
+        for (uint32_t button_idx = 1; button_idx <= TasmotaGlobal.devices_present; button_idx++) {
+          if (bitRead(Web.light_shutter_button_mask, button_idx -1)) { continue; }  // Skip non-sequential light and/or shutter button
           bool set_button = ((button_idx <= MAX_BUTTON_TEXT) && strlen(GetWebButton(button_idx -1)));
           snprintf_P(stemp, sizeof(stemp), PSTR(" %d"), button_idx);
           WSContentSend_P(HTTP_DEVICE_CONTROL, 100 / cols, button_idx, button_idx,
@@ -1419,30 +1418,29 @@ void HandleRoot(void) {
     }
 
 #ifdef USE_SHUTTER
-    if (shutter_button) {              // Any button bit set
-      WSContentSend_P(HTTP_TABLE100);  // "<table style='width:100%%'>"
-
-      int32_t ShutterWebButton;
-      uint32_t shutter_button_idx = 1;
-      for (uint32_t shutter_idx = 0; shutter_idx < TasmotaGlobal.shutters_present ; shutter_idx++) {
-        while ((0 == shutter_button & (1 << (shutter_button_idx -1)))) { shutter_button_idx++; }
-
+    if (TasmotaGlobal.shutters_present) {  // Any shutter present - Show shutter buttons and slider
+      WSContentSend_P(HTTP_TABLE100);      // "<table style='width:100%%'>"
+      uint32_t shutter_button_idx;
+      uint32_t shutter_button_idx_temp;
+      for (uint32_t shutter_idx = 0; shutter_idx < TasmotaGlobal.shutters_present; shutter_idx++) {
         WSContentSend_P(PSTR("<tr>"));
-        shutter_button_idx++;  // Left button is next button first (down)
+        uint32_t shutter_options = ShutterGetOptions(shutter_idx);
+        shutter_button_idx = ShutterGetStartRelay(shutter_idx) +1;  // Left button is next button first (down)
         for (uint32_t j = 0; j < 2; j++) {
-          ShutterWebButton = IsShutterWebButton(shutter_button_idx);
-          WSContentSend_P(HTTP_DEVICE_CONTROL, 15, shutter_button_idx, shutter_button_idx,
-            ((ShutterGetOptions(abs(ShutterWebButton)-1) & 2) /* is locked */ ? "-" :
-            ((ShutterGetOptions(abs(ShutterWebButton)-1) & 8) /* invert web buttons */ ? ((ShutterWebButton>0) ? "&#9660;" : "&#9650;") : ((ShutterWebButton>0) ? "&#9650;" : "&#9660;"))),
+          shutter_button_idx_temp = (shutter_options & 1) ? shutter_button_idx + (j * 2) - 1 : shutter_button_idx;  // Invert index
+//          AddLog(LOG_LEVEL_DEBUG, PSTR("SHT: j %d, shutter_idx %d, shutter_button_idx %d, shutter_idx %d, shutter_button_idx_temp %d"), j, shutter_idx, shutter_button_idx, shutter_idx, shutter_button_idx_temp);
+          WSContentSend_P(HTTP_DEVICE_CONTROL, 15, shutter_button_idx_temp, shutter_button_idx_temp,
+            ((shutter_options & 2) ? "-" :  // Is locked
+            ((shutter_options & 1) ? (j ? "&#9660;" : "&#9650;") : (j ? "&#9650;" : "&#9660;"))),  // Invert web buttons
             "");
 
-          if (1 == j) { break; }
+          if (1 == j) { break; }           // Both buttons shown
 
-          shutter_button_idx--;  // Right button is previous button (up)
+          shutter_button_idx--;            // Right button is previous button (up)
           bool set_button = ((shutter_button_idx <= MAX_BUTTON_TEXT) && strlen(GetWebButton(shutter_button_idx -1)));
           snprintf_P(stemp, sizeof(stemp), PSTR("Shutter %d"), shutter_idx +1);
           uint32_t shutter_real_to_percent_position = ShutterRealToPercentPosition(-9999, shutter_idx);
-          Web.shutter_slider[shutter_idx] = (ShutterGetOptions(shutter_idx) & 1) ? (100 - shutter_real_to_percent_position) : shutter_real_to_percent_position;
+          Web.shutter_slider[shutter_idx] = (shutter_options & 1) ? (100 - shutter_real_to_percent_position) : shutter_real_to_percent_position;
           WSContentSend_P(HTTP_MSG_SLIDER_SHUTTER, 
             (set_button) ? HtmlEscape(GetWebButton(shutter_button_idx -1)).c_str() : stemp,
             shutter_idx +1,
@@ -1450,30 +1448,28 @@ void HandleRoot(void) {
             shutter_idx +1);
         }
         WSContentSend_P(PSTR("</tr>"));
-        shutter_button_idx += 2;
-
       }
       WSContentSend_P(PSTR("</table>"));
-
-      if (1 == button_idx) {
-        button_idx = shutter_button_idx;
-      }
     }
 #endif  // USE_SHUTTER
 
 #ifdef USE_LIGHT
-    if (TasmotaGlobal.light_type) {
-      WSContentSend_P(HTTP_TABLE100);  // "<table style='width:100%%'>"
+    if (TasmotaGlobal.light_type) {        // Any light - Show light button and slider(s)
+      uint32_t light_device = LightDevice();
+      uint32_t light_devices = LightDevices();
+      uint32_t button_idx = light_device;
+
+      WSContentSend_P(HTTP_TABLE100);      // "<table style='width:100%%'>"
 
       uint8_t light_subtype = TasmotaGlobal.light_type &7;
       if (!Settings->flag3.pwm_multi_channels) {  // SetOption68 0 - Enable multi-channels PWM instead of Color PWM
-        bool split_white = ((LST_RGBW <= light_subtype) && (TasmotaGlobal.devices_present > 1) && (Settings->param[P_RGB_REMAP] & 128));  // Only on RGBW or RGBCW and SetOption37 128
+        bool split_white = ((LST_RGBW <= light_subtype) && (light_devices > 1) && (Settings->param[P_RGB_REMAP] & 128));  // Only on RGBW or RGBCW and SetOption37 128
 
         if ((LST_COLDWARM == light_subtype) || ((LST_RGBCW == light_subtype) && !split_white)) {
           WebSliderColdWarm();
         }
 
-        if (light_subtype > 2) {  // No W or CW
+        if (light_subtype > 2) {           // No W or CW
           uint16_t hue;
           uint8_t sat;
           LightGetHSB(&hue, &sat, nullptr);
@@ -1541,7 +1537,7 @@ void HandleRoot(void) {
           uint32_t width = 100;
           WSContentSend_P(PSTR("<tr>"));
 
-          if (button_idx <= TasmotaGlobal.devices_present) {
+          if (button_idx < (light_device + light_devices)) {
             bool set_button = ((button_idx <= MAX_BUTTON_TEXT) && strlen(GetWebButton(button_idx -1)));
             char first[2];
             snprintf_P(first, sizeof(first), PSTR("%s"), PSTR(D_BUTTON_TOGGLE));
@@ -1567,9 +1563,8 @@ void HandleRoot(void) {
           WSContentSend_P(PSTR("</tr>"));
         }
       } else {  // Settings->flag3.pwm_multi_channels - SetOption68 1 - Enable multi-channels PWM instead of Color PWM
-        uint32_t pwm_channels = TasmotaGlobal.devices_present - buttons_non_light;
-        stemp[0] = 'e'; stemp[1] = '0'; stemp[2] = '\0';  // d0
-        for (uint32_t i = 0; i < pwm_channels; i++) {
+        stemp[0] = 'e'; stemp[1] = '0'; stemp[2] = '\0';  // e0
+        for (uint32_t i = 0; i < light_devices; i++) {
           bool set_button = ((button_idx <= MAX_BUTTON_TEXT) && strlen(GetWebButton(button_idx -1)));
           char first[2];
           snprintf_P(first, sizeof(first), PSTR("%s"), PSTR(D_BUTTON_TOGGLE));
@@ -1689,7 +1684,7 @@ bool HandleRootStatusRefresh(void) {
   char svalue[32];                   // Command and number parameter
   char webindex[5];                  // WebGetArg name
 
-  WebGetArg(PSTR("o"), tmp, sizeof(tmp));  // 1 - 16 Device number for button Toggle or Fanspeed
+  WebGetArg(PSTR("o"), tmp, sizeof(tmp));  // 1 - 32 Device number for button Toggle or Fanspeed
   if (strlen(tmp)) {
     ShowWebSource(SRC_WEBGUI);
     uint32_t device = atoi(tmp);
@@ -1729,9 +1724,9 @@ bool HandleRootStatusRefresh(void) {
     snprintf_P(svalue, sizeof(svalue), PSTR(D_CMND_WHITE " %s"), tmp);
     ExecuteWebCommand(svalue);
   }
-  uint32_t light_device = LightDevice();  // Channel number offset
-  uint32_t pwm_channels = (TasmotaGlobal.light_type & 7) > LST_MAX ? LST_MAX : (TasmotaGlobal.light_type & 7);
-  for (uint32_t j = 0; j < pwm_channels; j++) {
+  uint32_t light_device = LightDevice();    // Channel number offset
+  uint32_t light_devices = LightDevices();  // Number of channels
+  for (uint32_t j = 0; j < light_devices; j++) {
     snprintf_P(webindex, sizeof(webindex), PSTR("e%d"), j +1);
     WebGetArg(webindex, tmp, sizeof(tmp));  // 0 - 100 percent
     if (strlen(tmp)) {
@@ -1891,33 +1886,36 @@ bool HandleRootStatusRefresh(void) {
   XsnsXdrvCall(FUNC_WEB_SENSOR);
   WSContentSend_P(PSTR("</table>"));
 
-  if (!Settings->flag6.gui_no_state_text) {  // SetOption161 - (GUI) Disable display of state text (1)
-    bool show_state = (TasmotaGlobal.devices_present);
+  if (!Settings->flag6.gui_no_state_text) {          // SetOption161 - (GUI) Disable display of state text (1)
+    if (!Web.buttons_non_light_non_shutter) {        // Might still be zero on restart so chk if we have at least one 
+      WebGetDeviceCounts();
+    }
+    if ((Web.buttons_non_light_non_shutter > 0) &&
+       ( Web.buttons_non_light_non_shutter <= 8)) {  // We need at least one non light AND non shutter button
+      WSContentSend_P(PSTR("{t}<tr>"));
 #ifdef USE_SONOFF_IFAN
-    if (IsModuleIfan()) { show_state = false; }
+      if (IsModuleIfan()) {
+        WSContentSend_P(HTTP_DEVICE_STATE, 36, (bitRead(TasmotaGlobal.power, 0)) ? PSTR("bold") : PSTR("normal"), 54, GetStateText(bitRead(TasmotaGlobal.power, 0)));
+        uint32_t fanspeed = GetFanspeed();
+        snprintf_P(svalue, sizeof(svalue), PSTR("%d"), fanspeed);
+        WSContentSend_P(HTTP_DEVICE_STATE, 64, (fanspeed) ? PSTR("bold") : PSTR("normal"), 54, (fanspeed) ? svalue : GetStateText(0));
+      } else {
 #endif  // USE_SONOFF_IFAN
-    if (show_state) {
-      uint32_t buttons_non_light;
-      uint32_t buttons_non_light_non_shutter;
-      uint32_t shutter_button;
-      WebGetDeviceCounts(buttons_non_light, buttons_non_light_non_shutter, shutter_button);
-
-      if (buttons_non_light_non_shutter <= 8) {   // Any non light AND non shutter button
-        WSContentSend_P(PSTR("{t}<tr>"));
-        uint32_t cols = buttons_non_light_non_shutter;
+        uint32_t cols = Web.buttons_non_light_non_shutter;
         uint32_t fontsize = (cols < 5) ? 70 - (cols * 8) : 32;
-        for (uint32_t idx = 1; idx <= buttons_non_light; idx++) {
-
-#ifdef USE_SHUTTER
-          if (bitRead(shutter_button, idx -1)) { continue; }  // Skip non-sequential shutter button
-#endif  // USE_SHUTTER
-
-          snprintf_P(svalue, sizeof(svalue), PSTR("%d"), bitRead(TasmotaGlobal.power, idx -1));
-          WSContentSend_P(HTTP_DEVICE_STATE, 100 / cols, (bitRead(TasmotaGlobal.power, idx -1)) ? PSTR("bold") : PSTR("normal"), fontsize,
-            (cols < 5) ? GetStateText(bitRead(TasmotaGlobal.power, idx -1)) : svalue);
+        uint32_t button_ptr = 0;
+        for (uint32_t button_idx = 1; button_idx <= TasmotaGlobal.devices_present; button_idx++) {
+          if (bitRead(Web.light_shutter_button_mask, button_idx -1)) { continue; }  // Skip non-sequential shutter button
+          bool power_state = bitRead(TasmotaGlobal.power, button_idx -1);
+          snprintf_P(svalue, sizeof(svalue), PSTR("%d"), power_state);
+          WSContentSend_P(HTTP_DEVICE_STATE, 100 / cols, (power_state) ? PSTR("bold") : PSTR("normal"), fontsize, (cols < 5) ? GetStateText(power_state) : svalue);
+          button_ptr++;
+          if (button_ptr >= Web.buttons_non_light_non_shutter) { break; }
         }
-        WSContentSend_P(PSTR("</tr></table>"));
+#ifdef USE_SONOFF_IFAN
       }
+#endif  // USE_SONOFF_IFAN
+      WSContentSend_P(PSTR("</tr></table>"));
     }
   }
 
@@ -1946,6 +1944,7 @@ void HandleConfiguration(void) {
 
   WSContentStart_P(PSTR(D_CONFIGURATION));
   WSContentSendStyle();
+  WSContentSend_P(HTTP_MENU_HEAD, D_CONFIGURATION);
 
   WSContentButton(BUTTON_MODULE);
   WSContentButton(BUTTON_WIFI);
@@ -2828,13 +2827,14 @@ void HandleInformation(void) {
   // }1 = </td></tr><tr><th>
   // }2 = </th><td>
   WSContentSend_P(HTTP_SCRIPT_INFO_BEGIN);
+  WSContentSend_P(HTTP_MENU_HEAD, D_INFORMATION);
   WSContentSend_P(PSTR("<table style='width:100%%'><tr><th>"));
   WSContentSend_P(PSTR(D_PROGRAM_VERSION "}2%s %s %s"), TasmotaGlobal.version, TasmotaGlobal.image_name, GetCodeCores().c_str());
   WSContentSend_P(PSTR("}1" D_BUILD_DATE_AND_TIME "}2%s"), GetBuildDateAndTime().c_str());
   WSContentSend_P(PSTR("}1" D_CORE_AND_SDK_VERSION "}2" ARDUINO_CORE_RELEASE "/%s"), ESP.getSdkVersion());
   WSContentSend_P(PSTR("}1" D_UPTIME "}2%s"), GetUptime().c_str());
 #ifdef ESP8266
-  WSContentSend_P(PSTR("}1" D_FLASH_WRITE_COUNT "}2%d at 0x%X"), Settings->save_flag, GetSettingsAddress());
+  WSContentSend_P(PSTR("}1" D_FLASH_WRITE_COUNT "}2%d " D_AT " 0x%X"), Settings->save_flag, GetSettingsAddress());
 #endif  // ESP8266
 #ifdef ESP32
   WSContentSend_P(PSTR("}1" D_FLASH_WRITE_COUNT "}2%d"), Settings->save_flag);
@@ -3114,6 +3114,8 @@ void HandleUpgradeFirmware(void) {
 
   WSContentStart_P(PSTR(D_FIRMWARE_UPGRADE));
   WSContentSendStyle();
+  WSContentSend_P(HTTP_MENU_HEAD, D_FIRMWARE_UPGRADE);
+
   WSContentSend_P(HTTP_FORM_UPG, SettingsTextEscaped(SET_OTAURL).c_str());
 #ifdef ESP32
   if (EspSingleOtaPartition() && !EspRunningFactoryPartition()) {
@@ -3651,6 +3653,7 @@ void HandleManagement(void) {
 
   WSContentStart_P(PSTR(D_MANAGEMENT));
   WSContentSendStyle();
+  WSContentSend_P(HTTP_MENU_HEAD, D_MANAGEMENT);
 
   WSContentButton(BUTTON_CONSOLE);
 
