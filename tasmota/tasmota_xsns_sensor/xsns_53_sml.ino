@@ -2795,7 +2795,7 @@ void SML_CounterIsr(void *arg) {
 }
 
 #ifndef METER_DEF_SIZE
-#define METER_DEF_SIZE 3000
+#define METER_DEF_SIZE 5000
 #endif
 
 
