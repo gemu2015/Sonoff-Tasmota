@@ -3389,6 +3389,7 @@ dddef_exit:
           while (1) {
             if (*lp1 == 0) {
               *tp++ = '|';
+              index++;
               goto next_line;
             }
             *tp++ = *lp1++;
@@ -3690,7 +3691,6 @@ next_line:
   memory += sizeof(sml_globs) + sizeof(meter_desc) + sml_globs.maxvars * (sizeof(double) +  sizeof(uint8_t) + sizeof(struct SML_MEDIAN_FILTER));
 
   AddLog(LOG_LEVEL_INFO, PSTR("meters: %d , decode lines: %d, memory used: %d bytes"), sml_globs.meters_used, sml_globs.maxvars, memory);
-
 
 // speed optimize shift flag
   for (uint32_t meters = 0; meters < sml_globs.meters_used; meters++ ) {
