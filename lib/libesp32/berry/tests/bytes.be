@@ -155,6 +155,11 @@ assert(str(b1) == "bytes('AA')")
 b1.append('01')
 assert(str(b1) == "bytes('AA3031')")
 
+#- appendhex -#
+assert(bytes().appendhex(bytes("DEADBEEF")) == bytes("4445414442454546"))
+assert(bytes("AABBCC").appendhex(bytes("DEADBEEF")) == bytes("AABBCC4445414442454546"))
+assert(bytes("AABBCC").appendhex(bytes("")) == bytes("AABBCC"))
+
 #- item -#
 b = bytes("334455")
 assert(b[0] == 0x33)

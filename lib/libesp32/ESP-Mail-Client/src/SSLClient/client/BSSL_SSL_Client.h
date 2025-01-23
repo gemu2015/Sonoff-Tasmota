@@ -81,8 +81,6 @@ using namespace BearSSL;
 
 #endif
 
-//#define ESP_SSLCLIENT_ENABLE_DEBUG
-
 class BSSL_SSL_Client : public Client
 {
 public:

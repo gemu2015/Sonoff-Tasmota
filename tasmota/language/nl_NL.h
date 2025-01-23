@@ -1011,6 +1011,10 @@
 #define D_SENSOR_ME007_RX      "ME007 Rx"
 #define D_SENSOR_TUYAMCUBR_TX  "TuyaMCUBr Tx"
 #define D_SENSOR_TUYAMCUBR_RX  "TuyaMCUBr Rx"
+#define D_SENSOR_TWAI_TX       "TWAI Tx"
+#define D_SENSOR_TWAI_RX       "TWAI Rx"
+#define D_SENSOR_TWAI_BO       "TWAI BusOff"
+#define D_SENSOR_TWAI_CLK      "TWAI ClkOut"
 #define D_SENSOR_BIOPDU_PZEM0XX_TX "BioPDU PZEM0XX Tx"
 #define D_SENSOR_BIOPDU_PZEM016_RX "BioPDU PZEM016 Rx"
 #define D_SENSOR_BIOPDU_BIT    "BioPDU Bit"
@@ -1211,6 +1215,13 @@
 #define D_FP_ADDRCODE "Adres code"             // 0x20 Address code
 #define D_FP_PASSVERIFY "Wachtwoord herkend"   // 0x21 Verify the fingerprint passed
 #define D_FP_UNKNOWNERROR "Fout"               // Any other error
+
+// xsns_90_hrg15.ino
+#define D_HRG_VALID "Valid"
+#define D_HRG_ACTIVE "Active"
+#define D_HRG_EVENT "Event"
+#define D_HRG_TOTAL "Total"
+#define D_HRG_FLOWRATE "Flow Rate"
 
 // xsns_96_flowratemeter.ino
 #define D_FLOWRATEMETER_NAME "Flowrate"

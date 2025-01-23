@@ -29,9 +29,6 @@
 #ifndef ESP_SSLCLIENT_H
 #define ESP_SSLCLIENT_H
 
-
-//#define ESP_SSLCLIENT_ENABLE_DEBUG
-
 #include "ESP_SSLClient_FS.h"
 
 #ifndef SSLCLIENT_CONNECTION_UPGRADABLE
