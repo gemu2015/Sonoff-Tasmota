@@ -4952,6 +4952,8 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         break;
 #endif // USE_SCRIPT_ONEWIRE
 
+int32_t I2SPlayFile(const char *path, uint32_t decoder_type);
+
       case 'p':
         if (!strncmp_XP(lp, XPSTR("pin["), 4)) {
           // raw pin level
@@ -4975,7 +4977,8 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 #if !defined(ESP_IDF_VERSION) || (ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5,0,0))
           Play_mp3(path);
 #else
-          I2SPlayMp3(path);
+          //I2SPlayMp3(path);
+          I2SPlayFile(path, 1);
 #endif
           len++;
           len = 0;
