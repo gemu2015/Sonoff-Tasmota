@@ -7358,7 +7358,7 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
                 lzero = glob_script_mem.script_lzero;
                 dsep = glob_script_mem.script_sepc;
               }
-              if (*cp=='(') {
+              if (*cp == '(') {
                 // math expression
                 cp++;
                 glob_script_mem.glob_error = 0;
@@ -7412,15 +7412,15 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
               }
             }
         } else {
-            if (*cp=='\\') {
+            if (*cp == '\\') {
               cp++;
-              if (*cp=='n') {
+              if (*cp == 'n') {
                 dstbuf[count] = '\n';
-              } else if (*cp=='r') {
+              } else if (*cp == 'r') {
                 dstbuf[count] = '\r';
-              } else if (*cp=='\\') {
+              } else if (*cp == '\\') {
                 dstbuf[count] = '\\';
-              } else if (*cp=='#') {
+              } else if (*cp == '#') {
                 dstbuf[count] = '#';
               } else {
                 dstbuf[count] = *cp;
@@ -7428,7 +7428,7 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
             } else {
               dstbuf[count] = *cp;
             }
-            if (*cp==0) {
+            if (*cp == 0) {
                 break;
             }
             cp++;
