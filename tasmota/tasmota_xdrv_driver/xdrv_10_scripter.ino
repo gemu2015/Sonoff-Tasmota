@@ -6306,7 +6306,11 @@ void tmod_directModeOutput(uint32_t pin);
             case 6:
               { TS_FLOAT fvar2;
                 lp = GetNumericArgument(lp, OPER_EQU, &fvar2, gv);
+#ifdef USE_WEBCAM_V2
+                fvar = 0;
+#else
                 fvar = WcSetMotionDetect(fvar2);
+#endif
               }
               break;
               /*
