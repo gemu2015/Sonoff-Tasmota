@@ -7336,7 +7336,11 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
     TS_FLOAT fvar;
     cp = srcbuf;
     struct T_INDEX ind;
-    char string[SCRIPT_MAX_SBSIZE];
+    char *string = (char*)malloc(SCRIPT_MAX_SBSIZE);
+    //char string[SCRIPT_MAX_SBSIZE];
+    if (!string) { 
+      return;
+    }
     dstsize -= 2;
     for (count = 0; count < dstsize; count++) {
         if (srcsize && (*cp == SCRIPT_EOL)) break;
@@ -7349,7 +7353,7 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
                 if (*(cp + 1) == '.' || *(cp + 1) == ',') {
                   dsep = *(cp + 1);
                   lzero = *cp & 0xf;
-                  cp+=2;
+                  cp += 2;
                 }
                 dprec = *cp & 0xf;
                 cp++;
@@ -7402,7 +7406,8 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
                   count += 2;
                   while (*cp != '%') {
                     if (*cp == 0 || *cp == SCRIPT_EOL) {
-                      dstbuf[count+1] = 0;
+                      dstbuf[count + 1] = 0;
+                      free(string);
                       return;
                     }
                     cp++;
@@ -7435,6 +7440,7 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
         }
     }
     dstbuf[count] = 0;
+    free(string);
 }
 
 void toLog(const char *str) {
