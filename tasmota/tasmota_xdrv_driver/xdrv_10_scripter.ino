@@ -949,7 +949,6 @@ uint32_t Script_Find_Vars(char *sp) {
   return (svars << 16) | numvars;
 }
 
-
 // allocates all variables and presets them
 int16_t Init_Scripter(void) {
 char *script;
@@ -1043,6 +1042,8 @@ char *script;
     glob_script_mem.scriptptr = 0;
 
     char init = 0;
+    uint8_t pflg = 0;
+    uint16_t pmem = 0;
     while (1) {
         // check line
         // skip leading spaces
@@ -1065,10 +1066,12 @@ char *script;
                     lp += 2;
                     if (numperm < SCRIPT_MAXPERM) {
                       vtypes[vars].bits.is_permanent = 1;
+                      pflg = 1;
                       numperm++;
                     }
                 } else {
                     vtypes[vars].bits.is_permanent = 0;
+                    pflg = 0;
                 }
                 if (*lp == 't' && *(lp + 1) == ':') {
                     lp += 2;
@@ -1169,9 +1172,10 @@ char *script;
                         op++;
                       }
                       while (*op == ' ') op++;
+                      uint16_t flen = 1;
                       if (isdigit(*op)) {
                         // lenght define follows
-                        uint16_t flen = atoi(op);
+                        flen = atoi(op);
                         if (flen > MAX_ARRAY_SIZE) {
                           // limit array size
                           flen = MAX_ARRAY_SIZE;
@@ -1179,10 +1183,23 @@ char *script;
                         mfilt[numflt - 1].numvals &= OR_FILT_MASK;
                         mfilt[numflt - 1].numvals |= flen & AND_FILT_MASK;
                       }
+                      if (pflg) {
+                        pmem += sizeof(TS_FLOAT) * flen;
+                        pflg = 0;
+                      }
+                    } else {
+                      if (pflg) {
+                        pmem += sizeof(TS_FLOAT);
+                        pflg = 0;
+                      }
                     }
 
                 } else {
                     // string vars
+                    if (pflg) {
+                      pmem += glob_script_mem.max_ssize;
+                      pflg = 0;
+                    }
                     op++;
                     *snp_p ++= strings_p;
                     while (*op != '\"') {
@@ -1231,6 +1248,10 @@ char *script;
     uint16_t fsize = 0;
     for (count = 0; count < numflt; count++) {
       fsize += sizeof(struct M_FILT) + ((mfilt[count].numvals & AND_FILT_MASK) - 1) * sizeof(TS_FLOAT);
+    }
+
+    if (pmem >= glob_script_mem.script_pram_size) {
+      return -6;
     }
 
     // now copy vars to memory
@@ -1346,7 +1367,7 @@ char *script;
 
     // variables usage info
     uint32_t tot_mem = sizeof(glob_script_mem) + glob_script_mem.script_mem_size + glob_script_mem.script_size + index;
-    AddLog(LOG_LEVEL_INFO, PSTR("SCR: nv=%d, tv=%d, vns=%d, vmem=%d, smem=%d, gmem=%d, tmem=%d "), nvars, svars, index, glob_script_mem.script_mem_size, glob_script_mem.script_size, sizeof(glob_script_mem), tot_mem);
+    AddLog(LOG_LEVEL_INFO, PSTR("SCR: nv=%d, tv=%d, vns=%d, vmem=%d, smem=%d, gmem=%d, pmem=%d, tmem=%d"), nvars, svars, index, glob_script_mem.script_mem_size, glob_script_mem.script_size, sizeof(glob_script_mem), pmem, tot_mem);
 
     // copy string variables
     char *cp1 = glob_script_mem.glob_snp;
