@@ -7357,11 +7357,7 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
     TS_FLOAT fvar;
     cp = srcbuf;
     struct T_INDEX ind;
-    char *string = (char*)malloc(SCRIPT_MAX_SBSIZE);
-    //char string[SCRIPT_MAX_SBSIZE];
-    if (!string) { 
-      return;
-    }
+    char string[SCRIPT_MAX_SBSIZE];
     dstsize -= 2;
     for (count = 0; count < dstsize; count++) {
         if (srcsize && (*cp == SCRIPT_EOL)) break;
@@ -7428,7 +7424,6 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
                   while (*cp != '%') {
                     if (*cp == 0 || *cp == SCRIPT_EOL) {
                       dstbuf[count + 1] = 0;
-                      free(string);
                       return;
                     }
                     cp++;
@@ -7461,7 +7456,6 @@ void Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dst
         }
     }
     dstbuf[count] = 0;
-    free(string);
 }
 
 void toLog(const char *str) {
@@ -10476,7 +10470,11 @@ bool ScriptCommand(void) {
         *SSIZE_PSTORE = XdrvMailbox.payload;
         TasmotaGlobal.restart_flag = 2;
       }
-      Response_P(PSTR("{\"script buffer\":%d}"), *SSIZE_PSTORE);
+      uint16_t ssize = *SSIZE_PSTORE;
+      if (!ssize) {
+        ssize = UFSYS_SIZE;
+      }
+      Response_P(PSTR("{\"script buffer\":%d}"), ssize);
       serviced = true;
 #endif
 #endif
@@ -11739,6 +11737,7 @@ int32_t web_send_file(char mc, char *fname) {
 
 char *web_send_line(char mc, char *lp1) {
 //char tmp[256];
+
 char *tmp = (char*)malloc(SCRIPT_WS_LINE_SIZE);
 if (!tmp) {
   return 0;
@@ -13716,7 +13715,6 @@ bool Xdrv10(uint32_t function) {
     //case FUNC_PRE_INIT:
     //case FUNC_INIT:
     case FUNC_SETUP_RING1:  // We need to setup SCRIPT before call to ScriptLoadSection()
-
       //bitWrite(Settings->rule_enabled, 0, 0); // >>>>>>>>>>>
 #ifndef NO_SCRIPT_STOP_ON_ERROR
       bitWrite(Settings->rule_stop, 0, 1);
