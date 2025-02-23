@@ -949,6 +949,36 @@ uint32_t Script_Find_Vars(char *sp) {
   return (svars << 16) | numvars;
 }
 
+// get integer with math
+int32_t get_math_intval(char *cp) {
+  int32_t result = strtol(cp, &cp, 10);
+  while (*cp) {
+    while (*cp == ' ') cp++;
+    if (*cp == SCRIPT_EOL) { break; }
+    switch (*cp) {
+      case '+':
+        cp++;
+        result += strtol(cp, &cp, 10);
+        break;
+      case '-':
+        cp++;
+        result -= strtol(cp, &cp, 10);
+        break;
+      case '*':
+        cp++;
+        result *= strtol(cp, &cp, 10);
+        break;
+      case '/':
+        cp++;
+        result /= strtol(cp, &cp, 10);
+        break;
+    }
+  }
+  return result;
+  //return atoi(cp);
+}
+
+
 // allocates all variables and presets them
 int16_t Init_Scripter(void) {
 char *script;
@@ -1175,7 +1205,8 @@ char *script;
                       uint16_t flen = 1;
                       if (isdigit(*op)) {
                         // lenght define follows
-                        flen = atoi(op);
+                        //flen = atoi(op);
+                        flen = get_math_intval(op);
                         if (flen > MAX_ARRAY_SIZE) {
                           // limit array size
                           flen = MAX_ARRAY_SIZE;
