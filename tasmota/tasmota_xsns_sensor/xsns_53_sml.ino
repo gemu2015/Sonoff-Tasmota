@@ -239,8 +239,8 @@ private:
   HardwareSerial *hws;
 };
 
-
-void IRAM_ATTR sml_callRxRead(void *self) { ((SML_ESP32_SERIAL*)self)->rxRead(); };
+void IRAM_ATTR sml_callRxRead(void *self);
+void sml_callRxRead(void *self) { ((SML_ESP32_SERIAL*)self)->rxRead(); };
 
 SML_ESP32_SERIAL::SML_ESP32_SERIAL(uint32_t index) {
   uart_index = index;
