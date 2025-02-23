@@ -364,7 +364,6 @@ void SML_ESP32_SERIAL::updateBaudRate(uint32_t baud) {
 }
 
 // no wait mode only 8N1  (or 7X1, obis only, ignoring parity)
-void IRAM_ATTR SML_ESP32_SERIAL::rxRead(void);
 void SML_ESP32_SERIAL::rxRead(void) {
   uint32_t diff;
   uint32_t level;
