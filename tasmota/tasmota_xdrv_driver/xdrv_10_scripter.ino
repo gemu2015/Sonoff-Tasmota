@@ -6106,6 +6106,7 @@ int32_t I2SPlayFile(const char *path, uint32_t decoder_type);
           }
           if (sp) strlcpy(sp, str, glob_script_mem.max_ssize);
           len = 0;
+          lp++;
           goto strexit;
         }
 #endif // USE_FEXTRACT
