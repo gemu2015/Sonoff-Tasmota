@@ -6095,8 +6095,15 @@ int32_t I2SPlayFile(const char *path, uint32_t decoder_type);
         if (!strncmp_XP(lp, XPSTR("s2t("), 4)) {
           lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, 0);
           char str[SCRIPT_MAX_SBSIZE];
-          uint32_t secs = (uint32_t)fvar + (uint32_t)glob_script_mem.epoch_offset;
-          s2tstamp(str, SCRIPT_MAX_SBSIZE, secs, 0);
+          while (*lp == ' ') lp++;
+          if (*lp == 'i') {
+            uint32_t secs = *(uint32_t*)&fvar;
+            s2tstamp(str, SCRIPT_MAX_SBSIZE, secs, 0);
+            lp++;
+          } else {
+            uint32_t secs = (uint32_t)fvar + (uint32_t)glob_script_mem.epoch_offset;
+            s2tstamp(str, SCRIPT_MAX_SBSIZE, secs, 0);
+          }
           if (sp) strlcpy(sp, str, glob_script_mem.max_ssize);
           len = 0;
           goto strexit;
@@ -6267,7 +6274,14 @@ void tmod_directModeOutput(uint32_t pin);
         if (!strncmp_XP(lp, XPSTR("tsn("), 4)) {
           char str[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, str, 0);
-          fvar = tstamp2l(str) - (uint32_t)glob_script_mem.epoch_offset;
+          while (*lp == ' ') lp++;
+          if (*lp == 'i') {
+            lp++;
+            uint32_t result = tstamp2l(str);
+            fvar = *(float*)&result;
+          } else {
+            fvar = tstamp2l(str) - (uint32_t)glob_script_mem.epoch_offset;
+          }
           goto nfuncexit;
         }
 #endif
