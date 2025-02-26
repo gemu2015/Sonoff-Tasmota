@@ -5840,13 +5840,15 @@ int32_t I2SPlayFile(const char *path, uint32_t decoder_type);
                   mbp++;
                   crc = 0;
                 }
-                crc = MBUS_calculateCRC(mbp, mbp[2] + 3, crc);
+                uint8_t pos = 6; // mbp[2] + 3
+                crc = MBUS_calculateCRC(mbp, pos, crc);
+                //AddLog(LOG_LEVEL_INFO,PSTR("SCR: >> %04x"), crc);
                 if (opts == 1) {
-                  if ((mbp[mbp[2] + 3] != highByte(crc)) || (mbp[mbp[2] + 4] != lowByte(crc))) {
+                  if ((mbp[pos] != highByte(crc)) || (mbp[pos + 1] != lowByte(crc))) {
                     fvar = -2;
                   }
                 } else {
-                  if ((mbp[mbp[2] + 3] != lowByte(crc)) || (mbp[mbp[2] + 4] != highByte(crc))) {
+                  if ((mbp[pos] != lowByte(crc)) || (mbp[pos + 1] != highByte(crc))) {
                     fvar = -2;
                   }
                 }
