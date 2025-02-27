@@ -5883,13 +5883,15 @@ int32_t I2SPlayFile(const char *path, uint32_t decoder_type);
             if (nvals > alend) {
               nvals = alend;
             }
-
+            TS_FLOAT code = 4;
+            if (*lp != ')') {
+              lp = GetNumericArgument(lp, OPER_EQU, &code, 0);
+            }
             uint8_t modbus_response[128];
-
             uint8_t mb_index = 0;
             modbus_response[mb_index] = addr;
             mb_index++;
-            modbus_response[mb_index] = 4;
+            modbus_response[mb_index] = code;
             mb_index++;
 
             if (mode == 0) {
