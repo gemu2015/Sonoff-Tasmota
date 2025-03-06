@@ -3930,7 +3930,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
         if (!strncmp_XP(lp, XPSTR("fmt("), 4)) {
           lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           if (!fvar) {
-            LittleFS.format();
+            fvar = LittleFS.format();
           } else {
             //SD.format();
           }
