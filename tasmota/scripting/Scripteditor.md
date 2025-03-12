@@ -1,13 +1,17 @@
-# Here’s the document converted to Markdown format:
-
-```markdown
 # Script Editor for Tasmota Scripts
 
 Easy development of Tasmota scripts with syntax highlighting. You may edit scripts with indents and any number of comments and with a key press (`CMD R`) transfer the script to an ESP via WLAN. Before transferring, all unnecessary characters and comments are removed. The script is immediately executed.
 
-I developed this editor for other tasks many years ago. This project is based on a cross-compiler that generates macOS and Windows programs in one action. While the macOS version may be simply started by clicking, the PC version has the same structure as the macOS version. It is an app folder. While on a Mac this is an executable, on a PC this is a folder. The `.exe` file is in the subfolder `contents/windows`, and you must apply a shortcut to this `.exe` to start the editor. You must leave the folder structure in place, however, or the app may no longer work.
+I developed this editor for other tasks many years ago. This project is based on a cross-compiler that generates macOS and Windows programs in one action. 
 
-The editor recognizes Tasmota scripts when the file name has the suffix `.txt` and in the first line `>D` is found. (`.txt` must be visible in the window header bar; suppress file suffix must be turned off.)
+- The macOS version can be started by clicking.
+- The Windows version is an app folder, requiring following manual settings to be started.
+    -   Create a shortcut to the `.exe` file in the subfolder `contents/windows`, click this shortcut for starting the editor. 
+
+Note: The folder structure must remain unchanged, because otherwise the app will no longer work!
+
+The editor recognizes Tasmota scripts when the file name has the suffixes `.tas` (recommended) or `.txt` when additionally the string `>D` is found in the first line. 
+Note: file extension (i.e. `.tas`) must be visible in the window header bar; suppress file suffix must be turned off!
 
 The ESP’s IP number has to be specified (in any line) by:
 ```
@@ -97,5 +101,3 @@ In the submenu `Various->Start`, you can find a utility called **Fonteditor**. T
 3. **Convert GFX .h font files to binary files**  
    This converts a GFX font header file to a binary file which can be loaded by the `displaytext RAMFONT` directive.
 ```
-
-This Markdown version preserves the structure and content of the original document while formatting it for readability. Let me know if you need further adjustments!
