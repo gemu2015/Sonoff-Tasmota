@@ -1,0 +1,126 @@
+>D 40
+IP=192.168.188.114
+
+M:array=0 3
+sc=0
+tmp=0
+pt=0
+
+>B
+array={120 150 250}
+
+>S
+array[1]+=50
+array[2]+=100
+array[3]+=200
+
+if array[1]>5000 {
+	array[1]=0
+}
+if array[2]>5000 {
+	array[2]=0
+}
+if array[3]>5000 {
+	array[3]=0
+}
+
+
+#fetch
+if wm==0 {
+	break;
+}
+; fetch data from device
+wcs <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+wcs <script type="text/javascript">
+wcs var array=[0,0,0];
+wcs setInterval(getdata,1000);
+wcs function getdata() {
+wcs fetch('/cm?cmnd=script?array')
+wcs .then(response => response.json())
+wcs .then(datax => {
+wcs const pl=datax['script'];
+wcs array=pl['array'];
+wcs })};
+wcs </script>
+wcf
+#
+
+
+#gauge
+if wm==0 {
+	break;
+}
+wcs <div style="margin-left:50px">
+wcs <div id="chart1" style="text-align:center;width:500px;height:200px;padding:0px"></div>
+wcs </div>
+wcs <script type="text/javascript">
+wcs google.charts.load('current', {'packages':['gauge']});
+wcs google.charts.setOnLoadCallback(drawChart1);
+wcs function drawChart1() {
+wcs var data = google.visualization.arrayToDataTable([['Label', 'Value'],['P1', 0],['P2', 0],['P3', 0]]);
+wcs var formatter = new google.visualization.NumberFormat({suffix: ' W',pattern:'#'});
+wcs var options = {
+wcs width: 400, height: 120,
+wcs max:5000,
+wcs redFrom: 4800, redTo: 5000,
+wcs yellowFrom:4500, yellowTo: 4800,
+wcs minorTicks: 5};
+wcs var chart = new google.visualization.Gauge(document.getElementById('chart1'));
+wcs chart.draw(data,options);
+wcs formatter.format(data,1);
+wcs setInterval(refresh1,1000);
+wcs function refresh1() {
+wcs data.setValue(0,1,array[0]);
+wcs data.setValue(1,1,array[1]);
+wcs data.setValue(2,1,array[2]);
+wcs formatter.format(data,1);
+wcs chart.draw(data,options);
+wcs };};
+wcs </script>
+wcf
+
+
+#bar
+if wm==0 {
+	break;
+}
+
+wcs <div style="margin-left:50px">
+wcs <div id="chart2" style="text-align:center;width:500px;height:250px;padding:0px"></div>
+wcs </div>
+wcs <script type="text/javascript">
+wcs google.charts.load('current', {'packages':['corechart']});
+wcs google.charts.setOnLoadCallback(drawChart);
+wcs function drawChart() {
+wcs var data = google.visualization.arrayToDataTable([['Label', 'Value'],['P1', 0],['P2', 0],['P3', 0]]);
+wcs var options = {
+wcs title: 'Leistung',
+wcs vAxis: {format:'# W'},
+wcs width: 450, height: 200,
+wcs max:5000,
+wcs legend: { position: "none" },
+wcs minorTicks: 5};
+wcs var chart = new google.visualization.ColumnChart(document.getElementById('chart2'));
+wcs chart.draw(data,options);
+wcs setInterval(refresh,1000);
+wcs function refresh() {
+wcs data.setValue(0,1,array[0]);
+wcs data.setValue(1,1,array[1]);
+wcs data.setValue(2,1,array[2]);
+wcs chart.draw(data,options);
+wcs };};
+wcs </script>
+wcf
+
+>W
+%=#fetch
+%=#bar
+%=#gauge
+
+#
+
+>w1 subpage
+<div id="chart1" style="text-align:center;width:500px;height:200px;padding:0px"></div>
+%/gauge3.html
+#
+

@@ -1,0 +1,222 @@
+>D 100
+; must be compiled with 
+;#define SCRIPT_MAXSSIZE 100 because we need large strings
+;#define USE_I2S_AUDIO
+;#define USE_I2S_WEBRADIO
+; needs a file "webradios.txt" with tab delimeted sender-url lines
+
+; bit coin
+;IP=192.168.188.68
+; s3 box
+;IP=192.168.188.108
+IP=192.168.188.115
+
+
+SB=8192
+
+ =0
+res=0
+fd=0
+tmp=0
+fr=0
+xcnt=0
+cnt=0
+str=""
+lstr=""
+curr=""
+title=""
+tstr=""
+loud=5
+onoff=0
+sel=0
+m:rbu=0 50
+bcol=""
+; station button options
+bopt1="border-radius: 0.1rem;line-height:1rem;"
+bopt2="font-size:1rem;"
+micrec=0
+micgain=1
+found=0
+p1=0
+p2=0
+
+>BS
+->i2sgain %loud%
+
+found=ia2(0x1a)
+print %found%
+;swap micro in codec, swap output also
+=#wi2c(0x07 0x0102)
+;=#wi2c(0x07 0x0002)
+=#wi2c(0x31 0x040);
+
+; have an mp3 startup sound
+pl("/Startup.mp3")
+
+dt [Bi0D0z]
+
+
+#wi2c(p1 p2)
+p1<<=1
+p1|=(p2>>8)&1
+p2&=0xff
+iw(p1 p2)
+
+>T
+title=WebRadio#Title
+
+
+>F
+
+if chg[loud]>0 {
+	->i2sgain %loud%
+}
+
+if chg[onoff]>0 {
+	->i2swr
+	=#wi2c(0x31 0x040);
+	->power1 0
+	onoff=0
+	sel=0
+}
+
+>C
+print html callback
+
+>S
+
+for cnt 1 rbu[-1] 1
+	if rbu[cnt]>0 {
+		=#webr(cnt)
+		->i2swr
+		=#wi2c(0x31 0x0C0);
+		->power1 1
+		->i2swr %str%
+		curr=lstr
+		rbu[cnt]=0
+		sel=cnt
+		break
+	}
+next
+
+if chg[micrec]>0 {
+	if micrec>0 {
+		=>i2srec /test.mp3
+	} else {
+		=>i2srec
+	}
+}
+
+if chg[micgain]>0 {
+	->i2smgain %0micgain%
+}
+
+
+; could write to display here 19 chars
+tmp=sl(curr)
+p1=20-tmp/2
+dt [Ci6f0s2l5c1%p20]x
+dt [Ci6f0s2l5c%0p1%p20]%curr%
+
+tmp=sl(title)
+p1=20-tmp/2
+if p1<1 {
+	p1=1
+}
+dt [Ci3l10c%0p1%p20]%title%
+
+
+#webr(tmp)
+fr=fo("/webradios.txt" r)
+if fr>=0 {
+	for cnt 1 tmp 1
+		res=fr(lstr fr)
+		res=fr(str fr)
+		if lstr==""
+		or cnt==tmp {
+			break
+		}
+		;print %lstr%=%str%
+	next
+	fc(fr)
+} else {
+	print file error
+}
+
+#webradio
+if wm==0 {
+
+	wcs so(7)
+	wcf
+	;ltim=millis
+	wcs  <dev><table border='3' frame='void' style='width:400px;background-color:#00BFFF;'><center>Tasmota-Webradio<br><br>
+	
+	; title display
+	wcs <tr><td align='center'>Title</td><td align='center' style='background-color:green;'>%title%</td></tr>	
+	wcs <tr><th align='center'>Nr</th><th align='center'>Sender</th></tr>
+	
+	
+	fr=fo("/webradios.txt" r)
+	if fr>=0 {
+		for xcnt 1 50 1
+			res=fr(lstr fr)
+			if lstr=="" {
+				break
+			}
+			res=fr(str fr)
+			wcs <tr><td align='center'>%0xcnt%</td><td align='center'>
+					
+			tmp=rbu[xcnt]
+			if tmp==0 {
+				tstr=lstr
+				tmp=1
+			} else {
+				tstr="selecting"
+				tmp=0
+			}
+			if xcnt==sel {
+				bcol="green"
+				wcs <button style='background:%bcol%;%bopt1%%bopt2%' type='submit'  onclick='seva(%0tmp%,"rbu[%0xcnt%]")'>%tstr%</button></td></tr>
+			} else {
+				bcol="grey"
+				wcs <button style='%bopt1%%bopt2%' type='submit'  onclick='seva(%0tmp%,"rbu[%0xcnt%]")'>%tstr%</button></td></tr>
+			}
+		next
+		fc(fr)
+	}
+	
+	; stop button	
+	wcs <tr><td align='center'>Off</td>
+	tmp=onoff
+	if tmp==0 {
+		tstr="Aus"
+		tmp=1
+	} else {
+		tstr="shut down"
+		tmp=0
+	}
+	wcs <td align='center'><button style='line-height:1rem;font-size:1rem;' type='submit'onclick='seva(%0tmp%,"onoff")'>%tstr%</button> </td></tr>
+	
+	
+	wcs </table><br><br></dev>
+
+	wcf
+	;ltim=millis-ltim
+	;print %ltim%
+	
+}
+
+
+>WS
+sl(0 100 loud "0" "Lautstärke : %0loud%" "100")
+sl(1 50 micgain "1" "Micro gain : %0micgain%" "50")
+%=#webradio
+bu(micrec  "Stop audio recording" "Start audio recording")
+
+>WM
+<br><center>stream<br><br><audio controls preload="none"><source src="http://%lip%:81/stream.mp3" type="audio/mpeg"></source></audio><br>
+<br><center>test.mp3<br><br><audio controls preload="none"><source src="http://%lip%/ufsd?download=/test.mp3" type="audio/mpeg"></source></audio><br>
+
+>R
+say("shutting down")
+

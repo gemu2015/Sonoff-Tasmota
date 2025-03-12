@@ -1,0 +1,602 @@
+>D 48
+IP=192.168.188.61
+SB=16384
+
+; ESP32 only
+; defines used for this script
+;#define USE_SCRIPT_WEB_DISPLAY
+;#define USE_SCRIPT_JSON_EXPORT
+;#define USE_ANGLE_FUNC
+;#define USE_SCRIPT_GLOBVARS
+;#define USE_SCRIPT_TIMER
+;#define USE_SDCARD
+;#define SDC_HIDE_INVISIBLES
+;#define LARGE_ARRAYS
+;#define SCRIPT_LARGE_VNBUFF
+;#define USE_SCRIPT_ALT_DOWNLOAD
+;#define USE_UFILESYS
+;#define UFSYS_SIZE 16384
+;#define USE_SPI
+;#define USE_FEXTRACT
+;#define USE_SML_MEDIAN_FILTER
+;#define USE_SML_M
+;#define USE_SML_SCRIPT_CMD
+;#define SML_REPLACE_VARS
+;#define SML_MAX_VARS 50
+;#define MAX_METERS 7
+;#define MAXVARS 100
+;#define MAXSVARS 30
+;#define USE_ESP32_SW_SERIAL
+
+m15=0
+tmp=0
+res=0
+fr=0
+cnt=0
+rs=0
+rflg=0
+
+; result array
+M:sres=0 25
+
+; global vars
+; total Einspeisung
+g:sedt=0
+; momentane Einspeisung
+g:sedc=0
+; aussentemperatur
+g:atmp=0
+;  solarkollektor
+g:scol=0
+; solar speicher
+g:ssp=0
+; Gartenhaus
+g:wrgh=0
+; Garage
+g:wrga=0
+; Garten
+g:wrgg=0
+; Wallbox
+g:auto=0
+; total werte
+; solar garage
+g:t_ga=0
+; solar gartenhaus
+g:t_gh=0
+; solar garten
+g:t_gg=0
+; wallbox
+g:t_wb=0
+; wasser
+g:t_ws=0
+; gas
+g:t_gs=0
+
+;2 richtungszähler
+g:zwzi=0
+g:zwzo=0
+g:zwzc=0
+
+; powerwall
+g:pwl=8
+g:sip=0
+g:sop=0
+g:bip=0
+g:hip=0
+g:rper=0
+
+
+; klima
+g:klima=0
+; pwp
+g:pwp=0
+; tpwr
+g:t_kpwp=0
+
+g:bwwp=0
+
+g:gerr=0
+
+; udp timeout timer
+t:udpt=180
+
+tf=""
+wd=0
+sm=0
+ucnt=0
+
+min=""
+max=""
+bc="yellow"
+hs1="{m}<span style='color:"
+hs5="</span>"
+hs2="<span style='color:magenta;'>======== "
+hs3="</span>{m}<hr>"
+hs4="{m}<span style='color:yellow;'>"
+hdr=""
+unit=""
+; modbus descriptor replacement strings
+ms="3,010404ffffffffxxxx@"
+m2s="3,020404ffffffffxxxx@"
+ds="1,*,V,VP1,2"
+str=""
+fnam=""
+
+pr=0
+fsiz=0
+
+>B
+; Monate
+res=is1(0 "Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Okt|Nov|Dez|")
+; Wochentage
+res=is(0 "So|Mo|Di|Mi|Do|Fr|Sa|")
+
+; esp32 temp off
+->setsensor127 0
+
+
+; lösche den Ordner Inhalt
+#delfolder
+pr=fo("/DAYS" r)
+for cnt 1 1000 1
+	tmp=fr(fnam pr)
+	if tmp>0 {
+		fd("/DAYS/"+fnam)
+	} else {
+		break
+	}
+next
+fc(pr)
+
+>BS
+=#getdb
+=#gfsiz
+
+; reset meter
+=>sensor53 r
+
+; create days folder
+res=fo("/DAYS" r)
+if res<0
+then
+	fmd("/DAYS")
+endif
+
+#res_chg
+; reset change flags
+if rflg==0 {
+	print boot
+	=#log("booting")
+	m15=int(hours*60+mins/15+1)
+	tmp=chg[m15]
+	wd=day
+	tmp=chg[wd]
+	rflg=1
+}
+
+#getdb
+; extract first and last timestamp
+fr=fo("/energy_15_log.txt" r)
+if fr>=0 {
+	res=fxt(fr "" "" -2)
+	res=fr(min fr)
+	res=fxt(fr "" "" -1)
+	res=fr(max fr)
+	min=cts(min 1)
+	max=cts(max 1)
+	fc(fr)
+}
+
+
+>G
+; reset udp timer
+udpt=180
+
+>S
+if year<2020
+then
+	; time not set
+	break
+endif
+
+; reset change flags
+=#res_chg
+
+; set global variables, divide udp load in time
+res=0
+switch ucnt
+	case 0	
+		auto=sml[9]
+		wrga=0-sml[20]
+	case 1
+		wrgh=0-sml[21]
+		sedt=sml[36]
+	case 2
+		sedc=sml[37]
+		atmp=sml[26]
+	case 3
+		scol=sml[33]
+		ssp=sml[34]
+	case 4
+		t_ws=sml[1]
+		res=sml[2]
+	case 5
+		t_wb=sml[12]
+		t_ga=sml[23]
+	case 6
+		t_gh=sml[24]
+		t_gg=sml[25]
+	case 7
+		zwzi=sml[39]
+		zwzo=sml[40]
+	case 8
+		zwzc=sml[41]
+		wrgg=0-sml[22]
+	case 9
+		klima=sml[10]
+		pwp=sml[11]
+		t_kpwp=sml[13]
+	case 10
+		ucnt=-1
+ends
+if res>0 {
+	t_gs=res
+}
+ucnt+=1
+
+if udpt==0
+then
+	; udp timeout, reset udp
+	gvr
+	udpt=180
+	=#log("udp error")
+endif
+
+; every 15 Minutes
+m15=int(hours*60+mins/15+1)
+if chg[m15]>0
+then
+	print 15 min save
+	=#savlog("/energy_15_log.txt" 3)
+	=#gfsiz
+	=#getdb
+	;=#savlog("/m0123_log.txt" 3)
+	str="/DAYS/"+st(tstamp T 1)+".txt"
+	;=#savlog(str 3)
+	tf="/ufs"+str
+	
+endif
+
+; at midnight
+wd=day
+if chg[wd]>0
+then
+	print midnight
+	if hours==0
+	then
+		print midnight save 
+		=#savlog("/energy_m_log.txt" 3)
+		=#gfsiz
+		=#getdb
+	endif
+	if wday==1
+	then
+		; email every week
+		=#log("sending email")
+		;=>sendmail [*:*:*:*:*:mrx@gmail.com:Wochenbericht]*
+	endif
+endif
+
+
+>m
+Energiebericht (Woche) vom %cts(tstamp 1)%
+<br>
+; attach files
+@/energy_15_log.txt
+@/energy_m_log.txt
+
+
+#log(str)
+fr=fo("/log.txt" a)
+if fr>=0 {
+	res=fw(cts(tstamp 1) fr)
+	str="\t"+str+"\n"
+	res=fw(str fr)
+	fc(fr)
+}
+
+; set vars for storage
+#setvars
+
+sres[0]=0
+;sres={sml[12] sml[23] sml[24] sml[25] sml[26] sml[28] sml[29] sml[30] sml[33] sml[34] sml[36] sml[39] sml[40]}
+;sres={sml[1] sml[2] pwl sip sop bip hip rper klima pwp t_kpwp}
+
+; auto
+sres[1]=sml[12]
+; solar 1,2,3
+sres[2]=sml[23]
+sres[3]=sml[24]
+sres[4]=sml[25]
+	
+; ebus
+; Aussentemperatur
+sres[5]=sml[26]
+;Warmwasser
+sres[6]=sml[28]
+;Boiler
+sres[7]=sml[29]
+; Rücklauf
+sres[8]=sml[30]
+; Solarkollektor
+sres[9]=sml[33]
+; Solarspeicher
+sres[10]=sml[34]	
+
+; solar dach obis
+sres[11]=sml[36]
+
+; Zweirichtungszähler in,out
+;sres[12]=zwzi
+;sres[13]=zwzo
+sres[12]=sml[39]
+sres[13]=sml[40]
+
+; Wasser
+sres[14]=sml[1]
+
+; Gas
+sres[15]=t_gs
+
+; powerwall
+sres[16]=pwl
+sres[17]=sip
+sres[18]=sop
+sres[19]=bip
+sres[20]=hip
+sres[21]=rper
+
+sres[22]=-klima
+sres[23]=-pwp
+sres[24]=t_kpwp
+sres[25]=bwwp
+
+; get log file size
+#gfsiz
+fr=fo("/energy_15_log.txt"  r)
+if fr>=0 {
+	fsiz=fz(fr)/1000
+	fc(fr)
+}
+
+; save log
+#savlog(fnam rs)
+res=fx(fnam)
+if res==0
+then
+	print write header
+	fr=fo(fnam w)
+	if fr>=0
+	then
+		res=fw("TSTAMP\tWB\tWR1\tWR2\tWR3\tATMP_a\t" fr)
+		res=fw("WWTMP_a\tBTMP_a\tRTMP_a\tSKTMP_a\tSSTMP_a\t" fr)
+		res=fw("SD\tZWZI\tZWZO\tH20\tGAS\t" fr)
+		res=fw("PWL_a\tSIP_a\tSOP_a\tBIP_a\tHIP_a\t" fr)
+		res=fw("<KLI_a\tPWP_a\tWP_t\tBWWP_t\n" fr)
+		fc(fr)
+	endif
+endif
+
+; get variables
+=#setvars
+
+; write meter data
+fr=fo(fnam a)
+if fr>=0
+then
+	print write data
+	res=fw(cts(tstamp 1) fr)
+	res=fw("\t" fr)
+	
+	dp(0 rs)
+	fwa(sres fr)
+	fc(fr)
+else
+	print file error: %fr%
+	gerr=1
+endif
+dp2
+
+; define 6 meters
+; pins 17,18,19,23 used for SD card
+; water = 26
+; gas as obis with esp32 = 25
+; modbus = 27,14 SDM 630 and SDM 530
+; ebus = 32
+; obis = 33
+; beep = 32
+; sml = -5
+>M 6
++1,26,c,1,-50,H20
+;+2,25,c,1,-50,GAS
++2,25,o,0,9600,GAS
++3,27,m,0,9600,*,14,2,01040000,01040002,01040004,01040006,01040008,0104000a,
+0104000c,0104000e,01040010,01040048,0104004a,
+02040000,02040002,02040004,02040006,02040008,0204000a,
+0204000c,0204000e,02040010,02040166,02040168,0204016a
+
++4,-32,e,0,2400,EBUS
++5,-33,o,16,9600,OBIS
++6,5,s,16,9600,SML
+
+; water
+1,1-0:1.8.0*255(@100,*,cbm,Count,2
+; gas
+2,1-0:1.8.0*255(@100,*,cbm,Count,2
+
+; sdm530 sml=3, wallbox
+%ms%i0:%ds%
+%ms%i1:%ds%
+%ms%i2:%ds%
+
+%ms%i3:%ds%
+%ms%i4:%ds%
+%ms%i5:%ds%
+
+%ms%i6:%ds%
+%ms%i7:%ds%
+%ms%i8:%ds%
+
+%ms%i9:%ds%
+%ms%i10:%ds%
+
+; sdm630, 3 solar inverters
+%m2s%i11:%ds%
+%m2s%i12:%ds%
+%m2s%i13:%ds%
+
+%m2s%i14:%ds%
+%m2s%i15:%ds%
+%m2s%i16:%ds%
+
+%m2s%i17:%ds%
+%m2s%i18:%ds%
+%m2s%i19:%ds%
+
+; total energy
+%m2s%i20:%ds%
+%m2s%i21:%ds%
+%m2s%i22:%ds%
+
+; sml = 26, ebus wolff heater + solor water
+;4,=h<hr>{m}<hr>
+4,f1fe0503xxxxxxxxxxxxxxxxss@1,*,C,Outsidetemp,1
+4,xxxx5014xxxxxxxxxxuu@1,*,C,Roomtemp,1
+4,f1fe0503xxxxxxxxxxxxxxuu@1,*,C,Warmwater,1
+4,f1fe0503xxxxxxxxxxuu@2,*,C,Boiler,1
+4,03fe0503xxxxxxxxxxxxuu@1,*,C,Returns,1
+4,03fe0503xxxxuu@1,*,,Status,0
+4,03fe0503xxxxxxuu@b3:1,*,,Burner,0
+
+4,xxxx5017xxxxxxssSS@16,*,C,Collector,1
+4,xxxx5017xxxxxxxxxxssSS@16,*,C,Solarstorage,1
+4,xxxx5017xxuu@b0:1,*,,Solarpump,0
+;4,=h<hr>{m}<hr>
+
+; sml = 36, roof solar inverter OBIS
+5,1-0:2.8.1*255(@1,*,KWh,Total_out,4
+5,=d 36 10 @1,*,W,Power_curr,0
+5,1-0:0.0.0*255(@#),*,,Meter_number,0
+;5,=h<hr>{m}<hr>
+
+; sml = 39, house 2 way meter SML
+6,77070100010800ff@1000,*,KWh,Total_in,4
+6,77070100020800ff@1000,*,KWh,Total_out,4
+6,77070100100700ff@1,*,W,Power_curr,0
+6,77070100000009ff@#,*,,Meter_number,0
+;6,=h<hr>{m}<hr>
+
+#
+
+#wsub
+; webmode 0 refreshes every 3 seconds
+if wm==0 {
+	; show date and time
+	wcs {s}<center><h1 style="color:green;font-size:40px;">%2.0hours%:%2.0mins%:%2.0secs%</h1>{m}%is[wday]% %0day% - %is1[month]% <br>%0year%{e}
+}
+
+; html header
+#head(hdr)
+if wm==0 {
+	wcs {s}<hr>{m}<hr>{e}
+	str="{s}<span style='color:magenta;'>"
+	wcs %str%
+	str=hdr+"</span>{e}"
+	wcs %str%
+}
+
+>W
+%=#wsub
+%=#head("Wasser")
+Zählerstand%hs4%%2sml[1]% &#13221;%hs5%
+
+%=#head("Gas")
+Zählerstand%hs4%%2t_gs% &#13221;%hs5%
+
+%=#head("Heizung")
+; sml = 26, ebus wolff heater + solor water
+Außentemperatur%hs4%%1sml[26]% ℃%hs5%
+Raumtemperatur%hs4%%1sml[27]% ℃%hs5%
+Warmwasser%hs4%%1sml[28]% ℃%hs5%
+Heizkessel%hs4%%1sml[29]% ℃%hs5%
+Rücklauf%hs4%%1sml[30]% ℃%hs5%
+Status%hs4%%0sml[31]%%hs5%
+Brenner%hs4%%0sml[32]%%hs5%
+
+%=#head("Solarthermie")
+Solarkollektor%hs4%%1sml[33]% ℃%hs5%
+Solarspeicher%hs4%%1sml[34]% ℃%hs5%
+Solarpumpe%hs4%%0sml[35]%%hs5%
+
+%=#head("Haupt Hauszähler")
+; sml = 40, house 2 way meter SML
+;Verbrauch%hs4%%4zwzi% KWh%hs5%
+;Einspeisung%hs4%%4zwzo% KWh%hs5%
+;aktueller Verbrauch%hs4%%0zwzc% W%hs5%
+
+Verbrauch%hs4%%4sml[39]% KWh%hs5%
+Einspeisung%hs4%%4sml[40]% KWh%hs5%
+aktueller Verbrauch%hs4%%0sml[41]% W%hs5%
+
+ID-Nr%hs4%%smls[6]%%hs5%
+
+%=#head("Wallbox")
+aktuell%hs4%%0sml[3]% V / %1sml[6]% A / %3sml[9]% W%hs5%
+Total%hs4%%3sml[12]% kWh%hs5%
+
+%=#head("Klimaanlage")
+aktuell%hs4%%0sml[4]% V / %1sml[7]% A / %3(-sml[10])% W%hs5%
+Total%hs4%%3sml[13]% kWh%hs5%
+
+%=#head("Poolwärmepumpe")
+aktuell%hs4%%0sml[5]% V / %1sml[8]% A / %3(-sml[11])% W%hs5%
+;Total%hs4%%0sml[12]% kWh%hs5%
+
+%=#head("Solar Hausdach")
+; sml = 36, roof solar inverter OBIS
+aktuell%hs4%%0sml[37]% W%hs5%
+Total%hs4%%3sml[36]% KWh%hs5%
+ID-Nr%hs4%%smls[5]%%hs5%
+
+%=#head("Solar Garage")
+aktuell%hs4%%0sml[14]% V / %1sml[17]% A / %0sml[20]% W%hs5%
+Total%hs4%%3sml[23]% kWh%hs5%
+
+%=#head("Solar Gartenhaus")
+aktuell%hs4%%0sml[15]% V / %1sml[18]% A / %0sml[21]% W%hs5%
+Total%hs4%%3sml[24]% kWh%hs5%
+
+%=#head("Solar Garten")
+aktuell%hs4%%0sml[16]% V / %1sml[19]% A / %0sml[22]% W%hs5%
+Total%hs4%%3sml[25]% kWh%hs5%
+
+%=#head("Powerwall")
+Batterie Füllstand%hs1%yellow;'>%pwl% %% (%2(pwl/100*13.5)% kWh)%hs5%
+Netz%hs1%yellow;'>%sip% W %hs5%
+Solar%hs1%green;'>%sop% W %hs5%
+Batterie%hs1%%bc%;'>%bip% W %hs5%
+Haus%hs1%red;'>%hip% W %hs5%
+%=#head("Logfile")
+; show log time span and size
+Log vom{m}%min%
+Log bis{m}%max%
+Log Size%hs4%%3fsiz% kB%hs5%
+%=#head("System")
+Filesystem frei%hs4%%3(fsi(1)/1000)% MB%hs5%
+System Heap%hs4%%0(heap/1000)% kB%hs5%
+<hr>{m}<hr>
+; download links for logfiles
+$<a href="/ufs/energy_m_log.txt">Tages Log</a><br>
+$<hr>
+$<a href="/ufs/log.txt">Event Log</a><br>
+$<hr>

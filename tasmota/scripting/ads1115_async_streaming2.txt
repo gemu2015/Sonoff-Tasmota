@@ -1,0 +1,135 @@
+>D 64
+; async streaming example
+SB=2560:1535
+IP=192.168.188.26
+;IP=192.168.188.61
+m:array=0 4
+im="cubicInterpolationMode: 'monotone',"
+;im=""
+; total display seconds
+ts=20000
+cnt=0
+
+str=""
+>B
+->websensor12 0
+
+>T
+; you may offset and scale channels here as needed
+array[1]=ADS1115#A0
+array[2]=ADS1115#A1
+array[3]=ADS1115#A2
+array[4]=ADS1115#A3
+
+#wsub
+if wm==0 {
+for cnt 1 array[-1] 1
+	str="channel "+s(0cnt)
+	wcs {s}<span style='color:white'>%str%{m}<span style='color:white'>%array[cnt]% V{e}
+next
+} else {
+for cnt 1 array[-1] 1
+	str="chart"+s(0cnt)
+	wcs <div><canvas id='%str%' style='width:640px;height:200px;'> </canvas></div>
+next
+
+
+#jsub
+for cnt 1 array[-1] 1
+	str="chart"+s(0cnt)
+	wcs lchart1('%str%', %0cnt%);
+next
+
+
+>W
+
+so(8)
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.3.2"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@1.27.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.0.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-streaming@2.0.0"></script>
+
+%=#wsub
+
+<script>
+Chart.register(ChartStreaming);
+var array=[1,2,3,4];
+
+function refresh() {
+fetch('/cm?cmnd=script?array')
+.then(response => response.json())
+.then(data => {
+const pl=data['script'];
+array=pl['array'];
+});
+};
+
+setInterval(refresh, 1000);
+
+%=#jsub
+
+function lchart1(id, chan) {
+const bgcolor={
+id: 'custom_canvas_background_color',
+beforeDraw:(chart) => {
+const ctx = chart.canvas.getContext('2d');
+ctx.save();
+ctx.globalCompositeOperation = 'destination-over';
+ctx.fillStyle = 'lightgrey';
+ctx.fillRect(0, 0, chart.width, chart.height);
+ctx.restore();
+ }
+};
+
+const config={
+type:'line',
+plugins:[bgcolor],
+data: {
+datasets: [
+{
+label:'channel '+chan,
+backgroundColor:'Green',
+borderColor:'Green',
+%im%
+fill:false,
+data:[]
+}
+]
+},
+options:{
+scales:{
+x:{
+type:'realtime',
+realtime:{
+delay:2000,
+duration:%0ts%,
+frameRate:30,
+refresh:1000, 
+pause:false,
+onRefresh: chart => {
+chart.data.datasets.forEach(dataset => {
+dataset.data.push({x:Date.now(),y:array[chan-1]});
+});
+chart.update('quiet');
+}
+}
+}
+}
+}
+};
+
+config.options.plugins={
+annotation:false,
+datalabels:false,
+zoom:false
+};
+
+const myChart=new Chart(
+document.getElementById(id), 
+config
+);
+
+};
+</script>
+

@@ -1,0 +1,475 @@
+>D
+IP=192.168.188.106
+SB=6200:4096
+
+; defines used for this script 
+;#define USE_TIMERS
+;#define USE_SCRIPT_GLOBVARS
+;#define USE_GOOGLE_CHARTS
+;#define LARGE_ARRAYS
+;#define USE_HTML_CALLBACK
+;#define USE_SCRIPT_WEB_DISPLAY
+;#define USE_SCRIPT_JSON_EXPORT
+;#define SCRIPT_FULL_WEBPAGE
+;#define MAX_GARRAY 7
+;#define MAXFILT 25
+;#define EEP_SCRIPT_SIZE 6200
+
+; use this only for 1M ESP8266
+;#define USE_EEPROM
+
+
+; permanent arrays for 8 timers (up to 10)
+; 1. array determines number of channels
+p:m:en=0 8
+p:m:m1=0 10
+p:m:m2=0 10
+p:m:t1=0 10
+p:m:t2=0 10
+p:m:o1=0 10
+p:m:o2=0 10
+p:m:rn=0 10
+p:m:dy=0 70
+p:enable=0
+p:m:rel=0 10
+
+m:from=0 10
+m:to=0 10
+
+m:so=0 10
+m:mo=0 10
+m:di=0 10
+m:mi=0 10
+m:do=0 10
+m:fr=0 10
+m:sa=0 10
+
+ind=0
+cnt=0
+res=0
+tmp=0
+c1=0
+c2=0
+tag=0
+ft=0
+tt=0
+ft=1
+tdis=0
+min=0
+pw=0
+lpw=0
+hr=0
+ltime=0
+wd=0
+r1=0
+t5=0
+p1=0
+rdw=0
+; range for offsets and random
+ra=15
+; number of relays
+nr=1
+ps=""
+s1=""
+s2=""
+s3="<span style='color:"
+cl1=""
+once=0
+
+>B
+; months
+res=is1(0 "Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|")
+
+; weekdays
+res=is(0 "Su|Mo|Tu|We|Th|Fr|Sa|")
+
+nr=npwr
+
+
+; script >=#reset
+; reset permanent storage to default
+#reset
+for c1 1 en[-1] 1
+	en[c1]=0
+	m1[c1]=1
+	m2[c1]=1
+	t1[c1]=800
+	t2[c1]=900
+	o1[c1]=0
+	o2[c1]=0
+	rn[c1]=0
+	rel[c1]=1
+	dy[c1-1*7+1]=1
+next
+
+enable=0
+print reset to default
+svars
+
+
+#eval
+for c1 0 10 1
+mo[c1]=0
+di[c1]=0
+mi[c1]=0
+do[c1]=0
+fr[c1]=0
+sa[c1]=0
+so[c1]=0
+next
+
+for c1 1 en[-1] 1
+	if en[c1]>0 {
+		;print %m1[c1]% %t1[c1]% %o1[c1]% %rn[c1]%
+		;print %m2[c1]% %t2[c1]% %o2[c1]% %rn[c1]%
+		tmp=rn[c1]
+		r1=rnd(tmp)-(tmp/2)
+
+		tmp=m1[c1]
+		if tmp<1
+		or tmp>3 {
+			tmp=1
+		}
+		m1[c1]=tmp
+		switch tmp
+			case 1
+				=#t2n(t1[c1])
+			case 2
+				res=sunrise+o1[c1]
+			case 3
+				res=sunset+o1[c1]
+		ends
+		
+		from[c1]=res+r1
+
+		tmp=m2[c1]
+		if tmp<1
+		or tmp>3 {
+			tmp=1
+		}
+		m2[c1]=tmp
+		switch tmp
+			case 1
+				=#t2n(t2[c1])
+			case 2
+				res=sunrise+o2[c1]
+			case 3
+				res=sunset+o2[c1]
+		ends
+		
+		
+		;print %0c1% - %res%
+		tmp=rel[c1]
+		if tmp==0
+		or tmp>nr {
+			tmp=1
+		}
+		rel[c1]=tmp
+		
+		to[c1]=res+r1
+		tmp=c1-1*7
+		=#sgc(tmp from[c1] to[c1])
+	}
+next
+
+; from time to minutes
+#t2n(p1)
+res=int(p1/100)*60
+res+=p1%100
+
+
+; from minutes to time
+#n2t(p1)
+res=int(p1/60)*100
+res+=p1%60
+
+; set array for google timeline
+#sgc(tmp ft tt)
+
+;print %ft% %tt%
+
+if dy[tmp+1]>0 {
+	mo=ft
+	mo=tt
+}
+if dy[tmp+2]>0 {
+	di=ft
+	di=tt
+}
+if dy[tmp+3]>0 {
+	mi=ft
+	mi=tt
+}
+if dy[tmp+4]>0 {
+	do=ft
+	do=tt
+}
+if dy[tmp+5]>0 {
+	fr=ft
+	fr=tt
+}
+if dy[tmp+6]>0 {
+	sa=ft
+	sa=tt
+}
+if dy[tmp+7]>0 {
+	so=ft
+	so=tt
+}
+
+
+#tsub
+if wm==119
+then
+	wcs so(7)
+	wcf
+	wcs  <div style="background:#C0C0C0; width:700px; margin:0px; height:%0(en[-1]*90+90)%px;">
+	wcs <div style="text-align:center; font-size:30px">timer setup</div><br>
+	s1=s(2.0int(sunrise/60))+":"+s(2.0sunrise%60)
+	s2=s(2.0int(sunset/60))+":"+s(2.0sunset%60)
+	res=sunset-sunrise
+	ps=s(2.0int(res/60))+":"+s(2.0res%60)
+	wcs <div style="text-align:center; font-size:20px">%s1% <--- %ps% ---> %s2%</div><br>
+	
+	ind=0
+	dp(0 0)
+	for cnt 1 en[-1] 1
+		wcs <div>
+		wcs <style>label { color: black; } label span { color: blue; }</style>&nbsp;
+		wcs ck(en[%0cnt%] "timer %0cnt% ")
+	
+		wcs pd(m1[%0cnt%] " --- " 60 "&#9200;" "&#128262; &#8593;" "&#128262; &#8595;" )
+		if m1[cnt]==1 {
+			wcs tm(t1[%0cnt%] " - ")
+		} else {
+			wcs nm(-ra ra 1 o1[%0cnt%] " + " 50 0)
+		}
+		wcs pd(m2[%0cnt%]  " --- " 60 "&#9200;" "&#128262; &#8593;" "&#128262;  &#8595;" )
+		if m2[cnt]==1 {
+			wcs tm(t2[%0cnt%]  " - ")
+		} else {
+			wcs nm(-ra ra 1 o2[%0cnt%]  " + " 50 0)
+		}
+	
+		wcs nm(0 ra 1 rn[%0cnt%]  " ± rnd " 50 0)
+	
+		if nr>1 {
+			wcs pd(rel[%0cnt%] " R " 50 "#1-%0nr%")
+		}
+	
+		wcs <div><br><center>
+		wcs ck(dy[%0(ind+1)%] "Mo ")
+		wcs ck(dy[%0(ind+2)%] "Tu ")
+		wcs ck(dy[%0(ind+3)%] "We ")
+		wcs ck(dy[%0(ind+4)%] "Tu ")
+		wcs ck(dy[%0(ind+5)%] "Fr ")
+		wcs ck(dy[%0(ind+6)%] "Sa ")
+		wcs ck(dy[%0(ind+7)%] "Su ")
+		wcs </div>
+		ind+=7
+		wcs </div><hr>
+	next
+	
+	wcs </div>
+	wcf
+endif
+
+
+>P
+; this is executed on manual power set and disables current interval
+tdis=1
+
+>S
+if year<2022 {
+	break
+}
+
+if once==0 {
+	once=1
+	=#eval
+}
+
+
+;every minute
+min=mins
+if chg[min]>0 {
+	;check times
+	pw=0
+	for c1 1 en[-1] 1
+		if en[c1]>0 {
+			ft=from[c1]
+			tt=to[c1]
+			=#gday(c1-1*7)
+			if  res>0
+			and time>=ft
+			and time<tt {
+				; match
+				pw|=1<<(rel[c1]-1)
+			}
+		}
+	next
+
+	;check if power has changed
+	lpw=pw
+	if chg[lpw]>0 {
+		;disable manual change
+		tdis=0
+	}
+
+	; set power
+	if enable>0
+	and tdis==0 {
+		tmp=1
+		for c1 1 nr 1
+			if pw&tmp>0 {
+				// on
+				if pwr[c1]==0 {
+					=>power%0c1% 1
+				}
+			} else {
+				// off
+				if pwr[c1]>0 {
+					=>power%0c1% 0
+				}
+			}
+			tmp*=2
+		next
+	}
+	
+	; at midnight recalculate
+	hr=hours
+	if chg[hr]>0
+	and hr==0 {
+		=#eval
+	}
+}
+
+if chg[enable]>0 {
+	svars
+}
+
+>E
+print event
+
+>C
+print html callback
+=#eval
+svars
+rdw=1
+
+#wsub
+; only in webmode 0
+if wm==0 {
+	wcf
+	; show time, weekday and date
+	wcs {s}<center><h1 style="color:green;font-size:40px;">%2.0hours%:%2.0mins%:%2.0secs%</h1>{m}%s3%red;'>%is[wday]% %0.0day% - %is1[month]% <br>%0year%{e}
+	dp(2 0)
+	ps=s(int(sunrise/60))+":"+s(sunrise%60)
+	wcs {s}%s3%#FFD700;'>sunrise:{m}%s3%#FFD700;'>%ps%{e}
+	ps=s(int(sunset/60))+":"+s(sunset%60)
+	wcs {s}%s3%#FFD700;'>sunset:{m}%s3%#FFD700;'>%ps%{e}
+	wcs {s}%s3%#66ccff;'>Temperatur: {m} %s3%#66ccff;'>%1fu% °C {e}
+	wcs {s}<hr>{m}<hr>{e}
+	dp(2)
+	
+	wcs {s}%s3%Silver;'>timerlist:<hr>{e}
+	; show timerlist
+	for c1 1 en[-1] 1
+		if en[c1]>0 {
+			wcs {s}%s3%yellow;'>%2.0(c1)% :&nbsp;
+			ft=from[c1]
+			if m1[c1]==1 {
+				cl1="green"
+			} else {
+				cl1="#FFD700"
+			}
+			wcs %s3%%cl1%;'>%2.0(int(ft/60))%:%2.0(ft%60)%
+			tt=to[c1]
+			if m2[c1]==1 {
+				cl1="green"
+			} else {
+				cl1="#FFD700"
+			}
+			wcs %s3%yellow;'> -&nbsp;
+			wcs %s3%%cl1%;'>%2.0(int(tt/60))%:%2.0(tt%60)%
+			
+			if nr>1 {
+				wcs %s3%magenta;'> R %0.0rel[c1]%</span> 
+			}
+			
+			wcs %s3%cyan;'>
+			tmp=c1-1*7
+			if dy[tmp+1]>0 {
+				wcs &nbsp;%is[2]%&nbsp;
+			}
+			if dy[tmp+2]>0 {
+				wcs &nbsp;%is[3]%&nbsp;
+			}
+			if dy[tmp+3]>0 {
+				wcs &nbsp;%is[4]%&nbsp;
+			}
+			if dy[tmp+4]>0 {
+				wcs &nbsp;%is[5]%&nbsp;
+			}
+			if dy[tmp+5]>0 {
+				wcs &nbsp;%is[6]%&nbsp;
+			}
+			if dy[tmp+6]>0 {
+				wcs &nbsp;%is[7]%&nbsp;
+			}
+			if dy[tmp+7]>0 {
+				wcs &nbsp;%is[1]%&nbsp;
+			}
+			
+			wcs </span>
+			=#gday(c1-1*7)
+			if res>0 {
+				wcs  => today{e}
+			} else {
+				wcs {e}
+			}
+		}
+	next
+	wcs {s}<hr>{e}
+	if rdw>0 {
+		; force gc redraw
+		rdw=0
+		wcs <meta http-equiv="refresh" content="1" />
+	}
+	wcf
+}
+
+
+// script => mo = 1
+// wd => so = 1
+#gday(tmp)
+res=0
+wd=wday-1
+if wd<1 {
+	wd=7
+}
+for c2 1 7 1
+	if dy[tmp+c2]>0
+	and wd==c2 {
+		res=1
+	}
+next
+
+
+>W
+; checkbox
+@ck(enable "timers active ")
+@<hr>
+; subroutine to show time and table
+%=#wsub
+$<br>
+$<div id="chart1"style="height:500px;width:fit-content;background-color:grey;'">
+$gc(T mo di mi do fr sa so "Mo|Tu|We|Th|Fr|Sa|Su")
+$</div>
+
+>w timer setup
+%=#tsub
+$<style>button{border:0;border-radius:0.3rem;background:#1fa3ec;color:white;line-height:1.4rem;font-size:1.2rem;width:700px;}</style>
+$<p><form onclick='javascript:history.back();return false;'   method='get' > <button>Hauptmenü</button></form></p>
+
+

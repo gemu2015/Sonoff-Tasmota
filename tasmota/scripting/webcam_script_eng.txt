@@ -1,0 +1,251 @@
+>D 40
+IP=192.168.188.111
+SB=8192
+
+; assumes led flasher defined on pin 4
+
+; hardware pir input pin
+pgpio=3
+res=0
+cnt=0
+tmp=0
+pr=0
+w=0
+h=0
+mot=0
+bri=0
+fnam=""
+date=""
+str=""
+df=0
+; alarm timer, once a minute
+t:timer=60
+mailout=0
+p:limit=0
+p:pir=0
+p:ma=0
+p:spir=0
+p:rpt=0
+p:ufl=0
+p:mtl=0
+
+bs=0
+hr=0
+fr=0
+
+>B
+; initialize cam mit QVGA
+res=wc(0 6)
+; get cam pixel size
+w=wc(3)
+h=wc(4)
+; start motion detector, picture every 1000 ms
+mot=wc(6 1000)
+
+; make picture folder if not there
+res=fx("/PICS")
+if res==0 {
+	fmd("/PICS")
+} 
+
+if limit==0 {
+	limit=1000
+}
+
+; input pin for PIR
+spinm[pgpio P]
+
+
+=#log("booting")
+
+>S
+if wific>0 {
+	; start stream when wifi is on
+	res=wc(5 1)
+}
+
+hr=hours
+if chg[hr]>0
+and hr==0 {
+	; delete old pictures at midnight
+	=#delold
+}
+
+; get motion value
+mot=wc(6 -1)
+
+; get picture brightness
+bri=wc(6 -2)
+
+if ((pir>0) and (pin[pgpio]==0) or ((spir>0) and (mot>limit)) { 
+	if timer==0 {
+		// Alarm, get picture, send email
+		=#log("motion alarm")
+		res=wc(1 1)
+		if ma>0 {
+			=>sendmail [*:*:*:*:*:mrx@gmail.com:Alarm]*
+			mailout=1
+		}
+		timer=60
+	}
+}
+
+; take picture on button press
+if bs>0 {
+	=#s2pic
+	bs=0
+}
+
+; take a picture every rpt seconds
+if rpt>0
+and upsecs%(rpt*60)==0 {
+	if mtl>0 {
+		=#s2mjpg
+	} else {
+		=#s2pic
+	}
+}
+
+if chg[limit]>0
+or chg[rpt]>0
+or chg[pir]>0
+or chg[ma]>0
+or chg[ufl]>0
+or chg[mtl]>0
+or chg[spir]>0 { 
+	svars
+}
+
+
+#log(str)
+fr=fo("/log.txt" a)
+if fr>=0 {
+	res=fw(cts(tstamp 1) fr)
+	str=" - "+str+"\n"
+	res=fw(str fr)
+	fc(fr)
+}
+
+
+#s2pic
+; flash LED on
+if ufl>0 {
+	->power1 1
+	delay(200)
+}
+; save picture to ram buffer
+res=wc(1 1)
+dp2.0
+fnam="/PICS/"+s(day)+"_"+s(month)+"_"+s(year)
+fnam+="-"+s(hours)+"_"+s(mins)+"_"+s(secs)
+fnam+=".jpg"
+res=fo(fnam w)
+if res>=0 {
+	// store in ram 
+	pr=fwp(1 res)
+	fc(res)
+} else {
+	print file io error
+}
+; flash LED off
+if ufl>0 {
+	->power1 0
+}
+
+; save to time lapse mjpg
+; handbrake is able to convert this file to a video stream
+#s2mjpg
+; flash LED on
+if ufl>0 {
+	->power1 1
+	delay(200)
+}
+
+; save picture to ram buffer
+res=wc(1 1)
+fnam="/PICS/tlapse.mjpeg"
+res=fo(fnam a)
+if res>=0 {
+	// append picture
+	pr=fwp(1 res)
+	fc(res)
+} else {
+	print file io error
+}
+
+; flash LED off
+if ufl>0 {
+	->power1 0
+}
+>F
+; delete all pictures
+if df>0 {
+	df=0
+	=#delfolder
+}
+
+; delete all files in folder
+#delfolder
+=#log("delete all pictures")
+pr=fo("/PICS" r)
+for cnt 1 1000 1
+	tmp=fr(fnam pr)
+	if tmp>0 {
+		fd("/PICS"+"/"+fnam)
+	} else {
+		break
+	}
+next
+fc(pr)
+
+#delold
+; delete outdated files 14 days back
+=#log("delete outdated pictures")
+s1=tso(tstamp -14 0)
+s1=st(s1 T 1)
+; 2022-02-22
+date=st(s1 - 3)+"_"+st(s1 - 2)+"_"+st(s1 - 1)
+pr=fo("/PICS" r)
+for cnt 1 1000 1
+	tmp=fr(fnam pr)
+	if tmp>0 {
+		s1=st(fnam - 1)
+		if s1==date {
+			fd("/PICS"+"/"+fnam)
+		}
+	}
+next
+fc(pr)
+
+>m
+Motion alarm camera 1<br>
+; append the picture
+$1
+#
+
+>W
+; show values in WEBUI
+motion difference{m}%0mot%
+brightness{m}%0bri%
+filesystem free{m}%1(fsi(1)/1000000)% GB
+heap free{m}%1(heap/1000)% kB
+
+; no center
+so(1)
+ck(pir "hardware PIR ")
+ck(spir "software motiondetector ")
+nm(50 10000 50 limit "software alarm limit: " 90 0)
+ck(ma "send email on alarm ")
+ck(ufl "use flash LED ")
+nm(0 60 1 rpt "take picture every n minutes: " 90 0)
+ck(mtl "merge into tlapse.mjpeg file ")
+so(0)
+bu(bs  "ok" "take a picture")
+bu(df  "ok" "delete all pictures")
+
+
+; show stream on WEBUI
+$<br>
+$<img src="http://%lip%:81/stream" style="width:%w%px;height:%h%px">
+$<br><br><center>webcam office
+

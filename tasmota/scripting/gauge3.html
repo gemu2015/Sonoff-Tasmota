@@ -1,0 +1,27 @@
+<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+<script type="text/javascript">
+var array=[0,0,0];
+google.charts.load('current', {'packages':['gauge']});
+google.charts.setOnLoadCallback(drawChart);
+function drawChart() {
+var data = google.visualization.arrayToDataTable([['Label', 'Value'],['P1', 0],['P2', 0],['P3', 0]]);
+var options = {
+width: 400, height: 120,
+max:5000,
+redFrom: 4800, redTo: 5000,
+yellowFrom:4500, yellowTo: 4800,
+minorTicks: 5};
+var chart = new google.visualization.Gauge(document.getElementById('chart1'));
+chart.draw(data,options);
+setInterval(refresh,1000);
+function refresh() {
+fetch('/cm?cmnd=script?array')
+.then(response => response.json())
+.then(datax => {
+const pl=datax['script'];
+array=pl['array'];
+data.setValue(0,1,array[0]);
+data.setValue(1,1,array[1]);
+data.setValue(2,1,array[2]);
+chart.draw(data,options);});};}
+</script>

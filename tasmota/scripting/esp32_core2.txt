@@ -1,0 +1,1076 @@
+>D 70
+; core 2
+IP=192.168.188.76
+SB=20000
+
+; ESP32 only
+; defines used
+;#define USE_TELEGRAM
+;#define USE_UFILESYS
+;#define UFSYS_SIZE 20000
+;#define USE_SDCARD
+;#define LARGE_ARRAYS
+;#define SCRIPT_LARGE_VNBUFF
+;#define USE_SCRIPT_GLOBVARS
+;#define USE_SCRIPT_SUB_COMMAND
+;#define MAXFILT 65
+;#define USE_ANGLE_FUNC
+;#define MAXVARS 180
+;#define MAXSVARS 50
+;#undef NUM_GRAPHS
+;#define NUM_GRAPHS 8
+;#define SCRIPT_MAXSSIZE 60
+;#define MAX_GARRAY 20
+;#define MAX_EXT_ARRAYS 30
+;#define SCRIPT_FULL_WEBPAGE
+;#define SCRIPT_GET_HTTPS_JP
+;#define USE_WEBSEND_RESPONSE
+;#define USE_FEXTRACT
+;#define USE_TIMERS
+;#define USE_GOOGLE_CHARTS
+;#define USE_ESP32MAIL
+;#define USE_DISPLAY
+;#define USE_SPI
+;#define USE_UNIVERSAL_DISPLAY
+
+
+
+; global vars
+; total Einspeisung
+g:sedt=0
+; momentane Einspeisung
+g:sedc=0
+; aussentemperatur
+g:atmp=0
+;  solarkollektor
+g:scol=0
+; solar speicher
+g:ssp=0
+; Gartenhaus
+g:wrgh=0
+; Garten
+g:wrgg=0
+; Garage
+g:wrga=0
+; Wallbox
+g:auto=0
+; total werte
+; solar garage
+g:t_ga=0
+; solar gartenhaus
+g:t_gh=0
+; solar garten
+g:t_gg=0
+; wallbox
+g:t_wb=0
+; wasser
+g:t_ws=0
+; gas
+g:t_gs=0
+
+;2 richtungszähler
+g:zwzi=0
+g:zwzo=0
+g:zwzc=0
+
+; powerwall
+; PW
+g:pwl=8
+;Netz
+g:sip=0
+;Solar
+g:sop=0
+;Battery
+g:bip=0
+;Haus
+g:hip=0
+g:tcap=0
+g:rcap=0
+g:rper=0
+
+; umgebungsvariablen
+; wohnzimmer
+g:wtemp=0
+g:whumi=0
+g:wtvoc=0
+g:wco2=0
+
+; schlafzimmer
+g:aztemp=0
+g:azhumi=0
+g:aztvoc=0
+g:azeco2=0
+
+; luftdruck
+g:bpress=0
+g:btemp=0
+g:bhumi=0
+
+; klima
+g:klima=0
+; pwp
+g:pwp=0
+; tpwr
+g:t_kpwp=0
+g:bwwp=0
+
+; tages arays für grafiken alle 15 Minuten
+; wechselrichter
+; Dach
+M:t_wr1=0 96
+; Garage
+M:t_wr2=0 96
+; Gartenhaus
+M:t_wr3=0 96
+; Garten
+M:t_wr4=0 96
+
+; Hausverbrauch
+M:t_hv=0 96
+; Aussentemperatur
+M:t_atmp=0 96
+; Solarspeicher
+M:t_ss=0 96
+; Powerwall
+M:t_pw=0 96
+; Netz
+M:t_ni=0 96
+; Gas
+M:t_gas=0 96
+; Wasser
+M:t_wa=0 96
+
+; wochenverlauf jede Stunde
+; powerwall
+M:w_pwl=0 168
+; solar input
+M:w_sin=0 168
+; solar water
+M:w_swa=0 168
+; hausverbrauch
+M:w_hv=0 168
+; aussentemperatur
+M:w_at=0 168
+; solarkollector
+M:w_sk=0 168
+; wechselrichter
+M:w_wr1=0 168
+M:w_wr2=0 168
+M:w_wr3=0 168
+M:w_wr4=0 168
+; Gas
+M:w_gas=0 168
+; Gas Euros
+M:w_pgas=0 168
+; Wasser
+M:w_wa=0 168
+
+; dummy array
+M:a_du=0 168
+
+; wochentabelle
+; hausverbrauch
+M:wt_hv=0 7
+; solar input
+M:wt_sin1=0 7
+; solar input
+M:wt_sin2=0 7
+; solar input
+M:wt_sin3=0 7
+; solar input
+M:wt_sin4=0 7
+; einspeisung zwz
+M:wt_he=0 7
+; wallbox
+M:wt_wb=0 7
+; wärmepumpen
+M:wt_wp=0 7
+; temp
+M:wt_tmp=0 7
+; gas
+M:wt_gas=0 7
+; gas preis
+M:wt_pgas=0 7
+; wasser
+M:wt_wa=0 7
+
+m:array=0 4
+im="cubicInterpolationMode: 'monotone',"
+
+micrec=0
+p:micgain=0
+p:loud=0
+tmp=0
+res=0
+ps=""
+; udp timeout timer
+t:udpt=30
+hr=0
+fr=0
+str=""
+min="-"
+max="-"
+hdr=""
+tm=""
+fsiz=0
+unit=""
+pr=0
+hs1="{m}<span style='color:"
+bc="yellow"
+hs4="{m}<span style='color:yellow;'>"
+hs5="</span>"
+hs6="$chartArea:{backgroundColor:{fill:'#808080'}},"
+hs7="$backgroundColor: {fill: '#696969'},};"
+hs8="style='width:960px;height:300px;'></div><br>"
+hs9="style='width:960px;height:200px;'></div><br>"
+hs10="style='width:960px;height:800px;'></div><br>"
+lwstr=""
+m15log="192.168.188.21:82/ufs/energy_15_log.txt@"
+tmplog="/copy.txt"
+daylog="/energy_m_log.txt"
+hstr=""
+s1=""
+s2=""
+sx1=""
+sx2=""
+dotask=0
+tim=0
+mn=0
+extra=0
+tmin=""
+tmax=""
+tval=""
+oval=""
+cstr=""
+bu_f=0
+bu_b=0
+cnt=0
+yp=0
+batt=0
+stemp=0
+sens=0
+t:dcnt=30
+but1=0
+but2=0
+but3=0
+d52=52
+
+; global ips
+g:tv2_ip=""
+g:us_ip=""
+g:fs_ip=""
+
+g:wz_ip=""
+g:wzv_ip=""
+g:azh_ip=""
+g:kue_ip=""
+g:flu_ip=""
+
+g:sug_ip=""
+g:gsw_ip=""
+g:nsp_ip=""
+g:gerr=0
+
+alo=5
+
+bflg=0
+tdur=0
+
+xtime=0
+
+dres=0
+dr=0
+src=0
+dst=0
+start=0
+stop=0
+
+once=0
+nd=0
+
+gh="Gartenhaus"
+eb="Energiebilanz"
+
+; gas preis deckel cent
+gpe=7.5
+; strom preis deckel euro
+spe=0.40
+
+>BS
+
+; esp32 temp off
+->setsensor127 0
+
+; Monate
+tmp=is1(0 "Jan|Feb|Mar|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez|")
+; Wochentage
+tmp=is(0 "So|Mo|Di|Mi|Do|Fr|Sa|")
+
+tper=30
+
+; create task to fetch logfiles
+ct(1 10000 1 3 8000)
+
+if micgain<1 {
+	micgain=1
+}
+
+->i2smgain %0micgain%
+
+; startup sound (mac!)
+->i2sgain %0loud%
+pl("/Startup3.mp3")
+
+cstr="cnth"+"0/4"
+
+dt [Bi0D0z]
+
+; fetch 192.168.188.21:82/ufs/energy_15_log.txt@13.12.21-0:00_15.12.21-0:00 - 86 s
+dr=fo("/energy_15_log.txt" r)
+if dr>=0 {
+
+	s1="13.12.21-0:00"
+	s2="15.12.21-0:00"
+	src=fxt(dr s1 s1 -4)
+	dst=fxt(dr s2 s2 -4)
+	fc(dr)
+	print >>>> %src% - %dst%
+}
+
+
+>m
+Energiebericht (Woche) vom %cts(tstamp 1)%
+<br>
+; attach files
+@/energy_m_log.txt
+
+>E
+if sens==1 {
+	stemp=gwr("htemp" -1)
+	sens=0
+}
+
+; task to fetch logfile from data collector
+>t1
+if dotask==1 {
+and wifis>0
+	print start task
+	
+	tim=millis
+	udpt=120
+	
+	dr=fo("/tmp.txt" w)
+	if dr>=0 {
+		dres=frw(dr "192.168.188.61:82/ufs/energy_m_log.txt")
+		fc(dr)
+		str="frw 2 result: "+s(0dres)
+		if dres==200 {
+			fd(daylog)
+			frn("/tmp.txt" daylog)
+		}
+		print %str%
+	} else {
+		str="file 2 error: "+s(0dr)
+		print %str%
+	}
+	
+	tdur=millis-tim/1000
+	print Dauer %0tdur% Sekunden
+	
+	=#gfsiz
+	=#getdb
+
+	print end task
+	dotask=0
+else {
+	print download task idle
+}
+
+; fetch data for one week
+#aload
+if dotask>0 {
+	break
+}
+udpt=120
+print load weeks array
+
+s1=tso(tstamp -7 1)
+s2=tso(tstamp 0 1)
+	
+fr=fo(daylog r)
+if fr>0 {
+	extra=fxto(fr s1 s2 1 -1 wt_wb wt_sin1 wt_sin2 wt_sin3 wt_tmp a_du a_du a_du a_du a_du wt_sin4 wt_hv a_du wt_wa  wt_gas a_du a_du a_du a_du a_du a_du a_du a_du wt_wp)
+	fc(fr)
+}
+hstr="Daten vom "+cts(s1 1)+" - "+cts(s2 1)
+
+tmp=wday-1
+wt_hv[0]=tmp
+wt_wb[0]=tmp
+wt_sin1[0]=tmp
+wt_sin2[0]=tmp
+wt_sin4[0]=tmp
+wt_wa[0]=tmp
+wt_gas[0]=tmp
+wt_wp[0]=tmp
+	
+for cnt 1 wt_gas[-1] 1
+	wt_pgas[cnt]=wt_gas[cnt]*10*gpe/100
+next
+
+=#fetch(s1 7)
+
+fr=fo(tmplog r)
+if fr>=0 {
+	extra=fxt(fr s1 s2 2 -4 w_wr1 w_wr2 w_wr3 w_at a_du a_du a_du w_sk w_swa w_wr4 a_du a_du w_wa w_gas w_pwl  a_du w_sin a_du w_hv)
+	print %s1% - %s2% - %extra%
+	fc(fr)
+}	
+		
+;TSTAMP	WB-WR1-WR2-WR3-ATMP_a-WWTMP_a-BTMP_a-RTMP_a-SKTMP_a-SSTMP_a-SD-ZWZI-ZWZO-H20-GAS-PWL_a-SIP_a-SOP_a-BIP_a-HIP_a
+;
+		
+tmp=wday-1*24+hours
+w_at[0]=tmp
+w_sk[0]=tmp
+w_swa[0]=tmp
+w_pwl[0]=tmp
+w_hv[0]=tmp
+w_sin[0]=tmp
+w_wr1[0]=tmp
+w_wr2[0]=tmp
+w_wr3[0]=tmp
+w_wr4[0]=tmp
+w_wa[0]=tmp
+w_gas[0]=tmp
+		
+for cnt 1 w_wr1[-1] 1
+	w_wr1[cnt]= w_wr1[cnt]*4000
+	w_wr2[cnt]= w_wr2[cnt]*4000
+	w_wr3[cnt]= w_wr3[cnt]*4000
+	w_wr4[cnt]= w_wr4[cnt]*4000
+	; gas price in euros
+	w_pgas[cnt]=w_gas[cnt]*10*gpe/100
+next
+	
+dp(0 3)
+
+; fetch data from energy collector
+#fetch(str nd)
+tim=millis
+dst=fo(tmplog w)
+if nd==2 {
+	sx1=tso(str 0 0)
+	sx2=tso(sx1 nd 0)
+} else {
+	sx1=tso(str 0 1)
+	sx2=tso(sx1 nd 1)
+} 
+sx1=cts(sx1 0x81)
+sx2=cts(sx2 0x81)
+str=m15log+sx1+"_"+sx2
+frw(dst str)
+fc(dst)
+tdur=millis-tim/1000
+print fetch %str% - %0tdur% s
+
+; data for one day
+#get_day(str)
+=#fetch(str 2)
+
+fr=fo(tmplog r)
+if fr>=0 {
+	extra=fxto(fr s1 s2 1 -1 a_du t_wr1 t_wr2 t_wr3 t_atmp a_du a_du a_du a_du t_ss t_wr4 t_ni a_du t_wa t_gas t_pw  a_du a_du a_du t_hv)
+	fc(fr)
+	dp(0 0)
+	hstr="Daten vom "+cts(s1 1)
+	dp(0 3)
+	for cnt 1 t_wr1[-1] 1
+		t_wr1[cnt]*=4000
+		t_wr2[cnt]*=4000
+		t_wr3[cnt]*=4000
+		t_wr4[cnt]*=4000
+		t_ni[cnt]*=4000
+	next
+}
+
+
+
+	
+#gload(str)
+if dotask>0 {
+	break
+}
+udpt=120
+print load daily data
+	
+fr=fo(daylog r)
+if fr>=0 {
+	s1=tso(str 0 0)
+	s2=tso(str 1 0)
+	extra=fxto(fr s1 s2 1 -1 wt_wb wt_sin1 wt_sin2 wt_sin3 wt_tmp a_du a_du a_du a_du a_du wt_sin4 wt_hv a_du wt_wa  wt_gas a_du a_du a_du a_du a_du a_du a_du a_du wt_wp)
+	fc(fr)
+	
+	tmp=0
+	
+	wt_hv[0]=tmp
+	wt_wb[0]=tmp
+	wt_sin1[0]=tmp
+	wt_sin2[0]=tmp
+	wt_sin4[0]=tmp
+	wt_wa[0]=tmp
+	wt_gas[0]=tmp
+	wt_wp[0]=tmp
+	
+	for cnt 1 wt_gas[-1] 1
+		wt_pgas[cnt]=wt_gas[cnt]*10*gpe/100
+	next
+}
+
+	
+
+#getdb
+; extract first and last timestamp
+dr=fo(daylog r)
+if dr>=0 {
+	res=fxt(dr "" "" -2)
+	res=fr(min dr)
+	res=fxt(dr "" "" -1)
+	res=fr(max dr)
+	min=cts(min 1)
+	max=cts(max 1)
+	fc(dr)
+	
+	tmin=cts(min 0)
+	tmax=cts(max 0)
+	tval=tmin
+}
+
+; get log file size
+#gfsiz
+dr=fo(daylog  r)
+if dr>=0 {
+	fsiz=fz(dr)/1000
+	fc(dr)
+}
+
+#caltab
+if wm==0x77 {
+	=#aload
+}
+
+; extract up to 52 last weeks
+#wcaltab
+if wm==0x77 {
+	if dotask>0 {
+		break
+	}
+	udpt=120
+
+	print load weeks array
+	fr=fo(daylog r)
+	if fr>=0 {
+	
+		d52=int(tsn(tmax)-tsn(tmin)/86400)
+		d52=d52-(d52%7)
+		d52/=7
+		if d52>52 {
+			d52=52
+		}
+		tmp=d52*7+1
+		s1=tso(tstamp -tmp 0)
+		s2=tso(tstamp 0 0)
+		
+		lwstr=s(0d52)+" Wochen seit "+cts(s1 1)
+		
+		extra=fxto(fr s1 s2 1 -7 w_pwl w_wr1 w_wr2 w_wr3 a_du a_du a_du a_du a_du a_du w_wr4 w_sin w_swa w_wa w_gas a_du a_du a_du a_du a_du a_du  a_du a_du w_at)
+
+		fc(fr)
+
+		w_wr1[0]=0
+		w_wr2[0]=0
+		w_wr3[0]=0
+		w_wr4[0]=0
+		w_pwl[0]=0
+		w_at[0]=0
+		w_sin[0]=0
+		w_swa[0]=0
+		w_wa[0]=0
+		w_gas[0]=0
+		for cnt 1 w_wr1[-1] 1
+			; gas price in euros
+			w_pgas[cnt]=w_gas[cnt]*10*gpe/100
+		next
+	}
+}
+
+
+#rchk
+if wm==0x77 {
+	if tval!=oval {
+		oval=tval
+		; redraw
+		dp0.3
+		=#gload(tval)
+		=#get_day(tval)
+		wcs <meta http-equiv="refresh" content="1" />
+	}
+}
+
+#wtime
+; nur in webmode 0 (Tabelle in der auch die Sensoren erscheinen)
+if wm==0 {
+	; Uhrzeit, Wochentag und Datum anzeigen
+	wcs {s}<center><h1 style="color:green;font-size:40px;">%2.0hours%:%2.0mins%:%2.0secs%</h1>{m}%is[wday]% %0day%. %is1[month]% <br>%0year%{e}
+	dp(2 0)
+	ps=s(int(sunrise/60))+":"+s(sunrise%60)
+	str=s(int(sunset/60))+":"+s(sunset%60)
+	res=sunset-sunrise
+	tm=s(int(res/60))+":"+s(res%60)
+	wcs {s}<center>&#127774 %ps% <--- %tm% ---> %str% &#127769{e}
+	dp(0 2)
+	;wcs {s}<br><a href="/ufs/energy_15_log.txt">15 Minuten Log</a><br>{e}
+}
+
+; html header
+#head(hdr)
+wcs {s}<hr>{m}<hr>{e}
+str="{s}<span style='color:magenta;'>"
+wcs %str%
+str=hdr+"</span>{e}"
+wcs %str%
+
+; html value
+#val(hdr unit pr tmp)
+dp(0 pr)
+str="{s}"+hdr+"{m}"+s(sml[tmp])+" "+unit
+wcs %str%
+
+#log(str)
+fr=fo("/log.txt" a)
+if fr>=0 {
+	res=fw(cts(tstamp 1) fr)
+	str="\t"+str+"\n"
+	res=fw(str fr)
+	fc(fr)
+}
+
+>G
+; reset udp timer
+udpt=60
+
+>F
+
+if chg[loud]>0 {
+	->i2sgain %loud%
+}
+
+if chg[micrec]>0 {
+	if micrec>0 {
+		=>i2srec /test.mp3
+	} else {
+		=>i2srec
+	}
+}
+
+if chg[micgain]>0 {
+	->i2smgain %0micgain%
+}
+
+>S
+if year<2020 {
+	; time not set
+	break
+}
+
+if once==0 {
+	=#gfsiz
+	=#getdb
+	once=1
+	;print sending email
+	;=>sendmail [*:*:*:*:*:mrx@gmail.com:Wochenbericht]*
+}
+
+if bflg==0 {
+	=#log("boot "+rr())
+	bflg=1
+}
+
+array[1]=sedc
+array[2]=-wrga
+array[3]=-wrgh
+array[4]=-wrgg
+
+
+res=ia2(0x38)
+res=ir(2)
+;print touch %res%
+
+; reset change flags
+;=#res_chg
+
+but1=c2ps(2 1)
+but2=c2ps(2 2)
+but3=c2ps(2 3)
+
+if chg[but1]>0 {
+	pl("/Done.mp3")
+	dcnt=60
+	->power1 1
+}
+
+if chg[but2]>0 {
+	pl("/Glass.mp3")
+}
+
+if chg[but3]>0 {
+	pl("+/doorbell.mp3")
+}
+
+if dcnt==0 {
+	;->power1 0
+	dcnt=-1
+}
+
+; upd timeout
+if udpt==0 {
+	gvr
+	udpt=60
+	=#log("udp error")
+	say("u d p error")
+}
+
+; at full hours
+hr=hours
+if chg[hr]>0 {
+	pl("/Glass.mp3")
+	if hr==3 {
+		dotask=1
+	}
+}
+
+if chg[dotask]>0 
+and dotask==0 {
+	=#log("Dauer: "+s(0tdur))
+}
+
+if upsecs%60==0 {
+	if dotask==0 {
+		sens=1
+		res=http("192.168.188.43" "/aircon/get_sensor_info")
+		print request daikin
+	}
+}
+
+; send telegram message at 13:05
+xtime=time
+if chg[xtime]>0 {
+	if xtime==785 {
+		=>tmsend Solar report: %tstamp% - %0pwl% %0sedc% %0wrga% %0wrgh% %0wrgg% %0atmp%
+	}
+}
+
+; check battery status
+batt=pwl
+if chg[batt]>0
+and batt==100 {
+	say("battery full")
+	pl("/doorbell.mp3")
+}
+
+; date and time
+; blue and red exchanged
+dp2
+if dotask==0 {
+	dt [Ci3f4x5y10T]
+	dt [f4x155y10tS]
+	dt [x0y45h320]
+	dt [x0y90h320]
+}
+
+if upsecs%5==0
+and dotask==0 {
+	dt [f2s1Ci6x5y60p-8]%0atmp% C
+	dt [x140y60p-10]%1pwl% %%
+	
+	dt [Ci5x5y100]Netz:
+	dt [x5y130]Solar:
+	dt [x5y160]Batt:
+	dt [x5y190]Haus:
+	dt [x5y220]Gas:
+	
+	dt [Ci7x150y100p-10]%0sip% W
+	dt [x150y130p-10]%0sop% W
+	dt [x150y160p-10]%0bip% W
+	dt [x150y190p-10]%0hip% W
+	dt [x150y220p-10]%2t_gs%
+}
+
+if upsecs%300==0 {
+	if pwl<3 {
+		; battery low
+		pl("/Done.mp3")
+	}
+	if gerr>0 {
+		; fatal error on energy manager
+		pl("/Classic.mp3")
+	}
+}
+
+>R
+say("shutting down")
+
+
+; set w52 labels
+#slabel(tmp)
+for cnt 1 tmp 1
+	wcs "%cnt%"
+	if cnt<tmp {
+		wcs ,
+	}
+next
+
+
+>WS
+%=#wtime
+
+%=#head("Wasser")
+Zählerstand%hs4%%t_ws% &#13221;%hs5%
+
+%=#head("Gas")
+Zählerstand%hs4%%t_gs% &#13221;%hs5%
+
+%=#head("Solarthermie")
+Außentemperatur%hs4%%1atmp% ℃%hs5%
+Solarkollektor%hs4%%1scol% ℃%hs5%
+Solarspeicher%hs4%%1ssp% ℃%hs5%
+
+%=#head("Haupt Hauszähler")
+Verbrauch%hs4%%4zwzi% KWh%hs5%
+Einspeisung%hs4%%4zwzo% KWh%hs5%
+aktueller Verbrauch%hs4%%0zwzc% W%hs5%
+
+%=#head("Wallbox")
+aktuell%hs4%%0auto% W%hs5%
+Total%hs4%%3t_wb% kWh%hs5%
+
+; individual e car total
+Verbrauch Wallbox seit 23.11.21{m}%3(t_wb-1762.323)% KWh
+Verbrauch Wallbox seit 23.11.21{m}%3(t_wb-1762.323*spe)% Euro
+
+%=#head("Klima-Anlage")
+aktuell%hs4%%0(0-klima)% W%hs5%
+Total%hs4%%3t_kpwp% kWh%hs5%
+
+%=#head("Pool-WP")
+aktuell%hs4%%0(0-pwp)% W%hs5%
+
+; old prices
+; gas cbm*9,9 = kwh  = 4,31 cent kwh
+; strom 31 cent kwh
+; wasser 2,62 Euro cbm
+
+%=#head("Brauchwasser-WP")
+Total%hs4%%0(bwwp)% KWh%hs5%
+
+%=#head("Solar Hausdach, 5.25 KW")
+aktuell%hs4%%0sedc% W%hs5%
+Total%hs4%%3sedt% KWh%hs5%
+
+%=#head("Solar Garage, 2.42/3.45 KW")
+aktuell%hs4%%-wrga% W%hs5%
+Total%hs4%%3t_ga% kWh%hs5%
+
+%=#head("Solar Gartenhaus, 1.96/2.8 KW")
+aktuell%hs4%%-wrgh% W%hs5%
+Total%hs4%%3t_gh% kWh%hs5%
+
+%=#head("Solar Garten, 2.87/4.1 KW")
+aktuell%hs4%%-wrgg% W%hs5%
+Total%hs4%%3t_gg% kWh%hs5%
+
+%=#head("Solar Gesamt, 7.25/10.35 KW")
+aktuell%hs4%%(0-(wrga+wrgh+wrgg))% W%hs5%
+
+
+%=#head("Powerwall")
+Batterie Füllstand%hs1%yellow;'>%pwl% %% (%2(pwl/100*13.5)% kWh)%hs5%
+Netz%hs1%yellow;'>%sip% W %hs5%
+Solar%hs1%green;'>%sop% W %hs5%
+Batterie%hs1%%bc%;'>%bip% W %hs5%
+Haus%hs1%red;'>%hip% W %hs5%
+Gesamt%hs1%yellow;'>%3(tcap/1000)% kWh %hs5%
+Verbleibend%hs1%yellow;'>%3(rcap/1000)% kWh %hs5%
+Rcap%hs1%yellow;'>%rper% %% %hs5%
+
+%=#head("Büro")
+Temperatur%hs4%%btemp% ℃%hs5%
+Feuchte%hs4%%bhumi% %%%hs5%
+Luftdruck%hs4%%bpress% hPa%hs5%
+
+%=#head("Schlafzimmer")
+Temperatur%hs4%%stemp% ℃%hs5%
+
+%=#head("Schlafzimmer G")
+Temperatur%hs4%%aztemp% ℃%hs5%
+Feuchte%hs4%%azhumi% %%%hs5%
+TVOC%hs4%%aztvoc% ppb%hs5%
+eCO2%hs4%%azeco2% ppm%hs5%
+
+%=#head("Wohnzimmer")
+Temperatur%hs4%%wtemp% ℃%hs5%
+Feuchte%hs4%%whumi% %%%hs5%
+TVOC%hs4%%wtvoc% ppb%hs5%
+CO2%hs4%%wco2% ppm%hs5%
+
+; show log time span and size
+%=#head("Logfiles")
+Log vom{m}%min%
+Log bis{m}%max%
+Log Size%hs4%%3fsiz% kB%hs5%
+%=#head("System")
+Filesystem frei%hs4%%3(fsi(1)/1000)% MB%hs5%
+System Heap%hs4%%0(heap/1000)% kB%hs5%
+Touched {m}%wtch(0)%
+Touch x{m}%wtch(1)%
+Touch y{m}%wtch(2)%
+<hr>{m}<hr>
+
+sl(0 100 loud "0" "Lautstärke : %0loud%" "100")
+sl(1 50 micgain "1" "Micro gain : %0micgain%" "50")
+bu(micrec  "Stop audio recording" "Start audio recording")
+
+>WM
+
+<br><center>stream<br><br><audio controls preload="none"><source src="http://%lip%:81/stream.mp3" type="audio/mpeg"></source></audio><br>
+<br><center>test.mp3<br><br><audio controls preload="none"><source src="http://%lip%/ufsd?download=/test.mp3" type="audio/mpeg"></source></audio><br>
+
+; download links for logfiles
+<hr>
+<a href="/ufs/energy_m_log.txt">Tages Log</a><br>
+<hr>
+<a href="/ufs/log.txt">Event Log</a><br>
+<hr>
+<div><canvas id='schart' style='width:640px;height:300px;'> </canvas></div>
+%/stream.js
+
+<p><form action="http://%fs_ip%"  method='get' > <button>Fenster und Thermostate</button></form></p>
+<p><form action="http://%us_ip%"  method='get' > <button>Schadstoffsensoren</button></form></p>
+<p><form action="http://%tv2_ip%"  method='get' > <button>Schlafzimmer G</button></form></p>
+<p><form action="http://192.168.188.99"  method='get' > <button>Growatt Garten</button></form></p>
+
+>w Rolläden
+<div style="text-align:center; font-size:30px">andere Geräte</div>
+<style>button{border:0;border-radius:0.3rem;background:#1fa3ec;color:white;line-height:1.4rem;font-size:1.2rem;width:100%%;-webkit-transition-duration:0.4s;transition-duration:0.4s;cursor:pointer;}</style>
+$<p><form action="http://192.168.188.22"  method='get' > <button>Rolladen Wohnzimmer Veranda</button></form></p>
+$<p><form action="http://192.168.188.29"  method='get' > <button>Rolladen Wohnzimmer vorne</button></form></p>
+$<p><form action="http://192.168.188.35"  method='get' > <button>Rolladen AZ Heidrun</button></form></p>
+$<p><form action="http://192.168.188.40"  method='get' > <button>Rolladen Küche</button></form></p>
+$<p><form action="http://192.168.188.41"  method='get' > <button>Rolladen Flur</button></form></p>
+$<p><form action="http://192.168.188.50"  method='get' > <button>Schaltuhr Garage</button></form></p>
+$<p><form action="http://192.168.188.36"  method='get' > <button>Waschmachine Trockner</button></form></p>
+$<p><form action="http://192.168.188.76"  method='get' > <button>Netstream Power</button></form></p>
+$<p><form onclick='javascript:history.back();return false;'   method='get' > <button>Hauptmenü</button></form></p>
+
+
+>w1 Verlauf letzte Woche
+%=#caltab
+$<body style="background-color:black;">
+$<br><center><input type= 'button' onclick='javascript:history.back();return false;' value='Hauptmenü'><br><br>
+$<div id='chart1'%hs8%
+$gc(ct wt_hv wt_wb wt_sin1 wt_sin2 wt_sin3 wt_sin4 wt_wp "Tag" "Netz" "Wallbox" "Garage" "G-Haus" "Garten" "Dach" "WP" "&So|Mo|Di|Mi|Do|Fr|Sa" "")
+$var options={
+$vAxis:{title:'kWh',viewWindow:{min:0,max:35}},
+$hAxis:{title:'Woche'},
+$title:'Energiebilanz über letze 7 Tage',
+%hs6%
+%hs7%
+$gc(e)
+
+$<div id='chart2'%hs8%
+$gc(lt w_pwl w_swa w_at w_sk "wr" "Powerwall" "Solarspeicher"  "Außentemperatur" "Kollektortemperatur" "&wdh:So|Mo|Di|Mi|Do|Fr|Sa" "" 100 60)
+$var options={
+$series: {0:{targetAxisIndex:0},1:{targetAxisIndex:1},2:{targetAxisIndex:1},3:{targetAxisIndex:1}},
+$vAxes: {0:{title:'Ladung %%',viewWindow:{min:0,max:100}},1:{title:'Grad ℃',viewWindow:{min:0,max:60}}} ,
+$hAxis: {title:'Woche'},
+$title:'Powerwall, Solarwärme - über letze 7 Tage',
+%hs6%
+%hs7%
+$gc(e)
+
+$<div id='chart3'%hs8%
+$gc(lt w_hv w_sin w_wr1 w_wr2 w_wr3 w_wr4 "wr" "Netz" "Solar Input" "Garage" "GHaus" "Garten" "Dach" "&wdh:So|Mo|Di|Mi|Do|Fr|Sa" "" 100 60)
+$var options={
+;$series: {0:{targetAxisIndex:0},1:{targetAxisIndex:1}},
+$vAxis:{title:'W',viewWindow:{min:0,max:8000}},
+;$vAxes: {0:{title:'Ladung %%',viewWindow:{min:0,max:5000}},1:{title:'Grad C',viewWindow:{min:0,max:5000}}} ,
+$hAxis: {title:'Woche'},
+$title:'Netzverbrauch, Solarertrag - über letze 7 Tage',
+%hs6%
+%hs7%
+$gc(e)
+
+$<div id='chart4'%hs8%
+$gc(lt w_gas w_wa "wr" "Gas" "Wasser" "&wdh:So|Mo|Di|Mi|Do|Fr|Sa" "" 100 60)
+$var options={
+$vAxis:{title:'㎥',viewWindow:{min:0,max:0.3}},
+$hAxis: {title:'Woche'},
+$title:'Gas, Wasser - über letze 7 Tage',
+%hs6%
+%hs7%
+$gc(e)
+
+$<div id='chart5'%hs8%
+$gc(t wt_hv wt_wb wt_sin1 wt_sin2 wt_sin3 wt_sin4 wt_gas wt_pgas wt_wa wt_wp "Tag"  "Haus" "Wallbox" "Garage" gh "Garten" "Dach" "Gas" "Gas €" "Wasser" "WP" "&So|Mo|Di|Mi|Do|Fr|Sa" eb)
+
+>w2 Verlauf letzte 52 Wochen
+%=#wcaltab
+$<body style="background-color:black;">
+$<br><center><input type= 'button' onclick='javascript:history.back();return false;' value='Hauptmenü'><br><br>
+$<div id='chart1'%hs9%<br>
+$<div id='chart2'%hs9%
+$<div id='chart3'%hs9%
+$<div id='chart4'%hs9%
+$<div id='chart5'%hs10%
+$gc(cs d52 w_wr1 w_wr2 w_wr3 w_wr4  "Tag" "Garage" "G-Haus" "Garten" "Dach" "&cnt0" lwstr 0 80)
+$gc(cs d52 w_pwl w_at "Tag" "WBox" "Wpumpe" "&cnt0" lwstr 0 30)
+$gc(cs d52 w_sin w_swa "Tag" "Verbrauch" "Einsp" "&cnt0" lwstr 0 30)
+$gc(lf d52 w_gas w_wa "Tag" "Gas" "Wasser" "&cnt0" lwstr 0 15)
+$gc(t d52 w_wr1 w_wr2 w_wr3 w_wr4 w_pwl w_at w_sin w_swa w_gas w_pgas w_wa "Woche"  "Garage" gh "Garten" "Dach" "Wallbox" "WPumpen" "Verbrauch" "Einspeisung"  "Gas" "Gas €" "Wasser" "&cnt0" eb)
+		
+>w3 Tages Grafiken
+$<body style="background-color:#c0c0c0;color:black;">
+$<br><center><input type= 'button' onclick='javascript:history.back();return false;' value='Hauptmenü'><br>
+$<br><center>Datenbank vom %min% bis %max%<br>
+$<br><center>%hstr%<br>
+tx(tval "Tag :" "datetime-local" tmin tmax)
+
+<div><center>
+;<a style="font-size:2vw" href="#">&#8249; </a>
+;<a style="font-size:2vw" href="#"> &#8250;</a>
+;<a style="font-size:2vw" href="#">zurück </a>
+;<a style="font-size:2vw" href="#"> vor</a> 
+</div>
+
+%=#rchk
+$<br><div id="chart1"%hs8%
+$<br><br><div id="chart2"%hs8%
+$<br><div id="chart3"%hs8%
+$<br><div id="chart4"%hs8%
+$<br><div id="chart5"%hs8%
+$<br><div id="chart6"%hs8%
+$<br><div id="chart7"style='width:960px;height:50px;'></div><br>
+$gc(lf t_wr4 t_wr1 t_wr2 t_wr3 "wr" "Dach" "Garage"  "Garten Haus" "Garten" cstr "Photovoltaik - kWh" 0 4000)
+$gc(lf t_ni t_hv "wr" "Netz" "Haus" cstr "Verbrauch - kWh" 0 5000)
+$gc(lf t_pw "wr" "Powerwall" cstr "Powerwall - %%" 0 100)
+$gc(lf t_atmp t_ss  "wr" "Außen Temperatur" "Solar Speicher"  cstr "Solarthermie - ℃" 0 60)
+$gc(lf t_gas t_wa "wr" "Gas" "Wasser" cstr "Gas - Wasser - ㎥" 0 0.3)
+$gc(c 1 wt_hv wt_wb wt_sin1 wt_sin2 wt_sin3 wt_sin4 wt_gas wt_wa wt_wp "Tag"  "Haus" "Wallbox" "Garage" gh "Garten" "Dach" "Gas" "Wasser" "WP" "&Bilanz" eb)
+$gc(t 1 wt_hv wt_wb wt_sin1 wt_sin2 wt_sin3 wt_sin4 wt_gas wt_pgas wt_wa wt_wp "Tag"  "Haus" "Wallbox" "Garage" gh "Garten" "Dach" "Gas" "Gas €" "Wasser" "WP" "&Bilanz" eb)
+
+>w4 chartjs
+%=#wcaltab
+so(8)
+<script src="/ufs/chart.js"></script>
+%/sbar2.js
+#
