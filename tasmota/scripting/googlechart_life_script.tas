@@ -16,28 +16,28 @@ array={120 150 250 300}
 
 >S
 if demo==0 {
-array[1]=phs1
-array[2]=phs2
-array[3]=phs3
-array[4]=zwzc
+	array[1]=phs1
+	array[2]=phs2
+	array[3]=phs3
+	array[4]=zwzc
 } else {
-array[1]+=50
-array[2]+=100
-array[3]+=200
-array[4]+=300
+	array[1]+=50
+	array[2]+=100
+	array[3]+=200
+	array[4]+=300
 
-if array[1]>5000 {
-	array[1]=-5000
-}
-if array[2]>5000 {
-	array[2]=-5000
-}
-if array[3]>5000 {
-	array[3]=-5000
-}
-if array[4]>5000 {
-	array[4]=-5000
-}
+	if array[1]>5000 {
+		array[1]=-5000
+	}
+	if array[2]>5000 {
+		array[2]=-5000
+	}
+	if array[3]>5000 {
+		array[3]=-5000
+	}
+	if array[4]>5000 {
+		array[4]=-5000
+	}
 }
 
 >WS
