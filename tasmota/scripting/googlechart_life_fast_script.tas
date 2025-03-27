@@ -1,0 +1,148 @@
+>D 40
+IP=192.168.188.114
+; shows life google charts (gauge and bar)
+M:array=0 4
+sc=0
+tmp=0
+pt=0
+demo=1
+g:phs1=0
+g:phs2=0
+g:phs3=0
+g:zwzc=0
+
+>B
+array={120 150 250 300}
+
+>F
+if demo==0 {
+	array[1]=phs1
+	array[2]=phs2
+	array[3]=phs3
+	array[4]=zwzc
+} else {
+	array[1]+=50
+	array[2]+=100
+	array[3]+=200
+	array[4]+=300
+
+	if array[1]>5000 {
+		array[1]=-5000
+	}
+	if array[2]>5000 {
+		array[2]=-5000
+	}
+	if array[3]>5000 {
+		array[3]=-5000
+	}
+	if array[4]>5000 {
+		array[4]=-5000
+	}
+}
+
+>WS
+<center>gauge power display
+
+>WM
+<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+<script type="text/javascript">
+var array=[0,0,0,0];
+setInterval(getdata,100);
+function getdata() {
+fetch('/cm?cmnd=script?array')
+.then(response => response.json())
+.then(datax => {
+const pl=datax['script'];
+array=pl['array'];
+})};
+</script>
+
+<div style="margin-left:50px">
+<div id="chart1" style="text-align:center;width:500px;height:200px;padding:0px"></div>
+</div>
+<script type="text/javascript">
+google.charts.load('current', {'packages':['gauge']});
+google.charts.setOnLoadCallback(drawChart1);
+function drawChart1() {
+var data = google.visualization.arrayToDataTable([['Label', 'Value'],['P1', 0],['P2', 0],['P3', 0],['Total',0] ]);
+var formatter = new google.visualization.NumberFormat({suffix: ' W',pattern:'#'});
+var options = {
+width: 400, height: 120,
+min:-5000,
+max:5000,
+redFrom: 0, redTo: 5000,
+greenFrom:-5000, greenTo: 0,
+minorTicks: 5};
+var chart = new google.visualization.Gauge(document.getElementById('chart1'));
+chart.draw(data,options);
+formatter.format(data,1);
+setInterval(refresh1,100);
+function refresh1() {
+data.setValue(0,1,array[0]);
+data.setValue(1,1,array[1]);
+data.setValue(2,1,array[2]);
+data.setValue(3,1,array[3]);
+formatter.format(data,1);
+chart.draw(data,options);
+};};
+</script>
+
+
+<div style="margin-left:50px">
+<div id="chart2" style="text-align:center;width:500px;height:250px;padding:0px"></div>
+</div>
+<script type="text/javascript">
+google.charts.load('current', {'packages':['corechart']});
+google.charts.setOnLoadCallback(drawChart);
+function drawChart() {
+var data = google.visualization.arrayToDataTable([['Label', 'Value'],['P1', 0],['P2', 0],['P3', 0],['Total',0]]);
+var options = {
+title: 'mains power',
+vAxis: {format:'# W'},
+width: 450, height: 200,
+min:-5000,
+max:5000,
+legend: { position: "none" },
+minorTicks: 5};
+var chart = new google.visualization.ColumnChart(document.getElementById('chart2'));
+chart.draw(data,options);
+setInterval(refresh,100);
+function refresh() {
+data.setValue(0,1,array[0]);
+data.setValue(1,1,array[1]);
+data.setValue(2,1,array[2]);
+data.setValue(3,1,array[3]);
+chart.draw(data,options);
+};};
+</script>
+
+<div style="margin-left:50px">
+<div id="chart3" style="text-align:center;width:500px;height:250px;padding:0px"></div>
+</div>
+<script type="text/javascript">
+google.charts.load('current', {'packages':['corechart']});
+google.charts.setOnLoadCallback(drawChart);
+function drawChart() {
+var data = google.visualization.arrayToDataTable([['Label', 'Value'],['P1', 0],['P2', 0],['P3', 0],['Total',0]]);
+var options = {
+title: 'mains power',
+vAxis: {format:'# W'},
+width: 450, height: 200,
+min:-5000,
+max:5000,
+legend: { position: "none" },
+minorTicks: 5};
+var chart = new google.visualization.LineChart(document.getElementById('chart3'));
+chart.draw(data,options);
+setInterval(refresh,100);
+function refresh() {
+data.setValue(0,1,array[0]);
+data.setValue(1,1,array[1]);
+data.setValue(2,1,array[2]);
+data.setValue(3,1,array[3]);
+chart.draw(data,options);
+};};
+</script>
+
+#
+

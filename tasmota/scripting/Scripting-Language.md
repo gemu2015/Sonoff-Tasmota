@@ -2305,6 +2305,7 @@ When Alexa sends on/off, dimmer, and color (via hsb), send commands to a MagicHo
 
 ### Alexa Controlled MCP230xx I^2^C GPIO Expander
 
+```
 Uses Tasmota's Hue Emulation capabilities for Alexa interface
 
     ; define vars
@@ -2363,6 +2364,8 @@ Uses Tasmota's Hue Emulation capabilities for Alexa interface
     ; web interface
     >W
     bu(p1 "p1 on" "p1 off")bu(p2 "p2 on" "p2 off")bu(p3 "p3 on" "p3 off")bu(p4 "p4 on" "p4 off")
+
+```
 
 ### Retrieve network gateway IP Address
 
