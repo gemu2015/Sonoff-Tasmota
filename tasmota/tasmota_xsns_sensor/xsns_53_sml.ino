@@ -1442,14 +1442,31 @@ uint8_t ebus_CalculateCRC( uint8_t *Data, uint16_t DataLen ) {
 
 #ifdef USE_SML_CRC
 uint16_t calculateSMLbinCRC(const uint8_t *data, uint16_t length, uint8_t crcmode) {
-  switch (crcmode) {
+  uint16_t res=0;
+  switch (crcmode % 6) {
     case 0:
-      return FastCRC.x25(data, length);
+      res = FastCRC.x25(data, length);
+      break;
     case 1:
-      return FastCRC.ccitt(data, length);
-    default:
-      return crcmode;
+      res = FastCRC.ccitt(data, length);
+      break;
+    case 2:
+      res = FastCRC.kermit(data, length);
+      break;
+    case 3:
+      res = FastCRC.modbus(data, length);
+      break;
+    case 4:
+      res = FastCRC.xmodem(data, length);
+      break;
+    case 5:
+      res = FastCRC.mcrf4xx(data, length);
+      break;
   }
+  if (crcmode>5) {
+    res = (res >> 8) | (res << 8); // swap bytes
+  }
+  return res;
 }
 #endif
 
@@ -1541,13 +1558,13 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
             AddLog(LOG_LEVEL_DEBUG, PSTR("SML: CRC autodetection in progress. state: %d. probing mode: %d failcnt: %d okcnt: %d"), cp->crcdetectstate, cp->crcmode, cp->crcfailcnt, cp->crcfinecnt );
             //check how far we have come an decide how to go on
             if (cp->crcfailcnt>3) { //seems bad choice
-              if (cp->crcdetectstate>10) {
+              if (cp->crcdetectstate>25) {
                 AddLog(LOG_LEVEL_INFO, "SML: CRC autodetection failed, you can turn of CRC checks of via removing '1,soC=<bufsz>,<mode>' from your meter definition.");
               } else {
                 cp->crcdetectstate++;
               }
               cp->crcmode++;
-              if(cp->crcmode>7) cp->crcmode=0;
+              if(cp->crcmode>11) cp->crcmode=0; //mode 0-11 supported (6-11 are 1-5 with reversed byte order)
               //reset counters and start over
               cp->crcfailcnt=0;
               cp->crcfinecnt=0;
@@ -3546,7 +3563,6 @@ dddef_exit:
                   free(mmp->sml_crc_data->crcbuff);
                   free(mmp->sml_crc_data);
                 }
-                //crcmode 15=autodetect
                 struct SML_CRC_DATA* cp = (struct SML_CRC_DATA*)calloc(sizeof(struct SML_CRC_DATA), 1);
                 cp->telestartpos=-1;
                 cp->teleendpos=-1;
@@ -3561,6 +3577,7 @@ dddef_exit:
                   AddLog(LOG_LEVEL_INFO, "SML: CRC mode autodetect");
                 } else {
                   //keep mode as given, turn off autodetect
+                  if (cp->crcmode > 11) cp->crcmode=0; 
                   cp->crcdetectstate=0;
                   AddLog(LOG_LEVEL_INFO, PSTR("SML: CRC mode %d"),cp->crcmode);
                 }
