@@ -113,6 +113,15 @@
 #define USE_SML_MEDIAN_FILTER
 #endif
 
+// on ESP32 binary SML CRC check compile enabled by default
+// adds 17936 bytes due to large crc tables
+#ifdef ESP32
+#ifndef NO_USE_SML_CRC
+#undef USE_SML_CRC
+#define USE_SML_CRC
+#endif
+#endif
+
 
 #ifdef USE_SML_DECRYPT
 #include "han_Parser.h"
