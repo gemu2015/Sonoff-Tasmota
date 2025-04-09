@@ -1930,11 +1930,11 @@ double sml_get_obis_value(uint8_t *data) {
 				break;
 		}
 		case CosemTypeLong64Signed: {
-				out = ntohll(item->l64s.data);
+				out = ntohll_ams(item->l64s.data);
 				break;
 		}
 		case CosemTypeLong64Unsigned: {
-				out = ntohll(item->l64u.data);
+				out = ntohll_ams(item->l64u.data);
 				break;
 		}
 	}
