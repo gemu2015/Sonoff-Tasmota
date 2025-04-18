@@ -191,7 +191,9 @@ char *Get_esc_char(char *cp, char *esc_chr);
 #ifdef ESP32
 #include "driver/i2s_std.h"
 #include "driver/i2s_pdm.h"
+#include "driver/rtc_io.h"
 #endif
+
 
 
 #ifdef SCRIPT_FULL_OPTIONS
@@ -285,6 +287,14 @@ void Script_ticker4_end(void) {
 #define HARDWARE_FALLBACK          2
 #endif
 
+#ifdef ESP32
+RTC_DATA_ATTR volatile bool pirDetected = false;
+void RTC_IRAM_ATTR pirInterrupt();
+void pirInterrupt() {
+  pirDetected = true;
+}
+#endif
+
 // EEPROM MACROS
 // i2c eeprom
 #define EEP_WRITE(A,B,C) eeprom_writeBytes(A, B, (uint8_t*)C);
@@ -310,6 +320,7 @@ void Script_ticker4_end(void) {
 #define SPEC_SCRIPT_FLASH 0x000F2000
 
 uint32_t eeprom_block;
+
 
 // these support only one 4 k block below EEPROM (eeprom @0x402FB000) this steals 4k of application area
 uint32_t alt_eeprom_init(uint32_t size) {
@@ -3511,6 +3522,50 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           }
           goto nfuncexit;
         }
+#ifdef ESP32
+        if (!strncmp_XP(lp, XPSTR("ds("), 3)) {
+          lp = GetNumericArgument(lp + 3, OPER_EQU, &fvar, gv);
+          if (fvar == -1) {
+            fvar = esp_sleep_get_wakeup_cause();
+          } else {
+            if (fvar > 0) {
+              esp_sleep_enable_timer_wakeup(fvar * 1000000);
+            }
+            SCRIPT_SKIP_SPACES 
+            if (*lp != ')') {
+              lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
+              if (fvar != -1) {
+                gpio_num_t gpio_num = (gpio_num_t)fvar;
+                lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
+                //esp_sleep_enable_ext0_wakeup(pin, fvar)
+                gpio_wakeup_enable(gpio_num, (gpio_int_type_t)fvar);
+                pinMode(gpio_num, INPUT_PULLDOWN);
+                attachInterrupt(digitalPinToInterrupt(gpio_num), pirInterrupt, RISING);
+                //esp_sleep_enable_ext1_wakeup(gpio_num, ESP_EXT1_WAKEUP_ANY_HIGH);
+
+                //rtc_gpio_init(gpio_num);
+                //rtc_gpio_set_direction(gpio_num, RTC_GPIO_MODE_INPUT_ONLY);
+                //rtc_gpio_pullup_dis(gpio_num);
+                //rtc_gpio_pulldown_dis(gpio_num);
+
+                /* Enable wake up from LPIO wakeup */
+                //rtc_gpio_wakeup_enable(gpio_num, GPIO_INTR_LOW_LEVEL);
+              }
+            }
+         
+            //rtc_gpio_isolate((gpio_num_t)0);
+            //rtc_gpio_isolate((gpio_num_t)1);
+            //rtc_gpio_isolate((gpio_num_t)2);
+            //rtc_gpio_isolate((gpio_num_t)3);
+            //rtc_gpio_isolate((gpio_num_t)4);
+            //rtc_gpio_isolate((gpio_num_t)5);
+            //rtc_gpio_isolate((gpio_num_t)6);
+            //rtc_gpio_isolate((gpio_num_t)7);
+            esp_deep_sleep_start();
+          }
+          goto nfuncexit;
+        }
+#endif // ESP32
         break;
       case 'e':
         if (!strncmp_XP(vname, XPSTR("epoch"), 5)) {
@@ -10823,7 +10878,7 @@ void ScriptServeFile82(void) {
       if (ufsp->exists(cp)) {
 #endif
         if (glob_script_mem.download82_busy == true) {
-          AddLog(LOG_LEVEL_INFO, PSTR("UFS: 82 Download is busy"));
+          AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_UFS "82 Download is busy"));
           return;
         }
         glob_script_mem.download82_busy = true;
@@ -10927,7 +10982,7 @@ int32_t SendFile(char *fname) {
 #ifdef ESP32
 #ifdef USE_DLTASK
   if (glob_script_mem.script_download_busy == true) {
-    AddLog(LOG_LEVEL_INFO, PSTR("UFS: Download is busy"));
+    AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_UFS "Download is busy"));
     return -1;
   }
   glob_script_mem.script_download_busy = true;
@@ -14113,9 +14168,6 @@ bool Xdrv10(uint32_t function) {
 #ifdef USE_SCRIPT_ALT_DOWNLOAD
       WebServer82Loop();
 #endif
-      break;
-
-    case FUNC_NETWORK_UP:
       break;
     
     case FUNC_ACTIVE:
