@@ -12,7 +12,7 @@
 #define AXP_ADDR 0X34
 
 
-#ifdef CONFIG_IDF_TARGET_ESP32C3
+#if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C6)
 #define USE_Wire Wire
 #else
 #define USE_Wire Wire1
