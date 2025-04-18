@@ -150,6 +150,7 @@ check partition map
 chkpt aX  add custom partition needed for plugins X = optional number 1..4 times 64kb partition size (size is stolen from spiffs)
 chkpt r remove custom partition
 both options immediately restart ESP
+after chkpt cmd littfs should be reformatted with script>fmt(0)
 
 
 after a reboot all plugins persist 
