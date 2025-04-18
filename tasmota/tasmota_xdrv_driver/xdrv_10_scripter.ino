@@ -192,6 +192,7 @@ char *Get_esc_char(char *cp, char *esc_chr);
 #include "driver/i2s_std.h"
 #include "driver/i2s_pdm.h"
 #include "driver/rtc_io.h"
+#include "esp_sleep.h"
 #endif
 
 
@@ -287,13 +288,6 @@ void Script_ticker4_end(void) {
 #define HARDWARE_FALLBACK          2
 #endif
 
-#ifdef ESP32
-RTC_DATA_ATTR volatile bool pirDetected = false;
-void RTC_IRAM_ATTR pirInterrupt();
-void pirInterrupt() {
-  pirDetected = true;
-}
-#endif
 
 // EEPROM MACROS
 // i2c eeprom
@@ -3536,31 +3530,18 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
               lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
               if (fvar != -1) {
                 gpio_num_t gpio_num = (gpio_num_t)fvar;
-                lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
-                //esp_sleep_enable_ext0_wakeup(pin, fvar)
-                gpio_wakeup_enable(gpio_num, (gpio_int_type_t)fvar);
-                pinMode(gpio_num, INPUT_PULLDOWN);
-                attachInterrupt(digitalPinToInterrupt(gpio_num), pirInterrupt, RISING);
-                //esp_sleep_enable_ext1_wakeup(gpio_num, ESP_EXT1_WAKEUP_ANY_HIGH);
-
-                //rtc_gpio_init(gpio_num);
-                //rtc_gpio_set_direction(gpio_num, RTC_GPIO_MODE_INPUT_ONLY);
-                //rtc_gpio_pullup_dis(gpio_num);
-                //rtc_gpio_pulldown_dis(gpio_num);
-
-                /* Enable wake up from LPIO wakeup */
-                //rtc_gpio_wakeup_enable(gpio_num, GPIO_INTR_LOW_LEVEL);
+                lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);        
+                if (fvar == 0) {
+                  esp_sleep_enable_ext1_wakeup_io(1 << gpio_num, ESP_EXT1_WAKEUP_ANY_HIGH);
+                  rtc_gpio_pullup_dis(gpio_num);
+                  rtc_gpio_pulldown_en(gpio_num);
+                } else {
+                  esp_sleep_enable_ext1_wakeup_io(1 << gpio_num, ESP_EXT1_WAKEUP_ANY_LOW);
+                  rtc_gpio_pullup_en(gpio_num);
+                  rtc_gpio_pulldown_dis(gpio_num);
+                }
               }
             }
-         
-            //rtc_gpio_isolate((gpio_num_t)0);
-            //rtc_gpio_isolate((gpio_num_t)1);
-            //rtc_gpio_isolate((gpio_num_t)2);
-            //rtc_gpio_isolate((gpio_num_t)3);
-            //rtc_gpio_isolate((gpio_num_t)4);
-            //rtc_gpio_isolate((gpio_num_t)5);
-            //rtc_gpio_isolate((gpio_num_t)6);
-            //rtc_gpio_isolate((gpio_num_t)7);
             esp_deep_sleep_start();
           }
           goto nfuncexit;
