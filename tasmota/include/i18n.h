@@ -887,6 +887,12 @@
 #define D_LOG_THERMOSTAT "THE: "   // Thermostat driver
 #define D_LOG_SENSOR "SNS: "       // Sensor driver
 #define D_LOG_SENSEAIR "SNA: "     // Senseair driver
+#define D_LOG_UFS "UFS: "          // File system
+#define D_LOG_UPLOAD "UPL: "       // Upload
+#define D_LOG_UPNP "UPP: "         // UPnP
+#define D_LOG_WIFI "WIF: "         // Wifi
+#define D_LOG_ZIGBEE "ZIG: "       // Zigbee
+
 
 /********************************************************************************************/
 
