@@ -3530,18 +3530,51 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
               lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
               if (fvar != -1) {
                 gpio_num_t gpio_num = (gpio_num_t)fvar;
-                lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);        
+                lp = GetNumericArgument(lp, OPER_EQU, &fvar, gv);
+#if SOC_PM_SUPPORT_EXT1_WAKEUP   
                 if (fvar == 0) {
                   esp_sleep_enable_ext1_wakeup_io(1 << gpio_num, ESP_EXT1_WAKEUP_ANY_HIGH);
+#if SOC_RTCIO_INPUT_OUTPUT_SUPPORTED
                   rtc_gpio_pullup_dis(gpio_num);
                   rtc_gpio_pulldown_en(gpio_num);
+#else
+_Pragma("GCC warning \"'rtc io' not supported\"") 
+#endif
                 } else {
+#if CONFIG_IDF_TARGET_ESP32
+                  esp_sleep_enable_ext1_wakeup_io(1 << gpio_num, ESP_EXT1_WAKEUP_ALL_LOW);
+#else
                   esp_sleep_enable_ext1_wakeup_io(1 << gpio_num, ESP_EXT1_WAKEUP_ANY_LOW);
+#endif
+#if SOC_RTCIO_INPUT_OUTPUT_SUPPORTED
                   rtc_gpio_pullup_en(gpio_num);
                   rtc_gpio_pulldown_dis(gpio_num);
+#else
+_Pragma("GCC warning \"'rtc io' not supported\"")
+#endif
                 }
+#else
+_Pragma("GCC warning \"'EXT 1 wakeup' not supported using gpio mode\"")
+
+                const gpio_config_t config = {
+                  .pin_bit_mask = BIT(gpio_num),
+                  .mode = GPIO_MODE_INPUT,
+                  .pull_up_en = (gpio_pullup_t)!fvar,
+                  .pull_down_en = (gpio_pulldown_t)fvar 
+
+                };
+                gpio_config(&config);
+
+                if (fvar == 0) {
+                  esp_deep_sleep_enable_gpio_wakeup(1 << gpio_num, ESP_GPIO_WAKEUP_GPIO_LOW);
+                } else {
+                  esp_deep_sleep_enable_gpio_wakeup(1 << gpio_num, ESP_GPIO_WAKEUP_GPIO_HIGH);
+                }
+
+#endif // SOC_PM_SUPPORT_EXT1_WAKEUP
               }
             }
+            SettingsSaveAll();
             esp_deep_sleep_start();
           }
           goto nfuncexit;
