@@ -194,10 +194,6 @@ char *Get_esc_char(char *cp, char *esc_chr);
 #include "esp_sleep.h"
 #endif
 
-#ifdef USE_ARDUINO_MATTER
-#include <Matter.h>
-int32_t arduino_matter(int32_t sel);
-#endif
 
 #ifdef SCRIPT_FULL_OPTIONS
 
@@ -5058,13 +5054,6 @@ _Pragma("GCC warning \"'EXT 1 wakeup' not supported using gpio mode\"")
           if (sp) strlcpy(sp, NetworkUniqueId().c_str(), glob_script_mem.max_ssize);
           goto strexit;
         }
-#ifdef USE_ARDUINO_MATTER
-        if (!strncmp_XP(vname, XPSTR("matter("), 7)) {
-          lp = GetNumericArgument(lp + 7, OPER_EQU, &fvar, 0);
-          fvar = arduino_matter(fvar);
-          goto nfuncexit;
-        }
-#endif
         break;
 
       case 'n':
@@ -9277,51 +9266,6 @@ void script_sort_array(TS_FLOAT *array, uint16_t size) {
     size -= 1;
   } while (swapped);
 }
-
-#ifdef USE_ARDUINO_MATTER
-MatterOnOffLight OnOffLight;
-Preferences matterPref;
-const char *onOffPrefKey = "OnOff";
-
-// Matter Protocol Endpoint Callback
-bool setLightOnOff(bool state) {
-  AddLog(LOG_LEVEL_INFO, PSTR("User Callback :: New Light State = %s\r\n"), state ? "ON" : "OFF");
-
-  if (state) {
-    //digitalWrite(ledPin, HIGH);
-  } else {
-    //digitalWrite(ledPin, LOW);
-  }
-  // store last OnOff state for when the Light is restarted / power goes off
-  matterPref.putBool(onOffPrefKey, state);
-  // This callback must return the success state to Matter core
-  return true;
-}
-
-
-int32_t arduino_matter(int32_t sel) {
-    switch (sel) {
-      case 0:
-        // Initialize Matter EndPoint
-        matterPref.begin("MatterPrefs", false);
-        bool lastOnOffState = matterPref.getBool(onOffPrefKey, true);
-        OnOffLight.begin(lastOnOffState);
-        OnOffLight.onChange(setLightOnOff);
-
-        // Matter beginning - Last step, after all EndPoints are initialized
-        Matter.begin();
-        // This may be a restart of a already commissioned Matter accessory
-        if (Matter.isDeviceCommissioned()) {
-          AddLog(LOG_LEVEL_INFO, PSTR("Matter Node is commissioned and connected to Wi-Fi. Ready for use."));
-          AddLog(LOG_LEVEL_INFO, PSTR("Initial state: %s\r\n"), OnOffLight.getOnOff() ? "ON" : "OFF");
-          OnOffLight.updateAccessory();  // configure the Light based on initial state
-        }
-        break;
-
-    }
-    return 0;
-}
-#endif
 
 bool Is_gpio_used(uint8_t gpiopin) {
   if (gpiopin >= 0 && (gpiopin < nitems(TasmotaGlobal.gpio_pin)) && (TasmotaGlobal.gpio_pin[gpiopin] > 0)) {
