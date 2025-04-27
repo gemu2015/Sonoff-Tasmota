@@ -10485,6 +10485,46 @@ const char kScriptCommands[] PROGMEM = D_CMND_SCRIPT "|" D_CMND_SUBSCRIBE "|" D_
 #endif
 ;
 
+void list_var(char *lp) {
+TS_FLOAT fvar;
+char str[SCRIPT_MAX_SBSIZE];
+  glob_script_mem.glob_error = 0;
+  TS_FLOAT *fpd = 0;
+  uint16_t alend;
+  char *cp = get_array_by_name(lp, &fpd, &alend, 0);
+  if (fpd && cp && (!strchr(lp, '[')) ) {
+    // is array
+    ResponseAppend_P(PSTR("\"%s\":["), lp);
+    for (uint16_t cnt = 0; cnt < alend; cnt++) {
+      TS_FLOAT tvar = *fpd++;
+      ext_snprintf_P(str, sizeof(str), PSTR("%*_f"), -glob_script_mem.script_dprec, &tvar);
+      if (cnt) {
+        ResponseAppend_P(PSTR(",%s"), str);
+      } else {
+        ResponseAppend_P(PSTR("%s"), str);
+      }
+    }
+    ResponseAppend_P(PSTR("]"));
+  } else {
+
+    glob_script_mem.glob_error = 0;
+    glob_script_mem.var_not_found = 0;
+    GetNumericArgument(lp, OPER_EQU, &fvar, 0);
+    if (glob_script_mem.var_not_found) {
+      ResponseAppend_P(PSTR("\"%s\":\"???\""), lp);
+    } else {
+      if (glob_script_mem.glob_error == 1) {
+        // was string, not number
+        GetStringArgument(lp, OPER_EQU, str, 0);
+        ResponseAppend_P(PSTR("\"%s\":\"%s\""), lp, str);
+      } else {
+        ext_snprintf_P(str, sizeof(str), PSTR("%*_f"), -glob_script_mem.script_dprec, &fvar);
+        ResponseAppend_P(PSTR("\"%s\":%s"), lp, str);
+      }
+    }
+  }
+}
+
 bool ScriptCommand(void) {
   char command[CMDSZ];
   bool serviced = true;
@@ -10538,38 +10578,22 @@ bool ScriptCommand(void) {
       if ('?' == XdrvMailbox.data[0]) {
         char *lp = XdrvMailbox.data;
         lp++;
-        while (*lp==' ') lp++;
-        TS_FLOAT fvar;
-        char str[SCRIPT_MAX_SBSIZE];
-        glob_script_mem.glob_error = 0;
-        TS_FLOAT *fpd = 0;
-        uint16_t alend;
-        char *cp = get_array_by_name(lp, &fpd, &alend, 0);
-        if (fpd && cp && (!strchr(lp, '[')) ) {
-          // is array
-          Response_P(PSTR("{\"script\":{\"%s\":["), lp);
-          for (uint16_t cnt = 0; cnt < alend; cnt++) {
-            TS_FLOAT tvar = *fpd++;
-            ext_snprintf_P(str, sizeof(str), PSTR("%*_f"), -glob_script_mem.script_dprec, &tvar);
-            if (cnt) {
-              ResponseAppend_P(PSTR(",%s"), str);
-            } else {
-              ResponseAppend_P(PSTR("%s"), str);
-            }
-          }
-          ResponseAppend_P(PSTR("]}}"));
-        } else {
-          glob_script_mem.glob_error = 0;
-          GetNumericArgument(lp, OPER_EQU, &fvar, 0);
-          if (glob_script_mem.glob_error == 1) {
-            // was string, not number
-            GetStringArgument(lp, OPER_EQU, str, 0);
-            Response_P(PSTR("{\"script\":{\"%s\":\"%s\"}}"), lp, str);
+        Response_P(PSTR("{\"script\":{"), lp);
+        while (1) {  
+          while (*lp==' ') lp++;
+          char *cp = strchr(lp, ';');
+          if (cp) {
+            *cp = 0;
+            list_var(lp);
+            ResponseAppend_P(PSTR(","));
+            lp = cp + 1;
           } else {
-            ext_snprintf_P(str, sizeof(str), PSTR("%*_f"), -glob_script_mem.script_dprec, &fvar);
-            Response_P(PSTR("{\"script\":{\"%s\":%s}}"), lp, str);
+            list_var(lp);
+            ResponseAppend_P(PSTR("}"));
+            break;
           }
         }
+        ResponseAppend_P(PSTR("}"));
       }
       return serviced;
     }
