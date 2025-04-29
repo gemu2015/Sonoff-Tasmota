@@ -492,7 +492,7 @@ typedef union {
       uint8_t nutu6 : 1;
       uint8_t nutu5 : 1;
       uint8_t nutu4 : 1;
-      uint8_t nutu3 : 1;
+      uint8_t udp_binary_payload : 1;
       uint8_t udp_connected : 1;
       uint8_t udp_used : 1;
   };
@@ -530,9 +530,9 @@ struct SCRIPT_SPI {
 };
 #endif
 
-
 #define NUM_RES 0xfe
 #define STR_RES 0xfd
+#define NUM_ARRAY_RES 0xfc
 #define VAR_NV 0xff
 
 #define NTYPE 0
@@ -1586,21 +1586,26 @@ void Script_PollUdp(void) {
       glob_script_mem.script_udp_remote_ip = glob_script_mem.Script_PortUdp.remoteIP();
 #ifdef SCRIPT_DEBUG_UDP
       //AddLog(LOG_LEVEL_DEBUG, PSTR("UDP: Packet %s - %d - %s"), packet_buffer, len, script_udp_remote_ip.toString().c_str());
-      AddLog(LOG_LEVEL_DEBUG, PSTR("UDP: Packet %s - %d - %_I"), packet_buffer, len, (uint32_t)glob_script_mem.script_udp_remote_ip);
+      AddLog(LOG_LEVEL_DEBUG, PSTR("UDP: received Packet %s - %d - %_I"), packet_buffer, len, (uint32_t)glob_script_mem.script_udp_remote_ip);
 #endif
       char *lp = packet_buffer;
       if (!strncmp(lp,"=>", 2)) {
         lp += 2;
-        char *cp=strchr(lp, '=');
-        if (cp) {
-          char vnam[32];
-          for (uint32_t count = 0; count<len; count++) {
-            if (lp[count] == '=') {
-              vnam[count] = 0;
-              break;
-            }
-            vnam[count] = lp[count];
+        char *cp = strchr(lp, '=');
+        char umode = '=';
+        if (!cp) {
+          cp = strchr(lp, ':');
+          if (cp) {
+            umode = ':';
+          } else {
+            umode = 0;
           }
+        }
+        if (umode) {
+          char vnam[32];
+          *cp = 0;
+          strcpy(vnam, lp);
+          lp = cp + 1;
           TS_FLOAT *fp;
           char *sp;
           uint32_t index;
@@ -1609,12 +1614,44 @@ void Script_PollUdp(void) {
 #ifdef SCRIPT_DEBUG_UDP
             AddLog(LOG_LEVEL_DEBUG, PSTR("SCR: num var found - %s - %d - %d"), vnam, res, index);
 #endif
-            *fp=CharToFloat(cp + 1);
+            if (umode == '=') {
+              *fp = CharToFloat(lp);
+            } else {
+              TS_FLOAT udpf;
+              uint8_t *ucp = (uint8_t*) &udpf;
+              ucp[0] = lp[0];
+              ucp[1] = lp[1];
+              ucp[2] = lp[2];
+              ucp[3] = lp[3];
+              *fp = udpf;
+            }
           } else if (res == STR_RES) {
 #ifdef SCRIPT_DEBUG_UDP
             AddLog(LOG_LEVEL_DEBUG, PSTR("SCR: string var found - %s - %d - %d"), vnam, res, index);
 #endif
-            strlcpy(sp, cp + 1, SCRIPT_MAX_SBSIZE);
+            strlcpy(sp, lp, SCRIPT_MAX_SBSIZE);
+          } else if (res == NUM_ARRAY_RES) {
+#ifdef SCRIPT_DEBUG_UDP
+            AddLog(LOG_LEVEL_DEBUG, PSTR("SCR: array var found - %s - %d - %d"), vnam, res, index);
+#endif
+            uint16_t alen = lp[1] << 8 | lp[0];
+            lp += 2;
+            if (alen != index) {
+              AddLog(LOG_LEVEL_DEBUG, PSTR("SCR: warning: array lenght mismatch"));
+              if (alen < index) {
+                index = alen;
+              }
+            } 
+            for (uint16_t count = 0; count < index; count++) {
+              TS_FLOAT udpf;
+              uint8_t *ucp = (uint8_t*) &udpf;
+              ucp[0] = lp[0];
+              ucp[1] = lp[1];
+              ucp[2] = lp[2];
+              ucp[3] = lp[3];
+              lp += sizeof(TS_FLOAT);
+              fp[count] = udpf;
+            }
           } else {
             // error var not found
           }
@@ -1635,33 +1672,54 @@ void Script_PollUdp(void) {
   }
 }
 
-void script_udp_sendvar(char *vname, TS_FLOAT *fp, char *sp);
+void script_udp_sendvar(char *vname, TS_FLOAT *fp, char *sp, uint16_t alen);
 
-void script_udp_sendvar(char *vname, TS_FLOAT *fp, char *sp) {
+void script_udp_sendvar(char *vname, TS_FLOAT *fp, char *sp, uint16_t alen) {
   if (!glob_script_mem.udp_flags.udp_used) return;
   if (!glob_script_mem.udp_flags.udp_connected) return;
 
   char sbuf[SCRIPT_MAX_SBSIZE + 4];
   strcpy(sbuf, "=>");
   strcat(sbuf, vname);
-  strcat(sbuf, "=");
-  if (fp) {
-    char flstr[16];
-    dtostrfd(*fp, 8, flstr);
-    strcat(sbuf, flstr);
-#ifdef SCRIPT_DEBUG_UDP
-    AddLog(LOG_LEVEL_DEBUG, PSTR("SCR: num var updated - %s"), sbuf);
-#endif
+  if (glob_script_mem.udp_flags.udp_binary_payload == 0 || !fp) {
+    strcat(sbuf, "=");
+    if (fp) {
+      char flstr[16];
+      dtostrfd(*fp, 8, flstr);
+      strcat(sbuf, flstr);
+    } else {
+      strcat(sbuf, sp);
+    }
+    glob_script_mem.Script_PortUdp.beginPacket(IPAddress(239, 255, 255, 250), SCRIPT_UDP_PORT);
+    //  Udp.print(String("RET UC: ") + String(recv_Packet));
+    glob_script_mem.Script_PortUdp.write((const uint8_t*)sbuf, strlen(sbuf));
+    glob_script_mem.Script_PortUdp.endPacket();
   } else {
-    strcat(sbuf, sp);
-#ifdef SCRIPT_DEBUG_UDP
-    AddLog(LOG_LEVEL_DEBUG, PSTR("SCR: string var updated - %s"), sbuf);
-#endif
+    // binary numeric
+    strcat(sbuf, ":");
+    glob_script_mem.Script_PortUdp.beginPacket(IPAddress(239, 255, 255, 250), SCRIPT_UDP_PORT);
+    glob_script_mem.Script_PortUdp.write((const uint8_t*)sbuf, strlen(sbuf));
+    if (alen) {
+      glob_script_mem.Script_PortUdp.write((const uint8_t*)&alen, 2);
+      for (uint16_t count = 0; count < alen; count++) {
+        uint8_t *ucp = (uint8_t*)&fp[count];
+        glob_script_mem.Script_PortUdp.write((const uint8_t*)ucp, sizeof(TS_FLOAT));
+      }
+    } else {
+      uint8_t *ucp = (uint8_t*)fp;
+      glob_script_mem.Script_PortUdp.write((const uint8_t*)ucp, sizeof(TS_FLOAT));
+    }
+    glob_script_mem.Script_PortUdp.endPacket();
+
   }
-  glob_script_mem.Script_PortUdp.beginPacket(IPAddress(239, 255, 255, 250), SCRIPT_UDP_PORT);
-  //  Udp.print(String("RET UC: ") + String(recv_Packet));
-  glob_script_mem.Script_PortUdp.write((const uint8_t*)sbuf, strlen(sbuf));
-  glob_script_mem.Script_PortUdp.endPacket();
+
+#ifdef SCRIPT_DEBUG_UDP
+  if (fp) {
+    AddLog(LOG_LEVEL_DEBUG, PSTR("SCR: num var updated - %s"), sbuf);
+  } else {
+    AddLog(LOG_LEVEL_DEBUG, PSTR("SCR: string var updated - %s"), sbuf);
+  }
+#endif // SCRIPT_DEBUG_UDP
 }
 
 #endif //USE_SCRIPT_GLOBVARS
@@ -2651,8 +2709,11 @@ uint32_t match_vars(char *dvnam, TS_FLOAT **fp, char **sp, uint32_t *ind) {
         if (vtp[count].bits.global > 0) {
           if (vtp[count].bits.is_string == 0) {
             if (vtp[count].bits.is_filter) {
-              // error
-              return 0;
+              // array variable
+              uint16_t len = 0;
+              *fp = Get_MFAddr(index, &len, 0);
+              *ind = len;
+              return NUM_ARRAY_RES;
             } else {
               *fp = &glob_script_mem.fvars[index];
               *ind = count;
@@ -6400,6 +6461,11 @@ void tmod_directModeOutput(uint32_t pin);
           }
           goto notfound;
         }
+        if (!strncmp_XP(lp, XPSTR("udpm"), 4)) {
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
+          glob_script_mem.udp_flags.udp_binary_payload = fvar;
+          goto exit;
+        }
         if (!strncmp_XP(lp, XPSTR("udp("), 4)) {
           char url[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, url, 0);
@@ -6408,6 +6474,34 @@ void tmod_directModeOutput(uint32_t pin);
           char payload[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp, OPER_EQU, payload, 0);
           fvar = udp_call(url, port, payload);
+          goto nfuncexit;
+        }
+        if (!strncmp_XP(lp, XPSTR("udpsa("), 6)) {
+          TS_FLOAT *fpd = 0;
+          uint16_t alend;
+          uint16_t ipos;
+          lp += 6;
+          SCRIPT_SKIP_SPACES
+          char vname[32];
+          char *cp = lp;
+          char *vnp = vname;
+          while (*cp) {
+            if (*cp == ')') {
+              break;
+            }
+            *vnp++ = *cp++;
+          }
+          *vnp = 0;
+          lp = get_array_by_name(lp, &fpd, &alend, &ipos);
+          if (fpd) {
+            uint8_t sv = glob_script_mem.udp_flags.udp_binary_payload;
+            glob_script_mem.udp_flags.udp_binary_payload = 1;
+            script_udp_sendvar(vname, fpd, 0, alend);
+            glob_script_mem.udp_flags.udp_binary_payload = sv;
+            fvar = ipos;
+          } else {
+            fvar = -1;
+          }
           goto nfuncexit;
         }
         break;
@@ -7424,7 +7518,7 @@ int32_t UpdVar(char *vname, float *fvar, uint32_t mode) {
         glob_script_mem.type[ind.index].bits.changed = 1;
 #ifdef USE_SCRIPT_GLOBVARS
         if (glob_script_mem.type[ind.index].bits.global) {
-          script_udp_sendvar(vname, &res, 0);
+          script_udp_sendvar(vname, &res, 0, 0);
         }
 #endif //USE_SCRIPT_GLOBVARS
         return 0;
@@ -8696,7 +8790,7 @@ getnext:
 #ifdef USE_SCRIPT_GLOBVARS
                       if (globvindex >= 0 ) {
                         if (glob_script_mem.type[globvindex].bits.global) {
-                          script_udp_sendvar(varname, dfvar, 0);
+                          script_udp_sendvar(varname, dfvar, 0, 0);
                         }
                       }
 #endif //USE_SCRIPT_GLOBVARS
@@ -8789,7 +8883,7 @@ getnext:
 #ifdef USE_SCRIPT_GLOBVARS
                       if (globvindex >= 0) {
                         if (glob_script_mem.type[globvindex].bits.global) {
-                          script_udp_sendvar(varname, 0, str);
+                          script_udp_sendvar(varname, 0, str, 0);
                         }
                       }
 #endif //USE_SCRIPT_GLOBVARS
