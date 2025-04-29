@@ -1526,7 +1526,9 @@ int32_t udp_call(char *url, uint32_t port, char *sbuf) {
 }
 
 #ifdef USE_SCRIPT_GLOBVARS
+#ifndef SCRIPT_UDP_BUFFER_SIZE
 #define SCRIPT_UDP_BUFFER_SIZE 128
+#endif
 #define SCRIPT_UDP_PORT 1999
 
 //#define SCRIPT_DEBUG_UDP
