@@ -287,6 +287,12 @@ void Script_ticker4_end(void) {
 #endif
 
 
+#ifdef USE_SCRIPT_GLOBVARS
+#ifndef SCRIPT_UDP_BUFFER_SIZE
+#define SCRIPT_UDP_BUFFER_SIZE 128
+#endif
+#define SCRIPT_UDP_PORT 1999
+
 // EEPROM MACROS
 // i2c eeprom
 #define EEP_WRITE(A,B,C) eeprom_writeBytes(A, B, (uint8_t*)C);
@@ -377,7 +383,7 @@ extern Renderer *renderer;
 #endif
 
 enum {OPER_EQU=1,OPER_PLS,OPER_MIN,OPER_MUL,OPER_DIV,OPER_PLSEQU,OPER_MINEQU,OPER_MULEQU,OPER_DIVEQU,OPER_EQUEQU,OPER_NOTEQU,OPER_GRTEQU,OPER_LOWEQU,OPER_GRT,OPER_LOW,OPER_PERC,OPER_XOR,OPER_AND,OPER_OR,OPER_ANDEQU,OPER_OREQU,OPER_XOREQU,OPER_PERCEQU,OPER_SHLEQU,OPER_SHREQU,OPER_SHL,OPER_SHR};
-enum {SCRIPT_LOGLEVEL=1,SCRIPT_TELEPERIOD,SCRIPT_EVENT_HANDLED,SML_JSON_ENABLE,SCRIPT_EPOFFS,SCRIPT_CBSIZE};
+enum {SCRIPT_LOGLEVEL=1,SCRIPT_TELEPERIOD,SCRIPT_EVENT_HANDLED,SML_JSON_ENABLE,SCRIPT_EPOFFS,SCRIPT_CBSIZE,SCRIPT_UDP_PBS,SCRIPT_UDP_MOD};
 
 
 #ifdef USE_UFILESYS
@@ -638,6 +644,8 @@ typedef struct {
     IPAddress last_udp_ip;
     WiFiUDP Script_PortUdp;
     IPAddress script_udp_remote_ip;
+    char *packet_buffer;
+    uint16_t pb_size = SCRIPT_UDP_BUFFER_SIZE;
 #endif // USE_SCRIPT_GLOBVARS
     char web_mode;
     char *glob_script = 0;
@@ -1525,12 +1533,6 @@ int32_t udp_call(char *url, uint32_t port, char *sbuf) {
   return 0;
 }
 
-#ifdef USE_SCRIPT_GLOBVARS
-#ifndef SCRIPT_UDP_BUFFER_SIZE
-#define SCRIPT_UDP_BUFFER_SIZE 128
-#endif
-#define SCRIPT_UDP_PORT 1999
-
 //#define SCRIPT_DEBUG_UDP
 
 void Restart_globvars(void) {
@@ -1545,12 +1547,20 @@ void Script_Stop_UDP(void) {
     glob_script_mem.Script_PortUdp.stop();
     glob_script_mem.udp_flags.udp_connected  = 0;
   }
+  if (glob_script_mem.packet_buffer) {
+    free(glob_script_mem.packet_buffer);
+    glob_script_mem.packet_buffer = 0;
+  }
+
 }
 
 void Script_Init_UDP() {
   if (TasmotaGlobal.global_state.network_down) return;
   if (!glob_script_mem.udp_flags.udp_used) return;
   if (glob_script_mem.udp_flags.udp_connected) return;
+
+  glob_script_mem.packet_buffer = (char*)malloc(glob_script_mem.pb_size);
+
 
   //if (glob_script_mem.Script_PortUdp.beginMulticast(WiFi.localIP(), IPAddress(239,255,255,250), SCRIPT_UDP_PORT)) {
 #ifdef ESP8266
@@ -1572,8 +1582,6 @@ void Script_Init_UDP() {
   }
 }
 
-
-
 void Script_PollUdp(void) {
   if (TasmotaGlobal.global_state.network_down) return;
   if (!glob_script_mem.udp_flags.udp_used) return;
@@ -1582,8 +1590,8 @@ void Script_PollUdp(void) {
     while (glob_script_mem.Script_PortUdp.parsePacket()) {
       // not more then 500 ms
       if (millis() - timeout > 500) { break;}
-      char packet_buffer[SCRIPT_UDP_BUFFER_SIZE];
-      int32_t len = glob_script_mem.Script_PortUdp.read(packet_buffer, SCRIPT_UDP_BUFFER_SIZE - 1);
+      char *packet_buffer = glob_script_mem.packet_buffer;
+      int32_t len = glob_script_mem.Script_PortUdp.read(packet_buffer, glob_script_mem.pb_size);
       packet_buffer[len] = 0;
       glob_script_mem.script_udp_remote_ip = glob_script_mem.Script_PortUdp.remoteIP();
 #ifdef SCRIPT_DEBUG_UDP
@@ -3491,6 +3499,7 @@ chknext:
           tind->index = SCRIPT_CBSIZE;
           goto exit_settable;
         }
+
 #ifdef USE_W8960
 extern void W8960_SetGain(uint8_t sel, uint16_t value);
 
@@ -6463,11 +6472,8 @@ void tmod_directModeOutput(uint32_t pin);
           }
           goto notfound;
         }
-        if (!strncmp_XP(lp, XPSTR("udpm"), 4)) {
-          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
-          glob_script_mem.udp_flags.udp_binary_payload = fvar;
-          goto exit;
-        }
+
+#ifdef USE_SCRIPT_GLOBVARS
         if (!strncmp_XP(lp, XPSTR("udp("), 4)) {
           char url[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp + 4, OPER_EQU, url, 0);
@@ -6506,6 +6512,19 @@ void tmod_directModeOutput(uint32_t pin);
           }
           goto nfuncexit;
         }
+
+        if (!strncmp_XP(lp, XPSTR("udps"), 4)) {
+          fvar = glob_script_mem.pb_size;
+          tind->index = SCRIPT_UDP_PBS;
+          goto exit_settable;
+        }
+
+        if (!strncmp_XP(lp, XPSTR("udpm"), 4)) {
+          fvar = glob_script_mem.udp_flags.udp_binary_payload;
+          tind->index = SCRIPT_UDP_MOD;
+          goto exit_settable;
+        }
+#endif
         break;
 
       case 'w':
@@ -8840,6 +8859,16 @@ getnext:
                             }
                             glob_script_mem.cmdbuffer_size = *dfvar;
                             break;
+#ifdef USE_SCRIPT_GLOBVARS
+                          case SCRIPT_UDP_PBS:
+                            glob_script_mem.pb_size = *dfvar;
+                            Restart_globvars();
+                            break;
+                          case SCRIPT_UDP_MOD:
+                            glob_script_mem.udp_flags.udp_binary_payload = *dfvar;
+                            break;
+#endif
+
 #if (defined(USE_SML_M) || defined(USE_BINPLUGINS)) && defined(USE_SML_SCRIPT_CMD)
                           case SML_JSON_ENABLE:
                             //sml_options = *dfvar;
