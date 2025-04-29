@@ -1587,7 +1587,13 @@ void Script_PollUdp(void) {
   if (!glob_script_mem.udp_flags.udp_used) return;
   if (glob_script_mem.udp_flags.udp_connected ) {
     uint32_t timeout = millis();
-    while (glob_script_mem.Script_PortUdp.parsePacket()) {
+    while (1) {
+      uint16_t plen = glob_script_mem.Script_PortUdp.parsePacket();
+      if (!plen || plen > glob_script_mem.pb_size) {
+        glob_script_mem.Script_PortUdp.flush();
+        break;
+      }
+
       // not more then 500 ms
       if (millis() - timeout > 500) { break;}
       char *packet_buffer = glob_script_mem.packet_buffer;
