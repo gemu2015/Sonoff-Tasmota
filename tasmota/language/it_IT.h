@@ -28,7 +28,7 @@
  * Use online command StateText to translate ON, OFF, HOLD and TOGGLE.
  * Use online command Prefix to translate cmnd, stat and tele.
  *
- * Updated until v9.4.0.1 - Last update 10.01.2025
+ * Updated until v9.4.0.1 - Last update 17.04.2025
 \*********************************************************************/
 
 #define LANGUAGE_MODULE_NAME         // Enable to display "Module Generic" (ie Spanish), Disable to display "Generic Module" (ie English)
@@ -52,12 +52,14 @@
 
 // Common
 #define D_ABSOLUTE_HUMIDITY    "Umidità ass"
+#define D_ADDRESS              "Indirizzo"
 #define D_ADMIN                "Admin"
 #define D_AIR_QUALITY          "Qualità dell'aria"
 #define D_AP                   "AP"                   // Access Point
 #define D_AS                   "come"
 #define D_AT                   "in"
 #define D_AUTO                 "AUTO"
+#define D_AUTO_UPDATE          "Aggiornamento automatico"
 #define D_BATTERY              "Batteria"
 #define D_BATT                 "Batt"                 // Short for Battery
 #define D_BATTERY_CHARGE       "Carica"               // Battery charge in %
@@ -88,6 +90,7 @@
 #define D_DEBUG                "Debug"
 #define D_DEWPOINT             "Punto rugiada" //
 #define D_DISABLED             "Disabilitato/a"
+#define D_DISCONNECTED         "Disconnesso"
 #define D_DISTANCE             "Distanza"
 #define D_DNS_SERVER           "Server DNS"
 #define D_DO                   "Ossigeno dissolto"
@@ -776,6 +779,8 @@
 #define D_SENSOR_SDM630_RX              "SDM630 - RX"
 #define D_SENSOR_WE517_TX               "WE517 - TX"
 #define D_SENSOR_WE517_RX               "WE517 - RX"
+#define D_SENSOR_LD2402_TX              "LD2402 - TX"
+#define D_SENSOR_LD2402_RX              "LD2402 - RX"
 #define D_SENSOR_LD2410_TX              "LD2410 - TX"
 #define D_SENSOR_LD2410_RX              "LD2410 - RX"
 #define D_SENSOR_LD2410S_TX             "LD2410S - TX"
@@ -1021,6 +1026,8 @@
 #define D_SENSOR_LOX_O2_RX              "LoxO2 - RX"
 #define D_GPIO_MAGIC_SWITCH             "MagicSwitch"
 #define D_SENSOR_WOOLIIS_RX             "Wooliis - RX"
+#define D_SENSOR_C8_CO2_5K_RX           "C8-CO2-5K - RX"
+#define D_SENSOR_C8_CO2_5K_TX           "C8-CO2-5K - TX"
 
 // Units
 #define D_UNIT_AMPERE                     "A"
@@ -1312,5 +1319,9 @@
 #define D_EXPORT                          "Esporta"
 #define D_CHARGING                        "In carica"
 #define D_CAPACITY                        "Capacità"
+
+// xnrg_25_v9240.ino
+#define D_SENSOR_V9240_TX "V9240 - TX"
+#define D_SENSOR_V9240_RX "V9240 - RX"
 
 #endif  // _LANGUAGE_IT_IT_H_

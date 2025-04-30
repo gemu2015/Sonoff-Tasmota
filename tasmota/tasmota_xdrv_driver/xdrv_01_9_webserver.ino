@@ -69,6 +69,10 @@ const uint16_t HTTP_OTA_RESTART_RECONNECT_TIME = 10000;  // milliseconds - Allow
   #include "./html_uncompressed/HTTP_HEADER1_ES6.h"
 #endif
 
+#ifdef USE_ALPINEJS
+#include "include/alpinejs.h"
+#endif  // USE_ALPINEJS
+
 const char HTTP_SCRIPT_COUNTER[] PROGMEM =
   "var cn=180;"                           // seconds
   "function u(){"
@@ -218,11 +222,13 @@ const char HTTP_SCRIPT_INFO_END[] PROGMEM =
   #include "./html_compressed/HTTP_HEAD_LAST_SCRIPT32.h"
   #include "./html_compressed/HTTP_HEAD_STYLE1.h"
   #include "./html_compressed/HTTP_HEAD_STYLE2.h"
+  #include "./html_compressed/HTTP_HEAD_STYLE_WIFI.h"
 #else
   #include "./html_uncompressed/HTTP_HEAD_LAST_SCRIPT.h"
   #include "./html_uncompressed/HTTP_HEAD_LAST_SCRIPT32.h"
   #include "./html_uncompressed/HTTP_HEAD_STYLE1.h"
   #include "./html_uncompressed/HTTP_HEAD_STYLE2.h"
+  #include "./html_uncompressed/HTTP_HEAD_STYLE_WIFI.h"
 #endif
 
 #ifdef USE_ZIGBEE
@@ -247,7 +253,7 @@ const char HTTP_HEAD_STYLE3[] PROGMEM =
 
   "</head>"
   "<body>"
-  "<div style='background:#%06x;text-align:left;display:inline-block;color:#%06x;min-width:340px;'>"  // COLOR_BACKGROUND, COLOR_TEXT
+  "<div style='background:#%06x;text-align:left;display:inline-block;color:#%06x;min-width:340px;position:relative;'>"  // COLOR_BACKGROUND, COLOR_TEXT
 #ifdef FIRMWARE_MINIMAL
 #ifdef FIRMWARE_SAFEBOOT
   "<span style='text-align:center;color:#%06x;'><h3>" D_SAFEBOOT "</h3></span>"  // COLOR_TEXT_WARNING
@@ -433,13 +439,25 @@ const char HTTP_COUNTER[] PROGMEM =
   "<br><div id='t' style='text-align:center;'></div>";
 
 const char HTTP_END[] PROGMEM =
-  "<div style='text-align:right;font-size:11px;'><hr/><a href='https://bit.ly/tasmota' target='_blank' style='color:#aaa;'>Tasmota %s %s " D_BY " Theo Arends</a></div>"
+  "<div style='text-align:right;font-size:11px;'><hr/><a href='https://github.com/arendst/Tasmota' target='_blank' style='color:#aaa;'>Tasmota %s %s " D_BY " Theo Arends</a></div>"
   "</div>"
   "</body>"
   "</html>";
 
 const char HTTP_DEVICE_CONTROL[] PROGMEM = "<td style='width:%d%%'><button id='o%d' onclick='la(\"&o=%d\");'>%s%s</button></td>";  // ?o is related to WebGetArg(PSTR("o"), tmp, sizeof(tmp))
 const char HTTP_DEVICE_STATE[] PROGMEM = "<td style='width:%d%%;text-align:center;font-weight:%s;font-size:%dpx'>%s</td>";
+
+const char HTTP_STATUS_STICKER[] PROGMEM =
+  "<span style='"
+  "margin:2px;"
+  "cursor:default;"
+  "padding:1px 2px;"
+  "border-color:#%06x;border-radius:5px;border-style:solid;border-width:1px;"
+  "' "
+  "%s"    // optional 'title' attributes
+  ">"
+  "%s"
+  "</span>";
 
 enum ButtonTitle {
   BUTTON_RESTART, BUTTON_RESET_CONFIGURATION,
@@ -496,6 +514,7 @@ struct WEB {
   bool upload_services_stopped = false;
   bool reset_web_log_flag = false;                  // Reset web console log
   bool initial_config = false;
+  bool cflg;
 } Web;
 
 /*********************************************************************************************/
@@ -664,6 +683,9 @@ void StartWebserver(int type) {
 //      Webserver->on(F("/u2"), HTTP_POST, HandleUploadDone, HandleUploadLoop);  // this call requires 2 functions so we keep a direct call
       Webserver->on("/u2", HTTP_POST, HandleUploadDone, HandleUploadLoop);  // this call requires 2 functions so we keep a direct call
 #ifndef FIRMWARE_MINIMAL
+#ifdef USE_ALPINEJS
+      Webserver->on("/alpinejs", HTTP_ANY, HandleAlpinejsRequest);
+#endif // USE_ALPINEJS
       XdrvXsnsCall(FUNC_WEB_ADD_HANDLER);
 #endif  // Not FIRMWARE_MINIMAL
 
@@ -677,8 +699,7 @@ void StartWebserver(int type) {
     Webserver->begin(); // Web server start
   }
   if (Web.state != type) {
-    AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_HTTP D_WEBSERVER_ACTIVE_ON " %s%s " D_WITH_IP_ADDRESS " %s"),
-      NetworkHostname(), (Mdns.begun) ? PSTR(".local") : "", IPGetListeningAddressStr().c_str());
+    AddLogServerActive(PSTR(D_LOG_HTTP "Web"));
     TasmotaGlobal.rules_flag.http_init = 1;
     Web.state = type;
   }
@@ -966,6 +987,9 @@ void WSContentSendStyle_P(const char* formatP, ...) {
   WSContentSend_P(HTTP_HEAD_STYLE2, WebColor(COL_BUTTON), WebColor(COL_BUTTON_TEXT), WebColor(COL_BUTTON_HOVER),
                   WebColor(COL_BUTTON_RESET), WebColor(COL_BUTTON_RESET_HOVER), WebColor(COL_BUTTON_SAVE), WebColor(COL_BUTTON_SAVE_HOVER),
                   WebColor(COL_BUTTON));
+#ifdef USE_WEB_STATUS_LINE_WIFI
+  WSContentSend_P(HTTP_HEAD_STYLE_WIFI, WebColor(COL_FORM), WebColor(COL_TITLE));
+#endif
 #ifdef USE_ZIGBEE
   WSContentSend_P(HTTP_HEAD_STYLE_ZIGBEE);
 #endif // USE_ZIGBEE
@@ -1143,6 +1167,22 @@ void WSContentStop(void) {
   WSContentSend_P(HTTP_END, TasmotaGlobal.version, TasmotaGlobal.image_name);
   WSContentEnd();
 }
+
+#ifdef USE_WEB_STATUS_LINE
+/*-------------------------------------------------------------------------------------------*/
+// Display a Sticker in the Status bar (upper right) with a name (MQTT, TlS, VPN)
+// and an optional tooltip text to indicate the duration of the connection (or -1 if none)
+//
+// Convert seconds to a string representing days, hours or minutes.
+// The string will contain the most coarse time only, rounded down (61m == 01h, 01h37m == 01h).
+void WSContentStatusSticker(const char *msg, const char *attr = NULL);
+void WSContentStatusSticker(const char *msg, const char *attr)
+{
+  if (msg == NULL) { return; }
+  if (attr == NULL) { attr = ""; }
+  WSContentSend_P(HTTP_STATUS_STICKER, 0xAAAAAA, attr, msg);
+}
+#endif // USE_WEB_STATUS_LINE
 
 /*********************************************************************************************/
 
@@ -1877,6 +1917,30 @@ bool HandleRootStatusRefresh(void) {
     WSContentSend_P(PSTR("\">"));
   }
 
+#ifdef USE_WEB_STATUS_LINE
+  // create a first DIV for the upper left status bar, positioned left-justified
+  // we use the same string literal for both lines to reduce Flash
+  WSContentSend_P(PSTR("<div style='font-size:9px;font-weight:bold;text-align:%s;position:absolute;top:0;%s:0;display:inline-flex;'>"), PSTR("left"), PSTR("left"));
+#ifdef USE_WEB_STATUS_LINE_WIFI
+  if (Settings->flag4.network_wifi) {
+    int32_t rssi = WiFi.RSSI();
+    WSContentSend_P(PSTR("<div class='wifi' title='" D_RSSI " %d%%, %d dBm' style='padding:0 2px 0 2px;'><div class='arc a3 %s'></div><div class='arc a2 %s'></div><div class='arc a1 %s'></div><div class='arc a0 active'></div></div>"),
+                          WifiGetRssiAsQuality(rssi), rssi,
+                          rssi >= -55 ? "active" : "",
+                          rssi >= -70 ? "active" : "",
+                          rssi >= -85 ? "active" : "");
+  }
+#endif // USE_WEB_STATUS_LINE_WIFI
+  // display here anything that goes on the left side
+  XsnsXdrvCall(FUNC_WEB_STATUS_LEFT);
+  WSContentSend_P(PSTR("</div>"));
+
+  // create a second DIV for the upper right status bar, positioned right-justified
+  WSContentSend_P(PSTR("<div style='font-size:9px;font-weight:bold;text-align:%s;position:absolute;top:0;%s:0;display:inline-flex;'>"), PSTR("right"), PSTR("right"));
+  XsnsXdrvCall(FUNC_WEB_STATUS_RIGHT);
+  WSContentSend_P(PSTR("</div>"));
+#endif // USE_WEB_STATUS_LINE
+
   WSContentSend_P(PSTR("{t}"));        // <table style='width:100%'>
   WSContentSeparator(3);               // Reset seperator to ignore previous outputs 
   if (Settings->web_time_end) {
@@ -1932,6 +1996,25 @@ bool HandleRootStatusRefresh(void) {
 }
 
 #ifndef FIRMWARE_MINIMAL
+
+#ifdef USE_ALPINEJS
+/*********************************************************************************************\
+ * Serve AlpineJS 2.8.2 in gzip format
+ * Content-Encoding: gzip
+ * Content-Type: text/javascript
+\*********************************************************************************************/
+
+void HandleAlpinejsRequest(void) {
+  Webserver->client().flush();
+  WSHeaderSend();
+  Webserver->sendHeader(F("Content-Encoding"), F("gzip"));
+  Webserver->sendHeader(F("Vary"), F("Accept-Encoding"));
+  Webserver->setContentLength(sizeof(alpine_min_js_gz));
+  Webserver->send(200, PSTR("text/javascript"), "");
+  Webserver->sendContent_P(alpine_min_js_gz, sizeof(alpine_min_js_gz));
+  Webserver->client().stop();
+}
+#endif  // USE_ALPINEJS
 
 /*********************************************************************************************\
  * HandleConfiguration
@@ -3712,16 +3795,22 @@ void HandleConsoleRefresh(void) {
     index = 0;
     Web.reset_web_log_flag = true;
   }
-  bool cflg = (index);
+  Web.cflg = (index);
   char* line;
   size_t len;
   while (GetLog(Settings->weblog_level, &index, &line, &len)) {
-    if (cflg) { WSContentSend_P(PSTR("\n")); }
-    WSContentSend(line, len -1);
-    cflg = true;
+    if (!LogDataJsonPrettyPrint(line, len -1, WSContentSendLDJsonPPCb)) {
+      WSContentSendLDJsonPPCb(line, len -1);
+    }
   }
   WSContentSend_P(PSTR("}1"));
   WSContentEnd();
+}
+
+void WSContentSendLDJsonPPCb(const char* line, uint32_t len) {
+  if (Web.cflg) { WSContentSend_P(PSTR("\n")); }
+  WSContentSend(line, len);
+  Web.cflg = true;
 }
 
 /********************************************************************************************/
@@ -4090,7 +4179,7 @@ void CmndWeblog(void) {
 /*-------------------------------------------------------------------------------------------*/
 
 void CmndWebRefresh(void) {
-  if ((XdrvMailbox.payload > 999) && (XdrvMailbox.payload <= 65000)) {
+  if ((XdrvMailbox.payload > 399) && (XdrvMailbox.payload <= 65000)) {
     Settings->web_refresh = XdrvMailbox.payload;
   }
   ResponseCmndNumber(Settings->web_refresh);

@@ -229,6 +229,9 @@ enum UserSelectablePins {
   GPIO_I2C_SER_TX, GPIO_I2C_SER_RX,     // I2C via Serial using SC18IM704 protocol (xdrv74)
   GPIO_TM1640CLK, GPIO_TM1640DIN,       // TM1640 (16 x seven-segment LED controler)
   GPIO_TWAI_TX, GPIO_TWAI_RX, GPIO_TWAI_BO, GPIO_TWAI_CLK,  // ESP32 TWAI serial interface
+  GPIO_C8_CO2_5K_TX, GPIO_C8_CO2_5K_RX, // C8-CO2-5K CO2 Sensor
+  GPIO_V9240_TX, GPIO_V9240_RX,         //  V9240 serial interface
+  GPIO_LD2402_TX, GPIO_LD2402_RX,       // HLK-LD2402
   GPIO_SENSOR_END };
 
 // Error as warning to rethink GPIO usage with max 2045
@@ -504,7 +507,10 @@ const char kSensorNames[] PROGMEM =
   D_SENSOR_LD2410S_TX "|" D_SENSOR_LD2410S_RX "|"
   D_SENSOR_I2C_SER_TX "|" D_SENSOR_I2C_SER_RX "|"
   D_SENSOR_TM1640_CLK "|" D_SENSOR_TM1640_DIN "|"
-  D_SENSOR_TWAI_TX "|" D_SENSOR_TWAI_RX "|" D_SENSOR_TWAI_BO "|" D_SENSOR_TWAI_CLK
+  D_SENSOR_TWAI_TX "|" D_SENSOR_TWAI_RX "|" D_SENSOR_TWAI_BO "|" D_SENSOR_TWAI_CLK "|"
+  D_SENSOR_C8_CO2_5K_TX "|" D_SENSOR_C8_CO2_5K_RX "|"
+  D_SENSOR_V9240_TX "|" D_SENSOR_V9240_RX "|"
+  D_SENSOR_LD2402_TX "|" D_SENSOR_LD2402_RX
   ;
 
 const char kSensorNamesFixed[] PROGMEM =
@@ -533,6 +539,7 @@ const char kSensorNamesFixed[] PROGMEM =
 #define MAX_BL0942_RX            8  // Baudrates 1/5 (4800), 2/6 (9600), 3/7 (19200), 4/8 (38400), Support Positive values only 1..4, Support also negative values 5..8
 #define MAX_CSE7761              2  // Model 1/2 (DUALR3), 2/2 (POWCT)
 #define MAX_TWAI                 SOC_TWAI_CONTROLLER_NUM
+#define MAX_GPS_RX               3  // Baudrates 1 (9600), 2 (19200), 3 (38400)
 
 const uint16_t kGpioNiceList[] PROGMEM = {
   GPIO_NONE,                                     // Not used
@@ -1004,6 +1011,10 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_BL6523_TX),                         // BL6523 based Watt meter Serial interface
   AGPIO(GPIO_BL6523_RX),                         // BL6523 based Watt meter Serial interface
 #endif
+#ifdef USE_V9240
+  AGPIO(GPIO_V9240_TX),                          //  Serial V9240 interface
+  AGPIO(GPIO_V9240_RX),                          //  Serial V9240 interface
+#endif
 #endif  // USE_ENERGY_SENSOR
 
 /*-------------------------------------------------------------------------------------------*\
@@ -1091,7 +1102,7 @@ const uint16_t kGpioNiceList[] PROGMEM = {
 #endif
 #ifdef USE_GPS
   AGPIO(GPIO_GPS_TX),                            // GPS serial interface
-  AGPIO(GPIO_GPS_RX),                            // GPS serial interface
+  AGPIO(GPIO_GPS_RX) + AGMAX(MAX_GPS_RX),        // GPS serial interface
 #endif
 #ifdef USE_HM10
   AGPIO(GPIO_HM10_TX),                           // HM10 serial interface
@@ -1117,6 +1128,10 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_CM11_TXD),                          // CM110x Serial interface
   AGPIO(GPIO_CM11_RXD),                          // CM110x Serial interface
 #endif
+#ifdef USE_LD2402
+  AGPIO(GPIO_LD2402_TX),                         // HLK-LD2402 Serial interface
+  AGPIO(GPIO_LD2402_RX),                         // HLK-LD2402 Serial interface
+#endif
 #ifdef USE_LD2410
   AGPIO(GPIO_LD2410_TX),                         // HLK-LD2410 Serial interface
   AGPIO(GPIO_LD2410_RX),                         // HLK-LD2410 Serial interface
@@ -1140,6 +1155,11 @@ const uint16_t kGpioNiceList[] PROGMEM = {
 #ifdef USE_WOOLIIS
   AGPIO(GPIO_WOOLIIS_RX),                        // Wooliis Battery capacity monitor Serial interface
 #endif
+#ifdef USE_C8_CO2_5K
+  AGPIO(GPIO_C8_CO2_5K_TX),                      // SC8-CO2-5K Serial interface
+  AGPIO(GPIO_C8_CO2_5K_RX),                      // SC8-CO2-5K Serial interface
+#endif
+
 
 #ifdef ESP32
 #ifdef USE_ESP32_TWAI
@@ -1179,7 +1199,7 @@ const uint16_t kGpioNiceList[] PROGMEM = {
 #ifdef USE_DEEPSLEEP
   AGPIO(GPIO_DEEPSLEEP),
 #endif
-#if defined(USE_KEELOQ)  || defined(USE_CC1101_BRESSER)
+#if defined(USE_KEELOQ) || defined(USE_CC1101_BRESSER)
   AGPIO(GPIO_CC1101_GDO0),                       // CC1101 pin for RX
   AGPIO(GPIO_CC1101_GDO2),                       // CC1101 pin for RX
 #endif

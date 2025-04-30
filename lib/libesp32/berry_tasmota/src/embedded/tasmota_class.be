@@ -9,9 +9,11 @@ class Tasmota
   var _fl             # list of fast_loop registered closures
   var _rules
   var _timers         # holds both timers and cron
+  var _defer          # holds functions to be called at next millisecond
   var _crons
   var _ccmd
   var _drivers
+  var _wnu            # when_connected: list of closures to call when network is connected, or nil
   var wire1
   var wire2
   var cmd_res         # store the command result, nil if disables, true if capture enabled, contains return value
@@ -90,13 +92,31 @@ class Tasmota
   end
 
   # Rules
-  def add_rule(pat, f, id)
+  def add_rule_once(pat, f, id)
+    self.add_rule(pat, f, id, true)
+  end
+  # add_rule(pat, f, id, run_once)
+  #
+  # pat: (string) pattern for the rule
+  # f: (function) the function to be called when the rule fires
+  #    there is a check that the caller doesn't use mistakenly
+  #    a method - in such case a closure needs to be used instead
+  # id: (opt, any) an optional id so the rule can be removed later
+  #     needs to be unique to avoid collision
+  #     No test for uniqueness is performed
+  # run_once: (opt, bool or nil) indicates the rule is fired only once
+  #           this parameter is not used directly but instead
+  #           set by 'add_rule_once()'
+  def add_rule(pat, f, id, run_once)
     self.check_not_method(f)
     if self._rules == nil
       self._rules = []
     end
     if type(f) == 'function'
-      self._rules.push(Trigger(self.Rule_Matcher.parse(pat), f, id))
+      if (id != nil)
+        self.remove_rule(pat, id)
+      end
+      self._rules.push(Trigger(self.Rule_Matcher.parse(pat), f, id, run_once))
     else
       raise 'value_error', 'the second argument is not a function'
     end
@@ -114,6 +134,59 @@ class Tasmota
       end
     end
   end
+
+  #-
+  # Below is a unit test for add_rule and add_rule_once
+  var G1, G2, G3
+  def f1() print("F1") G1 = 1 return true end
+  def f2() print("F2") G2 = 2 return true end
+  def f3() print("F3") G3 = 3 return true end
+
+
+  tasmota.add_rule("A#B", f1, "f1")
+  tasmota.add_rule_once("A#B", f2, "f2")
+
+  var r
+  r = tasmota.publish_rule('{"A":{"B":1}}')
+
+  assert(G1 == 1)
+  assert(G2 == 2)
+  assert(G3 == nil)
+  #assert(r == true)
+
+  G1 = nil
+  G2 = nil
+
+  r = tasmota.publish_rule('{"A":{"B":1}}')
+
+  assert(G1 == 1)
+  assert(G2 == nil)
+  assert(G3 == nil)
+  #assert(r == true)
+
+  tasmota.add_rule("A#B", f3, "f1")
+
+  G1 = nil
+
+  r = tasmota.publish_rule('{"A":{"B":1}}')
+
+  assert(G1 == nil)
+  assert(G2 == nil)
+  assert(G3 == 3)
+  #assert(r == true)
+
+  tasmota.remove_rule("A#B", "f1")
+
+  G3 = nil
+
+  r = tasmota.publish_rule('{"A":{"B":1}}')
+
+  assert(G1 == nil)
+  assert(G2 == nil)
+  assert(G3 == nil)
+  #assert(r == false)
+
+  -#
 
   # Rules trigger if match. return true if match, false if not
   #
@@ -133,27 +206,35 @@ class Tasmota
 
   # Run rules, i.e. check each individual rule
   # Returns true if at least one rule matched, false if none
-  # `exec_rule` is true, then run the rule, else just record value
+  #
+  # ev_json: (string) the payload of the rule, needs to be JSON format
+  # exec_rule: (bool) 'true' run the rule, 'false' just record value (avoind infinite loops)
   def exec_rules(ev_json, exec_rule)
-    var save_cmd_res = self.cmd_res     # save initial state (for reentrance)
-    if self._rules || save_cmd_res != nil  # if there is a rule handler, or we record rule results
+    var save_cmd_res = self.cmd_res       # save initial state (for reentrance)
+    if self._rules || save_cmd_res != nil # if there is a rule handler, or we record rule results
       import json
 
       self.cmd_res = nil                  # disable sunsequent recording of results
-      var ret = false
+      var ret = false                     # ret records if any rule was fired
 
       var ev = json.load(ev_json)         # returns nil if invalid JSON
       if ev == nil
-        self.log('BRY: ERROR, bad json: '+ev_json, 3)
-        ev = ev_json                # revert to string
+        self.log('BRY: ERROR, bad json: ' + ev_json, 3)
+        ev = ev_json                      # revert to string
       end
       # try all rule handlers
       if exec_rule && self._rules
         var i = 0
         while i < size(self._rules)
           var tr = self._rules[i]
-          ret = self.try_rule(ev,tr.trig,tr.f) || ret  #- call should be first to avoid evaluation shortcut if ret is already true -#
-          i += 1
+          var rule_fired = self.try_rule(ev, tr.trig, tr.f)
+          ret = ret || rule_fired              # 'or' with result
+          if rule_fired && (tr.o == true)
+            # this rule should be run_once(d) so remove it
+            self._rules.remove(i)
+          else
+            i += 1
+          end
         end
       end
 
@@ -194,13 +275,39 @@ class Tasmota
   def set_timer(delay,f,id)
     self.check_not_method(f)
     if self._timers == nil
-      self._timers=[]
+      self._timers = []
     end
     self._timers.push(Trigger(self.millis(delay),f,id))
   end
 
-  # run every 50ms tick
+  # special version to push a function that will be called immediately after 
+  def defer(f)
+    if self._defer == nil
+      self._defer = []
+    end
+    self._defer.push(f)
+    tasmota.global.deferred_ready = 1
+  end
+
+  # run any immediate function
   def run_deferred()
+    if self._defer
+      var sz = size(self._defer)    # make sure to run only those present at first, and not those inserted in between
+      while sz > 0
+        var f = self._defer[0]
+        self._defer.remove(0)
+        sz -= 1
+        f()
+      end
+      if size(self._defer) == 0
+        tasmota.global.deferred_ready = 0
+      end
+    end
+  end
+
+  # run every 50ms tick
+  def run_timers()
+    self.run_deferred()      # run immediate functions first
     if self._timers
       var i=0
       while i < self._timers.size()
@@ -617,10 +724,46 @@ class Tasmota
     end
   end
 
+  # add a closure to the list to be called when network is connected
+  # or call immediately if network is already up
+  def when_network_up(cl)
+    self.check_not_method(cl)
+    var is_connected = tasmota.wifi()['up'] || tasmota.eth()['up']
+    if is_connected
+      cl()          # call closure
+    else
+      if (self._wnu == nil)
+        self._wnu = [ cl ]    # create list
+      else
+        self._wnu.push(cl)    # append to list
+      end
+    end
+  end
+
+  # run all pending closures when network is up
+  def run_network_up()
+    if (self._wnu == nil)   return    end
+    var is_connected = tasmota.wifi()['up'] || tasmota.eth()['up']
+    if is_connected
+      # run all closures in a safe loop
+      while (size(self._wnu) > 0)
+        var cl = self._wnu[0]
+        self._wnu.remove(0)     # failsafe, remove first to avoid an infinite loop if call fails
+        try
+          cl()
+        except .. as e,m
+          print(format("BRY: Exception> run_network_up '%s' - %s", e, m))
+        end
+      end
+      self._wnu = nil         # all done, clear list
+    end
+  end
+
   def event(event_type, cmd, idx, payload, raw)
     import introspect
     if event_type=='every_50ms'
-      self.run_deferred()
+      if (self._wnu) self.run_network_up() end   # capture when network becomes connected
+      self.run_timers()
     end  #- first run deferred events -#
 
     if event_type=='every_250ms'

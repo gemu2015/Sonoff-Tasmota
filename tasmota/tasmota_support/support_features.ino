@@ -937,11 +937,21 @@ constexpr uint32_t feature[] = {
 #ifdef USE_ESP32_TWAI
   0x00000800 |  // xdrv_91_esp32_twai.ino
 #endif
-//  0x00001000 |  // 
-//  0x00002000 |  // 
-//  0x00004000 |  // 
-//  0x00008000 |  // 
-//  0x00010000 |  // 
+#ifdef USE_C8_CO2_5K
+  0x00001000 |  // xsns_117_c8_co2_5k.ino
+#endif
+#ifdef USE_WIZMOTE
+  0x00002000 |  // xdrv_77_wizmote.ino
+#endif
+#if defined(USE_ENERGY_SENSOR) && defined(USE_V9240)
+  0x00004000 |  // xnrg_25_v9240.ino
+#endif
+#ifdef USE_TELNET
+  0x00008000 |  // xdrv_80_telnet.ino
+#endif
+#ifdef USE_XYZMODEM
+  0x00010000 |  // xdrv_120_xyzmodem.ino
+#endif  
 //  0x00020000 |  // 
 //  0x00040000 |  // 
 //  0x00080000 |  // 

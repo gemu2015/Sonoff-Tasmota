@@ -52,12 +52,14 @@
 
 // Common
 #define D_ABSOLUTE_HUMIDITY "Abs Humidity"
+#define D_ADDRESS "Address"
 #define D_ADMIN "Admin"
 #define D_AIR_QUALITY "空氣品質"
 #define D_AP "存取點"                    // Access Point
 #define D_AS "名稱:"
 #define D_AT "at"
 #define D_AUTO "自動"
+#define D_AUTO_UPDATE "Auto Update"
 #define D_BATTERY "Battery"
 #define D_BATT "電池"                // Short for Battery
 #define D_BATTERY_CHARGE "Charge"  // Battery charge in % 
@@ -88,6 +90,7 @@
 #define D_DEBUG "偵錯"
 #define D_DEWPOINT "Dew point"
 #define D_DISABLED "已停用"
+#define D_DISCONNECTED "Disconnected"
 #define D_DISTANCE "距離"
 #define D_DNS_SERVER "DNS伺服器"
 #define D_DO "Disolved Oxygen"
@@ -776,6 +779,8 @@
 #define D_SENSOR_SDM630_RX     "SDM630 Rx"
 #define D_SENSOR_WE517_TX      "WE517 Tx"
 #define D_SENSOR_WE517_RX      "WE517 Rx"
+#define D_SENSOR_LD2402_TX     "LD2402 Tx"
+#define D_SENSOR_LD2402_RX     "LD2402 Rx"
 #define D_SENSOR_LD2410_TX     "LD2410 Tx"
 #define D_SENSOR_LD2410_RX     "LD2410 Rx"
 #define D_SENSOR_LD2410S_TX     "LD2410S Tx"
@@ -1021,6 +1026,8 @@
 #define D_SENSOR_LOX_O2_RX     "LoxO2 RX"
 #define D_GPIO_MAGIC_SWITCH    "MagicSwitch"
 #define D_SENSOR_WOOLIIS_RX    "Wooliis Rx"
+#define D_SENSOR_C8_CO2_5K_RX  "C8-CO2-5K Rx"
+#define D_SENSOR_C8_CO2_5K_TX  "C8-CO2-5K Tx"
 
 // Units
 #define D_UNIT_AMPERE "安培"
@@ -1311,5 +1318,9 @@
 #define D_EXPORT                          "Export"
 #define D_CHARGING                        "Charging"
 #define D_CAPACITY                        "Capacity"
+
+// xnrg_25_v9240.ino
+#define D_SENSOR_V9240_TX "V9240 TX"
+#define D_SENSOR_V9240_RX "V9240 RX"
 
 #endif  // _LANGUAGE_ZH_TW_H_

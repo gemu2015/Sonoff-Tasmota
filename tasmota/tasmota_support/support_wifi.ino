@@ -185,9 +185,9 @@ void WiFiSetSleepMode(void)
   }
 */
   bool wifi_no_sleep = Settings->flag5.wifi_no_sleep;
-#ifdef CONFIG_IDF_TARGET_ESP32C3
-  wifi_no_sleep = true;                         // Temporary patch for IDF4.4, wifi sleeping may cause wifi drops
-#endif
+//#ifdef CONFIG_IDF_TARGET_ESP32C3
+//  wifi_no_sleep = true;                         // Temporary patch for IDF4.4, wifi sleeping may cause wifi drops
+//#endif
   if (0 == TasmotaGlobal.sleep || wifi_no_sleep) {
     if (!TasmotaGlobal.wifi_stay_asleep) {
       WiFiHelper::setSleepMode(WIFI_NONE_SLEEP);       // Disable sleep
@@ -508,7 +508,7 @@ bool WifiGetIP(IPAddress *ip, bool exclude_ap = false);
 // Returns only IPv6 global address (no loopback and no link-local)
 bool WifiGetIPv4(IPAddress *ip)
 {
-  uint32_t wifi_uint = (uint32_t) WiFi.localIP();
+  uint32_t wifi_uint = (WL_CONNECTED == WiFi.status()) ? (uint32_t)WiFi.localIP() : 0;  // See issue #23115
   if (ip != nullptr) { *ip = wifi_uint; }
   return wifi_uint != 0;
 }
@@ -648,9 +648,23 @@ String DNSGetIPStr(uint32_t idx)
 
 //
 #include "lwip/dns.h"
+#ifdef ESP32
+#include "esp_netif_net_stack.h"
+#endif
 void WifiDumpAddressesIPv6(void)
 {
   for (netif* intf = netif_list; intf != nullptr; intf = intf->next) {
+#ifdef ESP32
+    esp_netif_t *esp_netif = esp_netif_get_handle_from_netif_impl(intf);
+    int32_t route_prio = esp_netif ? esp_netif_get_route_prio(esp_netif) : -1;
+    if (!ip_addr_isany_val(intf->ip_addr)) AddLog(LOG_LEVEL_DEBUG, "WIF: '%c%c%i' IPv4 %s (%i)", intf->name[0], intf->name[1], intf->num, IPAddress(&intf->ip_addr).toString(true).c_str(), route_prio);
+    for (uint32_t i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
+      if (!ip_addr_isany_val(intf->ip6_addr[i]))
+        AddLog(LOG_LEVEL_DEBUG, "IP : '%c%c%i' IPv6 %s %s (%i)", intf->name[0], intf->name[1], intf->num,
+                                IPAddress(&intf->ip6_addr[i]).toString(true).c_str(),
+                                ip_addr_islinklocal(&intf->ip6_addr[i]) ? "local" : "", route_prio);
+    }
+#else
     if (!ip_addr_isany_val(intf->ip_addr)) AddLog(LOG_LEVEL_DEBUG, "WIF: '%c%c%i' IPv4 %s", intf->name[0], intf->name[1], intf->num, IPAddress(&intf->ip_addr).toString(true).c_str());
     for (uint32_t i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
       if (!ip_addr_isany_val(intf->ip6_addr[i]))
@@ -658,7 +672,9 @@ void WifiDumpAddressesIPv6(void)
                                 IPAddress(&intf->ip6_addr[i]).toString(true).c_str(),
                                 ip_addr_islinklocal(&intf->ip6_addr[i]) ? "local" : "");
     }
+#endif
   }
+
   AddLog(LOG_LEVEL_DEBUG, "IP : DNS: %s %s", IPAddress(dns_getserver(0)).toString().c_str(),  IPAddress(dns_getserver(1)).toString(true).c_str());
   AddLog(LOG_LEVEL_DEBUG, "WIF: v4IP: %_I v6IP: %s mainIP: %s", (uint32_t) WiFi.localIP(), WifiGetIPv6Str().c_str(), WifiGetIPStr().c_str());
 //#if defined(ESP32) && CONFIG_IDF_TARGET_ESP32 && defined(USE_ETHERNET)

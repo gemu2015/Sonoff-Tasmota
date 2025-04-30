@@ -1714,7 +1714,7 @@ void TemplateGpios(myio *gp)
     j++;
 #endif  // ESP8266
 #ifdef ESP32
-#if CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6 || CONFIG_IDF_TARGET_ESP32P4
+#if CONFIG_IDF_TARGET_ESP32C2 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32C6
     dest[i] = src[i];
 #elif CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
     if (22 == i) { j = 33; }    // skip 22-32
@@ -2398,6 +2398,10 @@ void SystemBusyDelayExecute(void) {
  *
 \*********************************************************************************************/
 
+void SetMinimumSeriallog(void) {
+  TasmotaGlobal.seriallog_level = (Settings->seriallog_level < LOG_LEVEL_INFO) ? (uint8_t)LOG_LEVEL_INFO : Settings->seriallog_level;
+}
+
 void SetTasConlog(uint32_t loglevel) {
   Settings->seriallog_level = loglevel;
   TasmotaGlobal.seriallog_level = loglevel;
@@ -2607,6 +2611,112 @@ bool GetLog(uint32_t req_loglevel, uint32_t* index_p, char** entry_pp, size_t* l
   return false;
 }
 
+bool LogDataJsonPrettyPrint(const char *log_line, uint32_t log_data_len, std::function<void(const char*, uint32_t)> println) {
+  // log_line:
+  // 14:49:36.123 MQTT: stat/wemos5/RESULT = {"POWER":"OFF"}
+  // 14:30:16.749-172/38 MQT: tele/atomlite3/INFO3 = {"Info3":{"RestartReason":"Vbat power on reset","BootCount":74}}
+
+  if (!Settings->mbflag2.json_pretty_print) { return false; }  // [JsonPP] Number of indents
+  char *bch = (char*)memchr(log_line, '{', log_data_len);
+  if (!bch) { return false; }                // No JSON data
+
+  uint32_t pos_brace = bch - log_line;
+  uint32_t cnt_brace = 0;                    // {}
+  uint32_t len_mxtime = strchr(log_line, ' ') - log_line +2;
+  uint32_t pos_value_pair = pos_brace;
+  uint32_t cnt_bracket = 0;                  // []
+  uint32_t cnt_Indent = 0;                   // indent
+  bool quotes = false;                       // ""
+  bool bracket_comma = false;
+  bool pls_print = false;
+  for (uint32_t i = pos_brace; i < log_data_len; i++) {
+    char curchar = log_line[i];
+    char nxtchar = log_line[i +1];
+    cnt_Indent = cnt_brace + cnt_bracket;
+    if (curchar == '{') {
+      cnt_brace++;
+      pls_print = true;
+    }
+    else if (cnt_brace) {
+      if (nxtchar == '}') {
+        pls_print = true;
+      }
+      if (curchar == '}') {
+        cnt_brace--;
+        if (cnt_brace) {
+          if (nxtchar != ',') {
+            pls_print = true;
+            cnt_Indent = cnt_brace + cnt_bracket;
+          }
+        } else {
+          pls_print = true;
+          cnt_Indent = 0;
+        }
+      }
+      else if (curchar == '[') {
+        cnt_bracket++;
+        if (nxtchar == '[') {
+          pls_print = true;
+        }
+      }
+      else if (curchar == ']') {
+        cnt_bracket--;
+        if (nxtchar == ',') {
+          bracket_comma = true;
+        }
+        else {
+          pls_print = true;
+          if ((nxtchar == ']') || (nxtchar == '}')) {
+            cnt_Indent = cnt_brace + cnt_bracket;
+          }
+        }
+      }
+      else if (curchar == '"') {
+        quotes ^= 1;
+      }
+      else if (curchar == ',') {
+        if (!quotes && (!cnt_bracket || bracket_comma)) {
+          bracket_comma = false;
+          pls_print = true;
+        }
+      }
+    }
+
+    if (pls_print) {
+      pls_print = false;
+      uint32_t len_id = (pos_brace == i) ? pos_brace +1 : len_mxtime;
+      uint32_t len_indent = cnt_Indent * Settings->mbflag2.json_pretty_print;
+      uint32_t len_value_pair = (i - pos_value_pair) +1;
+      uint32_t len_full = len_id + len_indent + len_value_pair +1;
+
+      char line[len_full];              // Known max value pair size is 152
+      strlcpy(line, log_line, len_id);  // Repeat mxtime
+      sprintf(line, "%s%*s", line, len_indent, "");  // Add space indent
+      strncat(line, log_line + pos_value_pair, len_value_pair);
+      println(line, strlen(line));      // Callback for output
+      pos_value_pair = i +1;
+    }
+  }
+  return true;
+}
+
+uint32_t HighestLogLevel(void) {
+  uint32_t highest_loglevel = TasmotaGlobal.seriallog_level;
+  if (Settings->seriallog_level > highest_loglevel) { highest_loglevel = Settings->seriallog_level; }
+  if (Settings->mqttlog_level > highest_loglevel) { highest_loglevel = Settings->mqttlog_level; }
+#ifdef USE_WEBSERVER
+  if (Settings->weblog_level > highest_loglevel) { highest_loglevel = Settings->weblog_level; }
+#endif  // USE_WEBSERVER
+#ifdef USE_UFILESYS
+  uint32_t filelog_level = Settings->filelog_level % 10;
+  if (filelog_level > highest_loglevel) { highest_loglevel = filelog_level; }
+#endif  // USE_UFILESYS
+  if (TasmotaGlobal.syslog_level > highest_loglevel) { highest_loglevel = TasmotaGlobal.syslog_level; }
+  if (TasmotaGlobal.templog_level > highest_loglevel) { highest_loglevel = TasmotaGlobal.templog_level; }
+  if (TasmotaGlobal.uptime < 3) { highest_loglevel = LOG_LEVEL_DEBUG_MORE; }  // Log all before setup correct log level
+  return highest_loglevel;
+}
+
 void AddLogData(uint32_t loglevel, const char* log_data, const char* log_data_payload = nullptr, const char* log_data_retained = nullptr) {
   // Ignore any logging when maxlog_level = 0 OR logging for levels equal or lower than maxlog_level
   if (!TasmotaGlobal.maxlog_level || (loglevel > TasmotaGlobal.maxlog_level)) { return; }
@@ -2639,24 +2749,14 @@ void AddLogData(uint32_t loglevel, const char* log_data, const char* log_data_pa
 
   if ((loglevel <= TasmotaGlobal.seriallog_level) &&
       (TasmotaGlobal.masterlog_level <= TasmotaGlobal.seriallog_level)) {
-    TasConsole.printf("%s%s%s%s\r\n", mxtime, log_data, log_data_payload, log_data_retained);
-#ifdef USE_SERIAL_BRIDGE
-    SerialBridgePrintf("%s%s%s%s\r\n", mxtime, log_data, log_data_payload, log_data_retained);
-#endif  // USE_SERIAL_BRIDGE
+    if (!Settings->mbflag2.json_pretty_print || !strchr(log_data_payload, '{')) {
+      TasConsole.printf("%s%s%s%s\r\n", mxtime, log_data, log_data_payload, log_data_retained);
+    }
   }
 
   if (!TasmotaGlobal.log_buffer) { return; }  // Leave now if there is no buffer available
 
-  uint32_t highest_loglevel = Settings->weblog_level;
-  if (Settings->mqttlog_level > highest_loglevel) { highest_loglevel = Settings->mqttlog_level; }
-#ifdef USE_UFILESYS
-  uint32_t filelog_level = Settings->filelog_level % 10;
-  if (filelog_level > highest_loglevel) { highest_loglevel = filelog_level; }
-#endif  // USE_UFILESYS
-  if (TasmotaGlobal.syslog_level > highest_loglevel) { highest_loglevel = TasmotaGlobal.syslog_level; }
-  if (TasmotaGlobal.templog_level > highest_loglevel) { highest_loglevel = TasmotaGlobal.templog_level; }
-  if (TasmotaGlobal.uptime < 3) { highest_loglevel = LOG_LEVEL_DEBUG_MORE; }  // Log all before setup correct log level
-
+  uint32_t highest_loglevel = HighestLogLevel();
   if ((loglevel <= highest_loglevel) &&    // Log only when needed
       (TasmotaGlobal.masterlog_level <= highest_loglevel)) {
     // Delimited, zero-terminated buffer of log lines.
@@ -2673,41 +2773,57 @@ void AddLogData(uint32_t loglevel, const char* log_data, const char* log_data_pa
       log_data_payload = empty;
       log_data_retained = empty;
     }
+    log_data_len = strlen(mxtime) + strlen(log_data) + strlen(log_data_payload) + strlen(log_data_retained);
 
     TasmotaGlobal.log_buffer_pointer &= 0xFF;
     if (!TasmotaGlobal.log_buffer_pointer) {
       TasmotaGlobal.log_buffer_pointer++;  // Index 0 is not allowed as it is the end of char string
     }
     while (TasmotaGlobal.log_buffer_pointer == TasmotaGlobal.log_buffer[0] ||  // If log already holds the next index, remove it
-           strlen(TasmotaGlobal.log_buffer) + strlen(log_data) + strlen(log_data_payload) + strlen(log_data_retained) + strlen(mxtime) + 4 > LOG_BUFFER_SIZE)  // 4 = log_buffer_pointer + '\1' + '\0'
-    {
+           strlen(TasmotaGlobal.log_buffer) + log_data_len +4 > LOG_BUFFER_SIZE) {  // 4 = log_buffer_pointer + '\1' + '\0'
       char* it = TasmotaGlobal.log_buffer;
       it++;                                // Skip log_buffer_pointer
       it += strchrspn(it, '\1');           // Skip log line
       it++;                                // Skip delimiting "\1"
       memmove(TasmotaGlobal.log_buffer, it, LOG_BUFFER_SIZE -(it-TasmotaGlobal.log_buffer));  // Move buffer forward to remove oldest log line
     }
-    snprintf_P(TasmotaGlobal.log_buffer, LOG_BUFFER_SIZE, PSTR("%s%c%c%s%s%s%s\1"),
-      TasmotaGlobal.log_buffer, TasmotaGlobal.log_buffer_pointer++, '0'+loglevel, mxtime, log_data, log_data_payload, log_data_retained);
+    char *log_line = TasmotaGlobal.log_buffer + strlen(TasmotaGlobal.log_buffer);  // Ponter to next entry
+    snprintf_P(log_line, log_data_len +4, PSTR("%c%c%s%s%s%s\1"),
+      TasmotaGlobal.log_buffer_pointer++, '0'+loglevel, mxtime, log_data, log_data_payload, log_data_retained);
     if (too_long) { free(too_long); }
     TasmotaGlobal.log_buffer_pointer &= 0xFF;
     if (!TasmotaGlobal.log_buffer_pointer) {
       TasmotaGlobal.log_buffer_pointer++;  // Index 0 is not allowed as it is the end of char string
     }
+
+    // These calls fail to show initial logging
+    log_line += 2;                         // Skip log_buffer_pointer and loglevel
+    // 14:49:36.123 MQTT: stat/wemos5/RESULT = {"POWER":"OFF"}
+    // 14:30:16.749-172/38 MQT: tele/atomlite3/INFO3 = {"Info3":{"RestartReason":"Vbat power on reset","BootCount":74}}
+
+    if ((loglevel <= TasmotaGlobal.seriallog_level) &&
+        (TasmotaGlobal.masterlog_level <= TasmotaGlobal.seriallog_level)) {
+      LogDataJsonPrettyPrint(log_line, log_data_len, TasConsoleLDJsonPPCb);
+    }
+
+#ifdef USE_SERIAL_BRIDGE
+    if (loglevel <= TasmotaGlobal.seriallog_level) {
+      SerialBridgeWrite(log_line, log_data_len);
+    }
+#endif  // USE_SERIAL_BRIDGE
+#ifdef USE_TELNET
+#ifdef ESP32
+    if (loglevel <= TasmotaGlobal.seriallog_level) {
+      TelnetWrite(log_line, log_data_len);  // This uses too much heap on ESP8266
+    }
+#endif  // ESP32
+#endif  // USE_TELNET
+
   }
 }
 
-uint32_t HighestLogLevel() {
-  uint32_t highest_loglevel = TasmotaGlobal.seriallog_level;
-  if (Settings->weblog_level > highest_loglevel) { highest_loglevel = Settings->weblog_level; }
-  if (Settings->mqttlog_level > highest_loglevel) { highest_loglevel = Settings->mqttlog_level; }
-#ifdef USE_UFILESYS
-  if (Settings->filelog_level > highest_loglevel) { highest_loglevel = Settings->filelog_level; }
-#endif  // USE_UFILESYS
-  if (TasmotaGlobal.syslog_level > highest_loglevel) { highest_loglevel = TasmotaGlobal.syslog_level; }
-  if (TasmotaGlobal.templog_level > highest_loglevel) { highest_loglevel = TasmotaGlobal.templog_level; }
-  if (TasmotaGlobal.uptime < 3) { highest_loglevel = LOG_LEVEL_DEBUG_MORE; }  // Log all before setup correct log level
-  return highest_loglevel;
+void TasConsoleLDJsonPPCb(const char* line, uint32_t len) {
+  TasConsole.println(line);
 }
 
 void AddLog(uint32_t loglevel, PGM_P formatP, ...) {
@@ -2721,7 +2837,6 @@ void AddLog(uint32_t loglevel, PGM_P formatP, ...) {
   }
 #endif
   uint32_t highest_loglevel = HighestLogLevel();
-
   // If no logging is requested then do not access heap to fight fragmentation
   if ((loglevel <= highest_loglevel) && (TasmotaGlobal.masterlog_level <= highest_loglevel)) {
     va_list arg;

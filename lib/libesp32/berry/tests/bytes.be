@@ -53,6 +53,11 @@ b.add(0x12345678, -2)
 assert(str(b) == "bytes('2278785678563412785678')")
 b.add(0x12345678, -4)
 assert(str(b) == "bytes('227878567856341278567812345678')")
+b.add(0xAABBCC, 3)
+assert(str(b) == "bytes('227878567856341278567812345678CCBBAA')")
+b.add(0x998877, -3)
+assert(str(b) == "bytes('227878567856341278567812345678CCBBAA998877')")
+
 
 #- get -#
 b=bytes("000102030405")
@@ -330,3 +335,28 @@ assert(bytes("02"))
 a = bytes("01020304")
 assert(a.get(1, 3) == 0x040302)
 assert(a.get(1, -3) == 0x020304)
+
+# append base64
+b = bytes("AABBCC")
+c = bytes("001122")
+assert(bytes().fromstring(bytes("001122").tob64()) == bytes('41424569'))
+assert(b.appendb64(c) == bytes("AABBCC41424569"))
+assert(b.appendb64(bytes()) == bytes("AABBCC41424569"))
+
+b = bytes("AABBCC")
+assert(bytes().fromstring(bytes("1122").tob64()) == bytes('4553493D'))
+assert(b.appendb64(c, 1) == bytes("AABBCC4553493D"))
+
+b = bytes("AABBCC")
+assert(bytes().fromstring(bytes("22").tob64()) == bytes('49673D3D'))
+assert(b.appendb64(c, 2) == bytes("AABBCC49673D3D"))
+
+b = bytes("AABBCC")
+assert(bytes().fromstring(bytes("11").tob64()) == bytes('45513D3D'))
+assert(b.appendb64(c, 1, 1) == bytes("AABBCC45513D3D"))
+
+#- asstring truncates if NULL is present -#
+s=bytes("414243").asstring()
+assert(size(s) == 3)
+s=bytes("410000").asstring()
+assert(size(s) == 1)

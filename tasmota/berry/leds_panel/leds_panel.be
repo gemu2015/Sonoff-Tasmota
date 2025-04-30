@@ -706,7 +706,8 @@ class leds_panel
   var h, w, cell_size, cell_space
 
   static var SAMPLING = 100
-  static var PORT = 8887      # default port 8886
+  static var PORT = 8886      # default port 8886
+  static var HTML_WIDTH = 290
   static var HTML_HEAD1 = 
     "<!DOCTYPE HTML><html><head>"
   static var HTML_URL_F = 
@@ -750,7 +751,6 @@ class leds_panel
     '};'
 
     'function jd() {'
-      'lh = eb("leds_hex");'
       'led_canvas = eb("canvas");'
       'led_canvas_ctx = led_canvas.getContext("2d");'
       'initEventSource();'
@@ -795,10 +795,10 @@ class leds_panel
     '<body>'
       '<style>body{margin:0px;}</style>'
   static var HTML_CONTENT =
-      '<table style="width:100%;border:0px;margin:0px;">'
+     '<table style="width:100%;border:0px;margin:0px;">'
         '<tbody>'
           '<tr><td>'
-            '<canvas id="canvas" width="330" height="10" style="display:block;margin-left:auto;margin-right:auto;"></canvas>'
+            '<canvas id="canvas" width="290" height="10" style="display:block;margin-left:auto;margin-right:auto;"></canvas>'
           '</td></tr>'
         '</tbody>'
     '</table>'
@@ -812,7 +812,7 @@ class leds_panel
       log("LED: no leds configured, can't start leds_panel", 3)
       return
     end
-    if (port == nil)  port = 8886   end
+    if (port == nil)  port = self.PORT   end
     self.port = port
     self.web = global.webserver_async(port)
     self.sampling_interval = self.SAMPLING
@@ -838,7 +838,7 @@ class leds_panel
     self.p_leds = self.strip.pixels_buffer(self.p_leds)   # update buffer
     self.h = tasmota.settings.light_pixels_height_1 + 1
     self.w = self.strip.pixel_count() / (tasmota.settings.light_pixels_height_1 + 1)
-    self.cell_size = tasmota.int(330 / self.w, 4, 25)
+    self.cell_size = tasmota.int(self.HTML_WIDTH / self.w, 4, 25)
     self.cell_space = (self.cell_size <= 6) ? 1 : 2
   end
 
@@ -947,14 +947,46 @@ class leds_panel
       webserver.content_send(
         f'<table style="width:100%;">'
           '<tbody>'
-            '<fieldset style="background-color:{tasmota.webcolor(1)};"><legend style="text-align:left;">&nbsp;Leds mirroring&nbsp;</legend>'
-              '<iframe src="http://{ip}:{self.port}/leds" '
-                'style="color:#eaeaea; border:0px none;height:{height}px;width:340px;margin:0px 8px 0px 8px;padding:0px 0px;">'
-              '</iframe>'
-            '</fieldset>'            
-          '</td>'
-        '</tr>'
-        '</tbody></table>'
+            '<tr>'
+              '<td>'
+                '<fieldset style="background-color:{tasmota.webcolor(1)};">'
+                  '<legend style="text-align:left;">'
+                    '<label>'
+                      '<input type="checkbox" id="ledchk">&nbsp;Leds mirroring&nbsp;'
+                    '</label>'
+                  '</legend>'
+                  '<iframe id="led_iframe" src="about:blank" hidden="true" '
+                    'style="color:#eaeaea;border:0px none;height:{height}px;width:300px;margin:0px 8px 0px 8px;padding:0px 0px;">'
+                  '</iframe>'
+                '</fieldset>'            
+              '</td>'
+            '</tr>'
+          '</tbody>'
+        '</table>'
+        '<script>'
+          'const leduri="http://{ip}:{self.port}/leds";'
+        '</script>'
+      )
+      webserver.content_send(
+        '<script>'
+        'function ledm(){'
+          'ledchk=eb("ledchk");'
+          # checkbox event
+          'ledchk.addEventListener("change",(event)=>{'
+            'const iframe=document.getElementById("led_iframe");'
+            'if(ledchk.checked){'
+              # When checked, reload the original content
+              'iframe.src=leduri;'
+              'iframe.hidden=false;'
+            '}else{'
+              # When unchecked, replace iframe with itself to unload it
+              'iframe.src="about:blank";'
+              'iframe.hidden=true;'
+            '}'
+          '});'
+        '}'
+        'wl(ledm);'
+        '</script>'
       )
     end
   end

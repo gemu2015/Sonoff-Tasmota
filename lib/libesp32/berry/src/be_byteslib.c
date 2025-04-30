@@ -258,6 +258,26 @@ static size_t buf_add2_be(buf_impl* attr, const uint16_t data) // append 16 bits
     return attr->len;
 }
 
+static size_t buf_add3_le(buf_impl* attr, const uint32_t data) // append 32 bits value
+{
+    if (attr->len < attr->size - 2) {     // do we have room for 4 bytes
+        attr->bufptr[attr->len++] = data;
+        attr->bufptr[attr->len++] = data >> 8;
+        attr->bufptr[attr->len++] = data >> 16;
+    }
+    return attr->len;
+}
+
+size_t buf_add3_be(buf_impl* attr, const uint32_t data) // append 32 bits value
+{
+    if (attr->len < attr->size - 2) {     // do we have room for 4 bytes
+        attr->bufptr[attr->len++] = data >> 16;
+        attr->bufptr[attr->len++] = data >> 8;
+        attr->bufptr[attr->len++] = data;
+    }
+    return attr->len;
+}
+
 static size_t buf_add4_le(buf_impl* attr, const uint32_t data) // append 32 bits value
 {
     if (attr->len < attr->size - 3) {     // do we have room for 4 bytes
@@ -786,7 +806,8 @@ static int m_asstring(bvm *vm)
 {
     buf_impl attr = bytes_check_data(vm, 0);
     check_ptr(vm, &attr);
-    be_pushnstring(vm, (const char*) attr.bufptr, attr.len);
+    size_t safe_len = strnlen((const char*) attr.bufptr, attr.len);
+    be_pushnstring(vm, (const char*) attr.bufptr, safe_len);
     be_return(vm);
 }
 
@@ -838,10 +859,12 @@ static int m_add(bvm *vm)
             case -1:    /* fallback below */
             case 1:     buf_add1(&attr, v);       break;
             case 2:     buf_add2_le(&attr, v);    break;
+            case 3:     buf_add3_le(&attr, v);    break;
             case 4:     buf_add4_le(&attr, v);    break;
             case -2:    buf_add2_be(&attr, v);    break;
+            case -3:    buf_add3_be(&attr, v);    break;
             case -4:    buf_add4_be(&attr, v);    break;
-            default:    be_raise(vm, "type_error", "size must be -4, -2, -1, 0, 1, 2 or 4.");
+            default:    be_raise(vm, "type_error", "size must be between -4 and 4.");
         }
         be_pop(vm, argc - 1);
         m_write_attributes(vm, 1, &attr);  /* update attributes */
@@ -1376,6 +1399,43 @@ static int m_appendhex(bvm *vm)
     be_return_nil(vm); /* return self */
 }
 
+static int m_appendb64(bvm *vm)
+{
+    int argc = be_top(vm);
+    buf_impl attr = m_read_attributes(vm, 1);
+    check_ptr_modifiable(vm, &attr);
+    if (attr.fixed) { be_raise(vm, BYTES_RESIZE_ERROR, BYTES_RESIZE_MESSAGE); }
+    if (argc >= 2 && be_isbytes(vm, 2)) {
+        buf_impl attr2 = m_read_attributes(vm, 2);
+        check_ptr(vm, &attr2);
+        int32_t idx = 0;            /* start from index 0 */
+        int32_t len = attr2.len;    /* entire len */
+        if (argc >= 3 && be_isint(vm, 3)) {         /* read optional idx and len */
+            idx = be_toint(vm, 3);
+            if (idx < 0) { idx = attr2.len + idx; } /* if negative, count from end */
+            if (idx < 0) { idx = 0; }               /* guardrails */
+            if (idx > attr2.len) { idx = attr2.len; }
+            if (argc >= 4 && be_isint(vm, 4)) {
+                len = be_toint(vm, 4);
+                if (len < 0) { len = 0; }
+            }
+            if (idx + len >= attr2.len) { len = attr2.len - idx; }
+        }
+        if (len > 0) {                              /* only if there is something to encode */
+            bytes_resize(vm, &attr, attr.len + encode_base64_length(len) + 1); /* resize */
+        
+            size_t converted = encode_base64(attr2.bufptr + idx, len, (unsigned char*)(attr.bufptr + attr.len));
+            attr.len += converted;
+            
+            m_write_attributes(vm, 1, &attr);  /* update instance */
+        }
+        be_pushvalue(vm, 1);
+        be_return(vm); /* return self */
+    }
+    be_raise(vm, "type_error", "operand must be bytes");
+    be_return_nil(vm); /* return self */
+}
+
 static int bytes_equal(bvm *vm, bbool iseq)
 {
     bbool ret;
@@ -1862,6 +1922,8 @@ void be_load_byteslib(bvm *vm)
         { "reverse", m_reverse },
         { "copy", m_copy },
         { "append", m_connect },
+        { "appendhex", m_appendhex },
+        { "appendb64", m_appendb64 },
         { "+", m_merge },
         { "..", m_connect },
         { "==", m_equal },
@@ -1916,6 +1978,7 @@ class be_class_bytes (scope: global, name: bytes) {
     copy, func(m_copy)
     append, func(m_connect)
     appendhex, func(m_appendhex)
+    appendb64, func(m_appendb64)
     +, func(m_merge)
     .., func(m_connect)
     ==, func(m_equal)

@@ -86,9 +86,11 @@ class be_class_tasmota (scope: global, name: Tasmota) {
     _fl, var                            // list of active fast-loop object (faster than drivers)
     _rules, var                         // list of active rules
     _timers, var                        // list of active timers
+    _defer, var                         // list of deferred functions to be called at next millisecond
     _crons, var                         // list of active crons
     _ccmd, var                          // list of active Tasmota commands implemented in Berry
     _drivers, var                       // list of active drivers
+    _wnu, var                           // list of closures to call when network is connected
     wire1, var                          // Tasmota I2C Wire1
     wire2, var                          // Tasmota I2C Wire2
     cmd_res, var                        // store the command result, nil if disables, true if capture enabled, contains return value
@@ -105,7 +107,7 @@ class be_class_tasmota (scope: global, name: Tasmota) {
     init, closure(class_Tasmota_init_closure)
 
     get_free_heap, func(l_getFreeHeap)
-    arch, func(l_arch)
+    arch, static_func(l_arch)
     publish, func(be_mqtt_publish)
     publish_result, func(l_publish_result)
     publish_rule, func(l_publish_rule)
@@ -167,11 +169,14 @@ class be_class_tasmota (scope: global, name: Tasmota) {
     find_list_i, closure(class_Tasmota_find_list_i_closure)
     find_op, closure(class_Tasmota_find_op_closure)
     add_rule, closure(class_Tasmota_add_rule_closure)
+    add_rule_once, closure(class_Tasmota_add_rule_once_closure)
     remove_rule, closure(class_Tasmota_remove_rule_closure)
     try_rule, closure(class_Tasmota_try_rule_closure)
     exec_rules, closure(class_Tasmota_exec_rules_closure)
     exec_tele, closure(class_Tasmota_exec_tele_closure)
     set_timer, closure(class_Tasmota_set_timer_closure)
+    run_timers, closure(class_Tasmota_run_timers_closure)
+    defer, closure(class_Tasmota_defer_closure)
     run_deferred, closure(class_Tasmota_run_deferred_closure)
     remove_timer, closure(class_Tasmota_remove_timer_closure)
     add_cmd, closure(class_Tasmota_add_cmd_closure)
@@ -179,6 +184,8 @@ class be_class_tasmota (scope: global, name: Tasmota) {
     exec_cmd, closure(class_Tasmota_exec_cmd_closure)
     gc, closure(class_Tasmota_gc_closure)
     event, closure(class_Tasmota_event_closure)
+    when_network_up, closure(class_Tasmota_when_network_up_closure)
+    run_network_up, closure(class_Tasmota_run_network_up_closure)
     add_driver, closure(class_Tasmota_add_driver_closure)
     remove_driver, closure(class_Tasmota_remove_driver_closure)
     load, closure(class_Tasmota_load_closure)

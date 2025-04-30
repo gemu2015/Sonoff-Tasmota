@@ -35,8 +35,6 @@ const static char kWifiPhyMode[] PROGMEM = "low rate|11b|11g|HT20|HT40|HE20"; //
   #define ESP32_ARCH              "esp32c6"
 #elif CONFIG_IDF_TARGET_ESP32H2
   #define ESP32_ARCH              "esp32h2"
-#elif CONFIG_IDF_TARGET_ESP32P4
-  #define ESP32_ARCH              "esp32p4"
 #else
   #define ESP32_ARCH              ""
 #endif
@@ -57,8 +55,6 @@ const static char kWifiPhyMode[] PROGMEM = "low rate|11b|11g|HT20|HT40|HE20"; //
   #include "esp32c6/rom/rtc.h"
 #elif CONFIG_IDF_TARGET_ESP32H2  // ESP32-H2
   #include "esp32h2/rom/rtc.h"
-#elif CONFIG_IDF_TARGET_ESP32P4
-  #include "esp32p4/rom/rtc.h"
 #else
   #error Target CONFIG_IDF_TARGET is not supported
 #endif
@@ -68,9 +64,7 @@ size_t getArduinoLoopTaskStackSize(void) {
   return SET_ESP32_STACK_SIZE;
 }
 
-#ifndef CONFIG_IDF_TARGET_ESP32P4
 #include <esp_phy_init.h>
-#endif
 
 // Handle 20k of NVM
 
@@ -251,9 +245,6 @@ extern "C" {
   #define ESP_FLASH_IMAGE_BASE 0x0000     // Esp32c6 is located at 0x0000
 #elif CONFIG_IDF_TARGET_ESP32H2   // ESP32-H2
   #include "esp32h2/rom/spi_flash.h"
-  #define ESP_FLASH_IMAGE_BASE 0x0000     // Esp32h2 is located at 0x0000
-#elif CONFIG_IDF_TARGET_ESP32P4
-  #include "esp32p4/rom/spi_flash.h"
   #define ESP_FLASH_IMAGE_BASE 0x0000     // Esp32h2 is located at 0x0000
 #else
     #error Target CONFIG_IDF_TARGET is not supported
