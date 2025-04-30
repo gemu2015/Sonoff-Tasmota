@@ -1607,15 +1607,18 @@ void Script_PollUdp(void) {
       char *lp = packet_buffer;
       if (!strncmp(lp,"=>", 2)) {
         lp += 2;
-        char *cp = strchr(lp, '=');
-        char umode = '=';
-        if (!cp) {
-          cp = strchr(lp, ':');
-          if (cp) {
-            umode = ':';
-          } else {
-            umode = 0;
+        char *cp = lp;
+        char umode = 0;
+        while (*cp) {
+          if (*cp == '=') {
+            umode = '=';
+            break;
           }
+          if (*cp == ':') {
+            umode = ':';
+            break;
+          }
+          cp++;
         }
         if (umode) {
           char vnam[32];
