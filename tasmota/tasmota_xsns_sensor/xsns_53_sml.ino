@@ -3998,7 +3998,11 @@ uint32_t SML_Write(int32_t meter, char *hstr) {
   if (meter < 1 || meter > sml_globs.meters_used) return 0;
   meter--;
   if (meter_desc[meter].type != 'C') {
-    if (!meter_desc[meter].meter_ss) return 0;
+    if (meter_desc[meter].srcpin == TCP_MODE_FLG) {
+      if (!meter_desc[meter].client) return 0;
+    } else {
+      if (!meter_desc[meter].meter_ss) return 0;
+    }
   }
   if (flag > 0) {
     SML_Send_Seq(meter, hstr);
@@ -4112,7 +4116,11 @@ int32_t SML_Set_WStr(uint32_t meter, char *hstr) {
   if (meter < 1 || meter > sml_globs.meters_used) return -1;
   meter--;
   if (meter_desc[meter].type != 'C') {
-    if (!meter_desc[meter].meter_ss) return -2;
+    if (meter_desc[meter].srcpin == TCP_MODE_FLG) {
+      if (!meter_desc[meter].client) return -2;
+    } else {
+      if (!meter_desc[meter].meter_ss) return -2;
+    }
   }
   meter_desc[meter].script_str = hstr;
   return 0;
