@@ -4101,6 +4101,9 @@ uint32_t SML_Shift_Num(uint32_t meter, uint32_t shift) {
 
 double SML_GetVal(uint32_t index) {
   if (sml_globs.ready == false) return 0;
+  if (index == 0) {
+    return sml_globs.maxvars;
+  }
   if (index < 1 || index > sml_globs.maxvars) { index = 1;}
   return sml_globs.meter_vars[index - 1];
 }

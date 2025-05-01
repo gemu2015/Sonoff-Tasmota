@@ -3281,9 +3281,30 @@ chknext:
           TS_FLOAT *fpd;
           lp = get_array_by_name(lp, &fpd, &alend, 0);
           SCRIPT_SKIP_SPACES
-          uint16_t alens;
+          uint16_t alens = 0;
           TS_FLOAT *fps;
           char *slp = lp;
+#if (defined(USE_SML_M) || defined(USE_BINPLUGINS)) && defined(USE_SML_SCRIPT_CMD)
+          if (!strncmp_XP(lp, XPSTR("sml"), 3)) {
+            lp += 3;
+            // source is sml array
+            SML_TABLE *smlp = get_sml_table();
+            if (smlp) {
+              alens = smlp->SML_GetVal(0);
+              if (alens < alend) {
+                alend = alens;
+              }
+              for (uint32_t cnt = 0; cnt < alend; cnt++ ) {
+                fpd[cnt] = smlp->SML_GetVal(cnt + 1);
+              }
+              fvar = alens;
+              goto nfuncexit;
+            } else {
+              fvar = -1;
+              goto nfuncexit;
+            }
+          }
+#endif
           lp = get_array_by_name(lp, &fps, &alens, 0);
           if (lp == 0 || fps == 0) {
             lp = slp;
