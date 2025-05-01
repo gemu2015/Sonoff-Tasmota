@@ -2713,6 +2713,30 @@ uint32_t MeasurePulseTime(int32_t in) {
 }
 #endif // USE_ANGLE_FUNC
 
+uint32_t check_varname(char *dvnam) {
+  uint16_t olen = strlen(dvnam);
+  struct T_INDEX *vtp = glob_script_mem.type;
+  for (uint32_t count = 0; count < glob_script_mem.numvars; count++) {
+    char *cp = glob_script_mem.glob_vnp + glob_script_mem.vnp_offset[count];
+    uint8_t slen = strlen(cp);
+    if (slen == olen && *cp == dvnam[0]) {
+      if (!strncmp(cp, dvnam, olen)) {
+        uint16_t index = vtp[count].index;
+        if (vtp[count].bits.is_string) {
+          return STR_RES;
+        } else {
+          if (vtp[count].bits.is_filter) {
+            return NUM_ARRAY_RES;
+          } else {
+            return NUM_RES;
+          }
+        }
+      }
+    }
+  }
+  return 0;
+}
+
 #ifdef USE_SCRIPT_GLOBVARS
 uint32_t match_vars(char *dvnam, TS_FLOAT **fp, char **sp, uint32_t *ind) {
   uint16_t olen = strlen(dvnam);
@@ -10642,24 +10666,22 @@ void list_var(char *lp) {
 TS_FLOAT fvar;
 char str[SCRIPT_MAX_SBSIZE];
   glob_script_mem.glob_error = 0;
-  TS_FLOAT *fpd = 0;
-  uint16_t alend;
-  char *cp = get_array_by_name(lp, &fpd, &alend, 0);
-  if (fpd && cp && (!strchr(lp, '[')) ) {
-    // is array
+  if (check_varname(lp) == NUM_ARRAY_RES && !strchr(lp, '[')) {
+    TS_FLOAT *fpd = 0;
+    uint16_t alend;
+    char *cp = get_array_by_name(lp, &fpd, &alend, 0);
     ResponseAppend_P(PSTR("\"%s\":["), lp);
     for (uint16_t cnt = 0; cnt < alend; cnt++) {
-      TS_FLOAT tvar = *fpd++;
-      ext_snprintf_P(str, sizeof(str), PSTR("%*_f"), -glob_script_mem.script_dprec, &tvar);
-      if (cnt) {
-        ResponseAppend_P(PSTR(",%s"), str);
-      } else {
-        ResponseAppend_P(PSTR("%s"), str);
-      }
+        TS_FLOAT tvar = *fpd++;
+        ext_snprintf_P(str, sizeof(str), PSTR("%*_f"), -glob_script_mem.script_dprec, &tvar);
+        if (cnt) {
+          ResponseAppend_P(PSTR(",%s"), str);
+        } else {
+          ResponseAppend_P(PSTR("%s"), str);
+        }
     }
     ResponseAppend_P(PSTR("]"));
   } else {
-
     glob_script_mem.glob_error = 0;
     glob_script_mem.var_not_found = 0;
     GetNumericArgument(lp, OPER_EQU, &fvar, 0);
@@ -10731,7 +10753,7 @@ bool ScriptCommand(void) {
       if ('?' == XdrvMailbox.data[0]) {
         char *lp = XdrvMailbox.data;
         lp++;
-        Response_P(PSTR("{\"script\":{"), lp);
+        Response_P(PSTR("{\"script\":{"));
         while (1) {  
           while (*lp==' ') lp++;
           char *cp = strchr(lp, ';');
