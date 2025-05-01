@@ -257,6 +257,7 @@ char *Get_esc_char(char *cp, char *esc_chr);
 #define USE_SCRIPT_FATFS_EXT
 #endif
 
+
 #ifdef USE_SCRIPT_TIMER
 #include <Ticker.h>
 Ticker Script_ticker1;
@@ -308,9 +309,6 @@ void Script_ticker4_end(void) {
 #endif
 #endif
 
-//#if defined(USE_SML_M) && defined (USE_SML_SCRIPT_CMD)
-//extern uint8_t sml_options;
-//#endif
 
 #if defined(EEP_SCRIPT_SIZE) && !defined(ESP32)
 
