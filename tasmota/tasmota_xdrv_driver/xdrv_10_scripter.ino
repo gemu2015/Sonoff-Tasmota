@@ -4590,6 +4590,48 @@ _Pragma("GCC warning \"'EXT 1 wakeup' not supported using gpio mode\"")
           }
           goto nfuncexit;
         }
+#ifdef USE_SCRIPT_GLOBVARS
+        if (!strncmp_XP(lp, XPSTR("gvrsa("), 6)) {
+          TS_FLOAT *fpd = 0;
+          uint16_t alend;
+          uint16_t ipos;
+          lp += 6;
+          SCRIPT_SKIP_SPACES
+          char vname[32];
+          char *cp = lp;
+          char *vnp = vname;
+          while (*cp) {
+            if (*cp == ')') {
+              break;
+            }
+            *vnp++ = *cp++;
+          }
+          *vnp = 0;
+          lp = get_array_by_name(lp, &fpd, &alend, &ipos);
+          if (fpd) {
+            uint8_t sv = glob_script_mem.udp_flags.udp_binary_payload;
+            glob_script_mem.udp_flags.udp_binary_payload = 1;
+            script_udp_sendvar(vname, fpd, 0, alend);
+            glob_script_mem.udp_flags.udp_binary_payload = sv;
+            fvar = ipos;
+          } else {
+            fvar = -1;
+          }
+          goto nfuncexit;
+        }
+
+        if (!strncmp_XP(lp, XPSTR("gvrbs"), 5)) {
+          fvar = glob_script_mem.pb_size;
+          tind->index = SCRIPT_UDP_PBS;
+          goto exit_settable;
+        }
+
+        if (!strncmp_XP(lp, XPSTR("gvrm"), 4)) {
+          fvar = glob_script_mem.udp_flags.udp_binary_payload;
+          tind->index = SCRIPT_UDP_MOD;
+          goto exit_settable;
+        }
+#endif // USE_SCRIPT_GLOBVARS
         break;
       case 'h':
         if (!strncmp_XP(vname, XPSTR("hours"), 5)) {
@@ -6536,46 +6578,6 @@ void tmod_directModeOutput(uint32_t pin);
           fvar = udp_call(url, port, payload);
           goto nfuncexit;
         }
-        if (!strncmp_XP(lp, XPSTR("udpsa("), 6)) {
-          TS_FLOAT *fpd = 0;
-          uint16_t alend;
-          uint16_t ipos;
-          lp += 6;
-          SCRIPT_SKIP_SPACES
-          char vname[32];
-          char *cp = lp;
-          char *vnp = vname;
-          while (*cp) {
-            if (*cp == ')') {
-              break;
-            }
-            *vnp++ = *cp++;
-          }
-          *vnp = 0;
-          lp = get_array_by_name(lp, &fpd, &alend, &ipos);
-          if (fpd) {
-            uint8_t sv = glob_script_mem.udp_flags.udp_binary_payload;
-            glob_script_mem.udp_flags.udp_binary_payload = 1;
-            script_udp_sendvar(vname, fpd, 0, alend);
-            glob_script_mem.udp_flags.udp_binary_payload = sv;
-            fvar = ipos;
-          } else {
-            fvar = -1;
-          }
-          goto nfuncexit;
-        }
-
-        if (!strncmp_XP(lp, XPSTR("udps"), 4)) {
-          fvar = glob_script_mem.pb_size;
-          tind->index = SCRIPT_UDP_PBS;
-          goto exit_settable;
-        }
-
-        if (!strncmp_XP(lp, XPSTR("udpm"), 4)) {
-          fvar = glob_script_mem.udp_flags.udp_binary_payload;
-          tind->index = SCRIPT_UDP_MOD;
-          goto exit_settable;
-        }
 #endif
         break;
 
@@ -8514,6 +8516,7 @@ getnext:
               goto next_line;
             }
 #endif // USE_SCRIPT_GLOBVARS
+
 #ifdef USE_LIGHT
 #ifdef USE_WS2812
             else if (!strncmp(lp, "ws2812(", 7)) {
