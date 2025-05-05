@@ -42,7 +42,6 @@ keywords if then else endif, or, and are better readable for beginners (others m
 
 #define XDRV_10             10
 
-
 #ifndef TS_FLOAT
 #define TS_FLOAT float
 #endif
