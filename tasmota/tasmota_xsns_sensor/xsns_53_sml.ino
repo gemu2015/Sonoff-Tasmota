@@ -466,6 +466,7 @@ typedef union {
     uint8_t SO_OBIS_LINE : 1;
     uint8_t SO_TRX_INVERT : 1;
     uint8_t SO_DISS_PULL : 1;
+    uint8_t SO_HEXASCI : 1;
   };
 } SO_FLAGS;
 
@@ -1335,17 +1336,6 @@ double dval;
     return dval;
 }
 
-uint8_t hexnibble(char chr) {
-  uint8_t rVal = 0;
-  if (isdigit(chr)) {
-    rVal = chr - '0';
-  } else  {
-    chr=toupper(chr);
-    if (chr >= 'A' && chr <= 'F') rVal = chr + 10 - 'A';
-  }
-  return rVal;
-}
-
 uint8_t sb_counter;
 
 // need double precision in this driver
@@ -1813,7 +1803,22 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
   sb_counter++;
 
   if (mp->shift_mode) {
-    SML_Decode(meters);
+    if (mp->so_flags.SO_HEXASCI) {
+      uint8_t *cbuff = (uint8_t*)malloc(mp->sbsiz/2);
+      if (cbuff) {
+        uint8_t *ucp = cbuff;
+        for (uint32_t cnt = 0; cnt < mp->sbsiz; cnt += 2) {
+          *ucp++ = (sml_hexnibble(mp->sbuff[cnt]) << 4) | sml_hexnibble(mp->sbuff[cnt + 1]);
+        }
+        uint8_t *scp = mp->sbuff;
+        mp->sbuff = cbuff;
+        SML_Decode(meters);
+        mp->sbuff = scp;
+        free(cbuff);
+      }
+    } else {
+      SML_Decode(meters);
+    }
   }
 }
 
@@ -2128,8 +2133,8 @@ void SML_Decode(uint8_t index) {
         } else {
           if (sml_globs.mp[mindex].type == 's') {
             // sml
-            uint8_t val = hexnibble(*mp++) << 4;
-            val |= hexnibble(*mp++);
+            uint8_t val = sml_hexnibble(*mp++) << 4;
+            val |= sml_hexnibble(*mp++);
             if (val != *cp++) {
               found = 0;
             }
@@ -2196,8 +2201,8 @@ void SML_Decode(uint8_t index) {
 										dp++;
 									}
 								} else {
-									iob = hexnibble(*mp++) << 4;
-									iob |= hexnibble(*mp++);
+									iob = sml_hexnibble(*mp++) << 4;
+									iob |= sml_hexnibble(*mp++);
 								}
 								pattern[cnt] = iob;
 							}
@@ -2495,8 +2500,8 @@ void SML_Decode(uint8_t index) {
               cp += 6;
             }
             else {
-              uint8_t val = hexnibble(*mp++) << 4;
-              val |= hexnibble(*mp++);
+              uint8_t val = sml_hexnibble(*mp++) << 4;
+              val |= sml_hexnibble(*mp++);
               if (val != *cp++) {
                 found = 0;
               }
