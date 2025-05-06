@@ -2596,44 +2596,49 @@ void SML_Decode(uint8_t index) {
               dval = sml_getvalue(cp, mindex);
             }
           } else {
-            // ebus pzem vbus or mbus or raw
-            if (*mp == 'b') {
-              mp++;
-              uint8_t shift = *mp&7;
-              ebus_dval = (uint32_t)ebus_dval >> shift;
-              ebus_dval = (uint32_t)ebus_dval & 1;
-              mp+=2;
-            }
-            if (*mp == 'i') {
-              // mbus index
-              mp++;
-              uint8_t mb_index = strtol((char*)mp, (char**)&mp, 10);
-              if (mb_index != sml_globs.mp[mindex].index) {
-                goto nextsect;
-              }
-              if (sml_globs.mp[mindex].type == 'k') {
-                // crc is already checked, get float value
-                dval = mbus_dval;
-                mp++;
-              } else {
-                if (meter_desc[mindex].srcpin != TCP_MODE_FLG) {
-                  uint16_t pos = meter_desc[mindex].sbuff[2] + 3;
-                  if (pos > (meter_desc[mindex].sbsiz - 2)) pos = meter_desc[mindex].sbsiz - 2;
-                  uint16_t crc = MBUS_calculateCRC(&meter_desc[mindex].sbuff[0], pos, 0xFFFF);
-                  if (lowByte(crc) != meter_desc[mindex].sbuff[pos]) goto nextsect;
-                  if (highByte(crc) != meter_desc[mindex].sbuff[pos + 1]) goto nextsect;
-                }
-                dval = mbus_dval;
-                //AddLog(LOG_LEVEL_INFO, PSTR(">> %s"),mp);
-                mp++;
-              }
+            if (sml_globs.mp[mindex].so_flags.SO_HEXASCI) {
+              // hex asci obis mode
+              dval = CharToDouble((char*)cp);
             } else {
-              if (sml_globs.mp[mindex].type == 'p') {
-                uint8_t crc = SML_PzemCrc(&meter_desc[mindex].sbuff[0],6);
-                if (crc != meter_desc[mindex].sbuff[6]) goto nextsect;
-                dval = mbus_dval;
+              // ebus pzem vbus or mbus or raw
+              if (*mp == 'b') {
+                mp++;
+                uint8_t shift = *mp&7;
+                ebus_dval = (uint32_t)ebus_dval >> shift;
+                ebus_dval = (uint32_t)ebus_dval & 1;
+                mp+=2;
+              }
+              if (*mp == 'i') {
+                // mbus index
+                mp++;
+                uint8_t mb_index = strtol((char*)mp, (char**)&mp, 10);
+                if (mb_index != sml_globs.mp[mindex].index) {
+                  goto nextsect;
+                }
+                if (sml_globs.mp[mindex].type == 'k') {
+                  // crc is already checked, get float value
+                  dval = mbus_dval;
+                  mp++;
+                } else {
+                  if (meter_desc[mindex].srcpin != TCP_MODE_FLG) {
+                    uint16_t pos = meter_desc[mindex].sbuff[2] + 3;
+                    if (pos > (meter_desc[mindex].sbsiz - 2)) pos = meter_desc[mindex].sbsiz - 2;
+                    uint16_t crc = MBUS_calculateCRC(&meter_desc[mindex].sbuff[0], pos, 0xFFFF);
+                    if (lowByte(crc) != meter_desc[mindex].sbuff[pos]) goto nextsect;
+                    if (highByte(crc) != meter_desc[mindex].sbuff[pos + 1]) goto nextsect;
+                  }
+                  dval = mbus_dval;
+                  //AddLog(LOG_LEVEL_INFO, PSTR(">> %s"),mp);
+                  mp++;
+                }
               } else {
-                dval = ebus_dval;
+                if (sml_globs.mp[mindex].type == 'p') {
+                  uint8_t crc = SML_PzemCrc(&meter_desc[mindex].sbuff[0],6);
+                  if (crc != meter_desc[mindex].sbuff[6]) goto nextsect;
+                  dval = mbus_dval;
+                } else {
+                  dval = ebus_dval;
+                }
               }
             }
           }
