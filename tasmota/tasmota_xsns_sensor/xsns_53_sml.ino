@@ -1823,32 +1823,6 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
       mp->sbuff = cbuff;
       SML_Decode(meters);
       mp->sbuff = scp;
-
-#if 0 
-      uint8_t *cbuff = (uint8_t*)malloc(mp->sbsiz/2);
-      if (cbuff) {
-        /*
-        AddLog(LOG_LEVEL_INFO, PSTR(">>"));
-        Hexdump(mp->sbuff, -mp->sbsiz);
-        */
-        uint8_t *ucp = cbuff;
-        for (uint32_t cnt = 0; cnt < mp->sbsiz; cnt += 2) {
-          uint8_t iob = sml_hexnibble(mp->sbuff[cnt]) << 4;
-          iob |= sml_hexnibble(mp->sbuff[cnt + 1]);
-          *ucp++ = iob;
-        }
-        /*
-        cbuff[(mp->sbsiz/2)-1] = 0;
-        AddLog(LOG_LEVEL_INFO,PSTR(">>>> 2:"));
-        Hexdump(cbuff, -mp->sbsiz/2);
-        */
-        uint8_t *scp = mp->sbuff;
-        mp->sbuff = cbuff;
-        SML_Decode(meters);
-        mp->sbuff = scp;
-
-        free(cbuff);
-#endif
     } else {
       SML_Decode(meters);
     }
@@ -2631,6 +2605,7 @@ void SML_Decode(uint8_t index) {
           } else {
             if (sml_globs.mp[mindex].so_flags.SO_HEXASCI) {
               // hex asci obis mode
+              //AddLog(LOG_LEVEL_INFO, PSTR(">> %s"),cp);
               dval = CharToDouble((char*)cp);
             } else {
               // ebus pzem vbus or mbus or raw
@@ -4650,7 +4625,7 @@ void SML_Send_Seq(uint32_t meter, char *seq) {
     }
 
   }
-  if (mp->type == 'o') {
+  if (mp->type == 'o' && !mp->so_flags.SO_HEXASCI)  {
     for (uint32_t cnt = 0; cnt < slen; cnt++) {
       sbuff[cnt] |= (CalcEvenParity(sbuff[cnt]) << 7);
     }
