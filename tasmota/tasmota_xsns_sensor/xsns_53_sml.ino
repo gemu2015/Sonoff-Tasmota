@@ -1082,16 +1082,24 @@ void dump2log(void) {
   }
 }
 
-void Hexdump(uint8_t *sbuff, uint32_t slen) {
-  char cbuff[slen*3+10];
-  char *cp = cbuff;
-  *cp++ = '>';
-  *cp++ = ' ';
-  for (uint32_t cnt = 0; cnt < slen; cnt ++) {
-    sprintf_P(cp, PSTR("%02x "), sbuff[cnt]);
-    cp += 3;
+void Hexdump(uint8_t *sbuff, int32_t slen) {
+  if (slen > 0) {
+    char cbuff[slen * 3 + 10];
+    char *cp = cbuff;
+    *cp++ = '>';
+    *cp++ = ' ';
+    for (uint32_t cnt = 0; cnt < slen; cnt ++) {
+      sprintf_P(cp, PSTR("%02x "), sbuff[cnt]);
+      cp += 3;
+    }
+    AddLogData(LOG_LEVEL_INFO, cbuff);
+  } else {
+    slen = -slen;
+    char cbuff[slen + 3];
+    cbuff[slen] = 0;
+    sprintf_P(cbuff, PSTR("%s"), sbuff);
+    AddLogData(LOG_LEVEL_INFO, cbuff);
   }
-  AddLogData(LOG_LEVEL_INFO, cbuff);
 }
 
 #define DOUBLE2CHAR dtostrfd
@@ -1804,18 +1812,43 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
 
   if (mp->shift_mode) {
     if (mp->so_flags.SO_HEXASCI) {
+      uint8_t cbuff[mp->sbsiz/2];
+      uint8_t *ucp = cbuff;
+      for (uint32_t cnt = 0; cnt < mp->sbsiz; cnt += 2) {
+        uint8_t iob = sml_hexnibble(mp->sbuff[cnt]) << 4;
+        iob |= sml_hexnibble(mp->sbuff[cnt + 1]);
+        *ucp++ = iob;
+      }     
+      uint8_t *scp = mp->sbuff;
+      mp->sbuff = cbuff;
+      SML_Decode(meters);
+      mp->sbuff = scp;
+
+#if 0 
       uint8_t *cbuff = (uint8_t*)malloc(mp->sbsiz/2);
       if (cbuff) {
+        /*
+        AddLog(LOG_LEVEL_INFO, PSTR(">>"));
+        Hexdump(mp->sbuff, -mp->sbsiz);
+        */
         uint8_t *ucp = cbuff;
         for (uint32_t cnt = 0; cnt < mp->sbsiz; cnt += 2) {
-          *ucp++ = (sml_hexnibble(mp->sbuff[cnt]) << 4) | sml_hexnibble(mp->sbuff[cnt + 1]);
+          uint8_t iob = sml_hexnibble(mp->sbuff[cnt]) << 4;
+          iob |= sml_hexnibble(mp->sbuff[cnt + 1]);
+          *ucp++ = iob;
         }
+        /*
+        cbuff[(mp->sbsiz/2)-1] = 0;
+        AddLog(LOG_LEVEL_INFO,PSTR(">>>> 2:"));
+        Hexdump(cbuff, -mp->sbsiz/2);
+        */
         uint8_t *scp = mp->sbuff;
         mp->sbuff = cbuff;
         SML_Decode(meters);
         mp->sbuff = scp;
+
         free(cbuff);
-      }
+#endif
     } else {
       SML_Decode(meters);
     }
@@ -4429,7 +4462,6 @@ void sml_hex_asci(uint32_t mindex, char *tpowstr) {
   *tpowstr++ = '"';
   *tpowstr = 0;
 }
-
 
 uint8_t sml_hexnibble(char chr) {
   uint8_t rVal = 0;
