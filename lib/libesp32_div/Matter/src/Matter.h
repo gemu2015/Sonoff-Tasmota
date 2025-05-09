@@ -14,7 +14,6 @@
 
 #pragma once
 #include <sdkconfig.h>
-#define CONFIG_ESP_MATTER_ENABLE_DATA_MODEL
 #ifdef CONFIG_ESP_MATTER_ENABLE_DATA_MODEL
 
 #include <Arduino.h>
