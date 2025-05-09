@@ -82,7 +82,7 @@ void CC1101_Bresser_Init(void) {
   SPI.begin(Pin(GPIO_SPI_CLK), Pin(GPIO_SPI_MISO), Pin(GPIO_SPI_MOSI), -1);
 #endif
 
-    cc1101_bresser.spi_settings = SPISettings(5000000, MSBFIRST, SPI_MODE3);
+    cc1101_bresser.spi_settings = SPISettings(5000000, MSBFIRST, SPI_MODE0);  // was SPI_MODE3
 
  // rec_cs, rec_irq, rec_res, rec_gpio
     ws.begin(cc1101_bresser.cs, Pin(GPIO_CC1101_GDO0), -1, -1);
