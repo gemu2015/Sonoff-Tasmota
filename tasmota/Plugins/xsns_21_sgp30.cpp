@@ -21,7 +21,7 @@
 
 #ifdef USE_SGP30_MOD
 
-#define USE_SOFTWIRE
+//#define USE_SOFTWIRE
 
 #include "module.h"
 #include "module_defines.h"

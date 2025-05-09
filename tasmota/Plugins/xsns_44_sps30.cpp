@@ -155,7 +155,7 @@ void sps30_get_data(uint16_t cmd, uint8_t *data, uint8_t dlen) {
 #endif  // ESP8266
 
 #ifdef ESP32
-  I2C_requestFrom((uint16_t)SPS30_ADDR, dlen, true);
+  I2C_requestFrom((uint16_t)SPS30_ADDR, dlen);
   for (uint32_t cnt = 0; cnt < dlen; cnt++) {
     twi_buff[cnt] = I2C_read();
   }
