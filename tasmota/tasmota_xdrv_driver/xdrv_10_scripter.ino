@@ -76,7 +76,7 @@ const uint8_t SCRIPT_VERS[2] = {5, 5};
 #endif
 
 #ifndef SCRIPT_MAXSSIZE
-#define SCRIPT_MAXSSIZE 48
+#define SCRIPT_MAXSSIZE 255
 #endif
 
 //#define SCRIPT_MAX_SBSIZE SCRIPT_MAXSSIZE
@@ -1002,6 +1002,17 @@ char *script;
     script = glob_script_mem.script_ram;
     if (!*script) return -999;
 
+    glob_script_mem.max_ssize = SCRIPT_SVARSIZE;
+
+    { char *lp = script + 2;
+      SCRIPT_SKIP_SPACES
+      if (isdigit(*lp)) {
+        uint8_t ssize = atoi(lp) + 1;
+        if (ssize < 10 || ssize > SCRIPT_MAXSSIZE) ssize = SCRIPT_MAXSSIZE;
+        glob_script_mem.max_ssize = ssize;
+      }
+    }
+
     uint32_t xvars = Script_Find_Vars(script + 1);
     uint16_t maxnvars = xvars & 0xffff;
     if (maxnvars < 1) {
@@ -1042,7 +1053,9 @@ char *script;
 
     //char strings[MAXSVARS*SCRIPT_MAXSSIZE];
     //char *strings_p = strings;
-    char *strings_op = (char*)calloc(maxsvars * SCRIPT_MAXSSIZE, 1);
+    //char *strings_op = (char*)calloc(maxsvars * SCRIPT_MAXSSIZE, 1);
+    char *strings_op = (char*)calloc(maxsvars * glob_script_mem.max_ssize, 1);
+    
     char *strings_p = strings_op;
     if (!strings_op) {
       free(imemptr);
@@ -1083,7 +1096,6 @@ char *script;
     uint8_t numflt = 0;
     uint16_t count;
 
-    glob_script_mem.max_ssize = SCRIPT_SVARSIZE;
     glob_script_mem.scriptptr = 0;
 
     char init = 0;
@@ -1274,13 +1286,13 @@ char *script;
             }
         } else {
             if (!strncmp(lp, ">D", 2)) {
-              lp += 2;
+              /* lp += 2;
               SCRIPT_SKIP_SPACES
               if (isdigit(*lp)) {
                 uint8_t ssize = atoi(lp) + 1;
                 if (ssize < 10 || ssize > SCRIPT_MAXSSIZE) ssize = SCRIPT_MAXSSIZE;
                 glob_script_mem.max_ssize = ssize;
-              }
+              }*/
               init = 1;
             }
         }
