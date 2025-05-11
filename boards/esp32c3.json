@@ -7,7 +7,7 @@
       "flash_mode": "dio",
       "mcu": "esp32c3",
       "variant": "esp32c3",
-      "partitions": "partitions/esp32_partition_app2880k_fs320k.csv"
+      "partitions": "partitions/esp32_partition_app1856k_fs1344k.csv"
     },
     "connectivity": [
       "wifi",
