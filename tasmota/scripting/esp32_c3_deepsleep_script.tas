@@ -1,0 +1,65 @@
+>D
+IP=192.168.188.154
+
+; this script shows how to use deep sleep to send variables via global vars
+; in this case with SHT31
+; could also use websend
+; esp32-c3 supermini
+; LDO ca 10 uA
+; deeps sleep current at 4V with LDO 50uA
+; red LED must be removed (connected to 3,3 V)
+; pin 5 low disables deep sleep
+; has about 190kB free RAM
+; has about 6 seconds wake time
+; sleep_time sets sleep time
+; blue LED on pin 8 defined as iRelay
+; also measures battery voltage
+
+
+res=0
+xflg=0
+sleep_time=60
+g:ds_temp=0
+g:ds_hyg=0
+g:ds_dew=0
+g:ds_time=0
+g:ds_volt=0
+
+>B
+=#blinkled
+
+res=ds(-1)
+print wakeup reason %res%
+spinm(5 P)
+
+; blink green LED
+#blinkled
+=>power1 1
+delay(10)
+=>power1 0
+
+>T
+ds_temp=SHT3X#Temperature
+ds_hyg=SHT3X#Humidity
+ds_dew=SHT3X#DewPoint
+
+>S
+if wifis>0 {
+	if ds_hyg>0 {
+		if pin[5]==1 {
+			print goto sleep
+			ds_time=upsecs
+			res=ds(sleep_time)
+		}
+	}
+	=#blinkled
+	ds_volt=adc(2 0)
+}
+
+
+>W
+pin 5{m}%pin[5]%
+Volt{m}%2ds_volt% V
+
+
+
