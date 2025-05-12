@@ -3280,9 +3280,11 @@ chknext:
           if (*lp!=')') {
             lp = GetNumericArgument(lp, OPER_EQU, &pin, gv);
 #ifdef CONFIG_IDF_TARGET_ESP32S3
-            if (pin<1 || pin>20) pin = 1;
+            if (pin < 1 || pin > 20) pin = 1;
+#elif defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C6)
+            if (pin < 0 || pin > 5) pin = 0;
 #else
-            if (pin<32 || pin>39) pin = 32;
+            if (pin < 32 || pin > 39) pin = 32;
 #endif
           }
           lp++;
