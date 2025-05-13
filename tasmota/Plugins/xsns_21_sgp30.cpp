@@ -139,7 +139,7 @@ bool SGP30_Begin() {
     return false;
   }
 
-  // AddLog(LOG_LEVEL_INFO, GSTR(SGP30SN), serialnumber[0], serialnumber[1], serialnumber[2]);
+  //AddLog(LOG_LEVEL_INFO, PSTR("SGP: Serialnumber 0x%04X-0x%04X-0x%04X"), serialnumber[0], serialnumber[1], serialnumber[2]);
 
   if (!SGP30_IAQinit()) {
     return false;
@@ -163,6 +163,7 @@ bool SGP30_IAQmeasure() {
   command[1] = 0x08;
   uint16_t reply[2];
   if (!readWordFromCommand(command, 2, 12, reply, 2)) {
+    //AddLog(LOG_LEVEL_INFO, PSTR("error reading sgp30"));
     return false;
   }
   TVOC = reply[1];
@@ -210,7 +211,7 @@ bool readWordFromCommand(uint8_t command[], uint8_t commandLength, uint16_t dela
   for (uint8_t i = 0; i < commandLength; i++) {
     I2C_write(command[i]);
   }
-  I2C_endTransmission(false);
+  I2C_endTransmission(true);
 
   delay(delayms);
 
@@ -219,9 +220,12 @@ bool readWordFromCommand(uint8_t command[], uint8_t commandLength, uint16_t dela
   }
 
   uint8_t replylen = readlen * (2 + 1);
-  if (I2C_requestFrom(SGP30_ADDRESS, replylen) != replylen) {
+  uint8_t reclen = I2C_requestFrom(SGP30_ADDRESS, replylen);
+  if ( reclen != replylen) {
+    //AddLog(LOG_LEVEL_INFO, PSTR("error >>> %d - %d"),replylen,reclen);
     return false;
   }
+
   uint8_t replybuffer[replylen];
   for (uint8_t i = 0; i < replylen; i++) {
     replybuffer[i] = I2C_read();
