@@ -2,7 +2,10 @@
 IP=192.168.188.98
 
 str=""
+ps=""
+tm=""
 res=0
+tmp=0
 stmp=0
 dtmp=0
 atcnt=0
@@ -37,6 +40,10 @@ M:abruvi=0 96
 
 =#load_arrays
 
+; Monate
+tmp=is1(0 "Jan|Feb|Mar|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez|")
+; Wochentage
+tmp=is(0 "So|Mo|Di|Mi|Do|Fr|Sa|")
 cstr="cnt0/4"
 
 #reset
@@ -80,10 +87,25 @@ else
 	print file error: %fr%
 endif
 
+#wtime
+; nur in webmode 0 (Tabelle in der auch die Sensoren erscheinen)
+if wm==0 {
+	; Uhrzeit, Wochentag und Datum anzeigen
+	wcs {s}<center><h1 style="color:green;font-size:40px;">%2.0hours%:%2.0mins%:%2.0secs%</h1>{m}%is[wday]% %0day%. %is1[month]% <br>%0year%{e}
+	dp(2 0)
+	ps=s(int(sunrise/60))+":"+s(sunrise%60)
+	str=s(int(sunset/60))+":"+s(sunset%60)
+	res=sunset-sunrise
+	tm=s(int(res/60))+":"+s(res%60)
+	wcs {s}<center>&#127774 %ps% <--- %tm% ---> %str% &#127769{e}
+	dp(0 2)
+	;wcs {s}<br><a href="/ufs/energy_15_log.txt">15 Minuten Log</a><br>{e}
+}
 
 
 >S
-if year>2025 {
+if year<2025 
+or br_hum==0 {
 	break
 }
 
@@ -145,6 +167,7 @@ br_uvi=Bresser_1#UVidx
 id=Bresser_1#ID
 
 >W
+%=#wtime
 Sensor ID{m}%id%
 Temperatur{m}%1br_tmp%
 Tagestemperatur{m}%1avgt%
