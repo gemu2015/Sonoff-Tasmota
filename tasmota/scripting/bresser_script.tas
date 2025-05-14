@@ -220,7 +220,6 @@ $var formatter = new google.visualization.NumberFormat({pattern:'####.## lux'});
 $formatter.format(data, 1);
 $var options = {
 $vAxis:{viewWindow:{min:0,max:500},title: 'lux'},
-;$vAxis:{viewWindow:{min:0},title: 'Watt'},
 $hAxis: {title: 'Tagesverlauf'},
 $curveType:'function',
 $title:'Helligkeit 24 Stunden',
@@ -229,7 +228,7 @@ $};
 $gc(e)
 
 ;Liniengrafik 24 Stunden
-$gc(lt  abrlight "wr" "UVI" cstr)
+$gc(lt  abruvi "wr" "UVI" cstr)
 $var formatter = new google.visualization.NumberFormat({pattern:'####.## uvi'});
 $formatter.format(data, 1);
 $var options = {
