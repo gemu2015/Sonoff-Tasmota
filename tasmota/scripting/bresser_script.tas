@@ -1,0 +1,240 @@
+w>D
+IP=192.168.188.98
+
+str=""
+res=0
+stmp=0
+dtmp=0
+atcnt=0
+avgt=0
+hr=0
+mrain=0
+cstr=""
+m15=0
+lrain=0
+fr=0
+
+id=""
+br_tmp=0
+br_hum=0
+br_rain=0
+br_wind=0
+br_light=0
+br_uvi=0
+p:mrain=0
+
+; day arrays
+M:abrtmp=0 96
+M:abrhum=0 96
+M:abrrain=0 96
+M:abrwind=0 96
+M:abrlight=0 96
+M:abruvi=0 96
+
+
+>B
+
+=#load_arrays
+
+cstr="cnt0/4"
+
+#reset
+mrain=br_rain
+lrain=br_rain
+=#save_arrays
+svars
+
+#load_arrays
+print loading arrays
+dp2
+fr=fo("/arrays.txt" r)
+fra(abrtmp fr)
+fra(abrhum fr)
+fra(abrrain fr)
+fra(abrwind fr)
+fra(abrlight fr)
+fra(abruvi fr)
+fc(fr)
+
+#save_arrays
+print saving arrays
+dp2
+fr=fo("/arrays.txt" w)
+if fr>=0
+then
+	fwa(abrtmp fr)
+	fwa(abrhum fr)
+	fwa(abrrain fr)
+	fwa(abrwind fr)
+	fwa(abrlight fr)
+	fwa(abruvi fr)
+	fc(fr)
+else
+	print file error: %fr%
+endif
+
+
+
+>S
+if year>2025 {
+	break
+}
+
+m15=int(hours*60+mins/15+1)
+if chg[m15]>0 {
+	abrtmp[m15]=br_tmp
+	abrhum[m15]=br_hum
+		
+	abrrain[m15]=br_rain-lrain
+	lrain=br_rain
+	
+	abrwind[m15]=br_wind
+	abrlight[m15]=br_light
+	abruvi[m15]=br_uvi
+	
+	=#save_arrays
+	
+}
+abrtmp[0]=m15
+abrhum[0]=m15
+abrrain[0]=m15
+abrwind[0]=m15
+abrlight[0]=m15
+abruvi[0]=m15
+
+cstr="cnt"+s(0m15)+"/4"
+
+stmp+=br_tmp
+atcnt+=1
+avgt=stmp/atcnt
+
+hr=hours
+if chg[hr]>0 {
+	; midnight
+	if hr==0
+	and secs==0 {
+		stmp=br_tmp
+		atcnt=1
+		mrain=br_rain
+	}
+}
+
+
+;UV-Index
+;0-2	keine bis gering	nicht erforderlich
+;3-5	mittel	erforderlich
+;6-7	hoch	erforderlich
+;8-10	sehr hoch	unbedingt erforderlich
+;ab 11	extrem	sind ein Muss
+
+
+>T
+br_tmp =Bresser_1#Temp
+br_hum=Bresser_1#Hum
+br_rain=Bresser_1#Rain
+br_wind=Bresser_1#WAVG
+br_light=Bresser_1#Light
+br_uvi=Bresser_1#UVidx
+id=Bresser_1#ID
+
+>W
+Sensor ID{m}%id%
+Temperatur{m}%1br_tmp%
+Tagestemperatur{m}%1avgt%
+Luftfeuchte{m}%0br_hum%
+Regen total{m}%1br_rain%
+Regen heute{m}%1(mrain-br_rain)%
+Wind{m}%1br_wind%
+Licht{m}%1br_light%
+UVi{m}%1br_uvi%
+
+$<div id="chart1"style="width:640px;height:300px;margin: 0 auto !important;display: inline-block;"></div>
+$<div id="chart2"style="width:640px;height:300px;margin:0 auto"></div>
+$<div id="chart3"style="width:640px;height:300px;margin:0 auto"></div>
+$<div id="chart4"style="width:640px;height:300px;margin:0 auto"></div>
+$<div id="chart5"style="width:640px;height:300px;margin:0 auto"></div>
+$<div id="chart6"style="width:640px;height:300px;margin:0 auto"></div>
+
+;Liniengrafik 24 Stunden
+$gc(lt abrtmp "wr" "Temp" cstr)
+$var formatter = new google.visualization.NumberFormat({pattern:'####.## C'});
+$formatter.format(data, 1);
+$var options = {
+$vAxis:{viewWindow:{min:-10,max:40},title: 'Grad'},
+$hAxis: {title: 'Tagesverlauf'},
+$curveType:'function',
+$title:'Temperatur 24 Stunden',
+$chartArea: {backgroundColor: {fill: '#F0F0F0',},},
+$};
+$gc(e)
+
+;Liniengrafik 24 Stunden
+$gc(lt abrhum "wr" "Feuchte" cstr)
+$var formatter = new google.visualization.NumberFormat({pattern:'####.## %%'});
+$formatter.format(data, 1);
+$var options = {
+$vAxis:{viewWindow:{min:0,max:100},title: '%%'},
+;$vAxis:{viewWindow:{min:0},title: 'Watt'},
+$hAxis: {title: 'Tagesverlauf'},
+$curveType:'function',
+$title:'Feuchte 24 Stunden',
+$chartArea: {backgroundColor: {fill: '#F0F0F0',},},
+$};
+$gc(e)
+
+;Liniengrafik 24 Stunden
+$gc(lt  abrrain "wr" "Regen" cstr)
+$var formatter = new google.visualization.NumberFormat({pattern:'####.## mm'});
+$formatter.format(data, 1);
+$var options = {
+$vAxis:{viewWindow:{min:0,max:100},title: 'mm'},
+;$vAxis:{viewWindow:{min:0},title: 'Watt'},
+$hAxis: {title: 'Tagesverlauf'},
+$curveType:'function',
+$title:'Regen 24 Stunden',
+$chartArea: {backgroundColor: {fill: '#F0F0F0',},},
+$};
+$gc(e)
+
+;Liniengrafik 24 Stunden
+$gc(lt abrwind "wr" "Wind" cstr)
+$var formatter = new google.visualization.NumberFormat({pattern:'####.## arb'});
+$formatter.format(data, 1);
+$var options = {
+$vAxis:{viewWindow:{min:0,max:100},title: 'arb'},
+;$vAxis:{viewWindow:{min:0},title: 'Watt'},
+$hAxis: {title: 'Tagesverlauf'},
+$curveType:'function',
+$title:'Wind 24 Stunden',
+$chartArea: {backgroundColor: {fill: '#F0F0F0',},},
+$};
+$gc(e)
+
+;Liniengrafik 24 Stunden
+$gc(lt  abrlight "wr" "Helligkeit" cstr)
+$var formatter = new google.visualization.NumberFormat({pattern:'####.## lux'});
+$formatter.format(data, 1);
+$var options = {
+$vAxis:{viewWindow:{min:0,max:500},title: 'lux'},
+;$vAxis:{viewWindow:{min:0},title: 'Watt'},
+$hAxis: {title: 'Tagesverlauf'},
+$curveType:'function',
+$title:'Helligkeit 24 Stunden',
+$chartArea: {backgroundColor: {fill: '#F0F0F0',},},
+$};
+$gc(e)
+
+;Liniengrafik 24 Stunden
+$gc(lt  abrlight "wr" "UVI" cstr)
+$var formatter = new google.visualization.NumberFormat({pattern:'####.## uvi'});
+$formatter.format(data, 1);
+$var options = {
+$vAxis:{viewWindow:{min:0,max:15},title: 'uvi'},
+;$vAxis:{viewWindow:{min:0},title: 'Watt'},
+$hAxis: {title: 'Tagesverlauf'},
+$curveType:'function',
+$title:'UV Index 24 Stunden',
+$chartArea: {backgroundColor: {fill: '#F0F0F0',},},
+$};
+$gc(e)
+
