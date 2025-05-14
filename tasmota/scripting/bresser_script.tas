@@ -1,4 +1,4 @@
-w>D
+>D
 IP=192.168.188.98
 
 str=""
@@ -13,6 +13,7 @@ cstr=""
 m15=0
 lrain=0
 fr=0
+cnt=0
 
 id=""
 br_tmp=0
@@ -41,6 +42,12 @@ cstr="cnt0/4"
 #reset
 mrain=br_rain
 lrain=br_rain
+acp(abrtmp 0)
+acp(abrhum 0)
+acp(abrrain 0)
+acp(abrwind 0)
+acp(abrlight 0)
+acp(abruvi 0)
 =#save_arrays
 svars
 
