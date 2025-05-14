@@ -181,7 +181,6 @@ $var formatter = new google.visualization.NumberFormat({pattern:'####.## %%'});
 $formatter.format(data, 1);
 $var options = {
 $vAxis:{viewWindow:{min:0,max:100},title: '%%'},
-;$vAxis:{viewWindow:{min:0},title: 'Watt'},
 $hAxis: {title: 'Tagesverlauf'},
 $curveType:'function',
 $title:'Feuchte 24 Stunden',
@@ -195,7 +194,6 @@ $var formatter = new google.visualization.NumberFormat({pattern:'####.## mm'});
 $formatter.format(data, 1);
 $var options = {
 $vAxis:{viewWindow:{min:0,max:100},title: 'mm'},
-;$vAxis:{viewWindow:{min:0},title: 'Watt'},
 $hAxis: {title: 'Tagesverlauf'},
 $curveType:'function',
 $title:'Regen 24 Stunden',
@@ -209,7 +207,6 @@ $var formatter = new google.visualization.NumberFormat({pattern:'####.## arb'});
 $formatter.format(data, 1);
 $var options = {
 $vAxis:{viewWindow:{min:0,max:100},title: 'arb'},
-;$vAxis:{viewWindow:{min:0},title: 'Watt'},
 $hAxis: {title: 'Tagesverlauf'},
 $curveType:'function',
 $title:'Wind 24 Stunden',
@@ -237,7 +234,6 @@ $var formatter = new google.visualization.NumberFormat({pattern:'####.## uvi'});
 $formatter.format(data, 1);
 $var options = {
 $vAxis:{viewWindow:{min:0,max:15},title: 'uvi'},
-;$vAxis:{viewWindow:{min:0},title: 'Watt'},
 $hAxis: {title: 'Tagesverlauf'},
 $curveType:'function',
 $title:'UV Index 24 Stunden',
