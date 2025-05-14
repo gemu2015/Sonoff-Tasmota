@@ -169,13 +169,13 @@ id=Bresser_1#ID
 >W
 %=#wtime
 Sensor ID{m}%id%
-Temperatur{m}%1br_tmp%
-Tagestemperatur{m}%1avgt%
-Luftfeuchte{m}%0br_hum%
-Regen total{m}%1br_rain%
-Regen heute{m}%1(mrain-br_rain)%
+Temperatur{m}%1br_tmp% °C
+Tagestemperatur{m}%1avgt% °C
+Luftfeuchte{m}%0br_hum% %%
+Regen total{m}%1br_rain% mm
+Regen heute{m}%1(mrain-br_rain)% mm
 Wind{m}%1br_wind%
-Licht{m}%1br_light%
+Licht{m}%1br_light% lux
 UVi{m}%1br_uvi%
 
 $<div id="chart1"style="width:640px;height:300px;margin: 0 auto !important;display: inline-block;"></div>
