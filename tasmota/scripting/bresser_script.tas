@@ -6,12 +6,11 @@ ps=""
 tm=""
 res=0
 tmp=0
-stmp=0
+p:stmp=0
 dtmp=0
-atcnt=0
+p:atcnt=0
 avgt=0
 hr=0
-mrain=0
 cstr=""
 m15=0
 lrain=0
@@ -39,6 +38,7 @@ M:abruvi=0 96
 >B
 
 =#load_arrays
+lrain=mrain
 
 ; Monate
 tmp=is1(0 "Jan|Feb|Mar|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez|")
@@ -47,8 +47,15 @@ tmp=is(0 "So|Mo|Di|Mi|Do|Fr|Sa|")
 cstr="cnt0/4"
 
 #reset
-mrain=br_rain
-lrain=br_rain
+if br_rain>0 {
+	mrain=br_rain
+	lrain=br_rain
+}
+if br_hum>0 {
+	stmp=br_tmp
+	atcnt=1
+}
+
 acp(abrtmp 0)
 acp(abrhum 0)
 acp(abrrain 0)
@@ -133,6 +140,7 @@ abruvi[0]=m15
 
 cstr="cnt"+s(0m15)+"/4"
 
+; average temperature
 stmp+=br_tmp
 atcnt+=1
 avgt=stmp/atcnt
