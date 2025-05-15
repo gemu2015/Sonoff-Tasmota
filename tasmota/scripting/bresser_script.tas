@@ -183,7 +183,7 @@ Luftfeuchte{m}%0br_hum% %%
 Regen total{m}%1br_rain% mm
 Regen heute{m}%1(mrain-br_rain)% mm
 Wind{m}%1br_wind%
-Licht{m}%1br_light% lux
+Licht{m}%1br_light% kLux
 UVi{m}%1br_uvi%
 
 $<div id="chart1"style="width:640px;height:300px;margin: 0 auto !important;display: inline-block;"></div>
