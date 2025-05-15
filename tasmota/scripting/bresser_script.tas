@@ -247,10 +247,10 @@ $gc(e)
 
 ;Liniengrafik 24 Stunden
 $gc(lt  abrlight "wr" "Helligkeit" cstr)
-$var formatter = new google.visualization.NumberFormat({pattern:'####.## lux'});
+$var formatter = new google.visualization.NumberFormat({pattern:'####.## kLux'});
 $formatter.format(data, 1);
 $var options = {
-$vAxis:{viewWindow:{min:0,max:500},title: 'lux'},
+$vAxis:{viewWindow:{min:0,max:500},title: 'kLux'},
 $hAxis: {title: 'Tagesverlauf'},
 $curveType:'function',
 $title:'Helligkeit 24 Stunden',
