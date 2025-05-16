@@ -16,6 +16,9 @@ m15=0
 lrain=0
 fr=0
 cnt=0
+; in very rare cases cc1101 gets stuck
+; 10 minutes timeout
+t:timeout=600
 
 id=""
 br_tmp=0
@@ -24,6 +27,7 @@ br_rain=0
 br_wind=0
 br_light=0
 br_uvi=0
+br_cnt=0
 p:mrain=0
 
 ; day arrays
@@ -116,6 +120,17 @@ or br_hum==0 {
 	break
 }
 
+
+if chg[br_cnt]>0 {
+	; reset timeout
+	timeout=600
+}
+
+if timeout==0 {
+	; restart if cc1101 is stuck
+	->Restart 1
+}
+
 m15=int(hours*60+mins/15+1)
 if chg[m15]>0 {
 	abrtmp[m15]=br_tmp
@@ -173,6 +188,7 @@ br_wind=Bresser_1#WAVG
 br_light=Bresser_1#Light
 br_uvi=Bresser_1#UVidx
 id=Bresser_1#ID
+br_cnt=Bresser_1#RCNT
 
 >W
 %=#wtime
@@ -237,7 +253,7 @@ $gc(lt abrwind "wr" "Wind" cstr)
 $var formatter = new google.visualization.NumberFormat({pattern:'####.## arb'});
 $formatter.format(data, 1);
 $var options = {
-$vAxis:{viewWindow:{min:0,max:100},title: 'arb'},
+$vAxis:{viewWindow:{min:0,max:50},title: 'arb'},
 $hAxis: {title: 'Tagesverlauf'},
 $curveType:'function',
 $title:'Wind 24 Stunden',
@@ -250,7 +266,7 @@ $gc(lt  abrlight "wr" "Helligkeit" cstr)
 $var formatter = new google.visualization.NumberFormat({pattern:'####.## kLux'});
 $formatter.format(data, 1);
 $var options = {
-$vAxis:{viewWindow:{min:0,max:500},title: 'kLux'},
+$vAxis:{viewWindow:{min:0,max:150},title: 'kLux'},
 $hAxis: {title: 'Tagesverlauf'},
 $curveType:'function',
 $title:'Helligkeit 24 Stunden',
