@@ -696,6 +696,8 @@ typedef struct {
     uint8_t wsp;
 #endif
 
+    uint8_t ignore_line;
+
 #ifdef ESP8266
     uint8_t pwmpin[5];
 #endif
@@ -3480,9 +3482,11 @@ chknext:
           uint8_t vtype;
           lp = isvar(lp + 4, &vtype, &ind, 0, 0, gv);
           if (!ind.bits.constant) {
-            uint16_t index = glob_script_mem.type[ind.index].index;
-            fvar = glob_script_mem.fvars[index] != glob_script_mem.s_fvars[index];
-            glob_script_mem.s_fvars[index] = glob_script_mem.fvars[index];
+            if (!glob_script_mem.ignore_line) {
+              uint16_t index = glob_script_mem.type[ind.index].index;
+              fvar = glob_script_mem.fvars[index] != glob_script_mem.s_fvars[index];
+              glob_script_mem.s_fvars[index] = glob_script_mem.fvars[index];
+            }
           } else {
             fvar = 0;
           }
@@ -6561,20 +6565,20 @@ void tmod_directModeOutput(uint32_t pin);
           goto exit;
         }
         if (!strncmp_XP(lp, XPSTR("upd["), 4)) {
-          // var was updated
+          // var was updated ?
           struct T_INDEX ind;
           uint8_t vtype;
-          isvar(lp + 4, &vtype, &ind, 0, 0, gv);
+          lp = isvar(lp + 4, &vtype, &ind, 0, 0, gv);
           if (!ind.bits.constant) {
             if (!ind.bits.changed) {
               fvar = 0;
-              len++;
-              goto exit;
+              goto nfuncexit;
             } else {
-              glob_script_mem.type[ind.index].bits.changed = 0;
+              if (!glob_script_mem.ignore_line) {
+                glob_script_mem.type[ind.index].bits.changed = 0;
+              }
               fvar = 1;
-              len++;
-              goto exit;
+              goto nfuncexit;
             }
           }
           goto notfound;
@@ -8144,6 +8148,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
     if_state[ifstck] = 0;
     if_result[ifstck] = 0;
     if_exe[ifstck] = 1;
+    glob_script_mem.ignore_line = 0;
     char cmpstr[SCRIPT_MAX_SBSIZE];
     TS_FLOAT *dfvar;
 
@@ -8203,6 +8208,8 @@ startline:
 //if (if_state[s_ifstck]==3 && if_result[s_ifstck]) goto next_line;
 //if (if_state[s_ifstck]==2 && !if_result[s_ifstck]) goto next_line;
 
+            glob_script_mem.ignore_line = 0;
+
             if (!strncmp(lp, "if", 2)) {
                 lp += 2;
                 if (ifstck < IF_NEST - 1) ifstck++;
@@ -8211,6 +8218,9 @@ startline:
                 if (ifstck == 1) if_exe[ifstck] = 1;
                 else if_exe[ifstck] = if_exe[ifstck - 1];
                 and_or = 0;
+                if (if_result[ifstck - 1] == 0) {
+                  glob_script_mem.ignore_line = 1;
+                }
             } else if (!strncmp(lp, "then", 4) && if_state[ifstck] == 1) {
                 lp += 4;
                 if_state[ifstck] = 2;
@@ -8221,7 +8231,7 @@ startline:
                 if (if_exe[ifstck - 1]) if_exe[ifstck] = !if_result[ifstck];
             } else if (!strncmp(lp, "endif", 5) && if_state[ifstck] >= 2) {
                 lp += 5;
-                if (ifstck>0) {
+                if (ifstck > 0) {
                   if_state[ifstck] = 0;
                   ifstck--;
                 }
@@ -8719,7 +8729,7 @@ getnext:
 
             // check for variable result
             if (if_state[ifstck] == 1) {
-              // evaluate exxpression
+              // evaluate expression
               lp = Evaluate_expression(lp, and_or, &if_result[ifstck], gv);
               SCRIPT_SKIP_SPACES
               if (*lp == '{' && if_state[ifstck] == 1) {
