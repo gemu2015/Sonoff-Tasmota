@@ -170,7 +170,7 @@ a valid script must start with >D in the first line
 
 ### >D ssize
 
-  `ssize` = optional max string size (default=19, max=48 unless increased with `#define SCRIPT_MAXSSIZE`)  
+  `ssize` = optional max string size (default=19, max=255)  
   define and init variables here, must be the first section, no other code allowed  
   `p:vname`  
   specifies permanent variables. The number of permanent variables is limited by Tasmota rules space (50 bytes) - numeric variables are 4 bytes; string variables are one byte longer than the length of string.  p vars are stored sequentially in the order of defintion.
@@ -371,12 +371,13 @@ You may put any html code here.
 - HTML statements are displayed in the main section of the main page  
 
 for next loops are supported to repeat HTML code (precede with % char)
+```
 %for var from to inc
 %next
-
+```
 but this method is preferred:
 script subroutines may be called sub=name of subroutine, like normal subroutines
-%=#sub
+`%=#sub`
 in this subroutine a web line may be sent by wcs (see below) thus allowing dynamic HTML pages
 
 =#sub(x) in any position of webline calls subroutine. this allows inserting content
@@ -461,11 +462,13 @@ remark: state variable names used for IO in the web interface may not contain an
   `WSO_FORCEPLAIN` = 4 send line in plain (no table elements)  
   `WSO_FORCEMAIN` = 8 send lines in main mode ($ mode)  
   
- ### Google Charts  
+### Google Charts  
  
   google chart support requires arrays and to make sense also permanent arrays. Therefore on 4M Flash Systems the use of `USE_UFILESYS` is recommended while on 1 M Flash Systems the special EEPROM mode should be used (see above). other options may also be needed like `LARGE_ARRAYS`  
   
-  draws a google chart with up to 4 data sets per chart  
+#### basic chart
+
+draw a google chart with up to 4 data sets per chart  
   `gc(T (size) array1 ... array4 "name" "label1" ... "label4" "entrylabels" "header" {"maxy1"} {"maxy2"})`   
   `T` = type  
   - b=barchart  
@@ -483,7 +486,9 @@ remark: state variable names used for IO in the web interface may not contain an
   
   b,l,h type may have the '2' option to specify exactly 2 arrays with 2 y scales given at the end of parameter list.  
   
-  a very individual chart may be specified by splitting the chart definition and inserting the chart options directly see example below  
+####  advanced chart
+a custom chart may be specified by splitting the chart definition and inserting the chart options directly.
+see example below  
   
   `size` = optional size, allows to use only part of an array, must be lower then array size  
   
@@ -502,8 +507,10 @@ remark: state variable names used for IO in the web interface may not contain an
   
   additionally you have to define the html frame to put the chart in (both lines must be preceded by a $ char)
   e.g.  
-  <pre><code>$&lt;div id="chart1"style="width:640px;height:480px;margin:0 auto">&lt;/div>
-  $gc(c array1 array2 "wr" "pwr1" "pwr2" "mo|di|mi|do|fr|sa|so" "Solar feed")</pre></code>
+  ```
+  $<div id="chart1"style="width:640px;height:480px;margin:0 auto"></div>
+  $gc(c array1 array2 "wr" "pwr1" "pwr2" "mo|di|mi|do|fr|sa|so" "Solar feed")
+  ```
   
   you may define more then one chart. The charts id is chart1 ... chartN
   
@@ -568,7 +575,7 @@ If a Tasmota `SENSOR` or `STATUS` or `RESULT` message is not generated or a `Var
 `maca` = current MAC Address  
 `gtopic` = mqtt group topic  
 `lip` = local ip as string  
-`luip` = udp ip as string (from updating device when USE_SCRIPT_GLOBVARS defined)  
+`luip` = udp ip as string (from updating device when USE_SCRIPT_GLOBVARS defined) 
 `prefixn` = prefix n = 1-3  
 `frnm` = friendly name  
 `dvnm` = device name  
@@ -586,6 +593,23 @@ If a Tasmota `SENSOR` or `STATUS` or `RESULT` message is not generated or a `Var
 `gtmp` = global temperature  
 `ghum` = global humidity  
 `gprs` = global pressure  
+
+global variables  
+now optional binary mode, much faster and more precise, also supports arrays.  
+`gvr` = reset global variable handler  
+`gvrbs` = get, set global variable udp buffer size  
+`gvrm` = get, set global variable udp mode, 0 = string mode (default), 1 = binary mode  
+`gvrsa(array)` = send array as global variable in binary mode  
+`udp(url port string)` = send a string via UDP
+
+deep sleep for ESP32 devices only  
+`ds(-1)` = get deep sleep wakeup status  
+`ds(x)` = deep sleep for x seconds  
+`ds(x pin level)` = deep sleep for time and pin level  
+if x > 0 sleep x seconds  
+if pin != -1 wake on pin change  
+pin level that causes wake up  
+
 `pow(x y)` = calculates exponential powers x^y (imprecise version only)  
 `med(n x)` = calculates a 5 value median filter of x (2 filters possible n=0,1)  
 `int(x)` = gets the integer part of x (like floor)  
@@ -719,7 +743,7 @@ SEL:
 `rapp` = append this line to MQTT (ResponseAppend)  
 `wm` = contains source of web request code e.g. 0 = Sensor display (FUNC_WEB_SENSOR)  
   
-`acp(dst src)` = copy array, if src is numeric variable or constant array dst is filled with this value   
+`acp(dst src)` = copy array, if src is numeric variable or constant array dst is filled with this value, if src = sml SML decoder results are copied.   
   
 `knx(code value)` = sends a number value to KNX   
 
@@ -728,7 +752,7 @@ SEL:
 `sml(-m 1 initstr)` = reinits serial port of Meter m, initstr: "baud:mode" e.g. "9600:8E1", currently only baud and N,E,O are evaluated.    
 `sml(m 2)` = reads serial data received by Meter m into string (if m<0 reads hex values, else asci values)
 `sml(m 3 hstr)` = inserts SML Hexstring variable hstr as binary to Meter m in Output stream e.g. for special MODBUS cmds, hstr must be a string variable NO string constant   
-`sml[n]` = get value of SML energy register n   
+`sml[n]` = get value of SML energy register n, if n == 0 then get number of decode lines   
 `smls[m]` = get value of SML meter string info of meter m, if m < 0 gets string representation of numeric value of decode line m, this enables double number resolution.  
 `smlv[n]` = get SML decode valid status of line n (1..N), returns 1 if line decoded. n=0 resets all status codes to zero 
 `smld(m)` = call decoder of meter m  
@@ -867,7 +891,7 @@ S
 print subroutine was executed
 ```
 
-### For loop (loop count must not be less than 1, no direct nesting supported)
+### For loop (loop count must not be less than 1, nesting up to 3 levels)
 
 ```
 for var <from> <to> <inc>  
@@ -1080,6 +1104,7 @@ print task1 on core %core%
 
 >t2
 print task2 on core %core%
+```
 
 ### ESP32 Webcam support
 
@@ -2305,7 +2330,6 @@ When Alexa sends on/off, dimmer, and color (via hsb), send commands to a MagicHo
 
 ### Alexa Controlled MCP230xx I^2^C GPIO Expander
 
-```
 Uses Tasmota's Hue Emulation capabilities for Alexa interface
 
     ; define vars
@@ -2364,8 +2388,6 @@ Uses Tasmota's Hue Emulation capabilities for Alexa interface
     ; web interface
     >W
     bu(p1 "p1 on" "p1 off")bu(p2 "p2 on" "p2 off")bu(p3 "p3 on" "p3 off")bu(p4 "p4 on" "p4 off")
-
-```
 
 ### Retrieve network gateway IP Address
 
