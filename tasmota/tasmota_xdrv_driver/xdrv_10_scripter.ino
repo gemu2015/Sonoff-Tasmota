@@ -509,7 +509,7 @@ typedef union {
       uint8_t nutu6 : 1;
       uint8_t nutu5 : 1;
       uint8_t nutu4 : 1;
-      uint8_t nutu3 : 1;
+      uint8_t ignore_line : 1;
       bool fsys : 1;
       bool eeprom : 1;
   };
@@ -695,8 +695,6 @@ typedef struct {
 #ifdef SCRIPT_FULL_WEBPAGE
     uint8_t wsp;
 #endif
-
-    uint8_t ignore_line;
 
 #ifdef ESP8266
     uint8_t pwmpin[5];
@@ -3482,7 +3480,7 @@ chknext:
           uint8_t vtype;
           lp = isvar(lp + 4, &vtype, &ind, 0, 0, gv);
           if (!ind.bits.constant) {
-            if (!glob_script_mem.ignore_line) {
+            if (!glob_script_mem.FLAGS.ignore_line) {
               uint16_t index = glob_script_mem.type[ind.index].index;
               fvar = glob_script_mem.fvars[index] != glob_script_mem.s_fvars[index];
               glob_script_mem.s_fvars[index] = glob_script_mem.fvars[index];
@@ -6574,7 +6572,7 @@ void tmod_directModeOutput(uint32_t pin);
               fvar = 0;
               goto nfuncexit;
             } else {
-              if (!glob_script_mem.ignore_line) {
+              if (!glob_script_mem.FLAGS.ignore_line) {
                 glob_script_mem.type[ind.index].bits.changed = 0;
               }
               fvar = 1;
@@ -8148,7 +8146,7 @@ int16_t Run_script_sub(const char *type, int8_t tlen, struct GVARS *gv) {
     if_state[ifstck] = 0;
     if_result[ifstck] = 0;
     if_exe[ifstck] = 1;
-    glob_script_mem.ignore_line = 0;
+    glob_script_mem.FLAGS.ignore_line = 0;
     char cmpstr[SCRIPT_MAX_SBSIZE];
     TS_FLOAT *dfvar;
 
@@ -8208,7 +8206,7 @@ startline:
 //if (if_state[s_ifstck]==3 && if_result[s_ifstck]) goto next_line;
 //if (if_state[s_ifstck]==2 && !if_result[s_ifstck]) goto next_line;
 
-            glob_script_mem.ignore_line = 0;
+            glob_script_mem.FLAGS.ignore_line = 0;
 
             if (!strncmp(lp, "if", 2)) {
                 lp += 2;
@@ -8219,7 +8217,22 @@ startline:
                 else if_exe[ifstck] = if_exe[ifstck - 1];
                 and_or = 0;
                 if (if_result[ifstck - 1] == 0) {
-                  glob_script_mem.ignore_line = 1;
+                  // not enabled
+                  glob_script_mem.FLAGS.ignore_line = 1;
+                  /*
+                  while (*lp) {
+                    if (*lp == SCRIPT_EOL) {
+                      break;
+                    }
+                    if (*lp == '{') {
+                      // then
+                      if_state[ifstck] = 2;
+                      break;
+                    }
+                    lp++;
+                  }
+                  goto next_line;
+                  */
                 }
             } else if (!strncmp(lp, "then", 4) && if_state[ifstck] == 1) {
                 lp += 4;
