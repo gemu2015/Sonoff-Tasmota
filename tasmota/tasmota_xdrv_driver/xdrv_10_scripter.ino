@@ -8216,12 +8216,16 @@ startline:
                 if (ifstck == 1) if_exe[ifstck] = 1;
                 else if_exe[ifstck] = if_exe[ifstck - 1];
                 and_or = 0;
-                if (if_result[ifstck - 1] == 0) {
+                if (if_exe[ifstck - 1] == 0) {
                   // not enabled
+#if 1                  
                   glob_script_mem.FLAGS.ignore_line = 1;
-                  /*
+                  AddLog(LOG_LEVEL_INFO, PSTR(">>> %d"),ifstck);
+#else                  
+                  AddLog(LOG_LEVEL_INFO, PSTR(">>> %d"),ifstck);            
                   while (*lp) {
                     if (*lp == SCRIPT_EOL) {
+                      lp--;
                       break;
                     }
                     if (*lp == '{') {
@@ -8232,7 +8236,7 @@ startline:
                     lp++;
                   }
                   goto next_line;
-                  */
+#endif                  
                 }
             } else if (!strncmp(lp, "then", 4) && if_state[ifstck] == 1) {
                 lp += 4;
