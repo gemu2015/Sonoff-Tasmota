@@ -8220,7 +8220,7 @@ startline:
                   // not enabled
 #if 1                  
                   glob_script_mem.FLAGS.ignore_line = 1;
-                  AddLog(LOG_LEVEL_INFO, PSTR(">>> %d"),ifstck);
+                // AddLog(LOG_LEVEL_INFO, PSTR(">>> %d"),ifstck);
 #else                  
                   AddLog(LOG_LEVEL_INFO, PSTR(">>> %d"),ifstck);            
                   while (*lp) {
