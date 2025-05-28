@@ -8218,11 +8218,11 @@ startline:
                 and_or = 0;
                 if (if_exe[ifstck - 1] == 0) {
                   // not enabled
-#if 1                  
+#if 0     
                   glob_script_mem.FLAGS.ignore_line = 1;
                 // AddLog(LOG_LEVEL_INFO, PSTR(">>> %d"),ifstck);
 #else                  
-                  AddLog(LOG_LEVEL_INFO, PSTR(">>> %d"),ifstck);            
+                //  AddLog(LOG_LEVEL_INFO, PSTR(">>> %d"),ifstck);            
                   while (*lp) {
                     if (*lp == SCRIPT_EOL) {
                       lp--;
