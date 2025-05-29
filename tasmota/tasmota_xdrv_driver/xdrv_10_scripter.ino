@@ -1706,7 +1706,7 @@ void script_udp_sendvar(char *vname, TS_FLOAT *fp, char *sp, uint16_t alen) {
   if (!glob_script_mem.udp_flags.udp_used) return;
   if (!glob_script_mem.udp_flags.udp_connected) return;
 
-  char sbuf[SCRIPT_MAX_SBSIZE + 4];
+  char sbuf[64];
   strcpy(sbuf, "=>");
   strcat(sbuf, vname);
   if (glob_script_mem.udp_flags.udp_binary_payload == 0 || !fp) {
