@@ -34,7 +34,7 @@
 extern int Cache_WriteBack_Addr(uint32_t addr, uint32_t size);
 
 
-//#define UDSP_DEBUG
+#define UDSP_DEBUG
 
 #ifndef UDSP_LBSIZE
 #define UDSP_LBSIZE 256
@@ -829,7 +829,16 @@ void UfsCheckSDCardInit(void);
 
 #endif // USE_ESP32_S3
   }
+
+  void udsp_Hexdump(uint8_t *sbuff, int32_t slen, uint8_t index);
+
+  udsp_Hexdump(ut_init_code, 32, 1);
+  udsp_Hexdump(ut_touch_code, 32, 2);
+  udsp_Hexdump(ut_getx_code, 32, 3);
+  udsp_Hexdump(ut_gety_code, 32, 4);
+
 #endif
+
 
 #ifdef UDSP_DEBUG
   Serial.printf("Dsp class init complete\n");
@@ -850,6 +859,18 @@ void uDisplay::delay_arg(uint32_t args) {
 #endif
   }
 }
+
+#ifdef USE_UNIVERSAL_TOUCH
+#ifdef UDSP_DEBUG
+void udsp_Hexdump(uint8_t *sbuff, int32_t slen, uint8_t index) {
+  Serial.printf("dump %d: ", index);
+  for (uint32_t cnt = 0; cnt < slen; cnt ++) {
+    Serial.printf("%02x ", sbuff[cnt]);
+  }
+  Serial.printf("\n");
+}
+#endif
+#endif
 
 // epaper pseudo opcodes
 #define EP_RESET 0x60
@@ -2051,6 +2072,13 @@ uint16_t uDisplay::touched(void) {
     ut_irq_flg = 0;
   }
   if (ut_touch_code) {
+/*
+    udsp_Hexdump(ut_init_code, 32, 1);
+    udsp_Hexdump(ut_touch_code, 32, 2);
+    udsp_Hexdump(ut_getx_code, 32, 3);
+    udsp_Hexdump(ut_gety_code, 32, 4);
+    */
+
     return ut_execute(ut_touch_code);
   }
   return 0;
