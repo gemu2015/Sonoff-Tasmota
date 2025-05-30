@@ -1610,7 +1610,6 @@ void Script_PollUdp(void) {
       packet_buffer[len] = 0;
       glob_script_mem.script_udp_remote_ip = glob_script_mem.Script_PortUdp.remoteIP();
 #ifdef SCRIPT_DEBUG_UDP
-      //AddLog(LOG_LEVEL_DEBUG, PSTR("UDP: Packet %s - %d - %s"), packet_buffer, len, script_udp_remote_ip.toString().c_str());
       AddLog(LOG_LEVEL_DEBUG, PSTR("UDP: received Packet %s - %d - %_I"), packet_buffer, len, (uint32_t)glob_script_mem.script_udp_remote_ip);
 #endif
       char *lp = packet_buffer;
