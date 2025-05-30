@@ -1606,7 +1606,7 @@ void Script_PollUdp(void) {
       // not more then 500 ms
       if (millis() - timeout > 500) { break;}
       char *packet_buffer = glob_script_mem.packet_buffer;
-      int32_t len = glob_script_mem.Script_PortUdp.read(packet_buffer, glob_script_mem.pb_size);
+      int32_t len = glob_script_mem.Script_PortUdp.read(packet_buffer, glob_script_mem.pb_size - 1);
       packet_buffer[len] = 0;
       glob_script_mem.script_udp_remote_ip = glob_script_mem.Script_PortUdp.remoteIP();
 #ifdef SCRIPT_DEBUG_UDP
