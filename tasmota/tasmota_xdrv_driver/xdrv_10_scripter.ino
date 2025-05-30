@@ -1597,15 +1597,18 @@ void Script_PollUdp(void) {
   if (glob_script_mem.udp_flags.udp_connected ) {
     uint32_t timeout = millis();
     while (1) {
+      char *packet_buffer = glob_script_mem.packet_buffer;
       uint16_t plen = glob_script_mem.Script_PortUdp.parsePacket();
       if (!plen || plen > glob_script_mem.pb_size) {
-        glob_script_mem.Script_PortUdp.flush();
+        if (plen > 0) {
+          glob_script_mem.Script_PortUdp.read(packet_buffer, glob_script_mem.pb_size - 1);
+          glob_script_mem.Script_PortUdp.flush();
+        }
         break;
       }
 
       // not more then 500 ms
       if (millis() - timeout > 500) { break;}
-      char *packet_buffer = glob_script_mem.packet_buffer;
       int32_t len = glob_script_mem.Script_PortUdp.read(packet_buffer, glob_script_mem.pb_size - 1);
       packet_buffer[len] = 0;
       glob_script_mem.script_udp_remote_ip = glob_script_mem.Script_PortUdp.remoteIP();
