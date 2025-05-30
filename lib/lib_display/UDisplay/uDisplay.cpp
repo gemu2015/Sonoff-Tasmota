@@ -34,7 +34,7 @@
 extern int Cache_WriteBack_Addr(uint32_t addr, uint32_t size);
 
 
-#define UDSP_DEBUG
+//#define UDSP_DEBUG
 
 #ifndef UDSP_LBSIZE
 #define UDSP_LBSIZE 256
@@ -619,6 +619,7 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
           case 'U':
             if (!strncmp(lp1, "TI", 2)) {
               // init
+              ut_spi_nr = 0;
               ut_wire = 0;
               ut_reset = -1;
               ut_irq = -1;
@@ -832,10 +833,14 @@ void UfsCheckSDCardInit(void);
 
   void udsp_Hexdump(uint8_t *sbuff, int32_t slen, uint8_t index);
 
-  udsp_Hexdump(ut_init_code, 32, 1);
-  udsp_Hexdump(ut_touch_code, 32, 2);
-  udsp_Hexdump(ut_getx_code, 32, 3);
-  udsp_Hexdump(ut_gety_code, 32, 4);
+#if 0
+  if (ut_init_code) {
+    udsp_Hexdump(ut_init_code, 32, 1);
+    udsp_Hexdump(ut_touch_code, 32, 2);
+    udsp_Hexdump(ut_getx_code, 32, 3);
+    udsp_Hexdump(ut_gety_code, 32, 4);
+  }
+#endif
 
 #endif
 
@@ -2034,6 +2039,7 @@ void IRAM_ATTR ut_touch_irq(void) {
 // universal touch driver
 bool uDisplay::utouch_Init(char **name) {
   *name = ut_name;
+
   if (ut_init_code) {
     if (ut_reset >= 0) {
       pinMode(ut_reset, OUTPUT);
@@ -2051,13 +2057,15 @@ bool uDisplay::utouch_Init(char **name) {
 
 extern SPIClass *SpiBegin(uint32 bus);
 
-    if (ut_spi_nr == spi_nr) {
-      // same as display
-      ut_spi = uspi;
-    } else {
+    if (ut_spi_nr > 0) {
+      if (ut_spi_nr == spi_nr) {
+        // same as display
+        ut_spi = uspi;
+      } else {
 #ifdef ESP32
-      ut_spi = SpiBegin(ut_spi_nr);
+        ut_spi = SpiBegin(ut_spi_nr);
 #endif
+      }
     }
     return ut_execute(ut_init_code);
   }
@@ -2072,13 +2080,6 @@ uint16_t uDisplay::touched(void) {
     ut_irq_flg = 0;
   }
   if (ut_touch_code) {
-/*
-    udsp_Hexdump(ut_init_code, 32, 1);
-    udsp_Hexdump(ut_touch_code, 32, 2);
-    udsp_Hexdump(ut_getx_code, 32, 3);
-    udsp_Hexdump(ut_gety_code, 32, 4);
-    */
-
     return ut_execute(ut_touch_code);
   }
   return 0;
@@ -2086,13 +2087,19 @@ uint16_t uDisplay::touched(void) {
 
 int16_t uDisplay::getPoint_x(void) {
   if (ut_getx_code) {
+    //udsp_Hexdump(ut_getx_code, 5, 1);
+    //AddLog(LOG_LEVEL_INFO, PSTR(">: %0x - %0x") , (uint32_t)ut_getx_code, (uint32_t)ut_gety_code);
+    //return 0;
     return ut_execute(ut_getx_code);
   }
   return 0;
 }
 
 int16_t uDisplay::getPoint_y(void) {
+  return 0;
   if (ut_gety_code) {
+    //udsp_Hexdump(ut_gety_code, 5, 2);
+    //return 0;
     return ut_execute(ut_gety_code);
   }
   return 0;
