@@ -292,6 +292,7 @@ void Script_ticker4_end(void) {
 #define SCRIPT_UDP_BUFFER_SIZE 128
 #endif
 #define SCRIPT_UDP_PORT 1999
+#endif
 
 // EEPROM MACROS
 // i2c eeprom
@@ -1529,6 +1530,7 @@ char *script;
 }
 
 
+#ifdef USE_SCRIPT_GLOBVARS
 int32_t udp_call(char *url, uint32_t port, char *sbuf) {
   WiFiUDP udp;
   IPAddress adr;
@@ -1708,7 +1710,12 @@ void script_udp_sendvar(char *vname, TS_FLOAT *fp, char *sp, uint16_t alen) {
   if (!glob_script_mem.udp_flags.udp_used) return;
   if (!glob_script_mem.udp_flags.udp_connected) return;
 
-  char sbuf[64];
+  uint16_t ubsiz = SCRIPT_MAX_SBSIZE + 16;
+  if (ubsiz < 32) {
+    ubsiz = 32;
+  }
+  char sbuf[ubsiz];
+
   strcpy(sbuf, "=>");
   strcat(sbuf, vname);
   if (glob_script_mem.udp_flags.udp_binary_payload == 0 || !fp) {
