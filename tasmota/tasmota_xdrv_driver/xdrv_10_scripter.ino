@@ -655,6 +655,7 @@ typedef struct {
     uint32_t script_lastmillis;
     bool event_handeled = false;
     bool res_ivar = false;
+
 #ifdef USE_BUTTON_EVENT
     int8_t script_button[MAX_KEYS];
 #endif //USE_BUTTON_EVENT
@@ -6921,6 +6922,14 @@ void tmod_directModeOutput(uint32_t pin);
           *(uint32_t*)ivar = lval;
           goto nfuncexit;
         }
+
+        if (!strncmp_XP(lp, XPSTR("won("), 4)) {
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
+          char url[SCRIPT_MAX_SBSIZE];
+          lp = GetStringArgument(lp, OPER_EQU, url, 0);
+          Webserver->on(url, HTTP_GET, ScriptWebOn1);
+          goto nfuncexit;
+        }
         break;
 
       case 'y':
@@ -11115,6 +11124,14 @@ String ScriptUnsubscribe(const char * data, int data_len)
 #endif //     SUPPORT_MQTT_EVENT
 
 
+void ScriptWebOn1(void) {
+  if (!HttpCheckPriviledgedAccess()) { return; }
+  AddLog(LOG_LEVEL_INFO, PSTR("got on1"));
+  Run_Scripter1(">on1", 4, 0);
+}
+
+
+
 #if defined(ESP32) && defined(USE_UFILESYS) && defined(USE_SCRIPT_ALT_DOWNLOAD)
 
 #ifndef SCRIPT_DLPORT
@@ -14369,6 +14386,7 @@ bool Xdrv10(uint32_t function) {
 #if defined(USE_UFILESYS) && defined(USE_SCRIPT_ALT_DOWNLOAD)
       WebServer82Init();
 #endif // USE_SCRIPT_ALT_DOWNLOAD
+
       break;
 #endif // USE_WEBSERVER
 
