@@ -6927,7 +6927,17 @@ void tmod_directModeOutput(uint32_t pin);
           lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           char url[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp, OPER_EQU, url, 0);
-          Webserver->on(url, HTTP_GET, ScriptWebOn1);
+          switch ((uint8_t)fvar) {
+            case 1:
+              Webserver->on(url, HTTP_GET, ScriptWebOn1);
+              break;
+            case 2:
+              Webserver->on(url, HTTP_GET, ScriptWebOn2);
+              break;
+            case 3:
+               Webserver->on(url, HTTP_GET, ScriptWebOn3);
+              break;
+          }           
           goto nfuncexit;
         }
         break;
@@ -11126,8 +11136,17 @@ String ScriptUnsubscribe(const char * data, int data_len)
 
 void ScriptWebOn1(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
-  AddLog(LOG_LEVEL_INFO, PSTR("got on1"));
   Run_Scripter1(">on1", 4, 0);
+}
+
+void ScriptWebOn2(void) {
+  if (!HttpCheckPriviledgedAccess()) { return; }
+  Run_Scripter1(">on2", 4, 0);
+}
+
+void ScriptWebOn3(void) {
+  if (!HttpCheckPriviledgedAccess()) { return; }
+  Run_Scripter1(">on3", 4, 0);
 }
 
 
@@ -14386,7 +14405,7 @@ bool Xdrv10(uint32_t function) {
 #if defined(USE_UFILESYS) && defined(USE_SCRIPT_ALT_DOWNLOAD)
       WebServer82Init();
 #endif // USE_SCRIPT_ALT_DOWNLOAD
-
+      Run_Scripter1(">ah", 3, 0);
       break;
 #endif // USE_WEBSERVER
 
