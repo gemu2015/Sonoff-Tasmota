@@ -641,6 +641,7 @@ typedef struct {
     UDP_FLAGS udp_flags;
     IPAddress last_udp_ip;
     WiFiUDP Script_PortUdp;
+    WiFiUDP *Script_PortUdp_1;
     IPAddress script_udp_remote_ip;
     char *packet_buffer;
     uint16_t pb_size = SCRIPT_UDP_BUFFER_SIZE;
@@ -6594,13 +6595,51 @@ void tmod_directModeOutput(uint32_t pin);
 
 #ifdef USE_SCRIPT_GLOBVARS
         if (!strncmp_XP(lp, XPSTR("udp("), 4)) {
-          char url[SCRIPT_MAX_SBSIZE];
-          lp = GetStringArgument(lp + 4, OPER_EQU, url, 0);
-          TS_FLOAT port;
-          lp = GetNumericArgument(lp, OPER_EQU, &port, gv);
-          char payload[SCRIPT_MAX_SBSIZE];
-          lp = GetStringArgument(lp, OPER_EQU, payload, 0);
-          fvar = udp_call(url, port, payload);
+          lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
+          uint8_t sel = fvar;
+          if (sel == 0) {
+            // open port
+            TS_FLOAT port;
+            lp = GetNumericArgument(lp, OPER_EQU, &port, gv);
+            if (!glob_script_mem.Script_PortUdp_1) {
+              glob_script_mem.Script_PortUdp_1 = new WiFiUDP;
+            }
+            fvar = glob_script_mem.Script_PortUdp_1->begin(port);
+          }
+          if (sel == 1 && glob_script_mem.Script_PortUdp_1) {
+            // rec from port
+            int32_t packetSize = glob_script_mem.Script_PortUdp_1->parsePacket();
+            if (packetSize) {
+              char packet[SCRIPT_MAX_SBSIZE];
+              int32_t len = glob_script_mem.Script_PortUdp_1->read(packet, SCRIPT_MAX_SBSIZE);
+              packet[len] = 0;
+              if (sp) strlcpy(sp, packet, glob_script_mem.max_ssize);
+            } else {
+              if (sp) *sp = 0;
+            }
+            lp++;
+            len = 0;
+            goto strexit;
+          }
+          if (sel == 2 && glob_script_mem.Script_PortUdp_1) {
+            // send to recive port
+            char playload[SCRIPT_MAX_SBSIZE];
+            lp = GetStringArgument(lp, OPER_EQU, playload, 0);
+            glob_script_mem.Script_PortUdp_1->beginPacket(glob_script_mem.Script_PortUdp_1->remoteIP(), glob_script_mem.Script_PortUdp_1->remotePort());
+            glob_script_mem.Script_PortUdp_1->write(playload);
+            glob_script_mem.Script_PortUdp_1->endPacket();
+          }
+          if (sel == 3) {
+            // generic send to url and port
+            char url[SCRIPT_MAX_SBSIZE];
+            lp = GetStringArgument(lp, OPER_EQU, url, 0);
+            TS_FLOAT port;
+            lp = GetNumericArgument(lp, OPER_EQU, &port, gv);
+            char payload[SCRIPT_MAX_SBSIZE];
+            lp = GetStringArgument(lp, OPER_EQU, payload, 0);
+            fvar = udp_call(url, port, payload);
+          }
+
           goto nfuncexit;
         }
 #endif
