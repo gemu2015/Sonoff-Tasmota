@@ -6623,10 +6623,10 @@ void tmod_directModeOutput(uint32_t pin);
           }
           if (sel == 2 && glob_script_mem.Script_PortUdp_1) {
             // send to recive port
-            char playload[SCRIPT_MAX_SBSIZE];
-            lp = GetStringArgument(lp, OPER_EQU, playload, 0);
+            char payload[SCRIPT_MAX_SBSIZE];
+            lp = GetStringArgument(lp, OPER_EQU, payload, 0);
             glob_script_mem.Script_PortUdp_1->beginPacket(glob_script_mem.Script_PortUdp_1->remoteIP(), glob_script_mem.Script_PortUdp_1->remotePort());
-            glob_script_mem.Script_PortUdp_1->write(playload);
+            glob_script_mem.Script_PortUdp_1->write((unsigned char*)payload, sizeof(payload));
             glob_script_mem.Script_PortUdp_1->endPacket();
           }
           if (sel == 3) {
