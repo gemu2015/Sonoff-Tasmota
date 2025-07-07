@@ -642,6 +642,7 @@ typedef struct {
     IPAddress last_udp_ip;
     WiFiUDP Script_PortUdp;
     WiFiUDP *Script_PortUdp_1;
+    uint16_t udp1_port;
     IPAddress script_udp_remote_ip;
     char *packet_buffer;
     uint16_t pb_size = SCRIPT_UDP_BUFFER_SIZE;
@@ -6604,6 +6605,7 @@ void tmod_directModeOutput(uint32_t pin);
             if (!glob_script_mem.Script_PortUdp_1) {
               glob_script_mem.Script_PortUdp_1 = new WiFiUDP;
             }
+            glob_script_mem.udp1_port = port;
             fvar = glob_script_mem.Script_PortUdp_1->begin(port);
           }
           if (sel == 1 && glob_script_mem.Script_PortUdp_1) {
@@ -6629,12 +6631,7 @@ void tmod_directModeOutput(uint32_t pin);
             // send to recive port
             char payload[SCRIPT_MAX_SBSIZE];
             lp = GetStringArgument(lp, OPER_EQU, payload, 0);
-            TS_FLOAT port;
-            lp = GetNumericArgument(lp, OPER_EQU, &port, 0);
-            if (port < 0) {
-              port = glob_script_mem.Script_PortUdp_1->remotePort();
-            }
-            glob_script_mem.Script_PortUdp_1->beginPacket(glob_script_mem.Script_PortUdp_1->remoteIP(), port);
+            glob_script_mem.Script_PortUdp_1->beginPacket(glob_script_mem.Script_PortUdp_1->remoteIP(), glob_script_mem.Script_PortUdp_1->remotePort());
             glob_script_mem.Script_PortUdp_1->write((unsigned char*)payload, strlen(payload));
             glob_script_mem.Script_PortUdp_1->endPacket();
             glob_script_mem.Script_PortUdp_1->flush();
@@ -6644,7 +6641,9 @@ void tmod_directModeOutput(uint32_t pin);
             lp = GetStringArgument(lp, OPER_EQU, url, 0);
             char payload[SCRIPT_MAX_SBSIZE];
             lp = GetStringArgument(lp, OPER_EQU, payload, 0);
-            glob_script_mem.Script_PortUdp_1->beginPacket(WiFi.localIP(),glob_script_mem.Script_PortUdp_1->localPort());
+            IPAddress adr;
+            adr.fromString(url);
+            glob_script_mem.Script_PortUdp_1->beginPacket(adr, glob_script_mem.udp1_port);
             glob_script_mem.Script_PortUdp_1->write((unsigned char*)payload, strlen(payload));
             glob_script_mem.Script_PortUdp_1->endPacket();
           }
