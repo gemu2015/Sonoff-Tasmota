@@ -6608,14 +6608,18 @@ void tmod_directModeOutput(uint32_t pin);
           }
           if (sel == 1 && glob_script_mem.Script_PortUdp_1) {
             // rec from port
-            int32_t packetSize = glob_script_mem.Script_PortUdp_1->parsePacket();
-            if (packetSize) {
-              char packet[SCRIPT_MAX_SBSIZE];
-              int32_t len = glob_script_mem.Script_PortUdp_1->read(packet, SCRIPT_MAX_SBSIZE);
-              packet[len] = 0;
-              if (sp) strlcpy(sp, packet, glob_script_mem.max_ssize);
-            } else {
+            if (TasmotaGlobal.global_state.wifi_down) {
               if (sp) *sp = 0;
+            } else {
+              int32_t packetSize = glob_script_mem.Script_PortUdp_1->parsePacket();
+              if (packetSize > 0) {
+                char packet[SCRIPT_MAX_SBSIZE];
+                int32_t len = glob_script_mem.Script_PortUdp_1->read(packet, SCRIPT_MAX_SBSIZE);
+                packet[len] = 0;
+                if (sp) strlcpy(sp, packet, glob_script_mem.max_ssize);
+              } else {
+                if (sp) *sp = 0;
+              }
             }
             lp++;
             len = 0;
@@ -6625,9 +6629,15 @@ void tmod_directModeOutput(uint32_t pin);
             // send to recive port
             char payload[SCRIPT_MAX_SBSIZE];
             lp = GetStringArgument(lp, OPER_EQU, payload, 0);
-            glob_script_mem.Script_PortUdp_1->beginPacket(glob_script_mem.Script_PortUdp_1->remoteIP(), glob_script_mem.Script_PortUdp_1->remotePort());
-            glob_script_mem.Script_PortUdp_1->write((unsigned char*)payload, sizeof(payload));
+            TS_FLOAT port;
+            lp = GetNumericArgument(lp, OPER_EQU, &port, 0);
+            if (port < 0) {
+              port = glob_script_mem.Script_PortUdp_1->remotePort();
+            }
+            glob_script_mem.Script_PortUdp_1->beginPacket(glob_script_mem.Script_PortUdp_1->remoteIP(), port);
+            glob_script_mem.Script_PortUdp_1->write((unsigned char*)payload, strlen(payload));
             glob_script_mem.Script_PortUdp_1->endPacket();
+            glob_script_mem.Script_PortUdp_1->flush();
           }
           if (sel == 3) {
             // generic send to url and port
@@ -6638,6 +6648,16 @@ void tmod_directModeOutput(uint32_t pin);
             char payload[SCRIPT_MAX_SBSIZE];
             lp = GetStringArgument(lp, OPER_EQU, payload, 0);
             fvar = udp_call(url, port, payload);
+          }
+
+          if (sel == 4) {
+            if (sp) strlcpy(sp, glob_script_mem.Script_PortUdp_1->remoteIP().toString().c_str(), glob_script_mem.max_ssize);
+            lp++;
+            len = 0;
+            goto strexit;
+          }
+          if (sel == 5) {
+            fvar = glob_script_mem.Script_PortUdp_1->remotePort();
           }
 
           goto nfuncexit;
