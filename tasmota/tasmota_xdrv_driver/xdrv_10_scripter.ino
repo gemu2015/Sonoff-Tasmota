@@ -6639,17 +6639,15 @@ void tmod_directModeOutput(uint32_t pin);
             glob_script_mem.Script_PortUdp_1->endPacket();
             glob_script_mem.Script_PortUdp_1->flush();
           }
-          if (sel == 3) {
-            // generic send to url and port
+          if (sel == 3 && glob_script_mem.Script_PortUdp_1) {
             char url[SCRIPT_MAX_SBSIZE];
             lp = GetStringArgument(lp, OPER_EQU, url, 0);
-            TS_FLOAT port;
-            lp = GetNumericArgument(lp, OPER_EQU, &port, gv);
             char payload[SCRIPT_MAX_SBSIZE];
             lp = GetStringArgument(lp, OPER_EQU, payload, 0);
-            fvar = udp_call(url, port, payload);
+            glob_script_mem.Script_PortUdp_1->beginPacket(WiFi.localIP(),glob_script_mem.Script_PortUdp_1->localPort());
+            glob_script_mem.Script_PortUdp_1->write((unsigned char*)payload, strlen(payload));
+            glob_script_mem.Script_PortUdp_1->endPacket();
           }
-
           if (sel == 4) {
             if (sp) strlcpy(sp, glob_script_mem.Script_PortUdp_1->remoteIP().toString().c_str(), glob_script_mem.max_ssize);
             lp++;
@@ -6659,7 +6657,16 @@ void tmod_directModeOutput(uint32_t pin);
           if (sel == 5) {
             fvar = glob_script_mem.Script_PortUdp_1->remotePort();
           }
-
+          if (sel == 6) {
+            // generic send to url and port
+            char url[SCRIPT_MAX_SBSIZE];
+            lp = GetStringArgument(lp, OPER_EQU, url, 0);
+            TS_FLOAT port;
+            lp = GetNumericArgument(lp, OPER_EQU, &port, gv);
+            char payload[SCRIPT_MAX_SBSIZE];
+            lp = GetStringArgument(lp, OPER_EQU, payload, 0);
+            fvar = udp_call(url, port, payload);
+          }
           goto nfuncexit;
         }
 #endif
