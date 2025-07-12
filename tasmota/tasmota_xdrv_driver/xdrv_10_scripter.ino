@@ -161,6 +161,16 @@ char *Get_esc_char(char *cp, char *esc_chr);
 
 #endif // USE_UFILESYS
 
+#ifdef USE_SCRIPT_MDNS
+#ifdef ESP32
+  #include <ESPmDNS.h>
+#else
+  #include <ESP8266mDNS.h>
+  MDNSResponder::hMDNSService hMDNSService = 0; // handle of the http service in the MDNS responder
+  MDNSResponder::hMDNSService hMDNSService2 = 0; // handle of the shelly service in the MDNS responder
+#endif
+#endif
+
 #include <unishox.h>
 #define SCRIPT_COMPRESS compressor.unishox_compress
 #define SCRIPT_DECOMPRESS compressor.unishox_decompress
@@ -862,14 +872,74 @@ void script_sort_array(TS_FLOAT *array, uint16_t size);
 uint32_t Touch_Status(int32_t sel);
 int32_t play_wave(char *path);
 
+#ifdef USE_SCRIPT_MDNS
+
+int32_t script_mdns(char *name, char *mac, char *type) {
+char shelly_name[26];
+char shelly_gen[2] = "2";
+char shelly_fw_id[32] = "20241011-114455/1.4.4-g6d2a586";
+
+  char shelly_mac[13];
+  strcpy(shelly_name, name);
+  if (*mac == '-') {
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    sprintf(shelly_mac, "%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    strcat(shelly_name, shelly_mac);
+  } else {
+    strcat(shelly_name, mac);
+  }
+
+  if (!MDNS.begin(shelly_name)) {
+    AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_UPNP "SCR: Error setting up MDNS responder!"));
+  }
+
+#ifdef ESP32
+    MDNS.addService("http", "tcp", 80);
+    MDNS.addService(type, "tcp", 80);
+    mdns_txt_item_t serviceTxtData[4] = {
+      { "fw_id", shelly_fw_id },
+      { "arch", "esp8266" },
+      { "id", shelly_name },
+      { "gen", shelly_gen }
+    };
+    mdns_service_instance_name_set("_http", "_tcp", shelly_name);
+    mdns_service_txt_set("_http", "_tcp", serviceTxtData, 4);
+    mdns_service_instance_name_set("_shelly", "_tcp", shelly_name);
+    mdns_service_txt_set("_shelly", "_tcp", serviceTxtData, 4);
+#else
+    hMDNSService = MDNS.addService(0, "http", "tcp", 80);
+    hMDNSService2 = MDNS.addService(0, type, "tcp", 80);
+    if (hMDNSService) {
+      MDNS.setServiceName(hMDNSService, shelly_name);
+      MDNS.addServiceTxt(hMDNSService, "fw_id", shelly_fw_id);
+      MDNS.addServiceTxt(hMDNSService, "arch", "esp8266");
+      MDNS.addServiceTxt(hMDNSService, "id", shelly_name);
+      MDNS.addServiceTxt(hMDNSService, "gen", shelly_gen);
+    }
+    if (hMDNSService2) {
+      MDNS.setServiceName(hMDNSService2, shelly_name);
+      MDNS.addServiceTxt(hMDNSService2, "fw_id", shelly_fw_id);
+      MDNS.addServiceTxt(hMDNSService2, "arch", "esp8266");
+      MDNS.addServiceTxt(hMDNSService2, "id", shelly_name);
+      MDNS.addServiceTxt(hMDNSService2, "gen", shelly_gen);
+    }
+#endif
+  AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_UPNP "SCR: mDNS responder started: %s"),shelly_name);
+  return 0;
+}
+#endif // USE_SCRIPT_MDNS
+
 
 #if defined(USE_BINPLUGINS) && !defined(USE_SML_M)
 SML_TABLE *get_sml_table(void) {
   if (Plugin_Query(53, 0, 0)) {
     return (SML_TABLE*)Plugin_Query(53, 1, 0);
-  } else {
-    return 0;
-  }
+    } else {
+      return 0;
+
+}
+
 }
 #endif
 
@@ -1575,8 +1645,6 @@ void Script_Init_UDP() {
 
   glob_script_mem.packet_buffer = (char*)malloc(glob_script_mem.pb_size);
 
-
-  //if (glob_script_mem.Script_PortUdp.beginMulticast(WiFi.localIP(), IPAddress(239,255,255,250), SCRIPT_UDP_PORT)) {
 #ifdef ESP8266
   if (glob_script_mem.Script_PortUdp.beginMulticast(WiFi.localIP(), IPAddress(239,255,255,250), SCRIPT_UDP_PORT)) {
 #else
@@ -5247,12 +5315,25 @@ _Pragma("GCC warning \"'EXT 1 wakeup' not supported using gpio mode\"")
           if (sp) strlcpy(sp, NetworkUniqueId().c_str(), glob_script_mem.max_ssize);
           goto strexit;
         }
+
+#ifdef USE_SCRIPT_MDNS
+        if (!strncmp_XP(vname, XPSTR("mdns("), 5)) {
+          char name[SCRIPT_MAX_SBSIZE];
+          lp = GetStringArgument(lp + 5, OPER_EQU, name, 0);
+          char mac[SCRIPT_MAX_SBSIZE];
+          lp = GetStringArgument(lp, OPER_EQU, mac, 0);
+          char type[SCRIPT_MAX_SBSIZE];
+          lp = GetStringArgument(lp, OPER_EQU, type, 0);
+          fvar = script_mdns(name, mac, type);
+          goto nfuncexit;
+        }
+  #endif // USE_SCRIPT_MDNS
         break;
 
       case 'n':
         if (!strncmp_XP(vname, XPSTR("npwr"), 4)) {
-          fvar = TasmotaGlobal.devices_present;
-          goto exit;
+            fvar = TasmotaGlobal.devices_present;
+            goto exit;
         }
         break;
 
@@ -6992,18 +7073,40 @@ void tmod_directModeOutput(uint32_t pin);
           lp = GetNumericArgument(lp + 4, OPER_EQU, &fvar, gv);
           char url[SCRIPT_MAX_SBSIZE];
           lp = GetStringArgument(lp, OPER_EQU, url, 0);
+          bool glob = false;
+          if (url[strlen(url) - 1] == '*') {
+            glob = true;
+          }
           switch ((uint8_t)fvar) {
             case 1:
-              Webserver->on(url, HTTP_GET, ScriptWebOn1);
+              if (glob) {
+                Webserver->on(UriGlob(url), HTTP_GET, ScriptWebOn1);
+              } else {
+                Webserver->on(url, HTTP_GET, ScriptWebOn1);
+              }
               break;
             case 2:
-              Webserver->on(url, HTTP_GET, ScriptWebOn2);
+               if (glob) {
+                Webserver->on(UriGlob(url), HTTP_GET, ScriptWebOn2);
+              } else {
+                Webserver->on(url, HTTP_GET, ScriptWebOn2);
+              }
               break;
             case 3:
-               Webserver->on(url, HTTP_GET, ScriptWebOn3);
+                if (glob) {
+                Webserver->on(UriGlob(url), HTTP_GET, ScriptWebOn3);
+              } else {
+                Webserver->on(url, HTTP_GET, ScriptWebOn3);
+              }
               break;
           }           
           goto nfuncexit;
+        }
+        if (!strncmp_XP(lp, XPSTR("warg"), 4)) {
+          if (sp) strlcpy(sp, Webserver->uri().c_str(), glob_script_mem.max_ssize);
+          lp++;
+          len = 0;
+          goto strexit;
         }
         break;
 
@@ -7184,8 +7287,6 @@ char *getop(char *lp, uint8_t *operand) {
     *operand = 0;
     return lp;
 }
-
-
 
 #if defined(USE_PLAY_WAVE) && defined(USE_UFILESYS)
 
@@ -14532,11 +14633,16 @@ bool Xdrv10(uint32_t function) {
 #ifdef USE_SCRIPT_ALT_DOWNLOAD
       WebServer82Loop();
 #endif
+#ifdef USE_SCRIPT_MDNS
+#ifndef ESP32
+      MDNS.update();
+#endif
+#endif
       break;
     
     case FUNC_ACTIVE:
-      result = true;
-      break;
+        result = true;
+        break;
   }
   return result;
 }
