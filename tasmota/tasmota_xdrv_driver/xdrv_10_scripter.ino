@@ -896,7 +896,7 @@ char shelly_fw_id[32] = "20241011-114455/1.4.4-g6d2a586";
 
 #ifdef ESP32
     MDNS.addService("http", "tcp", 80);
-    MDNS.addService(type, "tcp", 80);
+    MDNS.addService((const char*)type, "tcp", 80);
     mdns_txt_item_t serviceTxtData[4] = {
       { "fw_id", shelly_fw_id },
       { "arch", "esp8266" },
