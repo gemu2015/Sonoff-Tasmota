@@ -874,11 +874,14 @@ int32_t play_wave(char *path);
 
 #ifdef USE_SCRIPT_MDNS
 
-int32_t script_mdns(char *name, char *mac, char *type) {
 char shelly_name[26];
 char shelly_gen[2] = "2";
 char shelly_fw_id[32] = "20241011-114455/1.4.4-g6d2a586";
+char type[16];
 
+int32_t script_mdns(char *name, char *mac, char *xtype) {
+
+  strcpy(type, xtype);
   char shelly_mac[13];
   strcpy(shelly_name, name);
   if (*mac == '-') {
