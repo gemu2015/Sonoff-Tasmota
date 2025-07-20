@@ -602,6 +602,13 @@ typedef struct {
 } ScriptOneWire;
 #endif // USE_SCRIPT_ONEWIRE
 
+typedef struct {
+    char shelly_name[26];
+    char shelly_gen[2];
+    char shelly_fw_id[32];
+    char type[16];
+} SCRIPT_MDNS;
+
 #define SFS_MAX 4
 // global memory
 typedef struct {
@@ -657,6 +664,11 @@ typedef struct {
     char *packet_buffer;
     uint16_t pb_size = SCRIPT_UDP_BUFFER_SIZE;
 #endif // USE_SCRIPT_GLOBVARS
+
+#ifdef USE_SCRIPT_MDNS
+    SCRIPT_MDNS mdns = {"","2","20241011-114455/1.4.4-g6d2a586",""};
+#endif // USE_SCRIPT_MDNS
+
     char web_mode;
     char *glob_script = 0;
     char *fast_script = 0;
@@ -873,62 +885,56 @@ uint32_t Touch_Status(int32_t sel);
 int32_t play_wave(char *path);
 
 #ifdef USE_SCRIPT_MDNS
-
-char shelly_name[26];
-char shelly_gen[2] = "2";
-char shelly_fw_id[32] = "20241011-114455/1.4.4-g6d2a586";
-char type[16];
-
 int32_t script_mdns(char *name, char *mac, char *xtype) {
 
-  strcpy(type, xtype);
+  strcpy(glob_script_mem.mdns.type, xtype);
   char shelly_mac[13];
-  strcpy(shelly_name, name);
+  strcpy(glob_script_mem.mdns.shelly_name, name);
   if (*mac == '-') {
     uint8_t mac[6];
     WiFi.macAddress(mac);
     sprintf(shelly_mac, "%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    strcat(shelly_name, shelly_mac);
+    strcat(glob_script_mem.mdns.shelly_name, shelly_mac);
   } else {
-    strcat(shelly_name, mac);
+    strcat(glob_script_mem.mdns.shelly_name, mac);
   }
 
-  if (!MDNS.begin(shelly_name)) {
+  if (!MDNS.begin(glob_script_mem.mdns.shelly_name)) {
     AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_UPNP "SCR: Error setting up MDNS responder!"));
   }
 
 #ifdef ESP32
     MDNS.addService("http", "tcp", 80);
-    MDNS.addService((const char*)type, "tcp", 80);
+    MDNS.addService((const char*)glob_script_mem.mdns.type, "tcp", 80);
     mdns_txt_item_t serviceTxtData[4] = {
-      { "fw_id", shelly_fw_id },
+      { "fw_id", glob_script_mem.mdns.shelly_fw_id },
       { "arch", "esp8266" },
-      { "id", shelly_name },
-      { "gen", shelly_gen }
+      { "id", glob_script_mem.mdns.shelly_name },
+      { "gen", glob_script_mem.mdns.shelly_gen }
     };
-    mdns_service_instance_name_set("_http", "_tcp", shelly_name);
+    mdns_service_instance_name_set("_http", "_tcp", glob_script_mem.mdns.shelly_name);
     mdns_service_txt_set("_http", "_tcp", serviceTxtData, 4);
-    mdns_service_instance_name_set("_shelly", "_tcp", shelly_name);
+    mdns_service_instance_name_set("_shelly", "_tcp", glob_script_mem.mdns.shelly_name);
     mdns_service_txt_set("_shelly", "_tcp", serviceTxtData, 4);
 #else
     hMDNSService = MDNS.addService(0, "http", "tcp", 80);
-    hMDNSService2 = MDNS.addService(0, type, "tcp", 80);
+    hMDNSService2 = MDNS.addService(0, glob_script_mem.mdns.type, "tcp", 80);
     if (hMDNSService) {
-      MDNS.setServiceName(hMDNSService, shelly_name);
-      MDNS.addServiceTxt(hMDNSService, "fw_id", shelly_fw_id);
+      MDNS.setServiceName(hMDNSService, glob_script_mem.mdns.shelly_name);
+      MDNS.addServiceTxt(hMDNSService, "fw_id", glob_script_mem.mdns.shelly_fw_id);
       MDNS.addServiceTxt(hMDNSService, "arch", "esp8266");
-      MDNS.addServiceTxt(hMDNSService, "id", shelly_name);
-      MDNS.addServiceTxt(hMDNSService, "gen", shelly_gen);
+      MDNS.addServiceTxt(hMDNSService, "id", glob_script_mem.mdns.shelly_name);
+      MDNS.addServiceTxt(hMDNSService, "gen", glob_script_mem.mdns.shelly_gen);
     }
     if (hMDNSService2) {
-      MDNS.setServiceName(hMDNSService2, shelly_name);
-      MDNS.addServiceTxt(hMDNSService2, "fw_id", shelly_fw_id);
+      MDNS.setServiceName(hMDNSService2, glob_script_mem.mdns.shelly_name);
+      MDNS.addServiceTxt(hMDNSService2, "fw_id", glob_script_mem.mdns.shelly_fw_id);
       MDNS.addServiceTxt(hMDNSService2, "arch", "esp8266");
-      MDNS.addServiceTxt(hMDNSService2, "id", shelly_name);
-      MDNS.addServiceTxt(hMDNSService2, "gen", shelly_gen);
+      MDNS.addServiceTxt(hMDNSService2, "id", glob_script_mem.mdns.shelly_name);
+      MDNS.addServiceTxt(hMDNSService2, "gen", glob_script_mem.mdns.shelly_gen);
     }
 #endif
-  AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_UPNP "SCR: mDNS responder started: %s"),shelly_name);
+  AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_UPNP "SCR: mDNS responder started: %s"),glob_script_mem.mdns.shelly_name);
   return 0;
 }
 #endif // USE_SCRIPT_MDNS
@@ -940,9 +946,7 @@ SML_TABLE *get_sml_table(void) {
     return (SML_TABLE*)Plugin_Query(53, 1, 0);
     } else {
       return 0;
-
-}
-
+  }
 }
 #endif
 
