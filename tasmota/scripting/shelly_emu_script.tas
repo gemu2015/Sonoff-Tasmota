@@ -1,0 +1,189 @@
+>D 250
+IP=192.168.188.143
+res=0
+tmp=0
+cpwr=0
+tcurr=0
+str=""
+tstr=""
+cstr=""
+mstr1=""
+mstr2=""
+mstr3=""
+header=""
+
+once=0
+>B
+=>sensor53 r
+
+
+>ah
+; http rpc handler
+res=won(1 "/rpc/*")
+; http status
+res=won(2 "/status")
+; http status
+res=won(3 "/v1/json")
+
+
+>on1
+print here comes http rpc request
+str=warg
+
+res=ins(str "EM.GetStatus")
+if res>=0 {
+	wcs so(4)
+	=#htph
+	wcs %mstr1%
+	=#getsrc
+	wcs %header%
+	=#getstat
+	wcs %mstr1%
+	wcs %mstr2%
+	wcs }
+	wcf
+	break
+}
+
+res=ins(str "Shelly.GetDeviceInfo")
+if res>=0 {
+	wcs so(4)
+	=#htph
+	wcs %mstr1%
+	
+	=#getdefi
+	
+	wcs %mstr1%
+	wcs %mstr2%
+	wcf
+	
+	break
+}
+
+print unknown request: %str%
+
+; not yet
+;"EMData.GetStatus"
+;"EM.GetConfig"
+
+
+>on2
+print here comes the status request
+wcs so(4)
+=#htph
+wcs %mstr1%
+dp(0 2)
+wcs {"Power": %cpwr%,"E_in":%sml[1]%,"E_out":%sml[2]%}
+wcf
+
+>on3
+print here comes the v1/json
+wcs so(4)
+=#htph
+wcs %mstr1%
+dp(0 2)
+wcs {"energyCounterIn":%sml[1]%,"energyCounterOut":%sml[2]%,"powerAvg":%cpwr%,"energyCounterInT1":0,
+wcs "energyCounterInT2":0,"power":%cpwr%}
+wcf
+
+#htph
+mstr1="HTTP/1.1 200 OK\r\nContent-type: application/json\r\n\r\n"
+
+#getdefi
+tstr="shellypro3em-"+maca
+mstr1="{\"id\":1,\"src\":\""+tstr+"\",\"dst\":\"user_1\",\"result\":"
+mstr1+="{\"name\":\""+tstr+"\",\"id\":\""+tstr+"\",\"mac\":\""+maca+"\",\"slot\":1,\"model\":\"SPEM-003CEBEU\","
+mstr2="\"gen\":2,\"fw_id\":\"20241011-114455/1.4.4-g6d2a586\","
+mstr2+="\"ver\":\"1.4.4\",\"app\":\"Pro3EM\",\"auth_en\":0,\"profile\":\"triphase\"}}"
+
+#getstat
+dp(0 2)
+tmp=cpwr
+tcurr=cpwr/230/3
+cstr=s(tcurr)
+res=tmp/3
+tstr=s(res)
+mstr1="{\"id\":0,\"a_current\":"+cstr+",\"a_voltage\":230,\"a_act_power\":"+tstr+",\"a_aprt_power\":"+tstr+",\"a_pf\":1,\"a_freq\":50,"
+mstr1+="\"b_current\":"+cstr+",\"b_voltage\":230,\"b_act_power\":"+tstr+",\"b_aprt_power\":"+tstr+",\"b_pf\":1,\"b_freq\":50,"
+mstr2="\"c_current\":"+cstr+",\"c_voltage\":230,\"c_act_power\":"+tstr+",\"c_aprt_power\":"+tstr+",\"c_pf\":1,\"c_freq\":50,"
+mstr2+="\"total_current\":"+s(tcurr*3)+",\"total_act_power\":"+s(cpwr)+",\"total_aprt_power\":"+s(cpwr)+"}"
+
+#getsrc
+tstr="shellypro3em-"+maca
+header="{\"id\":0,\"src\":\""+tstr+"\",\"result\":"
+
+
+>S
+if year<2000 {
+	break
+}
+
+cpwr=sml[3]
+;cpwr=200
+
+if once==0 {
+; starte mdns für Shelly second parameter "-" means use device mac
+res=mdns("shellypro3em-" "-" "shelly")
+; udp rpc handler auf port 1010
+res=udp(0 1010)
+once=1
+}
+
+str=udp(1)
+if str!="" {
+	print udp rpc payload=%str%
+	res=ins(str "EM.GetStatus")
+	if res>=0 {
+		=#getsrc
+		=#getstat
+		mstr2+="}"
+		udp(2 header mstr1 mstr2)
+		print >> %header%
+		print >> %mstr1%
+		print >> %mstr2%
+		break
+	}
+	res=ins(str "Shelly.GetDeviceInfo")
+	if res>=0 {
+		=#getdefi
+		udp(2 mstr1 mstr2)
+		print >> 1 %mstr1%
+		print >> 2 %mstr2%
+		break
+	}
+	
+	
+}
+
+>M 1
++1,5,o,16,9600,eBZ,4
+1,1-0:1.8.0*255(@1,Verbrauch,kWh,E_in,3
+1,1-0:2.8.0*255(@1,Einspeisung,kWh,E_out,3
+1,1-0:16.7.0*255(@1,akt. Leistung,W,Power,0
+1,1-0:36.7.0*255(@1,Leistung L1,W,36_7_0,0
+1,1-0:56.7.0*255(@1,Leistung L2,W,56_7_0,0
+1,1-0:76.7.0*255(@1,Leistung L3,W,76_7_0,0
+1,1-0:32.7.0*255(@1,Spannung L1,V,32_7_0,1
+1,1-0:52.7.0*255(@1,Spannung L2,V,52_7_0,1
+1,1-0:72.7.0*255(@1,Spannung L3,V,72_7_0,1
+1,1-0:96.1.0*255(@#),Identifikation,,96_1_0,0
+#
+
+
+; shelly2esp status example
+;{"id":0,"a_current":0.63,"a_voltage":230,"a_act_power":145.59,"a_aprt_power":145.59,"a_pf":1,"a_freq":50,"b_current":0.63,"b_voltage":230,"b_act_power":145.59,"b_aprt_power":145.59,"b_pf":1,"b_freq":50,"c_current":0.63,"c_voltage":230,"c_act_power":145.59,"c_aprt_power":145.59,"c_pf":1,"c_freq":50,"total_current":1.9,"total_act_power":436.77,"total_aprt_power":436.77}
+
+;EM.GetStatus"
+;{"id":0,"a_current":0.67,"a_voltage":230,"a_act_power":153.18,"a_aprt_power":153.18,"a_pf":1,"a_freq":50,"b_current":0.67,"b_voltage":230,"b_act_power":153.18,"b_aprt_power":153.18,"b_pf":1,"b_freq":50,"c_current":0.67,"c_voltage":230,"c_act_power":153.18,"c_aprt_power":153.18,"c_pf":1,"c_freq":50,"total_current":2.01,"total_act_power":459.54,"total_aprt_power":459.54}
+
+;Shelly.GetDeviceInfo
+;{"id":1,"src":"shellypro3em-2c3ae8008adb","dst":"user_1","result":{"name":"shellypro3em-2c3ae8008adb","id":"shellypro3em-2c3ae8008adb","mac":"2c3ae8008adb","slot":1,"model":"SPEM-003CEBEU","gen":"2","fw_id":"20241011-114455/1.4.4-g6d2a586","ver":"1.4.4","app":"Pro3EM","auth_en":false,"profile":"triphase"}}
+
+;EMData.GetStatus
+;{"id":0,"a_total_act_energy":0,"a_total_act_ret_energy":0,"b_total_act_energy":0,"b_total_act_ret_energy":0,"c_total_act_energy":0,"c_total_act_ret_energy":0,"total_act":0,"total_act_ret":0}
+
+;EM.GetConfig
+;{"id":0,"name":null,"blink_mode_selector":"active_energy","phase_selector":"a","monitor_phase_sequence":true,"ct_type":"120A"}
+
+
+
