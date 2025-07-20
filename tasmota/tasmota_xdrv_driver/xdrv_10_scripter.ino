@@ -6716,9 +6716,24 @@ void tmod_directModeOutput(uint32_t pin);
             goto strexit;
           }
           if (sel == 2 && glob_script_mem.Script_PortUdp_1) {
-            // send to recive port
-            char payload[SCRIPT_MAX_SBSIZE];
-            lp = GetStringArgument(lp, OPER_EQU, payload, 0);
+            // send to recive port up to 3 text buffers
+            char payload[SCRIPT_MAX_SBSIZE * 3];
+            char part1[SCRIPT_MAX_SBSIZE];
+            lp = GetStringArgument(lp, OPER_EQU, part1, 0);
+            SCRIPT_SKIP_SPACES
+            strcpy(payload, part1);
+            if (*lp != ')') {
+              // get next part
+              lp = GetStringArgument(lp, OPER_EQU, part1, 0);
+              SCRIPT_SKIP_SPACES
+              strcat(payload, part1);
+              if (*lp != ')') {
+                // get next part
+                lp = GetStringArgument(lp, OPER_EQU, part1, 0);
+                SCRIPT_SKIP_SPACES
+                strcat(payload, part1);
+              }
+            }
             glob_script_mem.Script_PortUdp_1->beginPacket(glob_script_mem.Script_PortUdp_1->remoteIP(), glob_script_mem.Script_PortUdp_1->remotePort());
             glob_script_mem.Script_PortUdp_1->write((unsigned char*)payload, strlen(payload));
             glob_script_mem.Script_PortUdp_1->endPacket();
