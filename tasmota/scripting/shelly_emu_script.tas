@@ -80,10 +80,24 @@ if res>=0 {
 	break
 }
 
-print unknown request: %str%
+res=ins(str "EMData.GetStatus")
+if res>=0 {
+	wcs so(4)
+	=#htph
+	wcs %mstr1%
+	
+	=#getsrc
+	=#egetstat
+	wcs %header%
+	wcs %mstr1%
+	wcs }
+	wcf
+	
+	break
+}
 
-; not yet
-;"EMData.GetStatus"
+
+print unknown request: %str%
 
 
 >on2
@@ -127,6 +141,11 @@ mstr1="{\"id\":0,\"a_current\":"+cstr+",\"a_voltage\":230,\"a_act_power\":"+s(c1
 mstr1+="\"b_current\":"+cstr+",\"b_voltage\":230,\"b_act_power\":"+s(c2p)+",\"b_aprt_power\":"+s(c2p)+",\"b_pf\":1,\"b_freq\":50,"
 mstr2="\"c_current\":"+cstr+",\"c_voltage\":230,\"c_act_power\":"+s(c3p)+",\"c_aprt_power\":"+s(c3p)+",\"c_pf\":1,\"c_freq\":50,"
 mstr2+="\"total_current\":"+s(tcurr*3)+",\"total_act_power\":"+s(cpwr)+",\"total_aprt_power\":"+s(cpwr)+"}"
+
+#egetstat
+dp(0 2)
+mstr1="{\"id\":0,\"a_total_act_energy\":"+s(c1p)+",\"a_total_act_ret_energy\":"+s(c1p)+",\"b_total_act_energy\":"+s(c2p)+",\"b_total_act_ret_energy\":"+s(c2p)+",\"c_total_act_energy\":"+s(c3p)+",\"c_total_act_ret_energy\":"+s(c3p)+",\"total_act\":"+s(cpwr)+",\"total_act_ret\":"+s(cpwr)+"}"
+
 
 #getsrc
 tstr="shellypro3em-"+maca
@@ -189,7 +208,14 @@ if str!="" {
 		print >> 1 %mstr1%
 		break
 	}
-	
+	res=ins(str "EMData.GetStatus")
+	if res>=0 {
+		=#getsrc
+		=#egetstat
+		udp(2 header mstr1)
+		print >> 1 %mstr1%
+		break
+	}
 }
 
 >M 1
