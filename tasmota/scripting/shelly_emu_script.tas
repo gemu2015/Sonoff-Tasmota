@@ -2,6 +2,9 @@
 IP=192.168.188.143
 res=0
 tmp=0
+c1p=0
+c2p=0
+c3p=0
 cpwr=0
 tcurr=0
 str=""
@@ -51,10 +54,27 @@ if res>=0 {
 	=#htph
 	wcs %mstr1%
 	
+	=#getsrc
 	=#getdefi
 	
+	wcs %header%
 	wcs %mstr1%
 	wcs %mstr2%
+	wcf
+	
+	break
+}
+
+res=ins(str "EM.GetConfig")
+if res>=0 {
+	wcs so(4)
+	=#htph
+	wcs %mstr1%
+	
+	=#getsrc
+	=#getcfg
+	wcs %header%
+	wcs %mstr1%
 	wcf
 	
 	break
@@ -64,7 +84,6 @@ print unknown request: %str%
 
 ; not yet
 ;"EMData.GetStatus"
-;"EM.GetConfig"
 
 
 >on2
@@ -77,7 +96,7 @@ wcs {"Power": %cpwr%,"E_in":%sml[1]%,"E_out":%sml[2]%}
 wcf
 
 >on3
-print here comes the v1/json
+print here comes the v1/json for ecotracker
 wcs so(4)
 =#htph
 wcs %mstr1%
@@ -89,10 +108,13 @@ wcf
 #htph
 mstr1="HTTP/1.1 200 OK\r\nContent-type: application/json\r\n\r\n"
 
+
+#getcfg
+mstr1="{\"id\":0,\"name\":null,\"blink_mode_selector\":\"active_energy\",\"phase_selector\":\"a\",\"monitor_phase_sequence\":true,\"ct_type\":\"120A\"}}"
+
+
 #getdefi
-tstr="shellypro3em-"+maca
-mstr1="{\"id\":1,\"src\":\""+tstr+"\",\"dst\":\"user_1\",\"result\":"
-mstr1+="{\"name\":\""+tstr+"\",\"id\":\""+tstr+"\",\"mac\":\""+maca+"\",\"slot\":1,\"model\":\"SPEM-003CEBEU\","
+mstr1="{\"name\":\""+tstr+"\",\"id\":\""+tstr+"\",\"mac\":\""+maca+"\",\"slot\":1,\"model\":\"SPEM-003CEBEU\","
 mstr2="\"gen\":2,\"fw_id\":\"20241011-114455/1.4.4-g6d2a586\","
 mstr2+="\"ver\":\"1.4.4\",\"app\":\"Pro3EM\",\"auth_en\":0,\"profile\":\"triphase\"}}"
 
@@ -101,11 +123,9 @@ dp(0 2)
 tmp=cpwr
 tcurr=cpwr/230/3
 cstr=s(tcurr)
-res=tmp/3
-tstr=s(res)
-mstr1="{\"id\":0,\"a_current\":"+cstr+",\"a_voltage\":230,\"a_act_power\":"+tstr+",\"a_aprt_power\":"+tstr+",\"a_pf\":1,\"a_freq\":50,"
-mstr1+="\"b_current\":"+cstr+",\"b_voltage\":230,\"b_act_power\":"+tstr+",\"b_aprt_power\":"+tstr+",\"b_pf\":1,\"b_freq\":50,"
-mstr2="\"c_current\":"+cstr+",\"c_voltage\":230,\"c_act_power\":"+tstr+",\"c_aprt_power\":"+tstr+",\"c_pf\":1,\"c_freq\":50,"
+mstr1="{\"id\":0,\"a_current\":"+cstr+",\"a_voltage\":230,\"a_act_power\":"+s(c1p)+",\"a_aprt_power\":"+s(c1p)+",\"a_pf\":1,\"a_freq\":50,"
+mstr1+="\"b_current\":"+cstr+",\"b_voltage\":230,\"b_act_power\":"+s(c2p)+",\"b_aprt_power\":"+s(c2p)+",\"b_pf\":1,\"b_freq\":50,"
+mstr2="\"c_current\":"+cstr+",\"c_voltage\":230,\"c_act_power\":"+s(c3p)+",\"c_aprt_power\":"+s(c3p)+",\"c_pf\":1,\"c_freq\":50,"
 mstr2+="\"total_current\":"+s(tcurr*3)+",\"total_act_power\":"+s(cpwr)+",\"total_aprt_power\":"+s(cpwr)+"}"
 
 #getsrc
@@ -118,15 +138,24 @@ if year<2000 {
 	break
 }
 
-cpwr=sml[3]
+; adapt this to your meter
 ;cpwr=200
+cpwr=sml[3]
+c1p=sml[4]
+c2p=sml[5]
+c3p=sml[6]
+
+;c1p=cpwr/3
+;c2p=cpwr/3
+;c3p=cpwr/3
+
 
 if once==0 {
-; starte mdns für Shelly second parameter "-" means use device mac
-res=mdns("shellypro3em-" "-" "shelly")
-; udp rpc handler auf port 1010
-res=udp(0 1010)
-once=1
+	; starte mdns für Shelly second parameter "-" means use device mac
+	res=mdns("shellypro3em-" "-" "shelly")
+	; udp rpc handler auf port 1010
+	res=udp(0 1010)
+	once=1
 }
 
 str=udp(1)
@@ -145,13 +174,21 @@ if str!="" {
 	}
 	res=ins(str "Shelly.GetDeviceInfo")
 	if res>=0 {
+		=#getsrc
 		=#getdefi
-		udp(2 mstr1 mstr2)
+		udp(2 header mstr1 mstr2)
 		print >> 1 %mstr1%
 		print >> 2 %mstr2%
 		break
 	}
-	
+	res=ins(str "EM.GetConfig")
+	if res>=0 {
+		=#getsrc
+		=#getcfg
+		udp(2 header mstr1)
+		print >> 1 %mstr1%
+		break
+	}
 	
 }
 
@@ -173,7 +210,7 @@ if str!="" {
 ; shelly2esp status example
 ;{"id":0,"a_current":0.63,"a_voltage":230,"a_act_power":145.59,"a_aprt_power":145.59,"a_pf":1,"a_freq":50,"b_current":0.63,"b_voltage":230,"b_act_power":145.59,"b_aprt_power":145.59,"b_pf":1,"b_freq":50,"c_current":0.63,"c_voltage":230,"c_act_power":145.59,"c_aprt_power":145.59,"c_pf":1,"c_freq":50,"total_current":1.9,"total_act_power":436.77,"total_aprt_power":436.77}
 
-;EM.GetStatus"
+;EM.GetStatus
 ;{"id":0,"a_current":0.67,"a_voltage":230,"a_act_power":153.18,"a_aprt_power":153.18,"a_pf":1,"a_freq":50,"b_current":0.67,"b_voltage":230,"b_act_power":153.18,"b_aprt_power":153.18,"b_pf":1,"b_freq":50,"c_current":0.67,"c_voltage":230,"c_act_power":153.18,"c_aprt_power":153.18,"c_pf":1,"c_freq":50,"total_current":2.01,"total_act_power":459.54,"total_aprt_power":459.54}
 
 ;Shelly.GetDeviceInfo
