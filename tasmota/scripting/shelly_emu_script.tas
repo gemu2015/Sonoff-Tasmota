@@ -1,6 +1,6 @@
 >D 250
 ; this script emulates a shelly pro, with small modifications may also emulate an ecotracker
-IP=192.168.188.143
+;IP=192.168.188.143
 res=0
 c1p=0
 c2p=0
@@ -152,11 +152,13 @@ if year<2000 {
 }
 
 ; adapt this to your meter
-
-cpwr=sml[3]
-c1p=sml[4]
-c2p=sml[5]
-c3p=sml[6]
+; update every 3 seconds
+if upsecs%3==0 {
+	cpwr=sml[3]
+	c1p=sml[4]
+	c2p=sml[5]
+	c3p=sml[6]
+}
 
 ; use this if you only have only one phase meter values
 ;c1p=cpwr/3
@@ -184,6 +186,7 @@ if str!="" {
 	if res>=0 {
 		=#getsrc
 		=#getstat
+		mstr2+="}"
 		udp(2 header mstr1 mstr2)
 		;print >> %header%
 		;print >> %mstr1%
@@ -231,22 +234,6 @@ if str!="" {
 1,1-0:72.7.0*255(@1,Spannung L3,V,72_7_0,1
 1,1-0:96.1.0*255(@#),Identifikation,,96_1_0,0
 #
-
-
-; shelly2esp status example
-;{"id":0,"a_current":0.63,"a_voltage":230,"a_act_power":145.59,"a_aprt_power":145.59,"a_pf":1,"a_freq":50,"b_current":0.63,"b_voltage":230,"b_act_power":145.59,"b_aprt_power":145.59,"b_pf":1,"b_freq":50,"c_current":0.63,"c_voltage":230,"c_act_power":145.59,"c_aprt_power":145.59,"c_pf":1,"c_freq":50,"total_current":1.9,"total_act_power":436.77,"total_aprt_power":436.77}
-
-;EM.GetStatus
-;{"id":0,"a_current":0.67,"a_voltage":230,"a_act_power":153.18,"a_aprt_power":153.18,"a_pf":1,"a_freq":50,"b_current":0.67,"b_voltage":230,"b_act_power":153.18,"b_aprt_power":153.18,"b_pf":1,"b_freq":50,"c_current":0.67,"c_voltage":230,"c_act_power":153.18,"c_aprt_power":153.18,"c_pf":1,"c_freq":50,"total_current":2.01,"total_act_power":459.54,"total_aprt_power":459.54}
-
-;Shelly.GetDeviceInfo
-;{"id":1,"src":"shellypro3em-2c3ae8008adb","dst":"user_1","result":{"name":"shellypro3em-2c3ae8008adb","id":"shellypro3em-2c3ae8008adb","mac":"2c3ae8008adb","slot":1,"model":"SPEM-003CEBEU","gen":"2","fw_id":"20241011-114455/1.4.4-g6d2a586","ver":"1.4.4","app":"Pro3EM","auth_en":false,"profile":"triphase"}}
-
-;EMData.GetStatus
-;{"id":0,"a_total_act_energy":0,"a_total_act_ret_energy":0,"b_total_act_energy":0,"b_total_act_ret_energy":0,"c_total_act_energy":0,"c_total_act_ret_energy":0,"total_act":0,"total_act_ret":0}
-
-;EM.GetConfig
-;{"id":0,"name":null,"blink_mode_selector":"active_energy","phase_selector":"a","monitor_phase_sequence":true,"ct_type":"120A"}
 
 
 
