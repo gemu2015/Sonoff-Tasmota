@@ -186,7 +186,6 @@ if str!="" {
 	if res>=0 {
 		=#getsrc
 		=#getstat
-		mstr2+="}"
 		udp(2 header mstr1 mstr2)
 		;print >> %header%
 		;print >> %mstr1%
