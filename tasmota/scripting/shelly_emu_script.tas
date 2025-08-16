@@ -16,6 +16,7 @@ mstr1=""
 mstr2=""
 mstr3=""
 header=""
+throttle=1
 once=0
 >B
 =>sensor53 r
@@ -39,7 +40,6 @@ if res>=0 {
 	wcs so(4)
 	=#htph
 	wcs %mstr1%
-	=#getsrc
 	wcs %header%
 	=#getstat
 	wcs %mstr1%
@@ -54,7 +54,6 @@ if res>=0 {
 	=#htph
 	wcs %mstr1%
 	
-	=#getsrc
 	=#getdefi
 	
 	wcs %header%
@@ -70,8 +69,6 @@ if res>=0 {
 	wcs so(4)
 	=#htph
 	wcs %mstr1%
-	
-	=#getsrc
 	=#getcfg
 	wcs %header%
 	wcs %mstr1%
@@ -86,7 +83,6 @@ if res>=0 {
 	=#htph
 	wcs %mstr1%
 	
-	=#getsrc
 	=#egetstat
 	wcs %header%
 	wcs %mstr1%
@@ -140,10 +136,6 @@ mstr2+="\"total_current\":"+s(c1c+c2c+c3c)+",\"total_act_power\":"+s(cpwr)+",\"t
 dp(0 2)
 mstr1="{\"id\":0,\"a_total_act_energy\":"+s(c1p)+",\"a_total_act_ret_energy\":"+s(c1p)+",\"b_total_act_energy\":"+s(c2p)+",\"b_total_act_ret_energy\":"+s(c2p)+",\"c_total_act_energy\":"+s(c3p)+",\"c_total_act_ret_energy\":"+s(c3p)+",\"total_act\":"+s(cpwr)+",\"total_act_ret\":"+s(cpwr)+"}}"
 
-#getsrc
-tstr="shellypro3em-"+maca
-header="{\"id\":0,\"src\":\""+tstr+"\",\"result\":"
-
 
 >S
 if year<2000 {
@@ -151,8 +143,8 @@ if year<2000 {
 }
 
 ; adapt this to your meter
-; update every 3 seconds
-if upsecs%3==0 {
+; update every throttle seconds
+if upsecs%throttle==0 {
 	cpwr=sml[3]
 	c1p=sml[4]
 	c2p=sml[5]
@@ -160,9 +152,9 @@ if upsecs%3==0 {
 }
 
 ; use this if you only have only one phase meter values
-;c1p=cpwr/3
-;c2p=cpwr/3
-;c3p=cpwr/3
+;c1p=cpwr
+;c2p=0
+;c3p=0
 
 ; calculate phase currents
 c1c=c1p/230
@@ -175,6 +167,9 @@ if once==0 {
 	; start udp rpc handler on port 1010 or on port 2220 (for b2500)
 	res=udp(0 1010)
 	;res=udp(0 2220)
+	; build header string
+	tstr="shellypro3em-"+maca
+	header="{\"id\":0,\"src\":\""+tstr+"\",\"result\":"
 	once=1
 }
 
@@ -184,7 +179,6 @@ if str!="" {
 	;print udp rpc payload=%str%
 	res=ins(str "EM.GetStatus")
 	if res>=0 {
-		=#getsrc
 		=#getstat
 		udp(2 header mstr1 mstr2)
 		;print >> %header%
@@ -194,7 +188,6 @@ if str!="" {
 	}
 	res=ins(str "Shelly.GetDeviceInfo")
 	if res>=0 {
-		=#getsrc
 		=#getdefi
 		udp(2 header mstr1 mstr2)
 		;print >> 1 %mstr1%
@@ -203,7 +196,6 @@ if str!="" {
 	}
 	res=ins(str "EM.GetConfig")
 	if res>=0 {
-		=#getsrc
 		=#getcfg
 		udp(2 header mstr1)
 		;print >> 1 %mstr1%
@@ -211,13 +203,17 @@ if str!="" {
 	}
 	res=ins(str "EMData.GetStatus")
 	if res>=0 {
-		=#getsrc
 		=#egetstat
 		udp(2 header mstr1)
 		;print >> 1 %mstr1%
 		break
 	}
+} else {
+	; if no request, send the package anyway. This reduces oscillation!!
+	=#getstat
+	udp(2 header mstr1 mstr2)
 }
+
 
 ; adapt your own meter descriptor here
 >M 1
