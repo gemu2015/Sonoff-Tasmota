@@ -897,6 +897,13 @@ int32_t script_mdns(char *name, char *mac, char *xtype) {
   } else {
     strcat(glob_script_mem.mdns.shelly_name, mac);
   }
+  
+  uint8_t emu_choice;
+  if (!strcmp(xtype, "everhome")) {
+    shelly_emu_choice = 1;
+  } else {
+    shelly_emu_choice = 0; //default = shelly  
+  }
 
   if (!MDNS.begin(glob_script_mem.mdns.shelly_name)) {
     AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_UPNP "SCR: Error setting up MDNS responder!"));
@@ -905,35 +912,57 @@ int32_t script_mdns(char *name, char *mac, char *xtype) {
 #ifdef ESP32
     MDNS.addService("http", "tcp", 80);
     MDNS.addService((const char*)glob_script_mem.mdns.type, "tcp", 80);
-    mdns_txt_item_t serviceTxtData[4] = {
-      { "fw_id", glob_script_mem.mdns.shelly_fw_id },
-      { "arch", "esp8266" },
-      { "id", glob_script_mem.mdns.shelly_name },
-      { "gen", glob_script_mem.mdns.shelly_gen }
-    };
-    mdns_service_instance_name_set("_http", "_tcp", glob_script_mem.mdns.shelly_name);
-    mdns_service_txt_set("_http", "_tcp", serviceTxtData, 4);
-    mdns_service_instance_name_set("_shelly", "_tcp", glob_script_mem.mdns.shelly_name);
-    mdns_service_txt_set("_shelly", "_tcp", serviceTxtData, 4);
+
+    if (shelly_emu_choice == 1) {
+      mdns_txt_item_t serviceTxtData[2] = {
+        { "name", glob_script_mem.mdns.shelly_name },
+        { "id", glob_script_mem.mdns.shelly_name }
+      };
+      mdns_service_instance_name_set("_http", "_tcp", glob_script_mem.mdns.shelly_name);
+      mdns_service_txt_set("_http", "_tcp", serviceTxtData, 2);
+      mdns_service_instance_name_set("_shelly", "_tcp", glob_script_mem.mdns.shelly_name);
+      mdns_service_txt_set("_everhome", "_tcp", serviceTxtData, 2);
+    } else {
+      mdns_txt_item_t serviceTxtData[4] = {
+        { "fw_id", glob_script_mem.mdns.shelly_fw_id },
+        { "arch", "esp8266" },
+        { "id", glob_script_mem.mdns.shelly_name },
+        { "gen", glob_script_mem.mdns.shelly_gen }
+      };
+      mdns_service_instance_name_set("_http", "_tcp", glob_script_mem.mdns.shelly_name);
+      mdns_service_txt_set("_http", "_tcp", serviceTxtData, 4);
+      mdns_service_instance_name_set("_shelly", "_tcp", glob_script_mem.mdns.shelly_name);
+      mdns_service_txt_set("_shelly", "_tcp", serviceTxtData, 4);
+    }
 #else
     hMDNSService = MDNS.addService(0, "http", "tcp", 80);
     hMDNSService2 = MDNS.addService(0, glob_script_mem.mdns.type, "tcp", 80);
     if (hMDNSService) {
       MDNS.setServiceName(hMDNSService, glob_script_mem.mdns.shelly_name);
-      MDNS.addServiceTxt(hMDNSService, "fw_id", glob_script_mem.mdns.shelly_fw_id);
-      MDNS.addServiceTxt(hMDNSService, "arch", "esp8266");
-      MDNS.addServiceTxt(hMDNSService, "id", glob_script_mem.mdns.shelly_name);
-      MDNS.addServiceTxt(hMDNSService, "gen", glob_script_mem.mdns.shelly_gen);
+      if (shelly_emu_choice == 1) {
+        MDNS.addServiceTxt(hMDNSService, "name", glob_script_mem.mdns.shelly_name);
+        MDNS.addServiceTxt(hMDNSService, "id", glob_script_mem.mdns.shelly_name);
+      } else {
+        MDNS.addServiceTxt(hMDNSService, "fw_id", glob_script_mem.mdns.shelly_fw_id);
+        MDNS.addServiceTxt(hMDNSService, "arch", "esp8266");
+        MDNS.addServiceTxt(hMDNSService, "id", glob_script_mem.mdns.shelly_name);
+        MDNS.addServiceTxt(hMDNSService, "gen", glob_script_mem.mdns.shelly_gen);
+      }
     }
     if (hMDNSService2) {
       MDNS.setServiceName(hMDNSService2, glob_script_mem.mdns.shelly_name);
-      MDNS.addServiceTxt(hMDNSService2, "fw_id", glob_script_mem.mdns.shelly_fw_id);
-      MDNS.addServiceTxt(hMDNSService2, "arch", "esp8266");
-      MDNS.addServiceTxt(hMDNSService2, "id", glob_script_mem.mdns.shelly_name);
-      MDNS.addServiceTxt(hMDNSService2, "gen", glob_script_mem.mdns.shelly_gen);
+      if (shelly_emu_choice == 1) {
+        MDNS.addServiceTxt(hMDNSService2, "name", glob_script_mem.mdns.shelly_name);
+        MDNS.addServiceTxt(hMDNSService2, "id", glob_script_mem.mdns.shelly_name);
+      } else {
+        MDNS.addServiceTxt(hMDNSService2, "fw_id", glob_script_mem.mdns.shelly_fw_id);
+        MDNS.addServiceTxt(hMDNSService2, "arch", "esp8266");
+        MDNS.addServiceTxt(hMDNSService2, "id", glob_script_mem.mdns.shelly_name);
+        MDNS.addServiceTxt(hMDNSService2, "gen", glob_script_mem.mdns.shelly_gen);
+      }
     }
 #endif
-  AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_UPNP "SCR: mDNS responder started: %s"),glob_script_mem.mdns.shelly_name);
+  AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_UPNP "SCR: mDNS started with service tcp and %s. Hostname: %s"), glob_script_mem.mdns.type, glob_script_mem.mdns.shelly_name);
   return 0;
 }
 #endif // USE_SCRIPT_MDNS
