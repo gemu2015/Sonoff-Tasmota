@@ -888,21 +888,25 @@ int32_t script_mdns(char *name, char *mac, char *xtype) {
 
   strcpy(glob_script_mem.mdns.type, xtype);
   char shelly_mac[13];
-  strcpy(glob_script_mem.mdns.shelly_name, name);
-  if (*mac == '-') {
-    uint8_t mac[6];
-    WiFi.macAddress(mac);
-    sprintf(shelly_mac, "%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    strcat(glob_script_mem.mdns.shelly_name, shelly_mac);
+  if (*name == '-'){
+    strcpy(glob_script_mem.mdns.shelly_name, TasmotaGlobal.hostname);
   } else {
-    strcat(glob_script_mem.mdns.shelly_name, mac);
+    strcpy(glob_script_mem.mdns.shelly_name, name);
+    if (*mac == '-') {
+      uint8_t mac[6];
+      WiFi.macAddress(mac);
+      sprintf(shelly_mac, "%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+      strcat(glob_script_mem.mdns.shelly_name, shelly_mac);
+    } else {
+      strcat(glob_script_mem.mdns.shelly_name, mac);
+    }
   }
   
   uint8_t emu_choice;
   if (!strcmp(xtype, "everhome")) {
-    shelly_emu_choice = 1;
+    emu_choice = 1;
   } else {
-    shelly_emu_choice = 0; //default = shelly  
+    emu_choice = 0; //default = shelly  
   }
 
   if (!MDNS.begin(glob_script_mem.mdns.shelly_name)) {
@@ -913,7 +917,7 @@ int32_t script_mdns(char *name, char *mac, char *xtype) {
     MDNS.addService("http", "tcp", 80);
     MDNS.addService((const char*)glob_script_mem.mdns.type, "tcp", 80);
 
-    if (shelly_emu_choice == 1) {
+    if (emu_choice == 1) {
       mdns_txt_item_t serviceTxtData[2] = {
         { "name", glob_script_mem.mdns.shelly_name },
         { "id", glob_script_mem.mdns.shelly_name }
@@ -939,7 +943,7 @@ int32_t script_mdns(char *name, char *mac, char *xtype) {
     hMDNSService2 = MDNS.addService(0, glob_script_mem.mdns.type, "tcp", 80);
     if (hMDNSService) {
       MDNS.setServiceName(hMDNSService, glob_script_mem.mdns.shelly_name);
-      if (shelly_emu_choice == 1) {
+      if (emu_choice == 1) {
         MDNS.addServiceTxt(hMDNSService, "name", glob_script_mem.mdns.shelly_name);
         MDNS.addServiceTxt(hMDNSService, "id", glob_script_mem.mdns.shelly_name);
       } else {
@@ -951,7 +955,7 @@ int32_t script_mdns(char *name, char *mac, char *xtype) {
     }
     if (hMDNSService2) {
       MDNS.setServiceName(hMDNSService2, glob_script_mem.mdns.shelly_name);
-      if (shelly_emu_choice == 1) {
+      if (emu_choice == 1) {
         MDNS.addServiceTxt(hMDNSService2, "name", glob_script_mem.mdns.shelly_name);
         MDNS.addServiceTxt(hMDNSService2, "id", glob_script_mem.mdns.shelly_name);
       } else {
