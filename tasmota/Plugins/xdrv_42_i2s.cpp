@@ -950,6 +950,7 @@ void I2sTaskWR(char *url) {
     }
 
     if (!http_connected(http)) {
+      // should reconnect
       break;
     }
 
