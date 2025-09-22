@@ -3,7 +3,141 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - Development
 
-## [14.6.0.1] 
+## [15.0.1.4]
+### Added
+
+### Breaking Changed
+
+### Changed
+- ESP32 Platform from 2025.08.30 to 2025.09.30, Framework (Arduino Core) from v3.1.3.250808 to v3.1.4 and IDF from v5.3.3.250801 to v5.3.4.250826 (#23888)
+- Use HAL instead of ROM for SHA HW acceleration as used by TLS (#23902)
+
+### Fixed
+
+### Removed
+
+## [15.0.1.3] 20250908
+### Added
+- ESP32 ROM SHA Hardware Acceleration to BearSSL (#23819)
+- Extend state JSON message with functional hostname and ipaddress which could be WiFi or Ethernet
+- Berry multiplication between string and int (#23850)
+- Support for RX8030 RTC (#23855)
+
+### Breaking Changed
+- Berry `animate` framework is DEPRECATED, will be replace by `animation` framework (#23854)
+
+### Changed
+- ESP32 Platform from 2025.07.31 to 2025.08.30, Framework (Arduino Core) from v3.1.3.250712 to v3.1.3.250808 and IDF from v5.3.3.250707 to v5.3.3.250801 (#23778)
+- Epdiy library from v1.0.0 to v2.0.0
+- ESP8266 platform update from 2025.07.00 to 2025.08.00 (#23801)
+- Support for ESP32-C5 (#23804)
+- Berry update of preview of animation framework (#23816)
+- ESP8266 platform update from 2025.08.00 to 2025.09.00 (#23801)
+- JPEGDEC library from v1.5.0 to v1.8.3 (#23883)
+- Web UI styles and HTML syntax (#23847)
+
+### Fixed
+- Syslog RFC5424 compliance (#23509)
+- Berry calling `setmember` with a function (#23825)
+- Unable to use default serial GPIOs by TasmotaSerial regression from v14.5.0 with IDF 5.3.2.250120 (#23775)
+
+### Removed
+- `user-scalable=no` from HTTP HEADER (#23798)
+
+## [15.0.1.2] 20250803
+### Added
+- Command `I2sPause` (#23646)
+- Basic support for ESP32-P4 (#23663)
+- ESP32-P4 command `HostedOta` (#23675)
+- Support for RV3028 RTC (#23672)
+- Berry preview of animation framework (#23740)
+- Berry `call()` now works for classes (#23744)
+
+### Changed
+- ESP32 Platform from 2025.05.30 to 2025.07.30, Framework (Arduino Core) from v3.1.3.250504 to v3.1.3.250707 and IDF from v5.3.3.250501 to v5.3.3.250707 (#23642)
+- Domoticz supports persistent settings for all relays, keys and switches when filesystem `#define USE_UFILESYS` is enabled
+- ESP32 Platform from 2025.07.30 to 2025.07.31, Framework (Arduino Core) from v3.1.3.250707 to v3.1.3.250712 and IDF from v5.3.3.250707 to v5.3.3.250707 (#23685)
+- ESP8266 platform update from 2025.05.00 to 2025.07.00 (#23700)
+- OpenTherm library from v0.9.0 to v1.1.5 (#23704)
+- Berry raise webserver hooks from 16 to 32 (#23748)
+
+### Fixed
+- NeoPool reset to default settings (#23734)
+
+## [15.0.1.1] 20250708
+### Added
+- I2S additions (#23543)
+- NeoPool add Redox tank alarm (#19811)
+- Berry f-strings now support ':' in expression (#23618)
+- Universal display driver for ZJY169S0800TG01 ST7789 280x240 (#23638)
+- Commands `LoRaWanDecoder "` and `LoRaWanName "` to clear name (#23394)
+- Internal function 'WSContentSendRaw_P' (#23641)
+
+### Changed
+- BLE updates for esp-nimble-cpp v2.x (#23553)
+- Library names (#23560)
+- ESP32 LoRaWan decoding won't duplicate non-decoded message if `SO147 0`
+- VEML6070 and AHT2x device detection (#23581)
+- CSS uses named colors variables (#23597)
+
+### Fixed
+- LVGL restore `lv_chart.set_range` removed in LVGL 9.3.0 in favor of `lv_chart.set_axis_range` (#23567)
+- Berry vulnerability in JSON parsing for unicode (#23603)
+- Berry security issues in `int64` and improve documentation (#23605)
+- Berry security issues in `berry_mapping` and improve documentation (#23606)
+- Berry Hue regression from #23429 (#23623)
+- AHT30 sensor start with null values after deep sleep (#23624)
+
+## [Released]
+
+## [15.0.1] 20250614
+- Release Sharon
+
+## [15.0.0.1] 20250614
+### Fixed
+- LVGL regression missing `lv.ANIM_OFF` and `lv.ANIM_ON` (#23544)
+- Berry fix `realline` (#23546)
+- LVGL HASPmota fix regression introduced with LVGL 9.3.0 (#23547)
+
+## [15.0.0] 20250613
+- Release Sharon
+
+## [14.6.0.2] 20250613
+### Added
+- Allow temporary change of DisplayDimmer (#23406)
+- Support for LoRaWan Rx1 and Rx2 profiles (#23394)
+- HASPmota auto-dimming when no touch (#23425)
+- Provide serial upload port from VSC to PIO (#23436)
+- Berry support for `sortedmap` (#23441)
+- Berry `introspect.module` option to not cache module entry (#23451)
+- Berry `webserver.remove_route` to revert `webserver.on` (#23452)
+- Berry `compile` and `tasmota.compile` option to compile in local context (#23457)
+- Support for AP33772S USB PD Sink Controller as used in CentyLab RotoPD
+- Berry mqtt publish rule processing
+- Berry `tasmota.is_network_up()` (#23532)
+
+### Changed
+- ESP32 Platform from 2025.04.30 to 2025.05.40, Framework (Arduino Core) from v3.1.3.250411 to v3.2.0.250504 and IDF from v5.3.2.250403 to v5.4.1.250501 (#23397)
+- ESP32 Platform from 2025.05.40 to 2025.05.30, Framework (Arduino Core) from v3.2.0.250504 to v3.1.3.250504 and IDF from v5.4.1.250501 to v5.3.3.250501 (#23404)
+- ESP8266 platform update from 2024.09.00 to 2025.05.00 (#23448)
+- Increase number of supported LoRaWan nodes from 4 to 16
+- Berry change number parser for json to reuse same parser as lexer (#23505)
+- Berry increase web hooks from 16 to 32 (#23507)
+- ESP32 LVGL library from v9.2.2 to v9.3.0 (#23518)
+- Zigbee improved message when coordinator failed to start (#23525)
+- Format syslog messages according to RFC5424 adding local log time (#23509)
+
+### Fixed
+- Haspmota `haspmota.parse()` page parsing (#23403)
+- ESP32-S3 display stability regression from #23397 (#23404)
+- DNS setting with `IPAddress4/5` not persisted (#23426)
+- Berry avoid json parsing for unmatched commands (#23494)
+- Berry integer and real parser to handle overflows (#23495)
+- Berry potential pointer underflow with `string.endswith` (#23496)
+- Autoconf failing when last line has no trailing LF (#23537)
+- LVGL Tasmota logo splash screen (#23538)
+
+## [14.6.0.1] 20250510
 ### Added
 - Command `JsonPP 0..7` to enable (>0) JSON Pretty Print on user interfaces and set number of indents
 - Command `JsonPP <command>|backlog <command>;...` to enable JSON PP only once
@@ -11,21 +145,21 @@ All notable changes to this project will be documented in this file.
 - Wireguard VPN (#23347)
 - Optional Wifi strength indicator in WebUI status line (#23352)
 - WebUI status line left and renamed events `FUNC_WEB_STATUS_LEFT` and `FUNC_WEB_STATUS_RIGHT` (#23354)
-
-### Breaking Changed
+- WebUI heap status (#23356)
+- Support for multi channel AU915-928 LoRaWanBridge by Rob Clark (#23372)
+- HASPmota `antiburn()` (#23400)
 
 ### Changed
 - Allow command `WebRefresh` minimum from 1000 to 400 mSec
+- GPIOViewer from v1.6.2 to v1.6.3 (No functional change)
 
 ### Fixed
 - Berry `bytes().asstring()` now truncates a string if buffer contains NULL (#23311)
 - Berry string literals containing NULL are truncated (#23312)
-
-### Removed
-
-
-
-## [Released]
+- Berry `display.touch_update` wrongly applies resistive calibration (#23363)
+- NimBLE log_level definition conflict (#23366)
+- Matter and mDNS can be enabled at the same time (#23373)
+- Berry `introspect.module()` failed to load modules in files (#23376)
 
 ## [14.6.0] 20250416
 - Release Ryan

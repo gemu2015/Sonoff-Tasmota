@@ -189,6 +189,7 @@ struct {
   TaskHandle_t ConnTask = nullptr;
   TaskHandle_t ServerTask = nullptr;
   MI32connectionContextBerry_t *conCtx = nullptr;
+  uint16_t connID;
   union {
     struct {
       uint32_t init:1;
@@ -483,7 +484,7 @@ enum MI32_BLEInfoMsg {
 
 #ifdef USE_WEBSERVER
 #ifdef USE_MI_EXT_GUI
-const char HTTP_BTN_MENU_MI32[] PROGMEM = "<p><form action='m32' method='get'><button>Mi Dashboard</button></form></p>";
+const char HTTP_BTN_MENU_MI32[] PROGMEM = "<p></p><form action='m32' method='get'><button>Mi Dashboard</button></form>";
 
 const char HTTP_MI32_SCRIPT_1[] PROGMEM =
   "function setUp(){setInterval(countUp,1000); setInterval(update,200);}"

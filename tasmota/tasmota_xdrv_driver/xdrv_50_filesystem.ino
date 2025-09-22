@@ -1262,7 +1262,7 @@ void UFSRun(void) {
 #ifdef USE_WEBSERVER
 
 const char UFS_WEB_DIR[] PROGMEM =
-  "<p><form action='ufsd' method='get'><input type='hidden' name='download' value='%s' /> <button>%s</button></form></p>";
+  "<p></p><form action='ufsd' method='get'><input type='hidden' name='download' value='%s' /> <button>%s</button></form>";
 
 const char UFS_CURRDIR[] PROGMEM = 
   "<p>%s: %s</p>";
@@ -1773,7 +1773,7 @@ void UfsEditor(void) {
         AddLog(LOG_LEVEL_DEBUG_MORE, PSTR(D_LOG_UFS "UfsEditor: read=%d"), l);
         if (l < 0) { break; }
         buf[l] = '\0';
-        WSContentSend_P(PSTR("%s"), HtmlEscape((char*)buf).c_str());
+        WSContentSendRaw_P( HtmlEscape((char*)buf).c_str());
         filelen -= l;
       }
       fp.close();

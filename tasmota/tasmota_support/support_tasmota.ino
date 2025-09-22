@@ -389,6 +389,7 @@ void SetAllPower(uint32_t state, uint32_t source) {
     publish_power = false;
   }
   if (((state >= POWER_OFF) && (state <= POWER_TOGGLE)) || (POWER_OFF_FORCE == state))  {
+    power_t current_power = TasmotaGlobal.power;
     power_t all_on = POWER_MASK >> (POWER_SIZE - TasmotaGlobal.devices_present);
     switch (state) {
     case POWER_OFF:
@@ -408,6 +409,13 @@ void SetAllPower(uint32_t state, uint32_t source) {
       TasmotaGlobal.power = 0; 
       break;
     }
+#ifdef USE_SONOFF_IFAN
+    if (IsModuleIfan()) {
+      // Do not touch Fan relays
+      TasmotaGlobal.power &= 0x0001;
+      TasmotaGlobal.power |= (current_power & 0xFFFE);
+    }
+#endif  // USE_SONOFF_IFAN
     SetDevicePower(TasmotaGlobal.power, source);
   }
   if (publish_power) {
@@ -898,6 +906,15 @@ void MqttShowState(void)
     ResponseAppend_P(PSTR(","));
     MqttShowPWMState();
   }
+  
+  char *hostname = TasmotaGlobal.hostname;
+  uint32_t ipaddress = 0;
+#if defined(ESP32) && defined(USE_ETHERNET)
+  if (static_cast<uint32_t>(EthernetLocalIP()) != 0) {
+    hostname = EthernetHostname();           // Set ethernet as IP connection
+    ipaddress = (uint32_t)EthernetLocalIP();
+  }
+#endif
 
   if (!TasmotaGlobal.global_state.wifi_down) {
     int32_t rssi = WiFi.RSSI();
@@ -905,7 +922,15 @@ void MqttShowState(void)
       Settings->sta_active +1, EscapeJSONString(SettingsText(SET_STASSID1 + Settings->sta_active)).c_str(), WiFi.BSSIDstr().c_str(), WiFi.channel(),
       WifiGetPhyMode().c_str(), WifiGetRssiAsQuality(rssi), rssi,
       WifiLinkCount(), WifiDowntime().c_str());
+
+    if (static_cast<uint32_t>(WiFi.localIP()) != 0) {
+      hostname = TasmotaGlobal.hostname;     // Overrule ethernet as primary IP connection
+      ipaddress = (uint32_t)WiFi.localIP();
+    }
   }
+  // I only want to show one active connection for device access
+  ResponseAppend_P(PSTR(",\"" D_CMND_HOSTNAME "\":\"%s\",\"" D_CMND_IPADDRESS "\":\"%_I\""),
+    hostname, ipaddress);
 
   ResponseJsonEnd();
 }
@@ -1111,6 +1136,7 @@ void PerformEverySecond(void)
     RtcRebootReset();
 
     Settings->last_module = Settings->module;
+
 
 #ifdef USE_DEEPSLEEP
     if (!(DeepSleepEnabled() && !Settings->flag3.bootcount_update)) {  // SetOption76  - (Deepsleep) Enable incrementing bootcount (1) when deepsleep is enabled

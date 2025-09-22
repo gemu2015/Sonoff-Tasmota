@@ -2028,7 +2028,7 @@ void CmndTlsDump(void) {
 const char S_CONFIGURE_MQTT[] PROGMEM = D_CONFIGURE_MQTT;
 
 const char HTTP_BTN_MENU_MQTT[] PROGMEM =
-  "<p><form action='" WEB_HANDLE_MQTT "' method='get'><button>" D_CONFIGURE_MQTT "</button></form></p>";
+  "<p></p><form action='" WEB_HANDLE_MQTT "' method='get'><button>" D_CONFIGURE_MQTT "</button></form>";
 
 const char HTTP_FORM_MQTT1[] PROGMEM =
   "<fieldset><legend><b>&nbsp;" D_MQTT_PARAMETERS "&nbsp;</b></legend>"
@@ -2120,9 +2120,9 @@ bool Xdrv02(uint32_t function)
       case FUNC_WEB_STATUS_RIGHT:
         if (MqttIsConnected()) {
           if (MqttTLSEnabled()) {
-            WSContentStatusSticker(PSTR("MQTT TLS"));
+            WSContentStatusSticker(PSTR(D_MQTT_TLS_ENABLE));
           } else {
-            WSContentStatusSticker(PSTR("MQTT"));
+            WSContentStatusSticker(PSTR(D_MQTT));
           }
         }
         break;
