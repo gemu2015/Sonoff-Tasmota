@@ -1200,7 +1200,7 @@ const uint16_t kGpioNiceList[] PROGMEM = {
 #ifdef USE_DEEPSLEEP
   AGPIO(GPIO_DEEPSLEEP),
 #endif
-#ifdef USE_KEELOQ
+#if defined(USE_KEELOQ) || define(USE_CC1101_BRESSER)
   AGPIO(GPIO_CC1101_GDO0),                       // CC1101 pin for RX
   AGPIO(GPIO_CC1101_GDO2),                       // CC1101 pin for RX
 #endif
