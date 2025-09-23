@@ -2478,7 +2478,7 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
     }
 #endif
     if (scale) {
-      if (renderer) renderer->drawRect(xp, yp, xsize, ysize, GetColorFromIndex(scale));
+      if (renderer) renderer->drawRect(xp, yp, xs, ys, GetColorFromIndex(scale));
     }
     fp.close();
   } else if (!strcmp(estr,"jpg") || !strcmp(estr,"jpeg")) {
@@ -2541,7 +2541,7 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
         free(mem);
       }
       if (scale) {
-        if (renderer) renderer->drawRect(xp, yp, xsize, ysize, GetColorFromIndex(scale));
+        if (renderer) renderer->drawRect(xp, yp, xs, ys, GetColorFromIndex(scale));
       }
       fp.close();
     }
