@@ -2433,13 +2433,15 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
     estr[cnt] = tolower(ending[cnt]);
   }
 
+  uint16_t xsize;
+  uint16_t ysize;
+
   if (!strcmp(estr,"rgb")) {
     // special rgb format
     fp = ufsp->open(file, FS_FILE_READ);
     if (!fp) return;
-    uint16_t xsize;
+    
     fp.read((uint8_t*)&xsize, 2);
-    uint16_t ysize;
     fp.read((uint8_t*)&ysize, 2);
     uint16_t xoffs;
     uint16_t yoffs;
@@ -2478,7 +2480,7 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
     }
 #endif
     if (scale) {
-      if (renderer) renderer->drawRect(xp, yp, xs, ys, GetColorFromIndex(scale));
+      if (renderer) renderer->drawRect(xp, yp, xsize, ysize, GetColorFromIndex(scale));
     }
     fp.close();
   } else if (!strcmp(estr,"jpg") || !strcmp(estr,"jpeg")) {
@@ -2496,8 +2498,6 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
     if (mem) {
       uint8_t res = fp.read(mem, size);
       if (res) {
-        uint16_t xsize;
-        uint16_t ysize;
         uint16_t xoffs;
         uint16_t yoffs;
         if (mem[0] == 0xff && mem[1] == 0xd8) {
@@ -2541,7 +2541,7 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
         free(mem);
       }
       if (scale) {
-        if (renderer) renderer->drawRect(xp, yp, xs, ys, GetColorFromIndex(scale));
+        if (renderer) renderer->drawRect(xp, yp, xsize, ysize, GetColorFromIndex(scale));
       }
       fp.close();
     }
