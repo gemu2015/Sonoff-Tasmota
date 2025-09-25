@@ -1109,7 +1109,7 @@ SETREGS
   uint8_t index = sel & 0xff;
   uint8_t type = sel >> 8;
   if (type == 0) {
-    if (cmd_param) {      
+    if (cmd_param) {
       I2S_Play(cmd_param);
     }
   }
