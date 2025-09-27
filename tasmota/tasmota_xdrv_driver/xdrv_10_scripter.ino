@@ -1431,7 +1431,6 @@ char *script;
     if (!numshadow) {
       numshadow = nvars;
     }
-    AddLog(LOG_LEVEL_INFO, PSTR("SCR: shadow vars: %d"), numshadow); 
 #else
     numshadow = nvars;
 #endif
@@ -1558,7 +1557,7 @@ char *script;
 
     // variables usage info
     uint32_t tot_mem = sizeof(glob_script_mem) + glob_script_mem.script_mem_size + glob_script_mem.script_size + index;
-    AddLog(LOG_LEVEL_INFO, PSTR("SCR: nv=%d, tv=%d, vns=%d, vmem=%d, smem=%d, gmem=%d, pmem=%d, tmem=%d"), nvars, svars, index, glob_script_mem.script_mem_size, glob_script_mem.script_size, sizeof(glob_script_mem), pmem, tot_mem);
+    AddLog(LOG_LEVEL_INFO, PSTR("SCR: nv=%d, tv=%d, vns=%d, vmem=%d, smem=%d, gmem=%d, pmem=%d, tmem=%d, xvars=%d"), nvars, svars, index, glob_script_mem.script_mem_size, glob_script_mem.script_size, sizeof(glob_script_mem), pmem, tot_mem, numshadow);
 
     // copy string variables
     char *cp1 = glob_script_mem.glob_snp;
