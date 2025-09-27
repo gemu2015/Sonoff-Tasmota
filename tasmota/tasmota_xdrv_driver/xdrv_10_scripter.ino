@@ -445,7 +445,6 @@ typedef union {
     uint8_t global : 1;
     uint8_t hchanged : 1;
     uint8_t integer : 1;
-    uint8_t isdiff : 1;
   };
 } SCRIPT_TYPE;
 
