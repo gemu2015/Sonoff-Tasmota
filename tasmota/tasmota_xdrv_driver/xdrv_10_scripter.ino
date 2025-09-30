@@ -520,7 +520,7 @@ typedef union {
       uint8_t nutu7 : 1;
       uint8_t nutu6 : 1;
       uint8_t nutu5 : 1;
-      uint8_t nutu4 : 1;
+      uint8_t x_used : 1;
       uint8_t ignore_line : 1;
       bool fsys : 1;
       bool eeprom : 1;
@@ -1430,9 +1430,13 @@ char *script;
 #ifdef USE_SHADOW_X
     if (!numshadow) {
       numshadow = nvars;
+      glob_script_mem.FLAGS.x_used = 0;
+    } else {
+      glob_script_mem.FLAGS.x_used = 1;
     }
 #else
     numshadow = nvars;
+    glob_script_mem.FLAGS.x_used = 0;
 #endif
 
     uint16_t fsize = 0;
@@ -3618,7 +3622,7 @@ chknext:
           lp = isvar(lp + 4, &vtype, &ind, 0, 0, gv);
           if (!ind.bits.constant) {
 #ifdef USE_SHADOW_X
-            if (ind.bits.shadow) {
+            if (!glob_script_mem.FLAGS.x_used || ind.bits.shadow) {
 #else
             if (1) {
 #endif
@@ -3791,7 +3795,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
           lp = isvar(lp + 5, &vtype, &ind, 0, 0, gv);
           if (!ind.bits.constant) {
 #ifdef USE_SHADOW_X
-            if (ind.bits.shadow) {
+            if (!glob_script_mem.FLAGS.x_used || ind.bits.shadow) {
 #else
             if (1) {
 #endif
@@ -8511,6 +8515,8 @@ startline:
 
             glob_script_mem.FLAGS.ignore_line = 0;
 
+            if ((swflg & 3) == 2) goto chk_switch;
+
             if (!strncmp(lp, "if", 2)) {
                 lp += 2;
                 if (ifstck < IF_NEST - 1) ifstck++;
@@ -8676,7 +8682,7 @@ getnext:
                 }
               }
             }
-
+chk_switch:
             if (!strncmp(lp, "switch", 6)) {
               lp += 6;
               SCRIPT_SKIP_SPACES
