@@ -137,6 +137,13 @@ def prepareBerryFiles(files):
 BERRY_SOLIDIFY_DIR = join(env.subst("$PROJECT_DIR"), "lib", "libesp32","berry_custom")
 HEADER_FILE_PATH = join(BERRY_SOLIDIFY_DIR,"src","modules.h")
 cleanFolder() # always clean up this folder
+
+BERRY_GEN_DIR = join(env.subst("$PROJECT_DIR"), "lib", "libesp32","berry")
+BERRY_GENERATE = join(BERRY_GEN_DIR,"generate")
+if os.path.exists(BERRY_GENERATE) == False:
+    print("berry generate folder missing")
+    os.mkdir(BERRY_GENERATE)
+
 try:
     files = env.GetProjectOption("custom_berry_solidify")
 except:
