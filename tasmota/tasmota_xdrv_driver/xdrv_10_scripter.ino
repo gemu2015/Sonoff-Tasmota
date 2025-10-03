@@ -11013,7 +11013,7 @@ const char kScriptCommands[] PROGMEM = D_CMND_SCRIPT "|" D_CMND_SUBSCRIBE "|" D_
 #endif
 ;
 
-void list_var(char *lp) {
+void list_var(char *lp, WiFiClient *client) {
 TS_FLOAT fvar;
 char str[SCRIPT_MAX_SBSIZE];
   glob_script_mem.glob_error = 0;
@@ -11021,31 +11021,39 @@ char str[SCRIPT_MAX_SBSIZE];
     TS_FLOAT *fpd = 0;
     uint16_t alend;
     char *cp = get_array_by_name(lp, &fpd, &alend, 0);
-    ResponseAppend_P(PSTR("\"%s\":["), lp);
+    if (!client) ResponseAppend_P(PSTR("\"%s\":["), lp);
+    else client->printf_P(PSTR("\"%s\":["), lp);
+
     for (uint16_t cnt = 0; cnt < alend; cnt++) {
         TS_FLOAT tvar = *fpd++;
         ext_snprintf_P(str, sizeof(str), PSTR("%*_f"), -glob_script_mem.script_dprec, &tvar);
         if (cnt) {
-          ResponseAppend_P(PSTR(",%s"), str);
+          if (!client) ResponseAppend_P(PSTR(",%s"), str);
+          else client->printf_P(PSTR(",%s"), str);
         } else {
-          ResponseAppend_P(PSTR("%s"), str);
+          if (!client) ResponseAppend_P(PSTR("%s"), str);
+          else client->printf_P(PSTR("%s"), str);
         }
     }
-    ResponseAppend_P(PSTR("]"));
+    if (!client) ResponseAppend_P(PSTR("]"));
+    else client->printf_P(PSTR("]"));
   } else {
     glob_script_mem.glob_error = 0;
     glob_script_mem.var_not_found = 0;
     GetNumericArgument(lp, OPER_EQU, &fvar, 0);
     if (glob_script_mem.var_not_found) {
-      ResponseAppend_P(PSTR("\"%s\":\"???\""), lp);
+     if (!client) ResponseAppend_P(PSTR("\"%s\":\"???\""), lp);
+     else client->printf_P(PSTR("\"%s\":\"???\""), lp);
     } else {
       if (glob_script_mem.glob_error == 1) {
         // was string, not number
         GetStringArgument(lp, OPER_EQU, str, 0);
-        ResponseAppend_P(PSTR("\"%s\":\"%s\""), lp, str);
+        if (!client) ResponseAppend_P(PSTR("\"%s\":\"%s\""), lp, str);
+        else client->printf_P(PSTR("\"%s\":\"%s\""), lp, str);
       } else {
         ext_snprintf_P(str, sizeof(str), PSTR("%*_f"), -glob_script_mem.script_dprec, &fvar);
-        ResponseAppend_P(PSTR("\"%s\":%s"), lp, str);
+        if (!client) ResponseAppend_P(PSTR("\"%s\":%s"), lp, str);
+        else client->printf_P(PSTR("\"%s\":%s"), lp, str);
       }
     }
   }
@@ -11110,16 +11118,17 @@ bool ScriptCommand(void) {
           char *cp = strchr(lp, ';');
           if (cp) {
             *cp = 0;
-            list_var(lp);
+            list_var(lp, 0);
             ResponseAppend_P(PSTR(","));
             lp = cp + 1;
           } else {
-            list_var(lp);
+            list_var(lp, 0);
             ResponseAppend_P(PSTR("}"));
             break;
           }
         }
         ResponseAppend_P(PSTR("}"));
+        return serviced;
       }
       return serviced;
     }
@@ -11533,6 +11542,35 @@ void ScriptServeFile(void) {
 
   if (cp) {
     cp += 4;
+    char *lp = cp + 1;
+    if (*lp == '$') {
+        lp++;
+        WiFiClient wclient;
+        wclient = Webserver->client();
+        WiFiClient *client = &wclient;
+        AddLog(LOG_LEVEL_INFO, PSTR("SCR: %s"), lp);
+        client->printf_P(PSTR("HTTP/1.1 200 OK\r\n"));
+        client->printf_P(PSTR("Content-type:text/html\r\n\r\n"));
+        client->printf_P(PSTR("{\"script\":{"));
+        while (1) {
+          while (*lp==' ') lp++;
+          char *cp = strchr(lp, ';');
+          if (cp) {
+            *cp = 0;
+            list_var(lp, client);
+            client->printf_P(PSTR(","));
+            lp = cp + 1;
+          } else {
+            list_var(lp, client);
+            client->printf_P(PSTR("}"));
+            break;
+          }
+        }
+        client->printf_P(PSTR("}"));
+        client->flush();
+        client->stop();
+        return;
+    }
     if (ufsp) {
       if (strstr_P(cp, PSTR("scrdmp.bmp"))) {
         SendFile(cp);
