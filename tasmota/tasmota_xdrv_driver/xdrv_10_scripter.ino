@@ -11548,7 +11548,6 @@ void ScriptServeFile(void) {
         WiFiClient wclient;
         wclient = Webserver->client();
         WiFiClient *client = &wclient;
-        AddLog(LOG_LEVEL_INFO, PSTR("SCR: %s"), lp);
         client->printf_P(PSTR("HTTP/1.1 200 OK\r\n"));
         client->printf_P(PSTR("Content-type:text/html\r\n\r\n"));
         client->printf_P(PSTR("{\"script\":{"));
