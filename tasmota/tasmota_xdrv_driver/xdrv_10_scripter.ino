@@ -11567,7 +11567,6 @@ void ScriptServeFile(void) {
         }
         client->printf_P(PSTR("}"));
         client->flush();
-        client->stop();
         return;
     }
     if (ufsp) {
