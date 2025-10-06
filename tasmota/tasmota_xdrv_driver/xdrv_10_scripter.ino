@@ -11045,7 +11045,7 @@ String wbuffer = "";
           }
         }
         if (client) {
-          if (wbuffer.length() >= 512) {
+          if (wbuffer.length() >= 1024) {
             client->print(wbuffer);
             wbuffer = "";
           } 
