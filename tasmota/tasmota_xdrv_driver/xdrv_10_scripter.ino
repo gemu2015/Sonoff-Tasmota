@@ -11016,27 +11016,46 @@ const char kScriptCommands[] PROGMEM = D_CMND_SCRIPT "|" D_CMND_SUBSCRIBE "|" D_
 void list_var(char *lp, WiFiClient *client) {
 TS_FLOAT fvar;
 char str[SCRIPT_MAX_SBSIZE];
+String wbuffer = "";
+
   glob_script_mem.glob_error = 0;
   if (check_varname(lp) == NUM_ARRAY_RES && !strchr(lp, '[')) {
     TS_FLOAT *fpd = 0;
     uint16_t alend;
     char *cp = get_array_by_name(lp, &fpd, &alend, 0);
     if (!client) ResponseAppend_P(PSTR("\"%s\":["), lp);
-    else client->printf_P(PSTR("\"%s\":["), lp);
+    else {
+      ext_snprintf_P(str, sizeof(str), PSTR("\"%s\":["), lp);
+      wbuffer += str;
+    }
 
     for (uint16_t cnt = 0; cnt < alend; cnt++) {
         TS_FLOAT tvar = *fpd++;
         ext_snprintf_P(str, sizeof(str), PSTR("%*_f"), -glob_script_mem.script_dprec, &tvar);
         if (cnt) {
           if (!client) ResponseAppend_P(PSTR(",%s"), str);
-          else client->printf_P(PSTR(",%s"), str);
+          else  {
+            wbuffer += ',';
+            wbuffer += str;
+          }
         } else {
           if (!client) ResponseAppend_P(PSTR("%s"), str);
-          else client->printf_P(PSTR("%s"), str);
+          else {
+            wbuffer += str;
+          }
+        }
+        if (client) {
+          if (wbuffer.length() >= 512) {
+            client->print(wbuffer);
+            wbuffer = "";
+          } 
         }
     }
     if (!client) ResponseAppend_P(PSTR("]"));
-    else client->printf_P(PSTR("]"));
+    else {
+      wbuffer += ']';
+      client->print(wbuffer);
+    }
   } else {
     glob_script_mem.glob_error = 0;
     glob_script_mem.var_not_found = 0;
