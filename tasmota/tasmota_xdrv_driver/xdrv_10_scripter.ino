@@ -6787,7 +6787,7 @@ void tmod_directModeOutput(uint32_t pin);
           }
           if (sel == 1 && glob_script_mem.Script_PortUdp_1) {
             // rec from port
-            if (TasmotaGlobal.global_state.wifi_down) {
+            if (TasmotaGlobal.global_state.wifi_down && TasmotaGlobal.global_state.eth_down) {
               if (sp) *sp = 0;
             } else {
               int32_t packetSize = glob_script_mem.Script_PortUdp_1->parsePacket();
