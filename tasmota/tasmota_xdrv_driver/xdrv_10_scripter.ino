@@ -203,6 +203,7 @@ char *Get_esc_char(char *cp, char *esc_chr);
 #include "esp_sleep.h"
 #endif
 
+#include "WiFiClientSecureLightBearSSL.h"
 
 #ifdef SCRIPT_FULL_OPTIONS
 
@@ -4247,10 +4248,16 @@ _Pragma("GCC warning \"'EXT 1 wakeup' not supported using gpio mode\"")
           SCRIPT_SKIP_SPACES
           char *url;
           lp = GetLongIString(lp, &url);
+          char *path = 0;
+          SCRIPT_SKIP_SPACES
+          if (*lp != ')') {
+            lp = GetLongIString(lp, &path);
+          }
           if (url) {
-            fvar = url2file(fvar, url);
+            fvar = url2file(fvar, url, path );
           }
           if (url) free(url);
+          if (path) free(path);
           goto nfuncexit;
         }
 #endif
@@ -12731,7 +12738,7 @@ const char *gc_str;
       uint8_t bcnt = 0;
       char *found = lin;
       while (bcnt < 4) {
-        found = strstr(found, "bu(");
+        found = strstr_P(found, PSTR("bu("));
         if (!found) break;
         found += 3;
         bcnt++;
@@ -13679,45 +13686,143 @@ uint32_t scripter_create_task(uint32_t num, uint32_t time, uint32_t core, int32_
 
 
 #ifdef USE_UFILESYS
-// read http content to file
-int32_t url2file(uint8_t fref, char *url) {
-  WiFiClient http_client;
-  HTTPClient http;
+// read http(s) content to file
+int32_t url2file(uint8_t fref, char *url, char *path) {
   int32_t httpCode = 0;
-  String weburl = "http://"+UrlEncode(url);
+  if (strstr_P(url, PSTR("https://"))) {
+    std::unique_ptr<BearSSL::WiFiClientSecure_light>client(new BearSSL::WiFiClientSecure_light(1024, 1024));
 
-  for (uint32_t retry = 0; retry < 3; retry++) {
-    http.begin(http_client, weburl);
-    delay(100);
-    httpCode = http.GET();
-    if (httpCode >= 0) {
-      break;
+    client->setTimeout(5000);
+    client->setInsecure();
+
+    if (!client->connect(url, 443)) {
+      AddLog(LOG_LEVEL_INFO,PSTR("SCR: connection failed"));
+      return 0;
     }
-  }
-  if (httpCode < 0) {
-    AddLog(LOG_LEVEL_INFO,PSTR("SCR: HTTP error %d = %s"), httpCode, http.errorToString(httpCode).c_str());
-  }
-  if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
-    WiFiClient *stream = http.getStreamPtr();
-    int32_t len = http.getSize();
-    if (len < 0) len = 99999999;
-    uint8_t buff[512];
-    while (http.connected() && (len > 0)) {
-      size_t size = stream->available();
-      if (size) {
-        if (size > sizeof(buff)) {
-          size = sizeof(buff);
-        }
-        uint32_t read = stream->readBytes(buff, size);
-        glob_script_mem.files[fref].write(buff, read);
-        len -= read;
-        AddLog(LOG_LEVEL_DEBUG,PSTR("SCR: HTTP read %d"), len);
+
+    url += 8;
+
+    String request;
+    request = String("GET ") + path +
+                    " HTTP/1.1\r\n" +
+                    "Host: " + url +
+                    "\r\n" + "Connection: close\r\n\r\n";
+    
+    client->print(request);
+
+    String result;
+    while (client->connected()) {
+      String line = client->readStringUntil('\n');
+      if (line == "\r") {
+        break;
       }
-      delayMicroseconds(1);
+      result += line;
     }
+    AddLog(LOG_LEVEL_INFO,PSTR(">>> response %s"),(char*)result.c_str());
+    
+    uint16_t count = 0;
+    //while (client->connected()) {
+      while (client->available()) {
+        uint8_t io = client->read();
+        count += 1;
+      }
+    //}
+    client->stop();
+ 
+    AddLog(LOG_LEVEL_INFO,PSTR(">>> response 2 %d"),count);
+
+  /*
+    HTTPClient https;
+    https.setReuse(true);
+    https.setTimeout(6000);
+    https.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+
+    if (strstr(url, "https://")) {
+     // url += 8;
+    }
+    String c1 = "/";
+    String turl;
+    if (path) {
+      turl = url + c1 + path;
+    } else {
+      turl = url;
+    }
+
+    if (https.begin(*client, turl)) {  
+      // start connection and send HTTP header
+      httpCode = https.GET();
+ 
+      String payload = "";
+      // httpCode will be negative on error
+      if (httpCode > 0) {
+        // Path found at server or there was a redirect:
+        if (httpCode == HTTP_CODE_OK) {
+          payload = https.getString();
+          AddLog(LOG_LEVEL_INFO,PSTR("SCR: https ok"));
+        }
+        else  {
+          //Serial.print("HTTP STATUS: ");
+          //Serial.print(httpCode);
+          //Serial.println(https.headers());
+          AddLog(LOG_LEVEL_INFO,PSTR("SCR: https error 1"));
+        }
+ 
+      } else {
+        AddLog(LOG_LEVEL_INFO,PSTR("SCR: https error 2"));
+        //Serial.printf("Failed with error: %s\n", https.errorToString(httpCode).c_str());
+      } 
+      https.end();
+    } else {
+      AddLog(LOG_LEVEL_INFO,PSTR("SCR: https error 0"));
+    }
+    //delete httpsClient;
+    */
+
+  } else {
+    // HTTP
+    WiFiClient http_client;
+    HTTPClient http;
+    
+    String weburl = "";
+    if (!strstr_P(url, PSTR("http"))) {
+      weburl += "http://"+UrlEncode(url);
+    } else {
+      weburl = UrlEncode(url);
+    }
+
+    for (uint32_t retry = 0; retry < 3; retry++) {
+      http.begin(http_client, weburl);
+      delay(100);
+      httpCode = http.GET();
+      if (httpCode >= 0) {
+        break;
+      }
+    }
+    if (httpCode < 0) {
+      AddLog(LOG_LEVEL_INFO,PSTR("SCR: HTTP error %d = %s"), httpCode, http.errorToString(httpCode).c_str());
+    }
+    if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
+      WiFiClient *stream = http.getStreamPtr();
+      int32_t len = http.getSize();
+      if (len < 0) len = 99999999;
+      uint8_t buff[512];
+      while (http.connected() && (len > 0)) {
+        size_t size = stream->available();
+        if (size) {
+          if (size > sizeof(buff)) {
+            size = sizeof(buff);
+          }
+          uint32_t read = stream->readBytes(buff, size);
+          glob_script_mem.files[fref].write(buff, read);
+          len -= read;
+          AddLog(LOG_LEVEL_DEBUG,PSTR("SCR: HTTP read %d"), len);
+        }
+        delayMicroseconds(1);
+      }
+    }
+    http.end();
+    http_client.stop();
   }
-  http.end();
-  http_client.stop();
   return httpCode;
 }
 #endif
@@ -13866,7 +13971,7 @@ int32_t call2pwl(const char *url) {
 
 
 //#ifdef ESP8266
-#include "WiFiClientSecureLightBearSSL.h"
+
 //#else
 //#include <WiFiClientSecure.h>
 //#endif //ESP8266
@@ -13901,12 +14006,17 @@ uint32_t call2https(const char *host, const char *path) {
 
   String request;
 
+  // remove https:// from host
+  if (strstr(host, "https://")) {
+    host += 8;
+  }
+
   request = String("GET ") + path +
                     " HTTP/1.1\r\n" +
                     "Host: " + host +
                     "\r\n" + "Connection: close\r\n\r\n";
   httpsClient->print(request);
-//  AddLog(LOG_LEVEL_INFO,PSTR(">>> get request %s"),(char*)request.c_str());
+  //AddLog(LOG_LEVEL_INFO,PSTR(">>> get request %s"),(char*)request.c_str());
 
   while (httpsClient->connected()) {
     String line = httpsClient->readStringUntil('\n');
@@ -13917,13 +14027,13 @@ uint32_t call2https(const char *host, const char *path) {
   String result;
   while (httpsClient->available()) {
     String line = httpsClient->readStringUntil('\n');
-    if (line!="") {
+    if (line != "") {
       result += line;
     }
   }
   httpsClient->stop();
   delete httpsClient;
-//  AddLog(LOG_LEVEL_INFO,PSTR(">>> response 2 %s"),(char*)result.c_str());
+  AddLog(LOG_LEVEL_INFO,PSTR(">>> response %s"),(char*)result.c_str());
   Run_Scripter(">jp", 3, (char*)result.c_str());
   return 0;
 }
