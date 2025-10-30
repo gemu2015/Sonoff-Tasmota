@@ -13690,94 +13690,40 @@ uint32_t scripter_create_task(uint32_t num, uint32_t time, uint32_t core, int32_
 int32_t url2file(uint8_t fref, char *url, char *path) {
   int32_t httpCode = 0;
   if (strstr_P(url, PSTR("https://"))) {
-    std::unique_ptr<BearSSL::WiFiClientSecure_light>client(new BearSSL::WiFiClientSecure_light(1024, 1024));
 
-    client->setTimeout(5000);
-    client->setInsecure();
-
-    if (!client->connect(url, 443)) {
-      AddLog(LOG_LEVEL_INFO,PSTR("SCR: connection failed"));
-      return 0;
-    }
-
-    url += 8;
-
-    String request;
-    request = String("GET ") + path +
-                    " HTTP/1.1\r\n" +
-                    "Host: " + url +
-                    "\r\n" + "Connection: close\r\n\r\n";
-    
-    client->print(request);
-
-    String result;
-    while (client->connected()) {
-      String line = client->readStringUntil('\n');
-      if (line == "\r") {
-        break;
-      }
-      result += line;
-    }
-    AddLog(LOG_LEVEL_INFO,PSTR(">>> response %s"),(char*)result.c_str());
-    
-    uint16_t count = 0;
-    //while (client->connected()) {
-      while (client->available()) {
-        uint8_t io = client->read();
-        count += 1;
-      }
-    //}
-    client->stop();
- 
-    AddLog(LOG_LEVEL_INFO,PSTR(">>> response 2 %d"),count);
-
-  /*
-    HTTPClient https;
-    https.setReuse(true);
-    https.setTimeout(6000);
-    https.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-
-    if (strstr(url, "https://")) {
-     // url += 8;
-    }
-    String c1 = "/";
-    String turl;
-    if (path) {
-      turl = url + c1 + path;
-    } else {
-      turl = url;
-    }
-
-    if (https.begin(*client, turl)) {  
-      // start connection and send HTTP header
-      httpCode = https.GET();
- 
-      String payload = "";
-      // httpCode will be negative on error
+#if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
+    HTTPClientLight http;
+    if (http.begin(UrlEncode(url))) {
+#else // HTTP only
+    WiFiClient http_client;
+    HTTPClient http;
+    if (http.begin(http_client, UrlEncode(url))) {
+#endif
+      httpCode = http.GET();
       if (httpCode > 0) {
-        // Path found at server or there was a redirect:
-        if (httpCode == HTTP_CODE_OK) {
-          payload = https.getString();
-          AddLog(LOG_LEVEL_INFO,PSTR("SCR: https ok"));
+        if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
+          WiFiClient *stream = http.getStreamPtr();
+          int32_t len = http.getSize();
+          uint8_t *buff = (uint8_t*)malloc(len + 8);
+          if (buff) {
+            while (http.connected() && (len > 0)) {
+              size_t size = stream->available();
+              if (size) {
+                int read = stream->readBytes(buff, len);
+                glob_script_mem.files[fref].write(buff, read);
+                len -= read;
+              }
+              delayMicroseconds(1);
+            }
+          }
         }
-        else  {
-          //Serial.print("HTTP STATUS: ");
-          //Serial.print(httpCode);
-          //Serial.println(https.headers());
-          AddLog(LOG_LEVEL_INFO,PSTR("SCR: https error 1"));
-        }
- 
       } else {
-        AddLog(LOG_LEVEL_INFO,PSTR("SCR: https error 2"));
-        //Serial.printf("Failed with error: %s\n", https.errorToString(httpCode).c_str());
-      } 
-      https.end();
+        AddLog(LOG_LEVEL_INFO,PSTR("SCR: https error: %s"), http.errorToString(httpCode).c_str());
+      }
+      http.end();                             // Clean up connection data
     } else {
-      AddLog(LOG_LEVEL_INFO,PSTR("SCR: https error 0"));
+      AddLog(LOG_LEVEL_INFO,PSTR("SCR: https begin failed"));
     }
-    //delete httpsClient;
-    */
-
   } else {
     // HTTP
     WiFiClient http_client;

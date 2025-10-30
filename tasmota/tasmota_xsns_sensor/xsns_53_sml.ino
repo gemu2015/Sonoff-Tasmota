@@ -3277,7 +3277,7 @@ void SML_Init(void) {
   char *lp;
 #ifdef USE_UFILESYS
   char *file_md = 0;
-#define SML_METER_FILE "sml_meter.def"
+#define SML_METER_FILE "/sml_meter.def"
   if (meter_script != 99) {
     // try to load meter descriptor from filesystem
     FS *cfp = script_file_path((char*)SML_METER_FILE);
@@ -3290,6 +3290,7 @@ void SML_Init(void) {
       lp = file_md;
     } else {
       AddLog(LOG_LEVEL_INFO, PSTR("no meter section found!"));
+      return;
     }
   } else {
      lp = glob_script_mem.section_ptr;
