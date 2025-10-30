@@ -4,7 +4,7 @@ cnt=0
 res=0
 fref=0
 str=""
-sel=1
+p:sel=1
 ind=0
 once=0
 fname=""
@@ -12,6 +12,7 @@ smfile="/smartmeter.json"
 
 >B
 sensor53 r
+=#gfnam(sel)
 	
 >S
 if year<2025 {
@@ -34,7 +35,7 @@ if once==0 {
 }
 
 if chg[sel]>0 {
-	print %sel%
+	svars
 	=#gfnam(sel)
 	fref=fo("/temp.txt" w)
 	if fref>=0 {
@@ -81,7 +82,11 @@ if wm>0 {
 		for cnt 1 500 1
 			res=fr(str fref)
 			if ((str!="") and (ins(str "label")>0)) {
-				wcs <option value="%ind%">%st(str '\"' 4)%</option>
+				wcs <option value="%ind%"  
+				if sel==ind {
+					wcs selected
+				}
+				wcs >%st(str '\"' 4)%</option>
 				ind+=1
 			}
 		next
