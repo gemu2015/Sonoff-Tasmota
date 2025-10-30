@@ -13691,13 +13691,18 @@ int32_t url2file(uint8_t fref, char *url, char *path) {
   int32_t httpCode = 0;
   if (strstr_P(url, PSTR("https://"))) {
 
+    String xurl = url;
+    if (path) {
+      xurl += String("/") + path;
+    }
+
 #if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
     HTTPClientLight http;
-    if (http.begin(UrlEncode(url))) {
+    if (http.begin(UrlEncode(xurl))) {
 #else // HTTP only
     WiFiClient http_client;
     HTTPClient http;
-    if (http.begin(http_client, UrlEncode(url))) {
+    if (http.begin(http_client, UrlEncode(xurl))) {
 #endif
       httpCode = http.GET();
       if (httpCode > 0) {

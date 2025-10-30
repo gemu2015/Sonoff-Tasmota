@@ -3287,8 +3287,12 @@ void SML_Init(void) {
       file_md = (char*)special_malloc(fsiz + 16);
       ef.read((uint8_t*)file_md, fsiz);
       ef.close();
-      lp = file_md;
+      lp = strstr_P(file_md, PSTR(">M"));
+      if (!lp) {
+        goto nfd;
+      }
     } else {
+      nfd:
       AddLog(LOG_LEVEL_INFO, PSTR("no meter section found!"));
       return;
     }
@@ -3366,7 +3370,7 @@ void SML_Init(void) {
 
 #ifdef USE_UFILESYS
   if (file_md) {
-    lp = file_md;
+    lp = strstr_P(file_md, PSTR(">M"));
   } else {
     lp = glob_script_mem.section_ptr;
   }
