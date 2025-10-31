@@ -13720,6 +13720,7 @@ int32_t url2file(uint8_t fref, char *url, char *path) {
               }
               delayMicroseconds(1);
             }
+            free(buff);
           }
         }
       } else {
