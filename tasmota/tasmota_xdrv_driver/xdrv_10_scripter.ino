@@ -13709,18 +13709,23 @@ int32_t url2file(uint8_t fref, char *url, char *path) {
         if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
           WiFiClient *stream = http.getStreamPtr();
           int32_t len = http.getSize();
-          uint8_t *buff = (uint8_t*)malloc(len + 8);
+          if (len < 0) len = 99999999;
+          //uint8_t *buff = (uint8_t*)malloc(len + 8);
+          uint8_t buff[512];
           if (buff) {
             while (http.connected() && (len > 0)) {
               size_t size = stream->available();
               if (size) {
-                int read = stream->readBytes(buff, len);
+                if (size > sizeof(buff)) {
+                  size = sizeof(buff);
+                }
+                int read = stream->readBytes(buff, size);
                 glob_script_mem.files[fref].write(buff, read);
                 len -= read;
               }
               delayMicroseconds(1);
             }
-            free(buff);
+            //free(buff);
           }
         }
       } else {
