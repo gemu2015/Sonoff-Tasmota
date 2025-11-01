@@ -13690,7 +13690,6 @@ uint32_t scripter_create_task(uint32_t num, uint32_t time, uint32_t core, int32_
 int32_t url2file(uint8_t fref, char *url, char *path) {
   int32_t httpCode = 0;
   if (strstr_P(url, PSTR("https://"))) {
-
     String xurl = url;
     if (path) {
       xurl += String("/") + path;
