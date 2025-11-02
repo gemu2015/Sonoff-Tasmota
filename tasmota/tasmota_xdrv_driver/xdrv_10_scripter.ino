@@ -13699,7 +13699,12 @@ int32_t url2file(uint8_t fref, char *url, char *path) {
     HTTPClientLight http;
     if (http.begin(UrlEncode(xurl))) {
 #else // HTTP only
+#if 1
     WiFiClient http_client;
+#else
+    WiFiClientSecure http_client;
+    http_client.setInsecure();
+#endif
     HTTPClient http;
     if (http.begin(http_client, UrlEncode(xurl))) {
 #endif
@@ -13709,7 +13714,6 @@ int32_t url2file(uint8_t fref, char *url, char *path) {
           WiFiClient *stream = http.getStreamPtr();
           int32_t len = http.getSize();
           if (len < 0) len = 99999999;
-          //uint8_t *buff = (uint8_t*)malloc(len + 8);
           uint8_t buff[512];
           if (buff) {
             while (http.connected() && (len > 0)) {
@@ -13724,7 +13728,6 @@ int32_t url2file(uint8_t fref, char *url, char *path) {
               }
               delayMicroseconds(1);
             }
-            //free(buff);
           }
         }
       } else {
