@@ -1,5 +1,6 @@
 >D 100
-IP=192.168.188.130
+;IP=192.168.188.130
+IP=192.168.188.141
 cnt=0
 res=0
 fref=0
@@ -105,7 +106,7 @@ if wm>0 {
 	wcs </select>
 	wcf
 	
-	
+#	
 	
 	wcs <label for="rx_sel">RX Pin: </label>
 	wcs <select name="rx_sel" id="rx_sel" onchange='seva(value,"rxpin")'>
@@ -140,10 +141,12 @@ if wm>0 {
 >WS
 
 
-
 >WM
 %=#wsub
-; im descriptor pin substuieren mit 
-; %0rxpin% bzw %0txpin%
+so(17)
+pd(rxpin "RX Pin: " 50 "#0-30")
+pd(txpin "TX Pin: " 50 "#0-30")
+; im descriptor pin substuieren mit  pin-1 wegen index Numerierung von 1-N
+; %0(rxpin-1)% bzw %0(txpin-1)%
 
 
