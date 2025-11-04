@@ -12146,6 +12146,23 @@ const char SCRIPT_MSG_TEXTINP_U[] PROGMEM =
 const char SCRIPT_MSG_NUMINP[] PROGMEM =
   "%s<label><b>%s</b><input  min='%s' max='%s' step='%s' value='%s' type='number' style='width:%dpx' onfocusin='pr(0)' onfocusout='pr(1)' onchange='siva(value,\"%s\")'></label>";
 
+const char SML_PD[] PROGMEM =
+  "</p><label for='idSelSM'>%s</label><select id='idSelSM'></select></p>";
+
+const char SML_SCRIPT_TEXT[] PROGMEM =
+  "<script>"
+  "var selSM=eb('idSelSM');"
+  "var text;"
+  "selSM.onchange=function(){"
+  "var path='%s/'+selSM.value;"
+  "text=fetch(path,{cache:'no-store'}).then(response=>response.text()).then(content=>{text=content;});"
+  "};"
+  "fetch('%s'+'/smartmeter.json',{cache:'no-store'}).then(response=>response.json()).then(data=>{"
+  "if(data && data.smartmeter && data.smartmeter.length){"
+  "while(selSM.options.length>1){selSM.options.remove(1);}"
+  "for(let n=0;n<data.smartmeter.length;n++){"
+  "let o=document.createElement('option');o.value=data.smartmeter[n].filename;o.text=data.smartmeter[n].label;selSM.options.add(o);}}})"
+  "</script>";
 
 #ifdef USE_GOOGLE_CHARTS
 const char SCRIPT_MSG_GTABLE[] PROGMEM =
@@ -12925,6 +12942,18 @@ const char *gc_str;
       WCS_DIV(glob_script_mem.specopt | WSO_STOP_DIV);
       lp++;
 
+    } else if (!strncmp(lin, "smlpd(", 6)) {
+      // sml pulldown
+      char *lp = lin;
+      char *url;
+      lp = GetLongIString(lp + 6, &url);
+      char label[SCRIPT_MAX_SBSIZE];
+      lp = GetStringArgument(lp, OPER_EQU, label, 0);
+      WCS_DIV(glob_script_mem.specopt);
+      WSContentSend_P(SML_PD, label);
+      WSContentSend_P(SML_SCRIPT_TEXT, url, url);
+      WCS_DIV(glob_script_mem.specopt | WSO_STOP_DIV);
+      if (url) free(url);
     } else {
       if (glob_script_mem.specopt & WSO_FORCETAB) {
         WSContentSend_P(PSTR("{s}%s{e}"), lin);
