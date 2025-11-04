@@ -108,38 +108,7 @@ if wm>0 {
 		next
 		fc(fref)
 	)
-	wcs </select>
 	wcf
-	
-#	
-	
-	wcs <label for="rx_sel">RX Pin: </label>
-	wcs <select name="rx_sel" id="rx_sel" onchange='seva(value,"rxpin")'>
-	ind=1
-	for cnt 1 30 1
-		wcs <option value="%ind%"  
-		if rxpin==ind {
-			wcs selected
-		}
-		wcs >%s(0cnt)%</option>
-		ind+=1
-	next
-	wcs </select>
-	
-	wcs <label for="rx_sel">TX Pin: </label>
-	wcs <select name="rx_sel" id="rx_sel" onchange='seva(value,"txpin")'>
-	ind=1
-	for cnt 1 30 1
-		wcs <option value="%ind%"  
-		if txpin==ind {
-			wcs selected
-		}
-		wcs >%s(0cnt)%</option>
-		ind+=1
-	next
-	wcs </select>
-	wcf
-	
 	wcs so(0)
 }
 
