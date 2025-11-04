@@ -1,6 +1,5 @@
 >D 100
-;IP=192.168.188.130
-IP=192.168.188.141
+IP=192.168.188.130
 cnt=0
 res=0
 fref=0
@@ -107,7 +106,8 @@ if wm>0 {
 			}
 		next
 		fc(fref)
-	)
+	}
+	wcs </select>
 	wcf
 	wcs so(0)
 }
