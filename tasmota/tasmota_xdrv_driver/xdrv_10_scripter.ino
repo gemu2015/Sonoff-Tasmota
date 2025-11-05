@@ -10119,6 +10119,47 @@ uint8_t DownloadFile(char *file) {
 void HandleScriptTextareaConfiguration(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
 
+#ifdef USE_SML_SCRIPT_CMD
+  if (Webserver->hasArg("smlsav")) {
+    String str = Webserver->arg("plain");
+    if (*str.c_str()) {
+      str.replace("\r\n", "\n");
+      str.replace("\r", "\n");
+      // special script copy
+      char *smlp = (char*)str.c_str();
+      char *cp = strstr_P(smlp, PSTR(">M"));
+      if (cp) {
+        // replace >M section
+        // find >M in script
+        char *lp = strstr_P(glob_script_mem.script_ram, PSTR(">M"));
+        if (lp) {
+          uint16_t doffset = (uint32_t)lp - (uint32_t)glob_script_mem.script_ram;
+          char *xp = strstr_P(lp, PSTR("\n#"));
+          char *ep = strstr_P(cp, PSTR("\n#"));
+          if (!ep) {
+            ep = cp + strlen(cp);
+          } else {
+            ep += 2;
+          }
+          xp += 2;
+          if (xp && ep) {
+            uint16_t scriptsize = glob_script_mem.script_size;
+            uint16_t dlen = (uint32_t)xp - (uint32_t)lp;
+            uint16_t slen = (uint32_t)ep - (uint32_t)cp;
+            memcpy(lp, lp + dlen, scriptsize - doffset - dlen);
+            // now find source len
+            memmove(lp + slen, lp, scriptsize - doffset - slen);
+            memcpy(lp, cp, slen);
+            // source code patched
+          }
+        }
+      }
+    }
+    HandleManagement();
+    return;
+  }
+#endif // USE_SML_SCRIPT_CMD
+
   if (Webserver->hasArg("save")) {
     ScriptSaveSettings();
     HandleManagement();
@@ -12064,39 +12105,7 @@ void Script_Check_HTML_Setvars(void) {
     strncpy(vname, cp, sizeof(vname));
     *cp1 = '=';
     cp1++;
-    // special vname
-    if (!strncmp_P(vname, PSTR("scrcpy"), 5)) {
-      // special script copy
-      char *smlp = (char*)stmp.c_str();
-      AddLog(LOG_LEVEL_INFO, PSTR("SCR: >>> %s"), smlp);
-      char *cp = strstr_P(smlp, PSTR(">M"));
-      if (cp) {
-        // replace >M section
-        // find >M in script
-        char *lp = strstr_P(glob_script_mem.script_ram, PSTR(">M"));
-        if (lp) {
-          uint16_t offset = (uint32_t)lp - (uint32_t)glob_script_mem.script_ram;
-          char *xp = strstr_P(lp, PSTR("\n#"));
-          char *ep = strstr_P(cp, PSTR("\n#"));
-          if (!ep) {
-            ep = cp + strlen(cp);
-          }
-          AddLog(LOG_LEVEL_INFO, PSTR("SCR: mlen %d - %d"), (uint32_t)xp, (uint32_t)ep);
-          if (xp && ep) {
-            uint16_t scriptsize = glob_script_mem.script_size;
-            uint16_t mlen = (uint32_t)xp - (uint32_t)lp;
-            uint16_t slen = (uint32_t)ep - (uint32_t)cp;
-            AddLog(LOG_LEVEL_INFO, PSTR("SCR: mlen %d - %d"), mlen, slen);
-            memcpy(lp, lp + mlen, scriptsize - offset - mlen);
-            // now find source len
-            memcpy(lp, lp + slen, scriptsize - offset - slen);
-            memcpy(lp, cp, slen);
-          }
-        }
-      }
-      return;
-    }
-
+    
     if (is_int_var(vname)) {
       memmove(cp1 + 1, cp1, strlen(cp1));
       *cp1++ = '#';
@@ -12176,6 +12185,8 @@ const char SCRIPT_MSG_TEXTINP_U[] PROGMEM =
 const char SCRIPT_MSG_NUMINP[] PROGMEM =
   "%s<label><b>%s</b><input  min='%s' max='%s' step='%s' value='%s' type='number' style='width:%dpx' onfocusin='pr(0)' onfocusout='pr(1)' onchange='siva(value,\"%s\")'></label>";
 
+
+#ifdef USE_SML_SCRIPT_CMD
 const char SML_PD[] PROGMEM =
   "</p><label for='idSelSM'>%s</label><select id='idSelSM'></select></p>";
 
@@ -12185,14 +12196,22 @@ const char SML_SCRIPT_TEXT[] PROGMEM =
   "var text;"
   "selSM.onchange=function(){"
   "var path='%s/'+selSM.value;"
-  "text=fetch(path,{cache:'no-store'}).then(response=>response.text()).then(content=>{text=content;siva(text,'scrcpy')});"
+  "text=fetch(path,{cache:'no-store'}).then(response=>response.text()).then(content=>{text=content;smlp(text,'smlsav')});"
   "};"
   "fetch('%s'+'/smartmeter.json',{cache:'no-store'}).then(response=>response.json()).then(data=>{"
   "if(data && data.smartmeter && data.smartmeter.length){"
   "while(selSM.options.length>1){selSM.options.remove(1);}"
   "for(let n=0;n<data.smartmeter.length;n++){"
-  "let o=document.createElement('option');o.value=data.smartmeter[n].filename;o.text=data.smartmeter[n].label;selSM.options.add(o);}}})"
+  "let o=document.createElement('option');o.value=data.smartmeter[n].filename;o.text=data.smartmeter[n].label;selSM.options.add(o);}}});"
+  "function smlp(txt,ivar){"
+  "x=new XMLHttpRequest();"
+  "x.open('POST', '/ta?smlsav');"
+  "x.setRequestHeader('Accept','application/text');"
+  "x.setRequestHeader('Content-Type','application/text');"
+  "x.send(txt);"
+  "}"
   "</script>";
+#endif // USE_SML_SCRIPT_CMD
 
 #ifdef USE_GOOGLE_CHARTS
 const char SCRIPT_MSG_GTABLE[] PROGMEM =
@@ -12972,6 +12991,7 @@ const char *gc_str;
       WCS_DIV(glob_script_mem.specopt | WSO_STOP_DIV);
       lp++;
 
+#ifdef USE_SML_SCRIPT_CMD
     } else if (!strncmp(lin, "smlpd(", 6)) {
       // sml pulldown
       char *lp = lin;
@@ -12999,6 +13019,7 @@ const char *gc_str;
         }
       }
     }
+#endif
     // end standard web interface
   } else {
     //  main section interface
