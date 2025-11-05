@@ -406,7 +406,7 @@ extern FS *ffsp;
 
 #define SSIZE_PSTORE (uint16_t *) (glob_script_mem.script_pram + glob_script_mem.script_pram_size - 2)
 
-#define FAT_SCRIPT_NAME "/script.txt"
+#define FAT_SCRIPT_NAME F("/script.txt")
 
 #endif // USE_UFILESYS
 
@@ -9876,6 +9876,29 @@ void Scripter_save_pvars(void) {
 
 // works only with webserver
 #ifdef USE_WEBSERVER
+#if defined(USE_SML_SCRIPT_CMD) && defined(SCRIPT_LIST_DOWNLOAD_URL)
+#define SCRIPT_LIST_SELECT_OPTIONS "" \
+    "<option value='sm_0'>--- Select Script ---</option>"
+#define SCRIPT_LIST_SELECT_FUNCTION "" \
+    "if(selScript.value=='sm_0'){ta.innerHTML=''}" \
+    "else{ta.innerHTML='';fetch('" SCRIPT_LIST_DOWNLOAD_URL "'+selScript.value,{cache:'no-store'}).then(response=>response.text()).then(content=>{ta.innerHTML=content;});}"
+#define SCRIPT_LIST_SELECT "" \
+    "<p><select id='idselScript'>" SCRIPT_LIST_SELECT_OPTIONS "</select></p>"
+#define SCRIPT_LIST_SELECT_HANDLER "" \
+    "var selScript=eb('idselScript');" \
+    "selScript.onchange=function(){" SCRIPT_LIST_SELECT_FUNCTION "};" \
+    "fetch('" SCRIPT_LIST_DOWNLOAD_URL SML_METER_LIST "',{cache:'no-store'}).then(response=>response.json()).then(data=>{" \
+    "if(data && data.smartmeter && data.smartmeter.length){" \
+    "while(selScript.options.length>1){selScript.options.remove(1);}" \
+    "for(let n=0;n<data.smartmeter.length;n++){" \
+    "let o=document.createElement('option');o.value=data.smartmeter[n].filename;o.text=data.smartmeter[n].label;selScript.options.add(o);" \
+    "}}});"
+#else
+  #define SCRIPT_LIST_SELECT
+  #define SCRIPT_LIST_SELECT_HANDLER
+#endif
+
+
 
 #define WEB_HANDLE_SCRIPT "s10"
 
@@ -9889,11 +9912,13 @@ const char HTTP_FORM_SCRIPT[] PROGMEM =
 const char HTTP_FORM_SCRIPT1[] PROGMEM =
     "<div style='text-align:right' id='charNum'> </div>"
     "<label><input style='width:3%%;' id='c%d' name='c%d' type='checkbox'%s><b>" D_SCRIPT_ENABLE "</b></label><br/>"
+    SCRIPT_LIST_SELECT
     "<br><textarea  id='t1' name='t1' rows='8' cols='80' maxlength='%d' style='font-size: 12pt' >";
 
 const char HTTP_FORM_SCRIPT1b[] PROGMEM =
     "</textarea>"
     "<script type='text/javascript'>"
+    SCRIPT_LIST_SELECT_HANDLER
     "eb('charNum').innerHTML='-';"
     "var ta=eb('t1');"
     "ta.addEventListener('keydown',function(e){"
@@ -10131,6 +10156,7 @@ void HandleScriptTextareaConfiguration(void) {
       if (cp) {
         // replace >M section
         // find >M in script
+#ifndef USE_SCRIPT_FATFS
         char *lp = strstr_P(glob_script_mem.script_ram, PSTR(">M"));
         if (lp) {
           uint16_t doffset = (uint32_t)lp - (uint32_t)glob_script_mem.script_ram;
@@ -10150,10 +10176,33 @@ void HandleScriptTextareaConfiguration(void) {
             // now find source len
             memmove(lp + slen, lp, scriptsize - doffset - slen);
             memcpy(lp, cp, slen);
-            // source code patched
+            glob_script_mem.event_handeled = 1;
+#ifdef USE_HTML_CALLBACK
+            if (glob_script_mem.html_script) Run_Scripter1(glob_script_mem.html_script, 0, 0);
+#else
+            if (glob_script_mem.event_script) Run_Scripter1(glob_script_mem.event_script, 0, 0);
+#endif
           }
         }
+#else
+        // copy to file
+#define SML_METER_FILE1 F("/sml_meter.def")
+        char *ep = strstr_P(cp, PSTR("\n#"));
+        if (ep) {
+          ep += 2;
+          uint16_t slen = (uint32_t)ep - (uint32_t)cp;
+          File file = ufsp->open(SML_METER_FILE1, FS_FILE_WRITE);
+          file.write((const uint8_t*)cp, slen);
+          file.close();
+          glob_script_mem.event_handeled = 1;
+#ifdef USE_HTML_CALLBACK
+          if (glob_script_mem.html_script) Run_Scripter1(glob_script_mem.html_script, 0, 0);
+#else
+          if (glob_script_mem.event_script) Run_Scripter1(glob_script_mem.event_script, 0, 0);
+#endif
+        }
       }
+#endif
     }
     HandleManagement();
     return;
