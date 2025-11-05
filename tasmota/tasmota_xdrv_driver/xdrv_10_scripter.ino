@@ -10197,6 +10197,7 @@ void HandleScriptTextareaConfiguration(void) {
 #endif
           }
         }
+      }
 #else
         // copy to file
         char fname[16]; 
