@@ -10144,8 +10144,21 @@ uint8_t DownloadFile(char *file) {
 void HandleScriptTextareaConfiguration(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
 
+#if 0
+  String message = "Number of args received:";
+  message += Webserver->args();
+  message += "\n";
+  for (int i = 0; i < Webserver->args(); i++) {
+    message += "Arg n" + (String)i + " –> ";
+    message += Webserver->argName(i) + ": ";
+    message += Webserver->arg(i) + "\n";
+  }
+  AddLog(LOG_LEVEL_INFO, PSTR(">>>> %s"), message.c_str());
+#endif
+
 #ifdef USE_SML_SCRIPT_CMD
-  if (Webserver->hasArg("smlsav")) {
+  //if (Webserver->hasArg("smlsav")) {  // strange on esp32 not available ???
+  if (Webserver->hasArg("plain")) {
     String str = Webserver->arg("plain");
     if (*str.c_str()) {
       str.replace("\r\n", "\n");
@@ -10186,12 +10199,13 @@ void HandleScriptTextareaConfiguration(void) {
         }
 #else
         // copy to file
-#define SML_METER_FILE1 F("/sml_meter.def")
+        char fname[16]; 
+        strcpy_P(fname, PSTR("/sml_meter.def"));
         char *ep = strstr_P(cp, PSTR("\n#"));
         if (ep) {
           ep += 2;
           uint16_t slen = (uint32_t)ep - (uint32_t)cp;
-          File file = ufsp->open(SML_METER_FILE1, FS_FILE_WRITE);
+          File file = ufsp->open(fname, FS_FILE_WRITE);
           file.write((const uint8_t*)cp, slen);
           file.close();
           glob_script_mem.event_handeled = 1;

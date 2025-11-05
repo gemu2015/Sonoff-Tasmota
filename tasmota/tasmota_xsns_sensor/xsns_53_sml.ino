@@ -3280,8 +3280,10 @@ void SML_Init(void) {
 #define SML_METER_FILE "/sml_meter.def"
   if (meter_script != 99) {
     // try to load meter descriptor from filesystem
-    FS *cfp = script_file_path((char*)SML_METER_FILE);
-    File ef = cfp->open((char*)SML_METER_FILE, FS_FILE_READ);
+    char fname[16]; 
+    strcpy_P(fname, PSTR("/sml_meter.def"));
+    FS *cfp = script_file_path(fname);
+    File ef = cfp->open(fname, FS_FILE_READ);
     if (ef) {
       uint16_t fsiz = ef.size();
       file_md = (char*)special_malloc(fsiz + 16);
