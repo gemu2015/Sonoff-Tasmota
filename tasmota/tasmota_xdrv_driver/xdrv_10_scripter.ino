@@ -10126,7 +10126,6 @@ void HandleScriptTextareaConfiguration(void) {
   }
 }
 
-
 void HandleScriptConfiguration(void) {
 
     if (!HttpCheckPriviledgedAccess()) { return; }
@@ -10146,7 +10145,6 @@ void HandleScriptConfiguration(void) {
     WSContentSendStyle();
     WSContentSend_P(HTTP_FORM_SCRIPT);
 
-
 #ifdef xSCRIPT_STRIP_COMMENTS
     uint16_t ssize = glob_script_mem.script_size;
     if (bitRead(Settings->rule_enabled, 1)) ssize *= 2;
@@ -10155,7 +10153,7 @@ void HandleScriptConfiguration(void) {
     WSContentSend_P(HTTP_FORM_SCRIPT1,1,1,bitRead(Settings->rule_enabled,0) ? PSTR(" checked") : "",glob_script_mem.script_size);
 #endif // xSCRIPT_STRIP_COMMENTS
 
-    // script is to large for WSContentSend_P
+    // script is too large for WSContentSend_P
     if (glob_script_mem.script_ram[0]) {
       WSContentFlush();
       _WSContentSend(glob_script_mem.script_ram);
@@ -12066,6 +12064,38 @@ void Script_Check_HTML_Setvars(void) {
     strncpy(vname, cp, sizeof(vname));
     *cp1 = '=';
     cp1++;
+    // special vname
+    if (!strncmp_P(vname, PSTR("scrcpy"), 5)) {
+      // special script copy
+      char *smlp = (char*)stmp.c_str();
+      AddLog(LOG_LEVEL_INFO, PSTR("SCR: >>> %s"), smlp);
+      char *cp = strstr_P(smlp, PSTR(">M"));
+      if (cp) {
+        // replace >M section
+        // find >M in script
+        char *lp = strstr_P(glob_script_mem.script_ram, PSTR(">M"));
+        if (lp) {
+          uint16_t offset = (uint32_t)lp - (uint32_t)glob_script_mem.script_ram;
+          char *xp = strstr_P(lp, PSTR("\n#"));
+          char *ep = strstr_P(cp, PSTR("\n#"));
+          if (!ep) {
+            ep = cp + strlen(cp);
+          }
+          AddLog(LOG_LEVEL_INFO, PSTR("SCR: mlen %d - %d"), (uint32_t)xp, (uint32_t)ep);
+          if (xp && ep) {
+            uint16_t scriptsize = glob_script_mem.script_size;
+            uint16_t mlen = (uint32_t)xp - (uint32_t)lp;
+            uint16_t slen = (uint32_t)ep - (uint32_t)cp;
+            AddLog(LOG_LEVEL_INFO, PSTR("SCR: mlen %d - %d"), mlen, slen);
+            memcpy(lp, lp + mlen, scriptsize - offset - mlen);
+            // now find source len
+            memcpy(lp, lp + slen, scriptsize - offset - slen);
+            memcpy(lp, cp, slen);
+          }
+        }
+      }
+      return;
+    }
 
     if (is_int_var(vname)) {
       memmove(cp1 + 1, cp1, strlen(cp1));
@@ -12080,7 +12110,7 @@ void Script_Check_HTML_Setvars(void) {
       uint8_t tlen = strlen(cp1);
       memmove(cp1 + 1, cp1, tlen);
       *cp1 = '\"';
-      *(cp1 + tlen +1 ) = '\"';
+      *(cp1 + tlen + 1 ) = '\"';
     }
     //toLog(cmdbuf);
     execute_script(cmdbuf);
@@ -12155,7 +12185,7 @@ const char SML_SCRIPT_TEXT[] PROGMEM =
   "var text;"
   "selSM.onchange=function(){"
   "var path='%s/'+selSM.value;"
-  "text=fetch(path,{cache:'no-store'}).then(response=>response.text()).then(content=>{text=content;});"
+  "text=fetch(path,{cache:'no-store'}).then(response=>response.text()).then(content=>{text=content;siva(text,'scrcpy')});"
   "};"
   "fetch('%s'+'/smartmeter.json',{cache:'no-store'}).then(response=>response.json()).then(data=>{"
   "if(data && data.smartmeter && data.smartmeter.length){"
@@ -14021,7 +14051,7 @@ uint32_t call2https(const char *host, const char *path) {
   }
   httpsClient->stop();
   delete httpsClient;
-  AddLog(LOG_LEVEL_INFO,PSTR(">>> response %s"),(char*)result.c_str());
+  //AddLog(LOG_LEVEL_INFO,PSTR(">>> response %s"),(char*)result.c_str());
   Run_Scripter(">jp", 3, (char*)result.c_str());
   return 0;
 }

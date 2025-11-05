@@ -15,6 +15,8 @@ p:rxind=2
 p:txind=4
 
 >B
+rxpin=rxind-1
+txpin=txind-1
 sensor53 r
 =#gfnam(sel)
 
@@ -57,12 +59,12 @@ if chg[sel]>0 {
 
 if chg[rxind]>0 {
 	rxpin=rxind-1
-	print %rxpin%
+	sensor53 r
 	svars
 }
 if chg[txind]>0 {
 	txpin=txind-1
-	print %txpin%
+	sensor53 r
 	svars
 } 
 
