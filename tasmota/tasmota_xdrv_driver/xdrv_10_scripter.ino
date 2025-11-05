@@ -13068,6 +13068,7 @@ const char *gc_str;
       WSContentSend_P(SML_SCRIPT_TEXT, url, url);
       WCS_DIV(glob_script_mem.specopt | WSO_STOP_DIV);
       if (url) free(url);
+#endif
     } else {
       if (glob_script_mem.specopt & WSO_FORCETAB) {
         WSContentSend_P(PSTR("{s}%s{e}"), lin);
@@ -13083,7 +13084,6 @@ const char *gc_str;
         }
       }
     }
-#endif
     // end standard web interface
   } else {
     //  main section interface
