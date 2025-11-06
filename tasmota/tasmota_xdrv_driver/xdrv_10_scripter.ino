@@ -10163,7 +10163,7 @@ uint8_t DownloadFile(char *file) {
 void HandleScriptTextareaConfiguration(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
 
-#if 0
+#if 1
   String message = "Number of args received:";
   message += Webserver->args();
   message += "\n";
@@ -12287,10 +12287,9 @@ const char SML_SCRIPT_TEXT[] PROGMEM =
   "var text;"
   "selSM.onchange=function(){"
   "var index=selSM.selectedIndex;"
-  "rfsh=1;"
-  "seva(index,\"%s\");"
+  "pr(1);"
   "var path='%s/'+selSM.value;"
-  "text=fetch(path,{cache:'no-store'}).then(response=>response.text()).then(content=>{text=content;smlp(text,'smlsav')});"
+  "text=fetch(path,{cache:'no-store'}).then(response=>response.text()).then(content=>{text=content;smlp(text,index)});"
   "};"
   "fetch('%s'+'/smartmeter.json',{cache:'no-store'}).then(response=>response.json()).then(data=>{"
   "if(data && data.smartmeter && data.smartmeter.length){"
@@ -12299,12 +12298,13 @@ const char SML_SCRIPT_TEXT[] PROGMEM =
   "let o=document.createElement('option');o.value=data.smartmeter[n].filename;o.text=data.smartmeter[n].label;selSM.options.add(o);"
   "if (n==%d) {o.setAttribute('selected', true);}"
   "}}});"
-  "function smlp(txt,ivar){"
+  "function smlp(txt,index){"
   "x=new XMLHttpRequest();"
   "x.open('POST', '/ta?smlsav');"
   "x.setRequestHeader('Accept','application/text');"
   "x.setRequestHeader('Content-Type','application/text');"
   "x.send(txt);"
+  "setTimeout(seva, 500, index, '%s');"
   "}"
   "</script>";
 #endif // USE_SML_SCRIPT_CMD
@@ -13105,7 +13105,7 @@ const char *gc_str;
 
       WCS_DIV(glob_script_mem.specopt);
       WSContentSend_P(SML_PD, label);
-      WSContentSend_P(SML_SCRIPT_TEXT, vname, url, url, (uint32_t)sel);
+      WSContentSend_P(SML_SCRIPT_TEXT, url, url, (uint32_t)sel, vname);
       WCS_DIV(glob_script_mem.specopt | WSO_STOP_DIV);
       if (url) free(url);
 #endif

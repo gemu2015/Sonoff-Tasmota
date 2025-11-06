@@ -1,7 +1,7 @@
 >D 100
 IP=192.168.188.141
 
-rxpin=1
+rxpin=0
 txpin=3
 p:rxind=2
 p:txind=4
@@ -19,12 +19,12 @@ if year<2025 {
 
 if chg[rxind]>0 {
 	rxpin=rxind-1
-	->sensor53 r
+	=>sensor53 r
 	svars
 }
 if chg[txind]>0 {
 	txpin=txind-1
-	->sensor53 r
+	=>sensor53 r
 	svars
 } 
 
@@ -32,7 +32,7 @@ if chg[txind]>0 {
 if eres==1 {
 	=>sensor53 r
 	svars
-	=> WebRefresh 2000
+	=>WebRefresh 2000
 	eres=0
 }
 
@@ -41,10 +41,23 @@ time{m}%upsecs%
 
 >WM
 so(17)
+smlpd("https://raw.githubusercontent.com/ottelo9/tasmota-sml-script/main/smartmeter_test" "select a meter" sel)
 pd(rxind "RX Pin: " 50 "#0-30")
 pd(txind "TX Pin: " 50 "#0-30")
 ; im descriptor pin substuieren
 ; %0rxpin% bzw %0txpin%
-smlpd("https://raw.githubusercontent.com/ottelo9/tasmota-sml-script/refs/heads/main/smartmeter" "select a meter" sel)
+;smlpd("https://raw.githubusercontent.com/ottelo9/tasmota-sml-script/refs/heads/main/smartmeter" "select a meter" sel)
+
+#
+;>M 1
++1,%0rxpin%,s,16,9600,MT175,%0txpin%
+1,77070100100700ff@1,Leistung,W,Power,0
+1,77070100010800ff@1000,Verbrauch,kWh,E_in,2
+1,77070100020800ff@1000,Einspeisung,kWh,E_out,2
+1,=h--
+1,77070100240700ff@1,L1,W,L1,0
+1,77070100380700ff@1,L2,W,L2,0
+1,770701004C0700ff@1,L3,W,L3,0
+#
 
 
