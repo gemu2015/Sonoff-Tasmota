@@ -10163,7 +10163,7 @@ uint8_t DownloadFile(char *file) {
 void HandleScriptTextareaConfiguration(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
 
-#if 1
+#if 0
   String message = "Number of args received:";
   message += Webserver->args();
   message += "\n";
