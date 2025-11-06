@@ -5,6 +5,7 @@ rxpin=1
 txpin=3
 p:rxind=2
 p:txind=4
+p:sel=0
 
 >B
 rxpin=rxind-1
@@ -29,12 +30,13 @@ if chg[txind]>0 {
 
 >C
 if eres==1 {
-	->sensor53 r
+	=>sensor53 r
+	svars
 	eres=0
 }
 
 >WS
-
+time{m}%upsecs%
 
 >WM
 so(17)
@@ -42,6 +44,6 @@ pd(rxind "RX Pin: " 50 "#0-30")
 pd(txind "TX Pin: " 50 "#0-30")
 ; im descriptor pin substuieren
 ; %0rxpin% bzw %0txpin%
-smlpd("https://raw.githubusercontent.com/ottelo9/tasmota-sml-script/refs/heads/main/smartmeter" "select a meter")
+smlpd("https://raw.githubusercontent.com/ottelo9/tasmota-sml-script/refs/heads/main/smartmeter" "select a meter" sel)
 
 

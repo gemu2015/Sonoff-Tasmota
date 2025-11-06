@@ -6014,6 +6014,13 @@ int32_t I2SPlayFile(const char *path, uint32_t decoder_type);
           }
           goto nfuncexit;
         }
+        
+        if (!strncmp_XP(lp, XPSTR("ssav"), 4)) {
+          // save and restart
+          SaveScript();
+          //SaveScriptEnd();
+          goto exit;
+        }
 #endif //USE_SML_M
 
 #ifdef USE_SCRIPT_SERIAL
@@ -9875,8 +9882,20 @@ void Scripter_save_pvars(void) {
 }
 
 // works only with webserver
+// scriptlist at page "edit script"
+// requires following defines (user_config_override.h) and external files, e.g.:
+// #define SCRIPT_LIST_DOWNLOAD_URL "https://raw.githubusercontent.com/ottelo9/tasmota-sml-script/main/smartmeter_test/scripts/"
+// #define SCRIPT_LIST "scripts.json"
+// scripts.json example:
+//{
+//	"script": [
+//		{ "label": "script 1", "filename": "script_1.tas" },
+//		{ "label": "script 2", "filename": "script_2.tas" }
+//	]
+//}
+
 #ifdef USE_WEBSERVER
-#if defined(USE_SML_SCRIPT_CMD) && defined(SCRIPT_LIST_DOWNLOAD_URL)
+#if defined(USE_SML_SCRIPT_CMD) && defined(SCRIPT_LIST_DOWNLOAD_URL) && defined(SCRIPT_LIST)
 #define SCRIPT_LIST_SELECT_OPTIONS "" \
     "<option value='sm_0'>--- Select Script ---</option>"
 #define SCRIPT_LIST_SELECT_FUNCTION "" \
@@ -9887,11 +9906,11 @@ void Scripter_save_pvars(void) {
 #define SCRIPT_LIST_SELECT_HANDLER "" \
     "var selScript=eb('idselScript');" \
     "selScript.onchange=function(){" SCRIPT_LIST_SELECT_FUNCTION "};" \
-    "fetch('" SCRIPT_LIST_DOWNLOAD_URL SML_METER_LIST "',{cache:'no-store'}).then(response=>response.json()).then(data=>{" \
-    "if(data && data.smartmeter && data.smartmeter.length){" \
+    "fetch('" SCRIPT_LIST_DOWNLOAD_URL SCRIPT_LIST "',{cache:'no-store'}).then(response=>response.json()).then(data=>{" \
+    "if(data && data.script && data.script.length){" \
     "while(selScript.options.length>1){selScript.options.remove(1);}" \
-    "for(let n=0;n<data.smartmeter.length;n++){" \
-    "let o=document.createElement('option');o.value=data.smartmeter[n].filename;o.text=data.smartmeter[n].label;selScript.options.add(o);" \
+    "for(let n=0;n<data.script.length;n++){" \
+    "let o=document.createElement('option');o.value=data.script[n].filename;o.text=data.script[n].label;selScript.options.add(o);" \
     "}}});"
 #else
   #define SCRIPT_LIST_SELECT
@@ -10171,31 +10190,39 @@ void HandleScriptTextareaConfiguration(void) {
         // find >M in script
 #ifndef USE_SCRIPT_FATFS
         char *lp = strstr_P(glob_script_mem.script_ram, PSTR(">M"));
+        uint16_t doffset;
+        char *xp;
         if (lp) {
-          uint16_t doffset = (uint32_t)lp - (uint32_t)glob_script_mem.script_ram;
-          char *xp = strstr_P(lp, PSTR("\n#"));
-          char *ep = strstr_P(cp, PSTR("\n#"));
-          if (!ep) {
-            ep = cp + strlen(cp);
-          } else {
-            ep += 2;
-          }
+          // contains >M section
+          doffset = (uint32_t)lp - (uint32_t)glob_script_mem.script_ram;
+          xp = strstr_P(lp, PSTR("\n#"));
           xp += 2;
-          if (xp && ep) {
-            uint16_t scriptsize = glob_script_mem.script_size;
-            uint16_t dlen = (uint32_t)xp - (uint32_t)lp;
-            uint16_t slen = (uint32_t)ep - (uint32_t)cp;
-            memcpy(lp, lp + dlen, scriptsize - doffset - dlen);
-            // now find source len
-            memmove(lp + slen, lp, scriptsize - doffset - slen);
-            memcpy(lp, cp, slen);
-            glob_script_mem.event_handeled = 1;
+        } else {
+          // no >M section, append to end
+          doffset = strlen(glob_script_mem.script_ram);
+          lp = glob_script_mem.script_ram + doffset;
+          xp = glob_script_mem.script_ram + doffset;
+        }
+        char *ep = strstr_P(cp, PSTR("\n#"));
+        if (!ep) {
+          ep = cp + strlen(cp);
+        } else {
+          ep += 2;
+        }
+        if (xp && ep) {
+          uint16_t scriptsize = glob_script_mem.script_size;
+          uint16_t dlen = (uint32_t)xp - (uint32_t)lp;
+          uint16_t slen = (uint32_t)ep - (uint32_t)cp;
+          memcpy(lp, lp + dlen, scriptsize - doffset - dlen);
+          // now find source len
+          memmove(lp + slen, lp, scriptsize - doffset - slen);
+          memcpy(lp, cp, slen);
+          glob_script_mem.event_handeled = 1;
 #ifdef USE_HTML_CALLBACK
-            if (glob_script_mem.html_script) Run_Scripter1(glob_script_mem.html_script, 0, 0);
+          if (glob_script_mem.html_script) Run_Scripter1(glob_script_mem.html_script, 0, 0);
 #else
-            if (glob_script_mem.event_script) Run_Scripter1(glob_script_mem.event_script, 0, 0);
+          if (glob_script_mem.event_script) Run_Scripter1(glob_script_mem.event_script, 0, 0);
 #endif
-          }
         }
       }
 #else
@@ -12259,6 +12286,8 @@ const char SML_SCRIPT_TEXT[] PROGMEM =
   "var selSM=eb('idSelSM');"
   "var text;"
   "selSM.onchange=function(){"
+  "var index=selSM.selectedIndex;"
+  "seva(index,\"%s\");"
   "var path='%s/'+selSM.value;"
   "text=fetch(path,{cache:'no-store'}).then(response=>response.text()).then(content=>{text=content;smlp(text,'smlsav')});"
   "};"
@@ -12266,7 +12295,9 @@ const char SML_SCRIPT_TEXT[] PROGMEM =
   "if(data && data.smartmeter && data.smartmeter.length){"
   "while(selSM.options.length>1){selSM.options.remove(1);}"
   "for(let n=0;n<data.smartmeter.length;n++){"
-  "let o=document.createElement('option');o.value=data.smartmeter[n].filename;o.text=data.smartmeter[n].label;selSM.options.add(o);}}});"
+  "let o=document.createElement('option');o.value=data.smartmeter[n].filename;o.text=data.smartmeter[n].label;selSM.options.add(o);"
+  "if (n==%d) {o.setAttribute('selected', true);}"
+  "}}});"
   "function smlp(txt,ivar){"
   "x=new XMLHttpRequest();"
   "x.open('POST', '/ta?smlsav');"
@@ -13063,9 +13094,17 @@ const char *gc_str;
       lp = GetLongIString(lp + 6, &url);
       char label[SCRIPT_MAX_SBSIZE];
       lp = GetStringArgument(lp, OPER_EQU, label, 0);
+      SCRIPT_SKIP_SPACES
+      char *slp = lp;
+      TS_FLOAT sel;
+      lp = GetNumericArgument(lp, OPER_EQU, &sel, 0);
+      SCRIPT_SKIP_SPACES
+      char vname[16];
+      ScriptGetVarname(vname, slp, sizeof(vname));
+
       WCS_DIV(glob_script_mem.specopt);
       WSContentSend_P(SML_PD, label);
-      WSContentSend_P(SML_SCRIPT_TEXT, url, url);
+      WSContentSend_P(SML_SCRIPT_TEXT, vname, url, url, (uint32_t)sel);
       WCS_DIV(glob_script_mem.specopt | WSO_STOP_DIV);
       if (url) free(url);
 #endif
