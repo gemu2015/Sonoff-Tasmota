@@ -12287,6 +12287,7 @@ const char SML_SCRIPT_TEXT[] PROGMEM =
   "var text;"
   "selSM.onchange=function(){"
   "var index=selSM.selectedIndex;"
+  "rfsh=1;"
   "seva(index,\"%s\");"
   "var path='%s/'+selSM.value;"
   "text=fetch(path,{cache:'no-store'}).then(response=>response.text()).then(content=>{text=content;smlp(text,'smlsav')});"
