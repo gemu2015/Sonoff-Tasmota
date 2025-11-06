@@ -32,6 +32,7 @@ if chg[txind]>0 {
 if eres==1 {
 	=>sensor53 r
 	svars
+	=> WebRefresh 2000
 	eres=0
 }
 
