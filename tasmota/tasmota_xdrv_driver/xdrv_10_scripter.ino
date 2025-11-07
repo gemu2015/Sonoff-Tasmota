@@ -1410,7 +1410,7 @@ char *script;
                 }
             }
         } else {
-            if (!strncmp(lp, ">D", 2)) {
+            if (!strncmp_P(lp, PSTR(">D"), 2)) {
               /* lp += 2;
               SCRIPT_SKIP_SPACES
               if (isdigit(*lp)) {
@@ -8654,8 +8654,8 @@ startline:
                     }
                   }
               } else {
-                      // error
-                  toLogEOL("for error", lp);
+                // error
+                AddLog(LOG_LEVEL_INFO, PSTR("SCR: for error: %s"), lp);
               }
             } else if (!strncmp(lp, "next", 4)) {
 getnext:
@@ -9140,7 +9140,9 @@ chk_switch:
                         switch (lastop) {
                           case OPER_EQU:
                               if (glob_script_mem.var_not_found) {
-                                if (!gv || !gv->jo) toLogEOL("var not found: ",lp);
+                                if (!gv || !gv->jo) {
+                                  AddLog(LOG_LEVEL_INFO, PSTR("SCR: var not found: %s"), lp);
+                                }
                                 goto next_line;
                               }
                               *dfvar = fvar;
@@ -9183,7 +9185,9 @@ chk_switch:
                         switch (lastop) {
                           case OPER_EQU:
                               if (glob_script_mem.var_not_found) {
-                                if (!gv || !gv->jo) toLogEOL("var not found: ",lp);
+                                if (!gv || !gv->jo) {
+                                  AddLog(LOG_LEVEL_INFO, PSTR("SCR: var not found: %s"), lp);
+                                }
                                 goto next_line;
                               }
                               *dfvar = fvar;
@@ -13435,7 +13439,7 @@ exgc:
           }
         } else {
           char *lp = label;
-          if (!strncmp(label, "wdh:", 4)) {
+          if (!strncmp_P(label, PSTR("wdh:"), 4)) {
             // one week hours
             todflg = -2;
             lp += 4;
@@ -13662,7 +13666,7 @@ void ScriptJsonAppend(void) {
       }
       if (*lp!=';') {
         // send this line to mqtt
-        if (!strncmp(lp, "%=#", 3)) {
+        if (!strncmp_P(lp, PSTR("%=#"), 3)) {
           // subroutine
           lp = scripter_sub(lp + 1, 0);
         } else {
