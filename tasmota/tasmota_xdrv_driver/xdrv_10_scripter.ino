@@ -12755,16 +12755,17 @@ const char *gc_str;
       char label[SCRIPT_MAX_SBSIZE];
       lp = GetStringArgument(lp, OPER_EQU, label, 0);
       const char *cp;
+      char option[20];
       uint8_t uval;
       if (val>0) {
-        cp = "checked='checked'";
+        strcpy_P(option, PSTR("checked='checked'"));
         uval = 0;
       } else {
-        cp = "";
+        option[0] = 0;
         uval = 1;
       }
       WCS_DIV(glob_script_mem.specopt);
-      WSContentSend_P(SCRIPT_MSG_CHKBOX, center, label, (char*)cp, uval, vname);
+      WSContentSend_P(SCRIPT_MSG_CHKBOX, center, label, (char*)option, uval, vname);
       WCS_DIV(glob_script_mem.specopt | WSO_STOP_DIV);
       lp++;
     } else if (!strncmp(lin, "pd(", 3)) {
@@ -12801,35 +12802,48 @@ const char *gc_str;
       while (*lp) {
         SCRIPT_SKIP_SPACES
         lp = GetStringArgument(lp, OPER_EQU, pulabel, 0);
+        char option[10];
         if (index == 1 && pulabel[0] == '#') {
-          // number range
           char *cp = &pulabel[1];
-          uint8_t from = strtol(cp, &cp, 10);
-          uint8_t to = from;
-          if (*cp == '-') {
+          uint8_t flg = 0;
+          uint8_t from;
+          uint8_t to;
+          if (pulabel[1] == 'g') {
             cp++;
-            to = strtol(cp, &cp, 10);
+            flg = 1;
+            from = 0;
+            to = MAX_USER_PINS + MIN_FLASH_PINS - 1;
+          } else {
+            // number range
+            from = strtol(cp, &cp, 10);
+            to = from;
+            if (*cp == '-') {
+              cp++;
+              to = strtol(cp, &cp, 10);
+            }
           }
           for (uint32_t cnt = from; cnt <= to; cnt++) {
             sprintf(pulabel, "%d", cnt);
+            option[0] = 0;
             if (val == index) {
-              cp = (char*)"selected";
-            } else {
-              cp = (char*)"";
+              strcpy_P(option, PSTR("selected"));
             }
-            WSContentSend_P(SCRIPT_MSG_PULLDOWNb, cp, index, pulabel);
+
+            uint8_t disabled = FlashPin(cnt) || RedPin(cnt) || TasmotaGlobal.gpio_pin[cnt];
+            if (flg && disabled) {
+              strcpy_P(option, PSTR("disabled"));
+            }
+            WSContentSend_P(SCRIPT_MSG_PULLDOWNb, option, index, pulabel);
             index++;
           }
           break;
         }
-
-        char *cp;
         if (val == index) {
-          cp = (char*)"selected";
+          strcpy_P(option, PSTR("selected"));
         } else {
-          cp = (char*)"";
+          option[0] = 0;
         }
-        WSContentSend_P(SCRIPT_MSG_PULLDOWNb, cp, index, pulabel);
+        WSContentSend_P(SCRIPT_MSG_PULLDOWNb, option, index, pulabel);
         SCRIPT_SKIP_SPACES
         if (*lp == ')') {
           lp++;
@@ -12873,6 +12887,7 @@ const char *gc_str;
         WSContentSend_P(SCRIPT_MSG_RADIOa, center, tsiz, pulabel);
       }
 
+      char option[10];
       // get pu labels
       uint8_t index = 1;
       while (*lp) {
@@ -12880,11 +12895,11 @@ const char *gc_str;
         lp = GetStringArgument(lp, OPER_EQU, pulabel, 0);
         char *cp;
         if (val == index) {
-          cp = (char*)"checked";
+          strcpy_P(option, PSTR("checked"));
         } else {
-          cp = (char*)"";
+          option[0] = 0;
         }
-        WSContentSend_P(SCRIPT_MSG_RADIOb, vname, index, vname, cp, pulabel);
+        WSContentSend_P(SCRIPT_MSG_RADIOb, vname, index, vname, option, pulabel);
         SCRIPT_SKIP_SPACES
         if (*lp == ')') {
           lp++;
@@ -13400,7 +13415,7 @@ exgc:
         int16_t divflg = 1;
         int16_t todflg = -1;
         uint8_t hmflg = 0;
-        if (!strncmp(label, "cnt", 3)) {
+        if (!strncmp_P(label, PSTR("cnt"), 3)) {
           char *cp = &label[3];
           if (*cp == 'h') {
             hmflg = 1;
