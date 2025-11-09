@@ -478,8 +478,10 @@ struct M_FILT {
 #undef OR_FILT_MASK
 #define AND_FILT_MASK 0x7fff
 #define OR_FILT_MASK 0x8000
+#ifndef 
 #undef MAX_ARRAY_SIZE
 #define MAX_ARRAY_SIZE 1000
+#endif
 #else
 #undef AND_FILT_MASK
 #undef OR_FILT_MASK
