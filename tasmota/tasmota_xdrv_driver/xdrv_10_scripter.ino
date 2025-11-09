@@ -267,6 +267,10 @@ char *Get_esc_char(char *cp, char *esc_chr);
 #define USE_SCRIPT_FATFS_EXT
 #endif
 
+#ifndef NO_USE_HTML_CALLBACK
+#undef USE_HTML_CALLBACK
+#define USE_HTML_CALLBACK
+#endif
 
 #ifdef USE_SCRIPT_TIMER
 #include <Ticker.h>
