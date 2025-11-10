@@ -59,9 +59,9 @@ To enter a script, go to **Consoles -> Edit Script** in the Tasmota web UI menu 
 
 To save code space almost no error messages are provided. However it is taken care of that at least it should not crash on syntax errors.  
 
-### Features
+## Features
 
-- Up to 50 variables (45 numeric and 5 strings - this may be changed by setting a compilation `#define` directive)  
+- number of variables limited by available RAM only 
 - Freely definable variable names (all variable names are intentionally _**case sensitive**_)  
 - Nested if,then,else up to a level of 8  
 - Math operators  `+`,`-`,`*`,`/`,`%`,`&`,`|`,`^`,`<<`,`>>`  
@@ -74,7 +74,7 @@ To save code space almost no error messages are provided. However it is taken ca
 - String comparison `==`, `!=`  
 - String size is 19 characters (default). This can be increased or decreased by the optional parameter on the `D` section definition
 
-#### Script Interpreter
+### Script Interpreter
 
 - Execution is _**strictly sequential**_, _**line by line**_
 - Evaluation is _**left to right**_ with optional brackets  
@@ -117,7 +117,7 @@ after initialization the script reports some info in the console e.g:
 00:00:00.043 SCR: nv=15, tv=1, vns=83, vmem=895, smem=8192, gmem=588, pmem=0, tmem=9758  
 nv = number of used variables in total (numeric and strings)  
 tv = number of used string variables  
-vns = total size of name strings in bytes (may not exceed 255) or #define SCRIPT_LARGE_VNBUFF extents the size to 4095
+vns = total size of name strings in bytes (may not exceed 256) or #define SCRIPT_LARGE_VNBUFF extents the size to 4095 (default)
 
 vmem = used heap ram by the script (psram if available)  
 smem = used script (text) memory (psram if available)  
@@ -134,8 +134,8 @@ if the script init fails an error code is reported:
 number of variables is only limited by RAM. you will probably get a memory error when you define to many variables.
 you may increase the number of allowed array and the maximum string size defines in user_config_override  
 defaults and override defines:  
-Number of filters (arrays) = 5 (override #define MAXFILT)  
-Max string size            = 20 (increase with >D size up to default default 48) (override #define SCRIPT_MAXSSIZE)     
+Number of filters (arrays) = 10 (override #define MAXFILT)  
+Max string size            = 20 (increase with >D n, n up to SCRIPT_MAXSSIZE, default 255) (override #define SCRIPT_MAXSSIZE)     
 
 
 
@@ -149,19 +149,19 @@ see further info and download [here](https://www.dropbox.com/sh/0us18ohui4c3k82/
 
 #### Visual Studio Code Extension
 
-If you're used to working with Visual Studio Code, you can use [this extension](https://marketplace.visualstudio.com/items?itemName=StefanoBertini.tasmota-script-support) to edit your scripts with the benefit of various helpful features, such as, for example, Syntax Highlighting, Automatic script upload, #define, ifdef and ifndef preprocessor macros, Code Folding, Code Snippet and Hover hints on tasmota functions and variables documentation.  
+If you're used to work with Visual Studio Code, you can use [this extension](https://marketplace.visualstudio.com/items?itemName=StefanoBertini.tasmota-script-support) to edit your scripts with the benefit of various helpful features, such as, for example, Syntax Highlighting, Automatic script upload, #define, ifdef and ifndef preprocessor macros, Code Folding, Code Snippet and Hover hints on tasmota functions and variables documentation.  
 
-#### Console Commands
+### Console Commands
 
-`script <n>` <n>: `0` = switch script off; `1` = switch script on  `8` = switch stop on error off; `9` = switch stop on error on 
-`script ><cmdline>` execute <cmdline>  
-- Can be used to set variables, e.g., `script >mintmp=15`  
-- Multiple statements can be specified by separating each with a semicolon, e.g. `script >mintmp=15;maxtemp=40`  
+- `script <n>` <n>: `0` = switch script off; `1` = switch script on  `8` = switch stop on error off; `9` = switch stop on error on 
+- `script ><cmdline>` to execute `<cmdline>`  
+
+  - Can be used to set variables, e.g., `script >mintmp=15`  
+  - Multiple statements can be specified by separating each with a semicolon, e.g. `script >mintmp=15;maxtemp=40`  
   
-`script?<var>` queries a script variable `var`  
+  - `script?<var>` queries a script variable `var`  
 
-`scriptsize N` sets the amount of script source code allowed between 1000 and max defined during compile (with #define UFSYS_SIZE)    
-
+- `scriptsize N` sets the amount of script source code allowed between 1000 and max defined during compile (with #define UFSYS_SIZE)    
 - The script itself can't be specified because the size would not fit the MQTT buffers
 
 ## Script Sections
@@ -188,7 +188,7 @@ therefore when specifing permanent variables, add newly defined ones always at t
    specifies a median filter variable with 5 entries (for elimination of outliers)  
   `M:vname`   
   specifies a moving average filter variable with 8 entries (for smoothing data, should be also used to define arrays)  
-  (max 5 filters in total m+M) optional another filter length (1..127) can be given after the definition.  
+  (max 10 filters in total m+M) optional another filter length (1..127) can be given after the definition.  
   Filter vars can be accessed also in indexed mode `vname[x]` (x = `1..N`, x = `0` returns current array index pointer (may be set also), x = `-1` returns array length, x = `-2` returns array average,x = `-3` returns array sum)
   Using this filter, vars can be used as arrays, #define LARGE_ARRAYS allows for arrays up to 1000 entries  
   array may also be permanent by specifying an extra `:p`  
@@ -198,7 +198,7 @@ therefore when specifing permanent variables, add newly defined ones always at t
   array = {x y z} sets 3 values in an array from index array[0]  
 
 !!! tip
-    Keep variable names as short as possible. The length of all variable names taken together may not exceed 256 characters.  
+    Keep variable names as short as possible. The length of all variable names taken together may not exceed 4096 characters.  
     Memory is dynamically allocated as a result of the D section.  
     Copying a string to a number or reverse is supported  
 
@@ -461,6 +461,10 @@ remark: state variable names used for IO in the web interface may not contain an
   `WSO_NODIV` = 2 force elements not in extra \<div\>  
   `WSO_FORCEPLAIN` = 4 send line in plain (no table elements)  
   `WSO_FORCEMAIN` = 8 send lines in main mode ($ mode)  
+  `WSO_FORCEGUI` = 16 force allow gui macros  
+  `WSO_FORCETAB` = 32 force tasmota tab in line  
+  `WSO_FORCESUBFILE` = 64 force allow html subfile  
+  `WSO_STOP_DIV` = 0x80 force </div> at end of macro  
   
 ### Google Charts  
  
@@ -550,8 +554,21 @@ you may display files from the flash or SD filesystem by specifying the url:  IP
 
 ###  >y
 
-
 on devices without a file system a configuration string may be defined here, e.g. xnrg_29_modbus.ino driver 
+
+###  >ah
+
+add up to 3 headers e.g.  
+; http rpc handler  
+res=won(1 "/rpc/*")  
+this section is only called on tasmota restart, if changing >ah have to restart device  
+
+###  >on1
+###  >on2
+###  >on3
+here add header x arrives  
+
+`warg` string that contains the web args of on1 ... on3  
 
 
 If a variable does not exist, `???` is displayed for commands  
@@ -593,6 +610,8 @@ If a Tasmota `SENSOR` or `STATUS` or `RESULT` message is not generated or a `Var
 `gtmp` = global temperature  
 `ghum` = global humidity  
 `gprs` = global pressure  
+`encabs[x]` = absolute position of the rotary encoder (x = 1..N)  
+`encrel[x]` = relative position of the rotary encoder, the value will be reset after reading (x = 1..N)
 
 global variables  
 now optional binary mode, much faster and more precise, also supports arrays.  
@@ -600,7 +619,17 @@ now optional binary mode, much faster and more precise, also supports arrays.
 `gvrbs` = get, set global variable udp buffer size  
 `gvrm` = get, set global variable udp mode, 0 = string mode (default), 1 = binary mode  
 `gvrsa(array)` = send array as global variable in binary mode  
-`udp(url port string)` = send a string via UDP
+`udp(0 port)` = open UDP port 'port'  
+`udp(1)` = read string from UDP  
+`udp(2 s1 (s2) (s3))` = answer to UDP remote port, up to 3 strings concatenated  
+`udp(3 url s1)` = send string to url  and udp port  
+`udp(4)` = return udp remote ip as string  
+`udp(5)` = return udp remote port  
+`udp(6 url port string)` = send a string via UDP to url and port  
+
+when #define USE_SCRIPT_MDNS  
+`mdns(name mac type)` = open mdns service with name, mac (use device mac if '-') and type (use tasmota hostname if '-' or e.g. "shelly"). If “shelly” or “everhome” is used, a corresponding txt record is also set (for Shelly/EcoTracker emulation).  
+
 
 deep sleep for ESP32 devices only  
 `ds(-1)` = get deep sleep wakeup status  
@@ -1052,8 +1081,10 @@ The script itself is also stored on the file system with a default size of 8192 
 `frb(fr)` read byte from file  
 `frw(fr url)` read file from web url, if url is an immediate string it may be longer than max string size to support very long URLs.  
 `fcs(fr "del" index ec)` = gets non string from file: del = delimiter char or string, index = n´th element, ec = end character delimiter.  
+files in file system may also be listed or downloaded via http://ip/ufs/filename
+with http://ip/ufs/$varname(;varname2;...) you may list variables and arrays from scripter in json format.
 
-###  Other commands   (+?? flash)
+###  time series database   (+2kB flash)
 
 `#define USE_FEXTRACT`  
 `fxt(fr ts_from ts_to col_offs accum array1 array2 ... arrayn)` read arrays from csv file from timestamp to timestamp with column offset and accumulate values into arrays1 .. N, assumes csv file with timestamp in 1. column and data values in columns 2 to n.  
@@ -1063,7 +1094,7 @@ The script itself is also stored on the file system with a default size of 8192 
 `tsn(tstamp)` convert timestamp to seconds  
 `s2t(seconds)` convert seconds to Tasmota timestamp  
 
-### Extended commands   (+0,9k flash)  
+### file system commands   (+0,9k flash)  
 
 `#define USE_SCRIPT_FATFS_EXT`  
 `fmt(0)` format flash file system (erases all data)  
@@ -2289,13 +2320,13 @@ An example to show how to implement a web UI. This example controls a light via 
 
     >W
     bu(sw "Light on" "Light off")
-    ck(sw "Light on/off   ")
+    ck(sw "Light on/off   ")
     sl(0 100 dimmer "0" "Dimmer" "100")
     sl(0 255 red "0" "red" "255")
     sl(0 255 green "0" "green" "255")
     sl(0 255 blue "0" "blue" "255")
     sl(0 255 ww "0" "warm white" "255")
-    tx(color "color:   ")
+    tx(color "color:   ")
 
 ### Hue Emulation
 
