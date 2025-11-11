@@ -145,7 +145,7 @@ const char HTTP_Bresser7[] PROGMEM =
  "{s}%s Pool Temperature" "{m}%1_f" "{e}"
 ;
 
-//#define IGNORE_ID 0x0000abfe
+//#define BRESSER_IGNORE_ID 0x0000abfe
 
 void C1101_Bresser_Show(boolean json) {
     if (cc1101_bresser.decode_status != DECODE_OK) {
@@ -160,8 +160,8 @@ void C1101_Bresser_Show(boolean json) {
 
         for (int i = 0; i < NUM_SENSORS; i++) {
 
-#ifdef IGNORE_ID
-            if (ws.sensor_copy[i].sensor_id == IGNORE_ID) {
+#ifdef BRESSER_IGNORE_ID
+            if (ws.sensor_copy[i].sensor_id == BRESSER_IGNORE_ID) {
                 continue;
             }
 #endif
@@ -219,8 +219,8 @@ void C1101_Bresser_Show(boolean json) {
                 continue;
             }
             
-#ifdef IGNORE_ID
-            if (ws.sensor_copy[i].sensor_id == IGNORE_ID) {
+#ifdef BRESSER_IGNORE_ID
+            if (ws.sensor_copy[i].sensor_id == BRESSER_IGNORE_ID) {
                 continue;
             }
 #endif
