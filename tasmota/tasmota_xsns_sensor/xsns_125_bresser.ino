@@ -145,6 +145,8 @@ const char HTTP_Bresser7[] PROGMEM =
  "{s}%s Pool Temperature" "{m}%1_f" "{e}"
 ;
 
+//#define IGNORE_ID 0x0000abfe
+
 void C1101_Bresser_Show(boolean json) {
     if (cc1101_bresser.decode_status != DECODE_OK) {
         return;
@@ -157,6 +159,12 @@ void C1101_Bresser_Show(boolean json) {
     if (!json) {
 
         for (int i = 0; i < NUM_SENSORS; i++) {
+
+#ifdef IGNORE_ID
+            if (ws.sensor_copy[i].sensor_id == IGNORE_ID) {
+                continue;
+            }
+#endif
 
             if (ws.sensor_copy[i].rssi == 0) {
                 continue;
@@ -210,7 +218,12 @@ void C1101_Bresser_Show(boolean json) {
             if (ws.sensor_copy[i].rssi == 0) {
                 continue;
             }
-
+            
+#ifdef IGNORE_ID
+            if (ws.sensor_copy[i].sensor_id == IGNORE_ID) {
+                continue;
+            }
+#endif
             ResponseAppend_P(PSTR(",\"Bresser_%1d\":{\"ID\":\"%08x\",\"Type\":%x,\"Chan\":%d,\"Stat\":%d,\"Batt\":\"%-3s\",\"RSSI\":%1_f,\"RCNT\":%d"),\
                 i + 1, static_cast<int> (ws.sensor_copy[i].sensor_id), ws.sensor_copy[i].s_type, ws.sensor_copy[i].chan, ws.sensor_copy[i].startup, ws.sensor_copy[i].battery_ok ? "OK " : "Low", &ws.sensor_copy[i].rssi, ws.sensor_copy[i].rec_count);
         
