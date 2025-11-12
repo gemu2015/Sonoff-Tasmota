@@ -6,6 +6,8 @@ txpin=3
 p:rxind=2
 p:txind=4
 p:sel=0
+res=0
+ctim=0
 
 >B
 rxpin=rxind-1
@@ -16,6 +18,11 @@ txpin=txind-1
 if year<2025 {
 	break
 }
+
+
+ctim=millis
+res=fe("/file_script.tas")
+print %(millis-ctim)%
 
 if chg[rxind]>0 {
 	rxpin=rxind-1
@@ -41,12 +48,13 @@ selected{m}%sel%
 
 >WM
 so(17)
-smlpd("https://raw.githubusercontent.com/ottelo9/tasmota-sml-script/main/smartmeter_test" "select a meter" sel)
+
+smlpd("https://raw.githubusercontent.com/ottelo9/tasmota-sml-script/refs/heads/main/script-list-menu/meter-descriptor" "select a meter" sel)
+
 pd(rxind "RX Pin: " 50 "#g")
 pd(txind "TX Pin: " 50 "#g")
 ; im descriptor pin substuieren
 ; %0rxpin% bzw %0txpin%
-;smlpd("https://raw.githubusercontent.com/ottelo9/tasmota-sml-script/refs/heads/main/smartmeter" "select a meter" sel)
 
 #
 ;>M 1
