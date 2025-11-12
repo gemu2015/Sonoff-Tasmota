@@ -47,7 +47,7 @@ keywords if then else endif, or, and are better readable for beginners (others m
 #endif
 // float = 4, double = 8 bytes
 
-const uint8_t SCRIPT_VERS[2] = {5, 6};
+const uint8_t SCRIPT_VERS[2] = {5, 7};
 
 #define SCRIPT_DEBUG 0
 
@@ -890,6 +890,7 @@ int32_t script_logfile_write(char *path, char *payload, uint32_t size);
 void script_sort_array(TS_FLOAT *array, uint16_t size);
 uint32_t Touch_Status(int32_t sel);
 int32_t play_wave(char *path);
+char *exfile(char *lp, TS_FLOAT *error);
 
 #ifdef USE_SCRIPT_MDNS
 int32_t script_mdns(char *name, char *mac, char *xtype) {
@@ -4295,24 +4296,7 @@ _Pragma("GCC warning \"'EXT 1 wakeup' not supported using gpio mode\"")
 #endif //ESP32 && USE_WEBCAM
 #ifdef USE_SCRIPT_FATFS_EXT
         if (!strncmp_XP(lp, XPSTR("fe("), 3)) {
-          char str[SCRIPT_MAX_SBSIZE];
-          lp = GetStringArgument(lp + 3, OPER_EQU, str, 0);
-          // execute script
-          File ef = ufsp->open(str, FS_FILE_READ);
-          if (ef) {
-            uint16_t fsiz = ef.size();
-            if (fsiz < 2048) {
-              char *script = (char*)special_malloc(fsiz + 16);
-              if (script) {
-                memset(script, 0, fsiz + 16);
-                ef.read((uint8_t*)script, fsiz);
-                execute_script(script);
-                free(script);
-                fvar = 1;
-              }
-            }
-            ef.close();
-          }
+          lp = exfile(lp + 3, &fvar);
           goto nfuncexit;
         }
         if (!strncmp_XP(lp, XPSTR("fmd("), 4)) {
@@ -7584,6 +7568,33 @@ File wf = ufsp->open(path, FS_FILE_READ);
 
 #ifdef USE_SCRIPT_FATFS_EXT
 #ifdef USE_UFILESYS
+#ifndef EXFMAXSIZE
+#define EXFMAXSIZE 4096
+#endif
+char *exfile(char *lp, TS_FLOAT *error) {
+  *error = -1;
+  char str[SCRIPT_MAX_SBSIZE];
+  lp = GetStringArgument(lp, OPER_EQU, str, 0);
+  // execute script
+  File ef = ufsp->open(str, FS_FILE_READ);
+  if (ef) {
+    uint16_t fsiz = ef.size();
+    if (fsiz < EXFMAXSIZE) {
+      char *script = (char*)special_malloc(fsiz + 16);
+      if (script) {
+        memset(script, 0, fsiz + 16);
+        ef.read((uint8_t*)script, fsiz);
+        execute_script(script);
+        free(script);
+      }
+    }
+    ef.close();
+    *error = 0;
+
+  }
+  return lp;
+}
+
 int32_t script_logfile_write(char *path, char *payload, uint32_t size) {
 
       File rfd = ufsp->open(path, FS_FILE_APPEND);
@@ -11143,7 +11154,6 @@ uint32_t options = 0;
   Response_P(PSTR("{\"script\":{\"vers\":%d.%d,\"opts\":%08x}}"), SCRIPT_VERS[0], SCRIPT_VERS[1], options);
 }
 
-
 void execute_script(char *script) {
   char *svd_sp = glob_script_mem.scriptptr;
   strcat(script, "\n#");
@@ -12600,9 +12610,22 @@ void ScriptWebShow(char mc, uint8_t page) {
           // subroutine
           uint8_t sflg = glob_script_mem.specopt;
           glob_script_mem.specopt = WSO_FORCEPLAIN;
-          lp = scripter_sub(lp + 1, 0);
+          if (*(lp + 3) == '(') {
+            // execute file
+            // %=#("/subfile.tas")
+            char cmdbuff[32];
+            strcpy_P(cmdbuff, PSTR(">fe"));
+            strncat(cmdbuff, lp + 3, sizeof(cmdbuff) - 5);
+            char *cp = strchr(cmdbuff, SCRIPT_EOL);
+            if (cp) {
+              *cp = 0;
+            }
+            execute_script(cmdbuff);
+            lp = strchr(lp, SCRIPT_EOL);
+          } else {
+            lp = scripter_sub(lp + 1, 0);
+          }
           glob_script_mem.specopt = sflg;
-          //goto nextwebline;
         } else if (!strncmp(lp, "%/", 2)) {
           // send file
           if (mc || (glob_script_mem.specopt & WSO_FORCESUBFILE)) {
