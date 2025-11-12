@@ -10180,6 +10180,22 @@ uint8_t DownloadFile(char *file) {
 
 #endif // USE_SCRIPT_FATFS
 
+uint16_t section_seek_end(char *lp) {
+  char *op = lp;
+  char *cp = lp;
+  while (1) {
+    if ((*lp == '>') || ((*lp == '#') && (*(lp + 1) == SCRIPT_EOL))){
+      break;
+    }
+    cp = strchr(lp, SCRIPT_EOL);
+    if (!cp) {
+      // end of script
+      break;
+    }
+    lp = cp + 1;
+  }
+  return ((uint32_t)lp - (uint32_t)op) + 2;
+}
 
 void HandleScriptTextareaConfiguration(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
@@ -10197,7 +10213,6 @@ void HandleScriptTextareaConfiguration(void) {
 #endif
 
 #ifdef USE_SML_SCRIPT_CMD
-  //if (Webserver->hasArg("smlsav")) {  // strange on esp32 not available ???
   if (Webserver->hasArg("plain")) {
     String str = Webserver->arg("plain");
     if (*str.c_str()) {
@@ -10263,6 +10278,35 @@ void HandleScriptTextareaConfiguration(void) {
           File file = ufsp->open(fname, FS_FILE_WRITE);
           file.write((const uint8_t*)cp, slen);
           file.close();
+          
+          // extract >S and >F section
+          strcpy_P(fname, PSTR("/sml_stask.tas"));
+          ep = strstr_P(smlp, PSTR(">S"));
+          if (ep) {
+            // has >S section
+            slen = section_seek_end(ep + 2);
+            file = ufsp->open(fname, FS_FILE_WRITE);
+            ep++;
+            ep[0] = '>';
+            file.write((const uint8_t*)ep, slen);
+            file.close();
+          } else {
+            ufsp->remove(fname);
+          }
+          strcpy_P(fname, PSTR("/sml_ftask.tas"));
+          ep = strstr_P(smlp, PSTR(">F"));
+          if (ep) {
+            // has >F section
+            slen = section_seek_end(ep + 2);
+            strcpy_P(fname, PSTR("/sml_stask.tas"));
+            file = ufsp->open(fname, FS_FILE_WRITE);
+            ep++;
+            ep[0] = '>';
+            file.write((const uint8_t*)ep, slen);
+            file.close();
+          } else {
+            ufsp->remove(fname);
+          }
           glob_script_mem.event_handeled = 1;
 #ifdef USE_HTML_CALLBACK
           if (glob_script_mem.html_script) Run_Scripter1(glob_script_mem.html_script, 0, 0);
