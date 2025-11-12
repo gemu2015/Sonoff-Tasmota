@@ -30,6 +30,9 @@
 
 WeatherSensor ws;
 
+#define MAX_REJIDS 4
+uint32_t bresser_reject_ids[MAX_REJIDS];
+
 struct WS_Sensor {
     uint32_t sensor_id;        //!< sensor ID (5-in-1: 1 byte / 6-in-1: 4 bytes / 7-in-1: 2 bytes)
     float    rssi;             //!< received signal strength indicator in dBm
@@ -145,7 +148,17 @@ const char HTTP_Bresser7[] PROGMEM =
  "{s}%s Pool Temperature" "{m}%1_f" "{e}"
 ;
 
-//#define BRESSER_IGNORE_ID 0x0000abfe
+bool Bresser_reject(uint32_t id) {
+    for (int r = 0; r < MAX_REJIDS; r++) {
+        if (bresser_reject_ids[r] > 0) {
+            if (bresser_reject_ids[r] == id) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 
 void C1101_Bresser_Show(boolean json) {
     if (cc1101_bresser.decode_status != DECODE_OK) {
@@ -160,11 +173,9 @@ void C1101_Bresser_Show(boolean json) {
 
         for (int i = 0; i < NUM_SENSORS; i++) {
 
-#ifdef BRESSER_IGNORE_ID
-            if (ws.sensor_copy[i].sensor_id == BRESSER_IGNORE_ID) {
+            if (Bresser_reject(ws.sensor_copy[i].sensor_id)) {
                 continue;
             }
-#endif
 
             if (ws.sensor_copy[i].rssi == 0) {
                 continue;
@@ -219,11 +230,10 @@ void C1101_Bresser_Show(boolean json) {
                 continue;
             }
             
-#ifdef BRESSER_IGNORE_ID
-            if (ws.sensor_copy[i].sensor_id == BRESSER_IGNORE_ID) {
+            if (Bresser_reject(ws.sensor_copy[i].sensor_id)) {
                 continue;
             }
-#endif
+
             ResponseAppend_P(PSTR(",\"Bresser_%1d\":{\"ID\":\"%08x\",\"Type\":%x,\"Chan\":%d,\"Stat\":%d,\"Batt\":\"%-3s\",\"RSSI\":%1_f,\"RCNT\":%d"),\
                 i + 1, static_cast<int> (ws.sensor_copy[i].sensor_id), ws.sensor_copy[i].s_type, ws.sensor_copy[i].chan, ws.sensor_copy[i].startup, ws.sensor_copy[i].battery_ok ? "OK " : "Low", &ws.sensor_copy[i].rssi, ws.sensor_copy[i].rec_count);
         
@@ -303,6 +313,26 @@ void bresser_bubbleSort(struct WS_Sensor *sens, uint32_t n) {
 
 
 
+bool XSNS_125_cmd(void) {
+    if (XdrvMailbox.data_len > 0) {
+        char *cp = XdrvMailbox.data;
+        if (*cp == 'r') {
+            cp++;
+            uint8_t index = *cp & 7;
+            if (index < 1 || index > MAX_REJIDS) index = 1;
+            cp++;
+            while (*cp == ' ') cp++;
+            if (*cp == '0' && *(cp + 1) == 'x') {
+                cp += 2;
+                bresser_reject_ids[index - 1] = strtoll(cp, &cp, 16);
+                ResponseTime_P(PSTR(",\"Bresser\":{\"CMD\":\"remove: %0x\"}}"), bresser_reject_ids[index - 1]);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 /*********************************************************************************************\
  * Interface
 \*********************************************************************************************/
@@ -324,6 +354,11 @@ bool Xsns125(uint32_t function) {
 #endif  // USE_WEBSERVER
       case FUNC_JSON_APPEND:
         C1101_Bresser_Show(1);
+        break;
+      case FUNC_COMMAND_SENSOR:
+        if (XSNS_125 == XdrvMailbox.index) {
+            result = XSNS_125_cmd();
+        }
         break;
   }
   return result;
