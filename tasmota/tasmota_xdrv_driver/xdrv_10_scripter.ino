@@ -10237,8 +10237,14 @@ void HandleScriptTextareaConfiguration(void) {
       }
 #else
         // copy to file
-        char fname[16]; 
+        char fname[24];
         strcpy_P(fname, PSTR("/sml_meter.def"));
+        if (Webserver->hasArg("smlsav")) {
+          String path = Webserver->arg("smlsav");
+          if (path.length() > 0) {
+            strcat(&fname[1], path.c_str());
+          }
+        }
         char *ep = strstr_P(cp, PSTR("\n#"));
         if (ep) {
           ep += 2;
@@ -12310,7 +12316,7 @@ const char SML_SCRIPT_TEXT[] PROGMEM =
   "}}});"
   "function smlp(txt,index){"
   "x=new XMLHttpRequest();"
-  "x.open('POST', '/ta?smlsav');"
+  "x.open('POST', '/ta?smlsav=%s');"
   "x.setRequestHeader('Accept','application/text');"
   "x.setRequestHeader('Content-Type','application/text');"
   "x.send(txt);"
@@ -13127,10 +13133,14 @@ const char *gc_str;
       SCRIPT_SKIP_SPACES
       char vname[16];
       ScriptGetVarname(vname, slp, sizeof(vname));
-
+      char path[SCRIPT_MAX_SBSIZE];
+      path[0] = 0;
+      if (*lp !=')') {
+        lp = GetStringArgument(lp, OPER_EQU, path, 0);
+      }
       WCS_DIV(glob_script_mem.specopt);
       WSContentSend_P(SML_PD, label);
-      WSContentSend_P(SML_SCRIPT_TEXT, url, url, (uint32_t)sel, vname);
+      WSContentSend_P(SML_SCRIPT_TEXT, url, url, (uint32_t)sel, path, vname);
       WCS_DIV(glob_script_mem.specopt | WSO_STOP_DIV);
       if (url) free(url);
 #endif
