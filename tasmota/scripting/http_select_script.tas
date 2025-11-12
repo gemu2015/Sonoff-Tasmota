@@ -7,7 +7,7 @@ p:rxind=2
 p:txind=4
 p:sel=0
 res=0
-ctim=0
+
 
 >B
 rxpin=rxind-1
@@ -18,11 +18,6 @@ txpin=txind-1
 if year<2025 {
 	break
 }
-
-
-ctim=millis
-res=fe("/file_script.tas")
-print %(millis-ctim)%
 
 if chg[rxind]>0 {
 	rxpin=rxind-1
