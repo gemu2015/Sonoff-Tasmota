@@ -309,6 +309,12 @@ void Script_ticker4_end(void) {
 #define SCRIPT_UDP_PORT 1999
 #endif
 
+
+#ifndef SCRIPT_LOCAL_NVARS
+#define SCRIPT_LOCAL_NVARS 4
+#endif
+
+
 // EEPROM MACROS
 // i2c eeprom
 #define EEP_WRITE(A,B,C) eeprom_writeBytes(A, B, (uint8_t*)C);
@@ -396,7 +402,7 @@ extern Renderer *renderer;
 #endif
 
 enum {OPER_EQU=1,OPER_PLS,OPER_MIN,OPER_MUL,OPER_DIV,OPER_PLSEQU,OPER_MINEQU,OPER_MULEQU,OPER_DIVEQU,OPER_EQUEQU,OPER_NOTEQU,OPER_GRTEQU,OPER_LOWEQU,OPER_GRT,OPER_LOW,OPER_PERC,OPER_XOR,OPER_AND,OPER_OR,OPER_ANDEQU,OPER_OREQU,OPER_XOREQU,OPER_PERCEQU,OPER_SHLEQU,OPER_SHREQU,OPER_SHL,OPER_SHR};
-enum {SCRIPT_LOGLEVEL=1,SCRIPT_TELEPERIOD,SCRIPT_EVENT_HANDLED,SML_JSON_ENABLE,SCRIPT_EPOFFS,SCRIPT_CBSIZE,SCRIPT_UDP_PBS,SCRIPT_UDP_MOD};
+enum {SCRIPT_LOGLEVEL=1,SCRIPT_TELEPERIOD,SCRIPT_EVENT_HANDLED,SML_JSON_ENABLE,SCRIPT_EPOFFS,SCRIPT_CBSIZE,SCRIPT_UDP_PBS,SCRIPT_UDP_MOD,SCRIPT_LOCVARS};
 
 
 #ifdef USE_UFILESYS
@@ -815,6 +821,11 @@ typedef struct {
 
 #if defined(USE_SML_M) || defined (USE_BINPLUGINS)
   SML_TABLE *smlptr;
+#endif
+
+#ifdef SCRIPT_LOCAL_NVARS
+  TS_FLOAT locvars[SCRIPT_LOCAL_NVARS];
+  uint8_t lvindex;
 #endif
 
 } SCRIPT_MEM;
@@ -5203,6 +5214,17 @@ _Pragma("GCC warning \"'EXT 1 wakeup' not supported using gpio mode\"")
 #endif
 
       case 'l':
+#ifdef SCRIPT_LOCAL_NVARS
+        if (!strncmp_XP(vname, XPSTR("lnv"), 3)) {
+          glob_script_mem.lvindex = vname[3];
+          if (glob_script_mem.lvindex >= SCRIPT_LOCAL_NVARS) {
+            glob_script_mem.lvindex = SCRIPT_LOCAL_NVARS - 1;
+          }
+          fvar = glob_script_mem.locvars[glob_script_mem.lvindex];
+          tind->index = SCRIPT_LOCVARS;
+          goto exit_settable;
+        }
+#endif // SCRIPT_LOCAL_NVARS
         if (!strncmp_XP(lp, XPSTR("lip"), 3)) {
           if (sp) strlcpy(sp, (const char*)WiFi.localIP().toString().c_str(), glob_script_mem.max_ssize);
           goto strexit;
@@ -9308,6 +9330,12 @@ chk_switch:
                             break;
 #endif
 
+#ifdef SCRIPT_LOCAL_NVARS
+                          case SCRIPT_LOCVARS:
+                            glob_script_mem.locvars[glob_script_mem.lvindex] = *dfvar;
+                            break;
+#endif
+
 #if (defined(USE_SML_M) || defined(USE_BINPLUGINS)) && defined(USE_SML_SCRIPT_CMD)
                           case SML_JSON_ENABLE:
                             //sml_options = *dfvar;
@@ -9317,6 +9345,7 @@ chk_switch:
                             }
                             break;
 #endif
+
                         }
                         sysv_type = 0;
                       }
@@ -12750,7 +12779,7 @@ const char *gc_str;
   Replace_Cmd_Vars(lp1, 1, tmp, SCRIPT_WS_LINE_SIZE);
   char *lin = tmp;
 
-  if (!strncmp(lin, "so(", 3)) {
+  if (!strncmp_P(lin, PSTR("so("), 3)) {
     // set options
     TS_FLOAT var;
     lin = GetNumericArgument(lin + 3, OPER_EQU, &var, 0);
@@ -12766,7 +12795,7 @@ const char *gc_str;
 
   bool dogui = ((!mc && (*lin != '$')) || (mc == 'w' && (*lin != '$'))) && (!(glob_script_mem.specopt & WSO_FORCEMAIN));
 
-  if (!strncmp(lin, "%=#", 3)) {
+  if (!strncmp_P(lin, PSTR("%=#"), 3)) {
     // subroutine
     uint8_t sflg = glob_script_mem.specopt;
     glob_script_mem.specopt = WSO_FORCEPLAIN;
@@ -12794,7 +12823,7 @@ const char *gc_str;
       strcpy_P(center, PSTR("<center>"));
     }
 
-    if (!strncmp(lin, "sl(", 3)) {
+    if (!strncmp_P(lin, PSTR("sl("), 3)) {
       // insert slider sl(min max var left mid right)
       char *lp = lin;
       TS_FLOAT min;
@@ -12825,7 +12854,7 @@ const char *gc_str;
       WSContentSend_P(SCRIPT_MSG_SLIDER, left, mid, right, (uint32_t)min, (uint32_t)max, (uint32_t)val, vname);
       lp++;
 
-    } else if (!strncmp(lin, "ck(", 3)) {
+    } else if (!strncmp_P(lin, PSTR("ck("), 3)) {
       char *lp = lin + 3;
       char *slp = lp;
       TS_FLOAT val;
@@ -12851,7 +12880,7 @@ const char *gc_str;
       WSContentSend_P(SCRIPT_MSG_CHKBOX, center, label, (char*)option, uval, vname);
       WCS_DIV(glob_script_mem.specopt | WSO_STOP_DIV);
       lp++;
-    } else if (!strncmp(lin, "pd(", 3)) {
+    } else if (!strncmp_P(lin, PSTR("pd("), 3)) {
       // pull down
       char *lp = lin + 3;
       char *slp = lp;
@@ -12936,7 +12965,7 @@ const char *gc_str;
       }
       WSContentSend_P(SCRIPT_MSG_PULLDOWNc);
       WCS_DIV(glob_script_mem.specopt | WSO_STOP_DIV);
-    } else if (!strncmp(lin, "rb(", 3)) {
+    } else if (!strncmp_P(lin, PSTR("rb("), 3)) {
       // radio buttons
       char *lp = lin + 3;
       char *slp = lp;
@@ -12993,7 +13022,7 @@ const char *gc_str;
       WSContentSend_P(SCRIPT_MSG_RADIOc);
       WCS_DIV(glob_script_mem.specopt | WSO_STOP_DIV);
       WSContentFlush();
-    } else if (!strncmp(lin, "bu(", 3)) {
+    } else if (!strncmp_P(lin, PSTR("bu("), 3)) {
       char *lp = lin + 3;
       uint8_t bcnt = 0;
       char *found = lin;
@@ -13048,7 +13077,7 @@ const char *gc_str;
       if (optflg) WSContentSend_P(SCRIPT_MSG_BUT_STOP_TBL);
       else WSContentSend_P(SCRIPT_MSG_BUT_STOP);
 
-    }  else if (!strncmp(lin, "tm(", 3)) {
+    }  else if (!strncmp_P(lin, PSTR("tm("), 3)) {
       // time only HH:MM
       TS_FLOAT val;
       char *lp = lin + 3;
@@ -13078,7 +13107,7 @@ const char *gc_str;
       WCS_DIV(glob_script_mem.specopt);
       WSContentSend_P(SCRIPT_MSG_TEXTINP_U, center, label, type, vstr, min, max, tsiz, styp, vname);
       WCS_DIV(glob_script_mem.specopt | WSO_STOP_DIV);
-    }  else if (!strncmp(lin, "tx(", 3)) {
+    }  else if (!strncmp_P(lin, PSTR("tx("), 3)) {
       // text
       char *lp = lin + 3;
       char *slp = lp;
@@ -13132,7 +13161,7 @@ const char *gc_str;
       lp++;
       //goto restart;
 
-    } else if (!strncmp(lin, "nm(", 3)) {
+    } else if (!strncmp_P(lin, PSTR("nm("), 3)) {
       char *lp = lin;
       TS_FLOAT min;
       lp = GetNumericArgument(lp + 3, OPER_EQU, &min, 0);
@@ -13186,7 +13215,7 @@ const char *gc_str;
       lp++;
 
 #ifdef USE_SML_SCRIPT_CMD
-    } else if (!strncmp(lin, "smlpd(", 6)) {
+    } else if (!strncmp_P(lin, PSTR("smlpd("), 6)) {
       // sml pulldown
       char *lp = lin;
       char *url;
@@ -13304,7 +13333,7 @@ exgc:
         WS_LINE_RETURN
       }
 
-      if (!strncmp(lin, "gc(", 3)) {
+      if (!strncmp_P(lin, PSTR("gc("), 3)) {
         // get google table
         lp = lin + 3;
         SCRIPT_SKIP_SPACES
@@ -13358,7 +13387,7 @@ exgc:
         }
 
         char stacked[6];
-        strcpy_P(stacked,"false");
+        strcpy_P(stacked,PSTR("false"));
         if (glob_script_mem.gs_ctype == 'l' && *lp == 'f') {
           lp++;
           func = PSTR(",curveType:'function'");
@@ -13367,7 +13396,7 @@ exgc:
         }
         if (glob_script_mem.gs_ctype == 'c' && *lp == 's') {
           lp++;
-          strcpy_P(stacked,"true");
+          strcpy_P(stacked,PSTR("true"));
         }
         if (*lp == '2') {
           lp++;
@@ -13476,7 +13505,7 @@ exgc:
           snprintf_P(options, SCRIPT_GC_OPTIONS_SIZE, SCRIPT_MSG_GOPT4);
         }
         if (tonly) {
-          WSContentSend_P("]);");
+          WSContentSend_P(PSTR("]);"));
           if (options) free(options);
           WS_LINE_RETURN
           //goto nextwebline;
@@ -14083,7 +14112,7 @@ int32_t http_req(char *host, char *header, char *request) {
   if (!hbuff) {
     return -1;
   }
-  strcpy(hbuff, "http://");
+  strcpy_P(hbuff, PSTR("http://"));
   bool debug = false;
   if (*host == '@') {
     host++;
@@ -14109,7 +14138,7 @@ int32_t http_req(char *host, char *header, char *request) {
     //AddLog(LOG_LEVEL_INFO, PSTR("HTTP GET %s"),hbuff);
     http.begin(http_client, hbuff);
     if (*header) {
-      http.addHeader("Authorization", header);
+      http.addHeader(F("Authorization"), header);
     }
     httpCode = http.GET();
   } else {
@@ -14117,8 +14146,8 @@ int32_t http_req(char *host, char *header, char *request) {
     //AddLog(LOG_LEVEL_INFO, PSTR("HTTP POST %s - %s"),hbuff, request);
     http.begin(http_client, hbuff);
     if (*header) {
-      http.addHeader("Authorization", header);
-      http.addHeader("Content-Type", "text/plain");
+      http.addHeader(F("Authorization"), header);
+      http.addHeader(F("Content-Type"), F("text/plain"));
     }
     httpCode = http.POST(request);
   }
@@ -14377,348 +14406,6 @@ uint32_t script_i2c(uint8_t sel, uint16_t val, uint32_t val1) {
   return rval;
 }
 #endif // USE_SCRIPT_I2C
-
-
-#ifdef xUSE_LVGL
-#include <renderer.h>
-#include "lvgl.h"
-
-#define MAX_LVGL_OBJS 8
-uint8_t lvgl_numobjs;
-lv_obj_t *lvgl_buttons[MAX_LVGL_OBJS];
-
-void start_lvgl(const char * uconfig);
-lv_event_code_t lvgl_last_event;
-uint8_t lvgl_last_object;
-uint8_t lvgl_last_slider;
-static lv_obj_t * kb;
-static lv_obj_t * ta;
-
-void lvgl_set_last(lv_obj_t * obj, lv_event_code_t event);
-void lvgl_set_last(lv_obj_t * obj, lv_event_code_t event) {
-  lvgl_last_event = event;
-  lvgl_last_object = 0;
-  for (uint8_t cnt = 0; cnt < MAX_LVGL_OBJS; cnt++) {
-    if (lvgl_buttons[cnt] == obj) {
-      lvgl_last_object = cnt + 1;
-      return;
-    }
-  }
-}
-
-
-void btn_event_cb(lv_event_t * e);
-void btn_event_cb(lv_event_t * e) {
-  lvgl_set_last(e->target, e->code);
-  if (e->code == LV_EVENT_CLICKED) {
-    Run_Scripter1(">lvb", 4, 0);
-  }
-}
-
-void slider_event_cb(lv_event_t * e);
-void slider_event_cb(lv_event_t * e) {
-  lvgl_set_last(e->target, e->code);
-  lvgl_last_slider = lv_slider_get_value(e->target);
-  if (e->code == LV_EVENT_VALUE_CHANGED) {
-    Run_Scripter1(">lvs", 4, 0);
-  }
-}
-
-static void kb_create(void);
-static void ta_event_cb(lv_event_t * e);
-static void kb_event_cb(lv_event_t * e);
-
-static void kb_event_cb(lv_event_t * e) {
-    lv_keyboard_def_event_cb(e);
-    if(e->code == LV_EVENT_CANCEL) {
-        lv_keyboard_set_textarea(kb, NULL);
-        lv_obj_del(kb);
-        kb = NULL;
-    }
-}
-
-static void kb_create(void) {
-    kb = lv_keyboard_create(lv_scr_act());
-    lv_obj_add_event_cb(kb, kb_event_cb, LV_EVENT_ALL, nullptr);
-    lv_keyboard_set_textarea(kb, ta);
-}
-
-static void ta_event_cb(lv_event_t * e) {
-    if(e->code == LV_EVENT_CLICKED && kb == NULL) {
-      kb_create();
-    }
-}
-
-
-void lvgl_StoreObj(lv_obj_t *obj);
-void lvgl_StoreObj(lv_obj_t *obj) {
-  if (lvgl_numobjs < MAX_LVGL_OBJS) {
-    lvgl_buttons[lvgl_numobjs] = obj;
-    lvgl_numobjs++;
-  }
-}
-
-int32_t lvgl_test(char **lpp, int32_t p) {
-  char *lp = *lpp;
-  lv_obj_t *obj;
-  lv_obj_t *label;
-  TS_FLOAT xp, yp, xs, ys, min, max;
-  lv_meter_scale_t * scale;
-  lv_meter_indicator_t * indic;
-  char str[SCRIPT_MAX_SBSIZE];
-  int32_t res = 0;
-
-  switch (p) {
-    case 0:
-      start_lvgl(0);
-      lvgl_numobjs = 0;
-      for (uint8_t cnt = 0; cnt < MAX_LVGL_OBJS; cnt++) {
-        lvgl_buttons[cnt] = 0;
-      }
-      break;
-
-    case 1:
-      lv_obj_clean(lv_scr_act());
-      break;
-
-    case 2:
-      // create button;
-      lp = GetNumericArgument(lp, OPER_EQU, &xp, 0);
-      SCRIPT_SKIP_SPACES
-      lp = GetNumericArgument(lp, OPER_EQU, &yp, 0);
-      SCRIPT_SKIP_SPACES
-      lp = GetNumericArgument(lp, OPER_EQU, &xs, 0);
-      SCRIPT_SKIP_SPACES
-      lp = GetNumericArgument(lp, OPER_EQU, &ys, 0);
-      SCRIPT_SKIP_SPACES
-      lp = GetStringArgument(lp, OPER_EQU, str, 0);
-      SCRIPT_SKIP_SPACES
-
-      obj = lv_btn_create(lv_scr_act());
-      lv_obj_set_pos(obj, xp, yp);
-      lv_obj_set_size(obj, xs, ys);
-      lv_obj_add_event_cb(obj, btn_event_cb, LV_EVENT_ALL, nullptr);
-      label = lv_label_create(obj);
-      lv_label_set_text(label, str);
-      lvgl_StoreObj(obj);
-      break;
-
-    case 3:
-      lp = GetNumericArgument(lp, OPER_EQU, &xp, 0);
-      SCRIPT_SKIP_SPACES
-      lp = GetNumericArgument(lp, OPER_EQU, &yp, 0);
-      SCRIPT_SKIP_SPACES
-      lp = GetNumericArgument(lp, OPER_EQU, &xs, 0);
-      SCRIPT_SKIP_SPACES
-      lp = GetNumericArgument(lp, OPER_EQU, &ys, 0);
-      SCRIPT_SKIP_SPACES
-
-      obj = lv_slider_create(lv_scr_act());
-      lv_obj_set_pos(obj, xp, yp);
-      lv_obj_set_size(obj, xs, ys);
-      lv_obj_add_event_cb(obj, slider_event_cb, LV_EVENT_ALL, nullptr);
-      lvgl_StoreObj(obj);
-      break;
-
-    case 4:
-      lp = GetNumericArgument(lp, OPER_EQU, &xp, 0);
-      SCRIPT_SKIP_SPACES
-      lp = GetNumericArgument(lp, OPER_EQU, &yp, 0);
-      SCRIPT_SKIP_SPACES
-      lp = GetNumericArgument(lp, OPER_EQU, &xs, 0);
-      SCRIPT_SKIP_SPACES
-      lp = GetNumericArgument(lp, OPER_EQU, &ys, 0);
-      SCRIPT_SKIP_SPACES
-      lp = GetNumericArgument(lp, OPER_EQU, &min, 0);
-      SCRIPT_SKIP_SPACES
-      lp = GetNumericArgument(lp, OPER_EQU, &max, 0);
-      SCRIPT_SKIP_SPACES
-
-      obj = lv_meter_create(lv_scr_act());
-      lv_obj_set_pos(obj, xp, yp);
-      lv_obj_set_size(obj, xs, ys);
-      scale = lv_meter_add_scale(obj);
-      /*Add a needle line indicator*/
-      indic = lv_meter_add_needle_line(obj, scale, 4, lv_palette_main(LV_PALETTE_GREY), -10);
-
-      // lv_gauge_set_range(obj, min, max);   // TODO LVGL8
-      lvgl_StoreObj(obj);
-      break;
-
-    case 5:
-      lp = GetNumericArgument(lp, OPER_EQU, &min, 0);
-      SCRIPT_SKIP_SPACES
-      lp = GetNumericArgument(lp, OPER_EQU, &max, 0);
-      SCRIPT_SKIP_SPACES
-      if (lvgl_buttons[(uint8_t)min - 1]) {
-        // lv_gauge_set_value(lvgl_buttons[(uint8_t)min - 1], 0, max);   // TODO LVGL8
-      }
-      break;
-
-    case 6:
-      // create label;
-      lp = GetNumericArgument(lp, OPER_EQU, &xp, 0);
-      SCRIPT_SKIP_SPACES
-      lp = GetNumericArgument(lp, OPER_EQU, &yp, 0);
-      SCRIPT_SKIP_SPACES
-      lp = GetNumericArgument(lp, OPER_EQU, &xs, 0);
-      SCRIPT_SKIP_SPACES
-      lp = GetNumericArgument(lp, OPER_EQU, &ys, 0);
-      SCRIPT_SKIP_SPACES
-      lp = GetStringArgument(lp, OPER_EQU, str, 0);
-      SCRIPT_SKIP_SPACES
-
-      obj = lv_label_create(lv_scr_act());
-      lv_obj_set_pos(obj, xp, yp);
-      lv_obj_set_size(obj, xs, ys);
-      lv_label_set_text(obj, str);
-      lvgl_StoreObj(obj);
-      break;
-
-    case 7:
-      lp = GetNumericArgument(lp, OPER_EQU, &min, 0);
-      SCRIPT_SKIP_SPACES
-      lp = GetStringArgument(lp, OPER_EQU, str, 0);
-      SCRIPT_SKIP_SPACES
-      if (lvgl_buttons[(uint8_t)min - 1]) {
-        lv_label_set_text(lvgl_buttons[(uint8_t)min - 1], str);
-      }
-      break;
-
-    case 8:
-      {
-      ta  = lv_textarea_create(lv_scr_act());
-      lv_obj_align(ta, LV_ALIGN_TOP_MID, 0, LV_DPI_DEF / 16);
-      lv_obj_add_event_cb(ta, ta_event_cb, LV_EVENT_ALL, nullptr);
-      lv_textarea_set_text(ta, "");
-      lv_coord_t max_h = LV_VER_RES / 2 - LV_DPI_DEF / 8;
-      if (lv_obj_get_height(ta) > max_h) lv_obj_set_height(ta, max_h);
-      kb_create();
-      }
-      break;
-
-    case 50:
-      res = lvgl_last_object;
-      break;
-    case 51:
-      res = lvgl_last_event;
-      break;
-    case 52:
-      res = lvgl_last_slider;
-      break;
-
-
-    default:
-      start_lvgl(0);
-      lvgl_setup();
-      break;
-  }
-
-  *lpp = lp;
-  return res;
-}
-
-
-lv_obj_t          *tabview,        // LittlevGL tabview object
-                  *gauge,          // Gauge object (on first of three tabs)
-                  *chart,          // Chart object (second tab)
-                  *canvas;         // Canvas object (third tab)
-uint8_t            active_tab = 0, // Index of currently-active tab (0-2)
-                   prev_tab   = 0; // Index of previously-active tab
-lv_chart_series_t *series;         // 'Series' data for the bar chart
-lv_draw_line_dsc_t draw_dsc; // Drawing style (for canvas) is similarly global
-
-#define CANVAS_WIDTH  200 // Dimensions in pixels
-#define CANVAS_HEIGHT 150
-
-void lvgl_setup(void) {
-  // Create a tabview object, by default this covers the full display.
-  tabview = lv_tabview_create(lv_disp_get_scr_act(NULL), LV_DIR_TOP, 50);
-  // The CLUE display has a lot of pixels and can't refresh very fast.
-  // To show off the tabview animation, let's slow it down to 1 second.
-  // lv_tabview_set_anim_time(tabview, 1000);  // LVGL8 TODO
-
-  // Because they're referenced any time an object is drawn, styles need
-  // to be permanent in scope; either declared globally (outside all
-  // functions), or static. The styles used on tabs are never modified after
-  // they're used here, so let's use static on those...
-  static lv_style_t tab_style, tab_background_style, indicator_style;
-
-  // This is the background style "behind" the tabs. This is what shows
-  // through for "off" (inactive) tabs -- a vertical green gradient,
-  // minimal padding around edges (zero at bottom).
-  lv_style_init(&tab_background_style);
-  lv_style_set_bg_color(&tab_background_style, lv_color_hex(0x408040));
-  lv_style_set_bg_grad_color(&tab_background_style, lv_color_hex(0x304030));
-  lv_style_set_bg_grad_dir(&tab_background_style, LV_GRAD_DIR_VER);
-  lv_style_set_pad_top(&tab_background_style, 2);
-  lv_style_set_pad_left(&tab_background_style, 2);
-  lv_style_set_pad_right(&tab_background_style, 2);
-  lv_style_set_pad_bottom(&tab_background_style, 0);
-  // lv_obj_add_style(tabview, LV_TABVIEW_PART_TAB_BG, &tab_background_style); // LVGL8 TODO
-  //lv_tabview_add_tab(tabview, LV_TABVIEW_PART_TAB_BG, &tab_background_style); // LVGL8 TODO
-
-  // Style for tabs. Active tab is white with opaque background, inactive
-  // tabs are transparent so the background shows through (only the white
-  // text is seen). A little top & bottom padding reduces scrunchyness.
-  lv_style_init(&tab_style);
-  lv_style_set_pad_top(&tab_style, 3);
-  lv_style_set_pad_bottom(&tab_style, 10);
-  lv_style_set_bg_color(&tab_style, lv_color_white());
-  lv_style_set_bg_opa(&tab_style, LV_OPA_100);
-  lv_style_set_text_color(&tab_style, lv_color_make(0xff, 0xff, 0xff));
-  lv_style_set_bg_opa(&tab_style, LV_OPA_TRANSP);
-  lv_style_set_text_color(&tab_style, lv_color_white());
-  // lv_obj_add_style(tabview, LV_TABVIEW_PART_TAB_BTN, &tab_style);  // LVGL8 TODO
-
-  // Style for the small indicator bar that appears below the active tab.
-  lv_style_init(&indicator_style);
-  lv_style_set_bg_color(&indicator_style, lv_color_make(0xff, 0x00, 0x00));
-  lv_style_set_size(&indicator_style, 5);
-  // lv_obj_add_style(tabview, LV_TABVIEW_PART_INDIC, &indicator_style);  // LVGL8 TODO
-
-  // Back to creating widgets...
-
-  // Add three tabs to the tabview
-  lv_obj_t *tab1 = lv_tabview_add_tab(tabview, "Gauge");
-  lv_obj_t *tab2 = lv_tabview_add_tab(tabview, "Chart");
-  lv_obj_t *tab3 = lv_tabview_add_tab(tabview, "Canvas");
-
-  // And then add stuff in each tab...
-
-  // The first tab holds a gauge. To keep the demo simple, let's just use
-  // the default style and range (0-100). See LittlevGL docs for options.
-  gauge = lv_meter_create(tab1);
-  lv_obj_set_size(gauge, 186, 186);
-  lv_obj_align(gauge,LV_ALIGN_CENTER, 0, 0);
-
-  // Second tab, make a chart...
-  chart = lv_chart_create(tab2);
-  lv_obj_set_size(chart, 200, 180);
-  lv_obj_align(chart, LV_ALIGN_CENTER, 0, 0);
-  lv_chart_set_type(chart, LV_CHART_TYPE_BAR);
-  // For simplicity, we'll stick with the chart's default 10 data points:
-  // series = lv_chart_add_series(chart, lv_color_make(0xff, 0x00, 0x00));  // LVGL8 TODO
-  // lv_chart_init_points(chart, series, 0);  // LVGL8 TODO
-  // Make each column shift left as new values enter on right:
-  lv_chart_set_update_mode(chart, LV_CHART_UPDATE_MODE_SHIFT);
-
-  // Third tab is a canvas, which we'll fill with random colored lines.
-  // LittlevGL draw functions only work on TRUE_COLOR canvas.
-/*  canvas = lv_canvas_create(tab3);
-  lv_canvas_set_buffer(canvas, canvas_buffer,
-    CANVAS_WIDTH, CANVAS_HEIGHT, LV_IMG_CF_TRUE_COLOR);
-  lv_obj_align(canvas, LV_ALIGN_CENTER, 0, 0);
-  lv_canvas_fill_bg(canvas, lv_color_white(), LV_OPA_100);
-
-  // Set up canvas line-drawing style based on defaults.
-  // Later we'll change color settings when drawing each line.
-  lv_draw_line_dsc_init(&draw_dsc);
-  */
-}
-
-
-#endif // USE_LVGL
 
 
 #ifdef USE_TIMERS
