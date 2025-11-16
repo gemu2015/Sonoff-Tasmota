@@ -402,7 +402,7 @@ extern Renderer *renderer;
 #endif
 
 enum {OPER_EQU=1,OPER_PLS,OPER_MIN,OPER_MUL,OPER_DIV,OPER_PLSEQU,OPER_MINEQU,OPER_MULEQU,OPER_DIVEQU,OPER_EQUEQU,OPER_NOTEQU,OPER_GRTEQU,OPER_LOWEQU,OPER_GRT,OPER_LOW,OPER_PERC,OPER_XOR,OPER_AND,OPER_OR,OPER_ANDEQU,OPER_OREQU,OPER_XOREQU,OPER_PERCEQU,OPER_SHLEQU,OPER_SHREQU,OPER_SHL,OPER_SHR};
-enum {SCRIPT_LOGLEVEL=1,SCRIPT_TELEPERIOD,SCRIPT_EVENT_HANDLED,SML_JSON_ENABLE,SCRIPT_EPOFFS,SCRIPT_CBSIZE,SCRIPT_UDP_PBS,SCRIPT_UDP_MOD,SCRIPT_LOCVARS};
+enum {SCRIPT_LOGLEVEL=1,SCRIPT_TELEPERIOD,SCRIPT_EVENT_HANDLED,SML_JSON_ENABLE,SCRIPT_EPOFFS,SCRIPT_CBSIZE,SCRIPT_UDP_PBS,SCRIPT_UDP_MOD,SCRIPT_LOCVARS,SCRIPT_LOCSVARS};
 
 
 #ifdef USE_UFILESYS
@@ -825,6 +825,7 @@ typedef struct {
 
 #ifdef SCRIPT_LOCAL_NVARS
   TS_FLOAT locvars[SCRIPT_LOCAL_NVARS];
+  char *locsvars[SCRIPT_LOCAL_NVARS];
   uint8_t lvindex;
 #endif
 
@@ -5216,7 +5217,7 @@ _Pragma("GCC warning \"'EXT 1 wakeup' not supported using gpio mode\"")
       case 'l':
 #ifdef SCRIPT_LOCAL_NVARS
         if (!strncmp_XP(vname, XPSTR("lnv"), 3)) {
-          glob_script_mem.lvindex = vname[3];
+          glob_script_mem.lvindex = vname[3] & 0xf;
           if (glob_script_mem.lvindex >= SCRIPT_LOCAL_NVARS) {
             glob_script_mem.lvindex = SCRIPT_LOCAL_NVARS - 1;
           }
@@ -5224,6 +5225,23 @@ _Pragma("GCC warning \"'EXT 1 wakeup' not supported using gpio mode\"")
           tind->index = SCRIPT_LOCVARS;
           goto exit_settable;
         }
+        if (!strncmp_XP(vname, XPSTR("lsv"), 3)) {
+          glob_script_mem.lvindex = vname[3] & 0xf;
+          if (glob_script_mem.lvindex >= SCRIPT_LOCAL_NVARS) {
+            glob_script_mem.lvindex = SCRIPT_LOCAL_NVARS - 1;
+          }
+          tind->index = SCRIPT_LOCSVARS;
+          if (!glob_script_mem.locsvars[glob_script_mem.lvindex]) {
+            glob_script_mem.locsvars[glob_script_mem.lvindex] = (char*)calloc(glob_script_mem.max_ssize + 2, 1);
+          }
+          if (sp) {
+            strlcpy(sp, glob_script_mem.locsvars[glob_script_mem.lvindex], glob_script_mem.max_ssize);
+          }
+          *vtype = STYPE;
+          tind->bits.settable = 1;
+          tind->bits.is_string = 1;
+          return lp + len;
+        }   
 #endif // SCRIPT_LOCAL_NVARS
         if (!strncmp_XP(lp, XPSTR("lip"), 3)) {
           if (sp) strlcpy(sp, (const char*)WiFi.localIP().toString().c_str(), glob_script_mem.max_ssize);
@@ -9351,6 +9369,10 @@ chk_switch:
                       }
                   } else {
                     // string result
+                    if (ind.bits.settable) {
+                      sysv_type = ind.index;
+                      globvindex = -1;
+                    }
                     numeric = 0;
                     sindex = index;
                     saindex = gv->strind;
@@ -9386,6 +9408,7 @@ chk_switch:
                         }
                       }
 #endif //USE_SCRIPT_GLOBVARS
+
                       if (saindex >= 0) {
                         if (lastop == OPER_EQU) {
                           strlcpy(glob_script_mem.last_index_string[glob_script_mem.sind_num] + (saindex * glob_script_mem.max_ssize), str, glob_script_mem.max_ssize);
@@ -9394,10 +9417,17 @@ chk_switch:
                         }
                         gv->strind = -1;
                       } else {
+                        char *cp = glob_script_mem.glob_snp + (sindex * glob_script_mem.max_ssize);
+#ifdef SCRIPT_LOCAL_NVARS
+                        if ((sysv_type == SCRIPT_LOCSVARS) && glob_script_mem.locsvars[glob_script_mem.lvindex]) {
+                          cp = glob_script_mem.locsvars[glob_script_mem.lvindex];
+                          sysv_type = 0;
+                        }
+#endif
                         if (lastop == OPER_EQU) {
-                          strlcpy(glob_script_mem.glob_snp + (sindex * glob_script_mem.max_ssize), str, glob_script_mem.max_ssize);
+                          strlcpy(cp, str, glob_script_mem.max_ssize);
                         } else if (lastop == OPER_PLSEQU) {
-                          strncat(glob_script_mem.glob_snp + (sindex * glob_script_mem.max_ssize), str, glob_script_mem.max_ssize);
+                          strncat(cp, str, glob_script_mem.max_ssize);
                         }
                       }
                     }
@@ -10509,6 +10539,14 @@ void SaveScriptEnd(void) {
     free(glob_script_mem.script_mem);
     glob_script_mem.script_mem = 0;
     glob_script_mem.script_mem_size = 0;
+#ifdef SCRIPT_LOCAL_NVARS
+    for (uint32_t cnt = 0; cnt < SCRIPT_LOCAL_NVARS; cnt++) {
+      if (glob_script_mem.locsvars[cnt]) {
+        free(glob_script_mem.locsvars[cnt]);
+        glob_script_mem.locsvars[cnt] = 0;
+      }
+    }
+#endif
  #ifdef USE_SCRIPT_SERIAL
     Script_Close_Serial();
 #endif
