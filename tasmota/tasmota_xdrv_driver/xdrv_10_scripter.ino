@@ -47,7 +47,7 @@ keywords if then else endif, or, and are better readable for beginners (others m
 #endif
 // float = 4, double = 8 bytes
 
-const uint8_t SCRIPT_VERS[2] = {5, 7};
+const uint8_t SCRIPT_VERS[2] = {5, 8};
 
 #define SCRIPT_DEBUG 0
 
@@ -1260,6 +1260,8 @@ char *script;
                     lp += 2;
                     numshadow += 1;
                 }
+#else
+                vtypes[vars].bits.shadow = 1;
 #endif
                 if (*lp == 'p' && *(lp + 1) == ':') {
                     lp += 2;
@@ -3644,7 +3646,7 @@ chknext:
 #ifdef USE_SHADOW_X
             if (!glob_script_mem.FLAGS.x_used || ind.bits.shadow) {
 #else
-            if (1) {
+            if (ind.bits.shadow ) {
 #endif
               if (!glob_script_mem.FLAGS.ignore_line) {
                 uint16_t index = glob_script_mem.type[ind.index].index;
@@ -3817,7 +3819,7 @@ extern void W8960_SetGain(uint8_t sel, uint16_t value);
 #ifdef USE_SHADOW_X
             if (!glob_script_mem.FLAGS.x_used || ind.bits.shadow) {
 #else
-            if (1) {
+            if (ind.bits.shadow) {
 #endif
               uint16_t index = glob_script_mem.type[ind.index].index;
               fvar = glob_script_mem.fvars[index] - glob_script_mem.s_fvars[index];
@@ -5239,6 +5241,7 @@ _Pragma("GCC warning \"'EXT 1 wakeup' not supported using gpio mode\"")
           }
           *vtype = STYPE;
           tind->bits.settable = 1;
+          tind->bits.shadow = 0;
           tind->bits.is_string = 1;
           return lp + len;
         }   
@@ -5260,6 +5263,7 @@ _Pragma("GCC warning \"'EXT 1 wakeup' not supported using gpio mode\"")
           if (fp) *fp = fvar;
           *vtype = NTYPE;
           tind->bits.settable = 1;
+          tind->bits.shadow = 0;
           tind->bits.is_string = 0;
           return lp + len;
         }
