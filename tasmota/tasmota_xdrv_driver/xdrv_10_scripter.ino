@@ -6911,6 +6911,13 @@ void tmod_directModeOutput(uint32_t pin);
 #endif
         break;
 
+      case 'v':
+        if (!strncmp_XP(vname, XPSTR("vers"), 4)) {
+          fvar = (TS_FLOAT)SCRIPT_VERS[0] + ((TS_FLOAT)SCRIPT_VERS[1] / 10.0);
+          goto exit;
+        }
+        break;
+
       case 'w':
 #if defined(ESP32) && defined(USE_WEBCAM)
         if (!strncmp_XP(lp, XPSTR("wc("), 3)) {
@@ -10351,7 +10358,10 @@ void HandleScriptTextareaConfiguration(void) {
             file = ufsp->open(fname, FS_FILE_WRITE);
             ep++;
             ep[0] = '>';
+            ep[slen - 1] = '#';
             file.write((const uint8_t*)ep, slen);
+            // restore to enable >F find
+            ep[slen - 1] = '>';
             file.close();
           } else {
             ufsp->remove(fname);
@@ -10365,6 +10375,7 @@ void HandleScriptTextareaConfiguration(void) {
             file = ufsp->open(fname, FS_FILE_WRITE);
             ep++;
             ep[0] = '>';
+            ep[slen - 1] = '#';
             file.write((const uint8_t*)ep, slen);
             file.close();
           } else {
@@ -11263,6 +11274,15 @@ uint32_t options = 0;
 #endif
 #ifdef TESLA_POWERWALL
   options |= 0x10000000;
+#endif
+#ifdef SCRIPT_LOCAL_NVARS
+  options |= 0x20000000;
+#endif
+#ifdef USE_SHADOW_X
+  options |= 0x40000000;
+#endif
+#ifdef USE_BINPLUGINS
+  options |= 0x80000000;
 #endif
 
 
