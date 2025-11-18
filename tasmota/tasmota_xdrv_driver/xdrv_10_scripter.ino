@@ -7559,7 +7559,8 @@ int32_t play_wave(char *path) {
   }
 #endif
 
-File wf = ufsp->open(path, FS_FILE_READ);
+  FS *cfp = script_file_path(path);
+  File wf = cfp->open(path, FS_FILE_READ);
   if (!wf) {
     return -1;
   }
@@ -7627,7 +7628,8 @@ char *exfile(char *lp, TS_FLOAT *error) {
   char str[SCRIPT_MAX_SBSIZE];
   lp = GetStringArgument(lp, OPER_EQU, str, 0);
   // execute script
-  File ef = ufsp->open(str, FS_FILE_READ);
+  FS *cfp = script_file_path(str);
+  File ef = cfp->open(str, FS_FILE_READ);
   if (ef) {
     uint16_t fsiz = ef.size();
     if (fsiz < EXFMAXSIZE) {
@@ -7648,7 +7650,8 @@ char *exfile(char *lp, TS_FLOAT *error) {
 
 int32_t script_logfile_write(char *path, char *payload, uint32_t size) {
 
-      File rfd = ufsp->open(path, FS_FILE_APPEND);
+      FS *cfp = script_file_path(path);
+      File rfd = cfp->open(path, FS_FILE_APPEND);
       if (rfd == 0) {
         return -1;
       }
@@ -7674,7 +7677,7 @@ int32_t script_logfile_write(char *path, char *payload, uint32_t size) {
       }
       rfd.close();
       wfd.close();
-      ufsp->remove(path);
+      cfp->remove(path);
       ufsp->rename("/ltmp", path);
 
   return fsize;
@@ -10192,12 +10195,14 @@ uint8_t DownloadFile(char *file) {
   File download_file;
   WiFiClient download_Client;
 
-    if (!ufsp->exists(file)) {
+  FS *cfp = script_file_path(file);
+
+    if (!cfp->exists(file)) {
       AddLog(LOG_LEVEL_INFO,PSTR("SCR: file not found"));
       return 0;
     }
 
-    download_file = ufsp->open(file, FS_FILE_READ);
+    download_file = cfp->open(file, FS_FILE_READ);
     if (!download_file) {
       AddLog(LOG_LEVEL_INFO,PSTR("SCR: could not open file"));
       return 0;
@@ -10335,8 +10340,10 @@ void HandleScriptTextareaConfiguration(void) {
         // copy to file
         char fname[24];
         strcpy_P(fname, PSTR("/sml_meter.def"));
-        if (Webserver->hasArg("smlsav")) {
-          String path = Webserver->arg("smlsav");
+        char warg[10];
+        strcpy_P(warg, PSTR("smlsav"));
+        if (Webserver->hasArg(warg)) {
+          String path = Webserver->arg(warg);
           if (path.length() > 0) {
             strcat(&fname[1], path.c_str());
           }
