@@ -1688,17 +1688,13 @@ char *script;
 
 
 #ifdef USE_SCRIPT_GLOBVARS
-int32_t udp_call(char *url, uint32_t port, char *sbuf, uint16_t len) {
+int32_t udp_call(char *url, uint32_t port, uint8_t *sbuf, uint16_t len) {
   WiFiUDP udp;
   IPAddress adr;
   adr.fromString(url);
   udp.begin(port);
   udp.beginPacket(adr, port);
-  if (!len) {
-    udp.write((const uint8_t*)sbuf, strlen(sbuf));
-  } else {
-    udp.write((const uint8_t*)sbuf, len);
-  }
+  udp.write((const uint8_t*)sbuf, len);
   udp.endPacket();
   udp.flush();
   udp.stop();
@@ -6908,7 +6904,7 @@ void tmod_directModeOutput(uint32_t pin);
             lp = GetNumericArgument(lp, OPER_EQU, &port, gv);
             char payload[SCRIPT_MAX_SBSIZE];
             lp = GetStringArgument(lp, OPER_EQU, payload, 0);
-            fvar = udp_call(url, port, payload, 0);
+            fvar = udp_call(url, port, (uint8_t*)payload, strlen(payload));
           }
           if (sel == 7) {
             // generic send array to url and port
@@ -6920,7 +6916,7 @@ void tmod_directModeOutput(uint32_t pin);
             uint16_t alend;
             uint16_t ipos;
             lp = get_array_by_name(lp, &fpd, &alend, &ipos);
-            char *payload = (char*)malloc(alend + 2);
+            uint8_t *payload = (uint8_t*)malloc(alend + 2);
             if (payload) {
               for (uint32_t cnt = 0; cnt < alend; cnt++) {
                 payload[cnt] = fpd[cnt];
