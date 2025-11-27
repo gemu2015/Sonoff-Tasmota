@@ -8920,7 +8920,7 @@ chk_switch:
               lp = GetNumericArgument(lp + 6, OPER_EQU, &fvar, 0);
               int8_t pinnr = fvar;
               if (Is_gpio_used(pinnr)) {
-                AddLog(LOG_LEVEL_INFO, PSTR("SCR: warning, pins already used"));
+                AddLog(LOG_LEVEL_INFO, PSTR("SCR: warning, pin %d already used"), pinnr);
               }
               SCRIPT_SKIP_SPACES
               uint8_t mode = 0;
