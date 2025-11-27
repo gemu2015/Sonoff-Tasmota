@@ -457,6 +457,7 @@ typedef union {
     uint8_t hchanged : 1;
     uint8_t integer : 1;
     uint8_t shadow : 1;
+    uint8_t locvar : 1;
   };
 } SCRIPT_TYPE;
 
@@ -5220,15 +5221,18 @@ _Pragma("GCC warning \"'EXT 1 wakeup' not supported using gpio mode\"")
 #ifdef SCRIPT_LOCAL_NVARS
         if (!strncmp_XP(vname, XPSTR("lnv"), 3)) {
           glob_script_mem.lvindex = vname[3] & 0xf;
+          len = 4;
           if (glob_script_mem.lvindex >= SCRIPT_LOCAL_NVARS) {
             glob_script_mem.lvindex = SCRIPT_LOCAL_NVARS - 1;
           }
           fvar = glob_script_mem.locvars[glob_script_mem.lvindex];
           tind->index = SCRIPT_LOCVARS;
+          tind->bits.locvar = 1;
           goto exit_settable;
         }
         if (!strncmp_XP(vname, XPSTR("lsv"), 3)) {
           glob_script_mem.lvindex = vname[3] & 0xf;
+          len = 4;
           if (glob_script_mem.lvindex >= SCRIPT_LOCAL_NVARS) {
             glob_script_mem.lvindex = SCRIPT_LOCAL_NVARS - 1;
           }
@@ -8727,8 +8731,13 @@ startline:
               lp = isvar(lp, &vtype, &ind, 0, 0, gv);
               if ((vtype != VAR_NV) && (vtype & STYPE) == 0) {
                   // numeric var
-                  uint8_t index = glob_script_mem.type[ind.index].index;
-                  cv_count[loopdepth] = &glob_script_mem.fvars[index];
+                  if (ind.bits.locvar) {
+                    cv_count[loopdepth] = &glob_script_mem.locvars[glob_script_mem.lvindex];
+                  } else {
+                    uint8_t index = glob_script_mem.type[ind.index].index;
+                    cv_count[loopdepth] = &glob_script_mem.fvars[index];
+                  }
+
                   lp = GetNumericArgument(lp, OPER_EQU, cv_count[loopdepth], 0);
                   lp = GetNumericArgument(lp, OPER_EQU, &cv_max[loopdepth], 0);
                   lp = GetNumericArgument(lp, OPER_EQU, &cv_inc[loopdepth], 0);
