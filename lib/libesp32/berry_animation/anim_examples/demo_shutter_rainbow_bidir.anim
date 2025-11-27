@@ -2,12 +2,12 @@
 #
 # Shutter from left to right iterating in all colors, then right to left
   
-template shutter_bidir {
+template animation shutter_bidir {
   param colors type palette
-  param duration
+  param period type time
 
   set strip_len = strip_length()
-  set shutter_size = sawtooth(min_value = 0, max_value = strip_len, duration = duration)
+  set shutter_size = sawtooth(min_value = 0, max_value = strip_len, duration = period)
 
   color col1 = color_cycle(palette=colors, cycle_period=0)
   color col2 = color_cycle(palette=colors, cycle_period=0)
@@ -36,13 +36,13 @@ template shutter_bidir {
   sequence shutter_seq repeat forever {
     repeat col1.palette_size times {
       restart shutter_size
-      play shutter_lr_animation for duration
+      play shutter_lr_animation for period
       col1.next = 1
       col2.next = 1
     }
     repeat col1.palette_size times {
       restart shutter_size
-      play shutter_rl_animation for duration
+      play shutter_rl_animation for period
       col1.next = 1
       col2.next = 1
     }
@@ -51,13 +51,16 @@ template shutter_bidir {
   run shutter_seq
 }
 
-palette rainbow_with_white = [ red
-  orange
-  yellow
-  green,      # comma left on-purpose to test transpiler
-  blue        # need for a lighter blue
-  indigo
-  white
+palette rainbow_with_white = [
+  0xFC0000        # Red
+  0xFF8000        # Orange
+  0xFFFF00        # Yellow
+  0x00FF00        # Green
+  0x00FFFF        # Cyan
+  0x0080FF        # Blue
+  0x8000FF        # Violet
+  0xCCCCCC        # White
 ]
 
-shutter_bidir(rainbow_with_white, 1.5s)
+animation main = shutter_bidir(colors=rainbow_with_white, period=1.5s)
+run main

@@ -7,12 +7,14 @@
 # - Constructor takes only 'engine' parameter
 # - All other parameters set via virtual member assignment after creation
 
+import "./core/param_encoder" as encode_constraints
+
 #@ solidify:StaticColorProvider,weak
 class StaticColorProvider : animation.color_provider
   # Parameter definitions
-  static var PARAMS = {
+  static var PARAMS = animation.enc_params({
     "color": {"default": 0xFFFFFFFF}  # Default to white
-  }
+  })
   
   # Produce the solid color for any parameter name
   #
@@ -20,7 +22,12 @@ class StaticColorProvider : animation.color_provider
   # @param time_ms: int - Current time in milliseconds (ignored)
   # @return int - Color in ARGB format (0xAARRGGBB)
   def produce_value(name, time_ms)
-    return self.color
+    var color = self.color
+    var brightness = self.brightness
+    if brightness != 255
+      return self.apply_brightness(color, brightness)
+    end
+    return color
   end
   
   # Get the solid color for a value (ignores the value)
@@ -29,7 +36,12 @@ class StaticColorProvider : animation.color_provider
   # @param time_ms: int - Current time in milliseconds (ignored)
   # @return int - Color in ARGB format (0xAARRGGBB)
   def get_color_for_value(value, time_ms)
-    return self.color
+    var color = self.color
+    var brightness = self.brightness
+    if brightness != 255
+      return self.apply_brightness(color, brightness)
+    end
+    return color
   end
   
   # String representation of the provider

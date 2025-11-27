@@ -595,6 +595,151 @@ animation.register_user_function("pulse_effect", create_pulse_effect)
 
 ## Performance Issues
 
+### CPU Metrics and Profiling
+
+**Feature:** Built-in CPU metrics tracking to monitor animation performance
+
+The AnimationEngine automatically tracks CPU usage and provides detailed statistics every 5 seconds. This helps identify performance bottlenecks and optimize animations for ESP32 embedded systems.
+
+**Automatic Metrics:**
+
+When the engine is running, it automatically logs performance statistics:
+
+```
+AnimEngine: ticks=1000/1000 missed=0 total=0.50ms(0-2) anim=0.30ms(0-1) hw=0.20ms(0-1) cpu=10.0%
+  Phase1(checks): mean=0.05ms(0-0)
+  Phase2(events): mean=0.05ms(0-0)
+  Phase3(anim): mean=0.20ms(0-1)
+```
+
+**Metrics Explained:**
+- **ticks**: Actual ticks executed vs expected (at 5ms intervals)
+- **missed**: Hint of missed ticks (negative means extra ticks, positive means missed)
+- **total**: Mean total tick time with (min-max) range in milliseconds
+- **anim**: Mean animation calculation time with (min-max) range - everything before hardware output
+- **hw**: Mean hardware output time with (min-max) range - just the LED strip update
+- **cpu**: Overall CPU usage percentage over the 5-second period
+
+**Phase Metrics (Optional):**
+When intermediate measurement points are available, the engine also reports phase-based timing:
+- **Phase1(checks)**: Initial checks (strip length, throttling, can_show)
+- **Phase2(events)**: Event processing time
+- **Phase3(anim)**: Animation update and render time (before hardware output)
+
+**Timestamp-Based Profiling:**
+
+The engine uses a timestamp-based profiling system that stores only timestamps (not durations) in instance variables:
+
+- `ts_start` - Tick start timestamp
+- `ts_1` - After initial checks (optional)
+- `ts_2` - After event processing (optional)
+- `ts_3` - After animation update/render (optional)
+- `ts_hw` - After hardware output
+- `ts_end` - Tick end timestamp
+
+Durations are computed from these timestamps in `_record_tick_metrics()` with nil checks to ensure values are valid.
+
+**Accessing Profiling Data:**
+
+```berry
+import animation
+
+var strip = Leds(30)
+var engine = animation.create_engine(strip)
+
+# Add an animation
+var anim = animation.solid(engine)
+anim.color = 0xFFFF0000
+engine.add(anim)
+engine.run()
+
+# Run for a while to collect metrics
+# After 5 seconds, metrics are automatically logged
+
+# Access current metrics programmatically
+print("Tick count:", engine.tick_count)
+print("Total time sum:", engine.tick_time_sum)
+print("Animation time sum:", engine.anim_time_sum)
+print("Hardware time sum:", engine.hw_time_sum)
+
+# Access phase metrics if available
+if engine.phase1_time_sum > 0
+  print("Phase 1 time sum:", engine.phase1_time_sum)
+end
+```
+
+**Profiling Benefits:**
+
+1. **Memory Efficient:**
+   - Only stores timestamps (6 instance variables)
+   - No duration storage or arrays
+   - Streaming statistics with no memory overhead
+
+2. **Automatic Tracking:**
+   - No manual instrumentation needed
+   - Runs continuously in background
+   - Reports every 5 seconds
+
+3. **Detailed Breakdown:**
+   - Separates animation calculation from hardware output
+   - Optional phase-based timing for deeper analysis
+   - Min/max/mean statistics for all metrics
+
+**Interpreting Performance Metrics:**
+
+1. **High Animation Time:**
+   - Too many simultaneous animations
+   - Complex value provider calculations
+   - Inefficient custom effects
+   
+   **Solution:** Simplify animations or use sequences
+
+2. **High Hardware Time:**
+   - Large LED strip (many pixels)
+   - Slow SPI/I2C communication
+   - Hardware limitations
+   
+   **Solution:** Reduce update frequency or strip length
+
+3. **Missed Ticks:**
+   - CPU overload (total time > 5ms per tick)
+   - Other Tasmota tasks interfering
+   
+   **Solution:** Optimize animations or reduce complexity
+
+4. **High CPU Percentage:**
+   - Animations consuming too much CPU
+   - May affect other Tasmota functions
+   
+   **Solution:** Increase animation periods or reduce effects
+
+**Example Performance Optimization:**
+
+```berry
+import animation
+
+var strip = Leds(60)
+var engine = animation.create_engine(strip)
+
+# Before optimization - complex animation
+var complex_anim = animation.rainbow_animation(engine)
+complex_anim.period = 100  # Very fast, high CPU
+
+engine.add(complex_anim)
+engine.run()
+
+# Check metrics after 5 seconds:
+# AnimEngine: ticks=950/1000 missed=50 total=5.2ms(4-8) cpu=104.0%
+# ^ Too slow! Missing ticks and over 100% CPU
+
+# After optimization - slower period
+complex_anim.period = 2000  # 2 seconds instead of 100ms
+
+# Check metrics after 5 seconds:
+# AnimEngine: ticks=1000/1000 missed=0 total=0.8ms(0-2) cpu=16.0%
+# ^ Much better! All ticks processed, reasonable CPU usage
+```
+
 ### Choppy Animations
 
 **Problem:** Animations appear jerky or stuttering
@@ -641,6 +786,19 @@ animation.register_user_function("pulse_effect", create_pulse_effect)
    anim2.opacity = breathing  # Reuse same provider
    ```
 
+4. **Monitor CPU Metrics:**
+   ```berry
+   # Check if CPU is overloaded
+   # Look for missed ticks or high CPU percentage in metrics
+   # AnimEngine: ticks=950/1000 missed=50 ... cpu=95.0%
+   # ^ This indicates performance issues
+   
+   # Use profiling to find bottlenecks
+   engine.profile_start("suspect_code")
+   # ... code that might be slow ...
+   engine.profile_end("suspect_code")
+   ```
+
 ### Memory Issues
 
 **Problem:** Out of memory errors or system crashes
@@ -658,9 +816,9 @@ animation.register_user_function("pulse_effect", create_pulse_effect)
    ```berry
    # Good - reasonable palette size
    palette simple_fire = [
-     (0, #000000),
-     (128, #FF0000),
-     (255, #FFFF00)
+     (0, 0x000000),
+     (128, 0xFF0000),
+     (255, 0xFFFF00)
    ]
    
    # Avoid - very large palettes

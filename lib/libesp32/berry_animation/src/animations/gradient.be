@@ -3,6 +3,8 @@
 # This animation creates smooth color gradients that can be linear or radial,
 # with optional movement and color transitions over time.
 
+import "./core/param_encoder" as encode_constraints
+
 #@ solidify:GradientAnimation,weak
 class GradientAnimation : animation.animation
   # Non-parameter instance variables only
@@ -10,14 +12,14 @@ class GradientAnimation : animation.animation
   var phase_offset       # Current phase offset for movement
   
   # Parameter definitions following parameterized class specification
-  static var PARAMS = {
+  static var PARAMS = animation.enc_params({
     "color": {"default": nil, "nillable": true},
     "gradient_type": {"min": 0, "max": 1, "default": 0},
     "direction": {"min": 0, "max": 255, "default": 0},
     "center_pos": {"min": 0, "max": 255, "default": 128},
     "spread": {"min": 1, "max": 255, "default": 255},
     "movement_speed": {"min": 0, "max": 255, "default": 0}
-  }
+  })
   
   # Initialize a new Gradient animation
   def init(engine)
@@ -29,7 +31,7 @@ class GradientAnimation : animation.animation
     self.phase_offset = 0
     
     # Initialize with default strip length from engine
-    var strip_length = self.engine.get_strip_length()
+    var strip_length = self.engine.strip_length
     self.current_colors.resize(strip_length)
     
     # Initialize colors to black
@@ -45,7 +47,7 @@ class GradientAnimation : animation.animation
     super(self).on_param_changed(name, value)
     # TODO maybe be more specific on attribute name
     # Handle strip length changes from engine
-    var current_strip_length = self.engine.get_strip_length()
+    var current_strip_length = self.engine.strip_length
     if size(self.current_colors) != current_strip_length
       self.current_colors.resize(current_strip_length)
       var i = size(self.current_colors)
@@ -90,7 +92,7 @@ class GradientAnimation : animation.animation
     # Cache parameter values for performance
     var gradient_type = self.gradient_type
     var color_param = self.color
-    var strip_length = self.engine.get_strip_length()
+    var strip_length = self.engine.strip_length
     
     # Ensure current_colors array matches strip length
     if size(self.current_colors) != strip_length
@@ -203,7 +205,7 @@ class GradientAnimation : animation.animation
     # Auto-fix time_ms and start_time
     time_ms = self._fix_time_ms(time_ms)
 
-    var strip_length = self.engine.get_strip_length()
+    var strip_length = self.engine.strip_length
     var i = 0
     while i < strip_length && i < frame.width
       if i < size(self.current_colors)
@@ -269,4 +271,7 @@ def gradient_two_color_linear(engine)
   return anim
 end
 
-return {'gradient_animation': GradientAnimation, 'gradient_rainbow_linear': gradient_rainbow_linear, 'gradient_rainbow_radial': gradient_rainbow_radial, 'gradient_two_color_linear': gradient_two_color_linear}
+return {'gradient_animation': GradientAnimation,
+        'gradient_rainbow_linear': gradient_rainbow_linear,
+        'gradient_rainbow_radial': gradient_rainbow_radial,
+        'gradient_two_color_linear': gradient_two_color_linear}

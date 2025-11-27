@@ -14,45 +14,58 @@ This document provides a comprehensive reference for all classes in the Berry An
 ## Class Hierarchy
 
 ```
-ParameterizedObject
-├── Animation
-│   ├── BreatheAnimation
-│   ├── CometAnimation
-│   ├── FireAnimation
-│   ├── GradientAnimation
-│   ├── NoiseAnimation
-│   ├── BeaconAnimation
-│   ├── CrenelPositionAnimation
-│   ├── RichPaletteAnimation
-│   ├── TwinkleAnimation
-│   ├── WaveAnimation
-│   ├── PalettePatternAnimation
-│   │   ├── PaletteWaveAnimation
-│   │   ├── PaletteGradientAnimation
-│   │   └── PaletteMeterAnimation
-│   └── (other animation classes)
-└── ValueProvider
-    ├── StaticValueProvider
-    ├── StripLengthProvider
-    ├── OscillatorValueProvider
-    ├── ClosureValueProvider (internal use only)
-    └── ColorProvider
-        ├── StaticColorProvider
-        ├── ColorCycleColorProvider
-        ├── RichPaletteColorProvider
-        ├── BreatheColorProvider
-        └── CompositeColorProvider
+ParameterizedObject (base class with parameter management and playable interface)
+├── Animation (unified base class for all visual elements)
+│   ├── EngineProxy (combines rendering and orchestration)
+│   │   └── (user-defined template animations)
+│   ├── SolidAnimation (solid color fill)
+│   ├── BeaconAnimation (pulse at specific position)
+│   ├── CrenelPositionAnimation (crenel/square wave pattern)
+│   ├── BreatheAnimation (breathing effect)
+│   ├── PaletteGradientAnimation (gradient patterns with palette colors)
+│   │   └── PaletteMeterAnimation (meter/bar patterns)
+│   ├── CometAnimation (moving comet with tail)
+│   ├── FireAnimation (realistic fire effect)
+│   ├── TwinkleAnimation (twinkling stars effect)
+│   ├── GradientAnimation (color gradients)
+│   ├── NoiseAnimation (Perlin noise patterns)
+│   ├── WaveAnimation (wave motion effects)
+│   └── RichPaletteAnimation (smooth palette transitions)
+├── SequenceManager (orchestrates animation sequences)
+└── ValueProvider (dynamic value generation)
+    ├── StaticValueProvider (wraps static values)
+    ├── StripLengthProvider (provides LED strip length)
+    ├── IterationNumberProvider (provides sequence iteration number)
+    ├── OscillatorValueProvider (oscillating values with waveforms)
+    ├── ClosureValueProvider (computed values, internal use only)
+    └── ColorProvider (dynamic color generation)
+        ├── StaticColorProvider (solid color)
+        ├── ColorCycleColorProvider (cycles through palette)
+        ├── RichPaletteColorProvider (smooth palette transitions)
+        ├── BreatheColorProvider (breathing color effect)
+        └── CompositeColorProvider (blends multiple colors)
 ```
 
 ## Base Classes
 
 ### ParameterizedObject
 
-Base class for all parameterized objects in the framework.
+Base class for all parameterized objects in the framework. Provides parameter management with validation, storage, and retrieval, as well as the playable interface for lifecycle management (start/stop/update).
+
+This unified base class enables:
+- Consistent parameter handling across all framework objects
+- Unified engine management (animations and sequences treated uniformly)
+- Hybrid objects that combine rendering and orchestration
+- Consistent lifecycle management (start/stop/update)
 
 | Parameter | Type | Default | Constraints | Description |
 |-----------|------|---------|-------------|-------------|
-| *(none)* | - | - | - | Base class has no parameters |
+| `is_running` | bool | false | - | Whether the object is active |
+
+**Key Methods**:
+- `start(time_ms)` - Start the object at a specific time
+- `stop()` - Stop the object
+- `update(time_ms)` - Update object state based on current time
 
 **Factory**: N/A (base class)
 
@@ -75,6 +88,116 @@ Unified base class for all visual elements. Inherits from `ParameterizedObject`.
 **Timing Behavior**: The `start()` method only resets the time origin if the animation was already started previously (i.e., `self.start_time` is not nil). The first actual rendering tick occurs in `update()` or `render()` methods, which initialize `start_time` on first call.
 
 **Factory**: `animation.animation(engine)`
+
+### EngineProxy
+
+A specialized animation class that combines rendering and orchestration capabilities. Extends `Animation` and can contain child animations and sequences. Inherits from `Animation`.
+
+| Parameter | Type | Default | Constraints | Description |
+|-----------|------|---------|-------------|-------------|
+| *(inherits all Animation parameters)* | | | | |
+
+**Key Features**:
+- Can render visual content like a regular animation
+- Can orchestrate sub-animations and sequences using `add()`
+- Enables complex composite effects
+- Used as base class for template animations
+
+**Child Management**:
+- `add(obj)` - Adds a child animation or sequence
+- `remove(obj)` - Removes a child
+- Children are automatically started/stopped with parent
+- Children are rendered in priority order (higher priority on top)
+
+**Use Cases**:
+- Composite effects combining multiple animations
+- Template animations with parameters
+- Complex patterns with timing control
+- Reusable animation components
+
+**Factory**: `animation.engine_proxy(engine)`
+
+### Template Animations
+
+Template animations are user-defined classes that extend `EngineProxy`, created using the DSL's `template animation` syntax. They provide reusable, parameterized animation patterns.
+
+**DSL Definition**:
+```berry
+template animation shutter_effect {
+  param colors type palette nillable true
+  param duration type time min 0 max 3600 default 5 nillable false
+  
+  # Animation definition with sequences, colors, etc.
+  # Parameters accessed as self.colors, self.duration
+}
+```
+
+**Generated Class Structure**:
+```berry
+class shutter_effect_animation : animation.engine_proxy
+  static var PARAMS = animation.enc_params({
+    "colors": {"type": "palette", "nillable": true},
+    "duration": {"type": "time", "min": 0, "max": 3600, "default": 5, "nillable": false}
+  })
+  
+  def init(engine)
+    super(self).init(engine)
+    # Generated code with self.colors and self.duration references
+    # Uses self.add() for sub-animations and sequences
+  end
+end
+```
+
+**Parameter Constraints**:
+Template animation parameters support all standard constraints:
+- `type` - Parameter type (palette, time, int, color, etc.)
+- `min` - Minimum value (for numeric types)
+- `max` - Maximum value (for numeric types)
+- `default` - Default value
+- `nillable` - Whether parameter can be nil (true/false)
+
+**Implicit Parameters**:
+Template animations automatically inherit parameters from the `EngineProxy` class hierarchy without explicit declaration:
+- `name` (string, default: "animation") - Animation name
+- `priority` (int, default: 10) - Rendering priority
+- `duration` (int, default: 0) - Animation duration in milliseconds
+- `loop` (bool, default: false) - Whether animation loops
+- `opacity` (int, default: 255) - Animation opacity (0-255)
+- `color` (int, default: 0) - Base color value
+- `is_running` (bool, default: false) - Running state
+
+These parameters can be used directly in template animation bodies without declaration:
+```berry
+template animation fade_effect {
+  param colors type palette
+  
+  # 'duration' is implicit - no need to declare
+  set oscillator = sawtooth(min_value=0, max_value=255, duration=duration)
+  
+  color col = color_cycle(palette=colors, cycle_period=0)
+  animation test = solid(color=col)
+  test.opacity = oscillator  # 'opacity' is also implicit
+  
+  run test
+}
+```
+
+**Usage**:
+```berry
+# Create instance with parameters
+palette rainbow = [red, orange, yellow, green, blue]
+animation my_shutter = shutter_effect(colors=rainbow, duration=2s)
+run my_shutter
+```
+
+**Key Differences from Regular Animations**:
+- Defined in DSL, not Berry code
+- Parameters accessed as `self.<param>` instead of direct variables
+- Uses `self.add()` for composition
+- Can be instantiated multiple times with different parameters
+- Automatically registered as animation constructors
+
+**Factory**: User-defined (e.g., `shutter_effect(engine)`)
 
 ## Value Providers
 
@@ -121,11 +244,11 @@ Generates oscillating values using various waveforms. Inherits from `ValueProvid
 | Parameter | Type | Default | Constraints | Description |
 |-----------|------|---------|-------------|-------------|
 | `min_value` | int | 0 | - | Minimum oscillation value |
-| `max_value` | int | 100 | - | Maximum oscillation value |
+| `max_value` | int | 255 | - | Maximum oscillation value |
 | `duration` | int | 1000 | min: 1 | Oscillation period in milliseconds |
 | `form` | int | 1 | enum: [1,2,3,4,5,6,7,8,9] | Waveform type |
-| `phase` | int | 0 | 0-100 | Phase shift percentage |
-| `duty_cycle` | int | 50 | 0-100 | Duty cycle for square/triangle waves |
+| `phase` | int | 0 | 0-255 | Phase shift in 0-255 range (mapped to duration) |
+| `duty_cycle` | int | 127 | 0-255 | Duty cycle for square/triangle waves in 0-255 range |
 
 **Waveform Constants**:
 - `1` (SAWTOOTH) - Linear ramp from min to max
@@ -179,6 +302,18 @@ The ClosureValueProvider includes built-in mathematical helper methods that can 
 - **Cosine Behavior**: Matches oscillator COSINE waveform (starts at minimum, not maximum)
 - **Scale Function**: Uses `tasmota.scale_int()` for efficient integer scaling
 
+#### Closure Signature
+
+Closures used with ClosureValueProvider must follow this signature:
+```berry
+def closure_func(engine, param_name, time_ms)
+  # engine: AnimationEngine reference
+  # param_name: Name of the parameter being computed
+  # time_ms: Current time in milliseconds
+  return computed_value
+end
+```
+
 #### Usage in Computed Values
 
 These methods are automatically available in DSL computed expressions:
@@ -209,7 +344,10 @@ Base interface for all color providers. Inherits from `ValueProvider`.
 
 | Parameter | Type | Default | Constraints | Description |
 |-----------|------|---------|-------------|-------------|
-| *(none)* | - | - | - | Base interface has no parameters |
+| `brightness` | int | 255 | 0-255 | Overall brightness scaling for all colors |
+
+**Static Methods**:
+- `apply_brightness(color, brightness)` - Applies brightness scaling to a color (ARGB format). Only performs scaling if brightness is not 255 (full brightness). This is a static utility method that can be called without an instance.
 
 **Factory**: N/A (base interface)
 
@@ -220,6 +358,7 @@ Returns a single, static color. Inherits from `ColorProvider`.
 | Parameter | Type | Default | Constraints | Description |
 |-----------|------|---------|-------------|-------------|
 | `color` | int | 0xFFFFFFFF | - | The solid color to return |
+| *(inherits brightness from ColorProvider)* | | | | |
 
 #### Usage Examples
 
@@ -246,8 +385,11 @@ Cycles through a palette of colors with brutal switching. Inherits from `ColorPr
 |-----------|------|---------|-------------|-------------|
 | `palette` | bytes | default palette | - | Palette bytes in AARRGGBB format |
 | `cycle_period` | int | 5000 | min: 0 | Cycle time in ms (0 = manual only) |
-| `next` | int | 0 | - | Write 1 to move to next color manually, or any number to go forward or backwars by `n` colors |
+| `next` | int | 0 | - | Write 1 to move to next color manually, or any number to go forward or backwards by `n` colors |
 | `palette_size` | int | 3 | read-only | Number of colors in the palette (automatically updated when palette changes) |
+| *(inherits brightness from ColorProvider)* | | | | |
+
+**Note**: The `get_color_for_value()` method accepts values in the 0-255 range for value-based color mapping.
 
 **Modes**: Auto-cycle (`cycle_period > 0`) or Manual-only (`cycle_period = 0`)
 
@@ -281,10 +423,8 @@ Generates colors from predefined palettes with smooth transitions and profession
 |-----------|------|---------|-------------|-------------|
 | `palette` | bytes | rainbow palette | - | Palette bytes or predefined palette constant |
 | `cycle_period` | int | 5000 | min: 0 | Cycle time in ms (0 = value-based only) |
-| `transition_type` | int | 1 | enum: [0,1] | 0=linear, 1=sine/smooth |
-| `brightness` | int | 255 | 0-255 | Overall brightness scaling |
-| `range_min` | int | 0 | - | Minimum value for value-based mapping |
-| `range_max` | int | 100 | - | Maximum value for value-based mapping |
+| `transition_type` | int | animation.LINEAR | enum: [animation.LINEAR, animation.SINE] | LINEAR=constant speed, SINE=smooth ease-in/ease-out |
+| *(inherits brightness from ColorProvider)* | | | | |
 
 #### Available Predefined Palettes
 
@@ -300,27 +440,26 @@ Generates colors from predefined palettes with smooth transitions and profession
 #### Usage Examples
 
 ```berry
-# Rainbow palette with smooth transitions
+# Rainbow palette with smooth ease-in/ease-out transitions
 color rainbow_colors = rich_palette(
   palette=PALETTE_RAINBOW,
   cycle_period=5s,
-  transition_type=1,
+  transition_type=SINE,
   brightness=255
 )
 
-# Fire effect with linear transitions
+# Fire effect with linear (constant speed) transitions
 color fire_colors = rich_palette(
   palette=PALETTE_FIRE,
   cycle_period=3s,
-  transition_type=0,
+  transition_type=LINEAR,
   brightness=200
 )
 
-# Ocean waves with smooth, slow transitions
+# Ocean waves with default linear transitions
 color ocean_colors = rich_palette(
   palette=PALETTE_OCEAN,
   cycle_period=8s,
-  transition_type=1,
   brightness=180
 )
 ```
@@ -332,10 +471,11 @@ Creates breathing/pulsing color effects by modulating the brightness of a base c
 | Parameter | Type | Default | Constraints | Description |
 |-----------|------|---------|-------------|-------------|
 | `base_color` | int | 0xFFFFFFFF | - | The base color to modulate (32-bit ARGB value) |
-| `min_brightness` | int | 0 | 0-255 | Minimum brightness level |
-| `max_brightness` | int | 255 | 0-255 | Maximum brightness level |
+| `min_brightness` | int | 0 | 0-255 | Minimum brightness level (breathing effect) |
+| `max_brightness` | int | 255 | 0-255 | Maximum brightness level (breathing effect) |
 | `duration` | int | 3000 | min: 1 | Time for one complete breathing cycle in ms |
 | `curve_factor` | int | 2 | 1-5 | Breathing curve shape (1=cosine wave, 2-5=curved breathing with pauses) |
+| *(inherits brightness from ColorProvider)* | | | | Overall brightness scaling applied after breathing effect |
 | *(inherits all OscillatorValueProvider parameters)* | | | | |
 
 **Curve Factor Effects:**
@@ -397,6 +537,7 @@ Combines multiple color providers with blending. Inherits from `ColorProvider`.
 | Parameter | Type | Default | Constraints | Description |
 |-----------|------|---------|-------------|-------------|
 | `blend_mode` | int | 0 | enum: [0,1,2] | 0=overlay, 1=add, 2=multiply |
+| *(inherits brightness from ColorProvider)* | | | | Overall brightness scaling applied to final composite color |
 
 **Factory**: `animation.composite_color(engine)`
 
@@ -789,10 +930,8 @@ Creates smooth color transitions using rich palette data with direct parameter a
 |-----------|------|---------|-------------|-------------|
 | `palette` | bytes | rainbow palette | - | Palette bytes or predefined palette |
 | `cycle_period` | int | 5000 | min: 0 | Cycle time in ms (0 = value-based only) |
-| `transition_type` | int | 1 | enum: [0,1] | 0=linear, 1=sine |
+| `transition_type` | int | animation.LINEAR | enum: [animation.LINEAR, animation.SINE] | LINEAR=constant speed, SINE=smooth ease-in/ease-out |
 | `brightness` | int | 255 | 0-255 | Overall brightness scaling |
-| `range_min` | int | 0 | - | Minimum value for value-based mapping |
-| `range_max` | int | 100 | - | Maximum value for value-based mapping |
 | *(inherits all Animation parameters)* | | | | |
 
 **Special Features**: 
@@ -903,51 +1042,23 @@ animation strobe = wave_animation(
 
 
 
-### PalettePatternAnimation
+### PaletteGradientAnimation
 
-Applies colors from a color provider to specific patterns using an efficient bytes() buffer. Inherits from `Animation`.
+Creates shifting gradient patterns with palette colors. Inherits from `Animation`.
 
 | Parameter | Type | Default | Constraints | Description |
 |-----------|------|---------|-------------|-------------|
 | `color_source` | instance | nil | - | Color provider for pattern mapping |
-| `pattern_func` | function | nil | - | Function that generates pattern values (0-255) for each pixel |
+| `shift_period` | int | 0 | min: 0 | Time for one complete shift cycle in ms (0 = static gradient) |
+| `spatial_period` | int | 0 | min: 0 | Spatial period in pixels (0 = full strip length) |
+| `phase_shift` | int | 0 | 0-255 | Phase shift in 0-255 range (mapped to spatial period) |
 | *(inherits all Animation parameters)* | | | | |
 
 **Implementation Details:**
 - Uses `bytes()` buffer for efficient storage of per-pixel values
-- Pattern function should return values in 0-255 range
 - Color source receives values in 0-255 range via `get_color_for_value(value, time_ms)`
 - Buffer automatically resizes when strip length changes
-
-**Factory**: `animation.palette_pattern_animation(engine)`
-
-### PaletteWaveAnimation
-
-Creates sine wave patterns with palette colors. Inherits from `PalettePatternAnimation`.
-
-| Parameter | Type | Default | Constraints | Description |
-|-----------|------|---------|-------------|-------------|
-| `wave_period` | int | 5000 | min: 1 | Wave animation period in ms |
-| `wave_length` | int | 10 | min: 1 | Wave length in pixels |
-| *(inherits all PalettePatternAnimation parameters)* | | | | |
-
-**Pattern Generation:**
-- Generates sine wave values in 0-255 range using `tasmota.sine_int()`
-- Wave position advances based on `wave_period` timing
-- Each pixel's value calculated as: `sine_value = tasmota.scale_int(sine_int(angle), -4096, 4096, 0, 255)`
-
-**Factory**: `animation.palette_wave_animation(engine)`
-
-### PaletteGradientAnimation
-
-Creates shifting gradient patterns with palette colors. Inherits from `PalettePatternAnimation`.
-
-| Parameter | Type | Default | Constraints | Description |
-|-----------|------|---------|-------------|-------------|
-| `shift_period` | int | 10000 | min: 0 | Time for one complete shift cycle in ms (0 = static gradient) |
-| `spatial_period` | int | 0 | min: 0 | Spatial period in pixels (0 = full strip length) |
-| `phase_shift` | int | 0 | 0-100 | Phase shift as percentage of spatial period |
-| *(inherits all PalettePatternAnimation parameters)* | | | | |
+- Optimized LUT (Lookup Table) support for color providers
 
 **Pattern Generation:**
 - Generates linear gradient values in 0-255 range across the specified spatial period
@@ -958,23 +1069,27 @@ Creates shifting gradient patterns with palette colors. Inherits from `PalettePa
   - `0`: Gradient spans the full strip length (single gradient across entire strip)
   - `> 0`: Gradient repeats every N pixels
 - **phase_shift**: Shifts the gradient pattern spatially by a percentage of the spatial period
-- Each pixel's value calculated as: `value = tasmota.scale_uint(spatial_position, 0, spatial_period-1, 0, 255)`
+- Each pixel's value calculated using optimized fixed-point arithmetic
 
 **Factory**: `animation.palette_gradient_animation(engine)`
 
 ### PaletteMeterAnimation
 
-Creates meter/bar patterns based on a value function. Inherits from `PalettePatternAnimation`.
+Creates meter/bar patterns based on a value function. Inherits from `PaletteGradientAnimation`.
 
 | Parameter | Type | Default | Constraints | Description |
 |-----------|------|---------|-------------|-------------|
-| `value_func` | function | nil | - | Function that provides meter values (0-100 range) |
-| *(inherits all PalettePatternAnimation parameters)* | | | | |
+| `value_func` | function | nil | - | Function that provides meter values (0-255 range) |
+| *(inherits all PaletteGradientAnimation parameters)* | | | | |
 
 **Pattern Generation:**
-- Value function returns percentage (0-100) representing meter level
+- Value function signature: `value_func(engine, time_ms, self)` where:
+  - `engine`: AnimationEngine reference
+  - `time_ms`: Elapsed time since animation start
+  - `self`: Reference to the animation instance
+- Value function returns value in 0-255 range representing meter level
 - Pixels within meter range get value 255, others get value 0
-- Meter position calculated as: `position = tasmota.scale_uint(value, 0, 100, 0, strip_length)`
+- Meter position calculated as: `position = tasmota.scale_uint(value, 0, 255, 0, strip_length)`
 
 **Factory**: `animation.palette_meter_animation(engine)`
 

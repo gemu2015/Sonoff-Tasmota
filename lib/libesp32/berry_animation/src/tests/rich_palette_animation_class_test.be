@@ -11,7 +11,7 @@ print("Imported animation module")
 
 # Create LED strip and engine for testing (following specification)
 var strip = global.Leds(10)  # Use global.Leds() for testing as per specification
-var engine = animation.animation_engine(strip)
+var engine = animation.create_engine(strip)
 
 print("Created test engine with 10 LEDs")
 
@@ -29,8 +29,6 @@ anim.palette = bytes("00FF0000" "80FFFF00" "FF0000FF")  # Red to Yellow to Blue
 anim.cycle_period = 3000
 anim.transition_type = 1  # sine
 anim.brightness = 200
-anim.range_min = 0
-anim.range_max = 100
 
 # Set Animation base parameters
 anim.priority = 15
@@ -45,8 +43,6 @@ print(f"Palette: {bool(anim.palette)}")
 print(f"Cycle period: {anim.cycle_period}")
 print(f"Transition type: {anim.transition_type}")
 print(f"Brightness: {anim.brightness}")
-print(f"Range min: {anim.range_min}")
-print(f"Range max: {anim.range_max}")
 
 # Test Animation base parameters
 print(f"Priority: {anim.priority}")

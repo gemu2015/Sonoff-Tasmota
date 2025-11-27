@@ -3,6 +3,8 @@
 # This animation adds random jitter/shake effects to patterns with configurable
 # intensity, frequency, and jitter types (position, color, brightness).
 
+import "./core/param_encoder" as encode_constraints
+
 #@ solidify:JitterAnimation,weak
 class JitterAnimation : animation.animation
   # Non-parameter instance variables only
@@ -13,7 +15,7 @@ class JitterAnimation : animation.animation
   var current_colors     # Array of current colors for each pixel
   
   # Parameter definitions
-  static var PARAMS = {
+  static var PARAMS = animation.enc_params({
     "source_animation": {"type": "instance", "default": nil},
     "jitter_intensity": {"min": 0, "max": 255, "default": 100},
     "jitter_frequency": {"min": 0, "max": 255, "default": 60},
@@ -21,7 +23,7 @@ class JitterAnimation : animation.animation
     "position_range": {"min": 0, "max": 255, "default": 50},
     "color_range": {"min": 0, "max": 255, "default": 30},
     "brightness_range": {"min": 0, "max": 255, "default": 40}
-  }
+  })
   
   # Initialize a new Jitter animation
   def init(engine)
@@ -40,7 +42,7 @@ class JitterAnimation : animation.animation
   
   # Initialize buffers based on current strip length
   def _initialize_buffers()
-    var current_strip_length = self.engine.get_strip_length()
+    var current_strip_length = self.engine.strip_length
     self.jitter_offsets = []
     self.jitter_offsets.resize(current_strip_length)
     self.source_frame = animation.frame_buffer(current_strip_length)
@@ -120,7 +122,7 @@ class JitterAnimation : animation.animation
   
   # Update jitter offsets
   def _update_jitter()
-    var current_strip_length = self.engine.get_strip_length()
+    var current_strip_length = self.engine.strip_length
     var jitter_intensity = self.jitter_intensity
     var max_offset = tasmota.scale_uint(jitter_intensity, 0, 255, 0, 10)
     
@@ -134,7 +136,7 @@ class JitterAnimation : animation.animation
   
   # Calculate jittered colors for all pixels
   def _calculate_jitter()
-    var current_strip_length = self.engine.get_strip_length()
+    var current_strip_length = self.engine.strip_length
     var source_animation = self.source_animation
     var jitter_type = self.jitter_type
     var position_range = self.position_range
@@ -243,7 +245,7 @@ class JitterAnimation : animation.animation
     # Auto-fix time_ms and start_time
     time_ms = self._fix_time_ms(time_ms)
     
-    var current_strip_length = self.engine.get_strip_length()
+    var current_strip_length = self.engine.strip_length
     var i = 0
     while i < current_strip_length
       if i < frame.width

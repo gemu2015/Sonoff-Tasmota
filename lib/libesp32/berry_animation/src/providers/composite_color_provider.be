@@ -7,15 +7,17 @@
 # - Constructor takes only 'engine' parameter
 # - All other parameters set via virtual member assignment after creation
 
+import "./core/param_encoder" as encode_constraints
+
 #@ solidify:CompositeColorProvider,weak
 class CompositeColorProvider : animation.color_provider
   # Non-parameter instance variables only
   var providers        # List of color providers
   
   # Parameter definitions
-  static var PARAMS = {
+  static var PARAMS = animation.enc_params({
     "blend_mode": {"enum": [0, 1, 2], "default": 0}  # 0=overlay, 1=add, 2=multiply
-  }
+  })
   
   # Initialize a new CompositeColorProvider
   #
@@ -47,7 +49,12 @@ class CompositeColorProvider : animation.color_provider
     end
     
     if size(self.providers) == 1
-      return self.providers[0].produce_value(name, time_ms)
+      var color = self.providers[0].produce_value(name, time_ms)
+      var brightness = self.brightness
+      if brightness != 255
+        return self.apply_brightness(color, brightness)
+      end
+      return color
     end
     
     var result_color = self.providers[0].produce_value(name, time_ms)
@@ -59,12 +66,17 @@ class CompositeColorProvider : animation.color_provider
       i += 1
     end
     
+    # Apply brightness scaling to final composite color
+    var brightness = self.brightness
+    if brightness != 255
+      return self.apply_brightness(result_color, brightness)
+    end
     return result_color
   end
   
   # Get a composite color based on a value
   #
-  # @param value: int/float - Value to map to a color (0-100)
+  # @param value: int/float - Value to map to a color (0-255 range)
   # @param time_ms: int - Current time in milliseconds
   # @return int - Color in ARGB format (0xAARRGGBB)
   def get_color_for_value(value, time_ms)
@@ -73,7 +85,12 @@ class CompositeColorProvider : animation.color_provider
     end
     
     if size(self.providers) == 1
-      return self.providers[0].get_color_for_value(value, time_ms)
+      var color = self.providers[0].get_color_for_value(value, time_ms)
+      var brightness = self.brightness
+      if brightness != 255
+        return self.apply_brightness(color, brightness)
+      end
+      return color
     end
     
     var result_color = self.providers[0].get_color_for_value(value, time_ms)
@@ -85,6 +102,11 @@ class CompositeColorProvider : animation.color_provider
       i += 1
     end
     
+    # Apply brightness scaling to final composite color
+    var brightness = self.brightness
+    if brightness != 255
+      return self.apply_brightness(result_color, brightness)
+    end
     return result_color
   end
   

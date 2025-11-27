@@ -656,8 +656,7 @@ void ShutterWaitForMotorStop(uint8_t i)
 
 void ShutterWaitForMotorStart(uint8_t i)
 {
-  uint32_t end_time = Shutter[i].last_stop_time + Settings->shutter_motorstop;
-  while (!TimeReached(end_time)) {
+  while (millis() - Shutter[i].last_stop_time < Settings->shutter_motorstop) { // statement is overflow proof
     loop();
   }
   //AddLog(LOG_LEVEL_DEBUG_MORE, PSTR("SHT: Stoptime done"));
@@ -1974,7 +1973,7 @@ bool Xdrv27(uint32_t function)
         }
         break;
       case FUNC_JSON_APPEND:
-        if (!sensor_data_reported || TasmotaGlobal.tele_period == 0) {
+        if (!sensor_data_reported || TasmotaGlobal.tele_period != 2) {
           sensor_data_reported = true;
           for (uint8_t i = 0; i < TasmotaGlobal.shutters_present; i++) {
             uint8_t position = ShutterRealToPercentPosition(Shutter[i].real_position, i);

@@ -12,6 +12,11 @@ class MockEngine
   def init()
     self.time_ms = 1000  # Fixed time for testing
   end
+  
+  # Fake add() method for value provider auto-registration
+  def add(obj)
+    return true
+  end
 end
 
 var mock_engine = MockEngine()
@@ -42,6 +47,10 @@ def test_get_param_value_with_color_provider()
     def produce_value(name, time_ms)
       self.produce_value_called += 1
       return self.color
+    end
+
+    def tostring()
+      return ''
     end
   end
   
@@ -85,6 +94,10 @@ def test_get_param_value_with_generic_provider()
     def produce_value(name, time_ms)
       self.produce_value_called += 1
       return self.value
+    end
+    
+    def tostring()
+      return ''
     end
   end
   
@@ -135,6 +148,10 @@ def test_get_param_value_with_context_aware_provider()
       else
         return self.base_value
       end
+    end
+    
+    def tostring()
+      return ''
     end
   end
   

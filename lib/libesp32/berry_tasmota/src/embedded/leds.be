@@ -38,7 +38,7 @@ class Leds : Leds_ntv
       # in such case, `self._p` is equal to `0`
       self.leds = self.pixel_count()
       import light
-      self.bri = light.get()['bri']
+      self.bri = light.get(0, 'bri')
     else
       # use pure Berry driver
       leds = int(leds)
@@ -76,8 +76,16 @@ class Leds : Leds_ntv
     self.show()
   end
 
-  # set bri (0..255)
+  # set bri (0..255) or 'nil' to adjust to the default Tasmota brightness if we use the default strip
   def set_bri(bri)
+    if (bri == nil)
+      if !self._p         # if `_p` is `nil` or `<ptr: 0>` then bool() returns false
+        import light
+        bri = light.get(0, 'bri')
+      else
+        return            # not default strip, we don't adjust
+      end
+    end
     if (bri < 0)    bri = 0   end
     if (bri > 255)  bri = 255 end
     self.bri = bri
@@ -123,6 +131,21 @@ class Leds : Leds_ntv
   def dirty()                   ## DEPRECATED
     self.call_native(5)
   end
+
+  # push_pixels
+  #
+  # Pushes a bytes() buffer of 0xAARRGGBB colors, without bri nor gamma correction
+  # 
+  def push_pixels_buffer_argb(pixels)
+    # Leds.set_pixels(buffer:bytes, pixels_buffer:comptr, pixels_count:int, [pixel_size:int = 3, bri:int (0..255) = 255, gamma:bool = true]) -> void
+    self.set_pixels(pixels,
+                    self.call_native(6),  # address of buffer in memory
+                    self.pixel_count(),
+                    self.pixel_size(),
+                    self.get_bri(),
+                    self.get_gamma())
+  end
+
   def pixels_buffer(old_buf)
     var buf = self.call_native(6)   # address of buffer in memory
     var sz = self.pixel_size() * self.pixel_count()
@@ -254,6 +277,9 @@ class Leds : Leds_ntv
       
       # set bri (0..255)
       def set_bri(bri)
+        if (bri == nil)
+          return
+        end
         if (bri < 0)    bri = 0   end
         if (bri > 255)  bri = 255 end
         self.bri = bri

@@ -57,11 +57,15 @@ end
 # Import core framework components
 # These provide the fundamental architecture for the animation system
 
+# Parameter constraint encoder for PARAMS definitions
+import "core/param_encoder" as param_encoder
+register_to_animation(param_encoder)
+
 # Mathematical functions for use in closures and throughout the framework
 import "core/math_functions" as math_functions
 register_to_animation(math_functions)
 
-# Base class for parameter management - shared by Animation and ValueProvider
+# Base class for parameter management and playable behavior - shared by Animation and ValueProvider
 import "core/parameterized_object" as parameterized_object
 register_to_animation(parameterized_object)
 
@@ -76,6 +80,10 @@ register_to_animation(animation_base)
 # Sequence manager for complex animation choreography
 import "core/sequence_manager" as sequence_manager
 register_to_animation(sequence_manager)
+
+# Engine proxy - combines rendering and orchestration
+import "core/engine_proxy" as engine_proxy
+register_to_animation(engine_proxy)
 
 # Unified animation engine - central engine for all animations
 # Provides priority-based layering, automatic blending, and performance optimization
@@ -165,8 +173,6 @@ register_to_animation(wave_animation)
 # Import palette examples
 import "animations/palettes" as palettes
 register_to_animation(palettes)
-# import "animations/all_wled_palettes" as all_wled_palettes
-# register_to_animation(all_wled_palettes)
 
 # Import specialized animation classes
 import "animations/rich_palette_animation" as rich_palette_animation

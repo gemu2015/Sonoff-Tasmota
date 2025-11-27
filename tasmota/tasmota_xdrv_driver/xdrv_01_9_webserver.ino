@@ -1998,7 +1998,7 @@ bool HandleRootStatusRefresh(void) {
   WSContentSend_P(PSTR("{t}"));        // <table style='width:100%'>
   WSContentSeparator(3);               // Reset seperator to ignore previous outputs 
   if (Settings->web_time_end) {
-    WSContentSend_P(PSTR("{s}" D_TIMER_TIME "{m}%s{e}"), GetDateAndTime(DT_LOCAL).substring(Settings->web_time_start, Settings->web_time_end).c_str());
+    WSContentSend_P(PSTR("{s}" D_TIME_OF_DAY "{m}%s{e}"), GetDateAndTime(DT_LOCAL).substring(Settings->web_time_start, Settings->web_time_end).c_str());
     WSContentSeparator(0);             // Print separator
   }
   XsnsXdrvCall(FUNC_WEB_SENSOR);
@@ -3002,7 +3002,7 @@ void HandleInformation(void) {
   }
   WSContentSeparatorIFat();
 #ifdef CONFIG_ESP_WIFI_REMOTE_ENABLED
-  WSContentSend_P(PSTR("}1" D_HOSTED_MCU "}2%s (%s)"), GetHostedMCU().c_str(), GetHostedMCUFwVersion().c_str());
+  WSContentSend_P(PSTR("}1" D_HOSTED_MCU "}2%s (%s)"), GetHostedMCU().c_str(), GetHostedFwVersion(1).c_str());
   WSContentSeparatorIFat();
 #endif  // CONFIG_ESP_WIFI_REMOTE_ENABLED
   bool show_hr = false;

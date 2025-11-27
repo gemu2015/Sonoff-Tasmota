@@ -14,6 +14,14 @@ def test_closure_value_provider()
     def init()
       self.time_ms = 1000
     end
+    
+    def tostring()
+      return ''
+    end
+
+    def add(obj)
+      return true
+    end
   end
   var engine = MockEngine()
   
@@ -237,6 +245,11 @@ def test_closure_value_provider()
   print("✓ Edge cases with zero, negative, and boundary values work")
   
   print("All ClosureValueProvider tests passed!")
+  
+  # Fake add() method for value provider auto-registration
+  def add(obj)
+    return true
+  end
 end
 
 # Test mathematical helper methods
@@ -249,6 +262,10 @@ def test_closure_math_methods()
     def init()
       self.time_ms = 1000
     end
+
+    def add(obj)
+      return true
+    end
   end
   var engine = MockEngine()
   
@@ -257,7 +274,6 @@ def test_closure_math_methods()
   
   # Test 1: min/max functions
   provider.closure = def(self, name, time_ms)
-    print(f">> {name=} {animation._math=}")
     if name == "min_test"
       return animation._math.min(5, 3, 8, 1, 9)  # Should return 1
     elif name == "max_test"

@@ -3,6 +3,8 @@
 # This animation creates bouncing effects where patterns bounce back and forth
 # across the LED strip with configurable physics and damping.
 
+import "./core/param_encoder" as encode_constraints
+
 #@ solidify:BounceAnimation,weak
 class BounceAnimation : animation.animation
   # Non-parameter instance variables only
@@ -14,13 +16,13 @@ class BounceAnimation : animation.animation
   var last_update_time   # Last update time for physics calculation
   
   # Parameter definitions following parameterized class specification
-  static var PARAMS = {
+  static var PARAMS = animation.enc_params({
     "source_animation": {"type": "instance", "default": nil},
     "bounce_speed": {"min": 0, "max": 255, "default": 128},
     "bounce_range": {"min": 0, "max": 1000, "default": 0},
     "damping": {"min": 0, "max": 255, "default": 250},
     "gravity": {"min": 0, "max": 255, "default": 0}
-  }
+  })
   
   # Initialize a new Bounce animation
   def init(engine)
@@ -41,7 +43,7 @@ class BounceAnimation : animation.animation
   
   # Initialize frame buffers and arrays
   def _initialize_buffers()
-    var current_strip_length = self.engine.get_strip_length()
+    var current_strip_length = self.engine.strip_length
     self.bounce_center = current_strip_length * 256 / 2  # Center in 1/256th pixels
     self.current_position = self.bounce_center
     
@@ -139,7 +141,7 @@ class BounceAnimation : animation.animation
     # Cache parameter values for performance
     var current_gravity = self.gravity
     var current_bounce_range = self.bounce_range
-    var current_strip_length = self.engine.get_strip_length()
+    var current_strip_length = self.engine.strip_length
     var current_damping = self.damping
     
     # Use integer arithmetic for physics (dt in milliseconds)
@@ -196,7 +198,7 @@ class BounceAnimation : animation.animation
     end
     
     # Cache strip length for performance
-    var current_strip_length = self.engine.get_strip_length()
+    var current_strip_length = self.engine.strip_length
     
     # Apply bounce transformation
     var pixel_position = self.current_position / 256  # Convert to pixel units
@@ -223,7 +225,7 @@ class BounceAnimation : animation.animation
       return false
     end
     
-    var current_strip_length = self.engine.get_strip_length()
+    var current_strip_length = self.engine.strip_length
     var i = 0
     while i < current_strip_length
       if i < frame.width

@@ -3,18 +3,90 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - Development
 
-## [15.0.1.4]
+## [15.1.0.3]
 ### Added
+- Support for ESP32-P4 rev.3 (#24146)
+- Support for Analog Gauges (#24153)
 
 ### Breaking Changed
 
 ### Changed
-- ESP32 Platform from 2025.08.30 to 2025.09.30, Framework (Arduino Core) from v3.1.3.250808 to v3.1.4 and IDF from v5.3.3.250801 to v5.3.4.250826 (#23888)
-- Use HAL instead of ROM for SHA HW acceleration as used by TLS (#23902)
+- ESP32 Platform from 2025.11.30 to 2025.11.31, Framework (Arduino Core) from v3.1.5 to v3.1.6 and IDF from v5.3.4.251110 to v5.3.4.251110 (#24146)
 
 ### Fixed
+- ESP32-P4 Hosted MCU updated to v2.6.6 solving WiFi boot issues (#24146)
+- ESP32-Solo1 using pre-compiled Arduino libraries (#24146)
+- PCA9685 V2 driver PWMTO fading logic and overflow (#24159)
 
 ### Removed
+
+## [15.1.0.2] 20251122
+### Added
+- WS2812 and Berry animation support for reverse-order LED strip (#24138)
+- DALI persistence for `DaliTarget` and `DaliChannels` if filesystem is present
+- DALI DT8 RGBWAF color support using Tasmota light control
+
+### Changed
+- ESP32 Platform from 2025.10.30 to 2025.11.30, Framework (Arduino Core) from v3.1.4 to v3.1.5 and IDF from v5.3.4.250826 to v5.3.4.251110 (#24118)
+- JPEGDEC library from v1.8.3 to v1.8.4 (#24120)
+
+### Fixed
+- DALI protocol errors
+
+## [15.1.0.1] 20251115
+### Added
+- TLS enabled ECDSA by default for ESP8266 (#24009)
+- Berry `cb.free_cb` for extension manager (#24014)
+- Berry `light.get()` direct access to values (#24033)
+- HostedMCU file update using command `HostedLoad <version>|<filename>`
+- Berry `gc_heap` and `gc_time` to `tasmota.memory()` (#24054)
+- Scripter array transfer via UFS (#24060)
+- ESP8266 GPIOViewer memory map if enabled with `#define GV_USE_ESPINFO`
+- Berry `tcp.write()` add `offset` and `len` (#24076)
+- NeoPool command `NPReadLSB`, `NPReadMSB`, `NPWriteLSB`, `NWriteMSB` for directly read/write LSB/MSB of 16-bit register (#24083)
+- Commands `DaliSend` and `DaliQuery` allow extended commands with prefix for DeviceType defaulting to DT6
+
+### Changed
+- Refactored library UDisplay (#24007)
+- LVGL library from v9.3.0 to v9.4.0 (#24028)
+- Increased filesystem file name size from 48 to 50 characters
+- GPIOViewer from v1.6.3 to v1.7.0
+
+### Fixed
+- TLS fix ECDSA and add `SetOption165 1` to enable ECDSA in addition to RSA (#24000)
+- Extension Manager exception when `OtaUrl` is not defined or invalid
+- HASPmota exception in `cpicker` (colorwheel) (#24010)
+- Extension Manager Light Theme support and Extensions input field control
+- InfluxDb receives IPAddress as a value regression from v15.0.1.3 (#24031)
+- Scripter UDP and switch case (#24060)
+- TuyaMCU v1 soft lock when WIFI_SELECT / WIFI_RESET is initiated (#24063)
+- HASPmota `scale` and `angle` for images (#24089)
+
+## [Released]
+
+## [15.1.0] 20251011
+- Release Stella
+
+## [15.0.1.5] 20251011
+### Changed
+- ESP8266 platform update from 2025.09.00 to 2025.10.00 (#23971)
+- ESP32 Platform from 2025.09.30 to 2025.10.30, Framework (Arduino Core) from v3.1.3.250808 to v3.1.4 and IDF from v5.3.3.250801 to v5.3.4.250826 (#23971)
+- Extension Manager show current version in UI (#23995)
+
+### Fixed
+- Berry fixed 'be_top is non zero' warning when calling C mapped functions (#23989)
+- Berry fixed 'be_top is non zero' when `Br` command fails (#23990)
+
+## [15.0.1.4] 20251002
+### Added
+- ESP32 Extension Manager, replacing loading of Partition Wizard (#23955)
+- Berry animation framework web ui to compile DSL (#23962)
+
+### Changed
+- ESP32 Platform from 2025.08.30 to 2025.09.30, Framework (Arduino Core) from v3.1.3.250808 to v3.1.4 and IDF from v5.3.3.250801 to v5.3.4.250826 (#23888)
+- Use HAL instead of ROM for SHA HW acceleration as used by TLS (#23902)
+- Berry add argument to `werbserver.content_send_style` (#23953)
+- Make GUI Timer parameters mobile phone friendly (#23959)
 
 ## [15.0.1.3] 20250908
 ### Added
@@ -87,8 +159,6 @@ All notable changes to this project will be documented in this file.
 - Berry security issues in `berry_mapping` and improve documentation (#23606)
 - Berry Hue regression from #23429 (#23623)
 - AHT30 sensor start with null values after deep sleep (#23624)
-
-## [Released]
 
 ## [15.0.1] 20250614
 - Release Sharon

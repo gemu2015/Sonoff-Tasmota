@@ -75,6 +75,10 @@ enum XYZFileSteps { XYZM_IDLE,
 
 enum XReceiveStates { XYZS_OK, XYZS_TIMEOUT, XYZS_EOT, XYZS_CAN, XYZS_OTHER, XYZS_CHECKSUM, XYZS_PACKET, XYZS_FILE };
 
+#ifdef USE_UFILESYS
+extern FS *ffsp;
+#endif
+
 #include <TasmotaSerial.h>
 
 struct {

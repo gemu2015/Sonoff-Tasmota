@@ -6,20 +6,22 @@
 # The comet uses sub-pixel positioning (1/256th pixels) for smooth movement and supports
 # both wrapping around the strip and bouncing off the ends.
 
+import "./core/param_encoder" as encode_constraints
+
 #@ solidify:CometAnimation,weak
 class CometAnimation : animation.animation
   # Non-parameter instance variables only
   var head_position    # Current position of the comet head (in 1/256th pixels for smooth movement)
   
   # Parameter definitions following parameterized class specification
-  static var PARAMS = {
+  static var PARAMS = animation.enc_params({
     # 'color' for the comet head (32-bit ARGB value), inherited from animation class
     "tail_length": {"min": 1, "max": 50, "default": 5}, # Length of the comet tail in pixels
     "speed": {"min": 1, "max": 25600, "default": 2560}, # Movement speed in 1/256th pixels per second
     "direction": {"enum": [-1, 1], "default": 1},       # Direction of movement (1 = forward, -1 = backward)
     "wrap_around": {"min": 0, "max": 1, "default": 1},  # Whether comet wraps around the strip (bool)
     "fade_factor": {"min": 0, "max": 255, "default": 179} # How quickly the tail fades (0-255, 255 = no fade)
-  }
+  })
   
   # Initialize a new Comet animation
   # Following parameterized class specification - engine parameter only
@@ -39,7 +41,7 @@ class CometAnimation : animation.animation
     super(self).on_param_changed(name, value)
     if name == "direction"
       # Reset position when direction changes
-      var strip_length = self.engine.get_strip_length()
+      var strip_length = self.engine.strip_length
       if value > 0
         self.head_position = 0  # Start at beginning for forward movement
       else
@@ -65,7 +67,7 @@ class CometAnimation : animation.animation
     var current_speed = self.speed
     var current_direction = self.direction
     var current_wrap_around = self.wrap_around
-    var strip_length = self.engine.get_strip_length()
+    var strip_length = self.engine.strip_length
     
     # Calculate elapsed time since animation started
     var elapsed = time_ms - self.start_time
@@ -127,7 +129,7 @@ class CometAnimation : animation.animation
     var direction = self.direction
     var wrap_around = self.wrap_around
     var fade_factor = self.fade_factor
-    var strip_length = self.engine.get_strip_length()
+    var strip_length = self.engine.strip_length
     
     # Extract color components from current color (ARGB format)
     var head_a = (current_color >> 24) & 0xFF

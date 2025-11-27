@@ -1,15 +1,19 @@
 # Sequence Manager for Animation DSL
 # Handles async execution of animation sequences without blocking delays
 # Supports sub-sequences and repeat logic through recursive composition
+#
+# Extends ParameterizedObject to provide parameter management and playable interface,
+# allowing sequences to be treated uniformly with animations by the engine.
 
-class SequenceManager
-  var engine          # Animation engine reference
+import "./core/param_encoder" as encode_constraints
+
+class SequenceManager : animation.parameterized_object
+  # Non-parameter instance variables
   var active_sequence # Currently running sequence
   var sequence_state  # Current sequence execution state
   var step_index      # Current step in the sequence
   var step_start_time # When current step started
   var steps           # List of sequence steps
-  var is_running      # Whether sequence is active
   
   # Repeat-specific properties
   var repeat_count    # Number of times to repeat this sequence (-1 for forever, 0 for no repeat)
@@ -17,13 +21,15 @@ class SequenceManager
   var is_repeat_sequence # Whether this is a repeat sub-sequence
   
   def init(engine, repeat_count)
-    self.engine = engine
+    # Initialize parameter system with engine
+    super(self).init(engine)
+    
+    # Initialize non-parameter instance variables
     self.active_sequence = nil
     self.sequence_state = {}
     self.step_index = 0
     self.step_start_time = 0
     self.steps = []
-    self.is_running = false
     
     # Repeat logic
     self.repeat_count = repeat_count != nil ? repeat_count : 1  # Default: run once (can be function or number)
@@ -89,6 +95,17 @@ class SequenceManager
     self.step_start_time = time_ms
     self.current_iteration = 0
     self.is_running = true
+    
+    # Always set start_time for restart behavior
+    self.start_time = time_ms
+    
+    # FIXED: Check repeat count BEFORE starting execution
+    # If repeat_count is 0, don't execute at all
+    var resolved_repeat_count = self.get_resolved_repeat_count()
+    if resolved_repeat_count == 0
+      self.is_running = false
+      return self
+    end
     
     # Push iteration context to engine stack if this is a repeat sequence
     if self.is_repeat_sequence
@@ -182,9 +199,21 @@ class SequenceManager
       self.execute_closure_steps_batch(current_time)
     else
       # Handle regular steps with duration
-      if current_step.contains("duration") && current_step["duration"] > 0
-        var elapsed = current_time - self.step_start_time
-        if elapsed >= current_step["duration"]
+      if current_step.contains("duration") && current_step["duration"] != nil
+        # Resolve duration - it can be a number or a closure
+        var duration_value = current_step["duration"]
+        if type(duration_value) == "function"
+          # Duration is a closure - call it to get the actual value
+          duration_value = duration_value(self.engine)
+        end
+        
+        if duration_value > 0
+          var elapsed = current_time - self.step_start_time
+          if elapsed >= duration_value
+            self.advance_to_next_step(current_time)
+          end
+        else
+          # Duration is 0 or nil - complete immediately
           self.advance_to_next_step(current_time)
         end
       else
@@ -207,6 +236,12 @@ class SequenceManager
     
     if step["type"] == "play"
       var anim = step["animation"]
+      
+      # Check if animation is nil (safety check)
+      if anim == nil
+        return
+      end
+      
       # Check if animation is already in the engine (avoid duplicate adds)
       var animations = self.engine.get_animations()
       var already_added = false
@@ -400,12 +435,17 @@ class SequenceManager
   end
   
   # Resolve repeat count (handle both functions and numbers)
+  # Converts booleans to integers: true -> 1, false -> 0
   def get_resolved_repeat_count()
+    var count = nil
     if type(self.repeat_count) == "function"
-      return self.repeat_count(self.engine)
+      count = self.repeat_count(self.engine)
     else
-      return self.repeat_count
+      count = self.repeat_count
     end
+    
+    # Convert to integer (handles booleans: true -> 1, false -> 0)
+    return int(count)
   end
   
   # Check if sequence is running
@@ -413,22 +453,36 @@ class SequenceManager
     return self.is_running
   end
   
-  # Get current step info for debugging
-  def get_current_step_info()
-    if !self.is_running || self.step_index >= size(self.steps)
-      return nil
+  # String representation of the sequence manager
+  def tostring()
+    var repeat_str = ""
+    if self.is_repeat_sequence
+      var resolved_count = self.get_resolved_repeat_count()
+      if resolved_count == -1
+        repeat_str = f", repeat=forever, iter={self.current_iteration}"
+      else
+        repeat_str = f", repeat={resolved_count}, iter={self.current_iteration}"
+      end
     end
-    
-    return {
-      "step_index": self.step_index,
-      "total_steps": size(self.steps),
-      "current_step": self.steps[self.step_index],
-      "elapsed_ms": self.engine.time_ms - self.step_start_time,
-      "repeat_count": self.repeat_count,
-      "current_iteration": self.current_iteration,
-      "is_repeat_sequence": self.is_repeat_sequence
-    }
+    return f"SequenceManager(steps={size(self.steps)}, current={self.step_index}, running={self.is_running}{repeat_str})"
   end
+  
+  # # Get current step info for debugging
+  # def get_current_step_info()
+  #   if !self.is_running || self.step_index >= size(self.steps)
+  #     return nil
+  #   end
+    
+  #   return {
+  #     "step_index": self.step_index,
+  #     "total_steps": size(self.steps),
+  #     "current_step": self.steps[self.step_index],
+  #     "elapsed_ms": self.engine.time_ms - self.step_start_time,
+  #     "repeat_count": self.repeat_count,
+  #     "current_iteration": self.current_iteration,
+  #     "is_repeat_sequence": self.is_repeat_sequence
+  #   }
+  # end
 end
 
-return {'SequenceManager': SequenceManager}
+return {'sequence_manager': SequenceManager }

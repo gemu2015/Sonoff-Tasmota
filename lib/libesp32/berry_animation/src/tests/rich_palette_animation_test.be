@@ -23,6 +23,11 @@ class MockEngine
   def set_time(time)
     self.time_ms = time
   end
+  
+  # Fake add() method for value provider auto-registration
+  def add(obj)
+    return true
+  end
 end
 
 var mock_engine = MockEngine()
@@ -44,8 +49,13 @@ class RichPaletteAnimationTest
     self.test_palette_properties()
     self.test_css_gradient()
     self.test_cycle_period_zero()
+    self.test_sine_mode()
+    self.test_sine_mode_value_based()
     
     print(f"animation.solid with RichPaletteColorProvider Tests: {self.passed} passed, {self.failed} failed")
+    if self.failed > 0
+      raise "test_failed"
+    end
   end
   
   def assert_equal(actual, expected, test_name)
@@ -85,7 +95,7 @@ class RichPaletteAnimationTest
     var custom_provider = animation.rich_palette(mock_engine)
     custom_provider.palette = custom_palette
     custom_provider.cycle_period = 2000
-    custom_provider.transition_type = animation.LINEAR
+    custom_provider.transition_type = animation.SINE
     custom_provider.brightness = 128
     
     var anim2 = animation.solid(mock_engine)
@@ -97,7 +107,7 @@ class RichPaletteAnimationTest
     
     # Check provider properties directly on the provider object
     self.assert_equal(custom_provider.cycle_period, 2000, "Custom cycle period is 2000ms")
-    self.assert_equal(custom_provider.transition_type, animation.LINEAR, "Custom transition type is linear")
+    self.assert_equal(custom_provider.transition_type, animation.SINE, "Custom transition type is sine")
     self.assert_equal(custom_provider.brightness, 128, "Custom brightness is 128")
   end
   
@@ -157,7 +167,6 @@ class RichPaletteAnimationTest
     # Test the rainbow factory method
     var provider = animation.rich_palette_rainbow(mock_engine)
     provider.cycle_period = 5000
-    provider.transition_type = animation.SINE  # sine
     provider.brightness = 255
     
     var anim = animation.solid(mock_engine)
@@ -171,7 +180,7 @@ class RichPaletteAnimationTest
     
     # Check provider properties directly on the provider object
     self.assert_equal(provider.cycle_period, 5000, "Cycle period is 5000ms")
-    self.assert_equal(provider.transition_type, animation.SINE, "Transition type is sine")
+    self.assert_equal(provider.transition_type, animation.LINEAR, "Default transition type is linear")
     self.assert_equal(provider.brightness, 255, "Brightness is 255")
     
     # Check animation properties
@@ -188,26 +197,23 @@ class RichPaletteAnimationTest
     # Check basic properties
     self.assert_equal(provider.cycle_period, 1000, "Cycle period is 1000ms")
     
-    # Test range setting and value-based colors
-    provider.range_min = 0
-    provider.range_max = 100
-    self.assert_equal(provider.range_min, 0, "Range min is 0")
-    self.assert_equal(provider.range_max, 100, "Range max is 100")
+    # Value-based colors now always use 0-255 range
     
-    # Test value-based color generation
+    # Test value-based color generation (now always 0-255 range)
     provider.start()
-    print(f"{provider.slots_arr=} {provider.value_arr=}")
+    provider.update()
+    print(f"{provider._slots_arr=} {provider._value_arr=}")
     var color_0 = provider.get_color_for_value(0, 0)
-    var color_50 = provider.get_color_for_value(50, 0)
-    var color_100 = provider.get_color_for_value(100, 0)
+    var color_128 = provider.get_color_for_value(128, 0)
+    var color_255 = provider.get_color_for_value(255, 0)
     
     self.assert_equal(color_0 != nil, true, "Color at value 0 is not nil")
-    self.assert_equal(color_50 != nil, true, "Color at value 50 is not nil")
-    self.assert_equal(color_100 != nil, true, "Color at value 100 is not nil")
+    self.assert_equal(color_128 != nil, true, "Color at value 128 is not nil")
+    self.assert_equal(color_255 != nil, true, "Color at value 255 is not nil")
     
     # Colors should be different
-    self.assert_equal(color_0 != color_50, true, "Color at 0 differs from color at 50")
-    self.assert_equal(color_50 != color_100, true, "Color at 50 differs from color at 100")
+    self.assert_equal(color_0 != color_128, true, "Color at 0 differs from color at 128")
+    self.assert_equal(color_128 != color_255, true, "Color at 128 differs from color at 255")
   end
   
   def test_css_gradient()
@@ -236,9 +242,8 @@ class RichPaletteAnimationTest
     var provider = animation.rich_palette(mock_engine)
     provider.palette = palette
     provider.cycle_period = 0  # Value-based mode
-    provider.range_min = 0
-    provider.range_max = 255
     provider.start()
+    provider.update()
     
     # Check that cycle_period can be set to 0
     self.assert_equal(provider.cycle_period, 0, "Cycle period can be set to 0")
@@ -271,12 +276,113 @@ class RichPaletteAnimationTest
     
     # Start the provider for time-based mode
     provider.start(0)
+    provider.update(0)
     
     # Now colors should change over time again
     var time_color_0 = provider.produce_value("color", 0)
     var time_color_500 = provider.produce_value("color", 500)
     # Note: Colors may be the same depending on palette resolution, so just check they're valid
     self.assert_equal(time_color_0 != 0, true, "Time-based color at 0 is valid")
+  end
+  
+  def test_sine_mode()
+    # Test SINE mode for smooth ease-in/ease-out transitions
+    var palette = bytes("00FF0000" "FF0000FF")  # Red at 0, Blue at 255
+    
+    # Create LINEAR provider
+    var provider_linear = animation.rich_palette(mock_engine)
+    provider_linear.palette = palette
+    provider_linear.cycle_period = 1000
+    provider_linear.transition_type = animation.LINEAR
+    provider_linear.brightness = 255
+    provider_linear.start(0)
+    
+    # Create SINE provider
+    var provider_sine = animation.rich_palette(mock_engine)
+    provider_sine.palette = palette
+    provider_sine.cycle_period = 1000
+    provider_sine.transition_type = animation.SINE
+    provider_sine.brightness = 255
+    provider_sine.start(0)
+    
+    # Test that transition_type is set correctly
+    self.assert_equal(provider_linear.transition_type, animation.LINEAR, "LINEAR mode is set")
+    self.assert_equal(provider_sine.transition_type, animation.SINE, "SINE mode is set")
+    
+    # Test at 0% - should be identical (Red)
+    var linear_0 = provider_linear.produce_value("color", 0)
+    var sine_0 = provider_sine.produce_value("color", 0)
+    self.assert_equal(linear_0, sine_0, "LINEAR and SINE identical at 0%")
+    
+    # Test at 10% - SINE should have less blue (slower start)
+    var linear_100 = provider_linear.produce_value("color", 100)
+    var sine_100 = provider_sine.produce_value("color", 100)
+    var linear_blue_100 = linear_100 & 0xFF
+    var sine_blue_100 = sine_100 & 0xFF
+    
+    self.assert_equal(linear_blue_100 > sine_blue_100, true, "SINE slower than LINEAR at 10%")
+    
+    # Test at 25% - SINE should still be slower
+    var linear_250 = provider_linear.produce_value("color", 250)
+    var sine_250 = provider_sine.produce_value("color", 250)
+    var linear_blue_250 = linear_250 & 0xFF
+    var sine_blue_250 = sine_250 & 0xFF
+    
+    self.assert_equal(linear_blue_250 > sine_blue_250, true, "SINE slower than LINEAR at 25%")
+    
+    # Test at 50% - both should be at midpoint (approximately)
+    var linear_500 = provider_linear.produce_value("color", 500)
+    var sine_500 = provider_sine.produce_value("color", 500)
+    
+    # Colors should be very close at midpoint
+    self.assert_approx_equal(linear_500, sine_500, "LINEAR and SINE similar at 50%")
+    
+    # Test ease-in behavior: change from 0-100ms should be smaller than 100-250ms for SINE
+    var sine_blue_0 = sine_0 & 0xFF
+    
+    var change_0_100 = sine_blue_100 - sine_blue_0
+    var change_100_250 = sine_blue_250 - sine_blue_100
+    
+    self.assert_equal(change_0_100 < change_100_250, true, "SINE has ease-in (slow start)")
+  end
+  
+  def test_sine_mode_value_based()
+    # Test SINE mode with value-based interpolation
+    var palette = bytes("00FF0000" "FF0000FF")  # Red to Blue
+    var provider = animation.rich_palette(mock_engine)
+    provider.palette = palette
+    provider.cycle_period = 0  # Value-based mode
+    provider.transition_type = animation.SINE
+    provider.start()
+    provider.update()
+    
+    # Get colors at different values (now using 0-255 range)
+    var color_0 = provider.get_color_for_value(0, 0)
+    var color_64 = provider.get_color_for_value(64, 0)
+    var color_128 = provider.get_color_for_value(128, 0)
+    var color_192 = provider.get_color_for_value(192, 0)
+    var color_255 = provider.get_color_for_value(255, 0)
+    
+    # Extract blue channel
+    var blue_0 = color_0 & 0xFF
+    var blue_64 = color_64 & 0xFF
+    var blue_128 = color_128 & 0xFF
+    var blue_192 = color_192 & 0xFF
+    var blue_255 = color_255 & 0xFF
+    
+    # Test that we have a smooth S-curve
+    # Change from 0-64 should be smaller than 64-128 (ease-in)
+    var change_0_64 = blue_64 - blue_0
+    var change_64_128 = blue_128 - blue_64
+    self.assert_equal(change_0_64 < change_64_128, true, "Value-based SINE has ease-in")
+    
+    # Change from 128-192 should be larger than 192-255 (ease-out)
+    var change_128_192 = blue_192 - blue_128
+    var change_192_255 = blue_255 - blue_192
+    self.assert_equal(change_128_192 > change_192_255, true, "Value-based SINE has ease-out")
+    
+    # Midpoint should be approximately 128
+    self.assert_approx_equal(blue_128, 128, "Value-based SINE midpoint is ~128")
   end
 end
 

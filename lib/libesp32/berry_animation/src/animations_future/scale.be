@@ -3,6 +3,8 @@
 # This animation scales patterns up or down with configurable scaling factors,
 # interpolation methods, and center points.
 
+import "./core/param_encoder" as encode_constraints
+
 #@ solidify:ScaleAnimation,weak
 class ScaleAnimation : animation.animation
   # Non-parameter instance variables only
@@ -12,14 +14,14 @@ class ScaleAnimation : animation.animation
   var start_time         # Animation start time
   
   # Parameter definitions following parameterized class specification
-  static var PARAMS = {
+  static var PARAMS = animation.enc_params({
     "source_animation": {"type": "instance", "default": nil},
     "scale_factor": {"min": 1, "max": 255, "default": 128},
     "scale_speed": {"min": 0, "max": 255, "default": 0},
     "scale_mode": {"min": 0, "max": 3, "default": 0},
     "scale_center": {"min": 0, "max": 255, "default": 128},
     "interpolation": {"min": 0, "max": 1, "default": 1}
-  }
+  })
   
   # Initialize a new Scale animation
   # @param engine: AnimationEngine - Required animation engine
@@ -35,7 +37,7 @@ class ScaleAnimation : animation.animation
   
   # Initialize frame buffers based on current strip length
   def _initialize_buffers()
-    var current_strip_length = self.engine.get_strip_length()
+    var current_strip_length = self.engine.strip_length
     self.source_frame = animation.frame_buffer(current_strip_length)
     self.current_colors = []
     self.current_colors.resize(current_strip_length)
@@ -139,7 +141,7 @@ class ScaleAnimation : animation.animation
   # Calculate scaled colors for all pixels
   def _calculate_scale()
     # Get current strip length from engine
-    var current_strip_length = self.engine.get_strip_length()
+    var current_strip_length = self.engine.strip_length
     
     # Ensure buffers are properly sized
     if size(self.current_colors) != current_strip_length
@@ -241,7 +243,7 @@ class ScaleAnimation : animation.animation
     # Auto-fix time_ms and start_time
     time_ms = self._fix_time_ms(time_ms)
     
-    var current_strip_length = self.engine.get_strip_length()
+    var current_strip_length = self.engine.strip_length
     var i = 0
     while i < current_strip_length
       if i < frame.width

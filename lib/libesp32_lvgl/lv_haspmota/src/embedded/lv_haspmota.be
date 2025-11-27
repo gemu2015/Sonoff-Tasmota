@@ -1614,11 +1614,31 @@ class lvh_img : lvh_obj
   end
   def get_auto_size() end
   def set_angle(v)
-    v = int(v)
-    self._lv_obj.set_angle(v)
+    # set center
+    self._lv_obj.set_style_transform_pivot_x(self._lv_obj.get_width() / 2, 0 #-lv.PART_MAIN | lv.STATE_DEFAULT-#)
+    self._lv_obj.set_style_transform_pivot_y(self._lv_obj.get_height() / 2, 0 #-lv.PART_MAIN | lv.STATE_DEFAULT-#)
+    # set angle via rotation
+    self._lv_obj.set_style_transform_rotation(int(v), 0 #-lv.PART_MAIN | lv.STATE_DEFAULT-#)
   end
   def get_angle()
-    return self._lv_obj.get_angle()
+    return self._lv_obj.get_style_transform_rotation(0 #-lv.PART_MAIN | lv.STATE_DEFAULT-#)
+  end
+  def set_scale(v)
+    # set center
+    self._lv_obj.set_style_transform_pivot_x(self._lv_obj.get_width() / 2, 0 #-lv.PART_MAIN | lv.STATE_DEFAULT-#)
+    self._lv_obj.set_style_transform_pivot_y(self._lv_obj.get_height() / 2, 0 #-lv.PART_MAIN | lv.STATE_DEFAULT-#)
+    # set angle via rotation
+    self._lv_obj.set_style_transform_scale(int(v), 0 #-lv.PART_MAIN | lv.STATE_DEFAULT-#)
+  end
+  def get_scale()
+    return (self._lv_obj.get_style_transform_scale_x(0 #-lv.PART_MAIN | lv.STATE_DEFAULT-#) +
+            self._lv_obj.get_style_transform_scale_y(0 #-lv.PART_MAIN | lv.STATE_DEFAULT-#)) / 2
+  end
+  def set_zoom(v)
+    self.set_scale(v)
+  end
+  def get_zoom()
+    return self.get_scale()
   end
   #- ------------------------------------------------------------#
   # `src` virtual setter
@@ -2655,6 +2675,11 @@ class lvh_cpicker : lvh_obj
   # pad_inner is ignored (for now?)
   def set_pad_inner() end
   def get_pad_inner() end
+
+  # map val to rgb which is mapped to a color instance
+  def get_val()
+    return self._lv_obj.get_rgb()
+  end
 end
 
 #################################################################################
@@ -2693,7 +2718,7 @@ end
 #  Encapsulates a `lv_screen` which is `lv.obj(0)` object
 #################################################################################
 #
-# ex of transition: lv.scr_load_anim(scr, lv.SCR_LOAD_ANIM_MOVE_RIGHT, 500, 0, false)
+# ex of transition: lv.scr_load_anim(scr, lv.SCREEN_LOAD_ANIM_MOVE_RIGHT, 500, 0, false)
 #@ solidify:lvh_page,weak
 class lvh_page
   var _obj_id               # (map) of `lvh_obj` objects by id numbers
@@ -2862,11 +2887,11 @@ class lvh_page
   #  show this page, with animation
   #====================================================================
   static show_anim = {
-     1: lv.SCR_LOAD_ANIM_MOVE_LEFT,
-    -1: lv.SCR_LOAD_ANIM_MOVE_RIGHT,
-    -2: lv.SCR_LOAD_ANIM_MOVE_TOP,
-     2: lv.SCR_LOAD_ANIM_MOVE_BOTTOM,
-     0: lv.SCR_LOAD_ANIM_NONE,
+     1: lv.SCREEN_LOAD_ANIM_MOVE_LEFT,
+    -1: lv.SCREEN_LOAD_ANIM_MOVE_RIGHT,
+    -2: lv.SCREEN_LOAD_ANIM_MOVE_TOP,
+     2: lv.SCREEN_LOAD_ANIM_MOVE_BOTTOM,
+     0: lv.SCREEN_LOAD_ANIM_NONE,
   }
   def show(anim, duration)
     # ignore if the page does not contain a screen, like when id==0
@@ -2896,7 +2921,7 @@ class lvh_page
     if (anim == 0)
       lv.screen_load(self._lv_scr)
     else    # animation
-      var anim_lvgl = self.show_anim.find(anim, lv.SCR_LOAD_ANIM_NONE)
+      var anim_lvgl = self.show_anim.find(anim, lv.SCREEN_LOAD_ANIM_NONE)
       # load new screen with animation, no delay, 500ms transition time, no auto-delete
       lv.screen_load_anim(self._lv_scr, anim_lvgl, duration, 0, false)
     end

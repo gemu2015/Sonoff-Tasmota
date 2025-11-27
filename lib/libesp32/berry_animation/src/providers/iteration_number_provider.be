@@ -19,11 +19,10 @@
 #     }
 #   }
 
+import "./core/param_encoder" as encode_constraints
+
 #@ solidify:IterationNumberProvider,weak
 class IterationNumberProvider : animation.value_provider
-  # Static parameter definitions (no parameters needed)
-  static var PARAMS = {}
-  
   # Produce the current iteration number from the animation engine
   #
   # @param name: string - Parameter name being requested (ignored)
