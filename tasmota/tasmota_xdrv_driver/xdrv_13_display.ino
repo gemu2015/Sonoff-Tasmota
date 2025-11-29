@@ -2454,12 +2454,13 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
     }
 
 #ifndef SLOW_RGB16
-    renderer->setAddrWindow(xp, yp, xp + xsize, yp + ysize);
+    //renderer->setAddrWindow(xp, yp, xp + xsize, yp + ysize);
     uint16_t *rgb = (uint16_t *)special_malloc(xsize * 2);
     if (rgb) {
       //uint16_t rgb[xsize];
       for (int16_t j = 0; j < ysize; j++) {
         fp.read((uint8_t*)rgb, xsize * 2);
+        renderer->setAddrWindow(xp, yp + j, xp + xsize, yp + j + 1);
         renderer->pushColors(rgb, xsize, true);
         OsWatchLoop();
       }
@@ -2517,7 +2518,7 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
               if (pixb) {
                 uint8_t *ob = out_buf;
                 if (jpg2rgb888(mem, size, out_buf, (jpg_scale_t)JPG_SCALE_NONE)) {
-                  renderer->setAddrWindow(xp, yp, xp + xsize, yp + ysize);
+                  //renderer->setAddrWindow(xp, yp, xp + xsize, yp + ysize);
                   for (int32_t j = 0; j < ysize; j++) {
                     if (inverted == false) {
                       rgb888_to_565(ob, pixb, xsize);
@@ -2525,6 +2526,7 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
                       rgb888_to_565i(ob, pixb, xsize);
                     }
                     ob += xsize * 3;
+                    renderer->setAddrWindow(xp, yp + j, xp + xsize, yp + j + 1);
                     renderer->pushColors(pixb, xsize, true);
                     OsWatchLoop();
                   }
