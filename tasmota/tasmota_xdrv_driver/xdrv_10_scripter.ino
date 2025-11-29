@@ -12386,9 +12386,23 @@ void Script_Check_HTML_Setvars(void) {
     char *cp = cmdbuf;
     *cp++ = '>';
     strncpy(cp, stmp.c_str(), sizeof(cmdbuf) - 1);
+    
+    if (*cp == '_')  {
+      // execute subroutine
+      *cp++ = '=';
+      *cp++ = '#'; 
+      strncpy(cp, stmp.c_str() + 1, sizeof(cmdbuf) - 3);
+      char *cp1 = strchr(cp, '_');
+      if (!cp1) return;
+      *cp1 = 0;
+      goto excmdb;
+    }
+
+    {
     char *cp1 = strchr(cp, '_');
     if (!cp1) return;
     *cp1 = 0;
+ 
     char vname[32];
     strncpy(vname, cp, sizeof(vname));
     *cp1 = '=';
@@ -12409,7 +12423,9 @@ void Script_Check_HTML_Setvars(void) {
       *cp1 = '\"';
       *(cp1 + tlen + 1 ) = '\"';
     }
-    //toLog(cmdbuf);
+    }
+
+excmdb:
     execute_script(cmdbuf);
 
 #ifdef USE_HTML_CALLBACK
@@ -13137,7 +13153,18 @@ const char *gc_str;
       for (uint32_t cnt = 0; cnt < bcnt; cnt++) {
         TS_FLOAT val;
         char *slp = lp;
-        lp = GetNumericArgument(lp, OPER_EQU, &val, 0);
+
+        if (*lp =='_') {
+          val = 0;
+          while (*lp) {
+            if (*lp == ' ') {
+              break;
+            }
+            lp++;
+          }
+        } else {
+          lp = GetNumericArgument(lp, OPER_EQU, &val, 0);
+        }
         SCRIPT_SKIP_SPACES
 
         char vname[16];
