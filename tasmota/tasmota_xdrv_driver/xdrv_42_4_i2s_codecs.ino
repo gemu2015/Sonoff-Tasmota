@@ -19,7 +19,7 @@
 */
 
 #ifdef ESP32
-#ifdef ESP32S3_BOX
+#ifdef xESP32S3_BOX
 #include <driver/i2s.h>
 #include <es8156.h>
 #include <es8311.h>
