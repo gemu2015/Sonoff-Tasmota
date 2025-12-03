@@ -463,17 +463,15 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
 #if SOC_LCD_RGB_SUPPORTED
           if (interface == _UDSP_RGB){
             // Parse timing directly into union
-            // :V,0,8,4,8,0,8,4,8,1
-
-            panel_config->rgb.timings.flags.hsync_idle_low = (next_val(&lp1) == 0) ? 1 : 0; // 0
-            panel_config->rgb.timings.hsync_front_porch = next_val(&lp1); // 8
-            panel_config->rgb.timings.hsync_pulse_width = next_val(&lp1); // 4
-            panel_config->rgb.timings.hsync_back_porch = next_val(&lp1); // 8
-            panel_config->rgb.timings.flags.vsync_idle_low = (next_val(&lp1) == 0) ? 1 : 0; // 0
-            panel_config->rgb.timings.vsync_front_porch = next_val(&lp1); // 8
-            panel_config->rgb.timings.vsync_pulse_width = next_val(&lp1); // 4
-            panel_config->rgb.timings.vsync_back_porch = next_val(&lp1); // 8
-            panel_config->rgb.timings.flags.pclk_active_neg = next_val(&lp1); // 1
+            panel_config->rgb.timings.flags.hsync_idle_low = (next_val(&lp1) == 0) ? 1 : 0;
+            panel_config->rgb.timings.hsync_front_porch = next_val(&lp1);
+            panel_config->rgb.timings.hsync_pulse_width = next_val(&lp1);
+            panel_config->rgb.timings.hsync_back_porch = next_val(&lp1);
+            panel_config->rgb.timings.flags.vsync_idle_low = (next_val(&lp1) == 0) ? 1 : 0;
+            panel_config->rgb.timings.vsync_front_porch = next_val(&lp1);
+            panel_config->rgb.timings.vsync_pulse_width = next_val(&lp1);
+            panel_config->rgb.timings.vsync_back_porch = next_val(&lp1);
+            panel_config->rgb.timings.flags.pclk_active_neg = next_val(&lp1);
             // Set fixed flags (not in descriptor)
             panel_config->rgb.timings.flags.de_idle_high = 0;
             panel_config->rgb.timings.flags.pclk_idle_high = 0;
