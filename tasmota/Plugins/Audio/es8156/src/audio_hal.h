@@ -22,14 +22,11 @@
  *
  */
 
+
 #ifndef _AUDIO_HAL_H_
 #define _AUDIO_HAL_H_
 
 #define AUDIO_HAL_VOL_DEFAULT 60
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /**
  * @brief Select media hal codec mode
@@ -99,6 +96,7 @@ typedef enum {
     AUDIO_HAL_BIT_LENGTH_32BITS,       /*!< set 32 bits per sample */
 } audio_hal_iface_bits_t;
 
+
 /**
  * @brief Select I2S interface format for audio codec chip
  */
@@ -113,7 +111,7 @@ typedef enum {
  * @brief I2s interface configuration for audio codec chip
  */
 typedef struct {
-    audio_hal_iface_mode_t mode;        /*!< audio codec chip mode */
+    audio_hal_iface_mode_t amode;        /*!< audio codec chip mode */
     audio_hal_iface_format_t fmt;       /*!< I2S interface format */
     audio_hal_iface_samples_t samples;  /*!< I2S interface samples per second */
     audio_hal_iface_bits_t bits;        /*!< i2s interface number of bits per sample */
@@ -129,8 +127,5 @@ typedef struct {
     audio_hal_codec_i2s_iface_t i2s_iface; /*!< set I2S interface configuration */
 } audio_hal_codec_config_t;
 
-#ifdef __cplusplus
-}
-#endif
 
 #endif //__AUDIO_HAL_H__

@@ -22,13 +22,7 @@
  *
  */
 
-#ifdef ESP32
-
-#include <Wire.h>
-#include <freertos/FreeRTOS.h>
-#include "string.h"
-#include "esp_log.h"
-#include "rom/ets_sys.h"
+#include "audio_hal.h"
 #include "es8156.h"
 
 /*
@@ -41,43 +35,47 @@ typedef struct {
 } i2s_pin_config_t;
 */
 
-static const char *TAG = "es8156";
 
-static TwoWire *es8156_wire;
-
-
-static esp_err_t es8156_write_reg(uint8_t reg_addr, uint8_t data)
-{
-    es8156_wire->beginTransmission(ES8156_ADDR);
-    es8156_wire->write(reg_addr);
-    es8156_wire->write(data);
-    es8156_wire->endTransmission();
+esp_err_t es8156_write_reg(uint8_t reg_addr, uint8_t data) {
+    SETMEMREGS
+    I2C_beginTransmission(ES8156_ADDR);
+    I2C_write(reg_addr);
+    I2C_write(data);
+    I2C_endTransmission(true);
     return 0;
 }
 
-static uint8_t es8156_read_reg(uint8_t reg_addr)
-{
+uint8_t es8156_read_reg(uint8_t reg_addr) {
+    SETMEMREGS
     uint8_t data;
-    es8156_wire->beginTransmission(ES8156_ADDR);
-    es8156_wire->write(reg_addr);
-    es8156_wire->endTransmission(false);
-    es8156_wire->requestFrom(ES8156_ADDR, (size_t)1);
-    data = es8156_wire->read();
+    I2C_beginTransmission(ES8156_ADDR);
+    I2C_write(reg_addr);
+    I2C_endTransmission(false);
+    I2C_requestFrom(ES8156_ADDR, (size_t)3);
+    data = I2C_read();
     //i2c_bus_read_byte(i2c_handle, reg_addr, &data);
     return data;
 }
 
-esp_err_t es8156_codec_init(TwoWire *tw, audio_hal_codec_config_t *cfg)
-{
+esp_err_t es8156_codec_init(audio_hal_codec_config_t *cfg) {
 
-    es8156_wire = tw;
+    SETMEMREGS
+
+    I2C_SETWIRE(0);
+
+    if (!I2cSetDevice(ES8156_ADDR, 0)) {
+        return -1;
+    }
+
+    I2cSetActiveFound(ES8156_ADDR, PSTR("eS8156"), 0);
+
+
     esp_err_t ret_val = ESP_OK;
-    //ret_val |= bsp_i2c_add_device(&i2c_handle, ES8156_ADDR);
 
     uint8_t misc_ctrl_reg_val = 0x00;
     uint8_t dac_iface_reg_val = 0x00;
 
-    if (AUDIO_HAL_MODE_MASTER == cfg->i2s_iface.mode) {
+    if (AUDIO_HAL_MODE_MASTER == cfg->i2s_iface.amode) {
         misc_ctrl_reg_val |= 0b00100000;
     } else {
         misc_ctrl_reg_val |= 0b00000000;
@@ -105,13 +103,11 @@ esp_err_t es8156_codec_init(TwoWire *tw, audio_hal_codec_config_t *cfg)
     return ret_val;
 }
 
-esp_err_t es8156_codec_deinit(void)
-{
+esp_err_t es8156_codec_deinit(void) {
     return ESP_ERR_NOT_SUPPORTED;
 }
 
-esp_err_t es8156_codec_set_voice_mute(bool enable)
-{
+esp_err_t es8156_codec_set_voice_mute(bool enable) {
     int regv = es8156_read_reg(ES8156_DAC_MUTE_REG13);
     if (enable) {
         regv = regv | BIT(1) | BIT(2);
@@ -122,8 +118,7 @@ esp_err_t es8156_codec_set_voice_mute(bool enable)
     return ESP_OK;
 }
 
-esp_err_t es8156_codec_set_voice_volume(uint8_t volume)
-{
+esp_err_t es8156_codec_set_voice_volume(uint8_t volume) {
     if (volume > 100) {
         volume = 100;
     }
@@ -134,21 +129,18 @@ esp_err_t es8156_codec_set_voice_volume(uint8_t volume)
     return es8156_write_reg(ES8156_VOLUME_CONTROL_REG14, d);
 }
 
-esp_err_t es8156_codec_get_voice_volume(uint8_t *volume)
-{
+esp_err_t es8156_codec_get_voice_volume(uint8_t *volume) {
     *volume = es8156_read_reg(ES8156_VOLUME_CONTROL_REG14);
 
     return ESP_OK;
 }
 
-esp_err_t es8156_config_fmt(es_i2s_fmt_t fmt)
-{
-    ESP_LOGW(TAG, "Not support config format for es8156 now");
+esp_err_t es8156_config_fmt(es_i2s_fmt_t fmt) {
+    //ESP_LOGW(TAG, "Not support config format for es8156 now");
     return ESP_ERR_NOT_SUPPORTED;
 }
 
-esp_err_t es8156_set_channel(uint8_t is_right)
-{
+esp_err_t es8156_set_channel(uint8_t is_right) {
     uint8_t reg = es8156_read_reg(ES8156_DAC_SDP_REG11);
     if (is_right) {
         reg |= 0b00000100;
@@ -157,5 +149,3 @@ esp_err_t es8156_set_channel(uint8_t is_right)
     }
     return es8156_write_reg(ES8156_DAC_SDP_REG11, reg);
 }
-
-#endif

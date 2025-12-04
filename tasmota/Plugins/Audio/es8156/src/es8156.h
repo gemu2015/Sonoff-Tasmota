@@ -25,14 +25,7 @@
 #ifndef _ES8156_H
 #define _ES8156_H
 
-#include "audio_hal.h"
-#include "esp_types.h"
 #include "esxxx_common.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 
 #define ES8156_ADDR (0x08)
 
@@ -116,7 +109,7 @@ typedef enum {
  *      - ESP_OK
  *      - ESP_FAIL
  */
-esp_err_t es8156_codec_init(TwoWire *tw, audio_hal_codec_config_t *codec_cfg);
+MODULE_PART esp_err_t es8156_codec_init(audio_hal_codec_config_t *codec_cfg);
 
 /**
  * @brief Deinitialize ES8156 codec chip
@@ -125,10 +118,10 @@ esp_err_t es8156_codec_init(TwoWire *tw, audio_hal_codec_config_t *codec_cfg);
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t es8156_codec_deinit(void);
+MODULE_PART esp_err_t es8156_codec_deinit(void);
 
 
-esp_err_t es8156_config_fmt(es_i2s_fmt_t fmt);
+MODULE_PART esp_err_t es8156_config_fmt(es_i2s_fmt_t fmt);
 
 /**
  * @brief Configure ES8156 DAC mute or not. Basically you can use this function to mute the output or unmute
@@ -139,7 +132,7 @@ esp_err_t es8156_config_fmt(es_i2s_fmt_t fmt);
  *     - ESP_FAIL Parameter error
  *     - ESP_OK   Success
  */
-esp_err_t es8156_codec_set_voice_mute(bool enable);
+MODULE_PART esp_err_t es8156_codec_set_voice_mute(bool enable);
 
 /**
  * @brief  Set voice volume
@@ -150,7 +143,7 @@ esp_err_t es8156_codec_set_voice_mute(bool enable);
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t es8156_codec_set_voice_volume(uint8_t volume);
+MODULE_PART esp_err_t es8156_codec_set_voice_volume(uint8_t volume);
 
 /**
  * @brief Get voice volume
@@ -161,7 +154,7 @@ esp_err_t es8156_codec_set_voice_volume(uint8_t volume);
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t es8156_codec_get_voice_volume(uint8_t *volume);
+MODULE_PART esp_err_t es8156_codec_get_voice_volume(uint8_t *volume);
 
 /**
  * @brief
@@ -169,12 +162,6 @@ esp_err_t es8156_codec_get_voice_volume(uint8_t *volume);
  * @param is_right
  * @return esp_err_t
  */
-esp_err_t es8156_set_channel(uint8_t is_right);
+MODULE_PART esp_err_t es8156_set_channel(uint8_t is_right);
 
-
-
-
-#ifdef __cplusplus
-}
-#endif
 #endif

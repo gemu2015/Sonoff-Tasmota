@@ -40,16 +40,21 @@
 #define USE_WEBRADIO
 
 // select a codec
-#define USE_WM8960
+#define USE_AUDIO_CODECS
 // box lite
 // ES8156_init(); DAC
 // es7243e_init(); ADC
 // box full
 // ES8311_init(); DAC
 // es7210_init(); ADC
+
+#ifdef USE_AUDIO_CODECS
+#include "Audio/es8156/src/audio_hal.h"
+#include "Audio/es8156/src/es8156.h"
+int32_t pW8960_Init();
 #endif
 
-int32_t pW8960_Init();
+#endif
 
 #ifdef USE_SAY
 #include "Audio/ESP8266SAM/SamData.h"
@@ -95,7 +100,7 @@ typedef struct {
 #endif
   int32_t pclamp;
   int32_t mclamp;
-#ifdef USE_WM8960
+#ifdef USE_AUDIO_CODECS
  TwoWire *xWire;
 #endif
 #ifdef USE_WEBRADIO
@@ -209,8 +214,8 @@ const char S_JSON_STOPSND[] PROGMEM = "{\"audio stopped\"}";
 #if defined(USE_MP3) || defined(USE_SAY)
 const char S_JSON_MEMERR[] PROGMEM = "{\"out of memory\"}";
 #endif
-#ifdef USE_WM8960
-const char S_JSON_WMERR[] PROGMEM = "{\"WM8960 error\"}";
+#ifdef USE_AUDIO_CODECS
+const char S_JSON_WMERR[] PROGMEM = "{\"Codec error\"}";
 #endif
 
 #define TASK_STACK 8192
@@ -330,13 +335,30 @@ int32_t I2SAudio_Init() {
   force_mono = 1;
 #endif
 
-#ifdef USE_WM8960
-  if (1 == codec) {
-    if (pW8960_Init() < 0) {
-      I2SAudio_Deinit();
-      Response_P(GSTR(S_JSON_WMERR));
-      return -2;
-    }
+#ifdef USE_AUDIO_CODECS
+  switch (codec) {
+    case 1:
+      if (pW8960_Init() < 0) {
+        I2SAudio_Deinit();
+        Response_P(GSTR(S_JSON_WMERR));
+        return -2;
+      }
+      break;
+    case 2:
+      {  audio_hal_codec_config_t cfg = {
+          .i2s_iface = {
+            .amode = AUDIO_HAL_MODE_SLAVE,
+            .bits = AUDIO_HAL_BIT_LENGTH_16BITS,
+          }
+         };
+        if (es8156_codec_init(&cfg) < 0) {
+          I2SAudio_Deinit();
+          Response_P(GSTR(S_JSON_WMERR));
+          return -2;
+        }
+        es8156_codec_set_voice_volume(75);
+      }
+      break;
   }
 #endif
 
@@ -670,8 +692,9 @@ void I2sTaskMP3(void) {
 }
 #endif
 
-#ifdef USE_WM8960
+#ifdef USE_AUDIO_CODECS
 #include "Audio/WM8960/p_wm8960_c.h"
+#include "Audio/es8156/src/p_es8156_c.h"
 #endif
 
 #ifdef USE_SAY
@@ -1126,8 +1149,15 @@ void I2SAudio_Deinit() {
   if (m_inBuff) free(m_inBuff);  
 #endif
   i2s_end(i2sp);
-#ifdef USE_WM8960
-  I2cResetActive(W8960_ADDR, 0);
+#ifdef USE_AUDIO_CODECS
+  switch (codec) {
+    case 1:
+      I2cResetActive(W8960_ADDR, 0);
+      break;
+    case 2:
+      I2cResetActive(ES8156_ADDR, 0);
+      break;
+  }
 #endif
   RETMEM
 }
