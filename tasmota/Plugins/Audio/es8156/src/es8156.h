@@ -109,7 +109,8 @@ typedef enum {
  *      - ESP_OK
  *      - ESP_FAIL
  */
-MODULE_PART esp_err_t es8156_codec_init(audio_hal_codec_config_t *codec_cfg);
+//MODULE_PART int32_t pes8156_codec_init(audio_hal_codec_config_t *codec_cfg);
+MODULE_PART int32_t pes8156_codec_init(uint8_t amode, uint8_t bits, uint8_t *bus);
 
 /**
  * @brief Deinitialize ES8156 codec chip
@@ -118,10 +119,10 @@ MODULE_PART esp_err_t es8156_codec_init(audio_hal_codec_config_t *codec_cfg);
  *     - ESP_OK
  *     - ESP_FAIL
  */
-MODULE_PART esp_err_t es8156_codec_deinit(void);
+MODULE_PART esp_err_t pes8156_codec_deinit(void);
 
 
-MODULE_PART esp_err_t es8156_config_fmt(es_i2s_fmt_t fmt);
+MODULE_PART esp_err_t pes8156_config_fmt(es_i2s_fmt_t fmt);
 
 /**
  * @brief Configure ES8156 DAC mute or not. Basically you can use this function to mute the output or unmute
@@ -132,7 +133,7 @@ MODULE_PART esp_err_t es8156_config_fmt(es_i2s_fmt_t fmt);
  *     - ESP_FAIL Parameter error
  *     - ESP_OK   Success
  */
-MODULE_PART esp_err_t es8156_codec_set_voice_mute(bool enable);
+MODULE_PART esp_err_t pes8156_codec_set_voice_mute(bool enable);
 
 /**
  * @brief  Set voice volume
@@ -143,7 +144,7 @@ MODULE_PART esp_err_t es8156_codec_set_voice_mute(bool enable);
  *     - ESP_OK
  *     - ESP_FAIL
  */
-MODULE_PART esp_err_t es8156_codec_set_voice_volume(uint8_t volume);
+MODULE_PART esp_err_t pes8156_codec_set_voice_volume(uint8_t volume);
 
 /**
  * @brief Get voice volume
@@ -154,7 +155,7 @@ MODULE_PART esp_err_t es8156_codec_set_voice_volume(uint8_t volume);
  *     - ESP_OK
  *     - ESP_FAIL
  */
-MODULE_PART esp_err_t es8156_codec_get_voice_volume(uint8_t *volume);
+MODULE_PART esp_err_t pes8156_codec_get_voice_volume(uint8_t *volume);
 
 /**
  * @brief
@@ -162,6 +163,8 @@ MODULE_PART esp_err_t es8156_codec_get_voice_volume(uint8_t *volume);
  * @param is_right
  * @return esp_err_t
  */
-MODULE_PART esp_err_t es8156_set_channel(uint8_t is_right);
+MODULE_PART esp_err_t pes8156_set_channel(uint8_t is_right);
+
+
 
 #endif

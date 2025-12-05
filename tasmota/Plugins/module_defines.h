@@ -230,7 +230,7 @@ typedef struct {
 #define jResponseCmndChar(A)            (( void (*)(char *))                            jt[152])(A)
 #define jstrtol(A,B,C)                  (( int32_t (*)(char *,char **,size_t ))             jt[153])(A,B,C)
 #define judp(A,B,C,D)                   (( uint32_t (*)(void *,uint32_t,uint32_t,uint32_t )) jt[154])(A,B,C,D)
-#define ji2s(A,B,C,D,E,F)               (( uint32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t )) jt[155])(A,B,C,D,E,F)
+#define ji2s(A,B,C,D,E,F,G)             (( uint32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t)) jt[155])(A,B,C,D,E,F,G)
 #define jtaskc(A)                       (( uint32_t (*)(TASKPARS* ))                    jt[156])(A)
 #define jtaskd(A)                       (( uint32_t (*)(uint32_t))                       jt[157])(A)
 #define jPlugin_Get_SensorNames(A,B)    (( char *(*)(char *,uint32_t))                  jt[158])(A,B)
@@ -277,8 +277,10 @@ typedef struct {
 #define jbr_gcm_run(A,B,C,D)             (( void (*)(br_gcm_context*,int,void*,size_t))   jt[197])(A,B,C,D)
 #define jbr_gcm_check_tag_trunc(A,B,C)   (( int32_t (*)(br_gcm_context*,const void*,size_t)) jt[198])(A,B,C)
 
-#define vsnprintf_P(A,B,C,...)          (( int32_t (*)(char *,size_t,const char *,...))   jt[199])(A,B,C,##__VA_ARGS__)
-#define makeTime(A)                    (( time_t (*)(const tmElements_t))               jt[200])(A)
+#define vsnprintf_P(A,B,C,...)           (( int32_t (*)(char *,size_t,const char *,...))   jt[199])(A,B,C,##__VA_ARGS__)
+#define makeTime(A)                      (( time_t (*)(const tmElements_t))               jt[200])(A)
+#define jGetPins                         (( uint32_t(*)(void))                        jt[201])
+
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -529,7 +531,9 @@ extern MODULES_TABLE modules[];
 #define ALLOCMEM GET_MTBL; GET_JT; mt->mem_size = sizeof(MODULE_MEMORY);mt->mem_size += mt->mem_size % 4;mt->mod_memory = jcalloc(mt->mem_size / 4, 4);if (!mt->mod_memory) {return -1;};MODULE_MEMORY *mem = (MODULE_MEMORY*)mt->mod_memory;SETTINGS *jsettings = *asettings;FLASH_MODULE *mp = (FLASH_MODULE*)mt->mod_addr;
 #define RETMEM if (mt->mem_size) {jfree(mt->mod_memory);mt->mem_size = 0;}
 #define MODULE_DESCRIPTOR(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE MODULE_HEADER = {MODULE_SYNC,CURR_ARCH,(TYPE),(REV),(NAME),mod_func_execute,END_OF_MODULE,0,0,(uint32_t)&modules,(uint32_t)&MODULE_JUMPTABLE,(uint32_t)&module_header,mod_func_execute,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4}};
-#define MODULE_DESCRIPTOR6(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4,GPIO5,PIN5,GPIO6,PIN6)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE MODULE_HEADER = {MODULE_SYNC,CURR_ARCH|MAX_MOD_STORES<<24,(TYPE),(REV),(NAME),mod_func_execute,END_OF_MODULE,0,0,(uint32_t)&modules,(uint32_t)&MODULE_JUMPTABLE,(uint32_t)&module_header,mod_func_execute,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4,GPIO5,PIN5,GPIO6,PIN6}};
+#define MODULE_DESCRIPTOR6(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4,GPIO5,PIN5,GPIO6,PIN6)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE MODULE_HEADER = {MODULE_SYNC,CURR_ARCH|(MAX_MOD_STORES<<24),(TYPE),(REV),(NAME),mod_func_execute,END_OF_MODULE,0,0,(uint32_t)&modules,(uint32_t)&MODULE_JUMPTABLE,(uint32_t)&module_header,mod_func_execute,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4,GPIO5,PIN5,GPIO6,PIN6}};
+#define MODULE_DESCRIPTOR8(NAME,TYPE,REV,GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4,GPIO5,PIN5,GPIO6,PIN6,GPIO7,PIN7,GPIO8,PIN8)  __attribute__((section(SECTION_DESC))) extern const FLASH_MODULE MODULE_HEADER = {MODULE_SYNC,CURR_ARCH|(MAX_MOD_STORES<<24),(TYPE),(REV),(NAME),mod_func_execute,END_OF_MODULE,0,0,(uint32_t)&modules,(uint32_t)&MODULE_JUMPTABLE,(uint32_t)&module_header,mod_func_execute,{GPIO1,PIN1,GPIO2,PIN2,GPIO3,PIN3,GPIO4,PIN4,GPIO5,PIN5,GPIO6,PIN6,GPIO7,PIN7,GPIO8,PIN8}};
+
 
 #define MOD_FUNC(A, ...) A(MODULES_TABLE *mt, ##__VA_ARGS__)
 //#define MOD_FUNC(A, ...) A(##__VA_ARGS__)
@@ -593,6 +597,9 @@ typedef struct {
 #define   XdrvRulesProcess jXdrvRulesProcess
 #define   WSContentSend_PD jWSContentSend_PD
 #define   WSContentSend_P jWSContentSend_P
+
+
+#define GetPins jGetPins
 
 //#define   WSContentSend_P(A,...) {char *xyz=jcopyStr(A); jWSContentSend_P(xyz,__VA_ARGS__); free(xyz);}
 
@@ -735,14 +742,14 @@ typedef struct {
 #define fpos(A) jfile_getpos(A)
 #define OsWatchLoop jOsWatchLoop
 
-#define i2s_begin(A,B,C,D) (void*)ji2s(0,0,A,B,C,D)
-#define i2s_end(A) ji2s(1,(uint32_t)A,0,0,0,0)
-#define i2s_set_rate(A,B,C,D) ji2s(2,(uint32_t)A,B,C,D,0)
-#define i2s_write_sample(A,B) ji2s(5,(uint32_t)A,B,0,0,0)
-#define i2s_write_samples(A,B,C) ji2s(3,(uint32_t)A,(uint32_t)B,C,0,0)
-#define i2s_enable_tx(A) ji2s(6,(uint32_t)A,0,0,0,0)
-#define i2s_disable_tx(A) ji2s(7,(uint32_t)A,0,0,0,0)
-#define i2s_channel_register_event_callback(A,B,C) ji2s(8,(uint32_t)A,(uint32_t)B,(uint32_t)C,0,0)
+#define i2s_begin(A,B,C,D,E) (void*)ji2s(0,0,A,B,C,D,E)
+#define i2s_end(A) ji2s(1,(uint32_t)A,0,0,0,0,0)
+#define i2s_set_rate(A,B,C,D) ji2s(2,(uint32_t)A,B,C,D,0,0)
+#define i2s_write_sample(A,B) ji2s(5,(uint32_t)A,B,0,0,0,0)
+#define i2s_write_samples(A,B,C) ji2s(3,(uint32_t)A,(uint32_t)B,C,0,0,0)
+#define i2s_enable_tx(A) ji2s(6,(uint32_t)A,0,0,0,0,0)
+#define i2s_disable_tx(A) ji2s(7,(uint32_t)A,0,0,0,0,0)
+#define i2s_channel_register_event_callback(A,B,C) ji2s(8,(uint32_t)A,(uint32_t)B,(uint32_t)C,0,0,0)
 
 
 #define New_WiFiClient() (void*)jtmod_wifi(0,0,0,0,0)

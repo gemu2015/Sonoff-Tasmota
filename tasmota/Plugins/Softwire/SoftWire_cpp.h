@@ -315,6 +315,7 @@ SETREGS
     SWI2C_Write((val >> (8 * bytes)) & 0xFF);          // write data
   }
   SWI2C_endTransmission(true);
+  return false;
 }
 
 MODULE_PART bool SWI2C_Write16(uint8_t addr, uint8_t reg, uint32_t val, uint8_t bus) {

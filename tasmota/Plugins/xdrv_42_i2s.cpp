@@ -17,13 +17,19 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+
+/* to doo
+microphone support
+codec settings access
+*/
+
 #include "tasmota_options.h"
 
 #ifdef USE_I2S_MOD
 #define XDRV_42 42
 
 #ifdef ESP32
-#define MAX_MOD_STORES 6
+#define MAX_MOD_STORES 8
 #else
 #define MAX_MOD_STORES 4
 #endif
@@ -41,12 +47,6 @@
 
 // select a codec
 #define USE_AUDIO_CODECS
-// box lite
-// ES8156_init(); DAC
-// es7243e_init(); ADC
-// box full
-// ES8311_init(); DAC
-// es7210_init(); ADC
 
 #ifdef USE_AUDIO_CODECS
 #include "Audio/es8156/src/audio_hal.h"
@@ -79,6 +79,8 @@ typedef struct {
   uint8_t dout_pin;
   uint8_t bck_pin;
   uint8_t ws_pin;
+  int8_t mc_pin;
+  int8_t din_pin;
   uint8_t gain_div;
   void *i2sp;
   uint8_t busy;
@@ -90,6 +92,8 @@ typedef struct {
   uint8_t codec;
   uint16_t srate;
   uint8_t tx_ready;
+  int8_t audio_pwr_pin;
+  uint8_t codec_bus;
 #ifdef USE_MP3
   MP3_MEM mp3m;
   int16_t *m_outBuff;
@@ -117,10 +121,12 @@ typedef struct {
 
 } MODULE_MEMORY;
 
-
+#define audio_pwr_pin mem->audio_pwr_pin
 #define dout_pin mem->dout_pin
 #define bck_pin mem->bck_pin
 #define ws_pin mem->ws_pin
+#define mc_pin mem->mc_pin
+#define din_pin mem->din_pin
 #define i2sp mem->i2sp
 #define gain_div mem->gain_div
 #define busy mem->busy
@@ -147,6 +153,8 @@ typedef struct {
 #define meta mem->meta
 #define tx_ready mem->tx_ready
 #define cmd_param mem->cmd_param
+#define codec_bus mem->codec_bus
+
 
 // esp8266 fixed i2s pins : DOUT = 3(RX), BCK = 15(D8), WS = 2(D4)
 
@@ -161,9 +169,15 @@ typedef struct {
 #define GPIO_BCK 7
 #define GPIO_WS 8
 #else
-#define GPIO_DOUT 17
-#define GPIO_BCK 10
-#define GPIO_WS 18
+//#define GPIO_DOUT 17
+//#define GPIO_BCK 10
+//#define GPIO_WS 18
+#define GPIO_DOUT 15
+#define GPIO_BCK 17
+#define GPIO_WS 47
+#define GPIO_APWR 46
+#define GPIO_DIN 16
+#define GPIO_MC 2
 #endif
 
 #define I2S_REV 1 << 16 | 5
@@ -172,7 +186,7 @@ MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "",
 //MODULE_DESCRIPTOR6(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0, "", 0, "", 0)
 #else
 //MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "BCK", GPIO_BCK, "WS", GPIO_WS, "MODE", 0x01000200)
-MODULE_DESCRIPTOR6(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "BCK", GPIO_BCK, "WS", GPIO_WS, "MODE", 0x01000200,"CODEC", 0x01000201,"", 0)
+MODULE_DESCRIPTOR8(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "DIN", GPIO_DIN, "BCK", GPIO_BCK, "WS", GPIO_WS, "MC", GPIO_MC,"MODE", 0x01000200,"CODEC", 0x01000201,"APWR", GPIO_APWR)
 #endif
 
 // all functions must be declared MUDULE_PART
@@ -189,6 +203,7 @@ MODULE_PART bool mp3_stop();
 MODULE_PART void SetVolume(void);
 MODULE_PART void WebRadio(void);
 MODULE_PART void Say(void);
+MODULE_PART void AudioPwr(uint32_t pwr);
 MODULE_PART int32_t W8960_Init(void);
 MODULE_PART void W8960_Write(uint8_t reg_addr, uint16_t data);
 MODULE_PART void W8960_SetGain(uint8_t sel, uint16_t value);
@@ -283,14 +298,24 @@ int32_t I2SAudio_Init() {
   ALLOCMEM
 
   dout_pin = mp->ms[0].value;
-  bck_pin = mp->ms[1].value;
-  ws_pin = mp->ms[2].value;
-  mode = mp->ms[3].value;
-  codec = mp->ms[4].value;
+  din_pin = mp->ms[1].value;
+  bck_pin = mp->ms[2].value;
+  ws_pin = mp->ms[3].value;
+  mc_pin = mp->ms[4].value;
+  mode = mp->ms[5].value;
+  codec = mp->ms[6].value;
+  audio_pwr_pin = mp->ms[7].value;
+
+  if (audio_pwr_pin < GetPins()) {
+    pinMode(audio_pwr_pin, OUTPUT);
+    digitalWrite(audio_pwr_pin, LOW);
+  } else {
+    audio_pwr_pin = -1;
+  }
 
   gain_div = 1<<6;  // = 1
 
-  i2sp = i2s_begin(dout_pin, bck_pin, ws_pin, mode);
+  i2sp = i2s_begin(dout_pin, bck_pin, ws_pin, mode, mc_pin);
 
 #ifdef ESP32
   i2s_event_callbacks_t cbs;
@@ -327,37 +352,36 @@ int32_t I2SAudio_Init() {
   
   if (!mp3mem || !m_outBuff || !m_inBuff) {
     I2SAudio_Deinit();
-    Response_P(GSTR(S_JSON_MEMERR));
+    AddLog(LOG_LEVEL_INFO,GSTR(S_JSON_MEMERR));
     return -1;
   }
-
   chans = 1;
   force_mono = 1;
 #endif
 
 #ifdef USE_AUDIO_CODECS
+// box lite
+// ES8156_init(); DAC
+// es7243e_init(); ADC
+// box full
+// ES8311_init(); DAC
+// es7210_init(); ADC
+  codec_bus = 0;
   switch (codec) {
     case 1:
       if (pW8960_Init() < 0) {
         I2SAudio_Deinit();
-        Response_P(GSTR(S_JSON_WMERR));
+        AddLog(LOG_LEVEL_INFO, GSTR(S_JSON_WMERR));
         return -2;
       }
       break;
-    case 2:
-      {  audio_hal_codec_config_t cfg = {
-          .i2s_iface = {
-            .amode = AUDIO_HAL_MODE_SLAVE,
-            .bits = AUDIO_HAL_BIT_LENGTH_16BITS,
-          }
-         };
-        if (es8156_codec_init(&cfg) < 0) {
-          I2SAudio_Deinit();
-          Response_P(GSTR(S_JSON_WMERR));
-          return -2;
-        }
-        es8156_codec_set_voice_volume(75);
+    case 2: 
+      if (pes8156_codec_init(AUDIO_HAL_MODE_SLAVE, AUDIO_HAL_BIT_LENGTH_16BITS, &codec_bus) < 0) {
+        I2SAudio_Deinit();
+        AddLog(LOG_LEVEL_INFO, GSTR(S_JSON_WMERR));
+        return -2;
       }
+      pes8156_codec_set_voice_volume(75);
       break;
   }
 #endif
@@ -365,6 +389,13 @@ int32_t I2SAudio_Init() {
   busy = false;
   initialized = true;
   return 0;
+}
+
+MODULE_PART void AudioPwr(uint32_t pwr) {
+  SETMEMREGS
+  if (audio_pwr_pin >= 0) {
+    digitalWrite(audio_pwr_pin, pwr);
+  }
 }
 
 #ifdef USE_I2S_TASK
@@ -404,9 +435,9 @@ SETREGS
     if (!*cp) {
       // stop running sound
       running = 0;
-      Response_P(GSTR(S_JSON_STOPSND));
+      AddLog(LOG_LEVEL_INFO,GSTR(S_JSON_STOPSND));
     } else {
-      Response_P(GSTR(S_JSON_BUSY));
+      AddLog(LOG_LEVEL_INFO,GSTR(S_JSON_BUSY));
     }
     return;
   }
@@ -415,16 +446,14 @@ SETREGS
 
   if (!wf) {
     // file not found
-    Response_P(GSTR(S_JSON_FNF), cp);
+    AddLog(LOG_LEVEL_INFO,GSTR(S_JSON_FNF), cp);
     return;
   }
-
-  
 
   // check file extension
   char *ep = strchr(cp, '.');
   if (!ep) {
-    Response_P(GSTR(S_JSON_ILLF), cp);
+    AddLog(LOG_LEVEL_INFO,GSTR(S_JSON_ILLF), cp);
     return;
   }
 
@@ -442,7 +471,7 @@ SETREGS
     // 0x52494646
     if (wh.Riff.ChunkID != uicp[2] && wh.Fmt.NumChannels != 1) {
       fclose(wf);
-      Response_P(GSTR(S_JSON_ILLF));
+      AddLog(LOG_LEVEL_INFO,GSTR(S_JSON_ILLF));
       return;
     }
   
@@ -452,6 +481,7 @@ SETREGS
     busy = true;
 
     running = true;
+    AudioPwr(1);
 
 #ifdef USE_I2S_TASK
     TASKPARS tp;
@@ -483,6 +513,7 @@ SETREGS
     I2S_Wait_Ready();
     i2s_disable_tx(i2sp);
 
+    AudioPwr(0);
     busy = false;
 #endif
   } else {
@@ -499,11 +530,11 @@ SETREGS
       tp.xCoreID = 1;
       int32_t err = xTaskCreatePinnedToCore(&tp);
     } else {
-      Response_P(GSTR(S_JSON_ILLF), cp);
+      AddLog(LOG_LEVEL_INFO,GSTR(S_JSON_ILLF), cp);
       return;
     }
 #else
-    Response_P(GSTR(S_JSON_ILLF), cp);
+    AddLog(LOG_LEVEL_INFO, GSTR(S_JSON_ILLF), cp);
     return;
 #endif
   }
@@ -674,6 +705,8 @@ SETREGS
 void I2sTaskMP3(void) {
   SETREGS
 
+  AudioPwr(1);
+
   if (!mp3_begin()) {
     while (running) {
       if (!mp3_loop()) {
@@ -687,7 +720,8 @@ void I2sTaskMP3(void) {
   i2s_disable_tx(i2sp);
   fclose(wf);
   busy = false;
-  
+  AudioPwr(0);
+
   vTaskDelete(0);
 }
 #endif
@@ -733,9 +767,9 @@ void Say(void) {
     if (!*cp) {
       // stop running sound
       running = 0;
-      Response_P(GSTR(S_JSON_STOPSND));
+      AddLog(LOG_LEVEL_INFO, GSTR(S_JSON_STOPSND));
     } else {
-      Response_P(GSTR(S_JSON_BUSY));
+      AddLog(LOG_LEVEL_INFO, GSTR(S_JSON_BUSY));
     }
     return;
   }
@@ -744,7 +778,7 @@ void Say(void) {
 
   if (!samdata) {
     // memory error
-    Response_P(GSTR(S_JSON_MEMERR));
+    AddLog(LOG_LEVEL_INFO, GSTR(S_JSON_MEMERR));
     return;
   }
 
@@ -752,7 +786,7 @@ void Say(void) {
   if (!samrender) {
     // memory error
     free(samdata);
-    Response_P(GSTR(S_JSON_MEMERR));
+    AddLog(LOG_LEVEL_INFO, GSTR(S_JSON_MEMERR));
     return;
   }
 
@@ -809,11 +843,12 @@ void Say(void) {
     if ( !TextToPhonemes(&inbuff[0]) ) {
       free(samdata);
       free(samrender);
-      Response_P(GSTR(S_JSON_MEMERR));
+      AddLog(LOG_LEVEL_INFO, GSTR(S_JSON_MEMERR));
       return; // ERROR
     }
   }
 
+  AudioPwr(1);
   running = true;
   i2s_enable_tx(i2sp);
 
@@ -832,6 +867,7 @@ void Say(void) {
 
   running = false;
   busy = false;
+  AudioPwr(0);
   ResponseCmndDone();
 
 #endif
@@ -863,6 +899,8 @@ void I2sTaskWR(char *url) {
   // WiFi.setDNS(dns1, dns2);
 
   running = true;
+  AudioPwr(1);
+
 
   i2s_enable_tx(i2sp);
 
@@ -992,6 +1030,7 @@ void I2sTaskWR(char *url) {
 
   running = false;
   busy = false;
+  AudioPwr(0);
   
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task stopped"));
   vTaskDelete(0);
@@ -1013,9 +1052,9 @@ void WebRadio(void) {
     if (!*url) {
       // stop running sound
       running = 0;
-      Response_P(GSTR(S_JSON_STOPSND));
+      AddLog(LOG_LEVEL_INFO, GSTR(S_JSON_STOPSND));
     } else {
-      Response_P(GSTR(S_JSON_BUSY));
+      AddLog(LOG_LEVEL_INFO, GSTR(S_JSON_BUSY));
     }
     return;
   }
@@ -1152,10 +1191,10 @@ void I2SAudio_Deinit() {
 #ifdef USE_AUDIO_CODECS
   switch (codec) {
     case 1:
-      I2cResetActive(W8960_ADDR, 0);
+      I2cResetActive(W8960_ADDR, codec_bus);
       break;
     case 2:
-      I2cResetActive(ES8156_ADDR, 0);
+      I2cResetActive(ES8156_ADDR, codec_bus);
       break;
   }
 #endif

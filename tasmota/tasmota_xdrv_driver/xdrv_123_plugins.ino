@@ -486,6 +486,7 @@ double tmod_extendsfdf2(float);
 uint32_t tmod_random(uint32_t par);
 double  tmod_floattidf(int64_t in);
 double  realloc_floatuntidf(uint64_t in);
+uint32_t GetNumGPIO(void);
 
 extern "C" {
  extern void (* const MODULE_JUMPTABLE[])(void);
@@ -765,8 +766,14 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
 #else
   JMPTBL&tmod_vsnprintf_P,
 #endif
-  JMPTBL&makeTime
+  JMPTBL&makeTime,
+  JMPTBL&GetNumGPIO
 };
+
+
+uint32_t GetNumGPIO(void) {
+  return nitems(TasmotaGlobal.gpio_pin);
+}
 
 int tmod_vsnprintf_P(char *s, size_t strSize, const char *format, ...) {
   int res = 0;
@@ -1178,7 +1185,7 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
 #endif
 #endif // ESP32
 
-uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t p4, uint32_t p5) {
+uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t p4, uint32_t p5, uint32_t p6) {
 #if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
 i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
 #endif
@@ -1201,7 +1208,7 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(8000),
         .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
         .gpio_cfg = {
-          .mclk = I2S_GPIO_UNUSED,
+          .mclk = (gpio_num_t)p6, //I2S_GPIO_UNUSED,
           .bclk = (gpio_num_t)p3,
           .ws = (gpio_num_t)p4,
           .dout = (gpio_num_t)p2,
@@ -3555,7 +3562,8 @@ void Module_upload() {
   WSContentSend_P(HTTP_MODULES_CSS);
 
   // reserve space for larger headers
-  uint32_t *vp = (uint32_t *)calloc(sizeof(FLASH_MODULE) / 2 , 4);
+  uint16_t size2copy = sizeof(FLASH_MODULE) + (8 * sizeof(MODULE_STORE));
+  uint32_t *vp = (uint32_t *)calloc(size2copy  / 2 , 4);
   if (!vp) {
     return;
   }
@@ -3563,7 +3571,7 @@ void Module_upload() {
   for (uint16_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
     if (modules[cnt].mod_addr) {
       uint32_t *mp = (uint32_t*)modules[cnt].mod_addr;
-      for (uint16_t cnt = 0; cnt < sizeof(FLASH_MODULE) / 2; cnt++) {
+      for (uint16_t cnt = 0; cnt < size2copy / 2; cnt++) {
         vp[cnt] = mp[cnt];
       }
 #if defined(ESP32)
@@ -3602,17 +3610,27 @@ void Module_upload() {
           uint8_t selector = val32 >> 24;
           WSContentSend_P(PSTR("<label for=\"p%d_%d\">%s:</label> <select  id=\"p%d_%d\" style='width: 60px;' onchange='seva(value,\"%s\")'>"),cnt,xcnt,name,cnt,xcnt,vn);
           if (!selector) {
-            for (uint8_t pins = 0; pins < nitems(TasmotaGlobal.gpio_pin); pins++) {
+            // pulldown
+            for (int8_t pins = 0; pins <= nitems(TasmotaGlobal.gpio_pin); pins++) {
               char sel[10];
+              sel[0] = 0;
               if ((val32 & 0xff) == pins) {
                 strcpy_P(sel, PSTR("selected"));
+              }
+
+              int8_t xpins = pins;
+              if (pins == nitems(TasmotaGlobal.gpio_pin)) {
+                xpins = -1;
               } else {
-                sel[0] = 0;
+                uint8_t disabled = FlashPin(pins) || RedPin(pins) || TasmotaGlobal.gpio_pin[pins];
+                if (disabled) {
+                  strcpy_P(sel, PSTR("disabled"));
+                }
               }
-              // AddLog(LOG_LEVEL_INFO,PSTR(">>> %d - %d"), pins, TasmotaGlobal.gpio_pin[pins]);
-              if (TasmotaGlobal.gpio_pin[pins] == 0) {
-                WSContentSend_P(PSTR("<option value=\"%d\" %s>%d</option>"), pins, sel, pins);
-              }
+                // AddLog(LOG_LEVEL_INFO,PSTR(">>> %d - %d"), pins, TasmotaGlobal.gpio_pin[pins]);
+              //if (TasmotaGlobal.gpio_pin[pins] == 0) {
+              WSContentSend_P(PSTR("<option value=\"%d\" %s>%d</option>"), pins, sel, xpins);
+              //}
             }
           } else {
             // selector 1 

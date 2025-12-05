@@ -21,6 +21,8 @@
 
 #ifdef USE_VL53L0X_MOOD
 
+//#define USE_SOFTWIRE
+
 #include "module.h"
 #include "module_defines.h"
 
@@ -82,7 +84,17 @@ PUSH_OPTIONS
 
 // this is the structure of the module:
 // descripotr, code, end
-MODULE_DESCRIPTOR("VL53L0", MODULE_TYPE_SENSOR, VL53L0_REV, "RMODE", 0x01000300, "", 0, "", 0, "", 0)
+
+#ifdef USE_SOFTWIRE
+// software i2c needs to define pins
+#define DEFAULT_SDA_PIN 41
+#define DEFAULT_SCL_PIN 40
+MODULE_DESCRIPTOR("VL53L0", MODULE_TYPE_SENSOR, VL53L0_REV,"SDA",DEFAULT_SDA_PIN,"SCL",DEFAULT_SCL_PIN,"",0,"",0)
+#else
+MODULE_DESCRIPTOR("VL53L0", MODULE_TYPE_SENSOR, VL53L0_REV, "RMODE", 0x01000300, "I2CBUS", 0x01000200, "", 0, "", 0)
+#endif
+
+
 MODULE_PART int32_t VL53L0X_Detect();
 MODULE_PART void VL53L0X_Every_250MSecond(void);
 MODULE_PART void VL53L0X_Show(boolean json);
@@ -103,6 +115,7 @@ typedef struct {
   TWIp *xWire;
   bool VL53L0X_xshut;
   uint8_t range_mode;
+  uint8_t i2c_bus;
   bool VL53L0X_detected;
   VLX_DATA Vl53l0x_data;
   VLX_MEM vlx_mem;
@@ -120,20 +133,28 @@ typedef struct {
 #define measurement_timing_budget_us mem->vlx_mem.measurement_timing_budget_us
 #define last_status mem->vlx_mem.last_status
 #define range_mode mem->range_mode
+#define i2c_bus mem->i2c_bus
+
+#ifdef USE_SOFTWIRE
+#include "Softwire/Softwire_cpp.h"
+#endif 
 
 // library
 #include "VL53L0X_c.h"
+
+
 
 /********************************************************************************************/
 
 int32_t VL53L0X_Detect(void) {
   ALLOCMEM
 
-  I2C_SETWIRE(0);
-
   VL53L0X_detected = false;
 
   range_mode = mp->ms[0].value & 0xff;
+  i2c_bus = mp->ms[1].value & 1;
+
+  I2C_SETWIRE(i2c_bus);
 
   if (I2C_SetDevice(VL53L0X_ADDRESS, 0)) {
     I2C_SetActiveFound(VL53L0X_ADDRESS, PSTR("VL53L0X"), 0);
