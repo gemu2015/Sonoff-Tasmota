@@ -1185,7 +1185,7 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
 #endif
 #endif // ESP32
 
-uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t p4, uint32_t p5, uint32_t p6) {
+uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t p4, uint32_t p5, int32_t p6, int32_t p7) {
 #if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
 i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
 #endif
@@ -1212,7 +1212,7 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
           .bclk = (gpio_num_t)p3,
           .ws = (gpio_num_t)p4,
           .dout = (gpio_num_t)p2,
-          .din = I2S_GPIO_UNUSED,
+          .din = (gpio_num_t)p7,
           .invert_flags = {
             .mclk_inv = false,
             .bclk_inv = false,
@@ -3841,9 +3841,10 @@ bool Xdrv123(uint32_t function) {
 
   switch (function) {
     case FUNC_PRE_INIT:
-      InitModules();
+      //InitModules();
       break;
     case FUNC_INIT:
+      InitModules();
       break;
     case FUNC_COMMAND:
       if (plugins.ready) {

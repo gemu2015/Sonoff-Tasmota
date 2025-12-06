@@ -38,10 +38,6 @@ typedef enum {
 /* ES7210 address*/
 #define ES7210_ADDR                   ES7210_AD1_AD0_00
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #define  ES7210_RESET_REG00                 0x00        /* Reset control */
 #define  ES7210_CLOCK_OFF_REG01             0x01        /* Used to turn off the ADC clock */
 #define  ES7210_MAINCLK_REG02               0x02        /* Set ADC clock frequency division */
@@ -111,7 +107,7 @@ typedef enum gain_value{
  *      - ESP_OK
  *      - ESP_FAIL
  */
-esp_err_t es7210_adc_init(TwoWire *tw, audio_hal_codec_config_t *codec_cfg);
+MODULE_PART esp_err_t es7210_adc_init(TwoWire *tw, audio_hal_codec_config_t *codec_cfg);
 
 /**
  * @brief Deinitialize ES7210 ADC chip
@@ -120,7 +116,7 @@ esp_err_t es7210_adc_init(TwoWire *tw, audio_hal_codec_config_t *codec_cfg);
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t es7210_adc_deinit();
+MODULE_PART esp_err_t es7210_adc_deinit();
 
 /**
  * @brief Configure ES7210 ADC mode and I2S interface
@@ -132,7 +128,7 @@ esp_err_t es7210_adc_deinit();
  *     - ESP_FAIL Parameter error
  *     - ESP_OK   Success
  */
-esp_err_t es7210_adc_config_i2s(audio_hal_codec_mode_t mode, audio_hal_codec_i2s_iface_t *iface);
+MODULE_PART esp_err_t es7210_adc_config_i2s(audio_hal_codec_mode_t mode, audio_hal_codec_i2s_iface_t *iface);
 
 /**
  * @brief Control ES7210 ADC chip
@@ -144,7 +140,7 @@ esp_err_t es7210_adc_config_i2s(audio_hal_codec_mode_t mode, audio_hal_codec_i2s
  *     - ESP_FAIL Parameter error
  *     - ESP_OK   Success
  */
-esp_err_t es7210_adc_ctrl_state(audio_hal_codec_mode_t mode, audio_hal_ctrl_t ctrl_state);
+MODULE_PART esp_err_t es7210_adc_ctrl_state(audio_hal_codec_mode_t mode, audio_hal_ctrl_t ctrl_state);
 
 /**
  * @brief  Set gain of given mask
@@ -170,7 +166,7 @@ esp_err_t es7210_adc_ctrl_state(audio_hal_codec_mode_t mode, audio_hal_ctrl_t ct
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t es7210_adc_set_gain(es7210_input_mics_t mic_mask, es7210_gain_value_t gain);
+MODULE_PART esp_err_t es7210_adc_set_gain(es7210_input_mics_t mic_mask, es7210_gain_value_t gain);
 
 /**
  * @brief  Set gain (Note: the enabled microphone sets the same gain)
@@ -194,7 +190,7 @@ esp_err_t es7210_adc_set_gain(es7210_input_mics_t mic_mask, es7210_gain_value_t 
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t es7210_adc_set_gain_all(es7210_gain_value_t gain);
+MODULE_PART esp_err_t es7210_adc_set_gain_all(es7210_gain_value_t gain);
 
 /**
  * @brief Get MIC gain
@@ -205,7 +201,7 @@ esp_err_t es7210_adc_set_gain_all(es7210_gain_value_t gain);
  *     - ESP_OK
  *     - ESP_FAIL
  */
-esp_err_t es7210_adc_get_gain(es7210_input_mics_t mic_mask, es7210_gain_value_t *gain);
+MODULE_PART esp_err_t es7210_adc_get_gain(es7210_input_mics_t mic_mask, es7210_gain_value_t *gain);
 
 /**
  * @brief Set volume
@@ -215,7 +211,7 @@ esp_err_t es7210_adc_get_gain(es7210_input_mics_t mic_mask, es7210_gain_value_t 
  * @return
  *     - ESP_OK
  */
-esp_err_t es7210_adc_set_volume(int volume);
+MODULE_PART esp_err_t es7210_adc_set_volume(int volume);
 
 /**
  * @brief Set ES7210 ADC mute status
@@ -224,7 +220,7 @@ esp_err_t es7210_adc_set_volume(int volume);
  *     - ESP_FAIL
  *     - ESP_OK
  */
-esp_err_t es7210_set_mute(bool enable);
+MODULE_PART esp_err_t es7210_set_mute(bool enable);
 
 /**
  * @brief Select ES7210 mic
@@ -235,7 +231,7 @@ esp_err_t es7210_set_mute(bool enable);
  *     - ESP_FAIL
  *     - ESP_OK
  */
-esp_err_t es7210_mic_select(es7210_input_mics_t mic);
+MODULE_PART esp_err_t es7210_mic_select(es7210_input_mics_t mic);
 
 /**
  * @brief Read regs of ES7210
@@ -246,15 +242,11 @@ esp_err_t es7210_mic_select(es7210_input_mics_t mic);
  *     - ESP_FAIL
  *     - ESP_OK
  */
-int es7210_read_reg(uint8_t reg_addr);
+MODULE_PART int es7210_read_reg(uint8_t reg_addr);
 
 /**
  * @brief Read all regs of ES7210
  */
-void es7210_read_all(void);
-
-#ifdef __cplusplus
-}
-#endif
+MODULE_PART void es7210_read_all(void);
 
 #endif /* _ES7210_H_ */

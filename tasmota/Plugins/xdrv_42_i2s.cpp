@@ -25,7 +25,8 @@ codec settings access
 
 #include "tasmota_options.h"
 
-#ifdef USE_I2S_MOD
+#if defined(USE_I2S_MOD) && defined(EXECUTE_FROM_BINARY)
+
 #define XDRV_42 42
 
 #ifdef ESP32
@@ -169,12 +170,16 @@ typedef struct {
 #define GPIO_BCK 7
 #define GPIO_WS 8
 #else
-//#define GPIO_DOUT 17
-//#define GPIO_BCK 10
-//#define GPIO_WS 18
+
+#if 1
+#define GPIO_DOUT 17
+#define GPIO_BCK 10
+#define GPIO_WS 18
+#else
 #define GPIO_DOUT 15
 #define GPIO_BCK 17
 #define GPIO_WS 47
+#endif
 #define GPIO_APWR 46
 #define GPIO_DIN 16
 #define GPIO_MC 2
@@ -185,7 +190,6 @@ typedef struct {
 MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0)
 //MODULE_DESCRIPTOR6(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0, "", 0, "", 0)
 #else
-//MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "BCK", GPIO_BCK, "WS", GPIO_WS, "MODE", 0x01000200)
 MODULE_DESCRIPTOR8(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "DIN", GPIO_DIN, "BCK", GPIO_BCK, "WS", GPIO_WS, "MC", GPIO_MC,"MODE", 0x01000200,"CODEC", 0x01000201,"APWR", GPIO_APWR)
 #endif
 
@@ -313,9 +317,17 @@ int32_t I2SAudio_Init() {
     audio_pwr_pin = -1;
   }
 
+  if (din_pin == GetPins()) {
+    din_pin = -1;
+  }
+
+  if (mc_pin == GetPins()) {
+    mc_pin = -1;
+  }
+
   gain_div = 1<<6;  // = 1
 
-  i2sp = i2s_begin(dout_pin, bck_pin, ws_pin, mode, mc_pin);
+  i2sp = i2s_begin(dout_pin, bck_pin, ws_pin, mode, mc_pin, din_pin);
 
 #ifdef ESP32
   i2s_event_callbacks_t cbs;
@@ -396,12 +408,14 @@ MODULE_PART void AudioPwr(uint32_t pwr) {
   if (audio_pwr_pin >= 0) {
     digitalWrite(audio_pwr_pin, pwr);
   }
+  AddLog(LOG_LEVEL_INFO, PSTR("audio pwr: %d"), pwr);
 }
 
 #ifdef USE_I2S_TASK
 void I2sTask(void) {
   SETREGS
 
+  AudioPwr(1);
   int16_t buffer[512];
   // skip header
   fread((char*)&buffer, 1, sizeof(wav_header_t), wf);
@@ -422,6 +436,7 @@ void I2sTask(void) {
   I2S_Wait_Ready();
   i2s_disable_tx(i2sp);
   
+  AudioPwr(0);
   busy = false;
   
   vTaskDelete(0);
@@ -481,7 +496,6 @@ SETREGS
     busy = true;
 
     running = true;
-    AudioPwr(1);
 
 #ifdef USE_I2S_TASK
     TASKPARS tp;

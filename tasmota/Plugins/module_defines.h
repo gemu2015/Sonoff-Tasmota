@@ -55,6 +55,17 @@ typedef struct {
 #undef br_gcm_run
 #undef br_gcm_check_tag_trunc
 
+typedef struct {
+  uint8_t   sel;
+  int8_t    dout_pin;
+  int8_t    din_pin;
+  int8_t    bck_pin;
+  int8_t    ws_pin;
+  int8_t    mc_pin;
+}  I2S_PARS;
+
+
+
 #define EXEC_OFFSET ((FLASH_MODULE*)mt->mod_addr)->execution_offset
 
 #ifdef ESP8266
@@ -230,7 +241,7 @@ typedef struct {
 #define jResponseCmndChar(A)            (( void (*)(char *))                            jt[152])(A)
 #define jstrtol(A,B,C)                  (( int32_t (*)(char *,char **,size_t ))             jt[153])(A,B,C)
 #define judp(A,B,C,D)                   (( uint32_t (*)(void *,uint32_t,uint32_t,uint32_t )) jt[154])(A,B,C,D)
-#define ji2s(A,B,C,D,E,F,G)             (( uint32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t)) jt[155])(A,B,C,D,E,F,G)
+#define ji2s(A,B,C,D,E,F,G,H)           (( uint32_t (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,uint32_t,int32_t,int32_t)) jt[155])(A,B,C,D,E,F,G,H)
 #define jtaskc(A)                       (( uint32_t (*)(TASKPARS* ))                    jt[156])(A)
 #define jtaskd(A)                       (( uint32_t (*)(uint32_t))                       jt[157])(A)
 #define jPlugin_Get_SensorNames(A,B)    (( char *(*)(char *,uint32_t))                  jt[158])(A,B)
@@ -742,14 +753,14 @@ typedef struct {
 #define fpos(A) jfile_getpos(A)
 #define OsWatchLoop jOsWatchLoop
 
-#define i2s_begin(A,B,C,D,E) (void*)ji2s(0,0,A,B,C,D,E)
-#define i2s_end(A) ji2s(1,(uint32_t)A,0,0,0,0,0)
-#define i2s_set_rate(A,B,C,D) ji2s(2,(uint32_t)A,B,C,D,0,0)
-#define i2s_write_sample(A,B) ji2s(5,(uint32_t)A,B,0,0,0,0)
-#define i2s_write_samples(A,B,C) ji2s(3,(uint32_t)A,(uint32_t)B,C,0,0,0)
-#define i2s_enable_tx(A) ji2s(6,(uint32_t)A,0,0,0,0,0)
-#define i2s_disable_tx(A) ji2s(7,(uint32_t)A,0,0,0,0,0)
-#define i2s_channel_register_event_callback(A,B,C) ji2s(8,(uint32_t)A,(uint32_t)B,(uint32_t)C,0,0,0)
+#define i2s_begin(A,B,C,D,E,F) (void*)ji2s(0,0,A,B,C,D,E,F)
+#define i2s_end(A) ji2s(1,(uint32_t)A,0,0,0,0,0,0)
+#define i2s_set_rate(A,B,C,D) ji2s(2,(uint32_t)A,B,C,D,0,0,0)
+#define i2s_write_sample(A,B) ji2s(5,(uint32_t)A,B,0,0,0,0,0)
+#define i2s_write_samples(A,B,C) ji2s(3,(uint32_t)A,(uint32_t)B,C,0,0,0,0)
+#define i2s_enable_tx(A) ji2s(6,(uint32_t)A,0,0,0,0,0,0)
+#define i2s_disable_tx(A) ji2s(7,(uint32_t)A,0,0,0,0,0,0)
+#define i2s_channel_register_event_callback(A,B,C) ji2s(8,(uint32_t)A,(uint32_t)B,(uint32_t)C,0,0,0,0)
 
 
 #define New_WiFiClient() (void*)jtmod_wifi(0,0,0,0,0)
