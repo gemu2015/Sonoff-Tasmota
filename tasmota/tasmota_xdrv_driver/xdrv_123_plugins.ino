@@ -3278,17 +3278,16 @@ void Check_partition(void) {
       if (add) {
         AddLog(LOG_LEVEL_INFO,PSTR("custom plugin partition already there!"));
         ResponseCmndDone();
-        LittleFS.format();
         return;
       }
     } else {
       if (remove) {
         AddLog(LOG_LEVEL_INFO,PSTR("custom plugin partition already removed!"));
         ResponseCmndDone();
-        LittleFS.format();
         return;
       }
     }
+    LittleFS.format();
   }
 
   // partition talble is aways at 0x8000
