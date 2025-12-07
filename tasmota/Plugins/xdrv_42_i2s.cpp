@@ -84,6 +84,10 @@ typedef struct {
   int8_t mc_pin;
   int8_t din_pin;
   uint8_t gain_div;
+#ifdef USE_MIC
+  uint8_t adc_gain_div;
+  uint8_t bridge_mode;
+#endif
   void *i2sp;
   uint8_t busy;
   uint8_t mode;
@@ -131,6 +135,8 @@ typedef struct {
 #define din_pin mem->din_pin
 #define i2sp mem->i2sp
 #define gain_div mem->gain_div
+#define adc_gain_div mem->adc_gain_div
+#define bridge_mode mem->bridge_mode
 #define busy mem->busy
 #define mode mem->mode
 #define mp3m mem->mp3m
@@ -206,6 +212,10 @@ MODULE_PART uint32_t Get_tag(uint8_t * buff);
 MODULE_PART bool mp3_loop();
 MODULE_PART bool mp3_stop();
 MODULE_PART void SetVolume(void);
+MODULE_PART void SetGain(void);
+MODULE_PART void StartMicRec(void);
+MODULE_PART void StopMicRec(void);
+MODULE_PART void I2SBridge(void);
 MODULE_PART void WebRadio(void);
 MODULE_PART void Say(void);
 MODULE_PART void AudioPwr(uint32_t pwr);
@@ -555,6 +565,41 @@ SETREGS
   }
   return;
 }
+
+#ifdef USE_MIC
+void SetGain(void) {
+  SETREGS
+  uint16_t gain;
+ 
+  if (XdrvMailbox->data_len > 0) {
+    char *cp = XdrvMailbox->data;
+    while (*cp == ' ') cp++;
+    gain = strtol(cp, &cp, 10);
+    if (gain > 100) {
+        gain = 100;
+    }
+    if (gain < 1) {
+      gain = 1;
+    }
+    float xgain = fmul(fdiv(floatunsisf(gain) , floatunsisf(100)), floatunsisf(64));
+    adc_gain_div = fixunssfsi(xgain);
+  } 
+  gain = fixunssfsi(fmul(fdiv(floatunsisf(adc_gain_div) , floatunsisf(64)), floatunsisf(100)));
+  ResponseCmndNumber(gain);
+}
+
+void StartMicRec(void) {
+
+}
+void StopMicRec(void) {
+
+}
+
+void I2SBridge(void) {
+  bridge_mode = 0;
+}
+
+#endif
 
 void SetVolume(void) {
   SETREGS
@@ -1185,9 +1230,11 @@ const char I2S_Commands[] PROGMEM =
 
 void (*const I2S_Command[])(void) PROGMEM = {&I2S_Play_Cmd,&SetVolume,&Say,&WebRadio\
 #ifdef USE_MIC
-,&SetVolume,&SetVolume,&SetVolume,&SetVolume\
+,&SetGain,&StartMicRec,&StopMicRec,&I2SBridge\
 #endif
 };
+
+
 
 int32_t i2s_script_cmd(uint32_t sel) {
 SETREGS
