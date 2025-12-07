@@ -45,6 +45,7 @@ codec settings access
 #define USE_MP3_PSRAM
 #define USE_MP3
 #define USE_WEBRADIO
+#define USE_MIC
 
 // select a codec
 #define USE_AUDIO_CODECS
@@ -1176,8 +1177,17 @@ void I2S_Play_Cmd(void) {
 
 const char I2S_Commands[] PROGMEM =
     "I2S|"  // Prefix
-    "play|vol|say|wr";
-void (*const I2S_Command[])(void) PROGMEM = {&I2S_Play_Cmd,&SetVolume,&Say,&WebRadio};
+    "play|vol|say|wr|"
+#ifdef USE_MIC
+    "gain|rec|stop|bridge"
+#endif
+    "";
+
+void (*const I2S_Command[])(void) PROGMEM = {&I2S_Play_Cmd,&SetVolume,&Say,&WebRadio\
+#ifdef USE_MIC
+,&SetVolume,&SetVolume,&SetVolume,&SetVolume\
+#endif
+};
 
 int32_t i2s_script_cmd(uint32_t sel) {
 SETREGS
