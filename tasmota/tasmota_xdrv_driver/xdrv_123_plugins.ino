@@ -1331,6 +1331,11 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
 #endif
 
 #if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
+      {
+        size_t bytes_read;
+        i2s_channel_read(tx_handle, (void*)p2, p3, &bytes_read, 5);
+        return bytes_read;
+      }
 #endif
       break;
     case 5:
@@ -1361,6 +1366,7 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
       return i2s_channel_disable(tx_handle);
     case 8:
       return i2s_channel_register_event_callback(tx_handle, (const i2s_event_callbacks_t *)p2, (void *)p3);
+
  #endif
   }
   return 0;
@@ -1368,6 +1374,9 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
 
 
 uint32_t tmod_udp(WiFiUDP *udp, uint32_t sel, uint32_t p1, uint32_t p2) {
+  if (sel > 0 && !udp) {
+    return 0;
+  }
   switch (sel & 0xff) {
     case 0:
       udp = new WiFiUDP;
@@ -1392,6 +1401,8 @@ uint32_t tmod_udp(WiFiUDP *udp, uint32_t sel, uint32_t p1, uint32_t p2) {
       return udp->write((const uint8_t*)p1, p2);
     case 9:
       return udp->endPacket();
+    case 10:
+      return udp->remoteIP();
     case 99:
       udp->stop();
       delete udp;
@@ -2352,7 +2363,7 @@ const void * TGTAB[] PROGMEM = {
   &RtcTime,
   &TasmotaGlobal.global_state,
   &TasmotaGlobal.gpio_pin,
-  &RtcSettings
+  &RtcSettings,
 };
 
 void *tmod_gtbl(void) {

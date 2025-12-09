@@ -47,6 +47,17 @@ codec settings access
 #define USE_WEBRADIO
 #define USE_MIC
 
+#ifndef I2S_BRIDGE_PORT
+#define I2S_BRIDGE_PORT 6970
+#endif
+
+#define I2S_BRIDGE_BUFFER_SIZE 512
+
+#define I2S_BRIDGE_MODE_OFF 0
+#define I2S_BRIDGE_MODE_READ 1
+#define I2S_BRIDGE_MODE_WRITE 2
+
+
 // select a codec
 #define USE_AUDIO_CODECS
 
@@ -74,6 +85,26 @@ int32_t pW8960_Init();
 
 PUSH_OPTIONS
 
+typedef union {
+  uint8_t data;
+  struct {
+    uint8_t master : 1;
+    uint8_t enabled : 1;
+    uint8_t swap_mic : 1;
+    uint8_t bmode : 2;
+  };
+} BRIDGE_MODE;
+
+// I2S_BRIDGE
+typedef struct {
+  BRIDGE_MODE bridge_mode;
+  void *i2s_bridge_udp;
+  void *i2s_bridgec_udp;
+  IP_ADDRESS i2s_bridge_ip;
+  int8_t ptt_pin;
+} I2S_BRIDGE;
+
+
 typedef struct {
 #ifdef USE_SCRIPT
   char *cmd_param;
@@ -85,8 +116,9 @@ typedef struct {
   int8_t din_pin;
   uint8_t gain_div;
 #ifdef USE_MIC
+  I2S_BRIDGE bridge;
   uint8_t adc_gain_div;
-  uint8_t bridge_mode;
+  void *i2sp_read;
 #endif
   void *i2sp;
   uint8_t busy;
@@ -134,9 +166,10 @@ typedef struct {
 #define mc_pin mem->mc_pin
 #define din_pin mem->din_pin
 #define i2sp mem->i2sp
+#define i2sp_read mem->i2sp_read
 #define gain_div mem->gain_div
 #define adc_gain_div mem->adc_gain_div
-#define bridge_mode mem->bridge_mode
+#define bridge mem->bridge
 #define busy mem->busy
 #define mode mem->mode
 #define mp3m mem->mp3m
@@ -180,16 +213,18 @@ typedef struct {
 
 #if 1
 #define GPIO_DOUT 17
-#define GPIO_BCK 10
-#define GPIO_WS 18
+#define GPIO_DIN 18
+#define GPIO_BCK 20
+#define GPIO_WS 19
+#define GPIO_MC 49
 #else
 #define GPIO_DOUT 15
 #define GPIO_BCK 17
 #define GPIO_WS 47
 #endif
-#define GPIO_APWR 46
-#define GPIO_DIN 16
-#define GPIO_MC 2
+
+#define GPIO_APWR 49
+
 #endif
 
 #define I2S_REV 1 << 16 | 5
@@ -197,7 +232,7 @@ typedef struct {
 MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0)
 //MODULE_DESCRIPTOR6(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0, "", 0, "", 0)
 #else
-MODULE_DESCRIPTOR8(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "DIN", GPIO_DIN, "BCK", GPIO_BCK, "WS", GPIO_WS, "MC", GPIO_MC,"MODE", 0x01000200,"CODEC", 0x01000201,"APWR", GPIO_APWR)
+MODULE_DESCRIPTOR8(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "DIN", GPIO_DIN, "BCK", GPIO_BCK, "WS", GPIO_WS, "MC", GPIO_MC,"MODE", 0x01000200,"CODEC", 0x01000200,"APWR", GPIO_APWR)
 #endif
 
 // all functions must be declared MUDULE_PART
@@ -216,6 +251,15 @@ MODULE_PART void SetGain(void);
 MODULE_PART void StartMicRec(void);
 MODULE_PART void StopMicRec(void);
 MODULE_PART void I2SBridge(void);
+MODULE_PART void I2SBridgeCmd(uint8_t val, uint8_t flg);
+MODULE_PART void SendBridgeCmd(uint8_t bmode);
+MODULE_PART void i2s_bridge_init(uint8_t bmode);
+MODULE_PART void make_mono(int16_t *packet_buffer, uint32_t size);
+MODULE_PART void i2s_bridge_task(void *arg);
+MODULE_PART void I2SBridgeInit(void);
+MODULE_PART void I2SBridgeDeinit(void);
+MODULE_PART void i2s_bridge_loop(void);
+
 MODULE_PART void WebRadio(void);
 MODULE_PART void Say(void);
 MODULE_PART void AudioPwr(uint32_t pwr);
@@ -257,9 +301,8 @@ const char S_JSON_WMERR[] PROGMEM = "{\"Codec error\"}";
 #define RENDER_SIZE 0
 #endif
 
-
 const char tname[] PROGMEM = "I2STASK";
-const uint32_t ui32_const[5] PROGMEM = {OUTBUFF_SIZE, TASK_STACK, 0x46464952 , INBUFF_SIZE,0x7fffffff}; 
+const uint32_t ui32_const[7] PROGMEM = {OUTBUFF_SIZE, TASK_STACK, 0x46464952 , INBUFF_SIZE,0x7fffffff,I2S_BRIDGE_BUFFER_SIZE,16000}; 
 const int32_t i32_const[7] PROGMEM = {32768, -32768, 22050, RENDER_SIZE, 37541, 32000, 44100}; 
 
 #define GET_OBS ucp[0]
@@ -408,6 +451,11 @@ int32_t I2SAudio_Init() {
       break;
   }
 #endif
+
+#ifdef USE_MIC
+  I2SBridgeInit();
+#endif
+
 
   busy = false;
   initialized = true;
@@ -567,6 +615,152 @@ SETREGS
 }
 
 #ifdef USE_MIC
+
+/*
+I2SBridge	ip = sets the IP of the slave device
+0 = stop bridge
+1 = start bridge in read mode
+2 = start bridge in write mode
+3 = start bridge in loopback mode
+4 = set bridge to master
+5 = set bridge to slave
+6 = set microphone to swapped
+7 = set microphone to not swapped
+p<x> = sets the push to talk button where x is the button's GPIO pin number
+*/
+
+void i2s_bridge_init(uint8_t bmode) {
+SETREGS
+
+  bridge.bridge_mode.bmode = bmode;
+
+  if (I2S_BRIDGE_MODE_OFF == bmode) {
+    udp_flush(bridge.i2s_bridge_udp);
+    udp_stop(bridge.i2s_bridge_udp);
+    AudioPwr(0);
+  } else {
+    // i2s_set_clk(audio_i2s.mic_port, audio_i2s.mic_rate, I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_STEREO);
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: TODO - set bit rate and channels!!"));
+    //audio_i2s.in->startRx();
+
+    if ((bmode & 3) == I2S_BRIDGE_MODE_WRITE) {
+      //SpeakerMic(MODE_MIC);
+      //REG_SET_BIT(I2S_TIMING_REG(audio_i2s.mic_port), BIT(9));
+      //REG_SET_BIT(I2S_CONF_REG(audio_i2s.mic_port), I2S_RX_MSB_SHIFT);
+    } else {
+      //SpeakerMic(MODE_SPK);
+    }
+
+    const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
+
+    udp_begin(bridge.i2s_bridge_udp, I2S_BRIDGE_PORT);
+
+    TASKPARS tp;
+    tp.pvTaskCode = GVOID(i2s_bridge_task);
+    tp.constpcName = GSTR(tname);
+    tp.usStackDepth = uicp[1];
+    tp.constpvParameters = (char*)GSTR(tname);
+    tp.uxPriority = 3;
+    tp.constpvCreatedTask = nullptr;
+    tp.xCoreID = 1;
+    //xTaskCreatePinnedToCore(i2s_bridge_task, "BRIDGE", 8192, NULL, 3, &bridge.i2s_bridge_h, 1);
+    xTaskCreatePinnedToCore(&tp);
+
+    if (!bridge.bridge_mode.master) {
+      AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: slave started"));
+    } else {
+      char buffer[32];
+      sprintf_P(buffer, PSTR("%u.%u.%u.%u"), bridge.i2s_bridge_ip.bytes[0], bridge.i2s_bridge_ip.bytes[1], bridge.i2s_bridge_ip.bytes[2], bridge.i2s_bridge_ip.bytes[3]);
+      AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: master started sending to ip: %s"), buffer);
+    }
+    AudioPwr(1);
+  }
+}
+
+// make mono
+void make_mono(int16_t *packet_buffer, uint32_t size) {
+SETREGS
+
+    int16_t *wp = (int16_t*)packet_buffer;
+    //int16_t gain = audio_i2s.in->getRxGain();
+    int16_t gain = 1;
+    for (uint32_t cnt = 0; cnt < size / 2; cnt += 2) {
+      int16_t val;
+      if (bridge.bridge_mode.swap_mic) {
+        val = wp[cnt + 1];
+      } else {
+        val = wp[cnt];
+      }
+      wp[cnt] = val;
+      wp[cnt + 1] = val;
+    }
+}
+
+void i2s_bridge_task(void *arg) {
+SETREGS
+
+  const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
+
+  int16_t *packet_buffer = (int16_t*)calloc((uicp[5]>>1)+4, 2);
+  uint32_t bytesize;
+
+  i2s_set_rate(i2sp, uicp[6], mode, 1);
+
+  if ((bridge.bridge_mode.bmode & 3) == 3) {
+    i2s_enable_tx(i2sp);
+    //i2s_enable_rx(i2sp);
+  }
+
+  bytesize = uicp[5];
+
+  while (I2S_BRIDGE_MODE_OFF != bridge.bridge_mode.bmode) {
+    if ((bridge.bridge_mode.bmode & 3) == 3) {
+      // loopback test mode
+      uint32_t bytes_read;
+      bytes_read = i2s_read_samples(i2sp, packet_buffer, bytesize);
+      if (bytes_read > bytesize) {
+        bytes_read = bytesize;
+      }
+      make_mono(packet_buffer, bytes_read);
+      i2s_write_samples(i2sp, packet_buffer, bytes_read);
+    } else {
+      /*
+      if (bridge.bridge_mode.bmode & I2S_BRIDGE_MODE_READ) {
+        if (bridge.i2s_bridge_udp.parsePacket()) {
+          size_t bytes_written;
+          size_t len = bridge.i2s_bridge_udp.available();
+          if (len > uicp[5]) {
+            len = uicp[5];
+          }
+          len = bridge.i2s_bridge_udp.read((uint8_t *)packet_buffer, len);
+          bridge.i2s_bridge_udp.flush();
+          // i2s_write(audio_i2s.i2s_port, (const uint8_t*)packet_buffer, len, &bytes_written, 0);
+          i2s_channel_write(audio_i2s.out->getTxHandle(), (void*)packet_buffer, bytes_written, &bytes_written, 0);
+        } else {
+          delay(1);
+        }
+      }
+
+      if (bridge.bridge_mode.bmode & I2S_BRIDGE_MODE_WRITE) {
+        size_t bytes_read;
+        bytesize = uicp[5];
+        // i2s_read(audio_i2s.mic_port, (char *)packet_buffer, bytesize, &bytes_read, (100 / portTICK_RATE_MS));
+        i2s_channel_read(audio_i2s.in->getRxHandle(), (void*)packet_buffer, bytesize, &bytes_read, pdMS_TO_TICKS(100));
+        make_mono(packet_buffer, bytes_read);
+        bridge.i2s_bridge_udp.beginPacket(bridge.i2s_bridge_ip.bytes, I2S_BRIDGE_PORT);
+        bridge.i2s_bridge_udp.write((const uint8_t*)packet_buffer, bytes_read);
+        bridge.i2s_bridge_udp.endPacket();
+      }
+        */
+    }
+    delay(1);
+  }
+  AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: stopped"));
+  free(packet_buffer);
+  i2s_disable_tx(i2sp);
+  vTaskDelete(0);
+}
+
 void SetGain(void) {
   SETREGS
   uint16_t gain;
@@ -596,7 +790,171 @@ void StopMicRec(void) {
 }
 
 void I2SBridge(void) {
-  bridge_mode = 0;
+  SETREGS
+
+  if (XdrvMailbox->data_len > 0) {
+    char *cp = XdrvMailbox->data;
+    if (strchr(cp, '.')) {
+      // enter destination ip
+      bridge.i2s_bridge_ip.bytes[0] = strtol(cp, &cp, 10);
+      cp++;
+      bridge.i2s_bridge_ip.bytes[1] = strtol(cp, &cp, 10);
+      cp++;
+      bridge.i2s_bridge_ip.bytes[2] = strtol(cp, &cp, 10);
+      cp++;
+      bridge.i2s_bridge_ip.bytes[3] = strtol(cp, &cp, 10);
+      cp++;
+      //bridge.i2s_bridge_ip.fromString(cp);
+      char buffer[32];
+      sprintf_P(buffer, PSTR("%u.%u.%u.%u"), bridge.i2s_bridge_ip.bytes[0], bridge.i2s_bridge_ip.bytes[1], bridge.i2s_bridge_ip.bytes[2], bridge.i2s_bridge_ip.bytes[3]);
+      Response_P(PSTR("{\"I2S_bridge\":{\"IP\":\"%s\"}}"), buffer);
+    } else if (cp = strchr(cp, 'p')) {
+      // enter push to talk pin
+      cp++;
+      bridge.ptt_pin = atoi(cp);
+      pinMode(bridge.ptt_pin, INPUT_PULLUP);
+      Response_P(PSTR("{\"I2S_bridge\":{\"PTT-PIN\":%d}}"), bridge.ptt_pin);
+    } else {
+      I2SBridgeCmd(XdrvMailbox->payload, 1);
+    }
+  }
+}
+
+void SendBridgeCmd(uint8_t bmode) {
+  SETREGS
+  char slavecmd[16];
+  if (bridge.bridge_mode.master) {
+    sprintf_P(slavecmd, PSTR("cmd:%d"), bmode);
+    udp_beginPacket(bridge.i2s_bridgec_udp, bridge.i2s_bridge_ip.bytes, I2S_BRIDGE_PORT + 1);
+    udp_write(bridge.i2s_bridgec_udp, (const uint8_t*)slavecmd, strlen(slavecmd));
+    udp_endPacket(bridge.i2s_bridgec_udp);
+  }
+}
+
+void I2SBridgeCmd(uint8_t val, uint8_t flg) {
+  SETREGS
+  if ((val >= 0) && (val <= 11)) {
+    if (val > 3) {
+      switch (val) {
+        case 4:
+          bridge.bridge_mode.master = 1;
+          break;
+        case 5:
+          bridge.bridge_mode.master = 0;
+          break;
+        case 6:
+          bridge.bridge_mode.swap_mic = 1;
+          break;
+        case 7:
+          bridge.bridge_mode.swap_mic = 0;
+          break;
+      }
+      Response_P(PSTR("{\"I2S_bridge\":{\"MASTER\":%d,\"SWAP_MIC\":%d}"), bridge.bridge_mode.master, bridge.bridge_mode.swap_mic);
+    } else {
+      if (bridge.bridge_mode.bmode != val) {
+        if ((val == I2S_BRIDGE_MODE_OFF) && (bridge.bridge_mode.bmode != I2S_BRIDGE_MODE_OFF)) {
+          if (flg &&  (bridge.bridge_mode.master)) {
+            // shutdown slave
+            SendBridgeCmd(I2S_BRIDGE_MODE_OFF);
+          }
+          i2s_bridge_init(I2S_BRIDGE_MODE_OFF);
+        } else {
+          if (bridge.bridge_mode.bmode == I2S_BRIDGE_MODE_OFF) {
+            // initial on
+            i2s_bridge_init(val);
+          } else {
+            // change mode
+            if (val & I2S_BRIDGE_MODE_READ) {
+              //SpeakerMic(MODE_SPK);
+            }
+            if (val & I2S_BRIDGE_MODE_WRITE) {
+              //SpeakerMic(MODE_MIC);
+            }
+          }
+        }
+
+        bridge.bridge_mode.bmode = val;
+
+        if (flg) {
+          if (bridge.bridge_mode.master) {
+            // set slave to complementary mode
+            if (bridge.bridge_mode.bmode && ((bridge.bridge_mode.bmode & 3) != 3)) {
+              uint8_t slavemode = I2S_BRIDGE_MODE_READ;
+              if (bridge.bridge_mode.bmode & I2S_BRIDGE_MODE_READ) {
+                slavemode = I2S_BRIDGE_MODE_WRITE;
+              }
+              SendBridgeCmd(slavemode);
+            }
+          }
+        }
+      }
+      ResponseCmndNumber(bridge.bridge_mode.bmode);
+    }
+  }
+}
+
+void I2SBridgeInit(void) {
+  SETREGS
+  // create udp instances and start udp control channel
+  bridge.i2s_bridge_udp = new_udp();
+  bridge.i2s_bridgec_udp = new_udp();
+  if (bridge.i2s_bridgec_udp) {
+    udp_begin(bridge.i2s_bridgec_udp, I2S_BRIDGE_PORT + 1);
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: command server created on port: %d "), I2S_BRIDGE_PORT + 1);
+  }
+}
+
+void I2SBridgeDeinit(void) {
+  SETREGS
+
+  if (bridge.i2s_bridge_udp) {
+    udp_del(bridge.i2s_bridge_udp);
+    bridge.i2s_bridge_udp = 0;
+  }
+  if (bridge.i2s_bridgec_udp) {
+    udp_del(bridge.i2s_bridgec_udp);
+    bridge.i2s_bridgec_udp = 0;
+  }
+
+}
+
+void i2s_bridge_loop(void) {
+  SETREGS
+  STGLOB
+  StateBitfield test = TasmotaGlobal->global_state;
+  if (test.wifi_down) {
+    return;
+  }
+
+  uint8_t packet_buffer[32];
+
+  if (bridge.ptt_pin >= 0) {
+    if (bridge.bridge_mode.bmode != I2S_BRIDGE_MODE_OFF) {
+      if (digitalRead(bridge.ptt_pin) == 0) {
+        // push to talk
+        if (bridge.bridge_mode.bmode != I2S_BRIDGE_MODE_WRITE) {
+          I2SBridgeCmd(I2S_BRIDGE_MODE_WRITE, 1);
+        }
+      } else {
+        if (bridge.bridge_mode.bmode != I2S_BRIDGE_MODE_READ) {
+          I2SBridgeCmd(I2S_BRIDGE_MODE_READ, 1);
+        }
+      }
+    }
+  }
+
+  if (udp_parsePacket(bridge.i2s_bridgec_udp)) {
+      // received control command
+    memset(packet_buffer, 0, sizeof(packet_buffer));
+    udp_read(bridge.i2s_bridgec_udp, packet_buffer, 63);
+    char *cp = (char*)packet_buffer;
+    if (!strncmp_P(cp, PSTR("cmd:"), 4)) {
+      cp += 4;
+      I2SBridgeCmd(atoi(cp), 0);
+      bridge.i2s_bridge_ip.dword = udp_remoteIP(bridge.i2s_bridgec_udp);
+      AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: remote cmd %d"), bridge.bridge_mode.bmode);
+    }
+  }
 }
 
 #endif
@@ -1228,9 +1586,9 @@ const char I2S_Commands[] PROGMEM =
 #endif
     "";
 
-void (*const I2S_Command[])(void) PROGMEM = {&I2S_Play_Cmd,&SetVolume,&Say,&WebRadio\
+void (*const I2S_Command[])(void) PROGMEM = {&I2S_Play_Cmd,&SetVolume,&Say,&WebRadio
 #ifdef USE_MIC
-,&SetGain,&StartMicRec,&StopMicRec,&I2SBridge\
+,&SetGain,&StartMicRec,&StopMicRec,&I2SBridge
 #endif
 };
 
@@ -1269,6 +1627,11 @@ void I2SAudio_Deinit() {
       break;
   }
 #endif
+
+#ifdef USE_MIC
+  I2SBridgeDeinit();
+#endif
+
   RETMEM
 }
 
@@ -1300,6 +1663,12 @@ static int32_t mod_func_execute(uint32_t sel) {
     case pFUNC_COMMAND:
       result = DecodeCommand(I2S_Commands, I2S_Command);
       break;
+#ifdef USE_MIC      
+    case pFUNC_LOOP:
+      i2s_bridge_loop();
+      break;
+#endif
+
 #ifdef USE_WEBRADIO
     case pFUNC_WEB_SENSOR:
       I2sWrShow(false);

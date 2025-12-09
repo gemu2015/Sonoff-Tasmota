@@ -712,6 +712,25 @@ typedef struct {
 #define strtol jstrtol
 #define atoll jatoll
 
+typedef union {
+	uint8_t bytes[4];  // IPv4 address
+	uint32_t dword;
+} IP_ADDRESS;
+
+
+#define new_udp()  (void*)judp(0,0,0,0)
+#define udp_begin(udp,port)  judp(udp,2,port,0)
+#define udp_beginPacket(udp,ip,port) judp(udp,7,(uint32_t)ip,port)
+#define udp_write(udp,ptr,len) judp(udp, 8, (uint32_t)ptr, len)
+#define udp_endPacket(udp)  judp(udp,9,0,0)
+#define udp_stop(udp)  judp(udp,1,0,0)
+#define udp_del(udp) judp(udp,99,0,0)
+#define udp_flush(udp) judp(udp,6,0,0)
+#define udp_parsePacket(udp) judp(udp,3,0,0)
+#define udp_read(udp,buff,len) judp(udp,5,(uint32_t)buff,len)
+#define udp_remoteIP(udp) judp(udp,10,0,0)
+#define udp_available(udp) judp(udp,4,0,0)
+
 
 #define iseq jiseq
 #define fixunssfsi tmod__fixunssfsi
@@ -758,9 +777,13 @@ typedef struct {
 #define i2s_set_rate(A,B,C,D) ji2s(2,(uint32_t)A,B,C,D,0,0,0)
 #define i2s_write_sample(A,B) ji2s(5,(uint32_t)A,B,0,0,0,0,0)
 #define i2s_write_samples(A,B,C) ji2s(3,(uint32_t)A,(uint32_t)B,C,0,0,0,0)
+#define i2s_read_samples(A,B,C) ji2s(4,(uint32_t)A,(uint32_t)B,C,0,0,0,0)
 #define i2s_enable_tx(A) ji2s(6,(uint32_t)A,0,0,0,0,0,0)
 #define i2s_disable_tx(A) ji2s(7,(uint32_t)A,0,0,0,0,0,0)
 #define i2s_channel_register_event_callback(A,B,C) ji2s(8,(uint32_t)A,(uint32_t)B,(uint32_t)C,0,0,0,0)
+
+#define i2s_enable_rx(A) ji2s(6,(uint32_t)A,0,0,0,0,0,0)
+#define i2s_disable_rx(A) ji2s(7,(uint32_t)A,0,0,0,0,0,0)
 
 
 #define New_WiFiClient() (void*)jtmod_wifi(0,0,0,0,0)
