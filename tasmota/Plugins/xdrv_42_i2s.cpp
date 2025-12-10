@@ -383,11 +383,10 @@ int32_t I2SAudio_Init() {
 
   gain_div = 1<<6;  // = 1
 
-  i2sp = i2s_begin(dout_pin, bck_pin, ws_pin, (mode|16), mc_pin, din_pin);
+  i2sp = i2s_begin(dout_pin, bck_pin, ws_pin, mode, mc_pin, din_pin);
 #ifdef USE_MIC
-  i2sp_read = i2s_begin(dout_pin, bck_pin, ws_pin, (mode|24), mc_pin, din_pin);
+  i2sp_read = i2s_begin(dout_pin, bck_pin, ws_pin, (mode|8), mc_pin, din_pin);
   I2SBridgeInit();
-  I2S_Enable(1);
 #endif
 
 #ifdef ESP32
@@ -478,6 +477,7 @@ void I2S_Enable(uint32_t enable) {
    i2s_enable_tx(i2sp);
 #ifdef USE_MIC
    i2s_enable_rx(i2sp_read);
+   //i2s_disable_rx(i2sp_read);
 #endif
   } else {
     i2s_disable_tx(i2sp);
@@ -1652,6 +1652,7 @@ void I2SAudio_Deinit() {
 
 #ifdef USE_MIC
   I2SBridgeDeinit();
+  i2s_end(i2sp_read);
 #endif
 
   RETMEM
