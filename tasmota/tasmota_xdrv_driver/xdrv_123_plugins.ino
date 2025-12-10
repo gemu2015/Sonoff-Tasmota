@@ -1193,6 +1193,12 @@ uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t 
 i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
 #endif
 
+#ifdef ESP32
+  if ((sel > 0) && !p1) {
+    return 0;
+  }
+#endif
+
   switch (sel) {
     case 0:
 #ifdef ESP8266
@@ -1251,7 +1257,9 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
       /* Initialize the channel */
       i2s_channel_init_std_mode(tx_handle, &std_cfg);
       /* Before writing data, start the TX channel first */
-      //i2s_channel_enable(tx_handle);
+      if (!(p5 & 16)) {
+        i2s_channel_enable(tx_handle);
+      }
 #ifdef I2S_DEBUG
       AddLog(LOG_LEVEL_INFO,PSTR("I2S Init %x - %d - %d - %d - %d - %d - %d"), (uint32_t)tx_handle, p2, p3, p4, p5, p6, p7);
 #endif

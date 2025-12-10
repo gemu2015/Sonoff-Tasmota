@@ -263,6 +263,8 @@ MODULE_PART void i2s_bridge_loop(void);
 MODULE_PART void WebRadio(void);
 MODULE_PART void Say(void);
 MODULE_PART void AudioPwr(uint32_t pwr);
+MODULE_PART void I2S_Enable(uint32_t enable);
+MODULE_PART void I2S_SetRate(uint32_t freq, uint32_t channels);
 MODULE_PART int32_t W8960_Init(void);
 MODULE_PART void W8960_Write(uint8_t reg_addr, uint16_t data);
 MODULE_PART void W8960_SetGain(uint8_t sel, uint16_t value);
@@ -381,7 +383,12 @@ int32_t I2SAudio_Init() {
 
   gain_div = 1<<6;  // = 1
 
-  i2sp = i2s_begin(dout_pin, bck_pin, ws_pin, mode, mc_pin, din_pin);
+  i2sp = i2s_begin(dout_pin, bck_pin, ws_pin, (mode|16), mc_pin, din_pin);
+#ifdef USE_MIC
+  i2sp_read = i2s_begin(dout_pin, bck_pin, ws_pin, (mode|24), mc_pin, din_pin);
+  I2SBridgeInit();
+  I2S_Enable(1);
+#endif
 
 #ifdef ESP32
   i2s_event_callbacks_t cbs;
@@ -452,13 +459,6 @@ int32_t I2SAudio_Init() {
   }
 #endif
 
-#ifdef USE_MIC
-  i2sp_read = i2s_begin(dout_pin, bck_pin, ws_pin, (mode|8), mc_pin, din_pin);
-  i2s_enable_rx(i2sp_read);
-  I2SBridgeInit();
-#endif
-
-
   busy = false;
   initialized = true;
   return 0;
@@ -471,6 +471,30 @@ MODULE_PART void AudioPwr(uint32_t pwr) {
   }
   AddLog(LOG_LEVEL_INFO, PSTR("audio pwr: %d"), pwr);
 }
+
+void I2S_Enable(uint32_t enable) {
+  SETREGS
+  if (enable) {
+   i2s_enable_tx(i2sp);
+#ifdef USE_MIC
+   i2s_enable_rx(i2sp_read);
+#endif
+  } else {
+    i2s_disable_tx(i2sp);
+#ifdef USE_MIC
+    i2s_disable_rx(i2sp_read);
+#endif
+  } 
+}
+
+void I2S_SetRate(uint32_t freq, uint32_t channels) {
+  SETREGS
+  i2s_set_rate(i2sp, freq, mode, channels);
+#ifdef USE_MIC
+  i2s_set_rate(i2sp_read, freq, mode, channels);
+#endif
+}
+
 
 #ifdef USE_I2S_TASK
 void I2sTask(void) {
@@ -495,7 +519,7 @@ void I2sTask(void) {
   fclose(wf);
 
   I2S_Wait_Ready();
-  i2s_disable_tx(i2sp);
+  I2S_Enable(0);
   
   AudioPwr(0);
   busy = false;
@@ -552,7 +576,7 @@ SETREGS
     }
   
     // default is 1 channel
-    i2s_set_rate(i2sp, wh.Fmt.SampleRate, mode, 1);
+    I2S_SetRate(wh.Fmt.SampleRate, 1);
 
     busy = true;
 
@@ -586,7 +610,7 @@ SETREGS
     fclose(wf);
 
     I2S_Wait_Ready();
-    i2s_disable_tx(i2sp);
+    I2S_Enable(0);
 
     AudioPwr(0);
     busy = false;
@@ -692,18 +716,22 @@ SETREGS
   int16_t *packet_buffer = (int16_t*)calloc((uicp[5]>>1)+4, 2);
   uint32_t bytesize;
 
+  I2S_SetRate(uicp[6], 2);
+  //I2S_Enable(1);
+
+/*
   if ((bridge.bridge_mode.bmode & 3) == 3) {
     i2s_set_rate(i2sp, uicp[6], mode, 2);
     i2s_set_rate(i2sp_read, uicp[6], mode, 2);
   } else {
     if (bridge.bridge_mode.bmode == I2S_BRIDGE_MODE_READ) {
       i2s_set_rate(i2sp_read, uicp[6], mode, 2);
-      i2s_disable_tx(i2sp);
     } else {
       i2s_set_rate(i2sp, uicp[6], mode, 2);
-      i2s_disable_rx(i2sp_read);
+      
     }
   }
+*/
 
   bytesize = uicp[5];
   uint32_t bytes_read;
@@ -715,8 +743,10 @@ SETREGS
       if (bytes_read > bytesize) {
         bytes_read = bytesize;
       }
-      make_mono(packet_buffer, bytes_read);
-      i2s_write_samples(i2sp, packet_buffer, bytes_read);
+      if (bytes_read) {
+        make_mono(packet_buffer, bytes_read);
+        i2s_write_samples(i2sp, packet_buffer, bytes_read);
+      }
     } else {
       if (bridge.bridge_mode.bmode & I2S_BRIDGE_MODE_READ) {
         if (udp_parsePacket(bridge.i2s_bridge_udp)) {
@@ -746,8 +776,7 @@ SETREGS
   AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: stopped"));
   free(packet_buffer);
   AudioPwr(0);
-  i2s_disable_tx(i2sp);
-  i2s_disable_rx(i2sp_read);
+  I2S_Enable(0);
   vTaskDelete(0);
 }
 
@@ -1048,13 +1077,13 @@ bool mp3_begin() {
   srate = MP3GetSampRate();
   chans = MP3GetChannels();
 
-  i2s_set_rate(i2sp, srate, mode, chans);
+  I2S_SetRate(srate, chans);
 
   filepos = 0;
 
   AddLog(LOG_LEVEL_INFO, PSTR("mp3 srate = %d, channels = %d"), srate, chans); 
 
-  i2s_enable_tx(i2sp);
+  I2S_Enable(1);
   
   busy = true;
   running = true;
@@ -1109,7 +1138,7 @@ SETREGS
 bool mp3_stop() {
 SETREGS
   I2S_Wait_Ready();
-  i2s_disable_tx(i2sp);
+  I2S_Enable(0);
   return 0;
 }
 
@@ -1128,7 +1157,7 @@ void I2sTaskMP3(void) {
   }
 
   I2S_Wait_Ready();
-  i2s_disable_tx(i2sp);
+  I2S_Enable(0);
   fclose(wf);
   busy = false;
   AudioPwr(0);
@@ -1170,7 +1199,7 @@ void Say(void) {
   chans = 1;
   force_mono = 1;
   srate = icp[2];
-  i2s_set_rate(i2sp, srate, mode, chans);
+  I2S_SetRate(srate, chans);
 
   char *cp = XdrvMailbox->data;
   while (*cp == ' ') cp++;
@@ -1261,7 +1290,7 @@ void Say(void) {
 
   AudioPwr(1);
   running = true;
-  i2s_enable_tx(i2sp);
+  I2S_Enable(1);
 
   SetInput(inbuff);
 
@@ -1274,7 +1303,7 @@ void Say(void) {
   free(samrender);
 
   I2S_Wait_Ready();
-  i2s_disable_tx(i2sp);
+  I2S_Enable(0);
 
   running = false;
   busy = false;
@@ -1313,7 +1342,7 @@ void I2sTaskWR(char *url) {
   AudioPwr(1);
 
 
-  i2s_enable_tx(i2sp);
+  I2S_Enable(1);
 
   volatile const uint32_t *ucp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
   uint32_t ibsize = GET_IBS;
@@ -1403,7 +1432,7 @@ void I2sTaskWR(char *url) {
     if (sr && sr != srate) {
       srate = sr;
       chans = MP3GetChannels();
-      i2s_set_rate(i2sp, srate, mode, chans);
+      I2S_SetRate(srate, chans);
     }
 
     uint32_t bytesDecoded = buffer_bytes - m_bytesLeft;
@@ -1437,7 +1466,7 @@ void I2sTaskWR(char *url) {
 
 
   I2S_Wait_Ready();
-  i2s_disable_tx(i2sp);
+  I2S_Enable(0);
 
   running = false;
   busy = false;

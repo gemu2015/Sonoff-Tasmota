@@ -2405,6 +2405,7 @@ char ppath[16];
 #include "img_converters.h"
 #include "jpeg_decoder.h"
 #include "esp_jpg_decode.h"
+
 bool jpg2rgb888(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t scale);
 bool jpg2rgb565(const uint8_t *src, size_t src_len, uint8_t * out, jpg_scale_t scale);
 char get_jpeg_size(unsigned char* data, unsigned int data_size, unsigned short *width, unsigned short *height);
@@ -2509,7 +2510,7 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
             yoffs = (ys - ysize) / 2;
             xp += xoffs;
             yp += yoffs;
-          }
+
           //Serial.printf(" x,y,fs %d - %d - %d\n",xsize, ysize, size );
           if (xsize && ysize) {
             uint8_t *out_buf = (uint8_t *)special_malloc((xsize * ysize * 3) + 4);
@@ -2517,7 +2518,20 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
               uint16_t *pixb = (uint16_t *)special_malloc((xsize * 2) + 4);
               if (pixb) {
                 uint8_t *ob = out_buf;
-                if (jpg2rgb888(mem, size, out_buf, (jpg_scale_t)JPG_SCALE_NONE)) {
+#if 0
+                esp_jpeg_image_cfg_t jpeg_cfg = {
+                  .indata = (uint8_t *)mem,
+                  .indata_size = size,
+                  .outbuf = out_buf,
+                  .outbuf_size = xsize * ysize * 3,
+                  .out_format = JPEG_IMAGE_OUT_FORMAT_RGB565,
+                  .out_scale = JPEG_IMAGE_SCALE_0,
+                  .flags = {  .swap_color_bytes = 1,}
+                };
+                esp_jpeg_image_output_t outimg;
+                esp_jpeg_decode(&jpeg_cfg, &outimg);
+#endif
+                if (jpg2rgb888(mem, size, out_buf, (jpg_scale_t)JPG_SCALE_NONE)) {                  
                   //renderer->setAddrWindow(xp, yp, xp + xsize, yp + ysize);
                   for (int32_t j = 0; j < ysize; j++) {
                     if (inverted == false) {
