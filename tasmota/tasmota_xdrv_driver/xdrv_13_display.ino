@@ -2513,24 +2513,36 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
           }
           //Serial.printf(" x,y,fs %d - %d - %d\n",xsize, ysize, size );
           if (xsize && ysize) {
+#if 1
+            uint16_t *out_buf = (uint16_t *)special_malloc((xsize * ysize * 2) + 4);
+            if (out_buf) {
+              uint32_t outsize = xsize * ysize * 2;
+              esp_jpeg_image_cfg_t jpeg_cfg = {
+                .indata = (uint8_t *)mem,
+                .indata_size = size,
+                .outbuf = (uint8_t*)out_buf,
+                .outbuf_size = outsize,
+                .out_format = JPEG_IMAGE_FORMAT_RGB565,
+                .out_scale = JPEG_IMAGE_SCALE_0,
+                .flags = {  .swap_color_bytes = inverted,}
+              };
+              esp_jpeg_image_output_t outimg;
+              esp_jpeg_decode(&jpeg_cfg, &outimg);
+              uint16_t *ob = out_buf;
+              for (int32_t j = 0; j < ysize; j++) {
+                ob += xsize;
+                renderer->setAddrWindow(xp, yp + j, xp + xsize, yp + j + 1);
+                renderer->pushColors(ob, xsize, true);
+                OsWatchLoop();
+              }
+              free(out_buf);
+            }
+#else
             uint8_t *out_buf = (uint8_t *)special_malloc((xsize * ysize * 3) + 4);
             if (out_buf) {
               uint16_t *pixb = (uint16_t *)special_malloc((xsize * 2) + 4);
               if (pixb) {
                 uint8_t *ob = out_buf;
-#if 0
-                esp_jpeg_image_cfg_t jpeg_cfg = {
-                  .indata = (uint8_t *)mem,
-                  .indata_size = size,
-                  .outbuf = out_buf,
-                  .outbuf_size = xsize * ysize * 3,
-                  .out_format = JPEG_IMAGE_OUT_FORMAT_RGB565,
-                  .out_scale = JPEG_IMAGE_SCALE_0,
-                  .flags = {  .swap_color_bytes = 1,}
-                };
-                esp_jpeg_image_output_t outimg;
-                esp_jpeg_decode(&jpeg_cfg, &outimg);
-#endif
                 if (jpg2rgb888(mem, size, out_buf, (jpg_scale_t)JPG_SCALE_NONE)) {                  
                   //renderer->setAddrWindow(xp, yp, xp + xsize, yp + ysize);
                   for (int32_t j = 0; j < ysize; j++) {
@@ -2552,6 +2564,7 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
                 free(out_buf);
               }
             }
+#endif
           }
         }
         free(mem);
@@ -2579,6 +2592,31 @@ void Draw_jpeg(uint8_t *mem, uint16_t jpgsize, uint16_t xp, uint16_t yp, uint8_t
     uint8_t fac = 1 << scale;
     xsize /= fac;
     ysize /= fac;
+
+#if 1
+    uint16_t *rgbmem = (uint16_t *)special_malloc(xsize * ysize * 2);
+    if (rgbmem) {
+      esp_jpeg_image_cfg_t jpeg_cfg = {
+                .indata = (uint8_t *)mem,
+                .indata_size = jpgsize,
+                .outbuf = (uint8_t*)rgbmem,
+                .outbuf_size = xsize * ysize * 2,
+                .out_format = JPEG_IMAGE_FORMAT_RGB565,
+                .out_scale = (esp_jpeg_image_scale_t)fac,
+                .flags = {  .swap_color_bytes = 0,}
+              };
+      esp_jpeg_image_output_t outimg;
+      esp_jpeg_decode(&jpeg_cfg, &outimg);
+      uint16_t *ob = rgbmem;
+      for (int32_t j = 0; j < ysize; j++) {
+        ob += xsize;
+        renderer->setAddrWindow(xp, yp + j, xp + xsize, yp + j + 1);
+        renderer->pushColors(ob, xsize, true);
+        OsWatchLoop();
+      }
+      free(rgbmem);
+    }
+#else
     renderer->setAddrWindow(xp, yp, xp + xsize, yp + ysize);
     uint8_t *rgbmem = (uint8_t *)special_malloc(xsize * ysize * 2);
     if (rgbmem) {
@@ -2588,6 +2626,7 @@ void Draw_jpeg(uint8_t *mem, uint16_t jpgsize, uint16_t xp, uint16_t yp, uint8_t
       free(rgbmem);
     }
     renderer->setAddrWindow(0, 0, 0, 0);
+#endif
   }
 }
 
