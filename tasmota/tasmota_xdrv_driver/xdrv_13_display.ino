@@ -2510,7 +2510,7 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
             yoffs = (ys - ysize) / 2;
             xp += xoffs;
             yp += yoffs;
-
+          }
           //Serial.printf(" x,y,fs %d - %d - %d\n",xsize, ysize, size );
           if (xsize && ysize) {
             uint8_t *out_buf = (uint8_t *)special_malloc((xsize * ysize * 3) + 4);
