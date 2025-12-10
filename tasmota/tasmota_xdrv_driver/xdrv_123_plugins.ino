@@ -1172,6 +1172,9 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
   return 0;
 }
 
+
+#define I2S_DEBUG
+
 #ifdef ESP8266
 #include <i2s.h>
 #endif
@@ -1198,11 +1201,15 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
 #endif
 #if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
       {
-      i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
+      i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
       /* Allocate a new TX channel and get the handle of this channel */
       chan_cfg.auto_clear = true;
 
-      i2s_new_channel(&chan_cfg, &tx_handle, NULL);
+      if (!(p5 & 8)) {
+        i2s_new_channel(&chan_cfg, &tx_handle, NULL);
+      } else {
+        i2s_new_channel(&chan_cfg, NULL, &tx_handle);
+      }
 
       i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(8000),
@@ -1244,8 +1251,10 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
       /* Initialize the channel */
       i2s_channel_init_std_mode(tx_handle, &std_cfg);
       /* Before writing data, start the TX channel first */
-      i2s_channel_enable(tx_handle);
-      //AddLog(LOG_LEVEL_INFO,PSTR("I2S Init %d - %d - %d"), p2, p3, p4);
+      //i2s_channel_enable(tx_handle);
+#ifdef I2S_DEBUG
+      AddLog(LOG_LEVEL_INFO,PSTR("I2S Init %x - %d - %d - %d - %d - %d - %d"), (uint32_t)tx_handle, p2, p3, p4, p5, p6, p7);
+#endif
       return (uint32_t)tx_handle;
       }
       
