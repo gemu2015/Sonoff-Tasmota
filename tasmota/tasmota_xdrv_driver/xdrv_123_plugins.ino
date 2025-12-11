@@ -1180,22 +1180,26 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
 #endif
 
 #ifdef ESP32
-#if ESP_IDF_VERSION_MAJOR >= 5
 #include "driver/i2s_std.h"
 #include "driver/i2s_pdm.h"
-#else
-#include <driver/i2s.h>
-#endif
 #endif // ESP32
 
-uint32_t tmod_i2s(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t p4, uint32_t p5, int32_t p6, int32_t p7) {
-#if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
-i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
-#endif
+uint32_t tmod_i2s(uint32_t sel, uint32_t p1) {
+I2S_PARS *i2cp = (I2S_PARS *) p1;
+
+uint8_t xmode = sel >> 8;
+sel &= 0xff;
 
 #ifdef ESP32
-  if ((sel > 0) && !p1) {
+  if ((sel > 0) && !i2cp->txhandle) {
     return 0;
+  }
+  i2s_chan_handle_t chn_handle;
+
+  if (xmode) {
+    chn_handle = (i2s_chan_handle_t)i2cp->rxhandle;
+  } else {
+    chn_handle = (i2s_chan_handle_t)i2cp->txhandle;
   }
 #endif
 
@@ -1205,27 +1209,26 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
       i2s_begin();
       return 0;
 #endif
-#if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
+#ifdef ESP32
       {
-      i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
-      /* Allocate a new TX channel and get the handle of this channel */
+      i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
+      // Allocate a new TX channel and get the handle of this channel
       chan_cfg.auto_clear = true;
-
-      if (!(p5 & 8)) {
-        i2s_new_channel(&chan_cfg, &tx_handle, NULL);
+      if (i2cp->din >= 0) {
+        i2s_new_channel(&chan_cfg, (i2s_chan_handle_t*)&i2cp->txhandle, (i2s_chan_handle_t*)&i2cp->rxhandle);
       } else {
-        i2s_new_channel(&chan_cfg, NULL, &tx_handle);
+        i2s_new_channel(&chan_cfg, (i2s_chan_handle_t*)&i2cp->txhandle, nullptr);
       }
 
       i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(8000),
         .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
         .gpio_cfg = {
-          .mclk = (gpio_num_t)p6, //I2S_GPIO_UNUSED,
-          .bclk = (gpio_num_t)p3,
-          .ws = (gpio_num_t)p4,
-          .dout = (gpio_num_t)p2,
-          .din = (gpio_num_t)p7,
+          .mclk = (gpio_num_t)i2cp->mclk,
+          .bclk = (gpio_num_t)i2cp->bclk,
+          .ws = (gpio_num_t)i2cp->ws,
+          .dout = (gpio_num_t)i2cp->dout,
+          .din = (gpio_num_t)i2cp->din,
           .invert_flags = {
             .mclk_inv = false,
             .bclk_inv = false,
@@ -1235,12 +1238,12 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
       };
 
       i2s_slot_mode_t channels;
-      if (0 == (p5 >> 16)) {
+      if (i2cp->channels == 1) {
         channels = I2S_SLOT_MODE_MONO;
       } else {
         channels = I2S_SLOT_MODE_STEREO;
       }
-      uint8_t mode = p5 & 3;
+      uint8_t mode = i2cp->bmode & 3;
       if (mode > 2) mode = 2;
       switch (mode) {
         case 0:
@@ -1254,16 +1257,18 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
           break;
       }
 
-      /* Initialize the channel */
-      i2s_channel_init_std_mode(tx_handle, &std_cfg);
-      /* Before writing data, start the TX channel first */
-      if (!(p5 & 16)) {
-        i2s_channel_enable(tx_handle);
+      // Initialize the channels
+      i2s_channel_init_std_mode((i2s_chan_handle_t)i2cp->txhandle, &std_cfg);
+      i2s_channel_enable((i2s_chan_handle_t)i2cp->txhandle);
+      if (i2cp->rxhandle) {
+        i2s_channel_init_std_mode((i2s_chan_handle_t)i2cp->rxhandle, &std_cfg);
+        i2s_channel_enable((i2s_chan_handle_t)i2cp->rxhandle);
       }
+      
 #ifdef I2S_DEBUG
-      AddLog(LOG_LEVEL_INFO,PSTR("I2S Init %x - %d - %d - %d - %d - %d - %d"), (uint32_t)tx_handle, p2, p3, p4, p5, p6, p7);
+      AddLog(LOG_LEVEL_INFO,PSTR("I2S Init %x - %x"), (uint32_t)i2cp->txhandle, (uint32_t)i2cp->rxhandle);
 #endif
-      return (uint32_t)tx_handle;
+      return 0;
       }
       
 #endif
@@ -1272,10 +1277,10 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
 #ifdef ESP8266
       i2s_end();
 #endif
-#if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
+#ifdef ESP32
       {
-      i2s_channel_disable(tx_handle);
-      i2s_del_channel(tx_handle);
+      i2s_channel_disable(chn_handle);
+      i2s_del_channel(chn_handle);
       //AddLog(LOG_LEVEL_INFO,PSTR("I2S Exit"));
       }
 #endif
@@ -1284,22 +1289,22 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
 #ifdef ESP8266
       i2s_set_rate(p2);
 #endif
-#if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
+#ifdef ESP32
       {
-      i2s_channel_disable(tx_handle);
+      i2s_channel_disable(chn_handle);
 
-      i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(p2);
-      i2s_channel_reconfig_std_clock(tx_handle, &clk_cfg);
+      i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(i2cp->dlen);
+      i2s_channel_reconfig_std_clock(chn_handle, &clk_cfg);
 
       i2s_std_slot_config_t slot_cfg;
 
       i2s_slot_mode_t channels;
-      if (1 == p4) {
+      if (1 == i2cp->channels) {
         channels = I2S_SLOT_MODE_MONO;
       } else {
         channels = I2S_SLOT_MODE_STEREO;
       }
-      uint8_t mode = p3 & 3;
+      uint8_t mode = i2cp->bmode & 3;
       if (mode > 2) mode = 2;
       switch (mode) {
         case 0:
@@ -1312,9 +1317,9 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
           slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
           break;
       }
-      i2s_channel_reconfig_std_slot(tx_handle, &slot_cfg);
+      i2s_channel_reconfig_std_slot(chn_handle, &slot_cfg);
 
-      i2s_channel_enable(tx_handle);
+      i2s_channel_enable(chn_handle);
       //AddLog(LOG_LEVEL_INFO,PSTR("I2S Setrate %d"), p2);
       }
 #endif
@@ -1323,34 +1328,34 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
       // write samples
 #ifdef ESP8266
       { 
-        /*
+#if 0
         int16_t *left = (int16_t*)p2;
         int16_t *right = (int16_t*)p2 + 2;
         for (uint32_t cnt = 0; cnt < (p3 >> 2); cnt++) {
           i2s_write_lr(*left++, *right++);
         }
         *(uint32_t*)p4 = p3;
-        */
+#endif
         int16_t *swp = (int16_t*)p2;
         for (uint32_t cnt = 0; cnt < p3; cnt++) {
           i2s_write_sample(*swp++);
         }
       }
 #endif 
-#if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
-      i2s_channel_write(tx_handle, (uint8_t *)p2, p3 * 2, nullptr, 100);
+#ifdef ESP32
+      i2s_channel_write(chn_handle, (uint8_t *)i2cp->dptr, i2cp->dlen * 2, nullptr, 100);
 #endif
       break;
     case 4:
       // read samples
 #ifdef ESP8266
-      return i2s_read_sample((int16_t *)p2, (int16_t *)p3, p4); 
+      return i2s_read_sample((int16_t *)i2cp->dptr, i2cp->dlen * 2, p4); 
 #endif
 
-#if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
+#ifdef ESP32
       {
         size_t bytes_read;
-        i2s_channel_read(tx_handle, (void*)p2, p3, &bytes_read, 5);
+        i2s_channel_read(chn_handle, (void*)i2cp->dptr, i2cp->dlen, &bytes_read, 5);
         return bytes_read;
       }
 #endif
@@ -1360,29 +1365,29 @@ i2s_chan_handle_t tx_handle = (i2s_chan_handle_t)p1;
 #ifdef ESP8266
       i2s_write_sample(p2);
 #endif // ESP8266
-#if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
+#ifdef ESP32
       {
-        int16_t src_buf = p2;
-        i2s_channel_write(tx_handle, &src_buf, 2, nullptr, 5);
+        i2s_channel_write(chn_handle, i2cp->dptr, 2, nullptr, 5);
       }
       break;
 #endif // ESP32
     case 6:
-#if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
-      return i2s_channel_enable(tx_handle);
+#ifdef ESP32
+      return i2s_channel_enable(chn_handle);
 #endif
       break;
-#if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
+#ifdef ESP32
     case 7:
-      /* does not work ???
+#if 0     
+    does not work ???
       uint8_t zero_buffer[240] = {0};
       for (uint32_t i = 0; i < 6; i++) {
-        i2s_channel_write(tx_handle, zero_buffer, sizeof(zero_buffer), nullptr, 5); // fill DMA buffer with silence
+        i2s_channel_write(chn_handle, zero_buffer, sizeof(zero_buffer), nullptr, 5); // fill DMA buffer with silence
       }
-      */
-      return i2s_channel_disable(tx_handle);
+#endif
+      return i2s_channel_disable(chn_handle);
     case 8:
-      return i2s_channel_register_event_callback(tx_handle, (const i2s_event_callbacks_t *)p2, (void *)p3);
+      return i2s_channel_register_event_callback(chn_handle, (i2s_event_callbacks_t*)i2cp->cbp, 0);
 
  #endif
   }

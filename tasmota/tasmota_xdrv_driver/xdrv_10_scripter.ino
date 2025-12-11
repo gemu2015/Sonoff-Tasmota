@@ -817,6 +817,7 @@ typedef struct {
 #ifdef USE_PLAY_WAVE
 #ifdef ESP32
   i2s_chan_handle_t tx_handle;
+  i2s_chan_handle_t rx_handle;
 #endif
 #endif
 
@@ -7574,7 +7575,8 @@ int32_t play_wave(char *path) {
     uint8_t mode = strtol(cp, &cp, 10);
 
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
-    i2s_new_channel(&chan_cfg, &glob_script_mem.tx_handle, NULL);
+    //i2s_new_channel(&chan_cfg, &glob_script_mem.tx_handle, &glob_script_mem.rx_handle);
+    i2s_new_channel(&chan_cfg, &glob_script_mem.tx_handle, nullptr);
 
     i2s_std_slot_config_t slot_cfg;
     switch (mode) {
@@ -7597,7 +7599,7 @@ int32_t play_wave(char *path) {
           .bclk = (gpio_num_t)bck,
           .ws = (gpio_num_t)ws,
           .dout = (gpio_num_t)dout,
-          .din = I2S_GPIO_UNUSED,
+          .din = (gpio_num_t)18, //I2S_GPIO_UNUSED,
           .invert_flags = {
             .mclk_inv = false,
             .bclk_inv = false,
@@ -7608,6 +7610,7 @@ int32_t play_wave(char *path) {
 
     /* Initialize the channel */
     i2s_channel_init_std_mode(glob_script_mem.tx_handle, &std_cfg);
+    //i2s_channel_init_std_mode(glob_script_mem.rx_handle, &std_cfg);
     return 0;
   }
 #endif
@@ -7653,6 +7656,7 @@ int32_t play_wave(char *path) {
 
 #ifdef ESP32
   i2s_channel_enable(glob_script_mem.tx_handle);
+  i2s_channel_enable(glob_script_mem.rx_handle);
   while (wf.position() < fsize) {
     int numBytes = _min(sizeof(buffer), fsize - wf.position() - 1);
     int bytesread = wf.readBytes((char*)buffer, numBytes);

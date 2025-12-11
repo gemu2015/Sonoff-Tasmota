@@ -35,7 +35,6 @@ codec settings access
 #define MAX_MOD_STORES 4
 #endif
 
-
 #include "module.h"
 #include "module_defines.h"
 
@@ -109,18 +108,11 @@ typedef struct {
 #ifdef USE_SCRIPT
   char *cmd_param;
 #endif
-  uint8_t dout_pin;
-  uint8_t bck_pin;
-  uint8_t ws_pin;
-  int8_t mc_pin;
-  int8_t din_pin;
   uint8_t gain_div;
 #ifdef USE_MIC
   I2S_BRIDGE bridge;
   uint8_t adc_gain_div;
-  void *i2sp_read;
 #endif
-  void *i2sp;
   uint8_t busy;
   uint8_t mode;
   File_p *wf;
@@ -157,8 +149,11 @@ typedef struct {
   SAM_RENDER *samrender;
 #endif
 
+  I2S_PARS i2sp;
+
 } MODULE_MEMORY;
 
+#define i2sp mem->i2sp
 #define audio_pwr_pin mem->audio_pwr_pin
 #define dout_pin mem->dout_pin
 #define bck_pin mem->bck_pin
@@ -166,7 +161,6 @@ typedef struct {
 #define mc_pin mem->mc_pin
 #define din_pin mem->din_pin
 #define i2sp mem->i2sp
-#define i2sp_read mem->i2sp_read
 #define gain_div mem->gain_div
 #define adc_gain_div mem->adc_gain_div
 #define bridge mem->bridge
@@ -209,6 +203,9 @@ typedef struct {
 #define GPIO_DOUT 6
 #define GPIO_BCK 7
 #define GPIO_WS 8
+#define GPIO_DIN 18
+#define GPIO_APWR 49
+#define GPIO_MC 49
 #else
 
 #if 1
@@ -331,7 +328,6 @@ typedef struct {
                                              */
 } i2s_event_callbacks_t;
 
-
 MODULE_PART bool i2s_tx_ready_callback(i2s_chan_handle_t handle, i2s_event_data_t *event, void *user_ctx) {
 SETMEMREGS
     // handle TX ready
@@ -357,12 +353,12 @@ MODULE_PART void I2S_Wait_Ready(void) {
 int32_t I2SAudio_Init() {
   ALLOCMEM
 
-  dout_pin = mp->ms[0].value;
-  din_pin = mp->ms[1].value;
-  bck_pin = mp->ms[2].value;
-  ws_pin = mp->ms[3].value;
-  mc_pin = mp->ms[4].value;
-  mode = mp->ms[5].value;
+  i2sp.dout = mp->ms[0].value;
+  i2sp.din = mp->ms[1].value;
+  i2sp.bclk = mp->ms[2].value;
+  i2sp.ws = mp->ms[3].value;
+  i2sp.mclk = mp->ms[4].value;
+  i2sp.bmode = mp->ms[5].value;
   codec = mp->ms[6].value;
   audio_pwr_pin = mp->ms[7].value;
 
@@ -373,20 +369,23 @@ int32_t I2SAudio_Init() {
     audio_pwr_pin = -1;
   }
 
-  if (din_pin == GetPins()) {
-    din_pin = -1;
+  if (i2sp.din == GetPins()) {
+    i2sp.din = -1;
   }
 
-  if (mc_pin == GetPins()) {
-    mc_pin = -1;
+  if (i2sp.mclk == GetPins()) {
+    i2sp.mclk = -1;
   }
 
   gain_div = 1<<6;  // = 1
 
-  i2sp = i2s_begin(dout_pin, bck_pin, ws_pin, mode, mc_pin, din_pin);
+  i2s_begin_t(&i2sp);
+
 #ifdef USE_MIC
-  i2sp_read = i2s_begin(dout_pin, bck_pin, ws_pin, (mode|8), mc_pin, din_pin);
-  I2SBridgeInit();
+  if (i2sp.din >= 0) {
+    i2s_begin_r(&i2sp);
+    I2SBridgeInit();
+  }
 #endif
 
 #ifdef ESP32
@@ -395,7 +394,8 @@ int32_t I2SAudio_Init() {
   cbs.on_recv_q_ovf = NULL;
   cbs.on_sent = i2s_tx_ready_callback;
   cbs.on_send_q_ovf = NULL;
-  i2s_channel_register_event_callback(i2sp, &cbs, nullptr);
+  i2sp.cbp = (void*)&cbs;
+  i2s_channel_register_event_callback_t(&i2sp);
 #endif
 
   // voltile is needed due to by eps8266 asm error
@@ -474,24 +474,32 @@ MODULE_PART void AudioPwr(uint32_t pwr) {
 void I2S_Enable(uint32_t enable) {
   SETREGS
   if (enable) {
-   i2s_enable_tx(i2sp);
+    i2s_enable_tx(&i2sp);
 #ifdef USE_MIC
-   i2s_enable_rx(i2sp_read);
-   //i2s_disable_rx(i2sp_read);
+    if (i2sp.din >= 0) {
+      i2s_enable_rx(&i2sp);
+      //i2s_disable_rx(&i2sp);
+    }
 #endif
   } else {
-    i2s_disable_tx(i2sp);
+    i2s_disable_tx(&i2sp);
 #ifdef USE_MIC
-    i2s_disable_rx(i2sp_read);
+    if (i2sp.din >= 0) {
+      i2s_disable_rx(&i2sp);
+    }
 #endif
   } 
 }
 
 void I2S_SetRate(uint32_t freq, uint32_t channels) {
   SETREGS
-  i2s_set_rate(i2sp, freq, mode, channels);
+  i2sp.dlen = freq;
+  i2sp.channels = channels;
+  i2s_set_rate_t(&i2sp);
 #ifdef USE_MIC
-  i2s_set_rate(i2sp_read, freq, mode, channels);
+  if (i2sp.din >= 0) {
+    i2s_set_rate_r(&i2sp);
+  }
 #endif
 }
 
@@ -716,7 +724,9 @@ SETREGS
   int16_t *packet_buffer = (int16_t*)calloc((uicp[5]>>1)+4, 2);
   uint32_t bytesize;
 
-  I2S_SetRate(uicp[6], 2);
+  i2sp.dlen = uicp[6];
+
+  I2S_SetRate(uicp[7], 2);
   //I2S_Enable(1);
 
 /*
@@ -735,17 +745,21 @@ SETREGS
 
   bytesize = uicp[5];
   uint32_t bytes_read;
-   
+  
+  i2sp.dptr = packet_buffer;
+
   while (I2S_BRIDGE_MODE_OFF != bridge.bridge_mode.bmode) {
     if ((bridge.bridge_mode.bmode & 3) == 3) {
       // loopback test mode
-      bytes_read = i2s_read_samples(i2sp_read, packet_buffer, bytesize);
+      i2sp.dlen = bytesize;
+      bytes_read = i2s_read_samples_r(&i2sp); 
       if (bytes_read > bytesize) {
         bytes_read = bytesize;
       }
       if (bytes_read) {
         make_mono(packet_buffer, bytes_read);
-        i2s_write_samples(i2sp, packet_buffer, bytes_read);
+        i2sp.dlen = bytes_read;
+        i2s_write_samples_t(&i2sp);
       }
     } else {
       if (bridge.bridge_mode.bmode & I2S_BRIDGE_MODE_READ) {
@@ -756,14 +770,16 @@ SETREGS
           }
           len = udp_read(bridge.i2s_bridge_udp, (uint8_t *)packet_buffer, len);
           udp_flush(bridge.i2s_bridge_udp);
-          i2s_write_samples(i2sp, packet_buffer, len);
+          i2sp.dlen = len;
+          i2s_write_samples_t(&i2sp);
         } else {
           delay(1);
         }
       }
 
-      if (bridge.bridge_mode.bmode & I2S_BRIDGE_MODE_WRITE) {  
-        bytes_read = i2s_read_samples(i2sp_read, packet_buffer, bytesize);
+      if (bridge.bridge_mode.bmode & I2S_BRIDGE_MODE_WRITE) {
+        i2sp.dlen = bytesize;
+        bytes_read = i2s_read_samples_r(&i2sp);
         make_mono(packet_buffer, bytes_read);
         udp_beginPacket(bridge.i2s_bridge_udp, bridge.i2s_bridge_ip.dword, I2S_BRIDGE_PORT);
         udp_write(bridge.i2s_bridge_udp, (const uint8_t*)packet_buffer, bytes_read);
@@ -1043,7 +1059,9 @@ SETMEMREGS
     }
   }
   tx_ready = false;
-  i2s_write_samples(i2sp, buffer, samples);
+  i2sp.dptr = buffer;
+  i2sp.dlen = samples;
+  i2s_write_samples_t(&i2sp);
 }  
 
 
@@ -1638,7 +1656,7 @@ void I2SAudio_Deinit() {
   if (m_outBuff) free(m_outBuff);
   if (m_inBuff) free(m_inBuff);  
 #endif
-  i2s_end(i2sp);
+  i2s_end_t(&i2sp);
 #ifdef USE_AUDIO_CODECS
   switch (codec) {
     case 1:
@@ -1652,7 +1670,7 @@ void I2SAudio_Deinit() {
 
 #ifdef USE_MIC
   I2SBridgeDeinit();
-  i2s_end(i2sp_read);
+  i2s_end_r(&i2sp);
 #endif
 
   RETMEM

@@ -2513,7 +2513,7 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
           }
           //Serial.printf(" x,y,fs %d - %d - %d\n",xsize, ysize, size );
           if (xsize && ysize) {
-#if 1
+#if 0
             uint16_t *out_buf = (uint16_t *)special_malloc((xsize * ysize * 2) + 4);
             if (out_buf) {
               uint32_t outsize = xsize * ysize * 2;
@@ -2593,7 +2593,7 @@ void Draw_jpeg(uint8_t *mem, uint16_t jpgsize, uint16_t xp, uint16_t yp, uint8_t
     xsize /= fac;
     ysize /= fac;
 
-#if 1
+#if 0
     uint16_t *rgbmem = (uint16_t *)special_malloc(xsize * ysize * 2);
     if (rgbmem) {
       esp_jpeg_image_cfg_t jpeg_cfg = {

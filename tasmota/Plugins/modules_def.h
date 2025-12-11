@@ -45,6 +45,21 @@ typedef struct {
 } TASKPARS;
 
 typedef struct {
+  int8_t mclk;
+  int8_t bclk;
+  int8_t ws;
+  int8_t dout;
+  int8_t din;
+  uint8_t bmode;
+  uint8_t channels;
+  int16_t *dptr;
+  uint16_t dlen; // + frequency
+  uint32_t txhandle;
+  uint32_t rxhandle;
+  void *cbp;
+} I2S_PARS;
+
+typedef struct {
   void *mod_addr;
   void (* const *jt)(void);
   void *mod_memory;
