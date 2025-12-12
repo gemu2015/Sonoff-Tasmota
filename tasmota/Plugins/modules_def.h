@@ -57,6 +57,8 @@ typedef struct {
   uint32_t txhandle;
   uint32_t rxhandle;
   void *cbp;
+  uint16_t timeout;
+  uint16_t error;
 } I2S_PARS;
 
 typedef struct {

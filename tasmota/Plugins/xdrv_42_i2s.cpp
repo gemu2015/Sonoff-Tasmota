@@ -50,7 +50,7 @@ codec settings access
 #define I2S_BRIDGE_PORT 6970
 #endif
 
-#define I2S_BRIDGE_BUFFER_SIZE 512
+#define I2S_BRIDGE_BUFFER_SIZE 1024
 
 #define I2S_BRIDGE_MODE_OFF 0
 #define I2S_BRIDGE_MODE_READ 1
@@ -111,7 +111,8 @@ typedef struct {
   uint8_t gain_div;
 #ifdef USE_MIC
   I2S_BRIDGE bridge;
-  uint8_t adc_gain_div;
+  uint8_t adc_gain_fac;
+  uint8_t is2_mic_init;
 #endif
   uint8_t busy;
   uint8_t mode;
@@ -153,6 +154,7 @@ typedef struct {
 
 } MODULE_MEMORY;
 
+#define is2_mic_init mem->is2_mic_init
 #define i2sp mem->i2sp
 #define audio_pwr_pin mem->audio_pwr_pin
 #define dout_pin mem->dout_pin
@@ -162,7 +164,7 @@ typedef struct {
 #define din_pin mem->din_pin
 #define i2sp mem->i2sp
 #define gain_div mem->gain_div
-#define adc_gain_div mem->adc_gain_div
+#define adc_gain_fac mem->adc_gain_fac
 #define bridge mem->bridge
 #define busy mem->busy
 #define mode mem->mode
@@ -382,10 +384,12 @@ int32_t I2SAudio_Init() {
   i2s_begin_t(&i2sp);
 
 #ifdef USE_MIC
+  is2_mic_init = 0;
   if (i2sp.din >= 0) {
     i2s_begin_r(&i2sp);
-    I2SBridgeInit();
+    adc_gain_fac = 10;
   }
+  bridge.ptt_pin = -1;
 #endif
 
 #ifdef ESP32
@@ -396,6 +400,7 @@ int32_t I2SAudio_Init() {
   cbs.on_send_q_ovf = NULL;
   i2sp.cbp = (void*)&cbs;
   i2s_channel_register_event_callback_t(&i2sp);
+  i2sp.timeout = 1000;
 #endif
 
   // voltile is needed due to by eps8266 asm error
@@ -685,12 +690,16 @@ SETREGS
     tp.xCoreID = 1;
     xTaskCreatePinnedToCore(&tp);
 
-    if (!bridge.bridge_mode.master) {
-      AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: slave started"));
+    if (bmode == 3) {
+      AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: loop mode started"));
     } else {
-      char buffer[32];
-      sprintf_P(buffer, PSTR("%u.%u.%u.%u"), bridge.i2s_bridge_ip.bytes[0], bridge.i2s_bridge_ip.bytes[1], bridge.i2s_bridge_ip.bytes[2], bridge.i2s_bridge_ip.bytes[3]);
-      AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: master started sending to ip: %s"), buffer);
+      if (!bridge.bridge_mode.master) {
+        AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: slave started"));
+      } else {
+        char buffer[32];
+        sprintf_P(buffer, PSTR("%u.%u.%u.%u"), bridge.i2s_bridge_ip.bytes[0], bridge.i2s_bridge_ip.bytes[1], bridge.i2s_bridge_ip.bytes[2], bridge.i2s_bridge_ip.bytes[3]);
+        AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: master started sending to ip: %s"), buffer);
+      }
     }
   }
 }
@@ -701,13 +710,12 @@ SETREGS
 
     int16_t *wp = (int16_t*)packet_buffer;
     //int16_t gain = audio_i2s.in->getRxGain();
-    int16_t gain = 1;
     for (uint32_t cnt = 0; cnt < size / 2; cnt += 2) {
       int16_t val;
       if (bridge.bridge_mode.swap_mic) {
-        val = wp[cnt + 1];
+        val = wp[cnt + 1] * adc_gain_fac;
       } else {
-        val = wp[cnt];
+        val = wp[cnt] * adc_gain_fac;
       }
       wp[cnt] = val;
       wp[cnt + 1] = val;
@@ -721,41 +729,21 @@ SETREGS
 
   const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
 
-  int16_t *packet_buffer = (int16_t*)calloc((uicp[5]>>1)+4, 2);
-  uint32_t bytesize;
+  uint32_t bytesize = uicp[5];
 
-  i2sp.dlen = uicp[6];
-
-  I2S_SetRate(uicp[7], 2);
-  //I2S_Enable(1);
-
-/*
-  if ((bridge.bridge_mode.bmode & 3) == 3) {
-    i2s_set_rate(i2sp, uicp[6], mode, 2);
-    i2s_set_rate(i2sp_read, uicp[6], mode, 2);
-  } else {
-    if (bridge.bridge_mode.bmode == I2S_BRIDGE_MODE_READ) {
-      i2s_set_rate(i2sp_read, uicp[6], mode, 2);
-    } else {
-      i2s_set_rate(i2sp, uicp[6], mode, 2);
-      
-    }
-  }
-*/
-
-  bytesize = uicp[5];
-  uint32_t bytes_read;
+  int16_t *packet_buffer = (int16_t*)calloc((bytesize>>1)+4, 2);
   
+  // set to 16 khz Stereo
+  I2S_SetRate(uicp[7], 2);
+
+  uint32_t bytes_read;  
   i2sp.dptr = packet_buffer;
 
   while (I2S_BRIDGE_MODE_OFF != bridge.bridge_mode.bmode) {
     if ((bridge.bridge_mode.bmode & 3) == 3) {
       // loopback test mode
       i2sp.dlen = bytesize;
-      bytes_read = i2s_read_samples_r(&i2sp); 
-      if (bytes_read > bytesize) {
-        bytes_read = bytesize;
-      }
+      bytes_read = i2s_read_samples_r(&i2sp);
       if (bytes_read) {
         make_mono(packet_buffer, bytes_read);
         i2sp.dlen = bytes_read;
@@ -780,10 +768,12 @@ SETREGS
       if (bridge.bridge_mode.bmode & I2S_BRIDGE_MODE_WRITE) {
         i2sp.dlen = bytesize;
         bytes_read = i2s_read_samples_r(&i2sp);
-        make_mono(packet_buffer, bytes_read);
-        udp_beginPacket(bridge.i2s_bridge_udp, bridge.i2s_bridge_ip.dword, I2S_BRIDGE_PORT);
-        udp_write(bridge.i2s_bridge_udp, (const uint8_t*)packet_buffer, bytes_read);
-        udp_endPacket(bridge.i2s_bridge_udp);
+        if (bytes_read) {
+          make_mono(packet_buffer, bytes_read);
+          udp_beginPacket(bridge.i2s_bridge_udp, bridge.i2s_bridge_ip.dword, I2S_BRIDGE_PORT);
+          udp_write(bridge.i2s_bridge_udp, (const uint8_t*)packet_buffer, bytes_read);
+          udp_endPacket(bridge.i2s_bridge_udp);
+        }
       }
     
     }
@@ -811,9 +801,9 @@ void SetGain(void) {
       gain = 1;
     }
     float xgain = fmul(fdiv(floatunsisf(gain) , floatunsisf(100)), floatunsisf(64));
-    adc_gain_div = fixunssfsi(xgain);
+    adc_gain_fac = fixunssfsi(xgain);
   } 
-  gain = fixunssfsi(fmul(fdiv(floatunsisf(adc_gain_div) , floatunsisf(64)), floatunsisf(100)));
+  gain = fixunssfsi(fmul(fdiv(floatunsisf(adc_gain_fac) , floatunsisf(64)), floatunsisf(100)));
   ResponseCmndNumber(gain);
 }
 
@@ -850,6 +840,12 @@ void I2SBridge(void) {
       pinMode(bridge.ptt_pin, INPUT_PULLUP);
       Response_P(PSTR("{\"I2S_bridge\":{\"PTT-PIN\":%d}}"), bridge.ptt_pin);
     } else {
+      if (XdrvMailbox->payload == 3) {
+        i2s_bridge_init(3);
+        ResponseCmndNumber(bridge.bridge_mode.bmode);
+        return;
+      }
+
       I2SBridgeCmd(XdrvMailbox->payload, 1);
     }
   }
@@ -871,6 +867,7 @@ void SendBridgeCmd(uint8_t bmode) {
 
 void I2SBridgeCmd(uint8_t val, uint8_t flg) {
   SETREGS
+
   if ((val >= 0) && (val <= 11)) {
     if (val > 3) {
       switch (val) {
@@ -962,6 +959,11 @@ void i2s_bridge_loop(void) {
   StateBitfield test = TasmotaGlobal->global_state;
   if (test.wifi_down) {
     return;
+  }
+
+  if (!is2_mic_init) {
+    I2SBridgeInit();
+    is2_mic_init = 1;
   }
 
   uint8_t packet_buffer[32];
@@ -1060,7 +1062,7 @@ SETMEMREGS
   }
   tx_ready = false;
   i2sp.dptr = buffer;
-  i2sp.dlen = samples;
+  i2sp.dlen = samples * 2;
   i2s_write_samples_t(&i2sp);
 }  
 

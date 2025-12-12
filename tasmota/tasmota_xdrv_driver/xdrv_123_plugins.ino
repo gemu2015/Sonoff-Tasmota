@@ -1296,7 +1296,7 @@ sel &= 0xff;
       i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(i2cp->dlen);
       i2s_channel_reconfig_std_clock(chn_handle, &clk_cfg);
 
-      i2s_std_slot_config_t slot_cfg;
+      i2s_std_slot_config_t slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
 
       i2s_slot_mode_t channels;
       if (1 == i2cp->channels) {
@@ -1306,7 +1306,7 @@ sel &= 0xff;
       }
       uint8_t mode = i2cp->bmode & 3;
       if (mode > 2) mode = 2;
-      switch (mode) {
+      switch (mode) { 
         case 0:
           slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
           break;
@@ -1343,19 +1343,21 @@ sel &= 0xff;
       }
 #endif 
 #ifdef ESP32
-      i2s_channel_write(chn_handle, (uint8_t *)i2cp->dptr, i2cp->dlen * 2, nullptr, 100);
+      size_t bytes_written;
+      i2cp->error = i2s_channel_write(chn_handle, (uint8_t *)i2cp->dptr, i2cp->dlen, &bytes_written, i2cp->timeout);
+      return bytes_written;
 #endif
       break;
     case 4:
       // read samples
 #ifdef ESP8266
-      return i2s_read_sample((int16_t *)i2cp->dptr, i2cp->dlen * 2, p4); 
+      return i2s_read_sample((int16_t *)i2cp->dptr, i2cp->dlen, p4); 
 #endif
 
 #ifdef ESP32
       {
         size_t bytes_read;
-        i2s_channel_read(chn_handle, (void*)i2cp->dptr, i2cp->dlen, &bytes_read, 5);
+        i2cp->error = i2s_channel_read(chn_handle, (void*)i2cp->dptr, i2cp->dlen, &bytes_read, i2cp->timeout);
         return bytes_read;
       }
 #endif
