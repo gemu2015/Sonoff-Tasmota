@@ -942,6 +942,10 @@ void I2SBridgeInit(void) {
 void I2SBridgeDeinit(void) {
   SETREGS
 
+  if (bridge.bridge_mode.bmode) {
+    i2s_bridge_init(I2S_BRIDGE_MODE_OFF);
+  }
+
   if (bridge.i2s_bridge_udp) {
     udp_del(bridge.i2s_bridge_udp);
     bridge.i2s_bridge_udp = 0;
