@@ -7575,7 +7575,6 @@ int32_t play_wave(char *path) {
     uint8_t mode = strtol(cp, &cp, 10);
 
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
-    //i2s_new_channel(&chan_cfg, &glob_script_mem.tx_handle, &glob_script_mem.rx_handle);
     i2s_new_channel(&chan_cfg, &glob_script_mem.tx_handle, nullptr);
 
     i2s_std_slot_config_t slot_cfg;
@@ -7610,7 +7609,6 @@ int32_t play_wave(char *path) {
 
     /* Initialize the channel */
     i2s_channel_init_std_mode(glob_script_mem.tx_handle, &std_cfg);
-    //i2s_channel_init_std_mode(glob_script_mem.rx_handle, &std_cfg);
     return 0;
   }
 #endif
@@ -10082,7 +10080,6 @@ const char HTTP_BTN_MENU_RULES[] PROGMEM =
   "<p></p><form action='" WEB_HANDLE_SCRIPT "' method='get'><button>" D_CONFIGURE_SCRIPT "</button></form>";
 
 const char HTTP_FORM_SCRIPT[] PROGMEM =
-    "<fieldset><legend><b>&nbsp;" D_SCRIPT "&nbsp;</b></legend>"
     "<form method='post' action='" WEB_HANDLE_SCRIPT "'>";
 
 const char HTTP_FORM_SCRIPT1[] PROGMEM =
@@ -10490,6 +10487,7 @@ void HandleScriptConfiguration(void) {
 
     WSContentStart_P(PSTR(D_CONFIGURE_SCRIPT));
     WSContentSendStyle();
+    WSContentSend_P(HTTP_FIELDSET_LEGEND, PSTR(D_SCRIPT));
     WSContentSend_P(HTTP_FORM_SCRIPT);
 
 #ifdef xSCRIPT_STRIP_COMMENTS
