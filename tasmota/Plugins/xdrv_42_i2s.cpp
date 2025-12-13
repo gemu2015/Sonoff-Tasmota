@@ -50,7 +50,6 @@ codec settings access
 #define I2S_BRIDGE_PORT 6970
 #endif
 
-#define I2S_BRIDGE_BUFFER_SIZE 1024
 
 #define I2S_BRIDGE_MODE_OFF 0
 #define I2S_BRIDGE_MODE_READ 1
@@ -81,6 +80,8 @@ int32_t pW8960_Init();
 #ifdef USE_MP3
 #include "Audio/MP3/mp3_decoder.h"
 #endif
+
+#define I2S_BRIDGE_BUFFER_SIZE 1024
 
 PUSH_OPTIONS
 

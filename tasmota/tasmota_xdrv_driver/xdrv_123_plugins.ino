@@ -767,7 +767,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&tmod_vsnprintf_P,
 #endif
   JMPTBL&makeTime,
-  JMPTBL&GetNumGPIO
+  JMPTBL&GetNumGPIO,
+  JMPTBL&tmod_wc
 };
 
 
@@ -1287,7 +1288,7 @@ sel &= 0xff;
       break;
     case 2:
 #ifdef ESP8266
-      i2s_set_rate(p2);
+      i2s_set_rate(i2cp->dlen);
 #endif
 #ifdef ESP32
       {
@@ -1336,8 +1337,8 @@ sel &= 0xff;
         }
         *(uint32_t*)p4 = p3;
 #endif
-        int16_t *swp = (int16_t*)p2;
-        for (uint32_t cnt = 0; cnt < p3; cnt++) {
+        int16_t *swp = (int16_t*)i2cp->dptr;
+        for (uint32_t cnt = 0; cnt < i2cp->dlen; cnt++) {
           i2s_write_sample(*swp++);
         }
       }
@@ -1351,7 +1352,8 @@ sel &= 0xff;
     case 4:
       // read samples
 #ifdef ESP8266
-      return i2s_read_sample((int16_t *)i2cp->dptr, i2cp->dlen, p4); 
+      //return i2s_read_sample((int16_t *)i2cp->dptr, i2cp->dlen, 0);
+      return 0; 
 #endif
 
 #ifdef ESP32
@@ -1365,7 +1367,7 @@ sel &= 0xff;
     case 5:
       // write one sample
 #ifdef ESP8266
-      i2s_write_sample(p2);
+      i2s_write_sample(*i2cp->dptr);
 #endif // ESP8266
 #ifdef ESP32
       {
@@ -1393,6 +1395,28 @@ sel &= 0xff;
 
  #endif
   }
+  return 0;
+}
+
+uint32_t tmod_wc(uint32_t sel, int32_t p1, int32_t p2) {
+#if defined(ESP32) && defined(USE_WEBCAM)
+  switch (sel) {
+    case 0:
+      return WcSetup(p1);
+    case 1:
+      return WcGetFrame(p1);
+    case 2:
+      return WcSetOptions(p1, p2);
+    case 3:
+      return WcGetWidth();
+    case 4:
+      return WcGetHeight();
+    case 5:
+      return WcSetStreamserver(p1);
+    case 6:
+      return WcGetPicstore(p1, (uint8_t **)p2);
+  }
+#endif
   return 0;
 }
 

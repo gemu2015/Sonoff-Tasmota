@@ -2113,16 +2113,6 @@ int32_t mod_func_execute(uint32_t function) {
   }
 #endif
 
-#ifndef pFUNC_INIT
-#define pFUNC_INIT FUNC_INIT
-#define pFUNC_LOOP FUNC_LOOP
-#define pFUNC_JSON_APPEND FUNC_JSON_APPEND
-#define pFUNC_WEB_ADD_MAIN_BUTTON FUNC_WEB_ADD_MAIN_BUTTON
-#define pFUNC_WEB_SENSOR FUNC_WEB_SENSOR
-#define pFUNC_COMMAND FUNC_COMMAND
-#define pFUNC_DEINIT FUNC_DEINIT
-#endif
-
   switch (function) {
     case pFUNC_INIT:
       result = Moritz_Detect();
