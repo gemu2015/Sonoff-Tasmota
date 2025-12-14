@@ -871,6 +871,8 @@ void SendBridgeCmd(uint8_t bmode) {
   }
 }
 
+#define MAX_UDP_BSIZE 1000
+
 uint32_t I2SBridgeCmd(uint8_t val, uint8_t flg) {
   SETREGS
 
@@ -879,23 +881,33 @@ uint32_t I2SBridgeCmd(uint8_t val, uint8_t flg) {
       AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge request picture"));
       webcam_GetFrame(1);
       uint8_t *buff;
-      uint32_t len = webcam_PicStore(0, &buff);
+      int32_t len = webcam_PicStore(0, &buff);
       char cbuff[16];
       sprintf_P(cbuff, PSTR("pic:%d:"),len);
       udp_beginPacket(bridge.i2s_bridgec_udp, bridge.i2s_bridge_ip.dword , I2S_BRIDGE_PORT + 1);
       udp_write(bridge.i2s_bridgec_udp, (const uint8_t*)cbuff, strlen(cbuff));
       udp_endPacket(bridge.i2s_bridgec_udp);
       if (len) {
-        udp_beginPacket(bridge.i2s_bridgec_udp, bridge.i2s_bridge_ip.dword , I2S_BRIDGE_PORT + 1);
-        udp_write(bridge.i2s_bridgec_udp, (const uint8_t*)buff, len);
-        udp_endPacket(bridge.i2s_bridgec_udp);
-        
+        uint16_t plen = MAX_UDP_BSIZE;
+        uint8_t *bptr = buff;
+        while (len > 0) {
+          if (len < plen) {
+            plen = len;
+          }
+          udp_beginPacket(bridge.i2s_bridgec_udp, bridge.i2s_bridge_ip.dword , I2S_BRIDGE_PORT + 1);
+          udp_write(bridge.i2s_bridgec_udp, (const uint8_t*)bptr, plen);
+          udp_endPacket(bridge.i2s_bridgec_udp);
+          len -= plen;
+          bptr += plen;
+        }
+
+        /*
         char fname[16];
         strcpy_P(fname,PSTR("/pict.jpg"));
         wf = fopen(fname, 'w');
         fwrite(buff, 1, len, wf);
         fclose(wf);
-
+        */
       } else {
         AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge request picture failed"));
       }
@@ -1038,36 +1050,37 @@ void i2s_bridge_loop(void) {
       return;
     }
     if (!strncmp_P(cp, PSTR("pic:"), 4)) {
-        // received pic
-        cp += 4;
-        uint32_t len = strtoul(cp, &cp, 10);
-        cp++;
-        AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: received pic size: %d"), len);
-        if (len) {
-          if (udp_parsePacket(bridge.i2s_bridgec_udp)) {
-            uint8_t *pptr = (uint8_t*)special_malloc(len);
-            if (pptr) {
-              for (uint32_t cnt = 0; cnt < 10; cnt++) {
-                if (udp_available(bridge.i2s_bridgec_udp) >= len) {
-                  break;
-                }
-                delay(1);
-              }
-              udp_read(bridge.i2s_bridgec_udp, pptr, len);
-              udp_flush(bridge.i2s_bridgec_udp);
-
-              char fname[16];
-              strcpy_P(fname,PSTR("/pict.jpg"));
-              wf = fopen(fname, 'w');
-              fwrite(pptr, 1, len, wf);
-              fclose(wf);
-              
-              Draw_JPEG(pptr, len, 0, 0, 0); 
-              free(pptr);
+      // received pic
+      cp += 4;
+      uint32_t len = strtoul(cp, &cp, 10);
+      cp++;
+      AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: received pic size: %d"), len);
+      if (len) {
+        uint8_t *pptr = (uint8_t*)special_malloc(len);
+        if (pptr) {
+          uint8_t *dp = pptr;
+          for (uint32_t cnt = 0; cnt < (len/MAX_UDP_BSIZE)+ 1; cnt++) {
+            uint16_t plen = udp_parsePacket(bridge.i2s_bridgec_udp);
+            if (!plen) {
+              break;
             }
+            udp_read(bridge.i2s_bridgec_udp, dp, plen);
+            dp += plen;
+            delay(1);
           }
+          udp_flush(bridge.i2s_bridgec_udp);
+
+          char fname[16];
+          strcpy_P(fname,PSTR("/pict.jpg"));
+          wf = fopen(fname, 'w');
+          fwrite(pptr, 1, len, wf);
+          fclose(wf);
+              
+          Draw_JPEG(pptr, len, 0, 0, 0); 
+          free(pptr);
         }
         return;
+      }
     }
   }
 }
