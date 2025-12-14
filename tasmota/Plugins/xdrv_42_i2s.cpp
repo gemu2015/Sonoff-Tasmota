@@ -251,7 +251,7 @@ MODULE_PART void SetGain(void);
 MODULE_PART void StartMicRec(void);
 MODULE_PART void StopMicRec(void);
 MODULE_PART void I2SBridge(void);
-MODULE_PART void I2SBridgeCmd(uint8_t val, uint8_t flg);
+MODULE_PART uint32_t I2SBridgeCmd(uint8_t val, uint8_t flg);
 MODULE_PART void SendBridgeCmd(uint8_t bmode);
 MODULE_PART void i2s_bridge_init(uint8_t bmode);
 MODULE_PART void make_mono(int16_t *packet_buffer, uint32_t size);
@@ -388,7 +388,7 @@ int32_t I2SAudio_Init() {
   is2_mic_init = 0;
   if (i2sp.din >= 0) {
     i2s_begin_r(&i2sp);
-    adc_gain_fac = 10;
+    adc_gain_fac = 1;
   }
   bridge.ptt_pin = -1;
 #endif
@@ -710,7 +710,6 @@ void make_mono(int16_t *packet_buffer, uint32_t size) {
 SETREGS
 
     int16_t *wp = (int16_t*)packet_buffer;
-    //int16_t gain = audio_i2s.in->getRxGain();
     for (uint32_t cnt = 0; cnt < size / 2; cnt += 2) {
       int16_t val;
       if (bridge.bridge_mode.swap_mic) {
@@ -847,6 +846,12 @@ void I2SBridge(void) {
         return;
       }
 
+      if (XdrvMailbox->payload == 99) {
+        SendBridgeCmd(99);
+        ResponseCmndNumber(XdrvMailbox->payload);
+        return;
+      }
+
       I2SBridgeCmd(XdrvMailbox->payload, 1);
     }
   }
@@ -866,8 +871,39 @@ void SendBridgeCmd(uint8_t bmode) {
   }
 }
 
-void I2SBridgeCmd(uint8_t val, uint8_t flg) {
+uint32_t I2SBridgeCmd(uint8_t val, uint8_t flg) {
   SETREGS
+
+  if (val == 99) {
+    if (webcam_GetWidth() != 0) {
+      AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge request picture"));
+      webcam_GetFrame(1);
+      uint8_t *buff;
+      uint32_t len = webcam_PicStore(0, &buff);
+      char cbuff[16];
+      sprintf_P(cbuff, PSTR("pic:%d:"),len);
+      udp_beginPacket(bridge.i2s_bridgec_udp, bridge.i2s_bridge_ip.dword , I2S_BRIDGE_PORT + 1);
+      udp_write(bridge.i2s_bridgec_udp, (const uint8_t*)cbuff, strlen(cbuff));
+      udp_endPacket(bridge.i2s_bridgec_udp);
+      if (len) {
+        udp_beginPacket(bridge.i2s_bridgec_udp, bridge.i2s_bridge_ip.dword , I2S_BRIDGE_PORT + 1);
+        udp_write(bridge.i2s_bridgec_udp, (const uint8_t*)buff, len);
+        udp_endPacket(bridge.i2s_bridgec_udp);
+        
+        char fname[16];
+        strcpy_P(fname,PSTR("/pict.jpg"));
+        wf = fopen(fname, 'w');
+        fwrite(buff, 1, len, wf);
+        fclose(wf);
+
+      } else {
+        AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge request picture failed"));
+      }
+      udp_endPacket(bridge.i2s_bridgec_udp);
+    }
+    ResponseCmndNumber(val);
+    return val;
+  }
 
   if ((val >= 0) && (val <= 11)) {
     if (val > 3) {
@@ -927,6 +963,7 @@ void I2SBridgeCmd(uint8_t val, uint8_t flg) {
       ResponseCmndNumber(bridge.bridge_mode.bmode);
     }
   }
+  return val;
 }
 
 void I2SBridgeInit(void) {
@@ -991,13 +1028,46 @@ void i2s_bridge_loop(void) {
   if (udp_parsePacket(bridge.i2s_bridgec_udp)) {
       // received control command
     memset(packet_buffer, 0, sizeof(packet_buffer));
-    udp_read(bridge.i2s_bridgec_udp, packet_buffer, 63);
+    udp_read(bridge.i2s_bridgec_udp, packet_buffer, sizeof(packet_buffer) - 1);
     char *cp = (char*)packet_buffer;
     if (!strncmp_P(cp, PSTR("cmd:"), 4)) {
-      cp += 4;
-      I2SBridgeCmd(atoi(cp), 0);
       bridge.i2s_bridge_ip.dword = udp_remoteIP(bridge.i2s_bridgec_udp);
-      AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: remote cmd %d"), bridge.bridge_mode.bmode);
+      cp += 4;
+      uint32_t val = I2SBridgeCmd(atoi(cp), 0);
+      AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: remote cmd %d"), val);
+      return;
+    }
+    if (!strncmp_P(cp, PSTR("pic:"), 4)) {
+        // received pic
+        cp += 4;
+        uint32_t len = strtoul(cp, &cp, 10);
+        cp++;
+        AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: received pic size: %d"), len);
+        if (len) {
+          if (udp_parsePacket(bridge.i2s_bridgec_udp)) {
+            uint8_t *pptr = (uint8_t*)special_malloc(len);
+            if (pptr) {
+              for (uint32_t cnt = 0; cnt < 10; cnt++) {
+                if (udp_available(bridge.i2s_bridgec_udp) >= len) {
+                  break;
+                }
+                delay(1);
+              }
+              udp_read(bridge.i2s_bridgec_udp, pptr, len);
+              udp_flush(bridge.i2s_bridgec_udp);
+
+              char fname[16];
+              strcpy_P(fname,PSTR("/pict.jpg"));
+              wf = fopen(fname, 'w');
+              fwrite(pptr, 1, len, wf);
+              fclose(wf);
+              
+              Draw_JPEG(pptr, len, 0, 0, 0); 
+              free(pptr);
+            }
+          }
+        }
+        return;
     }
   }
 }

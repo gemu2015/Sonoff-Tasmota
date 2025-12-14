@@ -282,6 +282,7 @@ typedef struct {
 #define makeTime(A)                      (( time_t (*)(const tmElements_t))               jt[200])(A)
 #define jGetPins                         (( uint32_t(*)(void))                            jt[201])
 #define jwc(A,B,C)                       (( uint32_t(*)(uint32_t,uint32_t,uint32_t))      jt[202])(A,B,C)
+#define jdrwjpeg(A,B,C,D,E)              (( uint32_t(*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t)) jt[203])(A,B,C,D,E)
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -708,6 +709,8 @@ typedef union {
 } IP_ADDRESS;
 
 
+#define Draw_JPEG(A,B,C,D,E) jdrwjpeg((uint32_t)A,B,C,D,E)
+
 
 #define webcam_init(A) jwc(0,A,0)
 #define webcam_GetFrame(A) jwc(1,A,0)
@@ -715,7 +718,7 @@ typedef union {
 #define webcam_GetWidth() jwc(3,0,0)
 #define webcam_GetHeight() jwc(4,0,0)
 #define webcam_Stream(A) jwc(5,A,0)
-#define webcam_PicStore(A) jwc(6,A,(uint32_t)B)
+#define webcam_PicStore(A,B) jwc(6,A,(uint32_t)B)
 
 #define new_udp()  (void*)judp(0,0,0,0)
 #define udp_begin(udp,port)  judp(udp,2,port,0)

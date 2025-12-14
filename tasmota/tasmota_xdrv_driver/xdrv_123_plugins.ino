@@ -768,7 +768,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
 #endif
   JMPTBL&makeTime,
   JMPTBL&GetNumGPIO,
-  JMPTBL&tmod_wc
+  JMPTBL&tmod_wc,
+  JMPTBL&tmod_jpeg_picture
 };
 
 
@@ -1397,6 +1398,14 @@ sel &= 0xff;
   }
   return 0;
 }
+
+uint32_t tmod_jpeg_picture(uint32_t mem, uint32_t jpgsize, uint32_t xp, uint32_t yp, uint32_t scale) {
+#if  defined(ESP32) && defined(JPEG_PICTS)
+  Draw_jpeg((uint8_t*)mem, jpgsize, xp, yp, scale);
+#endif
+  return 0;
+}
+
 
 uint32_t tmod_wc(uint32_t sel, int32_t p1, int32_t p2) {
 #if defined(ESP32) && defined(USE_WEBCAM)
