@@ -814,6 +814,8 @@ void StopMicRec(void) {
 
 }
 
+#define CAM_PAKET
+
 void I2SBridge(void) {
   SETREGS
 
@@ -888,6 +890,7 @@ uint32_t I2SBridgeCmd(uint8_t val, uint8_t flg) {
       udp_write(bridge.i2s_bridgec_udp, (const uint8_t*)cbuff, strlen(cbuff));
       udp_endPacket(bridge.i2s_bridgec_udp);
       if (len) {
+#ifdef CAM_PAKET        
         uint16_t plen = MAX_UDP_BSIZE;
         uint8_t *bptr = buff;
         while (len > 0) {
@@ -900,6 +903,7 @@ uint32_t I2SBridgeCmd(uint8_t val, uint8_t flg) {
           len -= plen;
           bptr += plen;
         }
+#endif
 
         /*
         char fname[16];
@@ -911,7 +915,6 @@ uint32_t I2SBridgeCmd(uint8_t val, uint8_t flg) {
       } else {
         AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge request picture failed"));
       }
-      udp_endPacket(bridge.i2s_bridgec_udp);
     }
     ResponseCmndNumber(val);
     return val;
@@ -1040,7 +1043,7 @@ void i2s_bridge_loop(void) {
   if (udp_parsePacket(bridge.i2s_bridgec_udp)) {
       // received control command
     memset(packet_buffer, 0, sizeof(packet_buffer));
-    udp_read(bridge.i2s_bridgec_udp, packet_buffer, sizeof(packet_buffer) - 1);
+    udp_read(bridge.i2s_bridgec_udp, packet_buffer, sizeof(packet_buffer));
     char *cp = (char*)packet_buffer;
     if (!strncmp_P(cp, PSTR("cmd:"), 4)) {
       bridge.i2s_bridge_ip.dword = udp_remoteIP(bridge.i2s_bridgec_udp);
@@ -1056,6 +1059,7 @@ void i2s_bridge_loop(void) {
       cp++;
       AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: received pic size: %d"), len);
       if (len) {
+#ifdef CAM_PAKET
         uint8_t *pptr = (uint8_t*)special_malloc(len);
         if (pptr) {
           uint8_t *dp = pptr;
@@ -1079,6 +1083,7 @@ void i2s_bridge_loop(void) {
           Draw_JPEG(pptr, len, 0, 0, 0); 
           free(pptr);
         }
+#endif
         return;
       }
     }
