@@ -1043,7 +1043,7 @@ void i2s_bridge_loop(void) {
   if (udp_parsePacket(bridge.i2s_bridgec_udp)) {
       // received control command
     memset(packet_buffer, 0, sizeof(packet_buffer));
-    udp_read(bridge.i2s_bridgec_udp, packet_buffer, sizeof(packet_buffer));
+    udp_read(bridge.i2s_bridgec_udp, packet_buffer, udp_available(bridge.i2s_bridgec_udp));
     char *cp = (char*)packet_buffer;
     if (!strncmp_P(cp, PSTR("cmd:"), 4)) {
       bridge.i2s_bridge_ip.dword = udp_remoteIP(bridge.i2s_bridgec_udp);
@@ -1060,26 +1060,32 @@ void i2s_bridge_loop(void) {
       AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: received pic size: %d"), len);
       if (len) {
 #ifdef CAM_PAKET
-        uint8_t *pptr = (uint8_t*)special_malloc(len);
+        uint8_t *pptr = (uint8_t*)special_malloc(len + MAX_UDP_BSIZE);
         if (pptr) {
           uint8_t *dp = pptr;
-          for (uint32_t cnt = 0; cnt < (len/MAX_UDP_BSIZE)+ 1; cnt++) {
+          int32_t xlen = len;
+          for (uint32_t cnt = 0; cnt < (len / MAX_UDP_BSIZE) + 1; cnt++) {
             uint16_t plen = udp_parsePacket(bridge.i2s_bridgec_udp);
-            if (!plen) {
-              break;
+            if (plen) {
+              udp_read(bridge.i2s_bridgec_udp, dp, plen);
+              dp += plen;
+              xlen -= plen;
+              if (xlen <= 0) {
+                break;
+              }
             }
-            udp_read(bridge.i2s_bridgec_udp, dp, plen);
-            dp += plen;
             delay(1);
           }
           udp_flush(bridge.i2s_bridgec_udp);
 
+          /*
           char fname[16];
           strcpy_P(fname,PSTR("/pict.jpg"));
           wf = fopen(fname, 'w');
           fwrite(pptr, 1, len, wf);
           fclose(wf);
-              
+          */
+           
           Draw_JPEG(pptr, len, 0, 0, 0); 
           free(pptr);
         }

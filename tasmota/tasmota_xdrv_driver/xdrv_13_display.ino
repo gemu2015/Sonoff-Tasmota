@@ -2513,7 +2513,7 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
           }
           //Serial.printf(" x,y,fs %d - %d - %d\n",xsize, ysize, size );
           if (xsize && ysize) {
-#if 1
+#if 0
             uint16_t *out_buf = (uint16_t *)special_malloc((xsize * ysize * 2) + 4);
             if (out_buf) {
               uint32_t outsize = xsize * ysize * 2;
@@ -2535,6 +2535,7 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
                 ob += xsize;
                 OsWatchLoop();
               }
+              renderer->setAddrWindow(0, 0, 0, 0);
               free(out_buf);
             }
 #else
@@ -2587,7 +2588,7 @@ void Draw_jpeg(uint8_t *mem, uint16_t jpgsize, uint16_t xp, uint16_t yp, uint8_t
     uint16_t xsize;
     uint16_t ysize;
     get_jpeg_size(mem, jpgsize, &xsize, &ysize);
-    AddLog(LOG_LEVEL_INFO, PSTR("Pict size %d - %d - %d"), xsize, ysize, jpgsize);
+    //AddLog(LOG_LEVEL_INFO, PSTR("Pict size %d - %d - %d"), xsize, ysize, jpgsize);
     scale &= 3;
     uint8_t fac = 1 << scale;
     xsize /= fac;
@@ -2602,7 +2603,7 @@ void Draw_jpeg(uint8_t *mem, uint16_t jpgsize, uint16_t xp, uint16_t yp, uint8_t
                 .outbuf = (uint8_t*)rgbmem,
                 .outbuf_size = xsize * ysize * 2,
                 .out_format = JPEG_IMAGE_FORMAT_RGB565,
-                .out_scale = (esp_jpeg_image_scale_t)fac,
+                .out_scale = (esp_jpeg_image_scale_t)scale,
                 .flags = {  .swap_color_bytes = 0,}
               };
       esp_jpeg_image_output_t outimg;
@@ -2623,14 +2624,14 @@ void Draw_jpeg(uint8_t *mem, uint16_t jpgsize, uint16_t xp, uint16_t yp, uint8_t
       jpg2rgb565(mem, jpgsize, rgbmem, (jpg_scale_t)scale);
       uint16_t *ob = (uint16_t*)rgbmem;
       for (int32_t j = 0; j < ysize; j++) {
-        renderer->setAddrWindow(xp, yp, xp + xsize, yp + 1);
+        renderer->setAddrWindow(xp, yp + j, xp + xsize, yp + j + 1);
         renderer->pushColors((uint16_t*)ob, xsize, true);
         ob += xsize;
       }
       free(rgbmem);
     }
-    renderer->setAddrWindow(0, 0, 0, 0);
 #endif
+    renderer->setAddrWindow(0, 0, 0, 0);
   }
 }
 
