@@ -2862,6 +2862,9 @@ int32_t fetch_jpg(uint32_t sel, char *url, uint32_t xp, uint32_t yp, uint32_t sc
       // resume drawing
       glob_script_mem.jpg_task.draw = true;
       break;
+    case 5:
+      return glob_script_mem.jpg_task.http.connected();
+
   }
   return 0;
 }
@@ -5199,7 +5202,7 @@ _Pragma("GCC warning \"'EXT 1 wakeup' not supported using gpio mode\"")
                 fvar = fetch_jpg(0, url, xp, yp, scale);
               }
               break;
-            case 1:
+            case 6:
               {
                 char file[SCRIPT_MAX_SBSIZE];
                 lp = GetStringArgument(lp, OPER_EQU, file, 0);

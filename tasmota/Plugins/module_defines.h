@@ -283,6 +283,7 @@ typedef struct {
 #define jGetPins                         (( uint32_t(*)(void))                            jt[201])
 #define jwc(A,B,C)                       (( uint32_t(*)(uint32_t,uint32_t,uint32_t))      jt[202])(A,B,C)
 #define jdrwjpeg(A,B,C,D,E)              (( uint32_t(*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t)) jt[203])(A,B,C,D,E)
+#define jshine(A,B,C,D)                  (( uint32_t(*)(uint32_t,uint32_t,uint32_t,uint32_t)) jt[204])(A,B,C,D)
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -710,6 +711,14 @@ typedef union {
 
 
 #define Draw_JPEG(A,B,C,D,E) jdrwjpeg((uint32_t)A,B,C,D,E)
+
+#define shine_initialise(A) jshine(0,(uint32_t)A,0,0)
+#define shine_set_config_mpeg_defaults(A) jshine(1,(uint32_t)A,0,0)
+#define shine_check_config(A,B) jshine(2,A,B,0)
+#define shine_samples_per_pass(A) jshine(3,(uint32_t)A,0,0)
+#define shine_encode_buffer_interleaved(A,B,C) jshine(4,(uint32_t)A,(uint32_t)B,(uint32_t)C)
+#define shine_flush(A,B) jshine(5,(uint32_t)A,(uint32_t)B,0)
+#define shine_close(A) jshine(6,(uint32_t)A,0,0)
 
 
 #define webcam_init(A) jwc(0,A,0)

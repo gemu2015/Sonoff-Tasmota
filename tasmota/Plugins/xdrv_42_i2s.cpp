@@ -122,7 +122,7 @@ typedef struct {
   uint8_t force_mono;
   uint8_t chans;
   uint8_t codec;
-  uint16_t srate;
+  uint32_t srate;
   uint8_t tx_ready;
   int8_t audio_pwr_pin;
   uint8_t codec_bus;
@@ -264,7 +264,7 @@ MODULE_PART void WebRadio(void);
 MODULE_PART void Say(void);
 MODULE_PART void AudioPwr(uint32_t pwr);
 MODULE_PART void I2S_Enable(uint32_t enable);
-MODULE_PART void I2S_SetRate(uint32_t freq, uint32_t channels);
+MODULE_PART void I2S_SetRate(uint32_t freq, uint32_t channels, uint32_t rxtx);
 MODULE_PART int32_t W8960_Init(void);
 MODULE_PART void W8960_Write(uint8_t reg_addr, uint16_t data);
 MODULE_PART void W8960_SetGain(uint8_t sel, uint16_t value);
@@ -497,14 +497,18 @@ void I2S_Enable(uint32_t enable) {
   } 
 }
 
-void I2S_SetRate(uint32_t freq, uint32_t channels) {
+void I2S_SetRate(uint32_t freq, uint32_t channels, uint32_t rxtx) {
   SETREGS
   i2sp.dlen = freq;
   i2sp.channels = channels;
-  i2s_set_rate_t(&i2sp);
+  if (rxtx & 1) {
+    i2s_set_rate_t(&i2sp);
+  }
 #ifdef USE_MIC
   if (i2sp.din >= 0) {
-    i2s_set_rate_r(&i2sp);
+    if (rxtx & 2) {
+      i2s_set_rate_r(&i2sp);
+    }
   }
 #endif
 }
@@ -590,7 +594,7 @@ SETREGS
     }
   
     // default is 1 channel
-    I2S_SetRate(wh.Fmt.SampleRate, 1);
+    I2S_SetRate(wh.Fmt.SampleRate, 1, 1);
 
     busy = true;
 
@@ -734,7 +738,7 @@ SETREGS
   int16_t *packet_buffer = (int16_t*)calloc((bytesize>>1)+4, 2);
   
   // set to 16 khz Stereo
-  I2S_SetRate(uicp[7], 2);
+  I2S_SetRate(uicp[7], 2, 3);
 
   uint32_t bytes_read;  
   i2sp.dptr = packet_buffer;
@@ -1196,7 +1200,7 @@ bool mp3_begin() {
   srate = MP3GetSampRate();
   chans = MP3GetChannels();
 
-  I2S_SetRate(srate, chans);
+  I2S_SetRate(srate, chans, 1);
 
   filepos = 0;
 
@@ -1318,7 +1322,7 @@ void Say(void) {
   chans = 1;
   force_mono = 1;
   srate = icp[2];
-  I2S_SetRate(srate, chans);
+  I2S_SetRate(srate, chans, 1);
 
   char *cp = XdrvMailbox->data;
   while (*cp == ' ') cp++;
@@ -1551,7 +1555,7 @@ void I2sTaskWR(char *url) {
     if (sr && sr != srate) {
       srate = sr;
       chans = MP3GetChannels();
-      I2S_SetRate(srate, chans);
+      I2S_SetRate(srate, chans, 1);
     }
 
     uint32_t bytesDecoded = buffer_bytes - m_bytesLeft;

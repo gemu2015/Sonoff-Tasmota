@@ -769,7 +769,8 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&makeTime,
   JMPTBL&GetNumGPIO,
   JMPTBL&tmod_wc,
-  JMPTBL&tmod_jpeg_picture
+  JMPTBL&tmod_jpeg_picture,
+  JMPTBL&tmod_shine
 };
 
 
@@ -1213,8 +1214,12 @@ sel &= 0xff;
 #endif
 #ifdef ESP32
       {
+#ifdef USE_WEBCAM        
       i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
-      // Allocate a new TX channel and get the handle of this channel
+#else
+      i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
+#endif
+// Allocate a new TX channel and get the handle of this channel
       chan_cfg.auto_clear = true;
       if (i2cp->din >= 0) {
         i2s_new_channel(&chan_cfg, (i2s_chan_handle_t*)&i2cp->txhandle, (i2s_chan_handle_t*)&i2cp->rxhandle);
@@ -1295,6 +1300,9 @@ sel &= 0xff;
       {
       i2s_channel_disable(chn_handle);
 
+#ifdef I2S_DEBUG
+      AddLog(LOG_LEVEL_INFO,PSTR("I2S freq %d"), i2cp->dlen);
+#endif
       i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(i2cp->dlen);
       i2s_channel_reconfig_std_clock(chn_handle, &clk_cfg);
 
@@ -1405,6 +1413,39 @@ uint32_t tmod_jpeg_picture(uint32_t mem, uint32_t jpgsize, uint32_t xp, uint32_t
 #endif
   return 0;
 }
+
+#ifdef USE_SHINE
+#include <layer3.h>
+#endif
+
+// shine mpeg3 encoder about 31kB code
+uint32_t tmod_shine(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3) {
+#ifdef USE_SHINE
+  switch (sel) {
+    case 0:
+      return (uint32_t)shine_initialise((shine_config_t*)p1);
+    case 1:
+      shine_set_config_mpeg_defaults((shine_mpeg_t*)p1);
+      return 0;
+    case 2:
+      //shine_check_config(config.wave.samplerate, config.mpeg.bitr) 
+      return (uint32_t)shine_check_config(p1, p2);
+    case 3:
+      return (uint32_t)shine_samples_per_pass((shine_t)p1);
+    case 4:
+      //return shine_encode_buffer_interleaved(s, buffer, &written);
+      return (uint32_t)shine_encode_buffer_interleaved((shine_t)p1, (int16_t*)p2, (int*)p3);
+    case 5:
+      //shine_flush(s, &written);
+      return (uint32_t)shine_flush((shine_t)p1, (int*)p3);
+    case 6:
+      shine_close((shine_t)p1);
+      return 0;
+  }
+#endif
+  return 0;
+}
+
 
 
 uint32_t tmod_wc(uint32_t sel, int32_t p1, int32_t p2) {
