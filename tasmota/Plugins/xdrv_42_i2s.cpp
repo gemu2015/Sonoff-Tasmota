@@ -825,10 +825,11 @@ SETREGS
       ucp = (uint8_t*)Shine_encode_buffer_interleaved(shine_ptr, shine_buffer, &written);
       fwrite(ucp, 1, written, wf);
   }
-  ucp = (uint8_t*)Shine_flush(shine_ptr, &written);
-  fwrite(ucp, 1, written, wf);
+  // this call crashes !!!
+  //ucp = (uint8_t*)Shine_flush(shine_ptr, &written);
+  //fwrite(ucp, 1, written, wf);
   fclose(wf);
-  //Shine_close(shine_ptr);
+  Shine_close(shine_ptr);
 
   AddLog(LOG_LEVEL_INFO, PSTR("I2S recording: stopped"));
   recording = 0;
@@ -875,12 +876,12 @@ SETREGS
       goto exit;
     }
 
-    AddLog(LOG_LEVEL_INFO, PSTR(">>>> %x"), (uint32_t)shine_ptr);
+    //AddLog(LOG_LEVEL_INFO, PSTR(">>>> %x"), (uint32_t)shine_ptr);
   
     uint16_t samples_per_pass;
     samples_per_pass = Shine_samples_per_pass(shine_ptr);
 
-    AddLog(LOG_LEVEL_INFO, PSTR(">>>> %d"), samples_per_pass);
+    //AddLog(LOG_LEVEL_INFO, PSTR(">>>> %d"), samples_per_pass);
 
     shine_bsize = samples_per_pass * 2 * channel;
     shine_buffer = (int16_t*)malloc(shine_bsize);
@@ -890,7 +891,7 @@ SETREGS
     }
 
     // set to 16 khz Stereo
-    I2S_SetRate(uicp[6], 2, 2);
+    I2S_SetRate(uicp[6], channel, 2);
 
     recording = 2;
     TASKPARS tp;
@@ -905,9 +906,9 @@ SETREGS
     i2s_busy = true;
   } else {
     recording = 1;
-   // while (recording) {
-   //   delay(1);
-   // }
+    while (recording) {
+      delay(1);
+    }
   }
 
   return 0;
