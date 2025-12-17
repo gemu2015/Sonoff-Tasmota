@@ -41,11 +41,11 @@ codec settings access
 #define USE_SAY
 
 #ifdef ESP32
+#define USE_MIC
 #define USE_MP3_PSRAM
 #define USE_MP3
 #define USE_WEBRADIO
-#define USE_MIC
-
+#include <layer3.h>
 #ifndef I2S_BRIDGE_PORT
 #define I2S_BRIDGE_PORT 6970
 #endif
@@ -114,9 +114,13 @@ typedef struct {
   I2S_BRIDGE bridge;
   uint8_t adc_gain_fac;
   uint8_t is2_mic_init;
+  uint8_t recording;
+  shine_t shine_ptr;
+  int16_t *shine_buffer;
+  uint16_t shine_bsize;
 #endif
-  uint8_t busy;
-  uint8_t mode;
+  uint8_t i2s_busy;
+  uint8_t i2s_mode;
   File_p *wf;
   bool running;
   uint8_t force_mono;
@@ -155,6 +159,11 @@ typedef struct {
 
 } MODULE_MEMORY;
 
+#define shine_bsize mem->shine_bsize
+#define shine_ptr mem->shine_ptr
+#define shine_buffer mem->shine_buffer
+
+#define recording mem->recording
 #define is2_mic_init mem->is2_mic_init
 #define i2sp mem->i2sp
 #define audio_pwr_pin mem->audio_pwr_pin
@@ -167,8 +176,8 @@ typedef struct {
 #define gain_div mem->gain_div
 #define adc_gain_fac mem->adc_gain_fac
 #define bridge mem->bridge
-#define busy mem->busy
-#define mode mem->mode
+#define i2s_busy mem->i2s_busy
+#define i2s_mode mem->i2s_mode
 #define mp3m mem->mp3m
 #define wf mem->wf
 #define m_outBuff mem->m_outBuff
@@ -248,7 +257,10 @@ MODULE_PART bool mp3_loop();
 MODULE_PART bool mp3_stop();
 MODULE_PART void SetVolume(void);
 MODULE_PART void SetGain(void);
+MODULE_PART int32_t i2s_start_mic(char *file);
+MODULE_PART void i2s_mic_task(void *arg);
 MODULE_PART void StartMicRec(void);
+MODULE_PART uint32_t ChkBusy();
 MODULE_PART void StopMicRec(void);
 MODULE_PART void I2SBridge(void);
 MODULE_PART uint32_t I2SBridgeCmd(uint8_t val, uint8_t flg);
@@ -464,7 +476,7 @@ int32_t I2SAudio_Init() {
   }
 #endif
 
-  busy = false;
+  i2s_busy = false;
   initialized = true;
   return 0;
 }
@@ -540,7 +552,7 @@ void I2sTask(void) {
   I2S_Enable(0);
   
   AudioPwr(0);
-  busy = false;
+  i2s_busy = false;
   
   vTaskDelete(0);
 }
@@ -549,7 +561,7 @@ void I2sTask(void) {
 void I2S_Play(char *cp) {
 SETREGS 
 
-  if (busy) {
+  if (i2s_busy) {
     if (!*cp) {
       // stop running sound
       running = 0;
@@ -596,7 +608,7 @@ SETREGS
     // default is 1 channel
     I2S_SetRate(wh.Fmt.SampleRate, 1, 1);
 
-    busy = true;
+    i2s_busy = true;
 
     running = true;
 
@@ -631,7 +643,7 @@ SETREGS
     I2S_Enable(0);
 
     AudioPwr(0);
-    busy = false;
+    i2s_busy = false;
 #endif
   } else {
 #ifdef USE_MP3
@@ -738,7 +750,7 @@ SETREGS
   int16_t *packet_buffer = (int16_t*)calloc((bytesize>>1)+4, 2);
   
   // set to 16 khz Stereo
-  I2S_SetRate(uicp[7], 2, 3);
+  I2S_SetRate(uicp[6], 2, 3);
 
   uint32_t bytes_read;  
   i2sp.dptr = packet_buffer;
@@ -790,6 +802,125 @@ SETREGS
   vTaskDelete(0);
 }
 
+void i2s_mic_task(void *arg) {
+SETREGS
+
+  uint8_t *ucp;
+  int written;
+
+  uint32_t bytes_read;  
+  i2sp.dptr = shine_buffer;
+  i2sp.dlen = shine_bsize;
+
+  AddLog(LOG_LEVEL_INFO, PSTR("task started"));
+
+  while (recording & 2) {
+      bytes_read = i2s_read_samples_r(&i2sp);
+      if (adc_gain_fac > 1) {
+        // set gain
+        for (uint32_t cnt = 0; cnt < bytes_read / 2; cnt++) {
+          shine_buffer[cnt] *= adc_gain_fac;
+        }
+      }
+      ucp = (uint8_t*)Shine_encode_buffer_interleaved(shine_ptr, shine_buffer, &written);
+      fwrite(ucp, 1, written, wf);
+  }
+  ucp = (uint8_t*)Shine_flush(shine_ptr, &written);
+  fwrite(ucp, 1, written, wf);
+  fclose(wf);
+  //Shine_close(shine_ptr);
+
+  AddLog(LOG_LEVEL_INFO, PSTR("I2S recording: stopped"));
+  recording = 0;
+  i2s_busy = false;
+  vTaskDelete(0);
+}
+
+#define MIC_RATE 16000
+#define MIC_CHANNELS 2
+
+int32_t i2s_start_mic(char *file) {
+SETREGS
+  
+  int32_t error = 0;
+  shine_config_t  config;
+  const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
+
+  uint8_t channel = MIC_CHANNELS;
+
+  if (file) {
+    Shine_set_config_mpeg_defaults(&config.mpeg);
+    if (channel == 1) {
+      config.mpeg.mode = MONO;
+    } else {
+      config.mpeg.mode = STEREO;
+    }
+    config.mpeg.bitr = 128;
+    config.wave.samplerate = uicp[6];
+    config.wave.channels = (channels)channel;
+    if (Shine_check_config(config.wave.samplerate, config.mpeg.bitr) < 0) {
+      error = -1;
+      goto exit;
+    }
+
+    shine_ptr = (shine_t)Shine_initialise(&config);
+    if (!shine_ptr) {
+      error = -2;
+      goto exit;
+    }
+
+    wf = fopen(file, 'w');
+    if (!wf) {
+      error = -3;
+      goto exit;
+    }
+
+    AddLog(LOG_LEVEL_INFO, PSTR(">>>> %x"), (uint32_t)shine_ptr);
+  
+    uint16_t samples_per_pass;
+    samples_per_pass = Shine_samples_per_pass(shine_ptr);
+
+    AddLog(LOG_LEVEL_INFO, PSTR(">>>> %d"), samples_per_pass);
+
+    shine_bsize = samples_per_pass * 2 * channel;
+    shine_buffer = (int16_t*)malloc(shine_bsize);
+    if (!shine_buffer) {
+      error = -4;
+      goto exit;
+    }
+
+    // set to 16 khz Stereo
+    I2S_SetRate(uicp[6], 2, 2);
+
+    recording = 2;
+    TASKPARS tp;
+    tp.pvTaskCode = GVOID(i2s_mic_task);
+    tp.constpcName = GSTR(tname);
+    tp.usStackDepth = uicp[1];
+    tp.constpvParameters = (char*)GSTR(tname);
+    tp.uxPriority = 3;
+    tp.constpvCreatedTask = nullptr;
+    tp.xCoreID = 1;
+    xTaskCreatePinnedToCore(&tp);
+    i2s_busy = true;
+  } else {
+    recording = 1;
+   // while (recording) {
+   //   delay(1);
+   // }
+  }
+
+  return 0;
+
+exit:
+  if (shine_ptr) Shine_close(shine_ptr);
+  if (wf) {
+    fclose(wf);
+  }
+  return error;
+}
+
+
 void SetGain(void) {
   SETREGS
   uint16_t gain;
@@ -811,11 +942,35 @@ void SetGain(void) {
   ResponseCmndNumber(gain);
 }
 
-void StartMicRec(void) {
-
-}
 void StopMicRec(void) {
 
+}
+
+uint32_t ChkBusy() {
+  SETREGS
+  if (i2s_busy) {
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S Audio busy"));
+    return true;
+  }
+  return false;
+}
+
+void StartMicRec(void) {
+  SETREGS
+  if (XdrvMailbox->data_len > 0) {
+    if (ChkBusy()) {
+      return;
+    }
+    char *cp = XdrvMailbox->data;
+    while (*cp == ' ') {
+      cp++;
+    }
+    i2s_start_mic(cp);
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S_rec started to file: %s"), cp);
+  } else {
+    i2s_start_mic(0);
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S_rec stopped"));
+  }
 }
 
 #define CAM_PAKET
@@ -1208,7 +1363,7 @@ bool mp3_begin() {
 
   I2S_Enable(1);
   
-  busy = true;
+  i2s_busy = true;
   running = true;
   return false;
 }
@@ -1282,7 +1437,7 @@ void I2sTaskMP3(void) {
   I2S_Wait_Ready();
   I2S_Enable(0);
   fclose(wf);
-  busy = false;
+  i2s_busy = false;
   AudioPwr(0);
 
   vTaskDelete(0);
@@ -1317,6 +1472,10 @@ void Say(void) {
   SETREGS
 #ifdef USE_SAY
 
+  if (ChkBusy()) {
+    return;
+  }
+
   const int32_t *icp = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
 
   chans = 1;
@@ -1326,7 +1485,7 @@ void Say(void) {
 
   char *cp = XdrvMailbox->data;
   while (*cp == ' ') cp++;
-  if (busy == true) {
+  if (i2s_busy == true) {
     if (!*cp) {
       // stop running sound
       running = 0;
@@ -1429,7 +1588,7 @@ void Say(void) {
   I2S_Enable(0);
 
   running = false;
-  busy = false;
+  i2s_busy = false;
   AudioPwr(0);
   ResponseCmndDone();
 
@@ -1457,7 +1616,6 @@ void I2sTaskWR(char *url) {
   SETREGS
 
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task started"));
-
 
   // WiFi.setDNS(dns1, dns2);
 
@@ -1592,7 +1750,7 @@ void I2sTaskWR(char *url) {
   I2S_Enable(0);
 
   running = false;
-  busy = false;
+  i2s_busy = false;
   AudioPwr(0);
   
   AddLog(LOG_LEVEL_INFO, PSTR("WR Task stopped"));
@@ -1611,7 +1769,7 @@ void WebRadio(void) {
   char *url = XdrvMailbox->data;
   while (*url == ' ') url++;
 
-  if (busy == true) {
+  if (i2s_busy == true) {
     if (!*url) {
       // stop running sound
       running = 0;
@@ -1677,7 +1835,7 @@ void WebRadio(void) {
 
     //int32_t size = http_getSize(http);
 
-    busy = true;
+    i2s_busy = true;
 
 #define URL_SIZE 256
     // play webradio stream
@@ -1715,6 +1873,10 @@ void I2sWrShow(bool json) {
 void I2S_Play_Cmd(void) {
   SETREGS
 
+  if (ChkBusy()) {
+    return;
+  }
+  
   char *cp = XdrvMailbox->data;
   while (*cp == ' ') cp++;
 
