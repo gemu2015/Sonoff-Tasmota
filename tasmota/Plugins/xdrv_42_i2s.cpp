@@ -118,6 +118,7 @@ typedef struct {
   shine_t shine_ptr;
   int16_t *shine_buffer;
   uint16_t shine_bsize;
+  
 #endif
   uint8_t i2s_busy;
   uint8_t i2s_mode;
@@ -812,18 +813,20 @@ SETREGS
   i2sp.dptr = shine_buffer;
   i2sp.dlen = shine_bsize;
 
-  AddLog(LOG_LEVEL_INFO, PSTR("task started"));
+  //AddLog(LOG_LEVEL_INFO, PSTR("task started"));
 
   while (recording & 2) {
       bytes_read = i2s_read_samples_r(&i2sp);
-      if (adc_gain_fac > 1) {
-        // set gain
-        for (uint32_t cnt = 0; cnt < bytes_read / 2; cnt++) {
-          shine_buffer[cnt] *= adc_gain_fac;
+      if (bytes_read) {
+        if (adc_gain_fac > 1) {
+          // set gain
+          for (uint32_t cnt = 0; cnt < bytes_read / 2; cnt++) {
+            shine_buffer[cnt] *= adc_gain_fac;
+          }
         }
+        ucp = (uint8_t*)Shine_encode_buffer_interleaved(shine_ptr, shine_buffer, &written);
+        fwrite(ucp, 1, written, wf);
       }
-      ucp = (uint8_t*)Shine_encode_buffer_interleaved(shine_ptr, shine_buffer, &written);
-      fwrite(ucp, 1, written, wf);
   }
   // this call crashes !!!
   //ucp = (uint8_t*)Shine_flush(shine_ptr, &written);
@@ -831,7 +834,7 @@ SETREGS
   fclose(wf);
   Shine_close(shine_ptr);
 
-  AddLog(LOG_LEVEL_INFO, PSTR("I2S recording: stopped"));
+  //AddLog(LOG_LEVEL_INFO, PSTR("I2S recording: stopped"));
   recording = 0;
   i2s_busy = false;
   vTaskDelete(0);
@@ -875,14 +878,8 @@ SETREGS
       error = -3;
       goto exit;
     }
-
-    //AddLog(LOG_LEVEL_INFO, PSTR(">>>> %x"), (uint32_t)shine_ptr);
-  
     uint16_t samples_per_pass;
     samples_per_pass = Shine_samples_per_pass(shine_ptr);
-
-    //AddLog(LOG_LEVEL_INFO, PSTR(">>>> %d"), samples_per_pass);
-
     shine_bsize = samples_per_pass * 2 * channel;
     shine_buffer = (int16_t*)malloc(shine_bsize);
     if (!shine_buffer) {
@@ -891,7 +888,7 @@ SETREGS
     }
 
     // set to 16 khz Stereo
-    I2S_SetRate(uicp[6], channel, 2);
+    I2S_SetRate(uicp[6], channel, 3);
 
     recording = 2;
     TASKPARS tp;
@@ -972,6 +969,7 @@ void StartMicRec(void) {
     i2s_start_mic(0);
     AddLog(LOG_LEVEL_INFO, PSTR("I2S_rec stopped"));
   }
+  ResponseCmndDone();
 }
 
 #define CAM_PAKET
@@ -991,7 +989,6 @@ void I2SBridge(void) {
       cp++;
       bridge.i2s_bridge_ip.bytes[3] = strtol(cp, &cp, 10);
       cp++;
-      //bridge.i2s_bridge_ip.fromString(cp);
       char buffer[32];
       sprintf_P(buffer, PSTR("%u.%u.%u.%u"), bridge.i2s_bridge_ip.bytes[0], bridge.i2s_bridge_ip.bytes[1], bridge.i2s_bridge_ip.bytes[2], bridge.i2s_bridge_ip.bytes[3]);
       Response_P(PSTR("{\"I2S_bridge\":{\"IP\":\"%s\"}}"), buffer);
@@ -1616,7 +1613,7 @@ const uint32_t hdr[] PROGMEM = { (uint32_t)hdr_1, (uint32_t)hdr_2, (uint32_t)hdr
 void I2sTaskWR(char *url) {
   SETREGS
 
-  AddLog(LOG_LEVEL_INFO, PSTR("WR Task started"));
+  //AddLog(LOG_LEVEL_INFO, PSTR("WR Task started"));
 
   // WiFi.setDNS(dns1, dns2);
 
@@ -1754,7 +1751,7 @@ void I2sTaskWR(char *url) {
   i2s_busy = false;
   AudioPwr(0);
   
-  AddLog(LOG_LEVEL_INFO, PSTR("WR Task stopped"));
+  //AddLog(LOG_LEVEL_INFO, PSTR("WR Task stopped"));
   vTaskDelete(0);
 }
 #endif
