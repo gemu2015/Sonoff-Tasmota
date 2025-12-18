@@ -118,7 +118,7 @@ typedef struct {
   shine_t shine_ptr;
   int16_t *shine_buffer;
   uint16_t shine_bsize;
-  
+
 #endif
   uint8_t i2s_busy;
   uint8_t i2s_mode;
@@ -828,9 +828,8 @@ SETREGS
         fwrite(ucp, 1, written, wf);
       }
   }
-  // this call crashes !!!
-  //ucp = (uint8_t*)Shine_flush(shine_ptr, &written);
-  //fwrite(ucp, 1, written, wf);
+  ucp = (uint8_t*)Shine_flush(shine_ptr, &written);
+  fwrite(ucp, 1, written, wf);
   fclose(wf);
   Shine_close(shine_ptr);
 

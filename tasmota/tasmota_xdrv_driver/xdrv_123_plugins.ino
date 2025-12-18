@@ -1437,7 +1437,7 @@ uint32_t tmod_shine(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3) {
       return (uint32_t)shine_encode_buffer_interleaved((shine_t)p1, (int16_t*)p2, (int*)p3);
     case 5:
       //shine_flush(s, &written);
-      return (uint32_t)shine_flush((shine_t)p1, (int*)p3);
+      return (uint32_t)shine_flush((shine_t)p1, (int*)p2);
     case 6:
       shine_close((shine_t)p1);
       return 0;
