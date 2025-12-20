@@ -114,11 +114,14 @@ typedef struct {
   I2S_BRIDGE bridge;
   uint8_t adc_gain_fac;
   uint8_t is2_mic_init;
+  uint8_t is2_server_init;
   uint8_t recording;
   shine_t shine_ptr;
   int16_t *shine_buffer;
   uint16_t shine_bsize;
-
+  void *mp3_server;
+  void *mp3_client;
+  uint8_t mp3_stream;
 #endif
   uint8_t i2s_busy;
   uint8_t i2s_mode;
@@ -160,6 +163,11 @@ typedef struct {
 
 } MODULE_MEMORY;
 
+
+#define mp3_stream mem->mp3_stream
+#define mp3_client mem->mp3_client
+#define is2_server_init mem->is2_server_init
+#define mp3_server mem->mp3_server
 #define shine_bsize mem->shine_bsize
 #define shine_ptr mem->shine_ptr
 #define shine_buffer mem->shine_buffer
@@ -258,7 +266,6 @@ MODULE_PART bool mp3_loop();
 MODULE_PART bool mp3_stop();
 MODULE_PART void SetVolume(void);
 MODULE_PART void SetGain(void);
-MODULE_PART int32_t i2s_start_mic(char *file);
 MODULE_PART void i2s_mic_task(void *arg);
 MODULE_PART void StartMicRec(void);
 MODULE_PART uint32_t ChkBusy();
@@ -272,6 +279,12 @@ MODULE_PART void i2s_bridge_task(void *arg);
 MODULE_PART void I2SBridgeInit(void);
 MODULE_PART void I2SBridgeDeinit(void);
 MODULE_PART void i2s_bridge_loop(void);
+
+MODULE_PART void I2SStreamInit(void);
+MODULE_PART void I2SStreamDeinit(void);
+MODULE_PART void Stream_mp3(void);
+MODULE_PART int32_t i2s_record_shine(char *path, uint32_t stream);
+
 
 MODULE_PART void WebRadio(void);
 MODULE_PART void Say(void);
@@ -709,14 +722,14 @@ SETREGS
     xTaskCreatePinnedToCore(&tp);
 
     if (bmode == 3) {
-      AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: loop mode started"));
+      AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge loop mode started"));
     } else {
       if (!bridge.bridge_mode.master) {
-        AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: slave started"));
+        AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge slave started"));
       } else {
         char buffer[32];
         sprintf_P(buffer, PSTR("%u.%u.%u.%u"), bridge.i2s_bridge_ip.bytes[0], bridge.i2s_bridge_ip.bytes[1], bridge.i2s_bridge_ip.bytes[2], bridge.i2s_bridge_ip.bytes[3]);
-        AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: master started sending to ip: %s"), buffer);
+        AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge master started sending to ip: %s"), buffer);
       }
     }
   }
@@ -796,7 +809,7 @@ SETREGS
     }
     //delay(1);
   }
-  AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: stopped"));
+  AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge stopped"));
   free(packet_buffer);
   AudioPwr(0);
   I2S_Enable(0);
@@ -813,7 +826,9 @@ SETREGS
   i2sp.dptr = shine_buffer;
   i2sp.dlen = shine_bsize;
 
-  //AddLog(LOG_LEVEL_INFO, PSTR("task started"));
+  AddLog(LOG_LEVEL_INFO, PSTR("task started"));
+
+  uint32_t counter = 0;
 
   while (recording & 2) {
       bytes_read = i2s_read_samples_r(&i2sp);
@@ -825,15 +840,39 @@ SETREGS
           }
         }
         ucp = (uint8_t*)Shine_encode_buffer_interleaved(shine_ptr, shine_buffer, &written);
-        fwrite(ucp, 1, written, wf);
+        if (!mp3_stream) {
+          fwrite(ucp, 1, written, wf);
+        } else {
+#if 0
+          if (WebServerClientConnected(mp3_server)) {
+            WebServerClientWrite(mp3_server, (const char*)ucp, written);
+            AddLog(LOG_LEVEL_INFO, PSTR("I2S >>>> %d"), written);
+#else
+          if (client_connected(mp3_client)) {
+            client_write(mp3_client, (const char*)ucp, written);
+#endif
+          } else {
+            break;
+          }
+        }
       }
   }
   ucp = (uint8_t*)Shine_flush(shine_ptr, &written);
-  fwrite(ucp, 1, written, wf);
-  fclose(wf);
+  if (!mp3_stream) {
+    fwrite(ucp, 1, written, wf);
+    fclose(wf);
+  } else {
+#if 0
+    WebServerClientWrite(mp3_server, (const char*)ucp, written);
+    WebServerClientStop(mp3_server);
+#else
+    client_write(mp3_client, (const char*)ucp, written);
+    client_stop(mp3_client);
+#endif
+  }
   Shine_close(shine_ptr);
 
-  //AddLog(LOG_LEVEL_INFO, PSTR("I2S recording: stopped"));
+  AddLog(LOG_LEVEL_INFO, PSTR("I2S recording: stopped"));
   recording = 0;
   i2s_busy = false;
   vTaskDelete(0);
@@ -842,16 +881,17 @@ SETREGS
 #define MIC_RATE 16000
 #define MIC_CHANNELS 2
 
-int32_t i2s_start_mic(char *file) {
+int32_t i2s_record_shine(char *file, uint32_t stream) {
 SETREGS
   
+  mp3_stream = stream;
   int32_t error = 0;
   shine_config_t  config;
   const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
 
   uint8_t channel = MIC_CHANNELS;
 
-  if (file) {
+  if (file || stream) {
     Shine_set_config_mpeg_defaults(&config.mpeg);
     if (channel == 1) {
       config.mpeg.mode = MONO;
@@ -872,11 +912,26 @@ SETREGS
       goto exit;
     }
 
-    wf = fopen(file, 'w');
-    if (!wf) {
-      error = -3;
-      goto exit;
+    if (!stream) {
+      wf = fopen(file, 'w');
+      if (!wf) {
+        error = -3;
+        goto exit;
+      }
+    } else {
+#if 0
+      WebServerClientFlush(mp3_server);
+      WebServerClientSetTimeout(mp3_server, 5);
+      WebServerClientPrint(mp3_server, PSTR("HTTP/1.1 200 OK\r\n"));
+      WebServerClientPrint(mp3_server, PSTR("Content-Type: audio/mpeg;\r\n\r\n"));
+#else
+      client_flush(mp3_client);
+      client_setTimeout(mp3_client, 5);
+      client_print(mp3_client, PSTR("HTTP/1.1 200 OK\r\n"));
+      client_print(mp3_client, PSTR("Content-Type: audio/mpeg;\r\n\r\n"));
+#endif
     }
+
     uint16_t samples_per_pass;
     samples_per_pass = Shine_samples_per_pass(shine_ptr);
     shine_bsize = samples_per_pass * 2 * channel;
@@ -885,6 +940,8 @@ SETREGS
       error = -4;
       goto exit;
     }
+
+    i2s_busy = true;
 
     // set to 16 khz Stereo
     I2S_SetRate(uicp[6], channel, 3);
@@ -899,7 +956,7 @@ SETREGS
     tp.constpvCreatedTask = nullptr;
     tp.xCoreID = 1;
     xTaskCreatePinnedToCore(&tp);
-    i2s_busy = true;
+    
   } else {
     recording = 1;
     while (recording) {
@@ -962,13 +1019,53 @@ void StartMicRec(void) {
     while (*cp == ' ') {
       cp++;
     }
-    i2s_start_mic(cp);
-    AddLog(LOG_LEVEL_INFO, PSTR("I2S_rec started to file: %s"), cp);
+    i2s_record_shine(cp, 0);
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S: rec started to file: %s"), cp);
   } else {
-    i2s_start_mic(0);
-    AddLog(LOG_LEVEL_INFO, PSTR("I2S_rec stopped"));
+    i2s_record_shine(0, 0);
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S: rec stopped"));
   }
   ResponseCmndDone();
+}
+
+// stream section
+#ifndef MP3_STREAM_PORT
+#define MP3_STREAM_PORT 81
+#endif
+
+
+void Stream_mp3(void) {
+  SETREGS
+  if (!i2s_busy) {
+    mp3_client = WebServerClient(mp3_server);
+    i2s_record_shine(0, 1);
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S: Handle mp3server"));
+  } else {
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S: can not handle client - other stream task active"));
+  }
+}
+
+void I2SStreamInit(void) {
+  SETREGS
+  mp3_server = NewWebServer(MP3_STREAM_PORT);
+  if (mp3_server) {
+    uint8_t *vp = (uint8_t*)Stream_mp3;
+    vp += EXEC_OFFSET;
+    WebServerOn(mp3_server, PSTR("/stream.mp3"), vp);
+    WebServerBegin(mp3_server);
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S: mp3 server created on port: %d "), MP3_STREAM_PORT);
+  } else {
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S: mp3 server could not been created"));
+  }
+}
+
+void I2SStreamDeinit(void) {
+  SETREGS
+  if (mp3_server) {
+    WebServerStop(mp3_server);
+    WebServerDelete(mp3_server);
+    mp3_server = 0;
+  }
 }
 
 #define CAM_PAKET
@@ -990,13 +1087,13 @@ void I2SBridge(void) {
       cp++;
       char buffer[32];
       sprintf_P(buffer, PSTR("%u.%u.%u.%u"), bridge.i2s_bridge_ip.bytes[0], bridge.i2s_bridge_ip.bytes[1], bridge.i2s_bridge_ip.bytes[2], bridge.i2s_bridge_ip.bytes[3]);
-      Response_P(PSTR("{\"I2S_bridge\":{\"IP\":\"%s\"}}"), buffer);
+      Response_P(PSTR("{\"I2S: bridge\":{\"IP\":\"%s\"}}"), buffer);
     } else if (cp = strchr(cp, 'p')) {
       // enter push to talk pin
       cp++;
       bridge.ptt_pin = atoi(cp);
       pinMode(bridge.ptt_pin, INPUT_PULLUP);
-      Response_P(PSTR("{\"I2S_bridge\":{\"PTT-PIN\":%d}}"), bridge.ptt_pin);
+      Response_P(PSTR("{\"I2S: bridge\":{\"PTT-PIN\":%d}}"), bridge.ptt_pin);
     } else {
       if (XdrvMailbox->payload == 3) {
         i2s_bridge_init(3);
@@ -1025,7 +1122,7 @@ void SendBridgeCmd(uint8_t bmode) {
     udp_endPacket(bridge.i2s_bridgec_udp);
     char ipstr[20];
     sprintf_P(ipstr, PSTR("%d.%d.%d.%d"), bridge.i2s_bridge_ip.bytes[0], bridge.i2s_bridge_ip.bytes[1], bridge.i2s_bridge_ip.bytes[2], bridge.i2s_bridge_ip.bytes[3]);
-    AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge send to ip %s cmd: %s"), ipstr, slavecmd);
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge send to ip %s cmd: %s"), ipstr, slavecmd);
   }
 }
 
@@ -1036,7 +1133,7 @@ uint32_t I2SBridgeCmd(uint8_t val, uint8_t flg) {
 
   if (val == 99) {
     if (webcam_GetWidth() != 0) {
-      AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge request picture"));
+      AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge request picture"));
       webcam_GetFrame(1);
       uint8_t *buff;
       int32_t len = webcam_PicStore(0, &buff);
@@ -1069,7 +1166,7 @@ uint32_t I2SBridgeCmd(uint8_t val, uint8_t flg) {
         fclose(wf);
         */
       } else {
-        AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge request picture failed"));
+        AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge request picture failed"));
       }
     }
     ResponseCmndNumber(val);
@@ -1092,7 +1189,7 @@ uint32_t I2SBridgeCmd(uint8_t val, uint8_t flg) {
           bridge.bridge_mode.swap_mic = 0;
           break;
       }
-      Response_P(PSTR("{\"I2S_bridge\":{\"MASTER\":%d,\"SWAP_MIC\":%d}"), bridge.bridge_mode.master, bridge.bridge_mode.swap_mic);
+      Response_P(PSTR("{\"I2S: bridge\":{\"MASTER\":%d,\"SWAP_MIC\":%d}}"), bridge.bridge_mode.master, bridge.bridge_mode.swap_mic);
     } else {
       if (bridge.bridge_mode.bmode != val) {
         if ((val == I2S_BRIDGE_MODE_OFF) && (bridge.bridge_mode.bmode != I2S_BRIDGE_MODE_OFF)) {
@@ -1144,7 +1241,7 @@ void I2SBridgeInit(void) {
   bridge.i2s_bridgec_udp = new_udp();
   if (bridge.i2s_bridgec_udp) {
     udp_begin(bridge.i2s_bridgec_udp, I2S_BRIDGE_PORT + 1);
-    AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: command server created on port: %d "), I2S_BRIDGE_PORT + 1);
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge command server created on port: %d "), I2S_BRIDGE_PORT + 1);
   }
 }
 
@@ -1179,6 +1276,15 @@ void i2s_bridge_loop(void) {
     is2_mic_init = 1;
   }
 
+  if (!is2_server_init) {
+    I2SStreamInit();
+    is2_server_init = 1;
+  }
+
+  if (mp3_server) {
+      WebServerHandleClient(mp3_server);
+  }
+
   uint8_t packet_buffer[32];
 
   if (bridge.ptt_pin >= 0) {
@@ -1205,7 +1311,7 @@ void i2s_bridge_loop(void) {
       bridge.i2s_bridge_ip.dword = udp_remoteIP(bridge.i2s_bridgec_udp);
       cp += 4;
       uint32_t val = I2SBridgeCmd(atoi(cp), 0);
-      AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: remote cmd %d"), val);
+      AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge remote cmd %d"), val);
       return;
     }
     if (!strncmp_P(cp, PSTR("pic:"), 4)) {
@@ -1213,7 +1319,7 @@ void i2s_bridge_loop(void) {
       cp += 4;
       uint32_t len = strtoul(cp, &cp, 10);
       cp++;
-      AddLog(LOG_LEVEL_INFO, PSTR("I2S_bridge: received pic size: %d"), len);
+      AddLog(LOG_LEVEL_INFO, PSTR("I2S bridge received pic size: %d"), len);
       if (len) {
 #ifdef CAM_PAKET
         uint8_t *pptr = (uint8_t*)special_malloc(len + MAX_UDP_BSIZE);
@@ -1861,7 +1967,7 @@ void I2sWrShow(bool json) {
       if (json) {
         ResponseAppend_P(PSTR(",\"WebRadio\":{\"Title\":\"%s\"}"), meta);
       } else {
-        WSContentSend_PD(PSTR("{s}" "I2S_WR-Title" "{m}%s{e}"), meta);
+        WSContentSend_PD(PSTR("{s}" "I2S: WR-Title" "{m}%s{e}"), meta);
       }
     }
 }
@@ -1933,6 +2039,7 @@ void I2SAudio_Deinit() {
 #endif
 
 #ifdef USE_MIC
+  I2SStreamDeinit();
   I2SBridgeDeinit();
   i2s_end_r(&i2sp);
 #endif

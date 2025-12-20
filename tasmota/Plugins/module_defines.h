@@ -822,12 +822,29 @@ typedef union {
 #define client_delete(A) jtmod_wifi(7,(uint32_t)A,0,0,0)
 #define client_peek(A) jtmod_wifi(9,(uint32_t)A,0,0,0)
 #define client_flush(A) jtmod_wifi(100,(uint32_t)A,0,0,0)
-
+#define client_setTimeout(A,B) jtmod_wifi(101,(uint32_t)A,B,0,0)
+#define client_print(A,B) jtmod_wifi(102,(uint32_t)A,(uint32_t)B,0,0)
 
 #define ipa_fromstring(A,B) jtmod_wifi(70,(uint32_t)A,(uint32_t)B,0,0)
 #define ipa_tostring(A,B) jtmod_wifi(71,(uint32_t)A,(uint32_t)B,0,0)
 #define attachInterruptArg(A,B,C,D) jtmod_wifi(72,(uint32_t)A,(uint32_t)B,(uint32_t)C,D)
 #define detachInterrupt(A) jtmod_wifi(73,A,0,0,0)
+
+
+#define NewWebServer(A) (void*)jtmod_wifi(80,A,0,0,0)
+#define WebServerOn(A,B,C) jtmod_wifi(81,(uint32_t)A,(uint32_t)B,(uint32_t)C,0)
+#define WebServerBegin(A) jtmod_wifi(82,(uint32_t)A,0,0,0)
+#define WebServerStop(A) jtmod_wifi(83,(uint32_t)A,0,0,0)
+#define WebServerClient(A) (void*)jtmod_wifi(84,(uint32_t)A,0,0,0)
+#define WebServerHandleClient(A) jtmod_wifi(85,(uint32_t)A,0,0,0)
+#define WebServerDelete(A) jtmod_wifi(86,(uint32_t)A,0,0,0)
+
+#define WebServerClientPrint(A,B)   jtmod_wifi(87,(uint32_t)A,(uint32_t)B,0,0)
+#define WebServerClientWrite(A,B,C) jtmod_wifi(88,(uint32_t)A,(uint32_t)B,C,0)
+#define WebServerClientStop(A)      jtmod_wifi(89,(uint32_t)A,0,0,0)
+#define WebServerClientConnected(A) jtmod_wifi(90,(uint32_t)A,0,0,0)
+#define WebServerClientFlush(A)     jtmod_wifi(91,(uint32_t)A,0,0,0)
+#define WebServerClientSetTimeout(A,B) jtmod_wifi(92,(uint32_t)A,B,0,0)
 
 #define New_WiFiClientSecure() (void*)jtmod_wifi(10,0,0,0,0)
 #define sclient_connect(A,B,C) (int32_t)jtmod_wifi(11,(uint32_t)A,(uint32_t)B,C,0)

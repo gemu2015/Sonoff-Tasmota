@@ -974,6 +974,7 @@ uint32_t tmod_dummy() {
 #if defined(ESP32) && defined(USE_TLS)
 #include "WiFiClientSecureLightBearSSL.h"
 #endif
+WiFiClient ws_client;
 
 uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t p4) {
   WiFiClient *client =(WiFiClient*) p1;
@@ -1012,6 +1013,20 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
       return client->peek();
     case 100:
       client->flush();
+      break;
+    case 101:
+      client->setTimeout(p2);
+      break;
+    case 102:
+      {
+#if defined(ESP8266) || defined(__riscv)
+      client->print((char*)p2);
+#else
+      char *fcopy = copyStr((char*)p2);
+      client->print(fcopy);
+      free(fcopy);
+#endif
+      }
       break;
 
 #if defined(ESP32) && defined(USE_TLS)
@@ -1167,7 +1182,97 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
       break;
     case 73:
       detachInterrupt(p1);
-      break;      
+      break;
+      
+    case 80:
+      {  
+        ESP8266WebServer * ws = new ESP8266WebServer(p1);
+        return (uint32_t) ws;
+      }
+    case 81:
+      {
+        ESP8266WebServer * ws = (ESP8266WebServer *)p1;
+#if defined(ESP8266) || defined(__riscv)
+        ws->on((const char*)p2, (void(*)(void))p3);
+#else
+        char *fcopy = copyStr((char*)p2);
+        ws->on((const char*)fcopy, (void(*)(void))p3);
+        //AddLog(LOG_LEVEL_INFO,PSTR("I2S Init %s - %x"), fcopy, (uint32_t)p3);
+        free(fcopy);
+#endif
+      }
+      break;
+    case 82:
+      {
+        ESP8266WebServer * ws = (ESP8266WebServer *)p1;
+        ws->begin();
+        break;
+      }
+    case 83:
+      {
+        ESP8266WebServer * ws = (ESP8266WebServer *)p1;
+        ws->stop();
+        break;
+      }
+      break;
+    case 84:
+      {
+        ESP8266WebServer * ws = (ESP8266WebServer *)p1;
+        ws_client = ws->client();
+        return (uint32_t)&ws_client;
+      }
+    case 85:
+      {
+        ESP8266WebServer * ws = (ESP8266WebServer *)p1;
+        ws->handleClient();
+        break;
+      }
+    case 86:
+      {
+        ESP8266WebServer * ws = (ESP8266WebServer *)p1;
+        delete ws;
+        break;
+      }
+    case 87:
+      {
+        ESP8266WebServer * ws = (ESP8266WebServer *)p1;
+#if defined(ESP8266) || defined(__riscv)
+        ws->client().print((char*)p2);
+#else
+        char *fcopy = copyStr((char*)p2);
+        ws->client().print(fcopy);
+        free(fcopy);
+#endif
+        break;
+      }
+    case 88:
+      {
+        ESP8266WebServer * ws = (ESP8266WebServer *)p1;
+        return ws->client().write((char*)p2, p3);
+      }
+    case 89:
+      {
+        ESP8266WebServer * ws = (ESP8266WebServer *)p1;
+        ws->client().stop();
+        break;
+      }
+    case 90:
+      {
+        ESP8266WebServer * ws = (ESP8266WebServer *)p1;
+        return ws->client().connected();
+      }
+    case 91:
+      {
+        ESP8266WebServer * ws = (ESP8266WebServer *)p1;
+        ws->client().flush();
+        break;
+      }
+    case 92:
+      {
+        ESP8266WebServer * ws = (ESP8266WebServer *)p1;
+        ws->client().setTimeout(p2);
+        break;
+      }
 
     default:
       return 0;
@@ -1175,8 +1280,7 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
   return 0;
 }
 
-
-#define I2S_DEBUG
+//#define I2S_DEBUG
 
 #ifdef ESP8266
 #include <i2s.h>
