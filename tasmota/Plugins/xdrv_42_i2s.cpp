@@ -684,6 +684,15 @@ SETREGS
   return;
 }
 
+uint32_t ChkBusy() {
+  SETREGS
+  if (i2s_busy) {
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S Audio busy"));
+    return true;
+  }
+  return false;
+}
+
 #ifdef USE_MIC
 
 /*
@@ -998,15 +1007,6 @@ void SetGain(void) {
 
 void StopMicRec(void) {
 
-}
-
-uint32_t ChkBusy() {
-  SETREGS
-  if (i2s_busy) {
-    AddLog(LOG_LEVEL_INFO, PSTR("I2S Audio busy"));
-    return true;
-  }
-  return false;
 }
 
 void StartMicRec(void) {
