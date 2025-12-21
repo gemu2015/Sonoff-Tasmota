@@ -1027,9 +1027,6 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
 #endif
       }
       break;
-    case 103:
-      delete client;
-      break;
 
 #if defined(ESP32) && defined(USE_TLS)
     case 10:

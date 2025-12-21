@@ -824,7 +824,7 @@ typedef union {
 #define client_flush(A) jtmod_wifi(100,(uint32_t)A,0,0,0)
 #define client_setTimeout(A,B) jtmod_wifi(101,(uint32_t)A,B,0,0)
 #define client_print(A,B) jtmod_wifi(102,(uint32_t)A,(uint32_t)B,0,0)
-#define client_delete(A) jtmod_wifi(103,(uint32_t)A,0,0,0)
+
 
 #define ipa_fromstring(A,B) jtmod_wifi(70,(uint32_t)A,(uint32_t)B,0,0)
 #define ipa_tostring(A,B) jtmod_wifi(71,(uint32_t)A,(uint32_t)B,0,0)

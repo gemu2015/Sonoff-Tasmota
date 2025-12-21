@@ -694,7 +694,8 @@ uint32_t ChkBusy() {
 }
 
 #ifdef USE_MIC
-
+// microphone related code
+// bridge
 /*
 I2SBridge	ip = sets the IP of the slave device
 0 = stop bridge
@@ -707,369 +708,6 @@ I2SBridge	ip = sets the IP of the slave device
 7 = set microphone to not swapped
 p<x> = sets the push to talk button where x is the button's GPIO pin number
 */
-
-void i2s_bridge_init(uint8_t bmode) {
-SETREGS
-
-  bridge.bridge_mode.bmode = bmode;
-
-  if (I2S_BRIDGE_MODE_OFF == bmode) {
-    udp_flush(bridge.i2s_bridge_udp);
-    udp_stop(bridge.i2s_bridge_udp);
-  } else {
-    const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
-    udp_begin(bridge.i2s_bridge_udp, I2S_BRIDGE_PORT);
-
-    TASKPARS tp;
-    tp.pvTaskCode = GVOID(i2s_bridge_task);
-    tp.constpcName = GSTR(tname);
-    tp.usStackDepth = uicp[1];
-    tp.constpvParameters = (char*)GSTR(tname);
-    tp.uxPriority = 3;
-    tp.constpvCreatedTask = nullptr;
-    tp.xCoreID = 1;
-    xTaskCreatePinnedToCore(&tp);
-
-    if (bmode == 3) {
-      AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge loop mode started"));
-    } else {
-      if (!bridge.bridge_mode.master) {
-        AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge slave started"));
-      } else {
-        char buffer[32];
-        sprintf_P(buffer, PSTR("%u.%u.%u.%u"), bridge.i2s_bridge_ip.bytes[0], bridge.i2s_bridge_ip.bytes[1], bridge.i2s_bridge_ip.bytes[2], bridge.i2s_bridge_ip.bytes[3]);
-        AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge master started sending to ip: %s"), buffer);
-      }
-    }
-  }
-}
-
-// make mono
-void make_mono(int16_t *packet_buffer, uint32_t size) {
-SETREGS
-
-    int16_t *wp = (int16_t*)packet_buffer;
-    for (uint32_t cnt = 0; cnt < size / 2; cnt += 2) {
-      int16_t val;
-      if (bridge.bridge_mode.swap_mic) {
-        val = wp[cnt + 1] * adc_gain_fac;
-      } else {
-        val = wp[cnt] * adc_gain_fac;
-      }
-      wp[cnt] = val;
-      wp[cnt + 1] = val;
-    }
-}
-
-void i2s_bridge_task(void *arg) {
-SETREGS
-
-  AudioPwr(1);
-
-  const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
-
-  uint32_t bytesize = uicp[5];
-
-  int16_t *packet_buffer = (int16_t*)calloc((bytesize>>1)+4, 2);
-  
-  // set to 16 khz Stereo
-  I2S_SetRate(uicp[6], 2, 3);
-
-  uint32_t bytes_read;  
-  i2sp.dptr = packet_buffer;
-
-  while (I2S_BRIDGE_MODE_OFF != bridge.bridge_mode.bmode) {
-    if ((bridge.bridge_mode.bmode & 3) == 3) {
-      // loopback test mode
-      i2sp.dlen = bytesize;
-      bytes_read = i2s_read_samples_r(&i2sp);
-      if (bytes_read) {
-        make_mono(packet_buffer, bytes_read);
-        i2sp.dlen = bytes_read;
-        i2s_write_samples_t(&i2sp);
-      }
-    } else {
-      if (bridge.bridge_mode.bmode & I2S_BRIDGE_MODE_READ) {
-        if (udp_parsePacket(bridge.i2s_bridge_udp)) {
-          uint32_t len = udp_available(bridge.i2s_bridge_udp);
-          if (len > bytesize) {
-            len = bytesize;
-          }
-          len = udp_read(bridge.i2s_bridge_udp, (uint8_t *)packet_buffer, len);
-          udp_flush(bridge.i2s_bridge_udp);
-          i2sp.dlen = len;
-          i2s_write_samples_t(&i2sp);
-        } else {
-          delay(1);
-        }
-      }
-
-      if (bridge.bridge_mode.bmode & I2S_BRIDGE_MODE_WRITE) {
-        i2sp.dlen = bytesize;
-        bytes_read = i2s_read_samples_r(&i2sp);
-        if (bytes_read) {
-          make_mono(packet_buffer, bytes_read);
-          udp_beginPacket(bridge.i2s_bridge_udp, bridge.i2s_bridge_ip.dword, I2S_BRIDGE_PORT);
-          udp_write(bridge.i2s_bridge_udp, (const uint8_t*)packet_buffer, bytes_read);
-          udp_endPacket(bridge.i2s_bridge_udp);
-        }
-      }
-    
-    }
-    //delay(1);
-  }
-  AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge stopped"));
-  free(packet_buffer);
-  AudioPwr(0);
-  I2S_Enable(0);
-  vTaskDelete(0);
-}
-
-void i2s_mic_task(void *arg) {
-SETREGS
-
-  uint8_t *ucp;
-  int written;
-
-  uint32_t bytes_read;  
-  i2sp.dptr = shine_buffer;
-  i2sp.dlen = shine_bsize;
-
-  AddLog(LOG_LEVEL_INFO, PSTR("task started"));
-
-  uint32_t counter = 0;
-
-  while (recording & 2) {
-      bytes_read = i2s_read_samples_r(&i2sp);
-      if (bytes_read) {
-        if (adc_gain_fac > 1) {
-          // set gain
-          for (uint32_t cnt = 0; cnt < bytes_read / 2; cnt++) {
-            shine_buffer[cnt] *= adc_gain_fac;
-          }
-        }
-        ucp = (uint8_t*)Shine_encode_buffer_interleaved(shine_ptr, shine_buffer, &written);
-        if (!mp3_stream) {
-          fwrite(ucp, 1, written, wf);
-        } else {
-#if 0
-          if (WebServerClientConnected(mp3_server)) {
-            WebServerClientWrite(mp3_server, (const char*)ucp, written);
-            AddLog(LOG_LEVEL_INFO, PSTR("I2S >>>> %d"), written);
-#else
-          if (client_connected(mp3_client)) {
-            client_write(mp3_client, (const char*)ucp, written);
-#endif
-          } else {
-            break;
-          }
-        }
-      }
-  }
-  ucp = (uint8_t*)Shine_flush(shine_ptr, &written);
-  if (!mp3_stream) {
-    fwrite(ucp, 1, written, wf);
-    fclose(wf);
-  } else {
-#if 0
-    WebServerClientWrite(mp3_server, (const char*)ucp, written);
-    WebServerClientStop(mp3_server);
-#else
-    client_write(mp3_client, (const char*)ucp, written);
-    client_stop(mp3_client);
-    client_delete(mp3_client);
-#endif
-  }
-  Shine_close(shine_ptr);
-
-  AddLog(LOG_LEVEL_INFO, PSTR("I2S recording: stopped"));
-  recording = 0;
-  i2s_busy = false;
-  vTaskDelete(0);
-}
-
-#define MIC_RATE 16000
-#define MIC_CHANNELS 2
-
-int32_t i2s_record_shine(char *file, uint32_t stream) {
-SETREGS
-  
-  mp3_stream = stream;
-  int32_t error = 0;
-  shine_config_t  config;
-  const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
-
-  uint8_t channel = MIC_CHANNELS;
-
-  if (file || stream) {
-    Shine_set_config_mpeg_defaults(&config.mpeg);
-    if (channel == 1) {
-      config.mpeg.mode = MONO;
-    } else {
-      config.mpeg.mode = STEREO;
-    }
-    config.mpeg.bitr = 128;
-    config.wave.samplerate = uicp[6];
-    config.wave.channels = (channels)channel;
-    if (Shine_check_config(config.wave.samplerate, config.mpeg.bitr) < 0) {
-      error = -1;
-      goto exit;
-    }
-
-    shine_ptr = (shine_t)Shine_initialise(&config);
-    if (!shine_ptr) {
-      error = -2;
-      goto exit;
-    }
-
-    if (!stream) {
-      wf = fopen(file, 'w');
-      if (!wf) {
-        error = -3;
-        goto exit;
-      }
-    } else {
-#if 0
-      WebServerClientFlush(mp3_server);
-      WebServerClientSetTimeout(mp3_server, 5);
-      WebServerClientPrint(mp3_server, PSTR("HTTP/1.1 200 OK\r\n"));
-      WebServerClientPrint(mp3_server, PSTR("Content-Type: audio/mpeg;\r\n\r\n"));
-#else
-      client_flush(mp3_client);
-      client_setTimeout(mp3_client, 5);
-      client_print(mp3_client, PSTR("HTTP/1.1 200 OK\r\n"));
-      client_print(mp3_client, PSTR("Content-Type: audio/mpeg;\r\n\r\n"));
-#endif
-    }
-
-    uint16_t samples_per_pass;
-    samples_per_pass = Shine_samples_per_pass(shine_ptr);
-    shine_bsize = samples_per_pass * 2 * channel;
-    shine_buffer = (int16_t*)malloc(shine_bsize);
-    if (!shine_buffer) {
-      error = -4;
-      goto exit;
-    }
-
-    i2s_busy = true;
-
-    // set to 16 khz Stereo
-    I2S_SetRate(uicp[6], channel, 3);
-
-    recording = 2;
-    TASKPARS tp;
-    tp.pvTaskCode = GVOID(i2s_mic_task);
-    tp.constpcName = GSTR(tname);
-    tp.usStackDepth = uicp[1];
-    tp.constpvParameters = (char*)GSTR(tname);
-    tp.uxPriority = 3;
-    tp.constpvCreatedTask = nullptr;
-    tp.xCoreID = 1;
-    xTaskCreatePinnedToCore(&tp);
-    
-  } else {
-    recording = 1;
-    while (recording) {
-      delay(1);
-    }
-  }
-
-  return 0;
-
-exit:
-  if (shine_ptr) Shine_close(shine_ptr);
-  if (wf) {
-    fclose(wf);
-  }
-  return error;
-}
-
-
-void SetGain(void) {
-  SETREGS
-  uint16_t gain;
- 
-  if (XdrvMailbox->data_len > 0) {
-    char *cp = XdrvMailbox->data;
-    while (*cp == ' ') cp++;
-    gain = strtol(cp, &cp, 10);
-    if (gain > 100) {
-        gain = 100;
-    }
-    if (gain < 1) {
-      gain = 1;
-    }
-    float xgain = fmul(fdiv(floatunsisf(gain) , floatunsisf(100)), floatunsisf(64));
-    adc_gain_fac = fixunssfsi(xgain);
-  } 
-  gain = fixunssfsi(fmul(fdiv(floatunsisf(adc_gain_fac) , floatunsisf(64)), floatunsisf(100)));
-  ResponseCmndNumber(gain);
-}
-
-void StopMicRec(void) {
-
-}
-
-void StartMicRec(void) {
-  SETREGS
-  if (XdrvMailbox->data_len > 0) {
-    if (ChkBusy()) {
-      return;
-    }
-    char *cp = XdrvMailbox->data;
-    while (*cp == ' ') {
-      cp++;
-    }
-    i2s_record_shine(cp, 0);
-    AddLog(LOG_LEVEL_INFO, PSTR("I2S: rec started to file: %s"), cp);
-  } else {
-    i2s_record_shine(0, 0);
-    AddLog(LOG_LEVEL_INFO, PSTR("I2S: rec stopped"));
-  }
-  ResponseCmndDone();
-}
-
-// stream section
-#ifndef MP3_STREAM_PORT
-#define MP3_STREAM_PORT 81
-#endif
-
-
-void Stream_mp3(void) {
-  SETREGS
-  if (!i2s_busy) {
-    mp3_client = NewWebServerGetClient(mp3_server);
-    i2s_record_shine(0, 1);
-    AddLog(LOG_LEVEL_INFO, PSTR("I2S: Handle mp3server"));
-  } else {
-    AddLog(LOG_LEVEL_INFO, PSTR("I2S: can not handle client - other stream task active"));
-  }
-}
-
-void I2SStreamInit(void) {
-  SETREGS
-  mp3_server = NewWebServer(MP3_STREAM_PORT);
-  if (mp3_server) {
-    uint8_t *vp = (uint8_t*)Stream_mp3;
-    vp += EXEC_OFFSET;
-    WebServerOn(mp3_server, PSTR("/stream.mp3"), vp);
-    WebServerBegin(mp3_server);
-    AddLog(LOG_LEVEL_INFO, PSTR("I2S: mp3 server created on port: %d "), MP3_STREAM_PORT);
-  } else {
-    AddLog(LOG_LEVEL_INFO, PSTR("I2S: mp3 server could not been created"));
-  }
-}
-
-void I2SStreamDeinit(void) {
-  SETREGS
-  if (mp3_server) {
-    WebServerStop(mp3_server);
-    WebServerDelete(mp3_server);
-    mp3_server = 0;
-  }
-}
-
-#define CAM_PAKET
 
 void I2SBridge(void) {
   SETREGS
@@ -1264,6 +902,8 @@ void I2SBridgeDeinit(void) {
 
 }
 
+#define CAM_PAKET
+
 void i2s_bridge_loop(void) {
   SETREGS
   STGLOB
@@ -1359,7 +999,350 @@ void i2s_bridge_loop(void) {
   }
 }
 
+void i2s_bridge_init(uint8_t bmode) {
+SETREGS
+
+  bridge.bridge_mode.bmode = bmode;
+
+  if (I2S_BRIDGE_MODE_OFF == bmode) {
+    udp_flush(bridge.i2s_bridge_udp);
+    udp_stop(bridge.i2s_bridge_udp);
+  } else {
+    const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
+    udp_begin(bridge.i2s_bridge_udp, I2S_BRIDGE_PORT);
+
+    TASKPARS tp;
+    tp.pvTaskCode = GVOID(i2s_bridge_task);
+    tp.constpcName = GSTR(tname);
+    tp.usStackDepth = uicp[1];
+    tp.constpvParameters = (char*)GSTR(tname);
+    tp.uxPriority = 3;
+    tp.constpvCreatedTask = nullptr;
+    tp.xCoreID = 1;
+    xTaskCreatePinnedToCore(&tp);
+
+    if (bmode == 3) {
+      AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge loop mode started"));
+    } else {
+      if (!bridge.bridge_mode.master) {
+        AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge slave started"));
+      } else {
+        char buffer[32];
+        sprintf_P(buffer, PSTR("%u.%u.%u.%u"), bridge.i2s_bridge_ip.bytes[0], bridge.i2s_bridge_ip.bytes[1], bridge.i2s_bridge_ip.bytes[2], bridge.i2s_bridge_ip.bytes[3]);
+        AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge master started sending to ip: %s"), buffer);
+      }
+    }
+  }
+}
+
+// make mono
+void make_mono(int16_t *packet_buffer, uint32_t size) {
+SETREGS
+
+    int16_t *wp = (int16_t*)packet_buffer;
+    for (uint32_t cnt = 0; cnt < size / 2; cnt += 2) {
+      int16_t val;
+      if (bridge.bridge_mode.swap_mic) {
+        val = wp[cnt + 1] * adc_gain_fac;
+      } else {
+        val = wp[cnt] * adc_gain_fac;
+      }
+      wp[cnt] = val;
+      wp[cnt + 1] = val;
+    }
+}
+
+void i2s_bridge_task(void *arg) {
+SETREGS
+
+  AudioPwr(1);
+
+  const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
+
+  uint32_t bytesize = uicp[5];
+
+  int16_t *packet_buffer = (int16_t*)calloc((bytesize>>1)+4, 2);
+  
+  // set to 16 khz Stereo
+  I2S_SetRate(uicp[6], 2, 3);
+
+  uint32_t bytes_read;  
+  i2sp.dptr = packet_buffer;
+
+  while (I2S_BRIDGE_MODE_OFF != bridge.bridge_mode.bmode) {
+    if ((bridge.bridge_mode.bmode & 3) == 3) {
+      // loopback test mode
+      i2sp.dlen = bytesize;
+      bytes_read = i2s_read_samples_r(&i2sp);
+      if (bytes_read) {
+        make_mono(packet_buffer, bytes_read);
+        i2sp.dlen = bytes_read;
+        i2s_write_samples_t(&i2sp);
+      }
+    } else {
+      if (bridge.bridge_mode.bmode & I2S_BRIDGE_MODE_READ) {
+        if (udp_parsePacket(bridge.i2s_bridge_udp)) {
+          uint32_t len = udp_available(bridge.i2s_bridge_udp);
+          if (len > bytesize) {
+            len = bytesize;
+          }
+          len = udp_read(bridge.i2s_bridge_udp, (uint8_t *)packet_buffer, len);
+          udp_flush(bridge.i2s_bridge_udp);
+          i2sp.dlen = len;
+          i2s_write_samples_t(&i2sp);
+        } else {
+          delay(1);
+        }
+      }
+
+      if (bridge.bridge_mode.bmode & I2S_BRIDGE_MODE_WRITE) {
+        i2sp.dlen = bytesize;
+        bytes_read = i2s_read_samples_r(&i2sp);
+        if (bytes_read) {
+          make_mono(packet_buffer, bytes_read);
+          udp_beginPacket(bridge.i2s_bridge_udp, bridge.i2s_bridge_ip.dword, I2S_BRIDGE_PORT);
+          udp_write(bridge.i2s_bridge_udp, (const uint8_t*)packet_buffer, bytes_read);
+          udp_endPacket(bridge.i2s_bridge_udp);
+        }
+      }
+    
+    }
+    //delay(1);
+  }
+  AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge stopped"));
+  free(packet_buffer);
+  AudioPwr(0);
+  I2S_Enable(0);
+  vTaskDelete(0);
+}
+
+// stream and rec related code
+
+void i2s_mic_task(void *arg) {
+SETREGS
+
+  uint8_t *ucp;
+  int written;
+
+  uint32_t bytes_read;  
+  i2sp.dptr = shine_buffer;
+  i2sp.dlen = shine_bsize;
+
+  AddLog(LOG_LEVEL_INFO, PSTR("task started"));
+
+  uint32_t counter = 0;
+
+  while (recording & 2) {
+      bytes_read = i2s_read_samples_r(&i2sp);
+      if (bytes_read) {
+        if (adc_gain_fac > 1) {
+          // set gain
+          for (uint32_t cnt = 0; cnt < bytes_read / 2; cnt++) {
+            shine_buffer[cnt] *= adc_gain_fac;
+          }
+        }
+        ucp = (uint8_t*)Shine_encode_buffer_interleaved(shine_ptr, shine_buffer, &written);
+        if (!mp3_stream) {
+          fwrite(ucp, 1, written, wf);
+        } else {
+          if (client_connected(mp3_client)) {
+            client_write(mp3_client, (const char*)ucp, written);
+          } else {
+            break;
+          }
+        }
+      }
+  }
+  ucp = (uint8_t*)Shine_flush(shine_ptr, &written);
+  if (!mp3_stream) {
+    fwrite(ucp, 1, written, wf);
+    fclose(wf);
+  } else {
+    client_write(mp3_client, (const char*)ucp, written);
+    client_stop(mp3_client);
+    client_delete(mp3_client);
+  }
+  Shine_close(shine_ptr);
+
+  AddLog(LOG_LEVEL_INFO, PSTR("I2S recording: stopped"));
+  recording = 0;
+  i2s_busy = false;
+  vTaskDelete(0);
+}
+
+#define MIC_RATE 16000
+#define MIC_CHANNELS 2
+
+int32_t i2s_record_shine(char *file, uint32_t stream) {
+SETREGS
+  
+  mp3_stream = stream;
+  int32_t error = 0;
+  shine_config_t  config;
+  const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
+
+  uint8_t channel = MIC_CHANNELS;
+
+  if (file || stream) {
+    Shine_set_config_mpeg_defaults(&config.mpeg);
+    if (channel == 1) {
+      config.mpeg.mode = MONO;
+    } else {
+      config.mpeg.mode = STEREO;
+    }
+    config.mpeg.bitr = 128;
+    config.wave.samplerate = uicp[6];
+    config.wave.channels = (channels)channel;
+    if (Shine_check_config(config.wave.samplerate, config.mpeg.bitr) < 0) {
+      error = -1;
+      goto exit;
+    }
+
+    shine_ptr = (shine_t)Shine_initialise(&config);
+    if (!shine_ptr) {
+      error = -2;
+      goto exit;
+    }
+
+    if (!stream) {
+      wf = fopen(file, 'w');
+      if (!wf) {
+        error = -3;
+        goto exit;
+      }
+    } else {
+      client_flush(mp3_client);
+      client_setTimeout(mp3_client, 5);
+      client_print(mp3_client, PSTR("HTTP/1.1 200 OK\r\n"));
+      client_print(mp3_client, PSTR("Content-Type: audio/mpeg;\r\n\r\n"));
+    }
+
+    uint16_t samples_per_pass;
+    samples_per_pass = Shine_samples_per_pass(shine_ptr);
+    shine_bsize = samples_per_pass * 2 * channel;
+    shine_buffer = (int16_t*)malloc(shine_bsize);
+    if (!shine_buffer) {
+      error = -4;
+      goto exit;
+    }
+
+    i2s_busy = true;
+
+    // set to 16 khz Stereo
+    I2S_SetRate(uicp[6], channel, 3);
+
+    recording = 2;
+    TASKPARS tp;
+    tp.pvTaskCode = GVOID(i2s_mic_task);
+    tp.constpcName = GSTR(tname);
+    tp.usStackDepth = uicp[1];
+    tp.constpvParameters = (char*)GSTR(tname);
+    tp.uxPriority = 3;
+    tp.constpvCreatedTask = nullptr;
+    tp.xCoreID = 1;
+    xTaskCreatePinnedToCore(&tp);
+    
+  } else {
+    recording = 1;
+    while (recording) {
+      delay(1);
+    }
+  }
+
+  return 0;
+
+exit:
+  if (shine_ptr) Shine_close(shine_ptr);
+  if (wf) {
+    fclose(wf);
+  }
+  return error;
+}
+
+void SetGain(void) {
+  SETREGS
+  uint16_t gain;
+ 
+  if (XdrvMailbox->data_len > 0) {
+    char *cp = XdrvMailbox->data;
+    while (*cp == ' ') cp++;
+    gain = strtol(cp, &cp, 10);
+    if (gain > 100) {
+        gain = 100;
+    }
+    if (gain < 1) {
+      gain = 1;
+    }
+    float xgain = fmul(fdiv(floatunsisf(gain) , floatunsisf(100)), floatunsisf(64));
+    adc_gain_fac = fixunssfsi(xgain);
+  } 
+  gain = fixunssfsi(fmul(fdiv(floatunsisf(adc_gain_fac) , floatunsisf(64)), floatunsisf(100)));
+  ResponseCmndNumber(gain);
+}
+
+void StopMicRec(void) {
+
+}
+
+void StartMicRec(void) {
+  SETREGS
+  if (XdrvMailbox->data_len > 0) {
+    if (ChkBusy()) {
+      return;
+    }
+    char *cp = XdrvMailbox->data;
+    while (*cp == ' ') {
+      cp++;
+    }
+    i2s_record_shine(cp, 0);
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S: rec started to file: %s"), cp);
+  } else {
+    i2s_record_shine(0, 0);
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S: rec stopped"));
+  }
+  ResponseCmndDone();
+}
+
+// stream section
+#ifndef MP3_STREAM_PORT
+#define MP3_STREAM_PORT 81
 #endif
+
+void Stream_mp3(void) {
+  SETREGS
+  if (!i2s_busy) {
+    mp3_client = NewWebServerGetClient(mp3_server);
+    i2s_record_shine(0, 1);
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S: Handle mp3server"));
+  } else {
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S: can not handle client - other stream task active"));
+  }
+}
+
+void I2SStreamInit(void) {
+  SETREGS
+  mp3_server = NewWebServer(MP3_STREAM_PORT);
+  if (mp3_server) {
+    uint8_t *vp = (uint8_t*)Stream_mp3;
+    vp += EXEC_OFFSET;
+    WebServerOn(mp3_server, PSTR("/stream.mp3"), vp);
+    WebServerBegin(mp3_server);
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S: mp3 server created on port: %d "), MP3_STREAM_PORT);
+  } else {
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S: mp3 server could not been created"));
+  }
+}
+
+void I2SStreamDeinit(void) {
+  SETREGS
+  if (mp3_server) {
+    WebServerStop(mp3_server);
+    WebServerDelete(mp3_server);
+    mp3_server = 0;
+  }
+}
+
+#endif // USE_MIC
 
 void SetVolume(void) {
   SETREGS
