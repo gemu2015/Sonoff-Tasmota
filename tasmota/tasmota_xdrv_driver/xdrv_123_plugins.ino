@@ -974,7 +974,6 @@ uint32_t tmod_dummy() {
 #if defined(ESP32) && defined(USE_TLS)
 #include "WiFiClientSecureLightBearSSL.h"
 #endif
-WiFiClient ws_client;
 
 uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t p4) {
   WiFiClient *client =(WiFiClient*) p1;
@@ -1027,6 +1026,9 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
       free(fcopy);
 #endif
       }
+      break;
+    case 103:
+      delete client;
       break;
 
 #if defined(ESP32) && defined(USE_TLS)
@@ -1218,8 +1220,9 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
     case 84:
       {
         ESP8266WebServer * ws = (ESP8266WebServer *)p1;
-        ws_client = ws->client();
-        return (uint32_t)&ws_client;
+        WiFiClient *ws_client = new WiFiClient;
+        *(ws_client) = ws->client();
+        return (uint32_t)ws_client;
       }
     case 85:
       {

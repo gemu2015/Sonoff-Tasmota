@@ -877,6 +877,7 @@ SETREGS
 #else
     client_write(mp3_client, (const char*)ucp, written);
     client_stop(mp3_client);
+    client_delete(mp3_client);
 #endif
   }
   Shine_close(shine_ptr);
@@ -1037,7 +1038,7 @@ void StartMicRec(void) {
 void Stream_mp3(void) {
   SETREGS
   if (!i2s_busy) {
-    mp3_client = WebServerClient(mp3_server);
+    mp3_client = NewWebServerGetClient(mp3_server);
     i2s_record_shine(0, 1);
     AddLog(LOG_LEVEL_INFO, PSTR("I2S: Handle mp3server"));
   } else {
