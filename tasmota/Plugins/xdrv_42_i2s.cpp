@@ -122,6 +122,7 @@ typedef struct {
   void *mp3_server;
   void *mp3_client;
   uint8_t mp3_stream;
+  uint8_t stream_enable;
 #endif
   uint8_t i2s_busy;
   uint8_t i2s_mode;
@@ -163,7 +164,7 @@ typedef struct {
 
 } MODULE_MEMORY;
 
-
+#define stream_enable mem->stream_enable
 #define mp3_stream mem->mp3_stream
 #define mp3_client mem->mp3_client
 #define is2_server_init mem->is2_server_init
@@ -270,6 +271,7 @@ MODULE_PART void i2s_mic_task(void *arg);
 MODULE_PART void StartMicRec(void);
 MODULE_PART uint32_t ChkBusy();
 MODULE_PART void StopMicRec(void);
+MODULE_PART void Stream_enable(void);
 MODULE_PART void I2SBridge(void);
 MODULE_PART uint32_t I2SBridgeCmd(uint8_t val, uint8_t flg);
 MODULE_PART void SendBridgeCmd(uint8_t bmode);
@@ -918,8 +920,10 @@ void i2s_bridge_loop(void) {
   }
 
   if (!is2_server_init) {
-    I2SStreamInit();
-    is2_server_init = 1;
+    if (stream_enable) {
+      I2SStreamInit();
+      is2_server_init = 1;
+    }
   }
 
   if (mp3_server) {
@@ -1282,6 +1286,16 @@ void SetGain(void) {
 
 void StopMicRec(void) {
 
+}
+
+void Stream_enable(void) {
+  SETREGS
+  if (XdrvMailbox->payload == 1) {
+    stream_enable = 1;
+  } else {
+    stream_enable = 0;
+  }
+  ResponseCmndNumber(XdrvMailbox->payload);
 }
 
 void StartMicRec(void) {
@@ -1976,13 +1990,13 @@ const char I2S_Commands[] PROGMEM =
     "I2S|"  // Prefix
     "play|vol|say|wr|"
 #ifdef USE_MIC
-    "gain|rec|stop|bridge"
+    "gain|rec|stop|bridge|stream"
 #endif
     "";
 
 void (*const I2S_Command[])(void) PROGMEM = {&I2S_Play_Cmd,&SetVolume,&Say,&WebRadio
 #ifdef USE_MIC
-,&SetGain,&StartMicRec,&StopMicRec,&I2SBridge
+,&SetGain,&StartMicRec,&StopMicRec,&I2SBridge,&Stream_enable
 #endif
 };
 
