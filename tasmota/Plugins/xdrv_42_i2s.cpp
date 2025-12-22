@@ -1285,7 +1285,10 @@ void SetGain(void) {
 }
 
 void StopMicRec(void) {
-
+  SETREGS
+  i2s_record_shine(0, 0);
+  AddLog(LOG_LEVEL_INFO, PSTR("I2S: rec stopped"));
+  ResponseCmndDone();
 }
 
 void Stream_enable(void) {
