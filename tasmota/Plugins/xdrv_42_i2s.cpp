@@ -62,6 +62,7 @@ codec settings access
 #ifdef USE_AUDIO_CODECS
 #include "Audio/es8156/src/audio_hal.h"
 #include "Audio/es8156/src/es8156.h"
+#include "Audio/es7243e/src/es7243e.h"
 int32_t pW8960_Init();
 #endif
 
@@ -488,6 +489,11 @@ int32_t I2SAudio_Init() {
         return -2;
       }
       pes8156_codec_set_voice_volume(75);
+      if (pes7243e_codec_init(&codec_bus) < 0) {
+        I2SAudio_Deinit();
+        AddLog(LOG_LEVEL_INFO, GSTR(S_JSON_WMERR));
+        return -2;
+      }
       break;
   }
 #endif
@@ -1551,6 +1557,7 @@ void I2sTaskMP3(void) {
 #ifdef USE_AUDIO_CODECS
 #include "Audio/WM8960/p_wm8960_c.h"
 #include "Audio/es8156/src/p_es8156_c.h"
+#include "Audio/es7243e/src/p_es7243e_c.h"
 #endif
 
 #ifdef USE_SAY
@@ -2035,6 +2042,7 @@ void I2SAudio_Deinit() {
       break;
     case 2:
       I2cResetActive(ES8156_ADDR, codec_bus);
+      I2cResetActive(ES7243_ADDR, codec_bus);
       break;
   }
 #endif
