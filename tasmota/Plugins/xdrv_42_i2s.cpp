@@ -670,6 +670,7 @@ SETREGS
   } else {
 #ifdef USE_MP3
     if (!strncmp_P(ep, PSTR("mp3"), 3)) {
+      i2s_busy = true;
       // play mp3 file
       TASKPARS tp;
       tp.pvTaskCode = GVOID(I2sTaskMP3);
@@ -1596,17 +1597,7 @@ void Say(void) {
 
   char *cp = XdrvMailbox->data;
   while (*cp == ' ') cp++;
-  if (i2s_busy == true) {
-    if (!*cp) {
-      // stop running sound
-      running = 0;
-      AddLog(LOG_LEVEL_INFO, GSTR(S_JSON_STOPSND));
-    } else {
-      AddLog(LOG_LEVEL_INFO, GSTR(S_JSON_BUSY));
-    }
-    return;
-  }
-
+  
   samdata = (SamData *)special_malloc(sizeof(SamData));
 
   if (!samdata) {
@@ -1622,6 +1613,8 @@ void Say(void) {
     AddLog(LOG_LEVEL_INFO, GSTR(S_JSON_MEMERR));
     return;
   }
+
+  i2s_busy = true;
 
   memset(samdata, 0, sizeof(SamData));
   memset(samrender, 0, icp[3]);
