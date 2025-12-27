@@ -5,13 +5,13 @@
 #include "l3subband.h"
 
 /*
- * shine_subband_initialise:
+ * p_shine_subband_initialise:
  * ----------------------
  * Calculates the analysis filterbank coefficients and rounds to the
  * 9th decimal place accuracy of the filterbank tables in the ISO
  * document.  The coefficients are stored in #filter#
  */
-void shine_subband_initialise(shine_global_config *config) {
+void p_shine_subband_initialise(p_shine_global_config *config) {
   int i,j;
   double filter;
 
@@ -33,12 +33,12 @@ void shine_subband_initialise(shine_global_config *config) {
 }
 
 /*
- * shine_window_filter_subband:
+ * p_shine_window_filter_subband:
  * -------------------------
  * Overlapping window on PCM samples
  * 32 16-bit pcm samples are scaled to fractional 2's complement and
  * concatenated to the end of the window buffer #x#. The updated window
- * buffer #x# is then windowed by the analysis window #shine_enwindow# to produce
+ * buffer #x# is then windowed by the analysis window #p_shine_enwindow# to produce
  * the windowed sample #z#
  * Calculates the analysis filter bank coefficients
  * The windowed samples #z# is filtered by the digital filter matrix #filter#
@@ -46,7 +46,7 @@ void shine_subband_initialise(shine_global_config *config) {
  * picking out values from the windowed samples, and then multiplying
  * them by the filter matrix, producing 32 subband samples.
  */
-void shine_window_filter_subband(int16_t **buffer, int s[SBLIMIT], int ch, shine_global_config *config, int stride) {
+void p_shine_window_filter_subband(int16_t **buffer, int s[SBLIMIT], int ch, p_shine_global_config *config, int stride) {
   int y[64];
   int i,j;
   int16_t *ptr = *buffer;
@@ -66,14 +66,14 @@ void shine_window_filter_subband(int16_t **buffer, int s[SBLIMIT], int ch, shine
 	 uint32_t s_value_lo __attribute__((unused));
 #endif
 
-    asm_mul0  (s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (0<<6)) & (HAN_SIZE-1)], shine_enwindow[i + (0<<6)]);
-    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (1<<6)) & (HAN_SIZE-1)], shine_enwindow[i + (1<<6)]);
-    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (2<<6)) & (HAN_SIZE-1)], shine_enwindow[i + (2<<6)]);
-    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (3<<6)) & (HAN_SIZE-1)], shine_enwindow[i + (3<<6)]);
-    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (4<<6)) & (HAN_SIZE-1)], shine_enwindow[i + (4<<6)]);
-    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (5<<6)) & (HAN_SIZE-1)], shine_enwindow[i + (5<<6)]);
-    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (6<<6)) & (HAN_SIZE-1)], shine_enwindow[i + (6<<6)]);
-    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (7<<6)) & (HAN_SIZE-1)], shine_enwindow[i + (7<<6)]);
+    asm_mul0  (s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (0<<6)) & (HAN_SIZE-1)], p_shine_enwindow[i + (0<<6)]);
+    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (1<<6)) & (HAN_SIZE-1)], p_shine_enwindow[i + (1<<6)]);
+    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (2<<6)) & (HAN_SIZE-1)], p_shine_enwindow[i + (2<<6)]);
+    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (3<<6)) & (HAN_SIZE-1)], p_shine_enwindow[i + (3<<6)]);
+    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (4<<6)) & (HAN_SIZE-1)], p_shine_enwindow[i + (4<<6)]);
+    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (5<<6)) & (HAN_SIZE-1)], p_shine_enwindow[i + (5<<6)]);
+    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (6<<6)) & (HAN_SIZE-1)], p_shine_enwindow[i + (6<<6)]);
+    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (7<<6)) & (HAN_SIZE-1)], p_shine_enwindow[i + (7<<6)]);
     asm_mulz  (s_value, s_value_lo);
     y[i] = s_value;
   }

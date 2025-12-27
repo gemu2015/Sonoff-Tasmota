@@ -1,6 +1,6 @@
-#ifndef shine_BITSTREAM_H
-#define shine_BITSTREAM_H
+#ifndef p_shine_BITSTREAM_H
+#define p_shine_BITSTREAM_H
 
-void shine_format_bitstream(shine_global_config *config);
+void p_shine_format_bitstream(p_shine_global_config *config);
 
 #endif

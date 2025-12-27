@@ -17,18 +17,18 @@
 #define en_scfsi_band_krit 10
 #define xm_scfsi_band_krit 10
 
-static void calc_scfsi(shine_psy_xmin_t *l3_xmin, int ch, int gr, shine_global_config *config);
-static int part2_length(int gr, int ch, shine_global_config *config);
-static int bin_search_StepSize(int desired_rate, int ix[GRANULE_SIZE], gr_info * cod_info, shine_global_config *config);
+static void calc_scfsi(p_shine_psy_xmin_t *l3_xmin, int ch, int gr, p_shine_global_config *config);
+static int part2_length(int gr, int ch, p_shine_global_config *config);
+static int bin_search_StepSize(int desired_rate, int ix[GRANULE_SIZE], gr_info * cod_info, p_shine_global_config *config);
 static int count_bit(int ix[GRANULE_SIZE], unsigned int start, unsigned int end, unsigned int table );
 static int bigv_bitcount(int ix[GRANULE_SIZE], gr_info *gi);
 static int new_choose_table( int ix[GRANULE_SIZE], unsigned int begin, unsigned int end );
 static void bigv_tab_select( int ix[GRANULE_SIZE], gr_info *cod_info );
-static void subdivide(gr_info *cod_info, shine_global_config *config );
+static void subdivide(gr_info *cod_info, p_shine_global_config *config );
 static int count1_bitcount( int ix[ GRANULE_SIZE ], gr_info *cod_info );
 static void calc_runlen( int ix[GRANULE_SIZE], gr_info *cod_info );
-static void calc_xmin( gr_info *cod_info, shine_psy_xmin_t *l3_xmin, int gr, int ch );
-static int quantize(int ix[GRANULE_SIZE], int stepsize, shine_global_config *config);
+static void calc_xmin( gr_info *cod_info, p_shine_psy_xmin_t *l3_xmin, int gr, int ch );
+static int quantize(int ix[GRANULE_SIZE], int stepsize, p_shine_global_config *config);
 
 
 int sqrt_int(int r) {
@@ -60,14 +60,14 @@ float  f_sqrt(const float x) {
   return x*u.x*(1.5f - xhalf*u.x*u.x);// Newton step, repeating increases accuracy
 }
 /*
- * shine_inner_loop:
+ * p_shine_inner_loop:
  * ----------
  * The code selects the best quantizerStepSize for a particular set
  * of scalefacs.
  */
-int shine_inner_loop(int ix[GRANULE_SIZE],
+int p_shine_inner_loop(int ix[GRANULE_SIZE],
                int max_bits, gr_info *cod_info, int gr, int ch,
-               shine_global_config *config ) {
+               p_shine_global_config *config ) {
   int bits, c1bits, bvbits;
 
   if(max_bits<0)
@@ -87,19 +87,19 @@ int shine_inner_loop(int ix[GRANULE_SIZE],
 }
 
 /*
- * shine_outer_loop:
+ * p_shine_outer_loop:
  * -----------
  *  Function: The outer iteration loop controls the masking conditions
  *  of all scalefactorbands. It computes the best scalefac and
  *  global gain. This module calls the inner iteration loop.
  */
 
-int shine_outer_loop( int max_bits,
-                       shine_psy_xmin_t  *l3_xmin, /* the allowed distortion of the scalefactor */
+int p_shine_outer_loop( int max_bits,
+                       p_shine_psy_xmin_t  *l3_xmin, /* the allowed distortion of the scalefactor */
                        int ix[GRANULE_SIZE], /* vector of quantized values ix(0..575) */
-                       int gr, int ch, shine_global_config *config) {
+                       int gr, int ch, p_shine_global_config *config) {
   int bits, huff_bits;
-  shine_side_info_t *side_info = &config->side_info;
+  p_shine_side_info_t *side_info = &config->side_info;
   gr_info *cod_info = &side_info->gr[gr].ch[ch].tt;
 
   cod_info->quantizerStepSize = bin_search_StepSize(max_bits,ix,cod_info, config);
@@ -107,18 +107,18 @@ int shine_outer_loop( int max_bits,
   cod_info->part2_length = part2_length(gr,ch,config);
   huff_bits = max_bits - cod_info->part2_length;
 
-  bits = shine_inner_loop(ix, huff_bits, cod_info, gr, ch, config );
+  bits = p_shine_inner_loop(ix, huff_bits, cod_info, gr, ch, config );
   cod_info->part2_3_length = cod_info->part2_length + bits;
 
   return cod_info->part2_3_length;
 }
 
 /*
- * shine_iteration_loop:
+ * p_shine_iteration_loop:
  * ------------------
  */
-void shine_iteration_loop(shine_global_config *config) {
-  shine_psy_xmin_t l3_xmin;
+void p_shine_iteration_loop(p_shine_global_config *config) {
+  p_shine_psy_xmin_t l3_xmin;
   gr_info *cod_info;
   int max_bits;
   int ch, gr, i;
@@ -153,7 +153,7 @@ void shine_iteration_loop(shine_global_config *config) {
         calc_scfsi(&l3_xmin,ch,gr,config);
 
       /* calculation of number of available bit( per granule ) */
-      max_bits = shine_max_reservoir_bits(&config->pe[ch][gr],config);
+      max_bits = p_shine_max_reservoir_bits(&config->pe[ch][gr],config);
 
       /* reset of iteration variables */
       memset(config->scalefactor.l[gr][ch],0,sizeof(config->scalefactor.l[gr][ch]));
@@ -178,16 +178,16 @@ void shine_iteration_loop(shine_global_config *config) {
 
       /* all spectral values zero ? */
       if(config->l3loop->xrmax)
-        cod_info->part2_3_length = shine_outer_loop(max_bits,&l3_xmin,ix,
+        cod_info->part2_3_length = p_shine_outer_loop(max_bits,&l3_xmin,ix,
                                               gr,ch,config);
 
-      shine_ResvAdjust(cod_info, config );
+      p_shine_ResvAdjust(cod_info, config );
       cod_info->global_gain = cod_info->quantizerStepSize+210;
 
     } /* for gr */
   } /* for ch */
 
-  shine_ResvFrameEnd(config);
+  p_shine_ResvFrameEnd(config);
 }
 
 /*
@@ -195,9 +195,9 @@ void shine_iteration_loop(shine_global_config *config) {
  * -----------
  * calculation of the scalefactor select information ( scfsi ).
  */
-void calc_scfsi( shine_psy_xmin_t *l3_xmin, int ch, int gr,
-                 shine_global_config *config ) {
-  shine_side_info_t *l3_side = &config->side_info;
+void calc_scfsi( p_shine_psy_xmin_t *l3_xmin, int ch, int gr,
+                 p_shine_global_config *config ) {
+  p_shine_side_info_t *l3_side = &config->side_info;
   /* This is the scfsi_band table from 2.4.2.7 of the IS */
   static const int scfsi_band_long[5] = { 0, 6, 11, 16, 21 };
 
@@ -208,7 +208,7 @@ void calc_scfsi( shine_psy_xmin_t *l3_xmin, int ch, int gr,
   int condition = 0;
   int temp;
 
-  const int *scalefac_band_long = &shine_scale_fact_band_index[config->mpeg.samplerate_index][0];
+  const int *scalefac_band_long = &p_shine_scale_fact_band_index[config->mpeg.samplerate_index][0];
 
   // note. it goes quite a bit faster if you uncomment the next bit and exit
    //  early from scfsi, but you then loose the advantage of common scale factors.
@@ -305,15 +305,15 @@ void calc_scfsi( shine_psy_xmin_t *l3_xmin, int ch, int gr,
  * calculates the number of bits needed to encode the scalefacs in the
  * main data block.
  */
-int part2_length(int gr, int ch, shine_global_config *config) {
+int part2_length(int gr, int ch, p_shine_global_config *config) {
   int slen1, slen2, bits;
   gr_info *gi = &config->side_info.gr[gr].ch[ch].tt;
 
   bits = 0;
 
   {
-    slen1 = shine_slen1_tab[ gi->scalefac_compress ];
-    slen2 = shine_slen2_tab[ gi->scalefac_compress ];
+    slen1 = p_shine_slen1_tab[ gi->scalefac_compress ];
+    slen2 = p_shine_slen2_tab[ gi->scalefac_compress ];
 
     if ( !gr || !(config->side_info.scfsi[ch][0]) )
       bits += (6 * slen1);
@@ -338,7 +338,7 @@ int part2_length(int gr, int ch, shine_global_config *config) {
  * xmin(sb) = ratio(sb) * en(sb) / bw(sb)
  */
 void calc_xmin(gr_info *cod_info,
-               shine_psy_xmin_t *l3_xmin,
+               p_shine_psy_xmin_t *l3_xmin,
                int gr, int ch ) {
   int sfb;
 
@@ -360,11 +360,11 @@ void calc_xmin(gr_info *cod_info,
 }
 
 /*
- * shine_loop_initialise:
+ * p_shine_loop_initialise:
  * -------------------
  * Calculates the look up tables used by the iteration loop.
  */
-void shine_loop_initialise(shine_global_config *config) {
+void p_shine_loop_initialise(p_shine_global_config *config) {
   int i;
 
   /* quantize: stepsize conversion, fourth root of 2 table.
@@ -398,7 +398,7 @@ void shine_loop_initialise(shine_global_config *config) {
  * Function: Quantization of the vector xr ( -> ix).
  * Returns maximum value of ix.
  */
-int quantize(int ix[GRANULE_SIZE], int stepsize, shine_global_config *config )
+int quantize(int ix[GRANULE_SIZE], int stepsize, p_shine_global_config *config )
 {
   int i, max, ln;
   int scalei;
@@ -511,8 +511,8 @@ int count1_bitcount(int ix[GRANULE_SIZE], gr_info *cod_info) {
     sum0 += signbits;
     sum1 += signbits;
 
-    sum0 += shine_huffman_table[32].hlen[p];
-    sum1 += shine_huffman_table[33].hlen[p];
+    sum0 += p_shine_huffman_table[32].hlen[p];
+    sum1 += p_shine_huffman_table[33].hlen[p];
   }
 
   if(sum0<sum1)
@@ -532,7 +532,7 @@ int count1_bitcount(int ix[GRANULE_SIZE], gr_info *cod_info) {
  * ----------
  * presumable subdivides the bigvalue region which will use separate Huffman tables.
  */
-void subdivide(gr_info *cod_info, shine_global_config *config) {
+void subdivide(gr_info *cod_info, p_shine_global_config *config) {
   static const struct
   {
     unsigned region0_count;
@@ -571,7 +571,7 @@ void subdivide(gr_info *cod_info, shine_global_config *config) {
   }
   else
   {
-    const int *scalefac_band_long = &shine_scale_fact_band_index[config->mpeg.samplerate_index][0];
+    const int *scalefac_band_long = &p_shine_scale_fact_band_index[config->mpeg.samplerate_index][0];
     int bigvalues_region, scfb_anz, thiscount;
 
     bigvalues_region = 2 * cod_info->big_values;
@@ -648,7 +648,7 @@ int new_choose_table( int ix[GRANULE_SIZE], unsigned int begin, unsigned int end
   {
     /* try tables with no linbits */
     for ( i =14; i--; )
-      if ( shine_huffman_table[i].xlen > max )
+      if ( p_shine_huffman_table[i].xlen > max )
       {
         choice[0] = i;
         break;
@@ -707,14 +707,14 @@ int new_choose_table( int ix[GRANULE_SIZE], unsigned int begin, unsigned int end
     max -= 15;
 
     for(i=15;i<24;i++)
-      if(shine_huffman_table[i].linmax>=max)
+      if(p_shine_huffman_table[i].linmax>=max)
       {
         choice[0] = i;
         break;
       }
 
     for(i=24;i<32;i++)
-      if(shine_huffman_table[i].linmax>=max)
+      if(p_shine_huffman_table[i].linmax>=max)
       {
         choice[1] = i;
         break;
@@ -763,7 +763,7 @@ int count_bit(int ix[GRANULE_SIZE],
   if(!table)
     return 0;
 
-  h   = &(shine_huffman_table[table]);
+  h   = &(p_shine_huffman_table[table]);
   sum = 0;
 
   ylen    = h->ylen;
@@ -817,14 +817,14 @@ int count_bit(int ix[GRANULE_SIZE],
  * Succesive approximation approach to obtaining a initial quantizer
  * step size.
  * The following optional code written by Seymour Shlien
- * will speed up the shine_outer_loop code which is called
+ * will speed up the p_shine_outer_loop code which is called
  * by iteration_loop. When BIN_SEARCH is defined, the
- * shine_outer_loop function precedes the call to the function shine_inner_loop
+ * p_shine_outer_loop function precedes the call to the function p_shine_inner_loop
  * with a call to bin_search gain defined below, which
  * returns a good starting quantizerStepSize.
  */
 int bin_search_StepSize(int desired_rate, int ix[GRANULE_SIZE],
-                        gr_info * cod_info, shine_global_config *config) {
+                        gr_info * cod_info, p_shine_global_config *config) {
   int bit, next, count;
 
   next  = -120;

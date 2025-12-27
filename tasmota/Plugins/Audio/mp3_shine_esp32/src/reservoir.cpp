@@ -11,13 +11,13 @@
 #include "reservoir.h"
 
 /*
- * shine_max_reservoir_bits:
+ * p_shine_max_reservoir_bits:
  * ------------
  * Called at the beginning of each granule to get the max bit
  * allowance for the current granule based on reservoir size
  * and perceptual entropy.
  */
-int shine_max_reservoir_bits (double *pe, shine_global_config *config ) {
+int p_shine_max_reservoir_bits (double *pe, p_shine_global_config *config ) {
   int more_bits, max_bits, add_bits, over_bits;
   int mean_bits = config->mean_bits;
 
@@ -51,17 +51,17 @@ int shine_max_reservoir_bits (double *pe, shine_global_config *config ) {
 }
 
 /*
- * shine_ResvAdjust:
+ * p_shine_ResvAdjust:
  * -----------
  * Called after a granule's bit allocation. Readjusts the size of
  * the reservoir to reflect the granule's usage.
  */
-void shine_ResvAdjust(gr_info *gi, shine_global_config *config ) {
+void p_shine_ResvAdjust(gr_info *gi, p_shine_global_config *config ) {
   config->ResvSize += (config->mean_bits / config->wave.channels) - gi->part2_3_length;
 }
 
 /*
- * shine_ResvFrameEnd:
+ * p_shine_ResvFrameEnd:
  * -------------
  * Called after all granules in a frame have been allocated. Makes sure
  * that the reservoir size is within limits, possibly by adding stuffing
@@ -69,11 +69,11 @@ void shine_ResvAdjust(gr_info *gi, shine_global_config *config ) {
  * part2_3_length. The bitstream formatter will detect this and write the
  * appropriate stuffing bits to the bitstream.
  */
-void shine_ResvFrameEnd(shine_global_config *config ) {
+void p_shine_ResvFrameEnd(p_shine_global_config *config ) {
   gr_info *gi;
   int gr, ch, ancillary_pad, stuffingBits;
   int over_bits;
-  shine_side_info_t *l3_side = &config->side_info;
+  p_shine_side_info_t *l3_side = &config->side_info;
 
   ancillary_pad = 0;
 

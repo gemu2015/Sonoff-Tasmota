@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-void shine_subband_initialise( shine_global_config *config );
-void shine_window_filter_subband(int16_t **buffer, int s[SBLIMIT], int k, shine_global_config *config, int stride);
+void p_shine_subband_initialise( p_shine_global_config *config );
+void p_shine_window_filter_subband(int16_t **buffer, int s[SBLIMIT], int k, p_shine_global_config *config, int stride);
 
 #endif

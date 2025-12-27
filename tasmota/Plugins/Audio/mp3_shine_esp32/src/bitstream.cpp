@@ -14,7 +14,7 @@
 #endif
 
 /* open the device to write the bit stream into it */
-void shine_open_bit_stream(bitstream_t *bs, int size) {
+void p_shine_open_bit_stream(bitstream_t *bs, int size) {
   bs->data = (unsigned char *)malloc(size*sizeof(unsigned char));
   bs->data_size = size;
   bs->data_position = 0;
@@ -23,21 +23,21 @@ void shine_open_bit_stream(bitstream_t *bs, int size) {
 }
 
 /*close the device containing the bit stream */
-void shine_close_bit_stream(bitstream_t *bs) {
+void p_shine_close_bit_stream(bitstream_t *bs) {
   if (bs->data)
     free(bs->data);
 }
 
 /*
- * shine_putbits:
+ * p_shine_putbits:
  * --------
  * write N bits into the bit stream.
  * bs = bit stream structure
  * val = value to write into the buffer
  * N = number of bits of val
  */
-void shine_putbits(bitstream_t *bs, unsigned int val, unsigned int N) {
-#ifdef SHINE_DEBUG
+void p_shine_putbits(bitstream_t *bs, unsigned int val, unsigned int N) {
+#ifdef p_shine_DEBUG
 	if (N > 32) {
 		printf("Cannot write more than 32 bits at a time.\n");
   }
@@ -57,7 +57,7 @@ void shine_putbits(bitstream_t *bs, unsigned int val, unsigned int N) {
 
 		N -= bs->cache_bits;
 		bs->cache |= val >> N;
-#ifdef SHINE_BIG_ENDIAN
+#ifdef p_shine_BIG_ENDIAN
 		*(unsigned int*)(bs->data + bs->data_position) = bs->cache;
 #else
 		*(unsigned int*)(bs->data + bs->data_position) = SWAB32(bs->cache);
@@ -71,6 +71,6 @@ void shine_putbits(bitstream_t *bs, unsigned int val, unsigned int N) {
 	}
 }
 
-int shine_get_bits_count(bitstream_t *bs) {
+int p_shine_get_bits_count(bitstream_t *bs) {
 	return bs->data_position * 8 + 32 - bs->cache_bits;
 }

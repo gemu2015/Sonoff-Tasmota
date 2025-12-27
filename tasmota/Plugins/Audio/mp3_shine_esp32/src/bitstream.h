@@ -20,9 +20,9 @@ typedef struct  bit_stream_struc {
 //#define         MIN(A, B)       ((A) < (B) ? (A) : (B))
 //#define         MAX(A, B)       ((A) > (B) ? (A) : (B))
 
-void shine_open_bit_stream(bitstream_t *bs,const int size);
-void shine_close_bit_stream(bitstream_t *bs);
-void shine_putbits(bitstream_t *bs,unsigned int val, unsigned int N);
-int  shine_get_bits_count(bitstream_t *bs);
+void p_shine_open_bit_stream(bitstream_t *bs,const int size);
+void p_shine_close_bit_stream(bitstream_t *bs);
+void p_shine_putbits(bitstream_t *bs,unsigned int val, unsigned int N);
+int  p_shine_get_bits_count(bitstream_t *bs);
 
 #endif

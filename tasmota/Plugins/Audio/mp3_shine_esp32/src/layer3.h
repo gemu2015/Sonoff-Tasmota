@@ -5,7 +5,7 @@
 
 /* This is the struct used to tell the encoder about the input PCM */
 
-//#define SHINE_DEBUG
+//#define p_shine_DEBUG
 
 enum channels {
   PCM_MONO   = 1,
@@ -26,7 +26,7 @@ enum mpeg_layers {
 typedef struct {
     enum channels channels;
     int           samplerate;
-} shine_wave_t;
+} p_shine_wave_t;
 
 /* This is the struct the encoder uses to tell the encoder about the output MP3 */
 
@@ -49,12 +49,12 @@ typedef struct {
     enum emph  emph;      /* De-emphasis */
     int        copyright;
     int        original;
-} shine_mpeg_t;
+} p_shine_mpeg_t;
 
 typedef struct {
-  shine_wave_t wave;
-  shine_mpeg_t mpeg;
-} shine_config_t;
+  p_shine_wave_t wave;
+  p_shine_mpeg_t mpeg;
+} p_shine_config_t;
 
 /* Tables of supported audio parameters & format.
  *
@@ -90,28 +90,28 @@ typedef struct {
 
 
 /* Abtract type for the shine encoder handle. */
-typedef struct shine_global_flags *shine_t;
+typedef struct p_shine_global_flags *p_shine_t;
 
 /* Fill in a `mpeg_t` structure with default values. */
-void shine_set_config_mpeg_defaults(shine_mpeg_t *mpeg);
+void p_shine_set_config_mpeg_defaults(p_shine_mpeg_t *mpeg);
 
 /* Check if a given bitrate is supported by the encoder (see `bitrates` above for a list
  * of acceptable values. */
-int shine_find_bitrate_index(int bitr, int mpeg_version);
+int p_shine_find_bitrate_index(int bitr, int mpeg_version);
 
 /* Check if a given samplerate is supported by the encoder (see `samplerates` above for a list
  * of acceptable values. */
-int shine_find_samplerate_index(int freq);
+int p_shine_find_samplerate_index(int freq);
 
 /* Returns the MPEG version used for the given samplerate index. See above
  * `mpeg_versions` for a list of possible values. */
-int shine_mpeg_version(int samplerate_index);
+int p_shine_mpeg_version(int samplerate_index);
 
 /* Check if a given bitrate and samplerate is supported by the encoder (see `samplerates`
  * and `bitrates` above for a list of acceptable values).
  *
  * Returns -1 on error, mpeg_version on success. */
-int shine_check_config(int freq, int bitr);
+int p_shine_check_config(int freq, int bitr);
 
 /* Pass a pointer to a `config_t` structure and returns an initialized
  * encoder.
@@ -120,47 +120,47 @@ int shine_check_config(int freq, int bitr);
  * to change its values after initializing the encoder at the moment.
  *
  * Checking for valid configuration values is left for the application to
- * implement. You can use the `shine_find_bitrate_index` and
- * `shine_find_samplerate_index` functions or the `bitrates` and
+ * implement. You can use the `p_shine_find_bitrate_index` and
+ * `p_shine_find_samplerate_index` functions or the `bitrates` and
  * `samplerates` arrays above to check those parameters. Mone and stereo
  * mode for wave and mpeg should also be consistent with each other.
  *
  * This function returns NULL if it was not able to allocate memory data for
  * the encoder. */
-shine_t shine_initialise(shine_config_t *config);
+p_shine_t p_shine_initialise(p_shine_config_t *config);
 
 /* Maximun possible value for the function below. */
-#define SHINE_MAX_SAMPLES 1152
+#define p_shine_MAX_SAMPLES 1152
 
-uint32_t *shine_get_counters();
+uint32_t *p_shine_get_counters();
 
 /* Returns audio samples expected in each frame. */
-int shine_samples_per_pass(shine_t s);
+int p_shine_samples_per_pass(p_shine_t s);
 
-/* Encode audio data. Source data must have `shine_samples_per_pass(s)` audio samples per
+/* Encode audio data. Source data must have `p_shine_samples_per_pass(s)` audio samples per
  * channels. Mono encoder only expect one channel.
  *
  * Returns a pointer to freshly encoded data while `written` contains the size of
  * available data. This pointer's memory is handled by the library and is only valid
- * until the next call to `shine_encode_buffer` or `shine_close` and may be NULL if no data
+ * until the next call to `p_shine_encode_buffer` or `p_shine_close` and may be NULL if no data
  * was written. */
-unsigned char *shine_encode_buffer(shine_t s, int16_t **data, int *written);
+unsigned char *p_shine_encode_buffer(p_shine_t s, int16_t **data, int *written);
 
-/* Encode interleaved audio data. Source data must have `shine_samples_per_pass(s)` audio samples per
+/* Encode interleaved audio data. Source data must have `p_shine_samples_per_pass(s)` audio samples per
  * channels. Mono encoder only expect one channel.
  *
  * Returns a pointer to freshly encoded data while `written` contains the size of
  * available data. This pointer's memory is handled by the library and is only valid
- * until the next call to `shine_encode_buffer` or `shine_close` and may be NULL if no data
+ * until the next call to `p_shine_encode_buffer` or `p_shine_close` and may be NULL if no data
  * was written. */
-unsigned char *shine_encode_buffer_interleaved(shine_t s, int16_t *data, int *written);
+unsigned char *p_shine_encode_buffer_interleaved(p_shine_t s, int16_t *data, int *written);
 
 /* Flush all data currently in the encoding buffer. Should be used before closing
  * the encoder, to make all encoded data has been written. */
-unsigned char *shine_flush(shine_t s, int *written);
+unsigned char *p_shine_flush(p_shine_t s, int *written);
 
 /* Close an encoder, freeing all associated memory. Encoder handler is not
  * valid after this call. */
-void shine_close(shine_t s);
+void p_shine_close(p_shine_t s);
 
 #endif

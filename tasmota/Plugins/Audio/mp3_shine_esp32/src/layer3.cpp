@@ -24,14 +24,14 @@ static int granules_per_frame[4] = {
 };
 
 /* Set default values for important vars */
-void shine_set_config_mpeg_defaults(shine_mpeg_t *mpeg) {
+void p_shine_set_config_mpeg_defaults(p_shine_mpeg_t *mpeg) {
   mpeg->bitr = 128;
   mpeg->emph = NONE;
   mpeg->copyright = 0;
   mpeg->original  = 1;
 }
 
-int shine_mpeg_version(int samplerate_index) {
+int p_shine_mpeg_version(int samplerate_index) {
   /* Pick mpeg version according to samplerate index. */
   if (samplerate_index < 3) {
     /* First 3 samplerates are for MPEG-I */
@@ -45,7 +45,7 @@ int shine_mpeg_version(int samplerate_index) {
   }
 }
 
-int shine_find_samplerate_index(int freq) {
+int p_shine_find_samplerate_index(int freq) {
   int i;
 
   for(i=0;i<9;i++) {
@@ -54,7 +54,7 @@ int shine_find_samplerate_index(int freq) {
   return -1; /* error - not a valid samplerate for encoder */
 }
 
-int shine_find_bitrate_index(int bitr, int mpeg_version) {
+int p_shine_find_bitrate_index(int bitr, int mpeg_version) {
   int i;
 
   for(i=0;i<16;i++) {
@@ -63,43 +63,43 @@ int shine_find_bitrate_index(int bitr, int mpeg_version) {
   return -1; /* error - not a valid samplerate for encoder */
 }
 
-int shine_check_config(int freq, int bitr) {
+int p_shine_check_config(int freq, int bitr) {
   int samplerate_index, bitrate_index, mpeg_version;
 
-  samplerate_index = shine_find_samplerate_index(freq);
+  samplerate_index = p_shine_find_samplerate_index(freq);
   if (samplerate_index < 0) {
     return -1;
   }
-  mpeg_version = shine_mpeg_version(samplerate_index);
+  mpeg_version = p_shine_mpeg_version(samplerate_index);
 
-  bitrate_index = shine_find_bitrate_index(bitr, mpeg_version);
+  bitrate_index = p_shine_find_bitrate_index(bitr, mpeg_version);
   if (bitrate_index < 0) {
     return -1;
   }
   return mpeg_version;
 }
 
-int shine_samples_per_pass(shine_t s) {
+int p_shine_samples_per_pass(p_shine_t s) {
   return s->mpeg.granules_per_frame * GRANULE_SIZE;
 }
 
 /* Compute default encoding values. */
-shine_global_config *shine_initialise(shine_config_t *pub_config) {
+p_shine_global_config *p_shine_initialise(p_shine_config_t *pub_config) {
   double avg_slots_per_frame;
-  shine_global_config *config;
+  p_shine_global_config *config;
   int x, y;
-  if (shine_check_config(pub_config->wave.samplerate, pub_config->mpeg.bitr) < 0) {
+  if (p_shine_check_config(pub_config->wave.samplerate, pub_config->mpeg.bitr) < 0) {
     return NULL;
   }
 
-  config = (shine_global_config*)heap_caps_malloc(sizeof(shine_global_config), MALLOC_CAP_SPIRAM);
+  config = (p_shine_global_config*)heap_caps_malloc(sizeof(p_shine_global_config), MALLOC_CAP_SPIRAM);
   if (config == NULL) {
     return config;
   }
 
-  memset(config, 0, sizeof(shine_global_config));
+  memset(config, 0, sizeof(p_shine_global_config));
 
-#ifdef  SHINE_DEBUG
+#ifdef  p_shine_DEBUG
   printf("l3_enc & mdct_freq each: %d\n", sizeof(int32_t)*GRANULE_SIZE*MAX_GRANULES*MAX_CHANNELS);
 #endif
 
@@ -118,11 +118,11 @@ shine_global_config *shine_initialise(shine_config_t *pub_config) {
         }
       }
   }
-#ifdef  SHINE_DEBUG
+#ifdef  p_shine_DEBUG
   printf("l3loop struct: %d\n", sizeof(l3loop_t));
 #endif
   config->l3loop = (l3loop_t*)heap_caps_malloc(sizeof(l3loop_t), MALLOC_CAP_SPIRAM);
-#ifdef  SHINE_DEBUG
+#ifdef  p_shine_DEBUG
   printf("xrsq & xrabs each: %d\n", sizeof(int)*GRANULE_SIZE);
 #endif
   config->l3loop->xrsq = (int*)heap_caps_malloc_prefer(4*GRANULE_SIZE, MALLOC_CAP_32BIT, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT); //OK 0.5%
@@ -150,9 +150,9 @@ shine_global_config *shine_initialise(shine_config_t *pub_config) {
   int16_t int2idx[10000];
 } l3loop_t;*/
 
-  shine_subband_initialise(config);
-  shine_mdct_initialise(config);
-  shine_loop_initialise(config);
+  p_shine_subband_initialise(config);
+  p_shine_mdct_initialise(config);
+  p_shine_loop_initialise(config);
 
   /* Copy public config. */
   config->wave.channels   = pub_config->wave.channels;
@@ -172,9 +172,9 @@ shine_global_config *shine_initialise(shine_config_t *pub_config) {
   config->mpeg.mode_ext       = 0;
   config->mpeg.bits_per_slot  = 8;
 
-  config->mpeg.samplerate_index   = shine_find_samplerate_index(config->wave.samplerate);
-  config->mpeg.version            = shine_mpeg_version(config->mpeg.samplerate_index);
-  config->mpeg.bitrate_index      = shine_find_bitrate_index(config->mpeg.bitr, config->mpeg.version);
+  config->mpeg.samplerate_index   = p_shine_find_samplerate_index(config->wave.samplerate);
+  config->mpeg.version            = p_shine_mpeg_version(config->mpeg.samplerate_index);
+  config->mpeg.bitrate_index      = p_shine_find_bitrate_index(config->mpeg.bitr, config->mpeg.version);
   config->mpeg.granules_per_frame = granules_per_frame[config->mpeg.version];
 
   /* Figure average number of 'slots' per frame. */
@@ -192,9 +192,9 @@ shine_global_config *shine_initialise(shine_config_t *pub_config) {
     config->mpeg.padding = 0;
   }
 
-  shine_open_bit_stream(&config->bs, BUFFER_SIZE);
+  p_shine_open_bit_stream(&config->bs, BUFFER_SIZE);
 
-  memset((char *)&config->side_info,0,sizeof(shine_side_info_t));
+  memset((char *)&config->side_info,0,sizeof(p_shine_side_info_t));
 
   /* determine the mean bitrate for main data */
   if (config->mpeg.granules_per_frame == 2) { /* MPEG 1 */
@@ -207,7 +207,7 @@ shine_global_config *shine_initialise(shine_config_t *pub_config) {
 
 
 
-uint32_t *shine_get_counters() {
+uint32_t *p_shine_get_counters() {
   return counter;
 }
 
@@ -225,7 +225,7 @@ Counters 2664123380 : 2664123448 : 2666717886 : 2668665908 : 2668859025
 */
 
 
-static unsigned char *shine_encode_buffer_internal(shine_global_config *config, int *written, int stride) {
+static unsigned char *p_shine_encode_buffer_internal(p_shine_global_config *config, int *written, int stride) {
   counter[0] = portGET_RUN_TIME_COUNTER_VALUE();      // TASMOTA more portable solution
   // counter[0] = xthal_get_ccount();
   if(config->mpeg.frac_slots_per_frame) {
@@ -239,16 +239,16 @@ static unsigned char *shine_encode_buffer_internal(shine_global_config *config, 
   // counter[1] = xthal_get_ccount();
   /* apply mdct to the polyphase output */
   // put on core 1
-  shine_mdct_sub(config, stride);
+  p_shine_mdct_sub(config, stride);
   counter[2] = portGET_RUN_TIME_COUNTER_VALUE();      // TASMOTA more portable solution
   // counter[2] = xthal_get_ccount();
   /* bit and noise allocation */
   //put on core 0
-  shine_iteration_loop(config);
+  p_shine_iteration_loop(config);
   counter[3] = portGET_RUN_TIME_COUNTER_VALUE();      // TASMOTA more portable solution
   // counter[3] = xthal_get_ccount();
   /* write the frame to the bitstream */
-  shine_format_bitstream(config);
+  p_shine_format_bitstream(config);
   counter[4] = portGET_RUN_TIME_COUNTER_VALUE();      // TASMOTA more portable solution
   // counter[4] = xthal_get_ccount();
   /* Return data. */
@@ -258,30 +258,30 @@ static unsigned char *shine_encode_buffer_internal(shine_global_config *config, 
   return config->bs.data;
 }
 
-unsigned char *shine_encode_buffer(shine_global_config *config, int16_t **data, int *written) {
+unsigned char *p_shine_encode_buffer(p_shine_global_config *config, int16_t **data, int *written) {
   config->buffer[0] = data[0];
   if (config->wave.channels == 2) {
     config->buffer[1] = data[1];
   }
-  return shine_encode_buffer_internal(config, written, 1);
+  return p_shine_encode_buffer_internal(config, written, 1);
 }
 
-unsigned char *shine_encode_buffer_interleaved(shine_global_config *config, int16_t *data, int *written) {
+unsigned char *p_shine_encode_buffer_interleaved(p_shine_global_config *config, int16_t *data, int *written) {
   config->buffer[0] = data;
   if (config->wave.channels == 2) {
     config->buffer[1] = data + 1;
   }
-  return shine_encode_buffer_internal(config, written, config->wave.channels);
+  return p_shine_encode_buffer_internal(config, written, config->wave.channels);
 }
 
-unsigned char *shine_flush(shine_global_config *config, int *written) {
+unsigned char *p_shine_flush(p_shine_global_config *config, int *written) {
   *written = config->bs.data_position;
   config->bs.data_position = 0;
   return config->bs.data;
 }
 
-void shine_close(shine_global_config *config) {
-  shine_close_bit_stream(&config->bs);
+void p_shine_close(p_shine_global_config *config) {
+  p_shine_close_bit_stream(&config->bs);
 
   for (uint16_t x = 0; x < MAX_CHANNELS; x++) {
       for (uint16_t y = 0; y < MAX_GRANULES; y++) {
