@@ -374,7 +374,7 @@ void shine_loop_initialise(shine_global_config *config) {
    */
   for(i=128; i--;)
   {
-    config->l3loop->steptab[i] = pow(2.0,(double)(127-i)/4);
+    config->l3loop->steptab[i] = pow(2.0,(SHINE_DOUBLE)(127-i)/4);
     if((config->l3loop->steptab[i]*2)>0x7fffffff) /* MAXINT = 2**31 = 2**(124/4) */
       config->l3loop->steptabi[i]=0x7fffffff;
     else
@@ -389,7 +389,7 @@ void shine_loop_initialise(shine_global_config *config) {
    * The 0.5 is for rounding, the .0946 comes from the spec.
    */
   for(i=10000; i--;)
-    config->l3loop->int2idx[i] = (int)(sqrt(sqrt((double)i)*(double)i) - 0.0946 + 0.5);
+    config->l3loop->int2idx[i] = (int)(sqrt(sqrt((SHINE_DOUBLE)i)*(SHINE_DOUBLE)i) - 0.0946 + 0.5);
 }
 
 /*

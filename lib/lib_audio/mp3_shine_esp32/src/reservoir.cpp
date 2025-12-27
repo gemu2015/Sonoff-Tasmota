@@ -17,7 +17,7 @@
  * allowance for the current granule based on reservoir size
  * and perceptual entropy.
  */
-int shine_max_reservoir_bits (double *pe, shine_global_config *config ) {
+int shine_max_reservoir_bits (SHINE_DOUBLE *pe, shine_global_config *config ) {
   int more_bits, max_bits, add_bits, over_bits;
   int mean_bits = config->mean_bits;
 

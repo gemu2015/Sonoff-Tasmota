@@ -85,7 +85,7 @@ int shine_samples_per_pass(shine_t s) {
 
 /* Compute default encoding values. */
 shine_global_config *shine_initialise(shine_config_t *pub_config) {
-  double avg_slots_per_frame;
+  SHINE_DOUBLE avg_slots_per_frame;
   shine_global_config *config;
   int x, y;
   if (shine_check_config(pub_config->wave.samplerate, pub_config->mpeg.bitr) < 0) {
@@ -145,7 +145,7 @@ shine_global_config *shine_initialise(shine_config_t *pub_config) {
   int32_t en[MAX_GRANULES][21];
   int32_t xm[MAX_GRANULES][21];
   int32_t xrmaxl[MAX_GRANULES];
-  double steptab[128];
+  SHINE_DOUBLE steptab[128];
   int32_t steptabi[128];
   int16_t int2idx[10000];
 } l3loop_t;*/
@@ -178,14 +178,14 @@ shine_global_config *shine_initialise(shine_config_t *pub_config) {
   config->mpeg.granules_per_frame = granules_per_frame[config->mpeg.version];
 
   /* Figure average number of 'slots' per frame. */
-  avg_slots_per_frame = ((double)config->mpeg.granules_per_frame * GRANULE_SIZE /
-                        ((double)config->wave.samplerate)) *
-                        (1000*(double)config->mpeg.bitr /
-                         (double)config->mpeg.bits_per_slot);
+  avg_slots_per_frame = ((SHINE_DOUBLE)config->mpeg.granules_per_frame * GRANULE_SIZE /
+                        ((SHINE_DOUBLE)config->wave.samplerate)) *
+                        (1000*(SHINE_DOUBLE)config->mpeg.bitr /
+                         (SHINE_DOUBLE)config->mpeg.bits_per_slot);
 
   config->mpeg.whole_slots_per_frame  = (int)avg_slots_per_frame;
 
-  config->mpeg.frac_slots_per_frame  = avg_slots_per_frame - (double)config->mpeg.whole_slots_per_frame;
+  config->mpeg.frac_slots_per_frame  = avg_slots_per_frame - (SHINE_DOUBLE)config->mpeg.whole_slots_per_frame;
   config->mpeg.slot_lag              = -config->mpeg.frac_slots_per_frame;
 
   if(config->mpeg.frac_slots_per_frame==0) {

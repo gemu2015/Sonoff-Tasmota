@@ -13,7 +13,7 @@
  */
 void shine_subband_initialise(shine_global_config *config) {
   int i,j;
-  double filter;
+  SHINE_DOUBLE filter;
 
   for(i=MAX_CHANNELS; i-- ; ) {
     config->subband.off[i] = 0;
@@ -23,7 +23,7 @@ void shine_subband_initialise(shine_global_config *config) {
   for (i=SBLIMIT; i--; )
     for (j=64; j--; )
     {
-      if ((filter = 1e9*cos((double)((2*i+1)*(16-j)*PI64))) >= 0)
+      if ((filter = 1e9*cos((SHINE_DOUBLE)((2*i+1)*(16-j)*PI64))) >= 0)
         modf(filter+0.5, &filter);
       else
         modf(filter-0.5, &filter);

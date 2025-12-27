@@ -9,6 +9,8 @@
 
 #define GRANULE_SIZE  576
 
+#define SHINE_DOUBLE float
+
 #include "bitstream.h"
 
 /* Include arch-specific instructions,
@@ -74,8 +76,8 @@ typedef struct {
     int    padding;
     int    bits_per_frame;
     int    bits_per_slot;
-    double frac_slots_per_frame;
-    double slot_lag;
+    SHINE_DOUBLE frac_slots_per_frame;
+    SHINE_DOUBLE slot_lag;
     int    whole_slots_per_frame;
     int    bitrate_index;     /* + */ /* See Main.c and Layer3.c */
     int    samplerate_index;  /* + */ /* See Main.c and Layer3.c */
@@ -95,7 +97,7 @@ typedef struct {
   int en[MAX_GRANULES][21];
   int xm[MAX_GRANULES][21];
   int xrmaxl[MAX_GRANULES];
-  double steptab[128]; /* 2**(-x/4)  for x = -127..0 */
+  SHINE_DOUBLE steptab[128]; /* 2**(-x/4)  for x = -127..0 */
   int steptabi[128];  /* 2**(-x/4)  for x = -127..0 */
   int16_t int2idx[10000]; /* x**(3/4)   for x = 0..9999 */
 } l3loop_t;
@@ -148,7 +150,7 @@ typedef struct {
 } shine_psy_ratio_t;
 
 typedef struct {
-    double  l[MAX_GRANULES][MAX_CHANNELS][21];
+    SHINE_DOUBLE  l[MAX_GRANULES][MAX_CHANNELS][21];
 } shine_psy_xmin_t;
 
 typedef struct {
@@ -167,7 +169,7 @@ typedef struct shine_global_flags {
   //shine_psy_ratio_t ratio;
   shine_scalefac_t  scalefactor;
   int16_t       *buffer[MAX_CHANNELS];
-  double          pe[MAX_CHANNELS][MAX_GRANULES];
+  SHINE_DOUBLE          pe[MAX_CHANNELS][MAX_GRANULES];
   int            *l3_enc[MAX_CHANNELS][MAX_GRANULES]; //4% reduction in performance IRAM
   int        l3_sb_sample[MAX_CHANNELS][MAX_GRANULES+1][18][SBLIMIT];
   int        *mdct_freq[MAX_CHANNELS][MAX_GRANULES]; //1% reduction in perormance IRAM
