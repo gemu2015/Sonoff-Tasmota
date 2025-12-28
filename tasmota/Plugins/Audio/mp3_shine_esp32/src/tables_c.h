@@ -5,8 +5,6 @@
  *    idx  = fr_ps->header->sampling_frequency + (fr_ps->header->version * 3)
  */
 
-#include "tables.h"
-
 const int shine_slen1_tab[16] = { 0, 0, 0, 0, 3, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4 };
 const int shine_slen2_tab[16] = { 0, 1, 2, 3, 0, 1, 2, 3, 1, 2, 3, 1, 2, 3, 2, 3 };
 

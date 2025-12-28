@@ -1,9 +1,5 @@
 /* huffman.c */
 
-#include "types.h"
-#include "huffman.h"
-#include "bitstream.h"
-#include "l3bitstream.h"
 
 const HUFFBITS dmask = 1 << (((sizeof(HUFFBITS))<<3)-1);
 const unsigned int hs = sizeof(HUFFBITS)<<3;
@@ -79,7 +75,7 @@ static const unsigned char t32l[] = {1, 4, 4, 5, 4, 6, 5, 6, 4, 5, 5, 6, 5, 6, 6
 static const unsigned char t33l[] = {4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4};
 
 #define NOREF -1
-const struct huffcodetab shine_huffman_table[HTN] =
+const struct p_huffcodetab p_shine_huffman_table[HTN] =
 {
 { 0, 0, 0,   0,NULL,NULL},
 { 2, 2, 0,   0,t1HB, t1l},

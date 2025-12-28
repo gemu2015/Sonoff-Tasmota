@@ -7,14 +7,10 @@
  * Removed unused functions. Feb 2001 P.Everett
  */
 
-#include "types.h"
-#include "bitstream.h"
-#if !defined(__APPLE__) && !defined(__FreeBSD__)
-#include <malloc.h>
-#endif
 
 /* open the device to write the bit stream into it */
-void shine_open_bit_stream(bitstream_t *bs, int size) {
+MODULE_PART  void p_shine_open_bit_stream(bitstream_t *bs, int size) {
+SETMEMREGS
   bs->data = (unsigned char *)malloc(size*sizeof(unsigned char));
   bs->data_size = size;
   bs->data_position = 0;
@@ -23,7 +19,8 @@ void shine_open_bit_stream(bitstream_t *bs, int size) {
 }
 
 /*close the device containing the bit stream */
-void shine_close_bit_stream(bitstream_t *bs) {
+MODULE_PART  void p_shine_close_bit_stream(bitstream_t *bs) {
+SETMEMREGS
   if (bs->data)
     free(bs->data);
 }
@@ -36,7 +33,8 @@ void shine_close_bit_stream(bitstream_t *bs) {
  * val = value to write into the buffer
  * N = number of bits of val
  */
-void shine_putbits(bitstream_t *bs, unsigned int val, unsigned int N) {
+MODULE_PART void p_shine_putbits(bitstream_t *bs, unsigned int val, unsigned int N) {
+SETMEMREGS
 #ifdef SHINE_DEBUG
 	if (N > 32) {
 		printf("Cannot write more than 32 bits at a time.\n");
@@ -71,6 +69,6 @@ void shine_putbits(bitstream_t *bs, unsigned int val, unsigned int N) {
 	}
 }
 
-int shine_get_bits_count(bitstream_t *bs) {
+MODULE_PART int p_shine_get_bits_count(bitstream_t *bs) {
 	return bs->data_position * 8 + 32 - bs->cache_bits;
 }

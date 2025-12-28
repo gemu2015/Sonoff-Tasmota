@@ -1,20 +1,13 @@
 /* l3bitstrea.c */
 
-#include "types.h"
-#include "l3mdct.h"
-#include "l3loop.h"
-#include "layer3.h"
-#include "huffman.h"
-#include "bitstream.h"
-#include "tables.h"
-#include "l3bitstream.h" /* the public interface */
 
-static void shine_HuffmanCode(bitstream_t *bs, int table_select, int x, int y);
-static void shine_huffman_coder_count1(bitstream_t *bs, const struct huffcodetab *h, int v, int w, int x, int y);
 
-static void encodeSideInfo( shine_global_config *config );
-static void encodeMainData( shine_global_config *config );
-static void Huffmancodebits( shine_global_config *config, int *ix, gr_info *gi);
+static void p_shine_HuffmanCode(bitstream_t *bs, int table_select, int x, int y);
+static void p_shine_huffman_coder_count1(bitstream_t *bs, const struct p_huffcodetab *h, int v, int w, int x, int y);
+
+static void p_encodeSideInfo( shine_global_config *config );
+static void p_encodeMainData( shine_global_config *config );
+static void p_Huffmancodebits( shine_global_config *config, int *ix, gr_info *gi);
 
 /*
   shine_format_bitstream()
@@ -27,7 +20,8 @@ static void Huffmancodebits( shine_global_config *config, int *ix, gr_info *gi);
   in the IS).
 */
 
-void shine_format_bitstream(shine_global_config *config) {
+MODULE_PART void p_shine_format_bitstream(shine_global_config *config) {
+SETMEMREGS
   int gr, ch, i;
 
   for ( ch =  0; ch < config->wave.channels; ch++ )
@@ -42,11 +36,12 @@ void shine_format_bitstream(shine_global_config *config) {
           }
       }
 
-  encodeSideInfo( config );
-  encodeMainData( config );
+  p_encodeSideInfo( config );
+  p_encodeMainData( config );
 }
 
-static void encodeMainData(shine_global_config *config) {
+MODULE_PART void p_encodeMainData(shine_global_config *config) {
+SETMEMREGS
   int gr, ch, sfb;
   shine_side_info_t  si = config->side_info;
 
@@ -61,58 +56,59 @@ static void encodeMainData(shine_global_config *config) {
 
           if ( gr == 0 || si.scfsi[ch][0] == 0 )
             for ( sfb = 0; sfb < 6; sfb++ )
-              shine_putbits( &config->bs, config->scalefactor.l[gr][ch][sfb], slen1 );
+              p_shine_putbits( &config->bs, config->scalefactor.l[gr][ch][sfb], slen1 );
           if ( gr == 0 || si.scfsi[ch][1] == 0 )
             for ( sfb = 6; sfb < 11; sfb++ )
-              shine_putbits( &config->bs, config->scalefactor.l[gr][ch][sfb], slen1 );
+              p_shine_putbits( &config->bs, config->scalefactor.l[gr][ch][sfb], slen1 );
           if ( gr == 0 || si.scfsi[ch][2] == 0 )
             for ( sfb = 11; sfb < 16; sfb++ )
-              shine_putbits( &config->bs, config->scalefactor.l[gr][ch][sfb], slen2 );
+              p_shine_putbits( &config->bs, config->scalefactor.l[gr][ch][sfb], slen2 );
           if ( gr == 0 || si.scfsi[ch][3] == 0 )
             for ( sfb = 16; sfb < 21; sfb++ )
-              shine_putbits( &config->bs, config->scalefactor.l[gr][ch][sfb], slen2 );
+              p_shine_putbits( &config->bs, config->scalefactor.l[gr][ch][sfb], slen2 );
 
-          Huffmancodebits( config, ix, gi );
+          p_Huffmancodebits( config, ix, gi );
         }
     }
 }
 
-static void encodeSideInfo( shine_global_config *config ) {
+MODULE_PART void p_encodeSideInfo( shine_global_config *config ) {
+SETMEMREGS
   int gr, ch, scfsi_band, region;
   shine_side_info_t  si = config->side_info;
 
-  shine_putbits( &config->bs, 0x7ff,                             11 );
-  shine_putbits( &config->bs, config->mpeg.version,              2 );
-  shine_putbits( &config->bs, config->mpeg.layer,                2 );
-  shine_putbits( &config->bs, !config->mpeg.crc,                 1 );
-  shine_putbits( &config->bs, config->mpeg.bitrate_index,        4 );
-  shine_putbits( &config->bs, config->mpeg.samplerate_index % 3, 2 );
-  shine_putbits( &config->bs, config->mpeg.padding,              1 );
-  shine_putbits( &config->bs, config->mpeg.ext,                  1 );
-  shine_putbits( &config->bs, config->mpeg.mode,                 2 );
-  shine_putbits( &config->bs, config->mpeg.mode_ext,             2 );
-  shine_putbits( &config->bs, config->mpeg.copyright,            1 );
-  shine_putbits( &config->bs, config->mpeg.original,             1 );
-  shine_putbits( &config->bs, config->mpeg.emph,                 2 );
+  p_shine_putbits( &config->bs, 0x7ff,                             11 );
+  p_shine_putbits( &config->bs, config->mpeg.version,              2 );
+  p_shine_putbits( &config->bs, config->mpeg.layer,                2 );
+  p_shine_putbits( &config->bs, !config->mpeg.crc,                 1 );
+  p_shine_putbits( &config->bs, config->mpeg.bitrate_index,        4 );
+  p_shine_putbits( &config->bs, config->mpeg.samplerate_index % 3, 2 );
+  p_shine_putbits( &config->bs, config->mpeg.padding,              1 );
+  p_shine_putbits( &config->bs, config->mpeg.ext,                  1 );
+  p_shine_putbits( &config->bs, config->mpeg.mode,                 2 );
+  p_shine_putbits( &config->bs, config->mpeg.mode_ext,             2 );
+  p_shine_putbits( &config->bs, config->mpeg.copyright,            1 );
+  p_shine_putbits( &config->bs, config->mpeg.original,             1 );
+  p_shine_putbits( &config->bs, config->mpeg.emph,                 2 );
 
   if ( config->mpeg.version == MPEG_I ) {
-    shine_putbits( &config->bs, 0, 9 );
+    p_shine_putbits( &config->bs, 0, 9 );
     if ( config->wave.channels == 2 )
-      shine_putbits( &config->bs, si.private_bits, 3 );
+      p_shine_putbits( &config->bs, si.private_bits, 3 );
     else
-      shine_putbits( &config->bs, si.private_bits, 5 );
+      p_shine_putbits( &config->bs, si.private_bits, 5 );
   } else {
-    shine_putbits( &config->bs, 0, 8 );
+    p_shine_putbits( &config->bs, 0, 8 );
     if ( config->wave.channels == 2 )
-      shine_putbits( &config->bs, si.private_bits, 2 );
+      p_shine_putbits( &config->bs, si.private_bits, 2 );
     else
-      shine_putbits( &config->bs, si.private_bits, 1 );
+      p_shine_putbits( &config->bs, si.private_bits, 1 );
   }
 
   if ( config->mpeg.version == MPEG_I )
     for ( ch = 0; ch < config->wave.channels; ch++ ) {
       for ( scfsi_band = 0; scfsi_band < 4; scfsi_band++ )
-          shine_putbits( &config->bs, si.scfsi[ch][scfsi_band], 1 );
+          p_shine_putbits( &config->bs, si.scfsi[ch][scfsi_band], 1 );
     }
 
   for ( gr = 0; gr < config->mpeg.granules_per_frame; gr++ )
@@ -120,40 +116,41 @@ static void encodeSideInfo( shine_global_config *config ) {
       {
         gr_info *gi = &(si.gr[gr].ch[ch].tt);
 
-        shine_putbits( &config->bs, gi->part2_3_length,        12 );
-        shine_putbits( &config->bs, gi->big_values,            9 );
-        shine_putbits( &config->bs, gi->global_gain,           8 );
+        p_shine_putbits( &config->bs, gi->part2_3_length,        12 );
+        p_shine_putbits( &config->bs, gi->big_values,            9 );
+        p_shine_putbits( &config->bs, gi->global_gain,           8 );
         if ( config->mpeg.version == MPEG_I )
-          shine_putbits( &config->bs, gi->scalefac_compress,   4 );
+          p_shine_putbits( &config->bs, gi->scalefac_compress,   4 );
         else
-          shine_putbits( &config->bs, gi->scalefac_compress,   9 );
-        shine_putbits( &config->bs, 0, 1 );
+          p_shine_putbits( &config->bs, gi->scalefac_compress,   9 );
+        p_shine_putbits( &config->bs, 0, 1 );
 
         for ( region = 0; region < 3; region++ )
-          shine_putbits( &config->bs, gi->table_select[region], 5 );
+          p_shine_putbits( &config->bs, gi->table_select[region], 5 );
 
-        shine_putbits( &config->bs, gi->region0_count, 4 );
-        shine_putbits( &config->bs, gi->region1_count, 3 );
+        p_shine_putbits( &config->bs, gi->region0_count, 4 );
+        p_shine_putbits( &config->bs, gi->region1_count, 3 );
 
         if ( config->mpeg.version == MPEG_I )
-          shine_putbits( &config->bs, gi->preflag,            1 );
-        shine_putbits( &config->bs, gi->scalefac_scale,     1 );
-        shine_putbits( &config->bs, gi->count1table_select, 1 );
+          p_shine_putbits( &config->bs, gi->preflag,            1 );
+        p_shine_putbits( &config->bs, gi->scalefac_scale,     1 );
+        p_shine_putbits( &config->bs, gi->count1table_select, 1 );
       }
 }
 
 /* Note the discussion of huffmancodebits() on pages 28 and 29 of the IS, as
   well as the definitions of the side information on pages 26 and 27. */
-static void Huffmancodebits( shine_global_config *config, int *ix, gr_info *gi ) {
+MODULE_PART  void p_Huffmancodebits( shine_global_config *config, int *ix, gr_info *gi ) {
+SETMEMREGS
   const int *scalefac = &shine_scale_fact_band_index[config->mpeg.samplerate_index][0];
   unsigned scalefac_index;
   int region1Start, region2Start;
   int i, bigvalues, count1End;
   int v, w, x, y;
-  const struct huffcodetab *h;
+  const struct p_huffcodetab *h;
   int bits;
 
-  bits = shine_get_bits_count(&config->bs);
+  bits = p_shine_get_bits_count(&config->bs);
 
   /* 1: Write the bigvalues */
   bigvalues = gi->big_values << 1;
@@ -173,12 +170,12 @@ static void Huffmancodebits( shine_global_config *config, int *ix, gr_info *gi )
         {
           x = ix[i];
           y = ix[i + 1];
-          shine_HuffmanCode( &config->bs, tableindex, x, y );
+          p_shine_HuffmanCode( &config->bs, tableindex, x, y );
         }
     }
 
   /* 2: Write count1 area */
-  h = &shine_huffman_table[gi->count1table_select + 32];
+  h = &p_shine_huffman_table[gi->count1table_select + 32];
   count1End = bigvalues + (gi->count1 <<2);
   for ( i = bigvalues; i < count1End; i += 4 )
     {
@@ -186,10 +183,10 @@ static void Huffmancodebits( shine_global_config *config, int *ix, gr_info *gi )
       w = ix[i+1];
       x = ix[i+2];
       y = ix[i+3];
-      shine_huffman_coder_count1( &config->bs, h, v, w, x, y );
+      p_shine_huffman_coder_count1( &config->bs, h, v, w, x, y );
     }
 
-  bits = shine_get_bits_count(&config->bs) - bits;
+  bits = p_shine_get_bits_count(&config->bs) - bits;
   bits = gi->part2_3_length - gi->part2_length - bits;
   if (bits)
     {
@@ -198,9 +195,9 @@ static void Huffmancodebits( shine_global_config *config, int *ix, gr_info *gi )
 
       /* Due to the nature of the Huffman code tables, we will pad with ones */
       while ( stuffingWords-- )
-        shine_putbits( &config->bs, ~0, 32 );
+        p_shine_putbits( &config->bs, ~0, 32 );
       if ( remainingBits )
-        shine_putbits( &config->bs, (1UL << remainingBits) - 1, remainingBits );
+        p_shine_putbits( &config->bs, (1UL << remainingBits) - 1, remainingBits );
     }
 }
 
@@ -210,7 +207,8 @@ static inline int shine_abs_and_sign( int *x ) {
   return 1;
 }
 
-static void shine_huffman_coder_count1( bitstream_t *bs, const struct huffcodetab *h, int v, int w, int x, int y ) {
+MODULE_PART void p_shine_huffman_coder_count1( bitstream_t *bs, const struct p_huffcodetab *h, int v, int w, int x, int y ) {
+SETMEMREGS
   unsigned int signv, signw, signx, signy;
   unsigned int code = 0;
   int p, cbits = 0;
@@ -221,7 +219,7 @@ static void shine_huffman_coder_count1( bitstream_t *bs, const struct huffcodeta
   signy = shine_abs_and_sign( &y );
 
   p = v + (w << 1) + (x << 2) + (y << 3);
-  shine_putbits( bs, h->table[p], h->hlen[p] );
+  p_shine_putbits( bs, h->table[p], h->hlen[p] );
 
   if ( v ) {
     code = signv;
@@ -239,20 +237,21 @@ static void shine_huffman_coder_count1( bitstream_t *bs, const struct huffcodeta
     code = (code << 1) | signy;
     cbits++;
   }
-  shine_putbits( bs, code, cbits );
+  p_shine_putbits( bs, code, cbits );
 }
 
 /* Implements the pseudocode of page 98 of the IS */
-static void shine_HuffmanCode(bitstream_t *bs, int table_select, int x, int y) {
+MODULE_PART void p_shine_HuffmanCode(bitstream_t *bs, int table_select, int x, int y) {
+SETMEMREGS
   int cbits = 0, xbits = 0;
   unsigned int code = 0, ext = 0;
   unsigned signx, signy, ylen, idx;
-  const struct huffcodetab *h;
+  const struct p_huffcodetab *h;
 
   signx = shine_abs_and_sign( &x );
   signy = shine_abs_and_sign( &y );
 
-  h = &(shine_huffman_table[table_select]);
+  h = &(p_shine_huffman_table[table_select]);
   ylen = h->ylen;
 
   if ( table_select > 15 )
@@ -297,8 +296,8 @@ static void shine_HuffmanCode(bitstream_t *bs, int table_select, int x, int y) {
           xbits += 1;
         }
 
-      shine_putbits( bs, code, cbits);
-      shine_putbits( bs, ext, xbits);
+      p_shine_putbits( bs, code, cbits);
+      p_shine_putbits( bs, ext, xbits);
     }
   else
     { /* No ESC-words */
@@ -318,6 +317,6 @@ static void shine_HuffmanCode(bitstream_t *bs, int table_select, int x, int y) {
           cbits += 1;
         }
 
-      shine_putbits( bs, code, cbits);
+      p_shine_putbits( bs, code, cbits);
     }
 }

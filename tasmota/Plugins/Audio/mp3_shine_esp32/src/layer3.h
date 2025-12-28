@@ -1,7 +1,6 @@
 #ifndef LAYER3_H
 #define LAYER3_H
 
-#include <stdint.h>
 
 /* This is the struct used to tell the encoder about the input PCM */
 

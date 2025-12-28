@@ -2,14 +2,6 @@
  * Layer3 bit reservoir: Described in C.1.5.4.2.2 of the IS
  */
 
-#include "types.h"
-#include "layer3.h"
-#include "l3loop.h"
-#include "huffman.h"
-#include "bitstream.h"
-#include "l3bitstream.h"
-#include "reservoir.h"
-
 /*
  * shine_max_reservoir_bits:
  * ------------
@@ -17,7 +9,7 @@
  * allowance for the current granule based on reservoir size
  * and perceptual entropy.
  */
-int shine_max_reservoir_bits (SHINE_DOUBLE *pe, shine_global_config *config ) {
+MODULE_PART int p_shine_max_reservoir_bits (SHINE_DOUBLE *pe, shine_global_config *config ) {
   int more_bits, max_bits, add_bits, over_bits;
   int mean_bits = config->mean_bits;
 
@@ -56,7 +48,7 @@ int shine_max_reservoir_bits (SHINE_DOUBLE *pe, shine_global_config *config ) {
  * Called after a granule's bit allocation. Readjusts the size of
  * the reservoir to reflect the granule's usage.
  */
-void shine_ResvAdjust(gr_info *gi, shine_global_config *config ) {
+MODULE_PART void p_shine_ResvAdjust(gr_info *gi, shine_global_config *config ) {
   config->ResvSize += (config->mean_bits / config->wave.channels) - gi->part2_3_length;
 }
 
@@ -69,7 +61,7 @@ void shine_ResvAdjust(gr_info *gi, shine_global_config *config ) {
  * part2_3_length. The bitstream formatter will detect this and write the
  * appropriate stuffing bits to the bitstream.
  */
-void shine_ResvFrameEnd(shine_global_config *config ) {
+MODULE_PART void p_shine_ResvFrameEnd(shine_global_config *config ) {
   gr_info *gi;
   int gr, ch, ancillary_pad, stuffingBits;
   int over_bits;

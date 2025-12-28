@@ -1,9 +1,5 @@
 /* L3SubBand */
 
-#include "types.h"
-#include "tables.h"
-#include "l3subband.h"
-
 /*
  * shine_subband_initialise:
  * ----------------------
@@ -11,7 +7,8 @@
  * 9th decimal place accuracy of the filterbank tables in the ISO
  * document.  The coefficients are stored in #filter#
  */
-void shine_subband_initialise(shine_global_config *config) {
+MODULE_PART void p_shine_subband_initialise(shine_global_config *config) {
+SETMEMREGS
   int i,j;
   SHINE_DOUBLE filter;
 
@@ -46,7 +43,7 @@ void shine_subband_initialise(shine_global_config *config) {
  * picking out values from the windowed samples, and then multiplying
  * them by the filter matrix, producing 32 subband samples.
  */
-void shine_window_filter_subband(int16_t **buffer, int s[SBLIMIT], int ch, shine_global_config *config, int stride) {
+MODULE_PART void p_shine_window_filter_subband(int16_t **buffer, int s[SBLIMIT], int ch, shine_global_config *config, int stride) {
   int y[64];
   int i,j;
   int16_t *ptr = *buffer;

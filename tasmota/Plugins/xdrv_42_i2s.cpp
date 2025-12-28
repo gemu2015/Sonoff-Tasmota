@@ -48,8 +48,8 @@ codec settings access
 #include <layer3.h>
 #ifndef I2S_BRIDGE_PORT
 #define I2S_BRIDGE_PORT 6970
+#define USE_PSHINE
 #endif
-
 
 #define I2S_BRIDGE_MODE_OFF 0
 #define I2S_BRIDGE_MODE_READ 1
@@ -308,6 +308,20 @@ MODULE_END
 #ifdef USE_MP3
 #include "Audio/MP3/mp3_decoder_c.h"
 #endif
+
+#ifdef USE_PSHINE
+#include "Audio/mp3_shine_esp32/src/includes.h"
+#include "Audio/mp3_shine_esp32/src/bitstream_c.h"
+#include "Audio/mp3_shine_esp32/src/huffman_c.h"
+#include "Audio/mp3_shine_esp32/src/l3bitstream_c.h"
+#include "Audio/mp3_shine_esp32/src/l3loop_c.h"
+#include "Audio/mp3_shine_esp32/src/l3mdct_c.h"
+#include "Audio/mp3_shine_esp32/src/l3subband_c.h"
+#include "Audio/mp3_shine_esp32/src/layer3_c.h"
+#include "Audio/mp3_shine_esp32/src/reservoir_c.h"
+#include "Audio/mp3_shine_esp32/src/tables_c.h"
+#endif
+
 
 #define OUTBUFF_SIZE 1024 * 6
 #define INBUFF_SIZE 1024 * 2

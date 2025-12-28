@@ -2,7 +2,7 @@
 #define HTN     34
 #define MXOFF   250
 
-struct huffcodetab {
+struct p_huffcodetab {
   unsigned int xlen;         /*max. x-index+                         */
   unsigned int ylen;         /*max. y-index+                         */
   unsigned int linbits;      /*number of linbits                     */
@@ -11,7 +11,7 @@ struct huffcodetab {
   const unsigned char *hlen; /*pointer to array[xlen][ylen]          */
 };
 
-extern const struct huffcodetab shine_huffman_table[HTN];/* global memory block                */
+extern const struct p_huffcodetab shine_huffman_table[HTN];/* global memory block                */
                                                          /* array of all huffcodtable headers    */
                                                          /* 0..31 Huffman code table 0..31       */
                                                          /* 32,33 count1-tables                  */

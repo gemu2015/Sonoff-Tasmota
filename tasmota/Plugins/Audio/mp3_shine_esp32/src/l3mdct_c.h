@@ -1,9 +1,5 @@
 /* L3mdct */
 
-#include "types.h"
-#include "l3mdct.h"
-#include "l3subband.h"
-
 /* This is table B.9: coefficients for aliasing reduction */
 #define MDCT_CA(coef)	(int)(coef / sqrt(1.0 + (coef * coef)) * 0x7fffffff)
 #define MDCT_CS(coef)	(int)(1.0  / sqrt(1.0 + (coef * coef)) * 0x7fffffff)
@@ -30,7 +26,7 @@
  * shine_mdct_initialise:
  * -------------------
  */
-void shine_mdct_initialise(shine_global_config *config) {
+MODULE_PART void p_shine_mdct_initialise(shine_global_config *config) {
   int m,k;
 
   /* prepare the mdct coefficients */
@@ -46,7 +42,8 @@ void shine_mdct_initialise(shine_global_config *config) {
  * shine_mdct_sub:
  * ------------
  */
-void shine_mdct_sub(shine_global_config *config, int stride) {
+MODULE_PART void p_shine_mdct_sub(shine_global_config *config, int stride) {
+SETMEMREGS
   /* note. we wish to access the array 'config->mdct_freq[2][2][576]' as
    * [2][2][32][18]. (32*18=576),
    */
@@ -65,8 +62,8 @@ void shine_mdct_sub(shine_global_config *config, int stride) {
       /* polyphase filtering */
       for(k=0; k<18; k+=2)
       {
-      	shine_window_filter_subband(&config->buffer[ch], &config->l3_sb_sample[ch][gr+1][k  ][0], ch, config, stride);
-      	shine_window_filter_subband(&config->buffer[ch], &config->l3_sb_sample[ch][gr+1][k+1][0], ch, config, stride);
+      	p_shine_window_filter_subband(&config->buffer[ch], &config->l3_sb_sample[ch][gr+1][k  ][0], ch, config, stride);
+      	p_shine_window_filter_subband(&config->buffer[ch], &config->l3_sb_sample[ch][gr+1][k+1][0], ch, config, stride);
         /* Compensate for inversion in the analysis filter
          * (every odd index of band AND k)
          */
