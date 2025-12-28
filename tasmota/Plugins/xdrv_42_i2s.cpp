@@ -1142,14 +1142,23 @@ SETREGS
   AddLog(LOG_LEVEL_INFO, PSTR("task started"));
 
   uint32_t counter = 0;
-
+  int32_t lval;
+  volatile const int32_t *icp = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
+  pclamp = icp[0];
+  mclamp = icp[1];
   while (recording & 2) {
       bytes_read = i2s_read_samples_r(&i2sp);
       if (bytes_read) {
         if (adc_gain_fac > 1) {
           // set gain
           for (uint32_t cnt = 0; cnt < bytes_read / 2; cnt++) {
-            shine_buffer[cnt] *= adc_gain_fac;
+            lval = shine_buffer[cnt] * adc_gain_fac;
+            if (lval < mclamp) {
+              lval = mclamp;
+            } else if (lval > pclamp) {
+              lval = pclamp;
+            }
+            shine_buffer[cnt] = lval;
           }
         }
         ucp = (uint8_t*)Shine_encode_buffer_interleaved(shine_ptr, shine_buffer, &written);
