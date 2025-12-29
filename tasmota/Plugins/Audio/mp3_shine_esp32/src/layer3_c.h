@@ -3,9 +3,9 @@
 #ifdef ESP32
 
 
-static uint32_t counter[5] = {0};
+uint32_t counter[5] = {0};
 
-static int granules_per_frame[4] = {
+int32_t granules_per_frame[4] = {
     1,  /* MPEG 2.5 */
    -1,  /* Reserved */
     1,  /* MPEG II */
@@ -20,7 +20,7 @@ MODULE_PART void p_shine_set_config_mpeg_defaults(shine_mpeg_t *mpeg) {
   mpeg->original  = 1;
 }
 
-MODULE_PART int p_shine_mpeg_version(int samplerate_index) {
+MODULE_PART int32_t p_shine_mpeg_version(int32_t samplerate_index) {
   /* Pick mpeg version according to samplerate index. */
   if (samplerate_index < 3) {
     /* First 3 samplerates are for MPEG-I */
@@ -34,8 +34,8 @@ MODULE_PART int p_shine_mpeg_version(int samplerate_index) {
   }
 }
 
-MODULE_PART int p_shine_find_samplerate_index(int freq) {
-  int i;
+MODULE_PART int32_t p_shine_find_samplerate_index(int32_t freq) {
+  int32_t i;
 
   for(i=0;i<9;i++) {
     if(freq==samplerates[i]) return i;
@@ -43,8 +43,8 @@ MODULE_PART int p_shine_find_samplerate_index(int freq) {
   return -1; /* error - not a valid samplerate for encoder */
 }
 
-MODULE_PART int p_shine_find_bitrate_index(int bitr, int mpeg_version) {
-  int i;
+MODULE_PART int32_t p_shine_find_bitrate_index(int32_t bitr, int32_t mpeg_version) {
+  int32_t i;
 
   for(i=0;i<16;i++) {
     if(bitr==bitrates[i][mpeg_version]) return i;
@@ -52,8 +52,8 @@ MODULE_PART int p_shine_find_bitrate_index(int bitr, int mpeg_version) {
   return -1; /* error - not a valid samplerate for encoder */
 }
 
-MODULE_PART int p_shine_check_config(int freq, int bitr) {
-  int samplerate_index, bitrate_index, mpeg_version;
+MODULE_PART int32_t p_shine_check_config(int32_t freq, int32_t bitr) {
+  int32_t samplerate_index, bitrate_index, mpeg_version;
 
   samplerate_index = p_shine_find_samplerate_index(freq);
   if (samplerate_index < 0) {
@@ -68,7 +68,7 @@ MODULE_PART int p_shine_check_config(int freq, int bitr) {
   return mpeg_version;
 }
 
-MODULE_PART int p_shine_samples_per_pass(shine_t s) {
+MODULE_PART int32_t p_shine_samples_per_pass(shine_t s) {
   return s->mpeg.granules_per_frame * GRANULE_SIZE;
 }
 
@@ -77,7 +77,7 @@ MODULE_PART shine_global_config *p_shine_initialise(shine_config_t *pub_config) 
 SETMEMREGS
   SHINE_DOUBLE avg_slots_per_frame;
   shine_global_config *config;
-  int x, y;
+  int32_t x, y;
   if (p_shine_check_config(pub_config->wave.samplerate, pub_config->mpeg.bitr) < 0) {
     return NULL;
   }
@@ -96,15 +96,15 @@ SETMEMREGS
   for (x = 0; x < MAX_CHANNELS; x++) {
       for (y = 0; y < MAX_GRANULES; y++) {
         // 2 * 2 * 576 each
-        config->l3_enc[x][y] = (int*)heap_caps_malloc_prefer(4*GRANULE_SIZE, MALLOC_CAP_32BIT, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT); //Significant performance hit in IRAM
+        config->l3_enc[x][y] = (int32_t*)heap_caps_malloc_prefer(4*GRANULE_SIZE, MALLOC_CAP_32BIT, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT); //Significant performance hit in IRAM
         if (!config->l3_enc[x][y]) {
           // error should never occur because of spiram size
-          //config->l3_enc[x][y] = (int*)heap_caps_malloc(sizeof(int32_t)*GRANULE_SIZE,MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT);
+          //config->l3_enc[x][y] = (int32_t*)heap_caps_malloc(sizeof(int32_t)*GRANULE_SIZE,MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT);
         }
-        config->mdct_freq[x][y] = (int*)heap_caps_malloc_prefer(4*GRANULE_SIZE, MALLOC_CAP_32BIT, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT); //OK 1%
+        config->mdct_freq[x][y] = (int32_t*)heap_caps_malloc_prefer(4*GRANULE_SIZE, MALLOC_CAP_32BIT, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT); //OK 1%
         if (!config->mdct_freq[x][y]) {
           // error
-          //config->mdct_freq[x][y] = (int*)heap_caps_malloc(sizeof(int32_t)*GRANULE_SIZE, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT);
+          //config->mdct_freq[x][y] = (int32_t*)heap_caps_malloc(sizeof(int32_t)*GRANULE_SIZE, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT);
         }
       }
   }
@@ -113,17 +113,17 @@ SETMEMREGS
 #endif
   config->l3loop = (l3loop_t*)heap_caps_malloc(sizeof(l3loop_t), MALLOC_CAP_SPIRAM);
 #ifdef  SHINE_DEBUG
-  printf("xrsq & xrabs each: %d\n", sizeof(int)*GRANULE_SIZE);
+  printf("xrsq & xrabs each: %d\n", sizeof(int32_t)*GRANULE_SIZE);
 #endif
-  config->l3loop->xrsq = (int*)heap_caps_malloc_prefer(4*GRANULE_SIZE, MALLOC_CAP_32BIT, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT); //OK 0.5%
+  config->l3loop->xrsq = (int32_t*)heap_caps_malloc_prefer(4*GRANULE_SIZE, MALLOC_CAP_32BIT, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT); //OK 0.5%
   if (!config->l3loop->xrsq) {
     // error
-    //config->l3loop->xrsq = (int*)heap_caps_malloc(sizeof(int32_t)*GRANULE_SIZE, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT); //OK 0.5%
+    //config->l3loop->xrsq = (int32_t*)heap_caps_malloc(sizeof(int32_t)*GRANULE_SIZE, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT); //OK 0.5%
   }
 
-  config->l3loop->xrabs = (int*)heap_caps_malloc_prefer(4*GRANULE_SIZE, MALLOC_CAP_32BIT, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT); //OK 0.5%
+  config->l3loop->xrabs = (int32_t*)heap_caps_malloc_prefer(4*GRANULE_SIZE, MALLOC_CAP_32BIT, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT); //OK 0.5%
   if (!config->l3loop->xrabs) {
-    //config->l3loop->xrabs = (int*)heap_caps_malloc(sizeof(int32_t)*GRANULE_SIZE, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT); //OK 0.5%
+    //config->l3loop->xrabs = (int32_t*)heap_caps_malloc(sizeof(int32_t)*GRANULE_SIZE, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT); //OK 0.5%
   }
 
 /*typedef struct {
@@ -173,7 +173,7 @@ SETMEMREGS
                         (1000*(SHINE_DOUBLE)config->mpeg.bitr /
                          (SHINE_DOUBLE)config->mpeg.bits_per_slot);
 
-  config->mpeg.whole_slots_per_frame  = (int)avg_slots_per_frame;
+  config->mpeg.whole_slots_per_frame  = (int32_t)avg_slots_per_frame;
 
   config->mpeg.frac_slots_per_frame  = avg_slots_per_frame - (SHINE_DOUBLE)config->mpeg.whole_slots_per_frame;
   config->mpeg.slot_lag              = -config->mpeg.frac_slots_per_frame;
@@ -215,7 +215,7 @@ Counters 2664123380 : 2664123448 : 2666717886 : 2668665908 : 2668859025
 */
 
 
-MODULE_PART unsigned char *p_shine_encode_buffer_internal(shine_global_config *config, int *written, int stride) {
+MODULE_PART uint8_t *p_shine_encode_buffer_internal(shine_global_config *config, int32_t *written, int32_t stride) {
   counter[0] = portGET_RUN_TIME_COUNTER_VALUE();      // TASMOTA more portable solution
   // counter[0] = xthal_get_ccount();
   if(config->mpeg.frac_slots_per_frame) {
@@ -248,7 +248,7 @@ MODULE_PART unsigned char *p_shine_encode_buffer_internal(shine_global_config *c
   return config->bs.data;
 }
 
-MODULE_PART unsigned char *p_shine_encode_buffer(shine_global_config *config, int16_t **data, int *written) {
+MODULE_PART uint8_t *p_shine_encode_buffer(shine_global_config *config, int16_t **data, int32_t *written) {
   config->buffer[0] = data[0];
   if (config->wave.channels == 2) {
     config->buffer[1] = data[1];
@@ -256,7 +256,7 @@ MODULE_PART unsigned char *p_shine_encode_buffer(shine_global_config *config, in
   return p_shine_encode_buffer_internal(config, written, 1);
 }
 
-MODULE_PART unsigned char *p_shine_encode_buffer_interleaved(shine_global_config *config, int16_t *data, int *written) {
+MODULE_PART uint8_t *p_shine_encode_buffer_interleaved(shine_global_config *config, int16_t *data, int32_t *written) {
   config->buffer[0] = data;
   if (config->wave.channels == 2) {
     config->buffer[1] = data + 1;
@@ -264,7 +264,7 @@ MODULE_PART unsigned char *p_shine_encode_buffer_interleaved(shine_global_config
   return p_shine_encode_buffer_internal(config, written, config->wave.channels);
 }
 
-MODULE_PART unsigned char *p_shine_flush(shine_global_config *config, int *written) {
+MODULE_PART uint8_t *p_shine_flush(shine_global_config *config, int32_t *written) {
   *written = config->bs.data_position;
   config->bs.data_position = 0;
   return config->bs.data;

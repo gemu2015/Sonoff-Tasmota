@@ -1,4 +1,4 @@
-#include <stdint.h>
+
 
 #ifndef asm_mul
 //#define              /// mul(a,b)   (int)  ( ( ((int64_t) a) * ((int64_t) b) ) >>32 )

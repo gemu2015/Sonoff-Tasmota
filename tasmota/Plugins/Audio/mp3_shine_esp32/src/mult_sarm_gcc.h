@@ -1,4 +1,4 @@
-#include <stdint.h>
+
 
 /* Fractional multiply */
 #if __ARM_ARCH >= 6

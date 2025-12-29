@@ -9,31 +9,31 @@
 #define en_scfsi_band_krit 10
 #define xm_scfsi_band_krit 10
 
-static void calc_scfsi(shine_psy_xmin_t *l3_xmin, int ch, int gr, shine_global_config *config);
-static int part2_length(int gr, int ch, shine_global_config *config);
-static int bin_search_StepSize(int desired_rate, int ix[GRANULE_SIZE], gr_info * cod_info, shine_global_config *config);
-static int count_bit(int ix[GRANULE_SIZE], unsigned int start, unsigned int end, unsigned int table );
-static int bigv_bitcount(int ix[GRANULE_SIZE], gr_info *gi);
-static int new_choose_table( int ix[GRANULE_SIZE], unsigned int begin, unsigned int end );
-static void bigv_tab_select( int ix[GRANULE_SIZE], gr_info *cod_info );
-static void subdivide(gr_info *cod_info, shine_global_config *config );
-static int count1_bitcount( int ix[ GRANULE_SIZE ], gr_info *cod_info );
-static void calc_runlen( int ix[GRANULE_SIZE], gr_info *cod_info );
-static void calc_xmin( gr_info *cod_info, shine_psy_xmin_t *l3_xmin, int gr, int ch );
-static int quantize(int ix[GRANULE_SIZE], int stepsize, shine_global_config *config);
+void calc_scfsi(shine_psy_xmin_t *l3_xmin, int32_t ch, int32_t gr, shine_global_config *config);
+int32_t part2_length(int32_t gr, int32_t ch, shine_global_config *config);
+int32_t p_bin_search_StepSize(int32_t desired_rate, int32_t ix[GRANULE_SIZE], gr_info * cod_info, shine_global_config *config);
+int32_t count_bit(int32_t ix[GRANULE_SIZE], uint32_t start, uint32_t end, uint32_t table );
+int32_t bigv_bitcount(int32_t ix[GRANULE_SIZE], gr_info *gi);
+int32_t new_choose_table( int32_t ix[GRANULE_SIZE], uint32_t begin, uint32_t end );
+void bigv_tab_select( int32_t ix[GRANULE_SIZE], gr_info *cod_info );
+void subdivide(gr_info *cod_info, shine_global_config *config );
+int32_t count1_bitcount( int32_t ix[ GRANULE_SIZE ], gr_info *cod_info );
+void calc_runlen( int32_t ix[GRANULE_SIZE], gr_info *cod_info );
+void calc_xmin( gr_info *cod_info, shine_psy_xmin_t *l3_xmin, int32_t gr, int32_t ch );
+int32_t quantize(int32_t ix[GRANULE_SIZE], int32_t stepsize, shine_global_config *config);
 
 #define p_sqrt p_f_sqrt
 
-MODULE_PART int p_sqrt_int(int r) {
+MODULE_PART int32_t p_sqrt_int(int32_t r) {
     float x;
     float rr = r;
     float y = rr*0.5;
-    *(unsigned int*)&x = (0xbe6f0000 - *(uint32_t*)&rr) >> 1;
+    *(uint32_t*)&x = (0xbe6f0000 - *(uint32_t*)&rr) >> 1;
 
     x = (1.5f*x) - (x*x)*(x*y);
     if(r>101123) x = (1.5f*x) - (x*x)*(x*y);
 
-    int is = (int)(x*rr + 0.5f);
+    int32_t is = (int32_t)(x*rr + 0.5f);
     return is + ((r - is*is)>>31);
 }
 
@@ -45,7 +45,7 @@ MODULE_PART float  p_f_sqrt(const float x) {
   union // get bits for floating value
   {
     float x;
-    int i;
+    int32_t i;
   } u;
   u.x = x;
   u.i = SQRT_MAGIC_F - (u.i >> 1);  // gives initial guess y0
@@ -58,10 +58,10 @@ MODULE_PART float  p_f_sqrt(const float x) {
  * The code selects the best quantizerStepSize for a particular set
  * of scalefacs.
  */
-MODULE_PART int p_shine_inner_loop(int ix[GRANULE_SIZE],
-               int max_bits, gr_info *cod_info, int gr, int ch,
+MODULE_PART int32_t p_shine_inner_loop(int32_t ix[GRANULE_SIZE],
+               int32_t max_bits, gr_info *cod_info, int32_t gr, int32_t ch,
                shine_global_config *config ) {
-  int bits, c1bits, bvbits;
+  int32_t bits, c1bits, bvbits;
 
   if(max_bits<0)
     cod_info->quantizerStepSize--;
@@ -87,15 +87,15 @@ MODULE_PART int p_shine_inner_loop(int ix[GRANULE_SIZE],
  *  global gain. This module calls the inner iteration loop.
  */
 
-MODULE_PART int p_shine_outer_loop( int max_bits,
+MODULE_PART int32_t p_shine_outer_loop( int32_t max_bits,
                        shine_psy_xmin_t  *l3_xmin, /* the allowed distortion of the scalefactor */
-                       int ix[GRANULE_SIZE], /* vector of quantized values ix(0..575) */
-                       int gr, int ch, shine_global_config *config) {
-  int bits, huff_bits;
+                       int32_t ix[GRANULE_SIZE], /* vector of quantized values ix(0..575) */
+                       int32_t gr, int32_t ch, shine_global_config *config) {
+  int32_t bits, huff_bits;
   shine_side_info_t *side_info = &config->side_info;
   gr_info *cod_info = &side_info->gr[gr].ch[ch].tt;
 
-  cod_info->quantizerStepSize = bin_search_StepSize(max_bits,ix,cod_info, config);
+  cod_info->quantizerStepSize = p_bin_search_StepSize(max_bits,ix,cod_info, config);
 
   cod_info->part2_length = part2_length(gr,ch,config);
   huff_bits = max_bits - cod_info->part2_length;
@@ -114,9 +114,9 @@ MODULE_PART void p_shine_iteration_loop(shine_global_config *config) {
 SETMEMREGS
   shine_psy_xmin_t l3_xmin;
   gr_info *cod_info;
-  int max_bits;
-  int ch, gr, i;
-  int *ix;
+  int32_t max_bits;
+  int32_t ch, gr, i;
+  int32_t *ix;
 
 
   for(ch=config->wave.channels; ch--; )
@@ -189,21 +189,21 @@ SETMEMREGS
  * -----------
  * calculation of the scalefactor select information ( scfsi ).
  */
-MODULE_PART void calc_scfsi( shine_psy_xmin_t *l3_xmin, int ch, int gr,
+MODULE_PART void calc_scfsi( shine_psy_xmin_t *l3_xmin, int32_t ch, int32_t gr,
                  shine_global_config *config ) {
 SETMEMREGS
   shine_side_info_t *l3_side = &config->side_info;
   /* This is the scfsi_band table from 2.4.2.7 of the IS */
-  static const int scfsi_band_long[5] = { 0, 6, 11, 16, 21 };
+  static const int32_t scfsi_band_long[5] = { 0, 6, 11, 16, 21 };
 
-  int scfsi_band;
+  int32_t scfsi_band;
   unsigned scfsi_set;
 
-  int sfb, start, end, i;
-  int condition = 0;
-  int temp;
+  int32_t sfb, start, end, i;
+  int32_t condition = 0;
+  int32_t temp;
 
-  const int *scalefac_band_long = &shine_scale_fact_band_index[config->mpeg.samplerate_index][0];
+  const int32_t *scalefac_band_long = &shine_scale_fact_band_index[config->mpeg.samplerate_index][0];
 
   // note. it goes quite a bit faster if you uncomment the next bit and exit
    //  early from scfsi, but you then loose the advantage of common scale factors.
@@ -248,7 +248,7 @@ SETMEMREGS
 
   if(gr==1)
   {
-    int gr2, tp;
+    int32_t gr2, tp;
 
     for(gr2=2; gr2--; )
     {
@@ -269,7 +269,7 @@ SETMEMREGS
     {
       for(scfsi_band=0;scfsi_band<4;scfsi_band++)
       {
-        int sum0 = 0, sum1 = 0;
+        int32_t sum0 = 0, sum1 = 0;
         l3_side->scfsi[ch][scfsi_band] = 0;
         start = scfsi_band_long[scfsi_band];
         end   = scfsi_band_long[scfsi_band+1];
@@ -300,8 +300,8 @@ SETMEMREGS
  * calculates the number of bits needed to encode the scalefacs in the
  * main data block.
  */
-MODULE_PART int part2_length(int gr, int ch, shine_global_config *config) {
-  int slen1, slen2, bits;
+MODULE_PART int32_t part2_length(int32_t gr, int32_t ch, shine_global_config *config) {
+  int32_t slen1, slen2, bits;
   gr_info *gi = &config->side_info.gr[gr].ch[ch].tt;
 
   bits = 0;
@@ -334,8 +334,8 @@ MODULE_PART int part2_length(int gr, int ch, shine_global_config *config) {
  */
 MODULE_PART void calc_xmin(gr_info *cod_info,
                shine_psy_xmin_t *l3_xmin,
-               int gr, int ch ) {
-  int sfb;
+               int32_t gr, int32_t ch ) {
+  int32_t sfb;
 
   for ( sfb = cod_info->sfb_lmax; sfb--; )
   {
@@ -360,7 +360,7 @@ MODULE_PART void calc_xmin(gr_info *cod_info,
  * Calculates the look up tables used by the iteration loop.
  */
 MODULE_PART void p_shine_loop_initialise(shine_global_config *config) {
-  int i;
+  int32_t i;
 
   /* quantize: stepsize conversion, fourth root of 2 table.
    * The table is inverted (negative power) from the equation given
@@ -377,14 +377,14 @@ MODULE_PART void p_shine_loop_initialise(shine_global_config *config) {
        * In quantize, the long multiply does not shift it's result left one
        * bit to compensate.
        */
-      config->l3loop->steptabi[i] = (int)((config->l3loop->steptab[i]*2) + 0.5);
+      config->l3loop->steptabi[i] = (int32_t)((config->l3loop->steptab[i]*2) + 0.5);
   }
 
   /* quantize: vector conversion, three quarter power table.
    * The 0.5 is for rounding, the .0946 comes from the spec.
    */
   for(i=10000; i--;)
-    config->l3loop->int2idx[i] = (int)(p_sqrt(p_sqrt((SHINE_DOUBLE)i)*(SHINE_DOUBLE)i) - 0.0946 + 0.5);
+    config->l3loop->int2idx[i] = (int32_t)(p_sqrt(p_sqrt((SHINE_DOUBLE)i)*(SHINE_DOUBLE)i) - 0.0946 + 0.5);
 }
 
 /*
@@ -393,10 +393,10 @@ MODULE_PART void p_shine_loop_initialise(shine_global_config *config) {
  * Function: Quantization of the vector xr ( -> ix).
  * Returns maximum value of ix.
  */
-MODULE_PART int quantize(int ix[GRANULE_SIZE], int stepsize, shine_global_config *config )
+MODULE_PART int32_t quantize(int32_t ix[GRANULE_SIZE], int32_t stepsize, shine_global_config *config )
 {
-  int i, max, ln;
-  int scalei;
+  int32_t i, max, ln;
+  int32_t scalei;
   float scale, dbl;
 
   scalei = config->l3loop->steptabi[stepsize+127]; /* 2**(-stepsize/4) */
@@ -420,8 +420,8 @@ MODULE_PART int quantize(int ix[GRANULE_SIZE], int stepsize, shine_global_config
         /* outside table range so have to do it using floats */
         scale = config->l3loop->steptab[stepsize+127]; /* 2**(-stepsize/4) */
         dbl = ((float)config->l3loop->xrabs[i]) * scale * 4.656612875e-10; /* 0x7fffffff */
-        //ix[i] = p_sqrt_int((int)(p_f_sqrt(dbl)*dbl)); /* dbl**(3/4) */
-        ix[i] = (int)p_sqrt(p_sqrt(dbl)*dbl); /* dbl**(3/4) */
+        //ix[i] = p_sqrt_int((int32_t)(p_f_sqrt(dbl)*dbl)); /* dbl**(3/4) */
+        ix[i] = (int32_t)p_sqrt(p_sqrt(dbl)*dbl); /* dbl**(3/4) */
       }
 
       /* calculate ixmax while we're here */
@@ -438,9 +438,9 @@ MODULE_PART int quantize(int ix[GRANULE_SIZE], int stepsize, shine_global_config
  * -------
  * Function: Calculate the maximum of ix from 0 to 575
  */
-static inline int ix_max( int ix[GRANULE_SIZE], unsigned int begin, unsigned int end ) {
-  int i;
-  int max = 0;
+static inline int32_t ix_max( int32_t ix[GRANULE_SIZE], uint32_t begin, uint32_t end ) {
+  int32_t i;
+  int32_t max = 0;
 
   for(i=begin;i<end;i++)
     if(max < ix[i])
@@ -454,9 +454,9 @@ static inline int ix_max( int ix[GRANULE_SIZE], unsigned int begin, unsigned int
  * Function: Calculation of rzero, count1, big_values
  * (Partitions ix into big values, quadruples and zeros).
  */
-MODULE_PART void calc_runlen( int ix[GRANULE_SIZE], gr_info *cod_info ) {
-  int i;
-  int rzero = 0;
+MODULE_PART void calc_runlen( int32_t ix[GRANULE_SIZE], gr_info *cod_info ) {
+  int32_t i;
+  int32_t rzero = 0;
 
   for ( i = GRANULE_SIZE; i > 1; i -= 2 )
     if ( !ix[i-1] && !ix[i-2] )
@@ -482,10 +482,10 @@ MODULE_PART void calc_runlen( int ix[GRANULE_SIZE], gr_info *cod_info ) {
  * ----------------
  * Determines the number of bits to encode the quadruples.
  */
-MODULE_PART int count1_bitcount(int ix[GRANULE_SIZE], gr_info *cod_info) {
-  int p, i, k;
-  int v, w, x, y, signbits;
-  int sum0 = 0,
+MODULE_PART int32_t count1_bitcount(int32_t ix[GRANULE_SIZE], gr_info *cod_info) {
+  int32_t p, i, k;
+  int32_t v, w, x, y, signbits;
+  int32_t sum0 = 0,
       sum1 = 0;
 
   for(i=cod_info->big_values<<1, k=0; k<cod_info->count1; i+=4, k++)
@@ -566,8 +566,8 @@ MODULE_PART void subdivide(gr_info *cod_info, shine_global_config *config) {
   }
   else
   {
-    const int *scalefac_band_long = &shine_scale_fact_band_index[config->mpeg.samplerate_index][0];
-    int bigvalues_region, scfb_anz, thiscount;
+    const int32_t *scalefac_band_long = &shine_scale_fact_band_index[config->mpeg.samplerate_index][0];
+    int32_t bigvalues_region, scfb_anz, thiscount;
 
     bigvalues_region = 2 * cod_info->big_values;
 
@@ -601,7 +601,7 @@ MODULE_PART void subdivide(gr_info *cod_info, shine_global_config *config) {
  * ----------------
  * Function: Select huffman code tables for bigvalues regions
  */
-MODULE_PART void bigv_tab_select( int ix[GRANULE_SIZE], gr_info *cod_info ) {
+MODULE_PART void bigv_tab_select( int32_t ix[GRANULE_SIZE], gr_info *cod_info ) {
   cod_info->table_select[0] = 0;
   cod_info->table_select[1] = 0;
   cod_info->table_select[2] = 0;
@@ -627,10 +627,10 @@ MODULE_PART void bigv_tab_select( int ix[GRANULE_SIZE], gr_info *cod_info ) {
  * of the Huffman tables as defined in the IS (Table B.7), and will not work
  * with any arbitrary tables.
  */
-MODULE_PART int new_choose_table( int ix[GRANULE_SIZE], unsigned int begin, unsigned int end ) {
-  int i, max;
-  int choice[2];
-  int sum[2];
+MODULE_PART int32_t new_choose_table( int32_t ix[GRANULE_SIZE], uint32_t begin, uint32_t end ) {
+  int32_t i, max;
+  int32_t choice[2];
+  int32_t sum[2];
 
   max = ix_max(ix,begin,end);
   if(!max)
@@ -728,9 +728,9 @@ MODULE_PART int new_choose_table( int ix[GRANULE_SIZE], unsigned int begin, unsi
  * --------------
  * Function: Count the number of bits necessary to code the bigvalues region.
  */
-MODULE_PART int bigv_bitcount(int ix[GRANULE_SIZE], gr_info *gi) {
-  int bits = 0;
-  unsigned int table;
+MODULE_PART int32_t bigv_bitcount(int32_t ix[GRANULE_SIZE], gr_info *gi) {
+  int32_t bits = 0;
+  uint32_t table;
 
   if( (table=gi->table_select[0]))  /* region0 */
     bits += count_bit(ix, 0, gi->address1, table );
@@ -746,13 +746,13 @@ MODULE_PART int bigv_bitcount(int ix[GRANULE_SIZE], gr_info *gi) {
  * ----------
  * Function: Count the number of bits necessary to code the subregion.
  */
-MODULE_PART int count_bit(int ix[GRANULE_SIZE],
-              unsigned int start,
-              unsigned int end,
-              unsigned int table ) {
+MODULE_PART int32_t count_bit(int32_t ix[GRANULE_SIZE],
+              uint32_t start,
+              uint32_t end,
+              uint32_t table ) {
   unsigned            linbits, ylen;
-  int        i, sum;
-  int        x,y;
+  int32_t        i, sum;
+  int32_t        x,y;
   const struct p_huffcodetab *h;
 
   if(!table)
@@ -818,15 +818,15 @@ MODULE_PART int count_bit(int ix[GRANULE_SIZE],
  * with a call to bin_search gain defined below, which
  * returns a good starting quantizerStepSize.
  */
-MODULE_PART int bin_search_StepSize(int desired_rate, int ix[GRANULE_SIZE],
+MODULE_PART int32_t p_bin_search_StepSize(int32_t desired_rate, int32_t ix[GRANULE_SIZE],
                         gr_info * cod_info, shine_global_config *config) {
-  int bit, next, count;
+  int32_t bit, next, count;
 
   next  = -120;
   count = 120;
 
   do {
-    int half = count / 2;
+    int32_t half = count / 2;
 
     if (quantize(ix, next + half, config) > 8192)
       bit = 100000;  /* fail */

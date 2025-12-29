@@ -2,12 +2,12 @@
 
 
 
-static void p_shine_HuffmanCode(bitstream_t *bs, int table_select, int x, int y);
-static void p_shine_huffman_coder_count1(bitstream_t *bs, const struct p_huffcodetab *h, int v, int w, int x, int y);
+void p_shine_HuffmanCode(bitstream_t *bs, int32_t table_select, int32_t x, int32_t y);
+void p_shine_huffman_coder_count1(bitstream_t *bs, const struct p_huffcodetab *h, int32_t v, int32_t w, int32_t x, int32_t y);
 
-static void p_encodeSideInfo( shine_global_config *config );
-static void p_encodeMainData( shine_global_config *config );
-static void p_Huffmancodebits( shine_global_config *config, int *ix, gr_info *gi);
+void p_encodeSideInfo( shine_global_config *config );
+void p_encodeMainData( shine_global_config *config );
+void p_Huffmancodebits( shine_global_config *config, int32_t *ix, gr_info *gi);
 
 /*
   shine_format_bitstream()
@@ -22,37 +22,34 @@ static void p_Huffmancodebits( shine_global_config *config, int *ix, gr_info *gi
 
 MODULE_PART void p_shine_format_bitstream(shine_global_config *config) {
 SETMEMREGS
-  int gr, ch, i;
+  int32_t gr, ch, i;
 
-  for ( ch =  0; ch < config->wave.channels; ch++ )
-    for ( gr = 0; gr < config->mpeg.granules_per_frame; gr++ )
-      {
-        int *pi = &config->l3_enc[ch][gr][0];
-        int *pr = &config->mdct_freq[ch][gr][0];
-        for ( i = 0; i < GRANULE_SIZE; i++ )
-          {
-            if ( (pr[i] < 0) && (pi[i] > 0) )
-              pi[i] *= -1;
+  for ( ch =  0; ch < config->wave.channels; ch++ ) {
+    for ( gr = 0; gr < config->mpeg.granules_per_frame; gr++ ) {
+        int32_t *pi = &config->l3_enc[ch][gr][0];
+        int32_t *pr = &config->mdct_freq[ch][gr][0];
+        for ( i = 0; i < GRANULE_SIZE; i++ ) {
+          if ( (pr[i] < 0) && (pi[i] > 0) ) {
+            pi[i] *= -1;
           }
+        }
       }
-
+  }
   p_encodeSideInfo( config );
   p_encodeMainData( config );
 }
 
 MODULE_PART void p_encodeMainData(shine_global_config *config) {
 SETMEMREGS
-  int gr, ch, sfb;
+  int32_t gr, ch, sfb;
   shine_side_info_t  si = config->side_info;
 
-  for ( gr = 0; gr < config->mpeg.granules_per_frame; gr++ )
-    {
-      for ( ch = 0; ch < config->wave.channels; ch++ )
-        {
+  for ( gr = 0; gr < config->mpeg.granules_per_frame; gr++ ) {
+      for ( ch = 0; ch < config->wave.channels; ch++ ) {
           gr_info *gi = &(si.gr[gr].ch[ch].tt);
           unsigned slen1 = shine_slen1_tab[ gi->scalefac_compress ];
           unsigned slen2 = shine_slen2_tab[ gi->scalefac_compress ];
-          int *ix = &config->l3_enc[ch][gr][0];
+          int32_t *ix = &config->l3_enc[ch][gr][0];
 
           if ( gr == 0 || si.scfsi[ch][0] == 0 )
             for ( sfb = 0; sfb < 6; sfb++ )
@@ -68,13 +65,13 @@ SETMEMREGS
               p_shine_putbits( &config->bs, config->scalefactor.l[gr][ch][sfb], slen2 );
 
           p_Huffmancodebits( config, ix, gi );
-        }
-    }
+      }
+  }
 }
 
 MODULE_PART void p_encodeSideInfo( shine_global_config *config ) {
 SETMEMREGS
-  int gr, ch, scfsi_band, region;
+  int32_t gr, ch, scfsi_band, region;
   shine_side_info_t  si = config->side_info;
 
   p_shine_putbits( &config->bs, 0x7ff,                             11 );
@@ -140,15 +137,15 @@ SETMEMREGS
 
 /* Note the discussion of huffmancodebits() on pages 28 and 29 of the IS, as
   well as the definitions of the side information on pages 26 and 27. */
-MODULE_PART  void p_Huffmancodebits( shine_global_config *config, int *ix, gr_info *gi ) {
+MODULE_PART  void p_Huffmancodebits( shine_global_config *config, int32_t *ix, gr_info *gi ) {
 SETMEMREGS
-  const int *scalefac = &shine_scale_fact_band_index[config->mpeg.samplerate_index][0];
+  const int32_t *scalefac = &shine_scale_fact_band_index[config->mpeg.samplerate_index][0];
   unsigned scalefac_index;
-  int region1Start, region2Start;
-  int i, bigvalues, count1End;
-  int v, w, x, y;
+  int32_t region1Start, region2Start;
+  int32_t i, bigvalues, count1End;
+  int32_t v, w, x, y;
   const struct p_huffcodetab *h;
-  int bits;
+  int32_t bits;
 
   bits = p_shine_get_bits_count(&config->bs);
 
@@ -160,58 +157,54 @@ SETMEMREGS
   scalefac_index += gi->region1_count + 1;
   region2Start = scalefac[ scalefac_index ];
 
-  for ( i = 0; i < bigvalues; i += 2 )
-    {
+  for ( i = 0; i < bigvalues; i += 2 ) {
       /* get table pointer */
-      int idx = (i >= region1Start) + (i >= region2Start);
+      int32_t idx = (i >= region1Start) + (i >= region2Start);
       unsigned tableindex = gi->table_select[idx];
       /* get huffman code */
-      if ( tableindex )
-        {
+      if ( tableindex ) {
           x = ix[i];
           y = ix[i + 1];
           p_shine_HuffmanCode( &config->bs, tableindex, x, y );
-        }
-    }
+      }
+  }
 
   /* 2: Write count1 area */
   h = &p_shine_huffman_table[gi->count1table_select + 32];
   count1End = bigvalues + (gi->count1 <<2);
-  for ( i = bigvalues; i < count1End; i += 4 )
-    {
+  for ( i = bigvalues; i < count1End; i += 4 ) {
       v = ix[i];
       w = ix[i+1];
       x = ix[i+2];
       y = ix[i+3];
       p_shine_huffman_coder_count1( &config->bs, h, v, w, x, y );
-    }
+  }
 
   bits = p_shine_get_bits_count(&config->bs) - bits;
   bits = gi->part2_3_length - gi->part2_length - bits;
-  if (bits)
-    {
-      int stuffingWords = bits / 32;
-      int remainingBits = bits % 32;
+  if (bits) {
+      int32_t stuffingWords = bits / 32;
+      int32_t remainingBits = bits % 32;
 
       /* Due to the nature of the Huffman code tables, we will pad with ones */
       while ( stuffingWords-- )
         p_shine_putbits( &config->bs, ~0, 32 );
       if ( remainingBits )
         p_shine_putbits( &config->bs, (1UL << remainingBits) - 1, remainingBits );
-    }
+  }
 }
 
-static inline int shine_abs_and_sign( int *x ) {
+static inline int32_t shine_abs_and_sign( int32_t *x ) {
   if ( *x > 0 ) return 0;
   *x *= -1;
   return 1;
 }
 
-MODULE_PART void p_shine_huffman_coder_count1( bitstream_t *bs, const struct p_huffcodetab *h, int v, int w, int x, int y ) {
+MODULE_PART void p_shine_huffman_coder_count1( bitstream_t *bs, const struct p_huffcodetab *h, int32_t v, int32_t w, int32_t x, int32_t y ) {
 SETMEMREGS
-  unsigned int signv, signw, signx, signy;
-  unsigned int code = 0;
-  int p, cbits = 0;
+  uint32_t signv, signw, signx, signy;
+  uint32_t code = 0;
+  int32_t p, cbits = 0;
 
   signv = shine_abs_and_sign( &v );
   signw = shine_abs_and_sign( &w );
@@ -241,10 +234,10 @@ SETMEMREGS
 }
 
 /* Implements the pseudocode of page 98 of the IS */
-MODULE_PART void p_shine_HuffmanCode(bitstream_t *bs, int table_select, int x, int y) {
+MODULE_PART void p_shine_HuffmanCode(bitstream_t *bs, int32_t table_select, int32_t x, int32_t y) {
 SETMEMREGS
-  int cbits = 0, xbits = 0;
-  unsigned int code = 0, ext = 0;
+  int32_t cbits = 0, xbits = 0;
+  uint32_t code = 0, ext = 0;
   unsigned signx, signy, ylen, idx;
   const struct p_huffcodetab *h;
 
@@ -254,69 +247,59 @@ SETMEMREGS
   h = &(p_shine_huffman_table[table_select]);
   ylen = h->ylen;
 
-  if ( table_select > 15 )
-    { /* ESC-table is used */
+  if ( table_select > 15 ) {
+     /* ESC-table is used */
       unsigned linbitsx = 0, linbitsy = 0, linbits = h->linbits;
 
-      if ( x > 14 )
-        {
+      if ( x > 14 ) {
           linbitsx = x - 15;
           x = 15;
-        }
-      if ( y > 14 )
-        {
+      }
+      if ( y > 14 ) {
           linbitsy = y - 15;
           y = 15;
-        }
+      }
 
       idx = (x * ylen) + y;
       code  = h->table[idx];
       cbits = h->hlen [idx];
-      if ( x > 14 )
-        {
+      if ( x > 14 ) {
           ext   |= linbitsx;
           xbits += linbits;
-        }
-      if ( x != 0 )
-        {
+      }
+      if ( x != 0 ) {
           ext <<= 1;
           ext |= signx;
           xbits += 1;
-        }
-      if ( y > 14 )
-        {
+      }
+      if ( y > 14 ) {
           ext <<= linbits;
           ext |= linbitsy;
           xbits += linbits;
-        }
-      if ( y != 0 )
-        {
+      }
+      if ( y != 0 ) {
           ext <<= 1;
           ext |= signy;
           xbits += 1;
-        }
+      }
 
       p_shine_putbits( bs, code, cbits);
       p_shine_putbits( bs, ext, xbits);
-    }
-  else
-    { /* No ESC-words */
+    } else { 
+    /* No ESC-words */
       idx = (x * ylen) + y;
       code = h->table[idx];
       cbits = h->hlen[idx];
-      if ( x != 0 )
-        {
+      if ( x != 0 ) {
           code <<= 1;
           code |= signx;
           cbits += 1;
-        }
-      if ( y != 0 )
-        {
+      }
+      if ( y != 0 ) {
           code <<= 1;
           code |= signy;
           cbits += 1;
-        }
-
+      }
       p_shine_putbits( bs, code, cbits);
     }
 }

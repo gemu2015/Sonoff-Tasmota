@@ -9,9 +9,9 @@
  * allowance for the current granule based on reservoir size
  * and perceptual entropy.
  */
-MODULE_PART int p_shine_max_reservoir_bits (SHINE_DOUBLE *pe, shine_global_config *config ) {
-  int more_bits, max_bits, add_bits, over_bits;
-  int mean_bits = config->mean_bits;
+MODULE_PART int32_t p_shine_max_reservoir_bits (SHINE_DOUBLE *pe, shine_global_config *config ) {
+  int32_t more_bits, max_bits, add_bits, over_bits;
+  int32_t mean_bits = config->mean_bits;
 
   mean_bits /= config->wave.channels;
   max_bits = mean_bits;
@@ -25,7 +25,7 @@ MODULE_PART int p_shine_max_reservoir_bits (SHINE_DOUBLE *pe, shine_global_confi
   add_bits = 0;
   if(more_bits>100)
   {
-    int frac = (config->ResvSize * 6) / 10;
+    int32_t frac = (config->ResvSize * 6) / 10;
 
     if(frac<more_bits)
       add_bits = frac;
@@ -63,8 +63,8 @@ MODULE_PART void p_shine_ResvAdjust(gr_info *gi, shine_global_config *config ) {
  */
 MODULE_PART void p_shine_ResvFrameEnd(shine_global_config *config ) {
   gr_info *gi;
-  int gr, ch, ancillary_pad, stuffingBits;
-  int over_bits;
+  int32_t gr, ch, ancillary_pad, stuffingBits;
+  int32_t over_bits;
   shine_side_info_t *l3_side = &config->side_info;
 
   ancillary_pad = 0;
@@ -104,7 +104,7 @@ MODULE_PART void p_shine_ResvFrameEnd(shine_global_config *config ) {
       for (gr = 0; gr < config->mpeg.granules_per_frame; gr++ )
         for (ch = 0; ch < config->wave.channels; ch++ )
         {
-          int extraBits, bitsThisGr;
+          int32_t extraBits, bitsThisGr;
           gr_info *gi = (gr_info *) &(l3_side->gr[gr].ch[ch]);
           if (!stuffingBits)
             break;

@@ -9,7 +9,7 @@
  */
 MODULE_PART void p_shine_subband_initialise(shine_global_config *config) {
 SETMEMREGS
-  int i,j;
+  int32_t i,j;
   SHINE_DOUBLE filter;
 
   for(i=MAX_CHANNELS; i-- ; ) {
@@ -25,7 +25,7 @@ SETMEMREGS
       else
         modf(filter-0.5, &filter);
       /* scale and convert to fixed point before storing */
-      config->subband.fl[i][j] = (int)(filter * (0x7fffffff * 1e-9));
+      config->subband.fl[i][j] = (int32_t)(filter * (0x7fffffff * 1e-9));
     }
 }
 
@@ -43,20 +43,20 @@ SETMEMREGS
  * picking out values from the windowed samples, and then multiplying
  * them by the filter matrix, producing 32 subband samples.
  */
-MODULE_PART void p_shine_window_filter_subband(int16_t **buffer, int s[SBLIMIT], int ch, shine_global_config *config, int stride) {
-  int y[64];
-  int i,j;
+MODULE_PART void p_shine_window_filter_subband(int16_t **buffer, int32_t s[SBLIMIT], int32_t ch, shine_global_config *config, int32_t stride) {
+  int32_t y[64];
+  int32_t i,j;
   int16_t *ptr = *buffer;
 
   /* replace 32 oldest samples with 32 new samples */
   for (i=32;i--;) {
-    config->subband.x[ch][i+config->subband.off[ch]] = ((int)*ptr) << 16;
+    config->subband.x[ch][i+config->subband.off[ch]] = ((int32_t)*ptr) << 16;
     ptr += stride;
   }
   *buffer = ptr;
 
   for (i=64; i--; ) {
-	int s_value;
+	int32_t s_value;
 #ifdef __BORLANDC__
 	uint32_t s_value_lo;
 #else
@@ -78,7 +78,7 @@ MODULE_PART void p_shine_window_filter_subband(int16_t **buffer, int s[SBLIMIT],
   config->subband.off[ch] = (config->subband.off[ch] + 480) & (HAN_SIZE-1); /* offset is modulo (HAN_SIZE)*/
 
   for (i=SBLIMIT; i--; ) {
-	int s_value;
+	int32_t s_value;
 #ifdef __BORLANDC__
 	uint32_t s_value_lo;
 #else

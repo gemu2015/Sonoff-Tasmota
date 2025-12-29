@@ -3,12 +3,12 @@
 #define MXOFF   250
 
 struct p_huffcodetab {
-  unsigned int xlen;         /*max. x-index+                         */
-  unsigned int ylen;         /*max. y-index+                         */
-  unsigned int linbits;      /*number of linbits                     */
-  unsigned int linmax;       /*max number to be stored in linbits    */
+  uint32_t xlen;         /*max. x-index+                         */
+  uint32_t ylen;         /*max. y-index+                         */
+  uint32_t linbits;      /*number of linbits                     */
+  uint32_t linmax;       /*max number to be stored in linbits    */
   const HUFFBITS *table;     /*pointer to array[xlen][ylen]          */
-  const unsigned char *hlen; /*pointer to array[xlen][ylen]          */
+  const uint8_t *hlen; /*pointer to array[xlen][ylen]          */
 };
 
 extern const struct p_huffcodetab shine_huffman_table[HTN];/* global memory block                */

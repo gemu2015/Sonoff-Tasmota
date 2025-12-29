@@ -24,7 +24,7 @@ enum mpeg_layers {
 
 typedef struct {
     enum channels channels;
-    int           samplerate;
+    int32_t           samplerate;
 } shine_wave_t;
 
 /* This is the struct the encoder uses to tell the encoder about the output MP3 */
@@ -44,10 +44,10 @@ enum emph {
 
 typedef struct {
     enum modes mode;      /* Stereo mode */
-    int        bitr;      /* Must conform to known bitrate */
+    int32_t        bitr;      /* Must conform to known bitrate */
     enum emph  emph;      /* De-emphasis */
-    int        copyright;
-    int        original;
+    int32_t        copyright;
+    int32_t        original;
 } shine_mpeg_t;
 
 typedef struct {
@@ -58,13 +58,13 @@ typedef struct {
 /* Tables of supported audio parameters & format.
  *
  * Valid samplerates and bitrates.
- * const int samplerates[9] = {
+ * const int32_t samplerates[9] = {
  *   44100, 48000, 32000, // MPEG-I
  *   22050, 24000, 16000, // MPEG-II
  *   11025, 12000, 8000   // MPEG-2.5
  * };
  *
- * const int bitrates[16][4] = {
+ * const int32_t bitrates[16][4] = {
  * //  MPEG version:
  * //  2.5, reserved,  II,  I
  *   { -1,  -1,        -1,  -1},
@@ -96,21 +96,21 @@ MODULE_PART void p_shine_set_config_mpeg_defaults(shine_mpeg_t *mpeg);
 
 /* Check if a given bitrate is supported by the encoder (see `bitrates` above for a list
  * of acceptable values. */
-MODULE_PART int p_shine_find_bitrate_index(int bitr, int mpeg_version);
+MODULE_PART int32_t p_shine_find_bitrate_index(int32_t bitr, int32_t mpeg_version);
 
 /* Check if a given samplerate is supported by the encoder (see `samplerates` above for a list
  * of acceptable values. */
-MODULE_PART int p_shine_find_samplerate_index(int freq);
+MODULE_PART int32_t p_shine_find_samplerate_index(int32_t freq);
 
 /* Returns the MPEG version used for the given samplerate index. See above
  * `mpeg_versions` for a list of possible values. */
-MODULE_PART int p_shine_mpeg_version(int samplerate_index);
+MODULE_PART int32_t p_shine_mpeg_version(int32_t samplerate_index);
 
 /* Check if a given bitrate and samplerate is supported by the encoder (see `samplerates`
  * and `bitrates` above for a list of acceptable values).
  *
  * Returns -1 on error, mpeg_version on success. */
-MODULE_PART int p_shine_check_config(int freq, int bitr);
+MODULE_PART int32_t p_shine_check_config(int32_t freq, int32_t bitr);
 
 /* Pass a pointer to a `config_t` structure and returns an initialized
  * encoder.
@@ -143,7 +143,7 @@ int shine_samples_per_pass(shine_t s);
  * available data. This pointer's memory is handled by the library and is only valid
  * until the next call to `shine_encode_buffer` or `shine_close` and may be NULL if no data
  * was written. */
-MODULE_PART unsigned char *p_shine_encode_buffer(shine_t s, int16_t **data, int *written);
+MODULE_PART uint8_t *p_shine_encode_buffer(shine_t s, int16_t **data, int32_t *written);
 
 /* Encode interleaved audio data. Source data must have `shine_samples_per_pass(s)` audio samples per
  * channels. Mono encoder only expect one channel.
@@ -152,11 +152,11 @@ MODULE_PART unsigned char *p_shine_encode_buffer(shine_t s, int16_t **data, int 
  * available data. This pointer's memory is handled by the library and is only valid
  * until the next call to `shine_encode_buffer` or `shine_close` and may be NULL if no data
  * was written. */
-MODULE_PART unsigned char *p_shine_encode_buffer_interleaved(shine_t s, int16_t *data, int *written);
+MODULE_PART uint8_t *p_shine_encode_buffer_interleaved(shine_t s, int16_t *data, int32_t *written);
 
 /* Flush all data currently in the encoding buffer. Should be used before closing
  * the encoder, to make all encoded data has been written. */
-MODULE_PART unsigned char *p_shine_flush(shine_t s, int *written);
+MODULE_PART uint8_t *p_shine_flush(shine_t s, int32_t *written);
 
 /* Close an encoder, freeing all associated memory. Encoder handler is not
  * valid after this call. */

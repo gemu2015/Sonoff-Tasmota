@@ -1150,7 +1150,7 @@ void i2s_mic_task(void *arg) {
 SETREGS
 
   uint8_t *ucp;
-  int written;
+  int32_t written;
 
   uint32_t bytes_read;  
   i2sp.dptr = shine_buffer;

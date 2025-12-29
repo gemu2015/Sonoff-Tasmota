@@ -31,7 +31,7 @@
 #if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 2))
 #define SWAB32(x)	__builtin_bswap32(x)
 #else
-#define SWAB32(x)	(((unsigned int)(x) >> 24) | (((unsigned int)(x) >> 8) & 0xff00) | (((unsigned int)(x) & 0xff00) << 8) | ((unsigned int)(x) << 24))
+#define SWAB32(x)	(((uint32_t)(x) >> 24) | (((uint32_t)(x) >> 8) & 0xff00) | (((uint32_t)(x) & 0xff00) << 8) | ((uint32_t)(x) << 24))
 #endif
 #endif
 
@@ -63,53 +63,53 @@
 
 typedef struct {
     int16_t channels;
-    int samplerate;
+    int32_t samplerate;
 } priv_shine_wave_t;
 
 typedef struct {
-    int    version;
-    int    layer;
-    int    granules_per_frame;
-    int    mode;      /* + */ /* Stereo mode */
-    int    bitr;      /* + */ /* Must conform to known bitrate - see Main.c */
-    int    emph;      /* + */ /* De-emphasis */
-    int    padding;
-    int    bits_per_frame;
-    int    bits_per_slot;
+    int32_t    version;
+    int32_t    layer;
+    int32_t    granules_per_frame;
+    int32_t    mode;      /* + */ /* Stereo mode */
+    int32_t    bitr;      /* + */ /* Must conform to known bitrate - see Main.c */
+    int32_t    emph;      /* + */ /* De-emphasis */
+    int32_t    padding;
+    int32_t    bits_per_frame;
+    int32_t    bits_per_slot;
     SHINE_DOUBLE frac_slots_per_frame;
     SHINE_DOUBLE slot_lag;
-    int    whole_slots_per_frame;
-    int    bitrate_index;     /* + */ /* See Main.c and Layer3.c */
-    int    samplerate_index;  /* + */ /* See Main.c and Layer3.c */
-    int    crc;
-    int    ext;
-    int    mode_ext;
-    int    copyright;  /* + */
-    int    original;   /* + */
+    int32_t    whole_slots_per_frame;
+    int32_t    bitrate_index;     /* + */ /* See Main.c and Layer3.c */
+    int32_t    samplerate_index;  /* + */ /* See Main.c and Layer3.c */
+    int32_t    crc;
+    int32_t    ext;
+    int32_t    mode_ext;
+    int32_t    copyright;  /* + */
+    int32_t    original;   /* + */
 } priv_shine_mpeg_t;
 
 typedef struct {
-  int *xr;                    /* magnitudes of the spectral values */
-  int *xrsq;     /* xr squared */
-  int *xrabs;    /* xr absolute */
-  int xrmax;                  /* maximum of xrabs array */
-  int en_tot[MAX_GRANULES];   /* gr */
-  int en[MAX_GRANULES][21];
-  int xm[MAX_GRANULES][21];
-  int xrmaxl[MAX_GRANULES];
+  int32_t *xr;                    /* magnitudes of the spectral values */
+  int32_t *xrsq;     /* xr squared */
+  int32_t *xrabs;    /* xr absolute */
+  int32_t xrmax;                  /* maximum of xrabs array */
+  int32_t en_tot[MAX_GRANULES];   /* gr */
+  int32_t en[MAX_GRANULES][21];
+  int32_t xm[MAX_GRANULES][21];
+  int32_t xrmaxl[MAX_GRANULES];
   SHINE_DOUBLE steptab[128]; /* 2**(-x/4)  for x = -127..0 */
-  int steptabi[128];  /* 2**(-x/4)  for x = -127..0 */
+  int32_t steptabi[128];  /* 2**(-x/4)  for x = -127..0 */
   int16_t int2idx[10000]; /* x**(3/4)   for x = 0..9999 */
 } l3loop_t;
 
 typedef struct {
-  int cos_l[18][36];
+  int32_t cos_l[18][36];
 } mdct_t;
 
 typedef struct {
-  int off[MAX_CHANNELS];
-  int fl[SBLIMIT][64];
-  int x[MAX_CHANNELS][HAN_SIZE];
+  int32_t off[MAX_CHANNELS];
+  int32_t fl[SBLIMIT][64];
+  int32_t x[MAX_CHANNELS][HAN_SIZE];
 } subband_t;
 
 /* Side information */
@@ -130,13 +130,13 @@ typedef struct {
   unsigned address1;
   unsigned address2;
   unsigned address3;
-  int quantizerStepSize;
+  int32_t quantizerStepSize;
   unsigned slen[4];
 } gr_info;
 
 typedef struct {
     unsigned private_bits;
-    int resvDrain;
+    int32_t resvDrain;
     unsigned scfsi[MAX_CHANNELS][4];
     struct {
         struct {
@@ -154,8 +154,8 @@ typedef struct {
 } shine_psy_xmin_t;
 
 typedef struct {
-    int l[MAX_GRANULES][MAX_CHANNELS][22];            /* [cb] */
-    int s[MAX_GRANULES][MAX_CHANNELS][13][3];         /* [window][cb] */
+    int32_t l[MAX_GRANULES][MAX_CHANNELS][22];            /* [cb] */
+    int32_t s[MAX_GRANULES][MAX_CHANNELS][13][3];         /* [window][cb] */
 } shine_scalefac_t;
 
 
@@ -164,17 +164,17 @@ typedef struct shine_global_flags {
   priv_shine_mpeg_t    mpeg;
   bitstream_t    bs;
   shine_side_info_t side_info;
-  int            sideinfo_len;
-  int            mean_bits;
+  int32_t            sideinfo_len;
+  int32_t            mean_bits;
   //shine_psy_ratio_t ratio;
   shine_scalefac_t  scalefactor;
   int16_t       *buffer[MAX_CHANNELS];
   SHINE_DOUBLE          pe[MAX_CHANNELS][MAX_GRANULES];
-  int            *l3_enc[MAX_CHANNELS][MAX_GRANULES]; //4% reduction in performance IRAM
-  int        l3_sb_sample[MAX_CHANNELS][MAX_GRANULES+1][18][SBLIMIT];
-  int        *mdct_freq[MAX_CHANNELS][MAX_GRANULES]; //1% reduction in perormance IRAM
-  int            ResvSize;
-  int            ResvMax;
+  int32_t            *l3_enc[MAX_CHANNELS][MAX_GRANULES]; //4% reduction in performance IRAM
+  int32_t        l3_sb_sample[MAX_CHANNELS][MAX_GRANULES+1][18][SBLIMIT];
+  int32_t        *mdct_freq[MAX_CHANNELS][MAX_GRANULES]; //1% reduction in perormance IRAM
+  int32_t            ResvSize;
+  int32_t            ResvMax;
   l3loop_t       *l3loop;
   mdct_t         mdct;
   subband_t      subband;
