@@ -712,6 +712,15 @@ typedef union {
 
 #define Draw_JPEG(A,B,C,D,E) jdrwjpeg((uint32_t)A,B,C,D,E)
 
+#ifdef USE_PSHINE
+#define Shine_initialise p_shine_initialise
+#define Shine_set_config_mpeg_defaults p_shine_set_config_mpeg_defaults
+#define Shine_check_config p_shine_check_config
+#define Shine_samples_per_pass p_shine_samples_per_pass
+#define Shine_encode_buffer_interleaved p_shine_encode_buffer_interleaved
+#define Shine_flush p_shine_flush
+#define Shine_close p_shine_close
+#else
 #define Shine_initialise(A) jshine(0,(uint32_t)A,0,0)
 #define Shine_set_config_mpeg_defaults(A) jshine(1,(uint32_t)A,0,0)
 #define Shine_check_config(A,B) jshine(2,A,B,0)
@@ -719,7 +728,7 @@ typedef union {
 #define Shine_encode_buffer_interleaved(A,B,C) jshine(4,(uint32_t)A,(uint32_t)B,(uint32_t)C)
 #define Shine_flush(A,B) jshine(5,(uint32_t)A,(uint32_t)B,0)
 #define Shine_close(A) jshine(6,(uint32_t)A,0,0)
-
+#endif
 
 #define webcam_init(A) jwc(0,A,0)
 #define webcam_GetFrame(A) jwc(1,A,0)

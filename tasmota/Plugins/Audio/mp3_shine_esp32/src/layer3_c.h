@@ -55,13 +55,13 @@ MODULE_PART int p_shine_find_bitrate_index(int bitr, int mpeg_version) {
 MODULE_PART int p_shine_check_config(int freq, int bitr) {
   int samplerate_index, bitrate_index, mpeg_version;
 
-  samplerate_index = shine_find_samplerate_index(freq);
+  samplerate_index = p_shine_find_samplerate_index(freq);
   if (samplerate_index < 0) {
     return -1;
   }
-  mpeg_version = shine_mpeg_version(samplerate_index);
+  mpeg_version = p_shine_mpeg_version(samplerate_index);
 
-  bitrate_index = shine_find_bitrate_index(bitr, mpeg_version);
+  bitrate_index = p_shine_find_bitrate_index(bitr, mpeg_version);
   if (bitrate_index < 0) {
     return -1;
   }
@@ -78,7 +78,7 @@ SETMEMREGS
   SHINE_DOUBLE avg_slots_per_frame;
   shine_global_config *config;
   int x, y;
-  if (shine_check_config(pub_config->wave.samplerate, pub_config->mpeg.bitr) < 0) {
+  if (p_shine_check_config(pub_config->wave.samplerate, pub_config->mpeg.bitr) < 0) {
     return NULL;
   }
 
@@ -162,9 +162,9 @@ SETMEMREGS
   config->mpeg.mode_ext       = 0;
   config->mpeg.bits_per_slot  = 8;
 
-  config->mpeg.samplerate_index   = shine_find_samplerate_index(config->wave.samplerate);
-  config->mpeg.version            = shine_mpeg_version(config->mpeg.samplerate_index);
-  config->mpeg.bitrate_index      = shine_find_bitrate_index(config->mpeg.bitr, config->mpeg.version);
+  config->mpeg.samplerate_index   = p_shine_find_samplerate_index(config->wave.samplerate);
+  config->mpeg.version            = p_shine_mpeg_version(config->mpeg.samplerate_index);
+  config->mpeg.bitrate_index      = p_shine_find_bitrate_index(config->mpeg.bitr, config->mpeg.version);
   config->mpeg.granules_per_frame = granules_per_frame[config->mpeg.version];
 
   /* Figure average number of 'slots' per frame. */

@@ -35,6 +35,10 @@ codec settings access
 #define MAX_MOD_STORES 4
 #endif
 
+#ifdef ESP32
+//#define USE_PSHINE
+#endif
+
 #include "module.h"
 #include "module_defines.h"
 
@@ -48,7 +52,6 @@ codec settings access
 #include <layer3.h>
 #ifndef I2S_BRIDGE_PORT
 #define I2S_BRIDGE_PORT 6970
-#define USE_PSHINE
 #endif
 
 #define I2S_BRIDGE_MODE_OFF 0

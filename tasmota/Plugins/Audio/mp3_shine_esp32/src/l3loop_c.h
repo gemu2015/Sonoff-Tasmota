@@ -22,6 +22,7 @@ static void calc_runlen( int ix[GRANULE_SIZE], gr_info *cod_info );
 static void calc_xmin( gr_info *cod_info, shine_psy_xmin_t *l3_xmin, int gr, int ch );
 static int quantize(int ix[GRANULE_SIZE], int stepsize, shine_global_config *config);
 
+#define p_sqrt p_f_sqrt
 
 MODULE_PART int p_sqrt_int(int r) {
     float x;
@@ -383,7 +384,7 @@ MODULE_PART void p_shine_loop_initialise(shine_global_config *config) {
    * The 0.5 is for rounding, the .0946 comes from the spec.
    */
   for(i=10000; i--;)
-    config->l3loop->int2idx[i] = (int)(sqrt(sqrt((SHINE_DOUBLE)i)*(SHINE_DOUBLE)i) - 0.0946 + 0.5);
+    config->l3loop->int2idx[i] = (int)(p_sqrt(p_sqrt((SHINE_DOUBLE)i)*(SHINE_DOUBLE)i) - 0.0946 + 0.5);
 }
 
 /*
@@ -419,8 +420,8 @@ MODULE_PART int quantize(int ix[GRANULE_SIZE], int stepsize, shine_global_config
         /* outside table range so have to do it using floats */
         scale = config->l3loop->steptab[stepsize+127]; /* 2**(-stepsize/4) */
         dbl = ((float)config->l3loop->xrabs[i]) * scale * 4.656612875e-10; /* 0x7fffffff */
-        //ix[i] = sqrt_int((int)(f_sqrt(dbl)*dbl)); /* dbl**(3/4) */
-        ix[i] = (int)sqrt(sqrt(dbl)*dbl); /* dbl**(3/4) */
+        //ix[i] = p_sqrt_int((int)(p_f_sqrt(dbl)*dbl)); /* dbl**(3/4) */
+        ix[i] = (int)p_sqrt(p_sqrt(dbl)*dbl); /* dbl**(3/4) */
       }
 
       /* calculate ixmax while we're here */
