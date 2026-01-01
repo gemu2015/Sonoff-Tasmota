@@ -38,7 +38,7 @@ uint32_t pes7243e_codec_init(uint8_t *twi_bus) {
             return -1;
         }
     }
-    I2cSetActiveFound(ES8156_ADDR, PSTR("ES7243"), bus);
+    I2cSetActiveFound(ES7243_ADDR, PSTR("ES7243"), bus);
 
     *twi_bus = bus;
 
