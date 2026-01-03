@@ -40,8 +40,6 @@ extern uint16_t bg_color;
 void M5EpdInitDriver47(void) {
 
   if (PinUsed(GPIO_EPD_DATA)) {
-  //if (TasmotaGlobal.gpio_optiona.udisplay_driver) {
-  //  if (1) {
 
     Settings->display_model = XDSP_21;
 
