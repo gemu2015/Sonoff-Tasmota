@@ -85,8 +85,9 @@ void M5EPDRtcInit(void) {
 }
 
 void M5EPDModuleInit(void) {
-  if (!TasmotaGlobal.i2c_enabled_2) {
-    I2c2Begin(21, 22, 400000);
+  if (!TasmotaGlobal.i2c_enabled[1]) {
+    //I2c2Begin(21, 22, 400000);
+    I2cBegin(21, 22, 1);
   }
   M5EPD_globs.m5epd.begin();
   delay(100);
