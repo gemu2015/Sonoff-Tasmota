@@ -395,7 +395,10 @@ void I2SAudioPower(bool power) {
   callBerryEventDispatcher(PSTR("audio"), PSTR("power"), power, nullptr, 0);
 #endif
 #ifdef USE_TTGO_WATCH
-    TTGO_audio_power(power);
+  TTGO_audio_power(power);
+#endif
+#ifdef ESP32S3_BOX
+  S3boxAudioPower(power);
 #endif
 }
 
@@ -650,6 +653,10 @@ void I2sInit(void) {
 #include <wm8960.h>
   W8960_Init(&Wire);
 #endif
+#ifdef ESP32S3_BOX
+  S3boxInit();
+#endif
+
 
   AddLog(LOG_LEVEL_DEBUG, "I2S: I2sInit done");
 }
