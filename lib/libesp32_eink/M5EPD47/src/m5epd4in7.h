@@ -54,7 +54,7 @@ public:
     void drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color);
     void drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color);
     void setAddrWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
-    void pushColors(uint16_t *data, uint16_t len, boolean first);
+    void pushColors(uint16_t *data, uint32_t len, boolean first);
     uint16_t GetColorFromIndex(uint8_t index);
     void ep_update_mode(uint8_t mode);
     void ep_update_area(uint16_t xp, uint16_t yp, uint16_t width, uint16_t height, uint8_t mode);
