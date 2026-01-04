@@ -553,11 +553,17 @@ void DisplayText(void)
             break;
           case 'i':
             // init display with partial update
-            DisplayInit(DISPLAY_INIT_PARTIAL);
+            //DisplayInit(DISPLAY_INIT_PARTIAL);
+            if (renderer) {
+              renderer->DisplayInit(DISPLAY_INIT_PARTIAL, Settings->display_size, Settings->display_rotate, Settings->display_font);
+            }
             break;
           case 'I':
             // init display with full refresh
-            DisplayInit(DISPLAY_INIT_FULL);
+            //DisplayInit(DISPLAY_INIT_FULL);
+            if (renderer) {
+              renderer->DisplayInit(DISPLAY_INIT_FULL, Settings->display_size, Settings->display_rotate, Settings->display_font);
+            }
             break;
           case 'o':
             DisplayOnOff(0);
