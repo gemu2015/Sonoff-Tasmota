@@ -1185,6 +1185,9 @@ if (interface == _UDSP_SPI) {
     }
     // spiController->beginTransaction();
 
+    spiController->beginTransaction();
+ 
+
     if (reset >= 0) {
       pinMode(reset, OUTPUT);
       digitalWrite(reset, HIGH);
@@ -1246,12 +1249,14 @@ if (interface == _UDSP_SPI) {
         panel_config->spi.all_commands_mode = allcmd_mode;
         
         send_spi_cmds(0, dsp_ncmds);  // Send init commands for regular SPI
+      
         universal_panel = new SPIPanel(panel_config->spi, spiController, frame_buffer);
 #ifdef ESP32
         spiController->initDMA(panel_config->spi.width, lvgl_param.flushlines, lvgl_param.data);
 #endif
     }
 
+    spiController->endTransaction();
     // spiController->endTransaction();
 
     // EPD LUT initialization is now handled inside EPDPanel constructor
