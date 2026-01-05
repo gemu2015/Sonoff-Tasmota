@@ -6636,7 +6636,15 @@ int32_t I2SPlayFile(const char *path, uint32_t decoder_type);
           goto strexit;
         }
 #endif // USE_FEXTRACT
-
+        if (!strncmp_XP(vname, XPSTR("sota("), 5)) {
+          char *ota;
+          SCRIPT_SKIP_SPACES
+          lp = GetLongIString(lp + 5, &ota);
+          SettingsUpdateText(SET_OTAURL, ota);
+          free(ota);
+          fvar = 0;
+          goto nfuncexit;
+        }
         break;
 
       case 't':
