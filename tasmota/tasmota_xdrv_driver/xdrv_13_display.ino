@@ -2408,6 +2408,8 @@ char ppath[16];
 
 #ifdef ESP32
 #ifdef JPEG_PICTS
+
+//#define USE_NEW_JPG
 #include "img_converters.h"
 #include "jpeg_decoder.h"
 #include "esp_jpg_decode.h"
@@ -2519,7 +2521,7 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
           }
           //Serial.printf(" x,y,fs %d - %d - %d\n",xsize, ysize, size );
           if (xsize && ysize) {
-#if 0
+#ifdef USE_NEW_JPG
             uint16_t *out_buf = (uint16_t *)special_malloc((xsize * ysize * 2) + 4);
             if (out_buf) {
               uint32_t outsize = xsize * ysize * 2;
@@ -2600,14 +2602,15 @@ void Draw_jpeg(uint8_t *mem, uint16_t jpgsize, uint16_t xp, uint16_t yp, uint8_t
     xsize /= fac;
     ysize /= fac;
 
-#if 1
-    uint16_t *rgbmem = (uint16_t *)special_malloc(xsize * ysize * 2);
+#ifdef USE_NEW_JPG
+    uint32_t osize = xsize * ysize * 2;
+    uint16_t *rgbmem = (uint16_t *)special_malloc(osize);
     if (rgbmem) {
       esp_jpeg_image_cfg_t jpeg_cfg = {
                 .indata = (uint8_t *)mem,
                 .indata_size = jpgsize,
                 .outbuf = (uint8_t*)rgbmem,
-                .outbuf_size = xsize * ysize * 2,
+                .outbuf_size = osize,
                 .out_format = JPEG_IMAGE_FORMAT_RGB565,
                 .out_scale = (esp_jpeg_image_scale_t)scale,
                 .flags = {  .swap_color_bytes = 0,}

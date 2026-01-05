@@ -7,10 +7,9 @@
 #include "FS.h"
 #include "SD.h"
 #include "Button.h"
-//#include "GT911.h"
 #include "M5EPD_Driver.h"
 
-#include "esp_adc_cal.h"
+//#include "esp_adc_cal.h"
 
 #define M5EPD_MAIN_PWR_PIN 2
 #define M5EPD_CS_PIN 15
