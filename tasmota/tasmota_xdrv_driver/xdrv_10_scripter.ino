@@ -6640,9 +6640,12 @@ int32_t I2SPlayFile(const char *path, uint32_t decoder_type);
           char *ota;
           SCRIPT_SKIP_SPACES
           lp = GetLongIString(lp + 5, &ota);
-          SettingsUpdateText(SET_OTAURL, ota);
+          if (*ota == 0) {
+            fvar = SettingsUpdateText(SET_OTAURL, PSTR(OTA_URL));
+          } else {
+            fvar = SettingsUpdateText(SET_OTAURL, ota);
+          }
           free(ota);
-          fvar = 0;
           goto nfuncexit;
         }
         break;
