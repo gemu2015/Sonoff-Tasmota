@@ -255,7 +255,7 @@ private:
 
   uint8_t ut_array[16];
   uint8_t ut_i2caddr;
-  uint8_t ut_spi_cs = -1;
+  int8_t ut_spi_cs = -1;
   int8_t ut_reset = -1;
   int8_t ut_irq = -1;
   uint8_t ut_spi_nr;

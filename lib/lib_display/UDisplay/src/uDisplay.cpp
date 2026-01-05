@@ -1190,6 +1190,9 @@ if (interface == _UDSP_SPI) {
       digitalWrite(reset, HIGH);
       delay(50);
       reset_pin(50, 200);
+#ifdef UDSP_DEBUG
+      AddLog(LOG_LEVEL_DEBUG, "UDisplay: resetting device");
+#endif
     }
     
     if (ep_mode) {
