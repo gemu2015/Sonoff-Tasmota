@@ -2536,13 +2536,8 @@ void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool i
               };
               esp_jpeg_image_output_t outimg;
               esp_jpeg_decode(&jpeg_cfg, &outimg);
-              uint16_t *ob = out_buf;
-              for (int32_t j = 0; j < ysize; j++) {
-                renderer->setAddrWindow(xp, yp + j, xp + xsize, yp + j + 1);
-                renderer->pushColors(ob, xsize, true);
-                ob += xsize;
-                OsWatchLoop();
-              }
+              renderer->setAddrWindow(xp, yp, xp + xsize, yp + ysize);
+              renderer->pushColors(out_buf, outsize / 2, true);
               renderer->setAddrWindow(0, 0, 0, 0);
               free(out_buf);
             }
@@ -2617,13 +2612,8 @@ void Draw_jpeg(uint8_t *mem, uint16_t jpgsize, uint16_t xp, uint16_t yp, uint8_t
               };
       esp_jpeg_image_output_t outimg;
       esp_jpeg_decode(&jpeg_cfg, &outimg);
-      uint16_t *ob = rgbmem;
-      for (int32_t j = 0; j < ysize; j++) {
-        renderer->setAddrWindow(xp, yp + j, xp + xsize, yp + j + 1);
-        renderer->pushColors(ob, xsize, true);
-        ob += xsize;
-        OsWatchLoop();
-      }
+      renderer->setAddrWindow(xp, yp, xp + xsize, yp + ysize);
+      renderer->pushColors(rgbmem, osize / 2, true);
       free(rgbmem);
     }
 #else
