@@ -51,6 +51,9 @@ M5Epd47::M5Epd47(int16_t dwidth, int16_t dheight) :  Renderer(dwidth, dheight) {
   disp_bpp = 4 | 0x40;
 }
 
+#define M5EPD_MAIN_PWR_PIN 2
+#define M5EPD_EPD_PWR_EN_PIN 23
+
 int32_t M5Epd47::Init(void) {
 //  epd_init(EPD_LUT_1K);
 //  hl = epd_hl_init(WAVEFORM);
@@ -59,6 +62,16 @@ int32_t M5Epd47::Init(void) {
   lvgl_param.flushlines = 50;
 
   upd_mode = UPDATE_MODE_GL16;
+
+  // main power on
+  pinMode(M5EPD_MAIN_PWR_PIN, OUTPUT);
+  digitalWrite(M5EPD_MAIN_PWR_PIN, 1);
+
+  // epd power on
+  pinMode(M5EPD_EPD_PWR_EN_PIN, OUTPUT);
+  digitalWrite(M5EPD_EPD_PWR_EN_PIN, 1);
+  
+  delay(100);
 
   pinMode(M5EPD_CS_PIN, OUTPUT);
   digitalWrite(M5EPD_CS_PIN, 1);

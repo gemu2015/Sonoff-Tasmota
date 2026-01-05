@@ -7,7 +7,7 @@
 #include "FS.h"
 #include "SD.h"
 #include "Button.h"
-#include "GT911.h"
+//#include "GT911.h"
 #include "M5EPD_Driver.h"
 
 #include "esp_adc_cal.h"
