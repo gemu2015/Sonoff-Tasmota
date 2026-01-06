@@ -73,27 +73,17 @@ Renderer *Init_uDisplay(const char *desc) {
 
     Settings->display_model = XDSP_17;
 
-    char *fbuff = (char*)calloc(DISPDESC_SIZE, 1);
-    if (!fbuff) return 0;
-
+    char *fbuff = nullptr;
     char *ddesc = nullptr;
-    if (desc) {
-      memcpy_P(fbuff, desc, DISPDESC_SIZE - 1);
-      ddesc = fbuff;
-      AddLog(LOG_LEVEL_DEBUG, PSTR("DSP: Const char descriptor used"));
-    }
 
 #ifdef USE_UFILESYS
-    if (ffsp  && !TasmotaGlobal.no_autoexec && !ddesc) {
+    if (ffsp  && !TasmotaGlobal.no_autoexec && !desc) {
       File fp;
       fp = ffsp->open(DISP_DESC_FILE, "r");
       if (fp > 0) {
         uint32_t size = fp.size();
-        if (size > DISPDESC_SIZE - 50) {
-          free(fbuff);
-          fbuff = (char*)calloc(size + 50, 1);
-          if (!fbuff) return 0;
-        }
+        fbuff = (char*)calloc(size + 50, 1);
+        if (!fbuff) return 0;
         fp.read((uint8_t*)fbuff, size);
         fp.close();
         ddesc = fbuff;
@@ -101,6 +91,16 @@ Renderer *Init_uDisplay(const char *desc) {
       }
     }
 #endif // USE_UFILESYS
+
+    if (!fbuff) {
+      fbuff = (char*)calloc(DISPDESC_SIZE, 1);
+      if (!fbuff) return 0;
+    }
+    if (!ddesc) {
+      memcpy_P(fbuff, desc, DISPDESC_SIZE - 1);
+      ddesc = fbuff;
+      AddLog(LOG_LEVEL_DEBUG, PSTR("DSP: Const char descriptor used"));
+    }
 
 #ifdef USE_SCRIPT
     if (bitRead(Settings->rule_enabled, 0) && !ddesc) {
@@ -343,117 +343,6 @@ Renderer *Init_uDisplay(const char *desc) {
 
     uDisplay *udisp = new uDisplay(ddesc);
 
-    // check for touch option TI1 or TI2
-#if defined (USE_CST816S) || defined(USE_FT5206) || defined(USE_GT911)
-    cp = strstr(ddesc, ":TI");
-    if (cp) {
-      // :TI1,38,39,38
-      // :TI2,38,22,21
-      cp += 3;
-      // 1,38,39,38
-      uint8_t wire_n = (*cp & 3) - 1;
-      cp += 2;
-      // 38,39,38
-      uint8_t i2caddr = strtol(cp, &cp, 16);
-      cp++;
-      // 39,38
-      int8_t scl = replacepin(&cp, Pin(GPIO_I2C_SCL, wire_n));
-      int8_t sda = replacepin(&cp, Pin(GPIO_I2C_SDA, wire_n));
-      int8_t irq = -1;
-      if (*(cp - 1) == ',') {
-        irq = strtol(cp, &cp, 10);
-      }
-      int8_t rst = -1;
-      if (*cp == ',') {
-        cp++;
-        rst = strtol(cp, &cp, 10);
-      }
-
-      if (wire_n == 0) {
-        if (!TasmotaGlobal.i2c_enabled[0]) {
-          I2cBegin(sda, scl);
-        }
-      }
-#ifdef ESP32
-      if (wire_n == 1) {
-        if (!TasmotaGlobal.i2c_enabled[1]) {
-          I2cBegin(sda, scl, 1, 400000);
-        }
-      }
-#endif // ESP32
-      if (I2cSetDevice(i2caddr, wire_n)) {
-        if (i2caddr == GT911_address) {
-          I2cSetActiveFound(i2caddr, "GT911", wire_n);
-        } else if (i2caddr == CST816S_address) {
-          I2cSetActiveFound(i2caddr, "CST816S", wire_n);
-        } else {
-          I2cSetActiveFound(i2caddr, "FT5206", wire_n);
-        }
-      }
-
-      // Start digitizer
-      if (i2caddr == GT911_address) {
-#ifdef USE_GT911
-        if (!wire_n) {
-          GT911_Touch_Init(&Wire, irq, rst, xs, ys);
-        }
-#if defined(ESP32) && defined(USE_I2C_BUS2)
-        else {
-          GT911_Touch_Init(&Wire1, irq, rst, xs, ys);
-        }
-#endif  // ESP32
-#endif  // USE_GT911
-      } 
-      else if (i2caddr == CST816S_address) {
-#ifdef USE_CST816S
-        CST816S_Touch_Init(wire_n, irq, rst);
-#endif  // USE_CST816S
-      } 
-      else {
-#ifdef USE_FT5206
-        if (!wire_n) { 
-          FT5206_Touch_Init(Wire);
-        }
-#if defined(ESP32) && defined(USE_I2C_BUS2)
-        else {
-          FT5206_Touch_Init(Wire1);
-        }
-#endif  // ESP32
-#endif  // USE_FT5206
-      }
-    }
-#endif // USE_FT5206 || GT911
-
-#ifdef USE_XPT2046
-    cp = strstr(ddesc, ":TS,");
-    if (cp) {
-      // :TS,16
-      cp += 4;
-      uint8_t touch_cs = replacepin(&cp, Pin(GPIO_XPT2046_CS));
-      int8_t irqpin = -1;
-      if (*(cp - 1) == ',') {
-        irqpin = strtol(cp, &cp, 10);
-      }
-      uint8_t bus = 1;
-      if (*cp == ',') {
-        cp++;
-        bus = strtol(cp, &cp, 10);
-        if (bus < 1) bus = 1;
-      }
-	    XPT2046_Touch_Init(touch_cs, irqpin, bus - 1);
-    }
-#endif // USE_XPT2046
-
-#ifdef CONFIG_IDF_TARGET_ESP32S3
-#ifdef SIMPLE_RES_TOUCH
-    cp = strstr(ddesc, ":TR,");
-    if (cp) {
-      cp += 4;
-      Simple_ResTouch_Init(xp, xm, yp, ym);
-    }
-#endif
-#endif
-
     uint8_t inirot = Settings->display_rotate;
 
     cp = strstr(ddesc, ":r,");
@@ -464,7 +353,7 @@ Renderer *Init_uDisplay(const char *desc) {
 
     // release desc buffer
     if (fbuff) free(fbuff);
-
+   
     renderer = udisp->Init();
     if (!renderer) return 0;
 

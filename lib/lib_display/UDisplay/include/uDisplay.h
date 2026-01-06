@@ -84,6 +84,20 @@ enum {
 #define DISPLAY_INIT_PARTIAL 1
 #define DISPLAY_INIT_FULL 2
 
+typedef union {
+  uint8_t data;
+  struct {
+      uint8_t nutu8 : 1;
+      uint8_t nutu7 : 1;
+      uint8_t nutu6 : 1;
+      uint8_t nutu5 : 1;
+      uint8_t nutu4 : 1;
+      uint8_t nutu3 : 1;
+      uint8_t bp_nopwm : 1;
+      uint8_t bp_invert : 1;
+  };
+} BP_MODE;
+
 
 class uDisplay : public Renderer {
  public:
@@ -93,6 +107,7 @@ class uDisplay : public Renderer {
   void DisplayInit(int8_t p,int8_t size,int8_t rot,int8_t font);
   void Updateframe();
   void DisplayOnff(int8_t on);
+  void HandeBP(int8_t on);
   void Splash(void);
   char *devname(void);
   uint16_t fgcol(void);
@@ -206,12 +221,12 @@ private:
     int8_t i2c_sda;
     int8_t reset;
     int8_t splash_font;
-    int8_t bpmode;
+    BP_MODE bp_mode;
     // int8_t spi_cs;
     // int8_t spi_clk;
     // int8_t spi_mosi;
     // int8_t spi_dc;
-    int8_t bpanel;
+    int8_t bpanel; // pin
     // int8_t spi_miso;
     // int8_t busy_pin;  // MOVED to EPDPanelConfig.busy_pin (EPD-only)
 
