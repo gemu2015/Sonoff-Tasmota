@@ -1177,7 +1177,6 @@ if (interface == _UDSP_SPI) {
 
     HandeBP(-1);
 
-    // spiController->beginTransaction();
     spiController->beginTransaction();
  
     if (reset >= 0) {
@@ -1248,7 +1247,6 @@ if (interface == _UDSP_SPI) {
 #endif
     }
 
-    // spiController->endTransaction();
     spiController->endTransaction();
     
     // EPD LUT initialization is now handled inside EPDPanel constructor
