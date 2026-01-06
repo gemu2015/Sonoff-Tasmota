@@ -14,6 +14,10 @@ void udisp_dimm(uint8_t dim);
 #define AW_PWMRES 1024
 
 void uDisplay::HandeBP(int8_t on) {
+
+    if (bpanel < 0) {
+        return;
+    }
     if (on < 0) {
         // initial default
 #ifdef ESP32

@@ -1005,7 +1005,7 @@ uint16_t index = 0;
       
       uint8_t args = dsp_cmds[cmd_offset++];
       index++;
-#ifdef UDSP_DEBUG
+#ifdef xUDSP_DEBUG
       AddLog(LOG_LEVEL_DEBUG, "UDisplay: cmd, args %02x, %d", iob, args & 0x1f);
 #endif
       switch (iob) {
@@ -1067,7 +1067,7 @@ uint16_t index = 0;
           }
           break;
       }
-#ifdef UDSP_DEBUG
+#ifdef xUDSP_DEBUG
       if (args & 1) {
         AddLog(LOG_LEVEL_DEBUG, "UDisplay: %02x", iob);
       }
@@ -1090,13 +1090,13 @@ uint16_t index = 0;
       spiController->writeCommand(iob);
       uint8_t args = dsp_cmds[cmd_offset++];
       index++;
-#ifdef UDSP_DEBUG
+#ifdef xUDSP_DEBUG
       AddLog(LOG_LEVEL_DEBUG, "UDisplay: cmd, args %02x, %d", iob, args & 0x1f);
 #endif
       for (uint32_t cnt = 0; cnt < (args & 0x1f); cnt++) {
         iob = dsp_cmds[cmd_offset++];
         index++;
-#ifdef UDSP_DEBUG
+#ifdef xUDSP_DEBUG
         AddLog(LOG_LEVEL_DEBUG, "%02x ", iob );
 #endif
         if (!allcmd_mode) {
@@ -1175,9 +1175,8 @@ Renderer *uDisplay::Init(void) {
 
 if (interface == _UDSP_SPI) {
 
-    if (bpanel >= 0) {
-      HandeBP(-1);
-    }
+    HandeBP(-1);
+
     // spiController->beginTransaction();
     spiController->beginTransaction();
  
@@ -1265,9 +1264,7 @@ if (interface == _UDSP_SPI) {
       return NULL;
     }
 
-    if (bpanel >= 0) {
-      HandeBP(-1);
-    }
+    HandeBP(-1);
 
     panel_config->rgb.clk_src = LCD_CLK_SRC_PLL160M;
     panel_config->rgb.timings.pclk_hz = spi_speed*1000000;
@@ -1312,9 +1309,7 @@ if (interface == _UDSP_SPI) {
         universal_panel = new DSIPanel(panel_config->dsi);
         rgb_fb = universal_panel->framebuffer;
                 
-        if (bpanel >= 0) {
-          HandeBP(-1);
-        }
+        HandeBP(-1);
      }
 #endif
 
@@ -1346,9 +1341,8 @@ if (interface == _UDSP_SPI) {
       
       universal_panel = new I80Panel(panel_config->i80);
 
-      if (bpanel >= 0) {
-        HandeBP(-1);
-      }
+      HandeBP(-1);
+
   #endif
   }
   
