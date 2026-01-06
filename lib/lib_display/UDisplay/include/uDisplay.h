@@ -87,14 +87,14 @@ enum {
 typedef union {
   uint8_t data;
   struct {
-      uint8_t nutu8 : 1;
-      uint8_t nutu7 : 1;
-      uint8_t nutu6 : 1;
-      uint8_t nutu5 : 1;
-      uint8_t nutu4 : 1;
-      uint8_t nutu3 : 1;
-      uint8_t bp_nopwm : 1;
-      uint8_t bp_invert : 1;
+    uint8_t bp_invert : 1;
+    uint8_t bp_nopwm : 1;
+    uint8_t nutu3 : 1;
+    uint8_t nutu4 : 1;
+    uint8_t nutu5 : 1;
+    uint8_t nutu6 : 1;
+    uint8_t nutu7 : 1;
+    uint8_t nutu8 : 1;  
   };
 } BP_MODE;
 
