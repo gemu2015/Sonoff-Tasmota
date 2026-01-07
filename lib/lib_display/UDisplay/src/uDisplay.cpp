@@ -1005,7 +1005,7 @@ uint16_t index = 0;
       
       uint8_t args = dsp_cmds[cmd_offset++];
       index++;
-#ifdef xUDSP_DEBUG
+#ifdef UDSP_DEBUG
       AddLog(LOG_LEVEL_DEBUG, "UDisplay: cmd, args %02x, %d", iob, args & 0x1f);
 #endif
       switch (iob) {
@@ -1090,7 +1090,7 @@ uint16_t index = 0;
       spiController->writeCommand(iob);
       uint8_t args = dsp_cmds[cmd_offset++];
       index++;
-#ifdef xUDSP_DEBUG
+#ifdef UDSP_DEBUG
       AddLog(LOG_LEVEL_DEBUG, "UDisplay: cmd, args %02x, %d", iob, args & 0x1f);
 #endif
       for (uint32_t cnt = 0; cnt < (args & 0x1f); cnt++) {
@@ -1206,19 +1206,19 @@ if (interface == _UDSP_SPI) {
         panel_config->epd.send_cmds_callback = [this](uint16_t offset, uint16_t count) {
             this->send_spi_cmds(offset, count);
         };
-        
+
         // Create EPD panel BEFORE sending init commands (send_spi_cmds needs universal_panel)
         universal_panel = new EPDPanel(panel_config->epd, spiController, frame_buffer);
-        send_spi_cmds(0, dsp_ncmds);
-        
+                
         // After descriptor init commands, do initial EPD setup
         EPDPanel* epd = static_cast<EPDPanel*>(universal_panel);
         epd->resetDisplay();
+
+        send_spi_cmds(0, dsp_ncmds);
+
         if (epd->cfg.lut_full && epd->cfg.lut_full_len > 0) {
             epd->setLut(epd->cfg.lut_full, epd->cfg.lut_full_len);
         }
-        epd->clearFrameMemory(0xFF);
-        epd->displayFrame();
         
         // Send full update command sequence if available
         if (epd->cfg.epc_full_cnt) {
@@ -1227,6 +1227,10 @@ if (interface == _UDSP_SPI) {
         
         // Set update mode to partial for subsequent updates
         epd->setUpdateMode(DISPLAY_INIT_PARTIAL);
+
+        epd->clearFrameMemory(0xFF);
+        epd->displayFrame();
+
     } else {   
         AddLog(2,"SPI Panel!");
         // Populate remaining SPI config fields (most already parsed directly into union)

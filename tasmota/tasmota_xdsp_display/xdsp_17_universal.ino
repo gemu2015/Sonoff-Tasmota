@@ -347,7 +347,7 @@ Renderer *Init_uDisplay(const char *desc) {
 
     cp = strstr(ddesc, ":r,");
     if (cp) {
-      cp+=3;
+      cp += 3;
       inirot = strtol(cp, &cp, 10);
     }
 
@@ -372,13 +372,6 @@ Renderer *Init_uDisplay(const char *desc) {
 #endif
 
     bool iniinv = Settings->display_options.invert;
-    /*
-    cp = strstr(ddesc, ":n,");
-    if (cp) {
-      cp+=3;
-      iniinv = strtol(cp, &cp, 10);
-      Settings->display_options.invert = iniinv;
-    }*/
     renderer->invertDisplay(iniinv);
 
     ApplyDisplayDimmer(GetDisplayDimmer());
