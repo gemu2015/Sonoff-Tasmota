@@ -986,12 +986,22 @@ uint16_t cmd_offset = 0;
 #endif
   return;
 }
+#include "FS.h"
+#include <LittleFS.h>
+extern FS *ffsp;
 
+void Log2file(char *str) {
+  File fp;
+  fp = ffsp->open("/log.txt", "a");
+  fp.write((uint8_t*)str, strlen(str));
+  fp.close();
+}
 
 void uDisplay::send_spi_cmds(uint16_t cmd_offset, uint16_t cmd_size) {
 uint16_t index = 0;
 #ifdef UDSP_DEBUG
   AddLog(LOG_LEVEL_DEBUG, "UDisplay: start send cmd table");
+  Log2file("start send\n");
 #endif
   while (1) {
     uint8_t iob;
@@ -1007,6 +1017,8 @@ uint16_t index = 0;
       index++;
 #ifdef UDSP_DEBUG
       AddLog(LOG_LEVEL_DEBUG, "UDisplay: cmd, args %02x, %d", iob, args & 0x1f);
+      char str[24]; sprintf(str,"cmd %02x, args %d\n",iob, args & 0x1f);
+      Log2file(str);
 #endif
       switch (iob) {
         case EP_RESET:
@@ -1067,7 +1079,7 @@ uint16_t index = 0;
           }
           break;
       }
-#ifdef xUDSP_DEBUG
+#ifdef UDSP_DEBUG
       if (args & 1) {
         AddLog(LOG_LEVEL_DEBUG, "UDisplay: %02x", iob);
       }
@@ -1092,11 +1104,13 @@ uint16_t index = 0;
       index++;
 #ifdef UDSP_DEBUG
       AddLog(LOG_LEVEL_DEBUG, "UDisplay: cmd, args %02x, %d", iob, args & 0x1f);
+      char str[24]; sprintf(str,"cmd %02x, args %d\n",iob, args & 0x1f);
+      Log2file(str);
 #endif
       for (uint32_t cnt = 0; cnt < (args & 0x1f); cnt++) {
         iob = dsp_cmds[cmd_offset++];
         index++;
-#ifdef xUDSP_DEBUG
+#ifdef UDSP_DEBUG
         AddLog(LOG_LEVEL_DEBUG, "%02x ", iob );
 #endif
         if (!allcmd_mode) {
@@ -1116,6 +1130,7 @@ uint16_t index = 0;
 exit:
 #ifdef UDSP_DEBUG
   AddLog(LOG_LEVEL_DEBUG, "UDisplay: end send cmd table");
+  Log2file("end send\n");
 #endif
   return;
 }
