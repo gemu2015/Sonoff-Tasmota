@@ -991,6 +991,7 @@ uint16_t cmd_offset = 0;
 extern FS *ffsp;
 
 void Log2file(char *str) {
+  return;
   File fp;
   fp = ffsp->open("/log.txt", "a");
   fp.write((uint8_t*)str, strlen(str));
