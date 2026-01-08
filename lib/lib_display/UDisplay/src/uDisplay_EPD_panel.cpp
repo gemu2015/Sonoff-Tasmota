@@ -189,6 +189,7 @@ void EPDPanel::displayFrame() {
     delay_sync(cfg.update_time); // Use delay_sync with proper timing
 }
 
+/*
 void EPDPanel::drawAbsolutePixel(int x, int y, uint16_t color) {
     // Bounds check using physical dimensions
     if (x < 0 || x >= cfg.width || y < 0 || y >= cfg.height) {
@@ -212,6 +213,37 @@ void EPDPanel::drawAbsolutePixel(int x, int y, uint16_t color) {
     } else {
         fb_buffer[x + (y / 8) * cfg.width] &= ~(1 << (y & 7));
     }
+}
+*/
+
+#define IF_INVERT_COLOR 1
+
+// we must use this for epaper because these displays have a strange and different bit pattern
+void EPDPanel::drawAbsolutePixel(int x, int y, uint16_t color) {
+
+    int16_t w = cfg.width, h = cfg.height;
+    if (rotation == 1 || rotation == 3) {
+      std::swap(w, h);
+    }
+
+    if (x < 0 || x >= w || y < 0 || y >= h) {
+        return;
+    }
+
+    if (IF_INVERT_COLOR) {
+        if (color) {
+            fb_buffer[(x + y * w) / 8] |= 0x80 >> (x % 8);
+        } else {
+            fb_buffer[(x + y * w) / 8] &= ~(0x80 >> (x % 8));
+        }
+    } else {
+        if (color) {
+            fb_buffer[(x + y * w) / 8] &= ~(0x80 >> (x % 8));
+        } else {
+            fb_buffer[(x + y * w) / 8] |= 0x80 >> (x % 8);
+        }
+    }
+
 }
 
 // ===== UniversalPanel Interface Implementation =====
@@ -245,12 +277,12 @@ bool EPDPanel::drawPixel(int16_t x, int16_t y, uint16_t color) {
             break;
     }
     
-    // Convert color to monochrome and draw
-    drawAbsolutePixel(x, y, (color != 0) ? 1 : 0);
+    drawAbsolutePixel(x, y, color);
     return true;
 }
 
 bool EPDPanel::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {   
+
     // Use drawPixel to handle rotation properly
     for (int16_t yp = y; yp < y + h; yp++) {
         for (int16_t xp = x; xp < x + w; xp++) {
