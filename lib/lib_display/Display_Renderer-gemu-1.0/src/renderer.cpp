@@ -326,7 +326,7 @@ void Renderer::SetRamfont(uint8_t *font) {
 }
 
 void Renderer::clearDisplay(void) {
-  fillScreen(BLACK);
+  fillScreen(0xffff);
 }
 
 #define renderer_swap(a, b) { int16_t t = a; a = b; b = t; }
