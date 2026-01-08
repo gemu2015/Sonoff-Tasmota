@@ -60,7 +60,7 @@ class Renderer {
 public:
   Renderer(int16_t x, int16_t y);
   void setTextFont(uint8_t f);
-  void clearDisplay(void);
+  virtual void clearDisplay(void);
   virtual void DrawStringAt(int16_t x, int16_t y, const char* text,uint16_t colored,uint8_t flag);
   virtual void drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color);
   virtual void drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color);

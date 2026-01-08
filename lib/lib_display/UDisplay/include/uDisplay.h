@@ -241,9 +241,9 @@ private:
     void drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color);
     void drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color);
     uint32_t str2c(char **sp, char *vp, uint32_t len);
+    void clearDisplay(void);
 
     void i2c_command(uint8_t val);
-
 
     uint8_t strlen_ln(char *str);
     int32_t next_val(char **sp);

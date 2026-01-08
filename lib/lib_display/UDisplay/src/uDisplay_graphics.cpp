@@ -61,6 +61,10 @@ void uDisplay::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t col
     }
 }
 
+void uDisplay::clearDisplay(void) {
+    fillScreen(bg_col);
+}
+
 void uDisplay::fillScreen(uint16_t color) {
     fillRect(0, 0, width(), height(), color);
 }

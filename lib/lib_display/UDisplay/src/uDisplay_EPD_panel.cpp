@@ -281,6 +281,7 @@ bool EPDPanel::drawPixel(int16_t x, int16_t y, uint16_t color) {
     return true;
 }
 
+
 bool EPDPanel::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {   
 
     // Use drawPixel to handle rotation properly
