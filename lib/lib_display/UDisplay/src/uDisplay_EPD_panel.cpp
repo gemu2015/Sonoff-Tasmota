@@ -189,7 +189,7 @@ void EPDPanel::displayFrame() {
     delay_sync(cfg.update_time); // Use delay_sync with proper timing
 }
 
-/*
+#if 1
 void EPDPanel::drawAbsolutePixel(int x, int y, uint16_t color) {
     // Bounds check using physical dimensions
     if (x < 0 || x >= cfg.width || y < 0 || y >= cfg.height) {
@@ -214,7 +214,7 @@ void EPDPanel::drawAbsolutePixel(int x, int y, uint16_t color) {
         fb_buffer[x + (y / 8) * cfg.width] &= ~(1 << (y & 7));
     }
 }
-*/
+#else
 
 #define IF_INVERT_COLOR 1
 
@@ -245,6 +245,7 @@ void EPDPanel::drawAbsolutePixel(int x, int y, uint16_t color) {
     }
 
 }
+#endif
 
 // ===== UniversalPanel Interface Implementation =====
 
@@ -495,6 +496,7 @@ void EPDPanel::sendYColumnAsXRow(const uint8_t* y_column_buffer, uint16_t buffer
     }
 }
 
+#if 1
 void EPDPanel::setFrameMemory(const uint8_t* image_buffer) {
     setMemoryArea(0, 0, cfg.width - 1, cfg.height - 1);
     setMemoryPointer(0, 0);
@@ -506,6 +508,21 @@ void EPDPanel::setFrameMemory(const uint8_t* image_buffer) {
     spi->csHigh();
     spi->endTransaction();
 }
+#else
+void EPDPanel::setFrameMemory(const uint8_t* image_buffer) {
+    setMemoryArea(0, 0, cfg.width - 1, cfg.height - 1);
+    setMemoryPointer(0, 0);
+    spi->beginTransaction();
+    spi->csLow();
+    spi->writeCommand(WRITE_RAM);
+    /* send the image data */
+    for (int i = 0; i < cfg.width  / 8 * cfg.height; i++) {
+        spi->writeData8(image_buffer[i] ^ 0xff);
+    }
+    spi->csHigh();
+    spi->endTransaction();
+}
+#endif
 
 void EPDPanel::setFrameMemory(const uint8_t* image_buffer, uint16_t x, uint16_t y, uint16_t image_width, uint16_t image_height) {
     if (!image_buffer) return;
