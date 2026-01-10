@@ -12112,7 +12112,7 @@ uint32_t fsize;
       if (renderer->disp_bpp & 0x40) {
         dmflg = 1;
       }
-      int8_t bpp = renderer->disp_bpp & 0xbf;;
+      int8_t bpp = renderer->disp_bpp & 0xbf;
       uint8_t *lbp;
       uint8_t fileHeader[fileHeaderSize];
       createBitmapFileHeader(Settings->display_height , Settings->display_width , fileHeader);
@@ -13076,8 +13076,10 @@ const char *gc_str;
           uint8_t from;
           uint8_t to;
           if (pulabel[1] == 'g') {
-            cp++;
             flg = 1;
+            if (pulabel[2] == 'r') {
+              flg = 2;
+            }
             from = 0;
             to = MAX_USER_PINS + MIN_FLASH_PINS - 1;
           } else {
@@ -13095,8 +13097,12 @@ const char *gc_str;
             if (val == index) {
               strcpy_P(option, PSTR("selected"));
             }
-
-            uint8_t disabled = FlashPin(cnt) || RedPin(cnt) || TasmotaGlobal.gpio_pin[cnt];
+            uint8_t disabled;
+            if (flg == 2) {
+              disabled = FlashPin(cnt) || RedPin(cnt) || TasmotaGlobal.gpio_pin[cnt];
+            } else {
+              disabled = FlashPin(cnt) || TasmotaGlobal.gpio_pin[cnt];
+            }
             if (flg && disabled) {
               strcpy_P(option, PSTR("disabled"));
             }
