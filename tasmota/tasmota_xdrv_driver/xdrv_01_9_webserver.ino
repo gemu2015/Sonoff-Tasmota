@@ -307,19 +307,21 @@ const char HTTP_FORM_LOGIN[] PROGMEM =
 const char HTTP_FIELDSET_LEGEND[] PROGMEM =
   "<fieldset><legend><b>&nbsp;%s&nbsp;</b></legend>";
 
-const char HTTP_FORM_TEMPLATE[] PROGMEM =
-  "<form method='get' action='tp'>";
+const char HTTP_FORM_GET_ACTION[] PROGMEM =
+  "<form method='get' action='%s'>";
+
+const char HTTP_FORM_BUTTON[] PROGMEM =
+  "<p></p><form method='get' action='%s'><button>%s</button></form>";
+
 const char HTTP_FORM_TEMPLATE_FLAG[] PROGMEM =
 //  "<label><input id='c0' name='c0' type='checkbox'><b>" D_OPTION_TEXT "</b></label><br>"
   "</p></fieldset>";
 
 const char HTTP_FORM_MODULE[] PROGMEM =
-  "<form method='get' action='md'>"
   "<p></p><b>" D_MODULE_TYPE "</b> (%s)<br><select id='g99'></select><br>"
   "<br><table>";
 
 const char HTTP_FORM_WIFI_PART1[] PROGMEM =
-  "<form method='get' action='wi'>"
   "<p><b>" D_AP1_SSID "</b>%s<br><input id='s1' placeholder=\"" D_AP1_SSID_HELP "\" value=\"%s\"></p>"  // Need \" instead of ' to be able to use ' in text (#8489)
   "<p><label><b>" D_AP_PASSWORD "</b><input type='checkbox' onclick='sp(\"p1\")'></label><br><input id='p1' type='password' placeholder=\"" D_AP_PASSWORD_HELP "\"";
 
@@ -333,18 +335,12 @@ const char HTTP_FORM_WIFI_PART2[] PROGMEM =
 #endif
   ;
 
-const char HTTP_FORM_LOG1[] PROGMEM =
-  "<form method='get' action='lg'>";
-const char HTTP_FORM_LOG2[] PROGMEM =
+const char HTTP_FORM_LOG[] PROGMEM =
   "<p><b>" D_SYSLOG_HOST "</b> (" SYS_LOG_HOST ")<br><input id='lh' placeholder=\"" SYS_LOG_HOST "\" value=\"%s\"></p>"
   "<p><b>" D_SYSLOG_PORT "</b> (" STR(SYS_LOG_PORT) ")<br><input id='lp' placeholder='" STR(SYS_LOG_PORT) "' value='%d'></p>"
   "<p><b>" D_TELEMETRY_PERIOD "</b> (" STR(TELE_PERIOD) ")<br><input id='lt' placeholder='" STR(TELE_PERIOD) "' value='%d'></p>";
 
-const char HTTP_FORM_OTHER1[] PROGMEM =
-  "<form method='get' action='co'>"
-  "<p></p>";
-
-const char HTTP_FORM_OTHER2[] PROGMEM =
+const char HTTP_FORM_OTHER[] PROGMEM =
   "<p><input id='t1' placeholder=\"" D_TEMPLATE "\" value='%s'></p>"  // We need ' apostrophe here as the template contains " quotation mark
   "<p><label><input id='t2' type='checkbox'%s><b>" D_ACTIVATE "</b></label></p>"
   "</fieldset>"
@@ -362,11 +358,10 @@ const char HTTP_FORM_END[] PROGMEM =
   "<button name='save' type='submit' class='button bgrn'>" D_SAVE "</button>"
   "</form></fieldset>";
 
-const char HTTP_DIV_BLOCK[] PROGMEM =
+const char HTTP_DIV_F1_BLOCK[] PROGMEM =
   "<div id='f1' name='f1' style='display:block;'>";
 
 const char HTTP_FORM_UPG[] PROGMEM =
-  "<form method='get' action='u1'>"
   "<br><b>" D_OTA_URL "</b><br><input id='o' placeholder=\"OTA_URL\" value=\"%s\"><br>"
   "<br><button type='submit'>" D_START_UPGRADE "</button></form>"
   "</fieldset><br><br>";
@@ -2275,7 +2270,7 @@ void HandleTemplateConfiguration(void) {
 
   WSContentSendStyle();
   WSContentSend_P(HTTP_FIELDSET_LEGEND, PSTR(D_TEMPLATE_PARAMETERS));
-  WSContentSend_P(HTTP_FORM_TEMPLATE);
+  WSContentSend_P(HTTP_FORM_GET_ACTION, PSTR("tp"));
   WSContentSend_P(HTTP_TABLE100);  // "<table style='width:100%%'>"
   WSContentSend_P(PSTR("<tr><td><b>" D_TEMPLATE_NAME "</b></td><td style='width:200px'><input id='s1' placeholder='" D_TEMPLATE_NAME "'></td></tr>"
                        "<tr><td><b>" D_BASE_TYPE "</b></td><td><select id='g99' onchange='st(this.value)'></select></td></tr>"
@@ -2449,6 +2444,7 @@ void HandleModuleConfiguration(void) {
 
   WSContentSendStyle();
   WSContentSend_P(HTTP_FIELDSET_LEGEND, PSTR(D_MODULE_PARAMETERS));
+  WSContentSend_P(HTTP_FORM_GET_ACTION, PSTR("md"));
   WSContentSend_P(HTTP_FORM_MODULE, AnyModuleName(MODULE).c_str());
   for (uint32_t i = 0; i < nitems(template_gp.io); i++) {
     if (ValidGPIO(i, template_gp.io[i])) {
@@ -2729,6 +2725,7 @@ void HandleWifiConfiguration(void) {
     WSContentSend_P(PSTR("<div><a href='/wi?scan='>%s</a></div><br>"),
       (limitScannedNetworks) ? PSTR(D_SHOW_MORE_WIFI_NETWORKS) : PSTR(D_SCAN_FOR_WIFI_NETWORKS));
     WSContentSend_P(HTTP_FIELDSET_LEGEND, PSTR(D_WIFI_PARAMETERS));
+    WSContentSend_P(HTTP_FORM_GET_ACTION, PSTR("wi"));
     WSContentSend_P(HTTP_FORM_WIFI_PART1, 
       (WifiIsInManagerMode()) ? "" : PSTR(" (" STA_SSID1 ")"), 
       SettingsTextEscaped(SET_STASSID1).c_str());
@@ -2813,7 +2810,7 @@ void HandleLoggingConfiguration(void) {
   WSContentStart_P(PSTR(D_CONFIGURE_LOGGING));
   WSContentSendStyle();
   WSContentSend_P(HTTP_FIELDSET_LEGEND, PSTR(D_LOGGING_PARAMETERS));
-  WSContentSend_P(HTTP_FORM_LOG1);
+  WSContentSend_P(HTTP_FORM_GET_ACTION, PSTR("lg"));
   char stemp1[45];
   char stemp2[32];
   uint8_t dlevel[4] = { LOG_LEVEL_INFO, LOG_LEVEL_INFO, LOG_LEVEL_NONE, LOG_LEVEL_NONE };
@@ -2831,7 +2828,7 @@ void HandleLoggingConfiguration(void) {
     }
     WSContentSend_P(PSTR("</select></p>"));
   }
-  WSContentSend_P(HTTP_FORM_LOG2, 
+  WSContentSend_P(HTTP_FORM_LOG, 
     SettingsTextEscaped(SET_SYSLOG_HOST).c_str(),
     Settings->syslog_port,
     Settings->tele_period);
@@ -2875,9 +2872,10 @@ void HandleOtherConfiguration(void) {
   TemplateJson();
 
   WSContentSend_P(HTTP_FIELDSET_LEGEND, PSTR(D_OTHER_PARAMETERS));
-  WSContentSend_P(HTTP_FORM_OTHER1);
+  WSContentSend_P(HTTP_FORM_GET_ACTION, PSTR("co"));
+  WSContentSend_P(PSTR("<p></p>"));
   WSContentSend_P(HTTP_FIELDSET_LEGEND, PSTR(D_TEMPLATE));
-  WSContentSend_P(HTTP_FORM_OTHER2, 
+  WSContentSend_P(HTTP_FORM_OTHER, 
     HtmlEscape(ResponseData()).c_str(),
     (USER_MODULE == Settings->module) ? PSTR(" checked disabled") : "",
     (Settings->flag5.disable_referer_chk) ? PSTR(" checked") : "",   // SetOption128 - Enable HTTP API
@@ -3018,7 +3016,7 @@ void HandleRestoreConfiguration(void) {
 
   WSContentStart_P(PSTR(D_RESTORE_CONFIGURATION));
   WSContentSendStyle();
-  WSContentSend_P(HTTP_DIV_BLOCK);
+  WSContentSend_P(HTTP_DIV_F1_BLOCK);
   WSContentSend_P(HTTP_FIELDSET_LEGEND, PSTR(D_RESTORE_CONFIGURATION));
   WSContentSend_P(HTTP_FORM_RST_UPG, PSTR(D_START_RESTORE));
   if (WifiIsInManagerMode()) {
@@ -3390,8 +3388,9 @@ void HandleUpgradeFirmware(void) {
   WSContentStart_P(PSTR(D_FIRMWARE_UPGRADE));
   WSContentSendStyle();
   WSContentSend_P(HTTP_MENU_HEAD, D_FIRMWARE_UPGRADE);
-  WSContentSend_P(HTTP_DIV_BLOCK);
+  WSContentSend_P(HTTP_DIV_F1_BLOCK);
   WSContentSend_P(HTTP_FIELDSET_LEGEND, PSTR(D_UPGRADE_BY_WEBSERVER));
+  WSContentSend_P(HTTP_FORM_GET_ACTION, PSTR("u1"));
   WSContentSend_P(HTTP_FORM_UPG, SettingsTextEscaped(SET_OTAURL).c_str());
   WSContentSend_P(HTTP_FIELDSET_LEGEND, PSTR(D_UPGRADE_BY_FILE_UPLOAD));
 #ifdef ESP32

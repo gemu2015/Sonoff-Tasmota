@@ -1,4 +1,4 @@
-# Demonstration: RichPaletteColorProvider with dynamic brightness
+# Demonstration: rich_palette_color with dynamic brightness
 #
 # This demo shows how the LUT optimization now works correctly with
 # animations that have time-varying brightness, such as breathing effects.
@@ -35,9 +35,9 @@ var rainbow_palette = bytes(
 )
 
 # Create the color provider
-var provider = animation.rich_palette(engine)
-provider.palette = rainbow_palette
-provider.cycle_period = 0  # Value-based mode for gradient
+var provider = animation.rich_palette_color(engine)
+provider.colors = rainbow_palette
+provider.period = 0  # Value-based mode for gradient
 provider.brightness = 255
 
 # Initialize the provider

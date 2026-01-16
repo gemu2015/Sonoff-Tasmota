@@ -16,7 +16,7 @@ class shutter_bidir_animation : animation.engine_proxy
     "period": {"type": "time"}
   })
 
-  # Template setup method - overrides EngineProxy placeholder
+  # Template setup method - overrides engine_proxy placeholder
   def setup_template()
     var engine = self   # using 'self' as a proxy to engine object (instead of 'self.engine')
 
@@ -29,14 +29,14 @@ class shutter_bidir_animation : animation.engine_proxy
       return provider
     end)(engine)
     var col1_ = animation.color_cycle(engine)
-    col1_.palette = animation.create_closure_value(engine, def (engine) return self.colors end)
-    col1_.cycle_period = 0
+    col1_.colors = animation.create_closure_value(engine, def (engine) return self.colors end)
+    col1_.period = 0
     var col2_ = animation.color_cycle(engine)
-    col2_.palette = animation.create_closure_value(engine, def (engine) return self.colors end)
-    col2_.cycle_period = 0
+    col2_.colors = animation.create_closure_value(engine, def (engine) return self.colors end)
+    col2_.period = 0
     col2_.next = 1
     # shutter moving from left to right
-    var shutter_lr_animation_ = animation.beacon_animation(engine)
+    var shutter_lr_animation_ = animation.beacon(engine)
     shutter_lr_animation_.color = col2_
     shutter_lr_animation_.back_color = col1_
     shutter_lr_animation_.pos = 0
@@ -44,7 +44,7 @@ class shutter_bidir_animation : animation.engine_proxy
     shutter_lr_animation_.slew_size = 0
     shutter_lr_animation_.priority = 5
     # shutter moving from right to left
-    var shutter_rl_animation_ = animation.beacon_animation(engine)
+    var shutter_rl_animation_ = animation.beacon(engine)
     shutter_rl_animation_.color = col1_
     shutter_rl_animation_.back_color = col2_
     shutter_rl_animation_.pos = 0
@@ -101,12 +101,12 @@ template animation shutter_bidir {
   set strip_len = strip_length()
   set shutter_size = sawtooth(min_value = 0, max_value = strip_len + 0, duration = period)
 
-  color col1 = color_cycle(palette=colors, cycle_period=0)
-  color col2 = color_cycle(palette=colors, cycle_period=0)
+  color col1 = color_cycle(colors=colors, period=0)
+  color col2 = color_cycle(colors=colors, period=0)
   col2.next = 1
 
   # shutter moving from left to right
-  animation shutter_lr_animation = beacon_animation(
+  animation shutter_lr_animation = beacon(
     color = col2
     back_color = col1
     pos = 0
@@ -116,7 +116,7 @@ template animation shutter_bidir {
   )
 
   # shutter moving from right to left
-  animation shutter_rl_animation = beacon_animation(
+  animation shutter_rl_animation = beacon(
     color = col1
     back_color = col2
     pos = 0

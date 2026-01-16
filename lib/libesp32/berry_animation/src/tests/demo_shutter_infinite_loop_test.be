@@ -17,7 +17,7 @@ def test_demo_shutter_patterns()
                      "    param colors type palette\n" +
                      "    param duration\n" +
                      "    \n" +
-                     "    color col1 = color_cycle(palette=colors, cycle_period=0)\n" +
+                     "    color col1 = color_cycle(palette=colors, period=0)\n" +
                      "    animation test_anim = solid(color=col1)\n" +
                      "    \n" +
                      "    sequence shutter_seq repeat forever {\n" +
@@ -44,7 +44,7 @@ def test_demo_shutter_patterns()
   
   # Test 2: The col1.next = 1 pattern
   print("  Testing color.next assignment...")
-  var color_next = "color col1 = color_cycle(palette=[red, green], cycle_period=0)\n" +
+  var color_next = "color col1 = color_cycle(palette=[red, green], period=0)\n" +
                    "col1.next = 1\n" +
                    "animation test_anim = solid(color=col1)\n" +
                    "run test_anim"
@@ -77,8 +77,8 @@ def test_demo_shutter_patterns()
     return false
   end
   
-  # Test 4: Complex expressions in beacon_animation
-  print("  Testing complex beacon_animation expressions...")
+  # Test 4: Complex expressions in beacon
+  print("  Testing complex beacon expressions...")
   var complex_beacon = "template shutter_central {\n" +
                       "    param colors type palette\n" +
                       "    param duration\n" +
@@ -87,9 +87,9 @@ def test_demo_shutter_patterns()
                       "    set strip_len2 = (strip_len + 1) / 2\n" +
                       "    set shutter_size = sawtooth(min_value = 0, max_value = strip_len, duration = duration)\n" +
                       "    \n" +
-                      "    color col1 = color_cycle(palette=colors, cycle_period=0)\n" +
+                      "    color col1 = color_cycle(palette=colors, period=0)\n" +
                       "    \n" +
-                      "    animation shutter_anim = beacon_animation(\n" +
+                      "    animation shutter_anim = beacon(\n" +
                       "      color = col1\n" +
                       "      back_color = red\n" +
                       "      pos = strip_len2 - (shutter_size + 1) / 2\n" +
@@ -105,11 +105,11 @@ def test_demo_shutter_patterns()
                       "shutter_central(rainbow, 1s)"
   
   try
-    print("    Compiling complex beacon_animation...")
+    print("    Compiling complex beacon...")
     var result4 = animation_dsl.compile(complex_beacon)
-    print("    ✓ Complex beacon_animation works")
+    print("    ✓ Complex beacon works")
   except .. as e, msg
-    print(f"    ✗ Complex beacon_animation failed: {e}: {msg}")
+    print(f"    ✗ Complex beacon failed: {e}: {msg}")
     return false
   end
   
@@ -123,11 +123,11 @@ def test_demo_shutter_patterns()
                      "    set strip_len2 = (strip_len + 1) / 2\n" +
                      "    set shutter_size = sawtooth(min_value = 0, max_value = strip_len, duration = duration)\n" +
                      "    \n" +
-                     "    color col1 = color_cycle(palette=colors, cycle_period=0)\n" +
-                     "    color col2 = color_cycle(palette=colors, cycle_period=0)\n" +
+                     "    color col1 = color_cycle(palette=colors, period=0)\n" +
+                     "    color col2 = color_cycle(palette=colors, period=0)\n" +
                      "    col2.next = 1\n" +
                      "    \n" +
-                     "    animation shutter_inout = beacon_animation(\n" +
+                     "    animation shutter_inout = beacon(\n" +
                      "      color = col2\n" +
                      "      back_color = col1\n" +
                      "      pos = strip_len2 - (shutter_size + 1) / 2\n" +
@@ -136,7 +136,7 @@ def test_demo_shutter_patterns()
                      "      priority = 5\n" +
                      "    )\n" +
                      "    \n" +
-                     "    animation shutter_outin = beacon_animation(\n" +
+                     "    animation shutter_outin = beacon(\n" +
                      "      color = col1\n" +
                      "      back_color = col2\n" +
                      "      pos = strip_len2 - (strip_len - shutter_size + 1) / 2\n" +

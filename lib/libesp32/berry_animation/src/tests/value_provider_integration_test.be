@@ -19,7 +19,7 @@ def test_auto_registration_with_animation()
   oscillator.duration = 2000
     
   # Create an animation that uses the oscillator
-  var beacon = animation.beacon_animation(engine)
+  var beacon = animation.beacon(engine)
   beacon.color = 0xFFFF0000
   beacon.pos = oscillator
   beacon.beacon_size = 3
@@ -66,11 +66,11 @@ def test_multiple_providers_coordination()
   brightness_osc.duration = 2000
   
   var color_cycle = animation.color_cycle(engine)
-  color_cycle.palette = bytes("FFFF0000" "FF00FF00" "FF0000FF")
-  color_cycle.cycle_period = 5000
+  color_cycle.colors = bytes("FFFF0000" "FF00FF00" "FF0000FF")
+  color_cycle.period = 5000
   
   # Create animation using all providers
-  var beacon = animation.beacon_animation(engine)
+  var beacon = animation.beacon(engine)
   beacon.color = color_cycle
   beacon.pos = position_osc
   beacon.opacity = brightness_osc
@@ -122,12 +122,12 @@ def test_template_animation_scenario()
   sweep.duration = 4000
   
   # Template creates animations using the provider
-  var beacon1 = animation.beacon_animation(engine)
+  var beacon1 = animation.beacon(engine)
   beacon1.color = 0xFFFF0000
   beacon1.pos = sweep
   beacon1.beacon_size = 2
   
-  var beacon2 = animation.beacon_animation(engine)
+  var beacon2 = animation.beacon(engine)
   beacon2.color = 0xFF0000FF
   beacon2.pos = sweep  # Same provider used by multiple animations
   beacon2.beacon_size = 1

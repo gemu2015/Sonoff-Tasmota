@@ -2,7 +2,6 @@
 # Single-pass transpiler with minimal complexity
 # Leverages Berry's runtime for symbol resolution
 
-#@ solidify:SimpleDSLTranspiler,weak
 class SimpleDSLTranspiler
   var pull_lexer      # Pull lexer instance
   var output          # Generated Berry code lines
@@ -28,7 +27,6 @@ class SimpleDSLTranspiler
   static var CONTEXT_COLOR_PROVIDER = 11
   
   # Helper class to track expression metadata for closure detection
-  #@ solidify:ExpressionResult,weak
   static class ExpressionResult
     var expr              # The expression string
     var has_dynamic       # Boolean: true if contains dynamic content that may change over time, hence needs to wrap into a closure
@@ -46,13 +44,8 @@ class SimpleDSLTranspiler
       self.instance_for_validation = instance_for_validation  # nil by default
     end
     
-    # Check if this expression needs closure wrapping
+    # Check if this expression needs closure/function wrapping
     def needs_closure()
-      return self.has_dynamic
-    end
-
-    # Check if this expression needs function wrapping
-    def needs_function()
       return self.has_dynamic
     end
     
@@ -364,46 +357,6 @@ class SimpleDSLTranspiler
       return self.join_output()
     except .. as e, msg
       self.error(f"Transpilation failed: {msg}")
-    end
-  end
-  
-  # Transpile template body (similar to main transpile but without imports/engine start)
-  def transpile_template_body()
-    try
-      # Process all statements in template body until we hit the closing brace
-      var brace_depth = 0
-      while !self.at_end()
-        var tok = self.current()
-        
-        # Check for template end condition
-        if tok != nil && tok.type == 27 #-animation_dsl.Token.RIGHT_BRACE-# && brace_depth == 0
-          # This is the closing brace of the template - stop processing
-          break
-        end
-        
-        # Track brace depth for nested braces
-        if tok != nil && tok.type == 26 #-animation_dsl.Token.LEFT_BRACE-#
-          brace_depth += 1
-        elif tok != nil && tok.type == 27 #-animation_dsl.Token.RIGHT_BRACE-#
-          brace_depth -= 1
-        end
-        
-        self.process_statement()
-      end
-      
-      # For templates, process run statements immediately instead of collecting them
-      if size(self.run_statements) > 0
-        for run_stmt : self.run_statements
-          var obj_name = run_stmt["name"]
-          var comment = run_stmt["comment"]
-          # In templates, use underscore suffix for local variables
-          self.add(f"engine.add({obj_name}_){comment}")
-        end
-      end
-      
-      return self.join_output()
-    except .. as e, msg
-      self.error(f"Template body transpilation failed: {msg}")
     end
   end
   
@@ -1024,7 +977,7 @@ class SimpleDSLTranspiler
     
     if is_repeat_syntax
       # Second syntax: sequence name repeat N times { ... }
-      # Create a single SequenceManager with fluent interface
+      # Create a single sequence_manager with fluent interface
       self.add(f"var {name}_ = animation.sequence_manager(engine, {repeat_count})")
       
       # Process sequence body - add steps using fluent interface
@@ -1430,9 +1383,8 @@ class SimpleDSLTranspiler
   def process_value(context)
     var result = self.process_additive_expression(context, true, false)  # true = top-level, false = not raw mode
     # Handle closure wrapping for top-level expressions (not in raw mode) only if there is computation needed
-    # print(f"> process_value {context=} {result.needs_function()=} {result=}")
     if    (((context == self.CONTEXT_VARIABLE) || (context == self.CONTEXT_PROPERTY)) && result.needs_closure())
-       || ((context == self.CONTEXT_REPEAT_COUNT) && result.needs_function())
+       || ((context == self.CONTEXT_REPEAT_COUNT) && result.needs_closure())
       # Special handling for repeat_count context - always create simple function for property access
       if context == self.CONTEXT_REPEAT_COUNT
         # print(f">>> CONTEXT_REPEAT_COUNT")
@@ -2317,11 +2269,14 @@ class SimpleDSLTranspiler
       self.error(f"Cannot redefine predefined color '{name}'. Use a different name like '{name}_custom' or 'my_{name}'")
       return false
     elif entry.is_builtin
-      self.error(f"Cannot redefine built-in symbol '{name}' (type: {entry.type}). Use a different name like '{name}_custom' or 'my_{name}'")
+      self.error(f"Cannot redefine built-in symbol '{name}'. Use a different name like '{name}_custom' or 'my_{name}'")
       return false
+    elif definition_type == "extern function" && entry.type == 5 #-animation_dsl._symbol_entry.TYPE_USER_FUNCTION-#
+      # Allow duplicate extern function declarations for the same function
+      return true
     else
       # User-defined symbol already exists - this is a redefinition error
-      self.error(f"Symbol '{name}' is already defined as {entry.type}. Cannot redefine as {definition_type}.")
+      self.error(f"Symbol '{name}' is already defined. Cannot redefine as {definition_type}.")
       return false
     end
     
@@ -2389,11 +2344,8 @@ class SimpleDSLTranspiler
   end
   
   def join_output()
-    var result = ""
-    for line : self.output
-      result += line + "\n"
-    end
-    return result
+    # Use list.concat() for O(n) performance instead of O(n²) string concatenation
+    return self.output.concat("\n") + "\n"
   end
   
   def error(msg)
@@ -2729,6 +2681,15 @@ class SimpleDSLTranspiler
     
     var inline_comment = self.collect_inline_comment()
     
+    # Check if already declared (duplicate extern function is allowed, skip code generation)
+    if self.symbol_table.contains(func_name)
+      var entry = self.symbol_table.get(func_name)
+      if entry != nil && entry.type == 5 #-animation_dsl._symbol_entry.TYPE_USER_FUNCTION-#
+        # Already declared as extern function, skip duplicate registration
+        return
+      end
+    end
+    
     # Validate function name
     self.validate_user_name(func_name, "extern function")
     
@@ -2847,7 +2808,7 @@ class SimpleDSLTranspiler
     self.add("")
     
     # Generate setup_template method (contains all template code)
-    self.add("  # Template setup method - overrides EngineProxy placeholder")
+    self.add("  # Template setup method - overrides engine_proxy placeholder")
     self.add("  def setup_template()")
     self.add("    var engine = self   # using 'self' as a proxy to engine object (instead of 'self.engine')")
     self.add("")
@@ -3138,7 +3099,7 @@ class SimpleDSLTranspiler
       return false
     end
     
-    # For template animations, check if parameter masks an existing parameter from EngineProxy or Animation
+    # For template animations, check if parameter masks an existing parameter from engine_proxy or Animation
     if is_template_animation
       var base_class_params = [
         "name", "is_running", "priority", "duration", "loop", "opacity", "color"
@@ -3146,7 +3107,7 @@ class SimpleDSLTranspiler
       
       for base_param : base_class_params
         if param_name == base_param
-          self.warning(f"Template animation parameter '{param_name}' masks existing parameter from EngineProxy base class. This may cause unexpected behavior. Consider using a different name like 'custom_{param_name}' or '{param_name}_value'.")
+          self.warning(f"Template animation parameter '{param_name}' masks existing parameter from engine_proxy base class. This may cause unexpected behavior. Consider using a different name like 'custom_{param_name}' or '{param_name}_value'.")
           break
         end
       end

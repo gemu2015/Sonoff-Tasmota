@@ -23,7 +23,7 @@ var mock_engine = MockEngine()
 
 # Test that get_param_value() calls produce_value() for ColorProviders
 def test_get_param_value_with_color_provider()
-  print("Testing get_param_value() with ColorProvider...")
+  print("Testing get_param_value() with color_provider...")
   
   # Create a test animation using new constructor pattern
   var test_anim = animation.animation(mock_engine)
@@ -31,9 +31,8 @@ def test_get_param_value_with_color_provider()
   test_anim.duration = 0
   test_anim.loop = false
   test_anim.opacity = 255
-  test_anim.name = "test"
   
-  # Create a ColorProvider that we can track calls on
+  # Create a color_provider that we can track calls on
   class TrackingColorProvider : animation.color_provider
     var color
     var produce_value_called
@@ -56,7 +55,7 @@ def test_get_param_value_with_color_provider()
   
   var tracking_provider = TrackingColorProvider(mock_engine, 0xFF00FF00)  # Green
   
-  # Set the ColorProvider (using the 'color' parameter that exists in base Animation)
+  # Set the color_provider (using the 'color' parameter that exists in base Animation)
   test_anim.color = tracking_provider
   
   # Call get_param_value() - should call produce_value()
@@ -65,12 +64,12 @@ def test_get_param_value_with_color_provider()
   assert(result == 0xFF00FF00, "Should return the color value")
   assert(tracking_provider.produce_value_called == 1, "Should call produce_value() once")
   
-  print("✓ get_param_value() with ColorProvider test passed")
+  print("✓ get_param_value() with color_provider test passed")
 end
 
-# Test that get_param_value() calls produce_value() for generic ValueProviders
+# Test that get_param_value() calls produce_value() for generic value_providers
 def test_get_param_value_with_generic_provider()
-  print("Testing get_param_value() with generic ValueProvider...")
+  print("Testing get_param_value() with generic value_provider...")
   
   # Create a test animation using new constructor pattern
   var test_anim = animation.animation(mock_engine)
@@ -78,10 +77,10 @@ def test_get_param_value_with_generic_provider()
   test_anim.duration = 0
   test_anim.loop = false
   test_anim.opacity = 255
-  test_anim.name = "test"
   
-  # Create a generic ValueProvider that we can track calls on
-  class TrackingValueProvider : animation.value_provider
+  # Create a generic value_provider that we can track calls on
+  class Trackingvalue_provider : animation.parameterized_object
+    static var VALUE_PROVIDER = true
     var value
     var produce_value_called
     
@@ -101,9 +100,9 @@ def test_get_param_value_with_generic_provider()
     end
   end
   
-  var tracking_provider = TrackingValueProvider(mock_engine, 42)
+  var tracking_provider = Trackingvalue_provider(mock_engine, 42)
   
-  # Set the ValueProvider (using the 'priority' parameter that exists in base Animation)
+  # Set the value_provider (using the 'priority' parameter that exists in base Animation)
   test_anim.priority = tracking_provider
   
   # Call get_param_value() - should call produce_value()
@@ -112,12 +111,12 @@ def test_get_param_value_with_generic_provider()
   assert(result == 42, "Should return the value")
   assert(tracking_provider.produce_value_called == 1, "Should call produce_value() once")
   
-  print("✓ get_param_value() with generic ValueProvider test passed")
+  print("✓ get_param_value() with generic value_provider test passed")
 end
 
 # Test that get_param_value() calls produce_value() method consistently
 def test_get_param_value_with_context_aware_provider()
-  print("Testing get_param_value() with context-aware ValueProvider...")
+  print("Testing get_param_value() with context-aware value_provider...")
   
   # Create a test animation using new constructor pattern
   var test_anim = animation.animation(mock_engine)
@@ -125,10 +124,10 @@ def test_get_param_value_with_context_aware_provider()
   test_anim.duration = 0
   test_anim.loop = false
   test_anim.opacity = 255
-  test_anim.name = "test"
   
-  # Create a ValueProvider that returns different values based on parameter name
-  class ContextAwareProvider : animation.value_provider
+  # Create a value_provider that returns different values based on parameter name
+  class ContextAwareProvider : animation.parameterized_object
+    static var VALUE_PROVIDER = true
     var base_value
     var produce_value_called
     var last_param_name
@@ -157,7 +156,7 @@ def test_get_param_value_with_context_aware_provider()
   
   var context_provider = ContextAwareProvider(mock_engine, 5)
   
-  # Set the ValueProvider (using the 'duration' parameter that exists in base Animation)
+  # Set the value_provider (using the 'duration' parameter that exists in base Animation)
   test_anim.duration = context_provider
   
   # Call get_param_value() - should call produce_value() with parameter name
@@ -180,7 +179,6 @@ def test_get_param_value_with_static_value()
   test_anim.duration = 0
   test_anim.loop = false
   test_anim.opacity = 255
-  test_anim.name = "test"
   
   # Set a static value (using the 'opacity' parameter that exists in base Animation)
   test_anim.opacity = 123

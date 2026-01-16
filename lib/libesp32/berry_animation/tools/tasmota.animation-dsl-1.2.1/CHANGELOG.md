@@ -27,7 +27,7 @@ All notable changes to the Animation DSL extension will be documented in this fi
 - Additional value providers: `triangle`, `cosine_osc`, `sawtooth`, `color_cycle`, `strip_length`
 - Additional easing types: `triangle`, `sine`, `sawtooth`, `elastic`, `bounce`
 - Support for hexadecimal colors with `0x` prefix (e.g., `0xFF0000`, `0x80FF0000`)
-- Additional animation properties: `opacity`, `priority`, `pos`, `beacon_size`, `slew_size`, `direction`, `tail_length`, `speed`, `period`, `cycle_period`, `min_value`, `max_value`, `duration`, `next`
+- Additional animation properties: `opacity`, `priority`, `pos`, `beacon_size`, `slew_size`, `direction`, `tail_length`, `speed`, `period`, `period`, `min_value`, `max_value`, `duration`, `next`
 
 ### Changed
 - Updated keyword patterns to match current DSL syntax based on actual examples
@@ -47,7 +47,7 @@ All notable changes to the Animation DSL extension will be documented in this fi
 - Initial release of Animation DSL syntax highlighting
 - Complete syntax highlighting for all DSL constructs:
   - Keywords (strip, color, palette, animation, sequence, etc.)
-  - Animation functions (solid, rich_palette_animation, beacon_animation, etc.)
+  - Animation functions (solid, rich_palette, beacon, etc.)
   - Oscillator functions (ramp, linear, smooth, square)
   - Colors (hex colors and 30+ named colors)
   - Time literals (ms, s, m, h)

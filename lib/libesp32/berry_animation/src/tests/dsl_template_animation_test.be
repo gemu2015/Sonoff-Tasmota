@@ -116,8 +116,8 @@ class DSLTemplateAnimationTest
       "  param my_color type palette\n" +
       "  param my_duration type time\n" +
       "  \n" +
-      "  color col = color_cycle(palette=my_color, cycle_period=0)\n" +
-      "  animation test = pulsating_animation(color=col, period=my_duration)\n" +
+      "  color col = color_cycle(colors=my_color, period=0)\n" +
+      "  animation test = breathe(color=col, period=my_duration)\n" +
       "  run test\n" +
       "}\n"
     
@@ -147,7 +147,7 @@ class DSLTemplateAnimationTest
       "  set strip_len = strip_length()\n" +
       "  set computed_size = strip_len / 2\n" +
       "  \n" +
-      "  animation test = beacon_animation(beacon_size=base_size)\n" +
+      "  animation test = beacon(beacon_size=base_size)\n" +
       "  run test\n" +
       "}\n"
     
@@ -170,7 +170,7 @@ class DSLTemplateAnimationTest
       "  param colors type palette\n" +
       "  param duration type time\n" +
       "  \n" +
-      "  color col = color_cycle(palette=colors, cycle_period=0)\n" +
+      "  color col = color_cycle(colors=colors, period=0)\n" +
       "  animation anim = solid(color=col)\n" +
       "  \n" +
       "  sequence seq repeat forever {\n" +
@@ -207,7 +207,7 @@ class DSLTemplateAnimationTest
       "  set strip_len = strip_length()\n" +
       "  set oscillator = sawtooth(min_value=0, max_value=strip_len, duration=duration)\n" +
       "  \n" +
-      "  animation test = beacon_animation(pos=oscillator)\n" +
+      "  animation test = beacon(pos=oscillator)\n" +
       "  run test\n" +
       "}\n"
     
@@ -231,7 +231,7 @@ class DSLTemplateAnimationTest
       "  param duration type time min 1 max 10 default 5\n" +
       "  param intensity type number min 0 max 255 default 200\n" +
       "  \n" +
-      "  color col = color_cycle(palette=colors, cycle_period=0)\n" +
+      "  color col = color_cycle(colors=colors, period=0)\n" +
       "  animation test = solid(color=col)\n" +
       "  test.opacity = intensity\n" +
       "  run test\n" +
@@ -294,7 +294,7 @@ class DSLTemplateAnimationTest
       "  param colors type palette\n" +
       "  param duration type time\n" +
       "  \n" +
-      "  color col = color_cycle(palette=colors, cycle_period=0)\n" +
+      "  color col = color_cycle(colors=colors, period=0)\n" +
       "  animation test = solid(color=col)\n" +
       "  \n" +
       "  sequence seq repeat forever {\n" +
@@ -474,8 +474,8 @@ class DSLTemplateAnimationTest
       "  set strip_len = strip_length()\n" +
       "  set shutter_size = sawtooth(min_value=0, max_value=strip_len, duration=duration)\n" +
       "  \n" +
-      "  color col = color_cycle(palette=colors, cycle_period=0)\n" +
-      "  animation test = beacon_animation(color=col, beacon_size=shutter_size)\n" +
+      "  color col = color_cycle(colors=colors, period=0)\n" +
+      "  animation test = beacon(color=col, beacon_size=shutter_size)\n" +
       "  \n" +
       "  sequence seq repeat forever {\n" +
       "    play test for period\n" +
@@ -546,11 +546,11 @@ class DSLTemplateAnimationTest
       "  set strip_len2 = (strip_len + 1) / 2\n" +
       "  set shutter_size = sawtooth(min_value=0, max_value=strip_len, duration=duration)\n" +
       "  \n" +
-      "  color col1 = color_cycle(palette=colors, cycle_period=0)\n" +
-      "  color col2 = color_cycle(palette=colors, cycle_period=0)\n" +
+      "  color col1 = color_cycle(colors=colors, period=0)\n" +
+      "  color col2 = color_cycle(colors=colors, period=0)\n" +
       "  col2.next = 1\n" +
       "  \n" +
-      "  animation shutter = beacon_animation(\n" +
+      "  animation shutter = beacon(\n" +
       "    color=col1\n" +
       "    back_color=col2\n" +
       "    pos=strip_len2\n" +

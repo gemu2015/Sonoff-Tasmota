@@ -5,7 +5,6 @@
 
 import "./core/param_encoder" as encode_constraints
 
-#@ solidify:PlasmaAnimation,weak
 class PlasmaAnimation : animation.animation
   # Non-parameter instance variables only
   var current_colors     # Array of current colors for each pixel
@@ -69,9 +68,9 @@ class PlasmaAnimation : animation.animation
     
     # Initialize default color if not set
     if self.color == nil
-      var rainbow_provider = animation.rich_palette(self.engine)
-      rainbow_provider.palette = animation.PALETTE_RAINBOW
-      rainbow_provider.cycle_period = 5000
+      var rainbow_provider = animation.rich_palette_color(self.engine)
+      rainbow_provider.colors = animation.PALETTE_RAINBOW
+      rainbow_provider.period = 5000
       rainbow_provider.transition_type = 1
       rainbow_provider.brightness = 255
       self.color = rainbow_provider
@@ -88,9 +87,9 @@ class PlasmaAnimation : animation.animation
     super(self).on_param_changed(name, value)
     if name == "color" && value == nil
       # Reset to default rainbow palette when color is set to nil
-      var rainbow_provider = animation.rich_palette(self.engine)
-      rainbow_provider.palette = animation.PALETTE_RAINBOW
-      rainbow_provider.cycle_period = 5000
+      var rainbow_provider = animation.rich_palette_color(self.engine)
+      rainbow_provider.colors = animation.PALETTE_RAINBOW
+      rainbow_provider.period = 5000
       rainbow_provider.transition_type = 1
       rainbow_provider.brightness = 255
       # Set the parameter directly to avoid recursion
@@ -100,9 +99,7 @@ class PlasmaAnimation : animation.animation
   
   # Update animation state
   def update(time_ms)
-    if !super(self).update(time_ms)
-      return false
-    end
+    super(self).update(time_ms)
     
     # Update time phase based on speed
     var current_time_speed = self.time_speed
@@ -117,8 +114,6 @@ class PlasmaAnimation : animation.animation
     
     # Calculate plasma colors
     self._calculate_plasma(time_ms)
-    
-    return true
   end
   
   # Calculate plasma colors for all pixels
@@ -184,15 +179,7 @@ class PlasmaAnimation : animation.animation
   end
   
   # Render plasma to frame buffer
-  def render(frame, time_ms)
-    if !self.is_running || frame == nil
-      return false
-    end
-    
-    # Auto-fix time_ms and start_time
-    time_ms = self._fix_time_ms(time_ms)
-    
-    var strip_length = self.engine.strip_length
+  def render(frame, time_ms, strip_length)
     var i = 0
     while i < strip_length
       if i < frame.width
@@ -202,20 +189,6 @@ class PlasmaAnimation : animation.animation
     end
     
     return true
-  end
-  
-
-  
-  # String representation
-  def tostring()
-    var color_str
-    var current_color = self.color
-    if animation.is_value_provider(current_color)
-      color_str = str(current_color)
-    else
-      color_str = f"0x{current_color :08x}"
-    end
-    return f"PlasmaAnimation(color={color_str}, freq_x={self.freq_x}, freq_y={self.freq_y}, time_speed={self.time_speed}, priority={self.priority}, running={self.is_running})"
   end
 end
 
@@ -230,7 +203,6 @@ def plasma_rainbow(engine)
   # Use default rainbow color (nil triggers rainbow in on_param_changed)
   anim.color = nil
   anim.time_speed = 50
-  anim.name = "plasma_rainbow"
   return anim
 end
 
@@ -244,7 +216,6 @@ def plasma_fast(engine)
   anim.time_speed = 150
   anim.freq_x = 48
   anim.freq_y = 35
-  anim.name = "plasma_fast"
   return anim
 end
 

@@ -5,7 +5,6 @@
 
 import "./core/param_encoder" as encode_constraints
 
-#@ solidify:SparkleAnimation,weak
 class SparkleAnimation : animation.animation
   # Non-parameter instance variables only
   var current_colors     # Array of current colors for each pixel
@@ -80,7 +79,7 @@ class SparkleAnimation : animation.animation
   
   # Override start method for timing control (acts as both start and restart)
   def start(time_ms)
-    # Call parent start first (handles ValueProvider propagation)
+    # Call parent start first (handles value_provider propagation)
     super(self).start(time_ms)
     
     # Reset random seed for consistent restarts
@@ -94,21 +93,17 @@ class SparkleAnimation : animation.animation
   
   # Update animation state
   def update(time_ms)
-    if !super(self).update(time_ms)
-      return false
-    end
+    super(self).update(time_ms)
     
     # Update at approximately 30 FPS
     var update_interval = 33  # ~30 FPS
     if time_ms - self.last_update < update_interval
-      return true
+      return
     end
     self.last_update = time_ms
     
     # Update sparkle simulation
     self._update_sparkles(time_ms)
-    
-    return true
   end
   
   # Update sparkle states and create new sparkles
@@ -175,7 +170,7 @@ class SparkleAnimation : animation.animation
     # Get base color using virtual parameter access
     var base_color = 0xFFFFFFFF
     
-    # Access color parameter (automatically resolves ValueProviders)
+    # Access color parameter (automatically resolves value_providers)
     var color_param = self.color
     if animation.is_color_provider(color_param) && color_param.get_color_for_value != nil
       base_color = color_param.get_color_for_value(brightness, 0)
@@ -198,17 +193,9 @@ class SparkleAnimation : animation.animation
   end
   
   # Render sparkles to frame buffer
-  def render(frame, time_ms)
-    if !self.is_running || frame == nil
-      return false
-    end
-    
-    # Auto-fix time_ms and start_time
-    time_ms = self._fix_time_ms(time_ms)
-    
-    var current_strip_length = self.engine.strip_length
+  def render(frame, time_ms, strip_length)
     var i = 0
-    while i < current_strip_length
+    while i < strip_length
       if i < frame.width
         frame.set_pixel_color(i, self.current_colors[i])
       end
@@ -216,20 +203,6 @@ class SparkleAnimation : animation.animation
     end
     
     return true
-  end
-  
-
-  
-  # String representation
-  def tostring()
-    var color_param = self.get_param("color")
-    var color_str
-    if animation.is_value_provider(color_param)
-      color_str = str(color_param)
-    else
-      color_str = f"0x{self.color :08x}"
-    end
-    return f"SparkleAnimation(color={color_str}, density={self.density}, fade_speed={self.fade_speed}, priority={self.priority}, running={self.is_running})"
   end
 end
 
@@ -241,7 +214,6 @@ end
 def sparkle_white(engine)
   var anim = animation.sparkle_animation(engine)
   anim.color = 0xFFFFFFFF  # white sparkles
-  anim.name = "sparkle_white"
   return anim
 end
 
@@ -249,14 +221,13 @@ end
 # @param engine: AnimationEngine - Required animation engine reference
 # @return SparkleAnimation - A new rainbow sparkle animation instance
 def sparkle_rainbow(engine)
-  var rainbow_provider = animation.rich_palette(engine)
-  rainbow_provider.palette = animation.PALETTE_RAINBOW
-  rainbow_provider.cycle_period = 5000
+  var rainbow_provider = animation.rich_palette_color(engine)
+  rainbow_provider.colors = animation.PALETTE_RAINBOW
+  rainbow_provider.period = 5000
   rainbow_provider.transition_type = 1  # sine transition
   
   var anim = animation.sparkle_animation(engine)
   anim.color = rainbow_provider
-  anim.name = "sparkle_rainbow"
   return anim
 end
 

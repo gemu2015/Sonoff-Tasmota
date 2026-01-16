@@ -5,7 +5,6 @@
 
 import "./core/param_encoder" as encode_constraints
 
-#@ solidify:JitterAnimation,weak
 class JitterAnimation : animation.animation
   # Non-parameter instance variables only
   var random_seed        # Seed for random number generation
@@ -60,7 +59,7 @@ class JitterAnimation : animation.animation
   
   # Override start method for lifecycle control
   def start(time_ms)
-    # Call parent start first (handles ValueProvider propagation)
+    # Call parent start first (handles value_provider propagation)
     super(self).start(time_ms)
     
     # Reset jitter timing
@@ -89,9 +88,7 @@ class JitterAnimation : animation.animation
   
   # Update animation state
   def update(time_ms)
-    if !super(self).update(time_ms)
-      return false
-    end
+    super(self).update(time_ms)
 
     # Cache parameter values for performance
     var jitter_frequency = self.jitter_frequency
@@ -116,8 +113,6 @@ class JitterAnimation : animation.animation
     
     # Calculate jittered colors
     self._calculate_jitter()
-    
-    return true
   end
   
   # Update jitter offsets
@@ -237,17 +232,9 @@ class JitterAnimation : animation.animation
   end
   
   # Render jitter to frame buffer
-  def render(frame, time_ms)
-    if !self.is_running || frame == nil
-      return false
-    end
-    
-    # Auto-fix time_ms and start_time
-    time_ms = self._fix_time_ms(time_ms)
-    
-    var current_strip_length = self.engine.strip_length
+  def render(frame, time_ms, strip_length)
     var i = 0
-    while i < current_strip_length
+    while i < strip_length
       if i < frame.width
         frame.set_pixel_color(i, self.current_colors[i])
       end
@@ -255,14 +242,6 @@ class JitterAnimation : animation.animation
     end
     
     return true
-  end
-  
-  # String representation
-  def tostring()
-    var type_names = ["position", "color", "brightness", "all"]
-    var jitter_type = self.jitter_type
-    var type_name = type_names[jitter_type] != nil ? type_names[jitter_type] : "unknown"
-    return f"JitterAnimation({type_name}, intensity={self.jitter_intensity}, frequency={self.jitter_frequency})"
   end
 end
 

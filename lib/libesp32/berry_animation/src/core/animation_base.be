@@ -7,7 +7,7 @@
 # This is the unified base class for all visual elements in the framework.
 # A Pattern is simply an Animation with infinite duration (duration = 0).
 #
-# Extends ParameterizedObject to provide parameter management and playable interface.
+# Extends parameterized_object to provide parameter management and playable interface.
 
 import "./core/param_encoder" as encode_constraints
 
@@ -18,7 +18,7 @@ class Animation : animation.parameterized_object
   # Parameter definitions (extends Playable's PARAMS)
   static var PARAMS = animation.enc_params({
     # Inherited from Playable: is_running
-    "name": {"type": "string", "default": "animation"}, # Optional name for the animation
+    "id": {"type": "string", "default": ""},            # Optional id for the animation
     "priority": {"min": 0, "default": 10},              # Rendering priority (higher = on top, 0-255)
     "duration": {"min": 0, "default": 0},               # Animation duration in ms (0 = infinite)
     "loop": {"type": "bool", "default": false},         # Whether to loop when duration is reached
@@ -40,15 +40,7 @@ class Animation : animation.parameterized_object
   # This method should be called regularly by the animation engine
   #
   # @param time_ms: int - Current time in milliseconds
-  # @return bool - True if animation is still running, false if completed
   def update(time_ms)
-    # do nothing if not running
-    if (!self.is_running)   return false  end
-
-    # auto-fix time_ms and start_time
-    time_ms = self._fix_time_ms(time_ms)
-    
-    
     # Access parameters via virtual members
     var current_duration = self.duration
     
@@ -66,25 +58,21 @@ class Animation : animation.parameterized_object
           # Animation completed, make it inactive
           # Set directly in values map to avoid triggering on_param_changed
           self.is_running = false
-          return false
         end
       end
     end
-    
-    return true
   end
   
   # Render the animation to the provided frame buffer
   # Default implementation renders a solid color (makes Animation equivalent to solid pattern)
   #
-  # @param frame: FrameBuffer - The frame buffer to render to
+  # @param frame: frame_buffer - The frame buffer to render to
   # @param time_ms: int - Current time in milliseconds
+  # @param strip_length: int - Length of the LED strip in pixels
   # @return bool - True if frame was modified, false otherwise
-  def render(frame, time_ms)
-    if (!self.is_running)   return false  end
-    
-    # Access parameters via virtual members (auto-resolves ValueProviders)
-    var current_color = self.color
+  def render(frame, time_ms, strip_length)
+    # Access parameters via virtual members (auto-resolves value_providers)
+    var current_color = self.member("color")
     
     # Fill the entire frame with the current color if not transparent
     if (current_color != 0x00000000)
@@ -96,9 +84,10 @@ class Animation : animation.parameterized_object
   
   # Post-processing of rendering
   #
-  # @param frame: FrameBuffer - The frame buffer to render to
+  # @param frame: frame_buffer - The frame buffer to render to
   # @param time_ms: int - Current time in milliseconds
-  def post_render(frame, time_ms)
+  # @param strip_length: int - Length of the LED strip in pixels
+  def post_render(frame, time_ms, strip_length)
     # no need to auto-fix time_ms and start_time
     # Handle opacity - can be number, frame buffer, or animation
     var current_opacity = self.opacity
@@ -109,16 +98,17 @@ class Animation : animation.parameterized_object
       frame.apply_opacity(frame.pixels, current_opacity)
     else
       # Opacity is a frame buffer
-      self._apply_opacity(frame, current_opacity, time_ms)
+      self._apply_opacity(frame, current_opacity, time_ms, strip_length)
     end
   end
 
   # Apply opacity to frame buffer - handles numbers and animations
   #
-  # @param frame: FrameBuffer - The frame buffer to apply opacity to
+  # @param frame: frame_buffer - The frame buffer to apply opacity to
   # @param opacity: int|Animation - Opacity value or animation
   # @param time_ms: int - Current time in milliseconds
-  def _apply_opacity(frame, opacity, time_ms)
+  # @param strip_length: int - Length of the LED strip in pixels
+  def _apply_opacity(frame, opacity, time_ms, strip_length)
     # Check if opacity is an animation instance
     if isinstance(opacity, animation.animation)
       # Animation mode: render opacity animation to frame buffer and use as mask
@@ -139,7 +129,7 @@ class Animation : animation.parameterized_object
       
       # Update and render opacity animation
       opacity_animation.update(time_ms)
-      opacity_animation.render(self.opacity_frame, time_ms)
+      opacity_animation.render(self.opacity_frame, time_ms, strip_length)
       
       # Use rendered frame buffer as opacity mask
       frame.apply_opacity(frame.pixels, self.opacity_frame.pixels)
@@ -164,10 +154,6 @@ class Animation : animation.parameterized_object
     return self.get_color_at(0, time_ms)
   end
   
-  # String representation of the animation
-  def tostring()
-    return f"Animation({self.name}, priority={self.priority}, duration={self.duration}, loop={self.loop}, running={self.is_running})"
-  end
 end
 
 return {'animation': Animation}

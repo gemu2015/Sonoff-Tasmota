@@ -31,7 +31,7 @@ def run_tests()
   print("==================================================")
   
   # Test 1: Basic construction
-  var pulse = animation.beacon_animation(engine)
+  var pulse = animation.beacon(engine)
   test_assert(pulse != nil, "Pulse position animation creation")
   
   # Set parameters using virtual member assignment
@@ -85,7 +85,7 @@ def run_tests()
   pulse.back_color = 0xFF000000  # Transparent
   pulse.start()
   
-  var rendered = pulse.render(frame, engine.time_ms)
+  var rendered = pulse.render(frame, engine.time_ms, engine.strip_length)
   test_assert(rendered, "Render returns true when running")
   
   # Check that pixels 3 and 4 are red, others are transparent
@@ -97,7 +97,7 @@ def run_tests()
   # Test 6: Frame rendering with background
   frame.clear()
   pulse.back_color = 0xFF000080  # Dark blue background
-  pulse.render(frame, engine.time_ms)
+  pulse.render(frame, engine.time_ms, engine.strip_length)
   
   test_assert(frame.get_pixel_color(0) == 0xFF000080, "Background pixel is dark blue")
   test_assert(frame.get_pixel_color(3) == 0xFFFF0000, "Pulse pixel overrides background")
@@ -109,7 +109,7 @@ def run_tests()
   pulse.pos = 4
   pulse.beacon_size = 2
   pulse.slew_size = 1
-  pulse.render(frame, engine.time_ms)
+  pulse.render(frame, engine.time_ms, engine.strip_length)
   
   # Check main pulse
   test_assert(frame.get_pixel_color(4) == 0xFFFF0000, "Main pulse pixel 1 is red")
@@ -128,7 +128,7 @@ def run_tests()
   pulse.pos = 0
   pulse.beacon_size = 2
   pulse.slew_size = 1
-  pulse.render(frame, engine.time_ms)
+  pulse.render(frame, engine.time_ms, engine.strip_length)
   
   test_assert(frame.get_pixel_color(0) == 0xFFFF0000, "Pulse at start boundary works")
   test_assert(frame.get_pixel_color(1) == 0xFFFF0000, "Pulse at start boundary works")
@@ -137,7 +137,7 @@ def run_tests()
   pulse.pos = 8
   pulse.beacon_size = 2
   pulse.slew_size = 1
-  pulse.render(frame, engine.time_ms)
+  pulse.render(frame, engine.time_ms, engine.strip_length)
   
   test_assert(frame.get_pixel_color(8) == 0xFFFF0000, "Pulse at end boundary works")
   test_assert(frame.get_pixel_color(9) == 0xFFFF0000, "Pulse at end boundary works")
@@ -147,7 +147,7 @@ def run_tests()
   pulse.pos = 5
   pulse.beacon_size = 0
   pulse.slew_size = 2
-  pulse.render(frame, engine.time_ms)
+  pulse.render(frame, engine.time_ms, engine.strip_length)
   
   # Should have slew on both sides but no main pulse
   var left_slew1 = frame.get_pixel_color(3)
@@ -170,11 +170,9 @@ def run_tests()
   pulse.slew_size = 3
   test_assert(pulse.slew_size == 3, "Slew size parameter updated")
   
-  # Test 12: String representation
-  var str_repr = pulse.tostring()
+  # Test 12: String representation (uses default from Berry)
+  var str_repr = str(pulse)
   test_assert(type(str_repr) == "string", "String representation returns string")
-  import string
-  test_assert(string.find(str_repr, "BeaconAnimation") >= 0, "String representation contains class name")
   
   print("==================================================")
   print(f"Tests completed: {passed_count}/{test_count} passed")

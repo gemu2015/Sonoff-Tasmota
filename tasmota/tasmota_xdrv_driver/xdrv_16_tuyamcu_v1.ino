@@ -641,12 +641,12 @@ bool TuyaSetChannels(void)
   uint8_t idx = 0;
   snprintf_P(hex_char, sizeof(hex_char), PSTR("000000000000"));
 
-  if (LT_SERIAL1 == TasmotaGlobal.light_type) {
+  if (LT_W == TasmotaGlobal.light_type) {
     Tuya.Snapshot[0] = light_state.getDimmer();
   }
-  if (LT_SERIAL2 == TasmotaGlobal.light_type || LT_RGBWC == TasmotaGlobal.light_type) {
+  if (LT_CW == TasmotaGlobal.light_type || LT_RGBWC == TasmotaGlobal.light_type) {
     idx = 1;
-    if (LT_SERIAL2 == TasmotaGlobal.light_type && Settings->flag3.pwm_multi_channels && (TuyaGetDpId(TUYA_MCU_FUNC_DIMMER2) != 0)) {
+    if (LT_CW == TasmotaGlobal.light_type && Settings->flag3.pwm_multi_channels && (TuyaGetDpId(TUYA_MCU_FUNC_DIMMER2) != 0)) {
       // Special setup for dual dimmer (like the MOES 2 Way Dimmer) emulating 2 PWM channels
       Tuya.Snapshot[0] = changeUIntScale(Light.current_color[0], 0, 255, 0, 100);
       Tuya.Snapshot[1] = changeUIntScale(Light.current_color[1], 0, 255, 0, 100);
@@ -1097,32 +1097,12 @@ void TuyaNormalPowerModePacketProcess(void)
     case TUYA_CMD_STATE:
       TuyaProcessStatePacket();
       break;
+
+    case TUYA_CMD_WIFI_RESET:
     case TUYA_CMD_WIFI_SELECT:
-    case TUYA_CMD_WIFI_RESET: {
-      const bool is_select = (Tuya.buffer[3] == TUYA_CMD_WIFI_SELECT);
-      const uint16_t payload_len = ((uint16_t)Tuya.buffer[4] << 8) | Tuya.buffer[5];
-
-      // Establish pairing mode - WIFI_RESET is assumed to be AP mode
-      uint8_t first = 0x01;
-      if (is_select && !(payload_len >= 1 && Tuya.buffer[6] == 0x01)) {
-        first = 0x00;
-      }
-
-      // Send ACK, then WIFI_STATE ramp up to cloud connected to re-enable MCU control
-      TuyaSendCmd(is_select ? TUYA_CMD_WIFI_SELECT : TUYA_CMD_WIFI_RESET);
-      uint8_t st = first;  TuyaSendCmd(TUYA_CMD_WIFI_STATE, &st, 1);
-      st = 0x02;           TuyaSendCmd(TUYA_CMD_WIFI_STATE, &st, 1);
-      st = 0x03;           TuyaSendCmd(TUYA_CMD_WIFI_STATE, &st, 1);
-      st = 0x04;           TuyaSendCmd(TUYA_CMD_WIFI_STATE, &st, 1);
-
-      AddLog(LOG_LEVEL_DEBUG, PSTR("TYA: WIFI_%s received (%s), sent WIFI_STATE ramp"),
-            is_select ? PSTR("SELECT") : PSTR("RESET"),
-            (first == 0x01) ? "AP" : "EZ");
-
-      // Now actually reset Tasmota WiFi
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TYA: RX WiFi Reset"));
       TuyaResetWifi();
       break;
-    }
 
     case TUYA_CMD_WIFI_STATE:
       AddLog(LOG_LEVEL_DEBUG, PSTR("TYA: RX WiFi LED set ACK"));
@@ -1227,9 +1207,9 @@ bool TuyaModuleSelected(void) {
 
   // Possible combinations for Lights:
   // 0: NONE = LT_BASIC
-  // 1: DIMMER = LT_SERIAL1 - Common one channel dimmer
-  // 2: DIMMER, DIMMER2 = LT_SERIAL2 - Two channels dimmer (special setup used with SetOption68)
-  // 3: DIMMER, CT = LT_SERIAL2 - Dimmable light and White Color Temperature
+  // 1: DIMMER = LT_W - Common one channel dimmer
+  // 2: DIMMER, DIMMER2 = LT_CW - Two channels dimmer (special setup used with SetOption68)
+  // 3: DIMMER, CT = LT_CW - Dimmable light and White Color Temperature
   // 4: DIMMER, RGB = LT_RGB - RGB Light
   // 5: DIMMER, RGB, CT = LT_RGBWC - RGB LIght and White Color Temperature
   // 6: DIMMER, RGB, WHITE = LT_RGBW - RGB LIght and White
@@ -1244,8 +1224,8 @@ bool TuyaModuleSelected(void) {
     } else if (TuyaGetDpId(TUYA_MCU_FUNC_CT) != 0 || TuyaGetDpId(TUYA_MCU_FUNC_DIMMER2) != 0) {
       if (TuyaGetDpId(TUYA_MCU_FUNC_RGB) != 0) {
         TasmotaGlobal.light_type = LT_RGBWC;
-      } else { TasmotaGlobal.light_type = LT_SERIAL2; }
-    } else { TasmotaGlobal.light_type = LT_SERIAL1; }
+      } else { TasmotaGlobal.light_type = LT_CW; }
+    } else { TasmotaGlobal.light_type = LT_W; }
   } else {
     TasmotaGlobal.light_type = LT_BASIC;
   }

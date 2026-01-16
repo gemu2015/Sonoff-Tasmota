@@ -38,29 +38,30 @@ class MockColorSource
 end
 var mock_color_source = MockColorSource()
 
-# Test 1: PaletteGradientAnimation
-print("Test 3: PaletteGradientAnimation")
-var gradient_anim = animation.palette_gradient_animation(mock_engine)
+# Test 1: palette_gradient
+print("Test 3: palette_gradient")
+var gradient_anim = animation.palette_gradient(mock_engine)
 gradient_anim.color_source = mock_color_source
 gradient_anim.shift_period = 3000  # 3 second shift period
 gradient_anim.priority = 10
 gradient_anim.duration = 0
 gradient_anim.loop = false
 gradient_anim.opacity = 255
-gradient_anim.name = "gradient_test"
 
 assert(gradient_anim != nil, "Failed to create gradient animation")
 assert(gradient_anim.shift_period == 3000, "Shift period should be 3000")
 
 # Start the animation
-gradient_anim.start()
-gradient_anim.update()   # force first tick
+# Note: When testing animations directly (not through engine_proxy), we must set start_time manually
+gradient_anim.start_time = mock_engine.time_ms  # Set start_time manually for direct testing
+gradient_anim.start(mock_engine.time_ms)
+gradient_anim.update(mock_engine.time_ms)   # force first tick
 assert(gradient_anim.is_running, "Animation should be running")
 
 # Update and render
 gradient_anim.update(mock_engine.time_ms)
 frame.clear()
-result = gradient_anim.render(frame, mock_engine.time_ms)
+result = gradient_anim.render(frame, mock_engine.time_ms, mock_engine.strip_length)
 assert(result, "Render should return true")
 
 # Test parameter changes
@@ -78,63 +79,23 @@ assert(gradient_anim.phase_shift == 64, "Phase shift should be updated to 64")
 gradient_anim.shift_period = 0
 assert(gradient_anim.shift_period == 0, "Shift period should be updated to 0 (static)")
 
-# Test 2: PaletteMeterAnimation
-print("Test 2: PaletteMeterAnimation")
-var meter_anim = animation.palette_meter_animation(mock_engine)
-meter_anim.color_source = mock_color_source
-
-# Create a value function that returns 50% (half the strip)
-def meter_value_func(engine, time_ms, animation)
-  return 50  # 50% of the strip (this is still 0-100 for meter logic)
-end
-meter_anim.value_func = meter_value_func
-
-meter_anim.priority = 10
-meter_anim.duration = 0
-meter_anim.loop = false
-meter_anim.opacity = 255
-meter_anim.name = "meter_test"
-
-assert(meter_anim != nil, "Failed to create meter animation")
-
-# Start the animation
-meter_anim.start()
-meter_anim.update()   # force first tick
-assert(meter_anim.is_running, "Animation should be running")
-
-# Update and render
-meter_anim.update(mock_engine.time_ms)
-frame.clear()
-result = meter_anim.render(frame, mock_engine.time_ms)
-assert(result, "Render should return true")
-
-# Test changing value function
-def new_meter_value_func(engine, time_ms, animation)
-  return 75  # 75% of the strip (this is still 0-100 for meter logic)
-end
-meter_anim.value_func = new_meter_value_func
-
-meter_anim.update(mock_engine.time_ms)
-frame.clear()
-result = meter_anim.render(frame, mock_engine.time_ms)
-assert(result, "Render should return true")
-
 # Test 3: Changing color sources dynamically
 print("Test 3: Changing color sources dynamically")
-var dynamic_anim = animation.palette_gradient_animation(mock_engine)
+var dynamic_anim = animation.palette_gradient(mock_engine)
 dynamic_anim.color_source = mock_color_source
 dynamic_anim.shift_period = 1000
 dynamic_anim.spatial_period = 3
 
 # Start the animation
-dynamic_anim.start()
-dynamic_anim.update()   # force first tick
+dynamic_anim.start_time = mock_engine.time_ms  # Set start_time manually for direct testing
+dynamic_anim.start(mock_engine.time_ms)
+dynamic_anim.update(mock_engine.time_ms)   # force first tick
 assert(dynamic_anim.is_running, "Animation should be running")
 
 # Update and render with initial color source
 dynamic_anim.update(mock_engine.time_ms)
 frame.clear()
-result = dynamic_anim.render(frame, mock_engine.time_ms)
+result = dynamic_anim.render(frame, mock_engine.time_ms, mock_engine.strip_length)
 assert(result, "Render should return true")
 
 # Create another mock color source
@@ -150,12 +111,12 @@ var mock_color_source2 = MockColorSource2()
 dynamic_anim.color_source = mock_color_source2
 dynamic_anim.update(mock_engine.time_ms)
 frame.clear()
-result = dynamic_anim.render(frame, mock_engine.time_ms)
+result = dynamic_anim.render(frame, mock_engine.time_ms, mock_engine.strip_length)
 assert(result, "Render should return true")
 
 # Test 4: Parameter validation
 print("Test 4: Parameter validation")
-var validation_anim = animation.palette_gradient_animation(mock_engine)
+var validation_anim = animation.palette_gradient(mock_engine)
 
 # Test valid parameter values
 validation_anim.shift_period = 500
@@ -183,19 +144,20 @@ class MockRainbowColorSource
 end
 var rainbow_color_source = MockRainbowColorSource()
 
-var rich_anim = animation.palette_gradient_animation(mock_engine)
+var rich_anim = animation.palette_gradient(mock_engine)
 rich_anim.color_source = rainbow_color_source
 rich_anim.shift_period = 1000
 
 # Start the animation
-rich_anim.start()
-rich_anim.update()   # force first tick
+rich_anim.start_time = mock_engine.time_ms  # Set start_time manually for direct testing
+rich_anim.start(mock_engine.time_ms)
+rich_anim.update(mock_engine.time_ms)   # force first tick
 assert(rich_anim.is_running, "Animation should be running")
 
 # Update and render
 rich_anim.update(mock_engine.time_ms)
 frame.clear()
-result = rich_anim.render(frame, mock_engine.time_ms)
+result = rich_anim.render(frame, mock_engine.time_ms, mock_engine.strip_length)
 assert(result, "Render should return true")
 
 # Test 6: Animation timing and synchronization
@@ -203,47 +165,37 @@ print("Test 6: Animation timing and synchronization")
 var sync_time = mock_engine.time_ms + 1000
 
 # Create multiple animations
-var anim1 = animation.palette_gradient_animation(mock_engine)
+var anim1 = animation.palette_gradient(mock_engine)
 anim1.color_source = mock_color_source
 anim1.shift_period = 1000
 anim1.spatial_period = 4
 
-var anim2 = animation.palette_meter_animation(mock_engine)
-anim2.color_source = mock_color_source2
-def meter_func(engine, time_ms, animation)
-  return 128
-end
-anim2.value_func = meter_func
-
 # Start both animations at the same time
+anim1.start_time = sync_time  # Set start_time manually for direct testing
 anim1.start(sync_time)
 anim1.update(sync_time)   # force first tick
-anim2.start(sync_time)
-anim2.update(sync_time)   # force first tick
 
 assert(anim1.start_time == sync_time, "Animation 1 should have correct start time")
-assert(anim2.start_time == sync_time, "Animation 2 should have correct start time")
 
 # Test 7: Animation without color source (should handle gracefully)
 print("Test 7: Animation without color source")
-var no_color_anim = animation.palette_gradient_animation(mock_engine)
+var no_color_anim = animation.palette_gradient(mock_engine)
 no_color_anim.shift_period = 1000
 no_color_anim.spatial_period = 3
 # Note: no color_source set
 
-no_color_anim.start()
+no_color_anim.start_time = mock_engine.time_ms  # Set start_time manually for direct testing
+no_color_anim.start(mock_engine.time_ms)
 no_color_anim.update(mock_engine.time_ms)
 frame.clear()
-result = no_color_anim.render(frame, mock_engine.time_ms)
+result = no_color_anim.render(frame, mock_engine.time_ms, mock_engine.strip_length)
 assert(!result, "Render should return false when no color source is set")
 
-# Test 8: String representation
+# Test 8: String representation (uses default from Berry)
 print("Test 8: String representation")
-var str_anim = animation.palette_gradient_animation(mock_engine)
-var str_repr = str_anim.tostring()
+var str_anim = animation.palette_gradient(mock_engine)
+var str_repr = str(str_anim)
 print(f"String representation: {str_repr}")
 assert(str_repr != nil, "String representation should not be nil")
-# The string representation might use the base class name, so let's check for that
-assert(string.find(str_repr, "Animation") >= 0, "String should contain Animation in class name")
 
 print("All palette pattern animation tests passed!")

@@ -1,5 +1,5 @@
 # Fire Animation Test
-# Tests the FireAnimation class functionality
+# Tests the fire class functionality
 
 import animation
 
@@ -11,7 +11,7 @@ var engine = animation.create_engine(strip)
 
 # Test 1: Basic Fire Animation Creation
 print("\n1. Testing basic fire animation creation...")
-var fire = animation.fire_animation(engine)
+var fire = animation.fire(engine)
 # Set parameters using virtual member assignment
 fire.intensity = 180
 fire.flicker_speed = 8
@@ -19,7 +19,6 @@ fire.flicker_amount = 100
 fire.cooling_rate = 55
 fire.sparking_rate = 120
 fire.priority = 255
-fire.name = "test_fire"
 
 print(f"Created fire animation: {fire}")
 print(f"Initial state - running: {fire.is_running}, priority: {fire.priority}")
@@ -38,16 +37,16 @@ print(f"Set flicker_speed to 25 (invalid): {result4}")
 
 # Test 3: Factory Methods (if they exist)
 print("\n3. Testing direct class instantiation...")
-var fire_classic = animation.fire_animation(engine)
+var fire_classic = animation.fire(engine)
 fire_classic.intensity = 150
 fire_classic.priority = 30
 
-var fire_solid = animation.fire_animation(engine)
+var fire_solid = animation.fire(engine)
 fire_solid.color = 0xFFFF4500  # Orange red
 fire_solid.intensity = 180
 fire_solid.priority = 30
 
-var fire_palette = animation.fire_animation(engine)
+var fire_palette = animation.fire(engine)
 fire_palette.intensity = 200
 fire_palette.priority = 30
 
@@ -78,7 +77,7 @@ var frame = animation.frame_buffer(30)
 frame.clear()
 
 # Render the fire animation
-var rendered = fire.render(frame, engine.time_ms)
+var rendered = fire.render(frame, engine.time_ms, engine.strip_length)
 print(f"Rendered to frame buffer: {rendered}")
 
 # Check that some pixels have been set (fire should create non-black pixels)
@@ -111,9 +110,9 @@ fire.color = 0xFFFF0000  # Red
 print("Set to solid red color")
 
 # Set back to fire palette
-var fire_palette = animation.rich_palette(engine)
-fire_palette.palette = animation.PALETTE_FIRE
-fire_palette.cycle_period = 5000
+var fire_palette = animation.rich_palette_color(engine)
+fire_palette.colors = animation.PALETTE_FIRE
+fire_palette.period = 5000
 fire_palette.transition_type = 1  # Use sine transition (smooth)
 fire_palette.brightness = 255
 fire.color = fire_palette
@@ -121,11 +120,11 @@ print("Set back to fire palette")
 
 # Test 9: Multiple Fire Animations
 print("\n9. Testing multiple fire animations...")
-var fire1 = animation.fire_animation(engine)
+var fire1 = animation.fire(engine)
 fire1.intensity = 180
 fire1.priority = 15
 
-var fire2 = animation.fire_animation(engine)
+var fire2 = animation.fire(engine)
 fire2.color = 0xFFFF4500
 fire2.intensity = 150
 fire2.priority = 15
@@ -147,27 +146,27 @@ print("\n10. Testing edge cases...")
 # Very small strip
 var tiny_strip = global.Leds(1)
 var tiny_engine = animation.create_engine(tiny_strip)
-var tiny_fire = animation.fire_animation(tiny_engine)
+var tiny_fire = animation.fire(tiny_engine)
 tiny_fire.intensity = 180
 tiny_fire.priority = 1
 tiny_fire.start()
 tiny_engine.time_ms = current_time + 125
 tiny_fire.update(current_time + 125)
 var tiny_frame = animation.frame_buffer(1)
-tiny_fire.render(tiny_frame, tiny_engine.time_ms)
+tiny_fire.render(tiny_frame, tiny_engine.time_ms, tiny_engine.strip_length)
 print("Tiny fire (1 pixel) created and rendered successfully")
 
 # Zero intensity
 var dim_strip = global.Leds(10)
 var dim_engine = animation.create_engine(dim_strip)
-var dim_fire = animation.fire_animation(dim_engine)
+var dim_fire = animation.fire(dim_engine)
 dim_fire.intensity = 0
 dim_fire.priority = 10
 dim_fire.start()
 dim_engine.time_ms = current_time + 250
 dim_fire.update(current_time + 250)
 var dim_frame = animation.frame_buffer(10)
-dim_fire.render(dim_frame, dim_engine.time_ms)
+dim_fire.render(dim_frame, dim_engine.time_ms, dim_engine.strip_length)
 print("Dim fire (0 intensity) created and rendered successfully")
 
 print("\n=== Fire Animation Test Complete ===")
