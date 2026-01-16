@@ -3598,7 +3598,6 @@ dddef_exit:
 				lp += SML_getlinelen(lp);
 #endif // SML_REPLACE_VARS
 
-        //AddLog(LOG_LEVEL_INFO, PSTR("%s"),dstbuf);
         if (*lp1 == '-' || isdigit(*lp1)) {
           //toLogEOL(">>",lp);
           // add meters line -1,1-0:1.8.0*255(@10000,H2OIN,cbm,COUNTER,4|
@@ -3854,7 +3853,6 @@ next_line:
 #endif // ESP8266
 
 #ifdef ESP32
-        //AddLog(LOG_LEVEL_INFO, PSTR("SML: software serial with pin: %d - %d"),mp->srcpin, mp->trxpin);
         if (mp->srcpin >= 0) {
           // use hardware serial
           if (mp->srcpin == mp->trxpin) {
