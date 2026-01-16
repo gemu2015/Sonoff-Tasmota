@@ -10436,9 +10436,9 @@ void HandleScriptTextareaConfiguration(void) {
             ep[0] = '>';
             ep[slen - 1] = '#';
             file.write((const uint8_t*)ep, slen);
+            file.close();
             // restore to enable >F find
             ep[slen - 1] = '>';
-            file.close();
           } else {
             ufsp->remove(fname);
           }
@@ -10454,6 +10454,8 @@ void HandleScriptTextareaConfiguration(void) {
             ep[slen - 1] = '#';
             file.write((const uint8_t*)ep, slen);
             file.close();
+            // restore to enable >S find
+            ep[slen - 1] = '>';
           } else {
             ufsp->remove(fname);
           }
