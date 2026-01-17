@@ -7701,8 +7701,10 @@ char *exfile(char *lp, TS_FLOAT *error) {
       if (script) {
         memset(script, 0, fsiz + 16);
         ef.read((uint8_t*)script, fsiz);
+        char *svbu = glob_script_mem.scriptptr_bu;
         glob_script_mem.scriptptr_bu = script;
         execute_script(script);
+        glob_script_mem.scriptptr_bu = svbu;
         free(script);
       }
     }
