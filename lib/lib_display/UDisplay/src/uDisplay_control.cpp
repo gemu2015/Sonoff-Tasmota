@@ -148,7 +148,5 @@ void uDisplay::Splash(void) {
     DrawStringAt(splash_xp, splash_yp, dname, fg_col, 0);
     Updateframe();
 
-    Serial.printf(">> fgcol %d, bgcol %d\n",fg_col,bg_col);
-
     AddLog(LOG_LEVEL_DEBUG, PSTR("DSP: draw splash"));
 }

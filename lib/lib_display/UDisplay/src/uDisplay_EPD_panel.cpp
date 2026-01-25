@@ -350,15 +350,17 @@ bool EPDPanel::displayOnff(int8_t on) {
 bool EPDPanel::invertDisplay(bool invert) {
     // Toggle color inversion logic
     cfg.invert_colors = invert;
-    
+
+    if (invert) {
     // For EPD, we need to redraw the entire display when inversion changes
-    if (fb_buffer) {
-        // Invert the entire framebuffer
-        uint32_t byte_count = (cfg.width * cfg.height) / 8;
-        for (uint32_t i = 0; i < byte_count; i++) {
-            fb_buffer[i] = ~fb_buffer[i];
+        if (fb_buffer) {
+            // Invert the entire framebuffer
+            uint32_t byte_count = (cfg.width * cfg.height) / 8;
+            for (uint32_t i = 0; i < byte_count; i++) {
+                fb_buffer[i] = ~fb_buffer[i];
+            }
+            updateFrame();
         }
-        updateFrame();
     }
     return true;
 }
