@@ -12081,7 +12081,6 @@ uint32_t fsize;
   }
 
   if (0 == stype) {
-
     WSContentSend_P(HTTP_SCRIPT_MIMES, fsize, buff);
     WSContentFlush();
     client = Webserver->client();
@@ -12129,6 +12128,12 @@ uint32_t fsize;
       uint8_t infoHeader[infoHeaderSize];
       createBitmapInfoHeader(Settings->display_height, Settings->display_width, infoHeader );
       client.write((uint8_t *)infoHeader, infoHeaderSize);
+
+      /*
+      AddLog(LOG_LEVEL_INFO, PSTR(">>> %d - %d - %d"), bpp, dmflg, fsize);
+      free(lbuf);
+      return -4;
+      */
 
       if (bpp < 0) {
         // standard bw like sh1106, ,must set pixels to -1
