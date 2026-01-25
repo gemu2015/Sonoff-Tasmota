@@ -12129,12 +12129,6 @@ uint32_t fsize;
       createBitmapInfoHeader(Settings->display_height, Settings->display_width, infoHeader );
       client.write((uint8_t *)infoHeader, infoHeaderSize);
 
-      /*
-      AddLog(LOG_LEVEL_INFO, PSTR(">>> %d - %d - %d"), bpp, dmflg, fsize);
-      free(lbuf);
-      return -4;
-      */
-
       if (bpp < 0) {
         // standard bw like sh1106, ,must set pixels to -1
         for (int32_t lins = Settings->display_height - 1; lins >= 0 ; lins--) {
@@ -12153,6 +12147,7 @@ uint32_t fsize;
         }
       } else {
         for (uint32_t lins = 0; lins < Settings->display_height; lins++) {
+          //AddLog(LOG_LEVEL_INFO, PSTR(">>> %d"), lins);
           lbp = lbuf + (Settings->display_width * 3);
           if (bpp == 4) {
             // 16 gray scales
@@ -12234,6 +12229,7 @@ uint32_t fsize;
           }
           client.write((const char*)lbuf, Settings->display_width * 3);
           client.flush();
+          yield();
         }
       }
       if (lbuf) free(lbuf);
