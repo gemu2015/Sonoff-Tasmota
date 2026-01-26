@@ -189,7 +189,7 @@ void EPDPanel::displayFrame() {
     delay_sync(cfg.update_time); // Use delay_sync with proper timing
 }
 
-#if 1
+#if 0
 void EPDPanel::drawAbsolutePixel(int x, int y, uint16_t color) {
     // Bounds check using physical dimensions
     if (x < 0 || x >= cfg.width || y < 0 || y >= cfg.height) {
@@ -392,6 +392,8 @@ bool EPDPanel::updateFrame() {
                 setFrameMemory(fb_buffer, 0, 0, cfg.width, cfg.height);
                 displayFrame();
         }
+        setFrameMemory(fb_buffer);
+        displayFrame();
     } else if (cfg.ep_mode == 2) {
         // Mode 2 (5-LUT / 4.2" displays): Use internal displayFrame_42
         displayFrame_42();
@@ -498,7 +500,7 @@ void EPDPanel::sendYColumnAsXRow(const uint8_t* y_column_buffer, uint16_t buffer
     }
 }
 
-#if 1
+#if 0
 void EPDPanel::setFrameMemory(const uint8_t* image_buffer) {
     setMemoryArea(0, 0, cfg.width - 1, cfg.height - 1);
     setMemoryPointer(0, 0);
@@ -529,18 +531,18 @@ void EPDPanel::setFrameMemory(const uint8_t* image_buffer) {
 void EPDPanel::setFrameMemory(const uint8_t* image_buffer, uint16_t x, uint16_t y, uint16_t image_width, uint16_t image_height) {
     if (!image_buffer) return;
     
+    // Full screen optimization
+    if (!x && !y && image_width == cfg.width && image_height == cfg.height) {
+        setFrameMemory(image_buffer);
+        return;
+    }
+
     // Align to 8-pixel boundary
     x &= 0xFFF8;
     image_width &= 0xFFF8;
     
     uint16_t x_end = (x + image_width >= cfg.width) ? cfg.width - 1 : x + image_width - 1;
     uint16_t y_end = (y + image_height >= cfg.height) ? cfg.height - 1 : y + image_height - 1;
-
-    // Full screen optimization
-    if (!x && !y && image_width == cfg.width && image_height == cfg.height) {
-        setFrameMemory(image_buffer);
-        return;
-    }
 
     setMemoryArea(x, y, x_end, y_end);
     setMemoryPointer(x, y);
@@ -556,7 +558,8 @@ void EPDPanel::setFrameMemory(const uint8_t* image_buffer, uint16_t x, uint16_t 
 void EPDPanel::sendEPData() {
     // EP_SEND_DATA (0x66) - used by some display.ini files (e.g. v2)
     // Must also convert Y-column to X-row format like setFrameMemory()
-    sendYColumnAsXRow(fb_buffer, cfg.width, cfg.height, cfg.width / 8);
+    //sendYColumnAsXRow(fb_buffer, cfg.width, cfg.height, cfg.width / 8);
+    setFrameMemory(fb_buffer);
 }
 
 // ===== Update Mode Control =====

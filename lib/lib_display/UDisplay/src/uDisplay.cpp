@@ -1009,7 +1009,7 @@ uint16_t index = 0;
     spiController->csLow();
     iob = dsp_cmds[cmd_offset++];
     index++;
-    if ((ep_mode == 1 || ep_mode == 3) && iob >= EP_RESET) {
+    if ((ep_mode == 1 || ep_mode == 3) && iob >= EP_RESET && iob <= EP_BREAK_RR_NEQ) {
       // epaper pseudo opcodes
       if (!universal_panel) return;
       EPDPanel* epd = static_cast<EPDPanel*>(universal_panel);
