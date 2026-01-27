@@ -34,11 +34,6 @@ void uDisplay::drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) {
 }
 
 void uDisplay::drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
-    if (framebuffer) {
-        Renderer::drawFastVLine(x, y, h, color);
-        return;
-    }
-
     // Rudimentary clipping
     if ((x >= _width) || (y >= _height)) return;
     if ((y + h - 1) >= _height) h = _height - y;
@@ -47,6 +42,10 @@ void uDisplay::drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
         return;
     }
 
+    if (framebuffer) {
+        Renderer::drawFastVLine(x, y, h, color);
+        return;
+    }
 
 }
 
