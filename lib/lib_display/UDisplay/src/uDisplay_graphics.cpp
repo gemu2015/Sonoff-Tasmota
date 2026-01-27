@@ -83,9 +83,6 @@ void uDisplay::pushColorsMono(uint16_t *data, uint32_t len, bool rgb16_swap) {
   // this is tested with a simple mask, swapped if needed
   uint16_t rgb16_to_mono_mask = rgb16_swap ? RGB16_SWAP_TO_MONO : RGB16_TO_MONO;
 
-  AddLog(LOG_LEVEL_INFO, ">>> %d - %d", seta_yp1,seta_yp2);
-  AddLog(LOG_LEVEL_INFO, ">>> %d - %d", seta_xp1,seta_xp2);
-
   for (uint32_t y = seta_yp1; y < seta_yp2; y++) {
     seta_yp1++;
     if (lvgl_param.invert_bw) {
