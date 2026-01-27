@@ -11,6 +11,7 @@ i2c_panel::i2c_panel(const I2CPanelConfig& config, uint8_t* framebuffer)
     }
 }
 
+
 bool i2c_panel::updateFrame() {
     if (!framebuffer) return false;
     
