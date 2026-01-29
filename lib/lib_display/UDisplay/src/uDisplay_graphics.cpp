@@ -72,7 +72,7 @@ void uDisplay::pushColors(uint16_t *data, uint32_t len, boolean not_swapped) {  
         not_swapped = !not_swapped;
     }
     if (!universal_panel->pushColors(data, len, not_swapped)) {
-        pushColorsMono(data, len, not_swapped);
+        pushColorsMono(data, len, !not_swapped);
     }
 }
 
