@@ -12074,10 +12074,12 @@ uint32_t fsize;
     file = ufsp->open(path, FS_FILE_READ);
     fsize = file.size();
   } else {
+#ifdef USE_DISPLAY_DUMP
     if (renderer && (renderer->framebuffer || renderer->rgb_fb)) {
       fsize = Settings->display_width * Settings->display_height * 3;
       fsize += fileHeaderSize + infoHeaderSize;
     }
+#endif
   }
 
   if (0 == stype) {
