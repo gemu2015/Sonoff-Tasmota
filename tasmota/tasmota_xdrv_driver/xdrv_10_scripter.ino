@@ -5502,7 +5502,7 @@ _Pragma("GCC warning \"'EXT 1 wakeup' not supported using gpio mode\"")
           fvar = script_mdns(name, mac, type);
           goto nfuncexit;
         }
-  #endif // USE_SCRIPT_MDNS
+#endif // USE_SCRIPT_MDNS
         break;
 
       case 'n':
