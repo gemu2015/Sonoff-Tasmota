@@ -84,7 +84,7 @@ struct HAP_DESC {
 
 #define ESP_INTR_FLAG_DEFAULT 0
 
-static xQueueHandle s_esp_evt_queue = NULL;
+static QueueHandle_t s_esp_evt_queue = NULL;
 /**
  * @brief the recover outlet in use gpio interrupt function
  */
