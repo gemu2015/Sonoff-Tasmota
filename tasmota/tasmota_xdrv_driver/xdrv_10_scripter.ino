@@ -5729,7 +5729,7 @@ int32_t I2SPlayFile(const char *path, uint32_t decoder_type);
         }
         if (!strncmp_XP(lp, XPSTR("round("), 6)) {
           lp = GetNumericArgument(lp + 6, OPER_EQU, &fvar, gv);
-          fvar = floorf(fvar);
+          fvar = roundf(fvar);
           goto nfuncexit;
         }
 #endif
