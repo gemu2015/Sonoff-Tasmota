@@ -24,7 +24,7 @@
 /* HomeKit Smart Outlet Example
 */
 
-//#define USE_HOMEKIT
+#define USE_HOMEKIT
 
 
 #ifdef USE_HOMEKIT
