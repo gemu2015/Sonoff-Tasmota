@@ -46,12 +46,26 @@
 #include <hap_apple_chars.h>
 #include <hap_platform_keystore.h>
 
+
+enum LoggingLevels {
+    LOG_LEVEL_NONE, 
+    LOG_LEVEL_ERROR, 
+    LOG_LEVEL_INFO, 
+    LOG_LEVEL_DEBUG, 
+    LOG_LEVEL_DEBUG_MORE
+};
+
+// Function declarations - only if not building within Tasmota
+extern void AddLog(uint32_t loglevel, const char* formatP, ...);
+
+
+
 //#include <app_wifi.h>
 //#include <app_hap_setup_payload.h>
 
 static const char *TAG = "HAP outlet";
 char *hk_desc;
-char hk_code[12];
+char hk_code[20];
 uint8_t hk_services;
 
 extern void Ext_Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dstsize);
@@ -600,7 +614,7 @@ static void smart_outlet_thread_entry(void *p) {
                   hap_devs[index].service = hap_serv_battery_service_create(fvar, fvar1, fvar2);
                 }
                 break;
-              case 4: hap_devs[index].service = hap_serv_wattage_create(fvar); break;
+             // case 4: hap_devs[index].service = hap_serv_wattage_create(fvar); break;
               case 5: hap_devs[index].service = hap_serv_contact_sensor_create(fvar); break;
             }
           }
@@ -669,6 +683,7 @@ nextline:
 
     /* After all the initializations are done, start the HAP core */
     hap_start();
+    //AddLog(LOG_LEVEL_INFO, "HK: hap started %d", 0);
 
     int32_t io_num = OUTLET_IN_USE_GPIO;
     if (io_num >= 0) {
@@ -701,7 +716,7 @@ nextline:
     }
 }
 
-#define HK_PASSCODE "111-11-111"
+#define HK_PASSCODE "1111-111-1111"
 int hap_loop_stop(void);
 int32_t homekit_pars(uint32_t sel);
 
@@ -713,11 +728,11 @@ int32_t homekit_main(char *desc, uint32_t flag ) {
     // "111-11-111"
 
     if (*cp == '*') {
-      strlcpy(hk_code, HK_PASSCODE, 10);
+      strlcpy(hk_code, HK_PASSCODE, 13);
       cp++;
     } else {
       uint32_t cnt;
-      for (cnt = 0; cnt < 10; cnt++) {
+      for (cnt = 0; cnt < 13; cnt++) {
         hk_code[cnt] = *cp++;
       }
       hk_code[cnt] = 0;
@@ -749,6 +764,8 @@ int32_t homekit_main(char *desc, uint32_t flag ) {
 
   /* Create the application thread */
   xTaskCreate(smart_outlet_thread_entry, SMART_OUTLET_TASK_NAME, SMART_OUTLET_TASK_STACKSIZE, NULL, SMART_OUTLET_TASK_PRIORITY, NULL);
+
+  //AddLog(LOG_LEVEL_INFO, "HK: task started %d", 0);
 
   return 0;
 }

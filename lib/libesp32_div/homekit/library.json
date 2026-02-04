@@ -1,0 +1,19 @@
+{
+  "name": "Homekit",
+  "version": "-040b0f3",
+  "description": "Homekit",
+  "license": "MIT",
+  "homepage": "https://github.com/arendst/Tasmota",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "authors":
+  {
+    "name": "Espressif",
+    "maintainer": true
+  },
+  "build": {
+    "flags": [
+      "-I$PROJECT_DIR/lib/libesp32_div/libsodium/src/libsodium/include" 
+    ]
+  }
+}
