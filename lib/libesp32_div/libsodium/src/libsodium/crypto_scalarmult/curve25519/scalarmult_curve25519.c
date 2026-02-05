@@ -12,7 +12,6 @@ static const crypto_scalarmult_curve25519_implementation *implementation =
     &crypto_scalarmult_curve25519_ref10_implementation;
 
 
-#if 0
 int
 crypto_scalarmult_curve25519(unsigned char *q, const unsigned char *n,
                              const unsigned char *p)
@@ -28,7 +27,6 @@ crypto_scalarmult_curve25519(unsigned char *q, const unsigned char *n,
     }
     return -(1 & ((d - 1) >> 8));
 }
-#endif
 
 int
 crypto_scalarmult_curve25519_base(unsigned char *q, const unsigned char *n)

@@ -65,7 +65,7 @@ extern void AddLog(uint32_t loglevel, const char* formatP, ...);
 
 static const char *TAG = "HAP outlet";
 char *hk_desc;
-char hk_code[20];
+char hk_code[12];
 uint8_t hk_services;
 
 extern void Ext_Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dstsize);
@@ -525,6 +525,7 @@ static void smart_outlet_thread_entry(void *p) {
     uint8_t index = 0;
     while (*lp) {
       if (*lp == '#') break;
+      if (*lp == '>') break;
       if (*lp == '\n') lp++;
       if (*lp == ' ') lp++;
       if (*lp == ';') goto nextline;
@@ -716,7 +717,7 @@ nextline:
     }
 }
 
-#define HK_PASSCODE "1111-111-1111"
+#define HK_PASSCODE "111-11-111"
 int hap_loop_stop(void);
 int32_t homekit_pars(uint32_t sel);
 
@@ -728,11 +729,11 @@ int32_t homekit_main(char *desc, uint32_t flag ) {
     // "111-11-111"
 
     if (*cp == '*') {
-      strlcpy(hk_code, HK_PASSCODE, 13);
+      strlcpy(hk_code, HK_PASSCODE, 10);
       cp++;
     } else {
       uint32_t cnt;
-      for (cnt = 0; cnt < 13; cnt++) {
+      for (cnt = 0; cnt < 10; cnt++) {
         hk_code[cnt] = *cp++;
       }
       hk_code[cnt] = 0;

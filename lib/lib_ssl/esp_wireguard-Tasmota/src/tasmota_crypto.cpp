@@ -44,6 +44,7 @@ static void run_crypto_scalarmult_curve25519(void) {
   g_dh_curve25519.result = BR_EC25519_IMPL.mul(g_dh_curve25519.q, 32, g_dh_curve25519.n, 32, BR_EC_curve25519);
 }
 
+#if 0
 extern "C" int crypto_scalarmult_curve25519(unsigned char *q, const unsigned char *n,const unsigned char *p) {
   for (int32_t i=0; i<32; i++) {
     g_dh_curve25519.q[i] = p[i];
@@ -81,3 +82,4 @@ extern "C" int crypto_scalarmult_curve25519(unsigned char *q, const unsigned cha
     return 1;   // Failure
   }
 }
+#endif
