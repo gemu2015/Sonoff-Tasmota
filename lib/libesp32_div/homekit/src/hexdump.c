@@ -13,7 +13,7 @@
 // limitations under the License.
 #include <stdio.h>
 
-//#define HEX_DBG_ENABLE
+#define HEX_DBG_ENABLE
 
 #ifdef HEX_DBG_ENABLE
 void hex_dbg_with_name(char *name, unsigned char *buf, int buf_len)
