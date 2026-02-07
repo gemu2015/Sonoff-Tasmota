@@ -603,7 +603,7 @@ void hap_char_add_valid_vals_range(hap_char_t *hc, uint8_t start_val, uint8_t en
     if (!hc)
         return;
     __hap_char_t *_hc = (__hap_char_t *)hc;
-    _hc->valid_vals_range = hap_platform_memory_malloc(sizeof(uint8_t));
+    _hc->valid_vals_range = hap_platform_memory_malloc(2 * sizeof(uint8_t));
     if (_hc->valid_vals_range) {
         _hc->valid_vals_range[0] = start_val;
         _hc->valid_vals_range[1] = end_val;

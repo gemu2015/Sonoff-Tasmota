@@ -195,5 +195,5 @@ int hap_httpd_recv(httpd_handle_t hd, int sockfd, char *buf, unsigned buf_len, i
 			return HAP_FAIL;
 		}
 	}
-	return recv(sockfd, buf, buf_len, sockfd);
+	return recv(sockfd, buf, buf_len, flags);
 }

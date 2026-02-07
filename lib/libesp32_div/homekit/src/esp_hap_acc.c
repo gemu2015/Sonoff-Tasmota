@@ -64,11 +64,13 @@ static int hap_acc_info_write(hap_write_data_t write_data[], int count,
             __hap_acc_t *_ha = (__hap_acc_t *)serv_priv;
             if (_ha) {
                 _ha->identify_routine((hap_acc_t *)_ha);
-                *(write_data->status) = HAP_STATUS_SUCCESS;
+                //*(write_data->status) = HAP_STATUS_SUCCESS;
+                *(write_data[i].status) = HAP_STATUS_SUCCESS;
                 continue;
             }
         }
-        *(write_data->status) = HAP_STATUS_VAL_INVALID;
+        //*(write_data->status) = HAP_STATUS_VAL_INVALID;
+        *(write_data[i].status) = HAP_STATUS_VAL_INVALID;
 	}
 	return HAP_SUCCESS;
 }

@@ -96,7 +96,7 @@ hap_char_t *hap_serv_get_char_by_iid(hap_serv_t *hs, int32_t iid)
  */
 hap_char_t *hap_serv_get_char_by_uuid(hap_serv_t *hs, const char *uuid)
 {
-    if (!hs | !uuid)
+    if (!hs || !uuid)
         return NULL;
 
     hap_char_t *hc;
