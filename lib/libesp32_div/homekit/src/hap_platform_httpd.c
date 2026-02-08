@@ -23,8 +23,14 @@
  */
 #include <esp_http_server.h>
 #include <esp_hap_config.h>
+#include <unistd.h>
 
 httpd_handle_t *int_handle;
+static void hap_httpd_close_fn(httpd_handle_t hd, int sockfd)
+{
+    close(sockfd);
+}
+
 int hap_platform_httpd_start(httpd_handle_t *handle)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -39,6 +45,7 @@ int hap_platform_httpd_start(httpd_handle_t *handle)
     config.lru_purge_enable   = true;
     config.recv_wait_timeout  = 5;
     config.send_wait_timeout  = 5;
+    config.close_fn           = hap_httpd_close_fn;
 
     esp_err_t err =  httpd_start(handle, &config);
     if (err == ESP_OK) {

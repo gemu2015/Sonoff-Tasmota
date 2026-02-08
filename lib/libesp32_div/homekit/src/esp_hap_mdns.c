@@ -62,13 +62,33 @@ int hap_mdns_serv_stop(hap_mdns_handle_t *handle)
     return HAP_FAIL;
 }
 
-int hap_mdns_init()
+int hap_mdns_init(const char *hostname)
 {
     int ret = HAP_SUCCESS;
     if (!mdns_init_done) {
         ret = mdns_init();
         if (ret == ESP_OK) {
-            mdns_hostname_set("MyHost");
+            /* Sanitize hostname for mDNS: replace spaces and invalid chars with '-',
+             * convert to lowercase, max 63 chars per DNS label rules
+             */
+            char safe_host[64];
+            int j = 0;
+            for (int i = 0; hostname[i] && j < 63; i++) {
+                char c = hostname[i];
+                if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+                    safe_host[j++] = c;
+                } else if (c >= 'A' && c <= 'Z') {
+                    safe_host[j++] = c + 32;
+                } else if (c == ' ' || c == '_') {
+                    safe_host[j++] = '-';
+                }
+                /* skip other chars (umlauts, etc.) */
+            }
+            safe_host[j] = 0;
+            if (j == 0) {
+                strcpy(safe_host, "hap-esp32");
+            }
+            mdns_hostname_set(safe_host);
             mdns_init_done = true;
             ESP_MFI_DEBUG(ESP_MFI_DEBUG_INFO, "mDNS initialised");
             return HAP_SUCCESS;

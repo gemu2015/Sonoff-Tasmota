@@ -65,7 +65,7 @@ extern void AddLog(uint32_t loglevel, const char* formatP, ...);
 
 static const char *TAG = "HAP outlet";
 char *hk_desc;
-char hk_code[12];
+char hk_code[20];
 uint8_t hk_services;
 
 extern void Ext_Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dstsize);
@@ -557,10 +557,12 @@ static void smart_outlet_thread_entry(void *p) {
       str2c(&lp1, hap_devs[index].var5_name, sizeof(hap_devs[index].var5_name));
 
       hap_acc_cfg_t hap_cfg;
+      char serial[20];
+      snprintf(serial, sizeof(serial), "0011223344%02d", index + 1);
       hap_cfg.name = hap_devs[index].hap_name;
       hap_cfg.manufacturer = "Tasmota";
       hap_cfg.model = "Tasmota Device";
-      hap_cfg.serial_num = "001122334455";
+      hap_cfg.serial_num = serial;
       hap_cfg.fw_rev = "0.9.0";
       hap_cfg.hw_rev = NULL;
       hap_cfg.pv = "1.1.0";
@@ -729,7 +731,7 @@ int32_t homekit_main(char *desc, uint32_t flag ) {
     // "111-11-111"
 
     if (*cp == '*') {
-      strlcpy(hk_code, HK_PASSCODE, 10);
+      strlcpy(hk_code, HK_PASSCODE, sizeof(hk_code));
       cp++;
     } else {
       uint32_t cnt;

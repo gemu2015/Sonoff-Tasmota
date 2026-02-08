@@ -370,8 +370,6 @@ static int hap_pair_setup_process_exchange(pair_setup_ctx_t *ps_ctx, uint8_t *bu
 		return HAP_FAIL;
 	}
 
-	hex_dbg_with_name("ltpka", hap_priv.ltpka, sizeof(hap_priv.ltpka));
-
 	/* Derive AccessoryX from the SRP shared secret using HKDF-SHA512 */
 	uint8_t acc_x[32];
 	hkdf(SHA512, (unsigned char *) PAIR_SETUP_ACC_SIGN_SALT,
@@ -396,7 +394,6 @@ static int hap_pair_setup_process_exchange(pair_setup_ctx_t *ps_ctx, uint8_t *bu
 	/* Generate AccessorySignature by signing AccessoryInfo with AccessoryLTSK
 	 */
     crypto_sign_ed25519_detached(ed_sign, &ed_sign_len, acc_info, acc_info_len, hap_priv.ltska);
-	hex_dbg_with_name("acc_sign", ed_sign, sizeof(ed_sign));
 
 	/* Create subTLV with:
 	 * kTLVType_Identifier : Accessory ID (acc_id)
@@ -414,7 +411,6 @@ static int hap_pair_setup_process_exchange(pair_setup_ctx_t *ps_ctx, uint8_t *bu
 	add_tlv(&tlv_data, kTLVType_PublicKey, sizeof(hap_priv.ltpka), hap_priv.ltpka);
 	add_tlv(&tlv_data, kTLVType_Signature, sizeof(ed_sign), ed_sign);
 	int subtlv_len = tlv_data.curlen;
-	hex_dbg_with_name("subtlv", subtlv, subtlv_len);
 
 	/* Encrypt the subTLV using the session key */
 
@@ -422,8 +418,7 @@ static int hap_pair_setup_process_exchange(pair_setup_ctx_t *ps_ctx, uint8_t *bu
     memset(newnonce, 0, sizeof newnonce);
     memcpy(newnonce+4, (uint8_t *) PS_NONCE3, 8);
     crypto_aead_chacha20poly1305_ietf_encrypt_detached(subtlv, &subtlv[subtlv_len], &mlen, subtlv,
-                subtlv_len, NULL, 0, NULL, newnonce, ps_ctx->session_key); 
-	hex_dbg_with_name("send_encrypt_data", subtlv, subtlv_len + 16);
+                subtlv_len, NULL, 0, NULL, newnonce, ps_ctx->session_key);
 
 	/* Construct the response M6 */
 	tlv_data.bufptr = buf;

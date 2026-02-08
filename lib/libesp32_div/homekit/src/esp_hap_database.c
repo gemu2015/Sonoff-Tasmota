@@ -268,16 +268,24 @@ int hap_database_init(void)
     size_t val_size = sizeof(id);
     if (hap_keystore_get(HAP_KEYSTORE_NAMESPACE_HAPMAIN, HAP_KEY_ACC_ID, id, &val_size) == HAP_SUCCESS) {
         val_size = sizeof(hap_priv.ltska);
-        hap_keystore_get(HAP_KEYSTORE_NAMESPACE_HAPMAIN, HAP_KEY_LTSKA, hap_priv.ltska, &val_size);
+        int ska_ret = hap_keystore_get(HAP_KEYSTORE_NAMESPACE_HAPMAIN, HAP_KEY_LTSKA, hap_priv.ltska, &val_size);
         val_size = sizeof(hap_priv.ltpka);
-        hap_keystore_get(HAP_KEYSTORE_NAMESPACE_HAPMAIN, HAP_KEY_LTPKA, hap_priv.ltpka, &val_size);
+        int pka_ret = hap_keystore_get(HAP_KEYSTORE_NAMESPACE_HAPMAIN, HAP_KEY_LTPKA, hap_priv.ltpka, &val_size);
+        if (ska_ret != HAP_SUCCESS || pka_ret != HAP_SUCCESS) {
+            unsigned char seed[32];
+            esp_mfi_get_random(seed, sizeof(seed));
+            crypto_sign_ed25519_seed_keypair(hap_priv.ltpka, hap_priv.ltska, seed);
+            hap_keystore_set(HAP_KEYSTORE_NAMESPACE_HAPMAIN, HAP_KEY_LTSKA, hap_priv.ltska, sizeof(hap_priv.ltska));
+            hap_keystore_set(HAP_KEYSTORE_NAMESPACE_HAPMAIN, HAP_KEY_LTPKA, hap_priv.ltpka, sizeof(hap_priv.ltpka));
+        }
     } else {
         /* If the accessory ID is not found in keystore, create and store a new random ID */
-	    esp_mfi_get_random(id, sizeof(id));
+        esp_mfi_get_random(id, sizeof(id));
         hap_keystore_set(HAP_KEYSTORE_NAMESPACE_HAPMAIN, HAP_KEY_ACC_ID, id, sizeof(id));
-        /* Also create a new ED25519 key pair */
-	    esp_mfi_get_random(hap_priv.ltska, sizeof(hap_priv.ltska));
-        crypto_sign_ed25519_keypair(hap_priv.ltpka, hap_priv.ltska);
+        /* Generate a new ED25519 key pair using seed_keypair for correctness */
+        unsigned char seed[32];
+        esp_mfi_get_random(seed, sizeof(seed));
+        crypto_sign_ed25519_seed_keypair(hap_priv.ltpka, hap_priv.ltska, seed);
         hap_keystore_set(HAP_KEYSTORE_NAMESPACE_HAPMAIN, HAP_KEY_LTSKA, hap_priv.ltska, sizeof(hap_priv.ltska));
         hap_keystore_set(HAP_KEYSTORE_NAMESPACE_HAPMAIN, HAP_KEY_LTPKA, hap_priv.ltpka, sizeof(hap_priv.ltpka));
     }

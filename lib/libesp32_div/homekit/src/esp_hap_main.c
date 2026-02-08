@@ -373,7 +373,7 @@ int hap_start(void)
         ESP_MFI_DEBUG(ESP_MFI_DEBUG_ERR, "HAP Loop Failed: [%d]", ret);
         return ret;
     }
-    ret = hap_mdns_init();
+    ret = hap_mdns_init(hap_priv.primary_acc.name);
     if (ret != 0 ) {
         ESP_MFI_DEBUG(ESP_MFI_DEBUG_ERR, "HAP mDNS Init failed");
         return ret;

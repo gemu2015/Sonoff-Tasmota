@@ -221,12 +221,9 @@ void esp_mfi_sha256_final(esp_mfi_sha_ctx_t ctx, uint8_t *digest)
  */
 esp_mfi_sha_ctx_t esp_mfi_sha512_new(void)
 {
-    //sodium_init();
     mbedtls_sha512_context *context = NULL;
     context = (mbedtls_sha512_context *) malloc(sizeof(mbedtls_sha512_context));
-#ifndef USE_SODIUM
     mbedtls_sha512_init(context);
-#endif
     return context;
 }
 
@@ -240,9 +237,6 @@ esp_mfi_sha_ctx_t esp_mfi_sha512_new(void)
 void esp_mfi_sha512_free(esp_mfi_sha_ctx_t ctx)
 {
     if (ctx) {
-#ifndef USE_SODIUM
-        bedtls_sha512_free((mbedtls_sha512_context *)ctx);
-#endif
         free(ctx);
     }
 }

@@ -37,7 +37,7 @@ int hap_mdns_serv_start(hap_mdns_handle_t *handle, const char *name, const char 
 int hap_mdns_serv_update_txt(hap_mdns_handle_t *handle, mdns_txt_item_t *txt_records, size_t num_txt);
 int hap_mdns_serv_name_change(hap_mdns_handle_t *handle, const char * instance_name);
 int hap_mdns_serv_stop(hap_mdns_handle_t *handle);
-int hap_mdns_init();
+int hap_mdns_init(const char *hostname);
 int hap_mdns_deinit();
 
 #endif /* _HAP_MDNS_H_ */

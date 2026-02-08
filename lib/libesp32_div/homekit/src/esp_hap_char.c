@@ -257,7 +257,7 @@ int hap_char_update_val(hap_char_t *hc, hap_val_t *val)
 			break;
 	}
 	if (value_changed || (_hc->permission & HAP_CHAR_PERM_SPECIAL_READ)) {
-		ESP_MFI_DEBUG_INTR(ESP_MFI_DEBUG_INFO, "Value Changed");
+		//ESP_MFI_DEBUG_INTR(ESP_MFI_DEBUG_INFO, "Value Changed");
         hap_queue_event(hc);
 	} else {
         /* If there is no value change, reset the owner flag here itself, as no notification
