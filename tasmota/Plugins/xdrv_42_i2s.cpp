@@ -105,6 +105,7 @@ typedef struct {
   void *i2s_bridgec_udp;
   IP_ADDRESS i2s_bridge_ip;
   int8_t ptt_pin;
+  uint8_t task_running;
 } I2S_BRIDGE;
 
 
@@ -907,6 +908,7 @@ void I2SBridgeInit(void) {
     udp_begin(bridge.i2s_bridgec_udp, I2S_BRIDGE_PORT + 1);
     AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge command server created on port: %d "), I2S_BRIDGE_PORT + 1);
   }
+  i2s_bridge_init(I2S_BRIDGE_MODE_OFF);
 }
 
 void I2SBridgeDeinit(void) {
@@ -970,7 +972,7 @@ void i2s_bridge_loop(void) {
     }
   }
 
-  if (udp_parsePacket(bridge.i2s_bridgec_udp)) {
+  if (bridge.i2s_bridgec_udp && udp_parsePacket(bridge.i2s_bridgec_udp)) {
       // received control command
     memset(packet_buffer, 0, sizeof(packet_buffer));
     udp_read(bridge.i2s_bridgec_udp, packet_buffer, udp_available(bridge.i2s_bridgec_udp));
@@ -1029,12 +1031,29 @@ void i2s_bridge_loop(void) {
 void i2s_bridge_init(uint8_t bmode) {
 SETREGS
 
-  bridge.bridge_mode.bmode = bmode;
-
   if (I2S_BRIDGE_MODE_OFF == bmode) {
+    bridge.bridge_mode.bmode = bmode;
+    // wait for task to exit
+    for (int i = 0; i < 50 && bridge.task_running; i++) {
+      delay(10);
+    }
     udp_flush(bridge.i2s_bridge_udp);
     udp_stop(bridge.i2s_bridge_udp);
   } else {
+    // don't start if another I2S operation is active
+    if (i2s_busy) {
+      AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge blocked, I2S busy"));
+      return;
+    }
+    // don't create a second task
+    if (bridge.task_running) {
+      AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge task already running"));
+      bridge.bridge_mode.bmode = bmode;
+      return;
+    }
+
+    bridge.bridge_mode.bmode = bmode;
+
     const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
     udp_begin(bridge.i2s_bridge_udp, I2S_BRIDGE_PORT);
 
@@ -1082,6 +1101,8 @@ SETREGS
 void i2s_bridge_task(void *arg) {
 SETREGS
 
+  bridge.task_running = 1;
+  i2s_busy = true;
   AudioPwr(1);
 
   const uint32_t *uicp = (const uint32_t *) ((uint8_t *)ui32_const+EXEC_OFFSET);
@@ -1089,11 +1110,19 @@ SETREGS
   uint32_t bytesize = uicp[5];
 
   int16_t *packet_buffer = (int16_t*)calloc((bytesize>>1)+4, 2);
-  
+  if (!packet_buffer) {
+    AddLog(LOG_LEVEL_INFO, PSTR("I2S: bridge alloc failed"));
+    bridge.task_running = 0;
+    i2s_busy = false;
+    AudioPwr(0);
+    vTaskDelete(0);
+    return;
+  }
+
   // set to 16 khz Stereo
   I2S_SetRate(uicp[6], 2, 3);
 
-  uint32_t bytes_read;  
+  uint32_t bytes_read;
   i2sp.dptr = packet_buffer;
 
   while (I2S_BRIDGE_MODE_OFF != bridge.bridge_mode.bmode) {
@@ -1140,6 +1169,8 @@ SETREGS
   free(packet_buffer);
   AudioPwr(0);
   I2S_Enable(0);
+  i2s_busy = false;
+  bridge.task_running = 0;
   vTaskDelete(0);
 }
 

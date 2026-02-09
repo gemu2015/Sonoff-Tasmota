@@ -1560,16 +1560,18 @@ void HandleWebcamMjpegFn(int type) {
     Wc.CamServer->send(403,"","");
     return;
   }
-  TasAutoMutex localmutex(&WebcamMutex, "HandleWebcamMjpeg", 200);
+  AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: Create client start"));
   wc_client *client = new wc_client;
   client->active = 1;
   client->type = type;
-  client->p_next = Wc.client_p;
   client->client = Wc.CamServer->client();
-  Wc.client_p = client;
-#ifdef WEBCAM_DEV_DEBUG  
-  AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: Create client"));
-#endif
+  // add to list atomically - only pointer write needs protection
+  {
+    TasAutoMutex localmutex(&WebcamMutex, "HandleWebcamMjpeg", 5000);
+    client->p_next = Wc.client_p;
+    Wc.client_p = client;
+  }
+  AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: Create client done"));
 }
 
 void HandleWebcamRoot(void) {
@@ -2042,7 +2044,7 @@ void WcRemoveDeadCients(){
   while(client){
     if (!client->active){
       // just in case...
-      TasAutoMutex localmutex(&WebcamMutex, "WcLoop", 200);
+      TasAutoMutex localmutex(&WebcamMutex, "WcLoop", 5000);
       *prev = client->p_next;
       client->client.stop();
       wc_client *next = client->p_next;
