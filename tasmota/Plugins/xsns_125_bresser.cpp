@@ -209,6 +209,7 @@ struct WS_Sensor {
 typedef struct {
   void     *spi;
   uint8_t  cs_pin;
+  uint32_t spibaud;
   uint8_t  gdo0_pin;
   uint8_t  found;
   uint8_t  ready;
@@ -220,7 +221,7 @@ typedef struct {
   uint8_t  recvData[MSG_BUF_SIZE];
 } MODULE_MEMORY;
 
-#define BRESSER_REV 1 << 16 | 1
+#define BRESSER_REV 1 << 16 | 4
 
 PUSH_OPTIONS
 
@@ -426,7 +427,7 @@ MODULE_PART float cc1101_get_rssi() {
   } else {
     rssi = (int16_t)rawRSSI / 2 - 74;
   }
-  return (float)rssi;
+  return tofloat(rssi);
 }
 
 /*********************************************************************************************\
@@ -995,7 +996,8 @@ MODULE_PART DecodeStatus Bresser_getMessage() {
 
     // Verify last sync word byte is first byte of payload
     if (mem->recvData[0] == 0xD4) {
-      AddLog(LOG_LEVEL_DEBUG, PSTR("BRESSER: Received packet, RSSI=%1_f"), &mem->rssi);
+      //AddLog(LOG_LEVEL_DEBUG, PSTR("BRESSER: Received packet, RSSI=%1_f"), &mem->rssi);
+      AddLog(LOG_LEVEL_INFO, PSTR("BRESSER: Received packet, RSSI=%1_f"), &mem->rssi);
       decode_res = decodeMessage(&mem->recvData[1], MSG_BUF_SIZE - 1);
     }
   }
@@ -1201,7 +1203,7 @@ int32_t Bresser_Init() {
   mem->cs_pin = mp->ms[0].value;
   mem->gdo0_pin = mp->ms[1].value;
 
-  if (mem->cs_pin == 0 || mem->gdo0_pin == 0) {
+  if (mem->cs_pin < 0 || mem->gdo0_pin < 0) {
     AddLog(LOG_LEVEL_ERROR, PSTR("BRESSER: No CS or GDO0 pin configured"));
     Bresser_Deinit();
     return false;
@@ -1213,6 +1215,7 @@ int32_t Bresser_Init() {
 
   // Initialize SPI
   GETSPI(0);
+  mem->spibaud = ICONST(5000000);
   spi_begin();
 
   // Initialize CC1101
@@ -1238,7 +1241,8 @@ MODULE_PART void Bresser_Task() {
   if (mem->ready) {
     DecodeStatus res = Bresser_getMessage();
     if (res == DECODE_OK) {
-      AddLog(LOG_LEVEL_DEBUG, PSTR("BRESSER: Received message!"));
+      //AddLog(LOG_LEVEL_DEBUG, PSTR("BRESSER: Received message!"));
+      AddLog(LOG_LEVEL_INFO, PSTR("BRESSER: Received message!"));
       mem->decode_status = DECODE_OK;
       memmove(mem->sensor_copy, mem->sensor, sizeof(mem->sensor));
     }
@@ -1266,7 +1270,7 @@ MODULE_PART bool Bresser_Cmd() {
   return false;
 }
 
-void Bresser_Deinit() {
+MODULE_PART void Bresser_Deinit() {
   SETREGS
   if (mem->ready) {
     cc1101_cmd_strobe(CC1101_CMD_SIDLE);
