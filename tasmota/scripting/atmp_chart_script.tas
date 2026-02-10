@@ -1,4 +1,5 @@
->D
+>D 48
+IP=192.168.188.141
 ; 24 hour temperature chart from global variable atmp
 ; uses 96 entries = 24h * 4 (one entry every 15 minutes)
 
@@ -14,6 +15,12 @@ M:a_tmp=0 96
 M:a_hum=0 96
 M:a_prs=0 96
 
+; array for 5 min temperature (60 entries, 5 sec intervals)
+M:a_5m=0 60
+s5=0
+s5i=0
+c5str=""
+
 ; current 15 min slot
 m15=0
 ; file handle
@@ -24,11 +31,13 @@ cstr=""
 ctmp=0
 chum=0
 cprs=0
+; helper for 5 min labels
+sod=0
 
 >B
 ; load saved array on boot
 =#load_arr
-cstr="cnt0/4"
+cstr="cnth"+"0/4"
 
 >S
 ; wait for valid time
@@ -53,12 +62,33 @@ a_hum[0]=m15
 a_prs[0]=m15
 
 ; update x-axis label
-cstr="cnt"+s(0m15)+"/4"
+cstr="cnth"+s(0m15)+"/4"
+
+; 5 min temperature, sample every 5 seconds
+s5+=1
+if s5>=5 {
+	s5=0
+	s5i+=1
+	if s5i>60 {
+		s5i=1
+	}
+	a_5m[s5i]=atmp
+	a_5m[0]=s5i
+	=#mk5lbl
+}
 
 ; current values for display
 ctmp=atmp
 chum=bhumi
 cprs=bpress
+
+; build 5 min x-axis labels: 5 time marks at 1 min intervals
+#mk5lbl
+sod=hours*3600+mins*60+secs-295
+if sod<0 {
+	sod+=86400
+}
+c5str=s2hms(sod)+"|"+s2hms(sod+60)+"|"+s2hms(sod+120)+"|"+s2hms(sod+180)+"|"+s2hms(sod+240)
 
 ; subroutine load array from file
 #load_arr
@@ -82,15 +112,77 @@ if fr>=0 {
 	fc(fr)
 }
 
+; subroutine realtime gauge
+#rt_gauge
+if wm==0 {
+	break
+}
+wcs <div style="margin:0 auto;text-align:center">
+wcs <div id="gauge1" style="display:inline-block;width:300px;height:200px"></div>
+wcs </div>
+wcs <script type="text/javascript">
+wcs var gtmp=0;
+wcs setInterval(function(){
+wcs fetch('/cm?cmnd=script?ctmp')
+wcs .then(r=>r.json())
+wcs .then(d=>{gtmp=d['script']['ctmp'];});
+wcs },2000);
+wcs </script>
+wcf
+
+; subroutine realtime gauge script
+; must be called after $gc() charts have loaded google charts
+#rt_gauge_js
+if wm==0 {
+	break
+}
+wcs <script type="text/javascript">
+wcs google.charts.load('current',{'packages':['gauge']});
+wcs google.charts.setOnLoadCallback(function(){
+wcs var gdata=google.visualization.arrayToDataTable([['Label','Value'],['°C',0]]);
+wcs var gfmt=new google.visualization.NumberFormat({suffix:' °C',pattern:'##.#'});
+wcs var gopts={width:280,height:180,min:-10,max:45,
+wcs greenFrom:-10,greenTo:10,
+wcs yellowFrom:10,yellowTo:30,
+wcs redFrom:30,redTo:45,
+wcs minorTicks:5};
+wcs var gchart=new google.visualization.Gauge(document.getElementById('gauge1'));
+wcs gchart.draw(gdata,gopts);
+wcs setInterval(function(){
+wcs gdata.setValue(0,1,gtmp);
+wcs gfmt.format(gdata,1);
+wcs gchart.draw(gdata,gopts);
+wcs },2000);});
+wcs </script>
+wcf
+
 >W
 Temperature{m}%1ctmp% °C
 Humidity{m}%0chum% %%
 Pressure{m}%0cprs% hPa
 
+%=#rt_gauge
+
 $<div id="chart1"style="width:640px;height:300px;margin:0 auto"></div>
 $<div id="chart2"style="width:640px;height:300px;margin:0 auto"></div>
 $<div id="chart3"style="width:640px;height:300px;margin:0 auto"></div>
+$<div id="chart4"style="width:640px;height:350px;margin:0 auto"></div>
+$<div id="chart5"style="width:640px;height:300px;margin:0 auto"></div>
 
+;5 minute temperature chart with HH:MM:SS labels
+$gc(lt a_5m "wr" "Temperature" c5str)
+$var formatter = new google.visualization.NumberFormat({pattern:'####.## °C'});
+$formatter.format(data, 1);
+$var options = {
+$vAxis:{viewWindow:{min:-10,max:40},title: '°C'},
+$hAxis: {title: '5 Minutes',slantedText:true,slantedTextAngle:45},
+$curveType:'function',
+$title:'Temperature 5 Minutes',
+$chartArea: {backgroundColor: {fill: '#F0F0F0',},},
+$};
+$gc(e)
+
+;24 hour temperature chart
 $gc(lt a_tmp "wr" "Temperature" cstr)
 $var formatter = new google.visualization.NumberFormat({pattern:'####.## °C'});
 $formatter.format(data, 1);
@@ -126,4 +218,19 @@ $title:'Pressure 24 Hours',
 $chartArea: {backgroundColor: {fill: '#F0F0F0',},},
 $};
 $gc(e)
+
+;combined chart with all 3 variables, dual y-axes
+$gc(lt a_tmp a_hum a_prs "wr" "Temperature" "Humidity" "Pressure" cstr)
+$var options = {
+$series:{0:{targetAxisIndex:0,color:'#e2431e'},1:{targetAxisIndex:0,color:'#6633cc'},2:{targetAxisIndex:1,color:'#329262'}},
+$vAxes:{0:{title:'°C / %%',viewWindow:{min:-10,max:100}},1:{title:'hPa',viewWindow:{min:950,max:1050}}},
+$hAxis: {title: '24 Hours'},
+$curveType:'function',
+$title:'Temperature / Humidity / Pressure 24 Hours',
+$legend:{position:'bottom'},
+$chartArea: {backgroundColor: {fill: '#F0F0F0',},},
+$};
+$gc(e)
+
+%=#rt_gauge_js
 
