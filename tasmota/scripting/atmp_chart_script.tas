@@ -1,0 +1,129 @@
+>D
+; 24 hour temperature chart from global variable atmp
+; uses 96 entries = 24h * 4 (one entry every 15 minutes)
+
+; global variable outdoor temperature
+g:atmp=0
+; global variable humidity
+g:bhumi=0
+; global variable pressure
+g:bpress=0
+
+; arrays for 24h (96 = 24 * 4 entries, 15 min intervals)
+M:a_tmp=0 96
+M:a_hum=0 96
+M:a_prs=0 96
+
+; current 15 min slot
+m15=0
+; file handle
+fr=0
+; chart x-axis label string
+cstr=""
+; current display values
+ctmp=0
+chum=0
+cprs=0
+
+>B
+; load saved array on boot
+=#load_arr
+cstr="cnt0/4"
+
+>S
+; wait for valid time
+if year<2025 {
+	break
+}
+
+; calculate current 15 min slot (1-96)
+m15=int(hours*60+mins/15+1)
+
+; on slot change store values
+if chg[m15]>0 {
+	a_tmp[m15]=atmp
+	a_hum[m15]=bhumi
+	a_prs[m15]=bpress
+	=#save_arr
+}
+
+; update array index pointers for chart display
+a_tmp[0]=m15
+a_hum[0]=m15
+a_prs[0]=m15
+
+; update x-axis label
+cstr="cnt"+s(0m15)+"/4"
+
+; current values for display
+ctmp=atmp
+chum=bhumi
+cprs=bpress
+
+; subroutine load array from file
+#load_arr
+dp2
+fr=fo("/atmp_arr.txt" r)
+if fr>=0 {
+	fra(a_tmp fr)
+	fra(a_hum fr)
+	fra(a_prs fr)
+	fc(fr)
+}
+
+; subroutine save array to file
+#save_arr
+dp2
+fr=fo("/atmp_arr.txt" w)
+if fr>=0 {
+	fwa(a_tmp fr)
+	fwa(a_hum fr)
+	fwa(a_prs fr)
+	fc(fr)
+}
+
+>W
+Temperature{m}%1ctmp% °C
+Humidity{m}%0chum% %%
+Pressure{m}%0cprs% hPa
+
+$<div id="chart1"style="width:640px;height:300px;margin:0 auto"></div>
+$<div id="chart2"style="width:640px;height:300px;margin:0 auto"></div>
+$<div id="chart3"style="width:640px;height:300px;margin:0 auto"></div>
+
+$gc(lt a_tmp "wr" "Temperature" cstr)
+$var formatter = new google.visualization.NumberFormat({pattern:'####.## °C'});
+$formatter.format(data, 1);
+$var options = {
+$vAxis:{viewWindow:{min:-10,max:40},title: '°C'},
+$hAxis: {title: '24 Hours'},
+$curveType:'function',
+$title:'Temperature 24 Hours',
+$chartArea: {backgroundColor: {fill: '#F0F0F0',},},
+$};
+$gc(e)
+
+$gc(lt a_hum "wr" "Humidity" cstr)
+$var formatter = new google.visualization.NumberFormat({pattern:'####.## %%'});
+$formatter.format(data, 1);
+$var options = {
+$vAxis:{viewWindow:{min:0,max:100},title: '%%'},
+$hAxis: {title: '24 Hours'},
+$curveType:'function',
+$title:'Humidity 24 Hours',
+$chartArea: {backgroundColor: {fill: '#F0F0F0',},},
+$};
+$gc(e)
+
+$gc(lt a_prs "wr" "Pressure" cstr)
+$var formatter = new google.visualization.NumberFormat({pattern:'####.## hPa'});
+$formatter.format(data, 1);
+$var options = {
+$vAxis:{viewWindow:{min:950,max:1050},title: 'hPa'},
+$hAxis: {title: '24 Hours'},
+$curveType:'function',
+$title:'Pressure 24 Hours',
+$chartArea: {backgroundColor: {fill: '#F0F0F0',},},
+$};
+$gc(e)
+
