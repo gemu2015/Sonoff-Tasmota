@@ -13,6 +13,8 @@
 // limitations under the License.
 #include "esp_jpg_decode.h"
 
+#ifndef CONFIG_IDF_TARGET_ESP32C3
+
 #include "esp_system.h"
 #if ESP_IDF_VERSION_MAJOR >= 4 // IDF 4+
 #if CONFIG_IDF_TARGET_ESP32 // ESP32/PICO-D4
@@ -22,7 +24,8 @@
 #elif CONFIG_IDF_TARGET_ESP32S3
 #include "esp32s3/rom/tjpgd.h"
 #else
-#error Target CONFIG_IDF_TARGET is not supported
+//#error Target CONFIG_IDF_TARGET is not supported
+#warning Target CONFIG_IDF_TARGET is not supported
 #endif
 #else // ESP32 Before IDF 4.0
 #include "rom/tjpgd.h"
@@ -129,4 +132,5 @@ esp_err_t esp_jpg_decode(size_t len, jpg_scale_t scale, jpg_reader_cb reader, jp
 
     return ESP_OK;
 }
+#endif
 

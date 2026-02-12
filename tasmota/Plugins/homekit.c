@@ -24,6 +24,8 @@
 /* HomeKit Smart Outlet Example
 */
 
+#include "tasmota_options.h"
+
 //#define USE_HOMEKIT
 
 
