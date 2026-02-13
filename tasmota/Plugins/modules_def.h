@@ -59,6 +59,7 @@ typedef struct {
   void *cbp;
   uint16_t timeout;
   uint16_t error;
+  int8_t pdm_clk;
 } I2S_PARS;
 
 typedef struct {

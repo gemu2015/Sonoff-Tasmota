@@ -29,7 +29,7 @@ codec settings access
 #define XDRV_42 42
 
 #ifdef ESP32
-#define MAX_MOD_STORES 8
+#define MAX_MOD_STORES 10
 #else
 #define MAX_MOD_STORES 4
 #endif
@@ -236,10 +236,11 @@ typedef struct {
 
 #if 1
 #define GPIO_DOUT 17
-#define GPIO_DIN 18
-#define GPIO_BCK 20
-#define GPIO_WS 19
+#define GPIO_DIN 16
+#define GPIO_BCK 10
+#define GPIO_WS 18
 #define GPIO_MC 49
+#define GPIO_PDMC 49
 #else
 #define GPIO_DOUT 15
 #define GPIO_BCK 17
@@ -253,9 +254,8 @@ typedef struct {
 #define I2S_REV 1 << 16 | 5
 #ifdef ESP8266
 MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0)
-//MODULE_DESCRIPTOR6(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0, "", 0, "", 0)
 #else
-MODULE_DESCRIPTOR8(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "DIN", GPIO_DIN, "BCK", GPIO_BCK, "WS", GPIO_WS, "MC", GPIO_MC,"MODE", 0x01000200,"CODEC", 0x01000200,"APWR", GPIO_APWR)
+MODULE_DESCRIPTOR10(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "DIN/PDD", GPIO_DIN, "BCK", GPIO_BCK, "WS", GPIO_WS, "MC", GPIO_MC,"MODE", 0x01000200,"CODEC", 0x01000200,"APWR", GPIO_APWR,"PDC",GPIO_PDMC,"",0)
 #endif
 
 // all functions must be declared MUDULE_PART
@@ -411,6 +411,8 @@ int32_t I2SAudio_Init() {
   codec = mp->ms[6].value;
   audio_pwr_pin = mp->ms[7].value;
 
+  i2sp.pdm_clk = mp->ms[8].value;
+
   if (audio_pwr_pin < GetPins()) {
     pinMode(audio_pwr_pin, OUTPUT);
     digitalWrite(audio_pwr_pin, LOW);
@@ -424,6 +426,11 @@ int32_t I2SAudio_Init() {
 
   if (i2sp.mclk == GetPins()) {
     i2sp.mclk = -1;
+  }
+
+  // if pdm_clk >= 0 we use a pdm microphone
+  if (i2sp.pdm_clk == GetPins()) {
+    i2sp.pdm_clk = -1;
   }
 
   gain_div = 1<<6;  // = 1

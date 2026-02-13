@@ -1331,51 +1331,76 @@ sel &= 0xff;
         i2s_new_channel(&chan_cfg, (i2s_chan_handle_t*)&i2cp->txhandle, nullptr);
       }
 
-      i2s_std_config_t std_cfg = {
-        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(8000),
-        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
-        .gpio_cfg = {
-          .mclk = (gpio_num_t)i2cp->mclk,
-          .bclk = (gpio_num_t)i2cp->bclk,
-          .ws = (gpio_num_t)i2cp->ws,
-          .dout = (gpio_num_t)i2cp->dout,
-          .din = (gpio_num_t)i2cp->din,
-          .invert_flags = {
-            .mclk_inv = false,
-            .bclk_inv = false,
-            .ws_inv = false,
-          },
-        },
-      };
-
       i2s_slot_mode_t channels;
       if (i2cp->channels == 1) {
         channels = I2S_SLOT_MODE_MONO;
       } else {
         channels = I2S_SLOT_MODE_STEREO;
       }
-      uint8_t mode = i2cp->bmode & 3;
-      if (mode > 2) mode = 2;
-      switch (mode) {
-        case 0:
-          std_cfg.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
-          break;
-        case 1:
-          std_cfg.slot_cfg = I2S_STD_PCM_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
-          break;
-        case 2:
-          std_cfg.slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
-          break;
+
+      if (i2cp->pdm_clk < 0) {
+        // non PDM channel
+        i2s_std_config_t std_cfg = {
+          .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(8000),
+          .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+          .gpio_cfg = {
+            .mclk = (gpio_num_t)i2cp->mclk,
+            .bclk = (gpio_num_t)i2cp->bclk,
+            .ws = (gpio_num_t)i2cp->ws,
+            .dout = (gpio_num_t)i2cp->dout,
+            .din = (gpio_num_t)i2cp->din,
+            .invert_flags = {
+              .mclk_inv = false,
+              .bclk_inv = false,
+              .ws_inv = false,
+            },
+          },
+        };
+        uint8_t mode = i2cp->bmode & 3;
+        if (mode > 2) mode = 2;
+          switch (mode) {
+            case 0:
+              std_cfg.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
+              break;
+            case 1:
+              std_cfg.slot_cfg = I2S_STD_PCM_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
+              break;
+            case 2:
+              std_cfg.slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
+              break;
+          }
+          // Initialize the channels
+          i2s_channel_init_std_mode((i2s_chan_handle_t)i2cp->txhandle, &std_cfg);
+          i2s_channel_enable((i2s_chan_handle_t)i2cp->txhandle);
+          if (i2cp->rxhandle) {
+            i2s_channel_init_std_mode((i2s_chan_handle_t)i2cp->rxhandle, &std_cfg);
+            i2s_channel_enable((i2s_chan_handle_t)i2cp->rxhandle);
+          }
+      } else {
+        // PDM RX channel
+#if SOC_I2S_SUPPORTS_PDM2PCM
+        /*
+        i2s_pdm_rx_slot_config_t pdm_rx_cfg = {
+          .clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(16000),
+          .slot_cfg = I2S_PDM_RX_SLOT_PCM_FMT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+          .gpio_cfg = {
+            .clk = (gpio_num_t)i2cp->pdm_clk,
+            .din = (gpio_num_t)i2cp->din,
+            .invert_flags = {
+              .clk_inv = false,
+            },
+          },
+        };
+        i2s_channel_init_std_mode((i2s_chan_handle_t)i2cp->txhandle, &std_cfg);
+        i2s_channel_enable((i2s_chan_handle_t)i2cp->txhandle);
+        if (i2cp->rxhandle) {
+          i2s_channel_init_std_mode((i2s_chan_handle_t)i2cp->rxhandle, &pdm_rx_cfg);
+          i2s_channel_enable((i2s_chan_handle_t)i2cp->rxhandle);
+        }
+        */
+#endif
       }
 
-      // Initialize the channels
-      i2s_channel_init_std_mode((i2s_chan_handle_t)i2cp->txhandle, &std_cfg);
-      i2s_channel_enable((i2s_chan_handle_t)i2cp->txhandle);
-      if (i2cp->rxhandle) {
-        i2s_channel_init_std_mode((i2s_chan_handle_t)i2cp->rxhandle, &std_cfg);
-        i2s_channel_enable((i2s_chan_handle_t)i2cp->rxhandle);
-      }
-      
 #ifdef I2S_DEBUG
       AddLog(LOG_LEVEL_INFO,PSTR("I2S Init %x - %x"), (uint32_t)i2cp->txhandle, (uint32_t)i2cp->rxhandle);
 #endif
@@ -1407,31 +1432,45 @@ sel &= 0xff;
 #ifdef I2S_DEBUG
       AddLog(LOG_LEVEL_INFO,PSTR("I2S freq %d"), i2cp->dlen);
 #endif
-      i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(i2cp->dlen);
-      i2s_channel_reconfig_std_clock(chn_handle, &clk_cfg);
-
-      i2s_std_slot_config_t slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
+      i2s_std_clk_config_t clk_cfg;
+      i2s_std_slot_config_t slot_cfg;
 
       i2s_slot_mode_t channels;
       if (1 == i2cp->channels) {
         channels = I2S_SLOT_MODE_MONO;
-      } else {
+      }   else {
         channels = I2S_SLOT_MODE_STEREO;
       }
-      uint8_t mode = i2cp->bmode & 3;
-      if (mode > 2) mode = 2;
-      switch (mode) { 
-        case 0:
-          slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
-          break;
-        case 1:
-          slot_cfg = I2S_STD_PCM_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
-          break;
-        case 2:
-          slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
-          break;
+
+      if (i2cp->pdm_clk < 0) {
+        clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(i2cp->dlen);
+        i2s_channel_reconfig_std_clock(chn_handle, &clk_cfg);
+        slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
+        uint8_t mode = i2cp->bmode & 3;
+        if (mode > 2) mode = 2;
+        switch (mode) { 
+          case 0:
+            slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
+            break;
+          case 1:
+            slot_cfg = I2S_STD_PCM_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
+            break;
+          case 2:
+            slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
+            break;
+        }
+        i2s_channel_reconfig_std_slot(chn_handle, &slot_cfg);
+      } else {
+//#ifdef SOC_I2S_SUPPORTS_PDM_RX_HP_FILTER
+#ifdef SOC_I2S_SUPPORTS_PDM2PCM
+        clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(i2cp->dlen);
+        i2s_channel_reconfig_std_clock(chn_handle, &clk_cfg);   
+        slot_cfg = I2S_PDM_RX_SLOT_PCM_FMT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
+        i2s_channel_reconfig_std_slot(chn_handle, &slot_cfg);
+#endif
       }
-      i2s_channel_reconfig_std_slot(chn_handle, &slot_cfg);
+
+      
 
       i2s_channel_enable(chn_handle);
       //AddLog(LOG_LEVEL_INFO,PSTR("I2S Setrate %d"), p2);

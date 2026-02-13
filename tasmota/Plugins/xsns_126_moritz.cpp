@@ -110,14 +110,14 @@ typedef struct {
 #define msgcnt mem->msgcnt
 
 #ifdef ESP32
-#define MORITZ_DEFAULT_CS 2
+#define MORITZ_DEFAULT_CS 5
 #else
 #define MORITZ_DEFAULT_CS 15
 #endif
 
 /********************************************************************************************/
 PUSH_OPTIONS
-MODULE_DESCRIPTOR("MORITZ",MODULE_TYPE_SENSOR,1<<16|4,"CS",MORITZ_DEFAULT_CS,"",0,"",0,"",0)
+MODULE_DESCRIPTOR("MORITZ",MODULE_TYPE_SENSOR,1<<16|5,"CS",MORITZ_DEFAULT_CS,"",0,"",0,"",0)
 MODULE_PART void ccInitChip(void);
 MODULE_PART void cc_factory_reset(void);
 MODULE_PART void ccDump(void);
@@ -849,11 +849,14 @@ void rf_moritz_task(void) {
   int16_t rssi;
   struct culpaket cp;
   uint8_t ctrlMode;
-  float measuredTemperature = FLTC(0);
-
+  
   if (!moritz_cfg.moritz_on) return;
 
-  // see if a CRC OK pkt has been arrived
+  //float measuredTemperature = FLTC(0);
+  float measuredTemperature;
+
+
+  // see if a CRC OK pkt has  arrived
   uint8_t crc_ok = cc1100_readReg(CC1100_PKTSTATUS);  // crc ok
   if (crc_ok & 4) {
     // errata #1 does not affect us, because we wait until packet is completely received
