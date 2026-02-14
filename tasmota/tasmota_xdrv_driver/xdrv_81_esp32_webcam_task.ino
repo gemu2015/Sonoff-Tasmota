@@ -23,6 +23,7 @@
 #ifdef USE_WEBCAM_V2
 
 #undef WEBCAM_DEV_DEBUG
+#define WEBCAM_DEV_DEBUG
 
 /*********************************************************************************************\
  * ESP32 webcam based on example in Arduino-ESP32 library
