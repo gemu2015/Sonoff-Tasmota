@@ -1043,21 +1043,25 @@ uint32_t WcSetup(int32_t fsiz) {
     }
   }
 
-#ifdef WEBCAM_DEV_DEBUG  
+#ifdef WEBCAM_DEV_DEBUG
   AddLog(LOG_LEVEL_DEBUG, "CAM: get ledc channel");
 #endif
 
   int32_t ledc_channel = analogAttach(config.pin_xclk);
   if (ledc_channel < 0) {
-#ifdef WEBCAM_DEV_DEBUG  
+#ifdef WEBCAM_DEV_DEBUG
     AddLog(LOG_LEVEL_ERROR, "CAM: cannot allocated ledc channel, remove a PWM GPIO");
-#endif    
+#endif
   }
   config.ledc_channel = (ledc_channel_t) ledc_channel;
-#ifdef WEBCAM_DEV_DEBUG  
-  AddLog(LOG_LEVEL_DEBUG_MORE, "CAM: XCLK on GPIO %i using ledc channel %i", config.pin_xclk, config.ledc_channel);
-#endif  
-  config.ledc_timer = LEDC_TIMER_0;
+
+  // use a separate timer for camera XCLK to avoid conflict with Tasmota PWM timer 0
+  // this is critical on ESP32-S3 where LEDC has only low-speed mode
+  config.ledc_timer = LEDC_TIMER_1;
+
+#ifdef WEBCAM_DEV_DEBUG
+  AddLog(LOG_LEVEL_DEBUG_MORE, "CAM: XCLK on GPIO %i using ledc channel %i timer %i", config.pin_xclk, config.ledc_channel, config.ledc_timer);
+#endif
 //  config.xclk_freq_hz = 20000000;
   if (!Settings->webcam_clk) Settings->webcam_clk = 20;
   config.xclk_freq_hz = Settings->webcam_clk * 1000000;
@@ -1090,7 +1094,9 @@ uint32_t WcSetup(int32_t fsiz) {
     config.frame_size = FRAMESIZE_UXGA;
     config.jpeg_quality = 10;
     config.fb_count = 2;
-#ifdef WEBCAM_DEV_DEBUG  
+    config.grab_mode = CAMERA_GRAB_LATEST;
+    config.fb_location = CAMERA_FB_IN_PSRAM;
+#ifdef WEBCAM_DEV_DEBUG
     AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: PSRAM found"));
 #endif
   } else {
@@ -1640,7 +1646,7 @@ static void WCStartOperationTask(){
       "WCOperationTask",  /* Name of the task */
       8192,             /* Stack size in bytes */
       NULL,             /* Task input parameter */
-      0,                /* Priority of the task */
+      2,                /* Priority of the task - must be > 0 on ESP32-S3 to avoid starvation */
       &Wc.taskHandle,   /* Task handle. */
 #ifdef CONFIG_FREERTOS_UNICORE
       0);               /* Core where the task should run */
