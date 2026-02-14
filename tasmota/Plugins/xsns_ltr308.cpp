@@ -199,8 +199,7 @@ MODULE_PART void ltr308_read_sensor() {
   uint8_t status = ltr308_read_reg(LTR308_MAIN_STATUS);
   if (status & LTR308_DATA_STATUS) {
     uint32_t raw = ltr308_read_als_data();
-    //mem->lux = ltr308_calc_lux(raw);
-    mem->lux = tofloat(raw);
+    mem->lux = ltr308_calc_lux(raw);
     mem->valid = true;
   }
 }

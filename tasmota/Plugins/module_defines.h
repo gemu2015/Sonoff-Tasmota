@@ -472,8 +472,9 @@ typedef struct {
 #define GUI32p(LABEL) (const uint32_t *) ((uint8_t *)LABEL+EXEC_OFFSET)
 
 // all floating point constants must be in progmem and named FP_CONST
-#define FLTC(INDEX) *(float *) ((char *)&FP_CONST[INDEX]+EXEC_OFFSET)
-
+//#define FLTC(INDEX) *(float *) ((char *)&FP_CONST[INDEX]+EXEC_OFFSET)
+// FLTC(0) crashes with old macro so redefine
+#define FLTC(INDEX) FP_CONST[INDEX+(EXEC_OFFSET/sizeof(float))]
 
 //#define VTABLE(A) void (*const A[])(MODULES_TABLE*) PROGMEM
 #define VTABLE(A) void (*const A[])(void) PROGMEM
