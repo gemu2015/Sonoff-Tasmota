@@ -700,31 +700,30 @@ struct PICSTORE VideoJpeg = {0};
 // xdrv_50_filesystem.ino - bool TfsSaveFile(const char *fname, const uint8_t *buf, uint32_t len)
 // support_esp.ino - void NvmSave(const char *sNvsName, const char *sName, const void *pSettings, unsigned nSettingsLen)
 void WcInterrupt(uint32_t state) {
+#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32S2)
+  // On ESP32-S3/S2 (LCD_CAM + GDMA), camera DMA does not conflict with
+  // flash/NVS writes.  cam_stop() leaves GDMA in a stuck state that
+  // cam_start() cannot recover from.  Even just pausing the streaming task
+  // (via disable_cam + mutex) causes fb_get to fail permanently.
+  // The safest approach is to let the camera run undisturbed.
+  return;
+#else
   TasAutoMutex localmutex(&WebcamMutex, "WcInterrupt", 20000);
-  // Stop camera ISR if active to fix TG1WDT_SYS_RESET
   if (!Wc.up) { return; }
 
+  AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: WcInterrupt(%d)"), state);
+
   if (state) {
-    // Re-enable camera after a stop.
-    // cam_stop() disabled the DMA link and EOF interrupt.  cam_start() only
-    // re-enables the VSYNC interrupt — the internal cam_task restarts DMA
-    // when the next VSYNC arrives.  However, on ESP32-S3 the GDMA channel
-    // can get stuck if frame buffers were held when DMA was stopped mid-transfer.
-    // Return all frame buffers so cam_task has free buffers for the next capture.
+    // On original ESP32 (I2S-based camera), DMA conflicts with flash writes
+    // and causes TG1WDT_SYS_RESET.  Must stop and restart the camera.
     esp_camera_return_all();
     cam_start();
-#ifdef WEBCAM_DEV_DEBUG
-    AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: cam_start()"));
-#endif
     Wc.disable_cam = 0;
   } else {
-    // Stop interrupts
     Wc.disable_cam = 1;
     cam_stop();
-#ifdef WEBCAM_DEV_DEBUG
-    AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: cam_stop()"));
-#endif
   }
+#endif
 }
 
 
@@ -745,7 +744,7 @@ bool WcWaitZero(volatile int8_t *val, int8_t initial, int timeout_ms){
 // TAS will disable us for short periods...
 // this wait for TAS to re-enable it
 void WcWaitEnable(){
-  int timeout_ms = 1000;
+  int timeout_ms = 5000;  // NVS/flash writes can take several seconds
   int loops = timeout_ms/WC_WAIT_INTERVAL_MS;
   if (!loops) loops = 1;
   while(Wc.disable_cam && loops--){
@@ -1160,10 +1159,12 @@ uint32_t WcSetup(int32_t fsiz) {
   Wc.width = 0;
   Wc.height = 0;
 
-  // Prime the DMA pipeline: grab and return one frame to ensure the camera's
-  // internal cam_task has cycled through at least one complete VSYNC→DMA→EOF
-  // sequence.  Without this, a subsequent cam_stop()/cam_start() (e.g. from
-  // NvmSave via WcInterrupt) can leave the GDMA in a stuck state on ESP32-S3.
+  // Prime the DMA pipeline BEFORE WcApplySettings().  WcFeature() inside
+  // WcApplySettings() changes CLKRC and timing registers which disrupts
+  // frame production for ~1.2s.  The prime must happen while the sensor is
+  // still in its post-init state producing frames at default timing.
+  // This fb_get kicks the internal cam_task state machine and ensures
+  // at least one complete VSYNC→DMA→EOF cycle has occurred.
   {
     camera_fb_t *prime_fb = esp_camera_fb_get();
     if (prime_fb) {
@@ -1171,7 +1172,7 @@ uint32_t WcSetup(int32_t fsiz) {
         prime_fb->width, prime_fb->height, prime_fb->len);
       esp_camera_fb_return(prime_fb);
     } else {
-      AddLog(LOG_LEVEL_INFO, PSTR("CAM: DMA prime failed (no frame)"));
+      AddLog(LOG_LEVEL_DEBUG, PSTR("CAM: DMA prime timeout"));
     }
   }
 
