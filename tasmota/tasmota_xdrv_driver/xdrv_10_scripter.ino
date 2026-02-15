@@ -12999,7 +12999,7 @@ const char *gc_str;
       lp = GetStringArgument(lp, OPER_EQU, right, 0);
       SCRIPT_SKIP_SPACES
 
-      WSContentSend_P(SCRIPT_MSG_SLIDER, left, mid, right, (uint32_t)min, (uint32_t)max, (uint32_t)val, vname);
+      WSContentSend_P(SCRIPT_MSG_SLIDER, left, mid, right, (int32_t)min, (int32_t)max, (int32_t)val, vname);
       lp++;
 
     } else if (!strncmp_P(lin, PSTR("ck("), 3)) {
