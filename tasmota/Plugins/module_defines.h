@@ -292,6 +292,10 @@ typedef struct {
 // float negation via sign-bit XOR (no intrinsic needed, 1u<<31 is PIC-safe)
 #define fneg(a) ({ float _fneg_tmp = (a); *(uint32_t*)&_fneg_tmp ^= (1u << 31); _fneg_tmp; })
 
+// inline abs to avoid external function call from PIC code
+#undef abs
+#define abs(x) ({ typeof(x) _abs_tmp = (x); _abs_tmp < 0 ? -_abs_tmp : _abs_tmp; })
+
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
 #define bitSet(value, bit) ((value) |= (1UL << (bit)))
@@ -683,6 +687,7 @@ typedef struct {
 #define   WSContentSend_THD jWSContentSend_THD
 #undef memcpy_P
 #define   memcpy_P jmemmove
+#define   memcpy jmemmove
 #define   strncpy jstrncpy
 #undef strncpy_P
 #define   strncpy_P jstrncpy
