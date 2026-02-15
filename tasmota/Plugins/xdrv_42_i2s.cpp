@@ -35,7 +35,7 @@ codec settings access
 #endif
 
 #ifdef ESP32
-//#define USE_PSHINE
+#define USE_PSHINE
 #endif
 
 #include "module.h"
@@ -124,6 +124,9 @@ typedef struct {
   shine_t shine_ptr;
   int16_t *shine_buffer;
   uint16_t shine_bsize;
+#ifdef USE_PSHINE
+  uint32_t shine_counter[5];
+#endif
   void *mp3_server;
   void *mp3_client;
   uint8_t mp3_stream;
@@ -314,6 +317,43 @@ MODULE_END
 #endif
 
 #ifdef USE_PSHINE
+
+const float FP_CONST[] PROGMEM = {
+  3.14159265358979f,     // 0: PI
+  0.087266462599717f,    // 1: PI36
+  0.049087385212f,       // 2: PI64
+  0.69314718f,           // 3: LN2
+  0.5f,                  // 4: 0.5
+  1.5f,                  // 5: 1.5
+  4.768371584e-7f,       // 6: 1024/0x7fffffff
+  0.0946f,               // 7: quantize spec offset
+  4.656612875e-10f,      // 8: 1/0x7fffffff
+  2.0f,                  // 9: 2.0
+  1e9f,                  // 10: 1e9
+  2.147483647e-9f,       // 11: 0x7fffffff * 1e-9
+  0.043633231299858f,    // 12: PI/72
+  2.147483647e9f,        // 13: 0x7fffffff as float
+  3.1f,                  // 14: reservoir PE factor
+  1.0f,                  // 15: 1.0
+};
+
+const uint32_t INT_CONST[] PROGMEM = {
+  0xbe6f0000,   //  0: fast-sqrt magic (p_sqrt_int)
+  0x5f3759df,   //  1: SQRT_MAGIC_F (p_f_sqrt)
+  101123,       //  2: sqrt branch threshold
+  8192,         //  3: quantize range limit
+  165140,       //  4: 8192^(4/3) check
+  0x7fffffff,   //  5: max int32
+  10000,        //  6: int2idx loop bound
+  100000,       //  7: fail sentinel
+  576,          //  8: GRANULE_SIZE
+  480,          //  9: subband offset increment
+  511,          // 10: HAN_SIZE-1 bitmask
+  4095,         // 11: max bits limit
+  4096,         // 12: BUFFER_SIZE
+  2304,         // 13: 4*GRANULE_SIZE (malloc size)
+};
+
 #include "Audio/mp3_shine_esp32/src/includes.h"
 #include "Audio/mp3_shine_esp32/src/bitstream_c.h"
 #include "Audio/mp3_shine_esp32/src/huffman_c.h"
@@ -1214,7 +1254,6 @@ SETREGS
 
   AddLog(LOG_LEVEL_INFO, PSTR("task started"));
 
-  uint32_t counter = 0;
   int32_t lval;
   volatile const int32_t *icp = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
   pclamp = icp[0];

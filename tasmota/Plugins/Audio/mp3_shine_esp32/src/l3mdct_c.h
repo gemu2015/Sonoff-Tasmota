@@ -22,11 +22,17 @@
 #define MDCT_CS6	MDCT_CS(-0.0142)
 #define MDCT_CS7	MDCT_CS(-0.0037)
 
+const int32_t MDCT_COEFF[] PROGMEM = {
+  MDCT_CA0, MDCT_CA1, MDCT_CA2, MDCT_CA3, MDCT_CA4, MDCT_CA5, MDCT_CA6, MDCT_CA7,
+  MDCT_CS0, MDCT_CS1, MDCT_CS2, MDCT_CS3, MDCT_CS4, MDCT_CS5, MDCT_CS6, MDCT_CS7,
+};
+
 /*
  * shine_mdct_initialise:
  * -------------------
  */
 MODULE_PART void p_shine_mdct_initialise(shine_global_config *config) {
+SETMEMREGS
   int32_t m,k;
 
   /* prepare the mdct coefficients */
@@ -34,8 +40,8 @@ MODULE_PART void p_shine_mdct_initialise(shine_global_config *config) {
     for(k=36; k--; )
       /* combine window and mdct coefficients into a single table */
       /* scale and convert to fixed point before storing */
-      config->mdct.cos_l[m][k] = (int32_t)(sin(PI36*(k+0.5))
-                                      * cos((PI/72)*(2*k+19)*(2*m+1)) * 0x7fffffff);
+      config->mdct.cos_l[m][k] = fixsfti(fmul(fmul(sinf(fmul(PI36, fadd(float_i32(k), FLTC(4)))),
+                                      cosf(fmul(fmul(FLTC(12), float_i32(2*k+19)), float_i32(2*m+1)))), FLTC(13)));
 }
 
 /*
@@ -113,19 +119,21 @@ SETMEMREGS
         asm ("#asm_cmuls:");
         if (band != 0)
         {
-          asm_cmuls(mdct_enc[band][0], mdct_enc[band-1][17-0], mdct_enc[band][0], mdct_enc[band-1][17-0], MDCT_CS0, MDCT_CA0);
-          asm_cmuls(mdct_enc[band][1], mdct_enc[band-1][17-1], mdct_enc[band][1], mdct_enc[band-1][17-1], MDCT_CS1, MDCT_CA1);
-          asm_cmuls(mdct_enc[band][2], mdct_enc[band-1][17-2], mdct_enc[band][2], mdct_enc[band-1][17-2], MDCT_CS2, MDCT_CA2);
-          asm_cmuls(mdct_enc[band][3], mdct_enc[band-1][17-3], mdct_enc[band][3], mdct_enc[band-1][17-3], MDCT_CS3, MDCT_CA3);
-          asm_cmuls(mdct_enc[band][4], mdct_enc[band-1][17-4], mdct_enc[band][4], mdct_enc[band-1][17-4], MDCT_CS4, MDCT_CA4);
-          asm_cmuls(mdct_enc[band][5], mdct_enc[band-1][17-5], mdct_enc[band][5], mdct_enc[band-1][17-5], MDCT_CS5, MDCT_CA5);
-          asm_cmuls(mdct_enc[band][6], mdct_enc[band-1][17-6], mdct_enc[band][6], mdct_enc[band-1][17-6], MDCT_CS6, MDCT_CA6);
-          asm_cmuls(mdct_enc[band][7], mdct_enc[band-1][17-7], mdct_enc[band][7], mdct_enc[band-1][17-7], MDCT_CS7, MDCT_CA7);
+          { const int32_t *mcoeff = GTAB_I32(MDCT_COEFF);
+          asm_cmuls(mdct_enc[band][0], mdct_enc[band-1][17-0], mdct_enc[band][0], mdct_enc[band-1][17-0], mcoeff[8+0], mcoeff[0]);
+          asm_cmuls(mdct_enc[band][1], mdct_enc[band-1][17-1], mdct_enc[band][1], mdct_enc[band-1][17-1], mcoeff[8+1], mcoeff[1]);
+          asm_cmuls(mdct_enc[band][2], mdct_enc[band-1][17-2], mdct_enc[band][2], mdct_enc[band-1][17-2], mcoeff[8+2], mcoeff[2]);
+          asm_cmuls(mdct_enc[band][3], mdct_enc[band-1][17-3], mdct_enc[band][3], mdct_enc[band-1][17-3], mcoeff[8+3], mcoeff[3]);
+          asm_cmuls(mdct_enc[band][4], mdct_enc[band-1][17-4], mdct_enc[band][4], mdct_enc[band-1][17-4], mcoeff[8+4], mcoeff[4]);
+          asm_cmuls(mdct_enc[band][5], mdct_enc[band-1][17-5], mdct_enc[band][5], mdct_enc[band-1][17-5], mcoeff[8+5], mcoeff[5]);
+          asm_cmuls(mdct_enc[band][6], mdct_enc[band-1][17-6], mdct_enc[band][6], mdct_enc[band-1][17-6], mcoeff[8+6], mcoeff[6]);
+          asm_cmuls(mdct_enc[band][7], mdct_enc[band-1][17-7], mdct_enc[band][7], mdct_enc[band-1][17-7], mcoeff[8+7], mcoeff[7]);
+          }
         }
       }
     }
 
     /* Save latest granule's subband samples to be used in the next mdct call */
-    memcpy(config->l3_sb_sample[ch][0], config->l3_sb_sample[ch][config->mpeg.granules_per_frame], sizeof(config->l3_sb_sample[0][0]));
+    memcpy(config->l3_sb_sample[ch][0], config->l3_sb_sample[ch][config->mpeg.granules_per_frame], ICONST(sizeof(config->l3_sb_sample[0][0])));
   }
 }

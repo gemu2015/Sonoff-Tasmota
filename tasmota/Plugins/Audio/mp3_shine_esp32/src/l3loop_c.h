@@ -9,6 +9,19 @@
 #define en_scfsi_band_krit 10
 #define xm_scfsi_band_krit 10
 
+/* This is the scfsi_band table from 2.4.2.7 of the IS */
+const int32_t scfsi_band_long[5] PROGMEM = { 0, 6, 11, 16, 21 };
+
+/* subdv_table: packed (region1_count<<8 | region0_count) for 0..22 bands
+ * stored as int32_t for 32-bit aligned PROGMEM access on Xtensa */
+const int32_t subdv_table_data[23] PROGMEM = {
+  0x0000, 0x0000, 0x0000, 0x0000, 0x0000,  /*  0- 4 bands */
+  0x0100, 0x0101, 0x0101, 0x0201, 0x0202,  /*  5- 9 bands */
+  0x0302, 0x0302, 0x0403, 0x0403, 0x0403,  /* 10-14 bands */
+  0x0504, 0x0504, 0x0604, 0x0605, 0x0605,  /* 15-19 bands */
+  0x0705, 0x0706, 0x0706,                   /* 20-22 bands */
+};
+
 void calc_scfsi(shine_psy_xmin_t *l3_xmin, int32_t ch, int32_t gr, shine_global_config *config);
 int32_t part2_length(int32_t gr, int32_t ch, shine_global_config *config);
 int32_t p_bin_search_StepSize(int32_t desired_rate, int32_t ix[GRANULE_SIZE], gr_info * cod_info, shine_global_config *config);
@@ -25,22 +38,24 @@ int32_t quantize(int32_t ix[GRANULE_SIZE], int32_t stepsize, shine_global_config
 #define p_sqrt p_f_sqrt
 
 MODULE_PART int32_t p_sqrt_int(int32_t r) {
+SETMEMREGS
     float x;
-    float rr = r;
-    float y = rr*0.5;
-    *(uint32_t*)&x = (0xbe6f0000 - *(uint32_t*)&rr) >> 1;
+    float rr = float_i32(r);
+    float y = fmul(rr, FLTC(4));
+    *(uint32_t*)&x = (INTC(0) - *(uint32_t*)&rr) >> 1;
 
-    x = (1.5f*x) - (x*x)*(x*y);
-    if(r>101123) x = (1.5f*x) - (x*x)*(x*y);
+    x = fdiff(fmul(FLTC(5), x), fmul(fmul(x, x), fmul(x, y)));
+    if(r>(int32_t)INTC(2)) x = fdiff(fmul(FLTC(5), x), fmul(fmul(x, x), fmul(x, y)));
 
-    int32_t is = (int32_t)(x*rr + 0.5f);
+    int32_t is = fixsfti(fadd(fmul(x, rr), FLTC(4)));
     return is + ((r - is*is)>>31);
 }
 
-#define SQRT_MAGIC_F 0x5f3759df
+//#define SQRT_MAGIC_F 0x5f3759df
 
 MODULE_PART float  p_f_sqrt(const float x) {
-  const float xhalf = 0.5f*x;
+SETMEMREGS
+  const float xhalf = fmul(FLTC(4), x);
   //float step;
   union // get bits for floating value
   {
@@ -48,9 +63,9 @@ MODULE_PART float  p_f_sqrt(const float x) {
     int32_t i;
   } u;
   u.x = x;
-  u.i = SQRT_MAGIC_F - (u.i >> 1);  // gives initial guess y0
+  u.i = (int32_t)INTC(1) - (u.i >> 1);  // gives initial guess y0
 
-  return x*u.x*(1.5f - xhalf*u.x*u.x);// Newton step, repeating increases accuracy
+  return fmul(fmul(x, u.x), fdiff(FLTC(5), fmul(xhalf, fmul(u.x, u.x))));// Newton step, repeating increases accuracy
 }
 /*
  * shine_inner_loop:
@@ -61,13 +76,14 @@ MODULE_PART float  p_f_sqrt(const float x) {
 MODULE_PART int32_t p_shine_inner_loop(int32_t ix[GRANULE_SIZE],
                int32_t max_bits, gr_info *cod_info, int32_t gr, int32_t ch,
                shine_global_config *config ) {
+SETMEMREGS
   int32_t bits, c1bits, bvbits;
 
   if(max_bits<0)
     cod_info->quantizerStepSize--;
   do
   {
-    while(quantize(ix,++cod_info->quantizerStepSize,config) > 8192); /* within table range? */
+    while(quantize(ix,++cod_info->quantizerStepSize,config) > (int32_t)INTC(3)); /* within table range? */
 
     calc_runlen(ix,cod_info);                        /* rzero,count1,big_values*/
     bits = c1bits = count1_bitcount(ix,cod_info);    /* count1_table selection*/
@@ -130,7 +146,7 @@ SETMEMREGS
       /* Precalculate the square, abs,  and maximum,
        * for use later on.
        */
-      for (i=GRANULE_SIZE, config->l3loop->xrmax=0; i--;)
+      for (i=(int32_t)INTC(8), config->l3loop->xrmax=0; i--;)
       {
         config->l3loop->xrsq[i]  = asm_mulsr(config->l3loop->xr[i],config->l3loop->xr[i]);
         config->l3loop->xrabs[i] = abs(config->l3loop->xr[i]);
@@ -150,8 +166,8 @@ SETMEMREGS
       max_bits = p_shine_max_reservoir_bits(&config->pe[ch][gr],config);
 
       /* reset of iteration variables */
-      memset(config->scalefactor.l[gr][ch],0,sizeof(config->scalefactor.l[gr][ch]));
-      memset(config->scalefactor.s[gr][ch],0,sizeof(config->scalefactor.s[gr][ch]));
+      memset(config->scalefactor.l[gr][ch],0,ICONST(sizeof(config->scalefactor.l[gr][ch])));
+      memset(config->scalefactor.s[gr][ch],0,ICONST(sizeof(config->scalefactor.s[gr][ch])));
 
       for ( i=4; i--; )
         cod_info->slen[i] = 0;
@@ -193,8 +209,7 @@ MODULE_PART void calc_scfsi( shine_psy_xmin_t *l3_xmin, int32_t ch, int32_t gr,
                  shine_global_config *config ) {
 SETMEMREGS
   shine_side_info_t *l3_side = &config->side_info;
-  /* This is the scfsi_band table from 2.4.2.7 of the IS */
-  static const int32_t scfsi_band_long[5] = { 0, 6, 11, 16, 21 };
+  const int32_t *scfsi_band_long_p = GTAB_I32(scfsi_band_long);
 
   int32_t scfsi_band;
   unsigned scfsi_set;
@@ -203,7 +218,7 @@ SETMEMREGS
   int32_t condition = 0;
   int32_t temp;
 
-  const int32_t *scalefac_band_long = &shine_scale_fact_band_index[config->mpeg.samplerate_index][0];
+  const int32_t *scalefac_band_long = &GTAB_I32((const int32_t*)shine_scale_fact_band_index)[config->mpeg.samplerate_index * 23];
 
   // note. it goes quite a bit faster if you uncomment the next bit and exit
    //  early from scfsi, but you then loose the advantage of common scale factors.
@@ -218,10 +233,10 @@ SETMEMREGS
   scfsi_set = 0;
 
   /* the total energy of the granule */
-  for ( temp = 0, i =GRANULE_SIZE; i--;  )
+  for ( temp = 0, i =(int32_t)INTC(8); i--;  )
     temp += config->l3loop->xrsq[i]>>10; /* a bit of scaling to avoid overflow, (not very good) */
   if ( temp )
-    config->l3loop->en_tot[gr] = log((float)temp * 4.768371584e-7) / LN2; /* 1024 / 0x7fffffff */
+    config->l3loop->en_tot[gr] = fixsfti(fdiv(logf(fmul(float_i32(temp), FLTC(6))), LN2)); /* 1024 / 0x7fffffff */
   else
     config->l3loop->en_tot[gr] = 0;
 
@@ -236,12 +251,12 @@ SETMEMREGS
     for ( temp = 0, i = start; i < end; i++ )
       temp += config->l3loop->xrsq[i]>>10;
     if ( temp )
-      config->l3loop->en[gr][sfb] = log((float)temp * 4.768371584e-7) / LN2; /* 1024 / 0x7fffffff */
+      config->l3loop->en[gr][sfb] = fixsfti(fdiv(logf(fmul(float_i32(temp), FLTC(6))), LN2)); /* 1024 / 0x7fffffff */
     else
       config->l3loop->en[gr][sfb] = 0;
 
-    if ( l3_xmin->l[gr][ch][sfb])
-      config->l3loop->xm[gr][sfb] = log( l3_xmin->l[gr][ch][sfb] ) / LN2;
+    if ( !jeqsf2(l3_xmin->l[gr][ch][sfb], float_i32(0)))
+      config->l3loop->xm[gr][sfb] = fixsfti(fdiv(logf(l3_xmin->l[gr][ch][sfb]), LN2));
     else
       config->l3loop->xm[gr][sfb] = 0;
   }
@@ -271,8 +286,8 @@ SETMEMREGS
       {
         int32_t sum0 = 0, sum1 = 0;
         l3_side->scfsi[ch][scfsi_band] = 0;
-        start = scfsi_band_long[scfsi_band];
-        end   = scfsi_band_long[scfsi_band+1];
+        start = scfsi_band_long_p[scfsi_band];
+        end   = scfsi_band_long_p[scfsi_band+1];
         for ( sfb = start; sfb < end; sfb++ )
         {
           sum0 += abs( config->l3loop->en[0][sfb] - config->l3loop->en[1][sfb] );
@@ -301,14 +316,15 @@ SETMEMREGS
  * main data block.
  */
 MODULE_PART int32_t part2_length(int32_t gr, int32_t ch, shine_global_config *config) {
+SETMEMREGS
   int32_t slen1, slen2, bits;
   gr_info *gi = &config->side_info.gr[gr].ch[ch].tt;
 
   bits = 0;
 
   {
-    slen1 = shine_slen1_tab[ gi->scalefac_compress ];
-    slen2 = shine_slen2_tab[ gi->scalefac_compress ];
+    slen1 = GTAB_I32(shine_slen1_tab)[ gi->scalefac_compress ];
+    slen2 = GTAB_I32(shine_slen2_tab)[ gi->scalefac_compress ];
 
     if ( !gr || !(config->side_info.scfsi[ch][0]) )
       bits += (6 * slen1);
@@ -360,6 +376,7 @@ MODULE_PART void calc_xmin(gr_info *cod_info,
  * Calculates the look up tables used by the iteration loop.
  */
 MODULE_PART void p_shine_loop_initialise(shine_global_config *config) {
+SETMEMREGS
   int32_t i;
 
   /* quantize: stepsize conversion, fourth root of 2 table.
@@ -369,22 +386,22 @@ MODULE_PART void p_shine_loop_initialise(shine_global_config *config) {
    */
   for(i=128; i--;)
   {
-    config->l3loop->steptab[i] = pow(2.0,(SHINE_DOUBLE)(127-i)/4);
-    if((config->l3loop->steptab[i]*2)>0x7fffffff) /* MAXINT = 2**31 = 2**(124/4) */
-      config->l3loop->steptabi[i]=0x7fffffff;
+    config->l3loop->steptab[i] = FastPrecisePowf(FLTC(9), fdiv(float_i32(127-i), float_i32(4)));
+    if(jgtsf2(fmul(config->l3loop->steptab[i], FLTC(9)), FLTC(13))) /* MAXINT = 2**31 = 2**(124/4) */
+      config->l3loop->steptabi[i]=(int32_t)INTC(5);
     else
       /* The table is multiplied by 2 to give an extra bit of accuracy.
        * In quantize, the long multiply does not shift it's result left one
        * bit to compensate.
        */
-      config->l3loop->steptabi[i] = (int32_t)((config->l3loop->steptab[i]*2) + 0.5);
+      config->l3loop->steptabi[i] = fixsfti(fadd(fmul(config->l3loop->steptab[i], FLTC(9)), FLTC(4)));
   }
 
   /* quantize: vector conversion, three quarter power table.
    * The 0.5 is for rounding, the .0946 comes from the spec.
    */
-  for(i=10000; i--;)
-    config->l3loop->int2idx[i] = (int32_t)(p_sqrt(p_sqrt((SHINE_DOUBLE)i)*(SHINE_DOUBLE)i) - 0.0946 + 0.5);
+  for(i=(int32_t)INTC(6); i--;)
+    config->l3loop->int2idx[i] = fixsfti(fadd(fdiff(p_sqrt(fmul(p_sqrt(float_i32(i)), float_i32(i))), FLTC(7)), FLTC(4)));
 }
 
 /*
@@ -395,6 +412,7 @@ MODULE_PART void p_shine_loop_initialise(shine_global_config *config) {
  */
 MODULE_PART int32_t quantize(int32_t ix[GRANULE_SIZE], int32_t stepsize, shine_global_config *config )
 {
+SETMEMREGS
   int32_t i, max, ln;
   int32_t scalei;
   float scale, dbl;
@@ -403,25 +421,25 @@ MODULE_PART int32_t quantize(int32_t ix[GRANULE_SIZE], int32_t stepsize, shine_g
 
   /* a quick check to see if ixmax will be less than 8192 */
   /* this speeds up the early calls to bin_search_StepSize */
-  if((asm_mulr(config->l3loop->xrmax,scalei)) > 165140) /* 8192**(4/3) */
-    max = 16384; /* no point in continuing, stepsize not big enough */
+  if((asm_mulr(config->l3loop->xrmax,scalei)) > (int32_t)INTC(4)) /* 8192**(4/3) */
+    max = (int32_t)INTC(3) * 2; /* no point in continuing, stepsize not big enough */
   else
-    for(i=0, max=0;i<GRANULE_SIZE;i++)
+    for(i=0, max=0;i<(int32_t)INTC(8);i++)
     {
       /* This calculation is very sensitive. The multiply must round it's
        * result or bad things happen to the quality.
        */
       ln = asm_mulr(abs(config->l3loop->xr[i]),scalei);
 
-      if(ln<10000) /* ln < 10000 catches most values */
+      if(ln<(int32_t)INTC(6)) /* ln < 10000 catches most values */
         ix[i] = config->l3loop->int2idx[ln]; /* quick look up method */
       else
       {
         /* outside table range so have to do it using floats */
         scale = config->l3loop->steptab[stepsize+127]; /* 2**(-stepsize/4) */
-        dbl = ((float)config->l3loop->xrabs[i]) * scale * 4.656612875e-10; /* 0x7fffffff */
-        //ix[i] = p_sqrt_int((int32_t)(p_f_sqrt(dbl)*dbl)); /* dbl**(3/4) */
-        ix[i] = (int32_t)p_sqrt(p_sqrt(dbl)*dbl); /* dbl**(3/4) */
+        dbl = fmul(fmul(float_i32(config->l3loop->xrabs[i]), scale), FLTC(8)); /* 0x7fffffff */
+        //ix[i] = p_sqrt_int(fixsfti(fmul(p_f_sqrt(dbl),dbl))); /* dbl**(3/4) */
+        ix[i] = fixsfti(p_sqrt(fmul(p_sqrt(dbl), dbl))); /* dbl**(3/4) */
       }
 
       /* calculate ixmax while we're here */
@@ -455,10 +473,11 @@ static inline int32_t ix_max( int32_t ix[GRANULE_SIZE], uint32_t begin, uint32_t
  * (Partitions ix into big values, quadruples and zeros).
  */
 MODULE_PART void calc_runlen( int32_t ix[GRANULE_SIZE], gr_info *cod_info ) {
+SETMEMREGS
   int32_t i;
   int32_t rzero = 0;
 
-  for ( i = GRANULE_SIZE; i > 1; i -= 2 )
+  for ( i = (int32_t)INTC(8); i > 1; i -= 2 )
     if ( !ix[i-1] && !ix[i-2] )
       rzero++;
     else
@@ -483,6 +502,7 @@ MODULE_PART void calc_runlen( int32_t ix[GRANULE_SIZE], gr_info *cod_info ) {
  * Determines the number of bits to encode the quadruples.
  */
 MODULE_PART int32_t count1_bitcount(int32_t ix[GRANULE_SIZE], gr_info *cod_info) {
+SETMEMREGS
   int32_t p, i, k;
   int32_t v, w, x, y, signbits;
   int32_t sum0 = 0,
@@ -506,8 +526,8 @@ MODULE_PART int32_t count1_bitcount(int32_t ix[GRANULE_SIZE], gr_info *cod_info)
     sum0 += signbits;
     sum1 += signbits;
 
-    sum0 += p_shine_huffman_table[32].hlen[p];
-    sum1 += p_shine_huffman_table[33].hlen[p];
+    sum0 += GHUFF_HLEN(GHUFF(32), p);
+    sum1 += GHUFF_HLEN(GHUFF(33), p);
   }
 
   if(sum0<sum1)
@@ -528,36 +548,8 @@ MODULE_PART int32_t count1_bitcount(int32_t ix[GRANULE_SIZE], gr_info *cod_info)
  * presumable subdivides the bigvalue region which will use separate Huffman tables.
  */
 MODULE_PART void subdivide(gr_info *cod_info, shine_global_config *config) {
-  static const struct
-  {
-    unsigned region0_count;
-    unsigned region1_count;
-  } subdv_table[ 23 ] =
-  {
-    {0, 0}, /* 0 bands */
-    {0, 0}, /* 1 bands */
-    {0, 0}, /* 2 bands */
-    {0, 0}, /* 3 bands */
-    {0, 0}, /* 4 bands */
-    {0, 1}, /* 5 bands */
-    {1, 1}, /* 6 bands */
-    {1, 1}, /* 7 bands */
-    {1, 2}, /* 8 bands */
-    {2, 2}, /* 9 bands */
-    {2, 3}, /* 10 bands */
-    {2, 3}, /* 11 bands */
-    {3, 4}, /* 12 bands */
-    {3, 4}, /* 13 bands */
-    {3, 4}, /* 14 bands */
-    {4, 5}, /* 15 bands */
-    {4, 5}, /* 16 bands */
-    {4, 6}, /* 17 bands */
-    {5, 6}, /* 18 bands */
-    {5, 6}, /* 19 bands */
-    {5, 7}, /* 20 bands */
-    {6, 7}, /* 21 bands */
-    {6, 7}, /* 22 bands */
-  };
+SETMEMREGS
+  const int32_t *subdv = GTAB_I32(subdv_table_data);
 
   if (!cod_info->big_values)
   { /* no big_values region */
@@ -566,7 +558,7 @@ MODULE_PART void subdivide(gr_info *cod_info, shine_global_config *config) {
   }
   else
   {
-    const int32_t *scalefac_band_long = &shine_scale_fact_band_index[config->mpeg.samplerate_index][0];
+    const int32_t *scalefac_band_long = &GTAB_I32((const int32_t*)shine_scale_fact_band_index)[config->mpeg.samplerate_index * 23];
     int32_t bigvalues_region, scfb_anz, thiscount;
 
     bigvalues_region = 2 * cod_info->big_values;
@@ -576,7 +568,7 @@ MODULE_PART void subdivide(gr_info *cod_info, shine_global_config *config) {
     while ( scalefac_band_long[scfb_anz] < bigvalues_region )
       scfb_anz++;
 
-    for (thiscount = subdv_table[scfb_anz].region0_count; thiscount; thiscount--) {
+    for (thiscount = subdv[scfb_anz] & 0xff; thiscount; thiscount--) {
       if (scalefac_band_long[thiscount + 1] <= bigvalues_region)
         break;
     }
@@ -585,7 +577,7 @@ MODULE_PART void subdivide(gr_info *cod_info, shine_global_config *config) {
 
     scalefac_band_long += cod_info->region0_count + 1;
 
-    for (thiscount = subdv_table[scfb_anz].region1_count; thiscount; thiscount--) {
+    for (thiscount = (subdv[scfb_anz] >> 8) & 0xff; thiscount; thiscount--) {
       if (scalefac_band_long[thiscount + 1] <= bigvalues_region)
         break;
     }
@@ -628,6 +620,7 @@ MODULE_PART void bigv_tab_select( int32_t ix[GRANULE_SIZE], gr_info *cod_info ) 
  * with any arbitrary tables.
  */
 MODULE_PART int32_t new_choose_table( int32_t ix[GRANULE_SIZE], uint32_t begin, uint32_t end ) {
+SETMEMREGS
   int32_t i, max;
   int32_t choice[2];
   int32_t sum[2];
@@ -643,7 +636,7 @@ MODULE_PART int32_t new_choose_table( int32_t ix[GRANULE_SIZE], uint32_t begin, 
   {
     /* try tables with no linbits */
     for ( i =14; i--; )
-      if ( p_shine_huffman_table[i].xlen > max )
+      if ( GHUFF(i).xlen > max )
       {
         choice[0] = i;
         break;
@@ -702,14 +695,14 @@ MODULE_PART int32_t new_choose_table( int32_t ix[GRANULE_SIZE], uint32_t begin, 
     max -= 15;
 
     for(i=15;i<24;i++)
-      if(p_shine_huffman_table[i].linmax>=max)
+      if(GHUFF(i).linmax>=max)
       {
         choice[0] = i;
         break;
       }
 
     for(i=24;i<32;i++)
-      if(p_shine_huffman_table[i].linmax>=max)
+      if(GHUFF(i).linmax>=max)
       {
         choice[1] = i;
         break;
@@ -750,19 +743,20 @@ MODULE_PART int32_t count_bit(int32_t ix[GRANULE_SIZE],
               uint32_t start,
               uint32_t end,
               uint32_t table ) {
+SETMEMREGS
   unsigned            linbits, ylen;
   int32_t        i, sum;
   int32_t        x,y;
-  const struct p_huffcodetab *h;
+  struct p_huffcodetab h;
 
   if(!table)
     return 0;
 
-  h   = &(p_shine_huffman_table[table]);
+  h   = GHUFF(table);
   sum = 0;
 
-  ylen    = h->ylen;
-  linbits = h->linbits;
+  ylen    = h.ylen;
+  linbits = h.linbits;
 
   if(table>15)
   { /* ESC-table is used */
@@ -781,7 +775,7 @@ MODULE_PART int32_t count_bit(int32_t ix[GRANULE_SIZE],
         sum += linbits;
       }
 
-      sum += h->hlen[(x*ylen)+y];
+      sum += GHUFF_HLEN(h, (x*ylen)+y);
       if(x)
         sum++;
       if(y)
@@ -795,7 +789,7 @@ MODULE_PART int32_t count_bit(int32_t ix[GRANULE_SIZE],
       x = ix[i];
       y = ix[i+1];
 
-      sum  += h->hlen[(x*ylen)+y];
+      sum  += GHUFF_HLEN(h, (x*ylen)+y);
 
       if(x!=0)
         sum++;
@@ -820,6 +814,7 @@ MODULE_PART int32_t count_bit(int32_t ix[GRANULE_SIZE],
  */
 MODULE_PART int32_t p_bin_search_StepSize(int32_t desired_rate, int32_t ix[GRANULE_SIZE],
                         gr_info * cod_info, shine_global_config *config) {
+SETMEMREGS
   int32_t bit, next, count;
 
   next  = -120;
@@ -828,8 +823,8 @@ MODULE_PART int32_t p_bin_search_StepSize(int32_t desired_rate, int32_t ix[GRANU
   do {
     int32_t half = count / 2;
 
-    if (quantize(ix, next + half, config) > 8192)
-      bit = 100000;  /* fail */
+    if (quantize(ix, next + half, config) > (int32_t)INTC(3))
+      bit = (int32_t)INTC(7);  /* fail */
     else
     {
       calc_runlen(ix, cod_info);           /* rzero,count1,big_values */

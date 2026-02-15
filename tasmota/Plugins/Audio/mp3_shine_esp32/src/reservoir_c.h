@@ -10,18 +10,19 @@
  * and perceptual entropy.
  */
 MODULE_PART int32_t p_shine_max_reservoir_bits (SHINE_DOUBLE *pe, shine_global_config *config ) {
+SETMEMREGS
   int32_t more_bits, max_bits, add_bits, over_bits;
   int32_t mean_bits = config->mean_bits;
 
   mean_bits /= config->wave.channels;
   max_bits = mean_bits;
 
-  if(max_bits>4095)
-    max_bits = 4095;
+  if(max_bits>(int32_t)INTC(11))
+    max_bits = (int32_t)INTC(11);
   if(!config->ResvMax)
     return max_bits;
 
-  more_bits = *pe * 3.1 - mean_bits;
+  more_bits = fixsfti(fdiff(fmul(*pe, FLTC(14)), float_i32(mean_bits)));
   add_bits = 0;
   if(more_bits>100)
   {
@@ -37,8 +38,8 @@ MODULE_PART int32_t p_shine_max_reservoir_bits (SHINE_DOUBLE *pe, shine_global_c
     add_bits += over_bits;
 
   max_bits += add_bits;
-  if(max_bits>4095)
-    max_bits = 4095;
+  if(max_bits>(int32_t)INTC(11))
+    max_bits = (int32_t)INTC(11);
   return max_bits;
 }
 
@@ -62,6 +63,7 @@ MODULE_PART void p_shine_ResvAdjust(gr_info *gi, shine_global_config *config ) {
  * appropriate stuffing bits to the bitstream.
  */
 MODULE_PART void p_shine_ResvFrameEnd(shine_global_config *config ) {
+SETMEMREGS
   gr_info *gi;
   int32_t gr, ch, ancillary_pad, stuffingBits;
   int32_t over_bits;
@@ -96,7 +98,7 @@ MODULE_PART void p_shine_ResvFrameEnd(shine_global_config *config ) {
      */
     gi = (gr_info *) &(l3_side->gr[0].ch[0]);
 
-    if ( gi->part2_3_length + stuffingBits < 4095 )
+    if ( gi->part2_3_length + stuffingBits < (int32_t)INTC(11) )
       gi->part2_3_length += stuffingBits;
     else
     {
@@ -108,7 +110,7 @@ MODULE_PART void p_shine_ResvFrameEnd(shine_global_config *config ) {
           gr_info *gi = (gr_info *) &(l3_side->gr[gr].ch[ch]);
           if (!stuffingBits)
             break;
-          extraBits = 4095 - gi->part2_3_length;
+          extraBits = (int32_t)INTC(11) - gi->part2_3_length;
           bitsThisGr = extraBits < stuffingBits ? extraBits : stuffingBits;
           gi->part2_3_length += bitsThisGr;
           stuffingBits -= bitsThisGr;

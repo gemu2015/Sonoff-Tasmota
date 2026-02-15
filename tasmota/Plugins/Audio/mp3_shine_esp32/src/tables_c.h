@@ -5,17 +5,17 @@
  *    idx  = fr_ps->header->sampling_frequency + (fr_ps->header->version * 3)
  */
 
-const int32_t shine_slen1_tab[16] = { 0, 0, 0, 0, 3, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4 };
-const int32_t shine_slen2_tab[16] = { 0, 1, 2, 3, 0, 1, 2, 3, 1, 2, 3, 1, 2, 3, 2, 3 };
+const int32_t shine_slen1_tab[16] PROGMEM = { 0, 0, 0, 0, 3, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4 };
+const int32_t shine_slen2_tab[16] PROGMEM = { 0, 1, 2, 3, 0, 1, 2, 3, 1, 2, 3, 1, 2, 3, 2, 3 };
 
 /* Valid samplerates and bitrates. */
-const int32_t samplerates[9] = {
+const int32_t samplerates[9] PROGMEM = {
   44100, 48000, 32000, /* MPEG-I */
   22050, 24000, 16000, /* MPEG-II */
   11025, 12000, 8000   /* MPEG-2.5 */
 };
 
-const int32_t bitrates[16][4] = {
+const int32_t bitrates[16][4] PROGMEM = {
   /* MPEG version:
    * 2.5, reserved, II, I */
    { -1,  -1,        -1,  -1},
@@ -36,7 +36,7 @@ const int32_t bitrates[16][4] = {
    { -1,  -1,        -1,  -1}
 };
 
-const int32_t shine_scale_fact_band_index[9][23] =
+const int32_t shine_scale_fact_band_index[9][23] PROGMEM =
 {
   /* MPEG-I */
     /* Table B.8.b: 44.1 kHz */
@@ -68,7 +68,7 @@ const int32_t shine_scale_fact_band_index[9][23] =
 #define SHINE_EW2(a,b)					SHINE_EW(a), SHINE_EW(b)
 #define SHINE_EW10(a,b,c,d,e,f,g,h,i,j)	SHINE_EW2(a,b), SHINE_EW2(c,d), SHINE_EW2(e,f), SHINE_EW2(g,h), SHINE_EW2(i,j)
 
-const int32_t shine_enwindow[] = {
+const int32_t shine_enwindow[] PROGMEM = {
 SHINE_EW10(   0.000000, -0.000000, -0.000000, -0.000000, -0.000000, -0.000000, -0.000000, -0.000001, -0.000001, -0.000001),
 SHINE_EW10(  -0.000001, -0.000001, -0.000001, -0.000002, -0.000002, -0.000002, -0.000002, -0.000003, -0.000003, -0.000003),
 SHINE_EW10(  -0.000004, -0.000004, -0.000005, -0.000005, -0.000006, -0.000007, -0.000008, -0.000008, -0.000009, -0.000010),

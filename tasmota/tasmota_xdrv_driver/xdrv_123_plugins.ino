@@ -770,7 +770,11 @@ void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&GetNumGPIO,
   JMPTBL&tmod_wc,
   JMPTBL&tmod_jpeg_picture,
-  JMPTBL&tmod_shine
+  JMPTBL&tmod_shine,
+  JMPTBL&tmod_sinf,       // 205
+  JMPTBL&tmod_cosf,       // 206
+  JMPTBL&tmod_logf,       // 207
+  JMPTBL&tmod_sqrtf       // 208
 };
 
 
@@ -1587,6 +1591,12 @@ uint32_t tmod_jpeg_picture(uint32_t mem, uint32_t jpgsize, uint32_t xp, uint32_t
 #ifdef USE_SHINE
 #include <layer3.h>
 #endif
+
+// math function wrappers for plugin jump table
+float tmod_sinf(float a) { return sinf(a); }
+float tmod_cosf(float a) { return cosf(a); }
+float tmod_logf(float a) { return logf(a); }
+float tmod_sqrtf(float a) { return sqrtf(a); }
 
 // shine mpeg3 encoder about 31kB code
 uint32_t tmod_shine(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3) {

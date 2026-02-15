@@ -284,6 +284,13 @@ typedef struct {
 #define jwc(A,B,C)                       (( uint32_t(*)(uint32_t,uint32_t,uint32_t))      jt[202])(A,B,C)
 #define jdrwjpeg(A,B,C,D,E)              (( uint32_t(*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t)) jt[203])(A,B,C,D,E)
 #define jshine(A,B,C,D)                  (( uint32_t(*)(uint32_t,uint32_t,uint32_t,uint32_t)) jt[204])(A,B,C,D)
+#define jsinf(A)                         (( float (*)(float))                            jt[205])(A)
+#define jcosf(A)                         (( float (*)(float))                            jt[206])(A)
+#define jlogf(A)                         (( float (*)(float))                            jt[207])(A)
+#define jsqrtf(A)                        (( float (*)(float))                            jt[208])(A)
+
+// float negation via sign-bit XOR (no intrinsic needed, 1u<<31 is PIC-safe)
+#define fneg(a) ({ float _fneg_tmp = (a); *(uint32_t*)&_fneg_tmp ^= (1u << 31); _fneg_tmp; })
 
 // Arduino macros
 #define bitRead(value, bit) (((value) >> (bit)) & 0x01)
@@ -722,6 +729,25 @@ typedef union {
 #define Shine_encode_buffer_interleaved p_shine_encode_buffer_interleaved
 #define Shine_flush p_shine_flush
 #define Shine_close p_shine_close
+// PIC table access macros for embedded shine encoder
+#define GTAB_I32(LABEL) ((const int32_t*)((char*)(LABEL) + EXEC_OFFSET))
+#define GTAB_U8(LABEL) ((const uint8_t*)((char*)(LABEL) + EXEC_OFFSET))
+#define GTAB_U16(LABEL) ((const uint16_t*)((char*)(LABEL) + EXEC_OFFSET))
+#define GHUFF(idx) ((const struct p_huffcodetab*)((char*)p_shine_huffman_table + EXEC_OFFSET))[idx]
+#ifdef __riscv
+/* RISC-V supports unaligned reads from flash - direct sub-word access is safe */
+#define GHUFF_HLEN(h, p) (GTAB_U8((h).hlen)[p])
+#define GHUFF_TABLE(h, p) (GTAB_U16((h).table)[p])
+#else
+/* Xtensa PROGMEM requires 32-bit aligned reads - extract sub-word elements from aligned words */
+#define GHUFF_HLEN(h, p) ({ const uint8_t *_base = (const uint8_t*)((char*)(h).hlen + EXEC_OFFSET); \
+  uint32_t _w = *(const uint32_t*)(_base + ((p) & ~3)); \
+  (uint8_t)(_w >> (((p) & 3) * 8)); })
+#define GHUFF_TABLE(h, p) ({ const uint8_t *_base = (const uint8_t*)((char*)(h).table + EXEC_OFFSET); \
+  uint32_t _boff = (uint32_t)(p) * 2; \
+  uint32_t _w = *(const uint32_t*)(_base + (_boff & ~3)); \
+  (HUFFBITS)(_w >> ((_boff & 2) * 8)); })
+#endif
 #else
 #define Shine_initialise(A) jshine(0,(uint32_t)A,0,0)
 #define Shine_set_config_mpeg_defaults(A) jshine(1,(uint32_t)A,0,0)
@@ -954,6 +980,13 @@ typedef union {
 #define fadd jfadd
 #define fdiv jfdiv
 #define fdiff jfdiff
+
+#ifdef USE_PSHINE
+#define sinf jsinf
+#define cosf jcosf
+#define logf jlogf
+#define sqrtf jsqrtf
+#endif
 
 #define dadd(A,B) double_dispatch(0,A,B)
 #define ddiff(A,B) double_dispatch(1,A,B)

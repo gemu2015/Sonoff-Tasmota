@@ -14,18 +14,19 @@ SETMEMREGS
 
   for(i=MAX_CHANNELS; i-- ; ) {
     config->subband.off[i] = 0;
-    memset(config->subband.x[i], 0, sizeof(config->subband.x[i]));
+    memset(config->subband.x[i], 0, ICONST(sizeof(config->subband.x[i])));
   }
 
   for (i=SBLIMIT; i--; )
     for (j=64; j--; )
     {
-      if ((filter = 1e9*cos((SHINE_DOUBLE)((2*i+1)*(16-j)*PI64))) >= 0)
-        modf(filter+0.5, &filter);
+      filter = fmul(FLTC(10), cosf(fmul(float_i32((2*i+1)*(16-j)), PI64)));
+      if (jgtsf2(filter, float_i32(0)) | jeqsf2(filter, float_i32(0)))
+        modff(fadd(filter, FLTC(4)), &filter);
       else
-        modf(filter-0.5, &filter);
+        modff(fdiff(filter, FLTC(4)), &filter);
       /* scale and convert to fixed point before storing */
-      config->subband.fl[i][j] = (int32_t)(filter * (0x7fffffff * 1e-9));
+      config->subband.fl[i][j] = fixsfti(fmul(filter, FLTC(11)));
     }
 }
 
@@ -44,6 +45,7 @@ SETMEMREGS
  * them by the filter matrix, producing 32 subband samples.
  */
 MODULE_PART void p_shine_window_filter_subband(int16_t **buffer, int32_t s[SBLIMIT], int32_t ch, shine_global_config *config, int32_t stride) {
+SETMEMREGS
   int32_t y[64];
   int32_t i,j;
   int16_t *ptr = *buffer;
@@ -63,19 +65,19 @@ MODULE_PART void p_shine_window_filter_subband(int16_t **buffer, int32_t s[SBLIM
 	 uint32_t s_value_lo __attribute__((unused));
 #endif
 
-    asm_mul0  (s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (0<<6)) & (HAN_SIZE-1)], shine_enwindow[i + (0<<6)]);
-    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (1<<6)) & (HAN_SIZE-1)], shine_enwindow[i + (1<<6)]);
-    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (2<<6)) & (HAN_SIZE-1)], shine_enwindow[i + (2<<6)]);
-    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (3<<6)) & (HAN_SIZE-1)], shine_enwindow[i + (3<<6)]);
-    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (4<<6)) & (HAN_SIZE-1)], shine_enwindow[i + (4<<6)]);
-    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (5<<6)) & (HAN_SIZE-1)], shine_enwindow[i + (5<<6)]);
-    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (6<<6)) & (HAN_SIZE-1)], shine_enwindow[i + (6<<6)]);
-    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (7<<6)) & (HAN_SIZE-1)], shine_enwindow[i + (7<<6)]);
+    asm_mul0  (s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (0<<6)) & INTC(10)], GTAB_I32(shine_enwindow)[i + (0<<6)]);
+    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (1<<6)) & INTC(10)], GTAB_I32(shine_enwindow)[i + (1<<6)]);
+    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (2<<6)) & INTC(10)], GTAB_I32(shine_enwindow)[i + (2<<6)]);
+    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (3<<6)) & INTC(10)], GTAB_I32(shine_enwindow)[i + (3<<6)]);
+    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (4<<6)) & INTC(10)], GTAB_I32(shine_enwindow)[i + (4<<6)]);
+    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (5<<6)) & INTC(10)], GTAB_I32(shine_enwindow)[i + (5<<6)]);
+    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (6<<6)) & INTC(10)], GTAB_I32(shine_enwindow)[i + (6<<6)]);
+    asm_muladd(s_value, s_value_lo, config->subband.x[ch][(config->subband.off[ch] + i + (7<<6)) & INTC(10)], GTAB_I32(shine_enwindow)[i + (7<<6)]);
     asm_mulz  (s_value, s_value_lo);
     y[i] = s_value;
   }
 
-  config->subband.off[ch] = (config->subband.off[ch] + 480) & (HAN_SIZE-1); /* offset is modulo (HAN_SIZE)*/
+  config->subband.off[ch] = (config->subband.off[ch] + (int32_t)INTC(9)) & INTC(10); /* offset is modulo (HAN_SIZE)*/
 
   for (i=SBLIMIT; i--; ) {
 	int32_t s_value;

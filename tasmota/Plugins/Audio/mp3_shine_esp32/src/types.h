@@ -38,6 +38,17 @@
 /* #define SHINE_DEBUG if you want the library to dump info to stdout */
 
 #undef PI
+#ifdef USE_PSHINE
+#define PI          FLTC(0)
+#define PI4         0.78539816339745
+#define PI12        0.26179938779915
+#define PI36        FLTC(1)
+#define PI64        FLTC(2)
+#define SQRT2       1.41421356237
+#define LN2         FLTC(3)
+#define LN_TO_LOG10 0.2302585093
+#define INTC(idx) ((const uint32_t*)((char*)INT_CONST + EXEC_OFFSET))[idx]
+#else
 #define PI          3.14159265358979
 #define PI4         0.78539816339745
 #define PI12        0.26179938779915
@@ -46,6 +57,7 @@
 #define SQRT2       1.41421356237
 #define LN2         0.69314718
 #define LN_TO_LOG10 0.2302585093
+#endif
 #define BLKSIZE     1024
 #define HAN_SIZE    512 /* for loop unrolling, require that HAN_SIZE%8==0 */
 #define SCALE_BLOCK 12

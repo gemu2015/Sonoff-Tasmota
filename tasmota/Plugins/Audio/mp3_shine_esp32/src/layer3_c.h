@@ -3,9 +3,10 @@
 #ifdef ESP32
 
 
-uint32_t counter[5] = {0};
+// counter[] moved to MODULE_MEMORY as shine_counter[]
+#define counter mem->shine_counter
 
-int32_t granules_per_frame[4] = {
+const int32_t granules_per_frame[4] PROGMEM = {
     1,  /* MPEG 2.5 */
    -1,  /* Reserved */
     1,  /* MPEG II */
@@ -35,19 +36,21 @@ MODULE_PART int32_t p_shine_mpeg_version(int32_t samplerate_index) {
 }
 
 MODULE_PART int32_t p_shine_find_samplerate_index(int32_t freq) {
+SETMEMREGS
   int32_t i;
 
   for(i=0;i<9;i++) {
-    if(freq==samplerates[i]) return i;
+    if(freq==GTAB_I32(samplerates)[i]) return i;
   }
   return -1; /* error - not a valid samplerate for encoder */
 }
 
 MODULE_PART int32_t p_shine_find_bitrate_index(int32_t bitr, int32_t mpeg_version) {
+SETMEMREGS
   int32_t i;
 
   for(i=0;i<16;i++) {
-    if(bitr==bitrates[i][mpeg_version]) return i;
+    if(bitr==GTAB_I32((const int32_t*)bitrates)[i*4+mpeg_version]) return i;
   }
   return -1; /* error - not a valid samplerate for encoder */
 }
@@ -69,7 +72,8 @@ MODULE_PART int32_t p_shine_check_config(int32_t freq, int32_t bitr) {
 }
 
 MODULE_PART int32_t p_shine_samples_per_pass(shine_t s) {
-  return s->mpeg.granules_per_frame * GRANULE_SIZE;
+SETMEMREGS
+  return s->mpeg.granules_per_frame * (int32_t)INTC(8);
 }
 
 /* Compute default encoding values. */
@@ -82,12 +86,12 @@ SETMEMREGS
     return NULL;
   }
 
-  config = (shine_global_config*)heap_caps_malloc(sizeof(shine_global_config), MALLOC_CAP_SPIRAM);
+  config = (shine_global_config*)malloc(ICONST(sizeof(shine_global_config)));
   if (config == NULL) {
     return config;
   }
 
-  memset(config, 0, sizeof(shine_global_config));
+  memset(config, 0, ICONST(sizeof(shine_global_config)));
 
 #ifdef  SHINE_DEBUG
   printf("l3_enc & mdct_freq each: %d\n", sizeof(int32_t)*GRANULE_SIZE*MAX_GRANULES*MAX_CHANNELS);
@@ -96,34 +100,31 @@ SETMEMREGS
   for (x = 0; x < MAX_CHANNELS; x++) {
       for (y = 0; y < MAX_GRANULES; y++) {
         // 2 * 2 * 576 each
-        config->l3_enc[x][y] = (int32_t*)heap_caps_malloc_prefer(4*GRANULE_SIZE, MALLOC_CAP_32BIT, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT); //Significant performance hit in IRAM
+        config->l3_enc[x][y] = (int32_t*)malloc((int32_t)INTC(13));
         if (!config->l3_enc[x][y]) {
           // error should never occur because of spiram size
-          //config->l3_enc[x][y] = (int32_t*)heap_caps_malloc(sizeof(int32_t)*GRANULE_SIZE,MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT);
         }
-        config->mdct_freq[x][y] = (int32_t*)heap_caps_malloc_prefer(4*GRANULE_SIZE, MALLOC_CAP_32BIT, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT); //OK 1%
+        config->mdct_freq[x][y] = (int32_t*)malloc((int32_t)INTC(13));
         if (!config->mdct_freq[x][y]) {
           // error
-          //config->mdct_freq[x][y] = (int32_t*)heap_caps_malloc(sizeof(int32_t)*GRANULE_SIZE, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT);
         }
       }
   }
 #ifdef  SHINE_DEBUG
   printf("l3loop struct: %d\n", sizeof(l3loop_t));
 #endif
-  config->l3loop = (l3loop_t*)heap_caps_malloc(sizeof(l3loop_t), MALLOC_CAP_SPIRAM);
+  config->l3loop = (l3loop_t*)malloc(ICONST(sizeof(l3loop_t)));
 #ifdef  SHINE_DEBUG
   printf("xrsq & xrabs each: %d\n", sizeof(int32_t)*GRANULE_SIZE);
 #endif
-  config->l3loop->xrsq = (int32_t*)heap_caps_malloc_prefer(4*GRANULE_SIZE, MALLOC_CAP_32BIT, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT); //OK 0.5%
+  config->l3loop->xrsq = (int32_t*)malloc((int32_t)INTC(13));
   if (!config->l3loop->xrsq) {
     // error
-    //config->l3loop->xrsq = (int32_t*)heap_caps_malloc(sizeof(int32_t)*GRANULE_SIZE, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT); //OK 0.5%
   }
 
-  config->l3loop->xrabs = (int32_t*)heap_caps_malloc_prefer(4*GRANULE_SIZE, MALLOC_CAP_32BIT, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT); //OK 0.5%
+  config->l3loop->xrabs = (int32_t*)malloc((int32_t)INTC(13));
   if (!config->l3loop->xrabs) {
-    //config->l3loop->xrabs = (int32_t*)heap_caps_malloc(sizeof(int32_t)*GRANULE_SIZE, MALLOC_CAP_SPIRAM|MALLOC_CAP_32BIT); //OK 0.5%
+    // error
   }
 
 /*typedef struct {
@@ -165,26 +166,26 @@ SETMEMREGS
   config->mpeg.samplerate_index   = p_shine_find_samplerate_index(config->wave.samplerate);
   config->mpeg.version            = p_shine_mpeg_version(config->mpeg.samplerate_index);
   config->mpeg.bitrate_index      = p_shine_find_bitrate_index(config->mpeg.bitr, config->mpeg.version);
-  config->mpeg.granules_per_frame = granules_per_frame[config->mpeg.version];
+  config->mpeg.granules_per_frame = GTAB_I32(granules_per_frame)[config->mpeg.version];
 
   /* Figure average number of 'slots' per frame. */
-  avg_slots_per_frame = ((SHINE_DOUBLE)config->mpeg.granules_per_frame * GRANULE_SIZE /
-                        ((SHINE_DOUBLE)config->wave.samplerate)) *
-                        (1000*(SHINE_DOUBLE)config->mpeg.bitr /
-                         (SHINE_DOUBLE)config->mpeg.bits_per_slot);
+  avg_slots_per_frame = fmul(fdiv(fmul(float_i32(config->mpeg.granules_per_frame), float_i32((int32_t)INTC(8))),
+                        float_i32(config->wave.samplerate)),
+                        fdiv(fmul(float_i32(1000), float_i32(config->mpeg.bitr)),
+                         float_i32(config->mpeg.bits_per_slot)));
 
-  config->mpeg.whole_slots_per_frame  = (int32_t)avg_slots_per_frame;
+  config->mpeg.whole_slots_per_frame  = fixsfti(avg_slots_per_frame);
 
-  config->mpeg.frac_slots_per_frame  = avg_slots_per_frame - (SHINE_DOUBLE)config->mpeg.whole_slots_per_frame;
-  config->mpeg.slot_lag              = -config->mpeg.frac_slots_per_frame;
+  config->mpeg.frac_slots_per_frame  = fdiff(avg_slots_per_frame, float_i32(config->mpeg.whole_slots_per_frame));
+  config->mpeg.slot_lag              = fneg(config->mpeg.frac_slots_per_frame);
 
-  if(config->mpeg.frac_slots_per_frame==0) {
+  if(jeqsf2(config->mpeg.frac_slots_per_frame, float_i32(0))) {
     config->mpeg.padding = 0;
   }
 
-  p_shine_open_bit_stream(&config->bs, BUFFER_SIZE);
+  p_shine_open_bit_stream(&config->bs, (int32_t)INTC(12));
 
-  memset((char *)&config->side_info,0,sizeof(shine_side_info_t));
+  memset((char *)&config->side_info,0,ICONST(sizeof(shine_side_info_t)));
 
   /* determine the mean bitrate for main data */
   if (config->mpeg.granules_per_frame == 2) { /* MPEG 1 */
@@ -198,6 +199,7 @@ SETMEMREGS
 
 
 MODULE_PART uint32_t *p_shine_get_counters() {
+SETMEMREGS
   return counter;
 }
 
@@ -216,30 +218,32 @@ Counters 2664123380 : 2664123448 : 2666717886 : 2668665908 : 2668859025
 
 
 MODULE_PART uint8_t *p_shine_encode_buffer_internal(shine_global_config *config, int32_t *written, int32_t stride) {
-  counter[0] = portGET_RUN_TIME_COUNTER_VALUE();      // TASMOTA more portable solution
+SETMEMREGS
+  counter[0] = 0;      // TASMOTA more portable solution
   // counter[0] = xthal_get_ccount();
-  if(config->mpeg.frac_slots_per_frame) {
-    config->mpeg.padding   = (config->mpeg.slot_lag <= (config->mpeg.frac_slots_per_frame - 1.0));
-    config->mpeg.slot_lag += (config->mpeg.padding - config->mpeg.frac_slots_per_frame);
+  if(!jeqsf2(config->mpeg.frac_slots_per_frame, float_i32(0))) {
+    { SHINE_DOUBLE _cmp_val = fdiff(config->mpeg.frac_slots_per_frame, FLTC(15));
+      config->mpeg.padding   = (jltsf2(config->mpeg.slot_lag, _cmp_val) | jeqsf2(config->mpeg.slot_lag, _cmp_val)); }
+    config->mpeg.slot_lag = fadd(config->mpeg.slot_lag, fdiff(float_i32(config->mpeg.padding), config->mpeg.frac_slots_per_frame));
   }
 
   config->mpeg.bits_per_frame = 8*(config->mpeg.whole_slots_per_frame + config->mpeg.padding);
   config->mean_bits = (config->mpeg.bits_per_frame - config->sideinfo_len)/config->mpeg.granules_per_frame;
-  counter[1] = portGET_RUN_TIME_COUNTER_VALUE();      // TASMOTA more portable solution
+  counter[1] = 0;      // TASMOTA more portable solution
   // counter[1] = xthal_get_ccount();
   /* apply mdct to the polyphase output */
   // put on core 1
   p_shine_mdct_sub(config, stride);
-  counter[2] = portGET_RUN_TIME_COUNTER_VALUE();      // TASMOTA more portable solution
+  counter[2] = 0;      // TASMOTA more portable solution
   // counter[2] = xthal_get_ccount();
   /* bit and noise allocation */
   //put on core 0
   p_shine_iteration_loop(config);
-  counter[3] = portGET_RUN_TIME_COUNTER_VALUE();      // TASMOTA more portable solution
+  counter[3] = 0;      // TASMOTA more portable solution
   // counter[3] = xthal_get_ccount();
   /* write the frame to the bitstream */
   p_shine_format_bitstream(config);
-  counter[4] = portGET_RUN_TIME_COUNTER_VALUE();      // TASMOTA more portable solution
+  counter[4] = 0;      // TASMOTA more portable solution
   // counter[4] = xthal_get_ccount();
   /* Return data. */
   *written = config->bs.data_position;
@@ -286,13 +290,9 @@ SETMEMREGS
   }
 
   if (config->l3loop) {
+    if (config->l3loop->xrsq) free(config->l3loop->xrsq);
+    if (config->l3loop->xrabs) free(config->l3loop->xrabs);
     free(config->l3loop);
-  }
-  if (config->l3loop->xrsq) {
-    free(config->l3loop->xrsq);
-  }
-  if (config->l3loop->xrabs) {
-    free(config->l3loop->xrabs);
   }
 
   free(config);
