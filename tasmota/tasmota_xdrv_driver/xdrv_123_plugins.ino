@@ -1323,11 +1323,21 @@ sel &= 0xff;
 #else
       i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
 #endif
-// Allocate a new TX channel and get the handle of this channel
+// Allocate channels
       chan_cfg.auto_clear = true;
-      if (i2cp->din >= 0) {
+      if (i2cp->pdm_clk >= 0) {
+        // PDM mic needs separate I2S port - TX and RX on different ports
+        i2s_new_channel(&chan_cfg, (i2s_chan_handle_t*)&i2cp->txhandle, nullptr);
+        if (i2cp->din >= 0) {
+          i2s_chan_config_t rx_chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
+          rx_chan_cfg.auto_clear = true;
+          i2s_new_channel(&rx_chan_cfg, nullptr, (i2s_chan_handle_t*)&i2cp->rxhandle);
+        }
+      } else if (i2cp->din >= 0) {
+        // STD mode - TX and RX can share same port (duplex)
         i2s_new_channel(&chan_cfg, (i2s_chan_handle_t*)&i2cp->txhandle, (i2s_chan_handle_t*)&i2cp->rxhandle);
       } else {
+        // TX only
         i2s_new_channel(&chan_cfg, (i2s_chan_handle_t*)&i2cp->txhandle, nullptr);
       }
 
@@ -1339,7 +1349,7 @@ sel &= 0xff;
       }
 
       if (i2cp->pdm_clk < 0) {
-        // non PDM channel
+        // non PDM channel - STD mode for both TX and RX
         i2s_std_config_t std_cfg = {
           .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(8000),
           .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
@@ -1377,27 +1387,44 @@ sel &= 0xff;
             i2s_channel_enable((i2s_chan_handle_t)i2cp->rxhandle);
           }
       } else {
-        // PDM RX channel
-#if SOC_I2S_SUPPORTS_PDM2PCM
-        /*
-        i2s_pdm_rx_slot_config_t pdm_rx_cfg = {
-          .clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(16000),
-          .slot_cfg = I2S_PDM_RX_SLOT_PCM_FMT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+        // PDM microphone - TX stays STD, RX uses PDM mode on separate channel
+#if SOC_I2S_SUPPORTS_PDM_RX
+        // Init TX channel in STD mode (speaker)
+        i2s_std_config_t std_cfg = {
+          .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(8000),
+          .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
           .gpio_cfg = {
-            .clk = (gpio_num_t)i2cp->pdm_clk,
-            .din = (gpio_num_t)i2cp->din,
+            .mclk = (gpio_num_t)i2cp->mclk,
+            .bclk = (gpio_num_t)i2cp->bclk,
+            .ws = (gpio_num_t)i2cp->ws,
+            .dout = (gpio_num_t)i2cp->dout,
+            .din = I2S_GPIO_UNUSED,
             .invert_flags = {
-              .clk_inv = false,
+              .mclk_inv = false,
+              .bclk_inv = false,
+              .ws_inv = false,
             },
           },
         };
         i2s_channel_init_std_mode((i2s_chan_handle_t)i2cp->txhandle, &std_cfg);
         i2s_channel_enable((i2s_chan_handle_t)i2cp->txhandle);
+
+        // Init RX channel in PDM mode (microphone) on separate port
         if (i2cp->rxhandle) {
-          i2s_channel_init_std_mode((i2s_chan_handle_t)i2cp->rxhandle, &pdm_rx_cfg);
+          i2s_pdm_rx_config_t pdm_rx_cfg = {
+            .clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(16000),
+            .slot_cfg = I2S_PDM_RX_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+            .gpio_cfg = {
+              .clk = (gpio_num_t)i2cp->pdm_clk,
+              .din = (gpio_num_t)i2cp->din,
+              .invert_flags = {
+                .clk_inv = false,
+              },
+            },
+          };
+          i2s_channel_init_pdm_rx_mode((i2s_chan_handle_t)i2cp->rxhandle, &pdm_rx_cfg);
           i2s_channel_enable((i2s_chan_handle_t)i2cp->rxhandle);
         }
-        */
 #endif
       }
 
@@ -1442,13 +1469,21 @@ sel &= 0xff;
         channels = I2S_SLOT_MODE_STEREO;
       }
 
-      if (i2cp->pdm_clk < 0) {
+      if (i2cp->pdm_clk >= 0 && xmode) {
+        // PDM RX channel reconfig
+#if SOC_I2S_SUPPORTS_PDM_RX
+        i2s_pdm_rx_clk_config_t pdm_clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(i2cp->dlen);
+        i2s_channel_reconfig_pdm_rx_clock(chn_handle, &pdm_clk_cfg);
+        i2s_pdm_rx_slot_config_t pdm_slot_cfg = I2S_PDM_RX_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
+        i2s_channel_reconfig_pdm_rx_slot(chn_handle, &pdm_slot_cfg);
+#endif
+      } else {
+        // STD channel reconfig (TX always, RX when not PDM)
         clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(i2cp->dlen);
         i2s_channel_reconfig_std_clock(chn_handle, &clk_cfg);
-        slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
         uint8_t mode = i2cp->bmode & 3;
         if (mode > 2) mode = 2;
-        switch (mode) { 
+        switch (mode) {
           case 0:
             slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
             break;
@@ -1460,14 +1495,6 @@ sel &= 0xff;
             break;
         }
         i2s_channel_reconfig_std_slot(chn_handle, &slot_cfg);
-      } else {
-//#ifdef SOC_I2S_SUPPORTS_PDM_RX_HP_FILTER
-#ifdef SOC_I2S_SUPPORTS_PDM2PCM
-        clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(i2cp->dlen);
-        i2s_channel_reconfig_std_clock(chn_handle, &clk_cfg);   
-        slot_cfg = I2S_PDM_RX_SLOT_PCM_FMT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, channels);
-        i2s_channel_reconfig_std_slot(chn_handle, &slot_cfg);
-#endif
       }
 
       

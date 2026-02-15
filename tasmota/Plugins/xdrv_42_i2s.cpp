@@ -105,6 +105,7 @@ typedef struct {
   void *i2s_bridgec_udp;
   IP_ADDRESS i2s_bridge_ip;
   int8_t ptt_pin;
+  uint8_t ring_pressed;
   uint8_t task_running;
 } I2S_BRIDGE;
 
@@ -420,16 +421,16 @@ int32_t I2SAudio_Init() {
     audio_pwr_pin = -1;
   }
 
-  if (i2sp.din == GetPins()) {
+  if (i2sp.din >= GetPins()) {
     i2sp.din = -1;
   }
 
-  if (i2sp.mclk == GetPins()) {
+  if (i2sp.mclk >= GetPins()) {
     i2sp.mclk = -1;
   }
 
-  // if pdm_clk >= 0 we use a pdm microphone
-  if (i2sp.pdm_clk == GetPins()) {
+  // if pdm_clk >= 0 we use a pdm microphone, sentinel >= GetPins()
+  if (i2sp.pdm_clk >= GetPins()) {
     i2sp.pdm_clk = -1;
   }
 
@@ -439,11 +440,12 @@ int32_t I2SAudio_Init() {
 
 #ifdef USE_MIC
   is2_mic_init = 0;
-  if (i2sp.din >= 0) {
-    i2s_begin_r(&i2sp);
+  if (i2sp.din >= 0 || i2sp.pdm_clk >= 0) {
+    // RX channel already created and initialized by i2s_begin_t
     adc_gain_fac = 1;
   }
   bridge.ptt_pin = -1;
+  bridge.ring_pressed = 0;
 #endif
 
 #ifdef ESP32
@@ -540,19 +542,18 @@ void I2S_Enable(uint32_t enable) {
   if (enable) {
     i2s_enable_tx(&i2sp);
 #ifdef USE_MIC
-    if (i2sp.din >= 0) {
+    if (i2sp.din >= 0 || i2sp.pdm_clk >= 0) {
       i2s_enable_rx(&i2sp);
-      //i2s_disable_rx(&i2sp);
     }
 #endif
   } else {
     i2s_disable_tx(&i2sp);
 #ifdef USE_MIC
-    if (i2sp.din >= 0) {
+    if (i2sp.din >= 0 || i2sp.pdm_clk >= 0) {
       i2s_disable_rx(&i2sp);
     }
 #endif
-  } 
+  }
 }
 
 void I2S_SetRate(uint32_t freq, uint32_t channels, uint32_t rxtx) {
@@ -563,7 +564,7 @@ void I2S_SetRate(uint32_t freq, uint32_t channels, uint32_t rxtx) {
     i2s_set_rate_t(&i2sp);
   }
 #ifdef USE_MIC
-  if (i2sp.din >= 0) {
+  if (i2sp.din >= 0 || i2sp.pdm_clk >= 0) {
     if (rxtx & 2) {
       i2s_set_rate_r(&i2sp);
     }
@@ -965,16 +966,34 @@ void i2s_bridge_loop(void) {
   uint8_t packet_buffer[32];
 
   if (bridge.ptt_pin >= 0) {
-    if (bridge.bridge_mode.bmode != I2S_BRIDGE_MODE_OFF) {
+    if (bridge.bridge_mode.master) {
+      // master mode: PTT toggles audio direction
+      if (bridge.bridge_mode.bmode != I2S_BRIDGE_MODE_OFF) {
+        if (digitalRead(bridge.ptt_pin) == 0) {
+          if (bridge.bridge_mode.bmode != I2S_BRIDGE_MODE_WRITE) {
+            I2SBridgeCmd(I2S_BRIDGE_MODE_WRITE, 1);
+          }
+        } else {
+          if (bridge.bridge_mode.bmode != I2S_BRIDGE_MODE_READ) {
+            I2SBridgeCmd(I2S_BRIDGE_MODE_READ, 1);
+          }
+        }
+      }
+    } else {
+      // slave mode: button sends RING to the app via data UDP port
       if (digitalRead(bridge.ptt_pin) == 0) {
-        // push to talk
-        if (bridge.bridge_mode.bmode != I2S_BRIDGE_MODE_WRITE) {
-          I2SBridgeCmd(I2S_BRIDGE_MODE_WRITE, 1);
+        if (!bridge.ring_pressed) {
+          bridge.ring_pressed = 1;
+          if (bridge.i2s_bridge_udp && bridge.i2s_bridge_ip.dword) {
+            const char *ring_msg = "RING";
+            udp_beginPacket(bridge.i2s_bridge_udp, bridge.i2s_bridge_ip.dword, I2S_BRIDGE_PORT);
+            udp_write(bridge.i2s_bridge_udp, (const uint8_t*)ring_msg, 4);
+            udp_endPacket(bridge.i2s_bridge_udp);
+            AddLog(LOG_LEVEL_INFO, PSTR("I2S: RING sent to app"));
+          }
         }
       } else {
-        if (bridge.bridge_mode.bmode != I2S_BRIDGE_MODE_READ) {
-          I2SBridgeCmd(I2S_BRIDGE_MODE_READ, 1);
-        }
+        bridge.ring_pressed = 0;
       }
     }
   }
