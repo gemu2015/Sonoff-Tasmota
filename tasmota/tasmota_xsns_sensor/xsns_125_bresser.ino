@@ -23,10 +23,17 @@
 
 #define USE_CC1101
 
+// Uncomment to enable CC1101 diagnostic logging (register dump, RSSI, frequency test)
+//#define CC1101_DIAG
+
 #define XSNS_125 125
 
 #include <WeatherSensorCfg.h>
 #include <WeatherSensor.h>
+
+#ifdef CC1101_DIAG
+extern CC1101 radio;
+#endif
 
 WeatherSensor ws;
 
@@ -51,7 +58,7 @@ struct WS_Sensor {
                 struct AirPM        pm;
                 struct AirCO2       co2;
                 struct AirVOC       voc;
-    };      
+    };
 };
 
 struct CC1101_BRESSER {
@@ -60,7 +67,56 @@ struct CC1101_BRESSER {
     uint8_t ready;
     SPISettings spi_settings;
     uint8_t decode_status;
+#ifdef CC1101_DIAG
+    uint8_t diag_counter;
+    bool diag_regs_dumped;      // one-time register dump done
+    uint32_t diag_rx_count;     // count of diagnostic samples
+    int diag_rssi_min;          // track min RSSI seen (best signal)
+#endif
 } cc1101_bresser;
+
+
+#ifdef CC1101_DIAG
+// Helper: read a single CC1101 register via direct SPI
+// For config registers (0x00-0x2E): use addr | 0x80
+// For status registers (0x30-0x3D): use addr | 0xC0
+static uint8_t cc1101_read_reg(uint8_t addr) {
+    SPI.beginTransaction(cc1101_bresser.spi_settings);
+    digitalWrite(cc1101_bresser.cs, LOW);
+    SPI.transfer(addr);
+    uint8_t val = SPI.transfer(0);
+    digitalWrite(cc1101_bresser.cs, HIGH);
+    SPI.endTransaction();
+    return val;
+}
+
+// Helper: read CC1101 RSSI and convert to dBm
+static int cc1101_read_rssi(void) {
+    int8_t rssi_raw = (int8_t)cc1101_read_reg(0x34 | 0xC0);
+    return (rssi_raw >= 128) ? ((rssi_raw - 256) / 2 - 74) : (rssi_raw / 2 - 74);
+}
+
+// Helper: send CC1101 strobe command
+static void cc1101_strobe(uint8_t cmd) {
+    SPI.beginTransaction(cc1101_bresser.spi_settings);
+    digitalWrite(cc1101_bresser.cs, LOW);
+    SPI.transfer(cmd);
+    digitalWrite(cc1101_bresser.cs, HIGH);
+    SPI.endTransaction();
+}
+
+// Helper: burst read CC1101 registers
+static void cc1101_burst_read(uint8_t start_addr, uint8_t *buf, uint8_t len) {
+    SPI.beginTransaction(cc1101_bresser.spi_settings);
+    digitalWrite(cc1101_bresser.cs, LOW);
+    SPI.transfer(start_addr | 0xC0);  // burst read
+    for (uint8_t i = 0; i < len; i++) {
+        buf[i] = SPI.transfer(0);
+    }
+    digitalWrite(cc1101_bresser.cs, HIGH);
+    SPI.endTransaction();
+}
+#endif  // CC1101_DIAG
 
 
 void CC1101_Bresser_Init(void) {
@@ -89,6 +145,37 @@ void CC1101_Bresser_Init(void) {
 
  // rec_cs, rec_irq, rec_res, rec_gpio
     ws.begin(cc1101_bresser.cs, Pin(GPIO_CC1101_GDO0), -1, -1);
+
+#ifdef CC1101_DIAG
+    // Diagnostic: dump key CC1101 registers after init (one-time, before RX matters)
+    int16_t ver = radio.getChipVersion();
+    uint8_t iocfg0 = cc1101_read_reg(0x02 | 0x80);
+    uint8_t marcstate = cc1101_read_reg(0x35 | 0xC0) & 0x1F;
+    AddLog(LOG_LEVEL_INFO, PSTR("CC1101 DIAG: version=0x%02X GDO0_pin=%d IOCFG0=0x%02X MARCSTATE=0x%02X"),
+        ver, Pin(GPIO_CC1101_GDO0), iocfg0, marcstate);
+
+    // Read config registers while still in init (safe to strobe IDLE here)
+    cc1101_strobe(0x36);  // SIDLE
+    delayMicroseconds(100);
+    uint8_t cfgregs[8];
+    cc1101_burst_read(0x0D, cfgregs, 8);  // FREQ2..MDMCFG0
+    uint8_t syncreg[2];
+    cc1101_burst_read(0x04, syncreg, 2);  // SYNC1, SYNC0
+    uint8_t deviatn = cc1101_read_reg(0x15 | 0x80);
+    AddLog(LOG_LEVEL_INFO, PSTR("CC1101 DIAG: FREQ=0x%02X%02X%02X SYNC=0x%02X%02X"),
+        cfgregs[0], cfgregs[1], cfgregs[2], syncreg[0], syncreg[1]);
+    AddLog(LOG_LEVEL_INFO, PSTR("CC1101 DIAG: MDMCFG4=0x%02X MDMCFG3=0x%02X MDMCFG2=0x%02X MDMCFG1=0x%02X DEVIATN=0x%02X"),
+        cfgregs[3], cfgregs[4], cfgregs[5], cfgregs[6], deviatn);
+
+    // Restart RX after register dump
+    radio.startReceive();
+
+    cc1101_bresser.diag_counter = 0;
+    cc1101_bresser.diag_regs_dumped = true;
+    cc1101_bresser.diag_rx_count = 0;
+    cc1101_bresser.diag_rssi_min = 0;  // 0 dBm = no signal seen yet
+#endif
+
     // Clear all sensor data
     ws.clearSlots();
     cc1101_bresser.decode_status = DECODE_INVALID;
@@ -98,9 +185,39 @@ void CC1101_Bresser_Init(void) {
 
 void CC1101_Bresser_task(void) {
     if (cc1101_bresser.ready) {
+
+#ifdef CC1101_DIAG
+        // NON-INVASIVE periodic diagnostic every ~10 seconds (100 * 100ms)
+        // Only reads status registers — does NOT strobe IDLE, change frequency, or call startReceive
+        cc1101_bresser.diag_counter++;
+        if (cc1101_bresser.diag_counter >= 100) {
+            cc1101_bresser.diag_counter = 0;
+            cc1101_bresser.diag_rx_count++;
+
+            // Status registers can be read safely during RX (addr | 0xC0)
+            uint8_t marcstate = cc1101_read_reg(0x35 | 0xC0) & 0x1F;
+            int rssi = cc1101_read_rssi();
+            int gdo0_state = digitalRead(Pin(GPIO_CC1101_GDO0));
+
+            // Track best (strongest) RSSI seen
+            if (cc1101_bresser.diag_rssi_min == 0 || rssi > cc1101_bresser.diag_rssi_min) {
+                cc1101_bresser.diag_rssi_min = rssi;
+            }
+
+            AddLog(LOG_LEVEL_INFO, PSTR("CC1101 DIAG: MARC=0x%02X GDO0=%d RSSI=%ddBm best=%ddBm #%d"),
+                marcstate, gdo0_state, rssi, cc1101_bresser.diag_rssi_min, cc1101_bresser.diag_rx_count);
+
+            // Only intervene if chip fell out of RX mode
+            if (marcstate != 0x0D) {
+                AddLog(LOG_LEVEL_INFO, PSTR("CC1101 DIAG: NOT in RX (0x%02X), restarting receive"), marcstate);
+                radio.startReceive();
+            }
+        }
+#endif  // CC1101_DIAG
+
         // Tries to receive radio message (non-blocking) and to decode it.
         // Timeout occurs after a small multiple of expected time-on-air.
-        
+
         if (ws.getMessage() == DECODE_OK) {
             AddLog(LOG_LEVEL_DEBUG, PSTR("received bresser meessage!"));
             cc1101_bresser.decode_status = DECODE_OK;
@@ -195,7 +312,7 @@ void C1101_Bresser_Show(boolean json) {
                     TempHumDewShow(json, (0 == TasmotaGlobal.tele_period), label, ws.sensor_copy[i].w.temp_c, ws.sensor_copy[i].w.humidity);
                 }
             } else {
- 
+
                 if ((ws.sensor_copy[i].w.temp_ok) && (ws.sensor_copy[i].w.humidity_ok)) {
                     TempHumDewShow(json, (0 == TasmotaGlobal.tele_period), label, ws.sensor_copy[i].w.temp_c, ws.sensor_copy[i].w.humidity);
                 }
@@ -229,14 +346,14 @@ void C1101_Bresser_Show(boolean json) {
             if (ws.sensor_copy[i].rssi == 0) {
                 continue;
             }
-            
+
             if (Bresser_reject(ws.sensor_copy[i].sensor_id)) {
                 continue;
             }
 
             ResponseAppend_P(PSTR(",\"Bresser_%1d\":{\"ID\":\"%08x\",\"Type\":%x,\"Chan\":%d,\"Stat\":%d,\"Batt\":\"%-3s\",\"RSSI\":%1_f,\"RCNT\":%d"),\
                 i + 1, static_cast<int> (ws.sensor_copy[i].sensor_id), ws.sensor_copy[i].s_type, ws.sensor_copy[i].chan, ws.sensor_copy[i].startup, ws.sensor_copy[i].battery_ok ? "OK " : "Low", &ws.sensor_copy[i].rssi, ws.sensor_copy[i].rec_count);
-        
+
 
             if (ws.sensor_copy[i].s_type == SENSOR_TYPE_SOIL) {
                 ResponseAppend_P(PSTR(",\"STEMP\":%1_f,\"SMOIST\":%d"), &ws.sensor_copy[i].soil.temp_c, ws.sensor_copy[i].soil.moisture);

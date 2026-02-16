@@ -73,7 +73,7 @@
 #define NUM_SENSORS     3       // Number of sensors to be received
 
 // List of sensor IDs to be excluded - can be empty
-#define SENSOR_IDS_EXC { 0x792882A2 }
+#define SENSOR_IDS_EXC { }
 //#define SENSOR_IDS_EXC { 0x792882A2 }
 
 // List of sensor IDs to be included - if empty, handle all available sensors
@@ -85,10 +85,16 @@
 #define WIND_DATA_FIXEDPOINT
 
 // Select appropriate sensor message format(s)
-// Comment out unused decoders to save operation time/power
-//#define BRESSER_5_IN_1
-//#define BRESSER_6_IN_1
-//#define BRESSER_7_IN_1
+// Enable all decoders by default if not already defined via user_config_override.h
+#ifndef BRESSER_5_IN_1
+#define BRESSER_5_IN_1
+#endif
+#ifndef BRESSER_6_IN_1
+#define BRESSER_6_IN_1
+#endif
+#ifndef BRESSER_7_IN_1
+#define BRESSER_7_IN_1
+#endif
 //#define BRESSER_LIGHTNING
 //#define BRESSER_LEAKAGE
 
