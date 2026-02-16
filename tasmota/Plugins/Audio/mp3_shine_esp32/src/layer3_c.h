@@ -86,12 +86,12 @@ SETMEMREGS
     return NULL;
   }
 
-  config = (shine_global_config*)malloc(ICONST(sizeof(shine_global_config)));
+  config = (shine_global_config*)malloc((int32_t)INTC(16));
   if (config == NULL) {
     return config;
   }
 
-  memset(config, 0, ICONST(sizeof(shine_global_config)));
+  memset(config, 0, (int32_t)INTC(16));
 
 #ifdef  SHINE_DEBUG
   printf("l3_enc & mdct_freq each: %d\n", sizeof(int32_t)*GRANULE_SIZE*MAX_GRANULES*MAX_CHANNELS);
@@ -110,10 +110,11 @@ SETMEMREGS
         }
       }
   }
+
 #ifdef  SHINE_DEBUG
   printf("l3loop struct: %d\n", sizeof(l3loop_t));
 #endif
-  config->l3loop = (l3loop_t*)malloc(ICONST(sizeof(l3loop_t)));
+  config->l3loop = (l3loop_t*)malloc((int32_t)INTC(14));
 #ifdef  SHINE_DEBUG
   printf("xrsq & xrabs each: %d\n", sizeof(int32_t)*GRANULE_SIZE);
 #endif
@@ -126,20 +127,6 @@ SETMEMREGS
   if (!config->l3loop->xrabs) {
     // error
   }
-
-/*typedef struct {
-  int32_t *xr;
-  int32_t *xrsq[GRANULE_SIZE];
-  int32_t *xrabs[GRANULE_SIZE];
-  int32_t xrmax;
-  int32_t en_tot[MAX_GRANULES];
-  int32_t en[MAX_GRANULES][21];
-  int32_t xm[MAX_GRANULES][21];
-  int32_t xrmaxl[MAX_GRANULES];
-  SHINE_DOUBLE steptab[128];
-  int32_t steptabi[128];
-  int16_t int2idx[10000];
-} l3loop_t;*/
 
   p_shine_subband_initialise(config);
   p_shine_mdct_initialise(config);
@@ -185,7 +172,7 @@ SETMEMREGS
 
   p_shine_open_bit_stream(&config->bs, (int32_t)INTC(12));
 
-  memset((char *)&config->side_info,0,ICONST(sizeof(shine_side_info_t)));
+  memset((char *)&config->side_info,0,(int32_t)INTC(15));
 
   /* determine the mean bitrate for main data */
   if (config->mpeg.granules_per_frame == 2) { /* MPEG 1 */

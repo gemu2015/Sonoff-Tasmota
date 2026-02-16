@@ -35,7 +35,7 @@ codec settings access
 #endif
 
 #ifdef ESP32
-#define USE_PSHINE
+//#define USE_PSHINE
 #endif
 
 #include "module.h"
@@ -318,6 +318,8 @@ MODULE_END
 
 #ifdef USE_PSHINE
 
+#include "Audio/mp3_shine_esp32/src/includes.h"
+
 const float FP_CONST[] PROGMEM = {
   3.14159265358979f,     // 0: PI
   0.087266462599717f,    // 1: PI36
@@ -351,19 +353,25 @@ const uint32_t INT_CONST[] PROGMEM = {
   511,          // 10: HAN_SIZE-1 bitmask
   4095,         // 11: max bits limit
   4096,         // 12: BUFFER_SIZE
-  2304,         // 13: 4*GRANULE_SIZE (malloc size)
+  2304,                        // 13: 4*GRANULE_SIZE (malloc size)
+  sizeof(l3loop_t),            // 14: sizeof(l3loop_t)
+  sizeof(shine_side_info_t),   // 15: sizeof(shine_side_info_t)
+  sizeof(shine_global_config), // 16: sizeof(shine_global_config)
+  sizeof(int32_t) * 22,       // 17: sizeof(scalefactor.l[gr][ch])
+  sizeof(int32_t) * 13 * 3,   // 18: sizeof(scalefactor.s[gr][ch])
+  sizeof(int32_t) * HAN_SIZE, // 19: sizeof(subband.x[i])
 };
 
-#include "Audio/mp3_shine_esp32/src/includes.h"
 #include "Audio/mp3_shine_esp32/src/bitstream_c.h"
 #include "Audio/mp3_shine_esp32/src/huffman_c.h"
+#include "Audio/mp3_shine_esp32/src/tables_c.h"
 #include "Audio/mp3_shine_esp32/src/l3bitstream_c.h"
 #include "Audio/mp3_shine_esp32/src/l3loop_c.h"
 #include "Audio/mp3_shine_esp32/src/l3mdct_c.h"
 #include "Audio/mp3_shine_esp32/src/l3subband_c.h"
 #include "Audio/mp3_shine_esp32/src/layer3_c.h"
 #include "Audio/mp3_shine_esp32/src/reservoir_c.h"
-#include "Audio/mp3_shine_esp32/src/tables_c.h"
+
 #endif
 
 
@@ -1329,7 +1337,7 @@ SETREGS
       error = -1;
       goto exit;
     }
-
+ 
     shine_ptr = (shine_t)Shine_initialise(&config);
     if (!shine_ptr) {
       error = -2;

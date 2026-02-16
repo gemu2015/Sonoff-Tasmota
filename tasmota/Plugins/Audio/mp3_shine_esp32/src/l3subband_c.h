@@ -14,7 +14,7 @@ SETMEMREGS
 
   for(i=MAX_CHANNELS; i-- ; ) {
     config->subband.off[i] = 0;
-    memset(config->subband.x[i], 0, ICONST(sizeof(config->subband.x[i])));
+    memset(config->subband.x[i], 0, (int32_t)INTC(19));
   }
 
   for (i=SBLIMIT; i--; )

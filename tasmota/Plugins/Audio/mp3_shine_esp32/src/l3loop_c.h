@@ -166,8 +166,8 @@ SETMEMREGS
       max_bits = p_shine_max_reservoir_bits(&config->pe[ch][gr],config);
 
       /* reset of iteration variables */
-      memset(config->scalefactor.l[gr][ch],0,ICONST(sizeof(config->scalefactor.l[gr][ch])));
-      memset(config->scalefactor.s[gr][ch],0,ICONST(sizeof(config->scalefactor.s[gr][ch])));
+      memset(config->scalefactor.l[gr][ch],0,(int32_t)INTC(17));
+      memset(config->scalefactor.s[gr][ch],0,(int32_t)INTC(18));
 
       for ( i=4; i--; )
         cod_info->slen[i] = 0;

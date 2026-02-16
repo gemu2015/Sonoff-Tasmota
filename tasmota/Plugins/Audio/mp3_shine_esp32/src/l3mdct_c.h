@@ -134,6 +134,6 @@ SETMEMREGS
     }
 
     /* Save latest granule's subband samples to be used in the next mdct call */
-    memcpy(config->l3_sb_sample[ch][0], config->l3_sb_sample[ch][config->mpeg.granules_per_frame], ICONST(sizeof(config->l3_sb_sample[0][0])));
+    memcpy(config->l3_sb_sample[ch][0], config->l3_sb_sample[ch][config->mpeg.granules_per_frame], (int32_t)INTC(13));
   }
 }

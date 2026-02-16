@@ -87,9 +87,9 @@ with open(libpath) as f:
         else :
             insert = '/* start plugins */\n \
 	        *(.plugin.mod_desc)\n\
-	        *(.plugin.mod_string)\n\
 	        *(.plugin.mod_part.literal)\n\
 	        *(.plugin.mod_part)\n\
+	        *(.plugin.mod_string)\n\
 	        *(.plugin.mod_end)\n\
 	        /* end plugins */\n'
                         

@@ -727,6 +727,7 @@ typedef union {
 #define Draw_JPEG(A,B,C,D,E) jdrwjpeg((uint32_t)A,B,C,D,E)
 
 #ifdef USE_PSHINE
+
 #define Shine_initialise p_shine_initialise
 #define Shine_set_config_mpeg_defaults p_shine_set_config_mpeg_defaults
 #define Shine_check_config p_shine_check_config
@@ -734,6 +735,7 @@ typedef union {
 #define Shine_encode_buffer_interleaved p_shine_encode_buffer_interleaved
 #define Shine_flush p_shine_flush
 #define Shine_close p_shine_close
+
 // PIC table access macros for embedded shine encoder
 #define GTAB_I32(LABEL) ((const int32_t*)((char*)(LABEL) + EXEC_OFFSET))
 #define GTAB_U8(LABEL) ((const uint8_t*)((char*)(LABEL) + EXEC_OFFSET))
