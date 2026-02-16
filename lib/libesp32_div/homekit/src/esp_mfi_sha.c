@@ -199,7 +199,7 @@ void esp_mfi_sha256_final(esp_mfi_sha_ctx_t ctx, uint8_t *digest)
 #define USE_SODIUM
 
 #ifdef USE_SODIUM
-#include <sodium.h>
+#include <sodium/crypto_hash_sha512.h>
 #define mbedtls_sha512_context crypto_hash_sha512_state
 #define mbedtls_sha512_init crypto_hash_sha512_init
 #define mbedtls_sha512_starts(A,B) crypto_hash_sha512_init(A)

@@ -96,10 +96,6 @@
 #include "WeatherSensorCfg.h"
 #include "WeatherSensor.h"
 
-// Tasmota logging support
-extern void AddLog(uint32_t loglevel, PGM_P formatP, ...);
-enum LoggingLevels {LOG_LEVEL_NONE, LOG_LEVEL_ERROR, LOG_LEVEL_INFO, LOG_LEVEL_DEBUG, LOG_LEVEL_DEBUG_MORE};
-
 
 #if defined(USE_CC1101)
 CC1101 radio = nullptr;
@@ -331,28 +327,22 @@ DecodeStatus WeatherSensor::getMessage(void)
 
         if (state == RADIOLIB_ERR_NONE)
         {
-            AddLog(LOG_LEVEL_DEBUG, PSTR("BRS: pkt sync=0x%02X RSSI=%1_f"), recvData[0], &rssi);
-
             // Verify last syncword is 1st byte of payload (see setSyncWord() above)
             if (recvData[0] == 0xD4)
             {
-                // Log full raw payload for debugging (MSG_BUF_SIZE=27, skip recvData[0]=0xD4)
-                AddLog(LOG_LEVEL_DEBUG, PSTR("BRS: [%02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X]"),
-                    recvData[1], recvData[2], recvData[3], recvData[4],
-                    recvData[5], recvData[6], recvData[7], recvData[8],
-                    recvData[9], recvData[10], recvData[11], recvData[12],
-                    recvData[13], recvData[14], recvData[15], recvData[16],
-                    recvData[17], recvData[18], recvData[19], recvData[20],
-                    recvData[21], recvData[22], recvData[23], recvData[24],
-                    recvData[25], recvData[26]);
+#if CORE_DEBUG_LEVEL == ARDUHAL_LOG_LEVEL_VERBOSE
+                char buf[128];
+                *buf = '\0';
+                for (size_t i = 0; i < sizeof(recvData); i++)
+                {
+                    sprintf(&buf[strlen(buf)], "%02X ", recvData[i]);
+                }
+                log_v("%s Data: %s", RECEIVER_CHIP, buf);
+#endif
+                log_d("%s R [%02X] RSSI: %0.1f", RECEIVER_CHIP, recvData[0], rssi);
 
                 decode_res = decodeMessage(&recvData[1], sizeof(recvData) - 1);
-                AddLog(LOG_LEVEL_DEBUG, PSTR("BRS: decode result=%d"), decode_res);
             } // if (recvData[0] == 0xD4)
-            else
-            {
-                AddLog(LOG_LEVEL_DEBUG, PSTR("BRS: bad sync 0x%02X (expected 0xD4)"), recvData[0]);
-            }
         }     // if (state == RADIOLIB_ERR_NONE)
         else if (state == RADIOLIB_ERR_RX_TIMEOUT)
         {
@@ -361,7 +351,7 @@ DecodeStatus WeatherSensor::getMessage(void)
         else
         {
             // some other error occurred
-            AddLog(LOG_LEVEL_DEBUG, PSTR("BRS: readData failed: %d"), state);
+            log_d("%s Receive failed: [%d]", RECEIVER_CHIP, state);
         }
     }
 
@@ -374,7 +364,6 @@ DecodeStatus WeatherSensor::decodeMessage(const uint8_t *msg, uint8_t msgSize)
 
 #ifdef BRESSER_7_IN_1
     decode_res = decodeBresser7In1Payload(msg, msgSize);
-    AddLog(LOG_LEVEL_DEBUG, PSTR("BRS: 7in1 decode=%d"), decode_res);
     if (decode_res == DECODE_OK ||
         decode_res == DECODE_FULL ||
         decode_res == DECODE_SKIP)
@@ -384,7 +373,6 @@ DecodeStatus WeatherSensor::decodeMessage(const uint8_t *msg, uint8_t msgSize)
 #endif
 #ifdef BRESSER_6_IN_1
     decode_res = decodeBresser6In1Payload(msg, msgSize);
-    AddLog(LOG_LEVEL_DEBUG, PSTR("BRS: 6in1 decode=%d"), decode_res);
     if (decode_res == DECODE_OK ||
         decode_res == DECODE_FULL ||
         decode_res == DECODE_SKIP)
@@ -394,7 +382,6 @@ DecodeStatus WeatherSensor::decodeMessage(const uint8_t *msg, uint8_t msgSize)
 #endif
 #ifdef BRESSER_5_IN_1
     decode_res = decodeBresser5In1Payload(msg, msgSize);
-    AddLog(LOG_LEVEL_DEBUG, PSTR("BRS: 5in1 decode=%d"), decode_res);
     if (decode_res == DECODE_OK ||
         decode_res == DECODE_FULL ||
         decode_res == DECODE_SKIP)
@@ -480,7 +467,7 @@ bool WeatherSensor::genMessage(int i, uint32_t id, uint8_t s_type, uint8_t chann
 int WeatherSensor::findSlot(uint32_t id, DecodeStatus *status)
 {
 
-    AddLog(LOG_LEVEL_DEBUG, PSTR("BRS: findSlot ID=0x%08X"), id);
+    log_v("find_slot(): ID=%08X", id);
 
     // Skip sensors from exclude-list (if any)
     uint8_t n_exc = sizeof(sensor_ids_exc) / 4;
@@ -490,7 +477,7 @@ int WeatherSensor::findSlot(uint32_t id, DecodeStatus *status)
         {
             if (id == sensor_ids_exc[i])
             {
-                AddLog(LOG_LEVEL_DEBUG, PSTR("BRS: ID 0x%08X in exclude list, SKIP"), id);
+                log_v("In Exclude-List, skipping!");
                 *status = DECODE_SKIP;
                 return -1;
             }
@@ -1169,10 +1156,9 @@ DecodeStatus WeatherSensor::decodeBresser7In1Payload(const uint8_t *msg, uint8_t
     // LFSR-16 digest, generator 0x8810 key 0xba95 final xor 0x6df1
     int chkdgst = (msgw[0] << 8) | msgw[1];
     int digest = lfsr_digest16(&msgw[2], 23, 0x8810, 0xba95); // bresser_7in1
-    AddLog(LOG_LEVEL_DEBUG, PSTR("BRS: 7in1 chk=%04X dig=%04X xor=%04X (need 6df1) msgSz=%d"),
-        chkdgst, digest, chkdgst ^ digest, msgSize);
     if ((chkdgst ^ digest) != 0x6df1)
     { // bresser_7in1
+        log_d("Digest check failed - [%04X] vs [%04X] (%04X)", chkdgst, digest, chkdgst ^ digest);
         return DECODE_DIG_ERR;
     }
 

@@ -76,7 +76,16 @@ struct CC1101_BRESSER {
 } cc1101_bresser;
 
 
-#ifdef CC1101_DIAG
+// Helper: write a single CC1101 config register via direct SPI
+static void cc1101_write_reg(uint8_t addr, uint8_t val) {
+    SPI.beginTransaction(cc1101_bresser.spi_settings);
+    digitalWrite(cc1101_bresser.cs, LOW);
+    SPI.transfer(addr);
+    SPI.transfer(val);
+    digitalWrite(cc1101_bresser.cs, HIGH);
+    SPI.endTransaction();
+}
+
 // Helper: read a single CC1101 register via direct SPI
 // For config registers (0x00-0x2E): use addr | 0x80
 // For status registers (0x30-0x3D): use addr | 0xC0
@@ -90,12 +99,6 @@ static uint8_t cc1101_read_reg(uint8_t addr) {
     return val;
 }
 
-// Helper: read CC1101 RSSI and convert to dBm
-static int cc1101_read_rssi(void) {
-    int8_t rssi_raw = (int8_t)cc1101_read_reg(0x34 | 0xC0);
-    return (rssi_raw >= 128) ? ((rssi_raw - 256) / 2 - 74) : (rssi_raw / 2 - 74);
-}
-
 // Helper: send CC1101 strobe command
 static void cc1101_strobe(uint8_t cmd) {
     SPI.beginTransaction(cc1101_bresser.spi_settings);
@@ -103,6 +106,14 @@ static void cc1101_strobe(uint8_t cmd) {
     SPI.transfer(cmd);
     digitalWrite(cc1101_bresser.cs, HIGH);
     SPI.endTransaction();
+}
+
+#ifdef CC1101_DIAG
+
+// Helper: read CC1101 RSSI and convert to dBm
+static int cc1101_read_rssi(void) {
+    int8_t rssi_raw = (int8_t)cc1101_read_reg(0x34 | 0xC0);
+    return (rssi_raw >= 128) ? ((rssi_raw - 256) / 2 - 74) : (rssi_raw / 2 - 74);
 }
 
 // Helper: burst read CC1101 registers
@@ -145,6 +156,21 @@ void CC1101_Bresser_Init(void) {
 
  // rec_cs, rec_irq, rec_res, rec_gpio
     ws.begin(cc1101_bresser.cs, Pin(GPIO_CC1101_GDO0), -1, -1);
+
+    // Improve CC1101 sensitivity after RadioLib init
+    // Only change AGC settings - keep RadioLib's BW/IF/freq untouched
+    cc1101_strobe(0x36);  // SIDLE - must be idle to write config registers
+    delayMicroseconds(100);
+
+    // AGC: enable all gain stages for maximum sensitivity
+    cc1101_write_reg(0x1B, 0x03);  // AGCCTRL2: MAX_DVGA_GAIN=00 (all enabled), MAX_LNA_GAIN=000, MAGN_TARGET=33dB
+    cc1101_write_reg(0x1C, 0x40);  // AGCCTRL1: LNA priority, no carrier sense threshold
+    cc1101_write_reg(0x1D, 0x91);  // AGCCTRL0: medium hysteresis, 16 samples
+
+    // Restart RX with new settings
+    cc1101_strobe(0x3A);  // SFRX - flush RX FIFO
+    cc1101_strobe(0x34);  // SRX  - enter receive mode
+    AddLog(LOG_LEVEL_INFO, PSTR("CC1101: AGC optimized for max sensitivity"));
 
 #ifdef CC1101_DIAG
     // Diagnostic: dump key CC1101 registers after init (one-time, before RX matters)
