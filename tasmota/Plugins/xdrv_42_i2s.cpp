@@ -35,7 +35,7 @@ codec settings access
 #endif
 
 #ifdef ESP32
-//#define USE_PSHINE
+#define USE_PSHINE
 #endif
 
 #include "module.h"
@@ -374,7 +374,6 @@ const uint32_t INT_CONST[] PROGMEM = {
 
 #endif
 
-
 #define OUTBUFF_SIZE 1024 * 6
 #define INBUFF_SIZE 1024 * 2
 
@@ -390,7 +389,7 @@ const char S_JSON_WMERR[] PROGMEM = "{\"Codec error\"}";
 #endif
 
 #define TASK_STACK 8192
-//#define TASK_STACK 12000
+//#define TASK_STACK 16384
 
 #ifdef USE_SAY
 #define RENDER_SIZE sizeof(SAM_RENDER)

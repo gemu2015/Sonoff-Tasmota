@@ -35,6 +35,9 @@ SETMEMREGS
         }
       }
   }
+  /* BISECT22 - test: call putbits directly instead of encodeSideInfo */
+  p_shine_putbits( &config->bs, 0x7ff, 11 );
+  return;
   p_encodeSideInfo( config );
   p_encodeMainData( config );
 }

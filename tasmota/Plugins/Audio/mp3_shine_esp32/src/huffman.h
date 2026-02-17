@@ -1,4 +1,4 @@
-#define HUFFBITS uint16_t
+#define HUFFBITS int32_t
 #define HTN     34
 #define MXOFF   250
 
@@ -8,7 +8,7 @@ struct p_huffcodetab {
   uint32_t linbits;      /*number of linbits                     */
   uint32_t linmax;       /*max number to be stored in linbits    */
   const HUFFBITS *table;     /*pointer to array[xlen][ylen]          */
-  const uint8_t *hlen; /*pointer to array[xlen][ylen]          */
+  const int32_t *hlen; /*pointer to array[xlen][ylen]          */
 };
 
 extern const struct p_huffcodetab shine_huffman_table[HTN];/* global memory block                */

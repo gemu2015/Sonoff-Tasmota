@@ -156,7 +156,6 @@ SETMEMREGS
 
       cod_info = (gr_info *) &(config->side_info.gr[gr].ch[ch]);
       cod_info->sfb_lmax = SFB_LMAX - 1; /* gr_deco */
-
       calc_xmin(cod_info, &l3_xmin, gr, ch );
 
       if ( config->mpeg.version == MPEG_I )
@@ -644,21 +643,15 @@ SETMEMREGS
 
     sum[0] = count_bit( ix, begin, end, choice[0] );
 
-    switch (choice[0])
-    {
-      case 2:
+    if (choice[0] == 2) {
         sum[1] = count_bit( ix, begin, end, 3 );
         if ( sum[1] <= sum[0] )
           choice[0] = 3;
-        break;
-
-      case 5:
+    } else if (choice[0] == 5) {
         sum[1] = count_bit( ix, begin, end, 6 );
         if ( sum[1] <= sum[0] )
           choice[0] = 6;
-        break;
-
-      case 7:
+    } else if (choice[0] == 7) {
         sum[1] = count_bit( ix, begin, end, 8 );
         if ( sum[1] <= sum[0] )
         {
@@ -668,9 +661,7 @@ SETMEMREGS
         sum[1] = count_bit( ix, begin, end, 9 );
         if ( sum[1] <= sum[0] )
           choice[0] = 9;
-        break;
-
-      case 10:
+    } else if (choice[0] == 10) {
         sum[1] = count_bit( ix, begin, end, 11 );
         if ( sum[1] <= sum[0] )
         {
@@ -680,13 +671,10 @@ SETMEMREGS
         sum[1] = count_bit( ix, begin, end, 12 );
         if ( sum[1] <= sum[0] )
           choice[0] = 12;
-        break;
-
-      case 13:
+    } else if (choice[0] == 13) {
         sum[1] = count_bit( ix, begin, end, 15 );
         if ( sum[1] <= sum[0] )
           choice[0] = 15;
-        break;
     }
   }
   else

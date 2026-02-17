@@ -484,8 +484,8 @@ typedef struct {
 
 // all floating point constants must be in progmem and named FP_CONST
 //#define FLTC(INDEX) *(float *) ((char *)&FP_CONST[INDEX]+EXEC_OFFSET)
-// FLTC(0) crashes with old macro so redefine
-#define FLTC(INDEX) FP_CONST[INDEX+(EXEC_OFFSET/sizeof(float))]
+// FLTC: use volatile uint32_t read (forces l32i) then memcpy to float to avoid lsi from IROM on ESP32-S3
+#define FLTC(INDEX) ({ volatile uint32_t _tmp = ((const volatile uint32_t*)((char*)FP_CONST + EXEC_OFFSET))[INDEX]; float _ftmp; __builtin_memcpy(&_ftmp, (void*)&_tmp, 4); _ftmp; })
 
 //#define VTABLE(A) void (*const A[])(MODULES_TABLE*) PROGMEM
 #define VTABLE(A) void (*const A[])(void) PROGMEM
@@ -741,20 +741,9 @@ typedef union {
 #define GTAB_U8(LABEL) ((const uint8_t*)((char*)(LABEL) + EXEC_OFFSET))
 #define GTAB_U16(LABEL) ((const uint16_t*)((char*)(LABEL) + EXEC_OFFSET))
 #define GHUFF(idx) ((const struct p_huffcodetab*)((char*)p_shine_huffman_table + EXEC_OFFSET))[idx]
-#ifdef __riscv
-/* RISC-V supports unaligned reads from flash - direct sub-word access is safe */
-#define GHUFF_HLEN(h, p) (GTAB_U8((h).hlen)[p])
-#define GHUFF_TABLE(h, p) (GTAB_U16((h).table)[p])
-#else
-/* Xtensa PROGMEM requires 32-bit aligned reads - extract sub-word elements from aligned words */
-#define GHUFF_HLEN(h, p) ({ const uint8_t *_base = (const uint8_t*)((char*)(h).hlen + EXEC_OFFSET); \
-  uint32_t _w = *(const uint32_t*)(_base + ((p) & ~3)); \
-  (uint8_t)(_w >> (((p) & 3) * 8)); })
-#define GHUFF_TABLE(h, p) ({ const uint8_t *_base = (const uint8_t*)((char*)(h).table + EXEC_OFFSET); \
-  uint32_t _boff = (uint32_t)(p) * 2; \
-  uint32_t _w = *(const uint32_t*)(_base + (_boff & ~3)); \
-  (HUFFBITS)(_w >> ((_boff & 2) * 8)); })
-#endif
+/* All huffman tables are now int32_t - safe 32-bit aligned access on all platforms */
+#define GHUFF_HLEN(h, p) (GTAB_I32((h).hlen)[p])
+#define GHUFF_TABLE(h, p) (GTAB_I32((h).table)[p])
 #else
 #define Shine_initialise(A) jshine(0,(uint32_t)A,0,0)
 #define Shine_set_config_mpeg_defaults(A) jshine(1,(uint32_t)A,0,0)

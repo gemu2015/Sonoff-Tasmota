@@ -468,7 +468,7 @@ uint32_t WcSetup(int32_t fsiz) {
   if (psram) {
     config.frame_size = FRAMESIZE_VGA;
     //config.grab_mode = CAMERA_GRAB_LATEST;
-    config..grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
     config.fb_location = CAMERA_FB_IN_PSRAM;
 #ifndef USE_WEBCAM_SETUP_ONLY
     config.jpeg_quality = 10;

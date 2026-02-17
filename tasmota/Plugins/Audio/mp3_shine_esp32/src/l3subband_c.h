@@ -16,7 +16,6 @@ SETMEMREGS
     config->subband.off[i] = 0;
     memset(config->subband.x[i], 0, (int32_t)INTC(19));
   }
-
   for (i=SBLIMIT; i--; )
     for (j=64; j--; )
     {

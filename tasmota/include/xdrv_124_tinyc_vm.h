@@ -130,6 +130,7 @@ enum TcSyscall {
   SYS_MQTT_PUBLISH = 40,  // publish output buffer
   SYS_GET_POWER    = 41,  // get relay state
   SYS_SET_POWER    = 42,  // set relay state
+  SYS_TASM_CMD     = 43,  // (const_idx_cmd, buf_ref) -> response length
   // File I/O (LittleFS)
   SYS_FILE_OPEN    = 60,  // (const_idx_path, mode) -> handle (-1=err)
   SYS_FILE_CLOSE   = 61,  // (handle) -> 0/-1
@@ -568,6 +569,32 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       b = TC_POP(vm); a = TC_POP(vm);  // relay, state
       ExecuteCommandPower(a, b, SRC_IGNORE);
       break;
+    case SYS_TASM_CMD: {
+      int32_t buf_ref = TC_POP(vm);    // output buffer array ref
+      int32_t ci = TC_POP(vm);         // const pool index for command
+      const char *cmd = tc_get_const_str(vm, ci);
+      int32_t *buf = tc_resolve_ref(vm, buf_ref);
+      if (!cmd || !buf) {
+        TC_PUSH(vm, -1);
+        break;
+      }
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: tasmCmd(\"%s\")"), cmd);
+      // Execute Tasmota command — response goes to global buffer
+      ExecuteCommand((char*)cmd, SRC_TCL);
+      // Capture response immediately before it's overwritten
+      const char *resp = ResponseData();
+      int32_t rlen = strlen(resp);
+      // Copy response into VM output buffer (cap to array bounds)
+      int32_t maxLen = TC_MAX_LOCALS - 1;
+      if (rlen > maxLen) rlen = maxLen;
+      for (int32_t i = 0; i < rlen; i++) {
+        buf[i] = (int32_t)(uint8_t)resp[i];
+      }
+      buf[rlen] = 0;  // null-terminate
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: tasmCmd → %d bytes"), rlen);
+      TC_PUSH(vm, rlen);
+      break;
+    }
 
     // ── String operations ─────────────────────────────
     case SYS_STRLEN: {
