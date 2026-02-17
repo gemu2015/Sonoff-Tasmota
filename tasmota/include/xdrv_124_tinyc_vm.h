@@ -29,13 +29,15 @@
   #define TC_MAX_PROGRAM     16384   // max bytecode size
   #define TC_STACK_SIZE      256     // operand stack (1KB)
   #define TC_MAX_FRAMES      32      // call depth
-  #define TC_MAX_LOCALS      64      // locals per frame
+  #define TC_MAX_LOCALS      256     // locals per frame (1KB) - enough for char arrays
   #define TC_MAX_GLOBALS     256     // global slots (1KB)
   #define TC_MAX_CONSTANTS   64      // constant pool entries
   #define TC_MAX_CONST_DATA  1024    // string constant bytes
   #define TC_INSTR_PER_TICK  1000    // instructions per 50ms tick
   #define TC_OUTPUT_SIZE     512     // output buffer for MQTT
 #endif
+
+#define TC_MAX_FILE_HANDLES  4      // max simultaneously open files
 
 #define TC_MAGIC           0x54434300  // "TCC\0"
 #define TC_VERSION         1
@@ -86,6 +88,9 @@ enum TcOp {
   // Type conversion
   OP_I2F          = 0x70, OP_F2I          = 0x71,
   OP_I2C          = 0x72,
+  // Array address (push ref for string functions)
+  OP_ADDR_LOCAL   = 0x78,  // push packed ref: (fp << 16) | base_idx
+  OP_ADDR_GLOBAL  = 0x79,  // push packed ref: 0x80000000 | base_idx
   // Syscalls
   OP_SYSCALL      = 0x80,
   // Constants
@@ -100,7 +105,7 @@ enum TcSyscall {
   // GPIO
   SYS_PIN_MODE        = 0,  SYS_DIGITAL_WRITE   = 1,
   SYS_DIGITAL_READ    = 2,  SYS_ANALOG_READ     = 3,
-  SYS_ANALOG_WRITE    = 4,
+  SYS_ANALOG_WRITE    = 4,  SYS_GPIO_INIT       = 5,
   // Timing
   SYS_DELAY           = 10, SYS_DELAY_MICRO     = 11,
   SYS_MILLIS          = 12, SYS_MICROS          = 13,
@@ -113,10 +118,26 @@ enum TcSyscall {
   SYS_MATH_ABS  = 30, SYS_MATH_MIN  = 31, SYS_MATH_MAX  = 32,
   SYS_MATH_MAP  = 33, SYS_MATH_RANDOM= 34, SYS_MATH_SQRT = 35,
   SYS_MATH_SIN  = 36, SYS_MATH_COS   = 37,
+  // String operations (work with array refs from OP_ADDR_LOCAL/OP_ADDR_GLOBAL)
+  SYS_STRLEN       = 50,  // (ref) -> int
+  SYS_STRCPY       = 51,  // (dst_ref, src_ref) -> void
+  SYS_STRCAT       = 52,  // (dst_ref, src_ref) -> void
+  SYS_STRCMP        = 53,  // (ref_a, ref_b) -> int
+  SYS_STR_PRINT    = 54,  // (ref) -> void  (print char array to output)
+  SYS_STRCPY_CONST = 55,  // (dst_ref, const_idx) -> void  (copy string literal into array)
+  SYS_STRCAT_CONST = 56,  // (dst_ref, const_idx) -> void  (append string literal to array)
   // Tasmota-specific
   SYS_MQTT_PUBLISH = 40,  // publish output buffer
   SYS_GET_POWER    = 41,  // get relay state
   SYS_SET_POWER    = 42,  // set relay state
+  // File I/O (LittleFS)
+  SYS_FILE_OPEN    = 60,  // (const_idx_path, mode) -> handle (-1=err)
+  SYS_FILE_CLOSE   = 61,  // (handle) -> 0/-1
+  SYS_FILE_READ    = 62,  // (handle, buf_ref, maxBytes) -> bytes_read/-1
+  SYS_FILE_WRITE   = 63,  // (handle, buf_ref, len) -> bytes_written/-1
+  SYS_FILE_EXISTS  = 64,  // (const_idx_path) -> 1/0
+  SYS_FILE_DELETE  = 65,  // (const_idx_path) -> 0/-1
+  SYS_FILE_SIZE    = 66,  // (const_idx_path) -> bytes/-1
   // Debug
   SYS_DEBUG_PRINT     = 250, SYS_DEBUG_PRINT_STR = 251,
   SYS_DEBUG_DUMP      = 252,
@@ -218,6 +239,9 @@ struct TINYC {
   uint8_t *upload_buf;
   uint32_t upload_size;
   uint32_t upload_received;
+  // File I/O handles (LittleFS)
+  File     file_handles[TC_MAX_FILE_HANDLES];
+  bool     file_used[TC_MAX_FILE_HANDLES];
 #ifdef ESP32
   // FreeRTOS task for VM execution
   TaskHandle_t task_handle;
@@ -253,6 +277,34 @@ static inline int32_t tc_read_i32(TcVM *vm) {
   vm->pc += 4; return v;
 }
 static inline float tc_read_f32(TcVM *vm) { return i2f(tc_read_i32(vm)); }
+
+/*********************************************************************************************\
+ * VM: Array ref encoding for string functions
+ * Local ref:  (fp << 16) | base_index   (bit 31 = 0)
+ * Global ref: 0x80000000 | base_index   (bit 31 = 1)
+\*********************************************************************************************/
+
+static inline int32_t tc_make_local_ref(uint8_t fp, uint8_t base) {
+  return ((int32_t)fp << 16) | base;
+}
+static inline int32_t tc_make_global_ref(uint16_t base) {
+  return (int32_t)0x80000000 | base;
+}
+
+// Resolve a packed array ref to a pointer into VM memory, returns NULL on error
+static int32_t* tc_resolve_ref(TcVM *vm, int32_t ref) {
+  if (ref & (int32_t)0x80000000) {
+    // Global
+    uint16_t idx = ref & 0xFFFF;
+    if (idx < TC_MAX_GLOBALS) return &vm->globals[idx];
+  } else {
+    // Local
+    uint8_t fp = (ref >> 16) & 0xFF;
+    uint8_t idx = ref & 0xFF;
+    if (fp < TC_MAX_FRAMES && idx < TC_MAX_LOCALS) return vm->frames[fp].locals + idx;
+  }
+  return nullptr;
+}
 
 /*********************************************************************************************\
  * VM: Stack macros
@@ -329,6 +381,39 @@ static void tc_output_flush_mqtt(void) {
 }
 
 /*********************************************************************************************\
+ * File I/O helpers
+\*********************************************************************************************/
+
+// Close all open file handles (call on VM stop/reset)
+static void tc_close_all_files(void) {
+  if (!Tinyc) return;
+  for (int i = 0; i < TC_MAX_FILE_HANDLES; i++) {
+    if (Tinyc->file_used[i]) {
+      Tinyc->file_handles[i].close();
+      Tinyc->file_used[i] = false;
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: file cleanup handle %d"), i);
+    }
+  }
+}
+
+// Find a free file handle slot, returns -1 if none available
+static int tc_alloc_file_handle(void) {
+  if (!Tinyc) return -1;
+  for (int i = 0; i < TC_MAX_FILE_HANDLES; i++) {
+    if (!Tinyc->file_used[i]) return i;
+  }
+  return -1;
+}
+
+// Get a constant string from the constant pool, returns nullptr on error
+static const char* tc_get_const_str(TcVM *vm, int32_t idx) {
+  if (idx >= 0 && idx < vm->const_count && vm->constants[idx].type == 1) {
+    return vm->constants[idx].str.ptr;
+  }
+  return nullptr;
+}
+
+/*********************************************************************************************\
  * VM: Syscall dispatch
 \*********************************************************************************************/
 
@@ -376,6 +461,20 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       b = TC_POP(vm); a = TC_POP(vm);
       if (a >= 0 && a < MAX_GPIO_PIN) {
         analogWrite(a, b);
+      }
+      break;
+    case SYS_GPIO_INIT:
+      // Release pin from Tasmota GPIO management and set mode
+      // This allows direct GPIO control even on pins assigned to Relay etc.
+      b = TC_POP(vm); a = TC_POP(vm);  // pin, mode
+      if (a >= 0 && a < MAX_GPIO_PIN) {
+        // Detach from Tasmota function assignment
+        if (TasmotaGlobal.gpio_pin[a] != AGPIO(GPIO_NONE)) {
+          AddLog(LOG_LEVEL_INFO, PSTR("TCC: gpioInit(%d) releasing from Tasmota GPIO function %d"), a, TasmotaGlobal.gpio_pin[a]);
+          TasmotaGlobal.gpio_pin[a] = AGPIO(GPIO_NONE);
+        }
+        pinMode(a, b);
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: gpioInit(%d, %d)"), a, b);
       }
       break;
 
@@ -470,6 +569,225 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       ExecuteCommandPower(a, b, SRC_IGNORE);
       break;
 
+    // ── String operations ─────────────────────────────
+    case SYS_STRLEN: {
+      a = TC_POP(vm);  // array ref
+      int32_t *p = tc_resolve_ref(vm, a);
+      int32_t len = 0;
+      if (p) { while (p[len] != 0 && len < TC_MAX_LOCALS) len++; }
+      TC_PUSH(vm, len);
+      break;
+    }
+    case SYS_STRCPY: {
+      int32_t src_ref = TC_POP(vm);
+      int32_t dst_ref = TC_POP(vm);
+      int32_t *dst = tc_resolve_ref(vm, dst_ref);
+      int32_t *src = tc_resolve_ref(vm, src_ref);
+      if (dst && src) {
+        int32_t i = 0;
+        while (src[i] != 0 && i < TC_MAX_LOCALS - 1) { dst[i] = src[i]; i++; }
+        dst[i] = 0;
+      }
+      break;
+    }
+    case SYS_STRCAT: {
+      int32_t src_ref = TC_POP(vm);
+      int32_t dst_ref = TC_POP(vm);
+      int32_t *dst = tc_resolve_ref(vm, dst_ref);
+      int32_t *src = tc_resolve_ref(vm, src_ref);
+      if (dst && src) {
+        int32_t di = 0;
+        while (dst[di] != 0 && di < TC_MAX_LOCALS - 1) di++;
+        int32_t si = 0;
+        while (src[si] != 0 && di < TC_MAX_LOCALS - 1) { dst[di++] = src[si++]; }
+        dst[di] = 0;
+      }
+      break;
+    }
+    case SYS_STRCMP: {
+      int32_t b_ref = TC_POP(vm);
+      int32_t a_ref = TC_POP(vm);
+      int32_t *pa = tc_resolve_ref(vm, a_ref);
+      int32_t *pb = tc_resolve_ref(vm, b_ref);
+      int32_t result = 0;
+      if (pa && pb) {
+        int32_t i = 0;
+        while (pa[i] != 0 && pb[i] != 0 && pa[i] == pb[i] && i < TC_MAX_LOCALS) i++;
+        result = pa[i] - pb[i];
+      }
+      TC_PUSH(vm, result);
+      break;
+    }
+    case SYS_STR_PRINT: {
+      a = TC_POP(vm);  // array ref
+      int32_t *p = tc_resolve_ref(vm, a);
+      if (p) {
+        int32_t i = 0;
+        while (p[i] != 0 && i < TC_MAX_LOCALS) {
+          tc_output_char((char)(p[i] & 0xFF));
+          i++;
+        }
+      }
+      break;
+    }
+    case SYS_STRCPY_CONST: {
+      int32_t ci = TC_POP(vm);  // constant pool index
+      int32_t dst_ref = TC_POP(vm);
+      int32_t *dst = tc_resolve_ref(vm, dst_ref);
+      if (dst && ci >= 0 && ci < vm->const_count && vm->constants[ci].type == 1) {
+        const char *s = vm->constants[ci].str.ptr;
+        int32_t i = 0;
+        while (s[i] != 0 && i < TC_MAX_LOCALS - 1) { dst[i] = (int32_t)(uint8_t)s[i]; i++; }
+        dst[i] = 0;
+      }
+      break;
+    }
+    case SYS_STRCAT_CONST: {
+      int32_t ci = TC_POP(vm);  // constant pool index
+      int32_t dst_ref = TC_POP(vm);
+      int32_t *dst = tc_resolve_ref(vm, dst_ref);
+      if (dst && ci >= 0 && ci < vm->const_count && vm->constants[ci].type == 1) {
+        const char *s = vm->constants[ci].str.ptr;
+        int32_t di = 0;
+        while (dst[di] != 0 && di < TC_MAX_LOCALS - 1) di++;
+        int32_t si = 0;
+        while (s[si] != 0 && di < TC_MAX_LOCALS - 1) { dst[di++] = (int32_t)(uint8_t)s[si++]; }
+        dst[di] = 0;
+      }
+      break;
+    }
+
+    // ── File I/O (LittleFS) ────────────────────────────
+    case SYS_FILE_OPEN: {
+      int32_t mode = TC_POP(vm);       // 0=read, 1=write, 2=append
+      int32_t ci = TC_POP(vm);         // const pool index for path
+      const char *path = tc_get_const_str(vm, ci);
+      if (!path) { TC_PUSH(vm, -1); break; }
+      int slot = tc_alloc_file_handle();
+      if (slot < 0) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: fileOpen no free handle"));
+        TC_PUSH(vm, -1);
+        break;
+      }
+      const char *mode_str;
+      switch (mode) {
+        case 0:  mode_str = "r";  Tinyc->file_handles[slot] = LittleFS.open(path, "r"); break;
+        case 1:  mode_str = "w";  Tinyc->file_handles[slot] = LittleFS.open(path, "w"); break;
+        case 2:  mode_str = "a";  Tinyc->file_handles[slot] = LittleFS.open(path, "a"); break;
+        default: mode_str = "?";  TC_PUSH(vm, -1); break;
+      }
+      if (mode > 2) break;  // invalid mode already pushed -1
+      if (!Tinyc->file_handles[slot]) {
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileOpen(\"%s\", %s) failed"), path, mode_str);
+        TC_PUSH(vm, -1);
+      } else {
+        Tinyc->file_used[slot] = true;
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileOpen(\"%s\", %s) → handle %d"), path, mode_str, slot);
+        TC_PUSH(vm, slot);
+      }
+      break;
+    }
+    case SYS_FILE_CLOSE: {
+      int32_t h = TC_POP(vm);
+      if (h >= 0 && h < TC_MAX_FILE_HANDLES && Tinyc->file_used[h]) {
+        Tinyc->file_handles[h].close();
+        Tinyc->file_used[h] = false;
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileClose(%d)"), h);
+        TC_PUSH(vm, 0);
+      } else {
+        TC_PUSH(vm, -1);
+      }
+      break;
+    }
+    case SYS_FILE_READ: {
+      int32_t maxBytes = TC_POP(vm);   // max bytes to read
+      int32_t buf_ref = TC_POP(vm);    // array ref for destination buffer
+      int32_t h = TC_POP(vm);          // file handle
+      int32_t *buf = tc_resolve_ref(vm, buf_ref);
+      if (!buf || h < 0 || h >= TC_MAX_FILE_HANDLES || !Tinyc->file_used[h]) {
+        TC_PUSH(vm, -1);
+        break;
+      }
+      // Limit to prevent buffer overrun (TC_MAX_LOCALS bounds)
+      if (maxBytes > TC_MAX_LOCALS - 1) maxBytes = TC_MAX_LOCALS - 1;
+      // Read via temp byte buffer (File reads bytes, VM stores int32 per element)
+      uint8_t tmp[256];
+      int32_t total = 0;
+      while (total < maxBytes) {
+        int32_t chunk = maxBytes - total;
+        if (chunk > (int32_t)sizeof(tmp)) chunk = sizeof(tmp);
+        int n = Tinyc->file_handles[h].read(tmp, chunk);
+        if (n <= 0) break;
+        for (int i = 0; i < n; i++) {
+          buf[total + i] = (int32_t)tmp[i];
+        }
+        total += n;
+      }
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileRead(%d, %d) → %d bytes"), h, maxBytes, total);
+      TC_PUSH(vm, total);
+      break;
+    }
+    case SYS_FILE_WRITE: {
+      int32_t len = TC_POP(vm);        // bytes to write
+      int32_t buf_ref = TC_POP(vm);    // array ref for source buffer
+      int32_t h = TC_POP(vm);          // file handle
+      int32_t *buf = tc_resolve_ref(vm, buf_ref);
+      if (!buf || h < 0 || h >= TC_MAX_FILE_HANDLES || !Tinyc->file_used[h]) {
+        TC_PUSH(vm, -1);
+        break;
+      }
+      if (len > TC_MAX_LOCALS) len = TC_MAX_LOCALS;
+      // Convert int32 array elements to bytes and write
+      uint8_t tmp[256];
+      int32_t total = 0;
+      while (total < len) {
+        int32_t chunk = len - total;
+        if (chunk > (int32_t)sizeof(tmp)) chunk = sizeof(tmp);
+        for (int32_t i = 0; i < chunk; i++) {
+          tmp[i] = (uint8_t)(buf[total + i] & 0xFF);
+        }
+        int n = Tinyc->file_handles[h].write(tmp, chunk);
+        if (n <= 0) break;
+        total += n;
+      }
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileWrite(%d, %d) → %d bytes"), h, len, total);
+      TC_PUSH(vm, total);
+      break;
+    }
+    case SYS_FILE_EXISTS: {
+      int32_t ci = TC_POP(vm);
+      const char *path = tc_get_const_str(vm, ci);
+      if (!path) { TC_PUSH(vm, 0); break; }
+      bool exists = LittleFS.exists(path);
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileExists(\"%s\") → %d"), path, exists ? 1 : 0);
+      TC_PUSH(vm, exists ? 1 : 0);
+      break;
+    }
+    case SYS_FILE_DELETE: {
+      int32_t ci = TC_POP(vm);
+      const char *path = tc_get_const_str(vm, ci);
+      if (!path) { TC_PUSH(vm, -1); break; }
+      bool ok = LittleFS.remove(path);
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileDelete(\"%s\") → %d"), path, ok ? 0 : -1);
+      TC_PUSH(vm, ok ? 0 : -1);
+      break;
+    }
+    case SYS_FILE_SIZE: {
+      int32_t ci = TC_POP(vm);
+      const char *path = tc_get_const_str(vm, ci);
+      if (!path) { TC_PUSH(vm, -1); break; }
+      File f = LittleFS.open(path, "r");
+      if (!f) {
+        TC_PUSH(vm, -1);
+      } else {
+        int32_t sz = f.size();
+        f.close();
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileSize(\"%s\") → %d"), path, sz);
+        TC_PUSH(vm, sz);
+      }
+      break;
+    }
+
     // ── Debug ─────────────────────────────────────────
     case SYS_DEBUG_PRINT:
       a = TC_POP(vm);
@@ -539,6 +857,9 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
     }
     vm->const_count++;
   }
+
+  // Close any open file handles from previous run
+  tc_close_all_files();
 
   vm->code = binary;
   vm->code_offset = const_end;
@@ -696,6 +1017,16 @@ static int tc_vm_step(TcVM *vm) {
     case OP_F2I: fa=TC_POPF(vm); TC_PUSH(vm, (int32_t)fa); break;
     case OP_I2C: a=TC_POP(vm); TC_PUSH(vm, a & 0xFF); break;
 
+    // ── Array address refs (for string functions) ──
+    case OP_ADDR_LOCAL:
+      idx = tc_read_u8(vm);
+      TC_PUSH(vm, tc_make_local_ref(vm->fp, idx));
+      break;
+    case OP_ADDR_GLOBAL:
+      addr = tc_read_u16(vm);
+      TC_PUSH(vm, tc_make_global_ref(addr));
+      break;
+
     // ── Constants ──────────────────────────
     case OP_LOAD_CONST:
       addr = tc_read_u16(vm);
@@ -798,6 +1129,7 @@ static void tc_vm_task(void *param) {
   }
 
   // Cleanup
+  tc_close_all_files();
   tc_output_flush();
   if (vm->halted) {
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: Halted after %u instr"), vm->instruction_count);
