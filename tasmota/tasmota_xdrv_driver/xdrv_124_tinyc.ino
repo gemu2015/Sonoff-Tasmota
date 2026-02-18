@@ -339,6 +339,12 @@ static void HandleTinyCPage(void) {
     "</form>"));
 
   // Open IDE button
+#if defined(USE_TINYC_IDE) && defined(USE_UFILESYS)
+  WSContentSend_P(PSTR(
+    "<hr><h3>TinyC IDE</h3>"
+    "<p><button onclick=\"window.open('/ide')\" style='padding:6px 16px'>Open IDE (on device)</button></p>"
+    "<p style='font-size:smaller;color:gray'>IDE served from device filesystem</p>"));
+#else
   WSContentSend_P(PSTR(
     "<hr><h3>TinyC IDE</h3>"
     "<p><input id='ide_url' value='http://localhost:8080' style='width:260px;padding:4px'>"
@@ -349,6 +355,7 @@ static void HandleTinyCPage(void) {
     "if(u)document.getElementById('ide_url').value=u;"
     "document.getElementById('ide_url').onchange=function(){"
     "localStorage.setItem('tinyc_ide_url',this.value)};</script>"));
+#endif
 
   WSContentSpaceButton(BUTTON_MAIN);
   WSContentEnd();
@@ -523,6 +530,51 @@ static void HandleTinyCApiCORS(void) {
   Webserver->send(204);
 }
 
+// ─── Self-hosted IDE (optional — #define USE_TINYC_IDE) ──────
+// Serves /tinyc_ide.html (or .gz) from filesystem at /ide
+#ifdef USE_TINYC_IDE
+#ifdef USE_UFILESYS
+static void HandleTinyCIde(void) {
+  if (!ffsp) {
+    Webserver->send(503, "text/plain", "Filesystem not available");
+    return;
+  }
+
+  // Try gzipped version first
+  bool gzipped = false;
+  File f = ffsp->open("/tinyc_ide.html.gz", "r");
+  if (f) {
+    gzipped = true;
+  } else {
+    f = ffsp->open("/tinyc_ide.html", "r");
+  }
+
+  if (!f) {
+    Webserver->send(404, "text/plain", "TinyC IDE not found. Upload tinyc_ide.html to device filesystem.");
+    return;
+  }
+
+  uint32_t fsize = f.size();
+  if (gzipped) {
+    Webserver->sendHeader("Content-Encoding", "gzip");
+  }
+  Webserver->setContentLength(fsize);
+  Webserver->send(200, "text/html", "");
+
+  // Stream file in chunks
+  uint8_t buf[512];
+  while (f.available()) {
+    int n = f.read(buf, sizeof(buf));
+    if (n > 0) {
+      Webserver->client().write(buf, n);
+    }
+    yield();
+  }
+  f.close();
+}
+#endif  // USE_UFILESYS
+#endif  // USE_TINYC_IDE
+
 #endif  // USE_WEBSERVER
 
 /*********************************************************************************************\
@@ -590,6 +642,9 @@ bool Xdrv124(uint32_t function) {
       Webserver->on("/tc_upload", HTTP_OPTIONS, HandleTinyCUploadCORS);
       WebServer_on(PSTR("/tc_api"), HandleTinyCApi);
       Webserver->on("/tc_api", HTTP_OPTIONS, HandleTinyCApiCORS);
+#if defined(USE_TINYC_IDE) && defined(USE_UFILESYS)
+      WebServer_on(PSTR("/ide"), HandleTinyCIde);
+#endif
       break;
 #endif
     case FUNC_ACTIVE:
