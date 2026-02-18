@@ -275,87 +275,119 @@ static void HandleTinyCPage(void) {
   WSContentStart_P(PSTR("TinyC Console"));
   WSContentSendStyle();
 
-  // Status
-  WSContentSend_P(PSTR("<h2>TinyC VM</h2>"));
+  // Handle button commands first (before displaying status)
+  if (Tinyc && Webserver->hasArg(F("cmd"))) {
+    String cmd = Webserver->arg(F("cmd"));
+    if (cmd == "run") {
+      TinyCStartVM();
+    } else if (cmd == "stop") {
+      TinyCStopVM();
+    } else if (cmd == "reset") {
+      CmndTinyCReset();
+    }
+  }
+
+  // Custom styles for this page
+  WSContentSend_P(PSTR(
+    "<style>"
+    ".tc-stat{background:var(--c_frm);border-radius:.3em;padding:10px 14px;margin:8px 0}"
+    ".tc-stat table{width:100%%}"
+    ".tc-stat td{padding:4px 8px}"
+    ".tc-stat td:first-child{color:var(--c_txt);opacity:.7;width:120px}"
+    ".tc-stat td:last-child{font-weight:bold}"
+    ".tc-run{color:#0a0}.tc-load{color:#fa0}.tc-empty{color:var(--c_txt);opacity:.5}"
+    ".tc-err{color:#f44}"
+    ".tc-btns{display:flex;gap:8px;margin:10px 0}"
+    ".tc-btns button{width:auto;flex:1;padding:0 12px}"
+    ".tc-out{background:#1a1a1a;color:#0f0;padding:10px;border-radius:.3em;"
+    "max-height:200px;overflow:auto;font-family:monospace;font-size:.9em;"
+    "white-space:pre-wrap;word-break:break-all;margin:8px 0}"
+    ".tc-sect{margin-top:16px;padding-top:12px;border-top:1px solid var(--c_btn)}"
+    ".tc-upload input[type=file]{margin:8px 0}"
+    ".tc-ide-url{display:flex;gap:8px;align-items:center}"
+    ".tc-ide-url input{flex:1;padding:6px 8px}"
+    ".tc-ide-url button{width:auto;padding:0 16px}"
+    "</style>"));
+
+  // --- VM Status ---
+  WSContentSend_P(PSTR("<fieldset><legend><b> TinyC VM </b></legend>"));
   if (Tinyc) {
+    const char *state;
+    const char *state_class;
+    if (Tinyc->running) { state = "Running"; state_class = "tc-run"; }
+    else if (Tinyc->loaded) { state = "Loaded"; state_class = "tc-load"; }
+    else { state = "Empty"; state_class = "tc-empty"; }
+
     WSContentSend_P(PSTR(
-      "<table style='width:100%%'>"
-      "<tr><td>Status</td><td><b>%s</b></td></tr>"
+      "<div class='tc-stat'><table>"
+      "<tr><td>Status</td><td><span class='%s'>&#x25cf; %s</span></td></tr>"
       "<tr><td>Program</td><td>%s (%d bytes)</td></tr>"
       "<tr><td>Instructions</td><td>%u</td></tr>"
-      "<tr><td>PC / SP</td><td>%d / %d</td></tr>"
-      "<tr><td>Error</td><td>%s</td></tr>"
-      "<tr><td>Instr/tick</td><td>%d</td></tr>"
-      "</table>"),
-      Tinyc->running ? "Running" : (Tinyc->loaded ? "Loaded" : "Empty"),
+      "<tr><td>PC / SP</td><td>%d / %d</td></tr>"),
+      state_class, state,
       Tinyc->loaded ? "Loaded" : "None",
       Tinyc->program_size,
       Tinyc->vm.instruction_count,
-      Tinyc->vm.pc - Tinyc->vm.code_offset, Tinyc->vm.sp,
-      tc_error_str(Tinyc->vm.error),
+      Tinyc->vm.pc - Tinyc->vm.code_offset, Tinyc->vm.sp);
+
+    // Only show error row if there's an error
+    if (Tinyc->vm.error != 0) {
+      WSContentSend_P(PSTR("<tr><td>Error</td><td class='tc-err'>%s</td></tr>"),
+        tc_error_str(Tinyc->vm.error));
+    }
+
+    WSContentSend_P(PSTR(
+      "<tr><td>Instr/tick</td><td>%d</td></tr>"
+      "</table></div>"),
       Tinyc->instr_per_tick);
 
     // Control buttons
     WSContentSend_P(PSTR(
-      "<br><form action='/tc' method='get'>"
-      "<button name='cmd' value='run'>Run</button> "
-      "<button name='cmd' value='stop'>Stop</button> "
-      "<button name='cmd' value='reset'>Reset</button>"
-      "</form>"));
-
-    // Handle button commands
-    if (Webserver->hasArg(F("cmd"))) {
-      String cmd = Webserver->arg(F("cmd"));
-      if (cmd == "run") {
-        if (TinyCStartVM()) {
-          WSContentSend_P(PSTR("<p style='color:green'>Program started</p>"));
-        } else {
-          WSContentSend_P(PSTR("<p style='color:red'>Start failed</p>"));
-        }
-      } else if (cmd == "stop") {
-        TinyCStopVM();
-        WSContentSend_P(PSTR("<p style='color:orange'>Program stopped</p>"));
-      } else if (cmd == "reset") {
-        CmndTinyCReset();
-        WSContentSend_P(PSTR("<p>VM reset</p>"));
-      }
-    }
+      "<div class='tc-btns'><form action='/tc' method='get' style='display:flex;gap:8px;width:100%%'>"
+      "<button name='cmd' value='run' class='button bgrn'>&#x25B6; Run</button>"
+      "<button name='cmd' value='stop' class='button bred'>&#x25A0; Stop</button>"
+      "<button name='cmd' value='reset' class='button'>&#x21BB; Reset</button>"
+      "</form></div>"));
 
     // Output log
     if (Tinyc->output_len > 0) {
-      WSContentSend_P(PSTR("<h3>Output</h3><pre style='background:#222;color:#0f0;padding:8px;max-height:200px;overflow:auto'>%s</pre>"),
-        Tinyc->output);
+      WSContentSend_P(PSTR("<b>Output</b><div class='tc-out'>%s</div>"), Tinyc->output);
     }
   } else {
-    WSContentSend_P(PSTR("<p>TinyC not initialized</p>"));
+    WSContentSend_P(PSTR("<p style='text-align:center;opacity:.6'>TinyC not initialized</p>"));
   }
+  WSContentSend_P(PSTR("</fieldset>"));
 
-  // Upload form
+  // --- Upload Section ---
   WSContentSend_P(PSTR(
-    "<hr><h3>Upload Program (.tcb)</h3>"
-    "<form method='POST' action='/tc_upload' enctype='multipart/form-data'>"
+    "<fieldset><legend><b> Upload Program </b></legend>"
+    "<form class='tc-upload' method='POST' action='/tc_upload' enctype='multipart/form-data'>"
     "<input type='file' name='tcb' accept='.tcb'>"
-    "<br><br><button type='submit'>Upload</button>"
-    "</form>"));
+    "<button type='submit' class='button bgrn'>Upload .tcb</button>"
+    "</form></fieldset>"));
 
-  // Open IDE button
+  // --- IDE Section ---
+  WSContentSend_P(PSTR("<fieldset><legend><b> TinyC IDE </b></legend>"));
 #if defined(USE_TINYC_IDE) && defined(USE_UFILESYS)
   WSContentSend_P(PSTR(
-    "<hr><h3>TinyC IDE</h3>"
-    "<p><button onclick=\"window.open('/ide')\" style='padding:6px 16px'>Open IDE (on device)</button></p>"
-    "<p style='font-size:smaller;color:gray'>IDE served from device filesystem</p>"));
+    "<p style='text-align:center'>"
+    "<button onclick=\"window.open('/ide')\" class='button bgrn'>Open IDE</button>"
+    "</p>"
+    "<p style='text-align:center;font-size:.85em;opacity:.6'>Served from device filesystem</p>"));
 #else
   WSContentSend_P(PSTR(
-    "<hr><h3>TinyC IDE</h3>"
-    "<p><input id='ide_url' value='http://localhost:8080' style='width:260px;padding:4px'>"
-    "<button onclick=\"window.open(document.getElementById('ide_url').value"
-    "+'?device='+location.hostname)\" style='margin-left:8px;padding:4px 12px'>Open IDE</button></p>"
-    "<p style='font-size:smaller;color:gray'>IDE URL is saved in browser</p>"
+    "<div class='tc-ide-url'>"
+    "<input id='ide_url' value='http://localhost:8080' placeholder='IDE URL'>"
+    "<button onclick=\"var u=document.getElementById('ide_url').value;"
+    "window.open(u+'?device='+location.hostname)\" class='button bgrn'>Open</button>"
+    "</div>"
+    "<p style='text-align:center;font-size:.85em;opacity:.6'>IDE URL saved in browser</p>"
     "<script>var u=localStorage.getItem('tinyc_ide_url');"
     "if(u)document.getElementById('ide_url').value=u;"
     "document.getElementById('ide_url').onchange=function(){"
     "localStorage.setItem('tinyc_ide_url',this.value)};</script>"));
 #endif
+  WSContentSend_P(PSTR("</fieldset>"));
 
   WSContentSpaceButton(BUTTON_MAIN);
   WSContentEnd();
@@ -387,14 +419,19 @@ static void HandleTinyCUploadDone(void) {
   WSContentSendStyle();
 
   if (Tinyc && Tinyc->loaded) {
-    WSContentSend_P(PSTR("<p style='color:green'><b>Upload successful!</b></p>"
-      "<p>Program size: %d bytes</p>"
-      "<p><a href='/tc'>Back to TinyC Console</a></p>"),
+    WSContentSend_P(PSTR(
+      "<fieldset><legend><b> Upload Result </b></legend>"
+      "<p style='text-align:center;color:#0a0'><b>&#x2714; Upload successful!</b></p>"
+      "<p style='text-align:center'>Program size: %d bytes</p>"
+      "</fieldset>"),
       Tinyc->program_size);
   } else {
-    WSContentSend_P(PSTR("<p style='color:red'><b>Upload failed</b></p>"
-      "<p><a href='/tc'>Back to TinyC Console</a></p>"));
+    WSContentSend_P(PSTR(
+      "<fieldset><legend><b> Upload Result </b></legend>"
+      "<p style='text-align:center;color:#f44'><b>&#x2718; Upload failed</b></p>"
+      "</fieldset>"));
   }
+  WSContentSend_P(HTTP_FORM_BUTTON, PSTR("tc"), PSTR("Back to TinyC"));
 
   WSContentSpaceButton(BUTTON_MAIN);
   WSContentEnd();
@@ -572,6 +609,47 @@ static void HandleTinyCIde(void) {
   }
   f.close();
 }
+
+// Serve /tinyc_examples.json from filesystem (loaded async by IDE)
+static void HandleTinyCExamples(void) {
+  if (!ffsp) {
+    Webserver->send(503, "application/json", "{\"error\":\"no filesystem\"}");
+    return;
+  }
+
+  Webserver->sendHeader("Access-Control-Allow-Origin", "*");
+
+  // Try gzipped version first
+  bool gzipped = false;
+  File f = ffsp->open("/tinyc_examples.json.gz", "r");
+  if (f) {
+    gzipped = true;
+  } else {
+    f = ffsp->open("/tinyc_examples.json", "r");
+  }
+
+  if (!f) {
+    Webserver->send(404, "application/json", "{\"error\":\"examples not found\"}");
+    return;
+  }
+
+  uint32_t fsize = f.size();
+  if (gzipped) {
+    Webserver->sendHeader("Content-Encoding", "gzip");
+  }
+  Webserver->setContentLength(fsize);
+  Webserver->send(200, "application/json", "");
+
+  uint8_t buf[512];
+  while (f.available()) {
+    int n = f.read(buf, sizeof(buf));
+    if (n > 0) {
+      Webserver->client().write(buf, n);
+    }
+    yield();
+  }
+  f.close();
+}
 #endif  // USE_UFILESYS
 #endif  // USE_TINYC_IDE
 
@@ -644,6 +722,7 @@ bool Xdrv124(uint32_t function) {
       Webserver->on("/tc_api", HTTP_OPTIONS, HandleTinyCApiCORS);
 #if defined(USE_TINYC_IDE) && defined(USE_UFILESYS)
       WebServer_on(PSTR("/ide"), HandleTinyCIde);
+      WebServer_on(PSTR("/tinyc_examples.json"), HandleTinyCExamples);
 #endif
       break;
 #endif
