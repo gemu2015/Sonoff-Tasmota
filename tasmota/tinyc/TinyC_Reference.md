@@ -908,6 +908,49 @@ void UdpCall() {
 }
 ```
 
+### I2C Bus
+
+Direct I2C bus access for sensor drivers (requires `USE_I2C`). All functions take `bus` as the last parameter (0 or 1).
+
+| Function | Description |
+|----------|-------------|
+| `int i2cExists(int addr, int bus)` | Check if device responds at address. Returns 1 if found |
+| `int i2cRead8(int addr, int reg, int bus)` | Read single byte from register. Returns byte value (0–255) |
+| `int i2cWrite8(int addr, int reg, int val, int bus)` | Write single byte to register. Returns 1=ok, 0=fail |
+| `int i2cRead(int addr, int reg, char buf[], int len, int bus)` | Read `len` bytes into char array. Returns 1=ok |
+| `int i2cWrite(int addr, int reg, char buf[], int len, int bus)` | Write `len` bytes from char array. Returns 1=ok |
+
+**Notes:**
+- `bus` = 0 or 1 — selects which I2C bus to use
+- Address is 7-bit (0x00–0x7F), e.g. `0x48` for TMP102
+- Register is 8-bit (0x00–0xFF)
+- Buffer functions use `char[]` arrays — each element holds one byte (0–255)
+- Maximum buffer length is 255 bytes
+- Returns 0 if I2C is not compiled in or the operation fails
+
+**Example — Read TMP102 temperature sensor on bus 0:**
+```c
+#define TMP102_ADDR  0x48
+#define TMP102_TEMP  0x00
+#define I2C_BUS      0
+
+void EverySecond() {
+    if (!i2cExists(TMP102_ADDR, I2C_BUS)) return;
+
+    char buf[2];
+    if (i2cRead(TMP102_ADDR, TMP102_TEMP, buf, 2, I2C_BUS)) {
+        // TMP102: 12-bit temp in upper bits of 2 bytes
+        int raw = (buf[0] << 4) | (buf[1] >> 4);
+        if (raw > 2047) raw = raw - 4096;  // sign extend
+        float temp = (float)raw * 0.0625;
+
+        char out[64];
+        sprintfFloat(out, "TMP102: %.2f °C\n", temp);
+        printString(out);
+    }
+}
+```
+
 ### Smart Meter (SML)
 
 Read meter values from Tasmota's SML driver (requires `USE_SML` or `USE_SML_M`).

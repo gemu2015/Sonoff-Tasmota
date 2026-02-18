@@ -194,6 +194,12 @@ enum TcSyscall {
   SYS_UDP_READY           = 102, // (const_idx_name) -> int — 1 if new value available
   SYS_UDP_SEND_ARRAY      = 103, // (const_idx_name, arr_ref, count) -> void — float array
   SYS_UDP_RECV_ARRAY      = 104, // (const_idx_name, arr_ref, maxcount) -> int — recv array
+  // I2C bus (last param = bus: 0 or 1)
+  SYS_I2C_READ8           = 105, // (addr, reg, bus) -> int — read byte
+  SYS_I2C_WRITE8          = 106, // (addr, reg, val, bus) -> int — write byte, 1=ok
+  SYS_I2C_READ_BUF        = 107, // (addr, reg, buf_ref, len, bus) -> int — read into char[]
+  SYS_I2C_WRITE_BUF       = 108, // (addr, reg, buf_ref, len, bus) -> int — write from char[]
+  SYS_I2C_EXISTS           = 109, // (addr, bus) -> int — 1 if device on bus
   // Smart Meter (SML)
   SYS_SML_GET             = 110, // (index) -> float — meter value (1-based, 0=count)
   SYS_SML_GETSTR          = 111, // (index, buf_ref) -> int — meter ID string into buf
@@ -1773,6 +1779,97 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       } else {
         TC_PUSH(vm, 0);
       }
+      break;
+    }
+
+    // ── I2C bus (all calls take bus as last param: 0 or 1) ──
+    case SYS_I2C_READ8: {
+      // Stack: [addr, reg, bus] — bus on top
+      int32_t bus = TC_POP(vm);
+      b = TC_POP(vm);  // reg
+      a = TC_POP(vm);  // addr
+#ifdef USE_I2C
+      TC_PUSH(vm, (int32_t)I2cRead8((uint8_t)a, (uint8_t)b, (uint8_t)bus));
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_I2C_WRITE8: {
+      // Stack: [addr, reg, val, bus] — bus on top
+      int32_t bus = TC_POP(vm);
+      int32_t val = TC_POP(vm);
+      b = TC_POP(vm);  // reg
+      a = TC_POP(vm);  // addr
+#ifdef USE_I2C
+      TC_PUSH(vm, I2cWrite8((uint8_t)a, (uint8_t)b, (uint32_t)(val & 0xFF), (uint8_t)bus) ? 1 : 0);
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_I2C_READ_BUF: {
+      // Stack: [addr, reg, buf_ref, len, bus] — bus on top
+      int32_t bus = TC_POP(vm);
+      int32_t len = TC_POP(vm);
+      int32_t buf_ref = TC_POP(vm);
+      b = TC_POP(vm);  // reg
+      a = TC_POP(vm);  // addr
+#ifdef USE_I2C
+      int32_t *arr = tc_resolve_ref(vm, buf_ref);
+      int32_t maxLen = tc_ref_maxlen(vm, buf_ref);
+      if (arr && len > 0) {
+        if (len > maxLen) len = maxLen;
+        if (len > 255) len = 255;  // I2C practical limit
+        uint8_t tmpbuf[256];
+        bool ok = I2cReadBuffer((uint8_t)a, (int)b, tmpbuf, (uint16_t)len, (uint8_t)bus);
+        if (ok) {
+          for (int32_t i = 0; i < len; i++) { arr[i] = (int32_t)tmpbuf[i]; }
+          TC_PUSH(vm, 1);
+        } else {
+          TC_PUSH(vm, 0);
+        }
+      } else {
+        TC_PUSH(vm, 0);
+      }
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_I2C_WRITE_BUF: {
+      // Stack: [addr, reg, buf_ref, len, bus] — bus on top
+      int32_t bus = TC_POP(vm);
+      int32_t len = TC_POP(vm);
+      int32_t buf_ref = TC_POP(vm);
+      b = TC_POP(vm);  // reg
+      a = TC_POP(vm);  // addr
+#ifdef USE_I2C
+      int32_t *arr = tc_resolve_ref(vm, buf_ref);
+      int32_t maxLen = tc_ref_maxlen(vm, buf_ref);
+      if (arr && len > 0) {
+        if (len > maxLen) len = maxLen;
+        if (len > 255) len = 255;
+        uint8_t tmpbuf[256];
+        for (int32_t i = 0; i < len; i++) { tmpbuf[i] = (uint8_t)(arr[i] & 0xFF); }
+        TC_PUSH(vm, I2cWriteBuffer((uint8_t)a, (uint8_t)b, tmpbuf, (uint16_t)len, (uint8_t)bus) ? 1 : 0);
+      } else {
+        TC_PUSH(vm, 0);
+      }
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_I2C_EXISTS: {
+      // Stack: [addr, bus] — bus on top
+      int32_t bus = TC_POP(vm);
+      a = TC_POP(vm);  // addr
+#ifdef USE_I2C
+      TC_PUSH(vm, I2cSetDevice((uint32_t)a, (uint8_t)bus) ? 1 : 0);
+#else
+      TC_PUSH(vm, 0);
+#endif
       break;
     }
 
