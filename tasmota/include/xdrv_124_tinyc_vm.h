@@ -161,21 +161,36 @@ enum {
   TC_ERR_BOUNDS,         TC_ERR_PAUSED,
 };
 
+// Error strings in PROGMEM — saves ~120 bytes RAM on ESP8266
+static const char TC_ERR_00[] PROGMEM = "OK";
+static const char TC_ERR_01[] PROGMEM = "Stack overflow";
+static const char TC_ERR_02[] PROGMEM = "Stack underflow";
+static const char TC_ERR_03[] PROGMEM = "Call stack overflow";
+static const char TC_ERR_04[] PROGMEM = "Division by zero";
+static const char TC_ERR_05[] PROGMEM = "Unknown opcode";
+static const char TC_ERR_06[] PROGMEM = "Unknown syscall";
+static const char TC_ERR_07[] PROGMEM = "Invalid binary";
+static const char TC_ERR_08[] PROGMEM = "Instruction limit";
+static const char TC_ERR_09[] PROGMEM = "Bounds error";
+static const char TC_ERR_10[] PROGMEM = "Paused (delay)";
+static const char TC_ERR_XX[] PROGMEM = "Unknown";
+
+static const char * const tc_error_table[] PROGMEM = {
+  TC_ERR_00, TC_ERR_01, TC_ERR_02, TC_ERR_03, TC_ERR_04,
+  TC_ERR_05, TC_ERR_06, TC_ERR_07, TC_ERR_08, TC_ERR_09, TC_ERR_10
+};
+
 static const char* tc_error_str(int err) {
-  switch (err) {
-    case TC_OK:                   return "OK";
-    case TC_ERR_STACK_OVERFLOW:   return "Stack overflow";
-    case TC_ERR_STACK_UNDERFLOW:  return "Stack underflow";
-    case TC_ERR_FRAME_OVERFLOW:   return "Call stack overflow";
-    case TC_ERR_DIV_ZERO:         return "Division by zero";
-    case TC_ERR_BAD_OPCODE:       return "Unknown opcode";
-    case TC_ERR_BAD_SYSCALL:      return "Unknown syscall";
-    case TC_ERR_BAD_BINARY:       return "Invalid binary";
-    case TC_ERR_INSTRUCTION_LIMIT:return "Instruction limit";
-    case TC_ERR_BOUNDS:           return "Bounds error";
-    case TC_ERR_PAUSED:           return "Paused (delay)";
-    default:                      return "Unknown";
+  static char buf[24];
+  const char *p;
+  if (err >= 0 && err <= TC_ERR_PAUSED) {
+    p = (const char *)pgm_read_ptr(&tc_error_table[err]);
+  } else {
+    p = TC_ERR_XX;
   }
+  strncpy_P(buf, p, sizeof(buf) - 1);
+  buf[sizeof(buf) - 1] = '\0';
+  return buf;
 }
 
 /*********************************************************************************************\

@@ -135,6 +135,8 @@ static void TinyCEvery50ms(void) {
  * Tasmota: Commands
 \*********************************************************************************************/
 
+static const char TC_NOT_INIT[] PROGMEM = "Not initialized";
+
 #define D_PRFX_TINYC "TinyC"
 
 const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
@@ -146,7 +148,7 @@ void (* const TinyCCommand[])(void) PROGMEM = {
 };
 
 void CmndTinyC(void) {
-  if (!Tinyc) { ResponseCmndChar("Not initialized"); return; }
+  if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
   Response_P(PSTR("{\"TinyC\":{\"Loaded\":%d,\"Running\":%d,\"Size\":%d,"
     "\"PC\":%d,\"SP\":%d,\"Instr\":%u,\"Error\":\"%s\",\"Heap\":%d}}"),
     Tinyc->loaded ? 1 : 0,
@@ -230,23 +232,23 @@ static void TinyCStopVM(void) {
 }
 
 void CmndTinyCRun(void) {
-  if (!Tinyc || !Tinyc->loaded) { ResponseCmndChar("No program loaded"); return; }
+  if (!Tinyc || !Tinyc->loaded) { ResponseCmndChar_P(PSTR("No program loaded")); return; }
   if (!TinyCStartVM()) {
-    ResponseCmndChar("Start failed");
+    ResponseCmndChar_P(PSTR("Start failed"));
     return;
   }
   ResponseCmndDone();
 }
 
 void CmndTinyCStop(void) {
-  if (!Tinyc) { ResponseCmndChar("Not initialized"); return; }
+  if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
   TinyCStopVM();
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program stopped"));
   ResponseCmndDone();
 }
 
 void CmndTinyCReset(void) {
-  if (!Tinyc) { ResponseCmndChar("Not initialized"); return; }
+  if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
   TinyCStopVM();
   memset(&Tinyc->vm, 0, sizeof(TcVM));
   Tinyc->output_len = 0;
@@ -256,7 +258,7 @@ void CmndTinyCReset(void) {
 }
 
 void CmndTinyCExec(void) {
-  if (!Tinyc) { ResponseCmndChar("Not initialized"); return; }
+  if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
   if (XdrvMailbox.payload > 0) {
     Tinyc->instr_per_tick = XdrvMailbox.payload;
   }
@@ -268,6 +270,37 @@ void CmndTinyCExec(void) {
 \*********************************************************************************************/
 
 #ifdef USE_WEBSERVER
+
+// Helper: send response with PROGMEM body string (saves RAM on ESP8266)
+static void WSSend_P(int code, PGM_P content_type, PGM_P body) {
+  char ct[32], buf[96];
+  strncpy_P(ct, content_type, sizeof(ct) - 1); ct[sizeof(ct) - 1] = '\0';
+  strncpy_P(buf, body, sizeof(buf) - 1); buf[sizeof(buf) - 1] = '\0';
+  Webserver->send(code, ct, buf);
+}
+// Shared PROGMEM strings for web responses
+static const char TC_CT_JSON[] PROGMEM = "application/json";
+static const char TC_CORS_ORIGIN[] PROGMEM = "Access-Control-Allow-Origin";
+static const char TC_CORS_METHODS[] PROGMEM = "Access-Control-Allow-Methods";
+static const char TC_CORS_HEADERS[] PROGMEM = "Access-Control-Allow-Headers";
+
+// Send CORS headers from PROGMEM (saves ~180 bytes RAM on ESP8266)
+static void TCSendCORS(const char *methods_ram) {
+  char hdr[40], val[16];
+  strncpy_P(hdr, TC_CORS_ORIGIN, sizeof(hdr)); Webserver->sendHeader(hdr, "*");
+  strncpy_P(hdr, TC_CORS_METHODS, sizeof(hdr)); Webserver->sendHeader(hdr, methods_ram);
+  strncpy_P(hdr, TC_CORS_HEADERS, sizeof(hdr));
+  strcpy_P(val, PSTR("Content-Type"));
+  Webserver->sendHeader(hdr, val);
+}
+// Shorthand for JSON responses
+#define WSSendJSON_P(code, body) WSSend_P(code, TC_CT_JSON, body)
+// Send JSON with pre-filled RAM buffer
+static void WSSendJSON(int code, const char *json_buf) {
+  char ct[20];
+  strncpy_P(ct, TC_CT_JSON, sizeof(ct) - 1); ct[sizeof(ct) - 1] = '\0';
+  Webserver->send(code, ct, json_buf);
+}
 
 static void HandleTinyCPage(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
@@ -312,12 +345,13 @@ static void HandleTinyCPage(void) {
   // --- VM Status ---
   WSContentSend_P(PSTR("<fieldset><legend><b> TinyC VM </b></legend>"));
   if (Tinyc) {
-    const char *state;
-    const char *state_class;
-    if (Tinyc->running) { state = "Running"; state_class = "tc-run"; }
-    else if (Tinyc->loaded) { state = "Loaded"; state_class = "tc-load"; }
-    else { state = "Empty"; state_class = "tc-empty"; }
+    char state[10], state_class[10];
+    if (Tinyc->running) { strcpy_P(state, PSTR("Running")); strcpy_P(state_class, PSTR("tc-run")); }
+    else if (Tinyc->loaded) { strcpy_P(state, PSTR("Loaded")); strcpy_P(state_class, PSTR("tc-load")); }
+    else { strcpy_P(state, PSTR("Empty")); strcpy_P(state_class, PSTR("tc-empty")); }
 
+    char prog_state[8];
+    strcpy_P(prog_state, Tinyc->loaded ? PSTR("Loaded") : PSTR("None"));
     WSContentSend_P(PSTR(
       "<div class='tc-stat'><table>"
       "<tr><td>Status</td><td><span class='%s'>&#x25cf; %s</span></td></tr>"
@@ -325,7 +359,7 @@ static void HandleTinyCPage(void) {
       "<tr><td>Instructions</td><td>%u</td></tr>"
       "<tr><td>PC / SP</td><td>%d / %d</td></tr>"),
       state_class, state,
-      Tinyc->loaded ? "Loaded" : "None",
+      prog_state,
       Tinyc->program_size,
       Tinyc->vm.instruction_count,
       Tinyc->vm.pc - Tinyc->vm.code_offset, Tinyc->vm.sp);
@@ -397,19 +431,17 @@ static void HandleTinyCUploadDone(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
 
   // Check if this is an API call (from browser IDE) via ?api=1 query parameter
-  bool is_api = Webserver->hasArg("api");
+  bool is_api = Webserver->hasArg(F("api"));
 
   if (is_api) {
     // JSON response with CORS headers for browser IDE
-    Webserver->sendHeader("Access-Control-Allow-Origin", "*");
-    Webserver->sendHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-    Webserver->sendHeader("Access-Control-Allow-Headers", "Content-Type");
+    TCSendCORS("POST, OPTIONS");
     if (Tinyc && Tinyc->loaded) {
       char json[128];
       snprintf_P(json, sizeof(json), PSTR("{\"ok\":true,\"size\":%d}"), Tinyc->program_size);
-      Webserver->send(200, "application/json", json);
+      WSSendJSON(200, json);
     } else {
-      Webserver->send(400, "application/json", "{\"ok\":false,\"error\":\"upload failed\"}");
+      WSSendJSON_P(400, PSTR("{\"ok\":false,\"error\":\"upload failed\"}"));
     }
     return;
   }
@@ -439,9 +471,7 @@ static void HandleTinyCUploadDone(void) {
 
 // Handle CORS preflight for browser IDE uploads
 static void HandleTinyCUploadCORS(void) {
-  Webserver->sendHeader("Access-Control-Allow-Origin", "*");
-  Webserver->sendHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  Webserver->sendHeader("Access-Control-Allow-Headers", "Content-Type");
+  TCSendCORS("POST, OPTIONS");
   Webserver->send(204);
 }
 
@@ -513,35 +543,33 @@ static void HandleTinyCUpload(void) {
 // ─── API endpoint for browser IDE (JSON + CORS) ─────────────
 // GET /tc_api?cmd=run|stop|status
 static void HandleTinyCApi(void) {
-  Webserver->sendHeader("Access-Control-Allow-Origin", "*");
-  Webserver->sendHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  Webserver->sendHeader("Access-Control-Allow-Headers", "Content-Type");
+  TCSendCORS("GET, OPTIONS");
 
   if (!Tinyc) {
-    Webserver->send(500, "application/json", "{\"ok\":false,\"error\":\"not initialized\"}");
+    WSSendJSON_P(500, PSTR("{\"ok\":false,\"error\":\"not initialized\"}"));
     return;
   }
 
-  String cmd = Webserver->arg("cmd");
+  String cmd = Webserver->arg(F("cmd"));
   char json[256];
 
   if (cmd == "run") {
     if (!Tinyc->loaded) {
-      Webserver->send(400, "application/json", "{\"ok\":false,\"error\":\"no program loaded\"}");
+      WSSendJSON_P(400, PSTR("{\"ok\":false,\"error\":\"no program loaded\"}"));
       return;
     }
     if (!TinyCStartVM()) {
-      Webserver->send(400, "application/json", "{\"ok\":false,\"error\":\"start failed\"}");
+      WSSendJSON_P(400, PSTR("{\"ok\":false,\"error\":\"start failed\"}"));
       return;
     }
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program started (API)"));
     snprintf_P(json, sizeof(json), PSTR("{\"ok\":true,\"running\":true,\"size\":%d}"), Tinyc->program_size);
-    Webserver->send(200, "application/json", json);
+    WSSendJSON(200, json);
   }
   else if (cmd == "stop") {
     TinyCStopVM();
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program stopped (API)"));
-    Webserver->send(200, "application/json", "{\"ok\":true,\"running\":false}");
+    WSSendJSON_P(200, PSTR("{\"ok\":true,\"running\":false}"));
   }
   else {
     // Default: status
@@ -555,15 +583,13 @@ static void HandleTinyCApi(void) {
       Tinyc->vm.instruction_count,
       tc_error_str(Tinyc->vm.error),
       ESP_getFreeHeap());
-    Webserver->send(200, "application/json", json);
+    WSSendJSON(200, json);
   }
 }
 
 // CORS preflight for /tc_api
 static void HandleTinyCApiCORS(void) {
-  Webserver->sendHeader("Access-Control-Allow-Origin", "*");
-  Webserver->sendHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  Webserver->sendHeader("Access-Control-Allow-Headers", "Content-Type");
+  TCSendCORS("GET, OPTIONS");
   Webserver->send(204);
 }
 
@@ -573,7 +599,7 @@ static void HandleTinyCApiCORS(void) {
 #ifdef USE_UFILESYS
 static void HandleTinyCIde(void) {
   if (!ffsp) {
-    Webserver->send(503, "text/plain", "Filesystem not available");
+    WSSend_P(503, PSTR("text/plain"), PSTR("Filesystem not available"));
     return;
   }
 
@@ -587,19 +613,19 @@ static void HandleTinyCIde(void) {
   }
 
   if (!f) {
-    Webserver->send(404, "text/plain", "TinyC IDE not found. Upload tinyc_ide.html to device filesystem.");
+    WSSend_P(404, PSTR("text/plain"), PSTR("TinyC IDE not found. Upload tinyc_ide.html to filesystem."));
     return;
   }
 
   uint32_t fsize = f.size();
   if (gzipped) {
-    Webserver->sendHeader("Content-Encoding", "gzip");
+    Webserver->sendHeader(F("Content-Encoding"), F("gzip"));
   }
   Webserver->setContentLength(fsize);
-  Webserver->send(200, "text/html", "");
+  WSSend_P(200, PSTR("text/html"), PSTR(""));
 
-  // Stream file in chunks
-  uint8_t buf[512];
+  // Stream file in chunks (smaller buffer on ESP8266 to save stack)
+  uint8_t buf[256];
   while (f.available()) {
     int n = f.read(buf, sizeof(buf));
     if (n > 0) {
@@ -610,46 +636,6 @@ static void HandleTinyCIde(void) {
   f.close();
 }
 
-// Serve /tinyc_examples.json from filesystem (loaded async by IDE)
-static void HandleTinyCExamples(void) {
-  if (!ffsp) {
-    Webserver->send(503, "application/json", "{\"error\":\"no filesystem\"}");
-    return;
-  }
-
-  Webserver->sendHeader("Access-Control-Allow-Origin", "*");
-
-  // Try gzipped version first
-  bool gzipped = false;
-  File f = ffsp->open("/tinyc_examples.json.gz", "r");
-  if (f) {
-    gzipped = true;
-  } else {
-    f = ffsp->open("/tinyc_examples.json", "r");
-  }
-
-  if (!f) {
-    Webserver->send(404, "application/json", "{\"error\":\"examples not found\"}");
-    return;
-  }
-
-  uint32_t fsize = f.size();
-  if (gzipped) {
-    Webserver->sendHeader("Content-Encoding", "gzip");
-  }
-  Webserver->setContentLength(fsize);
-  Webserver->send(200, "application/json", "");
-
-  uint8_t buf[512];
-  while (f.available()) {
-    int n = f.read(buf, sizeof(buf));
-    if (n > 0) {
-      Webserver->client().write(buf, n);
-    }
-    yield();
-  }
-  f.close();
-}
 #endif  // USE_UFILESYS
 #endif  // USE_TINYC_IDE
 
@@ -671,7 +657,10 @@ static void TinyCShow(bool json) {
   }
 #ifdef USE_WEBSERVER
   else {
-    const char *status = Tinyc->running ? "Running" : (Tinyc->loaded ? "Loaded" : "Empty");
+    char status[10];
+    if (Tinyc->running) { strcpy_P(status, PSTR("Running")); }
+    else if (Tinyc->loaded) { strcpy_P(status, PSTR("Loaded")); }
+    else { strcpy_P(status, PSTR("Empty")); }
     WSContentSend_PD(PSTR("{s}TinyC{m}%s (%d bytes){e}"),
       status,
       Tinyc->program_size);
@@ -722,7 +711,6 @@ bool Xdrv124(uint32_t function) {
       Webserver->on("/tc_api", HTTP_OPTIONS, HandleTinyCApiCORS);
 #if defined(USE_TINYC_IDE) && defined(USE_UFILESYS)
       WebServer_on(PSTR("/ide"), HandleTinyCIde);
-      WebServer_on(PSTR("/tinyc_examples.json"), HandleTinyCExamples);
 #endif
       break;
 #endif
