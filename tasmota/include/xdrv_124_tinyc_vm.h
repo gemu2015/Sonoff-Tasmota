@@ -200,6 +200,8 @@ enum TcSyscall {
   SYS_I2C_READ_BUF        = 107, // (addr, reg, buf_ref, len, bus) -> int — read into char[]
   SYS_I2C_WRITE_BUF       = 108, // (addr, reg, buf_ref, len, bus) -> int — write from char[]
   SYS_I2C_EXISTS           = 109, // (addr, bus) -> int — 1 if device on bus
+  SYS_I2C_READ_BUF0       = 112, // (addr, buf_ref, len, bus) -> int — read without register
+  SYS_I2C_WRITE0          = 113, // (addr, reg, bus) -> int — write register only (no data)
   // Smart Meter (SML)
   SYS_SML_GET             = 110, // (index) -> float — meter value (1-based, 0=count)
   SYS_SML_GETSTR          = 111, // (index, buf_ref) -> int — meter ID string into buf
@@ -1872,8 +1874,8 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         if (len > maxLen) len = maxLen;
         if (len > 255) len = 255;  // I2C practical limit
         uint8_t tmpbuf[256];
-        bool ok = I2cReadBuffer((uint8_t)a, (int)b, tmpbuf, (uint16_t)len, (uint8_t)bus);
-        if (ok) {
+        bool err = I2cReadBuffer((uint8_t)a, (int)b, tmpbuf, (uint16_t)len, (uint8_t)bus);
+        if (!err) {  // I2cReadBuffer returns 0=OK, 1=Error
           for (int32_t i = 0; i < len; i++) { arr[i] = (int32_t)tmpbuf[i]; }
           TC_PUSH(vm, 1);
         } else {
@@ -1902,7 +1904,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         if (len > 255) len = 255;
         uint8_t tmpbuf[256];
         for (int32_t i = 0; i < len; i++) { tmpbuf[i] = (uint8_t)(arr[i] & 0xFF); }
-        TC_PUSH(vm, I2cWriteBuffer((uint8_t)a, (uint8_t)b, tmpbuf, (uint16_t)len, (uint8_t)bus) ? 1 : 0);
+        TC_PUSH(vm, I2cWriteBuffer((uint8_t)a, (uint8_t)b, tmpbuf, (uint16_t)len, (uint8_t)bus) ? 0 : 1);  // returns 0=OK,1=Err
       } else {
         TC_PUSH(vm, 0);
       }
@@ -1917,6 +1919,46 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       a = TC_POP(vm);  // addr
 #ifdef USE_I2C
       TC_PUSH(vm, I2cSetDevice((uint32_t)a, (uint8_t)bus) ? 1 : 0);
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_I2C_READ_BUF0: {
+      // Stack: [addr, buf_ref, len, bus] — bus on top  (no register byte sent)
+      int32_t bus = TC_POP(vm);
+      int32_t len = TC_POP(vm);
+      int32_t buf_ref = TC_POP(vm);
+      a = TC_POP(vm);  // addr
+#ifdef USE_I2C
+      int32_t *arr = tc_resolve_ref(vm, buf_ref);
+      int32_t maxLen = tc_ref_maxlen(vm, buf_ref);
+      if (arr && len > 0) {
+        if (len > maxLen) len = maxLen;
+        if (len > 255) len = 255;
+        uint8_t tmpbuf[256];
+        bool err = I2cReadBuffer0((uint8_t)a, tmpbuf, (uint16_t)len, (uint8_t)bus);
+        if (!err) {  // I2cReadBuffer0 returns 0=OK, 1=Error
+          for (int32_t i = 0; i < len; i++) { arr[i] = (int32_t)tmpbuf[i]; }
+          TC_PUSH(vm, 1);
+        } else {
+          TC_PUSH(vm, 0);
+        }
+      } else {
+        TC_PUSH(vm, 0);
+      }
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_I2C_WRITE0: {
+      // Stack: [addr, reg, bus] — bus on top  (write register byte only, no data)
+      int32_t bus = TC_POP(vm);
+      b = TC_POP(vm);  // reg
+      a = TC_POP(vm);  // addr
+#ifdef USE_I2C
+      TC_PUSH(vm, I2cWrite0((uint8_t)a, (uint8_t)b, (uint8_t)bus) ? 1 : 0);
 #else
       TC_PUSH(vm, 0);
 #endif
@@ -2180,6 +2222,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
 
     default:
+      AddLog(LOG_LEVEL_ERROR, PSTR("TIC: unknown syscall %d at PC=%d"), id, vm->pc - vm->code_offset);
       return TC_ERR_BAD_SYSCALL;
   }
   return vm->error;
@@ -2375,9 +2418,14 @@ static int tc_vm_call_callback(TcVM *vm, const char *name) {
   while (vm->frame_count > saved_frame_count && !vm->halted && vm->error == TC_OK) {
     int err = tc_vm_step(vm);
     if (err == TC_ERR_PAUSED) {
-      // No delay() in callbacks — ignore
+      // delay() in callback — execute synchronously (short delays only)
+      if (vm->delayed && vm->delay_until > millis()) {
+        uint32_t wait = vm->delay_until - millis();
+        if (wait > 100) wait = 100;  // cap at 100ms to avoid WDT
+        delay(wait);
+      }
       vm->delayed = false;
-      break;
+      continue;  // resume callback execution after delay
     }
     if (err != TC_OK) break;
     if (++count > TC_CALLBACK_MAX_INSTR) {
