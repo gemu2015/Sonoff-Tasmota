@@ -104,6 +104,7 @@ static void TinyCEvery50ms(void) {
   // ESP8266: slice-based execution in 50ms tick (no FreeRTOS task support)
   if (!Tinyc->loaded || !Tinyc->running) return;
   if (Tinyc->vm.halted || Tinyc->vm.error != TC_OK) {
+    tc_free_all_frames(&Tinyc->vm);
     if (Tinyc->vm.halted) {
       tc_output_flush();
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program halted after %u instructions"), Tinyc->vm.instruction_count);
@@ -123,6 +124,7 @@ static void TinyCEvery50ms(void) {
   yield();  // Feed WDT after VM execution
 
   if (err != TC_OK && err != TC_ERR_PAUSED) {
+    tc_free_all_frames(&Tinyc->vm);
     tc_output_flush();
     AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Runtime error: %s (PC=%d, instr=%u)"),
       tc_error_str(err), Tinyc->vm.pc - Tinyc->vm.code_offset, Tinyc->vm.instruction_count);
@@ -228,6 +230,7 @@ static void TinyCStopVM(void) {
 
   Tinyc->running = false;
   Tinyc->vm.running = false;
+  tc_free_all_frames(&Tinyc->vm);
   tc_output_flush();
 }
 
@@ -249,8 +252,8 @@ void CmndTinyCStop(void) {
 
 void CmndTinyCReset(void) {
   if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
-  TinyCStopVM();
-  memset(&Tinyc->vm, 0, sizeof(TcVM));
+  TinyCStopVM();  // also frees frame locals
+  memset(&Tinyc->vm, 0, sizeof(TcVM));  // safe — pointers already freed
   Tinyc->output_len = 0;
   Tinyc->output[0] = '\0';
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM reset"));

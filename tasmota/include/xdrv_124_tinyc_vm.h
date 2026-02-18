@@ -15,15 +15,15 @@ extern FS *ffsp;
 /*********************************************************************************************\
  * VM Configuration — ESP8266 vs ESP32
  *
- * ESP8266: ~30-35KB heap, 4KB stack → keep struct small (~3-4KB)
+ * ESP8266: ~30-35KB heap, 4KB stack → keep struct under ~4KB
  * ESP32:   ~150KB+ heap, 8KB stack → can afford larger arrays
 \*********************************************************************************************/
 
 #ifdef ESP8266
   #define TC_MAX_PROGRAM     4096    // max bytecode size
   #define TC_STACK_SIZE      64      // operand stack (256 bytes)
-  #define TC_MAX_FRAMES      8       // call depth
-  #define TC_MAX_LOCALS      16      // locals per frame
+  #define TC_MAX_FRAMES      8       // call depth — frames are small (locals allocated dynamically)
+  #define TC_MAX_LOCALS      256     // locals per frame (1KB, dynamically allocated)
   #define TC_MAX_GLOBALS     64      // global slots (256 bytes)
   #define TC_MAX_CONSTANTS   32      // constant pool entries
   #define TC_MAX_CONST_DATA  512     // string constant bytes
@@ -130,6 +130,13 @@ enum TcSyscall {
   SYS_STR_PRINT    = 54,  // (ref) -> void  (print char array to output)
   SYS_STRCPY_CONST = 55,  // (dst_ref, const_idx) -> void  (copy string literal into array)
   SYS_STRCAT_CONST = 56,  // (dst_ref, const_idx) -> void  (append string literal to array)
+  SYS_SPRINTF_INT  = 57,  // (dst_ref, fmt_const_idx, int_val) -> int chars written
+  SYS_SPRINTF_FLT  = 58,  // (dst_ref, fmt_const_idx, float_val) -> int chars written
+  SYS_SPRINTF_STR  = 59,  // (dst_ref, fmt_const_idx, src_ref) -> int chars written
+  // sprintf append variants — same args, but append to existing string in dst
+  SYS_SPRINTF_INT_CAT = 70, // (dst_ref, fmt_const_idx, int_val) -> total len
+  SYS_SPRINTF_FLT_CAT = 71, // (dst_ref, fmt_const_idx, float_val) -> total len
+  SYS_SPRINTF_STR_CAT = 72, // (dst_ref, fmt_const_idx, src_ref) -> total len
   // Tasmota-specific
   SYS_MQTT_PUBLISH = 40,  // publish output buffer
   SYS_GET_POWER    = 41,  // get relay state
@@ -199,7 +206,7 @@ static const char* tc_error_str(int err) {
 
 typedef struct {
   uint16_t return_pc;
-  int32_t  locals[TC_MAX_LOCALS];
+  int32_t  *locals;     // dynamically allocated — TC_MAX_LOCALS int32_t's per frame
 } TcFrame;
 
 typedef struct {
@@ -323,9 +330,20 @@ static int32_t* tc_resolve_ref(TcVM *vm, int32_t ref) {
     // Local
     uint8_t fp = (ref >> 16) & 0xFF;
     uint8_t idx = ref & 0xFF;
-    if (fp < TC_MAX_FRAMES && idx < TC_MAX_LOCALS) return vm->frames[fp].locals + idx;
+    if (fp < TC_MAX_FRAMES && idx < TC_MAX_LOCALS && vm->frames[fp].locals) return vm->frames[fp].locals + idx;
   }
   return nullptr;
+}
+
+// How many int32 slots remain from the ref's base index to the end of the array?
+static int32_t tc_ref_maxlen(int32_t ref) {
+  if (ref & (int32_t)0x80000000) {
+    uint16_t base = ref & 0xFFFF;
+    return (base < TC_MAX_GLOBALS) ? TC_MAX_GLOBALS - base : 0;
+  } else {
+    uint8_t base = ref & 0xFF;
+    return (base < TC_MAX_LOCALS) ? TC_MAX_LOCALS - base : 0;
+  }
 }
 
 /*********************************************************************************************\
@@ -380,7 +398,7 @@ static void tc_output_int(int32_t v) {
 
 static void tc_output_float(float v) {
   char buf[16];
-  snprintf(buf, sizeof(buf), "%.2f", v);
+  dtostrfd((double)v, 2, buf);
   tc_output_string(buf);
 }
 
@@ -400,6 +418,35 @@ static void tc_output_flush_mqtt(void) {
   MqttPublishPrefixTopicRulesProcess_P(RESULT_OR_TELE, PSTR("TINYC"));
   Tinyc->output_len = 0;
   Tinyc->output[0] = '\0';
+}
+
+/*********************************************************************************************\
+ * Frame locals: dynamic allocation
+ * Each frame's locals[] is malloc'd on OP_CALL and freed on OP_RET.
+ * This saves ~2KB+ RAM on ESP8266 vs static arrays in every frame.
+\*********************************************************************************************/
+
+// Allocate locals for a frame, returns false on OOM
+static bool tc_frame_alloc(TcFrame *frame) {
+  frame->locals = (int32_t *)calloc(TC_MAX_LOCALS, sizeof(int32_t));
+  return (frame->locals != nullptr);
+}
+
+// Free locals for a frame (safe to call if already freed)
+static void tc_frame_free(TcFrame *frame) {
+  if (frame->locals) {
+    free(frame->locals);
+    frame->locals = nullptr;
+  }
+}
+
+// Free all allocated frames (call on VM stop/reset/reload)
+static void tc_free_all_frames(TcVM *vm) {
+  for (int i = 0; i < TC_MAX_FRAMES; i++) {
+    tc_frame_free(&vm->frames[i]);
+  }
+  vm->frame_count = 0;
+  vm->fp = 0;
 }
 
 /*********************************************************************************************\
@@ -433,6 +480,93 @@ static const char* tc_get_const_str(TcVM *vm, int32_t idx) {
     return vm->constants[idx].str.ptr;
   }
   return nullptr;
+}
+
+/*********************************************************************************************\
+ * VM: sprintf helper — format into temp buf, copy to VM int32 array
+ * Returns number of chars written (excluding null terminator)
+\*********************************************************************************************/
+
+static int32_t tc_sprintf_to_ref(int32_t *dst, int32_t maxSlots, const char *tmpbuf) {
+  int32_t len = strlen(tmpbuf);
+  if (len > maxSlots - 1) len = maxSlots - 1;
+  for (int32_t i = 0; i < len; i++) {
+    dst[i] = (int32_t)(uint8_t)tmpbuf[i];
+  }
+  dst[len] = 0;
+  return len;
+}
+
+// Find null terminator in VM int32 array, returns offset (capped at maxSlots)
+static int32_t tc_strlen_ref(int32_t *p, int32_t maxSlots) {
+  int32_t i = 0;
+  while (i < maxSlots && p[i] != 0) i++;
+  return i;
+}
+
+// Format a float using dtostrfd() (Arduino-safe, no %f dependency).
+// Handles format strings like "%.2f", "%f", "Value: %.3f units"
+// Finds the first %[.N]f specifier, replaces it with dtostrfd output,
+// copies any prefix/suffix text around it.
+static int32_t tc_sprintf_float(char *out, int outSize, const char *fmt, float fval) {
+  // Find the '%' that starts a float format specifier
+  const char *p = fmt;
+  const char *pct = nullptr;
+  while (*p) {
+    if (*p == '%') {
+      if (*(p + 1) == '%') { p += 2; continue; }  // skip %%
+      pct = p;
+      break;
+    }
+    p++;
+  }
+  if (!pct) {
+    // No format specifier found — just copy the format string as-is
+    strncpy(out, fmt, outSize - 1);
+    out[outSize - 1] = '\0';
+    return strlen(out);
+  }
+
+  // Parse precision from %[width][.prec]f/e/g
+  const char *sp = pct + 1;  // skip '%'
+  // Skip flags: -, +, space, 0, #
+  while (*sp == '-' || *sp == '+' || *sp == ' ' || *sp == '0' || *sp == '#') sp++;
+  // Skip width digits
+  while (*sp >= '0' && *sp <= '9') sp++;
+  // Parse precision
+  int prec = 2;  // default precision
+  if (*sp == '.') {
+    sp++;
+    prec = 0;
+    while (*sp >= '0' && *sp <= '9') {
+      prec = prec * 10 + (*sp - '0');
+      sp++;
+    }
+  }
+  // Skip conversion char (f, e, E, g, G)
+  if (*sp == 'f' || *sp == 'e' || *sp == 'E' || *sp == 'g' || *sp == 'G') sp++;
+  // sp now points past the format specifier
+
+  // Convert float to string
+  char fbuf[32];
+  dtostrfd((double)fval, prec, fbuf);
+
+  // Build result: prefix + fbuf + suffix
+  int pos = 0;
+  // Copy prefix (text before %)
+  for (const char *c = fmt; c < pct && pos < outSize - 1; c++) {
+    out[pos++] = *c;
+  }
+  // Copy float string
+  for (const char *c = fbuf; *c && pos < outSize - 1; c++) {
+    out[pos++] = *c;
+  }
+  // Copy suffix (text after format specifier)
+  for (const char *c = sp; *c && pos < outSize - 1; c++) {
+    out[pos++] = *c;
+  }
+  out[pos] = '\0';
+  return pos;
 }
 
 /*********************************************************************************************\
@@ -599,14 +733,15 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         TC_PUSH(vm, -1);
         break;
       }
+      // Cap to remaining slots from base index (leave room for null terminator)
+      int32_t maxLen = tc_ref_maxlen(buf_ref) - 1;
+      if (maxLen <= 0) { TC_PUSH(vm, 0); break; }
       AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: tasmCmd(\"%s\")"), cmd);
       // Execute Tasmota command — response goes to global buffer
       ExecuteCommand((char*)cmd, SRC_TCL);
       // Capture response immediately before it's overwritten
       const char *resp = ResponseData();
       int32_t rlen = strlen(resp);
-      // Copy response into VM output buffer (cap to array bounds)
-      int32_t maxLen = TC_MAX_LOCALS - 1;
       if (rlen > maxLen) rlen = maxLen;
       for (int32_t i = 0; i < rlen; i++) {
         buf[i] = (int32_t)(uint8_t)resp[i];
@@ -617,12 +752,12 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
     }
 
-    // ── String operations ─────────────────────────────
+    // ── String operations (all bounds-checked via tc_ref_maxlen) ──
     case SYS_STRLEN: {
       a = TC_POP(vm);  // array ref
       int32_t *p = tc_resolve_ref(vm, a);
       int32_t len = 0;
-      if (p) { while (p[len] != 0 && len < TC_MAX_LOCALS) len++; }
+      if (p) { int32_t max = tc_ref_maxlen(a); while (p[len] != 0 && len < max) len++; }
       TC_PUSH(vm, len);
       break;
     }
@@ -632,8 +767,9 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t *dst = tc_resolve_ref(vm, dst_ref);
       int32_t *src = tc_resolve_ref(vm, src_ref);
       if (dst && src) {
+        int32_t max = tc_ref_maxlen(dst_ref) - 1;
         int32_t i = 0;
-        while (src[i] != 0 && i < TC_MAX_LOCALS - 1) { dst[i] = src[i]; i++; }
+        while (src[i] != 0 && i < max) { dst[i] = src[i]; i++; }
         dst[i] = 0;
       }
       break;
@@ -644,10 +780,11 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t *dst = tc_resolve_ref(vm, dst_ref);
       int32_t *src = tc_resolve_ref(vm, src_ref);
       if (dst && src) {
+        int32_t max = tc_ref_maxlen(dst_ref) - 1;
         int32_t di = 0;
-        while (dst[di] != 0 && di < TC_MAX_LOCALS - 1) di++;
+        while (dst[di] != 0 && di < max) di++;
         int32_t si = 0;
-        while (src[si] != 0 && di < TC_MAX_LOCALS - 1) { dst[di++] = src[si++]; }
+        while (src[si] != 0 && di < max) { dst[di++] = src[si++]; }
         dst[di] = 0;
       }
       break;
@@ -659,8 +796,11 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t *pb = tc_resolve_ref(vm, b_ref);
       int32_t result = 0;
       if (pa && pb) {
+        int32_t max_a = tc_ref_maxlen(a_ref);
+        int32_t max_b = tc_ref_maxlen(b_ref);
+        int32_t max = max_a < max_b ? max_a : max_b;
         int32_t i = 0;
-        while (pa[i] != 0 && pb[i] != 0 && pa[i] == pb[i] && i < TC_MAX_LOCALS) i++;
+        while (pa[i] != 0 && pb[i] != 0 && pa[i] == pb[i] && i < max) i++;
         result = pa[i] - pb[i];
       }
       TC_PUSH(vm, result);
@@ -670,8 +810,9 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       a = TC_POP(vm);  // array ref
       int32_t *p = tc_resolve_ref(vm, a);
       if (p) {
+        int32_t max = tc_ref_maxlen(a);
         int32_t i = 0;
-        while (p[i] != 0 && i < TC_MAX_LOCALS) {
+        while (p[i] != 0 && i < max) {
           tc_output_char((char)(p[i] & 0xFF));
           i++;
         }
@@ -684,8 +825,9 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t *dst = tc_resolve_ref(vm, dst_ref);
       if (dst && ci >= 0 && ci < vm->const_count && vm->constants[ci].type == 1) {
         const char *s = vm->constants[ci].str.ptr;
+        int32_t max = tc_ref_maxlen(dst_ref) - 1;
         int32_t i = 0;
-        while (s[i] != 0 && i < TC_MAX_LOCALS - 1) { dst[i] = (int32_t)(uint8_t)s[i]; i++; }
+        while (s[i] != 0 && i < max) { dst[i] = (int32_t)(uint8_t)s[i]; i++; }
         dst[i] = 0;
       }
       break;
@@ -696,12 +838,121 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t *dst = tc_resolve_ref(vm, dst_ref);
       if (dst && ci >= 0 && ci < vm->const_count && vm->constants[ci].type == 1) {
         const char *s = vm->constants[ci].str.ptr;
+        int32_t max = tc_ref_maxlen(dst_ref) - 1;
         int32_t di = 0;
-        while (dst[di] != 0 && di < TC_MAX_LOCALS - 1) di++;
+        while (dst[di] != 0 && di < max) di++;
         int32_t si = 0;
-        while (s[si] != 0 && di < TC_MAX_LOCALS - 1) { dst[di++] = (int32_t)(uint8_t)s[si++]; }
+        while (s[si] != 0 && di < max) { dst[di++] = (int32_t)(uint8_t)s[si++]; }
         dst[di] = 0;
       }
+      break;
+    }
+
+    // ── sprintf variants ──────────────────────────────
+    // All use snprintf() on device, then copy result into VM array.
+    // Supports: %d %u %x %X %o %c %s %f %e %g and width/precision modifiers.
+    case SYS_SPRINTF_INT: {
+      int32_t val = TC_POP(vm);          // int argument
+      int32_t ci  = TC_POP(vm);          // format string const index
+      int32_t dst_ref = TC_POP(vm);      // destination array ref
+      int32_t *dst = tc_resolve_ref(vm, dst_ref);
+      const char *fmt = tc_get_const_str(vm, ci);
+      if (!dst || !fmt) { TC_PUSH(vm, -1); break; }
+      int32_t maxSlots = tc_ref_maxlen(dst_ref);
+      char tmp[64];
+      snprintf(tmp, sizeof(tmp), fmt, val);
+      TC_PUSH(vm, tc_sprintf_to_ref(dst, maxSlots, tmp));
+      break;
+    }
+    case SYS_SPRINTF_FLT: {
+      float fval = TC_POPF(vm);          // float argument
+      int32_t ci  = TC_POP(vm);          // format string const index
+      int32_t dst_ref = TC_POP(vm);      // destination array ref
+      int32_t *dst = tc_resolve_ref(vm, dst_ref);
+      const char *fmt = tc_get_const_str(vm, ci);
+      if (!dst || !fmt) { TC_PUSH(vm, -1); break; }
+      int32_t maxSlots = tc_ref_maxlen(dst_ref);
+      char tmp[64];
+      tc_sprintf_float(tmp, sizeof(tmp), fmt, fval);
+      TC_PUSH(vm, tc_sprintf_to_ref(dst, maxSlots, tmp));
+      break;
+    }
+    case SYS_SPRINTF_STR: {
+      int32_t src_ref = TC_POP(vm);      // source string array ref
+      int32_t ci  = TC_POP(vm);          // format string const index
+      int32_t dst_ref = TC_POP(vm);      // destination array ref
+      int32_t *dst = tc_resolve_ref(vm, dst_ref);
+      int32_t *src = tc_resolve_ref(vm, src_ref);
+      const char *fmt = tc_get_const_str(vm, ci);
+      if (!dst || !src || !fmt) { TC_PUSH(vm, -1); break; }
+      int32_t maxSlots = tc_ref_maxlen(dst_ref);
+      // Extract source string from VM int32 array into temp char buffer
+      int32_t srcMax = tc_ref_maxlen(src_ref);
+      char srcbuf[128];
+      int32_t si = 0;
+      while (src[si] != 0 && si < srcMax && si < (int32_t)sizeof(srcbuf) - 1) {
+        srcbuf[si] = (char)(src[si] & 0xFF);
+        si++;
+      }
+      srcbuf[si] = '\0';
+      char tmp[128];
+      snprintf(tmp, sizeof(tmp), fmt, srcbuf);
+      TC_PUSH(vm, tc_sprintf_to_ref(dst, maxSlots, tmp));
+      break;
+    }
+
+    // ── sprintf append variants (same as above but append to existing string) ──
+    case SYS_SPRINTF_INT_CAT: {
+      int32_t val = TC_POP(vm);
+      int32_t ci  = TC_POP(vm);
+      int32_t dst_ref = TC_POP(vm);
+      int32_t *dst = tc_resolve_ref(vm, dst_ref);
+      const char *fmt = tc_get_const_str(vm, ci);
+      if (!dst || !fmt) { TC_PUSH(vm, -1); break; }
+      int32_t maxSlots = tc_ref_maxlen(dst_ref);
+      int32_t ofs = tc_strlen_ref(dst, maxSlots);
+      char tmp[64];
+      snprintf(tmp, sizeof(tmp), fmt, val);
+      tc_sprintf_to_ref(dst + ofs, maxSlots - ofs, tmp);
+      TC_PUSH(vm, ofs + (int32_t)strlen(tmp));
+      break;
+    }
+    case SYS_SPRINTF_FLT_CAT: {
+      float fval = TC_POPF(vm);
+      int32_t ci  = TC_POP(vm);
+      int32_t dst_ref = TC_POP(vm);
+      int32_t *dst = tc_resolve_ref(vm, dst_ref);
+      const char *fmt = tc_get_const_str(vm, ci);
+      if (!dst || !fmt) { TC_PUSH(vm, -1); break; }
+      int32_t maxSlots = tc_ref_maxlen(dst_ref);
+      int32_t ofs = tc_strlen_ref(dst, maxSlots);
+      char tmp[64];
+      tc_sprintf_float(tmp, sizeof(tmp), fmt, fval);
+      tc_sprintf_to_ref(dst + ofs, maxSlots - ofs, tmp);
+      TC_PUSH(vm, ofs + (int32_t)strlen(tmp));
+      break;
+    }
+    case SYS_SPRINTF_STR_CAT: {
+      int32_t src_ref = TC_POP(vm);
+      int32_t ci  = TC_POP(vm);
+      int32_t dst_ref = TC_POP(vm);
+      int32_t *dst = tc_resolve_ref(vm, dst_ref);
+      int32_t *src = tc_resolve_ref(vm, src_ref);
+      const char *fmt = tc_get_const_str(vm, ci);
+      if (!dst || !src || !fmt) { TC_PUSH(vm, -1); break; }
+      int32_t maxSlots = tc_ref_maxlen(dst_ref);
+      int32_t ofs = tc_strlen_ref(dst, maxSlots);
+      int32_t srcMax = tc_ref_maxlen(src_ref);
+      char srcbuf[128];
+      int32_t si = 0;
+      while (src[si] != 0 && si < srcMax && si < (int32_t)sizeof(srcbuf) - 1) {
+        srcbuf[si] = (char)(src[si] & 0xFF); si++;
+      }
+      srcbuf[si] = '\0';
+      char tmp[128];
+      snprintf(tmp, sizeof(tmp), fmt, srcbuf);
+      tc_sprintf_to_ref(dst + ofs, maxSlots - ofs, tmp);
+      TC_PUSH(vm, ofs + (int32_t)strlen(tmp));
       break;
     }
 
@@ -761,8 +1012,9 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         TC_PUSH(vm, -1);
         break;
       }
-      // Limit to prevent buffer overrun (TC_MAX_LOCALS bounds)
-      if (maxBytes > TC_MAX_LOCALS - 1) maxBytes = TC_MAX_LOCALS - 1;
+      // Limit to actual remaining slots from base index
+      int32_t maxSlots = tc_ref_maxlen(buf_ref);
+      if (maxBytes > maxSlots) maxBytes = maxSlots;
       // Read via temp byte buffer (File reads bytes, VM stores int32 per element)
       uint8_t tmp[256];
       int32_t total = 0;
@@ -789,7 +1041,8 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         TC_PUSH(vm, -1);
         break;
       }
-      if (len > TC_MAX_LOCALS) len = TC_MAX_LOCALS;
+      int32_t maxSlots = tc_ref_maxlen(buf_ref);
+      if (len > maxSlots) len = maxSlots;
       // Convert int32 array elements to bytes and write
       uint8_t tmp[256];
       int32_t total = 0;
@@ -929,6 +1182,9 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   // Close any open file handles from previous run
   tc_close_all_files();
 
+  // Free any previously allocated frame locals
+  tc_free_all_frames(vm);
+
   vm->code = binary;
   vm->code_offset = const_end;
   vm->code_size = size - const_end;
@@ -944,6 +1200,11 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   vm->instruction_count = 0;
   memset(vm->globals, 0, sizeof(vm->globals));
   memset(vm->stack, 0, sizeof(vm->stack));
+
+  // Allocate frame 0 for main() — program starts here without OP_CALL
+  if (!tc_frame_alloc(&vm->frames[0])) {
+    return TC_ERR_STACK_OVERFLOW;  // OOM
+  }
 
   return TC_OK;
 }
@@ -1045,7 +1306,9 @@ static int tc_vm_step(TcVM *vm) {
       {
         TcFrame *frame = &vm->frames[vm->frame_count];
         frame->return_pc = vm->pc;
-        memset(frame->locals, 0, sizeof(frame->locals));
+        if (!tc_frame_alloc(frame)) {
+          return TC_ERR_STACK_OVERFLOW;  // OOM
+        }
         vm->fp = vm->frame_count;
         vm->frame_count++;
         vm->pc = vm->code_offset + addr;
@@ -1053,32 +1316,58 @@ static int tc_vm_step(TcVM *vm) {
       break;
 
     case OP_RET:
-      if (vm->frame_count == 0) { vm->halted = true; vm->running = false; break; }
+      if (vm->frame_count == 0) { tc_frame_free(&vm->frames[0]); vm->halted = true; vm->running = false; break; }
       { TcFrame *f = &vm->frames[--vm->frame_count];
         vm->pc = f->return_pc;
+        tc_frame_free(f);  // free returning frame's locals
         vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0; }
       break;
 
     case OP_RET_VAL:
       a = TC_POP(vm);
-      if (vm->frame_count == 0) { TC_PUSH(vm, a); vm->halted = true; vm->running = false; break; }
+      if (vm->frame_count == 0) { tc_frame_free(&vm->frames[0]); TC_PUSH(vm, a); vm->halted = true; vm->running = false; break; }
       { TcFrame *f = &vm->frames[--vm->frame_count];
         vm->pc = f->return_pc;
+        tc_frame_free(f);  // free returning frame's locals
         vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0;
         TC_PUSH(vm, a); }
       break;
 
-    // ── Variables ──────────────────────────
-    case OP_LOAD_LOCAL:  idx=tc_read_u8(vm); TC_PUSH(vm, vm->frames[vm->fp].locals[idx]); break;
-    case OP_STORE_LOCAL: idx=tc_read_u8(vm); vm->frames[vm->fp].locals[idx]=TC_POP(vm); break;
-    case OP_LOAD_GLOBAL:  addr=tc_read_u16(vm); TC_PUSH(vm, vm->globals[addr]); break;
-    case OP_STORE_GLOBAL: addr=tc_read_u16(vm); vm->globals[addr]=TC_POP(vm); break;
+    // ── Variables (with bounds checks) ─────
+    case OP_LOAD_LOCAL:
+      idx=tc_read_u8(vm);
+      if (idx >= TC_MAX_LOCALS) return TC_ERR_BOUNDS;
+      TC_PUSH(vm, vm->frames[vm->fp].locals[idx]); break;
+    case OP_STORE_LOCAL:
+      idx=tc_read_u8(vm);
+      if (idx >= TC_MAX_LOCALS) { TC_POP(vm); return TC_ERR_BOUNDS; }
+      vm->frames[vm->fp].locals[idx]=TC_POP(vm); break;
+    case OP_LOAD_GLOBAL:
+      addr=tc_read_u16(vm);
+      if (addr >= TC_MAX_GLOBALS) return TC_ERR_BOUNDS;
+      TC_PUSH(vm, vm->globals[addr]); break;
+    case OP_STORE_GLOBAL:
+      addr=tc_read_u16(vm);
+      if (addr >= TC_MAX_GLOBALS) { TC_POP(vm); return TC_ERR_BOUNDS; }
+      vm->globals[addr]=TC_POP(vm); break;
 
-    // ── Arrays ─────────────────────────────
-    case OP_LOAD_LOCAL_ARR:  idx=tc_read_u8(vm); a=TC_POP(vm); TC_PUSH(vm, vm->frames[vm->fp].locals[idx+a]); break;
-    case OP_STORE_LOCAL_ARR: idx=tc_read_u8(vm); b=TC_POP(vm); a=TC_POP(vm); vm->frames[vm->fp].locals[idx+a]=b; break;
-    case OP_LOAD_GLOBAL_ARR:  addr=tc_read_u16(vm); a=TC_POP(vm); TC_PUSH(vm, vm->globals[addr+a]); break;
-    case OP_STORE_GLOBAL_ARR: addr=tc_read_u16(vm); b=TC_POP(vm); a=TC_POP(vm); vm->globals[addr+a]=b; break;
+    // ── Arrays (with bounds checks) ────────
+    case OP_LOAD_LOCAL_ARR:
+      idx=tc_read_u8(vm); a=TC_POP(vm);
+      if ((uint32_t)(idx+a) >= TC_MAX_LOCALS) return TC_ERR_BOUNDS;
+      TC_PUSH(vm, vm->frames[vm->fp].locals[idx+a]); break;
+    case OP_STORE_LOCAL_ARR:
+      idx=tc_read_u8(vm); b=TC_POP(vm); a=TC_POP(vm);
+      if ((uint32_t)(idx+a) >= TC_MAX_LOCALS) return TC_ERR_BOUNDS;
+      vm->frames[vm->fp].locals[idx+a]=b; break;
+    case OP_LOAD_GLOBAL_ARR:
+      addr=tc_read_u16(vm); a=TC_POP(vm);
+      if ((uint32_t)(addr+a) >= TC_MAX_GLOBALS) return TC_ERR_BOUNDS;
+      TC_PUSH(vm, vm->globals[addr+a]); break;
+    case OP_STORE_GLOBAL_ARR:
+      addr=tc_read_u16(vm); b=TC_POP(vm); a=TC_POP(vm);
+      if ((uint32_t)(addr+a) >= TC_MAX_GLOBALS) return TC_ERR_BOUNDS;
+      vm->globals[addr+a]=b; break;
 
     // ── Type conversion ────────────────────
     case OP_I2F: a=TC_POP(vm); TC_PUSHF(vm, (float)a); break;
@@ -1197,6 +1486,7 @@ static void tc_vm_task(void *param) {
   }
 
   // Cleanup
+  tc_free_all_frames(vm);
   tc_close_all_files();
   tc_output_flush();
   if (vm->halted) {
