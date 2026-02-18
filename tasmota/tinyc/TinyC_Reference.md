@@ -1,0 +1,867 @@
+# TinyC Language Reference
+
+**TinyC** is a subset of C that compiles to bytecode for a stack-based virtual machine.
+It runs both in the browser (JavaScript VM) and on ESP32/ESP8266 (as Tasmota driver XDRV_124).
+
+---
+
+## Table of Contents
+
+1. [Data Types](#data-types)
+2. [Literals](#literals)
+3. [Variables & Scope](#variables--scope)
+4. [Operators](#operators)
+5. [Control Flow](#control-flow)
+6. [Functions](#functions)
+7. [Arrays](#arrays)
+8. [Strings](#strings)
+9. [Preprocessor](#preprocessor)
+10. [Comments](#comments)
+11. [Type Casting](#type-casting)
+12. [Built-in Functions](#built-in-functions)
+13. [VM Limits](#vm-limits)
+14. [Keyboard Shortcuts (IDE)](#keyboard-shortcuts-ide)
+15. [Examples](#examples)
+
+---
+
+## Data Types
+
+| Type    | Size   | Description                         |
+|---------|--------|-------------------------------------|
+| `int`   | 32-bit | Signed integer                      |
+| `float` | 32-bit | IEEE 754 floating-point             |
+| `char`  | 8-bit  | Unsigned character (masked to 0xFF) |
+| `bool`  | 32-bit | Boolean (0 = false, non-zero = true)|
+| `void`  | —      | No value (function return type)     |
+
+### Type Aliases
+
+| Alias          | Maps to |
+|----------------|---------|
+| `int32_t`      | `int`   |
+| `uint32_t`     | `int`   |
+| `unsigned int` | `int`   |
+| `uint8_t`      | `char`  |
+
+---
+
+## Literals
+
+### Integer Literals
+```c
+42          // decimal
+0xFF        // hexadecimal (prefix 0x or 0X)
+0b1010      // binary (prefix 0b or 0B)
+```
+
+### Float Literals
+```c
+3.14        // decimal point
+2.5f        // with float suffix
+0.001       // leading zero
+```
+
+### Character Literals
+```c
+'A'         // single character
+'\n'        // escape sequence
+'\0'        // null terminator
+```
+
+**Supported escape sequences:** `\n` `\t` `\r` `\\` `\'` `\"` `\0`
+
+### String Literals
+```c
+"Hello"             // simple string
+"Line 1\nLine 2"    // with escape sequences
+```
+String literals are used for `char` array initialization and as arguments to string functions.
+
+### Boolean Literals
+```c
+true        // evaluates to 1
+false       // evaluates to 0
+```
+
+---
+
+## Variables & Scope
+
+### Global Variables
+Declared outside any function. Accessible from all functions.
+```c
+int counter = 0;
+float pi = 3.14;
+char buffer[64];
+```
+
+### Local Variables
+Declared inside functions or blocks. Block-scoped (new scope per `{ }`).
+```c
+void myFunc() {
+    int x = 10;        // local to myFunc
+    if (x > 5) {
+        int y = 20;    // local to this block
+    }
+    // y is not accessible here
+}
+```
+
+### Function Parameters
+Passed by value for scalars, by reference for arrays.
+```c
+void process(int value, int data[]) {
+    // value is a copy, data is a reference
+}
+```
+
+---
+
+## Operators
+
+### Arithmetic
+| Op  | Description    | Types              |
+|-----|----------------|--------------------|
+| `+` | Addition       | int, float, char[] |
+| `-` | Subtraction    | int, float         |
+| `*` | Multiplication | int, float         |
+| `/` | Division       | int, float         |
+| `%` | Modulo         | int only           |
+| `-` | Unary negation | int, float         |
+
+**Note:** For `char[]` variables, `+` performs string concatenation (see [Strings](#strings)).
+
+### Comparison
+| Op   | Description        |
+|------|--------------------|
+| `==` | Equal              |
+| `!=` | Not equal          |
+| `<`  | Less than          |
+| `>`  | Greater than       |
+| `<=` | Less than or equal |
+| `>=` | Greater or equal   |
+
+### Logical
+| Op     | Description                    |
+|--------|--------------------------------|
+| `&&`   | Logical AND (short-circuit)    |
+| `\|\|` | Logical OR (short-circuit)     |
+| `!`    | Logical NOT                    |
+
+### Bitwise
+| Op  | Description |
+|-----|-------------|
+| `&` | AND         |
+| `\|`| OR          |
+| `^` | XOR         |
+| `~` | NOT         |
+| `<<`| Left shift  |
+| `>>`| Right shift |
+
+### Assignment
+| Op  | Description                                       |
+|-----|---------------------------------------------------|
+| `=` | Assign (for `char[]`: string copy)                |
+| `+=`| Add and assign (for `char[]`: string append)      |
+| `-=`| Subtract and assign                               |
+| `*=`| Multiply and assign                               |
+| `/=`| Divide and assign                                 |
+
+### Increment / Decrement
+```c
+++x     // pre-increment
+--x     // pre-decrement
+x++     // post-increment
+x--     // post-decrement
+```
+
+### Operator Precedence (highest to lowest)
+
+1. Postfix: `x++` `x--` `a[i]` `f()` `(type)`
+2. Unary: `++x` `--x` `-x` `!x` `~x`
+3. Multiplicative: `*` `/` `%`
+4. Additive: `+` `-`
+5. Shift: `<<` `>>`
+6. Relational: `<` `>` `<=` `>=`
+7. Equality: `==` `!=`
+8. Bitwise AND: `&`
+9. Bitwise XOR: `^`
+10. Bitwise OR: `|`
+11. Logical AND: `&&`
+12. Logical OR: `||`
+13. Assignment: `=` `+=` `-=` `*=` `/=`
+
+---
+
+## Control Flow
+
+### if / else
+```c
+if (condition) {
+    // ...
+}
+
+if (condition) {
+    // ...
+} else {
+    // ...
+}
+
+if (a > 0) {
+    // ...
+} else if (a == 0) {
+    // ...
+} else {
+    // ...
+}
+```
+
+### while Loop
+```c
+while (condition) {
+    // ...
+    if (done) break;
+    if (skip) continue;
+}
+```
+
+### for Loop
+```c
+for (int i = 0; i < 10; i++) {
+    // ...
+}
+
+// all parts optional:
+for (;;) {
+    // infinite loop
+    break;
+}
+```
+
+### switch / case
+```c
+switch (value) {
+    case 1:
+        // ... fall-through!
+    case 2:
+        // ...
+        break;
+    default:
+        // ...
+        break;
+}
+```
+**Note:** Cases fall through unless `break` is used (like standard C).
+
+### break / continue
+- `break;` — exit the innermost loop or switch
+- `continue;` — skip to the next iteration of the innermost loop
+
+---
+
+## Functions
+
+### Declaration
+```c
+int add(int a, int b) {
+    return a + b;
+}
+
+void doSomething() {
+    // no return value needed
+}
+```
+
+### Entry Point
+Every program must have a `main()` function:
+```c
+int main() {
+    // program starts here
+    return 0;
+}
+```
+
+### Recursion
+Fully supported:
+```c
+int factorial(int n) {
+    if (n <= 1) return 1;
+    return n * factorial(n - 1);
+}
+```
+
+### Array Parameters
+Arrays are passed by reference:
+```c
+void fill(int arr[], int size, int value) {
+    for (int i = 0; i < size; i++) {
+        arr[i] = value;
+    }
+}
+```
+
+---
+
+## Arrays
+
+### Declaration & Initialization
+```c
+int data[10];                       // uninitialized
+int primes[5] = {2, 3, 5, 7, 11};  // with initializer
+float values[3] = {1.5, 2.5};      // partial init
+char name[32] = "TinyC";           // string init (null-terminated)
+```
+
+### Access
+```c
+int x = data[0];       // read
+data[3] = 42;          // write
+data[i + 1] = data[i]; // computed index
+```
+
+### Scope
+- **Global arrays** — stored in global data space
+- **Local arrays** — stored in the function's local frame
+- **No dynamic allocation** — all arrays have fixed compile-time sizes
+
+**Note:** There is no bounds checking (just like C). Out-of-bounds access is undefined behavior.
+
+---
+
+## Strings
+
+Strings in TinyC are `char` arrays with null termination.
+
+### Declaration
+```c
+char greeting[32] = "Hello";
+char buffer[64];    // uninitialized buffer
+```
+
+### String Assignment & Concatenation with `+`
+
+The `=` and `+=` operators work on `char[]` variables for intuitive string handling:
+
+```c
+char buf[64];
+char name[16] = "World";
+
+// Assign string literal or char array
+buf = "Hello";          // same as strcpy(buf, "Hello")
+buf = name;             // same as strcpy(buf, name)
+
+// Append with +=
+buf += " ";             // same as strcat(buf, " ")
+buf += name;            // same as strcat(buf, name)
+
+// Concatenate with +
+buf = buf + "!";        // same as strcat(buf, "!")
+buf = buf + name;       // same as strcat(buf, name)
+```
+
+**Note:** The `+` operator only works when the left side of `=` is the same variable as the left side of `+` (i.e., `buf = buf + ...`). Cross-variable concatenation like `a = b + c` is not supported — use `strcpy` + `strcat` for that.
+
+### Built-in String Functions
+```c
+int len = strlen(greeting);             // length (excluding \0)
+strcpy(buffer, greeting);               // copy array to array
+strcpy(buffer, "World");                // copy literal to array
+strcat(buffer, greeting);               // append array
+strcat(buffer, "!");                    // append literal
+int cmp = strcmp(greeting, buffer);     // compare: -1, 0, or 1
+printString(greeting);                  // print string to output
+```
+
+### Formatted String Output (sprintf)
+
+Format a single value into a char array:
+
+```c
+char line[64];
+sprintfInt(line, "x = %d", 42);            // "x = 42"
+sprintfFloat(line, "pi = %.2f", 3.14);     // "pi = 3.14"
+sprintfStr(line, "name: %s", name);        // "name: World"
+```
+
+### Building Multi-Value Strings (sprintfAppend)
+
+Since TinyC has no variadic functions, use `sprintfAppend` variants to chain
+multiple values into one buffer. They append at the current end of the string:
+
+```c
+char report[128];
+sprintfInt(report, "Sensor %d", 1);              // "Sensor 1"
+sprintfAppendStr(report, " name=%s", name);       // "Sensor 1 name=World"
+sprintfAppendInt(report, " val=%d", 42);          // "Sensor 1 name=World val=42"
+sprintfAppendFloat(report, " temp=%.1f", 3.14);   // "Sensor 1 name=World val=42 temp=3.1"
+printString(report);
+```
+
+| Function | Description |
+|----------|-------------|
+| `sprintfInt(char dst[], "fmt", int val)` | Format int into dst (overwrites) |
+| `sprintfFloat(char dst[], "fmt", float val)` | Format float into dst (overwrites) |
+| `sprintfStr(char dst[], "fmt", char src[])` | Format string into dst (overwrites) |
+| `sprintfAppendInt(char dst[], "fmt", int val)` | Format int and append to dst |
+| `sprintfAppendFloat(char dst[], "fmt", float val)` | Format float and append to dst |
+| `sprintfAppendStr(char dst[], "fmt", char src[])` | Format string and append to dst |
+
+**Format specifiers:** `%d` (int), `%f` `%.2f` `%e` `%g` (float), `%s` (string). Each call handles exactly one `%` specifier.
+
+### Character Access
+```c
+char ch = greeting[0];     // read: 'H'
+greeting[0] = 'h';         // write: now "hello"
+```
+
+### Escape Sequences in Strings
+| Escape | Character      |
+|--------|----------------|
+| `\n`   | Newline        |
+| `\t`   | Tab            |
+| `\r`   | Carriage return|
+| `\\`   | Backslash      |
+| `\"`   | Double quote   |
+| `\'`   | Single quote   |
+| `\0`   | Null terminator|
+
+---
+
+## Preprocessor
+
+### #define — Compile-Time Constants
+
+Simple compile-time constants (no macro expansion):
+```c
+#define LED_PIN 5
+#define MAX_SIZE 100
+#define PI 3.14
+#define DOUBLE_PI (PI * 2)
+```
+
+**Features:**
+- Value must be a constant expression
+- Supports arithmetic on other `#define` values: `+`, `-`, `*`, `/`
+- Used for array sizes, function arguments, etc.
+- Scope: entire program
+- Valueless defines allowed for conditionals: `#define ESP32`
+
+**Limitations:**
+- No parameterized macros: `#define MAX(a,b)` is **not** supported
+- No `#include`
+
+### Conditional Compilation
+
+```c
+#define ESP32
+#define USE_SENSOR
+
+#ifdef ESP32
+  int pin = 8;       // included — ESP32 is defined
+#else
+  int pin = 2;       // excluded
+#endif
+
+#ifndef USE_DISPLAY
+  // included — USE_DISPLAY is not defined
+#endif
+```
+
+| Directive               | Description                                      |
+|-------------------------|--------------------------------------------------|
+| `#define NAME`          | Define a name (no value, for conditionals)       |
+| `#define NAME value`    | Define a name with a constant value              |
+| `#undef NAME`          | Undefine a previously defined name               |
+| `#ifdef NAME`          | Include block if NAME is defined                 |
+| `#ifndef NAME`         | Include block if NAME is NOT defined             |
+| `#if EXPR`             | Include block if expression is non-zero          |
+| `#else`                | Alternative block                                |
+| `#endif`               | End conditional block                            |
+
+**`#if` expressions** support:
+- Integer literals: `#if 1`, `#if 0`
+- Defined names (1 if defined, 0 if not): `#if ESP32`
+- `defined(NAME)` operator: `#if defined(ESP32)`
+- Logical operators: `&&`, `||`, `!`
+- Comparison: `==`, `!=`, `>`, `<`, `>=`, `<=`
+- Parentheses for grouping
+
+```c
+#if defined(ESP32) && !defined(USE_LEGACY)
+  // ESP32-specific modern code
+#endif
+```
+
+**Notes:**
+- Conditionals can be nested
+- Skipped code is not compiled (does not need to be valid syntax)
+- Line numbers in error messages are preserved
+
+---
+
+## Comments
+
+```c
+// Single-line comment
+
+/* Multi-line
+   comment */
+```
+
+---
+
+## Type Casting
+
+### Explicit Casts
+```c
+float f = 3.14;
+int i = (int)f;         // truncates to 3
+
+int x = 42;
+float y = (float)x;     // converts to 42.0
+
+int ch = 321;
+char c = (char)ch;      // masks to 0xFF → 65 ('A')
+
+int b = (bool)42;       // non-zero → 1
+```
+
+### Implicit Conversions
+When mixing `int` and `float` in an expression, the `int` operand is automatically promoted to `float`:
+```c
+int a = 5;
+float b = 2.5;
+float c = a + b;    // a promoted to float, result = 7.5
+```
+
+---
+
+## Built-in Functions
+
+### Output
+
+| Function                | Description                      |
+|-------------------------|----------------------------------|
+| `print(int value)`      | Print integer + newline          |
+| `printStr("literal")`   | Print string literal             |
+| `printString(char arr[])` | Print null-terminated char array |
+
+### GPIO
+
+| Function                             | Description                          |
+|--------------------------------------|--------------------------------------|
+| `pinMode(int pin, int mode)`         | Set pin mode (0=INPUT, 1=OUTPUT)     |
+| `digitalWrite(int pin, int value)`   | Write HIGH(1) or LOW(0)             |
+| `int digitalRead(int pin)`           | Read pin state                       |
+| `int analogRead(int pin)`            | Read analog value (0–4095)           |
+| `analogWrite(int pin, int value)`    | Write PWM value                      |
+| `gpioInit(int pin, int mode)`        | Release pin from Tasmota + pinMode   |
+
+### Timing
+
+| Function                         | Description                     |
+|----------------------------------|---------------------------------|
+| `delay(int ms)`                  | Wait milliseconds               |
+| `delayMicroseconds(int us)`      | Wait microseconds               |
+| `int millis()`                   | Milliseconds since program start|
+| `int micros()`                   | Microseconds since program start|
+
+### Serial
+
+| Function                          | Description                        |
+|-----------------------------------|------------------------------------|
+| `serialBegin(int baud)`           | Initialize serial at baud rate     |
+| `serialPrint("literal")`          | Print string to serial             |
+| `serialPrintInt(int value)`       | Print integer to serial            |
+| `serialPrintFloat(float value)`   | Print float to serial              |
+| `serialPrintln("literal")`        | Print string + newline to serial   |
+| `int serialRead()`                | Read byte (-1 if none available)   |
+| `int serialAvailable()`           | Bytes available to read            |
+
+### Math
+
+| Function                                            | Description                     |
+|-----------------------------------------------------|---------------------------------|
+| `int abs(int value)`                                | Absolute value                  |
+| `int min(int a, int b)`                             | Minimum of two values           |
+| `int max(int a, int b)`                             | Maximum of two values           |
+| `int map(int val, int fLo, int fHi, int tLo, int tHi)` | Map value from one range to another |
+| `int random(int min, int max)`                      | Random integer in range         |
+| `float sqrt(float x)`                               | Square root                     |
+| `float sin(float x)`                                | Sine (radians)                  |
+| `float cos(float x)`                                | Cosine (radians)                |
+
+### String
+
+| Function                             | Description                         |
+|--------------------------------------|-------------------------------------|
+| `int strlen(char arr[])`             | String length (excluding null)      |
+| `strcpy(char dst[], char src[])`     | Copy string                         |
+| `strcpy(char dst[], "literal")`      | Copy literal into array             |
+| `strcat(char dst[], char src[])`     | Concatenate string                  |
+| `strcat(char dst[], "literal")`      | Concatenate literal                 |
+| `int strcmp(char a[], char b[])`     | Compare: returns -1, 0, or 1       |
+| `printString(char arr[])`            | Print string to output              |
+
+**String operators:** `char[]` variables also support `=`, `+=`, and `+` for string assignment and concatenation — see [Strings](#strings) section.
+
+### sprintf — Formatted Strings
+
+Format a single value into a char array. Each function handles one `%` specifier.
+
+| Function | Description |
+|----------|-------------|
+| `int sprintfInt(char dst[], "fmt", int val)` | Format int into dst (overwrites) |
+| `int sprintfFloat(char dst[], "fmt", float val)` | Format float into dst (overwrites) |
+| `int sprintfStr(char dst[], "fmt", char src[])` | Format string into dst (overwrites) |
+| `int sprintfAppendInt(char dst[], "fmt", int val)` | Format int, append to end of dst |
+| `int sprintfAppendFloat(char dst[], "fmt", float val)` | Format float, append to end of dst |
+| `int sprintfAppendStr(char dst[], "fmt", char src[])` | Format string, append to end of dst |
+
+**Format specifiers:** `%d` (int), `%f` `%.Nf` `%e` `%g` (float), `%s` (string).
+All functions return the total string length.
+
+```c
+// Build a multi-value string by chaining Append calls:
+char buf[128];
+sprintfInt(buf, "ID=%d", 1);
+sprintfAppendStr(buf, " name=%s", name);
+sprintfAppendFloat(buf, " val=%.1f", 3.14);
+// buf = "ID=1 name=World val=3.1"
+```
+
+### File I/O
+
+Read and write files on the ESP32 filesystem (LittleFS). In the browser IDE, files are simulated in a virtual filesystem.
+
+| Function                                   | Description                                      |
+|--------------------------------------------|--------------------------------------------------|
+| `int fileOpen("path", mode)`               | Open file, returns handle (0–3) or -1 on error   |
+| `int fileClose(handle)`                    | Close file handle, returns 0 or -1               |
+| `int fileRead(handle, char buf[], max)`    | Read up to max bytes into buf, returns count     |
+| `int fileWrite(handle, char buf[], len)`   | Write len bytes from buf, returns count          |
+| `int fileExists("path")`                   | Check if file exists: 1=yes, 0=no                |
+| `int fileDelete("path")`                   | Delete file, returns 0=ok, -1=error              |
+| `int fileSize("path")`                     | Get file size in bytes, -1 on error              |
+
+**File modes:** `0` = read, `1` = write (create/truncate), `2` = append
+
+**Notes:**
+- File paths must be string literals (e.g., `"/data.txt"`)
+- Maximum 4 files open simultaneously (ESP32), 8 in browser
+- Buffer arguments (`buf`) must be `char` arrays, not string literals
+- `fileRead` returns the number of bytes actually read (may be less than `max`)
+- Always close files when done to free handles
+
+```c
+// Example: Write and read back
+char data[32];
+char buf[32];
+strcpy(data, "Hello!\n");
+
+int f = fileOpen("/test.txt", 1);   // write mode
+fileWrite(f, data, strlen(data));
+fileClose(f);
+
+f = fileOpen("/test.txt", 0);       // read mode
+int n = fileRead(f, buf, 31);
+buf[n] = 0;
+fileClose(f);
+printString(buf);                    // prints "Hello!"
+
+fileDelete("/test.txt");             // clean up
+```
+
+### Tasmota Command
+
+Execute any Tasmota console command and capture the JSON response.
+
+| Function                                     | Description                                    |
+|----------------------------------------------|------------------------------------------------|
+| `int tasmCmd("command", char response[])`    | Execute command, store response, return length |
+
+**Notes:**
+- Command must be a string literal (e.g., `"Status 0"`, `"Power ON"`)
+- Response buffer should be a `char` array (recommended size: 256)
+- Returns length of response string, or -1 on error
+- In the browser IDE, returns a simulated mock response
+- On ESP32, executes real Tasmota commands and captures the JSON response
+
+```c
+char resp[256];
+int len = tasmCmd("Status 0", resp);
+if (len > 0) {
+    printString(resp);   // prints JSON response
+}
+```
+
+### Debug
+
+| Function      | Description                |
+|---------------|----------------------------|
+| `dumpVM()`    | Dump VM state to console   |
+
+---
+
+## VM Limits
+
+| Resource          | Limit    | Notes                              |
+|-------------------|----------|------------------------------------|
+| Stack depth       | 256      | Operand stack entries              |
+| Call frames       | 32       | Maximum recursion / call depth     |
+| Locals per frame  | 256      | Includes arrays (1 slot per element)|
+| Global variables  | 256      | Includes global arrays             |
+| Code size         | 64 KB    | Bytecode (16-bit addressing)       |
+| Constant pool     | 65536    | String & float constants           |
+| Instruction limit | 1,000,000| Safety limit per execution         |
+| GPIO pins         | 40       | Pins 0–39 (simulated in browser)   |
+| File handles      | 4        | Simultaneously open files (8 in browser) |
+
+---
+
+## Keyboard Shortcuts (IDE)
+
+| Shortcut           | Action              |
+|--------------------|---------------------|
+| Ctrl + Enter       | Compile             |
+| Ctrl + Shift + Enter | Compile & Run     |
+| Ctrl + S           | Save file           |
+| Ctrl + O           | Open file           |
+| Ctrl + F           | Find                |
+| Enter (in Find)    | Find next           |
+| Shift + Enter (in Find) | Find previous  |
+| Escape             | Close Find bar      |
+| Tab (in editor)    | Insert 4 spaces     |
+
+---
+
+## Examples
+
+### Hello World
+```c
+int main() {
+    printStr("Hello, TinyC!\n");
+    return 0;
+}
+```
+
+### LED Blink
+```c
+#define LED 2
+#define OUTPUT 1
+
+int main() {
+    gpioInit(LED, OUTPUT);
+    while (true) {
+        digitalWrite(LED, 1);
+        delay(500);
+        digitalWrite(LED, 0);
+        delay(500);
+    }
+    return 0;
+}
+```
+
+### Fibonacci
+```c
+int fib(int n) {
+    if (n <= 1) return n;
+    return fib(n - 1) + fib(n - 2);
+}
+
+int main() {
+    for (int i = 0; i < 10; i++) {
+        print(fib(i));
+    }
+    return 0;
+}
+```
+
+### String Operations
+```c
+int main() {
+    char greeting[32] = "Hello";
+    char name[16] = "World";
+    char buf[64];
+
+    // Classic function style
+    strcpy(buf, greeting);
+    strcat(buf, ", ");
+    strcat(buf, name);
+    strcat(buf, "!\n");
+    printString(buf);       // Hello, World!
+
+    // Same thing with + operator
+    buf = greeting;
+    buf += ", ";
+    buf += name;
+    buf = buf + "!\n";
+    printString(buf);       // Hello, World!
+
+    // Formatted strings
+    char line[64];
+    sprintfInt(line, "count = %d", 42);
+    printString(line);      // count = 42
+
+    // Multi-value with sprintfAppend
+    char report[128];
+    sprintfInt(report, "Sensor %d", 1);
+    sprintfAppendStr(report, " name=%s", name);
+    sprintfAppendFloat(report, " temp=%.1f", 23.5);
+    printString(report);    // Sensor 1 name=World temp=23.5
+
+    return 0;
+}
+```
+
+### Bubble Sort
+```c
+void bubbleSort(int arr[], int n) {
+    for (int i = 0; i < n - 1; i++) {
+        for (int j = 0; j < n - i - 1; j++) {
+            if (arr[j] > arr[j + 1]) {
+                int temp = arr[j];
+                arr[j] = arr[j + 1];
+                arr[j + 1] = temp;
+            }
+        }
+    }
+}
+
+int main() {
+    int data[8] = {64, 34, 25, 12, 22, 11, 90, 1};
+    bubbleSort(data, 8);
+    for (int i = 0; i < 8; i++) {
+        print(data[i]);
+    }
+    return 0;
+}
+```
+
+---
+
+## Differences from Standard C
+
+| Feature                  | Standard C     | TinyC                        |
+|--------------------------|----------------|------------------------------|
+| Pointers                 | Full support   | **Not supported**            |
+| Structs / Unions         | Full support   | **Not supported**            |
+| Enums                    | Full support   | **Not supported**            |
+| Dynamic memory           | malloc/free    | **Not supported**            |
+| Multi-dimensional arrays | `int a[3][4]`  | **Not supported**            |
+| String type              | `char*`        | `char arr[N]` only           |
+| Preprocessor             | Full CPP       | `#define`, `#ifdef`, `#if`, `#else`, `#endif` (no `#include`, no macros) |
+| Header files             | `#include`     | **Not supported**            |
+| Typedef                  | Full support   | **Not supported**            |
+| sizeof                   | Full support   | **Not supported**            |
+| Ternary operator         | `a ? b : c`   | **Not supported**            |
+| do-while                 | `do {} while`  | **Not supported**            |
+| goto                     | Full support   | **Not supported**            |
+| Function pointers        | Full support   | **Not supported**            |
+| Variadic functions       | `printf(...)`  | **Not supported**            |
+| Standard library         | stdio, stdlib  | Built-in functions only      |
+
+---
+
+*Generated from TinyC source — lexer.js, parser.js, codegen.js, opcodes.js, vm.js*
