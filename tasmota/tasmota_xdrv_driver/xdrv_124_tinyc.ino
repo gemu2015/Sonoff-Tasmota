@@ -236,6 +236,7 @@ static void TinyCStopVM(void) {
   Tinyc->vm.running = false;
   tc_free_all_frames(&Tinyc->vm);
   tc_heap_free_all(&Tinyc->vm);
+  tc_udp_stop();
   tc_output_flush();
 }
 
@@ -701,6 +702,10 @@ bool Xdrv124(uint32_t function) {
   if (!Tinyc) { return false; }
 
   switch (function) {
+    case FUNC_LOOP:
+      // Poll UDP multicast for incoming variables
+      tc_udp_poll();
+      break;
     case FUNC_EVERY_50_MSECOND:
       TinyCEvery50ms();
       break;

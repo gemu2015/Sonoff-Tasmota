@@ -1701,6 +1701,17 @@ void Script_Stop_UDP(void) {
 
 }
 
+// Ensure UDP socket is active — called by TinyC when it needs UDP
+void Script_udp_ensure(void) {
+  if (!glob_script_mem.udp_flags.udp_used) {
+    glob_script_mem.udp_flags.udp_used = 1;
+    glob_script_mem.udp_flags.udp_binary_payload = 1;  // TinyC uses binary mode
+  }
+  if (!glob_script_mem.udp_flags.udp_connected) {
+    Script_Init_UDP();
+  }
+}
+
 void Script_Init_UDP() {
   if (TasmotaGlobal.global_state.network_down) return;
   if (!glob_script_mem.udp_flags.udp_used) return;
@@ -1726,6 +1737,10 @@ void Script_Init_UDP() {
     glob_script_mem.udp_flags.udp_connected  = 0;
   }
 }
+
+#ifdef USE_TINYC
+  extern void tc_udp_on_receive(const char *name, char umode, const char *data, int datalen);
+#endif
 
 void Script_PollUdp(void) {
   if (TasmotaGlobal.global_state.network_down) return;
@@ -1772,6 +1787,11 @@ void Script_PollUdp(void) {
           *cp = 0;
           strcpy(vnam, lp);
           lp = cp + 1;
+#ifdef USE_TINYC
+          // Save raw data pointer before Scripter modifies lp during array parsing
+          const char *tc_raw_data = lp;
+          int tc_raw_datalen = len - (lp - packet_buffer);
+#endif
           TS_FLOAT *fp;
           char *sp;
           uint32_t index;
@@ -1829,6 +1849,10 @@ void Script_PollUdp(void) {
               Run_Scripter1(glob_script_mem.glob_script, 0, 0);
             }
           }
+#ifdef USE_TINYC
+          // Forward UDP variable to TinyC VM (saved raw data pointer, before Scripter modified lp)
+          tc_udp_on_receive(vnam, umode, tc_raw_data, tc_raw_datalen);
+#endif
         }
       }
       optimistic_yield(100);

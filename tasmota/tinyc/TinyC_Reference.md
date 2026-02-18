@@ -315,7 +315,9 @@ Simply define functions with these well-known names — no registration needed.
 |----------|-------------|-------------|----------|
 | `EverySecond()` | FUNC_EVERY_SECOND | Every 1 second | Periodic tasks, counters, polling |
 | `JsonCall()` | FUNC_JSON_APPEND | Telemetry cycle (~300s) | Add JSON to MQTT telemetry |
-| `WebCall()` | FUNC_WEB_SENSOR | Web page refresh (~1s) | Add rows to Tasmota web UI |
+| `WebPage()` | FUNC_WEB_ADD_MAIN_BUTTON | Page load (once) | Charts, custom HTML, scripts |
+| `WebCall()` | FUNC_WEB_SENSOR | Web page refresh (~1s) | Add sensor rows to Tasmota web UI |
+| `UdpCall()` | UDP packet received | On each multicast variable | Process incoming UDP variables |
 
 ### Execution Model
 
@@ -323,6 +325,32 @@ Simply define functions with these well-known names — no registration needed.
 2. After main halts, **globals and heap persist** — they are NOT freed
 3. Tasmota periodically calls your callbacks, which can read/modify globals
 4. Callbacks run synchronously with an instruction limit (1000) — no `delay()` allowed
+
+### Tasmota Output Functions
+
+Use these functions in callbacks to send data to Tasmota:
+
+| Function | Description | Use In |
+|----------|-------------|--------|
+| `responseAppend(buf)` | Append char array to JSON telemetry (→ `ResponseAppend_P`) | `JsonCall()` |
+| `responseAppend("literal")` | Append string literal to JSON telemetry | `JsonCall()` |
+| `webSend(buf)` | Send char array to web page (→ `WSContentSend`) | `WebPage()` / `WebCall()` |
+| `webSend("literal")` | Send string literal to web page | `WebPage()` / `WebCall()` |
+| `webFlush()` | Flush web content buffer to client (→ `WSContentFlush`) | `WebPage()` / `WebCall()` |
+
+### Web Page Format
+
+Use Tasmota's `{s}` `{m}` `{e}` macros in `webSend()` to create table rows:
+- `{s}` — start row (label column)
+- `{m}` — middle (value column)
+- `{e}` — end row
+
+Example: `"{s}Temperature{m}25.3 °C{e}"` renders as a labeled row on the web page.
+
+### JSON Telemetry Format
+
+Use `responseAppend()` to add JSON fragments. Start with a comma:
+- `",\"Sensor\":{\"Temp\":25}"` appends to the telemetry JSON
 
 ### Example
 
@@ -337,14 +365,14 @@ void JsonCall() {
     // Appends to Tasmota MQTT telemetry JSON
     char buf[64];
     sprintfInt(buf, ",\"TinyC\":{\"Count\":%d}", counter);
-    printString(buf);
+    responseAppend(buf);
 }
 
 void WebCall() {
     // Adds a row to the Tasmota web page
     char buf[64];
     sprintfInt(buf, "{s}TinyC Counter{m}%d{e}", counter);
-    printString(buf);
+    webSend(buf);
 }
 
 int main() {
@@ -353,15 +381,18 @@ int main() {
 }
 ```
 
-**Result:** After uploading and running, the Tasmota web page shows a "TinyC Counter" row that increments every second, and MQTT telemetry includes `"TinyC":{"Count":N}`.
+**Result:** After uploading and running, the Tasmota web page shows a "TinyC Counter" row that increments every second, and MQTT telemetry includes `,"TinyC":{"Count":N}`.
 
 ### Important Notes
 
-- Callbacks must be **fast** — max 1000 instructions per invocation
+- Callbacks must be **fast** — max 200,000 instructions (ESP32) / 20,000 (ESP8266) per invocation
 - No `delay()` in callbacks (ignored if called)
 - `main()` must return (not loop forever) for callbacks to activate
-- Only the three well-known names above are recognized
+- Only the five well-known names above are recognized
 - The compiler auto-detects these function names and embeds them in the binary
+- Use `WebPage()` for one-time page content (charts, scripts) — called once when page loads
+- Use `WebCall()` for sensor-style rows that refresh periodically
+- Use `UdpCall()` to process incoming UDP multicast variables
 
 ---
 
@@ -794,6 +825,116 @@ char resp[256];
 int len = tasmCmd("Status 0", resp);
 if (len > 0) {
     printString(resp);   // prints JSON response
+}
+```
+
+### Tasmota Output (Callbacks)
+
+Send data directly to Tasmota's telemetry and web systems from callback functions.
+
+| Function | Description |
+|----------|-------------|
+| `void responseAppend(char buf[])` | Append string to MQTT JSON telemetry (`ResponseAppend_P`) |
+| `void responseAppend("literal")` | Append string literal to JSON (no buffer needed) |
+| `void webSend(char buf[])` | Send string to web page HTML (`WSContentSend`) |
+| `void webSend("literal")` | Send string literal to web page (no buffer needed) |
+| `void webFlush()` | Flush web content buffer to client (`WSContentFlush`) |
+
+**Notes:**
+- Both `webSend` and `responseAppend` accept either a char array or a string literal
+- String literal variants are more efficient — no copy through a buffer, sent directly from constant pool
+- Use `responseAppend()` inside `JsonCall()` — appends to the MQTT telemetry JSON
+- Use `webSend()` inside `WebPage()` for one-time page content (charts, scripts, custom HTML)
+- Use `webSend()` inside `WebCall()` for sensor-style rows that refresh periodically
+- Use `{s}Label{m}Value{e}` format in `webSend()` for sensor-style table rows
+- Call `webFlush()` periodically when building large HTML pages to flush the chunked transfer buffer (500 bytes)
+- Start JSON with comma: `",\"Key\":value"` to append correctly to telemetry
+- In the browser IDE, both route to the output console; `webFlush()` is a no-op
+- Callback instruction limit: 200,000 (ESP32), 20,000 (ESP8266)
+- See [Callback Functions](#callback-functions) for full examples
+
+### UDP Multicast (Scripter-compatible)
+
+Share float variables between Tasmota devices via UDP multicast on 239.255.255.250:1999.
+Compatible with Tasmota Scripter's global variable protocol.
+
+| Function | Description |
+|----------|-------------|
+| `void udpSend("name", float_val)` | Broadcast a float variable via binary multicast |
+| `float udpRecv("name")` | Get last received value for named variable (0 if none) |
+| `int udpReady("name")` | Returns 1 if new value received since last check |
+| `void udpSendArray("name", float_arr, count)` | Broadcast a float array via binary multicast |
+| `int udpRecvArray("name", float_arr, maxcount)` | Receive float array, returns actual count |
+
+**Protocol:**
+- Single float: send `=>name:[4 bytes IEEE-754 float]`
+- Float array: send `=>name:[2-byte LE count][N × 4-byte float]`
+- Receive: both ASCII (`=>name=value`) and binary (single or array)
+- Multicast group: `239.255.255.250`, port `1999`
+- Max 8 tracked variable names, 16 chars each
+- Max 64 floats per array
+
+**Callback:** Define `void UdpCall()` to be notified on each received variable.
+UDP socket is auto-initialized on first `udpSend()` or `udpRecv()` call.
+
+**Example (scalar):**
+```c
+float temperature = 0.0;
+
+void EverySecond() {
+    temperature = 20.0 + sin(counter) * 5.0;
+    udpSend("temperature", temperature);
+}
+
+void UdpCall() {
+    float remote = udpRecv("temperature");
+    // process remote value...
+}
+```
+
+**Example (array):**
+```c
+float sensors[8];
+
+void EverySecond() {
+    // Send 8 sensor values as array
+    udpSendArray("sensors", sensors, 8);
+}
+
+void UdpCall() {
+    float remote[8];
+    int n = udpRecvArray("sensors", remote, 8);
+    // n = number of floats actually received
+}
+```
+
+### Smart Meter (SML)
+
+Read meter values from Tasmota's SML driver (requires `USE_SML` or `USE_SML_M`).
+
+| Function | Description |
+|----------|-------------|
+| `float smlGet(int index)` | Get meter value. Index 0 returns count, 1..N returns values |
+| `int smlGetStr(int index, char buf[])` | Get meter ID string into buffer, returns length |
+
+**Notes:**
+- Index is 1-based: `smlGet(1)` returns the first meter value
+- `smlGet(0)` returns the total number of meter variables
+- Returns 0 if SML is not compiled in or index is out of range
+- Values are the same as Scripter's `sml[x]` syntax
+
+**Example:**
+```c
+void WebCall() {
+    char buf[64];
+    int n = smlGet(0);  // total meters
+    int i = 1;
+    while (i <= n) {
+        float val = smlGet(i);
+        sprintfFloat(buf, "{s}Meter %d{m}%.2f{e}", val);
+        webSend(buf);
+        i++;
+    }
 }
 ```
 

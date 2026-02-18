@@ -57,13 +57,20 @@ extern FS *ffsp;
 #define TC_FILE_NAME       "/tinyc.tcb"
 
 // Callback support
-#define TC_MAX_CALLBACKS   5           // max well-known callback functions
+#define TC_MAX_CALLBACKS   6           // max well-known callback functions
 #ifdef ESP8266
   #define TC_CALLBACK_MAX_INSTR 20000  // instruction limit per callback (ESP8266)
 #else
   #define TC_CALLBACK_MAX_INSTR 200000 // instruction limit per callback (ESP32)
 #endif
 #define TC_CALLBACK_NAME_MAX 16        // max callback name length
+
+// UDP multicast support (Scripter-compatible protocol)
+#define TC_UDP_PORT          1999
+#define TC_UDP_MAX_VARS      8          // max tracked UDP variable names
+#define TC_UDP_VAR_NAME_MAX  16         // max variable name length
+#define TC_UDP_BUF_SIZE      320        // receive buffer (max: 2+16+1+2+64*4 = 277)
+#define TC_UDP_MAX_ARRAY     64         // max float array elements per UDP variable
 
 /*********************************************************************************************\
  * VM Opcodes
@@ -181,6 +188,15 @@ enum TcSyscall {
   SYS_WEB_FLUSH           = 92, // () -> void — WSContentFlush
   SYS_RESPONSE_APPEND_STR = 93, // (const_idx) -> void — string literal variant
   SYS_WEB_SEND_STR        = 94, // (const_idx) -> void — string literal variant
+  // UDP multicast (Scripter-compatible, 239.255.255.250:1999)
+  SYS_UDP_SEND            = 100, // (const_idx_name, float_val) -> void — binary float
+  SYS_UDP_RECV            = 101, // (const_idx_name) -> float — last received value
+  SYS_UDP_READY           = 102, // (const_idx_name) -> int — 1 if new value available
+  SYS_UDP_SEND_ARRAY      = 103, // (const_idx_name, arr_ref, count) -> void — float array
+  SYS_UDP_RECV_ARRAY      = 104, // (const_idx_name, arr_ref, maxcount) -> int — recv array
+  // Smart Meter (SML)
+  SYS_SML_GET             = 110, // (index) -> float — meter value (1-based, 0=count)
+  SYS_SML_GETSTR          = 111, // (index, buf_ref) -> int — meter ID string into buf
   // Debug
   SYS_DEBUG_PRINT     = 250, SYS_DEBUG_PRINT_STR = 251,
   SYS_DEBUG_DUMP      = 252,
@@ -298,6 +314,20 @@ typedef struct {
 } TcVM;
 
 /*********************************************************************************************\
+ * UDP multicast variable entry
+\*********************************************************************************************/
+
+typedef struct {
+  char     name[TC_UDP_VAR_NAME_MAX];
+  float    value;
+  bool     ready;     // true if updated since last udpReady() check
+  bool     used;
+  // Array support (Scripter-compatible binary array protocol)
+  float   *arr_data;  // malloc'd on first array receive, NULL if scalar
+  uint16_t arr_count;  // number of elements in arr_data
+} TcUdpVar;
+
+/*********************************************************************************************\
  * Driver state
 \*********************************************************************************************/
 
@@ -318,6 +348,16 @@ struct TINYC {
   uint32_t upload_received;
   // File I/O state (File objects are stored separately as statics — see below)
   bool     file_used[TC_MAX_FILE_HANDLES];
+  // UDP multicast (Scripter-compatible, 239.255.255.250:1999)
+  bool     udp_used;            // true if any udp* function was called
+  bool     udp_connected;       // multicast socket active
+  TcUdpVar udp_vars[TC_UDP_MAX_VARS];
+  char     udp_last_name[TC_UDP_VAR_NAME_MAX]; // name of last received var (for UdpCall)
+#if !defined(USE_SCRIPT) || !defined(USE_SCRIPT_GLOBVARS)
+  // Standalone UDP socket (when Scripter is not present)
+  WiFiUDP  udp;
+  char     udp_buf[TC_UDP_BUF_SIZE];
+#endif
 #ifdef ESP32
   // FreeRTOS task for VM execution
   TaskHandle_t task_handle;
@@ -468,6 +508,299 @@ static void tc_send_web(const char *buf, int len) {
   WSContentSend(buf, len);
 }
 #endif
+
+/*********************************************************************************************\
+ * Smart Meter (SML) access — read meter values via SML_GetVal/SML_GetSVal
+\*********************************************************************************************/
+
+#if defined(USE_SML_M) || defined(USE_SML)
+  extern double SML_GetVal(uint32_t index);
+  extern char *SML_GetSVal(uint32_t index);
+#endif
+
+/*********************************************************************************************\
+ * UDP multicast helpers (Scripter-compatible, 239.255.255.250:1999)
+ * Send: binary mode  =>name:[4 bytes float]
+ * Recv: both modes   =>name=ascii  or  =>name:[4 bytes float]
+ *
+ * Two modes of operation:
+ *   1. Scripter present (USE_SCRIPT + USE_SCRIPT_GLOBVARS):
+ *      - Scripter owns the UDP socket and polls it
+ *      - Scripter forwards received packets to tc_udp_on_receive()
+ *      - TinyC sends via script_udp_sendvar() (Scripter's send function)
+ *   2. Standalone (no Scripter):
+ *      - TinyC manages its own UDP socket
+ *      - tc_udp_poll() called from FUNC_LOOP
+\*********************************************************************************************/
+
+#if defined(USE_SCRIPT) && defined(USE_SCRIPT_GLOBVARS)
+  // Forward declarations: Scripter's UDP functions
+  extern void script_udp_sendvar(char *vname, float *fp, char *sp, uint16_t alen);
+  extern void Script_udp_ensure(void);  // ensure Scripter's UDP socket is active
+#endif
+
+// Find or create a UDP variable slot by name
+static TcUdpVar* tc_udp_find_var(const char *name, bool create) {
+  if (!Tinyc) return nullptr;
+  // Search existing
+  for (int i = 0; i < TC_UDP_MAX_VARS; i++) {
+    if (Tinyc->udp_vars[i].used && !strcmp(Tinyc->udp_vars[i].name, name)) {
+      return &Tinyc->udp_vars[i];
+    }
+  }
+  if (!create) return nullptr;
+  // Create new slot
+  for (int i = 0; i < TC_UDP_MAX_VARS; i++) {
+    if (!Tinyc->udp_vars[i].used) {
+      strlcpy(Tinyc->udp_vars[i].name, name, TC_UDP_VAR_NAME_MAX);
+      Tinyc->udp_vars[i].value = 0;
+      Tinyc->udp_vars[i].ready = false;
+      Tinyc->udp_vars[i].used = true;
+      Tinyc->udp_vars[i].arr_data = nullptr;
+      Tinyc->udp_vars[i].arr_count = 0;
+      return &Tinyc->udp_vars[i];
+    }
+  }
+  return nullptr;  // table full
+}
+
+// Forward declaration — defined later in this file
+static int tc_vm_call_callback(TcVM *vm, const char *name);
+
+// Called when a UDP variable is received (from own poll or Scripter hook)
+// name: variable name, umode: '=' (ASCII) or ':' (binary), data: raw bytes after delimiter
+// datalen: length of remaining data (for array detection)
+void tc_udp_on_receive(const char *name, char umode, const char *data, int datalen) {
+  if (!Tinyc) return;
+  if (!Tinyc->udp_used) return;
+
+  TcUdpVar *var = tc_udp_find_var(name, true);
+  if (!var) return;  // table full
+
+  if (umode == '=') {
+    // ASCII mode: data points to string like "23.45"
+    var->value = CharToFloat((char*)data);
+    // Clear any array data — this is a scalar
+    var->arr_count = 0;
+  } else {
+    // Binary mode: either single float (4 bytes) or array (2-byte len + N*4 bytes)
+    // Detect array: datalen > 4, 2-byte LE length makes sense (matches remaining data)
+    // Single float: datalen == 4 (exactly 4 bytes)
+    uint8_t *src = (uint8_t*)data;
+    uint16_t alen = 0;
+    if (datalen > 4) {
+      alen = (uint16_t)src[0] | ((uint16_t)src[1] << 8);  // LE 16-bit
+      // Validate: alen > 0, and remaining data after 2-byte header is exactly alen*4 bytes
+      if (alen > 0 && datalen == (int)(2 + alen * sizeof(float))) {
+        // Array receive
+        if (alen > TC_UDP_MAX_ARRAY) alen = TC_UDP_MAX_ARRAY;
+        // Allocate/resize array buffer on demand
+        if (!var->arr_data || var->arr_count < alen) {
+          if (var->arr_data) free(var->arr_data);
+          var->arr_data = (float*)malloc(alen * sizeof(float));
+        }
+        if (var->arr_data) {
+          var->arr_count = alen;
+          uint8_t *ap = src + 2;  // skip 2-byte length
+          for (uint16_t i = 0; i < alen; i++) {
+            union { float f; uint8_t b[4]; } u;
+            u.b[0] = ap[0]; u.b[1] = ap[1]; u.b[2] = ap[2]; u.b[3] = ap[3];
+            var->arr_data[i] = u.f;
+            ap += sizeof(float);
+          }
+          var->value = var->arr_data[0];  // first element as scalar value too
+        }
+      } else {
+        // Not a valid array header — treat as single float
+        goto single_float;
+      }
+    } else {
+      single_float:
+      // Single float: 4 bytes IEEE-754
+      if (datalen >= 4) {
+        union { float f; uint8_t b[4]; } u;
+        u.b[0] = src[0]; u.b[1] = src[1]; u.b[2] = src[2]; u.b[3] = src[3];
+        var->value = u.f;
+      }
+      var->arr_count = 0;
+    }
+  }
+  var->ready = true;
+
+  // Store name for UdpCall callback
+  strlcpy(Tinyc->udp_last_name, name, TC_UDP_VAR_NAME_MAX);
+
+  // Trigger UdpCall callback
+  if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
+    tc_vm_call_callback(&Tinyc->vm, "UdpCall");
+  }
+}
+
+// Free all UDP variable array buffers
+static void tc_udp_free_arrays(void) {
+  if (!Tinyc) return;
+  for (int i = 0; i < TC_UDP_MAX_VARS; i++) {
+    if (Tinyc->udp_vars[i].arr_data) {
+      free(Tinyc->udp_vars[i].arr_data);
+      Tinyc->udp_vars[i].arr_data = nullptr;
+      Tinyc->udp_vars[i].arr_count = 0;
+    }
+  }
+}
+
+// Send a float variable via binary multicast
+static void tc_udp_send(const char *name, float value) {
+#if defined(USE_SCRIPT) && defined(USE_SCRIPT_GLOBVARS)
+  // Use Scripter's UDP socket — ensure it's active, then send binary
+  Script_udp_ensure();
+  float fv = value;
+  script_udp_sendvar((char*)name, &fv, NULL, 0);
+#else
+  // Standalone: own UDP socket
+  if (!Tinyc || !Tinyc->udp_connected) return;
+
+  char hdr[TC_UDP_VAR_NAME_MAX + 4];   // "=>" + name + ":"
+  strcpy(hdr, "=>");
+  strlcat(hdr, name, sizeof(hdr) - 1);
+  strlcat(hdr, ":", sizeof(hdr));
+
+  Tinyc->udp.beginPacket(IPAddress(239, 255, 255, 250), TC_UDP_PORT);
+  Tinyc->udp.write((const uint8_t*)hdr, strlen(hdr));
+  Tinyc->udp.write((const uint8_t*)&value, sizeof(float));
+  Tinyc->udp.endPacket();
+#endif
+}
+
+// Send a float array via binary multicast: =>name:[2-byte LE count][N × 4-byte float]
+static void tc_udp_send_array(const char *name, float *values, uint16_t count) {
+#if defined(USE_SCRIPT) && defined(USE_SCRIPT_GLOBVARS)
+  // Use Scripter's UDP socket — ensure it's active, then send binary array
+  Script_udp_ensure();
+  script_udp_sendvar((char*)name, values, NULL, count);
+#else
+  // Standalone: own UDP socket
+  if (!Tinyc || !Tinyc->udp_connected) return;
+
+  char hdr[TC_UDP_VAR_NAME_MAX + 4];
+  strcpy(hdr, "=>");
+  strlcat(hdr, name, sizeof(hdr) - 1);
+  strlcat(hdr, ":", sizeof(hdr));
+
+  Tinyc->udp.beginPacket(IPAddress(239, 255, 255, 250), TC_UDP_PORT);
+  Tinyc->udp.write((const uint8_t*)hdr, strlen(hdr));
+  // Write 2-byte LE array length
+  uint8_t lenbuf[2];
+  lenbuf[0] = count & 0xFF;
+  lenbuf[1] = (count >> 8) & 0xFF;
+  Tinyc->udp.write(lenbuf, 2);
+  // Write N × 4-byte floats
+  for (uint16_t i = 0; i < count; i++) {
+    Tinyc->udp.write((const uint8_t*)&values[i], sizeof(float));
+  }
+  Tinyc->udp.endPacket();
+#endif
+}
+
+// ── Standalone UDP socket management (only when Scripter is NOT present) ──
+#if !defined(USE_SCRIPT) || !defined(USE_SCRIPT_GLOBVARS)
+
+static void tc_udp_init(void) {
+  if (!Tinyc) return;
+  if (TasmotaGlobal.global_state.network_down) return;
+  if (Tinyc->udp_connected) return;
+
+#ifdef ESP8266
+  if (Tinyc->udp.beginMulticast(WiFi.localIP(), IPAddress(239,255,255,250), TC_UDP_PORT)) {
+#else
+  if (Tinyc->udp.beginMulticast(IPAddress(239,255,255,250), TC_UDP_PORT)) {
+#endif
+    Tinyc->udp_connected = true;
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: UDP multicast started on port %d"), TC_UDP_PORT);
+  } else {
+    Tinyc->udp_connected = false;
+    AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: UDP multicast failed"));
+  }
+}
+
+static void tc_udp_stop(void) {
+  if (!Tinyc) return;
+  if (Tinyc->udp_connected) {
+    Tinyc->udp.flush();
+    Tinyc->udp.stop();
+    Tinyc->udp_connected = false;
+  }
+  tc_udp_free_arrays();
+  Tinyc->udp_used = false;
+}
+
+// Poll for incoming UDP packets — called from FUNC_LOOP (standalone only)
+static void tc_udp_poll(void) {
+  if (!Tinyc || !Tinyc->udp_used) return;
+  if (!Tinyc->udp_connected) {
+    tc_udp_init();
+    return;
+  }
+
+  uint32_t timeout = millis();
+  while (1) {
+    uint16_t plen = Tinyc->udp.parsePacket();
+    if (!plen || plen >= TC_UDP_BUF_SIZE) {
+      if (plen > 0) {
+        Tinyc->udp.read(Tinyc->udp_buf, TC_UDP_BUF_SIZE - 1);
+        Tinyc->udp.flush();
+      }
+      break;
+    }
+    if (millis() - timeout > 100) break;  // max 100ms processing
+
+    int32_t len = Tinyc->udp.read(Tinyc->udp_buf, TC_UDP_BUF_SIZE - 1);
+    Tinyc->udp_buf[len] = 0;
+
+    char *lp = Tinyc->udp_buf;
+    if (len < 4 || lp[0] != '=' || lp[1] != '>') continue;
+    lp += 2;
+
+    // Find delimiter: '=' (ASCII) or ':' (binary)
+    char *cp = lp;
+    char umode = 0;
+    while (*cp) {
+      if (*cp == '=') { umode = '='; break; }
+      if (*cp == ':') { umode = ':'; break; }
+      cp++;
+    }
+    if (!umode) continue;
+
+    // Extract variable name
+    *cp = 0;
+    char *data = cp + 1;
+    int datalen = len - (data - Tinyc->udp_buf);
+
+    // Forward to shared handler
+    tc_udp_on_receive(lp, umode, data, datalen);
+
+    optimistic_yield(100);
+  }
+}
+
+#else  // Scripter is present — no own socket needed
+
+static void tc_udp_init(void) {
+  // Scripter owns the UDP socket — ensure it's active
+  Script_udp_ensure();
+  if (Tinyc) Tinyc->udp_connected = true;
+}
+static void tc_udp_stop(void) {
+  if (Tinyc) {
+    tc_udp_free_arrays();
+    Tinyc->udp_used = false;
+    Tinyc->udp_connected = false;
+  }
+}
+static void tc_udp_poll(void) {
+  // Scripter calls Script_PollUdp() which forwards to tc_udp_on_receive()
+}
+
+#endif  // USE_SCRIPT && USE_SCRIPT_GLOBVARS
 
 /*********************************************************************************************\
  * VM: Stack macros
@@ -1331,6 +1664,153 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         WSContentSend(vm->constants[a].str.ptr, slen);
 #endif
       }
+      break;
+    }
+
+    // ── UDP multicast ─────────────────────────────────
+    case SYS_UDP_SEND: {
+      // Stack: [const_idx_name, float_bits]  — float on top
+      a = TC_POP(vm);  // float value (as int32 bits)
+      b = TC_POP(vm);  // const pool index for variable name
+      if (b >= 0 && b < vm->const_count && vm->constants[b].type == 1) {
+        if (!Tinyc->udp_used) {
+          Tinyc->udp_used = true;
+          tc_udp_init();
+        }
+        float fv = i2f(a);
+        tc_udp_send(vm->constants[b].str.ptr, fv);
+      }
+      break;
+    }
+    case SYS_UDP_RECV: {
+      a = TC_POP(vm);  // const pool index for variable name
+      if (a >= 0 && a < vm->const_count && vm->constants[a].type == 1) {
+        if (!Tinyc->udp_used) {
+          Tinyc->udp_used = true;
+          tc_udp_init();
+        }
+        TcUdpVar *var = tc_udp_find_var(vm->constants[a].str.ptr, true);
+        if (var) {
+          TC_PUSH(vm, f2i(var->value));
+        } else {
+          TC_PUSH(vm, 0);
+        }
+      } else {
+        TC_PUSH(vm, 0);
+      }
+      break;
+    }
+    case SYS_UDP_READY: {
+      a = TC_POP(vm);  // const pool index for variable name
+      if (a >= 0 && a < vm->const_count && vm->constants[a].type == 1) {
+        TcUdpVar *var = tc_udp_find_var(vm->constants[a].str.ptr, false);
+        if (var && var->ready) {
+          var->ready = false;
+          TC_PUSH(vm, 1);
+        } else {
+          TC_PUSH(vm, 0);
+        }
+      } else {
+        TC_PUSH(vm, 0);
+      }
+      break;
+    }
+
+    // ── UDP array send/receive ────────────────────────
+    case SYS_UDP_SEND_ARRAY: {
+      // Stack: [const_idx_name, arr_ref, count] — count on top
+      int32_t count = TC_POP(vm);
+      int32_t arr_ref = TC_POP(vm);
+      b = TC_POP(vm);  // const pool index for variable name
+      if (b >= 0 && b < vm->const_count && vm->constants[b].type == 1) {
+        if (!Tinyc->udp_used) {
+          Tinyc->udp_used = true;
+          tc_udp_init();
+        }
+        int32_t *arr = tc_resolve_ref(vm, arr_ref);
+        int32_t maxLen = tc_ref_maxlen(vm, arr_ref);
+        if (arr && count > 0) {
+          if (count > maxLen) count = maxLen;
+          if (count > TC_UDP_MAX_ARRAY) count = TC_UDP_MAX_ARRAY;
+          // Convert int32 (float bits) to float array on stack
+          float fbuf[TC_UDP_MAX_ARRAY];
+          for (int32_t i = 0; i < count; i++) {
+            fbuf[i] = i2f(arr[i]);
+          }
+          tc_udp_send_array(vm->constants[b].str.ptr, fbuf, (uint16_t)count);
+        }
+      }
+      break;
+    }
+    case SYS_UDP_RECV_ARRAY: {
+      // Stack: [const_idx_name, arr_ref, maxcount] — maxcount on top
+      int32_t maxcount = TC_POP(vm);
+      int32_t arr_ref = TC_POP(vm);
+      a = TC_POP(vm);  // const pool index for variable name
+      if (a >= 0 && a < vm->const_count && vm->constants[a].type == 1) {
+        if (!Tinyc->udp_used) {
+          Tinyc->udp_used = true;
+          tc_udp_init();
+        }
+        TcUdpVar *var = tc_udp_find_var(vm->constants[a].str.ptr, false);
+        if (var && var->arr_data && var->arr_count > 0) {
+          int32_t *arr = tc_resolve_ref(vm, arr_ref);
+          int32_t maxLen = tc_ref_maxlen(vm, arr_ref);
+          if (arr) {
+            int32_t n = var->arr_count;
+            if (n > maxcount) n = maxcount;
+            if (n > maxLen) n = maxLen;
+            for (int32_t i = 0; i < n; i++) {
+              arr[i] = f2i(var->arr_data[i]);
+            }
+            TC_PUSH(vm, n);
+          } else {
+            TC_PUSH(vm, 0);
+          }
+        } else {
+          TC_PUSH(vm, 0);
+        }
+      } else {
+        TC_PUSH(vm, 0);
+      }
+      break;
+    }
+
+    // ── Smart Meter (SML) ──────────────────────────────
+    case SYS_SML_GET: {
+      a = TC_POP(vm);  // meter index (0=count, 1..N=values)
+#if defined(USE_SML_M) || defined(USE_SML)
+      double dval = SML_GetVal((uint32_t)a);
+      TC_PUSH(vm, f2i((float)dval));
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_SML_GETSTR: {
+      int32_t ref = TC_POP(vm);  // buf_ref for output
+      a = TC_POP(vm);            // meter index
+#if defined(USE_SML_M) || defined(USE_SML)
+      char *sval = SML_GetSVal((uint32_t)a);
+      if (sval && ref) {
+        // Copy string into TinyC char array
+        int32_t *buf = tc_resolve_ref(vm, ref);
+        int32_t maxLen = tc_ref_maxlen(vm, ref);
+        if (buf && maxLen > 0) {
+          int slen = strlen(sval);
+          if (slen >= maxLen) slen = maxLen - 1;
+          for (int i = 0; i < slen; i++) buf[i] = (int32_t)(uint8_t)sval[i];
+          buf[slen] = 0;
+          TC_PUSH(vm, slen);
+        } else {
+          TC_PUSH(vm, 0);
+        }
+      } else {
+        TC_PUSH(vm, 0);
+      }
+#else
+      TC_PUSH(vm, 0);
+#endif
       break;
     }
 
