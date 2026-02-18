@@ -54,6 +54,9 @@ static void TinyCInit(void) {
     return;
   }
   Tinyc->instr_per_tick = TC_INSTR_PER_TICK;
+  // Init SPI CS pins to -1 (unused)
+  for (int i = 0; i < TC_SPI_MAX_CS; i++) { Tinyc->spi.cs[i] = -1; }
+  Tinyc->spi.sclk = 0;  // 0 = not initialized (valid pins are >0 or <0)
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: TinyC VM initialized (%d bytes, %d free)"), needed, ESP_getFreeHeap());
 
   // Try auto-load from filesystem
@@ -237,6 +240,7 @@ static void TinyCStopVM(void) {
   tc_free_all_frames(&Tinyc->vm);
   tc_heap_free_all(&Tinyc->vm);
   tc_udp_stop();
+  tc_spi_cleanup();
   tc_output_flush();
 }
 

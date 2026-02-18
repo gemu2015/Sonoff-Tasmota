@@ -203,6 +203,10 @@ enum TcSyscall {
   // Smart Meter (SML)
   SYS_SML_GET             = 110, // (index) -> float — meter value (1-based, 0=count)
   SYS_SML_GETSTR          = 111, // (index, buf_ref) -> int — meter ID string into buf
+  // SPI bus
+  SYS_SPI_INIT            = 120, // (sclk, mosi, miso, speed_mhz) -> int (1=ok)
+  SYS_SPI_SET_CS          = 121, // (index, pin) -> void
+  SYS_SPI_TRANSFER        = 122, // (cs, buf_ref, len, mode) -> int bytes transferred
   // Debug
   SYS_DEBUG_PRINT     = 250, SYS_DEBUG_PRINT_STR = 251,
   SYS_DEBUG_DUMP      = 252,
@@ -334,6 +338,28 @@ typedef struct {
 } TcUdpVar;
 
 /*********************************************************************************************\
+ * SPI bus state
+\*********************************************************************************************/
+
+#define TC_SPI_MAX_CS  4
+
+typedef struct {
+  int8_t    sclk;            // clock pin (-1 = HW SPI bus 1, -2 = HW SPI bus 2, >=0 = bitbang)
+  int8_t    mosi;            // MOSI pin (-1 = not used for bitbang)
+  int8_t    miso;            // MISO pin (-1 = not used for bitbang)
+  int8_t    cs[TC_SPI_MAX_CS]; // chip select pins (-1 = unused)
+  bool      initialized;
+#ifdef ESP32
+  SPIClass *spip;            // SPI instance (hardware mode only)
+  SPISettings settings;
+#endif
+#ifdef ESP8266
+  SPIClass *spip;
+  SPISettings settings;
+#endif
+} TcSpi;
+
+/*********************************************************************************************\
  * Driver state
 \*********************************************************************************************/
 
@@ -364,6 +390,8 @@ struct TINYC {
   WiFiUDP  udp;
   char     udp_buf[TC_UDP_BUF_SIZE];
 #endif
+  // SPI bus
+  TcSpi    spi;
 #ifdef ESP32
   // FreeRTOS task for VM execution
   TaskHandle_t task_handle;
@@ -640,6 +668,28 @@ void tc_udp_on_receive(const char *name, char umode, const char *data, int datal
   if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
     tc_vm_call_callback(&Tinyc->vm, "UdpCall");
   }
+}
+
+// Clean up SPI resources
+static void tc_spi_cleanup(void) {
+  if (!Tinyc) return;
+  TcSpi *spi = &Tinyc->spi;
+  if (!spi->initialized) return;
+#ifdef ESP32
+  if (spi->sclk < 0 && spi->spip) {
+    spi->spip->end();
+    if (spi->spip != &SPI) { delete spi->spip; }
+    spi->spip = nullptr;
+  }
+#endif
+#ifdef ESP8266
+  if (spi->sclk < 0 && spi->spip) {
+    spi->spip->end();
+    spi->spip = nullptr;
+  }
+#endif
+  spi->initialized = false;
+  for (int i = 0; i < TC_SPI_MAX_CS; i++) { spi->cs[i] = -1; }
 }
 
 // Free all UDP variable array buffers
@@ -1908,6 +1958,206 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
 #else
       TC_PUSH(vm, 0);
 #endif
+      break;
+    }
+
+    // ── SPI bus ────────────────────────────────────────
+    case SYS_SPI_INIT: {
+      // Stack: [sclk, mosi, miso, speed_mhz] — speed on top
+      int32_t speed_mhz = TC_POP(vm);
+      int32_t miso_pin  = TC_POP(vm);
+      int32_t mosi_pin  = TC_POP(vm);
+      int32_t sclk_pin  = TC_POP(vm);
+      if (!Tinyc) { TC_PUSH(vm, 0); break; }
+      TcSpi *spi = &Tinyc->spi;
+      // Clean up previous hardware SPI instance if any
+#ifdef ESP32
+      if (spi->initialized && spi->sclk < 0 && spi->spip) {
+        spi->spip->end();
+        if (spi->spip != &SPI) { delete spi->spip; }
+        spi->spip = nullptr;
+      }
+#endif
+#ifdef ESP8266
+      if (spi->initialized && spi->sclk < 0 && spi->spip) {
+        spi->spip->end();
+        spi->spip = nullptr;
+      }
+#endif
+      spi->sclk = (int8_t)sclk_pin;
+      spi->mosi = (int8_t)mosi_pin;
+      spi->miso = (int8_t)miso_pin;
+
+      if (sclk_pin < 0) {
+        // Hardware SPI mode
+        uint32_t freq = (uint32_t)speed_mhz * 1000000UL;
+#ifdef ESP32
+        if (sclk_pin == -1) {
+          // Use Tasmota's primary SPI bus
+          if (TasmotaGlobal.spi_enabled) {
+            SPI.begin(Pin(GPIO_SPI_CLK), Pin(GPIO_SPI_MISO), Pin(GPIO_SPI_MOSI), -1);
+            spi->spip = &SPI;
+          } else {
+            AddLog(LOG_LEVEL_ERROR, PSTR("TIC: SPI pins not configured in Tasmota"));
+            spi->initialized = false;
+            TC_PUSH(vm, 0);
+            break;
+          }
+        } else {
+          // Use HSPI (secondary bus)
+          spi->spip = new SPIClass(HSPI);
+          if (TasmotaGlobal.spi_enabled) {
+            spi->spip->begin(Pin(GPIO_SPI_CLK, 1), Pin(GPIO_SPI_MISO, 1), Pin(GPIO_SPI_MOSI, 1), -1);
+          } else {
+            AddLog(LOG_LEVEL_ERROR, PSTR("TIC: SPI pins not configured in Tasmota"));
+            delete spi->spip;
+            spi->spip = nullptr;
+            spi->initialized = false;
+            TC_PUSH(vm, 0);
+            break;
+          }
+        }
+        spi->settings = SPISettings(freq, MSBFIRST, SPI_MODE0);
+#endif // ESP32
+#ifdef ESP8266
+        if (TasmotaGlobal.spi_enabled) {
+          SPI.begin();
+          spi->spip = &SPI;
+        } else {
+          AddLog(LOG_LEVEL_ERROR, PSTR("TIC: SPI pins not configured in Tasmota"));
+          spi->initialized = false;
+          TC_PUSH(vm, 0);
+          break;
+        }
+        spi->settings = SPISettings(freq, MSBFIRST, SPI_MODE0);
+#endif // ESP8266
+      } else {
+        // Bitbang mode — configure GPIO pins directly
+        pinMode(sclk_pin, OUTPUT);
+        digitalWrite(sclk_pin, 0);
+        if (mosi_pin >= 0) {
+          pinMode(mosi_pin, OUTPUT);
+          digitalWrite(mosi_pin, 0);
+        }
+        if (miso_pin >= 0) {
+          pinMode(miso_pin, INPUT_PULLUP);
+        }
+        spi->spip = nullptr;
+      }
+      spi->initialized = true;
+      AddLog(LOG_LEVEL_INFO, PSTR("TIC: SPI init sclk=%d mosi=%d miso=%d %dMHz"),
+        sclk_pin, mosi_pin, miso_pin, speed_mhz);
+      TC_PUSH(vm, 1);
+      break;
+    }
+
+    case SYS_SPI_SET_CS: {
+      // Stack: [index, pin] — pin on top
+      int32_t pin   = TC_POP(vm);
+      int32_t index = TC_POP(vm);
+      if (!Tinyc) break;
+      // index is 1-based in the API, stored 0-based
+      index = (index - 1) & (TC_SPI_MAX_CS - 1);
+      Tinyc->spi.cs[index] = (int8_t)pin;
+      pinMode(pin, OUTPUT);
+      digitalWrite(pin, HIGH);  // CS inactive = high
+      break;
+    }
+
+    case SYS_SPI_TRANSFER: {
+      // Stack: [cs, buf_ref, len, mode] — mode on top
+      int32_t mode    = TC_POP(vm);   // 1=8bit, 2=16bit, 3=24bit, 4=byte-with-cs
+      int32_t len     = TC_POP(vm);
+      int32_t buf_ref = TC_POP(vm);
+      int32_t cs_idx  = TC_POP(vm);   // 1-based CS index (0 = no CS management)
+
+      if (!Tinyc || !Tinyc->spi.initialized) {
+        TC_PUSH(vm, 0);
+        break;
+      }
+      TcSpi *spi = &Tinyc->spi;
+      int32_t *arr = tc_resolve_ref(vm, buf_ref);
+      int32_t maxLen = tc_ref_maxlen(vm, buf_ref);
+      if (!arr || len <= 0) { TC_PUSH(vm, 0); break; }
+      if (len > maxLen) len = maxLen;
+      if (mode < 1 || mode > 4) mode = 1;
+
+      // Resolve CS pin (1-based index, 0 = no CS)
+      int8_t cs_pin = -1;
+      if (cs_idx > 0) {
+        int ci = (cs_idx - 1) & (TC_SPI_MAX_CS - 1);
+        cs_pin = spi->cs[ci];
+      }
+
+      // Assert CS (low)
+      if (cs_pin >= 0 && mode != 4) {
+        digitalWrite(cs_pin, LOW);
+      }
+
+      if (spi->sclk < 0 && spi->spip) {
+        // ── Hardware SPI transfer ──
+        spi->spip->beginTransaction(spi->settings);
+        for (int32_t cnt = 0; cnt < len; cnt++) {
+          uint32_t out = 0;
+          uint32_t val = (uint32_t)arr[cnt];
+          if (mode == 1) {
+            out = spi->spip->transfer((uint8_t)val);
+          } else if (mode == 2) {
+            out = spi->spip->transfer16((uint16_t)val);
+          } else if (mode == 3) {
+            out = spi->spip->transfer((uint8_t)(val >> 16));
+            out <<= 16;
+            out |= spi->spip->transfer16((uint16_t)val);
+          } else if (mode == 4) {
+            // Per-byte CS toggle
+            if (cs_pin >= 0) digitalWrite(cs_pin, LOW);
+            out = spi->spip->transfer((uint8_t)val);
+            if (cs_pin >= 0) digitalWrite(cs_pin, HIGH);
+          }
+          arr[cnt] = (int32_t)out;
+        }
+        spi->spip->endTransaction();
+      } else if (spi->sclk >= 0) {
+        // ── Bitbang SPI transfer ──
+        for (int32_t cnt = 0; cnt < len; cnt++) {
+          uint32_t out = 0;
+          uint32_t val = (uint32_t)arr[cnt];
+          int nbits;
+          if (mode == 4) {
+            nbits = 8;
+            if (cs_pin >= 0) digitalWrite(cs_pin, LOW);
+          } else {
+            nbits = mode * 8;  // 8, 16, or 24 bits
+            if (nbits > 24) nbits = 24;
+          }
+          uint32_t bit = 1UL << (nbits - 1);
+          while (bit) {
+            digitalWrite(spi->sclk, LOW);
+            if (spi->mosi >= 0) {
+              digitalWrite(spi->mosi, (val & bit) ? HIGH : LOW);
+            }
+            digitalWrite(spi->sclk, HIGH);
+            if (spi->miso >= 0) {
+              if (digitalRead(spi->miso)) out |= bit;
+            }
+            bit >>= 1;
+          }
+          arr[cnt] = (int32_t)out;
+          if (mode == 4 && cs_pin >= 0) {
+            digitalWrite(cs_pin, HIGH);
+          }
+        }
+      } else {
+        TC_PUSH(vm, 0);
+        break;
+      }
+
+      // Deassert CS (high)
+      if (cs_pin >= 0 && mode != 4) {
+        digitalWrite(cs_pin, HIGH);
+      }
+
+      TC_PUSH(vm, len);
       break;
     }
 
