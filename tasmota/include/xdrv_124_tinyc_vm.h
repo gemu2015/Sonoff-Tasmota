@@ -574,60 +574,60 @@ void tc_udp_on_receive(const char *name, char umode, const char *data, int datal
   if (!Tinyc) return;
   if (!Tinyc->udp_used) return;
 
-  TcUdpVar *var = tc_udp_find_var(name, true);
-  if (!var) return;  // table full
-
-  if (umode == '=') {
-    // ASCII mode: data points to string like "23.45"
-    var->value = CharToFloat((char*)data);
-    // Clear any array data — this is a scalar
-    var->arr_count = 0;
-  } else {
-    // Binary mode: either single float (4 bytes) or array (2-byte len + N*4 bytes)
-    // Detect array: datalen > 4, 2-byte LE length makes sense (matches remaining data)
-    // Single float: datalen == 4 (exactly 4 bytes)
-    uint8_t *src = (uint8_t*)data;
-    uint16_t alen = 0;
-    if (datalen > 4) {
-      alen = (uint16_t)src[0] | ((uint16_t)src[1] << 8);  // LE 16-bit
-      // Validate: alen > 0, and remaining data after 2-byte header is exactly alen*4 bytes
-      if (alen > 0 && datalen == (int)(2 + alen * sizeof(float))) {
-        // Array receive
-        if (alen > TC_UDP_MAX_ARRAY) alen = TC_UDP_MAX_ARRAY;
-        // Allocate/resize array buffer on demand
-        if (!var->arr_data || var->arr_count < alen) {
-          if (var->arr_data) free(var->arr_data);
-          var->arr_data = (float*)malloc(alen * sizeof(float));
-        }
-        if (var->arr_data) {
-          var->arr_count = alen;
-          uint8_t *ap = src + 2;  // skip 2-byte length
-          for (uint16_t i = 0; i < alen; i++) {
-            union { float f; uint8_t b[4]; } u;
-            u.b[0] = ap[0]; u.b[1] = ap[1]; u.b[2] = ap[2]; u.b[3] = ap[3];
-            var->arr_data[i] = u.f;
-            ap += sizeof(float);
+  // Only update variables that TinyC already registered (via udpRecv/udpSend calls)
+  // Don't create new slots — avoids filling the table with unneeded network variables
+  TcUdpVar *var = tc_udp_find_var(name, false);
+  if (var) {
+    if (umode == '=') {
+      // ASCII mode: data points to string like "23.45"
+      var->value = CharToFloat((char*)data);
+      // Clear any array data — this is a scalar
+      var->arr_count = 0;
+    } else {
+      // Binary mode: either single float (4 bytes) or array (2-byte len + N*4 bytes)
+      uint8_t *src = (uint8_t*)data;
+      uint16_t alen = 0;
+      if (datalen > 4) {
+        alen = (uint16_t)src[0] | ((uint16_t)src[1] << 8);  // LE 16-bit
+        // Validate: alen > 0, and remaining data after 2-byte header is exactly alen*4 bytes
+        if (alen > 0 && datalen == (int)(2 + alen * sizeof(float))) {
+          // Array receive
+          if (alen > TC_UDP_MAX_ARRAY) alen = TC_UDP_MAX_ARRAY;
+          // Allocate/resize array buffer on demand
+          if (!var->arr_data || var->arr_count < alen) {
+            if (var->arr_data) free(var->arr_data);
+            var->arr_data = (float*)malloc(alen * sizeof(float));
           }
-          var->value = var->arr_data[0];  // first element as scalar value too
+          if (var->arr_data) {
+            var->arr_count = alen;
+            uint8_t *ap = src + 2;  // skip 2-byte length
+            for (uint16_t i = 0; i < alen; i++) {
+              union { float f; uint8_t b[4]; } u;
+              u.b[0] = ap[0]; u.b[1] = ap[1]; u.b[2] = ap[2]; u.b[3] = ap[3];
+              var->arr_data[i] = u.f;
+              ap += sizeof(float);
+            }
+            var->value = var->arr_data[0];  // first element as scalar value too
+          }
+        } else {
+          // Not a valid array header — treat as single float
+          goto single_float;
         }
       } else {
-        // Not a valid array header — treat as single float
-        goto single_float;
+        single_float:
+        // Single float: 4 bytes IEEE-754
+        if (datalen >= 4) {
+          union { float f; uint8_t b[4]; } u;
+          u.b[0] = src[0]; u.b[1] = src[1]; u.b[2] = src[2]; u.b[3] = src[3];
+          var->value = u.f;
+        }
+        var->arr_count = 0;
       }
-    } else {
-      single_float:
-      // Single float: 4 bytes IEEE-754
-      if (datalen >= 4) {
-        union { float f; uint8_t b[4]; } u;
-        u.b[0] = src[0]; u.b[1] = src[1]; u.b[2] = src[2]; u.b[3] = src[3];
-        var->value = u.f;
-      }
-      var->arr_count = 0;
     }
+    var->ready = true;
   }
-  var->ready = true;
 
-  // Store name for UdpCall callback
+  // Always store name and trigger UdpCall — program can decide what to do
   strlcpy(Tinyc->udp_last_name, name, TC_UDP_VAR_NAME_MAX);
 
   // Trigger UdpCall callback
@@ -1752,7 +1752,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           Tinyc->udp_used = true;
           tc_udp_init();
         }
-        TcUdpVar *var = tc_udp_find_var(vm->constants[a].str.ptr, false);
+        TcUdpVar *var = tc_udp_find_var(vm->constants[a].str.ptr, true);  // create slot to register interest
         if (var && var->arr_data && var->arr_count > 0) {
           int32_t *arr = tc_resolve_ref(vm, arr_ref);
           int32_t maxLen = tc_ref_maxlen(vm, arr_ref);
