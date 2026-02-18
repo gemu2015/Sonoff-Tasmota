@@ -13,15 +13,16 @@ It runs both in the browser (JavaScript VM) and on ESP32/ESP8266 (as Tasmota dri
 4. [Operators](#operators)
 5. [Control Flow](#control-flow)
 6. [Functions](#functions)
-7. [Arrays](#arrays)
-8. [Strings](#strings)
-9. [Preprocessor](#preprocessor)
-10. [Comments](#comments)
-11. [Type Casting](#type-casting)
-12. [Built-in Functions](#built-in-functions)
-13. [VM Limits](#vm-limits)
-14. [Keyboard Shortcuts (IDE)](#keyboard-shortcuts-ide)
-15. [Examples](#examples)
+7. [Callback Functions](#callback-functions)
+8. [Arrays](#arrays)
+9. [Strings](#strings)
+10. [Preprocessor](#preprocessor)
+11. [Comments](#comments)
+12. [Type Casting](#type-casting)
+13. [Built-in Functions](#built-in-functions)
+14. [VM Limits](#vm-limits)
+15. [Keyboard Shortcuts (IDE)](#keyboard-shortcuts-ide)
+16. [Examples](#examples)
 
 ---
 
@@ -303,6 +304,67 @@ void fill(int arr[], int size, int value) {
 
 ---
 
+## Callback Functions
+
+TinyC supports **callback functions** that Tasmota calls automatically at specific events.
+Simply define functions with these well-known names — no registration needed.
+
+### Available Callbacks
+
+| Function | Tasmota Hook | When Called | Use Case |
+|----------|-------------|-------------|----------|
+| `EverySecond()` | FUNC_EVERY_SECOND | Every 1 second | Periodic tasks, counters, polling |
+| `JsonCall()` | FUNC_JSON_APPEND | Telemetry cycle (~300s) | Add JSON to MQTT telemetry |
+| `WebCall()` | FUNC_WEB_SENSOR | Web page refresh (~1s) | Add rows to Tasmota web UI |
+
+### Execution Model
+
+1. **`main()`** runs first and initializes globals/state, then returns
+2. After main halts, **globals and heap persist** — they are NOT freed
+3. Tasmota periodically calls your callbacks, which can read/modify globals
+4. Callbacks run synchronously with an instruction limit (1000) — no `delay()` allowed
+
+### Example
+
+```c
+int counter = 0;
+
+void EverySecond() {
+    counter++;
+}
+
+void JsonCall() {
+    // Appends to Tasmota MQTT telemetry JSON
+    char buf[64];
+    sprintfInt(buf, ",\"TinyC\":{\"Count\":%d}", counter);
+    printString(buf);
+}
+
+void WebCall() {
+    // Adds a row to the Tasmota web page
+    char buf[64];
+    sprintfInt(buf, "{s}TinyC Counter{m}%d{e}", counter);
+    printString(buf);
+}
+
+int main() {
+    counter = 0;
+    return 0;
+}
+```
+
+**Result:** After uploading and running, the Tasmota web page shows a "TinyC Counter" row that increments every second, and MQTT telemetry includes `"TinyC":{"Count":N}`.
+
+### Important Notes
+
+- Callbacks must be **fast** — max 1000 instructions per invocation
+- No `delay()` in callbacks (ignored if called)
+- `main()` must return (not loop forever) for callbacks to activate
+- Only the three well-known names above are recognized
+- The compiler auto-detects these function names and embeds them in the binary
+
+---
+
 ## Arrays
 
 ### Declaration & Initialization
@@ -321,9 +383,48 @@ data[i + 1] = data[i]; // computed index
 ```
 
 ### Scope
-- **Global arrays** — stored in global data space
-- **Local arrays** — stored in the function's local frame
-- **No dynamic allocation** — all arrays have fixed compile-time sizes
+- **Global arrays** — stored in global data space (up to 255 elements)
+- **Local arrays** — stored in the function's local frame (up to 255 elements)
+- **Heap arrays** — arrays with more than 255 elements are automatically stored on a dynamic heap
+
+### Large Arrays (Heap)
+
+Arrays larger than 255 elements are **automatically** routed to heap memory by the compiler. No special syntax is needed — the compiler detects the size and allocates on the heap transparently:
+
+```c
+float data[2000];      // auto → heap (2000 > 255)
+int small[10];         // stays in globals (10 <= 255)
+
+int main() {
+    data[1999] = 3.14;  // heap access — same syntax as regular arrays
+    small[0] = 42;      // global access
+    return 0;
+}
+```
+
+Heap arrays support all the same operations as regular arrays: element access, string operations on `char[]`, passing to functions, etc.
+
+**Heap limits:**
+
+| Platform | Max Heap Slots | Max Handles |
+|----------|---------------|-------------|
+| ESP8266  | 2,048 (8 KB)  | 8           |
+| ESP32    | 8,192 (32 KB) | 16          |
+| Browser  | 16,384 (64 KB)| 32          |
+
+### Explicit malloc/free
+
+For dynamic allocation at runtime, use `malloc()` and `free()`:
+
+```c
+int main() {
+    int handle = malloc(1000);   // allocate 1000 int32 slots
+    if (handle < 0) return -1;   // allocation failed
+    // Use handle with heap operations...
+    free(handle);                // release when done
+    return 0;
+}
+```
 
 **Note:** There is no bounds checking (just like C). Out-of-bounds access is undefined behavior.
 
@@ -696,6 +797,15 @@ if (len > 0) {
 }
 ```
 
+### Memory
+
+| Function               | Description                                    |
+|------------------------|------------------------------------------------|
+| `int malloc(int size)` | Allocate `size` heap slots, returns handle (-1 on fail) |
+| `free(int handle)`     | Free a previously allocated heap block         |
+
+**Note:** Large arrays (>255 elements) are auto-allocated on the heap by the compiler. `malloc`/`free` are for explicit runtime allocation.
+
 ### Debug
 
 | Function      | Description                |
@@ -706,17 +816,19 @@ if (len > 0) {
 
 ## VM Limits
 
-| Resource          | Limit    | Notes                              |
-|-------------------|----------|------------------------------------|
-| Stack depth       | 256      | Operand stack entries              |
-| Call frames       | 32       | Maximum recursion / call depth     |
-| Locals per frame  | 256      | Includes arrays (1 slot per element)|
-| Global variables  | 256      | Includes global arrays             |
-| Code size         | 64 KB    | Bytecode (16-bit addressing)       |
-| Constant pool     | 65536    | String & float constants           |
-| Instruction limit | 1,000,000| Safety limit per execution         |
-| GPIO pins         | 40       | Pins 0–39 (simulated in browser)   |
-| File handles      | 4        | Simultaneously open files (8 in browser) |
+| Resource          | ESP8266  | ESP32    | Browser  | Notes                              |
+|-------------------|----------|----------|----------|------------------------------------|
+| Stack depth       | 64       | 256      | 256      | Operand stack entries              |
+| Call frames       | 8        | 32       | 32       | Maximum recursion / call depth     |
+| Locals per frame  | 256      | 256      | 256      | Includes arrays (1 slot per element)|
+| Global variables  | 64       | 256      | 256      | Includes global arrays (≤255 elem) |
+| Code size         | 4 KB     | 16 KB    | 64 KB    | Bytecode (16-bit addressing)       |
+| Heap memory       | 8 KB     | 32 KB    | 64 KB    | For arrays >255 elements + malloc  |
+| Heap handles      | 8        | 16       | 32       | Max simultaneous heap allocations  |
+| Constant pool     | 32       | 64       | 65536    | String & float constants           |
+| Instruction limit | 1M       | 1M       | 1M       | Safety limit per execution         |
+| GPIO pins         | 40       | 40       | 40       | Pins 0–39 (simulated in browser)   |
+| File handles      | 4        | 4        | 8        | Simultaneously open files          |
 
 ---
 

@@ -105,12 +105,15 @@ static void TinyCEvery50ms(void) {
   if (!Tinyc->loaded || !Tinyc->running) return;
   if (Tinyc->vm.halted || Tinyc->vm.error != TC_OK) {
     tc_free_all_frames(&Tinyc->vm);
-    if (Tinyc->vm.halted) {
+    if (Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
+      // Normal halt: globals + heap persist for callbacks
       tc_output_flush();
-      AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program halted after %u instructions"), Tinyc->vm.instruction_count);
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program halted after %u instructions, %d callbacks"),
+        Tinyc->vm.instruction_count, Tinyc->vm.callback_count);
       Tinyc->running = false;
     }
     if (Tinyc->vm.error != TC_OK) {
+      tc_heap_free_all(&Tinyc->vm);
       tc_output_flush();
       AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Error: %s (PC=%d)"),
         tc_error_str(Tinyc->vm.error), Tinyc->vm.pc - Tinyc->vm.code_offset);
@@ -125,6 +128,7 @@ static void TinyCEvery50ms(void) {
 
   if (err != TC_OK && err != TC_ERR_PAUSED) {
     tc_free_all_frames(&Tinyc->vm);
+    tc_heap_free_all(&Tinyc->vm);
     tc_output_flush();
     AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Runtime error: %s (PC=%d, instr=%u)"),
       tc_error_str(err), Tinyc->vm.pc - Tinyc->vm.code_offset, Tinyc->vm.instruction_count);
@@ -231,6 +235,7 @@ static void TinyCStopVM(void) {
   Tinyc->running = false;
   Tinyc->vm.running = false;
   tc_free_all_frames(&Tinyc->vm);
+  tc_heap_free_all(&Tinyc->vm);
   tc_output_flush();
 }
 
@@ -279,7 +284,7 @@ static void WSSend_P(int code, PGM_P content_type, PGM_P body) {
   char ct[32], buf[96];
   strncpy_P(ct, content_type, sizeof(ct) - 1); ct[sizeof(ct) - 1] = '\0';
   strncpy_P(buf, body, sizeof(buf) - 1); buf[sizeof(buf) - 1] = '\0';
-  Webserver->send(code, ct, buf);
+  Webserver->send(code, (const char*)ct, (const char*)buf);
 }
 // Shared PROGMEM strings for web responses
 static const char TC_CT_JSON[] PROGMEM = "application/json";
@@ -302,7 +307,7 @@ static void TCSendCORS(const char *methods_ram) {
 static void WSSendJSON(int code, const char *json_buf) {
   char ct[20];
   strncpy_P(ct, TC_CT_JSON, sizeof(ct) - 1); ct[sizeof(ct) - 1] = '\0';
-  Webserver->send(code, ct, json_buf);
+  Webserver->send(code, (const char*)ct, json_buf);
 }
 
 static void HandleTinyCPage(void) {
@@ -652,14 +657,20 @@ static void TinyCShow(bool json) {
   if (!Tinyc) return;
 
   if (json) {
+    // Always append basic TinyC status
     ResponseAppend_P(PSTR(",\"TinyC\":{\"Running\":%d,\"Loaded\":%d,\"Size\":%d,\"Instr\":%u}"),
       Tinyc->running ? 1 : 0,
       Tinyc->loaded ? 1 : 0,
       Tinyc->program_size,
       Tinyc->vm.instruction_count);
+    // Call user's JsonCall() — uses responseAppend() to write directly to Tasmota JSON
+    if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
+      tc_vm_call_callback(&Tinyc->vm, "JsonCall");
+    }
   }
 #ifdef USE_WEBSERVER
   else {
+    // Default web status row
     char status[10];
     if (Tinyc->running) { strcpy_P(status, PSTR("Running")); }
     else if (Tinyc->loaded) { strcpy_P(status, PSTR("Loaded")); }
@@ -667,6 +678,10 @@ static void TinyCShow(bool json) {
     WSContentSend_PD(PSTR("{s}TinyC{m}%s (%d bytes){e}"),
       status,
       Tinyc->program_size);
+    // Call user's WebCall() — uses webSend() to write directly to Tasmota web page
+    if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
+      tc_vm_call_callback(&Tinyc->vm, "WebCall");
+    }
   }
 #endif
 }
@@ -689,6 +704,12 @@ bool Xdrv124(uint32_t function) {
     case FUNC_EVERY_50_MSECOND:
       TinyCEvery50ms();
       break;
+    case FUNC_EVERY_SECOND:
+      // Call user's EverySecond() callback if VM halted normally
+      if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
+        tc_vm_call_callback(&Tinyc->vm, "EverySecond");
+      }
+      break;
     case FUNC_COMMAND:
       result = DecodeCommand(kTinyCCommands, TinyCCommand);
       break;
@@ -698,6 +719,12 @@ bool Xdrv124(uint32_t function) {
 #ifdef USE_WEBSERVER
     case FUNC_WEB_SENSOR:
       TinyCShow(false);
+      break;
+    case FUNC_WEB_ADD_MAIN_BUTTON:
+      // Call user's WebPage() — one-time page content (charts, custom HTML)
+      if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
+        tc_vm_call_callback(&Tinyc->vm, "WebPage");
+      }
       break;
     case FUNC_WEB_ADD_CONSOLE_BUTTON:
       if (XdrvMailbox.index) {

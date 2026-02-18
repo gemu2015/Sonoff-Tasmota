@@ -43,9 +43,27 @@ extern FS *ffsp;
 
 #define TC_MAX_FILE_HANDLES  4      // max simultaneously open files
 
+// Heap memory for large arrays (> 255 elements)
+#ifdef ESP8266
+  #define TC_MAX_HEAP           2048   // heap slots (8KB)
+  #define TC_MAX_HEAP_HANDLES   8
+#else  // ESP32
+  #define TC_MAX_HEAP           8192   // heap slots (32KB)
+  #define TC_MAX_HEAP_HANDLES   16
+#endif
+
 #define TC_MAGIC           0x54434300  // "TCC\0"
-#define TC_VERSION         1
+#define TC_VERSION         3           // V3: added function table section (callbacks)
 #define TC_FILE_NAME       "/tinyc.tcb"
+
+// Callback support
+#define TC_MAX_CALLBACKS   5           // max well-known callback functions
+#ifdef ESP8266
+  #define TC_CALLBACK_MAX_INSTR 20000  // instruction limit per callback (ESP8266)
+#else
+  #define TC_CALLBACK_MAX_INSTR 200000 // instruction limit per callback (ESP32)
+#endif
+#define TC_CALLBACK_NAME_MAX 16        // max callback name length
 
 /*********************************************************************************************\
  * VM Opcodes
@@ -97,6 +115,10 @@ enum TcOp {
   OP_ADDR_GLOBAL  = 0x79,  // push packed ref: 0x80000000 | base_idx
   // Syscalls
   OP_SYSCALL      = 0x80,
+  // Heap arrays (large arrays > 255 elements)
+  OP_LOAD_HEAP_ARR  = 0xA0,  // u8 handle; pop idx -> push value
+  OP_STORE_HEAP_ARR = 0xA1,  // u8 handle; pop val, pop idx -> store
+  OP_ADDR_HEAP      = 0xA2,  // u8 handle -> push ref: 0xC0000000 | handle
   // Constants
   OP_LOAD_CONST   = 0x90,
 };
@@ -150,6 +172,15 @@ enum TcSyscall {
   SYS_FILE_EXISTS  = 64,  // (const_idx_path) -> 1/0
   SYS_FILE_DELETE  = 65,  // (const_idx_path) -> 0/-1
   SYS_FILE_SIZE    = 66,  // (const_idx_path) -> bytes/-1
+  // Heap allocation
+  SYS_HEAP_ALLOC   = 80,  // pop size -> push handle (-1 on fail)
+  SYS_HEAP_FREE    = 81,  // pop handle -> void
+  // Tasmota output (for callbacks — route to Tasmota APIs)
+  SYS_RESPONSE_APPEND     = 90, // (char_ref) -> void — ResponseAppend_P
+  SYS_WEB_SEND            = 91, // (char_ref) -> void — WSContentSend_PD
+  SYS_WEB_FLUSH           = 92, // () -> void — WSContentFlush
+  SYS_RESPONSE_APPEND_STR = 93, // (const_idx) -> void — string literal variant
+  SYS_WEB_SEND_STR        = 94, // (const_idx) -> void — string literal variant
   // Debug
   SYS_DEBUG_PRINT     = 250, SYS_DEBUG_PRINT_STR = 251,
   SYS_DEBUG_DUMP      = 252,
@@ -218,6 +249,17 @@ typedef struct {
 } TcConstant;
 
 typedef struct {
+  uint16_t offset;   // start offset in heap_data[]
+  uint16_t size;     // number of int32 slots
+  bool     alive;    // true if block is in use
+} TcHeapHandle;
+
+typedef struct {
+  char     name[TC_CALLBACK_NAME_MAX];  // e.g. "JsonCall", "WebCall", "EverySecond"
+  uint16_t address;                      // code-relative address
+} TcCallback;
+
+typedef struct {
   // Program
   const uint8_t *code;
   uint16_t code_size;
@@ -245,6 +287,14 @@ typedef struct {
   uint8_t  const_count;
   char     const_data[TC_MAX_CONST_DATA];
   uint16_t const_data_used;
+  // Heap (for large arrays > 255 elements)
+  int32_t      *heap_data;       // malloc'd on demand, NULL if no heap used
+  uint16_t      heap_used;       // bump allocator: next free slot
+  TcHeapHandle  heap_handles[TC_MAX_HEAP_HANDLES];
+  uint8_t       heap_handle_count;
+  // Callback function table (V3)
+  TcCallback    callbacks[TC_MAX_CALLBACKS];
+  uint8_t       callback_count;
 } TcVM;
 
 /*********************************************************************************************\
@@ -321,30 +371,103 @@ static inline int32_t tc_make_global_ref(uint16_t base) {
 }
 
 // Resolve a packed array ref to a pointer into VM memory, returns NULL on error
+// Ref encoding:  bits 31-30 = 00/01 → local, 10 → global, 11 → heap
 static int32_t* tc_resolve_ref(TcVM *vm, int32_t ref) {
-  if (ref & (int32_t)0x80000000) {
-    // Global
-    uint16_t idx = ref & 0xFFFF;
+  uint32_t uref = (uint32_t)ref;
+  uint8_t tag = uref >> 30;
+  if (tag == 3) {
+    // Heap ref: 0xC0000000 | handle
+    uint16_t handle = uref & 0xFFFF;
+    if (handle < TC_MAX_HEAP_HANDLES && vm->heap_data &&
+        vm->heap_handles[handle].alive) {
+      return &vm->heap_data[vm->heap_handles[handle].offset];
+    }
+    return nullptr;
+  }
+  if (tag == 2) {
+    // Global ref: 0x80000000 | base_idx
+    uint16_t idx = uref & 0xFFFF;
     if (idx < TC_MAX_GLOBALS) return &vm->globals[idx];
   } else {
-    // Local
-    uint8_t fp = (ref >> 16) & 0xFF;
-    uint8_t idx = ref & 0xFF;
+    // Local ref: (fp << 16) | base_idx
+    uint8_t fp = (uref >> 16) & 0xFF;
+    uint8_t idx = uref & 0xFF;
     if (fp < TC_MAX_FRAMES && idx < TC_MAX_LOCALS && vm->frames[fp].locals) return vm->frames[fp].locals + idx;
   }
   return nullptr;
 }
 
 // How many int32 slots remain from the ref's base index to the end of the array?
-static int32_t tc_ref_maxlen(int32_t ref) {
-  if (ref & (int32_t)0x80000000) {
-    uint16_t base = ref & 0xFFFF;
+static int32_t tc_ref_maxlen(TcVM *vm, int32_t ref) {
+  uint32_t uref = (uint32_t)ref;
+  uint8_t tag = uref >> 30;
+  if (tag == 3) {
+    // Heap ref
+    uint16_t handle = uref & 0xFFFF;
+    if (handle < TC_MAX_HEAP_HANDLES && vm->heap_handles[handle].alive) {
+      return vm->heap_handles[handle].size;
+    }
+    return 0;
+  }
+  if (tag == 2) {
+    uint16_t base = uref & 0xFFFF;
     return (base < TC_MAX_GLOBALS) ? TC_MAX_GLOBALS - base : 0;
   } else {
-    uint8_t base = ref & 0xFF;
+    uint8_t base = uref & 0xFF;
     return (base < TC_MAX_LOCALS) ? TC_MAX_LOCALS - base : 0;
   }
 }
+
+// Extract null-terminated C string from VM array ref into char buffer
+// Returns number of chars written (excluding null terminator)
+static int tc_ref_to_cstr(TcVM *vm, int32_t ref, char *out, int maxOut) {
+  int32_t *buf = tc_resolve_ref(vm, ref);
+  if (!buf) { out[0] = '\0'; return 0; }
+  int32_t maxLen = tc_ref_maxlen(vm, ref);
+  int i;
+  for (i = 0; i < maxLen && i < maxOut - 1; i++) {
+    if (buf[i] == 0) break;
+    out[i] = (char)(buf[i] & 0xFF);
+  }
+  out[i] = '\0';
+  return i;
+}
+
+// Stream VM string ref through a callback in chunks — no size limit
+// Calls sendFn(chunk, len) for each chunk.  Uses small stack buffer.
+#define TC_STREAM_CHUNK 256
+typedef void (*tc_send_fn)(const char *buf, int len);
+
+static void tc_stream_ref(TcVM *vm, int32_t ref, tc_send_fn sendFn) {
+  int32_t *buf = tc_resolve_ref(vm, ref);
+  if (!buf) return;
+  int32_t maxLen = tc_ref_maxlen(vm, ref);
+  char chunk[TC_STREAM_CHUNK];
+  int ci = 0;
+  for (int i = 0; i < maxLen; i++) {
+    if (buf[i] == 0) break;
+    chunk[ci++] = (char)(buf[i] & 0xFF);
+    if (ci >= TC_STREAM_CHUNK - 1) {
+      chunk[ci] = '\0';
+      sendFn(chunk, ci);
+      ci = 0;
+    }
+  }
+  if (ci > 0) {
+    chunk[ci] = '\0';
+    sendFn(chunk, ci);
+  }
+}
+
+// Stream send targets for Tasmota APIs
+static void tc_send_response(const char *buf, int len) {
+  ResponseAppend_P(PSTR("%s"), buf);
+}
+#ifdef USE_WEBSERVER
+static void tc_send_web(const char *buf, int len) {
+  WSContentSend(buf, len);
+}
+#endif
 
 /*********************************************************************************************\
  * VM: Stack macros
@@ -447,6 +570,56 @@ static void tc_free_all_frames(TcVM *vm) {
   }
   vm->frame_count = 0;
   vm->fp = 0;
+}
+
+/*********************************************************************************************\
+ * Heap allocation: bump allocator with handle table
+ * Used for large arrays (> 255 elements). heap_data is malloc'd on demand.
+\*********************************************************************************************/
+
+// Allocate a heap block, returns handle index or -1 on failure
+static int tc_heap_alloc(TcVM *vm, uint16_t size) {
+  // Lazy-allocate heap buffer
+  if (!vm->heap_data) {
+    vm->heap_data = (int32_t *)calloc(TC_MAX_HEAP, sizeof(int32_t));
+    if (!vm->heap_data) return -1;
+    vm->heap_used = 0;
+  }
+  // Find free handle slot
+  int handle = -1;
+  for (int i = 0; i < TC_MAX_HEAP_HANDLES; i++) {
+    if (!vm->heap_handles[i].alive) { handle = i; break; }
+  }
+  if (handle < 0) return -1;
+  // Check space
+  if (vm->heap_used + size > TC_MAX_HEAP) return -1;
+  // Bump-allocate
+  vm->heap_handles[handle].offset = vm->heap_used;
+  vm->heap_handles[handle].size = size;
+  vm->heap_handles[handle].alive = true;
+  // Zero-initialize the new block
+  memset(&vm->heap_data[vm->heap_used], 0, size * sizeof(int32_t));
+  vm->heap_used += size;
+  if ((uint8_t)(handle + 1) > vm->heap_handle_count) vm->heap_handle_count = handle + 1;
+  return handle;
+}
+
+// Mark a heap handle as dead (no compaction — bump allocator)
+static void tc_heap_free_handle(TcVM *vm, int handle) {
+  if (handle >= 0 && handle < TC_MAX_HEAP_HANDLES) {
+    vm->heap_handles[handle].alive = false;
+  }
+}
+
+// Free entire heap buffer (call on VM stop/reset/reload)
+static void tc_heap_free_all(TcVM *vm) {
+  if (vm->heap_data) {
+    free(vm->heap_data);
+    vm->heap_data = nullptr;
+  }
+  vm->heap_used = 0;
+  vm->heap_handle_count = 0;
+  memset(vm->heap_handles, 0, sizeof(vm->heap_handles));
 }
 
 /*********************************************************************************************\
@@ -734,7 +907,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         break;
       }
       // Cap to remaining slots from base index (leave room for null terminator)
-      int32_t maxLen = tc_ref_maxlen(buf_ref) - 1;
+      int32_t maxLen = tc_ref_maxlen(vm, buf_ref) - 1;
       if (maxLen <= 0) { TC_PUSH(vm, 0); break; }
       AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: tasmCmd(\"%s\")"), cmd);
       // Execute Tasmota command — response goes to global buffer
@@ -757,7 +930,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       a = TC_POP(vm);  // array ref
       int32_t *p = tc_resolve_ref(vm, a);
       int32_t len = 0;
-      if (p) { int32_t max = tc_ref_maxlen(a); while (p[len] != 0 && len < max) len++; }
+      if (p) { int32_t max = tc_ref_maxlen(vm, a); while (p[len] != 0 && len < max) len++; }
       TC_PUSH(vm, len);
       break;
     }
@@ -767,7 +940,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t *dst = tc_resolve_ref(vm, dst_ref);
       int32_t *src = tc_resolve_ref(vm, src_ref);
       if (dst && src) {
-        int32_t max = tc_ref_maxlen(dst_ref) - 1;
+        int32_t max = tc_ref_maxlen(vm, dst_ref) - 1;
         int32_t i = 0;
         while (src[i] != 0 && i < max) { dst[i] = src[i]; i++; }
         dst[i] = 0;
@@ -780,7 +953,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t *dst = tc_resolve_ref(vm, dst_ref);
       int32_t *src = tc_resolve_ref(vm, src_ref);
       if (dst && src) {
-        int32_t max = tc_ref_maxlen(dst_ref) - 1;
+        int32_t max = tc_ref_maxlen(vm, dst_ref) - 1;
         int32_t di = 0;
         while (dst[di] != 0 && di < max) di++;
         int32_t si = 0;
@@ -796,8 +969,8 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t *pb = tc_resolve_ref(vm, b_ref);
       int32_t result = 0;
       if (pa && pb) {
-        int32_t max_a = tc_ref_maxlen(a_ref);
-        int32_t max_b = tc_ref_maxlen(b_ref);
+        int32_t max_a = tc_ref_maxlen(vm, a_ref);
+        int32_t max_b = tc_ref_maxlen(vm, b_ref);
         int32_t max = max_a < max_b ? max_a : max_b;
         int32_t i = 0;
         while (pa[i] != 0 && pb[i] != 0 && pa[i] == pb[i] && i < max) i++;
@@ -810,7 +983,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       a = TC_POP(vm);  // array ref
       int32_t *p = tc_resolve_ref(vm, a);
       if (p) {
-        int32_t max = tc_ref_maxlen(a);
+        int32_t max = tc_ref_maxlen(vm, a);
         int32_t i = 0;
         while (p[i] != 0 && i < max) {
           tc_output_char((char)(p[i] & 0xFF));
@@ -825,7 +998,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t *dst = tc_resolve_ref(vm, dst_ref);
       if (dst && ci >= 0 && ci < vm->const_count && vm->constants[ci].type == 1) {
         const char *s = vm->constants[ci].str.ptr;
-        int32_t max = tc_ref_maxlen(dst_ref) - 1;
+        int32_t max = tc_ref_maxlen(vm, dst_ref) - 1;
         int32_t i = 0;
         while (s[i] != 0 && i < max) { dst[i] = (int32_t)(uint8_t)s[i]; i++; }
         dst[i] = 0;
@@ -838,7 +1011,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t *dst = tc_resolve_ref(vm, dst_ref);
       if (dst && ci >= 0 && ci < vm->const_count && vm->constants[ci].type == 1) {
         const char *s = vm->constants[ci].str.ptr;
-        int32_t max = tc_ref_maxlen(dst_ref) - 1;
+        int32_t max = tc_ref_maxlen(vm, dst_ref) - 1;
         int32_t di = 0;
         while (dst[di] != 0 && di < max) di++;
         int32_t si = 0;
@@ -858,7 +1031,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t *dst = tc_resolve_ref(vm, dst_ref);
       const char *fmt = tc_get_const_str(vm, ci);
       if (!dst || !fmt) { TC_PUSH(vm, -1); break; }
-      int32_t maxSlots = tc_ref_maxlen(dst_ref);
+      int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
       char tmp[64];
       snprintf(tmp, sizeof(tmp), fmt, val);
       TC_PUSH(vm, tc_sprintf_to_ref(dst, maxSlots, tmp));
@@ -871,7 +1044,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t *dst = tc_resolve_ref(vm, dst_ref);
       const char *fmt = tc_get_const_str(vm, ci);
       if (!dst || !fmt) { TC_PUSH(vm, -1); break; }
-      int32_t maxSlots = tc_ref_maxlen(dst_ref);
+      int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
       char tmp[64];
       tc_sprintf_float(tmp, sizeof(tmp), fmt, fval);
       TC_PUSH(vm, tc_sprintf_to_ref(dst, maxSlots, tmp));
@@ -885,9 +1058,9 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t *src = tc_resolve_ref(vm, src_ref);
       const char *fmt = tc_get_const_str(vm, ci);
       if (!dst || !src || !fmt) { TC_PUSH(vm, -1); break; }
-      int32_t maxSlots = tc_ref_maxlen(dst_ref);
+      int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
       // Extract source string from VM int32 array into temp char buffer
-      int32_t srcMax = tc_ref_maxlen(src_ref);
+      int32_t srcMax = tc_ref_maxlen(vm, src_ref);
       char srcbuf[128];
       int32_t si = 0;
       while (src[si] != 0 && si < srcMax && si < (int32_t)sizeof(srcbuf) - 1) {
@@ -909,7 +1082,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t *dst = tc_resolve_ref(vm, dst_ref);
       const char *fmt = tc_get_const_str(vm, ci);
       if (!dst || !fmt) { TC_PUSH(vm, -1); break; }
-      int32_t maxSlots = tc_ref_maxlen(dst_ref);
+      int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
       int32_t ofs = tc_strlen_ref(dst, maxSlots);
       char tmp[64];
       snprintf(tmp, sizeof(tmp), fmt, val);
@@ -924,7 +1097,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t *dst = tc_resolve_ref(vm, dst_ref);
       const char *fmt = tc_get_const_str(vm, ci);
       if (!dst || !fmt) { TC_PUSH(vm, -1); break; }
-      int32_t maxSlots = tc_ref_maxlen(dst_ref);
+      int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
       int32_t ofs = tc_strlen_ref(dst, maxSlots);
       char tmp[64];
       tc_sprintf_float(tmp, sizeof(tmp), fmt, fval);
@@ -940,9 +1113,9 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t *src = tc_resolve_ref(vm, src_ref);
       const char *fmt = tc_get_const_str(vm, ci);
       if (!dst || !src || !fmt) { TC_PUSH(vm, -1); break; }
-      int32_t maxSlots = tc_ref_maxlen(dst_ref);
+      int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
       int32_t ofs = tc_strlen_ref(dst, maxSlots);
-      int32_t srcMax = tc_ref_maxlen(src_ref);
+      int32_t srcMax = tc_ref_maxlen(vm, src_ref);
       char srcbuf[128];
       int32_t si = 0;
       while (src[si] != 0 && si < srcMax && si < (int32_t)sizeof(srcbuf) - 1) {
@@ -1013,7 +1186,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         break;
       }
       // Limit to actual remaining slots from base index
-      int32_t maxSlots = tc_ref_maxlen(buf_ref);
+      int32_t maxSlots = tc_ref_maxlen(vm, buf_ref);
       if (maxBytes > maxSlots) maxBytes = maxSlots;
       // Read via temp byte buffer (File reads bytes, VM stores int32 per element)
       uint8_t tmp[256];
@@ -1041,7 +1214,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         TC_PUSH(vm, -1);
         break;
       }
-      int32_t maxSlots = tc_ref_maxlen(buf_ref);
+      int32_t maxSlots = tc_ref_maxlen(vm, buf_ref);
       if (len > maxSlots) len = maxSlots;
       // Convert int32 array elements to bytes and write
       uint8_t tmp[256];
@@ -1109,6 +1282,58 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
     }
 
+    // ── Heap allocation ──────────────────────────────
+    case SYS_HEAP_ALLOC: {
+      int32_t size = TC_POP(vm);
+      TC_PUSH(vm, tc_heap_alloc(vm, (uint16_t)size));
+      break;
+    }
+    case SYS_HEAP_FREE: {
+      int32_t handle = TC_POP(vm);
+      tc_heap_free_handle(vm, handle);
+      break;
+    }
+
+    // ── Tasmota output (for callbacks) ────────────────
+    // Streams VM string in 256-byte chunks — no size limit
+    case SYS_RESPONSE_APPEND: {
+      a = TC_POP(vm);
+      tc_stream_ref(vm, a, tc_send_response);
+      break;
+    }
+    case SYS_WEB_SEND: {
+      a = TC_POP(vm);
+#ifdef USE_WEBSERVER
+      tc_stream_ref(vm, a, tc_send_web);
+#endif
+      break;
+    }
+    case SYS_WEB_FLUSH: {
+#ifdef USE_WEBSERVER
+      WSContentFlush();
+#endif
+      break;
+    }
+
+    // ── Tasmota output — string literal variants ──────
+    case SYS_RESPONSE_APPEND_STR: {
+      a = TC_POP(vm);  // constant pool index
+      if (a >= 0 && a < vm->const_count && vm->constants[a].type == 1) {
+        ResponseAppend_P(PSTR("%s"), vm->constants[a].str.ptr);
+      }
+      break;
+    }
+    case SYS_WEB_SEND_STR: {
+      a = TC_POP(vm);  // constant pool index
+      if (a >= 0 && a < vm->const_count && vm->constants[a].type == 1) {
+#ifdef USE_WEBSERVER
+        int slen = strlen(vm->constants[a].str.ptr);
+        WSContentSend(vm->constants[a].str.ptr, slen);
+#endif
+      }
+      break;
+    }
+
     // ── Debug ─────────────────────────────────────────
     case SYS_DEBUG_PRINT:
       a = TC_POP(vm);
@@ -1138,23 +1363,30 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
 \*********************************************************************************************/
 
 static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
-  if (size < 12) return TC_ERR_BAD_BINARY;
+  if (size < 14) return TC_ERR_BAD_BINARY;  // minimum header size
 
   uint32_t magic = ((uint32_t)binary[0] << 24) | ((uint32_t)binary[1] << 16) |
                    ((uint32_t)binary[2] << 8) | binary[3];
   if (magic != TC_MAGIC) return TC_ERR_BAD_BINARY;
 
   uint16_t version = (binary[4] << 8) | binary[5];
-  if (version != TC_VERSION) return TC_ERR_BAD_BINARY;
+  if (version < 2 || version > TC_VERSION) return TC_ERR_BAD_BINARY;
 
   uint16_t entry_point = (binary[8] << 8) | binary[9];
   uint16_t const_pool_size = (binary[10] << 8) | binary[11];
+  uint16_t heap_decl_size = (binary[12] << 8) | binary[13];
+
+  // V3 adds funcTableSize at bytes 14-15; V2 header is 14 bytes
+  uint16_t header_size = (version >= 3) ? 16 : 14;
+  uint16_t func_table_size = (version >= 3 && size >= 16) ? ((binary[14] << 8) | binary[15]) : 0;
+
+  if (size < header_size) return TC_ERR_BAD_BINARY;
 
   // Parse constant pool
   vm->const_count = 0;
   vm->const_data_used = 0;
-  uint16_t offset = 12;
-  uint16_t const_end = 12 + const_pool_size;
+  uint16_t offset = header_size;
+  uint16_t const_end = header_size + const_pool_size;
 
   while (offset < const_end && vm->const_count < TC_MAX_CONSTANTS) {
     uint8_t type = binary[offset++];
@@ -1182,12 +1414,65 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   // Close any open file handles from previous run
   tc_close_all_files();
 
-  // Free any previously allocated frame locals
+  // Free any previously allocated frame locals and heap
   tc_free_all_frames(vm);
+  tc_heap_free_all(vm);
+
+  // Parse heap declarations and pre-allocate blocks
+  uint16_t heap_end = const_end + heap_decl_size;
+  if (heap_decl_size > 0) {
+    uint8_t count = binary[const_end];
+    // Compute total heap needed
+    uint32_t total_heap = 0;
+    for (uint8_t i = 0; i < count; i++) {
+      uint16_t sz = ((uint16_t)binary[const_end + 1 + i * 3 + 1] << 8) |
+                     binary[const_end + 1 + i * 3 + 2];
+      total_heap += sz;
+    }
+    if (total_heap > 0) {
+      uint32_t alloc_size = total_heap > TC_MAX_HEAP ? total_heap : TC_MAX_HEAP;
+      vm->heap_data = (int32_t *)calloc(alloc_size, sizeof(int32_t));
+      if (!vm->heap_data) return TC_ERR_STACK_OVERFLOW;  // OOM
+      // Pre-allocate each declared block
+      for (uint8_t i = 0; i < count; i++) {
+        uint8_t handle = binary[const_end + 1 + i * 3];
+        uint16_t sz = ((uint16_t)binary[const_end + 1 + i * 3 + 1] << 8) |
+                       binary[const_end + 1 + i * 3 + 2];
+        if (handle < TC_MAX_HEAP_HANDLES) {
+          vm->heap_handles[handle].offset = vm->heap_used;
+          vm->heap_handles[handle].size = sz;
+          vm->heap_handles[handle].alive = true;
+          vm->heap_used += sz;
+          if ((uint8_t)(handle + 1) > vm->heap_handle_count) vm->heap_handle_count = handle + 1;
+        }
+      }
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: heap %d handles, %d/%d slots"), count, vm->heap_used, alloc_size);
+    }
+  }
+
+  // Parse function table (V3)
+  vm->callback_count = 0;
+  uint16_t func_table_start = heap_end;
+  uint16_t func_table_end = func_table_start + func_table_size;
+  if (func_table_size > 0) {
+    uint16_t pos = func_table_start;
+    uint8_t count = binary[pos++];
+    for (uint8_t i = 0; i < count && i < TC_MAX_CALLBACKS && pos < func_table_end; i++) {
+      uint8_t name_len = binary[pos++];
+      if (name_len >= TC_CALLBACK_NAME_MAX) name_len = TC_CALLBACK_NAME_MAX - 1;
+      memcpy(vm->callbacks[i].name, &binary[pos], name_len);
+      vm->callbacks[i].name[name_len] = '\0';
+      pos += name_len;  // skip full name even if truncated
+      vm->callbacks[i].address = (binary[pos] << 8) | binary[pos + 1];
+      pos += 2;
+      vm->callback_count++;
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: callback '%s' @%d"), vm->callbacks[i].name, vm->callbacks[i].address);
+    }
+  }
 
   vm->code = binary;
-  vm->code_offset = const_end;
-  vm->code_size = size - const_end;
+  vm->code_offset = func_table_end;
+  vm->code_size = size - func_table_end;
   vm->pc = vm->code_offset + entry_point;
   vm->sp = 0;
   vm->fp = 0;
@@ -1207,6 +1492,88 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   }
 
   return TC_OK;
+}
+
+// Forward declaration — tc_vm_step is defined below, called by tc_vm_call_callback
+static int tc_vm_step(TcVM *vm);
+
+/*********************************************************************************************\
+ * VM: Callback invocation — call a named function after main() has halted
+ *
+ * Execution model:
+ *   After main() returns, globals & heap persist. Callbacks temporarily un-halt
+ *   the VM, allocate a fresh frame, execute the function synchronously, then
+ *   re-halt. Instruction limit prevents runaway callbacks.
+ *
+ * Thread safety (ESP32):
+ *   Callbacks are called from Tasmota's main loop (FUNC_JSON_APPEND,
+ *   FUNC_WEB_SENSOR, FUNC_EVERY_SECOND). The FreeRTOS task has already
+ *   exited (task_running=false) when main() halted, so there is no
+ *   concurrent access to the VM state.
+\*********************************************************************************************/
+
+static int tc_vm_call_callback(TcVM *vm, const char *name) {
+  // Find callback by name
+  int idx = -1;
+  for (int i = 0; i < vm->callback_count; i++) {
+    if (strcmp(vm->callbacks[i].name, name) == 0) { idx = i; break; }
+  }
+  if (idx < 0) return TC_OK;  // callback not defined, silently skip
+
+  // VM must be halted (main returned) with no error
+  if (!vm->halted || vm->error != TC_OK) return vm->error;
+
+  // Save state
+  uint8_t saved_frame_count = vm->frame_count;
+  uint16_t saved_pc = vm->pc;
+  uint16_t saved_sp = vm->sp;
+
+  // Temporarily un-halt and set up callback frame
+  vm->halted = false;
+  vm->running = true;
+  if (vm->frame_count >= TC_MAX_FRAMES) return TC_ERR_FRAME_OVERFLOW;
+  TcFrame *frame = &vm->frames[vm->frame_count];
+  frame->return_pc = 0;  // detect return by frame_count drop
+  if (!tc_frame_alloc(frame)) {
+    vm->halted = true;
+    vm->running = false;
+    return TC_ERR_STACK_OVERFLOW;
+  }
+  vm->fp = vm->frame_count;
+  vm->frame_count++;
+  vm->pc = vm->code_offset + vm->callbacks[idx].address;
+
+  // Execute with instruction limit
+  uint32_t count = 0;
+  while (vm->frame_count > saved_frame_count && !vm->halted && vm->error == TC_OK) {
+    int err = tc_vm_step(vm);
+    if (err == TC_ERR_PAUSED) {
+      // No delay() in callbacks — ignore
+      vm->delayed = false;
+      break;
+    }
+    if (err != TC_OK) break;
+    if (++count > TC_CALLBACK_MAX_INSTR) {
+      vm->error = TC_ERR_INSTRUCTION_LIMIT;
+      break;
+    }
+  }
+
+  // Restore halted state (globals & heap persist)
+  vm->halted = true;
+  vm->running = false;
+  vm->pc = saved_pc;
+
+  // Clean up any leftover frames from the callback
+  while (vm->frame_count > saved_frame_count) {
+    tc_frame_free(&vm->frames[--vm->frame_count]);
+  }
+  vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0;
+
+  // Flush output to Tasmota
+  tc_output_flush();
+
+  return vm->error;
 }
 
 /*********************************************************************************************\
@@ -1384,6 +1751,37 @@ static int tc_vm_step(TcVM *vm) {
       TC_PUSH(vm, tc_make_global_ref(addr));
       break;
 
+    // ── Heap arrays ───────────────────────
+    case OP_LOAD_HEAP_ARR: {
+      uint8_t handle = tc_read_u8(vm);
+      a = TC_POP(vm);  // index
+      if (handle >= TC_MAX_HEAP_HANDLES || !vm->heap_data ||
+          !vm->heap_handles[handle].alive ||
+          a < 0 || (uint16_t)a >= vm->heap_handles[handle].size) {
+        return TC_ERR_BOUNDS;
+      }
+      TC_PUSH(vm, vm->heap_data[vm->heap_handles[handle].offset + a]);
+      break;
+    }
+    case OP_STORE_HEAP_ARR: {
+      uint8_t handle = tc_read_u8(vm);
+      b = TC_POP(vm);  // value
+      a = TC_POP(vm);  // index
+      if (handle >= TC_MAX_HEAP_HANDLES || !vm->heap_data ||
+          !vm->heap_handles[handle].alive ||
+          a < 0 || (uint16_t)a >= vm->heap_handles[handle].size) {
+        return TC_ERR_BOUNDS;
+      }
+      vm->heap_data[vm->heap_handles[handle].offset + a] = b;
+      break;
+    }
+    case OP_ADDR_HEAP: {
+      uint8_t handle = tc_read_u8(vm);
+      // Pack: 0xC0000000 | handle
+      TC_PUSH(vm, (int32_t)(0xC0000000U | handle));
+      break;
+    }
+
     // ── Constants ──────────────────────────
     case OP_LOAD_CONST:
       addr = tc_read_u16(vm);
@@ -1485,16 +1883,23 @@ static void tc_vm_task(void *param) {
     yield();  // Feed WDT after each batch
   }
 
-  // Cleanup
+  // Cleanup after task exits
   tc_free_all_frames(vm);
   tc_close_all_files();
   tc_output_flush();
-  if (vm->halted) {
-    AddLog(LOG_LEVEL_INFO, PSTR("TCC: Halted after %u instr"), vm->instruction_count);
+
+  if (vm->halted && vm->error == TC_OK) {
+    // Normal halt: main() returned successfully.
+    // Globals and heap PERSIST for callback functions (JsonCall, WebCall, EverySecond).
+    // Heap will be freed when program is explicitly stopped, reset, or reloaded.
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: Halted after %u instr, %d callbacks"),
+      vm->instruction_count, vm->callback_count);
   } else if (vm->error != TC_OK) {
+    tc_heap_free_all(vm);
     AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Error: %s (PC=%d)"),
       tc_error_str(vm->error), vm->pc - vm->code_offset);
   } else if (tc->task_stop) {
+    tc_heap_free_all(vm);
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: Task stopped"));
   }
 
