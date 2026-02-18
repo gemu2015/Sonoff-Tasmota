@@ -8,6 +8,10 @@
 #ifndef _XDRV_124_TINYC_VM_H_
 #define _XDRV_124_TINYC_VM_H_
 
+#ifdef USE_UFILESYS
+extern FS *ffsp;
+#endif
+
 /*********************************************************************************************\
  * VM Configuration — ESP8266 vs ESP32
  *
@@ -240,8 +244,7 @@ struct TINYC {
   uint8_t *upload_buf;
   uint32_t upload_size;
   uint32_t upload_received;
-  // File I/O handles (LittleFS)
-  File     file_handles[TC_MAX_FILE_HANDLES];
+  // File I/O state (File objects are stored separately as statics — see below)
   bool     file_used[TC_MAX_FILE_HANDLES];
 #ifdef ESP32
   // FreeRTOS task for VM execution
@@ -250,6 +253,9 @@ struct TINYC {
   volatile bool task_stop;      // signal task to stop
 #endif
 } *Tinyc = nullptr;
+
+// File handles stored as statics (not in calloc'd struct) so C++ File constructor runs properly
+static File tc_file_handles[TC_MAX_FILE_HANDLES];
 
 /*********************************************************************************************\
  * Helper: reinterpret int32 <-> float
@@ -390,7 +396,7 @@ static void tc_close_all_files(void) {
   if (!Tinyc) return;
   for (int i = 0; i < TC_MAX_FILE_HANDLES; i++) {
     if (Tinyc->file_used[i]) {
-      Tinyc->file_handles[i].close();
+      tc_file_handles[i].close();
       Tinyc->file_used[i] = false;
       AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: file cleanup handle %d"), i);
     }
@@ -591,7 +597,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         buf[i] = (int32_t)(uint8_t)resp[i];
       }
       buf[rlen] = 0;  // null-terminate
-      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: tasmCmd → %d bytes"), rlen);
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: tasmCmd -> %d bytes"), rlen);
       TC_PUSH(vm, rlen);
       break;
     }
@@ -686,10 +692,11 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
 
     // ── File I/O (LittleFS) ────────────────────────────
     case SYS_FILE_OPEN: {
+#ifdef USE_UFILESYS
       int32_t mode = TC_POP(vm);       // 0=read, 1=write, 2=append
       int32_t ci = TC_POP(vm);         // const pool index for path
       const char *path = tc_get_const_str(vm, ci);
-      if (!path) { TC_PUSH(vm, -1); break; }
+      if (!path || !ffsp) { TC_PUSH(vm, -1); break; }
       int slot = tc_alloc_file_handle();
       if (slot < 0) {
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: fileOpen no free handle"));
@@ -698,26 +705,30 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       }
       const char *mode_str;
       switch (mode) {
-        case 0:  mode_str = "r";  Tinyc->file_handles[slot] = LittleFS.open(path, "r"); break;
-        case 1:  mode_str = "w";  Tinyc->file_handles[slot] = LittleFS.open(path, "w"); break;
-        case 2:  mode_str = "a";  Tinyc->file_handles[slot] = LittleFS.open(path, "a"); break;
+        case 0:  mode_str = "r";  tc_file_handles[slot] = ffsp->open(path, "r"); break;
+        case 1:  mode_str = "w";  tc_file_handles[slot] = ffsp->open(path, "w"); break;
+        case 2:  mode_str = "a";  tc_file_handles[slot] = ffsp->open(path, "a"); break;
         default: mode_str = "?";  TC_PUSH(vm, -1); break;
       }
       if (mode > 2) break;  // invalid mode already pushed -1
-      if (!Tinyc->file_handles[slot]) {
+      if (!tc_file_handles[slot]) {
         AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileOpen(\"%s\", %s) failed"), path, mode_str);
         TC_PUSH(vm, -1);
       } else {
         Tinyc->file_used[slot] = true;
-        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileOpen(\"%s\", %s) → handle %d"), path, mode_str, slot);
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileOpen(\"%s\", %s) -> handle %d"), path, mode_str, slot);
         TC_PUSH(vm, slot);
       }
+#else
+      TC_POP(vm); TC_POP(vm);  // consume args
+      TC_PUSH(vm, -1);
+#endif
       break;
     }
     case SYS_FILE_CLOSE: {
       int32_t h = TC_POP(vm);
       if (h >= 0 && h < TC_MAX_FILE_HANDLES && Tinyc->file_used[h]) {
-        Tinyc->file_handles[h].close();
+        tc_file_handles[h].close();
         Tinyc->file_used[h] = false;
         AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileClose(%d)"), h);
         TC_PUSH(vm, 0);
@@ -743,14 +754,14 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       while (total < maxBytes) {
         int32_t chunk = maxBytes - total;
         if (chunk > (int32_t)sizeof(tmp)) chunk = sizeof(tmp);
-        int n = Tinyc->file_handles[h].read(tmp, chunk);
+        int n = tc_file_handles[h].read(tmp, chunk);
         if (n <= 0) break;
         for (int i = 0; i < n; i++) {
           buf[total + i] = (int32_t)tmp[i];
         }
         total += n;
       }
-      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileRead(%d, %d) → %d bytes"), h, maxBytes, total);
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileRead(%d, %d) -> %d bytes"), h, maxBytes, total);
       TC_PUSH(vm, total);
       break;
     }
@@ -773,45 +784,60 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         for (int32_t i = 0; i < chunk; i++) {
           tmp[i] = (uint8_t)(buf[total + i] & 0xFF);
         }
-        int n = Tinyc->file_handles[h].write(tmp, chunk);
+        int n = tc_file_handles[h].write(tmp, chunk);
         if (n <= 0) break;
         total += n;
       }
-      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileWrite(%d, %d) → %d bytes"), h, len, total);
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileWrite(%d, %d) -> %d bytes"), h, len, total);
       TC_PUSH(vm, total);
       break;
     }
     case SYS_FILE_EXISTS: {
+#ifdef USE_UFILESYS
       int32_t ci = TC_POP(vm);
       const char *path = tc_get_const_str(vm, ci);
-      if (!path) { TC_PUSH(vm, 0); break; }
-      bool exists = LittleFS.exists(path);
-      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileExists(\"%s\") → %d"), path, exists ? 1 : 0);
+      if (!path || !ffsp) { TC_PUSH(vm, 0); break; }
+      bool exists = ffsp->exists(path);
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileExists(\"%s\") -> %d"), path, exists ? 1 : 0);
       TC_PUSH(vm, exists ? 1 : 0);
+#else
+      TC_POP(vm);
+      TC_PUSH(vm, 0);
+#endif
       break;
     }
     case SYS_FILE_DELETE: {
+#ifdef USE_UFILESYS
       int32_t ci = TC_POP(vm);
       const char *path = tc_get_const_str(vm, ci);
-      if (!path) { TC_PUSH(vm, -1); break; }
-      bool ok = LittleFS.remove(path);
-      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileDelete(\"%s\") → %d"), path, ok ? 0 : -1);
+      if (!path || !ffsp) { TC_PUSH(vm, -1); break; }
+      bool ok = ffsp->remove(path);
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileDelete(\"%s\") -> %d"), path, ok ? 0 : -1);
       TC_PUSH(vm, ok ? 0 : -1);
+#else
+      TC_POP(vm);
+      TC_PUSH(vm, -1);
+#endif
       break;
     }
     case SYS_FILE_SIZE: {
+#ifdef USE_UFILESYS
       int32_t ci = TC_POP(vm);
       const char *path = tc_get_const_str(vm, ci);
-      if (!path) { TC_PUSH(vm, -1); break; }
-      File f = LittleFS.open(path, "r");
+      if (!path || !ffsp) { TC_PUSH(vm, -1); break; }
+      File f = ffsp->open(path, "r");
       if (!f) {
         TC_PUSH(vm, -1);
       } else {
         int32_t sz = f.size();
         f.close();
-        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileSize(\"%s\") → %d"), path, sz);
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileSize(\"%s\") -> %d"), path, sz);
         TC_PUSH(vm, sz);
       }
+#else
+      TC_POP(vm);
+      TC_PUSH(vm, -1);
+#endif
       break;
     }
 

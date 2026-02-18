@@ -22,6 +22,8 @@ void p_Huffmancodebits( shine_global_config *config, int32_t *ix, gr_info *gi);
 
 MODULE_PART void p_shine_format_bitstream(shine_global_config *config) {
 SETMEMREGS
+  /* BISECT22 - return immediately, skip everything */
+  return;
   int32_t gr, ch, i;
 
   for ( ch =  0; ch < config->wave.channels; ch++ ) {
@@ -35,9 +37,6 @@ SETMEMREGS
         }
       }
   }
-  /* BISECT22 - test: call putbits directly instead of encodeSideInfo */
-  p_shine_putbits( &config->bs, 0x7ff, 11 );
-  return;
   p_encodeSideInfo( config );
   p_encodeMainData( config );
 }
