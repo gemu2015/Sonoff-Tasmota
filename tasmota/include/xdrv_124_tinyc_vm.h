@@ -1179,7 +1179,6 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       b = TC_POP(vm); a = TC_POP(vm);
       if (a >= 0 && a < MAX_GPIO_PIN) {
         digitalWrite(a, b);
-        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: digitalWrite(%d, %d)"), a, b);
       }
       break;
     case SYS_DIGITAL_READ:
@@ -1215,11 +1214,9 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       if (a >= 0 && a < MAX_GPIO_PIN) {
         // Detach from Tasmota function assignment
         if (TasmotaGlobal.gpio_pin[a] != AGPIO(GPIO_NONE)) {
-          AddLog(LOG_LEVEL_INFO, PSTR("TCC: gpioInit(%d) releasing from Tasmota GPIO function %d"), a, TasmotaGlobal.gpio_pin[a]);
           TasmotaGlobal.gpio_pin[a] = AGPIO(GPIO_NONE);
         }
         pinMode(a, b);
-        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: gpioInit(%d, %d)"), a, b);
       }
       break;
 

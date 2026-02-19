@@ -79,42 +79,46 @@ static void TinyCEvery50ms(void) {
     Tinyc->running = false;
     tc_output_flush();
   }
-  return;
 #else
   // ESP8266: slice-based execution in 50ms tick (no FreeRTOS task support)
-  if (!Tinyc->loaded || !Tinyc->running) return;
-  if (Tinyc->vm.halted || Tinyc->vm.error != TC_OK) {
-    tc_free_all_frames(&Tinyc->vm);
-    if (Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
-      // Normal halt: globals + heap persist for callbacks
-      tc_output_flush();
-      AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program halted after %u instructions, %d callbacks"),
-        Tinyc->vm.instruction_count, Tinyc->vm.callback_count);
-      Tinyc->running = false;
-    }
-    if (Tinyc->vm.error != TC_OK) {
-      tc_heap_free_all(&Tinyc->vm);
-      tc_output_flush();
-      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Error: %s (PC=%d)"),
-        tc_error_str(Tinyc->vm.error), Tinyc->vm.pc - Tinyc->vm.code_offset);
-      Tinyc->running = false;
-    }
-    return;
-  }
+  if (Tinyc->loaded && Tinyc->running) {
+    if (Tinyc->vm.halted || Tinyc->vm.error != TC_OK) {
+      tc_free_all_frames(&Tinyc->vm);
+      if (Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
+        // Normal halt: globals + heap persist for callbacks
+        tc_output_flush();
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program halted after %u instructions, %d callbacks"),
+          Tinyc->vm.instruction_count, Tinyc->vm.callback_count);
+        Tinyc->running = false;
+      }
+      if (Tinyc->vm.error != TC_OK) {
+        tc_heap_free_all(&Tinyc->vm);
+        tc_output_flush();
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Error: %s (PC=%d)"),
+          tc_error_str(Tinyc->vm.error), Tinyc->vm.pc - Tinyc->vm.code_offset);
+        Tinyc->running = false;
+      }
+    } else {
+      yield();  // Feed WDT before VM execution
+      int err = tc_vm_run_slice(&Tinyc->vm, Tinyc->instr_per_tick);
+      yield();  // Feed WDT after VM execution
 
-  yield();  // Feed WDT before VM execution
-  int err = tc_vm_run_slice(&Tinyc->vm, Tinyc->instr_per_tick);
-  yield();  // Feed WDT after VM execution
-
-  if (err != TC_OK && err != TC_ERR_PAUSED) {
-    tc_free_all_frames(&Tinyc->vm);
-    tc_heap_free_all(&Tinyc->vm);
-    tc_output_flush();
-    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Runtime error: %s (PC=%d, instr=%u)"),
-      tc_error_str(err), Tinyc->vm.pc - Tinyc->vm.code_offset, Tinyc->vm.instruction_count);
-    Tinyc->running = false;
+      if (err != TC_OK && err != TC_ERR_PAUSED) {
+        tc_free_all_frames(&Tinyc->vm);
+        tc_heap_free_all(&Tinyc->vm);
+        tc_output_flush();
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Runtime error: %s (PC=%d, instr=%u)"),
+          tc_error_str(err), Tinyc->vm.pc - Tinyc->vm.code_offset, Tinyc->vm.instruction_count);
+        Tinyc->running = false;
+      }
+    }
   }
 #endif  // ESP32 vs ESP8266
+
+  // Call user's Every50ms() callback if VM halted normally
+  if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
+    tc_vm_call_callback(&Tinyc->vm, "Every50ms");
+  }
 }
 
 /*********************************************************************************************\
@@ -169,10 +173,10 @@ static bool TinyCStartVM(void) {
 
 #if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C2)
   // Single-core variants — no core affinity
-  BaseType_t ret = xTaskCreate(tc_vm_task, "tinyc_vm", 4096, Tinyc, 1, &Tinyc->task_handle);
+  BaseType_t ret = xTaskCreate(tc_vm_task, "tinyc_vm", 8192, Tinyc, 1, &Tinyc->task_handle);
 #else
   // Dual-core ESP32/S3 — pin to core 1
-  BaseType_t ret = xTaskCreatePinnedToCore(tc_vm_task, "tinyc_vm", 4096, Tinyc, 1, &Tinyc->task_handle, 1);
+  BaseType_t ret = xTaskCreatePinnedToCore(tc_vm_task, "tinyc_vm", 8192, Tinyc, 1, &Tinyc->task_handle, 1);
 #endif
   if (ret != pdPASS) {
     AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Failed to create task"));
@@ -222,7 +226,18 @@ static void TinyCStopVM(void) {
 }
 
 void CmndTinyCRun(void) {
-  if (!Tinyc || !Tinyc->loaded) { ResponseCmndChar_P(PSTR("No program loaded")); return; }
+  if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
+#ifdef USE_UFILESYS
+  // If a filename is given (e.g., "TinyC Run /bresser.tcb"), load it first
+  if (XdrvMailbox.data_len > 0 && XdrvMailbox.data[0] == '/') {
+    TinyCStopVM();
+    if (!TinyCLoadFile(XdrvMailbox.data)) {
+      ResponseCmndChar_P(PSTR("Load failed"));
+      return;
+    }
+  }
+#endif
+  if (!Tinyc->loaded) { ResponseCmndChar_P(PSTR("No program loaded")); return; }
   if (!TinyCStartVM()) {
     ResponseCmndChar_P(PSTR("Start failed"));
     return;
