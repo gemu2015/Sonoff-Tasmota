@@ -3,6 +3,12 @@
 // 288 points per chart (every 5 min, 24 hours)
 // Heap: 6 × 288 = 1728 slots (of 8192 available on ESP32)
 
+// Uncomment to simulate sensor data (no CC1101 hardware needed)
+#define SIMULATE 1
+#ifdef SIMULATE
+#define STORE_INTERVAL 10   // fast: 10 sec between samples for testing
+#endif
+
 #define CS_PIN     8
 #define GDO0_PIN   7
 #define SPI_MHZ    4
@@ -74,7 +80,9 @@
 
 // Chart ring buffer: 288 points = 24h at 5-min intervals
 #define NPTS 288
+#ifndef SIMULATE
 #define STORE_INTERVAL 300  // seconds between samples (5 min)
+#endif
 
 // Sensor data - weather station (live values)
 float br_temp = 0.0;
@@ -477,6 +485,7 @@ int receive_message() {
 
 // --- Callbacks ---
 
+#ifndef SIMULATE
 void Every50ms() {
     int res = receive_message();
     if (res == 1) {
@@ -487,6 +496,125 @@ void Every50ms() {
         soil_ok = 1;
         soil_cnt = soil_cnt + 1;
     }
+}
+#endif
+
+// --- Chart persistence (save/load ring buffers to flash) ---
+// File format: 12 bytes header (h_pos, h_count, sec_cnt as LE int32)
+// then 6 × NPTS × 4 bytes of ring buffer data
+// Total: 12 + 6 × 288 × 4 = 6924 bytes
+
+char fbuf[128];  // I/O buffer for packing/unpacking ints
+
+// Pack one int32 into fbuf at byte offset (little-endian)
+void pack_int(int offset, int val) {
+    fbuf[offset]     = val & 0xFF;
+    fbuf[offset + 1] = (val >> 8) & 0xFF;
+    fbuf[offset + 2] = (val >> 16) & 0xFF;
+    fbuf[offset + 3] = (val >> 24) & 0xFF;
+}
+
+// Unpack one int32 from fbuf at byte offset (little-endian)
+int unpack_int(int offset) {
+    int v = fbuf[offset] & 0xFF;
+    v = v | ((fbuf[offset + 1] & 0xFF) << 8);
+    v = v | ((fbuf[offset + 2] & 0xFF) << 16);
+    v = v | ((fbuf[offset + 3] & 0xFF) << 24);
+    return v;
+}
+
+// Set one value in the ring buffer by chart_id
+void set_hist(int chart_id, int idx, int val) {
+    if (chart_id == 0) { h_temp[idx] = val; return; }
+    if (chart_id == 1) { h_hum[idx] = val; return; }
+    if (chart_id == 2) { h_wavg[idx] = val; return; }
+    if (chart_id == 3) { h_rain[idx] = val; return; }
+    if (chart_id == 4) { h_lux[idx] = val; return; }
+    if (chart_id == 5) { h_uvi[idx] = val; return; }
+}
+
+// Write all ring buffers to /tc_chart.dat
+void save_charts() {
+    int f = fileOpen("/tc_chart.dat", 1);  // 1 = write
+    if (f < 0) return;
+
+    // Header: h_pos, h_count, sec_cnt (12 bytes)
+    pack_int(0, h_pos);
+    pack_int(4, h_count);
+    pack_int(8, sec_cnt);
+    fileWrite(f, fbuf, 12);
+
+    // Write 6 arrays, each NPTS ints, in chunks of 32 ints (128 bytes)
+    int ch;
+    ch = 0;
+    while (ch < 6) {
+        int i;
+        i = 0;
+        while (i < NPTS) {
+            // Pack up to 32 ints into fbuf
+            int chunk = NPTS - i;
+            if (chunk > 32) chunk = 32;
+            int j;
+            j = 0;
+            while (j < chunk) {
+                pack_int(j * 4, get_hist(ch, i + j));
+                j++;
+            }
+            fileWrite(f, fbuf, chunk * 4);
+            i = i + chunk;
+        }
+        ch++;
+    }
+    fileClose(f);
+}
+
+// Read ring buffers from /tc_chart.dat
+int load_charts() {
+    if (!fileExists("/tc_chart.dat")) return 0;
+
+    int f = fileOpen("/tc_chart.dat", 0);  // 0 = read
+    if (f < 0) return 0;
+
+    // Read header
+    int n = fileRead(f, fbuf, 12);
+    if (n < 12) {
+        fileClose(f);
+        return 0;
+    }
+    h_pos = unpack_int(0);
+    h_count = unpack_int(4);
+    sec_cnt = unpack_int(8);
+
+    // Validate
+    if (h_pos < 0 || h_pos >= NPTS) h_pos = 0;
+    if (h_count < 0 || h_count > NPTS) h_count = 0;
+
+    // Read 6 arrays
+    int ch;
+    ch = 0;
+    while (ch < 6) {
+        int i;
+        i = 0;
+        while (i < NPTS) {
+            int chunk = NPTS - i;
+            if (chunk > 32) chunk = 32;
+            n = fileRead(f, fbuf, chunk * 4);
+            if (n < chunk * 4) {
+                fileClose(f);
+                return 0;  // truncated file
+            }
+            int j;
+            j = 0;
+            while (j < chunk) {
+                set_hist(ch, i + j, unpack_int(j * 4));
+                j++;
+            }
+            i = i + chunk;
+        }
+        ch++;
+    }
+    fileClose(f);
+    return 1;
 }
 
 void store_sample() {
@@ -499,13 +627,44 @@ void store_sample() {
     h_pos++;
     if (h_pos >= NPTS) h_pos = 0;
     if (h_count < NPTS) h_count++;
+    // Persist to flash after every sample
+    save_charts();
 }
 
+int sim_tick = 0;  // simulation counter
+
 void EverySecond() {
+#ifdef SIMULATE
+    // Generate fake sensor data with realistic variations
+    if (!br_ok) {
+        br_ok = 1;
+        br_id = 0x1234;
+        br_batt = 1;
+        soil_ok = 1;
+        soil_id = 0x5678;
+        soil_batt = 1;
+    }
+    sim_tick++;
+    br_temp = 18.0 + (float)(sim_tick % 60) * 0.1 - 3.0;
+    br_hum = 55 + (sim_tick % 30);
+    br_wind_avg = 1.0 + (float)(sim_tick % 20) * 0.2;
+    br_rain = 0.0 + (float)(sim_tick % 100) * 0.1;
+    br_lux = 5000.0 + (float)(sim_tick % 200) * 50.0;
+    br_uvi = (float)(sim_tick % 10) * 0.5;
+    br_rssi = -60.0;
+    br_cnt = sim_tick;
+    soil_temp = 12.0 + (float)(sim_tick % 40) * 0.05;
+    soil_moisture = 30 + (sim_tick % 40);
+    soil_cnt = sim_tick;
+#endif
+
     if (!br_ok) return;
 
-    // Store first 2 samples immediately so charts appear on first page load
-    if (h_count < 2) {
+    // Send temperature via UDP every second
+    udpSend("atmp", br_temp);
+
+    // Store first sample immediately so charts appear on first page load
+    if (h_count == 0) {
         store_sample();
         sec_cnt = 0;
         return;
@@ -533,6 +692,7 @@ int get_hist(int chart_id, int idx) {
 
 // Emit chart data rows for one variable
 // chart_id selects the array, scale10: 1=values are ×10, 0=raw int
+// X-axis: minutes ago (negative), JS converts to clock time
 void emit_chart(int chart_id, int scale10) {
     char buf[80];
     int i;
@@ -544,15 +704,14 @@ void emit_chart(int chart_id, int scale10) {
         if (idx < 0) idx = idx + NPTS;
         int val = get_hist(chart_id, idx);
 
-        // Time axis: hours×10 (negative = past, 0 = now)
+        // Minutes ago (negative for past, 0 = now)
         int mins_ago = (n - 1 - i) * 5;
-        int ht = 0 - (mins_ago * 10 / 60);
 
         if (scale10) {
-            sprintfInt(buf, "[%d", ht);
+            sprintfInt(buf, "[%d", 0 - mins_ago);
             sprintfAppendInt(buf, ",%d]", val);
         } else {
-            sprintfInt(buf, "[%d", ht);
+            sprintfInt(buf, "[%d", 0 - mins_ago);
             sprintfAppendInt(buf, ",%d]", val * 10);
         }
         if (i < n - 1) strcat(buf, ",");
@@ -565,30 +724,34 @@ void emit_chart(int chart_id, int scale10) {
 void WebPage() {
     char buf[128];
 
-    if (h_count < 2) {
-        webSend("<p>Collecting data... Charts appear after 2 samples.</p>");
+    if (h_count < 1) {
+        webSend("<p>Collecting data... Charts appear after first sample.</p>");
         return;
     }
 
-    // Load Google Charts library + 6 chart containers
+    // Chart container divs + Google Charts loader (in main page, not AJAX)
     webSend("<script src=\"https://www.gstatic.com/charts/loader.js\"></script>");
     webSend("<script>google.charts.load('current',{packages:['corechart']});</script>");
     int ci;
     ci = 0;
     while (ci < 6) {
-        sprintfInt(buf, "<div id=\"c%d\" style=\"width:100%%;height:250px;\"></div>", ci);
+        sprintfInt(buf, "<div id=\"c%d\" style=\"width:530px;height:200px;\"></div>", ci);
         webSend(buf);
         ci++;
     }
     webFlush();
 
-    // Start script block with draw helper
-    webSend("<script>google.charts.setOnLoadCallback(function(){");
+    // Start script block with draw helper (browser converts mins-ago to datetime)
+    // Uses 'datetime' column so the 24h window slides with current time
+    webSend("<script>google.charts.setOnLoadCallback(function(){var N=new Date();");
+    webSend("var W=new Date(N.getTime()-86400000);");
     webSend("function dc(id,t,u,c,d){var dt=new google.visualization.DataTable();");
-    webSend("dt.addColumn('number','Hours');dt.addColumn('number',u);");
-    webSend("dt.addRows(d.map(function(r){return[r[0]/10,r[1]/10];}));");
-    webSend("var o={title:t,legend:'none',curveType:'none',hAxis:{title:'Hours',direction:1},");
-    webSend("vAxis:{title:u},colors:[c],lineWidth:1,pointSize:0,chartArea:{width:'80%',height:'65%'}};");
+    webSend("dt.addColumn('datetime','Time');dt.addColumn('number',u);");
+    webSend("dt.addRows(d.map(function(r){");
+    webSend("return[new Date(N.getTime()+r[0]*60000),r[1]/10];}));");
+    webSend("var o={title:t,legend:'none',curveType:'none',");
+    webSend("hAxis:{format:'HH:mm',viewWindow:{min:W,max:N}},vAxis:{title:u},");
+    webSend("colors:[c],lineWidth:1,pointSize:0,chartArea:{width:'80%',height:'65%'}};");
     webSend("new google.visualization.LineChart(document.getElementById(id)).draw(dt,o);}");
     webFlush();
 
@@ -667,6 +830,8 @@ void WebCall() {
         webSend(out);
         sprintfInt(out, "{s}Soil Moisture{m}%d %%{e}", soil_moisture);
         webSend(out);
+        if (soil_batt) { webSend("{s}Soil Battery{m}OK{e}"); }
+        else { webSend("{s}Soil Battery{m}Low{e}"); }
     }
 }
 
@@ -709,6 +874,7 @@ void JsonCall() {
 }
 
 int main() {
+#ifndef SIMULATE
     spiInit(-1, -1, -1, SPI_MHZ);
     gpioInit(GDO0_PIN, 0);
     gpioInit(CS_PIN, 1);
@@ -729,6 +895,9 @@ int main() {
         printStr("ERROR: CC1101 init failed\n");
         return 1;
     }
+#else
+    printStr("SIMULATE mode — no CC1101 hardware\n");
+#endif
 
     // Init all state
     br_ok = 0;
@@ -739,15 +908,23 @@ int main() {
     h_count = 0;
     sec_cnt = 0;
 
-    // Zero ring buffers
-    int i;
-    for (i = 0; i < NPTS; i++) {
-        h_temp[i] = 0;
-        h_hum[i] = 0;
-        h_wavg[i] = 0;
-        h_rain[i] = 0;
-        h_lux[i] = 0;
-        h_uvi[i] = 0;
+    // Try to restore chart data from flash
+    if (load_charts()) {
+        char ibuf[64];
+        sprintfInt(ibuf, "Restored %d chart points from flash\n", h_count);
+        printString(ibuf);
+    } else {
+        // Zero ring buffers
+        int i;
+        for (i = 0; i < NPTS; i++) {
+            h_temp[i] = 0;
+            h_hum[i] = 0;
+            h_wavg[i] = 0;
+            h_rain[i] = 0;
+            h_lux[i] = 0;
+            h_uvi[i] = 0;
+        }
+        printStr("No saved chart data, starting fresh\n");
     }
 
     printStr("Bresser CC1101 + 24h charts ready\n");
