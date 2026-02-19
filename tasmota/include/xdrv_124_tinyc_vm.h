@@ -2236,6 +2236,9 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     //   6 = tasm_dimmer     (rw) light dimmer 0-100
     //   7 = tasm_temp       (ro) global temperature (float)
     //   8 = tasm_hum        (ro) global humidity (float)
+    //   9 = tasm_hour       (ro) current hour 0-23
+    //  10 = tasm_min        (ro) current minute 0-59
+    //  11 = tasm_sec        (ro) current second 0-59
     case SYS_TASM_GET: {
       a = TC_POP(vm);  // variable index
       int32_t val = 0;
@@ -2263,6 +2266,9 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           TC_PUSH(vm, (int32_t)hi);
           goto tasm_get_done;
         }
+        case 9: val = (int32_t)RtcTime.hour; break;
+        case 10: val = (int32_t)RtcTime.minute; break;
+        case 11: val = (int32_t)RtcTime.second; break;
         default: break;
       }
       TC_PUSH(vm, val);

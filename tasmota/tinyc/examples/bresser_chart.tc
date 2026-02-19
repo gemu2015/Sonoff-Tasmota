@@ -489,20 +489,32 @@ void Every50ms() {
     }
 }
 
+void store_sample() {
+    h_temp[h_pos] = (int)(br_temp * 10.0);
+    h_hum[h_pos] = br_hum;
+    h_wavg[h_pos] = (int)(br_wind_avg * 10.0);
+    h_rain[h_pos] = (int)(br_rain * 10.0);
+    h_lux[h_pos] = (int)(br_lux * 10.0);
+    h_uvi[h_pos] = (int)(br_uvi * 10.0);
+    h_pos++;
+    if (h_pos >= NPTS) h_pos = 0;
+    if (h_count < NPTS) h_count++;
+}
+
 void EverySecond() {
-    sec_cnt++;
-    if (sec_cnt >= STORE_INTERVAL && br_ok) {
+    if (!br_ok) return;
+
+    // Store first 2 samples immediately so charts appear on first page load
+    if (h_count < 2) {
+        store_sample();
         sec_cnt = 0;
-        // Store current values as int (×10 for decimal values)
-        h_temp[h_pos] = (int)(br_temp * 10.0);
-        h_hum[h_pos] = br_hum;
-        h_wavg[h_pos] = (int)(br_wind_avg * 10.0);
-        h_rain[h_pos] = (int)(br_rain * 10.0);
-        h_lux[h_pos] = (int)(br_lux * 10.0);
-        h_uvi[h_pos] = (int)(br_uvi * 10.0);
-        h_pos++;
-        if (h_pos >= NPTS) h_pos = 0;
-        if (h_count < NPTS) h_count++;
+        return;
+    }
+
+    sec_cnt++;
+    if (sec_cnt >= STORE_INTERVAL) {
+        sec_cnt = 0;
+        store_sample();
     }
 }
 
@@ -553,85 +565,70 @@ void emit_chart(int chart_id, int scale10) {
 void WebPage() {
     char buf[128];
 
-    // Load Google Charts library once
-    webSend("<script src=\"https://www.gstatic.com/charts/loader.js\"></script>");
-    webSend("<script>google.charts.load('current',{packages:['corechart']});</script>");
-    webFlush();
-
-    // Chart configs: id, title, unit, color, array, scale10
-    // We emit 6 chart divs, then one script block that draws all 6
-
-    // Chart containers
-    webSend("<div id=\"c0\" style=\"width:100%;height:250px;\"></div>");
-    webSend("<div id=\"c1\" style=\"width:100%;height:250px;\"></div>");
-    webSend("<div id=\"c2\" style=\"width:100%;height:250px;\"></div>");
-    webSend("<div id=\"c3\" style=\"width:100%;height:250px;\"></div>");
-    webSend("<div id=\"c4\" style=\"width:100%;height:250px;\"></div>");
-    webSend("<div id=\"c5\" style=\"width:100%;height:250px;\"></div>");
-    webFlush();
-
     if (h_count < 2) {
         webSend("<p>Collecting data... Charts appear after 2 samples.</p>");
         return;
     }
 
-    // Start script block
-    webSend("<script>");
-    webSend("google.charts.setOnLoadCallback(function(){");
-
-    // Helper JS function to draw a chart from data
-    webSend("function dc(id,t,u,c,d){");
-    webSend("var dt=new google.visualization.DataTable();");
-    webSend("dt.addColumn('number','Hours');");
-    webSend("dt.addColumn('number',u);");
-    webSend("dt.addRows(d.map(function(r){return[r[0]/10,r[1]/10];}));");
-    webSend("var o={title:t,legend:'none',curveType:'none',");
-    webSend("hAxis:{title:'Hours',direction:1},");
-    webSend("vAxis:{title:u},");
-    webSend("colors:[c],lineWidth:1,pointSize:0,");
-    webSend("chartArea:{width:'80%',height:'65%'}};");
-    webSend("new google.visualization.LineChart(");
-    webSend("document.getElementById(id)).draw(dt,o);}");
+    // Load Google Charts library + 6 chart containers
+    webSend("<script src=\"https://www.gstatic.com/charts/loader.js\"></script>");
+    webSend("<script>google.charts.load('current',{packages:['corechart']});</script>");
+    int ci;
+    ci = 0;
+    while (ci < 6) {
+        sprintfInt(buf, "<div id=\"c%d\" style=\"width:100%%;height:250px;\"></div>", ci);
+        webSend(buf);
+        ci++;
+    }
     webFlush();
 
-    // Chart 0: Temperature (×10 values)
+    // Start script block with draw helper
+    webSend("<script>google.charts.setOnLoadCallback(function(){");
+    webSend("function dc(id,t,u,c,d){var dt=new google.visualization.DataTable();");
+    webSend("dt.addColumn('number','Hours');dt.addColumn('number',u);");
+    webSend("dt.addRows(d.map(function(r){return[r[0]/10,r[1]/10];}));");
+    webSend("var o={title:t,legend:'none',curveType:'none',hAxis:{title:'Hours',direction:1},");
+    webSend("vAxis:{title:u},colors:[c],lineWidth:1,pointSize:0,chartArea:{width:'80%',height:'65%'}};");
+    webSend("new google.visualization.LineChart(document.getElementById(id)).draw(dt,o);}");
+    webFlush();
+
+    // Chart 0: Temperature
     webSend("dc('c0','Temperature (24h)','\\u00b0C','#e74c3c',[");
     emit_chart(0, 1);
     webSend("]);");
     webFlush();
 
-    // Chart 1: Humidity (raw %)
+    // Chart 1: Humidity
     webSend("dc('c1','Humidity (24h)','%','#3498db',[");
     emit_chart(1, 0);
     webSend("]);");
     webFlush();
 
-    // Chart 2: Wind Average (×10 values)
+    // Chart 2: Wind Average
     webSend("dc('c2','Wind Average (24h)','m/s','#27ae60',[");
     emit_chart(2, 1);
     webSend("]);");
     webFlush();
 
-    // Chart 3: Rain (×10 values)
+    // Chart 3: Rain
     webSend("dc('c3','Rain (24h)','mm','#2980b9',[");
     emit_chart(3, 1);
     webSend("]);");
     webFlush();
 
-    // Chart 4: Brightness (×10 values)
+    // Chart 4: Brightness
     webSend("dc('c4','Brightness (24h)','lux','#f39c12',[");
     emit_chart(4, 1);
     webSend("]);");
     webFlush();
 
-    // Chart 5: UV Index (×10 values)
+    // Chart 5: UV Index
     webSend("dc('c5','UV Index (24h)','UVI','#9b59b6',[");
     emit_chart(5, 1);
     webSend("]);");
     webFlush();
 
-    webSend("});");
-    webSend("</script>");
+    webSend("});</script>");
     webFlush();
 }
 

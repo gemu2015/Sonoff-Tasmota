@@ -805,7 +805,8 @@ bool Xdrv124(uint32_t function) {
       TinyCShow(false);
       break;
     case FUNC_WEB_ADD_MAIN_BUTTON:
-      // Call user's WebPage() — one-time page content (charts, custom HTML)
+      // Call user's WebPage() here — part of initial HTML document load
+      // (NOT in FUNC_WEB_SENSOR, because innerHTML doesn't execute <script> tags)
       if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
         tc_vm_call_callback(&Tinyc->vm, "WebPage");
       }
