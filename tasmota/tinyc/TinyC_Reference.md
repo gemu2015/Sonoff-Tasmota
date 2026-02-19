@@ -14,15 +14,16 @@ It runs both in the browser (JavaScript VM) and on ESP32/ESP8266 (as Tasmota dri
 5. [Control Flow](#control-flow)
 6. [Functions](#functions)
 7. [Callback Functions](#callback-functions)
-8. [Arrays](#arrays)
-9. [Strings](#strings)
-10. [Preprocessor](#preprocessor)
-11. [Comments](#comments)
-12. [Type Casting](#type-casting)
-13. [Built-in Functions](#built-in-functions)
-14. [VM Limits](#vm-limits)
-15. [Keyboard Shortcuts (IDE)](#keyboard-shortcuts-ide)
-16. [Examples](#examples)
+8. [Tasmota System Variables](#tasmota-system-variables)
+9. [Arrays](#arrays)
+10. [Strings](#strings)
+11. [Preprocessor](#preprocessor)
+12. [Comments](#comments)
+13. [Type Casting](#type-casting)
+14. [Built-in Functions](#built-in-functions)
+15. [VM Limits](#vm-limits)
+16. [Keyboard Shortcuts (IDE)](#keyboard-shortcuts-ide)
+17. [Examples](#examples)
 
 ---
 
@@ -393,6 +394,74 @@ int main() {
 - Use `WebPage()` for one-time page content (charts, scripts) — called once when page loads
 - Use `WebCall()` for sensor-style rows that refresh periodically
 - Use `UdpCall()` to process incoming UDP multicast variables
+
+---
+
+## Tasmota System Variables
+
+TinyC provides virtual `tasm_*` variables that read/write Tasmota system state directly. They are used like normal variables — no function calls needed. The compiler translates them to syscalls automatically.
+
+### Available Variables
+
+| Variable | Type | R/W | Description |
+|----------|------|-----|-------------|
+| `tasm_wifi` | int | read | WiFi status (1 = connected, 0 = disconnected) |
+| `tasm_mqttcon` | int | read | MQTT connection status (1 = connected) |
+| `tasm_teleperiod` | int | read/write | Telemetry period in seconds (10–3600, clamped) |
+| `tasm_uptime` | int | read | Device uptime in seconds |
+| `tasm_heap` | int | read | Free heap memory in bytes |
+| `tasm_power` | int | read/write | Relay power state (bitmask, write toggles relay) |
+| `tasm_dimmer` | int | read/write | Dimmer level 0–100 (write sends Dimmer command) |
+| `tasm_temp` | float | read | Temperature from Tasmota sensor (global `TempRead()`) |
+| `tasm_hum` | float | read | Humidity from Tasmota sensor (global `HumRead()`) |
+
+### Usage
+
+```c
+// Read system state
+if (tasm_wifi) {
+    printStr("WiFi connected\n");
+}
+
+// Read sensor values (float)
+float t = tasm_temp;
+float h = tasm_hum;
+
+// Write system state
+tasm_teleperiod = 60;    // set telemetry to 60 seconds
+tasm_power = 1;          // turn relay ON
+tasm_dimmer = 50;        // set dimmer to 50%
+```
+
+### Notes
+
+- **No declaration needed** — `tasm_*` names are recognized by the compiler automatically
+- **No global slot used** — they don't consume global variable space
+- **Read-only enforcement** — writing to read-only variables (e.g., `tasm_wifi = 1`) gives a compile-time error
+- **Float type inference** — `tasm_temp` and `tasm_hum` are correctly typed as `float` in expressions
+- **Write side-effects** — `tasm_power` executes `Power` command, `tasm_dimmer` executes `Dimmer` command, `tasm_teleperiod` updates Tasmota's Settings directly
+- In the browser IDE, all variables return simulated values
+
+### Example — Auto Power Control
+
+```c
+void EverySecond() {
+    // Turn off relay if temperature too high
+    if (tasm_temp > 30.0) {
+        tasm_power = 0;
+    }
+
+    // Report via web
+    char buf[64];
+    sprintfFloat(buf, "{s}Temp{m}%.1f C{e}", tasm_temp);
+    webSend(buf);
+}
+
+int main() {
+    tasm_teleperiod = 30;  // fast telemetry for testing
+    return 0;
+}
+```
 
 ---
 
@@ -978,6 +1047,62 @@ void WebCall() {
         webSend(buf);
         i++;
     }
+}
+```
+
+### SPI Bus
+
+Direct SPI bus access for sensors and displays. Supports both hardware SPI (using Tasmota-configured pins) and software bitbang on arbitrary GPIO pins.
+
+| Function | Description |
+|----------|-------------|
+| `int spiInit(int sclk, int mosi, int miso, int speed_mhz)` | Initialize SPI bus. Returns 1=ok |
+| `spiSetCS(int index, int pin)` | Set chip select pin for slot index (1–4) |
+| `int spiTransfer(int cs, char buf[], int len, int mode)` | Transfer bytes. Returns bytes transferred |
+
+**`spiInit` pin modes:**
+- `sclk = -1` — Use Tasmota's primary hardware SPI bus (GPIO configured in Tasmota)
+- `sclk = -2` — Use HSPI secondary hardware SPI bus (ESP32 only)
+- `sclk >= 0` — Bitbang mode using GPIO pins (`sclk`, `mosi`, `miso`)
+- Set `mosi` or `miso` to -1 if not needed (e.g. read-only or write-only device)
+- `speed_mhz` sets clock frequency for hardware SPI (ignored for bitbang)
+
+**`spiTransfer` modes:**
+| Mode | Description |
+|------|-------------|
+| 1 | 8-bit per element — each `buf[]` element = 1 byte transferred |
+| 2 | 16-bit per element — each `buf[]` element = 2 bytes (MSB first) |
+| 3 | 24-bit per element — each `buf[]` element = 3 bytes (MSB first) |
+| 4 | 8-bit with per-byte CS toggle — CS goes low/high for each byte |
+
+**Notes:**
+- `cs` parameter is 1-based CS slot index (matching `spiSetCS`). Use 0 for no automatic CS management
+- Transfer is full-duplex: `buf[]` is written (MOSI) and read values (MISO) replace each element
+- Maximum practical transfer length is limited by your char array size
+- SPI resources are automatically cleaned up when the VM stops
+- Hardware SPI requires SPI pins configured in Tasmota (Template or Module settings)
+
+**Example — Read MAX31855 thermocouple (SPI, 32-bit read):**
+```c
+#define CS_PIN  5
+
+int main() {
+    spiInit(-1, -1, -1, 4);   // HW SPI at 4 MHz
+    spiSetCS(1, CS_PIN);       // CS slot 1 = pin 5
+
+    char buf[4];
+    buf[0] = 0; buf[1] = 0; buf[2] = 0; buf[3] = 0;
+    spiTransfer(1, buf, 4, 1); // read 4 bytes
+
+    // MAX31855: bits 31..18 = 14-bit thermocouple temp
+    int raw = ((buf[0] << 8) | buf[1]) >> 2;
+    if (raw & 0x2000) raw = raw - 16384;  // sign extend
+    float temp = (float)raw * 0.25;
+
+    char out[64];
+    sprintfFloat(out, "Thermocouple: %.2f °C\n", temp);
+    printString(out);
+    return 0;
 }
 ```
 

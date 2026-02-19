@@ -61,30 +61,7 @@ static void TinyCInit(void) {
 
   // Try auto-load from filesystem
 #ifdef USE_UFILESYS
-  if (ffsp) {
-    File file = ffsp->open(TC_FILE_NAME, "r");
-    if (file) {
-      uint32_t fsize = file.size();
-      if (fsize > 0 && fsize <= TC_MAX_PROGRAM) {
-        Tinyc->program = (uint8_t *)malloc(fsize);
-        if (Tinyc->program) {
-          file.read(Tinyc->program, fsize);
-          Tinyc->program_size = fsize;
-          int err = tc_vm_load(&Tinyc->vm, Tinyc->program, fsize);
-          if (err == TC_OK) {
-            Tinyc->loaded = true;
-            AddLog(LOG_LEVEL_INFO, PSTR("TCC: Auto-loaded %s (%d bytes)"), TC_FILE_NAME, fsize);
-          } else {
-            AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Auto-load failed: %s"), tc_error_str(err));
-            free(Tinyc->program);
-            Tinyc->program = nullptr;
-            Tinyc->program_size = 0;
-          }
-        }
-      }
-      file.close();
-    }
-  }
+  TinyCLoadFile(TC_FILE_NAME);
 #endif
 }
 
@@ -180,18 +157,11 @@ static bool TinyCStartVM(void) {
 
   Tinyc->output_len = 0;
   Tinyc->output[0] = '\0';
-  Tinyc->running = true;
 
 #ifdef ESP32
-  // Stop any existing task first
+  // Stop any existing task first (reuses TinyCStopVM logic)
   if (Tinyc->task_handle) {
-    Tinyc->task_stop = true;
-    for (int i = 0; i < 50 && Tinyc->task_running; i++) { delay(10); }
-    if (Tinyc->task_running) {
-      vTaskDelete(Tinyc->task_handle);
-      Tinyc->task_running = false;
-    }
-    Tinyc->task_handle = nullptr;
+    TinyCStopVM();
   }
 
   Tinyc->task_stop = false;
@@ -211,6 +181,7 @@ static bool TinyCStartVM(void) {
   }
 #endif  // ESP32
 
+  Tinyc->running = true;
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program started"));
   return true;
 }
@@ -221,22 +192,28 @@ static void TinyCStopVM(void) {
 
 #ifdef ESP32
   if (Tinyc->task_handle) {
+    // Signal task to stop via both flags — vm.error causes tc_vm_step to exit
     Tinyc->task_stop = true;
-    // Wait for task to exit (max 500ms)
-    for (int i = 0; i < 50 && Tinyc->task_running; i++) {
+    Tinyc->vm.error = TC_ERR_INSTRUCTION_LIMIT;  // causes immediate exit from step loop
+    // Wait for task to exit (max 2s — enough for any SPI/I2C transaction to finish)
+    for (int i = 0; i < 200 && Tinyc->task_running; i++) {
       delay(10);
     }
     if (Tinyc->task_running) {
-      // Force kill if task didn't exit cleanly
-      vTaskDelete(Tinyc->task_handle);
+      // Task still running — do NOT vTaskDelete as it can corrupt SPI/I2C bus state
+      // Just log and abandon (task will exit on next instruction check)
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Task did not stop in time, abandoned"));
       Tinyc->task_running = false;
+      Tinyc->task_handle = nullptr;
+    } else {
+      Tinyc->task_handle = nullptr;
     }
-    Tinyc->task_handle = nullptr;
   }
 #endif
 
   Tinyc->running = false;
   Tinyc->vm.running = false;
+  Tinyc->vm.error = TC_OK;  // clear the error we set for stopping
   tc_free_all_frames(&Tinyc->vm);
   tc_heap_free_all(&Tinyc->vm);
   tc_udp_stop();
@@ -315,6 +292,36 @@ static void WSSendJSON(int code, const char *json_buf) {
   Webserver->send(code, (const char*)ct, json_buf);
 }
 
+// Helper: load a .tcb file from filesystem by path
+#ifdef USE_UFILESYS
+static bool TinyCLoadFile(const char *path) {
+  if (!Tinyc || !ufsp) return false;
+  File file = ufsp->open(path, "r");
+  if (!file) return false;
+  uint32_t fsize = file.size();
+  if (fsize == 0 || fsize > TC_MAX_PROGRAM) { file.close(); return false; }
+  TinyCStopVM();
+  if (Tinyc->program) { free(Tinyc->program); Tinyc->program = nullptr; }
+  Tinyc->program = (uint8_t *)malloc(fsize);
+  if (!Tinyc->program) { file.close(); return false; }
+  file.read(Tinyc->program, fsize);
+  file.close();
+  Tinyc->program_size = fsize;
+  int err = tc_vm_load(&Tinyc->vm, Tinyc->program, fsize);
+  if (err == TC_OK) {
+    Tinyc->loaded = true;
+    strlcpy(Tinyc->upload_filename, path, sizeof(Tinyc->upload_filename));
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: Loaded %s (%d bytes)"), path, fsize);
+    return true;
+  }
+  AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Load %s failed: %s"), path, tc_error_str(err));
+  free(Tinyc->program);
+  Tinyc->program = nullptr;
+  Tinyc->program_size = 0;
+  return false;
+}
+#endif
+
 static void HandleTinyCPage(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
 
@@ -329,7 +336,19 @@ static void HandleTinyCPage(void) {
     } else if (cmd == "stop") {
       TinyCStopVM();
     } else if (cmd == "reset") {
-      CmndTinyCReset();
+      // Reset VM directly — do NOT call CmndTinyCReset() which uses ResponseCmndDone()
+      TinyCStopVM();
+      memset(&Tinyc->vm, 0, sizeof(TcVM));
+      Tinyc->output_len = 0;
+      Tinyc->output[0] = '\0';
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM reset (web)"));
+    } else if (cmd == "load" && Webserver->hasArg(F("file"))) {
+#ifdef USE_UFILESYS
+      String file = Webserver->arg(F("file"));
+      if (file.length() > 0) {
+        TinyCLoadFile(file.c_str());
+      }
+#endif
     }
   }
 
@@ -363,8 +382,6 @@ static void HandleTinyCPage(void) {
     else if (Tinyc->loaded) { strcpy_P(state, PSTR("Loaded")); strcpy_P(state_class, PSTR("tc-load")); }
     else { strcpy_P(state, PSTR("Empty")); strcpy_P(state_class, PSTR("tc-empty")); }
 
-    char prog_state[8];
-    strcpy_P(prog_state, Tinyc->loaded ? PSTR("Loaded") : PSTR("None"));
     WSContentSend_P(PSTR(
       "<div class='tc-stat'><table>"
       "<tr><td>Status</td><td><span class='%s'>&#x25cf; %s</span></td></tr>"
@@ -372,7 +389,7 @@ static void HandleTinyCPage(void) {
       "<tr><td>Instructions</td><td>%u</td></tr>"
       "<tr><td>PC / SP</td><td>%d / %d</td></tr>"),
       state_class, state,
-      prog_state,
+      Tinyc->upload_filename[0] ? Tinyc->upload_filename : (Tinyc->loaded ? "loaded" : "none"),
       Tinyc->program_size,
       Tinyc->vm.instruction_count,
       Tinyc->vm.pc - Tinyc->vm.code_offset, Tinyc->vm.sp);
@@ -395,6 +412,42 @@ static void HandleTinyCPage(void) {
       "<button name='cmd' value='stop' class='button bred'>&#x25A0; Stop</button>"
       "<button name='cmd' value='reset' class='button'>&#x21BB; Reset</button>"
       "</form></div>"));
+
+    // File selector — list all .tcb files on filesystem
+#ifdef USE_UFILESYS
+    if (ufsp) {
+      WSContentSend_P(PSTR(
+        "<p><form action='/tc' method='get'>"
+        "<select name='file' style='width:100%%'>"));
+      File dir = ufsp->open("/", "r");
+      if (dir) {
+        dir.rewindDirectory();
+        while (true) {
+          File entry = dir.openNextFile();
+          if (!entry) break;
+          if (entry.isDirectory()) { entry.close(); continue; }
+          char *ep = (char *)entry.name();
+          if (*ep == '/') ep++;
+          char *lcp = strrchr(ep, '/');
+          if (lcp) ep = lcp + 1;
+          uint16_t nlen = strlen(ep);
+          if (nlen > 4 && strcasecmp(ep + nlen - 4, ".tcb") == 0) {
+            char fpath[40];
+            snprintf(fpath, sizeof(fpath), "/%s", ep);
+            bool is_current = (Tinyc->upload_filename[0] && strcmp(fpath, Tinyc->upload_filename) == 0);
+            WSContentSend_P(PSTR("<option value='%s'%s>%s (%d B)</option>"),
+              fpath, is_current ? " selected" : "", ep, entry.size());
+          }
+          entry.close();
+        }
+        dir.close();
+      }
+      WSContentSend_P(PSTR(
+        "</select>"
+        "<br><button name='cmd' value='load' class='button'>Load</button>"
+        "</form></p>"));
+    }
+#endif
 
     // Output log
     if (Tinyc->output_len > 0) {
@@ -450,8 +503,10 @@ static void HandleTinyCUploadDone(void) {
     // JSON response with CORS headers for browser IDE
     TCSendCORS("POST, OPTIONS");
     if (Tinyc && Tinyc->loaded) {
-      char json[128];
-      snprintf_P(json, sizeof(json), PSTR("{\"ok\":true,\"size\":%d}"), Tinyc->program_size);
+      char json[160];
+      snprintf_P(json, sizeof(json), PSTR("{\"ok\":true,\"size\":%d,\"file\":\"%s\"}"),
+        Tinyc->program_size,
+        Tinyc->upload_filename[0] ? Tinyc->upload_filename : "");
       WSSendJSON(200, json);
     } else {
       WSSendJSON_P(400, PSTR("{\"ok\":false,\"error\":\"upload failed\"}"));
@@ -467,8 +522,9 @@ static void HandleTinyCUploadDone(void) {
     WSContentSend_P(PSTR(
       "<fieldset><legend><b> Upload Result </b></legend>"
       "<p style='text-align:center;color:#0a0'><b>&#x2714; Upload successful!</b></p>"
-      "<p style='text-align:center'>Program size: %d bytes</p>"
+      "<p style='text-align:center'>%s — %d bytes</p>"
       "</fieldset>"),
+      Tinyc->upload_filename[0] ? Tinyc->upload_filename : "program",
       Tinyc->program_size);
   } else {
     WSContentSend_P(PSTR(
@@ -495,6 +551,8 @@ static void HandleTinyCUpload(void) {
 
   if (upload.status == UPLOAD_FILE_START) {
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: Upload start: %s"), upload.filename.c_str());
+    // Capture uploaded filename (prepend / for filesystem path)
+    snprintf(Tinyc->upload_filename, sizeof(Tinyc->upload_filename), "/%s", upload.filename.c_str());
     // Stop any running program
     TinyCStopVM();
     // Allocate upload buffer
@@ -532,11 +590,12 @@ static void HandleTinyCUpload(void) {
         Tinyc->loaded = true;
         AddLog(LOG_LEVEL_INFO, PSTR("TCC: Loaded %d bytes"), Tinyc->program_size);
 
-        // Save to filesystem
+        // Save to filesystem with uploaded filename
 #ifdef USE_UFILESYS
-        if (ffsp) {
-          TfsSaveFile(TC_FILE_NAME, Tinyc->program, Tinyc->program_size);
-          AddLog(LOG_LEVEL_INFO, PSTR("TCC: Saved to %s"), TC_FILE_NAME);
+        if (ufsp) {
+          const char *saveName = Tinyc->upload_filename[0] ? Tinyc->upload_filename : TC_FILE_NAME;
+          TfsSaveFile(saveName, Tinyc->program, Tinyc->program_size);
+          AddLog(LOG_LEVEL_INFO, PSTR("TCC: Saved to %s"), saveName);
         }
 #endif
       } else {
@@ -587,10 +646,11 @@ static void HandleTinyCApi(void) {
   else {
     // Default: status
     snprintf_P(json, sizeof(json),
-      PSTR("{\"ok\":true,\"loaded\":%d,\"running\":%d,\"size\":%d,\"pc\":%d,\"sp\":%d,\"instr\":%u,\"error\":\"%s\",\"heap\":%d}"),
+      PSTR("{\"ok\":true,\"loaded\":%d,\"running\":%d,\"size\":%d,\"file\":\"%s\",\"pc\":%d,\"sp\":%d,\"instr\":%u,\"error\":\"%s\",\"heap\":%d}"),
       Tinyc->loaded ? 1 : 0,
       Tinyc->running ? 1 : 0,
       Tinyc->program_size,
+      Tinyc->upload_filename[0] ? Tinyc->upload_filename : "",
       Tinyc->vm.pc - Tinyc->vm.code_offset,
       Tinyc->vm.sp,
       Tinyc->vm.instruction_count,

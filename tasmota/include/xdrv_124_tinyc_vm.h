@@ -10,6 +10,7 @@
 
 #ifdef USE_UFILESYS
 extern FS *ffsp;
+extern FS *ufsp;
 #endif
 
 /*********************************************************************************************\
@@ -54,7 +55,27 @@ extern FS *ffsp;
 
 #define TC_MAGIC           0x54434300  // "TCC\0"
 #define TC_VERSION         3           // V3: added function table section (callbacks)
-#define TC_FILE_NAME       "/tinyc.tcb"
+#define TC_FILE_NAME       "/autoexec.tcb"
+
+// Flash-safe byte read — enables execute-from-flash on ESP32
+// When USE_TINYC_FLASH_EXEC is defined, bytecode can reside in memory-mapped flash.
+// pgm_read_byte() handles the aligned 32-bit read + byte extraction required by Xtensa.
+// Without it, direct byte access to flash causes LoadStoreAlignment exceptions.
+#ifdef USE_TINYC_FLASH_EXEC
+  #define TC_READ_BYTE(ptr)  pgm_read_byte(ptr)
+#else
+  #define TC_READ_BYTE(ptr)  (*(ptr))
+#endif
+// Flash-safe memcpy (for copying string constants from binary)
+#ifdef USE_TINYC_FLASH_EXEC
+  static inline void tc_memcpy_flash(void *dst, const uint8_t *src, uint16_t len) {
+    uint8_t *d = (uint8_t *)dst;
+    for (uint16_t i = 0; i < len; i++) d[i] = pgm_read_byte(&src[i]);
+  }
+  #define TC_MEMCPY(dst, src, len) tc_memcpy_flash(dst, src, len)
+#else
+  #define TC_MEMCPY(dst, src, len) memcpy(dst, src, len)
+#endif
 
 // Callback support
 #define TC_MAX_CALLBACKS   6           // max well-known callback functions
@@ -209,6 +230,9 @@ enum TcSyscall {
   SYS_SPI_INIT            = 120, // (sclk, mosi, miso, speed_mhz) -> int (1=ok)
   SYS_SPI_SET_CS          = 121, // (index, pin) -> void
   SYS_SPI_TRANSFER        = 122, // (cs, buf_ref, len, mode) -> int bytes transferred
+  // Tasmota system variables (virtual — accessed as tasm_xxx in TinyC)
+  SYS_TASM_GET        = 130, // (index) -> int/float — read Tasmota variable
+  SYS_TASM_SET        = 131, // (index, value) -> void — write Tasmota variable
   // Debug
   SYS_DEBUG_PRINT     = 250, SYS_DEBUG_PRINT_STR = 251,
   SYS_DEBUG_DUMP      = 252,
@@ -380,6 +404,7 @@ struct TINYC {
   uint8_t *upload_buf;
   uint32_t upload_size;
   uint32_t upload_received;
+  char     upload_filename[32];  // filename from upload (e.g. "bresser.tcb")
   // File I/O state (File objects are stored separately as statics — see below)
   bool     file_used[TC_MAX_FILE_HANDLES];
   // UDP multicast (Scripter-compatible, 239.255.255.250:1999)
@@ -420,15 +445,15 @@ static inline int32_t f2i(float f) {
  * VM: Read helpers (big-endian bytecode)
 \*********************************************************************************************/
 
-static inline uint8_t tc_read_u8(TcVM *vm) { return vm->code[vm->pc++]; }
-static inline int8_t  tc_read_i8(TcVM *vm) { return (int8_t)vm->code[vm->pc++]; }
+static inline uint8_t tc_read_u8(TcVM *vm) { return TC_READ_BYTE(&vm->code[vm->pc++]); }
+static inline int8_t  tc_read_i8(TcVM *vm) { return (int8_t)TC_READ_BYTE(&vm->code[vm->pc++]); }
 static inline uint16_t tc_read_u16(TcVM *vm) {
-  uint16_t v = ((uint16_t)vm->code[vm->pc] << 8) | vm->code[vm->pc + 1];
+  uint16_t v = ((uint16_t)TC_READ_BYTE(&vm->code[vm->pc]) << 8) | TC_READ_BYTE(&vm->code[vm->pc + 1]);
   vm->pc += 2; return v;
 }
 static inline int32_t tc_read_i32(TcVM *vm) {
-  int32_t v = ((int32_t)vm->code[vm->pc] << 24) | ((int32_t)vm->code[vm->pc+1] << 16) |
-              ((int32_t)vm->code[vm->pc+2] << 8) | vm->code[vm->pc+3];
+  int32_t v = ((int32_t)TC_READ_BYTE(&vm->code[vm->pc]) << 24) | ((int32_t)TC_READ_BYTE(&vm->code[vm->pc+1]) << 16) |
+              ((int32_t)TC_READ_BYTE(&vm->code[vm->pc+2]) << 8) | TC_READ_BYTE(&vm->code[vm->pc+3]);
   vm->pc += 4; return v;
 }
 static inline float tc_read_f32(TcVM *vm) { return i2f(tc_read_i32(vm)); }
@@ -2203,6 +2228,79 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
     }
 
+    // ── Tasmota system variables ─────────────────────
+    // Index mapping (must match TASM_VARS in compiler):
+    //   0 = tasm_wifi       (ro) 1=network up, 0=down
+    //   1 = tasm_mqttcon    (ro) 1=mqtt connected, 0=down
+    //   2 = tasm_teleperiod (rw) teleperiod in seconds
+    //   3 = tasm_uptime     (ro) uptime in seconds
+    //   4 = tasm_heap       (ro) free heap in bytes
+    //   5 = tasm_power      (rw) relay bitmask (all relays)
+    //   6 = tasm_dimmer     (rw) light dimmer 0-100
+    //   7 = tasm_temp       (ro) global temperature (float)
+    //   8 = tasm_hum        (ro) global humidity (float)
+    case SYS_TASM_GET: {
+      a = TC_POP(vm);  // variable index
+      int32_t val = 0;
+      switch (a) {
+        case 0: val = TasmotaGlobal.global_state.network_down ? 0 : 1; break;
+        case 1: val = TasmotaGlobal.global_state.mqtt_down ? 0 : 1; break;
+        case 2: val = (int32_t)Settings->tele_period; break;
+        case 3: val = (int32_t)(millis() / 1000); break;
+        case 4: val = (int32_t)ESP_getFreeHeap(); break;
+        case 5: val = (int32_t)TasmotaGlobal.power; break;
+        case 6: {
+#ifdef USE_LIGHT
+          val = (int32_t)Light.dimmer[0];
+#endif
+          break;
+        }
+        case 7: {
+          float tf = TasmotaGlobal.temperature_celsius;
+          uint32_t ti; memcpy(&ti, &tf, 4);
+          TC_PUSH(vm, (int32_t)ti);
+          goto tasm_get_done;
+        }
+        case 8: {
+          float hf = TasmotaGlobal.humidity;
+          uint32_t hi; memcpy(&hi, &hf, 4);
+          TC_PUSH(vm, (int32_t)hi);
+          goto tasm_get_done;
+        }
+        default: break;
+      }
+      TC_PUSH(vm, val);
+      tasm_get_done:
+      break;
+    }
+    case SYS_TASM_SET: {
+      a = TC_POP(vm);            // variable index (pushed last by compiler)
+      int32_t val = TC_POP(vm);  // value (compiled first, pushed earlier)
+      switch (a) {
+        case 2:  // tasm_teleperiod
+          if (val >= 10 && val <= 3600) {
+            Settings->tele_period = (uint16_t)val;
+            TasmotaGlobal.tele_period = 0;
+          }
+          break;
+        case 5:  // tasm_power
+          for (uint32_t i = 0; i < TasmotaGlobal.devices_present; i++) {
+            ExecuteCommandPower(i + 1, (val >> i) & 1, SRC_IGNORE);
+          }
+          break;
+        case 6: { // tasm_dimmer
+#ifdef USE_LIGHT
+          char cmd[16];
+          snprintf_P(cmd, sizeof(cmd), PSTR("Dimmer %d"), val);
+          ExecuteCommand(cmd, SRC_IGNORE);
+#endif
+          break;
+        }
+        default: break;  // read-only variables silently ignored
+      }
+      break;
+    }
+
     // ── Debug ─────────────────────────────────────────
     case SYS_DEBUG_PRINT:
       a = TC_POP(vm);
@@ -2233,22 +2331,25 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
 \*********************************************************************************************/
 
 static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
+  // All binary[] reads use TC_READ_BYTE() for flash-safe access
+  #define B(i) TC_READ_BYTE(&binary[i])
+
   if (size < 14) return TC_ERR_BAD_BINARY;  // minimum header size
 
-  uint32_t magic = ((uint32_t)binary[0] << 24) | ((uint32_t)binary[1] << 16) |
-                   ((uint32_t)binary[2] << 8) | binary[3];
+  uint32_t magic = ((uint32_t)B(0) << 24) | ((uint32_t)B(1) << 16) |
+                   ((uint32_t)B(2) << 8) | B(3);
   if (magic != TC_MAGIC) return TC_ERR_BAD_BINARY;
 
-  uint16_t version = (binary[4] << 8) | binary[5];
+  uint16_t version = (B(4) << 8) | B(5);
   if (version < 2 || version > TC_VERSION) return TC_ERR_BAD_BINARY;
 
-  uint16_t entry_point = (binary[8] << 8) | binary[9];
-  uint16_t const_pool_size = (binary[10] << 8) | binary[11];
-  uint16_t heap_decl_size = (binary[12] << 8) | binary[13];
+  uint16_t entry_point = (B(8) << 8) | B(9);
+  uint16_t const_pool_size = (B(10) << 8) | B(11);
+  uint16_t heap_decl_size = (B(12) << 8) | B(13);
 
   // V3 adds funcTableSize at bytes 14-15; V2 header is 14 bytes
   uint16_t header_size = (version >= 3) ? 16 : 14;
-  uint16_t func_table_size = (version >= 3 && size >= 16) ? ((binary[14] << 8) | binary[15]) : 0;
+  uint16_t func_table_size = (version >= 3 && size >= 16) ? ((B(14) << 8) | B(15)) : 0;
 
   if (size < header_size) return TC_ERR_BAD_BINARY;
 
@@ -2259,22 +2360,22 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   uint16_t const_end = header_size + const_pool_size;
 
   while (offset < const_end && vm->const_count < TC_MAX_CONSTANTS) {
-    uint8_t type = binary[offset++];
+    uint8_t type = B(offset); offset++;
     TcConstant *c = &vm->constants[vm->const_count];
     c->type = type;
     if (type == 1) {  // string
-      uint16_t len = (binary[offset] << 8) | binary[offset + 1];
+      uint16_t len = (B(offset) << 8) | B(offset + 1);
       offset += 2;
       if (vm->const_data_used + len + 1 > TC_MAX_CONST_DATA) break;
       c->str.ptr = &vm->const_data[vm->const_data_used];
       c->str.len = len;
-      memcpy(&vm->const_data[vm->const_data_used], &binary[offset], len);
+      TC_MEMCPY(&vm->const_data[vm->const_data_used], &binary[offset], len);
       vm->const_data[vm->const_data_used + len] = '\0';
       vm->const_data_used += len + 1;
       offset += len;
     } else if (type == 2) {  // float
-      int32_t bits = ((int32_t)binary[offset] << 24) | ((int32_t)binary[offset+1] << 16) |
-                     ((int32_t)binary[offset+2] << 8) | binary[offset+3];
+      int32_t bits = ((int32_t)B(offset) << 24) | ((int32_t)B(offset+1) << 16) |
+                     ((int32_t)B(offset+2) << 8) | B(offset+3);
       c->f = i2f(bits);
       offset += 4;
     }
@@ -2291,12 +2392,12 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   // Parse heap declarations and pre-allocate blocks
   uint16_t heap_end = const_end + heap_decl_size;
   if (heap_decl_size > 0) {
-    uint8_t count = binary[const_end];
+    uint8_t count = B(const_end);
     // Compute total heap needed
     uint32_t total_heap = 0;
     for (uint8_t i = 0; i < count; i++) {
-      uint16_t sz = ((uint16_t)binary[const_end + 1 + i * 3 + 1] << 8) |
-                     binary[const_end + 1 + i * 3 + 2];
+      uint16_t sz = ((uint16_t)B(const_end + 1 + i * 3 + 1) << 8) |
+                     B(const_end + 1 + i * 3 + 2);
       total_heap += sz;
     }
     if (total_heap > 0) {
@@ -2305,9 +2406,9 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
       if (!vm->heap_data) return TC_ERR_STACK_OVERFLOW;  // OOM
       // Pre-allocate each declared block
       for (uint8_t i = 0; i < count; i++) {
-        uint8_t handle = binary[const_end + 1 + i * 3];
-        uint16_t sz = ((uint16_t)binary[const_end + 1 + i * 3 + 1] << 8) |
-                       binary[const_end + 1 + i * 3 + 2];
+        uint8_t handle = B(const_end + 1 + i * 3);
+        uint16_t sz = ((uint16_t)B(const_end + 1 + i * 3 + 1) << 8) |
+                       B(const_end + 1 + i * 3 + 2);
         if (handle < TC_MAX_HEAP_HANDLES) {
           vm->heap_handles[handle].offset = vm->heap_used;
           vm->heap_handles[handle].size = sz;
@@ -2326,19 +2427,21 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   uint16_t func_table_end = func_table_start + func_table_size;
   if (func_table_size > 0) {
     uint16_t pos = func_table_start;
-    uint8_t count = binary[pos++];
+    uint8_t count = B(pos); pos++;
     for (uint8_t i = 0; i < count && i < TC_MAX_CALLBACKS && pos < func_table_end; i++) {
-      uint8_t name_len = binary[pos++];
+      uint8_t name_len = B(pos); pos++;
       if (name_len >= TC_CALLBACK_NAME_MAX) name_len = TC_CALLBACK_NAME_MAX - 1;
-      memcpy(vm->callbacks[i].name, &binary[pos], name_len);
+      TC_MEMCPY(vm->callbacks[i].name, &binary[pos], name_len);
       vm->callbacks[i].name[name_len] = '\0';
       pos += name_len;  // skip full name even if truncated
-      vm->callbacks[i].address = (binary[pos] << 8) | binary[pos + 1];
+      vm->callbacks[i].address = (B(pos) << 8) | B(pos + 1);
       pos += 2;
       vm->callback_count++;
       AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: callback '%s' @%d"), vm->callbacks[i].name, vm->callbacks[i].address);
     }
   }
+
+  #undef B
 
   vm->code = binary;
   vm->code_offset = func_table_end;
