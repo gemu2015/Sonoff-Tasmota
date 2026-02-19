@@ -1,0 +1,87 @@
+// UDP multicast — share float variables between devices
+// Compatible with Tasmota Scripter protocol (239.255.255.250:1999)
+// Demonstrates: single float + float array send/receive via global vars
+
+float temperature = 0.0;
+int counter = 0;
+
+// Global arrays for UDP send and receive
+float sensors[4];      // local sensor data — sent every second
+float remote_data[4];  // received from other device
+int remote_count = 0;  // how many floats received
+
+void EverySecond() {
+    counter++;
+    temperature = 20.0 + sin(counter) * 5.0;
+
+    // Broadcast single float
+    udpSend("temperature", temperature);
+
+    // Update sensor array and broadcast as float array
+    sensors[0] = temperature;
+    sensors[1] = 30.0 + cos(counter) * 3.0;
+    sensors[2] = (float)(counter % 100);
+    sensors[3] = 1013.25;
+    udpSendArray("sensors", sensors, 4);
+}
+
+void UdpCall() {
+    char buf[64];
+
+    // Read single float by name
+    float temp = udpRecv("temperature");
+    sprintfFloat(buf, "UDP rx: temperature = %.1f\n", temp);
+    printString(buf);
+
+    // Read float array into global array
+    remote_count = udpRecvArray("sensors", remote_data, 4);
+    if (remote_count > 0) {
+        sprintfInt(buf, "UDP rx: %d floats:", remote_count);
+        printString(buf);
+        int i = 0;
+        while (i < remote_count) {
+            sprintfFloat(buf, " %.1f", remote_data[i]);
+            printString(buf);
+            i++;
+        }
+        printStr("\n");
+    }
+}
+
+void WebCall() {
+    char buf[64];
+
+    // Show local temperature
+    sprintfFloat(buf, "{s}Temperature{m}%.1f °C{e}", temperature);
+    webSend(buf);
+
+    // Show received remote temperature
+    float remote = udpRecv("temperature");
+    sprintfFloat(buf, "{s}Remote Temp{m}%.1f °C{e}", remote);
+    webSend(buf);
+
+    // Show received array values
+    if (remote_count > 0) {
+        int i = 0;
+        while (i < remote_count) {
+            sprintfInt(buf, "{s}Remote[%d]{m}", i);
+            webSend(buf);
+            sprintfFloat(buf, "%.1f{e}", remote_data[i]);
+            webSend(buf);
+            i++;
+        }
+    }
+}
+
+void JsonCall() {
+    char buf[64];
+    sprintfFloat(buf, ",\"TinyC\":{\"Temp\":%.1f}", temperature);
+    responseAppend(buf);
+}
+
+int main() {
+    remote_count = 0;
+    printStr("UDP multicast demo active\n");
+    printStr("Sending temperature + array every second\n");
+    return 0;
+}

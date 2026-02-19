@@ -1,0 +1,114 @@
+// SHT31 Temperature & Humidity Sensor Driver
+// I2C address 0x44 (or 0x45 if ADDR pin high), bus 0
+// Demonstrates: i2cExists, i2cWrite, i2cRead, WebCall, JsonCall
+
+#define SHT31_ADDR  0x44
+#define I2C_BUS     0
+
+float sht_temp = 0.0;
+float sht_humi = 0.0;
+int sht_ok = 0;
+
+// Shared buffer for I2C data (global so CRC function can access it)
+char sht_data[6];
+
+// CRC-8 for SHT31 (polynomial 0x31)
+// Computes over sht_data[start..start+len-1]
+int sht_crc8(int start, int len) {
+    int crc = 0xFF;
+    int i = 0;
+    while (i < len) {
+        crc = crc ^ sht_data[start + i];
+        int bit = 0;
+        while (bit < 8) {
+            if (crc & 0x80) {
+                crc = (crc << 1) ^ 0x31;
+            } else {
+                crc = crc << 1;
+            }
+            crc = crc & 0xFF;
+            bit++;
+        }
+        i++;
+    }
+    return crc;
+}
+
+void EverySecond() {
+    if (!i2cExists(SHT31_ADDR, I2C_BUS)) {
+        sht_ok = 0;
+        return;
+    }
+
+    // Send measurement command: clock stretching, high repeatability
+    // Command 0x2C06 — sent as register 0x2C, value 0x06
+    if (!i2cWrite8(SHT31_ADDR, 0x2C, 0x06, I2C_BUS)) {
+        sht_ok = 0;
+        return;
+    }
+
+    // SHT31 needs ~15ms for high repeatability measurement
+    delay(30);
+
+    // Read 6 bytes without register: [temp_msb, temp_lsb, temp_crc, humi_msb, humi_lsb, humi_crc]
+    if (!i2cRead0(SHT31_ADDR, sht_data, 6, I2C_BUS)) {
+        sht_ok = 0;
+        return;
+    }
+
+    // Verify CRC for temperature (bytes 0-1, CRC in byte 2)
+    if (sht_crc8(0, 2) != sht_data[2]) {
+        sht_ok = 0;
+        return;
+    }
+
+    // Verify CRC for humidity (bytes 3-4, CRC in byte 5)
+    if (sht_crc8(3, 2) != sht_data[5]) {
+        sht_ok = 0;
+        return;
+    }
+
+    // Convert raw values
+    // Temperature: -45 + 175 * raw / 65535
+    int raw_t = (sht_data[0] << 8) | sht_data[1];
+    sht_temp = -45.0 + 175.0 * (float)raw_t / 65535.0;
+
+    // Humidity: 100 * raw / 65535
+    int raw_h = (sht_data[3] << 8) | sht_data[4];
+    sht_humi = 100.0 * (float)raw_h / 65535.0;
+
+    sht_ok = 1;
+}
+
+void WebCall() {
+    char buf[64];
+    if (sht_ok) {
+        sprintfFloat(buf, "{s}SHT31 Temp{m}%.1f °C{e}", sht_temp);
+        webSend(buf);
+        sprintfFloat(buf, "{s}SHT31 Humidity{m}%.1f %%{e}", sht_humi);
+        webSend(buf);
+    } else {
+        webSend("{s}SHT31{m}not found{e}");
+    }
+}
+
+void JsonCall() {
+    if (!sht_ok) return;
+    char buf[96];
+    sprintfFloat(buf, ",\"SHT31\":{\"Temperature\":%.1f", sht_temp);
+    responseAppend(buf);
+    sprintfFloat(buf, ",\"Humidity\":%.1f}", sht_humi);
+    responseAppend(buf);
+}
+
+int main() {
+    sht_ok = 0;
+    sht_temp = 0.0;
+    sht_humi = 0.0;
+    if (i2cExists(SHT31_ADDR, I2C_BUS)) {
+        printStr("SHT31 found on bus 0\n");
+    } else {
+        printStr("SHT31 not found!\n");
+    }
+    return 0;
+}
