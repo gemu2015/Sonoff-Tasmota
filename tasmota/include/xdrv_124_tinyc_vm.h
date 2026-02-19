@@ -36,8 +36,8 @@ extern FS *ufsp;
   #define TC_MAX_FRAMES      32      // call depth
   #define TC_MAX_LOCALS      256     // locals per frame (1KB) - enough for char arrays
   #define TC_MAX_GLOBALS     256     // global slots (1KB)
-  #define TC_MAX_CONSTANTS   64      // constant pool entries
-  #define TC_MAX_CONST_DATA  1024    // string constant bytes
+  #define TC_MAX_CONSTANTS   128     // constant pool entries
+  #define TC_MAX_CONST_DATA  4096    // string constant bytes
   #define TC_INSTR_PER_TICK  1000    // instructions per 50ms tick
   #define TC_OUTPUT_SIZE     512     // output buffer for MQTT
 #endif
@@ -2246,12 +2246,11 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         case 3: val = (int32_t)(millis() / 1000); break;
         case 4: val = (int32_t)ESP_getFreeHeap(); break;
         case 5: val = (int32_t)TasmotaGlobal.power; break;
-        case 6: {
+        case 6:
 #ifdef USE_LIGHT
-          val = (int32_t)Light.dimmer[0];
+          val = (int32_t)Settings->light_dimmer;
 #endif
           break;
-        }
         case 7: {
           float tf = TasmotaGlobal.temperature_celsius;
           uint32_t ti; memcpy(&ti, &tf, 4);
@@ -2285,14 +2284,13 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
             ExecuteCommandPower(i + 1, (val >> i) & 1, SRC_IGNORE);
           }
           break;
-        case 6: { // tasm_dimmer
+        case 6: // tasm_dimmer
 #ifdef USE_LIGHT
-          char cmd[16];
-          snprintf_P(cmd, sizeof(cmd), PSTR("Dimmer %d"), val);
-          ExecuteCommand(cmd, SRC_IGNORE);
+          { char cmd[16];
+            snprintf_P(cmd, sizeof(cmd), PSTR("Dimmer %d"), val);
+            ExecuteCommand(cmd, SRC_IGNORE); }
 #endif
           break;
-        }
         default: break;  // read-only variables silently ignored
       }
       break;

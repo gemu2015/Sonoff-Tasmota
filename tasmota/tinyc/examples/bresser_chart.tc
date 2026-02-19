@@ -1,8 +1,7 @@
-// Bresser Weather Station Receiver (CC1101 868 MHz)
-// Receives data from Bresser 5-in-1/6-in-1/7-in-1 weather sensors
-// Supports weather station + soil moisture sensor (s_type 4)
-// Demonstrates: SPI, CC1101 radio config, multi-protocol data decoding
-// Hardware: CC1101 module on SPI bus, GDO0 on GPIO for packet detect
+// Bresser Weather Station + 24h Google Charts (CC1101 868 MHz)
+// Full Bresser 5/6/7-in-1 receiver with 6 ring-buffer charts
+// 288 points per chart (every 5 min, 24 hours)
+// Heap: 6 × 288 = 1728 slots (of 8192 available on ESP32)
 
 #define CS_PIN     8
 #define GDO0_PIN   7
@@ -50,7 +49,7 @@
 #define REG_PATABLE  0x3E
 #define REG_FIFO     0x3F
 
-// CC1101 status registers (read with burst bit 0xC0)
+// CC1101 status registers
 #define REG_RSSI     0x34
 #define REG_LQI      0x33
 #define REG_RXBYTES  0x3B
@@ -70,18 +69,20 @@
 #define WRITE_BURST  0x40
 
 // Bresser protocol
-#define MSG_BUF_SIZE 27  // FIFO read size: D4 prefix + 26 data bytes
-#define DATA_SIZE    26  // decoded data size (after stripping D4)
+#define MSG_BUF_SIZE 27
+#define DATA_SIZE    26
 
-// Sensor data - weather station
+// Chart ring buffer: 288 points = 24h at 5-min intervals
+#define NPTS 288
+#define STORE_INTERVAL 300  // seconds between samples (5 min)
+
+// Sensor data - weather station (live values)
 float br_temp = 0.0;
 int   br_hum = 0;
 float br_wind_gust = 0.0;
 float br_wind_avg = 0.0;
 float br_wind_dir = 0.0;
 float br_rain = 0.0;
-float br_lux = 0.0;
-float br_uvi = 0.0;
 float br_rssi = 0.0;
 int   br_ok = 0;
 int   br_id = 0;
@@ -97,10 +98,24 @@ int   soil_id = 0;
 int   soil_batt = 0;
 int   soil_cnt = 0;
 
-// Raw packet buffer (global for decoder access, 26 bytes after D4)
-char msg[DATA_SIZE];
+// Additional sensor data (e.g. from I2C light/UV sensors)
+float br_lux = 0.0;     // brightness in lux
+float br_uvi = 0.0;     // UV index
 
-// SPI transfer buffer (reused for all SPI ops)
+// Ring buffers for 24h charts (stored as int × 10 for 1-decimal precision)
+// Charted variables: temp, hum, windavg, rain, brightness, uvi
+int h_temp[NPTS];
+int h_hum[NPTS];
+int h_wavg[NPTS];
+int h_rain[NPTS];
+int h_lux[NPTS];
+int h_uvi[NPTS];
+int h_pos = 0;       // ring buffer write position
+int h_count = 0;     // total samples stored (saturates at NPTS)
+int sec_cnt = 0;     // seconds counter for store interval
+
+// Raw packet buffer and SPI buffer
+char msg[DATA_SIZE];
 char spi[28];
 
 // --- CC1101 Low-Level SPI ---
@@ -137,11 +152,9 @@ void cc_read_burst(int addr, int len) {
         spi[i] = 0;
     }
     spiTransfer(1, spi, len + 1, 1);
-    // results in spi[1..len]
 }
 
 void cc_reset() {
-    // manual CS toggle for reset sequence
     digitalWrite(CS_PIN, 1);
     delayMicroseconds(5);
     digitalWrite(CS_PIN, 0);
@@ -155,78 +168,43 @@ void cc_reset() {
 // --- CC1101 Init for Bresser 868.3 MHz ---
 
 int cc_init_bresser() {
-    // Frequency: 868.3 MHz (26 MHz crystal)
     cc_write_reg(REG_FREQ2, 0x21);
     cc_write_reg(REG_FREQ1, 0x65);
     cc_write_reg(REG_FREQ0, 0x6A);
-
-    // Data rate: 8.21 kbps, BW=270 kHz
     cc_write_reg(REG_MDMCFG4, 0x68);
     cc_write_reg(REG_MDMCFG3, 0x4B);
-
-    // 2-FSK, 16/16 sync word match
     cc_write_reg(REG_MDMCFG2, 0x02);
-
-    // 4 preamble bytes
     cc_write_reg(REG_MDMCFG1, 0x22);
     cc_write_reg(REG_MDMCFG0, 0xF8);
-
-    // Freq deviation 57.129 kHz
     cc_write_reg(REG_DEVIATN, 0x51);
-
-    // IF frequency
     cc_write_reg(REG_FSCTRL1, 0x06);
     cc_write_reg(REG_FSCTRL0, 0x00);
-
-    // Sync word: 0xAA 0x2D (preamble end + first sync byte)
-    // First FIFO byte will be 0xD4 (sacrificial, avoids first-byte corruption)
     cc_write_reg(REG_SYNC1, 0xAA);
     cc_write_reg(REG_SYNC0, 0x2D);
-
-    // Fixed packet length = 27 bytes (D4 + 26 data), no CRC
     cc_write_reg(REG_PKTLEN, MSG_BUF_SIZE);
     cc_write_reg(REG_PKTCTRL0, 0x00);
     cc_write_reg(REG_PKTCTRL1, 0x00);
-
-    // GDO0: assert on sync, deassert at end of packet
     cc_write_reg(REG_IOCFG0, 0x06);
     cc_write_reg(REG_IOCFG2, 0x2E);
-
-    // AGC - maximum sensitivity
     cc_write_reg(REG_AGCCTRL2, 0x03);
     cc_write_reg(REG_AGCCTRL1, 0x40);
     cc_write_reg(REG_AGCCTRL0, 0x91);
-
-    // Freq offset compensation
     cc_write_reg(REG_FOCCFG, 0x16);
     cc_write_reg(REG_BSCFG, 0x6C);
-
-    // Front end
     cc_write_reg(REG_FREND1, 0x56);
     cc_write_reg(REG_FREND0, 0x10);
-
-    // Freq synth calibration
     cc_write_reg(REG_FSCAL3, 0xE9);
     cc_write_reg(REG_FSCAL2, 0x2A);
     cc_write_reg(REG_FSCAL1, 0x00);
     cc_write_reg(REG_FSCAL0, 0x1F);
-
-    // Test registers
     cc_write_reg(REG_TEST2, 0x81);
     cc_write_reg(REG_TEST1, 0x35);
     cc_write_reg(REG_TEST0, 0x09);
-
-    // Main Radio State Machine
     cc_write_reg(REG_MCSM2, 0x07);
-    // MCSM1: RXOFF_MODE=11 (stay in RX), CCA_MODE=11
     cc_write_reg(REG_MCSM1, 0x3C);
-    // MCSM0: FS_AUTOCAL=01 (cal when IDLE->RX/TX)
     cc_write_reg(REG_MCSM0, 0x18);
-
-    // PA Table
     cc_write_reg(REG_PATABLE, 0xC0);
 
-    // Enter IDLE, calibrate, flush RX FIFO, then enter RX
     cc_strobe(CMD_SIDLE);
     delay(1);
     cc_strobe(CMD_SCAL);
@@ -236,11 +214,8 @@ int cc_init_bresser() {
     cc_strobe(CMD_SFRX);
     cc_strobe(CMD_SRX);
     delay(2);
-
-    // Retry SRX to ensure we settle into RX mode
     cc_strobe(CMD_SRX);
     delay(2);
-
     return 1;
 }
 
@@ -261,15 +236,11 @@ float cc_get_rssi() {
 
 int decode_5in1() {
     int i;
-
-    // first 13 bytes XOR with next 13 must be 0xFF
     for (i = 0; i < 13; i++) {
         if (((msg[i] ^ msg[i + 13]) & 0xFF) != 0xFF) {
             return 0;
         }
     }
-
-    // checksum: count bits set in bytes 14-25
     int bits_set = 0;
     int expected = msg[13] & 0xFF;
     for (i = 14; i < DATA_SIZE; i++) {
@@ -279,40 +250,25 @@ int decode_5in1() {
             b = b >> 1;
         }
     }
-    if (bits_set != expected) {
-        return 0;
-    }
+    if (bits_set != expected) return 0;
 
     br_id = msg[14] & 0xFF;
-    if (msg[25] & 0x80) {
-        br_batt = 0;
-    } else {
-        br_batt = 1;
-    }
+    if (msg[25] & 0x80) { br_batt = 0; } else { br_batt = 1; }
 
-    // temperature: BCD digits
     int temp_raw = (msg[20] & 0x0F) + ((msg[20] >> 4) & 0x0F) * 10 + (msg[21] & 0x0F) * 100;
-    if (msg[25] & 0x0F) {
-        temp_raw = 0 - temp_raw;
-    }
+    if (msg[25] & 0x0F) { temp_raw = 0 - temp_raw; }
     br_temp = (float)temp_raw * 0.1;
-
-    // humidity
     br_hum = (msg[22] & 0x0F) + ((msg[22] >> 4) & 0x0F) * 10;
 
-    // wind
     int wdir_raw = ((msg[17] >> 4) & 0x0F) * 225;
     int gust_raw = ((msg[17] & 0x0F) << 8) + (msg[16] & 0xFF);
     int wind_raw = (msg[18] & 0x0F) + ((msg[18] >> 4) & 0x0F) * 10 + (msg[19] & 0x0F) * 100;
-
     br_wind_dir = (float)wdir_raw * 0.1;
     br_wind_gust = (float)gust_raw * 0.1;
     br_wind_avg = (float)wind_raw * 0.1;
 
-    // rain
     int rain_raw = (msg[23] & 0x0F) + ((msg[23] >> 4) & 0x0F) * 10 + (msg[24] & 0x0F) * 100 + ((msg[24] >> 4) & 0x0F) * 1000;
     br_rain = (float)rain_raw * 0.1;
-
     return 1;
 }
 
@@ -325,14 +281,8 @@ int lfsr_digest16(int start, int bytes, int gen, int key) {
     for (k = 0; k < bytes; k++) {
         int data = msg[start + k] & 0xFF;
         for (i = 7; i >= 0; i--) {
-            if ((data >> i) & 1) {
-                sum = sum ^ key;
-            }
-            if (key & 1) {
-                key = (key >> 1) ^ gen;
-            } else {
-                key = key >> 1;
-            }
+            if ((data >> i) & 1) { sum = sum ^ key; }
+            if (key & 1) { key = (key >> 1) ^ gen; } else { key = key >> 1; }
         }
     }
     return sum;
@@ -350,67 +300,43 @@ int add_bytes(int start, int num) {
 int decode_6in1() {
     int chkdgst = ((msg[0] & 0xFF) << 8) | (msg[1] & 0xFF);
     int digest = lfsr_digest16(2, 15, 0x8810, 0x5412);
-    if (chkdgst != digest) {
-        return 0;
-    }
+    if (chkdgst != digest) return 0;
 
     int sum = add_bytes(2, 16);
-    if ((sum & 0xFF) != 0xFF) {
-        return 0;
-    }
+    if ((sum & 0xFF) != 0xFF) return 0;
 
     int s_type = (msg[6] >> 4) & 0x0F;
     int id_tmp = ((msg[2] & 0xFF) << 8) | (msg[3] & 0xFF);
     int batt_tmp = (msg[13] >> 1) & 1;
     int flags = msg[16] & 0x0F;
 
-    // Soil moisture sensor (type 4)
     if (s_type == 4) {
         soil_id = id_tmp;
         soil_batt = batt_tmp;
         soil_rssi = br_rssi;
-
-        // temperature (same BCD format as weather)
         int sign = (msg[13] >> 3) & 1;
         int temp_raw = ((msg[12] >> 4) & 0x0F) * 100 + (msg[12] & 0x0F) * 10 + ((msg[13] >> 4) & 0x0F);
-        if (sign) {
-            temp_raw = temp_raw - 1000;
-        }
+        if (sign) { temp_raw = temp_raw - 1000; }
         soil_temp = (float)temp_raw * 0.1;
-
-        // humidity field (1-16) -> moisture percentage
-        // Maps to: 0,7,13,20,27,33,40,47,53,60,67,73,80,87,93,99
         int hum_idx = ((msg[14] >> 4) & 0x0F) * 10 + (msg[14] & 0x0F);
         if (hum_idx >= 1 && hum_idx <= 16) {
-            if (hum_idx <= 1) {
-                soil_moisture = 0;
-            } else if (hum_idx >= 16) {
-                soil_moisture = 99;
-            } else {
-                soil_moisture = ((hum_idx - 1) * 100 + 8) / 15;
-            }
-        } else {
-            soil_moisture = 0;
-        }
-        return 2;  // soil sensor
+            if (hum_idx <= 1) { soil_moisture = 0; }
+            else if (hum_idx >= 16) { soil_moisture = 99; }
+            else { soil_moisture = ((hum_idx - 1) * 100 + 8) / 15; }
+        } else { soil_moisture = 0; }
+        return 2;
     }
 
-    // Weather station (type 1) or other types
     br_id = id_tmp;
     br_batt = batt_tmp;
-
-    // temperature + humidity (flags == 0)
     if (flags == 0) {
         int sign = (msg[13] >> 3) & 1;
         int temp_raw = ((msg[12] >> 4) & 0x0F) * 100 + (msg[12] & 0x0F) * 10 + ((msg[13] >> 4) & 0x0F);
-        if (sign) {
-            temp_raw = temp_raw - 1000;
-        }
+        if (sign) { temp_raw = temp_raw - 1000; }
         br_temp = (float)temp_raw * 0.1;
         br_hum = ((msg[14] >> 4) & 0x0F) * 10 + (msg[14] & 0x0F);
     }
 
-    // wind (inverted bytes, mask with 0xFF to avoid sign extension)
     int im7 = (msg[7] ^ 0xFF) & 0xFF;
     int im8 = (msg[8] ^ 0xFF) & 0xFF;
     int im9 = (msg[9] ^ 0xFF) & 0xFF;
@@ -423,7 +349,6 @@ int decode_6in1() {
         br_wind_dir = (float)wdir_raw;
     }
 
-    // rain (inverted, flags == 1)
     if (flags == 1) {
         int im12 = (msg[12] ^ 0xFF) & 0xFF;
         int im13 = (msg[13] ^ 0xFF) & 0xFF;
@@ -445,18 +370,14 @@ int decode_6in1() {
 
 // --- Bresser 7-in-1 Decoder ---
 
-// de-whitened message buffer
 char msgw[DATA_SIZE];
 
 int decode_7in1() {
     int i;
-
-    // data de-whitening (26 bytes)
     for (i = 0; i < DATA_SIZE; i++) {
         msgw[i] = msg[i] ^ 0xAA;
     }
 
-    // LFSR-16 digest check (mask with 0xFF to avoid sign extension)
     int chkdgst = ((msgw[0] & 0xFF) << 8) | (msgw[1] & 0xFF);
     int digest = 0;
     int key = 0xBA95;
@@ -465,30 +386,17 @@ int decode_7in1() {
     for (k = 0; k < 23; k++) {
         int data = msgw[k + 2] & 0xFF;
         for (i = 7; i >= 0; i--) {
-            if ((data >> i) & 1) {
-                digest = digest ^ key;
-            }
-            if (key & 1) {
-                key = (key >> 1) ^ gen;
-            } else {
-                key = key >> 1;
-            }
+            if ((data >> i) & 1) { digest = digest ^ key; }
+            if (key & 1) { key = (key >> 1) ^ gen; } else { key = key >> 1; }
         }
     }
-    if ((chkdgst ^ digest) != 0x6DF1) {
-        return 0;
-    }
+    if ((chkdgst ^ digest) != 0x6DF1) return 0;
 
     br_id = ((msgw[2] & 0xFF) << 8) | (msgw[3] & 0xFF);
     int s_type = (msg[6] >> 4) & 0x0F;
     int flags = msgw[15] & 0x0F;
-    if ((flags & 0x06) == 0x06) {
-        br_batt = 0;
-    } else {
-        br_batt = 1;
-    }
+    if ((flags & 0x06) == 0x06) { br_batt = 0; } else { br_batt = 1; }
 
-    // Weather station (type 1)
     if (s_type == 1) {
         int wdir = ((msgw[4] >> 4) & 0x0F) * 100 + (msgw[4] & 0x0F) * 10 + ((msgw[5] >> 4) & 0x0F);
         int wgst = ((msgw[7] >> 4) & 0x0F) * 100 + (msgw[7] & 0x0F) * 10 + ((msgw[8] >> 4) & 0x0F);
@@ -496,12 +404,8 @@ int decode_7in1() {
         int rain_raw = ((msgw[10] >> 4) & 0x0F) * 100000 + (msgw[10] & 0x0F) * 10000 + ((msgw[11] >> 4) & 0x0F) * 1000 + (msgw[11] & 0x0F) * 100 + ((msgw[12] >> 4) & 0x0F) * 10 + (msgw[12] & 0x0F);
         int temp_raw = ((msgw[14] >> 4) & 0x0F) * 100 + (msgw[14] & 0x0F) * 10 + ((msgw[15] >> 4) & 0x0F);
         int humidity = ((msgw[16] >> 4) & 0x0F) * 10 + (msgw[16] & 0x0F);
-
         float temp_c = (float)temp_raw * 0.1;
-        if (temp_raw > 600) {
-            temp_c = (float)(temp_raw - 1000) * 0.1;
-        }
-
+        if (temp_raw > 600) { temp_c = (float)(temp_raw - 1000) * 0.1; }
         br_temp = temp_c;
         br_hum = humidity;
         br_wind_dir = (float)wdir;
@@ -520,35 +424,21 @@ int decode_7in1() {
         return 1;
     }
 
-    // Soil moisture sensor (type 4) - uses raw msg[], NOT de-whitened
     if (s_type == 4) {
         int temp_raw = (msg[20] & 0x0F) + ((msg[20] >> 4) & 0x0F) * 10 + (msg[21] & 0x0F) * 100;
-        if (msg[25] & 0x0F) {
-            temp_raw = 0 - temp_raw;
-        }
+        if (msg[25] & 0x0F) { temp_raw = 0 - temp_raw; }
         soil_temp = (float)temp_raw * 0.1;
-
-        // humidity field (1-16) -> moisture percentage
         int hum_idx = (msg[22] & 0x0F) + ((msg[22] >> 4) & 0x0F) * 10;
         if (hum_idx >= 1 && hum_idx <= 16) {
-            if (hum_idx <= 1) {
-                soil_moisture = 0;
-            } else if (hum_idx >= 16) {
-                soil_moisture = 99;
-            } else {
-                soil_moisture = ((hum_idx - 1) * 100 + 8) / 15;
-            }
-        } else {
-            soil_moisture = 0;
-        }
-
+            if (hum_idx <= 1) { soil_moisture = 0; }
+            else if (hum_idx >= 16) { soil_moisture = 99; }
+            else { soil_moisture = ((hum_idx - 1) * 100 + 8) / 15; }
+        } else { soil_moisture = 0; }
         soil_id = br_id;
         soil_batt = br_batt;
         soil_rssi = br_rssi;
-        return 2;  // soil sensor
+        return 2;
     }
-
-    // Unknown sensor type - valid LFSR but we don't decode it
     return 0;
 }
 
@@ -557,7 +447,7 @@ int decode_7in1() {
 int decode_message() {
     int res;
     res = decode_7in1();
-    if (res) return res;  // 1=weather, 2=soil
+    if (res) return res;
     res = decode_6in1();
     if (res) return res;
     res = decode_5in1();
@@ -569,27 +459,17 @@ int decode_message() {
 
 int receive_message() {
     int rxBytes = cc_read_status(REG_RXBYTES);
-
     if (rxBytes >= MSG_BUF_SIZE) {
-        // burst read FIFO (27 bytes: D4 + 26 data bytes)
         cc_read_burst(REG_FIFO, MSG_BUF_SIZE);
-
-        // get RSSI before flushing
         br_rssi = cc_get_rssi();
-
-        // flush and restart RX
         cc_strobe(CMD_SIDLE);
         cc_strobe(CMD_SFRX);
         cc_strobe(CMD_SRX);
         delay(1);
-
-        // With sync AA 2D, spi[1]=D4 (sacrificial), spi[2..27]=data
-        // Copy data bytes: spi[2..27] -> msg[0..25]
         int i;
         for (i = 0; i < DATA_SIZE; i++) {
             msg[i] = spi[i + 2];
         }
-
         return decode_message();
     }
     return 0;
@@ -598,7 +478,6 @@ int receive_message() {
 // --- Callbacks ---
 
 void Every50ms() {
-    // Called 20x/sec - non-blocking check for CC1101 packet
     int res = receive_message();
     if (res == 1) {
         br_ok = 1;
@@ -610,6 +489,152 @@ void Every50ms() {
     }
 }
 
+void EverySecond() {
+    sec_cnt++;
+    if (sec_cnt >= STORE_INTERVAL && br_ok) {
+        sec_cnt = 0;
+        // Store current values as int (×10 for decimal values)
+        h_temp[h_pos] = (int)(br_temp * 10.0);
+        h_hum[h_pos] = br_hum;
+        h_wavg[h_pos] = (int)(br_wind_avg * 10.0);
+        h_rain[h_pos] = (int)(br_rain * 10.0);
+        h_lux[h_pos] = (int)(br_lux * 10.0);
+        h_uvi[h_pos] = (int)(br_uvi * 10.0);
+        h_pos++;
+        if (h_pos >= NPTS) h_pos = 0;
+        if (h_count < NPTS) h_count++;
+    }
+}
+
+// --- Chart Helper: get value from ring buffer by chart_id ---
+// chart_id: 0=temp, 1=hum, 2=windavg, 3=rain, 4=lux, 5=uvi
+
+int get_hist(int chart_id, int idx) {
+    if (chart_id == 0) return h_temp[idx];
+    if (chart_id == 1) return h_hum[idx];
+    if (chart_id == 2) return h_wavg[idx];
+    if (chart_id == 3) return h_rain[idx];
+    if (chart_id == 4) return h_lux[idx];
+    if (chart_id == 5) return h_uvi[idx];
+    return 0;
+}
+
+// Emit chart data rows for one variable
+// chart_id selects the array, scale10: 1=values are ×10, 0=raw int
+void emit_chart(int chart_id, int scale10) {
+    char buf[80];
+    int i;
+    int n = h_count;
+
+    i = 0;
+    while (i < n) {
+        int idx = h_pos - n + i;
+        if (idx < 0) idx = idx + NPTS;
+        int val = get_hist(chart_id, idx);
+
+        // Time axis: hours×10 (negative = past, 0 = now)
+        int mins_ago = (n - 1 - i) * 5;
+        int ht = 0 - (mins_ago * 10 / 60);
+
+        if (scale10) {
+            sprintfInt(buf, "[%d", ht);
+            sprintfAppendInt(buf, ",%d]", val);
+        } else {
+            sprintfInt(buf, "[%d", ht);
+            sprintfAppendInt(buf, ",%d]", val * 10);
+        }
+        if (i < n - 1) strcat(buf, ",");
+        webSend(buf);
+        if (i % 50 == 49) webFlush();
+        i++;
+    }
+}
+
+void WebPage() {
+    char buf[128];
+
+    // Load Google Charts library once
+    webSend("<script src=\"https://www.gstatic.com/charts/loader.js\"></script>");
+    webSend("<script>google.charts.load('current',{packages:['corechart']});</script>");
+    webFlush();
+
+    // Chart configs: id, title, unit, color, array, scale10
+    // We emit 6 chart divs, then one script block that draws all 6
+
+    // Chart containers
+    webSend("<div id=\"c0\" style=\"width:100%;height:250px;\"></div>");
+    webSend("<div id=\"c1\" style=\"width:100%;height:250px;\"></div>");
+    webSend("<div id=\"c2\" style=\"width:100%;height:250px;\"></div>");
+    webSend("<div id=\"c3\" style=\"width:100%;height:250px;\"></div>");
+    webSend("<div id=\"c4\" style=\"width:100%;height:250px;\"></div>");
+    webSend("<div id=\"c5\" style=\"width:100%;height:250px;\"></div>");
+    webFlush();
+
+    if (h_count < 2) {
+        webSend("<p>Collecting data... Charts appear after 2 samples.</p>");
+        return;
+    }
+
+    // Start script block
+    webSend("<script>");
+    webSend("google.charts.setOnLoadCallback(function(){");
+
+    // Helper JS function to draw a chart from data
+    webSend("function dc(id,t,u,c,d){");
+    webSend("var dt=new google.visualization.DataTable();");
+    webSend("dt.addColumn('number','Hours');");
+    webSend("dt.addColumn('number',u);");
+    webSend("dt.addRows(d.map(function(r){return[r[0]/10,r[1]/10];}));");
+    webSend("var o={title:t,legend:'none',curveType:'none',");
+    webSend("hAxis:{title:'Hours',direction:1},");
+    webSend("vAxis:{title:u},");
+    webSend("colors:[c],lineWidth:1,pointSize:0,");
+    webSend("chartArea:{width:'80%',height:'65%'}};");
+    webSend("new google.visualization.LineChart(");
+    webSend("document.getElementById(id)).draw(dt,o);}");
+    webFlush();
+
+    // Chart 0: Temperature (×10 values)
+    webSend("dc('c0','Temperature (24h)','\\u00b0C','#e74c3c',[");
+    emit_chart(0, 1);
+    webSend("]);");
+    webFlush();
+
+    // Chart 1: Humidity (raw %)
+    webSend("dc('c1','Humidity (24h)','%','#3498db',[");
+    emit_chart(1, 0);
+    webSend("]);");
+    webFlush();
+
+    // Chart 2: Wind Average (×10 values)
+    webSend("dc('c2','Wind Average (24h)','m/s','#27ae60',[");
+    emit_chart(2, 1);
+    webSend("]);");
+    webFlush();
+
+    // Chart 3: Rain (×10 values)
+    webSend("dc('c3','Rain (24h)','mm','#2980b9',[");
+    emit_chart(3, 1);
+    webSend("]);");
+    webFlush();
+
+    // Chart 4: Brightness (×10 values)
+    webSend("dc('c4','Brightness (24h)','lux','#f39c12',[");
+    emit_chart(4, 1);
+    webSend("]);");
+    webFlush();
+
+    // Chart 5: UV Index (×10 values)
+    webSend("dc('c5','UV Index (24h)','UVI','#9b59b6',[");
+    emit_chart(5, 1);
+    webSend("]);");
+    webFlush();
+
+    webSend("});");
+    webSend("</script>");
+    webFlush();
+}
+
 void WebCall() {
     char out[80];
     if (br_ok) {
@@ -619,26 +644,21 @@ void WebCall() {
         webSend(out);
         sprintfInt(out, "{s}Humidity{m}%d %%{e}", br_hum);
         webSend(out);
-        sprintfFloat(out, "{s}Wind Gust{m}%.1f m/s{e}", br_wind_gust);
-        webSend(out);
         sprintfFloat(out, "{s}Wind Avg{m}%.1f m/s{e}", br_wind_avg);
-        webSend(out);
-        sprintfFloat(out, "{s}Wind Dir{m}%.0f deg{e}", br_wind_dir);
         webSend(out);
         sprintfFloat(out, "{s}Rain{m}%.1f mm{e}", br_rain);
         webSend(out);
-        sprintfFloat(out, "{s}Brightness{m}%.0f lux{e}", br_lux);
+        sprintfFloat(out, "{s}Brightness{m}%.1f lux{e}", br_lux);
         webSend(out);
         sprintfFloat(out, "{s}UV Index{m}%.1f{e}", br_uvi);
         webSend(out);
         sprintfFloat(out, "{s}RSSI{m}%.0f dBm{e}", br_rssi);
         webSend(out);
-        if (br_batt) {
-            webSend("{s}Battery{m}OK{e}");
-        } else {
-            webSend("{s}Battery{m}Low{e}");
-        }
+        if (br_batt) { webSend("{s}Battery{m}OK{e}"); }
+        else { webSend("{s}Battery{m}Low{e}"); }
         sprintfInt(out, "{s}Packets{m}%d{e}", br_cnt);
+        webSend(out);
+        sprintfInt(out, "{s}Chart{m}%d / 288 pts{e}", h_count);
         webSend(out);
     } else {
         webSend("{s}Bresser{m}waiting for data{e}");
@@ -649,15 +669,6 @@ void WebCall() {
         sprintfFloat(out, "{s}Soil Temp{m}%.1f C{e}", soil_temp);
         webSend(out);
         sprintfInt(out, "{s}Soil Moisture{m}%d %%{e}", soil_moisture);
-        webSend(out);
-        sprintfFloat(out, "{s}Soil RSSI{m}%.0f dBm{e}", soil_rssi);
-        webSend(out);
-        if (soil_batt) {
-            webSend("{s}Soil Battery{m}OK{e}");
-        } else {
-            webSend("{s}Soil Battery{m}Low{e}");
-        }
-        sprintfInt(out, "{s}Soil Packets{m}%d{e}", soil_cnt);
         webSend(out);
     }
 }
@@ -671,15 +682,11 @@ void JsonCall() {
         responseAppend(out);
         sprintfInt(out, ",\"Hum\":%d", br_hum);
         responseAppend(out);
-        sprintfFloat(out, ",\"WindGust\":%.1f", br_wind_gust);
-        responseAppend(out);
         sprintfFloat(out, ",\"WindAvg\":%.1f", br_wind_avg);
-        responseAppend(out);
-        sprintfFloat(out, ",\"WindDir\":%.0f", br_wind_dir);
         responseAppend(out);
         sprintfFloat(out, ",\"Rain\":%.1f", br_rain);
         responseAppend(out);
-        sprintfFloat(out, ",\"Lux\":%.0f", br_lux);
+        sprintfFloat(out, ",\"Lux\":%.1f", br_lux);
         responseAppend(out);
         sprintfFloat(out, ",\"UVI\":%.1f", br_uvi);
         responseAppend(out);
@@ -697,8 +704,6 @@ void JsonCall() {
         responseAppend(out);
         sprintfInt(out, ",\"Moisture\":%d", soil_moisture);
         responseAppend(out);
-        sprintfFloat(out, ",\"RSSI\":%.0f", soil_rssi);
-        responseAppend(out);
         sprintfInt(out, ",\"Batt\":%d", soil_batt);
         responseAppend(out);
         sprintfInt(out, ",\"Cnt\":%d}", soil_cnt);
@@ -707,20 +712,12 @@ void JsonCall() {
 }
 
 int main() {
-    // init SPI (CS managed manually during reset, then by driver)
     spiInit(-1, -1, -1, SPI_MHZ);
-
-    // init GDO0 as input
     gpioInit(GDO0_PIN, 0);
-
-    // CC1101 reset needs manual CS toggling - do before spiSetCS claims the pin
     gpioInit(CS_PIN, 1);
     cc_reset();
-
-    // now let SPI driver manage CS
     spiSetCS(1, CS_PIN);
 
-    // Check CC1101 version register
     int ver = cc_read_status(0x31);
     char buf[64];
     sprintfInt(buf, "CC1101 version: 0x%02X\n", ver);
@@ -736,11 +733,27 @@ int main() {
         return 1;
     }
 
+    // Init all state
     br_ok = 0;
     br_cnt = 0;
     soil_ok = 0;
     soil_cnt = 0;
+    h_pos = 0;
+    h_count = 0;
+    sec_cnt = 0;
 
-    printStr("Bresser CC1101 receiver ready\n");
+    // Zero ring buffers
+    int i;
+    for (i = 0; i < NPTS; i++) {
+        h_temp[i] = 0;
+        h_hum[i] = 0;
+        h_wavg[i] = 0;
+        h_rain[i] = 0;
+        h_lux[i] = 0;
+        h_uvi[i] = 0;
+    }
+
+    printStr("Bresser CC1101 + 24h charts ready\n");
+    printStr("Charts: 6 variables, 288 pts each (5-min interval)\n");
     return 0;
 }

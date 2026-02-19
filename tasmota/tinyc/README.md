@@ -62,6 +62,8 @@ REST API: `http://<ip>/tc_api?cmd=run`, `cmd=stop`, `cmd=status`
 | Stack depth | 64 | 256 |
 | Call frames | 8 | 32 |
 | Globals | 64 | 256 |
+| Constants | 32 | 128 |
+| Const data | 512 B | 4 KB |
 | Code size | 4 KB | 16 KB |
 | Heap | 8 KB | 32 KB |
 
