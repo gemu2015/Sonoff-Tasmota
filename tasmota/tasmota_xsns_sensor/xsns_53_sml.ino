@@ -1490,6 +1490,8 @@ void sml_empty_receiver(uint32_t meters) {
   }
 }
 
+void SML_Decode(uint8_t index);
+
 void sml_shift_in(uint32_t meters, uint32_t shard) {
   uint32_t count;
 
@@ -4306,8 +4308,6 @@ uint32_t ctime = millis();
   }
 }
 
-#ifdef USE_SCRIPT
-
 #ifdef USE_SML_CANBUS
 
 
@@ -4423,8 +4423,6 @@ void SML_CANBUS_Read() {
 #endif
 }
 #endif // USE_SML_CANBUS
-
-#endif // USE_SCRIPT
 
 char *SML_Get_Sequence(char *cp,uint32_t index) {
   if (!index) return cp;

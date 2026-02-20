@@ -228,6 +228,14 @@ enum TcSyscall {
   // Smart Meter (SML)
   SYS_SML_GET             = 110, // (index) -> float — meter value (1-based, 0=count)
   SYS_SML_GETSTR          = 111, // (index, buf_ref) -> int — meter ID string into buf
+  SYS_SML_WRITE           = 114, // (meter, buf_ref) -> int — send hex string to meter
+  SYS_SML_READ            = 115, // (meter, buf_ref) -> int — read raw buffer into char[]
+  SYS_SML_SETBAUD         = 116, // (meter, baud) -> int — change baud rate
+  SYS_SML_SETWSTR         = 117, // (meter, buf_ref) -> int — set async write string
+  SYS_SML_SETOPT          = 118, // (options) -> int — set SML global options
+  SYS_SML_GETV            = 119, // (sel) -> int — get/reset data valid flags
+  SYS_SML_WRITE_STR       = 124, // (meter, const_idx) -> int — send string literal to meter
+  SYS_SML_SETWSTR_STR     = 125, // (meter, const_idx) -> int — set async write from string literal
   // SPI bus
   SYS_SPI_INIT            = 120, // (sclk, mosi, miso, speed_mhz) -> int (1=ok)
   SYS_SPI_SET_CS          = 121, // (index, pin) -> void
@@ -580,6 +588,14 @@ static void tc_send_web(const char *buf, int len) {
 #if defined(USE_SML_M) || defined(USE_SML)
   extern double SML_GetVal(uint32_t index);
   extern char *SML_GetSVal(uint32_t index);
+#ifdef USE_SML_SCRIPT_CMD
+  extern uint32_t SML_Write(int32_t meter, char *hstr);
+  extern uint32_t SML_Read(int32_t meter, char *str, uint32_t slen);
+  extern uint32_t SML_SetBaud(uint32_t meter, uint32_t br);
+  extern int32_t SML_Set_WStr(uint32_t meter, char *hstr);
+  extern uint32_t SML_SetOptions(uint32_t in);
+  extern uint32_t sml_getv(uint32_t sel);
+#endif
 #endif
 
 /*********************************************************************************************\
@@ -2041,6 +2057,116 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         } else {
           TC_PUSH(vm, 0);
         }
+      } else {
+        TC_PUSH(vm, 0);
+      }
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+
+    // ── SML advanced ─────────────────────────────────────
+    case SYS_SML_WRITE: {
+      // Stack: [meter, buf_ref] — buf_ref on top
+      int32_t ref = TC_POP(vm);  // hex string buffer ref
+      a = TC_POP(vm);            // meter index
+#ifdef USE_SML_SCRIPT_CMD
+      char tmp[256];
+      tc_ref_to_cstr(vm, ref, tmp, sizeof(tmp));
+      TC_PUSH(vm, (int32_t)SML_Write(a, tmp));
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_SML_READ: {
+      // Stack: [meter, buf_ref] — buf_ref on top
+      int32_t ref = TC_POP(vm);  // output buffer ref
+      a = TC_POP(vm);            // meter index
+#ifdef USE_SML_SCRIPT_CMD
+      char tmp[256];
+      int32_t maxLen = tc_ref_maxlen(vm, ref);
+      uint32_t slen = (maxLen > 0 && maxLen < (int32_t)sizeof(tmp)) ? maxLen : sizeof(tmp) - 1;
+      uint32_t got = SML_Read(a, tmp, slen);
+      // Copy result into TinyC char array
+      int32_t *buf = tc_resolve_ref(vm, ref);
+      if (buf && got > 0) {
+        for (uint32_t i = 0; i < got && (int32_t)i < maxLen; i++) {
+          buf[i] = (int32_t)(uint8_t)tmp[i];
+        }
+        if ((int32_t)got < maxLen) buf[got] = 0;
+      }
+      TC_PUSH(vm, (int32_t)got);
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_SML_SETBAUD: {
+      // Stack: [meter, baud] — baud on top
+      b = TC_POP(vm);  // baud rate
+      a = TC_POP(vm);  // meter index
+#ifdef USE_SML_SCRIPT_CMD
+      TC_PUSH(vm, (int32_t)SML_SetBaud((uint32_t)a, (uint32_t)b));
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_SML_SETWSTR: {
+      // Stack: [meter, buf_ref] — buf_ref on top
+      int32_t ref = TC_POP(vm);  // hex string buffer ref
+      a = TC_POP(vm);            // meter index
+#ifdef USE_SML_SCRIPT_CMD
+      char tmp[256];
+      tc_ref_to_cstr(vm, ref, tmp, sizeof(tmp));
+      TC_PUSH(vm, (int32_t)SML_Set_WStr((uint32_t)a, tmp));
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_SML_SETOPT: {
+      a = TC_POP(vm);  // options bitmask
+#ifdef USE_SML_SCRIPT_CMD
+      TC_PUSH(vm, (int32_t)SML_SetOptions((uint32_t)a));
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_SML_GETV: {
+      a = TC_POP(vm);  // selector
+#ifdef USE_SML_SCRIPT_CMD
+      TC_PUSH(vm, (int32_t)sml_getv((uint32_t)a));
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_SML_WRITE_STR: {
+      // Stack: [meter, const_idx] — const_idx on top
+      int32_t ci = TC_POP(vm);  // constant pool index
+      a = TC_POP(vm);           // meter index
+#ifdef USE_SML_SCRIPT_CMD
+      if (ci >= 0 && ci < vm->const_count && vm->constants[ci].type == 1) {
+        TC_PUSH(vm, (int32_t)SML_Write(a, (char*)vm->constants[ci].str.ptr));
+      } else {
+        TC_PUSH(vm, 0);
+      }
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_SML_SETWSTR_STR: {
+      // Stack: [meter, const_idx] — const_idx on top
+      int32_t ci = TC_POP(vm);  // constant pool index
+      a = TC_POP(vm);           // meter index
+#ifdef USE_SML_SCRIPT_CMD
+      if (ci >= 0 && ci < vm->const_count && vm->constants[ci].type == 1) {
+        TC_PUSH(vm, (int32_t)SML_Set_WStr((uint32_t)a, (char*)vm->constants[ci].str.ptr));
       } else {
         TC_PUSH(vm, 0);
       }
