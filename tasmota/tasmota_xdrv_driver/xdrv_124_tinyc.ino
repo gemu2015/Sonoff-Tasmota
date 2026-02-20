@@ -31,6 +31,22 @@
 
 #define XDRV_124  124
 
+// Forward declarations for custom web handlers (called from SYS_WEB_ON in vm.h)
+static void HandleTinyCWebOn1(void);
+static void HandleTinyCWebOn2(void);
+static void HandleTinyCWebOn3(void);
+static void HandleTinyCWebOn4(void);
+static void (*const TinyCWebOnHandlers[])(void) = {
+  HandleTinyCWebOn1, HandleTinyCWebOn2, HandleTinyCWebOn3, HandleTinyCWebOn4
+};
+
+// mDNS support (for SYS_MDNS syscall)
+#ifdef ESP32
+  #include <ESPmDNS.h>
+#else
+  #include <ESP8266mDNS.h>
+#endif
+
 // VM engine is in a separate .h to avoid Arduino IDE auto-prototype issues
 #include "xdrv_124_tinyc_vm.h"
 
@@ -945,6 +961,27 @@ static void TinyC_WebSetVar(void) {
     }
   }
 }
+
+// ─── Custom web handlers (webOn) ──────────────────────────────
+
+static void HandleTinyCWebOn(uint8_t handler_num) {
+  if (!Tinyc || !Tinyc->loaded || !Tinyc->vm.halted || Tinyc->vm.error != TC_OK) {
+    Webserver->send(503, "text/plain", "TinyC not ready");
+    return;
+  }
+  Tinyc->current_web_handler = handler_num;
+  // CORS + chunked response — callback uses webSend() to emit content
+  TCSendCORS("GET, POST, OPTIONS");
+  WSContentBegin(200, CT_PLAIN);
+  tc_callback_safe(&Tinyc->vm, "WebOn");
+  WSContentEnd();
+  Tinyc->current_web_handler = 0;
+}
+
+static void HandleTinyCWebOn1(void) { HandleTinyCWebOn(1); }
+static void HandleTinyCWebOn2(void) { HandleTinyCWebOn(2); }
+static void HandleTinyCWebOn3(void) { HandleTinyCWebOn(3); }
+static void HandleTinyCWebOn4(void) { HandleTinyCWebOn(4); }
 
 // ─── WebUI: interactive widget page (/tc_ui) ──────────────────
 

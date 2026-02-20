@@ -267,6 +267,10 @@ enum TcSyscall {
   SYS_WEB_PAGE_LABEL  = 158, // (page_num, label_const) -> void — register page with button label
   SYS_WEB_PAGE        = 159, // () -> int — returns current page number being rendered
   SYS_WEB_SEND_FILE   = 160, // (filename_const) -> void — send file contents to web page
+  SYS_WEB_ON          = 161, // (handler_num, url_const) -> void — register custom web endpoint
+  SYS_WEB_HANDLER     = 162, // () -> int — returns current web handler number (in WebOn callback)
+  SYS_WEB_ARG         = 163, // (name_const, buf_ref) -> int — get HTTP arg into buffer, returns length
+  SYS_MDNS            = 164, // (name_const, mac_const, type_const) -> int — register mDNS service
   // Debug
   SYS_DEBUG_PRINT     = 250, SYS_DEBUG_PRINT_STR = 251,
   SYS_DEBUG_DUMP      = 252,
@@ -460,6 +464,11 @@ struct TINYC {
   char     page_label[TC_MAX_WEB_PAGES][32];
   uint8_t  page_count;     // number of registered pages
   uint8_t  current_page;   // current page being rendered (for wPage())
+  // Custom web handlers (webOn)
+#define TC_MAX_WEB_HANDLERS 4
+  char     web_handler_url[TC_MAX_WEB_HANDLERS][32];
+  uint8_t  web_handler_count;
+  uint8_t  current_web_handler;  // handler number during WebOn callback
   // SPI bus
   TcSpi    spi;
   // HTTP request state
@@ -2982,6 +2991,116 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         }
       }
 #endif
+      break;
+    }
+
+    case SYS_WEB_ON: {
+      // Register custom web endpoint: webOn(handler_num, "/url/path")
+      int32_t ci = TC_POP(vm);   // url const index
+      int32_t hn = TC_POP(vm);   // handler number (1-4)
+      const char *url = tc_get_const_str(vm, ci);
+#ifdef USE_WEBSERVER
+      if (url && Tinyc && hn >= 1 && hn <= TC_MAX_WEB_HANDLERS) {
+        strlcpy(Tinyc->web_handler_url[hn - 1], url, sizeof(Tinyc->web_handler_url[0]));
+        if (hn > Tinyc->web_handler_count) Tinyc->web_handler_count = hn;
+        // Register with Tasmota web server — URL persists in Tinyc struct
+        Webserver->on(Tinyc->web_handler_url[hn - 1], TinyCWebOnHandlers[hn - 1]);
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: webOn(%d, \"%s\") registered"), hn, url);
+      }
+#endif
+      break;
+    }
+    case SYS_WEB_HANDLER: {
+      // Returns current handler number during WebOn callback
+      TC_PUSH(vm, Tinyc ? Tinyc->current_web_handler : 0);
+      break;
+    }
+    case SYS_WEB_ARG: {
+      // Get HTTP request argument: webArg("name", buf) -> length
+      int32_t buf_ref = TC_POP(vm);   // char array ref for result
+      int32_t ci = TC_POP(vm);        // arg name const index
+      int32_t result = 0;
+      const char *argname = tc_get_const_str(vm, ci);
+#ifdef USE_WEBSERVER
+      if (argname && Webserver->hasArg(String(argname))) {
+        String val = Webserver->arg(String(argname));
+        int32_t *buf = tc_resolve_ref(vm, buf_ref);
+        int32_t maxLen = tc_ref_maxlen(vm, buf_ref);
+        if (buf && maxLen > 0) {
+          int slen = val.length();
+          if (slen >= maxLen) slen = maxLen - 1;
+          for (int i = 0; i < slen; i++) buf[i] = (int32_t)(uint8_t)val[i];
+          buf[slen] = 0;
+          result = slen;
+        }
+      }
+#endif
+      TC_PUSH(vm, result);
+      break;
+    }
+
+    case SYS_MDNS: {
+      // Register mDNS service: mdns("name", "mac", "type") -> 0
+      int32_t ci_type = TC_POP(vm);
+      int32_t ci_mac  = TC_POP(vm);
+      int32_t ci_name = TC_POP(vm);
+      const char *name  = tc_get_const_str(vm, ci_name);
+      const char *mac   = tc_get_const_str(vm, ci_mac);
+      const char *xtype = tc_get_const_str(vm, ci_type);
+      int32_t result = -1;
+#if defined(ESP32) || defined(ESP8266)
+      if (name && mac && xtype) {
+        // Build MAC string
+        char mdns_mac[13];
+        if (mac[0] == '-') {
+          String strMac = NetworkMacAddress();
+          strMac.toLowerCase();
+          strMac.replace(":", "");
+          strlcpy(mdns_mac, strMac.c_str(), sizeof(mdns_mac));
+        } else {
+          strlcpy(mdns_mac, mac, sizeof(mdns_mac));
+        }
+        // Build hostname
+        char mdns_name[48];
+        if (name[0] == '-') {
+          strlcpy(mdns_name, NetworkHostname(), sizeof(mdns_name));
+        } else {
+          strlcpy(mdns_name, name, sizeof(mdns_name));
+          strlcat(mdns_name, mdns_mac, sizeof(mdns_name));
+        }
+        // Start mDNS responder
+        const char *cMac = (const char*)mdns_mac;
+        String ipStr = NetworkAddress().toString();
+        if (MDNS.begin(mdns_name)) {
+          if (!strcmp(xtype, "everhome")) {
+            MDNS.addService("everhome", "tcp", 80);
+            MDNS.addServiceTxt("everhome", "tcp", "ip", ipStr.c_str());
+            MDNS.addServiceTxt("everhome", "tcp", "serial", cMac);
+            MDNS.addServiceTxt("everhome", "tcp", "productid", "1137");
+          } else if (!strcmp(xtype, "shelly")) {
+            MDNS.addService("http", "tcp", 80);
+            MDNS.addService("shelly", "tcp", 80);
+            MDNS.addServiceTxt("http", "tcp", "fw_id", "20241011-114455/1.4.4-g6d2a586");
+            MDNS.addServiceTxt("http", "tcp", "arch", "esp8266");
+            MDNS.addServiceTxt("http", "tcp", "id", "");
+            MDNS.addServiceTxt("http", "tcp", "gen", "2");
+            MDNS.addServiceTxt("shelly", "tcp", "fw_id", "20241011-114455/1.4.4-g6d2a586");
+            MDNS.addServiceTxt("shelly", "tcp", "arch", "esp8266");
+            MDNS.addServiceTxt("shelly", "tcp", "id", "");
+            MDNS.addServiceTxt("shelly", "tcp", "gen", "2");
+          } else {
+            MDNS.addService(xtype, "tcp", 80);
+            MDNS.addServiceTxt(xtype, "tcp", "ip", ipStr.c_str());
+            MDNS.addServiceTxt(xtype, "tcp", "serial", cMac);
+          }
+          AddLog(LOG_LEVEL_INFO, PSTR("TCC: mDNS started, service=%s hostname=%s"), xtype, mdns_name);
+          result = 0;
+        } else {
+          AddLog(LOG_LEVEL_INFO, PSTR("TCC: mDNS failed to start"));
+        }
+      }
+#endif
+      TC_PUSH(vm, result);
       break;
     }
 
