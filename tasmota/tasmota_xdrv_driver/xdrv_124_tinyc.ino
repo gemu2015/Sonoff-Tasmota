@@ -736,6 +736,59 @@ static void HandleTinyCApi(void) {
     return;
   }
 #ifdef USE_UFILESYS
+  else if (cmd == "listfiles") {
+    // List files on device filesystem: /tc_api?cmd=listfiles
+    if (!ufsp) {
+      WSSendJSON_P(500, PSTR("{\"ok\":false,\"error\":\"no filesystem\"}"));
+      return;
+    }
+    String result = F("{\"ok\":true,\"files\":[");
+    File root = ufsp->open("/", "r");
+    bool first = true;
+    if (root) {
+      File f = root.openNextFile();
+      while (f) {
+        if (!f.isDirectory()) {
+          // ESP32 returns full path, strip to filename
+          const char *fname = f.name();
+          if (*fname == '/') fname++;
+          const char *lcp = strrchr(fname, '/');
+          if (lcp) fname = lcp + 1;
+          if (!first) result += ',';
+          result += F("{\"name\":\"");
+          result += fname;
+          result += F("\",\"size\":");
+          result += String(f.size());
+          result += '}';
+          first = false;
+        }
+        f = root.openNextFile();
+      }
+      root.close();
+    }
+    result += F("]}");
+    TCSendCORS("GET, OPTIONS");
+    Webserver->send(200, F("application/json"), result);
+    return;
+  }
+  else if (cmd == "deletefile") {
+    // Delete a file: /tc_api?cmd=deletefile&path=/filename
+    String fpath = Webserver->arg(F("path"));
+    if (fpath.length() == 0 || fpath[0] != '/') {
+      WSSendJSON_P(400, PSTR("{\"ok\":false,\"error\":\"missing path\"}"));
+      return;
+    }
+    if (!ufsp) {
+      WSSendJSON_P(500, PSTR("{\"ok\":false,\"error\":\"no filesystem\"}"));
+      return;
+    }
+    if (ufsp->remove(fpath.c_str())) {
+      WSSendJSON_P(200, PSTR("{\"ok\":true}"));
+    } else {
+      WSSendJSON_P(404, PSTR("{\"ok\":false,\"error\":\"delete failed\"}"));
+    }
+    return;
+  }
   else if (cmd == "readfile") {
     // Read a text file from filesystem: /tc_api?cmd=readfile&path=/sml_meter.def
     String fpath = Webserver->arg(F("path"));

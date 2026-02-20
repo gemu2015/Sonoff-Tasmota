@@ -266,6 +266,7 @@ enum TcSyscall {
   SYS_WEB_TIME        = 157, // (gref, label_const) -> void
   SYS_WEB_PAGE_LABEL  = 158, // (page_num, label_const) -> void — register page with button label
   SYS_WEB_PAGE        = 159, // () -> int — returns current page number being rendered
+  SYS_WEB_SEND_FILE   = 160, // (filename_const) -> void — send file contents to web page
   // Debug
   SYS_DEBUG_PRINT     = 250, SYS_DEBUG_PRINT_STR = 251,
   SYS_DEBUG_DUMP      = 252,
@@ -2952,6 +2953,35 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     case SYS_WEB_PAGE: {
       // Push current page number being rendered
       TC_PUSH(vm, Tinyc ? Tinyc->current_page : 0);
+      break;
+    }
+    case SYS_WEB_SEND_FILE: {
+      // Send file contents to web page (like Scripter's %/filename)
+      int32_t ci = TC_POP(vm);
+      const char *fname = tc_get_const_str(vm, ci);
+#ifdef USE_UFILESYS
+      if (fname && ufsp) {
+        char path[48];
+        if (fname[0] != '/') {
+          snprintf(path, sizeof(path), "/%s", fname);
+        } else {
+          strlcpy(path, fname, sizeof(path));
+        }
+        File f = ufsp->open(path, "r");
+        if (f) {
+          char buf[256];
+          WSContentFlush();
+          while (f.available()) {
+            int len = f.readBytes(buf, sizeof(buf) - 1);
+            buf[len] = 0;
+            WSContentSend_P(PSTR("%s"), buf);
+          }
+          f.close();
+        } else {
+          AddLog(LOG_LEVEL_INFO, PSTR("TCC: webFile '%s' not found"), path);
+        }
+      }
+#endif
       break;
     }
 
