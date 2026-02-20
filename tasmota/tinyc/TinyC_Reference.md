@@ -1052,7 +1052,12 @@ void EverySecond() {
 
 ### Smart Meter (SML)
 
-Read meter values from Tasmota's SML driver (requires `USE_SML` or `USE_SML_M`).
+Read meter values and control meters via Tasmota's SML driver (requires `USE_SML` or `USE_SML_M`).
+
+SML can run **without Scripter** — only `USE_UFILESYS` is needed for file-based meter descriptors.
+The IDE's SML Descriptor tab manages the meter definition file (`/sml_meter.def`) on the device.
+
+#### Reading Meter Values
 
 | Function | Description |
 |----------|-------------|
@@ -1079,6 +1084,85 @@ void WebCall() {
     }
 }
 ```
+
+#### Advanced Meter Control
+
+These functions require `USE_SML_SCRIPT_CMD` to be enabled in the firmware.
+
+| Function | Description |
+|----------|-------------|
+| `int smlWrite(int meter, char buf[])` | Send hex sequence to meter (e.g. wake-up or request commands) |
+| `int smlWrite(int meter, "hex")` | Same, with string literal (no temp buffer needed) |
+| `int smlRead(int meter, char buf[])` | Read raw meter buffer into char array, returns bytes read |
+| `int smlSetBaud(int meter, int baud)` | Change baud rate of a meter's serial port |
+| `int smlSetWStr(int meter, char buf[])` | Set async write string for next scheduled send |
+| `int smlSetWStr(int meter, "hex")` | Same, with string literal |
+| `int smlSetOptions(int options)` | Set SML global options bitmask |
+| `int smlGetV(int sel)` | Get/reset data valid flags (0=get, 1=reset) |
+
+**Notes:**
+- `meter` is the 1-based meter index from the SML descriptor
+- `smlWrite` and `smlSetWStr` accept either a `char[]` array or a string literal — the compiler auto-detects which variant to use
+- `smlWrite` sends a hex-encoded byte sequence (e.g. `"AA0100"`) to the meter's serial port
+- `smlRead` copies the raw receive buffer into a char array for custom parsing
+- `smlSetBaud` dynamically changes the meter's baud rate (useful for meters that require speed negotiation)
+- `smlSetWStr` sets a hex string to be sent on the next scheduled meter poll cycle
+- These functions replace Scripter's `>F`/`>S` section meter control commands
+
+**Example — OBIS meter wake-up sequence:**
+```c
+void EverySecond() {
+    // String literal — no temp buffer needed
+    smlWrite(1, "2F3F210D0A");  // "/?!\r\n" in hex
+}
+```
+
+**Example — Dynamic baud rate negotiation:**
+```c
+void EverySecond() {
+    // Read meter response
+    char buf[64];
+    int n = smlRead(1, buf);
+    if (n > 0 && buf[0] == 0x06) {
+        // ACK received, switch to high speed
+        smlSetBaud(1, 9600);
+    }
+}
+```
+
+#### SML Descriptor Editor (IDE)
+
+The IDE includes an **SML Descriptor** tab in the left pane for managing meter definitions:
+
+- **Meter database**: A dropdown loads `.tas` meter definitions from the [community database](https://github.com/ottelo9/tasmota-sml-script)
+- **Custom meter URL**: The database URL is read from `/sml_meter_url.txt` on the device filesystem. To use a different meter repository, edit this file with a URL pointing to a directory containing a `smartmeter.json` index file. The default URL points to the community GitHub repository.
+- **RX/TX pin selection**: Dropdowns populated from the device's free GPIOs (via `freegpio` API)
+- **Pin placeholders**: `%0rxpin%` and `%0txpin%` in descriptors are replaced with selected pins on save
+- **Save to Device**: Extracts only the `>M` section and saves it as `/sml_meter.def`
+- **Load from Device**: Reads the current `/sml_meter.def` from the device
+
+#### Callback Merge
+
+Many `.tas` meter files require periodic code (Scripter's `>S` and `>F` sections) for meter communication, wake-up sequences, or baud rate negotiation. In TinyC, you write these as callback functions directly in the SML editor:
+
+```
+void EverySecond() {
+    smlWrite(1, "2F3F210D0A");
+}
+
+>M 1
++1,3,s,16,9600,SML,1
+1,1-0:1.8.0*255(@1,Energy In,kWh,E_in,3
+#
+```
+
+**How it works:**
+1. Write TinyC callback functions (`EverySecond()`, `Every100ms()`, etc.) anywhere in the SML editor — before or after the `>M` section
+2. On **Save**, only the `>M` section goes to `/sml_meter.def` on the device
+3. On **Compile**, the IDE automatically merges SML callbacks into the main program:
+   - If the main editor already has the same callback — the SML code is appended to the existing function body
+   - If the main editor doesn't have it — a new callback function is created
+4. The merged source is compiled as one program — SML code and main code share the same globals and functions
 
 ### SPI Bus
 
