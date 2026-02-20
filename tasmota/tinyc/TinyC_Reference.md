@@ -320,6 +320,7 @@ Simply define functions with these well-known names — no registration needed.
 | `JsonCall()` | FUNC_JSON_APPEND | Telemetry cycle (~300s) | Add JSON to MQTT telemetry |
 | `WebPage()` | FUNC_WEB_ADD_MAIN_BUTTON | Page load (once) | Charts, custom HTML, scripts |
 | `WebCall()` | FUNC_WEB_SENSOR | Web page refresh (~1s) | Add sensor rows to Tasmota web UI |
+| `WebUI()` | AJAX /tc_ui refresh | Every 2s + on widget change | Interactive widget dashboard (buttons, sliders, etc.) |
 | `UdpCall()` | UDP packet received | On each multicast variable | Process incoming UDP variables |
 | `TaskLoop()` | FreeRTOS task (ESP32) | Continuous loop in own task | Background processing, independent of main thread |
 
@@ -456,6 +457,9 @@ TinyC provides virtual `tasm_*` variables that read/write Tasmota system state d
 | `tasm_day` | int | read | Day of month (1–31, from RTC) |
 | `tasm_wday` | int | read | Day of week (1=Sun, 2=Mon, … 7=Sat) |
 | `tasm_cw` | int | read | ISO calendar week (1–53) |
+| `tasm_sunrise` | int | read | Sunrise, minutes since midnight (requires USE_SUNRISE) |
+| `tasm_sunset` | int | read | Sunset, minutes since midnight (requires USE_SUNRISE) |
+| `tasm_time` | int | read | Current time, minutes since midnight |
 
 ### Usage
 
@@ -478,6 +482,12 @@ int mo = tasm_month;     // 1–12
 int d = tasm_day;        // 1–31
 int wd = tasm_wday;      // 1=Sun..7=Sat
 int cw = tasm_cw;        // ISO calendar week 1–53
+
+// Sunrise/sunset automation
+int now = tasm_time;     // minutes since midnight
+if (now > tasm_sunset || now < tasm_sunrise) {
+    tasm_power = 1;      // night — turn on light
+}
 
 // Write system state
 tasm_teleperiod = 60;    // set telemetry to 60 seconds
@@ -645,6 +655,30 @@ printString(report);
 | `sprintfAppendStr(char dst[], "fmt", char src[])` | Format string and append to dst |
 
 **Format specifiers:** `%d` (int), `%f` `%.2f` `%e` `%g` (float), `%s` (string). Each call handles exactly one `%` specifier.
+
+### String Manipulation
+
+```c
+char src[64] = "hello,world,test";
+char dst[32];
+
+// Extract nth token (1-based) by delimiter
+int len = strToken(dst, src, ',', 2);  // dst = "world", len = 5
+
+// Substring (0-based position, length)
+strSub(dst, src, 6, 5);               // dst = "world"
+strSub(dst, src, -4, 4);              // dst = "test" (negative = from end)
+
+// Find substring position (-1 if not found)
+int pos = strFind(src, "world");       // pos = 6
+int no = strFind(src, "xyz");          // no = -1
+```
+
+| Function | Description |
+|----------|-------------|
+| `strToken(char dst[], char src[], int delim, int n)` | Copy nth token (1-based) delimited by char `delim` into dst. Returns token length. |
+| `strSub(char dst[], char src[], int pos, int len)` | Copy `len` chars starting at `pos` (0-based, negative=from end) into dst. Returns actual length. |
+| `strFind(char haystack[], char needle[])` | Find first occurrence of needle in haystack. Returns position (0-based) or -1 if not found. |
 
 ### Character Access
 ```c
@@ -848,6 +882,39 @@ float c = a + b;    // a promoted to float, result = 7.5
 | `int millis()`                   | Milliseconds since program start|
 | `int micros()`                   | Microseconds since program start|
 
+### Software Timers
+
+4 independent countdown timers (IDs 0-3) based on `millis()`. Timers run independently of callbacks — set a timer in `main()` or any callback, check it in `EveryLoop()`.
+
+| Function                              | Description                                          |
+|---------------------------------------|------------------------------------------------------|
+| `timerStart(int id, int ms)`          | Start timer `id` (0-3) with `ms` millisecond timeout |
+| `int timerDone(int id)`               | Returns 1 if timer expired (or never started), 0 if running |
+| `timerStop(int id)`                   | Cancel timer                                         |
+| `int timerRemaining(int id)`          | Milliseconds remaining (0 if expired/stopped)        |
+
+**Example — repeating timer with timeout:**
+```c
+int counter;
+
+void main() {
+    counter = 0;
+    timerStart(0, 5000);    // timer 0: every 5 seconds
+    timerStart(1, 60000);   // timer 1: stop after 1 minute
+}
+
+void EveryLoop() {
+    if (timerDone(0)) {
+        counter++;
+        print(counter);
+        timerStart(0, 5000);  // restart for next interval
+    }
+    if (timerDone(1)) {
+        timerStop(0);         // stop repeating timer
+    }
+}
+```
+
 ### Serial
 
 | Function                          | Description                        |
@@ -977,6 +1044,40 @@ if (len > 0) {
 }
 ```
 
+### Sensor JSON Parsing
+
+Read any Tasmota sensor value by its JSON path. Path segments are separated by `#` (same convention as Tasmota Scripter).
+
+| Function | Description |
+|----------|-------------|
+| `float sensorGet("Sensor#Key")` | Read sensor value, returns float |
+
+The function internally triggers a sensor status read and navigates the JSON tree. Supports up to 3 levels of nesting.
+
+```c
+// Read BME280 sensor
+float temp = sensorGet("BME280#Temperature");
+float hum = sensorGet("BME280#Humidity");
+float press = sensorGet("BME280#Pressure");
+
+// Read SHT3X on address 0x44
+float t = sensorGet("SHT3X_0x44#Temperature");
+
+// Read energy meter (if USE_ENERGY_SENSOR defined)
+float power = sensorGet("ENERGY#Power");
+float voltage = sensorGet("ENERGY#Voltage");
+float today = sensorGet("ENERGY#Today");
+
+// Nested: Zigbee device
+float zt = sensorGet("ZbReceived#0x2342#Temperature");
+```
+
+**Notes:**
+- Path must be a string literal (resolved at compile time)
+- Returns 0.0 if the sensor or key is not found
+- Returns a float — assign to a `float` variable
+- In the browser IDE, simulates Temperature=22.5, Humidity=55.0, Pressure=1013.25
+
 ### Tasmota Output (Callbacks)
 
 Send data directly to Tasmota's telemetry and web systems from callback functions.
@@ -1003,6 +1104,152 @@ Send data directly to Tasmota's telemetry and web systems from callback function
 - In the browser IDE, both route to the output console; `webFlush()` is a no-op
 - Callback instruction limit: 200,000 (ESP32), 20,000 (ESP8266)
 - See [Callback Functions](#callback-functions) for full examples
+
+### HTTP Requests
+
+Make HTTP GET/POST requests to external APIs. URLs can be string literals or dynamically built in char arrays. Requests are blocking with a 5-second timeout.
+
+| Function | Description |
+|----------|-------------|
+| `int httpGet(char url[], char response[])` | HTTP GET, returns response length or negative error |
+| `int httpPost(char url[], char data[], char response[])` | HTTP POST, returns response length or negative error |
+| `void httpHeader(char name[], char value[])` | Set custom header for the next request |
+
+**Return values:** `> 0` = response body length, `0` = empty response, negative = HTTP error code (e.g., -404).
+
+**Example — Daikin aircon sensor query:**
+```c
+char url[64];
+char response[256];
+char token[32];
+int len;
+int pos;
+
+void main() {
+    strcpy(url, "http://192.168.188.43/aircon/get_sensor_info");
+    len = httpGet(url, response);
+    // response = "ret=OK,htemp=19.0,hhum=-,otemp=7.0,err=0,cmpfreq=0"
+
+    if (len > 0) {
+        // Extract indoor temperature (htemp)
+        pos = strFind(response, token);  // find "htemp="
+        strToken(token, response, ',', 3);  // 3rd token = "htemp=19.0"
+        printString(token);
+    }
+}
+```
+
+**Example — Tasmota command to another device:**
+```c
+char url[128];
+char response[512];
+int len;
+
+void EverySecond() {
+    strcpy(url, "http://192.168.1.100/cm?cmnd=Status%200");
+    len = httpGet(url, response);
+    if (len > 0) {
+        print(len);
+        // parse response with strFind/strToken...
+    }
+}
+```
+
+**Example — POST with custom header:**
+```c
+char url[128];
+char data[128];
+char hname[32];
+char hval[64];
+char response[512];
+
+void main() {
+    strcpy(url, "http://192.168.1.100/api/data");
+    strcpy(data, "{\"value\":42}");
+    strcpy(hname, "Content-Type");
+    strcpy(hval, "application/json");
+    httpHeader(hname, hval);  // set header before request
+    int len = httpPost(url, data, response);
+}
+```
+
+### WebUI Widgets
+
+Create interactive dashboards using widget functions. Widgets can appear in two places:
+
+1. **Dedicated `/tc_ui` page** — use the `WebUI()` callback
+2. **Tasmota main page** (sensor section) — use the `WebCall()` callback
+
+Both callbacks use the same widget functions.
+
+| Function | Description |
+|----------|-------------|
+| `wButton(var, "label")` | Toggle button (0/1) — displays ON/OFF, click toggles |
+| `wSlider(var, min, max, "label")` | Range slider — drag to set value |
+| `wCheckbox(var, "label")` | Checkbox (0/1) — check/uncheck toggles |
+| `wText(chararray, maxlen, "label")` | Text input — edit string variable |
+| `wNumber(var, min, max, "label")` | Number input with min/max bounds |
+| `wPulldown(var, "opt0\|opt1\|opt2")` | Dropdown select — pipe-separated options, 0-based index |
+| `wRadio(var, "opt0\|opt1\|opt2")` | Radio button group — pipe-separated options, 0-based index |
+| `wTime(var, "label")` | Time picker (HH:MM) — stored as HHMM integer (e.g., 1430 = 14:30) |
+| `wLabel(page, "label")` | Register page 0–5 with a button label on the main page |
+| `int wPage()` | Returns current page number being rendered (use in `WebUI()` to branch) |
+
+The first argument of widget functions is always a **global variable** that the widget reads from and writes to. The compiler automatically passes the variable's address to the syscall.
+
+**Example — Widgets on the main page:**
+```c
+int relay;
+int brightness;
+
+void WebCall() {
+    wButton(relay, "Power");
+    wSlider(brightness, 0, 100, "Brightness");
+}
+```
+
+**Example — Multiple pages with custom buttons:**
+
+Up to 6 pages can be registered with `wLabel()`. Each creates a button on the Tasmota main page. Use `wPage()` inside `WebUI()` to render different widgets per page.
+
+```c
+int power;
+int brightness;
+int mode;
+int alarm_time;
+char devname[32];
+
+void WebUI() {
+    int page = wPage();
+    if (page == 0) {
+        wButton(power, "Power");
+        wSlider(brightness, 0, 100, "Brightness");
+        wPulldown(mode, "Off|Auto|Manual");
+    }
+    if (page == 1) {
+        wTime(alarm_time, "Wake-up Time");
+        wText(devname, 32, "Device Name");
+    }
+}
+
+int main() {
+    wLabel(0, "Controls");   // first button on main page
+    wLabel(1, "Settings");   // second button on main page
+    return 0;
+}
+```
+
+If no `wLabel()` is called but `WebUI()` exists, a single "TinyC UI" button appears.
+
+**How it works:**
+1. `WebCall()` renders widgets in the sensor section of the Tasmota main page
+2. `WebUI()` renders widgets on dedicated pages at `http://<device>/tc_ui?p=N`
+3. `wLabel(N, "text")` registers page N (0–5) with a button on the main page
+4. `wPage()` returns the current page number so `WebUI()` can show different widgets
+5. When you move a slider / click a button, JavaScript sends the new value via AJAX
+6. The server writes the value directly into the TinyC global variable
+7. The page auto-refreshes to show updated state
+8. Text and number inputs pause auto-refresh while you're editing (resumes on blur)
 
 ### UDP Multicast (Scripter-compatible)
 
@@ -1318,6 +1565,8 @@ int main() {
 
 ## Examples
 
+The IDE includes 18 ready-to-use examples in the "Load Example..." dropdown — from basic blink to weather station receivers and interactive WebUI dashboards.
+
 ### Hello World
 ```c
 int main() {
@@ -1415,6 +1664,31 @@ int main() {
     for (int i = 0; i < 8; i++) {
         print(data[i]);
     }
+    return 0;
+}
+```
+
+### WebUI Dashboard
+```c
+int power;
+int brightness;
+int mode;
+
+void WebUI() {
+    int page = wPage();
+    if (page == 0) {
+        wButton(power, "Power");
+        wSlider(brightness, 0, 100, "Brightness");
+    }
+    if (page == 1) {
+        wPulldown(mode, "Off|Auto|Manual");
+    }
+}
+
+int main() {
+    wLabel(0, "Controls");
+    wLabel(1, "Settings");
+    brightness = 50;
     return 0;
 }
 ```
