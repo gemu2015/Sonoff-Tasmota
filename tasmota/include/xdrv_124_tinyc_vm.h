@@ -2394,6 +2394,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     //  13 = tasm_month      (ro) current month 1-12
     //  14 = tasm_day        (ro) day of month 1-31
     //  15 = tasm_wday       (ro) day of week 1=Sun..7=Sat
+    //  16 = tasm_cw         (ro) ISO calendar week 1-53
     case SYS_TASM_GET: {
       a = TC_POP(vm);  // variable index
       int32_t val = 0;
@@ -2428,6 +2429,23 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         case 13: val = (int32_t)RtcTime.month; break;
         case 14: val = (int32_t)RtcTime.day_of_month; break;
         case 15: val = (int32_t)RtcTime.day_of_week; break;
+        case 16: {
+          // ISO calendar week (same algorithm as scripter calc_cw)
+          float a16 = floor((14.0f - RtcTime.month) / 12.0f);
+          float y16 = RtcTime.year + 4800 - a16;
+          float m16 = RtcTime.month + (12 * a16) - 3;
+          float jd = RtcTime.day_of_month + floor((153.0f * m16 + 2) / 5.0f) +
+                     (365 * y16) + floor(y16 / 4) - floor(y16 / 100) +
+                     floor(y16 / 400) - 32045;
+          float d4 = (uint32_t)((uint32_t)(jd + 31741 - ((uint32_t)jd % 7)) % 146097 % 36524 % 1461);
+          float L = floor(d4 / 1460);
+          float d1 = ((uint32_t)(d4 - L) % 365) + L;
+          int cw = (int)floor(d1 / 7) + 1;
+          if (cw == 1 && RtcTime.month == 12) { }  // year rollover
+          if (cw >= 52 && RtcTime.month == 1) { }   // year rollback
+          val = (int32_t)cw;
+          break;
+        }
         default: break;
       }
       TC_PUSH(vm, val);
