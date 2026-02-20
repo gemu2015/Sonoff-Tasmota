@@ -22,8 +22,9 @@ It runs both in the browser (JavaScript VM) and on ESP32/ESP8266 (as Tasmota dri
 13. [Type Casting](#type-casting)
 14. [Built-in Functions](#built-in-functions)
 15. [VM Limits](#vm-limits)
-16. [Keyboard Shortcuts (IDE)](#keyboard-shortcuts-ide)
-17. [Examples](#examples)
+16. [Device File Management (IDE)](#device-file-management-ide)
+17. [Keyboard Shortcuts (IDE)](#keyboard-shortcuts-ide)
+18. [Examples](#examples)
 
 ---
 
@@ -322,6 +323,7 @@ Simply define functions with these well-known names — no registration needed.
 | `WebCall()` | FUNC_WEB_SENSOR | Web page refresh (~1s) | Add sensor rows to Tasmota web UI |
 | `WebUI()` | AJAX /tc_ui refresh | Every 2s + on widget change | Interactive widget dashboard (buttons, sliders, etc.) |
 | `UdpCall()` | UDP packet received | On each multicast variable | Process incoming UDP variables |
+| `WebOn()` | Custom HTTP endpoint | On request to `webOn()` URL | REST APIs, JSON endpoints, webhooks |
 | `TaskLoop()` | FreeRTOS task (ESP32) | Continuous loop in own task | Background processing, independent of main thread |
 
 ### Execution Model
@@ -340,9 +342,10 @@ Use these functions in callbacks to send data to Tasmota:
 |----------|-------------|--------|
 | `responseAppend(buf)` | Append char array to JSON telemetry (→ `ResponseAppend_P`) | `JsonCall()` |
 | `responseAppend("literal")` | Append string literal to JSON telemetry | `JsonCall()` |
-| `webSend(buf)` | Send char array to web page (→ `WSContentSend`) | `WebPage()` / `WebCall()` |
-| `webSend("literal")` | Send string literal to web page | `WebPage()` / `WebCall()` |
-| `webFlush()` | Flush web content buffer to client (→ `WSContentFlush`) | `WebPage()` / `WebCall()` |
+| `webSend(buf)` | Send char array to web page (→ `WSContentSend`) | `WebPage()` / `WebCall()` / `WebOn()` |
+| `webSend("literal")` | Send string literal to web page | `WebPage()` / `WebCall()` / `WebOn()` |
+| `webFlush()` | Flush web content buffer to client (→ `WSContentFlush`) | `WebPage()` / `WebCall()` / `WebOn()` |
+| `webFile("filename")` | Send file contents from filesystem to web page | `WebPage()` / `WebCall()` / `WebUI()` / `WebOn()` |
 
 ### Web Page Format
 
@@ -1173,6 +1176,34 @@ void main() {
 }
 ```
 
+### mDNS Service Advertisement
+
+Register the device as an mDNS service on the local network, enabling device emulation (Everhome ecotracker, Shelly, or custom services).
+
+| Function | Description |
+|----------|-------------|
+| `int mdns("name", "mac", "type")` | Start mDNS responder and advertise service. Returns 0 on success |
+
+**Parameters (all string literals):**
+- **name** — hostname prefix. Use `"-"` for Tasmota's default hostname, or a custom prefix (MAC is appended automatically)
+- **mac** — MAC address. Use `"-"` for device's own MAC (lowercase, no colons), or provide a custom string
+- **type** — service type: `"everhome"` (ecotracker), `"shelly"`, or any custom service name
+
+**Built-in emulation types:**
+- `"everhome"` — registers `_everhome._tcp` with IP, serial, productid TXT records
+- `"shelly"` — registers `_http._tcp` and `_shelly._tcp` with firmware metadata TXT records
+- Any other string — registers `_<type>._tcp` with IP and serial TXT records
+
+**Example — Everhome ecotracker emulation:**
+```c
+int main() {
+    mdns("ecotracker-", "-", "everhome");
+    return 0;
+}
+```
+
+This is equivalent to Scripter's `mdns("ecotracker-", "-", "everhome")`.
+
 ### WebUI Widgets
 
 Create interactive dashboards using widget functions. Widgets can appear in two places:
@@ -1250,6 +1281,81 @@ If no `wLabel()` is called but `WebUI()` exists, a single "TinyC UI" button appe
 6. The server writes the value directly into the TinyC global variable
 7. The page auto-refreshes to show updated state
 8. Text and number inputs pause auto-refresh while you're editing (resumes on blur)
+
+**Including HTML from files:**
+
+Use `webFile("filename")` to send the contents of a file from the device filesystem directly to the web page. This is useful for large HTML, CSS, or JavaScript that would be too big to compile into bytecode constants.
+
+```c
+void WebPage() {
+    webFile("chart.html");  // include chart library from /chart.html
+}
+```
+
+The file is read in 256-byte chunks and sent via `WSContentSend`. The filename can be with or without leading `/`.
+
+### Custom Web Handlers
+
+Register custom HTTP endpoints on the Tasmota web server. When a request arrives, the `WebOn()` callback is invoked with the handler number accessible via `webHandler()`.
+
+| Function | Description |
+|----------|-------------|
+| `webOn(int num, "url")` | Register handler 1–4 for the given URL path |
+| `int webHandler()` | Returns the handler number (1–4) inside `WebOn()` callback |
+| `int webArg("name", buf)` | Read HTTP request argument into char buffer, returns length (0 if missing) |
+
+Use `webSend(buf)` to emit the response body. The response content type is `text/plain` by default.
+
+**Example — JSON API endpoint:**
+```c
+char buf[128];
+
+void WebOn() {
+    int h = webHandler();
+    if (h == 1) {
+        // GET /v1/json?id=xxx
+        char id[32];
+        int len = webArg("id", id);
+        sprintfFloat(buf, "{\"handler\":1,\"id\":\"%s\",\"value\":42}", id);
+        webSend(buf);
+    }
+}
+
+int main() {
+    webOn(1, "/v1/json");
+    return 0;
+}
+```
+
+**Example — Multiple endpoints:**
+```c
+void WebOn() {
+    int h = webHandler();
+    char buf[64];
+    if (h == 1) {
+        sprintf(buf, "{\"temp\":%.1f}", smlGet(1));
+        webSend(buf);
+    }
+    if (h == 2) {
+        webSend("OK");
+    }
+}
+
+int main() {
+    webOn(1, "/api/sensor");
+    webOn(2, "/api/ping");
+    return 0;
+}
+```
+
+**Notes:**
+- Up to 4 handlers can be registered (1–4)
+- URLs must start with `/` (e.g., `/v1/json`, `/api/data`)
+- `webOn()` is called in `main()` — handlers are registered at program start
+- `WebOn()` callback runs after `main()` has returned (same as other callbacks)
+- `webArg()` reads both GET query parameters and POST form fields
+- Equivalent to Scripter's `won(N, "/url")` + `>onN` section
+- CORS is enabled so endpoints are accessible from external apps
 
 ### UDP Multicast (Scripter-compatible)
 
@@ -1521,6 +1627,132 @@ int main() {
 }
 ```
 
+### Display Drawing
+
+Requires a Tasmota build with `USE_DISPLAY` enabled and a configured display driver. All drawing functions operate on the Tasmota display renderer directly — much more efficient than building DisplayText command strings.
+
+#### Setup & Control
+
+| Function | Description |
+|----------|-------------|
+| `dspClear()` | Clear display, reset position to (0,0) |
+| `dspPos(x, y)` | Set current draw position (pixels) |
+| `dspFont(f)` | Set font (0-7), resets text size to 1 for non-GFX fonts |
+| `dspSize(s)` | Set text size multiplier |
+| `dspColor(fg, bg)` | Set foreground and background color (16-bit RGB565) |
+| `dspPad(n)` | Set text padding for `dspDraw()`: positive = left-aligned padded to n chars, negative = right-aligned padded to n chars, 0 = off |
+| `dspDim(val)` | Set display brightness (0-15) |
+| `dspOnOff(on)` | Turn display on (1) or off (0) |
+| `dspUpdate()` | Force display update (required for e-paper displays) |
+| `dspWidth()` | Returns display width in pixels |
+| `dspHeight()` | Returns display height in pixels |
+
+#### Drawing Primitives
+
+All primitives use the current position set by `dspPos()` and the current foreground color set by `dspColor()`.
+
+| Function | Description |
+|----------|-------------|
+| `dspDraw(buf)` | Draw text string at current position |
+| `dspPixel(x, y)` | Draw single pixel at (x,y) |
+| `dspLine(x1, y1)` | Draw line from current pos to (x1,y1), updates pos |
+| `dspHLine(w)` | Horizontal line from current pos, width w, updates pos |
+| `dspVLine(h)` | Vertical line from current pos, height h, updates pos |
+| `dspRect(w, h)` | Draw rectangle outline at current pos |
+| `dspFillRect(w, h)` | Draw filled rectangle at current pos |
+| `dspCircle(r)` | Draw circle outline at current pos with radius r |
+| `dspFillCircle(r)` | Draw filled circle at current pos |
+| `dspRoundRect(w, h, r)` | Rounded rectangle at current pos with corner radius r |
+| `dspFillRoundRect(w, h, r)` | Filled rounded rectangle |
+| `dspTriangle(x1, y1, x2, y2)` | Triangle from current pos to (x1,y1) and (x2,y2) |
+| `dspFillTriangle(x1, y1, x2, y2)` | Filled triangle |
+
+#### Image & Raw Commands
+
+| Function | Description |
+|----------|-------------|
+| `dspPicture("file.jpg", scale)` | Draw image file from filesystem at current pos (scale: 0=original) |
+| `dspText(buf)` | Execute raw DisplayText command string (e.g., `"[z][x50][y20]Hello"`) |
+
+#### Predefined Color Constants (RGB565)
+
+The following color constants are **predefined** — no `#define` needed:
+
+| Constant | Value | Constant | Value |
+|----------|-------|----------|-------|
+| `BLACK` | 0 | `WHITE` | 65535 |
+| `RED` | 63488 | `GREEN` | 2016 |
+| `BLUE` | 31 | `YELLOW` | 65504 |
+| `CYAN` | 2047 | `MAGENTA` | 63519 |
+| `ORANGE` | 64800 | `PURPLE` | 30735 |
+| `GREY` | 33808 | `DARKGREY` | 21130 |
+| `LIGHTGREY` | 50712 | `DARKGREEN` | 992 |
+| `NAVY` | 16 | `MAROON` | 32768 |
+| `OLIVE` | 33792 | | |
+
+User `#define` overrides take precedence over predefined colors.
+
+#### Example
+
+```c
+int counter;
+char buf[32];
+
+void EverySecond() {
+    counter++;
+
+    dspClear();
+    dspColor(WHITE, BLACK);    // white on black
+
+    // Title
+    dspFont(2);
+    dspSize(2);
+    dspPos(10, 10);
+    dspDraw("TinyC Display");
+
+    // Counter
+    dspFont(1);
+    dspSize(1);
+    sprintfInt(buf, "Count: %d", counter);
+    dspPos(10, 60);
+    dspDraw(buf);
+
+    // Draw a red box around the counter
+    dspColor(RED, BLACK);
+    dspPos(5, 55);
+    dspRect(150, 25);
+
+    // Draw a blue filled circle
+    dspColor(BLUE, BLACK);
+    dspPos(200, 80);
+    dspFillCircle(20);
+
+    dspUpdate();  // needed for e-paper
+}
+
+int main() {
+    counter = 0;
+    dspClear();
+    return 0;
+}
+```
+
+### Audio
+
+| Function | Description |
+|---|---|
+| `audioVol(int vol)` | Set audio volume (0-100) |
+| `audioPlay("file.mp3")` | Play MP3 file from filesystem |
+| `audioSay("hello")` | Text-to-speech output |
+
+Requires I2S audio driver configured on the device.
+
+```c
+audioVol(50);              // set volume to 50%
+audioPlay("/alarm.mp3");   // play MP3 file
+audioSay("sensor alert");  // speak text
+```
+
 ### Debug
 
 | Function      | Description                |
@@ -1547,6 +1779,43 @@ int main() {
 
 ---
 
+## Device File Management (IDE)
+
+### IDE Installation
+
+The IDE file (`tinyc_ide.html.gz`) must be uploaded to the **flash filesystem** (`ffsp`), not the SD card. On devices with an SD card, Tasmota mounts the SD card as the user filesystem (`ufsp`) — but the `/ide` endpoint specifically reads from the flash filesystem. Use the Tasmota **Manage File System** page to upload `tinyc_ide.html.gz` to flash storage.
+
+> **Note:** TinyC scripts and data files (`.tc`, `.tcb`, etc.) are stored on the user filesystem (`ufsp`), which is the SD card when one is present. Only the IDE HTML file itself needs to be on flash.
+
+### File Operations
+
+The IDE toolbar includes controls for managing files on the Tasmota device filesystem:
+
+- **Device Files dropdown** — Lists all files on the device. Select a file to load it into the editor. The list shows filename and size (e.g. `config.tc (1.2KB)`).
+- **Save File button** — Saves the current editor content as a file on the device. Prompts for a filename (defaults to the current filename).
+- **Auto-refresh** — The file list refreshes automatically when the device IP is entered or changed, and after each save.
+
+All file operations use the `/tc_api` endpoint with CORS support, so the IDE can be used from any browser — it doesn't need to be served from the device.
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/tc_api?cmd=listfiles` | GET | Returns JSON list of files: `{"ok":true,"files":[{"name":"x","size":123},...]}` |
+| `/tc_api?cmd=readfile&path=/name` | GET | Returns file content as plain text |
+| `/tc_api?cmd=writefile&path=/name` | POST | Writes POST body to file, returns `{"ok":true,"size":N}` |
+| `/tc_api?cmd=deletefile&path=/name` | GET | Deletes a file from the filesystem |
+
+### Typical Workflow
+
+1. Enter device IP in the toolbar
+2. The **Device Files** dropdown auto-populates with all files on the device
+3. Select a file to load it into the editor — or write new code
+4. Click **Save File** to store the source on the device (e.g. as `myapp.tc`)
+5. Click **Run on Device** to compile, upload the `.tcb` binary, and start execution
+
+This lets you keep TinyC source files on the device alongside their compiled bytecode, making it easy to edit programs directly without needing local file storage.
+
 ## Keyboard Shortcuts (IDE)
 
 | Shortcut           | Action              |
@@ -1565,7 +1834,7 @@ int main() {
 
 ## Examples
 
-The IDE includes 18 ready-to-use examples in the "Load Example..." dropdown — from basic blink to weather station receivers and interactive WebUI dashboards.
+The IDE includes 19 ready-to-use examples in the "Load Example..." dropdown — from basic blink to weather station receivers and interactive WebUI dashboards.
 
 ### Hello World
 ```c
