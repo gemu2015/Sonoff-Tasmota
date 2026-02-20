@@ -18,15 +18,16 @@ Callbacks run automatically from Tasmota's main loop:
 
 | Callback | When | Use |
 |---|---|---|
-| `EverySecond()` | Every 1s | Sensor polling, status updates |
+| `EveryLoop()` | Every main loop (~1-5ms) | Ultra-fast polling, bit-banging |
 | `Every50ms()` | Every 50ms | Fast I/O, radio polling |
-| `Every100ms()` | Every 100ms | Medium-speed tasks |
+| `EverySecond()` | Every 1s | Sensor polling, status updates |
 | `JsonCall()` | MQTT telemetry | Append JSON via `responseAppend()` |
 | `WebCall()` | Web page refresh | Add sensor rows via `webSend()` |
 | `WebPage()` | Page load (once) | Charts, custom HTML |
 | `UdpCall()` | UDP packet received | Inter-device communication |
+| `TaskLoop()` | FreeRTOS task (ESP32) | Background loop with `delay()` support |
 
-`main()` runs once at startup. Return 0 to keep callbacks active, non-zero to stop.
+`main()` runs first (in a FreeRTOS task on ESP32, with full `delay()` support). After `main()` returns, globals persist and callbacks activate. If `TaskLoop()` is defined, it continues running in the same task independently of the main thread.
 
 ## Built-in Functions
 
@@ -39,19 +40,20 @@ Callbacks run automatically from Tasmota's main loop:
 **I2C:** `i2cRead8`, `i2cWrite8`, `i2cRead`, `i2cWrite`, `i2cExists`, `i2cRead0`, `i2cWrite0`
 **SPI:** `spiInit`, `spiSetCS`, `spiTransfer`
 **Files:** `fileOpen`, `fileClose`, `fileRead`, `fileWrite`, `fileExists`, `fileDelete`, `fileSize`
-**Tasmota:** `tasmCmd`, `responseAppend`, `webSend`, `webFlush`
+**Tasmota:** `tasmCmd`, `responseAppend`, `webSend`, `webFlush`, `addLog`
+**System:** `tasm_wifi`, `tasm_mqttcon`, `tasm_teleperiod`, `tasm_uptime`, `tasm_heap`, `tasm_power`, `tasm_dimmer`, `tasm_temp`, `tasm_hum`, `tasm_hour`, `tasm_minute`, `tasm_second`
 **UDP:** `udpSend`, `udpRecv`, `udpReady`, `udpSendArray`, `udpRecvArray`
-**Heap:** `malloc`, `free`
 **Debug:** `print`, `dumpVM`
 
 ## Tasmota Commands
 
 | Command | Description |
 |---|---|
-| `TcCompile <code>` | Compile and run inline code |
-| `TcRun` | Run loaded bytecode |
-| `TcStop` | Stop running program |
-| `TcLoad <file>` | Load .tcb from filesystem |
+| `TinyC` | Show VM status |
+| `TinyCRun [file]` | Run loaded bytecode (or load .tcb file first) |
+| `TinyCStop` | Stop running program |
+| `TinyCReset` | Reset VM state |
+| `TinyCExec <code>` | Compile and run inline code |
 
 REST API: `http://<ip>/tc_api?cmd=run`, `cmd=stop`, `cmd=status`
 
@@ -76,7 +78,9 @@ See [`examples/`](examples/) for complete working programs:
 - **sht31** — I2C temperature/humidity sensor
 - **max31855** — SPI thermocouple reader
 - **bresser** — CC1101 868 MHz weather station receiver (5/6/7-in-1 + soil moisture)
+- **bresser_chart** — Bresser weather station with Google Charts ring buffer and flash persistence
 - **chart** — Google Charts with 1000-point ring buffer
+- **editor** — Code editor example
 - **udp** — Multicast data sharing between devices
 - **benchmark** — VM performance measurement
 - **file_io** — LittleFS read/write

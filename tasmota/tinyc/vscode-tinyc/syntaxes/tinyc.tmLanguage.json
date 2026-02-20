@@ -144,7 +144,7 @@
       "patterns": [
         {
           "name": "entity.name.function.callback.tinyc",
-          "match": "\\b(EverySecond|Every50ms|Every100ms|JsonCall|WebCall|WebPage|UdpCall)\\b"
+          "match": "\\b(EveryLoop|Every50ms|EverySecond|JsonCall|WebCall|WebPage|UdpCall|TaskLoop)\\b"
         }
       ]
     },
@@ -179,7 +179,7 @@
         {
           "comment": "Tasmota command & output",
           "name": "support.function.tasmota.tinyc",
-          "match": "\\b(tasmCmd|responseAppend|webSend|webFlush)\\b"
+          "match": "\\b(tasmCmd|responseAppend|webSend|webFlush|addLog)\\b"
         },
         {
           "comment": "UDP multicast",
@@ -210,11 +210,6 @@
           "comment": "sprintf variants",
           "name": "support.function.sprintf.tinyc",
           "match": "\\b(sprintfInt|sprintfFloat|sprintfStr|sprintfAppendInt|sprintfAppendFloat|sprintfAppendStr)\\b"
-        },
-        {
-          "comment": "Heap",
-          "name": "support.function.heap.tinyc",
-          "match": "\\b(malloc|free)\\b"
         },
         {
           "comment": "Debug",
