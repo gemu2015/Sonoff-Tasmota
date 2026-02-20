@@ -719,6 +719,59 @@ static void HandleTinyCApi(void) {
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program stopped (API)"));
     WSSendJSON_P(200, PSTR("{\"ok\":true,\"running\":false}"));
   }
+#ifdef USE_UFILESYS
+  else if (cmd == "readfile") {
+    // Read a text file from filesystem: /tc_api?cmd=readfile&path=/sml_meter.def
+    String fpath = Webserver->arg(F("path"));
+    if (fpath.length() == 0 || fpath[0] != '/') {
+      WSSendJSON_P(400, PSTR("{\"ok\":false,\"error\":\"missing path\"}"));
+      return;
+    }
+    if (!ufsp) {
+      WSSendJSON_P(500, PSTR("{\"ok\":false,\"error\":\"no filesystem\"}"));
+      return;
+    }
+    File f = ufsp->open(fpath.c_str(), "r");
+    if (!f) {
+      WSSendJSON_P(404, PSTR("{\"ok\":false,\"error\":\"file not found\"}"));
+      return;
+    }
+    // Stream file content as plain text
+    TCSendCORS("GET, POST, OPTIONS");
+    Webserver->setContentLength(f.size());
+    Webserver->send(200, F("text/plain"), "");
+    uint8_t buf[256];
+    while (f.available()) {
+      int n = f.read(buf, sizeof(buf));
+      if (n > 0) Webserver->client().write(buf, n);
+    }
+    f.close();
+    return;
+  }
+  else if (cmd == "writefile") {
+    // Write text to a file: /tc_api?cmd=writefile&path=/sml_meter.def  (POST body = content)
+    String fpath = Webserver->arg(F("path"));
+    if (fpath.length() == 0 || fpath[0] != '/') {
+      WSSendJSON_P(400, PSTR("{\"ok\":false,\"error\":\"missing path\"}"));
+      return;
+    }
+    if (!ufsp) {
+      WSSendJSON_P(500, PSTR("{\"ok\":false,\"error\":\"no filesystem\"}"));
+      return;
+    }
+    String body = Webserver->arg(F("plain"));
+    File f = ufsp->open(fpath.c_str(), "w");
+    if (!f) {
+      WSSendJSON_P(500, PSTR("{\"ok\":false,\"error\":\"write failed\"}"));
+      return;
+    }
+    f.print(body);
+    f.close();
+    snprintf_P(json, sizeof(json), PSTR("{\"ok\":true,\"size\":%d}"), body.length());
+    WSSendJSON(200, json);
+    return;
+  }
+#endif
   else {
     // Default: status
     snprintf_P(json, sizeof(json),
