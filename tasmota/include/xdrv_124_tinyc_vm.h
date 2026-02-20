@@ -2390,6 +2390,10 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     //   9 = tasm_hour       (ro) current hour 0-23
     //  10 = tasm_min        (ro) current minute 0-59
     //  11 = tasm_sec        (ro) current second 0-59
+    //  12 = tasm_year       (ro) current year (e.g. 2026)
+    //  13 = tasm_month      (ro) current month 1-12
+    //  14 = tasm_day        (ro) day of month 1-31
+    //  15 = tasm_wday       (ro) day of week 1=Sun..7=Sat
     case SYS_TASM_GET: {
       a = TC_POP(vm);  // variable index
       int32_t val = 0;
@@ -2420,6 +2424,10 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         case 9: val = (int32_t)RtcTime.hour; break;
         case 10: val = (int32_t)RtcTime.minute; break;
         case 11: val = (int32_t)RtcTime.second; break;
+        case 12: val = (int32_t)RtcTime.year; break;
+        case 13: val = (int32_t)RtcTime.month; break;
+        case 14: val = (int32_t)RtcTime.day_of_month; break;
+        case 15: val = (int32_t)RtcTime.day_of_week; break;
         default: break;
       }
       TC_PUSH(vm, val);
