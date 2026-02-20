@@ -255,6 +255,17 @@ enum TcSyscall {
   SYS_HTTP_GET        = 140, // (url_ref, response_ref) -> int length
   SYS_HTTP_POST       = 141, // (url_ref, data_ref, response_ref) -> int length
   SYS_HTTP_HEADER     = 142, // (name_ref, value_ref) -> void
+  // WebUI widgets (generate HTML for /tc_ui page)
+  SYS_WEB_BUTTON      = 150, // (gref, label_const) -> void
+  SYS_WEB_SLIDER      = 151, // (gref, min, max, label_const) -> void
+  SYS_WEB_CHECKBOX    = 152, // (gref, label_const) -> void
+  SYS_WEB_TEXT        = 153, // (gref, maxlen, label_const) -> void
+  SYS_WEB_NUMBER      = 154, // (gref, min, max, label_const) -> void
+  SYS_WEB_PULLDOWN    = 155, // (gref, opts_const) -> void
+  SYS_WEB_RADIO       = 156, // (gref, opts_const) -> void
+  SYS_WEB_TIME        = 157, // (gref, label_const) -> void
+  SYS_WEB_PAGE_LABEL  = 158, // (page_num, label_const) -> void — register page with button label
+  SYS_WEB_PAGE        = 159, // () -> int — returns current page number being rendered
   // Debug
   SYS_DEBUG_PRINT     = 250, SYS_DEBUG_PRINT_STR = 251,
   SYS_DEBUG_DUMP      = 252,
@@ -443,6 +454,11 @@ struct TINYC {
   WiFiUDP  udp;
   char     udp_buf[TC_UDP_BUF_SIZE];
 #endif
+  // WebUI pages (up to 6, set by wLabel(), buttons on main page)
+#define TC_MAX_WEB_PAGES 6
+  char     page_label[TC_MAX_WEB_PAGES][32];
+  uint8_t  page_count;     // number of registered pages
+  uint8_t  current_page;   // current page being rendered (for wPage())
   // SPI bus
   TcSpi    spi;
   // HTTP request state
@@ -667,6 +683,14 @@ static TcUdpVar* tc_udp_find_var(const char *name, bool create) {
 
 // Forward declaration — defined later in this file
 static int tc_vm_call_callback(TcVM *vm, const char *name);
+
+// Check if a named callback exists in the loaded program
+static bool tc_has_callback(TcVM *vm, const char *name) {
+  for (int i = 0; i < vm->callback_count; i++) {
+    if (strcmp(vm->callbacks[i].name, name) == 0) return true;
+  }
+  return false;
+}
 
 // Called when a UDP variable is received (from own poll or Scripter hook)
 // name: variable name, umode: '=' (ASCII) or ':' (binary), data: raw bytes after delimiter
@@ -2758,6 +2782,176 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         tc_ref_to_cstr(vm, b, Tinyc->http_hdr_value[Tinyc->http_hdr_count], 64);
         Tinyc->http_hdr_count++;
       }
+      break;
+    }
+
+    // ── WebUI widgets ─────────────────────────────────
+    // Each generates HTML for the /tc_ui AJAX page.
+    // gref = variable ref (ADDR_GLOBAL/ADDR_LOCAL), label/opts = const pool index.
+    // Global index extracted from ref for seva()/siva() JavaScript callbacks.
+    case SYS_WEB_BUTTON: {
+      int32_t ci = TC_POP(vm);   // label const idx
+      int32_t gref = TC_POP(vm); // variable ref
+      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      int32_t *p = tc_resolve_ref(vm, gref);
+      int32_t val = p ? *p : 0;
+      const char *label = tc_get_const_str(vm, ci);
+      if (!label) label = "?";
+      int32_t nval = val ? 0 : 1;
+      WSContentSend_P(PSTR("<div><button onclick='seva(%d,%d)' style='width:100%%'>%s: %s</button></div>"),
+                      nval, idx, label, val ? "ON" : "OFF");
+      break;
+    }
+    case SYS_WEB_SLIDER: {
+      int32_t ci = TC_POP(vm);   // label const idx
+      int32_t vmax = TC_POP(vm);
+      int32_t vmin = TC_POP(vm);
+      int32_t gref = TC_POP(vm);
+      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      int32_t *p = tc_resolve_ref(vm, gref);
+      int32_t val = p ? *p : 0;
+      const char *label = tc_get_const_str(vm, ci);
+      if (!label) label = "?";
+      WSContentSend_P(PSTR("<div><label><b>%s</b> <span id='sv%d'>%d</span></label>"
+                           "<input type='range' min='%d' max='%d' value='%d' "
+                           "oninput='document.getElementById(\"sv%d\").textContent=this.value' "
+                           "onchange='seva(value,%d)'></div>"),
+                      label, idx, val, vmin, vmax, val, idx, idx);
+      break;
+    }
+    case SYS_WEB_CHECKBOX: {
+      int32_t ci = TC_POP(vm);
+      int32_t gref = TC_POP(vm);
+      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      int32_t *p = tc_resolve_ref(vm, gref);
+      int32_t val = p ? *p : 0;
+      const char *label = tc_get_const_str(vm, ci);
+      if (!label) label = "?";
+      int32_t nval = val ? 0 : 1;
+      WSContentSend_P(PSTR("<div><label><b>%s</b> "
+                           "<input type='checkbox' %s onchange='seva(%d,%d)'>"
+                           "</label></div>"),
+                      label, val ? "checked" : "", nval, idx);
+      break;
+    }
+    case SYS_WEB_TEXT: {
+      int32_t ci = TC_POP(vm);      // label const idx
+      int32_t maxlen = TC_POP(vm);  // max char length
+      int32_t gref = TC_POP(vm);
+      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      char tbuf[128];
+      tc_ref_to_cstr(vm, gref, tbuf, sizeof(tbuf));
+      const char *label = tc_get_const_str(vm, ci);
+      if (!label) label = "?";
+      WSContentSend_P(PSTR("<div><label><b>%s</b> "
+                           "<input type='text' value='%s' maxlength='%d' style='width:200px' "
+                           "onfocusin='pr(0)' onfocusout='pr(1)' "
+                           "onchange='siva(value,%d)'>"
+                           "</label></div>"),
+                      label, tbuf, maxlen - 1, idx);
+      break;
+    }
+    case SYS_WEB_NUMBER: {
+      int32_t ci = TC_POP(vm);
+      int32_t vmax = TC_POP(vm);
+      int32_t vmin = TC_POP(vm);
+      int32_t gref = TC_POP(vm);
+      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      int32_t *p = tc_resolve_ref(vm, gref);
+      int32_t val = p ? *p : 0;
+      const char *label = tc_get_const_str(vm, ci);
+      if (!label) label = "?";
+      WSContentSend_P(PSTR("<div><label><b>%s</b> "
+                           "<input type='number' min='%d' max='%d' value='%d' style='width:80px' "
+                           "onfocusin='pr(0)' onfocusout='pr(1)' "
+                           "onchange='seva(value,%d)'>"
+                           "</label></div>"),
+                      label, vmin, vmax, val, idx);
+      break;
+    }
+    case SYS_WEB_PULLDOWN: {
+      int32_t ci = TC_POP(vm);   // options const idx ("opt1|opt2|opt3")
+      int32_t gref = TC_POP(vm);
+      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      int32_t *p = tc_resolve_ref(vm, gref);
+      int32_t val = p ? *p : 0;  // 0-based selected index
+      const char *opts = tc_get_const_str(vm, ci);
+      if (!opts) opts = "";
+      WSContentSend_P(PSTR("<div><select onchange='seva(value,%d)'>"), idx);
+      // Parse pipe-separated options
+      char obuf[256];
+      strlcpy(obuf, opts, sizeof(obuf));
+      int oi = 0;
+      char *op = obuf;
+      char *sep;
+      while (op && *op) {
+        sep = strchr(op, '|');
+        if (sep) *sep = 0;
+        WSContentSend_P(PSTR("<option value='%d'%s>%s</option>"),
+                        oi, (oi == val) ? " selected" : "", op);
+        oi++;
+        op = sep ? sep + 1 : nullptr;
+      }
+      WSContentSend_P(PSTR("</select></div>"));
+      break;
+    }
+    case SYS_WEB_RADIO: {
+      int32_t ci = TC_POP(vm);   // options const idx ("opt1|opt2|opt3")
+      int32_t gref = TC_POP(vm);
+      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      int32_t *p = tc_resolve_ref(vm, gref);
+      int32_t val = p ? *p : 0;  // 0-based selected index
+      const char *opts = tc_get_const_str(vm, ci);
+      if (!opts) opts = "";
+      WSContentSend_P(PSTR("<div><fieldset><legend></legend>"));
+      char obuf[256];
+      strlcpy(obuf, opts, sizeof(obuf));
+      int oi = 0;
+      char *op = obuf;
+      char *sep;
+      while (op && *op) {
+        sep = strchr(op, '|');
+        if (sep) *sep = 0;
+        WSContentSend_P(PSTR("<div><label><input type='radio' name='r%d' onclick='seva(%d,%d)' %s>%s</label></div>"),
+                        idx, oi, idx, (oi == val) ? "checked" : "", op);
+        oi++;
+        op = sep ? sep + 1 : nullptr;
+      }
+      WSContentSend_P(PSTR("</fieldset></div>"));
+      break;
+    }
+    case SYS_WEB_TIME: {
+      int32_t ci = TC_POP(vm);
+      int32_t gref = TC_POP(vm);
+      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      int32_t *p = tc_resolve_ref(vm, gref);
+      int32_t val = p ? *p : 0;  // HHMM format
+      const char *label = tc_get_const_str(vm, ci);
+      if (!label) label = "?";
+      int hh = val / 100;
+      int mm = val % 100;
+      WSContentSend_P(PSTR("<div><label><b>%s</b> "
+                           "<input type='time' value='%02d:%02d' style='width:80px' "
+                           "onfocusin='pr(0)' onfocusout='pr(1)' "
+                           "onchange='sivat(value,%d)'>"
+                           "</label></div>"),
+                      label, hh, mm, idx);
+      break;
+    }
+
+    case SYS_WEB_PAGE_LABEL: {
+      int32_t ci = TC_POP(vm);      // label const index
+      int32_t pn = TC_POP(vm);      // page number (0-5)
+      const char *label = tc_get_const_str(vm, ci);
+      if (label && Tinyc && pn >= 0 && pn < TC_MAX_WEB_PAGES) {
+        strlcpy(Tinyc->page_label[pn], label, sizeof(Tinyc->page_label[0]));
+        if (pn >= Tinyc->page_count) Tinyc->page_count = pn + 1;
+      }
+      break;
+    }
+    case SYS_WEB_PAGE: {
+      // Push current page number being rendered
+      TC_PUSH(vm, Tinyc ? Tinyc->current_page : 0);
       break;
     }
 

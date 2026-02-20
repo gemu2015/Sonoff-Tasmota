@@ -65,16 +65,16 @@ static void TinyCInit(void) {
 #endif
 }
 
-// Helper macro: call callback with mutex protection (serializes with TaskLoop task)
+// Helper: call callback with mutex protection (serializes with TaskLoop task)
+static inline void tc_callback_safe(TcVM *vm, const char *name) {
 #ifdef ESP32
-#define tc_callback_safe(vm, name) do { \
-  if (Tinyc->vm_mutex) xSemaphoreTake(Tinyc->vm_mutex, portMAX_DELAY); \
-  tc_vm_call_callback(vm, name); \
-  if (Tinyc->vm_mutex) xSemaphoreGive(Tinyc->vm_mutex); \
-} while(0)
-#else
-#define tc_callback_safe(vm, name) tc_vm_call_callback(vm, name)
+  if (Tinyc->vm_mutex) xSemaphoreTake(Tinyc->vm_mutex, portMAX_DELAY);
 #endif
+  tc_vm_call_callback(vm, name);
+#ifdef ESP32
+  if (Tinyc->vm_mutex) xSemaphoreGive(Tinyc->vm_mutex);
+#endif
+}
 
 /*********************************************************************************************\
  * Tasmota: Periodic execution (every 50ms)
@@ -857,6 +857,108 @@ static void HandleTinyCIde(void) {
 #endif  // USE_UFILESYS
 #endif  // USE_TINYC_IDE
 
+// ─── WebUI: shared sv= parameter handler ──────────────────────
+
+// Process sv= widget value updates from AJAX requests
+// Format: sv=gidx_value | sv=gidx_s_string | sv=gidx_t_HH:MM
+static void TinyC_WebSetVar(void) {
+  if (!Tinyc || !Tinyc->loaded) return;
+  if (!Webserver->hasArg(F("sv"))) return;
+
+  String sv = Webserver->arg(F("sv"));
+  int sep = sv.indexOf('_');
+  if (sep > 0) {
+    int32_t gidx = sv.substring(0, sep).toInt();
+    String val = sv.substring(sep + 1);
+    if (gidx >= 0 && gidx < TC_MAX_GLOBALS) {
+      if (val.startsWith("s_")) {
+        // String value: write chars as int32 into globals[gidx..]
+        const char *str = val.c_str() + 2;
+        int32_t maxLen = TC_MAX_GLOBALS - gidx - 1;
+        int i;
+        for (i = 0; i < maxLen && str[i]; i++) {
+          Tinyc->vm.globals[gidx + i] = (int32_t)(uint8_t)str[i];
+        }
+        Tinyc->vm.globals[gidx + i] = 0;  // null terminate
+      } else if (val.startsWith("t_")) {
+        // Time value: HH:MM → HHMM integer
+        const char *ts = val.c_str() + 2;
+        int hh = 0, mm = 0;
+        sscanf(ts, "%d:%d", &hh, &mm);
+        Tinyc->vm.globals[gidx] = hh * 100 + mm;
+      } else {
+        Tinyc->vm.globals[gidx] = val.toInt();
+      }
+    }
+  }
+}
+
+// ─── WebUI: interactive widget page (/tc_ui) ──────────────────
+
+static void HandleTinyCUI(void) {
+  if (!HttpCheckPriviledgedAccess()) return;
+  if (!Tinyc || !Tinyc->loaded || !Tinyc->vm.halted || Tinyc->vm.error != TC_OK) {
+    Webserver->send(503, "text/plain", "TinyC not ready");
+    return;
+  }
+
+  // Read page number from ?p= parameter (0-5, default 0)
+  uint8_t page = 0;
+  if (Webserver->hasArg(F("p"))) {
+    page = Webserver->arg(F("p")).toInt();
+    if (page >= TC_MAX_WEB_PAGES) page = 0;
+  }
+  Tinyc->current_page = page;
+
+  // Handle sv= parameter — widget value update
+  TinyC_WebSetVar();
+
+  // AJAX mode (m=1): just re-render widgets via WebUI() callback
+  if (Webserver->hasArg(F("m"))) {
+    WSContentBegin(200, CT_HTML);
+    tc_callback_safe(&Tinyc->vm, "WebUI");
+    WSContentEnd();
+    return;
+  }
+
+  // Full page: HTML skeleton with JavaScript for AJAX refresh
+  const char *title = (page < Tinyc->page_count && Tinyc->page_label[page][0])
+                    ? Tinyc->page_label[page] : "TinyC UI";
+  WSContentStart_P(title);
+  WSContentSendStyle();
+  WSContentSend_P(PSTR(
+    "<script>"
+    "var rfsh=1,x=null,lt;"
+    "function la(p){"
+      "var a=p||'';"
+      "if(p)clearTimeout(lt);"
+      "if(x)x.abort();"
+      "x=new XMLHttpRequest();"
+      "x.onreadystatechange=function(){"
+        "if(x.readyState==4&&x.status==200){"
+          "document.getElementById('ui').innerHTML=x.responseText;"
+        "}"
+      "};"
+      "if(rfsh){"
+        "x.open('GET','./tc_ui?p=%d&m=1'+a,true);"
+        "x.send();"
+        "lt=setTimeout(la,2000);"
+      "}"
+    "}"
+    "function seva(v,i){la('&sv='+i+'_'+v);}"
+    "function siva(v,i){rfsh=1;la('&sv='+i+'_s_'+v);rfsh=0;}"
+    "function sivat(v,i){rfsh=1;la('&sv='+i+'_t_'+v);rfsh=0;}"
+    "function pr(f){if(f){lt=setTimeout(la,2000);rfsh=1;}else{clearTimeout(lt);rfsh=0;}}"
+    "window.onload=la;"
+    "</script>"
+  ), page);
+  WSContentSend_P(PSTR("<div id='ui'>"));
+  tc_callback_safe(&Tinyc->vm, "WebUI");
+  WSContentSend_P(PSTR("</div>"));
+  WSContentSpaceButton(BUTTON_MAIN);
+  WSContentEnd();
+}
+
 #endif  // USE_WEBSERVER
 
 /*********************************************************************************************\
@@ -935,6 +1037,10 @@ bool Xdrv124(uint32_t function) {
       TinyCShow(true);
       break;
 #ifdef USE_WEBSERVER
+    case FUNC_WEB_GET_ARG:
+      // Process sv= widget value updates from main page AJAX
+      TinyC_WebSetVar();
+      break;
     case FUNC_WEB_SENSOR:
       TinyCShow(false);
       break;
@@ -943,6 +1049,34 @@ bool Xdrv124(uint32_t function) {
       // (NOT in FUNC_WEB_SENSOR, because innerHTML doesn't execute <script> tags)
       if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
         tc_callback_safe(&Tinyc->vm, "WebPage");
+        // Inject JavaScript for widget interactions on main page
+        // seva=set value (int), siva=set value (string), sivat=set value (time), pr=pause/resume refresh
+        if (tc_has_callback(&Tinyc->vm, "WebCall")) {
+          WSContentSend_P(PSTR(
+            "<script>"
+            "function seva(v,i){la('&sv='+i+'_'+v);}"
+            "function siva(v,i){la('&sv='+i+'_s_'+v);}"
+            "function sivat(v,i){la('&sv='+i+'_t_'+v);}"
+            "function pr(f){if(f){lt=setTimeout(la,%d);}else{clearTimeout(lt);clearTimeout(ft);}}"
+            "</script>"
+          ), Settings->web_refresh);
+        }
+        // Add buttons to /tc_ui pages if WebUI callback is defined
+        if (tc_has_callback(&Tinyc->vm, "WebUI")) {
+          if (Tinyc->page_count > 0) {
+            // Multiple pages registered via wLabel()
+            for (uint8_t i = 0; i < Tinyc->page_count; i++) {
+              if (Tinyc->page_label[i][0]) {
+                WSContentSend_P(PSTR("<p></p><form action='tc_ui' method='get'>"
+                  "<input type='hidden' name='p' value='%d'>"
+                  "<button>%s</button></form>"), i, Tinyc->page_label[i]);
+              }
+            }
+          } else {
+            // No wLabel() called — single default button
+            WSContentSend_P(PSTR("<p></p><form action='tc_ui' method='get'><button>TinyC UI</button></form>"));
+          }
+        }
       }
       break;
     case FUNC_WEB_ADD_CONSOLE_BUTTON:
@@ -958,6 +1092,7 @@ bool Xdrv124(uint32_t function) {
       Webserver->on("/tc_upload", HTTP_OPTIONS, HandleTinyCUploadCORS);
       WebServer_on(PSTR("/tc_api"), HandleTinyCApi);
       Webserver->on("/tc_api", HTTP_OPTIONS, HandleTinyCApiCORS);
+      WebServer_on(PSTR("/tc_ui"), HandleTinyCUI);
 #if defined(USE_TINYC_IDE) && defined(USE_UFILESYS)
       WebServer_on(PSTR("/ide"), HandleTinyCIde);
 #endif
