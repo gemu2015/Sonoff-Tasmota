@@ -451,6 +451,11 @@ TinyC provides virtual `tasm_*` variables that read/write Tasmota system state d
 | `tasm_hour` | int | read | Current hour (0–23, from RTC) |
 | `tasm_minute` | int | read | Current minute (0–59, from RTC) |
 | `tasm_second` | int | read | Current second (0–59, from RTC) |
+| `tasm_year` | int | read | Current year (e.g. 2026, from RTC) |
+| `tasm_month` | int | read | Current month (1–12, from RTC) |
+| `tasm_day` | int | read | Day of month (1–31, from RTC) |
+| `tasm_wday` | int | read | Day of week (1=Sun, 2=Mon, … 7=Sat) |
+| `tasm_cw` | int | read | ISO calendar week (1–53) |
 
 ### Usage
 
@@ -468,6 +473,11 @@ float h = tasm_hum;
 int h = tasm_hour;       // 0–23
 int m = tasm_minute;     // 0–59
 int s = tasm_second;     // 0–59
+int y = tasm_year;       // e.g. 2026
+int mo = tasm_month;     // 1–12
+int d = tasm_day;        // 1–31
+int wd = tasm_wday;      // 1=Sun..7=Sat
+int cw = tasm_cw;        // ISO calendar week 1–53
 
 // Write system state
 tasm_teleperiod = 60;    // set telemetry to 60 seconds
