@@ -1,0 +1,43 @@
+// Multi-Page WebUI Demo
+// Demonstrates multiple button pages on the Tasmota main page
+// Each button opens a different page with different widgets
+
+int power;
+int brightness;
+int mode;
+int alarm_time;
+char devname[32];
+
+void WebUI() {
+    int page = wPage();  // which page are we rendering?
+
+    if (page == 0) {
+        // Control page
+        wButton(power, "Power");
+        wSlider(brightness, 0, 100, "Brightness");
+        wPulldown(mode, "Off|Auto|Manual");
+    }
+    if (page == 1) {
+        // Settings page
+        wTime(alarm_time, "Wake-up Time");
+        wText(devname, 32, "Device Name");
+    }
+}
+
+void EverySecond() {
+    if (mode == 1 && brightness > 50) {
+        power = 1;
+    }
+}
+
+int main() {
+    power = 0;
+    brightness = 50;
+    mode = 0;
+    alarm_time = 700;
+    strcpy(devname, "Living Room");
+
+    wLabel(0, "Controls");
+    wLabel(1, "Settings");
+    return 0;
+}
