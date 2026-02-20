@@ -65,6 +65,17 @@ static void TinyCInit(void) {
 #endif
 }
 
+// Helper macro: call callback with mutex protection (serializes with TaskLoop task)
+#ifdef ESP32
+#define tc_callback_safe(vm, name) do { \
+  if (Tinyc->vm_mutex) xSemaphoreTake(Tinyc->vm_mutex, portMAX_DELAY); \
+  tc_vm_call_callback(vm, name); \
+  if (Tinyc->vm_mutex) xSemaphoreGive(Tinyc->vm_mutex); \
+} while(0)
+#else
+#define tc_callback_safe(vm, name) tc_vm_call_callback(vm, name)
+#endif
+
 /*********************************************************************************************\
  * Tasmota: Periodic execution (every 50ms)
 \*********************************************************************************************/
@@ -117,7 +128,7 @@ static void TinyCEvery50ms(void) {
 
   // Call user's Every50ms() callback if VM halted normally
   if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
-    tc_vm_call_callback(&Tinyc->vm, "Every50ms");
+    tc_callback_safe(&Tinyc->vm, "Every50ms");
   }
 }
 
@@ -171,6 +182,11 @@ static bool TinyCStartVM(void) {
   Tinyc->task_stop = false;
   Tinyc->task_running = false;
 
+  // Create mutex for VM access serialization (task vs main thread callbacks)
+  if (!Tinyc->vm_mutex) {
+    Tinyc->vm_mutex = xSemaphoreCreateMutex();
+  }
+
 #if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C2)
   // Single-core variants — no core affinity
   BaseType_t ret = xTaskCreate(tc_vm_task, "tinyc_vm", 8192, Tinyc, 1, &Tinyc->task_handle);
@@ -223,6 +239,13 @@ static void TinyCStopVM(void) {
   tc_udp_stop();
   tc_spi_cleanup();
   tc_output_flush();
+
+#ifdef ESP32
+  if (Tinyc->vm_mutex) {
+    vSemaphoreDelete(Tinyc->vm_mutex);
+    Tinyc->vm_mutex = nullptr;
+  }
+#endif
 }
 
 void CmndTinyCRun(void) {
@@ -364,6 +387,40 @@ static void HandleTinyCPage(void) {
         TinyCLoadFile(file.c_str());
       }
 #endif
+    } else if (cmd == "delall") {
+#ifdef USE_UFILESYS
+      // Delete all .tcb files from filesystem
+      if (ufsp) {
+        File dir = ufsp->open("/", "r");
+        if (dir) {
+          // Collect filenames first (can't delete while iterating)
+          char names[16][40];
+          int count = 0;
+          dir.rewindDirectory();
+          while (count < 16) {
+            File entry = dir.openNextFile();
+            if (!entry) break;
+            if (!entry.isDirectory()) {
+              char *ep = (char *)entry.name();
+              if (*ep == '/') ep++;
+              char *lcp = strrchr(ep, '/');
+              if (lcp) ep = lcp + 1;
+              uint16_t nlen = strlen(ep);
+              if (nlen > 4 && strcasecmp(ep + nlen - 4, ".tcb") == 0) {
+                snprintf(names[count], sizeof(names[0]), "/%s", ep);
+                count++;
+              }
+            }
+            entry.close();
+          }
+          dir.close();
+          for (int i = 0; i < count; i++) {
+            ufsp->remove(names[i]);
+          }
+          AddLog(LOG_LEVEL_INFO, PSTR("TCC: Deleted %d .tcb files"), count);
+        }
+      }
+#endif
     }
   }
 
@@ -459,8 +516,12 @@ static void HandleTinyCPage(void) {
       }
       WSContentSend_P(PSTR(
         "</select>"
-        "<br><button name='cmd' value='load' class='button'>Load</button>"
-        "</form></p>"));
+        "<br><div style='display:flex;gap:8px'>"
+        "<button name='cmd' value='load' class='button'>Load</button>"
+        "<button name='cmd' value='delall' class='button bred'"
+        " onclick=\"return confirm('Delete all .tcb files?')\">"
+        "Delete All .tcb</button>"
+        "</div></form></p>"));
     }
 #endif
 
@@ -745,7 +806,7 @@ static void TinyCShow(bool json) {
       Tinyc->vm.instruction_count);
     // Call user's JsonCall() — uses responseAppend() to write directly to Tasmota JSON
     if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
-      tc_vm_call_callback(&Tinyc->vm, "JsonCall");
+      tc_callback_safe(&Tinyc->vm, "JsonCall");
     }
   }
 #ifdef USE_WEBSERVER
@@ -760,7 +821,7 @@ static void TinyCShow(bool json) {
       Tinyc->program_size);
     // Call user's WebCall() — uses webSend() to write directly to Tasmota web page
     if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
-      tc_vm_call_callback(&Tinyc->vm, "WebCall");
+      tc_callback_safe(&Tinyc->vm, "WebCall");
     }
   }
 #endif
@@ -784,6 +845,10 @@ bool Xdrv124(uint32_t function) {
     case FUNC_LOOP:
       // Poll UDP multicast for incoming variables
       tc_udp_poll();
+      // Call user's EveryLoop() callback — runs every Tasmota main loop iteration
+      if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
+        tc_callback_safe(&Tinyc->vm, "EveryLoop");
+      }
       break;
     case FUNC_EVERY_50_MSECOND:
       TinyCEvery50ms();
@@ -791,7 +856,7 @@ bool Xdrv124(uint32_t function) {
     case FUNC_EVERY_SECOND:
       // Call user's EverySecond() callback if VM halted normally
       if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
-        tc_vm_call_callback(&Tinyc->vm, "EverySecond");
+        tc_callback_safe(&Tinyc->vm, "EverySecond");
       }
       break;
     case FUNC_COMMAND:
@@ -808,7 +873,7 @@ bool Xdrv124(uint32_t function) {
       // Call user's WebPage() here — part of initial HTML document load
       // (NOT in FUNC_WEB_SENSOR, because innerHTML doesn't execute <script> tags)
       if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
-        tc_vm_call_callback(&Tinyc->vm, "WebPage");
+        tc_callback_safe(&Tinyc->vm, "WebPage");
       }
       break;
     case FUNC_WEB_ADD_CONSOLE_BUTTON:

@@ -78,7 +78,7 @@ extern FS *ufsp;
 #endif
 
 // Callback support
-#define TC_MAX_CALLBACKS   6           // max well-known callback functions
+#define TC_MAX_CALLBACKS  10           // max well-known callback functions
 #ifdef ESP8266
   #define TC_CALLBACK_MAX_INSTR 20000  // instruction limit per callback (ESP8266)
 #else
@@ -209,6 +209,8 @@ enum TcSyscall {
   SYS_WEB_FLUSH           = 92, // () -> void — WSContentFlush
   SYS_RESPONSE_APPEND_STR = 93, // (const_idx) -> void — string literal variant
   SYS_WEB_SEND_STR        = 94, // (const_idx) -> void — string literal variant
+  SYS_LOG                 = 95, // (char_ref) -> void — AddLog to Tasmota console
+  SYS_LOG_STR             = 96, // (const_idx) -> void — AddLog string literal
   // UDP multicast (Scripter-compatible, 239.255.255.250:1999)
   SYS_UDP_SEND            = 100, // (const_idx_name, float_val) -> void — binary float
   SYS_UDP_RECV            = 101, // (const_idx_name) -> float — last received value
@@ -420,10 +422,11 @@ struct TINYC {
   // SPI bus
   TcSpi    spi;
 #ifdef ESP32
-  // FreeRTOS task for VM execution
+  // FreeRTOS task for VM execution (main() and TaskLoop)
   TaskHandle_t task_handle;
   volatile bool task_running;   // task loop is active
   volatile bool task_stop;      // signal task to stop
+  SemaphoreHandle_t vm_mutex;   // serialize VM access between task and main thread
 #endif
 } *Tinyc = nullptr;
 
@@ -691,9 +694,15 @@ void tc_udp_on_receive(const char *name, char umode, const char *data, int datal
   // Always store name and trigger UdpCall — program can decide what to do
   strlcpy(Tinyc->udp_last_name, name, TC_UDP_VAR_NAME_MAX);
 
-  // Trigger UdpCall callback
+  // Trigger UdpCall callback (mutex-protected for TaskLoop concurrency)
   if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
+#ifdef ESP32
+    if (Tinyc->vm_mutex) xSemaphoreTake(Tinyc->vm_mutex, portMAX_DELAY);
+#endif
     tc_vm_call_callback(&Tinyc->vm, "UdpCall");
+#ifdef ESP32
+    if (Tinyc->vm_mutex) xSemaphoreGive(Tinyc->vm_mutex);
+#endif
   }
 }
 
@@ -1743,6 +1752,22 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         int slen = strlen(vm->constants[a].str.ptr);
         WSContentSend(vm->constants[a].str.ptr, slen);
 #endif
+      }
+      break;
+    }
+
+    case SYS_LOG: {
+      a = TC_POP(vm);  // char array ref
+      char tmp[TC_OUTPUT_SIZE];
+      if (tc_ref_to_cstr(vm, a, tmp, sizeof(tmp)) > 0) {
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: %s"), tmp);
+      }
+      break;
+    }
+    case SYS_LOG_STR: {
+      a = TC_POP(vm);  // constant pool index
+      if (a >= 0 && a < vm->const_count && vm->constants[a].type == 1) {
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: %s"), vm->constants[a].str.ptr);
       }
       break;
     }
@@ -2833,6 +2858,7 @@ static void tc_vm_task(void *param) {
 
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM task started"));
 
+  // Phase 1: Execute main()
   while (!tc->task_stop && !vm->halted && vm->error == TC_OK) {
     // Handle delay as real RTOS blocking delay (feeds WDT, yields CPU)
     if (vm->delayed) {
@@ -2862,17 +2888,103 @@ static void tc_vm_task(void *param) {
     yield();  // Feed WDT after each batch
   }
 
-  // Cleanup after task exits
+  // Cleanup after main() exits
   tc_free_all_frames(vm);
   tc_close_all_files();
   tc_output_flush();
 
   if (vm->halted && vm->error == TC_OK) {
     // Normal halt: main() returned successfully.
-    // Globals and heap PERSIST for callback functions (JsonCall, WebCall, EverySecond).
-    // Heap will be freed when program is explicitly stopped, reset, or reloaded.
+    // Globals and heap PERSIST for callback functions.
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: Halted after %u instr, %d callbacks"),
       vm->instruction_count, vm->callback_count);
+
+    // Phase 2: If TaskLoop callback exists, loop calling it in this task
+    int tl_idx = -1;
+    for (int i = 0; i < vm->callback_count; i++) {
+      if (strcmp(vm->callbacks[i].name, "TaskLoop") == 0) { tl_idx = i; break; }
+    }
+    if (tl_idx >= 0) {
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: TaskLoop running in task"));
+      uint16_t tl_addr = vm->callbacks[tl_idx].address;
+
+      while (!tc->task_stop && vm->error == TC_OK) {
+        // Acquire mutex before touching VM state
+        if (tc->vm_mutex) xSemaphoreTake(tc->vm_mutex, portMAX_DELAY);
+
+        // Set up callback frame (same as tc_vm_call_callback but inline)
+        uint8_t saved_frame_count = vm->frame_count;
+        uint16_t saved_pc = vm->pc;
+        vm->halted = false;
+        vm->running = true;
+        if (vm->frame_count < TC_MAX_FRAMES) {
+          TcFrame *frame = &vm->frames[vm->frame_count];
+          frame->return_pc = 0;
+          if (tc_frame_alloc(frame)) {
+            vm->fp = vm->frame_count;
+            vm->frame_count++;
+            vm->pc = vm->code_offset + tl_addr;
+
+            // Execute TaskLoop body with real vTaskDelay for delay()
+            uint32_t count = 0;
+            while (vm->frame_count > saved_frame_count && !vm->halted && vm->error == TC_OK && !tc->task_stop) {
+              int err = tc_vm_step(vm);
+              if (err == TC_ERR_PAUSED) {
+                // delay() — use real RTOS delay (feeds WDT, yields CPU)
+                if (vm->delayed) {
+                  // Temporarily restore halted state so main-thread callbacks can run
+                  vm->halted = true;
+                  vm->running = false;
+                  // Release mutex during delay so main thread can run callbacks
+                  if (tc->vm_mutex) xSemaphoreGive(tc->vm_mutex);
+                  int32_t remaining = (int32_t)(vm->delay_until - millis());
+                  while (remaining > 0 && !tc->task_stop) {
+                    int32_t chunk = (remaining > 50) ? 50 : remaining;
+                    vTaskDelay(chunk / portTICK_PERIOD_MS);
+                    remaining = (int32_t)(vm->delay_until - millis());
+                  }
+                  vm->delayed = false;
+                  // Re-acquire mutex to continue execution
+                  if (tc->vm_mutex) xSemaphoreTake(tc->vm_mutex, portMAX_DELAY);
+                  vm->halted = false;
+                  vm->running = true;
+                  if (tc->task_stop) break;
+                }
+                continue;
+              }
+              if (err != TC_OK) break;
+              if (++count > TC_CALLBACK_MAX_INSTR) {
+                vm->error = TC_ERR_INSTRUCTION_LIMIT;
+                break;
+              }
+            }
+
+            // Clean up callback frame
+            while (vm->frame_count > saved_frame_count) {
+              tc_frame_free(&vm->frames[--vm->frame_count]);
+            }
+            vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0;
+          }
+        }
+
+        // Restore halted state for other callbacks
+        vm->halted = true;
+        vm->running = false;
+        vm->pc = saved_pc;
+        tc_output_flush();
+
+        if (tc->vm_mutex) xSemaphoreGive(tc->vm_mutex);
+
+        if (vm->error != TC_OK || tc->task_stop) break;
+
+        vTaskDelay(1);  // yield at least 1 tick between iterations
+      }
+      if (tc->task_stop) {
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: TaskLoop stopped"));
+      } else if (vm->error != TC_OK) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: TaskLoop error: %s"), tc_error_str(vm->error));
+      }
+    }
   } else if (vm->error != TC_OK) {
     tc_heap_free_all(vm);
     AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Error: %s (PC=%d)"),

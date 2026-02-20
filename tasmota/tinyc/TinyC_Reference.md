@@ -314,18 +314,22 @@ Simply define functions with these well-known names — no registration needed.
 
 | Function | Tasmota Hook | When Called | Use Case |
 |----------|-------------|-------------|----------|
-| `EverySecond()` | FUNC_EVERY_SECOND | Every 1 second | Periodic tasks, counters, polling |
+| `EveryLoop()` | FUNC_LOOP | Every main loop iteration (~1–5 ms) | Ultra-fast polling, bit-banging, time-critical I/O |
+| `Every50ms()` | FUNC_EVERY_50_MSECOND | Every 50 ms (20x/sec) | Fast polling, radio receive, sensor sampling |
+| `EverySecond()` | FUNC_EVERY_SECOND | Every 1 second | Periodic tasks, counters, slow polling |
 | `JsonCall()` | FUNC_JSON_APPEND | Telemetry cycle (~300s) | Add JSON to MQTT telemetry |
 | `WebPage()` | FUNC_WEB_ADD_MAIN_BUTTON | Page load (once) | Charts, custom HTML, scripts |
 | `WebCall()` | FUNC_WEB_SENSOR | Web page refresh (~1s) | Add sensor rows to Tasmota web UI |
 | `UdpCall()` | UDP packet received | On each multicast variable | Process incoming UDP variables |
+| `TaskLoop()` | FreeRTOS task (ESP32) | Continuous loop in own task | Background processing, independent of main thread |
 
 ### Execution Model
 
-1. **`main()`** runs first and initializes globals/state, then returns
+1. **`main()`** runs first in a FreeRTOS task (ESP32) — `delay()` works as real blocking delay
 2. After main halts, **globals and heap persist** — they are NOT freed
 3. Tasmota periodically calls your callbacks, which can read/modify globals
-4. Callbacks run synchronously with an instruction limit (1000) — no `delay()` allowed
+4. Callbacks run synchronously with an instruction limit — no `delay()` allowed
+5. If `TaskLoop()` is defined, it runs in the same FreeRTOS task after main() halts — `delay()` works, runs independently of Tasmota's main thread
 
 ### Tasmota Output Functions
 
@@ -384,16 +388,46 @@ int main() {
 
 **Result:** After uploading and running, the Tasmota web page shows a "TinyC Counter" row that increments every second, and MQTT telemetry includes `,"TinyC":{"Count":N}`.
 
+### TaskLoop Example (ESP32)
+
+```c
+int counter = 0;
+
+void TaskLoop() {
+    counter++;
+    char buf[64];
+    sprintfInt(buf, "TaskLoop count=%d", counter);
+    addLog(buf);       // appears in Tasmota console log
+    delay(1000);       // real 1-second delay, doesn't block Tasmota
+}
+
+void JsonCall() {
+    char buf[64];
+    sprintfInt(buf, ",\"TinyC\":{\"Count\":%d}", counter);
+    responseAppend(buf);
+}
+
+int main() {
+    addLog("TaskLoop demo starting");
+    return 0;
+}
+```
+
+**Result:** `TaskLoop()` runs independently in a FreeRTOS task, incrementing the counter every second. `JsonCall()` reports the counter in MQTT telemetry. Both run concurrently — the mutex ensures safe VM access.
+
 ### Important Notes
 
 - Callbacks must be **fast** — max 200,000 instructions (ESP32) / 20,000 (ESP8266) per invocation
-- No `delay()` in callbacks (ignored if called)
+- No `delay()` in callbacks (capped at 100ms if called) — except `TaskLoop()` which supports real delays
 - `main()` must return (not loop forever) for callbacks to activate
-- Only the five well-known names above are recognized
+- Only the eight well-known names above are recognized
 - The compiler auto-detects these function names and embeds them in the binary
+- `EveryLoop()` runs every main loop iteration (~1–5 ms) — keep it **very short** to avoid blocking Tasmota
+- `Every50ms()` is ideal for fast, non-blocking I/O polling (SPI radio, GPIO, etc.)
 - Use `WebPage()` for one-time page content (charts, scripts) — called once when page loads
 - Use `WebCall()` for sensor-style rows that refresh periodically
 - Use `UdpCall()` to process incoming UDP multicast variables
+- `TaskLoop()` runs in a dedicated FreeRTOS task (ESP32 only) — can use `delay()` freely, VM access is mutex-serialized with main-thread callbacks
 
 ---
 
@@ -414,6 +448,9 @@ TinyC provides virtual `tasm_*` variables that read/write Tasmota system state d
 | `tasm_dimmer` | int | read/write | Dimmer level 0–100 (write sends Dimmer command) |
 | `tasm_temp` | float | read | Temperature from Tasmota sensor (global `TempRead()`) |
 | `tasm_hum` | float | read | Humidity from Tasmota sensor (global `HumRead()`) |
+| `tasm_hour` | int | read | Current hour (0–23, from RTC) |
+| `tasm_minute` | int | read | Current minute (0–59, from RTC) |
+| `tasm_second` | int | read | Current second (0–59, from RTC) |
 
 ### Usage
 
@@ -426,6 +463,11 @@ if (tasm_wifi) {
 // Read sensor values (float)
 float t = tasm_temp;
 float h = tasm_hum;
+
+// Read real-time clock
+int h = tasm_hour;       // 0–23
+int m = tasm_minute;     // 0–59
+int s = tasm_second;     // 0–59
 
 // Write system state
 tasm_teleperiod = 60;    // set telemetry to 60 seconds
@@ -511,22 +553,6 @@ Heap arrays support all the same operations as regular arrays: element access, s
 | ESP8266  | 2,048 (8 KB)  | 8           |
 | ESP32    | 8,192 (32 KB) | 16          |
 | Browser  | 16,384 (64 KB)| 32          |
-
-### Explicit malloc/free
-
-For dynamic allocation at runtime, use `malloc()` and `free()`:
-
-```c
-int main() {
-    int handle = malloc(1000);   // allocate 1000 int32 slots
-    if (handle < 0) return -1;   // allocation failed
-    // Use handle with heap operations...
-    free(handle);                // release when done
-    return 0;
-}
-```
-
-**Note:** There is no bounds checking (just like C). Out-of-bounds access is undefined behavior.
 
 ---
 
@@ -908,9 +934,11 @@ Send data directly to Tasmota's telemetry and web systems from callback function
 | `void webSend(char buf[])` | Send string to web page HTML (`WSContentSend`) |
 | `void webSend("literal")` | Send string literal to web page (no buffer needed) |
 | `void webFlush()` | Flush web content buffer to client (`WSContentFlush`) |
+| `void addLog(char buf[])` | Write message to Tasmota log (`AddLog` at INFO level) |
+| `void addLog("literal")` | Write string literal to Tasmota log |
 
 **Notes:**
-- Both `webSend` and `responseAppend` accept either a char array or a string literal
+- `addLog`, `webSend` and `responseAppend` accept either a char array or a string literal
 - String literal variants are more efficient — no copy through a buffer, sent directly from constant pool
 - Use `responseAppend()` inside `JsonCall()` — appends to the MQTT telemetry JSON
 - Use `webSend()` inside `WebPage()` for one-time page content (charts, scripts, custom HTML)
@@ -988,6 +1016,8 @@ Direct I2C bus access for sensor drivers (requires `USE_I2C`). All functions tak
 | `int i2cWrite8(int addr, int reg, int val, int bus)` | Write single byte to register. Returns 1=ok, 0=fail |
 | `int i2cRead(int addr, int reg, char buf[], int len, int bus)` | Read `len` bytes into char array. Returns 1=ok |
 | `int i2cWrite(int addr, int reg, char buf[], int len, int bus)` | Write `len` bytes from char array. Returns 1=ok |
+| `int i2cRead0(int addr, char buf[], int len, int bus)` | Read `len` bytes without register. Returns 1=ok |
+| `int i2cWrite0(int addr, int reg, int bus)` | Write register byte only (no data). Returns 1=ok |
 
 **Notes:**
 - `bus` = 0 or 1 — selects which I2C bus to use
@@ -1105,15 +1135,6 @@ int main() {
     return 0;
 }
 ```
-
-### Memory
-
-| Function               | Description                                    |
-|------------------------|------------------------------------------------|
-| `int malloc(int size)` | Allocate `size` heap slots, returns handle (-1 on fail) |
-| `free(int handle)`     | Free a previously allocated heap block         |
-
-**Note:** Large arrays (>255 elements) are auto-allocated on the heap by the compiler. `malloc`/`free` are for explicit runtime allocation.
 
 ### Debug
 
@@ -1269,7 +1290,7 @@ int main() {
 | Pointers                 | Full support   | **Not supported**            |
 | Structs / Unions         | Full support   | **Not supported**            |
 | Enums                    | Full support   | **Not supported**            |
-| Dynamic memory           | malloc/free    | **Not supported**            |
+| Dynamic memory           | malloc/free    | Auto heap for arrays >255 (no explicit malloc) |
 | Multi-dimensional arrays | `int a[3][4]`  | **Not supported**            |
 | String type              | `char*`        | `char arr[N]` only           |
 | Preprocessor             | Full CPP       | `#define`, `#ifdef`, `#if`, `#else`, `#endif` (no `#include`, no macros) |
