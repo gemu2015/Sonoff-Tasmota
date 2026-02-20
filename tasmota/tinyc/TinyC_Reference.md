@@ -675,8 +675,51 @@ Simple compile-time constants (no macro expansion):
 - Valueless defines allowed for conditionals: `#define ESP32`
 
 **Limitations:**
-- No parameterized macros: `#define MAX(a,b)` is **not** supported
 - No `#include`
+
+### Function-Like Macros
+
+Parameterized macros perform text substitution before compilation:
+
+```c
+#define LOG(A) addLog(A)
+#define CLAMP(V, MX) min(max(V, 0), MX)
+#define SQUARE(X) (X * X)
+```
+
+**Usage:**
+```c
+LOG("sensor init");          // → addLog("sensor init")
+int v = CLAMP(reading, 100); // → int v = min(max(reading, 0), 100)
+int s = SQUARE(5);           // → int s = (5 * 5)
+```
+
+**Features:**
+- Parameters are replaced by whole-word matching (won't replace partial identifiers)
+- Nested parentheses in arguments are handled correctly: `LOG(foo(1,2))` works
+- String literal arguments are preserved: `LOG("hello, world")` — the comma inside quotes is not treated as an argument separator
+- Nested macro expansion: macros in the expanded body are expanded (up to 10 iterations)
+- Multiple parameters supported: `#define ADD(A, B) (A + B)`
+
+**Empty body macros — debug stripping:**
+```c
+#define DBG(M)              // empty body — no replacement text
+
+DBG("checkpoint 1");        // → stripped entirely (including semicolon)
+int x = 42;                 // this line is unaffected
+```
+
+Empty-body macros remove the entire invocation including the trailing semicolon. This is useful for stripping debug calls in production builds:
+
+```c
+#ifdef DEBUG
+  #define DBG(M) addLog(M)
+#else
+  #define DBG(M)
+#endif
+
+DBG("init done");  // logs in debug, stripped in release
+```
 
 ### Conditional Compilation
 
@@ -699,6 +742,7 @@ Simple compile-time constants (no macro expansion):
 |-------------------------|--------------------------------------------------|
 | `#define NAME`          | Define a name (no value, for conditionals)       |
 | `#define NAME value`    | Define a name with a constant value              |
+| `#define NAME(A) body`  | Function-like macro with text substitution       |
 | `#undef NAME`          | Undefine a previously defined name               |
 | `#ifdef NAME`          | Include block if NAME is defined                 |
 | `#ifndef NAME`         | Include block if NAME is NOT defined             |
