@@ -719,6 +719,22 @@ static void HandleTinyCApi(void) {
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program stopped (API)"));
     WSSendJSON_P(200, PSTR("{\"ok\":true,\"running\":false}"));
   }
+  else if (cmd == "freegpio") {
+    // Return list of free (usable, not flash, not assigned) GPIO pins
+    TCSendCORS("GET, OPTIONS");
+    String result = F("{\"ok\":true,\"gpios\":[");
+    bool first = true;
+    for (uint32_t i = 0; i < MAX_GPIO_PIN; i++) {
+      if (FlashPin(i)) continue;                    // skip flash/reserved pins
+      if (TasmotaGlobal.gpio_pin[i] > 0) continue;  // skip assigned pins
+      if (!first) result += ',';
+      result += String(i);
+      first = false;
+    }
+    result += F("]}");
+    Webserver->send(200, F("application/json"), result);
+    return;
+  }
 #ifdef USE_UFILESYS
   else if (cmd == "readfile") {
     // Read a text file from filesystem: /tc_api?cmd=readfile&path=/sml_meter.def
