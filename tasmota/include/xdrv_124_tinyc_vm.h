@@ -163,6 +163,8 @@ enum TcSyscall {
   // Timing
   SYS_DELAY           = 10, SYS_DELAY_MICRO     = 11,
   SYS_MILLIS          = 12, SYS_MICROS          = 13,
+  SYS_TIMER_START     = 14, SYS_TIMER_DONE      = 15,
+  SYS_TIMER_STOP      = 16, SYS_TIMER_REMAINING = 17,
   // Serial / Output
   SYS_SERIAL_BEGIN    = 20, SYS_SERIAL_PRINT     = 21,
   SYS_SERIAL_PRINT_INT= 22, SYS_SERIAL_PRINT_FLT = 23,
@@ -249,6 +251,10 @@ enum TcSyscall {
   SYS_TASM_SET        = 131, // (index, value) -> void — write Tasmota variable
   // Sensor JSON parsing
   SYS_SENSOR_GET      = 132, // (const_idx_path) -> float — read sensor by JSON path
+  // HTTP
+  SYS_HTTP_GET        = 140, // (url_ref, response_ref) -> int length
+  SYS_HTTP_POST       = 141, // (url_ref, data_ref, response_ref) -> int length
+  SYS_HTTP_HEADER     = 142, // (name_ref, value_ref) -> void
   // Debug
   SYS_DEBUG_PRINT     = 250, SYS_DEBUG_PRINT_STR = 251,
   SYS_DEBUG_DUMP      = 252,
@@ -341,6 +347,10 @@ typedef struct {
   // Delay support (non-blocking)
   uint32_t delay_until;    // millis() target for current delay
   bool     delayed;        // VM is waiting for delay
+  // Software timers (millis-based)
+#define TC_MAX_TIMERS 4
+  uint32_t timer_deadline[TC_MAX_TIMERS];
+  bool     timer_active[TC_MAX_TIMERS];
   // Stack
   int32_t  stack[TC_STACK_SIZE];
   uint16_t sp;
@@ -435,6 +445,11 @@ struct TINYC {
 #endif
   // SPI bus
   TcSpi    spi;
+  // HTTP request state
+#define TC_HTTP_MAX_HEADERS 4
+  char     http_hdr_name[TC_HTTP_MAX_HEADERS][64];
+  char     http_hdr_value[TC_HTTP_MAX_HEADERS][64];
+  uint8_t  http_hdr_count;
 #ifdef ESP32
   // FreeRTOS task for VM execution (main() and TaskLoop)
   TaskHandle_t task_handle;
@@ -1269,6 +1284,41 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     case SYS_MICROS:
       TC_PUSH(vm, (int32_t)micros());
       break;
+    case SYS_TIMER_START: {
+      a = TC_POP(vm);  // ms
+      b = TC_POP(vm);  // id
+      if (b >= 0 && b < TC_MAX_TIMERS) {
+        vm->timer_deadline[b] = millis() + (uint32_t)a;
+        vm->timer_active[b] = true;
+      }
+      break;
+    }
+    case SYS_TIMER_DONE: {
+      a = TC_POP(vm);  // id
+      int32_t result = 1;  // default: done (not started)
+      if (a >= 0 && a < TC_MAX_TIMERS && vm->timer_active[a]) {
+        result = ((int32_t)(millis() - vm->timer_deadline[a]) >= 0) ? 1 : 0;
+      }
+      TC_PUSH(vm, result);
+      break;
+    }
+    case SYS_TIMER_STOP: {
+      a = TC_POP(vm);  // id
+      if (a >= 0 && a < TC_MAX_TIMERS) {
+        vm->timer_active[a] = false;
+      }
+      break;
+    }
+    case SYS_TIMER_REMAINING: {
+      a = TC_POP(vm);  // id
+      int32_t remaining = 0;
+      if (a >= 0 && a < TC_MAX_TIMERS && vm->timer_active[a]) {
+        int32_t diff = (int32_t)(vm->timer_deadline[a] - millis());
+        remaining = (diff > 0) ? diff : 0;
+      }
+      TC_PUSH(vm, remaining);
+      break;
+    }
 
     // ── Serial/Output → AddLog + MQTT ─────────────────
     case SYS_SERIAL_BEGIN:
@@ -2623,6 +2673,91 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       uint32_t fi;
       memcpy(&fi, &fval, 4);
       TC_PUSH(vm, (int32_t)fi);
+      break;
+    }
+
+    // ── HTTP requests ─────────────────────────────────
+    case SYS_HTTP_GET: {
+      b = TC_POP(vm);  // response buffer ref
+      a = TC_POP(vm);  // url ref
+      char url[256];
+      tc_ref_to_cstr(vm, a, url, sizeof(url));
+      WiFiClient http_client;
+      HTTPClient http;
+      http.setTimeout(5000);
+      http.begin(http_client, url);
+      // Add custom headers
+      for (int i = 0; i < Tinyc->http_hdr_count; i++) {
+        http.addHeader(Tinyc->http_hdr_name[i], Tinyc->http_hdr_value[i]);
+      }
+      Tinyc->http_hdr_count = 0;
+      int httpCode = http.GET();
+      int32_t result = -1;
+      if (httpCode > 0) {
+        String payload = http.getString();
+        int32_t *buf = tc_resolve_ref(vm, b);
+        if (buf) {
+          int32_t maxLen = tc_ref_maxlen(vm, b);
+          int len = payload.length();
+          if (len > maxLen - 1) len = maxLen - 1;
+          for (int i = 0; i < len; i++) buf[i] = (int32_t)(uint8_t)payload[i];
+          buf[len] = 0;
+          result = len;
+        }
+      } else {
+        result = httpCode;  // negative error code
+      }
+      http.end();
+      http_client.stop();
+      TC_PUSH(vm, result);
+      break;
+    }
+    case SYS_HTTP_POST: {
+      int32_t respRef = TC_POP(vm);  // response buffer ref
+      int32_t dataRef = TC_POP(vm);  // POST data ref
+      a = TC_POP(vm);                // url ref
+      char url[256];
+      tc_ref_to_cstr(vm, a, url, sizeof(url));
+      char postData[TC_OUTPUT_SIZE];
+      tc_ref_to_cstr(vm, dataRef, postData, sizeof(postData));
+      WiFiClient http_client;
+      HTTPClient http;
+      http.setTimeout(5000);
+      http.begin(http_client, url);
+      http.addHeader(F("Content-Type"), F("application/x-www-form-urlencoded"));
+      for (int i = 0; i < Tinyc->http_hdr_count; i++) {
+        http.addHeader(Tinyc->http_hdr_name[i], Tinyc->http_hdr_value[i]);
+      }
+      Tinyc->http_hdr_count = 0;
+      int httpCode = http.POST(postData);
+      int32_t result = -1;
+      if (httpCode > 0) {
+        String payload = http.getString();
+        int32_t *buf = tc_resolve_ref(vm, respRef);
+        if (buf) {
+          int32_t maxLen = tc_ref_maxlen(vm, respRef);
+          int len = payload.length();
+          if (len > maxLen - 1) len = maxLen - 1;
+          for (int i = 0; i < len; i++) buf[i] = (int32_t)(uint8_t)payload[i];
+          buf[len] = 0;
+          result = len;
+        }
+      } else {
+        result = httpCode;
+      }
+      http.end();
+      http_client.stop();
+      TC_PUSH(vm, result);
+      break;
+    }
+    case SYS_HTTP_HEADER: {
+      b = TC_POP(vm);  // value ref
+      a = TC_POP(vm);  // name ref
+      if (Tinyc->http_hdr_count < TC_HTTP_MAX_HEADERS) {
+        tc_ref_to_cstr(vm, a, Tinyc->http_hdr_name[Tinyc->http_hdr_count], 64);
+        tc_ref_to_cstr(vm, b, Tinyc->http_hdr_value[Tinyc->http_hdr_count], 64);
+        Tinyc->http_hdr_count++;
+      }
       break;
     }
 
