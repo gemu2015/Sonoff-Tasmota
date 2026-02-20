@@ -240,9 +240,15 @@ enum TcSyscall {
   SYS_SPI_INIT            = 120, // (sclk, mosi, miso, speed_mhz) -> int (1=ok)
   SYS_SPI_SET_CS          = 121, // (index, pin) -> void
   SYS_SPI_TRANSFER        = 122, // (cs, buf_ref, len, mode) -> int bytes transferred
+  // String manipulation
+  SYS_STR_TOKEN       = 74,  // (dst_ref, src_ref, delim_char, n) -> int
+  SYS_STR_SUB         = 75,  // (dst_ref, src_ref, pos, len) -> int
+  SYS_STR_FIND        = 76,  // (haystack_ref, needle_ref) -> int (-1=not found)
   // Tasmota system variables (virtual — accessed as tasm_xxx in TinyC)
   SYS_TASM_GET        = 130, // (index) -> int/float — read Tasmota variable
   SYS_TASM_SET        = 131, // (index, value) -> void — write Tasmota variable
+  // Sensor JSON parsing
+  SYS_SENSOR_GET      = 132, // (const_idx_path) -> float — read sensor by JSON path
   // Debug
   SYS_DEBUG_PRINT     = 250, SYS_DEBUG_PRINT_STR = 251,
   SYS_DEBUG_DUMP      = 252,
@@ -2395,6 +2401,9 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     //  14 = tasm_day        (ro) day of month 1-31
     //  15 = tasm_wday       (ro) day of week 1=Sun..7=Sat
     //  16 = tasm_cw         (ro) ISO calendar week 1-53
+    //  17 = tasm_sunrise    (ro) sunrise minutes since midnight
+    //  18 = tasm_sunset     (ro) sunset minutes since midnight
+    //  19 = tasm_time       (ro) current minutes since midnight
     case SYS_TASM_GET: {
       a = TC_POP(vm);  // variable index
       int32_t val = 0;
@@ -2446,6 +2455,11 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           val = (int32_t)cw;
           break;
         }
+#ifdef USE_SUNRISE
+        case 17: val = (int32_t)SunMinutes(0); break;  // tasm_sunrise
+        case 18: val = (int32_t)SunMinutes(1); break;  // tasm_sunset
+#endif
+        case 19: val = (int32_t)MinutesPastMidnight(); break;  // tasm_time
         default: break;
       }
       TC_PUSH(vm, val);
@@ -2476,6 +2490,139 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           break;
         default: break;  // read-only variables silently ignored
       }
+      break;
+    }
+
+    // ── String manipulation ────────────────────────────
+    case SYS_STR_TOKEN: {
+      // strToken(dst, src, delim, n) -> length of token (1-based index)
+      int32_t n = TC_POP(vm);           // 1-based token index
+      int32_t delim = TC_POP(vm);       // delimiter char code
+      int32_t src_ref = TC_POP(vm);
+      int32_t dst_ref = TC_POP(vm);
+      int32_t *src = tc_resolve_ref(vm, src_ref);
+      int32_t *dst = tc_resolve_ref(vm, dst_ref);
+      int32_t result = 0;
+      if (src && dst && n >= 1) {
+        int32_t src_max = tc_ref_maxlen(vm, src_ref);
+        int32_t dst_max = tc_ref_maxlen(vm, dst_ref) - 1;
+        // find start of nth token
+        int32_t si = 0, idx = 1;
+        while (idx < n && si < src_max && src[si] != 0) {
+          if (src[si] == delim) idx++;
+          si++;
+        }
+        if (idx == n && si < src_max && src[si] != 0) {
+          int32_t di = 0;
+          while (si < src_max && src[si] != 0 && src[si] != delim && di < dst_max) {
+            dst[di++] = src[si++];
+          }
+          dst[di] = 0;
+          result = di;
+        } else {
+          dst[0] = 0;
+        }
+      }
+      TC_PUSH(vm, result);
+      break;
+    }
+    case SYS_STR_SUB: {
+      // strSub(dst, src, pos, len) -> actual length copied
+      int32_t slen = TC_POP(vm);        // number of chars to copy
+      int32_t pos = TC_POP(vm);         // start position (0-based, neg=from end)
+      int32_t src_ref = TC_POP(vm);
+      int32_t dst_ref = TC_POP(vm);
+      int32_t *src = tc_resolve_ref(vm, src_ref);
+      int32_t *dst = tc_resolve_ref(vm, dst_ref);
+      int32_t result = 0;
+      if (src && dst) {
+        int32_t src_max = tc_ref_maxlen(vm, src_ref);
+        int32_t dst_max = tc_ref_maxlen(vm, dst_ref) - 1;
+        // compute source string length
+        int32_t srclen = 0;
+        while (srclen < src_max && src[srclen] != 0) srclen++;
+        if (pos < 0) pos = srclen + pos;  // negative = from end
+        if (pos < 0) pos = 0;
+        if (pos > srclen) pos = srclen;
+        if (slen < 0 || pos + slen > srclen) slen = srclen - pos;
+        if (slen > dst_max) slen = dst_max;
+        for (int32_t i = 0; i < slen; i++) {
+          dst[i] = src[pos + i];
+        }
+        dst[slen] = 0;
+        result = slen;
+      }
+      TC_PUSH(vm, result);
+      break;
+    }
+    case SYS_STR_FIND: {
+      // strFind(haystack, needle) -> position (-1 if not found)
+      int32_t needle_ref = TC_POP(vm);
+      int32_t haystack_ref = TC_POP(vm);
+      int32_t *haystack = tc_resolve_ref(vm, haystack_ref);
+      int32_t *needle = tc_resolve_ref(vm, needle_ref);
+      int32_t result = -1;
+      if (haystack && needle) {
+        int32_t hmax = tc_ref_maxlen(vm, haystack_ref);
+        int32_t nmax = tc_ref_maxlen(vm, needle_ref);
+        int32_t hlen = 0;
+        while (hlen < hmax && haystack[hlen] != 0) hlen++;
+        int32_t nlen = 0;
+        while (nlen < nmax && needle[nlen] != 0) nlen++;
+        if (nlen > 0 && nlen <= hlen) {
+          for (int32_t i = 0; i <= hlen - nlen; i++) {
+            bool match = true;
+            for (int32_t j = 0; j < nlen; j++) {
+              if (haystack[i + j] != needle[j]) { match = false; break; }
+            }
+            if (match) { result = i; break; }
+          }
+        }
+      }
+      TC_PUSH(vm, result);
+      break;
+    }
+
+    // ── Sensor JSON parsing ─────────────────────────────
+    case SYS_SENSOR_GET: {
+      // sensorGet("SensorName#Key#SubKey") -> float value
+      int32_t ci = TC_POP(vm);  // constant pool index with JSON path
+      float fval = 0.0f;
+      if (ci >= 0 && ci < vm->const_count && vm->constants[ci].type == 1) {
+        const char *path = vm->constants[ci].str.ptr;
+        // Build sensor JSON via MqttShowSensor
+        ResponseClear();
+        ResponseAppend_P(PSTR("{"));
+        MqttShowSensor(true);
+        ResponseJsonEnd();
+        // Parse the JSON path (segments separated by #)
+        char jpath[64];
+        strlcpy(jpath, path, sizeof(jpath));
+        JsonParser parser(ResponseData());
+        JsonParserObject obj = parser.getRootObject();
+        char *seg = jpath;
+        char *next;
+        bool valid = true;
+        while (valid && seg && *seg) {
+          next = strchr(seg, '#');
+          if (next) { *next = 0; next++; }
+          JsonParserToken tok = obj[seg];
+          if (!tok.isValid()) { valid = false; break; }
+          if (next && *next) {
+            // intermediate object — descend
+            obj = tok.getObject();
+            if (!obj.isValid()) { valid = false; break; }
+          } else {
+            // leaf value — extract float
+            fval = tok.getFloat();
+          }
+          seg = next;
+        }
+      }
+      // Push float as int32 bit pattern
+      uint32_t fi;
+      memcpy(&fi, &fval, 4);
+      TC_PUSH(vm, (int32_t)fi);
       break;
     }
 
