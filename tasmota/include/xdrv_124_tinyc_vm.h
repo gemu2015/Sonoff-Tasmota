@@ -271,6 +271,39 @@ enum TcSyscall {
   SYS_WEB_HANDLER     = 162, // () -> int — returns current web handler number (in WebOn callback)
   SYS_WEB_ARG         = 163, // (name_const, buf_ref) -> int — get HTTP arg into buffer, returns length
   SYS_MDNS            = 164, // (name_const, mac_const, type_const) -> int — register mDNS service
+  // Display drawing (direct renderer calls — requires USE_DISPLAY)
+  SYS_DSP_TEXT        = 170, // (buf_ref) -> void — raw DisplayText command string
+  SYS_DSP_CLEAR       = 171, // () -> void — clear display
+  SYS_DSP_POS         = 172, // (x, y) -> void — set draw position
+  SYS_DSP_FONT        = 173, // (f) -> void — set font (0-7)
+  SYS_DSP_SIZE        = 174, // (s) -> void — set text size
+  SYS_DSP_COLOR       = 175, // (fg, bg) -> void — set fg/bg color (16-bit 565)
+  SYS_DSP_DRAW        = 176, // (buf_ref) -> void — draw string at current pos
+  SYS_DSP_PIXEL       = 177, // (x, y) -> void — draw pixel
+  SYS_DSP_LINE        = 178, // (x1, y1) -> void — draw line from pos to (x1,y1)
+  SYS_DSP_RECT        = 179, // (w, h) -> void — draw rectangle at pos
+  SYS_DSP_FILL_RECT   = 180, // (w, h) -> void — draw filled rectangle at pos
+  SYS_DSP_CIRCLE      = 181, // (r) -> void — draw circle at pos
+  SYS_DSP_FILL_CIRCLE = 182, // (r) -> void — draw filled circle at pos
+  SYS_DSP_HLINE       = 183, // (w) -> void — horizontal line from pos
+  SYS_DSP_VLINE       = 184, // (h) -> void — vertical line from pos
+  SYS_DSP_ROUND_RECT  = 185, // (w, h, r) -> void — rounded rectangle
+  SYS_DSP_FILL_RRECT  = 186, // (w, h, r) -> void — filled rounded rectangle
+  SYS_DSP_TRIANGLE    = 187, // (x1, y1, x2, y2) -> void — triangle from pos
+  SYS_DSP_FILL_TRI    = 188, // (x1, y1, x2, y2) -> void — filled triangle
+  SYS_DSP_DIM         = 189, // (val) -> void — set brightness (0-15)
+  SYS_DSP_ONOFF       = 190, // (on) -> void — display on/off
+  SYS_DSP_UPDATE      = 191, // () -> void — update display (e-paper refresh)
+  SYS_DSP_PICTURE     = 192, // (filename_const, scale) -> void — draw image file at pos
+  SYS_DSP_WIDTH       = 193, // () -> int — display width in pixels
+  SYS_DSP_HEIGHT      = 194, // () -> int — display height in pixels
+  SYS_DSP_TEXT_STR    = 195, // (const_idx) -> void — DisplayText from string literal
+  SYS_DSP_DRAW_STR    = 196, // (const_idx) -> void — draw string literal at current pos
+  SYS_DSP_PAD         = 197, // (n) -> void — set text padding for dspDraw (0=off)
+  // Audio
+  SYS_AUDIO_VOL       = 200, // (vol) -> void — set volume 0-100
+  SYS_AUDIO_PLAY      = 201, // (file_const) -> void — play MP3 file
+  SYS_AUDIO_SAY       = 202, // (text_const) -> void — text-to-speech
   // Debug
   SYS_DEBUG_PRINT     = 250, SYS_DEBUG_PRINT_STR = 251,
   SYS_DEBUG_DUMP      = 252,
@@ -643,6 +676,38 @@ static void tc_send_web(const char *buf, int len) {
   extern uint32_t SML_SetOptions(uint32_t in);
   extern uint32_t sml_getv(uint32_t sel);
 #endif
+#endif
+
+/*********************************************************************************************\
+ * Display renderer externs — for TinyC display drawing syscalls
+\*********************************************************************************************/
+
+#ifdef USE_DISPLAY
+  #include <renderer.h>
+  extern Renderer *renderer;
+  extern uint16_t fg_color;
+  extern uint16_t bg_color;
+  extern int16_t disp_xpos;
+  extern int16_t disp_ypos;
+  extern void DisplayText(void);
+  extern void DisplayOnOff(uint8_t on);
+  extern void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool inverted, uint16_t xs, uint16_t ys);
+  static int16_t tc_dsp_pad = 0;  // padding: 0=none, >0=left-aligned, <0=right-aligned
+
+  // Helper: draw text with optional padding via DisplayText [pN] command
+  static void tc_display_text_padded(const char *text) {
+    char tbuf[256];
+    if (tc_dsp_pad != 0) {
+      snprintf(tbuf, sizeof(tbuf), "[p%d]%s", tc_dsp_pad, text);
+    } else {
+      strlcpy(tbuf, text, sizeof(tbuf));
+    }
+    char *savptr = XdrvMailbox.data;
+    XdrvMailbox.data = tbuf;
+    XdrvMailbox.data_len = strlen(tbuf);
+    DisplayText();
+    XdrvMailbox.data = savptr;
+  }
 #endif
 
 /*********************************************************************************************\
@@ -2161,7 +2226,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       // Stack: [meter, buf_ref] — buf_ref on top
       int32_t ref = TC_POP(vm);  // hex string buffer ref
       a = TC_POP(vm);            // meter index
-#ifdef USE_SML_SCRIPT_CMD
+#if defined(USE_SML_SCRIPT_CMD) && (defined(USE_SML_M) || defined(USE_SML))
       char tmp[256];
       tc_ref_to_cstr(vm, ref, tmp, sizeof(tmp));
       TC_PUSH(vm, (int32_t)SML_Write(a, tmp));
@@ -2174,7 +2239,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       // Stack: [meter, buf_ref] — buf_ref on top
       int32_t ref = TC_POP(vm);  // output buffer ref
       a = TC_POP(vm);            // meter index
-#ifdef USE_SML_SCRIPT_CMD
+#if defined(USE_SML_SCRIPT_CMD) && (defined(USE_SML_M) || defined(USE_SML))
       char tmp[256];
       int32_t maxLen = tc_ref_maxlen(vm, ref);
       uint32_t slen = (maxLen > 0 && maxLen < (int32_t)sizeof(tmp)) ? maxLen : sizeof(tmp) - 1;
@@ -2197,7 +2262,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       // Stack: [meter, baud] — baud on top
       b = TC_POP(vm);  // baud rate
       a = TC_POP(vm);  // meter index
-#ifdef USE_SML_SCRIPT_CMD
+#if defined(USE_SML_SCRIPT_CMD) && (defined(USE_SML_M) || defined(USE_SML))
       TC_PUSH(vm, (int32_t)SML_SetBaud((uint32_t)a, (uint32_t)b));
 #else
       TC_PUSH(vm, 0);
@@ -2208,7 +2273,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       // Stack: [meter, buf_ref] — buf_ref on top
       int32_t ref = TC_POP(vm);  // hex string buffer ref
       a = TC_POP(vm);            // meter index
-#ifdef USE_SML_SCRIPT_CMD
+#if defined(USE_SML_SCRIPT_CMD) && (defined(USE_SML_M) || defined(USE_SML))
       char tmp[256];
       tc_ref_to_cstr(vm, ref, tmp, sizeof(tmp));
       TC_PUSH(vm, (int32_t)SML_Set_WStr((uint32_t)a, tmp));
@@ -2219,7 +2284,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     }
     case SYS_SML_SETOPT: {
       a = TC_POP(vm);  // options bitmask
-#ifdef USE_SML_SCRIPT_CMD
+#if defined(USE_SML_SCRIPT_CMD) && (defined(USE_SML_M) || defined(USE_SML))
       TC_PUSH(vm, (int32_t)SML_SetOptions((uint32_t)a));
 #else
       TC_PUSH(vm, 0);
@@ -2228,7 +2293,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     }
     case SYS_SML_GETV: {
       a = TC_POP(vm);  // selector
-#ifdef USE_SML_SCRIPT_CMD
+#if defined(USE_SML_SCRIPT_CMD) && (defined(USE_SML_M) || defined(USE_SML))
       TC_PUSH(vm, (int32_t)sml_getv((uint32_t)a));
 #else
       TC_PUSH(vm, 0);
@@ -2239,7 +2304,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       // Stack: [meter, const_idx] — const_idx on top
       int32_t ci = TC_POP(vm);  // constant pool index
       a = TC_POP(vm);           // meter index
-#ifdef USE_SML_SCRIPT_CMD
+#if defined(USE_SML_SCRIPT_CMD) && (defined(USE_SML_M) || defined(USE_SML))
       if (ci >= 0 && ci < vm->const_count && vm->constants[ci].type == 1) {
         TC_PUSH(vm, (int32_t)SML_Write(a, (char*)vm->constants[ci].str.ptr));
       } else {
@@ -2254,7 +2319,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       // Stack: [meter, const_idx] — const_idx on top
       int32_t ci = TC_POP(vm);  // constant pool index
       a = TC_POP(vm);           // meter index
-#ifdef USE_SML_SCRIPT_CMD
+#if defined(USE_SML_SCRIPT_CMD) && (defined(USE_SML_M) || defined(USE_SML))
       if (ci >= 0 && ci < vm->const_count && vm->constants[ci].type == 1) {
         TC_PUSH(vm, (int32_t)SML_Set_WStr((uint32_t)a, (char*)vm->constants[ci].str.ptr));
       } else {
@@ -3101,6 +3166,259 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       }
 #endif
       TC_PUSH(vm, result);
+      break;
+    }
+
+    // ── Display drawing (direct renderer calls) ──────
+#ifdef USE_DISPLAY
+    case SYS_DSP_TEXT: {
+      int32_t ref = TC_POP(vm);
+      char tbuf[256];
+      tc_ref_to_cstr(vm, ref, tbuf, sizeof(tbuf));
+      char *savptr = XdrvMailbox.data;
+      XdrvMailbox.data = tbuf;
+      XdrvMailbox.data_len = strlen(tbuf);
+      DisplayText();
+      XdrvMailbox.data = savptr;
+      break;
+    }
+    case SYS_DSP_CLEAR:
+      if (renderer) renderer->clearDisplay();
+      disp_xpos = 0;
+      disp_ypos = 0;
+      break;
+    case SYS_DSP_POS: {
+      int32_t y = TC_POP(vm);
+      int32_t x = TC_POP(vm);
+      disp_xpos = x;
+      disp_ypos = y;
+      break;
+    }
+    case SYS_DSP_FONT: {
+      int32_t f = TC_POP(vm);
+      if (renderer) {
+        renderer->setTextFont(f);
+        if (f) renderer->setTextSize(1);
+      }
+      break;
+    }
+    case SYS_DSP_SIZE: {
+      int32_t s = TC_POP(vm);
+      if (renderer) renderer->setTextSize(s);
+      break;
+    }
+    case SYS_DSP_COLOR: {
+      int32_t cbg = TC_POP(vm);
+      int32_t cfg = TC_POP(vm);
+      fg_color = (uint16_t)cfg;
+      bg_color = (uint16_t)cbg;
+      if (renderer) renderer->setTextColor(fg_color, bg_color);
+      break;
+    }
+    case SYS_DSP_DRAW: {
+      int32_t ref = TC_POP(vm);
+      char tbuf[128];
+      tc_ref_to_cstr(vm, ref, tbuf, sizeof(tbuf));
+      tc_display_text_padded(tbuf);
+      break;
+    }
+    case SYS_DSP_PIXEL: {
+      int32_t y = TC_POP(vm);
+      int32_t x = TC_POP(vm);
+      if (renderer) renderer->drawPixel(x, y, fg_color);
+      break;
+    }
+    case SYS_DSP_LINE: {
+      int32_t y1 = TC_POP(vm);
+      int32_t x1 = TC_POP(vm);
+      if (renderer) renderer->writeLine(disp_xpos, disp_ypos, x1, y1, fg_color);
+      disp_xpos = x1;
+      disp_ypos = y1;
+      break;
+    }
+    case SYS_DSP_RECT: {
+      int32_t h = TC_POP(vm);
+      int32_t w = TC_POP(vm);
+      if (renderer) renderer->drawRect(disp_xpos, disp_ypos, w, h, fg_color);
+      break;
+    }
+    case SYS_DSP_FILL_RECT: {
+      int32_t h = TC_POP(vm);
+      int32_t w = TC_POP(vm);
+      if (renderer) renderer->fillRect(disp_xpos, disp_ypos, w, h, fg_color);
+      break;
+    }
+    case SYS_DSP_CIRCLE: {
+      int32_t r = TC_POP(vm);
+      if (renderer) renderer->drawCircle(disp_xpos, disp_ypos, r, fg_color);
+      break;
+    }
+    case SYS_DSP_FILL_CIRCLE: {
+      int32_t r = TC_POP(vm);
+      if (renderer) renderer->fillCircle(disp_xpos, disp_ypos, r, fg_color);
+      break;
+    }
+    case SYS_DSP_HLINE: {
+      int32_t w = TC_POP(vm);
+      if (renderer) renderer->writeFastHLine(disp_xpos, disp_ypos, w, fg_color);
+      disp_xpos += w;
+      break;
+    }
+    case SYS_DSP_VLINE: {
+      int32_t h = TC_POP(vm);
+      if (renderer) renderer->writeFastVLine(disp_xpos, disp_ypos, h, fg_color);
+      disp_ypos += h;
+      break;
+    }
+    case SYS_DSP_ROUND_RECT: {
+      int32_t r = TC_POP(vm);
+      int32_t h = TC_POP(vm);
+      int32_t w = TC_POP(vm);
+      if (renderer) renderer->drawRoundRect(disp_xpos, disp_ypos, w, h, r, fg_color);
+      break;
+    }
+    case SYS_DSP_FILL_RRECT: {
+      int32_t r = TC_POP(vm);
+      int32_t h = TC_POP(vm);
+      int32_t w = TC_POP(vm);
+      if (renderer) renderer->fillRoundRect(disp_xpos, disp_ypos, w, h, r, fg_color);
+      break;
+    }
+    case SYS_DSP_TRIANGLE: {
+      int32_t y2 = TC_POP(vm);
+      int32_t x2 = TC_POP(vm);
+      int32_t y1 = TC_POP(vm);
+      int32_t x1 = TC_POP(vm);
+      if (renderer) renderer->drawTriangle(disp_xpos, disp_ypos, x1, y1, x2, y2, fg_color);
+      break;
+    }
+    case SYS_DSP_FILL_TRI: {
+      int32_t y2 = TC_POP(vm);
+      int32_t x2 = TC_POP(vm);
+      int32_t y1 = TC_POP(vm);
+      int32_t x1 = TC_POP(vm);
+      if (renderer) renderer->fillTriangle(disp_xpos, disp_ypos, x1, y1, x2, y2, fg_color);
+      break;
+    }
+    case SYS_DSP_DIM: {
+      int32_t val = TC_POP(vm);
+      if (renderer) renderer->dim(val);
+      break;
+    }
+    case SYS_DSP_ONOFF: {
+      int32_t on = TC_POP(vm);
+      DisplayOnOff(on);
+      break;
+    }
+    case SYS_DSP_UPDATE:
+      if (renderer) renderer->Updateframe();
+      break;
+    case SYS_DSP_PICTURE: {
+      int32_t scale = TC_POP(vm);
+      int32_t ci = TC_POP(vm);
+      const char *fname = tc_get_const_str(vm, ci);
+      if (fname) {
+        Draw_RGB_Bitmap((char*)fname, disp_xpos, disp_ypos, (uint8_t)scale, false, 0, 0);
+      }
+      break;
+    }
+    case SYS_DSP_WIDTH:
+      TC_PUSH(vm, renderer ? renderer->width() : 0);
+      break;
+    case SYS_DSP_HEIGHT:
+      TC_PUSH(vm, renderer ? renderer->height() : 0);
+      break;
+    case SYS_DSP_TEXT_STR: {
+      int32_t ci = TC_POP(vm);
+      const char *cmd = tc_get_const_str(vm, ci);
+      if (cmd) {
+        char tbuf[256];
+        strlcpy(tbuf, cmd, sizeof(tbuf));
+        char *savptr = XdrvMailbox.data;
+        XdrvMailbox.data = tbuf;
+        XdrvMailbox.data_len = strlen(tbuf);
+        DisplayText();
+        XdrvMailbox.data = savptr;
+      }
+      break;
+    }
+    case SYS_DSP_DRAW_STR: {
+      int32_t ci = TC_POP(vm);
+      const char *str = tc_get_const_str(vm, ci);
+      if (str) {
+        tc_display_text_padded(str);
+      }
+      break;
+    }
+    case SYS_DSP_PAD:
+      tc_dsp_pad = (int16_t)TC_POP(vm);
+      break;
+#else  // !USE_DISPLAY — pop args from stack but do nothing
+    case SYS_DSP_TEXT:
+    case SYS_DSP_DRAW:
+      TC_POP(vm); break;
+    case SYS_DSP_CLEAR:
+    case SYS_DSP_UPDATE:
+      break;
+    case SYS_DSP_POS:
+    case SYS_DSP_COLOR:
+    case SYS_DSP_PIXEL:
+    case SYS_DSP_LINE:
+    case SYS_DSP_RECT:
+    case SYS_DSP_FILL_RECT:
+      TC_POP(vm); TC_POP(vm); break;
+    case SYS_DSP_FONT:
+    case SYS_DSP_SIZE:
+    case SYS_DSP_CIRCLE:
+    case SYS_DSP_FILL_CIRCLE:
+    case SYS_DSP_HLINE:
+    case SYS_DSP_VLINE:
+    case SYS_DSP_DIM:
+    case SYS_DSP_ONOFF:
+      TC_POP(vm); break;
+    case SYS_DSP_ROUND_RECT:
+    case SYS_DSP_FILL_RRECT:
+      TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_DSP_TRIANGLE:
+    case SYS_DSP_FILL_TRI:
+      TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_DSP_PICTURE:
+      TC_POP(vm); TC_POP(vm); break;
+    case SYS_DSP_WIDTH:
+    case SYS_DSP_HEIGHT:
+      TC_PUSH(vm, 0); break;
+    case SYS_DSP_TEXT_STR:
+    case SYS_DSP_DRAW_STR:
+    case SYS_DSP_PAD:
+      TC_POP(vm); break;
+#endif // USE_DISPLAY
+
+    // ── Audio ─────────────────────────────────────────
+    case SYS_AUDIO_VOL: {
+      int32_t vol = TC_POP(vm);
+      char cmd[24];
+      snprintf(cmd, sizeof(cmd), "I2SVol %d", vol);
+      ExecuteCommand(cmd, SRC_TCL);
+      break;
+    }
+    case SYS_AUDIO_PLAY: {
+      int32_t ci = TC_POP(vm);
+      const char *file = tc_get_const_str(vm, ci);
+      if (file) {
+        char cmd[128];
+        snprintf(cmd, sizeof(cmd), "I2SPlay %s", file);
+        ExecuteCommand(cmd, SRC_TCL);
+      }
+      break;
+    }
+    case SYS_AUDIO_SAY: {
+      int32_t ci = TC_POP(vm);
+      const char *text = tc_get_const_str(vm, ci);
+      if (text) {
+        char cmd[256];
+        snprintf(cmd, sizeof(cmd), "I2SSay %s", text);
+        ExecuteCommand(cmd, SRC_TCL);
+      }
       break;
     }
 

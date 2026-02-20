@@ -346,11 +346,13 @@ static void WSSendJSON(int code, const char *json_buf) {
   Webserver->send(code, (const char*)ct, json_buf);
 }
 
-// Helper: load a .tcb file from filesystem by path
+// Helper: load a .tcb file from filesystem by path (tries ufsp then ffsp)
 #ifdef USE_UFILESYS
 static bool TinyCLoadFile(const char *path) {
-  if (!Tinyc || !ufsp) return false;
-  File file = ufsp->open(path, "r");
+  if (!Tinyc) return false;
+  File file;
+  if (ufsp) file = ufsp->open(path, "r");
+  if (!file && ffsp && ffsp != ufsp) file = ffsp->open(path, "r");
   if (!file) return false;
   uint32_t fsize = file.size();
   if (fsize == 0 || fsize > TC_MAX_PROGRAM) { file.close(); return false; }
@@ -405,37 +407,39 @@ static void HandleTinyCPage(void) {
 #endif
     } else if (cmd == "delall") {
 #ifdef USE_UFILESYS
-      // Delete all .tcb files from filesystem
-      if (ufsp) {
-        File dir = ufsp->open("/", "r");
-        if (dir) {
-          // Collect filenames first (can't delete while iterating)
-          char names[16][40];
-          int count = 0;
-          dir.rewindDirectory();
-          while (count < 16) {
-            File entry = dir.openNextFile();
-            if (!entry) break;
-            if (!entry.isDirectory()) {
-              char *ep = (char *)entry.name();
-              if (*ep == '/') ep++;
-              char *lcp = strrchr(ep, '/');
-              if (lcp) ep = lcp + 1;
-              uint16_t nlen = strlen(ep);
-              if (nlen > 4 && strcasecmp(ep + nlen - 4, ".tcb") == 0) {
-                snprintf(names[count], sizeof(names[0]), "/%s", ep);
-                count++;
-              }
+      // Delete all .tcb files from both filesystems
+      int total = 0;
+      FS *fss[] = { ufsp, (ffsp && ffsp != ufsp) ? ffsp : nullptr };
+      for (int fi = 0; fi < 2; fi++) {
+        if (!fss[fi]) continue;
+        File dir = fss[fi]->open("/", "r");
+        if (!dir) continue;
+        char names[16][40];
+        int count = 0;
+        dir.rewindDirectory();
+        while (count < 16) {
+          File entry = dir.openNextFile();
+          if (!entry) break;
+          if (!entry.isDirectory()) {
+            char *ep = (char *)entry.name();
+            if (*ep == '/') ep++;
+            char *lcp = strrchr(ep, '/');
+            if (lcp) ep = lcp + 1;
+            uint16_t nlen = strlen(ep);
+            if (nlen > 4 && strcasecmp(ep + nlen - 4, ".tcb") == 0) {
+              snprintf(names[count], sizeof(names[0]), "/%s", ep);
+              count++;
             }
-            entry.close();
           }
-          dir.close();
-          for (int i = 0; i < count; i++) {
-            ufsp->remove(names[i]);
-          }
-          AddLog(LOG_LEVEL_INFO, PSTR("TCC: Deleted %d .tcb files"), count);
+          entry.close();
         }
+        dir.close();
+        for (int i = 0; i < count; i++) {
+          fss[fi]->remove(names[i]);
+        }
+        total += count;
       }
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: Deleted %d .tcb files"), total);
 #endif
     }
   }
@@ -501,14 +505,19 @@ static void HandleTinyCPage(void) {
       "<button name='cmd' value='reset' class='button'>&#x21BB; Reset</button>"
       "</form></div>"));
 
-    // File selector — list all .tcb files on filesystem
+    // File selector — list all .tcb files from both ufsp and ffsp
 #ifdef USE_UFILESYS
-    if (ufsp) {
+    if (ufsp || ffsp) {
       WSContentSend_P(PSTR(
         "<p><form action='/tc' method='get'>"
         "<select name='file' style='width:100%%'>"));
-      File dir = ufsp->open("/", "r");
-      if (dir) {
+      // Scan up to 2 filesystems: ufsp (SD/main) and ffsp (flash) if different
+      FS *fss[] = { ufsp, (ffsp && ffsp != ufsp) ? ffsp : nullptr };
+      const char *fslabel[] = { "", " [flash]" };
+      for (int fi = 0; fi < 2; fi++) {
+        if (!fss[fi]) continue;
+        File dir = fss[fi]->open("/", "r");
+        if (!dir) continue;
         dir.rewindDirectory();
         while (true) {
           File entry = dir.openNextFile();
@@ -523,8 +532,8 @@ static void HandleTinyCPage(void) {
             char fpath[40];
             snprintf(fpath, sizeof(fpath), "/%s", ep);
             bool is_current = (Tinyc->upload_filename[0] && strcmp(fpath, Tinyc->upload_filename) == 0);
-            WSContentSend_P(PSTR("<option value='%s'%s>%s (%d B)</option>"),
-              fpath, is_current ? " selected" : "", ep, entry.size());
+            WSContentSend_P(PSTR("<option value='%s'%s>%s (%d B)%s</option>"),
+              fpath, is_current ? " selected" : "", ep, entry.size(), fslabel[fi]);
           }
           entry.close();
         }
@@ -753,19 +762,21 @@ static void HandleTinyCApi(void) {
   }
 #ifdef USE_UFILESYS
   else if (cmd == "listfiles") {
-    // List files on device filesystem: /tc_api?cmd=listfiles
-    if (!ufsp) {
+    // List files on device filesystem (both ufsp and ffsp)
+    if (!ufsp && !ffsp) {
       WSSendJSON_P(500, PSTR("{\"ok\":false,\"error\":\"no filesystem\"}"));
       return;
     }
     String result = F("{\"ok\":true,\"files\":[");
-    File root = ufsp->open("/", "r");
     bool first = true;
-    if (root) {
+    FS *fss[] = { ufsp, (ffsp && ffsp != ufsp) ? ffsp : nullptr };
+    for (int fi = 0; fi < 2; fi++) {
+      if (!fss[fi]) continue;
+      File root = fss[fi]->open("/", "r");
+      if (!root) continue;
       File f = root.openNextFile();
       while (f) {
         if (!f.isDirectory()) {
-          // ESP32 returns full path, strip to filename
           const char *fname = f.name();
           if (*fname == '/') fname++;
           const char *lcp = strrchr(fname, '/');
@@ -775,6 +786,7 @@ static void HandleTinyCApi(void) {
           result += fname;
           result += F("\",\"size\":");
           result += String(f.size());
+          if (fi == 1) result += F(",\"fs\":\"flash\"");
           result += '}';
           first = false;
         }
@@ -788,17 +800,20 @@ static void HandleTinyCApi(void) {
     return;
   }
   else if (cmd == "deletefile") {
-    // Delete a file: /tc_api?cmd=deletefile&path=/filename
+    // Delete a file: /tc_api?cmd=deletefile&path=/filename (tries ufsp then ffsp)
     String fpath = Webserver->arg(F("path"));
     if (fpath.length() == 0 || fpath[0] != '/') {
       WSSendJSON_P(400, PSTR("{\"ok\":false,\"error\":\"missing path\"}"));
       return;
     }
-    if (!ufsp) {
+    if (!ufsp && !ffsp) {
       WSSendJSON_P(500, PSTR("{\"ok\":false,\"error\":\"no filesystem\"}"));
       return;
     }
-    if (ufsp->remove(fpath.c_str())) {
+    bool deleted = false;
+    if (ufsp) deleted = ufsp->remove(fpath.c_str());
+    if (!deleted && ffsp && ffsp != ufsp) deleted = ffsp->remove(fpath.c_str());
+    if (deleted) {
       WSSendJSON_P(200, PSTR("{\"ok\":true}"));
     } else {
       WSSendJSON_P(404, PSTR("{\"ok\":false,\"error\":\"delete failed\"}"));
@@ -900,7 +915,7 @@ static void HandleTinyCIde(void) {
   }
 
   if (!f) {
-    WSSend_P(404, PSTR("text/plain"), PSTR("TinyC IDE not found. Upload tinyc_ide.html to filesystem."));
+    WSSend_P(404, PSTR("text/plain"), PSTR("TinyC IDE not found. Upload tinyc_ide.html.gz to flash filesystem (not SD card)."));
     return;
   }
 
