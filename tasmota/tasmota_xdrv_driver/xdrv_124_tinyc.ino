@@ -99,9 +99,6 @@ static inline void tc_callback_safe(TcVM *vm, const char *name) {
 static void TinyCEvery50ms(void) {
   if (!Tinyc) return;
 
-  // Execute deferred commands (audio etc.) in main loop context
-  tc_deferred_exec();
-
 #ifdef ESP32
   // ESP32: VM runs in its own FreeRTOS task — just monitor for completion
   if (Tinyc->running && !Tinyc->task_running) {
@@ -145,8 +142,10 @@ static void TinyCEvery50ms(void) {
   }
 #endif  // ESP32 vs ESP8266
 
-  // Call user's Every50ms() callback if VM halted normally
+  // Execute deferred commands (audio etc.) only when VM is halted and idle
+  // Must not run while VM task is active — concurrent SD access causes crashes
   if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
+    tc_deferred_exec();
     tc_callback_safe(&Tinyc->vm, "Every50ms");
   }
 }
