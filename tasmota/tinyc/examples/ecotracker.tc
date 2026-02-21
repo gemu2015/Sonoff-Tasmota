@@ -4,70 +4,24 @@
 // Requires: USE_SML (or USE_SML_M)
 // SML meter descriptor must be loaded separately via IDE SML tab or /sml_meter.def
 
-// ── Persistent variables (saved to /ecotracker.dat) ──
-float dval;     // daily counter in (kWh) at midnight
-float dval2;    // daily counter out (kWh) at midnight
-float mval;     // monthly counter in
-float mval2;    // monthly counter out
-float yval;     // yearly counter in
-float yval2;    // yearly counter out
+// ── Persistent variables (auto-saved to /tinyc_pvars.bin) ──
+persist float dval;     // daily counter in (kWh) at midnight
+persist float dval2;    // daily counter out (kWh) at midnight
+persist float mval;     // monthly counter in
+persist float mval2;    // monthly counter out
+persist float yval;     // yearly counter in
+persist float yval2;    // yearly counter out
+persist int pwroffset;  // power offset [W] for zero-feed regulation
 
 // ── Runtime variables ──
 float cpwr;         // current power (smoothed)
 int once;           // mDNS registered flag
 int last_hr;        // last seen hour (for midnight detect)
 char buf[256];      // general purpose buffer
-char line[64];      // line buffer for file I/O
 
 // ── Settings (WebUI widgets) ──
-int pwroffset;      // power offset [W] for zero-feed regulation
 int do_init;        // button: initialize counters from meter
 int do_save;        // button: manually save data
-
-// ── Persistent variable file I/O ──
-void saveVars() {
-    int f = fileOpen("/ecotracker.dat", 1);  // write mode
-    if (f < 0) return;
-    sprintfFloat(line, "%.4f\n", dval);
-    fileWrite(f, line, strlen(line));
-    sprintfFloat(line, "%.4f\n", dval2);
-    fileWrite(f, line, strlen(line));
-    sprintfFloat(line, "%.4f\n", mval);
-    fileWrite(f, line, strlen(line));
-    sprintfFloat(line, "%.4f\n", mval2);
-    fileWrite(f, line, strlen(line));
-    sprintfFloat(line, "%.4f\n", yval);
-    fileWrite(f, line, strlen(line));
-    sprintfFloat(line, "%.4f\n", yval2);
-    fileWrite(f, line, strlen(line));
-    sprintfInt(line, "%d\n", pwroffset);
-    fileWrite(f, line, strlen(line));
-    fileClose(f);
-    addLog("EcoTracker: vars saved");
-}
-
-void loadVars() {
-    if (!fileExists("/ecotracker.dat")) return;
-    int f = fileOpen("/ecotracker.dat", 0);  // read mode
-    if (f < 0) return;
-    char data[256];
-    int n = fileRead(f, data, 255);
-    fileClose(f);
-    if (n <= 0) return;
-    data[n] = 0;
-    // Parse 6 floats + 1 int, one per line
-    char tok[32];
-    strToken(tok, data, '\n', 1);  dval  = atof(tok);
-    strToken(tok, data, '\n', 2);  dval2 = atof(tok);
-    strToken(tok, data, '\n', 3);  mval  = atof(tok);
-    strToken(tok, data, '\n', 4);  mval2 = atof(tok);
-    strToken(tok, data, '\n', 5);  yval  = atof(tok);
-    strToken(tok, data, '\n', 6);  yval2 = atof(tok);
-    if (strToken(tok, data, '\n', 7) > 0) {
-        pwroffset = atoi(tok);
-    }
-    addLog("EcoTracker: vars loaded");
-}
 
 void initVars() {
     // Initialize counters from current meter readings
@@ -196,23 +150,20 @@ void JsonCall() {
     responseAppend(buf);
 }
 
-// ── Main: register endpoint, load saved data ──
+// ── Main: register endpoint ──
+// Persist vars are auto-loaded from /tinyc_pvars.bin before main() runs
 int main() {
     once = 0;
     last_hr = -1;
     cpwr = 0.0;
     do_init = 0;
     do_save = 0;
-    pwroffset = 0;
 
     // Register settings page button on Tasmota main page
     wLabel(0, "EcoTracker Einstellungen");
 
     // Register /v1/json endpoint for Marstek polling
     webOn(1, "/v1/json");
-
-    // Load saved counter values
-    loadVars();
 
     // If no saved data, initialize from meter
     if (dval == 0.0 && smlGet(2) > 0.0) {
