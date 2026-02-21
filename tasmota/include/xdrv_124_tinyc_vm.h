@@ -246,6 +246,8 @@ enum TcSyscall {
   SYS_STR_TOKEN       = 74,  // (dst_ref, src_ref, delim_char, n) -> int
   SYS_STR_SUB         = 75,  // (dst_ref, src_ref, pos, len) -> int
   SYS_STR_FIND        = 76,  // (haystack_ref, needle_ref) -> int (-1=not found)
+  SYS_STR_TO_INT      = 77,  // (src_ref) -> int — parse string to integer (atoi)
+  SYS_STR_TO_FLOAT    = 78,  // (src_ref) -> float — parse string to float (atof)
   // Tasmota system variables (virtual — accessed as tasm_xxx in TinyC)
   SYS_TASM_GET        = 130, // (index) -> int/float — read Tasmota variable
   SYS_TASM_SET        = 131, // (index, value) -> void — write Tasmota variable
@@ -2729,6 +2731,22 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         }
       }
       TC_PUSH(vm, result);
+      break;
+    }
+    case SYS_STR_TO_INT: {
+      // atoi(str) -> int
+      int32_t ref = TC_POP(vm);
+      char tbuf[32];
+      tc_ref_to_cstr(vm, ref, tbuf, sizeof(tbuf));
+      TC_PUSH(vm, (int32_t)atoi(tbuf));
+      break;
+    }
+    case SYS_STR_TO_FLOAT: {
+      // atof(str) -> float
+      int32_t ref = TC_POP(vm);
+      char tbuf[32];
+      tc_ref_to_cstr(vm, ref, tbuf, sizeof(tbuf));
+      TC_PUSHF(vm, (float)atof(tbuf));
       break;
     }
 
