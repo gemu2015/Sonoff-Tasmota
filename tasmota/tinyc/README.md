@@ -4,7 +4,7 @@ TinyC is a C-subset compiler and VM that runs on ESP32/ESP8266 as Tasmota driver
 
 ## Quick Start
 
-1. Upload `tinyc_ide.html.gz` to the device filesystem
+1. Upload `tinyc_ide.html.gz` to the device flash filesystem
 2. Open `http://<device-ip>/tinyc_ide.html` in a browser
 3. Write code, press **Ctrl+Enter** to compile, **Ctrl+Shift+Enter** to run
 
@@ -33,17 +33,28 @@ Callbacks run automatically from Tasmota's main loop:
 
 **GPIO:** `pinMode`, `digitalWrite`, `digitalRead`, `analogRead`, `analogWrite`, `gpioInit`
 **Timing:** `delay`, `delayMicroseconds`, `millis`, `micros`
+**Timers:** `timerStart`, `timerDone`, `timerStop`, `timerRemaining`
 **Serial:** `serialBegin`, `serialPrint`, `serialPrintInt`, `serialPrintFloat`, `serialPrintln`, `serialRead`, `serialAvailable`
 **Math:** `abs`, `min`, `max`, `map`, `random`, `sqrt`, `sin`, `cos`
-**Strings:** `strlen`, `strcpy`, `strcat`, `strcmp`, `printString`, `printStr`
+**Strings:** `strlen`, `strcpy`, `strcat`, `strcmp`, `printString`, `printStr`, `strToken`, `strSub`, `strFind`
 **Format:** `sprintfInt`, `sprintfFloat`, `sprintfStr`, `sprintfAppendInt`, `sprintfAppendFloat`, `sprintfAppendStr`
 **I2C:** `i2cRead8`, `i2cWrite8`, `i2cRead`, `i2cWrite`, `i2cExists`, `i2cRead0`, `i2cWrite0`
 **SPI:** `spiInit`, `spiSetCS`, `spiTransfer`
 **Files:** `fileOpen`, `fileClose`, `fileRead`, `fileWrite`, `fileExists`, `fileDelete`, `fileSize`
-**Tasmota:** `tasmCmd`, `responseAppend`, `webSend`, `webFlush`, `addLog`
-**System:** `tasm_wifi`, `tasm_mqttcon`, `tasm_teleperiod`, `tasm_uptime`, `tasm_heap`, `tasm_power`, `tasm_dimmer`, `tasm_temp`, `tasm_hum`, `tasm_hour`, `tasm_minute`, `tasm_second`
+**Tasmota:** `tasmCmd`, `sensorGet`, `responseAppend`, `webSend`, `webFlush`, `addLog`
+**HTTP:** `httpGet`, `httpPost`, `httpHeader`
 **UDP:** `udpSend`, `udpRecv`, `udpReady`, `udpSendArray`, `udpRecvArray`
+**Display:** `dspText`, `dspClear`, `dspPos`, `dspFont`, `dspSize`, `dspColor`, `dspDraw`, `dspPad`, `dspPixel`, `dspLine`, `dspRect`, `dspFillRect`, `dspCircle`, `dspFillCircle`, `dspHLine`, `dspVLine`, `dspRoundRect`, `dspFillRoundRect`, `dspTriangle`, `dspFillTriangle`, `dspDim`, `dspOnOff`, `dspUpdate`, `dspPicture`, `dspWidth`, `dspHeight`
+**Audio:** `audioVol`, `audioPlay`, `audioSay`
+**WebUI:** `webButton`, `webSlider`, `webCheckbox`, `webText`, `webNumber`, `webPulldown`, `webRadio`, `webTime`, `webPageLabel`, `webPage`, `webSendFile`, `webOn`, `webHandler`, `webArg`
+**SML:** `smlGet`, `smlGetStr`, `smlWrite`, `smlRead`, `smlSetBaud`, `smlSetWStr`, `smlSetOpt`, `smlGetV`
+**mDNS:** `mdnsRegister`
+**System:** `tasm_wifi`, `tasm_mqttcon`, `tasm_teleperiod`, `tasm_uptime`, `tasm_heap`, `tasm_power`, `tasm_dimmer`, `tasm_temp`, `tasm_hum`, `tasm_hour`, `tasm_minute`, `tasm_second`, `tasm_year`, `tasm_month`, `tasm_day`, `tasm_wday`, `tasm_cw`, `tasm_sunrise`, `tasm_sunset`, `tasm_time`
 **Debug:** `print`, `dumpVM`
+
+## Predefined Color Constants
+
+16 RGB565 colors available without `#define`: `BLACK`, `WHITE`, `RED`, `GREEN`, `BLUE`, `YELLOW`, `CYAN`, `MAGENTA`, `ORANGE`, `PURPLE`, `GREY`, `DARKGREY`, `LIGHTGREY`, `DARKGREEN`, `NAVY`, `MAROON`, `OLIVE`
 
 ## Tasmota Commands
 
@@ -80,6 +91,7 @@ See [`examples/`](examples/) for complete working programs:
 - **bresser** — CC1101 868 MHz weather station receiver (5/6/7-in-1 + soil moisture)
 - **bresser_chart** — Bresser weather station with Google Charts ring buffer and flash persistence
 - **chart** — Google Charts with 1000-point ring buffer
+- **display_demo** — Sensor dashboard for ILI9488 display
 - **editor** — Code editor example
 - **udp** — Multicast data sharing between devices
 - **benchmark** — VM performance measurement
