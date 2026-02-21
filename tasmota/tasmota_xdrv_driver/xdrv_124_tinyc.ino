@@ -99,6 +99,9 @@ static inline void tc_callback_safe(TcVM *vm, const char *name) {
 static void TinyCEvery50ms(void) {
   if (!Tinyc) return;
 
+  // Execute deferred commands (audio etc.) in main loop context
+  tc_deferred_exec();
+
 #ifdef ESP32
   // ESP32: VM runs in its own FreeRTOS task — just monitor for completion
   if (Tinyc->running && !Tinyc->task_running) {
@@ -178,6 +181,26 @@ void CmndTinyC(void) {
     ESP_getFreeHeap());
 }
 
+// Helper: derive .pvs persist filename from .tcb filename
+// e.g. "/ecotracker.tcb" -> "/ecotracker.pvs", "/autoexec.tcb" -> "/autoexec.pvs"
+static void TinyCSetPersistFile(const char *tcb_path) {
+  if (!Tinyc) return;
+  char *pf = Tinyc->vm.persist_file;
+  const size_t pfsz = sizeof(Tinyc->vm.persist_file);
+  if (!tcb_path || tcb_path[0] == '\0') {
+    strlcpy(pf, "/autoexec.pvs", pfsz);
+    return;
+  }
+  strlcpy(pf, tcb_path, pfsz);
+  // Replace extension: find last '.' and replace with .pvs
+  char *dot = strrchr(pf, '.');
+  if (dot && (dot - pf) < (int)(pfsz - 4)) {
+    strcpy(dot, ".pvs");
+  } else {
+    strlcat(pf, ".pvs", pfsz);
+  }
+}
+
 // Helper: start the VM (load + launch task on ESP32, or set running flag on ESP8266)
 static bool TinyCStartVM(void) {
   if (!Tinyc || !Tinyc->loaded) return false;
@@ -185,6 +208,10 @@ static bool TinyCStartVM(void) {
   // Reset VM
   int err = tc_vm_load(&Tinyc->vm, Tinyc->program, Tinyc->program_size);
   if (err != TC_OK) return false;
+
+  // Set persist filename and load saved values
+  TinyCSetPersistFile(Tinyc->upload_filename);
+  tc_persist_load(&Tinyc->vm);
 
   Tinyc->output_len = 0;
   Tinyc->output[0] = '\0';
@@ -246,6 +273,9 @@ static void TinyCStopVM(void) {
     }
   }
 #endif
+
+  // Auto-save persist variables before clearing VM
+  tc_persist_save(&Tinyc->vm);
 
   Tinyc->running = false;
   Tinyc->vm.running = false;
@@ -367,6 +397,7 @@ static bool TinyCLoadFile(const char *path) {
   if (err == TC_OK) {
     Tinyc->loaded = true;
     strlcpy(Tinyc->upload_filename, path, sizeof(Tinyc->upload_filename));
+    TinyCSetPersistFile(path);
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: Loaded %s (%d bytes)"), path, fsize);
     return true;
   }
@@ -689,6 +720,7 @@ static void HandleTinyCUpload(void) {
       int err = tc_vm_load(&Tinyc->vm, Tinyc->program, Tinyc->program_size);
       if (err == TC_OK) {
         Tinyc->loaded = true;
+        TinyCSetPersistFile(Tinyc->upload_filename);
         AddLog(LOG_LEVEL_INFO, PSTR("TCC: Loaded %d bytes"), Tinyc->program_size);
 
         // Save to filesystem with uploaded filename

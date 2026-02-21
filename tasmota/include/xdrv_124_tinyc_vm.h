@@ -54,8 +54,9 @@ extern FS *ufsp;
 #endif
 
 #define TC_MAGIC           0x54434300  // "TCC\0"
-#define TC_VERSION         3           // V3: added function table section (callbacks)
+#define TC_VERSION         4           // V4: added persist table section
 #define TC_FILE_NAME       "/autoexec.tcb"
+#define TC_MAX_PERSIST     32          // max persist variable entries
 
 // Flash-safe byte read — enables execute-from-flash on ESP32
 // When USE_TINYC_FLASH_EXEC is defined, bytecode can reside in memory-mapped flash.
@@ -306,6 +307,8 @@ enum TcSyscall {
   SYS_AUDIO_VOL       = 200, // (vol) -> void — set volume 0-100
   SYS_AUDIO_PLAY      = 201, // (file_const) -> void — play MP3 file
   SYS_AUDIO_SAY       = 202, // (text_const) -> void — text-to-speech
+  // Persistent variables
+  SYS_PERSIST_SAVE    = 203, // () -> void — save persist globals to file
   // Debug
   SYS_DEBUG_PRINT     = 250, SYS_DEBUG_PRINT_STR = 251,
   SYS_DEBUG_DUMP      = 252,
@@ -424,6 +427,10 @@ typedef struct {
   // Callback function table (V3)
   TcCallback    callbacks[TC_MAX_CALLBACKS];
   uint8_t       callback_count;
+  // Persist table (V4: global entries for auto-save/load)
+  struct { uint16_t index; uint16_t count; } persist[TC_MAX_PERSIST];
+  uint8_t       persist_count;
+  char          persist_file[32];  // e.g. "/ecotracker.pvs" — derived from .tcb filename
 } TcVM;
 
 /*********************************************************************************************\
@@ -511,6 +518,9 @@ struct TINYC {
   char     http_hdr_name[TC_HTTP_MAX_HEADERS][64];
   char     http_hdr_value[TC_HTTP_MAX_HEADERS][64];
   uint8_t  http_hdr_count;
+  // Deferred command — executed in main loop (safe for task-spawning commands like I2SPlay)
+  char     deferred_cmd[128];
+  volatile bool deferred_pending;
 #ifdef ESP32
   // FreeRTOS task for VM execution (main() and TaskLoop)
   TaskHandle_t task_handle;
@@ -1048,6 +1058,25 @@ static void tc_udp_poll(void) {
 #define TC_POPF(vm) i2f(TC_POP(vm))
 
 /*********************************************************************************************\
+ * Deferred command execution (main-loop safe for task-spawning commands)
+ * Audio playback (I2SPlay) spawns a FreeRTOS task — calling it from the TinyC task
+ * causes crashes. Queue it here and execute from TinyCEvery50ms() in the main loop.
+\*********************************************************************************************/
+
+static void tc_defer_command(const char *cmd) {
+  if (!Tinyc || Tinyc->deferred_pending) return;  // drop if one is already pending
+  strlcpy(Tinyc->deferred_cmd, cmd, sizeof(Tinyc->deferred_cmd));
+  Tinyc->deferred_pending = true;
+}
+
+static void tc_deferred_exec(void) {
+  if (!Tinyc || !Tinyc->deferred_pending) return;
+  Tinyc->deferred_pending = false;
+  AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: deferred exec '%s'"), Tinyc->deferred_cmd);
+  ExecuteCommand(Tinyc->deferred_cmd, SRC_TCL);
+}
+
+/*********************************************************************************************\
  * Output: append to buffer, flush to AddLog + MQTT
 \*********************************************************************************************/
 
@@ -1304,6 +1333,10 @@ static int32_t tc_sprintf_float(char *out, int outSize, const char *fmt, float f
   out[pos] = '\0';
   return pos;
 }
+
+// Forward declarations (defined after tc_vm_load)
+static void tc_persist_save(TcVM *vm);
+static void tc_persist_load(TcVM *vm);
 
 /*********************************************************************************************\
  * VM: Syscall dispatch
@@ -3411,12 +3444,12 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       TC_POP(vm); break;
 #endif // USE_DISPLAY
 
-    // ── Audio ─────────────────────────────────────────
+    // ── Audio (deferred to main loop — I2SPlay spawns its own task) ──
     case SYS_AUDIO_VOL: {
       int32_t vol = TC_POP(vm);
       char cmd[24];
       snprintf(cmd, sizeof(cmd), "I2SVol %d", vol);
-      ExecuteCommand(cmd, SRC_TCL);
+      tc_defer_command(cmd);
       break;
     }
     case SYS_AUDIO_PLAY: {
@@ -3425,7 +3458,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       if (file) {
         char cmd[128];
         snprintf(cmd, sizeof(cmd), "I2SPlay %s", file);
-        ExecuteCommand(cmd, SRC_TCL);
+        tc_defer_command(cmd);
       }
       break;
     }
@@ -3435,10 +3468,15 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       if (text) {
         char cmd[256];
         snprintf(cmd, sizeof(cmd), "I2SSay %s", text);
-        ExecuteCommand(cmd, SRC_TCL);
+        tc_defer_command(cmd);
       }
       break;
     }
+
+    // ── Persist variables ─────────────────────────────
+    case SYS_PERSIST_SAVE:
+      tc_persist_save(vm);
+      break;
 
     // ── Debug ─────────────────────────────────────────
     case SYS_DEBUG_PRINT:
@@ -3466,6 +3504,105 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
 }
 
 /*********************************************************************************************\
+ * Persist variables: save/load binary file
+ * Format: ['P','V'] [count u8] [index u16 LE, slotCount u16 LE, data: slotCount×4 bytes LE]
+\*********************************************************************************************/
+
+static void tc_persist_save(TcVM *vm) {
+  if (vm->persist_count == 0 || vm->persist_file[0] == '\0') return;
+#ifdef USE_UFILESYS
+  // Calculate total size: 2 (magic) + 1 (count) + entries
+  uint16_t total = 3;
+  for (uint8_t i = 0; i < vm->persist_count; i++) {
+    total += 4 + vm->persist[i].count * 4;  // index(2) + slotCount(2) + data
+  }
+  uint8_t *buf = (uint8_t *)malloc(total);
+  if (!buf) return;
+
+  uint16_t pos = 0;
+  buf[pos++] = 'P';
+  buf[pos++] = 'V';
+  buf[pos++] = vm->persist_count;
+
+  for (uint8_t i = 0; i < vm->persist_count; i++) {
+    uint16_t idx = vm->persist[i].index;
+    uint16_t cnt = vm->persist[i].count;
+    buf[pos++] = idx & 0xFF;
+    buf[pos++] = (idx >> 8) & 0xFF;
+    buf[pos++] = cnt & 0xFF;
+    buf[pos++] = (cnt >> 8) & 0xFF;
+    for (uint16_t s = 0; s < cnt; s++) {
+      int32_t val = vm->globals[idx + s];
+      buf[pos++] = val & 0xFF;
+      buf[pos++] = (val >> 8) & 0xFF;
+      buf[pos++] = (val >> 16) & 0xFF;
+      buf[pos++] = (val >> 24) & 0xFF;
+    }
+  }
+
+  File f = ufsp->open(vm->persist_file, "w");
+  if (f) {
+    f.write(buf, total);
+    f.close();
+    AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: persist saved %d entries to %s (%d bytes)"),
+           vm->persist_count, vm->persist_file, total);
+  }
+  free(buf);
+#endif
+}
+
+static void tc_persist_load(TcVM *vm) {
+  if (vm->persist_count == 0 || vm->persist_file[0] == '\0') return;
+#ifdef USE_UFILESYS
+  File f;
+  if (ufsp) f = ufsp->open(vm->persist_file, "r");
+  if (!f && ffsp && ffsp != ufsp) f = ffsp->open(vm->persist_file, "r");
+  if (!f) return;
+
+  uint16_t fsize = f.size();
+  if (fsize < 3) { f.close(); return; }
+
+  uint8_t *buf = (uint8_t *)malloc(fsize);
+  if (!buf) { f.close(); return; }
+  f.read(buf, fsize);
+  f.close();
+
+  if (buf[0] != 'P' || buf[1] != 'V') { free(buf); return; }
+  uint8_t count = buf[2];
+  uint16_t pos = 3;
+
+  for (uint8_t i = 0; i < count && pos < fsize; i++) {
+    if (pos + 4 > fsize) break;
+    uint16_t idx = buf[pos] | (buf[pos + 1] << 8);
+    pos += 2;
+    uint16_t slotCount = buf[pos] | (buf[pos + 1] << 8);
+    pos += 2;
+    // Find matching persist entry
+    for (uint8_t j = 0; j < vm->persist_count; j++) {
+      if (vm->persist[j].index == idx) {
+        uint16_t slots = (slotCount < vm->persist[j].count) ? slotCount : vm->persist[j].count;
+        for (uint16_t s = 0; s < slots && pos + 4 <= fsize; s++) {
+          int32_t val = buf[pos] | (buf[pos + 1] << 8) |
+                       (buf[pos + 2] << 16) | (buf[pos + 3] << 24);
+          vm->globals[idx + s] = val;
+          pos += 4;
+        }
+        // Skip remaining slots if file has more than current entry
+        if (slotCount > slots) pos += (slotCount - slots) * 4;
+        goto next_entry;
+      }
+    }
+    // No match — skip data
+    pos += slotCount * 4;
+    next_entry:;
+  }
+
+  free(buf);
+  AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: persist loaded from %s"), vm->persist_file);
+#endif
+}
+
+/*********************************************************************************************\
  * VM: Load binary
 \*********************************************************************************************/
 
@@ -3486,9 +3623,10 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   uint16_t const_pool_size = (B(10) << 8) | B(11);
   uint16_t heap_decl_size = (B(12) << 8) | B(13);
 
-  // V3 adds funcTableSize at bytes 14-15; V2 header is 14 bytes
-  uint16_t header_size = (version >= 3) ? 16 : 14;
+  // V4 adds persistTableSize at bytes 16-17; V3 adds funcTableSize at bytes 14-15; V2 header is 14 bytes
+  uint16_t header_size = (version >= 4) ? 18 : ((version >= 3) ? 16 : 14);
   uint16_t func_table_size = (version >= 3 && size >= 16) ? ((B(14) << 8) | B(15)) : 0;
+  uint16_t persist_table_size = (version >= 4 && size >= 18) ? ((B(16) << 8) | B(17)) : 0;
 
   if (size < header_size) return TC_ERR_BAD_BINARY;
 
@@ -3580,11 +3718,29 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
     }
   }
 
+  // Parse persist table (V4)
+  vm->persist_count = 0;
+  uint16_t persist_table_start = func_table_end;
+  uint16_t persist_table_end = persist_table_start + persist_table_size;
+  if (persist_table_size > 0) {
+    uint16_t pos = persist_table_start;
+    uint8_t count = B(pos); pos++;
+    if (count > TC_MAX_PERSIST) count = TC_MAX_PERSIST;
+    for (uint8_t i = 0; i < count && pos + 4 <= persist_table_end; i++) {
+      vm->persist[i].index = (B(pos) << 8) | B(pos + 1);
+      pos += 2;
+      vm->persist[i].count = (B(pos) << 8) | B(pos + 1);
+      pos += 2;
+      vm->persist_count++;
+    }
+    AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: %d persist entries"), vm->persist_count);
+  }
+
   #undef B
 
   vm->code = binary;
-  vm->code_offset = func_table_end;
-  vm->code_size = size - func_table_end;
+  vm->code_offset = persist_table_end;
+  vm->code_size = size - persist_table_end;
   vm->pc = vm->code_offset + entry_point;
   vm->sp = 0;
   vm->fp = 0;
@@ -3597,6 +3753,7 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   vm->instruction_count = 0;
   memset(vm->globals, 0, sizeof(vm->globals));
   memset(vm->stack, 0, sizeof(vm->stack));
+  vm->persist_file[0] = '\0';  // caller sets this before tc_persist_load()
 
   // Allocate frame 0 for main() — program starts here without OP_CALL
   if (!tc_frame_alloc(&vm->frames[0])) {
