@@ -408,7 +408,7 @@ Use these functions in callbacks to send data to Tasmota:
 | `webSend(buf)` | Send char array to web page (→ `WSContentSend`) | `WebPage()` / `WebCall()` / `WebOn()` |
 | `webSend("literal")` | Send string literal to web page | `WebPage()` / `WebCall()` / `WebOn()` |
 | `webFlush()` | Flush web content buffer to client (→ `WSContentFlush`) | `WebPage()` / `WebCall()` / `WebOn()` |
-| `webFile("filename")` | Send file contents from filesystem to web page | `WebPage()` / `WebCall()` / `WebUI()` / `WebOn()` |
+| `webSendFile("filename")` | Send file contents from filesystem to web page | `WebPage()` / `WebCall()` / `WebUI()` / `WebOn()` |
 
 ### Web Page Format
 
@@ -925,8 +925,12 @@ float c = a + b;    // a promoted to float, result = 7.5
 | Function                | Description                      |
 |-------------------------|----------------------------------|
 | `print(int value)`      | Print integer + newline          |
-| `printStr("literal")`   | Print string literal             |
-| `printString(char arr[])` | Print null-terminated char array |
+| `print("literal")`     | Print string literal (auto-detected) |
+| `print(char buf[])`    | Print char array as string (auto-detected) |
+| `printStr("literal")`   | Print string literal (explicit)  |
+| `printString(char arr[])` | Print null-terminated char array (explicit) |
+
+> **Note:** `print()` auto-detects the argument type. When passed a string literal, it prints the string. When passed a `char[]` array, it prints the array contents as a string. When passed an `int`, it prints the numeric value. The explicit `printStr`/`printString` functions are still available but rarely needed.
 
 ### GPIO
 
@@ -1005,6 +1009,9 @@ void EveryLoop() {
 | `float sqrt(float x)`                               | Square root                     |
 | `float sin(float x)`                                | Sine (radians)                  |
 | `float cos(float x)`                                | Cosine (radians)                |
+| `int floor(float x)`                                | Integer part (round toward −∞)  |
+| `int ceil(float x)`                                 | Integer part + 1 (round toward +∞) |
+| `int round(float x)`                                | Round to nearest integer        |
 
 ### String
 
@@ -1063,6 +1070,7 @@ Read and write files on the ESP32 filesystem (LittleFS). In the browser IDE, fil
 
 **Notes:**
 - File paths must be string literals (e.g., `"/data.txt"`)
+- **Filesystem selection** (Scripter-compatible): default is SD card (`ufsp`). Use `/ffs/` prefix for flash, `/sdfs/` prefix for SD card explicitly: `fileOpen("/ffs/config.txt", 0)` opens from flash, `fileOpen("/data.txt", 0)` opens from SD card
 - Maximum 4 files open simultaneously (ESP32), 8 in browser
 - Buffer arguments (`buf`) must be `char` arrays, not string literals
 - `fileRead` returns the number of bytes actually read (may be less than `max`)
@@ -1085,6 +1093,159 @@ fileClose(f);
 printString(buf);                    // prints "Hello!"
 
 fileDelete("/test.txt");             // clean up
+```
+
+### Extended File Operations
+
+Filesystem management, structured array I/O, and log file rotation.
+
+| Function | Description |
+|----------|-------------|
+| `int fileFormat()` | Format LittleFS filesystem (erases all data). Returns 0=ok |
+| `int fileMkdir("path")` | Create directory. Returns 1=ok, 0=fail |
+| `int fileRmdir("path")` | Remove directory. Returns 1=ok, 0=fail |
+| `int fileReadArray(int arr[], handle)` | Read one tab-delimited line into int array. Returns element count |
+| `fileWriteArray(int arr[], handle)` | Write array as tab-delimited line with trailing newline |
+| `fileWriteArray(int arr[], handle, append)` | Write with append flag: 1=omit newline (for appending multiple arrays on one line) |
+| `int fileLog("fname", char str[], limit)` | Append string + newline to file. Remove first line if file exceeds `limit` bytes. Returns file size |
+| `int fileDownload("fname", char url[])` | Download URL content to file. Returns HTTP status code (200=ok). Compatible with Scripter's `frw()` |
+| `int fileGetStr(char dst[], handle, "delim", index, endChar)` | Search file from start for Nth occurrence of delimiter, extract string until endChar. Returns string length. Compatible with Scripter's `fcs()` |
+
+**fileReadArray / fileWriteArray format:** Values are stored as decimal text separated by TAB characters, one array per line. This is compatible with Scripter's `fra()`/`fwa()` format.
+
+```c
+// Example: Save and load array data
+int values[5];
+values[0] = 100; values[1] = 200; values[2] = 300;
+values[3] = 400; values[4] = 500;
+
+int f = fileOpen("/data.tab", 1);    // write mode
+fileWriteArray(values, f);           // writes "100\t200\t300\t400\t500\n"
+fileClose(f);
+
+int loaded[5];
+f = fileOpen("/data.tab", 0);       // read mode
+int n = fileReadArray(loaded, f);   // n = 5
+fileClose(f);
+```
+
+```c
+// Example: Rolling log file (max 4096 bytes)
+char msg[64];
+strcpy(msg, "Sensor reading: 23.5C");
+fileLog("/log.txt", msg, 4096);
+// Appends line, removes oldest line if file > 4096 bytes
+```
+
+```c
+// Example: Download file from web
+char url[128];
+strcpy(url, "http://192.168.1.100/data.csv");
+int status = fileDownload("/data.csv", url);
+// status = 200 on success, negative on error
+```
+
+```c
+// Example: Extract 2nd comma-delimited field from CSV file
+// File content: "name,temperature,humidity\nSensor1,23.5,65\n"
+int f = fileOpen("/data.csv", 0);       // open for reading
+char value[32];
+int len = fileGetStr(value, f, ",", 2, '\n');
+// value = "23.5", len = 4 (content between 2nd comma and newline)
+fileClose(f);
+```
+
+### File Data Extract (IoT Time-Series)
+
+Extract a time range from tab-delimited CSV data files into float arrays for analysis. Designed for IoT data collectors that log sensor readings at regular intervals.
+
+**Data file format:** First column is a timestamp (ISO or German locale), followed by tab-separated float values. First line may be a header (auto-skipped).
+
+| Function | Description |
+|----------|-------------|
+| `int fileExtract(handle, char from[], char to[], col_offs, accum, int arr1[], ...)` | Extract rows where `from <= timestamp <= to`. Always seeks from file start. Returns row count |
+| `int fileExtractFast(handle, char from[], char to[], col_offs, accum, int arr1[], ...)` | Same but caches file position for efficient sequential time-range queries |
+
+**Parameters:**
+- `handle` — open file handle (from `fileOpen`)
+- `from`, `to` — timestamp range as char[] (ISO `2024-01-15T12:00:00` or German `15.1.24 12:00`)
+- `col_offs` — skip this many data columns before distributing to arrays (0 = start at first data column)
+- `accum` — 0: store values, 1: add to existing array values (for combining multiple extracts)
+- `arr1, arr2, ...` — variable number of int arrays, one per column to extract (up to 16). Values are stored as IEEE 754 float bit patterns — use float variables or casts to read them
+
+```c
+// Example: Extract temperature and humidity for one day
+int temp[96], hum[96];  // 96 = 24h * 4 (15-min intervals)
+char from[24], to[24];
+strcpy(from, "15.12.21 00:00");
+strcpy(to, "16.12.21 00:00");
+
+int f = fileOpen("/daily.csv", 0);
+// col_offs=4 skips WB,WR1,WR2,WR3 → starts at ATMP_a (5th data col)
+int rows = fileExtract(f, from, to, 4, 0, temp, hum);
+fileClose(f);
+// rows = number of 15-min samples, temp[] and hum[] filled with floats
+```
+
+```c
+// Example: Sequential daily queries with fileExtractFast
+int energy[96];
+char from[24], to[24];
+int f = fileOpen("/yearly.csv", 0);
+
+strcpy(from, "1.1.24 00:00");
+strcpy(to, "2.1.24 00:00");
+int r1 = fileExtractFast(f, from, to, 0, 0, energy);
+// Next day — fileExtractFast skips already-scanned data
+strcpy(from, "2.1.24 00:00");
+strcpy(to, "3.1.24 00:00");
+int r2 = fileExtractFast(f, from, to, 0, 0, energy);
+fileClose(f);
+```
+
+### Time / Timestamp Functions
+
+Timestamp conversion and arithmetic. Supports ISO web format (`2024-01-15T12:30:45`) and German locale format (`15.1.24 12:30`). Compatible with Scripter's `tstamp`, `cts`, `tso`, `tsn`, `s2t`.
+
+| Function | Description |
+|----------|-------------|
+| `int timeStamp(char buf[])` | Get current Tasmota local timestamp into buf. Returns 0 |
+| `int timeConvert(char buf[], flg)` | Convert timestamp format in-place. 0=German→Web, 1=Web→German. Returns 0 |
+| `int timeOffset(char buf[], days)` | Add `days` offset to timestamp in buf (in-place). Returns 0 |
+| `int timeOffset(char buf[], days, zeroFlag)` | With `zeroFlag`=1: also zero the time portion (HH:MM:SS→00:00:00) |
+| `int timeToSecs(char buf[])` | Convert timestamp string to epoch seconds. Returns seconds |
+| `int secsToTime(char buf[], secs)` | Convert epoch seconds to ISO timestamp string in buf. Returns 0 |
+
+**Format auto-detection:** `timeConvert` and `timeOffset` auto-detect the input format (ISO if contains `T`, German otherwise) and preserve or convert accordingly.
+
+```c
+// Example: Get current time and convert formats
+char ts[24];
+timeStamp(ts);               // ts = "2024-06-15T14:30:00"
+
+char de[24];
+strcpy(de, ts);
+timeConvert(de, 1);          // de = "15.6.24 14:30"
+
+timeConvert(de, 0);          // de = "2024-06-15T14:30:00" (back to web)
+```
+
+```c
+// Example: Date arithmetic
+char ts[24];
+timeStamp(ts);               // "2024-06-15T14:30:00"
+timeOffset(ts, 7);           // "2024-06-22T14:30:00" (+ 7 days)
+timeOffset(ts, -3, 1);       // "2024-06-19T00:00:00" (- 3 days, zero time)
+```
+
+```c
+// Example: Convert to seconds and back
+char ts[24];
+timeStamp(ts);
+int secs = timeToSecs(ts);   // epoch seconds
+
+secs = secs + 3600;          // add 1 hour
+secsToTime(ts, secs);        // back to timestamp string
 ```
 
 ### Tasmota Command
@@ -1239,13 +1400,65 @@ void main() {
 }
 ```
 
+### TCP Server
+
+Start a TCP stream server to accept incoming connections. Only one client is served at a time.
+
+| Function | Description |
+|----------|-------------|
+| `int tcpServer(int port)` | Start TCP server on `port`. Returns 0=ok, -1=fail, -2=no network |
+| `tcpClose()` | Close TCP server and disconnect client |
+| `int tcpAvailable()` | Accept pending client and return bytes available to read |
+| `int tcpRead(char buf[])` | Read string from TCP client into `buf`. Returns bytes read |
+| `tcpWrite(char str[])` | Write string to TCP client |
+| `int tcpReadArray(int arr[])` | Read available bytes into int array (one byte per element). Returns count |
+| `tcpWriteArray(int arr[], int num)` | Write `num` array elements as uint8 bytes to TCP client |
+| `tcpWriteArray(int arr[], int num, int type)` | Write with type: 0=uint8, 1=uint16 BE, 2=sint16 BE, 3=float BE |
+
+**Example — Simple TCP echo server:**
+```c
+char buf[128];
+
+void main() {
+    tcpServer(8888);   // listen on port 8888
+}
+
+void Every50ms() {
+    int n = tcpAvailable();  // accept client + check available
+    if (n > 0) {
+        tcpRead(buf);        // read incoming string
+        tcpWrite(buf);       // echo it back
+    }
+}
+```
+
+**Example — Binary data streaming:**
+```c
+int data[100];
+
+void main() {
+    tcpServer(9000);
+}
+
+void EverySecond() {
+    int n = tcpAvailable();
+    if (n > 0) {
+        // read raw bytes into array
+        int count = tcpReadArray(data);
+        print(count);
+        // send back as uint16 big-endian
+        tcpWriteArray(data, count, 1);
+    }
+}
+```
+
 ### mDNS Service Advertisement
 
 Register the device as an mDNS service on the local network, enabling device emulation (Everhome ecotracker, Shelly, or custom services).
 
 | Function | Description |
 |----------|-------------|
-| `int mdns("name", "mac", "type")` | Start mDNS responder and advertise service. Returns 0 on success |
+| `int mdnsRegister("name", "mac", "type")` | Start mDNS responder and advertise service. Returns 0 on success |
 
 **Parameters (all string literals):**
 - **name** — hostname prefix. Use `"-"` for Tasmota's default hostname, or a custom prefix (MAC is appended automatically)
@@ -1260,12 +1473,12 @@ Register the device as an mDNS service on the local network, enabling device emu
 **Example — Everhome ecotracker emulation:**
 ```c
 int main() {
-    mdns("ecotracker-", "-", "everhome");
+    mdnsRegister("ecotracker-", "-", "everhome");
     return 0;
 }
 ```
 
-This is equivalent to Scripter's `mdns("ecotracker-", "-", "everhome")`.
+This is equivalent to Scripter's `mdnsRegister("ecotracker-", "-", "everhome")`.
 
 ### WebUI Widgets
 
@@ -1278,16 +1491,16 @@ Both callbacks use the same widget functions.
 
 | Function | Description |
 |----------|-------------|
-| `wButton(var, "label")` | Toggle button (0/1) — displays ON/OFF, click toggles |
-| `wSlider(var, min, max, "label")` | Range slider — drag to set value |
-| `wCheckbox(var, "label")` | Checkbox (0/1) — check/uncheck toggles |
-| `wText(chararray, maxlen, "label")` | Text input — edit string variable |
-| `wNumber(var, min, max, "label")` | Number input with min/max bounds |
-| `wPulldown(var, "opt0\|opt1\|opt2")` | Dropdown select — pipe-separated options, 0-based index |
-| `wRadio(var, "opt0\|opt1\|opt2")` | Radio button group — pipe-separated options, 0-based index |
-| `wTime(var, "label")` | Time picker (HH:MM) — stored as HHMM integer (e.g., 1430 = 14:30) |
-| `wLabel(page, "label")` | Register page 0–5 with a button label on the main page |
-| `int wPage()` | Returns current page number being rendered (use in `WebUI()` to branch) |
+| `webButton(var, "label")` | Toggle button (0/1) — displays ON/OFF, click toggles |
+| `webSlider(var, min, max, "label")` | Range slider — drag to set value |
+| `webCheckbox(var, "label")` | Checkbox (0/1) — check/uncheck toggles |
+| `webText(chararray, maxlen, "label")` | Text input — edit string variable |
+| `webNumber(var, min, max, "label")` | Number input with min/max bounds |
+| `webPulldown(var, "opt0\|opt1\|opt2")` | Dropdown select — pipe-separated options, 0-based index |
+| `webRadio(var, "opt0\|opt1\|opt2")` | Radio button group — pipe-separated options, 0-based index |
+| `webTime(var, "label")` | Time picker (HH:MM) — stored as HHMM integer (e.g., 1430 = 14:30) |
+| `webPageLabel(page, "label")` | Register page 0–5 with a button label on the main page |
+| `int webPage()` | Returns current page number being rendered (use in `WebUI()` to branch) |
 
 The first argument of widget functions is always a **global variable** that the widget reads from and writes to. The compiler automatically passes the variable's address to the syscall.
 
@@ -1297,14 +1510,14 @@ int relay;
 int brightness;
 
 void WebCall() {
-    wButton(relay, "Power");
-    wSlider(brightness, 0, 100, "Brightness");
+    webButton(relay, "Power");
+    webSlider(brightness, 0, 100, "Brightness");
 }
 ```
 
 **Example — Multiple pages with custom buttons:**
 
-Up to 6 pages can be registered with `wLabel()`. Each creates a button on the Tasmota main page. Use `wPage()` inside `WebUI()` to render different widgets per page.
+Up to 6 pages can be registered with `webPageLabel()`. Each creates a button on the Tasmota main page. Use `webPage()` inside `WebUI()` to render different widgets per page.
 
 ```c
 int power;
@@ -1314,32 +1527,32 @@ int alarm_time;
 char devname[32];
 
 void WebUI() {
-    int page = wPage();
+    int page = webPage();
     if (page == 0) {
-        wButton(power, "Power");
-        wSlider(brightness, 0, 100, "Brightness");
-        wPulldown(mode, "Off|Auto|Manual");
+        webButton(power, "Power");
+        webSlider(brightness, 0, 100, "Brightness");
+        webPulldown(mode, "Off|Auto|Manual");
     }
     if (page == 1) {
-        wTime(alarm_time, "Wake-up Time");
-        wText(devname, 32, "Device Name");
+        webTime(alarm_time, "Wake-up Time");
+        webText(devname, 32, "Device Name");
     }
 }
 
 int main() {
-    wLabel(0, "Controls");   // first button on main page
-    wLabel(1, "Settings");   // second button on main page
+    webPageLabel(0, "Controls");   // first button on main page
+    webPageLabel(1, "Settings");   // second button on main page
     return 0;
 }
 ```
 
-If no `wLabel()` is called but `WebUI()` exists, a single "TinyC UI" button appears.
+If no `webPageLabel()` is called but `WebUI()` exists, a single "TinyC UI" button appears.
 
 **How it works:**
 1. `WebCall()` renders widgets in the sensor section of the Tasmota main page
 2. `WebUI()` renders widgets on dedicated pages at `http://<device>/tc_ui?p=N`
-3. `wLabel(N, "text")` registers page N (0–5) with a button on the main page
-4. `wPage()` returns the current page number so `WebUI()` can show different widgets
+3. `webPageLabel(N, "text")` registers page N (0–5) with a button on the main page
+4. `webPage()` returns the current page number so `WebUI()` can show different widgets
 5. When you move a slider / click a button, JavaScript sends the new value via AJAX
 6. The server writes the value directly into the TinyC global variable
 7. The page auto-refreshes to show updated state
@@ -1347,11 +1560,11 @@ If no `wLabel()` is called but `WebUI()` exists, a single "TinyC UI" button appe
 
 **Including HTML from files:**
 
-Use `webFile("filename")` to send the contents of a file from the device filesystem directly to the web page. This is useful for large HTML, CSS, or JavaScript that would be too big to compile into bytecode constants.
+Use `webSendFile("filename")` to send the contents of a file from the device filesystem directly to the web page. This is useful for large HTML, CSS, or JavaScript that would be too big to compile into bytecode constants.
 
 ```c
 void WebPage() {
-    webFile("chart.html");  // include chart library from /chart.html
+    webSendFile("chart.html");  // include chart library from /chart.html
 }
 ```
 
@@ -1475,6 +1688,51 @@ void UdpCall() {
 }
 ```
 
+### General-Purpose UDP
+
+Scripter-compatible `udp()` function for arbitrary UDP communication. Uses a separate socket from the multicast variable sharing above.
+
+| Function | Description |
+|----------|-------------|
+| `int udp(0, int port)` | Open a listening UDP port. Returns 1 on success |
+| `int udp(1, char buf[])` | Read received string into buf. Returns byte count (0 = nothing) |
+| `void udp(2, char str[])` | Reply to sender's IP and port |
+| `void udp(3, char url[], char str[])` | Send string to url using the port from `udp(0)` |
+| `int udp(4, char buf[])` | Get remote sender IP as string. Returns length |
+| `int udp(5)` | Get remote sender port number |
+| `int udp(6, char url[], int port, char str[])` | Send string to arbitrary url:port |
+| `int udp(7, char url[], int port, int arr[], int count)` | Send array as raw bytes to url:port |
+
+**Notes:**
+- The first argument (mode) must be a literal integer (0-7)
+- Modes 6 and 7 create a temporary socket for each send (no prior `udp(0)` needed)
+- Mode 1 is non-blocking: returns 0 immediately if no packet is available
+- Mode 7 sends the lower byte of each array element
+
+```c
+char buf[128];
+char ip[20];
+
+void main() {
+    udp(0, 5000);  // listen on port 5000
+}
+
+void Every50ms() {
+    int n = udp(1, buf);  // check for incoming
+    if (n > 0) {
+        udp(4, ip);               // get sender IP
+        int port = udp(5);        // get sender port
+        udp(2, "ACK");            // reply to sender
+    }
+}
+
+void sendData() {
+    char msg[64];
+    strcpy(msg, "hello");
+    udp(6, "192.168.1.100", 5000, msg);  // send to specific IP:port
+}
+```
+
 ### I2C Bus
 
 Direct I2C bus access for sensor drivers (requires `USE_I2C`). All functions take `bus` as the last parameter (0 or 1).
@@ -1488,6 +1746,8 @@ Direct I2C bus access for sensor drivers (requires `USE_I2C`). All functions tak
 | `int i2cWrite(int addr, int reg, char buf[], int len, int bus)` | Write `len` bytes from char array. Returns 1=ok |
 | `int i2cRead0(int addr, char buf[], int len, int bus)` | Read `len` bytes without register. Returns 1=ok |
 | `int i2cWrite0(int addr, int reg, int bus)` | Write register byte only (no data). Returns 1=ok |
+| `int i2cSetDevice(int addr, int bus)` | Check if address is **unclaimed** and responsive. Returns 1=available |
+| `i2cSetActiveFound(int addr, "type", int bus)` | Register address as claimed by your driver. Logs discovery |
 
 **Notes:**
 - `bus` = 0 or 1 — selects which I2C bus to use
@@ -1496,6 +1756,7 @@ Direct I2C bus access for sensor drivers (requires `USE_I2C`). All functions tak
 - Buffer functions use `char[]` arrays — each element holds one byte (0–255)
 - Maximum buffer length is 255 bytes
 - Returns 0 if I2C is not compiled in or the operation fails
+- Use `i2cSetDevice` + `i2cSetActiveFound` to properly claim I2C addresses and prevent conflicts with Tasmota's built-in drivers
 
 **Example — Read TMP102 temperature sensor on bus 0:**
 ```c
@@ -1885,8 +2146,55 @@ All file operations use the `/tc_api` endpoint with CORS support, so the IDE can
 |----------|--------|-------------|
 | `/tc_api?cmd=listfiles` | GET | Returns JSON list of files: `{"ok":true,"files":[{"name":"x","size":123},...]}` |
 | `/tc_api?cmd=readfile&path=/name` | GET | Returns file content as plain text |
+| `/tc_api?cmd=readfile&path=/name@from_to` | GET | Returns time-filtered CSV data (see below) |
 | `/tc_api?cmd=writefile&path=/name` | POST | Writes POST body to file, returns `{"ok":true,"size":N}` |
 | `/tc_api?cmd=deletefile&path=/name` | GET | Deletes a file from the filesystem |
+
+### Time-Range Filtered File Access
+
+Append `@from_to` to the file path to extract only rows within a timestamp range from a CSV data file. This is useful for serving IoT time-series data to chart libraries.
+
+**URL format:**
+```
+/tc_api?cmd=readfile&path=/data.csv@DD.MM.YY-HH:MM_DD.MM.YY-HH:MM
+```
+
+**Example:**
+```
+/tc_api?cmd=readfile&path=/sml.csv@1.1.24-00:00_31.1.24-23:59
+```
+
+Both German (`DD.MM.YY HH:MM`) and ISO (`YYYY-MM-DDTHH:MM:SS`) timestamp formats are supported. The `_` (underscore) separates the from and to timestamps.
+
+**Response:** The header line (first line) is always included, followed by only those data lines whose first-column timestamp falls within `[from..to]`. Lines past the end timestamp are skipped efficiently (early break).
+
+**Performance optimization:** If an index file exists (same name with `.ind` extension, containing `timestamp\tbyte_offset` lines), byte offsets are used to seek directly to the start position. Otherwise, an estimated seek is performed based on the file's first and last timestamps (similar to Scripter's `opt_fext`).
+
+### Port 82 Download Server (ESP32)
+
+For large database files, the time-filtered readfile on port 80 can block the main web server loop. TinyC includes a dedicated **port 82 download server** that serves files in a FreeRTOS background task, keeping the device responsive during large transfers.
+
+**URL format:**
+```
+http://<ip>:82/ufs/<filename>
+http://<ip>:82/ufs/<filename>@from_to
+```
+
+**Examples:**
+```
+http://192.168.1.100:82/ufs/sml.csv
+http://192.168.1.100:82/ufs/sml.csv@1.1.24-00:00_31.1.24-23:59
+```
+
+**Features:**
+- Runs in a dedicated FreeRTOS task (pinned to core 1, priority 3)
+- Does not block the main Tasmota loop or web interface
+- Supports the same `@from_to` time-range filtering as the `/tc_api` readfile
+- Uses chunked transfer encoding for filtered responses
+- Content-Disposition header for browser download
+- One download at a time (returns HTTP 503 if busy)
+- Automatic MIME type detection (`.csv`/`.txt` = text/plain, `.html`, `.json`)
+- The port can be changed by defining `TC_DLPORT` before compilation (default: 82)
 
 ### Typical Workflow
 
@@ -2026,19 +2334,19 @@ int brightness;
 int mode;
 
 void WebUI() {
-    int page = wPage();
+    int page = webPage();
     if (page == 0) {
-        wButton(power, "Power");
-        wSlider(brightness, 0, 100, "Brightness");
+        webButton(power, "Power");
+        webSlider(brightness, 0, 100, "Brightness");
     }
     if (page == 1) {
-        wPulldown(mode, "Off|Auto|Manual");
+        webPulldown(mode, "Off|Auto|Manual");
     }
 }
 
 int main() {
-    wLabel(0, "Controls");
-    wLabel(1, "Settings");
+    webPageLabel(0, "Controls");
+    webPageLabel(1, "Settings");
     brightness = 50;
     return 0;
 }

@@ -10,10 +10,10 @@ char devname[32];
 
 void WebCall() {
     // These widgets appear in the sensor section of the main page
-    wButton(power, "Power");
-    wSlider(brightness, 0, 100, "Brightness");
-    wPulldown(mode, "Off|Auto|Manual");
-    wText(devname, 32, "Device Name");
+    webButton(power, "Power");
+    webSlider(brightness, 0, 100, "Brightness");
+    webPulldown(mode, "Off|Auto|Manual");
+    webText(devname, 32, "Device Name");
 }
 
 void EverySecond() {

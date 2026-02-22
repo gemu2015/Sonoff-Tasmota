@@ -265,6 +265,8 @@ enum TcSyscall {
   SYS_I2C_READ_BUF        = 107, // (addr, reg, buf_ref, len, bus) -> int — read into char[]
   SYS_I2C_WRITE_BUF       = 108, // (addr, reg, buf_ref, len, bus) -> int — write from char[]
   SYS_I2C_EXISTS           = 109, // (addr, bus) -> int — 1 if device on bus
+  SYS_I2C_SET_DEVICE      = 127, // (addr, bus) -> int — check available & not claimed
+  SYS_I2C_SET_FOUND       = 128, // (addr, const_type, bus) -> void — register as claimed
   SYS_I2C_READ_BUF0       = 112, // (addr, buf_ref, len, bus) -> int — read without register
   SYS_I2C_WRITE0          = 113, // (addr, reg, bus) -> int — write register only (no data)
   // Smart Meter (SML)
@@ -3095,6 +3097,30 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       TC_PUSH(vm, I2cSetDevice((uint32_t)a, (uint8_t)bus) ? 1 : 0);
 #else
       TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_I2C_SET_DEVICE: {
+      // i2cSetDevice(addr, bus) — check if address is available (not claimed) and responsive
+      int32_t bus = TC_POP(vm);
+      a = TC_POP(vm);  // addr
+#ifdef USE_I2C
+      TC_PUSH(vm, I2cSetDevice((uint32_t)a, (uint8_t)bus) ? 1 : 0);
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_I2C_SET_FOUND: {
+      // i2cSetActiveFound(addr, "type", bus) — register device as claimed + log
+      int32_t bus = TC_POP(vm);
+      int32_t ci  = TC_POP(vm);  // const pool index for type string
+      a = TC_POP(vm);            // addr
+#ifdef USE_I2C
+      const char *type_str = tc_get_const_str(vm, ci);
+      if (type_str) {
+        I2cSetActiveFound((uint32_t)a, type_str, (uint8_t)bus);
+      }
 #endif
       break;
     }

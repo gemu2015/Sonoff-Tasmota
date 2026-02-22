@@ -59,7 +59,7 @@ void EverySecond() {
 
     // Register mDNS once
     if (once == 0) {
-        mdns("ecotracker-", "-", "everhome");
+        mdnsRegister("ecotracker-", "-", "everhome");
         once = 1;
         addLog("EcoTracker: mDNS registered");
     }
@@ -129,12 +129,12 @@ void WebCall() {
 
 // ── Settings page (WebUI widgets) ──
 void WebUI() {
-    int page = wPage();
+    int page = webPage();
     if (page == 0) {
         // Settings
-        wNumber(pwroffset, -100, 100, "Offset [W] Nulleinspeisung");
-        wButton(do_init, "Zaehler initialisieren");
-        wButton(do_save, "Daten speichern");
+        webNumber(pwroffset, -100, 100, "Offset [W] Nulleinspeisung");
+        webButton(do_init, "Zaehler initialisieren");
+        webButton(do_save, "Daten speichern");
     }
 }
 
@@ -160,7 +160,7 @@ int main() {
     do_save = 0;
 
     // Register settings page button on Tasmota main page
-    wLabel(0, "EcoTracker Einstellungen");
+    webPageLabel(0, "EcoTracker Einstellungen");
 
     // Register /v1/json endpoint for Marstek polling
     webOn(1, "/v1/json");

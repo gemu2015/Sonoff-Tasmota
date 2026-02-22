@@ -407,7 +407,7 @@ Verwenden Sie diese Funktionen in Callbacks, um Daten an Tasmota zu senden:
 | `webSend(buf)` | Char-Array an Webseite senden (-> `WSContentSend`) | `WebPage()` / `WebCall()` / `WebOn()` |
 | `webSend("literal")` | Zeichenketten-Literal an Webseite senden | `WebPage()` / `WebCall()` / `WebOn()` |
 | `webFlush()` | Web-Inhaltspuffer zum Client leeren (-> `WSContentFlush`) | `WebPage()` / `WebCall()` / `WebOn()` |
-| `webFile("filename")` | Dateiinhalt vom Dateisystem an Webseite senden | `WebPage()` / `WebCall()` / `WebUI()` / `WebOn()` |
+| `webSendFile("filename")` | Dateiinhalt vom Dateisystem an Webseite senden | `WebPage()` / `WebCall()` / `WebUI()` / `WebOn()` |
 
 ### Webseitenformat
 
@@ -924,8 +924,12 @@ float c = a + b;    // a wird zu float heraufgestuft, Ergebnis = 7.5
 | Funktion                | Beschreibung                       |
 |-------------------------|-------------------------------------|
 | `print(int value)`      | Ganzzahl + Zeilenumbruch ausgeben   |
-| `printStr("literal")`   | Zeichenketten-Literal ausgeben      |
-| `printString(char arr[])` | Null-terminiertes Char-Array ausgeben |
+| `print("literal")`     | String-Literal ausgeben (automatisch erkannt) |
+| `print(char buf[])`    | Char-Array als String ausgeben (automatisch erkannt) |
+| `printStr("literal")`   | Zeichenketten-Literal ausgeben (explizit) |
+| `printString(char arr[])` | Null-terminiertes Char-Array ausgeben (explizit) |
+
+> **Hinweis:** `print()` erkennt den Argumenttyp automatisch. Bei einem String-Literal wird der String ausgegeben. Bei einem `char[]`-Array wird der Inhalt als String ausgegeben. Bei einem `int` wird der numerische Wert ausgegeben. Die expliziten Funktionen `printStr`/`printString` sind weiterhin verfügbar, aber selten nötig.
 
 ### GPIO
 
@@ -1004,6 +1008,9 @@ void EveryLoop() {
 | `float sqrt(float x)`                               | Quadratwurzel                    |
 | `float sin(float x)`                                | Sinus (Bogenmass)                |
 | `float cos(float x)`                                | Kosinus (Bogenmass)              |
+| `int floor(float x)`                                | Ganzzahlanteil (Richtung −∞)     |
+| `int ceil(float x)`                                 | Ganzzahlanteil + 1 (Richtung +∞) |
+| `int round(float x)`                                | Auf naechste Ganzzahl runden     |
 
 ### Zeichenketten
 
@@ -1062,6 +1069,7 @@ Dateien auf dem ESP32-Dateisystem (LittleFS) lesen und schreiben. In der Browser
 
 **Hinweise:**
 - Dateipfade muessen Zeichenketten-Literale sein (z.B. `"/data.txt"`)
+- **Dateisystem-Auswahl** (Scripter-kompatibel): Standard ist SD-Karte (`ufsp`). Praefix `/ffs/` fuer Flash, `/sdfs/` fuer SD-Karte explizit: `fileOpen("/ffs/config.txt", 0)` oeffnet von Flash, `fileOpen("/data.txt", 0)` oeffnet von SD-Karte
 - Maximal 4 gleichzeitig geoeffnete Dateien (ESP32), 8 im Browser
 - Puffer-Argumente (`buf`) muessen `char`-Arrays sein, keine Zeichenketten-Literale
 - `fileRead` gibt die tatsaechlich gelesene Byteanzahl zurueck (kann weniger als `max` sein)
@@ -1084,6 +1092,159 @@ fileClose(f);
 printString(buf);                    // gibt "Hello!" aus
 
 fileDelete("/test.txt");             // aufraeumen
+```
+
+### Erweiterte Dateioperationen
+
+Dateisystemverwaltung, strukturierte Array-Ein-/Ausgabe und Logdatei-Rotation.
+
+| Funktion | Beschreibung |
+|----------|--------------|
+| `int fileFormat()` | LittleFS-Dateisystem formatieren (loescht alle Daten). Gibt 0=ok zurueck |
+| `int fileMkdir("pfad")` | Verzeichnis erstellen. Gibt 1=ok, 0=Fehler zurueck |
+| `int fileRmdir("pfad")` | Verzeichnis entfernen. Gibt 1=ok, 0=Fehler zurueck |
+| `int fileReadArray(int arr[], handle)` | Eine Tab-getrennte Zeile in Int-Array lesen. Gibt Elementanzahl zurueck |
+| `fileWriteArray(int arr[], handle)` | Array als Tab-getrennte Zeile mit Zeilenumbruch schreiben |
+| `fileWriteArray(int arr[], handle, append)` | Mit Append-Flag: 1=Zeilenumbruch weglassen (zum Anhaengen mehrerer Arrays in einer Zeile) |
+| `int fileLog("datei", char str[], limit)` | String + Zeilenumbruch an Datei anhaengen. Erste Zeile entfernen wenn Datei `limit` Bytes ueberschreitet. Gibt Dateigroesse zurueck |
+| `int fileDownload("datei", char url[])` | URL-Inhalt in Datei herunterladen. Gibt HTTP-Statuscode zurueck (200=ok). Kompatibel mit Scripters `frw()` |
+| `int fileGetStr(char dst[], handle, "delim", index, endChar)` | Datei von Anfang nach N-tem Vorkommen des Trennzeichens durchsuchen, String bis endChar extrahieren. Gibt Stringlaenge zurueck. Kompatibel mit Scripters `fcs()` |
+
+**fileReadArray / fileWriteArray Format:** Werte werden als Dezimaltext durch TAB-Zeichen getrennt gespeichert, ein Array pro Zeile. Kompatibel mit Scripters `fra()`/`fwa()` Format.
+
+```c
+// Beispiel: Array-Daten speichern und laden
+int values[5];
+values[0] = 100; values[1] = 200; values[2] = 300;
+values[3] = 400; values[4] = 500;
+
+int f = fileOpen("/data.tab", 1);    // Schreibmodus
+fileWriteArray(values, f);           // schreibt "100\t200\t300\t400\t500\n"
+fileClose(f);
+
+int loaded[5];
+f = fileOpen("/data.tab", 0);       // Lesemodus
+int n = fileReadArray(loaded, f);   // n = 5
+fileClose(f);
+```
+
+```c
+// Beispiel: Rotierende Logdatei (max 4096 Bytes)
+char msg[64];
+strcpy(msg, "Sensorwert: 23.5C");
+fileLog("/log.txt", msg, 4096);
+// Haengt Zeile an, entfernt aelteste Zeile wenn Datei > 4096 Bytes
+```
+
+```c
+// Beispiel: Datei aus dem Web herunterladen
+char url[128];
+strcpy(url, "http://192.168.1.100/data.csv");
+int status = fileDownload("/data.csv", url);
+// status = 200 bei Erfolg, negativ bei Fehler
+```
+
+```c
+// Beispiel: 2. komma-getrenntes Feld aus CSV-Datei extrahieren
+// Dateiinhalt: "name,temperature,humidity\nSensor1,23.5,65\n"
+int f = fileOpen("/data.csv", 0);       // zum Lesen oeffnen
+char value[32];
+int len = fileGetStr(value, f, ",", 2, '\n');
+// value = "23.5", len = 4 (Inhalt zwischen 2. Komma und Zeilenumbruch)
+fileClose(f);
+```
+
+### Datei-Datenextraktion (IoT-Zeitreihen)
+
+Einen Zeitbereich aus Tab-getrennten CSV-Datendateien in Float-Arrays extrahieren fuer die Analyse. Entwickelt fuer IoT-Datensammler die Sensorwerte in regelmaessigen Intervallen protokollieren.
+
+**Dateiformat:** Erste Spalte ist ein Zeitstempel (ISO oder deutsches Format), gefolgt von Tab-getrennten Float-Werten. Erste Zeile kann eine Kopfzeile sein (wird automatisch uebersprungen).
+
+| Funktion | Beschreibung |
+|----------|--------------|
+| `int fileExtract(handle, char from[], char to[], col_offs, accum, int arr1[], ...)` | Zeilen extrahieren wo `from <= Zeitstempel <= to`. Sucht immer vom Dateianfang. Gibt Zeilenanzahl zurueck |
+| `int fileExtractFast(handle, char from[], char to[], col_offs, accum, int arr1[], ...)` | Wie oben, merkt sich Dateiposition fuer effiziente sequenzielle Zeitbereichsabfragen |
+
+**Parameter:**
+- `handle` — offener Datei-Handle (von `fileOpen`)
+- `from`, `to` — Zeitbereich als char[] (ISO `2024-01-15T12:00:00` oder Deutsch `15.1.24 12:00`)
+- `col_offs` — so viele Datenspalten ueberspringen bevor Arrays gefuellt werden (0 = ab erster Datenspalte)
+- `accum` — 0: Werte speichern, 1: zu bestehenden Array-Werten addieren (zum Kombinieren mehrerer Extraktionen)
+- `arr1, arr2, ...` — variable Anzahl Int-Arrays, eines pro zu extrahierender Spalte (max. 16). Werte werden als IEEE 754 Float-Bitmuster gespeichert — Float-Variablen oder Casts zum Lesen verwenden
+
+```c
+// Beispiel: Temperatur und Luftfeuchtigkeit fuer einen Tag extrahieren
+int temp[96], hum[96];  // 96 = 24h * 4 (15-Min-Intervalle)
+char from[24], to[24];
+strcpy(from, "15.12.21 00:00");
+strcpy(to, "16.12.21 00:00");
+
+int f = fileOpen("/daily.csv", 0);
+// col_offs=4 ueberspringt WB,WR1,WR2,WR3 → startet bei ATMP_a (5. Datenspalte)
+int rows = fileExtract(f, from, to, 4, 0, temp, hum);
+fileClose(f);
+// rows = Anzahl 15-Min-Abtastungen, temp[] und hum[] mit Floats gefuellt
+```
+
+```c
+// Beispiel: Sequenzielle Tagesabfragen mit fileExtractFast
+int energy[96];
+char from[24], to[24];
+int f = fileOpen("/yearly.csv", 0);
+
+strcpy(from, "1.1.24 00:00");
+strcpy(to, "2.1.24 00:00");
+int r1 = fileExtractFast(f, from, to, 0, 0, energy);
+// Naechster Tag — fileExtractFast ueberspringt bereits gescannte Daten
+strcpy(from, "2.1.24 00:00");
+strcpy(to, "3.1.24 00:00");
+int r2 = fileExtractFast(f, from, to, 0, 0, energy);
+fileClose(f);
+```
+
+### Zeit- / Zeitstempel-Funktionen
+
+Zeitstempel-Konvertierung und -Arithmetik. Unterstuetzt ISO-Webformat (`2024-01-15T12:30:45`) und deutsches Gebietsformat (`15.1.24 12:30`). Kompatibel mit Scripters `tstamp`, `cts`, `tso`, `tsn`, `s2t`.
+
+| Funktion | Beschreibung |
+|----------|--------------|
+| `int timeStamp(char buf[])` | Aktuellen Tasmota-Zeitstempel in buf schreiben. Gibt 0 zurueck |
+| `int timeConvert(char buf[], flg)` | Zeitstempel-Format in-place konvertieren. 0=Deutsch→Web, 1=Web→Deutsch. Gibt 0 zurueck |
+| `int timeOffset(char buf[], days)` | `days` Tage zum Zeitstempel in buf addieren (in-place). Gibt 0 zurueck |
+| `int timeOffset(char buf[], days, zeroFlag)` | Mit `zeroFlag`=1: zusaetzlich Uhrzeit auf Null setzen (HH:MM:SS→00:00:00) |
+| `int timeToSecs(char buf[])` | Zeitstempel-String in Epochensekunden umwandeln. Gibt Sekunden zurueck |
+| `int secsToTime(char buf[], secs)` | Epochensekunden in ISO-Zeitstempel-String in buf umwandeln. Gibt 0 zurueck |
+
+**Format-Erkennung:** `timeConvert` und `timeOffset` erkennen das Eingabeformat automatisch (ISO wenn `T` enthalten, sonst Deutsch) und konvertieren entsprechend.
+
+```c
+// Beispiel: Aktuelle Zeit holen und Formate konvertieren
+char ts[24];
+timeStamp(ts);               // ts = "2024-06-15T14:30:00"
+
+char de[24];
+strcpy(de, ts);
+timeConvert(de, 1);          // de = "15.6.24 14:30"
+
+timeConvert(de, 0);          // de = "2024-06-15T14:30:00" (zurueck zu Web)
+```
+
+```c
+// Beispiel: Datumsarithmetik
+char ts[24];
+timeStamp(ts);               // "2024-06-15T14:30:00"
+timeOffset(ts, 7);           // "2024-06-22T14:30:00" (+ 7 Tage)
+timeOffset(ts, -3, 1);       // "2024-06-19T00:00:00" (- 3 Tage, Zeit nullen)
+```
+
+```c
+// Beispiel: In Sekunden umwandeln und zurueck
+char ts[24];
+timeStamp(ts);
+int secs = timeToSecs(ts);   // Epochensekunden
+
+secs = secs + 3600;          // 1 Stunde addieren
+secsToTime(ts, secs);        // zurueck zu Zeitstempel-String
 ```
 
 ### Tasmota-Befehl
@@ -1238,13 +1399,65 @@ void main() {
 }
 ```
 
+### TCP-Server
+
+Einen TCP-Stream-Server starten, um eingehende Verbindungen anzunehmen. Es wird nur ein Client gleichzeitig bedient.
+
+| Funktion | Beschreibung |
+|----------|--------------|
+| `int tcpServer(int port)` | TCP-Server auf `port` starten. Gibt 0=ok, -1=Fehler, -2=kein Netzwerk zurueck |
+| `tcpClose()` | TCP-Server schliessen und Client trennen |
+| `int tcpAvailable()` | Wartenden Client annehmen und verfuegbare Bytes zurueckgeben |
+| `int tcpRead(char buf[])` | String vom TCP-Client in `buf` lesen. Gibt gelesene Bytes zurueck |
+| `tcpWrite(char str[])` | String an TCP-Client senden |
+| `int tcpReadArray(int arr[])` | Verfuegbare Bytes in Int-Array lesen (ein Byte pro Element). Gibt Anzahl zurueck |
+| `tcpWriteArray(int arr[], int num)` | `num` Array-Elemente als uint8-Bytes an TCP-Client senden |
+| `tcpWriteArray(int arr[], int num, int type)` | Mit Typ senden: 0=uint8, 1=uint16 BE, 2=sint16 BE, 3=float BE |
+
+**Beispiel — Einfacher TCP-Echo-Server:**
+```c
+char buf[128];
+
+void main() {
+    tcpServer(8888);   // auf Port 8888 horchen
+}
+
+void Every50ms() {
+    int n = tcpAvailable();  // Client annehmen + pruefen
+    if (n > 0) {
+        tcpRead(buf);        // eingehenden String lesen
+        tcpWrite(buf);       // zuruecksenden
+    }
+}
+```
+
+**Beispiel — Binaere Datenuebertragung:**
+```c
+int data[100];
+
+void main() {
+    tcpServer(9000);
+}
+
+void EverySecond() {
+    int n = tcpAvailable();
+    if (n > 0) {
+        // Rohdaten in Array lesen
+        int count = tcpReadArray(data);
+        print(count);
+        // als uint16 Big-Endian zuruecksenden
+        tcpWriteArray(data, count, 1);
+    }
+}
+```
+
 ### mDNS-Dienstankuendigung
 
 Das Geraet als mDNS-Dienst im lokalen Netzwerk registrieren, um Geraeteemulation zu ermoeglichen (Everhome ecotracker, Shelly oder benutzerdefinierte Dienste).
 
 | Funktion | Beschreibung |
 |----------|-------------|
-| `int mdns("name", "mac", "type")` | mDNS-Responder starten und Dienst ankuendigen. Gibt 0 bei Erfolg zurueck |
+| `int mdnsRegister("name", "mac", "type")` | mDNS-Responder starten und Dienst ankuendigen. Gibt 0 bei Erfolg zurueck |
 
 **Parameter (alle Zeichenketten-Literale):**
 - **name** — Hostname-Praefix. Verwenden Sie `"-"` fuer Tasmota's Standard-Hostname, oder ein benutzerdefiniertes Praefix (MAC wird automatisch angefuegt)
@@ -1259,12 +1472,12 @@ Das Geraet als mDNS-Dienst im lokalen Netzwerk registrieren, um Geraeteemulation
 **Beispiel — Everhome-Ecotracker-Emulation:**
 ```c
 int main() {
-    mdns("ecotracker-", "-", "everhome");
+    mdnsRegister("ecotracker-", "-", "everhome");
     return 0;
 }
 ```
 
-Dies entspricht Scripter's `mdns("ecotracker-", "-", "everhome")`.
+Dies entspricht Scripter's `mdnsRegister("ecotracker-", "-", "everhome")`.
 
 ### WebUI-Widgets
 
@@ -1277,16 +1490,16 @@ Beide Callbacks verwenden die gleichen Widget-Funktionen.
 
 | Funktion | Beschreibung |
 |----------|-------------|
-| `wButton(var, "label")` | Umschalt-Schaltflaeche (0/1) — zeigt EIN/AUS, Klick schaltet um |
-| `wSlider(var, min, max, "label")` | Bereichsregler — ziehen zum Einstellen des Werts |
-| `wCheckbox(var, "label")` | Kontrollkaestchen (0/1) — Aktivieren/Deaktivieren schaltet um |
-| `wText(chararray, maxlen, "label")` | Texteingabe — Zeichenkettenvariable bearbeiten |
-| `wNumber(var, min, max, "label")` | Zahleneingabe mit Min/Max-Grenzen |
-| `wPulldown(var, "opt0\|opt1\|opt2")` | Dropdown-Auswahl — Pipe-getrennte Optionen, 0-basierter Index |
-| `wRadio(var, "opt0\|opt1\|opt2")` | Optionsschaltflaechengruppe — Pipe-getrennte Optionen, 0-basierter Index |
-| `wTime(var, "label")` | Zeitauswahl (HH:MM) — gespeichert als HHMM-Ganzzahl (z.B. 1430 = 14:30) |
-| `wLabel(page, "label")` | Seite 0–5 mit einer Schaltflaechenbeschriftung auf der Hauptseite registrieren |
-| `int wPage()` | Gibt die aktuelle Seitennummer zurueck, die gerendert wird (in `WebUI()` zur Verzweigung verwenden) |
+| `webButton(var, "label")` | Umschalt-Schaltflaeche (0/1) — zeigt EIN/AUS, Klick schaltet um |
+| `webSlider(var, min, max, "label")` | Bereichsregler — ziehen zum Einstellen des Werts |
+| `webCheckbox(var, "label")` | Kontrollkaestchen (0/1) — Aktivieren/Deaktivieren schaltet um |
+| `webText(chararray, maxlen, "label")` | Texteingabe — Zeichenkettenvariable bearbeiten |
+| `webNumber(var, min, max, "label")` | Zahleneingabe mit Min/Max-Grenzen |
+| `webPulldown(var, "opt0\|opt1\|opt2")` | Dropdown-Auswahl — Pipe-getrennte Optionen, 0-basierter Index |
+| `webRadio(var, "opt0\|opt1\|opt2")` | Optionsschaltflaechengruppe — Pipe-getrennte Optionen, 0-basierter Index |
+| `webTime(var, "label")` | Zeitauswahl (HH:MM) — gespeichert als HHMM-Ganzzahl (z.B. 1430 = 14:30) |
+| `webPageLabel(page, "label")` | Seite 0–5 mit einer Schaltflaechenbeschriftung auf der Hauptseite registrieren |
+| `int webPage()` | Gibt die aktuelle Seitennummer zurueck, die gerendert wird (in `WebUI()` zur Verzweigung verwenden) |
 
 Das erste Argument der Widget-Funktionen ist immer eine **globale Variable**, die das Widget liest und in die es schreibt. Der Compiler uebergibt automatisch die Adresse der Variable an den Syscall.
 
@@ -1296,14 +1509,14 @@ int relay;
 int brightness;
 
 void WebCall() {
-    wButton(relay, "Power");
-    wSlider(brightness, 0, 100, "Brightness");
+    webButton(relay, "Power");
+    webSlider(brightness, 0, 100, "Brightness");
 }
 ```
 
 **Beispiel — Mehrere Seiten mit benutzerdefinierten Schaltflaechen:**
 
-Bis zu 6 Seiten koennen mit `wLabel()` registriert werden. Jede erstellt eine Schaltflaeche auf der Tasmota-Hauptseite. Verwenden Sie `wPage()` innerhalb von `WebUI()`, um verschiedene Widgets pro Seite zu rendern.
+Bis zu 6 Seiten koennen mit `webPageLabel()` registriert werden. Jede erstellt eine Schaltflaeche auf der Tasmota-Hauptseite. Verwenden Sie `webPage()` innerhalb von `WebUI()`, um verschiedene Widgets pro Seite zu rendern.
 
 ```c
 int power;
@@ -1313,32 +1526,32 @@ int alarm_time;
 char devname[32];
 
 void WebUI() {
-    int page = wPage();
+    int page = webPage();
     if (page == 0) {
-        wButton(power, "Power");
-        wSlider(brightness, 0, 100, "Brightness");
-        wPulldown(mode, "Off|Auto|Manual");
+        webButton(power, "Power");
+        webSlider(brightness, 0, 100, "Brightness");
+        webPulldown(mode, "Off|Auto|Manual");
     }
     if (page == 1) {
-        wTime(alarm_time, "Wake-up Time");
-        wText(devname, 32, "Device Name");
+        webTime(alarm_time, "Wake-up Time");
+        webText(devname, 32, "Device Name");
     }
 }
 
 int main() {
-    wLabel(0, "Controls");   // erste Schaltflaeche auf der Hauptseite
-    wLabel(1, "Settings");   // zweite Schaltflaeche auf der Hauptseite
+    webPageLabel(0, "Controls");   // erste Schaltflaeche auf der Hauptseite
+    webPageLabel(1, "Settings");   // zweite Schaltflaeche auf der Hauptseite
     return 0;
 }
 ```
 
-Wenn kein `wLabel()` aufgerufen wird, aber `WebUI()` existiert, erscheint eine einzelne "TinyC UI"-Schaltflaeche.
+Wenn kein `webPageLabel()` aufgerufen wird, aber `WebUI()` existiert, erscheint eine einzelne "TinyC UI"-Schaltflaeche.
 
 **Funktionsweise:**
 1. `WebCall()` rendert Widgets im Sensorbereich der Tasmota-Hauptseite
 2. `WebUI()` rendert Widgets auf dedizierten Seiten unter `http://<device>/tc_ui?p=N`
-3. `wLabel(N, "text")` registriert Seite N (0–5) mit einer Schaltflaeche auf der Hauptseite
-4. `wPage()` gibt die aktuelle Seitennummer zurueck, damit `WebUI()` verschiedene Widgets anzeigen kann
+3. `webPageLabel(N, "text")` registriert Seite N (0–5) mit einer Schaltflaeche auf der Hauptseite
+4. `webPage()` gibt die aktuelle Seitennummer zurueck, damit `WebUI()` verschiedene Widgets anzeigen kann
 5. Wenn Sie einen Regler bewegen / eine Schaltflaeche klicken, sendet JavaScript den neuen Wert per AJAX
 6. Der Server schreibt den Wert direkt in die TinyC-globale Variable
 7. Die Seite aktualisiert sich automatisch, um den aktualisierten Zustand anzuzeigen
@@ -1346,11 +1559,11 @@ Wenn kein `wLabel()` aufgerufen wird, aber `WebUI()` existiert, erscheint eine e
 
 **HTML aus Dateien einbinden:**
 
-Verwenden Sie `webFile("filename")`, um den Inhalt einer Datei vom Geraetedateisystem direkt an die Webseite zu senden. Dies ist nuetzlich fuer grosses HTML, CSS oder JavaScript, das zu gross waere, um in Bytecode-Konstanten kompiliert zu werden.
+Verwenden Sie `webSendFile("filename")`, um den Inhalt einer Datei vom Geraetedateisystem direkt an die Webseite zu senden. Dies ist nuetzlich fuer grosses HTML, CSS oder JavaScript, das zu gross waere, um in Bytecode-Konstanten kompiliert zu werden.
 
 ```c
 void WebPage() {
-    webFile("chart.html");  // Diagrammbibliothek von /chart.html einbinden
+    webSendFile("chart.html");  // Diagrammbibliothek von /chart.html einbinden
 }
 ```
 
@@ -1474,6 +1687,27 @@ void UdpCall() {
 }
 ```
 
+### Allgemeine UDP-Funktion
+
+Scripter-kompatible `udp()`-Funktion fuer beliebige UDP-Kommunikation. Verwendet einen separaten Socket von der Multicast-Variablenfreigabe oben.
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `int udp(0, int port)` | UDP-Port oeffnen. Gibt 1 bei Erfolg zurueck |
+| `int udp(1, char buf[])` | Empfangenen String in buf lesen. Gibt Byteanzahl zurueck (0 = nichts) |
+| `void udp(2, char str[])` | Antwort an Absender-IP und -Port senden |
+| `void udp(3, char url[], char str[])` | String an url mit dem Port von `udp(0)` senden |
+| `int udp(4, char buf[])` | Remote-Absender-IP als String. Gibt Laenge zurueck |
+| `int udp(5)` | Remote-Absender-Port zurueckgeben |
+| `int udp(6, char url[], int port, char str[])` | String an beliebige url:port senden |
+| `int udp(7, char url[], int port, int arr[], int count)` | Array als Rohbytes an url:port senden |
+
+**Hinweise:**
+- Das erste Argument (Modus) muss ein ganzzahliges Literal (0-7) sein
+- Modi 6 und 7 erstellen einen temporaeren Socket (kein vorheriges `udp(0)` noetig)
+- Modus 1 ist nicht-blockierend: gibt sofort 0 zurueck wenn kein Paket verfuegbar
+- Modus 7 sendet das untere Byte jedes Array-Elements
+
 ### I2C-Bus
 
 Direkter I2C-Bus-Zugriff fuer Sensortreiber (erfordert `USE_I2C`). Alle Funktionen nehmen `bus` als letzten Parameter (0 oder 1).
@@ -1487,6 +1721,8 @@ Direkter I2C-Bus-Zugriff fuer Sensortreiber (erfordert `USE_I2C`). Alle Funktion
 | `int i2cWrite(int addr, int reg, char buf[], int len, int bus)` | `len` Bytes aus char-Array schreiben. Gibt 1=ok zurueck |
 | `int i2cRead0(int addr, char buf[], int len, int bus)` | `len` Bytes ohne Register lesen. Gibt 1=ok zurueck |
 | `int i2cWrite0(int addr, int reg, int bus)` | Nur Register-Byte schreiben (keine Daten). Gibt 1=ok zurueck |
+| `int i2cSetDevice(int addr, int bus)` | Pruefen ob Adresse **nicht belegt** und ansprechbar. Gibt 1=verfuegbar zurueck |
+| `i2cSetActiveFound(int addr, "type", int bus)` | Adresse als belegt registrieren. Loggt Erkennung |
 
 **Hinweise:**
 - `bus` = 0 oder 1 — waehlt welcher I2C-Bus verwendet wird
@@ -1495,6 +1731,7 @@ Direkter I2C-Bus-Zugriff fuer Sensortreiber (erfordert `USE_I2C`). Alle Funktion
 - Pufferfunktionen verwenden `char[]`-Arrays — jedes Element enthaelt ein Byte (0–255)
 - Maximale Pufferlaenge ist 255 Bytes
 - Gibt 0 zurueck wenn I2C nicht einkompiliert ist oder die Operation fehlschlaegt
+- `i2cSetDevice` + `i2cSetActiveFound` verwenden, um I2C-Adressen korrekt zu beanspruchen und Konflikte mit Tasmota-Treibern zu vermeiden
 
 **Beispiel — TMP102-Temperatursensor auf Bus 0 lesen:**
 ```c
@@ -1884,8 +2121,55 @@ Alle Dateioperationen verwenden den `/tc_api`-Endpunkt mit CORS-Unterstuetzung, 
 |----------|---------|-------------|
 | `/tc_api?cmd=listfiles` | GET | Gibt JSON-Liste der Dateien zurueck: `{"ok":true,"files":[{"name":"x","size":123},...]}` |
 | `/tc_api?cmd=readfile&path=/name` | GET | Gibt Dateiinhalt als Klartext zurueck |
+| `/tc_api?cmd=readfile&path=/name@von_bis` | GET | Gibt zeitgefilterte CSV-Daten zurueck (siehe unten) |
 | `/tc_api?cmd=writefile&path=/name` | POST | Schreibt POST-Body in Datei, gibt `{"ok":true,"size":N}` zurueck |
 | `/tc_api?cmd=deletefile&path=/name` | GET | Loescht eine Datei vom Dateisystem |
+
+### Zeitbereichs-gefilterter Dateizugriff
+
+Haengen Sie `@von_bis` an den Dateipfad an, um nur Zeilen innerhalb eines Zeitbereichs aus einer CSV-Datendatei zu extrahieren. Dies ist nuetzlich fuer die Bereitstellung von IoT-Zeitreihendaten an Chart-Bibliotheken.
+
+**URL-Format:**
+```
+/tc_api?cmd=readfile&path=/data.csv@TT.MM.JJ-HH:MM_TT.MM.JJ-HH:MM
+```
+
+**Beispiel:**
+```
+/tc_api?cmd=readfile&path=/sml.csv@1.1.24-00:00_31.1.24-23:59
+```
+
+Sowohl das deutsche (`TT.MM.JJ HH:MM`) als auch das ISO-Format (`JJJJ-MM-TTTHH:MM:SS`) werden unterstuetzt. Der `_` (Unterstrich) trennt die Von- und Bis-Zeitstempel.
+
+**Antwort:** Die Kopfzeile (erste Zeile) wird immer eingeschlossen, gefolgt von nur den Datenzeilen, deren Zeitstempel in der ersten Spalte innerhalb `[von..bis]` liegt. Zeilen nach dem Endzeitstempel werden effizient uebersprungen (fruehzeitiger Abbruch).
+
+**Leistungsoptimierung:** Wenn eine Indexdatei existiert (gleicher Name mit `.ind`-Erweiterung, enthaltend `Zeitstempel\tByte-Offset`-Zeilen), werden Byte-Offsets verwendet, um direkt zur Startposition zu springen. Andernfalls wird eine geschaetzte Positionssuche basierend auf dem ersten und letzten Zeitstempel der Datei durchgefuehrt (aehnlich wie Scripters `opt_fext`).
+
+### Port 82 Download-Server (ESP32)
+
+Fuer grosse Datenbankdateien kann der zeitgefilterte Dateizugriff auf Port 80 die Haupt-Webserver-Schleife blockieren. TinyC enthaelt einen dedizierten **Port 82 Download-Server**, der Dateien in einem FreeRTOS-Hintergrund-Task bereitstellt und das Geraet waehrend grosser Uebertragungen reaktionsfaehig haelt.
+
+**URL-Format:**
+```
+http://<ip>:82/ufs/<dateiname>
+http://<ip>:82/ufs/<dateiname>@von_bis
+```
+
+**Beispiele:**
+```
+http://192.168.1.100:82/ufs/sml.csv
+http://192.168.1.100:82/ufs/sml.csv@1.1.24-00:00_31.1.24-23:59
+```
+
+**Eigenschaften:**
+- Laeuft in einem dedizierten FreeRTOS-Task (angeheftet an Core 1, Prioritaet 3)
+- Blockiert nicht die Tasmota-Hauptschleife oder Weboberflaeche
+- Unterstuetzt die gleiche `@von_bis` Zeitbereichsfilterung wie `/tc_api` readfile
+- Verwendet Chunked-Transfer-Encoding fuer gefilterte Antworten
+- Content-Disposition-Header fuer Browser-Download
+- Ein Download gleichzeitig (gibt HTTP 503 zurueck wenn beschaeftigt)
+- Automatische MIME-Typ-Erkennung (`.csv`/`.txt` = text/plain, `.html`, `.json`)
+- Der Port kann durch Definition von `TC_DLPORT` vor der Kompilierung geaendert werden (Standard: 82)
 
 ### Typischer Arbeitsablauf
 
@@ -2025,19 +2309,19 @@ int brightness;
 int mode;
 
 void WebUI() {
-    int page = wPage();
+    int page = webPage();
     if (page == 0) {
-        wButton(power, "Power");
-        wSlider(brightness, 0, 100, "Brightness");
+        webButton(power, "Power");
+        webSlider(brightness, 0, 100, "Brightness");
     }
     if (page == 1) {
-        wPulldown(mode, "Off|Auto|Manual");
+        webPulldown(mode, "Off|Auto|Manual");
     }
 }
 
 int main() {
-    wLabel(0, "Controls");
-    wLabel(1, "Settings");
+    webPageLabel(0, "Controls");
+    webPageLabel(1, "Settings");
     brightness = 50;
     return 0;
 }

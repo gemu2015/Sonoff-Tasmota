@@ -22,7 +22,7 @@ After compiling and flashing Tasmota, upload the IDE file to the device filesyst
 
 ## Language
 
-Standard C subset: `int`, `float`, `char`, `void`, `bool` types. Control flow with `if/else`, `while`, `for`, `switch/case`, `break`, `continue`. Functions, arrays (stack up to 255, heap for larger), `#define` preprocessor, `// line` and `/* block */` comments. No pointers, no structs.
+Standard C subset: `int`, `float`, `char`, `void`, `bool` types. Control flow with `if/else`, `while`, `for`, `switch/case`, `break`, `continue`. Functions, arrays (local up to 64 elements, heap-allocated for larger), `#define` preprocessor, `// line` and `/* block */` comments. No pointers, no structs.
 
 ## Tasmota Integration
 
@@ -47,15 +47,17 @@ Callbacks run automatically from Tasmota's main loop:
 **Timing:** `delay`, `delayMicroseconds`, `millis`, `micros`
 **Timers:** `timerStart`, `timerDone`, `timerStop`, `timerRemaining`
 **Serial:** `serialBegin`, `serialPrint`, `serialPrintInt`, `serialPrintFloat`, `serialPrintln`, `serialRead`, `serialAvailable`
-**Math:** `abs`, `min`, `max`, `map`, `random`, `sqrt`, `sin`, `cos`
+**Math:** `abs`, `min`, `max`, `map`, `random`, `sqrt`, `sin`, `cos`, `floor`, `ceil`, `round`
 **Strings:** `strlen`, `strcpy`, `strcat`, `strcmp`, `printString`, `printStr`, `strToken`, `strSub`, `strFind`
 **Format:** `sprintfInt`, `sprintfFloat`, `sprintfStr`, `sprintfAppendInt`, `sprintfAppendFloat`, `sprintfAppendStr`
-**I2C:** `i2cRead8`, `i2cWrite8`, `i2cRead`, `i2cWrite`, `i2cExists`, `i2cRead0`, `i2cWrite0`
+**I2C:** `i2cRead8`, `i2cWrite8`, `i2cRead`, `i2cWrite`, `i2cExists`, `i2cRead0`, `i2cWrite0`, `i2cSetDevice`, `i2cSetActiveFound`
 **SPI:** `spiInit`, `spiSetCS`, `spiTransfer`
-**Files:** `fileOpen`, `fileClose`, `fileRead`, `fileWrite`, `fileExists`, `fileDelete`, `fileSize`
+**Files:** `fileOpen`, `fileClose`, `fileRead`, `fileWrite`, `fileExists`, `fileDelete`, `fileSize`, `fileFormat`, `fileMkdir`, `fileRmdir`, `fileReadArray`, `fileWriteArray`, `fileLog`, `fileDownload`, `fileGetStr`, `fileExtract`, `fileExtractFast`
+**Time:** `timeStamp`, `timeConvert`, `timeOffset`, `timeToSecs`, `secsToTime`
 **Tasmota:** `tasmCmd`, `sensorGet`, `responseAppend`, `webSend`, `webFlush`, `addLog`
 **HTTP:** `httpGet`, `httpPost`, `httpHeader`
-**UDP:** `udpSend`, `udpRecv`, `udpReady`, `udpSendArray`, `udpRecvArray`
+**TCP:** `tcpServer`, `tcpClose`, `tcpAvailable`, `tcpRead`, `tcpWrite`, `tcpReadArray`, `tcpWriteArray`
+**UDP:** `udpSend`, `udpRecv`, `udpReady`, `udpSendArray`, `udpRecvArray`, `udp` (general-purpose, modes 0-7)
 **Display:** `dspText`, `dspClear`, `dspPos`, `dspFont`, `dspSize`, `dspColor`, `dspDraw`, `dspPad`, `dspPixel`, `dspLine`, `dspRect`, `dspFillRect`, `dspCircle`, `dspFillCircle`, `dspHLine`, `dspVLine`, `dspRoundRect`, `dspFillRoundRect`, `dspTriangle`, `dspFillTriangle`, `dspDim`, `dspOnOff`, `dspUpdate`, `dspPicture`, `dspWidth`, `dspHeight`
 **Audio:** `audioVol`, `audioPlay`, `audioSay`
 **Persist:** `persist` keyword for auto-saved variables, `saveVars` for manual save
@@ -82,6 +84,8 @@ Callbacks run automatically from Tasmota's main loop:
 
 REST API: `http://<ip>/tc_api?cmd=run`, `cmd=stop`, `cmd=status`
 
+File Download Server (port 82, ESP32): `http://<ip>:82/ufs/<filename>` — supports `@from_to` time-range filter
+
 ## VM Limits
 
 | Resource | ESP8266 | ESP32 |
@@ -100,7 +104,7 @@ See [`examples/`](examples/) for complete working programs:
 
 - **blink** — LED blink
 - **callbacks** — Tasmota MQTT + web integration
-- **sht31** — I2C temperature/humidity sensor
+- **sht31** — I2C temperature/humidity sensor (dual-bus scan, address claiming)
 - **max31855** — SPI thermocouple reader
 - **bresser** — CC1101 868 MHz weather station receiver (5/6/7-in-1 + soil moisture)
 - **bresser_chart** — Bresser weather station with Google Charts ring buffer and flash persistence
@@ -109,7 +113,7 @@ See [`examples/`](examples/) for complete working programs:
 - **editor** — Code editor example
 - **udp** — Multicast data sharing between devices
 - **benchmark** — VM performance measurement
-- **file_io** — LittleFS read/write
+- **file_io** — File read/write (SD card default, `/ffs/` for flash, `/sdfs/` for SD)
 - **sensor_read** — Analog sensor with serial output
 - **sort** — Bubble sort algorithm
 - **strings** — String operations

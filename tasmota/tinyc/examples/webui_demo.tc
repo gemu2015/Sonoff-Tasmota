@@ -15,14 +15,14 @@ char devname[32];
 // schedule: 0=Disabled, 1=Weekdays, 2=Weekend, 3=Daily
 
 void WebUI() {
-    wButton(power, "Power");
-    wSlider(brightness, 0, 100, "Brightness");
-    wPulldown(mode, "Off|Auto|Manual|Timer");
-    wCheckbox(schedule, "Schedule Active");
-    wTime(alarm_time, "Turn-on Time");
-    wNumber(fade_speed, 1, 10, "Fade Speed");
-    wRadio(schedule, "Disabled|Weekdays|Weekend|Daily");
-    wText(devname, 32, "Device Name");
+    webButton(power, "Power");
+    webSlider(brightness, 0, 100, "Brightness");
+    webPulldown(mode, "Off|Auto|Manual|Timer");
+    webCheckbox(schedule, "Schedule Active");
+    webTime(alarm_time, "Turn-on Time");
+    webNumber(fade_speed, 1, 10, "Fade Speed");
+    webRadio(schedule, "Disabled|Weekdays|Weekend|Daily");
+    webText(devname, 32, "Device Name");
 }
 
 void EverySecond() {
@@ -60,7 +60,7 @@ int main() {
     fade_speed = 5;
     strcpy(devname, "Living Room");
 
-    wLabel(0, "Smart Relay");
+    webPageLabel(0, "Smart Relay");
     gpioInit(2, 1);
     return 0;
 }

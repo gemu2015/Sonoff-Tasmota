@@ -9,18 +9,18 @@ int alarm_time;
 char devname[32];
 
 void WebUI() {
-    int page = wPage();  // which page are we rendering?
+    int page = webPage();  // which page are we rendering?
 
     if (page == 0) {
         // Control page
-        wButton(power, "Power");
-        wSlider(brightness, 0, 100, "Brightness");
-        wPulldown(mode, "Off|Auto|Manual");
+        webButton(power, "Power");
+        webSlider(brightness, 0, 100, "Brightness");
+        webPulldown(mode, "Off|Auto|Manual");
     }
     if (page == 1) {
         // Settings page
-        wTime(alarm_time, "Wake-up Time");
-        wText(devname, 32, "Device Name");
+        webTime(alarm_time, "Wake-up Time");
+        webText(devname, 32, "Device Name");
     }
 }
 
@@ -37,7 +37,7 @@ int main() {
     alarm_time = 700;
     strcpy(devname, "Living Room");
 
-    wLabel(0, "Controls");
-    wLabel(1, "Settings");
+    webPageLabel(0, "Controls");
+    webPageLabel(1, "Settings");
     return 0;
 }
