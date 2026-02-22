@@ -47,6 +47,9 @@ static void (*const TinyCWebOnHandlers[])(void) = {
   #include <ESP8266mDNS.h>
 #endif
 
+// UriGlob for port 82 download server wildcard routes
+#include <uri/UriGlob.h>
+
 // VM engine is in a separate .h to avoid Arduino IDE auto-prototype issues
 #include "xdrv_124_tinyc_vm.h"
 
@@ -853,6 +856,7 @@ static void HandleTinyCApi(void) {
   }
   else if (cmd == "readfile") {
     // Read a text file from filesystem: /tc_api?cmd=readfile&path=/sml_meter.def
+    // Supports time-range filter: /tc_api?cmd=readfile&path=/data.csv@1.2.22-00:00_12.2.22-00:00
     String fpath = Webserver->arg(F("path"));
     if (fpath.length() == 0 || fpath[0] != '/') {
       WSSendJSON_P(400, PSTR("{\"ok\":false,\"error\":\"missing path\"}"));
@@ -862,13 +866,185 @@ static void HandleTinyCApi(void) {
       WSSendJSON_P(500, PSTR("{\"ok\":false,\"error\":\"no filesystem\"}"));
       return;
     }
-    File f = ufsp->open(fpath.c_str(), "r");
+
+    // Check for time-range filter: path@from_to
+    char pathbuf[128];
+    strlcpy(pathbuf, fpath.c_str(), sizeof(pathbuf));
+    uint32_t cmp_from = 0, cmp_to = 0;
+    char *atp = strchr(pathbuf, '@');
+    if (atp) {
+      *atp = 0;
+      atp++;
+      // from_to separated by underscore
+      char *tp = strchr(atp, '_');
+      if (tp) {
+        *tp = 0;
+        tp++;
+        cmp_from = tc_ts_cmp(atp);
+        cmp_to = tc_ts_cmp(tp);
+      }
+    }
+
+    File f = ufsp->open(pathbuf, "r");
     if (!f) {
       WSSendJSON_P(404, PSTR("{\"ok\":false,\"error\":\"file not found\"}"));
       return;
     }
-    // Stream file content as plain text
+
     TCSendCORS("GET, POST, OPTIONS");
+
+    if (cmp_from && cmp_to && cmp_to > cmp_from) {
+      // ── Time-filtered file serving ──
+      // Stream only header + lines within [from..to] timestamp range
+      // Use sendContent() so Webserver handles chunked encoding correctly
+      Webserver->setContentLength(CONTENT_LENGTH_UNKNOWN);
+      Webserver->send(200, F("text/plain"), "");
+
+      char *lbuf = (char*)malloc(512);
+      if (!lbuf) { f.close(); return; }
+
+      // 1. Send header line (first line of CSV)
+      uint16_t li = 0;
+      while (f.available() && li < 510) {
+        uint8_t c;
+        f.read(&c, 1);
+        lbuf[li++] = c;
+        if (c == '\n') break;
+      }
+      lbuf[li] = 0;
+      if (li > 0) Webserver->sendContent(lbuf);
+      uint32_t header_end = f.position();
+
+      // 2. Try index file for fast seek
+      uint32_t seek_pos = 0;
+      {
+        char indpath[128];
+        strlcpy(indpath, pathbuf, sizeof(indpath));
+        char *dot = strrchr(indpath, '.');
+        if (dot) {
+          strcpy(dot, ".ind");
+        } else {
+          strcat(indpath, ".ind");
+        }
+        File ind = ufsp->open(indpath, "r");
+        if (ind) {
+          // Skip index header line
+          while (ind.available()) {
+            uint8_t c; ind.read(&c, 1);
+            if (c == '\n') break;
+          }
+          // Scan index lines: timestamp\tbyte_offset
+          uint32_t last_good_pos = 0;
+          uint16_t ycnt = 0;
+          while (ind.available()) {
+            li = 0;
+            while (ind.available() && li < 510) {
+              uint8_t c; ind.read(&c, 1);
+              lbuf[li++] = c;
+              if (c == '\n') break;
+            }
+            lbuf[li] = 0;
+            uint32_t cmp = tc_ts_cmp(lbuf);
+            if (cmp == 0) continue;
+            if (cmp >= cmp_from) break;  // past our start
+            char *tab = strchr(lbuf, '\t');
+            if (tab) {
+              last_good_pos = strtoul(tab + 1, NULL, 10);
+            }
+            if (++ycnt >= 100) { ycnt = 0; yield(); }
+          }
+          seek_pos = last_good_pos;
+          ind.close();
+        } else {
+          // No index: estimated seek (like Scripter's opt_fext)
+          // Read first data line timestamp
+          li = 0;
+          while (f.available() && li < 31) {
+            uint8_t c; f.read(&c, 1);
+            if (c == '\t' || c == '\n') break;
+            lbuf[li++] = c;
+          }
+          lbuf[li] = 0;
+          uint32_t ts_first = tc_ts_cmp(lbuf);
+
+          // Find last line timestamp
+          uint32_t fsize = f.size();
+          uint32_t back = (fsize > 256) ? fsize - 256 : 0;
+          f.seek(back, SeekSet);
+          uint32_t last_nl = 0;
+          while (f.available()) {
+            uint8_t c; f.read(&c, 1);
+            if (c == '\n') last_nl = f.position();
+          }
+          if (last_nl > back) {
+            f.seek(last_nl, SeekSet);
+            li = 0;
+            while (f.available() && li < 31) {
+              uint8_t c; f.read(&c, 1);
+              if (c == '\t' || c == '\n') break;
+              lbuf[li++] = c;
+            }
+            lbuf[li] = 0;
+            uint32_t ts_last = tc_ts_cmp(lbuf);
+            if (ts_last > ts_first && cmp_from > ts_first) {
+              // Estimate position as percentage (0.8 safety factor)
+              float perc = (float)(cmp_from - ts_first) / (float)(ts_last - ts_first) * 0.8f;
+              if (perc < 0) perc = 0;
+              if (perc > 1) perc = 1;
+              seek_pos = (uint32_t)(perc * fsize);
+            }
+          }
+          // Skip partial line at seek position
+          if (seek_pos > 0) {
+            f.seek(seek_pos, SeekSet);
+            while (f.available()) {
+              uint8_t c; f.read(&c, 1);
+              if (c == '\n') break;
+            }
+            seek_pos = f.position();
+          }
+        }
+      }
+
+      // 3. Seek to start position and stream matching lines
+      if (seek_pos > 0) {
+        f.seek(seek_pos, SeekSet);
+      } else {
+        f.seek(header_end, SeekSet);
+      }
+
+      while (f.available()) {
+        li = 0;
+        while (f.available() && li < 510) {
+          uint8_t c; f.read(&c, 1);
+          lbuf[li++] = c;
+          if (c == '\n') break;
+        }
+        lbuf[li] = 0;
+
+        // Extract timestamp from first column (before first tab)
+        char saved = 0;
+        char *tab = strchr(lbuf, '\t');
+        if (tab) { saved = *tab; *tab = 0; }
+        uint32_t cmp = tc_ts_cmp(lbuf);
+        if (tab) *tab = saved;
+
+        if (cmp == 0) continue;         // skip invalid/header
+        if (cmp > cmp_to) break;        // past end, done (data is chronological)
+        if (cmp >= cmp_from) {
+          Webserver->sendContent(lbuf);
+        }
+        yield();  // feed WDT during streaming
+      }
+      // Signal end of chunked response
+      Webserver->sendContent("");
+
+      free(lbuf);
+      f.close();
+      return;
+    }
+
+    // Normal full-file streaming (no time filter)
     Webserver->setContentLength(f.size());
     Webserver->send(200, F("text/plain"), "");
     uint8_t buf[256];
@@ -1135,6 +1311,278 @@ static void TinyCShow(bool json) {
 }
 
 /*********************************************************************************************\
+ * Port 82 Download Server — background task for large file serving (ESP32 only)
+ * Serves /ufs/<filename> with optional @from_to time-range filtering
+ * Downloads run in a FreeRTOS task so main loop stays responsive
+\*********************************************************************************************/
+
+#ifdef ESP32
+
+// Background task: streams file to client then exits
+static void tc_download_task(void *param) {
+  char *path = (char*)param;
+
+  // Parse @from_to time range from path
+  uint32_t cmp_from = 0, cmp_to = 0;
+  char *atp = strchr(path, '@');
+  if (atp) {
+    *atp = 0;
+    atp++;
+    char *tp = strchr(atp, '_');
+    if (tp) {
+      *tp = 0;
+      tp++;
+      cmp_from = tc_ts_cmp(atp);
+      cmp_to = tc_ts_cmp(tp);
+    }
+  }
+
+  File file = ufsp->open(path, "r");
+  if (!file) {
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: DL file not found: %s"), path);
+    free(path);
+    Tinyc->dl_busy = false;
+    vTaskDelete(NULL);
+    return;
+  }
+
+  // Determine content type
+  char ctype[32];
+  if (strstr_P(path, PSTR(".csv")) || strstr_P(path, PSTR(".txt"))) {
+    strcpy_P(ctype, PSTR("text/plain"));
+  } else if (strstr_P(path, PSTR(".html"))) {
+    strcpy_P(ctype, PSTR("text/html"));
+  } else if (strstr_P(path, PSTR(".json"))) {
+    strcpy_P(ctype, PSTR("application/json"));
+  } else {
+    strcpy_P(ctype, PSTR("application/octet-stream"));
+  }
+
+  WiFiClient client = Tinyc->dl_server->client();
+  uint32_t fsize = file.size();
+
+  // Extract just the filename for Content-Disposition
+  char *fname = strrchr(path, '/');
+  if (fname) fname++; else fname = path;
+
+  if (cmp_from && cmp_to && cmp_to > cmp_from) {
+    // ── Time-filtered download ──
+    client.printf_P(PSTR("HTTP/1.1 200 OK\r\nContent-Type: %s\r\n"
+      "Content-Disposition: attachment; filename=\"%s\"\r\n"
+      "Transfer-Encoding: chunked\r\n"
+      "Connection: close\r\n\r\n"), ctype, fname);
+
+    char *lbuf = (char*)malloc(512);
+    if (lbuf) {
+      // Send header line
+      uint16_t li = 0;
+      while (file.available() && li < 510) {
+        uint8_t c; file.read(&c, 1);
+        lbuf[li++] = c;
+        if (c == '\n') break;
+      }
+      if (li > 0) {
+        // Chunked encoding: send size + data + CRLF
+        client.printf("%x\r\n", li);
+        client.write((uint8_t*)lbuf, li);
+        client.print("\r\n");
+      }
+      uint32_t header_end = file.position();
+
+      // Try index file for fast seek
+      uint32_t seek_pos = 0;
+      {
+        char indpath[128];
+        strlcpy(indpath, path, sizeof(indpath));
+        char *dot = strrchr(indpath, '.');
+        if (dot) strcpy(dot, ".ind");
+        else strcat(indpath, ".ind");
+
+        File ind = ufsp->open(indpath, "r");
+        if (ind) {
+          // Skip header
+          while (ind.available()) {
+            uint8_t c; ind.read(&c, 1);
+            if (c == '\n') break;
+          }
+          uint32_t last_good_pos = 0;
+          while (ind.available()) {
+            li = 0;
+            while (ind.available() && li < 510) {
+              uint8_t c; ind.read(&c, 1);
+              lbuf[li++] = c;
+              if (c == '\n') break;
+            }
+            lbuf[li] = 0;
+            uint32_t cmp = tc_ts_cmp(lbuf);
+            if (cmp == 0) continue;
+            if (cmp >= cmp_from) break;
+            char *tab = strchr(lbuf, '\t');
+            if (tab) last_good_pos = strtoul(tab + 1, NULL, 10);
+          }
+          seek_pos = last_good_pos;
+          ind.close();
+        } else {
+          // No index: estimated seek (opt_fext approach)
+          li = 0;
+          while (file.available() && li < 31) {
+            uint8_t c; file.read(&c, 1);
+            if (c == '\t' || c == '\n') break;
+            lbuf[li++] = c;
+          }
+          lbuf[li] = 0;
+          uint32_t ts_first = tc_ts_cmp(lbuf);
+
+          uint32_t back = (fsize > 256) ? fsize - 256 : 0;
+          file.seek(back, SeekSet);
+          uint32_t last_nl = 0;
+          while (file.available()) {
+            uint8_t c; file.read(&c, 1);
+            if (c == '\n') last_nl = file.position();
+          }
+          if (last_nl > back) {
+            file.seek(last_nl, SeekSet);
+            li = 0;
+            while (file.available() && li < 31) {
+              uint8_t c; file.read(&c, 1);
+              if (c == '\t' || c == '\n') break;
+              lbuf[li++] = c;
+            }
+            lbuf[li] = 0;
+            uint32_t ts_last = tc_ts_cmp(lbuf);
+            if (ts_last > ts_first && cmp_from > ts_first) {
+              float perc = (float)(cmp_from - ts_first) / (float)(ts_last - ts_first) * 0.8f;
+              if (perc < 0) perc = 0;
+              if (perc > 1) perc = 1;
+              seek_pos = (uint32_t)(perc * fsize);
+            }
+          }
+          if (seek_pos > 0) {
+            file.seek(seek_pos, SeekSet);
+            while (file.available()) {
+              uint8_t c; file.read(&c, 1);
+              if (c == '\n') break;
+            }
+            seek_pos = file.position();
+          }
+        }
+      }
+
+      // Stream matching lines
+      if (seek_pos > 0) file.seek(seek_pos, SeekSet);
+      else file.seek(header_end, SeekSet);
+
+      while (file.available()) {
+        li = 0;
+        while (file.available() && li < 510) {
+          uint8_t c; file.read(&c, 1);
+          lbuf[li++] = c;
+          if (c == '\n') break;
+        }
+        lbuf[li] = 0;
+
+        char saved = 0;
+        char *tab = strchr(lbuf, '\t');
+        if (tab) { saved = *tab; *tab = 0; }
+        uint32_t cmp = tc_ts_cmp(lbuf);
+        if (tab) *tab = saved;
+
+        if (cmp == 0) continue;
+        if (cmp > cmp_to) break;
+        if (cmp >= cmp_from) {
+          client.printf("%x\r\n", li);
+          client.write((uint8_t*)lbuf, li);
+          client.print("\r\n");
+        }
+        yield();  // feed WDT during long transfers
+      }
+      // Chunked encoding terminator
+      client.print("0\r\n\r\n");
+      free(lbuf);
+    }
+  } else {
+    // ── Full file download ──
+    client.printf_P(PSTR("HTTP/1.1 200 OK\r\nContent-Type: %s\r\n"
+      "Content-Disposition: attachment; filename=\"%s\"\r\n"
+      "Content-Length: %d\r\n"
+      "Connection: close\r\n\r\n"), ctype, fname, fsize);
+
+    uint8_t buf[512];
+    while (fsize > 0) {
+      uint16_t len = (fsize < sizeof(buf)) ? fsize : sizeof(buf);
+      file.read(buf, len);
+      client.write(buf, len);
+      fsize -= len;
+      yield();  // feed WDT during long transfers
+    }
+  }
+
+  file.close();
+  client.stop();
+  free(path);
+  Tinyc->dl_busy = false;
+  AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: DL task done"));
+  vTaskDelete(NULL);
+}
+
+// HTTP handler for /ufs/* requests on port 82
+static void TC_DLServeFile(void) {
+  String uri = Tinyc->dl_server->uri();
+  const char *cp = strstr_P(uri.c_str(), PSTR("/ufs/"));
+  if (!cp) {
+    Tinyc->dl_server->send(404, F("text/plain"), F("Not found"));
+    return;
+  }
+  cp += 4;  // skip "/ufs" -> keep leading "/"
+
+  if (!ufsp) {
+    Tinyc->dl_server->send(500, F("text/plain"), F("No filesystem"));
+    return;
+  }
+
+  if (Tinyc->dl_busy) {
+    Tinyc->dl_server->send(503, F("text/plain"), F("Download busy"));
+    return;
+  }
+
+  Tinyc->dl_busy = true;
+  char *path = (char*)malloc(128);
+  if (!path) {
+    Tinyc->dl_busy = false;
+    Tinyc->dl_server->send(500, F("text/plain"), F("Out of memory"));
+    return;
+  }
+  strlcpy(path, cp, 128);
+  xTaskCreatePinnedToCore(tc_download_task, "TCDL", 6000, (void*)path, 3, NULL, 1);
+}
+
+// Root handler
+static void TC_DLRoot(void) {
+  Tinyc->dl_server->send(200, F("text/plain"), F("TinyC File Server"));
+}
+
+// Initialize port 82 download server
+static void TC_DLServerInit(void) {
+  if (!Tinyc || Tinyc->dl_server) return;  // already initialized
+  Tinyc->dl_server = new ESP8266WebServer(TC_DLPORT);
+  if (Tinyc->dl_server) {
+    Tinyc->dl_server->on(UriGlob("/ufs/*"), HTTP_GET, TC_DLServeFile);
+    Tinyc->dl_server->on("/", HTTP_GET, TC_DLRoot);
+    Tinyc->dl_server->begin();
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: Download server started on port %d"), TC_DLPORT);
+  }
+}
+
+// Poll for incoming connections (called from FUNC_LOOP)
+static void TC_DLServerLoop(void) {
+  if (Tinyc && Tinyc->dl_server) {
+    Tinyc->dl_server->handleClient();
+  }
+}
+
+#endif // ESP32
+
+/*********************************************************************************************\
  * Tasmota: Driver entry point
 \*********************************************************************************************/
 
@@ -1152,6 +1600,14 @@ bool Xdrv124(uint32_t function) {
     case FUNC_LOOP:
       // Poll UDP multicast for incoming variables
       tc_udp_poll();
+#ifdef ESP32
+      // Lazy-init port 82 download server once WiFi is connected
+      if (!Tinyc->dl_server && WifiHasIP()) {
+        TC_DLServerInit();
+      }
+      // Poll port 82 download server for incoming file requests
+      TC_DLServerLoop();
+#endif
       // Call user's EveryLoop() callback — runs every Tasmota main loop iteration
       if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
         tc_callback_safe(&Tinyc->vm, "EveryLoop");

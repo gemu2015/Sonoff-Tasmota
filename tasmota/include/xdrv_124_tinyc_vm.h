@@ -177,6 +177,7 @@ enum TcSyscall {
   SYS_MATH_ABS  = 30, SYS_MATH_MIN  = 31, SYS_MATH_MAX  = 32,
   SYS_MATH_MAP  = 33, SYS_MATH_RANDOM= 34, SYS_MATH_SQRT = 35,
   SYS_MATH_SIN  = 36, SYS_MATH_COS   = 37,
+  SYS_MATH_FLOOR= 38, SYS_MATH_CEIL  = 39, SYS_MATH_ROUND = 40,
   // String operations (work with array refs from OP_ADDR_LOCAL/OP_ADDR_GLOBAL)
   SYS_STRLEN       = 50,  // (ref) -> int
   SYS_STRCPY       = 51,  // (dst_ref, src_ref) -> void
@@ -193,7 +194,7 @@ enum TcSyscall {
   SYS_SPRINTF_FLT_CAT = 71, // (dst_ref, fmt_const_idx, float_val) -> total len
   SYS_SPRINTF_STR_CAT = 72, // (dst_ref, fmt_const_idx, src_ref) -> total len
   // Tasmota-specific
-  SYS_MQTT_PUBLISH = 40,  // publish output buffer
+  SYS_MQTT_PUBLISH = 44,  // publish output buffer
   SYS_GET_POWER    = 41,  // get relay state
   SYS_SET_POWER    = 42,  // set relay state
   SYS_TASM_CMD     = 43,  // (const_idx_cmd, buf_ref) -> response length
@@ -205,9 +206,26 @@ enum TcSyscall {
   SYS_FILE_EXISTS  = 64,  // (const_idx_path) -> 1/0
   SYS_FILE_DELETE  = 65,  // (const_idx_path) -> 0/-1
   SYS_FILE_SIZE    = 66,  // (const_idx_path) -> bytes/-1
+  SYS_FILE_FORMAT  = 67,  // () -> int — format LittleFS
+  SYS_FILE_MKDIR   = 68,  // (const_idx_path) -> 1/0
+  SYS_FILE_RMDIR   = 69,  // (const_idx_path) -> 1/0
+  SYS_FILE_DOWNLOAD= 220, // (const_idx_path, url_ref) -> HTTP status code
+  SYS_FILE_GET_STR = 221, // (dst_ref, handle, const_idx_delim, index, endChar) -> strlen
+  SYS_FILE_EXTRACT = 222, // (handle, from_ref, to_ref, col_offs, accum, arr_refs..., N) -> rows
+  SYS_FILE_EXTRACT_FAST = 223, // same, seeks to saved position for sequential access
   // Heap allocation
   SYS_HEAP_ALLOC   = 80,  // pop size -> push handle (-1 on fail)
   SYS_HEAP_FREE    = 81,  // pop handle -> void
+  // File array I/O (tab-delimited text)
+  SYS_FILE_READ_ARR = 82, // (arr_ref, handle) -> element_count
+  SYS_FILE_WRITE_ARR= 83, // (arr_ref, handle, append) -> void
+  SYS_FILE_LOG     = 84,  // (const_idx_path, str_ref, limit) -> file_size
+  // Time / timestamp functions
+  SYS_TIME_STAMP   = 85,  // (buf_ref) -> int — get current Tasmota timestamp
+  SYS_TIME_CONVERT = 86,  // (buf_ref, flg) -> int — 0=to web, 1=to German
+  SYS_TIME_OFFSET  = 87,  // (buf_ref, days, zeroFlag) -> int — add day offset
+  SYS_TIME_TO_SECS = 88,  // (buf_ref) -> int — timestamp to epoch seconds
+  SYS_SECS_TO_TIME = 89,  // (buf_ref, secs) -> int — epoch seconds to timestamp
   // Tasmota output (for callbacks — route to Tasmota APIs)
   SYS_RESPONSE_APPEND     = 90, // (char_ref) -> void — ResponseAppend_P
   SYS_WEB_SEND            = 91, // (char_ref) -> void — WSContentSend_PD
@@ -241,6 +259,8 @@ enum TcSyscall {
   SYS_SML_GETV            = 119, // (sel) -> int — get/reset data valid flags
   SYS_SML_WRITE_STR       = 124, // (meter, const_idx) -> int — send string literal to meter
   SYS_SML_SETWSTR_STR     = 125, // (meter, const_idx) -> int — set async write from string literal
+  // General-purpose UDP (Scripter-compatible udp() function)
+  SYS_UDP_FUNC            = 126, // (args..., mode) -> int — mode-based UDP dispatcher
   // SPI bus
   SYS_SPI_INIT            = 120, // (sclk, mosi, miso, speed_mhz) -> int (1=ok)
   SYS_SPI_SET_CS          = 121, // (index, pin) -> void
@@ -311,6 +331,14 @@ enum TcSyscall {
   SYS_AUDIO_SAY       = 202, // (text_const) -> void — text-to-speech
   // Persistent variables
   SYS_PERSIST_SAVE    = 203, // () -> void — save persist globals to file
+  // TCP server (Scripter-compatible ws* functions)
+  SYS_TCP_OPEN        = 210, // (port) -> int — start TCP server
+  SYS_TCP_CLOSE       = 211, // () -> void — close TCP server
+  SYS_TCP_AVAILABLE   = 212, // () -> int — accept client + bytes available
+  SYS_TCP_READ_STR    = 213, // (buf_ref) -> int — read string into char[]
+  SYS_TCP_WRITE_STR   = 214, // (str_ref) -> void — write string to client
+  SYS_TCP_READ_ARR    = 215, // (arr_ref) -> int — read bytes into int array
+  SYS_TCP_WRITE_ARR   = 216, // (arr_ref, count, type) -> void — write array to client
   // Debug
   SYS_DEBUG_PRINT     = 250, SYS_DEBUG_PRINT_STR = 251,
   SYS_DEBUG_DUMP      = 252,
@@ -503,6 +531,10 @@ struct TINYC {
   WiFiUDP  udp;
   char     udp_buf[TC_UDP_BUF_SIZE];
 #endif
+  // General-purpose UDP port (Scripter-compatible udp() function)
+  WiFiUDP  udp_port;          // general-purpose UDP socket
+  uint16_t udp_port_num;      // bound port number
+  bool     udp_port_open;     // port is listening
   // WebUI pages (up to 6, set by wLabel(), buttons on main page)
 #define TC_MAX_WEB_PAGES 6
   char     page_label[TC_MAX_WEB_PAGES][32];
@@ -520,6 +552,15 @@ struct TINYC {
   char     http_hdr_name[TC_HTTP_MAX_HEADERS][64];
   char     http_hdr_value[TC_HTTP_MAX_HEADERS][64];
   uint8_t  http_hdr_count;
+  // TCP server state (Scripter-compatible ws* functions)
+  WiFiServer *tcp_server;              // TCP listening server (heap-allocated)
+  WiFiClient tcp_client;               // current connected client
+
+  // fileExtractFast state — saved position for optimized sequential access
+  int32_t  extract_handle;             // last file handle used
+  uint32_t extract_file_pos;           // saved byte position in data file
+  uint32_t extract_last_epoch;         // epoch of last ts_to for position reuse
+
   // Deferred command — executed in main loop (safe for task-spawning commands like I2SPlay)
   char     deferred_cmd[128];
   volatile bool deferred_pending;
@@ -529,6 +570,12 @@ struct TINYC {
   volatile bool task_running;   // task loop is active
   volatile bool task_stop;      // signal task to stop
   SemaphoreHandle_t vm_mutex;   // serialize VM access between task and main thread
+  // Port 82 download server — background task for large file serving
+#ifndef TC_DLPORT
+#define TC_DLPORT 82
+#endif
+  ESP8266WebServer *dl_server;       // download server on port TC_DLPORT
+  volatile bool     dl_busy;         // download task is running
 #endif
 } *Tinyc = nullptr;
 
@@ -973,6 +1020,19 @@ static void tc_udp_stop(void) {
   }
   tc_udp_free_arrays();
   Tinyc->udp_used = false;
+  // Stop general-purpose UDP port
+  if (Tinyc->udp_port_open) {
+    Tinyc->udp_port.stop();
+    Tinyc->udp_port_open = false;
+    Tinyc->udp_port_num = 0;
+  }
+  // Stop TCP server
+  if (Tinyc->tcp_server) {
+    Tinyc->tcp_client.stop();
+    Tinyc->tcp_server->stop();
+    delete Tinyc->tcp_server;
+    Tinyc->tcp_server = nullptr;
+  }
 }
 
 // Poll for incoming UDP packets — called from FUNC_LOOP (standalone only)
@@ -1036,6 +1096,19 @@ static void tc_udp_stop(void) {
     tc_udp_free_arrays();
     Tinyc->udp_used = false;
     Tinyc->udp_connected = false;
+    // Stop general-purpose UDP port
+    if (Tinyc->udp_port_open) {
+      Tinyc->udp_port.stop();
+      Tinyc->udp_port_open = false;
+      Tinyc->udp_port_num = 0;
+    }
+    // Stop TCP server
+    if (Tinyc->tcp_server) {
+      Tinyc->tcp_client.stop();
+      Tinyc->tcp_server->stop();
+      delete Tinyc->tcp_server;
+      Tinyc->tcp_server = nullptr;
+    }
   }
 }
 static void tc_udp_poll(void) {
@@ -1341,6 +1414,76 @@ static void tc_persist_save(TcVM *vm);
 static void tc_persist_load(TcVM *vm);
 
 /*********************************************************************************************\
+ * Helper: parse timestamp string (ISO or German) to epoch seconds (for time functions)
+\*********************************************************************************************/
+static uint32_t tc_parse_ts(const char *ts) {
+  struct tm tmx;
+  memset(&tmx, 0, sizeof(tmx));
+  if (strchr(ts, 'T')) {
+    // ISO: 2024-01-15T12:30:45
+    char *p = (char*)ts;
+    int Y = strtol(p, &p, 10); p++;
+    int M = strtol(p, &p, 10); p++;
+    int D = strtol(p, &p, 10); p++;
+    int h = strtol(p, &p, 10); p++;
+    int m = strtol(p, &p, 10); p++;
+    int s = strtol(p, &p, 10);
+    tmx.tm_year = Y - 1900;
+    tmx.tm_mon  = M - 1;
+    tmx.tm_mday = D;
+    tmx.tm_hour = h;
+    tmx.tm_min  = m;
+    tmx.tm_sec  = s;
+  } else if (strchr(ts, '.')) {
+    char *p = (char*)ts;
+    int D = strtol(p, &p, 10); p++;
+    int M = strtol(p, &p, 10); p++;
+    int Y = strtol(p, &p, 10); p++;
+    int h = strtol(p, &p, 10); p++;
+    int m = strtol(p, &p, 10);
+    if (Y < 100) Y += 2000;
+    tmx.tm_year = Y - 1900;
+    tmx.tm_mon  = M - 1;
+    tmx.tm_mday = D;
+    tmx.tm_hour = h;
+    tmx.tm_min  = m;
+    tmx.tm_sec  = 0;
+  } else {
+    return 0;
+  }
+  return (uint32_t)mktime(&tmx);
+}
+
+/*********************************************************************************************\
+ * Helper: fast timestamp comparison value — NO mktime(), just bit-packed ordering
+ * Returns packed uint32: YYYYYYY MMMM DDDDD HHHHH MMMMMM (27 bits)
+ * Correct ordering for valid dates without expensive calendar math
+\*********************************************************************************************/
+static uint32_t tc_ts_cmp(const char *ts) {
+  char *p = (char*)ts;
+  uint32_t Y, M, D, h = 0, m = 0;
+  if (*p >= '2' && *(p + 4) == '-') {
+    // ISO: 2024-01-15T12:30:45 (starts with 2xxx-)
+    Y = strtol(p, &p, 10) - 2000; p++;
+    M = strtol(p, &p, 10); p++;
+    D = strtol(p, &p, 10); p++;
+    h = strtol(p, &p, 10); p++;
+    m = strtol(p, &p, 10);
+  } else if (*p >= '0' && *p <= '9') {
+    // German: 13.12.21 00:00 (starts with day)
+    D = strtol(p, &p, 10); if (*p) p++;
+    M = strtol(p, &p, 10); if (*p) p++;
+    Y = strtol(p, &p, 10); if (*p) p++;
+    h = strtol(p, &p, 10); if (*p) p++;
+    m = strtol(p, &p, 10);
+    if (Y >= 2000) Y -= 2000;
+  } else {
+    return 0;  // not a timestamp (header line)
+  }
+  return (Y << 20) | (M << 16) | (D << 11) | (h << 6) | m;
+}
+
+/*********************************************************************************************\
  * VM: Syscall dispatch
 \*********************************************************************************************/
 
@@ -1513,6 +1656,12 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       fa = TC_POPF(vm); TC_PUSHF(vm, sinf(fa)); break;
     case SYS_MATH_COS:
       fa = TC_POPF(vm); TC_PUSHF(vm, cosf(fa)); break;
+    case SYS_MATH_FLOOR:
+      fa = TC_POPF(vm); TC_PUSH(vm, (int32_t)floorf(fa)); break;
+    case SYS_MATH_CEIL:
+      fa = TC_POPF(vm); TC_PUSH(vm, (int32_t)ceilf(fa)); break;
+    case SYS_MATH_ROUND:
+      fa = TC_POPF(vm); TC_PUSH(vm, (int32_t)roundf(fa)); break;
 
     // ── Tasmota-specific ──────────────────────────────
     case SYS_MQTT_PUBLISH:
@@ -1912,6 +2061,288 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
     }
 
+    case SYS_FILE_FORMAT: {
+#ifdef USE_UFILESYS
+      bool ok = LittleFS.format();
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: fileFormat() -> %d"), ok);
+      TC_PUSH(vm, ok ? 0 : -1);
+#else
+      TC_PUSH(vm, -1);
+#endif
+      break;
+    }
+    case SYS_FILE_MKDIR: {
+#ifdef USE_UFILESYS
+      int32_t ci = TC_POP(vm);
+      const char *path = tc_get_const_str(vm, ci);
+      if (!path || !ffsp) { TC_PUSH(vm, 0); break; }
+      bool ok = ffsp->mkdir(path);
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileMkdir(\"%s\") -> %d"), path, ok);
+      TC_PUSH(vm, ok ? 1 : 0);
+#else
+      TC_POP(vm);
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_FILE_RMDIR: {
+#ifdef USE_UFILESYS
+      int32_t ci = TC_POP(vm);
+      const char *path = tc_get_const_str(vm, ci);
+      if (!path || !ffsp) { TC_PUSH(vm, 0); break; }
+      bool ok = ffsp->rmdir(path);
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileRmdir(\"%s\") -> %d"), path, ok);
+      TC_PUSH(vm, ok ? 1 : 0);
+#else
+      TC_POP(vm);
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+
+    case SYS_FILE_DOWNLOAD: {
+      // fileDownload("filepath", char url[]) — download URL to file
+#ifdef USE_UFILESYS
+      int32_t urlRef = TC_POP(vm);
+      int32_t ci     = TC_POP(vm);
+      const char *path = tc_get_const_str(vm, ci);
+      char url[256];
+      tc_ref_to_cstr(vm, urlRef, url, sizeof(url));
+      if (!path || !ffsp) { TC_PUSH(vm, -1); break; }
+      WiFiClient http_client;
+      HTTPClient http;
+      http.setTimeout(10000);
+      http.begin(http_client, url);
+      int httpCode = http.GET();
+      if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
+        File f = ffsp->open(path, "w");
+        if (f) {
+          WiFiClient *stream = http.getStreamPtr();
+          int32_t len = http.getSize();
+          if (len < 0) len = 99999999;  // unknown size
+          uint8_t buf[512];
+          while (http.connected() && (len > 0)) {
+            size_t avail = stream->available();
+            if (avail) {
+              if (avail > sizeof(buf)) avail = sizeof(buf);
+              int rd = stream->readBytes(buf, avail);
+              f.write(buf, rd);
+              len -= rd;
+            }
+            delay(1);
+          }
+          f.close();
+          AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileDownload(\"%s\") -> %d"), path, httpCode);
+        } else {
+          httpCode = -3;  // file open error
+        }
+      } else {
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: fileDownload HTTP error %d"), httpCode);
+      }
+      http.end();
+      http_client.stop();
+      TC_PUSH(vm, httpCode);
+#else
+      TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, -1);
+#endif
+      break;
+    }
+
+    case SYS_FILE_GET_STR: {
+      // fileGetStr(char dst[], handle, "delim", index, endChar)
+      // Search file for Nth delimiter occurrence, extract string until endChar
+#ifdef USE_UFILESYS
+      int32_t endChar  = TC_POP(vm);
+      int32_t index    = TC_POP(vm);
+      int32_t ci       = TC_POP(vm);  // const pool index for delimiter
+      int32_t h        = TC_POP(vm);  // file handle
+      int32_t dstRef   = TC_POP(vm);  // destination buffer ref
+      const char *delim = tc_get_const_str(vm, ci);
+      int32_t *dst = tc_resolve_ref(vm, dstRef);
+      if (!dst || !delim || h < 0 || h >= TC_MAX_FILE_HANDLES || !Tinyc->file_used[h]) {
+        TC_PUSH(vm, 0);
+        break;
+      }
+      int32_t maxLen = tc_ref_maxlen(vm, dstRef);
+      uint8_t dstrlen = strlen(delim);
+      if (dstrlen == 0 || index < 1) { TC_PUSH(vm, 0); break; }
+      // Phase 1: seek to start, find Nth delimiter with sliding window
+      tc_file_handles[h].seek(0, SeekSet);
+      char fstr[256];
+      memset(fstr, 0, dstrlen);
+      bool match = false;
+      int32_t count = index;
+      while (tc_file_handles[h].available()) {
+        uint8_t c;
+        if (tc_file_handles[h].read(&c, 1) != 1) break;
+        memmove(&fstr[0], &fstr[1], dstrlen - 1);
+        fstr[dstrlen - 1] = (char)c;
+        if (!strncmp(delim, fstr, dstrlen)) {
+          count--;
+          if (count == 0) { match = true; break; }
+        }
+      }
+      // Phase 2: extract content until endChar or EOF
+      int32_t clen = 0;
+      if (match) {
+        while (tc_file_handles[h].available() && clen < maxLen - 1 && clen < (int32_t)sizeof(fstr) - 1) {
+          uint8_t c;
+          if (tc_file_handles[h].read(&c, 1) != 1) break;
+          if (endChar > 0 && (char)c == (char)endChar) break;
+          fstr[clen] = (char)c;
+          clen++;
+        }
+      }
+      fstr[clen] = 0;
+      // Copy to dst (int32 per char)
+      for (int32_t i = 0; i <= clen && i < maxLen; i++) {
+        dst[i] = (int32_t)(uint8_t)fstr[i];
+      }
+      TC_PUSH(vm, clen);
+#else
+      TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+
+    // ── File data extract (IoT time-series CSV) ─────
+    // Optimized: tc_ts_cmp() avoids mktime(), 4KB buffered I/O
+    case SYS_FILE_EXTRACT:
+    case SYS_FILE_EXTRACT_FAST: {
+#ifdef USE_UFILESYS
+      // Pop variable-length array refs + fixed args
+      int32_t numArrays = TC_POP(vm);
+      int32_t arrRefs[16];
+      if (numArrays > 16) numArrays = 16;
+      for (int i = numArrays - 1; i >= 0; i--) {
+        arrRefs[i] = TC_POP(vm);
+      }
+      int32_t accum    = TC_POP(vm);
+      int32_t col_offs = TC_POP(vm);
+      int32_t toRef    = TC_POP(vm);
+      int32_t fromRef  = TC_POP(vm);
+      int32_t h        = TC_POP(vm);
+
+      if (h < 0 || h >= TC_MAX_FILE_HANDLES || !Tinyc->file_used[h]) {
+        TC_PUSH(vm, 0);
+        break;
+      }
+
+      // Parse time range to fast comparison values (once, no mktime)
+      char ts_from[24], ts_to[24];
+      tc_ref_to_cstr(vm, fromRef, ts_from, sizeof(ts_from));
+      tc_ref_to_cstr(vm, toRef, ts_to, sizeof(ts_to));
+      uint32_t cmp_from = tc_ts_cmp(ts_from);
+      uint32_t cmp_to   = tc_ts_cmp(ts_to);
+
+      // Seek strategy: fast version reuses saved position
+      if (id == SYS_FILE_EXTRACT_FAST &&
+          Tinyc->extract_handle == h &&
+          Tinyc->extract_file_pos > 0 &&
+          cmp_from >= Tinyc->extract_last_epoch) {
+        tc_file_handles[h].seek(Tinyc->extract_file_pos, SeekSet);
+      } else {
+        tc_file_handles[h].seek(0, SeekSet);
+      }
+
+      // Resolve array bases and limits once (avoid per-row lookups)
+      int32_t *arrBase[16];
+      int32_t  arrMax[16];
+      for (int c = 0; c < numArrays; c++) {
+        arrBase[c] = tc_resolve_ref(vm, arrRefs[c]);
+        arrMax[c]  = arrBase[c] ? tc_ref_maxlen(vm, arrRefs[c]) : 0;
+      }
+
+      // Buffered I/O: read 4KB blocks, parse lines from memory
+      const int FBUF_SZ = 4096;
+      uint8_t *fbuf = (uint8_t*)malloc(FBUF_SZ);
+      if (!fbuf) { TC_PUSH(vm, 0); break; }
+      int fbuf_len = 0, fbuf_pos = 0;
+      char line[512];
+      int32_t rowCount = 0;
+
+      while (true) {
+        // ── Read next line from buffer ──
+        int llen = 0;
+        bool got_line = false;
+        while (true) {
+          if (fbuf_pos >= fbuf_len) {
+            fbuf_len = tc_file_handles[h].read(fbuf, FBUF_SZ);
+            fbuf_pos = 0;
+            if (fbuf_len <= 0) break;  // EOF
+          }
+          char c = (char)fbuf[fbuf_pos++];
+          if (c == '\n') { got_line = true; break; }
+          if (c == '\r') continue;
+          if (llen < (int)sizeof(line) - 1) line[llen++] = c;
+        }
+        if (!got_line && llen == 0) break;  // EOF
+        line[llen] = 0;
+
+        // ── Parse timestamp in-place (first column before tab) ──
+        // Find tab to null-terminate timestamp temporarily
+        char *tab = line;
+        while (*tab && *tab != '\t') tab++;
+        char saved = *tab;
+        *tab = 0;
+
+        uint32_t cmp = tc_ts_cmp(line);  // fast: no mktime, no sscanf
+        *tab = saved;  // restore
+
+        if (cmp == 0) continue;         // skip header / invalid
+        if (cmp < cmp_from) continue;   // before range
+        if (cmp > cmp_to) break;        // past range — done (data is chronological)
+
+        // ── Skip timestamp column + col_offs data columns ──
+        char *p = (saved == '\t') ? tab + 1 : tab;
+        for (int skip = 0; skip < col_offs && *p; skip++) {
+          while (*p && *p != '\t') p++;
+          if (*p == '\t') p++;
+        }
+
+        // ── Parse float values into destination arrays ──
+        for (int c = 0; c < numArrays; c++) {
+          float val = 0;
+          if (*p) {
+            val = strtof(p, &p);
+            if (*p == '\t') p++;
+          }
+          if (arrBase[c] && rowCount < arrMax[c]) {
+            if (accum) {
+              float existing;
+              memcpy(&existing, &arrBase[c][rowCount], sizeof(float));
+              val += existing;
+            }
+            memcpy(&arrBase[c][rowCount], &val, sizeof(float));
+          }
+        }
+        rowCount++;
+      }
+
+      free(fbuf);
+
+      // Save position for fileExtractFast
+      if (id == SYS_FILE_EXTRACT_FAST) {
+        Tinyc->extract_handle     = h;
+        Tinyc->extract_file_pos   = tc_file_handles[h].position();
+        Tinyc->extract_last_epoch = cmp_to;
+      }
+
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: file%s(h=%d) %s→%s → %d rows, %d cols"),
+        id == SYS_FILE_EXTRACT_FAST ? "ExtractFast" : "Extract",
+        h, ts_from, ts_to, rowCount, numArrays);
+      TC_PUSH(vm, rowCount);
+#else
+      // Consume all args
+      int32_t n = TC_POP(vm);
+      for (int i = 0; i < n + 5; i++) TC_POP(vm);
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+
     // ── Heap allocation ──────────────────────────────
     case SYS_HEAP_ALLOC: {
       int32_t size = TC_POP(vm);
@@ -1921,6 +2352,284 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     case SYS_HEAP_FREE: {
       int32_t handle = TC_POP(vm);
       tc_heap_free_handle(vm, handle);
+      break;
+    }
+
+    // ── File array I/O (tab-delimited text) ─────────
+    case SYS_FILE_READ_ARR: {
+#ifdef USE_UFILESYS
+      int32_t handle = TC_POP(vm);
+      int32_t ref    = TC_POP(vm);
+      int32_t count = 0;
+      if (handle >= 0 && handle < TC_MAX_FILE_HANDLES && Tinyc->file_used[handle]) {
+        File &f = tc_file_handles[handle];
+        int32_t *base = tc_resolve_ref(vm, ref);
+        if (base && f.available()) {
+          char line[512];
+          int len = f.readBytesUntil('\n', line, sizeof(line) - 1);
+          line[len] = 0;
+          // Parse tab/comma-delimited values
+          char *p = line;
+          while (*p && count < 256) {
+            while (*p == '\t' || *p == ',' || *p == '\r' || *p == ' ') p++;
+            if (!*p) break;
+            base[count] = atoi(p);
+            count++;
+            while (*p && *p != '\t' && *p != ',' && *p != '\r' && *p != '\n') p++;
+          }
+        }
+      }
+      TC_PUSH(vm, count);
+#else
+      TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_FILE_WRITE_ARR: {
+#ifdef USE_UFILESYS
+      int32_t append = TC_POP(vm);
+      int32_t handle = TC_POP(vm);
+      int32_t ref    = TC_POP(vm);
+      if (handle >= 0 && handle < TC_MAX_FILE_HANDLES && Tinyc->file_used[handle]) {
+        File &f = tc_file_handles[handle];
+        int32_t *base = tc_resolve_ref(vm, ref);
+        int32_t alen  = tc_ref_maxlen(vm, ref);
+        if (base && alen > 0) {
+          char tmp[16];
+          for (int32_t i = 0; i < alen; i++) {
+            if (i > 0) f.write((uint8_t)'\t');
+            int slen = snprintf(tmp, sizeof(tmp), "%d", base[i]);
+            f.write((const uint8_t*)tmp, slen);
+          }
+          if (!append) f.write((uint8_t)'\n');
+          f.flush();
+        }
+      }
+#else
+      TC_POP(vm); TC_POP(vm); TC_POP(vm);
+#endif
+      break;
+    }
+    case SYS_FILE_LOG: {
+#ifdef USE_UFILESYS
+      int32_t limit  = TC_POP(vm);
+      int32_t strRef = TC_POP(vm);
+      int32_t ci     = TC_POP(vm);
+      const char *path = tc_get_const_str(vm, ci);
+      if (!path || !ffsp) { TC_PUSH(vm, -1); break; }
+      char payload[256];
+      tc_ref_to_cstr(vm, strRef, payload, sizeof(payload));
+      // Append payload + newline
+      File f = ffsp->open(path, "a");
+      if (!f) { TC_PUSH(vm, -1); break; }
+      f.print(payload);
+      f.print('\n');
+      int32_t fsize = f.size();
+      f.close();
+      // Rotate if over limit
+      if (limit > 0 && fsize > limit) {
+        f = ffsp->open(path, "r");
+        if (f) {
+          // Read entire file
+          char *buf = (char*)malloc(fsize + 1);
+          if (buf) {
+            int rd = f.readBytes(buf, fsize);
+            buf[rd] = 0;
+            f.close();
+            // Find first newline
+            char *nl = strchr(buf, '\n');
+            if (nl) {
+              nl++;  // skip past newline
+              // Rewrite without first line
+              f = ffsp->open(path, "w");
+              if (f) {
+                int remain = rd - (nl - buf);
+                f.write((const uint8_t*)nl, remain);
+                fsize = remain;
+                f.close();
+              }
+            }
+            free(buf);
+          } else {
+            f.close();
+          }
+        }
+      }
+      TC_PUSH(vm, fsize);
+#else
+      TC_POP(vm); TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, -1);
+#endif
+      break;
+    }
+
+    // ── Time / timestamp functions ─────────────────────
+    case SYS_TIME_STAMP: {
+      // timeStamp(char buf[]) — get current Tasmota local timestamp
+      int32_t ref = TC_POP(vm);
+      char *buf = (char*)tc_resolve_ref(vm, ref);
+      if (buf) {
+        String ts = GetDateAndTime(DT_LOCAL);
+        strlcpy(buf, ts.c_str(), 20);
+      }
+      TC_PUSH(vm, 0);
+      break;
+    }
+    case SYS_TIME_CONVERT: {
+      // timeConvert(char buf[], int flg) — convert format in-place
+      // flg=0: German → Web  "15.1.24 12:30" → "2024-01-15T12:30:00"
+      // flg=1: Web → German  "2024-01-15T12:30:45" → "15.1.24 12:30"
+      int32_t flg = TC_POP(vm);
+      int32_t ref = TC_POP(vm);
+      char *buf = (char*)tc_resolve_ref(vm, ref);
+      if (buf) {
+        struct {
+          uint16_t year; uint8_t month, day, hour, mins, secs;
+        } tm;
+        if (strchr(buf, 'T')) {
+          // parse ISO: 2024-01-15T12:30:45
+          char *p = buf;
+          tm.year  = strtol(p, &p, 10) - 2000; p++;
+          tm.month = strtol(p, &p, 10); p++;
+          tm.day   = strtol(p, &p, 10); p++;
+          tm.hour  = strtol(p, &p, 10); p++;
+          tm.mins  = strtol(p, &p, 10); p++;
+          tm.secs  = strtol(p, &p, 10);
+        } else {
+          // parse German: 15.1.24 12:30
+          char *p = buf;
+          tm.day   = strtol(p, &p, 10); p++;
+          tm.month = strtol(p, &p, 10); p++;
+          tm.year  = strtol(p, &p, 10); p++;
+          tm.hour  = strtol(p, &p, 10); p++;
+          tm.mins  = strtol(p, &p, 10);
+          tm.secs  = 0;
+        }
+        if (flg & 1) {
+          // output German
+          sprintf(buf, "%d.%d.%d %d:%02d", tm.day, tm.month, tm.year, tm.hour, tm.mins);
+        } else {
+          // output Web/ISO
+          sprintf(buf, "%04d-%02d-%02dT%02d:%02d:%02d", tm.year + 2000, tm.month, tm.day, tm.hour, tm.mins, tm.secs);
+        }
+      }
+      TC_PUSH(vm, 0);
+      break;
+    }
+    case SYS_TIME_OFFSET: {
+      // timeOffset(char buf[], int days [, int zeroFlag])
+      // add day offset, optionally zero time portion
+      int32_t zflag = TC_POP(vm);
+      int32_t days  = TC_POP(vm);
+      int32_t ref   = TC_POP(vm);
+      char *buf = (char*)tc_resolve_ref(vm, ref);
+      if (buf) {
+        struct {
+          uint16_t year; uint8_t month, day, hour, mins, secs;
+        } tm;
+        uint8_t mode = 0;
+        if (strchr(buf, 'T')) {
+          char *p = buf;
+          tm.year  = strtol(p, &p, 10) - 2000; p++;
+          tm.month = strtol(p, &p, 10); p++;
+          tm.day   = strtol(p, &p, 10); p++;
+          tm.hour  = strtol(p, &p, 10); p++;
+          tm.mins  = strtol(p, &p, 10); p++;
+          tm.secs  = strtol(p, &p, 10);
+          mode = 0;
+        } else {
+          char *p = buf;
+          tm.day   = strtol(p, &p, 10); p++;
+          tm.month = strtol(p, &p, 10); p++;
+          tm.year  = strtol(p, &p, 10); p++;
+          tm.hour  = strtol(p, &p, 10); p++;
+          tm.mins  = strtol(p, &p, 10);
+          tm.secs  = 0;
+          mode = 1;
+        }
+        // convert to epoch via struct tm
+        struct tm tmx;
+        tmx.tm_sec  = tm.secs;
+        tmx.tm_min  = tm.mins;
+        tmx.tm_hour = tm.hour;
+        tmx.tm_mon  = tm.month - 1;
+        tmx.tm_year = tm.year + 100;  // year since 1900 = (yr+2000)-1900
+        tmx.tm_mday = tm.day;
+        time_t tmd = mktime(&tmx);
+        tmd += days * 86400;
+        struct tm *tmp = gmtime(&tmd);
+        if (zflag) {
+          tm.secs = 0; tm.mins = 0; tm.hour = 0;
+        } else {
+          tm.secs = tmp->tm_sec;
+          tm.mins = tmp->tm_min;
+          tm.hour = tmp->tm_hour;
+        }
+        tm.month = tmp->tm_mon + 1;
+        tm.year  = tmp->tm_year - 100;
+        tm.day   = tmp->tm_mday;
+        // write back in same format
+        if (mode & 1) {
+          sprintf(buf, "%d.%d.%d %d:%02d", tm.day, tm.month, tm.year, tm.hour, tm.mins);
+        } else {
+          sprintf(buf, "%04d-%02d-%02dT%02d:%02d:%02d", tm.year + 2000, tm.month, tm.day, tm.hour, tm.mins, tm.secs);
+        }
+      }
+      TC_PUSH(vm, 0);
+      break;
+    }
+    case SYS_TIME_TO_SECS: {
+      // timeToSecs(char buf[]) — parse timestamp, return epoch seconds
+      int32_t ref = TC_POP(vm);
+      char *buf = (char*)tc_resolve_ref(vm, ref);
+      int32_t secs = 0;
+      if (buf) {
+        struct {
+          uint16_t year; uint8_t month, day, hour, mins, secs;
+        } tm;
+        if (strchr(buf, 'T')) {
+          char *p = buf;
+          tm.year  = strtol(p, &p, 10) - 2000; p++;
+          tm.month = strtol(p, &p, 10); p++;
+          tm.day   = strtol(p, &p, 10); p++;
+          tm.hour  = strtol(p, &p, 10); p++;
+          tm.mins  = strtol(p, &p, 10); p++;
+          tm.secs  = strtol(p, &p, 10);
+        } else {
+          char *p = buf;
+          tm.day   = strtol(p, &p, 10); p++;
+          tm.month = strtol(p, &p, 10); p++;
+          tm.year  = strtol(p, &p, 10); p++;
+          tm.hour  = strtol(p, &p, 10); p++;
+          tm.mins  = strtol(p, &p, 10);
+          tm.secs  = 0;
+        }
+        struct tm tmx;
+        tmx.tm_sec  = tm.secs;
+        tmx.tm_min  = tm.mins;
+        tmx.tm_hour = tm.hour;
+        tmx.tm_mon  = tm.month - 1;
+        tmx.tm_year = tm.year + 100;
+        tmx.tm_mday = tm.day;
+        secs = (int32_t)mktime(&tmx);
+      }
+      TC_PUSH(vm, secs);
+      break;
+    }
+    case SYS_SECS_TO_TIME: {
+      // secsToTime(char buf[], int secs) — format epoch seconds as timestamp
+      int32_t secs = TC_POP(vm);
+      int32_t ref  = TC_POP(vm);
+      char *buf = (char*)tc_resolve_ref(vm, ref);
+      if (buf) {
+        time_t tmd = (time_t)secs;
+        struct tm *tmp = gmtime(&tmd);
+        sprintf(buf, "%04d-%02d-%02dT%02d:%02d:%02d",
+          tmp->tm_year + 1900, tmp->tm_mon + 1, tmp->tm_mday,
+          tmp->tm_hour, tmp->tm_min, tmp->tm_sec);
+      }
+      TC_PUSH(vm, 0);
       break;
     }
 
@@ -2085,6 +2794,165 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         }
       } else {
         TC_PUSH(vm, 0);
+      }
+      break;
+    }
+
+    // ── General-purpose UDP (Scripter-compatible udp() function) ──
+    case SYS_UDP_FUNC: {
+      int32_t mode = TC_POP(vm);
+      switch (mode) {
+        case 0: { // udp(0, port) → open listening port
+          int32_t port = TC_POP(vm);
+          if (port > 0 && port < 65536) {
+            Tinyc->udp_port.stop();
+            if (Tinyc->udp_port.begin(port)) {
+              Tinyc->udp_port_num = port;
+              Tinyc->udp_port_open = true;
+              AddLog(LOG_LEVEL_INFO, PSTR("TCC: UDP port %d opened"), port);
+              TC_PUSH(vm, 1);
+            } else {
+              Tinyc->udp_port_open = false;
+              TC_PUSH(vm, 0);
+            }
+          } else {
+            TC_PUSH(vm, 0);
+          }
+          break;
+        }
+        case 1: { // udp(1, buf) → read string from UDP
+          int32_t buf_ref = TC_POP(vm);
+          int32_t result = 0;
+          if (Tinyc->udp_port_open && !TasmotaGlobal.global_state.network_down) {
+            int32_t plen = Tinyc->udp_port.parsePacket();
+            if (plen > 0) {
+              char packet[512];
+              int32_t len = Tinyc->udp_port.read(packet, sizeof(packet) - 1);
+              if (len > 0) {
+                packet[len] = 0;
+                int32_t *buf = tc_resolve_ref(vm, buf_ref);
+                int32_t maxLen = tc_ref_maxlen(vm, buf_ref);
+                if (buf) {
+                  int n = (len < maxLen - 1) ? len : maxLen - 1;
+                  for (int i = 0; i < n; i++) buf[i] = (int32_t)(uint8_t)packet[i];
+                  buf[n] = 0;
+                  result = n;
+                }
+              }
+            }
+          }
+          TC_PUSH(vm, result);
+          break;
+        }
+        case 2: { // udp(2, str) → reply to sender's IP:port
+          int32_t str_ref = TC_POP(vm);
+          if (Tinyc->udp_port_open) {
+            char payload[512];
+            tc_ref_to_cstr(vm, str_ref, payload, sizeof(payload));
+            Tinyc->udp_port.beginPacket(
+              Tinyc->udp_port.remoteIP(),
+              Tinyc->udp_port.remotePort()
+            );
+            Tinyc->udp_port.write((const uint8_t*)payload, strlen(payload));
+            Tinyc->udp_port.endPacket();
+          }
+          break;
+        }
+        case 3: { // udp(3, url, str) → send to url with stored port
+          int32_t str_ref = TC_POP(vm);
+          int32_t url_ref = TC_POP(vm);
+          if (Tinyc->udp_port_open) {
+            char url[64];
+            tc_ref_to_cstr(vm, url_ref, url, sizeof(url));
+            char payload[512];
+            tc_ref_to_cstr(vm, str_ref, payload, sizeof(payload));
+            IPAddress adr;
+            adr.fromString(url);
+            Tinyc->udp_port.beginPacket(adr, Tinyc->udp_port_num);
+            Tinyc->udp_port.write((const uint8_t*)payload, strlen(payload));
+            Tinyc->udp_port.endPacket();
+          }
+          break;
+        }
+        case 4: { // udp(4, buf) → get remote IP as string
+          int32_t buf_ref = TC_POP(vm);
+          int32_t result = 0;
+          if (Tinyc->udp_port_open) {
+            String ip = Tinyc->udp_port.remoteIP().toString();
+            int32_t *buf = tc_resolve_ref(vm, buf_ref);
+            int32_t maxLen = tc_ref_maxlen(vm, buf_ref);
+            if (buf) {
+              int n = ip.length();
+              if (n > maxLen - 1) n = maxLen - 1;
+              for (int i = 0; i < n; i++) buf[i] = (int32_t)(uint8_t)ip[i];
+              buf[n] = 0;
+              result = n;
+            }
+          }
+          TC_PUSH(vm, result);
+          break;
+        }
+        case 5: { // udp(5) → get remote port
+          uint16_t rport = 0;
+          if (Tinyc->udp_port_open) {
+            rport = Tinyc->udp_port.remotePort();
+          }
+          TC_PUSH(vm, (int32_t)rport);
+          break;
+        }
+        case 6: { // udp(6, url, port, str) → send string to url:port
+          int32_t str_ref = TC_POP(vm);
+          int32_t port = TC_POP(vm);
+          int32_t url_ref = TC_POP(vm);
+          char url[64];
+          tc_ref_to_cstr(vm, url_ref, url, sizeof(url));
+          char payload[512];
+          tc_ref_to_cstr(vm, str_ref, payload, sizeof(payload));
+          IPAddress adr;
+          adr.fromString(url);
+          WiFiUDP tmpUdp;
+          tmpUdp.begin(port);
+          tmpUdp.beginPacket(adr, port);
+          tmpUdp.write((const uint8_t*)payload, strlen(payload));
+          tmpUdp.endPacket();
+          tmpUdp.stop();
+          TC_PUSH(vm, 0);
+          break;
+        }
+        case 7: { // udp(7, url, port, arr, count) → send array bytes to url:port
+          int32_t count = TC_POP(vm);
+          int32_t arr_ref = TC_POP(vm);
+          int32_t port = TC_POP(vm);
+          int32_t url_ref = TC_POP(vm);
+          char url[64];
+          tc_ref_to_cstr(vm, url_ref, url, sizeof(url));
+          int32_t *arr = tc_resolve_ref(vm, arr_ref);
+          int32_t maxLen = tc_ref_maxlen(vm, arr_ref);
+          if (arr && count > 0) {
+            if (count > maxLen) count = maxLen;
+            if (count > 512) count = 512;
+            uint8_t *payload = (uint8_t*)malloc(count);
+            if (payload) {
+              for (int32_t i = 0; i < count; i++) {
+                payload[i] = (uint8_t)(arr[i] & 0xFF);
+              }
+              IPAddress adr;
+              adr.fromString(url);
+              WiFiUDP tmpUdp;
+              tmpUdp.begin(port);
+              tmpUdp.beginPacket(adr, port);
+              tmpUdp.write(payload, count);
+              tmpUdp.endPacket();
+              tmpUdp.stop();
+              free(payload);
+            }
+          }
+          TC_PUSH(vm, 0);
+          break;
+        }
+        default:
+          TC_PUSH(vm, 0);
+          break;
       }
       break;
     }
@@ -3446,7 +4314,34 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       TC_POP(vm); break;
 #endif // USE_DISPLAY
 
-    // ── Audio (deferred to main loop — I2SPlay spawns its own task) ──
+    // ── Audio ──────────────────────────────────────────
+    // With binary plugins: call I2S plugin directly via Plugin_Query (no deferral needed)
+    // Without plugins: defer through ExecuteCommand in main loop
+#if defined(USE_BINPLUGINS) && !defined(USE_I2S_AUDIO)
+    case SYS_AUDIO_VOL: {
+      int32_t vol = TC_POP(vm);
+      char cmd[24];
+      snprintf(cmd, sizeof(cmd), "%d", vol);
+      Plugin_Query(42, 1, cmd);
+      break;
+    }
+    case SYS_AUDIO_PLAY: {
+      int32_t ci = TC_POP(vm);
+      const char *file = tc_get_const_str(vm, ci);
+      if (file) {
+        Plugin_Query(42, 0, (char*)file);
+      }
+      break;
+    }
+    case SYS_AUDIO_SAY: {
+      int32_t ci = TC_POP(vm);
+      const char *text = tc_get_const_str(vm, ci);
+      if (text) {
+        Plugin_Query(42, 2, (char*)text);
+      }
+      break;
+    }
+#else
     case SYS_AUDIO_VOL: {
       int32_t vol = TC_POP(vm);
       char cmd[24];
@@ -3471,6 +4366,147 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         char cmd[256];
         snprintf(cmd, sizeof(cmd), "I2SSay %s", text);
         tc_defer_command(cmd);
+      }
+      break;
+    }
+#endif
+
+    // ── TCP server (Scripter-compatible ws* functions) ──
+    case SYS_TCP_OPEN: {  // wso(port)
+      int32_t port = TC_POP(vm);
+      if (TasmotaGlobal.global_state.network_down) {
+        TC_PUSH(vm, -2);
+      } else {
+        if (Tinyc->tcp_server) {
+          Tinyc->tcp_client.stop();
+          Tinyc->tcp_server->stop();
+          delete Tinyc->tcp_server;
+        }
+        Tinyc->tcp_server = new WiFiServer(port);
+        if (!Tinyc->tcp_server) {
+          TC_PUSH(vm, -1);
+        } else {
+          Tinyc->tcp_server->begin();
+          Tinyc->tcp_server->setNoDelay(true);
+          AddLog(LOG_LEVEL_INFO, PSTR("TCC: TCP server started on port %d"), port);
+          TC_PUSH(vm, 0);
+        }
+      }
+      break;
+    }
+    case SYS_TCP_CLOSE: {  // wsc()
+      if (Tinyc->tcp_server) {
+        Tinyc->tcp_client.stop();
+        Tinyc->tcp_server->stop();
+        delete Tinyc->tcp_server;
+        Tinyc->tcp_server = nullptr;
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: TCP server closed"));
+      }
+      break;
+    }
+    case SYS_TCP_AVAILABLE: {  // wsa()
+      int32_t avail = 0;
+      if (Tinyc->tcp_server) {
+        if (Tinyc->tcp_server->hasClient()) {
+          Tinyc->tcp_client = Tinyc->tcp_server->available();
+        }
+        if (Tinyc->tcp_client && Tinyc->tcp_client.connected()) {
+          avail = Tinyc->tcp_client.available();
+        }
+      }
+      TC_PUSH(vm, avail);
+      break;
+    }
+    case SYS_TCP_READ_STR: {  // wsrs(buf)
+      int32_t ref = TC_POP(vm);
+      int32_t count = 0;
+      if (Tinyc->tcp_server && Tinyc->tcp_client.connected()) {
+        int32_t *base = tc_resolve_ref(vm, ref);
+        if (base) {
+          uint16_t slen = Tinyc->tcp_client.available();
+          if (slen > 254) slen = 254;  // cap to reasonable char[] size
+          for (uint16_t i = 0; i < slen; i++) {
+            base[i] = Tinyc->tcp_client.read();
+          }
+          base[slen] = 0;  // null terminate
+          count = slen;
+        }
+      }
+      TC_PUSH(vm, count);
+      break;
+    }
+    case SYS_TCP_WRITE_STR: {  // wsws(str)
+      int32_t ref = TC_POP(vm);
+      if (Tinyc->tcp_server && Tinyc->tcp_client.connected()) {
+        char buf[256];
+        tc_ref_to_cstr(vm, ref, buf, sizeof(buf));
+        Tinyc->tcp_client.write(buf, strlen(buf));
+      }
+      break;
+    }
+    case SYS_TCP_READ_ARR: {  // wsra(arr)
+      int32_t ref = TC_POP(vm);
+      int32_t count = 0;
+      if (Tinyc->tcp_server && Tinyc->tcp_client.connected()) {
+        int32_t *base = tc_resolve_ref(vm, ref);
+        if (base) {
+          uint16_t slen = Tinyc->tcp_client.available();
+          for (uint16_t i = 0; i < slen; i++) {
+            base[i] = Tinyc->tcp_client.read();
+          }
+          count = slen;
+        }
+      }
+      TC_PUSH(vm, count);
+      break;
+    }
+    case SYS_TCP_WRITE_ARR: {  // wswa(arr, num, type)
+      int32_t type = TC_POP(vm);
+      int32_t num  = TC_POP(vm);
+      int32_t ref  = TC_POP(vm);
+      if (Tinyc->tcp_server && Tinyc->tcp_client.connected()) {
+        int32_t *base = tc_resolve_ref(vm, ref);
+        if (base) {
+          uint8_t *abf = (uint8_t*)malloc(num * 4);
+          if (abf) {
+            uint8_t *p = abf;
+            uint16_t dlen = 0;
+            for (int32_t i = 0; i < num; i++) {
+              int32_t val = base[i];
+              switch (type) {
+                case 0:  // uint8
+                  *p++ = (uint8_t)val;
+                  dlen++;
+                  break;
+                case 1: {  // uint16 big-endian
+                  uint16_t wval = (uint16_t)val;
+                  *p++ = (wval >> 8);
+                  *p++ = wval & 0xFF;
+                  dlen += 2;
+                  break;
+                }
+                case 2: {  // sint16 big-endian
+                  int16_t swval = (int16_t)val;
+                  *p++ = ((uint16_t)swval >> 8);
+                  *p++ = swval & 0xFF;
+                  dlen += 2;
+                  break;
+                }
+                case 3: {  // float (raw 32-bit big-endian)
+                  uint32_t lval = (uint32_t)val;
+                  *p++ = (lval >> 24);
+                  *p++ = (lval >> 16) & 0xFF;
+                  *p++ = (lval >> 8) & 0xFF;
+                  *p++ = lval & 0xFF;
+                  dlen += 4;
+                  break;
+                }
+              }
+            }
+            Tinyc->tcp_client.write(abf, dlen);
+            free(abf);
+          }
+        }
       }
       break;
     }
