@@ -536,6 +536,7 @@ struct TcSlot {
   uint32_t program_size;
   bool     loaded;
   bool     running;
+  bool     autoexec;              // auto-run on boot
   char     filename[32];          // e.g. "/bresser.tcb"
   // Output buffer
   char     output[TC_OUTPUT_SIZE];
@@ -561,6 +562,7 @@ struct TINYC {
   TcSlot  *slots[TC_MAX_VMS];     // per-program VM slots (NULL = unused, malloc'd on demand)
   uint32_t instr_per_tick;
   bool     autorun;
+  bool     show_info;             // show TinyC status rows on main web page
   // Upload state (one upload at a time, shared)
   uint8_t *upload_buf;
   uint32_t upload_size;

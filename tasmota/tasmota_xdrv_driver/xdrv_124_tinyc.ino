@@ -17,11 +17,12 @@
  * Multi-VM slot support: up to TC_MAX_VMS simultaneous programs (4 on ESP32, 1 on ESP8266)
  *
  * Commands:
- *   TinyC          - Show VM status (all slots)
- *   TinyCRun       - Run loaded program in slot 0 (or specify file)
- *   TinyCStop      - Stop running program in slot 0
- *   TinyCReset     - Reset VM state in slot 0
- *   TinyCExec <n>  - Set instructions per tick (default 1000)
+ *   TinyC              - Show VM status (all slots)
+ *   TinyCRun [s] [/f]  - Run slot s (default 0), optionally load /f first
+ *   TinyCStop [s]      - Stop slot s (default 0)
+ *   TinyCReset [s]     - Reset slot s (default 0)
+ *   TinyCExec <n>      - Set instructions per tick (default 1000)
+ *   TinyCInfo 0|1      - Show/hide VM status rows on main page
  *
  * Web:
  *   /tc            - TinyC console page with upload form (shows all slots)
@@ -69,6 +70,92 @@ static void tc_all_callbacks(const char *name) {
 }
 
 /*********************************************************************************************\
+ * Settings file: /tinyc.cfg — persists slot→file mapping + autoexec flags
+ *
+ * Format: TC_MAX_VMS lines, each line:  filename,autoexec,show_info
+ *   /slot0_test.tcb,1
+ *   /bresser.tcb,0
+ *   ,0
+ *   ,0
+ *   Last line (optional): _info,<0|1>   (show_info flag)
+\*********************************************************************************************/
+
+#define TC_CFG_FILE "/tinyc.cfg"
+
+#ifdef USE_UFILESYS
+// Save current slot configuration to /tinyc.cfg
+static void TinyCSaveSettings(void) {
+  if (!Tinyc) return;
+  FS *fs = ufsp ? ufsp : ffsp;
+  if (!fs) return;
+  File f = fs->open(TC_CFG_FILE, "w");
+  if (!f) { AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Cannot write " TC_CFG_FILE)); return; }
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    TcSlot *s = Tinyc->slots[i];
+    if (s && s->filename[0]) {
+      f.printf("%s,%d\n", s->filename, s->autoexec ? 1 : 0);
+    } else {
+      f.printf(",%d\n", (s && s->autoexec) ? 1 : 0);
+    }
+  }
+  // Extra line for show_info
+  f.printf("_info,%d\n", Tinyc->show_info ? 1 : 0);
+  f.close();
+  AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: Settings saved"));
+}
+
+// Load slot configuration from /tinyc.cfg, load files, auto-run marked slots
+static void TinyCLoadSettings(void) {
+  if (!Tinyc) return;
+  FS *fs = ufsp ? ufsp : ffsp;
+  if (!fs) return;
+  File f = fs->open(TC_CFG_FILE, "r");
+  if (!f) {
+    AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: No " TC_CFG_FILE " found"));
+    return;
+  }
+  uint8_t slot = 0;
+  while (f.available() && slot <= TC_MAX_VMS) {
+    String line = f.readStringUntil('\n');
+    line.trim();
+    if (line.length() == 0) { slot++; continue; }
+
+    // Parse: filename,autoexec
+    int comma = line.indexOf(',');
+    String fname = (comma >= 0) ? line.substring(0, comma) : line;
+    int autoexec = (comma >= 0 && comma + 1 < (int)line.length()) ? line.substring(comma + 1).toInt() : 0;
+
+    // Special _info line
+    if (fname == "_info") {
+      Tinyc->show_info = (autoexec != 0);
+      continue;
+    }
+
+    if (slot >= TC_MAX_VMS) break;
+
+    fname.trim();
+    if (fname.length() > 0) {
+      if (TinyCLoadFile(fname.c_str(), slot)) {
+        Tinyc->slots[slot]->autoexec = (autoexec != 0);
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d: %s (autoexec=%d)"), slot, fname.c_str(), autoexec);
+      }
+    }
+    slot++;
+  }
+  f.close();
+
+  // Auto-run slots with autoexec flag
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    TcSlot *s = Tinyc->slots[i];
+    if (s && s->loaded && s->autoexec) {
+      TinyCStartVM(s);
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: Auto-started slot %d"), i);
+    }
+  }
+}
+#endif  // USE_UFILESYS
+
+/*********************************************************************************************\
  * Tasmota: Init
 \*********************************************************************************************/
 
@@ -92,7 +179,7 @@ static void TinyCInit(void) {
   for (int i = 0; i < TC_SPI_MAX_CS; i++) { Tinyc->spi.cs[i] = -1; }
   Tinyc->spi.sclk = 0;  // 0 = not initialized (valid pins are >0 or <0)
 
-  // Allocate slot 0 (default slot for backward compatibility)
+  // Allocate slot 0 (default slot, always present)
   Tinyc->slots[0] = tc_slot_alloc();
   if (!Tinyc->slots[0]) {
     AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Slot 0 allocation failed"));
@@ -103,9 +190,9 @@ static void TinyCInit(void) {
 
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: TinyC VM initialized (%d bytes, %d free)"), needed, ESP_getFreeHeap());
 
-  // Try auto-load from filesystem into slot 0
+  // Load slot config from /tinyc.cfg (loads files + auto-runs marked slots)
 #ifdef USE_UFILESYS
-  TinyCLoadFile(TC_FILE_NAME, 0);
+  TinyCLoadSettings();
 #endif
 }
 
@@ -201,11 +288,11 @@ static const char TC_NOT_INIT[] PROGMEM = "Not initialized";
 #define D_PRFX_TINYC "TinyC"
 
 const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
-  "|Run|Stop|Reset|Exec";
+  "|Run|Stop|Reset|Exec|Info";
 
 void (* const TinyCCommand[])(void) PROGMEM = {
   &CmndTinyC, &CmndTinyCRun, &CmndTinyCStop,
-  &CmndTinyCReset, &CmndTinyCExec
+  &CmndTinyCReset, &CmndTinyCExec, &CmndTinyCInfo
 };
 
 void CmndTinyC(void) {
@@ -233,18 +320,44 @@ void CmndTinyC(void) {
   ResponseAppend_P(PSTR("]}}"));
 }
 
+// Parse optional slot number from command payload: "TinyCRun [slot] [/file]"
+// Returns slot number (0-based), advances *pp past the slot digit + space
+static uint8_t tc_parse_cmd_slot(char **pp, uint16_t *plen) {
+  uint8_t slot = 0;
+  char *p = *pp;
+  uint16_t len = *plen;
+  if (len > 0 && p[0] >= '0' && p[0] < ('0' + TC_MAX_VMS)) {
+    slot = p[0] - '0';
+    p++; len--;
+    if (len > 0 && p[0] == ' ') { p++; len--; }
+    *pp = p;
+    *plen = len;
+  }
+  return slot;
+}
+
 void CmndTinyCRun(void) {
   if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
-  TcSlot *s = Tinyc->slots[0];
+  // Parse: TinyCRun [slot] [/file.tcb]
+  char *p = XdrvMailbox.data;
+  uint16_t len = XdrvMailbox.data_len;
+  uint8_t slot_num = tc_parse_cmd_slot(&p, &len);
+  TcSlot *s = Tinyc->slots[slot_num];
+  if (!s) {
+    // Auto-allocate slot if needed
+    Tinyc->slots[slot_num] = tc_slot_alloc();
+    s = Tinyc->slots[slot_num];
+  }
   if (!s) { ResponseCmndChar_P(TC_NOT_INIT); return; }
 #ifdef USE_UFILESYS
-  // If a filename is given (e.g., "TinyC Run /bresser.tcb"), load it first
-  if (XdrvMailbox.data_len > 0 && XdrvMailbox.data[0] == '/') {
+  // If a filename follows (e.g., "TinyCRun /bresser.tcb" or "TinyCRun 2 /bresser.tcb")
+  if (len > 0 && p[0] == '/') {
     TinyCStopVM(s);
-    if (!TinyCLoadFile(XdrvMailbox.data, 0)) {
+    if (!TinyCLoadFile(p, slot_num)) {
       ResponseCmndChar_P(PSTR("Load failed"));
       return;
     }
+    TinyCSaveSettings();
   }
 #endif
   if (!s->loaded) { ResponseCmndChar_P(PSTR("No program loaded")); return; }
@@ -257,22 +370,28 @@ void CmndTinyCRun(void) {
 
 void CmndTinyCStop(void) {
   if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
-  TcSlot *s = Tinyc->slots[0];
+  char *p = XdrvMailbox.data;
+  uint16_t len = XdrvMailbox.data_len;
+  uint8_t slot_num = tc_parse_cmd_slot(&p, &len);
+  TcSlot *s = Tinyc->slots[slot_num];
   if (!s) { ResponseCmndChar_P(TC_NOT_INIT); return; }
   TinyCStopVM(s);
-  AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program stopped"));
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d stopped"), slot_num);
   ResponseCmndDone();
 }
 
 void CmndTinyCReset(void) {
   if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
-  TcSlot *s = Tinyc->slots[0];
+  char *p = XdrvMailbox.data;
+  uint16_t len = XdrvMailbox.data_len;
+  uint8_t slot_num = tc_parse_cmd_slot(&p, &len);
+  TcSlot *s = Tinyc->slots[slot_num];
   if (!s) { ResponseCmndChar_P(TC_NOT_INIT); return; }
   TinyCStopVM(s);  // also frees frame locals
   memset(&s->vm, 0, sizeof(TcVM));  // safe -- pointers already freed
   s->output_len = 0;
   s->output[0] = '\0';
-  AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM reset"));
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d reset"), slot_num);
   ResponseCmndDone();
 }
 
@@ -282,6 +401,17 @@ void CmndTinyCExec(void) {
     Tinyc->instr_per_tick = XdrvMailbox.payload;
   }
   ResponseCmndNumber(Tinyc->instr_per_tick);
+}
+
+void CmndTinyCInfo(void) {
+  if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
+  if (XdrvMailbox.data_len > 0) {
+    Tinyc->show_info = (XdrvMailbox.payload != 0);
+#ifdef USE_UFILESYS
+    TinyCSaveSettings();
+#endif
+  }
+  ResponseCmndNumber(Tinyc->show_info ? 1 : 0);
 }
 
 /*********************************************************************************************\
@@ -398,8 +528,16 @@ static void HandleTinyCPage(void) {
       String file = Webserver->arg(F("file"));
       if (file.length() > 0) {
         TinyCLoadFile(file.c_str(), cmd_slot);
+        TinyCSaveSettings();
       }
 #endif
+    } else if (cmd == "autoexec") {
+      // Toggle autoexec flag for this slot
+      if (cs) {
+        cs->autoexec = !cs->autoexec;
+        TinyCSaveSettings();
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d autoexec=%d"), cmd_slot, cs->autoexec);
+      }
     } else if (cmd == "delall") {
 #ifdef USE_UFILESYS
       // Delete all .tcb files from both filesystems
@@ -442,88 +580,78 @@ static void HandleTinyCPage(void) {
   // Custom styles for this page
   WSContentSend_P(PSTR(
     "<style>"
-    ".tc-stat{background:var(--c_frm);border-radius:.3em;padding:10px 14px;margin:8px 0}"
-    ".tc-stat table{width:100%%}"
-    ".tc-stat td{padding:4px 8px}"
-    ".tc-stat td:first-child{color:var(--c_txt);opacity:.7;width:120px}"
-    ".tc-stat td:last-child{font-weight:bold}"
     ".tc-run{color:#0a0}.tc-load{color:#fa0}.tc-empty{color:var(--c_txt);opacity:.5}"
     ".tc-err{color:#f44}"
-    ".tc-btns{display:flex;gap:8px;margin:10px 0}"
-    ".tc-btns button{width:auto;flex:1;padding:0 12px}"
-    ".tc-out{background:#1a1a1a;color:#0f0;padding:10px;border-radius:.3em;"
-    "max-height:200px;overflow:auto;font-family:monospace;font-size:.9em;"
-    "white-space:pre-wrap;word-break:break-all;margin:8px 0}"
-    ".tc-sect{margin-top:16px;padding-top:12px;border-top:1px solid var(--c_btn)}"
+    ".tc-row{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #333}"
+    ".tc-row:last-child{border-bottom:none}"
+    ".tc-info{flex:1;font-size:.9em}"
+    ".tc-btns{display:flex;gap:4px}"
+    ".tc-btns button{width:auto;padding:0 8px;font-size:.85em;line-height:1.8rem}"
+    ".tc-out{background:#1a1a1a;color:#0f0;padding:6px 8px;border-radius:.3em;"
+    "max-height:120px;overflow:auto;font-family:monospace;font-size:.85em;"
+    "white-space:pre-wrap;word-break:break-all;margin:4px 0}"
     ".tc-upload input[type=file]{margin:8px 0}"
     ".tc-ide-url{display:flex;gap:8px;align-items:center}"
     ".tc-ide-url input{flex:1;padding:6px 8px}"
     ".tc-ide-url button{width:auto;padding:0 16px}"
     "</style>"));
 
-  // --- VM Status for ALL slots ---
+  // --- VM Status: compact view with all slots in one fieldset ---
   if (Tinyc) {
+    WSContentSend_P(PSTR("<fieldset><legend><b> TinyC VM Slots </b></legend>"));
     for (uint8_t si = 0; si < TC_MAX_VMS; si++) {
       TcSlot *s = Tinyc->slots[si];
       if (!s) continue;
 
-      char legend[40];
-      snprintf_P(legend, sizeof(legend), PSTR(" TinyC VM [Slot %d] "), si);
-      WSContentSend_P(PSTR("<fieldset><legend><b>%s</b></legend>"), legend);
+      // Running = task active OR halted in callback mode (loaded + halted + no error)
+      bool active = s->running || (s->loaded && s->vm.halted && s->vm.error == TC_OK);
+      const char *state, *sc;
+      if (active) { state = "Run"; sc = "tc-run"; }
+      else if (s->loaded) { state = "Rdy"; sc = "tc-load"; }
+      else { state = "---"; sc = "tc-empty"; }
 
-      char state[10], state_class[10];
-      if (s->running) { strcpy_P(state, PSTR("Running")); strcpy_P(state_class, PSTR("tc-run")); }
-      else if (s->loaded) { strcpy_P(state, PSTR("Loaded")); strcpy_P(state_class, PSTR("tc-load")); }
-      else { strcpy_P(state, PSTR("Empty")); strcpy_P(state_class, PSTR("tc-empty")); }
-
+      // Compact row: [dot status] filename (size) | buttons
       WSContentSend_P(PSTR(
-        "<div class='tc-stat'><table>"
-        "<tr><td>Status</td><td><span class='%s'>&#x25cf; %s</span></td></tr>"
-        "<tr><td>Program</td><td>%s (%d bytes)</td></tr>"
-        "<tr><td>Instructions</td><td>%u</td></tr>"
-        "<tr><td>PC / SP</td><td>%d / %d</td></tr>"),
-        state_class, state,
-        s->filename[0] ? s->filename : (s->loaded ? "loaded" : "none"),
-        s->program_size,
-        s->vm.instruction_count,
-        s->vm.pc - s->vm.code_offset, s->vm.sp);
+        "<div class='tc-row'>"
+        "<span class='%s'>&#x25cf;</span>"
+        "<span class='tc-info'><b>%d</b> %s %s (%dB)"),
+        sc, si, state,
+        s->filename[0] ? s->filename : "",
+        s->program_size);
 
-      // Only show error row if there's an error
       if (s->vm.error != 0) {
-        WSContentSend_P(PSTR("<tr><td>Error</td><td class='tc-err'>%s</td></tr>"),
-          tc_error_str(s->vm.error));
+        WSContentSend_P(PSTR(" <span class='tc-err'>%s</span>"), tc_error_str(s->vm.error));
       }
+      WSContentSend_P(PSTR("</span>"));
 
+      // Inline buttons: grey out Run when active, Stop when not active
       WSContentSend_P(PSTR(
-        "<tr><td>Instr/tick</td><td>%d</td></tr>"
-        "</table></div>"),
-        Tinyc->instr_per_tick);
-
-      // Control buttons (per-slot)
-      WSContentSend_P(PSTR(
-        "<div class='tc-btns'><form action='/tc' method='get' style='display:flex;gap:8px;width:100%%'>"
+        "<form action='/tc' method='get' class='tc-btns'>"
         "<input type='hidden' name='slot' value='%d'>"
-        "<button name='cmd' value='run' class='button bgrn'>&#x25B6; Run</button>"
-        "<button name='cmd' value='stop' class='button bred'>&#x25A0; Stop</button>"
-        "<button name='cmd' value='reset' class='button'>&#x21BB; Reset</button>"
-        "</form></div>"), si);
+        "<button name='cmd' value='run' class='button' style='background:%s'>&#x25B6;</button>"
+        "<button name='cmd' value='stop' class='button' style='background:%s'>&#x25A0;</button>"
+        "<button name='cmd' value='reset' class='button'>&#x21BB;</button>"
+        "<button name='cmd' value='autoexec' class='button' style='background:%s' title='Auto-execute on boot'>A</button>"
+        "</form></div>"), si,
+        active ? "#555" : "#47c266",    // Run: grey when active, green when idle
+        active ? "#d43535" : "#555",     // Stop: red when active, grey when idle
+        s->autoexec ? "#47c266" : "var(--c_btn)");
 
-      // Output log for this slot
+      // Output log (compact)
       if (s->output_len > 0) {
-        WSContentSend_P(PSTR("<b>Output</b><div class='tc-out'>%s</div>"), s->output);
+        WSContentSend_P(PSTR("<div class='tc-out'>%s</div>"), s->output);
       }
-
-      WSContentSend_P(PSTR("</fieldset>"));
     }
+    WSContentSend_P(PSTR("</fieldset>"));
 
-    // --- File selector (shared, loads into slot 0 by default) ---
+    // --- File selector with slot chooser ---
 #ifdef USE_UFILESYS
     if (ufsp || ffsp) {
-      TcSlot *s0 = Tinyc->slots[0];
       WSContentSend_P(PSTR(
         "<fieldset><legend><b> Load Program </b></legend>"
         "<p><form action='/tc' method='get'>"
-        "<select name='file' style='width:100%%'>"));
+        "<div style='display:flex;gap:8px;align-items:center'>"
+        "<select name='file' style='flex:1'>"));
       // Scan up to 2 filesystems: ufsp (SD/main) and ffsp (flash) if different
       FS *fss[] = { ufsp, (ffsp && ffsp != ufsp) ? ffsp : nullptr };
       const char *fslabel[] = { "", " [flash]" };
@@ -544,9 +672,8 @@ static void HandleTinyCPage(void) {
           if (nlen > 4 && strcasecmp(ep + nlen - 4, ".tcb") == 0) {
             char fpath[40];
             snprintf(fpath, sizeof(fpath), "/%s", ep);
-            bool is_current = (s0 && s0->filename[0] && strcmp(fpath, s0->filename) == 0);
-            WSContentSend_P(PSTR("<option value='%s'%s>%s (%d B)%s</option>"),
-              fpath, is_current ? " selected" : "", ep, entry.size(), fslabel[fi]);
+            WSContentSend_P(PSTR("<option value='%s'>%s (%d B)%s</option>"),
+              fpath, ep, entry.size(), fslabel[fi]);
           }
           entry.close();
         }
@@ -554,8 +681,14 @@ static void HandleTinyCPage(void) {
       }
       WSContentSend_P(PSTR(
         "</select>"
+        "<select name='slot' style='width:auto'>"));
+      for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+        WSContentSend_P(PSTR("<option value='%d'>Slot %d</option>"), i, i);
+      }
+      WSContentSend_P(PSTR(
+        "</select></div>"
         "<br><div style='display:flex;gap:8px'>"
-        "<button name='cmd' value='load' class='button'>Load</button>"
+        "<button name='cmd' value='load' class='button'>Load into Slot</button>"
         "<button name='cmd' value='delall' class='button bred'"
         " onclick=\"return confirm('Delete all .tcb files?')\">"
         "Delete All .tcb</button>"
@@ -569,11 +702,19 @@ static void HandleTinyCPage(void) {
       "</fieldset>"));
   }
 
-  // --- Upload Section ---
+  // --- Upload Section (with slot selector via JS to set form action) ---
   WSContentSend_P(PSTR(
     "<fieldset><legend><b> Upload Program </b></legend>"
-    "<form class='tc-upload' method='POST' action='/tc_upload' enctype='multipart/form-data'>"
-    "<input type='file' name='tcb' accept='.tcb'>"
+    "<form class='tc-upload' method='POST' action='/tc_upload' enctype='multipart/form-data'"
+    " onsubmit=\"this.action='/tc_upload?slot='+this.querySelector('[name=uslot]').value\">"
+    "<div style='display:flex;gap:8px;align-items:center'>"
+    "<input type='file' name='tcb' accept='.tcb' style='flex:1'>"
+    "<select name='uslot' style='width:auto'>"));
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    WSContentSend_P(PSTR("<option value='%d'>Slot %d</option>"), i, i);
+  }
+  WSContentSend_P(PSTR(
+    "</select></div>"
     "<button type='submit' class='button bgrn'>Upload .tcb</button>"
     "</form></fieldset>"));
 
@@ -738,6 +879,7 @@ static void HandleTinyCUpload(void) {
           TfsSaveFile(saveName, s->program, s->program_size);
           AddLog(LOG_LEVEL_INFO, PSTR("TCC: Saved to %s"), saveName);
         }
+        TinyCSaveSettings();
 #endif
       } else {
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Load error: %s"), tc_error_str(err));
@@ -1383,18 +1525,21 @@ static void TinyCShow(bool json) {
     for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
       TcSlot *s = Tinyc->slots[i];
       if (!s) continue;
-      char status[10];
-      if (s->running) { strcpy_P(status, PSTR("Running")); }
-      else if (s->loaded) { strcpy_P(status, PSTR("Loaded")); }
-      else { strcpy_P(status, PSTR("Empty")); }
-      if (i == 0) {
-        WSContentSend_PD(PSTR("{s}TinyC{m}%s (%d bytes){e}"),
-          status, s->program_size);
-      } else {
-        WSContentSend_PD(PSTR("{s}TinyC[%d]{m}%s (%d bytes){e}"),
-          i, status, s->program_size);
+      // Debug info rows (switchable via TinyCInfo command)
+      if (Tinyc->show_info) {
+        char status[10];
+        if (s->running) { strcpy_P(status, PSTR("Running")); }
+        else if (s->loaded) { strcpy_P(status, PSTR("Loaded")); }
+        else { strcpy_P(status, PSTR("Empty")); }
+        if (i == 0) {
+          WSContentSend_PD(PSTR("{s}TinyC{m}%s (%d bytes){e}"),
+            status, s->program_size);
+        } else {
+          WSContentSend_PD(PSTR("{s}TinyC[%d]{m}%s (%d bytes){e}"),
+            i, status, s->program_size);
+        }
       }
-      // Call user's WebCall() on this slot
+      // Call user's WebCall() on this slot (always active)
       if (s->loaded && s->vm.halted && s->vm.error == TC_OK) {
         tc_slot_callback(s, "WebCall");
       }
