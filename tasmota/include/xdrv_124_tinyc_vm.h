@@ -11,6 +11,25 @@
 #ifdef USE_UFILESYS
 extern FS *ffsp;
 extern FS *ufsp;
+// Resolve filesystem from path prefix (like Scripter's script_file_path):
+//   /ffs/xxx  → flash (ffsp), strip prefix
+//   /sdfs/xxx → SD card (ufsp), strip prefix
+//   default   → ufsp (SD preferred), ensure leading /
+static FS *tc_file_path(char *path) {
+  if (!strncmp_P(path, PSTR("/ffs/"), 5)) {
+    memmove(path, path + 4, strlen(path) - 3);
+    return ffsp;
+  }
+  if (!strncmp_P(path, PSTR("/sdfs/"), 6)) {
+    memmove(path, path + 5, strlen(path) - 4);
+    return ufsp;
+  }
+  if (path[0] != '/') {
+    memmove(path + 1, path, strlen(path) + 1);
+    path[0] = '/';
+  }
+  return ufsp;
+}
 #endif
 
 /*********************************************************************************************\
@@ -1908,13 +1927,17 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
     }
 
-    // ── File I/O (LittleFS) ────────────────────────────
+    // ── File I/O (SD preferred, /ffs/ for flash, /sdfs/ for SD) ──
     case SYS_FILE_OPEN: {
 #ifdef USE_UFILESYS
       int32_t mode = TC_POP(vm);       // 0=read, 1=write, 2=append
       int32_t ci = TC_POP(vm);         // const pool index for path
-      const char *path = tc_get_const_str(vm, ci);
-      if (!path || !ffsp) { TC_PUSH(vm, -1); break; }
+      const char *cpath = tc_get_const_str(vm, ci);
+      if (!cpath) { TC_PUSH(vm, -1); break; }
+      char path[128];
+      strlcpy(path, cpath, sizeof(path));
+      FS *fsp = tc_file_path(path);
+      if (!fsp) { TC_PUSH(vm, -1); break; }
       int slot = tc_alloc_file_handle();
       if (slot < 0) {
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: fileOpen no free handle"));
@@ -1923,9 +1946,9 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       }
       const char *mode_str;
       switch (mode) {
-        case 0:  mode_str = "r";  tc_file_handles[slot] = ffsp->open(path, "r"); break;
-        case 1:  mode_str = "w";  tc_file_handles[slot] = ffsp->open(path, "w"); break;
-        case 2:  mode_str = "a";  tc_file_handles[slot] = ffsp->open(path, "a"); break;
+        case 0:  mode_str = "r";  tc_file_handles[slot] = fsp->open(path, "r"); break;
+        case 1:  mode_str = "w";  tc_file_handles[slot] = fsp->open(path, "w"); break;
+        case 2:  mode_str = "a";  tc_file_handles[slot] = fsp->open(path, "a"); break;
         default: mode_str = "?";  TC_PUSH(vm, -1); break;
       }
       if (mode > 2) break;  // invalid mode already pushed -1
@@ -2015,9 +2038,13 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     case SYS_FILE_EXISTS: {
 #ifdef USE_UFILESYS
       int32_t ci = TC_POP(vm);
-      const char *path = tc_get_const_str(vm, ci);
-      if (!path || !ffsp) { TC_PUSH(vm, 0); break; }
-      bool exists = ffsp->exists(path);
+      const char *cpath = tc_get_const_str(vm, ci);
+      if (!cpath) { TC_PUSH(vm, 0); break; }
+      char path[128];
+      strlcpy(path, cpath, sizeof(path));
+      FS *fsp = tc_file_path(path);
+      if (!fsp) { TC_PUSH(vm, 0); break; }
+      bool exists = fsp->exists(path);
       AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileExists(\"%s\") -> %d"), path, exists ? 1 : 0);
       TC_PUSH(vm, exists ? 1 : 0);
 #else
@@ -2029,9 +2056,13 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     case SYS_FILE_DELETE: {
 #ifdef USE_UFILESYS
       int32_t ci = TC_POP(vm);
-      const char *path = tc_get_const_str(vm, ci);
-      if (!path || !ffsp) { TC_PUSH(vm, -1); break; }
-      bool ok = ffsp->remove(path);
+      const char *cpath = tc_get_const_str(vm, ci);
+      if (!cpath) { TC_PUSH(vm, -1); break; }
+      char path[128];
+      strlcpy(path, cpath, sizeof(path));
+      FS *fsp = tc_file_path(path);
+      if (!fsp) { TC_PUSH(vm, -1); break; }
+      bool ok = fsp->remove(path);
       AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileDelete(\"%s\") -> %d"), path, ok ? 0 : -1);
       TC_PUSH(vm, ok ? 0 : -1);
 #else
@@ -2043,9 +2074,13 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     case SYS_FILE_SIZE: {
 #ifdef USE_UFILESYS
       int32_t ci = TC_POP(vm);
-      const char *path = tc_get_const_str(vm, ci);
-      if (!path || !ffsp) { TC_PUSH(vm, -1); break; }
-      File f = ffsp->open(path, "r");
+      const char *cpath = tc_get_const_str(vm, ci);
+      if (!cpath) { TC_PUSH(vm, -1); break; }
+      char path[128];
+      strlcpy(path, cpath, sizeof(path));
+      FS *fsp = tc_file_path(path);
+      if (!fsp) { TC_PUSH(vm, -1); break; }
+      File f = fsp->open(path, "r");
       if (!f) {
         TC_PUSH(vm, -1);
       } else {
@@ -2074,9 +2109,13 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     case SYS_FILE_MKDIR: {
 #ifdef USE_UFILESYS
       int32_t ci = TC_POP(vm);
-      const char *path = tc_get_const_str(vm, ci);
-      if (!path || !ffsp) { TC_PUSH(vm, 0); break; }
-      bool ok = ffsp->mkdir(path);
+      const char *cpath = tc_get_const_str(vm, ci);
+      if (!cpath) { TC_PUSH(vm, 0); break; }
+      char path[128];
+      strlcpy(path, cpath, sizeof(path));
+      FS *fsp = tc_file_path(path);
+      if (!fsp) { TC_PUSH(vm, 0); break; }
+      bool ok = fsp->mkdir(path);
       AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileMkdir(\"%s\") -> %d"), path, ok);
       TC_PUSH(vm, ok ? 1 : 0);
 #else
@@ -2088,9 +2127,13 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     case SYS_FILE_RMDIR: {
 #ifdef USE_UFILESYS
       int32_t ci = TC_POP(vm);
-      const char *path = tc_get_const_str(vm, ci);
-      if (!path || !ffsp) { TC_PUSH(vm, 0); break; }
-      bool ok = ffsp->rmdir(path);
+      const char *cpath = tc_get_const_str(vm, ci);
+      if (!cpath) { TC_PUSH(vm, 0); break; }
+      char path[128];
+      strlcpy(path, cpath, sizeof(path));
+      FS *fsp = tc_file_path(path);
+      if (!fsp) { TC_PUSH(vm, 0); break; }
+      bool ok = fsp->rmdir(path);
       AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileRmdir(\"%s\") -> %d"), path, ok);
       TC_PUSH(vm, ok ? 1 : 0);
 #else
@@ -2105,17 +2148,21 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
 #ifdef USE_UFILESYS
       int32_t urlRef = TC_POP(vm);
       int32_t ci     = TC_POP(vm);
-      const char *path = tc_get_const_str(vm, ci);
+      const char *cpath = tc_get_const_str(vm, ci);
       char url[256];
       tc_ref_to_cstr(vm, urlRef, url, sizeof(url));
-      if (!path || !ffsp) { TC_PUSH(vm, -1); break; }
+      if (!cpath) { TC_PUSH(vm, -1); break; }
+      char path[128];
+      strlcpy(path, cpath, sizeof(path));
+      FS *fsp = tc_file_path(path);
+      if (!fsp) { TC_PUSH(vm, -1); break; }
       WiFiClient http_client;
       HTTPClient http;
       http.setTimeout(10000);
       http.begin(http_client, url);
       int httpCode = http.GET();
       if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
-        File f = ffsp->open(path, "w");
+        File f = fsp->open(path, "w");
         if (f) {
           WiFiClient *stream = http.getStreamPtr();
           int32_t len = http.getSize();
@@ -2416,12 +2463,16 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t limit  = TC_POP(vm);
       int32_t strRef = TC_POP(vm);
       int32_t ci     = TC_POP(vm);
-      const char *path = tc_get_const_str(vm, ci);
-      if (!path || !ffsp) { TC_PUSH(vm, -1); break; }
+      const char *cpath = tc_get_const_str(vm, ci);
+      if (!cpath) { TC_PUSH(vm, -1); break; }
+      char path[128];
+      strlcpy(path, cpath, sizeof(path));
+      FS *fsp = tc_file_path(path);
+      if (!fsp) { TC_PUSH(vm, -1); break; }
       char payload[256];
       tc_ref_to_cstr(vm, strRef, payload, sizeof(payload));
       // Append payload + newline
-      File f = ffsp->open(path, "a");
+      File f = fsp->open(path, "a");
       if (!f) { TC_PUSH(vm, -1); break; }
       f.print(payload);
       f.print('\n');
@@ -2429,7 +2480,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       f.close();
       // Rotate if over limit
       if (limit > 0 && fsize > limit) {
-        f = ffsp->open(path, "r");
+        f = fsp->open(path, "r");
         if (f) {
           // Read entire file
           char *buf = (char*)malloc(fsize + 1);
@@ -2442,7 +2493,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
             if (nl) {
               nl++;  // skip past newline
               // Rewrite without first line
-              f = ffsp->open(path, "w");
+              f = fsp->open(path, "w");
               if (f) {
                 int remain = rd - (nl - buf);
                 f.write((const uint8_t*)nl, remain);
@@ -4864,7 +4915,11 @@ static int tc_vm_call_callback(TcVM *vm, const char *name) {
       vm->delayed = false;
       continue;  // resume callback execution after delay
     }
-    if (err != TC_OK) break;
+    if (err != TC_OK) {
+      vm->error = err;
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Callback error %d at PC=%u"), err, vm->pc);
+      break;
+    }
     if (++count > TC_CALLBACK_MAX_INSTR) {
       vm->error = TC_ERR_INSTRUCTION_LIMIT;
       break;
@@ -5200,7 +5255,12 @@ static void tc_vm_task(void *param) {
     while (!vm->halted && vm->error == TC_OK && count < 256 && !tc->task_stop) {
       int err = tc_vm_step(vm);
       if (err == TC_ERR_PAUSED) break;   // delay() was called, go back to outer loop
-      if (err != TC_OK) break;
+      if (err != TC_OK) {
+        vm->error = err;   // propagate error so outer loop stops
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Runtime error %d at PC=%u after %u instr"),
+          err, vm->pc, vm->instruction_count);
+        break;
+      }
       count++;
       vm->instruction_count++;
     }
@@ -5272,7 +5332,11 @@ static void tc_vm_task(void *param) {
                 }
                 continue;
               }
-              if (err != TC_OK) break;
+              if (err != TC_OK) {
+                vm->error = err;
+                AddLog(LOG_LEVEL_ERROR, PSTR("TCC: TaskLoop error %d at PC=%u"), err, vm->pc);
+                break;
+              }
               if (++count > TC_CALLBACK_MAX_INSTR) {
                 vm->error = TC_ERR_INSTRUCTION_LIMIT;
                 break;

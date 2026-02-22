@@ -1107,22 +1107,31 @@ static void HandleTinyCApiCORS(void) {
 #ifdef USE_TINYC_IDE
 #ifdef USE_UFILESYS
 static void HandleTinyCIde(void) {
-  if (!ffsp) {
+  if (!ffsp && !ufsp) {
     WSSend_P(503, PSTR("text/plain"), PSTR("Filesystem not available"));
     return;
   }
 
-  // Try gzipped version first
+  // Try gzipped version first on ffsp (flash), then ufsp (SD)
   bool gzipped = false;
-  File f = ffsp->open("/tinyc_ide.html.gz", "r");
+  File f;
+  if (ffsp) f = ffsp->open("/tinyc_ide.html.gz", "r");
   if (f) {
     gzipped = true;
   } else {
-    f = ffsp->open("/tinyc_ide.html", "r");
+    if (ffsp) f = ffsp->open("/tinyc_ide.html", "r");
+    if (!f && ufsp && ufsp != ffsp) {
+      f = ufsp->open("/tinyc_ide.html.gz", "r");
+      if (f) {
+        gzipped = true;
+      } else {
+        f = ufsp->open("/tinyc_ide.html", "r");
+      }
+    }
   }
 
   if (!f) {
-    WSSend_P(404, PSTR("text/plain"), PSTR("TinyC IDE not found. Upload tinyc_ide.html.gz to flash filesystem (not SD card)."));
+    WSSend_P(404, PSTR("text/plain"), PSTR("TinyC IDE not found. Upload tinyc_ide.html.gz to filesystem."));
     return;
   }
 
