@@ -148,6 +148,8 @@ enum TcOp {
   OP_LOAD_HEAP_ARR  = 0xA0,  // u8 handle; pop idx -> push value
   OP_STORE_HEAP_ARR = 0xA1,  // u8 handle; pop val, pop idx -> store
   OP_ADDR_HEAP      = 0xA2,  // u8 handle -> push ref: 0xC0000000 | handle
+  // Watch variables (change tracking)
+  OP_STORE_WATCH    = 0xA5,  // u16 varIdx, u16 shadowIdx, u16 writtenIdx — store with shadow update
   // Constants
   OP_LOAD_CONST   = 0x90,
 };
@@ -3991,6 +3993,18 @@ static int tc_vm_step(TcVM *vm) {
       addr=tc_read_u16(vm);
       if (addr >= TC_MAX_GLOBALS) { TC_POP(vm); return TC_ERR_BOUNDS; }
       vm->globals[addr]=TC_POP(vm); break;
+    case OP_STORE_WATCH: {
+      uint16_t var_idx = tc_read_u16(vm);
+      uint16_t shadow_idx = tc_read_u16(vm);
+      uint16_t written_idx = tc_read_u16(vm);
+      int32_t val = TC_POP(vm);
+      if (var_idx < TC_MAX_GLOBALS && shadow_idx < TC_MAX_GLOBALS && written_idx < TC_MAX_GLOBALS) {
+        vm->globals[shadow_idx] = vm->globals[var_idx];  // save old value
+        vm->globals[written_idx] = 1;                     // set written flag
+        vm->globals[var_idx] = val;                        // store new value
+      }
+      break;
+    }
 
     // ── Arrays (with bounds checks) ────────
     case OP_LOAD_LOCAL_ARR:

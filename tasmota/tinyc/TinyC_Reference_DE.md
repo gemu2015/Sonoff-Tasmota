@@ -99,6 +99,68 @@ float pi = 3.14;
 char buffer[64];
 ```
 
+### Persistente Variablen
+Globale Variablen mit dem Schluesselwort `persist` werden automatisch im Flash gespeichert und beim Programmstart wiederhergestellt. Dies entspricht den `p:` Variablen im Tasmota Scripter.
+
+```c
+persist float totalEnergy = 0.0;   // wird ueber Neustarts gespeichert
+persist int bootCount;              // Skalar — 4 Bytes in Datei
+persist char deviceName[32];        // Array — 32 Slots in Datei
+```
+
+- Nur globale Variablen koennen `persist` sein (keine lokalen Variablen oder Funktionsparameter)
+- Persist-Variablen werden **automatisch geladen** aus `/tinyc_pvars.bin` beim Programmstart
+- Persist-Variablen werden **automatisch gespeichert** beim Stoppen des Programms (`TinyCStop`)
+- `saveVars()` aufrufen zum manuellen Speichern (z.B. nach Mitternachts-Zaehleraktualisierung)
+- Maximal 32 Persist-Eintraege pro Programm
+- Binaerformat — kompakt und schnell (rohe int32 Werte, Floats als bit-cast int32)
+
+```c
+persist float dval = 0.0;
+persist float mval = 0.0;
+
+void EverySecond() {
+    if (tasm_hour == 0 && last_hr != 0) {
+        dval = smlGet(2);  // Tageszaehler aktualisieren
+        saveVars();         // sofort speichern
+    }
+}
+```
+
+### Watch-Variablen (Aenderungserkennung)
+Globale Variablen mit dem Schluesselwort `watch` verfolgen automatisch Aenderungen. Bei jedem Schreibzugriff wird der alte Wert als Schattenwert gespeichert — unverzichtbar fuer IOT-Monitoring.
+
+```c
+watch float power;
+watch int relay;
+```
+
+- Nur skalare Globals koennen `watch` sein (int, float — keine Arrays oder lokale Variablen)
+- Jeder Schreibzugriff speichert automatisch den vorherigen Wert und setzt ein Written-Flag
+- Benoetigt 2 zusaetzliche Global-Slots pro Watch-Variable (Schatten + Written-Flag)
+
+**Intrinsische Funktionen:**
+
+| Funktion | Rueckgabe | Beschreibung |
+|----------|-----------|-------------|
+| `changed(var)` | `int` | 1 wenn aktueller Wert vom Schattenwert abweicht |
+| `delta(var)` | `int/float` | aktuell - Schatten (vorzeichenbehaftete Differenz) |
+| `written(var)` | `int` | 1 wenn Variable seit letztem `snapshot()` zugewiesen wurde |
+| `snapshot(var)` | `void` | Schatten = aktuell, Written-Flag loeschen |
+
+```c
+watch float power;
+
+void EverySecond() {
+    power = sensorGet("ENERGY#Power");
+    if (changed(power)) {
+        float diff = delta(power);
+        // auf Leistungsaenderung reagieren
+        snapshot(power);  // Aenderung bestaetigen
+    }
+}
+```
+
 ### Lokale Variablen
 Innerhalb von Funktionen oder Bloecken deklariert. Blockbasierter Gueltigkeitsbereich (neuer Bereich pro `{ }`).
 ```c
@@ -1752,6 +1814,25 @@ audioVol(50);              // Lautstaerke auf 50% setzen
 audioPlay("/alarm.mp3");   // MP3-Datei abspielen
 audioSay("sensor alert");  // Text sprechen
 ```
+
+### Persistente Variablen
+
+| Funktion | Beschreibung |
+|---|---|
+| `saveVars()` | Alle `persist` Globals nach `/tinyc_pvars.bin` speichern |
+
+Persist-Variablen werden automatisch beim Programmstart geladen und beim `TinyCStop` gespeichert. Verwenden Sie `saveVars()` um an kritischen Stellen zu speichern (z.B. nach Mitternachts-Zaehleraktualisierung).
+
+### Watch-Variablen (Aenderungserkennung)
+
+| Funktion | Beschreibung |
+|---|---|
+| `changed(var)` | Gibt 1 zurueck wenn Watch-Variable vom Schattenwert abweicht |
+| `delta(var)` | Gibt aktuell - Schatten zurueck (int oder float je nach Variablentyp) |
+| `written(var)` | Gibt 1 zurueck wenn Variable seit letztem `snapshot()` zugewiesen wurde |
+| `snapshot(var)` | Schattenwert aktualisieren und Written-Flag loeschen |
+
+Watch-Variablen sind Compiler-Intrinsics — sie erzeugen Inline-Vergleichscode ohne Laufzeit-Overhead (kein Syscall).
 
 ### Debug
 

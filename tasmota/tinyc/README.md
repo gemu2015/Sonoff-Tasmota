@@ -2,11 +2,23 @@
 
 TinyC is a C-subset compiler and VM that runs on ESP32/ESP8266 as Tasmota driver `XDRV_124`. Write C code in the browser IDE, compile to bytecode, upload and run — no firmware rebuild needed.
 
-## Quick Start
+## Building Tasmota with TinyC
 
-1. Upload `tinyc_ide.html.gz` to the device flash filesystem
-2. Open `http://<device-ip>/tinyc_ide.html` in a browser
-3. Write code, press **Ctrl+Enter** to compile, **Ctrl+Shift+Enter** to run
+Add the following to your `user_config_override.h`:
+
+```c
+#define USE_TINYC           // Enable TinyC VM (XDRV_124)
+#define USE_TINYC_IDE       // Enable self-hosted browser IDE (requires USE_UFILESYS)
+```
+
+`USE_TINYC` enables the VM and console commands. `USE_TINYC_IDE` adds the `/tinyc_ide.html` endpoint that serves the IDE directly from flash — requires a filesystem-enabled build (`USE_UFILESYS`).
+
+After compiling and flashing Tasmota, upload the IDE file to the device filesystem:
+
+1. Run `bash bundle.sh` to generate `tinyc_ide.html.gz`
+2. Upload `tinyc_ide.html.gz` to the device via **Consoles > Manage File System** (or `http://<device-ip>/ufsd`)
+3. Open `http://<device-ip>/tinyc_ide.html` in a browser
+4. Write code, press **Ctrl+Enter** to compile, **Ctrl+Shift+Enter** to run
 
 ## Language
 
@@ -46,6 +58,8 @@ Callbacks run automatically from Tasmota's main loop:
 **UDP:** `udpSend`, `udpRecv`, `udpReady`, `udpSendArray`, `udpRecvArray`
 **Display:** `dspText`, `dspClear`, `dspPos`, `dspFont`, `dspSize`, `dspColor`, `dspDraw`, `dspPad`, `dspPixel`, `dspLine`, `dspRect`, `dspFillRect`, `dspCircle`, `dspFillCircle`, `dspHLine`, `dspVLine`, `dspRoundRect`, `dspFillRoundRect`, `dspTriangle`, `dspFillTriangle`, `dspDim`, `dspOnOff`, `dspUpdate`, `dspPicture`, `dspWidth`, `dspHeight`
 **Audio:** `audioVol`, `audioPlay`, `audioSay`
+**Persist:** `persist` keyword for auto-saved variables, `saveVars` for manual save
+**Watch:** `watch` keyword for change detection, `changed`, `delta`, `written`, `snapshot` intrinsics
 **WebUI:** `webButton`, `webSlider`, `webCheckbox`, `webText`, `webNumber`, `webPulldown`, `webRadio`, `webTime`, `webPageLabel`, `webPage`, `webSendFile`, `webOn`, `webHandler`, `webArg`
 **SML:** `smlGet`, `smlGetStr`, `smlWrite`, `smlRead`, `smlSetBaud`, `smlSetWStr`, `smlSetOpt`, `smlGetV`
 **mDNS:** `mdnsRegister`

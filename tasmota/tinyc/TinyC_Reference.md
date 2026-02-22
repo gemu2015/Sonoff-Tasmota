@@ -99,6 +99,69 @@ float pi = 3.14;
 char buffer[64];
 ```
 
+### Persistent Variables
+Global variables declared with the `persist` keyword are automatically saved to flash and restored on program restart. This is equivalent to `p:` variables in Tasmota Scripter.
+
+```c
+persist float totalEnergy = 0.0;   // saved/restored across reboots
+persist int bootCount;              // scalar — 4 bytes in file
+persist char deviceName[32];        // array — 32 slots in file
+```
+
+- Only global variables can be `persist` (not local variables or function parameters)
+- Persist variables are **automatically loaded** from `/tinyc_pvars.bin` when the program starts
+- Persist variables are **automatically saved** when the program is stopped (`TinyCStop`)
+- Call `saveVars()` to manually save at any time (e.g., after midnight counter updates)
+- Maximum 32 persist entries per program
+- Binary format — compact and fast (raw int32 values, floats stored as bit-cast int32)
+- File stored on user filesystem (same as `.tcb` files)
+
+```c
+persist float dval = 0.0;
+persist float mval = 0.0;
+
+void EverySecond() {
+    if (tasm_hour == 0 && last_hr != 0) {
+        dval = smlGet(2);  // update daily counter
+        saveVars();         // save immediately
+    }
+}
+```
+
+### Watch Variables (Change Detection)
+Global variables declared with the `watch` keyword automatically track changes. Every write saves the old value as a shadow, enabling change detection — essential for IOT monitoring scenarios.
+
+```c
+watch float power;
+watch int relay;
+```
+
+- Only scalar globals can be `watch` (int, float — not arrays or locals)
+- Every write automatically saves the previous value and sets a written flag
+- Uses 2 extra global slots per watch variable (shadow + written flag)
+
+**Intrinsic functions:**
+
+| Function | Returns | Description |
+|----------|---------|-------------|
+| `changed(var)` | `int` | 1 if current value differs from shadow |
+| `delta(var)` | `int/float` | current - shadow (signed difference) |
+| `written(var)` | `int` | 1 if variable was assigned since last `snapshot()` |
+| `snapshot(var)` | `void` | set shadow = current, clear written flag |
+
+```c
+watch float power;
+
+void EverySecond() {
+    power = sensorGet("ENERGY#Power");
+    if (changed(power)) {
+        float diff = delta(power);
+        // react to power change
+        snapshot(power);  // acknowledge change
+    }
+}
+```
+
 ### Local Variables
 Declared inside functions or blocks. Block-scoped (new scope per `{ }`).
 ```c
@@ -1752,6 +1815,25 @@ audioVol(50);              // set volume to 50%
 audioPlay("/alarm.mp3");   // play MP3 file
 audioSay("sensor alert");  // speak text
 ```
+
+### Persistent Variables
+
+| Function | Description |
+|---|---|
+| `saveVars()` | Save all `persist` globals to `/tinyc_pvars.bin` |
+
+Persist variables are automatically loaded on program start and saved on `TinyCStop`. Use `saveVars()` to save at critical points (e.g., after midnight counter updates).
+
+### Watch Variables (Change Detection)
+
+| Function | Description |
+|---|---|
+| `changed(var)` | Returns 1 if watch variable differs from its shadow value |
+| `delta(var)` | Returns current - shadow (int or float depending on variable type) |
+| `written(var)` | Returns 1 if variable was assigned since last `snapshot()` |
+| `snapshot(var)` | Update shadow to current value and clear written flag |
+
+Watch variables are compiler intrinsics — they generate inline comparison code with zero runtime overhead (no syscall).
 
 ### Debug
 
