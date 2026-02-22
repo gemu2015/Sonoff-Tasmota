@@ -521,30 +521,57 @@ typedef struct {
 } TcSpi;
 
 /*********************************************************************************************\
- * Driver state
+ * Per-program VM slot (dynamically allocated — one per loaded program)
 \*********************************************************************************************/
 
-struct TINYC {
+#ifdef ESP32
+  #define TC_MAX_VMS 4    // max simultaneous VM instances (ESP32)
+#else
+  #define TC_MAX_VMS 1    // ESP8266: single VM only
+#endif
+
+struct TcSlot {
   TcVM     vm;
   uint8_t *program;
   uint32_t program_size;
   bool     loaded;
   bool     running;
-  bool     autorun;
-  uint32_t instr_per_tick;
-  // Output buffer for MQTT
+  char     filename[32];          // e.g. "/bresser.tcb"
+  // Output buffer
   char     output[TC_OUTPUT_SIZE];
   uint16_t output_len;
-  // Upload state
+  // fileExtractFast state — saved position for optimized sequential access
+  int32_t  extract_handle;
+  uint32_t extract_file_pos;
+  uint32_t extract_last_epoch;
+#ifdef ESP32
+  // FreeRTOS task for VM execution (main() and TaskLoop)
+  TaskHandle_t task_handle;
+  volatile bool task_running;     // task loop is active
+  volatile bool task_stop;        // signal task to stop
+  SemaphoreHandle_t vm_mutex;     // serialize VM access between task and main thread
+#endif
+};
+
+/*********************************************************************************************\
+ * Driver state (shared infrastructure + VM slot pointers)
+\*********************************************************************************************/
+
+struct TINYC {
+  TcSlot  *slots[TC_MAX_VMS];     // per-program VM slots (NULL = unused, malloc'd on demand)
+  uint32_t instr_per_tick;
+  bool     autorun;
+  // Upload state (one upload at a time, shared)
   uint8_t *upload_buf;
   uint32_t upload_size;
   uint32_t upload_received;
-  char     upload_filename[32];  // filename from upload (e.g. "bresser.tcb")
+  uint8_t  upload_slot;           // target slot for current upload
+  char     upload_filename[32];   // filename during upload (copied to slot on completion)
   // File I/O state (File objects are stored separately as statics — see below)
   bool     file_used[TC_MAX_FILE_HANDLES];
   // UDP multicast (Scripter-compatible, 239.255.255.250:1999)
-  bool     udp_used;            // true if any udp* function was called
-  bool     udp_connected;       // multicast socket active
+  bool     udp_used;              // true if any udp* function was called
+  bool     udp_connected;         // multicast socket active
   TcUdpVar udp_vars[TC_UDP_MAX_VARS];
   char     udp_last_name[TC_UDP_VAR_NAME_MAX]; // name of last received var (for UdpCall)
 #if !defined(USE_SCRIPT) || !defined(USE_SCRIPT_GLOBVARS)
@@ -553,19 +580,19 @@ struct TINYC {
   char     udp_buf[TC_UDP_BUF_SIZE];
 #endif
   // General-purpose UDP port (Scripter-compatible udp() function)
-  WiFiUDP  udp_port;          // general-purpose UDP socket
-  uint16_t udp_port_num;      // bound port number
-  bool     udp_port_open;     // port is listening
+  WiFiUDP  udp_port;              // general-purpose UDP socket
+  uint16_t udp_port_num;          // bound port number
+  bool     udp_port_open;         // port is listening
   // WebUI pages (up to 6, set by wLabel(), buttons on main page)
 #define TC_MAX_WEB_PAGES 6
   char     page_label[TC_MAX_WEB_PAGES][32];
-  uint8_t  page_count;     // number of registered pages
-  uint8_t  current_page;   // current page being rendered (for wPage())
+  uint8_t  page_count;            // number of registered pages
+  uint8_t  current_page;          // current page being rendered (for wPage())
   // Custom web handlers (webOn)
 #define TC_MAX_WEB_HANDLERS 4
   char     web_handler_url[TC_MAX_WEB_HANDLERS][32];
   uint8_t  web_handler_count;
-  uint8_t  current_web_handler;  // handler number during WebOn callback
+  uint8_t  current_web_handler;   // handler number during WebOn callback
   // SPI bus
   TcSpi    spi;
   // HTTP request state
@@ -576,21 +603,10 @@ struct TINYC {
   // TCP server state (Scripter-compatible ws* functions)
   WiFiServer *tcp_server;              // TCP listening server (heap-allocated)
   WiFiClient tcp_client;               // current connected client
-
-  // fileExtractFast state — saved position for optimized sequential access
-  int32_t  extract_handle;             // last file handle used
-  uint32_t extract_file_pos;           // saved byte position in data file
-  uint32_t extract_last_epoch;         // epoch of last ts_to for position reuse
-
   // Deferred command — executed in main loop (safe for task-spawning commands like I2SPlay)
   char     deferred_cmd[128];
   volatile bool deferred_pending;
 #ifdef ESP32
-  // FreeRTOS task for VM execution (main() and TaskLoop)
-  TaskHandle_t task_handle;
-  volatile bool task_running;   // task loop is active
-  volatile bool task_stop;      // signal task to stop
-  SemaphoreHandle_t vm_mutex;   // serialize VM access between task and main thread
   // Port 82 download server — background task for large file serving
 #ifndef TC_DLPORT
 #define TC_DLPORT 82
@@ -600,8 +616,31 @@ struct TINYC {
 #endif
 } *Tinyc = nullptr;
 
+// Currently executing slot — set before VM execution, used by output functions
+static TcSlot *tc_current_slot = nullptr;
+
 // File handles stored as statics (not in calloc'd struct) so C++ File constructor runs properly
 static File tc_file_handles[TC_MAX_FILE_HANDLES];
+
+// Helper: allocate a new slot
+static TcSlot *tc_slot_alloc(void) {
+  TcSlot *s = (TcSlot *)calloc(1, sizeof(TcSlot));
+  if (s) {
+    s->extract_handle = -1;
+  }
+  return s;
+}
+
+// Helper: free a slot (caller must stop VM and free program first)
+static void tc_slot_free(TcSlot *s) {
+  if (!s) return;
+  if (s->program) { free(s->program); s->program = nullptr; }
+  if (s->vm.heap_data) { free(s->vm.heap_data); s->vm.heap_data = nullptr; }
+#ifdef ESP32
+  if (s->vm_mutex) { vSemaphoreDelete(s->vm_mutex); s->vm_mutex = nullptr; }
+#endif
+  free(s);
+}
 
 /*********************************************************************************************\
  * Helper: reinterpret int32 <-> float
@@ -909,17 +948,20 @@ void tc_udp_on_receive(const char *name, char umode, const char *data, int datal
     var->ready = true;
   }
 
-  // Always store name and trigger UdpCall — program can decide what to do
+  // Always store name and trigger UdpCall on all active slots
   strlcpy(Tinyc->udp_last_name, name, TC_UDP_VAR_NAME_MAX);
 
-  // Trigger UdpCall callback (mutex-protected for TaskLoop concurrency)
-  if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
+  for (int si = 0; si < TC_MAX_VMS; si++) {
+    TcSlot *s = Tinyc->slots[si];
+    if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) continue;
 #ifdef ESP32
-    if (Tinyc->vm_mutex) xSemaphoreTake(Tinyc->vm_mutex, portMAX_DELAY);
+    if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
 #endif
-    tc_vm_call_callback(&Tinyc->vm, "UdpCall");
+    tc_current_slot = s;
+    tc_vm_call_callback(&s->vm, "UdpCall");
+    tc_current_slot = nullptr;
 #ifdef ESP32
-    if (Tinyc->vm_mutex) xSemaphoreGive(Tinyc->vm_mutex);
+    if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
 #endif
   }
 }
@@ -1173,27 +1215,28 @@ static void tc_deferred_exec(void) {
 }
 
 /*********************************************************************************************\
- * Output: append to buffer, flush to AddLog + MQTT
+ * Output: append to slot's buffer, flush to AddLog + MQTT
+ * Uses tc_current_slot (set before VM execution) to find the right buffer.
 \*********************************************************************************************/
 
 static void tc_output_char(char c) {
-  if (!Tinyc) return;
-  if (Tinyc->output_len < TC_OUTPUT_SIZE - 1) {
-    Tinyc->output[Tinyc->output_len++] = c;
-    Tinyc->output[Tinyc->output_len] = '\0';
+  TcSlot *s = tc_current_slot;
+  if (!s) return;
+  if (s->output_len < TC_OUTPUT_SIZE - 1) {
+    s->output[s->output_len++] = c;
+    s->output[s->output_len] = '\0';
   }
   // Flush on newline or buffer full
-  if (c == '\n' || Tinyc->output_len >= TC_OUTPUT_SIZE - 2) {
-    // Remove trailing newline for AddLog (modify in-place, no stack copy)
-    uint16_t len = Tinyc->output_len;
-    if (len > 0 && Tinyc->output[len-1] == '\n') {
-      Tinyc->output[len-1] = '\0';
+  if (c == '\n' || s->output_len >= TC_OUTPUT_SIZE - 2) {
+    uint16_t len = s->output_len;
+    if (len > 0 && s->output[len-1] == '\n') {
+      s->output[len-1] = '\0';
     }
-    if (Tinyc->output[0]) {
-      AddLog(LOG_LEVEL_INFO, PSTR("TCC: %s"), Tinyc->output);
+    if (s->output[0]) {
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: %s"), s->output);
     }
-    Tinyc->output_len = 0;
-    Tinyc->output[0] = '\0';
+    s->output_len = 0;
+    s->output[0] = '\0';
   }
 }
 
@@ -1215,20 +1258,22 @@ static void tc_output_float(float v) {
 
 // Flush output buffer to AddLog only (safe to call from any context, including FreeRTOS task)
 static void tc_output_flush(void) {
-  if (!Tinyc || Tinyc->output_len == 0) return;
-  AddLog(LOG_LEVEL_INFO, PSTR("TCC: %s"), Tinyc->output);
-  Tinyc->output_len = 0;
-  Tinyc->output[0] = '\0';
+  TcSlot *s = tc_current_slot;
+  if (!s || s->output_len == 0) return;
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: %s"), s->output);
+  s->output_len = 0;
+  s->output[0] = '\0';
 }
 
 // Flush output buffer AND publish to MQTT (only call from main Tasmota context, not from task)
 static void tc_output_flush_mqtt(void) {
-  if (!Tinyc || Tinyc->output_len == 0) return;
-  AddLog(LOG_LEVEL_INFO, PSTR("TCC: %s"), Tinyc->output);
-  Response_P(PSTR("{\"TinyC\":{\"Output\":\"%s\"}}"), Tinyc->output);
+  TcSlot *s = tc_current_slot;
+  if (!s || s->output_len == 0) return;
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: %s"), s->output);
+  Response_P(PSTR("{\"TinyC\":{\"Output\":\"%s\"}}"), s->output);
   MqttPublishPrefixTopicRulesProcess_P(RESULT_OR_TELE, PSTR("TINYC"));
-  Tinyc->output_len = 0;
-  Tinyc->output[0] = '\0';
+  s->output_len = 0;
+  s->output[0] = '\0';
 }
 
 /*********************************************************************************************\
@@ -2287,11 +2332,12 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       uint32_t cmp_to   = tc_ts_cmp(ts_to);
 
       // Seek strategy: fast version reuses saved position
-      if (id == SYS_FILE_EXTRACT_FAST &&
-          Tinyc->extract_handle == h &&
-          Tinyc->extract_file_pos > 0 &&
-          cmp_from >= Tinyc->extract_last_epoch) {
-        tc_file_handles[h].seek(Tinyc->extract_file_pos, SeekSet);
+      TcSlot *_es = tc_current_slot;
+      if (id == SYS_FILE_EXTRACT_FAST && _es &&
+          _es->extract_handle == h &&
+          _es->extract_file_pos > 0 &&
+          cmp_from >= _es->extract_last_epoch) {
+        tc_file_handles[h].seek(_es->extract_file_pos, SeekSet);
       } else {
         tc_file_handles[h].seek(0, SeekSet);
       }
@@ -2373,10 +2419,10 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       free(fbuf);
 
       // Save position for fileExtractFast
-      if (id == SYS_FILE_EXTRACT_FAST) {
-        Tinyc->extract_handle     = h;
-        Tinyc->extract_file_pos   = tc_file_handles[h].position();
-        Tinyc->extract_last_epoch = cmp_to;
+      if (id == SYS_FILE_EXTRACT_FAST && _es) {
+        _es->extract_handle     = h;
+        _es->extract_file_pos   = tc_file_handles[h].position();
+        _es->extract_last_epoch = cmp_to;
       }
 
       AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: file%s(h=%d) %s→%s → %d rows, %d cols"),
@@ -5252,37 +5298,37 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
 
 #ifdef ESP32
 static void tc_vm_task(void *param) {
-  struct TINYC *tc = (struct TINYC *)param;
-  TcVM *vm = &tc->vm;
-  tc->task_running = true;
+  TcSlot *slot = (TcSlot *)param;
+  TcVM *vm = &slot->vm;
+  slot->task_running = true;
   vm->running = true;
+  tc_current_slot = slot;  // set for output functions
 
-  AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM task started"));
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM task started (%s)"), slot->filename);
 
   // Phase 1: Execute main()
-  while (!tc->task_stop && !vm->halted && vm->error == TC_OK) {
+  while (!slot->task_stop && !vm->halted && vm->error == TC_OK) {
     // Handle delay as real RTOS blocking delay (feeds WDT, yields CPU)
     if (vm->delayed) {
       int32_t remaining = (int32_t)(vm->delay_until - millis());
       if (remaining > 0) {
-        // Sleep in small chunks so we can check task_stop
-        while (remaining > 0 && !tc->task_stop) {
+        while (remaining > 0 && !slot->task_stop) {
           int32_t chunk = (remaining > 50) ? 50 : remaining;
           vTaskDelay(chunk / portTICK_PERIOD_MS);
           remaining = (int32_t)(vm->delay_until - millis());
         }
       }
       vm->delayed = false;
-      if (tc->task_stop) break;
+      if (slot->task_stop) break;
     }
 
     // Execute a batch of instructions, then yield
     uint32_t count = 0;
-    while (!vm->halted && vm->error == TC_OK && count < 256 && !tc->task_stop) {
+    while (!vm->halted && vm->error == TC_OK && count < 256 && !slot->task_stop) {
       int err = tc_vm_step(vm);
-      if (err == TC_ERR_PAUSED) break;   // delay() was called, go back to outer loop
+      if (err == TC_ERR_PAUSED) break;
       if (err != TC_OK) {
-        vm->error = err;   // propagate error so outer loop stops
+        vm->error = err;
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Runtime error %d at PC=%u after %u instr"),
           err, vm->pc, vm->instruction_count);
         break;
@@ -5291,7 +5337,7 @@ static void tc_vm_task(void *param) {
       vm->instruction_count++;
     }
 
-    yield();  // Feed WDT after each batch
+    yield();
   }
 
   // Cleanup after main() exits
@@ -5300,8 +5346,6 @@ static void tc_vm_task(void *param) {
   tc_output_flush();
 
   if (vm->halted && vm->error == TC_OK) {
-    // Normal halt: main() returned successfully.
-    // Globals and heap PERSIST for callback functions.
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: Halted after %u instr, %d callbacks"),
       vm->instruction_count, vm->callback_count);
 
@@ -5314,11 +5358,10 @@ static void tc_vm_task(void *param) {
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: TaskLoop running in task"));
       uint16_t tl_addr = vm->callbacks[tl_idx].address;
 
-      while (!tc->task_stop && vm->error == TC_OK) {
-        // Acquire mutex before touching VM state
-        if (tc->vm_mutex) xSemaphoreTake(tc->vm_mutex, portMAX_DELAY);
+      while (!slot->task_stop && vm->error == TC_OK) {
+        if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+        tc_current_slot = slot;  // restore after mutex acquire
 
-        // Set up callback frame (same as tc_vm_call_callback but inline)
         uint8_t saved_frame_count = vm->frame_count;
         uint16_t saved_pc = vm->pc;
         vm->halted = false;
@@ -5331,30 +5374,27 @@ static void tc_vm_task(void *param) {
             vm->frame_count++;
             vm->pc = vm->code_offset + tl_addr;
 
-            // Execute TaskLoop body with real vTaskDelay for delay()
             uint32_t count = 0;
-            while (vm->frame_count > saved_frame_count && !vm->halted && vm->error == TC_OK && !tc->task_stop) {
+            while (vm->frame_count > saved_frame_count && !vm->halted && vm->error == TC_OK && !slot->task_stop) {
               int err = tc_vm_step(vm);
               if (err == TC_ERR_PAUSED) {
-                // delay() — use real RTOS delay (feeds WDT, yields CPU)
                 if (vm->delayed) {
-                  // Temporarily restore halted state so main-thread callbacks can run
                   vm->halted = true;
                   vm->running = false;
-                  // Release mutex during delay so main thread can run callbacks
-                  if (tc->vm_mutex) xSemaphoreGive(tc->vm_mutex);
+                  tc_current_slot = nullptr;  // clear during delay
+                  if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
                   int32_t remaining = (int32_t)(vm->delay_until - millis());
-                  while (remaining > 0 && !tc->task_stop) {
+                  while (remaining > 0 && !slot->task_stop) {
                     int32_t chunk = (remaining > 50) ? 50 : remaining;
                     vTaskDelay(chunk / portTICK_PERIOD_MS);
                     remaining = (int32_t)(vm->delay_until - millis());
                   }
                   vm->delayed = false;
-                  // Re-acquire mutex to continue execution
-                  if (tc->vm_mutex) xSemaphoreTake(tc->vm_mutex, portMAX_DELAY);
+                  if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+                  tc_current_slot = slot;  // restore after reacquire
                   vm->halted = false;
                   vm->running = true;
-                  if (tc->task_stop) break;
+                  if (slot->task_stop) break;
                 }
                 continue;
               }
@@ -5369,7 +5409,6 @@ static void tc_vm_task(void *param) {
               }
             }
 
-            // Clean up callback frame
             while (vm->frame_count > saved_frame_count) {
               tc_frame_free(&vm->frames[--vm->frame_count]);
             }
@@ -5377,19 +5416,19 @@ static void tc_vm_task(void *param) {
           }
         }
 
-        // Restore halted state for other callbacks
         vm->halted = true;
         vm->running = false;
         vm->pc = saved_pc;
         tc_output_flush();
 
-        if (tc->vm_mutex) xSemaphoreGive(tc->vm_mutex);
+        tc_current_slot = nullptr;
+        if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
 
-        if (vm->error != TC_OK || tc->task_stop) break;
+        if (vm->error != TC_OK || slot->task_stop) break;
 
-        vTaskDelay(1);  // yield at least 1 tick between iterations
+        vTaskDelay(1);
       }
-      if (tc->task_stop) {
+      if (slot->task_stop) {
         AddLog(LOG_LEVEL_INFO, PSTR("TCC: TaskLoop stopped"));
       } else if (vm->error != TC_OK) {
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: TaskLoop error: %s"), tc_error_str(vm->error));
@@ -5399,17 +5438,158 @@ static void tc_vm_task(void *param) {
     tc_heap_free_all(vm);
     AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Error: %s (PC=%d)"),
       tc_error_str(vm->error), vm->pc - vm->code_offset);
-  } else if (tc->task_stop) {
+  } else if (slot->task_stop) {
     tc_heap_free_all(vm);
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: Task stopped"));
   }
 
-  tc->running = false;
+  slot->running = false;
   vm->running = false;
-  tc->task_running = false;
-  tc->task_handle = nullptr;
+  slot->task_running = false;
+  slot->task_handle = nullptr;
+  tc_current_slot = nullptr;
   vTaskDelete(NULL);
 }
 #endif  // ESP32
+
+/*********************************************************************************************\
+ * Slot-level helpers (must be in .h to avoid Arduino IDE auto-prototype issues with TcSlot*)
+\*********************************************************************************************/
+
+// Call a named callback on a single slot, with mutex protection and tc_current_slot set
+static void tc_slot_callback(TcSlot *s, const char *name) {
+  if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) return;
+  tc_current_slot = s;
+#ifdef ESP32
+  if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
+#endif
+  tc_vm_call_callback(&s->vm, name);
+#ifdef ESP32
+  if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+#endif
+  tc_current_slot = nullptr;
+}
+
+// Helper: derive .pvs persist filename from .tcb filename
+// e.g. "/ecotracker.tcb" -> "/ecotracker.pvs", "/autoexec.tcb" -> "/autoexec.pvs"
+static void TinyCSetPersistFile(TcSlot *s, const char *tcb_path) {
+  if (!s) return;
+  char *pf = s->vm.persist_file;
+  const size_t pfsz = sizeof(s->vm.persist_file);
+  if (!tcb_path || tcb_path[0] == '\0') {
+    strlcpy(pf, "/autoexec.pvs", pfsz);
+    return;
+  }
+  strlcpy(pf, tcb_path, pfsz);
+  // Replace extension: find last '.' and replace with .pvs
+  char *dot = strrchr(pf, '.');
+  if (dot && (dot - pf) < (int)(pfsz - 4)) {
+    strcpy(dot, ".pvs");
+  } else {
+    strlcat(pf, ".pvs", pfsz);
+  }
+}
+
+// Helper: stop the VM in a specific slot
+static void TinyCStopVM(TcSlot *s) {
+  if (!Tinyc || !s) return;
+
+#ifdef ESP32
+  if (s->task_handle) {
+    // Signal task to stop via both flags -- vm.error causes tc_vm_step to exit
+    s->task_stop = true;
+    s->vm.error = TC_ERR_INSTRUCTION_LIMIT;  // causes immediate exit from step loop
+    // Wait for task to exit (max 2s)
+    for (int i = 0; i < 200 && s->task_running; i++) {
+      delay(10);
+    }
+    if (s->task_running) {
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Task did not stop in time (%s), abandoned"), s->filename);
+      s->task_running = false;
+      s->task_handle = nullptr;
+    } else {
+      s->task_handle = nullptr;
+    }
+  }
+#endif
+
+  // Auto-save persist variables before clearing VM
+  tc_persist_save(&s->vm);
+
+  s->running = false;
+  s->vm.running = false;
+  s->vm.error = TC_OK;  // clear the error we set for stopping
+  tc_free_all_frames(&s->vm);
+  tc_heap_free_all(&s->vm);
+  tc_udp_stop();
+  tc_spi_cleanup();
+
+  // Flush output for this slot
+  tc_current_slot = s;
+  tc_output_flush();
+  tc_current_slot = nullptr;
+
+#ifdef ESP32
+  if (s->vm_mutex) {
+    vSemaphoreDelete(s->vm_mutex);
+    s->vm_mutex = nullptr;
+  }
+#endif
+}
+
+// Helper: start the VM in a specific slot
+static bool TinyCStartVM(TcSlot *s) {
+  if (!Tinyc || !s || !s->loaded) return false;
+
+  // Reset VM
+  int err = tc_vm_load(&s->vm, s->program, s->program_size);
+  if (err != TC_OK) return false;
+
+  // Set persist filename and load saved values
+  TinyCSetPersistFile(s, s->filename);
+  tc_persist_load(&s->vm);
+
+  s->output_len = 0;
+  s->output[0] = '\0';
+
+#ifdef ESP32
+  // Stop any existing task first
+  if (s->task_handle) {
+    TinyCStopVM(s);
+  }
+
+  s->task_stop = false;
+  s->task_running = false;
+
+  // Create mutex for VM access serialization (task vs main thread callbacks)
+  if (!s->vm_mutex) {
+    s->vm_mutex = xSemaphoreCreateMutex();
+  }
+
+  // Build task name from slot index
+  char taskname[16];
+  snprintf(taskname, sizeof(taskname), "tinyc_vm%d", 0);  // find slot index
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    if (Tinyc->slots[i] == s) { snprintf(taskname, sizeof(taskname), "tinyc_vm%d", i); break; }
+  }
+
+#if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C2)
+  // Single-core variants -- no core affinity
+  BaseType_t ret = xTaskCreate(tc_vm_task, taskname, 8192, s, 1, &s->task_handle);
+#else
+  // Dual-core ESP32/S3 -- pin to core 1
+  BaseType_t ret = xTaskCreatePinnedToCore(tc_vm_task, taskname, 8192, s, 1, &s->task_handle, 1);
+#endif
+  if (ret != pdPASS) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Failed to create task for %s"), s->filename);
+    s->running = false;
+    return false;
+  }
+#endif  // ESP32
+
+  s->running = true;
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program started (%s)"), s->filename);
+  return true;
+}
 
 #endif  // _XDRV_124_TINYC_VM_H_

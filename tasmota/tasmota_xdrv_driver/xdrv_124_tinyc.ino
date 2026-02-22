@@ -14,19 +14,19 @@
 /*********************************************************************************************\
  * TinyC - Lightweight C-subset bytecode VM for ESP32/ESP8266
  *
- * Compiles TinyC source in browser IDE → uploads .tcb bytecode → runs on device
+ * Multi-VM slot support: up to TC_MAX_VMS simultaneous programs (4 on ESP32, 1 on ESP8266)
  *
  * Commands:
- *   TinyC          - Show VM status
- *   TinyCRun       - Run loaded program (1 = auto-run on boot)
- *   TinyCStop      - Stop running program
- *   TinyCReset     - Reset VM state
+ *   TinyC          - Show VM status (all slots)
+ *   TinyCRun       - Run loaded program in slot 0 (or specify file)
+ *   TinyCStop      - Stop running program in slot 0
+ *   TinyCReset     - Reset VM state in slot 0
  *   TinyCExec <n>  - Set instructions per tick (default 1000)
  *
  * Web:
- *   /tc            - TinyC console page with upload form
+ *   /tc            - TinyC console page with upload form (shows all slots)
  *   /tc_upload     - POST endpoint for .tcb binary upload
- *   /tc_api        - GET JSON API (cmd=run|stop|status) with CORS
+ *   /tc_api        - GET JSON API (cmd=run|stop|status) with CORS, slot= parameter
 \*********************************************************************************************/
 
 #define XDRV_124  124
@@ -54,6 +54,21 @@ static void (*const TinyCWebOnHandlers[])(void) = {
 #include "xdrv_124_tinyc_vm.h"
 
 /*********************************************************************************************\
+ * Helpers: slot-aware callback dispatch
+\*********************************************************************************************/
+
+// tc_slot_callback() is in vm.h (Arduino auto-prototype workaround)
+
+// Call a named callback on ALL active (loaded + halted + no-error) slots
+static void tc_all_callbacks(const char *name) {
+  if (!Tinyc) return;
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    TcSlot *s = Tinyc->slots[i];
+    if (s) tc_slot_callback(s, name);
+  }
+}
+
+/*********************************************************************************************\
  * Tasmota: Init
 \*********************************************************************************************/
 
@@ -76,24 +91,26 @@ static void TinyCInit(void) {
   // Init SPI CS pins to -1 (unused)
   for (int i = 0; i < TC_SPI_MAX_CS; i++) { Tinyc->spi.cs[i] = -1; }
   Tinyc->spi.sclk = 0;  // 0 = not initialized (valid pins are >0 or <0)
+
+  // Allocate slot 0 (default slot for backward compatibility)
+  Tinyc->slots[0] = tc_slot_alloc();
+  if (!Tinyc->slots[0]) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Slot 0 allocation failed"));
+    free(Tinyc);
+    Tinyc = nullptr;
+    return;
+  }
+
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: TinyC VM initialized (%d bytes, %d free)"), needed, ESP_getFreeHeap());
 
-  // Try auto-load from filesystem
+  // Try auto-load from filesystem into slot 0
 #ifdef USE_UFILESYS
-  TinyCLoadFile(TC_FILE_NAME);
+  TinyCLoadFile(TC_FILE_NAME, 0);
 #endif
 }
 
-// Helper: call callback with mutex protection (serializes with TaskLoop task)
-static inline void tc_callback_safe(TcVM *vm, const char *name) {
-#ifdef ESP32
-  if (Tinyc->vm_mutex) xSemaphoreTake(Tinyc->vm_mutex, portMAX_DELAY);
-#endif
-  tc_vm_call_callback(vm, name);
-#ifdef ESP32
-  if (Tinyc->vm_mutex) xSemaphoreGive(Tinyc->vm_mutex);
-#endif
-}
+// TinyCSetPersistFile(), TinyCStopVM(), TinyCStartVM() are in vm.h
+// (Arduino auto-prototype workaround for TcSlot* parameters)
 
 /*********************************************************************************************\
  * Tasmota: Periodic execution (every 50ms)
@@ -103,54 +120,76 @@ static void TinyCEvery50ms(void) {
   if (!Tinyc) return;
 
 #ifdef ESP32
-  // ESP32: VM runs in its own FreeRTOS task — just monitor for completion
-  if (Tinyc->running && !Tinyc->task_running) {
-    // Task finished — update state
-    Tinyc->running = false;
-    tc_output_flush();
+  // ESP32: VM runs in its own FreeRTOS task -- monitor all slots for completion
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    TcSlot *s = Tinyc->slots[i];
+    if (!s) continue;
+    if (s->running && !s->task_running) {
+      // Task finished -- update state
+      s->running = false;
+      tc_current_slot = s;
+      tc_output_flush();
+      tc_current_slot = nullptr;
+    }
   }
 #else
   // ESP8266: slice-based execution in 50ms tick (no FreeRTOS task support)
-  if (Tinyc->loaded && Tinyc->running) {
-    if (Tinyc->vm.halted || Tinyc->vm.error != TC_OK) {
-      tc_free_all_frames(&Tinyc->vm);
-      if (Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
+  // Only slot 0 on ESP8266
+  TcSlot *s = Tinyc->slots[0];
+  if (s && s->loaded && s->running) {
+    if (s->vm.halted || s->vm.error != TC_OK) {
+      tc_free_all_frames(&s->vm);
+      if (s->vm.halted && s->vm.error == TC_OK) {
         // Normal halt: globals + heap persist for callbacks
+        tc_current_slot = s;
         tc_output_flush();
+        tc_current_slot = nullptr;
         AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program halted after %u instructions, %d callbacks"),
-          Tinyc->vm.instruction_count, Tinyc->vm.callback_count);
-        Tinyc->running = false;
+          s->vm.instruction_count, s->vm.callback_count);
+        s->running = false;
       }
-      if (Tinyc->vm.error != TC_OK) {
-        tc_heap_free_all(&Tinyc->vm);
+      if (s->vm.error != TC_OK) {
+        tc_heap_free_all(&s->vm);
+        tc_current_slot = s;
         tc_output_flush();
+        tc_current_slot = nullptr;
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Error: %s (PC=%d)"),
-          tc_error_str(Tinyc->vm.error), Tinyc->vm.pc - Tinyc->vm.code_offset);
-        Tinyc->running = false;
+          tc_error_str(s->vm.error), s->vm.pc - s->vm.code_offset);
+        s->running = false;
       }
     } else {
       yield();  // Feed WDT before VM execution
-      int err = tc_vm_run_slice(&Tinyc->vm, Tinyc->instr_per_tick);
+      tc_current_slot = s;
+      int err = tc_vm_run_slice(&s->vm, Tinyc->instr_per_tick);
+      tc_current_slot = nullptr;
       yield();  // Feed WDT after VM execution
 
       if (err != TC_OK && err != TC_ERR_PAUSED) {
-        tc_free_all_frames(&Tinyc->vm);
-        tc_heap_free_all(&Tinyc->vm);
+        tc_free_all_frames(&s->vm);
+        tc_heap_free_all(&s->vm);
+        tc_current_slot = s;
         tc_output_flush();
+        tc_current_slot = nullptr;
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Runtime error: %s (PC=%d, instr=%u)"),
-          tc_error_str(err), Tinyc->vm.pc - Tinyc->vm.code_offset, Tinyc->vm.instruction_count);
-        Tinyc->running = false;
+          tc_error_str(err), s->vm.pc - s->vm.code_offset, s->vm.instruction_count);
+        s->running = false;
       }
     }
   }
 #endif  // ESP32 vs ESP8266
 
   // Execute deferred commands (audio etc.) only when VM is halted and idle
-  // Must not run while VM task is active — concurrent SD access causes crashes
-  if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
-    tc_deferred_exec();
-    tc_callback_safe(&Tinyc->vm, "Every50ms");
+  // Must not run while VM task is active -- concurrent SD access causes crashes
+  // Check slot 0 for deferred exec (shared infrastructure)
+  {
+    TcSlot *s0 = Tinyc->slots[0];
+    if (s0 && s0->loaded && s0->vm.halted && s0->vm.error == TC_OK) {
+      tc_deferred_exec();
+    }
   }
+
+  // Every50ms callback on all active slots
+  tc_all_callbacks("Every50ms");
 }
 
 /*********************************************************************************************\
@@ -171,145 +210,45 @@ void (* const TinyCCommand[])(void) PROGMEM = {
 
 void CmndTinyC(void) {
   if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
-  Response_P(PSTR("{\"TinyC\":{\"Loaded\":%d,\"Running\":%d,\"Size\":%d,"
-    "\"PC\":%d,\"SP\":%d,\"Instr\":%u,\"Error\":\"%s\",\"Heap\":%d}}"),
-    Tinyc->loaded ? 1 : 0,
-    Tinyc->running ? 1 : 0,
-    Tinyc->program_size,
-    Tinyc->vm.pc - Tinyc->vm.code_offset,
-    Tinyc->vm.sp,
-    Tinyc->vm.instruction_count,
-    tc_error_str(Tinyc->vm.error),
-    ESP_getFreeHeap());
-}
-
-// Helper: derive .pvs persist filename from .tcb filename
-// e.g. "/ecotracker.tcb" -> "/ecotracker.pvs", "/autoexec.tcb" -> "/autoexec.pvs"
-static void TinyCSetPersistFile(const char *tcb_path) {
-  if (!Tinyc) return;
-  char *pf = Tinyc->vm.persist_file;
-  const size_t pfsz = sizeof(Tinyc->vm.persist_file);
-  if (!tcb_path || tcb_path[0] == '\0') {
-    strlcpy(pf, "/autoexec.pvs", pfsz);
-    return;
+  // Show status for all slots
+  Response_P(PSTR("{\"TinyC\":{\"Heap\":%d,\"Slots\":["), ESP_getFreeHeap());
+  bool first = true;
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    TcSlot *s = Tinyc->slots[i];
+    if (!s) continue;
+    if (!first) ResponseAppend_P(PSTR(","));
+    first = false;
+    ResponseAppend_P(PSTR("{\"Slot\":%d,\"Loaded\":%d,\"Running\":%d,\"Size\":%d,"
+      "\"PC\":%d,\"SP\":%d,\"Instr\":%u,\"Error\":\"%s\",\"File\":\"%s\"}"),
+      i,
+      s->loaded ? 1 : 0,
+      s->running ? 1 : 0,
+      s->program_size,
+      s->vm.pc - s->vm.code_offset,
+      s->vm.sp,
+      s->vm.instruction_count,
+      tc_error_str(s->vm.error),
+      s->filename[0] ? s->filename : "");
   }
-  strlcpy(pf, tcb_path, pfsz);
-  // Replace extension: find last '.' and replace with .pvs
-  char *dot = strrchr(pf, '.');
-  if (dot && (dot - pf) < (int)(pfsz - 4)) {
-    strcpy(dot, ".pvs");
-  } else {
-    strlcat(pf, ".pvs", pfsz);
-  }
-}
-
-// Helper: start the VM (load + launch task on ESP32, or set running flag on ESP8266)
-static bool TinyCStartVM(void) {
-  if (!Tinyc || !Tinyc->loaded) return false;
-
-  // Reset VM
-  int err = tc_vm_load(&Tinyc->vm, Tinyc->program, Tinyc->program_size);
-  if (err != TC_OK) return false;
-
-  // Set persist filename and load saved values
-  TinyCSetPersistFile(Tinyc->upload_filename);
-  tc_persist_load(&Tinyc->vm);
-
-  Tinyc->output_len = 0;
-  Tinyc->output[0] = '\0';
-
-#ifdef ESP32
-  // Stop any existing task first (reuses TinyCStopVM logic)
-  if (Tinyc->task_handle) {
-    TinyCStopVM();
-  }
-
-  Tinyc->task_stop = false;
-  Tinyc->task_running = false;
-
-  // Create mutex for VM access serialization (task vs main thread callbacks)
-  if (!Tinyc->vm_mutex) {
-    Tinyc->vm_mutex = xSemaphoreCreateMutex();
-  }
-
-#if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C2)
-  // Single-core variants — no core affinity
-  BaseType_t ret = xTaskCreate(tc_vm_task, "tinyc_vm", 8192, Tinyc, 1, &Tinyc->task_handle);
-#else
-  // Dual-core ESP32/S3 — pin to core 1
-  BaseType_t ret = xTaskCreatePinnedToCore(tc_vm_task, "tinyc_vm", 8192, Tinyc, 1, &Tinyc->task_handle, 1);
-#endif
-  if (ret != pdPASS) {
-    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Failed to create task"));
-    Tinyc->running = false;
-    return false;
-  }
-#endif  // ESP32
-
-  Tinyc->running = true;
-  AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program started"));
-  return true;
-}
-
-// Helper: stop the VM (signal task to stop on ESP32, or clear flags on ESP8266)
-static void TinyCStopVM(void) {
-  if (!Tinyc) return;
-
-#ifdef ESP32
-  if (Tinyc->task_handle) {
-    // Signal task to stop via both flags — vm.error causes tc_vm_step to exit
-    Tinyc->task_stop = true;
-    Tinyc->vm.error = TC_ERR_INSTRUCTION_LIMIT;  // causes immediate exit from step loop
-    // Wait for task to exit (max 2s — enough for any SPI/I2C transaction to finish)
-    for (int i = 0; i < 200 && Tinyc->task_running; i++) {
-      delay(10);
-    }
-    if (Tinyc->task_running) {
-      // Task still running — do NOT vTaskDelete as it can corrupt SPI/I2C bus state
-      // Just log and abandon (task will exit on next instruction check)
-      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Task did not stop in time, abandoned"));
-      Tinyc->task_running = false;
-      Tinyc->task_handle = nullptr;
-    } else {
-      Tinyc->task_handle = nullptr;
-    }
-  }
-#endif
-
-  // Auto-save persist variables before clearing VM
-  tc_persist_save(&Tinyc->vm);
-
-  Tinyc->running = false;
-  Tinyc->vm.running = false;
-  Tinyc->vm.error = TC_OK;  // clear the error we set for stopping
-  tc_free_all_frames(&Tinyc->vm);
-  tc_heap_free_all(&Tinyc->vm);
-  tc_udp_stop();
-  tc_spi_cleanup();
-  tc_output_flush();
-
-#ifdef ESP32
-  if (Tinyc->vm_mutex) {
-    vSemaphoreDelete(Tinyc->vm_mutex);
-    Tinyc->vm_mutex = nullptr;
-  }
-#endif
+  ResponseAppend_P(PSTR("]}}"));
 }
 
 void CmndTinyCRun(void) {
   if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
+  TcSlot *s = Tinyc->slots[0];
+  if (!s) { ResponseCmndChar_P(TC_NOT_INIT); return; }
 #ifdef USE_UFILESYS
   // If a filename is given (e.g., "TinyC Run /bresser.tcb"), load it first
   if (XdrvMailbox.data_len > 0 && XdrvMailbox.data[0] == '/') {
-    TinyCStopVM();
-    if (!TinyCLoadFile(XdrvMailbox.data)) {
+    TinyCStopVM(s);
+    if (!TinyCLoadFile(XdrvMailbox.data, 0)) {
       ResponseCmndChar_P(PSTR("Load failed"));
       return;
     }
   }
 #endif
-  if (!Tinyc->loaded) { ResponseCmndChar_P(PSTR("No program loaded")); return; }
-  if (!TinyCStartVM()) {
+  if (!s->loaded) { ResponseCmndChar_P(PSTR("No program loaded")); return; }
+  if (!TinyCStartVM(s)) {
     ResponseCmndChar_P(PSTR("Start failed"));
     return;
   }
@@ -318,17 +257,21 @@ void CmndTinyCRun(void) {
 
 void CmndTinyCStop(void) {
   if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
-  TinyCStopVM();
+  TcSlot *s = Tinyc->slots[0];
+  if (!s) { ResponseCmndChar_P(TC_NOT_INIT); return; }
+  TinyCStopVM(s);
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program stopped"));
   ResponseCmndDone();
 }
 
 void CmndTinyCReset(void) {
   if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
-  TinyCStopVM();  // also frees frame locals
-  memset(&Tinyc->vm, 0, sizeof(TcVM));  // safe — pointers already freed
-  Tinyc->output_len = 0;
-  Tinyc->output[0] = '\0';
+  TcSlot *s = Tinyc->slots[0];
+  if (!s) { ResponseCmndChar_P(TC_NOT_INIT); return; }
+  TinyCStopVM(s);  // also frees frame locals
+  memset(&s->vm, 0, sizeof(TcVM));  // safe -- pointers already freed
+  s->output_len = 0;
+  s->output[0] = '\0';
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM reset"));
   ResponseCmndDone();
 }
@@ -378,35 +321,47 @@ static void WSSendJSON(int code, const char *json_buf) {
   Webserver->send(code, (const char*)ct, json_buf);
 }
 
-// Helper: load a .tcb file from filesystem by path (tries ufsp then ffsp)
+// Helper: load a .tcb file from filesystem into a specified slot
 #ifdef USE_UFILESYS
-static bool TinyCLoadFile(const char *path) {
+static bool TinyCLoadFile(const char *path, uint8_t slot_num) {
   if (!Tinyc) return false;
+  if (slot_num >= TC_MAX_VMS) return false;
+
+  // Allocate slot if needed
+  if (!Tinyc->slots[slot_num]) {
+    Tinyc->slots[slot_num] = tc_slot_alloc();
+    if (!Tinyc->slots[slot_num]) {
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Slot %d alloc failed"), slot_num);
+      return false;
+    }
+  }
+  TcSlot *s = Tinyc->slots[slot_num];
+
   File file;
   if (ufsp) file = ufsp->open(path, "r");
   if (!file && ffsp && ffsp != ufsp) file = ffsp->open(path, "r");
   if (!file) return false;
   uint32_t fsize = file.size();
   if (fsize == 0 || fsize > TC_MAX_PROGRAM) { file.close(); return false; }
-  TinyCStopVM();
-  if (Tinyc->program) { free(Tinyc->program); Tinyc->program = nullptr; }
-  Tinyc->program = (uint8_t *)malloc(fsize);
-  if (!Tinyc->program) { file.close(); return false; }
-  file.read(Tinyc->program, fsize);
+  TinyCStopVM(s);
+  if (s->program) { free(s->program); s->program = nullptr; }
+  s->program = (uint8_t *)malloc(fsize);
+  if (!s->program) { file.close(); return false; }
+  file.read(s->program, fsize);
   file.close();
-  Tinyc->program_size = fsize;
-  int err = tc_vm_load(&Tinyc->vm, Tinyc->program, fsize);
+  s->program_size = fsize;
+  int err = tc_vm_load(&s->vm, s->program, fsize);
   if (err == TC_OK) {
-    Tinyc->loaded = true;
-    strlcpy(Tinyc->upload_filename, path, sizeof(Tinyc->upload_filename));
-    TinyCSetPersistFile(path);
-    AddLog(LOG_LEVEL_INFO, PSTR("TCC: Loaded %s (%d bytes)"), path, fsize);
+    s->loaded = true;
+    strlcpy(s->filename, path, sizeof(s->filename));
+    TinyCSetPersistFile(s, path);
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: Loaded %s (%d bytes) into slot %d"), path, fsize, slot_num);
     return true;
   }
   AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Load %s failed: %s"), path, tc_error_str(err));
-  free(Tinyc->program);
-  Tinyc->program = nullptr;
-  Tinyc->program_size = 0;
+  free(s->program);
+  s->program = nullptr;
+  s->program_size = 0;
   return false;
 }
 #endif
@@ -418,24 +373,31 @@ static void HandleTinyCPage(void) {
   WSContentSendStyle();
 
   // Handle button commands first (before displaying status)
+  // Commands default to slot 0 unless otherwise specified
   if (Tinyc && Webserver->hasArg(F("cmd"))) {
     String cmd = Webserver->arg(F("cmd"));
-    if (cmd == "run") {
-      TinyCStartVM();
-    } else if (cmd == "stop") {
-      TinyCStopVM();
-    } else if (cmd == "reset") {
-      // Reset VM directly — do NOT call CmndTinyCReset() which uses ResponseCmndDone()
-      TinyCStopVM();
-      memset(&Tinyc->vm, 0, sizeof(TcVM));
-      Tinyc->output_len = 0;
-      Tinyc->output[0] = '\0';
-      AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM reset (web)"));
+    uint8_t cmd_slot = 0;
+    if (Webserver->hasArg(F("slot"))) {
+      cmd_slot = Webserver->arg(F("slot")).toInt();
+      if (cmd_slot >= TC_MAX_VMS) cmd_slot = 0;
+    }
+    TcSlot *cs = Tinyc->slots[cmd_slot];
+
+    if (cmd == "run" && cs) {
+      TinyCStartVM(cs);
+    } else if (cmd == "stop" && cs) {
+      TinyCStopVM(cs);
+    } else if (cmd == "reset" && cs) {
+      TinyCStopVM(cs);
+      memset(&cs->vm, 0, sizeof(TcVM));
+      cs->output_len = 0;
+      cs->output[0] = '\0';
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: VM slot %d reset (web)"), cmd_slot);
     } else if (cmd == "load" && Webserver->hasArg(F("file"))) {
 #ifdef USE_UFILESYS
       String file = Webserver->arg(F("file"));
       if (file.length() > 0) {
-        TinyCLoadFile(file.c_str());
+        TinyCLoadFile(file.c_str(), cmd_slot);
       }
 #endif
     } else if (cmd == "delall") {
@@ -499,49 +461,67 @@ static void HandleTinyCPage(void) {
     ".tc-ide-url button{width:auto;padding:0 16px}"
     "</style>"));
 
-  // --- VM Status ---
-  WSContentSend_P(PSTR("<fieldset><legend><b> TinyC VM </b></legend>"));
+  // --- VM Status for ALL slots ---
   if (Tinyc) {
-    char state[10], state_class[10];
-    if (Tinyc->running) { strcpy_P(state, PSTR("Running")); strcpy_P(state_class, PSTR("tc-run")); }
-    else if (Tinyc->loaded) { strcpy_P(state, PSTR("Loaded")); strcpy_P(state_class, PSTR("tc-load")); }
-    else { strcpy_P(state, PSTR("Empty")); strcpy_P(state_class, PSTR("tc-empty")); }
+    for (uint8_t si = 0; si < TC_MAX_VMS; si++) {
+      TcSlot *s = Tinyc->slots[si];
+      if (!s) continue;
 
-    WSContentSend_P(PSTR(
-      "<div class='tc-stat'><table>"
-      "<tr><td>Status</td><td><span class='%s'>&#x25cf; %s</span></td></tr>"
-      "<tr><td>Program</td><td>%s (%d bytes)</td></tr>"
-      "<tr><td>Instructions</td><td>%u</td></tr>"
-      "<tr><td>PC / SP</td><td>%d / %d</td></tr>"),
-      state_class, state,
-      Tinyc->upload_filename[0] ? Tinyc->upload_filename : (Tinyc->loaded ? "loaded" : "none"),
-      Tinyc->program_size,
-      Tinyc->vm.instruction_count,
-      Tinyc->vm.pc - Tinyc->vm.code_offset, Tinyc->vm.sp);
+      char legend[40];
+      snprintf_P(legend, sizeof(legend), PSTR(" TinyC VM [Slot %d] "), si);
+      WSContentSend_P(PSTR("<fieldset><legend><b>%s</b></legend>"), legend);
 
-    // Only show error row if there's an error
-    if (Tinyc->vm.error != 0) {
-      WSContentSend_P(PSTR("<tr><td>Error</td><td class='tc-err'>%s</td></tr>"),
-        tc_error_str(Tinyc->vm.error));
+      char state[10], state_class[10];
+      if (s->running) { strcpy_P(state, PSTR("Running")); strcpy_P(state_class, PSTR("tc-run")); }
+      else if (s->loaded) { strcpy_P(state, PSTR("Loaded")); strcpy_P(state_class, PSTR("tc-load")); }
+      else { strcpy_P(state, PSTR("Empty")); strcpy_P(state_class, PSTR("tc-empty")); }
+
+      WSContentSend_P(PSTR(
+        "<div class='tc-stat'><table>"
+        "<tr><td>Status</td><td><span class='%s'>&#x25cf; %s</span></td></tr>"
+        "<tr><td>Program</td><td>%s (%d bytes)</td></tr>"
+        "<tr><td>Instructions</td><td>%u</td></tr>"
+        "<tr><td>PC / SP</td><td>%d / %d</td></tr>"),
+        state_class, state,
+        s->filename[0] ? s->filename : (s->loaded ? "loaded" : "none"),
+        s->program_size,
+        s->vm.instruction_count,
+        s->vm.pc - s->vm.code_offset, s->vm.sp);
+
+      // Only show error row if there's an error
+      if (s->vm.error != 0) {
+        WSContentSend_P(PSTR("<tr><td>Error</td><td class='tc-err'>%s</td></tr>"),
+          tc_error_str(s->vm.error));
+      }
+
+      WSContentSend_P(PSTR(
+        "<tr><td>Instr/tick</td><td>%d</td></tr>"
+        "</table></div>"),
+        Tinyc->instr_per_tick);
+
+      // Control buttons (per-slot)
+      WSContentSend_P(PSTR(
+        "<div class='tc-btns'><form action='/tc' method='get' style='display:flex;gap:8px;width:100%%'>"
+        "<input type='hidden' name='slot' value='%d'>"
+        "<button name='cmd' value='run' class='button bgrn'>&#x25B6; Run</button>"
+        "<button name='cmd' value='stop' class='button bred'>&#x25A0; Stop</button>"
+        "<button name='cmd' value='reset' class='button'>&#x21BB; Reset</button>"
+        "</form></div>"), si);
+
+      // Output log for this slot
+      if (s->output_len > 0) {
+        WSContentSend_P(PSTR("<b>Output</b><div class='tc-out'>%s</div>"), s->output);
+      }
+
+      WSContentSend_P(PSTR("</fieldset>"));
     }
 
-    WSContentSend_P(PSTR(
-      "<tr><td>Instr/tick</td><td>%d</td></tr>"
-      "</table></div>"),
-      Tinyc->instr_per_tick);
-
-    // Control buttons
-    WSContentSend_P(PSTR(
-      "<div class='tc-btns'><form action='/tc' method='get' style='display:flex;gap:8px;width:100%%'>"
-      "<button name='cmd' value='run' class='button bgrn'>&#x25B6; Run</button>"
-      "<button name='cmd' value='stop' class='button bred'>&#x25A0; Stop</button>"
-      "<button name='cmd' value='reset' class='button'>&#x21BB; Reset</button>"
-      "</form></div>"));
-
-    // File selector — list all .tcb files from both ufsp and ffsp
+    // --- File selector (shared, loads into slot 0 by default) ---
 #ifdef USE_UFILESYS
     if (ufsp || ffsp) {
+      TcSlot *s0 = Tinyc->slots[0];
       WSContentSend_P(PSTR(
+        "<fieldset><legend><b> Load Program </b></legend>"
         "<p><form action='/tc' method='get'>"
         "<select name='file' style='width:100%%'>"));
       // Scan up to 2 filesystems: ufsp (SD/main) and ffsp (flash) if different
@@ -564,7 +544,7 @@ static void HandleTinyCPage(void) {
           if (nlen > 4 && strcasecmp(ep + nlen - 4, ".tcb") == 0) {
             char fpath[40];
             snprintf(fpath, sizeof(fpath), "/%s", ep);
-            bool is_current = (Tinyc->upload_filename[0] && strcmp(fpath, Tinyc->upload_filename) == 0);
+            bool is_current = (s0 && s0->filename[0] && strcmp(fpath, s0->filename) == 0);
             WSContentSend_P(PSTR("<option value='%s'%s>%s (%d B)%s</option>"),
               fpath, is_current ? " selected" : "", ep, entry.size(), fslabel[fi]);
           }
@@ -579,18 +559,15 @@ static void HandleTinyCPage(void) {
         "<button name='cmd' value='delall' class='button bred'"
         " onclick=\"return confirm('Delete all .tcb files?')\">"
         "Delete All .tcb</button>"
-        "</div></form></p>"));
+        "</div></form></p></fieldset>"));
     }
 #endif
 
-    // Output log
-    if (Tinyc->output_len > 0) {
-      WSContentSend_P(PSTR("<b>Output</b><div class='tc-out'>%s</div>"), Tinyc->output);
-    }
   } else {
-    WSContentSend_P(PSTR("<p style='text-align:center;opacity:.6'>TinyC not initialized</p>"));
+    WSContentSend_P(PSTR("<fieldset><legend><b> TinyC VM </b></legend>"
+      "<p style='text-align:center;opacity:.6'>TinyC not initialized</p>"
+      "</fieldset>"));
   }
-  WSContentSend_P(PSTR("</fieldset>"));
 
   // --- Upload Section ---
   WSContentSend_P(PSTR(
@@ -630,17 +607,21 @@ static void HandleTinyCPage(void) {
 static void HandleTinyCUploadDone(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
 
+  uint8_t slot_num = Tinyc ? Tinyc->upload_slot : 0;
+  TcSlot *s = (Tinyc && slot_num < TC_MAX_VMS) ? Tinyc->slots[slot_num] : nullptr;
+
   // Check if this is an API call (from browser IDE) via ?api=1 query parameter
   bool is_api = Webserver->hasArg(F("api"));
 
   if (is_api) {
     // JSON response with CORS headers for browser IDE
     TCSendCORS("POST, OPTIONS");
-    if (Tinyc && Tinyc->loaded) {
+    if (s && s->loaded) {
       char json[160];
-      snprintf_P(json, sizeof(json), PSTR("{\"ok\":true,\"size\":%d,\"file\":\"%s\"}"),
-        Tinyc->program_size,
-        Tinyc->upload_filename[0] ? Tinyc->upload_filename : "");
+      snprintf_P(json, sizeof(json), PSTR("{\"ok\":true,\"size\":%d,\"file\":\"%s\",\"slot\":%d}"),
+        s->program_size,
+        s->filename[0] ? s->filename : "",
+        slot_num);
       WSSendJSON(200, json);
     } else {
       WSSendJSON_P(400, PSTR("{\"ok\":false,\"error\":\"upload failed\"}"));
@@ -652,14 +633,14 @@ static void HandleTinyCUploadDone(void) {
   WSContentStart_P(PSTR("TinyC Upload"));
   WSContentSendStyle();
 
-  if (Tinyc && Tinyc->loaded) {
+  if (s && s->loaded) {
     WSContentSend_P(PSTR(
       "<fieldset><legend><b> Upload Result </b></legend>"
       "<p style='text-align:center;color:#0a0'><b>&#x2714; Upload successful!</b></p>"
-      "<p style='text-align:center'>%s — %d bytes</p>"
+      "<p style='text-align:center'>%s — %d bytes (slot %d)</p>"
       "</fieldset>"),
-      Tinyc->upload_filename[0] ? Tinyc->upload_filename : "program",
-      Tinyc->program_size);
+      s->filename[0] ? s->filename : "program",
+      s->program_size, slot_num);
   } else {
     WSContentSend_P(PSTR(
       "<fieldset><legend><b> Upload Result </b></legend>"
@@ -684,11 +665,32 @@ static void HandleTinyCUpload(void) {
   HTTPUpload& upload = Webserver->upload();
 
   if (upload.status == UPLOAD_FILE_START) {
-    AddLog(LOG_LEVEL_INFO, PSTR("TCC: Upload start: %s"), upload.filename.c_str());
+    // Determine target slot from ?slot=N parameter (default 0)
+    Tinyc->upload_slot = 0;
+    if (Webserver->hasArg(F("slot"))) {
+      uint8_t rs = Webserver->arg(F("slot")).toInt();
+      if (rs < TC_MAX_VMS) Tinyc->upload_slot = rs;
+    }
+    uint8_t slot_num = Tinyc->upload_slot;
+
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: Upload start: %s (slot %d)"), upload.filename.c_str(), slot_num);
+
     // Capture uploaded filename (prepend / for filesystem path)
     snprintf(Tinyc->upload_filename, sizeof(Tinyc->upload_filename), "/%s", upload.filename.c_str());
-    // Stop any running program
-    TinyCStopVM();
+
+    // Allocate slot if needed
+    if (!Tinyc->slots[slot_num]) {
+      Tinyc->slots[slot_num] = tc_slot_alloc();
+      if (!Tinyc->slots[slot_num]) {
+        Web.upload_error = 1;
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Slot %d alloc failed"), slot_num);
+        return;
+      }
+    }
+    TcSlot *s = Tinyc->slots[slot_num];
+
+    // Stop any running program in this slot
+    TinyCStopVM(s);
     // Allocate upload buffer
     if (Tinyc->upload_buf) { free(Tinyc->upload_buf); Tinyc->upload_buf = nullptr; }
     Tinyc->upload_buf = (uint8_t *)malloc(TC_MAX_PROGRAM);
@@ -709,36 +711,40 @@ static void HandleTinyCUpload(void) {
     }
   }
   else if (upload.status == UPLOAD_FILE_END) {
-    if (Tinyc->upload_buf && Tinyc->upload_received > 0 && !Web.upload_error) {
-      // Free old program
-      if (Tinyc->program) { free(Tinyc->program); }
+    uint8_t slot_num = Tinyc->upload_slot;
+    TcSlot *s = (slot_num < TC_MAX_VMS) ? Tinyc->slots[slot_num] : nullptr;
+
+    if (s && Tinyc->upload_buf && Tinyc->upload_received > 0 && !Web.upload_error) {
+      // Free old program in this slot
+      if (s->program) { free(s->program); }
 
       // Use upload buffer as program
-      Tinyc->program = Tinyc->upload_buf;
-      Tinyc->program_size = Tinyc->upload_received;
+      s->program = Tinyc->upload_buf;
+      s->program_size = Tinyc->upload_received;
       Tinyc->upload_buf = nullptr;
 
       // Try to load
-      int err = tc_vm_load(&Tinyc->vm, Tinyc->program, Tinyc->program_size);
+      int err = tc_vm_load(&s->vm, s->program, s->program_size);
       if (err == TC_OK) {
-        Tinyc->loaded = true;
-        TinyCSetPersistFile(Tinyc->upload_filename);
-        AddLog(LOG_LEVEL_INFO, PSTR("TCC: Loaded %d bytes"), Tinyc->program_size);
+        s->loaded = true;
+        strlcpy(s->filename, Tinyc->upload_filename, sizeof(s->filename));
+        TinyCSetPersistFile(s, s->filename);
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: Loaded %d bytes into slot %d"), s->program_size, slot_num);
 
         // Save to filesystem with uploaded filename
 #ifdef USE_UFILESYS
         if (ufsp) {
-          const char *saveName = Tinyc->upload_filename[0] ? Tinyc->upload_filename : TC_FILE_NAME;
-          TfsSaveFile(saveName, Tinyc->program, Tinyc->program_size);
+          const char *saveName = s->filename[0] ? s->filename : TC_FILE_NAME;
+          TfsSaveFile(saveName, s->program, s->program_size);
           AddLog(LOG_LEVEL_INFO, PSTR("TCC: Saved to %s"), saveName);
         }
 #endif
       } else {
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Load error: %s"), tc_error_str(err));
-        free(Tinyc->program);
-        Tinyc->program = nullptr;
-        Tinyc->program_size = 0;
-        Tinyc->loaded = false;
+        free(s->program);
+        s->program = nullptr;
+        s->program_size = 0;
+        s->loaded = false;
         Web.upload_error = 1;
       }
     } else {
@@ -747,8 +753,8 @@ static void HandleTinyCUpload(void) {
   }
 }
 
-// ─── API endpoint for browser IDE (JSON + CORS) ─────────────
-// GET /tc_api?cmd=run|stop|status
+// ---- API endpoint for browser IDE (JSON + CORS) ----
+// GET /tc_api?cmd=run|stop|status&slot=N
 static void HandleTinyCApi(void) {
   TCSendCORS("GET, OPTIONS");
 
@@ -758,25 +764,69 @@ static void HandleTinyCApi(void) {
   }
 
   String cmd = Webserver->arg(F("cmd"));
-  char json[256];
+  uint8_t slot_num = 0;
+  if (Webserver->hasArg(F("slot"))) {
+    slot_num = Webserver->arg(F("slot")).toInt();
+    if (slot_num >= TC_MAX_VMS) slot_num = 0;
+  }
+  char json[384];
 
   if (cmd == "run") {
-    if (!Tinyc->loaded) {
+    // Allocate slot if needed
+    if (!Tinyc->slots[slot_num]) {
+      Tinyc->slots[slot_num] = tc_slot_alloc();
+    }
+    TcSlot *s = Tinyc->slots[slot_num];
+    if (!s || !s->loaded) {
       WSSendJSON_P(400, PSTR("{\"ok\":false,\"error\":\"no program loaded\"}"));
       return;
     }
-    if (!TinyCStartVM()) {
+    if (!TinyCStartVM(s)) {
       WSSendJSON_P(400, PSTR("{\"ok\":false,\"error\":\"start failed\"}"));
       return;
     }
-    AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program started (API)"));
-    snprintf_P(json, sizeof(json), PSTR("{\"ok\":true,\"running\":true,\"size\":%d}"), Tinyc->program_size);
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program started (API, slot %d)"), slot_num);
+    snprintf_P(json, sizeof(json), PSTR("{\"ok\":true,\"running\":true,\"size\":%d,\"slot\":%d}"),
+      s->program_size, slot_num);
     WSSendJSON(200, json);
   }
   else if (cmd == "stop") {
-    TinyCStopVM();
-    AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program stopped (API)"));
+    TcSlot *s = Tinyc->slots[slot_num];
+    if (s) {
+      TinyCStopVM(s);
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program stopped (API, slot %d)"), slot_num);
+    }
     WSSendJSON_P(200, PSTR("{\"ok\":true,\"running\":false}"));
+  }
+  else if (cmd == "status") {
+    // Return array of all slot statuses
+    String result = F("{\"ok\":true,\"slots\":[");
+    bool first = true;
+    for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+      TcSlot *s = Tinyc->slots[i];
+      if (!s) continue;
+      if (!first) result += ',';
+      first = false;
+      snprintf_P(json, sizeof(json),
+        PSTR("{\"slot\":%d,\"loaded\":%d,\"running\":%d,\"size\":%d,\"file\":\"%s\","
+             "\"pc\":%d,\"sp\":%d,\"instr\":%u,\"error\":\"%s\"}"),
+        i,
+        s->loaded ? 1 : 0,
+        s->running ? 1 : 0,
+        s->program_size,
+        s->filename[0] ? s->filename : "",
+        s->vm.pc - s->vm.code_offset,
+        s->vm.sp,
+        s->vm.instruction_count,
+        tc_error_str(s->vm.error));
+      result += json;
+    }
+    result += F("],\"heap\":");
+    result += String(ESP_getFreeHeap());
+    result += '}';
+    TCSendCORS("GET, OPTIONS");
+    Webserver->send(200, F("application/json"), result);
+    return;
   }
   else if (cmd == "freegpio") {
     // Return list of free (usable, not flash, not assigned) GPIO pins
@@ -894,9 +944,7 @@ static void HandleTinyCApi(void) {
     TCSendCORS("GET, POST, OPTIONS");
 
     if (cmp_from && cmp_to && cmp_to > cmp_from) {
-      // ── Time-filtered file serving ──
-      // Stream only header + lines within [from..to] timestamp range
-      // Use sendContent() so Webserver handles chunked encoding correctly
+      // -- Time-filtered file serving --
       Webserver->setContentLength(CONTENT_LENGTH_UNKNOWN);
       Webserver->send(200, F("text/plain"), "");
 
@@ -957,7 +1005,6 @@ static void HandleTinyCApi(void) {
           ind.close();
         } else {
           // No index: estimated seek (like Scripter's opt_fext)
-          // Read first data line timestamp
           li = 0;
           while (f.available() && li < 31) {
             uint8_t c; f.read(&c, 1);
@@ -987,7 +1034,6 @@ static void HandleTinyCApi(void) {
             lbuf[li] = 0;
             uint32_t ts_last = tc_ts_cmp(lbuf);
             if (ts_last > ts_first && cmp_from > ts_first) {
-              // Estimate position as percentage (0.8 safety factor)
               float perc = (float)(cmp_from - ts_first) / (float)(ts_last - ts_first) * 0.8f;
               if (perc < 0) perc = 0;
               if (perc > 1) perc = 1;
@@ -1080,18 +1126,27 @@ static void HandleTinyCApi(void) {
   }
 #endif
   else {
-    // Default: status
-    snprintf_P(json, sizeof(json),
-      PSTR("{\"ok\":true,\"loaded\":%d,\"running\":%d,\"size\":%d,\"file\":\"%s\",\"pc\":%d,\"sp\":%d,\"instr\":%u,\"error\":\"%s\",\"heap\":%d}"),
-      Tinyc->loaded ? 1 : 0,
-      Tinyc->running ? 1 : 0,
-      Tinyc->program_size,
-      Tinyc->upload_filename[0] ? Tinyc->upload_filename : "",
-      Tinyc->vm.pc - Tinyc->vm.code_offset,
-      Tinyc->vm.sp,
-      Tinyc->vm.instruction_count,
-      tc_error_str(Tinyc->vm.error),
-      ESP_getFreeHeap());
+    // Default: status for a specific slot (backward-compatible single-slot response)
+    TcSlot *s = Tinyc->slots[slot_num];
+    if (s) {
+      snprintf_P(json, sizeof(json),
+        PSTR("{\"ok\":true,\"slot\":%d,\"loaded\":%d,\"running\":%d,\"size\":%d,\"file\":\"%s\","
+             "\"pc\":%d,\"sp\":%d,\"instr\":%u,\"error\":\"%s\",\"heap\":%d}"),
+        slot_num,
+        s->loaded ? 1 : 0,
+        s->running ? 1 : 0,
+        s->program_size,
+        s->filename[0] ? s->filename : "",
+        s->vm.pc - s->vm.code_offset,
+        s->vm.sp,
+        s->vm.instruction_count,
+        tc_error_str(s->vm.error),
+        ESP_getFreeHeap());
+    } else {
+      snprintf_P(json, sizeof(json),
+        PSTR("{\"ok\":true,\"slot\":%d,\"loaded\":0,\"running\":0,\"size\":0,\"heap\":%d}"),
+        slot_num, ESP_getFreeHeap());
+    }
     WSSendJSON(200, json);
   }
 }
@@ -1102,7 +1157,7 @@ static void HandleTinyCApiCORS(void) {
   Webserver->send(204);
 }
 
-// ─── Self-hosted IDE (optional — #define USE_TINYC_IDE) ──────
+// ---- Self-hosted IDE (optional -- #define USE_TINYC_IDE) ----
 // Serves /tinyc_ide.html (or .gz) from filesystem at /ide
 #ifdef USE_TINYC_IDE
 #ifdef USE_UFILESYS
@@ -1157,12 +1212,15 @@ static void HandleTinyCIde(void) {
 #endif  // USE_UFILESYS
 #endif  // USE_TINYC_IDE
 
-// ─── WebUI: shared sv= parameter handler ──────────────────────
+// ---- WebUI: shared sv= parameter handler ----
 
 // Process sv= widget value updates from AJAX requests
 // Format: sv=gidx_value | sv=gidx_s_string | sv=gidx_t_HH:MM
+// Uses slot 0 for globals access (WebUI is bound to slot 0)
 static void TinyC_WebSetVar(void) {
-  if (!Tinyc || !Tinyc->loaded) return;
+  if (!Tinyc) return;
+  TcSlot *s = Tinyc->slots[0];
+  if (!s || !s->loaded) return;
   if (!Webserver->hasArg(F("sv"))) return;
 
   String sv = Webserver->arg(F("sv"));
@@ -1177,34 +1235,36 @@ static void TinyC_WebSetVar(void) {
         int32_t maxLen = TC_MAX_GLOBALS - gidx - 1;
         int i;
         for (i = 0; i < maxLen && str[i]; i++) {
-          Tinyc->vm.globals[gidx + i] = (int32_t)(uint8_t)str[i];
+          s->vm.globals[gidx + i] = (int32_t)(uint8_t)str[i];
         }
-        Tinyc->vm.globals[gidx + i] = 0;  // null terminate
+        s->vm.globals[gidx + i] = 0;  // null terminate
       } else if (val.startsWith("t_")) {
-        // Time value: HH:MM → HHMM integer
+        // Time value: HH:MM -> HHMM integer
         const char *ts = val.c_str() + 2;
         int hh = 0, mm = 0;
         sscanf(ts, "%d:%d", &hh, &mm);
-        Tinyc->vm.globals[gidx] = hh * 100 + mm;
+        s->vm.globals[gidx] = hh * 100 + mm;
       } else {
-        Tinyc->vm.globals[gidx] = val.toInt();
+        s->vm.globals[gidx] = val.toInt();
       }
     }
   }
 }
 
-// ─── Custom web handlers (webOn) ──────────────────────────────
+// ---- Custom web handlers (webOn) -- uses slot 0 ----
 
 static void HandleTinyCWebOn(uint8_t handler_num) {
-  if (!Tinyc || !Tinyc->loaded || !Tinyc->vm.halted || Tinyc->vm.error != TC_OK) {
+  if (!Tinyc) { Webserver->send(503, "text/plain", "TinyC not ready"); return; }
+  TcSlot *s = Tinyc->slots[0];
+  if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) {
     Webserver->send(503, "text/plain", "TinyC not ready");
     return;
   }
   Tinyc->current_web_handler = handler_num;
-  // CORS + chunked response — callback uses webSend() to emit content
+  // CORS + chunked response -- callback uses webSend() to emit content
   TCSendCORS("GET, POST, OPTIONS");
   WSContentBegin(200, CT_PLAIN);
-  tc_callback_safe(&Tinyc->vm, "WebOn");
+  tc_slot_callback(s, "WebOn");
   WSContentEnd();
   Tinyc->current_web_handler = 0;
 }
@@ -1214,11 +1274,13 @@ static void HandleTinyCWebOn2(void) { HandleTinyCWebOn(2); }
 static void HandleTinyCWebOn3(void) { HandleTinyCWebOn(3); }
 static void HandleTinyCWebOn4(void) { HandleTinyCWebOn(4); }
 
-// ─── WebUI: interactive widget page (/tc_ui) ──────────────────
+// ---- WebUI: interactive widget page (/tc_ui) -- uses slot 0 ----
 
 static void HandleTinyCUI(void) {
   if (!HttpCheckPriviledgedAccess()) return;
-  if (!Tinyc || !Tinyc->loaded || !Tinyc->vm.halted || Tinyc->vm.error != TC_OK) {
+  if (!Tinyc) { Webserver->send(503, "text/plain", "TinyC not ready"); return; }
+  TcSlot *s = Tinyc->slots[0];
+  if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) {
     Webserver->send(503, "text/plain", "TinyC not ready");
     return;
   }
@@ -1231,13 +1293,13 @@ static void HandleTinyCUI(void) {
   }
   Tinyc->current_page = page;
 
-  // Handle sv= parameter — widget value update
+  // Handle sv= parameter -- widget value update
   TinyC_WebSetVar();
 
   // AJAX mode (m=1): just re-render widgets via WebUI() callback
   if (Webserver->hasArg(F("m"))) {
     WSContentBegin(200, CT_HTML);
-    tc_callback_safe(&Tinyc->vm, "WebUI");
+    tc_slot_callback(s, "WebUI");
     WSContentEnd();
     return;
   }
@@ -1274,7 +1336,7 @@ static void HandleTinyCUI(void) {
     "</script>"
   ), page);
   WSContentSend_P(PSTR("<div id='ui'>"));
-  tc_callback_safe(&Tinyc->vm, "WebUI");
+  tc_slot_callback(s, "WebUI");
   WSContentSend_P(PSTR("</div>"));
   WSContentSpaceButton(BUTTON_MAIN);
   WSContentEnd();
@@ -1290,37 +1352,59 @@ static void TinyCShow(bool json) {
   if (!Tinyc) return;
 
   if (json) {
-    // Always append basic TinyC status
-    ResponseAppend_P(PSTR(",\"TinyC\":{\"Running\":%d,\"Loaded\":%d,\"Size\":%d,\"Instr\":%u}"),
-      Tinyc->running ? 1 : 0,
-      Tinyc->loaded ? 1 : 0,
-      Tinyc->program_size,
-      Tinyc->vm.instruction_count);
-    // Call user's JsonCall() — uses responseAppend() to write directly to Tasmota JSON
-    if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
-      tc_callback_safe(&Tinyc->vm, "JsonCall");
+    // Iterate all slots for JSON output
+    for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+      TcSlot *s = Tinyc->slots[i];
+      if (!s) continue;
+      if (i == 0) {
+        // Slot 0 uses backward-compatible key "TinyC"
+        ResponseAppend_P(PSTR(",\"TinyC\":{\"Running\":%d,\"Loaded\":%d,\"Size\":%d,\"Instr\":%u}"),
+          s->running ? 1 : 0,
+          s->loaded ? 1 : 0,
+          s->program_size,
+          s->vm.instruction_count);
+      } else {
+        ResponseAppend_P(PSTR(",\"TinyC%d\":{\"Running\":%d,\"Loaded\":%d,\"Size\":%d,\"Instr\":%u}"),
+          i,
+          s->running ? 1 : 0,
+          s->loaded ? 1 : 0,
+          s->program_size,
+          s->vm.instruction_count);
+      }
+      // Call user's JsonCall() on this slot
+      if (s->loaded && s->vm.halted && s->vm.error == TC_OK) {
+        tc_slot_callback(s, "JsonCall");
+      }
     }
   }
 #ifdef USE_WEBSERVER
   else {
-    // Default web status row
-    char status[10];
-    if (Tinyc->running) { strcpy_P(status, PSTR("Running")); }
-    else if (Tinyc->loaded) { strcpy_P(status, PSTR("Loaded")); }
-    else { strcpy_P(status, PSTR("Empty")); }
-    WSContentSend_PD(PSTR("{s}TinyC{m}%s (%d bytes){e}"),
-      status,
-      Tinyc->program_size);
-    // Call user's WebCall() — uses webSend() to write directly to Tasmota web page
-    if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
-      tc_callback_safe(&Tinyc->vm, "WebCall");
+    // Web sensor rows for all slots
+    for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+      TcSlot *s = Tinyc->slots[i];
+      if (!s) continue;
+      char status[10];
+      if (s->running) { strcpy_P(status, PSTR("Running")); }
+      else if (s->loaded) { strcpy_P(status, PSTR("Loaded")); }
+      else { strcpy_P(status, PSTR("Empty")); }
+      if (i == 0) {
+        WSContentSend_PD(PSTR("{s}TinyC{m}%s (%d bytes){e}"),
+          status, s->program_size);
+      } else {
+        WSContentSend_PD(PSTR("{s}TinyC[%d]{m}%s (%d bytes){e}"),
+          i, status, s->program_size);
+      }
+      // Call user's WebCall() on this slot
+      if (s->loaded && s->vm.halted && s->vm.error == TC_OK) {
+        tc_slot_callback(s, "WebCall");
+      }
     }
   }
 #endif
 }
 
 /*********************************************************************************************\
- * Port 82 Download Server — background task for large file serving (ESP32 only)
+ * Port 82 Download Server -- background task for large file serving (ESP32 only)
  * Serves /ufs/<filename> with optional @from_to time-range filtering
  * Downloads run in a FreeRTOS task so main loop stays responsive
 \*********************************************************************************************/
@@ -1375,7 +1459,7 @@ static void tc_download_task(void *param) {
   if (fname) fname++; else fname = path;
 
   if (cmp_from && cmp_to && cmp_to > cmp_from) {
-    // ── Time-filtered download ──
+    // -- Time-filtered download --
     client.printf_P(PSTR("HTTP/1.1 200 OK\r\nContent-Type: %s\r\n"
       "Content-Disposition: attachment; filename=\"%s\"\r\n"
       "Transfer-Encoding: chunked\r\n"
@@ -1510,7 +1594,7 @@ static void tc_download_task(void *param) {
       free(lbuf);
     }
   } else {
-    // ── Full file download ──
+    // -- Full file download --
     client.printf_P(PSTR("HTTP/1.1 200 OK\r\nContent-Type: %s\r\n"
       "Content-Disposition: attachment; filename=\"%s\"\r\n"
       "Content-Length: %d\r\n"
@@ -1617,19 +1701,15 @@ bool Xdrv124(uint32_t function) {
       // Poll port 82 download server for incoming file requests
       TC_DLServerLoop();
 #endif
-      // Call user's EveryLoop() callback — runs every Tasmota main loop iteration
-      if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
-        tc_callback_safe(&Tinyc->vm, "EveryLoop");
-      }
+      // Call user's EveryLoop() callback on all active slots
+      tc_all_callbacks("EveryLoop");
       break;
     case FUNC_EVERY_50_MSECOND:
       TinyCEvery50ms();
       break;
     case FUNC_EVERY_SECOND:
-      // Call user's EverySecond() callback if VM halted normally
-      if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
-        tc_callback_safe(&Tinyc->vm, "EverySecond");
-      }
+      // Call user's EverySecond() callback on all active slots
+      tc_all_callbacks("EverySecond");
       break;
     case FUNC_COMMAND:
       result = DecodeCommand(kTinyCCommands, TinyCCommand);
@@ -1639,43 +1719,48 @@ bool Xdrv124(uint32_t function) {
       break;
 #ifdef USE_WEBSERVER
     case FUNC_WEB_GET_ARG:
-      // Process sv= widget value updates from main page AJAX
+      // Process sv= widget value updates from main page AJAX (slot 0)
       TinyC_WebSetVar();
       break;
     case FUNC_WEB_SENSOR:
       TinyCShow(false);
       break;
     case FUNC_WEB_ADD_MAIN_BUTTON:
-      // Call user's WebPage() here — part of initial HTML document load
-      // (NOT in FUNC_WEB_SENSOR, because innerHTML doesn't execute <script> tags)
-      if (Tinyc->loaded && Tinyc->vm.halted && Tinyc->vm.error == TC_OK) {
-        tc_callback_safe(&Tinyc->vm, "WebPage");
-        // Inject JavaScript for widget interactions on main page
-        // seva=set value (int), siva=set value (string), sivat=set value (time), pr=pause/resume refresh
-        if (tc_has_callback(&Tinyc->vm, "WebCall")) {
-          WSContentSend_P(PSTR(
-            "<script>"
-            "function seva(v,i){la('&sv='+i+'_'+v);}"
-            "function siva(v,i){la('&sv='+i+'_s_'+v);}"
-            "function sivat(v,i){la('&sv='+i+'_t_'+v);}"
-            "function pr(f){if(f){lt=setTimeout(la,%d);}else{clearTimeout(lt);clearTimeout(ft);}}"
-            "</script>"
-          ), Settings->web_refresh);
-        }
-        // Add buttons to /tc_ui pages if WebUI callback is defined
-        if (tc_has_callback(&Tinyc->vm, "WebUI")) {
-          if (Tinyc->page_count > 0) {
-            // Multiple pages registered via wLabel()
-            for (uint8_t i = 0; i < Tinyc->page_count; i++) {
-              if (Tinyc->page_label[i][0]) {
-                WSContentSend_P(PSTR("<p></p><form action='tc_ui' method='get'>"
-                  "<input type='hidden' name='p' value='%d'>"
-                  "<button>%s</button></form>"), i, Tinyc->page_label[i]);
+      // Call user's WebPage() on all active slots
+      for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+        TcSlot *s = Tinyc->slots[i];
+        if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) continue;
+        tc_slot_callback(s, "WebPage");
+      }
+      // Inject JavaScript for widget interactions on main page (slot 0 only)
+      {
+        TcSlot *s0 = Tinyc->slots[0];
+        if (s0 && s0->loaded && s0->vm.halted && s0->vm.error == TC_OK) {
+          if (tc_has_callback(&s0->vm, "WebCall")) {
+            WSContentSend_P(PSTR(
+              "<script>"
+              "function seva(v,i){la('&sv='+i+'_'+v);}"
+              "function siva(v,i){la('&sv='+i+'_s_'+v);}"
+              "function sivat(v,i){la('&sv='+i+'_t_'+v);}"
+              "function pr(f){if(f){lt=setTimeout(la,%d);}else{clearTimeout(lt);clearTimeout(ft);}}"
+              "</script>"
+            ), Settings->web_refresh);
+          }
+          // Add buttons to /tc_ui pages if WebUI callback is defined
+          if (tc_has_callback(&s0->vm, "WebUI")) {
+            if (Tinyc->page_count > 0) {
+              // Multiple pages registered via wLabel()
+              for (uint8_t p = 0; p < Tinyc->page_count; p++) {
+                if (Tinyc->page_label[p][0]) {
+                  WSContentSend_P(PSTR("<p></p><form action='tc_ui' method='get'>"
+                    "<input type='hidden' name='p' value='%d'>"
+                    "<button>%s</button></form>"), p, Tinyc->page_label[p]);
+                }
               }
+            } else {
+              // No wLabel() called -- single default button
+              WSContentSend_P(PSTR("<p></p><form action='tc_ui' method='get'><button>TinyC UI</button></form>"));
             }
-          } else {
-            // No wLabel() called — single default button
-            WSContentSend_P(PSTR("<p></p><form action='tc_ui' method='get'><button>TinyC UI</button></form>"));
           }
         }
       }
