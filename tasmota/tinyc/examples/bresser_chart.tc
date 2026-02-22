@@ -1,7 +1,8 @@
 // Bresser Weather Station + 24h Google Charts (CC1101 868 MHz)
 // Full Bresser 5/6/7-in-1 receiver with 6 ring-buffer charts
 // 288 points per chart (every 5 min, 24 hours)
-// Heap: 6 × 288 = 1728 slots (of 8192 available on ESP32)
+// Uses persist keyword for automatic chart data save/restore across reboots
+// Globals: 6 × 288 = 1728 slots (of 8192 available on ESP32)
 
 // Uncomment to simulate sensor data (no CC1101 hardware needed)
 #define SIMULATE 1
@@ -112,15 +113,16 @@ float br_uvi = 0.0;     // UV index
 
 // Ring buffers for 24h charts (stored as int × 10 for 1-decimal precision)
 // Charted variables: temp, hum, windavg, rain, brightness, uvi
-int h_temp[NPTS];
-int h_hum[NPTS];
-int h_wavg[NPTS];
-int h_rain[NPTS];
-int h_lux[NPTS];
-int h_uvi[NPTS];
-int h_pos = 0;       // ring buffer write position
-int h_count = 0;     // total samples stored (saturates at NPTS)
-int sec_cnt = 0;     // seconds counter for store interval
+// persist auto-saves/restores these arrays and counters across reboots
+persist int h_temp[NPTS];
+persist int h_hum[NPTS];
+persist int h_wavg[NPTS];
+persist int h_rain[NPTS];
+persist int h_lux[NPTS];
+persist int h_uvi[NPTS];
+persist int h_pos = 0;       // ring buffer write position
+persist int h_count = 0;     // total samples stored (saturates at NPTS)
+persist int sec_cnt = 0;     // seconds counter for store interval
 
 // Raw packet buffer and SPI buffer
 char msg[DATA_SIZE];
@@ -499,124 +501,6 @@ void Every50ms() {
 }
 #endif
 
-// --- Chart persistence (save/load ring buffers to flash) ---
-// File format: 12 bytes header (h_pos, h_count, sec_cnt as LE int32)
-// then 6 × NPTS × 4 bytes of ring buffer data
-// Total: 12 + 6 × 288 × 4 = 6924 bytes
-
-char fbuf[128];  // I/O buffer for packing/unpacking ints
-
-// Pack one int32 into fbuf at byte offset (little-endian)
-void pack_int(int offset, int val) {
-    fbuf[offset]     = val & 0xFF;
-    fbuf[offset + 1] = (val >> 8) & 0xFF;
-    fbuf[offset + 2] = (val >> 16) & 0xFF;
-    fbuf[offset + 3] = (val >> 24) & 0xFF;
-}
-
-// Unpack one int32 from fbuf at byte offset (little-endian)
-int unpack_int(int offset) {
-    int v = fbuf[offset] & 0xFF;
-    v = v | ((fbuf[offset + 1] & 0xFF) << 8);
-    v = v | ((fbuf[offset + 2] & 0xFF) << 16);
-    v = v | ((fbuf[offset + 3] & 0xFF) << 24);
-    return v;
-}
-
-// Set one value in the ring buffer by chart_id
-void set_hist(int chart_id, int idx, int val) {
-    if (chart_id == 0) { h_temp[idx] = val; return; }
-    if (chart_id == 1) { h_hum[idx] = val; return; }
-    if (chart_id == 2) { h_wavg[idx] = val; return; }
-    if (chart_id == 3) { h_rain[idx] = val; return; }
-    if (chart_id == 4) { h_lux[idx] = val; return; }
-    if (chart_id == 5) { h_uvi[idx] = val; return; }
-}
-
-// Write all ring buffers to /tc_chart.dat
-void save_charts() {
-    int f = fileOpen("/tc_chart.dat", 1);  // 1 = write
-    if (f < 0) return;
-
-    // Header: h_pos, h_count, sec_cnt (12 bytes)
-    pack_int(0, h_pos);
-    pack_int(4, h_count);
-    pack_int(8, sec_cnt);
-    fileWrite(f, fbuf, 12);
-
-    // Write 6 arrays, each NPTS ints, in chunks of 32 ints (128 bytes)
-    int ch;
-    ch = 0;
-    while (ch < 6) {
-        int i;
-        i = 0;
-        while (i < NPTS) {
-            // Pack up to 32 ints into fbuf
-            int chunk = NPTS - i;
-            if (chunk > 32) chunk = 32;
-            int j;
-            j = 0;
-            while (j < chunk) {
-                pack_int(j * 4, get_hist(ch, i + j));
-                j++;
-            }
-            fileWrite(f, fbuf, chunk * 4);
-            i = i + chunk;
-        }
-        ch++;
-    }
-    fileClose(f);
-}
-
-// Read ring buffers from /tc_chart.dat
-int load_charts() {
-    if (!fileExists("/tc_chart.dat")) return 0;
-
-    int f = fileOpen("/tc_chart.dat", 0);  // 0 = read
-    if (f < 0) return 0;
-
-    // Read header
-    int n = fileRead(f, fbuf, 12);
-    if (n < 12) {
-        fileClose(f);
-        return 0;
-    }
-    h_pos = unpack_int(0);
-    h_count = unpack_int(4);
-    sec_cnt = unpack_int(8);
-
-    // Validate
-    if (h_pos < 0 || h_pos >= NPTS) h_pos = 0;
-    if (h_count < 0 || h_count > NPTS) h_count = 0;
-
-    // Read 6 arrays
-    int ch;
-    ch = 0;
-    while (ch < 6) {
-        int i;
-        i = 0;
-        while (i < NPTS) {
-            int chunk = NPTS - i;
-            if (chunk > 32) chunk = 32;
-            n = fileRead(f, fbuf, chunk * 4);
-            if (n < chunk * 4) {
-                fileClose(f);
-                return 0;  // truncated file
-            }
-            int j;
-            j = 0;
-            while (j < chunk) {
-                set_hist(ch, i + j, unpack_int(j * 4));
-                j++;
-            }
-            i = i + chunk;
-        }
-        ch++;
-    }
-    fileClose(f);
-    return 1;
-}
-
 void store_sample() {
     h_temp[h_pos] = (int)(br_temp * 10.0);
     h_hum[h_pos] = br_hum;
@@ -628,7 +512,7 @@ void store_sample() {
     if (h_pos >= NPTS) h_pos = 0;
     if (h_count < NPTS) h_count++;
     // Persist to flash after every sample
-    save_charts();
+    saveVars();
 }
 
 int sim_tick = 0;  // simulation counter
@@ -899,32 +783,18 @@ int main() {
     printStr("SIMULATE mode — no CC1101 hardware\n");
 #endif
 
-    // Init all state
+    // Init runtime state (not persisted)
     br_ok = 0;
     br_cnt = 0;
     soil_ok = 0;
     soil_cnt = 0;
-    h_pos = 0;
-    h_count = 0;
-    sec_cnt = 0;
 
-    // Try to restore chart data from flash
-    if (load_charts()) {
+    // Chart data (h_temp, h_hum, etc.) and counters (h_pos, h_count, sec_cnt)
+    // are auto-restored by persist keyword
+    if (h_count > 0) {
         char ibuf[64];
         sprintfInt(ibuf, "Restored %d chart points from flash\n", h_count);
         printString(ibuf);
-    } else {
-        // Zero ring buffers
-        int i;
-        for (i = 0; i < NPTS; i++) {
-            h_temp[i] = 0;
-            h_hum[i] = 0;
-            h_wavg[i] = 0;
-            h_rain[i] = 0;
-            h_lux[i] = 0;
-            h_uvi[i] = 0;
-        }
-        printStr("No saved chart data, starting fresh\n");
     }
 
     printStr("Bresser CC1101 + 24h charts ready\n");
