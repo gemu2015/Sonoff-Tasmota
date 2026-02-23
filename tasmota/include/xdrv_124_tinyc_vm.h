@@ -73,7 +73,7 @@ static FS *tc_file_path(char *path) {
 #endif
 
 #define TC_MAGIC           0x54434300  // "TCC\0"
-#define TC_VERSION         4           // V4: added persist table section
+#define TC_VERSION         4           // V4: persist globals
 #define TC_FILE_NAME       "/autoexec.tcb"
 #define TC_MAX_PERSIST     32          // max persist variable entries
 
@@ -360,6 +360,22 @@ enum TcSyscall {
   SYS_TCP_WRITE_STR   = 214, // (str_ref) -> void — write string to client
   SYS_TCP_READ_ARR    = 215, // (arr_ref) -> int — read bytes into int array
   SYS_TCP_WRITE_ARR   = 216, // (arr_ref, count, type) -> void — write array to client
+  // Deep sleep (ESP32 only)
+  SYS_DEEP_SLEEP      = 230, // (seconds) -> void — deep sleep with timer wakeup
+  SYS_DEEP_SLEEP_GPIO = 231, // (seconds, pin, level) -> void — + GPIO wakeup
+  SYS_WAKEUP_CAUSE    = 232, // () -> int — return wakeup cause
+  // Email (requires USE_SENDMAIL)
+  SYS_EMAIL_BODY      = 234, // (body_ref) -> void — set email body (HTML)
+  SYS_EMAIL_ATTACH    = 235, // (path_const) -> void — add file attachment
+  SYS_EMAIL_SEND      = 236, // (params_ref) -> int — send email, 0=ok
+  // Touch buttons & sliders (display GFX)
+  SYS_DSP_BUTTON      = 240, // (num,x,y,w,h,oc,fc,tc,ts,text_const) -> void — power button
+  SYS_DSP_TBUTTON     = 241, // (num,x,y,w,h,oc,fc,tc,ts,text_const) -> void — virtual toggle
+  SYS_DSP_PBUTTON     = 242, // (num,x,y,w,h,oc,fc,tc,ts,text_const) -> void — virtual push
+  SYS_DSP_SLIDER      = 243, // (num,x,y,w,h,ne,bg,fc,bc) -> void — slider
+  SYS_DSP_BTN_STATE   = 244, // (num,val) -> void — set button/slider state
+  SYS_TOUCH_BUTTON    = 245, // (num) -> int — read button/slider state (-1 if undef)
+  SYS_DSP_BTN_DEL     = 246, // (num) -> void — delete button/slider (-1 = all)
   // Debug
   SYS_DEBUG_PRINT     = 250, SYS_DEBUG_PRINT_STR = 251,
   SYS_DEBUG_DUMP      = 252,
@@ -376,6 +392,7 @@ enum {
   TC_ERR_BAD_OPCODE,     TC_ERR_BAD_SYSCALL,
   TC_ERR_BAD_BINARY,     TC_ERR_INSTRUCTION_LIMIT,
   TC_ERR_BOUNDS,         TC_ERR_PAUSED,
+  TC_ERR_FORBIDDEN_PIN,
 };
 
 // Error strings in PROGMEM — saves ~120 bytes RAM on ESP8266
@@ -390,17 +407,19 @@ static const char TC_ERR_07[] PROGMEM = "Invalid binary";
 static const char TC_ERR_08[] PROGMEM = "Instruction limit";
 static const char TC_ERR_09[] PROGMEM = "Bounds error";
 static const char TC_ERR_10[] PROGMEM = "Paused (delay)";
+static const char TC_ERR_11[] PROGMEM = "Forbidden pin";
 static const char TC_ERR_XX[] PROGMEM = "Unknown";
 
 static const char * const tc_error_table[] PROGMEM = {
   TC_ERR_00, TC_ERR_01, TC_ERR_02, TC_ERR_03, TC_ERR_04,
-  TC_ERR_05, TC_ERR_06, TC_ERR_07, TC_ERR_08, TC_ERR_09, TC_ERR_10
+  TC_ERR_05, TC_ERR_06, TC_ERR_07, TC_ERR_08, TC_ERR_09, TC_ERR_10,
+  TC_ERR_11
 };
 
 static const char* tc_error_str(int err) {
   static char buf[24];
   const char *p;
-  if (err >= 0 && err <= TC_ERR_PAUSED) {
+  if (err >= 0 && err <= TC_ERR_FORBIDDEN_PIN) {
     p = (const char *)pgm_read_ptr(&tc_error_table[err]);
   } else {
     p = TC_ERR_XX;
@@ -616,6 +635,12 @@ struct TINYC {
   ESP8266WebServer *dl_server;       // download server on port TC_DLPORT
   volatile bool     dl_busy;         // download task is running
 #endif
+  // Email state (requires USE_SENDMAIL)
+#define TC_MAX_EMAIL_ATTACH 8
+  char    *email_body;               // email body text (malloc'd, freed after send)
+  char    *email_attach[TC_MAX_EMAIL_ATTACH];  // file paths (malloc'd, freed after send)
+  uint8_t  email_attach_count;
+  bool     email_active;             // true while TinyC-initiated email is being sent
 } *Tinyc = nullptr;
 
 // Currently executing slot — set before VM execution, used by output functions
@@ -815,6 +840,9 @@ static void tc_send_web(const char *buf, int len) {
   extern void DisplayText(void);
   extern void DisplayOnOff(uint8_t on);
   extern void Draw_RGB_Bitmap(char *file, uint16_t xp, uint16_t yp, uint8_t scale, bool inverted, uint16_t xs, uint16_t ys);
+  #ifdef USE_TOUCH_BUTTONS
+    extern VButton *buttons[MAX_TOUCH_BUTTONS];
+  #endif
   static int16_t tc_dsp_pad = 0;  // padding: 0=none, >0=left-aligned, <0=right-aligned
 
   // Helper: draw text with optional padding via DisplayText [pN] command
@@ -1552,6 +1580,28 @@ static uint32_t tc_ts_cmp(const char *ts) {
 }
 
 /*********************************************************************************************\
+ * VM: GPIO pin safety check — halt VM on forbidden/in-use pins
+\*********************************************************************************************/
+
+static bool tc_pin_forbidden(int32_t pin) {
+  if (pin < 0 || pin >= MAX_GPIO_PIN) return true;
+  if (FlashPin(pin)) return true;
+  if (RedPin(pin)) return true;
+  if (TasmotaGlobal.gpio_pin[pin] != 0) return true;  // claimed by Tasmota peripheral
+  return false;
+}
+
+#define TC_CHECK_PIN(vm, pin) \
+  if (tc_pin_forbidden(pin)) { \
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: HALT — forbidden pin %d (flash:%d red:%d tasmota:%d)"), \
+      (int)(pin), FlashPin(pin), RedPin(pin), \
+      (pin >= 0 && pin < MAX_GPIO_PIN) ? TasmotaGlobal.gpio_pin[pin] : -1); \
+    (vm)->error = TC_ERR_FORBIDDEN_PIN; \
+    (vm)->halted = true; \
+    return TC_ERR_FORBIDDEN_PIN; \
+  }
+
+/*********************************************************************************************\
  * VM: Syscall dispatch
 \*********************************************************************************************/
 
@@ -1563,16 +1613,14 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     // ── GPIO (with bounds check) ────────────────────────
     case SYS_PIN_MODE:
       b = TC_POP(vm); a = TC_POP(vm);
-      if (a >= 0 && a < MAX_GPIO_PIN) {
-        pinMode(a, b);
-        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: pinMode(%d, %d)"), a, b);
-      }
+      TC_CHECK_PIN(vm, a);
+      pinMode(a, b);
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: pinMode(%d, %d)"), a, b);
       break;
     case SYS_DIGITAL_WRITE:
       b = TC_POP(vm); a = TC_POP(vm);
-      if (a >= 0 && a < MAX_GPIO_PIN) {
-        digitalWrite(a, b);
-      }
+      TC_CHECK_PIN(vm, a);
+      digitalWrite(a, b);
       break;
     case SYS_DIGITAL_READ:
       a = TC_POP(vm);
@@ -1596,21 +1644,24 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
     case SYS_ANALOG_WRITE:
       b = TC_POP(vm); a = TC_POP(vm);
-      if (a >= 0 && a < MAX_GPIO_PIN) {
-        analogWrite(a, b);
-      }
+      TC_CHECK_PIN(vm, a);
+      analogWrite(a, b);
       break;
     case SYS_GPIO_INIT:
       // Release pin from Tasmota GPIO management and set mode
-      // This allows direct GPIO control even on pins assigned to Relay etc.
+      // gpio_init() is intentional override — still block flash/red pins
       b = TC_POP(vm); a = TC_POP(vm);  // pin, mode
-      if (a >= 0 && a < MAX_GPIO_PIN) {
-        // Detach from Tasmota function assignment
-        if (TasmotaGlobal.gpio_pin[a] != AGPIO(GPIO_NONE)) {
-          TasmotaGlobal.gpio_pin[a] = AGPIO(GPIO_NONE);
-        }
-        pinMode(a, b);
+      if (a < 0 || a >= MAX_GPIO_PIN || FlashPin(a) || RedPin(a)) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: HALT — gpio_init forbidden pin %d"), (int)a);
+        vm->error = TC_ERR_FORBIDDEN_PIN;
+        vm->halted = true;
+        return TC_ERR_FORBIDDEN_PIN;
       }
+      // Detach from Tasmota function assignment
+      if (TasmotaGlobal.gpio_pin[a] != AGPIO(GPIO_NONE)) {
+        TasmotaGlobal.gpio_pin[a] = AGPIO(GPIO_NONE);
+      }
+      pinMode(a, b);
       break;
 
     // ── Timing ────────────────────────────────────────
@@ -3432,7 +3483,10 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         spi->settings = SPISettings(freq, MSBFIRST, SPI_MODE0);
 #endif // ESP8266
       } else {
-        // Bitbang mode — configure GPIO pins directly
+        // Bitbang mode — check pins before configuring
+        TC_CHECK_PIN(vm, sclk_pin);
+        if (mosi_pin >= 0) { TC_CHECK_PIN(vm, mosi_pin); }
+        if (miso_pin >= 0) { TC_CHECK_PIN(vm, miso_pin); }
         pinMode(sclk_pin, OUTPUT);
         digitalWrite(sclk_pin, 0);
         if (mosi_pin >= 0) {
@@ -3458,6 +3512,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       if (!Tinyc) break;
       // index is 1-based in the API, stored 0-based
       index = (index - 1) & (TC_SPI_MAX_CS - 1);
+      TC_CHECK_PIN(vm, pin);
       Tinyc->spi.cs[index] = (int8_t)pin;
       pinMode(pin, OUTPUT);
       digitalWrite(pin, HIGH);  // CS inactive = high
@@ -4399,6 +4454,129 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     case SYS_DSP_PAD:
       tc_dsp_pad = (int16_t)TC_POP(vm);
       break;
+
+    // ── Touch buttons & sliders ──────────────────────
+#ifdef USE_TOUCH_BUTTONS
+    case SYS_DSP_BUTTON:    // power button
+    case SYS_DSP_TBUTTON:   // virtual toggle
+    case SYS_DSP_PBUTTON: { // virtual push
+      int32_t textCI = TC_POP(vm);
+      int32_t ts  = TC_POP(vm);
+      int32_t tc_ = TC_POP(vm);
+      int32_t fc  = TC_POP(vm);
+      int32_t oc  = TC_POP(vm);
+      int32_t h   = TC_POP(vm);
+      int32_t w   = TC_POP(vm);
+      int32_t y   = TC_POP(vm);
+      int32_t x   = TC_POP(vm);
+      int32_t num = TC_POP(vm);
+      num = num % MAX_TOUCH_BUTTONS;
+      const char *text = tc_get_const_str(vm, textCI);
+      if (text && renderer) {
+        if (buttons[num]) delete buttons[num];
+        buttons[num] = new VButton();
+        if (buttons[num]) {
+          char lbl[32];
+          strlcpy(lbl, text, sizeof(lbl));
+          buttons[num]->vpower.slider = 0;
+          // Colors are RGB565 — pass directly (no GetColorFromIndex)
+          buttons[num]->xinitButtonUL(renderer, x, y, w, h,
+            (uint16_t)oc, (uint16_t)fc, (uint16_t)tc_, lbl, (uint8_t)ts);
+          if (id == SYS_DSP_BUTTON) {
+            // power button
+            buttons[num]->vpower.is_virtual = 0;
+            buttons[num]->xdrawButton(bitRead(TasmotaGlobal.power, num));
+          } else {
+            // virtual button (toggle or push)
+            buttons[num]->vpower.is_virtual = 1;
+            buttons[num]->vpower.is_pushbutton = (id == SYS_DSP_PBUTTON) ? 1 : 0;
+            buttons[num]->xdrawButton(buttons[num]->vpower.on_off);
+          }
+        }
+      }
+      break;
+    }
+    case SYS_DSP_SLIDER: { // slider
+      int32_t bc  = TC_POP(vm);
+      int32_t fc  = TC_POP(vm);
+      int32_t bg  = TC_POP(vm);
+      int32_t ne  = TC_POP(vm);
+      int32_t h   = TC_POP(vm);
+      int32_t w   = TC_POP(vm);
+      int32_t y   = TC_POP(vm);
+      int32_t x   = TC_POP(vm);
+      int32_t num = TC_POP(vm);
+      num = num % MAX_TOUCH_BUTTONS;
+      if (renderer) {
+        if (buttons[num]) delete buttons[num];
+        buttons[num] = new VButton();
+        if (buttons[num]) {
+          buttons[num]->vpower.slider = 1;
+          // Colors are RGB565 — pass directly
+          buttons[num]->SliderInit(renderer, x, y, w, h, ne,
+            (uint16_t)bg, (uint16_t)fc, (uint16_t)bc);
+        }
+      }
+      break;
+    }
+    case SYS_DSP_BTN_STATE: { // set button/slider state
+      int32_t val = TC_POP(vm);
+      int32_t num = TC_POP(vm);
+      num = num % MAX_TOUCH_BUTTONS;
+      if (buttons[num]) {
+        if (buttons[num]->vpower.slider) {
+          buttons[num]->UpdateSlider(-val, -val);
+        } else {
+          buttons[num]->vpower.on_off = val;
+          buttons[num]->xdrawButton(val);
+        }
+      }
+      break;
+    }
+    case SYS_TOUCH_BUTTON: { // read button/slider state
+      int32_t num = TC_POP(vm);
+      int32_t result = -1;
+      if (num >= 0 && num < MAX_TOUCH_BUTTONS && buttons[num]) {
+        result = buttons[num]->vpower.on_off;
+      }
+      TC_PUSH(vm, result);
+      break;
+    }
+    case SYS_DSP_BTN_DEL: { // delete button/slider
+      int32_t num = TC_POP(vm);
+      if (num == -1) {
+        // delete all
+        for (int i = 0; i < MAX_TOUCH_BUTTONS; i++) {
+          if (buttons[i]) {
+            if (renderer) renderer->fillRect(buttons[i]->spars.xp, buttons[i]->spars.yp,
+              buttons[i]->spars.xs, buttons[i]->spars.ys, bg_color);
+            delete buttons[i];
+            buttons[i] = 0;
+          }
+        }
+      } else if (num >= 0 && num < MAX_TOUCH_BUTTONS && buttons[num]) {
+        if (renderer) renderer->fillRect(buttons[num]->spars.xp, buttons[num]->spars.yp,
+          buttons[num]->spars.xs, buttons[num]->spars.ys, bg_color);
+        delete buttons[num];
+        buttons[num] = 0;
+      }
+      break;
+    }
+#else  // !USE_TOUCH_BUTTONS — pop args but do nothing
+    case SYS_DSP_BUTTON:
+    case SYS_DSP_TBUTTON:
+    case SYS_DSP_PBUTTON:
+      for (int i = 0; i < 10; i++) TC_POP(vm); break;
+    case SYS_DSP_SLIDER:
+      for (int i = 0; i < 9; i++) TC_POP(vm); break;
+    case SYS_DSP_BTN_STATE:
+      TC_POP(vm); TC_POP(vm); break;
+    case SYS_TOUCH_BUTTON:
+      TC_POP(vm); TC_PUSH(vm, -1); break;
+    case SYS_DSP_BTN_DEL:
+      TC_POP(vm); break;
+#endif // USE_TOUCH_BUTTONS
+
 #else  // !USE_DISPLAY — pop args from stack but do nothing
     case SYS_DSP_TEXT:
     case SYS_DSP_DRAW:
@@ -4436,6 +4614,20 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     case SYS_DSP_TEXT_STR:
     case SYS_DSP_DRAW_STR:
     case SYS_DSP_PAD:
+      TC_POP(vm); break;
+    case SYS_DSP_BUTTON:
+    case SYS_DSP_TBUTTON:
+    case SYS_DSP_PBUTTON:
+      // 10 args: num,x,y,w,h,oc,fc,tc,ts,text_const
+      for (int i = 0; i < 10; i++) TC_POP(vm); break;
+    case SYS_DSP_SLIDER:
+      // 9 args: num,x,y,w,h,ne,bg,fc,bc
+      for (int i = 0; i < 9; i++) TC_POP(vm); break;
+    case SYS_DSP_BTN_STATE:
+      TC_POP(vm); TC_POP(vm); break;
+    case SYS_TOUCH_BUTTON:
+      TC_POP(vm); TC_PUSH(vm, -1); break;
+    case SYS_DSP_BTN_DEL:
       TC_POP(vm); break;
 #endif // USE_DISPLAY
 
@@ -4641,6 +4833,179 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       tc_persist_save(vm);
       break;
 
+    // ── Deep Sleep (ESP32) ──────────────────────────────
+#ifdef ESP32
+    case SYS_DEEP_SLEEP: {
+      a = TC_POP(vm);  // seconds
+      if (a > 0) {
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: deep sleep %d sec"), a);
+        tc_persist_save(vm);  // save persist vars before sleep
+        SettingsSaveAll();
+        esp_sleep_enable_timer_wakeup((uint64_t)a * 1000000ULL);
+        esp_deep_sleep_start();
+      }
+      break;
+    }
+    case SYS_DEEP_SLEEP_GPIO: {
+      int32_t level = TC_POP(vm);  // wakeup level (0=low, 1=high)
+      int32_t pin   = TC_POP(vm);  // GPIO pin
+      a = TC_POP(vm);              // seconds (0 = GPIO only, no timer)
+      if (pin < 0 || pin >= MAX_GPIO_PIN) break;
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: deep sleep %d sec, wake GPIO%d %s"),
+        a, pin, level ? "HIGH" : "LOW");
+      tc_persist_save(vm);
+      SettingsSaveAll();
+      if (a > 0) {
+        esp_sleep_enable_timer_wakeup((uint64_t)a * 1000000ULL);
+      }
+#if SOC_PM_SUPPORT_EXT1_WAKEUP
+      if (level == 0) {
+        esp_sleep_enable_ext1_wakeup_io(1ULL << pin, ESP_EXT1_WAKEUP_ANY_HIGH);
+#if SOC_RTCIO_INPUT_OUTPUT_SUPPORTED
+        rtc_gpio_pullup_dis((gpio_num_t)pin);
+        rtc_gpio_pulldown_en((gpio_num_t)pin);
+#endif
+      } else {
+#if CONFIG_IDF_TARGET_ESP32
+        esp_sleep_enable_ext1_wakeup_io(1ULL << pin, ESP_EXT1_WAKEUP_ALL_LOW);
+#else
+        esp_sleep_enable_ext1_wakeup_io(1ULL << pin, ESP_EXT1_WAKEUP_ANY_LOW);
+#endif
+#if SOC_RTCIO_INPUT_OUTPUT_SUPPORTED
+        rtc_gpio_pullup_en((gpio_num_t)pin);
+        rtc_gpio_pulldown_dis((gpio_num_t)pin);
+#endif
+      }
+#else
+      // Fallback: GPIO wakeup mode
+      const gpio_config_t config = {
+        .pin_bit_mask = BIT64(pin),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = (gpio_pullup_t)!level,
+        .pull_down_en = (gpio_pulldown_t)level
+      };
+      gpio_config(&config);
+      if (level == 0) {
+        esp_deep_sleep_enable_gpio_wakeup(1ULL << pin, ESP_GPIO_WAKEUP_GPIO_LOW);
+      } else {
+        esp_deep_sleep_enable_gpio_wakeup(1ULL << pin, ESP_GPIO_WAKEUP_GPIO_HIGH);
+      }
+#endif
+      esp_deep_sleep_start();
+      break;
+    }
+    case SYS_WAKEUP_CAUSE:
+      TC_PUSH(vm, (int32_t)esp_sleep_get_wakeup_cause());
+      break;
+#else
+    // ESP8266: not supported, push 0
+    case SYS_DEEP_SLEEP:
+      TC_POP(vm);
+      break;
+    case SYS_DEEP_SLEEP_GPIO:
+      TC_POP(vm); TC_POP(vm); TC_POP(vm);
+      break;
+    case SYS_WAKEUP_CAUSE:
+      TC_PUSH(vm, 0);
+      break;
+#endif // ESP32
+
+    // ── Email (requires USE_SENDMAIL) ─────────────────
+#if defined(USE_SENDMAIL) || defined(USE_ESP32MAIL)
+    case SYS_EMAIL_BODY: {
+      // mailBody(body) — set email body text from char array
+      int32_t body_ref = TC_POP(vm);
+      // Free previous body if any
+      if (Tinyc->email_body) { free(Tinyc->email_body); Tinyc->email_body = nullptr; }
+      // Convert char array ref to C string
+      int32_t *bp = tc_resolve_ref(vm, body_ref);
+      if (bp) {
+        int32_t maxLen = tc_ref_maxlen(vm, body_ref);
+        char *tmp = (char*)malloc(maxLen + 1);
+        if (tmp) {
+          int32_t i = 0;
+          while (i < maxLen && bp[i] != 0) { tmp[i] = (char)bp[i]; i++; }
+          tmp[i] = 0;
+          Tinyc->email_body = tmp;
+          AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: mailBody set (%d chars)"), i);
+        }
+      }
+      break;
+    }
+    case SYS_EMAIL_ATTACH: {
+      // mailAttach("/path") — add file attachment (string literal from const pool)
+      int32_t ci = TC_POP(vm);
+      const char *path = tc_get_const_str(vm, ci);
+      if (path && Tinyc->email_attach_count < TC_MAX_EMAIL_ATTACH) {
+        Tinyc->email_attach[Tinyc->email_attach_count] = strdup(path);
+        if (Tinyc->email_attach[Tinyc->email_attach_count]) {
+          AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: mailAttach[%d] = %s"), Tinyc->email_attach_count, path);
+          Tinyc->email_attach_count++;
+        }
+      }
+      break;
+    }
+    case SYS_EMAIL_SEND: {
+      // mailSend(params) — send email, params = char[] with "[server:port:user:passwd:from:to:subject]"
+      int32_t params_ref = TC_POP(vm);
+      int32_t *pp = tc_resolve_ref(vm, params_ref);
+      if (!pp) { TC_PUSH(vm, 1); break; }
+      int32_t maxLen = tc_ref_maxlen(vm, params_ref);
+      // Build the SendMail command string: [params] body_or_*
+      bool has_attachments = (Tinyc->email_attach_count > 0);
+      // Determine body: use email_body if set, otherwise extract from params tail
+      int32_t plen = 0;
+      while (plen < maxLen && pp[plen] != 0) plen++;
+      // Allocate buffer: params + body + margin
+      int32_t bodyLen = Tinyc->email_body ? strlen(Tinyc->email_body) : 0;
+      char *cmd = (char*)malloc(plen + bodyLen + 4);
+      if (!cmd) {
+        TC_PUSH(vm, 4);  // memory error
+        break;
+      }
+      // Copy params string from int32 array to char buffer
+      for (int32_t i = 0; i < plen; i++) cmd[i] = (char)pp[i];
+      cmd[plen] = 0;
+      // If we have pre-registered body/attachments, replace body with '*' to trigger callback
+      if (has_attachments || Tinyc->email_body) {
+        // Find end of ']' in params to replace body
+        char *bracket = strchr(cmd, ']');
+        if (bracket) {
+          bracket[1] = '*';
+          bracket[2] = 0;
+        }
+        Tinyc->email_active = true;
+      }
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: mailSend(%s)"), cmd);
+      uint16_t result = SendMail(cmd);
+      free(cmd);
+      // Clean up email state
+      if (Tinyc->email_body) { free(Tinyc->email_body); Tinyc->email_body = nullptr; }
+      for (uint8_t i = 0; i < Tinyc->email_attach_count; i++) {
+        if (Tinyc->email_attach[i]) { free(Tinyc->email_attach[i]); Tinyc->email_attach[i] = nullptr; }
+      }
+      Tinyc->email_attach_count = 0;
+      Tinyc->email_active = false;
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: mailSend result = %d"), result);
+      TC_PUSH(vm, (int32_t)result);
+      break;
+    }
+#else
+    case SYS_EMAIL_BODY:
+      TC_POP(vm);
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: mailBody — USE_SENDMAIL not enabled"));
+      break;
+    case SYS_EMAIL_ATTACH:
+      TC_POP(vm);
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: mailAttach — USE_SENDMAIL not enabled"));
+      break;
+    case SYS_EMAIL_SEND:
+      TC_POP(vm);
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: mailSend — USE_SENDMAIL not enabled"));
+      TC_PUSH(vm, -1);
+      break;
+#endif  // USE_SENDMAIL
+
     // ── Debug ─────────────────────────────────────────
     case SYS_DEBUG_PRINT:
       a = TC_POP(vm);
@@ -4786,7 +5151,7 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   uint16_t const_pool_size = (B(10) << 8) | B(11);
   uint16_t heap_decl_size = (B(12) << 8) | B(13);
 
-  // V4 adds persistTableSize at bytes 16-17; V3 adds funcTableSize at bytes 14-15; V2 header is 14 bytes
+  // V4=18, V3=16, V2=14 bytes header
   uint16_t header_size = (version >= 4) ? 18 : ((version >= 3) ? 16 : 14);
   uint16_t func_table_size = (version >= 3 && size >= 16) ? ((B(14) << 8) | B(15)) : 0;
   uint16_t persist_table_size = (version >= 4 && size >= 18) ? ((B(16) << 8) | B(17)) : 0;

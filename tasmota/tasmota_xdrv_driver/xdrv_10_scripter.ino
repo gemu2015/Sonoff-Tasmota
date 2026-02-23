@@ -13911,6 +13911,10 @@ exgc:
 #if defined(USE_SENDMAIL) || defined(USE_ESP32MAIL)
 
 void script_send_email_body(void(*func)(char *)) {
+#ifdef USE_TINYC
+  extern bool tinyc_email_body(void(*)(char*));
+  if (tinyc_email_body(func)) return;
+#endif
 uint8_t msect = Run_Scripter1(">m", -2, 0);
   if (msect == 99) {
     //char tmp[256];

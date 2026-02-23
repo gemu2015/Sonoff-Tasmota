@@ -55,6 +55,36 @@ static void (*const TinyCWebOnHandlers[])(void) = {
 #include "xdrv_124_tinyc_vm.h"
 
 /*********************************************************************************************\
+ * Email body callback — called from script_send_email_body() when TinyC initiated the send
+ * Sends pre-registered body text and file attachments via send_message_txt() callback
+\*********************************************************************************************/
+
+#if defined(USE_SENDMAIL) || defined(USE_ESP32MAIL)
+// Called from script_send_email_body() — returns true if TinyC handled it
+bool tinyc_email_body(void(*func)(char *)) {
+  if (!Tinyc || !Tinyc->email_active) return false;
+
+  // Send body text
+  if (Tinyc->email_body && Tinyc->email_body[0]) {
+    func(Tinyc->email_body);
+    AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: email body sent (%d chars)"), strlen(Tinyc->email_body));
+  }
+
+  // Send file attachments (prefix with '@' for attach_File mechanism)
+  for (uint8_t i = 0; i < Tinyc->email_attach_count; i++) {
+    if (Tinyc->email_attach[i]) {
+      char tmp[40];
+      snprintf(tmp, sizeof(tmp), "@%s", Tinyc->email_attach[i]);
+      func(tmp);
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: email attach: %s"), Tinyc->email_attach[i]);
+    }
+  }
+
+  return true;  // handled by TinyC
+}
+#endif  // USE_SENDMAIL
+
+/*********************************************************************************************\
  * Helpers: slot-aware callback dispatch
 \*********************************************************************************************/
 
@@ -66,6 +96,32 @@ static void tc_all_callbacks(const char *name) {
   for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
     TcSlot *s = Tinyc->slots[i];
     if (s) tc_slot_callback(s, name);
+  }
+}
+
+// Touch button callback — called from xdrv_55_touch.ino on button/slider events
+// Pushes (btn, val) args onto VM stack and calls TouchButton callback on all active slots
+void tinyc_touch_button(uint8_t btn, int16_t val) {
+  if (!Tinyc) return;
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    TcSlot *s = Tinyc->slots[i];
+    if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) continue;
+#ifdef ESP32
+    if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
+#endif
+    tc_current_slot = s;
+    // Push args left-to-right: btn first, then val (callee pops in reverse)
+    // Note: can't use TC_PUSH macro here (it has 'return int' in overflow check)
+    TcVM *vm = &s->vm;
+    if (vm->sp + 2 <= TC_STACK_SIZE) {
+      vm->stack[vm->sp++] = (int32_t)btn;
+      vm->stack[vm->sp++] = (int32_t)val;
+      tc_vm_call_callback(vm, "TouchButton");
+    }
+    tc_current_slot = nullptr;
+#ifdef ESP32
+    if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+#endif
   }
 }
 
@@ -144,12 +200,16 @@ static void TinyCLoadSettings(void) {
   }
   f.close();
 
-  // Auto-run slots with autoexec flag
-  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
-    TcSlot *s = Tinyc->slots[i];
-    if (s && s->loaded && s->autoexec) {
-      TinyCStartVM(s);
-      AddLog(LOG_LEVEL_INFO, PSTR("TCC: Auto-started slot %d"), i);
+  // Auto-run slots with autoexec flag — skip on boot loop
+  if (TasmotaGlobal.no_autoexec) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Boot loop detected — autoexec disabled"));
+  } else {
+    for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+      TcSlot *s = Tinyc->slots[i];
+      if (s && s->loaded && s->autoexec) {
+        TinyCStartVM(s);
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: Auto-started slot %d"), i);
+      }
     }
   }
 }
@@ -295,8 +355,91 @@ void (* const TinyCCommand[])(void) PROGMEM = {
   &CmndTinyCReset, &CmndTinyCExec, &CmndTinyCInfo
 };
 
+// Query variables by name — scans global name table in binary (zero RAM cost)
+// Usage: http://device/cm?cmnd=TinyC ?var1;var2     (slot 0)
+//        http://device/cm?cmnd=TinyC ?1 var1;var2   (slot 1)
+// Returns: {"TinyC":{"temp":23.5,"count":42,"name":"hello"}}
+// Query global variables by index — used with _Q() compile-time macro
+// Format: TinyC ?<idx><type>[<size>];<idx><type>[<size>];...
+// Types: i=int, f=float, s<n>=char[n], I<n>=int[n], F<n>=float[n]
+// Optional slot prefix: TinyC ?2 0f;1i  (query slot 2)
+// Response: {"TinyC":[23.5,42,...]}
+static void CmndTinyCQuery(char *data, uint16_t len) {
+  uint8_t slot = 0;
+  char *p = data;
+  while (len > 0 && *p == ' ') { p++; len--; }
+  if (len >= 2 && p[0] >= '0' && p[0] < ('0' + TC_MAX_VMS) && p[1] == ' ') {
+    slot = p[0] - '0';
+    p += 2; len -= 2;
+  }
+  TcSlot *s = (slot < TC_MAX_VMS) ? Tinyc->slots[slot] : nullptr;
+  if (!s || !s->loaded) {
+    Response_P(PSTR("{\"TinyC\":\"slot %d not loaded\"}"), slot);
+    return;
+  }
+  Response_P(PSTR("{\"TinyC\":["));
+  bool first = true;
+  while (len > 0) {
+    while (len > 0 && *p == ' ') { p++; len--; }
+    if (len == 0) break;
+    // Parse index
+    uint16_t idx = 0;
+    while (len > 0 && *p >= '0' && *p <= '9') {
+      idx = idx * 10 + (*p - '0');
+      p++; len--;
+    }
+    if (len == 0) break;
+    char type = *p; p++; len--;  // i, f, s, I, F
+    // Parse optional size for arrays/strings
+    uint16_t size = 0;
+    while (len > 0 && *p >= '0' && *p <= '9') {
+      size = size * 10 + (*p - '0');
+      p++; len--;
+    }
+    if (!first) ResponseAppend_P(PSTR(","));
+    first = false;
+    if (type == 's' && size > 0) {
+      // char[] → JSON string
+      char tmp[size + 1];
+      uint16_t i = 0;
+      while (i < size && idx + i < TC_MAX_GLOBALS && s->vm.globals[idx + i]) {
+        tmp[i] = (char)s->vm.globals[idx + i]; i++;
+      }
+      tmp[i] = 0;
+      ResponseAppend_P(PSTR("\"%s\""), tmp);
+    } else if ((type == 'I' || type == 'F') && size > 0) {
+      // int[]/float[] → JSON array
+      ResponseAppend_P(PSTR("["));
+      for (uint16_t i = 0; i < size && idx + i < TC_MAX_GLOBALS; i++) {
+        if (i) ResponseAppend_P(PSTR(","));
+        int32_t v = s->vm.globals[idx + i];
+        if (type == 'F') { float f = *(float*)&v; ResponseAppend_P(PSTR("%*_f"), -4, &f); }
+        else ResponseAppend_P(PSTR("%d"), v);
+      }
+      ResponseAppend_P(PSTR("]"));
+    } else if (type == 'f') {
+      int32_t v = (idx < TC_MAX_GLOBALS) ? s->vm.globals[idx] : 0;
+      float f = *(float*)&v;
+      ResponseAppend_P(PSTR("%*_f"), -4, &f);
+    } else {
+      int32_t v = (idx < TC_MAX_GLOBALS) ? s->vm.globals[idx] : 0;
+      ResponseAppend_P(PSTR("%d"), v);
+    }
+    // Skip semicolon separator
+    if (len > 0 && *p == ';') { p++; len--; }
+  }
+  ResponseAppend_P(PSTR("]}"));
+}
+
 void CmndTinyC(void) {
   if (!Tinyc) { ResponseCmndChar_P(TC_NOT_INIT); return; }
+
+  // Handle variable query: "TinyC ?var1;var2"
+  if (XdrvMailbox.data_len > 0 && XdrvMailbox.data[0] == '?') {
+    CmndTinyCQuery(XdrvMailbox.data + 1, XdrvMailbox.data_len - 1);
+    return;
+  }
+
   // Show status for all slots
   Response_P(PSTR("{\"TinyC\":{\"Heap\":%d,\"Slots\":["), ESP_getFreeHeap());
   bool first = true;
@@ -1405,7 +1548,7 @@ static void HandleTinyCWebOn(uint8_t handler_num) {
   Tinyc->current_web_handler = handler_num;
   // CORS + chunked response -- callback uses webSend() to emit content
   TCSendCORS("GET, POST, OPTIONS");
-  WSContentBegin(200, CT_PLAIN);
+  WSContentBegin(200, CT_HTML);
   tc_slot_callback(s, "WebOn");
   WSContentEnd();
   Tinyc->current_web_handler = 0;
@@ -1929,6 +2072,17 @@ bool Xdrv124(uint32_t function) {
 #endif
       break;
 #endif
+    case FUNC_SAVE_BEFORE_RESTART:
+      // Call user's CleanUp() callback on all active slots (like scripter's >R section)
+      tc_all_callbacks("CleanUp");
+      // Save persist variables for all loaded slots
+      for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+        TcSlot *s = Tinyc->slots[i];
+        if (s && s->loaded) {
+          tc_persist_save(&s->vm);
+        }
+      }
+      break;
     case FUNC_ACTIVE:
       result = true;
       break;
