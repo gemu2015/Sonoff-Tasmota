@@ -2,6 +2,15 @@
 
 TinyC is a C-subset compiler and VM that runs on ESP32/ESP8266 as Tasmota driver `XDRV_124`. Write C code in the browser IDE, compile to bytecode, upload and run — no firmware rebuild needed.
 
+## Key Advantages
+
+- **Portable bytecode** — compile once in the browser, run the same binary on ESP32, ESP32-S3, ESP32-C3, or ESP8266. No recompilation needed per target.
+- **No on-device compiler** — the device only needs the lightweight VM (~12 KB flash). Compilation happens in the browser IDE, saving precious flash and RAM on constrained devices.
+- **Compact binary upload** — bytecode is smaller than source text, reducing upload time and filesystem usage.
+- **Instant execution** — uploaded bytecode runs immediately, no parsing or compilation step on the device.
+- **Familiar C syntax** — no new language to learn. Standard C subset with `int`, `float`, arrays, functions, `for`/`while`/`if` — anyone who knows C can write TinyC.
+- **10× faster than text interpreters** — the bytecode VM with direct-threaded dispatch executes significantly faster than script engines that re-parse source text on every statement.
+
 ## Building Tasmota with TinyC
 
 Add the following to your `user_config_override.h`:
@@ -38,6 +47,7 @@ Callbacks run automatically from Tasmota's main loop:
 | `WebPage()` | Page load (once) | Charts, custom HTML |
 | `UdpCall()` | UDP packet received | Inter-device communication |
 | `TaskLoop()` | FreeRTOS task (ESP32) | Background loop with `delay()` support |
+| `TouchButton(btn, val)` | Touch event | GFX button/slider touch callback |
 
 `main()` runs first (in a FreeRTOS task on ESP32, with full `delay()` support). After `main()` returns, globals persist and callbacks activate. If `TaskLoop()` is defined, it continues running in the same task independently of the main thread.
 
@@ -59,7 +69,10 @@ Callbacks run automatically from Tasmota's main loop:
 **TCP:** `tcpServer`, `tcpClose`, `tcpAvailable`, `tcpRead`, `tcpWrite`, `tcpReadArray`, `tcpWriteArray`
 **UDP:** `udpSend`, `udpRecv`, `udpReady`, `udpSendArray`, `udpRecvArray`, `udp` (general-purpose, modes 0-7)
 **Display:** `dspText`, `dspClear`, `dspPos`, `dspFont`, `dspSize`, `dspColor`, `dspDraw`, `dspPad`, `dspPixel`, `dspLine`, `dspRect`, `dspFillRect`, `dspCircle`, `dspFillCircle`, `dspHLine`, `dspVLine`, `dspRoundRect`, `dspFillRoundRect`, `dspTriangle`, `dspFillTriangle`, `dspDim`, `dspOnOff`, `dspUpdate`, `dspPicture`, `dspWidth`, `dspHeight`
+**Touch Buttons:** `dspButton`, `dspTButton`, `dspPButton`, `dspSlider`, `dspButtonState`, `touchButton`
 **Audio:** `audioVol`, `audioPlay`, `audioSay`
+**Deep Sleep:** `deepSleep`, `deepSleepGpio`, `wakeupCause`
+**Email:** `mailBody`, `mailAttach`, `mailSend`
 **Persist:** `persist` keyword for auto-saved variables, `saveVars` for manual save
 **Watch:** `watch` keyword for change detection, `changed`, `delta`, `written`, `snapshot` intrinsics
 **WebUI:** `webButton`, `webSlider`, `webCheckbox`, `webText`, `webNumber`, `webPulldown`, `webRadio`, `webTime`, `webPageLabel`, `webPage`, `webSendFile`, `webOn`, `webHandler`, `webArg`

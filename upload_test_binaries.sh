@@ -100,12 +100,16 @@ $(for f in "${FILES[@]}"; do echo "- \`$(basename "$f")\`"; done)
 - Upload \`tinyc_ide.html.gz\` via Tasmota file manager (Consoles → Manage File System)
 
 ### Changes since last release:
+- \`webParse()\` — parse non-JSON HTTP responses (split by delimiter or name=value extraction)
+- Computed goto VM dispatch — ~10% faster bytecode execution
+- Console auto-refresh when IDE uploads new binary (BroadcastChannel)
 - Multi-VM slots (up to 4 concurrent scripts)
 - Pin safety: forbidden pins halt VM immediately
 - Boot loop protection: autoexec disabled after 4 rapid reboots
 - Deep sleep support: \`deepSleep()\`, \`deepSleepGpio()\`, \`wakeupCause()\`
 - Email with file attachments: \`mailSend()\`, \`mailBody()\`, \`mailAttach()\`
 - Settings persistence via /tinyc.cfg
+- Portable bytecode — compile once in the browser, run on any ESP target
 - Full documentation included (README + Reference EN/DE)
 "
 
