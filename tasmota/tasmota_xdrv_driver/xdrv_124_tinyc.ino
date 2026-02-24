@@ -1512,169 +1512,24 @@ static void HandleHomeKitQR(void) {
 
   WSContentStart_P(PSTR("HomeKit Pairing"));
   WSContentSendStyle();
-  // Inline page: QR canvas + setup code + minimal QR generator JS
+  // Use qrcode.js from CDN — the iPhone viewing this page has internet access
   WSContentSend_P(PSTR(
     "<div style='text-align:center'>"
     "<h2>HomeKit Pairing</h2>"
-    "<canvas id='qr' width='200' height='200'></canvas>"
+    "<div id='qr' style='display:inline-block;padding:8px;background:#fff'></div>"
     "<p style='font-size:24px;font-family:monospace;letter-spacing:4px'><b>%s</b></p>"
     "<p>Scan with iPhone Camera or Home app</p>"
+    "<p id='uri' style='font-size:10px;color:#888'></p>"
     "</div>"
+    "<script src='https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js'></script>"
     "<script>"
-    // Minimal QR code generator — alphanumeric mode, ECC M, version 2
-    // Encodes the HomeKit setup URI into a QR code on a canvas element
-    "var D='%s';"
-  ), code, uri);
-
-  // Send the QR generator JavaScript in chunks to avoid huge PROGMEM strings
-  // This is a compact QR encoder (~2.5KB) that handles alphanumeric mode
-  WSContentSend_P(PSTR(
-    "function qrGen(data){"
-      "var AL='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%%*+-./:',sz,ver,ec=1;"
-      // Find minimum version
-      "var cap=[0,25,47,77,114,154,195,224,279];"
-      "for(ver=1;ver<=8;ver++){if(data.length<=cap[ver]){sz=17+ver*4;break;}}"
-      "if(!sz)return null;"
-      "var mod=Array(sz*sz).fill(0),fn=Array(sz*sz).fill(0);"
-      // Set function patterns
-      "function setMod(x,y,v){if(x>=0&&x<sz&&y>=0&&y<sz){mod[y*sz+x]=v?1:0;fn[y*sz+x]=1;}}"
-      "function finder(cx,cy){for(var dy=-3;dy<=3;dy++)for(var dx=-3;dx<=3;dx++){"
-        "var v=Math.max(Math.abs(dx),Math.abs(dy));v=v==1?0:1;setMod(cx+dx,cy+dy,v);}"
-        "for(var i=-4;i<=4;i++){setMod(cx+i,cy-4,0);setMod(cx+i,cy+4,0);"
-        "setMod(cx-4,cy+i,0);setMod(cx+4,cy+i,0);}}"
-      "finder(3,3);finder(sz-4,3);finder(3,sz-4);"
-      // Timing patterns
-      "for(var i=8;i<sz-8;i++){setMod(i,6,i%%2==0);setMod(6,i,i%%2==0);}"
-      // Dark module + reserved
-      "setMod(8,sz-8,1);"
-      // Alignment pattern (version >= 2)
-      "if(ver>=2){"
-        "var ap=[0,0,6,18,22,26,30,34,26,30][ver];"
-        "for(var dy=-2;dy<=2;dy++)for(var dx=-2;dx<=2;dx++){"
-          "var v=(Math.abs(dx)==2||Math.abs(dy)==2)?1:(dx==0&&dy==0)?1:0;"
-          "setMod(ap+dx,ap+dy,v);}}"
-  ));
-  WSContentSend_P(PSTR(
-      // Format info (ECC M = 0, mask)
-      "function fmtBits(mask){"
-        "var d=(1<<10)|(mask<<0),g=0x537,t=d<<4;"
-        "for(var i=14;i>=10;i--)if(t&(1<<i))t^=g<<(i-10);"
-        "d=((1<<10)|(mask<<0))<<5|t;d^=0x5412;return d;}"
-      // Place format bits
-      "function placeFmt(bits){"
-        "var b=[];"
-        "for(var i=0;i<15;i++)b.push((bits>>i)&1);"
-        "for(var i=0;i<6;i++)setMod(8,i,b[i]);"
-        "setMod(8,7,b[6]);setMod(8,8,b[7]);setMod(7,8,b[8]);"
-        "for(var i=9;i<15;i++)setMod(14-i,8,b[i]);"
-        "for(var i=0;i<7;i++)setMod(sz-1-i,8,b[i]);"
-        "setMod(8,sz-8,b[7]);"
-        "for(var i=8;i<15;i++)setMod(8,sz-15+i,b[i]);}"
-      // Encode alphanumeric data to bit stream
-      "var bits=[];"
-      "function pushBits(v,n){for(var i=n-1;i>=0;i--)bits.push((v>>i)&1);}"
-      "pushBits(2,4);"  // mode: alphanumeric
-      "pushBits(data.length,ver<=9?9:11);"
-      "for(var i=0;i<data.length-1;i+=2){"
-        "pushBits(AL.indexOf(data[i])*45+AL.indexOf(data[i+1]),11);}"
-      "if(data.length%%2==1)pushBits(AL.indexOf(data[data.length-1]),6);"
-      "pushBits(0,4);"  // terminator
-      "while(bits.length%%8!=0)bits.push(0);"
-  ));
-  WSContentSend_P(PSTR(
-      // Pad to capacity
-      "var dcw=[0,16,28,44,64,86,108,124,154][ver];"  // M-level data codewords
-      "var pad=[0xEC,0x11],pi=0;"
-      "while(bits.length<dcw*8){bits.push((pad[pi>>3&1]>>(7-(pi&7)))&1);pi++;}"
-      // Convert to codewords
-      "var cw=[];"
-      "for(var i=0;i<bits.length;i+=8){"
-        "var v=0;for(var j=0;j<8;j++)v=(v<<1)|bits[i+j];cw.push(v);}"
-      // Reed-Solomon ECC
-      "var ecw=[0,10,16,26,18,24,16,18,22][ver];"
-      "var gf=new Uint8Array(256),gl=new Uint8Array(256);"
-      "var v=1;for(var i=0;i<255;i++){gf[i]=v;gl[v]=i;v<<=1;if(v>=256)v^=0x11D;}"
-      "function gfM(a,b){return(a==0||b==0)?0:gf[(gl[a]+gl[b])%%255];}"
-      // Generator polynomial
-      "var gen=[1];"
-      "for(var i=0;i<ecw;i++){"
-        "var ng=new Array(gen.length+1).fill(0);"
-        "for(var j=0;j<gen.length;j++){ng[j]^=gen[j];ng[j+1]^=gfM(gen[j],gf[i]);}"
-        "gen=ng;}"
-      "var msg=cw.slice(0,dcw);"
-      "var ecc=new Array(ecw).fill(0);"
-      "for(var i=0;i<msg.length;i++){"
-        "var f=ecc[0]^msg[i];"
-        "ecc.shift();ecc.push(0);"
-        "for(var j=0;j<ecw;j++)ecc[j]^=gfM(f,gen[ecw-j]);}"
-      "var all=msg.concat(ecc);"
-  ));
-  WSContentSend_P(PSTR(
-      // Place data bits
-      "var bi=0,right=sz-1;"
-      "while(right>=1){"
-        "if(right==6)right=5;"
-        "for(var vert=0;vert<sz;vert++){"
-          "for(var j=0;j<2;j++){"
-            "var x=right-j,upward=((right+1)&2)==0;"
-            "var y=upward?sz-1-vert:vert;"
-            "if(!fn[y*sz+x]&&bi<all.length*8){"
-              "mod[y*sz+x]=(all[bi>>3]>>(7-(bi&7)))&1;bi++;}}}"
-        "right-=2;}"
-      // Apply best mask
-      "var bestMask=0,bestPen=Infinity;"
-      "for(var m=0;m<8;m++){"
-        "var t=mod.slice();"
-        "for(var y=0;y<sz;y++)for(var x=0;x<sz;x++){"
-          "if(fn[y*sz+x])continue;"
-          "var flip=0;"
-          "switch(m){"
-            "case 0:flip=(y+x)%%2==0;break;"
-            "case 1:flip=y%%2==0;break;"
-            "case 2:flip=x%%3==0;break;"
-            "case 3:flip=(y+x)%%3==0;break;"
-            "case 4:flip=(Math.floor(y/2)+Math.floor(x/3))%%2==0;break;"
-            "case 5:flip=((y*x)%%2+(y*x)%%3)==0;break;"
-            "case 6:flip=((y*x)%%2+(y*x)%%3)%%2==0;break;"
-            "case 7:flip=((y+x)%%2+(y*x)%%3)%%2==0;break;}"
-          "if(flip)t[y*sz+x]^=1;}"
-        // Simplified penalty: count adjacent same-color runs
-        "var pen=0;"
-        "for(var y=0;y<sz;y++)for(var x=0;x<sz-4;x++){"
-          "var s=0;for(var k=0;k<5;k++)s+=t[y*sz+x+k];if(s==0||s==5)pen+=3;}"
-        "for(var x=0;x<sz;x++)for(var y=0;y<sz-4;y++){"
-          "var s=0;for(var k=0;k<5;k++)s+=t[(y+k)*sz+x];if(s==0||s==5)pen+=3;}"
-        "if(pen<bestPen){bestPen=pen;bestMask=m;}}"
-  ));
-  WSContentSend_P(PSTR(
-      // Apply chosen mask
-      "for(var y=0;y<sz;y++)for(var x=0;x<sz;x++){"
-        "if(fn[y*sz+x])continue;"
-        "var flip=0;"
-        "switch(bestMask){"
-          "case 0:flip=(y+x)%%2==0;break;"
-          "case 1:flip=y%%2==0;break;"
-          "case 2:flip=x%%3==0;break;"
-          "case 3:flip=(y+x)%%3==0;break;"
-          "case 4:flip=(Math.floor(y/2)+Math.floor(x/3))%%2==0;break;"
-          "case 5:flip=((y*x)%%2+(y*x)%%3)==0;break;"
-          "case 6:flip=((y*x)%%2+(y*x)%%3)%%2==0;break;"
-          "case 7:flip=((y+x)%%2+(y*x)%%3)%%2==0;break;}"
-        "if(flip)mod[y*sz+x]^=1;}"
-      "placeFmt(fmtBits(bestMask));"
-      "return{sz:sz,mod:mod};"
-    "}"
-    // Draw QR on canvas
-    "var q=qrGen(D);"
-    "if(q){"
-      "var c=document.getElementById('qr'),x=c.getContext('2d');"
-      "var s=Math.floor(200/q.sz),o=Math.floor((200-s*q.sz)/2);"
-      "x.fillStyle='#fff';x.fillRect(0,0,200,200);"
-      "x.fillStyle='#000';"
-      "for(var y=0;y<q.sz;y++)for(var i=0;i<q.sz;i++)"
-        "if(q.mod[y*q.sz+i])x.fillRect(o+i*s,o+y*s,s,s);}"
+    "var u='%s';"
+    "document.getElementById('uri').textContent=u;"
+    "try{new QRCode(document.getElementById('qr'),{text:u,width:200,height:200,"
+    "correctLevel:QRCode.CorrectLevel.M});}catch(e){"
+    "document.getElementById('qr').innerHTML='<p>QR library failed: '+e.message+'</p>';}"
     "</script>"
-  ));
+  ), code, uri);
   WSContentSpaceButton(BUTTON_MAIN);
   WSContentEnd();
 }

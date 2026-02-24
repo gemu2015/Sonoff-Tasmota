@@ -106,17 +106,17 @@ struct HAP_DESC {
 } hap_devs[MAX_HAP_DEFS];
 
 #ifdef USE_TINYC
-// Helper: read/write TinyC global as float (globals are int32, use fixed-point ×10 for sensors)
+// Helper: read/write TinyC global as float (globals store IEEE 754 bits in int32 slots)
 static uint32_t TC_HK_GetVar(int16_t idx, float *fvar, uint32_t mode) {
   int32_t *globals = tc_hk_get_globals();
   if (!globals || idx < 0) return 0;
   if (mode == 0) {
-    // read
-    *fvar = (float)globals[idx] / 10.0f;
+    // read: reinterpret int32 bits as float
+    memcpy(fvar, &globals[idx], sizeof(float));
     return 1;
   } else {
-    // write
-    globals[idx] = (int32_t)(*fvar * 10.0f);
+    // write: store float bits as int32
+    memcpy(&globals[idx], fvar, sizeof(float));
     return 1;
   }
 }
@@ -282,7 +282,8 @@ static int sensor_write(hap_write_data_t write_data[], int count, void *serv_pri
             }
             HK_SET_VAR(index, hap_rtab[cnt].index, &fvar);
 #ifdef USE_TINYC
-            tc_hk_write_callback(index, hap_rtab[cnt].index, (int32_t)(fvar * 10.0f));
+            { int32_t raw_bits; memcpy(&raw_bits, &fvar, sizeof(float));
+              tc_hk_write_callback(index, hap_rtab[cnt].index, raw_bits); }
 #endif
             *(write->status) = HAP_STATUS_SUCCESS;
             found = true;

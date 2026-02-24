@@ -378,14 +378,18 @@ enum TcSyscall {
   SYS_TOUCH_BUTTON    = 245, // (num) -> int — read button/slider state (-1 if undef)
   SYS_DSP_BTN_DEL     = 246, // (num) -> void — delete button/slider (-1 = all)
   // Tesla Powerwall (ESP32 — requires TESLA_POWERWALL + email SSL library)
-  SYS_PWL_REQUEST     = 260, // (url_const) -> int — config or API request, 0=ok
-  SYS_PWL_GET_FLOAT   = 261, // (path_const) -> float — extract float from last response
-  SYS_PWL_GET_STR     = 262, // (path_const, buf_ref) -> int — extract string, returns len
-  SYS_PWL_BIND        = 263, // (var_ref, path_const) -> void — register auto-fill binding
+  SYS_PWL_REQUEST     = 133, // (url_const) -> int — config or API request, 0=ok
+  SYS_PWL_GET_FLOAT   = 134, // (path_const) -> float — extract float from last response
+  SYS_PWL_GET_STR     = 135, // (path_const, buf_ref) -> int — extract string, returns len
+  SYS_PWL_BIND        = 136, // (var_ref, path_const) -> void — register auto-fill binding
   // HomeKit (ESP32 — requires USE_HOMEKIT)
-  SYS_HK_INIT         = 270, // (desc_ref) -> int — start HomeKit with descriptor string, 0=ok
-  SYS_HK_STOP         = 271, // () -> void — stop HomeKit
-  SYS_HK_RESET        = 272, // () -> void — factory reset HomeKit pairings
+  SYS_HK_SET_CODE     = 137, // (const_idx_code) -> void — set pairing code
+  SYS_HK_ADD          = 138, // (const_idx_name, type) -> void — start device definition
+  SYS_HK_START        = 139, // () -> int — build descriptor + start HomeKit, 0=ok
+  SYS_HK_VAR          = 144, // (var_ref) -> void — bind variable to current device
+  SYS_HK_INIT         = 253, // (desc_ref) -> int — start HomeKit with raw descriptor, 0=ok
+  SYS_HK_STOP         = 254, // () -> void — stop HomeKit
+  SYS_HK_RESET        = 255, // () -> void — factory reset HomeKit pairings
   // Debug
   SYS_DEBUG_PRINT     = 250, SYS_DEBUG_PRINT_STR = 251,
   SYS_DEBUG_DUMP      = 252,
@@ -660,6 +664,13 @@ static TcSlot *tc_current_slot = nullptr;
 
 // File handles stored as statics (not in calloc'd struct) so C++ File constructor runs properly
 static File tc_file_handles[TC_MAX_FILE_HANDLES];
+
+// HomeKit descriptor build buffer (used by hkSetCode/hkAdd/hkStart API)
+#ifdef USE_HOMEKIT
+static char hk_build_buf[512];
+static uint16_t hk_build_pos = 0;
+static bool hk_line_open = false;  // true when current device line needs closing \n
+#endif
 
 // Helper: allocate a new slot
 static TcSlot *tc_slot_alloc(void) {
@@ -5618,6 +5629,87 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
 
     // ── HomeKit ──────────────────────────────────────
 #ifdef USE_HOMEKIT
+    case SYS_HK_SET_CODE: {
+      // hkSetCode("111-22-333") — set pairing code, start building descriptor
+      a = TC_POP(vm);  // const pool index
+      const char *code = tc_get_const_str(vm, a);
+      if (!code) break;
+      hk_build_pos = 0;
+      hk_line_open = false;
+      hk_build_pos += snprintf(hk_build_buf, sizeof(hk_build_buf), "%s\n", code);
+      break;
+    }
+    case SYS_HK_ADD: {
+      // hkAdd("name", HK_TEMPERATURE) — start a new device definition
+      int32_t type = TC_POP(vm);
+      a = TC_POP(vm);  // const pool index for name
+      const char *name = tc_get_const_str(vm, a);
+      if (!name) break;
+      // Map type constant to CID + sub_type
+      // 1=temp(10,0) 2=hum(10,1) 3=light_sensor(10,2) 4=battery(10,3)
+      // 5=contact(10,5) 6=switch(8,0) 7=outlet(7,0) 8=light(5,0)
+      static const struct { uint8_t cid; uint8_t sub; } hk_type_map[] = {
+        {0,0},    // 0: unused
+        {10,0},   // 1: HK_TEMPERATURE
+        {10,1},   // 2: HK_HUMIDITY
+        {10,2},   // 3: HK_LIGHT_SENSOR
+        {10,3},   // 4: HK_BATTERY
+        {10,5},   // 5: HK_CONTACT
+        {8,0},    // 6: HK_SWITCH
+        {7,0},    // 7: HK_OUTLET
+        {5,0},    // 8: HK_LIGHT
+      };
+      uint8_t cid = 0, sub = 0;
+      if (type >= 1 && type <= 8) {
+        cid = hk_type_map[type].cid;
+        sub = hk_type_map[type].sub;
+      } else {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: hkAdd — unknown type %d"), type);
+        break;
+      }
+      // Close previous device line if open
+      if (hk_line_open) {
+        hk_build_pos += snprintf(hk_build_buf + hk_build_pos,
+          sizeof(hk_build_buf) - hk_build_pos, "\n");
+      }
+      // Start new device: name,cid,sub (no newline — hkVar will append ,idx)
+      hk_build_pos += snprintf(hk_build_buf + hk_build_pos,
+        sizeof(hk_build_buf) - hk_build_pos,
+        "%s,%d,%d", name, cid, sub);
+      hk_line_open = true;
+      break;
+    }
+    case SYS_HK_VAR: {
+      // hkVar(variable) — bind a variable to the current device
+      a = TC_POP(vm);  // global index (from ADDR_GLOBAL)
+      hk_build_pos += snprintf(hk_build_buf + hk_build_pos,
+        sizeof(hk_build_buf) - hk_build_pos, ",%d", a);
+      break;
+    }
+    case SYS_HK_START: {
+      // hkStart() — finalize descriptor and start HomeKit
+      if (hk_build_pos == 0) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: hkStart — no hkSetCode() called"));
+        TC_PUSH(vm, -1);
+        break;
+      }
+      // Close last device line
+      if (hk_line_open) {
+        hk_build_pos += snprintf(hk_build_buf + hk_build_pos,
+          sizeof(hk_build_buf) - hk_build_pos, "\n");
+        hk_line_open = false;
+      }
+      // Allocate persistent copy (HAP thread keeps a reference)
+      char *desc = (char *)malloc(hk_build_pos + 1);
+      if (!desc) { TC_PUSH(vm, -1); break; }
+      memcpy(desc, hk_build_buf, hk_build_pos);
+      desc[hk_build_pos] = 0;
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: hkStart descriptor:\n%s"), desc);
+      extern int32_t homekit_main(char *, uint32_t);
+      int32_t ret = homekit_main(desc, 0);
+      TC_PUSH(vm, ret);
+      break;
+    }
     case SYS_HK_INIT: {
       // hkInit(descriptor[]) -> int (0=ok, -1=error)
       a = TC_POP(vm);  // descriptor char[] ref
@@ -5651,6 +5743,19 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
     }
 #else
+    case SYS_HK_SET_CODE:
+      TC_POP(vm);  // discard const idx
+      break;
+    case SYS_HK_ADD:
+      TC_POP(vm); TC_POP(vm);  // discard 2 args (name, type)
+      break;
+    case SYS_HK_VAR:
+      TC_POP(vm);  // discard var ref
+      break;
+    case SYS_HK_START:
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: hkStart — USE_HOMEKIT not enabled"));
+      TC_PUSH(vm, -1);
+      break;
     case SYS_HK_INIT:
       TC_POP(vm);
       AddLog(LOG_LEVEL_ERROR, PSTR("TCC: hkInit — USE_HOMEKIT not enabled"));
