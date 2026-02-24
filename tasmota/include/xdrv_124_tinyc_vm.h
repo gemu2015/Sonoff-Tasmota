@@ -1642,6 +1642,17 @@ static void tc_udp_poll(void) {
   (vm)->stack[(vm)->sp++] = f2i(val); } while(0)
 #define TC_POPF(vm) i2f(TC_POP(vm))
 
+// ── Inner-loop macros for computed-goto dispatch (use local vars, goto on error) ──
+#define TC_IPUSH(val) do { \
+  if (_sp >= TC_STACK_SIZE) { _err = TC_ERR_STACK_OVERFLOW; goto _vm_exit; } \
+  _stack[_sp++] = (val); } while(0)
+#define TC_IPUSHF(val) do { \
+  if (_sp >= TC_STACK_SIZE) { _err = TC_ERR_STACK_OVERFLOW; goto _vm_exit; } \
+  _stack[_sp++] = f2i(val); } while(0)
+#define TC_IPOP()  (_stack[--_sp])
+#define TC_IPEEK() (_stack[_sp - 1])
+#define TC_IPOPF() i2f(TC_IPOP())
+
 /*********************************************************************************************\
  * Deferred command execution (main-loop safe for task-spawning commands)
  * Audio playback (I2SPlay) spawns a FreeRTOS task — calling it from the TinyC task
@@ -6218,40 +6229,403 @@ static int tc_vm_step(TcVM *vm) {
 
 /*********************************************************************************************\
  * VM: Run N instructions (non-blocking slice)
+ * Uses computed-goto dispatch on GCC for ~20-30% speedup over switch().
 \*********************************************************************************************/
 
 static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
   vm->running = true;
+
+  // Check for non-blocking delay before entering hot loop
+  if (vm->delayed) {
+    if ((int32_t)(millis() - vm->delay_until) >= 0) {
+      vm->delayed = false;
+    } else {
+      return TC_OK;
+    }
+  }
+
+#if defined(__GNUC__) || defined(__clang__)
+  // ════════════════════════════════════════════════════════════════════
+  // Computed-goto (direct-threaded) dispatch — GCC / Clang only
+  // Each opcode handler jumps directly to the next, avoiding the
+  // branch-prediction penalty of a single switch indirect branch.
+  // ════════════════════════════════════════════════════════════════════
+
+  // Dispatch table (0x00 – 0xA5, 166 entries)
+  // C++ doesn't support designated initializers, so build at runtime on first call
+  static const void *_dispatch[0xA6] = {};
+  static bool _dispatch_init = false;
+  if (!_dispatch_init) {
+    memset((void*)_dispatch, 0, sizeof(_dispatch));
+    // Stack
+    _dispatch[0x00] = &&_op_nop;   _dispatch[0x01] = &&_op_halt;
+    _dispatch[0x02] = &&_op_push_i32; _dispatch[0x03] = &&_op_push_f32;
+    _dispatch[0x04] = &&_op_push_i8;  _dispatch[0x05] = &&_op_push_i16;
+    _dispatch[0x06] = &&_op_pop;      _dispatch[0x07] = &&_op_dup;
+    // Integer arithmetic
+    _dispatch[0x10] = &&_op_add;  _dispatch[0x11] = &&_op_sub;
+    _dispatch[0x12] = &&_op_mul;  _dispatch[0x13] = &&_op_div;
+    _dispatch[0x14] = &&_op_mod;  _dispatch[0x15] = &&_op_neg;
+    // Float arithmetic
+    _dispatch[0x18] = &&_op_fadd; _dispatch[0x19] = &&_op_fsub;
+    _dispatch[0x1A] = &&_op_fmul; _dispatch[0x1B] = &&_op_fdiv;
+    _dispatch[0x1C] = &&_op_fneg;
+    // Bitwise
+    _dispatch[0x20] = &&_op_band; _dispatch[0x21] = &&_op_bor;
+    _dispatch[0x22] = &&_op_bxor; _dispatch[0x23] = &&_op_bnot;
+    _dispatch[0x24] = &&_op_shl;  _dispatch[0x25] = &&_op_shr;
+    // Integer comparison
+    _dispatch[0x30] = &&_op_eq;   _dispatch[0x31] = &&_op_neq;
+    _dispatch[0x32] = &&_op_lt;   _dispatch[0x33] = &&_op_gt;
+    _dispatch[0x34] = &&_op_lte;  _dispatch[0x35] = &&_op_gte;
+    // Float comparison
+    _dispatch[0x36] = &&_op_feq;  _dispatch[0x37] = &&_op_fneq;
+    _dispatch[0x38] = &&_op_flt;  _dispatch[0x39] = &&_op_fgt;
+    _dispatch[0x3A] = &&_op_flte; _dispatch[0x3B] = &&_op_fgte;
+    // Logical
+    _dispatch[0x40] = &&_op_land; _dispatch[0x41] = &&_op_lor;
+    _dispatch[0x42] = &&_op_lnot;
+    // Control flow
+    _dispatch[0x50] = &&_op_jmp;  _dispatch[0x51] = &&_op_jz;
+    _dispatch[0x52] = &&_op_jnz;  _dispatch[0x53] = &&_op_call;
+    _dispatch[0x54] = &&_op_ret;  _dispatch[0x55] = &&_op_ret_val;
+    // Variables
+    _dispatch[0x60] = &&_op_load_local;   _dispatch[0x61] = &&_op_store_local;
+    _dispatch[0x62] = &&_op_load_global;  _dispatch[0x63] = &&_op_store_global;
+    // Arrays
+    _dispatch[0x68] = &&_op_load_local_arr;  _dispatch[0x69] = &&_op_store_local_arr;
+    _dispatch[0x6A] = &&_op_load_global_arr; _dispatch[0x6B] = &&_op_store_global_arr;
+    // Type conversion
+    _dispatch[0x70] = &&_op_i2f;  _dispatch[0x71] = &&_op_f2i;
+    _dispatch[0x72] = &&_op_i2c;
+    // Address refs
+    _dispatch[0x78] = &&_op_addr_local; _dispatch[0x79] = &&_op_addr_global;
+    // Syscall & const
+    _dispatch[0x80] = &&_op_syscall; _dispatch[0x90] = &&_op_load_const;
+    // Heap
+    _dispatch[0xA0] = &&_op_load_heap;  _dispatch[0xA1] = &&_op_store_heap;
+    _dispatch[0xA2] = &&_op_addr_heap;
+    // Watch
+    _dispatch[0xA5] = &&_op_store_watch;
+    _dispatch_init = true;
+  }
+
+  // ── Prologue: load hot VM state into locals ──
+  int32_t *_stack  = vm->stack;
+  const uint8_t *_code = vm->code;
+  uint16_t _sp     = vm->sp;
+  uint16_t _pc     = vm->pc;
+  uint16_t _coff   = vm->code_offset;
+  uint16_t _csz    = vm->code_size;
+  int      _err    = TC_OK;
+  uint32_t _count  = 0;
+  uint32_t _start  = millis();
+  int32_t  _a, _b;
+  float    _fa, _fb;
+  uint16_t _addr;
+  uint8_t  _idx;
+  uint8_t  _op;
+
+  // ── Inline read helpers using local _pc ──
+  #define _RD_U8()  TC_READ_BYTE(&_code[_pc++])
+  #define _RD_I8()  ((int8_t)TC_READ_BYTE(&_code[_pc++]))
+  #define _RD_U16() ({ uint16_t _v = ((uint16_t)TC_READ_BYTE(&_code[_pc])<<8) | TC_READ_BYTE(&_code[_pc+1]); _pc+=2; _v; })
+  #define _RD_I32() ({ int32_t _v = ((int32_t)TC_READ_BYTE(&_code[_pc])<<24) | ((int32_t)TC_READ_BYTE(&_code[_pc+1])<<16) | \
+                       ((int32_t)TC_READ_BYTE(&_code[_pc+2])<<8) | TC_READ_BYTE(&_code[_pc+3]); _pc+=4; _v; })
+  #define _RD_F32() i2f(_RD_I32())
+
+  // ── Dispatch macro ──
+  #define NEXT() do { \
+    _count++; \
+    if ((_count & 0x3F) == 0 && millis() - _start > 10) goto _vm_yield; \
+    if (_pc < _coff || _pc >= _coff + _csz) { _err = TC_ERR_BOUNDS; goto _vm_exit; } \
+    _op = _RD_U8(); \
+    goto *(_dispatch[_op] ? _dispatch[_op] : &&_vm_bad_op); \
+  } while(0)
+
+  // ── First instruction fetch ──
+  if (_pc < _coff || _pc >= _coff + _csz) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+  _op = _RD_U8();
+  goto *(_dispatch[_op] ? _dispatch[_op] : &&_vm_bad_op);
+
+  // ════ Opcode handlers ════
+
+  // Stack
+  _op_nop:   NEXT();
+  _op_halt:  vm->halted = true; vm->running = false; goto _vm_exit;
+  _op_push_i32: TC_IPUSH(_RD_I32()); NEXT();
+  _op_push_f32: TC_IPUSHF(_RD_F32()); NEXT();
+  _op_push_i8:  TC_IPUSH((int32_t)_RD_I8()); NEXT();
+  _op_push_i16: { int16_t sv = (int16_t)_RD_U16(); TC_IPUSH((int32_t)sv); NEXT(); }
+  _op_pop:   _sp--; NEXT();
+  _op_dup:   _a = TC_IPEEK(); TC_IPUSH(_a); NEXT();
+
+  // Integer arithmetic
+  _op_add: _b=TC_IPOP(); _a=TC_IPOP(); TC_IPUSH(_a+_b); NEXT();
+  _op_sub: _b=TC_IPOP(); _a=TC_IPOP(); TC_IPUSH(_a-_b); NEXT();
+  _op_mul: _b=TC_IPOP(); _a=TC_IPOP(); TC_IPUSH(_a*_b); NEXT();
+  _op_div: _b=TC_IPOP(); _a=TC_IPOP(); if(!_b){_err=TC_ERR_DIV_ZERO;goto _vm_exit;} TC_IPUSH(_a/_b); NEXT();
+  _op_mod: _b=TC_IPOP(); _a=TC_IPOP(); if(!_b){_err=TC_ERR_DIV_ZERO;goto _vm_exit;} TC_IPUSH(_a%_b); NEXT();
+  _op_neg: _a=TC_IPOP(); TC_IPUSH(-_a); NEXT();
+
+  // Float arithmetic
+  _op_fadd: _fb=TC_IPOPF(); _fa=TC_IPOPF(); TC_IPUSHF(_fa+_fb); NEXT();
+  _op_fsub: _fb=TC_IPOPF(); _fa=TC_IPOPF(); TC_IPUSHF(_fa-_fb); NEXT();
+  _op_fmul: _fb=TC_IPOPF(); _fa=TC_IPOPF(); TC_IPUSHF(_fa*_fb); NEXT();
+  _op_fdiv: _fb=TC_IPOPF(); _fa=TC_IPOPF(); if(_fb==0.0f){_err=TC_ERR_DIV_ZERO;goto _vm_exit;} TC_IPUSHF(_fa/_fb); NEXT();
+  _op_fneg: _fa=TC_IPOPF(); TC_IPUSHF(-_fa); NEXT();
+
+  // Bitwise
+  _op_band: _b=TC_IPOP(); _a=TC_IPOP(); TC_IPUSH(_a&_b); NEXT();
+  _op_bor:  _b=TC_IPOP(); _a=TC_IPOP(); TC_IPUSH(_a|_b); NEXT();
+  _op_bxor: _b=TC_IPOP(); _a=TC_IPOP(); TC_IPUSH(_a^_b); NEXT();
+  _op_bnot: _a=TC_IPOP(); TC_IPUSH(~_a); NEXT();
+  _op_shl:  _b=TC_IPOP(); _a=TC_IPOP(); TC_IPUSH(_a<<_b); NEXT();
+  _op_shr:  _b=TC_IPOP(); _a=TC_IPOP(); TC_IPUSH(_a>>_b); NEXT();
+
+  // Integer comparison
+  _op_eq:  _b=TC_IPOP(); _a=TC_IPOP(); TC_IPUSH(_a==_b?1:0); NEXT();
+  _op_neq: _b=TC_IPOP(); _a=TC_IPOP(); TC_IPUSH(_a!=_b?1:0); NEXT();
+  _op_lt:  _b=TC_IPOP(); _a=TC_IPOP(); TC_IPUSH(_a<_b?1:0); NEXT();
+  _op_gt:  _b=TC_IPOP(); _a=TC_IPOP(); TC_IPUSH(_a>_b?1:0); NEXT();
+  _op_lte: _b=TC_IPOP(); _a=TC_IPOP(); TC_IPUSH(_a<=_b?1:0); NEXT();
+  _op_gte: _b=TC_IPOP(); _a=TC_IPOP(); TC_IPUSH(_a>=_b?1:0); NEXT();
+
+  // Float comparison
+  _op_feq:  _fb=TC_IPOPF(); _fa=TC_IPOPF(); TC_IPUSH(_fa==_fb?1:0); NEXT();
+  _op_fneq: _fb=TC_IPOPF(); _fa=TC_IPOPF(); TC_IPUSH(_fa!=_fb?1:0); NEXT();
+  _op_flt:  _fb=TC_IPOPF(); _fa=TC_IPOPF(); TC_IPUSH(_fa<_fb?1:0); NEXT();
+  _op_fgt:  _fb=TC_IPOPF(); _fa=TC_IPOPF(); TC_IPUSH(_fa>_fb?1:0); NEXT();
+  _op_flte: _fb=TC_IPOPF(); _fa=TC_IPOPF(); TC_IPUSH(_fa<=_fb?1:0); NEXT();
+  _op_fgte: _fb=TC_IPOPF(); _fa=TC_IPOPF(); TC_IPUSH(_fa>=_fb?1:0); NEXT();
+
+  // Logical
+  _op_land: _b=TC_IPOP(); _a=TC_IPOP(); TC_IPUSH((_a&&_b)?1:0); NEXT();
+  _op_lor:  _b=TC_IPOP(); _a=TC_IPOP(); TC_IPUSH((_a||_b)?1:0); NEXT();
+  _op_lnot: _a=TC_IPOP(); TC_IPUSH(_a?0:1); NEXT();
+
+  // Control flow
+  _op_jmp:
+    _addr = _RD_U16();
+    _pc = _coff + _addr;
+    NEXT();
+  _op_jz:
+    _addr = _RD_U16();
+    _a = TC_IPOP();
+    if (_a == 0) _pc = _coff + _addr;
+    NEXT();
+  _op_jnz:
+    _addr = _RD_U16();
+    _a = TC_IPOP();
+    if (_a != 0) _pc = _coff + _addr;
+    NEXT();
+  _op_call:
+    _addr = _RD_U16();
+    if (vm->frame_count >= TC_MAX_FRAMES) { _err = TC_ERR_FRAME_OVERFLOW; goto _vm_exit; }
+    {
+      // Write back pc before frame setup (return_pc must be current)
+      vm->sp = _sp; vm->pc = _pc;
+      TcFrame *frame = &vm->frames[vm->frame_count];
+      frame->return_pc = _pc;
+      if (!tc_frame_alloc(frame)) { _err = TC_ERR_STACK_OVERFLOW; goto _vm_exit; }
+      vm->fp = vm->frame_count;
+      vm->frame_count++;
+      _pc = _coff + _addr;
+    }
+    NEXT();
+  _op_ret:
+    if (vm->frame_count == 0) {
+      tc_frame_free(&vm->frames[0]);
+      vm->halted = true; vm->running = false;
+      goto _vm_exit;
+    }
+    {
+      TcFrame *f = &vm->frames[--vm->frame_count];
+      _pc = f->return_pc;
+      tc_frame_free(f);
+      vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0;
+    }
+    NEXT();
+  _op_ret_val:
+    _a = TC_IPOP();
+    if (vm->frame_count == 0) {
+      tc_frame_free(&vm->frames[0]);
+      TC_IPUSH(_a);
+      vm->halted = true; vm->running = false;
+      goto _vm_exit;
+    }
+    {
+      TcFrame *f = &vm->frames[--vm->frame_count];
+      _pc = f->return_pc;
+      tc_frame_free(f);
+      vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0;
+      TC_IPUSH(_a);
+    }
+    NEXT();
+
+  // Variables
+  _op_load_local:
+    _idx = _RD_U8();
+    if (_idx >= TC_MAX_LOCALS) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    TC_IPUSH(vm->frames[vm->fp].locals[_idx]);
+    NEXT();
+  _op_store_local:
+    _idx = _RD_U8();
+    if (_idx >= TC_MAX_LOCALS) { _sp--; _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    vm->frames[vm->fp].locals[_idx] = TC_IPOP();
+    NEXT();
+  _op_load_global:
+    _addr = _RD_U16();
+    if (_addr >= TC_MAX_GLOBALS) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    TC_IPUSH(vm->globals[_addr]);
+    NEXT();
+  _op_store_global:
+    _addr = _RD_U16();
+    if (_addr >= TC_MAX_GLOBALS) { _sp--; _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    vm->globals[_addr] = TC_IPOP();
+    NEXT();
+
+  // Store watch
+  _op_store_watch: {
+    uint16_t var_idx = _RD_U16();
+    uint16_t shadow_idx = _RD_U16();
+    uint16_t written_idx = _RD_U16();
+    int32_t val = TC_IPOP();
+    if (var_idx < TC_MAX_GLOBALS && shadow_idx < TC_MAX_GLOBALS && written_idx < TC_MAX_GLOBALS) {
+      vm->globals[shadow_idx] = vm->globals[var_idx];
+      vm->globals[written_idx] = 1;
+      vm->globals[var_idx] = val;
+    }
+    NEXT();
+  }
+
+  // Arrays
+  _op_load_local_arr:
+    _idx = _RD_U8(); _a = TC_IPOP();
+    if ((uint32_t)(_idx+_a) >= TC_MAX_LOCALS) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    TC_IPUSH(vm->frames[vm->fp].locals[_idx+_a]);
+    NEXT();
+  _op_store_local_arr:
+    _idx = _RD_U8(); _b = TC_IPOP(); _a = TC_IPOP();
+    if ((uint32_t)(_idx+_a) >= TC_MAX_LOCALS) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    vm->frames[vm->fp].locals[_idx+_a] = _b;
+    NEXT();
+  _op_load_global_arr:
+    _addr = _RD_U16(); _a = TC_IPOP();
+    if ((uint32_t)(_addr+_a) >= TC_MAX_GLOBALS) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    TC_IPUSH(vm->globals[_addr+_a]);
+    NEXT();
+  _op_store_global_arr:
+    _addr = _RD_U16(); _b = TC_IPOP(); _a = TC_IPOP();
+    if ((uint32_t)(_addr+_a) >= TC_MAX_GLOBALS) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    vm->globals[_addr+_a] = _b;
+    NEXT();
+
+  // Type conversion
+  _op_i2f: _a = TC_IPOP(); TC_IPUSHF((float)_a); NEXT();
+  _op_f2i: _fa = TC_IPOPF(); TC_IPUSH((int32_t)_fa); NEXT();
+  _op_i2c: _a = TC_IPOP(); TC_IPUSH(_a & 0xFF); NEXT();
+
+  // Address refs
+  _op_addr_local:
+    _idx = _RD_U8();
+    TC_IPUSH(tc_make_local_ref(vm->fp, _idx));
+    NEXT();
+  _op_addr_global:
+    _addr = _RD_U16();
+    TC_IPUSH(tc_make_global_ref(_addr));
+    NEXT();
+
+  // Constants
+  _op_load_const:
+    _addr = _RD_U16();
+    if (_addr < vm->const_count) {
+      if (vm->constants[_addr].type == 1) TC_IPUSH(_addr);
+      else TC_IPUSHF(vm->constants[_addr].f);
+    }
+    NEXT();
+
+  // Heap arrays
+  _op_load_heap: {
+    uint8_t handle = _RD_U8();
+    _a = TC_IPOP();
+    if (handle >= TC_MAX_HEAP_HANDLES || !vm->heap_data ||
+        !vm->heap_handles[handle].alive ||
+        _a < 0 || (uint16_t)_a >= vm->heap_handles[handle].size) {
+      _err = TC_ERR_BOUNDS; goto _vm_exit;
+    }
+    TC_IPUSH(vm->heap_data[vm->heap_handles[handle].offset + _a]);
+    NEXT();
+  }
+  _op_store_heap: {
+    uint8_t handle = _RD_U8();
+    _b = TC_IPOP(); _a = TC_IPOP();
+    if (handle >= TC_MAX_HEAP_HANDLES || !vm->heap_data ||
+        !vm->heap_handles[handle].alive ||
+        _a < 0 || (uint16_t)_a >= vm->heap_handles[handle].size) {
+      _err = TC_ERR_BOUNDS; goto _vm_exit;
+    }
+    vm->heap_data[vm->heap_handles[handle].offset + _a] = _b;
+    NEXT();
+  }
+  _op_addr_heap: {
+    uint8_t handle = _RD_U8();
+    TC_IPUSH((int32_t)(0xC0000000U | handle));
+    NEXT();
+  }
+
+  // Syscall — sync locals ↔ vm, call handler, reload
+  _op_syscall: {
+    _idx = _RD_U8();
+    vm->sp = _sp; vm->pc = _pc;  // write back
+    int scerr = tc_syscall(vm, _idx);
+    _sp = vm->sp; _pc = vm->pc;  // reload (syscall may change sp/pc)
+    if (scerr == TC_ERR_PAUSED) goto _vm_yield;
+    if (scerr != TC_OK) { _err = scerr; goto _vm_exit; }
+    NEXT();
+  }
+
+  // ── Exit labels ──
+  _vm_bad_op:
+    _err = TC_ERR_BAD_OPCODE;
+    goto _vm_exit;
+  _vm_yield:
+    vm->sp = _sp; vm->pc = _pc;
+    vm->instruction_count += _count;
+    return TC_OK;
+  _vm_exit:
+    vm->sp = _sp; vm->pc = _pc;
+    vm->instruction_count += _count;
+    if (_err != TC_OK) vm->error = _err;
+    return vm->error;
+
+  // Clean up inner-loop macros
+  #undef _RD_U8
+  #undef _RD_I8
+  #undef _RD_U16
+  #undef _RD_I32
+  #undef _RD_F32
+  #undef NEXT
+
+#else
+  // ════════════════════════════════════════════════════════════════════
+  // Fallback: original switch-based dispatch for non-GCC compilers
+  // ════════════════════════════════════════════════════════════════════
   uint32_t count = 0;
   uint32_t start_ms = millis();
 
   while (vm->running && !vm->halted && vm->error == TC_OK && count < max_instr) {
-    // Check for non-blocking delay
-    if (vm->delayed) {
-      if ((int32_t)(millis() - vm->delay_until) >= 0) {
-        vm->delayed = false;  // delay elapsed, resume
-      } else {
-        return TC_OK;  // still waiting, yield back to Tasmota
-      }
-    }
-
     int err = tc_vm_step(vm);
-    if (err == TC_ERR_PAUSED) {
-      // delay() was called, VM is paused
-      return TC_OK;
-    }
+    if (err == TC_ERR_PAUSED) return TC_OK;
     if (err != TC_OK) return err;
     count++;
     vm->instruction_count++;
-
-    // Time guard: yield back to Tasmota after 10ms max to prevent WDT
-    if ((count & 0x3F) == 0) {  // check every 64 instructions
-      if (millis() - start_ms > 10) {
-        return TC_OK;  // time limit, continue next tick
-      }
+    if ((count & 0x3F) == 0) {
+      if (millis() - start_ms > 10) return TC_OK;
     }
   }
   return vm->error;
+#endif // __GNUC__
 }
 
 /*********************************************************************************************\
