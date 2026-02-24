@@ -301,6 +301,7 @@ enum TcSyscall {
   SYS_HTTP_GET        = 140, // (url_ref, response_ref) -> int length
   SYS_HTTP_POST       = 141, // (url_ref, data_ref, response_ref) -> int length
   SYS_HTTP_HEADER     = 142, // (name_ref, value_ref) -> void
+  SYS_WEB_PARSE       = 143, // (src_ref, delim_const, index, dst_ref) -> int length
   // WebUI widgets (generate HTML for /tc_ui page)
   SYS_WEB_BUTTON      = 150, // (gref, label_const) -> void
   SYS_WEB_SLIDER      = 151, // (gref, min, max, label_const) -> void
@@ -376,6 +377,11 @@ enum TcSyscall {
   SYS_DSP_BTN_STATE   = 244, // (num,val) -> void — set button/slider state
   SYS_TOUCH_BUTTON    = 245, // (num) -> int — read button/slider state (-1 if undef)
   SYS_DSP_BTN_DEL     = 246, // (num) -> void — delete button/slider (-1 = all)
+  // Tesla Powerwall (ESP32 — requires TESLA_POWERWALL + email SSL library)
+  SYS_PWL_REQUEST     = 260, // (url_const) -> int — config or API request, 0=ok
+  SYS_PWL_GET_FLOAT   = 261, // (path_const) -> float — extract float from last response
+  SYS_PWL_GET_STR     = 262, // (path_const, buf_ref) -> int — extract string, returns len
+  SYS_PWL_BIND        = 263, // (var_ref, path_const) -> void — register auto-fill binding
   // Debug
   SYS_DEBUG_PRINT     = 250, SYS_DEBUG_PRINT_STR = 251,
   SYS_DEBUG_DUMP      = 252,
@@ -641,6 +647,8 @@ struct TINYC {
   char    *email_attach[TC_MAX_EMAIL_ATTACH];  // file paths (malloc'd, freed after send)
   uint8_t  email_attach_count;
   bool     email_active;             // true while TinyC-initiated email is being sent
+  // Tesla Powerwall state (requires TESLA_POWERWALL)
+  char    *pwl_json;                 // last Powerwall JSON response (malloc'd, max 4096)
 } *Tinyc = nullptr;
 
 // Currently executing slot — set before VM execution, used by output functions
@@ -860,6 +868,415 @@ static void tc_send_web(const char *buf, int len) {
     XdrvMailbox.data = savptr;
   }
 #endif
+
+/*********************************************************************************************\
+ * Tesla Powerwall — uses email library SSL (standard SSL does not work)
+ * Ported from Scripter's call2pwl / Powerwall class
+ * Uses ESP_SSLClient from ESP-Mail-Client library (BearSSL) instead of Arduino SSL
+ *
+ * Key design: bypasses Tasmota's JsonParser entirely for value extraction.
+ * Powerwall responses are too large for jsmn's token limits (aggregates has
+ * 4 sub-objects × ~10 keys each = 200+ tokens). Scripter worked around this
+ * with 8 String.replace() calls to shrink keys + splitting the response in two.
+ *
+ * Instead, we use direct string scanning: find the key in the raw JSON buffer,
+ * scope to the correct sub-object via brace counting, then parse the number.
+ * No token array, no parser limits, no string replacements, single-pass.
+\*********************************************************************************************/
+#if defined(ESP32) && defined(TESLA_POWERWALL)
+  #include "SSLClient/ESP_SSLClient.h"
+  #include "extras/WiFiClientImpl.h"
+
+  // SSL client instances — use email library (standard ssl does not work at all)
+  static ESP_SSLClient tc_ssl_client;
+  static WiFiClientImpl tc_basic_client;
+
+#define TC_PWL_RETRIES   2
+#define TC_PWL_LOGLVL    LOG_LEVEL_DEBUG
+#define TC_PWL_BUFSIZE   4096
+#define TC_PWL_MAX_BINDS 24
+
+  // Powerwall connection state
+  static String tc_pwl_ip       = "192.168.188.60";
+  static String tc_pwl_email    = "";
+  static String tc_pwl_password = "";
+  static String tc_pwl_cookie   = "";
+  static String tc_pwl_cts1     = "";
+  static String tc_pwl_cts2     = "";
+
+  // Variable binding table: pwlBind(&var, "path#key") registers these
+  struct tc_pwl_bind_t {
+    int32_t ref;          // packed global variable ref (0x80000000 | idx)
+    char    path[48];     // JSON path, e.g. "site#instant_power"
+  };
+  static tc_pwl_bind_t tc_pwl_binds[TC_PWL_MAX_BINDS];
+  static uint8_t tc_pwl_bind_count = 0;
+
+  // ── Lightweight JSON string scanner ──────────────────────────────
+  // Finds a JSON key in raw text and returns a pointer to its value.
+  // Handles 1 or 2 level paths ("key" or "obj#key") using brace counting
+  // to scope the search — no token array, no parser size limits.
+
+  // Find the opening '{' of a named sub-object at the current nesting level.
+  // Returns pointer to the '{', or nullptr.  end = scope boundary.
+  static const char *tc_pwl_find_object(const char *start, const char *end, const char *name) {
+    char needle[52];
+    snprintf(needle, sizeof(needle), "\"%s\"", name);
+    int nlen = strlen(needle);
+    const char *p = start;
+    while (p && p < end) {
+      p = strstr(p, needle);
+      if (!p || p >= end) return nullptr;
+      // Skip past the key and any whitespace / colon to find '{'
+      const char *vp = p + nlen;
+      while (vp < end && (*vp == ' ' || *vp == ':' || *vp == '\t' || *vp == '\n' || *vp == '\r')) vp++;
+      if (vp < end && *vp == '{') return vp;
+      p = vp;  // not an object — keep searching
+    }
+    return nullptr;
+  }
+
+  // Given pointer to '{', find the matching '}'. Returns pointer past '}'.
+  static const char *tc_pwl_match_brace(const char *open) {
+    int depth = 1;
+    const char *p = open + 1;
+    bool in_string = false;
+    while (*p && depth > 0) {
+      if (*p == '"' && *(p - 1) != '\\') in_string = !in_string;
+      if (!in_string) {
+        if (*p == '{') depth++;
+        else if (*p == '}') depth--;
+      }
+      p++;
+    }
+    return p;
+  }
+
+  // Find a JSON key within [start, end) and return pointer to first char of its value.
+  // Only matches keys at the current nesting level (skips nested objects/arrays).
+  static const char *tc_pwl_find_key_value(const char *start, const char *end, const char *key) {
+    char needle[52];
+    snprintf(needle, sizeof(needle), "\"%s\"", key);
+    int nlen = strlen(needle);
+    const char *p = start;
+    while (p && p < end) {
+      p = strstr(p, needle);
+      if (!p || p >= end) return nullptr;
+      // Skip to colon and value
+      const char *vp = p + nlen;
+      while (vp < end && (*vp == ' ' || *vp == '\t' || *vp == '\n' || *vp == '\r')) vp++;
+      if (vp < end && *vp == ':') {
+        vp++;
+        while (vp < end && (*vp == ' ' || *vp == '\t' || *vp == '\n' || *vp == '\r')) vp++;
+        return vp;  // points to first char of value
+      }
+      p += nlen;  // not a key:value pair, keep going
+    }
+    return nullptr;
+  }
+
+  // Scan raw JSON for a path like "site#instant_power" → float value.
+  // Handles 1-level ("percentage") and 2-level ("site#instant_power") paths.
+  static float tc_pwl_scan_float(const char *json, int32_t json_len, const char *path) {
+    // Split path into segments at '#'
+    char seg1[32], seg2[32];
+    seg2[0] = 0;
+    const char *hash = strchr(path, '#');
+    if (hash) {
+      int len1 = hash - path;
+      if (len1 > 31) len1 = 31;
+      memcpy(seg1, path, len1); seg1[len1] = 0;
+      strlcpy(seg2, hash + 1, sizeof(seg2));
+    } else {
+      strlcpy(seg1, path, sizeof(seg1));
+    }
+
+    const char *end = json + json_len;
+    const char *scope_start = json;
+    const char *scope_end = end;
+
+    if (seg2[0]) {
+      // 2-level: find the sub-object first
+      const char *obj = tc_pwl_find_object(json, end, seg1);
+      if (!obj) return 0.0f;
+      scope_start = obj + 1;
+      scope_end = tc_pwl_match_brace(obj);
+      // Now search for seg2 within this sub-object
+      const char *vp = tc_pwl_find_key_value(scope_start, scope_end, seg2);
+      return vp ? strtof(vp, nullptr) : 0.0f;
+    }
+
+    // 1-level: search root
+    const char *vp = tc_pwl_find_key_value(json, end, seg1);
+    return vp ? strtof(vp, nullptr) : 0.0f;
+  }
+
+  // Scan raw JSON for a string value by path.  Returns length copied to buf.
+  static int32_t tc_pwl_scan_str(const char *json, int32_t json_len, const char *path, char *buf, int32_t maxlen) {
+    char seg1[32], seg2[32];
+    seg2[0] = 0;
+    const char *hash = strchr(path, '#');
+    if (hash) {
+      int len1 = hash - path;
+      if (len1 > 31) len1 = 31;
+      memcpy(seg1, path, len1); seg1[len1] = 0;
+      strlcpy(seg2, hash + 1, sizeof(seg2));
+    } else {
+      strlcpy(seg1, path, sizeof(seg1));
+    }
+
+    const char *end = json + json_len;
+    const char *scope_start = json;
+    const char *scope_end = end;
+
+    if (seg2[0]) {
+      const char *obj = tc_pwl_find_object(json, end, seg1);
+      if (!obj) { buf[0] = 0; return 0; }
+      scope_start = obj + 1;
+      scope_end = tc_pwl_match_brace(obj);
+      const char *vp = tc_pwl_find_key_value(scope_start, scope_end, seg2);
+      if (!vp) { buf[0] = 0; return 0; }
+      if (*vp == '"') {
+        vp++;
+        const char *ve = strchr(vp, '"');
+        int32_t slen = ve ? (ve - vp) : 0;
+        if (slen > maxlen - 1) slen = maxlen - 1;
+        memcpy(buf, vp, slen);
+        buf[slen] = 0;
+        return slen;
+      }
+      // Numeric — format as string
+      return snprintf(buf, maxlen, "%g", strtof(vp, nullptr));
+    }
+
+    const char *vp = tc_pwl_find_key_value(json, end, seg1);
+    if (!vp) { buf[0] = 0; return 0; }
+    if (*vp == '"') {
+      vp++;
+      const char *ve = strchr(vp, '"');
+      int32_t slen = ve ? (ve - vp) : 0;
+      if (slen > maxlen - 1) slen = maxlen - 1;
+      memcpy(buf, vp, slen);
+      buf[slen] = 0;
+      return slen;
+    }
+    return snprintf(buf, maxlen, "%g", strtof(vp, nullptr));
+  }
+
+  // ── Fill bindings from raw buffer (no JsonParser!) ───────────────
+  static void tc_pwl_fill_bindings(TcVM *vm, const char *json, int32_t json_len) {
+    uint8_t filled = 0;
+    for (uint8_t i = 0; i < tc_pwl_bind_count; i++) {
+      float fval = tc_pwl_scan_float(json, json_len, tc_pwl_binds[i].path);
+      int32_t *p = tc_resolve_ref(vm, tc_pwl_binds[i].ref);
+      if (p) {
+        // Check if value was actually found (non-zero, or key really exists)
+        // For zero values: the scan returns 0.0 both for "not found" and "value is 0".
+        // Accept it — binding a var to a missing key just leaves it at 0.
+        uint32_t fi;
+        memcpy(&fi, &fval, 4);
+        *p = (int32_t)fi;
+        filled++;
+      }
+    }
+    AddLog(TC_PWL_LOGLVL, PSTR("TCC-PWL: filled %d/%d bindings"), filled, tc_pwl_bind_count);
+  }
+
+  // ── HTTPS connection ─────────────────────────────────────────────
+
+  // Get auth cookie from Powerwall (POST /api/login/Basic)
+  // Auth response is small (~500 bytes) — JsonParser is fine here.
+  static String tc_pwl_get_cookie(void) {
+    AddLog(TC_PWL_LOGLVL, PSTR("TCC-PWL: requesting auth cookie from %s"), tc_pwl_ip.c_str());
+
+    tc_ssl_client.setInsecure();
+    tc_ssl_client.setTimeout(3000);
+    tc_ssl_client.setClient(&tc_basic_client);
+    tc_ssl_client.setDebugLevel(0);
+
+    int retry = 0;
+    while (retry < TC_PWL_RETRIES) {
+      if (tc_ssl_client.connect(tc_pwl_ip.c_str(), 443)) break;
+      delay(100);
+      retry++;
+    }
+    if (retry >= TC_PWL_RETRIES) {
+      AddLog(TC_PWL_LOGLVL, PSTR("TCC-PWL: auth connect failed"));
+      return "";
+    }
+
+    String data = "{\"username\":\"customer\",\"email\":\"" + tc_pwl_email +
+                  "\",\"password\":\"" + tc_pwl_password + "\",\"force_sm_off\":false}";
+
+    String payload = "POST /api/login/Basic HTTP/1.1\r\nHost: " + tc_pwl_ip +
+                     "\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: " +
+                     String(data.length()) + "\r\n\r\n" + data + "\r\n\r\n";
+
+    tc_ssl_client.println(payload);
+
+    // Read response — look for token in JSON body
+    uint32_t timeout = 30;
+    while (tc_ssl_client.connected()) {
+      if (tc_ssl_client.available()) {
+        const char *cp = tc_ssl_client.peekBuffer();
+        if (cp && cp[0] == 'H') {
+          const char *js = strchr(cp, '{');
+          if (js) {
+            char *je = strchr((char*)js, '}');
+            if (je) {
+              *(je + 1) = 0;
+              char str_value[256];
+              str_value[0] = 0;
+              float fv;
+              JsonParser parser((char*)js);
+              JsonParserObject obj = parser.getRootObject();
+              JsonParsePath(&obj, "token", '#', &fv, str_value, sizeof(str_value));
+              tc_ssl_client.stop();
+              AddLog(TC_PWL_LOGLVL, PSTR("TCC-PWL: got token"));
+              return String(str_value);
+            }
+          }
+        }
+        tc_ssl_client.readStringUntil('\n');
+      }
+      timeout--;
+      delay(100);
+      if (!timeout) break;
+    }
+    tc_ssl_client.stop();
+    return "";
+  }
+
+  // GET request — reads body, fills bindings via string scanning, stores for ad-hoc access
+  static int32_t tc_pwl_get_request(TcVM *vm, const String &url) {
+    AddLog(TC_PWL_LOGLVL, PSTR("TCC-PWL: GET %s"), url.c_str());
+
+    tc_ssl_client.setInsecure();
+    tc_ssl_client.setTimeout(5000);
+    tc_ssl_client.setClient(&tc_basic_client);
+    tc_ssl_client.setBufferSizes(16384, 512);
+
+    // Get cookie if empty
+    if (tc_pwl_cookie.length() == 0) {
+      tc_pwl_cookie = tc_pwl_get_cookie();
+      if (tc_pwl_cookie.length() == 0) return -1;
+    }
+
+    int retry = 0;
+    while (retry < TC_PWL_RETRIES) {
+      if (tc_ssl_client.connect(tc_pwl_ip.c_str(), 443)) break;
+      delay(100);
+      retry++;
+    }
+    if (retry >= TC_PWL_RETRIES) {
+      AddLog(TC_PWL_LOGLVL, PSTR("TCC-PWL: connect failed"));
+      return -1;
+    }
+
+    // HTTP/1.0 to avoid chunked transfer encoding
+    String request = "GET " + url + " HTTP/1.0\r\nHost: " + tc_pwl_ip +
+                     "\r\nCookie: AuthCookie=" + tc_pwl_cookie +
+                     "\r\nConnection: close\r\n\r\n";
+    tc_ssl_client.println(request);
+
+    // Read response headers
+    uint32_t timeout = 500;
+    while (tc_ssl_client.connected()) {
+      if (tc_ssl_client.available()) {
+        String response = tc_ssl_client.readStringUntil('\n');
+        char *cp = (char*)response.c_str();
+        if (!strncmp_P(cp, PSTR("HTTP"), 4)) {
+          char *sp = strchr(cp, ' ');
+          if (sp) {
+            uint16_t code = strtol(sp + 1, 0, 10);
+            AddLog(TC_PWL_LOGLVL, PSTR("TCC-PWL: HTTP %d"), code);
+            if (code == 401) {
+              tc_pwl_cookie = "";
+              tc_ssl_client.stop();
+              return -1;
+            } else if (code != 200) {
+              tc_ssl_client.stop();
+              return -1;
+            }
+          }
+        }
+        if (response == "\r") break;
+      }
+      timeout--;
+      delay(10);
+      if (!timeout) break;
+    }
+
+    // Read body into temp buffer
+    char *buf = (char*)calloc(TC_PWL_BUFSIZE, 1);
+    if (!buf) {
+      tc_ssl_client.stop();
+      return -2;
+    }
+    char *wp = buf;
+    timeout = 100;
+    while (tc_ssl_client.connected()) {
+      uint16_t dlen = tc_ssl_client.available();
+      if (dlen) {
+        int32_t remain = TC_PWL_BUFSIZE - 1 - (wp - buf);
+        if (remain <= 0) break;
+        if (dlen > (uint16_t)remain) dlen = remain;
+        tc_ssl_client.read((uint8_t*)wp, dlen);
+        wp += dlen;
+        *wp = 0;
+      }
+      delay(10);
+      timeout--;
+      if (!timeout) break;
+    }
+    tc_ssl_client.stop();
+
+    int32_t body_len = wp - buf;
+    AddLog(TC_PWL_LOGLVL, PSTR("TCC-PWL: got %d bytes"), body_len);
+
+    // Fill all bindings via direct string scanning — no JsonParser, no token limits
+    if (tc_pwl_bind_count > 0 && vm) {
+      tc_pwl_fill_bindings(vm, buf, body_len);
+    }
+
+    // Store buffer for optional ad-hoc pwlGet()/pwlStr() access
+    if (Tinyc->pwl_json) { free(Tinyc->pwl_json); Tinyc->pwl_json = nullptr; }
+    Tinyc->pwl_json = buf;  // transfer ownership
+
+    return 0;
+  }
+
+  // Main entry: config (@D, @C, @N) or API request
+  static int32_t tc_call2pwl(TcVM *vm, const char *url) {
+    if (*url == '@') {
+      if (url[1] == 'D') {
+        const char *p = url + 2;
+        uint16_t pos = strcspn(p, ",");
+        tc_pwl_ip = String(p).substring(0, pos);
+        p += pos + 1;
+        pos = strcspn(p, ",");
+        tc_pwl_email = String(p).substring(0, pos);
+        tc_pwl_password = String(p + pos + 1);
+        AddLog(TC_PWL_LOGLVL, PSTR("TCC-PWL: config ip=%s"), tc_pwl_ip.c_str());
+        return 0;
+      }
+      if (url[1] == 'C') {
+        const char *p = url + 2;
+        uint16_t pos = strcspn(p, ",");
+        tc_pwl_cts1 = String(p).substring(0, pos);
+        tc_pwl_cts2 = String(p + pos + 1);
+        return 0;
+      }
+      if (url[1] == 'N') {
+        tc_pwl_cookie = "";
+        return 0;
+      }
+      return -1;
+    }
+    return tc_pwl_get_request(vm, String(url));
+  }
+
+#endif // ESP32 && TESLA_POWERWALL
 
 /*********************************************************************************************\
  * UDP multicast helpers (Scripter-compatible, 239.255.255.250:1999)
@@ -3961,6 +4378,101 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
     }
 
+    case SYS_WEB_PARSE: {
+      // webParse(source[], "delim", index, result[]) → int length
+      // index > 0: split by delimiter, return Nth segment (1-based)
+      // index < 0: find "delim=value", extract value (stops at , : or NUL)
+      int32_t dstRef  = TC_POP(vm);
+      int32_t index   = TC_POP(vm);
+      int32_t ci      = TC_POP(vm);
+      int32_t srcRef  = TC_POP(vm);
+
+      const char *delim = tc_get_const_str(vm, ci);
+      int32_t *src = tc_resolve_ref(vm, srcRef);
+      int32_t *dst = tc_resolve_ref(vm, dstRef);
+
+      if (!delim || !src || !dst) {
+        TC_PUSH(vm, 0);
+        break;
+      }
+
+      int32_t srcMax = tc_ref_maxlen(vm, srcRef);
+      int32_t dstMax = tc_ref_maxlen(vm, dstRef) - 1;
+      int32_t dlen = strlen(delim);
+
+      if (dlen == 0 || index == 0) {
+        dst[0] = 0;
+        TC_PUSH(vm, 0);
+        break;
+      }
+
+      // Convert source int32 array to C string
+      char sbuf[512];
+      int32_t slen = 0;
+      for (int32_t i = 0; i < srcMax && i < (int32_t)sizeof(sbuf) - 1; i++) {
+        if (src[i] == 0) break;
+        sbuf[i] = (char)(src[i] & 0xFF);
+        slen++;
+      }
+      sbuf[slen] = 0;
+
+      char rbuf[256];
+      rbuf[0] = 0;
+      int32_t rlen = 0;
+
+      if (index > 0) {
+        // Split by delimiter, return Nth segment (1-based)
+        char *wd = sbuf;
+        char *lwd = wd;
+        int32_t count = index;
+        while (count > 0) {
+          char *cp = strstr(wd, delim);
+          if (cp) {
+            count--;
+            if (count == 0) {
+              *cp = 0;
+              strlcpy(rbuf, lwd, sizeof(rbuf));
+            } else {
+              wd = cp + dlen;
+              lwd = wd;
+            }
+          } else {
+            strlcpy(rbuf, lwd, sizeof(rbuf));
+            break;
+          }
+        }
+        rlen = strlen(rbuf);
+      } else {
+        // Find "delim=value", extract value
+        char *cp = strstr(sbuf, delim);
+        if (cp) {
+          cp = strchr(cp, '=');
+          if (cp) {
+            cp++;
+            for (int32_t cnt = 0; cnt < (int32_t)sizeof(rbuf) - 1; cnt++) {
+              if (*cp == ',' || *cp == ':' || *cp == 0) {
+                rbuf[cnt] = 0;
+                break;
+              }
+              rbuf[cnt] = *cp++;
+              rlen = cnt + 1;
+            }
+            rbuf[rlen] = 0;
+          }
+        }
+      }
+
+      // Copy result to VM destination buffer
+      if (rlen > dstMax) rlen = dstMax;
+      for (int32_t i = 0; i < rlen; i++) {
+        dst[i] = (int32_t)(uint8_t)rbuf[i];
+      }
+      dst[rlen] = 0;
+
+      TC_PUSH(vm, rlen);
+      break;
+    }
+
     // ── WebUI widgets ─────────────────────────────────
     // Each generates HTML for the /tc_ui AJAX page.
     // gref = variable ref (ADDR_GLOBAL/ADDR_LOCAL), label/opts = const pool index.
@@ -5005,6 +5517,89 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       TC_PUSH(vm, -1);
       break;
 #endif  // USE_SENDMAIL
+
+    // ── Tesla Powerwall (requires TESLA_POWERWALL) ───
+#if defined(ESP32) && defined(TESLA_POWERWALL)
+    case SYS_PWL_REQUEST: {
+      // pwlRequest("url") → int (0=ok, -1=fail)
+      int32_t ci = TC_POP(vm);
+      const char *url = tc_get_const_str(vm, ci);
+      if (url) {
+        TC_PUSH(vm, tc_call2pwl(vm, url));
+      } else {
+        TC_PUSH(vm, -1);
+      }
+      break;
+    }
+    case SYS_PWL_BIND: {
+      // pwlBind(&var, "path#key") — register auto-fill binding
+      int32_t ci = TC_POP(vm);    // const pool index for path string
+      int32_t ref = TC_POP(vm);   // global variable ref
+      // Only allow global refs (tag 0x80) — locals would go stale
+      uint8_t tag = ((uint32_t)ref) >> 30;
+      if (tag != 2) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC-PWL: pwlBind requires global variable"));
+        break;
+      }
+      const char *path = tc_get_const_str(vm, ci);
+      if (path && tc_pwl_bind_count < TC_PWL_MAX_BINDS) {
+        tc_pwl_binds[tc_pwl_bind_count].ref = ref;
+        strlcpy(tc_pwl_binds[tc_pwl_bind_count].path, path, sizeof(tc_pwl_binds[0].path));
+        tc_pwl_bind_count++;
+        AddLog(TC_PWL_LOGLVL, PSTR("TCC-PWL: bind[%d] = %s"), tc_pwl_bind_count - 1, path);
+      }
+      break;
+    }
+    case SYS_PWL_GET_FLOAT: {
+      // pwlGet("path#key") → float (ad-hoc, uses string scanner)
+      int32_t ci = TC_POP(vm);
+      float fval = 0.0f;
+      const char *path = tc_get_const_str(vm, ci);
+      if (path && Tinyc->pwl_json) {
+        fval = tc_pwl_scan_float(Tinyc->pwl_json, strlen(Tinyc->pwl_json), path);
+      }
+      uint32_t fi;
+      memcpy(&fi, &fval, 4);
+      TC_PUSH(vm, (int32_t)fi);
+      break;
+    }
+    case SYS_PWL_GET_STR: {
+      // pwlStr("path#key", buf) → int (length)
+      int32_t buf_ref = TC_POP(vm);
+      int32_t ci = TC_POP(vm);
+      const char *path = tc_get_const_str(vm, ci);
+      int32_t *buf = tc_resolve_ref(vm, buf_ref);
+      if (path && buf && Tinyc->pwl_json) {
+        int32_t maxLen = tc_ref_maxlen(vm, buf_ref) - 1;
+        char tmp[256];
+        int32_t slen = tc_pwl_scan_str(Tinyc->pwl_json, strlen(Tinyc->pwl_json), path, tmp, sizeof(tmp));
+        if (slen > maxLen) slen = maxLen;
+        for (int32_t i = 0; i < slen; i++) buf[i] = (int32_t)(uint8_t)tmp[i];
+        buf[slen] = 0;
+        TC_PUSH(vm, slen);
+      } else {
+        TC_PUSH(vm, 0);
+      }
+      break;
+    }
+#else
+    case SYS_PWL_REQUEST:
+      TC_POP(vm);
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: pwlRequest — TESLA_POWERWALL not enabled"));
+      TC_PUSH(vm, -1);
+      break;
+    case SYS_PWL_BIND:
+      TC_POP(vm); TC_POP(vm);
+      break;
+    case SYS_PWL_GET_FLOAT:
+      TC_POP(vm);
+      TC_PUSH(vm, 0);
+      break;
+    case SYS_PWL_GET_STR:
+      TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, 0);
+      break;
+#endif  // TESLA_POWERWALL
 
     // ── Debug ─────────────────────────────────────────
     case SYS_DEBUG_PRINT:

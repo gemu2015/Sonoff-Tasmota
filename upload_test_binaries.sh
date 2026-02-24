@@ -50,8 +50,12 @@ fi
 FILES=()
 for target in "${TARGETS[@]}"; do
   bin="$FW_DIR/${target}.bin"
+  bingz="$FW_DIR/${target}.bin.gz"
   factory="$FW_DIR/${target}.factory.bin"
-  if [[ -f "$bin" ]]; then
+  if [[ "$target" == *8266* ]] && [[ -f "$bingz" ]]; then
+    # ESP8266: use compressed .bin.gz (uncompressed may be too large for OTA)
+    FILES+=("$bingz")
+  elif [[ -f "$bin" ]]; then
     FILES+=("$bin")
     # include .factory.bin if it exists
     [[ -f "$factory" ]] && FILES+=("$factory")

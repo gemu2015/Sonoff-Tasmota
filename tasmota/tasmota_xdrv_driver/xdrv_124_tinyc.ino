@@ -884,6 +884,13 @@ static void HandleTinyCPage(void) {
 #endif
   WSContentSend_P(PSTR("</fieldset>"));
 
+  // Listen for IDE "run on device" notifications to auto-refresh
+  WSContentSend_P(PSTR(
+    "<script>if(window.BroadcastChannel){"
+    "var _tc=new BroadcastChannel('tinyc');"
+    "_tc.onmessage=function(e){if(e.data=='refresh')location.reload();}}"
+    "</script>"));
+
   WSContentSpaceButton(BUTTON_MAIN);
   WSContentEnd();
 }

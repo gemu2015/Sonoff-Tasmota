@@ -2911,8 +2911,6 @@ void Module_Execute(uint32_t sel) {
   }
 }
 
-
-#ifdef USE_SCRIPT
 uint32_t Plugin_Query(uint16_t index, uint8_t sel, char *params) {
 uint32_t result = 0;
   for (uint8_t cnt = 0; cnt < MAX_PLUGINS; cnt++) {
@@ -2932,7 +2930,6 @@ uint32_t result = 0;
   }
   return result;
 }
-#endif // USE_SCRIPT
 
 bool Module_Command(uint32_t sel) {
 bool result = false;
