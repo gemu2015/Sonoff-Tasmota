@@ -382,6 +382,10 @@ enum TcSyscall {
   SYS_PWL_GET_FLOAT   = 261, // (path_const) -> float — extract float from last response
   SYS_PWL_GET_STR     = 262, // (path_const, buf_ref) -> int — extract string, returns len
   SYS_PWL_BIND        = 263, // (var_ref, path_const) -> void — register auto-fill binding
+  // HomeKit (ESP32 — requires USE_HOMEKIT)
+  SYS_HK_INIT         = 270, // (desc_ref) -> int — start HomeKit with descriptor string, 0=ok
+  SYS_HK_STOP         = 271, // () -> void — stop HomeKit
+  SYS_HK_RESET        = 272, // () -> void — factory reset HomeKit pairings
   // Debug
   SYS_DEBUG_PRINT     = 250, SYS_DEBUG_PRINT_STR = 251,
   SYS_DEBUG_DUMP      = 252,
@@ -5611,6 +5615,51 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       TC_PUSH(vm, 0);
       break;
 #endif  // TESLA_POWERWALL
+
+    // ── HomeKit ──────────────────────────────────────
+#ifdef USE_HOMEKIT
+    case SYS_HK_INIT: {
+      // hkInit(descriptor[]) -> int (0=ok, -1=error)
+      a = TC_POP(vm);  // descriptor char[] ref
+      int32_t *src = tc_resolve_ref(vm, a);
+      if (!src) { TC_PUSH(vm, -1); break; }
+      // Convert int32 char array to C string
+      int32_t srcMax = tc_ref_maxlen(vm, a);
+      char *desc = (char *)malloc(srcMax + 1);
+      if (!desc) { TC_PUSH(vm, -1); break; }
+      int32_t len = 0;
+      for (int32_t i = 0; i < srcMax; i++) {
+        if (src[i] == 0) break;
+        desc[i] = (char)(src[i] & 0xFF);
+        len++;
+      }
+      desc[len] = 0;
+      extern int32_t homekit_main(char *, uint32_t);
+      int32_t ret = homekit_main(desc, 0);
+      // desc is used by the HAP thread — don't free it (it's referenced as hk_desc)
+      TC_PUSH(vm, ret);
+      break;
+    }
+    case SYS_HK_STOP: {
+      extern int32_t homekit_main(char *, uint32_t);
+      homekit_main(0, 3);  // flag 3 = stop
+      break;
+    }
+    case SYS_HK_RESET: {
+      extern int32_t homekit_main(char *, uint32_t);
+      homekit_main(0, 99);  // flag 99 = factory reset
+      break;
+    }
+#else
+    case SYS_HK_INIT:
+      TC_POP(vm);
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: hkInit — USE_HOMEKIT not enabled"));
+      TC_PUSH(vm, -1);
+      break;
+    case SYS_HK_STOP:
+    case SYS_HK_RESET:
+      break;
+#endif  // USE_HOMEKIT
 
     // ── Debug ─────────────────────────────────────────
     case SYS_DEBUG_PRINT:

@@ -85,6 +85,47 @@ bool tinyc_email_body(void(*func)(char *)) {
 #endif  // USE_SENDMAIL
 
 /*********************************************************************************************\
+ * HomeKit integration — provides C-linkage functions called from homekit.c
+\*********************************************************************************************/
+#ifdef USE_HOMEKIT
+extern "C" {
+  // Return pointer to VM globals of slot 0 (or NULL if not loaded)
+  int32_t *tc_hk_get_globals(void) {
+    if (!Tinyc || !Tinyc->slots[0] || !Tinyc->slots[0]->loaded) return nullptr;
+    return Tinyc->slots[0]->vm.globals;
+  }
+
+  // Return Tasmota hostname for HomeKit bridge name
+  char *tc_hk_get_hostname(void) {
+    return NetworkHostname();
+  }
+
+  // Called from HomeKit HAP thread when Apple Home writes a value
+  // Invokes "HomeKitWrite" callback on slot 0 with (dev_index, var_index, value) args
+  void tc_hk_write_callback(uint8_t dev_index, uint8_t var_index, int32_t value) {
+    if (!Tinyc) return;
+    TcSlot *s = Tinyc->slots[0];
+    if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) return;
+#ifdef ESP32
+    if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
+#endif
+    tc_current_slot = s;
+    TcVM *vm = &s->vm;
+    if (vm->sp + 3 <= TC_STACK_SIZE) {
+      vm->stack[vm->sp++] = (int32_t)dev_index;
+      vm->stack[vm->sp++] = (int32_t)var_index;
+      vm->stack[vm->sp++] = value;
+      tc_vm_call_callback(vm, "HomeKitWrite");
+    }
+    tc_current_slot = nullptr;
+#ifdef ESP32
+    if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+#endif
+  }
+}
+#endif  // USE_HOMEKIT
+
+/*********************************************************************************************\
  * Helpers: slot-aware callback dispatch
 \*********************************************************************************************/
 

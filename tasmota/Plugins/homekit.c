@@ -68,25 +68,98 @@ extern void AddLog(uint32_t loglevel, const char* formatP, ...);
 static const char *TAG = "HAP outlet";
 char *hk_desc;
 char hk_code[20];
+char hk_uri[28];    // HomeKit setup URI "X-HM://00XXXXXXES32"
 uint8_t hk_services;
 
+// Public getters for web UI (C linkage for .ino callers)
+const char *homekit_get_uri(void) { return hk_uri; }
+const char *homekit_get_code(void) { return hk_code; }
+
+#ifdef USE_TINYC
+// TinyC: access VM globals by index
+struct TINYC;
+extern struct TINYC *Tinyc;
+extern int32_t *tc_hk_get_globals(void);
+extern void tc_hk_write_callback(uint8_t dev_index, uint8_t var_index, int32_t value);
+#else
 extern void Ext_Replace_Cmd_Vars(char *srcbuf, uint32_t srcsize, char *dstbuf, uint32_t dstsize);
 extern uint32_t Ext_UpdVar(char *vname, float *fvar, uint32_t mode);
 extern void Ext_toLog(char *str);
+#endif
 
 #define MAX_HAP_DEFS 16
 struct HAP_DESC {
   char hap_name[24];
+#ifdef USE_TINYC
+  int16_t var_idx[5];   // indices into vm.globals[], -1 = unused
+#else
   char var_name[12];
   char var2_name[12];
   char var3_name[12];
   char var4_name[12];
   char var5_name[12];
+#endif
   uint8_t hap_cid;
   uint8_t type;
   hap_acc_t *accessory;
   hap_serv_t *service;
 } hap_devs[MAX_HAP_DEFS];
+
+#ifdef USE_TINYC
+// Helper: read/write TinyC global as float (globals are int32, use fixed-point ×10 for sensors)
+static uint32_t TC_HK_GetVar(int16_t idx, float *fvar, uint32_t mode) {
+  int32_t *globals = tc_hk_get_globals();
+  if (!globals || idx < 0) return 0;
+  if (mode == 0) {
+    // read
+    *fvar = (float)globals[idx] / 10.0f;
+    return 1;
+  } else {
+    // write
+    globals[idx] = (int32_t)(*fvar * 10.0f);
+    return 1;
+  }
+}
+// Unified accessor macros for TinyC path
+#define HK_GET_VAR(cnt, vi, fvar)  TC_HK_GetVar(hap_devs[cnt].var_idx[vi], fvar, 0)
+#define HK_SET_VAR(cnt, vi, fvar)  TC_HK_GetVar(hap_devs[cnt].var_idx[vi], fvar, 1)
+#define HK_VAR_EXISTS(cnt, vi)     (hap_devs[cnt].var_idx[vi] >= 0)
+#else
+// Unified accessor macros for Scripter path
+static uint32_t _hk_get_var(uint32_t cnt, uint8_t vi, float *fvar) {
+  switch(vi) {
+    case 0: return Ext_UpdVar(hap_devs[cnt].var_name, fvar, 0);
+    case 1: return Ext_UpdVar(hap_devs[cnt].var2_name, fvar, 0);
+    case 2: return Ext_UpdVar(hap_devs[cnt].var3_name, fvar, 0);
+    case 3: return Ext_UpdVar(hap_devs[cnt].var4_name, fvar, 0);
+    case 4: return Ext_UpdVar(hap_devs[cnt].var5_name, fvar, 0);
+  }
+  return 0;
+}
+static uint32_t _hk_set_var(uint32_t cnt, uint8_t vi, float *fvar) {
+  switch(vi) {
+    case 0: return Ext_UpdVar(hap_devs[cnt].var_name, fvar, 1);
+    case 1: return Ext_UpdVar(hap_devs[cnt].var2_name, fvar, 1);
+    case 2: return Ext_UpdVar(hap_devs[cnt].var3_name, fvar, 1);
+    case 3: return Ext_UpdVar(hap_devs[cnt].var4_name, fvar, 1);
+    case 4: return Ext_UpdVar(hap_devs[cnt].var5_name, fvar, 1);
+  }
+  return 0;
+}
+static bool _hk_var_exists(uint32_t cnt, uint8_t vi) {
+  switch(vi) {
+    case 0: return hap_devs[cnt].var_name[0] != 0;
+    case 1: return hap_devs[cnt].var2_name[0] != 0;
+    case 2: return hap_devs[cnt].var3_name[0] != 0;
+    case 3: return hap_devs[cnt].var4_name[0] != 0;
+    case 4: return hap_devs[cnt].var5_name[0] != 0;
+  }
+  return false;
+}
+#define HK_GET_VAR(cnt, vi, fvar)  _hk_get_var(cnt, vi, fvar)
+#define HK_SET_VAR(cnt, vi, fvar)  _hk_set_var(cnt, vi, fvar)
+#define HK_VAR_EXISTS(cnt, vi)     _hk_var_exists(cnt, vi)
+#endif
 
 #define HK_SRCBSIZE 256
 
@@ -207,12 +280,10 @@ static int sensor_write(hap_write_data_t write_data[], int count, void *serv_pri
               case 'u':  fvar = write->val.u; break;
               case 'b':  fvar = write->val.b; break;
             }
-            switch (hap_rtab[cnt].index) {
-              case 0: Ext_UpdVar(hap_devs[index].var_name, &fvar, 1);break;
-              case 1: Ext_UpdVar(hap_devs[index].var2_name, &fvar, 1);break;
-              case 2: Ext_UpdVar(hap_devs[index].var3_name, &fvar, 1);break;
-              case 3: Ext_UpdVar(hap_devs[index].var4_name, &fvar, 1);break;
-            }
+            HK_SET_VAR(index, hap_rtab[cnt].index, &fvar);
+#ifdef USE_TINYC
+            tc_hk_write_callback(index, hap_rtab[cnt].index, (int32_t)(fvar * 10.0f));
+#endif
             *(write->status) = HAP_STATUS_SUCCESS;
             found = true;
             break;
@@ -241,12 +312,7 @@ static int sensor_read(hap_char_t *hc, hap_status_t *status_code, void *serv_pri
 
     for (uint32_t cnt = 0; cnt < ARRAY_SIZE(hap_rtab); cnt++ ) {
       if (!strcmp(hcp, hap_rtab[cnt].stype)) {
-        switch (hap_rtab[cnt].index) {
-          case 0: Ext_UpdVar(hap_devs[index].var_name, &fvar, 0);break;
-          case 1: Ext_UpdVar(hap_devs[index].var2_name, &fvar, 0);break;
-          case 2: Ext_UpdVar(hap_devs[index].var3_name, &fvar, 0);break;
-          case 3: Ext_UpdVar(hap_devs[index].var4_name, &fvar, 0);break;
-        }
+        HK_GET_VAR(index, hap_rtab[cnt].index, &fvar);
         switch (hap_rtab[cnt].ntype) {
           case 'f':  new_val.f = fvar; break;
           case 'u':  new_val.u = fvar; break;
@@ -270,92 +336,50 @@ void hap_update_from_vars(void) {
           switch (hap_devs[cnt].type) {
             case 0:
               hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_CURRENT_TEMPERATURE);
-              if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
-                new_val.f = fvar;
-                hap_char_update_val(hc, &new_val);
-              }
+              if (HK_GET_VAR(cnt, 0, &fvar)) { new_val.f = fvar; hap_char_update_val(hc, &new_val); }
               break;
             case 1:
               hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_CURRENT_RELATIVE_HUMIDITY);
-              if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
-                new_val.f = fvar;
-                hap_char_update_val(hc, &new_val);
-              }
+              if (HK_GET_VAR(cnt, 0, &fvar)) { new_val.f = fvar; hap_char_update_val(hc, &new_val); }
               break;
             case 2:
               hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_CURRENT_AMBIENT_LIGHT_LEVEL);
-              if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
-                new_val.f = fvar;
-                hap_char_update_val(hc, &new_val);
-              }
+              if (HK_GET_VAR(cnt, 0, &fvar)) { new_val.f = fvar; hap_char_update_val(hc, &new_val); }
               break;
             case 3:
               hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_BATTERY_LEVEL);
-              if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
-                new_val.u = fvar;
-                hap_char_update_val(hc, &new_val);
-              }
+              if (HK_GET_VAR(cnt, 0, &fvar)) { new_val.u = fvar; hap_char_update_val(hc, &new_val); }
               hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_STATUS_LOW_BATTERY);
-              if (Ext_UpdVar(hap_devs[cnt].var2_name, &fvar, 0)) {
-                new_val.u = fvar;
-                hap_char_update_val(hc, &new_val);
-              }
+              if (HK_GET_VAR(cnt, 1, &fvar)) { new_val.u = fvar; hap_char_update_val(hc, &new_val); }
               hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_CHARGING_STATE);
-              if (Ext_UpdVar(hap_devs[cnt].var3_name, &fvar, 0)) {
-                new_val.u = fvar;
-                hap_char_update_val(hc, &new_val);
-              }
+              if (HK_GET_VAR(cnt, 2, &fvar)) { new_val.u = fvar; hap_char_update_val(hc, &new_val); }
               break;
             case 4:
               hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_CURRENT_AMBIENT_LIGHT_LEVEL);
-              if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
-                new_val.f = fvar;
-                hap_char_update_val(hc, &new_val);
-              }
+              if (HK_GET_VAR(cnt, 0, &fvar)) { new_val.f = fvar; hap_char_update_val(hc, &new_val); }
               break;
             case 5:
               hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_CONTACT_SENSOR_STATE);
-              if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
-                new_val.u = fvar;
-                hap_char_update_val(hc, &new_val);
-              }
+              if (HK_GET_VAR(cnt, 0, &fvar)) { new_val.u = fvar; hap_char_update_val(hc, &new_val); }
               break;
           }
           break;
         case HAP_CID_OUTLET:
           hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_ON);
-          if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
-            new_val.b = fvar;
-            hap_char_update_val(hc, &new_val);
-          }
+          if (HK_GET_VAR(cnt, 0, &fvar)) { new_val.b = fvar; hap_char_update_val(hc, &new_val); }
           break;
         case HAP_CID_LIGHTING:
           hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_ON);
-          if (Ext_UpdVar(hap_devs[cnt].var_name, &fvar, 0)) {
-            new_val.b = fvar;
-            hap_char_update_val(hc, &new_val);
-          }
+          if (HK_GET_VAR(cnt, 0, &fvar)) { new_val.b = fvar; hap_char_update_val(hc, &new_val); }
           hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_HUE);
-          if (Ext_UpdVar(hap_devs[cnt].var2_name, &fvar, 0)) {
-            new_val.f = fvar;
-            hap_char_update_val(hc, &new_val);
-          }
+          if (HK_GET_VAR(cnt, 1, &fvar)) { new_val.f = fvar; hap_char_update_val(hc, &new_val); }
           hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_SATURATION);
-          if (Ext_UpdVar(hap_devs[cnt].var3_name, &fvar, 0)) {
-            new_val.f = fvar;
-            hap_char_update_val(hc, &new_val);
-          }
+          if (HK_GET_VAR(cnt, 2, &fvar)) { new_val.f = fvar; hap_char_update_val(hc, &new_val); }
           hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_BRIGHTNESS);
-          if (Ext_UpdVar(hap_devs[cnt].var4_name, &fvar, 0)) {
-            new_val.u = fvar;
-            hap_char_update_val(hc, &new_val);
-          }
-          if (hap_devs[cnt].var5_name[0]) {
+          if (HK_GET_VAR(cnt, 3, &fvar)) { new_val.u = fvar; hap_char_update_val(hc, &new_val); }
+          if (HK_VAR_EXISTS(cnt, 4)) {
             hc = hap_serv_get_char_by_uuid(hap_devs[cnt].service, HAP_CHAR_UUID_COLOR_TEMPERATURE);
-            if (Ext_UpdVar(hap_devs[cnt].var5_name, &fvar, 0)) {
-              new_val.u = fvar;
-              hap_char_update_val(hc, &new_val);
-            }
+            if (HK_GET_VAR(cnt, 4, &fvar)) { new_val.u = fvar; hap_char_update_val(hc, &new_val); }
           }
           break;
         }
@@ -486,7 +510,11 @@ uint32_t str2c(char **sp, char *vp, uint32_t len) {
     return 1;
 }
 
+#ifdef USE_TINYC
+extern char *tc_hk_get_hostname(void);
+#else
 extern char *GetFName();
+#endif
 
 /*The main thread for handling the Smart Outlet Accessory */
 static void smart_outlet_thread_entry(void *p) {
@@ -497,7 +525,11 @@ static void smart_outlet_thread_entry(void *p) {
 
     hap_acc_cfg_t cfg = {
         //.name = "Tasmota-Bridge",
+#ifdef USE_TINYC
+        .name = tc_hk_get_hostname(),
+#else
         .name = GetFName(),
+#endif
         .manufacturer = "Tasmota",
         .model = "Bridge",
         .serial_num = "001122334455",
@@ -533,8 +565,18 @@ static void smart_outlet_thread_entry(void *p) {
       if (*lp == ';') goto nextline;
 
       char dstbuf[HK_SRCBSIZE*2];
+#ifdef USE_TINYC
+      // TinyC: descriptor already expanded, just copy the line
+      { uint32_t ll = HK_getlinelen(lp);
+        if (ll >= sizeof(dstbuf)) ll = sizeof(dstbuf) - 1;
+        memcpy(dstbuf, lp, ll);
+        dstbuf[ll] = 0;
+        lp += ll;
+      }
+#else
       Ext_Replace_Cmd_Vars(lp, 1, dstbuf, sizeof(dstbuf));
       lp += HK_getlinelen(lp);
+#endif
 
       char *lp1 = dstbuf;
       if (str2c(&lp1, hap_devs[index].hap_name, sizeof(hap_devs[index].hap_name))) {
@@ -544,6 +586,14 @@ static void smart_outlet_thread_entry(void *p) {
       lp1++;
       hap_devs[index].type = strtol(lp1, &lp1, 10);
       lp1++;
+#ifdef USE_TINYC
+      // TinyC: parse global indices (comma-separated integers, -1 = unused)
+      for (int vi = 0; vi < 5; vi++) hap_devs[index].var_idx[vi] = -1;
+      for (int vi = 0; vi < 5 && *lp1; vi++) {
+        hap_devs[index].var_idx[vi] = (int16_t)strtol(lp1, &lp1, 10);
+        if (*lp1 == ',') lp1++;
+      }
+#else
       if (str2c(&lp1, hap_devs[index].var_name, sizeof(hap_devs[index].var_name))) {
         goto nextline;
       }
@@ -557,6 +607,7 @@ static void smart_outlet_thread_entry(void *p) {
       str2c(&lp1, hap_devs[index].var3_name, sizeof(hap_devs[index].var3_name));
       str2c(&lp1, hap_devs[index].var4_name, sizeof(hap_devs[index].var4_name));
       str2c(&lp1, hap_devs[index].var5_name, sizeof(hap_devs[index].var5_name));
+#endif
 
       hap_acc_cfg_t hap_cfg;
       char serial[20];
@@ -581,41 +632,41 @@ static void smart_outlet_thread_entry(void *p) {
       switch (hap_cfg.cid) {
         case HAP_CID_LIGHTING:
           { float fvar = 0;
-            Ext_UpdVar(hap_devs[index].var_name, &fvar, 0);
+            HK_GET_VAR(index, 0, &fvar);
             hap_devs[index].service = hap_serv_lightbulb_create(fvar);
-            if (hap_devs[index].var2_name[0]) {
-              Ext_UpdVar(hap_devs[index].var2_name, &fvar, 0);
+            if (HK_VAR_EXISTS(index, 1)) {
+              HK_GET_VAR(index, 1, &fvar);
               ret |= hap_serv_add_char(hap_devs[index].service, hap_char_hue_create(fvar));
             }
-            if (hap_devs[index].var3_name[0]) {
-              Ext_UpdVar(hap_devs[index].var3_name, &fvar, 0);
+            if (HK_VAR_EXISTS(index, 2)) {
+              HK_GET_VAR(index, 2, &fvar);
               ret |= hap_serv_add_char(hap_devs[index].service, hap_char_saturation_create(fvar));
             }
-            Ext_UpdVar(hap_devs[index].var4_name, &fvar, 0);
+            HK_GET_VAR(index, 3, &fvar);
             ret |= hap_serv_add_char(hap_devs[index].service, hap_char_brightness_create(fvar));
-            if (hap_devs[index].var5_name[0]) {
-              Ext_UpdVar(hap_devs[index].var5_name, &fvar, 0);
+            if (HK_VAR_EXISTS(index, 4)) {
+              HK_GET_VAR(index, 4, &fvar);
               ret |= hap_serv_add_char(hap_devs[index].service, hap_char_color_temperature_create(fvar));
             }
           }
           break;
         case HAP_CID_OUTLET:
           { float fvar = 0;
-            Ext_UpdVar(hap_devs[index].var_name, &fvar, 0);
+            HK_GET_VAR(index, 0, &fvar);
             hap_devs[index].service = hap_serv_outlet_create(fvar, true);
           }
           break;
         case HAP_CID_SENSOR:
           { float fvar = 22;
-            Ext_UpdVar(hap_devs[index].var_name, &fvar, 0);
+            HK_GET_VAR(index, 0, &fvar);
             switch (hap_devs[index].type) {
               case 0: hap_devs[index].service = hap_serv_temperature_sensor_create(fvar); break;
               case 1: hap_devs[index].service = hap_serv_humidity_sensor_create(fvar); break;
               case 2: hap_devs[index].service = hap_serv_light_sensor_create(fvar); break;
               case 3:
                 { float fvar1 = 0, fvar2 = 0;
-                  Ext_UpdVar(hap_devs[index].var2_name, &fvar1, 0);
-                  Ext_UpdVar(hap_devs[index].var3_name, &fvar2, 0);
+                  HK_GET_VAR(index, 1, &fvar1);
+                  HK_GET_VAR(index, 2, &fvar2);
                   hap_devs[index].service = hap_serv_battery_service_create(fvar, fvar1, fvar2);
                 }
                 break;
@@ -671,6 +722,16 @@ nextline:
      */
     hap_set_setup_code(hk_code);
     hap_set_setup_id("ES32");
+
+    /* Compute setup URI for QR code display */
+    {
+      char *uri = esp_hap_get_setup_payload(hk_code, "ES32", false, HAP_CID_BRIDGE);
+      if (uri) {
+        strlcpy(hk_uri, uri, sizeof(hk_uri));
+        free(uri);
+        ESP_LOGI(TAG, "Setup URI: %s", hk_uri);
+      }
+    }
 #ifdef CONFIG_EXAMPLE_USE_HARDCODED_SETUP_CODE
     /* Unique Setup code of the format xxx-xx-xxx. Default: 111-22-333 */
     hap_set_setup_code(CONFIG_EXAMPLE_SETUP_CODE);
@@ -728,7 +789,12 @@ int32_t homekit_pars(uint32_t sel);
 int32_t homekit_main(char *desc, uint32_t flag ) {
   if (desc) {
     char *cp = desc;
+#ifdef USE_TINYC
+    // TinyC: descriptor starts directly with setup code "111-11-111\n..."
+#else
+    // Scripter: descriptor starts with ">h 111-11-111\n..."
     cp += 2;
+#endif
     while (*cp == ' ') cp++;
     // "111-11-111"
 
