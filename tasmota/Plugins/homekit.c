@@ -107,6 +107,8 @@ struct HAP_DESC {
 
 #ifdef USE_TINYC
 // Helper: read/write TinyC global as float (globals store IEEE 754 bits in int32 slots)
+extern void tc_hk_set_dirty(int16_t global_idx);
+
 static uint32_t TC_HK_GetVar(int16_t idx, float *fvar, uint32_t mode) {
   int32_t *globals = tc_hk_get_globals();
   if (!globals || idx < 0) return 0;
@@ -117,6 +119,7 @@ static uint32_t TC_HK_GetVar(int16_t idx, float *fvar, uint32_t mode) {
   } else {
     // write: store float bits as int32
     memcpy(&globals[idx], fvar, sizeof(float));
+    tc_hk_set_dirty(idx);  // mark for hkReady() polling
     return 1;
   }
 }

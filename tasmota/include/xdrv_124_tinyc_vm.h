@@ -228,6 +228,8 @@ enum TcSyscall {
   SYS_FILE_FORMAT  = 67,  // () -> int — format LittleFS
   SYS_FILE_MKDIR   = 68,  // (const_idx_path) -> 1/0
   SYS_FILE_RMDIR   = 69,  // (const_idx_path) -> 1/0
+  SYS_FILE_SEEK    = 73,  // (handle, offset, whence) -> 1/0
+  SYS_FILE_TELL    = 79,  // (handle) -> position/-1
   SYS_FILE_DOWNLOAD= 220, // (const_idx_path, url_ref) -> HTTP status code
   SYS_FILE_GET_STR = 221, // (dst_ref, handle, const_idx_delim, index, endChar) -> strlen
   SYS_FILE_EXTRACT = 222, // (handle, from_ref, to_ref, col_offs, accum, arr_refs..., N) -> rows
@@ -318,6 +320,7 @@ enum TcSyscall {
   SYS_WEB_HANDLER     = 162, // () -> int — returns current web handler number (in WebOn callback)
   SYS_WEB_ARG         = 163, // (name_const, buf_ref) -> int — get HTTP arg into buffer, returns length
   SYS_MDNS            = 164, // (name_const, mac_const, type_const) -> int — register mDNS service
+  SYS_WEB_CONSOLE_BTN = 165, // (url_const, label_const) -> void — add button to Utilities menu
   // Display drawing (direct renderer calls — requires USE_DISPLAY)
   SYS_DSP_TEXT        = 170, // (buf_ref) -> void — raw DisplayText command string
   SYS_DSP_CLEAR       = 171, // () -> void — clear display
@@ -387,6 +390,7 @@ enum TcSyscall {
   SYS_HK_ADD          = 138, // (const_idx_name, type) -> void — start device definition
   SYS_HK_START        = 139, // () -> int — build descriptor + start HomeKit, 0=ok
   SYS_HK_VAR          = 144, // (var_ref) -> void — bind variable to current device
+  SYS_HK_READY        = 145, // (var_ref) -> int — 1 if HomeKit changed this var
   SYS_HK_INIT         = 253, // (desc_ref) -> int — start HomeKit with raw descriptor, 0=ok
   SYS_HK_STOP         = 254, // () -> void — stop HomeKit
   SYS_HK_RESET        = 255, // () -> void — factory reset HomeKit pairings
@@ -628,6 +632,11 @@ struct TINYC {
   char     web_handler_url[TC_MAX_WEB_HANDLERS][32];
   uint8_t  web_handler_count;
   uint8_t  current_web_handler;   // handler number during WebOn callback
+  // Console buttons (webConsoleButton)
+#define TC_MAX_CONSOLE_BTNS 4
+  char     console_btn_url[TC_MAX_CONSOLE_BTNS][32];
+  char     console_btn_label[TC_MAX_CONSOLE_BTNS][24];
+  uint8_t  console_btn_count;
   // SPI bus
   TcSpi    spi;
   // HTTP request state
@@ -670,6 +679,12 @@ static File tc_file_handles[TC_MAX_FILE_HANDLES];
 static char hk_build_buf[512];
 static uint16_t hk_build_pos = 0;
 static bool hk_line_open = false;  // true when current device line needs closing \n
+
+// Dirty tracking for hkReady() — set by homekit.c when Apple Home writes a variable
+#define TC_HK_MAX_VARS 32
+static int16_t hk_var_gidx[TC_HK_MAX_VARS];          // global index per registered HK var
+static volatile uint8_t hk_var_dirty[TC_HK_MAX_VARS]; // dirty flag (set from HAP thread)
+static uint8_t hk_var_count = 0;
 #endif
 
 // Helper: allocate a new slot
@@ -2682,6 +2697,45 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
 #else
       TC_POP(vm);
       TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+
+    case SYS_FILE_SEEK: {
+      // fileSeek(handle, offset, whence) -> 1=ok, 0=fail
+      // whence: 0=SEEK_SET, 1=SEEK_CUR, 2=SEEK_END
+#ifdef USE_UFILESYS
+      int32_t whence = TC_POP(vm);
+      int32_t offset = TC_POP(vm);
+      int32_t h = TC_POP(vm);
+      if (h >= 0 && h < TC_MAX_FILE_HANDLES && Tinyc->file_used[h]) {
+        SeekMode mode = SeekSet;
+        if (whence == 1) mode = SeekCur;
+        else if (whence == 2) mode = SeekEnd;
+        bool ok = tc_file_handles[h].seek(offset, mode);
+        TC_PUSH(vm, ok ? 1 : 0);
+      } else {
+        TC_PUSH(vm, 0);
+      }
+#else
+      TC_POP(vm); TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+
+    case SYS_FILE_TELL: {
+      // fileTell(handle) -> current position, -1 on error
+#ifdef USE_UFILESYS
+      int32_t h = TC_POP(vm);
+      if (h >= 0 && h < TC_MAX_FILE_HANDLES && Tinyc->file_used[h]) {
+        TC_PUSH(vm, (int32_t)tc_file_handles[h].position());
+      } else {
+        TC_PUSH(vm, -1);
+      }
+#else
+      TC_POP(vm);
+      TC_PUSH(vm, -1);
 #endif
       break;
     }
@@ -4808,6 +4862,22 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
     }
 
+    case SYS_WEB_CONSOLE_BTN: {
+      // webConsoleButton("/url", "Label") — register button for Utilities menu
+      int32_t ci_label = TC_POP(vm);
+      int32_t ci_url   = TC_POP(vm);
+      const char *url   = tc_get_const_str(vm, ci_url);
+      const char *label = tc_get_const_str(vm, ci_label);
+      if (url && label && Tinyc && Tinyc->console_btn_count < TC_MAX_CONSOLE_BTNS) {
+        uint8_t idx = Tinyc->console_btn_count;
+        strlcpy(Tinyc->console_btn_url[idx], url, sizeof(Tinyc->console_btn_url[0]));
+        strlcpy(Tinyc->console_btn_label[idx], label, sizeof(Tinyc->console_btn_label[0]));
+        Tinyc->console_btn_count++;
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: consoleButton(\"%s\", \"%s\") registered"), url, label);
+      }
+      break;
+    }
+
     // ── Display drawing (direct renderer calls) ──────
 #ifdef USE_DISPLAY
     case SYS_DSP_TEXT: {
@@ -5636,6 +5706,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       if (!code) break;
       hk_build_pos = 0;
       hk_line_open = false;
+      hk_var_count = 0;  // reset dirty tracking for new descriptor
       hk_build_pos += snprintf(hk_build_buf, sizeof(hk_build_buf), "%s\n", code);
       break;
     }
@@ -5684,6 +5755,26 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       a = TC_POP(vm);  // global index (from ADDR_GLOBAL)
       hk_build_pos += snprintf(hk_build_buf + hk_build_pos,
         sizeof(hk_build_buf) - hk_build_pos, ",%d", a);
+      // Register for hkReady() dirty tracking
+      if (hk_var_count < TC_HK_MAX_VARS) {
+        hk_var_gidx[hk_var_count] = (int16_t)a;
+        hk_var_dirty[hk_var_count] = 0;
+        hk_var_count++;
+      }
+      break;
+    }
+    case SYS_HK_READY: {
+      // hkReady(variable) — returns 1 if HomeKit changed this var since last check
+      a = TC_POP(vm);  // global index (from ADDR_GLOBAL)
+      int32_t result = 0;
+      for (uint8_t i = 0; i < hk_var_count; i++) {
+        if (hk_var_gidx[i] == (int16_t)a) {
+          result = hk_var_dirty[i];
+          hk_var_dirty[i] = 0;
+          break;
+        }
+      }
+      TC_PUSH(vm, result);
       break;
     }
     case SYS_HK_START: {
@@ -5738,8 +5829,11 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
     }
     case SYS_HK_RESET: {
+      // Direct partition erase — works even before hkStart()
+      // (hap_reset_to_factory sends an event that needs a running HAP loop)
       extern int32_t homekit_main(char *, uint32_t);
-      homekit_main(0, 99);  // flag 99 = factory reset
+      homekit_main(0, 3);   // stop HAP loop if running
+      homekit_main(0, 98);  // direct NVS/LittleFS erase
       break;
     }
 #else
@@ -5751,6 +5845,10 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
     case SYS_HK_VAR:
       TC_POP(vm);  // discard var ref
+      break;
+    case SYS_HK_READY:
+      TC_POP(vm);  // discard var ref
+      TC_PUSH(vm, 0);  // always 0 when HomeKit not enabled
       break;
     case SYS_HK_START:
       AddLog(LOG_LEVEL_ERROR, PSTR("TCC: hkStart — USE_HOMEKIT not enabled"));
@@ -7013,6 +7111,8 @@ static void TinyCStopVM(TcSlot *s) {
   tc_heap_free_all(&s->vm);
   tc_udp_stop();
   tc_spi_cleanup();
+  // Clear registered console buttons
+  if (Tinyc) Tinyc->console_btn_count = 0;
 
   // Flush output for this slot
   tc_current_slot = s;

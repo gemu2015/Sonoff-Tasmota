@@ -132,56 +132,68 @@ int hap_platform_keystore_delete(const char *part_name, const char *name_space, 
   return 0;
 }
 
-// should
 int hap_platform_keystore_delete_namespace(const char *part_name, const char *name_space) {
   char path[48];
   strcpy(path, "/");
   strcat(path, part_name);
   strcat(path, "/");
   strcat(path, name_space);
+  // First pass: delete all files
   File fp = ffsp->open(path, "r");
   if (fp.isDirectory()) {
     while (true) {
       File entry = fp.openNextFile();
       if (!entry) break;
+      // entry.name() returns basename only on ESP32 Arduino 3.x
       char p[48];
-      strcpy(p,entry.name());
+      strcpy(p, path);
+      strcat(p, "/");
+      strcat(p, entry.name());
       entry.close();
       ffsp->remove(p);
     }
+    fp.close();
   }
+  // rmdir after closing the directory handle
+  ffsp->rmdir(path);
   return 0;
 }
 
 // last resort only
 int hap_platfrom_keystore_erase_partition(const char *part_name) {
-char path[48];
-strcpy(path, "/");
-strcat(path, part_name);
-File fp = ffsp->open(path, "r");
-if (fp.isDirectory()) {
-  while (true) {
-    File entry = fp.openNextFile();
-    if (!entry) break;
-    const char *ep = entry.name();
-    if (*ep=='/') ep++;
-    char *lcp = strrchr(ep,'/');
-    if (lcp) {
-      ep = lcp + 1;
-    }
-    char p[48];
-    strcpy(p,entry.name());
-    if (entry.isDirectory()) {
-      hap_platform_keystore_delete_namespace(part_name, ep);
+  char path[48];
+  strcpy(path, "/");
+  strcat(path, part_name);
+  // Collect subdir/file names first, then close dir, then delete
+  // (avoids modifying directory while iterating)
+  char names[8][24];
+  bool is_dir[8];
+  int count = 0;
+  File fp = ffsp->open(path, "r");
+  if (fp.isDirectory()) {
+    while (count < 8) {
+      File entry = fp.openNextFile();
+      if (!entry) break;
+      strncpy(names[count], entry.name(), 23);
+      names[count][23] = 0;
+      is_dir[count] = entry.isDirectory();
       entry.close();
-      ffsp->rmdir(p);
-    } else {
-      entry.close();
-      ffsp->remove(p);
+      count++;
     }
-
+    fp.close();
   }
-}
+  // Now delete everything with no open directory handles
+  for (int i = 0; i < count; i++) {
+    if (is_dir[i]) {
+      hap_platform_keystore_delete_namespace(part_name, names[i]);
+    } else {
+      char fullpath[48];
+      strcpy(fullpath, path);
+      strcat(fullpath, "/");
+      strcat(fullpath, names[i]);
+      ffsp->remove(fullpath);
+    }
+  }
   return 0;
 }
 

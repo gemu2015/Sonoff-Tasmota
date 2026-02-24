@@ -100,6 +100,17 @@ extern "C" {
     return NetworkHostname();
   }
 
+  // Called from homekit.c when Apple Home writes a variable
+  // Sets dirty flag for hkReady() polling (called from HAP thread)
+  void tc_hk_set_dirty(int16_t global_idx) {
+    for (uint8_t i = 0; i < hk_var_count; i++) {
+      if (hk_var_gidx[i] == global_idx) {
+        hk_var_dirty[i] = 1;
+        return;
+      }
+    }
+  }
+
   // Called from HomeKit HAP thread when Apple Home writes a value
   // Invokes "HomeKitWrite" callback on slot 0 with (dev_index, var_index, value) args
   void tc_hk_write_callback(uint8_t dev_index, uint8_t var_index, int32_t value) {
@@ -2145,20 +2156,20 @@ bool Xdrv124(uint32_t function) {
           }
         }
       }
-#ifdef USE_HOMEKIT
-      {
-        const char *uri = homekit_get_uri();
-        if (uri && uri[0]) {
-          WSContentSend_P(HTTP_FORM_BUTTON, PSTR("hk"), PSTR("HomeKit Pairing"));
-        }
-      }
-#endif
       break;
     case FUNC_WEB_ADD_CONSOLE_BUTTON:
       if (XdrvMailbox.index) {
         XdrvMailbox.index++;
       } else {
         WSContentSend_P(HTTP_FORM_BUTTON, PSTR("tc"), PSTR("TinyC Console"));
+        // Emit script-registered console buttons
+        if (Tinyc) {
+          for (uint8_t i = 0; i < Tinyc->console_btn_count; i++) {
+            WSContentSend_P(HTTP_FORM_BUTTON,
+              Tinyc->console_btn_url[i],
+              Tinyc->console_btn_label[i]);
+          }
+        }
       }
       break;
     case FUNC_WEB_ADD_HANDLER:
