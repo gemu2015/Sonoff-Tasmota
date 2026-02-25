@@ -100,6 +100,10 @@ $(for f in "${FILES[@]}"; do echo "- \`$(basename "$f")\`"; done)
 - Upload \`tinyc_ide.html.gz\` via Tasmota file manager (Consoles → Manage File System)
 
 ### Changes since last release:
+- \`WebChart()\` — automatic Google Charts rendering with Y-axis min/max range control
+- Implicit float/int type coercion in assignments (\`float x = 1;\` now works correctly)
+- Persist variable fix — initializer bytecodes no longer overwrite restored values
+- \`udpReady()\` fix — now properly initializes UDP socket on first call
 - \`webParse()\` — parse non-JSON HTTP responses (split by delimiter or name=value extraction)
 - Computed goto VM dispatch — ~10% faster bytecode execution
 - Console auto-refresh when IDE uploads new binary (BroadcastChannel)

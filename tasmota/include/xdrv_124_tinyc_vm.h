@@ -321,7 +321,7 @@ enum TcSyscall {
   SYS_WEB_ARG         = 163, // (name_const, buf_ref) -> int — get HTTP arg into buffer, returns length
   SYS_MDNS            = 164, // (name_const, mac_const, type_const) -> int — register mDNS service
   SYS_WEB_CONSOLE_BTN = 165, // (url_const, label_const) -> void — add button to Utilities menu
-  SYS_WEB_CHART       = 166, // (type, title_const, unit_const, color, pos, count, array_ref, decimals, interval) -> void
+  SYS_WEB_CHART       = 166, // (type, title_const, unit_const, color, pos, count, array_ref, decimals, interval, ymin, ymax) -> void
   // Display drawing (direct renderer calls — requires USE_DISPLAY)
   SYS_DSP_TEXT        = 170, // (buf_ref) -> void — raw DisplayText command string
   SYS_DSP_CLEAR       = 171, // () -> void — clear display
@@ -4893,8 +4893,10 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     }
 
     case SYS_WEB_CHART: {
-      // WebChart(type, title, unit, color, pos, count, array, decimals, interval)
+      // WebChart(type, title, unit, color, pos, count, array, decimals, interval, ymin, ymax)
 #ifdef USE_WEBSERVER
+      int32_t ymax_bits = TC_POP(vm);
+      int32_t ymin_bits = TC_POP(vm);
       int32_t interval = TC_POP(vm);
       int32_t decimals = TC_POP(vm);
       int32_t arr_ref  = TC_POP(vm);
@@ -4904,6 +4906,10 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t ci_unit  = TC_POP(vm);
       int32_t ci_title = TC_POP(vm);
       int32_t type     = TC_POP(vm);
+
+      float ymin = i2f(ymin_bits);
+      float ymax = i2f(ymax_bits);
+      bool fixed_range = (ymin < ymax);
 
       const char *title = tc_get_const_str(vm, ci_title);
       const char *unit  = tc_get_const_str(vm, ci_unit);
@@ -4921,8 +4927,8 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           "<script>"
           "var _tcC=[];"
           "function _tcA(ci,lbl,clr,d){_tcC[ci].s.push({l:lbl,c:clr,d:d});}"
-          "function _tcN(ci,t,u,tp){"
-            "_tcC[ci]={t:t,u:u,tp:tp,s:[]};"
+          "function _tcN(ci,t,u,tp,mn,mx){"
+            "_tcC[ci]={t:t,u:u,tp:tp,mn:mn,mx:mx,s:[]};"
           "}"
           "function _tcD(){"
             "var N=new Date(),W=new Date(N.getTime()-86400000);"
@@ -4938,9 +4944,11 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
                 "rows.push(r);}"
               "dt.addRows(rows);"
               "var colors=c.s.map(function(x){return x.c;});"
+              "var va={title:c.u};"
+              "if(c.mn<c.mx){va.minValue=c.mn;va.maxValue=c.mx;}"
               "var o={title:c.t,curveType:'none',"
                 "hAxis:{format:'HH:mm',viewWindow:{min:W,max:N}},"
-                "vAxis:{title:c.u},colors:colors,"
+                "vAxis:va,colors:colors,"
                 "lineWidth:1,pointSize:0,"
                 "chartArea:{width:'80%%',height:'65%%'}};"
               "if(c.tp==1)new google.visualization.ColumnChart("
@@ -4955,12 +4963,22 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         tc_chart_lib_sent = true;
       }
 
-      // 2) New chart: emit div container + _tcN() registration
+      // 2) New chart: emit div container + _tcN() registration with optional y-axis range
       if (new_chart) {
-        WSContentSend_P(PSTR(
-          "<div id=\"tc%d\" style=\"width:530px;height:200px;\"></div>"
-          "<script>_tcN(%d,'%s','%s',%d);</script>"
-        ), tc_chart_seq, tc_chart_seq, title, unit, type);
+        if (fixed_range) {
+          char ymin_s[16], ymax_s[16];
+          dtostrf(ymin, 1, 1, ymin_s);
+          dtostrf(ymax, 1, 1, ymax_s);
+          WSContentSend_P(PSTR(
+            "<div id=\"tc%d\" style=\"width:530px;height:200px;\"></div>"
+            "<script>_tcN(%d,'%s','%s',%d,%s,%s);</script>"
+          ), tc_chart_seq, tc_chart_seq, title, unit, type, ymin_s, ymax_s);
+        } else {
+          WSContentSend_P(PSTR(
+            "<div id=\"tc%d\" style=\"width:530px;height:200px;\"></div>"
+            "<script>_tcN(%d,'%s','%s',%d,0,0);</script>"
+          ), tc_chart_seq, tc_chart_seq, title, unit, type);
+        }
       }
 
       // 3) Resolve float array and emit data as _tcA() call
@@ -4995,8 +5013,8 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
 
       if (new_chart) tc_chart_seq++;
 #else
-      // No webserver — still pop all 9 args
-      for (int i = 0; i < 9; i++) TC_POP(vm);
+      // No webserver — still pop all 11 args
+      for (int i = 0; i < 11; i++) TC_POP(vm);
 #endif
       break;
     }
