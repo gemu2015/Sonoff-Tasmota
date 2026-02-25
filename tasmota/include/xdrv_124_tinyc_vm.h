@@ -3384,7 +3384,11 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     case SYS_UDP_READY: {
       a = TC_POP(vm);  // const pool index for variable name
       if (a >= 0 && a < vm->const_count && vm->constants[a].type == 1) {
-        TcUdpVar *var = tc_udp_find_var(vm->constants[a].str.ptr, false);
+        if (!Tinyc->udp_used) {
+          Tinyc->udp_used = true;
+          tc_udp_init();
+        }
+        TcUdpVar *var = tc_udp_find_var(vm->constants[a].str.ptr, true);
         if (var && var->ready) {
           var->ready = false;
           TC_PUSH(vm, 1);
