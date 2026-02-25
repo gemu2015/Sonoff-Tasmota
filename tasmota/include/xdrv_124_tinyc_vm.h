@@ -380,6 +380,9 @@ enum TcSyscall {
   SYS_EMAIL_SEND      = 236, // (params_ref) -> int — send email, 0=ok
   SYS_EMAIL_ATTACH_PIC= 237, // (bufnum) -> void — attach webcam picture from RAM buffer 1..4
   SYS_EMAIL_BODY_STR  = 238, // (const_idx) -> void — set email body from string literal
+  SYS_SPRINTF_STR_CONST     = 239, // (dst_ref, fmt_const, src_const) -> int chars
+  SYS_SPRINTF_STR_CAT_CONST = 247, // (dst_ref, fmt_const, src_const) -> total len
+  SYS_TASM_CMD_REF   = 248, // (cmd_ref, out_buf_ref) -> int — tasmCmd with char array command
   // Touch buttons & sliders (display GFX)
   SYS_DSP_BUTTON      = 240, // (num,x,y,w,h,oc,fc,tc,ts,text_const) -> void — power button
   SYS_DSP_TBUTTON     = 241, // (num,x,y,w,h,oc,fc,tc,ts,text_const) -> void — virtual toggle
@@ -2401,6 +2404,37 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       TC_PUSH(vm, rlen);
       break;
     }
+    case SYS_TASM_CMD_REF: {
+      int32_t buf_ref = TC_POP(vm);    // output buffer array ref
+      int32_t cmd_ref = TC_POP(vm);    // command char array ref
+      int32_t *buf = tc_resolve_ref(vm, buf_ref);
+      int32_t *cmd_arr = tc_resolve_ref(vm, cmd_ref);
+      if (!cmd_arr || !buf) {
+        TC_PUSH(vm, -1);
+        break;
+      }
+      // Extract command string from VM int32 array
+      int32_t cmdMax = tc_ref_maxlen(vm, cmd_ref);
+      char cmdbuf[128];
+      int32_t ci = 0;
+      while (cmd_arr[ci] != 0 && ci < cmdMax && ci < (int32_t)sizeof(cmdbuf) - 1) {
+        cmdbuf[ci] = (char)(cmd_arr[ci] & 0xFF); ci++;
+      }
+      cmdbuf[ci] = '\0';
+      int32_t maxLen = tc_ref_maxlen(vm, buf_ref) - 1;
+      if (maxLen <= 0) { TC_PUSH(vm, 0); break; }
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: tasmCmd(\"%s\")"), cmdbuf);
+      ExecuteCommand(cmdbuf, SRC_TCL);
+      const char *resp = ResponseData();
+      int32_t rlen = strlen(resp);
+      if (rlen > maxLen) rlen = maxLen;
+      for (int32_t i = 0; i < rlen; i++) {
+        buf[i] = (int32_t)(uint8_t)resp[i];
+      }
+      buf[rlen] = 0;
+      TC_PUSH(vm, rlen);
+      break;
+    }
 
     // ── String operations (all bounds-checked via tc_ref_maxlen) ──
     case SYS_STRLEN: {
@@ -2601,6 +2635,38 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       srcbuf[si] = '\0';
       char tmp[128];
       snprintf(tmp, sizeof(tmp), fmt, srcbuf);
+      tc_sprintf_to_ref(dst + ofs, maxSlots - ofs, tmp);
+      TC_PUSH(vm, ofs + (int32_t)strlen(tmp));
+      break;
+    }
+
+    // ── sprintf with const pool source string (for #define string literals) ──
+    case SYS_SPRINTF_STR_CONST: {
+      int32_t src_ci  = TC_POP(vm);       // source string const index
+      int32_t ci      = TC_POP(vm);       // format string const index
+      int32_t dst_ref = TC_POP(vm);       // destination array ref
+      int32_t *dst = tc_resolve_ref(vm, dst_ref);
+      const char *fmt = tc_get_const_str(vm, ci);
+      const char *srcStr = tc_get_const_str(vm, src_ci);
+      if (!dst || !fmt || !srcStr) { TC_PUSH(vm, -1); break; }
+      int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
+      char tmp[128];
+      snprintf(tmp, sizeof(tmp), fmt, srcStr);
+      TC_PUSH(vm, tc_sprintf_to_ref(dst, maxSlots, tmp));
+      break;
+    }
+    case SYS_SPRINTF_STR_CAT_CONST: {
+      int32_t src_ci  = TC_POP(vm);       // source string const index
+      int32_t ci      = TC_POP(vm);       // format string const index
+      int32_t dst_ref = TC_POP(vm);       // destination array ref
+      int32_t *dst = tc_resolve_ref(vm, dst_ref);
+      const char *fmt = tc_get_const_str(vm, ci);
+      const char *srcStr = tc_get_const_str(vm, src_ci);
+      if (!dst || !fmt || !srcStr) { TC_PUSH(vm, -1); break; }
+      int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
+      int32_t ofs = tc_strlen_ref(dst, maxSlots);
+      char tmp[128];
+      snprintf(tmp, sizeof(tmp), fmt, srcStr);
       tc_sprintf_to_ref(dst + ofs, maxSlots - ofs, tmp);
       TC_PUSH(vm, ofs + (int32_t)strlen(tmp));
       break;
