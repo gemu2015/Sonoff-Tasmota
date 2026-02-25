@@ -321,6 +321,7 @@ enum TcSyscall {
   SYS_WEB_ARG         = 163, // (name_const, buf_ref) -> int — get HTTP arg into buffer, returns length
   SYS_MDNS            = 164, // (name_const, mac_const, type_const) -> int — register mDNS service
   SYS_WEB_CONSOLE_BTN = 165, // (url_const, label_const) -> void — add button to Utilities menu
+  SYS_WEB_CHART       = 166, // (type, title_const, unit_const, color, pos, count, array_ref, decimals, interval) -> void
   // Display drawing (direct renderer calls — requires USE_DISPLAY)
   SYS_DSP_TEXT        = 170, // (buf_ref) -> void — raw DisplayText command string
   SYS_DSP_CLEAR       = 171, // () -> void — clear display
@@ -391,6 +392,9 @@ enum TcSyscall {
   SYS_HK_START        = 139, // () -> int — build descriptor + start HomeKit, 0=ok
   SYS_HK_VAR          = 144, // (var_ref) -> void — bind variable to current device
   SYS_HK_READY        = 145, // (var_ref) -> int — 1 if HomeKit changed this var
+
+  SYS_WS2812          = 147, // (arr_ref, len, offset) -> void — set LED pixels from array + show
+
   SYS_HK_INIT         = 253, // (desc_ref) -> int — start HomeKit with raw descriptor, 0=ok
   SYS_HK_STOP         = 254, // () -> void — stop HomeKit
   SYS_HK_RESET        = 255, // () -> void — factory reset HomeKit pairings
@@ -496,8 +500,9 @@ typedef struct {
   // Stack
   int32_t  stack[TC_STACK_SIZE];
   uint16_t sp;
-  // Globals
-  int32_t  globals[TC_MAX_GLOBALS];
+  // Globals (dynamically allocated based on binary header globalSize)
+  int32_t  *globals;
+  uint16_t globals_size;
   // Frames
   TcFrame  frames[TC_MAX_FRAMES];
   uint8_t  fp;
@@ -687,6 +692,10 @@ static volatile uint8_t hk_var_dirty[TC_HK_MAX_VARS]; // dirty flag (set from HA
 static uint8_t hk_var_count = 0;
 #endif
 
+// WebChart state (reset at start of each WebPage callback)
+static uint8_t tc_chart_seq = 0;        // auto-incrementing chart div ID (tc0, tc1, ...)
+static bool    tc_chart_lib_sent = false; // true after Google Charts loader emitted
+
 // Helper: allocate a new slot
 static TcSlot *tc_slot_alloc(void) {
   TcSlot *s = (TcSlot *)calloc(1, sizeof(TcSlot));
@@ -700,6 +709,7 @@ static TcSlot *tc_slot_alloc(void) {
 static void tc_slot_free(TcSlot *s) {
   if (!s) return;
   if (s->program) { free(s->program); s->program = nullptr; }
+  if (s->vm.globals) { free(s->vm.globals); s->vm.globals = nullptr; s->vm.globals_size = 0; }
   if (s->vm.heap_data) { free(s->vm.heap_data); s->vm.heap_data = nullptr; }
 #ifdef ESP32
   if (s->vm_mutex) { vSemaphoreDelete(s->vm_mutex); s->vm_mutex = nullptr; }
@@ -765,7 +775,7 @@ static int32_t* tc_resolve_ref(TcVM *vm, int32_t ref) {
   if (tag == 2) {
     // Global ref: 0x80000000 | base_idx
     uint16_t idx = uref & 0xFFFF;
-    if (idx < TC_MAX_GLOBALS) return &vm->globals[idx];
+    if (idx < vm->globals_size) return &vm->globals[idx];
   } else {
     // Local ref: (fp << 16) | base_idx
     uint8_t fp = (uref >> 16) & 0xFF;
@@ -789,7 +799,7 @@ static int32_t tc_ref_maxlen(TcVM *vm, int32_t ref) {
   }
   if (tag == 2) {
     uint16_t base = uref & 0xFFFF;
-    return (base < TC_MAX_GLOBALS) ? TC_MAX_GLOBALS - base : 0;
+    return (base < vm->globals_size) ? vm->globals_size - base : 0;
   } else {
     uint8_t base = uref & 0xFF;
     return (base < TC_MAX_LOCALS) ? TC_MAX_LOCALS - base : 0;
@@ -4878,6 +4888,115 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
     }
 
+    case SYS_WEB_CHART: {
+      // WebChart(type, title, unit, color, pos, count, array, decimals, interval)
+#ifdef USE_WEBSERVER
+      int32_t interval = TC_POP(vm);
+      int32_t decimals = TC_POP(vm);
+      int32_t arr_ref  = TC_POP(vm);
+      int32_t count    = TC_POP(vm);
+      int32_t pos      = TC_POP(vm);
+      int32_t color    = TC_POP(vm);
+      int32_t ci_unit  = TC_POP(vm);
+      int32_t ci_title = TC_POP(vm);
+      int32_t type     = TC_POP(vm);
+
+      const char *title = tc_get_const_str(vm, ci_title);
+      const char *unit  = tc_get_const_str(vm, ci_unit);
+      if (!title || !unit) break;
+      if (decimals < 0) decimals = 0;
+      if (decimals > 6) decimals = 6;
+
+      bool new_chart = (title[0] != '\0');  // empty title = add series to previous chart
+
+      // 1) Google Charts loader + helper JS — once per page render
+      if (!tc_chart_lib_sent) {
+        WSContentSend_P(PSTR(
+          "<script src=\"https://www.gstatic.com/charts/loader.js\"></script>"
+          "<script>google.charts.load('current',{packages:['corechart']});</script>"
+          "<script>"
+          "var _tcC=[];"
+          "function _tcA(ci,lbl,clr,d){_tcC[ci].s.push({l:lbl,c:clr,d:d});}"
+          "function _tcN(ci,t,u,tp){"
+            "_tcC[ci]={t:t,u:u,tp:tp,s:[]};"
+          "}"
+          "function _tcD(){"
+            "var N=new Date(),W=new Date(N.getTime()-86400000);"
+            "for(var i=0;i<_tcC.length;i++){"
+              "var c=_tcC[i];if(!c)continue;"
+              "var dt=new google.visualization.DataTable();"
+              "dt.addColumn('datetime','Time');"
+              "for(var j=0;j<c.s.length;j++)dt.addColumn('number',c.s[j].l);"
+              "var rows=[];"
+              "if(c.s.length>0)for(var k=0;k<c.s[0].d.length;k++){"
+                "var r=[new Date(N.getTime()+c.s[0].d[k][0]*60000)];"
+                "for(var j=0;j<c.s.length;j++)r.push(c.s[j].d[k][1]);"
+                "rows.push(r);}"
+              "dt.addRows(rows);"
+              "var colors=c.s.map(function(x){return x.c;});"
+              "var o={title:c.t,curveType:'none',"
+                "hAxis:{format:'HH:mm',viewWindow:{min:W,max:N}},"
+                "vAxis:{title:c.u},colors:colors,"
+                "lineWidth:1,pointSize:0,"
+                "chartArea:{width:'80%%',height:'65%%'}};"
+              "if(c.tp==1)new google.visualization.ColumnChart("
+                "document.getElementById('tc'+i)).draw(dt,o);"
+              "else new google.visualization.LineChart("
+                "document.getElementById('tc'+i)).draw(dt,o);"
+            "}"
+          "}"
+          "google.charts.setOnLoadCallback(_tcD);"
+          "</script>"
+        ));
+        tc_chart_lib_sent = true;
+      }
+
+      // 2) New chart: emit div container + _tcN() registration
+      if (new_chart) {
+        WSContentSend_P(PSTR(
+          "<div id=\"tc%d\" style=\"width:530px;height:200px;\"></div>"
+          "<script>_tcN(%d,'%s','%s',%d);</script>"
+        ), tc_chart_seq, tc_chart_seq, title, unit, type);
+      }
+
+      // 3) Resolve float array and emit data as _tcA() call
+      int32_t *arr = tc_resolve_ref(vm, arr_ref);
+      if (!arr) break;
+      int32_t arr_len = tc_ref_maxlen(vm, arr_ref);
+      if (count > arr_len) count = arr_len;
+
+      char cbuf[12];
+      snprintf(cbuf, sizeof(cbuf), "#%06x", (unsigned int)(color & 0xFFFFFF));
+
+      WSContentSend_P(PSTR("<script>_tcA(%d,'%s','%s',["),
+        tc_chart_seq, unit, cbuf);
+
+      // Unwind ring buffer: oldest entry first, interpret as float
+      for (int32_t i = 0; i < count; i++) {
+        int32_t idx = pos - count + i;
+        if (idx < 0) idx += arr_len;
+        float fval;
+        memcpy(&fval, &arr[idx], sizeof(float));
+        int32_t mins_ago = -((count - 1 - i) * interval);
+        char vbuf[16];
+        dtostrf(fval, 1, decimals, vbuf);
+        WSContentSend_P(PSTR("%s[%d,%s]"),
+          (i > 0) ? "," : "",
+          mins_ago, vbuf);
+        if ((i & 63) == 63) WSContentFlush();
+      }
+
+      WSContentSend_P(PSTR("]);</script>"));
+      WSContentFlush();
+
+      if (new_chart) tc_chart_seq++;
+#else
+      // No webserver — still pop all 9 args
+      for (int i = 0; i < 9; i++) TC_POP(vm);
+#endif
+      break;
+    }
+
     // ── Display drawing (direct renderer calls) ──────
 #ifdef USE_DISPLAY
     case SYS_DSP_TEXT: {
@@ -5864,6 +5983,49 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
 #endif  // USE_HOMEKIT
 
+    // ── Addressable LED strip (WS2812) ────────────────
+#if defined(USE_LIGHT) && defined(USE_WS2812)
+    case SYS_WS2812: {
+      // setPixels(array, len, offset) — set LED pixels from array + show
+      int32_t offset = TC_POP(vm);
+      int32_t len    = TC_POP(vm);
+      int32_t ref    = TC_POP(vm);
+      int32_t *arr = tc_resolve_ref(vm, ref);
+      if (!arr || len <= 0) break;
+      extern void Ws2812ForceSuspend(void);
+      extern void Ws2812ForceUpdate(void);
+      extern void Ws2812SetColor(uint32_t, uint8_t, uint8_t, uint8_t, uint8_t);
+      Ws2812ForceSuspend();
+      for (int32_t cnt = 0; cnt < len; cnt++) {
+        uint32_t index;
+        if (!(offset & 0x1000)) {
+          index = cnt + (offset & 0x7FF);
+        } else {
+          index = cnt / 2 + (offset & 0x7FF);
+        }
+        if (index > Settings->light_pixels) break;
+        if (!(offset & 0x1000)) {
+          // RGB mode: each element is 0xRRGGBB
+          uint32_t col = (uint32_t)arr[cnt];
+          Ws2812SetColor(index + 1, col >> 16, col >> 8, col, 0);
+        } else {
+          // RGBW mode: two elements per pixel (high word + low word)
+          uint32_t hcol = (uint32_t)arr[cnt];
+          cnt++;
+          if (cnt >= len) break;
+          uint32_t lcol = (uint32_t)arr[cnt];
+          Ws2812SetColor(index + 1, hcol >> 8, hcol, lcol >> 8, lcol);
+        }
+      }
+      Ws2812ForceUpdate();
+      break;
+    }
+#else
+    case SYS_WS2812:
+      TC_POP(vm); TC_POP(vm); TC_POP(vm);  // discard 3 args
+      break;
+#endif  // USE_LIGHT && USE_WS2812
+
     // ── Debug ─────────────────────────────────────────
     case SYS_DEBUG_PRINT:
       a = TC_POP(vm);
@@ -5917,7 +6079,7 @@ static void tc_persist_save(TcVM *vm) {
     buf[pos++] = (idx >> 8) & 0xFF;
     buf[pos++] = cnt & 0xFF;
     buf[pos++] = (cnt >> 8) & 0xFF;
-    for (uint16_t s = 0; s < cnt; s++) {
+    for (uint16_t s = 0; s < cnt && (idx + s) < vm->globals_size; s++) {
       int32_t val = vm->globals[idx + s];
       buf[pos++] = val & 0xFF;
       buf[pos++] = (val >> 8) & 0xFF;
@@ -5967,7 +6129,7 @@ static void tc_persist_load(TcVM *vm) {
     for (uint8_t j = 0; j < vm->persist_count; j++) {
       if (vm->persist[j].index == idx) {
         uint16_t slots = (slotCount < vm->persist[j].count) ? slotCount : vm->persist[j].count;
-        for (uint16_t s = 0; s < slots && pos + 4 <= fsize; s++) {
+        for (uint16_t s = 0; s < slots && pos + 4 <= fsize && (idx + s) < vm->globals_size; s++) {
           int32_t val = buf[pos] | (buf[pos + 1] << 8) |
                        (buf[pos + 2] << 16) | (buf[pos + 3] << 24);
           vm->globals[idx + s] = val;
@@ -6005,6 +6167,7 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   uint16_t version = (B(4) << 8) | B(5);
   if (version < 2 || version > TC_VERSION) return TC_ERR_BAD_BINARY;
 
+  uint16_t global_size = (B(6) << 8) | B(7);
   uint16_t entry_point = (B(8) << 8) | B(9);
   uint16_t const_pool_size = (B(10) << 8) | B(11);
   uint16_t heap_decl_size = (B(12) << 8) | B(13);
@@ -6048,9 +6211,16 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   // Close any open file handles from previous run
   tc_close_all_files();
 
-  // Free any previously allocated frame locals and heap
+  // Free any previously allocated frame locals, heap, and globals
   tc_free_all_frames(vm);
   tc_heap_free_all(vm);
+  if (vm->globals) { free(vm->globals); vm->globals = nullptr; vm->globals_size = 0; }
+
+  // Allocate globals array based on binary header (minimum 64 slots for small programs)
+  uint16_t alloc_globals = global_size < 64 ? 64 : global_size;
+  vm->globals = (int32_t *)calloc(alloc_globals, sizeof(int32_t));
+  if (!vm->globals) return TC_ERR_STACK_OVERFLOW;  // OOM
+  vm->globals_size = alloc_globals;
 
   // Parse heap declarations and pre-allocate blocks
   uint16_t heap_end = const_end + heap_decl_size;
@@ -6375,18 +6545,18 @@ static int tc_vm_step(TcVM *vm) {
       vm->frames[vm->fp].locals[idx]=TC_POP(vm); break;
     case OP_LOAD_GLOBAL:
       addr=tc_read_u16(vm);
-      if (addr >= TC_MAX_GLOBALS) return TC_ERR_BOUNDS;
+      if (addr >= vm->globals_size) return TC_ERR_BOUNDS;
       TC_PUSH(vm, vm->globals[addr]); break;
     case OP_STORE_GLOBAL:
       addr=tc_read_u16(vm);
-      if (addr >= TC_MAX_GLOBALS) { TC_POP(vm); return TC_ERR_BOUNDS; }
+      if (addr >= vm->globals_size) { TC_POP(vm); return TC_ERR_BOUNDS; }
       vm->globals[addr]=TC_POP(vm); break;
     case OP_STORE_WATCH: {
       uint16_t var_idx = tc_read_u16(vm);
       uint16_t shadow_idx = tc_read_u16(vm);
       uint16_t written_idx = tc_read_u16(vm);
       int32_t val = TC_POP(vm);
-      if (var_idx < TC_MAX_GLOBALS && shadow_idx < TC_MAX_GLOBALS && written_idx < TC_MAX_GLOBALS) {
+      if (var_idx < vm->globals_size && shadow_idx < vm->globals_size && written_idx < vm->globals_size) {
         vm->globals[shadow_idx] = vm->globals[var_idx];  // save old value
         vm->globals[written_idx] = 1;                     // set written flag
         vm->globals[var_idx] = val;                        // store new value
@@ -6405,11 +6575,11 @@ static int tc_vm_step(TcVM *vm) {
       vm->frames[vm->fp].locals[idx+a]=b; break;
     case OP_LOAD_GLOBAL_ARR:
       addr=tc_read_u16(vm); a=TC_POP(vm);
-      if ((uint32_t)(addr+a) >= TC_MAX_GLOBALS) return TC_ERR_BOUNDS;
+      if ((uint32_t)(addr+a) >= vm->globals_size) return TC_ERR_BOUNDS;
       TC_PUSH(vm, vm->globals[addr+a]); break;
     case OP_STORE_GLOBAL_ARR:
       addr=tc_read_u16(vm); b=TC_POP(vm); a=TC_POP(vm);
-      if ((uint32_t)(addr+a) >= TC_MAX_GLOBALS) return TC_ERR_BOUNDS;
+      if ((uint32_t)(addr+a) >= vm->globals_size) return TC_ERR_BOUNDS;
       vm->globals[addr+a]=b; break;
 
     // ── Type conversion ────────────────────
@@ -6569,6 +6739,7 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
   uint16_t _pc     = vm->pc;
   uint16_t _coff   = vm->code_offset;
   uint16_t _csz    = vm->code_size;
+  uint16_t _gsz    = vm->globals_size;
   int      _err    = TC_OK;
   uint32_t _count  = 0;
   uint32_t _start  = millis();
@@ -6728,12 +6899,12 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
     NEXT();
   _op_load_global:
     _addr = _RD_U16();
-    if (_addr >= TC_MAX_GLOBALS) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    if (_addr >= _gsz) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
     TC_IPUSH(vm->globals[_addr]);
     NEXT();
   _op_store_global:
     _addr = _RD_U16();
-    if (_addr >= TC_MAX_GLOBALS) { _sp--; _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    if (_addr >= _gsz) { _sp--; _err = TC_ERR_BOUNDS; goto _vm_exit; }
     vm->globals[_addr] = TC_IPOP();
     NEXT();
 
@@ -6743,7 +6914,7 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
     uint16_t shadow_idx = _RD_U16();
     uint16_t written_idx = _RD_U16();
     int32_t val = TC_IPOP();
-    if (var_idx < TC_MAX_GLOBALS && shadow_idx < TC_MAX_GLOBALS && written_idx < TC_MAX_GLOBALS) {
+    if (var_idx < _gsz && shadow_idx < _gsz && written_idx < _gsz) {
       vm->globals[shadow_idx] = vm->globals[var_idx];
       vm->globals[written_idx] = 1;
       vm->globals[var_idx] = val;
@@ -6764,12 +6935,12 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
     NEXT();
   _op_load_global_arr:
     _addr = _RD_U16(); _a = TC_IPOP();
-    if ((uint32_t)(_addr+_a) >= TC_MAX_GLOBALS) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    if ((uint32_t)(_addr+_a) >= _gsz) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
     TC_IPUSH(vm->globals[_addr+_a]);
     NEXT();
   _op_store_global_arr:
     _addr = _RD_U16(); _b = TC_IPOP(); _a = TC_IPOP();
-    if ((uint32_t)(_addr+_a) >= TC_MAX_GLOBALS) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    if ((uint32_t)(_addr+_a) >= _gsz) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
     vm->globals[_addr+_a] = _b;
     NEXT();
 

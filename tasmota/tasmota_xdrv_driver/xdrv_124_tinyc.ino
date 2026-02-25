@@ -2118,6 +2118,9 @@ bool Xdrv124(uint32_t function) {
       TinyCShow(false);
       break;
     case FUNC_WEB_ADD_MAIN_BUTTON:
+      // Reset WebChart state before calling WebPage()
+      tc_chart_seq = 0;
+      tc_chart_lib_sent = false;
       // Call user's WebPage() on all active slots
       for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
         TcSlot *s = Tinyc->slots[i];
