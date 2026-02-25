@@ -50,6 +50,7 @@ void (* const Ws2812Command[])(void) PROGMEM = {
   &CmndLed, &CmndPixels, &CmndRotation, &CmndWidth, &CmndStepPixels, &CmndPixelType };
 
 #include <TasmotaLED.h>
+#include <TasmotaLEDPusher.h>
 
 const uint16_t kLedType = 0;
 // select the right pixel size
@@ -698,6 +699,15 @@ void Ws2812ModuleSelected(void)
   }
 }
 
+// Used by CmndPixels (always needed)
+void Ws2812CanShowWait(void) {
+  if (strip) {
+    while (!strip->CanShow()) {
+      yield();
+    }
+  }
+}
+
 #ifdef ESP32
 #ifdef USE_BERRY
 /********************************************************************************************/
@@ -726,14 +736,6 @@ uint32_t Ws2812PixelsSize(void) {
 bool Ws2812CanShow(void) {
   if (strip) { return strip->CanShow(); }
   return false;
-}
-
-void Ws2812CanShowWait(void) {
-  if (strip) {
-    while (!strip->CanShow()) {
-      yield();
-    }
-  }
 }
 
 bool Ws2812IsDirty(void) {
