@@ -70,12 +70,18 @@ bool tinyc_email_body(void(*func)(char *)) {
     AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: email body sent (%d chars)"), strlen(Tinyc->email_body));
   }
 
-  // Send file attachments (prefix with '@' for attach_File mechanism)
+  // Send attachments: '@/path' for files, '$N' for webcam picture buffers
   for (uint8_t i = 0; i < Tinyc->email_attach_count; i++) {
     if (Tinyc->email_attach[i]) {
-      char tmp[40];
-      snprintf(tmp, sizeof(tmp), "@%s", Tinyc->email_attach[i]);
-      func(tmp);
+      if (Tinyc->email_attach[i][0] == '$') {
+        // Picture buffer — send as-is (email library handles $N)
+        func(Tinyc->email_attach[i]);
+      } else {
+        // File path — prefix with '@' for attach_File mechanism
+        char tmp[40];
+        snprintf(tmp, sizeof(tmp), "@%s", Tinyc->email_attach[i]);
+        func(tmp);
+      }
       AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: email attach: %s"), Tinyc->email_attach[i]);
     }
   }
@@ -148,6 +154,24 @@ static void tc_all_callbacks(const char *name) {
   for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
     TcSlot *s = Tinyc->slots[i];
     if (s) tc_slot_callback(s, name);
+  }
+}
+
+// Call a named callback with a string argument on all active slots
+static void tc_all_callbacks_str(const char *name, const char *str) {
+  if (!Tinyc) return;
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    TcSlot *s = Tinyc->slots[i];
+    if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) continue;
+    tc_current_slot = s;
+#ifdef ESP32
+    if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
+#endif
+    tc_vm_call_callback_str(&s->vm, name, str);
+#ifdef ESP32
+    if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+#endif
+    tc_current_slot = nullptr;
   }
 }
 
@@ -2105,6 +2129,12 @@ bool Xdrv124(uint32_t function) {
       break;
     case FUNC_COMMAND:
       result = DecodeCommand(kTinyCCommands, TinyCCommand);
+      break;
+    case FUNC_RULES_PROCESS:
+      // Call user's Event(char json[]) callback with the event JSON data
+      if (ResponseLength()) {
+        tc_all_callbacks_str("Event", ResponseData());
+      }
       break;
     case FUNC_JSON_APPEND:
       TinyCShow(true);

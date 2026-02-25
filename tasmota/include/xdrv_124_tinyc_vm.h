@@ -191,7 +191,8 @@ enum TcSyscall {
   SYS_SERIAL_BEGIN    = 20, SYS_SERIAL_PRINT     = 21,
   SYS_SERIAL_PRINT_INT= 22, SYS_SERIAL_PRINT_FLT = 23,
   SYS_SERIAL_PRINTLN  = 24, SYS_SERIAL_READ      = 25,
-  SYS_SERIAL_AVAILABLE= 26,
+  SYS_SERIAL_AVAILABLE= 26, SYS_SERIAL_CLOSE     = 27,
+  SYS_SERIAL_WRITE_BYTE= 28, SYS_SERIAL_WRITE_STR= 29,
   // Math
   SYS_MATH_ABS  = 30, SYS_MATH_MIN  = 31, SYS_MATH_MAX  = 32,
   SYS_MATH_MAP  = 33, SYS_MATH_RANDOM= 34, SYS_MATH_SQRT = 35,
@@ -322,6 +323,10 @@ enum TcSyscall {
   SYS_MDNS            = 164, // (name_const, mac_const, type_const) -> int — register mDNS service
   SYS_WEB_CONSOLE_BTN = 165, // (url_const, label_const) -> void — add button to Utilities menu
   SYS_WEB_CHART       = 166, // (type, title_const, unit_const, color, pos, count, array_ref, decimals, interval, ymin, ymax) -> void
+  SYS_PLUGIN_QUERY    = 167, // (dst_ref, index, p1, p2) -> strlen — Plugin_Query(index, (p1<<8)|p2, 0)
+  SYS_SORT_ARRAY      = 168, // (arr_ref, count, flags) -> void — sort array in-place
+  // Webcam (ESP32 — requires USE_WEBCAM)
+  SYS_CAM_CONTROL     = 169, // (sel, p1, p2) -> int — multiplexed webcam control
   // Display drawing (direct renderer calls — requires USE_DISPLAY)
   SYS_DSP_TEXT        = 170, // (buf_ref) -> void — raw DisplayText command string
   SYS_DSP_CLEAR       = 171, // () -> void — clear display
@@ -373,6 +378,8 @@ enum TcSyscall {
   SYS_EMAIL_BODY      = 234, // (body_ref) -> void — set email body (HTML)
   SYS_EMAIL_ATTACH    = 235, // (path_const) -> void — add file attachment
   SYS_EMAIL_SEND      = 236, // (params_ref) -> int — send email, 0=ok
+  SYS_EMAIL_ATTACH_PIC= 237, // (bufnum) -> void — attach webcam picture from RAM buffer 1..4
+  SYS_EMAIL_BODY_STR  = 238, // (const_idx) -> void — set email body from string literal
   // Touch buttons & sliders (display GFX)
   SYS_DSP_BUTTON      = 240, // (num,x,y,w,h,oc,fc,tc,ts,text_const) -> void — power button
   SYS_DSP_TBUTTON     = 241, // (num,x,y,w,h,oc,fc,tc,ts,text_const) -> void — virtual toggle
@@ -695,6 +702,7 @@ static uint8_t hk_var_count = 0;
 // WebChart state (reset at start of each WebPage callback)
 static uint8_t tc_chart_seq = 0;        // auto-incrementing chart div ID (tc0, tc1, ...)
 static bool    tc_chart_lib_sent = false; // true after Google Charts loader emitted
+static TasmotaSerial *tc_serial_port = nullptr; // TinyC serial port (shared across VMs)
 
 // Helper: allocate a new slot
 static TcSlot *tc_slot_alloc(void) {
@@ -1869,6 +1877,16 @@ static void tc_close_all_files(void) {
   }
 }
 
+static void tc_serial_close(void) {
+  if (tc_serial_port) {
+    tc_serial_port->flush();
+    delay(50);
+    delete tc_serial_port;
+    tc_serial_port = nullptr;
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: serial port closed"));
+  }
+}
+
 // Find a free file handle slot, returns -1 if none available
 static int tc_alloc_file_handle(void) {
   if (!Tinyc) return -1;
@@ -2186,37 +2204,130 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
     }
 
-    // ── Serial/Output → AddLog + MQTT ─────────────────
-    case SYS_SERIAL_BEGIN:
-      TC_POP(vm);  // ignore baud in Tasmota context
+    // ── Serial ─────────────────────────────────────────
+    case SYS_SERIAL_BEGIN: {
+      // serialBegin(rxpin, txpin, baud, config, bufsize) -> int
+      int32_t bufsize = TC_POP(vm);
+      int32_t config  = TC_POP(vm);
+      int32_t baud    = TC_POP(vm);
+      int32_t txpin   = TC_POP(vm);
+      int32_t rxpin   = TC_POP(vm);
+      if (tc_serial_port) {
+        tc_serial_close();  // close previous instance
+      }
+      if (bufsize < 64) bufsize = 64;
+      if (bufsize > 2048) bufsize = 2048;
+      if (config < 0 || config > 23) config = 3;  // default 8N1
+      if (Is_gpio_used(rxpin) || Is_gpio_used(txpin)) {
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: serial warning — pins %d/%d may be in use"), rxpin, txpin);
+      }
+      tc_serial_port = new TasmotaSerial(rxpin, txpin, HARDWARE_FALLBACK, 0, bufsize);
+      if (tc_serial_port) {
+        if (tc_serial_port->begin(baud, ConvertSerialConfig(config))) {
+          if (tc_serial_port->hardwareSerial()) {
+            ClaimSerial();
+          }
+          AddLog(LOG_LEVEL_INFO, PSTR("TCC: serial opened rx=%d tx=%d baud=%d cfg=%d buf=%d"),
+                 rxpin, txpin, baud, config, bufsize);
+          TC_PUSH(vm, 1);
+        } else {
+          delete tc_serial_port;
+          tc_serial_port = nullptr;
+          AddLog(LOG_LEVEL_ERROR, PSTR("TCC: serial begin failed"));
+          TC_PUSH(vm, -1);
+        }
+      } else {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: serial alloc failed"));
+        TC_PUSH(vm, -1);
+      }
+      break;
+    }
+    case SYS_SERIAL_CLOSE:
+      tc_serial_close();
       break;
     case SYS_SERIAL_PRINT:
       a = TC_POP(vm);
       if (a >= 0 && a < vm->const_count && vm->constants[a].type == 1) {
-        tc_output_string(vm->constants[a].str.ptr);
+        const char *s = vm->constants[a].str.ptr;
+        if (tc_serial_port) {
+          tc_serial_port->write(s, strlen(s));
+        } else {
+          tc_output_string(s);
+        }
       }
       break;
-    case SYS_SERIAL_PRINT_INT:
+    case SYS_SERIAL_PRINT_INT: {
       a = TC_POP(vm);
-      tc_output_int(a);
+      char ibuf[16];
+      itoa(a, ibuf, 10);
+      if (tc_serial_port) {
+        tc_serial_port->write(ibuf, strlen(ibuf));
+      } else {
+        tc_output_int(a);
+      }
       break;
-    case SYS_SERIAL_PRINT_FLT:
+    }
+    case SYS_SERIAL_PRINT_FLT: {
       fa = TC_POPF(vm);
-      tc_output_float(fa);
+      char fbuf[24];
+      dtostrf(fa, 1, 2, fbuf);
+      if (tc_serial_port) {
+        tc_serial_port->write(fbuf, strlen(fbuf));
+      } else {
+        tc_output_float(fa);
+      }
       break;
+    }
     case SYS_SERIAL_PRINTLN:
       a = TC_POP(vm);
       if (a >= 0 && a < vm->const_count && vm->constants[a].type == 1) {
-        tc_output_string(vm->constants[a].str.ptr);
+        const char *s = vm->constants[a].str.ptr;
+        if (tc_serial_port) {
+          tc_serial_port->write(s, strlen(s));
+          tc_serial_port->write("\r\n", 2);
+        } else {
+          tc_output_string(s);
+          tc_output_char('\n');
+        }
+      } else {
+        if (tc_serial_port) {
+          tc_serial_port->write("\r\n", 2);
+        } else {
+          tc_output_char('\n');
+        }
       }
-      tc_output_char('\n');
       break;
     case SYS_SERIAL_READ:
-      TC_PUSH(vm, -1);  // no serial input in Tasmota
+      if (tc_serial_port && tc_serial_port->available()) {
+        TC_PUSH(vm, tc_serial_port->read());
+      } else {
+        TC_PUSH(vm, -1);
+      }
       break;
     case SYS_SERIAL_AVAILABLE:
-      TC_PUSH(vm, 0);
+      if (tc_serial_port) {
+        TC_PUSH(vm, tc_serial_port->available());
+      } else {
+        TC_PUSH(vm, 0);
+      }
       break;
+    case SYS_SERIAL_WRITE_BYTE:
+      a = TC_POP(vm);
+      if (tc_serial_port) {
+        tc_serial_port->write((uint8_t)(a & 0xFF));
+      }
+      break;
+    case SYS_SERIAL_WRITE_STR: {
+      a = TC_POP(vm);  // buf_ref
+      if (tc_serial_port) {
+        char tbuf[256];
+        int len = tc_ref_to_cstr(vm, a, tbuf, sizeof(tbuf));
+        if (len > 0) {
+          tc_serial_port->write(tbuf, len);
+        }
+      }
+      break;
+    }
 
     // ── Math ──────────────────────────────────────────
     case SYS_MATH_ABS:
@@ -4205,6 +4316,9 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         case 18: val = (int32_t)SunMinutes(1); break;  // tasm_sunset
 #endif
         case 19: val = (int32_t)MinutesPastMidnight(); break;  // tasm_time
+#ifdef ESP32
+        case 20: val = (int32_t)ESP.getFreePsram(); break;  // tasm_pheap
+#endif
         default: break;
       }
       TC_PUSH(vm, val);
@@ -4920,41 +5034,67 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       bool new_chart = (title[0] != '\0');  // empty title = add series to previous chart
 
       // 1) Google Charts loader + helper JS — once per page render
+      // Type codes: 'l'=line, 'c'=column, 'b'=bar, 'h'=histogram, 's'=stacked column
+      // Legacy: 0=line, 1=column
       if (!tc_chart_lib_sent) {
         WSContentSend_P(PSTR(
+          "<style>"
+          ".google-visualization-table-table{background:#fff;color:#000;border-collapse:collapse;}"
+          ".google-visualization-table-table td,.google-visualization-table-table th{padding:4px 8px;border:1px solid #ccc;}"
+          ".google-visualization-table-th{background:#e8e8e8;font-weight:bold;}"
+          ".google-visualization-table-tr-odd{background:#f5f5f5;}"
+          ".google-visualization-table-tr-even{background:#fff;}"
+          "</style>"
           "<script src=\"https://www.gstatic.com/charts/loader.js\"></script>"
-          "<script>google.charts.load('current',{packages:['corechart']});</script>"
+          "<script>google.charts.load('current',{packages:['corechart','table']});</script>"
           "<script>"
           "var _tcC=[];"
           "function _tcA(ci,lbl,clr,d){_tcC[ci].s.push({l:lbl,c:clr,d:d});}"
           "function _tcN(ci,t,u,tp,mn,mx){"
-            "_tcC[ci]={t:t,u:u,tp:tp,mn:mn,mx:mx,s:[]};"
+            "var lb=null;"
+            "if(tp==116){var p=t.indexOf('|');if(p>=0){lb=t.substring(p+1).split('|');t=t.substring(0,p);}}"
+            "_tcC[ci]={t:t,u:u,tp:tp,mn:mn,mx:mx,s:[],lb:lb};"
           "}"
           "function _tcD(){"
             "var N=new Date(),W=new Date(N.getTime()-86400000);"
             "for(var i=0;i<_tcC.length;i++){"
               "var c=_tcC[i];if(!c)continue;"
               "var dt=new google.visualization.DataTable();"
-              "dt.addColumn('datetime','Time');"
-              "for(var j=0;j<c.s.length;j++)dt.addColumn('number',c.s[j].l);"
-              "var rows=[];"
-              "if(c.s.length>0)for(var k=0;k<c.s[0].d.length;k++){"
-                "var r=[new Date(N.getTime()+c.s[0].d[k][0]*60000)];"
-                "for(var j=0;j<c.s.length;j++)r.push(c.s[j].d[k][1]);"
-                "rows.push(r);}"
-              "dt.addRows(rows);"
-              "var colors=c.s.map(function(x){return x.c;});"
-              "var va={title:c.u};"
-              "if(c.mn<c.mx){va.minValue=c.mn;va.maxValue=c.mx;}"
-              "var o={title:c.t,curveType:'none',"
-                "hAxis:{format:'HH:mm',viewWindow:{min:W,max:N}},"
-                "vAxis:va,colors:colors,"
-                "lineWidth:1,pointSize:0,"
-                "chartArea:{width:'80%%',height:'65%%'}};"
-              "if(c.tp==1)new google.visualization.ColumnChart("
-                "document.getElementById('tc'+i)).draw(dt,o);"
-              "else new google.visualization.LineChart("
-                "document.getElementById('tc'+i)).draw(dt,o);"
+              "var tp=c.tp,el=document.getElementById('tc'+i);"
+              "if(tp==116){"                                                               // table
+                "dt.addColumn('string',c.t||'');"
+                "for(var j=0;j<c.s.length;j++)dt.addColumn('number',c.s[j].l);"
+                "var rows=[];"
+                "if(c.s.length>0)for(var k=0;k<c.s[0].d.length;k++){"
+                  "var lb=c.lb&&c.lb[k]?c.lb[k]:''+(k+1);"
+                  "var r=[lb];"
+                  "for(var j=0;j<c.s.length;j++)r.push(c.s[j].d[k][1]);"
+                  "rows.push(r);}"
+                "dt.addRows(rows);"
+                "new google.visualization.Table(el).draw(dt,{showRowNumber:false,width:'100%%'});"
+              "}else{"                                                                     // charts
+                "dt.addColumn('datetime','Time');"
+                "for(var j=0;j<c.s.length;j++)dt.addColumn('number',c.s[j].l);"
+                "var rows=[];"
+                "if(c.s.length>0)for(var k=0;k<c.s[0].d.length;k++){"
+                  "var r=[new Date(N.getTime()+c.s[0].d[k][0]*60000)];"
+                  "for(var j=0;j<c.s.length;j++)r.push(c.s[j].d[k][1]);"
+                  "rows.push(r);}"
+                "dt.addRows(rows);"
+                "var colors=c.s.map(function(x){return x.c;});"
+                "var va={title:c.u};"
+                "if(c.mn<c.mx){va.minValue=c.mn;va.maxValue=c.mx;}"
+                "var o={title:c.t,curveType:'none',"
+                  "hAxis:{format:'HH:mm',viewWindow:{min:W,max:N}},"
+                  "vAxis:va,colors:colors,"
+                  "lineWidth:1,pointSize:0,"
+                  "chartArea:{width:'80%%',height:'65%%'}};"
+                "if(tp==98)new google.visualization.BarChart(el).draw(dt,o);"              // 'b'=98
+                "else if(tp==99||tp==1)new google.visualization.ColumnChart(el).draw(dt,o);" // 'c'=99 or legacy 1
+                "else if(tp==104)new google.visualization.Histogram(el).draw(dt,o);"       // 'h'=104
+                "else if(tp==115){o.isStacked=true;new google.visualization.ColumnChart(el).draw(dt,o);}" // 's'=115
+                "else new google.visualization.LineChart(el).draw(dt,o);"                  // 'l'=108 or legacy 0
+              "}"
             "}"
           "}"
           "google.charts.setOnLoadCallback(_tcD);"
@@ -4965,19 +5105,22 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
 
       // 2) New chart: emit div container + _tcN() registration with optional y-axis range
       if (new_chart) {
+        const char *div_style = (type == 116)
+          ? "width:100%;overflow-x:auto"
+          : "width:530px;height:200px";
         if (fixed_range) {
           char ymin_s[16], ymax_s[16];
           dtostrf(ymin, 1, 1, ymin_s);
           dtostrf(ymax, 1, 1, ymax_s);
           WSContentSend_P(PSTR(
-            "<div id=\"tc%d\" style=\"width:530px;height:200px;\"></div>"
+            "<div id=\"tc%d\" style=\"%s\"></div>"
             "<script>_tcN(%d,'%s','%s',%d,%s,%s);</script>"
-          ), tc_chart_seq, tc_chart_seq, title, unit, type, ymin_s, ymax_s);
+          ), tc_chart_seq, div_style, tc_chart_seq, title, unit, type, ymin_s, ymax_s);
         } else {
           WSContentSend_P(PSTR(
-            "<div id=\"tc%d\" style=\"width:530px;height:200px;\"></div>"
+            "<div id=\"tc%d\" style=\"%s\"></div>"
             "<script>_tcN(%d,'%s','%s',%d,0,0);</script>"
-          ), tc_chart_seq, tc_chart_seq, title, unit, type);
+          ), tc_chart_seq, div_style, tc_chart_seq, title, unit, type);
         }
       }
 
@@ -4994,9 +5137,10 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         tc_chart_seq, unit, cbuf);
 
       // Unwind ring buffer: oldest entry first, interpret as float
+      // Use count (not arr_len) for wrap — arr_len is "remaining globals" not array size
       for (int32_t i = 0; i < count; i++) {
         int32_t idx = pos - count + i;
-        if (idx < 0) idx += arr_len;
+        if (idx < 0) idx += count;
         float fval;
         memcpy(&fval, &arr[idx], sizeof(float));
         int32_t mins_ago = -((count - 1 - i) * interval);
@@ -5018,6 +5162,119 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
 #endif
       break;
     }
+
+    case SYS_PLUGIN_QUERY: {
+      // pluginQuery(dst, index, p1, p2) -> strlen
+      // Calls Plugin_Query(index, (p1<<8)|p2, 0), copies result string to dst
+      int32_t p2_val    = TC_POP(vm);
+      int32_t p1_val    = TC_POP(vm);
+      int32_t index     = TC_POP(vm);
+      int32_t dst_ref   = TC_POP(vm);
+#ifdef USE_BINPLUGINS
+      int32_t *dst = tc_resolve_ref(vm, dst_ref);
+      if (!dst) { TC_PUSH(vm, 0); break; }
+      int32_t maxSlots = tc_ref_maxlen(vm, dst_ref) - 1;
+      if (maxSlots <= 0) { TC_PUSH(vm, 0); break; }
+      uint16_t par = ((uint8_t)p1_val << 8) | (uint8_t)p2_val;
+      char *rbuff = (char*)Plugin_Query((uint16_t)index, par, 0);
+      if (rbuff) {
+        int32_t rlen = strlen(rbuff);
+        if (rlen > maxSlots) rlen = maxSlots;
+        for (int32_t i = 0; i < rlen; i++) dst[i] = (int32_t)(uint8_t)rbuff[i];
+        dst[rlen] = 0;
+        free(rbuff);
+        TC_PUSH(vm, rlen);
+      } else {
+        dst[0] = 0;
+        TC_PUSH(vm, 0);
+      }
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+
+    case SYS_SORT_ARRAY: {
+      // sortArray(arr, count, flags)
+      // flags: 0=int asc, 1=float asc, 2=int desc, 3=float desc
+      int32_t flags   = TC_POP(vm);
+      int32_t count   = TC_POP(vm);
+      int32_t arr_ref = TC_POP(vm);
+      int32_t *arr = tc_resolve_ref(vm, arr_ref);
+      if (!arr || count <= 1) break;
+      int32_t maxLen = tc_ref_maxlen(vm, arr_ref);
+      if (count > maxLen) count = maxLen;
+      // Insertion sort — small arrays, no extra memory, stable
+      for (int32_t i = 1; i < count; i++) {
+        int32_t key = arr[i];
+        int32_t j = i - 1;
+        if (flags & 1) {
+          // Float comparison
+          float fkey; memcpy(&fkey, &key, sizeof(float));
+          while (j >= 0) {
+            float fj; memcpy(&fj, &arr[j], sizeof(float));
+            bool swap = (flags & 2) ? (fj < fkey) : (fj > fkey);
+            if (!swap) break;
+            arr[j + 1] = arr[j];
+            j--;
+          }
+        } else {
+          // Integer comparison
+          while (j >= 0) {
+            bool swap = (flags & 2) ? (arr[j] < key) : (arr[j] > key);
+            if (!swap) break;
+            arr[j + 1] = arr[j];
+            j--;
+          }
+        }
+        arr[j + 1] = key;
+      }
+      break;
+    }
+
+    // ── Webcam (multiplexed) ───────────────────────────
+#if defined(ESP32) && defined(USE_WEBCAM)
+    case SYS_CAM_CONTROL: {
+      // camControl(sel, p1, p2) -> int
+      int32_t p2  = TC_POP(vm);
+      int32_t p1  = TC_POP(vm);
+      int32_t sel = TC_POP(vm);
+      int32_t res = 0;
+      switch (sel) {
+        case 0: res = WcSetup(p1); break;                  // init(resolution)
+        case 1: res = WcGetFrame(p1); break;               // capture(bufnum) -> framesize
+        case 2: res = WcSetOptions(p1, p2); break;         // options(sel, val)
+        case 3: res = WcGetWidth(); break;                 // width()
+        case 4: res = WcGetHeight(); break;                // height()
+        case 5: res = WcSetStreamserver(p1); break;        // stream(on/off)
+        case 6: res = WcSetMotionDetect(p1); break;        // motion(param)
+        case 7: {
+          // savePic(bufnum, filehandle) — write picture from RAM buffer to open file
+          uint8_t *buff;
+          int32_t maxps = WcGetPicstore(-1, 0);
+          int32_t bnum = p1;
+          if (bnum < 1 || bnum > maxps) bnum = 1;
+          uint32_t len = WcGetPicstore(bnum - 1, &buff);
+          if (len && p2 >= 0 && p2 < TC_MAX_FILE_HANDLES && Tinyc->file_used[p2]) {
+            res = tc_file_handles[p2].write(buff, len);
+          }
+          break;
+        }
+        default:
+          AddLog(LOG_LEVEL_ERROR, PSTR("TCC: camControl unknown sel=%d"), sel);
+          res = -1;
+          break;
+      }
+      TC_PUSH(vm, res);
+      break;
+    }
+#else
+    case SYS_CAM_CONTROL: {
+      TC_POP(vm); TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, -1);
+      break;
+    }
+#endif
 
     // ── Display drawing (direct renderer calls) ──────
 #ifdef USE_DISPLAY
@@ -5681,6 +5938,19 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       }
       break;
     }
+    case SYS_EMAIL_BODY_STR: {
+      // mailBody("literal") — set email body from string literal in const pool
+      int32_t ci = TC_POP(vm);
+      if (Tinyc->email_body) { free(Tinyc->email_body); Tinyc->email_body = nullptr; }
+      const char *str = tc_get_const_str(vm, ci);
+      if (str) {
+        Tinyc->email_body = strdup(str);
+        if (Tinyc->email_body) {
+          AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: mailBody set from literal (%d chars)"), strlen(str));
+        }
+      }
+      break;
+    }
     case SYS_EMAIL_ATTACH: {
       // mailAttach("/path") — add file attachment (string literal from const pool)
       int32_t ci = TC_POP(vm);
@@ -5689,6 +5959,22 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         Tinyc->email_attach[Tinyc->email_attach_count] = strdup(path);
         if (Tinyc->email_attach[Tinyc->email_attach_count]) {
           AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: mailAttach[%d] = %s"), Tinyc->email_attach_count, path);
+          Tinyc->email_attach_count++;
+        }
+      }
+      break;
+    }
+    case SYS_EMAIL_ATTACH_PIC: {
+      // mailAttachPic(bufnum) — attach webcam picture from RAM buffer 1..4
+      int32_t bufnum = TC_POP(vm);
+      if (bufnum < 1) bufnum = 1;
+      if (bufnum > 4) bufnum = 4;
+      if (Tinyc->email_attach_count < TC_MAX_EMAIL_ATTACH) {
+        char tmp[4];
+        snprintf(tmp, sizeof(tmp), "$%d", bufnum);
+        Tinyc->email_attach[Tinyc->email_attach_count] = strdup(tmp);
+        if (Tinyc->email_attach[Tinyc->email_attach_count]) {
+          AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: mailAttachPic[%d] = buffer %d"), Tinyc->email_attach_count, bufnum);
           Tinyc->email_attach_count++;
         }
       }
@@ -5741,12 +6027,16 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     }
 #else
     case SYS_EMAIL_BODY:
+    case SYS_EMAIL_BODY_STR:
       TC_POP(vm);
       AddLog(LOG_LEVEL_ERROR, PSTR("TCC: mailBody — USE_SENDMAIL not enabled"));
       break;
     case SYS_EMAIL_ATTACH:
       TC_POP(vm);
       AddLog(LOG_LEVEL_ERROR, PSTR("TCC: mailAttach — USE_SENDMAIL not enabled"));
+      break;
+    case SYS_EMAIL_ATTACH_PIC:
+      TC_POP(vm);
       break;
     case SYS_EMAIL_SEND:
       TC_POP(vm);
@@ -6430,6 +6720,48 @@ static int tc_vm_call_callback(TcVM *vm, const char *name) {
   tc_output_flush();
 
   return vm->error;
+}
+
+// Call a callback with a C string argument (e.g. Event(char json[]))
+// Allocates a temp heap buffer, copies the string, pushes ref, calls callback, frees buffer.
+static int tc_vm_call_callback_str(TcVM *vm, const char *name, const char *str) {
+  // Check callback exists
+  int idx = -1;
+  for (int i = 0; i < vm->callback_count; i++) {
+    if (strcmp(vm->callbacks[i].name, name) == 0) { idx = i; break; }
+  }
+  if (idx < 0) return TC_OK;  // not defined, skip
+  if (!vm->halted || vm->error != TC_OK) return vm->error;
+
+  int32_t slen = str ? strlen(str) : 0;
+  int32_t slots = slen + 1;  // include null terminator
+  if (slots > 512) slots = 512;  // cap at 512 chars
+
+  // Allocate temporary heap buffer
+  int handle = tc_heap_alloc(vm, slots);
+  if (handle < 0) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Event callback — heap alloc failed (%d slots)"), slots);
+    return TC_OK;  // non-fatal, skip callback
+  }
+
+  // Copy string into heap buffer (one char per int32_t slot)
+  int32_t *buf = &vm->heap_data[vm->heap_handles[handle].offset];
+  for (int32_t i = 0; i < slots - 1 && i < slen; i++) {
+    buf[i] = (int32_t)(uint8_t)str[i];
+  }
+  buf[slots - 1] = 0;
+
+  // Push heap ref onto stack for the callback parameter
+  int32_t ref = 0xC0000000 | handle;
+  TC_PUSH(vm, ref);
+
+  // Call the callback (it will pop the ref as its parameter)
+  int err = tc_vm_call_callback(vm, name);
+
+  // Free temp buffer
+  tc_heap_free_handle(vm, handle);
+
+  return err;
 }
 
 /*********************************************************************************************\
@@ -7304,6 +7636,7 @@ static void TinyCStopVM(TcSlot *s) {
   tc_heap_free_all(&s->vm);
   tc_udp_stop();
   tc_spi_cleanup();
+  tc_serial_close();
   // Clear registered console buttons
   if (Tinyc) Tinyc->console_btn_count = 0;
 

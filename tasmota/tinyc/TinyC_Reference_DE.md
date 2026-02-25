@@ -21,10 +21,11 @@ Es laeuft sowohl im Browser (JavaScript-VM) als auch auf ESP32/ESP8266 (als Tasm
 12. [Kommentare](#kommentare)
 13. [Typumwandlung](#typumwandlung)
 14. [Eingebaute Funktionen](#eingebaute-funktionen)
-15. [VM-Grenzen](#vm-grenzen)
-16. [Geraetedateiverwaltung (IDE)](#geraetedateiverwaltung-ide)
-17. [Tastenkuerzel (IDE)](#tastenkuerzel-ide)
-18. [Beispiele](#beispiele)
+15. [Multi-VM Slots (ESP32)](#multi-vm-slots-esp32)
+16. [VM-Grenzen](#vm-grenzen)
+17. [Geraetedateiverwaltung (IDE)](#geraetedateiverwaltung-ide)
+18. [Tastenkuerzel (IDE)](#tastenkuerzel-ide)
+19. [Beispiele](#beispiele)
 
 ---
 
@@ -109,7 +110,7 @@ persist char deviceName[32];        // Array — 32 Slots in Datei
 ```
 
 - Nur globale Variablen koennen `persist` sein (keine lokalen Variablen oder Funktionsparameter)
-- Persist-Variablen werden **automatisch geladen** aus `/tinyc_pvars.bin` beim Programmstart
+- Persist-Variablen werden **automatisch geladen** aus einer `.pvs`-Datei (abgeleitet vom `.tcb`-Dateinamen, z.B. `/weather.pvs` fuer `/weather.tcb`) beim Programmstart
 - Persist-Variablen werden **automatisch gespeichert** beim Stoppen des Programms (`TinyCStop`)
 - `saveVars()` aufrufen zum manuellen Speichern (z.B. nach Mitternachts-Zaehleraktualisierung)
 - Maximal 32 Persist-Eintraege pro Programm
@@ -387,6 +388,9 @@ Definieren Sie einfach Funktionen mit diesen bekannten Namen — keine Registrie
 | `UdpCall()` | UDP-Paket empfangen | Bei jeder Multicast-Variable | Eingehende UDP-Variablen verarbeiten |
 | `WebOn()` | Benutzerdefinierter HTTP-Endpunkt | Bei Anfrage an `webOn()`-URL | REST-APIs, JSON-Endpunkte, Webhooks |
 | `TaskLoop()` | FreeRTOS-Task (ESP32) | Kontinuierliche Schleife im eigenen Task | Hintergrundverarbeitung, unabhaengig vom Haupt-Thread |
+| `CleanUp()` | FUNC_SAVE_BEFORE_RESTART | Vor Geraete-Neustart | Dateien schliessen, Daten sichern, Ressourcen freigeben |
+| `TouchButton(btn, val)` | Touch-Ereignis | Bei GFX-Button/Slider-Beruehrung | Touch-Button-Druecke und Slider-Aenderungen behandeln |
+| `HomeKitWrite(dev, var, val)` | HomeKit-Schreibzugriff | Wenn Apple Home einen Wert aendert | Licht, Schalter, Steckdose von Apple Home steuern |
 
 ### Ausfuehrungsmodell
 
@@ -1064,8 +1068,12 @@ Dateien auf dem ESP32-Dateisystem (LittleFS) lesen und schreiben. In der Browser
 | `int fileExists("path")`                   | Pruefen ob Datei existiert: 1=ja, 0=nein             |
 | `int fileDelete("path")`                   | Datei loeschen, gibt 0=ok, -1=Fehler zurueck         |
 | `int fileSize("path")`                     | Dateigroesse in Bytes, -1 bei Fehler                  |
+| `int fileSeek(handle, offset, whence)`     | Zur Position springen. Gibt 1=ok, 0=Fehler zurueck   |
+| `int fileTell(handle)`                     | Aktuelle Position in Datei, -1 bei Fehler             |
 
 **Dateimodi:** `0` = Lesen, `1` = Schreiben (Erstellen/Abschneiden), `2` = Anfuegen
+
+**Seek-Modus (whence):** `0` = SEEK_SET (vom Anfang), `1` = SEEK_CUR (von aktueller Position), `2` = SEEK_END (vom Ende)
 
 **Hinweise:**
 - Dateipfade muessen Zeichenketten-Literale sein (z.B. `"/data.txt"`)
@@ -1340,6 +1348,7 @@ HTTP GET/POST-Anfragen an externe APIs stellen. URLs koennen Zeichenketten-Liter
 | `int httpGet(char url[], char response[])` | HTTP GET, gibt Antwortlaenge oder negativen Fehler zurueck |
 | `int httpPost(char url[], char data[], char response[])` | HTTP POST, gibt Antwortlaenge oder negativen Fehler zurueck |
 | `void httpHeader(char name[], char value[])` | Benutzerdefinierten Header fuer die naechste Anfrage setzen |
+| `int webParse(char source[], "delim", int index, char result[])` | Nicht-JSON Antworttext parsen (siehe unten) |
 
 **Rueckgabewerte:** `> 0` = Laenge des Antwortkoerpers, `0` = leere Antwort, negativ = HTTP-Fehlercode (z.B. -404).
 
@@ -1396,6 +1405,39 @@ void main() {
     strcpy(hval, "application/json");
     httpHeader(hname, hval);  // Header vor Anfrage setzen
     int len = httpPost(url, data, response);
+}
+```
+
+**webParse() — Nicht-JSON Web-Antworten parsen**
+
+Entspricht Scripters `gwr()`. Extrahiert Daten aus Klartext-HTTP-Antworten (Key=Value, CSV, zeilenbasierte Formate).
+
+**Zwei Modi:**
+- **index > 0** — `source` an `delim` aufteilen, das N-te Segment zurueckgeben (1-basiert). Gibt Laenge zurueck.
+- **index < 0** — Muster `delim=wert` finden, Wert extrahieren (stoppt bei `,`, `:` oder NUL). Gibt Laenge zurueck.
+- **index == 0** — Keine Aktion, gibt 0 zurueck.
+
+**Beispiel — Daikin-Klimaanlage mit webParse:**
+```c
+char url[64];
+char response[256];
+char value[32];
+
+void main() {
+    strcpy(url, "http://192.168.188.43/aircon/get_sensor_info");
+    int len = httpGet(url, response);
+    // response = "ret=OK,htemp=19.0,hhum=-,otemp=7.0,err=0,cmpfreq=0"
+
+    if (len > 0) {
+        // Name=Wert Modus: Wert nach "htemp=" extrahieren
+        webParse(response, "htemp", -1, value);  // value = "19.0"
+        float temp = atof(value);
+        print(temp);  // 19.0
+
+        // Split Modus: 4. komma-getrenntes Feld holen
+        webParse(response, ",", 4, value);  // value = "otemp=7.0"
+        printString(value);
+    }
 }
 ```
 
@@ -1500,6 +1542,7 @@ Beide Callbacks verwenden die gleichen Widget-Funktionen.
 | `webTime(var, "label")` | Zeitauswahl (HH:MM) — gespeichert als HHMM-Ganzzahl (z.B. 1430 = 14:30) |
 | `webPageLabel(page, "label")` | Seite 0–5 mit einer Schaltflaechenbeschriftung auf der Hauptseite registrieren |
 | `int webPage()` | Gibt die aktuelle Seitennummer zurueck, die gerendert wird (in `WebUI()` zur Verzweigung verwenden) |
+| `webConsoleButton("/url", "label")` | Schaltflaeche im Tasmota-Utilities-Menue registrieren (max 4). Navigiert zu URL bei Klick |
 
 Das erste Argument der Widget-Funktionen ist immer eine **globale Variable**, die das Widget liest und in die es schreibt. Der Compiler uebergibt automatisch die Adresse der Variable an den Syscall.
 
@@ -1556,6 +1599,49 @@ Wenn kein `webPageLabel()` aufgerufen wird, aber `WebUI()` existiert, erscheint 
 6. Der Server schreibt den Wert direkt in die TinyC-globale Variable
 7. Die Seite aktualisiert sich automatisch, um den aktualisierten Zustand anzuzeigen
 8. Text- und Zahleneingaben pausieren die automatische Aktualisierung waehrend der Bearbeitung (wird bei Fokusverlust fortgesetzt)
+
+### WebChart — Automatische Google Charts
+
+`WebChart()` rendert Google Charts auf der Tasmota-Hauptseite mit einem einzigen Funktionsaufruf pro Datenserie. Die Google Charts-Bibliothek und das gesamte JavaScript werden automatisch generiert.
+
+```c
+void WebChart(int type, "title", "unit", int color, int pos, int count,
+              float array[], int decimals, int interval, float ymin, float ymax)
+```
+
+| Parameter | Beschreibung |
+|-----------|-------------|
+| `type` | Diagrammtyp: `0` = Liniendiagramm, `1` = Saeulendiagramm |
+| `"title"` | Diagrammtitel (String-Literal). Leer `""` = Serie zum vorherigen Diagramm hinzufuegen |
+| `"unit"` | Y-Achsen-Einheit (String-Literal, z.B. `"°C"`, `"%"`, `"m/s"`) |
+| `color` | Linien-/Balkenfarbe als Hex-RGB (z.B. `0xe74c3c` fuer Rot) |
+| `pos` | Aktuelle Schreibposition im Ringpuffer |
+| `count` | Anzahl gueltiger Datenpunkte (≤ Array-Groesse) |
+| `array` | Float-Array mit den Daten (Ringpuffer) |
+| `decimals` | Anzahl Dezimalstellen fuer Datenwerte (0–6) |
+| `interval` | Minuten zwischen Datenpunkten (fuer X-Achsen-Zeitbeschriftung) |
+| `ymin` | Y-Achsen-Minimum. Wenn `ymin >= ymax`, automatische Skalierung |
+| `ymax` | Y-Achsen-Maximum. Wenn `ymin >= ymax`, automatische Skalierung |
+
+**Beispiel — 24h Wetterdaten:**
+```c
+#define NPTS 288       // 24h bei 5-Minuten-Intervallen
+persist float h_temp[NPTS];
+persist float h_hum[NPTS];
+persist int h_pos = 0;
+persist int h_count = 0;
+
+void WebPage() {
+    if (h_count < 1) return;
+    WebChart(0, "Temperatur", "\u00b0C", 0xe74c3c, h_pos, h_count, h_temp, 1, 5, -20, 50);
+    WebChart(0, "Luftfeuchte", "%",      0x3498db, h_pos, h_count, h_hum,  1, 5, 0, 100);
+}
+```
+
+- **Fester Bereich** fuer Daten mit bekannten Grenzen (Luftfeuchte 0–100, UV-Index 0–12)
+- **Auto-Skalierung** (`0, 0`) fuer Daten mit variablem Bereich (Helligkeit, Wind, Regen)
+- Aufruf aus `WebPage()`-Callback — jeder Aufruf erzeugt eine Datenserie
+- Mehrere Serien in einem Diagramm: erster Aufruf hat Titel, weitere verwenden `""` als Titel
 
 **HTML aus Dateien einbinden:**
 
@@ -1654,7 +1740,7 @@ Kompatibel mit Tasmota Scripter's globalem Variablenprotokoll.
 - Maximal 64 Floats pro Array
 
 **Callback:** Definieren Sie `void UdpCall()`, um bei jeder empfangenen Variable benachrichtigt zu werden.
-Der UDP-Socket wird beim ersten `udpSend()`- oder `udpRecv()`-Aufruf automatisch initialisiert.
+Der UDP-Socket wird beim ersten `udpSend()`-, `udpRecv()`- oder `udpReady()`-Aufruf automatisch initialisiert.
 
 **Beispiel (Skalar):**
 ```c
@@ -2036,6 +2122,56 @@ int main() {
 }
 ```
 
+### Touch-Buttons & Slider
+
+GFX-Touch-Buttons und Slider auf dem Display erstellen. Diese Komfortfunktionen formatieren intern `[b...]` und `[bs...]` DisplayText-Befehle.
+
+#### Button-Erstellung
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `dspButton(num, x, y, w, h, oc, fc, tc, ts, "text")` | Power-Button erstellen (steuert Relais `num`) |
+| `dspTButton(num, x, y, w, h, oc, fc, tc, ts, "text")` | Virtuellen Toggle-Button erstellen (MQTT TBT) |
+| `dspPButton(num, x, y, w, h, oc, fc, tc, ts, "text")` | Virtuellen Push-Button erstellen (MQTT PBT) |
+| `dspSlider(num, x, y, w, h, nelem, bg, fc, bc)` | Slider erstellen |
+
+Parameter: `num` = Button-Index (0-15), `x,y` = Position, `w,h` = Groesse, `oc` = Umrissfarbe, `fc` = Fuellfarbe, `tc` = Textfarbe, `ts` = Textgroesse, `nelem` = Slider-Segmente, `bg` = Hintergrundfarbe, `bc` = Balkenfarbe.
+
+#### Zustand setzen & lesen
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `dspButtonState(num, val)` | Button-Zustand setzen (0/1) oder Slider-Wert (0-100) |
+| `int touchButton(num)` | Button-Zustand lesen: 0/1 fuer Buttons, -1 wenn undefiniert |
+| `dspButtonDel(num)` | Button/Slider `num` loeschen, oder alle wenn `num` = -1 |
+
+#### Touch-Callback
+
+Der `TouchButton`-Callback wird bei Touch-Ereignissen mit Button-Index und Wert aufgerufen:
+
+```c
+void TouchButton(int btn, int val) {
+    if (btn == 0) {
+        // Toggle-Button gedrueckt, val = 0 oder 1
+        char buf[16];
+        sprintfInt(buf, "%d", val);
+        tasmCmd("Power1", buf);
+    }
+    if (btn == 1) {
+        // Slider bewegt, val = 0-100
+        char buf[16];
+        sprintfInt(buf, "%d", val);
+        tasmCmd("Dimmer", buf);
+    }
+}
+
+int main() {
+    dspTButton(0, 10, 10, 100, 50, WHITE, BLUE, WHITE, 2, "Light");
+    dspSlider(1, 10, 80, 200, 40, 10, DARKGREY, WHITE, CYAN);
+    return 0;
+}
+```
+
 ### Audio
 
 | Funktion | Beschreibung |
@@ -2056,7 +2192,7 @@ audioSay("sensor alert");  // Text sprechen
 
 | Funktion | Beschreibung |
 |---|---|
-| `saveVars()` | Alle `persist` Globals nach `/tinyc_pvars.bin` speichern |
+| `saveVars()` | Alle `persist` Globals in die `.pvs`-Datei des Programms speichern |
 
 Persist-Variablen werden automatisch beim Programmstart geladen und beim `TinyCStop` gespeichert. Verwenden Sie `saveVars()` um an kritischen Stellen zu speichern (z.B. nach Mitternachts-Zaehleraktualisierung).
 
@@ -2071,11 +2207,494 @@ Persist-Variablen werden automatisch beim Programmstart geladen und beim `TinyCS
 
 Watch-Variablen sind Compiler-Intrinsics — sie erzeugen Inline-Vergleichscode ohne Laufzeit-Overhead (kein Syscall).
 
+### Deep Sleep (ESP32)
+
+| Funktion | Beschreibung |
+|---|---|
+| `deepSleep(int sekunden)` | Tiefschlaf mit Timer-Aufwachen nach `sekunden` |
+| `deepSleepGpio(int sekunden, int pin, int level)` | Tiefschlaf mit Timer + GPIO-Aufwachen (0=low, 1=high) |
+| `int wakeupCause()` | Gibt ESP32-Aufwachgrund zurueck (0=Reset, 2=EXT0, 3=EXT1, 4=Timer, ...) |
+
+Persistente Variablen und Einstellungen werden vor dem Tiefschlaf automatisch gespeichert.
+
+```c
+// Alle 5 Minuten aufwachen zum Sensor-Ablesen
+int cause = wakeupCause();
+if (cause == 4) {
+    // Timer-Aufwachen — Sensor lesen, Daten senden
+}
+deepSleep(300);  // 300 Sekunden schlafen
+
+// Schlafen bis GPIO12 HIGH wird (oder max 1 Stunde)
+deepSleepGpio(3600, 12, 1);
+```
+
+### Email (ESP32 — benoetigt USE_SENDMAIL)
+
+| Funktion | Beschreibung |
+|---|---|
+| `mailBody(body)` | E-Mail-Text setzen (HTML). `body` ist ein `char[]`-Array |
+| `mailAttach("/pfad")` | Dateianhang vom Dateisystem hinzufuegen (String-Literal, bis zu 8) |
+| `int mailSend(params)` | E-Mail senden. `params` ist `char[]` mit `[server:port:user:passwd:von:an:betreff]`. Gibt 0=ok zurueck |
+
+Fuer einfache E-Mails ohne Anhaenge den Text nach `]` in params setzen:
+```c
+char cmd[200];
+strcpy(cmd, "[smtp.gmail.com:465:user:pass:von@x.com:an@y.com:Alarm] Sensor ausgeloest!");
+int result = mailSend(cmd);
+```
+
+Fuer E-Mails mit Dateianhaengen `mailBody()` und `mailAttach()` vor `mailSend()` verwenden:
+```c
+// Text aufbauen
+char body[200];
+sprintfStr(body, "<h1>Tagesbericht</h1><p>Temperatur: %d C</p>", "%.1f");
+
+// Text und Anhaenge registrieren
+mailBody(body);
+mailAttach("/daten.csv");
+mailAttach("/log.txt");
+
+// Senden — params nur [server:port:user:passwd:von:an:betreff]
+char params[200];
+strcpy(params, "[*:*:*:*:*:an@example.com:Tagesbericht]");
+int result = mailSend(params);
+// result: 0=ok, 1=Parse-Fehler, 4=Speicherfehler
+```
+
+`*` fuer Server/Port/User/Passwort/Von-Felder verwenden um `#define`-Standardwerte aus `user_config_override.h` zu nutzen.
+
+### Tesla Powerwall (ESP32 — benoetigt TESLA_POWERWALL)
+
+Zugriff auf die lokale Tesla Powerwall API ueber HTTPS. Verwendet die SSL-Implementierung der E-Mail-Bibliothek (Standard-Arduino-SSL funktioniert nicht mit Powerwall).
+
+**Benoetigt:** `#define TESLA_POWERWALL` in `user_config_override.h` und die ESP-Mail-Client-Bibliothek.
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `int pwlRequest(url)` | Konfigurationsbefehl oder API-Anfrage. Gibt 0=ok, -1=Fehler zurueck |
+| `pwlBind(&var, pfad)` | Globale Float-Variable fuer Auto-Fill registrieren. Pfad mit `#`-Trenner (max 24 Bindings) |
+| `float pwlGet(pfad)` | Float-Wert aus letzter Antwort extrahieren (ad-hoc, parst JSON erneut) |
+| `int pwlStr(pfad, buf)` | String aus letzter Antwort in `char[]`-Puffer extrahieren. Gibt Laenge zurueck |
+
+**Empfohlener Ansatz — `pwlBind` (einmal parsen, alle fuellen):**
+
+Globale Variablen mit JSON-Pfaden in `Setup()` registrieren. Wenn `pwlRequest()` eine Antwort erhaelt, wird JSON **einmal** geparst und alle passenden gebundenen Variablen direkt gefuellt. Keine String-Ersetzungen, kein wiederholtes Parsen.
+
+```c
+float sip, sop, bip, hip, pwl, rper;
+
+void Setup() {
+    pwlRequest("@D192.168.188.60,email@example.com,meinpasswort");
+    pwlRequest("@C0x000004714B006CCD,0x000004714B007969");
+
+    // Bindings registrieren — originale JSON-Schluesselnamen verwenden
+    pwlBind(&sip, "site#instant_power");
+    pwlBind(&sop, "solar#instant_power");
+    pwlBind(&bip, "battery#instant_power");
+    pwlBind(&hip, "load#instant_power");
+    pwlBind(&pwl, "percentage");
+    pwlBind(&rper, "backup_reserve_percent");
+}
+
+void Loop() {
+    // Alle passenden Bindings werden automatisch gefuellt:
+    pwlRequest("/api/meters/aggregates");
+    // sip, sop, bip, hip sind jetzt gesetzt
+
+    pwlRequest("/api/system_status/soe");
+    // pwl ist jetzt gesetzt
+
+    pwlRequest("/api/operation");
+    // rper ist jetzt gesetzt
+}
+```
+
+**Konfigurations-Praefixe:**
+| Praefix | Beschreibung |
+|---------|-------------|
+| `@Dip,email,passwort` | IP und Zugangsdaten konfigurieren |
+| `@Ccts1,cts2` | CTS-Seriennummern konfigurieren (werden in Antworten maskiert) |
+| `@N` | Auth-Cookie loeschen (erneute Authentifizierung erzwingen) |
+
+**Haeufige API-Endpunkte:**
+| Endpunkt | Daten |
+|----------|-------|
+| `/api/meters/aggregates` | Netz-, Batterie-, Haus-, Solarleistung (W) |
+| `/api/system_status/soe` | Ladestand / Batterieprozent |
+| `/api/system_status` | Systemstatus-Informationen |
+| `/api/operation` | Betriebsmodus, Reserveprozent |
+| `/api/meters/readings` | Detaillierte Zaehlerablesung pro CTS |
+
+**Ad-hoc-Zugriff:** `pwlGet()` und `pwlStr()` stehen fuer einmalige Wertextraktion zur Verfuegung, aber `pwlBind()` wird fuer wiederholtes Polling bevorzugt, da es erneutes Parsen vermeidet.
+
+### Adressierbare LED-Streifen (WS2812 — benoetigt USE_WS2812)
+
+WS2812 / NeoPixel adressierbare LED-Streifen direkt aus TinyC steuern.
+
+**Benoetigt:** `#define USE_WS2812` in `user_config_override.h`.
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `setPixels(array, len, offset)` | Setzt `len` Pixel aus `array`, ab Strip-Position `offset & 0x7FF`. Aktualisiert den Strip sofort. |
+
+**Farbformat:** Jedes Array-Element ist `0xRRGGBB` (24-Bit RGB als Integer gepackt).
+
+**RGBW-Modus:** Bit 12 von offset setzen (`offset | 0x1000`) fuer RGBW-Modus. Im RGBW-Modus kodieren zwei aufeinanderfolgende Array-Elemente ein Pixel (High-Word = `0x00RG`, Low-Word = `0xBW00`).
+
+**Beispiel — Regenbogen-Effekt:**
+```c
+int leds[60];
+
+void setup() {
+    for (int i = 0; i < 60; i++) {
+        int hue = (i * 256) / 60;
+        leds[i] = hueToRGB(hue);
+    }
+    setPixels(leds, 60, 0);
+}
+
+int hueToRGB(int h) {
+    int r, g, b;
+    int region = h / 43;
+    int remainder = (h - region * 43) * 6;
+    switch (region) {
+        case 0:  r = 255; g = remainder; b = 0; break;
+        case 1:  r = 255 - remainder; g = 255; b = 0; break;
+        case 2:  r = 0; g = 255; b = remainder; break;
+        case 3:  r = 0; g = 255 - remainder; b = 255; break;
+        case 4:  r = remainder; g = 0; b = 255; break;
+        default: r = 255; g = 0; b = 255 - remainder; break;
+    }
+    return (r << 16) | (g << 8) | b;
+}
+```
+
+---
+
+### HomeKit (ESP32 — benoetigt USE_HOMEKIT)
+
+Apple HomeKit-Integration — Geraete direkt aus TinyC als HomeKit-Zubehoer bereitstellen. Sensoren, Lichter, Schalter und Steckdosen werden ueber Apple Home steuerbar. Alle HomeKit-gebundenen Variablen verwenden **native Float-Werte** — keine x10-Skalierung noetig.
+
+**Benoetigt:** `#define USE_HOMEKIT` in `user_config_override.h`.
+
+#### Vordefinierte HomeKit-Konstanten
+
+| Konstante | Wert | HAP-Kategorie | Variablen |
+|-----------|------|---------------|-----------|
+| `HK_TEMPERATURE` | 1 | Sensor (Temperatur) | 1: Temperatur in °C |
+| `HK_HUMIDITY` | 2 | Sensor (Feuchte) | 1: Feuchte in % |
+| `HK_LIGHT_SENSOR` | 3 | Sensor (Helligkeit) | 1: Lux-Wert |
+| `HK_BATTERY` | 4 | Sensor (Batterie) | 3: Ladezustand, Schwach-Flag, Ladestatus |
+| `HK_CONTACT` | 5 | Sensor (Kontakt) | 1: Offen/Geschlossen |
+| `HK_SWITCH` | 6 | Schalter | 1: Ein/Aus |
+| `HK_OUTLET` | 7 | Steckdose | 1: Ein/Aus |
+| `HK_LIGHT` | 8 | Licht (Farbe) | 4: Power, Hue, Saturation, Brightness |
+
+#### HomeKit-Funktionen
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `hkSetCode(code)` | Kopplungscode festlegen (Format: `"XXX-XX-XXX"`) |
+| `hkAdd(name, typ)` | Geraet hinzufuegen — Name und Typ (z.B. `HK_TEMPERATURE`) |
+| `hkVar(variable)` | Float-Variable an das aktuelle Geraet binden |
+| `int hkReady(variable)` | Gibt 1 zurueck wenn HomeKit diese Variable geaendert hat (loescht Flag automatisch) |
+| `int hkStart()` | Deskriptor fertigstellen und HomeKit starten. Gibt 0=ok zurueck |
+| `hkReset()` | Alle Kopplungsdaten loeschen (Werksreset). Nach Neustart erneut koppeln |
+| `hkStop()` | HomeKit-Server beenden |
+
+#### hkReady() — Aenderungsabfrage
+
+`hkReady(var)` funktioniert wie `udpReady()` — gibt 1 zurueck wenn Apple Home diese Variable seit dem letzten Aufruf geaendert hat, und loescht das Flag automatisch. Die Firmware schreibt den Wert direkt in die globale Variable, daher ist keine manuelle Zuweisung noetig. `hkReady()` nutzen um geaenderte Werte per UDP weiterzuleiten:
+
+```c
+void EverySecond() {
+    if (hkReady(mh_pwr)) { udpSend("mh_pwr", mh_pwr); }
+    if (hkReady(mh_hue)) { udpSend("mh_hue", mh_hue); }
+}
+```
+
+#### HomeKitWrite-Callback (Optional)
+
+Wird aufgerufen wenn Apple Home einen Wert aendert. Der Wert ist bereits in der globalen Variable gespeichert bevor dieser Callback laeuft — nur fuer lokale Seiteneffekte wie Relais-Weiterleitung verwenden:
+
+```c
+void HomeKitWrite(int dev, int var, float val) {
+    // dev = Geraeteindex (Reihenfolge der hkAdd-Aufrufe, ab 0)
+    // var = Variablenindex (Reihenfolge der hkVar-Aufrufe pro Geraet, ab 0)
+    // val = neuer Float-Wert von Apple Home (bereits in der Variablen gespeichert)
+    // Nur fuer Seiteneffekte wie tasm_power = 1 noetig
+}
+```
+
+#### Builder-Pattern (hkAdd + hkVar)
+
+Geraete werden schrittweise definiert. `hkAdd()` beginnt ein Geraet, `hkVar()` bindet Float-Variablen daran. Mehrere `hkVar()`-Aufrufe fuer Geraete mit mehreren Eigenschaften (z.B. Licht mit Farbe):
+
+```c
+// Farbiges Licht — 4 Variablen: Power, Hue, Saturation, Brightness
+float pwr, hue, sat, bri;
+
+hkSetCode("111-22-333");
+hkAdd("Lampe", HK_LIGHT);
+hkVar(pwr); hkVar(hue); hkVar(sat); hkVar(bri);
+
+// Einfacher Sensor — 1 Variable
+float temp;
+hkAdd("Temperatur", HK_TEMPERATURE);
+hkVar(temp);
+
+hkStart();
+```
+
+#### Vollstaendiges Beispiel — Buero mit Licht + Sensoren
+
+```c
+// HomeKit-gebundene Variablen (native Float-Werte)
+float mh_pwr, mh_hue, mh_sat, mh_bri;  // Farblicht
+float elamp;     // Ecklicht ein/aus
+float btemp;     // Temperatur (z.B. 22.5)
+float bhumi;     // Feuchte (z.B. 55.0)
+int last_pwr;
+
+// Nur fuer Relais-Weiterleitung noetig — Wert ist bereits in der Variable
+void HomeKitWrite(int dev, int var, float val) {
+    if (dev == 0 && var == 0) {
+        int pwr;
+        pwr = 0;
+        if (val > 0.0) { pwr = 1; }
+        if (pwr != last_pwr) { tasm_power = pwr; last_pwr = pwr; }
+    }
+}
+
+void EverySecond() {
+    // Sensorwerte via UDP empfangen
+    if (udpReady("btemp")) { btemp = udpRecv("btemp"); }
+    if (udpReady("bhumi")) { bhumi = udpRecv("bhumi"); }
+
+    // HomeKit-geaenderte Werte per UDP weiterleiten (automatisches Dirty-Tracking)
+    if (hkReady(mh_pwr)) { udpSend("mh_pwr", mh_pwr); }
+    if (hkReady(mh_hue)) { udpSend("mh_hue", mh_hue); }
+    if (hkReady(mh_sat)) { udpSend("mh_sat", mh_sat); }
+    if (hkReady(mh_bri)) { udpSend("mh_bri", mh_bri); }
+    if (hkReady(elamp))  { udpSend("elamp",  elamp); }
+}
+
+int main() {
+    mh_pwr = 0.0; mh_hue = 0.0; mh_sat = 0.0; mh_bri = 50.0;
+    elamp = 0.0; btemp = 22.0; bhumi = 50.0;
+    last_pwr = -1;
+
+    hkSetCode("111-11-111");
+    hkAdd("Licht", HK_LIGHT);
+    hkVar(mh_pwr); hkVar(mh_hue); hkVar(mh_sat); hkVar(mh_bri);
+    hkAdd("Ecklicht", HK_OUTLET);          hkVar(elamp);
+    hkAdd("Temperatur", HK_TEMPERATURE);    hkVar(btemp);
+    hkAdd("Feuchte", HK_HUMIDITY);          hkVar(bhumi);
+    hkStart();
+    return 0;
+}
+```
+
+#### Kopplung
+
+1. Firmware mit `USE_HOMEKIT` kompilieren und flashen
+2. TinyC-Programm mit `hkSetCode()` / `hkAdd()` / `hkStart()` kompilieren und hochladen
+3. QR-Code unter `http://<Geraet>/hk` mit iPhone scannen
+4. Bei Konfigurationsaenderungen `hkReset()` einmalig ausfuehren, dann erneut koppeln
+
+#### Vordefinierte Datei-Konstanten
+
+Fuer `fileOpen()` stehen folgende Kurzformen zur Verfuegung:
+
+| Konstante | Wert | Beschreibung |
+|-----------|------|-------------|
+| `r` | 0 | Lesen |
+| `w` | 1 | Schreiben |
+| `a` | 2 | Anhaengen |
+
+```c
+int f = fileOpen("/daten.csv", r);   // statt fileOpen("/daten.csv", 0)
+f = fileOpen("/log.txt", a);          // statt fileOpen("/log.txt", 2)
+```
+
 ### Debug
 
 | Funktion      | Beschreibung                    |
 |---------------|---------------------------------|
 | `dumpVM()`    | VM-Zustand auf Konsole ausgeben |
+
+---
+
+## Multi-VM Slots (ESP32)
+
+Auf dem ESP32 koennen bis zu **4 unabhaengige TinyC-Programme** gleichzeitig in separaten VM-Slots laufen. Jeder Slot hat eigenen Bytecode, Globals, Stack, Heap und Ausgabepuffer. Der ESP8266 unterstuetzt nur 1 Slot.
+
+### Slot-Konfiguration
+
+Slot-Zuweisungen und Autoexec-Flags werden in `/tinyc.cfg` auf dem Dateisystem gespeichert. Diese Datei wird automatisch erstellt und aktualisiert, wenn ein Programm geladen, hochgeladen oder das Autoexec-Flag umgeschaltet wird. Eine manuelle Bearbeitung ist nicht notwendig.
+
+Beispiel `/tinyc.cfg`:
+```
+/weather.tcb,1
+/display.tcb,1
+/logger.tcb,0
+,0
+_info,0
+```
+
+Jede Zeile entspricht einem Slot (0–3): `Dateiname,Autoexec-Flag`. Die letzte Zeile `_info,<0|1>` steuert, ob Debug-Statuszeilen auf der Tasmota-Hauptseite angezeigt werden.
+
+### Tasmota-Befehle
+
+Alle Befehle verwenden standardmaessig Slot 0, wenn keine Slot-Nummer angegeben wird (abwaertskompatibel).
+
+| Befehl                        | Beschreibung                                     |
+|-------------------------------|--------------------------------------------------|
+| `TinyC`                       | Status aller Slots anzeigen (JSON)               |
+| `TinyCRun [slot] [/datei.tcb]`| Slot starten (optional Datei vorher laden)       |
+| `TinyCStop [slot]`            | Slot stoppen                                     |
+| `TinyCReset [slot]`           | Slot stoppen und zuruecksetzen                   |
+| `TinyCExec <n>`               | Instruktionen pro Tick setzen (Standard 1000)    |
+| `TinyCInfo 0\|1`              | VM-Debug-Zeilen auf Hauptseite ein-/ausblenden   |
+| `TinyC ?<abfrage>`            | Globale Variablen per Index abfragen (siehe unten)|
+
+**Beispiele:**
+```
+TinyCRun                    → Slot 0 starten
+TinyCRun /weather.tcb       → Datei in Slot 0 laden und starten
+TinyCRun 2 /logger.tcb      → Datei in Slot 2 laden und starten
+TinyCStop 1                 → Slot 1 stoppen
+TinyCReset 3                → Slot 3 zuruecksetzen
+TinyCInfo 1                 → Debug-Info auf Hauptseite anzeigen
+```
+
+### Web-Konsole (`/tc`)
+
+Die TinyC-Konsolenseite unter `/tc` zeigt eine kompakte Uebersicht aller Slots:
+
+- **Statusanzeige**: gruener Punkt = aktiv (laeuft oder Callback-bereit), orange = geladen aber nicht gestartet, grau = leer
+- **Run / Stop Buttons**: kontextabhaengig — Run ausgegraut wenn aktiv, Stop ausgegraut wenn inaktiv
+- **A-Button**: schaltet Auto-Ausfuehrung beim Booten um (gruen = aktiviert). Wird sofort in `/tinyc.cfg` gespeichert
+- **Programm laden**: Dateiauswahl mit Slot-Dropdown um beliebige `.tcb`-Datei in beliebigen Slot zu laden
+- **Programm hochladen**: Datei-Upload mit Slot-Dropdown um eine `.tcb`-Datei direkt hochzuladen
+
+### API-Endpunkte
+
+Die JSON-API unter `/tc_api` unterstuetzt einen `slot`-Parameter:
+
+```
+GET /tc_api?cmd=run&slot=2     → Slot 2 starten
+GET /tc_api?cmd=stop&slot=1    → Slot 1 stoppen
+GET /tc_api?cmd=status         → Status aller Slots
+POST /tc_upload?slot=3&api=1   → .tcb in Slot 3 hochladen (JSON-Antwort)
+```
+
+### Variablen-Abfrage — `_Q()` Makro (Google Charts)
+
+Globale TinyC-Variablen koennen per HTTP als JSON abgefragt werden, um Live-Dashboards mit Google Charts oder anderen JavaScript-Charting-Bibliotheken zu erstellen.
+
+Das `_Q()` Makro wird zur **Kompilierzeit** in String-Literalen expandiert. Der Compiler ersetzt Variablennamen durch ihre Indizes und Typen — das Binary enthaelt keine Variablennamen, nur kompakte Index-basierte Abfragen.
+
+**Syntax:** `_Q(var1, var2, ...)`
+
+Der Compiler ersetzt `_Q(...)` durch einen index-kodierten Abfrage-String:
+- `<index>i` — int-Skalar
+- `<index>f` — float-Skalar
+- `<index>s<n>` — char[n] String
+- `<index>I<n>` — int-Array mit n Elementen
+- `<index>F<n>` — float-Array mit n Elementen
+
+**Beispiel:** Bei den Globalen `float temperature; int counter;` wird der String:
+```c
+"TinyC+%3F_Q(temperature,counter)"
+```
+zur Kompilierzeit expandiert zu:
+```
+"TinyC+%3F0f;1i"
+```
+
+**Antwortformat:** JSON-Array in der Reihenfolge der Abfrage:
+```json
+{"TinyC":[23.5,42]}
+```
+
+**Verwendung im WebPage-Callback:**
+```c
+float temperature = 23.5;
+int counter = 0;
+
+void WebPage() {
+    webSend("<script>fetch('/cm?cmnd=TinyC+%3F_Q(temperature,counter)')");
+    webSend(".then(r=>r.json()).then(d=>{var v=d.TinyC;");
+    webSend("// v[0]=temperature, v[1]=counter");
+    webSend("});</script>");
+}
+```
+
+Fuer einen bestimmten Slot wird die Slot-Nummer vorangestellt:
+```
+TinyC ?2 0f;1i      → Abfrage aus Slot 2
+```
+
+### Boot-Ablauf
+
+Beim Booten liest TinyC `/tinyc.cfg` und:
+1. Laedt jede konfigurierte `.tcb`-Datei in ihren Slot
+2. Startet automatisch Slots mit gesetztem Autoexec-Flag (`1`)
+
+Wenn keine `/tinyc.cfg` existiert (erster Start), werden keine Programme geladen.
+
+### Ressourcenverbrauch
+
+Jeder VM-Slot verbraucht ca. **3,2 KB RAM** (nur Struct, ohne Programm-Bytecode). Slots werden dynamisch allokiert — nur aktive Slots verbrauchen Speicher. Das Slot-Pointer-Array selbst benoetigt nur 16 Bytes.
+
+| Ressource             | Kosten                       |
+|-----------------------|------------------------------|
+| Pointer-Array         | 16 Bytes (4 Zeiger)          |
+| Pro-Slot Struct       | ~3,2 KB                      |
+| Programm-Bytecode     | variabel (malloc)            |
+| Heap (grosse Arrays)  | max 32 KB, bei Bedarf allokiert |
+
+### Callbacks mit mehreren Slots
+
+Jeder Slot erhaelt seine eigenen Callbacks unabhaengig:
+
+- `EverySecond()`, `Every50ms()` — werden an alle aktiven Slots verteilt
+- `WebCall()` — jeder Slot kann eigene Sensorzeilen zur Hauptseite hinzufuegen
+- `JsonCall()` — jeder Slot fuegt eigene Telemetriedaten hinzu
+- `TaskLoop()` — laeuft im eigenen FreeRTOS-Task des Slots (ESP32)
+- `CleanUp()` — wird auf allen Slots vor Geraete-Neustart aufgerufen
+
+Geteilte Ressourcen (UDP, SPI, Datei-Handles) sind global — nur ein Slot sollte diese gleichzeitig nutzen.
+
+### Beispiel: Zwei Programme nebeneinander
+
+Slot 0 — Temperaturueberwachung:
+```c
+int temp = 0;
+void EverySecond() { temp = tasm_analog0; }
+void WebCall() {
+    char buf[64];
+    sprintfInt(buf, "{s}Temperatur{m}%d{e}", temp);
+    webSend(buf);
+}
+int main() { return 0; }
+```
+
+Slot 1 — Betriebszeitzaehler:
+```c
+int uptime = 0;
+void EverySecond() { uptime++; }
+void WebCall() {
+    char buf[64];
+    sprintfInt(buf, "{s}Betriebszeit{m}%d s{e}", uptime);
+    webSend(buf);
+}
+int main() { return 0; }
+```
+
+Beide zeigen ihre Sensorzeilen gleichzeitig auf der Tasmota-Hauptseite an.
 
 ---
 
@@ -2094,6 +2713,7 @@ Watch-Variablen sind Compiler-Intrinsics — sie erzeugen Inline-Vergleichscode 
 | Instruktionslimit  | 1M       | 1M       | 1M       | Sicherheitslimit pro Ausfuehrung   |
 | GPIO-Pins          | 40       | 40       | 40       | Pins 0–39 (im Browser simuliert)   |
 | Datei-Handles      | 4        | 4        | 8        | Gleichzeitig geoeffnete Dateien    |
+| VM-Slots           | 1        | 4        | 1        | Gleichzeitige Programme            |
 
 ---
 
