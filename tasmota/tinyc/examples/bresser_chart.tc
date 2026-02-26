@@ -1,8 +1,9 @@
 // Bresser Weather Station + 24h Google Charts (CC1101 868 MHz)
 // Full Bresser 5/6/7-in-1 receiver with 6 ring-buffer charts
 // 288 points per chart (every 5 min, 24 hours)
+// Uses WebChart() for automatic Google Charts rendering
 // Uses persist keyword for automatic chart data save/restore across reboots
-// Globals: 6 × 288 = 1728 slots (of 8192 available on ESP32)
+// Globals: 6 × 288 = 1728 slots (of dynamic max on ESP32)
 
 // Uncomment to simulate sensor data (no CC1101 hardware needed)
 #define SIMULATE 1
@@ -111,15 +112,15 @@ int   soil_cnt = 0;
 float br_lux = 0.0;     // brightness in lux
 float br_uvi = 0.0;     // UV index
 
-// Ring buffers for 24h charts (stored as int × 10 for 1-decimal precision)
+// Ring buffers for 24h charts (stored as native float values)
 // Charted variables: temp, hum, windavg, rain, brightness, uvi
 // persist auto-saves/restores these arrays and counters across reboots
-persist int h_temp[NPTS];
-persist int h_hum[NPTS];
-persist int h_wavg[NPTS];
-persist int h_rain[NPTS];
-persist int h_lux[NPTS];
-persist int h_uvi[NPTS];
+persist float h_temp[NPTS];
+persist float h_hum[NPTS];
+persist float h_wavg[NPTS];
+persist float h_rain[NPTS];
+persist float h_lux[NPTS];
+persist float h_uvi[NPTS];
 persist int h_pos = 0;       // ring buffer write position
 persist int h_count = 0;     // total samples stored (saturates at NPTS)
 persist int sec_cnt = 0;     // seconds counter for store interval
@@ -502,12 +503,12 @@ void Every50ms() {
 #endif
 
 void store_sample() {
-    h_temp[h_pos] = (int)(br_temp * 10.0);
-    h_hum[h_pos] = br_hum;
-    h_wavg[h_pos] = (int)(br_wind_avg * 10.0);
-    h_rain[h_pos] = (int)(br_rain * 10.0);
-    h_lux[h_pos] = (int)(br_lux * 10.0);
-    h_uvi[h_pos] = (int)(br_uvi * 10.0);
+    h_temp[h_pos] = br_temp;
+    h_hum[h_pos] = (float)br_hum;
+    h_wavg[h_pos] = br_wind_avg;
+    h_rain[h_pos] = br_rain;
+    h_lux[h_pos] = br_lux;
+    h_uvi[h_pos] = br_uvi;
     h_pos++;
     if (h_pos >= NPTS) h_pos = 0;
     if (h_count < NPTS) h_count++;
@@ -561,122 +562,23 @@ void EverySecond() {
     }
 }
 
-// --- Chart Helper: get value from ring buffer by chart_id ---
-// chart_id: 0=temp, 1=hum, 2=windavg, 3=rain, 4=lux, 5=uvi
-
-int get_hist(int chart_id, int idx) {
-    if (chart_id == 0) return h_temp[idx];
-    if (chart_id == 1) return h_hum[idx];
-    if (chart_id == 2) return h_wavg[idx];
-    if (chart_id == 3) return h_rain[idx];
-    if (chart_id == 4) return h_lux[idx];
-    if (chart_id == 5) return h_uvi[idx];
-    return 0;
-}
-
-// Emit chart data rows for one variable
-// chart_id selects the array, scale10: 1=values are ×10, 0=raw int
-// X-axis: minutes ago (negative), JS converts to clock time
-void emit_chart(int chart_id, int scale10) {
-    char buf[80];
-    int i;
-    int n = h_count;
-
-    i = 0;
-    while (i < n) {
-        int idx = h_pos - n + i;
-        if (idx < 0) idx = idx + NPTS;
-        int val = get_hist(chart_id, idx);
-
-        // Minutes ago (negative for past, 0 = now)
-        int mins_ago = (n - 1 - i) * 5;
-
-        if (scale10) {
-            sprintfInt(buf, "[%d", 0 - mins_ago);
-            sprintfAppendInt(buf, ",%d]", val);
-        } else {
-            sprintfInt(buf, "[%d", 0 - mins_ago);
-            sprintfAppendInt(buf, ",%d]", val * 10);
-        }
-        if (i < n - 1) strcat(buf, ",");
-        webSend(buf);
-        if (i % 50 == 49) webFlush();
-        i++;
-    }
-}
-
+// WebChart(type, title, unit, color, pos, count, array, decimals, interval, ymin, ymax)
+// type: 0=line, 1=column
+// Empty title "" = add series to previous chart
+// decimals = number of decimal places to display
+// interval = minutes between samples (for X-axis time)
+// ymin, ymax = Y-axis range (if ymin >= ymax → auto-scale)
 void WebPage() {
-    char buf[128];
-
     if (h_count < 1) {
         webSend("<p>Collecting data... Charts appear after first sample.</p>");
         return;
     }
-
-    // Chart container divs + Google Charts loader (in main page, not AJAX)
-    webSend("<script src=\"https://www.gstatic.com/charts/loader.js\"></script>");
-    webSend("<script>google.charts.load('current',{packages:['corechart']});</script>");
-    int ci;
-    ci = 0;
-    while (ci < 6) {
-        sprintfInt(buf, "<div id=\"c%d\" style=\"width:530px;height:200px;\"></div>", ci);
-        webSend(buf);
-        ci++;
-    }
-    webFlush();
-
-    // Start script block with draw helper (browser converts mins-ago to datetime)
-    // Uses 'datetime' column so the 24h window slides with current time
-    webSend("<script>google.charts.setOnLoadCallback(function(){var N=new Date();");
-    webSend("var W=new Date(N.getTime()-86400000);");
-    webSend("function dc(id,t,u,c,d){var dt=new google.visualization.DataTable();");
-    webSend("dt.addColumn('datetime','Time');dt.addColumn('number',u);");
-    webSend("dt.addRows(d.map(function(r){");
-    webSend("return[new Date(N.getTime()+r[0]*60000),r[1]/10];}));");
-    webSend("var o={title:t,legend:'none',curveType:'none',");
-    webSend("hAxis:{format:'HH:mm',viewWindow:{min:W,max:N}},vAxis:{title:u},");
-    webSend("colors:[c],lineWidth:1,pointSize:0,chartArea:{width:'80%',height:'65%'}};");
-    webSend("new google.visualization.LineChart(document.getElementById(id)).draw(dt,o);}");
-    webFlush();
-
-    // Chart 0: Temperature
-    webSend("dc('c0','Temperature (24h)','\\u00b0C','#e74c3c',[");
-    emit_chart(0, 1);
-    webSend("]);");
-    webFlush();
-
-    // Chart 1: Humidity
-    webSend("dc('c1','Humidity (24h)','%','#3498db',[");
-    emit_chart(1, 0);
-    webSend("]);");
-    webFlush();
-
-    // Chart 2: Wind Average
-    webSend("dc('c2','Wind Average (24h)','m/s','#27ae60',[");
-    emit_chart(2, 1);
-    webSend("]);");
-    webFlush();
-
-    // Chart 3: Rain
-    webSend("dc('c3','Rain (24h)','mm','#2980b9',[");
-    emit_chart(3, 1);
-    webSend("]);");
-    webFlush();
-
-    // Chart 4: Brightness
-    webSend("dc('c4','Brightness (24h)','lux','#f39c12',[");
-    emit_chart(4, 1);
-    webSend("]);");
-    webFlush();
-
-    // Chart 5: UV Index
-    webSend("dc('c5','UV Index (24h)','UVI','#9b59b6',[");
-    emit_chart(5, 1);
-    webSend("]);");
-    webFlush();
-
-    webSend("});</script>");
-    webFlush();
+    WebChart(0, "Temperature (24h)", "\u00b0C", 0xe74c3c, h_pos, h_count, h_temp, 1, 5, -20, 50);
+    WebChart(0, "Humidity (24h)",    "%",        0x3498db, h_pos, h_count, h_hum,  1, 5, 0, 100);
+    WebChart(0, "Wind Average (24h)","m/s",      0x27ae60, h_pos, h_count, h_wavg, 1, 5, 0, 0);
+    WebChart(0, "Rain (24h)",        "mm",       0x2980b9, h_pos, h_count, h_rain, 1, 5, 0, 0);
+    WebChart(0, "Brightness (24h)",  "lux",      0xf39c12, h_pos, h_count, h_lux,  0, 5, 0, 0);
+    WebChart(0, "UV Index (24h)",    "UVI",      0x9b59b6, h_pos, h_count, h_uvi,  1, 5, 0, 12);
 }
 
 void WebCall() {

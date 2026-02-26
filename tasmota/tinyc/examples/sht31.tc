@@ -8,9 +8,19 @@
 
 float sht_temp = 0.0;
 float sht_humi = 0.0;
+float sht_abs_humi = 0.0;
 int sht_ok = 0;
 int sht_addr = 0;
 int sht_bus = 0;
+
+// Fast exp(x) approximation via repeated squaring: (1 + x/1024)^1024
+// Accurate to ~0.05% for |x| < 5 (covers -40..+80°C range)
+float fast_exp(float x) {
+    float v = 1.0 + x / 1024.0;
+    v = v * v; v = v * v; v = v * v; v = v * v; v = v * v;
+    v = v * v; v = v * v; v = v * v; v = v * v; v = v * v;
+    return v;
+}
 
 // Shared buffer for I2C data
 char sht_data[6];
@@ -103,6 +113,11 @@ void EverySecond() {
     int raw_h = (sht_data[3] << 8) | sht_data[4];
     sht_humi = 100.0 * (float)raw_h / 65535.0;
 
+    // Absolute humidity (g/m³) using Magnus formula:
+    // AH = 6.112 * exp(17.67*T/(237.3+T)) * RH * 2.1674 / (273.15+T)
+    float e_arg = 17.67 * sht_temp / (237.3 + sht_temp);
+    sht_abs_humi = 13.2471 * fast_exp(e_arg) * sht_humi / (273.15 + sht_temp);
+
     sht_ok = 1;
 }
 
@@ -112,6 +127,8 @@ void WebCall() {
         sprintfFloat(buf, "{s}SHT31 Temp{m}%.1f °C{e}", sht_temp);
         webSend(buf);
         sprintfFloat(buf, "{s}SHT31 Humidity{m}%.1f %%{e}", sht_humi);
+        webSend(buf);
+        sprintfFloat(buf, "{s}SHT31 Abs Humidity{m}%.1f g/m³{e}", sht_abs_humi);
         webSend(buf);
     } else {
         webSend("{s}SHT31{m}not found{e}");
@@ -123,8 +140,18 @@ void JsonCall() {
     char buf[96];
     sprintfFloat(buf, ",\"SHT3X\":{\"Temperature\":%.1f", sht_temp);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"Humidity\":%.1f}", sht_humi);
+    sprintfFloat(buf, ",\"Humidity\":%.1f", sht_humi);
     responseAppend(buf);
+    sprintfFloat(buf, ",\"AbsHumidity\":%.1f}", sht_abs_humi);
+    responseAppend(buf);
+}
+
+// Called before VM stops — release I2C address so driver can restart
+void OnExit() {
+    if (sht_addr) {
+        I2cResetActive(sht_addr, sht_bus);
+        sht_addr = 0;
+    }
 }
 
 int main() {

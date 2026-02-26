@@ -17,7 +17,7 @@ char devname[32];
 void WebUI() {
     webButton(power, "Power");
     webSlider(brightness, 0, 100, "Brightness");
-    webPulldown(mode, "Off|Auto|Manual|Timer");
+    webPulldown(mode, "Mode", "Off|Auto|Manual|Timer");
     webCheckbox(schedule, "Schedule Active");
     webTime(alarm_time, "Turn-on Time");
     webNumber(fade_speed, 1, 10, "Fade Speed");

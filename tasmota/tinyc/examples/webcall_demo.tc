@@ -12,7 +12,7 @@ void WebCall() {
     // These widgets appear in the sensor section of the main page
     webButton(power, "Power");
     webSlider(brightness, 0, 100, "Brightness");
-    webPulldown(mode, "Off|Auto|Manual");
+    webPulldown(mode, "Mode", "Off|Auto|Manual");
     webText(devname, 32, "Device Name");
 }
 

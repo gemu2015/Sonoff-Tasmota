@@ -15,7 +15,7 @@ void WebUI() {
         // Control page
         webButton(power, "Power");
         webSlider(brightness, 0, 100, "Brightness");
-        webPulldown(mode, "Off|Auto|Manual");
+        webPulldown(mode, "Mode", "Off|Auto|Manual");
     }
     if (page == 1) {
         // Settings page
