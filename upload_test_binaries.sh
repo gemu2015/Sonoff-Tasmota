@@ -100,19 +100,23 @@ $(for f in "${FILES[@]}"; do echo "- \`$(basename "$f")\`"; done)
 - Upload \`tinyc_ide.html.gz\` via Tasmota file manager (Consoles → Manage File System)
 
 ### Changes since last release:
+- \`addCommand()\` / \`responseCmnd()\` — custom console command callbacks
+- \`Command(char cmd[])\` callback — scripts can handle Tasmota console commands
+- \`OnExit()\` / \`Event()\` callbacks — script stop cleanup and rule event handling
+- \`webPulldown(var, "label", "options")\` — now with label parameter
+- \`@getfreepins\` — dynamic GPIO pin picker in webPulldown
+- \`strFind()\` / \`responseCmnd()\` with string literals — auto-detected const variants
+- \`strSub()\` fix — \`len=0\` now correctly copies to end of string
+- DY-SV17F MP3 player driver example with serial TX and console commands
+- I2C sensor examples: VL53L0X, MLX90614, TCS34725, VEML6075
+- \`i2cReadRS()\` — repeated START I2C read for sensors that require it
 - \`WebChart()\` — automatic Google Charts rendering with Y-axis min/max range control
-- Implicit float/int type coercion in assignments (\`float x = 1;\` now works correctly)
-- Persist variable fix — initializer bytecodes no longer overwrite restored values
-- \`udpReady()\` fix — now properly initializes UDP socket on first call
-- \`webParse()\` — parse non-JSON HTTP responses (split by delimiter or name=value extraction)
 - Computed goto VM dispatch — ~10% faster bytecode execution
-- Console auto-refresh when IDE uploads new binary (BroadcastChannel)
 - Multi-VM slots (up to 4 concurrent scripts)
 - Pin safety: forbidden pins halt VM immediately
 - Boot loop protection: autoexec disabled after 4 rapid reboots
 - Deep sleep support: \`deepSleep()\`, \`deepSleepGpio()\`, \`wakeupCause()\`
 - Email with file attachments: \`mailSend()\`, \`mailBody()\`, \`mailAttach()\`
-- Settings persistence via /tinyc.cfg
 - Portable bytecode — compile once in the browser, run on any ESP target
 - Full documentation included (README + Reference EN/DE)
 "

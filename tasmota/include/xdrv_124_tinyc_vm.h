@@ -8,6 +8,10 @@
 #ifndef _XDRV_124_TINYC_VM_H_
 #define _XDRV_124_TINYC_VM_H_
 
+#ifndef HARDWARE_FALLBACK
+#define HARDWARE_FALLBACK 2
+#endif
+
 #ifdef USE_UFILESYS
 extern FS *ffsp;
 extern FS *ufsp;
@@ -206,6 +210,8 @@ enum TcSyscall {
   SYS_STR_PRINT    = 54,  // (ref) -> void  (print char array to output)
   SYS_STRCPY_CONST = 55,  // (dst_ref, const_idx) -> void  (copy string literal into array)
   SYS_STRCAT_CONST = 56,  // (dst_ref, const_idx) -> void  (append string literal to array)
+  SYS_STR_FIND_CONST = 47, // (haystack_ref, needle_const_idx) -> int (-1=not found)
+  SYS_RESPONSE_CMND_STR = 48, // (const_idx) -> void — responseCmnd with string literal
   SYS_SPRINTF_INT  = 57,  // (dst_ref, fmt_const_idx, int_val) -> int chars written
   SYS_SPRINTF_FLT  = 58,  // (dst_ref, fmt_const_idx, float_val) -> int chars written
   SYS_SPRINTF_STR  = 59,  // (dst_ref, fmt_const_idx, src_ref) -> int chars written
@@ -270,6 +276,7 @@ enum TcSyscall {
   SYS_I2C_EXISTS           = 109, // (addr, bus) -> int — 1 if device on bus
   SYS_I2C_SET_DEVICE      = 127, // (addr, bus) -> int — check available & not claimed
   SYS_I2C_SET_FOUND       = 128, // (addr, const_type, bus) -> void — register as claimed
+  SYS_I2C_READ_RS         = 129, // (addr, reg, buf_ref, len, bus) -> int — repeated START read
   SYS_I2C_READ_BUF0       = 112, // (addr, buf_ref, len, bus) -> int — read without register
   SYS_I2C_WRITE0          = 113, // (addr, reg, bus) -> int — write register only (no data)
   // Smart Meter (SML)
@@ -383,6 +390,10 @@ enum TcSyscall {
   SYS_SPRINTF_STR_CONST     = 239, // (dst_ref, fmt_const, src_const) -> int chars
   SYS_SPRINTF_STR_CAT_CONST = 247, // (dst_ref, fmt_const, src_const) -> total len
   SYS_TASM_CMD_REF   = 248, // (cmd_ref, out_buf_ref) -> int — tasmCmd with char array command
+  SYS_I2C_FREE       = 249, // (addr, bus) -> void — release claimed I2C address
+  // Console command callback
+  SYS_ADD_COMMAND     = 45, // (const_idx_prefix) -> void — register command prefix
+  SYS_RESPONSE_CMND  = 46, // (buf_ref) -> void — send console response
   // Touch buttons & sliders (display GFX)
   SYS_DSP_BUTTON      = 240, // (num,x,y,w,h,oc,fc,tc,ts,text_const) -> void — power button
   SYS_DSP_TBUTTON     = 241, // (num,x,y,w,h,oc,fc,tc,ts,text_const) -> void — virtual toggle
@@ -507,8 +518,9 @@ typedef struct {
 #define TC_MAX_TIMERS 4
   uint32_t timer_deadline[TC_MAX_TIMERS];
   bool     timer_active[TC_MAX_TIMERS];
-  // Stack
-  int32_t  stack[TC_STACK_SIZE];
+  // Stack (dynamically allocated in tc_vm_load)
+  int32_t  *stack;
+  uint16_t stack_size;         // allocated size (entries)
   uint16_t sp;
   // Globals (dynamically allocated based on binary header globalSize)
   int32_t  *globals;
@@ -517,10 +529,12 @@ typedef struct {
   TcFrame  frames[TC_MAX_FRAMES];
   uint8_t  fp;
   uint8_t  frame_count;
-  // Constants
-  TcConstant constants[TC_MAX_CONSTANTS];
+  // Constants (dynamically allocated in tc_vm_load)
+  TcConstant *constants;
   uint8_t  const_count;
-  char     const_data[TC_MAX_CONST_DATA];
+  uint8_t  const_capacity;     // allocated count
+  char     *const_data;
+  uint16_t const_data_size;    // allocated bytes
   uint16_t const_data_used;
   // Heap (for large arrays > 255 elements)
   int32_t      *heap_data;       // malloc'd on demand, NULL if no heap used
@@ -577,7 +591,7 @@ typedef struct {
 \*********************************************************************************************/
 
 #ifdef ESP32
-  #define TC_MAX_VMS 4    // max simultaneous VM instances (ESP32)
+  #define TC_MAX_VMS 6    // max simultaneous VM instances (ESP32)
 #else
   #define TC_MAX_VMS 1    // ESP8266: single VM only
 #endif
@@ -590,6 +604,7 @@ struct TcSlot {
   bool     running;
   bool     autoexec;              // auto-run on boot
   char     filename[32];          // e.g. "/bresser.tcb"
+  char     cmd_prefix[17];       // registered command prefix, e.g. "MP3"
   // Output buffer
   char     output[TC_OUTPUT_SIZE];
   uint16_t output_len;
@@ -720,7 +735,10 @@ static TcSlot *tc_slot_alloc(void) {
 static void tc_slot_free(TcSlot *s) {
   if (!s) return;
   if (s->program) { free(s->program); s->program = nullptr; }
+  if (s->vm.stack) { free(s->vm.stack); s->vm.stack = nullptr; s->vm.stack_size = 0; }
   if (s->vm.globals) { free(s->vm.globals); s->vm.globals = nullptr; s->vm.globals_size = 0; }
+  if (s->vm.constants) { free(s->vm.constants); s->vm.constants = nullptr; s->vm.const_capacity = 0; }
+  if (s->vm.const_data) { free(s->vm.const_data); s->vm.const_data = nullptr; s->vm.const_data_size = 0; }
   if (s->vm.heap_data) { free(s->vm.heap_data); s->vm.heap_data = nullptr; }
 #ifdef ESP32
   if (s->vm_mutex) { vSemaphoreDelete(s->vm_mutex); s->vm_mutex = nullptr; }
@@ -1683,22 +1701,22 @@ static void tc_udp_poll(void) {
 \*********************************************************************************************/
 
 #define TC_PUSH(vm, val) do { \
-  if ((vm)->sp >= TC_STACK_SIZE) { (vm)->error = TC_ERR_STACK_OVERFLOW; return (vm)->error; } \
+  if ((vm)->sp >= (vm)->stack_size) { (vm)->error = TC_ERR_STACK_OVERFLOW; return (vm)->error; } \
   (vm)->stack[(vm)->sp++] = (val); } while(0)
 
 #define TC_POP(vm) (((vm)->sp > 0) ? (vm)->stack[--(vm)->sp] : ((vm)->error = TC_ERR_STACK_UNDERFLOW, 0))
 #define TC_PEEK(vm) ((vm)->stack[(vm)->sp - 1])
 #define TC_PUSHF(vm, val) do { \
-  if ((vm)->sp >= TC_STACK_SIZE) { (vm)->error = TC_ERR_STACK_OVERFLOW; return (vm)->error; } \
+  if ((vm)->sp >= (vm)->stack_size) { (vm)->error = TC_ERR_STACK_OVERFLOW; return (vm)->error; } \
   (vm)->stack[(vm)->sp++] = f2i(val); } while(0)
 #define TC_POPF(vm) i2f(TC_POP(vm))
 
 // ── Inner-loop macros for computed-goto dispatch (use local vars, goto on error) ──
 #define TC_IPUSH(val) do { \
-  if (_sp >= TC_STACK_SIZE) { _err = TC_ERR_STACK_OVERFLOW; goto _vm_exit; } \
+  if (_sp >= _stack_size) { _err = TC_ERR_STACK_OVERFLOW; goto _vm_exit; } \
   _stack[_sp++] = (val); } while(0)
 #define TC_IPUSHF(val) do { \
-  if (_sp >= TC_STACK_SIZE) { _err = TC_ERR_STACK_OVERFLOW; goto _vm_exit; } \
+  if (_sp >= _stack_size) { _err = TC_ERR_STACK_OVERFLOW; goto _vm_exit; } \
   _stack[_sp++] = f2i(val); } while(0)
 #define TC_IPOP()  (_stack[--_sp])
 #define TC_IPEEK() (_stack[_sp - 1])
@@ -2221,9 +2239,11 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       if (bufsize < 64) bufsize = 64;
       if (bufsize > 2048) bufsize = 2048;
       if (config < 0 || config > 23) config = 3;  // default 8N1
+#ifdef ESP32
       if (Is_gpio_used(rxpin) || Is_gpio_used(txpin)) {
         AddLog(LOG_LEVEL_INFO, PSTR("TCC: serial warning — pins %d/%d may be in use"), rxpin, txpin);
       }
+#endif
       tc_serial_port = new TasmotaSerial(rxpin, txpin, HARDWARE_FALLBACK, 0, bufsize);
       if (tc_serial_port) {
         if (tc_serial_port->begin(baud, ConvertSerialConfig(config))) {
@@ -3852,6 +3872,41 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
 #endif
       break;
     }
+    case SYS_I2C_READ_RS: {
+      // Stack: [addr, reg, buf_ref, len, bus] — bus on top
+      // Same as I2C_READ_BUF but uses repeated START (for SMBus devices like MLX90614)
+      int32_t bus = TC_POP(vm);
+      int32_t len = TC_POP(vm);
+      int32_t buf_ref = TC_POP(vm);
+      b = TC_POP(vm);  // reg
+      a = TC_POP(vm);  // addr
+#ifdef USE_I2C
+      int32_t *arr = tc_resolve_ref(vm, buf_ref);
+      int32_t maxLen = tc_ref_maxlen(vm, buf_ref);
+      if (arr && len > 0) {
+        if (len > maxLen) len = maxLen;
+        if (len > 255) len = 255;
+        TwoWire& myWire = I2cGetWire((uint8_t)bus);
+        myWire.beginTransmission((uint8_t)a);
+        myWire.write((uint8_t)b);
+        if (myWire.endTransmission(false) == 0) {  // repeated START
+          if ((uint8_t)len == myWire.requestFrom((uint8_t)a, (uint8_t)len)) {
+            for (int32_t i = 0; i < len; i++) { arr[i] = (int32_t)myWire.read(); }
+            TC_PUSH(vm, 1);
+          } else {
+            TC_PUSH(vm, 0);
+          }
+        } else {
+          TC_PUSH(vm, 0);
+        }
+      } else {
+        TC_PUSH(vm, 0);
+      }
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
     case SYS_I2C_WRITE_BUF: {
       // Stack: [addr, reg, buf_ref, len, bus] — bus on top
       int32_t bus = TC_POP(vm);
@@ -3909,6 +3964,48 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         I2cSetActiveFound((uint32_t)a, type_str, (uint8_t)bus);
       }
 #endif
+      break;
+    }
+    case SYS_I2C_FREE: {
+      // i2cFree(addr, bus) — release a claimed I2C address
+      int32_t bus = TC_POP(vm);
+      a = TC_POP(vm);
+#ifdef USE_I2C
+      I2cResetActive((uint32_t)a, (uint8_t)bus);
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: I2C released 0x%02x bus %d"), (uint8_t)a, (uint8_t)bus);
+#endif
+      break;
+    }
+    case SYS_ADD_COMMAND: {
+      // addCommand("MP3") — register command prefix for this slot
+      a = TC_POP(vm);  // const index
+      if (tc_current_slot && a >= 0 && a < vm->const_count && vm->constants[a].type == 1) {
+        strlcpy(tc_current_slot->cmd_prefix, vm->constants[a].str.ptr, sizeof(tc_current_slot->cmd_prefix));
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: Registered command prefix \"%s\""), tc_current_slot->cmd_prefix);
+      }
+      break;
+    }
+    case SYS_RESPONSE_CMND: {
+      // responseCmnd(buf) — send text as console/MQTT command response
+      a = TC_POP(vm);  // buf ref
+      int32_t *arr = tc_resolve_ref(vm, a);
+      int32_t maxLen = tc_ref_maxlen(vm, a);
+      if (arr && maxLen > 0) {
+        char tmpbuf[256];
+        int32_t n = (maxLen < 255) ? maxLen : 255;
+        int32_t i;
+        for (i = 0; i < n && arr[i]; i++) { tmpbuf[i] = (char)(arr[i] & 0xFF); }
+        tmpbuf[i] = '\0';
+        Response_P(PSTR("%s"), tmpbuf);
+      }
+      break;
+    }
+    case SYS_RESPONSE_CMND_STR: {
+      // responseCmnd("literal") — send const string as console response
+      int32_t ci = TC_POP(vm);
+      if (ci >= 0 && ci < vm->const_count && vm->constants[ci].type == 1) {
+        Response_P(PSTR("%s"), vm->constants[ci].str.ptr);
+      }
       break;
     }
     case SYS_I2C_READ_BUF0: {
@@ -4469,7 +4566,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         if (pos < 0) pos = srclen + pos;  // negative = from end
         if (pos < 0) pos = 0;
         if (pos > srclen) pos = srclen;
-        if (slen < 0 || pos + slen > srclen) slen = srclen - pos;
+        if (slen <= 0 || pos + slen > srclen) slen = srclen - pos;
         if (slen > dst_max) slen = dst_max;
         for (int32_t i = 0; i < slen; i++) {
           dst[i] = src[pos + i];
@@ -4499,6 +4596,31 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
             bool match = true;
             for (int32_t j = 0; j < nlen; j++) {
               if (haystack[i + j] != needle[j]) { match = false; break; }
+            }
+            if (match) { result = i; break; }
+          }
+        }
+      }
+      TC_PUSH(vm, result);
+      break;
+    }
+    case SYS_STR_FIND_CONST: {
+      // strFind(haystack, "needle_literal") -> position (-1 if not found)
+      int32_t ci = TC_POP(vm);  // const pool index
+      int32_t haystack_ref = TC_POP(vm);
+      int32_t *haystack = tc_resolve_ref(vm, haystack_ref);
+      int32_t result = -1;
+      if (haystack && ci >= 0 && ci < vm->const_count && vm->constants[ci].type == 1) {
+        const char *needle = vm->constants[ci].str.ptr;
+        int32_t hmax = tc_ref_maxlen(vm, haystack_ref);
+        int32_t hlen = 0;
+        while (hlen < hmax && haystack[hlen] != 0) hlen++;
+        int32_t nlen = strlen(needle);
+        if (nlen > 0 && nlen <= hlen) {
+          for (int32_t i = 0; i <= hlen - nlen; i++) {
+            bool match = true;
+            for (int32_t j = 0; j < nlen; j++) {
+              if (haystack[i + j] != (int32_t)(uint8_t)needle[j]) { match = false; break; }
             }
             if (match) { result = i; break; }
           }
@@ -4832,29 +4954,57 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
     }
     case SYS_WEB_PULLDOWN: {
-      int32_t ci = TC_POP(vm);   // options const idx ("opt1|opt2|opt3")
+      int32_t oi = TC_POP(vm);   // options const idx ("opt1|opt2|opt3" or "@getfreepins")
+      int32_t li = TC_POP(vm);   // label const idx
       int32_t gref = TC_POP(vm);
       uint16_t idx = ((uint32_t)gref) & 0xFFFF;
       int32_t *p = tc_resolve_ref(vm, gref);
-      int32_t val = p ? *p : 0;  // 0-based selected index
-      const char *opts = tc_get_const_str(vm, ci);
+      int32_t val = p ? *p : 0;
+      const char *label = tc_get_const_str(vm, li);
+      const char *opts = tc_get_const_str(vm, oi);
       if (!opts) opts = "";
-      WSContentSend_P(PSTR("<div><select onchange='seva(value,%d)'>"), idx);
-      // Parse pipe-separated options
-      char obuf[256];
-      strlcpy(obuf, opts, sizeof(obuf));
-      int oi = 0;
-      char *op = obuf;
-      char *sep;
-      while (op && *op) {
-        sep = strchr(op, '|');
-        if (sep) *sep = 0;
-        WSContentSend_P(PSTR("<option value='%d'%s>%s</option>"),
-                        oi, (oi == val) ? " selected" : "", op);
-        oi++;
-        op = sep ? sep + 1 : nullptr;
+      if (label && label[0]) {
+        WSContentSend_P(PSTR("<div><label><b>%s</b> "), label);
+      } else {
+        WSContentSend_P(PSTR("<div>"));
       }
-      WSContentSend_P(PSTR("</select></div>"));
+      WSContentSend_P(PSTR("<select onchange='seva(value,%d)'>"), idx);
+
+      if (opts[0] == '@' && strcmp(opts + 1, "getfreepins") == 0) {
+        // Dynamic GPIO pin list — show free (unassigned) pins
+        WSContentSend_P(PSTR("<option value='-1'%s>None</option>"),
+                        (val < 0) ? " selected" : "");
+        for (uint32_t pin = 0; pin < MAX_GPIO_PIN; pin++) {
+          if (FlashPin(pin)) continue;
+          bool free = (TasmotaGlobal.gpio_pin[pin] == 0);
+          // Always show the currently selected pin even if now in use
+          if (free || (int32_t)pin == val) {
+            WSContentSend_P(PSTR("<option value='%d'%s>GPIO %d%s</option>"),
+                            pin, ((int32_t)pin == val) ? " selected" : "",
+                            pin, free ? "" : " (used)");
+          }
+        }
+      } else {
+        // Static pipe-separated options
+        char obuf[256];
+        strlcpy(obuf, opts, sizeof(obuf));
+        int oi = 0;
+        char *op = obuf;
+        char *sep;
+        while (op && *op) {
+          sep = strchr(op, '|');
+          if (sep) *sep = 0;
+          WSContentSend_P(PSTR("<option value='%d'%s>%s</option>"),
+                          oi, (oi == val) ? " selected" : "", op);
+          oi++;
+          op = sep ? sep + 1 : nullptr;
+        }
+      }
+      if (label && label[0]) {
+        WSContentSend_P(PSTR("</select></label></div>"));
+      } else {
+        WSContentSend_P(PSTR("</select></div>"));
+      }
       break;
     }
     case SYS_WEB_RADIO: {
@@ -6557,20 +6707,73 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
 
   if (size < header_size) return TC_ERR_BAD_BINARY;
 
-  // Parse constant pool
+  uint16_t const_end = header_size + const_pool_size;
+
+  // Pre-scan constant pool to count entries and measure const_data bytes needed
+  uint8_t  prescan_count = 0;
+  uint16_t prescan_data  = 0;
+  {
+    uint16_t scan = header_size;
+    while (scan < const_end && prescan_count < TC_MAX_CONSTANTS) {
+      uint8_t type = B(scan); scan++;
+      if (type == 1) {  // string
+        uint16_t len = (B(scan) << 8) | B(scan + 1);
+        scan += 2 + len;
+        prescan_data += len + 1;  // +1 for null terminator
+      } else if (type == 2) {  // float
+        scan += 4;
+      }
+      prescan_count++;
+    }
+  }
+
+  // Close any open file handles from previous run
+  tc_close_all_files();
+
+  // Free any previously allocated dynamic memory
+  tc_free_all_frames(vm);
+  tc_heap_free_all(vm);
+  if (vm->stack) { free(vm->stack); vm->stack = nullptr; vm->stack_size = 0; }
+  if (vm->globals) { free(vm->globals); vm->globals = nullptr; vm->globals_size = 0; }
+  if (vm->constants) { free(vm->constants); vm->constants = nullptr; vm->const_capacity = 0; }
+  if (vm->const_data) { free(vm->const_data); vm->const_data = nullptr; vm->const_data_size = 0; }
+
+  // Allocate stack
+  vm->stack = (int32_t *)calloc(TC_STACK_SIZE, sizeof(int32_t));
+  if (!vm->stack) return TC_ERR_STACK_OVERFLOW;  // OOM
+  vm->stack_size = TC_STACK_SIZE;
+
+  // Allocate globals array based on binary header (minimum 64 slots for small programs)
+  uint16_t alloc_globals = global_size < 64 ? 64 : global_size;
+  vm->globals = (int32_t *)calloc(alloc_globals, sizeof(int32_t));
+  if (!vm->globals) return TC_ERR_STACK_OVERFLOW;  // OOM
+  vm->globals_size = alloc_globals;
+
+  // Allocate constants array based on pre-scan (minimum 8 entries)
+  uint8_t alloc_consts = prescan_count < 8 ? 8 : prescan_count;
+  vm->constants = (TcConstant *)calloc(alloc_consts, sizeof(TcConstant));
+  if (!vm->constants) return TC_ERR_STACK_OVERFLOW;  // OOM
+  vm->const_capacity = alloc_consts;
+
+  // Allocate const_data buffer based on pre-scan (minimum 64 bytes)
+  uint16_t alloc_cdata = prescan_data < 64 ? 64 : prescan_data;
+  vm->const_data = (char *)calloc(alloc_cdata, 1);
+  if (!vm->const_data) return TC_ERR_STACK_OVERFLOW;  // OOM
+  vm->const_data_size = alloc_cdata;
+
+  // Parse constant pool into allocated arrays
   vm->const_count = 0;
   vm->const_data_used = 0;
   uint16_t offset = header_size;
-  uint16_t const_end = header_size + const_pool_size;
 
-  while (offset < const_end && vm->const_count < TC_MAX_CONSTANTS) {
+  while (offset < const_end && vm->const_count < vm->const_capacity) {
     uint8_t type = B(offset); offset++;
     TcConstant *c = &vm->constants[vm->const_count];
     c->type = type;
     if (type == 1) {  // string
       uint16_t len = (B(offset) << 8) | B(offset + 1);
       offset += 2;
-      if (vm->const_data_used + len + 1 > TC_MAX_CONST_DATA) break;
+      if (vm->const_data_used + len + 1 > vm->const_data_size) break;
       c->str.ptr = &vm->const_data[vm->const_data_used];
       c->str.len = len;
       TC_MEMCPY(&vm->const_data[vm->const_data_used], &binary[offset], len);
@@ -6585,20 +6788,6 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
     }
     vm->const_count++;
   }
-
-  // Close any open file handles from previous run
-  tc_close_all_files();
-
-  // Free any previously allocated frame locals, heap, and globals
-  tc_free_all_frames(vm);
-  tc_heap_free_all(vm);
-  if (vm->globals) { free(vm->globals); vm->globals = nullptr; vm->globals_size = 0; }
-
-  // Allocate globals array based on binary header (minimum 64 slots for small programs)
-  uint16_t alloc_globals = global_size < 64 ? 64 : global_size;
-  vm->globals = (int32_t *)calloc(alloc_globals, sizeof(int32_t));
-  if (!vm->globals) return TC_ERR_STACK_OVERFLOW;  // OOM
-  vm->globals_size = alloc_globals;
 
   // Parse heap declarations and pre-allocate blocks
   uint16_t heap_end = const_end + heap_decl_size;
@@ -6685,8 +6874,7 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   vm->delay_until = 0;
   vm->error = TC_OK;
   vm->instruction_count = 0;
-  memset(vm->globals, 0, sizeof(vm->globals));
-  memset(vm->stack, 0, sizeof(vm->stack));
+  // globals and stack already zero from calloc — no memset needed
   vm->persist_file[0] = '\0';  // caller sets this before tc_persist_load()
 
   // Allocate frame 0 for main() — program starts here without OP_CALL
@@ -7154,6 +7342,7 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
 
   // ── Prologue: load hot VM state into locals ──
   int32_t *_stack  = vm->stack;
+  uint16_t _stack_size = vm->stack_size;
   const uint8_t *_code = vm->code;
   uint16_t _sp     = vm->sp;
   uint16_t _pc     = vm->pc;
@@ -7692,19 +7881,28 @@ static void TinyCStopVM(TcSlot *s) {
   }
 #endif
 
+  // Call OnExit() callback BEFORE teardown — lets driver release resources (I2C, etc.)
+  s->vm.error = TC_OK;
+  s->vm.running = false;
+  s->vm.halted = true;
+  tc_current_slot = s;
+  tc_vm_call_callback(&s->vm, "OnExit");
+  tc_output_flush();
+  tc_current_slot = nullptr;
+
   // Auto-save persist variables before clearing VM
   tc_persist_save(&s->vm);
 
   s->running = false;
   s->vm.running = false;
-  s->vm.error = TC_OK;  // clear the error we set for stopping
   tc_free_all_frames(&s->vm);
   tc_heap_free_all(&s->vm);
   tc_udp_stop();
   tc_spi_cleanup();
   tc_serial_close();
-  // Clear registered console buttons
+  // Clear registered console buttons and command prefix
   if (Tinyc) Tinyc->console_btn_count = 0;
+  s->cmd_prefix[0] = '\0';
 
   // Flush output for this slot
   tc_current_slot = s;

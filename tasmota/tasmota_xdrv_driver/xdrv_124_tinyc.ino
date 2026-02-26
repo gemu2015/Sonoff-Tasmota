@@ -128,7 +128,7 @@ extern "C" {
 #endif
     tc_current_slot = s;
     TcVM *vm = &s->vm;
-    if (vm->sp + 3 <= TC_STACK_SIZE) {
+    if (vm->sp + 3 <= vm->stack_size) {
       vm->stack[vm->sp++] = (int32_t)dev_index;
       vm->stack[vm->sp++] = (int32_t)var_index;
       vm->stack[vm->sp++] = value;
@@ -189,7 +189,7 @@ void tinyc_touch_button(uint8_t btn, int16_t val) {
     // Push args left-to-right: btn first, then val (callee pops in reverse)
     // Note: can't use TC_PUSH macro here (it has 'return int' in overflow check)
     TcVM *vm = &s->vm;
-    if (vm->sp + 2 <= TC_STACK_SIZE) {
+    if (vm->sp + 2 <= vm->stack_size) {
       vm->stack[vm->sp++] = (int32_t)btn;
       vm->stack[vm->sp++] = (int32_t)val;
       tc_vm_call_callback(vm, "TouchButton");
@@ -606,8 +606,13 @@ void CmndTinyCReset(void) {
   uint8_t slot_num = tc_parse_cmd_slot(&p, &len);
   TcSlot *s = Tinyc->slots[slot_num];
   if (!s) { ResponseCmndChar_P(TC_NOT_INIT); return; }
-  TinyCStopVM(s);  // also frees frame locals
-  memset(&s->vm, 0, sizeof(TcVM));  // safe -- pointers already freed
+  TinyCStopVM(s);  // frees frame locals and heap
+  // Free remaining dynamic VM allocations before zeroing struct
+  if (s->vm.stack) { free(s->vm.stack); }
+  if (s->vm.globals) { free(s->vm.globals); }
+  if (s->vm.constants) { free(s->vm.constants); }
+  if (s->vm.const_data) { free(s->vm.const_data); }
+  memset(&s->vm, 0, sizeof(TcVM));  // zero all fields and pointers
   s->output_len = 0;
   s->output[0] = '\0';
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d reset"), slot_num);
@@ -738,6 +743,11 @@ static void HandleTinyCPage(void) {
       TinyCStopVM(cs);
     } else if (cmd == "reset" && cs) {
       TinyCStopVM(cs);
+      // Free remaining dynamic VM allocations before zeroing struct
+      if (cs->vm.stack) { free(cs->vm.stack); }
+      if (cs->vm.globals) { free(cs->vm.globals); }
+      if (cs->vm.constants) { free(cs->vm.constants); }
+      if (cs->vm.const_data) { free(cs->vm.const_data); }
       memset(&cs->vm, 0, sizeof(TcVM));
       cs->output_len = 0;
       cs->output[0] = '\0';
@@ -2129,6 +2139,36 @@ bool Xdrv124(uint32_t function) {
       break;
     case FUNC_COMMAND:
       result = DecodeCommand(kTinyCCommands, TinyCCommand);
+      if (!result && Tinyc) {
+        // Check each slot for registered command prefix match
+        for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+          TcSlot *s = Tinyc->slots[i];
+          if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) continue;
+          if (!s->cmd_prefix[0]) continue;
+          int plen = strlen(s->cmd_prefix);
+          if (strncasecmp(XdrvMailbox.topic, s->cmd_prefix, plen) == 0) {
+            // Build command string: "{subcommand} {data}"
+            char cmd_str[256];
+            const char *sub = XdrvMailbox.topic + plen;
+            if (XdrvMailbox.data_len > 0) {
+              snprintf(cmd_str, sizeof(cmd_str), "%s %s", sub, XdrvMailbox.data);
+            } else {
+              snprintf(cmd_str, sizeof(cmd_str), "%s", sub);
+            }
+            tc_current_slot = s;
+#ifdef ESP32
+            if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
+#endif
+            tc_vm_call_callback_str(&s->vm, "Command", cmd_str);
+#ifdef ESP32
+            if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+#endif
+            tc_current_slot = nullptr;
+            result = true;
+            break;
+          }
+        }
+      }
       break;
     case FUNC_RULES_PROCESS:
       // Call user's Event(char json[]) callback with the event JSON data

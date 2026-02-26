@@ -1352,6 +1352,7 @@ double dval;
 }
 
 uint8_t sb_counter;
+uint32_t lastmath;
 
 // need double precision in this driver
 double CharToDouble(const char *str)
@@ -2000,7 +2001,9 @@ void SML_Decode(uint8_t index) {
       // calculated entry, check syntax
       mp++;
       // do math m 1+2+3
-      if (*mp == 'm' && !sb_counter) {
+      //if (*mp == 'm' && !sb_counter) {
+      if (*mp == 'm' && (millis()-lastmath)>1000) {
+        lastmath = millis();
         // only every 256 th byte
         // else it would be calculated every single serial byte
         mp++;
@@ -3280,6 +3283,8 @@ void SML_Init(void) {
   }
 
 	sml_globs.mp = meter_desc;
+
+  lastmath = millis();
 
 #ifdef USE_SCRIPT
   uint8_t meter_script = Run_Scripter(">M", -2, 0);
