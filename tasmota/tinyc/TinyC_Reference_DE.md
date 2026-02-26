@@ -391,6 +391,9 @@ Definieren Sie einfach Funktionen mit diesen bekannten Namen — keine Registrie
 | `CleanUp()` | FUNC_SAVE_BEFORE_RESTART | Vor Geraete-Neustart | Dateien schliessen, Daten sichern, Ressourcen freigeben |
 | `TouchButton(btn, val)` | Touch-Ereignis | Bei GFX-Button/Slider-Beruehrung | Touch-Button-Druecke und Slider-Aenderungen behandeln |
 | `HomeKitWrite(dev, var, val)` | HomeKit-Schreibzugriff | Wenn Apple Home einen Wert aendert | Licht, Schalter, Steckdose von Apple Home steuern |
+| `Command(char cmd[])` | Benutzerdefinierter Konsolenbefehl | Wenn Benutzer registriertes Praefix in Konsole eingibt | Benutzerdefinierte Tasmota-Befehle verarbeiten (z.B. MP3Play, MP3Stop) |
+| `Event(char cmd[])` | Tasmota-Event-Regel-Trigger | Bei `Event`-Befehl aus Regeln oder Konsole | Auf Tasmota-Regel-Events reagieren |
+| `OnExit()` | Skript-Stopp | Wenn VM gestoppt oder Skript ersetzt wird | Serielle Ports schliessen, Ressourcen freigeben |
 
 ### Ausfuehrungsmodell
 
@@ -412,6 +415,9 @@ Verwenden Sie diese Funktionen in Callbacks, um Daten an Tasmota zu senden:
 | `webSend("literal")` | Zeichenketten-Literal an Webseite senden | `WebPage()` / `WebCall()` / `WebOn()` |
 | `webFlush()` | Web-Inhaltspuffer zum Client leeren (-> `WSContentFlush`) | `WebPage()` / `WebCall()` / `WebOn()` |
 | `webSendFile("filename")` | Dateiinhalt vom Dateisystem an Webseite senden | `WebPage()` / `WebCall()` / `WebUI()` / `WebOn()` |
+| `addCommand("prefix")` | Benutzerdefiniertes Konsolen-Befehlspraefix registrieren (z.B. `"MP3"` -> MP3Play, MP3Stop) | `main()` |
+| `responseCmnd(buf)` | Char-Array als Konsolenbefehls-Antwort senden | `Command()` |
+| `responseCmnd("literal")` | Zeichenketten-Literal als Konsolenbefehls-Antwort senden | `Command()` |
 
 ### Webseitenformat
 
@@ -457,6 +463,41 @@ int main() {
 ```
 
 **Ergebnis:** Nach dem Hochladen und Ausfuehren zeigt die Tasmota-Webseite eine "TinyC Counter"-Zeile, die jede Sekunde hochzaehlt, und die MQTT-Telemetrie enthaelt `,"TinyC":{"Count":N}`.
+
+### Benutzerdefinierte Konsolenbefehle
+
+Skripte koennen benutzerdefinierte Tasmota-Konsolenbefehle mit `addCommand("prefix")` registrieren. Wenn ein Benutzer z.B. `MP3Play Sound.mp3` in der Konsole eingibt, erkennt Tasmota das Praefix `"MP3"`, extrahiert den Unterbefehl `"PLAY SOUND.MP3"` und ruft `Command("PLAY SOUND.MP3")` im Skript auf.
+
+**Hinweis:** Tasmota konvertiert das Befehls-Topic in Grossbuchstaben, daher kommen Unterbefehle als `"PLAY"`, `"STOP"` usw. an. Daten nach einem Leerzeichen (Dateinamen, Zahlen) behalten ihre urspruengliche Gross-/Kleinschreibung.
+
+```c
+int volume = 15;
+
+void Command(char cmd[]) {
+    char buf[64];
+    if (strFind(cmd, "PLAY") == 0) {
+        // Play verarbeiten
+        responseCmnd("Playing");
+    } else if (strFind(cmd, "STOP") == 0) {
+        responseCmnd("Stopped");
+    } else if (strFind(cmd, "VOL") == 0) {
+        char arg[16];
+        strSub(arg, cmd, 4, 0);  // alles nach "VOL " extrahieren
+        volume = atoi(arg);
+        sprintfInt(buf, "Volume: %d", volume);
+        responseCmnd(buf);
+    } else {
+        responseCmnd("Unknown: Play|Stop|Vol");
+    }
+}
+
+int main() {
+    addCommand("MP3");   // Praefix "MP3" registrieren
+    return 0;
+}
+```
+
+**Ergebnis:** Die Eingabe von `MP3Play` in der Tasmota-Konsole ruft `Command("PLAY")` auf, `MP3Vol 20` ruft `Command("VOL 20")` auf.
 
 ### TaskLoop-Beispiel (ESP32)
 
@@ -746,7 +787,7 @@ int no = strFind(src, "xyz");          // no = -1
 | Funktion | Beschreibung |
 |----------|-------------|
 | `strToken(char dst[], char src[], int delim, int n)` | N-tes Token (1-basiert) durch Trennzeichen `delim` in dst kopieren. Gibt die Token-Laenge zurueck. |
-| `strSub(char dst[], char src[], int pos, int len)` | `len` Zeichen ab `pos` (0-basiert, negativ=vom Ende) in dst kopieren. Gibt die tatsaechliche Laenge zurueck. |
+| `strSub(char dst[], char src[], int pos, int len)` | `len` Zeichen ab `pos` (0-basiert, negativ=vom Ende) in dst kopieren. `len=0` kopiert bis zum Ende der Zeichenkette. Gibt die tatsaechliche Laenge zurueck. |
 | `strFind(char haystack[], char needle[])` | Erstes Vorkommen von needle in haystack finden. Gibt die Position (0-basiert) oder -1 zurueck, wenn nicht gefunden. |
 
 ### Zeichenzugriff
@@ -1537,7 +1578,7 @@ Beide Callbacks verwenden die gleichen Widget-Funktionen.
 | `webCheckbox(var, "label")` | Kontrollkaestchen (0/1) — Aktivieren/Deaktivieren schaltet um |
 | `webText(chararray, maxlen, "label")` | Texteingabe — Zeichenkettenvariable bearbeiten |
 | `webNumber(var, min, max, "label")` | Zahleneingabe mit Min/Max-Grenzen |
-| `webPulldown(var, "opt0\|opt1\|opt2")` | Dropdown-Auswahl — Pipe-getrennte Optionen, 0-basierter Index |
+| `webPulldown(var, "label", "opt0\|opt1\|opt2")` | Dropdown-Auswahl mit Beschriftung — Pipe-getrennte Optionen, 0-basierter Index. `"@getfreepins"` als Optionen zeigt verfuegbare GPIO-Pins |
 | `webRadio(var, "opt0\|opt1\|opt2")` | Optionsschaltflaechengruppe — Pipe-getrennte Optionen, 0-basierter Index |
 | `webTime(var, "label")` | Zeitauswahl (HH:MM) — gespeichert als HHMM-Ganzzahl (z.B. 1430 = 14:30) |
 | `webPageLabel(page, "label")` | Seite 0–5 mit einer Schaltflaechenbeschriftung auf der Hauptseite registrieren |
@@ -1573,7 +1614,7 @@ void WebUI() {
     if (page == 0) {
         webButton(power, "Power");
         webSlider(brightness, 0, 100, "Brightness");
-        webPulldown(mode, "Off|Auto|Manual");
+        webPulldown(mode, "Mode", "Off|Auto|Manual");
     }
     if (page == 1) {
         webTime(alarm_time, "Wake-up Time");
@@ -2935,7 +2976,7 @@ void WebUI() {
         webSlider(brightness, 0, 100, "Brightness");
     }
     if (page == 1) {
-        webPulldown(mode, "Off|Auto|Manual");
+        webPulldown(mode, "Mode", "Off|Auto|Manual");
     }
 }
 

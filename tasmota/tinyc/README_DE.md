@@ -50,11 +50,17 @@ Callbacks werden automatisch aus Tasmotas Hauptschleife aufgerufen:
 **SML:** `smlGet`, `smlGetStr`, `smlWrite`, `smlRead`, `smlSetBaud`, `smlSetWStr`, `smlSetOpt`, `smlGetV`
 **mDNS:** `mdnsRegister`
 **System:** `tasm_wifi`, `tasm_mqttcon`, `tasm_teleperiod`, `tasm_uptime`, `tasm_heap`, `tasm_power`, `tasm_dimmer`, `tasm_temp`, `tasm_hum`, `tasm_hour`, `tasm_minute`, `tasm_second`, `tasm_year`, `tasm_month`, `tasm_day`, `tasm_wday`, `tasm_cw`, `tasm_sunrise`, `tasm_sunset`, `tasm_time`
+**HomeKit:** `hkSetCode`, `hkAdd`, `hkVar`, `hkReady`, `hkStart`, `hkReset`, `hkStop` + Callback `HomeKitWrite(dev, var, val)`
+**LED-Streifen:** `setPixels(array, len, offset)` — WS2812/NeoPixel-Steuerung
 **Debug:** `print`, `dumpVM`
 
-## Vordefinierte Farbkonstanten
+## Vordefinierte Konstanten
 
-16 RGB565-Farben ohne `#define` verfuegbar: `BLACK`, `WHITE`, `RED`, `GREEN`, `BLUE`, `YELLOW`, `CYAN`, `MAGENTA`, `ORANGE`, `PURPLE`, `GREY`, `DARKGREY`, `LIGHTGREY`, `DARKGREEN`, `NAVY`, `MAROON`, `OLIVE`
+**Farben (RGB565):** 16 Farben ohne `#define` verfuegbar: `BLACK`, `WHITE`, `RED`, `GREEN`, `BLUE`, `YELLOW`, `CYAN`, `MAGENTA`, `ORANGE`, `PURPLE`, `GREY`, `DARKGREY`, `LIGHTGREY`, `DARKGREEN`, `NAVY`, `MAROON`, `OLIVE`
+
+**HomeKit-Typen:** `HK_TEMPERATURE`, `HK_HUMIDITY`, `HK_LIGHT_SENSOR`, `HK_BATTERY`, `HK_CONTACT`, `HK_SWITCH`, `HK_OUTLET`, `HK_LIGHT`
+
+**Datei-Modi:** `r` (Lesen), `w` (Schreiben), `a` (Anhaengen) — fuer `fileOpen()`
 
 ## Tasmota-Befehle
 
@@ -74,11 +80,13 @@ REST-API: `http://<ip>/tc_api?cmd=run`, `cmd=stop`, `cmd=status`
 |---|---|---|
 | Stack-Tiefe | 64 | 256 |
 | Aufruf-Frames | 8 | 32 |
-| Globale | 64 | 256 |
+| Globale | 64 | dynamisch |
 | Konstanten | 32 | 128 |
 | Konst.-Daten | 512 B | 4 KB |
 | Code-Groesse | 4 KB | 16 KB |
 | Heap | 8 KB | 32 KB |
+
+> **ESP8266-Einschraenkung:** Der ESP8266 hat sehr wenig RAM (~40 KB freier Heap). TinyC funktioniert fuer einfache Skripte (Sensoren lesen, MQTT, einfache Automatisierung), aber Programme mit Heap-Arrays, WS2812-LED-Streifen oder IR zusammen mit der Tasmota-Web-Oberflaeche fuehren zu Instabilitaet wegen Speicherknappheit. Fuer alles ueber triviale Skripte hinaus ESP32, ESP32-S3 oder ESP32-C3 verwenden.
 
 ## Beispiele
 

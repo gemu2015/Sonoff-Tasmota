@@ -392,6 +392,9 @@ Simply define functions with these well-known names — no registration needed.
 | `CleanUp()` | FUNC_SAVE_BEFORE_RESTART | Before device restart | Close files, flush data, release resources |
 | `TouchButton(btn, val)` | Touch event | On GFX button/slider touch | Handle touch button presses and slider changes |
 | `HomeKitWrite(dev, var, val)` | HomeKit write | When Apple Home changes a value | Control lights, switches, outlets from Apple Home |
+| `Command(char cmd[])` | Custom console command | When user types registered prefix in console | Handle custom Tasmota commands (e.g., MP3Play, MP3Stop) |
+| `Event(char cmd[])` | Tasmota event rule trigger | On `Event` command from rules or console | React to Tasmota rule events |
+| `OnExit()` | Script stop | When VM is stopped or script replaced | Close serial ports, release resources |
 
 ### Execution Model
 
@@ -413,6 +416,9 @@ Use these functions in callbacks to send data to Tasmota:
 | `webSend("literal")` | Send string literal to web page | `WebPage()` / `WebCall()` / `WebOn()` |
 | `webFlush()` | Flush web content buffer to client (→ `WSContentFlush`) | `WebPage()` / `WebCall()` / `WebOn()` |
 | `webSendFile("filename")` | Send file contents from filesystem to web page | `WebPage()` / `WebCall()` / `WebUI()` / `WebOn()` |
+| `addCommand("prefix")` | Register custom console command prefix (e.g., `"MP3"` → MP3Play, MP3Stop) | `main()` |
+| `responseCmnd(buf)` | Send char array as console command response | `Command()` |
+| `responseCmnd("literal")` | Send string literal as console command response | `Command()` |
 
 ### Web Page Format
 
@@ -458,6 +464,41 @@ int main() {
 ```
 
 **Result:** After uploading and running, the Tasmota web page shows a "TinyC Counter" row that increments every second, and MQTT telemetry includes `,"TinyC":{"Count":N}`.
+
+### Custom Console Commands
+
+Scripts can register custom Tasmota console commands using `addCommand("prefix")`. When a user types e.g. `MP3Play Sound.mp3` in the console, Tasmota matches the prefix `"MP3"`, extracts the subcommand `"PLAY SOUND.MP3"`, and calls `Command("PLAY SOUND.MP3")` on the script.
+
+**Note:** Tasmota uppercases the command topic, so subcommands arrive as `"PLAY"`, `"STOP"`, etc. Data after a space (filenames, numbers) keeps its original case.
+
+```c
+int volume = 15;
+
+void Command(char cmd[]) {
+    char buf[64];
+    if (strFind(cmd, "PLAY") == 0) {
+        // handle play
+        responseCmnd("Playing");
+    } else if (strFind(cmd, "STOP") == 0) {
+        responseCmnd("Stopped");
+    } else if (strFind(cmd, "VOL") == 0) {
+        char arg[16];
+        strSub(arg, cmd, 4, 0);  // extract everything after "VOL "
+        volume = atoi(arg);
+        sprintfInt(buf, "Volume: %d", volume);
+        responseCmnd(buf);
+    } else {
+        responseCmnd("Unknown: Play|Stop|Vol");
+    }
+}
+
+int main() {
+    addCommand("MP3");   // register "MP3" prefix
+    return 0;
+}
+```
+
+**Result:** Typing `MP3Play` in the Tasmota console calls `Command("PLAY")`, typing `MP3Vol 20` calls `Command("VOL 20")`.
 
 ### TaskLoop Example (ESP32)
 
@@ -747,7 +788,7 @@ int no = strFind(src, "xyz");          // no = -1
 | Function | Description |
 |----------|-------------|
 | `strToken(char dst[], char src[], int delim, int n)` | Copy nth token (1-based) delimited by char `delim` into dst. Returns token length. |
-| `strSub(char dst[], char src[], int pos, int len)` | Copy `len` chars starting at `pos` (0-based, negative=from end) into dst. Returns actual length. |
+| `strSub(char dst[], char src[], int pos, int len)` | Copy `len` chars starting at `pos` (0-based, negative=from end) into dst. `len=0` copies to end of string. Returns actual length. |
 | `strFind(char haystack[], char needle[])` | Find first occurrence of needle in haystack. Returns position (0-based) or -1 if not found. |
 
 ### Character Access
@@ -1538,7 +1579,7 @@ Both callbacks use the same widget functions.
 | `webCheckbox(var, "label")` | Checkbox (0/1) — check/uncheck toggles |
 | `webText(chararray, maxlen, "label")` | Text input — edit string variable |
 | `webNumber(var, min, max, "label")` | Number input with min/max bounds |
-| `webPulldown(var, "opt0\|opt1\|opt2")` | Dropdown select — pipe-separated options, 0-based index |
+| `webPulldown(var, "label", "opt0\|opt1\|opt2")` | Dropdown select with label — pipe-separated options, 0-based index. Use `"@getfreepins"` as options to show available GPIO pins |
 | `webRadio(var, "opt0\|opt1\|opt2")` | Radio button group — pipe-separated options, 0-based index |
 | `webTime(var, "label")` | Time picker (HH:MM) — stored as HHMM integer (e.g., 1430 = 14:30) |
 | `webPageLabel(page, "label")` | Register page 0–5 with a button label on the main page |
@@ -1574,7 +1615,7 @@ void WebUI() {
     if (page == 0) {
         webButton(power, "Power");
         webSlider(brightness, 0, 100, "Brightness");
-        webPulldown(mode, "Off|Auto|Manual");
+        webPulldown(mode, "Mode", "Off|Auto|Manual");
     }
     if (page == 1) {
         webTime(alarm_time, "Wake-up Time");
@@ -2960,7 +3001,7 @@ void WebUI() {
         webSlider(brightness, 0, 100, "Brightness");
     }
     if (page == 1) {
-        webPulldown(mode, "Off|Auto|Manual");
+        webPulldown(mode, "Mode", "Off|Auto|Manual");
     }
 }
 

@@ -10,6 +10,7 @@ TinyC is a C-subset compiler and VM that runs on ESP32/ESP8266 as Tasmota driver
 - **Instant execution** — uploaded bytecode runs immediately, no parsing or compilation step on the device.
 - **Familiar C syntax** — no new language to learn. Standard C subset with `int`, `float`, arrays, functions, `for`/`while`/`if` — anyone who knows C can write TinyC.
 - **10× faster than text interpreters** — the bytecode VM with direct-threaded dispatch executes significantly faster than script engines that re-parse source text on every statement.
+- **True background tasks** — `TaskLoop()` runs in a dedicated FreeRTOS task (ESP32) with full `delay()` support. Long-running loops, sensor polling, and protocol handling never block the main Tasmota loop. Other script engines share the main loop and cannot use blocking delays without stalling WiFi, MQTT, and the web server.
 
 ## Building Tasmota with TinyC
 
@@ -48,6 +49,9 @@ Callbacks run automatically from Tasmota's main loop:
 | `UdpCall()` | UDP packet received | Inter-device communication |
 | `TaskLoop()` | FreeRTOS task (ESP32) | Background loop with `delay()` support |
 | `TouchButton(btn, val)` | Touch event | GFX button/slider touch callback |
+| `HomeKitWrite(dev, var, val)` | HomeKit write | Control lights, switches, outlets from Apple Home |
+| `Command(char cmd[])` | Custom console command | Handle registered prefix commands (e.g., MP3Play) |
+| `OnExit()` | Script stop | Close serial ports, release resources |
 
 `main()` runs first (in a FreeRTOS task on ESP32, with full `delay()` support). After `main()` returns, globals persist and callbacks activate. If `TaskLoop()` is defined, it continues running in the same task independently of the main thread.
 
@@ -64,7 +68,7 @@ Callbacks run automatically from Tasmota's main loop:
 **SPI:** `spiInit`, `spiSetCS`, `spiTransfer`
 **Files:** `fileOpen`, `fileClose`, `fileRead`, `fileWrite`, `fileExists`, `fileDelete`, `fileSize`, `fileFormat`, `fileMkdir`, `fileRmdir`, `fileReadArray`, `fileWriteArray`, `fileLog`, `fileDownload`, `fileGetStr`, `fileExtract`, `fileExtractFast`
 **Time:** `timeStamp`, `timeConvert`, `timeOffset`, `timeToSecs`, `secsToTime`
-**Tasmota:** `tasmCmd`, `sensorGet`, `responseAppend`, `webSend`, `webFlush`, `addLog`
+**Tasmota:** `tasmCmd`, `sensorGet`, `responseAppend`, `webSend`, `webFlush`, `addLog`, `addCommand`, `responseCmnd`
 **HTTP:** `httpGet`, `httpPost`, `httpHeader`
 **TCP:** `tcpServer`, `tcpClose`, `tcpAvailable`, `tcpRead`, `tcpWrite`, `tcpReadArray`, `tcpWriteArray`
 **UDP:** `udpSend`, `udpRecv`, `udpReady`, `udpSendArray`, `udpRecvArray`, `udp` (general-purpose, modes 0-7)
@@ -79,11 +83,17 @@ Callbacks run automatically from Tasmota's main loop:
 **SML:** `smlGet`, `smlGetStr`, `smlWrite`, `smlRead`, `smlSetBaud`, `smlSetWStr`, `smlSetOpt`, `smlGetV`
 **mDNS:** `mdnsRegister`
 **System:** `tasm_wifi`, `tasm_mqttcon`, `tasm_teleperiod`, `tasm_uptime`, `tasm_heap`, `tasm_power`, `tasm_dimmer`, `tasm_temp`, `tasm_hum`, `tasm_hour`, `tasm_minute`, `tasm_second`, `tasm_year`, `tasm_month`, `tasm_day`, `tasm_wday`, `tasm_cw`, `tasm_sunrise`, `tasm_sunset`, `tasm_time`
+**HomeKit:** `hkSetCode`, `hkAdd`, `hkVar`, `hkReady`, `hkStart`, `hkReset`, `hkStop` + `HomeKitWrite(dev, var, val)` callback
+**LED Strip:** `setPixels(array, len, offset)` — WS2812/NeoPixel control
 **Debug:** `print`, `dumpVM`
 
-## Predefined Color Constants
+## Predefined Constants
 
-16 RGB565 colors available without `#define`: `BLACK`, `WHITE`, `RED`, `GREEN`, `BLUE`, `YELLOW`, `CYAN`, `MAGENTA`, `ORANGE`, `PURPLE`, `GREY`, `DARKGREY`, `LIGHTGREY`, `DARKGREEN`, `NAVY`, `MAROON`, `OLIVE`
+**Colors (RGB565):** 16 colors available without `#define`: `BLACK`, `WHITE`, `RED`, `GREEN`, `BLUE`, `YELLOW`, `CYAN`, `MAGENTA`, `ORANGE`, `PURPLE`, `GREY`, `DARKGREY`, `LIGHTGREY`, `DARKGREEN`, `NAVY`, `MAROON`, `OLIVE`
+
+**HomeKit Types:** `HK_TEMPERATURE`, `HK_HUMIDITY`, `HK_LIGHT_SENSOR`, `HK_BATTERY`, `HK_CONTACT`, `HK_SWITCH`, `HK_OUTLET`, `HK_LIGHT`
+
+**File Modes:** `r` (read), `w` (write), `a` (append) — for `fileOpen()`
 
 ## Tasmota Commands
 
@@ -105,11 +115,13 @@ File Download Server (port 82, ESP32): `http://<ip>:82/ufs/<filename>` — suppo
 |---|---|---|
 | Stack depth | 64 | 256 |
 | Call frames | 8 | 32 |
-| Globals | 64 | 256 |
+| Globals | 64 | dynamic |
 | Constants | 32 | 128 |
 | Const data | 512 B | 4 KB |
 | Code size | 4 KB | 16 KB |
 | Heap | 8 KB | 32 KB |
+
+> **ESP8266 limitation:** The ESP8266 has very limited RAM (~40 KB free heap). TinyC works for simple scripts (sensor reading, MQTT, basic automation), but programs using heap arrays, WS2812 LED strips, or IR together with the Tasmota web UI will cause instability due to memory pressure. For anything beyond trivial scripts, use ESP32, ESP32-S3, or ESP32-C3.
 
 ## Examples
 
@@ -131,6 +143,7 @@ See [`examples/`](examples/) for complete working programs:
 - **sort** — Bubble sort algorithm
 - **strings** — String operations
 - **fibonacci** — Recursive function demo
+- **dysv17f** — DY-SV17F MP3 player (serial TX, custom console commands)
 
 ## VS Code Support
 
