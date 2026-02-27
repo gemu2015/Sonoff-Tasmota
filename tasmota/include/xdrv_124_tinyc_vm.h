@@ -73,7 +73,7 @@ static FS *tc_file_path(char *path) {
   #define TC_MAX_HEAP_HANDLES   8
 #else  // ESP32
   #define TC_MAX_HEAP           8192   // heap slots (32KB)
-  #define TC_MAX_HEAP_HANDLES   16
+  #define TC_MAX_HEAP_HANDLES   64     // max concurrent heap arrays (was 16, energy script needs 41+)
 #endif
 
 #define TC_MAGIC           0x54434300  // "TCC\0"
@@ -112,7 +112,7 @@ static FS *tc_file_path(char *path) {
 
 // UDP multicast support (Scripter-compatible protocol)
 #define TC_UDP_PORT          1999
-#define TC_UDP_MAX_VARS      8          // max tracked UDP variable names
+#define TC_UDP_MAX_VARS      64         // max tracked UDP variable names
 #define TC_UDP_VAR_NAME_MAX  16         // max variable name length
 #define TC_UDP_BUF_SIZE      320        // receive buffer (max: 2+16+1+2+64*4 = 277)
 #define TC_UDP_MAX_ARRAY     64         // max float array elements per UDP variable
@@ -420,6 +420,7 @@ enum TcSyscall {
   SYS_HK_START        = 139, // () -> int — build descriptor + start HomeKit, 0=ok
   SYS_HK_VAR          = 144, // (var_ref) -> void — bind variable to current device
   SYS_HK_READY        = 145, // (var_ref) -> int — 1 if HomeKit changed this var
+  SYS_FS_INFO          = 146, // (sel) -> int — filesystem info: 0=total kB, 1=free kB
 
   SYS_WS2812          = 147, // (arr_ref, len, offset) -> void — set LED pixels from array + show
 
@@ -3285,8 +3286,8 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
 #ifdef USE_UFILESYS
       // Pop variable-length array refs + fixed args
       int32_t numArrays = TC_POP(vm);
-      int32_t arrRefs[16];
-      if (numArrays > 16) numArrays = 16;
+      int32_t arrRefs[32];
+      if (numArrays > 32) numArrays = 32;
       for (int i = numArrays - 1; i >= 0; i--) {
         arrRefs[i] = TC_POP(vm);
       }
@@ -3320,8 +3321,8 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       }
 
       // Resolve array bases and limits once (avoid per-row lookups)
-      int32_t *arrBase[16];
-      int32_t  arrMax[16];
+      int32_t *arrBase[32];
+      int32_t  arrMax[32];
       for (int c = 0; c < numArrays; c++) {
         arrBase[c] = tc_resolve_ref(vm, arrRefs[c]);
         arrMax[c]  = arrBase[c] ? tc_ref_maxlen(vm, arrRefs[c]) : 0;
@@ -5534,7 +5535,15 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         tc_chart_lib_sent = true;
       }
 
-      // 2) New chart: emit div container + _tcN() registration with optional y-axis range
+      // 2) Determine chart ID: new chart gets next seq, continuation uses previous
+      int chart_id;
+      if (new_chart) {
+        chart_id = tc_chart_seq;
+      } else {
+        chart_id = tc_chart_seq > 0 ? tc_chart_seq - 1 : 0;
+      }
+
+      // 3) New chart: emit div container + _tcN() registration with optional y-axis range
       if (new_chart) {
         const char *div_style = (type == 116)
           ? "width:100%;overflow-x:auto"
@@ -5546,16 +5555,16 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           WSContentSend_P(PSTR(
             "<div id=\"tc%d\" style=\"%s\"></div>"
             "<script>_tcN(%d,'%s','%s',%d,%s,%s);</script>"
-          ), tc_chart_seq, div_style, tc_chart_seq, title, unit, type, ymin_s, ymax_s);
+          ), chart_id, div_style, chart_id, title, unit, type, ymin_s, ymax_s);
         } else {
           WSContentSend_P(PSTR(
             "<div id=\"tc%d\" style=\"%s\"></div>"
             "<script>_tcN(%d,'%s','%s',%d,0,0);</script>"
-          ), tc_chart_seq, div_style, tc_chart_seq, title, unit, type);
+          ), chart_id, div_style, chart_id, title, unit, type);
         }
       }
 
-      // 3) Resolve float array and emit data as _tcA() call
+      // 4) Resolve float array and emit data as _tcA() call
       int32_t *arr = tc_resolve_ref(vm, arr_ref);
       if (!arr) break;
       int32_t arr_len = tc_ref_maxlen(vm, arr_ref);
@@ -5565,7 +5574,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       snprintf(cbuf, sizeof(cbuf), "#%06x", (unsigned int)(color & 0xFFFFFF));
 
       WSContentSend_P(PSTR("<script>_tcA(%d,'%s','%s',["),
-        tc_chart_seq, unit, cbuf);
+        chart_id, unit, cbuf);
 
       // Unwind ring buffer: oldest entry first, interpret as float
       // Use count (not arr_len) for wrap — arr_len is "remaining globals" not array size
@@ -6725,6 +6734,18 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     case SYS_HK_RESET:
       break;
 #endif  // USE_HOMEKIT
+
+    // ── Filesystem info ────────────────────────────────
+    case SYS_FS_INFO: {
+      // fsi(sel) -> int — sel: 0=total kB, 1=free kB (main FS)
+      int32_t sel = TC_POP(vm);
+#ifdef USE_UFILESYS
+      TC_PUSH(vm, (int32_t)UfsInfo(sel ? 1 : 0, 0));
+#else
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
 
     // ── Addressable LED strip (WS2812) ────────────────
 #if defined(USE_LIGHT) && defined(USE_WS2812)
