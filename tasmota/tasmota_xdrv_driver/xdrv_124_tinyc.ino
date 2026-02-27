@@ -1761,7 +1761,7 @@ static void HandleTinyCUI(void) {
         "lt=setTimeout(la,2000);"
       "}"
     "}"
-    "function seva(v,i){la('&sv='+i+'_'+v);}"
+    "function seva(v,i){rfsh=1;la('&sv='+i+'_'+v);rfsh=0;}"
     "function siva(v,i){rfsh=1;la('&sv='+i+'_s_'+v);rfsh=0;}"
     "function sivat(v,i){rfsh=1;la('&sv='+i+'_t_'+v);rfsh=0;}"
     "function pr(f){if(f){lt=setTimeout(la,2000);rfsh=1;}else{clearTimeout(lt);rfsh=0;}}"
@@ -2214,7 +2214,7 @@ bool Xdrv124(uint32_t function) {
           if (tc_has_callback(&s0->vm, "WebCall")) {
             WSContentSend_P(PSTR(
               "<script>"
-              "function seva(v,i){la('&sv='+i+'_'+v);}"
+              "function seva(v,i){rfsh=1;la('&sv='+i+'_'+v);rfsh=0;}"
               "function siva(v,i){la('&sv='+i+'_s_'+v);}"
               "function sivat(v,i){la('&sv='+i+'_t_'+v);}"
               "function pr(f){if(f){lt=setTimeout(la,%d);}else{clearTimeout(lt);clearTimeout(ft);}}"
