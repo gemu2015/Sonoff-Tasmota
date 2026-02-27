@@ -1729,6 +1729,10 @@ static void HandleTinyCUI(void) {
   // Handle sv= parameter -- widget value update
   TinyC_WebSetVar();
 
+  // Reset WebChart state before rendering
+  tc_chart_seq = 0;
+  tc_chart_lib_sent = false;
+
   // AJAX mode (m=1): just re-render widgets via WebUI() callback
   if (Webserver->hasArg(F("m"))) {
     WSContentBegin(200, CT_HTML);

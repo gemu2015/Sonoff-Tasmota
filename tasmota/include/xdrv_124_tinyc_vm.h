@@ -49,7 +49,7 @@ static FS *tc_file_path(char *path) {
   #define TC_MAX_FRAMES      8       // call depth — frames are small (locals allocated dynamically)
   #define TC_MAX_LOCALS      256     // locals per frame (1KB, dynamically allocated)
   #define TC_MAX_GLOBALS     64      // global slots (256 bytes)
-  #define TC_MAX_CONSTANTS   32      // constant pool entries
+  #define TC_MAX_CONSTANTS   64      // constant pool entries
   #define TC_MAX_CONST_DATA  512     // string constant bytes
   #define TC_INSTR_PER_TICK  500     // instructions per 50ms tick
   #define TC_OUTPUT_SIZE     128     // output buffer for MQTT
@@ -59,7 +59,7 @@ static FS *tc_file_path(char *path) {
   #define TC_MAX_FRAMES      32      // call depth
   #define TC_MAX_LOCALS      256     // locals per frame (1KB) - enough for char arrays
   #define TC_MAX_GLOBALS     256     // global slots (1KB)
-  #define TC_MAX_CONSTANTS   128     // constant pool entries
+  #define TC_MAX_CONSTANTS   256     // constant pool entries (dynamic alloc, uint16_t)
   #define TC_MAX_CONST_DATA  4096    // string constant bytes
   #define TC_INSTR_PER_TICK  1000    // instructions per 50ms tick
   #define TC_OUTPUT_SIZE     512     // output buffer for MQTT
@@ -539,8 +539,8 @@ typedef struct {
   uint8_t  frame_count;
   // Constants (dynamically allocated in tc_vm_load)
   TcConstant *constants;
-  uint8_t  const_count;
-  uint8_t  const_capacity;     // allocated count
+  uint16_t const_count;
+  uint16_t const_capacity;     // allocated count
   char     *const_data;
   uint16_t const_data_size;    // allocated bytes
   uint16_t const_data_used;
@@ -5287,14 +5287,17 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t ci = TC_POP(vm);
       const char *fname = tc_get_const_str(vm, ci);
 #ifdef USE_UFILESYS
-      if (fname && ufsp) {
+      if (fname) {
         char path[48];
         if (fname[0] != '/') {
           snprintf(path, sizeof(path), "/%s", fname);
         } else {
           strlcpy(path, fname, sizeof(path));
         }
-        File f = ufsp->open(path, "r");
+        // Try ufsp first, then ffsp
+        File f;
+        if (ufsp) f = ufsp->open(path, "r");
+        if (!f && ffsp) f = ffsp->open(path, "r");
         if (f) {
           char buf[256];
           WSContentFlush();
@@ -6946,7 +6949,7 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   uint16_t const_end = header_size + const_pool_size;
 
   // Pre-scan constant pool to count entries and measure const_data bytes needed
-  uint8_t  prescan_count = 0;
+  uint16_t prescan_count = 0;
   uint16_t prescan_data  = 0;
   {
     uint16_t scan = header_size;
@@ -6986,7 +6989,7 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   vm->globals_size = alloc_globals;
 
   // Allocate constants array based on pre-scan (minimum 8 entries)
-  uint8_t alloc_consts = prescan_count < 8 ? 8 : prescan_count;
+  uint16_t alloc_consts = prescan_count < 8 ? 8 : prescan_count;
   vm->constants = (TcConstant *)calloc(alloc_consts, sizeof(TcConstant));
   if (!vm->constants) return TC_ERR_STACK_OVERFLOW;  // OOM
   vm->const_capacity = alloc_consts;
