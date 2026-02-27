@@ -389,6 +389,13 @@ enum TcSyscall {
   SYS_EMAIL_BODY_STR  = 238, // (const_idx) -> void — set email body from string literal
   SYS_SPRINTF_STR_CONST     = 239, // (dst_ref, fmt_const, src_const) -> int chars
   SYS_SPRINTF_STR_CAT_CONST = 247, // (dst_ref, fmt_const, src_const) -> total len
+  // _REF variants: path from char array instead of string literal
+  SYS_FILE_OPEN_REF   = 224, // (path_ref, mode) -> int handle (-1=err)
+  SYS_FILE_EXISTS_REF = 225, // (path_ref) -> int (1=yes, 0=no)
+  SYS_FILE_DELETE_REF = 226, // (path_ref) -> int (0=ok, -1=err)
+  SYS_FILE_OPENDIR    = 227, // (const_idx_path) -> int handle (-1=err)
+  SYS_FILE_OPENDIR_REF= 228, // (path_ref) -> int handle (-1=err)
+  SYS_FILE_READDIR    = 229, // (handle, name_buf_ref) -> int (1=entry, 0=end)
   SYS_TASM_CMD_REF   = 248, // (cmd_ref, out_buf_ref) -> int — tasmCmd with char array command
   SYS_I2C_FREE       = 249, // (addr, bus) -> void — release claimed I2C address
   // Console command callback
@@ -835,6 +842,14 @@ static int32_t tc_ref_maxlen(TcVM *vm, int32_t ref) {
   }
 }
 
+// Normalize file mode: accept both char ('r','w','a') and int (0,1,2)
+static inline int32_t tc_file_mode(int32_t mode) {
+  if (mode == 'r') return 0;
+  if (mode == 'w') return 1;
+  if (mode == 'a') return 2;
+  return mode;  // already 0/1/2 or invalid
+}
+
 // Extract null-terminated C string from VM array ref into char buffer
 // Returns number of chars written (excluding null terminator)
 static int tc_ref_to_cstr(TcVM *vm, int32_t ref, char *out, int maxOut) {
@@ -847,6 +862,20 @@ static int tc_ref_to_cstr(TcVM *vm, int32_t ref, char *out, int maxOut) {
     out[i] = (char)(buf[i] & 0xFF);
   }
   out[i] = '\0';
+  return i;
+}
+
+// Write a C string into a VM int32 array (one char per slot, null-terminated)
+// Returns number of chars written (excluding null terminator)
+static int tc_cstr_to_ref(TcVM *vm, int32_t ref, const char *src) {
+  int32_t *buf = tc_resolve_ref(vm, ref);
+  if (!buf || !src) return 0;
+  int32_t maxLen = tc_ref_maxlen(vm, ref) - 1;
+  int i;
+  for (i = 0; i < maxLen && src[i]; i++) {
+    buf[i] = (int32_t)(uint8_t)src[i];
+  }
+  buf[i] = 0;
   return i;
 }
 
@@ -2695,7 +2724,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     // ── File I/O (SD preferred, /ffs/ for flash, /sdfs/ for SD) ──
     case SYS_FILE_OPEN: {
 #ifdef USE_UFILESYS
-      int32_t mode = TC_POP(vm);       // 0=read, 1=write, 2=append
+      int32_t mode = tc_file_mode(TC_POP(vm));  // 0/'r'=read, 1/'w'=write, 2/'a'=append
       int32_t ci = TC_POP(vm);         // const pool index for path
       const char *cpath = tc_get_const_str(vm, ci);
       if (!cpath) { TC_PUSH(vm, -1); break; }
@@ -2836,6 +2865,197 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
 #endif
       break;
     }
+
+    // ── _REF variants: path from char array (dynamic filenames) ──
+    case SYS_FILE_OPEN_REF: {
+#ifdef USE_UFILESYS
+      int32_t mode = tc_file_mode(TC_POP(vm));  // 0/'r'=read, 1/'w'=write, 2/'a'=append
+      int32_t path_ref = TC_POP(vm);
+      char path[128];
+      tc_ref_to_cstr(vm, path_ref, path, sizeof(path));
+      if (!path[0]) { TC_PUSH(vm, -1); break; }
+      FS *fsp = tc_file_path(path);
+      if (!fsp) { TC_PUSH(vm, -1); break; }
+      int slot = tc_alloc_file_handle();
+      if (slot < 0) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: fileOpen no free handle"));
+        TC_PUSH(vm, -1);
+        break;
+      }
+      const char *mode_str;
+      switch (mode) {
+        case 0:  mode_str = "r";  tc_file_handles[slot] = fsp->open(path, "r"); break;
+        case 1:  mode_str = "w";  tc_file_handles[slot] = fsp->open(path, "w"); break;
+        case 2:  mode_str = "a";  tc_file_handles[slot] = fsp->open(path, "a"); break;
+        default: mode_str = "?";  TC_PUSH(vm, -1); break;
+      }
+      if (mode > 2) break;
+      if (!tc_file_handles[slot]) {
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileOpen(\"%s\", %s) failed"), path, mode_str);
+        TC_PUSH(vm, -1);
+      } else {
+        Tinyc->file_used[slot] = true;
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileOpen(\"%s\", %s) -> handle %d"), path, mode_str, slot);
+        TC_PUSH(vm, slot);
+      }
+#else
+      TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, -1);
+#endif
+      break;
+    }
+    case SYS_FILE_EXISTS_REF: {
+#ifdef USE_UFILESYS
+      int32_t path_ref = TC_POP(vm);
+      char path[128];
+      tc_ref_to_cstr(vm, path_ref, path, sizeof(path));
+      if (!path[0]) { TC_PUSH(vm, 0); break; }
+      FS *fsp = tc_file_path(path);
+      if (!fsp) { TC_PUSH(vm, 0); break; }
+      bool exists = fsp->exists(path);
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileExists(\"%s\") -> %d"), path, exists ? 1 : 0);
+      TC_PUSH(vm, exists ? 1 : 0);
+#else
+      TC_POP(vm);
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+    case SYS_FILE_DELETE_REF: {
+#ifdef USE_UFILESYS
+      int32_t path_ref = TC_POP(vm);
+      char path[128];
+      tc_ref_to_cstr(vm, path_ref, path, sizeof(path));
+      if (!path[0]) { TC_PUSH(vm, -1); break; }
+      FS *fsp = tc_file_path(path);
+      if (!fsp) { TC_PUSH(vm, -1); break; }
+      bool ok = fsp->remove(path);
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileDelete(\"%s\") -> %d"), path, ok ? 0 : -1);
+      TC_PUSH(vm, ok ? 0 : -1);
+#else
+      TC_POP(vm);
+      TC_PUSH(vm, -1);
+#endif
+      break;
+    }
+
+    // ── Directory listing (reuses file handle slots) ──
+    case SYS_FILE_OPENDIR: {
+#ifdef USE_UFILESYS
+      int32_t ci = TC_POP(vm);
+      const char *cpath = tc_get_const_str(vm, ci);
+      if (!cpath) { TC_PUSH(vm, -1); break; }
+      char path[128];
+      strlcpy(path, cpath, sizeof(path));
+      FS *fsp = tc_file_path(path);
+      if (!fsp) { TC_PUSH(vm, -1); break; }
+      int slot = tc_alloc_file_handle();
+      if (slot < 0) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: fileOpenDir no free handle"));
+        TC_PUSH(vm, -1);
+        break;
+      }
+      tc_file_handles[slot] = fsp->open(path, "r");
+      if (!tc_file_handles[slot] || !tc_file_handles[slot].isDirectory()) {
+        tc_file_handles[slot].close();
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileOpenDir(\"%s\") not a directory"), path);
+        TC_PUSH(vm, -1);
+      } else {
+        Tinyc->file_used[slot] = true;
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileOpenDir(\"%s\") -> handle %d"), path, slot);
+        TC_PUSH(vm, slot);
+      }
+#else
+      TC_POP(vm);
+      TC_PUSH(vm, -1);
+#endif
+      break;
+    }
+    case SYS_FILE_OPENDIR_REF: {
+#ifdef USE_UFILESYS
+      int32_t path_ref = TC_POP(vm);
+      char path[128];
+      tc_ref_to_cstr(vm, path_ref, path, sizeof(path));
+      if (!path[0]) { TC_PUSH(vm, -1); break; }
+      FS *fsp = tc_file_path(path);
+      if (!fsp) { TC_PUSH(vm, -1); break; }
+      int slot = tc_alloc_file_handle();
+      if (slot < 0) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: fileOpenDir no free handle"));
+        TC_PUSH(vm, -1);
+        break;
+      }
+      tc_file_handles[slot] = fsp->open(path, "r");
+      if (!tc_file_handles[slot] || !tc_file_handles[slot].isDirectory()) {
+        tc_file_handles[slot].close();
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileOpenDir(\"%s\") not a directory"), path);
+        TC_PUSH(vm, -1);
+      } else {
+        Tinyc->file_used[slot] = true;
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileOpenDir(\"%s\") -> handle %d"), path, slot);
+        TC_PUSH(vm, slot);
+      }
+#else
+      TC_POP(vm);
+      TC_PUSH(vm, -1);
+#endif
+      break;
+    }
+    case SYS_FILE_READDIR: {
+#ifdef USE_UFILESYS
+      int32_t name_ref = TC_POP(vm);
+      int32_t h = TC_POP(vm);
+      if (h < 0 || h >= TC_MAX_FILE_HANDLES || !Tinyc->file_used[h]) {
+        TC_PUSH(vm, 0);
+        break;
+      }
+      File entry = tc_file_handles[h].openNextFile();
+      if (!entry) {
+        TC_PUSH(vm, 0);  // no more entries
+        break;
+      }
+      // Extract just the filename (strip leading path)
+      const char *ep = entry.name();
+      if (*ep == '/') ep++;
+      const char *lcp = strrchr(ep, '/');
+      if (lcp) ep = lcp + 1;
+      // Skip directories, only return files
+      if (entry.isDirectory()) {
+        entry.close();
+        // Try next entry (recursive would be complex, just skip one)
+        // For simplicity, caller should loop: while(fileReadDir(h, buf)) { ... }
+        entry = tc_file_handles[h].openNextFile();
+        while (entry && entry.isDirectory()) {
+          entry.close();
+          entry = tc_file_handles[h].openNextFile();
+        }
+        if (!entry) {
+          TC_PUSH(vm, 0);
+          break;
+        }
+        ep = entry.name();
+        if (*ep == '/') ep++;
+        lcp = strrchr(ep, '/');
+        if (lcp) ep = lcp + 1;
+      }
+      // Write filename to name buffer
+      int32_t *dst = tc_resolve_ref(vm, name_ref);
+      int32_t maxLen = tc_ref_maxlen(vm, name_ref);
+      int32_t slen = strlen(ep);
+      if (slen >= maxLen) slen = maxLen - 1;
+      for (int32_t i = 0; i < slen; i++) {
+        dst[i] = (int32_t)(uint8_t)ep[i];
+      }
+      dst[slen] = 0;
+      entry.close();
+      TC_PUSH(vm, 1);  // entry found
+#else
+      TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+
     case SYS_FILE_SIZE: {
 #ifdef USE_UFILESYS
       int32_t ci = TC_POP(vm);
@@ -3324,11 +3544,8 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     case SYS_TIME_STAMP: {
       // timeStamp(char buf[]) — get current Tasmota local timestamp
       int32_t ref = TC_POP(vm);
-      char *buf = (char*)tc_resolve_ref(vm, ref);
-      if (buf) {
-        String ts = GetDateAndTime(DT_LOCAL);
-        strlcpy(buf, ts.c_str(), 20);
-      }
+      String ts = GetDateAndTime(DT_LOCAL);
+      tc_cstr_to_ref(vm, ref, ts.c_str());
       TC_PUSH(vm, 0);
       break;
     }
@@ -3338,14 +3555,14 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       // flg=1: Web → German  "2024-01-15T12:30:45" → "15.1.24 12:30"
       int32_t flg = TC_POP(vm);
       int32_t ref = TC_POP(vm);
-      char *buf = (char*)tc_resolve_ref(vm, ref);
-      if (buf) {
+      char tmp[32];
+      tc_ref_to_cstr(vm, ref, tmp, sizeof(tmp));
+      if (tmp[0]) {
         struct {
           uint16_t year; uint8_t month, day, hour, mins, secs;
         } tm;
-        if (strchr(buf, 'T')) {
-          // parse ISO: 2024-01-15T12:30:45
-          char *p = buf;
+        if (strchr(tmp, 'T')) {
+          char *p = tmp;
           tm.year  = strtol(p, &p, 10) - 2000; p++;
           tm.month = strtol(p, &p, 10); p++;
           tm.day   = strtol(p, &p, 10); p++;
@@ -3353,8 +3570,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           tm.mins  = strtol(p, &p, 10); p++;
           tm.secs  = strtol(p, &p, 10);
         } else {
-          // parse German: 15.1.24 12:30
-          char *p = buf;
+          char *p = tmp;
           tm.day   = strtol(p, &p, 10); p++;
           tm.month = strtol(p, &p, 10); p++;
           tm.year  = strtol(p, &p, 10); p++;
@@ -3363,12 +3579,11 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           tm.secs  = 0;
         }
         if (flg & 1) {
-          // output German
-          sprintf(buf, "%d.%d.%d %d:%02d", tm.day, tm.month, tm.year, tm.hour, tm.mins);
+          sprintf(tmp, "%d.%d.%d %d:%02d", tm.day, tm.month, tm.year, tm.hour, tm.mins);
         } else {
-          // output Web/ISO
-          sprintf(buf, "%04d-%02d-%02dT%02d:%02d:%02d", tm.year + 2000, tm.month, tm.day, tm.hour, tm.mins, tm.secs);
+          sprintf(tmp, "%04d-%02d-%02dT%02d:%02d:%02d", tm.year + 2000, tm.month, tm.day, tm.hour, tm.mins, tm.secs);
         }
+        tc_cstr_to_ref(vm, ref, tmp);
       }
       TC_PUSH(vm, 0);
       break;
@@ -3379,14 +3594,15 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t zflag = TC_POP(vm);
       int32_t days  = TC_POP(vm);
       int32_t ref   = TC_POP(vm);
-      char *buf = (char*)tc_resolve_ref(vm, ref);
-      if (buf) {
+      char tmp[32];
+      tc_ref_to_cstr(vm, ref, tmp, sizeof(tmp));
+      if (tmp[0]) {
         struct {
           uint16_t year; uint8_t month, day, hour, mins, secs;
         } tm;
         uint8_t mode = 0;
-        if (strchr(buf, 'T')) {
-          char *p = buf;
+        if (strchr(tmp, 'T')) {
+          char *p = tmp;
           tm.year  = strtol(p, &p, 10) - 2000; p++;
           tm.month = strtol(p, &p, 10); p++;
           tm.day   = strtol(p, &p, 10); p++;
@@ -3395,7 +3611,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           tm.secs  = strtol(p, &p, 10);
           mode = 0;
         } else {
-          char *p = buf;
+          char *p = tmp;
           tm.day   = strtol(p, &p, 10); p++;
           tm.month = strtol(p, &p, 10); p++;
           tm.year  = strtol(p, &p, 10); p++;
@@ -3404,33 +3620,32 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           tm.secs  = 0;
           mode = 1;
         }
-        // convert to epoch via struct tm
         struct tm tmx;
         tmx.tm_sec  = tm.secs;
         tmx.tm_min  = tm.mins;
         tmx.tm_hour = tm.hour;
         tmx.tm_mon  = tm.month - 1;
-        tmx.tm_year = tm.year + 100;  // year since 1900 = (yr+2000)-1900
+        tmx.tm_year = tm.year + 100;
         tmx.tm_mday = tm.day;
         time_t tmd = mktime(&tmx);
         tmd += days * 86400;
-        struct tm *tmp = gmtime(&tmd);
+        struct tm *tmr = gmtime(&tmd);
         if (zflag) {
           tm.secs = 0; tm.mins = 0; tm.hour = 0;
         } else {
-          tm.secs = tmp->tm_sec;
-          tm.mins = tmp->tm_min;
-          tm.hour = tmp->tm_hour;
+          tm.secs = tmr->tm_sec;
+          tm.mins = tmr->tm_min;
+          tm.hour = tmr->tm_hour;
         }
-        tm.month = tmp->tm_mon + 1;
-        tm.year  = tmp->tm_year - 100;
-        tm.day   = tmp->tm_mday;
-        // write back in same format
+        tm.month = tmr->tm_mon + 1;
+        tm.year  = tmr->tm_year - 100;
+        tm.day   = tmr->tm_mday;
         if (mode & 1) {
-          sprintf(buf, "%d.%d.%d %d:%02d", tm.day, tm.month, tm.year, tm.hour, tm.mins);
+          sprintf(tmp, "%d.%d.%d %d:%02d", tm.day, tm.month, tm.year, tm.hour, tm.mins);
         } else {
-          sprintf(buf, "%04d-%02d-%02dT%02d:%02d:%02d", tm.year + 2000, tm.month, tm.day, tm.hour, tm.mins, tm.secs);
+          sprintf(tmp, "%04d-%02d-%02dT%02d:%02d:%02d", tm.year + 2000, tm.month, tm.day, tm.hour, tm.mins, tm.secs);
         }
+        tc_cstr_to_ref(vm, ref, tmp);
       }
       TC_PUSH(vm, 0);
       break;
@@ -3438,14 +3653,15 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     case SYS_TIME_TO_SECS: {
       // timeToSecs(char buf[]) — parse timestamp, return epoch seconds
       int32_t ref = TC_POP(vm);
-      char *buf = (char*)tc_resolve_ref(vm, ref);
+      char tmp[32];
+      tc_ref_to_cstr(vm, ref, tmp, sizeof(tmp));
       int32_t secs = 0;
-      if (buf) {
+      if (tmp[0]) {
         struct {
           uint16_t year; uint8_t month, day, hour, mins, secs;
         } tm;
-        if (strchr(buf, 'T')) {
-          char *p = buf;
+        if (strchr(tmp, 'T')) {
+          char *p = tmp;
           tm.year  = strtol(p, &p, 10) - 2000; p++;
           tm.month = strtol(p, &p, 10); p++;
           tm.day   = strtol(p, &p, 10); p++;
@@ -3453,7 +3669,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           tm.mins  = strtol(p, &p, 10); p++;
           tm.secs  = strtol(p, &p, 10);
         } else {
-          char *p = buf;
+          char *p = tmp;
           tm.day   = strtol(p, &p, 10); p++;
           tm.month = strtol(p, &p, 10); p++;
           tm.year  = strtol(p, &p, 10); p++;
@@ -3477,14 +3693,13 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       // secsToTime(char buf[], int secs) — format epoch seconds as timestamp
       int32_t secs = TC_POP(vm);
       int32_t ref  = TC_POP(vm);
-      char *buf = (char*)tc_resolve_ref(vm, ref);
-      if (buf) {
-        time_t tmd = (time_t)secs;
-        struct tm *tmp = gmtime(&tmd);
-        sprintf(buf, "%04d-%02d-%02dT%02d:%02d:%02d",
-          tmp->tm_year + 1900, tmp->tm_mon + 1, tmp->tm_mday,
-          tmp->tm_hour, tmp->tm_min, tmp->tm_sec);
-      }
+      time_t tmd = (time_t)secs;
+      struct tm *tmr = gmtime(&tmd);
+      char tmp[32];
+      sprintf(tmp, "%04d-%02d-%02dT%02d:%02d:%02d",
+        tmr->tm_year + 1900, tmr->tm_mon + 1, tmr->tm_mday,
+        tmr->tm_hour, tmr->tm_min, tmr->tm_sec);
+      tc_cstr_to_ref(vm, ref, tmp);
       TC_PUSH(vm, 0);
       break;
     }

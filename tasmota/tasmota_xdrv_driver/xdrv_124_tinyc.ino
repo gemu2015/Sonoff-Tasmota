@@ -1112,7 +1112,17 @@ static void HandleTinyCUpload(void) {
 #ifdef USE_UFILESYS
         if (ufsp) {
           const char *saveName = s->filename[0] ? s->filename : TC_FILE_NAME;
-          TfsSaveFile(saveName, s->program, s->program_size);
+#ifdef USE_WEBCAM
+          WcInterrupt(0);
+#endif
+          File f = ufsp->open(saveName, "w");
+          if (f) {
+            f.write(s->program, s->program_size);
+            f.close();
+          }
+#ifdef USE_WEBCAM
+          WcInterrupt(1);
+#endif
           AddLog(LOG_LEVEL_INFO, PSTR("TCC: Saved to %s"), saveName);
         }
         TinyCSaveSettings();
