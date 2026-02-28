@@ -269,6 +269,7 @@ enum TcSyscall {
   SYS_UDP_READY           = 102, // (const_idx_name) -> int — 1 if new value available
   SYS_UDP_SEND_ARRAY      = 103, // (const_idx_name, arr_ref, count) -> void — float array
   SYS_UDP_RECV_ARRAY      = 104, // (const_idx_name, arr_ref, maxcount) -> int — recv array
+  SYS_UDP_SEND_STR        = 149, // (const_idx_name, str_ref) -> void — send string (ASCII mode)
   // I2C bus (last param = bus: 0 or 1)
   SYS_I2C_READ8           = 105, // (addr, reg, bus) -> int — read byte
   SYS_I2C_WRITE8          = 106, // (addr, reg, val, bus) -> int — write byte, 1=ok
@@ -563,6 +564,7 @@ typedef struct {
     char     name[TC_UDP_VAR_NAME_MAX];  // variable name = UDP packet name
     uint16_t index;                       // globals[] slot
     uint16_t slot_count;                  // 1 for scalar, N for array
+    uint8_t  type;                        // 0=float scalar, 1=float array, 2=char array
   } udp_globals[TC_MAX_UDP_GLOBALS];
   uint8_t       udp_global_count;
 } TcVM;
@@ -1513,17 +1515,31 @@ void tc_udp_on_receive(const char *name, char umode, const char *data, int datal
     if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
 #endif
 
-    // Auto-update global float variables from UDP packet (V5)
+    // Auto-update global variables from UDP packet (V5)
     TcVM *vmp = &s->vm;
     for (uint8_t gi = 0; gi < vmp->udp_global_count; gi++) {
       if (strcmp(vmp->udp_globals[gi].name, name) == 0) {
         uint16_t idx = vmp->udp_globals[gi].index;
         uint16_t cnt = vmp->udp_globals[gi].slot_count;
-        if (cnt == 1 && idx < vmp->globals_size) {
+        uint8_t gtype = vmp->udp_globals[gi].type;
+        if (gtype == 2) {
+          // Char array: copy string from ASCII data into globals (1 char per slot)
+          if (umode == '=' && data) {
+            uint16_t slen = strlen(data);
+            if (slen >= cnt) slen = cnt - 1;  // leave room for null
+            for (uint16_t j = 0; j < slen && (idx + j) < vmp->globals_size; j++) {
+              vmp->globals[idx + j] = (int32_t)(uint8_t)data[j];
+            }
+            // Null-terminate
+            if ((idx + slen) < vmp->globals_size) {
+              vmp->globals[idx + slen] = 0;
+            }
+          }
+        } else if (cnt == 1 && idx < vmp->globals_size) {
           // Scalar float: store as f2i bits
           if (var) vmp->globals[idx] = f2i(var->value);
         } else if (cnt > 1 && var && var->arr_data) {
-          // Array: copy from UDP array data
+          // Float array: copy from UDP array data
           uint16_t n = (var->arr_count < cnt) ? var->arr_count : cnt;
           for (uint16_t j = 0; j < n && (idx + j) < vmp->globals_size; j++) {
             vmp->globals[idx + j] = f2i(var->arr_data[j]);
@@ -1625,6 +1641,26 @@ static void tc_udp_send_array(const char *name, float *values, uint16_t count) {
   for (uint16_t i = 0; i < count; i++) {
     Tinyc->udp.write((const uint8_t*)&values[i], sizeof(float));
   }
+  Tinyc->udp.endPacket();
+#endif
+}
+
+// Send a string variable via ASCII multicast: =>name=string
+static void tc_udp_send_str(const char *name, const char *str) {
+#if defined(USE_SCRIPT) && defined(USE_SCRIPT_GLOBVARS)
+  Script_udp_ensure();
+  script_udp_sendvar((char*)name, NULL, (char*)str, 0);
+#else
+  if (!Tinyc || !Tinyc->udp_connected) return;
+
+  char hdr[TC_UDP_VAR_NAME_MAX + 4];   // "=>" + name + "="
+  strcpy(hdr, "=>");
+  strlcat(hdr, name, sizeof(hdr) - 1);
+  strlcat(hdr, "=", sizeof(hdr));
+
+  Tinyc->udp.beginPacket(IPAddress(239, 255, 255, 250), TC_UDP_PORT);
+  Tinyc->udp.write((const uint8_t*)hdr, strlen(hdr));
+  Tinyc->udp.write((const uint8_t*)str, strlen(str));
   Tinyc->udp.endPacket();
 #endif
 }
@@ -3900,6 +3936,32 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         }
       } else {
         TC_PUSH(vm, 0);
+      }
+      break;
+    }
+
+    case SYS_UDP_SEND_STR: {
+      // Stack: [const_idx_name, str_ref] — str_ref on top
+      int32_t str_ref = TC_POP(vm);
+      b = TC_POP(vm);  // const pool index for variable name
+      if (b >= 0 && b < vm->const_count && vm->constants[b].type == 1) {
+        if (!Tinyc->udp_used) {
+          Tinyc->udp_used = true;
+          tc_udp_init();
+        }
+        int32_t *arr = tc_resolve_ref(vm, str_ref);
+        int32_t maxLen = tc_ref_maxlen(vm, str_ref);
+        if (arr && maxLen > 0) {
+          // Convert char array (1 int32 per char) to C string
+          char sbuf[256];
+          int32_t slen = 0;
+          for (int32_t i = 0; i < maxLen && i < 255; i++) {
+            if (arr[i] == 0) break;
+            sbuf[slen++] = (char)arr[i];
+          }
+          sbuf[slen] = '\0';
+          tc_udp_send_str(vm->constants[b].str.ptr, sbuf);
+        }
       }
       break;
     }
@@ -7168,6 +7230,13 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
       if (pos + 4 <= globals_table_end) {
         vm->udp_globals[i].index = (B(pos) << 8) | B(pos + 1); pos += 2;
         vm->udp_globals[i].slot_count = (B(pos) << 8) | B(pos + 1); pos += 2;
+        // Type byte (V5.1): 0=float scalar, 1=float array, 2=char array
+        // If table has extra byte, read it; otherwise default to 0 (float)
+        if (pos < globals_table_end) {
+          vm->udp_globals[i].type = B(pos); pos++;
+        } else {
+          vm->udp_globals[i].type = 0;
+        }
         vm->udp_global_count++;
       }
     }
