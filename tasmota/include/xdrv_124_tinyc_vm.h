@@ -3401,6 +3401,11 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int fbuf_len = 0, fbuf_pos = 0;
       char line[512];
       int32_t rowCount = 0;
+      int32_t subCount = 0;                     // sub-row counter for averaging
+      int32_t avgN = (accum < -1) ? -accum : 0; // e.g., accum=-4 → avgN=4
+      float prevVals[32];                        // previous row values for delta mode
+      memset(prevVals, 0, sizeof(prevVals));
+      bool firstRow = true;
 
       while (true) {
         // ── Read next line from buffer ──
@@ -3448,13 +3453,70 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
             val = strtof(p, &p);
             if (*p == '\t') p++;
           }
-          if (arrBase[c] && rowCount < arrMax[c]) {
-            if (accum) {
+          if (accum == -1) {
+            // Delta mode: output = current - previous
+            float delta = firstRow ? 0 : (val - prevVals[c]);
+            prevVals[c] = val;
+            if (arrBase[c] && rowCount < arrMax[c]) {
+              memcpy(&arrBase[c][rowCount], &delta, sizeof(float));
+            }
+          } else if (accum < -1) {
+            // Averaging mode: accumulate avgN rows, then divide
+            if (arrBase[c] && rowCount < arrMax[c]) {
+              if (subCount == 0) {
+                memcpy(&arrBase[c][rowCount], &val, sizeof(float));
+              } else {
+                float existing;
+                memcpy(&existing, &arrBase[c][rowCount], sizeof(float));
+                existing += val;
+                memcpy(&arrBase[c][rowCount], &existing, sizeof(float));
+              }
+            }
+          } else if (accum > 0) {
+            // Simple accumulation (existing behavior)
+            if (arrBase[c] && rowCount < arrMax[c]) {
               float existing;
               memcpy(&existing, &arrBase[c][rowCount], sizeof(float));
               val += existing;
+              memcpy(&arrBase[c][rowCount], &val, sizeof(float));
             }
-            memcpy(&arrBase[c][rowCount], &val, sizeof(float));
+          } else {
+            // Normal mode (accum == 0): direct store
+            if (arrBase[c] && rowCount < arrMax[c]) {
+              memcpy(&arrBase[c][rowCount], &val, sizeof(float));
+            }
+          }
+        }
+        // Row counting depends on mode
+        if (accum < -1) {
+          subCount++;
+          if (subCount >= avgN) {
+            // Divide accumulated sums by avgN
+            for (int c = 0; c < numArrays; c++) {
+              if (arrBase[c] && rowCount < arrMax[c]) {
+                float avg;
+                memcpy(&avg, &arrBase[c][rowCount], sizeof(float));
+                avg /= (float)avgN;
+                memcpy(&arrBase[c][rowCount], &avg, sizeof(float));
+              }
+            }
+            rowCount++;
+            subCount = 0;
+          }
+        } else {
+          rowCount++;
+          firstRow = false;
+        }
+      }
+
+      // For averaging: if partial group remains, compute average of partial
+      if (accum < -1 && subCount > 0) {
+        for (int c = 0; c < numArrays; c++) {
+          if (arrBase[c] && rowCount < arrMax[c]) {
+            float avg;
+            memcpy(&avg, &arrBase[c][rowCount], sizeof(float));
+            avg /= (float)subCount;
+            memcpy(&arrBase[c][rowCount], &avg, sizeof(float));
           }
         }
         rowCount++;
@@ -5604,7 +5666,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
             "_tcC[ci]={t:t,u:u,tp:tp,mn:mn,mx:mx,s:[],lb:lb};"
           "}"
           "function _tcD(){"
-            "var N=new Date(),W=new Date(N.getTime()-86400000);"
+            "var N=new Date();"
             "for(var i=0;i<_tcC.length;i++){"
               "var c=_tcC[i];if(!c)continue;"
               "var dt=new google.visualization.DataTable();"
@@ -5632,8 +5694,10 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
                 "var colors=c.s.map(function(x){return x.c;});"
                 "var va={title:c.u};"
                 "if(c.mn<c.mx){va.minValue=c.mn;va.maxValue=c.mx;}"
+                "var dw=c.s[0].d[0]?c.s[0].d[0][0]*60000:-86400000;"
+                "var hfmt=dw<-172800000?'EEE HH:mm':'HH:mm';"
                 "var o={title:c.t,curveType:'none',"
-                  "hAxis:{format:'HH:mm',viewWindow:{min:W,max:N}},"
+                  "hAxis:{format:hfmt,viewWindow:{min:new Date(N.getTime()+dw),max:N}},"
                   "vAxis:va,colors:colors,"
                   "lineWidth:1,pointSize:0,"
                   "chartArea:{width:'80%%',height:'65%%'}};"
@@ -5663,7 +5727,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       if (new_chart) {
         const char *div_style = (type == 116)
           ? "width:100%;overflow-x:auto"
-          : "width:530px;height:200px";
+          : "width:100%;height:300px";
         if (fixed_range) {
           char ymin_s[16], ymax_s[16];
           dtostrf(ymin, 1, 1, ymin_s);
