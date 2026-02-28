@@ -77,9 +77,10 @@ static FS *tc_file_path(char *path) {
 #endif
 
 #define TC_MAGIC           0x54434300  // "TCC\0"
-#define TC_VERSION         4           // V4: persist globals
+#define TC_VERSION         5           // V5: global (UDP auto-update) variables
 #define TC_FILE_NAME       "/autoexec.tcb"
 #define TC_MAX_PERSIST     32          // max persist variable entries
+#define TC_MAX_UDP_GLOBALS 64          // max global (UDP auto-update) variable entries
 
 // Flash-safe byte read — enables execute-from-flash on ESP32
 // When USE_TINYC_FLASH_EXEC is defined, bytecode can reside in memory-mapped flash.
@@ -312,6 +313,7 @@ enum TcSyscall {
   SYS_HTTP_POST       = 141, // (url_ref, data_ref, response_ref) -> int length
   SYS_HTTP_HEADER     = 142, // (name_ref, value_ref) -> void
   SYS_WEB_PARSE       = 143, // (src_ref, delim_const, index, dst_ref) -> int length
+  SYS_WEB_SEND_JSON_ARRAY = 148, // (arr_ref, count) -> void — send float array as JSON integer array
   // WebUI widgets (generate HTML for /tc_ui page)
   SYS_WEB_BUTTON      = 150, // (gref, label_const) -> void
   SYS_WEB_SLIDER      = 151, // (gref, min, max, label_const) -> void
@@ -556,6 +558,13 @@ typedef struct {
   struct { uint16_t index; uint16_t count; } persist[TC_MAX_PERSIST];
   uint8_t       persist_count;
   char          persist_file[32];  // e.g. "/ecotracker.pvs" — derived from .tcb filename
+  // UDP globals table (V5: auto-update from UDP packets)
+  struct {
+    char     name[TC_UDP_VAR_NAME_MAX];  // variable name = UDP packet name
+    uint16_t index;                       // globals[] slot
+    uint16_t slot_count;                  // 1 for scalar, N for array
+  } udp_globals[TC_MAX_UDP_GLOBALS];
+  uint8_t       udp_global_count;
 } TcVM;
 
 /*********************************************************************************************\
@@ -1503,6 +1512,27 @@ void tc_udp_on_receive(const char *name, char umode, const char *data, int datal
 #ifdef ESP32
     if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
 #endif
+
+    // Auto-update global float variables from UDP packet (V5)
+    TcVM *vmp = &s->vm;
+    for (uint8_t gi = 0; gi < vmp->udp_global_count; gi++) {
+      if (strcmp(vmp->udp_globals[gi].name, name) == 0) {
+        uint16_t idx = vmp->udp_globals[gi].index;
+        uint16_t cnt = vmp->udp_globals[gi].slot_count;
+        if (cnt == 1 && idx < vmp->globals_size) {
+          // Scalar float: store as f2i bits
+          if (var) vmp->globals[idx] = f2i(var->value);
+        } else if (cnt > 1 && var && var->arr_data) {
+          // Array: copy from UDP array data
+          uint16_t n = (var->arr_count < cnt) ? var->arr_count : cnt;
+          for (uint16_t j = 0; j < n && (idx + j) < vmp->globals_size; j++) {
+            vmp->globals[idx + j] = f2i(var->arr_data[j]);
+          }
+        }
+        break;  // one entry per name per VM
+      }
+    }
+
     tc_current_slot = s;
     tc_vm_call_callback(&s->vm, "UdpCall");
     tc_current_slot = nullptr;
@@ -5315,6 +5345,27 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
     }
 
+    case SYS_WEB_SEND_JSON_ARRAY: {
+      int32_t count = TC_POP(vm);
+      int32_t ref = TC_POP(vm);
+#ifdef USE_WEBSERVER
+      int32_t *arr = tc_resolve_ref(vm, ref);
+      int32_t maxLen = tc_ref_maxlen(vm, ref);
+      if (arr && count > 0) {
+        if (count > maxLen) count = maxLen;
+        char tmp[16];
+        WSContentSend_P(PSTR("["));
+        for (int32_t i = 0; i < count; i++) {
+          int32_t val = (int32_t)i2f(arr[i]);
+          int slen = snprintf(tmp, sizeof(tmp), "%s%d", (i > 0) ? "," : "", val);
+          WSContentSend(tmp, slen);
+        }
+        WSContentSend_P(PSTR("]"));
+      }
+#endif
+      break;
+    }
+
     case SYS_WEB_ON: {
       // Register custom web endpoint: webOn(handler_num, "/url/path")
       int32_t ci = TC_POP(vm);   // url const index
@@ -6939,10 +6990,11 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   uint16_t const_pool_size = (B(10) << 8) | B(11);
   uint16_t heap_decl_size = (B(12) << 8) | B(13);
 
-  // V4=18, V3=16, V2=14 bytes header
-  uint16_t header_size = (version >= 4) ? 18 : ((version >= 3) ? 16 : 14);
+  // V5=20, V4=18, V3=16, V2=14 bytes header
+  uint16_t header_size = (version >= 5) ? 20 : ((version >= 4) ? 18 : ((version >= 3) ? 16 : 14));
   uint16_t func_table_size = (version >= 3 && size >= 16) ? ((B(14) << 8) | B(15)) : 0;
   uint16_t persist_table_size = (version >= 4 && size >= 18) ? ((B(16) << 8) | B(17)) : 0;
+  uint16_t globals_table_size = (version >= 5 && size >= 20) ? ((B(18) << 8) | B(19)) : 0;
 
   if (size < header_size) return TC_ERR_BAD_BINARY;
 
@@ -7098,11 +7150,35 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
     AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: %d persist entries"), vm->persist_count);
   }
 
+  // Parse globals table (V5: UDP auto-update variables)
+  vm->udp_global_count = 0;
+  uint16_t globals_table_start = persist_table_end;
+  uint16_t globals_table_end = globals_table_start + globals_table_size;
+  if (globals_table_size > 0) {
+    uint16_t pos = globals_table_start;
+    uint8_t count = B(pos); pos++;
+    if (count > TC_MAX_UDP_GLOBALS) count = TC_MAX_UDP_GLOBALS;
+    for (uint8_t i = 0; i < count && pos < globals_table_end; i++) {
+      uint8_t name_len = B(pos); pos++;
+      if (name_len >= TC_UDP_VAR_NAME_MAX) name_len = TC_UDP_VAR_NAME_MAX - 1;
+      for (uint8_t j = 0; j < name_len && pos < globals_table_end; j++) {
+        vm->udp_globals[i].name[j] = (char)B(pos); pos++;
+      }
+      vm->udp_globals[i].name[name_len] = '\0';
+      if (pos + 4 <= globals_table_end) {
+        vm->udp_globals[i].index = (B(pos) << 8) | B(pos + 1); pos += 2;
+        vm->udp_globals[i].slot_count = (B(pos) << 8) | B(pos + 1); pos += 2;
+        vm->udp_global_count++;
+      }
+    }
+    AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: %d udp global entries"), vm->udp_global_count);
+  }
+
   #undef B
 
   vm->code = binary;
-  vm->code_offset = persist_table_end;
-  vm->code_size = size - persist_table_end;
+  vm->code_offset = globals_table_end;
+  vm->code_size = size - globals_table_end;
   vm->pc = vm->code_offset + entry_point;
   vm->sp = 0;
   vm->fp = 0;
@@ -8167,6 +8243,18 @@ static bool TinyCStartVM(TcSlot *s) {
   // Set persist filename and load saved values
   TinyCSetPersistFile(s, s->filename);
   tc_persist_load(&s->vm);
+
+  // Register UDP global variables (V5: auto-update from packets)
+  if (s->vm.udp_global_count > 0) {
+    if (!Tinyc->udp_used) {
+      Tinyc->udp_used = true;
+      tc_udp_init();
+    }
+    for (uint8_t i = 0; i < s->vm.udp_global_count; i++) {
+      tc_udp_find_var(s->vm.udp_globals[i].name, true);
+    }
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: registered %d UDP global vars"), s->vm.udp_global_count);
+  }
 
   s->output_len = 0;
   s->output[0] = '\0';
