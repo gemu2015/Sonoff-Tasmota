@@ -4,8 +4,11 @@
   "description": "Legacy monolithic UDisplay driver (working epaper support).",
   "license": "MIT",
   "homepage": "https://github.com/arendst/Tasmota",
-  "frameworks": "*",
-  "platforms": "*",
+  "frameworks": "arduino",
+  "platforms": [
+    "espressif8266",
+    "espressif32"
+  ],
   "authors":
   {
     "name": "Gerhard Mutz",
