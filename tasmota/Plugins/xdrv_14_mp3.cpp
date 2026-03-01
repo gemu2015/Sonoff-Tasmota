@@ -79,14 +79,14 @@
 #include "module.h"
 #include "module_defines.h"
 
-#define MP3_DEFAULT_TX_PIN 5
+#define MP3_DEFAULT_TX_PIN 10
 
 /*********************************************************************************************\
  * MP3 control for RB-DFR-562 DFRobot mini MP3 player
  * https://www.dfrobot.com/wiki/index.php/DFPlayer_Mini_SKU:DFR0299
 \*********************************************************************************************/
 
-#define MP3PLAYER_REV 1 << 16 | 4
+#define MP3PLAYER_REV 1 << 16 | 5
 
 #define DVP_MINI 0
 #define DY_SV17F 1

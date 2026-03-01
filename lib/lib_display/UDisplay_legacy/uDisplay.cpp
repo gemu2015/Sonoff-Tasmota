@@ -21,7 +21,6 @@
 
 #include "tasmota_options.h"
 
-
 #include "uDisplay.h"
 
 #ifdef ESP32
@@ -32,6 +31,7 @@
 #include "esp_cache.h"
 #endif // USE_ESP32_S3
 
+#warning USING LEGACY UDISPLAY
 
 
 extern int Cache_WriteBack_Addr(uint32_t addr, uint32_t size);
