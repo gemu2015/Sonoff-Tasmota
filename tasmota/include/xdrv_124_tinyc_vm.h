@@ -204,6 +204,7 @@ enum TcSyscall {
   SYS_MATH_MAP  = 33, SYS_MATH_RANDOM= 34, SYS_MATH_SQRT = 35,
   SYS_MATH_SIN  = 36, SYS_MATH_COS   = 37,
   SYS_MATH_FLOOR= 38, SYS_MATH_CEIL  = 39, SYS_MATH_ROUND = 40,
+  SYS_MATH_EXP  = 198, SYS_MATH_LOG  = 199, // exp(f)->float, log(f)->float (natural)
   SYS_INT_BITS_TO_FLOAT = 49, // (int_bits) -> float — reinterpret int32 as IEEE754 float
   // String operations (work with array refs from OP_ADDR_LOCAL/OP_ADDR_GLOBAL)
   SYS_STRLEN       = 50,  // (ref) -> int
@@ -2517,6 +2518,10 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       fa = TC_POPF(vm); TC_PUSH(vm, (int32_t)ceilf(fa)); break;
     case SYS_MATH_ROUND:
       fa = TC_POPF(vm); TC_PUSH(vm, (int32_t)roundf(fa)); break;
+    case SYS_MATH_EXP:
+      fa = TC_POPF(vm); TC_PUSHF(vm, expf(fa)); break;
+    case SYS_MATH_LOG:
+      fa = TC_POPF(vm); TC_PUSHF(vm, logf(fa)); break;
     case SYS_INT_BITS_TO_FLOAT:
       // Identity: int32 bits ARE the float — just leave on stack
       // Compiler knows return type is float, so subsequent ops use FADD/FMUL etc.
