@@ -985,7 +985,7 @@ static void HandleTinyCPage(void) {
     "_tc.onmessage=function(e){if(e.data=='refresh')location.reload();}}"
     "</script>"));
 
-  WSContentSpaceButton(BUTTON_MAIN);
+  WSContentSpaceButton(BUTTON_MANAGEMENT);
   WSContentEnd();
 }
 

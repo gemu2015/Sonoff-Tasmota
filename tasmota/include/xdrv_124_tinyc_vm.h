@@ -8182,6 +8182,7 @@ static void tc_vm_task(void *param) {
         }
       }
       vm->delayed = false;
+      tc_current_slot = slot;  // restore — other tasks may have changed it during delay
       if (slot->task_stop) break;
     }
 
