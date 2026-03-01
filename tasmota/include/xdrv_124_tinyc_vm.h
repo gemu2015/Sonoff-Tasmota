@@ -62,7 +62,7 @@ static FS *tc_file_path(char *path) {
   #define TC_MAX_CONSTANTS   256     // constant pool entries (dynamic alloc, uint16_t)
   #define TC_MAX_CONST_DATA  4096    // string constant bytes
   #define TC_INSTR_PER_TICK  1000    // instructions per 50ms tick
-  #define TC_OUTPUT_SIZE     512     // output buffer for MQTT
+  #define TC_OUTPUT_SIZE     128     // output buffer for MQTT (was 512)
 #endif
 
 #define TC_MAX_FILE_HANDLES  4      // max simultaneously open files
@@ -198,11 +198,13 @@ enum TcSyscall {
   SYS_SERIAL_PRINTLN  = 24, SYS_SERIAL_READ      = 25,
   SYS_SERIAL_AVAILABLE= 26, SYS_SERIAL_CLOSE     = 27,
   SYS_SERIAL_WRITE_BYTE= 28, SYS_SERIAL_WRITE_STR= 29,
+  SYS_SERIAL_WRITE_BUF = 18, // (buf_ref, len) -> void — write len bytes (binary safe)
   // Math
   SYS_MATH_ABS  = 30, SYS_MATH_MIN  = 31, SYS_MATH_MAX  = 32,
   SYS_MATH_MAP  = 33, SYS_MATH_RANDOM= 34, SYS_MATH_SQRT = 35,
   SYS_MATH_SIN  = 36, SYS_MATH_COS   = 37,
   SYS_MATH_FLOOR= 38, SYS_MATH_CEIL  = 39, SYS_MATH_ROUND = 40,
+  SYS_INT_BITS_TO_FLOAT = 49, // (int_bits) -> float — reinterpret int32 as IEEE754 float
   // String operations (work with array refs from OP_ADDR_LOCAL/OP_ADDR_GLOBAL)
   SYS_STRLEN       = 50,  // (ref) -> int
   SYS_STRCPY       = 51,  // (dst_ref, src_ref) -> void
@@ -550,7 +552,7 @@ typedef struct {
   // Heap (for large arrays > 255 elements)
   int32_t      *heap_data;       // malloc'd on demand, NULL if no heap used
   uint16_t      heap_used;       // bump allocator: next free slot
-  TcHeapHandle  heap_handles[TC_MAX_HEAP_HANDLES];
+  TcHeapHandle *heap_handles;    // malloc'd on first heap alloc, NULL if no heap used
   uint8_t       heap_handle_count;
   // Callback function table (V3)
   TcCallback    callbacks[TC_MAX_CALLBACKS];
@@ -560,12 +562,14 @@ typedef struct {
   uint8_t       persist_count;
   char          persist_file[32];  // e.g. "/ecotracker.pvs" — derived from .tcb filename
   // UDP globals table (V5: auto-update from UDP packets)
-  struct {
+  // Dynamically allocated in tc_vm_load only when bytecode declares UDP globals
+  struct TcUdpGlobalEntry {
     char     name[TC_UDP_VAR_NAME_MAX];  // variable name = UDP packet name
     uint16_t index;                       // globals[] slot
     uint16_t slot_count;                  // 1 for scalar, N for array
     uint8_t  type;                        // 0=float scalar, 1=float array, 2=char array
-  } udp_globals[TC_MAX_UDP_GLOBALS];
+  };
+  struct TcUdpGlobalEntry *udp_globals;  // NULL if no UDP globals declared
   uint8_t       udp_global_count;
 } TcVM;
 
@@ -646,6 +650,11 @@ struct TcSlot {
 
 struct TINYC {
   TcSlot  *slots[TC_MAX_VMS];     // per-program VM slots (NULL = unused, malloc'd on demand)
+  // Lightweight slot config — persists filename + autoexec without loading into RAM
+  struct {
+    char filename[32];            // .tcb filename (empty = no file assigned)
+    bool autoexec;                // auto-run on boot
+  } slot_config[TC_MAX_VMS];
   uint32_t instr_per_tick;
   bool     autorun;
   bool     show_info;             // show TinyC status rows on main web page
@@ -759,6 +768,8 @@ static void tc_slot_free(TcSlot *s) {
   if (s->vm.constants) { free(s->vm.constants); s->vm.constants = nullptr; s->vm.const_capacity = 0; }
   if (s->vm.const_data) { free(s->vm.const_data); s->vm.const_data = nullptr; s->vm.const_data_size = 0; }
   if (s->vm.heap_data) { free(s->vm.heap_data); s->vm.heap_data = nullptr; }
+  if (s->vm.heap_handles) { free(s->vm.heap_handles); s->vm.heap_handles = nullptr; }
+  if (s->vm.udp_globals) { free(s->vm.udp_globals); s->vm.udp_globals = nullptr; s->vm.udp_global_count = 0; }
 #ifdef ESP32
   if (s->vm_mutex) { vSemaphoreDelete(s->vm_mutex); s->vm_mutex = nullptr; }
 #endif
@@ -814,7 +825,7 @@ static int32_t* tc_resolve_ref(TcVM *vm, int32_t ref) {
   if (tag == 3) {
     // Heap ref: 0xC0000000 | handle
     uint16_t handle = uref & 0xFFFF;
-    if (handle < TC_MAX_HEAP_HANDLES && vm->heap_data &&
+    if (handle < TC_MAX_HEAP_HANDLES && vm->heap_data && vm->heap_handles &&
         vm->heap_handles[handle].alive) {
       return &vm->heap_data[vm->heap_handles[handle].offset];
     }
@@ -840,7 +851,7 @@ static int32_t tc_ref_maxlen(TcVM *vm, int32_t ref) {
   if (tag == 3) {
     // Heap ref
     uint16_t handle = uref & 0xFFFF;
-    if (handle < TC_MAX_HEAP_HANDLES && vm->heap_handles[handle].alive) {
+    if (handle < TC_MAX_HEAP_HANDLES && vm->heap_handles && vm->heap_handles[handle].alive) {
       return vm->heap_handles[handle].size;
     }
     return 0;
@@ -1935,11 +1946,17 @@ static void tc_free_all_frames(TcVM *vm) {
 
 // Allocate a heap block, returns handle index or -1 on failure
 static int tc_heap_alloc(TcVM *vm, uint16_t size) {
-  // Lazy-allocate heap buffer
+  // Lazy-allocate heap buffer (PSRAM if available — not in hot path)
   if (!vm->heap_data) {
-    vm->heap_data = (int32_t *)calloc(TC_MAX_HEAP, sizeof(int32_t));
+    vm->heap_data = (int32_t *)special_calloc(TC_MAX_HEAP, sizeof(int32_t));
     if (!vm->heap_data) return -1;
     vm->heap_used = 0;
+  }
+  // Lazy-allocate heap handles array
+  if (!vm->heap_handles) {
+    vm->heap_handles = (TcHeapHandle *)calloc(TC_MAX_HEAP_HANDLES, sizeof(TcHeapHandle));
+    if (!vm->heap_handles) return -1;
+    vm->heap_handle_count = 0;
   }
   // Find free handle slot
   int handle = -1;
@@ -1962,7 +1979,7 @@ static int tc_heap_alloc(TcVM *vm, uint16_t size) {
 
 // Mark a heap handle as dead (no compaction — bump allocator)
 static void tc_heap_free_handle(TcVM *vm, int handle) {
-  if (handle >= 0 && handle < TC_MAX_HEAP_HANDLES) {
+  if (handle >= 0 && handle < TC_MAX_HEAP_HANDLES && vm->heap_handles) {
     vm->heap_handles[handle].alive = false;
   }
 }
@@ -1973,9 +1990,12 @@ static void tc_heap_free_all(TcVM *vm) {
     free(vm->heap_data);
     vm->heap_data = nullptr;
   }
+  if (vm->heap_handles) {
+    free(vm->heap_handles);
+    vm->heap_handles = nullptr;
+  }
   vm->heap_used = 0;
   vm->heap_handle_count = 0;
-  memset(vm->heap_handles, 0, sizeof(vm->heap_handles));
 }
 
 /*********************************************************************************************\
@@ -2346,8 +2366,8 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           if (tc_serial_port->hardwareSerial()) {
             ClaimSerial();
           }
-          AddLog(LOG_LEVEL_INFO, PSTR("TCC: serial opened rx=%d tx=%d baud=%d cfg=%d buf=%d"),
-                 rxpin, txpin, baud, config, bufsize);
+          AddLog(LOG_LEVEL_INFO, PSTR("TCC: serial opened rx=%d tx=%d baud=%d cfg=%d buf=%d hw=%d"),
+                 rxpin, txpin, baud, config, bufsize, tc_serial_port->hardwareSerial());
           TC_PUSH(vm, 1);
         } else {
           delete tc_serial_port;
@@ -2447,6 +2467,24 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       }
       break;
     }
+    case SYS_SERIAL_WRITE_BUF: {
+      // serialWriteBytes(buf_ref, len) — write exactly len bytes (binary safe)
+      b = TC_POP(vm);  // len
+      a = TC_POP(vm);  // buf_ref
+      if (tc_serial_port && b > 0 && b <= 256) {
+        int32_t *buf = tc_resolve_ref(vm, a);
+        if (buf) {
+          int32_t maxLen = tc_ref_maxlen(vm, a);
+          if (b > maxLen) b = maxLen;
+          uint8_t tbuf[256];
+          for (int i = 0; i < b; i++) {
+            tbuf[i] = (uint8_t)(buf[i] & 0xFF);
+          }
+          tc_serial_port->write(tbuf, b);
+        }
+      }
+      break;
+    }
 
     // ── Math ──────────────────────────────────────────
     case SYS_MATH_ABS:
@@ -2479,6 +2517,10 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       fa = TC_POPF(vm); TC_PUSH(vm, (int32_t)ceilf(fa)); break;
     case SYS_MATH_ROUND:
       fa = TC_POPF(vm); TC_PUSH(vm, (int32_t)roundf(fa)); break;
+    case SYS_INT_BITS_TO_FLOAT:
+      // Identity: int32 bits ARE the float — just leave on stack
+      // Compiler knows return type is float, so subsequent ops use FADD/FMUL etc.
+      break;
 
     // ── Tasmota-specific ──────────────────────────────
     case SYS_MQTT_PUBLISH:
@@ -7219,8 +7261,10 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
     }
     if (total_heap > 0) {
       uint32_t alloc_size = total_heap > TC_MAX_HEAP ? total_heap : TC_MAX_HEAP;
-      vm->heap_data = (int32_t *)calloc(alloc_size, sizeof(int32_t));
+      vm->heap_data = (int32_t *)special_calloc(alloc_size, sizeof(int32_t));
       if (!vm->heap_data) return TC_ERR_STACK_OVERFLOW;  // OOM
+      vm->heap_handles = (TcHeapHandle *)calloc(TC_MAX_HEAP_HANDLES, sizeof(TcHeapHandle));
+      if (!vm->heap_handles) { free(vm->heap_data); vm->heap_data = nullptr; return TC_ERR_STACK_OVERFLOW; }
       // Pre-allocate each declared block
       for (uint8_t i = 0; i < count; i++) {
         uint8_t handle = B(const_end + 1 + i * 3);
@@ -7276,14 +7320,19 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
     AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: %d persist entries"), vm->persist_count);
   }
 
-  // Parse globals table (V5: UDP auto-update variables)
+  // Parse globals table (V5: UDP auto-update variables) — dynamically allocated
   vm->udp_global_count = 0;
+  vm->udp_globals = nullptr;
   uint16_t globals_table_start = persist_table_end;
   uint16_t globals_table_end = globals_table_start + globals_table_size;
   if (globals_table_size > 0) {
     uint16_t pos = globals_table_start;
     uint8_t count = B(pos); pos++;
     if (count > TC_MAX_UDP_GLOBALS) count = TC_MAX_UDP_GLOBALS;
+    if (count > 0) {
+      vm->udp_globals = (struct TcVM::TcUdpGlobalEntry *)calloc(count, sizeof(struct TcVM::TcUdpGlobalEntry));
+      if (!vm->udp_globals) { count = 0; }  // OOM — skip UDP globals
+    }
     for (uint8_t i = 0; i < count && pos < globals_table_end; i++) {
       uint8_t name_len = B(pos); pos++;
       if (name_len >= TC_UDP_VAR_NAME_MAX) name_len = TC_UDP_VAR_NAME_MAX - 1;
@@ -7294,8 +7343,6 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
       if (pos + 4 <= globals_table_end) {
         vm->udp_globals[i].index = (B(pos) << 8) | B(pos + 1); pos += 2;
         vm->udp_globals[i].slot_count = (B(pos) << 8) | B(pos + 1); pos += 2;
-        // Type byte (V5.1): 0=float scalar, 1=float array, 2=char array
-        // If table has extra byte, read it; otherwise default to 0 (float)
         if (pos < globals_table_end) {
           vm->udp_globals[i].type = B(pos); pos++;
         } else {
@@ -7657,7 +7704,7 @@ static int tc_vm_step(TcVM *vm) {
     case OP_LOAD_HEAP_ARR: {
       uint8_t handle = tc_read_u8(vm);
       a = TC_POP(vm);  // index
-      if (handle >= TC_MAX_HEAP_HANDLES || !vm->heap_data ||
+      if (handle >= TC_MAX_HEAP_HANDLES || !vm->heap_data || !vm->heap_handles ||
           !vm->heap_handles[handle].alive ||
           a < 0 || (uint16_t)a >= vm->heap_handles[handle].size) {
         return TC_ERR_BOUNDS;
@@ -7669,7 +7716,7 @@ static int tc_vm_step(TcVM *vm) {
       uint8_t handle = tc_read_u8(vm);
       b = TC_POP(vm);  // value
       a = TC_POP(vm);  // index
-      if (handle >= TC_MAX_HEAP_HANDLES || !vm->heap_data ||
+      if (handle >= TC_MAX_HEAP_HANDLES || !vm->heap_data || !vm->heap_handles ||
           !vm->heap_handles[handle].alive ||
           a < 0 || (uint16_t)a >= vm->heap_handles[handle].size) {
         return TC_ERR_BOUNDS;
@@ -8029,7 +8076,7 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
   _op_load_heap: {
     uint8_t handle = _RD_U8();
     _a = TC_IPOP();
-    if (handle >= TC_MAX_HEAP_HANDLES || !vm->heap_data ||
+    if (handle >= TC_MAX_HEAP_HANDLES || !vm->heap_data || !vm->heap_handles ||
         !vm->heap_handles[handle].alive ||
         _a < 0 || (uint16_t)_a >= vm->heap_handles[handle].size) {
       _err = TC_ERR_BOUNDS; goto _vm_exit;
@@ -8040,7 +8087,7 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
   _op_store_heap: {
     uint8_t handle = _RD_U8();
     _b = TC_IPOP(); _a = TC_IPOP();
-    if (handle >= TC_MAX_HEAP_HANDLES || !vm->heap_data ||
+    if (handle >= TC_MAX_HEAP_HANDLES || !vm->heap_data || !vm->heap_handles ||
         !vm->heap_handles[handle].alive ||
         _a < 0 || (uint16_t)_a >= vm->heap_handles[handle].size) {
       _err = TC_ERR_BOUNDS; goto _vm_exit;

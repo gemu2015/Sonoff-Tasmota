@@ -223,12 +223,7 @@ static void TinyCSaveSettings(void) {
   File f = fs->open(TC_CFG_FILE, "w");
   if (!f) { AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Cannot write " TC_CFG_FILE)); return; }
   for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
-    TcSlot *s = Tinyc->slots[i];
-    if (s && s->filename[0]) {
-      f.printf("%s,%d\n", s->filename, s->autoexec ? 1 : 0);
-    } else {
-      f.printf(",%d\n", (s && s->autoexec) ? 1 : 0);
-    }
+    f.printf("%s,%d\n", Tinyc->slot_config[i].filename, Tinyc->slot_config[i].autoexec ? 1 : 0);
   }
   // Extra line for show_info
   f.printf("_info,%d\n", Tinyc->show_info ? 1 : 0);
@@ -267,24 +262,26 @@ static void TinyCLoadSettings(void) {
 
     fname.trim();
     if (fname.length() > 0) {
-      if (TinyCLoadFile(fname.c_str(), slot)) {
-        Tinyc->slots[slot]->autoexec = (autoexec != 0);
-        AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d: %s (autoexec=%d)"), slot, fname.c_str(), autoexec);
-      }
+      // Store config (lightweight — no RAM allocation for the VM)
+      strlcpy(Tinyc->slot_config[slot].filename, fname.c_str(), sizeof(Tinyc->slot_config[slot].filename));
+      Tinyc->slot_config[slot].autoexec = (autoexec != 0);
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d: %s (autoexec=%d)"), slot, fname.c_str(), autoexec);
     }
     slot++;
   }
   f.close();
 
-  // Auto-run slots with autoexec flag — skip on boot loop
+  // Auto-run slots with autoexec flag — lazy-load + start
   if (TasmotaGlobal.no_autoexec) {
     AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Boot loop detected — autoexec disabled"));
   } else {
     for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
-      TcSlot *s = Tinyc->slots[i];
-      if (s && s->loaded && s->autoexec) {
-        TinyCStartVM(s);
-        AddLog(LOG_LEVEL_INFO, PSTR("TCC: Auto-started slot %d"), i);
+      if (Tinyc->slot_config[i].autoexec && Tinyc->slot_config[i].filename[0]) {
+        if (TinyCLoadFile(Tinyc->slot_config[i].filename, i)) {
+          TinyCStartVM(Tinyc->slots[i]);
+          AddLog(LOG_LEVEL_INFO, PSTR("TCC: Auto-started slot %d"), i);
+          delay(100);  // stagger VM starts to avoid heap/stack exhaustion
+        }
       }
     }
   }
@@ -315,14 +312,7 @@ static void TinyCInit(void) {
   for (int i = 0; i < TC_SPI_MAX_CS; i++) { Tinyc->spi.cs[i] = -1; }
   Tinyc->spi.sclk = 0;  // 0 = not initialized (valid pins are >0 or <0)
 
-  // Allocate slot 0 (default slot, always present)
-  Tinyc->slots[0] = tc_slot_alloc();
-  if (!Tinyc->slots[0]) {
-    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Slot 0 allocation failed"));
-    free(Tinyc);
-    Tinyc = nullptr;
-    return;
-  }
+  // Slots allocated on demand (upload, load, run API)
 
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: TinyC VM initialized (%d bytes, %d free)"), needed, ESP_getFreeHeap());
 
@@ -579,7 +569,12 @@ void CmndTinyCRun(void) {
     TinyCSaveSettings();
   }
 #endif
-  if (!s->loaded) { ResponseCmndChar_P(PSTR("No program loaded")); return; }
+  // Lazy-load from config if not yet loaded
+  if (!s->loaded && Tinyc->slot_config[slot_num].filename[0]) {
+    TinyCLoadFile(Tinyc->slot_config[slot_num].filename, slot_num);
+    s = Tinyc->slots[slot_num];
+  }
+  if (!s || !s->loaded) { ResponseCmndChar_P(PSTR("No program loaded")); return; }
   if (!TinyCStartVM(s)) {
     ResponseCmndChar_P(PSTR("Start failed"));
     return;
@@ -708,6 +703,7 @@ static bool TinyCLoadFile(const char *path, uint8_t slot_num) {
   if (err == TC_OK) {
     s->loaded = true;
     strlcpy(s->filename, path, sizeof(s->filename));
+    strlcpy(Tinyc->slot_config[slot_num].filename, path, sizeof(Tinyc->slot_config[slot_num].filename));
     TinyCSetPersistFile(s, path);
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: Loaded %s (%d bytes) into slot %d"), path, fsize, slot_num);
     return true;
@@ -737,8 +733,13 @@ static void HandleTinyCPage(void) {
     }
     TcSlot *cs = Tinyc->slots[cmd_slot];
 
-    if (cmd == "run" && cs) {
-      TinyCStartVM(cs);
+    if (cmd == "run") {
+      // Lazy-load if needed
+      if (!cs && Tinyc->slot_config[cmd_slot].filename[0]) {
+        TinyCLoadFile(Tinyc->slot_config[cmd_slot].filename, cmd_slot);
+        cs = Tinyc->slots[cmd_slot];
+      }
+      if (cs) TinyCStartVM(cs);
     } else if (cmd == "stop" && cs) {
       TinyCStopVM(cs);
     } else if (cmd == "reset" && cs) {
@@ -761,12 +762,11 @@ static void HandleTinyCPage(void) {
       }
 #endif
     } else if (cmd == "autoexec") {
-      // Toggle autoexec flag for this slot
-      if (cs) {
-        cs->autoexec = !cs->autoexec;
-        TinyCSaveSettings();
-        AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d autoexec=%d"), cmd_slot, cs->autoexec);
-      }
+      // Toggle autoexec flag for this slot (works even if VM not loaded)
+      Tinyc->slot_config[cmd_slot].autoexec = !Tinyc->slot_config[cmd_slot].autoexec;
+      if (cs) cs->autoexec = Tinyc->slot_config[cmd_slot].autoexec;
+      TinyCSaveSettings();
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d autoexec=%d"), cmd_slot, Tinyc->slot_config[cmd_slot].autoexec ? 1 : 0);
     } else if (cmd == "delall") {
 #ifdef USE_UFILESYS
       // Delete all .tcb files from both filesystems
@@ -830,14 +830,18 @@ static void HandleTinyCPage(void) {
     WSContentSend_P(PSTR("<fieldset><legend><b> TinyC VM Slots </b></legend>"));
     for (uint8_t si = 0; si < TC_MAX_VMS; si++) {
       TcSlot *s = Tinyc->slots[si];
-      if (!s) continue;
+      // Show slot if loaded OR has a config file (lazy-load pending)
+      if (!s && !Tinyc->slot_config[si].filename[0]) continue;
 
       // Running = task active OR halted in callback mode (loaded + halted + no error)
-      bool active = s->running || (s->loaded && s->vm.halted && s->vm.error == TC_OK);
+      bool active = s && (s->running || (s->loaded && s->vm.halted && s->vm.error == TC_OK));
       const char *state, *sc;
       if (active) { state = "Run"; sc = "tc-run"; }
-      else if (s->loaded) { state = "Rdy"; sc = "tc-load"; }
+      else if (s && s->loaded) { state = "Rdy"; sc = "tc-load"; }
       else { state = "---"; sc = "tc-empty"; }
+
+      // Determine filename: from loaded slot or from config
+      const char *fname = (s && s->filename[0]) ? s->filename : Tinyc->slot_config[si].filename;
 
       // Compact row: [dot status] filename (size) | buttons
       WSContentSend_P(PSTR(
@@ -845,10 +849,10 @@ static void HandleTinyCPage(void) {
         "<span class='%s'>&#x25cf;</span>"
         "<span class='tc-info'><b>%d</b> %s %s (%dB)"),
         sc, si, state,
-        s->filename[0] ? s->filename : "",
-        s->program_size);
+        fname,
+        s ? s->program_size : 0);
 
-      if (s->vm.error != 0) {
+      if (s && s->vm.error != 0) {
         WSContentSend_P(PSTR(" <span class='tc-err'>%s</span>"), tc_error_str(s->vm.error));
       }
       WSContentSend_P(PSTR("</span>"));
@@ -864,10 +868,10 @@ static void HandleTinyCPage(void) {
         "</form></div>"), si,
         active ? "#555" : "#47c266",    // Run: grey when active, green when idle
         active ? "#d43535" : "#555",     // Stop: red when active, grey when idle
-        s->autoexec ? "#47c266" : "var(--c_btn)");
+        Tinyc->slot_config[si].autoexec ? "#47c266" : "var(--c_btn)");
 
       // Output log (compact)
-      if (s->output_len > 0) {
+      if (s && s->output_len > 0) {
         WSContentSend_P(PSTR("<div class='tc-out'>%s</div>"), s->output);
       }
     }
@@ -1105,6 +1109,7 @@ static void HandleTinyCUpload(void) {
       if (err == TC_OK) {
         s->loaded = true;
         strlcpy(s->filename, Tinyc->upload_filename, sizeof(s->filename));
+        strlcpy(Tinyc->slot_config[slot_num].filename, s->filename, sizeof(Tinyc->slot_config[slot_num].filename));
         TinyCSetPersistFile(s, s->filename);
         AddLog(LOG_LEVEL_INFO, PSTR("TCC: Loaded %d bytes into slot %d"), s->program_size, slot_num);
 
@@ -1161,8 +1166,13 @@ static void HandleTinyCApi(void) {
 
   if (cmd == "run") {
     // Allocate slot if needed
-    if (!Tinyc->slots[slot_num]) {
-      Tinyc->slots[slot_num] = tc_slot_alloc();
+    // Lazy-load: if slot has a config file but isn't loaded yet, load now
+    if (!Tinyc->slots[slot_num] || !Tinyc->slots[slot_num]->loaded) {
+      if (Tinyc->slot_config[slot_num].filename[0]) {
+        TinyCLoadFile(Tinyc->slot_config[slot_num].filename, slot_num);
+      } else if (!Tinyc->slots[slot_num]) {
+        Tinyc->slots[slot_num] = tc_slot_alloc();
+      }
     }
     TcSlot *s = Tinyc->slots[slot_num];
     if (!s || !s->loaded) {
@@ -1192,21 +1202,40 @@ static void HandleTinyCApi(void) {
     bool first = true;
     for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
       TcSlot *s = Tinyc->slots[i];
-      if (!s) continue;
+      // Show slot if loaded OR has a config file (lazy-load pending)
+      if (!s && !Tinyc->slot_config[i].filename[0]) continue;
       if (!first) result += ',';
       first = false;
-      snprintf_P(json, sizeof(json),
-        PSTR("{\"slot\":%d,\"loaded\":%d,\"running\":%d,\"size\":%d,\"file\":\"%s\","
-             "\"pc\":%d,\"sp\":%d,\"instr\":%u,\"error\":\"%s\"}"),
-        i,
-        s->loaded ? 1 : 0,
-        s->running ? 1 : 0,
-        s->program_size,
-        s->filename[0] ? s->filename : "",
-        s->vm.pc - s->vm.code_offset,
-        s->vm.sp,
+      if (s) {
+        // Loaded slot — show full stats
+        uint32_t vm_ram = sizeof(TcSlot) + s->program_size
+          + s->vm.stack_size * sizeof(int32_t)
+          + s->vm.globals_size * sizeof(int32_t)
+          + s->vm.const_capacity * sizeof(TcConstant)
+          + s->vm.const_data_size;
+        if (s->vm.heap_data) vm_ram += s->vm.heap_used * sizeof(int32_t);
+        if (s->vm.heap_handles) vm_ram += TC_MAX_HEAP_HANDLES * sizeof(TcHeapHandle);
+        if (s->vm.udp_globals) vm_ram += s->vm.udp_global_count * sizeof(struct TcVM::TcUdpGlobalEntry);
+        snprintf_P(json, sizeof(json),
+          PSTR("{\"slot\":%d,\"loaded\":%d,\"running\":%d,\"size\":%d,\"file\":\"%s\","
+               "\"pc\":%d,\"sp\":%d,\"instr\":%u,\"ram\":%u,\"error\":\"%s\"}"),
+          i,
+          s->loaded ? 1 : 0,
+          s->running ? 1 : 0,
+          s->program_size,
+          s->filename[0] ? s->filename : "",
+          s->vm.pc - s->vm.code_offset,
+          s->vm.sp,
         s->vm.instruction_count,
+        vm_ram,
         tc_error_str(s->vm.error));
+      } else {
+        // Unloaded slot — show config info only (lazy-load pending, 0 RAM used)
+        snprintf_P(json, sizeof(json),
+          PSTR("{\"slot\":%d,\"loaded\":0,\"running\":0,\"size\":0,\"file\":\"%s\","
+               "\"pc\":0,\"sp\":0,\"instr\":0,\"ram\":0,\"error\":\"OK\"}"),
+          i, Tinyc->slot_config[i].filename);
+      }
       result += json;
     }
     result += F("],\"heap\":");
