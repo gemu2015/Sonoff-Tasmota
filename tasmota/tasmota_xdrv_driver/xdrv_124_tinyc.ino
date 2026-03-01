@@ -27,7 +27,7 @@
  * Web:
  *   /tc            - TinyC console page with upload form (shows all slots)
  *   /tc_upload     - POST endpoint for .tcb binary upload
- *   /tc_api        - GET JSON API (cmd=run|stop|status) with CORS, slot= parameter
+ *   /tc_api        - GET JSON API (cmd=run|stop|status|autoexec) with CORS, slot= parameter
 \*********************************************************************************************/
 
 #define XDRV_124  124
@@ -762,8 +762,12 @@ static void HandleTinyCPage(void) {
       }
 #endif
     } else if (cmd == "autoexec") {
-      // Toggle autoexec flag for this slot (works even if VM not loaded)
-      Tinyc->slot_config[cmd_slot].autoexec = !Tinyc->slot_config[cmd_slot].autoexec;
+      // Set autoexec flag: value=1 enable, value=0 disable, no value = toggle
+      if (Webserver->hasArg(F("value"))) {
+        Tinyc->slot_config[cmd_slot].autoexec = (Webserver->arg(F("value")).toInt() != 0);
+      } else {
+        Tinyc->slot_config[cmd_slot].autoexec = !Tinyc->slot_config[cmd_slot].autoexec;
+      }
       if (cs) cs->autoexec = Tinyc->slot_config[cmd_slot].autoexec;
       TinyCSaveSettings();
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d autoexec=%d"), cmd_slot, Tinyc->slot_config[cmd_slot].autoexec ? 1 : 0);
@@ -1196,6 +1200,21 @@ static void HandleTinyCApi(void) {
     }
     WSSendJSON_P(200, PSTR("{\"ok\":true,\"running\":false}"));
   }
+  else if (cmd == "autoexec") {
+    // Set autoexec: /tc_api?cmd=autoexec&slot=N&value=1|0
+    if (Webserver->hasArg(F("value"))) {
+      Tinyc->slot_config[slot_num].autoexec = (Webserver->arg(F("value")).toInt() != 0);
+    } else {
+      Tinyc->slot_config[slot_num].autoexec = !Tinyc->slot_config[slot_num].autoexec;
+    }
+    TcSlot *s = Tinyc->slots[slot_num];
+    if (s) s->autoexec = Tinyc->slot_config[slot_num].autoexec;
+    TinyCSaveSettings();
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: Slot %d autoexec=%d (API)"), slot_num, Tinyc->slot_config[slot_num].autoexec ? 1 : 0);
+    snprintf_P(json, sizeof(json), PSTR("{\"ok\":true,\"slot\":%d,\"autoexec\":%d}"),
+      slot_num, Tinyc->slot_config[slot_num].autoexec ? 1 : 0);
+    WSSendJSON(200, json);
+  }
   else if (cmd == "status") {
     // Return array of all slot statuses
     String result = F("{\"ok\":true,\"slots\":[");
@@ -1217,11 +1236,12 @@ static void HandleTinyCApi(void) {
         if (s->vm.heap_handles) vm_ram += TC_MAX_HEAP_HANDLES * sizeof(TcHeapHandle);
         if (s->vm.udp_globals) vm_ram += s->vm.udp_global_count * sizeof(struct TcVM::TcUdpGlobalEntry);
         snprintf_P(json, sizeof(json),
-          PSTR("{\"slot\":%d,\"loaded\":%d,\"running\":%d,\"size\":%d,\"file\":\"%s\","
+          PSTR("{\"slot\":%d,\"loaded\":%d,\"running\":%d,\"autoexec\":%d,\"size\":%d,\"file\":\"%s\","
                "\"pc\":%d,\"sp\":%d,\"instr\":%u,\"ram\":%u,\"error\":\"%s\"}"),
           i,
           s->loaded ? 1 : 0,
           s->running ? 1 : 0,
+          Tinyc->slot_config[i].autoexec ? 1 : 0,
           s->program_size,
           s->filename[0] ? s->filename : "",
           s->vm.pc - s->vm.code_offset,
@@ -1232,9 +1252,9 @@ static void HandleTinyCApi(void) {
       } else {
         // Unloaded slot — show config info only (lazy-load pending, 0 RAM used)
         snprintf_P(json, sizeof(json),
-          PSTR("{\"slot\":%d,\"loaded\":0,\"running\":0,\"size\":0,\"file\":\"%s\","
+          PSTR("{\"slot\":%d,\"loaded\":0,\"running\":0,\"autoexec\":%d,\"size\":0,\"file\":\"%s\","
                "\"pc\":0,\"sp\":0,\"instr\":0,\"ram\":0,\"error\":\"OK\"}"),
-          i, Tinyc->slot_config[i].filename);
+          i, Tinyc->slot_config[i].autoexec ? 1 : 0, Tinyc->slot_config[i].filename);
       }
       result += json;
     }
