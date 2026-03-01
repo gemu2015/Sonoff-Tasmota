@@ -2481,7 +2481,17 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           for (int i = 0; i < b; i++) {
             tbuf[i] = (uint8_t)(buf[i] & 0xFF);
           }
+          // Debug: dump first 8 bytes
+          char dbg[64];
+          int dlen = (b < 8) ? b : 8;
+          int pos = 0;
+          for (int i = 0; i < dlen; i++) {
+            pos += snprintf(dbg + pos, sizeof(dbg) - pos, "%02X ", tbuf[i]);
+          }
+          AddLog(LOG_LEVEL_INFO, PSTR("TCC: serial_write ref=0x%08X len=%d max=%d: %s"), (uint32_t)a, b, maxLen, dbg);
           tc_serial_port->write(tbuf, b);
+        } else {
+          AddLog(LOG_LEVEL_ERROR, PSTR("TCC: serial_write ref=0x%08X resolve FAILED"), (uint32_t)a);
         }
       }
       break;

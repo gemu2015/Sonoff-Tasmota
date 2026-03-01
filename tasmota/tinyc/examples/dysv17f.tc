@@ -3,30 +3,34 @@
 // Packet: [0xAA] [CMD] [data_len] [data...] [checksum]
 // Checksum = sum of all bytes (incl. 0xAA) & 0xFF
 // Play by filename: cmd 0x08, data = [device][path_transformed]
-// Path: dots→stars, uppercase. E.g. "Sound.mp3" → "SOUND*MP3"
-// Console: MP3Play Sound.mp3, MP3Stop, MP3Pause, MP3Next, MP3Prev, MP3Vol 20
+// Path: /prefix, dots→stars, uppercase. E.g. "Sound.mp3" → "/SOUND*MP3"
+// Console: MP3 Play Sound.mp3, MP3 Stop, MP3 Pause, MP3 Next, MP3 Prev, MP3 Vol 20
 
 #define DY_DEVICE  2    // 0=USB, 1=SD, 2=FLASH (built-in)
 
-int dy_txpin = 25;      // TX pin — selectable via web UI
+int dy_txpin = 10;      // TX pin — selectable via web UI
 int dy_ok = 0;
 int dy_vol = 15;
 char dy_file[32];
 char dy_pkt[34];    // global packet buffer for dy_send
 
 // Send raw packet: [0xAA][cmd][len][data from dy_pkt][checksum]
+// Builds complete packet in dy_buf and sends as single buffer write
+char dy_buf[38];    // complete packet buffer (header + data + checksum)
+
 void dy_send(int cmd, int len) {
+    dy_buf[0] = 0xAA;
+    dy_buf[1] = cmd;
+    dy_buf[2] = len;
     int cs = 0xAA + cmd + len;
-    serialWriteByte(0xAA);
-    serialWriteByte(cmd);
-    serialWriteByte(len);
     int i = 0;
     while (i < len) {
-        serialWriteByte(dy_pkt[i]);
+        dy_buf[3 + i] = dy_pkt[i];
         cs = cs + dy_pkt[i];
         i++;
     }
-    serialWriteByte(cs & 0xFF);
+    dy_buf[3 + len] = cs & 0xFF;
+    serialWriteBytes(dy_buf, len + 4);
 }
 
 // Simple commands (no data)
@@ -52,6 +56,11 @@ void dy_play_file() {
     dy_pkt[0] = DY_DEVICE;
     int i = 0;
     int o = 1;
+    // Auto-prepend '/' if missing (DY-SV17F needs absolute path)
+    if (dy_file[0] != '/') {
+        dy_pkt[o] = '/';
+        o++;
+    }
     while (dy_file[i] && o < 33) {
         int c = dy_file[i];
         if (c == '.') {
@@ -105,7 +114,7 @@ void Command(char cmd[]) {
         sprintfInt(buf, "Volume: %d", dy_vol);
         responseCmnd(buf);
     } else {
-        responseCmnd("Unknown: Play|Stop|Pause|Next|Prev|Vol");
+        responseCmnd("Play [file]|Stop|Pause|Next|Prev|Vol <n>");
     }
 }
 
@@ -135,7 +144,11 @@ void OnExit() {
 
 int main() {
     dy_file[0] = 0;
-    int ret = serialBegin(-1, dy_txpin, 9600, 0, 64);
+    // Wait for system to fully initialize (serial/GPIO not ready during early boot)
+    delay(10000);
+    // Restore persisted pin from web UI before opening serial
+    webPulldown(dy_txpin, "TX Pin", "@getfreepins");
+    int ret = serialBegin(-1, dy_txpin, 9600, 3, 64);  // 3 = 8N1
     if (ret == 1) {
         dy_ok = 1;
         addCommand("MP3");

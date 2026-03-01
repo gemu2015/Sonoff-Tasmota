@@ -1053,6 +1053,9 @@ void EveryLoop() {
 | `float sqrt(float x)`                               | Quadratwurzel                    |
 | `float sin(float x)`                                | Sinus (Bogenmass)                |
 | `float cos(float x)`                                | Kosinus (Bogenmass)              |
+| `float exp(float x)`                                | Exponentialfunktion (e^x)        |
+| `float log(float x)`                                | Natürlicher Logarithmus (ln x)  |
+| `float intBitsToFloat(int bits)`                     | Int als IEEE 754 Float interpretieren |
 | `int floor(float x)`                                | Ganzzahlanteil (Richtung −∞)     |
 | `int ceil(float x)`                                 | Ganzzahlanteil + 1 (Richtung +∞) |
 | `int round(float x)`                                | Auf naechste Ganzzahl runden     |
@@ -2569,7 +2572,7 @@ f = fileOpen("/log.txt", a);          // statt fileOpen("/log.txt", 2)
 
 ## Multi-VM Slots (ESP32)
 
-Auf dem ESP32 koennen bis zu **4 unabhaengige TinyC-Programme** gleichzeitig in separaten VM-Slots laufen. Jeder Slot hat eigenen Bytecode, Globals, Stack, Heap und Ausgabepuffer. Der ESP8266 unterstuetzt nur 1 Slot.
+Auf dem ESP32 koennen bis zu **6 unabhaengige TinyC-Programme** gleichzeitig in separaten VM-Slots laufen. Jeder Slot hat eigenen Bytecode, Globals, Stack, Heap und Ausgabepuffer. Speicher wird dynamisch allokiert — leere Slots kosten null Bytes, nicht-autoexec Slots verwenden Lazy Loading (nur ~33 Bytes bis zum ersten Start). Der ESP8266 unterstuetzt nur 1 Slot.
 
 ### Slot-Konfiguration
 
@@ -2688,7 +2691,7 @@ Wenn keine `/tinyc.cfg` existiert (erster Start), werden keine Programme geladen
 
 ### Ressourcenverbrauch
 
-Jeder VM-Slot verbraucht ca. **3,2 KB RAM** (nur Struct, ohne Programm-Bytecode). Slots werden dynamisch allokiert — nur aktive Slots verbrauchen Speicher. Das Slot-Pointer-Array selbst benoetigt nur 16 Bytes.
+Jeder VM-Slot verbraucht ca. **3,2 KB RAM** (nur Struct, ohne Programm-Bytecode). Slots werden dynamisch allokiert — nur aktive Slots verbrauchen Speicher. Das Slot-Pointer-Array selbst benoetigt nur 24 Bytes. Nicht-autoexec Slots verwenden Lazy Loading: nur der Dateiname (~33 Bytes) wird gespeichert bis zum ersten Start.
 
 | Ressource             | Kosten                       |
 |-----------------------|------------------------------|
@@ -2754,7 +2757,7 @@ Beide zeigen ihre Sensorzeilen gleichzeitig auf der Tasmota-Hauptseite an.
 | Instruktionslimit  | 1M       | 1M       | 1M       | Sicherheitslimit pro Ausfuehrung   |
 | GPIO-Pins          | 40       | 40       | 40       | Pins 0–39 (im Browser simuliert)   |
 | Datei-Handles      | 4        | 4        | 8        | Gleichzeitig geoeffnete Dateien    |
-| VM-Slots           | 1        | 4        | 1        | Gleichzeitige Programme            |
+| VM-Slots           | 1        | 6        | 1        | Gleichzeitige Programme            |
 
 ---
 

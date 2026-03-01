@@ -8,19 +8,11 @@
 
 float sht_temp = 0.0;
 float sht_humi = 0.0;
-float sht_abs_humi = 0.0;
+float sht_dewp = 0.0;
+float sht_absh = 0.0;
 int sht_ok = 0;
 int sht_addr = 0;
 int sht_bus = 0;
-
-// Fast exp(x) approximation via repeated squaring: (1 + x/1024)^1024
-// Accurate to ~0.05% for |x| < 5 (covers -40..+80°C range)
-float fast_exp(float x) {
-    float v = 1.0 + x / 1024.0;
-    v = v * v; v = v * v; v = v * v; v = v * v; v = v * v;
-    v = v * v; v = v * v; v = v * v; v = v * v; v = v * v;
-    return v;
-}
 
 // Shared buffer for I2C data
 char sht_data[6];
@@ -44,6 +36,19 @@ int sht_crc8(int start, int len) {
         i++;
     }
     return crc;
+}
+
+// Dewpoint (Magnus formula), returns °C
+float sht_calc_dewpoint(float t, float h) {
+    if (h <= 0.0) return 0.0;
+    float gamma = (17.271 * t) / (237.7 + t) + log(h / 100.0);
+    return (237.7 * gamma) / (17.271 - gamma);
+}
+
+// Absolute humidity in g/m³
+float sht_calc_abshumi(float t, float h) {
+    float ah = 6.112 * exp((17.67 * t) / (t + 243.5)) * h * 2.1674;
+    return ah / (273.15 + t);
 }
 
 // Scan both buses and addresses using Tasmota's I2C claiming
@@ -113,10 +118,8 @@ void EverySecond() {
     int raw_h = (sht_data[3] << 8) | sht_data[4];
     sht_humi = 100.0 * (float)raw_h / 65535.0;
 
-    // Absolute humidity (g/m³) using Magnus formula:
-    // AH = 6.112 * exp(17.67*T/(237.3+T)) * RH * 2.1674 / (273.15+T)
-    float e_arg = 17.67 * sht_temp / (237.3 + sht_temp);
-    sht_abs_humi = 13.2471 * fast_exp(e_arg) * sht_humi / (273.15 + sht_temp);
+    sht_dewp = sht_calc_dewpoint(sht_temp, sht_humi);
+    sht_absh = sht_calc_abshumi(sht_temp, sht_humi);
 
     sht_ok = 1;
 }
@@ -124,11 +127,13 @@ void EverySecond() {
 void WebCall() {
     char buf[64];
     if (sht_ok) {
-        sprintfFloat(buf, "{s}SHT31 Temp{m}%.1f °C{e}", sht_temp);
+        sprintfFloat(buf, "{s}SHT31 Temperature{m}%.1f &deg;C{e}", sht_temp);
         webSend(buf);
         sprintfFloat(buf, "{s}SHT31 Humidity{m}%.1f %%{e}", sht_humi);
         webSend(buf);
-        sprintfFloat(buf, "{s}SHT31 Abs Humidity{m}%.1f g/m³{e}", sht_abs_humi);
+        sprintfFloat(buf, "{s}SHT31 Dewpoint{m}%.1f &deg;C{e}", sht_dewp);
+        webSend(buf);
+        sprintfFloat(buf, "{s}SHT31 Abs Humidity{m}%.1f g/m&sup3;{e}", sht_absh);
         webSend(buf);
     } else {
         webSend("{s}SHT31{m}not found{e}");
@@ -142,7 +147,9 @@ void JsonCall() {
     responseAppend(buf);
     sprintfFloat(buf, ",\"Humidity\":%.1f", sht_humi);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"AbsHumidity\":%.1f}", sht_abs_humi);
+    sprintfFloat(buf, ",\"DewPoint\":%.1f", sht_dewp);
+    responseAppend(buf);
+    sprintfFloat(buf, ",\"AbsHumidity\":%.1f}", sht_absh);
     responseAppend(buf);
 }
 

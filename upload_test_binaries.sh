@@ -100,6 +100,12 @@ $(for f in "${FILES[@]}"; do echo "- \`$(basename "$f")\`"; done)
 - Upload \`tinyc_ide.html.gz\` via Tasmota file manager (Consoles → Manage File System)
 
 ### Changes since last release:
+- \`exp()\`, \`log()\` — exponential and natural logarithm math functions
+- \`intBitsToFloat()\` — reinterpret raw int bits as IEEE 754 float (for I2C sensors like SCD30, SPS30)
+- Multi-VM expanded to **6 concurrent slots** with dynamic memory allocation
+- Lazy loading: non-autoexec slots store only filename until first run
+- Staggered autoexec: 100ms delay between VM starts (prevents heap exhaustion on single-core ESP32-C3)
+- Compiler fix: local variables now correctly shadow single-letter defines
 - \`addCommand()\` / \`responseCmnd()\` — custom console command callbacks
 - \`Command(char cmd[])\` callback — scripts can handle Tasmota console commands
 - \`OnExit()\` / \`Event()\` callbacks — script stop cleanup and rule event handling
@@ -107,12 +113,12 @@ $(for f in "${FILES[@]}"; do echo "- \`$(basename "$f")\`"; done)
 - \`@getfreepins\` — dynamic GPIO pin picker in webPulldown
 - \`strFind()\` / \`responseCmnd()\` with string literals — auto-detected const variants
 - \`strSub()\` fix — \`len=0\` now correctly copies to end of string
+- I2C sensor examples: BMX280 (BMP/BME), SCD30 (CO2), SPS30 (PM2.5), SGP30 (eCO2/TVOC)
 - DY-SV17F MP3 player driver example with serial TX and console commands
-- I2C sensor examples: VL53L0X, MLX90614, TCS34725, VEML6075
+- VL53L0X, MLX90614, TCS34725, VEML6075 sensor examples
 - \`i2cReadRS()\` — repeated START I2C read for sensors that require it
 - \`WebChart()\` — automatic Google Charts rendering with Y-axis min/max range control
 - Computed goto VM dispatch — ~10% faster bytecode execution
-- Multi-VM slots (up to 4 concurrent scripts)
 - Pin safety: forbidden pins halt VM immediately
 - Boot loop protection: autoexec disabled after 4 rapid reboots
 - Deep sleep support: \`deepSleep()\`, \`deepSleepGpio()\`, \`wakeupCause()\`

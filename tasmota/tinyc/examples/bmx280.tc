@@ -14,6 +14,8 @@
 float bmx_temp = 0.0;
 float bmx_humi = 0.0;
 float bmx_pres = 0.0;
+float bmx_dewp = 0.0;
+float bmx_absh = 0.0;
 int bmx_ok = 0;
 int bmx_addr = 0;
 int bmx_bus = 0;
@@ -48,6 +50,7 @@ int dig_H6;
 // t_fine shared between temp and pressure/humidity compensation
 int t_fine;
 
+#ifdef USE_CHARTS
 // Chart history (6h at 1 sample/min = 360 points)
 #define CHART_LEN 360
 float hist_temp[CHART_LEN];
@@ -55,6 +58,7 @@ float hist_humi[CHART_LEN];
 float hist_pres[CHART_LEN];
 int hist_pos;
 int hist_tick;
+#endif
 
 // Chip name for display
 char bmx_name[8];
@@ -182,6 +186,19 @@ float bmx_comp_humi(int adc_H) {
     return h;
 }
 
+// Dewpoint (Magnus formula), returns °C
+float bmx_calc_dewpoint(float t, float h) {
+    if (h <= 0.0) return 0.0;
+    float gamma = (17.271 * t) / (237.7 + t) + log(h / 100.0);
+    return (237.7 * gamma) / (17.271 - gamma);
+}
+
+// Absolute humidity in g/m³
+float bmx_calc_abshumi(float t, float h) {
+    float ah = 6.112 * exp((17.67 * t) / (t + 243.5)) * h * 2.1674;
+    return ah / (273.15 + t);
+}
+
 void EverySecond() {
     if (!bmx_addr) {
         if (!bmx_scan()) { bmx_ok = 0; return; }
@@ -208,10 +225,13 @@ void EverySecond() {
     if (bmx_has_humi) {
         int adc_H = (bmx_buf[6] << 8) | bmx_buf[7];
         bmx_humi = bmx_comp_humi(adc_H);
+        bmx_dewp = bmx_calc_dewpoint(bmx_temp, bmx_humi);
+        bmx_absh = bmx_calc_abshumi(bmx_temp, bmx_humi);
     }
 
     bmx_ok = 1;
 
+#ifdef USE_CHARTS
     // Chart history every minute
     hist_tick++;
     if (hist_tick >= 60) {
@@ -223,8 +243,10 @@ void EverySecond() {
         }
         hist_pos++;
     }
+#endif
 }
 
+#ifdef USE_CHARTS
 void WebPage() {
     int n = hist_pos;
     if (n > CHART_LEN) n = CHART_LEN;
@@ -236,6 +258,7 @@ void WebPage() {
         }
     }
 }
+#endif
 
 void WebCall() {
     char buf[80];
@@ -259,6 +282,18 @@ void WebCall() {
             webSend(buf);
             sprintfFloat(buf, "%.1f %%{e}", bmx_humi);
             webSend(buf);
+            strcpy(buf, "{s}");
+            strcat(buf, bmx_name);
+            strcat(buf, " Dewpoint{m}");
+            webSend(buf);
+            sprintfFloat(buf, "%.1f &deg;C{e}", bmx_dewp);
+            webSend(buf);
+            strcpy(buf, "{s}");
+            strcat(buf, bmx_name);
+            strcat(buf, " Abs Humidity{m}");
+            webSend(buf);
+            sprintfFloat(buf, "%.1f g/m&sup3;{e}", bmx_absh);
+            webSend(buf);
         }
     } else {
         webSend("{s}BMx280{m}not found{e}");
@@ -280,6 +315,10 @@ void JsonCall() {
     if (bmx_has_humi) {
         sprintfFloat(buf, ",\"Humidity\":%.1f", bmx_humi);
         responseAppend(buf);
+        sprintfFloat(buf, ",\"DewPoint\":%.1f", bmx_dewp);
+        responseAppend(buf);
+        sprintfFloat(buf, ",\"AbsHumidity\":%.1f", bmx_absh);
+        responseAppend(buf);
     }
     responseAppend("}");
 }
@@ -296,8 +335,10 @@ int main() {
     char buf[64];
     bmx_ok = 0;
     bmx_addr = 0;
+#ifdef USE_CHARTS
     hist_pos = 0;
     hist_tick = 0;
+#endif
 
     if (bmx_scan()) {
         print(bmx_name);

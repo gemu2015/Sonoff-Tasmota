@@ -1054,6 +1054,9 @@ void EveryLoop() {
 | `float sqrt(float x)`                               | Square root                     |
 | `float sin(float x)`                                | Sine (radians)                  |
 | `float cos(float x)`                                | Cosine (radians)                |
+| `float exp(float x)`                                | Exponential (e^x)               |
+| `float log(float x)`                                | Natural logarithm (ln x)       |
+| `float intBitsToFloat(int bits)`                     | Reinterpret int as IEEE 754 float |
 | `int floor(float x)`                                | Integer part (round toward −∞)  |
 | `int ceil(float x)`                                 | Integer part + 1 (round toward +∞) |
 | `int round(float x)`                                | Round to nearest integer        |
@@ -2594,7 +2597,7 @@ f = fileOpen("/log.txt", a);         // instead of fileOpen("/log.txt", 2)
 
 ## Multi-VM Slots (ESP32)
 
-On ESP32, up to **4 independent TinyC programs** can run simultaneously in separate VM slots. Each slot has its own bytecode, globals, stack, heap, and output buffer. ESP8266 supports only 1 slot.
+On ESP32, up to **6 independent TinyC programs** can run simultaneously in separate VM slots. Each slot has its own bytecode, globals, stack, heap, and output buffer. Memory is allocated dynamically — empty slots cost zero bytes, and non-autoexec slots use lazy loading (only ~33 bytes until first run). ESP8266 supports only 1 slot.
 
 ### Slot Configuration
 
@@ -2606,10 +2609,12 @@ Example `/tinyc.cfg`:
 /display.tcb,1
 /logger.tcb,0
 ,0
+,0
+/mp3player.tcb,1
 _info,0
 ```
 
-Each line corresponds to a slot (0–3): `filename,autoexec_flag`. The last line `_info,<0|1>` controls whether debug status rows are shown on the Tasmota main web page.
+Each line corresponds to a slot (0–5): `filename,autoexec_flag`. The last line `_info,<0|1>` controls whether debug status rows are shown on the Tasmota main web page.
 
 ### Tasmota Commands
 
@@ -2713,14 +2718,15 @@ If no `/tinyc.cfg` exists (first boot), no programs are loaded.
 
 ### Resource Usage
 
-Each VM slot uses approximately **3.2 KB RAM** (struct only, without program bytecode). Slots are allocated dynamically — only active slots consume memory. The slot pointer array itself is just 16 bytes.
+Each VM slot uses approximately **3.2 KB RAM** (struct only, without program bytecode). Slots are allocated dynamically — only active slots consume memory. The slot pointer array itself is just 24 bytes. Non-autoexec slots use lazy loading: only the filename (~33 bytes) is stored until the slot is first run.
 
 | Resource              | Cost                         |
 |-----------------------|------------------------------|
-| Pointer array         | 16 bytes (4 pointers)        |
+| Pointer array         | 24 bytes (6 pointers)        |
 | Per-slot struct       | ~3.2 KB                      |
 | Program bytecode      | variable (malloc'd)          |
 | Heap (large arrays)   | 32 KB max, allocated on demand |
+| Autoexec stagger      | 100 ms delay between starts  |
 
 ### Callbacks with Multiple Slots
 
@@ -2779,7 +2785,7 @@ Both display their sensor rows on the Tasmota main page simultaneously.
 | Instruction limit | 1M       | 1M       | 1M       | Safety limit per execution         |
 | GPIO pins         | 40       | 40       | 40       | Pins 0–39 (simulated in browser)   |
 | File handles      | 4        | 4        | 8        | Simultaneously open files          |
-| VM slots          | 1        | 4        | 1        | Simultaneous programs              |
+| VM slots          | 1        | 6        | 1        | Simultaneous programs              |
 
 ---
 
