@@ -2254,12 +2254,17 @@ bool Xdrv124(uint32_t function) {
       // Reset WebChart state before calling WebPage()
       tc_chart_seq = 0;
       tc_chart_lib_sent = false;
+      tc_chart_width = 0;
+      tc_chart_height = 0;
+      // Wrap charts in block container to prevent inline-block cascading width expansion
+      WSContentSend_P(PSTR("<div style='display:block;width:100%%;overflow:hidden'>"));
       // Call user's WebPage() on all active slots
       for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
         TcSlot *s = Tinyc->slots[i];
         if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) continue;
         tc_slot_callback(s, "WebPage");
       }
+      WSContentSend_P(PSTR("</div>"));
       // Inject JavaScript for widget interactions on main page (slot 0 only)
       {
         TcSlot *s0 = Tinyc->slots[0];

@@ -404,6 +404,7 @@ enum TcSyscall {
   SYS_FILE_READDIR    = 229, // (handle, name_buf_ref) -> int (1=entry, 0=end)
   SYS_TASM_CMD_REF   = 248, // (cmd_ref, out_buf_ref) -> int — tasmCmd with char array command
   SYS_I2C_FREE       = 249, // (addr, bus) -> void — release claimed I2C address
+  SYS_WEB_CHART_SIZE  = 233, // (width, height) -> void — set chart div size in pixels (0=default)
   // Console command callback
   SYS_ADD_COMMAND     = 45, // (const_idx_prefix) -> void — register command prefix
   SYS_RESPONSE_CMND  = 46, // (buf_ref) -> void — send console response
@@ -749,6 +750,8 @@ static uint8_t hk_var_count = 0;
 // WebChart state (reset at start of each WebPage callback)
 static uint8_t tc_chart_seq = 0;        // auto-incrementing chart div ID (tc0, tc1, ...)
 static bool    tc_chart_lib_sent = false; // true after Google Charts loader emitted
+static uint16_t tc_chart_width = 0;     // chart div width in px (0 = 100%)
+static uint16_t tc_chart_height = 0;    // chart div height in px (0 = 300px)
 static TasmotaSerial *tc_serial_port = nullptr; // TinyC serial port (shared across VMs)
 
 // Helper: allocate a new slot
@@ -5663,6 +5666,15 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
     }
 
+    case SYS_WEB_CHART_SIZE: {
+      // WebChartSize(width, height) — set chart div dimensions in pixels
+      int32_t h = TC_POP(vm);
+      int32_t w = TC_POP(vm);
+      tc_chart_width  = (w > 0 && w < 4096) ? (uint16_t)w : 0;
+      tc_chart_height = (h > 0 && h < 4096) ? (uint16_t)h : 0;
+      break;
+    }
+
     case SYS_WEB_CHART: {
       // WebChart(type, title, unit, color, pos, count, array, decimals, interval, ymin, ymax)
 #ifdef USE_WEBSERVER
@@ -5672,7 +5684,8 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       int32_t decimals = TC_POP(vm);
       int32_t arr_ref  = TC_POP(vm);
       int32_t count    = TC_POP(vm);
-      int32_t pos      = TC_POP(vm);
+      int32_t pos_bits = TC_POP(vm);
+      int32_t pos      = (int32_t)i2f(pos_bits);  // pos is float (from array[0])
       int32_t color    = TC_POP(vm);
       int32_t ci_unit  = TC_POP(vm);
       int32_t ci_title = TC_POP(vm);
@@ -5772,9 +5785,20 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
 
       // 3) New chart: emit div container + _tcN() registration with optional y-axis range
       if (new_chart) {
-        const char *div_style = (type == 116)
-          ? "width:100%;overflow-x:auto"
-          : "width:100%;height:300px";
+        char div_style[64];
+        if (type == 116) {
+          strcpy(div_style, "width:100%;overflow-x:auto");
+        } else if (tc_chart_width > 0 && tc_chart_height > 0) {
+          snprintf(div_style, sizeof(div_style), "width:%dpx;height:%dpx;margin:0 auto",
+            tc_chart_width, tc_chart_height);
+        } else if (tc_chart_width > 0) {
+          snprintf(div_style, sizeof(div_style), "width:%dpx;height:300px;margin:0 auto",
+            tc_chart_width);
+        } else if (tc_chart_height > 0) {
+          snprintf(div_style, sizeof(div_style), "width:100%%;height:%dpx", tc_chart_height);
+        } else {
+          strcpy(div_style, "width:100%;height:300px");
+        }
         if (fixed_range) {
           char ymin_s[16], ymax_s[16];
           dtostrf(ymin, 1, 1, ymin_s);
