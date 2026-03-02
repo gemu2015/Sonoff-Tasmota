@@ -5719,7 +5719,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           "<script>google.charts.load('current',{packages:['corechart','table']});</script>"
           "<script>"
           "var _tcC=[];"
-          "function _tcA(ci,lbl,clr,d){_tcC[ci].s.push({l:lbl,c:clr,d:d});}"
+          "function _tcA(ci,lbl,clr,d,mn,mx){_tcC[ci].s.push({l:lbl,c:clr,d:d,mn:mn,mx:mx});}"
           "function _tcN(ci,t,u,tp,mn,mx){"
             "var lb=null;"
             "if(tp==116){var p=t.indexOf('|');if(p>=0){lb=t.substring(p+1).split('|');t=t.substring(0,p);}}"
@@ -5754,13 +5754,26 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
                 "var colors=c.s.map(function(x){return x.c;});"
                 "var va={title:c.u};"
                 "if(c.mn<c.mx){va.minValue=c.mn;va.maxValue=c.mx;}"
+                "var dual=false,sr={},vx={};"
+                "vx[0]=va;"
+                "for(var j=0;j<c.s.length;j++){"
+                  "var s=c.s[j];"
+                  "if(j>0&&(s.mn!=c.s[0].mn||s.mx!=c.s[0].mx)){"
+                    "dual=true;sr[j]={targetAxisIndex:1};"
+                    "var a2={title:s.l};"
+                    "if(s.mn<s.mx){a2.minValue=s.mn;a2.maxValue=s.mx;}"
+                    "vx[1]=a2;"
+                  "}else{sr[j]={targetAxisIndex:0};}"
+                "}"
+                "if(dual&&c.s[0].mn<c.s[0].mx){vx[0]={title:c.s[0].l,minValue:c.s[0].mn,maxValue:c.s[0].mx};}"
                 "var dw=c.s[0].d[0]?c.s[0].d[0][0]*60000:-86400000;"
                 "var hfmt=dw<-172800000?'EEE HH:mm':'HH:mm';"
                 "var o={title:c.t,curveType:'none',"
                   "hAxis:{format:hfmt,viewWindow:{min:new Date(N.getTime()+dw),max:N}},"
-                  "vAxis:va,colors:colors,"
+                  "colors:colors,"
                   "lineWidth:1,pointSize:0,"
-                  "chartArea:{width:'80%%',height:'65%%'}};"
+                  "chartArea:{width:'75%%',height:'65%%'}};"
+                "if(dual){o.series=sr;o.vAxes=vx;}else{o.vAxis=va;}"
                 "if(tp==98)new google.visualization.BarChart(el).draw(dt,o);"              // 'b'=98
                 "else if(tp==99||tp==1)new google.visualization.ColumnChart(el).draw(dt,o);" // 'c'=99 or legacy 1
                 "else if(tp==104)new google.visualization.Histogram(el).draw(dt,o);"       // 'h'=104
@@ -5824,6 +5837,10 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       char cbuf[12];
       snprintf(cbuf, sizeof(cbuf), "#%06x", (unsigned int)(color & 0xFFFFFF));
 
+      char ymin_a[16], ymax_a[16];
+      dtostrf(ymin, 1, 1, ymin_a);
+      dtostrf(ymax, 1, 1, ymax_a);
+
       WSContentSend_P(PSTR("<script>_tcA(%d,'%s','%s',["),
         chart_id, unit, cbuf);
 
@@ -5843,7 +5860,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         if ((i & 63) == 63) WSContentFlush();
       }
 
-      WSContentSend_P(PSTR("]);</script>"));
+      WSContentSend_P(PSTR("],%s,%s);</script>"), ymin_a, ymax_a);
       WSContentFlush();
 
       if (new_chart) tc_chart_seq++;
