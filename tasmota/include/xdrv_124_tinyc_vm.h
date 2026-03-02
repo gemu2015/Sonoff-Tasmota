@@ -7070,8 +7070,25 @@ static void tc_persist_save(TcVM *vm) {
     buf[pos++] = (idx >> 8) & 0xFF;
     buf[pos++] = cnt & 0xFF;
     buf[pos++] = (cnt >> 8) & 0xFF;
-    for (uint16_t s = 0; s < cnt && (idx + s) < vm->globals_size; s++) {
-      int32_t val = vm->globals[idx + s];
+
+    int32_t *src = nullptr;
+    uint16_t src_max = 0;
+    if (idx & 0x8000) {
+      // Heap persist: index = 0x8000 | heapHandle
+      uint16_t handle = idx & 0x7FFF;
+      if (handle < TC_MAX_HEAP_HANDLES && vm->heap_data && vm->heap_handles &&
+          vm->heap_handles[handle].alive) {
+        src = &vm->heap_data[vm->heap_handles[handle].offset];
+        src_max = vm->heap_handles[handle].size;
+      }
+    } else {
+      // Global persist
+      src = &vm->globals[idx];
+      src_max = (idx < vm->globals_size) ? vm->globals_size - idx : 0;
+    }
+
+    for (uint16_t s = 0; s < cnt; s++) {
+      int32_t val = (src && s < src_max) ? src[s] : 0;
       buf[pos++] = val & 0xFF;
       buf[pos++] = (val >> 8) & 0xFF;
       buf[pos++] = (val >> 16) & 0xFF;
@@ -7120,10 +7137,27 @@ static void tc_persist_load(TcVM *vm) {
     for (uint8_t j = 0; j < vm->persist_count; j++) {
       if (vm->persist[j].index == idx) {
         uint16_t slots = (slotCount < vm->persist[j].count) ? slotCount : vm->persist[j].count;
-        for (uint16_t s = 0; s < slots && pos + 4 <= fsize && (idx + s) < vm->globals_size; s++) {
+
+        int32_t *dst = nullptr;
+        uint16_t dst_max = 0;
+        if (idx & 0x8000) {
+          // Heap persist: index = 0x8000 | heapHandle
+          uint16_t handle = idx & 0x7FFF;
+          if (handle < TC_MAX_HEAP_HANDLES && vm->heap_data && vm->heap_handles &&
+              vm->heap_handles[handle].alive) {
+            dst = &vm->heap_data[vm->heap_handles[handle].offset];
+            dst_max = vm->heap_handles[handle].size;
+          }
+        } else {
+          // Global persist
+          dst = &vm->globals[idx];
+          dst_max = (idx < vm->globals_size) ? vm->globals_size - idx : 0;
+        }
+
+        for (uint16_t s = 0; s < slots && pos + 4 <= fsize; s++) {
           int32_t val = buf[pos] | (buf[pos + 1] << 8) |
                        (buf[pos + 2] << 16) | (buf[pos + 3] << 24);
-          vm->globals[idx + s] = val;
+          if (dst && s < dst_max) dst[s] = val;
           pos += 4;
         }
         // Skip remaining slots if file has more than current entry
@@ -7453,6 +7487,7 @@ static int tc_vm_call_callback(TcVM *vm, const char *name) {
       AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Callback error %d at PC=%u"), err, vm->pc);
       break;
     }
+    vm->instruction_count++;
     if (++count > TC_CALLBACK_MAX_INSTR) {
       vm->error = TC_ERR_INSTRUCTION_LIMIT;
       break;
