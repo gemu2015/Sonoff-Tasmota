@@ -554,6 +554,7 @@ typedef struct {
   // Heap (for large arrays > 255 elements)
   int32_t      *heap_data;       // malloc'd on demand, NULL if no heap used
   uint16_t      heap_used;       // bump allocator: next free slot
+  uint16_t      heap_capacity;   // allocated capacity in int32_t slots
   TcHeapHandle *heap_handles;    // malloc'd on first heap alloc, NULL if no heap used
   uint8_t       heap_handle_count;
   // Callback function table (V3)
@@ -750,6 +751,7 @@ static uint8_t hk_var_count = 0;
 // WebChart state (reset at start of each WebPage callback)
 static uint8_t tc_chart_seq = 0;        // auto-incrementing chart div ID (tc0, tc1, ...)
 static bool    tc_chart_lib_sent = false; // true after Google Charts loader emitted
+static TcSlot *tc_sensor_get_slot = nullptr; // re-entry guard: skip this slot's JsonCall during sensorGet
 static uint16_t tc_chart_width = 0;     // chart div width in px (0 = 100%)
 static uint16_t tc_chart_height = 0;    // chart div height in px (0 = 300px)
 static TasmotaSerial *tc_serial_port = nullptr; // TinyC serial port (shared across VMs)
@@ -1950,10 +1952,12 @@ static void tc_free_all_frames(TcVM *vm) {
 
 // Allocate a heap block, returns handle index or -1 on failure
 static int tc_heap_alloc(TcVM *vm, uint16_t size) {
-  // Lazy-allocate heap buffer (PSRAM if available — not in hot path)
+  // Lazy-allocate heap buffer
   if (!vm->heap_data) {
-    vm->heap_data = (int32_t *)special_calloc(TC_MAX_HEAP, sizeof(int32_t));
+    uint16_t init_cap = size > 256 ? size : 256;  // start small
+    vm->heap_data = (int32_t *)special_calloc(init_cap, sizeof(int32_t));
     if (!vm->heap_data) return -1;
+    vm->heap_capacity = init_cap;
     vm->heap_used = 0;
   }
   // Lazy-allocate heap handles array
@@ -1968,8 +1972,21 @@ static int tc_heap_alloc(TcVM *vm, uint16_t size) {
     if (!vm->heap_handles[i].alive) { handle = i; break; }
   }
   if (handle < 0) return -1;
-  // Check space
-  if (vm->heap_used + size > TC_MAX_HEAP) return -1;
+  // Grow heap if needed (up to TC_MAX_HEAP)
+  if (vm->heap_used + size > vm->heap_capacity) {
+    uint16_t new_cap = vm->heap_capacity;
+    while (new_cap < vm->heap_used + size && new_cap < TC_MAX_HEAP) {
+      new_cap = new_cap + (new_cap >> 1);  // grow 1.5x
+      if (new_cap > TC_MAX_HEAP) new_cap = TC_MAX_HEAP;
+    }
+    if (vm->heap_used + size > new_cap) return -1;  // hard limit
+    int32_t *new_data = (int32_t *)special_realloc(vm->heap_data, new_cap * sizeof(int32_t));
+    if (!new_data) return -1;
+    // Zero new portion
+    memset(&new_data[vm->heap_capacity], 0, (new_cap - vm->heap_capacity) * sizeof(int32_t));
+    vm->heap_data = new_data;
+    vm->heap_capacity = new_cap;
+  }
   // Bump-allocate
   vm->heap_handles[handle].offset = vm->heap_used;
   vm->heap_handles[handle].size = size;
@@ -1999,6 +2016,7 @@ static void tc_heap_free_all(TcVM *vm) {
     vm->heap_handles = nullptr;
   }
   vm->heap_used = 0;
+  vm->heap_capacity = 0;
   vm->heap_handle_count = 0;
 }
 
@@ -5074,10 +5092,11 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       if (ci >= 0 && ci < vm->const_count && vm->constants[ci].type == 1) {
         const char *path = vm->constants[ci].str.ptr;
         // Build sensor JSON via MqttShowSensor
+        // Guard: prevent re-entry into TinyC's FUNC_JSON_APPEND
+        tc_sensor_get_slot = tc_current_slot;  // mark THIS slot to skip its JsonCall
         ResponseClear();
-        ResponseAppend_P(PSTR("{"));
-        MqttShowSensor(true);
-        ResponseJsonEnd();
+        MqttShowSensor(true);  // builds complete JSON: {"Time":"...","SCD30":{...},...}
+        tc_sensor_get_slot = nullptr;
         // Parse the JSON path (segments separated by #)
         char jpath[64];
         strlcpy(jpath, path, sizeof(jpath));
@@ -7340,9 +7359,9 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
       total_heap += sz;
     }
     if (total_heap > 0) {
-      uint32_t alloc_size = total_heap > TC_MAX_HEAP ? total_heap : TC_MAX_HEAP;
-      vm->heap_data = (int32_t *)special_calloc(alloc_size, sizeof(int32_t));
+      vm->heap_data = (int32_t *)special_calloc(total_heap, sizeof(int32_t));
       if (!vm->heap_data) return TC_ERR_STACK_OVERFLOW;  // OOM
+      vm->heap_capacity = total_heap;
       vm->heap_handles = (TcHeapHandle *)calloc(TC_MAX_HEAP_HANDLES, sizeof(TcHeapHandle));
       if (!vm->heap_handles) { free(vm->heap_data); vm->heap_data = nullptr; return TC_ERR_STACK_OVERFLOW; }
       // Pre-allocate each declared block
@@ -7358,7 +7377,7 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
           if ((uint8_t)(handle + 1) > vm->heap_handle_count) vm->heap_handle_count = handle + 1;
         }
       }
-      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: heap %d handles, %d/%d slots"), count, vm->heap_used, alloc_size);
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: heap %d handles, %d/%d slots"), count, vm->heap_used, total_heap);
     }
   }
 

@@ -1857,8 +1857,8 @@ static void TinyCShow(bool json) {
           s->program_size,
           s->vm.instruction_count);
       }
-      // Call user's JsonCall() on this slot
-      if (s->loaded && s->vm.halted && s->vm.error == TC_OK) {
+      // Call user's JsonCall() on this slot (skip the slot that triggered sensorGet)
+      if (s->loaded && s->vm.halted && s->vm.error == TC_OK && s != tc_sensor_get_slot) {
         tc_slot_callback(s, "JsonCall");
       }
     }

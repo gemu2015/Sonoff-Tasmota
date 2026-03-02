@@ -100,6 +100,13 @@ $(for f in "${FILES[@]}"; do echo "- \`$(basename "$f")\`"; done)
 - Upload \`tinyc_ide.html.gz\` via Tasmota file manager (Consoles → Manage File System)
 
 ### Changes since last release:
+- \`sensorGet("SensorName#Key")\` — read Tasmota sensor JSON values from TinyC scripts
+- \`udpSend("name", value)\` — explicit UDP global variable sending
+- Dual Y-axis \`WebChart()\` — auto-detected when series have different Y ranges
+- \`WebChartSize(width, height)\` — configurable chart dimensions
+- **Tight heap allocation** — VM heap sized to actual declared arrays (saves ~90KB with 6 slots)
+- Growable runtime heap via \`realloc\` (up to 32KB limit per slot)
+- \`sensorGet\` re-entry guard — slot-specific, other slots' JsonCall still runs
 - \`exp()\`, \`log()\` — exponential and natural logarithm math functions
 - \`intBitsToFloat()\` — reinterpret raw int bits as IEEE 754 float (for I2C sensors like SCD30, SPS30)
 - Multi-VM expanded to **6 concurrent slots** with dynamic memory allocation
@@ -114,6 +121,7 @@ $(for f in "${FILES[@]}"; do echo "- \`$(basename "$f")\`"; done)
 - \`strFind()\` / \`responseCmnd()\` with string literals — auto-detected const variants
 - \`strSub()\` fix — \`len=0\` now correctly copies to end of string
 - I2C sensor examples: BMX280 (BMP/BME), SCD30 (CO2), SPS30 (PM2.5), SGP30 (eCO2/TVOC)
+- EPaper 2.9\" display controller example with dual Y-axis charts and UDP globals
 - DY-SV17F MP3 player driver example with serial TX and console commands
 - VL53L0X, MLX90614, TCS34725, VEML6075 sensor examples
 - \`i2cReadRS()\` — repeated START I2C read for sensors that require it
