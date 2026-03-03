@@ -673,7 +673,7 @@ struct TINYC {
   // UDP multicast (Scripter-compatible, 239.255.255.250:1999)
   bool     udp_used;              // true if any udp* function was called
   bool     udp_connected;         // multicast socket active
-  TcUdpVar udp_vars[TC_UDP_MAX_VARS];
+  TcUdpVar *udp_vars;               // lazy-allocated on first UDP use
   char     udp_last_name[TC_UDP_VAR_NAME_MAX]; // name of last received var (for UdpCall)
 #if !defined(USE_SCRIPT) || !defined(USE_SCRIPT_GLOBVARS)
   // Standalone UDP socket (when Scripter is not present)
@@ -703,8 +703,8 @@ struct TINYC {
   TcSpi    spi;
   // HTTP request state
 #define TC_HTTP_MAX_HEADERS 4
-  char     http_hdr_name[TC_HTTP_MAX_HEADERS][64];
-  char     http_hdr_value[TC_HTTP_MAX_HEADERS][64];
+  char     (*http_hdr_name)[64];    // lazy-allocated [TC_HTTP_MAX_HEADERS][64]
+  char     (*http_hdr_value)[64];   // lazy-allocated [TC_HTTP_MAX_HEADERS][64]
   uint8_t  http_hdr_count;
   // TCP server state (Scripter-compatible ws* functions)
   WiFiServer *tcp_server;              // TCP listening server (heap-allocated)
@@ -1427,9 +1427,20 @@ static void tc_send_web(const char *buf, int len) {
   extern void Script_udp_ensure(void);  // ensure Scripter's UDP socket is active
 #endif
 
+// Lazy-allocate the UDP variable table
+static bool tc_udp_ensure_vars(void) {
+  if (Tinyc->udp_vars) return true;
+  Tinyc->udp_vars = (TcUdpVar*)calloc(TC_UDP_MAX_VARS, sizeof(TcUdpVar));
+  return Tinyc->udp_vars != nullptr;
+}
+
 // Find or create a UDP variable slot by name
 static TcUdpVar* tc_udp_find_var(const char *name, bool create) {
   if (!Tinyc) return nullptr;
+  if (!Tinyc->udp_vars) {
+    if (!create) return nullptr;
+    if (!tc_udp_ensure_vars()) return nullptr;
+  }
   // Search existing
   for (int i = 0; i < TC_UDP_MAX_VARS; i++) {
     if (Tinyc->udp_vars[i].used && !strcmp(Tinyc->udp_vars[i].name, name)) {
@@ -1598,16 +1609,16 @@ static void tc_spi_cleanup(void) {
   for (int i = 0; i < TC_SPI_MAX_CS; i++) { spi->cs[i] = -1; }
 }
 
-// Free all UDP variable array buffers
+// Free all UDP variable array buffers and the table itself
 static void tc_udp_free_arrays(void) {
-  if (!Tinyc) return;
+  if (!Tinyc || !Tinyc->udp_vars) return;
   for (int i = 0; i < TC_UDP_MAX_VARS; i++) {
     if (Tinyc->udp_vars[i].arr_data) {
       free(Tinyc->udp_vars[i].arr_data);
-      Tinyc->udp_vars[i].arr_data = nullptr;
-      Tinyc->udp_vars[i].arr_count = 0;
     }
   }
+  free(Tinyc->udp_vars);
+  Tinyc->udp_vars = nullptr;
 }
 
 // Send a float variable via binary multicast
@@ -5255,6 +5266,12 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       b = TC_POP(vm);  // value ref
       a = TC_POP(vm);  // name ref
       if (Tinyc->http_hdr_count < TC_HTTP_MAX_HEADERS) {
+        // Lazy-allocate header arrays on first use
+        if (!Tinyc->http_hdr_name) {
+          Tinyc->http_hdr_name = (char(*)[64])calloc(TC_HTTP_MAX_HEADERS, 64);
+          Tinyc->http_hdr_value = (char(*)[64])calloc(TC_HTTP_MAX_HEADERS, 64);
+          if (!Tinyc->http_hdr_name || !Tinyc->http_hdr_value) break;
+        }
         tc_ref_to_cstr(vm, a, Tinyc->http_hdr_name[Tinyc->http_hdr_count], 64);
         tc_ref_to_cstr(vm, b, Tinyc->http_hdr_value[Tinyc->http_hdr_count], 64);
         Tinyc->http_hdr_count++;
@@ -8546,6 +8563,12 @@ static void TinyCStopVM(TcSlot *s) {
   tc_udp_stop();
   tc_spi_cleanup();
   tc_serial_close();
+  // Free HTTP header arrays
+  if (Tinyc) {
+    if (Tinyc->http_hdr_name) { free(Tinyc->http_hdr_name); Tinyc->http_hdr_name = nullptr; }
+    if (Tinyc->http_hdr_value) { free(Tinyc->http_hdr_value); Tinyc->http_hdr_value = nullptr; }
+    Tinyc->http_hdr_count = 0;
+  }
   // Clear registered console buttons and command prefix
   if (Tinyc) Tinyc->console_btn_count = 0;
   s->cmd_prefix[0] = '\0';
