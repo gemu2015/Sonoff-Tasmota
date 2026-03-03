@@ -266,6 +266,7 @@ enum TcSyscall {
   SYS_WEB_SEND_STR        = 94, // (const_idx) -> void — string literal variant
   SYS_LOG                 = 95, // (char_ref) -> void — AddLog to Tasmota console
   SYS_LOG_STR             = 96, // (const_idx) -> void — AddLog string literal
+  SYS_LGETSTRING          = 97, // (index, dst_ref) -> int — get localized string
   // UDP multicast (Scripter-compatible, 239.255.255.250:1999)
   SYS_UDP_SEND            = 100, // (const_idx_name, float_val) -> void — binary float
   SYS_UDP_RECV            = 101, // (const_idx_name) -> float — last received value
@@ -3953,6 +3954,54 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       a = TC_POP(vm);  // constant pool index
       if (a >= 0 && a < vm->const_count && vm->constants[a].type == 1) {
         AddLog(LOG_LEVEL_INFO, PSTR("TCC: %s"), vm->constants[a].str.ptr);
+      }
+      break;
+    }
+
+    // ── Localized strings ─────────────────────────────
+    case SYS_LGETSTRING: {
+      // LGetString(index, char dst[]) -> int length
+      a = TC_POP(vm);   // dst char array ref
+      b = TC_POP(vm);   // string index
+      static const char tc_ls_0[] PROGMEM = D_TEMPERATURE;
+      static const char tc_ls_1[] PROGMEM = D_HUMIDITY;
+      static const char tc_ls_2[] PROGMEM = D_PRESSURE;
+      static const char tc_ls_3[] PROGMEM = D_DEWPOINT;
+      static const char tc_ls_4[] PROGMEM = D_CO2;
+      static const char tc_ls_5[] PROGMEM = D_ECO2;
+      static const char tc_ls_6[] PROGMEM = D_TVOC;
+      static const char tc_ls_7[] PROGMEM = D_VOLTAGE;
+      static const char tc_ls_8[] PROGMEM = D_CURRENT;
+      static const char tc_ls_9[] PROGMEM = D_POWERUSAGE;
+      static const char tc_ls_10[] PROGMEM = D_POWER_FACTOR;
+      static const char tc_ls_11[] PROGMEM = D_ENERGY_TODAY;
+      static const char tc_ls_12[] PROGMEM = D_ENERGY_YESTERDAY;
+      static const char tc_ls_13[] PROGMEM = D_ENERGY_TOTAL;
+      static const char tc_ls_14[] PROGMEM = D_FREQUENCY;
+      static const char tc_ls_15[] PROGMEM = D_ILLUMINANCE;
+      static const char tc_ls_16[] PROGMEM = D_DISTANCE;
+      static const char tc_ls_17[] PROGMEM = D_MOISTURE;
+      static const char tc_ls_18[] PROGMEM = D_LIGHT;
+      static const char tc_ls_19[] PROGMEM = D_SPEED;
+      static const char tc_ls_20[] PROGMEM = D_ABSOLUTE_HUMIDITY;
+      static const char *const tc_lstrings[] PROGMEM = {
+        tc_ls_0, tc_ls_1, tc_ls_2, tc_ls_3, tc_ls_4,
+        tc_ls_5, tc_ls_6, tc_ls_7, tc_ls_8, tc_ls_9,
+        tc_ls_10, tc_ls_11, tc_ls_12, tc_ls_13, tc_ls_14,
+        tc_ls_15, tc_ls_16, tc_ls_17, tc_ls_18, tc_ls_19,
+        tc_ls_20,
+      };
+      #define TC_LSTRING_COUNT 21
+      if (b >= 0 && b < TC_LSTRING_COUNT) {
+        char tmp[32];
+        const char *p = (const char *)pgm_read_ptr(&tc_lstrings[b]);
+        strncpy_P(tmp, p, sizeof(tmp) - 1);
+        tmp[sizeof(tmp) - 1] = '\0';
+        int len = strlen(tmp);
+        tc_cstr_to_ref(vm, a, tmp);
+        TC_PUSH(vm, len);
+      } else {
+        TC_PUSH(vm, 0);
       }
       break;
     }
