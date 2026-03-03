@@ -7295,6 +7295,7 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   if (vm->globals) { free(vm->globals); vm->globals = nullptr; vm->globals_size = 0; }
   if (vm->constants) { free(vm->constants); vm->constants = nullptr; vm->const_capacity = 0; }
   if (vm->const_data) { free(vm->const_data); vm->const_data = nullptr; vm->const_data_size = 0; }
+  if (vm->udp_globals) { free(vm->udp_globals); vm->udp_globals = nullptr; vm->udp_global_count = 0; }
 
   // Allocate stack
   vm->stack = (int32_t *)calloc(TC_STACK_SIZE, sizeof(int32_t));
