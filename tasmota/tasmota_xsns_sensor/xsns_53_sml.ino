@@ -1819,6 +1819,9 @@ void sml_shift_in(uint32_t meters, uint32_t shard) {
       break;
   }
   sb_counter++;
+  if (sb_counter > 10) {
+    sb_counter = 0;
+  }
 
   if (mp->shift_mode) {
     SML_Decode(meters);
@@ -2001,8 +2004,8 @@ void SML_Decode(uint8_t index) {
       // calculated entry, check syntax
       mp++;
       // do math m 1+2+3
-      //if (*mp == 'm' && !sb_counter) {
-      if (*mp == 'm' && (millis()-lastmath)>1000) {
+      if (*mp == 'm' && !sb_counter) {
+      //if (*mp == 'm' && (millis()-lastmath)>1000) {
         lastmath = millis();
         // only every 256 th byte
         // else it would be calculated every single serial byte

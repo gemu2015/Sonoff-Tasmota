@@ -343,6 +343,6 @@ MODULE_PART void CCS811_write(uint8_t reg, uint8_t *buf, uint8_t num) {
 	SETREGS
 	I2C_beginTransmission(ccs.i2c_addr);
 	I2C_write(reg);
-	I2_WriteN(buf, num);
+	I2C_WriteN(buf, num);
 	I2C_endTransmission(false);
 }
