@@ -13,6 +13,7 @@ float sht_absh = 0.0;
 int sht_ok = 0;
 int sht_addr = 0;
 int sht_bus = 0;
+char sht_lbl[32];
 
 // Shared buffer for I2C data
 char sht_data[6];
@@ -124,16 +125,29 @@ void EverySecond() {
     sht_ok = 1;
 }
 
+void sht_web_label(int idx) {
+    char vt[32];
+    LGetString(idx, sht_lbl);
+    strcpy(vt, "{s}SHT31 ");
+    strcat(vt, sht_lbl);
+    strcat(vt, "{m}");
+    webSend(vt);
+}
+
 void WebCall() {
-    char buf[64];
+    char buf[32];
     if (sht_ok) {
-        sprintfFloat(buf, "{s}SHT31 Temperature{m}%.1f &deg;C{e}", sht_temp);
+        sht_web_label(0);
+        sprintfFloat(buf, "%.1f &deg;C{e}", sht_temp);
         webSend(buf);
-        sprintfFloat(buf, "{s}SHT31 Humidity{m}%.1f %%{e}", sht_humi);
+        sht_web_label(1);
+        sprintfFloat(buf, "%.1f %{e}", sht_humi);
         webSend(buf);
-        sprintfFloat(buf, "{s}SHT31 Dewpoint{m}%.1f &deg;C{e}", sht_dewp);
+        sht_web_label(3);
+        sprintfFloat(buf, "%.1f &deg;C{e}", sht_dewp);
         webSend(buf);
-        sprintfFloat(buf, "{s}SHT31 Abs Humidity{m}%.1f g/m&sup3;{e}", sht_absh);
+        sht_web_label(20);
+        sprintfFloat(buf, "%.1f g/m&sup3;{e}", sht_absh);
         webSend(buf);
     } else {
         webSend("{s}SHT31{m}not found{e}");

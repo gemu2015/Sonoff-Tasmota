@@ -15,6 +15,7 @@ float bme_pres = 0.0;
 int bme_ok = 0;
 int bme_addr = 0;
 int bme_bus = 0;
+char bme_lbl[32];
 
 // I2C data buffer
 char bme_buf[26];
@@ -243,14 +244,26 @@ void WebPage() {
 }
 
 // Tasmota web UI — sensor rows
+void bme_web_label(int idx) {
+    char vt[32];
+    LGetString(idx, bme_lbl);
+    strcpy(vt, "{s}BME280 ");
+    strcat(vt, bme_lbl);
+    strcat(vt, "{m}");
+    webSend(vt);
+}
+
 void WebCall() {
-    char buf[80];
+    char buf[32];
     if (bme_ok) {
-        sprintfFloat(buf, "{s}BME280 Temperature{m}%.1f &deg;C{e}", bme_temp);
+        bme_web_label(0);
+        sprintfFloat(buf, "%.1f &deg;C{e}", bme_temp);
         webSend(buf);
-        sprintfFloat(buf, "{s}BME280 Humidity{m}%.1f %%{e}", bme_humi);
+        bme_web_label(1);
+        sprintfFloat(buf, "%.1f %{e}", bme_humi);
         webSend(buf);
-        sprintfFloat(buf, "{s}BME280 Pressure{m}%.1f hPa{e}", bme_pres);
+        bme_web_label(2);
+        sprintfFloat(buf, "%.1f hPa{e}", bme_pres);
         webSend(buf);
     } else {
         webSend("{s}BME280{m}not found{e}");

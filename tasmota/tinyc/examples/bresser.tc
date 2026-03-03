@@ -96,6 +96,7 @@ int   soil_ok = 0;
 int   soil_id = 0;
 int   soil_batt = 0;
 int   soil_cnt = 0;
+char  br_lbl[32];
 
 // Raw packet buffer (global for decoder access, 26 bytes after D4)
 char msg[DATA_SIZE];
@@ -615,9 +616,19 @@ void WebCall() {
     if (br_ok) {
         sprintfInt(out, "{s}Bresser ID{m}0x%04X{e}", br_id);
         webSend(out);
-        sprintfFloat(out, "{s}Temperature{m}%.1f C{e}", br_temp);
+        LGetString(0, br_lbl);
+        strcpy(out, "{s}");
+        strcat(out, br_lbl);
+        strcat(out, "{m}");
         webSend(out);
-        sprintfInt(out, "{s}Humidity{m}%d %%{e}", br_hum);
+        sprintfFloat(out, "%.1f C{e}", br_temp);
+        webSend(out);
+        LGetString(1, br_lbl);
+        strcpy(out, "{s}");
+        strcat(out, br_lbl);
+        strcat(out, "{m}");
+        webSend(out);
+        sprintfInt(out, "%d %{e}", br_hum);
         webSend(out);
         sprintfFloat(out, "{s}Wind Gust{m}%.1f m/s{e}", br_wind_gust);
         webSend(out);
@@ -627,7 +638,12 @@ void WebCall() {
         webSend(out);
         sprintfFloat(out, "{s}Rain{m}%.1f mm{e}", br_rain);
         webSend(out);
-        sprintfFloat(out, "{s}Brightness{m}%.0f lux{e}", br_lux);
+        LGetString(15, br_lbl);
+        strcpy(out, "{s}");
+        strcat(out, br_lbl);
+        strcat(out, "{m}");
+        webSend(out);
+        sprintfFloat(out, "%.0f lux{e}", br_lux);
         webSend(out);
         sprintfFloat(out, "{s}UV Index{m}%.1f{e}", br_uvi);
         webSend(out);
@@ -646,9 +662,19 @@ void WebCall() {
     if (soil_ok) {
         sprintfInt(out, "{s}Soil ID{m}0x%04X{e}", soil_id);
         webSend(out);
-        sprintfFloat(out, "{s}Soil Temp{m}%.1f C{e}", soil_temp);
+        LGetString(0, br_lbl);
+        strcpy(out, "{s}Soil ");
+        strcat(out, br_lbl);
+        strcat(out, "{m}");
         webSend(out);
-        sprintfInt(out, "{s}Soil Moisture{m}%d %%{e}", soil_moisture);
+        sprintfFloat(out, "%.1f C{e}", soil_temp);
+        webSend(out);
+        LGetString(17, br_lbl);
+        strcpy(out, "{s}Soil ");
+        strcat(out, br_lbl);
+        strcat(out, "{m}");
+        webSend(out);
+        sprintfInt(out, "%d %{e}", soil_moisture);
         webSend(out);
         sprintfFloat(out, "{s}Soil RSSI{m}%.0f dBm{e}", soil_rssi);
         webSend(out);

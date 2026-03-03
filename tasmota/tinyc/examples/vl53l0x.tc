@@ -1,58 +1,108 @@
 // VL53L0X Time-of-Flight Laser Distance Sensor Driver
-// I2C address: 0x29, Chip ID: 0xEE at register 0xC0
+// I2C address: 0x29, Chip ID: 0xEE
 // Range: 30-1200mm (white target), continuous back-to-back mode
 // Based on Pololu VL53L0X library (reverse-engineered from ST API)
-// Includes SPAD config, tuning table, VHV+Phase calibration
-// Uses continuous mode (like Tasmota's built-in xsns_45 driver)
 //
-// I2C read methods in Tasmota:
-// i2cRead  -> I2cReadBuffer  -> Wire.endTransmission(true)  = STOP + new START
-// i2cRead8 -> I2cValidRead   -> Wire.endTransmission(false) = repeated START (no STOP)
-// Pololu VL53L0X library uses STOP (Wire.endTransmission() with no arg = true)
-// Using i2cRead (STOP) for ALL reads to match Pololu behavior.
-// i2cRead8 (repeated START) breaks VL53L0X NVM state machine — SPAD map reads all zeros.
+// Register names from vl53l0x_device.h / Pololu VL53L0X.h
+// I2C: using i2cRead (STOP mode) for ALL reads to match Pololu behavior.
+// i2cRead8 (repeated START) breaks VL53L0X NVM state machine.
 
-#define VL_ADDR1   0x29
-#define VL_CHIP_ID 0xEE
+// ─── I2C address & chip ID ───
+#define VL_ADDR                        0x29
+#define VL_CHIP_ID                     0xEE
 
+// ─── VL53L0X register map (from ST API / Pololu) ───
+#define SYSRANGE_START                 0x00
+#define SYSTEM_SEQUENCE_CONFIG         0x01
+#define SYSTEM_INTERMEASUREMENT_PERIOD 0x04
+#define SYSTEM_RANGE_CONFIG            0x09
+#define SYSTEM_INTERRUPT_CONFIG_GPIO   0x0A
+#define SYSTEM_INTERRUPT_CLEAR         0x0B
+#define RESULT_INTERRUPT_STATUS        0x13
+#define RESULT_RANGE_STATUS            0x14
+
+#define ALGO_PHASECAL_LIM             0x30
+#define ALGO_PART_TO_PART_RANGE_OFFSET 0x28
+
+#define MSRC_CONFIG_CONTROL           0x60
+#define FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT 0x44
+
+#define PRE_RANGE_CONFIG_VCSEL_PERIOD  0x50
+#define PRE_RANGE_CONFIG_TIMEOUT_HI    0x51
+#define PRE_RANGE_CONFIG_TIMEOUT_LO    0x52
+#define PRE_RANGE_CONFIG_VALID_PHASE_LO 0x56
+#define PRE_RANGE_CONFIG_VALID_PHASE_HI 0x57
+#define PRE_RANGE_CONFIG_SIGMA_THRESH_HI 0x61
+#define PRE_RANGE_CONFIG_SIGMA_THRESH_LO 0x62
+#define PRE_RANGE_MIN_COUNT_RATE_RTN   0x64
+#define PRE_RANGE_CONFIG_MIN_SNR       0x27
+
+#define FINAL_RANGE_CONFIG_MIN_SNR     0x67
+#define FINAL_RANGE_CONFIG_VCSEL_PERIOD 0x70
+#define FINAL_RANGE_CONFIG_TIMEOUT_HI  0x71
+#define FINAL_RANGE_CONFIG_TIMEOUT_LO  0x72
+#define FINAL_RANGE_CONFIG_VALID_PHASE_LO 0x47
+#define FINAL_RANGE_CONFIG_VALID_PHASE_HI 0x48
+#define CROSSTALK_COMPENSATION_PEAK_RATE 0x20
+#define MSRC_CONFIG_TIMEOUT_MACROP     0x46
+
+#define GLOBAL_CONFIG_SPAD_ENABLES_REF_0 0xB0
+#define GLOBAL_CONFIG_REF_EN_START_SELECT 0xB6
+#define GLOBAL_CONFIG_VCSEL_WIDTH      0x32
+#define DYNAMIC_SPAD_NUM_REQUESTED_REF 0x4E
+#define DYNAMIC_SPAD_REF_EN_START_OFFSET 0x4F
+
+#define GPIO_HV_MUX_ACTIVE_HIGH       0x84
+#define VHV_CONFIG_PAD_SCL_SDA_EXTSUP_HV 0x89
+#define I2C_STANDARD_MODE              0x88
+#define POWER_MANAGEMENT_GO1_POWER_FORCE 0x80
+#define SYSTEM_HISTOGRAM_BIN           0x81
+#define SOFT_RESET_GO2_SOFT_RESET_N    0xBF
+#define IDENTIFICATION_MODEL_ID        0xC0
+#define OSC_CALIBRATE_VAL              0xF8
+
+#define STOP_VARIABLE                  0x91
+#define NVM_COMMAND                    0x94
+#define NVM_SPAD_INFO                  0x92
+#define PAGE_SELECT                    0xFF
+
+// ─── Global state ───
 float vl_range = 0.0;
 int vl_ok = 0;
 int vl_addr = 0;
 int vl_bus = 0;
-persist int vl_stop_var = 0;  // persist across runs — stopContinuous writes 0 to reg 0x91
+char vl_lbl[32];
+persist int vl_stop_var = 0;
 int vl_continuous = 0;
 
 char vl_buf[12];
 char vl_spad[6];
 
-// Chart (6h at 1/min = 360 points)
 #define VL_HIST_LEN 360
 float vl_hist[VL_HIST_LEN];
 int vl_hist_pos;
 int vl_hist_tick;
 
-// Read single register via i2cRead (I2cReadBuffer — STOP + new START)
-// MUST use STOP (not repeated START) — matches Pololu library exactly.
-// i2cRead8 uses repeated START which breaks VL53L0X NVM state machine.
+// ─── I2C helpers ───
+// Single-byte read via STOP + new START (matches Pololu)
 int vl_read(int reg) {
     i2cRead(vl_addr, reg, vl_buf, 1, vl_bus);
     return vl_buf[0];
 }
 
-// Read multiple bytes via i2cRead (I2cReadBuffer — STOP + new START)
-// Used for SPAD map (6 bytes) and range result (12 bytes)
+// Multi-byte read via STOP + new START
 int vl_read_buf(int reg, char buf[], int len) {
     return i2cRead(vl_addr, reg, buf, len, vl_bus);
 }
 
+// ─── Bus scan ───
 int vl_scan() {
     int bus = 0;
     while (bus < 2) {
-        if (i2cSetDevice(VL_ADDR1, bus)) {
-            i2cRead(VL_ADDR1, 0xC0, vl_buf, 1, bus);
-            int id = vl_buf[0];
-            if (id == VL_CHIP_ID) {
-                vl_addr = VL_ADDR1;
+        if (i2cSetDevice(VL_ADDR, bus)) {
+            i2cRead(VL_ADDR, IDENTIFICATION_MODEL_ID, vl_buf, 1, bus);
+            if (vl_buf[0] == VL_CHIP_ID) {
+                vl_addr = VL_ADDR;
                 vl_bus = bus;
                 i2cSetActiveFound(vl_addr, "VL53L0X", vl_bus);
                 return 1;
@@ -63,145 +113,93 @@ int vl_scan() {
     return 0;
 }
 
-// Soft reset the VL53L0X to clear any stuck state from previous runs
+// ─── Soft reset ───
 void vl_soft_reset() {
     char dbg[64];
-    // Ensure we're on page 0, normal access mode
-    i2cWrite8(vl_addr, 0xFF, 0x00, vl_bus);
-    i2cWrite8(vl_addr, 0x80, 0x00, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x00, vl_bus);
+    i2cWrite8(vl_addr, POWER_MANAGEMENT_GO1_POWER_FORCE, 0x00, vl_bus);
 
-    // Soft reset: write 0 then 1 to register 0xBF
-    i2cWrite8(vl_addr, 0xBF, 0x00, vl_bus);  // assert reset
+    i2cWrite8(vl_addr, SOFT_RESET_GO2_SOFT_RESET_N, 0x00, vl_bus);
     int start = millis();
-    while (millis() - start < 5) {}  // wait 5ms
-    i2cWrite8(vl_addr, 0xBF, 0x01, vl_bus);  // release reset
+    while (millis() - start < 5) {}
+    i2cWrite8(vl_addr, SOFT_RESET_GO2_SOFT_RESET_N, 0x01, vl_bus);
     start = millis();
-    while (millis() - start < 5) {}  // wait for boot
+    while (millis() - start < 5) {}
 
-    // Verify chip ID after reset
-    i2cRead(vl_addr, 0xC0, vl_buf, 1, vl_bus);
+    i2cRead(vl_addr, IDENTIFICATION_MODEL_ID, vl_buf, 1, vl_bus);
     sprintfInt(dbg, "DBG: post-reset ID=0x%x\n", vl_buf[0]);
-    print(dbg);
-
-    // Read factory SPAD map from registers BEFORE any SPAD config
-    char factory_spad[6];
-    vl_read_buf(0xB0, factory_spad, 6);
-    sprintfInt(dbg, "DBG: factory SPAD [%x", factory_spad[0]);
-    print(dbg);
-    sprintfInt(dbg, " %x", factory_spad[1]);
-    print(dbg);
-    sprintfInt(dbg, " %x", factory_spad[2]);
-    print(dbg);
-    sprintfInt(dbg, " %x", factory_spad[3]);
-    print(dbg);
-    sprintfInt(dbg, " %x", factory_spad[4]);
-    print(dbg);
-    sprintfInt(dbg, " %x]\n", factory_spad[5]);
-    print(dbg);
-
-    // Check key registers after fresh reset
-    int v84 = vl_read(0x84);
-    int v13 = vl_read(0x13);
-    int v01 = vl_read(0x01);
-    sprintfInt(dbg, "DBG: post-reset reg84=0x%x", v84);
-    print(dbg);
-    sprintfInt(dbg, " reg13=0x%x", v13);
-    print(dbg);
-    sprintfInt(dbg, " seq=0x%x\n", v01);
     print(dbg);
 }
 
-// Phase A: DataInit — 2V8 mode, stop variable, rate limit
+// ─── Phase A: DataInit — 2V8 mode, stop variable, rate limit ───
 int vl_data_init() {
     char dbg[64];
 
-    // NOTE: Do NOT write SYSRANGE_START=0x01 here!
-    // Pololu library never writes to reg 0x00 during DataInit.
-    // Writing 0x01 triggers a single-shot measurement on an uncalibrated
-    // sensor, which can leave it in a stuck state.
+    // Set 2V8 I/O voltage mode
+    int r = vl_read(VHV_CONFIG_PAD_SCL_SDA_EXTSUP_HV);
+    i2cWrite8(vl_addr, VHV_CONFIG_PAD_SCL_SDA_EXTSUP_HV, r | 0x01, vl_bus);
+    i2cWrite8(vl_addr, I2C_STANDARD_MODE, 0x00, vl_bus);
 
-    // Read VHV config (typically 0x00 on this chip, OR with 0x01 for 2V8 mode)
-    int r = vl_read(0x89);
-    sprintfInt(dbg, "DBG: reg89=0x%x\n", r);
-    print(dbg);
+    // Read stop variable via undocumented access protocol
+    // Persisted because stopContinuous() zeroes register 0x91
+    i2cWrite8(vl_addr, POWER_MANAGEMENT_GO1_POWER_FORCE, 0x01, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x01, vl_bus);
+    i2cWrite8(vl_addr, SYSRANGE_START, 0x00, vl_bus);
 
-    // Set 2V8 mode (bit 0)
-    i2cWrite8(vl_addr, 0x89, r | 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0x88, 0x00, vl_bus);
-
-    // Read stop variable (needed before each measurement start)
-    // Must use the 0x80/0xFF/0x00 protocol to access it
-    // Note: vl_stop_var is persisted — stopContinuous() in OnExit writes 0 to reg 0x91,
-    // so on re-run (without power cycle) the register reads 0. Use persisted value if available.
-    i2cWrite8(vl_addr, 0x80, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0x00, 0x00, vl_bus);
-
-    int sv_read = vl_read(0x91);
-    sprintfInt(dbg, "DBG: stop_var reg=0x%x", sv_read);
-    print(dbg);
-    sprintfInt(dbg, " persist=0x%x\n", vl_stop_var);
-    print(dbg);
-
-    // Use register value if non-zero (fresh power-up), else use persisted value
+    int sv_read = vl_read(STOP_VARIABLE);
     if (sv_read != 0) {
         vl_stop_var = sv_read;
     }
-    // If both are 0, we're on first run after power cycle and reg is truly 0 — unlikely
-
-    i2cWrite8(vl_addr, 0x00, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x00, vl_bus);
-    i2cWrite8(vl_addr, 0x80, 0x00, vl_bus);
-
-    sprintfInt(dbg, "DBG: stop_var final=0x%x\n", vl_stop_var);
+    sprintfInt(dbg, "DBG: stop_var=0x%x\n", vl_stop_var);
     print(dbg);
+
+    i2cWrite8(vl_addr, SYSRANGE_START, 0x01, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x00, vl_bus);
+    i2cWrite8(vl_addr, POWER_MANAGEMENT_GO1_POWER_FORCE, 0x00, vl_bus);
 
     // Disable MSRC + PRE_RANGE limit checks
-    r = vl_read(0x60);
-    sprintfInt(dbg, "DBG: reg60=0x%x\n", r);
-    print(dbg);
-    i2cWrite8(vl_addr, 0x60, r | 0x12, vl_bus);
+    r = vl_read(MSRC_CONFIG_CONTROL);
+    i2cWrite8(vl_addr, MSRC_CONFIG_CONTROL, r | 0x12, vl_bus);
 
     // Signal rate limit 0.25 MCPS (FP9.7: 0x0020)
     vl_buf[0] = 0x00;
     vl_buf[1] = 0x20;
-    i2cWrite(vl_addr, 0x44, vl_buf, 2, vl_bus);
+    i2cWrite(vl_addr, FINAL_RANGE_CONFIG_MIN_COUNT_RATE_RTN_LIMIT, vl_buf, 2, vl_bus);
 
     // Enable all sequence steps
-    i2cWrite8(vl_addr, 0x01, 0xFF, vl_bus);
+    i2cWrite8(vl_addr, SYSTEM_SEQUENCE_CONFIG, 0xFF, vl_bus);
     return 1;
 }
 
-// Phase B: SPAD configuration — matching Pololu exactly
-// Key insight: Pololu reads the reference SPAD map from registers 0xB0-0xB5
-// AFTER writing the setup registers, NOT from NVM. The setup loads them.
+// ─── Phase B: SPAD configuration ───
+// Reads SPAD count/type from NVM, then configures SPAD enables.
+// NOTE: On some chips, registers 0xB0-0xB5 read all zeros.
+// Writing [05 80 0 0 0 0] (chip default) is the only value that
+// doesn't break calibration on those chips.
 int vl_spad_init() {
     char dbg[64];
 
-    // Step 1: Read SPAD count/type from NVM
-    i2cWrite8(vl_addr, 0x80, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0x00, 0x00, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x06, vl_bus);
+    // getSpadInfo — read SPAD count and type from NVM
+    i2cWrite8(vl_addr, POWER_MANAGEMENT_GO1_POWER_FORCE, 0x01, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x01, vl_bus);
+    i2cWrite8(vl_addr, SYSRANGE_START, 0x00, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x06, vl_bus);
     int r = vl_read(0x83);
     i2cWrite8(vl_addr, 0x83, r | 0x04, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x07, vl_bus);
-    i2cWrite8(vl_addr, 0x81, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0x80, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0x94, 0x6B, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x07, vl_bus);
+    i2cWrite8(vl_addr, SYSTEM_HISTOGRAM_BIN, 0x01, vl_bus);
+    i2cWrite8(vl_addr, POWER_MANAGEMENT_GO1_POWER_FORCE, 0x01, vl_bus);
+    i2cWrite8(vl_addr, NVM_COMMAND, 0x6B, vl_bus);
     i2cWrite8(vl_addr, 0x83, 0x00, vl_bus);
 
-    // Poll until NVM ready
+    // Poll NVM ready
     int start = millis();
     while (vl_read(0x83) == 0x00) {
         if (millis() - start > 500) return 0;
     }
-    int nvm_ms = millis() - start;
-    sprintfInt(dbg, "DBG: NVM ready in %d ms\n", nvm_ms);
-    print(dbg);
 
     i2cWrite8(vl_addr, 0x83, 0x01, vl_bus);
-    int tmp = vl_read(0x92);
+    int tmp = vl_read(NVM_SPAD_INFO);
     int spad_count = tmp & 0x7F;
     int spad_aperture = (tmp >> 7) & 0x01;
     sprintfInt(dbg, "DBG: SPAD count=%d", spad_count);
@@ -209,41 +207,27 @@ int vl_spad_init() {
     sprintfInt(dbg, " aperture=%d\n", spad_aperture);
     print(dbg);
 
-    // Cleanup NVM read sequence
-    i2cWrite8(vl_addr, 0x81, 0x00, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x06, vl_bus);
+    // Cleanup NVM access
+    i2cWrite8(vl_addr, SYSTEM_HISTOGRAM_BIN, 0x00, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x06, vl_bus);
     r = vl_read(0x83);
     i2cWrite8(vl_addr, 0x83, r & 0xFB, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0x00, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x00, vl_bus);
-    i2cWrite8(vl_addr, 0x80, 0x00, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x01, vl_bus);
+    i2cWrite8(vl_addr, SYSRANGE_START, 0x01, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x00, vl_bus);
+    i2cWrite8(vl_addr, POWER_MANAGEMENT_GO1_POWER_FORCE, 0x00, vl_bus);
 
-    // Step 2: Setup SPAD reference registers (Pololu set_reference_spads)
-    // These writes load the factory SPAD map into registers 0xB0-0xB5
-    i2cWrite8(vl_addr, 0xFF, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0x4F, 0x00, vl_bus);  // DYNAMIC_SPAD_REF_EN_START_OFFSET
-    i2cWrite8(vl_addr, 0x4E, 0x2C, vl_bus);  // DYNAMIC_SPAD_NUM_REQUESTED_REF_SPAD
-    i2cWrite8(vl_addr, 0xFF, 0x00, vl_bus);
-    i2cWrite8(vl_addr, 0xB6, 0xB4, vl_bus);  // GLOBAL_CONFIG_REF_EN_START_SELECT
+    // set_reference_spads — setup SPAD reference registers
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x01, vl_bus);
+    i2cWrite8(vl_addr, DYNAMIC_SPAD_REF_EN_START_OFFSET, 0x00, vl_bus);
+    i2cWrite8(vl_addr, DYNAMIC_SPAD_NUM_REQUESTED_REF, 0x2C, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x00, vl_bus);
+    i2cWrite8(vl_addr, GLOBAL_CONFIG_REF_EN_START_SELECT, 0xB4, vl_bus);
 
-    // Step 3: READ the reference SPAD map from the chip (NOT all-ones!)
-    // This is what Pololu does — reads AFTER setup, gets the actual available SPADs
-    vl_read_buf(0xB0, vl_spad, 6);
-    sprintfInt(dbg, "DBG: SPAD ref [%x", vl_spad[0]);
-    print(dbg);
-    sprintfInt(dbg, " %x", vl_spad[1]);
-    print(dbg);
-    sprintfInt(dbg, " %x", vl_spad[2]);
-    print(dbg);
-    sprintfInt(dbg, " %x", vl_spad[3]);
-    print(dbg);
-    sprintfInt(dbg, " %x", vl_spad[4]);
-    print(dbg);
-    sprintfInt(dbg, " %x]\n", vl_spad[5]);
-    print(dbg);
+    // Read reference SPAD map from chip
+    vl_read_buf(GLOBAL_CONFIG_SPAD_ENABLES_REF_0, vl_spad, 6);
 
-    // Step 4: Enable exactly spad_count SPADs of correct type
+    // Enable exactly spad_count SPADs of correct type
     // Aperture SPADs start at index 12, non-aperture at 0
     int first = 0;
     if (spad_aperture) first = 12;
@@ -253,7 +237,6 @@ int vl_spad_init() {
         int bidx = i / 8;
         int bmask = 1 << (i % 8);
         if (i < first || enabled >= spad_count) {
-            // Disable this SPAD
             vl_spad[bidx] = vl_spad[bidx] & (0xFF ^ bmask);
         } else {
             if (vl_spad[bidx] & bmask) {
@@ -263,59 +246,33 @@ int vl_spad_init() {
         i++;
     }
 
-    sprintfInt(dbg, "DBG: SPAD enabled=%d", enabled);
-    print(dbg);
-    sprintfInt(dbg, " [%x", vl_spad[0]);
-    print(dbg);
-    sprintfInt(dbg, " %x", vl_spad[1]);
-    print(dbg);
-    sprintfInt(dbg, " %x", vl_spad[2]);
-    print(dbg);
-    sprintfInt(dbg, " %x", vl_spad[3]);
-    print(dbg);
-    sprintfInt(dbg, " %x", vl_spad[4]);
-    print(dbg);
-    sprintfInt(dbg, " %x]\n", vl_spad[5]);
-    print(dbg);
+    // Write processed SPAD enables
+    i2cWrite(vl_addr, GLOBAL_CONFIG_SPAD_ENABLES_REF_0, vl_spad, 6, vl_bus);
 
-    // Step 5: Write processed SPAD enables back
-    i2cWrite(vl_addr, 0xB0, vl_spad, 6, vl_bus);
-
-    // Verify SPAD map was written correctly (read back)
-    char vl_verify[6];
-    vl_read_buf(0xB0, vl_verify, 6);
-    sprintfInt(dbg, "DBG: SPAD verify [%x", vl_verify[0]);
+    sprintfInt(dbg, "DBG: SPAD enabled=%d\n", enabled);
     print(dbg);
-    sprintfInt(dbg, " %x", vl_verify[1]);
-    print(dbg);
-    sprintfInt(dbg, " %x", vl_verify[2]);
-    print(dbg);
-    sprintfInt(dbg, " %x", vl_verify[3]);
-    print(dbg);
-    sprintfInt(dbg, " %x", vl_verify[4]);
-    print(dbg);
-    sprintfInt(dbg, " %x]\n", vl_verify[5]);
-    print(dbg);
-
     return 1;
 }
 
-// Phase C: Load tuning settings (from ST/Pololu)
+// ─── Phase C: Load tuning settings (opaque blob from ST/Pololu) ───
+// These are undocumented internal registers on alternating pages (0x00/0x01).
+// Register addresses are NOT the same as the named registers above
+// because the page context differs. Kept as raw hex to match Pololu source.
 void vl_load_tuning() {
-    i2cWrite8(vl_addr, 0xFF, 0x01, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x01, vl_bus);
     i2cWrite8(vl_addr, 0x00, 0x00, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x00, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x00, vl_bus);
     i2cWrite8(vl_addr, 0x09, 0x00, vl_bus);
     i2cWrite8(vl_addr, 0x10, 0x00, vl_bus);
     i2cWrite8(vl_addr, 0x11, 0x00, vl_bus);
     i2cWrite8(vl_addr, 0x24, 0x01, vl_bus);
     i2cWrite8(vl_addr, 0x25, 0xFF, vl_bus);
     i2cWrite8(vl_addr, 0x75, 0x00, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x01, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x01, vl_bus);
     i2cWrite8(vl_addr, 0x4E, 0x2C, vl_bus);
     i2cWrite8(vl_addr, 0x48, 0x00, vl_bus);
     i2cWrite8(vl_addr, 0x30, 0x20, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x00, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x00, vl_bus);
     i2cWrite8(vl_addr, 0x30, 0x09, vl_bus);
     i2cWrite8(vl_addr, 0x54, 0x00, vl_bus);
     i2cWrite8(vl_addr, 0x31, 0x04, vl_bus);
@@ -334,16 +291,16 @@ void vl_load_tuning() {
     i2cWrite8(vl_addr, 0x64, 0x00, vl_bus);
     i2cWrite8(vl_addr, 0x65, 0x00, vl_bus);
     i2cWrite8(vl_addr, 0x66, 0xA0, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x01, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x01, vl_bus);
     i2cWrite8(vl_addr, 0x22, 0x32, vl_bus);
     i2cWrite8(vl_addr, 0x47, 0x14, vl_bus);
     i2cWrite8(vl_addr, 0x49, 0xFF, vl_bus);
     i2cWrite8(vl_addr, 0x4A, 0x00, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x00, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x00, vl_bus);
     i2cWrite8(vl_addr, 0x7A, 0x0A, vl_bus);
     i2cWrite8(vl_addr, 0x7B, 0x00, vl_bus);
     i2cWrite8(vl_addr, 0x78, 0x21, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x01, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x01, vl_bus);
     i2cWrite8(vl_addr, 0x23, 0x34, vl_bus);
     i2cWrite8(vl_addr, 0x42, 0x00, vl_bus);
     i2cWrite8(vl_addr, 0x44, 0xFF, vl_bus);
@@ -353,15 +310,15 @@ void vl_load_tuning() {
     i2cWrite8(vl_addr, 0x0E, 0x06, vl_bus);
     i2cWrite8(vl_addr, 0x20, 0x1A, vl_bus);
     i2cWrite8(vl_addr, 0x43, 0x40, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x00, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x00, vl_bus);
     i2cWrite8(vl_addr, 0x34, 0x03, vl_bus);
     i2cWrite8(vl_addr, 0x35, 0x44, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x01, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x01, vl_bus);
     i2cWrite8(vl_addr, 0x31, 0x04, vl_bus);
     i2cWrite8(vl_addr, 0x4B, 0x09, vl_bus);
     i2cWrite8(vl_addr, 0x4C, 0x05, vl_bus);
     i2cWrite8(vl_addr, 0x4D, 0x04, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x00, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x00, vl_bus);
     i2cWrite8(vl_addr, 0x44, 0x00, vl_bus);
     i2cWrite8(vl_addr, 0x45, 0x20, vl_bus);
     i2cWrite8(vl_addr, 0x47, 0x08, vl_bus);
@@ -372,171 +329,106 @@ void vl_load_tuning() {
     i2cWrite8(vl_addr, 0x72, 0xFE, vl_bus);
     i2cWrite8(vl_addr, 0x76, 0x00, vl_bus);
     i2cWrite8(vl_addr, 0x77, 0x00, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x01, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x01, vl_bus);
     i2cWrite8(vl_addr, 0x0D, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x00, vl_bus);
-    i2cWrite8(vl_addr, 0x80, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0x01, 0xF8, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x01, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x00, vl_bus);
+    i2cWrite8(vl_addr, POWER_MANAGEMENT_GO1_POWER_FORCE, 0x01, vl_bus);
+    i2cWrite8(vl_addr, SYSTEM_SEQUENCE_CONFIG, 0xF8, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x01, vl_bus);
     i2cWrite8(vl_addr, 0x8E, 0x01, vl_bus);
     i2cWrite8(vl_addr, 0x00, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x00, vl_bus);
-    i2cWrite8(vl_addr, 0x80, 0x00, vl_bus);
-
-    // Verify a few tuning registers were written correctly
-    char dbg[64];
-    int v24 = vl_read(0x24);  // should be 0x01
-    int v66 = vl_read(0x66);  // should be 0xA0
-    int v01 = vl_read(0x01);  // should be 0xF8 (last seq config in tuning)
-    sprintfInt(dbg, "DBG: tuning verify 0x24=%x", v24);
-    print(dbg);
-    sprintfInt(dbg, " 0x66=%x", v66);
-    print(dbg);
-    sprintfInt(dbg, " 0x01=%x\n", v01);
-    print(dbg);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x00, vl_bus);
+    i2cWrite8(vl_addr, POWER_MANAGEMENT_GO1_POWER_FORCE, 0x00, vl_bus);
 }
 
-// Single reference calibration (VHV or Phase)
-// Matches Pololu performSingleRefCalibration() EXACTLY:
-//   writeReg(SYSRANGE__START, 0x01 | vhv_init_byte);
-//   while ((readReg(RESULT_INTERRUPT_STATUS) & 0x07) == 0) { timeout check }
-//   writeReg(SYSTEM_INTERRUPT_CLEAR, 0x01);
-//   writeReg(SYSRANGE__START, 0x00);
+// ─── Single reference calibration (VHV or Phase) ───
+// Matches Pololu performSingleRefCalibration()
 int vl_single_ref_cal(int vhv_init) {
     char dbg[64];
     int cmd = 0x01 | vhv_init;
-    sprintfInt(dbg, "DBG: RefCal cmd=0x%x\n", cmd);
-    print(dbg);
 
-    // Start calibration — NO reads of reg 0x00 after this!
-    // Pololu goes straight to polling 0x13, any read of 0x00 might abort cal.
-    i2cWrite8(vl_addr, 0x00, cmd, vl_bus);
+    i2cWrite8(vl_addr, SYSRANGE_START, cmd, vl_bus);
 
     int start = millis();
     int val = 0;
     int loops = 0;
     while ((val & 0x07) == 0) {
-        val = vl_read(0x13);
+        val = vl_read(RESULT_INTERRUPT_STATUS);
         loops = loops + 1;
         if (millis() - start > 1000) {
-            sprintfInt(dbg, "DBG: TIMEOUT reg13=0x%x", val);
-            print(dbg);
-            sprintfInt(dbg, " loops=%d\n", loops);
+            sprintfInt(dbg, "DBG: cal TIMEOUT loops=%d\n", loops);
             print(dbg);
             return 0;
         }
     }
-    sprintfInt(dbg, "DBG: CAL OK loops=%d", loops);
-    print(dbg);
-    sprintfInt(dbg, " reg13=0x%x\n", val);
+    sprintfInt(dbg, "DBG: cal OK loops=%d\n", loops);
     print(dbg);
 
-    // Clear interrupt and stop measurement (matching Pololu)
-    i2cWrite8(vl_addr, 0x0B, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0x00, 0x00, vl_bus);
+    i2cWrite8(vl_addr, SYSTEM_INTERRUPT_CLEAR, 0x01, vl_bus);
+    i2cWrite8(vl_addr, SYSRANGE_START, 0x00, vl_bus);
     return 1;
 }
 
-// Phase D+E: GPIO config + VHV + Phase calibration
-// MINIMAL version — no extra reads between writes to avoid disturbing state
+// ─── Phase D+E: GPIO config + VHV + Phase calibration ───
 int vl_ref_cal() {
-    char dbg[64];
+    // GPIO interrupt config: new sample ready, active low
+    i2cWrite8(vl_addr, SYSTEM_INTERRUPT_CONFIG_GPIO, 0x04, vl_bus);
+    int r = vl_read(GPIO_HV_MUX_ACTIVE_HIGH);
+    i2cWrite8(vl_addr, GPIO_HV_MUX_ACTIVE_HIGH, r & 0xEF, vl_bus);
+    i2cWrite8(vl_addr, SYSTEM_INTERRUPT_CLEAR, 0x01, vl_bus);
 
-    // GPIO config — matches Pololu exactly, no intermediate reads
-    i2cWrite8(vl_addr, 0x0A, 0x04, vl_bus);  // interrupt: new sample ready
-    int r = vl_read(0x84);
-    i2cWrite8(vl_addr, 0x84, r & 0xEF, vl_bus);  // GPIO active low
-    i2cWrite8(vl_addr, 0x0B, 0x01, vl_bus);  // clear interrupt
+    // Disable TCC + MSRC for calibration
+    i2cWrite8(vl_addr, SYSTEM_SEQUENCE_CONFIG, 0xE8, vl_bus);
 
-    // Pololu: SYSTEM_SEQUENCE_CONFIG = 0xE8
-    // Then getMeasurementTimingBudget + setMeasurementTimingBudget
-    // We skip setMeasurementTimingBudget — just write 0xE8
-    i2cWrite8(vl_addr, 0x01, 0xE8, vl_bus);
-
-    // VHV calibration
-    i2cWrite8(vl_addr, 0x01, 0x01, vl_bus);
+    // VHV calibration (vhv_init_byte = 0x40)
+    i2cWrite8(vl_addr, SYSTEM_SEQUENCE_CONFIG, 0x01, vl_bus);
     if (!vl_single_ref_cal(0x40)) { return 0; }
 
-    // Phase calibration
-    i2cWrite8(vl_addr, 0x01, 0x02, vl_bus);
+    // Phase calibration (vhv_init_byte = 0x00)
+    i2cWrite8(vl_addr, SYSTEM_SEQUENCE_CONFIG, 0x02, vl_bus);
     if (!vl_single_ref_cal(0x00)) { return 0; }
 
-    // Restore
-    i2cWrite8(vl_addr, 0x01, 0xE8, vl_bus);
+    // Restore full sequence config
+    i2cWrite8(vl_addr, SYSTEM_SEQUENCE_CONFIG, 0xE8, vl_bus);
     return 1;
 }
 
-// Start continuous back-to-back ranging (matches Pololu startContinuous(0))
+// ─── Start continuous back-to-back ranging (Pololu startContinuous(0)) ───
 void vl_start_continuous() {
-    i2cWrite8(vl_addr, 0x80, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0x00, 0x00, vl_bus);
-    i2cWrite8(vl_addr, 0x91, vl_stop_var, vl_bus);
-    i2cWrite8(vl_addr, 0x00, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x00, vl_bus);
-    i2cWrite8(vl_addr, 0x80, 0x00, vl_bus);
-    // Back-to-back continuous mode
-    i2cWrite8(vl_addr, 0x00, 0x02, vl_bus);
+    i2cWrite8(vl_addr, POWER_MANAGEMENT_GO1_POWER_FORCE, 0x01, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x01, vl_bus);
+    i2cWrite8(vl_addr, SYSRANGE_START, 0x00, vl_bus);
+    i2cWrite8(vl_addr, STOP_VARIABLE, vl_stop_var, vl_bus);
+    i2cWrite8(vl_addr, SYSRANGE_START, 0x01, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x00, vl_bus);
+    i2cWrite8(vl_addr, POWER_MANAGEMENT_GO1_POWER_FORCE, 0x00, vl_bus);
+    // Back-to-back continuous mode (period = 0)
+    i2cWrite8(vl_addr, SYSRANGE_START, 0x02, vl_bus);
     vl_continuous = 1;
 }
 
-// Stop continuous ranging (matches Pololu stopContinuous())
+// ─── Stop continuous ranging (Pololu stopContinuous()) ───
 void vl_stop_continuous() {
-    i2cWrite8(vl_addr, 0x00, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0x00, 0x00, vl_bus);
-    i2cWrite8(vl_addr, 0x91, 0x00, vl_bus);
-    i2cWrite8(vl_addr, 0x00, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x00, vl_bus);
+    i2cWrite8(vl_addr, SYSRANGE_START, 0x01, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x01, vl_bus);
+    i2cWrite8(vl_addr, SYSRANGE_START, 0x00, vl_bus);
+    i2cWrite8(vl_addr, STOP_VARIABLE, 0x00, vl_bus);
+    i2cWrite8(vl_addr, SYSRANGE_START, 0x01, vl_bus);
+    i2cWrite8(vl_addr, PAGE_SELECT, 0x00, vl_bus);
     vl_continuous = 0;
 }
 
+// ─── Full init sequence ───
 int vl_init() {
-    char dbg[64];
     vl_soft_reset();
 
-    // DataInit + SPAD setup + SPAD write [05 80] + tuning + cal
     if (!vl_data_init()) { print("DataInit failed\n"); return 0; }
-
-    // SPAD setup registers
-    i2cWrite8(vl_addr, 0xFF, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0x4F, 0x00, vl_bus);
-    i2cWrite8(vl_addr, 0x4E, 0x2C, vl_bus);
-    i2cWrite8(vl_addr, 0xFF, 0x00, vl_bus);
-    i2cWrite8(vl_addr, 0xB6, 0xB4, vl_bus);
-
-    // Write chip's preferred SPAD map [05 80] — only values that don't break cal
-    vl_spad[0] = 0x05;
-    vl_spad[1] = 0x80;
-    vl_spad[2] = 0x00;
-    vl_spad[3] = 0x00;
-    vl_spad[4] = 0x00;
-    vl_spad[5] = 0x00;
-    i2cWrite(vl_addr, 0xB0, vl_spad, 6, vl_bus);
-
-    // Tuning
+    if (!vl_spad_init()) { print("SPAD failed\n"); return 0; }
     vl_load_tuning();
-
-    // GPIO config + calibration
-    i2cWrite8(vl_addr, 0x0A, 0x04, vl_bus);
-    int r = vl_read(0x84);
-    i2cWrite8(vl_addr, 0x84, r & 0xEF, vl_bus);
-    i2cWrite8(vl_addr, 0x0B, 0x01, vl_bus);
-    i2cWrite8(vl_addr, 0x01, 0xE8, vl_bus);
-
-    // VHV calibration
-    i2cWrite8(vl_addr, 0x01, 0x01, vl_bus);
-    if (!vl_single_ref_cal(0x40)) {
+    if (!vl_ref_cal()) {
         print("RefCal failed, trying anyway\n");
-        i2cWrite8(vl_addr, 0x01, 0xE8, vl_bus);
-        i2cWrite8(vl_addr, 0x0B, 0x01, vl_bus);
-    } else {
-        // Phase cal
-        i2cWrite8(vl_addr, 0x01, 0x02, vl_bus);
-        if (!vl_single_ref_cal(0x00)) {
-            print("DBG: Phase cal failed\n");
-        }
-        i2cWrite8(vl_addr, 0x01, 0xE8, vl_bus);
+        i2cWrite8(vl_addr, SYSTEM_SEQUENCE_CONFIG, 0xE8, vl_bus);
+        i2cWrite8(vl_addr, SYSTEM_INTERRUPT_CLEAR, 0x01, vl_bus);
     }
 
     vl_start_continuous();
@@ -544,19 +436,16 @@ int vl_init() {
     return 1;
 }
 
-// Read range in continuous mode (non-blocking)
+// ─── Read range in continuous mode (non-blocking) ───
 int vl_read_range() {
-    // Check if new measurement ready
-    int status = vl_read(0x13);
+    int status = vl_read(RESULT_INTERRUPT_STATUS);
     if ((status & 0x07) == 0) return 0;
 
-    // Read 12 bytes from RESULT_RANGE_STATUS (0x14)
-    // Range in mm at offset 10-11
-    if (!vl_read_buf(0x14, vl_buf, 12)) return 0;
+    // Read 12 bytes from RESULT_RANGE_STATUS, range at offset 10-11
+    if (!vl_read_buf(RESULT_RANGE_STATUS, vl_buf, 12)) return 0;
     int raw = (vl_buf[10] << 8) | vl_buf[11];
 
-    // Clear interrupt
-    i2cWrite8(vl_addr, 0x0B, 0x01, vl_bus);
+    i2cWrite8(vl_addr, SYSTEM_INTERRUPT_CLEAR, 0x01, vl_bus);
 
     if (raw < 8190) {
         vl_range = (float)raw;
@@ -567,7 +456,7 @@ int vl_read_range() {
     return 1;
 }
 
-int vl_dbg_cnt;
+// ─── Callbacks ───
 
 void EverySecond() {
     if (!vl_addr) {
@@ -577,50 +466,9 @@ void EverySecond() {
             vl_addr = 0;
             return;
         }
-        vl_dbg_cnt = 0;
     }
 
-    int got = vl_read_range();
-    // Print first 5 measurement attempts with full raw data dump
-    if (vl_dbg_cnt < 5) {
-        char dbg[64];
-        sprintfInt(dbg, "DBG: meas got=%d", got);
-        print(dbg);
-        if (got) {
-            // Dump all 12 bytes: status + signal/ambient + range
-            sprintfInt(dbg, " [%x", vl_buf[0]);
-            print(dbg);
-            sprintfInt(dbg, " %x", vl_buf[1]);
-            print(dbg);
-            sprintfInt(dbg, " %x", vl_buf[2]);
-            print(dbg);
-            sprintfInt(dbg, " %x", vl_buf[3]);
-            print(dbg);
-            sprintfInt(dbg, " %x", vl_buf[4]);
-            print(dbg);
-            sprintfInt(dbg, " %x", vl_buf[5]);
-            print(dbg);
-            sprintfInt(dbg, " %x", vl_buf[6]);
-            print(dbg);
-            sprintfInt(dbg, " %x", vl_buf[7]);
-            print(dbg);
-            sprintfInt(dbg, " %x", vl_buf[8]);
-            print(dbg);
-            sprintfInt(dbg, " %x", vl_buf[9]);
-            print(dbg);
-            sprintfInt(dbg, " %x", vl_buf[10]);
-            print(dbg);
-            sprintfInt(dbg, " %x]\n", vl_buf[11]);
-            print(dbg);
-        }
-        if (vl_ok) {
-            sprintfFloat(dbg, " range=%.0f\n", vl_range);
-        } else {
-            sprintfInt(dbg, " ok=%d\n", vl_ok);
-        }
-        print(dbg);
-        vl_dbg_cnt++;
-    }
+    vl_read_range();
 
     // Chart history every minute
     vl_hist_tick++;
@@ -642,7 +490,12 @@ void WebPage() {
 void WebCall() {
     char buf[64];
     if (vl_ok) {
-        sprintfFloat(buf, "{s}VL53L0X Distance{m}%.0f mm{e}", vl_range);
+        LGetString(16, vl_lbl);
+        strcpy(buf, "{s}VL53L0X ");
+        strcat(buf, vl_lbl);
+        strcat(buf, "{m}");
+        webSend(buf);
+        sprintfFloat(buf, "%.0f mm{e}", vl_range);
         webSend(buf);
     } else {
         webSend("{s}VL53L0X{m}no target{e}");
@@ -656,7 +509,6 @@ void JsonCall() {
     responseAppend(buf);
 }
 
-// Called before VM stops — stop continuous mode and release I2C address
 void OnExit() {
     if (vl_addr) {
         if (vl_continuous) vl_stop_continuous();
@@ -679,9 +531,6 @@ int main() {
         sprintfInt(buf, " on bus %d\n", vl_bus);
         print(buf);
 
-        // Confirmed: reg 0xB0-0xB5 are all zeros at power-up on this chip.
-        // SPAD reference map is read from NVM instead (ST API method).
-
         if (vl_init()) {
             print("Init OK, sensor active\n");
         } else {
@@ -691,6 +540,5 @@ int main() {
     } else {
         print("VL53L0X not found\n");
     }
-    print("main() done\n");
     return 0;
 }

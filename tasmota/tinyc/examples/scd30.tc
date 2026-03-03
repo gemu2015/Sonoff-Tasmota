@@ -13,6 +13,7 @@ float scd_humi = 0.0;
 float scd_dewp = 0.0;
 float scd_absh = 0.0;
 char scd_buf[20];
+char scd_lbl[32];
 
 // CRC8 Sensirion: poly 0x31, init 0xFF, over 2 data bytes
 int scd_crc(int b1, int b2) {
@@ -135,19 +136,33 @@ void EverySecond() {
     }
 }
 
+void scd_web_label(int idx) {
+    char vt[32];
+    LGetString(idx, scd_lbl);
+    strcpy(vt, "{s}SCD30 ");
+    strcat(vt, scd_lbl);
+    strcat(vt, "{m}");
+    webSend(vt);
+}
+
 void WebCall() {
-    char buf[64];
+    char vt[32];
     if (scd_ok) {
-        sprintfFloat(buf, "{s}SCD30 CO2{m}%.0f ppm{e}", scd_co2);
-        webSend(buf);
-        sprintfFloat(buf, "{s}SCD30 Temperature{m}%.1f &deg;C{e}", scd_temp);
-        webSend(buf);
-        sprintfFloat(buf, "{s}SCD30 Humidity{m}%.1f %%{e}", scd_humi);
-        webSend(buf);
-        sprintfFloat(buf, "{s}SCD30 Dewpoint{m}%.1f &deg;C{e}", scd_dewp);
-        webSend(buf);
-        sprintfFloat(buf, "{s}SCD30 Abs Humidity{m}%.1f g/m&sup3;{e}", scd_absh);
-        webSend(buf);
+        scd_web_label(4);
+        sprintfFloat(vt, "%.0f ppm{e}", scd_co2);
+        webSend(vt);
+        scd_web_label(0);
+        sprintfFloat(vt, "%.1f &deg;C{e}", scd_temp);
+        webSend(vt);
+        scd_web_label(1);
+        sprintfFloat(vt, "%.1f %{e}", scd_humi);
+        webSend(vt);
+        scd_web_label(3);
+        sprintfFloat(vt, "%.1f &deg;C{e}", scd_dewp);
+        webSend(vt);
+        scd_web_label(20);
+        sprintfFloat(vt, "%.1f g/m&sup3;{e}", scd_absh);
+        webSend(vt);
     } else {
         webSend("{s}SCD30{m}not ready{e}");
     }

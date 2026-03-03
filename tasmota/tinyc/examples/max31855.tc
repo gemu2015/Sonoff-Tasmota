@@ -8,6 +8,7 @@
 float tc_temp = 0.0;
 int tc_ok = 0;
 int tc_fault = 0;
+char tc_lbl[32];
 
 void EverySecond() {
     // Read 4 bytes from MAX31855 (read-only device, MOSI not needed)
@@ -43,7 +44,12 @@ void EverySecond() {
 void WebCall() {
     char out[64];
     if (tc_ok) {
-        sprintfFloat(out, "{s}MAX31855 Temp{m}%.1f °C{e}", tc_temp);
+        LGetString(0, tc_lbl);
+        strcpy(out, "{s}MAX31855 ");
+        strcat(out, tc_lbl);
+        strcat(out, "{m}");
+        webSend(out);
+        sprintfFloat(out, "%.1f &deg;C{e}", tc_temp);
         webSend(out);
     } else if (tc_fault) {
         sprintfInt(out, "{s}MAX31855{m}Fault 0x%02X{e}", tc_fault);
