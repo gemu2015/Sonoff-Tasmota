@@ -751,7 +751,15 @@ static TcSlot *tc_current_slot = nullptr;
 static File tc_file_handles[TC_MAX_FILE_HANDLES];
 
 // HomeKit descriptor build buffer (used by hkSetCode/hkAdd/hkStart API)
+// Provide Is_gpio_used() when Scripter is excluded (normally in xdrv_10_scripter.ino)
+#ifndef USE_SCRIPT
+bool Is_gpio_used(uint8_t gpiopin) {
+  return (gpiopin < nitems(TasmotaGlobal.gpio_pin)) && (TasmotaGlobal.gpio_pin[gpiopin] > 0);
+}
+#endif
+
 #ifdef USE_HOMEKIT
+extern "C" int32_t homekit_main(char *, uint32_t);
 static char hk_build_buf[512];
 static uint16_t hk_build_pos = 0;
 static bool hk_line_open = false;  // true when current device line needs closing \n
@@ -7120,7 +7128,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       memcpy(desc, hk_build_buf, hk_build_pos);
       desc[hk_build_pos] = 0;
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: hkStart descriptor:\n%s"), desc);
-      extern "C" int32_t homekit_main(char *, uint32_t);
+      // homekit_main declared at top of file
       int32_t ret = homekit_main(desc, 0);
       TC_PUSH(vm, ret);
       break;
@@ -7141,21 +7149,21 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         len++;
       }
       desc[len] = 0;
-      extern "C" int32_t homekit_main(char *, uint32_t);
+      // homekit_main declared at top of file
       int32_t ret = homekit_main(desc, 0);
       // desc is used by the HAP thread — don't free it (it's referenced as hk_desc)
       TC_PUSH(vm, ret);
       break;
     }
     case SYS_HK_STOP: {
-      extern "C" int32_t homekit_main(char *, uint32_t);
+      // homekit_main declared at top of file
       homekit_main(0, 3);  // flag 3 = stop
       break;
     }
     case SYS_HK_RESET: {
       // Direct partition erase — works even before hkStart()
       // (hap_reset_to_factory sends an event that needs a running HAP loop)
-      extern "C" int32_t homekit_main(char *, uint32_t);
+      // homekit_main declared at top of file
       homekit_main(0, 3);   // stop HAP loop if running
       homekit_main(0, 98);  // direct NVS/LittleFS erase
       break;
