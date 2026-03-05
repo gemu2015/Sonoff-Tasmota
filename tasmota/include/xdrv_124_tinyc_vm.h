@@ -12,6 +12,8 @@
 #define HARDWARE_FALLBACK 2
 #endif
 
+#include <OneWire.h>
+
 #ifdef USE_UFILESYS
 extern FS *ffsp;
 extern FS *ufsp;
@@ -187,6 +189,15 @@ enum TcSyscall {
   SYS_PIN_MODE        = 0,  SYS_DIGITAL_WRITE   = 1,
   SYS_DIGITAL_READ    = 2,  SYS_ANALOG_READ     = 3,
   SYS_ANALOG_WRITE    = 4,  SYS_GPIO_INIT       = 5,
+  // 1-Wire (native bit-bang — timing-critical, runs in C)
+  SYS_OW_SET_PIN      = 6,  // (pin) -> void — configure 1-Wire pin
+  SYS_OW_RESET        = 7,  // () -> int — reset pulse, 1=presence detected
+  SYS_OW_WRITE        = 8,  // (byte) -> void — write byte LSB first
+  SYS_OW_READ         = 9,  // () -> int — read byte LSB first
+  SYS_OW_WRITE_BIT    = 98, // (bit) -> void — write single bit
+  SYS_OW_READ_BIT     = 99, // () -> int — read single bit
+  SYS_OW_SEARCH_RESET = 204, // () -> void — reset search state
+  SYS_OW_SEARCH       = 205, // (buf_addr) -> int — search next, copies 8-byte ROM to buf
   // Timing
   SYS_DELAY           = 10, SYS_DELAY_MICRO     = 11,
   SYS_MILLIS          = 12, SYS_MICROS          = 13,
@@ -530,6 +541,9 @@ typedef struct {
   // Delay support (non-blocking)
   uint32_t delay_until;    // millis() target for current delay
   bool     delayed;        // VM is waiting for delay
+  // 1-Wire (using TasmotaOneWire library)
+  int8_t   ow_pin;
+  OneWire  *ow_bus;
   // Software timers (millis-based)
 #define TC_MAX_TIMERS 4
   uint32_t timer_deadline[TC_MAX_TIMERS];
@@ -2320,6 +2334,92 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       }
       pinMode(a, b);
       break;
+
+    // ── 1-Wire (using Tasmota OneWire library) ────────
+    // Delegates to the proven TasmotaOneWire library which uses
+    // direct GPIO register access and critical sections.
+    case SYS_OW_SET_PIN: {
+      a = TC_POP(vm);
+      TC_CHECK_PIN(vm, a);
+      if (TasmotaGlobal.gpio_pin[a] != AGPIO(GPIO_NONE)) {
+        TasmotaGlobal.gpio_pin[a] = AGPIO(GPIO_NONE);
+      }
+      if (vm->ow_bus) { delete vm->ow_bus; vm->ow_bus = nullptr; }
+      vm->ow_bus = new OneWire(a);
+      vm->ow_pin = a;
+      // Debug: manual 1-Wire test at C level
+      {
+        uint8_t rst = vm->ow_bus->reset();
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: owDbg reset=%d"), rst);
+        if (rst) {
+          // Manual search: write SEARCH_ROM, read first 3 bit-pairs
+          vm->ow_bus->write(0xF0); // SEARCH_ROM
+          for (int b = 0; b < 3; b++) {
+            uint8_t id = vm->ow_bus->read_bit();
+            uint8_t cmp = vm->ow_bus->read_bit();
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: owDbg bit%d: id=%d cmp=%d"), b, id, cmp);
+            vm->ow_bus->write_bit(id); // follow the id direction
+          }
+        }
+        // Now test library search
+        vm->ow_bus->reset_search();
+        uint8_t taddr[8];
+        uint8_t tf = vm->ow_bus->search(taddr);
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: owDbg search=%d fam=0x%02X"), tf, tf ? taddr[0] : 0);
+        vm->ow_bus->reset_search();
+      }
+      break;
+    }
+    case SYS_OW_RESET: {
+      if (!vm->ow_bus) { TC_PUSH(vm, 0); break; }
+      TC_PUSH(vm, vm->ow_bus->reset());
+      break;
+    }
+    case SYS_OW_WRITE: {
+      a = TC_POP(vm);
+      if (!vm->ow_bus) break;
+      vm->ow_bus->write(a & 0xFF);
+      break;
+    }
+    case SYS_OW_READ: {
+      if (!vm->ow_bus) { TC_PUSH(vm, 0); break; }
+      TC_PUSH(vm, vm->ow_bus->read());
+      break;
+    }
+    case SYS_OW_WRITE_BIT: {
+      a = TC_POP(vm);
+      if (!vm->ow_bus) break;
+      vm->ow_bus->write_bit(a & 1);
+      break;
+    }
+    case SYS_OW_READ_BIT: {
+      if (!vm->ow_bus) { TC_PUSH(vm, 1); break; }
+      TC_PUSH(vm, vm->ow_bus->read_bit());
+      break;
+    }
+    case SYS_OW_SEARCH_RESET: {
+      if (vm->ow_bus) vm->ow_bus->reset_search();
+      break;
+    }
+    case SYS_OW_SEARCH: {
+      // owSearch(buf) — buf is char[8], receives ROM if found
+      a = TC_POP(vm);  // buffer ref (strArgs encoding)
+      if (!vm->ow_bus) { TC_PUSH(vm, 0); break; }
+      int32_t *buf_ptr = tc_resolve_ref(vm, a);
+      if (!buf_ptr) { TC_PUSH(vm, 0); break; }
+      uint8_t addr[8];
+      uint8_t found = vm->ow_bus->search(addr);
+      if (found) {
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: owSearch found fam=0x%02X"), addr[0]);
+        for (int i = 0; i < 8; i++) {
+          buf_ptr[i] = (int32_t)addr[i];
+        }
+      } else {
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: owSearch done (no more)"));
+      }
+      TC_PUSH(vm, found ? 1 : 0);
+      break;
+    }
 
     // ── Timing ────────────────────────────────────────
     case SYS_DELAY: {
@@ -7020,7 +7120,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       memcpy(desc, hk_build_buf, hk_build_pos);
       desc[hk_build_pos] = 0;
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: hkStart descriptor:\n%s"), desc);
-      extern int32_t homekit_main(char *, uint32_t);
+      extern "C" int32_t homekit_main(char *, uint32_t);
       int32_t ret = homekit_main(desc, 0);
       TC_PUSH(vm, ret);
       break;
@@ -7041,21 +7141,21 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         len++;
       }
       desc[len] = 0;
-      extern int32_t homekit_main(char *, uint32_t);
+      extern "C" int32_t homekit_main(char *, uint32_t);
       int32_t ret = homekit_main(desc, 0);
       // desc is used by the HAP thread — don't free it (it's referenced as hk_desc)
       TC_PUSH(vm, ret);
       break;
     }
     case SYS_HK_STOP: {
-      extern int32_t homekit_main(char *, uint32_t);
+      extern "C" int32_t homekit_main(char *, uint32_t);
       homekit_main(0, 3);  // flag 3 = stop
       break;
     }
     case SYS_HK_RESET: {
       // Direct partition erase — works even before hkStart()
       // (hap_reset_to_factory sends an event that needs a running HAP loop)
-      extern int32_t homekit_main(char *, uint32_t);
+      extern "C" int32_t homekit_main(char *, uint32_t);
       homekit_main(0, 3);   // stop HAP loop if running
       homekit_main(0, 98);  // direct NVS/LittleFS erase
       break;
@@ -7535,6 +7635,8 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   vm->delay_until = 0;
   vm->error = TC_OK;
   vm->instruction_count = 0;
+  vm->ow_pin = -1;
+  vm->ow_bus = nullptr;
   // globals and stack already zero from calloc — no memset needed
   vm->persist_file[0] = '\0';  // caller sets this before tc_persist_load()
 
@@ -8563,6 +8665,8 @@ static void TinyCStopVM(TcSlot *s) {
   tc_udp_stop();
   tc_spi_cleanup();
   tc_serial_close();
+  // Free OneWire bus
+  if (s->vm.ow_bus) { delete s->vm.ow_bus; s->vm.ow_bus = nullptr; s->vm.ow_pin = -1; }
   // Free HTTP header arrays
   if (Tinyc) {
     if (Tinyc->http_hdr_name) { free(Tinyc->http_hdr_name); Tinyc->http_hdr_name = nullptr; }

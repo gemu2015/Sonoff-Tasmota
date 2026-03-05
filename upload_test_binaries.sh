@@ -100,6 +100,13 @@ $(for f in "${FILES[@]}"; do echo "- \`$(basename "$f")\`"; done)
 - Upload \`tinyc_ide.html.gz\` via Tasmota file manager (Consoles → Manage File System)
 
 ### Changes since last release:
+- **1-Wire bus support** — native GPIO + DS2480B serial bridge modes
+  - \`owSetPin\`, \`owReset\`, \`owWrite\`, \`owRead\`, \`owSearch\` syscalls
+  - DS18B20/DS18S20/DS1822 temperature sensors
+  - DS2406/DS2413/DS2408 switch devices with WebUI buttons
+  - ROM-based device aliases (\`persist\`), \`OW NAME\` command
+  - Mode/pin selection via WebUI pulldowns with auto-reinit
+  - Complete example: \`onewire.tc\` (~8 KB bytecode)
 - \`sensorGet("SensorName#Key")\` — read Tasmota sensor JSON values from TinyC scripts
 - \`udpSend("name", value)\` — explicit UDP global variable sending
 - Dual Y-axis \`WebChart()\` — auto-detected when series have different Y ranges
