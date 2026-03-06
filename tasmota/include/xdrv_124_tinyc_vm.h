@@ -5581,7 +5581,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       } else {
         WSContentSend_P(PSTR("<div>"));
       }
-      WSContentSend_P(PSTR("<select onchange='seva(value,%d)'>"), idx);
+      WSContentSend_P(PSTR("<select onfocusin='pr(0)' onfocusout='pr(1)' onchange='seva(value,%d)'>"), idx);
 
       if (opts[0] == '@' && strcmp(opts + 1, "getfreepins") == 0) {
         // Dynamic GPIO pin list — show free (unassigned) pins
