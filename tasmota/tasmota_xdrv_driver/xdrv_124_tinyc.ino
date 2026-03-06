@@ -307,6 +307,10 @@ static void TinyCInit(void) {
     AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Memory allocation failed (%d bytes)"), needed);
     return;
   }
+  // calloc() zeroes memory but doesn't call C++ constructors for embedded objects.
+  // WiFiUDP (NetworkUDP) needs proper construction or begin() crashes (NULL deref).
+  new (&Tinyc->udp) WiFiUDP();
+  new (&Tinyc->udp_port) WiFiUDP();
   Tinyc->instr_per_tick = TC_INSTR_PER_TICK;
   // Init SPI CS pins to -1 (unused)
   for (int i = 0; i < TC_SPI_MAX_CS; i++) { Tinyc->spi.cs[i] = -1; }

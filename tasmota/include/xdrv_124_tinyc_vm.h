@@ -689,11 +689,9 @@ struct TINYC {
   bool     udp_connected;         // multicast socket active
   TcUdpVar *udp_vars;               // lazy-allocated on first UDP use
   char     udp_last_name[TC_UDP_VAR_NAME_MAX]; // name of last received var (for UdpCall)
-#if !defined(USE_SCRIPT) || !defined(USE_SCRIPT_GLOBVARS)
-  // Standalone UDP socket (when Scripter is not present)
+  // TinyC always owns its own UDP multicast socket for receiving
   WiFiUDP  udp;
   char     udp_buf[TC_UDP_BUF_SIZE];
-#endif
   // General-purpose UDP port (Scripter-compatible udp() function)
   WiFiUDP  udp_port;              // general-purpose UDP socket
   uint16_t udp_port_num;          // bound port number
@@ -1716,8 +1714,7 @@ static void tc_udp_send_str(const char *name, const char *str) {
 #endif
 }
 
-// ── Standalone UDP socket management (only when Scripter is NOT present) ──
-#if !defined(USE_SCRIPT) || !defined(USE_SCRIPT_GLOBVARS)
+// ── UDP socket management (TinyC always owns its own multicast socket) ──
 
 static void tc_udp_init(void) {
   if (!Tinyc) return;
@@ -1769,6 +1766,14 @@ static void tc_udp_poll(void) {
     return;
   }
 
+  // Debug: periodic status
+  static uint32_t dbg_pkt_cnt = 0;
+  static uint32_t dbg_last_t = 0;
+  if (millis() - dbg_last_t > 10000) {
+    dbg_last_t = millis();
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: udp poll alive, pkts=%u vars=%d"), dbg_pkt_cnt, Tinyc->udp_vars ? 1 : 0);
+  }
+
   uint32_t timeout = millis();
   while (1) {
     uint16_t plen = Tinyc->udp.parsePacket();
@@ -1783,8 +1788,10 @@ static void tc_udp_poll(void) {
 
     int32_t len = Tinyc->udp.read(Tinyc->udp_buf, TC_UDP_BUF_SIZE - 1);
     Tinyc->udp_buf[len] = 0;
+    dbg_pkt_cnt++;
 
     char *lp = Tinyc->udp_buf;
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: udp rx len=%d [%02X %02X %02X %02X]"), len, (uint8_t)lp[0], (uint8_t)lp[1], (uint8_t)lp[2], (uint8_t)lp[3]);
     if (len < 4 || lp[0] != '=' || lp[1] != '>') continue;
     lp += 2;
 
@@ -1803,6 +1810,8 @@ static void tc_udp_poll(void) {
     char *data = cp + 1;
     int datalen = len - (data - Tinyc->udp_buf);
 
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: udp var '%s' mode=%c dlen=%d"), lp, umode, datalen);
+
     // Forward to shared handler
     tc_udp_on_receive(lp, umode, data, datalen);
 
@@ -1810,38 +1819,6 @@ static void tc_udp_poll(void) {
   }
 }
 
-#else  // Scripter is present — no own socket needed
-
-static void tc_udp_init(void) {
-  // Scripter owns the UDP socket — ensure it's active
-  Script_udp_ensure();
-  if (Tinyc) Tinyc->udp_connected = true;
-}
-static void tc_udp_stop(void) {
-  if (Tinyc) {
-    tc_udp_free_arrays();
-    Tinyc->udp_used = false;
-    Tinyc->udp_connected = false;
-    // Stop general-purpose UDP port
-    if (Tinyc->udp_port_open) {
-      Tinyc->udp_port.stop();
-      Tinyc->udp_port_open = false;
-      Tinyc->udp_port_num = 0;
-    }
-    // Stop TCP server
-    if (Tinyc->tcp_server) {
-      Tinyc->tcp_client.stop();
-      Tinyc->tcp_server->stop();
-      delete Tinyc->tcp_server;
-      Tinyc->tcp_server = nullptr;
-    }
-  }
-}
-static void tc_udp_poll(void) {
-  // Scripter calls Script_PollUdp() which forwards to tc_udp_on_receive()
-}
-
-#endif  // USE_SCRIPT && USE_SCRIPT_GLOBVARS
 
 /*********************************************************************************************\
  * VM: Stack macros
@@ -5894,6 +5871,22 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       if (decimals < 0) decimals = 0;
       if (decimals > 6) decimals = 6;
 
+      // Parse "name|unit" format: name goes to legend, unit to y-axis
+      // If no '|', unit serves as both (backward compatible)
+      const char *series_name = unit;
+      const char *axis_unit = unit;
+      char name_buf[32], unit_buf[32];
+      const char *pipe = strchr(unit, '|');
+      if (pipe) {
+        int nlen = pipe - unit;
+        if (nlen > 31) nlen = 31;
+        memcpy(name_buf, unit, nlen);
+        name_buf[nlen] = '\0';
+        series_name = name_buf;
+        strlcpy(unit_buf, pipe + 1, sizeof(unit_buf));
+        axis_unit = unit_buf;
+      }
+
       bool new_chart = (title[0] != '\0');  // empty title = add series to previous chart
 
       // 1) Google Charts loader + helper JS — once per page render
@@ -5912,7 +5905,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           "<script>google.charts.load('current',{packages:['corechart','table']});</script>"
           "<script>"
           "var _tcC=[];"
-          "function _tcA(ci,lbl,clr,d,mn,mx){_tcC[ci].s.push({l:lbl,c:clr,d:d,mn:mn,mx:mx});}"
+          "function _tcA(ci,lbl,clr,d,mn,mx,u){_tcC[ci].s.push({l:lbl,c:clr,d:d,mn:mn,mx:mx,u:u||lbl});}"
           "function _tcN(ci,t,u,tp,mn,mx){"
             "var lb=null;"
             "if(tp==116){var p=t.indexOf('|');if(p>=0){lb=t.substring(p+1).split('|');t=t.substring(0,p);}}"
@@ -5953,12 +5946,12 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
                   "var s=c.s[j];"
                   "if(j>0&&(s.mn!=c.s[0].mn||s.mx!=c.s[0].mx)){"
                     "dual=true;sr[j]={targetAxisIndex:1};"
-                    "var a2={title:s.l};"
+                    "var a2={title:s.u};"
                     "if(s.mn<s.mx){a2.minValue=s.mn;a2.maxValue=s.mx;}"
                     "vx[1]=a2;"
                   "}else{sr[j]={targetAxisIndex:0};}"
                 "}"
-                "if(dual&&c.s[0].mn<c.s[0].mx){vx[0]={title:c.s[0].l,minValue:c.s[0].mn,maxValue:c.s[0].mx};}"
+                "if(dual&&c.s[0].mn<c.s[0].mx){vx[0]={title:c.s[0].u,minValue:c.s[0].mn,maxValue:c.s[0].mx};}"
                 "var dw=c.s[0].d[0]?c.s[0].d[0][0]*60000:-86400000;"
                 "var hfmt=dw<-172800000?'EEE HH:mm':'HH:mm';"
                 "var o={title:c.t,curveType:'none',"
@@ -6012,12 +6005,12 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           WSContentSend_P(PSTR(
             "<div id=\"tc%d\" style=\"%s\"></div>"
             "<script>_tcN(%d,'%s','%s',%d,%s,%s);</script>"
-          ), chart_id, div_style, chart_id, title, unit, type, ymin_s, ymax_s);
+          ), chart_id, div_style, chart_id, title, axis_unit, type, ymin_s, ymax_s);
         } else {
           WSContentSend_P(PSTR(
             "<div id=\"tc%d\" style=\"%s\"></div>"
             "<script>_tcN(%d,'%s','%s',%d,0,0);</script>"
-          ), chart_id, div_style, chart_id, title, unit, type);
+          ), chart_id, div_style, chart_id, title, axis_unit, type);
         }
       }
 
@@ -6035,7 +6028,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       dtostrf(ymax, 1, 1, ymax_a);
 
       WSContentSend_P(PSTR("<script>_tcA(%d,'%s','%s',["),
-        chart_id, unit, cbuf);
+        chart_id, series_name, cbuf);
 
       // Unwind ring buffer: oldest entry first, interpret as float
       // Use count (not arr_len) for wrap — arr_len is "remaining globals" not array size
@@ -6053,7 +6046,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         if ((i & 63) == 63) WSContentFlush();
       }
 
-      WSContentSend_P(PSTR("],%s,%s);</script>"), ymin_a, ymax_a);
+      WSContentSend_P(PSTR("],%s,%s,'%s');</script>"), ymin_a, ymax_a, axis_unit);
       WSContentFlush();
 
       if (new_chart) tc_chart_seq++;
