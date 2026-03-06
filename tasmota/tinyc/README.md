@@ -61,12 +61,13 @@ Callbacks run automatically from Tasmota's main loop:
 **Timing:** `delay`, `delayMicroseconds`, `millis`, `micros`
 **Timers:** `timerStart`, `timerDone`, `timerStop`, `timerRemaining`
 **Serial:** `serialBegin`, `serialPrint`, `serialPrintInt`, `serialPrintFloat`, `serialPrintln`, `serialRead`, `serialAvailable`
+**1-Wire:** `owSetPin`, `owReset`, `owWrite`, `owRead`, `owWriteBit`, `owReadBit`, `owSearchReset`, `owSearch`
 **Math:** `abs`, `min`, `max`, `map`, `random`, `sqrt`, `sin`, `cos`, `floor`, `ceil`, `round`
 **Strings:** `strlen`, `strcpy`, `strcat`, `strcmp`, `printString`, `printStr`, `strToken`, `strSub`, `strFind`
 **Format:** `sprintfInt`, `sprintfFloat`, `sprintfStr`, `sprintfAppendInt`, `sprintfAppendFloat`, `sprintfAppendStr`
 **I2C:** `i2cRead8`, `i2cWrite8`, `i2cRead`, `i2cWrite`, `i2cExists`, `i2cRead0`, `i2cWrite0`, `i2cSetDevice`, `i2cSetActiveFound`
 **SPI:** `spiInit`, `spiSetCS`, `spiTransfer`
-**Files:** `fileOpen`, `fileClose`, `fileRead`, `fileWrite`, `fileExists`, `fileDelete`, `fileSize`, `fileFormat`, `fileMkdir`, `fileRmdir`, `fileReadArray`, `fileWriteArray`, `fileLog`, `fileDownload`, `fileGetStr`, `fileExtract`, `fileExtractFast`
+**Files:** `fileOpen`, `fileClose`, `fileRead`, `fileWrite`, `fileExists`, `fileDelete`, `fileSize`, `fileFormat`, `fileMkdir`, `fileRmdir`, `fileReadArray`, `fileWriteArray`, `fileLog`, `fileDownload`, `fileGetStr`, `fileExtract`, `fileExtractFast`, `fsInfo`
 **Time:** `timeStamp`, `timeConvert`, `timeOffset`, `timeToSecs`, `secsToTime`
 **Tasmota:** `tasmCmd`, `sensorGet`, `responseAppend`, `webSend`, `webFlush`, `addLog`, `addCommand`, `responseCmnd`
 **HTTP:** `httpGet`, `httpPost`, `httpHeader`
@@ -104,6 +105,11 @@ Callbacks run automatically from Tasmota's main loop:
 | `TinyCStop` | Stop running program |
 | `TinyCReset` | Reset VM state |
 | `TinyCExec <code>` | Compile and run inline code |
+| `chkpt` | List current partition table |
+| `chkpt p` | Auto-resize app partition (firmware + ~200 KB overhead), expand filesystem. **Warning: filesystem is formatted — all files are lost!** |
+| `chkpt p <KB>` | Set app partition to specific size in KB, adjust filesystem |
+| `chkpt a1`..`a4` | Add custom partition (64–256 KB) for plugin drivers |
+| `chkpt r` | Remove custom partition |
 
 REST API: `http://<ip>/tc_api?cmd=run`, `cmd=stop`, `cmd=status`
 
@@ -144,6 +150,7 @@ See [`examples/`](examples/) for complete working programs:
 - **strings** — String operations
 - **fibonacci** — Recursive function demo
 - **dysv17f** — DY-SV17F MP3 player (serial TX, custom console commands)
+- **onewire** — 1-Wire bus driver: DS18B20 temperature + DS2406/DS2413/DS2408 switches, GPIO and DS2480B serial bridge modes, WebUI config, ROM-based aliases, OW console command
 
 ## VS Code Support
 

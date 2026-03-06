@@ -1041,6 +1041,21 @@ void EveryLoop() {
 | `int serialRead()`                | Byte lesen (-1 wenn keines verfuegbar)  |
 | `int serialAvailable()`           | Verfuegbare Bytes zum Lesen             |
 
+### 1-Wire
+
+| Funktion                          | Beschreibung                                               |
+|-----------------------------------|------------------------------------------------------------|
+| `owSetPin(int pin)`               | GPIO-Pin fuer nativen 1-Wire-Bus setzen                    |
+| `int owReset()`                   | Reset-Puls senden, 1 bei Praesenz-Erkennung                |
+| `owWrite(int byte)`               | Ein Byte auf den Bus schreiben                             |
+| `int owRead()`                    | Ein Byte vom Bus lesen                                     |
+| `owWriteBit(int bit)`             | Ein einzelnes Bit schreiben (0 oder 1)                     |
+| `int owReadBit()`                 | Ein einzelnes Bit lesen                                    |
+| `owSearchReset()`                 | ROM-Suchstatus zuruecksetzen                               |
+| `int owSearch(char rom[])`        | Naechstes Geraet finden, 8-Byte-ROM in `rom[]` speichern, 1 bei Erfolg |
+
+> Die nativen 1-Wire-Funktionen verwenden hardware-getimtes Bit-Banging in C — keine externe Bibliothek noetig. Ein 4,7 kΩ Pull-up-Widerstand auf der Datenleitung ist erforderlich. Fuer lange Busse oder stoeranfaellige Umgebungen kann eine DS2480B Seriell-zu-1-Wire-Bruecke verwendet werden (siehe `examples/onewire.tc`).
+
 ### Mathematik
 
 | Funktion                                            | Beschreibung                     |
@@ -1114,6 +1129,7 @@ Dateien auf dem ESP32-Dateisystem (LittleFS) lesen und schreiben. In der Browser
 | `int fileSize("path")`                     | Dateigroesse in Bytes, -1 bei Fehler                  |
 | `int fileSeek(handle, offset, whence)`     | Zur Position springen. Gibt 1=ok, 0=Fehler zurueck   |
 | `int fileTell(handle)`                     | Aktuelle Position in Datei, -1 bei Fehler             |
+| `int fsInfo(int sel)`                      | Dateisystem-Info: sel=0 → Gesamtgroesse KB, sel=1 → frei KB |
 
 **Dateimodi:** `0` = Lesen, `1` = Schreiben (Erstellen/Abschneiden), `2` = Anfuegen
 
@@ -1355,6 +1371,64 @@ float zt = sensorGet("ZbReceived#0x2342#Temperature");
 - Gibt 0.0 zurueck, wenn der Sensor oder Schluessel nicht gefunden wird
 - Gibt einen Float zurueck — weisen Sie ihn einer `float`-Variable zu
 - In der Browser-IDE werden Temperature=22.5, Humidity=55.0, Pressure=1013.25 simuliert
+
+### Lokalisierte Zeichenketten
+
+Lokalisierte Anzeigetexte von Tasmota zur Laufzeit abrufen. Die Texte entsprechen der Spracheinstellung der Firmware (z.B. `en_GB.h`, `de_DE.h`). Fuer Web-UI-Beschriftungen verwenden; JSON-Schluessel bleiben auf Englisch.
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `int LGetString(int index, char dst[])` | Lokalisierten Text nach `dst` kopieren, gibt Laenge zurueck (0 bei ungueltigem Index) |
+
+**Index-Tabelle:**
+
+| Index | Tasmota-Define | Englisch | Deutsch |
+|-------|---------------|----------|---------|
+| 0 | D_TEMPERATURE | Temperature | Temperatur |
+| 1 | D_HUMIDITY | Humidity | Feuchtigkeit |
+| 2 | D_PRESSURE | Pressure | Luftdruck |
+| 3 | D_DEWPOINT | Dew point | Taupunkt |
+| 4 | D_CO2 | Carbon dioxide | Kohlendioxid |
+| 5 | D_ECO2 | eCO2 | eCO2 |
+| 6 | D_TVOC | TVOC | TVOC |
+| 7 | D_VOLTAGE | Voltage | Spannung |
+| 8 | D_CURRENT | Current | Strom |
+| 9 | D_POWERUSAGE | Power | Leistung |
+| 10 | D_POWER_FACTOR | Power Factor | Leistungsfaktor |
+| 11 | D_ENERGY_TODAY | Energy Today | Energie Heute |
+| 12 | D_ENERGY_YESTERDAY | Energy Yesterday | Energie Gestern |
+| 13 | D_ENERGY_TOTAL | Energy Total | Energie Gesamt |
+| 14 | D_FREQUENCY | Frequency | Frequenz |
+| 15 | D_ILLUMINANCE | Illuminance | Beleuchtungsstaerke |
+| 16 | D_DISTANCE | Distance | Entfernung |
+| 17 | D_MOISTURE | Moisture | Feuchtigkeit |
+| 18 | D_LIGHT | Light | Licht |
+| 19 | D_SPEED | Speed | Geschwindigkeit |
+| 20 | D_ABSOLUTE_HUMIDITY | Abs Humidity | Abs Feuchtigkeit |
+
+**Beispiel:**
+```c
+char lbl[32];
+char buf[80];
+
+void web_row(int idx, float val, char unit[]) {
+    LGetString(idx, lbl);
+    strcpy(buf, "{s}");
+    strcat(buf, lbl);
+    strcat(buf, "{m}");
+    webSend(buf);
+    sprintfFloat(buf, "%.1f ", val);
+    strcat(buf, unit);
+    strcat(buf, "{e}");
+    webSend(buf);
+}
+
+void WebCall() {
+    web_row(0, temperature, "&deg;C");  // "Temperatur" (bei de_DE)
+    web_row(1, humidity, "%");           // "Feuchtigkeit"
+    web_row(2, pressure, "hPa");         // "Luftdruck"
+}
+```
 
 ### Tasmota-Ausgabe (Callbacks)
 

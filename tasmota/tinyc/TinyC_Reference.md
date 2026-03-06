@@ -1042,6 +1042,21 @@ void EveryLoop() {
 | `int serialRead()`                | Read byte (-1 if none available)   |
 | `int serialAvailable()`           | Bytes available to read            |
 
+### 1-Wire
+
+| Function                          | Description                                                |
+|-----------------------------------|------------------------------------------------------------|
+| `owSetPin(int pin)`               | Set GPIO pin for native 1-Wire bus                         |
+| `int owReset()`                   | Send reset pulse, return 1 if presence detected            |
+| `owWrite(int byte)`               | Write one byte to the bus                                  |
+| `int owRead()`                    | Read one byte from the bus                                 |
+| `owWriteBit(int bit)`             | Write a single bit (0 or 1)                                |
+| `int owReadBit()`                 | Read a single bit                                          |
+| `owSearchReset()`                 | Reset the ROM search state                                 |
+| `int owSearch(char rom[])`        | Find next device, store 8-byte ROM in `rom[]`, return 1 if found |
+
+> The native 1-Wire functions use hardware-timed bit-banging in C — no external library needed. Requires a 4.7 kΩ pull-up resistor on the data line. For long buses or noisy environments, use a DS2480B serial-to-1-Wire bridge (see `examples/onewire.tc`).
+
 ### Math
 
 | Function                                            | Description                     |
@@ -1115,6 +1130,7 @@ Read and write files on the ESP32 filesystem (LittleFS). In the browser IDE, fil
 | `int fileSize("path")`                     | Get file size in bytes, -1 on error              |
 | `int fileSeek(handle, offset, whence)`     | Seek to position. Returns 1=ok, 0=fail           |
 | `int fileTell(handle)`                     | Get current position in file, -1 on error        |
+| `int fsInfo(int sel)`                      | Filesystem info: sel=0 → total KB, sel=1 → free KB |
 
 **File modes:** `0` = read, `1` = write (create/truncate), `2` = append
 
@@ -1356,6 +1372,64 @@ float zt = sensorGet("ZbReceived#0x2342#Temperature");
 - Returns 0.0 if the sensor or key is not found
 - Returns a float — assign to a `float` variable
 - In the browser IDE, simulates Temperature=22.5, Humidity=55.0, Pressure=1013.25
+
+### Localized Strings
+
+Retrieve Tasmota's localized display strings at runtime. The strings match the firmware's compile-time language setting (e.g. `en_GB.h`, `de_DE.h`). Use these for web UI labels; JSON keys stay in English.
+
+| Function | Description |
+|----------|-------------|
+| `int LGetString(int index, char dst[])` | Copy localized string to `dst`, returns length (0 if invalid index) |
+
+**String Index Table:**
+
+| Index | Tasmota Define | English |
+|-------|---------------|---------|
+| 0 | D_TEMPERATURE | Temperature |
+| 1 | D_HUMIDITY | Humidity |
+| 2 | D_PRESSURE | Pressure |
+| 3 | D_DEWPOINT | Dew point |
+| 4 | D_CO2 | Carbon dioxide |
+| 5 | D_ECO2 | eCO2 |
+| 6 | D_TVOC | TVOC |
+| 7 | D_VOLTAGE | Voltage |
+| 8 | D_CURRENT | Current |
+| 9 | D_POWERUSAGE | Power |
+| 10 | D_POWER_FACTOR | Power Factor |
+| 11 | D_ENERGY_TODAY | Energy Today |
+| 12 | D_ENERGY_YESTERDAY | Energy Yesterday |
+| 13 | D_ENERGY_TOTAL | Energy Total |
+| 14 | D_FREQUENCY | Frequency |
+| 15 | D_ILLUMINANCE | Illuminance |
+| 16 | D_DISTANCE | Distance |
+| 17 | D_MOISTURE | Moisture |
+| 18 | D_LIGHT | Light |
+| 19 | D_SPEED | Speed |
+| 20 | D_ABSOLUTE_HUMIDITY | Abs Humidity |
+
+**Example:**
+```c
+char lbl[32];
+char buf[80];
+
+void web_row(int idx, float val, char unit[]) {
+    LGetString(idx, lbl);
+    strcpy(buf, "{s}");
+    strcat(buf, lbl);
+    strcat(buf, "{m}");
+    webSend(buf);
+    sprintfFloat(buf, "%.1f ", val);
+    strcat(buf, unit);
+    strcat(buf, "{e}");
+    webSend(buf);
+}
+
+void WebCall() {
+    web_row(0, temperature, "&deg;C");  // "Temperature" or localized
+    web_row(1, humidity, "%");           // "Humidity" or localized
+    web_row(2, pressure, "hPa");         // "Pressure" or localized
+}
+```
 
 ### Tasmota Output (Callbacks)
 
