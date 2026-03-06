@@ -3532,14 +3532,17 @@ bool scan_ptable(uint8_t *mp, uint32_t num) {
 }
 
 // show or add(aX) or remove(r) custom partition (X 1..4, optional size extender time 64k)
+// pack(p) shrinks app0 to 1856k and expands spiffs, preserving custom partition
 // we steel the size from the spiffs partition
 void Check_partition(void) {
   const esp_partition_t *pptr;
-  
+
   uint32_t custom_size = 0x10000; // 64k default size
+  uint32_t new_app_size = 0;
   uint8_t add = 0;
   uint8_t remove = 0;
-  if (XdrvMailbox.data_len) { 
+  uint8_t pack = 0;
+  if (XdrvMailbox.data_len) {
     char *cp = XdrvMailbox.data;
     while (*cp == ' ') cp++;
     if (*cp == 'a') {
@@ -3555,6 +3558,19 @@ void Check_partition(void) {
       custom_size *= fac;
     } else if (*cp == 'r') {
       remove = 1;
+    } else if (*cp == 'p') {
+      pack = 1;
+      cp++;
+      while (*cp == ' ') cp++;
+      if (*cp) {
+        // optional: app size in KB, e.g. "chkpt p 2880"
+        uint32_t req_kb = strtol(cp, &cp, 10);
+        if (req_kb >= 1024 && req_kb <= 3904) {
+          new_app_size = req_kb * 1024;
+          // align to 64k
+          new_app_size = (new_app_size + 0xFFFF) & ~0xFFFF;
+        }
+      }
     }
   }
 
@@ -3569,6 +3585,26 @@ void Check_partition(void) {
     } else {
       if (remove) {
         AddLog(LOG_LEVEL_INFO,PSTR("custom plugin partition already removed!"));
+        ResponseCmndDone();
+        return;
+      }
+    }
+    LittleFS.format();
+  }
+
+  if (pack) {
+    uint32_t sketch_size = ESP.getSketchSize();
+    if (!new_app_size) {
+      // auto-calculate: firmware + ~200k overhead, aligned to 64k
+      new_app_size = ((sketch_size + 0xFFFF) & ~0xFFFF) + 0x30000;
+      new_app_size = (new_app_size + 0xFFFF) & ~0xFFFF;
+      AddLog(LOG_LEVEL_INFO, PSTR("pack: firmware %d KB, auto app %d KB (overhead %d KB)"),
+        sketch_size / 1024, new_app_size / 1024, (new_app_size - sketch_size) / 1024);
+    } else {
+      AddLog(LOG_LEVEL_INFO, PSTR("pack: firmware %d KB, requested app %d KB"),
+        sketch_size / 1024, new_app_size / 1024);
+      if (new_app_size < sketch_size) {
+        AddLog(LOG_LEVEL_INFO, PSTR("pack: requested size too small for current firmware!"));
         ResponseCmndDone();
         return;
       }
@@ -3626,7 +3662,51 @@ typedef struct {
             break;
           }
         }
-        if (custom == true) {
+        if (pack) {
+          // pack: resize app0 and spiffs, preserve custom
+          int8_t hasapp0 = -1;
+          int8_t hascustom = -1;
+          int8_t hassafeboot = -1;
+          esp_partition_info_t *peptr = (esp_partition_info_t*)mp;
+          for (uint32_t cnt = 0; cnt < num_partitions; cnt++) {
+            if (!strcmp((char*)peptr[cnt].label, "app0")) hasapp0 = cnt;
+            if (!strcmp((char*)peptr[cnt].label, "custom")) hascustom = cnt;
+            if (!strcmp((char*)peptr[cnt].label, "safeboot")) hassafeboot = cnt;
+          }
+          if (hassafeboot < 0) {
+            AddLog(LOG_LEVEL_INFO, PSTR("pack: no safeboot partition — resize refused (no recovery possible)"));
+            pack = 0;
+          } else if (hasapp0 < 0 || hasspiffs < 0) {
+            AddLog(LOG_LEVEL_INFO, PSTR("pack: app0 or spiffs not found"));
+          } else if (peptr[hasapp0].pos.size == new_app_size) {
+            AddLog(LOG_LEVEL_INFO, PSTR("pack: app0 already %d KB, nothing to do"), new_app_size / 1024);
+            pack = 0; // prevent write-back
+          } else {
+            // calculate new spiffs offset and size
+            uint32_t new_spiffs_offset = peptr[hasapp0].pos.offset + new_app_size;
+            uint32_t spiffs_end;
+            if (hascustom >= 0) {
+              spiffs_end = peptr[hascustom].pos.offset;
+              AddLog(LOG_LEVEL_INFO, PSTR("pack: preserving custom at 0x%06x"), spiffs_end);
+            } else {
+              spiffs_end = ESP.getFlashChipSize();
+            }
+            if (new_spiffs_offset >= spiffs_end) {
+              AddLog(LOG_LEVEL_INFO, PSTR("pack: no room for spiffs, aborting"));
+              pack = 0;
+            } else {
+              uint32_t new_spiffs_size = spiffs_end - new_spiffs_offset;
+              AddLog(LOG_LEVEL_INFO, PSTR("pack: app0 %d KB -> %d KB"), peptr[hasapp0].pos.size / 1024, new_app_size / 1024);
+              AddLog(LOG_LEVEL_INFO, PSTR("pack: spiffs %d KB @ 0x%06x -> %d KB @ 0x%06x"),
+                peptr[hasspiffs].pos.size / 1024, peptr[hasspiffs].pos.offset,
+                new_spiffs_size / 1024, new_spiffs_offset);
+              // apply changes
+              peptr[hasapp0].pos.size = new_app_size;
+              peptr[hasspiffs].pos.offset = new_spiffs_offset;
+              peptr[hasspiffs].pos.size = new_spiffs_size;
+            }
+          }
+        } else if (custom == true) {
           if (remove && hasspiffs > 0) {
             AddLog(LOG_LEVEL_INFO,PSTR("may remove custom!"));
             // assuming custom directly after spiffs
@@ -3661,7 +3741,7 @@ typedef struct {
                   peptr->type = PART_TYPE_APP;
                   peptr->subtype = PART_SUBTYPE_TEST;
                   strcpy((char*)peptr->label,"custom");
-                  num_partitions++;             
+                  num_partitions++;
                   break;
                 }
               }
@@ -3690,11 +3770,11 @@ typedef struct {
   wf.close();
 #endif
 
-  if (add || remove) {
+  if (add || remove || pack) {
     scan_ptable(mp, num_partitions);
   }
 
-  if (add || remove) {
+  if (add || remove || pack) {
     // ESP_PARTITION_MAGIC_MD5
     // esp_partition_is_flash_region_writable
     ret = esp_flash_erase_region(NULL, PART_OFFSET, SPI_FLASH_SEC_SIZE);
