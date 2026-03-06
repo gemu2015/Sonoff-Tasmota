@@ -1427,25 +1427,13 @@ static void tc_send_web(const char *buf, int len) {
 #endif // ESP32 && TESLA_POWERWALL
 
 /*********************************************************************************************\
- * UDP multicast helpers (Scripter-compatible, 239.255.255.250:1999)
+ * UDP multicast (Scripter-compatible protocol, 239.255.255.250:1999)
  * Send: binary mode  =>name:[4 bytes float]
  * Recv: both modes   =>name=ascii  or  =>name:[4 bytes float]
  *
- * Two modes of operation:
- *   1. Scripter present (USE_SCRIPT + USE_SCRIPT_GLOBVARS):
- *      - Scripter owns the UDP socket and polls it
- *      - Scripter forwards received packets to tc_udp_on_receive()
- *      - TinyC sends via script_udp_sendvar() (Scripter's send function)
- *   2. Standalone (no Scripter):
- *      - TinyC manages its own UDP socket
- *      - tc_udp_poll() called from FUNC_LOOP
+ * TinyC always owns its own UDP socket (independent of Scripter).
+ * tc_udp_poll() called from FUNC_LOOP, retries init until WiFi is ready.
 \*********************************************************************************************/
-
-#if defined(USE_SCRIPT) && defined(USE_SCRIPT_GLOBVARS)
-  // Forward declarations: Scripter's UDP functions
-  extern void script_udp_sendvar(char *vname, float *fp, char *sp, uint16_t alen);
-  extern void Script_udp_ensure(void);  // ensure Scripter's UDP socket is active
-#endif
 
 // Lazy-allocate the UDP variable table
 static bool tc_udp_ensure_vars(void) {
@@ -1643,13 +1631,6 @@ static void tc_udp_free_arrays(void) {
 
 // Send a float variable via binary multicast
 static void tc_udp_send(const char *name, float value) {
-#if defined(USE_SCRIPT) && defined(USE_SCRIPT_GLOBVARS)
-  // Use Scripter's UDP socket — ensure it's active, then send binary
-  Script_udp_ensure();
-  float fv = value;
-  script_udp_sendvar((char*)name, &fv, NULL, 0);
-#else
-  // Standalone: own UDP socket
   if (!Tinyc || !Tinyc->udp_connected) return;
 
   char hdr[TC_UDP_VAR_NAME_MAX + 4];   // "=>" + name + ":"
@@ -1661,17 +1642,10 @@ static void tc_udp_send(const char *name, float value) {
   Tinyc->udp.write((const uint8_t*)hdr, strlen(hdr));
   Tinyc->udp.write((const uint8_t*)&value, sizeof(float));
   Tinyc->udp.endPacket();
-#endif
 }
 
 // Send a float array via binary multicast: =>name:[2-byte LE count][N × 4-byte float]
 static void tc_udp_send_array(const char *name, float *values, uint16_t count) {
-#if defined(USE_SCRIPT) && defined(USE_SCRIPT_GLOBVARS)
-  // Use Scripter's UDP socket — ensure it's active, then send binary array
-  Script_udp_ensure();
-  script_udp_sendvar((char*)name, values, NULL, count);
-#else
-  // Standalone: own UDP socket
   if (!Tinyc || !Tinyc->udp_connected) return;
 
   char hdr[TC_UDP_VAR_NAME_MAX + 4];
@@ -1691,15 +1665,10 @@ static void tc_udp_send_array(const char *name, float *values, uint16_t count) {
     Tinyc->udp.write((const uint8_t*)&values[i], sizeof(float));
   }
   Tinyc->udp.endPacket();
-#endif
 }
 
 // Send a string variable via ASCII multicast: =>name=string
 static void tc_udp_send_str(const char *name, const char *str) {
-#if defined(USE_SCRIPT) && defined(USE_SCRIPT_GLOBVARS)
-  Script_udp_ensure();
-  script_udp_sendvar((char*)name, NULL, (char*)str, 0);
-#else
   if (!Tinyc || !Tinyc->udp_connected) return;
 
   char hdr[TC_UDP_VAR_NAME_MAX + 4];   // "=>" + name + "="
@@ -1711,7 +1680,6 @@ static void tc_udp_send_str(const char *name, const char *str) {
   Tinyc->udp.write((const uint8_t*)hdr, strlen(hdr));
   Tinyc->udp.write((const uint8_t*)str, strlen(str));
   Tinyc->udp.endPacket();
-#endif
 }
 
 // ── UDP socket management (TinyC always owns its own multicast socket) ──
@@ -1766,14 +1734,6 @@ static void tc_udp_poll(void) {
     return;
   }
 
-  // Debug: periodic status
-  static uint32_t dbg_pkt_cnt = 0;
-  static uint32_t dbg_last_t = 0;
-  if (millis() - dbg_last_t > 10000) {
-    dbg_last_t = millis();
-    AddLog(LOG_LEVEL_INFO, PSTR("TCC: udp poll alive, pkts=%u vars=%d"), dbg_pkt_cnt, Tinyc->udp_vars ? 1 : 0);
-  }
-
   uint32_t timeout = millis();
   while (1) {
     uint16_t plen = Tinyc->udp.parsePacket();
@@ -1788,10 +1748,8 @@ static void tc_udp_poll(void) {
 
     int32_t len = Tinyc->udp.read(Tinyc->udp_buf, TC_UDP_BUF_SIZE - 1);
     Tinyc->udp_buf[len] = 0;
-    dbg_pkt_cnt++;
 
     char *lp = Tinyc->udp_buf;
-    AddLog(LOG_LEVEL_INFO, PSTR("TCC: udp rx len=%d [%02X %02X %02X %02X]"), len, (uint8_t)lp[0], (uint8_t)lp[1], (uint8_t)lp[2], (uint8_t)lp[3]);
     if (len < 4 || lp[0] != '=' || lp[1] != '>') continue;
     lp += 2;
 
@@ -1809,8 +1767,6 @@ static void tc_udp_poll(void) {
     *cp = 0;
     char *data = cp + 1;
     int datalen = len - (data - Tinyc->udp_buf);
-
-    AddLog(LOG_LEVEL_INFO, PSTR("TCC: udp var '%s' mode=%c dlen=%d"), lp, umode, datalen);
 
     // Forward to shared handler
     tc_udp_on_receive(lp, umode, data, datalen);
@@ -8663,7 +8619,19 @@ static void TinyCStopVM(TcSlot *s) {
   s->vm.running = false;
   tc_free_all_frames(&s->vm);
   tc_heap_free_all(&s->vm);
-  tc_udp_stop();
+  // Only stop UDP if no other slot still needs it
+  {
+    bool udp_still_needed = false;
+    for (int i = 0; i < TC_MAX_VMS; i++) {
+      if (Tinyc->slots[i] && Tinyc->slots[i] != s && Tinyc->slots[i]->loaded && Tinyc->slots[i]->vm.udp_global_count > 0) {
+        udp_still_needed = true;
+        break;
+      }
+    }
+    if (!udp_still_needed) {
+      tc_udp_stop();
+    }
+  }
   tc_spi_cleanup();
   tc_serial_close();
   // Free OneWire bus
