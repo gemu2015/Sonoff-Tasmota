@@ -1844,7 +1844,6 @@ Compatible with Tasmota Scripter's global variable protocol.
 
 | Function | Description |
 |----------|-------------|
-| `void udpSend("name", float_val)` | Broadcast a float variable via binary multicast |
 | `float udpRecv("name")` | Get last received value for named variable (0 if none) |
 | `int udpReady("name")` | Returns 1 if new value received since last check |
 | `void udpSendArray("name", float_arr, count)` | Broadcast a float array via binary multicast |
@@ -1859,15 +1858,16 @@ Compatible with Tasmota Scripter's global variable protocol.
 - Max 64 floats per array
 
 **Callback:** Define `void UdpCall()` to be notified on each received variable.
-UDP socket is auto-initialized on first `udpSend()`, `udpRecv()`, or `udpReady()` call.
+UDP socket is auto-initialized on first global variable write, `udpRecv()`, or `udpReady()` call.
+Scalar `global` float variables automatically broadcast via UDP when assigned (no explicit send needed).
 
-**Example (scalar):**
+**Example (scalar — auto-broadcast):**
 ```c
-float temperature = 0.0;
+global float temperature = 0.0;  // declared as 'global' → auto-broadcasts on write
 
 void EverySecond() {
     temperature = 20.0 + sin(counter) * 5.0;
-    udpSend("temperature", temperature);
+    // No udpSend() needed — assigning a 'global' variable auto-broadcasts it
 }
 
 void UdpCall() {
@@ -2417,7 +2417,7 @@ Access Tesla Powerwall local API via HTTPS. Uses the email library's SSL impleme
 |----------|-------------|
 | `int pwlRequest(url)` | Config command or API request. Returns 0=ok, -1=fail |
 | `pwlBind(&var, path)` | Register a global float variable for auto-fill. Path uses `#` separator (max 24 bindings) |
-| `float pwlGet(path)` | Extract float from last response (ad-hoc, re-parses JSON) |
+| `float pwlGet(path)` | Extract float from last response. Supports `[N]` suffix for nth occurrence |
 | `int pwlStr(path, buf)` | Extract string from last response into `char[]` buffer. Returns length |
 
 **Recommended approach — `pwlBind` (parse once, fill all):**
@@ -2468,6 +2468,15 @@ void Loop() {
 | `/api/system_status` | System status info |
 | `/api/operation` | Operation mode, reserve percentage |
 | `/api/meters/readings` | Detailed meter readings per CTS |
+
+**Nth-occurrence extraction:** `pwlGet("key[N]")` extracts the Nth occurrence of a repeated key from the JSON response. Useful for `/api/meters/readings` which has multiple CTS objects with the same key names:
+
+```c
+// Per-phase grid readings — CTS2 grid phases are occurrences 6,7,8 of "p_W"
+phs1 = pwlGet("p_W[6]");
+phs2 = pwlGet("p_W[7]");
+phs3 = pwlGet("p_W[8]");
+```
 
 **Ad-hoc access:** `pwlGet()` and `pwlStr()` are available for one-off value extraction from the last response, but `pwlBind()` is preferred for repeated polling since it avoids re-parsing.
 
@@ -2552,8 +2561,7 @@ Apple HomeKit integration — expose devices directly from TinyC as HomeKit acce
 
 ```c
 void EverySecond() {
-    if (hkReady(mh_pwr)) { udpSend("mh_pwr", mh_pwr); }
-    if (hkReady(mh_hue)) { udpSend("mh_hue", mh_hue); }
+    // global variables auto-broadcast on assignment — no explicit udpSend needed
 }
 ```
 
@@ -2615,12 +2623,7 @@ void EverySecond() {
     if (udpReady("btemp")) { btemp = udpRecv("btemp"); }
     if (udpReady("bhumi")) { bhumi = udpRecv("bhumi"); }
 
-    // Forward HomeKit-changed values via UDP (automatic dirty tracking)
-    if (hkReady(mh_pwr)) { udpSend("mh_pwr", mh_pwr); }
-    if (hkReady(mh_hue)) { udpSend("mh_hue", mh_hue); }
-    if (hkReady(mh_sat)) { udpSend("mh_sat", mh_sat); }
-    if (hkReady(mh_bri)) { udpSend("mh_bri", mh_bri); }
-    if (hkReady(elamp))  { udpSend("elamp",  elamp); }
+    // global variables auto-broadcast on assignment — no explicit udpSend needed
 }
 
 int main() {

@@ -1843,7 +1843,6 @@ Kompatibel mit Tasmota Scripter's globalem Variablenprotokoll.
 
 | Funktion | Beschreibung |
 |----------|-------------|
-| `void udpSend("name", float_val)` | Float-Variable per binaeren Multicast senden |
 | `float udpRecv("name")` | Letzten empfangenen Wert fuer benannte Variable abrufen (0 wenn keiner) |
 | `int udpReady("name")` | Gibt 1 zurueck wenn neuer Wert seit letzter Pruefung empfangen |
 | `void udpSendArray("name", float_arr, count)` | Float-Array per binaeren Multicast senden |
@@ -1858,15 +1857,16 @@ Kompatibel mit Tasmota Scripter's globalem Variablenprotokoll.
 - Maximal 64 Floats pro Array
 
 **Callback:** Definieren Sie `void UdpCall()`, um bei jeder empfangenen Variable benachrichtigt zu werden.
-Der UDP-Socket wird beim ersten `udpSend()`-, `udpRecv()`- oder `udpReady()`-Aufruf automatisch initialisiert.
+Der UDP-Socket wird beim ersten Schreibzugriff auf eine globale Variable, `udpRecv()`- oder `udpReady()`-Aufruf automatisch initialisiert.
+Skalare `global` Float-Variablen werden bei Zuweisung automatisch per UDP gesendet (kein expliziter Aufruf noetig).
 
-**Beispiel (Skalar):**
+**Beispiel (Skalar — automatischer Broadcast):**
 ```c
-float temperature = 0.0;
+global float temperature = 0.0;  // als 'global' deklariert → sendet automatisch bei Zuweisung
 
 void EverySecond() {
     temperature = 20.0 + sin(counter) * 5.0;
-    udpSend("temperature", temperature);
+    // Kein udpSend() noetig — Zuweisung an 'global' Variable sendet automatisch
 }
 
 void UdpCall() {
@@ -2392,7 +2392,7 @@ Zugriff auf die lokale Tesla Powerwall API ueber HTTPS. Verwendet die SSL-Implem
 |----------|-------------|
 | `int pwlRequest(url)` | Konfigurationsbefehl oder API-Anfrage. Gibt 0=ok, -1=Fehler zurueck |
 | `pwlBind(&var, pfad)` | Globale Float-Variable fuer Auto-Fill registrieren. Pfad mit `#`-Trenner (max 24 Bindings) |
-| `float pwlGet(pfad)` | Float-Wert aus letzter Antwort extrahieren (ad-hoc, parst JSON erneut) |
+| `float pwlGet(pfad)` | Float-Wert aus letzter Antwort. Unterstuetzt `[N]`-Suffix fuer N-tes Vorkommen |
 | `int pwlStr(pfad, buf)` | String aus letzter Antwort in `char[]`-Puffer extrahieren. Gibt Laenge zurueck |
 
 **Empfohlener Ansatz — `pwlBind` (einmal parsen, alle fuellen):**
@@ -2443,6 +2443,15 @@ void Loop() {
 | `/api/system_status` | Systemstatus-Informationen |
 | `/api/operation` | Betriebsmodus, Reserveprozent |
 | `/api/meters/readings` | Detaillierte Zaehlerablesung pro CTS |
+
+**N-tes Vorkommen:** `pwlGet("key[N]")` extrahiert das N-te Vorkommen eines wiederholten Schluessels aus der JSON-Antwort. Nuetzlich fuer `/api/meters/readings` mit mehreren CTS-Objekten mit gleichen Schluesselnamen:
+
+```c
+// Netzphasen — CTS2 Grid-Phasen sind Vorkommen 6,7,8 von "p_W"
+phs1 = pwlGet("p_W[6]");
+phs2 = pwlGet("p_W[7]");
+phs3 = pwlGet("p_W[8]");
+```
 
 **Ad-hoc-Zugriff:** `pwlGet()` und `pwlStr()` stehen fuer einmalige Wertextraktion zur Verfuegung, aber `pwlBind()` wird fuer wiederholtes Polling bevorzugt, da es erneutes Parsen vermeidet.
 
@@ -2523,12 +2532,11 @@ Apple HomeKit-Integration — Geraete direkt aus TinyC als HomeKit-Zubehoer bere
 
 #### hkReady() — Aenderungsabfrage
 
-`hkReady(var)` funktioniert wie `udpReady()` — gibt 1 zurueck wenn Apple Home diese Variable seit dem letzten Aufruf geaendert hat, und loescht das Flag automatisch. Die Firmware schreibt den Wert direkt in die globale Variable, daher ist keine manuelle Zuweisung noetig. `hkReady()` nutzen um geaenderte Werte per UDP weiterzuleiten:
+`hkReady(var)` funktioniert wie `udpReady()` — gibt 1 zurueck wenn Apple Home diese Variable seit dem letzten Aufruf geaendert hat, und loescht das Flag automatisch. Die Firmware schreibt den Wert direkt in die globale Variable, daher ist keine manuelle Zuweisung noetig. Da `global` Variablen automatisch per UDP senden, ist kein expliziter Aufruf mehr noetig:
 
 ```c
 void EverySecond() {
-    if (hkReady(mh_pwr)) { udpSend("mh_pwr", mh_pwr); }
-    if (hkReady(mh_hue)) { udpSend("mh_hue", mh_hue); }
+    // global Variablen senden automatisch bei Zuweisung — kein expliziter udpSend noetig
 }
 ```
 
@@ -2590,12 +2598,7 @@ void EverySecond() {
     if (udpReady("btemp")) { btemp = udpRecv("btemp"); }
     if (udpReady("bhumi")) { bhumi = udpRecv("bhumi"); }
 
-    // HomeKit-geaenderte Werte per UDP weiterleiten (automatisches Dirty-Tracking)
-    if (hkReady(mh_pwr)) { udpSend("mh_pwr", mh_pwr); }
-    if (hkReady(mh_hue)) { udpSend("mh_hue", mh_hue); }
-    if (hkReady(mh_sat)) { udpSend("mh_sat", mh_sat); }
-    if (hkReady(mh_bri)) { udpSend("mh_bri", mh_bri); }
-    if (hkReady(elamp))  { udpSend("elamp",  elamp); }
+    // global Variablen senden automatisch bei Zuweisung — kein expliziter udpSend noetig
 }
 
 int main() {

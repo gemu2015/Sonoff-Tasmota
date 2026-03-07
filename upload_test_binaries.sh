@@ -100,6 +100,11 @@ $(for f in "${FILES[@]}"; do echo "- \`$(basename "$f")\`"; done)
 - Upload \`tinyc_ide.html.gz\` via Tasmota file manager (Consoles → Manage File System)
 
 ### Changes since last release:
+- **Tesla Powerwall API** — \`pwlRequest\`/\`pwlGet\` with nth-occurrence support
+  - \`pwlGet("key[N]")\` extracts Nth occurrence of a repeated JSON key
+  - Per-phase grid readings from \`/api/meters/readings\`
+  - Increased PWL buffer to 8192 bytes for large API responses
+  - Complete example: \`powerwall.tc\` — battery %, power flow, 3-phase grid, capacity
 - **1-Wire bus support** — native GPIO + DS2480B serial bridge modes
   - \`owSetPin\`, \`owReset\`, \`owWrite\`, \`owRead\`, \`owSearch\` syscalls
   - DS18B20/DS18S20/DS1822 temperature sensors
