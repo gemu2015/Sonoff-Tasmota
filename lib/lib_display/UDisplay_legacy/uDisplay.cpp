@@ -33,7 +33,6 @@
 
 #warning USING LEGACY UDISPLAY
 
-
 extern int Cache_WriteBack_Addr(uint32_t addr, uint32_t size);
 
 
