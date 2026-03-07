@@ -52,7 +52,7 @@ static void (*const TinyCWebOnHandlers[])(void) = {
 #include <uri/UriGlob.h>
 
 // VM engine is in a separate .h to avoid Arduino IDE auto-prototype issues
-#include "xdrv_124_tinyc_vm.h"
+#include "include/xdrv_124_tinyc_vm.h"
 
 /*********************************************************************************************\
  * Email body callback — called from script_send_email_body() when TinyC initiated the send
