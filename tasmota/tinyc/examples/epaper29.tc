@@ -8,18 +8,18 @@ persist float atvc[97];
 persist float tmpa[97];
 persist float axhum[97];
 
-// Current sensor readings — sent via UDP (not global, send-only)
-float wtemp = 0.0;
-float whumi = 0.0;
-float wtvoc = 0.0;
-float wco2 = 0.0;
+// Sensor readings — shared via UDP (auto-send on assignment)
+global float wtemp = 0.0;
+global float whumi = 0.0;
+global float wtvoc = 0.0;
+global float wco2 = 0.0;
 
 // Local sensor readings (not shared)
 float eco2 = 0;
 float ahum = 0.0;
 
 // Received via UDP from other devices
-float bpress = 0.0;
+global float bpress = 0.0;
 global float sedc = 0.0;
 global float wrga = 0.0;
 global float wrgh = 0.0;
@@ -141,13 +141,7 @@ void EverySecond() {
         dspText("[id]");
     }
 
-    // Send sensor readings via UDP
-    udpSend("wtemp", wtemp);
-    udpSend("whumi", whumi);
-    udpSend("wtvoc", wtvoc);
-    udpSend("wco2", wco2);
-    udpSend("bpress", bpress);
-
+    // Sensor readings auto-send via UDP on assignment (global float)
 }
 
 void web_label(int idx) {

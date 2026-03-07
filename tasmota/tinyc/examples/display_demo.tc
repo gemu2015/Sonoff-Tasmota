@@ -5,8 +5,8 @@
 char buf[64];
 int w;
 int h;
-float temp;
-float hum;
+global float btemp;  // auto-updated from UDP
+global float bhumi;  // auto-updated from UDP
 
 void drawStatic() {
     w = dspWidth();
@@ -111,8 +111,8 @@ void EverySecond() {
         dspDraw("No WiFi");
     }
 
-    // ── Temperature value (from UDP "atmp") ──
-    temp = udpRecv("btemp");
+    // ── Temperature value (auto-updated from UDP) ──
+    float temp = btemp;
     dspFont(2);
     dspSize(1);
     dspPad(10);
@@ -129,8 +129,8 @@ void EverySecond() {
         //dspDraw(" C");
     }
 
-    // ── Humidity value (from UDP "ahum") ──
-    hum = udpRecv("bhumi");
+    // ── Humidity value (auto-updated from UDP) ──
+    float hum = bhumi;
     dspFont(2);
     dspSize(1);
     dspPad(10);

@@ -209,7 +209,7 @@ void send_alarm() {
         mailBody(body);
         mailAttachPic(1);
         char params[128];
-        strcpy(params, "[*:*:*:*:*:misterx0@googlemail.com:Alarm]");
+        strcpy(params, "[*:*:*:*:*:gmutz2010@googlemail.com:Alarm]");
         mailSend(params);
         mailout = 1;
     }

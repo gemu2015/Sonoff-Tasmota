@@ -7,6 +7,7 @@
 int scd_addr = 0;
 int scd_bus = 0;
 int scd_ok = 0;
+int scd_retry = 0;
 float scd_co2 = 0.0;
 float scd_temp = 0.0;
 float scd_humi = 0.0;
@@ -106,7 +107,21 @@ int scd_scan() {
 }
 
 void EverySecond() {
-    if (!scd_addr) return;
+    if (!scd_addr) {
+        // Retry scan every 5 seconds if sensor wasn't found at boot
+        scd_retry++;
+        if (scd_retry >= 5) {
+            scd_retry = 0;
+            if (scd_scan()) {
+                char buf[48];
+                sprintfInt(buf, "SCD30 found at 0x%x", scd_addr);
+                print(buf);
+                sprintfInt(buf, " on bus %d (retry)\n", scd_bus);
+                print(buf);
+            }
+        }
+        return;
+    }
 
     // Check data ready (cmd 0x0202)
     scd_cmd(0x0202);

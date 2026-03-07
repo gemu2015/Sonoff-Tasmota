@@ -11,15 +11,15 @@
 // Light and outlet are controlled from Apple Home.
 // All HomeKit globals are float — no x10 scaling needed.
 
-// --- HomeKit-bound globals (native float values) ---
-float mh_pwr;    // light on/off (0.0 or 1.0)
-float mh_hue;    // hue 0..360
-float mh_sat;    // saturation 0..100
-float mh_bri;    // brightness 0..100
-float elamp;     // corner light on/off (0.0 or 1.0)
-float btemp;     // temperature (e.g. 22.5)
-float bhumi;     // humidity (e.g. 55.0)
-float bpress;    // pressure (e.g. 1013.0)
+// --- HomeKit-bound globals (native float values, auto-send via UDP) ---
+global float mh_pwr;    // light on/off (0.0 or 1.0)
+global float mh_hue;    // hue 0..360
+global float mh_sat;    // saturation 0..100
+global float mh_bri;    // brightness 0..100
+global float elamp;     // corner light on/off (0.0 or 1.0)
+global float btemp;     // temperature (e.g. 22.5)
+global float bhumi;     // humidity (e.g. 55.0)
+global float bpress;    // pressure (e.g. 1013.0)
 
 // --- local state ---
 int last_pwr;
@@ -47,23 +47,15 @@ void WebUI() {
 }
 
 void EverySecond() {
-    // Receive sensor values via UDP multicast
-    if (udpReady("btemp")) {
-        btemp = udpRecv("btemp");
-    }
-    if (udpReady("bhumi")) {
-        bhumi = udpRecv("bhumi");
-    }
-    if (udpReady("bpress")) {
-        bpress = udpRecv("bpress");
-    }
+    // Sensor values (btemp, bhumi, bpress) are auto-updated from UDP packets.
 
-    // Send HomeKit-changed variables via UDP (hkReady = automatic dirty tracking)
-    if (hkReady(mh_pwr)) { udpSend("mh_pwr", mh_pwr); }
-    if (hkReady(mh_hue)) { udpSend("mh_hue", mh_hue); }
-    if (hkReady(mh_sat)) { udpSend("mh_sat", mh_sat); }
-    if (hkReady(mh_bri)) { udpSend("mh_bri", mh_bri); }
-    if (hkReady(elamp))  { udpSend("elamp",  elamp); }
+    // Re-assign HomeKit-changed variables to trigger auto-send via UDP
+    // (hkReady = changed by Apple Home, self-assign triggers STORE_GLOBAL_UDP)
+    if (hkReady(mh_pwr)) { mh_pwr = mh_pwr; }
+    if (hkReady(mh_hue)) { mh_hue = mh_hue; }
+    if (hkReady(mh_sat)) { mh_sat = mh_sat; }
+    if (hkReady(mh_bri)) { mh_bri = mh_bri; }
+    if (hkReady(elamp))  { elamp  = elamp; }
 }
 
 int main() {

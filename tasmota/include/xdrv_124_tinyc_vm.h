@@ -158,7 +158,7 @@ enum TcOp {
   OP_RET          = 0x54, OP_RET_VAL      = 0x55,
   // Variables
   OP_LOAD_LOCAL   = 0x60, OP_STORE_LOCAL  = 0x61,
-  OP_LOAD_GLOBAL  = 0x62, OP_STORE_GLOBAL = 0x63,
+  OP_LOAD_GLOBAL  = 0x62, OP_STORE_GLOBAL = 0x63, OP_STORE_GLOBAL_UDP = 0x64,
   // Arrays
   OP_LOAD_LOCAL_ARR  = 0x68, OP_STORE_LOCAL_ARR = 0x69,
   OP_LOAD_GLOBAL_ARR = 0x6A, OP_STORE_GLOBAL_ARR= 0x6B,
@@ -7880,6 +7880,17 @@ static int tc_vm_step(TcVM *vm) {
       addr=tc_read_u16(vm);
       if (addr >= vm->globals_size) { TC_POP(vm); return TC_ERR_BOUNDS; }
       vm->globals[addr]=TC_POP(vm); break;
+    case OP_STORE_GLOBAL_UDP: {
+      uint16_t gidx = tc_read_u16(vm);
+      uint16_t name_idx = tc_read_u16(vm);
+      if (gidx >= vm->globals_size) { TC_POP(vm); return TC_ERR_BOUNDS; }
+      int32_t val = TC_POP(vm);
+      vm->globals[gidx] = val;
+      if (Tinyc && Tinyc->udp_connected && name_idx < vm->const_count && vm->constants[name_idx].type == 1) {
+        tc_udp_send(vm->constants[name_idx].str.ptr, i2f(val));
+      }
+      break;
+    }
     case OP_STORE_WATCH: {
       uint16_t var_idx = tc_read_u16(vm);
       uint16_t shadow_idx = tc_read_u16(vm);
@@ -8043,6 +8054,7 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
     // Variables
     _dispatch[0x60] = &&_op_load_local;   _dispatch[0x61] = &&_op_store_local;
     _dispatch[0x62] = &&_op_load_global;  _dispatch[0x63] = &&_op_store_global;
+    _dispatch[0x64] = &&_op_store_global_udp;
     // Arrays
     _dispatch[0x68] = &&_op_load_local_arr;  _dispatch[0x69] = &&_op_store_local_arr;
     _dispatch[0x6A] = &&_op_load_global_arr; _dispatch[0x6B] = &&_op_store_global_arr;
@@ -8237,6 +8249,17 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
     if (_addr >= _gsz) { _sp--; _err = TC_ERR_BOUNDS; goto _vm_exit; }
     vm->globals[_addr] = TC_IPOP();
     NEXT();
+  _op_store_global_udp: {
+    uint16_t _gidx = _RD_U16();
+    uint16_t _nidx = _RD_U16();
+    if (_gidx >= _gsz) { _sp--; _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    int32_t _val = TC_IPOP();
+    vm->globals[_gidx] = _val;
+    if (Tinyc && Tinyc->udp_connected && _nidx < vm->const_count && vm->constants[_nidx].type == 1) {
+      tc_udp_send(vm->constants[_nidx].str.ptr, i2f(_val));
+    }
+    NEXT();
+  }
 
   // Store watch
   _op_store_watch: {

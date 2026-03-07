@@ -87,6 +87,7 @@
 #endif
 
 // Sensor data - weather station (live values)
+global float atmp = 0.0;  // auto-sent via UDP on assignment
 float br_temp = 0.0;
 int   br_hum = 0;
 float br_wind_gust = 0.0;
@@ -546,8 +547,8 @@ void EverySecond() {
 
     if (!br_ok) return;
 
-    // Send temperature via UDP every second
-    udpSend("atmp", br_temp);
+    // Auto-sent via UDP on assignment (global float)
+    atmp = br_temp;
 
     // Store first sample immediately so charts appear on first page load
     if (h_count == 0) {
