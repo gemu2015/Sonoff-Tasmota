@@ -1041,7 +1041,7 @@ static void tc_send_web(const char *buf, int len) {
 
 #define TC_PWL_RETRIES   2
 #define TC_PWL_LOGLVL    LOG_LEVEL_DEBUG
-#define TC_PWL_BUFSIZE   4096
+#define TC_PWL_BUFSIZE   8192
 #define TC_PWL_MAX_BINDS 24
 
   // Powerwall connection state
@@ -1123,20 +1123,56 @@ static void tc_send_web(const char *buf, int len) {
     return nullptr;
   }
 
+  // Find the Nth occurrence of a key's value in the JSON.
+  // Returns pointer to the value after the Nth "key": match, or nullptr.
+  static const char *tc_pwl_find_key_value_nth(const char *start, const char *end, const char *key, int nth) {
+    const char *p = start;
+    int count = 0;
+    char needle[52];
+    snprintf(needle, sizeof(needle), "\"%s\"", key);
+    int nlen = strlen(needle);
+    while (p && p < end) {
+      p = strstr(p, needle);
+      if (!p || p >= end) return nullptr;
+      const char *vp = p + nlen;
+      while (vp < end && (*vp == ' ' || *vp == '\t' || *vp == '\n' || *vp == '\r')) vp++;
+      if (vp < end && *vp == ':') {
+        vp++;
+        while (vp < end && (*vp == ' ' || *vp == '\t' || *vp == '\n' || *vp == '\r')) vp++;
+        count++;
+        if (count >= nth) return vp;
+      }
+      p += nlen;
+    }
+    return nullptr;
+  }
+
   // Scan raw JSON for a path like "site#instant_power" → float value.
-  // Handles 1-level ("percentage") and 2-level ("site#instant_power") paths.
+  // Handles 1-level ("percentage"), 2-level ("site#instant_power"),
+  // and nth-occurrence ("p_W[6]" = 6th occurrence of "p_W") paths.
   static float tc_pwl_scan_float(const char *json, int32_t json_len, const char *path) {
+    // Check for [N] occurrence suffix — e.g. "p_W[6]"
+    char pathbuf[48];
+    strlcpy(pathbuf, path, sizeof(pathbuf));
+    int nth = 1;
+    char *bracket = strchr(pathbuf, '[');
+    if (bracket) {
+      nth = atoi(bracket + 1);
+      if (nth < 1) nth = 1;
+      *bracket = 0;  // truncate path at '['
+    }
+
     // Split path into segments at '#'
     char seg1[32], seg2[32];
     seg2[0] = 0;
-    const char *hash = strchr(path, '#');
+    const char *hash = strchr(pathbuf, '#');
     if (hash) {
-      int len1 = hash - path;
+      int len1 = hash - pathbuf;
       if (len1 > 31) len1 = 31;
-      memcpy(seg1, path, len1); seg1[len1] = 0;
+      memcpy(seg1, pathbuf, len1); seg1[len1] = 0;
       strlcpy(seg2, hash + 1, sizeof(seg2));
     } else {
-      strlcpy(seg1, path, sizeof(seg1));
+      strlcpy(seg1, pathbuf, sizeof(seg1));
     }
 
     const char *end = json + json_len;
@@ -1149,13 +1185,13 @@ static void tc_send_web(const char *buf, int len) {
       if (!obj) return 0.0f;
       scope_start = obj + 1;
       scope_end = tc_pwl_match_brace(obj);
-      // Now search for seg2 within this sub-object
-      const char *vp = tc_pwl_find_key_value(scope_start, scope_end, seg2);
+      // Now search for seg2 within this sub-object (with nth)
+      const char *vp = tc_pwl_find_key_value_nth(scope_start, scope_end, seg2, nth);
       return vp ? strtof(vp, nullptr) : 0.0f;
     }
 
-    // 1-level: search root
-    const char *vp = tc_pwl_find_key_value(json, end, seg1);
+    // 1-level: search root (with nth)
+    const char *vp = tc_pwl_find_key_value_nth(json, end, seg1, nth);
     return vp ? strtof(vp, nullptr) : 0.0f;
   }
 
