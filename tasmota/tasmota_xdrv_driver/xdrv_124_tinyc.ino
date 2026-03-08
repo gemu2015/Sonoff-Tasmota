@@ -1751,7 +1751,16 @@ static void TinyC_WebSetVar(void) {
 #ifdef USE_DISPLAY
 
 // Serve raw framebuffer binary: 8-byte header + raw pixel data
+static bool tc_mirror_busy = false;
+
 static void HandleTinyCDisplayRaw(void) {
+  // Reject if a previous transfer is still in progress
+  if (tc_mirror_busy) {
+    Webserver->send(503, "text/plain", "Busy");
+    return;
+  }
+  tc_mirror_busy = true;
+
   int8_t bpp = renderer->disp_bpp;
   uint8_t *fb = renderer->framebuffer;
   uint16_t *rgb = renderer->rgb_fb;
@@ -1789,6 +1798,7 @@ static void HandleTinyCDisplayRaw(void) {
 
   if (!data_ptr || fb_size == 0) {
     Webserver->send(503, "text/plain", "Unsupported bpp");
+    tc_mirror_busy = false;
     return;
   }
 
@@ -1818,6 +1828,8 @@ static void HandleTinyCDisplayRaw(void) {
     header[6] = 0;
     header[7] = 0;
 
+    // Connection: close ensures client doesn't try keep-alive (Core 3 lwIP fix)
+    Webserver->sendHeader(F("Connection"), F("close"));
     Webserver->setContentLength(8 + ds);
     Webserver->send(200, F("application/octet-stream"), "");
     WiFiClient client = Webserver->client();
@@ -1825,33 +1837,52 @@ static void HandleTinyCDisplayRaw(void) {
     client.setTimeout(5);
     client.write(header, 8);
 
-    // Line buffer in internal SRAM
-    uint8_t *line = (uint8_t *)heap_caps_malloc(line_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (!line) { line = (uint8_t *)malloc(line_bytes); }
-    if (!line) { client.stop(); return; }
+    // Batch buffer in internal SRAM — 16 lines at a time reduces TCP write count
+    // 2:1: 16 lines × 400 pixels × 2 bytes = 12800 bytes
+    const uint16_t BATCH = 16;
+    uint32_t batch_bytes = line_bytes * BATCH;
+    uint8_t *buf = (uint8_t *)heap_caps_malloc(batch_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!buf) { buf = (uint8_t *)malloc(batch_bytes); }
+    if (!buf) { tc_mirror_busy = false; return; }
 
 #ifdef DISPLAY_MIRROR_HALF
+    uint16_t lines_done = 0;
     for (uint16_t y = 0; y < rh; y += 2) {
       if (!client.connected()) break;
       uint16_t *src = rgb + (uint32_t)y * rw;
-      uint16_t *dst = (uint16_t *)line;
+      uint16_t *dst = (uint16_t *)(buf + lines_done * line_bytes);
       for (uint16_t x = 0; x < rw; x += 2) {
         *dst++ = src[x];
       }
-      client.write(line, line_bytes);
-      delay(1);
+      lines_done++;
+      if (lines_done >= BATCH) {
+        client.write(buf, lines_done * line_bytes);
+        lines_done = 0;
+        delay(5);
+      }
+    }
+    if (lines_done > 0 && client.connected()) {
+      client.write(buf, lines_done * line_bytes);
     }
 #else
+    uint16_t lines_done = 0;
     for (uint16_t y = 0; y < rh; y++) {
       if (!client.connected()) break;
-      // Copy one full row from PSRAM to SRAM, then send from SRAM
-      memcpy(line, (uint8_t *)(rgb + (uint32_t)y * rw), line_bytes);
-      client.write(line, line_bytes);
-      delay(1);
+      memcpy(buf + lines_done * line_bytes, (uint8_t *)(rgb + (uint32_t)y * rw), line_bytes);
+      lines_done++;
+      if (lines_done >= BATCH) {
+        client.write(buf, lines_done * line_bytes);
+        lines_done = 0;
+        delay(5);
+      }
+    }
+    if (lines_done > 0 && client.connected()) {
+      client.write(buf, lines_done * line_bytes);
     }
 #endif
-    free(line);
+    free(buf);
     client.stop();
+    tc_mirror_busy = false;
     return;
   }
 
@@ -1868,12 +1899,13 @@ static void HandleTinyCDisplayRaw(void) {
   header[7] = 0;
 
   uint32_t total = 8 + fb_size;
+  Webserver->sendHeader(F("Connection"), F("close"));
   Webserver->setContentLength(total);
   Webserver->send(200, F("application/octet-stream"), "");
 
   WiFiClient client = Webserver->client();
   client.setNoDelay(true);
-  client.setTimeout(5);  // 5s write timeout
+  client.setTimeout(5);
   client.write(header, 8);
 
   // Stream in chunks with yield, checking client is still connected
@@ -1886,7 +1918,10 @@ static void HandleTinyCDisplayRaw(void) {
     sent += chunk;
     yield();
   }
+  client.flush();
+  delay(50);
   client.stop();
+  tc_mirror_busy = false;
 }
 
 // Serve self-contained HTML/JS display viewer page
