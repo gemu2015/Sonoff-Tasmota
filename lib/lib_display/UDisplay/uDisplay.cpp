@@ -1284,6 +1284,7 @@ Renderer *uDisplay::Init(void) {
     void * buf = NULL;
     esp_lcd_rgb_panel_get_frame_buffer(_panel_handle, 1, &buf);
     rgb_fb = (uint16_t *)buf;
+    AddLog(LOG_LEVEL_INFO, PSTR("DSP: LEGACY RGB rgb_fb=%p buf=%p"), rgb_fb, buf);
 #endif
 
 

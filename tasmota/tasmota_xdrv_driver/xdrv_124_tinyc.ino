@@ -989,6 +989,16 @@ static void HandleTinyCPage(void) {
     "_tc.onmessage=function(e){if(e.data=='refresh')location.reload();}}"
     "</script>"));
 
+#ifdef USE_DISPLAY
+  if (renderer && (renderer->framebuffer || renderer->rgb_fb)) {
+    WSContentSend_P(PSTR(
+      "<fieldset><legend><b> Display </b></legend>"
+      "<p style='text-align:center'>"
+      "<button onclick=\"window.open('/tc_display')\" class='button bgrn'>Display Mirror</button>"
+      "</p></fieldset>"));
+  }
+#endif
+
   WSContentSpaceButton(BUTTON_MANAGEMENT);
   WSContentEnd();
 }
@@ -1737,6 +1747,303 @@ static void TinyC_WebSetVar(void) {
   }
 }
 
+// ---- Display framebuffer mirror ----
+#ifdef USE_DISPLAY
+
+// Serve raw framebuffer binary: 8-byte header + raw pixel data
+static void HandleTinyCDisplayRaw(void) {
+  int8_t bpp = renderer->disp_bpp;
+  uint8_t *fb = renderer->framebuffer;
+  uint16_t *rgb = renderer->rgb_fb;
+
+  // Derive raw (unrotated) dimensions from rotated width/height + rotation
+  uint8_t rot = renderer->getRotation();
+  uint16_t rw, rh;  // raw framebuffer dimensions
+  if (rot == 0 || rot == 2) {
+    rw = renderer->width();
+    rh = renderer->height();
+  } else {
+    rw = renderer->height();
+    rh = renderer->width();
+  }
+
+  // Compute framebuffer data size
+  uint32_t fb_size = 0;
+  uint8_t *data_ptr = nullptr;
+  int8_t abs_bpp = abs(bpp);
+
+  if (abs_bpp == 16 && rgb) {
+    fb_size = (uint32_t)rw * rh * 2;
+    data_ptr = (uint8_t *)rgb;
+  } else if (abs_bpp == 4 && fb) {
+    fb_size = (uint32_t)rw * rh / 2;
+    data_ptr = fb;
+  } else if (abs_bpp == 1 && fb) {
+    if (bpp == -1) {
+      fb_size = (uint32_t)rw * ((rh + 7) / 8);  // column-major
+    } else {
+      fb_size = ((uint32_t)rw * rh + 7) / 8;     // row-major
+    }
+    data_ptr = fb;
+  }
+
+  if (!data_ptr || fb_size == 0) {
+    Webserver->send(503, "text/plain", "Unsupported bpp");
+    return;
+  }
+
+  // Large RGB framebuffers (>32KB): stream line-by-line from SRAM to avoid PSRAM/LCD DMA contention
+  // DISPLAY_MIRROR_HALF: 2:1 downsample (800x480 → 400x240 = 192KB) — better for slow WiFi
+  // Full resolution: 800x480 = 768KB — best quality, needs stable connection
+  #define DISPLAY_MIRROR_HALF
+  if (abs_bpp == 16 && rgb && fb_size > 32768) {
+#ifdef DISPLAY_MIRROR_HALF
+    uint16_t dw = rw / 2;
+    uint16_t dh = rh / 2;
+    uint32_t line_bytes = dw * 2;
+#else
+    uint16_t dw = rw;
+    uint16_t dh = rh;
+    uint32_t line_bytes = rw * 2;
+#endif
+    uint32_t ds = (uint32_t)dw * dh * 2;
+
+    uint8_t header[8];
+    header[0] = dw & 0xFF;
+    header[1] = (dw >> 8) & 0xFF;
+    header[2] = dh & 0xFF;
+    header[3] = (dh >> 8) & 0xFF;
+    header[4] = (uint8_t)bpp;
+    header[5] = (renderer->lvgl_param.swap_color ? 1 : 0) | ((rot & 3) << 2);
+    header[6] = 0;
+    header[7] = 0;
+
+    Webserver->setContentLength(8 + ds);
+    Webserver->send(200, F("application/octet-stream"), "");
+    WiFiClient client = Webserver->client();
+    client.setNoDelay(true);
+    client.setTimeout(5);
+    client.write(header, 8);
+
+    // Line buffer in internal SRAM
+    uint8_t *line = (uint8_t *)heap_caps_malloc(line_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!line) { line = (uint8_t *)malloc(line_bytes); }
+    if (!line) { client.stop(); return; }
+
+#ifdef DISPLAY_MIRROR_HALF
+    for (uint16_t y = 0; y < rh; y += 2) {
+      if (!client.connected()) break;
+      uint16_t *src = rgb + (uint32_t)y * rw;
+      uint16_t *dst = (uint16_t *)line;
+      for (uint16_t x = 0; x < rw; x += 2) {
+        *dst++ = src[x];
+      }
+      client.write(line, line_bytes);
+      delay(1);
+    }
+#else
+    for (uint16_t y = 0; y < rh; y++) {
+      if (!client.connected()) break;
+      // Copy one full row from PSRAM to SRAM, then send from SRAM
+      memcpy(line, (uint8_t *)(rgb + (uint32_t)y * rw), line_bytes);
+      client.write(line, line_bytes);
+      delay(1);
+    }
+#endif
+    free(line);
+    client.stop();
+    return;
+  }
+
+  // Small framebuffers (EPD, OLED) — send full resolution
+  // 8-byte header
+  uint8_t header[8];
+  header[0] = rw & 0xFF;
+  header[1] = (rw >> 8) & 0xFF;
+  header[2] = rh & 0xFF;
+  header[3] = (rh >> 8) & 0xFF;
+  header[4] = (uint8_t)bpp;
+  header[5] = (renderer->lvgl_param.swap_color ? 1 : 0) | ((rot & 3) << 2);
+  header[6] = 0;
+  header[7] = 0;
+
+  uint32_t total = 8 + fb_size;
+  Webserver->setContentLength(total);
+  Webserver->send(200, F("application/octet-stream"), "");
+
+  WiFiClient client = Webserver->client();
+  client.setNoDelay(true);
+  client.setTimeout(5);  // 5s write timeout
+  client.write(header, 8);
+
+  // Stream in chunks with yield, checking client is still connected
+  uint32_t sent = 0;
+  while (sent < fb_size) {
+    if (!client.connected()) break;
+    uint32_t chunk = fb_size - sent;
+    if (chunk > 512) chunk = 512;
+    client.write(data_ptr + sent, chunk);
+    sent += chunk;
+    yield();
+  }
+  client.stop();
+}
+
+// Serve self-contained HTML/JS display viewer page
+static void HandleTinyCDisplayHTML(void) {
+  Webserver->setContentLength(CONTENT_LENGTH_UNKNOWN);
+  Webserver->send(200, F("text/html"), "");
+
+  Webserver->sendContent_P(PSTR(
+    "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+    "<meta name='viewport' content='width=device-width'>"
+    "<title>Display Mirror</title>"
+    "<style>"
+    "body{background:#111;color:#ddd;font-family:sans-serif;margin:20px;text-align:center}"
+    "canvas{border:1px solid #444;image-rendering:pixelated;image-rendering:crisp-edges}"
+    ".ctrl{margin:10px;display:flex;justify-content:center;gap:10px;align-items:center;flex-wrap:wrap}"
+    "button{padding:6px 16px;border:none;border-radius:4px;cursor:pointer;background:#47c266;color:#fff}"
+    "button.stop{background:#d43535}"
+    "select{padding:4px 8px;border-radius:4px;border:1px solid #444;background:#222;color:#ddd}"
+    "#st{font-size:.85em;opacity:.7;margin:8px}"
+    "</style></head><body>"
+    "<h2>Display Mirror</h2>"
+    "<canvas id='c'></canvas>"
+    "<div id='st'></div>"
+    "<div class='ctrl'>"
+    "<button id='btn' onclick='toggle()'>Start</button>"
+    "<label>Interval: <select id='iv'>"
+    "<option value='2000'>2s</option>"
+    "<option value='5000' selected>5s</option>"
+    "<option value='10000'>10s</option>"
+    "<option value='30000'>30s</option>"
+    "</select></label>"
+    "<label>Scale: <select id='sc' onchange='rsc()'>"
+    "<option value='1'>1x</option>"
+    "<option value='2' selected>2x</option>"
+    "<option value='4'>4x</option>"
+    "</select></label>"
+    "</div>"
+  ));
+
+  // JavaScript decoder
+  Webserver->sendContent_P(PSTR(
+    "<script>"
+    "var cv=document.getElementById('c'),cx=cv.getContext('2d'),"
+    "tid=0,cnt=0,on=0,W=0,H=0;"
+    "function toggle(){on=!on;"
+    "document.getElementById('btn').textContent=on?'Stop':'Start';"
+    "document.getElementById('btn').className=on?'stop':'';"
+    "if(on)go();else if(tid){clearTimeout(tid);tid=0;}}"
+    "function rsc(){"
+    "if(W&&H){var s=+document.getElementById('sc').value;"
+    "cv.style.width=(W*s)+'px';cv.style.height=(H*s)+'px';}}"
+  ));
+
+  // Pixel decoders per bpp
+  Webserver->sendContent_P(PSTR(
+    "function src(dx,dy,w,h,rot){"
+    "if(rot==0)return[dx,dy];"
+    "if(rot==1)return[w-1-dy,dx];"
+    "if(rot==2)return[w-1-dx,h-1-dy];"
+    "return[dy,h-1-dx];}"
+
+    "function d1c(px,raw,w,h,dw,dh,rot,inv){"  // bpp=-1 column-major
+    "for(var dy=0;dy<dh;dy++)for(var dx=0;dx<dw;dx++){"
+    "var s=src(dx,dy,w,h,rot),sx=s[0],sy=s[1];"
+    "var v=(raw[sx+(sy>>3)*w]>>(sy&7))&1;"
+    "if(inv)v=1-v;v=v?255:0;var p=(dy*dw+dx)*4;"
+    "px[p]=v;px[p+1]=v;px[p+2]=v;px[p+3]=255;}}"
+
+    "function d1r(px,raw,w,h,dw,dh,rot,inv){"  // bpp=1 row-major
+    "for(var dy=0;dy<dh;dy++)for(var dx=0;dx<dw;dx++){"
+    "var s=src(dx,dy,w,h,rot),sx=s[0],sy=s[1];"
+    "var i=sx+sy*w,v=(raw[i>>3]>>(7-(i&7)))&1;"
+    "if(inv)v=1-v;v=v?255:0;var p=(dy*dw+dx)*4;"
+    "px[p]=v;px[p+1]=v;px[p+2]=v;px[p+3]=255;}}"
+  ));
+
+  Webserver->sendContent_P(PSTR(
+    "function d4(px,raw,w,h,dw,dh,rot){"  // bpp=4 grayscale
+    "for(var dy=0;dy<dh;dy++)for(var dx=0;dx<dw;dx++){"
+    "var s=src(dx,dy,w,h,rot),sx=s[0],sy=s[1];"
+    "var bi=Math.floor((sy*w+sx)/2),v;"
+    "if((sx+sy*w)%2==0)v=raw[bi]&0xf;else v=(raw[bi]>>4)&0xf;"
+    "v=v*17;var p=(dy*dw+dx)*4;"
+    "px[p]=v;px[p+1]=v;px[p+2]=v;px[p+3]=255;}}"
+
+    "function d16(px,raw,w,h,dw,dh,rot,sw){"  // bpp=16 RGB565
+    "for(var dy=0;dy<dh;dy++)for(var dx=0;dx<dw;dx++){"
+    "var s=src(dx,dy,w,h,rot),sx=s[0],sy=s[1];"
+    "var oi=(sy*w+sx)*2,lo=raw[oi],hi=raw[oi+1],c;"
+    "if(sw)c=(lo<<8)|hi;else c=(hi<<8)|lo;"
+    "var p=(dy*dw+dx)*4;"
+    "px[p]=((c>>11)&0x1f)<<3;px[p+1]=((c>>5)&0x3f)<<2;"
+    "px[p+2]=(c&0x1f)<<3;px[p+3]=255;}}"
+  ));
+
+  // Main fetch + render loop with AbortController timeout
+  Webserver->sendContent_P(PSTR(
+    "var busy=0;"
+    "async function go(){"
+    "if(!on||busy)return;"
+    "busy=1;"
+    "var ac=new AbortController();"
+    "var to=setTimeout(function(){ac.abort();},15000);"
+    "try{"
+    "var r=await fetch('/tc_display?raw=1',{signal:ac.signal});"
+    "clearTimeout(to);"
+    "if(!r.ok)throw r.status;"
+    "var ab=await r.arrayBuffer(),dv=new DataView(ab);"
+    "var w=dv.getUint16(0,1),h=dv.getUint16(2,1),"
+    "bpp=dv.getInt8(4),fl=dv.getUint8(5);"
+    "var sw=fl&1,rot=(fl>>2)&3;"
+    "var dw,dh;"
+    "if(rot==1||rot==3){dw=h;dh=w;}else{dw=w;dh=h;}"
+    "if(dw!=W||dh!=H){W=dw;H=dh;cv.width=W;cv.height=H;rsc();}"
+    "var id=cx.createImageData(W,H),px=id.data;"
+    "var raw=new Uint8Array(ab,8);"
+    "if(bpp==-1)d1c(px,raw,w,h,dw,dh,rot,0);"
+    "else if(bpp==1)d1r(px,raw,w,h,dw,dh,rot,0);"
+    "else if(Math.abs(bpp)==4)d4(px,raw,w,h,dw,dh,rot);"
+    "else if(bpp==16)d16(px,raw,w,h,dw,dh,rot,sw);"
+    "cx.putImageData(id,0,0);"
+    "cnt++;document.getElementById('st').textContent="
+    "dw+'x'+dh+' bpp='+bpp+' #'+cnt;"
+    "}catch(e){"
+    "clearTimeout(to);"
+    "if(e.name!='AbortError')"
+    "document.getElementById('st').textContent='Error: '+e;}"
+    "busy=0;"
+    "if(on)tid=setTimeout(go,+document.getElementById('iv').value);}"
+    "</script></body></html>"
+  ));
+
+  Webserver->sendContent("");
+}
+
+// Dispatch: HTML viewer page or raw binary data
+static void HandleTinyCDisplay(void) {
+  if (!HttpCheckPriviledgedAccess()) return;
+
+  if (!renderer) {
+    Webserver->send(503, "text/plain", "No display");
+    return;
+  }
+  if (!renderer->framebuffer && !renderer->rgb_fb) {
+    Webserver->send(503, "text/plain", "No framebuffer");
+    return;
+  }
+
+  if (Webserver->hasArg(F("raw"))) {
+    HandleTinyCDisplayRaw();
+  } else {
+    HandleTinyCDisplayHTML();
+  }
+}
+
+#endif  // USE_DISPLAY
+
 // ---- Custom web handlers (webOn) -- uses slot 0 ----
 
 static void HandleTinyCWebOn(uint8_t handler_num) {
@@ -2329,6 +2636,9 @@ bool Xdrv124(uint32_t function) {
 #endif
 #ifdef USE_HOMEKIT
       WebServer_on(PSTR("/hk"), HandleHomeKitQR);
+#endif
+#ifdef USE_DISPLAY
+      WebServer_on(PSTR("/tc_display"), HandleTinyCDisplay);
 #endif
       break;
 #endif

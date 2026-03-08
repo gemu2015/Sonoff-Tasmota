@@ -36,7 +36,6 @@ public:
     bool invertDisplay(bool invert) override;
     bool setRotation(uint8_t rotation) override;
     bool updateFrame() override;
-    uint16_t* framebuffer = nullptr;
 
 private:
     esp_lcd_panel_handle_t panel_handle = nullptr;

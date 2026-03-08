@@ -1306,6 +1306,7 @@ if (interface == _UDSP_SPI) {
     panel_config->rgb.flags.disp_active_low = 0;
     panel_config->rgb.flags.refresh_on_demand = 0;
     panel_config->rgb.flags.fb_in_psram = 1;             // allocate frame buffer in PSRAM
+    panel_config->rgb.num_fbs = 1;                        // allocate 1 framebuffer (0 = bounce buffer mode, no persistent fb)
 
     universal_panel = new RGBPanel(&panel_config->rgb);
     rgb_fb = universal_panel->framebuffer;
