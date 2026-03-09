@@ -645,7 +645,13 @@ int data[10];                       // nicht initialisiert
 int primes[5] = {2, 3, 5, 7, 11};  // mit Initialisierer
 float values[3] = {1.5, 2.5};      // teilweise initialisiert
 char name[32] = "TinyC";           // Zeichenketten-Initialisierung (null-terminiert)
+char greeting[] = "Hello World";    // Groesse aus String abgeleitet (12)
+int flags[] = {1, 0, 1, 1};        // Groesse aus Initialisierer abgeleitet (4)
 ```
+
+Wenn die Groesse weggelassen wird (`[]`), leitet der Compiler sie automatisch ab:
+- **String-Initialisierer:** Groesse = Stringlaenge + 1 (fuer Null-Terminator)
+- **Array-Initialisierer:** Groesse = Anzahl der Elemente
 
 ### Zugriff
 ```c
@@ -1130,6 +1136,8 @@ Dateien auf dem ESP32-Dateisystem (LittleFS) lesen und schreiben. In der Browser
 | `int fileSeek(handle, offset, whence)`     | Zur Position springen. Gibt 1=ok, 0=Fehler zurueck   |
 | `int fileTell(handle)`                     | Aktuelle Position in Datei, -1 bei Fehler             |
 | `int fsInfo(int sel)`                      | Dateisystem-Info: sel=0 → Gesamtgroesse KB, sel=1 → frei KB |
+| `int fileOpenDir("path")`                  | Verzeichnis zum Auflisten oeffnen, gibt Handle oder -1 zurueck |
+| `int fileReadDir(handle, char name[])`     | Naechsten Dateinamen in name lesen. Gibt 1=Eintrag, 0=Ende zurueck |
 
 **Dateimodi:** `0` = Lesen, `1` = Schreiben (Erstellen/Abschneiden), `2` = Anfuegen
 
@@ -1160,7 +1168,23 @@ fileClose(f);
 printString(buf);                    // gibt "Hello!" aus
 
 fileDelete("/test.txt");             // aufraeumen
+
+// Beispiel: Dateien in einem Verzeichnis auflisten
+char fname[64];
+int dir = fileOpenDir("/images");
+if (dir >= 0) {
+    while (fileReadDir(dir, fname)) {
+        printString(fname);
+        print("\n");
+    }
+    fileClose(dir);
+}
 ```
+
+**Hinweise zur Verzeichnisauflistung:**
+- `fileOpenDir` belegt einen Datei-Handle-Slot (gleicher Pool wie `fileOpen`), mit `fileClose` schliessen
+- `fileReadDir` gibt nur Dateinamen zurueck (kein Pfad-Praefix), ueberspringt Unterverzeichnisse
+- Pfad-Argument kann ein String-Literal oder eine char-Array-Variable sein
 
 ### Erweiterte Dateioperationen
 

@@ -646,7 +646,13 @@ int data[10];                       // uninitialized
 int primes[5] = {2, 3, 5, 7, 11};  // with initializer
 float values[3] = {1.5, 2.5};      // partial init
 char name[32] = "TinyC";           // string init (null-terminated)
+char greeting[] = "Hello World";    // size inferred from string (12)
+int flags[] = {1, 0, 1, 1};        // size inferred from initializer (4)
 ```
+
+When the size is omitted (`[]`), the compiler infers it automatically:
+- **String initializer:** size = string length + 1 (for null terminator)
+- **Array initializer:** size = number of elements
 
 ### Access
 ```c
@@ -1131,6 +1137,8 @@ Read and write files on the ESP32 filesystem (LittleFS). In the browser IDE, fil
 | `int fileSeek(handle, offset, whence)`     | Seek to position. Returns 1=ok, 0=fail           |
 | `int fileTell(handle)`                     | Get current position in file, -1 on error        |
 | `int fsInfo(int sel)`                      | Filesystem info: sel=0 → total KB, sel=1 → free KB |
+| `int fileOpenDir("path")`                  | Open directory for listing, returns handle or -1 |
+| `int fileReadDir(handle, char name[])`     | Read next filename into name. Returns 1=entry, 0=end |
 
 **File modes:** `0` = read, `1` = write (create/truncate), `2` = append
 
@@ -1161,7 +1169,23 @@ fileClose(f);
 printString(buf);                    // prints "Hello!"
 
 fileDelete("/test.txt");             // clean up
+
+// Example: List files in a directory
+char fname[64];
+int dir = fileOpenDir("/images");
+if (dir >= 0) {
+    while (fileReadDir(dir, fname)) {
+        printString(fname);
+        print("\n");
+    }
+    fileClose(dir);
+}
 ```
+
+**Directory listing notes:**
+- `fileOpenDir` uses a file handle slot (same pool as `fileOpen`), close with `fileClose` when done
+- `fileReadDir` returns filenames only (no path prefix), skips subdirectories
+- Path argument can be a string literal or a char array variable
 
 ### Extended File Operations
 
