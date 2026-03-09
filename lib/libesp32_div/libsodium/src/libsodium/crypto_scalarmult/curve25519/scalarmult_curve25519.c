@@ -13,7 +13,7 @@ static const crypto_scalarmult_curve25519_implementation *implementation =
 
 
 int
-crypto_scalarmult_curve25519(unsigned char *q, const unsigned char *n,
+sodium_crypto_scalarmult_curve25519(unsigned char *q, const unsigned char *n,
                              const unsigned char *p)
 {
     size_t                 i;

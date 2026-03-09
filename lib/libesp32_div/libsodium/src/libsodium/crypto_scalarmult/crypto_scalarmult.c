@@ -17,7 +17,7 @@ int
 crypto_scalarmult(unsigned char *q, const unsigned char *n,
                   const unsigned char *p)
 {
-    return crypto_scalarmult_curve25519(q, n, p);
+    return sodium_crypto_scalarmult_curve25519(q, n, p);
 }
 
 size_t

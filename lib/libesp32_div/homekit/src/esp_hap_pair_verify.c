@@ -192,14 +192,14 @@ static int hap_pair_verify_process_start(pair_verify_ctx_t *pv_ctx, uint8_t *buf
 	 * from secret key
 	 */
 	uint8_t basepoint[32] = {9};
-    if (crypto_scalarmult_curve25519(pv_ctx->acc_curve_pk, acc_curve_sk, basepoint) == -1) {
+    if (sodium_crypto_scalarmult_curve25519(pv_ctx->acc_curve_pk, acc_curve_sk, basepoint) == -1) {
         ESP_MFI_DEBUG(ESP_MFI_DEBUG_ERR, "Curve25519 Error");
 		hap_prepare_error_tlv(STATE_M2, kTLVError_Unknown, buf, bufsize, outlen);
 		return HAP_FAIL;
     }
 	hex_dbg_with_name("acc curve sk", acc_curve_sk, 32);
 	hex_dbg_with_name("acc curve pk", pv_ctx->acc_curve_pk, 32);
-    if (crypto_scalarmult_curve25519(pv_ctx->shared_secret, acc_curve_sk, pv_ctx->ctrl_curve_pk) == -1) {
+    if (sodium_crypto_scalarmult_curve25519(pv_ctx->shared_secret, acc_curve_sk, pv_ctx->ctrl_curve_pk) == -1) {
         ESP_MFI_DEBUG(ESP_MFI_DEBUG_ERR, "Curve25519 Error");
 		hap_prepare_error_tlv(STATE_M2, kTLVError_Unknown, buf, bufsize, outlen);
 		return HAP_FAIL;

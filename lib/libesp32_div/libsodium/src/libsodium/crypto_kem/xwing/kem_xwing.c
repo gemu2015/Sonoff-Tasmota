@@ -137,7 +137,7 @@ crypto_kem_xwing_enc_deterministic(unsigned char *ct, unsigned char *ss, const u
 
     crypto_scalarmult_curve25519_base(ct_x25519, sk_e_x25519);
 
-    if (crypto_scalarmult_curve25519(ss_x25519, sk_e_x25519, pk_x25519) != 0) {
+    if (sodium_crypto_scalarmult_curve25519(ss_x25519, sk_e_x25519, pk_x25519) != 0) {
         sodium_memzero(ss_mlkem, sizeof ss_mlkem);
         return -1;
     }
@@ -190,7 +190,7 @@ crypto_kem_xwing_dec(unsigned char *ss, const unsigned char *ct, const unsigned 
         return -1;
     }
 
-    if (crypto_scalarmult_curve25519(ss_x25519, sk_x25519, ct_x25519) != 0) {
+    if (sodium_crypto_scalarmult_curve25519(ss_x25519, sk_x25519, ct_x25519) != 0) {
         sodium_memzero(ss_mlkem, sizeof ss_mlkem);
         sodium_memzero(sk_mlkem, sizeof sk_mlkem);
         sodium_memzero(sk_x25519, sizeof sk_x25519);
