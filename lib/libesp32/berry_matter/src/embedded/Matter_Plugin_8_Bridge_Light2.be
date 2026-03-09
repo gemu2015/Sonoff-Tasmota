@@ -17,6 +17,17 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+#################################################################################
+# Matter 1.4.1 Bridge Variant - Color Temperature Light via HTTP
+#################################################################################
+# INHERITS FROM: Matter_Plugin_Light2 (Matter_Plugin_4_Light2.be)
+# VARIANT TYPE: Bridge (Remote HTTP Device)
+# DEVICE TYPE: Color Temperature Light (0x010C) - See base class
+# CLUSTERS: On/Off + Level Control + Color Control (CT) - See Matter_Plugin_4_Light2.be
+# TYPE: "http_light2" | UPDATE_TIME: 3000ms
+# See base class for complete Matter 1.4.1 cluster specifications
+#################################################################################
+
 import matter
 
 # Matter plug-in for core behavior
@@ -27,9 +38,11 @@ class Matter_Plugin_Bridge_Light2 : Matter_Plugin_Light2
   static var BRIDGE = true
   static var TYPE = "http_light2"                   # name of the plug-in in json
   # static var DISPLAY_NAME = "Light 2 CT"      # display name of the plug-in
-  static var ARG  = "relay"                         # additional argument name (or empty if none)
-  static var ARG_HINT = "Relay<x> number"
-  static var ARG_TYPE = / x -> int(x)               # function to convert argument to the right type
+
+  static var SCHEMA = "relay|"                      # arg name
+                      "l:Relay number|"             # label (display name)
+                      "t:i|"                        # type: int
+                      "h:Relay<x> number"           # hint
   static var UPDATE_TIME = 3000                     # update every 3s
 end
 matter.Plugin_Bridge_Light2 = Matter_Plugin_Bridge_Light2

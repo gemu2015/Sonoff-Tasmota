@@ -17,6 +17,99 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+#################################################################################
+# Matter 1.4.1 Device Specification - Window Covering with Tilt (0x0202)
+#################################################################################
+# Device Type: Window Covering (0x0202)
+# Device Type Revision: 3 (Matter 1.4.1 Device Library)
+# Class: Simple | Scope: Endpoint
+#
+# CLUSTERS (Server):
+# - 0x0102: Window Covering (M) - Lift and tilt position control
+# - 0x0003: Identify (M) - Device identification
+# - 0x0004: Groups (M) - Group management
+# - 0x0062: Scenes Management (P) - Scene control (PROVISIONAL)
+# - 0x001D: Descriptor (M) - Inherited from base class
+#
+# NOTES:
+# - Extends base shutter with tilt angle control
+# - Supports both lift (up/down) and tilt (angle) control
+# - Position-aware for both lift and tilt
+# - Typical applications: venetian blinds, horizontal blinds, louvers
+#################################################################################
+
+#################################################################################
+# Matter 1.4.1 Window Covering Cluster (0x0102) - Tilt Extension
+#################################################################################
+# Cluster Revision: 5 (Matter 1.4.1)
+# Role: Application | Scope: Endpoint
+#
+# FEATURES (Tasmota ShutterTilt Implementation):
+# - Bit 0 (LF): Lift - Lift control (M) - Inherited
+# - Bit 1 (TL): Tilt - Tilt control (M) - Added
+# - Bit 2 (PA_LF): PositionAwareLift - Position aware lift (M) - Inherited
+# - Bit 4 (PA_TL): PositionAwareTilt - Position aware tilt (M) - Added
+#
+# ADDITIONAL ATTRIBUTES (Tilt-specific):
+# ID     | Name                              | Type    | Constraint | Quality | Default | Access | Conf
+# -------|-----------------------------------|---------|------------|---------|---------|--------|-----
+# 0x0007 | ConfigStatus                      | Config- | all        | P       | 0       | R V    | M
+#        |                                   | Status- |            |         |         |        |
+#        |                                   | Bitmap  |            |         |         |        |
+#        | (Updated: Bit 3 + Bit 4 set)      |         |            |         |         |        |
+# 0x000C | TargetPositionTiltPercent100ths   | percent-| all        | X,P,Q   | null    | R V    | TL&
+#        |                                   | 100ths  |            |         |         |        | PA_TL
+# 0x000F | CurrentPositionTiltPercent100ths  | percent-| all        | X,P,Q   | null    | R V    | TL&
+#        |                                   | 100ths  |            |         |         |        | PA_TL
+#
+# ADDITIONAL COMMANDS (Tilt-specific):
+# ID   | Name              | Dir  | Response | Access | Conf
+# -----|-------------------|------|----------|--------|-----
+# 0x08 | GoToTiltPercentage| C→S  | Y        | O      | TL&PA_TL
+#
+# GoToTiltPercentage: {TiltPercent100thsValue:percent100ths (0-10000)}
+#
+# TILT ANGLE ENCODING:
+# - Matter uses 0-10000 (0.00% to 100.00% in hundredths)
+# - Tasmota uses configurable min/max angles (e.g., 0-90 degrees)
+# - Conversion: Matter % = (Tasmota_angle - min) / (max - min) × 10000
+#
+# TILT SEMANTICS:
+# - 0% = Minimum tilt angle (e.g., fully closed/horizontal)
+# - 100% = Maximum tilt angle (e.g., fully open/vertical)
+# - Actual angles configured via TiltConfig in Tasmota
+#
+# TASMOTA IMPLEMENTATION:
+# - Reads tilt from ShutterPosition<x> command (includes Tilt field)
+# - Commands: ShutterTilt<x> <angle>
+# - Tilt range configured in Status 13 (TiltConfig: [min, max])
+# - Example: TiltConfig=[0, 90] means 0° to 90° tilt range
+# - Tilt value scaled between min and max angles
+#
+# CONFIGURATION:
+# - Inherits ARG: "shutter" from base class
+# - Tilt min/max read from Status 13 TiltConfig
+# - Example: TiltConfig=[0, 90] → 0° to 90° range
+#
+# EXAMPLES:
+# - Horizontal (closed): CurrentPositionTiltPercent100ths=0
+# - 45° angle: CurrentPositionTiltPercent100ths=5000 (if range is 0-90°)
+# - Vertical (open): CurrentPositionTiltPercent100ths=10000
+#
+# FEATURE MAP:
+# - Bit 0 (LF): 1 - Lift supported
+# - Bit 1 (TL): 1 - Tilt supported
+# - Bit 2 (PA_LF): 1 - Position aware lift
+# - Bit 4 (PA_TL): 1 - Position aware tilt
+# - FeatureMap = 0x0013 (bits 0,1,4 = 19 decimal)
+#
+# CONFIG STATUS:
+# - Bit 0: Operational = 1
+# - Bit 3: LiftPositionAware = 1
+# - Bit 4: TiltPositionAware = 1
+# - ConfigStatus = 0x19 (bits 0,3,4 = 25 decimal)
+#################################################################################
+
 import matter
 
 # Matter plug-in for core behavior
@@ -27,15 +120,14 @@ class Matter_Plugin_ShutterTilt : Matter_Plugin_Shutter
   static var TYPE = "shutter+tilt"                  # name of the plug-in in json
   static var DISPLAY_NAME = "Shutter + Tilt"                # display name of the plug-in
   # inherited static var ARG  = "shutter"                       # additional argument name (or empty if none)
-  # inherited static var ARG_TYPE = / x -> int(x)               # function to convert argument to the right type
   static var CLUSTERS  = matter.consolidate_clusters(_class, {
     # 0x001D: inherited                             # Descriptor Cluster 9.5 p.453
     # 0x0003: inherited                             # Identify 1.2 p.16
     # 0x0004: inherited                             # Groups 1.3 p.21
-    # 0x0005: inherited                             # Scenes 1.4 p.30 - no writable
+    # 0x0062: inherited                             # Scenes Management 1.4 (PROVISIONAL) - replaces 0x0005
     0x0102: [7,0xC,0xF],                            # Window Covering 5.3 p.289
   })
-  # inherited static var TYPES = { 0x0202: 2 }                  # New data model format and notation
+  # inherited static var TYPES = { 0x0202: 3 }                  # Window Covering - Matter 1.4.1 Device Library Rev 3
 
   # below is inherited
   # var tasmota_shutter_index                         # Shutter number in Tasmota (zero based)
@@ -95,7 +187,6 @@ class Matter_Plugin_ShutterTilt : Matter_Plugin_Shutter
   # read an attribute
   #
   def read_attribute(session, ctx, tlv_solo)
-    var TLV = matter.TLV
     var cluster = ctx.cluster
     var attribute = ctx.attribute
 
@@ -103,26 +194,26 @@ class Matter_Plugin_ShutterTilt : Matter_Plugin_Shutter
     if   cluster == 0x0102              # ========== Window Covering 5.3 p.289 ==========
       self.update_shadow_lazy()
       if   attribute == 0x0007          #  ---------- ConfigStatus / u8 ----------
-        return tlv_solo.set(TLV.U1, 1 + 8 + 16)   # Operational + Lift Position Aware + Tilt Position Aware
+        return tlv_solo.set(0x04 #-TLV.U1-#, 1 + 8 + 16)   # Operational + Lift Position Aware + Tilt Position Aware
 
       elif attribute == 0x000F          #  ---------- CurrentPositionTiltPercent100ths / u8 ----------
         self.update_tilt_min_max()
         if self.tilt_min != nil && self.tilt_max != nil
           var tilt_percentage = tasmota.scale_uint(self.shadow_shutter_tilt - self.tilt_min, 0, self.tilt_max - self.tilt_min, 0, 10000)
-          return tlv_solo.set(TLV.U2, tilt_percentage)
+          return tlv_solo.set(0x05 #-TLV.U2-#, tilt_percentage)
         else
-          return tlv_solo.set(TLV.NULL, nil)                    # return invalid
+          return tlv_solo.set(0x14 #-TLV.NULL-#, nil)                    # return invalid
         end
       elif attribute == 0x000C          #  ---------- TargetPositionTiltPercent100ths / u16 ----------
         if self.tilt_min != nil && self.tilt_max != nil
           var tilt_percentage = tasmota.scale_uint(self.shadow_shutter_tilt - self.tilt_min, 0, self.tilt_max - self.tilt_min, 0, 10000)
-          return tlv_solo.set(TLV.U2, tilt_percentage)
+          return tlv_solo.set(0x05 #-TLV.U2-#, tilt_percentage)
         else
-          return tlv_solo.set(TLV.NULL, nil)                    # return invalid
+          return tlv_solo.set(0x14 #-TLV.NULL-#, nil)                    # return invalid
         end
 
       elif attribute == 0xFFFC          #  ---------- FeatureMap / map32 ----------
-        return tlv_solo.set(TLV.U4, 3 + 4 + 16)    # Lift + Tilt + PA_LF + PA_TL
+        return tlv_solo.set(0x06 #-TLV.U4-#, 3 + 4 + 16)    # Lift + Tilt + PA_LF + PA_TL
       end
     end
     return super(self).read_attribute(session, ctx, tlv_solo)

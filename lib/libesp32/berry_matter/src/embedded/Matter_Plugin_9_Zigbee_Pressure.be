@@ -1,5 +1,5 @@
 #
-# Matter_Plugin_9_Zigbee_Pressure.be - implements the behavior for a Zigbee Pressure sensor
+# Matter_Plugin_9_Zigbee_Pressure.be - implements Zigbee Pressure Sensor
 #
 # Copyright (C) 2023  Stephan Hadinger & Theo Arends
 #
@@ -17,6 +17,32 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+#################################################################################
+# Matter 1.4.1 Zigbee Variant - Zigbee2Matter Bridge Pressure Sensor
+#################################################################################
+# This is a ZIGBEE variant that inherits from Matter_Plugin_Sensor_Pressure.
+# It bridges Zigbee pressure sensors to Matter protocol.
+#
+# DEVICE TYPE: Pressure Sensor (0x0305)
+# See Matter_Plugin_3_Sensor_Pressure.be for complete Matter 1.4.1 specifications
+# including Pressure Measurement cluster (0x0403) details.
+#
+# ZIGBEE BEHAVIOR:
+# - Bridges Zigbee devices to Matter using zigbee_mapper
+# - Listens for Zigbee attribute reports (ZIGBEE_NAME: "Pressure")
+# - Automatically converts Zigbee pressure values to Matter format
+# - Maps Zigbee device to Matter endpoint
+# - Inherits all cluster implementations from base class
+# - VIRTUAL: true - Required for Zigbee device mapping
+#
+# CONFIGURATION:
+# - TYPE: "z_pressure" - Plugin identifier in Matter configuration
+# - DISPLAY_NAME: "Zig Pressure" - Shows as Zigbee pressure in UI
+# - ZIGBEE: true - Marks this as a Zigbee bridge device
+# - ARG: "zigbee_device" - Zigbee device identifier (short address or friendly name)
+# - Requires Tasmota Zigbee coordinator functionality
+#################################################################################
+
 import matter
 
 # Matter plug-in for core behavior
@@ -28,9 +54,10 @@ class Matter_Plugin_Zigbee_Pressure : Matter_Plugin_Sensor_Pressure
   static var TYPE = "z_pressure"                    # name of the plug-in in json
   static var DISPLAY_NAME = "Zig Pressure"          # display name of the plug-in
   static var ZIGBEE_NAME = "Pressure"               # name of zigbee attribute with sensor reported
-  static var ARG  = "zigbee_device"                 # zigbee device
-  static var ARG_TYPE = / x -> str(x)               # function to convert argument to the right type
-  static var ARG_HINT = "Device"                    # Hint for entering the Argument (inside 'placeholder')
+
+  static var SCHEMA = "zigbee_device|"              # arg name
+                      "l:Device|"                   # label (display name)
+                      "h:Device"                    # hint (type defaults to text)
   static var VIRTUAL = true                         # virtual device, necessary for Zigbee mapping
   var zigbee_mapper                                 # required for zigbee device
 

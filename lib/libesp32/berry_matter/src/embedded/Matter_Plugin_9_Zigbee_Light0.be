@@ -1,5 +1,5 @@
 #
-# Matter_Plugin_9_Zigbee_Temperature.be - implements the behavior for a Zigbee Light0
+# Matter_Plugin_9_Zigbee_Light0.be - implements Zigbee On/Off Light
 #
 # Copyright (C) 2023  Stephan Hadinger & Theo Arends
 #
@@ -17,6 +17,33 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+#################################################################################
+# Matter 1.4.1 Zigbee Variant - Zigbee2Matter Bridge On/Off Light
+#################################################################################
+# This is a ZIGBEE variant that inherits from Matter_Plugin_Light0.
+# It bridges Zigbee on/off lights to Matter protocol.
+#
+# DEVICE TYPE: On/Off Light (0x0100)
+# See Matter_Plugin_2_Light0.be for complete Matter 1.4.1 specifications
+# including On/Off cluster (0x0006) details.
+#
+# ZIGBEE BEHAVIOR:
+# - Bridges Zigbee lights to Matter using zigbee_mapper
+# - Listens for Zigbee attribute reports (ZIGBEE_NAME: "Power")
+# - Sends Zigbee commands when Matter controller changes state
+# - Automatically converts between Zigbee and Matter formats
+# - Maps Zigbee device to Matter endpoint
+# - Inherits all cluster implementations from base class
+# - VIRTUAL: true - Required for Zigbee device mapping
+#
+# CONFIGURATION:
+# - TYPE: "z_light0" - Plugin identifier in Matter configuration
+# - DISPLAY_NAME: "Zig Light 0 OnOff" - Shows as Zigbee on/off light in UI
+# - ZIGBEE: true - Marks this as a Zigbee bridge device
+# - ARG: "zigbee_device" - Zigbee device identifier (short address or friendly name)
+# - Requires Tasmota Zigbee coordinator functionality
+#################################################################################
+
 import matter
 
 # Matter plug-in for core behavior
@@ -28,9 +55,10 @@ class Matter_Plugin_Zigbee_Light0 : Matter_Plugin_Light0
   static var TYPE = "z_light0"                      # name of the plug-in in json
   static var DISPLAY_NAME = "Zig Light 0 OnOff"     # display name of the plug-in
   static var ZIGBEE_NAME = "Power"                  # name of zigbee attribute with sensor reported
-  static var ARG  = "zigbee_device"                 # zigbee device
-  static var ARG_TYPE = / x -> str(x)               # function to convert argument to the right type
-  static var ARG_HINT = "Device"                    # Hint for entering the Argument (inside 'placeholder')
+
+  static var SCHEMA = "zigbee_device|"              # arg name
+                      "l:Device|"                   # label (display name)
+                      "h:Device"                    # hint (type defaults to text)
   static var VIRTUAL = true                         # virtual device, necessary for Zigbee mapping
   var zigbee_mapper                                 # required for zigbee device
 

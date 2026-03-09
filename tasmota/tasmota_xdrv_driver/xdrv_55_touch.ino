@@ -480,10 +480,6 @@ void Touch_MQTT(uint8_t index, const char *cp, uint32_t val) {
   if (GT911_found) ResponseTime_P(PSTR(",\"GT911\":{\"%s%d\":\"%d\"}}"), cp, index + 1, val);
 #endif  // USE_XPT2046
   MqttPublishTeleSensor();
-#ifdef USE_TINYC
-  extern void tinyc_touch_button(uint8_t btn, int16_t val);
-  tinyc_touch_button(index, (int16_t)val);
-#endif
 }
 
 void EP_Drawbutton(uint32_t count) {

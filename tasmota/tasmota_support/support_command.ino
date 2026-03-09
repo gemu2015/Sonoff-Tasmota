@@ -2163,7 +2163,7 @@ void CmndTemplate(void)
     if (JsonTemplate(XdrvMailbox.data)) {
       if (USER_MODULE == Settings->module) { TasmotaGlobal.restart_flag = 2; }
     } else {
-      ResponseCmndChar_P(PSTR(D_JSON_INVALID_JSON));
+      ResponseCmndChar_P(PSTR(D_JSON_INVALID_JSON " or Bad Chip Type"));
       error = true;
     }
 #endif // FIRMWARE_MINIMAL
@@ -2972,7 +2972,11 @@ void CmndI2cDriver(void)
 {
   if (XdrvMailbox.index < MAX_I2C_DRIVERS) {
     if (XdrvMailbox.payload >= 0) {
-      bitWrite(Settings->i2c_drivers[XdrvMailbox.index / 32], XdrvMailbox.index % 32, XdrvMailbox.payload &1);
+      if (XdrvMailbox.index < 96) {
+        bitWrite(Settings->i2c_drivers[XdrvMailbox.index / 32], XdrvMailbox.index % 32, XdrvMailbox.payload &1);
+      } else {
+        bitWrite(Settings->i2c_drivers2[(XdrvMailbox.index / 32) -3], XdrvMailbox.index % 32, XdrvMailbox.payload &1);
+      }
       TasmotaGlobal.restart_flag = 2;
     }
   }

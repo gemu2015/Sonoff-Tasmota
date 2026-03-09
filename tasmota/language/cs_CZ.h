@@ -118,6 +118,7 @@
 #define D_GATEWAY "Výchozí brána"
 #define D_GROUP "Skupina"
 #define D_HALL_EFFECT "Hall Effect"
+#define D_HCHO "Formaldehyde"
 #define D_HEATINDEX "Heat index"
 #define D_HOST "Server"
 #define D_HOSTNAME "Název serveru"
@@ -348,6 +349,7 @@
 
 #define D_OTHER_PARAMETERS "Další nastavení"
 #define D_TEMPLATE "Šablona"
+#define D_TEMPLATE_WRONG_ARCH "Reset to correct chip type"
 #define D_ACTIVATE "Aktivovat"
 #define D_DEVICE_NAME "Device Name"
 #define D_WEB_ADMIN_PASSWORD "Heslo Web administrátora"

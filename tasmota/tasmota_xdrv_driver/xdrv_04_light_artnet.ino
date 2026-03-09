@@ -38,19 +38,19 @@
 #endif
 
 typedef struct {
-  uint8_t rows = 1;     // number of rows (min:1)
-  uint8_t cols = 0;     // number of columns (if cols == 0 then apply to the entire light)
-  uint8_t offs = 0;     // offset in the led strip where the matrix starts (min: 0)
-  bool    alt = false;  // are the rows in alternate directions
-  uint16_t univ = 0;    // start at universe number (+1)
-  uint16_t port = 6454; // UDP port number
-  uint8_t dimm = 100;   // Dimmer 0..100
-  bool    on = true;
-  bool    matrix = true;  // true if light is a WS2812 matrix, false if single light
   // metrics
   uint32_t packet_received = 0;
   uint32_t packet_accepted = 0;
   uint32_t strip_refresh = 0;
+  uint16_t offs = 0;            // offset in the led strip where the matrix starts (min: 0)
+  uint16_t univ = 0;            // start at universe number (+1)
+  uint16_t port = 6454;         // UDP port number
+  uint8_t dimm = 100;           // Dimmer 0..100
+  uint8_t rows = 1;             // number of rows (min:1)
+  uint8_t cols = 0;             // number of columns (if cols == 0 then apply to the entire light)
+  bool    alt = false;          // are the rows in alternate directions
+  bool    on = true;
+  bool    matrix = true;        // true if light is a WS2812 matrix, false if single light
 } ArtNetConfig;
 
 uint32_t * packets_per_row = nullptr;
@@ -90,6 +90,10 @@ void ArtNetValidate(void) {
   if (artnet_conf.dimm > 100) { artnet_conf.dimm = 100; }
   if (artnet_conf.cols == 0 || artnet_conf.rows == 0) { artnet_conf.rows = 1; }    // if single light, both are supposed to be 0
   artnet_conf.matrix = (artnet_conf.cols > 0) && Ws2812StripConfigured();
+  if (!artnet_conf.matrix) {  // Single RGBWC light using offset as DMX start channel
+    uint32_t max_offset = WS2812_ARTNET_UDP_BUFFER_SIZE -18 -5;  // 18 = ArtNet header, 5 = RGBWC channels
+    if (artnet_conf.offs > max_offset) { artnet_conf.offs = max_offset; }
+  }
   if (artnet_conf.univ > 32767) { artnet_conf.univ = 0; }
   if (artnet_conf.port == 0) { artnet_conf.port = 6454; }
 }
@@ -136,7 +140,7 @@ void ArtNetProcessPacket(uint8_t * buf, size_t len) {
   uint16_t protocol = (buf[10] << 8) | buf[11];   // Big Endian
   uint16_t universe = buf[14] | (buf[15] << 8);
   uint16_t datalen = (buf[16] << 8) | buf[17];
-  // AddLog(LOG_LEVEL_DEBUG_MORE, PSTR("DMX: opcode=0x%04X procotol=%i universe=%i datalen=%i univ_start=%i univ_end=%i"), opcode, protocol, universe, datalen, artnet_conf.univ, artnet_conf.univ + artnet_conf.rows);
+//  AddLog(LOG_LEVEL_DEBUG_MORE, PSTR("DMX: opcode=0x%04X procotol=%i universe=%i datalen=%i univ_start=%i univ_end=%i"), opcode, protocol, universe, datalen, artnet_conf.univ, artnet_conf.univ + artnet_conf.rows);
   if (opcode != 0x5000 || protocol != 14) { return; }
 
 //  if (len + 18 < datalen) {
@@ -252,7 +256,7 @@ void ArtNetLoop(void)
       packet_len = ArtNetUdp->read(packet_buffer, WS2812_ARTNET_UDP_BUFFER_SIZE);
       ArtNetUdp->flush();   // Finish reading the current packet
 #endif
-      // AddLog(LOG_LEVEL_DEBUG_MORE, PSTR("UDP: Packet %*_H (%d)"), 32, packet_buffer, packet_len);
+//      AddLog(LOG_LEVEL_DEBUG_MORE, PSTR("UDP: Packet %*_H (%d)"), 32, packet_buffer, packet_len);
       if (artnet_conf.on) {
         ArtNetProcessPacket(packet_buffer, packet_len);
       }

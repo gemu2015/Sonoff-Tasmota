@@ -239,6 +239,15 @@ void TasAutoMutex::take() {
 /*********************************************************************************************\
  * Miscellaneous
 \*********************************************************************************************/
+
+void PowerOnDelay(uint32_t msecs) {
+//  if (ResetReasonPowerOn()) {
+    while (millis() < msecs) {
+      delay(1);
+    }
+//  }
+}
+
 /*
 String GetBinary(const void* ptr, size_t count) {
   uint32_t value = *(uint32_t*)ptr;
@@ -1862,10 +1871,19 @@ bool ValidSpiPinUsed(uint32_t gpio) {
   return result;
 }
 
-bool JsonTemplate(char* dataBuf)
-{
+String ArchName(void) {
+  String arch = TASMOTA_ARCH;
+  arch.toUpperCase();
+  if (arch.equals("ESP32SOLO1")) {
+    arch = "ESP32";
+  }
+  return arch;
+}
+
+bool JsonTemplate(char* dataBuf) {
   // Old: {"NAME":"Shelly 2.5","GPIO":[56,0,17,0,21,83,0,0,6,82,5,22,156],"FLAG":2,"BASE":18}
   // New: {"NAME":"Shelly 2.5","GPIO":[320,0,32,0,224,193,0,0,640,192,608,225,3456,4736],"FLAG":0,"BASE":18}
+  // Newest: {"NAME":"Shelly 2.5","ARCH":"ESP8266","GPIO":[320,0,32,0,224,193,0,0,640,192,608,225,3456,4736],"FLAG":0,"BASE":18}
 
 //  AddLog(LOG_LEVEL_DEBUG, PSTR("TPL: |%s|"), dataBuf);
 
@@ -1873,10 +1891,16 @@ bool JsonTemplate(char* dataBuf)
 
   JsonParser parser((char*) dataBuf);
   JsonParserObject root = parser.getRootObject();
-  if (!root) { return false; }
+  if (!root) { return false; }                // Invalid JSON
 
   // All parameters are optional allowing for partial changes
-  JsonParserToken val = root[PSTR(D_JSON_NAME)];
+  JsonParserToken val = root[PSTR(D_JSON_ARCH)];
+  if (val) {
+    if (strcmp(val.getStr(), ArchName().c_str())) {
+      return false;                           // Bad architecture
+    }
+  }
+  val = root[PSTR(D_JSON_NAME)];
   if (val) {
     SettingsUpdateText(SET_TEMPLATE_NAME, val.getStr());
   }
@@ -1954,11 +1978,10 @@ bool JsonTemplate(char* dataBuf)
   return true;
 }
 
-void TemplateJson(void)
-{
+void TemplateJson(void) {
 //  AddLog(LOG_LEVEL_DEBUG, PSTR("TPL: Show %*_V"), sizeof(Settings->user_template) / 2, (uint8_t*)&Settings->user_template);
-
-  Response_P(PSTR("{\"" D_JSON_NAME "\":\"%s\",\"" D_JSON_GPIO "\":["), SettingsText(SET_TEMPLATE_NAME));
+  Response_P(PSTR("{\"" D_JSON_NAME "\":\"%s\",\"" D_JSON_ARCH "\":\"%s\",\"" D_JSON_GPIO "\":["),
+    SettingsText(SET_TEMPLATE_NAME), ArchName().c_str());
   for (uint32_t i = 0; i < nitems(Settings->user_template.gp.io); i++) {
     uint16_t gpio = Settings->user_template.gp.io[i];
     if (gpio == AGPIO(GPIO_USER)) {

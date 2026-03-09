@@ -118,6 +118,7 @@
 #define D_GATEWAY "Шлюз"
 #define D_GROUP "Група"
 #define D_HALL_EFFECT "Hall Effect"
+#define D_HCHO "Formaldehyde"
 #define D_HEATINDEX "Heat index"
 #define D_HOST "Хост"
 #define D_HOSTNAME "Назва хосту"
@@ -348,6 +349,7 @@
 
 #define D_OTHER_PARAMETERS "Параметри Інше"
 #define D_TEMPLATE "Шаблони"
+#define D_TEMPLATE_WRONG_ARCH "Reset to correct chip type"
 #define D_ACTIVATE "Активований"
 #define D_DEVICE_NAME "Device Name"
 #define D_WEB_ADMIN_PASSWORD "Гасло адміністратора Web"

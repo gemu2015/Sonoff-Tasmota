@@ -17,6 +17,30 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+#################################################################################
+# Matter 1.4.1 Bridge Variant - HTTP Remote Contact Sensor
+#################################################################################
+# This is a BRIDGE variant that inherits from Matter_Plugin_Sensor_Contact.
+# It communicates with a remote Tasmota device via HTTP to read contact state.
+#
+# DEVICE TYPE: Contact Sensor (0x0015)
+# See Matter_Plugin_3_Sensor_Contact.be for complete Matter 1.4.1 specifications
+# including Boolean State cluster (0x0045) details.
+#
+# BRIDGE BEHAVIOR:
+# - Polls remote Tasmota device via HTTP using UPDATE_CMD ("Status 10")
+# - Parses JSON response to extract contact state from Switch<x>
+# - Maps Tasmota switch state to Matter StateValue (true=contact, false=no contact)
+# - Inherits all cluster implementations from base class
+# - UPDATE_TIME: 5000ms (5 seconds) for responsive contact detection
+#
+# CONFIGURATION:
+# - TYPE: "http_contact" - Plugin identifier in Matter configuration
+# - BRIDGE: true - Marks this as a bridged device
+# - Requires endpoint configuration with remote device URL
+# - ARG: Switch number on remote device (e.g., "1" for Switch1)
+#################################################################################
+
 import matter
 
 # Matter plug-in for core behavior
@@ -29,7 +53,6 @@ class Matter_Plugin_Bridge_Sensor_Contact : Matter_Plugin_Sensor_Contact
   # static var DISPLAY_NAME = "Contact"               # display name of the plug-in
   # static var ARG  = "switch"                        # additional argument name (or empty if none)
   # static var ARG_HINT = "Switch<x> number"
-  # static var ARG_TYPE = / x -> int(x)               # function to convert argument to the right type
   static var UPDATE_TIME = 5000                     # update every 5s
   static var UPDATE_CMD = "Status 10"               # command to send for updates
 end

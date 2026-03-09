@@ -490,10 +490,10 @@ class Matter_Commisioning_Context
       # log("MTR: * shared_secret  = " + session.shared_secret.tohex(), 4)
 
       var sigma2_tbsdata = matter.TLV.Matter_TLV_struct()
-      sigma2_tbsdata.add_TLV(1, matter.TLV.B2, fabric.get_noc())
-      sigma2_tbsdata.add_TLV(2, matter.TLV.B2, fabric.get_icac())
-      sigma2_tbsdata.add_TLV(3, matter.TLV.B2, session.__responder_pub)
-      sigma2_tbsdata.add_TLV(4, matter.TLV.B2, sigma1.initiatorEphPubKey)
+      sigma2_tbsdata.add_TLV(1, 0x11 #-matter.TLV.B2-#, fabric.get_noc())
+      sigma2_tbsdata.add_TLV(2, 0x11 #-matter.TLV.B2-#, fabric.get_icac())
+      sigma2_tbsdata.add_TLV(3, 0x11 #-matter.TLV.B2-#, session.__responder_pub)
+      sigma2_tbsdata.add_TLV(4, 0x11 #-matter.TLV.B2-#, sigma1.initiatorEphPubKey)
 
       var TBSData2Signature = crypto.EC_P256().ecdsa_sign_sha256(fabric.get_pk(), sigma2_tbsdata.tlv2raw())
       # log("****************************************", 4)
@@ -502,10 +502,10 @@ class Matter_Commisioning_Context
       # log("MTR: * TBSData2Signature  = " + TBSData2Signature.tohex(), 4)
 
       var sigma2_tbedata = matter.TLV.Matter_TLV_struct()
-      sigma2_tbedata.add_TLV(1, matter.TLV.B2, fabric.get_noc())
-      sigma2_tbedata.add_TLV(2, matter.TLV.B2, fabric.get_icac())
-      sigma2_tbedata.add_TLV(3, matter.TLV.B2, TBSData2Signature)
-      sigma2_tbedata.add_TLV(4, matter.TLV.B2, session.resumption_id)
+      sigma2_tbedata.add_TLV(1, 0x11 #-matter.TLV.B2-#, fabric.get_noc())
+      sigma2_tbedata.add_TLV(2, 0x11 #-matter.TLV.B2-#, fabric.get_icac())
+      sigma2_tbedata.add_TLV(3, 0x11 #-matter.TLV.B2-#, TBSData2Signature)
+      sigma2_tbedata.add_TLV(4, 0x11 #-matter.TLV.B2-#, session.resumption_id)
 
       # compute TranscriptHash = Crypto_Hash(message = Msg1)
       # log("****************************************", 4)
@@ -621,11 +621,23 @@ class Matter_Commisioning_Context
     if type(initiatorFabricId) == 'int'   session.peer_node_id = int64.fromu32(initiatorFabricId).tobytes() else session.peer_node_id = initiatorFabricId.tobytes() end
     # log("MTR: initiatorFabricId="+str(session.peer_node_id), 4)
 
+    # Validate that the Fabric ID in the initiator's NOC matches the session's fabric (§4.12)
+    var noc_fabric_id = initiatorNOCListDN.findsubval(21)
+    if noc_fabric_id != nil && session._fabric && session._fabric.fabric_id
+      var noc_fabric_bytes = (type(noc_fabric_id) == 'int') ? int64.fromu32(noc_fabric_id).tobytes() : noc_fabric_id.tobytes()
+      if noc_fabric_bytes != session._fabric.fabric_id
+        log(f"MTR: Sigma3 Fabric ID mismatch: NOC={noc_fabric_bytes.tohex()} fabric={session._fabric.fabric_id.tohex()}", 3)
+        log("MTR: StatusReport(General Code: FAILURE, ProtocolId: SECURE_CHANNEL, ProtocolCode: INVALID_PARAMETER)", 2)
+        self.send_status_report(msg, 0x01, 0x0000, 0x0002, false)
+        return false
+      end
+    end
+
     var sigma3_tbs = matter.TLV.Matter_TLV_struct()
-    sigma3_tbs.add_TLV(1, matter.TLV.B1, initiatorNOC)
-    sigma3_tbs.add_TLV(2, matter.TLV.B1, initiatorICAC)
-    sigma3_tbs.add_TLV(3, matter.TLV.B1, session.__initiator_pub)
-    sigma3_tbs.add_TLV(4, matter.TLV.B1, session.__responder_pub)
+    sigma3_tbs.add_TLV(1, 0x10 #-matter.TLV.B1-#, initiatorNOC)
+    sigma3_tbs.add_TLV(2, 0x10 #-matter.TLV.B1-#, initiatorICAC)
+    sigma3_tbs.add_TLV(3, 0x10 #-matter.TLV.B1-#, session.__initiator_pub)
+    sigma3_tbs.add_TLV(4, 0x10 #-matter.TLV.B1-#, session.__responder_pub)
     # log("MTR: * sigma3_tbs    = " + str(sigma3_tbs), 4)
     var sigma3_tbs_raw = sigma3_tbs.tlv2raw()
     # log("MTR: * sigma3_tbs_raw= " + sigma3_tbs_raw.tohex(), 4)
@@ -639,14 +651,11 @@ class Matter_Commisioning_Context
 
     if !sigma3_tbs_valid
       log("MTR: sigma3_tbs does not have a valid signature", 2)
-      log("MTR: ******************* Invalid signature, trying anyways", 2)
-      # log("MTR: StatusReport(General Code: FAILURE, ProtocolId: SECURE_CHANNEL, ProtocolCode: INVALID_PARAMETER)", 2)
-      # self.send_status_report(msg, 0x01, 0x0000, 0x0002, false)
-      # return false
-    else
-      # All good, compute new keys
-      log("MTR: Sigma3 verified, computing new keys", 3)
+      log("MTR: StatusReport(General Code: FAILURE, ProtocolId: SECURE_CHANNEL, ProtocolCode: INVALID_PARAMETER)", 2)
+      self.send_status_report(msg, 0x01, 0x0000, 0x0002, false)
+      return false
     end
+    log("MTR: Sigma3 verified, computing new keys", 3)
 
     TranscriptHash = crypto.SHA256().update(session.__Msg1).update(session.__Msg2).update(sigma3.Msg3).out()
     # log("MTR: * __Msg1            = " + session.__Msg1.tohex(), 4)

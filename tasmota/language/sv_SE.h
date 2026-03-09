@@ -118,6 +118,7 @@
 #define D_GATEWAY "Gateway"
 #define D_GROUP "Grupp"
 #define D_HALL_EFFECT "Hall Effect"
+#define D_HCHO "Formaldehyde"
 #define D_HEATINDEX "Heat index"
 #define D_HOST "Värd"
 #define D_HOSTNAME "Värdnamn"
@@ -348,6 +349,7 @@
 
 #define D_OTHER_PARAMETERS "Andra parametrar"
 #define D_TEMPLATE "Template"
+#define D_TEMPLATE_WRONG_ARCH "Reset to correct chip type"
 #define D_ACTIVATE "Activate"
 #define D_DEVICE_NAME "Device Name"
 #define D_WEB_ADMIN_PASSWORD "Webbadmin-lösenord"

@@ -118,6 +118,7 @@
 #define D_GATEWAY "게이트웨이"
 #define D_GROUP "그룹"
 #define D_HALL_EFFECT "Hall Effect"
+#define D_HCHO "Formaldehyde"
 #define D_HEATINDEX "Heat index"
 #define D_HOST "호스트"
 #define D_HOSTNAME "호스트이름"
@@ -348,6 +349,7 @@
 
 #define D_OTHER_PARAMETERS "기타 설정"
 #define D_TEMPLATE "템플릿"
+#define D_TEMPLATE_WRONG_ARCH "Reset to correct chip type"
 #define D_ACTIVATE "활성화"
 #define D_DEVICE_NAME "Device Name"
 #define D_WEB_ADMIN_PASSWORD "Web Admin 비밀번호"

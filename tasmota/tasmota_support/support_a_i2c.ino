@@ -13,8 +13,8 @@
 
 #ifdef ESP8266
 #ifdef USE_I2C_BUS2
-#define USE_I2C_BUS2_ESP8266
-#endif  // USE_I2C_BUS2_ESP8266
+TwoWire Wire1;
+#endif  // USE_I2C_BUS2
 #endif  // ESP8266
 
 const uint8_t I2C_RETRY_COUNTER = 3;
@@ -27,48 +27,23 @@ struct I2Ct {
 #else
   uint32_t active[1][4];
 #endif  // No USE_I2C_BUS2
-#ifdef USE_I2C_BUS2_ESP8266
-  int8_t sda[2];
-  int8_t scl[2];
-  int8_t active_bus = -1;
-#endif  // USE_I2C_BUS2_ESP8266
 } I2C;
-
-#ifdef USE_I2C_BUS2_ESP8266
-TwoWire Wire1 = Wire;                                     // Not really backward compatible with ESP32
-
-void I2cSetBus(uint32_t bus = 0);
-void I2cSetBus(uint32_t bus) {
-  if (I2C.active_bus != bus) {
-    I2C.active_bus = bus;
-    Wire.begin(I2C.sda[bus], I2C.scl[bus]);
-    Wire.setClock(I2C.frequency[bus]);
-  }
-}
-#endif  // USE_I2C_BUS2_ESP8266
 
 bool I2cBegin(int sda, int scl, uint32_t bus = 0, uint32_t frequency = 100000);
 bool I2cBegin(int sda, int scl, uint32_t bus, uint32_t frequency) {
   I2C.frequency[bus] = frequency;
   bool result = true;
-#ifdef ESP8266
-#ifdef USE_I2C_BUS2_ESP8266
-  I2C.sda[bus] = sda;
-  I2C.scl[bus] = scl;
-  I2cSetBus();
-#else
-  if (bus > 0) { return false; }
-  Wire.begin(sda, scl);
-  Wire.setClock(frequency);
-#endif  // USE_I2C_BUS2_ESP8266
-#endif  // ESP8266
-#ifdef ESP32
 #ifdef USE_I2C_BUS2
   TwoWire& myWire = (0 == bus) ? Wire : Wire1;
 #else
   if (bus > 0) { return false; }
   TwoWire& myWire = Wire;
 #endif
+#ifdef ESP8266
+  myWire.begin(sda, scl);
+  myWire.setClock(I2C.frequency[bus]);
+#endif  // ESP8266
+#ifdef ESP32
   static bool reinit = false;
   if (reinit) { myWire.end(); }
   result = myWire.begin(sda, scl, frequency);
@@ -82,9 +57,6 @@ TwoWire * I2CSerialGetWire(TwoWire * orig_wire, uint8_t bus);
 
 TwoWire& I2cGetWire(uint8_t bus = 0) {
   if ((0 == bus) && TasmotaGlobal.i2c_enabled[0]) {
-#ifdef USE_I2C_BUS2_ESP8266
-    I2cSetBus(bus);
-#endif
 #ifdef USE_I2C_SERIAL
     return I2CSerialGetWire(Wire, bus);
 #else
@@ -93,9 +65,6 @@ TwoWire& I2cGetWire(uint8_t bus = 0) {
   }
 #ifdef USE_I2C_BUS2
   else if ((1 == bus) && TasmotaGlobal.i2c_enabled[1]) {
-#ifdef USE_I2C_BUS2_ESP8266
-    I2cSetBus(bus);
-#endif
 #ifdef USE_I2C_SERIAL
     return I2CSerialGetWire(Wire1, bus);
 #else
@@ -154,9 +123,6 @@ bool I2cValidRead(uint8_t addr, uint8_t reg, uint8_t size, uint8_t bus = 0, bool
     retry--;
   }
   if (!retry) myWire.endTransmission();
-#ifdef USE_I2C_BUS2_ESP8266
-  I2cSetBus();
-#endif
   return status;                                          // 0 = Error, 1 = OK
 }
 
@@ -244,9 +210,6 @@ bool I2cWrite(uint8_t addr, uint8_t reg, uint32_t val, uint8_t size, uint8_t bus
     }
     x--;
   } while (myWire.endTransmission(true) != 0 && x != 0);  // end transmission
-#ifdef USE_I2C_BUS2_ESP8266
-  I2cSetBus();
-#endif
   return (x);                                             // 0 = Error, 1 = OK
 }
 
@@ -272,18 +235,12 @@ bool I2cReadBuffer0(uint8_t addr, uint8_t *reg_data, uint16_t len, uint8_t bus =
 
   myWire.requestFrom((uint8_t)addr, (uint8_t)len);
   if (myWire.available() != len) {
-#ifdef USE_I2C_BUS2_ESP8266
-    I2cSetBus();
-#endif
     return true;                                          // 1 = Error
   }
   while (len--) {
     *reg_data = (uint8_t)myWire.read();
     reg_data++;
   }
-#ifdef USE_I2C_BUS2_ESP8266
-  I2cSetBus();
-#endif
   return false;                                           // 0 = OK
 }
 
@@ -300,9 +257,6 @@ bool I2cReadBuffer(uint8_t addr, int reg, uint8_t *reg_data, uint16_t len, uint8
     myWire.endTransmission();
   }
   if (len != myWire.requestFrom((uint8_t)addr, (uint8_t)len)) {
-#ifdef USE_I2C_BUS2_ESP8266
-    I2cSetBus();
-#endif
     return true;                                          // 1 = Error
   }
   while (len--) {
@@ -312,9 +266,6 @@ bool I2cReadBuffer(uint8_t addr, int reg, uint8_t *reg_data, uint16_t len, uint8
   if (reg < 0) { 
     myWire.endTransmission();
   }
-#ifdef USE_I2C_BUS2_ESP8266
-  I2cSetBus();
-#endif
   return false;                                           // 0 = OK
 }
 
@@ -329,10 +280,22 @@ bool I2cWriteBuffer(uint8_t addr, uint8_t reg, uint8_t *reg_data, uint16_t len, 
     reg_data++;
   }
   myWire.endTransmission();
-#ifdef USE_I2C_BUS2_ESP8266
-  I2cSetBus();
-#endif
   return false;                                           // 0 = OK
+}
+
+/*-------------------------------------------------------------------------------------------*/
+
+bool I2cReset(uint32_t bus = 0) {
+  /*
+  NXP UM10204 I2C-bus specification and user manual - Software Reset
+  Following a General Call, (0000 0000), sending 0000 0110 (06h) as the second byte
+  causes a software reset. This feature is optional and not all devices respond to this
+  command. On receiving this 2-byte sequence, all devices designed to respond to
+  the general call address reset and take in the programmable part of their address.
+  Precautions must be taken to ensure that a device is not pulling down the SDA or SCL
+  line after applying the supply voltage, since these low levels would block the bus.
+  */
+  return I2cWrite0(0, 6, bus);
 }
 
 /*-------------------------------------------------------------------------------------------*/
@@ -354,11 +317,7 @@ void I2cScan(uint8_t bus = 0) {
   // 5: timeout
   TwoWire& myWire = I2cGetWire(bus);
   if (&myWire == nullptr) { return; }  // No valid I2c bus
-  Response_P(PSTR("{\"" D_CMND_I2CSCAN "\":\"Device(s) found "));
-#ifdef USE_I2C_BUS2
-  ResponseAppend_P(PSTR("on bus%d "), bus +1);
-#endif
-  ResponseAppend_P(PSTR("at"));
+  Response_P(PSTR("{\"" D_CMND_I2CSCAN "\":\"Device(s) found on bus%d at"), bus +1);
 
   uint8_t error = 0;
   uint8_t address = 0;
@@ -372,22 +331,18 @@ void I2cScan(uint8_t bus = 0) {
     }
     else if (error != 2) {  // Seems to happen anyway using this scan
       any = 2;
-      Response_P(PSTR("{\"" D_CMND_I2CSCAN "\":\"Error %d at 0x%02x"), error, address);
-#ifdef USE_I2C_BUS2
-      ResponseAppend_P(PSTR(" (bus%d)"), bus +1);
-#endif  // USE_I2C_BUS2
+      Response_P(PSTR("{\"" D_CMND_I2CSCAN "\":\"Error %d at 0x%02x on bus%d"), error, address, bus +1);
       break;
     }
   }
-#ifdef USE_I2C_BUS2_ESP8266
-  I2cSetBus();
-#endif
   if (any) {
     ResponseAppend_P(PSTR("\"}"));
   } else {
-    Response_P(PSTR("{\"" D_CMND_I2CSCAN "\":\"No devices found\"}"));
+    Response_P(PSTR("{\"" D_CMND_I2CSCAN "\":\"No devices found on bus%d\"}"), bus +1);
   }
 }
+
+/*-------------------------------------------------------------------------------------------*/
 
 void I2cResetActive(uint32_t addr, uint8_t bus = 0) {
   addr &= 0x7F;         // Max I2C address is 127
@@ -410,7 +365,7 @@ void I2cSetActive(uint32_t addr, uint8_t bus = 0) {
 
 void I2cSetActiveFound(uint32_t addr, const char *types, uint8_t bus = 0) {
   I2cSetActive(addr, bus);
-  AddLog(LOG_LEVEL_INFO, PSTR("I2C: %s found at 0x%02x%s"), types, addr, (bus)?" (bus2)":"");
+  AddLog(LOG_LEVEL_INFO, PSTR("I2C: %s found at 0x%02x on bus%d"), types, addr, bus +1);
 }
 
 bool I2cActive(uint32_t addr, uint8_t bus = 0) {
@@ -429,11 +384,8 @@ bool I2cSetDevice(uint32_t addr, uint8_t bus = 0) {
   myWire.beginTransmission((uint8_t)addr);
 //  return (0 == myWire.endTransmission());
   uint32_t err = myWire.endTransmission();
-#ifdef USE_I2C_BUS2_ESP8266
-  I2cSetBus();
-#endif
   if (err && (err != 2)) {
-    AddLog(LOG_LEVEL_DEBUG, PSTR("I2C: Error %d at 0x%02x%s"), err, addr, (bus)?" (bus2)":"");
+    AddLog(LOG_LEVEL_DEBUG, PSTR("I2C: Error %d at 0x%02x on bus%d"), err, addr, bus +1);
   }
   return (0 == err);
 }

@@ -118,6 +118,7 @@
 #define D_GATEWAY "Gateway"
 #define D_GROUP "Groep"
 #define D_HALL_EFFECT "Hall Effect"
+#define D_HCHO "Formaldehyde"
 #define D_HEATINDEX "Heat index"
 #define D_HOST "Gasheer"
 #define D_HOSTNAME "Gasheername"
@@ -348,6 +349,7 @@
 
 #define D_OTHER_PARAMETERS "Ander parameters"
 #define D_TEMPLATE "Sjabloon"
+#define D_TEMPLATE_WRONG_ARCH "Reset to correct chip type"
 #define D_ACTIVATE "Aktiveer"
 #define D_DEVICE_NAME "Toestel naam"
 #define D_WEB_ADMIN_PASSWORD "Webadministrateurwagwoord"

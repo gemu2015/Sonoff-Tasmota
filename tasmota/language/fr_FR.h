@@ -118,6 +118,7 @@
 #define D_GATEWAY "Passerelle"
 #define D_GROUP "Groupe"
 #define D_HALL_EFFECT "Effet Hall"
+#define D_HCHO "Formaldehyde"
 #define D_HEATINDEX "Heat index"
 #define D_HOST "Hôte"
 #define D_HOSTNAME "Nom d'Hôte"
@@ -348,6 +349,7 @@
 
 #define D_OTHER_PARAMETERS "Autres paramètres"
 #define D_TEMPLATE "Modèle"
+#define D_TEMPLATE_WRONG_ARCH "Reset to correct chip type"
 #define D_ACTIVATE "Activer"
 #define D_DEVICE_NAME "Nom de l'appareil"
 #define D_WEB_ADMIN_PASSWORD "Mot de passe Web Admin"

@@ -1,5 +1,5 @@
 #
-# Matter_Plugin_9_Virt_Sensor_Humidity.be - implements the behavior for a Virtual Humidity Sensor
+# Matter_Plugin_9_Virt_Sensor_Humidity.be - implements Virtual Humidity Sensor
 #
 # Copyright (C) 2023  Stephan Hadinger & Theo Arends
 #
@@ -17,6 +17,30 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+#################################################################################
+# Matter 1.4.1 Virtual Variant - Matter Bridge Protocol Humidity Sensor
+#################################################################################
+# This is a VIRTUAL variant that inherits from Matter_Plugin_Sensor_Humidity.
+# It exposes a virtual sensor that can be controlled via Matter bridge protocol.
+#
+# DEVICE TYPE: Humidity Sensor (0x0307)
+# See Matter_Plugin_3_Sensor_Humidity.be for complete Matter 1.4.1 specifications
+# including Relative Humidity Measurement cluster (0x0405) details.
+#
+# VIRTUAL BEHAVIOR:
+# - Exposes a virtual humidity sensor endpoint
+# - Values can be set via Matter commands from controller
+# - No physical sensor or HTTP polling required
+# - Useful for testing, simulation, or custom integrations
+# - Inherits all cluster implementations from base class
+#
+# CONFIGURATION:
+# - TYPE: "v_humidity" - Plugin identifier in Matter configuration
+# - DISPLAY_NAME: "v.Humidity" - Shows as virtual humidity in UI
+# - VIRTUAL: true - Marks this as a virtual device
+# - ARG: "" - No argument needed (no physical sensor to map)
+#################################################################################
+
 import matter
 
 # Matter plug-in for core behavior
@@ -26,8 +50,8 @@ import matter
 class Matter_Plugin_Virt_Sensor_Humidity : Matter_Plugin_Sensor_Humidity
   static var TYPE = "v_humidity"                    # name of the plug-in in json
   static var DISPLAY_NAME = "v.Humidity"            # display name of the plug-in
-  static var ARG  = ""                              # no arg for virtual device
-  static var ARG_HINT = "_Not used_"                # Hint for entering the Argument (inside 'placeholder')
+
+  static var SCHEMA = nil                          # no parameter
   static var VIRTUAL = true                         # virtual device
 end
 matter.Plugin_Virt_Sensor_Humidity = Matter_Plugin_Virt_Sensor_Humidity

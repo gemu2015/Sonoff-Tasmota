@@ -118,6 +118,7 @@
 #define D_GATEWAY "Cổng kết nối"
 #define D_GROUP "Nhóm"
 #define D_HALL_EFFECT "Hall Effect"
+#define D_HCHO "Formaldehyde"
 #define D_HEATINDEX "Heat index"
 #define D_HOST "Máy chủ"
 #define D_HOSTNAME "Tên máy chủ"
@@ -348,6 +349,7 @@
 
 #define D_OTHER_PARAMETERS "Các thông số khác"
 #define D_TEMPLATE "Mẫu"
+#define D_TEMPLATE_WRONG_ARCH "Reset to correct chip type"
 #define D_ACTIVATE "Kích hoạt"
 #define D_DEVICE_NAME "Tên thiết bị"
 #define D_WEB_ADMIN_PASSWORD "Mật khẩu quản trị Web"

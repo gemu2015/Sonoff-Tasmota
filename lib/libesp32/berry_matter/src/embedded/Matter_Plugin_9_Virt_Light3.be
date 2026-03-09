@@ -17,6 +17,17 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+#################################################################################
+# Matter 1.4.1 Virtual Variant - Extended Color Light
+#################################################################################
+# INHERITS FROM: Matter_Plugin_Light3 (Matter_Plugin_4_Light3.be)
+# VARIANT TYPE: Virtual (Matter Bridge Protocol)
+# DEVICE TYPE: Extended Color Light (0x010D) - See base class
+# CLUSTERS: On/Off + Level Control + Color Control (HS) - See Matter_Plugin_4_Light3.be
+# TYPE: "v_light3" | VIRTUAL: true
+# See base class for complete Matter 1.4.1 cluster specifications
+#################################################################################
+
 import matter
 
 # Matter plug-in for core behavior
@@ -26,8 +37,8 @@ import matter
 class Matter_Plugin_Virt_Light3 : Matter_Plugin_Light3
   static var TYPE = "v_light3"                      # name of the plug-in in json
   static var DISPLAY_NAME = "v.Light 3 RGB"               # display name of the plug-in
-  static var ARG  = ""                              # no arg for virtual device
-  static var ARG_HINT = "_Not used_"                # Hint for entering the Argument (inside 'placeholder')
+
+  static var SCHEMA = nil                          # no parameter
   static var VIRTUAL = true                         # virtual device
 end
 matter.Plugin_Virt_Light3 = Matter_Plugin_Virt_Light3

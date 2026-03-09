@@ -17,6 +17,104 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+#################################################################################
+# Matter 1.4.1 Base Device Class
+#################################################################################
+# CLASS: Matter_Plugin_Device (Base class for all device endpoints)
+# INHERITS FROM: Matter_Plugin
+#
+# PURPOSE:
+# - Base class for all Matter device implementations
+# - Provides common device functionality (Identify, Groups, Scenes)
+# - Handles bridge mode for remote Tasmota devices
+# - Manages Bridged Device Basic Information cluster
+# - Supports both local and remote (HTTP) devices
+# - Provides Zigbee device integration support
+#
+# CLUSTERS (Common to all devices):
+# - 0x0039: Bridged Device Basic Information (M) - Device metadata
+# - 0x0003: Identify (M) - Device identification
+# - 0x0004: Groups (M) - Group management
+# - 0x0005: Scenes (M) - Scene management (deprecated, use 0x0062)
+# - 0x001D: Descriptor (M) - Inherited from base class
+#
+# BRIDGE MODE:
+# - Supports remote Tasmota devices via HTTP
+# - Automatic device discovery and status polling
+# - Configurable update intervals and timeouts
+# - HTTP command execution with retry logic
+# - Reachability monitoring
+#
+# ZIGBEE SUPPORT:
+# - Integration with Tasmota Zigbee devices
+# - Automatic attribute mapping
+# - Event-driven updates from Zigbee coordinator
+#
+# VIRTUAL DEVICE SUPPORT:
+# - Receives updates via Matter bridge protocol
+# - JSON-based state updates
+# - Supports all device types as virtual endpoints
+#################################################################################
+
+#################################################################################
+# Matter 1.4.1 Bridged Device Basic Information Cluster (0x0039)
+#################################################################################
+# Cluster Revision: 3 (Matter 1.4.1)
+# Role: Application | Scope: Endpoint
+#
+# ATTRIBUTES:
+# ID     | Name                  | Type   | Constraint | Quality | Default | Access | Conf
+# -------|-----------------------|--------|------------|---------|---------|--------|-----
+# 0x0003 | ProductName           | string | max 32     |         | MS      | R V    | O
+# 0x0005 | NodeLabel             | string | max 32     | N       | ""      | RW VM  | M
+# 0x000A | SoftwareVersionString | string | max 64     |         | MS      | R V    | O
+# 0x000F | SerialNumber          | string | max 32     |         | MS      | R V    | O
+# 0x0011 | Reachable             | bool   | all        |         | TRUE    | R V    | M
+# 0x0012 | UniqueID              | string | max 32     |         | MS      | R V    | O
+#
+# Quality Flags:
+# - N: Non-volatile (persists across reboots)
+# - MS: Manufacturer specific
+#
+# Access Control:
+# - R: Read, W: Write
+# - V: View privilege, M: Manage privilege
+#
+# TASMOTA IMPLEMENTATION:
+# - ProductName: From DeviceName (local) or remote device name
+# - NodeLabel: User-configurable endpoint name
+# - SoftwareVersionString: Tasmota version (e.g., "13.4.0")
+# - SerialNumber/UniqueID: MAC address
+# - Reachable: true for local, HTTP ping status for remote
+#
+# BRIDGE MODE SPECIFICS:
+# - Remote device info cached from HTTP responses
+# - Periodic reachability checks
+# - Automatic reconnection on network recovery
+#################################################################################
+
+#################################################################################
+# Matter 1.4.1 Identify Cluster (0x0003)
+#################################################################################
+# See earlier documentation for full Identify cluster specification
+# Provides device identification functionality (visual/audible indication)
+#################################################################################
+
+#################################################################################
+# Matter 1.4.1 Groups Cluster (0x0004)
+#################################################################################
+# See earlier documentation for full Groups cluster specification
+# Enables grouping multiple devices for simultaneous control
+#################################################################################
+
+#################################################################################
+# Matter 1.4.1 Scenes Cluster (0x0005) - DEPRECATED
+#################################################################################
+# NOTE: Scenes cluster 0x0005 is deprecated in Matter 1.4.1
+# Use Scenes Management cluster 0x0062 instead (PROVISIONAL)
+# Retained for backward compatibility
+#################################################################################
+
 import matter
 
 #@ solidify:Matter_Plugin_Device.GetOptionReader,weak
@@ -110,9 +208,9 @@ class Matter_Plugin_Device : Matter_Plugin
     # ====================================================================================================
     if   cluster == 0x0003              # ========== Identify 1.2 p.16 ==========
       if   attribute == 0x0000          #  ---------- IdentifyTime / u2 ----------
-        return tlv_solo.set(TLV.U2, 0)      # no identification in progress
+        return tlv_solo.set(0x05 #-TLV.U2-#, 0)      # no identification in progress
       elif attribute == 0x0001          #  ---------- IdentifyType / enum8 ----------
-        return tlv_solo.set(TLV.U1, 0)      # IdentifyType = 0x00 None
+        return tlv_solo.set(0x04 #-TLV.U1-#, 0)      # IdentifyType = 0x00 None
       end
 
     # ====================================================================================================
@@ -134,14 +232,14 @@ class Matter_Plugin_Device : Matter_Plugin
         var types = self.TYPES
         for dt: types.keys()
           var d1 = dtl.add_struct()
-          d1.add_TLV(0, TLV.U2, dt)     # DeviceType
-          d1.add_TLV(1, TLV.U2, types[dt])      # Revision
+          d1.add_TLV(0, 0x05 #-TLV.U2-#, dt)     # DeviceType
+          d1.add_TLV(1, 0x05 #-TLV.U2-#, types[dt])      # Revision
         end
         # if fabric is not Alexa
         if (self.NON_BRIDGE_VENDOR.find(session.get_admin_vendor()) == nil) && (!self.device.disable_bridge_mode)
           var d1 = dtl.add_struct()
-          d1.add_TLV(0, TLV.U2, 0x0013)     # DeviceType
-          d1.add_TLV(1, TLV.U2, 1)      # Revision
+          d1.add_TLV(0, 0x05 #-TLV.U2-#, 0x0013)     # DeviceType
+          d1.add_TLV(1, 0x05 #-TLV.U2-#, 1)      # Revision
         end
         return dtl
       end
@@ -153,40 +251,40 @@ class Matter_Plugin_Device : Matter_Plugin
       if   attribute == 0x0003          #  ---------- ProductName / string ----------
         if self.BRIDGE
           var name = self.http_remote.get_info().find("name")
-          return tlv_solo.set_or_nil(TLV.UTF1, name)
+          return tlv_solo.set_or_nil(0x0C #-TLV.UTF1-#, name)
         else
-          return tlv_solo.set(TLV.UTF1, tasmota.cmd("DeviceName", true)['DeviceName'])
+          return tlv_solo.set(0x0C #-TLV.UTF1-#, tasmota.cmd("DeviceName", true)['DeviceName'])
         end
       elif attribute == 0x0005          #  ---------- NodeLabel / string ----------
-        return tlv_solo.set(TLV.UTF1, self.get_name())
+        return tlv_solo.set(0x0C #-TLV.UTF1-#, self.get_name())
       elif attribute == 0x000A          #  ---------- SoftwareVersionString / string ----------
         if self.BRIDGE
           var version_full = self.http_remote.get_info().find("version")
           if version_full
             var version_end = string.find(version_full, '(')
             if version_end > 0    version_full = version_full[0..version_end - 1]   end
-            return tlv_solo.set(TLV.UTF1, version_full)
+            return tlv_solo.set(0x0C #-TLV.UTF1-#, version_full)
           else
-            return tlv_solo.set(TLV.NULL, nil)
+            return tlv_solo.set(0x14 #-TLV.NULL-#, nil)
           end
         else
           var version_full = tasmota.cmd("Status 2", true)['StatusFWR']['Version']
           var version_end = string.find(version_full, '(')
           if version_end > 0    version_full = version_full[0..version_end - 1]   end
-          return tlv_solo.set(TLV.UTF1, version_full)
+          return tlv_solo.set(0x0C #-TLV.UTF1-#, version_full)
         end
       elif attribute == 0x000F || attribute == 0x0012          #  ---------- SerialNumber / string ----------
         if self.BRIDGE
           var mac = self.http_remote.get_info().find("mac")
-          return tlv_solo.set_or_nil(TLV.UTF1, mac)
+          return tlv_solo.set_or_nil(0x0C #-TLV.UTF1-#, mac)
         else
-          return tlv_solo.set(TLV.UTF1, tasmota.wifi().find("mac", ""))
+          return tlv_solo.set(0x0C #-TLV.UTF1-#, tasmota.wifi().find("mac", ""))
         end
       elif attribute == 0x0011          #  ---------- Reachable / bool ----------
         if self.BRIDGE
-          return tlv_solo.set(TLV.BOOL, self.http_remote.reachable)     # TODO find a way to do a ping
+          return tlv_solo.set(0x08 #-TLV.BOOL-#, self.http_remote.reachable)     # TODO find a way to do a ping
         else
-          return tlv_solo.set(TLV.BOOL, 1)     # by default we are reachable
+          return tlv_solo.set(0x08 #-TLV.BOOL-#, 1)     # by default we are reachable
         end
       end
 
@@ -215,7 +313,7 @@ class Matter_Plugin_Device : Matter_Plugin
         # ID=1
         #  0=Certificate (octstr)
         var iqr = TLV.Matter_TLV_struct()
-        iqr.add_TLV(0, TLV.U2, 0)       # Timeout
+        iqr.add_TLV(0, 0x05 #-TLV.U2-#, 0)       # Timeout
         ctx.command = 0x00              # IdentifyQueryResponse
         return iqr
       elif command == 0x0040            # ---------- TriggerEffect ----------

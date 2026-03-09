@@ -1,5 +1,5 @@
 #
-# Matter_Plugin_9_Virt_Sensor_Contact.be - implements the behavior for a Virtual Contact Sensor
+# Matter_Plugin_9_Virt_Sensor_Contact.be - implements Virtual Contact Sensor
 #
 # Copyright (C) 2023  Stephan Hadinger & Theo Arends
 #
@@ -17,6 +17,30 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+#################################################################################
+# Matter 1.4.1 Virtual Variant - Matter Bridge Protocol Contact Sensor
+#################################################################################
+# This is a VIRTUAL variant that inherits from Matter_Plugin_Sensor_Contact.
+# It exposes a virtual sensor that can be controlled via Matter bridge protocol.
+#
+# DEVICE TYPE: Contact Sensor (0x0015)
+# See Matter_Plugin_3_Sensor_Contact.be for complete Matter 1.4.1 specifications
+# including Boolean State cluster (0x0045) details.
+#
+# VIRTUAL BEHAVIOR:
+# - Exposes a virtual contact sensor endpoint
+# - Values can be set via Matter commands from controller
+# - No physical sensor or HTTP polling required
+# - Useful for testing, simulation, or custom integrations
+# - Inherits all cluster implementations from base class
+#
+# CONFIGURATION:
+# - TYPE: "v_contact" - Plugin identifier in Matter configuration
+# - DISPLAY_NAME: "v.Contact" - Shows as virtual contact in UI
+# - VIRTUAL: true - Marks this as a virtual device
+# - ARG: "" - No argument needed (no physical sensor to map)
+#################################################################################
+
 import matter
 
 # Matter plug-in for core behavior
@@ -26,8 +50,8 @@ import matter
 class Matter_Plugin_Virt_Sensor_Contact : Matter_Plugin_Sensor_Contact
   static var TYPE = "v_contact"                       # name of the plug-in in json
   static var DISPLAY_NAME = "v.Contact"                     # display name of the plug-in
-  static var ARG  = ""                              # no arg for virtual device
-  static var ARG_HINT = "_Not used_"          # Hint for entering the Argument (inside 'placeholder')
+
+  static var SCHEMA = nil                          # no parameter
   static var VIRTUAL = true                         # virtual device
 end
 matter.Plugin_Virt_Sensor_Contact = Matter_Plugin_Virt_Sensor_Contact

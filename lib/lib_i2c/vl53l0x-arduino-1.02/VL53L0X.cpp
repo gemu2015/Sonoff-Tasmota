@@ -279,7 +279,7 @@ bool VL53L0X::init(bool io_2v8)
 }
 
 // Write an 8-bit register
-void VL53L0X::writeReg(uint8_t reg, uint8_t value) 
+void VL53L0X::writeReg(uint8_t reg, uint8_t value)
 {
   Wire.beginTransmission(address);
   Wire.write(reg);

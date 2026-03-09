@@ -118,6 +118,7 @@
 #define D_GATEWAY "Brama"
 #define D_GROUP "Grupa"
 #define D_HALL_EFFECT "Efekt Hall'a"
+#define D_HCHO "Formaldehyde"
 #define D_HEATINDEX "Indeks ciepła"
 #define D_HOST "Serwer"
 #define D_HOSTNAME "Nazwa serwera"
@@ -348,6 +349,7 @@
 
 #define D_OTHER_PARAMETERS "Inne parametry"
 #define D_TEMPLATE "Szablon"
+#define D_TEMPLATE_WRONG_ARCH "Reset to correct chip type"
 #define D_ACTIVATE "Aktywuj"
 #define D_DEVICE_NAME "Nazwa urządzenia"
 #define D_WEB_ADMIN_PASSWORD "Hasło administratora"

@@ -6,7 +6,7 @@
 # Decoder files are modeled on the *.js files found here:
 #  https://github.com/TheThingsNetwork/lorawan-devices/tree/master/vendor
 #
-# rm LoRaWan_Decoders.tapp; zip -j -0 LoRaWan_Decoders.tapp LoRaWan_Decoders/*
+# rm LoRaWan_Decoders.tapp; ls LoRaWan_Decoders > LoRaWan_Decoders/filelist; zip -j -0 LoRaWan_Decoders.tapp LoRaWan_Decoders/*
 ###################################################################################
 
 import mqtt
@@ -78,7 +78,7 @@ class lorawan_settings
       end
       tasmota.cmd(format('LoRaWanNode%i %s', inode, cmdArg), true)
 
-      webserver.redirect("/cn?")                    # Go back to Configuration menu
+      webserver.redirect("/cn?")                 # Go back to Configuration menu
     end
 
     var appKey, decoder, name, enabled
@@ -92,11 +92,40 @@ class lorawan_settings
     try
       maxnodes = tasmota.cmd('_LoRaWan',true)['LoRaWan']['MaxNodes']  # Tasmota >= v15.2.0.2
     except ..  as e, m
-      maxnodes = 16                              #- is TAS_LORAWAN_ENDNODES = 16 -#
+      maxnodes = 16                              # Is TAS_LORAWAN_ENDNODES = 16
     end
 
-    webserver.content_start("LoRaWAN")           #- title of the web page -#
-    webserver.content_send_style()               #- send standard Tasmota styles -#
+    import path
+    var decoders = path.listdir("/.extensions/LoRaWan_Decoders.tapp#")
+    if size(decoders) == 0                                 # Fallback to filelist
+#      log("LWD: Decoders filelist", 3)
+      var f = open(".extensions/LoRaWan_Decoders.tapp#filelist", "r")
+      var filelist = f.read()                              # Read filelist to string
+      f.close()
+      filelist = string.replace(filelist, "\r\n", "|")     # Change carriage return and linefeed to | (windows)
+      filelist = string.replace(filelist, "\n", "|")       # Change linefeed to | (linux)
+      decoders = string.split(filelist, "|")               # Convert String to list
+      decoders.pop()                                       # Remove last empty slot
+    end
+#    print(decoders)
+#    ['D20.be', 'DDS75L.be', 'DW10.be', 'LDS02.be', 'LHT52.be', 'LHT65.be', 'PS-L-I5.be', 'SE01-L.be', 'SN50v3L.be', 'WS202.be', 'WS301.be', 'WS522.be', 'autoexec.be', 'changelog.md', 'filelist', 'lorawan_decoders.be', 'manifest.json', 'walker.be']
+    decoders.remove(decoders.find("filelist"))             # Delete file
+    decoders.remove(decoders.find("changelog.md"))         # Delete file
+    decoders.remove(decoders.find("autoexec.be"))          # Delete file
+    decoders.remove(decoders.find("lorawan_decoders.be"))  # Delete file
+    decoders.remove(decoders.find("manifest.json"))        # Delete file
+    for i: decoders.keys()
+      decoders[i] = string.replace(decoders[i], ".be", "") # Remove file type
+    end
+#    print(decoders)
+#    ['D20', 'DDS75L', 'DW10', 'LDS02', 'LHT52', 'LHT65', 'PS-L-I5', 'SE01-L', 'SN50v3L', 'WS202', 'WS301', 'WS522', 'walker']
+    if size(decoders) == 0                                 # Final fallback
+#      log("LWD: Decoders hardcoded", 3)
+      decoders = ['D20', 'DDS75L', 'DW10', 'LDS02', 'LHT52', 'LHT65', 'PS-L-I5', 'SE01-L', 'SN50v3L', 'WS202', 'WS301', 'WS522', 'walker']
+    end
+
+    webserver.content_start("LoRaWAN")           # Title of the web page
+    webserver.content_send_style()               # Send standard Tasmota styles
 
     webserver.content_send(
      "<style>"
@@ -126,33 +155,31 @@ class lorawan_settings
      "</script>")
 
     webserver.content_send(
-    format("<fieldset>"
+     "<fieldset>"
      "<legend><b>&nbsp;LoRaWan End Device&nbsp;</b></legend>"
-     "<br><div>"))                               #- Add space and indent to align form tabs -#
+     "<br><div>")                                # Add space and indent to align form tabs
     for node:1 .. maxnode
       webserver.content_send(
-      format(
-       "<button type='button' onclick='selNode(%i)' id='n%i' class='tl inactive'>%i</button>", node, node, node))
+      f"<button type='button' onclick='selNode({node})' id='n{node}' class='tl inactive'>{node}</button>")
     end
 
     if maxnode < maxnodes
-      var add_tab = (maxnode == 0)               #- No tabs visible -#
+      var add_tab = (maxnode == 0)               # No tabs visible
       if !add_tab
         arg = format('LoRaWanName%i', maxnode)
         name = tasmota.cmd(arg, true).find(arg)
-        add_tab = (size(name) > 0)               #- Last tab is not empty -#
+        add_tab = (size(name) > 0)               # Last tab is not empty
       end
       if add_tab
         webserver.content_send(
-        format(
-        "<form action='' method='post'>"
+        f"<form action='' method='post'>"
          "<button name='add' class='bl'>+</button>"
-         "<input type='hidden' name='nextnode' value='%i'>"
-        "</form>", maxnode +1))
+         "<input type='hidden' name='nextnode' value='{maxnode +1}'>"
+        "</form>")
        end
     end
 
-    webserver.content_send("</div><br><br><br><br>")    #- Terminate indent and add space -#
+    webserver.content_send("</div><br><br><br><br>")  # Terminate indent and add space
 
     for node:1 .. maxnode
       enabled = ""
@@ -167,31 +194,41 @@ class lorawan_settings
       decoder = tasmota.cmd(arg, true).find(arg)
 
       webserver.content_send(
-      format("<div id='nd%i' style='display:none'>"
+      f"<div id='nd{node}' style='display:none'>"
        "<form action='' method='post'>"
-        "<p><label><input id='ce' name='ce' type='checkbox'%s><b>Enabled</b></label></p>"
+        "<p><label><input id='ce' name='ce' type='checkbox'{enabled}><b>Enabled</b></label></p>"
         "<p><b>Application Key</b>"
-         "<input title='%s' pattern='[A-Fa-f0-9]{32}' id='ak' minlength='32' maxlength='32' required='' placeholder='%s' value='%s' name='ak' style='font-size:smaller'>"
+         "<input title='{hintAK}' pattern='[A-Fa-f0-9]{{32}}' id='ak' minlength='32' maxlength='32' required='' placeholder='{hintAK}' value='{appKey}' name='ak' style='font-size:smaller'>"
         "</p>"
         "<p></p>"
         "<p><b>Device Name</b>"
-         "<input id='an' placeholder='%s' value='%s' name='an'>"
+         "<input id='an' placeholder='{hintAN}' value='{name}' name='an'>"
         "</p>"
         "<p></p>"
         "<p><b>Decoder File</b>"
-         "<input title='%s' id='dc' placeholder='%s' value='%s' name='dc'>"
+         "<select id='dc'>"
+          "<option disabled selected value=''>{hintDecoder}</option>")
+
+      for d:decoders
+        var selected = (d == decoder) ? ' selected' : ''
+        webserver.content_send(
+        f"<option{selected} value='{d}'>{d}</option>")
+      end
+
+      webserver.content_send(
+        f"</select>"
         "</p>"
         "<br>"
         "<button name='save' class='button bgrn'>Save</button>"
-        "<input type='hidden' name='node' value='%i'>"
+        "<input type='hidden' name='node' value='{node}'>"
        "</form>"
-       "</div>", node, enabled, hintAK, hintAK, appKey, hintAN, name, hintDecoder, hintDecoder, decoder, node))
+       "</div>")
     end
 
     webserver.content_send("</fieldset>")
 
-    webserver.content_button(webserver.BUTTON_CONFIGURATION) #- button back to conf page -#
-    webserver.content_stop()                                 #- end of web page -#
+    webserver.content_button(webserver.BUTTON_CONFIGURATION) # Button back to conf page
+    webserver.content_stop()                                 # End of web page
   end
 
   def web_add_handler()

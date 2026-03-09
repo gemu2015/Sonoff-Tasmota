@@ -28,7 +28,7 @@
  * Use online command StateText to translate ON, OFF, HOLD and TOGGLE.
  * Use online command Prefix to translate cmnd, stat and tele.
  *
- * Updated until v15.2.0.1 - Last update 14.12.2025
+ * Updated until v15.3.0.1 - Last update 06.03.2026
 \*********************************************************************/
 
 //#define LANGUAGE_MODULE_NAME         // Enable to display "Module Generic" (ie Spanish), Disable to display "Generic Module" (ie English)
@@ -117,7 +117,8 @@
 #define D_GAS "Gas"
 #define D_GATEWAY "Gateway"
 #define D_GROUP "Gruppe"
-#define D_HALL_EFFECT "Hall Effekt"
+#define D_HALL_EFFECT "Halleffekt"
+#define D_HCHO "Formaldehyd"
 #define D_HEATINDEX "Hitzeindex"
 #define D_HOST "Host"
 #define D_HOSTNAME "Hostname"
@@ -348,6 +349,7 @@
 
 #define D_OTHER_PARAMETERS "Einstellungen"
 #define D_TEMPLATE "Vorlage"
+#define D_TEMPLATE_WRONG_ARCH "MCU-Typ wurde korrigiert"
 #define D_ACTIVATE "Aktivieren"
 #define D_DEVICE_NAME "Gerätename"
 #define D_WEB_ADMIN_PASSWORD "Passwort für Weboberfläche"

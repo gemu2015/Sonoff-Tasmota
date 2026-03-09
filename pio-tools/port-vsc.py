@@ -45,11 +45,7 @@ if os.environ.get("PLATFORMIO_CALLER") == "vscode":
                 projects = data.get("projects", {})
                 project = projects.get(project_path)
                 if project and "customPort" in project:
-                    port = project["customPort"]
-                    if os.path.exists(port):
-                        print("USB port set in VSC:", port)
-                        env["UPLOAD_PORT"] = port
-                    else:
-                        print("USB port from VSC not found:", port)
+                    print("USB port set in VSC:", project["customPort"])
+                    env["UPLOAD_PORT"] = project["customPort"]
                     break
         conn.close()

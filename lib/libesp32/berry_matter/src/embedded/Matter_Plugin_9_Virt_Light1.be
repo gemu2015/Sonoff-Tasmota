@@ -17,6 +17,17 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+#################################################################################
+# Matter 1.4.1 Virtual Variant - Dimmable Light
+#################################################################################
+# INHERITS FROM: Matter_Plugin_Light1 (Matter_Plugin_3_Light1.be)
+# VARIANT TYPE: Virtual (Matter Bridge Protocol)
+# DEVICE TYPE: Dimmable Light (0x0101) - See base class for full specification
+# CLUSTERS: On/Off + Level Control - See Matter_Plugin_3_Light1.be
+# TYPE: "v_light1" | VIRTUAL: true
+# See base class for complete Matter 1.4.1 cluster specifications
+#################################################################################
+
 import matter
 
 # Matter plug-in for core behavior
@@ -26,8 +37,8 @@ import matter
 class Matter_Plugin_Virt_Light1 : Matter_Plugin_Light1
   static var TYPE = "v_light1"                      # name of the plug-in in json
   static var DISPLAY_NAME = "v.Light 1 Dimmer"                # display name of the plug-in
-  static var ARG  = ""                              # no arg for virtual device
-  static var ARG_HINT = "_Not used_"                # Hint for entering the Argument (inside 'placeholder')
+
+  static var SCHEMA = nil                          # no parameter
   static var VIRTUAL = true                         # virtual device
 end
 matter.Plugin_Virt_Light1 = Matter_Plugin_Virt_Light1

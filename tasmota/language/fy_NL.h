@@ -118,6 +118,7 @@
 #define D_GATEWAY "Poarte"
 #define D_GROUP "Groep"
 #define D_HALL_EFFECT "Hall Effect"
+#define D_HCHO "Formaldehyde"
 #define D_HEATINDEX "Heat index"
 #define D_HOST "Host"
 #define D_HOSTNAME "Hostnamme"
@@ -348,6 +349,7 @@
 
 #define D_OTHER_PARAMETERS "Oare parameters"
 #define D_TEMPLATE "Sjabloan"
+#define D_TEMPLATE_WRONG_ARCH "Reset to correct chip type"
 #define D_ACTIVATE "Aktivearje"
 #define D_DEVICE_NAME "Namme fan it apparaat"
 #define D_WEB_ADMIN_PASSWORD "Web Admin Wachtwurd"

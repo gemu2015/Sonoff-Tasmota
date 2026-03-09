@@ -118,6 +118,7 @@
 #define D_GATEWAY "网关"
 #define D_GROUP "组:"
 #define D_HALL_EFFECT "Hall Effect"
+#define D_HCHO "Formaldehyde"
 #define D_HEATINDEX "Heat index"
 #define D_HOST "主机"
 #define D_HOSTNAME "主机名"
@@ -348,6 +349,7 @@
 
 #define D_OTHER_PARAMETERS "其他设置"
 #define D_TEMPLATE "模板"
+#define D_TEMPLATE_WRONG_ARCH "Reset to correct chip type"
 #define D_ACTIVATE "启用"
 #define D_DEVICE_NAME "设备名称"
 #define D_WEB_ADMIN_PASSWORD "WEB 管理密码"

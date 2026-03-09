@@ -118,6 +118,7 @@
 #define D_GATEWAY "Πύλη"
 #define D_GROUP "Ομάδα"
 #define D_HALL_EFFECT "Hall Effect"
+#define D_HCHO "Formaldehyde"
 #define D_HEATINDEX "Heat index"
 #define D_HOST "Host"
 #define D_HOSTNAME "Hostname"
@@ -348,6 +349,7 @@
 
 #define D_OTHER_PARAMETERS "Άλλες παράμετροι"
 #define D_TEMPLATE "Πρότυπο"
+#define D_TEMPLATE_WRONG_ARCH "Reset to correct chip type"
 #define D_ACTIVATE "Ενεργοποίηση"
 #define D_DEVICE_NAME "Device Name"
 #define D_WEB_ADMIN_PASSWORD "Κωδικός διαχειριστή"

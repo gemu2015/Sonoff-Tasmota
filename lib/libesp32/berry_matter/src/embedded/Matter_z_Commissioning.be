@@ -26,6 +26,13 @@ class Matter_Commissioning
 
   static var PBKDF_ITERATIONS = 1000  # I don't see any reason to choose a different number
   static var PASE_TIMEOUT = 10*60     # default open commissioning window (10 minutes)
+  # Operational discovery TXT records per Matter 1.4.1 spec §4.3.2
+  static var OP_DISCOVERY_TXT = {
+    "SII": 500,     # SESSION_IDLE_INTERVAL (ms)
+    "SAI": 300,     # SESSION_ACTIVE_INTERVAL (ms)
+    "SAT": 4000,    # SESSION_ACTIVE_THRESHOLD (ms)
+    "T":   0        # TCP support bitmap: 0 = UDP only
+  }
   # Commissioning open
   var commissioning_open              # timestamp for timeout of commissioning (millis()) or `nil` if closed
   var commissioning_iterations        # current PBKDF number of iterations
@@ -62,7 +69,7 @@ class Matter_Commissioning
   # dispatch every second click to sub-objects that need it
   def every_second()
     if self.commissioning_open != nil && tasmota.time_reached(self.commissioning_open)    # timeout reached, close provisioning
-      self.commissioning_open = nil
+      self.stop_basic_commissioning()   # properly close commissioning and remove mDNS
     end
   end
 
@@ -285,12 +292,23 @@ class Matter_Commissioning
     import mdns
     import crypto
 
+    # Per Matter 1.4.1 spec section 4.3.4 and 4.13.1:
+    # SII = SESSION_IDLE_INTERVAL (ms) - MRP retry interval when node is Idle (default 500ms)
+    # SAI = SESSION_ACTIVE_INTERVAL (ms) - MRP retry interval when node is Active (default 300ms)
+    # SAT = SESSION_ACTIVE_THRESHOLD (ms) - time node stays active after network activity (default 4000ms)
+    # For always-on WiFi devices, we use the spec defaults since device is always responsive
+    var sii = 500     # SESSION_IDLE_INTERVAL: 500ms (spec default)
+    var sai = 300     # SESSION_ACTIVE_INTERVAL: 300ms (spec default)
+
     var services = {
       "VP": f"{self.device.VENDOR_ID}+{self.device.PRODUCT_ID}",
       "D": self.commissioning_discriminator,
       "CM":1,                           # requires passcode
       "T":0,                            # no support for TCP
-      "SII":5000, "SAI":300
+      "SII":sii, "SAI":sai
+      # Note: ICD key is only for devices that support LITS (Long Idle Time Support) feature
+      # Per spec: "The key SHALL NOT be provided by a Node that does not support the ICD Long Idle Time operating mode"
+      # Since we're a simple SIT device without LITS, we don't advertise ICD key
     }
 
     self.commissioning_instance_wifi = crypto.random(8).tohex()    # 16 characters random hostname
@@ -390,17 +408,24 @@ class Matter_Commissioning
       var op_node = k_fabric.tohex() + "-" + device_id.tohex()
       log("MTR: Operational Discovery node = " + op_node, 3)
 
+      # Operational discovery TXT records (Matter 1.4.1 §4.3.2):
+      #   SII = 500   - SESSION_IDLE_INTERVAL (ms), MRP retry interval when idle
+      #   SAI = 300   - SESSION_ACTIVE_INTERVAL (ms), MRP retry interval when active
+      #   SAT = 4000  - SESSION_ACTIVE_THRESHOLD (ms), duration node stays active
+      #   T   = 0     - TCP support bitmap, 0 = UDP only
+      var services = self.OP_DISCOVERY_TXT
+
       # mdns
       if (tasmota.eth().find("up"))
         log(format("MTR: adding mDNS on %s '%s' ptr to `%s.local`", "eth", op_node, self.hostname_eth), 3)
-        mdns.add_service("_matter","_tcp", 5540, nil, op_node, self.hostname_eth)
+        mdns.add_service("_matter","_tcp", 5540, services, op_node, self.hostname_eth)
         var subtype = "_I" + k_fabric.tohex()
         log("MTR: adding subtype: "+subtype, 3)
         mdns.add_subtype("_matter", "_tcp", op_node, self.hostname_eth, subtype)
       end
       if (tasmota.wifi().find("up"))
         log(format("MTR: adding mDNS on %s '%s' ptr to `%s.local`", "wifi", op_node, self.hostname_wifi), 3)
-        mdns.add_service("_matter","_tcp", 5540, nil, op_node, self.hostname_wifi)
+        mdns.add_service("_matter","_tcp", 5540, services, op_node, self.hostname_wifi)
         var subtype = "_I" + k_fabric.tohex()
         log("MTR: adding subtype: "+subtype, 3)
         mdns.add_subtype("_matter", "_tcp", op_node, self.hostname_wifi, subtype)
