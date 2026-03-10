@@ -4998,6 +4998,8 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     //  17 = tasm_sunrise    (ro) sunrise minutes since midnight
     //  18 = tasm_sunset     (ro) sunset minutes since midnight
     //  19 = tasm_time       (ro) current minutes since midnight
+    //  20 = tasm_pheap      (ro) free PSRAM in bytes (ESP32 only)
+    //  21 = tasm_smlj       (rw) SML JSON output enable/disable
     case SYS_TASM_GET: {
       a = TC_POP(vm);  // variable index
       int32_t val = 0;
@@ -5057,6 +5059,13 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
 #ifdef ESP32
         case 20: val = (int32_t)ESP.getFreePsram(); break;  // tasm_pheap
 #endif
+#ifdef USE_SML_M
+        case 21: {  // tasm_smlj
+          SML_TABLE *smlp = get_sml_table();
+          if (smlp) { val = (int32_t)smlp->SML_SetOptions(0); }
+          break;
+        }
+#endif
         default: break;
       }
       TC_PUSH(vm, val);
@@ -5085,6 +5094,13 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
             ExecuteCommand(cmd, SRC_IGNORE); }
 #endif
           break;
+#ifdef USE_SML_M
+        case 21: {  // tasm_smlj
+          SML_TABLE *smlp = get_sml_table();
+          if (smlp) { smlp->SML_SetOptions(0x100 | (uint8_t)val); }
+          break;
+        }
+#endif
         default: break;  // read-only variables silently ignored
       }
       break;
