@@ -14,6 +14,41 @@
 
 #include <OneWire.h>
 
+#if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
+#include "esp_camera.h"
+#include "img_converters.h"
+// PSRAM picture slots — capture copies JPEG here, camera fb returned immediately
+#define TC_CAM_MAX_SLOTS 4
+static struct {
+  uint8_t *buf;
+  uint32_t len;
+  uint16_t width;
+  uint16_t height;
+  volatile uint8_t writing;   // 1 while memcpy in progress — skip reads
+} tc_cam_slot[TC_CAM_MAX_SLOTS] = {};
+
+// ── MJPEG streaming server (port 81) ──
+#define TC_CAM_STREAM_PORT 81
+#define TC_CAM_BOUNDARY "tc-cam-boundary-0123456789"
+static struct {
+  ESP8266WebServer *server;
+  WiFiClient client;
+  uint8_t stream_active;      // 0=off, 1=starting, 2=streaming
+} tc_cam_stream = {};
+
+// ── Motion detection ──
+static struct {
+  uint16_t interval_ms;       // 0 = disabled
+  uint32_t last_time;
+  uint32_t motion_trigger;    // accumulated pixel diff per 100 pixels
+  uint32_t motion_brightness; // average brightness per 100 pixels
+  uint8_t *ref_buf;           // previous frame grayscale (PSRAM)
+  uint32_t ref_size;          // width*height of ref_buf
+  uint8_t triggered;          // 1 if motion exceeded threshold
+  uint32_t threshold;         // trigger level (0 = report only)
+} tc_cam_motion = {};
+#endif
+
 #ifdef USE_UFILESYS
 extern FS *ffsp;
 extern FS *ufsp;
@@ -352,6 +387,7 @@ enum TcSyscall {
   SYS_SORT_ARRAY      = 168, // (arr_ref, count, flags) -> void — sort array in-place
   // Webcam (ESP32 — requires USE_WEBCAM)
   SYS_CAM_CONTROL     = 169, // (sel, p1, p2) -> int — multiplexed webcam control
+  SYS_CAM_INIT_PINS   = 206, // (pins_ref, format, framesize, quality) -> int — init camera with custom pins
   // Display drawing (direct renderer calls — requires USE_DISPLAY)
   SYS_DSP_TEXT        = 170, // (buf_ref) -> void — raw DisplayText command string
   SYS_DSP_CLEAR       = 171, // () -> void — clear display
@@ -5727,9 +5763,12 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       if (url && Tinyc && hn >= 1 && hn <= TC_MAX_WEB_HANDLERS) {
         strlcpy(Tinyc->web_handler_url[hn - 1], url, sizeof(Tinyc->web_handler_url[0]));
         if (hn > Tinyc->web_handler_count) Tinyc->web_handler_count = hn;
-        // Register with Tasmota web server — URL persists in Tinyc struct
-        Webserver->on(Tinyc->web_handler_url[hn - 1], TinyCWebOnHandlers[hn - 1]);
-        AddLog(LOG_LEVEL_INFO, PSTR("TCC: webOn(%d, \"%s\") registered"), hn, url);
+        if (Webserver) {
+          Webserver->on(Tinyc->web_handler_url[hn - 1], TinyCWebOnHandlers[hn - 1]);
+          AddLog(LOG_LEVEL_INFO, PSTR("TCC: webOn(%d, \"%s\") registered"), hn, url);
+        } else {
+          AddLog(LOG_LEVEL_INFO, PSTR("TCC: webOn(%d, \"%s\") deferred"), hn, url);
+        }
       }
 #endif
       break;
@@ -6134,15 +6173,16 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
     }
 
-    // ── Webcam (multiplexed) ───────────────────────────
-#if defined(ESP32) && defined(USE_WEBCAM)
+    // ── Webcam — camControl(sel, p1, p2) ───────────────
     case SYS_CAM_CONTROL: {
-      // camControl(sel, p1, p2) -> int
       int32_t p2  = TC_POP(vm);
       int32_t p1  = TC_POP(vm);
       int32_t sel = TC_POP(vm);
-      int32_t res = 0;
+      int32_t res = -1;
+
       switch (sel) {
+#if defined(ESP32) && defined(USE_WEBCAM)
+        // ── Tasmota webcam wrapper (sel 0-7, requires USE_WEBCAM) ──
         case 0: res = WcSetup(p1); break;                  // init(resolution)
         case 1: res = WcGetFrame(p1); break;               // capture(bufnum) -> framesize
         case 2: res = WcSetOptions(p1, p2); break;         // options(sel, val)
@@ -6162,6 +6202,199 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           }
           break;
         }
+#endif // USE_WEBCAM
+
+#if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
+        // ── Direct esp_camera API (sel 8-13) ──
+        case 8: {
+          // getSensorPID() -> PID value (e.g. 0x3660 for OV3660)
+          sensor_t *s = esp_camera_sensor_get();
+          res = s ? (int32_t)s->id.PID : -1;
+          break;
+        }
+        case 9: {
+          // sensorSet(param, value) -> 0=ok, -1=err
+          sensor_t *s = esp_camera_sensor_get();
+          if (s) {
+            switch (p1) {
+              case 0:  res = s->set_vflip(s, p2); break;
+              case 1:  res = s->set_brightness(s, p2); break;
+              case 2:  res = s->set_saturation(s, p2); break;
+              case 3:  res = s->set_hmirror(s, p2); break;
+              case 4:  res = s->set_contrast(s, p2); break;
+              case 5:  res = s->set_framesize(s, (framesize_t)p2); break;
+              case 6:  res = s->set_quality(s, p2); break;
+              case 7:  res = s->set_sharpness(s, p2); break;
+              case 8:  res = s->set_special_effect(s, p2); break;
+              case 9:  res = s->set_whitebal(s, p2); break;
+              case 10: res = s->set_awb_gain(s, p2); break;
+              case 11: res = s->set_wb_mode(s, p2); break;
+              case 12: res = s->set_exposure_ctrl(s, p2); break;
+              case 13: res = s->set_aec2(s, p2); break;
+              case 14: res = s->set_ae_level(s, p2); break;
+              case 15: res = s->set_aec_value(s, p2); break;
+              case 16: res = s->set_gain_ctrl(s, p2); break;
+              case 17: res = s->set_agc_gain(s, p2); break;
+              case 18: res = s->set_gainceiling(s, (gainceiling_t)p2); break;
+              case 19: res = s->set_lenc(s, p2); break;
+              case 20: res = s->set_raw_gma(s, p2); break;
+              default: res = -1; break;
+            }
+          } else { res = -1; }
+          break;
+        }
+        case 10: {
+          // capture(slot) -> size in bytes — capture to PSRAM slot (1-based), returns size
+          int32_t slot = p1;
+          if (slot < 1 || slot > TC_CAM_MAX_SLOTS) { res = -1; break; }
+          slot--;  // 0-based internally
+#ifdef ESP32
+          // esp_camera_fb_get() blocks — must only run from VM task thread
+          // If task_handle is NULL (task exited) or we're on a different thread, skip
+          if (!tc_current_slot || !tc_current_slot->task_handle ||
+              xTaskGetCurrentTaskHandle() != tc_current_slot->task_handle) {
+            res = 0; break;  // skip — use TaskLoop for camera captures
+          }
+#endif
+          camera_fb_t *fb = esp_camera_fb_get();
+          if (!fb) {
+            AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: cam fb_get returned NULL (slot %d)"), slot + 1);
+            res = 0; break;
+          }
+          // (Re)allocate PSRAM slot if needed
+          if (tc_cam_slot[slot].buf && tc_cam_slot[slot].len < fb->len) {
+            free(tc_cam_slot[slot].buf);
+            tc_cam_slot[slot].buf = nullptr;
+          }
+          if (!tc_cam_slot[slot].buf) {
+            tc_cam_slot[slot].buf = (uint8_t*)heap_caps_malloc(fb->len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+          }
+          if (tc_cam_slot[slot].buf) {
+            tc_cam_slot[slot].writing = 1;
+            memcpy(tc_cam_slot[slot].buf, fb->buf, fb->len);
+            tc_cam_slot[slot].len = fb->len;
+            tc_cam_slot[slot].width = fb->width;
+            tc_cam_slot[slot].height = fb->height;
+            tc_cam_slot[slot].writing = 0;
+            res = (int32_t)fb->len;
+          } else {
+            tc_cam_slot[slot].len = 0;
+            res = -1;
+            AddLog(LOG_LEVEL_ERROR, PSTR("TCC: cam slot %d PSRAM alloc failed (%d bytes)"), slot + 1, fb->len);
+          }
+          esp_camera_fb_return(fb);  // return camera fb immediately
+          break;
+        }
+        case 11: {
+          // saveSlot(slot, filehandle) -> bytes written — save PSRAM slot to file
+          int32_t slot = p1;
+          if (slot < 1 || slot > TC_CAM_MAX_SLOTS) { res = -1; break; }
+          slot--;
+          if (tc_cam_slot[slot].buf && tc_cam_slot[slot].len > 0 &&
+              p2 >= 0 && p2 < TC_MAX_FILE_HANDLES && Tinyc->file_used[p2]) {
+            res = tc_file_handles[p2].write(tc_cam_slot[slot].buf, tc_cam_slot[slot].len);
+          } else { res = -1; }
+          break;
+        }
+        case 12: {
+          // freeSlot(slot) — free PSRAM slot (0 = free all)
+          if (p1 == 0) {
+            for (int i = 0; i < TC_CAM_MAX_SLOTS; i++) {
+              if (tc_cam_slot[i].buf) { free(tc_cam_slot[i].buf); tc_cam_slot[i].buf = nullptr; }
+              tc_cam_slot[i].len = 0;
+            }
+          } else if (p1 >= 1 && p1 <= TC_CAM_MAX_SLOTS) {
+            int i = p1 - 1;
+            if (tc_cam_slot[i].buf) { free(tc_cam_slot[i].buf); tc_cam_slot[i].buf = nullptr; }
+            tc_cam_slot[i].len = 0;
+          }
+          res = 0;
+          break;
+        }
+        case 13: {
+          // deinit() -> 0=ok — deinit camera + free all slots + stop stream + free motion
+          for (int i = 0; i < TC_CAM_MAX_SLOTS; i++) {
+            if (tc_cam_slot[i].buf) { free(tc_cam_slot[i].buf); tc_cam_slot[i].buf = nullptr; }
+            tc_cam_slot[i].len = 0;
+            tc_cam_slot[i].width = 0;
+            tc_cam_slot[i].height = 0;
+          }
+          // Stop stream server
+          if (tc_cam_stream.server) {
+            tc_cam_stream.stream_active = 0;
+            tc_cam_stream.server->stop();
+            delete tc_cam_stream.server;
+            tc_cam_stream.server = nullptr;
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: stream server stopped"));
+          }
+          // Free motion buffers
+          if (tc_cam_motion.ref_buf) { free(tc_cam_motion.ref_buf); tc_cam_motion.ref_buf = nullptr; }
+          tc_cam_motion.ref_size = 0;
+          tc_cam_motion.interval_ms = 0;
+          tc_cam_motion.triggered = 0;
+          esp_camera_deinit();
+          res = 0;
+          break;
+        }
+        case 14: {
+          // slotSize(slot) -> size in bytes (0 if empty)
+          int32_t slot = p1;
+          if (slot >= 1 && slot <= TC_CAM_MAX_SLOTS) {
+            res = (int32_t)tc_cam_slot[slot - 1].len;
+          } else { res = -1; }
+          break;
+        }
+        case 15: {
+          // streamControl(on_off) — start/stop MJPEG stream server on port 81
+          // Actual server creation is in xdrv_124_tinyc.ino (TC_CamStreamInit/Stop)
+          // This case just signals the request; the functions are called externally
+          extern void TC_CamStreamInit(void);
+          extern void TC_CamStreamStop(void);
+          if (p1) {
+            TC_CamStreamInit();
+          } else {
+            TC_CamStreamStop();
+          }
+          res = 0;
+          break;
+        }
+        case 16: {
+          // motionControl(interval_ms, threshold) — enable/disable motion detection
+          tc_cam_motion.interval_ms = (uint16_t)p1;
+          tc_cam_motion.threshold = (uint32_t)p2;
+          tc_cam_motion.last_time = millis();
+          if (p1 == 0) {
+            // Disable — free reference buffer
+            if (tc_cam_motion.ref_buf) { free(tc_cam_motion.ref_buf); tc_cam_motion.ref_buf = nullptr; }
+            tc_cam_motion.ref_size = 0;
+            tc_cam_motion.triggered = 0;
+          }
+          res = 0;
+          break;
+        }
+        case 17: {
+          // getMotionValue(sel) — read motion detection results
+          switch (p1) {
+            case 0: res = (int32_t)tc_cam_motion.motion_trigger; break;
+            case 1: res = (int32_t)tc_cam_motion.motion_brightness; break;
+            case 2: res = (int32_t)tc_cam_motion.triggered; break;
+            case 3: res = (int32_t)tc_cam_motion.interval_ms; break;
+            default: res = -1; break;
+          }
+          break;
+        }
+        case 18: {
+          // motionFree() — free motion reference buffer
+          if (tc_cam_motion.ref_buf) { free(tc_cam_motion.ref_buf); tc_cam_motion.ref_buf = nullptr; }
+          tc_cam_motion.ref_size = 0;
+          tc_cam_motion.interval_ms = 0;
+          tc_cam_motion.triggered = 0;
+          tc_cam_motion.motion_trigger = 0;
+          tc_cam_motion.motion_brightness = 0;
+          res = 0;
+          break;
+        }
+#endif // USE_WEBCAM || USE_TINYC_CAMERA
         default:
           AddLog(LOG_LEVEL_ERROR, PSTR("TCC: camControl unknown sel=%d"), sel);
           res = -1;
@@ -6170,13 +6403,95 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       TC_PUSH(vm, res);
       break;
     }
+
+    // ── Camera init with custom pins ─────────────────────
+#if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
+    case SYS_CAM_INIT_PINS: {
+      // cameraInit(pins[], format, framesize, quality, xclk_freq, fb_count, grab_mode) -> int
+      // xclk_freq: Hz (0 = 20MHz default)
+      // fb_count:  0 = auto (1 no PSRAM, 2 with PSRAM), >0 = explicit
+      // grab_mode: -1 = auto, 0 = GRAB_WHEN_EMPTY, 1 = GRAB_LATEST
+      int32_t grab_mode_arg = TC_POP(vm);
+      int32_t fb_count_arg  = TC_POP(vm);
+      int32_t xclk_arg      = TC_POP(vm);
+      int32_t quality   = TC_POP(vm);
+      int32_t framesize = TC_POP(vm);
+      int32_t format    = TC_POP(vm);
+      int32_t pins_ref  = TC_POP(vm);
+      int32_t *pins = tc_resolve_ref(vm, pins_ref);
+
+      camera_config_t config = {};
+      config.pin_pwdn     = pins[0];
+      config.pin_reset    = pins[1];
+      config.pin_xclk     = pins[2];
+      config.pin_sccb_sda = pins[3];
+      config.pin_sccb_scl = pins[4];
+      config.pin_d7       = pins[5];
+      config.pin_d6       = pins[6];
+      config.pin_d5       = pins[7];
+      config.pin_d4       = pins[8];
+      config.pin_d3       = pins[9];
+      config.pin_d2       = pins[10];
+      config.pin_d1       = pins[11];
+      config.pin_d0       = pins[12];
+      config.pin_vsync    = pins[13];
+      config.pin_href     = pins[14];
+      config.pin_pclk     = pins[15];
+
+      config.xclk_freq_hz  = (xclk_arg > 0) ? xclk_arg : 20000000;
+      config.ledc_channel   = LEDC_CHANNEL_7;
+      config.ledc_timer     = LEDC_TIMER_3;
+      config.pixel_format   = (pixformat_t)format;
+      config.frame_size     = (framesize_t)framesize;
+      config.jpeg_quality   = quality;
+      config.fb_location    = CAMERA_FB_IN_PSRAM;
+
+      // fb_count: 0=auto, >0=explicit
+      if (fb_count_arg > 0) {
+        config.fb_count = fb_count_arg;
+      } else if (psramFound()) {
+        config.fb_count = 2;
+      } else {
+        config.fb_count = 1;
+      }
+
+      // grab_mode: -1=auto, 0=WHEN_EMPTY, 1=LATEST
+      if (grab_mode_arg >= 0) {
+        config.grab_mode = (camera_grab_mode_t)grab_mode_arg;
+      } else if (psramFound()) {
+        config.grab_mode = CAMERA_GRAB_LATEST;
+      } else {
+        config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+      }
+
+      if (!psramFound()) {
+        if (config.frame_size > FRAMESIZE_SVGA) {
+          config.frame_size = FRAMESIZE_SVGA;
+        }
+        config.fb_location = CAMERA_FB_IN_DRAM;
+      }
+
+      // Deinit first if already initialized (handles restart without OnExit)
+      esp_camera_deinit();
+
+      esp_err_t err = esp_camera_init(&config);
+      int32_t res = (err == ESP_OK) ? 0 : -1;
+      if (err != ESP_OK) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: cameraInit failed 0x%x"), err);
+      } else {
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: camera initialized fmt=%d fs=%d q=%d xclk=%d fb=%d grab=%d"),
+          format, framesize, quality, config.xclk_freq_hz, config.fb_count, config.grab_mode);
+      }
+      TC_PUSH(vm, res);
+      break;
+    }
 #else
-    case SYS_CAM_CONTROL: {
-      TC_POP(vm); TC_POP(vm); TC_POP(vm);
+    case SYS_CAM_INIT_PINS: {
+      TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm);
       TC_PUSH(vm, -1);
       break;
     }
-#endif
+#endif // USE_WEBCAM || USE_TINYC_CAMERA
 
     // ── Display drawing (direct renderer calls) ──────
 #ifdef USE_DISPLAY

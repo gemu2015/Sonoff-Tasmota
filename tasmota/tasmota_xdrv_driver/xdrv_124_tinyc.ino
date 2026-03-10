@@ -2069,6 +2069,167 @@ static void HandleTinyCWebOn2(void) { HandleTinyCWebOn(2); }
 static void HandleTinyCWebOn3(void) { HandleTinyCWebOn(3); }
 static void HandleTinyCWebOn4(void) { HandleTinyCWebOn(4); }
 
+// ---- Camera JPEG endpoint: /tc_cam?slot=N — serve PSRAM slot directly ----
+#if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
+static void HandleTinyCCam(void) {
+  int slot = 1;  // default slot 1
+  if (Webserver->hasArg("slot")) {
+    slot = Webserver->arg("slot").toInt();
+  }
+  if (slot < 1 || slot > TC_CAM_MAX_SLOTS) {
+    Webserver->send(400, "text/plain", "invalid slot");
+    return;
+  }
+  int idx = slot - 1;
+  if (!tc_cam_slot[idx].buf || tc_cam_slot[idx].len == 0 || tc_cam_slot[idx].writing) {
+    Webserver->send(503, "text/plain", "no image");
+    return;
+  }
+  Webserver->sendHeader("Cache-Control", "no-cache, no-store");
+  Webserver->send_P(200, "image/jpeg", (const char*)tc_cam_slot[idx].buf, tc_cam_slot[idx].len);
+}
+
+// ---- MJPEG streaming server on port 81 ----
+
+static void TC_CamStreamHandler(void) {
+  tc_cam_stream.stream_active = 1;
+  tc_cam_stream.client = tc_cam_stream.server->client();
+  AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: stream client connected"));
+}
+
+static void TC_CamStreamRoot(void) {
+  tc_cam_stream.server->sendHeader("Location", "/cam.mjpeg");
+  tc_cam_stream.server->send(302, "", "");
+}
+
+static void TC_CamStreamTask(void) {
+  if (!tc_cam_stream.client.connected()) {
+    tc_cam_stream.stream_active = 0;
+    return;
+  }
+  if (1 == tc_cam_stream.stream_active) {
+    tc_cam_stream.client.flush();
+    tc_cam_stream.client.setTimeout(3);
+    tc_cam_stream.client.print("HTTP/1.1 200 OK\r\n"
+      "Content-Type: multipart/x-mixed-replace;boundary=" TC_CAM_BOUNDARY "\r\n"
+      "\r\n");
+    tc_cam_stream.stream_active = 2;
+  }
+  if (2 == tc_cam_stream.stream_active) {
+    // Serve from PSRAM slot 0 (0-based index, corresponds to script slot 1)
+    // Skip if slot is being written to (avoid torn frames)
+    if (!tc_cam_slot[0].buf || tc_cam_slot[0].len == 0 || tc_cam_slot[0].writing) return;
+    tc_cam_stream.client.print("--" TC_CAM_BOUNDARY "\r\n");
+    tc_cam_stream.client.printf("Content-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n",
+      (int)tc_cam_slot[0].len);
+    tc_cam_stream.client.write(tc_cam_slot[0].buf, tc_cam_slot[0].len);
+    tc_cam_stream.client.print("\r\n");
+  }
+  if (0 == tc_cam_stream.stream_active) {
+    tc_cam_stream.client.flush();
+    tc_cam_stream.client.stop();
+    AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: stream client disconnected"));
+  }
+}
+
+void TC_CamStreamInit(void) {
+  if (tc_cam_stream.server) return;  // already running
+  tc_cam_stream.stream_active = 0;
+  tc_cam_stream.server = new ESP8266WebServer(TC_CAM_STREAM_PORT);
+  if (tc_cam_stream.server) {
+    tc_cam_stream.server->on("/", TC_CamStreamRoot);
+    tc_cam_stream.server->on("/cam.mjpeg", TC_CamStreamHandler);
+    tc_cam_stream.server->on("/cam.jpg", TC_CamStreamHandler);
+    tc_cam_stream.server->on("/stream", TC_CamStreamHandler);
+    tc_cam_stream.server->begin();
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: MJPEG stream server on port %d"), TC_CAM_STREAM_PORT);
+  }
+}
+
+void TC_CamStreamStop(void) {
+  if (tc_cam_stream.server) {
+    tc_cam_stream.stream_active = 0;
+    tc_cam_stream.server->stop();
+    delete tc_cam_stream.server;
+    tc_cam_stream.server = nullptr;
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: stream server stopped"));
+  }
+}
+
+static void TC_CamStreamLoop(void) {
+  if (tc_cam_stream.server) {
+    tc_cam_stream.server->handleClient();
+    if (tc_cam_stream.stream_active) { TC_CamStreamTask(); }
+  }
+}
+
+// ---- Motion detection (frame-diff from PSRAM slot 0) ----
+
+static void TC_CamMotionDetect(void) {
+  if (!tc_cam_motion.interval_ms) return;
+  if ((millis() - tc_cam_motion.last_time) < tc_cam_motion.interval_ms) return;
+  tc_cam_motion.last_time = millis();
+
+  // Need a valid JPEG in slot 0 with known dimensions, not currently being written
+  if (!tc_cam_slot[0].buf || tc_cam_slot[0].len == 0 ||
+      tc_cam_slot[0].width == 0 || tc_cam_slot[0].height == 0 ||
+      tc_cam_slot[0].writing) return;
+
+  uint32_t w = tc_cam_slot[0].width;
+  uint32_t h = tc_cam_slot[0].height;
+  uint32_t pixels = w * h;
+
+  // Decode JPEG to RGB888 in temp buffer
+  uint8_t *rgb = (uint8_t*)heap_caps_malloc(pixels * 3, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!rgb) return;
+
+  if (!fmt2rgb888(tc_cam_slot[0].buf, tc_cam_slot[0].len, PIXFORMAT_JPEG, rgb)) {
+    free(rgb);
+    return;
+  }
+
+  // Allocate reference buffer if needed
+  if (!tc_cam_motion.ref_buf || tc_cam_motion.ref_size != pixels) {
+    if (tc_cam_motion.ref_buf) free(tc_cam_motion.ref_buf);
+    tc_cam_motion.ref_buf = (uint8_t*)heap_caps_malloc(pixels, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    tc_cam_motion.ref_size = pixels;
+    if (tc_cam_motion.ref_buf) {
+      // First frame — fill reference, no comparison
+      uint8_t *pxi = rgb;
+      for (uint32_t i = 0; i < pixels; i++) {
+        tc_cam_motion.ref_buf[i] = (pxi[0] + pxi[1] + pxi[2]) / 3;
+        pxi += 3;
+      }
+    }
+    free(rgb);
+    return;
+  }
+
+  // Compare with reference
+  uint64_t accu = 0;
+  uint64_t bright = 0;
+  uint8_t *pxi = rgb;
+  uint8_t *pxr = tc_cam_motion.ref_buf;
+  for (uint32_t i = 0; i < pixels; i++) {
+    int32_t gray = (pxi[0] + pxi[1] + pxi[2]) / 3;
+    int32_t lgray = pxr[0];
+    pxr[0] = gray;
+    pxi += 3;
+    pxr++;
+    accu += abs(gray - lgray);
+    bright += gray;
+  }
+  free(rgb);
+
+  uint32_t divider = pixels / 100;
+  if (divider == 0) divider = 1;
+  tc_cam_motion.motion_trigger = (uint32_t)(accu / divider);
+  tc_cam_motion.motion_brightness = (uint32_t)(bright / divider);
+  tc_cam_motion.triggered = (tc_cam_motion.threshold > 0 && tc_cam_motion.motion_trigger > tc_cam_motion.threshold) ? 1 : 0;
+}
+
+#endif // USE_WEBCAM || USE_TINYC_CAMERA
+
 // ---- WebUI: interactive widget page (/tc_ui) -- uses slot 0 ----
 
 static void HandleTinyCUI(void) {
@@ -2502,6 +2663,12 @@ bool Xdrv124(uint32_t function) {
       }
       // Poll port 82 download server for incoming file requests
       TC_DLServerLoop();
+#if defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA)
+      // Poll port 81 MJPEG stream server
+      TC_CamStreamLoop();
+      // Run motion detection if enabled
+      TC_CamMotionDetect();
+#endif
 #endif
       // Call user's EveryLoop() callback on all active slots
       tc_all_callbacks("EveryLoop");
@@ -2564,6 +2731,14 @@ bool Xdrv124(uint32_t function) {
       TinyCShow(false);
       break;
     case FUNC_WEB_ADD_MAIN_BUTTON:
+#if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
+      // Show MJPEG stream from port 81 if stream server is running
+      if (tc_cam_stream.server && tc_cam_slot[0].len > 0) {
+        WSContentSend_P(PSTR("<p></p><center><img onerror='setTimeout(()=>{this.src=this.src;},1000)' "
+          "src='http://%_I:%d/stream' alt='TinyC Camera' style='width:99%%;'></center><p></p>"),
+          (uint32_t)WiFi.localIP(), TC_CAM_STREAM_PORT);
+      }
+#endif
       // Reset WebChart state before calling WebPage()
       tc_chart_seq = 0;
       tc_chart_lib_sent = false;
@@ -2633,6 +2808,18 @@ bool Xdrv124(uint32_t function) {
       WebServer_on(PSTR("/tc_api"), HandleTinyCApi);
       Webserver->on("/tc_api", HTTP_OPTIONS, HandleTinyCApiCORS);
       WebServer_on(PSTR("/tc_ui"), HandleTinyCUI);
+#if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
+      WebServer_on(PSTR("/tc_cam"), HandleTinyCCam);
+#endif
+      // Register any webOn handlers that were set up before web server started
+      if (Tinyc) {
+        for (int i = 0; i < Tinyc->web_handler_count && i < TC_MAX_WEB_HANDLERS; i++) {
+          if (Tinyc->web_handler_url[i][0]) {
+            Webserver->on(Tinyc->web_handler_url[i], TinyCWebOnHandlers[i]);
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: webOn(%d, \"%s\") registered (deferred)"), i + 1, Tinyc->web_handler_url[i]);
+          }
+        }
+      }
 #if defined(USE_TINYC_IDE) && defined(USE_UFILESYS)
       WebServer_on(PSTR("/ide"), HandleTinyCIde);
 #endif

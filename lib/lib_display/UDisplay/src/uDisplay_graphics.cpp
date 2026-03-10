@@ -141,3 +141,7 @@ void uDisplay::setRotation(uint8_t rotation) {
 void uDisplay::Updateframe(void) {
     universal_panel->updateFrame();
 }
+
+void uDisplay::clearDisplay(void) {
+    fillScreen(bg_col);
+}
