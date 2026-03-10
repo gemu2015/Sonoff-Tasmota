@@ -2116,13 +2116,23 @@ static void TC_CamStreamTask(void) {
     tc_cam_stream.stream_active = 2;
   }
   if (2 == tc_cam_stream.stream_active) {
-    // Serve from PSRAM slot 0 (0-based index, corresponds to script slot 1)
-    // Skip if slot is being written to (avoid torn frames)
+    // Copy frame to send buffer first (slot may be overwritten during slow TCP send)
     if (!tc_cam_slot[0].buf || tc_cam_slot[0].len == 0 || tc_cam_slot[0].writing) return;
+    uint32_t len = tc_cam_slot[0].len;
+    // (Re)allocate send buffer if needed
+    if (!tc_cam_stream.send_buf || tc_cam_stream.send_alloc < len) {
+      if (tc_cam_stream.send_buf) free(tc_cam_stream.send_buf);
+      tc_cam_stream.send_buf = (uint8_t*)heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+      tc_cam_stream.send_alloc = tc_cam_stream.send_buf ? len : 0;
+    }
+    if (!tc_cam_stream.send_buf) return;
+    memcpy(tc_cam_stream.send_buf, tc_cam_slot[0].buf, len);
+    tc_cam_stream.send_len = len;
+    // Send from the copy — safe even if slot gets overwritten now
     tc_cam_stream.client.print("--" TC_CAM_BOUNDARY "\r\n");
     tc_cam_stream.client.printf("Content-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n",
-      (int)tc_cam_slot[0].len);
-    tc_cam_stream.client.write(tc_cam_slot[0].buf, tc_cam_slot[0].len);
+      (int)tc_cam_stream.send_len);
+    tc_cam_stream.client.write(tc_cam_stream.send_buf, tc_cam_stream.send_len);
     tc_cam_stream.client.print("\r\n");
   }
   if (0 == tc_cam_stream.stream_active) {
@@ -2134,6 +2144,13 @@ static void TC_CamStreamTask(void) {
 
 void TC_CamStreamInit(void) {
   if (tc_cam_stream.server) return;  // already running
+  // Defer if WiFi not ready (early boot autoexec)
+  if (!WifiHasIP()) {
+    tc_cam_stream.pending = 1;
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: stream server deferred (no WiFi)"));
+    return;
+  }
+  tc_cam_stream.pending = 0;
   tc_cam_stream.stream_active = 0;
   tc_cam_stream.server = new ESP8266WebServer(TC_CAM_STREAM_PORT);
   if (tc_cam_stream.server) {
@@ -2152,11 +2169,18 @@ void TC_CamStreamStop(void) {
     tc_cam_stream.server->stop();
     delete tc_cam_stream.server;
     tc_cam_stream.server = nullptr;
+    if (tc_cam_stream.send_buf) { free(tc_cam_stream.send_buf); tc_cam_stream.send_buf = nullptr; }
+    tc_cam_stream.send_len = 0;
+    tc_cam_stream.send_alloc = 0;
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: stream server stopped"));
   }
 }
 
 static void TC_CamStreamLoop(void) {
+  // Deferred init: create server once WiFi is ready
+  if (tc_cam_stream.pending && !tc_cam_stream.server && WifiHasIP()) {
+    TC_CamStreamInit();
+  }
   if (tc_cam_stream.server) {
     tc_cam_stream.server->handleClient();
     if (tc_cam_stream.stream_active) { TC_CamStreamTask(); }
@@ -2732,10 +2756,13 @@ bool Xdrv124(uint32_t function) {
       break;
     case FUNC_WEB_ADD_MAIN_BUTTON:
 #if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
-      // Show MJPEG stream from port 81 if stream server is running
-      if (tc_cam_stream.server && tc_cam_slot[0].len > 0) {
-        WSContentSend_P(PSTR("<p></p><center><img onerror='setTimeout(()=>{this.src=this.src;},1000)' "
-          "src='http://%_I:%d/stream' alt='TinyC Camera' style='width:99%%;'></center><p></p>"),
+      // Show MJPEG stream from port 81 — rendered once, not AJAX-refreshed
+      // onerror retry reconnects if stream drops (e.g. client disconnect)
+      if ((tc_cam_stream.server || tc_cam_stream.pending) && tc_cam_slot[0].len > 0) {
+        WSContentSend_P(PSTR("<p></p><center>"
+          "<img onerror='setTimeout(()=>{this.src=this.src;},1000)' "
+          "src='http://%_I:%d/stream' alt='TinyC Camera' style='width:99%%;'>"
+          "</center><p></p>"),
           (uint32_t)WiFi.localIP(), TC_CAM_STREAM_PORT);
       }
 #endif

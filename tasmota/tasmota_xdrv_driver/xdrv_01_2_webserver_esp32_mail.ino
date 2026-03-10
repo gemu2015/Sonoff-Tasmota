@@ -359,7 +359,7 @@ void send_message_txt(char *txt) {
     attach_File(txt);
   } else if (*txt == '$') {
     txt++;
-#ifdef USE_WEBCAM
+#if defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA)
     if (num_attachments < MAX_ATTCHMENTS) {
       attachments[num_attachments] = (char*)malloc(32);
       uint32_t cnt;
@@ -375,7 +375,7 @@ void send_message_txt(char *txt) {
       }
       num_attachments++;
     }
-#endif  // USE_WEBCAM
+#endif  // USE_WEBCAM || USE_TINYC_CAMERA
   } else {
     html_content += txt;
     email_mptr->html.content = html_content.c_str();

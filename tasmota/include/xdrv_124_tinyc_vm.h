@@ -34,6 +34,10 @@ static struct {
   ESP8266WebServer *server;
   WiFiClient client;
   uint8_t stream_active;      // 0=off, 1=starting, 2=streaming
+  uint8_t pending;            // 1 = init requested but WiFi not ready yet
+  uint8_t *send_buf;          // copy of frame for sending (avoids torn reads)
+  uint32_t send_len;
+  uint32_t send_alloc;        // allocated size of send_buf
 } tc_cam_stream = {};
 
 // ── Motion detection ──
@@ -47,6 +51,17 @@ static struct {
   uint8_t triggered;          // 1 if motion exceeded threshold
   uint32_t threshold;         // trigger level (0 = report only)
 } tc_cam_motion = {};
+
+// Bridge: provide WcGetPicstore() from tc_cam_slot when USE_WEBCAM is NOT available
+// This allows the email driver's $N picture attachment to work with the TinyC camera
+#if !defined(USE_WEBCAM)
+uint32_t WcGetPicstore(int32_t num, uint8_t **buff) {
+  if (num < 0) { return TC_CAM_MAX_SLOTS; }
+  if (num >= TC_CAM_MAX_SLOTS) { if (buff) *buff = nullptr; return 0; }
+  if (buff) *buff = tc_cam_slot[num].buf;
+  return tc_cam_slot[num].len;
+}
+#endif  // !USE_WEBCAM
 #endif
 
 #ifdef USE_UFILESYS
@@ -6190,8 +6205,12 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         case 4: res = WcGetHeight(); break;                // height()
         case 5: res = WcSetStreamserver(p1); break;        // stream(on/off)
         case 6: res = WcSetMotionDetect(p1); break;        // motion(param)
+#endif // USE_WEBCAM
+
+#if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
         case 7: {
           // savePic(bufnum, filehandle) — write picture from RAM buffer to open file
+          // Uses WcGetPicstore() — bridged to tc_cam_slot when USE_TINYC_CAMERA
           uint8_t *buff;
           int32_t maxps = WcGetPicstore(-1, 0);
           int32_t bnum = p1;
@@ -6202,7 +6221,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           }
           break;
         }
-#endif // USE_WEBCAM
+#endif // USE_WEBCAM || USE_TINYC_CAMERA
 
 #if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
         // ── Direct esp_camera API (sel 8-13) ──
