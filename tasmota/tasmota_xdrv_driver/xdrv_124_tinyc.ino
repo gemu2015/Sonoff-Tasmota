@@ -1802,6 +1802,7 @@ static void HandleTinyCDisplayRaw(void) {
     return;
   }
 
+#ifdef ESP32
   // Large RGB framebuffers (>32KB): downsample + stream from SRAM
   // Scale factor: 2=half (400x240=192KB), 1=full (800x480=768KB)
   #define DISPLAY_MIRROR_SCALE 2
@@ -1865,6 +1866,7 @@ static void HandleTinyCDisplayRaw(void) {
     tc_mirror_busy = false;
     return;
   }
+#endif  // ESP32 — large RGB framebuffers
 
   // Small framebuffers (EPD, OLED) — send full resolution
   // 8-byte header
