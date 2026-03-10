@@ -6445,6 +6445,15 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       config.pin_xclk     = pins[2];
       config.pin_sccb_sda = pins[3];
       config.pin_sccb_scl = pins[4];
+
+      // Share I2C bus 2 if Tasmota already initialized it (other sensors on same bus)
+      if (TasmotaGlobal.i2c_enabled[1]) {
+        config.sccb_i2c_port = 1;           // reuse Wire1
+        config.pin_sccb_sda  = -1;          // tell esp_camera to NOT install its own I2C driver
+        config.pin_sccb_scl  = -1;
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: sharing I2C bus 2 for SCCB"));
+      }
+
       config.pin_d7       = pins[5];
       config.pin_d6       = pins[6];
       config.pin_d5       = pins[7];
