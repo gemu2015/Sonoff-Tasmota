@@ -17,6 +17,9 @@
 #if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
 #include "esp_camera.h"
 #include "img_converters.h"
+#if CONFIG_IDF_TARGET_ESP32S3
+#include "soc/lcd_cam_struct.h"
+#endif
 // PSRAM picture slots — capture copies JPEG here, camera fb returned immediately
 #define TC_CAM_MAX_SLOTS 4
 static struct {
@@ -6281,12 +6284,14 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           // If task_handle is NULL (task exited) or we're on a different thread, skip
           if (!tc_current_slot || !tc_current_slot->task_handle ||
               xTaskGetCurrentTaskHandle() != tc_current_slot->task_handle) {
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: capture SKIPPED — wrong thread (slot=%d, task=%p, cur=%p)"),
+              slot + 1, tc_current_slot ? tc_current_slot->task_handle : nullptr, xTaskGetCurrentTaskHandle());
             res = 0; break;  // skip — use TaskLoop for camera captures
           }
 #endif
           camera_fb_t *fb = esp_camera_fb_get();
           if (!fb) {
-            AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: cam fb_get returned NULL (slot %d)"), slot + 1);
+            AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: cam fb_get timeout (slot %d)"), slot + 1);
             res = 0; break;
           }
           // (Re)allocate PSRAM slot if needed
@@ -6360,7 +6365,9 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           tc_cam_motion.ref_size = 0;
           tc_cam_motion.interval_ms = 0;
           tc_cam_motion.triggered = 0;
-          esp_camera_deinit();
+          // Note: NOT calling esp_camera_deinit() here — OV3660 doesn't recover
+          // from deinit without power cycle. Camera stays initialized for reuse.
+          // cameraInit() will deinit+reinit if called again (via tc_cam_inited flag).
           res = 0;
           break;
         }
@@ -6476,8 +6483,8 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       config.pin_pclk     = pins[15];
 
       config.xclk_freq_hz  = (xclk_arg > 0) ? xclk_arg : 20000000;
-      config.ledc_channel   = LEDC_CHANNEL_7;
-      config.ledc_timer     = LEDC_TIMER_3;
+      config.ledc_channel   = LEDC_CHANNEL_0;
+      config.ledc_timer     = LEDC_TIMER_0;
       config.pixel_format   = (pixformat_t)format;
       config.frame_size     = (framesize_t)framesize;
       config.jpeg_quality   = quality;
@@ -6508,16 +6515,43 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
         config.fb_location = CAMERA_FB_IN_DRAM;
       }
 
-      // Deinit first if already initialized (handles restart without OnExit)
-      esp_camera_deinit();
+      static bool tc_cam_inited = false;
+      if (tc_cam_inited) {
+        esp_camera_deinit();
+        delay(100);
+      }
 
       esp_err_t err = esp_camera_init(&config);
+
+#if CONFIG_IDF_TARGET_ESP32S3
+      if (err == ESP_OK) {
+        // ESP32-S3 XCLK fix: the pre-compiled esp-camera library selects
+        // cam_clk_sel=3 (PLL_240M). With clkm_div=8 this outputs 30 MHz
+        // instead of the requested 20 MHz. Switch to PLL_F160M for correct XCLK.
+        if (LCD_CAM.cam_ctrl.cam_clk_sel != 2) {
+          LCD_CAM.cam_ctrl.cam_clk_sel = 2;  // PLL_F160M: 160/8 = 20 MHz
+          LCD_CAM.cam_ctrl.cam_update = 1;
+          delay(300);  // sensor PLL re-lock time
+        }
+      }
+#endif
+
+      if (err == ESP_OK) tc_cam_inited = true;
       int32_t res = (err == ESP_OK) ? 0 : -1;
       if (err != ESP_OK) {
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: cameraInit failed 0x%x"), err);
       } else {
         AddLog(LOG_LEVEL_INFO, PSTR("TCC: camera initialized fmt=%d fs=%d q=%d xclk=%d fb=%d grab=%d"),
           format, framesize, quality, config.xclk_freq_hz, config.fb_count, config.grab_mode);
+        sensor_t *s = esp_camera_sensor_get();
+        if (s) {
+          AddLog(LOG_LEVEL_INFO, PSTR("TCC: sensor PID=0x%x"), s->id.PID);
+          if (s->id.PID == OV3660_PID) {
+            s->set_vflip(s, 1);
+            s->set_brightness(s, 1);
+            s->set_saturation(s, -2);
+          }
+        }
       }
       TC_PUSH(vm, res);
       break;
