@@ -2109,7 +2109,8 @@ static void TC_CamStreamTask(void) {
   }
   if (1 == tc_cam_stream.stream_active) {
     tc_cam_stream.client.flush();
-    tc_cam_stream.client.setTimeout(3);
+    tc_cam_stream.client.setNoDelay(true);
+    tc_cam_stream.client.setTimeout(1);
     tc_cam_stream.client.print("HTTP/1.1 200 OK\r\n"
       "Content-Type: multipart/x-mixed-replace;boundary=" TC_CAM_BOUNDARY "\r\n"
       "\r\n");
@@ -2759,10 +2760,15 @@ bool Xdrv124(uint32_t function) {
       // Show MJPEG stream from port 81 — rendered once, not AJAX-refreshed
       // onerror retry reconnects if stream drops (e.g. client disconnect)
       if ((tc_cam_stream.server || tc_cam_stream.pending) && tc_cam_slot[0].len > 0) {
+        // Use onload script to set src AFTER page is fully rendered
+        // This prevents the stream request from blocking page load
         WSContentSend_P(PSTR("<p></p><center>"
-          "<img onerror='setTimeout(()=>{this.src=this.src;},1000)' "
-          "src='http://%_I:%d/stream' alt='TinyC Camera' style='width:99%%;'>"
-          "</center><p></p>"),
+          "<img id='tccam' onerror='setTimeout(()=>{this.src=\"http://%_I:%d/stream\";},2000)' "
+          "alt='TinyC Camera' style='width:99%%;'>"
+          "</center><p></p>"
+          "<script>window.addEventListener('load',()=>{document.getElementById('tccam').src="
+          "'http://%_I:%d/stream';});</script>"),
+          (uint32_t)WiFi.localIP(), TC_CAM_STREAM_PORT,
           (uint32_t)WiFi.localIP(), TC_CAM_STREAM_PORT);
       }
 #endif

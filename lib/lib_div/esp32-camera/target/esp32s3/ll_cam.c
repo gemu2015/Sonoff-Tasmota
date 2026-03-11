@@ -47,6 +47,14 @@
 
 static const char *TAG = "s3 ll_cam";
 
+// Tasmota AddLog integration — TcCamLog is a C-linkage wrapper defined in xdrv_124_tinyc_vm.h
+#ifdef ARDUINO
+extern void TcCamLog(const char* fmt, ...);
+#define TASM_LOG(fmt, ...) TcCamLog(fmt, ##__VA_ARGS__)
+#else
+#define TASM_LOG(fmt, ...) ESP_LOGI(TAG, fmt, ##__VA_ARGS__)
+#endif
+
 void ll_cam_dma_print_state(cam_obj_t *cam)
 {
     esp_rom_printf("dma_infifo_status[%u]  :\n", cam->dma_num);
@@ -87,7 +95,7 @@ void ll_cam_dma_reset(cam_obj_t *cam)
     }
 
     GDMA.channel[cam->dma_num].in.conf1.in_check_owner = 0;
-    // GDMA.channel[cam->dma_num].in.conf1.in_ext_mem_bk_size = 2;
+    GDMA.channel[cam->dma_num].in.conf1.in_ext_mem_bk_size = 2;  // 64-byte PSRAM blocks (was 16)
 
     GDMA.channel[cam->dma_num].in.peri_sel.sel = 5;
     //GDMA.channel[cam->dma_num].in.pri.rx_pri = 1;//rx prio 0-15
@@ -261,6 +269,16 @@ static esp_err_t ll_cam_dma_init(cam_obj_t *cam)
     }
 #endif
     ll_cam_dma_reset(cam);
+
+    // Debug: dump GDMA and LCD_CAM register state
+    TASM_LOG("GDMA ch%d conf0=0x%08lx conf1=0x%08lx peri=%lu",
+        cam->dma_num,
+        GDMA.channel[cam->dma_num].in.conf0.val,
+        GDMA.channel[cam->dma_num].in.conf1.val,
+        GDMA.channel[cam->dma_num].in.peri_sel.sel);
+    TASM_LOG("LCD_CAM ctrl=0x%08lx ctrl1=0x%08lx",
+        LCD_CAM.cam_ctrl.val, LCD_CAM.cam_ctrl1.val);
+
     return ESP_OK;
 }
 

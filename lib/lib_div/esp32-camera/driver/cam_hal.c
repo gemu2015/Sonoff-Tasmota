@@ -54,6 +54,14 @@
 #endif
 
 static const char *TAG = "cam_hal";
+
+// Tasmota AddLog integration — TcCamLog is a C-linkage wrapper defined in xdrv_124_tinyc_vm.h
+#ifdef ARDUINO
+extern void TcCamLog(const char* fmt, ...);
+#define TASM_LOG(fmt, ...) TcCamLog(fmt, ##__VA_ARGS__)
+#else
+#define TASM_LOG(fmt, ...) ESP_LOGI(TAG, fmt, ##__VA_ARGS__)
+#endif
 static cam_obj_t *cam_obj = NULL;
 #if defined(CONFIG_CAMERA_PSRAM_DMA)
 #define CAMERA_PSRAM_DMA_ENABLED CONFIG_CAMERA_PSRAM_DMA
@@ -391,6 +399,14 @@ static void cam_task(void *arg)
                         if (cam_obj->psram_mode) {
                             if (cam_obj->jpeg_mode) {
                                 frame_buffer_event->len = cnt * cam_obj->dma_half_buffer_size;
+                                // Debug: log first few frames
+                                static int dbg_frame_cnt = 0;
+                                if (dbg_frame_cnt < 3) {
+                                    TASM_LOG("PSRAM-JPEG frame[%d]: cnt=%d half=%d len=%d buf=0x%08x",
+                                        dbg_frame_cnt, (int)cnt, (int)cam_obj->dma_half_buffer_size,
+                                        (int)frame_buffer_event->len, (unsigned)frame_buffer_event->buf);
+                                    dbg_frame_cnt++;
+                                }
                             } else {
                                 frame_buffer_event->len = cam_obj->recv_size;
                             }
@@ -756,10 +772,21 @@ camera_fb_t *cam_take(TickType_t timeout)
             }
 
             if (offset_e >= 0) {
+                size_t raw_len = dma_buffer->len;
                 dma_buffer->len = offset_e + JPEG_EOI_MARKER_LEN;
                 if (cam_obj->psram_mode) {
                     /* DMA may bypass cache, ensure full frame is visible */
                     cam_drop_psram_cache(dma_buffer->buf, dma_buffer->len);
+                }
+                // Debug: log first few JPEG frame sizes
+                static int dbg_eoi_cnt = 0;
+                if (dbg_eoi_cnt < 3) {
+                    TASM_LOG("JPEG-EOI: raw=%d trim=%d eoi=%d buf=0x%08x",
+                        (int)raw_len, (int)dma_buffer->len, offset_e, (unsigned)dma_buffer->buf);
+                    TASM_LOG("HDR: %02x%02x %02x%02x %02x%02x %02x%02x",
+                        dma_buffer->buf[0], dma_buffer->buf[1], dma_buffer->buf[2], dma_buffer->buf[3],
+                        dma_buffer->buf[4], dma_buffer->buf[5], dma_buffer->buf[6], dma_buffer->buf[7]);
+                    dbg_eoi_cnt++;
                 }
                 return dma_buffer;
             }

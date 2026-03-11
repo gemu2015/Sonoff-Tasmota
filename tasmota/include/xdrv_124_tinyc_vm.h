@@ -17,6 +17,16 @@
 #if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
 #include "esp_camera.h"
 #include "img_converters.h"
+
+// C-linkage wrapper so camera C library can call Tasmota's AddLog
+extern "C" void TcCamLog(const char* fmt, ...) {
+    char buf[160];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    AddLog(2, PSTR("CAM: %s"), buf);
+}
 // PSRAM picture slots — capture copies JPEG here, camera fb returned immediately
 #define TC_CAM_MAX_SLOTS 4
 static struct {
@@ -178,6 +188,7 @@ static FS *tc_file_path(char *path) {
 #define TC_UDP_VAR_NAME_MAX  16         // max variable name length
 #define TC_UDP_BUF_SIZE      320        // receive buffer (max: 2+16+1+2+64*4 = 277)
 #define TC_UDP_MAX_ARRAY     64         // max float array elements per UDP variable
+#define TC_UDP_TIMEOUT_SEC   60         // default inactivity timeout (seconds), 0 = disabled
 
 /*********************************************************************************************\
  * VM Opcodes
@@ -412,6 +423,9 @@ enum TcSyscall {
   // Webcam (ESP32 — requires USE_WEBCAM)
   SYS_CAM_CONTROL     = 169, // (sel, p1, p2) -> int — multiplexed webcam control
   SYS_CAM_INIT_PINS   = 206, // (pins_ref, format, framesize, quality) -> int — init camera with custom pins
+  // Hardware register peek/poke (ESP32 memory-mapped I/O)
+  SYS_PEEK_REG         = 207, // (addr) -> int — read 32-bit from memory-mapped address
+  SYS_POKE_REG         = 208, // (addr, val) -> void — write 32-bit to memory-mapped address
   // Display drawing (direct renderer calls — requires USE_DISPLAY)
   SYS_DSP_TEXT        = 170, // (buf_ref) -> void — raw DisplayText command string
   SYS_DSP_CLEAR       = 171, // () -> void — clear display
@@ -752,10 +766,15 @@ struct TINYC {
   // TinyC always owns its own UDP multicast socket for receiving
   WiFiUDP  udp;
   char     udp_buf[TC_UDP_BUF_SIZE];
+  // UDP socket inactivity watchdog — reset socket if no rx within timeout
+  uint32_t udp_last_rx;           // millis() of last received multicast packet
+  uint16_t udp_timeout;           // inactivity timeout in seconds (0 = disabled)
   // General-purpose UDP port (Scripter-compatible udp() function)
   WiFiUDP  udp_port;              // general-purpose UDP socket
   uint16_t udp_port_num;          // bound port number
   bool     udp_port_open;         // port is listening
+  uint32_t udp_port_last_rx;     // millis() of last received packet on general port
+  uint16_t udp_port_timeout;     // inactivity timeout in seconds (0 = disabled)
   // WebUI pages (up to 6, set by wLabel(), buttons on main page)
 #define TC_MAX_WEB_PAGES 6
   char     page_label[TC_MAX_WEB_PAGES][32];
@@ -1791,7 +1810,11 @@ static void tc_udp_init(void) {
   if (Tinyc->udp.beginMulticast(IPAddress(239,255,255,250), TC_UDP_PORT)) {
 #endif
     Tinyc->udp_connected = true;
-    AddLog(LOG_LEVEL_INFO, PSTR("TCC: UDP multicast started on port %d"), TC_UDP_PORT);
+    Tinyc->udp_last_rx = millis();  // reset watchdog on (re)connect
+    if (!Tinyc->udp_timeout) {
+      Tinyc->udp_timeout = TC_UDP_TIMEOUT_SEC;  // set default on first init
+    }
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: UDP multicast started on port %d (timeout %ds)"), TC_UDP_PORT, Tinyc->udp_timeout);
   } else {
     Tinyc->udp_connected = false;
     AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: UDP multicast failed"));
@@ -1830,6 +1853,20 @@ static void tc_udp_poll(void) {
     return;
   }
 
+  // Inactivity watchdog: reset socket if no packet received within timeout
+  if (Tinyc->udp_timeout > 0) {
+    uint32_t elapsed = millis() - Tinyc->udp_last_rx;
+    if (elapsed > (uint32_t)Tinyc->udp_timeout * 1000) {
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: UDP multicast rx timeout (%ds) — resetting socket"), Tinyc->udp_timeout);
+      Tinyc->udp.flush();
+      Tinyc->udp.stop();
+      Tinyc->udp_connected = false;
+      tc_udp_init();  // immediately reconnect
+      return;
+    }
+  }
+
+  bool got_packet = false;
   uint32_t timeout = millis();
   while (1) {
     uint16_t plen = Tinyc->udp.parsePacket();
@@ -1842,6 +1879,7 @@ static void tc_udp_poll(void) {
     }
     if (millis() - timeout > 100) break;  // max 100ms processing
 
+    got_packet = true;
     int32_t len = Tinyc->udp.read(Tinyc->udp_buf, TC_UDP_BUF_SIZE - 1);
     Tinyc->udp_buf[len] = 0;
 
@@ -1868,6 +1906,11 @@ static void tc_udp_poll(void) {
     tc_udp_on_receive(lp, umode, data, datalen);
 
     optimistic_yield(100);
+  }
+
+  // Reset watchdog timer on any received packet
+  if (got_packet) {
+    Tinyc->udp_last_rx = millis();
   }
 }
 
@@ -4304,7 +4347,11 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
             if (Tinyc->udp_port.begin(port)) {
               Tinyc->udp_port_num = port;
               Tinyc->udp_port_open = true;
-              AddLog(LOG_LEVEL_INFO, PSTR("TCC: UDP port %d opened"), port);
+              Tinyc->udp_port_last_rx = millis();  // reset watchdog
+              if (!Tinyc->udp_port_timeout) {
+                Tinyc->udp_port_timeout = TC_UDP_TIMEOUT_SEC;
+              }
+              AddLog(LOG_LEVEL_INFO, PSTR("TCC: UDP port %d opened (timeout %ds)"), port, Tinyc->udp_port_timeout);
               TC_PUSH(vm, 1);
             } else {
               Tinyc->udp_port_open = false;
@@ -4319,8 +4366,21 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           int32_t buf_ref = TC_POP(vm);
           int32_t result = 0;
           if (Tinyc->udp_port_open && !TasmotaGlobal.global_state.network_down) {
+            // Inactivity watchdog: reset socket if no packet within timeout
+            if (Tinyc->udp_port_timeout > 0) {
+              uint32_t elapsed = millis() - Tinyc->udp_port_last_rx;
+              if (elapsed > (uint32_t)Tinyc->udp_port_timeout * 1000) {
+                AddLog(LOG_LEVEL_INFO, PSTR("TCC: UDP port %d rx timeout (%ds) — resetting"),
+                       Tinyc->udp_port_num, Tinyc->udp_port_timeout);
+                uint16_t saved_port = Tinyc->udp_port_num;
+                Tinyc->udp_port.stop();
+                Tinyc->udp_port.begin(saved_port);
+                Tinyc->udp_port_last_rx = millis();
+              }
+            }
             int32_t plen = Tinyc->udp_port.parsePacket();
             if (plen > 0) {
+              Tinyc->udp_port_last_rx = millis();  // packet received — reset watchdog
               char packet[512];
               int32_t len = Tinyc->udp_port.read(packet, sizeof(packet) - 1);
               if (len > 0) {
@@ -4443,6 +4503,25 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
             }
           }
           TC_PUSH(vm, 0);
+          break;
+        }
+        case 8: { // udp(8, which, seconds) → set inactivity timeout
+          // which: 0 = multicast globalvars, 1 = general-purpose port
+          // seconds: timeout in seconds (0 = disable watchdog)
+          int32_t seconds = TC_POP(vm);
+          int32_t which = TC_POP(vm);
+          if (seconds < 0) seconds = 0;
+          if (seconds > 3600) seconds = 3600;
+          if (which == 0) {
+            Tinyc->udp_timeout = (uint16_t)seconds;
+            Tinyc->udp_last_rx = millis();  // reset watchdog now
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: UDP multicast timeout set to %ds"), seconds);
+          } else {
+            Tinyc->udp_port_timeout = (uint16_t)seconds;
+            Tinyc->udp_port_last_rx = millis();
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: UDP port timeout set to %ds"), seconds);
+          }
+          TC_PUSH(vm, 1);
           break;
         }
         default:
@@ -6426,6 +6505,26 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           res = 0;
           break;
         }
+        case 19: {
+          // readSensorReg(addr, mask, 0) — read sensor register
+          // p1=register address (e.g. 0x3820), p2=mask (0xff for full byte)
+          sensor_t *s19 = esp_camera_sensor_get();
+          if (s19) {
+            res = s19->get_reg(s19, p1, p2 ? p2 : 0xff);
+          } else { res = -1; }
+          break;
+        }
+        case 20: {
+          // writeSensorReg(addr, val, mask) — write sensor register
+          // p1=register address, p2=value, p3 used as mask (passed via sel hack)
+          // Usage from TinyC: camControl(20, addr, value)
+          // writes full byte (mask=0xff)
+          sensor_t *s20 = esp_camera_sensor_get();
+          if (s20) {
+            res = s20->set_reg(s20, p1, 0xff, p2);
+          } else { res = -1; }
+          break;
+        }
 #endif // USE_WEBCAM || USE_TINYC_CAMERA
         default:
           AddLog(LOG_LEVEL_ERROR, PSTR("TCC: camControl unknown sel=%d"), sel);
@@ -6433,6 +6532,33 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           break;
       }
       TC_PUSH(vm, res);
+      break;
+    }
+
+    // ── Hardware register peek/poke ─────────────────────
+    case SYS_PEEK_REG: {
+      // peekReg(addr) -> int — read 32-bit from memory-mapped address
+      uint32_t addr = (uint32_t)TC_POP(vm);
+      // Safety: only allow peripheral address ranges (0x3FF00000-0x3FFFFFFF, 0x60000000-0x600FFFFF)
+      int32_t val = 0;
+      if ((addr >= 0x3FF00000 && addr <= 0x3FFFFFFF) || (addr >= 0x60000000 && addr <= 0x600FFFFF)) {
+        val = *(volatile uint32_t*)addr;
+      } else {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: peekReg invalid addr 0x%08x"), addr);
+        val = -1;
+      }
+      TC_PUSH(vm, val);
+      break;
+    }
+    case SYS_POKE_REG: {
+      // pokeReg(addr, val) -> void — write 32-bit to memory-mapped address
+      int32_t val  = TC_POP(vm);
+      uint32_t addr = (uint32_t)TC_POP(vm);
+      if ((addr >= 0x3FF00000 && addr <= 0x3FFFFFFF) || (addr >= 0x60000000 && addr <= 0x600FFFFF)) {
+        *(volatile uint32_t*)addr = (uint32_t)val;
+      } else {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: pokeReg invalid addr 0x%08x"), addr);
+      }
       break;
     }
 
@@ -6534,17 +6660,23 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
             s->set_vflip(s, 1);
             s->set_brightness(s, 1);
             s->set_saturation(s, -2);
-            // Dump key OV3660 timing registers for stripe debugging
+            // Dump key OV3660 registers for stripe debugging
             uint8_t r3820 = s->get_reg(s, 0x3820, 0xff);  // TIMING_TC_REG20 (vflip/binning)
             uint8_t r3821 = s->get_reg(s, 0x3821, 0xff);  // TIMING_TC_REG21 (hmirror/compress)
             uint8_t r3814 = s->get_reg(s, 0x3814, 0xff);  // X_INCREMENT
             uint8_t r3815 = s->get_reg(s, 0x3815, 0xff);  // Y_INCREMENT
             uint8_t r4514 = s->get_reg(s, 0x4514, 0xff);  // ISP pattern
-            uint8_t r3108 = s->get_reg(s, 0x3108, 0xff);  // PCLK divider
-            uint8_t r3003 = s->get_reg(s, 0x3003, 0xff);  // PLL ctrl
-            uint8_t r3006 = s->get_reg(s, 0x3006, 0xff);  // PLL ctrl2
-            AddLog(LOG_LEVEL_INFO, PSTR("TCC: OV3660 r3820=%02x r3821=%02x xinc=%02x yinc=%02x r4514=%02x pclk_div=%02x pll=%02x/%02x"),
-              r3820, r3821, r3814, r3815, r4514, r3108, r3003, r3006);
+            // Actual PLL registers
+            uint8_t pll0 = s->get_reg(s, 0x303a, 0xff);   // SC_PLLS_CTRL0 (bypass)
+            uint8_t pll1 = s->get_reg(s, 0x303b, 0xff);   // SC_PLLS_CTRL1 (multiplier)
+            uint8_t pll2 = s->get_reg(s, 0x303c, 0xff);   // SC_PLLS_CTRL2 (sys_div)
+            uint8_t pll3 = s->get_reg(s, 0x303d, 0xff);   // SC_PLLS_CTRL3 (pre_div/root2x/seld5)
+            uint8_t pclk = s->get_reg(s, 0x3824, 0xff);   // PCLK_RATIO
+            uint8_t vfifo = s->get_reg(s, 0x460c, 0xff);  // VFIFO_CTRL0C (pclk manual)
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: OV3660 r3820=%02x r3821=%02x xinc=%02x yinc=%02x r4514=%02x"),
+              r3820, r3821, r3814, r3815, r4514);
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: PLL bypass=%02x mult=%02x sysdiv=%02x prediv=%02x pclk=%02x vfifo=%02x"),
+              pll0, pll1, pll2, pll3, pclk, vfifo);
           }
         }
       }
