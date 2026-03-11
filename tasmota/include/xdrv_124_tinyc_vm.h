@@ -119,6 +119,15 @@ static FS *tc_file_path(char *path) {
 
 #define TC_MAX_FILE_HANDLES  4      // max simultaneously open files
 
+// VM task stack size (bytes) — camera builds need more for JPEG capture/stream
+#ifndef TC_VM_TASK_STACK
+  #ifdef USE_TINYC_CAMERA
+    #define TC_VM_TASK_STACK   12000
+  #else
+    #define TC_VM_TASK_STACK   8192
+  #endif
+#endif
+
 // Heap memory for large arrays (> 255 elements)
 #ifdef ESP8266
   #define TC_MAX_HEAP           2048   // heap slots (8KB)
@@ -9127,10 +9136,10 @@ static bool TinyCStartVM(TcSlot *s) {
 
 #if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C2)
   // Single-core variants -- no core affinity
-  BaseType_t ret = xTaskCreate(tc_vm_task, taskname, 8192, s, 1, &s->task_handle);
+  BaseType_t ret = xTaskCreate(tc_vm_task, taskname, TC_VM_TASK_STACK, s, 1, &s->task_handle);
 #else
   // Dual-core ESP32/S3 -- pin to core 1
-  BaseType_t ret = xTaskCreatePinnedToCore(tc_vm_task, taskname, 8192, s, 1, &s->task_handle, 1);
+  BaseType_t ret = xTaskCreatePinnedToCore(tc_vm_task, taskname, TC_VM_TASK_STACK, s, 1, &s->task_handle, 1);
 #endif
   if (ret != pdPASS) {
     AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Failed to create task for %s"), s->filename);
