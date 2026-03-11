@@ -17,9 +17,6 @@
 #if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
 #include "esp_camera.h"
 #include "img_converters.h"
-#if CONFIG_IDF_TARGET_ESP32S3
-#include "soc/lcd_cam_struct.h"
-#endif
 // PSRAM picture slots — capture copies JPEG here, camera fb returned immediately
 #define TC_CAM_MAX_SLOTS 4
 static struct {
@@ -6442,10 +6439,12 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     // ── Camera init with custom pins ─────────────────────
 #if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
     case SYS_CAM_INIT_PINS: {
-      // cameraInit(pins[], format, framesize, quality, xclk_freq, fb_count, grab_mode) -> int
+      // cameraInit(pins[], format, framesize, quality, xclk_freq, fb_count, grab_mode, fb_loc) -> int
       // xclk_freq: Hz (0 = 20MHz default)
       // fb_count:  0 = auto (1 no PSRAM, 2 with PSRAM), >0 = explicit
       // grab_mode: -1 = auto, 0 = GRAB_WHEN_EMPTY, 1 = GRAB_LATEST
+      // fb_loc:    0 = auto (PSRAM if available), 1 = force DRAM
+      int32_t fb_loc_arg    = TC_POP(vm);
       int32_t grab_mode_arg = TC_POP(vm);
       int32_t fb_count_arg  = TC_POP(vm);
       int32_t xclk_arg      = TC_POP(vm);
@@ -6488,12 +6487,14 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       config.pixel_format   = (pixformat_t)format;
       config.frame_size     = (framesize_t)framesize;
       config.jpeg_quality   = quality;
-      config.fb_location    = CAMERA_FB_IN_PSRAM;
+      // fb_location: 0=auto, 1=force DRAM
+      bool use_psram = psramFound() && (fb_loc_arg != 1);
+      config.fb_location = use_psram ? CAMERA_FB_IN_PSRAM : CAMERA_FB_IN_DRAM;
 
       // fb_count: 0=auto, >0=explicit
       if (fb_count_arg > 0) {
         config.fb_count = fb_count_arg;
-      } else if (psramFound()) {
+      } else if (use_psram) {
         config.fb_count = 2;
       } else {
         config.fb_count = 1;
@@ -6502,17 +6503,14 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       // grab_mode: -1=auto, 0=WHEN_EMPTY, 1=LATEST
       if (grab_mode_arg >= 0) {
         config.grab_mode = (camera_grab_mode_t)grab_mode_arg;
-      } else if (psramFound()) {
+      } else if (use_psram) {
         config.grab_mode = CAMERA_GRAB_LATEST;
       } else {
         config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
       }
 
-      if (!psramFound()) {
-        if (config.frame_size > FRAMESIZE_SVGA) {
-          config.frame_size = FRAMESIZE_SVGA;
-        }
-        config.fb_location = CAMERA_FB_IN_DRAM;
+      if (!use_psram && config.frame_size > FRAMESIZE_SVGA) {
+        config.frame_size = FRAMESIZE_SVGA;
       }
 
       static bool tc_cam_inited = false;
@@ -6522,27 +6520,13 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       }
 
       esp_err_t err = esp_camera_init(&config);
-
-#if CONFIG_IDF_TARGET_ESP32S3
-      if (err == ESP_OK) {
-        // ESP32-S3 XCLK fix: the pre-compiled esp-camera library selects
-        // cam_clk_sel=3 (PLL_240M). With clkm_div=8 this outputs 30 MHz
-        // instead of the requested 20 MHz. Switch to PLL_F160M for correct XCLK.
-        if (LCD_CAM.cam_ctrl.cam_clk_sel != 2) {
-          LCD_CAM.cam_ctrl.cam_clk_sel = 2;  // PLL_F160M: 160/8 = 20 MHz
-          LCD_CAM.cam_ctrl.cam_update = 1;
-          delay(300);  // sensor PLL re-lock time
-        }
-      }
-#endif
-
       if (err == ESP_OK) tc_cam_inited = true;
       int32_t res = (err == ESP_OK) ? 0 : -1;
       if (err != ESP_OK) {
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: cameraInit failed 0x%x"), err);
       } else {
-        AddLog(LOG_LEVEL_INFO, PSTR("TCC: camera initialized fmt=%d fs=%d q=%d xclk=%d fb=%d grab=%d"),
-          format, framesize, quality, config.xclk_freq_hz, config.fb_count, config.grab_mode);
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: camera initialized fmt=%d fs=%d q=%d xclk=%d fb=%d grab=%d loc=%d"),
+          format, framesize, quality, config.xclk_freq_hz, config.fb_count, config.grab_mode, config.fb_location);
         sensor_t *s = esp_camera_sensor_get();
         if (s) {
           AddLog(LOG_LEVEL_INFO, PSTR("TCC: sensor PID=0x%x"), s->id.PID);
@@ -6550,6 +6534,17 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
             s->set_vflip(s, 1);
             s->set_brightness(s, 1);
             s->set_saturation(s, -2);
+            // Dump key OV3660 timing registers for stripe debugging
+            uint8_t r3820 = s->get_reg(s, 0x3820, 0xff);  // TIMING_TC_REG20 (vflip/binning)
+            uint8_t r3821 = s->get_reg(s, 0x3821, 0xff);  // TIMING_TC_REG21 (hmirror/compress)
+            uint8_t r3814 = s->get_reg(s, 0x3814, 0xff);  // X_INCREMENT
+            uint8_t r3815 = s->get_reg(s, 0x3815, 0xff);  // Y_INCREMENT
+            uint8_t r4514 = s->get_reg(s, 0x4514, 0xff);  // ISP pattern
+            uint8_t r3108 = s->get_reg(s, 0x3108, 0xff);  // PCLK divider
+            uint8_t r3003 = s->get_reg(s, 0x3003, 0xff);  // PLL ctrl
+            uint8_t r3006 = s->get_reg(s, 0x3006, 0xff);  // PLL ctrl2
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: OV3660 r3820=%02x r3821=%02x xinc=%02x yinc=%02x r4514=%02x pclk_div=%02x pll=%02x/%02x"),
+              r3820, r3821, r3814, r3815, r4514, r3108, r3003, r3006);
           }
         }
       }
@@ -6558,7 +6553,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     }
 #else
     case SYS_CAM_INIT_PINS: {
-      TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm);
+      TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm);
       TC_PUSH(vm, -1);
       break;
     }
