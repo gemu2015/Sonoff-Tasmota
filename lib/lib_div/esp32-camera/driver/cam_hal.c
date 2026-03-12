@@ -56,11 +56,13 @@
 static const char *TAG = "cam_hal";
 
 // Tasmota AddLog integration — TcCamLog is a C-linkage wrapper defined in xdrv_124_tinyc_vm.h
-#ifdef ARDUINO
+// Define TC_CAM_DEBUG in build flags to enable verbose camera diagnostics
+#if defined(TC_CAM_DEBUG) && defined(ARDUINO)
 extern void TcCamLog(const char* fmt, ...);
 #define TASM_LOG(fmt, ...) TcCamLog(fmt, ##__VA_ARGS__)
 #else
-#define TASM_LOG(fmt, ...) ESP_LOGI(TAG, fmt, ##__VA_ARGS__)
+#define TASM_LOG(fmt, ...) do {} while(0)
+#define TcCamLog(fmt, ...) do {} while(0)
 #endif
 static cam_obj_t *cam_obj = NULL;
 #if defined(CONFIG_CAMERA_PSRAM_DMA)
@@ -143,10 +145,13 @@ static const uint8_t JPEG_SOI_MARKER[] = {0xFF, 0xD8, 0xFF}; /* SOI = FF D8 FF *
 static const uint8_t JPEG_EOI_BYTES[] = {0xFF, 0xD9};        /* EOI = FF D9 */
 #define JPEG_EOI_MARKER_LEN (2)
 
-/* Compute the scan window for JPEG EOI detection in PSRAM. */
+/* Compute the scan window for JPEG EOI detection in PSRAM.
+ * The DMA block count can vary by ±1 between frames (sensor timing jitter),
+ * so the EOI marker might be up to 2 DMA blocks from the end.
+ * Use 4× half-buffer to give plenty of margin. */
 static inline size_t eoi_probe_window(size_t half, size_t frame_len)
 {
-    size_t w = half + (JPEG_EOI_MARKER_LEN - 1);
+    size_t w = 4 * half + (JPEG_EOI_MARKER_LEN - 1);
     return w > frame_len ? frame_len : w;
 }
 
@@ -280,6 +285,10 @@ static void cam_task(void *arg)
 
     xQueueReset(cam_obj->event_queue);
 
+#ifdef TC_CAM_DEBUG
+    static int dbg_task_cnt = 0;
+#endif
+
     while (1) {
         xQueueReceive(cam_obj->event_queue, (void *)&cam_event, portMAX_DELAY);
         DBG_PIN_SET(1);
@@ -291,8 +300,24 @@ static void cam_task(void *arg)
                     if(cam_start_frame(&frame_pos)){
                         cam_obj->frames[frame_pos].fb.len = 0;
                         cam_obj->state = CAM_STATE_READ_BUF;
+#ifdef TC_CAM_DEBUG
+                        if (dbg_task_cnt < 20) {
+                            TASM_LOG("cam_task: IDLE->READ fpos=%d en0=%d en1=%d", frame_pos,
+                                cam_obj->frames[0].en, cam_obj->frames[1].en);
+                        }
+#endif
+                    } else {
+#ifdef TC_CAM_DEBUG
+                        if (dbg_task_cnt < 20) {
+                            TASM_LOG("cam_task: IDLE VSYNC no-free-buf en0=%d en1=%d",
+                                cam_obj->frames[0].en, cam_obj->frames[1].en);
+                        }
+#endif
                     }
                     cnt = 0;
+#ifdef TC_CAM_DEBUG
+                    dbg_task_cnt++;
+#endif
                 }
             }
             break;
@@ -377,6 +402,11 @@ static void cam_task(void *arg)
                 } else if (cam_event == CAM_VSYNC_EVENT) {
                     //DBG_PIN_SET(1);
                     ll_cam_stop(cam_obj);
+#ifdef TC_CAM_DEBUG
+                    if (dbg_task_cnt < 20) {
+                        TASM_LOG("cam_task: READ_BUF VSYNC cnt=%d fpos=%d", cnt, frame_pos);
+                    }
+#endif
 
                     if (cnt || !cam_obj->jpeg_mode || cam_obj->psram_mode) {
                         if (cam_obj->jpeg_mode) {
@@ -399,14 +429,17 @@ static void cam_task(void *arg)
                         if (cam_obj->psram_mode) {
                             if (cam_obj->jpeg_mode) {
                                 frame_buffer_event->len = cnt * cam_obj->dma_half_buffer_size;
-                                // Debug: log first few frames
-                                static int dbg_frame_cnt = 0;
-                                if (dbg_frame_cnt < 3) {
-                                    TASM_LOG("PSRAM-JPEG frame[%d]: cnt=%d half=%d len=%d buf=0x%08x",
-                                        dbg_frame_cnt, (int)cnt, (int)cam_obj->dma_half_buffer_size,
-                                        (int)frame_buffer_event->len, (unsigned)frame_buffer_event->buf);
-                                    dbg_frame_cnt++;
+#ifdef TC_CAM_DEBUG
+                                {
+                                    static int dbg_frame_cnt = 0;
+                                    if (dbg_frame_cnt < 3) {
+                                        TASM_LOG("PSRAM-JPEG frame[%d]: cnt=%d half=%d len=%d buf=0x%08x",
+                                            dbg_frame_cnt, (int)cnt, (int)cam_obj->dma_half_buffer_size,
+                                            (int)frame_buffer_event->len, (unsigned)frame_buffer_event->buf);
+                                        dbg_frame_cnt++;
+                                    }
                                 }
+#endif
                             } else {
                                 frame_buffer_event->len = cam_obj->recv_size;
                             }
@@ -702,6 +735,14 @@ void cam_start(void)
 camera_fb_t *cam_take(TickType_t timeout)
 {
     camera_fb_t *dma_buffer = NULL;
+#if CONFIG_IDF_TARGET_ESP32S3
+    // On ESP32-S3, WiFi DMA can freeze the camera GDMA channel (issue #620).
+    // cam_task captures frames normally, but they don't reach the queue (cause unknown).
+    // Use a short initial timeout so recovery kicks in quickly.
+    if (timeout > pdMS_TO_TICKS(200)) {
+        timeout = pdMS_TO_TICKS(200);
+    }
+#endif
     const TickType_t start = xTaskGetTickCount();
 #if CONFIG_IDF_TARGET_ESP32S3
     uint16_t dma_reset_counter = 0;
@@ -718,11 +759,44 @@ camera_fb_t *cam_take(TickType_t timeout)
         TickType_t elapsed = xTaskGetTickCount() - start; /* TickType_t is unsigned so rollover is safe */
         if (elapsed >= timeout) {
             ESP_LOGW(TAG, "Failed to get frame: timeout");
+#if CONFIG_IDF_TARGET_ESP32S3
+            {
+                // On timeout, try GDMA reset + restart — WiFi can freeze GDMA (esp32-camera #620)
+                ll_cam_dma_reset(cam_obj);
+                cam_obj->state = CAM_STATE_IDLE;
+                ll_cam_vsync_intr_enable(cam_obj, true);
+                // Give it one more short chance after reset
+                dma_buffer = NULL;
+                if (xQueueReceive(cam_obj->frame_buffer_queue, (void *)&dma_buffer, pdMS_TO_TICKS(1000)) == pdTRUE && dma_buffer) {
+                    goto got_frame;
+                }
+            }
+#endif
             return NULL;
         }
         TickType_t remaining = timeout - elapsed;
 
+#ifdef TC_CAM_DEBUG
+        {
+            static int dbg_recv_cnt = 0;
+            if (dbg_recv_cnt < 30) {
+                UBaseType_t qWaiting = uxQueueMessagesWaiting(cam_obj->frame_buffer_queue);
+                TcCamLog("cam_take: fbq remaining=%u qLen=%u state=%d en0=%d en1=%d",
+                    (unsigned)remaining, (unsigned)qWaiting, cam_obj->state,
+                    cam_obj->frames[0].en, cam_obj->frames[1].en);
+                dbg_recv_cnt++;
+            }
+        }
+#endif
+
         if (xQueueReceive(cam_obj->frame_buffer_queue, (void *)&dma_buffer, remaining) == pdFALSE) {
+#if CONFIG_IDF_TARGET_ESP32S3
+            // Periodic GDMA reset during wait — WiFi may freeze GDMA at any time
+            if (dma_reset_counter < MAX_GDMA_RESETS) {
+                ll_cam_dma_reset(cam_obj);
+                dma_reset_counter++;
+            }
+#endif
             continue;
         }
 
@@ -749,10 +823,14 @@ camera_fb_t *cam_take(TickType_t timeout)
             continue;             /* go to top of loop */
         }
 
+    got_frame:
         if (cam_obj->jpeg_mode) {
             /* find the end marker for JPEG. Data after that can be discarded */
             int offset_e = -1;
             if (cam_obj->psram_mode) {
+                // Invalidate entire frame buffer cache to ensure we see DMA-written data
+                cam_drop_psram_cache(dma_buffer->buf, dma_buffer->len);
+
                 /* Search forward from (JPEG_EOI_MARKER_LEN - 1) bytes before the final
                  * DMA block. We prefer forward search to pick the earliest EOI in the
                  * last DMA node, avoiding stale markers from a larger prior frame. */
@@ -762,11 +840,22 @@ camera_fb_t *cam_take(TickType_t timeout)
                     goto skip_eoi_check;
                 }
                 uint8_t *probe_start = dma_buffer->buf + dma_buffer->len - probe_len;
-                cam_drop_psram_cache(probe_start, probe_len);
                 int off = cam_verify_jpeg_eoi(probe_start, probe_len, true);
                 if (off >= 0) {
                     offset_e = dma_buffer->len - probe_len + off;
                 }
+#ifdef TC_CAM_DEBUG
+                if (off < 0) {
+                    static int dbg_noeoi = 0;
+                    if (dbg_noeoi++ < 20) {
+                        uint8_t *end = dma_buffer->buf + dma_buffer->len;
+                        TcCamLog("EOI-MISS: len=%d probe=%d hdr=%02x%02x tail=%02x%02x%02x%02x",
+                            (int)dma_buffer->len, (int)probe_len,
+                            dma_buffer->buf[0], dma_buffer->buf[1],
+                            end[-4], end[-3], end[-2], end[-1]);
+                    }
+                }
+#endif
             } else {
                 offset_e = cam_verify_jpeg_eoi(dma_buffer->buf, dma_buffer->len, false);
             }
@@ -778,16 +867,16 @@ camera_fb_t *cam_take(TickType_t timeout)
                     /* DMA may bypass cache, ensure full frame is visible */
                     cam_drop_psram_cache(dma_buffer->buf, dma_buffer->len);
                 }
-                // Debug: log first few JPEG frame sizes
-                static int dbg_eoi_cnt = 0;
-                if (dbg_eoi_cnt < 3) {
-                    TASM_LOG("JPEG-EOI: raw=%d trim=%d eoi=%d buf=0x%08x",
-                        (int)raw_len, (int)dma_buffer->len, offset_e, (unsigned)dma_buffer->buf);
-                    TASM_LOG("HDR: %02x%02x %02x%02x %02x%02x %02x%02x",
-                        dma_buffer->buf[0], dma_buffer->buf[1], dma_buffer->buf[2], dma_buffer->buf[3],
-                        dma_buffer->buf[4], dma_buffer->buf[5], dma_buffer->buf[6], dma_buffer->buf[7]);
-                    dbg_eoi_cnt++;
+#ifdef TC_CAM_DEBUG
+                {
+                    static int dbg_eoi_cnt = 0;
+                    if (dbg_eoi_cnt < 20) {
+                        TASM_LOG("JPEG-EOI: raw=%d trim=%d eoi=%d buf=0x%08x",
+                            (int)raw_len, (int)dma_buffer->len, offset_e, (unsigned)dma_buffer->buf);
+                        dbg_eoi_cnt++;
+                    }
                 }
+#endif
                 return dma_buffer;
             }
 

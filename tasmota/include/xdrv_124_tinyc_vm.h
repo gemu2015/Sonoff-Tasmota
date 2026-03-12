@@ -19,6 +19,8 @@
 #include "img_converters.h"
 
 // C-linkage wrapper so camera C library can call Tasmota's AddLog
+// Only compiled when TC_CAM_DEBUG is defined (add -DTC_CAM_DEBUG to build_flags)
+#ifdef TC_CAM_DEBUG
 extern "C" void TcCamLog(const char* fmt, ...) {
     char buf[160];
     va_list args;
@@ -27,6 +29,7 @@ extern "C" void TcCamLog(const char* fmt, ...) {
     va_end(args);
     AddLog(2, PSTR("CAM: %s"), buf);
 }
+#endif
 // PSRAM picture slots — capture copies JPEG here, camera fb returned immediately
 #define TC_CAM_MAX_SLOTS 4
 static struct {
@@ -6608,8 +6611,9 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       config.pin_pclk     = pins[15];
 
       config.xclk_freq_hz  = (xclk_arg > 0) ? xclk_arg : 20000000;
-      config.ledc_channel   = LEDC_CHANNEL_0;
-      config.ledc_timer     = LEDC_TIMER_0;
+      // Use high LEDC channel/timer to avoid conflict with Tasmota PWM (which uses TIMER_0/CHANNEL_0)
+      config.ledc_channel   = LEDC_CHANNEL_4;
+      config.ledc_timer     = LEDC_TIMER_2;
       config.pixel_format   = (pixformat_t)format;
       config.frame_size     = (framesize_t)framesize;
       config.jpeg_quality   = quality;
@@ -6627,12 +6631,12 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       }
 
       // grab_mode: -1=auto, 0=WHEN_EMPTY, 1=LATEST
+      // GRAB_LATEST keeps camera continuously capturing — queue always has fresh frame.
+      // GRAB_WHEN_EMPTY stops camera when queue is full, causing GDMA freeze issues on ESP32-S3.
       if (grab_mode_arg >= 0) {
         config.grab_mode = (camera_grab_mode_t)grab_mode_arg;
-      } else if (use_psram) {
-        config.grab_mode = CAMERA_GRAB_LATEST;
       } else {
-        config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+        config.grab_mode = CAMERA_GRAB_LATEST;
       }
 
       if (!use_psram && config.frame_size > FRAMESIZE_SVGA) {
@@ -6660,23 +6664,30 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
             s->set_vflip(s, 1);
             s->set_brightness(s, 1);
             s->set_saturation(s, -2);
-            // Dump key OV3660 registers for stripe debugging
+            // Enable 50/60Hz banding filter to eliminate light flicker stripes
+            // Register 0x3a00 bit 2 = banding filter enable (exposed as "aec2" / "Night Mode" in demo UI)
+            // Default init leaves this OFF (0x3a = 0011_1010, bit 2 = 0)
+            // Band width steps (0x3a08-0b) and max bands (0x3a0d-0e) are already configured by sensor init
+            s->set_aec2(s, 1);
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: OV3660 banding filter enabled (aec2=1)"));
+            // Dump banding/AEC registers for diagnostics
+            uint8_t r3a00 = s->get_reg(s, 0x3a00, 0xff);  // AEC ctrl: bit2=banding enable
+            uint8_t r3c00 = s->get_reg(s, 0x3c00, 0xff);  // banding filter ctrl (50/60Hz)
+            uint8_t r3c01 = s->get_reg(s, 0x3c01, 0xff);  // banding auto-detect
+            uint8_t r3a09 = s->get_reg(s, 0x3a09, 0xff);  // 50Hz band step L
+            uint8_t r3a0b = s->get_reg(s, 0x3a0b, 0xff);  // 60Hz band step L
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: banding r3a00=%02x r3c00=%02x r3c01=%02x step50=%02x step60=%02x"),
+              r3a00, r3c00, r3c01, r3a09, r3a0b);
+            // Dump key timing/PLL registers
             uint8_t r3820 = s->get_reg(s, 0x3820, 0xff);  // TIMING_TC_REG20 (vflip/binning)
             uint8_t r3821 = s->get_reg(s, 0x3821, 0xff);  // TIMING_TC_REG21 (hmirror/compress)
             uint8_t r3814 = s->get_reg(s, 0x3814, 0xff);  // X_INCREMENT
             uint8_t r3815 = s->get_reg(s, 0x3815, 0xff);  // Y_INCREMENT
-            uint8_t r4514 = s->get_reg(s, 0x4514, 0xff);  // ISP pattern
-            // Actual PLL registers
-            uint8_t pll0 = s->get_reg(s, 0x303a, 0xff);   // SC_PLLS_CTRL0 (bypass)
             uint8_t pll1 = s->get_reg(s, 0x303b, 0xff);   // SC_PLLS_CTRL1 (multiplier)
-            uint8_t pll2 = s->get_reg(s, 0x303c, 0xff);   // SC_PLLS_CTRL2 (sys_div)
             uint8_t pll3 = s->get_reg(s, 0x303d, 0xff);   // SC_PLLS_CTRL3 (pre_div/root2x/seld5)
             uint8_t pclk = s->get_reg(s, 0x3824, 0xff);   // PCLK_RATIO
-            uint8_t vfifo = s->get_reg(s, 0x460c, 0xff);  // VFIFO_CTRL0C (pclk manual)
-            AddLog(LOG_LEVEL_INFO, PSTR("TCC: OV3660 r3820=%02x r3821=%02x xinc=%02x yinc=%02x r4514=%02x"),
-              r3820, r3821, r3814, r3815, r4514);
-            AddLog(LOG_LEVEL_INFO, PSTR("TCC: PLL bypass=%02x mult=%02x sysdiv=%02x prediv=%02x pclk=%02x vfifo=%02x"),
-              pll0, pll1, pll2, pll3, pclk, vfifo);
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: OV3660 r3820=%02x r3821=%02x xinc=%02x yinc=%02x pll_mult=%02x pll_prediv=%02x pclk=%02x"),
+              r3820, r3821, r3814, r3815, pll1, pll3, pclk);
           }
         }
       }

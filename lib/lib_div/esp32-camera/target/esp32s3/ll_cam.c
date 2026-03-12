@@ -47,12 +47,12 @@
 
 static const char *TAG = "s3 ll_cam";
 
-// Tasmota AddLog integration — TcCamLog is a C-linkage wrapper defined in xdrv_124_tinyc_vm.h
-#ifdef ARDUINO
+// Tasmota AddLog integration — define TC_CAM_DEBUG in build flags to enable
+#if defined(TC_CAM_DEBUG) && defined(ARDUINO)
 extern void TcCamLog(const char* fmt, ...);
 #define TASM_LOG(fmt, ...) TcCamLog(fmt, ##__VA_ARGS__)
 #else
-#define TASM_LOG(fmt, ...) ESP_LOGI(TAG, fmt, ##__VA_ARGS__)
+#define TASM_LOG(fmt, ...) do {} while(0)
 #endif
 
 void ll_cam_dma_print_state(cam_obj_t *cam)
@@ -161,6 +161,25 @@ bool ll_cam_start(cam_obj_t *cam, int frame_pos)
 {
     LCD_CAM.cam_ctrl1.cam_start = 0;
 
+    // Full GDMA channel reset — prevents WiFi-induced GDMA freeze (esp32-camera #620)
+    // A minimal in_rst=1/0 is not enough; we must clear all interrupt flags,
+    // re-assert peripheral binding, and restore PSRAM block size after reset.
+    GDMA.channel[cam->dma_num].in.int_clr.val = ~0;
+    GDMA.channel[cam->dma_num].in.int_ena.val = 0;
+    GDMA.channel[cam->dma_num].in.conf0.val = 0;
+    GDMA.channel[cam->dma_num].in.conf0.in_rst = 1;
+    GDMA.channel[cam->dma_num].in.conf0.in_rst = 0;
+
+    // Restore settings cleared by conf0.val = 0 and in_rst
+    if (!cam->psram_mode) {
+        GDMA.channel[cam->dma_num].in.conf0.indscr_burst_en = 1;
+        GDMA.channel[cam->dma_num].in.conf0.in_data_burst_en = 1;
+    }
+    GDMA.channel[cam->dma_num].in.conf1.in_check_owner = 0;
+    GDMA.channel[cam->dma_num].in.conf1.in_ext_mem_bk_size = 2;  // 64-byte PSRAM blocks
+    GDMA.channel[cam->dma_num].in.peri_sel.sel = 5;               // LCD_CAM peripheral
+
+    // Now re-enable the EOF interrupt we need
     if (cam->jpeg_mode || !cam->psram_mode) {
         GDMA.channel[cam->dma_num].in.int_clr.in_suc_eof = 1;
         GDMA.channel[cam->dma_num].in.int_ena.in_suc_eof = 1;
@@ -170,8 +189,6 @@ bool ll_cam_start(cam_obj_t *cam, int frame_pos)
     LCD_CAM.cam_ctrl1.cam_reset = 0;
     LCD_CAM.cam_ctrl1.cam_afifo_reset = 1;
     LCD_CAM.cam_ctrl1.cam_afifo_reset = 0;
-    GDMA.channel[cam->dma_num].in.conf0.in_rst = 1;
-    GDMA.channel[cam->dma_num].in.conf0.in_rst = 0;
 
     LCD_CAM.cam_ctrl1.cam_rec_data_bytelen = cam->dma_half_buffer_size - 1; // Ping pong operation
 
@@ -185,6 +202,7 @@ bool ll_cam_start(cam_obj_t *cam, int frame_pos)
 
     LCD_CAM.cam_ctrl.cam_update = 1;
     LCD_CAM.cam_ctrl1.cam_start = 1;
+    // Note: DO NOT add logging here — this function is IRAM_ATTR and called from VSYNC ISR context
     return true;
 }
 
