@@ -1,24 +1,30 @@
 // ═══════════════════════════════════════════════════════════════════
 // webcam_tinyc.tc — Security Camera using TinyC integrated cam driver
-// No Tasmota USE_WEBCAM dependency — uses cameraInit + camControl 8-18
+// No Tasmota USE_WEBCAM dependency — uses cameraInit + camControl 8-20
 //
 // Features: MJPEG stream on port 81, motion detection (JPEG size diff),
 //           PIR alarm, picture saving, email alerts with up to 4 pictures,
 //           timelapse, auto-cleanup (14-day rotation)
 //
+// Compile: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_DFROBOT
+//      or: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_GOOUUU
+//
 // Camera capture runs in TaskLoop (VM task thread) — required for
 // esp_camera_fb_get() which crashes if called from main thread.
 // ═══════════════════════════════════════════════════════════════════
+// @defines: -DBOARD_DFROBOT
 
 // ─── Board-specific camera pins ───
-// Change this array for your board!
 // Order: pwdn, reset, xclk, sda, scl, d7, d6, d5, d4, d3, d2, d1, d0, vsync, href, pclk
+#ifdef BOARD_DFROBOT
+// DFRobot Firebeetle 2 ESP32-S3 (OV3660)
+int campins[] = {-1, -1, 5, 8, 9, 4, 6, 7, 14, 17, 21, 18, 16, 1, 2, 15};
+#endif
 
-// Goouuu ESP32-S3-CAM (ESP32S3_EYE):
+#ifdef BOARD_GOOUUU
+// Goouuu ESP32-S3-CAM / ESP32S3_EYE (OV2640)
 int campins[] = {-1, -1, 15, 4, 5, 16, 17, 18, 12, 10, 8, 9, 11, 6, 7, 13};
-
-// AI-Thinker ESP32-CAM:
-// int campins[] = {32, -1, 0, 26, 27, 35, 34, 39, 36, 21, 19, 18, 5, 25, 23, 22};
+#endif
 
 // ─── Camera constants ───
 #define PIXFORMAT_JPEG      4
@@ -82,7 +88,7 @@ char tmp[64];
 int initCamera() {
     int ok;
 
-    ok = cameraInit(campins, PIXFORMAT_JPEG, FRAMESIZE_VGA, 12, 0, 0, -1);
+    ok = cameraInit(campins, PIXFORMAT_JPEG, FRAMESIZE_VGA, 12, 0, 0, -1, -1);
     if (ok != 0) {
         print(ok);
         addLog("TCC: camera init FAILED");
@@ -279,7 +285,7 @@ void send_alarm_email() {
     }
 
     char params[128];
-    strcpy(params, "[*:*:*:*:*:gmutz2010@googlemail.com:Alarm]");
+    strcpy(params, "[*:*:*:*:*:your@email.com:Alarm]");
     mailSend(params);
     mailout = 1;
 }

@@ -5,6 +5,7 @@
 //      or: node compile_cli.js camera.tc camera.tcb -DBOARD_GOOUUU
 // Live view: http://<device-ip>/cam  (MJPEG stream from port 81)
 // ═══════════════════════════════════════════════════════════════════
+// @defines: -DBOARD_DFROBOT
 
 // ─── Camera pixel formats ───
 #define PIXFORMAT_RGB565    0
