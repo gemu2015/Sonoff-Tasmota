@@ -571,6 +571,8 @@ TinyC provides virtual `tasm_*` variables that read/write Tasmota system state d
 | `tasm_sunrise` | int | read | Sunrise, minutes since midnight (requires USE_SUNRISE) |
 | `tasm_sunset` | int | read | Sunset, minutes since midnight (requires USE_SUNRISE) |
 | `tasm_time` | int | read | Current time, minutes since midnight |
+| `tasm_pheap` | int | read | Free PSRAM in bytes (ESP32 only, 0 on ESP8266) |
+| `tasm_smlj` | int | read/write | SML JSON output enable/disable (requires USE_SML_M) |
 
 ### Usage
 
@@ -662,26 +664,29 @@ data[i + 1] = data[i]; // computed index
 ```
 
 ### Scope
-- **Global arrays** — stored in global data space (up to 255 elements)
-- **Local arrays** — stored in the function's local frame (up to 255 elements)
-- **Heap arrays** — arrays with more than 255 elements are automatically stored on a dynamic heap
+- **Small arrays (≤16 elements)** — stored inline in global data or local frame (fast direct access)
+- **Large arrays (>16 elements)** — automatically allocated on the VM heap
 
-### Large Arrays (Heap)
+### Array Memory
 
-Arrays larger than 255 elements are **automatically** routed to heap memory by the compiler. No special syntax is needed — the compiler detects the size and allocates on the heap transparently:
+Arrays with up to 16 elements are stored inline in the global or local frame for fast direct access. Arrays with more than 16 elements are automatically routed to the VM heap by the compiler — no special syntax needed:
 
 ```c
-float data[2000];      // auto → heap (2000 > 255)
-int small[10];         // stays in globals (10 <= 255)
+int rgb[3];            // inline (3 ≤ 16) — fast direct access
+char buf[128];         // heap (128 > 16) — automatic allocation
+float data[2000];      // heap (2000 > 16)
 
 int main() {
-    data[1999] = 3.14;  // heap access — same syntax as regular arrays
-    small[0] = 42;      // global access
+    rgb[0] = 255;       // direct frame access
+    buf[0] = 'H';       // heap access — same syntax
+    data[1999] = 3.14;  // heap access
     return 0;
 }
 ```
 
-Heap arrays support all the same operations as regular arrays: element access, string operations on `char[]`, passing to functions, etc.
+Both inline and heap arrays support all the same operations: element access, string operations on `char[]`, passing to functions, etc.
+
+**Heap limits:**
 
 **Heap limits:**
 
@@ -796,6 +801,22 @@ int no = strFind(src, "xyz");          // no = -1
 | `strToken(char dst[], char src[], int delim, int n)` | Copy nth token (1-based) delimited by char `delim` into dst. Returns token length. |
 | `strSub(char dst[], char src[], int pos, int len)` | Copy `len` chars starting at `pos` (0-based, negative=from end) into dst. `len=0` copies to end of string. Returns actual length. |
 | `strFind(char haystack[], char needle[])` | Find first occurrence of needle in haystack. Returns position (0-based) or -1 if not found. |
+| `int strToInt(char str[])` | Convert string to integer (like `atoi`). Returns 0 if not a valid number. |
+| `float strToFloat(char str[])` | Convert string to float (like `atof`). Returns 0.0 if not a valid number. |
+
+### Array Sort
+
+Sort an array in-place:
+
+| Function | Description |
+|----------|-------------|
+| `sortArray(int arr[], int count, int flags)` | Sort array in-place. `flags`: 0=int ascending, 1=float ascending, 2=int descending, 3=float descending |
+
+```c
+int data[5] = {42, 7, 99, 3, 55};
+sortArray(data, 5, 0);    // ascending: {3, 7, 42, 55, 99}
+sortArray(data, 5, 2);    // descending: {99, 55, 42, 7, 3}
+```
 
 ### Character Access
 ```c
@@ -1047,6 +1068,10 @@ void EveryLoop() {
 | `serialPrintln("literal")`        | Print string + newline to serial   |
 | `int serialRead()`                | Read byte (-1 if none available)   |
 | `int serialAvailable()`           | Bytes available to read            |
+| `serialClose()`                   | Close serial port                  |
+| `serialWriteByte(int b)`          | Write single byte to serial        |
+| `serialWriteStr(char str[])`      | Write char array to serial (binary-safe) |
+| `serialWriteBuf(char buf[], int len)` | Write `len` bytes from buffer to serial |
 
 ### 1-Wire
 
@@ -1145,7 +1170,7 @@ Read and write files on the ESP32 filesystem (LittleFS). In the browser IDE, fil
 **Seek whence:** `0` = SEEK_SET (from start), `1` = SEEK_CUR (from current), `2` = SEEK_END (from end)
 
 **Notes:**
-- File paths must be string literals (e.g., `"/data.txt"`)
+- File paths can be string literals (e.g., `"/data.txt"`) or `char[]` variables
 - **Filesystem selection** (Scripter-compatible): default is SD card (`ufsp`). Use `/ffs/` prefix for flash, `/sdfs/` prefix for SD card explicitly: `fileOpen("/ffs/config.txt", 0)` opens from flash, `fileOpen("/data.txt", 0)` opens from SD card
 - Maximum 4 files open simultaneously (ESP32), 8 in browser
 - Buffer arguments (`buf`) must be `char` arrays, not string literals
@@ -1346,10 +1371,11 @@ Execute any Tasmota console command and capture the JSON response.
 
 | Function                                     | Description                                    |
 |----------------------------------------------|------------------------------------------------|
-| `int tasmCmd("command", char response[])`    | Execute command, store response, return length |
+| `int tasmCmd("command", char response[])`    | Execute command (string literal), store response, return length |
+| `int tasmCmd(char cmd[], char response[])`   | Execute command (char array), store response, return length |
 
 **Notes:**
-- Command must be a string literal (e.g., `"Status 0"`, `"Power ON"`)
+- Command can be a string literal (e.g., `"Status 0"`) or a `char[]` variable for dynamic commands
 - Response buffer should be a `char` array (recommended size: 256)
 - Returns length of response string, or -1 on error
 - In the browser IDE, returns a simulated mock response
@@ -1468,6 +1494,7 @@ Send data directly to Tasmota's telemetry and web systems from callback function
 | `void webFlush()` | Flush web content buffer to client (`WSContentFlush`) |
 | `void addLog(char buf[])` | Write message to Tasmota log (`AddLog` at INFO level) |
 | `void addLog("literal")` | Write string literal to Tasmota log |
+| `webSendJsonArray(float arr[], int count)` | Emit float array as JSON integer array in web response |
 
 **Notes:**
 - `addLog`, `webSend` and `responseAppend` accept either a char array or a string literal
@@ -1781,6 +1808,8 @@ void WebPage() {
 }
 ```
 
+**Chart size:** Use `webChartSize(width, height)` to set custom chart dimensions in pixels before a `WebChart()` call. Pass 0 for either parameter to use the default size.
+
 - Use **fixed range** for data with known bounds (humidity 0–100, UV index 0–12)
 - Use **auto-scale** (`0, 0`) for data with variable range (brightness, wind, rain)
 - Call from `WebPage()` callback — each call emits one data series
@@ -1872,6 +1901,7 @@ Compatible with Tasmota Scripter's global variable protocol.
 | `int udpReady("name")` | Returns 1 if new value received since last check |
 | `void udpSendArray("name", float_arr, count)` | Broadcast a float array via binary multicast |
 | `int udpRecvArray("name", float_arr, maxcount)` | Receive float array, returns actual count |
+| `udpSendStr("name", char str[])` | Send string via multicast (ASCII mode `=>name=...`) |
 
 **Protocol:**
 - Single float: send `=>name:[4 bytes IEEE-754 float]`
@@ -1884,6 +1914,8 @@ Compatible with Tasmota Scripter's global variable protocol.
 **Callback:** Define `void UdpCall()` to be notified on each received variable.
 UDP socket is auto-initialized on first global variable write, `udpRecv()`, or `udpReady()` call.
 Scalar `global` float variables automatically broadcast via UDP when assigned (no explicit send needed).
+
+**Socket Watchdog:** The multicast socket has a built-in inactivity watchdog (default: 60 seconds). If no packet is received within the timeout period, the socket is automatically closed and re-opened. This recovers from the known ESP32 issue where the UDP receive path silently stops working after a variable amount of time. Use `udp(8, 0, seconds)` to change the timeout (0 = disable).
 
 **Example (scalar — auto-broadcast):**
 ```c
@@ -1930,12 +1962,14 @@ Scripter-compatible `udp()` function for arbitrary UDP communication. Uses a sep
 | `int udp(5)` | Get remote sender port number |
 | `int udp(6, char url[], int port, char str[])` | Send string to arbitrary url:port |
 | `int udp(7, char url[], int port, int arr[], int count)` | Send array as raw bytes to url:port |
+| `int udp(8, int which, int seconds)` | Set socket inactivity timeout (which: 0=multicast, 1=general port; 0=disable) |
 
 **Notes:**
-- The first argument (mode) must be a literal integer (0-7)
+- The first argument (mode) must be a literal integer (0-8)
 - Modes 6 and 7 create a temporary socket for each send (no prior `udp(0)` needed)
 - Mode 1 is non-blocking: returns 0 immediately if no packet is available
 - Mode 7 sends the lower byte of each array element
+- Mode 8 configures the socket watchdog: if no packet is received within `seconds`, the socket is automatically reset. Default is 60 seconds. Set to 0 to disable.
 
 ```c
 char buf[128];
@@ -1976,6 +2010,8 @@ Direct I2C bus access for sensor drivers (requires `USE_I2C`). All functions tak
 | `int i2cWrite0(int addr, int reg, int bus)` | Write register byte only (no data). Returns 1=ok |
 | `int i2cSetDevice(int addr, int bus)` | Check if address is **unclaimed** and responsive. Returns 1=available |
 | `i2cSetActiveFound(int addr, "type", int bus)` | Register address as claimed by your driver. Logs discovery |
+| `int i2cReadRS(int addr, int reg, char buf[], int len, int bus)` | Read with repeated-start (SMBus). Keeps bus held between write and read phase |
+| `i2cFree(int addr, int bus)` | Release a previously claimed I2C address (undo `i2cSetActiveFound`) |
 
 **Notes:**
 - `bus` = 0 or 1 — selects which I2C bus to use
@@ -2396,6 +2432,17 @@ deepSleep(300);  // sleep 300 seconds
 deepSleepGpio(3600, 12, 1);
 ```
 
+### Hardware Registers (ESP32)
+
+Direct read/write access to ESP32 memory-mapped peripheral registers. Only addresses in the peripheral range are allowed (0x3FF00000–0x3FFFFFFF or 0x60000000–0x600FFFFF).
+
+| Function | Description |
+|---|---|
+| `int peekReg(int addr)` | Read 32-bit value from peripheral register |
+| `pokeReg(int addr, int val)` | Write 32-bit value to peripheral register |
+
+**Warning:** Incorrect register writes can crash or damage the device. Only use if you know what you're doing.
+
 ### Email (ESP32 — requires USE_SENDMAIL)
 
 | Function | Description |
@@ -2548,6 +2595,118 @@ int hueToRGB(int h) {
 
 ---
 
+### ESP Camera (ESP32)
+
+Camera support for ESP32 boards with OV2640/OV3660/OV5640 sensors. Two modes available:
+
+- **Tasmota webcam driver** (sel 0-7): Uses the standard `USE_WEBCAM` driver. Define `USE_WEBCAM` in `user_config_override.h`.
+- **TinyC integrated camera** (sel 8-18): Direct esp_camera driver with board-specific pins, MJPEG streaming on port 81, and PSRAM slot management. Define `USE_TINYC_CAMERA` (via `-DTINYC_CAMERA` build flag). No `USE_WEBCAM` dependency.
+
+Both modes support `mailAttachPic()` for email picture attachments (up to 4 pictures per email).
+
+#### Camera Init with Custom Pins (TinyC integrated mode)
+
+```c
+// Pin array order: pwdn, reset, xclk, sda, scl, d7..d0, vsync, href, pclk
+int campins[] = {-1, -1, 15, 4, 5, 16, 17, 18, 12, 10, 8, 9, 11, 6, 7, 13};
+int ok = cameraInit(campins, PIXFORMAT_JPEG, FRAMESIZE_VGA, 12, 0, 0, -1);
+```
+
+| Function | Description |
+|----------|-------------|
+| `cameraInit(pins[], format, framesize, quality, fb_count, grab_mode, xclk_freq)` | Init camera with pin array. Returns 0=ok, non-zero=error. `fb_count`=0 auto, `grab_mode`=0 auto, `xclk_freq`=-1 default 20MHz. |
+
+#### Camera Control (camControl)
+
+All camera operations use `camControl(sel, p1, p2)`:
+
+**Tasmota webcam driver (sel 0-7, requires USE_WEBCAM):**
+
+| sel | Function | Description |
+|-----|----------|-------------|
+| 0 | `camControl(0, resolution, 0)` | Init via Tasmota driver (WcSetup) |
+| 1 | `camControl(1, bufnum, 0)` | Capture to Tasmota pic buffer (1-4) |
+| 2 | `camControl(2, option, value)` | Set options (WcSetOptions) |
+| 3 | `camControl(3, 0, 0)` | Get width |
+| 4 | `camControl(4, 0, 0)` | Get height |
+| 5 | `camControl(5, on_off, 0)` | Start/stop Tasmota stream server |
+| 6 | `camControl(6, param, 0)` | Motion detection (-1=read motion, -2=read brightness, ms=interval) |
+
+**TinyC integrated camera (sel 7-18, requires USE_WEBCAM or USE_TINYC_CAMERA):**
+
+| sel | Function | Description |
+|-----|----------|-------------|
+| 7 | `camControl(7, bufnum, fileHandle)` | Save picture buffer to file, returns bytes written |
+| 8 | `camControl(8, 0, 0)` | Get sensor PID (e.g. 0x2642 = OV2640, 0x3660 = OV3660) |
+| 9 | `camControl(9, param, value)` | Set sensor parameter (see table below) |
+| 10 | `camControl(10, slot, 0)` | Capture to PSRAM slot (1-4), returns JPEG size in bytes |
+| 11 | `camControl(11, slot, fileHandle)` | Save PSRAM slot to file, returns bytes written |
+| 12 | `camControl(12, slot, 0)` | Free PSRAM slot (0 = free all slots) |
+| 13 | `camControl(13, 0, 0)` | Deinit camera + free all slots + stop stream |
+| 14 | `camControl(14, slot, 0)` | Get slot size in bytes (0 if empty) |
+| 15 | `camControl(15, on_off, 0)` | Start/stop MJPEG stream server on port 81 |
+| 16 | `camControl(16, interval_ms, threshold)` | Enable motion detection (0=disable) |
+| 17 | `camControl(17, sel, 0)` | Get motion value: 0=trigger, 1=brightness, 2=triggered, 3=interval |
+| 18 | `camControl(18, 0, 0)` | Free motion reference buffer |
+| 19 | `camControl(19, addr, mask)` | Read raw sensor register at `addr`, masked by `mask` |
+| 20 | `camControl(20, addr, val)` | Write raw value `val` to sensor register at `addr` |
+
+Capture (sel 10) copies the JPEG from the camera framebuffer to a PSRAM slot and immediately returns the camera framebuffer, allowing fast consecutive captures. Up to 4 slots can hold pictures simultaneously.
+
+**Important:** Camera capture (`camControl(10, ...)`) must run in `TaskLoop()` (VM task thread). Calling from `EverySecond()` (main thread) will freeze the device.
+
+**Stream server (sel 15):** Starts an MJPEG server on port 81 with `/stream`, `/cam.mjpeg`, and `/cam.jpg` endpoints. Automatically deferred if WiFi is not ready yet (safe for autoexec). The stream is embedded on the Tasmota main page via `FUNC_WEB_ADD_MAIN_BUTTON`.
+
+#### Sensor Parameters (sel=9)
+
+| param | Setting | Range |
+|-------|---------|-------|
+| 0 | vflip | 0/1 |
+| 1 | brightness | -2..2 |
+| 2 | saturation | -2..2 |
+| 3 | hmirror | 0/1 |
+| 4 | contrast | -2..2 |
+| 5 | framesize | FRAMESIZE_* |
+| 6 | quality | 10..63 |
+| 7 | sharpness | -2..2 |
+
+#### Email Picture Attachments
+
+Pictures captured to PSRAM slots are available for email via `mailAttachPic()`. Up to 4 pictures can be attached per email:
+
+```c
+// Capture 2 pictures to slots 1 and 2
+camControl(10, 1, 0);
+camControl(10, 2, 0);
+
+// Send email with both pictures attached
+mailBody("Motion alarm");
+mailAttachPic(1);
+mailAttachPic(2);
+mailSend("[*:*:*:*:*:user@example.com:Alarm]");
+```
+
+#### Capture and Save Example
+
+```c
+// Capture to PSRAM slot 1
+int size = camControl(10, 1, 0);
+
+// Save slot 1 to file
+int fh = fileOpen(path, 1);    // open for write
+int written = camControl(11, 1, fh);
+fileClose(fh);
+
+// Start MJPEG stream on port 81
+camControl(15, 1, 0);
+```
+
+#### Complete Camera Script
+
+See `webcam_tinyc.tc` for a full security camera example with MJPEG streaming, motion detection, PIR alarm, email alerts, timelapse, and auto-cleanup. See `webcam.tc` for the equivalent using the Tasmota webcam driver.
+
+---
+
 ### HomeKit (ESP32 — requires USE_HOMEKIT)
 
 Apple HomeKit integration — expose devices directly from TinyC as HomeKit accessories. Sensors, lights, switches, and outlets become controllable via Apple Home. All HomeKit-bound variables use **native float values** — no x10 scaling needed.
@@ -2576,6 +2735,7 @@ Apple HomeKit integration — expose devices directly from TinyC as HomeKit acce
 | `hkVar(variable)` | Bind a float variable to the current device |
 | `int hkReady(variable)` | Returns 1 if HomeKit changed this variable since last check (auto-clears) |
 | `int hkStart()` | Finalize descriptor and start HomeKit. Returns 0=ok |
+| `int hkInit(char descriptor[])` | Start HomeKit with a raw descriptor char array (advanced — bypasses builder pattern) |
 | `hkReset()` | Erase all pairing data (factory reset). Re-pair after reboot |
 | `hkStop()` | Stop HomeKit server |
 
@@ -2687,6 +2847,14 @@ Shorthand constants for `fileOpen()`:
 int f = fileOpen("/data.csv", r);   // instead of fileOpen("/data.csv", 0)
 f = fileOpen("/log.txt", a);         // instead of fileOpen("/log.txt", 2)
 ```
+
+### Plugin Query (Binary Plugins)
+
+Query loaded binary plugins (PIC modules) for data.
+
+| Function | Description |
+|---|---|
+| `int pluginQuery(char dst[], int index, int p1, int p2)` | Call plugin at `index` with parameters `p1`, `p2`. Result string copied to `dst`. Returns string length |
 
 ### Debug
 
@@ -2877,10 +3045,10 @@ Both display their sensor rows on the Tasmota main page simultaneously.
 |-------------------|----------|----------|----------|------------------------------------|
 | Stack depth       | 64       | 256      | 256      | Operand stack entries              |
 | Call frames       | 8        | 32       | 32       | Maximum recursion / call depth     |
-| Locals per frame  | 256      | 256      | 256      | Includes arrays (1 slot per element)|
-| Global variables  | 64       | 256      | 256      | Includes global arrays (≤255 elem) |
+| Locals per frame  | 256      | 256      | 256      | Scalars + small arrays ≤16 inline  |
+| Global variables  | 64       | 256      | 256      | Scalars + small arrays ≤16 inline  |
 | Code size         | 4 KB     | 16 KB    | 64 KB    | Bytecode (16-bit addressing)       |
-| Heap memory       | 8 KB     | 32 KB    | 64 KB    | For arrays >255 elements + malloc  |
+| Heap memory       | 8 KB     | 32 KB    | 64 KB    | For arrays >16 elements (auto alloc)   |
 | Heap handles      | 8        | 16       | 32       | Max simultaneous heap allocations  |
 | Constant pool     | 32       | 64       | 65536    | String & float constants           |
 | Instruction limit | 1M       | 1M       | 1M       | Safety limit per execution         |
@@ -3129,7 +3297,7 @@ int main() {
 | Pointers                 | Full support   | **Not supported**            |
 | Structs / Unions         | Full support   | **Not supported**            |
 | Enums                    | Full support   | **Not supported**            |
-| Dynamic memory           | malloc/free    | Auto heap for arrays >255 (no explicit malloc) |
+| Dynamic memory           | malloc/free    | Auto heap for arrays >16 elements (no explicit malloc) |
 | Multi-dimensional arrays | `int a[3][4]`  | **Not supported**            |
 | String type              | `char*`        | `char arr[N]` only           |
 | Preprocessor             | Full CPP       | `#define`, `#ifdef`, `#if`, `#else`, `#endif` (no `#include`, no macros) |
