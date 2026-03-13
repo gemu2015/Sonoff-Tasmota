@@ -318,7 +318,7 @@ static void TinyCInit(void) {
 
   // Slots allocated on demand (upload, load, run API)
 
-  AddLog(LOG_LEVEL_INFO, PSTR("TCC: TinyC VM initialized (%d bytes, %d free)"), needed, ESP_getFreeHeap());
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: TinyC v" TC_RELEASE " initialized (%d bytes, %d free)"), needed, ESP_getFreeHeap());
 
   // Load slot config from /tinyc.cfg (loads files + auto-runs marked slots)
 #ifdef USE_UFILESYS
@@ -2280,6 +2280,7 @@ static void HandleTinyCUI(void) {
   // Reset WebChart state before rendering
   tc_chart_seq = 0;
   tc_chart_lib_sent = false;
+  tc_chart_time_base = 0;
 
   // AJAX mode (m=1): just re-render widgets via WebUI() callback
   if (Webserver->hasArg(F("m"))) {
@@ -2304,7 +2305,12 @@ static void HandleTinyCUI(void) {
       "x=new XMLHttpRequest();"
       "x.onreadystatechange=function(){"
         "if(x.readyState==4&&x.status==200){"
-          "document.getElementById('ui').innerHTML=x.responseText;"
+          "var r=x.responseText;"
+          "if(r.indexOf('script src=')>=0){location.reload();return;}"
+          "var el=document.getElementById('ui');"
+          "el.innerHTML=r;"
+          "var ss=el.getElementsByTagName('script');"
+          "for(var i=0;i<ss.length;i++){eval(ss[i].textContent);}"
         "}"
       "};"
       "if(rfsh){"
@@ -2667,6 +2673,10 @@ static void TC_DLServerLoop(void) {
  * Tasmota: Driver entry point
 \*********************************************************************************************/
 
+// Event callback edge-detection flags
+static bool tc_init_done = false;
+static bool tc_wifi_up = false;
+
 bool Xdrv124(uint32_t function) {
   bool result = false;
 
@@ -2710,10 +2720,20 @@ bool Xdrv124(uint32_t function) {
       tc_all_callbacks("EverySecond");
       break;
     case FUNC_NETWORK_UP:
-      tc_all_callbacks("OnWifiConnect");
+      if (!tc_init_done) {
+        tc_init_done = true;
+        tc_all_callbacks("OnInit");
+      }
+      if (!tc_wifi_up) {
+        tc_wifi_up = true;
+        tc_all_callbacks("OnWifiConnect");
+      }
       break;
     case FUNC_NETWORK_DOWN:
-      tc_all_callbacks("OnWifiDisconnect");
+      if (tc_wifi_up) {
+        tc_wifi_up = false;
+        tc_all_callbacks("OnWifiDisconnect");
+      }
       break;
     case FUNC_MQTT_INIT:
       tc_all_callbacks("OnMqttConnect");
@@ -2793,6 +2813,7 @@ bool Xdrv124(uint32_t function) {
       tc_chart_lib_sent = false;
       tc_chart_width = 0;
       tc_chart_height = 0;
+      tc_chart_time_base = 0;
       // Wrap charts in block container to prevent inline-block cascading width expansion
       WSContentSend_P(PSTR("<div style='display:block;width:100%%;overflow:hidden'>"));
       // Call user's WebPage() on all active slots

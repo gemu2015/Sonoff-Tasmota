@@ -143,11 +143,12 @@ static FS *tc_file_path(char *path) {
   #define TC_MAX_HEAP_HANDLES   8
 #else  // ESP32
   #define TC_MAX_HEAP           8192   // heap slots (32KB)
-  #define TC_MAX_HEAP_HANDLES   64     // max concurrent heap arrays (was 16, energy script needs 41+)
+  #define TC_MAX_HEAP_HANDLES   128    // max concurrent heap arrays (energy script uses 68+)
 #endif
 
 #define TC_MAGIC           0x54434300  // "TCC\0"
 #define TC_VERSION         5           // V5: global (UDP auto-update) variables
+#define TC_RELEASE         "1.0.0"     // release version — bump on any compiler/VM/syscall change
 #define TC_FILE_NAME       "/autoexec.tcb"
 #define TC_MAX_PERSIST     32          // max persist variable entries
 #define TC_MAX_UDP_GLOBALS 64          // max global (UDP auto-update) variable entries
@@ -493,9 +494,11 @@ enum TcSyscall {
   SYS_FILE_OPENDIR    = 227, // (const_idx_path) -> int handle (-1=err)
   SYS_FILE_OPENDIR_REF= 228, // (path_ref) -> int handle (-1=err)
   SYS_FILE_READDIR    = 229, // (handle, name_buf_ref) -> int (1=entry, 0=end)
+  SYS_FILE_RANGE      = 260, // (handle, min_ref, max_ref) -> rows (first/last timestamp)
   SYS_TASM_CMD_REF   = 248, // (cmd_ref, out_buf_ref) -> int — tasmCmd with char array command
   SYS_I2C_FREE       = 249, // (addr, bus) -> void — release claimed I2C address
   SYS_WEB_CHART_SIZE  = 233, // (width, height) -> void — set chart div size in pixels (0=default)
+  SYS_WEB_CHART_TBASE = 234, // (minutes) -> void — set time base offset from "now" for chart x-axis
   // Console command callback
   SYS_ADD_COMMAND     = 45, // (const_idx_prefix) -> void — register command prefix
   SYS_RESPONSE_CMND  = 46, // (buf_ref) -> void — send console response
@@ -863,6 +866,7 @@ static bool    tc_chart_lib_sent = false; // true after Google Charts loader emi
 static TcSlot *tc_sensor_get_slot = nullptr; // re-entry guard: skip this slot's JsonCall during sensorGet
 static uint16_t tc_chart_width = 0;     // chart div width in px (0 = 100%)
 static uint16_t tc_chart_height = 0;    // chart div height in px (0 = 300px)
+static int32_t  tc_chart_time_base = 0; // time base offset in minutes from "now" (0=now)
 static TasmotaSerial *tc_serial_port = nullptr; // TinyC serial port (shared across VMs)
 
 // Helper: allocate a new slot
@@ -940,11 +944,17 @@ static int32_t* tc_resolve_ref(TcVM *vm, int32_t ref) {
   if (tag == 3) {
     // Heap ref: 0xC0000000 | handle
     uint16_t handle = uref & 0xFFFF;
-    if (handle < TC_MAX_HEAP_HANDLES && vm->heap_data && vm->heap_handles &&
-        vm->heap_handles[handle].alive) {
-      return &vm->heap_data[vm->heap_handles[handle].offset];
+    if (handle >= TC_MAX_HEAP_HANDLES) {
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: heap handle %d >= max %d"), handle, TC_MAX_HEAP_HANDLES);
+      return nullptr;
     }
-    return nullptr;
+    if (!vm->heap_data || !vm->heap_handles || !vm->heap_handles[handle].alive) {
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: heap handle %d invalid (data=%d handles=%d alive=%d)"),
+             handle, vm->heap_data != nullptr, vm->heap_handles != nullptr,
+             vm->heap_handles ? vm->heap_handles[handle].alive : 0);
+      return nullptr;
+    }
+    return &vm->heap_data[vm->heap_handles[handle].offset];
   }
   if (tag == 2) {
     // Global ref: 0x80000000 | base_idx
@@ -3397,6 +3407,90 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       break;
     }
 
+    case SYS_FILE_RANGE: {
+      // fileRange(handle, min_ref, max_ref) -> total_rows
+      // Reads a tab-delimited log file, skips header, returns first and last timestamps
+#ifdef USE_UFILESYS
+      int32_t max_ref = TC_POP(vm);
+      int32_t min_ref = TC_POP(vm);
+      int32_t h = TC_POP(vm);
+      if (h < 0 || h >= TC_MAX_FILE_HANDLES || !Tinyc->file_used[h]) {
+        TC_PUSH(vm, 0);
+        break;
+      }
+      // Save and seek to start
+      tc_file_handles[h].seek(0, SeekSet);
+
+      char line[512];
+      int32_t rows = 0;
+      bool headerSkipped = false;
+      char first_ts[24] = {0};
+      char last_ts[24] = {0};
+
+      // Buffered read
+      const int FBUF_SZ = 4096;
+      uint8_t *fbuf = (uint8_t*)malloc(FBUF_SZ);
+      if (!fbuf) { TC_PUSH(vm, 0); break; }
+      int fbuf_len = 0, fbuf_pos = 0;
+
+      while (true) {
+        int llen = 0;
+        bool got_line = false;
+        while (true) {
+          if (fbuf_pos >= fbuf_len) {
+            fbuf_len = tc_file_handles[h].read(fbuf, FBUF_SZ);
+            fbuf_pos = 0;
+            if (fbuf_len <= 0) break;
+          }
+          char ch = (char)fbuf[fbuf_pos++];
+          if (ch == '\n') { got_line = true; break; }
+          if (ch == '\r') continue;
+          if (llen < (int)sizeof(line) - 1) line[llen++] = ch;
+        }
+        line[llen] = 0;
+        if (!got_line && llen == 0) break;
+
+        if (!headerSkipped) { headerSkipped = true; continue; }
+
+        // Extract timestamp (first column before tab)
+        char *tab = line;
+        while (*tab && *tab != '\t') tab++;
+        int tslen = tab - line;
+        if (tslen > 0 && tslen < 24) {
+          if (first_ts[0] == 0) {
+            memcpy(first_ts, line, tslen);
+            first_ts[tslen] = 0;
+          }
+          memcpy(last_ts, line, tslen);
+          last_ts[tslen] = 0;
+          rows++;
+        }
+      }
+      free(fbuf);
+
+      // Write timestamps to output buffers
+      int32_t *dst_min = tc_resolve_ref(vm, min_ref);
+      int32_t min_max = tc_ref_maxlen(vm, min_ref);
+      int32_t len = strlen(first_ts);
+      if (len >= min_max) len = min_max - 1;
+      for (int i = 0; i < len; i++) dst_min[i] = (int32_t)(uint8_t)first_ts[i];
+      dst_min[len] = 0;
+
+      int32_t *dst_max = tc_resolve_ref(vm, max_ref);
+      int32_t max_max = tc_ref_maxlen(vm, max_ref);
+      len = strlen(last_ts);
+      if (len >= max_max) len = max_max - 1;
+      for (int i = 0; i < len; i++) dst_max[i] = (int32_t)(uint8_t)last_ts[i];
+      dst_max[len] = 0;
+
+      TC_PUSH(vm, rows);
+#else
+      TC_POP(vm); TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+
     case SYS_FILE_SIZE: {
 #ifdef USE_UFILESYS
       int32_t ci = TC_POP(vm);
@@ -3514,17 +3608,32 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t urlRef = TC_POP(vm);
       int32_t ci     = TC_POP(vm);
       const char *cpath = tc_get_const_str(vm, ci);
-      char url[256];
-      tc_ref_to_cstr(vm, urlRef, url, sizeof(url));
-      if (!cpath) { TC_PUSH(vm, -1); break; }
-      char path[128];
-      strlcpy(path, cpath, sizeof(path));
+      char *url = (char *)malloc(256);
+      if (!url) { TC_PUSH(vm, -1); break; }
+      tc_ref_to_cstr(vm, urlRef, url, 256);
+      if (!cpath) { free(url); TC_PUSH(vm, -1); break; }
+      char *path = (char *)malloc(128);
+      if (!path) { free(url); TC_PUSH(vm, -1); break; }
+      strlcpy(path, cpath, 128);
       FS *fsp = tc_file_path(path);
-      if (!fsp) { TC_PUSH(vm, -1); break; }
+      if (!fsp) { free(url); free(path); TC_PUSH(vm, -1); break; }
+#if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
+      HTTPClientLight http;
+#else
       WiFiClient http_client;
       HTTPClient http;
+#endif
       http.setTimeout(10000);
-      http.begin(http_client, url);
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: fileDownload urlRef=%d len=%d url='%s'"), urlRef, strlen(url), url);
+#if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
+      bool begun = http.begin(UrlEncode(url));
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: fileDownload begin=%d (HTTPClientLight)"), begun);
+#else
+      bool begun = http.begin(http_client, UrlEncode(url));
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: fileDownload begin=%d (WiFiClient)"), begun);
+#endif
+      free(url);
+      if (!begun) { http.end(); free(path); TC_PUSH(vm, -1); break; }
       int httpCode = http.GET();
       if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
         File f = fsp->open(path, "w");
@@ -3532,16 +3641,19 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           WiFiClient *stream = http.getStreamPtr();
           int32_t len = http.getSize();
           if (len < 0) len = 99999999;  // unknown size
-          uint8_t buf[512];
-          while (http.connected() && (len > 0)) {
-            size_t avail = stream->available();
-            if (avail) {
-              if (avail > sizeof(buf)) avail = sizeof(buf);
-              int rd = stream->readBytes(buf, avail);
-              f.write(buf, rd);
-              len -= rd;
+          uint8_t *buf = (uint8_t *)malloc(512);
+          if (buf) {
+            while (http.connected() && (len > 0)) {
+              size_t avail = stream->available();
+              if (avail) {
+                if (avail > 512) avail = 512;
+                int rd = stream->readBytes(buf, avail);
+                f.write(buf, rd);
+                len -= rd;
+              }
+              delay(1);
             }
-            delay(1);
+            free(buf);
           }
           f.close();
           AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: fileDownload(\"%s\") -> %d"), path, httpCode);
@@ -3552,7 +3664,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         AddLog(LOG_LEVEL_INFO, PSTR("TCC: fileDownload HTTP error %d"), httpCode);
       }
       http.end();
-      http_client.stop();
+      free(path);
       TC_PUSH(vm, httpCode);
 #else
       TC_POP(vm); TC_POP(vm);
@@ -3675,32 +3787,78 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int fbuf_len = 0, fbuf_pos = 0;
       char line[512];
       int32_t rowCount = 0;
-      int32_t subCount = 0;                     // sub-row counter for averaging
-      int32_t avgN = (accum < -1) ? -accum : 0; // e.g., accum=-4 → avgN=4
-      float prevVals[32];                        // previous row values for delta mode
-      memset(prevVals, 0, sizeof(prevVals));
-      bool firstRow = true;
+      bool dflg = (accum < 0);                  // delta mode for absolute columns
+      int32_t accumN = (accum < 0) ? -accum : (accum > 0 ? accum : 1);
+      // Per-column flags: bit0=absolute(delta), bit1=average(_a), bit7=has previous value
+      uint8_t mflg[32];
+      memset(mflg, 0, sizeof(mflg));
+      float lastv[32];                           // previous values for delta computation
+      memset(lastv, 0, sizeof(lastv));
+      float summs[32];                           // accumulation sums for averaging
+      memset(summs, 0, sizeof(summs));
+      uint16_t accnt[32];                        // per-column accumulation counters
+      memset(accnt, 0, sizeof(accnt));
+      bool headerParsed = false;
+
+      // Lambda: read one line from buffered file
+      #define TC_READ_LINE() \
+        { llen = 0; got_line = false; \
+          while (true) { \
+            if (fbuf_pos >= fbuf_len) { \
+              fbuf_len = tc_file_handles[h].read(fbuf, FBUF_SZ); \
+              fbuf_pos = 0; \
+              if (fbuf_len <= 0) break; \
+            } \
+            char ch = (char)fbuf[fbuf_pos++]; \
+            if (ch == '\n') { got_line = true; break; } \
+            if (ch == '\r') continue; \
+            if (llen < (int)sizeof(line) - 1) line[llen++] = ch; \
+          } \
+          line[llen] = 0; \
+        }
 
       while (true) {
         // ── Read next line from buffer ──
         int llen = 0;
         bool got_line = false;
-        while (true) {
-          if (fbuf_pos >= fbuf_len) {
-            fbuf_len = tc_file_handles[h].read(fbuf, FBUF_SZ);
-            fbuf_pos = 0;
-            if (fbuf_len <= 0) break;  // EOF
-          }
-          char c = (char)fbuf[fbuf_pos++];
-          if (c == '\n') { got_line = true; break; }
-          if (c == '\r') continue;
-          if (llen < (int)sizeof(line) - 1) line[llen++] = c;
-        }
+        TC_READ_LINE();
         if (!got_line && llen == 0) break;  // EOF
-        line[llen] = 0;
+
+        // ── Parse header line: detect _a suffix on column names ──
+        if (!headerParsed) {
+          headerParsed = true;
+          // Parse header columns to detect _a suffix
+          // col_offs matches Scripter: colpos 0=timestamp, 1=first data col
+          // curpos = colpos - col_offs → array index
+          char *hp = line;
+          int hcol = 0;
+          // Skip timestamp column (colpos=0)
+          while (*hp && *hp != '\t') hp++;
+          if (*hp == '\t') hp++;
+          hcol = 1;
+          // Iterate data columns
+          while (*hp) {
+            char *start = hp;
+            while (*hp && *hp != '\t') hp++;
+            int clen = hp - start;
+            if (hcol >= col_offs) {
+              int curpos = hcol - col_offs;
+              if (curpos < numArrays) {
+                if (dflg) {
+                  mflg[curpos] = 1;  // default: absolute (delta mode)
+                  if (clen >= 2 && start[clen-2] == '_' && start[clen-1] == 'a') {
+                    mflg[curpos] |= 2;  // _a suffix: average value, skip delta
+                  }
+                }
+              }
+            }
+            if (*hp == '\t') hp++;
+            hcol++;
+          }
+          continue;  // skip header, read next line
+        }
 
         // ── Parse timestamp in-place (first column before tab) ──
-        // Find tab to null-terminate timestamp temporarily
         char *tab = line;
         while (*tab && *tab != '\t') tab++;
         char saved = *tab;
@@ -3709,92 +3867,102 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         uint32_t cmp = tc_ts_cmp(line);  // fast: no mktime, no sscanf
         *tab = saved;  // restore
 
-        if (cmp == 0) continue;         // skip header / invalid
+        if (cmp == 0) continue;         // skip invalid
         if (cmp < cmp_from) continue;   // before range
         if (cmp > cmp_to) break;        // past range — done (data is chronological)
 
-        // ── Skip timestamp column + col_offs data columns ──
+        // ── Skip timestamp column, then parse data columns ──
+        // col_offs matches Scripter: colpos=1 is first data col
+        // curpos = colpos - col_offs → array index
         char *p = (saved == '\t') ? tab + 1 : tab;
-        for (int skip = 0; skip < col_offs && *p; skip++) {
-          while (*p && *p != '\t') p++;
-          if (*p == '\t') p++;
-        }
+        int colpos = 1;  // first data column
 
         // ── Parse float values into destination arrays ──
-        for (int c = 0; c < numArrays; c++) {
-          float val = 0;
-          if (*p) {
-            val = strtof(p, &p);
-            if (*p == '\t') p++;
-          }
-          if (accum == -1) {
-            // Delta mode: output = current - previous
-            float delta = firstRow ? 0 : (val - prevVals[c]);
-            prevVals[c] = val;
-            if (arrBase[c] && rowCount < arrMax[c]) {
-              memcpy(&arrBase[c][rowCount], &delta, sizeof(float));
-            }
-          } else if (accum < -1) {
-            // Averaging mode: accumulate avgN rows, then divide
-            if (arrBase[c] && rowCount < arrMax[c]) {
-              if (subCount == 0) {
-                memcpy(&arrBase[c][rowCount], &val, sizeof(float));
+        // Following Scripter logic: per-column delta + per-column accumulation
+        while (*p) {
+          float val = strtof(p, &p);
+          if (*p == '\t') p++;
+
+          if (colpos < col_offs) { colpos++; continue; }
+          int c = colpos - col_offs;
+          colpos++;
+          if (c >= numArrays) break;
+
+          float fval = val;
+          bool flg = true;  // true = this value contributes to output
+
+          if (mflg[c] & 1) {
+            // Delta mode active for this column
+            if (!(mflg[c] & 2)) {
+              // No _a suffix: absolute counter → compute delta
+              if (!(mflg[c] & 0x80)) {
+                // First value: just store, no output yet
+                lastv[c] = val;
+                mflg[c] |= 0x80;
+                flg = false;
               } else {
-                float existing;
-                memcpy(&existing, &arrBase[c][rowCount], sizeof(float));
-                existing += val;
-                memcpy(&arrBase[c][rowCount], &existing, sizeof(float));
+                float tmp = val;
+                fval = val - lastv[c];
+                if (fval < 0) fval = 0;  // clamp negative deltas
+                lastv[c] = tmp;
               }
             }
-          } else if (accum > 0) {
-            // Simple accumulation (existing behavior)
-            if (arrBase[c] && rowCount < arrMax[c]) {
-              float existing;
-              memcpy(&existing, &arrBase[c][rowCount], sizeof(float));
-              val += existing;
-              memcpy(&arrBase[c][rowCount], &val, sizeof(float));
-            }
-          } else {
-            // Normal mode (accum == 0): direct store
-            if (arrBase[c] && rowCount < arrMax[c]) {
-              memcpy(&arrBase[c][rowCount], &val, sizeof(float));
+            // _a suffix (mflg & 2): fval stays as-is (current value, no delta)
+          }
+
+          // Accumulate into per-column sum and store when count reaches accumN
+          if (flg && arrBase[c]) {
+            summs[c] += fval;
+            accnt[c]++;
+            if (accnt[c] >= accumN) {
+              if (rowCount < arrMax[c]) {
+                float avg = summs[c] / (float)accumN;
+                memcpy(&arrBase[c][rowCount], &avg, sizeof(float));
+              }
+              summs[c] = 0;
+              accnt[c] = 0;
             }
           }
         }
-        // Row counting depends on mode
-        if (accum < -1) {
-          subCount++;
-          if (subCount >= avgN) {
-            // Divide accumulated sums by avgN
-            for (int c = 0; c < numArrays; c++) {
-              if (arrBase[c] && rowCount < arrMax[c]) {
-                float avg;
-                memcpy(&avg, &arrBase[c][rowCount], sizeof(float));
-                avg /= (float)avgN;
-                memcpy(&arrBase[c][rowCount], &avg, sizeof(float));
+
+        // Advance row counter when first column's accumulator fires
+        // Use column 0 as the reference (matches Scripter behavior where
+        // all _a columns accumulate in sync, and absolute columns may lag by 1)
+        // Find first active column to determine row advancement
+        {
+          bool advanced = false;
+          for (int c = 0; c < numArrays; c++) {
+            if (arrBase[c] && accnt[c] == 0 && rowCount < arrMax[c]) {
+              // This column just stored a value (counter reset to 0)
+              // Check if it actually had data (not just initialized)
+              if (mflg[c] & 0x80 || !(mflg[c] & 1)) {
+                advanced = true;
+                break;
               }
             }
-            rowCount++;
-            subCount = 0;
           }
-        } else {
-          rowCount++;
-          firstRow = false;
+          if (advanced) rowCount++;
         }
       }
 
-      // For averaging: if partial group remains, compute average of partial
-      if (accum < -1 && subCount > 0) {
+      // Partial accumulation: store remainder
+      {
+        bool has_partial = false;
         for (int c = 0; c < numArrays; c++) {
-          if (arrBase[c] && rowCount < arrMax[c]) {
-            float avg;
-            memcpy(&avg, &arrBase[c][rowCount], sizeof(float));
-            avg /= (float)subCount;
-            memcpy(&arrBase[c][rowCount], &avg, sizeof(float));
-          }
+          if (accnt[c] > 0) { has_partial = true; break; }
         }
-        rowCount++;
+        if (has_partial) {
+          for (int c = 0; c < numArrays; c++) {
+            if (accnt[c] > 0 && arrBase[c] && rowCount < arrMax[c]) {
+              float avg = summs[c] / (float)accnt[c];
+              memcpy(&arrBase[c][rowCount], &avg, sizeof(float));
+            }
+          }
+          rowCount++;
+        }
       }
+
+      #undef TC_READ_LINE
 
       free(fbuf);
 
@@ -6120,6 +6288,13 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       break;
     }
 
+    case SYS_WEB_CHART_TBASE: {
+      // WebChartTimeBase(minutes) — set time base offset from "now" for chart x-axis
+      // 0 = anchored to "now" (default), negative = past (e.g., -1440 = yesterday midnight)
+      tc_chart_time_base = TC_POP(vm);
+      break;
+    }
+
     case SYS_WEB_CHART: {
       // WebChart(type, title, unit, color, pos, count, array, decimals, interval, ymin, ymax)
 #ifdef USE_WEBSERVER
@@ -6129,8 +6304,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t decimals = TC_POP(vm);
       int32_t arr_ref  = TC_POP(vm);
       int32_t count    = TC_POP(vm);
-      int32_t pos_bits = TC_POP(vm);
-      int32_t pos      = (int32_t)i2f(pos_bits);  // pos is float (from array[0])
+      int32_t pos      = TC_POP(vm);
       int32_t color    = TC_POP(vm);
       int32_t ci_unit  = TC_POP(vm);
       int32_t ci_title = TC_POP(vm);
@@ -6143,7 +6317,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       const char *title = tc_get_const_str(vm, ci_title);
       const char *unit  = tc_get_const_str(vm, ci_unit);
       if (!title || !unit) break;
-      if (decimals < 0) decimals = 0;
+      // decimals bits: 0-2 = decimal places (0-6), bit 3 = smooth (curveType:'function')
+      bool smooth = (decimals & 8) != 0;
+      decimals = decimals & 7;
       if (decimals > 6) decimals = 6;
 
       // Parse "name|unit" format: name goes to legend, unit to y-axis
@@ -6181,10 +6357,10 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           "<script>"
           "var _tcC=[];"
           "function _tcA(ci,lbl,clr,d,mn,mx,u){_tcC[ci].s.push({l:lbl,c:clr,d:d,mn:mn,mx:mx,u:u||lbl});}"
-          "function _tcN(ci,t,u,tp,mn,mx){"
+          "function _tcN(ci,t,u,tp,mn,mx,sm){"
             "var lb=null;"
             "if(tp==116){var p=t.indexOf('|');if(p>=0){lb=t.substring(p+1).split('|');t=t.substring(0,p);}}"
-            "_tcC[ci]={t:t,u:u,tp:tp,mn:mn,mx:mx,s:[],lb:lb};"
+            "_tcC[ci]={t:t,u:u,tp:tp,mn:mn,mx:mx,s:[],lb:lb,sm:sm||0};"
           "}"
           "function _tcD(){"
             "var N=new Date();"
@@ -6193,16 +6369,28 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
               "var dt=new google.visualization.DataTable();"
               "var tp=c.tp,el=document.getElementById('tc'+i);"
               "if(tp==116){"                                                               // table
-                "dt.addColumn('string',c.t||'');"
-                "for(var j=0;j<c.s.length;j++)dt.addColumn('number',c.s[j].l);"
-                "var rows=[];"
-                "if(c.s.length>0)for(var k=0;k<c.s[0].d.length;k++){"
-                  "var lb=c.lb&&c.lb[k]?c.lb[k]:''+(k+1);"
-                  "var r=[lb];"
-                  "for(var j=0;j<c.s.length;j++)r.push(c.s[j].d[k][1]);"
-                  "rows.push(r);}"
-                "dt.addRows(rows);"
-                "new google.visualization.Table(el).draw(dt,{showRowNumber:false,width:'100%%'});"
+                "if(c.lb&&c.s.length==1&&c.s[0].d.length>1){"
+                  // Transposed table: labels as column headers, one row per series
+                  "dt.addColumn('string','Tag');"
+                  "for(var k=0;k<c.s[0].d.length;k++){"
+                    "var lb=c.lb[k]||''+(k+1);"
+                    "dt.addColumn('number',lb);}"
+                  "var r=[c.s[0].l];"
+                  "for(var k=0;k<c.s[0].d.length;k++)r.push(c.s[0].d[k][1]);"
+                  "dt.addRows([r]);"
+                "}else{"
+                  // Multi-series table: series as columns, data points as rows
+                  "dt.addColumn('string',c.t||'');"
+                  "for(var j=0;j<c.s.length;j++)dt.addColumn('number',c.s[j].l);"
+                  "var rows=[];"
+                  "if(c.s.length>0)for(var k=0;k<c.s[0].d.length;k++){"
+                    "var lb=c.lb&&c.lb[k]?c.lb[k]:''+(k+1);"
+                    "var r=[lb];"
+                    "for(var j=0;j<c.s.length;j++)r.push(c.s[j].d[k][1]);"
+                    "rows.push(r);}"
+                  "dt.addRows(rows);"
+                "}"
+                "new google.visualization.Table(el).draw(dt,{showRowNumber:true,width:'100%%'});"
               "}else{"                                                                     // charts
                 "dt.addColumn('datetime','Time');"
                 "for(var j=0;j<c.s.length;j++)dt.addColumn('number',c.s[j].l);"
@@ -6214,7 +6402,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
                 "dt.addRows(rows);"
                 "var colors=c.s.map(function(x){return x.c;});"
                 "var va={title:c.u};"
-                "if(c.mn<c.mx){va.minValue=c.mn;va.maxValue=c.mx;}"
+                "if(c.mn<c.mx){va.viewWindow={min:c.mn,max:c.mx};}"
                 "var dual=false,sr={},vx={};"
                 "vx[0]=va;"
                 "for(var j=0;j<c.s.length;j++){"
@@ -6222,15 +6410,16 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
                   "if(j>0&&(s.mn!=c.s[0].mn||s.mx!=c.s[0].mx)){"
                     "dual=true;sr[j]={targetAxisIndex:1};"
                     "var a2={title:s.u};"
-                    "if(s.mn<s.mx){a2.minValue=s.mn;a2.maxValue=s.mx;}"
+                    "if(s.mn<s.mx){a2.viewWindow={min:s.mn,max:s.mx};}"
                     "vx[1]=a2;"
                   "}else{sr[j]={targetAxisIndex:0};}"
                 "}"
-                "if(dual&&c.s[0].mn<c.s[0].mx){vx[0]={title:c.s[0].u,minValue:c.s[0].mn,maxValue:c.s[0].mx};}"
+                "if(dual&&c.s[0].mn<c.s[0].mx){vx[0]={title:c.s[0].u,viewWindow:{min:c.s[0].mn,max:c.s[0].mx}};}"
                 "var dw=c.s[0].d[0]?c.s[0].d[0][0]*60000:-86400000;"
+                "var dwe=c.s[0].d.length>0?c.s[0].d[c.s[0].d.length-1][0]*60000:0;"
                 "var hfmt=dw<-172800000?'EEE HH:mm':'HH:mm';"
-                "var o={title:c.t,curveType:'none',"
-                  "hAxis:{format:hfmt,viewWindow:{min:new Date(N.getTime()+dw),max:N}},"
+                "var o={title:c.t,curveType:c.sm?'function':'none',"
+                  "hAxis:{format:hfmt,viewWindow:{min:new Date(N.getTime()+dw),max:new Date(N.getTime()+dwe)}},"
                   "colors:colors,"
                   "lineWidth:1,pointSize:0,"
                   "chartArea:{width:'75%%',height:'65%%'}};"
@@ -6271,7 +6460,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         } else if (tc_chart_height > 0) {
           snprintf(div_style, sizeof(div_style), "width:100%%;height:%dpx", tc_chart_height);
         } else {
-          strcpy(div_style, "width:100%;height:300px");
+          strcpy(div_style, "width:960px;height:300px");
         }
         if (fixed_range) {
           char ymin_s[16], ymax_s[16];
@@ -6279,13 +6468,13 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           dtostrf(ymax, 1, 1, ymax_s);
           WSContentSend_P(PSTR(
             "<div id=\"tc%d\" style=\"%s\"></div>"
-            "<script>_tcN(%d,'%s','%s',%d,%s,%s);</script>"
-          ), chart_id, div_style, chart_id, title, axis_unit, type, ymin_s, ymax_s);
+            "<script>_tcN(%d,'%s','%s',%d,%s,%s,%d);</script>"
+          ), chart_id, div_style, chart_id, title, axis_unit, type, ymin_s, ymax_s, smooth ? 1 : 0);
         } else {
           WSContentSend_P(PSTR(
             "<div id=\"tc%d\" style=\"%s\"></div>"
-            "<script>_tcN(%d,'%s','%s',%d,0,0);</script>"
-          ), chart_id, div_style, chart_id, title, axis_unit, type);
+            "<script>_tcN(%d,'%s','%s',%d,0,0,%d);</script>"
+          ), chart_id, div_style, chart_id, title, axis_unit, type, smooth ? 1 : 0);
         }
       }
 
@@ -6312,7 +6501,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         if (idx < 0) idx += count;
         float fval;
         memcpy(&fval, &arr[idx], sizeof(float));
-        int32_t mins_ago = -((count - 1 - i) * interval);
+        int32_t mins_ago = -((count - 1 - i) * interval) + tc_chart_time_base;
         char vbuf[16];
         dtostrf(fval, 1, decimals, vbuf);
         WSContentSend_P(PSTR("%s[%d,%s]"),
