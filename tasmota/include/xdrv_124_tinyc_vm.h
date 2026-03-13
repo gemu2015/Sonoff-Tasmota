@@ -179,7 +179,7 @@ static FS *tc_file_path(char *path) {
 #else
   #define TC_CALLBACK_MAX_INSTR 200000 // instruction limit per callback (ESP32)
 #endif
-#define TC_CALLBACK_NAME_MAX 16        // max callback name length
+#define TC_CALLBACK_NAME_MAX 20        // max callback name length (longest: OnMqttDisconnect=16+1)
 
 // UDP multicast support (Scripter-compatible protocol)
 #define TC_UDP_PORT          1999
@@ -238,7 +238,8 @@ enum TcOp {
   OP_ADDR_LOCAL   = 0x78,  // push packed ref: (fp << 16) | base_idx
   OP_ADDR_GLOBAL  = 0x79,  // push packed ref: 0x80000000 | base_idx
   // Syscalls
-  OP_SYSCALL      = 0x80,
+  OP_SYSCALL      = 0x80,  // u8 syscall_id
+  OP_SYSCALL2     = 0x81,  // u16 syscall_id (extended range 256+)
   // Heap arrays (large arrays > 255 elements)
   OP_LOAD_HEAP_ARR  = 0xA0,  // u8 handle; pop idx -> push value
   OP_STORE_HEAP_ARR = 0xA1,  // u8 handle; pop val, pop idx -> store
@@ -285,6 +286,7 @@ enum TcSyscall {
   SYS_MATH_SIN  = 36, SYS_MATH_COS   = 37,
   SYS_MATH_FLOOR= 38, SYS_MATH_CEIL  = 39, SYS_MATH_ROUND = 40,
   SYS_MATH_EXP  = 198, SYS_MATH_LOG  = 199, // exp(f)->float, log(f)->float (natural)
+  SYS_MATH_POW  = 19,  SYS_MATH_ACOS = 123, // pow(base,exp)->float, acos(f)->float
   SYS_INT_BITS_TO_FLOAT = 49, // (int_bits) -> float — reinterpret int32 as IEEE754 float
   // String operations (work with array refs from OP_ADDR_LOCAL/OP_ADDR_GLOBAL)
   SYS_STRLEN       = 50,  // (ref) -> int
@@ -425,6 +427,10 @@ enum TcSyscall {
   // Hardware register peek/poke (ESP32 memory-mapped I/O)
   SYS_PEEK_REG         = 207, // (addr) -> int — read 32-bit from memory-mapped address
   SYS_POKE_REG         = 208, // (addr, val) -> void — write 32-bit to memory-mapped address
+  SYS_TASM_GET_STR     = 209, // (sel, buf_ref) -> int — get Tasmota string info into char[]
+  SYS_TASM_POWER       = 217, // (index) -> int — power state of relay (0-based)
+  SYS_TASM_SWITCH      = 218, // (index) -> int — switch state (0-based)
+  SYS_TASM_COUNTER     = 219, // (index) -> int — pulse counter (0-based)
   // Display drawing (direct renderer calls — requires USE_DISPLAY)
   SYS_DSP_TEXT        = 170, // (buf_ref) -> void — raw DisplayText command string
   SYS_DSP_CLEAR       = 171, // () -> void — clear display
@@ -522,6 +528,10 @@ enum TcSyscall {
   // Debug
   SYS_DEBUG_PRINT     = 250, SYS_DEBUG_PRINT_STR = 251,
   SYS_DEBUG_DUMP      = 252,
+  // Extended syscalls (256+, requires OP_SYSCALL2)
+  SYS_SML_COPY        = 256, // (arr_ref, count) -> int — copy SML values to float array
+  SYS_ARRAY_FILL      = 257, // (arr_ref, value, count) -> void — fill array with value
+  SYS_ARRAY_COPY      = 258, // (dst_ref, src_ref, count) -> void — copy array to array
 };
 
 /*********************************************************************************************\
@@ -2355,7 +2365,7 @@ static bool tc_pin_forbidden(int32_t pin) {
  * VM: Syscall dispatch
 \*********************************************************************************************/
 
-static int tc_syscall(TcVM *vm, uint8_t id) {
+static int tc_syscall(TcVM *vm, uint16_t id) {
   int32_t a, b;
   float fa;
 
@@ -2734,6 +2744,11 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       fa = TC_POPF(vm); TC_PUSHF(vm, expf(fa)); break;
     case SYS_MATH_LOG:
       fa = TC_POPF(vm); TC_PUSHF(vm, logf(fa)); break;
+    case SYS_MATH_POW: {
+      float fb = TC_POPF(vm); fa = TC_POPF(vm); TC_PUSHF(vm, powf(fa, fb)); break;
+    }
+    case SYS_MATH_ACOS:
+      fa = TC_POPF(vm); TC_PUSHF(vm, acosf(fa)); break;
     case SYS_INT_BITS_TO_FLOAT:
       // Identity: int32 bits ARE the float — just leave on stack
       // Compiler knows return type is float, so subsequent ops use FADD/FMUL etc.
@@ -4910,6 +4925,57 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
       break;
     }
 
+    // ── SML bulk copy ──────────────────────────────────
+    case SYS_SML_COPY: {
+      // smlCopy(int arr[], int count) -> int — copy SML decoder values to float array
+      int32_t count = TC_POP(vm);
+      int32_t arr_ref = TC_POP(vm);
+      int32_t copied = 0;
+#if defined(USE_SML_M) || defined(USE_SML)
+      int32_t *arr = tc_resolve_ref(vm, arr_ref);
+      if (arr) {
+        int32_t nvals = (int32_t)SML_GetVal(0);  // index 0 = count
+        if (count > nvals) count = nvals;
+        for (int32_t i = 0; i < count; i++) {
+          float fv = (float)SML_GetVal(i + 1);  // 1-based
+          uint32_t fi; memcpy(&fi, &fv, 4);
+          arr[i] = (int32_t)fi;
+          copied++;
+        }
+      }
+#endif
+      TC_PUSH(vm, copied);
+      break;
+    }
+    // ── Array fill / copy ─────────────────────────────
+    case SYS_ARRAY_FILL: {
+      // arrayFill(int arr[], int value, int count) -> void
+      int32_t count = TC_POP(vm);
+      int32_t value = TC_POP(vm);
+      int32_t arr_ref = TC_POP(vm);
+      int32_t *arr = tc_resolve_ref(vm, arr_ref);
+      if (arr) {
+        for (int32_t i = 0; i < count; i++) {
+          arr[i] = value;
+        }
+      }
+      break;
+    }
+    case SYS_ARRAY_COPY: {
+      // arrayCopy(int dst[], int src[], int count) -> void
+      int32_t count = TC_POP(vm);
+      int32_t src_ref = TC_POP(vm);
+      int32_t dst_ref = TC_POP(vm);
+      int32_t *dst = tc_resolve_ref(vm, dst_ref);
+      int32_t *src = tc_resolve_ref(vm, src_ref);
+      if (dst && src) {
+        for (int32_t i = 0; i < count; i++) {
+          dst[i] = src[i];
+        }
+      }
+      break;
+    }
+
     // ── SPI bus ────────────────────────────────────────
     case SYS_SPI_INIT: {
       // Stack: [sclk, mosi, miso, speed_mhz] — speed on top
@@ -5138,6 +5204,7 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
     //  19 = tasm_time       (ro) current minutes since midnight
     //  20 = tasm_pheap      (ro) free PSRAM in bytes (ESP32 only)
     //  21 = tasm_smlj       (rw) SML JSON output enable/disable
+    //  22 = tasm_npwr       (ro) number of power devices
     case SYS_TASM_GET: {
       a = TC_POP(vm);  // variable index
       int32_t val = 0;
@@ -5204,10 +5271,69 @@ static int tc_syscall(TcVM *vm, uint8_t id) {
           break;
         }
 #endif
+        case 22: val = (int32_t)TasmotaGlobal.devices_present; break;  // tasm_npwr
         default: break;
       }
       TC_PUSH(vm, val);
       tasm_get_done:
+      break;
+    }
+    // ── Tasmota string info getter ─────────────────────
+    case SYS_TASM_GET_STR: {
+      // tasmInfo(sel, char buf[]) -> int strlen
+      // sel: 0=topic, 1=mac, 2=ip, 3=friendly_name, 4=device_name, 5=group_topic
+      int32_t buf_ref = TC_POP(vm);
+      int32_t sel = TC_POP(vm);
+      const char *src = "";
+      char tmp[64];
+      tmp[0] = 0;
+      switch (sel) {
+        case 0: src = TasmotaGlobal.mqtt_topic; break;
+        case 1: strlcpy(tmp, NetworkUniqueId().c_str(), sizeof(tmp)); src = tmp; break;
+        case 2: strlcpy(tmp, IPGetListeningAddressStr().c_str(), sizeof(tmp)); src = tmp; break;
+        case 3: src = SettingsText(SET_FRIENDLYNAME1); break;
+        case 4: src = SettingsText(SET_DEVICENAME); break;
+#ifdef USE_MQTT
+        case 5: src = SettingsText(SET_MQTT_GRP_TOPIC); break;
+#endif
+        case 6: strlcpy(tmp, GetResetReason().c_str(), sizeof(tmp)); src = tmp; break;
+        default: break;
+      }
+      tc_cstr_to_ref(vm, buf_ref, src);
+      TC_PUSH(vm, (int32_t)strlen(src));
+      break;
+    }
+    // ── Indexed Tasmota state getters ─────────────────────
+    case SYS_TASM_POWER: {
+      // tasmPower(index) -> int — power state of relay (0-based)
+      a = TC_POP(vm);
+      int32_t val = 0;
+      if (a >= 0 && a < (int32_t)TasmotaGlobal.devices_present) {
+        val = (TasmotaGlobal.power >> a) & 1;
+      }
+      TC_PUSH(vm, val);
+      break;
+    }
+    case SYS_TASM_SWITCH: {
+      // tasmSwitch(index) -> int — switch state (0-based, Switch1=index 0)
+      a = TC_POP(vm);
+      int32_t val = -1;
+      if (a >= 0 && a < MAX_SWITCHES) {
+        val = SwitchGetState(a);
+      }
+      TC_PUSH(vm, val);
+      break;
+    }
+    case SYS_TASM_COUNTER: {
+      // tasmCounter(index) -> int — pulse counter (0-based, Counter1=index 0)
+      a = TC_POP(vm);
+      int32_t val = 0;
+#ifdef USE_COUNTER
+      if (a >= 0 && a < MAX_COUNTERS) {
+        val = (int32_t)RtcSettings.pulse_counter[a];
+      }
+#endif
+      TC_PUSH(vm, val);
       break;
     }
     case SYS_TASM_SET: {
@@ -8553,6 +8679,10 @@ static int tc_vm_step(TcVM *vm) {
     case OP_SYSCALL:
       idx = tc_read_u8(vm);
       return tc_syscall(vm, idx);
+    case OP_SYSCALL2: {
+      uint16_t idx2 = tc_read_u16(vm);
+      return tc_syscall(vm, idx2);
+    }
 
     default:
       vm->error = TC_ERR_BAD_OPCODE;

@@ -2700,10 +2700,26 @@ bool Xdrv124(uint32_t function) {
       break;
     case FUNC_EVERY_50_MSECOND:
       TinyCEvery50ms();
+      if (TasmotaGlobal.rules_flag.mqtt_disconnected) {
+        TasmotaGlobal.rules_flag.mqtt_disconnected = 0;
+        tc_all_callbacks("OnMqttDisconnect");
+      }
       break;
     case FUNC_EVERY_SECOND:
       // Call user's EverySecond() callback on all active slots
       tc_all_callbacks("EverySecond");
+      break;
+    case FUNC_NETWORK_UP:
+      tc_all_callbacks("OnWifiConnect");
+      break;
+    case FUNC_NETWORK_DOWN:
+      tc_all_callbacks("OnWifiDisconnect");
+      break;
+    case FUNC_MQTT_INIT:
+      tc_all_callbacks("OnMqttConnect");
+      break;
+    case FUNC_TIME_SYNCED:
+      tc_all_callbacks("OnTimeSet");
       break;
     case FUNC_COMMAND:
       result = DecodeCommand(kTinyCCommands, TinyCCommand);
