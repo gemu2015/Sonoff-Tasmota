@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#ifdef CONFIG_IDF_TARGET_ESP32S3  // only compile for ESP32-S3
 #include <stdio.h>
 #include <string.h>
 #include "soc/system_reg.h"
@@ -657,3 +658,4 @@ esp_err_t xclk_timer_conf(int ledc_timer, int xclk_freq_hz)
     LCD_CAM.cam_ctrl.cam_update = 1;
     return ESP_OK;
 }
+#endif // CONFIG_IDF_TARGET_ESP32S3

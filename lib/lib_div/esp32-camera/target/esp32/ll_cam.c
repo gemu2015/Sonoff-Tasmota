@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#ifdef CONFIG_IDF_TARGET_ESP32  // only compile for ESP32
 #include <stdio.h>
 #include <string.h>
 #include "soc/i2s_struct.h"
@@ -548,3 +549,4 @@ esp_err_t ll_cam_set_sample_mode(cam_obj_t *cam, pixformat_t pix_format, uint32_
     I2S0.fifo_conf.rx_fifo_mod = sampling_mode;
     return ESP_OK;
 }
+#endif // CONFIG_IDF_TARGET_ESP32

@@ -132,13 +132,9 @@ static FS *tc_file_path(char *path) {
 
 #define TC_MAX_FILE_HANDLES  4      // max simultaneously open files
 
-// VM task stack size (bytes) — camera builds need more for JPEG capture/stream
+// VM task stack size (bytes)
 #ifndef TC_VM_TASK_STACK
-  #ifdef USE_TINYC_CAMERA
-    #define TC_VM_TASK_STACK   12000
-  #else
-    #define TC_VM_TASK_STACK   8192
-  #endif
+  #define TC_VM_TASK_STACK   8192
 #endif
 
 // Heap memory for large arrays (> 255 elements)

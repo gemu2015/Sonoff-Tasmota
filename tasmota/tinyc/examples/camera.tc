@@ -1,8 +1,9 @@
 // ═══════════════════════════════════════════════════════════════════
-// ESP32-S3 Camera — TinyC direct esp_camera driver
+// ESP32 Camera — TinyC direct esp_camera driver
 // Supports multiple boards via compile-time #define
 // Compile: node compile_cli.js camera.tc camera.tcb -DBOARD_DFROBOT
 //      or: node compile_cli.js camera.tc camera.tcb -DBOARD_GOOUUU
+//      or: node compile_cli.js camera.tc camera.tcb -DBOARD_AITHINKER
 // Live view: http://<device-ip>/cam  (MJPEG stream from port 81)
 // ═══════════════════════════════════════════════════════════════════
 // @defines: -DBOARD_DFROBOT
@@ -71,6 +72,11 @@ int campins[] = {-1, -1, 5, 8, 9, 4, 6, 7, 14, 17, 21, 18, 16, 1, 2, 15};
 #ifdef BOARD_GOOUUU
 // Goouuu ESP32-S3-CAM / ESP32S3_EYE (OV2640)
 int campins[] = {-1, -1, 15, 4, 5, 16, 17, 18, 12, 10, 8, 9, 11, 6, 7, 13};
+#endif
+
+#ifdef BOARD_AITHINKER
+// AI-Thinker ESP32-CAM (OV2640), flash LED on GPIO4
+int campins[] = {32, -1, 0, 26, 27, 35, 34, 39, 36, 21, 19, 18, 5, 25, 23, 22};
 #endif
 
 int pic_count;
@@ -175,12 +181,12 @@ void WebOn() {
         webSend("<p style='color:#888;font-size:12px'>");
         webSend("<a id='snap' href='#' style='color:#0ff'>Snapshot</a>");
         webSend(" | <a id='strm' href='#' style='color:#0ff'>Direct stream</a></p>");
-        webSend("<script>var h=location.hostname;");
-        webSend("document.getElementById('img').src=");
-        webSend("'http://'+h+':81/cam.mjpeg';");
+        webSend("<script>var h=location.hostname,img=document.getElementById('img');");
         webSend("document.getElementById('snap').href='/tc_cam?slot=1';");
-        webSend("document.getElementById('strm').href=");
-        webSend("'http://'+h+':81/cam.mjpeg';</script>");
+        webSend("document.getElementById('strm').href='http://'+h+':81/cam.mjpeg';");
+        webSend("if(/^((?!chrome|android).)*safari/i.test(navigator.userAgent)){");
+        webSend("setInterval(function(){img.src='/tc_cam?slot=1&t='+Date.now()},200)");
+        webSend("}else{img.src='http://'+h+':81/cam.mjpeg'}</script>");
         webSend("</body></html>");
     }
 }

@@ -49,7 +49,7 @@ int campins[] = {-1, -1, 15, 4, 5, 16, 17, 18, 12, 10, 8, 9, 11, 6, 7, 13};
 #define OV5640_PID          0x5640
 
 // ─── Hardware config ───
-#define PIR_PIN             3
+#define PIR_PIN             -1
 
 // ─── Persistent settings (survive reboot) ───
 // 'watch' enables changed()/snapshot() intrinsics — no manual shadow copies needed
@@ -377,7 +377,7 @@ void EverySecond() {
     last_hour = tasm_hour;
 
     // Check PIR / software motion alarm (one-shot: fires once, re-arms when clear)
-    if ((pir > 0 && digitalRead(PIR_PIN) == 0) ||
+    if ((pir > 0 && PIR_PIN >= 0 && digitalRead(PIR_PIN) == 0) ||
         (spir > 0 && mot > limit)) {
         if (alarm_active == 0) {
             alarm_active = 1;
@@ -438,9 +438,13 @@ void WebCall() {
 
 // ═══════════════════════════════════════════════════════════════════
 // WebUI — controls on Tasmota main page
+// Note: stream image on main page is provided by camControl(15,1,0)
+//       stream server — no WebPage() needed
 // ═══════════════════════════════════════════════════════════════════
 void WebUI() {
-    webCheckbox(pir, "Hardware PIR");
+    if (PIR_PIN >= 0) {
+        webCheckbox(pir, "Hardware PIR");
+    }
     webCheckbox(spir, "Software motion detector");
     webNumber(limit, 50, 10000, "Motion alarm threshold");
     webCheckbox(ma, "Send email on alarm");
@@ -512,8 +516,10 @@ int main() {
 
     rpt_timer = rpt * 60;
 
-    // PIR input pin
-    pinMode(PIR_PIN, 0);
+    // PIR input pin (only if configured, PIR_PIN=-1 means no hardware PIR)
+    if (PIR_PIN >= 0) {
+        pinMode(PIR_PIN, 0);
+    }
 
     // Create pictures folder
     if (!fileExists("/PICS")) {

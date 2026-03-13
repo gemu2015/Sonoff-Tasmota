@@ -33,6 +33,7 @@
       "+<sensors/ov7670.c>",
       "+<sensors/ov7725.c>",
       "+<sensors/nt99141.c>",
+      "+<target/esp32>",
       "+<target/esp32s3>"
     ]
   }
