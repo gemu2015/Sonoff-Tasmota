@@ -498,7 +498,7 @@ enum TcSyscall {
   SYS_TASM_CMD_REF   = 248, // (cmd_ref, out_buf_ref) -> int — tasmCmd with char array command
   SYS_I2C_FREE       = 249, // (addr, bus) -> void — release claimed I2C address
   SYS_WEB_CHART_SIZE  = 233, // (width, height) -> void — set chart div size in pixels (0=default)
-  SYS_WEB_CHART_TBASE = 234, // (minutes) -> void — set time base offset from "now" for chart x-axis
+  SYS_WEB_CHART_TBASE = 261, // (minutes) -> void — set time base offset from "now" for chart x-axis
   // Console command callback
   SYS_ADD_COMMAND     = 45, // (const_idx_prefix) -> void — register command prefix
   SYS_RESPONSE_CMND  = 46, // (buf_ref) -> void — send console response
@@ -6392,11 +6392,15 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
                 "}"
                 "new google.visualization.Table(el).draw(dt,{showRowNumber:true,width:'100%%'});"
               "}else{"                                                                     // charts
-                "dt.addColumn('datetime','Time');"
+                "var isCol=(tp==98||tp==99||tp==1||tp==104||tp==115);"
+                "if(isCol){dt.addColumn('string','X');}else{dt.addColumn('datetime','Time');}"
                 "for(var j=0;j<c.s.length;j++)dt.addColumn('number',c.s[j].l);"
                 "var rows=[];"
                 "if(c.s.length>0)for(var k=0;k<c.s[0].d.length;k++){"
-                  "var r=[new Date(N.getTime()+c.s[0].d[k][0]*60000)];"
+                  "var m=c.s[0].d[k][0];"
+                  "var xl;"
+                  "if(isCol){var td=new Date(N.getTime()+m*60000);xl=('0'+td.getDate()).slice(-2)+'.'+('0'+(td.getMonth()+1)).slice(-2)+'.';}else{xl=new Date(N.getTime()+m*60000);}"
+                  "var r=[xl];"
                   "for(var j=0;j<c.s.length;j++)r.push(c.s[j].d[k][1]);"
                   "rows.push(r);}"
                 "dt.addRows(rows);"
@@ -6415,14 +6419,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
                   "}else{sr[j]={targetAxisIndex:0};}"
                 "}"
                 "if(dual&&c.s[0].mn<c.s[0].mx){vx[0]={title:c.s[0].u,viewWindow:{min:c.s[0].mn,max:c.s[0].mx}};}"
-                "var dw=c.s[0].d[0]?c.s[0].d[0][0]*60000:-86400000;"
-                "var dwe=c.s[0].d.length>0?c.s[0].d[c.s[0].d.length-1][0]*60000:0;"
-                "var hfmt=dw<-172800000?'EEE HH:mm':'HH:mm';"
-                "var o={title:c.t,curveType:c.sm?'function':'none',"
-                  "hAxis:{format:hfmt,viewWindow:{min:new Date(N.getTime()+dw),max:new Date(N.getTime()+dwe)}},"
-                  "colors:colors,"
-                  "lineWidth:1,pointSize:0,"
-                  "chartArea:{width:'75%%',height:'65%%'}};"
+                "var o={title:c.t,colors:colors,chartArea:{width:'75%%',height:'65%%'}};"
+                "if(!isCol){"
+                  "var dw=c.s[0].d[0]?c.s[0].d[0][0]*60000:-86400000;"
+                  "var dwe=c.s[0].d.length>0?c.s[0].d[c.s[0].d.length-1][0]*60000:0;"
+                  "o.curveType=c.sm?'function':'none';"
+                  "o.hAxis={format:'HH:mm',viewWindow:{min:new Date(N.getTime()+dw-60000),max:new Date(N.getTime()+dwe+60000)}};"
+                  "o.lineWidth=1;o.pointSize=0;"
+                "}"
                 "if(dual){o.series=sr;o.vAxes=vx;}else{o.vAxis=va;}"
                 "if(tp==98)new google.visualization.BarChart(el).draw(dt,o);"              // 'b'=98
                 "else if(tp==99||tp==1)new google.visualization.ColumnChart(el).draw(dt,o);" // 'c'=99 or legacy 1
