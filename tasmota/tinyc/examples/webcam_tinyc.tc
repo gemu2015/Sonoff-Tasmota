@@ -8,6 +8,7 @@
 //
 // Compile: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_DFROBOT
 //      or: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_GOOUUU
+//      or: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_AITHINKER
 //
 // Camera capture runs in TaskLoop (VM task thread) — required for
 // esp_camera_fb_get() which crashes if called from main thread.
@@ -24,6 +25,11 @@ int campins[] = {-1, -1, 5, 8, 9, 4, 6, 7, 14, 17, 21, 18, 16, 1, 2, 15};
 #ifdef BOARD_GOOUUU
 // Goouuu ESP32-S3-CAM / ESP32S3_EYE (OV2640)
 int campins[] = {-1, -1, 15, 4, 5, 16, 17, 18, 12, 10, 8, 9, 11, 6, 7, 13};
+#endif
+
+#ifdef BOARD_AITHINKER
+// AI-Thinker ESP32-CAM (OV2640), flash LED on GPIO4
+int campins[] = {32, -1, 0, 26, 27, 35, 34, 39, 36, 21, 19, 18, 5, 25, 23, 22};
 #endif
 
 // ─── Camera constants ───
