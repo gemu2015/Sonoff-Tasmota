@@ -119,13 +119,13 @@ static FS *tc_file_path(char *path) {
   #define TC_INSTR_PER_TICK  500     // instructions per 50ms tick
   #define TC_OUTPUT_SIZE     128     // output buffer for MQTT
 #else  // ESP32
-  #define TC_MAX_PROGRAM     16384   // max bytecode size
+  #define TC_MAX_PROGRAM     32768   // max bytecode size
   #define TC_STACK_SIZE      256     // operand stack (1KB)
   #define TC_MAX_FRAMES      32      // call depth
   #define TC_MAX_LOCALS      256     // locals per frame (1KB) - enough for char arrays
-  #define TC_MAX_GLOBALS     256     // global slots (1KB)
-  #define TC_MAX_CONSTANTS   256     // constant pool entries (dynamic alloc, uint16_t)
-  #define TC_MAX_CONST_DATA  4096    // string constant bytes
+  #define TC_MAX_GLOBALS     512     // global slots (2KB)
+  #define TC_MAX_CONSTANTS   512     // constant pool entries (dynamic alloc, uint16_t)
+  #define TC_MAX_CONST_DATA  8192    // string constant bytes
   #define TC_INSTR_PER_TICK  1000    // instructions per 50ms tick
   #define TC_OUTPUT_SIZE     128     // output buffer for MQTT (was 512)
 #endif
@@ -4883,6 +4883,8 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     }
     case SYS_RESPONSE_CMND: {
       // responseCmnd(buf) — send text as console/MQTT command response
+      // If text starts with '{', write as-is (caller provides JSON)
+      // Otherwise wrap as {"COMMAND":"text"} via ResponseCmndChar
       a = TC_POP(vm);  // buf ref
       int32_t *arr = tc_resolve_ref(vm, a);
       int32_t maxLen = tc_ref_maxlen(vm, a);
@@ -4892,15 +4894,25 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         int32_t i;
         for (i = 0; i < n && arr[i]; i++) { tmpbuf[i] = (char)(arr[i] & 0xFF); }
         tmpbuf[i] = '\0';
-        Response_P(PSTR("%s"), tmpbuf);
+        if (tmpbuf[0] == '{') {
+          Response_P(PSTR("%s"), tmpbuf);
+        } else {
+          ResponseCmndChar(tmpbuf);
+        }
       }
       break;
     }
     case SYS_RESPONSE_CMND_STR: {
       // responseCmnd("literal") — send const string as console response
+      // If text starts with '{', write as-is; otherwise wrap via ResponseCmndChar
       int32_t ci = TC_POP(vm);
       if (ci >= 0 && ci < vm->const_count && vm->constants[ci].type == 1) {
-        Response_P(PSTR("%s"), vm->constants[ci].str.ptr);
+        const char *s = vm->constants[ci].str.ptr;
+        if (s[0] == '{') {
+          Response_P(PSTR("%s"), s);
+        } else {
+          ResponseCmndChar(s);
+        }
       }
       break;
     }
@@ -6399,7 +6411,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
                 "if(c.s.length>0)for(var k=0;k<c.s[0].d.length;k++){"
                   "var m=c.s[0].d[k][0];"
                   "var xl;"
-                  "if(isCol){var td=new Date(N.getTime()+m*60000);xl=('0'+td.getDate()).slice(-2)+'.'+('0'+(td.getMonth()+1)).slice(-2)+'.';}else{xl=new Date(N.getTime()+m*60000);}"
+                  "if(isCol){if(tp==115&&c.s[0].d.length>7){xl=''+k;}else{var td=new Date(N.getTime()+m*60000);if(c.s[0].d.length==1){xl='';}else if(c.s[0].d.length<=7){xl=['So','Mo','Di','Mi','Do','Fr','Sa'][td.getDay()];}else{xl=('0'+td.getDate()).slice(-2)+'.'+('0'+(td.getMonth()+1)).slice(-2)+'.';};}}else{xl=new Date(N.getTime()+m*60000);}"
                   "var r=[xl];"
                   "for(var j=0;j<c.s.length;j++)r.push(c.s[j].d[k][1]);"
                   "rows.push(r);}"
@@ -6424,7 +6436,8 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
                   "var dw=c.s[0].d[0]?c.s[0].d[0][0]*60000:-86400000;"
                   "var dwe=c.s[0].d.length>0?c.s[0].d[c.s[0].d.length-1][0]*60000:0;"
                   "o.curveType=c.sm?'function':'none';"
-                  "o.hAxis={format:'HH:mm',viewWindow:{min:new Date(N.getTime()+dw-60000),max:new Date(N.getTime()+dwe+60000)}};"
+                  "o.hAxis={format:'HH:mm',viewWindow:{min:new Date(N.getTime()+dw-900000),max:new Date(N.getTime()+dwe+900000)}};"
+                  "if((dwe-dw)>172800000){var tks=[];var nd=c.s[0].d.length;if(nd>10&&(dwe-dw)>6048e5){for(var ti=0;ti<nd;ti++){tks.push({v:new Date(N.getTime()+c.s[0].d[ti][0]*60000),f:''+ti});}o.hAxis.ticks=tks;}else{var wd=['So','Mo','Di','Mi','Do','Fr','Sa'];var ds=new Date(N.getTime()+dw);ds.setHours(0,0,0,0);ds.setDate(ds.getDate()+1);var de=new Date(N.getTime()+dwe);while(ds<=de){tks.push({v:new Date(ds),f:wd[ds.getDay()]});ds=new Date(ds.getTime()+86400000);}o.hAxis.ticks=tks;}}"
                   "o.lineWidth=1;o.pointSize=0;"
                 "}"
                 "if(dual){o.series=sr;o.vAxes=vx;}else{o.vAxis=va;}"
