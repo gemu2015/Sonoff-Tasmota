@@ -35,7 +35,7 @@ codec settings access
 #endif
 
 #ifdef ESP32
-#define USE_PSHINE
+//#define USE_PSHINE
 #endif
 
 #include "module.h"
@@ -111,7 +111,7 @@ typedef struct {
 
 
 typedef struct {
-#ifdef USE_SCRIPT
+#if defined(USE_SCRIPT) || defined(USE_TINYC)
   char *cmd_param;
 #endif
   uint8_t gain_div;
@@ -2186,7 +2186,7 @@ static int32_t mod_func_execute(uint32_t sel) {
   SETREGS
   bool result = false;
 
-#ifdef USE_SCRIPT
+#if defined(USE_SCRIPT) || defined(USE_TINYC)
   uint8_t tst = sel >> 31;
   if (tst) {
     uint8_t module = sel >> 16;

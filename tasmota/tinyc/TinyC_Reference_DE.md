@@ -1902,6 +1902,7 @@ Kompatibel mit Tasmota Scripter's globalem Variablenprotokoll.
 **Callback:** Definieren Sie `void UdpCall()`, um bei jeder empfangenen Variable benachrichtigt zu werden.
 Der UDP-Socket wird beim ersten Schreibzugriff auf eine globale Variable, `udpRecv()`- oder `udpReady()`-Aufruf automatisch initialisiert.
 Skalare `global` Float-Variablen werden bei Zuweisung automatisch per UDP gesendet (kein expliziter Aufruf noetig).
+`global char` Arrays empfangen String-Werte automatisch per UDP (ASCII-Modus `=>name=string`). Groesse muss ≤16 sein (Heap-Schwelle); fuer IP-Adressen `char name[16]` verwenden.
 
 **Socket-Watchdog:** Der Multicast-Socket hat einen eingebauten Inaktivitaets-Watchdog (Standard: 60 Sekunden). Wenn innerhalb der Timeout-Periode kein Paket empfangen wird, wird der Socket automatisch geschlossen und neu geoeffnet. Dies behebt das bekannte ESP32-Problem, bei dem der UDP-Empfangspfad nach variabler Zeit stillschweigend aufhoert zu funktionieren. Mit `udp(8, 0, sekunden)` kann der Timeout geaendert werden (0 = deaktiviert).
 

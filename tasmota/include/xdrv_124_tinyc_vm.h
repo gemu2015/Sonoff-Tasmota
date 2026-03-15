@@ -585,6 +585,22 @@ static const char* tc_error_str(int err) {
   return buf;
 }
 
+// Write crash info to /crash.log (append, keeps last entries)
+static void tc_crash_log(int err, uint16_t pc, uint32_t instr_count, const char *context) {
+#ifdef ESP32
+  if (!ufsp) return;
+  FS *fs = ufsp;
+  File f = fs->open("/crash.log", "a");
+  if (!f) return;
+  char ts[24];
+  snprintf(ts, sizeof(ts), "%s", GetDateAndTime(DT_LOCAL).c_str());
+  f.printf("%s  err=%d (%s)  PC=%u  instr=%u  ctx=%s  heap=%u\n",
+    ts, err, tc_error_str(err), pc, instr_count, context ? context : "?", ESP.getFreeHeap());
+  f.close();
+  AddLog(LOG_LEVEL_ERROR, PSTR("TCC: crash logged to /crash.log"));
+#endif
+}
+
 /*********************************************************************************************\
  * VM Data structures
 \*********************************************************************************************/
@@ -8575,11 +8591,14 @@ static int tc_vm_call_callback(TcVM *vm, const char *name) {
     if (err != TC_OK) {
       vm->error = err;
       AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Callback error %d at PC=%u"), err, vm->pc);
+      tc_crash_log(err, vm->pc, vm->instruction_count, name);
       break;
     }
     vm->instruction_count++;
     if (++count > TC_CALLBACK_MAX_INSTR) {
       vm->error = TC_ERR_INSTRUCTION_LIMIT;
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Instruction limit in '%s' at PC=%u (%u instr)"), name, vm->pc, count);
+      tc_crash_log(TC_ERR_INSTRUCTION_LIMIT, vm->pc, count, name);
       break;
     }
   }
@@ -9352,6 +9371,7 @@ static void tc_vm_task(void *param) {
         vm->error = err;
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Runtime error %d at PC=%u after %u instr"),
           err, vm->pc, vm->instruction_count);
+        tc_crash_log(err, vm->pc, vm->instruction_count, "main");
         break;
       }
       count++;
@@ -9422,11 +9442,22 @@ static void tc_vm_task(void *param) {
               if (err != TC_OK) {
                 vm->error = err;
                 AddLog(LOG_LEVEL_ERROR, PSTR("TCC: TaskLoop error %d at PC=%u"), err, vm->pc);
+                tc_crash_log(err, vm->pc, vm->instruction_count, "TaskLoop");
                 break;
               }
-              if (++count > TC_CALLBACK_MAX_INSTR) {
-                vm->error = TC_ERR_INSTRUCTION_LIMIT;
-                break;
+              count++;
+              vm->instruction_count++;
+              // Yield periodically to feed WDT (no instruction limit in TaskLoop)
+              if ((count & 0xFFFF) == 0) {
+                vm->halted = true;
+                vm->running = false;
+                if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
+                vTaskDelay(1);
+                if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+                tc_current_slot = slot;
+                vm->halted = false;
+                vm->running = true;
+                if (slot->task_stop) break;
               }
             }
 
