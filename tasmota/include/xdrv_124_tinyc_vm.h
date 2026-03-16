@@ -7051,6 +7051,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
 #ifdef USE_DISPLAY
     case SYS_DSP_TEXT: {
       int32_t ref = TC_POP(vm);
+      if (!renderer) break;  // display not yet initialized
       char tbuf[256];
       tc_ref_to_cstr(vm, ref, tbuf, sizeof(tbuf));
       char *savptr = XdrvMailbox.data;
@@ -7095,6 +7096,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     }
     case SYS_DSP_DRAW: {
       int32_t ref = TC_POP(vm);
+      if (!renderer) break;
       char tbuf[128];
       tc_ref_to_cstr(vm, ref, tbuf, sizeof(tbuf));
       tc_display_text_padded(tbuf);
@@ -7185,7 +7187,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     }
     case SYS_DSP_ONOFF: {
       int32_t on = TC_POP(vm);
-      DisplayOnOff(on);
+      if (renderer) DisplayOnOff(on);
       break;
     }
     case SYS_DSP_UPDATE:
@@ -7194,6 +7196,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_DSP_PICTURE: {
       int32_t scale = TC_POP(vm);
       int32_t ci = TC_POP(vm);
+      if (!renderer) break;
       const char *fname = tc_get_const_str(vm, ci);
       if (fname) {
         Draw_RGB_Bitmap((char*)fname, disp_xpos, disp_ypos, (uint8_t)scale, false, 0, 0);
@@ -7208,6 +7211,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       break;
     case SYS_DSP_TEXT_STR: {
       int32_t ci = TC_POP(vm);
+      if (!renderer) break;
       const char *cmd = tc_get_const_str(vm, ci);
       if (cmd) {
         char tbuf[256];

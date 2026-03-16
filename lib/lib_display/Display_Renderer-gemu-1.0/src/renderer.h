@@ -105,8 +105,8 @@ public:
   pwr_cb pwr_cbp = 0;
   dim_cb dim_cbp = 0;
   LVGL_PARAMS lvgl_param;
-  int8_t disp_bpp;
-  uint16_t *rgb_fb;
+  int8_t disp_bpp = 0;
+  uint16_t *rgb_fb = 0;
 private:
   void DrawCharAt(int16_t x, int16_t y, char ascii_char,int16_t colored);
   inline void drawFastVLineInternal(int16_t x, int16_t y, int16_t h, uint16_t color) __attribute__((always_inline));

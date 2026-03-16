@@ -993,7 +993,7 @@ static void HandleTinyCPage(void) {
     "</script>"));
 
 #ifdef USE_DISPLAY
-  if (renderer && (renderer->framebuffer || renderer->rgb_fb)) {
+  if (renderer && (((uintptr_t)renderer->framebuffer >= 0x3C000000) || ((uintptr_t)renderer->rgb_fb >= 0x3C000000))) {
     WSContentSend_P(PSTR(
       "<fieldset><legend><b> Display </b></legend>"
       "<p style='text-align:center'>"
@@ -1764,11 +1764,20 @@ static void HandleTinyCDisplayRaw(void) {
     Webserver->send(503, "text/plain", "Busy");
     return;
   }
+  if (!renderer) {
+    Webserver->send(503, "text/plain", "No display");
+    return;
+  }
   tc_mirror_busy = true;
+  tc_global_pause = true;   // pause VM during framebuffer read
+  delay(0);  // yield to let VM finish current cycle
 
   int8_t bpp = renderer->disp_bpp;
   uint8_t *fb = renderer->framebuffer;
   uint16_t *rgb = renderer->rgb_fb;
+  // Validate pointers — reject garbage values (valid ESP32 heap/PSRAM >= 0x3C000000)
+  if (fb && (uintptr_t)fb < 0x3C000000) fb = nullptr;
+  if (rgb && (uintptr_t)rgb < 0x3C000000) rgb = nullptr;
 
   // Derive raw (unrotated) dimensions from rotated width/height + rotation
   uint8_t rot = renderer->getRotation();
@@ -1804,6 +1813,7 @@ static void HandleTinyCDisplayRaw(void) {
   if (!data_ptr || fb_size == 0) {
     Webserver->send(503, "text/plain", "Unsupported bpp");
     tc_mirror_busy = false;
+    tc_global_pause = false;
     return;
   }
 
@@ -1842,7 +1852,7 @@ static void HandleTinyCDisplayRaw(void) {
     uint32_t batch_bytes = line_bytes * BATCH;
     uint8_t *buf = (uint8_t *)heap_caps_malloc(batch_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!buf) { buf = (uint8_t *)malloc(batch_bytes); }
-    if (!buf) { tc_mirror_busy = false; return; }
+    if (!buf) { tc_mirror_busy = false; tc_global_pause = false; return; }
 
     uint16_t lines_done = 0;
     for (uint16_t y = 0; y < rh; y += DISPLAY_MIRROR_SCALE) {
@@ -1869,6 +1879,7 @@ static void HandleTinyCDisplayRaw(void) {
     setsockopt(client.fd(), SOL_SOCKET, SO_LINGER, &lin, sizeof(lin));
     client.stop();
     tc_mirror_busy = false;
+    tc_global_pause = false;
     return;
   }
 #endif  // ESP32 — large RGB framebuffers
@@ -1909,6 +1920,7 @@ static void HandleTinyCDisplayRaw(void) {
   delay(50);
   client.stop();
   tc_mirror_busy = false;
+  tc_global_pause = false;
 }
 
 // Serve self-contained HTML/JS display snapshot page
@@ -2033,12 +2045,20 @@ static void HandleTinyCDisplayHTML(void) {
 static void HandleTinyCDisplay(void) {
   if (!HttpCheckPriviledgedAccess()) return;
 
-  if (!renderer) {
+  Renderer *r = renderer;  // snapshot pointer
+  if (!r) {
     Webserver->send(503, "text/plain", "No display");
     return;
   }
-  if (!renderer->framebuffer && !renderer->rgb_fb) {
-    Webserver->send(503, "text/plain", "No framebuffer");
+  // Validate framebuffer pointers — rgb_fb may contain uninitialized garbage
+  // on displays where the LCD peripheral manages DMA buffers directly.
+  // Valid ESP32 heap pointers are >= 0x3C000000.
+  uint8_t *fb = r->framebuffer;
+  uint16_t *rgb = r->rgb_fb;
+  bool fb_ok = fb && ((uintptr_t)fb >= 0x3C000000);
+  bool rgb_ok = rgb && ((uintptr_t)rgb >= 0x3C000000);
+  if (!fb_ok && !rgb_ok) {
+    Webserver->send(503, "text/plain", "No framebuffer (display uses HW DMA)");
     return;
   }
 
