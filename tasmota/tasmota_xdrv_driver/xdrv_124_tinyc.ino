@@ -2689,12 +2689,11 @@ bool Xdrv124(uint32_t function) {
 
   if (!Tinyc) { return false; }
 
-  // Auto-pause VM callbacks during OTA updates, filesystem uploads,
-  // and early boot (before WiFi/services are ready)
+  // Auto-pause VM callbacks during OTA updates and filesystem uploads
+  // to prevent timeouts and upload failures
   bool tc_paused = (TasmotaGlobal.ota_state_flag != 0) ||
                    (TasmotaGlobal.restart_flag != 0) ||
-                   Tinyc->upload_active ||
-                   !tc_init_done;  // wait for FUNC_NETWORK_UP before running callbacks
+                   Tinyc->upload_active;
 
   switch (function) {
     case FUNC_LOOP:
