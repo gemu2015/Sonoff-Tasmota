@@ -394,6 +394,12 @@ Definieren Sie einfach Funktionen mit diesen bekannten Namen — keine Registrie
 | `Command(char cmd[])` | Benutzerdefinierter Konsolenbefehl | Wenn Benutzer registriertes Praefix in Konsole eingibt | Benutzerdefinierte Tasmota-Befehle verarbeiten (z.B. MP3Play, MP3Stop) |
 | `Event(char cmd[])` | Tasmota-Event-Regel-Trigger | Bei `Event`-Befehl aus Regeln oder Konsole | Auf Tasmota-Regel-Events reagieren |
 | `OnExit()` | Skript-Stopp | Wenn VM gestoppt oder Skript ersetzt wird | Serielle Ports schliessen, Ressourcen freigeben |
+| `OnMqttConnect()` | FUNC_MQTT_INIT | MQTT-Broker verbunden | Topics abonnieren, Status publizieren |
+| `OnMqttDisconnect()` | mqtt_disconnected Flag | MQTT-Broker getrennt | Offline-Status setzen, Publizierung stoppen |
+| `OnInit()` | Erstes FUNC_NETWORK_UP | Einmal nach erster WiFi-Verbindung | Einmalige Init: Dienste starten, MQTT abonnieren |
+| `OnWifiConnect()` | FUNC_NETWORK_UP | WiFi/Netzwerk verbunden (jedes Mal) | Reconnect-Behandlung |
+| `OnWifiDisconnect()` | FUNC_NETWORK_DOWN | WiFi/Netzwerk getrennt | Netzwerkabhaengige Aufgaben pausieren |
+| `OnTimeSet()` | FUNC_TIME_SYNCED | NTP-Zeit synchronisiert | Zeitbasierte Aktionen planen |
 
 ### Ausfuehrungsmodell
 
@@ -572,6 +578,37 @@ TinyC stellt virtuelle `tasm_*`-Variablen bereit, die den Tasmota-Systemzustand 
 | `tasm_time` | int | lesen | Aktuelle Uhrzeit, Minuten seit Mitternacht |
 | `tasm_pheap` | int | lesen | Freier PSRAM-Speicher in Bytes (nur ESP32) |
 | `tasm_smlj` | int | lesen/schreiben | SML JSON-Ausgabe aktivieren/deaktivieren (erfordert USE_SML_M) |
+| `tasm_npwr` | int | lesen | Anzahl der Power-Geraete (Relais) |
+
+### Indizierte Tasmota-Zustandsfunktionen
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `int tasmPower(int index)` | Power-Zustand des Relais `index` (0-basiert). Gibt 0 oder 1 zurueck |
+| `int tasmSwitch(int index)` | Schalter-Zustand (0-basiert, Switch1 = Index 0). Gibt -1 bei ungueltigem Index zurueck |
+| `int tasmCounter(int index)` | Impulszaehler-Wert (0-basiert, Counter1 = Index 0). Erfordert USE_COUNTER |
+
+### Tasmota String-Info
+
+`int tasmInfo(int sel, char buf[])` — fuellt `buf` mit einem Tasmota-Info-String. Gibt Stringlaenge zurueck.
+
+| sel | Inhalt |
+|-----|--------|
+| 0 | MQTT-Topic |
+| 1 | MAC-Adresse |
+| 2 | Lokale IP-Adresse |
+| 3 | Friendly Name |
+| 4 | Device Name |
+| 5 | MQTT Group-Topic |
+| 6 | Reset-Grund (String) |
+
+**Beispiel:**
+```c
+char topic[64];
+tasmInfo(0, topic);    // MQTT-Topic holen
+char ip[20];
+tasmInfo(2, ip);       // lokale IP holen
+```
 
 ### Verwendung
 
@@ -741,37 +778,37 @@ printString(greeting);                  // Zeichenkette ausgeben
 
 ### Formatierte Zeichenkettenausgabe (sprintf)
 
-Einen einzelnen Wert in ein char-Array formatieren:
+Einen einzelnen Wert in ein char-Array formatieren. Der Compiler erkennt den Werttyp automatisch:
 
 ```c
 char line[64];
-sprintfInt(line, "x = %d", 42);            // "x = 42"
-sprintfFloat(line, "pi = %.2f", 3.14);     // "pi = 3.14"
-sprintfStr(line, "name: %s", name);        // "name: World"
+char name[16];
+float pi = 3.14;
+
+sprintf(line, "x = %d", 42);              // "x = 42"
+sprintf(line, "pi = %.2f", pi);           // "pi = 3.14"
+sprintf(line, "name: %s", name);          // "name: World"
 ```
 
 ### Mehrteilige Zeichenketten erstellen (sprintfAppend)
 
-Da TinyC keine variadischen Funktionen hat, verwenden Sie `sprintfAppend`-Varianten, um
-mehrere Werte in einen Puffer zu verketten. Sie fuegen am aktuellen Ende der Zeichenkette an:
+Verwenden Sie `sprintfAppend`, um mehrere Werte in einen Puffer zu verketten. Es fuegt am aktuellen Ende der Zeichenkette an:
 
 ```c
 char report[128];
-sprintfInt(report, "Sensor %d", 1);              // "Sensor 1"
-sprintfAppendStr(report, " name=%s", name);       // "Sensor 1 name=World"
-sprintfAppendInt(report, " val=%d", 42);          // "Sensor 1 name=World val=42"
-sprintfAppendFloat(report, " temp=%.1f", 3.14);   // "Sensor 1 name=World val=42 temp=3.1"
+sprintf(report, "Sensor %d", 1);               // "Sensor 1"
+sprintfAppend(report, " name=%s", name);        // "Sensor 1 name=World"
+sprintfAppend(report, " val=%d", 42);           // "Sensor 1 name=World val=42"
+sprintfAppend(report, " temp=%.1f", 3.14);      // "Sensor 1 name=World val=42 temp=3.1"
 printString(report);
 ```
 
 | Funktion | Beschreibung |
 |----------|-------------|
-| `sprintfInt(char dst[], "fmt", int val)` | Int in dst formatieren (ueberschreibt) |
-| `sprintfFloat(char dst[], "fmt", float val)` | Float in dst formatieren (ueberschreibt) |
-| `sprintfStr(char dst[], "fmt", char src[])` | Zeichenkette in dst formatieren (ueberschreibt) |
-| `sprintfAppendInt(char dst[], "fmt", int val)` | Int formatieren und an dst anfuegen |
-| `sprintfAppendFloat(char dst[], "fmt", float val)` | Float formatieren und an dst anfuegen |
-| `sprintfAppendStr(char dst[], "fmt", char src[])` | Zeichenkette formatieren und an dst anfuegen |
+| `sprintf(char dst[], "fmt", val)` | Wert in dst formatieren (ueberschreibt). Typ wird automatisch erkannt. |
+| `sprintfAppend(char dst[], "fmt", val)` | Wert formatieren und an dst anfuegen. Typ wird automatisch erkannt. |
+
+> **Alte Varianten:** `sprintfInt`, `sprintfFloat`, `sprintfStr`, `sprintfAppendInt`, `sprintfAppendFloat`, `sprintfAppendStr` funktionieren weiterhin.
 
 **Format-Spezifikatoren:** `%d` (int), `%f` `%.2f` `%e` `%g` (float), `%s` (Zeichenkette). Jeder Aufruf verarbeitet genau einen `%`-Spezifikator.
 
@@ -806,6 +843,9 @@ int no = strFind(src, "xyz");          // no = -1
 | Funktion | Beschreibung |
 |----------|-------------|
 | `sortArray(int arr[], int count, int flags)` | Array sortieren. `flags`: 0=int aufsteigend, 1=float aufsteigend, 2=int absteigend, 3=float absteigend |
+| `arrayFill(int arr[], int value, int count)` | Erste `count` Elemente mit `value` fuellen |
+| `arrayCopy(int dst[], int src[], int count)` | `count` Elemente von `src` nach `dst` kopieren |
+| `int smlCopy(int arr[], int count)` | SML-Decoderwerte in Float-Array kopieren. Gibt Anzahl zurueck (erfordert USE_SML_M) |
 
 ### Zeichenzugriff
 ```c
@@ -1091,6 +1131,8 @@ void EveryLoop() {
 | `float cos(float x)`                                | Kosinus (Bogenmass)              |
 | `float exp(float x)`                                | Exponentialfunktion (e^x)        |
 | `float log(float x)`                                | Natürlicher Logarithmus (ln x)  |
+| `float pow(float basis, float exp)`                  | Potenz (basis^exp)               |
+| `float acos(float x)`                               | Arkuskosinus (Bogenmass)         |
 | `float intBitsToFloat(int bits)`                     | Int als IEEE 754 Float interpretieren |
 | `int floor(float x)`                                | Ganzzahlanteil (Richtung −∞)     |
 | `int ceil(float x)`                                 | Ganzzahlanteil + 1 (Richtung +∞) |
@@ -1112,16 +1154,14 @@ void EveryLoop() {
 
 ### sprintf — Formatierte Zeichenketten
 
-Einen einzelnen Wert in ein char-Array formatieren. Jede Funktion verarbeitet einen `%`-Spezifikator.
+Einen einzelnen Wert in ein char-Array formatieren. Der Compiler erkennt den Werttyp automatisch. Jeder Aufruf verarbeitet einen `%`-Spezifikator.
 
 | Funktion | Beschreibung |
 |----------|-------------|
-| `int sprintfInt(char dst[], "fmt", int val)` | Int in dst formatieren (ueberschreibt) |
-| `int sprintfFloat(char dst[], "fmt", float val)` | Float in dst formatieren (ueberschreibt) |
-| `int sprintfStr(char dst[], "fmt", char src[])` | Zeichenkette in dst formatieren (ueberschreibt) |
-| `int sprintfAppendInt(char dst[], "fmt", int val)` | Int formatieren, an Ende von dst anfuegen |
-| `int sprintfAppendFloat(char dst[], "fmt", float val)` | Float formatieren, an Ende von dst anfuegen |
-| `int sprintfAppendStr(char dst[], "fmt", char src[])` | Zeichenkette formatieren, an Ende von dst anfuegen |
+| `int sprintf(char dst[], "fmt", val)` | Wert in dst formatieren (ueberschreibt). Typ automatisch erkannt. |
+| `int sprintfAppend(char dst[], "fmt", val)` | Wert formatieren, an Ende von dst anfuegen. Typ automatisch erkannt. |
+
+> **Alte Varianten:** `sprintfInt`, `sprintfFloat`, `sprintfStr`, `sprintfAppendInt`, `sprintfAppendFloat`, `sprintfAppendStr` funktionieren weiterhin.
 
 **Format-Spezifikatoren:** `%d` (int), `%f` `%.Nf` `%e` `%g` (float), `%s` (Zeichenkette).
 Alle Funktionen geben die Gesamtlaenge der Zeichenkette zurueck.
@@ -1129,9 +1169,9 @@ Alle Funktionen geben die Gesamtlaenge der Zeichenkette zurueck.
 ```c
 // Mehrteilige Zeichenkette durch Verkettung von Append-Aufrufen erstellen:
 char buf[128];
-sprintfInt(buf, "ID=%d", 1);
-sprintfAppendStr(buf, " name=%s", name);
-sprintfAppendFloat(buf, " val=%.1f", 3.14);
+sprintf(buf, "ID=%d", 1);
+sprintfAppend(buf, " name=%s", name);
+sprintfAppend(buf, " val=%.1f", 3.14);
 // buf = "ID=1 name=World val=3.1"
 ```
 
@@ -1902,7 +1942,6 @@ Kompatibel mit Tasmota Scripter's globalem Variablenprotokoll.
 **Callback:** Definieren Sie `void UdpCall()`, um bei jeder empfangenen Variable benachrichtigt zu werden.
 Der UDP-Socket wird beim ersten Schreibzugriff auf eine globale Variable, `udpRecv()`- oder `udpReady()`-Aufruf automatisch initialisiert.
 Skalare `global` Float-Variablen werden bei Zuweisung automatisch per UDP gesendet (kein expliziter Aufruf noetig).
-`global char` Arrays empfangen String-Werte automatisch per UDP (ASCII-Modus `=>name=string`). Groesse muss ≤16 sein (Heap-Schwelle); fuer IP-Adressen `char name[16]` verwenden.
 
 **Socket-Watchdog:** Der Multicast-Socket hat einen eingebauten Inaktivitaets-Watchdog (Standard: 60 Sekunden). Wenn innerhalb der Timeout-Periode kein Paket empfangen wird, wird der Socket automatisch geschlossen und neu geoeffnet. Dies behebt das bekannte ESP32-Problem, bei dem der UDP-Empfangspfad nach variabler Zeit stillschweigend aufhoert zu funktionieren. Mit `udp(8, 0, sekunden)` kann der Timeout geaendert werden (0 = deaktiviert).
 
@@ -1976,7 +2015,7 @@ Direkter I2C-Bus-Zugriff fuer Sensortreiber (erfordert `USE_I2C`). Alle Funktion
 | `int i2cSetDevice(int addr, int bus)` | Pruefen ob Adresse **nicht belegt** und ansprechbar. Gibt 1=verfuegbar zurueck |
 | `i2cSetActiveFound(int addr, "type", int bus)` | Adresse als belegt registrieren. Loggt Erkennung |
 | `int i2cReadRS(int addr, int reg, char buf[], int len, int bus)` | I2C-Lesen mit Repeated-Start (SMBus) |
-| `i2cFree(int addr, int bus)` | Beanspruchte I2C-Adresse freigeben |
+| `I2cResetActive(int addr, int bus)` | Beanspruchte I2C-Adresse freigeben |
 
 **Hinweise:**
 - `bus` = 0 oder 1 — waehlt welcher I2C-Bus verwendet wird
@@ -3020,9 +3059,9 @@ Beide zeigen ihre Sensorzeilen gleichzeitig auf der Tasmota-Hauptseite an.
 
 ### IDE-Installation
 
-Die IDE-Datei (`tinyc_ide.html.gz`) muss auf das **Flash-Dateisystem** (`ffsp`) hochgeladen werden, nicht auf die SD-Karte. Auf Geraeten mit SD-Karte mountet Tasmota die SD-Karte als Benutzer-Dateisystem (`ufsp`) — aber der `/ide`-Endpunkt liest speziell vom Flash-Dateisystem. Verwenden Sie die Tasmota-Seite **Dateisystem verwalten**, um `tinyc_ide.html.gz` in den Flash-Speicher hochzuladen.
+Die IDE-Datei (`tinyc_ide.html.gz`) kann entweder auf dem **Flash-Dateisystem** oder der **SD-Karte** liegen — je nachdem, welches als Benutzer-Dateisystem (`ufsp`) gemountet ist. Laden Sie `tinyc_ide.html.gz` ueber die Tasmota-Seite **Dateisystem verwalten** hoch.
 
-> **Hinweis:** TinyC-Skripte und Datendateien (`.tc`, `.tcb` usw.) werden auf dem Benutzer-Dateisystem (`ufsp`) gespeichert, das die SD-Karte ist, wenn eine vorhanden ist. Nur die IDE-HTML-Datei selbst muss auf dem Flash sein.
+> **Hinweis:** TinyC-Skripte und Datendateien (`.tc`, `.tcb` usw.) werden ebenfalls auf dem Benutzer-Dateisystem (`ufsp`) gespeichert.
 
 ### Dateioperationen
 
@@ -3183,14 +3222,14 @@ int main() {
 
     // Formatierte Zeichenketten
     char line[64];
-    sprintfInt(line, "count = %d", 42);
+    sprintf(line, "count = %d", 42);
     printString(line);      // count = 42
 
     // Mehrere Werte mit sprintfAppend
     char report[128];
-    sprintfInt(report, "Sensor %d", 1);
-    sprintfAppendStr(report, " name=%s", name);
-    sprintfAppendFloat(report, " temp=%.1f", 23.5);
+    sprintf(report, "Sensor %d", 1);
+    sprintfAppend(report, " name=%s", name);
+    sprintfAppend(report, " temp=%.1f", 23.5);
     printString(report);    // Sensor 1 name=World temp=23.5
 
     return 0;
