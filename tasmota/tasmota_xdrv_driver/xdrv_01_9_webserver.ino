@@ -3454,6 +3454,10 @@ void HandleUpgradeFirmwareStart(void) {
 /*-------------------------------------------------------------------------------------------*/
 
 void HandleUploadDone(void) {
+#ifdef USE_TINYC
+  extern bool tc_global_pause;
+  tc_global_pause = false;
+#endif
   if (!HttpCheckPriviledgedAccess()) { return; }
 
 #if defined(USE_ZIGBEE_EZSP)
@@ -3534,6 +3538,11 @@ void HandleUploadLoop(void) {
   // Based on ESP8266HTTPUpdateServer.cpp uses ESP8266WebServer Parsing.cpp and Cores Updater.cpp (Update)
   static uint32_t upload_size;
   static bool upload_error_signalled;
+
+#ifdef USE_TINYC
+  extern bool tc_global_pause;
+  tc_global_pause = true;
+#endif
 
   if (HTTP_USER == Web.state) { return; }
 

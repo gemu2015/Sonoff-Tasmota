@@ -1365,10 +1365,18 @@ const char HTTP_EDITOR_FORM_END[] PROGMEM =
 // shared upload handler.
 void HandleUploadUFSLoop(void) {
   Web.upload_file_type = UPL_UFSFILE;
+#ifdef USE_TINYC
+  extern bool tc_global_pause;
+  tc_global_pause = true;
+#endif
   HandleUploadLoop();
 }
 
 void HandleUploadUFSDone(void) {
+#ifdef USE_TINYC
+  extern bool tc_global_pause;
+  tc_global_pause = false;
+#endif
   if (!HttpCheckPriviledgedAccess()) { return; }
 
   HTTPUpload& upload = Webserver->upload();

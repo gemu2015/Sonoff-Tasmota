@@ -32,6 +32,9 @@
 
 #define XDRV_124  124
 
+// Global pause flag — set by filesystem upload handler (xdrv_50) to pause VM during uploads
+bool tc_global_pause = false;
+
 // Forward declarations for custom web handlers (called from SYS_WEB_ON in vm.h)
 static void HandleTinyCWebOn1(void);
 static void HandleTinyCWebOn2(void);
@@ -2693,7 +2696,8 @@ bool Xdrv124(uint32_t function) {
   // to prevent timeouts and upload failures
   bool tc_paused = (TasmotaGlobal.ota_state_flag != 0) ||
                    (TasmotaGlobal.restart_flag != 0) ||
-                   Tinyc->upload_active;
+                   Tinyc->upload_active ||
+                   tc_global_pause;
 
   switch (function) {
     case FUNC_LOOP:
