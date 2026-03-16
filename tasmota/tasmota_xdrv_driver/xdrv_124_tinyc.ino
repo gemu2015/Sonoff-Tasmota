@@ -964,7 +964,7 @@ static void HandleTinyCPage(void) {
 #if defined(USE_TINYC_IDE) && defined(USE_UFILESYS)
   WSContentSend_P(PSTR(
     "<p style='text-align:center'>"
-    "<button onclick=\"window.open('/ide')\" class='button bgrn'>Open IDE</button>"
+    "<button onclick=\"window.open('/ide','tinyc_ide')\" class='button bgrn'>Open IDE</button>"
     "</p>"
     "<p style='text-align:center;font-size:.85em;opacity:.6'>Served from device filesystem</p>"));
 #else
@@ -972,7 +972,7 @@ static void HandleTinyCPage(void) {
     "<div class='tc-ide-url'>"
     "<input id='ide_url' value='http://localhost:8080' placeholder='IDE URL'>"
     "<button onclick=\"var u=document.getElementById('ide_url').value;"
-    "window.open(u+'?device='+location.hostname)\" class='button bgrn'>Open</button>"
+    "window.open(u+'?device='+location.hostname,'tinyc_ide')\" class='button bgrn'>Open</button>"
     "</div>"
     "<p style='text-align:center;font-size:.85em;opacity:.6'>IDE URL saved in browser</p>"
     "<script>var u=localStorage.getItem('tinyc_ide_url');"
@@ -994,7 +994,7 @@ static void HandleTinyCPage(void) {
     WSContentSend_P(PSTR(
       "<fieldset><legend><b> Display </b></legend>"
       "<p style='text-align:center'>"
-      "<button onclick=\"window.open('/tc_display')\" class='button bgrn'>Display Mirror</button>"
+      "<button onclick=\"window.open('/tc_display','tinyc_display')\" class='button bgrn'>Display Mirror</button>"
       "</p></fieldset>"));
   }
 #endif
