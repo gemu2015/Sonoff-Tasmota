@@ -1099,6 +1099,7 @@ static void HandleTinyCUpload(void) {
       return;
     }
     Tinyc->upload_received = 0;
+    Tinyc->upload_active = true;
   }
   else if (upload.status == UPLOAD_FILE_WRITE) {
     if (Tinyc->upload_buf && Tinyc->upload_received + upload.currentSize <= TC_MAX_PROGRAM) {
@@ -1161,6 +1162,7 @@ static void HandleTinyCUpload(void) {
     } else {
       if (Tinyc->upload_buf) { free(Tinyc->upload_buf); Tinyc->upload_buf = nullptr; }
     }
+    Tinyc->upload_active = false;
   }
 }
 
@@ -2687,8 +2689,16 @@ bool Xdrv124(uint32_t function) {
 
   if (!Tinyc) { return false; }
 
+  // Auto-pause VM callbacks during OTA updates, filesystem uploads,
+  // and early boot (before WiFi/services are ready)
+  bool tc_paused = (TasmotaGlobal.ota_state_flag != 0) ||
+                   (TasmotaGlobal.restart_flag != 0) ||
+                   Tinyc->upload_active ||
+                   !tc_init_done;  // wait for FUNC_NETWORK_UP before running callbacks
+
   switch (function) {
     case FUNC_LOOP:
+      if (tc_paused) { break; }
       // Poll UDP multicast for incoming variables
       tc_udp_poll();
 #ifdef ESP32
@@ -2709,6 +2719,7 @@ bool Xdrv124(uint32_t function) {
       tc_all_callbacks("EveryLoop");
       break;
     case FUNC_EVERY_50_MSECOND:
+      if (tc_paused) { break; }
       TinyCEvery50ms();
       if (TasmotaGlobal.rules_flag.mqtt_disconnected) {
         TasmotaGlobal.rules_flag.mqtt_disconnected = 0;
@@ -2716,6 +2727,7 @@ bool Xdrv124(uint32_t function) {
       }
       break;
     case FUNC_EVERY_SECOND:
+      if (tc_paused) { break; }
       // Call user's EverySecond() callback on all active slots
       tc_all_callbacks("EverySecond");
       break;

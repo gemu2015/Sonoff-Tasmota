@@ -148,7 +148,7 @@ static FS *tc_file_path(char *path) {
 
 #define TC_MAGIC           0x54434300  // "TCC\0"
 #define TC_VERSION         5           // V5: global (UDP auto-update) variables
-#define TC_RELEASE         "1.0.0"     // release version — bump on any compiler/VM/syscall change
+#define TC_RELEASE         "1.1.0"     // unified sprintf/sprintfAppend, VM auto-pause during uploads
 #define TC_FILE_NAME       "/autoexec.tcb"
 #define TC_MAX_PERSIST     32          // max persist variable entries
 #define TC_MAX_UDP_GLOBALS 64          // max global (UDP auto-update) variable entries
@@ -779,6 +779,7 @@ struct TINYC {
   bool     autorun;
   bool     show_info;             // show TinyC status rows on main web page
   // Upload state (one upload at a time, shared)
+  bool     upload_active;           // true during upload — pauses VM callbacks
   uint8_t *upload_buf;
   uint32_t upload_size;
   uint32_t upload_received;
