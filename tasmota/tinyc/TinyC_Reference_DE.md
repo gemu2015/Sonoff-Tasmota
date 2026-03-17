@@ -2264,6 +2264,8 @@ Alle Primitiven verwenden die aktuelle Position, die durch `dspPos()` gesetzt wu
 | Funktion | Beschreibung |
 |----------|-------------|
 | `dspPicture("file.jpg", scale)` | Bilddatei vom Dateisystem an aktueller Position zeichnen (scale: 0=Original) |
+| `int dspLoadImage("file.jpg")` | JPG in PSRAM als RGB565-Pixelspeicher laden, gibt Slot 0-3 zurueck (-1 bei Fehler). Bleibt im Speicher bis VM stoppt. Nur ESP32+JPEG_PICTS |
+| `dspPushImageRect(slot, sx, sy, dx, dy, w, h)` | Teilrechteck aus geladenem Bild auf Bildschirm zeichnen. Liest aus Bild bei (sx,sy), schreibt auf Bildschirm bei (dx,dy), Groesse w×h. Fuer Hintergrund-Wiederherstellung (z.B. Uhrzeiger ueber Zifferblatt) |
 | `dspText(buf)` | Rohen DisplayText-Befehl ausfuehren (z.B. `"[z][x50][y20]Hello"`) |
 
 #### Vordefinierte Farbkonstanten (RGB565)

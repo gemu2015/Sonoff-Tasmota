@@ -461,6 +461,8 @@ enum TcSyscall {
   SYS_DSP_TEXT_STR    = 195, // (const_idx) -> void — DisplayText from string literal
   SYS_DSP_DRAW_STR    = 196, // (const_idx) -> void — draw string literal at current pos
   SYS_DSP_PAD         = 197, // (n) -> void — set text padding for dspDraw (0=off)
+  SYS_DSP_LOAD_IMG    = 262, // (filename_const) -> int — load JPG to PSRAM, returns slot (0-3, -1=err)
+  SYS_DSP_IMG_RECT    = 263, // (slot, sx, sy, dx, dy, w, h) -> void — push sub-rect from image to screen
   // Audio
   SYS_AUDIO_VOL       = 200, // (vol) -> void — set volume 0-100
   SYS_AUDIO_PLAY      = 201, // (file_const) -> void — play MP3 file
@@ -885,6 +887,25 @@ static uint16_t tc_chart_width = 0;     // chart div width in px (0 = 100%)
 static uint16_t tc_chart_height = 0;    // chart div height in px (0 = 300px)
 static int32_t  tc_chart_time_base = 0; // time base offset in minutes from "now" (0=now)
 static TasmotaSerial *tc_serial_port = nullptr; // TinyC serial port (shared across VMs)
+
+// Image store for dspLoadImage / dspPushImageRect (watchface backgrounds etc.)
+#define TC_IMG_SLOTS 4
+static struct {
+  uint16_t *buf;   // RGB565 pixel data in PSRAM (NULL = free)
+  uint16_t w, h;   // image dimensions
+} tc_img_store[TC_IMG_SLOTS] = {};
+
+// Helper: free all image store slots (called on VM stop)
+static void tc_img_store_free(void) {
+  for (int i = 0; i < TC_IMG_SLOTS; i++) {
+    if (tc_img_store[i].buf) {
+      free(tc_img_store[i].buf);
+      tc_img_store[i].buf = nullptr;
+      tc_img_store[i].w = 0;
+      tc_img_store[i].h = 0;
+    }
+  }
+}
 
 // Helper: allocate a new slot
 static TcSlot *tc_slot_alloc(void) {
@@ -7047,6 +7068,101 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     }
 #endif // USE_WEBCAM || USE_TINYC_CAMERA
 
+    // ── Image store for dspLoadImage / dspPushImageRect ──
+#if defined(USE_DISPLAY) && defined(ESP32) && defined(JPEG_PICTS)
+    case SYS_DSP_LOAD_IMG: {
+      // dspLoadImage("file.jpg") -> slot (0-3, -1 on error)
+      int32_t ci = TC_POP(vm);
+      int32_t result = -1;
+      if (!renderer) { TC_PUSH(vm, -1); break; }
+      const char *fname = tc_get_const_str(vm, ci);
+      if (!fname) { TC_PUSH(vm, -1); break; }
+      // find free slot
+      int slot = -1;
+      for (int i = 0; i < TC_IMG_SLOTS; i++) {
+        if (!tc_img_store[i].buf) { slot = i; break; }
+      }
+      if (slot < 0) { TC_PUSH(vm, -1); break; }
+      // load file
+      File fp = ufsp->open(fname, FS_FILE_READ);
+      if (!fp) { TC_PUSH(vm, -1); break; }
+      uint32_t size = fp.size();
+      uint8_t *mem = (uint8_t *)special_malloc(size + 4);
+      if (!mem) { fp.close(); TC_PUSH(vm, -1); break; }
+      fp.read(mem, size);
+      fp.close();
+      if (mem[0] != 0xff || mem[1] != 0xd8) {
+        // not a JPEG
+        free(mem); TC_PUSH(vm, -1); break;
+      }
+      uint16_t xsize, ysize;
+      get_jpeg_size(mem, size, &xsize, &ysize);
+      if (!xsize || !ysize) { free(mem); TC_PUSH(vm, -1); break; }
+      uint32_t outsize = xsize * ysize * 2;
+      uint16_t *out_buf = (uint16_t *)special_malloc(outsize + 4);
+      if (!out_buf) { free(mem); TC_PUSH(vm, -1); break; }
+      esp_jpeg_image_cfg_t jpeg_cfg = {
+        .indata = mem,
+        .indata_size = size,
+        .outbuf = (uint8_t*)out_buf,
+        .outbuf_size = outsize,
+        .out_format = JPEG_IMAGE_FORMAT_RGB565,
+        .out_scale = JPEG_IMAGE_SCALE_0,
+        .flags = { .swap_color_bytes = 0 }
+      };
+      esp_jpeg_image_output_t outimg;
+      esp_err_t err = esp_jpeg_decode(&jpeg_cfg, &outimg);
+      free(mem);
+      if (err != ESP_OK) { free(out_buf); TC_PUSH(vm, -1); break; }
+      tc_img_store[slot].buf = out_buf;
+      tc_img_store[slot].w = xsize;
+      tc_img_store[slot].h = ysize;
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: img slot %d loaded %dx%d (%d KB)"),
+             slot, xsize, ysize, outsize / 1024);
+      TC_PUSH(vm, slot);
+      break;
+    }
+    case SYS_DSP_IMG_RECT: {
+      // dspPushImageRect(slot, sx, sy, dx, dy, w, h)
+      int32_t h  = TC_POP(vm);
+      int32_t w  = TC_POP(vm);
+      int32_t dy = TC_POP(vm);
+      int32_t dx = TC_POP(vm);
+      int32_t sy = TC_POP(vm);
+      int32_t sx = TC_POP(vm);
+      int32_t slot = TC_POP(vm);
+      if (!renderer) break;
+      if (slot < 0 || slot >= TC_IMG_SLOTS) break;
+      if (!tc_img_store[slot].buf) break;
+      uint16_t *img = tc_img_store[slot].buf;
+      uint16_t img_w = tc_img_store[slot].w;
+      uint16_t img_h = tc_img_store[slot].h;
+      // clamp to image bounds
+      if (sx < 0) sx = 0;
+      if (sy < 0) sy = 0;
+      if (sx + w > img_w) w = img_w - sx;
+      if (sy + h > img_h) h = img_h - sy;
+      if (w <= 0 || h <= 0) break;
+      // push row by row from image buffer to screen
+      for (int row = 0; row < h; row++) {
+        renderer->setAddrWindow(dx, dy + row, dx + w, dy + row + 1);
+        renderer->pushColors(&img[(sy + row) * img_w + sx], w, true);
+      }
+      renderer->setAddrWindow(0, 0, 0, 0);
+      break;
+    }
+#else
+    case SYS_DSP_LOAD_IMG: {
+      TC_POP(vm); // filename
+      TC_PUSH(vm, -1); // not available
+      break;
+    }
+    case SYS_DSP_IMG_RECT: {
+      for (int i = 0; i < 7; i++) TC_POP(vm); // consume args
+      break;
+    }
+#endif // USE_DISPLAY && ESP32 && JPEG_PICTS
+
     // ── Display drawing (direct renderer calls) ──────
 #ifdef USE_DISPLAY
     case SYS_DSP_TEXT: {
@@ -7396,6 +7512,10 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_DSP_DRAW_STR:
     case SYS_DSP_PAD:
       TC_POP(vm); break;
+    case SYS_DSP_LOAD_IMG:
+      TC_POP(vm); TC_PUSH(vm, -1); break;
+    case SYS_DSP_IMG_RECT:
+      for (int i = 0; i < 7; i++) TC_POP(vm); break;
     case SYS_DSP_BUTTON:
     case SYS_DSP_TBUTTON:
     case SYS_DSP_PBUTTON:
@@ -9601,6 +9721,7 @@ static void TinyCStopVM(TcSlot *s) {
   }
   tc_spi_cleanup();
   tc_serial_close();
+  tc_img_store_free();
   // Free OneWire bus
   if (s->vm.ow_bus) { delete s->vm.ow_bus; s->vm.ow_bus = nullptr; s->vm.ow_pin = -1; }
   // Free HTTP header arrays
