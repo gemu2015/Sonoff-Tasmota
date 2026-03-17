@@ -1049,7 +1049,7 @@ float c = a + b;    // a promoted to float, result = 7.5
 
 | Function                             | Description                          |
 |--------------------------------------|--------------------------------------|
-| `pinMode(int pin, int mode)`         | Set pin mode (0=INPUT, 1=OUTPUT)     |
+| `pinMode(int pin, int mode)`         | Set pin mode (1=INPUT, 3=OUTPUT, 5=INPUT_PULLUP, 9=INPUT_PULLDOWN) |
 | `digitalWrite(int pin, int value)`   | Write HIGH(1) or LOW(0)             |
 | `int digitalRead(int pin)`           | Read pin state                       |
 | `int analogRead(int pin)`            | Read analog value (0–4095)           |

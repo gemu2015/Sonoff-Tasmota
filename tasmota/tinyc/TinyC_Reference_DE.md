@@ -1037,7 +1037,7 @@ float c = a + b;    // a wird zu float heraufgestuft, Ergebnis = 7.5
 
 | Funktion                             | Beschreibung                          |
 |--------------------------------------|---------------------------------------|
-| `pinMode(int pin, int mode)`         | Pin-Modus setzen (0=INPUT, 1=OUTPUT)  |
+| `pinMode(int pin, int mode)`         | Pin-Modus setzen (1=INPUT, 3=OUTPUT, 5=INPUT_PULLUP, 9=INPUT_PULLDOWN) |
 | `digitalWrite(int pin, int value)`   | HIGH(1) oder LOW(0) schreiben         |
 | `int digitalRead(int pin)`           | Pin-Zustand lesen                     |
 | `int analogRead(int pin)`            | Analogwert lesen (0–4095)             |
