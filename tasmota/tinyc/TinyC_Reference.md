@@ -2303,6 +2303,8 @@ All primitives use the current position set by `dspPos()` and the current foregr
 | `dspPicture("file.jpg", scale)` | Draw image file from filesystem at current pos (scale: 0=original) |
 | `int dspLoadImage("file.jpg")` | Load JPG into PSRAM as RGB565 pixel store, returns slot 0-3 (-1 on error). Stays in memory until VM stops. ESP32+JPEG_PICTS only |
 | `dspPushImageRect(slot, sx, sy, dx, dy, w, h)` | Push a sub-rectangle from a loaded image to screen. Reads from image at (sx,sy), writes to screen at (dx,dy), size w×h. Use for dirty-rect background restore (e.g., analog clock hands over a watchface) |
+| `int dspImageWidth(slot)` | Get width of loaded image in slot (0 if invalid) |
+| `int dspImageHeight(slot)` | Get height of loaded image in slot (0 if invalid) |
 | `dspText(buf)` | Execute raw DisplayText command string (e.g., `"[z][x50][y20]Hello"`) |
 
 #### Predefined Color Constants (RGB565)

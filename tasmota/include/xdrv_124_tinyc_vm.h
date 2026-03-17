@@ -463,6 +463,8 @@ enum TcSyscall {
   SYS_DSP_PAD         = 197, // (n) -> void — set text padding for dspDraw (0=off)
   SYS_DSP_LOAD_IMG    = 262, // (filename_const) -> int — load JPG to PSRAM, returns slot (0-3, -1=err)
   SYS_DSP_IMG_RECT    = 263, // (slot, sx, sy, dx, dy, w, h) -> void — push sub-rect from image to screen
+  SYS_DSP_IMG_WIDTH   = 264, // (slot) -> int — get image width
+  SYS_DSP_IMG_HEIGHT  = 265, // (slot) -> int — get image height
   // Audio
   SYS_AUDIO_VOL       = 200, // (vol) -> void — set volume 0-100
   SYS_AUDIO_PLAY      = 201, // (file_const) -> void — play MP3 file
@@ -7151,6 +7153,24 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       renderer->setAddrWindow(0, 0, 0, 0);
       break;
     }
+    case SYS_DSP_IMG_WIDTH: {
+      int32_t slot = TC_POP(vm);
+      if (slot >= 0 && slot < TC_IMG_SLOTS && tc_img_store[slot].buf) {
+        TC_PUSH(vm, tc_img_store[slot].w);
+      } else {
+        TC_PUSH(vm, 0);
+      }
+      break;
+    }
+    case SYS_DSP_IMG_HEIGHT: {
+      int32_t slot = TC_POP(vm);
+      if (slot >= 0 && slot < TC_IMG_SLOTS && tc_img_store[slot].buf) {
+        TC_PUSH(vm, tc_img_store[slot].h);
+      } else {
+        TC_PUSH(vm, 0);
+      }
+      break;
+    }
 #else
     case SYS_DSP_LOAD_IMG: {
       TC_POP(vm); // filename
@@ -7159,6 +7179,12 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     }
     case SYS_DSP_IMG_RECT: {
       for (int i = 0; i < 7; i++) TC_POP(vm); // consume args
+      break;
+    }
+    case SYS_DSP_IMG_WIDTH:
+    case SYS_DSP_IMG_HEIGHT: {
+      TC_POP(vm); // slot
+      TC_PUSH(vm, 0);
       break;
     }
 #endif // USE_DISPLAY && ESP32 && JPEG_PICTS
@@ -7516,6 +7542,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       TC_POP(vm); TC_PUSH(vm, -1); break;
     case SYS_DSP_IMG_RECT:
       for (int i = 0; i < 7; i++) TC_POP(vm); break;
+    case SYS_DSP_IMG_WIDTH:
+    case SYS_DSP_IMG_HEIGHT:
+      TC_POP(vm); TC_PUSH(vm, 0); break;
     case SYS_DSP_BUTTON:
     case SYS_DSP_TBUTTON:
     case SYS_DSP_PBUTTON:
