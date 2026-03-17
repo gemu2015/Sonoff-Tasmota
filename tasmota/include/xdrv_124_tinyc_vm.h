@@ -7108,7 +7108,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         .outbuf_size = outsize,
         .out_format = JPEG_IMAGE_FORMAT_RGB565,
         .out_scale = JPEG_IMAGE_SCALE_0,
-        .flags = { .swap_color_bytes = 0 }
+        .flags = { .swap_color_bytes = 1 }
       };
       esp_jpeg_image_output_t outimg;
       esp_err_t err = esp_jpeg_decode(&jpeg_cfg, &outimg);
