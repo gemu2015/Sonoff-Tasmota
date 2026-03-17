@@ -2868,8 +2868,9 @@ void DisplayCheckGraph() {
     gp=graph[count];
     if (gp) {
       if (gp->decimation>0) {
-        // if time over add value
-        while (millis()>gp->last_ms) {
+        // if time over add value (overflow-safe, limit catch-up to xs iterations)
+        uint16_t max_catchup = gp->xs;
+        while ((millis()-gp->last_ms)>=gp->x_time && max_catchup--) {
           gp->last_ms+=gp->x_time;
           uint8_t val;
           if (gp->dcnt) {
@@ -2881,6 +2882,10 @@ void DisplayCheckGraph() {
             val=gp->last_val;
           }
           AddGraph(count,val);
+        }
+        // if still behind (e.g. after long pause), snap to now
+        if ((millis()-gp->last_ms)>=gp->x_time) {
+          gp->last_ms=millis();
         }
       }
     }
@@ -2994,7 +2999,7 @@ void RedrawGraph(uint8_t num, uint8_t flags) {
 // add next value to graph
 void AddGraph(uint8_t num,uint8_t val) {
   struct GRAPH *gp=graph[num];
-  if (!renderer) return;
+  if (!gp || !renderer) return;
 
   uint16_t linecol=gp->fg_color;
   if (color_type==COLOR_COLOR) {
