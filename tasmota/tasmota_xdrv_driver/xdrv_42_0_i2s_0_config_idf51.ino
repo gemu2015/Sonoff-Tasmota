@@ -32,7 +32,7 @@
 // I2S communication mode
 enum : int8_t {
   I2S_MODE_STD = 0,       // I2S mode standard
-  I2S_MODE_PDM = 1,       // I2S mode PDM
+  I2S_MODE_PDMn = 1,       // I2S mode PDM
   I2S_MODE_TDM = 2,       // I2S mode TDM
   I2S_MODE_DAC = 3,       // Using internal DAC - only available on ESP32
 };
@@ -99,7 +99,7 @@ typedef struct{
     uint32_t sample_rate = 32000;  // B00-03 - 32000 is compatible with MP3 encoding
     uint16_t gain = 30 * 16;       // B04-05 - in Q12.4
 #if SOC_I2S_SUPPORTS_PDM_RX
-    uint8_t  mode = I2S_MODE_PDM;  // B06 - I2S mode standard, PDM, TDM, DAC
+    uint8_t  mode = I2S_MODE_PDMn;  // B06 - I2S mode standard, PDM, TDM, DAC
 #else
     uint8_t  mode = I2S_MODE_STD;  // B06 - I2S mode standard, PDM, TDM, DAC
 #endif

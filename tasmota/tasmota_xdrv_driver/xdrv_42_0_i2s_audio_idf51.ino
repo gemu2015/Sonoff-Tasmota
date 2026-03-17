@@ -510,7 +510,7 @@ void I2sInit(void) {
 
     tx_and_rx = (din >= 0) && (dout >= 0); // portential full duplex
     if (tx_and_rx) {
-      if (audio_i2s.Settings->rx.mode == I2S_MODE_PDM || audio_i2s.Settings->tx.mode == I2S_MODE_PDM ){
+      if (audio_i2s.Settings->rx.mode == I2S_MODE_PDMn || audio_i2s.Settings->tx.mode == I2S_MODE_PDMn ){
         exclusive = true;
       }
       AddLog(LOG_LEVEL_DEBUG, "I2S: enabling exclusive:%i", exclusive);
@@ -550,11 +550,11 @@ void I2sInit(void) {
         err_msg = "input already configured";
       }
       // 6. check that we don't try PDM on port 1
-      else if (port != 0 && din >= 0 && audio_i2s.Settings->rx.mode == I2S_MODE_PDM) {
+      else if (port != 0 && din >= 0 && audio_i2s.Settings->rx.mode == I2S_MODE_PDMn) {
         err_msg = "PDM Rx is not supported";
       }
       // 7. check that we don't try PDM on port 1
-      else if (port != 0 && dout >= 0 && audio_i2s.Settings->tx.mode == I2S_MODE_PDM) {
+      else if (port != 0 && dout >= 0 && audio_i2s.Settings->tx.mode == I2S_MODE_PDMn) {
         err_msg = "PDM Tx is not supported";
       }
     } else {

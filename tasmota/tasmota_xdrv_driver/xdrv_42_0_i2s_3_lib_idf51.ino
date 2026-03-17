@@ -658,7 +658,7 @@ bool TasmotaI2S::startI2SChannel(bool tx, bool rx) {
     AddLog(LOG_LEVEL_DEBUG, "I2S: i2s_new_channel Rx err:%i", err);
     switch (_rx_mode){
 #if SOC_I2S_SUPPORTS_PDM_RX
-      case I2S_MODE_PDM:
+      case I2S_MODE_PDMn:
         {
           i2s_pdm_rx_config_t rx_pdm_cfg = {
             .clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(_rx_freq),
@@ -819,7 +819,7 @@ bool TasmotaI2S::updateRxClockConfig(void) {
   esp_err_t result = ESP_OK;
   switch (_rx_mode) {
 #if SOC_I2S_SUPPORTS_PDM_RX
-    case I2S_MODE_PDM: {
+    case I2S_MODE_PDMn: {
       i2s_pdm_rx_clk_config_t clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(_rx_freq);
       result = i2s_channel_reconfig_pdm_rx_clock(_rx_handle, &clk_cfg);
     } break;
