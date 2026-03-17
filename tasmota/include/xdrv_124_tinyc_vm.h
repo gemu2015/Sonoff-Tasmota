@@ -7315,7 +7315,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (!renderer) break;
       const char *fname = tc_get_const_str(vm, ci);
       if (fname) {
-        Draw_RGB_Bitmap((char*)fname, disp_xpos, disp_ypos, (uint8_t)scale, false, 0, 0);
+        Draw_RGB_Bitmap((char*)fname, disp_xpos, disp_ypos, (uint8_t)scale, true, 0, 0);
       }
       break;
     }
