@@ -420,13 +420,176 @@ static const char TC_NOT_INIT[] PROGMEM = "Not initialized";
 
 #define D_PRFX_TINYC "TinyC"
 
+void CmndCheckPartition(void);
+
 const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
-  "|Run|Stop|Reset|Exec|Info";
+  "|Run|Stop|Reset|Exec|Info"
+#ifdef ESP32
+  "|Chkpt"
+#endif
+  ;
 
 void (* const TinyCCommand[])(void) PROGMEM = {
   &CmndTinyC, &CmndTinyCRun, &CmndTinyCStop,
   &CmndTinyCReset, &CmndTinyCExec, &CmndTinyCInfo
+#ifdef ESP32
+  , &CmndCheckPartition
+#endif
 };
+
+// --- TinyCChkpt: partition table manager (no USE_BINPLUGINS needed) ---
+#ifdef ESP32
+#include <MD5Builder.h>
+
+static bool chkpt_scan_ptable(uint8_t *mp, uint32_t num) {
+  int num_partitions = num;
+  esp_partition_info_t *peptr = (esp_partition_info_t*)mp;
+  for (uint32_t cnt = 0; cnt < num_partitions; cnt++) {
+    AddLog(LOG_LEVEL_INFO, PSTR("partition addr: 0x%06x; size: 0x%06x; label: %s"),
+           peptr->pos.offset, peptr->pos.size, peptr->label);
+    peptr++;
+  }
+  esp_err_t ret = esp_partition_table_verify((const esp_partition_info_t *)mp, false, &num_partitions);
+  AddLog(LOG_LEVEL_INFO, "partition table status: err: %d - entries: %d", ret, num_partitions);
+  return ret;
+}
+
+// TinyCChkpt       — show partition table
+// TinyCChkpt p      — pack: shrink app0 to fit firmware, expand spiffs
+// TinyCChkpt p 2880 — pack with explicit app0 size in KB
+void CmndCheckPartition(void) {
+  uint32_t new_app_size = 0;
+  uint8_t pack = 0;
+
+  if (XdrvMailbox.data_len) {
+    char *cp = XdrvMailbox.data;
+    while (*cp == ' ') cp++;
+    if (*cp == 'p') {
+      pack = 1;
+      cp++;
+      while (*cp == ' ') cp++;
+      if (*cp) {
+        uint32_t req_kb = strtol(cp, &cp, 10);
+        if (req_kb >= 1024 && req_kb <= 3904) {
+          new_app_size = req_kb * 1024;
+          new_app_size = (new_app_size + 0xFFFF) & ~0xFFFF;
+        }
+      }
+    }
+  }
+
+  if (pack) {
+    uint32_t sketch_size = ESP.getSketchSize();
+    if (!new_app_size) {
+      new_app_size = ((sketch_size + 0xFFFF) & ~0xFFFF) + 0x30000;
+      new_app_size = (new_app_size + 0xFFFF) & ~0xFFFF;
+      AddLog(LOG_LEVEL_INFO, PSTR("pack: firmware %d KB, auto app %d KB (overhead %d KB)"),
+        sketch_size / 1024, new_app_size / 1024, (new_app_size - sketch_size) / 1024);
+    } else {
+      AddLog(LOG_LEVEL_INFO, PSTR("pack: firmware %d KB, requested app %d KB"),
+        sketch_size / 1024, new_app_size / 1024);
+      if (new_app_size < sketch_size) {
+        AddLog(LOG_LEVEL_INFO, PSTR("pack: requested size too small for current firmware!"));
+        ResponseCmndDone();
+        return;
+      }
+    }
+    LittleFS.format();
+  }
+
+  #define PART_OFFSET 0x8000
+
+  int num_partitions;
+  uint8_t *mp = (uint8_t*)calloc(SPI_FLASH_SEC_SIZE >> 2, 4);
+  esp_err_t ret = esp_flash_read(NULL, mp, PART_OFFSET, SPI_FLASH_SEC_SIZE);
+  if (ret) {
+    AddLog(LOG_LEVEL_INFO, "partition read error: %d", ret);
+  } else {
+    if (mp[0] != 0xAA || mp[1] != 0x50) {
+      AddLog(LOG_LEVEL_INFO, "partition table not valid");
+    } else {
+      ret = esp_partition_table_verify((const esp_partition_info_t *)mp, false, &num_partitions);
+      if (!ret) {
+        AddLog(LOG_LEVEL_INFO, "partition table is valid: %d entries", num_partitions);
+        int8_t hasspiffs = -1;
+        esp_partition_info_t *peptr = (esp_partition_info_t*)mp;
+        for (uint32_t cnt = 0; cnt < num_partitions; cnt++) {
+          AddLog(LOG_LEVEL_INFO, PSTR("partition addr: 0x%06x; size: 0x%06x; label: %s"),
+                 peptr->pos.offset, peptr->pos.size, peptr->label);
+          if (!strcmp((char*)peptr->label, "spiffs")) hasspiffs = cnt;
+          peptr++;
+          if (peptr->magic != ESP_PARTITION_MAGIC) break;
+        }
+
+        if (pack) {
+          int8_t hasapp0 = -1, hascustom = -1, hassafeboot = -1;
+          peptr = (esp_partition_info_t*)mp;
+          for (uint32_t cnt = 0; cnt < num_partitions; cnt++) {
+            if (!strcmp((char*)peptr[cnt].label, "app0")) hasapp0 = cnt;
+            if (!strcmp((char*)peptr[cnt].label, "custom")) hascustom = cnt;
+            if (!strcmp((char*)peptr[cnt].label, "safeboot")) hassafeboot = cnt;
+          }
+          if (hassafeboot < 0) {
+            AddLog(LOG_LEVEL_INFO, PSTR("pack: no safeboot partition — resize refused (no recovery possible)"));
+            pack = 0;
+          } else if (hasapp0 < 0 || hasspiffs < 0) {
+            AddLog(LOG_LEVEL_INFO, PSTR("pack: app0 or spiffs not found"));
+          } else if (peptr[hasapp0].pos.size == new_app_size) {
+            AddLog(LOG_LEVEL_INFO, PSTR("pack: app0 already %d KB, nothing to do"), new_app_size / 1024);
+            pack = 0;
+          } else {
+            uint32_t new_spiffs_offset = peptr[hasapp0].pos.offset + new_app_size;
+            uint32_t spiffs_end;
+            if (hascustom >= 0) {
+              spiffs_end = peptr[hascustom].pos.offset;
+              AddLog(LOG_LEVEL_INFO, PSTR("pack: preserving custom at 0x%06x"), spiffs_end);
+            } else {
+              spiffs_end = ESP.getFlashChipSize();
+            }
+            if (new_spiffs_offset >= spiffs_end) {
+              AddLog(LOG_LEVEL_INFO, PSTR("pack: no room for spiffs, aborting"));
+              pack = 0;
+            } else {
+              uint32_t new_spiffs_size = spiffs_end - new_spiffs_offset;
+              AddLog(LOG_LEVEL_INFO, PSTR("pack: app0 %d KB -> %d KB"),
+                peptr[hasapp0].pos.size / 1024, new_app_size / 1024);
+              AddLog(LOG_LEVEL_INFO, PSTR("pack: spiffs %d KB @ 0x%06x -> %d KB @ 0x%06x"),
+                peptr[hasspiffs].pos.size / 1024, peptr[hasspiffs].pos.offset,
+                new_spiffs_size / 1024, new_spiffs_offset);
+              peptr[hasapp0].pos.size = new_app_size;
+              peptr[hasspiffs].pos.offset = new_spiffs_offset;
+              peptr[hasspiffs].pos.size = new_spiffs_size;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (pack) {
+    MD5Builder md5;
+    md5.begin();
+    md5.add(mp, num_partitions * sizeof(esp_partition_info_t));
+    md5.calculate();
+    uint8_t result[16];
+    md5.getBytes(result);
+    uint8_t *end_offset = mp + (num_partitions * sizeof(esp_partition_info_t));
+    end_offset[0] = 0xeb;
+    end_offset[1] = 0xeb;
+    memmove(end_offset + 16, result, 16);
+
+    chkpt_scan_ptable(mp, num_partitions);
+    ret = esp_flash_erase_region(NULL, PART_OFFSET, SPI_FLASH_SEC_SIZE);
+    ret = esp_flash_write(NULL, mp, PART_OFFSET, SPI_FLASH_SEC_SIZE);
+    free(mp);
+    ESP_Restart();
+    return;
+  }
+
+  free(mp);
+  ResponseCmndDone();
+}
+#endif // ESP32
 
 // Query variables by name — scans global name table in binary (zero RAM cost)
 // Usage: http://device/cm?cmnd=TinyC ?var1;var2     (slot 0)
