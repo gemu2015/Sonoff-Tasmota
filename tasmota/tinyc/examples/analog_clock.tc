@@ -1,0 +1,167 @@
+// Analog clock with watchface background and dirty-rect hand erase
+// Requires: 240x240 display, /watch_ren_back_240.jpg on filesystem
+// Uses: dspLoadImage, dspPushImageRect, drawLine, sin, cos
+
+// --- easy-to-change parameters ---
+#define DISP_W      240
+#define DISP_H      240
+#define CENTER_X    120
+#define CENTER_Y    120
+#define HOUR_LEN    70
+#define MIN_LEN     95
+#define SEC_LEN     105
+#define HOUR_THICK  3
+#define MIN_THICK   2
+#define SEC_THICK   1
+#define HOUR_COLOR  0xFFFF
+#define MIN_COLOR   0xFFFF
+#define SEC_COLOR   0xF800
+#define WATCHFACE   "/watch_ren_back_240.jpg"
+
+int face;       // image store slot
+int cx;         // center x
+int cy;         // center y
+
+// previous hand endpoints for erase
+int oh_x; int oh_y;   // old hour
+int om_x; int om_y;   // old minute
+int os_x; int os_y;   // old second
+
+// hand lengths
+int h_len;   // hour hand
+int m_len;   // minute hand
+int s_len;   // second hand
+
+int prev_sec;  // to detect second change
+
+// hand endpoint output (global — TinyC can't return via array param)
+int hx_out;
+int hy_out;
+
+// calculate hand endpoint from angle (0=12 o'clock, clockwise)
+void handXY(float angle, int len) {
+    float rad;
+    rad = angle * 3.14159 / 180.0;
+    hx_out = cx + (int)(sin(rad) * (float)len);
+    hy_out = cy - (int)(cos(rad) * (float)len);
+}
+
+// draw a thick line — offsets in both x and y for full coverage
+void thickLine(int x0, int y0, int x1, int y1, int color, int width) {
+    int d;
+    int half;
+    half = width / 2;
+    dspColor(color, 0);
+    d = 0 - half;
+    while (d <= half) {
+        dspPos(x0 + d, y0);
+        dspLine(x1 + d, y1);
+        dspPos(x0, y0 + d);
+        dspLine(x1, y1 + d);
+        d = d + 1;
+    }
+}
+
+// erase a hand by restoring the bounding rect from the watchface image
+void eraseHand(int hx, int hy, int thick) {
+    int x0; int y0; int w; int h;
+    int margin;
+    margin = thick + 2;
+
+    // bounding rect of line from center to endpoint
+    if (cx < hx) { x0 = cx - margin; } else { x0 = hx - margin; }
+    if (cy < hy) { y0 = cy - margin; } else { y0 = hy - margin; }
+    w = abs(hx - cx) + margin * 2;
+    h = abs(hy - cy) + margin * 2;
+
+    // clamp to display bounds
+    if (x0 < 0) { w = w + x0; x0 = 0; }
+    if (y0 < 0) { h = h + y0; y0 = 0; }
+    if (x0 + w > DISP_W) { w = DISP_W - x0; }
+    if (y0 + h > DISP_H) { h = DISP_H - y0; }
+
+    if (w > 0 && h > 0) {
+        dspPushImageRect(face, x0, y0, x0, y0, w, h);
+    }
+}
+
+// draw center dot
+void drawCenter() {
+    dspColor(0xFFFF, 0);
+    dspPos(cx, cy);
+    dspFillCircle(4);
+    dspColor(0xF800, 0);
+    dspPos(cx, cy);
+    dspFillCircle(2);
+}
+
+void drawHands() {
+    float h_angle;
+    float m_angle;
+    float s_angle;
+
+    int hr;
+    int mn;
+    int sc;
+    hr = tasm_hour;
+    mn = tasm_minute;
+    sc = tasm_second;
+
+    // angles in degrees (0 = 12 o'clock)
+    h_angle = (float)(hr % 12) * 30.0 + (float)mn * 0.5;
+    m_angle = (float)mn * 6.0;
+    s_angle = (float)sc * 6.0;
+
+    // hour hand
+    handXY(h_angle, h_len);
+    thickLine(cx, cy, hx_out, hy_out, HOUR_COLOR, HOUR_THICK);
+    oh_x = hx_out; oh_y = hy_out;
+
+    // minute hand
+    handXY(m_angle, m_len);
+    thickLine(cx, cy, hx_out, hy_out, MIN_COLOR, MIN_THICK);
+    om_x = hx_out; om_y = hy_out;
+
+    // second hand
+    handXY(s_angle, s_len);
+    thickLine(cx, cy, hx_out, hy_out, SEC_COLOR, SEC_THICK);
+    os_x = hx_out; os_y = hy_out;
+
+    drawCenter();
+}
+
+void EverySecond() {
+    if (tasm_second == prev_sec) { return; }
+    prev_sec = tasm_second;
+
+    // erase old hands (order: second first, then minute, then hour)
+    // so the restore rects overlap correctly
+    eraseHand(os_x, os_y, SEC_THICK);
+    eraseHand(om_x, om_y, MIN_THICK + 1);
+    eraseHand(oh_x, oh_y, HOUR_THICK + 1);
+
+    // draw new hands
+    drawHands();
+}
+
+void main() {
+    cx = CENTER_X;
+    cy = CENTER_Y;
+    h_len = HOUR_LEN;
+    m_len = MIN_LEN;
+    s_len = SEC_LEN;
+
+    prev_sec = -1;
+    oh_x = cx; oh_y = cy;
+    om_x = cx; om_y = cy;
+    os_x = cx; os_y = cy;
+
+    // load watchface background into image store
+    face = dspLoadImage(WATCHFACE);
+
+    // draw full watchface from PSRAM image store (correct byte order)
+    dspPushImageRect(face, 0, 0, 0, 0, DISP_W, DISP_H);
+
+    // draw initial hands
+    drawHands();
+}
