@@ -445,8 +445,8 @@ static bool chkpt_scan_ptable(uint8_t *mp, uint32_t num) {
   int num_partitions = num;
   esp_partition_info_t *peptr = (esp_partition_info_t*)mp;
   for (uint32_t cnt = 0; cnt < num_partitions; cnt++) {
-    AddLog(LOG_LEVEL_INFO, PSTR("partition addr: 0x%06x; size: 0x%06x; label: %s"),
-           peptr->pos.offset, peptr->pos.size, peptr->label);
+    AddLog(LOG_LEVEL_INFO, PSTR("partition addr: 0x%06x; size: 0x%06x (%d KB); label: %s"),
+           peptr->pos.offset, peptr->pos.size, peptr->pos.size / 1024, peptr->label);
     peptr++;
   }
   esp_err_t ret = esp_partition_table_verify((const esp_partition_info_t *)mp, false, &num_partitions);
@@ -514,8 +514,8 @@ void CmndCheckPartition(void) {
         int8_t hasspiffs = -1;
         esp_partition_info_t *peptr = (esp_partition_info_t*)mp;
         for (uint32_t cnt = 0; cnt < num_partitions; cnt++) {
-          AddLog(LOG_LEVEL_INFO, PSTR("partition addr: 0x%06x; size: 0x%06x; label: %s"),
-                 peptr->pos.offset, peptr->pos.size, peptr->label);
+          AddLog(LOG_LEVEL_INFO, PSTR("partition addr: 0x%06x; size: 0x%06x (%d KB); label: %s"),
+                 peptr->pos.offset, peptr->pos.size, peptr->pos.size / 1024, peptr->label);
           if (!strcmp((char*)peptr->label, "spiffs")) hasspiffs = cnt;
           peptr++;
           if (peptr->magic != ESP_PARTITION_MAGIC) break;
