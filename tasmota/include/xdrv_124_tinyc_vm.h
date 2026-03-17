@@ -7108,7 +7108,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         .outbuf_size = outsize,
         .out_format = JPEG_IMAGE_FORMAT_RGB565,
         .out_scale = JPEG_IMAGE_SCALE_0,
-        .flags = { .swap_color_bytes = 1 }
+        .flags = { .swap_color_bytes = 0 }
       };
       esp_jpeg_image_output_t outimg;
       esp_err_t err = esp_jpeg_decode(&jpeg_cfg, &outimg);
@@ -7315,7 +7315,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (!renderer) break;
       const char *fname = tc_get_const_str(vm, ci);
       if (fname) {
-        Draw_RGB_Bitmap((char*)fname, disp_xpos, disp_ypos, (uint8_t)scale, true, 0, 0);
+        Draw_RGB_Bitmap((char*)fname, disp_xpos, disp_ypos, (uint8_t)scale, false, 0, 0);
       }
       break;
     }
