@@ -679,7 +679,7 @@ void I80Panel::pb_pushPixels(uint16_t* data, uint32_t length, bool swap_bytes, b
     dev->lcd_misc.val = LCD_CAM_LCD_CD_IDLE_EDGE;
 
     if (cfg.bus_width == 8) {
-        if (swap_bytes) {
+        if (!swap_bytes) {
             for (uint32_t cnt = 0; cnt < length; cnt++) {
                 dev->lcd_cmd_val.lcd_cmd_value = *data >> 8;  // High byte first
                 while (*reg_lcd_user & LCD_CAM_LCD_START) {}
