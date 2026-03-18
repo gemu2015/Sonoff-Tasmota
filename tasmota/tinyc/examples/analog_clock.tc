@@ -3,25 +3,37 @@
 // Set DRAW_X/DRAW_Y to position clock on larger displays
 // Uses: dspLoadImage, dspPushImageRect, drawLine, sin, cos
 
+//#define USE_WF200
+
 // --- easy-to-change parameters ---
-#define DRAW_X      0
-#define DRAW_Y      0
-//#define DRAW_X      488
-//#define DRAW_Y      240
-#define DISP_W      240       // reference size for hand length ratios
-#define DISP_H      240       // actual size read from JPG at runtime
-#define CENTER_X    (DRAW_X + DISP_W / 2)
-#define CENTER_Y    (DRAW_Y + DISP_H / 2)
-#define HOUR_LEN    70
-#define MIN_LEN     95
-#define SEC_LEN     105
+#ifdef USE_WF200
+#define DRAW_X      400         // x position on display
+#define DRAW_Y      280         // y position on display
+#else
+#define DRAW_X      0         // x position on display
+#define DRAW_Y      0         // y position on display
+#endif
+
+#define HOUR_PCT    58        // hour hand length in % of radius
+#define MIN_PCT     79        // minute hand length in % of radius
+#define SEC_PCT     87        // second hand length in % of radius
 #define HOUR_THICK  3
 #define MIN_THICK   2
 #define SEC_THICK   1
 #define HOUR_COLOR  0xFFFF
 #define MIN_COLOR   0xFFFF
 #define SEC_COLOR   0xF800
+
+
+#define DATE_XP		77        // date x position in % of image width
+#define DATE_YP		48        // date y position in % of image height
+
+#ifdef USE_WF200
+#define WATCHFACE   "/watch_ren_back_200.jpg"
+#else
 #define WATCHFACE   "/watch_ren_back_240.jpg"
+#endif
+
 
 int face;       // image store slot
 int img_w;      // image width (from JPG)
@@ -39,6 +51,8 @@ int h_len;   // hour hand
 int m_len;   // minute hand
 int s_len;   // second hand
 
+int date_x;    // computed date position
+int date_y;
 int prev_sec;  // to detect second change
 
 // hand endpoint output (global — TinyC can't return via array param)
@@ -135,6 +149,20 @@ void drawHands() {
     os_x = hx_out; os_y = hy_out;
 
     drawCenter();
+	
+	drawDate();
+	
+}
+
+void drawDate() {
+	// draw date
+	char buf[30];
+	// font1 for 240, f3 for 200 size
+    sprintf(buf, "[C%dB0f1s1", GREEN);
+	sprintfAppend(buf, "x%d", date_x);
+	sprintfAppend(buf, "y%d", date_y);
+	sprintfAppend(buf, "p-2]%d", tasm_day);
+    dspText(buf);
 }
 
 void EverySecond() {
@@ -156,13 +184,18 @@ void main() {
     face = dspLoadImage(WATCHFACE);
     img_w = dspImageWidth(face);
     img_h = dspImageHeight(face);
-
+	
+    int radius;
     // center and hand lengths derived from image size
     cx = DRAW_X + img_w / 2;
     cy = DRAW_Y + img_h / 2;
-    h_len = img_w * HOUR_LEN / DISP_W;
-    m_len = img_w * MIN_LEN / DISP_W;
-    s_len = img_w * SEC_LEN / DISP_W;
+    radius = img_w / 2;
+    if (img_h < img_w) { radius = img_h / 2; }
+    h_len = radius * HOUR_PCT / 100;
+    m_len = radius * MIN_PCT / 100;
+    s_len = radius * SEC_PCT / 100;
+    date_x = DRAW_X + img_w * DATE_XP / 100;
+    date_y = DRAW_Y + img_h * DATE_YP / 100;
 
     prev_sec = -1;
     oh_x = cx; oh_y = cy;
