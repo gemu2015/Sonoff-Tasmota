@@ -4,10 +4,17 @@
 // Supports 16x2 and 20x2 displays (set LCD_COLS below)
 //
 // Features: Auto-detect I2C address, backlight control, custom text,
-//           clock display, heap/WiFi status
+//           clock display, heap/WiFi status, console commands
 //
 // Line 1: Time + date  |  Line 2: Heap + WiFi status or custom text
 // Web UI: editable text for both lines, backlight toggle
+//
+// Console commands:
+//   LCDPrint1 Hello   — print "Hello" on line 1 (switches to custom mode)
+//   LCDPrint2 World   — print "World" on line 2
+//   LCDClear          — clear display
+//   LCDOn / LCDOff    — backlight control
+//   LCDAuto           — switch back to auto mode (time/heap)
 // ═══════════════════════════════════════════════════════════════════
 
 // ─── PCF8574 I2C backpack pin mapping ───
@@ -304,6 +311,65 @@ void WebUI() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Command handler — registered as "LCD" prefix
+// Commands:
+//   LCDPrint1 <text>  — print text on line 1
+//   LCDPrint2 <text>  — print text on line 2
+//   LCDClear          — clear display
+//   LCDOn             — backlight on
+//   LCDOff            — backlight off
+// ═══════════════════════════════════════════════════════════════════
+void Command(char cmd[]) {
+    char arg[24];
+    char resp[64];
+
+    if (strFind(cmd, "Print1") == 0) {
+        if (strlen(cmd) > 7) {
+            strSub(arg, cmd, 7, 0);
+        } else {
+            strcpy(arg, "");
+        }
+        dmode = 1;
+        strcpy(line1_custom, arg);
+        lcd_printLine(0, line1_custom);
+        sprintf(resp, "{\"LCDPrint1\":\"%s\"}", line1_custom);
+        responseCmnd(resp);
+    } else if (strFind(cmd, "Print2") == 0) {
+        if (strlen(cmd) > 7) {
+            strSub(arg, cmd, 7, 0);
+        } else {
+            strcpy(arg, "");
+        }
+        dmode = 1;
+        strcpy(line2_custom, arg);
+        lcd_printLine(1, line2_custom);
+        sprintf(resp, "{\"LCDPrint2\":\"%s\"}", line2_custom);
+        responseCmnd(resp);
+    } else if (strFind(cmd, "Clear") == 0) {
+        lcd_clear();
+        strcpy(line1_custom, "");
+        strcpy(line2_custom, "");
+        responseCmnd("{\"LCDClear\":\"done\"}");
+    } else if (strFind(cmd, "On") == 0) {
+        backlight = 1;
+        lcd_backlight(1);
+        saveVars();
+        responseCmnd("{\"LCDOn\":\"done\"}");
+    } else if (strFind(cmd, "Off") == 0) {
+        backlight = 0;
+        lcd_backlight(0);
+        saveVars();
+        responseCmnd("{\"LCDOff\":\"done\"}");
+    } else if (strFind(cmd, "Auto") == 0) {
+        dmode = 0;
+        lcd_clear();
+        responseCmnd("{\"LCDAuto\":\"done\"}");
+    } else {
+        responseCmnd("{\"LCD\":\"cmds: Print1,Print2,Clear,On,Off,Auto\"}");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // JSON output
 // ═══════════════════════════════════════════════════════════════════
 void JsonCall() {
@@ -345,6 +411,9 @@ int main() {
     lcd_ok = 1;
 
     lcd_backlight(backlight);
+
+    // Register console command prefix
+    addCommand("LCD");
 
     // Show welcome message
     lcd_printLine(0, "TinyC LCD Driver");
