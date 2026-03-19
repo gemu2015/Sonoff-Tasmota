@@ -7538,13 +7538,6 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_DSP_DRAW_STR:
     case SYS_DSP_PAD:
       TC_POP(vm); break;
-    case SYS_DSP_LOAD_IMG:
-      TC_POP(vm); TC_PUSH(vm, -1); break;
-    case SYS_DSP_IMG_RECT:
-      for (int i = 0; i < 7; i++) TC_POP(vm); break;
-    case SYS_DSP_IMG_WIDTH:
-    case SYS_DSP_IMG_HEIGHT:
-      TC_POP(vm); TC_PUSH(vm, 0); break;
     case SYS_DSP_BUTTON:
     case SYS_DSP_TBUTTON:
     case SYS_DSP_PBUTTON:
