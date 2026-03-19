@@ -5425,6 +5425,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     //  20 = tasm_pheap      (ro) free PSRAM in bytes (ESP32 only)
     //  21 = tasm_smlj       (rw) SML JSON output enable/disable
     //  22 = tasm_npwr       (ro) number of power devices
+    //  23 = tasm_rule       (rw) rule1 enabled (bit 0 of Settings->rule_enabled)
     case SYS_TASM_GET: {
       a = TC_POP(vm);  // variable index
       int32_t val = 0;
@@ -5492,6 +5493,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         }
 #endif
         case 22: val = (int32_t)TasmotaGlobal.devices_present; break;  // tasm_npwr
+        case 23: val = bitRead(Settings->rule_enabled, 0); break;  // tasm_rule
         default: break;
       }
       TC_PUSH(vm, val);
@@ -5585,6 +5587,13 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           break;
         }
 #endif
+        case 23:  // tasm_rule
+          if (val) {
+            bitSet(Settings->rule_enabled, 0);
+          } else {
+            bitClear(Settings->rule_enabled, 0);
+          }
+          break;
         default: break;  // read-only variables silently ignored
       }
       break;
