@@ -2730,7 +2730,10 @@ void SML_Immediate_MQTT(const char *mp,uint8_t index,uint8_t mindex) {
           // immediate mqtt
           DOUBLE2CHAR(sml_globs.meter_vars[index], dp & 0xf, tpowstr);
           ResponseTime_P(PSTR(",\"%s\":{\"%s\":%s}}"), sml_globs.mp[mindex].prefix, jname, tpowstr);
-          MqttPublishTeleSensor();
+          //MqttPublishTeleSensor();
+          MqttPublishPayload(PSTR(D_RSLT_SENSOR), ResponseData(), 0, false, LOG_LEVEL_DEBUG);
+          //MqttPublishPayload(const char* topic, const char* payload, uint32_t binary_length = 0, bool retained = false, uint32_t log_level = LOG_LEVEL_INFO);
+
         }
       }
     }
