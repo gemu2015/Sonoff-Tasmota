@@ -101,6 +101,9 @@ public:
   uint8_t drawmode;
   virtual void FastString(uint16_t x,uint16_t y,uint16_t tcolor, const char* str);
   void setTextSize(uint8_t s);
+  uint8_t getFont(void) { return font; }
+  uint8_t getTextSize(void) { return tsize; }
+  sFONT *getSelectedFont(void) { return selected_font; }
   virtual uint8_t *allocate_framebuffer(uint32_t size);
   pwr_cb pwr_cbp = 0;
   dim_cb dim_cbp = 0;

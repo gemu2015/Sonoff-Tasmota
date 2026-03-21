@@ -469,6 +469,8 @@ enum TcSyscall {
   SYS_DSP_IMG_RECT    = 263, // (slot, sx, sy, dx, dy, w, h) -> void — push sub-rect from image to screen
   SYS_DSP_IMG_WIDTH   = 264, // (slot) -> int — get image width
   SYS_DSP_IMG_HEIGHT  = 265, // (slot) -> int — get image height
+  SYS_DSP_TEXT_WIDTH  = 266, // (len) -> int — get pixel width for len chars in current font
+  SYS_DSP_TEXT_HEIGHT = 267, // () -> int — get pixel height for current font
   // Audio
   SYS_AUDIO_VOL       = 200, // (vol) -> void — set volume 0-100
   SYS_AUDIO_PLAY      = 201, // (file_const) -> void — play MP3 file
@@ -7404,6 +7406,40 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_DSP_PAD:
       tc_dsp_pad = (int16_t)TC_POP(vm);
       break;
+
+    case SYS_DSP_TEXT_WIDTH: {
+      // Get pixel width for N chars in current font/size
+      int32_t len = TC_POP(vm);
+      if (!renderer) { TC_PUSH(vm, 0); break; }
+      int cw = 0;
+      uint8_t csize = renderer->getTextSize();
+#ifdef USE_EPD_FONTS
+      if (renderer->getFont() > 0 && renderer->getFont() < 5 && renderer->getSelectedFont()) {
+        cw = renderer->getSelectedFont()->Width;
+      } else
+#endif
+      {
+        cw = 6;  // GFX default: 5px char + 1px gap
+      }
+      TC_PUSH(vm, len * cw * csize);
+      break;
+    }
+    case SYS_DSP_TEXT_HEIGHT: {
+      // Get pixel height for current font/size
+      if (!renderer) { TC_PUSH(vm, 0); break; }
+      int ch = 0;
+      uint8_t csize = renderer->getTextSize();
+#ifdef USE_EPD_FONTS
+      if (renderer->getFont() > 0 && renderer->getFont() < 5 && renderer->getSelectedFont()) {
+        ch = renderer->getSelectedFont()->Height;
+      } else
+#endif
+      {
+        ch = 8;  // GFX default: 8px
+      }
+      TC_PUSH(vm, ch * csize);
+      break;
+    }
 
     // ── Touch buttons & sliders ──────────────────────
 #ifdef USE_TOUCH_BUTTONS
