@@ -1102,7 +1102,7 @@ void EveryLoop() {
 
 | Function                          | Description                        |
 |-----------------------------------|------------------------------------|
-| `serialBegin(int baud)`           | Initialize serial at baud rate     |
+| `int serialBegin(int rx, int tx, int baud, int config, int bufsize)` | Open serial port, returns 1 on success, -1 on failure |
 | `serialPrint("literal")`          | Print string to serial             |
 | `serialPrintInt(int value)`       | Print integer to serial            |
 | `serialPrintFloat(float value)`   | Print float to serial              |
@@ -1113,6 +1113,36 @@ void EveryLoop() {
 | `serialWriteByte(int b)`          | Write single byte to serial        |
 | `serialWriteStr(char str[])`      | Write char array to serial (binary-safe) |
 | `serialWriteBuf(char buf[], int len)` | Write `len` bytes from buffer to serial |
+
+**`serialBegin` parameters:**
+- `rx` — GPIO pin for receive (-1 to disable RX, e.g. TX-only devices)
+- `tx` — GPIO pin for transmit (-1 to disable TX, e.g. RX-only devices)
+- `baud` — baud rate (e.g. 9600, 115200)
+- `config` — serial frame format (see table below), default 3 = 8N1
+- `bufsize` — receive buffer size in bytes (64–2048)
+
+**Serial config values:**
+
+| Value | Format | Value | Format | Value | Format |
+|-------|--------|-------|--------|-------|--------|
+| 0     | 5N1    | 8     | 5E1    | 16    | 5O1    |
+| 1     | 6N1    | 9     | 6E1    | 17    | 6O1    |
+| 2     | 7N1    | 10    | 7E1    | 18    | 7O1    |
+| **3** | **8N1**| 11    | 8E1    | 19    | 8O1    |
+| 4     | 5N2    | 12    | 5E2    | 20    | 5O2    |
+| 5     | 6N2    | 13    | 6E2    | 21    | 6O2    |
+| 6     | 7N2    | 14    | 7E2    | 22    | 7O2    |
+| 7     | 8N2    | 15    | 8E2    | 23    | 8O2    |
+
+**Example:**
+```c
+// Open serial for LD2410 radar sensor: RX=pin 16, TX=pin 17, 256000 baud, 8N1, 256 byte buffer
+int ret = serialBegin(16, 17, 256000, 3, 256);
+if (ret < 0) { addLog("Serial open failed"); }
+
+// TX-only for MP3 module: no RX, TX=pin 4, 9600 baud
+int ret = serialBegin(-1, 4, 9600, 3, 64);
+```
 
 ### 1-Wire
 

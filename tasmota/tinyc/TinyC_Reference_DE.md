@@ -1090,17 +1090,47 @@ void EveryLoop() {
 
 | Funktion                          | Beschreibung                            |
 |-----------------------------------|-----------------------------------------|
-| `serialBegin(int baud)`           | Seriell mit Baudrate initialisieren     |
+| `int serialBegin(int rx, int tx, int baud, int config, int bufsize)` | Seriellen Port oeffnen, gibt 1 bei Erfolg zurueck, -1 bei Fehler |
 | `serialPrint("literal")`          | Zeichenkette auf seriell ausgeben       |
 | `serialPrintInt(int value)`       | Ganzzahl auf seriell ausgeben           |
 | `serialPrintFloat(float value)`   | Gleitkommazahl auf seriell ausgeben     |
 | `serialPrintln("literal")`        | Zeichenkette + Zeilenumbruch auf seriell |
 | `int serialRead()`                | Byte lesen (-1 wenn keines verfuegbar)  |
 | `int serialAvailable()`           | Verfuegbare Bytes zum Lesen             |
-| `serialClose()`                   | Seriellen Port schließen                |
+| `serialClose()`                   | Seriellen Port schliessen               |
 | `serialWriteByte(int b)`          | Einzelnes Byte an serielle Schnittstelle senden |
 | `serialWriteStr(char str[])`      | Char-Array an serielle Schnittstelle senden |
 | `serialWriteBuf(char buf[], int len)` | `len` Bytes aus Buffer an serielle Schnittstelle senden |
+
+**`serialBegin` Parameter:**
+- `rx` — GPIO-Pin fuer Empfang (-1 zum Deaktivieren, z.B. nur-TX Geraete)
+- `tx` — GPIO-Pin fuer Senden (-1 zum Deaktivieren, z.B. nur-RX Geraete)
+- `baud` — Baudrate (z.B. 9600, 115200)
+- `config` — Serielles Frame-Format (siehe Tabelle), Standard 3 = 8N1
+- `bufsize` — Empfangspuffer-Groesse in Bytes (64–2048)
+
+**Serielle Konfigurations-Werte:**
+
+| Wert | Format | Wert | Format | Wert | Format |
+|------|--------|------|--------|------|--------|
+| 0    | 5N1    | 8    | 5E1    | 16   | 5O1    |
+| 1    | 6N1    | 9    | 6E1    | 17   | 6O1    |
+| 2    | 7N1    | 10   | 7E1    | 18   | 7O1    |
+| **3**| **8N1**| 11   | 8E1    | 19   | 8O1    |
+| 4    | 5N2    | 12   | 5E2    | 20   | 5O2    |
+| 5    | 6N2    | 13   | 6E2    | 21   | 6O2    |
+| 6    | 7N2    | 14   | 7E2    | 22   | 7O2    |
+| 7    | 8N2    | 15   | 8E2    | 23   | 8O2    |
+
+**Beispiel:**
+```c
+// LD2410 Radar: RX=Pin 16, TX=Pin 17, 256000 Baud, 8N1, 256 Byte Puffer
+int ret = serialBegin(16, 17, 256000, 3, 256);
+if (ret < 0) { addLog("Seriell Fehler"); }
+
+// Nur-TX fuer MP3-Modul: kein RX, TX=Pin 4, 9600 Baud
+int ret = serialBegin(-1, 4, 9600, 3, 64);
+```
 
 ### 1-Wire
 
