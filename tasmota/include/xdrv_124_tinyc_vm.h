@@ -6146,7 +6146,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (label && Tinyc && pn >= 0 && pn < TC_MAX_WEB_PAGES) {
         strlcpy(Tinyc->page_label[pn], label, sizeof(Tinyc->page_label[0]));
         // track which slot registered this page
-        for (uint8_t si = 0; si < TC_MAX_SLOTS; si++) {
+        for (uint8_t si = 0; si < TC_MAX_VMS; si++) {
           if (Tinyc->slots[si] && tc_current_slot == Tinyc->slots[si]) {
             Tinyc->page_slot[pn] = si;
             break;
@@ -7088,7 +7088,6 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_DSP_LOAD_IMG: {
       // dspLoadImage("file.jpg") -> slot (0-3, -1 on error)
       int32_t ci = TC_POP(vm);
-      int32_t result = -1;
       if (!renderer) { TC_PUSH(vm, -1); break; }
       const char *fname = tc_get_const_str(vm, ci);
       if (!fname) { TC_PUSH(vm, -1); break; }
@@ -7097,17 +7096,16 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       for (int i = 0; i < TC_IMG_SLOTS; i++) {
         if (!tc_img_store[i].buf) { slot = i; break; }
       }
-      if (slot < 0) { TC_PUSH(vm, -1); break; }
+      if (slot < 0) { AddLog(LOG_LEVEL_INFO, PSTR("TCC: img no free slot")); TC_PUSH(vm, -1); break; }
       // load file
       File fp = ufsp->open(fname, FS_FILE_READ);
-      if (!fp) { TC_PUSH(vm, -1); break; }
+      if (!fp) { AddLog(LOG_LEVEL_INFO, PSTR("TCC: img file '%s' not found"), fname); TC_PUSH(vm, -1); break; }
       uint32_t size = fp.size();
       uint8_t *mem = (uint8_t *)special_malloc(size + 4);
       if (!mem) { fp.close(); TC_PUSH(vm, -1); break; }
       fp.read(mem, size);
       fp.close();
       if (mem[0] != 0xff || mem[1] != 0xd8) {
-        // not a JPEG
         free(mem); TC_PUSH(vm, -1); break;
       }
       uint16_t xsize, ysize;
@@ -7126,7 +7124,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         .flags = { .swap_color_bytes = 0 }
       };
       esp_jpeg_image_output_t outimg;
+      OsWatchLoop();
       esp_err_t err = esp_jpeg_decode(&jpeg_cfg, &outimg);
+      OsWatchLoop();
       free(mem);
       if (err != ESP_OK) { free(out_buf); TC_PUSH(vm, -1); break; }
       tc_img_store[slot].buf = out_buf;
@@ -7158,10 +7158,24 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (sx + w > img_w) w = img_w - sx;
       if (sy + h > img_h) h = img_h - sy;
       if (w <= 0 || h <= 0) break;
-      // push row by row from image buffer to screen
-      for (int row = 0; row < h; row++) {
-        renderer->setAddrWindow(dx, dy + row, dx + w, dy + row + 1);
-        renderer->pushColors(&img[(sy + row) * img_w + sx], w, true);
+      // Always use single setAddrWindow + pushColors (like Draw_RGB_Bitmap)
+      // Row-by-row push freezes SPI displays (tested on ESP32 + ILI9341)
+      if (sx == 0 && w == img_w) {
+        // full-width: contiguous in buffer, single push
+        renderer->setAddrWindow(dx, dy, dx + w, dy + h);
+        renderer->pushColors(&img[sy * img_w], w * h, true);
+      } else {
+        // sub-rect: gather rows into contiguous temp buffer, single push
+        uint32_t total = w * h;
+        uint16_t *tmp = (uint16_t *)special_malloc(total * 2);
+        if (tmp) {
+          for (int row = 0; row < h; row++) {
+            memcpy(&tmp[row * w], &img[(sy + row) * img_w + sx], w * 2);
+          }
+          renderer->setAddrWindow(dx, dy, dx + w, dy + h);
+          renderer->pushColors(tmp, total, true);
+          free(tmp);
+        }
       }
       renderer->setAddrWindow(0, 0, 0, 0);
       break;
