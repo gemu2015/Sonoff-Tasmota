@@ -100,6 +100,8 @@ board_build.f_cpu       = 240000000L
 board_build.partitions  = partitions/esp32_partition_app1856k_fs1344k.csv
 build_flags             = ${env:tinyc_base.build_flags}
                           -DTINYC_CAMERA
+                          -DBOARD_HAS_PSRAM -DHAS_PSRAM_FIX
+                          -mfix-esp32-psram-cache-issue -mfix-esp32-psram-cache-strategy=memw
 lib_ignore              = ${env:tasmota32_base.lib_ignore}
                           TTGO TWatch Library
                           Micro-RTSP

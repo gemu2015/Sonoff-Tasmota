@@ -471,6 +471,7 @@ enum TcSyscall {
   SYS_DSP_IMG_HEIGHT  = 265, // (slot) -> int — get image height
   SYS_DSP_TEXT_WIDTH  = 266, // (len) -> int — get pixel width for len chars in current font
   SYS_DSP_TEXT_HEIGHT = 267, // () -> int — get pixel height for current font
+  SYS_DSP_IMG_TEXT    = 268, // (slot, x, y, color, fieldw, align, buf_ref) -> void — composite text on image
   // Audio
   SYS_AUDIO_VOL       = 200, // (vol) -> void — set volume 0-100
   SYS_AUDIO_PLAY      = 201, // (file_const) -> void — play MP3 file
@@ -7441,6 +7442,113 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       break;
     }
 
+    case SYS_DSP_IMG_TEXT: {
+      // dspImgText(slot, x, y, color, fieldWidth, align, text_buf)
+      // Composite text onto image sub-rect in RAM, then push once — flicker-free
+      // fieldWidth: total field width in chars (0 = auto from text length)
+      // align: 0=left, 1=right, 2=center
+      int32_t ref    = TC_POP(vm);
+      int32_t align  = TC_POP(vm);
+      int32_t fieldw = TC_POP(vm);
+      int32_t color  = TC_POP(vm);
+      int32_t y      = TC_POP(vm);
+      int32_t x      = TC_POP(vm);
+      int32_t slot   = TC_POP(vm);
+      if (!renderer) break;
+      if (slot < 0 || slot >= TC_IMG_SLOTS || !tc_img_store[slot].buf) break;
+
+      char text[128];
+      tc_ref_to_cstr(vm, ref, text, sizeof(text));
+      int tlen = strlen(text);
+      if (tlen == 0 && fieldw == 0) break;
+
+      uint16_t *img = tc_img_store[slot].buf;
+      uint16_t img_w = tc_img_store[slot].w;
+      uint16_t img_h = tc_img_store[slot].h;
+
+      // determine character dimensions
+      int cw = 6, ch_h = 8;  // GFX defaults
+      uint8_t csize = renderer->getTextSize();
+#ifdef USE_EPD_FONTS
+      sFONT *fnt = nullptr;
+      if (renderer->getFont() > 0 && renderer->getFont() < 5 && renderer->getSelectedFont()) {
+        fnt = renderer->getSelectedFont();
+        cw = fnt->Width;
+        ch_h = fnt->Height;
+      }
+#endif
+      // field width in chars determines the pixel rect width
+      int nchars = (fieldw > 0) ? fieldw : tlen;
+      int tw = nchars * cw * csize;
+      int th = ch_h * csize;
+
+      // clamp to image bounds
+      if (x < 0) x = 0;
+      if (y < 0) y = 0;
+      if (x + tw > img_w) tw = img_w - x;
+      if (y + th > img_h) th = img_h - y;
+      if (tw <= 0 || th <= 0) break;
+
+      // allocate temp buffer and copy image rect
+      uint32_t total = tw * th;
+      uint16_t *buf = (uint16_t *)special_malloc(total * 2);
+      if (!buf) break;
+      for (int row = 0; row < th; row++) {
+        memcpy(&buf[row * tw], &img[(y + row) * img_w + x], tw * 2);
+      }
+
+      // calculate text offset for alignment within field
+      int text_pw = tlen * cw * csize;  // actual text pixel width
+      int x_off = 0;  // pixel offset within field rect
+      if (align == 1) {        // right
+        x_off = tw - text_pw;
+      } else if (align == 2) { // center
+        x_off = (tw - text_pw) / 2;
+      }
+      if (x_off < 0) x_off = 0;
+
+      // render text characters into buf
+      uint16_t fg = (uint16_t)color;
+#ifdef USE_EPD_FONTS
+      if (fnt) {
+        for (int ci = 0; ci < tlen; ci++) {
+          int cx = x_off + ci * cw * csize;
+          if (cx >= tw) break;
+          char ascii_char = text[ci];
+          if (ascii_char < ' ') continue;
+          unsigned int char_offset = (ascii_char - ' ') * fnt->Height * (fnt->Width / 8 + (fnt->Width % 8 ? 1 : 0));
+          const unsigned char *ptr = &fnt->table[char_offset];
+          for (int fj = 0; fj < fnt->Height; fj++) {
+            for (int fi = 0; fi < fnt->Width; fi++) {
+              if (pgm_read_byte(ptr) & (0x80 >> (fi % 8))) {
+                // foreground pixel — write into buf for each scaled pixel
+                for (int sy = 0; sy < csize; sy++) {
+                  for (int sx = 0; sx < csize; sx++) {
+                    int px = cx + fi * csize + sx;
+                    int py = fj * csize + sy;
+                    if (px < tw && py < th) {
+                      buf[py * tw + px] = fg;
+                    }
+                  }
+                }
+              }
+              // background pixels: keep image data (already in buf)
+              if (fi % 8 == 7) ptr++;
+            }
+            if (fnt->Width % 8 != 0) ptr++;
+          }
+        }
+      }
+#endif
+
+      // push composited result in one SPI transaction
+      renderer->setAddrWindow(x, y, x + tw, y + th);
+      renderer->pushColors(buf, total, true);
+      renderer->setAddrWindow(0, 0, 0, 0);
+      free(buf);
+      break;
+    }
+
     // ── Touch buttons & sliders ──────────────────────
 #ifdef USE_TOUCH_BUTTONS
     case SYS_DSP_BUTTON:    // power button
@@ -7615,6 +7723,13 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       TC_POP(vm); TC_PUSH(vm, -1); break;
     case SYS_DSP_BTN_DEL:
       TC_POP(vm); break;
+    case SYS_DSP_TEXT_WIDTH:
+      TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_DSP_TEXT_HEIGHT:
+      TC_PUSH(vm, 0); break;
+    case SYS_DSP_IMG_TEXT:
+      // 7 args: slot, x, y, color, fieldw, align, buf_ref
+      for (int i = 0; i < 7; i++) TC_POP(vm); break;
 #endif // USE_DISPLAY
 
     // ── Audio ──────────────────────────────────────────
