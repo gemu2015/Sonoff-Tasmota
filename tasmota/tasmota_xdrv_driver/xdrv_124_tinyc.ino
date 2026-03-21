@@ -2580,16 +2580,11 @@ static void TC_CamMotionDetect(void) {
 
 #endif // USE_WEBCAM || USE_TINYC_CAMERA
 
-// ---- WebUI: interactive widget page (/tc_ui) -- uses slot 0 ----
+// ---- WebUI: interactive widget page (/tc_ui) ----
 
 static void HandleTinyCUI(void) {
   if (!HttpCheckPriviledgedAccess()) return;
   if (!Tinyc) { Webserver->send(503, "text/plain", "TinyC not ready"); return; }
-  TcSlot *s = Tinyc->slots[0];
-  if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) {
-    Webserver->send(503, "text/plain", "TinyC not ready");
-    return;
-  }
 
   // Read page number from ?p= parameter (0-5, default 0)
   uint8_t page = 0;
@@ -2598,6 +2593,14 @@ static void HandleTinyCUI(void) {
     if (page >= TC_MAX_WEB_PAGES) page = 0;
   }
   Tinyc->current_page = page;
+
+  // Find the slot that registered this page
+  uint8_t si = (page < Tinyc->page_count) ? Tinyc->page_slot[page] : 0;
+  TcSlot *s = Tinyc->slots[si];
+  if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) {
+    Webserver->send(503, "text/plain", "TinyC not ready");
+    return;
+  }
 
   // Handle sv= parameter -- widget value update
   TinyC_WebSetVar();

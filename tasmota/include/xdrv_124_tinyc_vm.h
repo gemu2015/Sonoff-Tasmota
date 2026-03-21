@@ -815,6 +815,7 @@ struct TINYC {
   // WebUI pages (up to 6, set by wLabel(), buttons on main page)
 #define TC_MAX_WEB_PAGES 6
   char     page_label[TC_MAX_WEB_PAGES][32];
+  uint8_t  page_slot[TC_MAX_WEB_PAGES];   // which VM slot registered each page
   uint8_t  page_count;            // number of registered pages
   uint8_t  current_page;          // current page being rendered (for wPage())
   // Custom web handlers (webOn)
@@ -6144,6 +6145,13 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       const char *label = tc_get_const_str(vm, ci);
       if (label && Tinyc && pn >= 0 && pn < TC_MAX_WEB_PAGES) {
         strlcpy(Tinyc->page_label[pn], label, sizeof(Tinyc->page_label[0]));
+        // track which slot registered this page
+        for (uint8_t si = 0; si < TC_MAX_SLOTS; si++) {
+          if (Tinyc->slots[si] && tc_current_slot == Tinyc->slots[si]) {
+            Tinyc->page_slot[pn] = si;
+            break;
+          }
+        }
         if (pn >= Tinyc->page_count) Tinyc->page_count = pn + 1;
       }
       break;
