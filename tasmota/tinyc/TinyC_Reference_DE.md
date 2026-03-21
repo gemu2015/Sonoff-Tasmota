@@ -2919,7 +2919,34 @@ Die TinyC-Konsolenseite unter `/tc` zeigt eine kompakte Uebersicht aller Slots:
 - **Run / Stop Buttons**: kontextabhaengig — Run ausgegraut wenn aktiv, Stop ausgegraut wenn inaktiv
 - **A-Button**: schaltet Auto-Ausfuehrung beim Booten um (gruen = aktiviert). Wird sofort in `/tinyc.cfg` gespeichert
 - **Programm laden**: Dateiauswahl mit Slot-Dropdown um beliebige `.tcb`-Datei in beliebigen Slot zu laden
+- **Repository**: wenn `/tinyc_repo.cfg` auf dem Dateisystem existiert, wird ein entferntes Programm-Repository angezeigt (siehe unten)
 - **Programm hochladen**: Datei-Upload mit Slot-Dropdown um eine `.tcb`-Datei direkt hochzuladen
+
+### Programm-Repository
+
+TinyC unterstuetzt das Herunterladen vorkompilierter `.tcb`-Programme aus einem entfernten Repository direkt auf dem Geraet.
+
+**Einrichtung:**
+1. Erstelle eine Datei `/tinyc_repo.cfg` auf dem Geraete-Dateisystem mit der Basis-URL des Repositories (eine Zeile):
+   ```
+   https://raw.githubusercontent.com/gemu2015/Sonoff-Tasmota/universal/tasmota/tinyc/bytecode
+   ```
+2. Das Repository muss eine `index.txt`-Datei enthalten, die die verfuegbaren `.tcb`-Dateien auflistet (ein Dateiname pro Zeile):
+   ```
+   blink.tcb
+   bme280.tcb
+   lcd_i2c.tcb
+   onewire.tcb
+   ```
+3. Die `.tcb`-Dateien muessen unter `<basis_url>/<dateiname>` erreichbar sein
+
+**Verwendung:**
+Wenn `/tinyc_repo.cfg` vorhanden ist, zeigt die TinyC-Konsolenseite ein zusaetzliches **Repository**-Feld mit:
+- Einem Dropdown mit allen `.tcb`-Dateien aus der entfernten `index.txt`
+- Einem Slot-Waehler
+- Einem **Download & Load**-Button, der die ausgewaehlte Datei auf das Geraete-Dateisystem herunterlaed und in den gewaehlten Slot laed
+
+Das Standard-Repository unter `https://raw.githubusercontent.com/gemu2015/Sonoff-Tasmota/universal/tasmota/tinyc/bytecode` enthaelt Beispielprogramme fuer Sensoren, Displays, Charts und mehr. Lade die mitgelieferte `tinyc_repo.cfg` auf dein Geraet hoch um es zu aktivieren.
 
 ### API-Endpunkte
 

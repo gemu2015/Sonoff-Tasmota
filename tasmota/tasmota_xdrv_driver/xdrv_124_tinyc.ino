@@ -3158,11 +3158,14 @@ bool Xdrv124(uint32_t function) {
         tc_slot_callback(s, "WebPage");
       }
       WSContentSend_P(PSTR("</div>"));
-      // Inject JavaScript for widget interactions on main page (slot 0 only)
+      // Inject JavaScript for widget interactions on main page (all slots)
       {
-        TcSlot *s0 = Tinyc->slots[0];
-        if (s0 && s0->loaded && s0->vm.halted && s0->vm.error == TC_OK) {
-          if (tc_has_callback(&s0->vm, "WebCall")) {
+        bool js_sent = false;
+        bool has_webui = false;
+        for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+          TcSlot *si = Tinyc->slots[i];
+          if (!si || !si->loaded || !si->vm.halted || si->vm.error != TC_OK) continue;
+          if (!js_sent && tc_has_callback(&si->vm, "WebCall")) {
             WSContentSend_P(PSTR(
               "<script>"
               "function seva(v,i){rfsh=1;la('&sv='+i+'_'+v);rfsh=0;}"
@@ -3171,22 +3174,24 @@ bool Xdrv124(uint32_t function) {
               "function pr(f){if(f){lt=setTimeout(la,%d);}else{clearTimeout(lt);clearTimeout(ft);}}"
               "</script>"
             ), Settings->web_refresh);
+            js_sent = true;
           }
-          // Add buttons to /tc_ui pages if WebUI callback is defined
-          if (tc_has_callback(&s0->vm, "WebUI")) {
-            if (Tinyc->page_count > 0) {
-              // Multiple pages registered via wLabel()
-              for (uint8_t p = 0; p < Tinyc->page_count; p++) {
-                if (Tinyc->page_label[p][0]) {
-                  WSContentSend_P(PSTR("<p></p><form action='tc_ui' method='get'>"
-                    "<input type='hidden' name='p' value='%d'>"
-                    "<button>%s</button></form>"), p, Tinyc->page_label[p]);
-                }
+          if (tc_has_callback(&si->vm, "WebUI")) {
+            has_webui = true;
+          }
+        }
+        // Add buttons to /tc_ui pages if any slot has WebUI callback
+        if (has_webui) {
+          if (Tinyc->page_count > 0) {
+            for (uint8_t p = 0; p < Tinyc->page_count; p++) {
+              if (Tinyc->page_label[p][0]) {
+                WSContentSend_P(PSTR("<p></p><form action='tc_ui' method='get'>"
+                  "<input type='hidden' name='p' value='%d'>"
+                  "<button>%s</button></form>"), p, Tinyc->page_label[p]);
               }
-            } else {
-              // No wLabel() called -- single default button
-              WSContentSend_P(PSTR("<p></p><form action='tc_ui' method='get'><button>TinyC UI</button></form>"));
             }
+          } else {
+            WSContentSend_P(PSTR("<p></p><form action='tc_ui' method='get'><button>TinyC UI</button></form>"));
           }
         }
       }

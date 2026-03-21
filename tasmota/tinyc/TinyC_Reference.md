@@ -2962,7 +2962,34 @@ The TinyC console page at `/tc` shows a compact overview of all slots:
 - **Run / Stop buttons**: context-aware — Run is greyed out when active, Stop is greyed out when idle
 - **A button**: toggles auto-execute on boot (green = enabled). Saved to `/tinyc.cfg` immediately
 - **Load Program**: file selector with slot dropdown to load any `.tcb` file into any slot
+- **Repository**: if `/tinyc_repo.cfg` exists on the filesystem, a remote program repository is shown (see below)
 - **Upload Program**: file upload with slot dropdown to upload and load a `.tcb` file directly
+
+### Program Repository
+
+TinyC supports downloading pre-compiled `.tcb` programs from a remote repository directly on the device.
+
+**Setup:**
+1. Create a file `/tinyc_repo.cfg` on the device filesystem containing the base URL of the repository (one line):
+   ```
+   https://raw.githubusercontent.com/gemu2015/Sonoff-Tasmota/universal/tasmota/tinyc/bytecode
+   ```
+2. The repository must contain an `index.txt` file listing available `.tcb` files (one filename per line):
+   ```
+   blink.tcb
+   bme280.tcb
+   lcd_i2c.tcb
+   onewire.tcb
+   ```
+3. The `.tcb` files must be accessible at `<base_url>/<filename>`
+
+**Usage:**
+When `/tinyc_repo.cfg` is present, the TinyC console page shows an additional **Repository** fieldset with:
+- A dropdown listing all `.tcb` files from the remote `index.txt`
+- A slot selector
+- A **Download & Load** button that downloads the selected file to the device filesystem and loads it into the chosen slot
+
+The default repository at `https://raw.githubusercontent.com/gemu2015/Sonoff-Tasmota/universal/tasmota/tinyc/bytecode` contains example programs for sensors, displays, charts, and more. Upload the provided `tinyc_repo.cfg` to your device to enable it.
 
 ### API Endpoints
 
