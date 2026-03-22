@@ -8,7 +8,7 @@
 #define THRESHOLD 2000
 
 int main() {
-    serialBegin(115200);
+    serialBegin(3, 1, 115200, 3, 64);  // RX=3, TX=1, 115200 baud, 8N1, 64 byte buf
     pinMode(LED_PIN, OUTPUT);
 
     int count = 0;

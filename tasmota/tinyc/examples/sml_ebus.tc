@@ -131,39 +131,39 @@ void WebCall() {
     char buf[128];
 
     webSend("{s}<b style='color:#2196F3'>Aussentemperatur</b>{m}{e}");
-    sprintfFloat(buf, "{s}Zur Zeit{m}<span style='color:#fff'>%.2f", atmp);
+    sprintf(buf, "{s}Zur Zeit{m}<span style='color:#fff'>%.2f", atmp);
     strcat(buf, " &deg;C</span>{e}");
     webSend(buf);
-    sprintfFloat(buf, "{s}Maximum{m}<span style='color:#F44'>%.2f", max_at);
+    sprintf(buf, "{s}Maximum{m}<span style='color:#F44'>%.2f", max_at);
     strcat(buf, " &deg;C</span>{e}");
     webSend(buf);
-    sprintfFloat(buf, "{s}Minimum{m}<span style='color:#4AF'>%.2f", min_at);
+    sprintf(buf, "{s}Minimum{m}<span style='color:#4AF'>%.2f", min_at);
     strcat(buf, " &deg;C</span>{e}");
     webSend(buf);
 
     webSend("{s}<b style='color:#FF5722'>Solarspeicher</b>{m}{e}");
-    sprintfFloat(buf, "{s}Zur Zeit{m}<span style='color:#fff'>%.2f", scol);
+    sprintf(buf, "{s}Zur Zeit{m}<span style='color:#fff'>%.2f", scol);
     strcat(buf, " &deg;C</span>{e}");
     webSend(buf);
-    sprintfFloat(buf, "{s}Maximum{m}<span style='color:#F44'>%.2f", max_ss);
+    sprintf(buf, "{s}Maximum{m}<span style='color:#F44'>%.2f", max_ss);
     strcat(buf, " &deg;C</span>{e}");
     webSend(buf);
-    sprintfFloat(buf, "{s}Minimum{m}<span style='color:#4AF'>%.2f", min_ss);
+    sprintf(buf, "{s}Minimum{m}<span style='color:#4AF'>%.2f", min_ss);
     strcat(buf, " &deg;C</span>{e}");
     webSend(buf);
 
     webSend("{s}<b style='color:#4CAF50'>Kollektortemperatur</b>{m}{e}");
-    sprintfFloat(buf, "{s}Zur Zeit{m}<span style='color:#fff'>%.2f", ssp);
+    sprintf(buf, "{s}Zur Zeit{m}<span style='color:#fff'>%.2f", ssp);
     strcat(buf, " &deg;C</span>{e}");
     webSend(buf);
-    sprintfFloat(buf, "{s}Maximum{m}<span style='color:#F44'>%.2f", max_ct);
+    sprintf(buf, "{s}Maximum{m}<span style='color:#F44'>%.2f", max_ct);
     strcat(buf, " &deg;C</span>{e}");
     webSend(buf);
-    sprintfFloat(buf, "{s}Minimum{m}<span style='color:#4AF'>%.2f", min_ct);
+    sprintf(buf, "{s}Minimum{m}<span style='color:#4AF'>%.2f", min_ct);
     strcat(buf, " &deg;C</span>{e}");
     webSend(buf);
 
-    sprintfInt(buf, "{s}Heap{m}%d kB{e}", tasm_heap / 1024);
+    sprintf(buf, "{s}Heap{m}%d kB{e}", tasm_heap / 1024);
     webSend(buf);
 }
 
@@ -183,19 +183,19 @@ void WebPage() {
     webSend("<span id='tc_dat'></span><br>");
     // Sunrise / sunset (static, set once from server)
     webSend("&#127774; ");
-    sprintfInt(buf, "%02d:", sr / 60);
+    sprintf(buf, "%02d:", sr / 60);
     webSend(buf);
-    sprintfInt(buf, "%02d", sr % 60);
+    sprintf(buf, "%02d", sr % 60);
     webSend(buf);
     webSend(" &lt;--- ");
-    sprintfInt(buf, "%d:", dl / 60);
+    sprintf(buf, "%d:", dl / 60);
     webSend(buf);
-    sprintfInt(buf, "%02d", dl % 60);
+    sprintf(buf, "%02d", dl % 60);
     webSend(buf);
     webSend(" ---&gt; ");
-    sprintfInt(buf, "%02d:", ss / 60);
+    sprintf(buf, "%02d:", ss / 60);
     webSend(buf);
-    sprintfInt(buf, "%02d", ss % 60);
+    sprintf(buf, "%02d", ss % 60);
     webSend(buf);
     webSend(" &#127769;");
     webSend("</div>");

@@ -108,9 +108,9 @@ void EverySecond() {
 void WebCall() {
     char buf[64];
     if (mlx_ok) {
-        sprintfFloat(buf, "{s}MLX90614 Object{m}%.1f °C{e}", mlx_obj);
+        sprintf(buf, "{s}MLX90614 Object{m}%.1f °C{e}", mlx_obj);
         webSend(buf);
-        sprintfFloat(buf, "{s}MLX90614 Ambient{m}%.1f °C{e}", mlx_amb);
+        sprintf(buf, "{s}MLX90614 Ambient{m}%.1f °C{e}", mlx_amb);
         webSend(buf);
     } else {
         webSend("{s}MLX90614{m}no data{e}");
@@ -120,9 +120,9 @@ void WebCall() {
 void JsonCall() {
     if (!mlx_ok) return;
     char buf[96];
-    sprintfFloat(buf, ",\"MLX90614\":{\"OBJTMP\":%.1f", mlx_obj);
+    sprintf(buf, ",\"MLX90614\":{\"OBJTMP\":%.1f", mlx_obj);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"AMBTMP\":%.1f}", mlx_amb);
+    sprintf(buf, ",\"AMBTMP\":%.1f}", mlx_amb);
     responseAppend(buf);
 }
 
@@ -139,9 +139,9 @@ int main() {
     mlx_addr = 0;
 
     if (mlx_scan()) {
-        sprintfInt(buf, "MLX90614 found at 0x%x", mlx_addr);
+        sprintf(buf, "MLX90614 found at 0x%x", mlx_addr);
         print(buf);
-        sprintfInt(buf, " on bus %d\n", mlx_bus);
+        sprintf(buf, " on bus %d\n", mlx_bus);
         print(buf);
     } else {
         print("MLX90614 not found\n");

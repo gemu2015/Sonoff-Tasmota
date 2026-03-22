@@ -971,9 +971,9 @@ static void HandleTinyCPage(void) {
 #endif
           http.setTimeout(10000);
 #if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
-          bool begun = http.begin(UrlEncode(url));
+          bool begun = http.begin(url);
 #else
-          bool begun = http.begin(http_client, UrlEncode(url));
+          bool begun = http.begin(http_client, url);
 #endif
           if (begun) {
             int httpCode = http.GET();
@@ -1193,9 +1193,9 @@ static void HandleTinyCPage(void) {
 #endif
           http.setTimeout(5000);
 #if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
-          bool begun = http.begin(UrlEncode(idx_url));
+          bool begun = http.begin(idx_url);
 #else
-          bool begun = http.begin(http_client, UrlEncode(idx_url));
+          bool begun = http.begin(http_client, idx_url);
 #endif
           if (begun) {
             int httpCode = http.GET();

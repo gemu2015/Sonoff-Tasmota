@@ -94,17 +94,17 @@ void WebOn() {
 
 void WebCall() {
     char buf[80];
-    sprintfFloat(buf, "{s}Temperature{m}%.1f &deg;C{e}", temperature);
+    sprintf(buf, "{s}Temperature{m}%.1f &deg;C{e}", temperature);
     webSend(buf);
-    sprintfFloat(buf, "{s}Humidity{m}%.1f %%{e}", humidity);
+    sprintf(buf, "{s}Humidity{m}%.1f %%{e}", humidity);
     webSend(buf);
 }
 
 void JsonCall() {
     char buf[80];
-    sprintfFloat(buf, ",\"TinyC\":{\"Temp\":%.1f", temperature);
+    sprintf(buf, ",\"TinyC\":{\"Temp\":%.1f", temperature);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"Hum\":%.1f}", humidity);
+    sprintf(buf, ",\"Hum\":%.1f}", humidity);
     responseAppend(buf);
 }
 

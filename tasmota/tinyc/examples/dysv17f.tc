@@ -111,7 +111,7 @@ void Command(char cmd[]) {
             int val = atoi(arg);
             dy_volume(val);
         }
-        sprintfInt(buf, "Volume: %d", dy_vol);
+        sprintf(buf, "Volume: %d", dy_vol);
         responseCmnd(buf);
     } else {
         responseCmnd("Play [file]|Stop|Pause|Next|Prev|Vol <n>");
@@ -125,7 +125,7 @@ void WebUI() {
 void WebCall() {
     char buf[64];
     if (dy_ok) {
-        sprintfInt(buf, "{s}MP3 Volume{m}%d{e}", dy_vol);
+        sprintf(buf, "{s}MP3 Volume{m}%d{e}", dy_vol);
         webSend(buf);
         if (dy_file[0]) {
             sprintfStr(buf, "{s}MP3 File{m}%s{e}", dy_file);
@@ -155,7 +155,7 @@ int main() {
         delay(100);
         dy_volume(dy_vol);
         char buf[48];
-        sprintfInt(buf, "DY-SV17F ready on GPIO %d\n", dy_txpin);
+        sprintf(buf, "DY-SV17F ready on GPIO %d\n", dy_txpin);
         print(buf);
     } else {
         print("DY-SV17F: serial init failed\n");

@@ -112,11 +112,11 @@ void WebCall() {
     if (ccs_ok) {
         // eCO2
         ccs_web_label(5);  // 5 = eCO2
-        sprintfInt(vt, "%d ppm{e}", ccs_eco2);
+        sprintf(vt, "%d ppm{e}", ccs_eco2);
         webSend(vt);
         // TVOC
         ccs_web_label(6);  // 6 = TVOC
-        sprintfInt(vt, "%d ppb{e}", ccs_tvoc);
+        sprintf(vt, "%d ppb{e}", ccs_tvoc);
         webSend(vt);
     } else {
         webSend("{s}CCS811{m}not found{e}");
@@ -130,9 +130,9 @@ void JsonCall() {
     strcat(buf, ccs_name);
     strcat(buf, "\":{");
     responseAppend(buf);
-    sprintfInt(buf, "\"eCO2\":%d", ccs_eco2);
+    sprintf(buf, "\"eCO2\":%d", ccs_eco2);
     responseAppend(buf);
-    sprintfInt(buf, ",\"TVOC\":%d}", ccs_tvoc);
+    sprintf(buf, ",\"TVOC\":%d}", ccs_tvoc);
     responseAppend(buf);
 }
 
@@ -159,7 +159,7 @@ int main() {
 
     if (!ccs_init()) {
         char dt[48];
-        sprintfInt(dt, "CCS811 init failed (addr 0x%x)", ccs_addr);
+        sprintf(dt, "CCS811 init failed (addr 0x%x)", ccs_addr);
         print(dt);
         return 0;
     }

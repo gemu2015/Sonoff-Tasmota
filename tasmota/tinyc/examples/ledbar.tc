@@ -62,7 +62,7 @@ int main() {
 
 void WebCall() {
     char buf[64];
-    sprintfFloat(buf, "{s}ledbar{m}%f{e}", ledbar);
+    sprintf(buf, "{s}ledbar{m}%f{e}", ledbar);
     webSend(buf);
 }
 

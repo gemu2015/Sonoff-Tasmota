@@ -138,16 +138,16 @@ void WebCall() {
     char buf[32];
     if (sht_ok) {
         sht_web_label(0);
-        sprintfFloat(buf, "%.1f &deg;C{e}", sht_temp);
+        sprintf(buf, "%.1f &deg;C{e}", sht_temp);
         webSend(buf);
         sht_web_label(1);
-        sprintfFloat(buf, "%.1f %{e}", sht_humi);
+        sprintf(buf, "%.1f %{e}", sht_humi);
         webSend(buf);
         sht_web_label(3);
-        sprintfFloat(buf, "%.1f &deg;C{e}", sht_dewp);
+        sprintf(buf, "%.1f &deg;C{e}", sht_dewp);
         webSend(buf);
         sht_web_label(20);
-        sprintfFloat(buf, "%.1f g/m&sup3;{e}", sht_absh);
+        sprintf(buf, "%.1f g/m&sup3;{e}", sht_absh);
         webSend(buf);
     } else {
         webSend("{s}SHT31{m}not found{e}");
@@ -157,13 +157,13 @@ void WebCall() {
 void JsonCall() {
     if (!sht_ok) return;
     char buf[96];
-    sprintfFloat(buf, ",\"SHT3X\":{\"Temperature\":%.1f", sht_temp);
+    sprintf(buf, ",\"SHT3X\":{\"Temperature\":%.1f", sht_temp);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"Humidity\":%.1f", sht_humi);
+    sprintf(buf, ",\"Humidity\":%.1f", sht_humi);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"DewPoint\":%.1f", sht_dewp);
+    sprintf(buf, ",\"DewPoint\":%.1f", sht_dewp);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"AbsHumidity\":%.1f}", sht_absh);
+    sprintf(buf, ",\"AbsHumidity\":%.1f}", sht_absh);
     responseAppend(buf);
 }
 
@@ -181,9 +181,9 @@ int main() {
     sht_addr = 0;
 
     if (sht_scan()) {
-        sprintfInt(buf, "SHT3X found at 0x%x", sht_addr);
+        sprintf(buf, "SHT3X found at 0x%x", sht_addr);
         print(buf);
-        sprintfInt(buf, " on bus %d\n", sht_bus);
+        sprintf(buf, " on bus %d\n", sht_bus);
         print(buf);
     } else {
         print("SHT3X not found on any bus\n");

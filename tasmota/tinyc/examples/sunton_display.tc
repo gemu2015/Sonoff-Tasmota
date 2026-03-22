@@ -1,0 +1,408 @@
+// ═══════════════════════════════════════════════════════════════════
+// Sunton 800x480 RGB Display — Home Energy Dashboard
+// Converted from Tasmota Scripter: sunton2_script.txt
+// Uses UDP global floats for live sensor data from other devices
+// ═══════════════════════════════════════════════════════════════════
+
+// ─── Display colors (RGB565) ───
+#define LGREY   21130
+
+// ─── UDP global floats — auto-updated from other Tasmota devices ───
+global float pwl;       // Powerwall battery %
+global float atmp;      // outside temperature
+global float sip;       // grid power (net import)
+global float sop;       // solar power
+global float bip;       // battery power
+global float hip;       // house consumption
+global float hwp;       // heat pump power
+
+// Solar inverters
+global float sedc;      // solar roof (Dach)
+global float wrgh;      // solar garden house (Gartenhaus)
+global float wrga;      // solar garage
+global float wrgg;      // solar garden (Garten)
+
+// Temperatures
+global float aztemp;    // bedroom Gerhard
+global float wtemp;     // living room
+global float ktmp;      // cellar
+global float btemp;     // office
+global float shtemp;    // bedroom Heidrun
+global float avgt;      // daily average temperature
+
+// Phases
+global float phs1;
+global float phs2;
+global float phs3;
+
+// ─── Local state ───
+int cnt;
+int udp_timer;
+int loud;
+int start;
+int last_hr;
+int last_min;
+int cpic;
+char buf[128];
+char fnam[64];
+char path[128];
+
+// ═══════════════════════════════════════════════════════════════════
+// DISPLAY DRAWING HELPERS
+// All use inline DisplayText commands: [Ci<c>x<x>y<y>p-7]<value>
+// ═══════════════════════════════════════════════════════════════════
+char tmp[32];
+char lbl[20];
+
+// Label strings (pipe-delimited, used with strToken)
+char leftLabels[] = "HA:|N:|S:|B:|HWP:";
+char midLabels[] = "DA:|GA:|GH:|GA:|SU:";
+char rightLabels[] = "Buero:|Wohnzimmer:|Schlafz H:|Schlafz G:|Keller:|Tagesmittel:|Phase1|Phase2|Phase3";
+
+// Draw a power value with color: green if >0, red if <=0
+void drawColVal(float val, int x, int y) {
+    int ci;
+    if (val > 0) {
+        ci = 2;
+    } else {
+        ci = 3;
+    }
+    sprintf(buf, "[Ci%dx", ci);
+    sprintf(tmp, "%dy", x);
+    strcat(buf, tmp);
+    sprintf(tmp, "%dp-7]", y);
+    strcat(buf, tmp);
+    sprintf(tmp, "%.0f W", val);
+    strcat(buf, tmp);
+    dspText(buf);
+}
+
+// Draw a value with fixed color index
+void drawWVal(float val, int x, int y, int ci) {
+    sprintf(buf, "[Ci%dx", ci);
+    sprintf(tmp, "%dy", x);
+    strcat(buf, tmp);
+    sprintf(tmp, "%dp-7]", y);
+    strcat(buf, tmp);
+    sprintf(tmp, "%.0f W", val);
+    strcat(buf, tmp);
+    dspText(buf);
+}
+
+// Draw a temperature value with fixed color
+void drawTVal(float val, int x, int y, int ci) {
+    sprintf(buf, "[Ci%dx", ci);
+    sprintf(tmp, "%dy", x);
+    strcat(buf, tmp);
+    sprintf(tmp, "%dp-7]", y);
+    strcat(buf, tmp);
+    sprintf(tmp, "%.1f C", val);
+    strcat(buf, tmp);
+    dspText(buf);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SLIDESHOW — cycle through images in /RGB directory
+// ═══════════════════════════════════════════════════════════════════
+void nextPic() {
+    int dir;
+    int found;
+    int c;
+
+    dir = fileOpenDir("/RGB");
+    if (dir < 0) return;
+
+    found = 0;
+    c = 0;
+    while (fileReadDir(dir, fnam)) {
+        // Skip hidden files and non-image files
+        if (fnam[0] == '.' || (strFind(fnam, ".jpg") < 0 && strFind(fnam, ".rgb") < 0)) {
+            c = c;  // skip
+        } else {
+        c = c + 1;
+        if (c == cpic) {
+            // Build full path: /RGB/filename
+            strcpy(path, "/RGB/");
+            strcat(path, fnam);
+
+            // Clear picture area with grey
+            sprintf(buf, "[C%dx0y0R480:281]", LGREY);
+            dspText(buf);
+
+            // Draw scaled JPEG
+            strcpy(buf, "[x0y0P");
+            strcat(buf, path);
+            strcat(buf, ":1:480:281]");
+            dspText(buf);
+
+        
+            // Play sound
+            audioPlay("/Correct.mp3");
+            found = 1;
+            break;
+        }
+        } // end else (skip hidden)
+    }
+    fileClose(dir);
+
+    if (found > 0) {
+        cpic = cpic + 1;
+    } else {
+        cpic = 1;  // loop back to start
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DISPLAY INIT — draw static layout (called once)
+// ═══════════════════════════════════════════════════════════════════
+void drawStatic() {
+    int i;
+    int yp;
+
+    // background image
+    sprintf(buf, "[B%dz]", LGREY);
+    dspText(buf);
+    dspText("[f1s3x0y0P/Aerial.jpg:]");
+
+    // touch button area (power toggle)
+    dspText("[b0:740:420:50:50:2:11:4:2:/power:]");
+
+    // separator lines
+    dspText("[Ci1x480y0v480]");
+    dspText("[Ci1x0y285h480]");
+    dspText("[Ci1x0y335h480]");
+
+    // ─── Labels ───
+    dspText("[f1s2Ci6]");
+
+    // Left column labels (energy)
+    yp = 345;
+    for (i = 1; i <= 5; i = i + 1) {
+        strToken(lbl, leftLabels, '|', i);
+        sprintf(buf, "[x10y%d]", yp);
+        strcat(buf, lbl);
+        dspText(buf);
+        yp = yp + 25;
+    }
+
+    // Middle column labels (solar inverters)
+    yp = 345;
+    for (i = 1; i <= 5; i = i + 1) {
+        strToken(lbl, midLabels, '|', i);
+        sprintf(buf, "[x200y%d]", yp);
+        strcat(buf, lbl);
+        dspText(buf);
+        yp = yp + 25;
+    }
+
+    // Right column labels (temps + phases)
+    yp = 10;
+    for (i = 1; i <= 9; i = i + 1) {
+        strToken(lbl, rightLabels, '|', i);
+        sprintf(buf, "[x500y%d]", yp);
+        strcat(buf, lbl);
+        dspText(buf);
+        yp = yp + 30;
+    }
+
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// LIVE VALUES UPDATE — called every second
+// ═══════════════════════════════════════════════════════════════════
+void updateDisplay() {
+    int xp;
+    int yp;
+    int dy;
+
+    sprintf(buf, "[B%d]", LGREY);
+    dspText(buf);
+	
+    // ─── Date/Time ───
+    dspText("[Ci5f4x10y300T]");
+    dspText("[x160y300tS]");
+
+    // ─── Outside temperature ───
+    sprintf(buf, "[f2s1Ci3x350y300p6]%.1f C", atmp);
+    dspText(buf);
+
+    // ─── Battery % ───
+    sprintf(buf, "[f2s1x370y350p6]%.1f %", pwl);
+    dspText(buf);
+
+    // ─── Left column: energy values ───
+    dspText("[f2s1]");
+    xp = 50;
+    yp = 345;
+    dy = 25;
+    drawWVal(hip, xp, yp, 2);
+    yp = yp + dy;
+    drawColVal(sip, xp, yp);
+    yp = yp + dy;
+    drawWVal(sop, xp, yp, 7);
+    yp = yp + dy;
+    drawColVal(bip, xp, yp);
+    yp = yp + dy;
+    drawWVal(hwp, xp, yp, 2);
+
+    // ─── Middle column: solar inverters ───
+    xp = 230;
+    yp = 345;
+    drawWVal(sedc, xp, yp, 7);
+    yp = yp + dy;
+    drawWVal(0 - wrgh, xp, yp, 7);
+    yp = yp + dy;
+    drawWVal(0 - wrga, xp, yp, 7);
+    yp = yp + dy;
+    drawWVal(0 - wrgg, xp, yp, 7);
+    yp = yp + dy;
+    drawWVal(0 - (wrga + wrgh + wrgg), xp, yp, 7);
+
+    // ─── Right column: temperatures ───
+    xp = 670;
+    yp = 10;
+    dy = 30;
+    drawTVal(btemp, xp, yp, 3);
+    yp = yp + dy;
+    drawTVal(wtemp, xp, yp, 3);
+    yp = yp + dy;
+    drawTVal(shtemp, xp, yp, 3);
+    yp = yp + dy;
+    drawTVal(aztemp, xp, yp, 3);
+    yp = yp + dy;
+    drawTVal(ktmp, xp, yp, 3);
+    yp = yp + dy;
+    drawTVal(avgt, xp, yp, 3);
+    yp = yp + dy;
+
+    // ─── Phases ───
+    drawWVal(phs1, xp, yp, 3);
+    yp = yp + dy;
+    drawWVal(phs2, xp, yp, 3);
+    yp = yp + dy;
+    drawWVal(phs3, xp, yp, 3);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// WEB INTERFACE
+// ═══════════════════════════════════════════════════════════════════
+void WebUI() {
+    webSlider(loud, 0, 100, "Lautstaerke");
+    webButton(start, "WDR2");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// WEB PAGE — sensor values on main page
+// ═══════════════════════════════════════════════════════════════════
+void WebCall() {
+    webSend("{s}<b style='color:magenta'>Powerwall</b>{m}{e}");
+    sprintf(buf, "{s}Batterie{m}<span style='color:yellow'>%.1f %</span>{e}", pwl);
+    webSend(buf);
+    sprintf(buf, "{s}Netz{m}<span style='color:yellow'>%.0f W</span>{e}", sip);
+    webSend(buf);
+    sprintf(buf, "{s}Solar{m}<span style='color:green'>%.0f W</span>{e}", sop);
+    webSend(buf);
+    sprintf(buf, "{s}Batterie{m}<span style='color:yellow'>%.0f W</span>{e}", bip);
+    webSend(buf);
+    sprintf(buf, "{s}Haus{m}<span style='color:red'>%.0f W</span>{e}", hip);
+    webSend(buf);
+
+    webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Temperaturen</b>{m}{e}");
+    sprintf(buf, "{s}Aussen{m}<span style='color:yellow'>%.1f C</span>{e}", atmp);
+    webSend(buf);
+    sprintf(buf, "{s}Buero{m}<span style='color:yellow'>%.1f C</span>{e}", btemp);
+    webSend(buf);
+    sprintf(buf, "{s}Wohnzimmer{m}<span style='color:yellow'>%.1f C</span>{e}", wtemp);
+    webSend(buf);
+    sprintf(buf, "{s}Keller{m}<span style='color:yellow'>%.1f C</span>{e}", ktmp);
+    webSend(buf);
+
+    webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Phasen</b>{m}{e}");
+    sprintf(buf, "{s}Phase 1{m}<span style='color:yellow'>%.0f W</span>{e}", phs1);
+    webSend(buf);
+    sprintf(buf, "{s}Phase 2{m}<span style='color:yellow'>%.0f W</span>{e}", phs2);
+    webSend(buf);
+    sprintf(buf, "{s}Phase 3{m}<span style='color:yellow'>%.0f W</span>{e}", phs3);
+    webSend(buf);
+
+    sprintf(buf, "{s}Heap{m}<span style='color:yellow'>%d kB</span>{e}", tasm_heap / 1000);
+    webSend(buf);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CALLBACKS
+// ═══════════════════════════════════════════════════════════════════
+
+void UdpCall() {
+    udp_timer = 60;
+}
+
+void TouchButton(int btn, int val) {
+    if (btn == 0) {
+        sprintf(buf, "%d", val);
+        tasmCmd("Power1", buf);
+    }
+}
+
+void EverySecond() {
+    int h;
+    int m;
+    cnt = cnt + 1;
+
+    // UDP timeout watchdog
+    if (udp_timer > 0) {
+        udp_timer = udp_timer - 1;
+    }
+    if (udp_timer == 0) {
+        udp_timer = 60;
+        addLog("TCC: udp timeout");
+        tasmCmd("gvr", buf);
+    }
+
+    // Update display
+    updateDisplay();
+
+    // Slideshow — advance every minute
+    m = tasm_minute;
+    if (m != last_min) {
+        last_min = m;
+        nextPic();
+    }
+
+    // Web radio start/stop
+    if (start == 1) {
+        strcpy(buf, "http://wdr-wdr2-aachenundregion.icecastssl.wdr.de/wdr/wdr2/aachenundregion/mp3/128/stream.mp3");
+        tasmCmd("i2swr", buf);
+        start = 0;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MAIN
+// ═══════════════════════════════════════════════════════════════════
+int main() {
+    cnt = 0;
+    loud = 10;
+    start = 0;
+    cpic = 1;
+    udp_timer = 30;
+    last_hr = -1;
+    last_min = -1;
+
+    // Set initial volume
+    strcpy(buf, "20");
+    tasmCmd("i2svol", buf);
+    strcpy(buf, "Display An/Aus");
+    tasmCmd("WebButton1", buf);
+
+    // Draw static display layout
+    drawStatic();
+
+    // Play startup sound
+    audioPlay("/Startup.mp3");
+
+    sprintf(buf, "Sunton display started, heap: %d\n", tasm_heap);
+    print(buf);
+
+    return 0;
+}

@@ -152,15 +152,15 @@ void WebCall() {
     }
 
     // moving target: distance / energy
-    sprintfInt(vt, "{s}LD2410 Moving{m}%d cm / ", ld_mdist);
+    sprintf(vt, "{s}LD2410 Moving{m}%d cm / ", ld_mdist);
     webSend(vt);
-    sprintfInt(vt, "%d %{e}", ld_menrg);
+    sprintf(vt, "%d %{e}", ld_menrg);
     webSend(vt);
 
     // stationary target: distance / energy
-    sprintfInt(vt, "{s}LD2410 Static{m}%d cm / ", ld_sdist);
+    sprintf(vt, "{s}LD2410 Static{m}%d cm / ", ld_sdist);
     webSend(vt);
-    sprintfInt(vt, "%d %{e}", ld_senrg);
+    sprintf(vt, "%d %{e}", ld_senrg);
     webSend(vt);
 
     // detection distance (localized label)
@@ -169,7 +169,7 @@ void WebCall() {
     strcat(vt, ld_lbl);
     strcat(vt, "{m}");
     webSend(vt);
-    sprintfInt(vt, "%d cm{e}", ld_dist);
+    sprintf(vt, "%d cm{e}", ld_dist);
     webSend(vt);
 }
 
@@ -177,17 +177,17 @@ void JsonCall() {
     if (!ld_ok) return;
     char buf[64];
     responseAppend(",\"LD2410\":{");
-    sprintfInt(buf, "\"State\":%d", ld_state);
+    sprintf(buf, "\"State\":%d", ld_state);
     responseAppend(buf);
-    sprintfInt(buf, ",\"MovingDist\":%d", ld_mdist);
+    sprintf(buf, ",\"MovingDist\":%d", ld_mdist);
     responseAppend(buf);
-    sprintfInt(buf, ",\"MovingEnergy\":%d", ld_menrg);
+    sprintf(buf, ",\"MovingEnergy\":%d", ld_menrg);
     responseAppend(buf);
-    sprintfInt(buf, ",\"StaticDist\":%d", ld_sdist);
+    sprintf(buf, ",\"StaticDist\":%d", ld_sdist);
     responseAppend(buf);
-    sprintfInt(buf, ",\"StaticEnergy\":%d", ld_senrg);
+    sprintf(buf, ",\"StaticEnergy\":%d", ld_senrg);
     responseAppend(buf);
-    sprintfInt(buf, ",\"Distance\":%d}", ld_dist);
+    sprintf(buf, ",\"Distance\":%d}", ld_dist);
     responseAppend(buf);
 }
 
@@ -197,17 +197,17 @@ void Command(char cmd[]) {
         responseCmnd("no data");
         return;
     }
-    sprintfInt(buf, "State=%d", ld_state);
+    sprintf(buf, "State=%d", ld_state);
     responseCmnd(buf);
-    sprintfInt(buf, " MovDist=%d", ld_mdist);
+    sprintf(buf, " MovDist=%d", ld_mdist);
     responseAppend(buf);
-    sprintfInt(buf, " MovE=%d", ld_menrg);
+    sprintf(buf, " MovE=%d", ld_menrg);
     responseAppend(buf);
-    sprintfInt(buf, " StatDist=%d", ld_sdist);
+    sprintf(buf, " StatDist=%d", ld_sdist);
     responseAppend(buf);
-    sprintfInt(buf, " StatE=%d", ld_senrg);
+    sprintf(buf, " StatE=%d", ld_senrg);
     responseAppend(buf);
-    sprintfInt(buf, " Dist=%d", ld_dist);
+    sprintf(buf, " Dist=%d", ld_dist);
     responseAppend(buf);
 }
 

@@ -183,7 +183,7 @@ int lcd_init() {
         addLog("LCD: no PCF8574 found on bus 0/1");
         return -1;
     }
-    sprintfInt(buf, "LCD: found at 0x%x bus ", lcd_addr);
+    sprintf(buf, "LCD: found at 0x%x bus ", lcd_addr);
     sprintfAppendInt(buf, "%d", lcd_bus);
     addLog(buf);
 
@@ -226,23 +226,23 @@ int lcd_init() {
 void build_auto_display() {
     // Line 1: HH:MM:SS  DD.MM
     strcpy(line1, "");
-    sprintfInt(tmp, "%02d", tasm_hour);
+    sprintf(tmp, "%02d", tasm_hour);
     strcat(line1, tmp);
     strcat(line1, ":");
-    sprintfInt(tmp, "%02d", tasm_minute);
+    sprintf(tmp, "%02d", tasm_minute);
     strcat(line1, tmp);
     strcat(line1, ":");
-    sprintfInt(tmp, "%02d", tasm_second);
+    sprintf(tmp, "%02d", tasm_second);
     strcat(line1, tmp);
     strcat(line1, "  ");
-    sprintfInt(tmp, "%02d", tasm_day);
+    sprintf(tmp, "%02d", tasm_day);
     strcat(line1, tmp);
     strcat(line1, ".");
-    sprintfInt(tmp, "%02d", tasm_month);
+    sprintf(tmp, "%02d", tasm_month);
     strcat(line1, tmp);
 
     // Line 2: Heap + WiFi status
-    sprintfInt(line2, "Heap:%dkB ", tasm_heap / 1000);
+    sprintf(line2, "Heap:%dkB ", tasm_heap / 1000);
     if (tasm_wifi) {
         strcat(line2, "WiFi:OK");
     } else {
@@ -293,7 +293,7 @@ void EverySecond() {
 void WebCall() {
     webSend("{s}<b style='color:cyan'>LCD 16x2</b>{m}{e}");
     if (lcd_ok == 1) {
-        sprintfInt(buf, "{s}I2C Address{m}0x%x{e}", lcd_addr);
+        sprintf(buf, "{s}I2C Address{m}0x%x{e}", lcd_addr);
         webSend(buf);
         webSend("{s}Status{m}OK{e}");
     } else {
@@ -373,9 +373,9 @@ void Command(char cmd[]) {
 // JSON output
 // ═══════════════════════════════════════════════════════════════════
 void JsonCall() {
-    sprintfInt(buf, ",\"LCD\":{\"Address\":\"0x%x\"", lcd_addr);
+    sprintf(buf, ",\"LCD\":{\"Address\":\"0x%x\"", lcd_addr);
     responseAppend(buf);
-    sprintfInt(buf, ",\"Backlight\":%d}", backlight);
+    sprintf(buf, ",\"Backlight\":%d}", backlight);
     responseAppend(buf);
 }
 

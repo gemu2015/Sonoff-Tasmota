@@ -77,7 +77,7 @@ void EverySecond() {
     dspColor(CYAN, BLACK);
     dspFont(2);
     dspSize(1);
-    sprintfInt(buf, "%02d", tasm_hour);
+    sprintf(buf, "%02d", tasm_hour);
     strcat(buf, ":");
     sprintfAppendInt(buf, "%02d", tasm_minute);
     strcat(buf, ":");
@@ -89,7 +89,7 @@ void EverySecond() {
     dspColor(LIGHTGREY, BLACK);
     dspFont(2);
     dspSize(1);
-    sprintfInt(buf, "%02d", tasm_day);
+    sprintf(buf, "%02d", tasm_day);
     strcat(buf, ".");
     sprintfAppendInt(buf, "%02d", tasm_month);
     strcat(buf, ".");
@@ -117,7 +117,7 @@ void EverySecond() {
     dspSize(1);
     dspPad(10);
     dspPos(200, 112);
-    sprintfFloat(buf, "%.1f", temp);
+    sprintf(buf, "%.1f", temp);
     if (buf[0] == 'n' || buf[0] == 'N' || buf[0] == 0) {
         dspColor(DARKGREY, BLACK);
         dspDraw("--.-");
@@ -135,7 +135,7 @@ void EverySecond() {
     dspSize(1);
     dspPad(10);
     dspPos(200, 152);
-    sprintfFloat(buf, "%.1f", hum);
+    sprintf(buf, "%.1f", hum);
     if (buf[0] == 'n' || buf[0] == 'N' || buf[0] == 0) {
         dspColor(DARKGREY, BLACK);
         dspDraw("--.-");
@@ -158,25 +158,25 @@ void EverySecond() {
     dspFont(1);
     dspSize(1);
     dspPad(20);
-    sprintfInt(buf, "%dd ", days);
+    sprintf(buf, "%dd ", days);
     dspPos(90, 210);
     dspDraw(buf);
     dspPad(0);
-    sprintfInt(buf, "%dh ", hrs);
+    sprintf(buf, "%dh ", hrs);
     dspDraw(buf);
-    sprintfInt(buf, "%dm", mins);
+    sprintf(buf, "%dm", mins);
 */
  dspFont(1);
     dspSize(1);
     dspPos(90, 210);
-    sprintfInt(buf, "%d secs", tasm_uptime);
+    sprintf(buf, "%d secs", tasm_uptime);
     dspDraw(buf);
 
     // ── Heap value ──
 
     dspColor(GREY, BLACK);
     dspPad(16);
-    sprintfInt(buf, "%d bytes", tasm_heap);
+    sprintf(buf, "%d bytes", tasm_heap);
     dspPos(90, 230);
     dspDraw(buf);
 

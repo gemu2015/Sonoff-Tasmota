@@ -10,13 +10,13 @@ void TouchButton(int btn, int val) {
     // Button 0: Toggle light
     if (btn == 0) {
         light_state = val;
-        sprintfInt(buf, "%d", val);
+        sprintf(buf, "%d", val);
         tasmCmd("Power1", buf);
     }
     // Button 1: Slider -> dimmer
     if (btn == 1) {
         dimmer_val = val;
-        sprintfInt(buf, "%d", val);
+        sprintf(buf, "%d", val);
         tasmCmd("Dimmer", buf);
     }
 }

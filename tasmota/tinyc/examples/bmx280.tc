@@ -276,20 +276,20 @@ void WebCall() {
     char vt[32];
     if (bmx_ok) {
         bmx_web_label(0);
-        sprintfFloat(vt, "%.1f &deg;C{e}", bmx_temp);
+        sprintf(vt, "%.1f &deg;C{e}", bmx_temp);
         webSend(vt);
         bmx_web_label(2);
-        sprintfFloat(vt, "%.1f hPa{e}", bmx_pres);
+        sprintf(vt, "%.1f hPa{e}", bmx_pres);
         webSend(vt);
         if (bmx_has_humi) {
             bmx_web_label(1);
-            sprintfFloat(vt, "%.1f %{e}", bmx_humi);
+            sprintf(vt, "%.1f %{e}", bmx_humi);
             webSend(vt);
             bmx_web_label(3);
-            sprintfFloat(vt, "%.1f &deg;C{e}", bmx_dewp);
+            sprintf(vt, "%.1f &deg;C{e}", bmx_dewp);
             webSend(vt);
             bmx_web_label(20);
-            sprintfFloat(vt, "%.1f g/m&sup3;{e}", bmx_absh);
+            sprintf(vt, "%.1f g/m&sup3;{e}", bmx_absh);
             webSend(vt);
         }
     } else {
@@ -305,16 +305,16 @@ void JsonCall() {
     strcat(buf, bmx_name);
     strcat(buf, "\":{");
     responseAppend(buf);
-    sprintfFloat(buf, "\"Temperature\":%.1f", bmx_temp);
+    sprintf(buf, "\"Temperature\":%.1f", bmx_temp);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"Pressure\":%.1f", bmx_pres);
+    sprintf(buf, ",\"Pressure\":%.1f", bmx_pres);
     responseAppend(buf);
     if (bmx_has_humi) {
-        sprintfFloat(buf, ",\"Humidity\":%.1f", bmx_humi);
+        sprintf(buf, ",\"Humidity\":%.1f", bmx_humi);
         responseAppend(buf);
-        sprintfFloat(buf, ",\"DewPoint\":%.1f", bmx_dewp);
+        sprintf(buf, ",\"DewPoint\":%.1f", bmx_dewp);
         responseAppend(buf);
-        sprintfFloat(buf, ",\"AbsHumidity\":%.1f", bmx_absh);
+        sprintf(buf, ",\"AbsHumidity\":%.1f", bmx_absh);
         responseAppend(buf);
     }
     responseAppend("}");
@@ -339,9 +339,9 @@ int main() {
 
     if (bmx_scan()) {
         print(bmx_name);
-        sprintfInt(buf, " found at 0x%x", bmx_addr);
+        sprintf(buf, " found at 0x%x", bmx_addr);
         print(buf);
-        sprintfInt(buf, " on bus %d\n", bmx_bus);
+        sprintf(buf, " on bus %d\n", bmx_bus);
         print(buf);
         if (bmx_read_calib() && bmx_configure()) {
             print("Calibration loaded, sensor active\n");

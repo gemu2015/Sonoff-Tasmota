@@ -33,12 +33,6 @@ int campins[] = {32, -1, 0, 26, 27, 35, 34, 39, 36, 21, 19, 18, 5, 25, 23, 22};
 #endif
 
 // ─── Camera constants ───
-// GPIO pin modes
-#define INPUT               0x01
-#define OUTPUT              0x03
-#define INPUT_PULLUP        0x05
-#define INPUT_PULLDOWN      0x09
-
 #define PIXFORMAT_JPEG      4
 #define FRAMESIZE_QVGA      5
 #define FRAMESIZE_VGA       8
@@ -110,7 +104,7 @@ int initCamera() {
 
     // Check sensor type and apply sensor-specific settings
     int pid = camControl(8, 0, 0);
-    sprintfInt(buf, "TCC: sensor PID = 0x%x", pid);
+    sprintf(buf, "TCC: sensor PID = 0x%x", pid);
     addLog(buf);
 
     if (pid == OV3660_PID) {
@@ -191,7 +185,7 @@ void save_pic_from_slot(int slot) {
     if (fh >= 0) {
         int written = camControl(11, slot, fh);
         fileClose(fh);
-        sprintfInt(buf, "TCC: saved %d bytes to ", written);
+        sprintf(buf, "TCC: saved %d bytes to ", written);
         strcat(buf, fnam);
         addLog(buf);
     } else {
@@ -438,13 +432,13 @@ void EverySecond() {
 // ═══════════════════════════════════════════════════════════════════
 void WebCall() {
     webSend("{s}<b style='color:cyan'>Camera</b>{m}{e}");
-    sprintfInt(buf, "{s}Frames{m}%d{e}", frame_count);
+    sprintf(buf, "{s}Frames{m}%d{e}", frame_count);
     webSend(buf);
-    sprintfInt(buf, "{s}Motion{m}%d{e}", mot);
+    sprintf(buf, "{s}Motion{m}%d{e}", mot);
     webSend(buf);
-    sprintfInt(buf, "{s}Detected{m}%d{e}", motion_detect);
+    sprintf(buf, "{s}Detected{m}%d{e}", motion_detect);
     webSend(buf);
-    sprintfInt(buf, "{s}Heap{m}%d kB{e}", tasm_heap / 1000);
+    sprintf(buf, "{s}Heap{m}%d kB{e}", tasm_heap / 1000);
     webSend(buf);
 }
 
@@ -473,7 +467,7 @@ void WebUI() {
 // JSON output for integration
 // ═══════════════════════════════════════════════════════════════════
 void JsonCall() {
-    sprintfInt(buf, ",\"TinyCam\":{\"Motion\":%d", mot);
+    sprintf(buf, ",\"TinyCam\":{\"Motion\":%d", mot);
     sprintfAppendInt(buf, ",\"Detected\":%d", motion_detect);
     sprintfAppendInt(buf, ",\"Frames\":%d}", frame_count);
     responseAppend(buf);
@@ -530,7 +524,7 @@ int main() {
 
     // PIR input pin (only if configured, PIR_PIN=-1 means no hardware PIR)
     if (PIR_PIN >= 0) {
-        pinMode(PIR_PIN, INPUT);
+        pinMode(PIR_PIN, 0);
     }
 
     // Create pictures folder
@@ -547,7 +541,7 @@ int main() {
 
     // First test capture
     int size = captureToSlot(1);
-    sprintfInt(buf, "TCC: camera ready, first frame: %d bytes, heap: ", size);
+    sprintf(buf, "TCC: camera ready, first frame: %d bytes, heap: ", size);
     sprintfAppendInt(buf, "%d", tasm_heap);
     addLog(buf);
 

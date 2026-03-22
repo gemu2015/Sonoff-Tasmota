@@ -201,7 +201,7 @@ void WebPage() {
 void WebCall() {
     char buf[48];
     if (ltr_ok) {
-        sprintfFloat(buf, "{s}LTR308 Illuminance{m}%.1f lux{e}", lux);
+        sprintf(buf, "{s}LTR308 Illuminance{m}%.1f lux{e}", lux);
         webSend(buf);
     } else {
         webSend("{s}LTR308{m}not found{e}");
@@ -214,7 +214,7 @@ void WebCall() {
 void JsonCall() {
     if (!ltr_ok) return;
     char buf[64];
-    sprintfFloat(buf, ",\"LTR308\":{\"Illuminance\":%.1f}", lux);
+    sprintf(buf, ",\"LTR308\":{\"Illuminance\":%.1f}", lux);
     responseAppend(buf);
 }
 
@@ -249,9 +249,9 @@ int main() {
     I2cResetActive(LTR308_ADDR, 1);
 
     if (ltr_scan()) {
-        sprintfInt(buf, "LTR308 found at 0x%x", ltr_addr);
+        sprintf(buf, "LTR308 found at 0x%x", ltr_addr);
         print(buf);
-        sprintfInt(buf, " on bus %d\n", ltr_bus);
+        sprintf(buf, " on bus %d\n", ltr_bus);
         print(buf);
         if (ltr_configure()) {
             print("LTR308 configured: 3x gain, 18-bit, 100ms\n");

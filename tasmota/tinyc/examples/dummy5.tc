@@ -7,7 +7,7 @@ char dummy_buf[64];
 
 void Command(char cmd[]) {
     if (strFind(cmd, "STATUS") == 0) {
-        sprintfInt(dummy_buf, "Count: %d", dummy_count);
+        sprintf(dummy_buf, "Count: %d", dummy_count);
         responseCmnd(dummy_buf);
     } else {
         responseCmnd("Status");
@@ -20,14 +20,14 @@ void EverySecond() {
 
 void WebCall() {
     if (dummy_ok) {
-        sprintfInt(dummy_buf, "{s}Dummy5{m}count=%d{e}", dummy_count);
+        sprintf(dummy_buf, "{s}Dummy5{m}count=%d{e}", dummy_count);
         webSend(dummy_buf);
     }
 }
 
 void JsonCall() {
     if (!dummy_ok) return;
-    sprintfInt(dummy_buf, ",\"Dummy5\":{\"Count\":%d}", dummy_count);
+    sprintf(dummy_buf, ",\"Dummy5\":{\"Count\":%d}", dummy_count);
     responseAppend(dummy_buf);
 }
 

@@ -49,10 +49,10 @@ void WebCall() {
         strcat(out, tc_lbl);
         strcat(out, "{m}");
         webSend(out);
-        sprintfFloat(out, "%.1f &deg;C{e}", tc_temp);
+        sprintf(out, "%.1f &deg;C{e}", tc_temp);
         webSend(out);
     } else if (tc_fault) {
-        sprintfInt(out, "{s}MAX31855{m}Fault 0x%02X{e}", tc_fault);
+        sprintf(out, "{s}MAX31855{m}Fault 0x%02X{e}", tc_fault);
         webSend(out);
     } else {
         webSend("{s}MAX31855{m}no data{e}");
@@ -62,7 +62,7 @@ void WebCall() {
 void JsonCall() {
     if (!tc_ok) return;
     char out[64];
-    sprintfFloat(out, ",\"MAX31855\":{\"Temperature\":%.1f}", tc_temp);
+    sprintf(out, ",\"MAX31855\":{\"Temperature\":%.1f}", tc_temp);
     responseAppend(out);
 }
 

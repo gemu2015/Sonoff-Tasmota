@@ -257,13 +257,13 @@ void WebCall() {
     char buf[32];
     if (bme_ok) {
         bme_web_label(0);
-        sprintfFloat(buf, "%.1f &deg;C{e}", bme_temp);
+        sprintf(buf, "%.1f &deg;C{e}", bme_temp);
         webSend(buf);
         bme_web_label(1);
-        sprintfFloat(buf, "%.1f %{e}", bme_humi);
+        sprintf(buf, "%.1f %{e}", bme_humi);
         webSend(buf);
         bme_web_label(2);
-        sprintfFloat(buf, "%.1f hPa{e}", bme_pres);
+        sprintf(buf, "%.1f hPa{e}", bme_pres);
         webSend(buf);
     } else {
         webSend("{s}BME280{m}not found{e}");
@@ -274,11 +274,11 @@ void WebCall() {
 void JsonCall() {
     if (!bme_ok) return;
     char buf[96];
-    sprintfFloat(buf, ",\"BME280\":{\"Temperature\":%.1f", bme_temp);
+    sprintf(buf, ",\"BME280\":{\"Temperature\":%.1f", bme_temp);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"Humidity\":%.1f", bme_humi);
+    sprintf(buf, ",\"Humidity\":%.1f", bme_humi);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"Pressure\":%.1f}", bme_pres);
+    sprintf(buf, ",\"Pressure\":%.1f}", bme_pres);
     responseAppend(buf);
 }
 
@@ -297,9 +297,9 @@ int main() {
     hist_tick = 0;
 
     if (bme_scan()) {
-        sprintfInt(buf, "BME280 found at 0x%x", bme_addr);
+        sprintf(buf, "BME280 found at 0x%x", bme_addr);
         print(buf);
-        sprintfInt(buf, " on bus %d\n", bme_bus);
+        sprintf(buf, " on bus %d\n", bme_bus);
         print(buf);
         if (bme_read_calib() && bme_configure()) {
             print("BME280 calibration loaded, sensor active\n");

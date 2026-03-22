@@ -53,40 +53,40 @@ void read_sensors() {
 
 void update_display() {
     // Row 1: Temperature, Humidity, Pressure, Time
-    sprintfFloat(dt, "[f1p7x0y5]%.1f C", wtemp);
+    sprintf(dt, "[f1p7x0y5]%.1f C", wtemp);
     dspText(dt);
-    sprintfFloat(dt, "[p7x70y5]%.1f %% [x250y5t] ", whumi);
+    sprintf(dt, "[p7x70y5]%.1f %% [x250y5t] ", whumi);
     dspText(dt);
     //dspText("[x250y5t]");
-    sprintfFloat(dt, "[p11x140y5]%.1f hPa", bpress);
+    sprintf(dt, "[p11x140y5]%.1f hPa", bpress);
     dspText(dt);
 
     // Row 2: TVOC, eCO2, Abs Humidity
-    sprintfFloat(dt, "[p18x30y25]TVOC: %.1f ppb", wtvoc);
+    sprintf(dt, "[p18x30y25]TVOC: %.1f ppb", wtvoc);
     dspText(dt);
-    sprintfFloat(dt, "[p18x160y25]eCO2: %.1f ppm", eco2);
+    sprintf(dt, "[p18x160y25]eCO2: %.1f ppm", eco2);
     dspText(dt);
-    sprintfFloat(dt, "[p18c26l5]ahum: %.1f g^m3", ahum);
+    sprintf(dt, "[p18c26l5]ahum: %.1f g^m3", ahum);
     dspText(dt);
 
     // solar inverters
-    sprintfFloat(dt, "[p25c1l5]WR 1 (Dach)  : %.1f W", sedc);
+    sprintf(dt, "[p25c1l5]WR 1 (Dach)  : %.1f W", sedc);
     dspText(dt);
-    sprintfFloat(dt, "[p25c1l6]WR 2 (Garage): %.1f W", -wrga);
+    sprintf(dt, "[p25c1l6]WR 2 (Garage): %.1f W", -wrga);
     dspText(dt);
-    sprintfFloat(dt, "[p25c1l7]WR 3 (G-Haus): %.1f W", -wrgh);
+    sprintf(dt, "[p25c1l7]WR 3 (G-Haus): %.1f W", -wrgh);
     dspText(dt);
-    sprintfFloat(dt, "[p25c1l8]WR 4 (Garten): %.1f W", -wrgg);
+    sprintf(dt, "[p25c1l8]WR 4 (Garten): %.1f W", -wrgg);
     dspText(dt);
 
     // CO2
-    sprintfFloat(dt, "[p25c1l10]CO2          : %.0f ppm", wco2);
+    sprintf(dt, "[p25c1l10]CO2          : %.0f ppm", wco2);
     dspText(dt);
 
-    sprintfFloat(dt, "[x170y95r120:30f2p6x185y100] %.0f %", pwl);
+    sprintf(dt, "[x170y95r120:30f2p6x185y100] %.0f %", pwl);
     dspText(dt);
 
-    sprintfFloat(dt, "[f0s2p10x210y70] %.0f C", atmp);
+    sprintf(dt, "[f0s2p10x210y70] %.0f C", atmp);
     dspText(dt);
 
 
@@ -154,21 +154,21 @@ void web_label(int idx) {
 
 void WebCall() {
     web_label(0);
-    sprintfFloat(dt, "%.1f C{e}", wtemp);
+    sprintf(dt, "%.1f C{e}", wtemp);
     webSend(dt);
     web_label(1);
-    sprintfFloat(dt, "%.1f %{e}", whumi);
+    sprintf(dt, "%.1f %{e}", whumi);
     webSend(dt);
     web_label(20);
-    sprintfFloat(dt, "%.1f g/m3{e}", ahum);
+    sprintf(dt, "%.1f g/m3{e}", ahum);
     webSend(dt);
     web_label(4);
-    sprintfFloat(dt, "%.0f ppm{e}", wco2);
+    sprintf(dt, "%.0f ppm{e}", wco2);
     webSend(dt);
     web_label(2);
-    sprintfFloat(dt, "%.1f hPa{e}", bpress);
+    sprintf(dt, "%.1f hPa{e}", bpress);
     webSend(dt);
-    sprintfInt(dt, "{s}Heap{m}%d kb{e}", tasm_heap/1024);
+    sprintf(dt, "{s}Heap{m}%d kb{e}", tasm_heap/1024);
     webSend(dt);
 }
 

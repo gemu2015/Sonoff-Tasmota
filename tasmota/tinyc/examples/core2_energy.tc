@@ -79,17 +79,10 @@ global float phs2;
 global float phs3;
 global float gerr;
 
-// ─── Device IP strings (auto-updated via UDP) ───
-global char tv2_ip[20];
-global char us_ip[20];
-global char fs_ip[20];
-global char wz_ip[20];
-global char wzv_ip[20];
-global char azh_ip[20];
-global char kue_ip[20];
-global char flu_ip[20];
-global char sug_ip[20];
-global char nsp_ip[20];
+// ─── Device IP strings ───
+// Only tv2_ip and sug_ip arrive via UDP; rest are hardcoded (static IPs)
+global char tv2_ip[16];
+global char sug_ip[16];
 
 // ═══════════════════════════════════════════════════════════════════
 // PERSIST VARIABLES — survive reboot
@@ -99,11 +92,14 @@ persist int zrz_m;
 persist int auto_m;
 persist int gas_m;
 persist int was_m;
+persist int rain_m;
+persist int audvol;   // audio volume 0-100, survives reboot
 
 // ═══════════════════════════════════════════════════════════════════
 // TIME-SERIES ARRAYS for daily charts (96 = 15-min intervals per day)
 // Must be float[] — WebChart reads array elements as IEEE-754 floats
 // ═══════════════════════════════════════════════════════════════════
+float t_wbx[97];
 float t_wr1[97];
 float t_wr2[97];
 float t_wr3[97];
@@ -118,6 +114,8 @@ float t_bwwp[97];
 float t_ni[97];
 float t_gas[97];
 float t_wa[97];
+float t_wpx[97];
+float t_rain[97];
 
 // ═══════════════════════════════════════════════════════════════════
 // TIME-SERIES ARRAYS for weekly charts (168 = hours per week)
@@ -182,6 +180,8 @@ int fr;
 int fsiz;
 int dotask;
 int wk_loaded;
+int dy_loaded;
+int dl_done;       // files downloaded flag (skip re-download)
 int tim;
 int mn;
 int extra;
@@ -200,10 +200,14 @@ int batt;
 int stemp;
 int sens;
 int alarm;
+int batt_prev;    // previous battery % for change detection
+int pw_lost;      // powerwall connection lost flag
 int gas_c;
 int was_c;
 int zrz_o;
 int oavgt;
+int ix;
+int wk_drows;     // daily extraction output row count (for pos in WebChart)
 
 // ─── Persist variable shadows for auto-save ───
 int sv_hwp_m;
@@ -219,6 +223,12 @@ int pw_timer;
 // ─── Daily chart tracking ───
 int d_pos;         // ring buffer write position (0-95)
 int d_cnt;         // 15-min sample count (total written)
+char d_day[32];    // selected day for Tages Verlauf (ISO format)
+char d_day_cached[32];  // day currently in /tmplog.txt
+int db_loaded;     // database range loaded flag
+char db_min[32];   // first timestamp in database
+char db_max[32];   // last timestamp in database
+int db_rows;       // total rows in database
 
 // ─── String buffers ───
 char buf[256];
@@ -262,7 +272,7 @@ void drawStatic() {
     dspText("[x5y130]Solar:");
     dspText("[x5y160]Batt:");
     dspText("[x5y190]Haus:");
-    dspText("[x5y220]Gas:");
+    dspText("[x5y220]HWP:");
     dspText("[D1]");
     dspUpdate();
 }
@@ -278,35 +288,28 @@ void updateTime() {
 // Uses dspText for values, sprintfInt to build value strings
 void updateValues() {
     // Temperature (orange, Ci6) + battery level
-    dspText("[f2s1Ci6x5y60p-8]");
-    sprintfInt(buf, "%d C", atmp);
-    dspDraw(buf);
+    sprintf(buf, "[f2s1Ci6x5y60p-8]%.1f C", atmp);
+    dspText(buf);
 
-    dspText("[x140y60p-10]");
-    sprintfInt(buf, "%d %%", pwl);
-    dspDraw(buf);
+    sprintf(buf, "[x140y60p-10]%.1f %", pwl);
+    dspText(buf);
 
     // Power values (cyan, Ci7)
-    dspText("[Ci7x150y100p-10]");
-    sprintfInt(buf, "%d W", sip);
-    dspDraw(buf);
+    sprintf(buf, "[Ci7x150y100p-10]%d W", sip);
+    dspText(buf);
 
-    dspText("[x150y130p-10]");
-    sprintfInt(buf, "%d W", sop);
-    dspDraw(buf);
+    sprintf(buf, "[x150y130p-10]%d W", sop);
+    dspText(buf);
 
-    dspText("[x150y160p-10]");
-    sprintfInt(buf, "%d W", bip);
-    dspDraw(buf);
+    sprintf(buf, "[x150y160p-10]%d W", bip);
+    dspText(buf);
 
-    dspText("[x150y190p-10]");
-    sprintfInt(buf, "%d W", hip);
-    dspDraw(buf);
+    sprintf(buf, "[x150y190p-10]%d W", hip);
+    dspText(buf);
 
-    // Gas
-    dspText("[x150y220p-10]");
-    sprintfInt(buf, "%d", t_gs);
-    dspDraw(buf);
+    // HWP
+    sprintf(buf, "[x150y220p-10]%d W", hwp);
+    dspText(buf);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -322,6 +325,7 @@ void collectDaily() {
     t_ni[d_pos]  = sip;                // Netz (grid import)
     t_pw[d_pos]  = pwl;                // Powerwall %
     t_atmp[d_pos] = atmp;              // Aussentemperatur
+    t_ktmp[d_pos] = ktmp;              // Kellertemperatur
     t_ss[d_pos]  = ssp;                // Solarspeicher
     d_pos = d_pos + 1;
     if (d_pos >= 96) { d_pos = 0; }
@@ -343,11 +347,11 @@ void WebCall() {
     // ─── Clock / Date / Sunrise header (as table row) ───
     webSend("<tr><td colspan=2 style='text-align:center;background:#333;padding:8px;border-radius:8px'>");
     webSend("<span style='color:green;font-size:40px;font-weight:bold'>");
-    sprintfInt(buf, "%02d:", tasm_hour);
+    sprintf(buf, "%02d:", tasm_hour);
     webSend(buf);
-    sprintfInt(buf, "%02d:", tasm_minute);
+    sprintf(buf, "%02d:", tasm_minute);
     webSend(buf);
-    sprintfInt(buf, "%02d", tasm_second);
+    sprintf(buf, "%02d", tasm_second);
     webSend(buf);
     webSend("</span><br>");
     // Date: weekday day. month year
@@ -361,19 +365,19 @@ void WebCall() {
     webSend("<br>");
     // Sunrise --- daylight duration --- Sunset
     webSend("&#127774; ");
-    sprintfInt(buf, "%02d:", sr / 60);
+    sprintf(buf, "%02d:", sr / 60);
     webSend(buf);
-    sprintfInt(buf, "%02d", sr % 60);
+    sprintf(buf, "%02d", sr % 60);
     webSend(buf);
     webSend(" &lt;--- ");
-    sprintfInt(buf, "%d:", dl / 60);
+    sprintf(buf, "%d:", dl / 60);
     webSend(buf);
-    sprintfInt(buf, "%02d", dl % 60);
+    sprintf(buf, "%02d", dl % 60);
     webSend(buf);
     webSend(" ---&gt; ");
-    sprintfInt(buf, "%02d:", ss / 60);
+    sprintf(buf, "%02d:", ss / 60);
     webSend(buf);
-    sprintfInt(buf, "%02d", ss % 60);
+    sprintf(buf, "%02d", ss % 60);
     webSend(buf);
     webSend(" &#127769;");
     webSend("</td></tr>");
@@ -388,236 +392,246 @@ void WebCall() {
     // Split: webSend("{s}LABEL{m}<span style='color:COLOR'>") then sprintfFloat for value only.
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Wasser</b>{m}{e}");
     webSend("{s}Heute{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f l</span>{e}", (t_ws - was_m) * 1000);
+    sprintf(buf, "%.0f l</span>{e}", (t_ws - was_m) * 1000);
     webSend(buf);
     webSend("{s}Z&auml;hlerstand{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f &#13221;</span>{e}", t_ws);
+    sprintf(buf, "%.0f &#13221;</span>{e}", t_ws);
     webSend(buf);
 
     // ─── Solarthermie ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Solarthermie</b>{m}{e}");
     webSend("{s}Au&szlig;entemperatur{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.1f &#8451;</span>{e}", atmp);
+    sprintf(buf, "%.1f &#8451;</span>{e}", atmp);
     webSend(buf);
     webSend("{s}Durchschnittstemperatur{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.2f &#8451;</span>{e}", avgt);
+    sprintf(buf, "%.2f &#8451;</span>{e}", avgt);
     webSend(buf);
     webSend("{s}Kellertemperatur{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.2f &#8451;</span>{e}", ktmp);
+    sprintf(buf, "%.2f &#8451;</span>{e}", ktmp);
     webSend(buf);
     webSend("{s}Solarkollektor{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.1f &#8451;</span>{e}", scol);
+    sprintf(buf, "%.1f &#8451;</span>{e}", scol);
     webSend(buf);
     webSend("{s}Solarspeicher{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.1f &#8451;</span>{e}", ssp);
+    sprintf(buf, "%.1f &#8451;</span>{e}", ssp);
     webSend(buf);
 
     // ─── Regen ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Regen</b>{m}{e}");
     webSend("{s}Heute{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.2f mm</span>{e}", hrain);
+    sprintf(buf, "%.2f mm</span>{e}", train - rain_m);
     webSend(buf);
     webSend("{s}Total{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f mm</span>{e}", train);
+    sprintf(buf, "%.0f mm</span>{e}", train);
     webSend(buf);
 
     // ─── Haupt Hauszähler ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Haupt Hausz&auml;hler</b>{m}{e}");
     webSend("{s}Verbrauch{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.4f KWh</span>{e}", zwzi);
+    sprintf(buf, "%.4f KWh</span>{e}", zwzi);
     webSend(buf);
     webSend("{s}Verbrauch heute{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.4f KWh</span>{e}", zwzi - zrz_m);
+    sprintf(buf, "%.4f KWh</span>{e}", zwzi - zrz_m);
     webSend(buf);
     webSend("{s}Einspeisung{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.4f KWh</span>{e}", zwzo);
+    sprintf(buf, "%.4f KWh</span>{e}", zwzo);
     webSend(buf);
     webSend("{s}aktueller Verbrauch{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f W</span>{e}", zwzc);
+    sprintf(buf, "%.0f W</span>{e}", zwzc);
     webSend(buf);
 
     // ─── Wallbox ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Wallbox</b>{m}{e}");
     webSend("{s}aktuell{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f W</span>{e}", auto);
+    sprintf(buf, "%.0f W</span>{e}", auto);
     webSend(buf);
     webSend("{s}heute{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.3f kWh</span>{e}", t_wb - auto_m);
+    sprintf(buf, "%.3f kWh</span>{e}", t_wb - auto_m);
     webSend(buf);
     webSend("{s}Total{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.3f kWh</span>{e}", t_wb);
+    sprintf(buf, "%.3f kWh</span>{e}", t_wb);
     webSend(buf);
 
     // ─── Klima-Anlage ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Klima-Anlage</b>{m}{e}");
     webSend("{s}aktuell{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f W</span>{e}", 0.0 - klima);
+    sprintf(buf, "%.0f W</span>{e}", 0.0 - klima);
     webSend(buf);
     webSend("{s}Total (+Pool){m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.3f kWh</span>{e}", t_kpwp);
+    sprintf(buf, "%.3f kWh</span>{e}", t_kpwp);
     webSend(buf);
 
     // ─── Pool-WP ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Pool-WP</b>{m}{e}");
     webSend("{s}aktuell{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f W</span>{e}", 0.0 - pwp);
+    sprintf(buf, "%.0f W</span>{e}", 0.0 - pwp);
     webSend(buf);
 
     // ─── Brauchwasser-WP ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Brauchwasser-WP</b>{m}{e}");
     webSend("{s}Heute{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.2f KWh</span>{e}", bwtwp);
+    sprintf(buf, "%.2f KWh</span>{e}", bwtwp);
     webSend(buf);
     webSend("{s}Total{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f KWh</span>{e}", bwwp);
+    sprintf(buf, "%.0f KWh</span>{e}", bwwp);
     webSend(buf);
 
     // ─── Heizungs-WP ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Heizungs-WP</b>{m}{e}");
     webSend("{s}Heute{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.2f KWh</span>{e}", t_hwp - hwp_m);
+    sprintf(buf, "%.2f KWh</span>{e}", t_hwp - hwp_m);
     webSend(buf);
     webSend("{s}aktuell{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f W</span>{e}", hwp);
+    sprintf(buf, "%.0f W</span>{e}", hwp);
     webSend(buf);
     webSend("{s}Total{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.3f KWh</span>{e}", t_hwp);
+    sprintf(buf, "%.3f KWh</span>{e}", t_hwp);
     webSend(buf);
 
     // ─── Solar Hausdach ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Solar Hausdach, 5.25 KW</b>{m}{e}");
     webSend("{s}aktuell{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f W</span>{e}", sedc);
+    sprintf(buf, "%.0f W</span>{e}", sedc);
     webSend(buf);
     webSend("{s}Total{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.3f KWh</span>{e}", sedt);
+    sprintf(buf, "%.3f KWh</span>{e}", sedt);
     webSend(buf);
 
     // ─── Solar Garage ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Solar Garage, 2.42/3.45 KW</b>{m}{e}");
     webSend("{s}aktuell{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f W</span>{e}", 0.0 - wrga);
+    sprintf(buf, "%.0f W</span>{e}", 0.0 - wrga);
     webSend(buf);
     webSend("{s}Total{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.3f kWh</span>{e}", t_ga);
+    sprintf(buf, "%.3f kWh</span>{e}", t_ga);
     webSend(buf);
 
     // ─── Solar Gartenhaus ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Solar Gartenhaus, 1.96/2.8 KW</b>{m}{e}");
     webSend("{s}aktuell{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f W</span>{e}", 0.0 - wrgh);
+    sprintf(buf, "%.0f W</span>{e}", 0.0 - wrgh);
     webSend(buf);
     webSend("{s}Total{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.3f kWh</span>{e}", t_gh);
+    sprintf(buf, "%.3f kWh</span>{e}", t_gh);
     webSend(buf);
 
     // ─── Solar Garten ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Solar Garten, 2.87/4.1 KW</b>{m}{e}");
     webSend("{s}aktuell{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f W</span>{e}", 0.0 - wrgg);
+    sprintf(buf, "%.0f W</span>{e}", 0.0 - wrgg);
     webSend(buf);
     webSend("{s}Total{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.3f kWh</span>{e}", t_gg);
+    sprintf(buf, "%.3f kWh</span>{e}", t_gg);
     webSend(buf);
 
     // ─── Solar Gesamt ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Solar Gesamt, 7.25/10.35 KW</b>{m}{e}");
     webSend("{s}aktuell{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f W</span>{e}", 0.0 - (wrga + wrgh + wrgg));
+    sprintf(buf, "%.0f W</span>{e}", 0.0 - (wrga + wrgh + wrgg));
     webSend(buf);
 
     // ─── Powerwall (mixed colors) ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Powerwall</b>{m}{e}");
     webSend("{s}Batterie F&uuml;llstand{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.2f %% (", pwl);
+    sprintf(buf, "%.2f %% (", pwl);
     webSend(buf);
-    sprintfFloat(buf, "%.2f kWh)</span>{e}", pwl / 100.0 * 13.5);
+    sprintf(buf, "%.2f kWh)</span>{e}", pwl / 100.0 * 13.5);
     webSend(buf);
     webSend("{s}Netz{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.2f W</span>{e}", sip);
+    sprintf(buf, "%.2f W</span>{e}", sip);
     webSend(buf);
     webSend("{s}Solar{m}<span style='color:green'>");
-    sprintfFloat(buf, "%.2f W</span>{e}", sop);
+    sprintf(buf, "%.2f W</span>{e}", sop);
     webSend(buf);
     webSend("{s}Batterie{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.2f W</span>{e}", bip);
+    sprintf(buf, "%.2f W</span>{e}", bip);
     webSend(buf);
     webSend("{s}Haus{m}<span style='color:red'>");
-    sprintfFloat(buf, "%.2f W</span>{e}", hip);
+    sprintf(buf, "%.2f W</span>{e}", hip);
     webSend(buf);
     webSend("{s}Gesamt{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.3f kWh</span>{e}", tcap / 1000.0);
+    sprintf(buf, "%.3f kWh</span>{e}", tcap / 1000.0);
     webSend(buf);
     webSend("{s}Verbleibend{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.3f kWh</span>{e}", rcap / 1000.0);
+    sprintf(buf, "%.3f kWh</span>{e}", rcap / 1000.0);
     webSend(buf);
     webSend("{s}Rcap{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.2f %%</span>{e}", rper);
+    sprintf(buf, "%.2f %%</span>{e}", rper);
     webSend(buf);
 
     // ─── Büro ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>B&uuml;ro</b>{m}{e}");
     webSend("{s}Temperatur{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.2f &#8451;</span>{e}", btemp);
+    sprintf(buf, "%.2f &#8451;</span>{e}", btemp);
     webSend(buf);
     webSend("{s}Feuchte{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.2f %%</span>{e}", bhumi);
+    sprintf(buf, "%.2f %%</span>{e}", bhumi);
     webSend(buf);
     webSend("{s}Luftdruck{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.2f hPa</span>{e}", bpress);
+    sprintf(buf, "%.2f hPa</span>{e}", bpress);
     webSend(buf);
 
     // ─── Schlafzimmer ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Schlafzimmer</b>{m}{e}");
     webSend("{s}Temperatur{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.2f &#8451;</span>{e}", shtemp);
+    sprintf(buf, "%.2f &#8451;</span>{e}", shtemp);
     webSend(buf);
 
     // ─── Schlafzimmer G ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Schlafzimmer G</b>{m}{e}");
     webSend("{s}Temperatur{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.2f &#8451;</span>{e}", aztemp);
+    sprintf(buf, "%.2f &#8451;</span>{e}", aztemp);
     webSend(buf);
     webSend("{s}Feuchte{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.2f %%</span>{e}", azhumi);
+    sprintf(buf, "%.2f %%</span>{e}", azhumi);
     webSend(buf);
     webSend("{s}TVOC{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f ppb</span>{e}", aztvoc);
+    sprintf(buf, "%.0f ppb</span>{e}", aztvoc);
     webSend(buf);
     webSend("{s}eCO2{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f ppm</span>{e}", azeco2);
+    sprintf(buf, "%.0f ppm</span>{e}", azeco2);
     webSend(buf);
 
     // ─── Wohnzimmer ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Wohnzimmer</b>{m}{e}");
     webSend("{s}Temperatur{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.2f &#8451;</span>{e}", wtemp);
+    sprintf(buf, "%.2f &#8451;</span>{e}", wtemp);
     webSend(buf);
     webSend("{s}Feuchte{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.2f %%</span>{e}", whumi);
+    sprintf(buf, "%.2f %%</span>{e}", whumi);
     webSend(buf);
     webSend("{s}TVOC{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f ppb</span>{e}", wtvoc);
+    sprintf(buf, "%.0f ppb</span>{e}", wtvoc);
     webSend(buf);
     webSend("{s}CO2{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f ppm</span>{e}", wco2);
+    sprintf(buf, "%.0f ppm</span>{e}", wco2);
     webSend(buf);
 
     // ─── Phasen ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Phasen</b>{m}{e}");
     webSend("{s}Phase 1{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f W</span>{e}", phs1);
+    sprintf(buf, "%.0f W</span>{e}", phs1);
     webSend(buf);
     webSend("{s}Phase 2{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f W</span>{e}", phs2);
+    sprintf(buf, "%.0f W</span>{e}", phs2);
     webSend(buf);
     webSend("{s}Phase 3{m}<span style='color:yellow'>");
-    sprintfFloat(buf, "%.0f W</span>{e}", phs3);
+    sprintf(buf, "%.0f W</span>{e}", phs3);
     webSend(buf);
 
     // ─── System ───
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>System</b>{m}{e}");
-    sprintfInt(buf, "{s}Heap{m}<span style='color:yellow'>%d kB</span>{e}", tasm_heap / 1000);
+    sprintf(buf, "{s}Heap{m}<span style='color:yellow'>%d kB</span>{e}", tasm_heap / 1000);
+    webSend(buf);
+
+    // ─── Audio Volume slider ───
+    webSend("{s}Lautst&auml;rke{m}");
+    sprintf(buf, "<input type='range' min='0' max='100' value='%d'", audvol);
+    webSend(buf);
+    webSend(" oninput='this.nextSibling.textContent=this.value'");
+    webSend(" onchange='fetch(\"/cm?cmnd=ENGSetvol%20\"+this.value)'");
+    webSend(" style='width:150px'>");
+    sprintf(buf, "<span>%d</span>{e}", audvol);
     webSend(buf);
 
     webSend("{s}<hr>{m}<hr>{e}");
@@ -625,7 +639,7 @@ void WebCall() {
 
 void WebPage() {
     // ─── Live streaming chart: 4 solar inverters (Chart.js) ───
-    webSend("<div><canvas id='schart' style='width:640px;height:300px;'></canvas></div>");
+    webSend("<div style='position:relative;width:640px;height:300px;'><canvas id='schart' width='640' height='300'></canvas></div>");
     webSendFile("stream_tc.js");
 }
 
@@ -667,28 +681,140 @@ void buildUrl(int is15min) {
     url += dx2;
 }
 
+// Load day data — download today's 15-min data from collector
+void loadDayData() {
+    int fr;
+    int rows;
+    int i;
+
+    addLog("TCC: loading day data...");
+    if (strlen(d_day) > 0) {
+        // Use selected day
+        strcpy(s1, d_day);
+        strcpy(s2, d_day);
+        timeOffset(s2, 1, 1);       // selected day + 1 day midnight
+    } else {
+        // Default: yesterday
+        timeStamp(s1);
+        timeOffset(s1, -1, 1);      // yesterday midnight
+        timeStamp(s2);
+        timeOffset(s2, 0, 1);       // today midnight
+    }
+
+    // Skip download if /tmplog.txt already has this day's data
+    if (strcmp(s1, d_day_cached) == 0) {
+        addLog("TCC: day data cached, skip download");
+        dres = 200;
+    } else {
+        buildUrl(1);                      // builds into 'url'
+        strcpy(wstr, url);                // copy to wstr (not shared with main thread)
+        dres = fileDownload("/tmplog.txt", wstr);
+        sprintf(wstr, "TCC: day HTTP=%d", dres);
+        addLog(wstr);
+        if (dres == 200) {
+            strcpy(d_day_cached, s1);     // remember what's cached
+        }
+    }
+
+    if (dres == 200) {
+        fr = fileOpen("/tmplog.txt", "r");
+        if (fr >= 0) {
+            // col_offs=1, accum=-1 — starts at WB (first data col in 15-min file)
+            // WB WR1 WR2 WR3 ATMP_a WWTMP_a BTMP_a RTMP_a SKTMP_a SSTMP_a
+            // SD ZWZI ZWZO H20 GAS PWL_a SIP_a SOP_a BIP_a HIP_a
+            // RCAP_a KLI_a PWP_a WP BWWP RAIN HWP_a HWP KTMP_a AVTMP_a
+            rows = fileExtract(fr, s1, s2, 1, -1,
+                t_wbx, t_wr1, t_wr2, t_wr3, t_atmp,
+                a_du, a_du, a_du, a_du,
+                t_ss, t_wr4, t_ni,
+                a_du,
+                t_wa, t_gas, t_pw,
+                a_du, a_du, a_du,
+                t_hv,
+                a_du, a_du, a_du, t_wpx,
+                t_bwwp,
+                t_rain, a_du,
+                t_hzwp, t_ktmp, a_du);
+            fileClose(fr);
+            sprintf(buf, "TCC: day rows=%d", rows);
+            addLog(buf);
+
+            // Scale counters to watts: value * 4000 (15min → hourly rate)
+            // _a columns (t_atmp, t_ss, t_pw, t_hv, t_ktmp) are already in real units
+            d_cnt = rows;
+            d_pos = rows;
+            i = 1;
+            while (i <= rows) {
+                t_wbx[i] = t_wbx[i] * 4000.0;
+                t_wr1[i] = t_wr1[i] * 4000.0;
+                t_wr2[i] = t_wr2[i] * 4000.0;
+                t_wr3[i] = t_wr3[i] * 4000.0;
+                t_wr4[i] = t_wr4[i] * 4000.0;
+                t_ni[i] = t_ni[i] * 4000.0;
+                t_wpx[i] = t_wpx[i] * 4000.0;
+                t_bwwp[i] = t_bwwp[i] * 4000.0;
+                t_hzwp[i] = t_hzwp[i] * 4000.0;
+                i = i + 1;
+            }
+        }
+    }
+
+    // ── Extract Energiebilanz from daily log (matching Scripter #gload) ──
+    // /daylog.txt has full daily log; extract selected day's delta
+    if (strlen(d_day) > 0) {
+        strcpy(sx1, d_day);
+    } else {
+        timeStamp(sx1);
+        timeOffset(sx1, -1, 1);
+    }
+    strcpy(sx2, sx1);
+    timeOffset(sx2, 1, 1);
+    fr = fileOpen("/daylog.txt", "r");
+    if (fr >= 0) {
+        // col_offs=1, accum=-1 — same as Scripter #gload line 390
+        // Reuse wt_* arrays (same as Scripter does)
+        rows = fileExtract(fr, sx1, sx2, 1, -1,
+            wt_wb, wt_sin1, wt_sin2, wt_sin3, wt_tmp,
+            a_du, a_du, a_du, a_du, a_du,
+            wt_sin4, wt_hv, a_du, wt_wa, wt_gas,
+            a_du, a_du, a_du, a_du, a_du,
+            a_du, a_du, a_du, wt_wp, wt_bwwp, wt_rain, a_du, wt_hwp, a_du, a_du);
+        fileClose(fr);
+        sprintf(buf, "TCC: bilanz rows=%d", rows);
+        addLog(buf);
+    }
+}
+
 // Load week data — download and extract both databases
 void loadWeekData() {
     int fr;
     int rows;
 
     // ── Load 15-minute data (7 days, averaged to hourly) ──
-    addLog("TCC: loading 15min data...");
-    timeStamp(s1);
-    timeOffset(s1, -7, 1);       // 7 days ago midnight
-    timeStamp(s2);
-    timeOffset(s2, 0, 1);        // today midnight
+    if (dl_done == 0) {
+        addLog("TCC: loading 15min data...");
+        timeStamp(s1);
+        timeOffset(s1, -7, 1);       // 7 days ago midnight
+        timeStamp(s2);
+        timeOffset(s2, 0, 1);        // today midnight
 
-    buildUrl(1);                  // 15-min DB URL with @date
-    dres = fileDownload("/tmplog.txt", url);
-    sprintfInt(buf, "TCC: 15min HTTP=%d", dres);
-    addLog(buf);
+        d_day_cached[0] = 0;          // week download overwrites /tmplog.txt
+        buildUrl(1);                  // 15-min DB URL with @date
+        strcpy(wstr, url);            // copy to wstr (not shared with main thread)
+        dres = fileDownload("/tmplog.txt", wstr);
+        sprintf(wstr, "TCC: 15min HTTP=%d", dres);
+        addLog(wstr);
+    } else {
+        addLog("TCC: 15min data reusing local file");
+        dres = 200;
+    }
 
     if (dres == 200) {
         fr = fileOpen("/tmplog.txt", "r");
         if (fr >= 0) {
-            // col_offs=1 (skip WB), accum=-4 (average 4 rows -> hourly)
-            rows = fileExtract(fr, s1, s2, 1, -4,
+            // col_offs=2 (skip WB+WR1..no, skip counter+WB), accum=-4 (average 4 rows -> hourly)
+            // Matches Scripter: fxt(fr s1 s2 2 -4 w_wr1 w_wr2 w_wr3 w_at ...)
+            rows = fileExtract(fr, s1, s2, 2, -4,
                 w_wr1, w_wr2, w_wr3, w_at,
                 a_du, a_du, a_du,
                 w_sk, w_swa, w_wr4,
@@ -699,51 +825,311 @@ void loadWeekData() {
                 a_du,
                 w_hv);
             fileClose(fr);
-            sprintfInt(buf, "TCC: 15min rows=%d", rows);
+            sprintf(buf, "TCC: 15min rows=%d", rows);
             addLog(buf);
+
+            // Scale solar inverter values: counter increments * 4000 = watts
+            int i;
+            int maxr;
+            maxr = rows;
+            if (maxr > 168) { maxr = 168; }
+            i = 1;
+            while (i <= maxr) {
+                w_wr1[i] = w_wr1[i] * 4000.0;
+                w_wr2[i] = w_wr2[i] * 4000.0;
+                w_wr3[i] = w_wr3[i] * 4000.0;
+                w_wr4[i] = w_wr4[i] * 4000.0;
+                i = i + 1;
+            }
+
+            // Set [0] time offset: (wday-1)*24+hours (matching Scripter)
+            tmp = (tasm_wday - 1) * 24 + tasm_hour;
+            w_at[0] = tmp;
+            w_sk[0] = tmp;
+            w_swa[0] = tmp;
+            w_pwl[0] = tmp;
+            w_hv[0] = tmp;
+            w_sin[0] = tmp;
+            w_wr1[0] = tmp;
+            w_wr2[0] = tmp;
+            w_wr3[0] = tmp;
+            w_wr4[0] = tmp;
+            w_wa[0] = tmp;
+            w_gas[0] = tmp;
         }
     }
 
-    // ── Load daily data (9 days, delta mode → 8 rows, skip [0]=0) ──
-    addLog("TCC: loading daily data...");
-    timeStamp(s1);
-    timeOffset(s1, -9, 1);       // 9 days ago midnight
-    timeStamp(s2);
-    timeOffset(s2, 0, 1);        // today midnight
+    // ── Download daily log from collector ──
+    {
+        if (dl_done == 0) {
+            timeStamp(s1);
+            timeOffset(s1, -366, 1);     // full year for 52-week view
+            timeStamp(s2);
+            timeOffset(s2, 0, 1);        // today midnight
 
-    buildUrl(0);                  // daily DB URL with @date
-    dres = fileDownload("/daylog.txt", url);
-    sprintfInt(buf, "TCC: daily HTTP=%d", dres);
-    addLog(buf);
+            buildUrl(0);                 // daily DB URL with @date
+            strcpy(wstr, url);
+            dres = fileDownload("/wdaylog.txt", wstr);
+            sprintf(wstr, "TCC: daily HTTP=%d", dres);
+            addLog(wstr);
+            dl_done = 1;                 // mark files as downloaded
+        } else {
+            addLog("TCC: daily data reusing local file");
+        }
 
-    if (dres == 200) {
-        fr = fileOpen("/daylog.txt", "r");
+        // Get database date range from downloaded file
+        fr = fileOpen("/wdaylog.txt", "r");
         if (fr >= 0) {
-            // col_offs=0 (start at WB), accum=-1 (delta)
-            rows = fileExtract(fr, s1, s2, 0, -1,
+            db_rows = fileRange(fr, db_min, db_max);
+            fileClose(fr);
+            timeConvert(db_min, 1);
+            strToken(str, db_min, ' ', 1);
+            strcpy(db_min, str);
+            timeConvert(db_max, 1);
+            strToken(str, db_max, ' ', 1);
+            strcpy(db_max, str);
+            db_loaded = 1;
+            sprintf(buf, "TCC: DB range %d rows", db_rows);
+            addLog(buf);
+        }
+
+        // Extract weekly data (8 days, delta → 7 rows)
+        timeStamp(s1);
+        timeOffset(s1, -8, 1);       // 8 days ago midnight
+        timeStamp(s2);
+        timeOffset(s2, 0, 1);        // today midnight
+        fr = fileOpen("/wdaylog.txt", "r");
+        if (fr >= 0) {
+            // col_offs=1 (matching Scripter), accum=-1 (delta)
+            rows = fileExtract(fr, s1, s2, 1, -1,
                 wt_wb, wt_sin1, wt_sin2, wt_sin3, wt_tmp,
                 a_du, a_du, a_du, a_du, a_du,
                 wt_sin4, wt_hv, a_du, wt_wa, wt_gas,
                 a_du, a_du, a_du, a_du, a_du,
                 a_du, a_du, a_du, wt_wp);
             fileClose(fr);
-            sprintfInt(buf, "TCC: daily rows=%d", rows);
+            wk_drows = rows;
+            sprintf(buf, "TCC: daily rows=%d", rows);
             addLog(buf);
+
+            // Set [0] to weekday offset (matching Scripter: wday-1)
+            tmp = tasm_wday - 1;
+            wt_hv[0] = tmp;
+            wt_wb[0] = tmp;
+            wt_sin1[0] = tmp;
+            wt_sin2[0] = tmp;
+            wt_sin3[0] = tmp;
+            wt_sin4[0] = tmp;
+            wt_wa[0] = tmp;
+            wt_gas[0] = tmp;
+            wt_wp[0] = tmp;
+
+            // Calculate Gas € (gas * 10 * price / 100)
+            int i;
+            i = 1;
+            while (i <= rows) {
+                wt_pgas[i] = wt_gas[i] * 10.0 * PRICE_GAS_KWH / 100.0;
+                i = i + 1;
+            }
         }
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// LOAD 52-WEEK DATA — weekly aggregated from full daily log
+// ═══════════════════════════════════════════════════════════════════
+void load52WeekData() {
+    int fr;
+    int rows;
+
+    // Use already-downloaded daily log from loadWeekData()
+    fr = fileOpen("/wdaylog.txt", "r");
+    if (fr < 0) { return; }
+
+    fileRange(fr, tmin, tmax);
+    fileClose(fr);
+
+    int tmin_s;
+    int tmax_s;
+    tmin_s = timeToSecs(tmin);
+    tmax_s = timeToSecs(tmax);
+    int days;
+    days = (tmax_s - tmin_s) / 86400;
+    days = days - (days % 7);
+    d52 = days / 7;
+    if (d52 > 52) { d52 = 52; }
+
+    int ndays;
+    ndays = d52 * 7 + 1;
+    timeStamp(s1);
+    timeOffset(s1, -ndays, 1);
+    timeStamp(s2);
+    timeOffset(s2, 0, 1);
+
+    // Title
+    strcpy(dx1, s1);
+    timeConvert(dx1, 1);
+    sprintf(lwstr, "%d Wochen seit ", d52);
+    strcat(lwstr, dx1);
+
+    // Extract weekly aggregation
+    fr = fileOpen("/wdaylog.txt", "r");
+    if (fr >= 0) {
+        rows = fileExtract(fr, s1, s2, 1, -7,
+            w_pwl, w_wr1, w_wr2, w_wr3,
+            a_du, a_du, a_du, a_du, a_du, a_du,
+            w_wr4, w_sin, w_swa, w_wa, w_gas,
+            a_du, a_du, a_du, a_du, a_du,
+            a_du, a_du, a_du,
+            w_at, w_bwwp, w_rain,
+            a_du, w_hwp, a_du, w_avgt);
+        fileClose(fr);
+        d52 = rows;
+
+        // Clear [0]
+        w_wr1[0] = 0.0; w_wr2[0] = 0.0; w_wr3[0] = 0.0; w_wr4[0] = 0.0;
+        w_pwl[0] = 0.0; w_at[0] = 0.0; w_sin[0] = 0.0; w_swa[0] = 0.0;
+        w_wa[0] = 0.0; w_gas[0] = 0.0; w_bwwp[0] = 0.0; w_rain[0] = 0.0;
+        w_hwp[0] = 0.0; w_avgt[0] = 0.0; w_pgas[0] = 0.0;
+
+        // Gas €
+        int i;
+        i = 1;
+        while (i < rows) {
+            w_pgas[i] = w_gas[i] * 10.0 * PRICE_GAS_KWH / 100.0;
+            i = i + 1;
+        }
+    }
+    wk_loaded = 0;
+}
+
+void load31DayData() {
+    int fr;
+    int rows;
+
+    // Use already-downloaded daily log from loadWeekData()
+    fr = fileOpen("/wdaylog.txt", "r");
+    if (fr < 0) { return; }
+
+    fileRange(fr, tmin, tmax);
+    fileClose(fr);
+
+    int tmin_s;
+    int tmax_s;
+    tmin_s = timeToSecs(tmin);
+    tmax_s = timeToSecs(tmax);
+    int days;
+    days = (tmax_s - tmin_s) / 86400;
+    if (days > 31) { days = 31; }
+    d52 = days;
+
+    int ndays;
+    ndays = days + 2;
+    timeStamp(s1);
+    timeOffset(s1, -ndays, 1);
+    timeStamp(s2);
+    timeOffset(s2, 0, 1);
+
+    // Title
+    strcpy(dx1, s1);
+    timeConvert(dx1, 1);
+    sprintf(lwstr, "%d Tage seit ", days);
+    strcat(lwstr, dx1);
+
+    // Extract daily deltas (accum=-1)
+    fr = fileOpen("/wdaylog.txt", "r");
+    if (fr >= 0) {
+        rows = fileExtract(fr, s1, s2, 1, -1,
+            w_pwl, w_wr1, w_wr2, w_wr3,
+            a_du, a_du, a_du, a_du, a_du, a_du,
+            w_wr4, w_sin, w_swa, w_wa, w_gas,
+            a_du, a_du, a_du, a_du, a_du,
+            a_du, a_du, a_du,
+            w_at, w_bwwp, w_rain,
+            a_du, w_hwp, a_du, w_atmp);
+        fileClose(fr);
+        d52 = rows;
+        // Cap to show exactly 'days' entries (d52-1 used as count)
+        if (d52 > days + 1) { d52 = days + 1; }
+
+        // Clear [0] (accumulated start value)
+        w_wr1[0] = 0.0; w_wr2[0] = 0.0; w_wr3[0] = 0.0; w_wr4[0] = 0.0;
+        w_pwl[0] = 0.0; w_at[0] = 0.0; w_sin[0] = 0.0; w_swa[0] = 0.0;
+        w_wa[0] = 0.0; w_gas[0] = 0.0; w_bwwp[0] = 0.0; w_rain[0] = 0.0;
+        w_hwp[0] = 0.0; w_atmp[0] = 0.0; w_gwp[0] = 0.0; w_sk[0] = 0.0;
+
+        // Compute combined columns
+        int i;
+        i = 1;
+        while (i < rows) {
+            w_gwp[i] = w_bwwp[i] + w_hwp[i];
+            w_sk[i] = w_wr1[i] + w_wr2[i] + w_wr3[i];
+            i = i + 1;
+        }
+    }
+    wk_loaded = 0;
 }
 
 // ═══════════════════════════════════════════════════════════════════
 // TASK LOOP — background FreeRTOS task for data loading
 // ═══════════════════════════════════════════════════════════════════
 void TaskLoop() {
+    int last_3am;
+    last_3am = -1;
     while (1) {
         if (dotask == 1) {
-            addLog("TCC: TaskLoop start");
+            addLog("TCC: TaskLoop week start");
             loadWeekData();
             wk_loaded = 1;
+            d52 = 0;  // w_* arrays overwritten by week data
             dotask = 0;
-            addLog("TCC: TaskLoop done");
+            addLog("TCC: TaskLoop week done");
+        }
+        if (dotask == 2) {
+            addLog("TCC: TaskLoop day start");
+            loadDayData();
+            dy_loaded = 1;
+            dotask = 0;
+            addLog("TCC: TaskLoop day done");
+        }
+        if (dotask == 3) {
+            addLog("TCC: TaskLoop 52wk start");
+            load52WeekData();
+            dotask = 0;
+            addLog("TCC: TaskLoop 52wk done");
+        }
+        if (dotask == 4) {
+            addLog("TCC: TaskLoop 31day start");
+            load31DayData();
+            dotask = 0;
+            addLog("TCC: TaskLoop 31day done");
+        }
+        if (dotask == 5) {
+            // Daikin AC sensor poll — runs in TaskLoop to avoid blocking main loop
+            char dkurl[64];
+            char dkbuf[128];
+            strcpy(dkurl, "http://192.168.188.43/aircon/get_sensor_info");
+            int dklen;
+            dklen = httpGet(dkurl, dkbuf);
+            if (dklen > 0) {
+                int hp;
+                hp = strFind(dkbuf, "htemp=");
+                if (hp >= 0) {
+                    char htval[12];
+                    strSub(htval, dkbuf, hp + 6, 10);
+                    shtemp = atof(htval);
+                }
+            }
+            dotask = 0;
+        }
+        // Auto-refresh at 3:00 AM daily (like Scripter)
+        if (dotask == 0 && tasm_hour == 3 && tasm_minute == 0 && last_3am != tasm_day) {
+            last_3am = tasm_day;
+            addLog("TCC: 3AM auto-refresh");
+            dy_loaded = 0;
+            dl_done = 0;          // force re-download from server
+            d_day_cached[0] = 0;  // force re-download
+            dotask = 1;  // full reload (week + daily log)
         }
         delay(2000);
     }
@@ -755,112 +1141,315 @@ void TaskLoop() {
 void WebUI() {
     int pg;
     pg = webPage();
+
+    // Guard: if TaskLoop is loading data, don't touch shared buffers
+    if (dotask != 0) {
+        webSend("<script>var tt=document.querySelector(\"div[style*='c_ttl']\");if(tt)tt.style.display='none';</script>");
+        webSend("<h3>Daten werden geladen...</h3>");
+        return;
+    }
+
     if (pg == 0) {
-        // ─── Page 0: Daily charts ───
-        // Stop AJAX refresh — charts are destroyed by innerHTML replacement
-        webSend("<script>rfsh=0;clearTimeout(lt);</script>");
+        // ─── Page 0: Daily charts (data from collector DB) ───
+
+        // Check for date parameter from date picker
+        res = webArg("d", tval);
+        if (res > 0) {
+            strToken(str, tval, 'T', 1);
+            strcpy(buf, str);
+            buf += "T00:00:00";
+            if (strcmp(buf, d_day) != 0) {
+                strcpy(d_day, buf);
+                dy_loaded = 0;
+                dotask = 2;
+                webSend("<script>var tt=document.querySelector(\"div[style*='c_ttl']\");if(tt)tt.style.display='none';</script>");
+                webSend("<h3>Daten werden geladen...</h3>");
+                return;
+            }
+        }
+
+        // If no day selected yet, default to yesterday
+        if (strlen(d_day) == 0) {
+            timeStamp(d_day);
+            timeOffset(d_day, -1, 1);
+        }
+
+        webSend("<script>var tt=document.querySelector(\"div[style*='c_ttl']\");if(tt)tt.style.display='none';</script>");
         webSend("<h3>Tages Verlauf</h3>");
-        // Chart 1: PV power (4 inverters)
-        //  WebChart(type, title, unit, color, pos, count, array, dec, interval, ymin, ymax)
-        WebChart('l', "Photovoltaik", "W", 0xFF0000, d_pos, d_cnt, t_wr1, 0, 15, 0.0, 5000.0);
-        WebChart('l', "", "W", 0x00AA00, d_pos, d_cnt, t_wr2, 0, 15, 0.0, 5000.0);
-        WebChart('l', "", "W", 0x0000FF, d_pos, d_cnt, t_wr3, 0, 15, 0.0, 5000.0);
-        WebChart('l', "", "W", 0xFF8800, d_pos, d_cnt, t_wr4, 0, 15, 0.0, 5000.0);
-        // Chart 2: Grid + House
-        WebChart('l', "Netz / Haus", "W", 0x0088FF, d_pos, d_cnt, t_ni, 0, 15, 0.0, 5000.0);
-        WebChart('l', "", "W", 0xFF0000, d_pos, d_cnt, t_hv, 0, 15, 0.0, 5000.0);
-        // Chart 3: Powerwall charge
-        WebChart('l', "Powerwall", "%%", 0x00CC00, d_pos, d_cnt, t_pw, 0, 15, 0.0, 100.0);
-        // Chart 4: Temperatures
-        WebChart('l', "Temperatur", "C", 0xFF6600, d_pos, d_cnt, t_atmp, 0, 15, 0.0, 40.0);
-        WebChart('l', "", "C", 0xCC0000, d_pos, d_cnt, t_ss, 0, 15, 0.0, 40.0);
+        webSend("<center>");
+        // Date picker first
+        strToken(buf, d_day, 'T', 1);
+        webSend("<label><b>Tag: </b><input type='date' value='");
+        webSend(buf);
+        webSend("' style='width:200px' onchange='window.location=\"/tc_ui?p=0&d=\"+this.value+\"T00:00\"'>");
+        webSend("</label><br><br>");
+        // Database range
+        if (db_loaded == 1) {
+            webSend("Datenbank vom ");
+            webSend(db_min);
+            webSend(" bis ");
+            webSend(db_max);
+            webSend("<br><br>");
+        }
+        // Selected date
+        strcpy(str, d_day);
+        timeConvert(str, 1);
+        strToken(buf, str, ' ', 1);
+        webSend("<b>Daten vom ");
+        webSend(buf);
+        webSend("</b>");
+        webSend("</center><br>");
+
+        if (dy_loaded == 1) {
+            // Stop AJAX polling — charts are ready
+            webSend("<script>rfsh=0;clearTimeout(lt);</script>");
+            // Set time base so x-axis shows 0:00-24:00 of the selected day
+            // time_base = (d_day_midnight - now_epoch) / 60 + (count-1)*15
+            timeStamp(sx1);  // now
+            int now_s;
+            int day_s;
+            now_s = timeToSecs(sx1);
+            day_s = timeToSecs(d_day);
+            int tbase;
+            tbase = (day_s - now_s) / 60 + (d_cnt - 1) * 15;
+            WebChartTimeBase(tbase);
+            // Chart 1: PV power — decimals bit3=smooth (0+8=8)
+            WebChart('l', "Photovoltaik - kWh", "Dach|W", 0x0000FF, d_pos, d_cnt, t_wr4, 8, 15, 0.0, 4000.0);
+            WebChart('l', "", "Garage|W", 0xFF0000, d_pos, d_cnt, t_wr1, 8, 15, 0.0, 4000.0);
+            WebChart('l', "", "Garten Haus|W", 0xFF8800, d_pos, d_cnt, t_wr2, 8, 15, 0.0, 4000.0);
+            WebChart('l', "", "Garten|W", 0x00AA00, d_pos, d_cnt, t_wr3, 8, 15, 0.0, 4000.0);
+            // Chart 2: Grid + House
+            WebChart('l', "Verbrauch - kWh", "Netz|W", 0x0088FF, d_pos, d_cnt, t_ni, 8, 15, 0.0, 5000.0);
+            WebChart('l', "", "Haus|W", 0xFF0000, d_pos, d_cnt, t_hv, 8, 15, 0.0, 5000.0);
+            // Chart 3: Powerwall charge
+            WebChart('l', "Powerwall - %", "Powerwall|%", 0x00CC00, d_pos, d_cnt, t_pw, 8, 15, 0.0, 100.0);
+            // Chart 4: Temperatures (1 decimal + smooth = 9)
+            WebChart('l', "Solarthermie - C", "Aussen Temperatur|C", 0x0088FF, d_pos, d_cnt, t_atmp, 9, 15, 0.0, 60.0);
+            WebChart('l', "", "Solar Speicher|C", 0xCC0000, d_pos, d_cnt, t_ss, 9, 15, 0.0, 60.0);
+            WebChart('l', "", "Keller Temperatur|C", 0xFF8800, d_pos, d_cnt, t_ktmp, 9, 15, 0.0, 60.0);
+            // Chart 5: Gas / Wasser (2 decimals + smooth = 10)
+            WebChart('l', "Gas - Wasser - m3", "Gas|m3", 0xFF0000, d_pos, d_cnt, t_gas, 10, 15, 0.0, 0.3);
+            WebChart('l', "", "Wasser|m3", 0x0088FF, d_pos, d_cnt, t_wa, 10, 15, 0.0, 0.3);
+            // Chart 6: Heizung / Brauchwasser WP (smooth)
+            WebChart('l', "Heizung - Brauchwasser - WP - W", "HWP|W", 0x0088FF, d_pos, d_cnt, t_hzwp, 8, 15, 0.0, 3000.0);
+            WebChart('l', "", "BWWP|W", 0xFF0000, d_pos, d_cnt, t_bwwp, 8, 15, 0.0, 3000.0);
+            WebChartTimeBase(0);  // reset for non-time charts
+            // Energiebilanz — from daily log (wt_* arrays, matching Scripter #gload)
+            // wt_hv[1]=Haus(ZWZI), wt_wb[1]=Wallbox, wt_sin1[1]=Garage,
+            // wt_sin2[1]=G-Haus, wt_sin3[1]=Garten (missing, use 0),
+            // wt_sin4[1]=Dach, wt_gas[1]=Gas, wt_wa[1]=Wasser,
+            // wt_wp[1]=Klima, wt_bwwp[1]=BWWP, wt_hwp[1]=HWP, wt_rain[1]=Regen
+            // Gas € = Gas * 10 * PRICE_GAS_KWH / 100
+            // Column chart — uses wt_* arrays directly, pos=2 count=1 reads [1]
+            WebChart('c', "Energiebilanz", "Haus", 0x0000FF, 2, 1, wt_hv, 2, 0, 0.0, 0.0);
+            WebChart('c', "", "Wallbox", 0x8800FF, 2, 1, wt_wb, 2, 0, 0.0, 0.0);
+            WebChart('c', "", "Garage", 0xFF0000, 2, 1, wt_sin1, 2, 0, 0.0, 0.0);
+            WebChart('c', "", "G-Haus", 0xFF8800, 2, 1, wt_sin2, 2, 0, 0.0, 0.0);
+            WebChart('c', "", "Garten", 0x00AA00, 2, 1, wt_sin3, 2, 0, 0.0, 0.0);
+            WebChart('c', "", "Dach", 0x00CCFF, 2, 1, wt_sin4, 2, 0, 0.0, 0.0);
+            WebChart('c', "", "Gas", 0xFF00FF, 2, 1, wt_gas, 2, 0, 0.0, 0.0);
+            WebChart('c', "", "Wasser", 0x0088FF, 2, 1, wt_wa, 2, 0, 0.0, 0.0);
+            WebChart('c', "", "Klima", 0x888800, 2, 1, wt_wp, 2, 0, 0.0, 0.0);
+            WebChart('c', "", "BWWP", 0xCC0000, 2, 1, wt_bwwp, 2, 0, 0.0, 0.0);
+            WebChart('c', "", "HWP", 0x0088AA, 2, 1, wt_hwp, 2, 0, 0.0, 0.0);
+            WebChart('c', "", "Regen", 0x00AA88, 2, 1, wt_rain, 2, 0, 0.0, 0.0);
+            // Table — use a_du for transposed layout (copy wt values + Gas €)
+            a_du[1] = wt_hv[1];
+            a_du[2] = wt_wb[1];
+            a_du[3] = wt_sin1[1];
+            a_du[4] = wt_sin2[1];
+            a_du[5] = wt_sin3[1];
+            a_du[6] = wt_sin4[1];
+            a_du[7] = wt_gas[1];
+            a_du[8] = wt_gas[1] * 10.0 * PRICE_GAS_KWH / 100.0;
+            a_du[9] = wt_wa[1];
+            a_du[10] = wt_wp[1];
+            a_du[11] = wt_bwwp[1];
+            a_du[12] = wt_hwp[1];
+            a_du[13] = wt_rain[1];
+            WebChart('t', "Energiebilanz|Haus|Wallbox|Garage|G-Haus|Garten|Dach|Gas|Gas E|Wasser|Klima|BWWP|HWP|Regen", "Bilanz", 0, 14, 13, a_du, 2, 0, 0.0, 0.0);
+        } else {
+            dotask = 2;
+            webSend("<p>Daten werden geladen...</p>");
+        }
     }
     if (pg == 1) {
         // ─── Page 1: Letzte Woche (7-day hourly line charts) ───
-        webSend("<script>rfsh=0;clearTimeout(lt);</script>");
+        webSend("<script>var tt=document.querySelector(\"div[style*='c_ttl']\");if(tt)tt.style.display='none';rfsh=0;clearTimeout(lt);</script>");
         webSend("<h3>Letzte Woche</h3>");
+        if (db_loaded == 1) {
+            webSend("<center>Datenbank vom ");
+            webSend(db_min);
+            webSend(" bis ");
+            webSend(db_max);
+            webSend("</center><br>");
+        }
         if (wk_loaded == 1 && dotask == 0) {
-            // Chart 1: Energy balance column chart (daily data, pos=8 count=7 skips delta[0])
-            WebChart('c', "Energie Bilanz", "Netz", 0xFF0000, 8, 7, wt_hv, 1, 1440, 0.0, 0.0);
-            WebChart('c', "", "Wallbox", 0x0088FF, 8, 7, wt_wb, 1, 1440, 0.0, 0.0);
-            WebChart('c', "", "Garage", 0x00AA00, 8, 7, wt_sin1, 1, 1440, 0.0, 0.0);
-            WebChart('c', "", "G-Haus", 0x008800, 8, 7, wt_sin2, 1, 1440, 0.0, 0.0);
-            WebChart('c', "", "Garten", 0x888800, 8, 7, wt_sin3, 1, 1440, 0.0, 0.0);
-            WebChart('c', "", "Dach", 0xFF8800, 8, 7, wt_sin4, 1, 1440, 0.0, 0.0);
-            WebChart('c', "", "WP", 0x8800FF, 8, 7, wt_wp, 1, 1440, 0.0, 0.0);
-            // Chart 2: Powerwall & Temperatures
-            WebChart('l', "Powerwall / Temperaturen", "%%", 0x00CC00, 0, 168, w_pwl, 0, 60, 0.0, 100.0);
-            WebChart('l', "", "C", 0xFF6600, 0, 168, w_at, 1, 60, 0.0, 100.0);
-            WebChart('l', "", "C", 0x0000FF, 0, 168, w_sk, 1, 60, 0.0, 100.0);
-            WebChart('l', "", "C", 0xCC0000, 0, 168, w_swa, 1, 60, 0.0, 100.0);
-            // Chart 3: Power consumption & solar yield
-            WebChart('l', "Verbrauch / Solar", "W", 0xFF0000, 0, 168, w_hv, 0, 60, 0.0, 5000.0);
-            WebChart('l', "", "W", 0x00AA00, 0, 168, w_sin, 0, 60, 0.0, 5000.0);
-            WebChart('l', "", "W", 0xFF8800, 0, 168, w_wr1, 0, 60, 0.0, 5000.0);
-            WebChart('l', "", "W", 0x0000FF, 0, 168, w_wr2, 0, 60, 0.0, 5000.0);
-            WebChart('l', "", "W", 0x888800, 0, 168, w_wr3, 0, 60, 0.0, 5000.0);
-            WebChart('l', "", "W", 0x8800FF, 0, 168, w_wr4, 0, 60, 0.0, 5000.0);
-            // Chart 4: Gas & Water
-            WebChart('l', "Gas / Wasser", "m3", 0xFF0000, 0, 168, w_gas, 2, 60, 0.0, 10.0);
-            WebChart('l', "", "m3", 0x0088FF, 0, 168, w_wa, 2, 60, 0.0, 10.0);
-            // Chart 5: Energy balance table (daily data)
-            WebChart('t', "Tag|So|Mo|Di|Mi|Do|Fr|Sa", "Haus", 0x000000, 8, 7, wt_hv, 1, 0, 0.0, 0.0);
-            WebChart('t', "", "Wallbox", 0x000000, 8, 7, wt_wb, 1, 0, 0.0, 0.0);
-            WebChart('t', "", "Garage", 0x000000, 8, 7, wt_sin1, 1, 0, 0.0, 0.0);
-            WebChart('t', "", "G-Haus", 0x000000, 8, 7, wt_sin2, 1, 0, 0.0, 0.0);
-            WebChart('t', "", "Garten", 0x000000, 8, 7, wt_sin3, 1, 0, 0.0, 0.0);
-            WebChart('t', "", "Dach", 0x000000, 8, 7, wt_sin4, 1, 0, 0.0, 0.0);
-            WebChart('t', "", "Gas", 0x000000, 8, 7, wt_gas, 2, 0, 0.0, 0.0);
-            WebChart('t', "", "Wasser", 0x000000, 8, 7, wt_wa, 2, 0, 0.0, 0.0);
-            WebChart('t', "", "WP", 0x000000, 8, 7, wt_wp, 1, 0, 0.0, 0.0);
-            webSend("<p><a href='/tc_ui?p=1'>Aktualisieren</a></p>");
-        } else if (dotask == 0) {
+            // Chart 1: Energy balance column chart
+            // pos=wk_drows reads last 7 deltas, tbase=-1440 shifts labels to yesterday
+            WebChartTimeBase(-1440);
+            WebChart('c', "Energie Bilanz", "Netz", 0xFF0000, wk_drows, 7, wt_hv, 1, 1440, 0.0, 0.0);
+            WebChart('c', "", "Wallbox", 0x0088FF, wk_drows, 7, wt_wb, 1, 1440, 0.0, 0.0);
+            WebChart('c', "", "Garage", 0x00AA00, wk_drows, 7, wt_sin1, 1, 1440, 0.0, 0.0);
+            WebChart('c', "", "G-Haus", 0x008800, wk_drows, 7, wt_sin2, 1, 1440, 0.0, 0.0);
+            WebChart('c', "", "Garten", 0x888800, wk_drows, 7, wt_sin3, 1, 1440, 0.0, 0.0);
+            WebChart('c', "", "Dach", 0xFF8800, wk_drows, 7, wt_sin4, 1, 1440, 0.0, 0.0);
+            WebChart('c', "", "WP", 0x8800FF, wk_drows, 7, wt_wp, 1, 1440, 0.0, 0.0);
+            WebChartTimeBase(0);
+            // Chart 2: Powerwall & Temperatures (dual y-axis: 0-100% left, 0-60°C right)
+            // decimals: 0+8=8 (smooth), 1+8=9 (1 decimal + smooth)
+            WebChart('l', "Powerwall / Temperaturen", "Powerwall|%", 0x00CC00, 0, 168, w_pwl, 8, 60, 0.0, 100.0);
+            WebChart('l', "", "Aussentemperatur|C", 0xFF6600, 0, 168, w_at, 9, 60, 0.0, 60.0);
+            WebChart('l', "", "Kollektortemperatur|C", 0x0000FF, 0, 168, w_sk, 9, 60, 0.0, 60.0);
+            WebChart('l', "", "Solarspeicher|C", 0xCC0000, 0, 168, w_swa, 9, 60, 0.0, 60.0);
+            // Chart 3: Power consumption & solar yield (smooth)
+            WebChart('l', "Netzverbrauch / Solarertrag", "Netz|W", 0xFF0000, 0, 168, w_hv, 8, 60, 0.0, 8000.0);
+            WebChart('l', "", "Solar Input|W", 0x00AA00, 0, 168, w_sin, 8, 60, 0.0, 8000.0);
+            WebChart('l', "", "Garage|W", 0xFF8800, 0, 168, w_wr1, 8, 60, 0.0, 8000.0);
+            WebChart('l', "", "GHaus|W", 0x0000FF, 0, 168, w_wr2, 8, 60, 0.0, 8000.0);
+            WebChart('l', "", "Garten|W", 0x888800, 0, 168, w_wr3, 8, 60, 0.0, 8000.0);
+            WebChart('l', "", "Dach|W", 0x8800FF, 0, 168, w_wr4, 8, 60, 0.0, 8000.0);
+            // Chart 4: Gas & Water (2 decimals + smooth = 10)
+            WebChart('l', "Gas / Wasser", "Gas|m3", 0xFF0000, 0, 168, w_gas, 10, 60, 0.0, 0.3);
+            WebChart('l', "", "Wasser|m3", 0x0088FF, 0, 168, w_wa, 10, 60, 0.0, 0.3);
+            // Chart 5: Energy balance table (dynamic weekday labels via JS rotation)
+            WebChart('t', "Tag|So|Mo|Di|Mi|Do|Fr|Sa", "Haus", 0x000000, wk_drows, 7, wt_hv, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Wallbox", 0x000000, wk_drows, 7, wt_wb, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Garage", 0x000000, wk_drows, 7, wt_sin1, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Gartenhaus", 0x000000, wk_drows, 7, wt_sin2, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Garten", 0x000000, wk_drows, 7, wt_sin3, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Dach", 0x000000, wk_drows, 7, wt_sin4, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Gas", 0x000000, wk_drows, 7, wt_gas, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Gas E", 0x000000, wk_drows, 7, wt_pgas, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Wasser", 0x000000, wk_drows, 7, wt_wa, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "WP", 0x000000, wk_drows, 7, wt_wp, 2, 0, 0.0, 0.0);
+            // Rotate table weekday labels to start from today's weekday
+            // c.lb = [So,Mo,Di,Mi,Do,Fr,Sa] → rotate by getDay() positions
+            webSend("<script>(function(){var c=_tcC[_tcC.length-1];if(c&&c.lb){var w=new Date().getDay();var o=c.lb.slice();for(var i=0;i<7;i++)c.lb[i]=o[(w+i)%7];}})()</script>");
+        } else {
             dotask = 1;
             webSend("<p>Daten werden geladen...</p>");
-            webSend("<p><a href='/tc_ui?p=1'>Aktualisieren</a></p>");
+        }
+    }
+    if (pg == 2) {
+        // ─── Page 2: 52 Wochen (yearly overview, weekly aggregated) ───
+        webSend("<script>var tt=document.querySelector(\"div[style*='c_ttl']\");if(tt)tt.style.display='none';rfsh=0;clearTimeout(lt);</script>");
+        webSend("<h3>52 Wochen</h3>");
+        if (d52 > 0 && dotask == 0) {
+            // Title with date range
+            webSend("<center>");
+            webSend(lwstr);
+            webSend("</center><br>");
+
+            // Chart 1: Solar inverters (stacked column) — Garage, G-Haus, Garten, Dach
+            // pos=d52, count=d52-1: skip [0] (accumulated start value), show [1..d52-1]
+            WebChart('s', "Solar Ertrag kWh", "Garage", 0x4285F4, d52, d52-1, w_wr1, 1, 10080, 0.0, 80.0);
+            WebChart('s', "", "G-Haus", 0xEA4335, d52, d52-1, w_wr2, 1, 10080, 0.0, 80.0);
+            WebChart('s', "", "Garten", 0xFBBC04, d52, d52-1, w_wr3, 1, 10080, 0.0, 80.0);
+            WebChart('s', "", "Dach", 0x34A853, d52, d52-1, w_wr4, 1, 10080, 0.0, 80.0);
+
+            // Chart 2: Wallbox, WPumpen, HWP
+            WebChart('s', "Wallbox / WPumpen kWh", "WBox", 0x4285F4, d52, d52-1, w_pwl, 1, 10080, 0.0, 30.0);
+            WebChart('s', "", "Wpumpe", 0xEA4335, d52, d52-1, w_at, 1, 10080, 0.0, 30.0);
+            WebChart('s', "", "HWP", 0xFBBC04, d52, d52-1, w_hwp, 1, 10080, 0.0, 30.0);
+
+            // Chart 3: Verbrauch / Einspeisung
+            WebChart('s', "Verbrauch / Einspeisung kWh", "Verbrauch", 0x4285F4, d52, d52-1, w_sin, 1, 10080, 0.0, 60.0);
+            WebChart('s', "", "Einsp", 0x34A853, d52, d52-1, w_swa, 1, 10080, 0.0, 60.0);
+
+            // Chart 4: Gas, Wasser, HWP (line chart)
+            WebChart('l', "Gas / Wasser / HWP", "Gas", 0x4285F4, d52, d52-1, w_gas, 8, 10080, 0.0, 40.0);
+            WebChart('l', "", "Wasser", 0xEA4335, d52, d52-1, w_wa, 8, 10080, 0.0, 40.0);
+            WebChart('l', "", "HWP", 0xFBBC04, d52, d52-1, w_hwp, 8, 10080, 0.0, 40.0);
+
+            // Table: all weekly data (skip [0])
+            WebChart('t', "Woche", "Garage", 0x000000, d52, d52-1, w_wr1, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Gartenhaus", 0x000000, d52, d52-1, w_wr2, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Garten", 0x000000, d52, d52-1, w_wr3, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Dach", 0x000000, d52, d52-1, w_wr4, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Wallbox", 0x000000, d52, d52-1, w_pwl, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "WPumpen", 0x000000, d52, d52-1, w_at, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Verbrauch", 0x000000, d52, d52-1, w_sin, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Einspeisung", 0x000000, d52, d52-1, w_swa, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Gas", 0x000000, d52, d52-1, w_gas, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Gas E", 0x000000, d52, d52-1, w_pgas, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Wasser", 0x000000, d52, d52-1, w_wa, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "D-temp", 0x000000, d52, d52-1, w_avgt, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Regen", 0x000000, d52, d52-1, w_rain, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "HWP", 0x000000, d52, d52-1, w_hwp, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "BWWP", 0x000000, d52, d52-1, w_bwwp, 2, 0, 0.0, 0.0);
+
+            // Replace table first-column labels with week numbers (0,1,2...)
+            webSend("<script>(function(){var c=_tcC[_tcC.length-1];if(c&&c.lb){for(var i=0;i<c.lb.length;i++)c.lb[i]=i;}})()</script>");
         } else {
+            dotask = 3;
+            webSend("<meta http-equiv='refresh' content='3'>");
             webSend("<p>Daten werden geladen...</p>");
-            webSend("<p><a href='/tc_ui?p=1'>Aktualisieren</a></p>");
         }
     }
     if (pg == 3) {
-        // ─── Page 3: Andere Geräte (device links, dynamic IPs from UDP) ───
+        // ─── Page 3: Andere Geräte ───
         webSend("<style>button{border:0;border-radius:0.3rem;background:#1fa3ec;color:white;line-height:1.4rem;font-size:1.2rem;width:400px;transition-duration:0.4s;cursor:pointer;height:45px;}</style>");
         webSend("<div style='text-align:center'>");
         webSend("<h3>Andere Ger&auml;te</h3>");
-        // Rolladen buttons (IPs received via UDP global char[])
-        webSend("<p><form action='http://");
-        webSend(wz_ip);
-        webSend("' method='get'><button>Rolladen Wohnzimmer Veranda</button></form></p>");
-        webSend("<p><form action='http://");
-        webSend(wzv_ip);
-        webSend("' method='get'><button>Rolladen Wohnzimmer vorne</button></form></p>");
-        webSend("<p><form action='http://");
-        webSend(azh_ip);
-        webSend("' method='get'><button>Rolladen AZ Heidrun</button></form></p>");
-        webSend("<p><form action='http://");
-        webSend(kue_ip);
-        webSend("' method='get'><button>Rolladen K&uuml;che</button></form></p>");
-        webSend("<p><form action='http://");
-        webSend(flu_ip);
-        webSend("' method='get'><button>Rolladen Flur</button></form></p>");
+        // Rolladen (hardcoded static IPs)
+        webSend("<p><form action='http://192.168.188.22' method='get'><button>Rolladen Wohnzimmer Veranda</button></form></p>");
+        webSend("<p><form action='http://192.168.188.29' method='get'><button>Rolladen Wohnzimmer vorne</button></form></p>");
+        webSend("<p><form action='http://192.168.188.35' method='get'><button>Rolladen AZ Heidrun</button></form></p>");
+        webSend("<p><form action='http://192.168.188.40' method='get'><button>Rolladen K&uuml;che</button></form></p>");
+        webSend("<p><form action='http://192.168.188.41' method='get'><button>Rolladen Flur</button></form></p>");
+        // Dynamic IPs from UDP
         webSend("<p><form action='http://");
         webSend(sug_ip);
         webSend("' method='get'><button>Schaltuhr Garage</button></form></p>");
-        webSend("<p><form action='http://");
-        webSend(nsp_ip);
-        webSend("' method='get'><button>Netstream Power</button></form></p>");
-        // Additional devices
-        webSend("<p><form action='http://");
-        webSend(fs_ip);
-        webSend("' method='get'><button>Fenster und Thermostate</button></form></p>");
-        webSend("<p><form action='http://");
-        webSend(us_ip);
-        webSend("' method='get'><button>Schadstoffsensoren</button></form></p>");
+        webSend("<p><form action='http://192.168.188.33' method='get'><button>Netstream Power</button></form></p>");
+        // Dynamic IP from UDP
         webSend("<p><form action='http://");
         webSend(tv2_ip);
         webSend("' method='get'><button>Schlafzimmer G</button></form></p>");
         webSend("</div>");
+    }
+    if (pg == 4) {
+        // ─── Page 4: Heizung Verlauf letzte 31 Tage ───
+        webSend("<script>var tt=document.querySelector(\"div[style*='c_ttl']\");if(tt)tt.style.display='none';rfsh=0;clearTimeout(lt);</script>");
+        webSend("<h3>Heizung Verlauf</h3>");
+        if (d52 > 0 && dotask == 0) {
+            // Title with date range
+            webSend("<center>");
+            webSend(lwstr);
+            webSend("</center><br>");
+            // Wrap chart+table in consistent-width container
+            webSend("<div style='max-width:960px;margin:0 auto'>");
+
+            // Chart: dual-axis line — D-Temp (left) + HWP (right)
+            // Different min/max triggers dual y-axis in WebChart
+            WebChart('l', "D-Temp / Heizung WP", "D-TMP", 0x4285F4, d52, d52-1, w_atmp, 8, 1440, -10.0, 35.0);
+            WebChart('l', "", "HWP", 0xFF0000, d52, d52-1, w_gwp, 8, 1440, 0.0, 50.0);
+
+            // Table: 14 columns, skip [0]
+            WebChart('t', "Tag", "Garage", 0x000000, d52, d52-1, w_wr1, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Gartenhaus", 0x000000, d52, d52-1, w_wr2, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Garten", 0x000000, d52, d52-1, w_wr3, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Dach", 0x000000, d52, d52-1, w_wr4, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Wallbox", 0x000000, d52, d52-1, w_pwl, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "WPumpen", 0x000000, d52, d52-1, w_at, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Summe WR", 0x000000, d52, d52-1, w_sk, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Verbrauch", 0x000000, d52, d52-1, w_sin, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Einspeisung", 0x000000, d52, d52-1, w_swa, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Wasser", 0x000000, d52, d52-1, w_wa, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Gas", 0x000000, d52, d52-1, w_gas, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "D-Temp", 0x000000, d52, d52-1, w_atmp, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "HWP", 0x000000, d52, d52-1, w_gwp, 2, 0, 0.0, 0.0);
+            WebChart('t', "", "Regen", 0x000000, d52, d52-1, w_rain, 2, 0, 0.0, 0.0);
+
+            // Counter-based row labels (0, 1, 2, ...)
+            webSend("<script>(function(){var c=_tcC[_tcC.length-1];if(c&&c.lb){for(var i=0;i<c.lb.length;i++)c.lb[i]=i;}})()</script>");
+            webSend("</div>");
+        } else {
+            dotask = 4;
+            webSend("<meta http-equiv='refresh' content='3'>");
+            webSend("<p>Daten werden geladen...</p>");
+        }
     }
 }
 
@@ -885,6 +1474,7 @@ void EverySecond() {
         addLog("TCC: udp timeout");
     }
 
+
     // ─── Display update ───
     if (dotask == 0) {
         dspText("[D0]");
@@ -896,8 +1486,68 @@ void EverySecond() {
         dspUpdate();
     }
 
-    // ─── 15-minute data collection ───
-    if (cnt % 900 == 0) {
+    // ─── HWP alarm: check every 60s if heating WP is running ───
+    if (cnt % 60 == 0) {
+        if (hwp < 500.0) {
+            hwp_alarm = hwp_alarm + 1;
+        } else {
+            hwp_alarm = 0;
+        }
+    }
+    // After 60 consecutive low readings (1 hour), alert every 30s
+    if (hwp_alarm >= 60 && cnt % 30 == 0) {
+        audioSay("heizung alarm");
+        audioPlay("/alarm.mp3");
+    }
+
+    // ─── Battery full: trigger once when pwl reaches 100% ───
+    if (pwl >= 100.0 && batt_prev < 100) {
+        audioSay("battery full");
+        audioPlay("/doorbell.mp3");
+    }
+    // ─── Battery low: repeat every 5 min while pwl < 3% (offset +5s) ───
+    if (pwl < 3.0 && cnt % 300 == 5) {
+        audioPlay("/Done.mp3");
+    }
+    batt_prev = pwl;
+
+    // ─── Energy collector fatal error: repeat every 5 min while gerr > 0 (offset +10s) ───
+    if (gerr > 0.0 && cnt % 300 == 10) {
+        audioPlay("/Classic.mp3");
+    }
+
+    // ─── Power loss: UDP data collector unreachable ───
+    if (udp_timer <= 0 && pw_lost == 0) {
+        pw_lost = 1;
+        audioSay("powerwall lost");
+        audioPlay("/alarm.mp3");
+    }
+    if (udp_timer > 0 && pw_lost == 1) {
+        pw_lost = 0;
+        audioPlay("/Done.mp3");
+    }
+
+    // ─── Daikin AC sensor poll every 5 min (offset +15s) ───
+    // Trigger TaskLoop to do the httpGet (avoids blocking main loop)
+    if (cnt % 300 == 15 && dotask == 0 && tasm_wifi == 1) {
+        dotask = 5;
+    }
+
+    // ─── Midnight reference store ───
+    if (tasm_hour == 0 && tasm_minute == 0 && mn != tasm_day) {
+        mn = tasm_day;
+        gas_m = t_gs;
+        was_m = t_ws;
+        hwp_m = t_hwp;
+        zrz_m = zwzi;
+        auto_m = t_wb;
+        rain_m = train;
+        saveVars();
+        addLog("TCC: midnight persist saved");
+    }
+
+    // ─── 15-minute data collection (offset +20s) ───
+    if (cnt % 900 == 20) {
         collectDaily();
     }
 
@@ -909,14 +1559,91 @@ void WebOn() {
     if (h == 1) {
         // /tc_array → JSON with 4 PV inverter watts
         // TODO: use webSendJsonArray after firmware rebuild
-        sprintfInt(buf, "{\"array\":[%d,", sedc);
+        sprintf(buf, "{\"array\":[%d,", sedc);
         webSend(buf);
-        sprintfInt(buf, "%d,", 0 - wrga);
+        sprintf(buf, "%d,", 0 - wrga);
         webSend(buf);
-        sprintfInt(buf, "%d,", 0 - wrgh);
+        sprintf(buf, "%d,", 0 - wrgh);
         webSend(buf);
-        sprintfInt(buf, "%d]}", 0 - wrgg);
+        sprintf(buf, "%d]}", 0 - wrgg);
         webSend(buf);
+    }
+}
+
+// ─── Command handler: ENGSetref [name value] ───
+void Command(char cmd[]) {
+    char arg[64];
+    char resp[96];
+    char tmp[32];
+
+    if (strFind(cmd, "SETREF") == 0) {
+        if (strlen(cmd) > 7) {
+            // "SETREF gas_m 123.45" — set individual value
+            strSub(arg, cmd, 7, 0);
+            int sp;
+            sp = strFind(arg, " ");
+            if (sp > 0) {
+                char name[16];
+                char valstr[16];
+                strSub(name, arg, 0, sp);
+                strSub(valstr, arg, sp + 1, 0);
+                float val;
+                val = atof(valstr);
+                int found;
+                found = 0;
+                if (strFind(name, "gas") == 0) { gas_m = val; found = 1; }
+                if (strFind(name, "was") == 0) { was_m = val; found = 1; }
+                if (strFind(name, "hwp") == 0) { hwp_m = val; found = 1; }
+                if (strFind(name, "zrz") == 0) { zrz_m = val; found = 1; }
+                if (strFind(name, "auto") == 0) { auto_m = val; found = 1; }
+                if (strFind(name, "rain") == 0) { rain_m = val; found = 1; }
+                if (found == 1) {
+                    saveVars();
+                    strcpy(resp, "{\"ENGSetref\":\"");
+                    strcat(resp, name);
+                    sprintf(tmp, " = %.4f saved\"}", val);
+                    strcat(resp, tmp);
+                    responseCmnd(resp);
+                } else {
+                    strcpy(resp, "{\"ENGSetref\":\"unknown var, use: gas was hwp zrz auto rain\"}");
+                    responseCmnd(resp);
+                }
+            } else {
+                strcpy(resp, "{\"ENGSetref\":\"usage: ENGSetref name value\"}");
+                responseCmnd(resp);
+            }
+        } else {
+            // No args: set all from current meter readings
+            gas_m = t_gs;
+            was_m = t_ws;
+            hwp_m = t_hwp;
+            zrz_m = zwzi;
+            auto_m = t_wb;
+            rain_m = train;
+            saveVars();
+            strcpy(resp, "{\"ENGSetref\":\"all midnight refs set\"}");
+            responseCmnd(resp);
+        }
+    } else if (strFind(cmd, "SETVOL") == 0) {
+        // ENGSetvol 50 — set audio volume
+        if (strlen(cmd) > 7) {
+            strSub(arg, cmd, 7, 0);
+            int vol;
+            vol = atoi(arg);
+            if (vol < 0) { vol = 0; }
+            if (vol > 100) { vol = 100; }
+            audvol = vol;
+            audioVol(audvol);
+            saveVars();
+            sprintf(resp, "{\"ENGSetvol\":\"%d\"}", audvol);
+            responseCmnd(resp);
+        } else {
+            sprintf(resp, "{\"ENGSetvol\":\"%d\"}", audvol);
+            responseCmnd(resp);
+        }
+    } else {
+        strcpy(resp, "{\"ENG\":\"cmds: Setref Setvol\"}");
+        responseCmnd(resp);
     }
 }
 
@@ -931,10 +1658,14 @@ int main() {
     // Initialize state
     dotask = 0;
     wk_loaded = 0;
+    dy_loaded = 0;
+    dl_done = 0;
     once = 0;
     bflg = 0;
     alarm = 0;
     hwp_alarm = 0;
+    batt_prev = 0;
+    pw_lost = 0;
     d52 = 52;
     zrz_o = 21399;
     cnt = 0;
@@ -952,6 +1683,9 @@ int main() {
     mn = -1;
     d_pos = 0;
     d_cnt = 0;
+    db_loaded = 0;
+
+    d_day_cached[0] = 0;  // no cached day data yet
 
     // Weekday names: 3 chars each (2-letter + space), tasm_wday 1=Sun..7=Sat
     wdays = "So Mo Di Mi Do Fr Sa";
@@ -968,15 +1702,31 @@ int main() {
     // Register streaming chart data endpoint
     webOn(1, "/tc_array");
 
+    // Register console command prefix: ENGMidnight
+    addCommand("ENG");
+
     // Draw initial display
     drawStatic();
 
-    // Collect first data point immediately
-    collectDaily();
+    // Audio init: restore volume from persist, play startup sound
+    if (audvol == 0) { audvol = 50; }  // default volume on first boot
+    audioVol(audvol);
+    audioPlay("/Startup.mp3");
+
+    // Weekly data load deferred to OnInit (needs WiFi for httpGet)
+    // dotask = 1 is set there
+
+    // Daily data now loaded from collector DB on demand (dotask=2)
 
     print("Phase 5: global keyword started\n");
-    sprintfInt(buf, "heap: %d\n", tasm_heap);
+    sprintf(buf, "heap: %d\n", tasm_heap);
     print(buf);
 
     return 0;
+}
+
+// ─── OnInit: called when WiFi is up — safe to do network operations ───
+void OnInit() {
+    addLog("TCC: WiFi up, loading week data");
+    dotask = 1;
 }

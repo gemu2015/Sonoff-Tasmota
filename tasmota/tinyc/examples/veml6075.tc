@@ -97,11 +97,11 @@ void EverySecond() {
 void WebCall() {
     char buf[64];
     if (veml_ok) {
-        sprintfInt(buf, "{s}VEML6075 UVA{m}%d{e}", veml_uva);
+        sprintf(buf, "{s}VEML6075 UVA{m}%d{e}", veml_uva);
         webSend(buf);
-        sprintfInt(buf, "{s}VEML6075 UVB{m}%d{e}", veml_uvb);
+        sprintf(buf, "{s}VEML6075 UVB{m}%d{e}", veml_uvb);
         webSend(buf);
-        sprintfFloat(buf, "{s}VEML6075 UV Index{m}%.1f{e}", veml_uvi);
+        sprintf(buf, "{s}VEML6075 UV Index{m}%.1f{e}", veml_uvi);
         webSend(buf);
     } else {
         webSend("{s}VEML6075{m}no data{e}");
@@ -111,11 +111,11 @@ void WebCall() {
 void JsonCall() {
     if (!veml_ok) return;
     char buf[96];
-    sprintfInt(buf, ",\"VEML6075\":{\"UVA\":%d", veml_uva);
+    sprintf(buf, ",\"VEML6075\":{\"UVA\":%d", veml_uva);
     responseAppend(buf);
-    sprintfInt(buf, ",\"UVB\":%d", veml_uvb);
+    sprintf(buf, ",\"UVB\":%d", veml_uvb);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"UVI\":%.1f}", veml_uvi);
+    sprintf(buf, ",\"UVI\":%.1f}", veml_uvi);
     responseAppend(buf);
 }
 
@@ -134,9 +134,9 @@ int main() {
     veml_addr = 0;
 
     if (veml_scan()) {
-        sprintfInt(buf, "VEML6075 found at 0x%x", veml_addr);
+        sprintf(buf, "VEML6075 found at 0x%x", veml_addr);
         print(buf);
-        sprintfInt(buf, " on bus %d\n", veml_bus);
+        sprintf(buf, " on bus %d\n", veml_bus);
         print(buf);
     } else {
         print("VEML6075 not found\n");

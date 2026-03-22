@@ -115,7 +115,7 @@ void draw_legend() {
     dspColor(RED, BLACK);
     dspPos(cx + 2, ly);
     dspFillRect(10, 8);
-    sprintfFloat(buf, " %.1fC", cur[0]);
+    sprintf(buf, " %.1fC", cur[0]);
     dspPos(cx + 14, ly);
     dspDraw(buf);
 
@@ -123,7 +123,7 @@ void draw_legend() {
     dspColor(CYAN, BLACK);
     dspPos(cx + sp, ly);
     dspFillRect(10, 8);
-    sprintfFloat(buf, " %.0f%%", cur[1]);
+    sprintf(buf, " %.0f%%", cur[1]);
     dspPos(cx + sp + 12, ly);
     dspDraw(buf);
 
@@ -131,7 +131,7 @@ void draw_legend() {
     dspColor(YELLOW, BLACK);
     dspPos(cx + 2 * sp, ly);
     dspFillRect(10, 8);
-    sprintfFloat(buf, " %.0fhPa", cur[2]);
+    sprintf(buf, " %.0fhPa", cur[2]);
     dspPos(cx + 2 * sp + 12, ly);
     dspDraw(buf);
 }
@@ -149,7 +149,7 @@ void draw_header() {
     dspPos(cx, 2);
     dspDraw("3-Channel Chart");
     // Counter
-    sprintfInt(hdr, "[%d/", count);
+    sprintf(hdr, "[%d/", count);
     sprintfAppendInt(hdr, "%d]", NPTS);
     dspPos(cx + cw - 48, 2);
     dspDraw(hdr);
@@ -295,10 +295,10 @@ int main() {
     dspDraw("Starting in 1 sec...");
 
     char buf[64];
-    sprintfInt(buf, "Display: %dx", scrW);
+    sprintf(buf, "Display: %dx", scrW);
     sprintfAppendInt(buf, "%d\n", scrH);
     printString(buf);
-    sprintfInt(buf, "Chart area: %dx", cw);
+    sprintf(buf, "Chart area: %dx", cw);
     sprintfAppendInt(buf, "%d\n", cht);
     printString(buf);
 

@@ -166,9 +166,9 @@ void WebCall() {
     if (ads_ok) {
         int ch = 0;
         while (ch < ADS_CHANNELS) {
-            sprintfInt(buf, "{s}ADS1115 AIN%d{m}", ch);
+            sprintf(buf, "{s}ADS1115 AIN%d{m}", ch);
             webSend(buf);
-            sprintfFloat(buf, "%.4f V{e}", ads_volt[ch]);
+            sprintf(buf, "%.4f V{e}", ads_volt[ch]);
             webSend(buf);
             ch++;
         }
@@ -184,9 +184,9 @@ void JsonCall() {
     int ch = 0;
     while (ch < ADS_CHANNELS) {
         if (ch > 0) responseAppend(",");
-        sprintfInt(buf, "\"A%d\":", ch);
+        sprintf(buf, "\"A%d\":", ch);
         responseAppend(buf);
-        sprintfFloat(buf, "%.4f", ads_volt[ch]);
+        sprintf(buf, "%.4f", ads_volt[ch]);
         responseAppend(buf);
         ch++;
     }
@@ -208,13 +208,13 @@ int main() {
     hist_tick = 0;
 
     if (ads_scan()) {
-        sprintfInt(buf, "ADS1115 found at 0x%x", ads_addr);
+        sprintf(buf, "ADS1115 found at 0x%x", ads_addr);
         print(buf);
-        sprintfInt(buf, " on bus %d\n", ads_bus);
+        sprintf(buf, " on bus %d\n", ads_bus);
         print(buf);
-        sprintfInt(buf, "PGA gain: %d", ADS_PGA);
+        sprintf(buf, "PGA gain: %d", ADS_PGA);
         print(buf);
-        sprintfInt(buf, ", channels: %d\n", ADS_CHANNELS);
+        sprintf(buf, ", channels: %d\n", ADS_CHANNELS);
         print(buf);
     } else {
         print("ADS1115 not found on any bus\n");

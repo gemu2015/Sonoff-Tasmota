@@ -42,7 +42,7 @@ void WebOn() {
         float ein  = smlGet(2) * 1000.0;   // kWh -> Wh
         float eout = smlGet(3) * 1000.0;
         // Build JSON: {"power":N,"powerAvg":N,"energyCounterIn":N,"energyCounterOut":N}
-        sprintfFloat(buf, "{\"power\":%.0f", cpwr);
+        sprintf(buf, "{\"power\":%.0f", cpwr);
         sprintfAppendFloat(buf, ",\"powerAvg\":%.0f", cpwr);
         sprintfAppendFloat(buf, ",\"energyCounterIn\":%.0f", ein);
         sprintfAppendFloat(buf, ",\"energyCounterOut\":%.0f}", eout);
@@ -105,25 +105,25 @@ void EverySecond() {
 
 // ── Web display: sensor rows on Tasmota main page ──
 void WebCall() {
-    sprintfFloat(buf, "{s}Leistung (Marstek){m}%.0f W{e}", cpwr);
+    sprintf(buf, "{s}Leistung (Marstek){m}%.0f W{e}", cpwr);
     webSend(buf);
 
     float ein = smlGet(2);
     float eout = smlGet(3);
 
-    sprintfFloat(buf, "{s}Tagesverbrauch{m}%.2f kWh{e}", ein - dval);
+    sprintf(buf, "{s}Tagesverbrauch{m}%.2f kWh{e}", ein - dval);
     webSend(buf);
-    sprintfFloat(buf, "{s}Monatsverbrauch{m}%.2f kWh{e}", ein - mval);
+    sprintf(buf, "{s}Monatsverbrauch{m}%.2f kWh{e}", ein - mval);
     webSend(buf);
-    sprintfFloat(buf, "{s}Jahresverbrauch{m}%.2f kWh{e}", ein - yval);
+    sprintf(buf, "{s}Jahresverbrauch{m}%.2f kWh{e}", ein - yval);
     webSend(buf);
-    sprintfFloat(buf, "{s}Tageseinspeisung{m}%.2f kWh{e}", eout - dval2);
+    sprintf(buf, "{s}Tageseinspeisung{m}%.2f kWh{e}", eout - dval2);
     webSend(buf);
-    sprintfFloat(buf, "{s}Monatseinspeisung{m}%.2f kWh{e}", eout - mval2);
+    sprintf(buf, "{s}Monatseinspeisung{m}%.2f kWh{e}", eout - mval2);
     webSend(buf);
-    sprintfFloat(buf, "{s}Jahreseinspeisung{m}%.2f kWh{e}", eout - yval2);
+    sprintf(buf, "{s}Jahreseinspeisung{m}%.2f kWh{e}", eout - yval2);
     webSend(buf);
-    sprintfInt(buf, "{s}Uptime{m}%d min{e}", tasm_uptime / 60);
+    sprintf(buf, "{s}Uptime{m}%d min{e}", tasm_uptime / 60);
     webSend(buf);
 }
 
@@ -142,7 +142,7 @@ void WebUI() {
 void JsonCall() {
     float ein = smlGet(2);
     float eout = smlGet(3);
-    sprintfFloat(buf, ",\"EcoTracker\":{\"Power\":%.0f", cpwr);
+    sprintf(buf, ",\"EcoTracker\":{\"Power\":%.0f", cpwr);
     sprintfAppendFloat(buf, ",\"EnergyIn\":%.3f", ein);
     sprintfAppendFloat(buf, ",\"EnergyOut\":%.3f", eout);
     sprintfAppendFloat(buf, ",\"DayIn\":%.3f", ein - dval);

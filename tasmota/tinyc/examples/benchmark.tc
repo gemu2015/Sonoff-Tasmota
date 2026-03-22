@@ -98,33 +98,33 @@ int bench_string() {
 
 void WebCall() {
     char buf[64];
-    sprintfInt(buf, "{s}Benchmark{m}%d ms total{e}", t_total);
+    sprintf(buf, "{s}Benchmark{m}%d ms total{e}", t_total);
     webSend(buf);
-    sprintfInt(buf, "{s} Integer{m}%d ms{e}", t_int);
+    sprintf(buf, "{s} Integer{m}%d ms{e}", t_int);
     webSend(buf);
-    sprintfInt(buf, "{s} Float{m}%d ms{e}", t_float);
+    sprintf(buf, "{s} Float{m}%d ms{e}", t_float);
     webSend(buf);
-    sprintfInt(buf, "{s} Array{m}%d ms{e}", t_array);
+    sprintf(buf, "{s} Array{m}%d ms{e}", t_array);
     webSend(buf);
-    sprintfInt(buf, "{s} Calls{m}%d ms{e}", t_call);
+    sprintf(buf, "{s} Calls{m}%d ms{e}", t_call);
     webSend(buf);
-    sprintfInt(buf, "{s} Strings{m}%d ms{e}", t_string);
+    sprintf(buf, "{s} Strings{m}%d ms{e}", t_string);
     webSend(buf);
 }
 
 void JsonCall() {
     char buf[128];
-    sprintfInt(buf, ",\"Bench\":{\"Total\":%d", t_total);
+    sprintf(buf, ",\"Bench\":{\"Total\":%d", t_total);
     responseAppend(buf);
-    sprintfInt(buf, ",\"Int\":%d", t_int);
+    sprintf(buf, ",\"Int\":%d", t_int);
     responseAppend(buf);
-    sprintfInt(buf, ",\"Float\":%d", t_float);
+    sprintf(buf, ",\"Float\":%d", t_float);
     responseAppend(buf);
-    sprintfInt(buf, ",\"Array\":%d", t_array);
+    sprintf(buf, ",\"Array\":%d", t_array);
     responseAppend(buf);
-    sprintfInt(buf, ",\"Call\":%d", t_call);
+    sprintf(buf, ",\"Call\":%d", t_call);
     responseAppend(buf);
-    sprintfInt(buf, ",\"Str\":%d}", t_string);
+    sprintf(buf, ",\"Str\":%d}", t_string);
     responseAppend(buf);
 }
 
@@ -142,7 +142,7 @@ int main() {
     bench_int();
     t1 = millis();
     t_int = t1 - t0;
-    sprintfInt(buf, "Integer:  %d ms  (500k ops)\n", t_int);
+    sprintf(buf, "Integer:  %d ms  (500k ops)\n", t_int);
     printString(buf);
 
     // 2. Float arithmetic: 50k iterations, 5 ops each = 250k ops
@@ -150,7 +150,7 @@ int main() {
     bench_float();
     t1 = millis();
     t_float = t1 - t0;
-    sprintfInt(buf, "Float:    %d ms  (250k ops)\n", t_float);
+    sprintf(buf, "Float:    %d ms  (250k ops)\n", t_float);
     printString(buf);
 
     // 3. Array access: 200 fill + 100k random access
@@ -158,7 +158,7 @@ int main() {
     bench_array();
     t1 = millis();
     t_array = t1 - t0;
-    sprintfInt(buf, "Array:    %d ms  (100k access)\n", t_array);
+    sprintf(buf, "Array:    %d ms  (100k access)\n", t_array);
     printString(buf);
 
     // 4. Function calls: 100k calls with 3 args
@@ -166,7 +166,7 @@ int main() {
     bench_call();
     t1 = millis();
     t_call = t1 - t0;
-    sprintfInt(buf, "Calls:    %d ms  (100k calls)\n", t_call);
+    sprintf(buf, "Calls:    %d ms  (100k calls)\n", t_call);
     printString(buf);
 
     // 5. String operations: 10k iterations
@@ -174,11 +174,11 @@ int main() {
     bench_string();
     t1 = millis();
     t_string = t1 - t0;
-    sprintfInt(buf, "Strings:  %d ms  (10k iters)\n", t_string);
+    sprintf(buf, "Strings:  %d ms  (10k iters)\n", t_string);
     printString(buf);
 
     t_total = millis() - t_start;
-    sprintfInt(buf, "── Total: %d ms ──\n", t_total);
+    sprintf(buf, "── Total: %d ms ──\n", t_total);
     printString(buf);
 
     return 0;

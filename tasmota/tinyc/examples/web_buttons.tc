@@ -1,0 +1,176 @@
+// ═══════════════════════════════════════════════════════════════════
+// web_buttons.tc — Custom Web Buttons Demo
+// Replicates Scripter's >w submenu with custom HTML buttons
+//
+// Scripter pattern:
+//   >w &#x2699; Stromzähler / Daten     <- submenu page with title
+//   <button onclick="seva(1,'_init')">   <- button calls subroutine #init
+//   ck(sndpwr "")                        <- checkbox widget
+//
+// TinyC equivalent:
+//   webPageLabel(0, "title")             <- button on main page
+//   WebUI() with webPage()==0            <- submenu page content
+//   fetch('/cm?cmnd=SMInit')             <- button calls Command()
+//   webCheckbox(var, "label")            <- checkbox widget
+// ═══════════════════════════════════════════════════════════════════
+
+// ─── Persistent settings ───
+persist watch int sndpwr;          // MQTT: send averaged power
+
+// ─── State ───
+int counter;
+char status[64];
+
+// ═══════════════════════════════════════════════════════════════════
+// "Subroutines" — equivalent of Scripter's #init, #init2, #save
+// ═══════════════════════════════════════════════════════════════════
+void doInit() {
+    counter = 0;
+    strcpy(status, "Zaehler initialisiert");
+    addLog("SM: Zaehler initialisiert");
+}
+
+void doInit2() {
+    strcpy(status, "Diagramme zurueckgesetzt");
+    addLog("SM: Diagramme zurueckgesetzt");
+}
+
+void doSave() {
+    saveVars();
+    strcpy(status, "Daten gespeichert");
+    addLog("SM: Daten gespeichert");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Command handler — called by fetch('/cm?cmnd=SMxxx') from buttons
+// Equivalent of Scripter's seva(1,'_init') → #init
+// ═══════════════════════════════════════════════════════════════════
+void Command(char cmd[]) {
+    if (strFind(cmd, "Init2") == 0) {
+        doInit2();
+        responseCmnd("{\"SMInit2\":\"done\"}");
+    } else if (strFind(cmd, "Init") == 0) {
+        doInit();
+        responseCmnd("{\"SMInit\":\"done\"}");
+    } else if (strFind(cmd, "Save") == 0) {
+        doSave();
+        responseCmnd("{\"SMSave\":\"done\"}");
+    } else {
+        responseCmnd("{\"SM\":\"cmds: Init,Init2,Save\"}");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// EverySecond
+// ═══════════════════════════════════════════════════════════════════
+void EverySecond() {
+    if (changed(sndpwr)) {
+        snapshot(sndpwr);
+        saveVars();
+    }
+    counter = counter + 1;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Main page — sensor values (same as Scripter >W section)
+// ═══════════════════════════════════════════════════════════════════
+void WebCall() {
+    char buf[80];
+    sprintf(buf, "{s}Counter{m}%d{e}", counter);
+    webSend(buf);
+    sprintf(buf, "{s}Status{m}%s{e}", status);
+    webSend(buf);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Settings page — exact replica of Scripter >w submenu
+//
+// Scripter:                          TinyC:
+//   >w &#x2699; Title                  webPageLabel(0, "Title") in main()
+//   seva(1,'_init')                    fetch('/cm?cmnd=SMInit')
+//   ck(sndpwr "")                      webCheckbox(sndpwr, "...")
+// ═══════════════════════════════════════════════════════════════════
+void WebUI() {
+    int page;
+    page = webPage();
+
+    if (page == 0) {
+        char buf[64];
+
+        // --- Exact Scripter >w layout ---
+        webSend("<style>");
+        webSend(".flex-container{display:flex;justify-content:center}");
+        webSend(".center-flex-horizontally{width:270px;background-color:#f0f0f0;");
+        webSend("text-align:left;padding:20px;border:2px solid #ccc;color:#333}");
+        webSend(".button-group{display:flex;flex-direction:column;");
+        webSend("align-items:flex-start;gap:10px}");
+        webSend(".button-group button{background:#e0e0e0;color:#333;");
+        webSend("border:1px solid #999;border-radius:3px;padding:4px 10px;");
+        webSend("width:auto;font-size:13px;cursor:pointer}");
+        webSend("</style>");
+
+        webSend("<div class='flex-container'>");
+        webSend("<div class='center-flex-horizontally'>");
+        webSend("<div class='button-group'>");
+
+        // --- Script name header ---
+        webSend("<b>&#x1F4C4; web_buttons.tc</b>");
+
+        // --- Buttons with confirm (= Scripter seva(1,'_init')) ---
+        webSend("<button type='submit' onclick=\"if(confirm(");
+        webSend("'Zaehlerwerte und Diagramme zuruecksetzen?'");
+        webSend(")){fetch('/cm?cmnd=SMInit')}\">");
+        webSend("&#x1F504; Zaehlerwerte initialisieren</button>");
+
+        webSend("<button type='submit' onclick=\"if(confirm(");
+        webSend("'Balkendiagramme zuruecksetzen?'");
+        webSend(")){fetch('/cm?cmnd=SMInit2')}\">");
+        webSend("&#x1F4CA; Reset Balkendiagramme</button>");
+
+        webSend("<button type='button' onclick=\"fetch('/cm?cmnd=SMSave');");
+        webSend("alert('Daten wurden gespeichert!')\">");
+        webSend("&#x1F4BE; Diagrammdaten speichern</button>");
+
+        webSend("</div>");  // button-group
+        webSend("<hr>");
+
+        // --- Options (= Scripter ck() checkbox) ---
+        webSend("<b>&#x1F527; Optionen</b><br><br>");
+        webSend("MQTT: Gemittelte Leistung senden:");
+        webCheckbox(sndpwr, "");
+
+        webSend("<hr>");
+
+        // --- System info ---
+        webSend("<b>&#x2139;&#xFE0F; System</b><br>");
+        sprintf(buf, "Heap: %d KB", tasm_heap / 1024);
+        webSend(buf);
+
+        webSend("</div>");  // center-flex-horizontally
+        webSend("</div>");  // flex-container
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// WebPage — needed for webPageLabel button to appear on main page
+// ═══════════════════════════════════════════════════════════════════
+void WebPage() {
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MAIN
+// ═══════════════════════════════════════════════════════════════════
+int main() {
+    counter = 0;
+    strcpy(status, "Ready");
+    snapshot(sndpwr);
+
+    // Register console command prefix (like Scripter subroutine calls)
+    addCommand("SM");
+
+    // Create submenu button on main page
+    // Equivalent of Scripter: >w &#x2699;&#xFE0F; Stromzähler / Daten
+    webPageLabel(0, "&#x2699;&#xFE0F; Stromzaehler / Daten");
+
+    return 0;
+}

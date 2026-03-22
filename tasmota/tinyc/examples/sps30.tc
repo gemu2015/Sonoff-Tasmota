@@ -208,7 +208,7 @@ void Command(char cmd[]) {
                 sps_interval = val;
             }
         }
-        sprintfInt(buf, "Interval: %d s", sps_interval);
+        sprintf(buf, "Interval: %d s", sps_interval);
         responseCmnd(buf);
     } else {
         responseCmnd("Measure|Interval <sec>");
@@ -219,31 +219,31 @@ void WebCall() {
     char buf[80];
     if (sps_ok) {
         // Mass concentrations
-        sprintfFloat(buf, "{s}SPS30 PM 1.0{m}%.2f &micro;g/m&sup3;{e}", sps_pm1);
+        sprintf(buf, "{s}SPS30 PM 1.0{m}%.2f &micro;g/m&sup3;{e}", sps_pm1);
         webSend(buf);
-        sprintfFloat(buf, "{s}SPS30 PM 2.5{m}%.2f &micro;g/m&sup3;{e}", sps_pm25);
+        sprintf(buf, "{s}SPS30 PM 2.5{m}%.2f &micro;g/m&sup3;{e}", sps_pm25);
         webSend(buf);
-        sprintfFloat(buf, "{s}SPS30 PM 4.0{m}%.2f &micro;g/m&sup3;{e}", sps_pm4);
+        sprintf(buf, "{s}SPS30 PM 4.0{m}%.2f &micro;g/m&sup3;{e}", sps_pm4);
         webSend(buf);
-        sprintfFloat(buf, "{s}SPS30 PM 10{m}%.2f &micro;g/m&sup3;{e}", sps_pm10);
+        sprintf(buf, "{s}SPS30 PM 10{m}%.2f &micro;g/m&sup3;{e}", sps_pm10);
         webSend(buf);
         // Number concentrations
-        sprintfFloat(buf, "{s}SPS30 NCPM 0.5{m}%.2f #/cm&sup3;{e}", sps_nc05);
+        sprintf(buf, "{s}SPS30 NCPM 0.5{m}%.2f #/cm&sup3;{e}", sps_nc05);
         webSend(buf);
-        sprintfFloat(buf, "{s}SPS30 NCPM 1.0{m}%.2f #/cm&sup3;{e}", sps_nc1);
+        sprintf(buf, "{s}SPS30 NCPM 1.0{m}%.2f #/cm&sup3;{e}", sps_nc1);
         webSend(buf);
-        sprintfFloat(buf, "{s}SPS30 NCPM 2.5{m}%.2f #/cm&sup3;{e}", sps_nc25);
+        sprintf(buf, "{s}SPS30 NCPM 2.5{m}%.2f #/cm&sup3;{e}", sps_nc25);
         webSend(buf);
-        sprintfFloat(buf, "{s}SPS30 NCPM 4.0{m}%.2f #/cm&sup3;{e}", sps_nc4);
+        sprintf(buf, "{s}SPS30 NCPM 4.0{m}%.2f #/cm&sup3;{e}", sps_nc4);
         webSend(buf);
-        sprintfFloat(buf, "{s}SPS30 NCPM 10{m}%.2f #/cm&sup3;{e}", sps_nc10);
+        sprintf(buf, "{s}SPS30 NCPM 10{m}%.2f #/cm&sup3;{e}", sps_nc10);
         webSend(buf);
         // Typical particle size
-        sprintfFloat(buf, "{s}SPS30 TYPSIZ{m}%.2f &micro;m{e}", sps_tps);
+        sprintf(buf, "{s}SPS30 TYPSIZ{m}%.2f &micro;m{e}", sps_tps);
         webSend(buf);
         // Status
         if (sps_state == ST_SLEEP) {
-            sprintfInt(buf, "{s}SPS30 Status{m}sleeping, next in %d s{e}", sps_interval - sps_tick);
+            sprintf(buf, "{s}SPS30 Status{m}sleeping, next in %d s{e}", sps_interval - sps_tick);
         } else {
             webSend("{s}SPS30 Status{m}measuring...{e}");
         }
@@ -256,25 +256,25 @@ void WebCall() {
 void JsonCall() {
     if (!sps_ok) return;
     char buf[64];
-    sprintfFloat(buf, ",\"SPS30\":{\"PM1_0\":%.2f", sps_pm1);
+    sprintf(buf, ",\"SPS30\":{\"PM1_0\":%.2f", sps_pm1);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"PM2_5\":%.2f", sps_pm25);
+    sprintf(buf, ",\"PM2_5\":%.2f", sps_pm25);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"PM4_0\":%.2f", sps_pm4);
+    sprintf(buf, ",\"PM4_0\":%.2f", sps_pm4);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"PM10\":%.2f", sps_pm10);
+    sprintf(buf, ",\"PM10\":%.2f", sps_pm10);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"NCPM0_5\":%.2f", sps_nc05);
+    sprintf(buf, ",\"NCPM0_5\":%.2f", sps_nc05);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"NCPM1_0\":%.2f", sps_nc1);
+    sprintf(buf, ",\"NCPM1_0\":%.2f", sps_nc1);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"NCPM2_5\":%.2f", sps_nc25);
+    sprintf(buf, ",\"NCPM2_5\":%.2f", sps_nc25);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"NCPM4_0\":%.2f", sps_nc4);
+    sprintf(buf, ",\"NCPM4_0\":%.2f", sps_nc4);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"NCPM10\":%.2f", sps_nc10);
+    sprintf(buf, ",\"NCPM10\":%.2f", sps_nc10);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"TYPSIZ\":%.2f}", sps_tps);
+    sprintf(buf, ",\"TYPSIZ\":%.2f}", sps_tps);
     responseAppend(buf);
 }
 
@@ -299,9 +299,9 @@ int main() {
 
     if (sps_scan()) {
         char buf[48];
-        sprintfInt(buf, "SPS30 found at 0x%x", sps_addr);
+        sprintf(buf, "SPS30 found at 0x%x", sps_addr);
         print(buf);
-        sprintfInt(buf, " on bus %d\n", sps_bus);
+        sprintf(buf, " on bus %d\n", sps_bus);
         print(buf);
         addCommand("SPS30");
         // Do first measurement immediately

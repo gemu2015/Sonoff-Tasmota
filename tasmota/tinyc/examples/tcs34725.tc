@@ -134,17 +134,17 @@ void EverySecond() {
 void WebCall() {
     char buf[80];
     if (tcs_ok) {
-        sprintfInt(buf, "{s}TCS34725 Red{m}%d{e}", tcs_r);
+        sprintf(buf, "{s}TCS34725 Red{m}%d{e}", tcs_r);
         webSend(buf);
-        sprintfInt(buf, "{s}TCS34725 Green{m}%d{e}", tcs_g);
+        sprintf(buf, "{s}TCS34725 Green{m}%d{e}", tcs_g);
         webSend(buf);
-        sprintfInt(buf, "{s}TCS34725 Blue{m}%d{e}", tcs_b);
+        sprintf(buf, "{s}TCS34725 Blue{m}%d{e}", tcs_b);
         webSend(buf);
-        sprintfInt(buf, "{s}TCS34725 Clear{m}%d{e}", tcs_c);
+        sprintf(buf, "{s}TCS34725 Clear{m}%d{e}", tcs_c);
         webSend(buf);
-        sprintfFloat(buf, "{s}TCS34725 Lux{m}%.0f lx{e}", tcs_lux);
+        sprintf(buf, "{s}TCS34725 Lux{m}%.0f lx{e}", tcs_lux);
         webSend(buf);
-        sprintfFloat(buf, "{s}TCS34725 CT{m}%.0f K{e}", tcs_ct);
+        sprintf(buf, "{s}TCS34725 CT{m}%.0f K{e}", tcs_ct);
         webSend(buf);
     } else {
         webSend("{s}TCS34725{m}no data{e}");
@@ -154,17 +154,17 @@ void WebCall() {
 void JsonCall() {
     if (!tcs_ok) return;
     char buf[96];
-    sprintfInt(buf, ",\"TCS34725\":{\"Red\":%d", tcs_r);
+    sprintf(buf, ",\"TCS34725\":{\"Red\":%d", tcs_r);
     responseAppend(buf);
-    sprintfInt(buf, ",\"Green\":%d", tcs_g);
+    sprintf(buf, ",\"Green\":%d", tcs_g);
     responseAppend(buf);
-    sprintfInt(buf, ",\"Blue\":%d", tcs_b);
+    sprintf(buf, ",\"Blue\":%d", tcs_b);
     responseAppend(buf);
-    sprintfInt(buf, ",\"Clear\":%d", tcs_c);
+    sprintf(buf, ",\"Clear\":%d", tcs_c);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"Lux\":%.0f", tcs_lux);
+    sprintf(buf, ",\"Lux\":%.0f", tcs_lux);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"CT\":%.0f}", tcs_ct);
+    sprintf(buf, ",\"CT\":%.0f}", tcs_ct);
     responseAppend(buf);
 }
 
@@ -183,9 +183,9 @@ int main() {
     tcs_addr = 0;
 
     if (tcs_scan()) {
-        sprintfInt(buf, "TCS34725 found at 0x%x", tcs_addr);
+        sprintf(buf, "TCS34725 found at 0x%x", tcs_addr);
         print(buf);
-        sprintfInt(buf, " on bus %d\n", tcs_bus);
+        sprintf(buf, " on bus %d\n", tcs_bus);
         print(buf);
     } else {
         print("TCS34725 not found\n");

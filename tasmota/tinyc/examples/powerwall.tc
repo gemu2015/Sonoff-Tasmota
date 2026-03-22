@@ -20,6 +20,7 @@ global float phs3 = 0.0;    // grid phase 3
 
 global float p1w = 0.0;    // solar power phase 1
 global float p2w = 0.0;    // solar power phase 2
+global float p3w = 0.0;    // solar power phase 3
 
 // State
 int cnt = 0;
@@ -67,17 +68,17 @@ void TaskLoop() {
                 phs1 = pwlGet("p_W[6]");
                 phs2 = pwlGet("p_W[7]");
                 phs3 = pwlGet("p_W[8]");
-                sprintfFloat(buf, "phases: %.0f", phs1);
+                sprintf(buf, "phases: %.0f", phs1);
                 printString(buf);
-                sprintfFloat(buf, " %.0f", phs2);
+                sprintf(buf, " %.0f", phs2);
                 printString(buf);
-                sprintfFloat(buf, " %.0f\n", phs3);
+                sprintf(buf, " %.0f\n", phs3);
                 printString(buf);
                 p1w = pwlGet("p_W[2]");
                 p3w = pwlGet("p_W[4]");				
 				
             } else {
-                sprintfInt(buf, "readings FAILED res=%d\n", res);
+                sprintf(buf, "readings FAILED res=%d\n", res);
                 printString(buf);
             }
         }
@@ -95,60 +96,60 @@ void TaskLoop() {
 void EverySecond() {
     // Only print status — no blocking calls here
     if (tasm_uptime % 30 == 0) {
-        sprintfFloat(buf, "PWL: Bat=%.1f%%", pwl);
+        sprintf(buf, "PWL: Bat=%.1f%%", pwl);
         printString(buf);
-        sprintfFloat(buf, " Grid=%.0fW", sip);
+        sprintf(buf, " Grid=%.0fW", sip);
         printString(buf);
-        sprintfFloat(buf, " Sol=%.0fW", sop);
+        sprintf(buf, " Sol=%.0fW", sop);
         printString(buf);
-        sprintfFloat(buf, " Home=%.0fW\n", hip);
+        sprintf(buf, " Home=%.0fW\n", hip);
         printString(buf);
     }
 }
 
 void WebCall() {
-    sprintfFloat(buf, "{s}Battery{m}%.1f %%{e}", pwl);
+    sprintf(buf, "{s}Battery{m}%.1f %%{e}", pwl);
     webSend(buf);
-    sprintfFloat(buf, "{s}Grid{m}%.0f W{e}", sip);
+    sprintf(buf, "{s}Grid{m}%.0f W{e}", sip);
     webSend(buf);
-    sprintfFloat(buf, "{s}Solar{m}%.0f W{e}", sop);
+    sprintf(buf, "{s}Solar{m}%.0f W{e}", sop);
     webSend(buf);
-    sprintfFloat(buf, "{s}Battery Power{m}%.0f W{e}", bip);
+    sprintf(buf, "{s}Battery Power{m}%.0f W{e}", bip);
     webSend(buf);
-    sprintfFloat(buf, "{s}Home{m}%.0f W{e}", hip);
+    sprintf(buf, "{s}Home{m}%.0f W{e}", hip);
     webSend(buf);
-    sprintfFloat(buf, "{s}Total Capacity{m}%.1f kWh{e}", tcap / 1000.0);
+    sprintf(buf, "{s}Total Capacity{m}%.1f kWh{e}", tcap / 1000.0);
     webSend(buf);
-    sprintfFloat(buf, "{s}Remaining{m}%.1f kWh{e}", rcap / 1000.0);
+    sprintf(buf, "{s}Remaining{m}%.1f kWh{e}", rcap / 1000.0);
     webSend(buf);
-    sprintfFloat(buf, "{s}Reserve{m}%.0f %%{e}", rper);
-    webSend(buf);
-	
-    sprintfFloat(buf, "{s}Solar Phase 1{m}%.0f W{e}", p1w);
-    webSend(buf);
-    sprintfFloat(buf, "{s}Solar Phase 2{m}%.0f W{e}", p2w);
+    sprintf(buf, "{s}Reserve{m}%.0f %%{e}", rper);
     webSend(buf);
 	
-    sprintfFloat(buf, "{s}Phase 1{m}%.0f W{e}", phs1);
+    sprintf(buf, "{s}Solar Phase 1{m}%.0f W{e}", p1w);
     webSend(buf);
-    sprintfFloat(buf, "{s}Phase 2{m}%.0f W{e}", phs2);
+    sprintf(buf, "{s}Solar Phase 2{m}%.0f W{e}", p2w);
     webSend(buf);
-    sprintfFloat(buf, "{s}Phase 3{m}%.0f W{e}", phs3);
+	
+    sprintf(buf, "{s}Phase 1{m}%.0f W{e}", phs1);
     webSend(buf);
-    sprintfInt(buf, "{s}Heap{m}%d kb{e}", tasm_heap / 1024);
+    sprintf(buf, "{s}Phase 2{m}%.0f W{e}", phs2);
+    webSend(buf);
+    sprintf(buf, "{s}Phase 3{m}%.0f W{e}", phs3);
+    webSend(buf);
+    sprintf(buf, "{s}Heap{m}%d kb{e}", tasm_heap / 1024);
     webSend(buf);
 }
 
 void JsonCall() {
-    sprintfFloat(buf, ",\"PWL\":{\"Battery\":%.1f", pwl);
+    sprintf(buf, ",\"PWL\":{\"Battery\":%.1f", pwl);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"Grid\":%.0f", sip);
+    sprintf(buf, ",\"Grid\":%.0f", sip);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"Solar\":%.0f", sop);
+    sprintf(buf, ",\"Solar\":%.0f", sop);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"BattPwr\":%.0f", bip);
+    sprintf(buf, ",\"BattPwr\":%.0f", bip);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"Home\":%.0f}", hip);
+    sprintf(buf, ",\"Home\":%.0f}", hip);
     responseAppend(buf);
 }
 

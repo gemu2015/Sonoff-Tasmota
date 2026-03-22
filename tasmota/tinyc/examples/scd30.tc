@@ -114,9 +114,9 @@ void EverySecond() {
             scd_retry = 0;
             if (scd_scan()) {
                 char buf[48];
-                sprintfInt(buf, "SCD30 found at 0x%x", scd_addr);
+                sprintf(buf, "SCD30 found at 0x%x", scd_addr);
                 print(buf);
-                sprintfInt(buf, " on bus %d (retry)\n", scd_bus);
+                sprintf(buf, " on bus %d (retry)\n", scd_bus);
                 print(buf);
             }
         }
@@ -164,19 +164,19 @@ void WebCall() {
     char vt[32];
     if (scd_ok) {
         scd_web_label(4);
-        sprintfFloat(vt, "%.0f ppm{e}", scd_co2);
+        sprintf(vt, "%.0f ppm{e}", scd_co2);
         webSend(vt);
         scd_web_label(0);
-        sprintfFloat(vt, "%.1f &deg;C{e}", scd_temp);
+        sprintf(vt, "%.1f &deg;C{e}", scd_temp);
         webSend(vt);
         scd_web_label(1);
-        sprintfFloat(vt, "%.1f %{e}", scd_humi);
+        sprintf(vt, "%.1f %{e}", scd_humi);
         webSend(vt);
         scd_web_label(3);
-        sprintfFloat(vt, "%.1f &deg;C{e}", scd_dewp);
+        sprintf(vt, "%.1f &deg;C{e}", scd_dewp);
         webSend(vt);
         scd_web_label(20);
-        sprintfFloat(vt, "%.1f g/m&sup3;{e}", scd_absh);
+        sprintf(vt, "%.1f g/m&sup3;{e}", scd_absh);
         webSend(vt);
     } else {
         webSend("{s}SCD30{m}not ready{e}");
@@ -186,15 +186,15 @@ void WebCall() {
 void JsonCall() {
     if (!scd_ok) return;
     char buf[64];
-    sprintfFloat(buf, ",\"SCD30\":{\"CarbonDioxide\":%.0f", scd_co2);
+    sprintf(buf, ",\"SCD30\":{\"CarbonDioxide\":%.0f", scd_co2);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"Temperature\":%.1f", scd_temp);
+    sprintf(buf, ",\"Temperature\":%.1f", scd_temp);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"Humidity\":%.1f", scd_humi);
+    sprintf(buf, ",\"Humidity\":%.1f", scd_humi);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"DewPoint\":%.1f", scd_dewp);
+    sprintf(buf, ",\"DewPoint\":%.1f", scd_dewp);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"AbsHumidity\":%.1f}", scd_absh);
+    sprintf(buf, ",\"AbsHumidity\":%.1f}", scd_absh);
     responseAppend(buf);
 }
 
@@ -213,9 +213,9 @@ int main() {
 
     if (scd_scan()) {
         char buf[48];
-        sprintfInt(buf, "SCD30 found at 0x%x", scd_addr);
+        sprintf(buf, "SCD30 found at 0x%x", scd_addr);
         print(buf);
-        sprintfInt(buf, " on bus %d\n", scd_bus);
+        sprintf(buf, " on bus %d\n", scd_bus);
         print(buf);
     } else {
         print("SCD30 not found\n");

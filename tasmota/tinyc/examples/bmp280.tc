@@ -206,10 +206,10 @@ void WebCall() {
     char buf[32];
     if (bmp_ok) {
         bmp_web_label(0);
-        sprintfFloat(buf, "%.1f &deg;C{e}", bmp_temp);
+        sprintf(buf, "%.1f &deg;C{e}", bmp_temp);
         webSend(buf);
         bmp_web_label(2);
-        sprintfFloat(buf, "%.1f hPa{e}", bmp_pres);
+        sprintf(buf, "%.1f hPa{e}", bmp_pres);
         webSend(buf);
     } else {
         webSend("{s}BMP280{m}not found{e}");
@@ -220,9 +220,9 @@ void WebCall() {
 void JsonCall() {
     if (!bmp_ok) return;
     char buf[96];
-    sprintfFloat(buf, ",\"BMP280\":{\"Temperature\":%.1f", bmp_temp);
+    sprintf(buf, ",\"BMP280\":{\"Temperature\":%.1f", bmp_temp);
     responseAppend(buf);
-    sprintfFloat(buf, ",\"Pressure\":%.1f}", bmp_pres);
+    sprintf(buf, ",\"Pressure\":%.1f}", bmp_pres);
     responseAppend(buf);
 }
 
@@ -241,9 +241,9 @@ int main() {
     hist_tick = 0;
 
     if (bmp_scan()) {
-        sprintfInt(buf, "BMP280 found at 0x%x", bmp_addr);
+        sprintf(buf, "BMP280 found at 0x%x", bmp_addr);
         print(buf);
-        sprintfInt(buf, " on bus %d\n", bmp_bus);
+        sprintf(buf, " on bus %d\n", bmp_bus);
         print(buf);
         if (bmp_read_calib() && bmp_configure()) {
             print("BMP280 calibration loaded, sensor active\n");

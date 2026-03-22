@@ -10,14 +10,14 @@ void EverySecond() {
 void JsonCall() {
     // Appends to Tasmota MQTT telemetry JSON
     char buf[64];
-    sprintfInt(buf, ",\"TinyC\":{\"Count\":%d}", counter);
+    sprintf(buf, ",\"TinyC\":{\"Count\":%d}", counter);
     responseAppend(buf);
 }
 
 void WebCall() {
     // Adds a row to the Tasmota web page
     char buf[64];
-    sprintfInt(buf, "{s}TinyC Counter{m}%d{e}", counter);
+    sprintf(buf, "{s}TinyC Counter{m}%d{e}", counter);
     webSend(buf);
 }
 

@@ -283,7 +283,7 @@ void ow_scan() {
 
             int fam = ow_srom[0] & 0xFF;
             char dd[48];
-            sprintfInt(dd, "OW: found fam=0x%02X", fam);
+            sprintf(dd, "OW: found fam=0x%02X", fam);
             print(dd);
 
             int i = 0;
@@ -853,9 +853,9 @@ void ow_reinit() {
     }
 
     char dt[48];
-    sprintfInt(dt, "1-Wire: %d temp", ow_cnt);
+    sprintf(dt, "1-Wire: %d temp", ow_cnt);
     print(dt);
-    sprintfInt(dt, "1-Wire: %d switch", ow_sw_cnt);
+    sprintf(dt, "1-Wire: %d switch", ow_sw_cnt);
     print(dt);
 
     // initial switch state read
@@ -1037,7 +1037,7 @@ void ow_temp_label(char dst[], int idx) {
     int base = idx * 8;
     strcpy(dst, "DS18x20-");
     char hx[4];
-    sprintfInt(hx, "%02X", ow_rom[base + 6] & 0xFF);
+    sprintf(hx, "%02X", ow_rom[base + 6] & 0xFF);
     strcat(dst, hx);
 }
 
@@ -1045,11 +1045,11 @@ void ow_sw_label(char dst[], int idx) {
     ow_copy_srom(idx);
     if (ow_get_alias(dst)) return;
     if (ow_sw_type[idx] == FAM_DS2413) {
-        sprintfInt(dst, "DS2413-%d", idx);
+        sprintf(dst, "DS2413-%d", idx);
     } else if (ow_sw_type[idx] == FAM_DS2408) {
-        sprintfInt(dst, "DS2408-%d", idx);
+        sprintf(dst, "DS2408-%d", idx);
     } else {
-        sprintfInt(dst, "DS2406-%d", idx);
+        sprintf(dst, "DS2406-%d", idx);
     }
 }
 
@@ -1069,7 +1069,7 @@ void ow_web_sensor(int idx) {
     strcat(vt, ow_lbl);
     strcat(vt, "{m}");
     webSend(vt);
-    sprintfFloat(vt, "%.1f °C{e}", ow_temp[idx]);
+    sprintf(vt, "%.1f °C{e}", ow_temp[idx]);
     webSend(vt);
 }
 
@@ -1113,7 +1113,7 @@ void ow_web_switch(int idx) {
         strcat(vt, name);
         strcat(vt, "{m}");
         webSend(vt);
-        sprintfInt(vt, "0x%02X{e}", ow_sw_input[idx] & 0xFF);
+        sprintf(vt, "0x%02X{e}", ow_sw_input[idx] & 0xFF);
         webSend(vt);
     }
 }
@@ -1151,7 +1151,7 @@ void JsonCall() {
             strcat(buf, name);
             strcat(buf, "\":{");
             responseAppend(buf);
-            sprintfFloat(buf, "\"Temperature\":%.1f}", ow_temp[i]);
+            sprintf(buf, "\"Temperature\":%.1f}", ow_temp[i]);
             responseAppend(buf);
         }
         i = i + 1;
@@ -1172,18 +1172,18 @@ void JsonCall() {
                 if ((ow_sw_input[i] & 0x01) == 0) a_on = 1;
                 if ((ow_sw_input[i] & 0x04) == 0) b_on = 1;
                 if (ow_is_1ch(i)) {
-                    sprintfInt(buf, "\"PIO_A\":%d}", a_on);
+                    sprintf(buf, "\"PIO_A\":%d}", a_on);
                     responseAppend(buf);
                 } else {
-                    sprintfInt(buf, "\"PIO_A\":%d,", a_on);
+                    sprintf(buf, "\"PIO_A\":%d,", a_on);
                     responseAppend(buf);
-                    sprintfInt(buf, "\"PIO_B\":%d}", b_on);
+                    sprintf(buf, "\"PIO_B\":%d}", b_on);
                     responseAppend(buf);
                 }
             } else {
-                sprintfInt(buf, "\"State\":%d,", ow_sw_state[i] & 0xFF);
+                sprintf(buf, "\"State\":%d,", ow_sw_state[i] & 0xFF);
                 responseAppend(buf);
-                sprintfInt(buf, "\"Input\":%d}", ow_sw_input[i] & 0xFF);
+                sprintf(buf, "\"Input\":%d}", ow_sw_input[i] & 0xFF);
                 responseAppend(buf);
             }
         }
@@ -1320,15 +1320,15 @@ void ow_cmd_status(char resp[]) {
             int b_on = 0;
             if ((ow_sw_input[i] & 0x01) == 0) a_on = 1;
             if ((ow_sw_input[i] & 0x04) == 0) b_on = 1;
-            sprintfInt(tmp, "\"A\":%d", a_on);
+            sprintf(tmp, "\"A\":%d", a_on);
             strcat(resp, tmp);
             if (ow_is_2ch(i)) {
-                sprintfInt(tmp, ",\"B\":%d", b_on);
+                sprintf(tmp, ",\"B\":%d", b_on);
                 strcat(resp, tmp);
             }
             strcat(resp, "}");
         } else {
-            sprintfInt(tmp, "\"State\":%d}", ow_sw_input[i] & 0xFF);
+            sprintf(tmp, "\"State\":%d}", ow_sw_input[i] & 0xFF);
             strcat(resp, tmp);
         }
         i = i + 1;
@@ -1365,8 +1365,8 @@ void Command(char cmd[]) {
         ow_reinit();
         char dt[48];
         char dt2[16];
-        sprintfInt(dt, "%d temp, ", ow_cnt);
-        sprintfInt(dt2, "%d switch", ow_sw_cnt);
+        sprintf(dt, "%d temp, ", ow_cnt);
+        sprintf(dt2, "%d switch", ow_sw_cnt);
         strcat(dt, dt2);
         responseCmnd(dt);
         return;

@@ -62,7 +62,7 @@ void WebPage() {
         int smooth = avg / 10;
 
         // Format: [x, value, avg],
-        sprintfInt(buf, "[%d,", i);
+        sprintf(buf, "[%d,", i);
         sprintfAppendInt(buf, "%d,", val);
         sprintfAppendInt(buf, "%d]", smooth);
         if (i < N - 1) {
@@ -96,13 +96,13 @@ void WebCall() {
     // Called periodically for sensor display (FUNC_WEB_SENSOR)
     // Shows a status row that auto-refreshes
     char buf[64];
-    sprintfInt(buf, "{s}TinyC Chart{m}%d samples{e}", counter);
+    sprintf(buf, "{s}TinyC Chart{m}%d samples{e}", counter);
     webSend(buf);
 }
 
 void JsonCall() {
     char buf[64];
-    sprintfInt(buf, ",\"TinyC\":{\"Samples\":%d}", counter);
+    sprintf(buf, ",\"TinyC\":{\"Samples\":%d}", counter);
     responseAppend(buf);
 }
 

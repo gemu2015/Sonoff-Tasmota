@@ -108,7 +108,7 @@ int initCamera() {
     addLog("TCC: camera initialized OK");
 
     int pid = camControl(8, 0, 0);
-    sprintfInt(buf, "TCC: sensor PID = 0x%x", pid);
+    sprintf(buf, "TCC: sensor PID = 0x%x", pid);
     addLog(buf);
 
     if (pid == OV3660_PID) {
@@ -149,7 +149,7 @@ int takePicture() {
     }
 
     pic_count = pic_count + 1;
-    sprintfInt(path, "/pic_%03d.jpg", pic_count);
+    sprintf(path, "/pic_%03d.jpg", pic_count);
 
     fh = fileOpen(path, 1);
     if (fh < 0) {
@@ -159,7 +159,7 @@ int takePicture() {
     written = camControl(11, 2, fh);
     fileClose(fh);
 
-    sprintfInt(buf, "TCC: saved %d bytes to ", written);
+    sprintf(buf, "TCC: saved %d bytes to ", written);
     sprintfAppendStr(buf, "%s", path);
     addLog(buf);
 
@@ -207,11 +207,11 @@ void WebUI() {
 // ═══════════════════════════════════════════════════════════════════
 void WebCall() {
     webSend("{s}<b style='color:cyan'>Camera</b>{m}{e}");
-    sprintfInt(buf, "{s}Frames{m}%d{e}", frame_count);
+    sprintf(buf, "{s}Frames{m}%d{e}", frame_count);
     webSend(buf);
-    sprintfInt(buf, "{s}Motion{m}%d{e}", motion_val);
+    sprintf(buf, "{s}Motion{m}%d{e}", motion_val);
     webSend(buf);
-    sprintfInt(buf, "{s}Pictures saved{m}%d{e}", pic_count);
+    sprintf(buf, "{s}Pictures saved{m}%d{e}", pic_count);
     webSend(buf);
     webSend("{s}Live view{m}<a href='/cam' target='_blank'>Open /cam</a>{e}");
 }
@@ -295,7 +295,7 @@ int main() {
 
     // Take initial test capture to PSRAM slot 1
     int size = captureToSlot();
-    sprintfInt(buf, "Camera ready, first frame: %d bytes, heap: ", size);
+    sprintf(buf, "Camera ready, first frame: %d bytes, heap: ", size);
     sprintfAppendInt(buf, "%d", tasm_heap);
     addLog(buf);
 

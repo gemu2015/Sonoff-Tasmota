@@ -614,76 +614,76 @@ void Every50ms() {
 void WebCall() {
     char out[80];
     if (br_ok) {
-        sprintfInt(out, "{s}Bresser ID{m}0x%04X{e}", br_id);
+        sprintf(out, "{s}Bresser ID{m}0x%04X{e}", br_id);
         webSend(out);
         LGetString(0, br_lbl);
         strcpy(out, "{s}");
         strcat(out, br_lbl);
         strcat(out, "{m}");
         webSend(out);
-        sprintfFloat(out, "%.1f C{e}", br_temp);
+        sprintf(out, "%.1f C{e}", br_temp);
         webSend(out);
         LGetString(1, br_lbl);
         strcpy(out, "{s}");
         strcat(out, br_lbl);
         strcat(out, "{m}");
         webSend(out);
-        sprintfInt(out, "%d %{e}", br_hum);
+        sprintf(out, "%d %{e}", br_hum);
         webSend(out);
-        sprintfFloat(out, "{s}Wind Gust{m}%.1f m/s{e}", br_wind_gust);
+        sprintf(out, "{s}Wind Gust{m}%.1f m/s{e}", br_wind_gust);
         webSend(out);
-        sprintfFloat(out, "{s}Wind Avg{m}%.1f m/s{e}", br_wind_avg);
+        sprintf(out, "{s}Wind Avg{m}%.1f m/s{e}", br_wind_avg);
         webSend(out);
-        sprintfFloat(out, "{s}Wind Dir{m}%.0f deg{e}", br_wind_dir);
+        sprintf(out, "{s}Wind Dir{m}%.0f deg{e}", br_wind_dir);
         webSend(out);
-        sprintfFloat(out, "{s}Rain{m}%.1f mm{e}", br_rain);
+        sprintf(out, "{s}Rain{m}%.1f mm{e}", br_rain);
         webSend(out);
         LGetString(15, br_lbl);
         strcpy(out, "{s}");
         strcat(out, br_lbl);
         strcat(out, "{m}");
         webSend(out);
-        sprintfFloat(out, "%.0f lux{e}", br_lux);
+        sprintf(out, "%.0f lux{e}", br_lux);
         webSend(out);
-        sprintfFloat(out, "{s}UV Index{m}%.1f{e}", br_uvi);
+        sprintf(out, "{s}UV Index{m}%.1f{e}", br_uvi);
         webSend(out);
-        sprintfFloat(out, "{s}RSSI{m}%.0f dBm{e}", br_rssi);
+        sprintf(out, "{s}RSSI{m}%.0f dBm{e}", br_rssi);
         webSend(out);
         if (br_batt) {
             webSend("{s}Battery{m}OK{e}");
         } else {
             webSend("{s}Battery{m}Low{e}");
         }
-        sprintfInt(out, "{s}Packets{m}%d{e}", br_cnt);
+        sprintf(out, "{s}Packets{m}%d{e}", br_cnt);
         webSend(out);
     } else {
         webSend("{s}Bresser{m}waiting for data{e}");
     }
     if (soil_ok) {
-        sprintfInt(out, "{s}Soil ID{m}0x%04X{e}", soil_id);
+        sprintf(out, "{s}Soil ID{m}0x%04X{e}", soil_id);
         webSend(out);
         LGetString(0, br_lbl);
         strcpy(out, "{s}Soil ");
         strcat(out, br_lbl);
         strcat(out, "{m}");
         webSend(out);
-        sprintfFloat(out, "%.1f C{e}", soil_temp);
+        sprintf(out, "%.1f C{e}", soil_temp);
         webSend(out);
         LGetString(17, br_lbl);
         strcpy(out, "{s}Soil ");
         strcat(out, br_lbl);
         strcat(out, "{m}");
         webSend(out);
-        sprintfInt(out, "%d %{e}", soil_moisture);
+        sprintf(out, "%d %{e}", soil_moisture);
         webSend(out);
-        sprintfFloat(out, "{s}Soil RSSI{m}%.0f dBm{e}", soil_rssi);
+        sprintf(out, "{s}Soil RSSI{m}%.0f dBm{e}", soil_rssi);
         webSend(out);
         if (soil_batt) {
             webSend("{s}Soil Battery{m}OK{e}");
         } else {
             webSend("{s}Soil Battery{m}Low{e}");
         }
-        sprintfInt(out, "{s}Soil Packets{m}%d{e}", soil_cnt);
+        sprintf(out, "{s}Soil Packets{m}%d{e}", soil_cnt);
         webSend(out);
     }
 }
@@ -691,43 +691,43 @@ void WebCall() {
 void JsonCall() {
     char out[80];
     if (br_ok) {
-        sprintfInt(out, ",\"Bresser\":{\"ID\":\"%04X\"", br_id);
+        sprintf(out, ",\"Bresser\":{\"ID\":\"%04X\"", br_id);
         responseAppend(out);
-        sprintfFloat(out, ",\"Temp\":%.1f", br_temp);
+        sprintf(out, ",\"Temp\":%.1f", br_temp);
         responseAppend(out);
-        sprintfInt(out, ",\"Hum\":%d", br_hum);
+        sprintf(out, ",\"Hum\":%d", br_hum);
         responseAppend(out);
-        sprintfFloat(out, ",\"WindGust\":%.1f", br_wind_gust);
+        sprintf(out, ",\"WindGust\":%.1f", br_wind_gust);
         responseAppend(out);
-        sprintfFloat(out, ",\"WindAvg\":%.1f", br_wind_avg);
+        sprintf(out, ",\"WindAvg\":%.1f", br_wind_avg);
         responseAppend(out);
-        sprintfFloat(out, ",\"WindDir\":%.0f", br_wind_dir);
+        sprintf(out, ",\"WindDir\":%.0f", br_wind_dir);
         responseAppend(out);
-        sprintfFloat(out, ",\"Rain\":%.1f", br_rain);
+        sprintf(out, ",\"Rain\":%.1f", br_rain);
         responseAppend(out);
-        sprintfFloat(out, ",\"Lux\":%.0f", br_lux);
+        sprintf(out, ",\"Lux\":%.0f", br_lux);
         responseAppend(out);
-        sprintfFloat(out, ",\"UVI\":%.1f", br_uvi);
+        sprintf(out, ",\"UVI\":%.1f", br_uvi);
         responseAppend(out);
-        sprintfFloat(out, ",\"RSSI\":%.0f", br_rssi);
+        sprintf(out, ",\"RSSI\":%.0f", br_rssi);
         responseAppend(out);
-        sprintfInt(out, ",\"Batt\":%d", br_batt);
+        sprintf(out, ",\"Batt\":%d", br_batt);
         responseAppend(out);
-        sprintfInt(out, ",\"Cnt\":%d}", br_cnt);
+        sprintf(out, ",\"Cnt\":%d}", br_cnt);
         responseAppend(out);
     }
     if (soil_ok) {
-        sprintfInt(out, ",\"Soil\":{\"ID\":\"%04X\"", soil_id);
+        sprintf(out, ",\"Soil\":{\"ID\":\"%04X\"", soil_id);
         responseAppend(out);
-        sprintfFloat(out, ",\"Temp\":%.1f", soil_temp);
+        sprintf(out, ",\"Temp\":%.1f", soil_temp);
         responseAppend(out);
-        sprintfInt(out, ",\"Moisture\":%d", soil_moisture);
+        sprintf(out, ",\"Moisture\":%d", soil_moisture);
         responseAppend(out);
-        sprintfFloat(out, ",\"RSSI\":%.0f", soil_rssi);
+        sprintf(out, ",\"RSSI\":%.0f", soil_rssi);
         responseAppend(out);
-        sprintfInt(out, ",\"Batt\":%d", soil_batt);
+        sprintf(out, ",\"Batt\":%d", soil_batt);
         responseAppend(out);
-        sprintfInt(out, ",\"Cnt\":%d}", soil_cnt);
+        sprintf(out, ",\"Cnt\":%d}", soil_cnt);
         responseAppend(out);
     }
 }
@@ -749,7 +749,7 @@ int main() {
     // Check CC1101 version register
     int ver = cc_read_status(0x31);
     char buf[64];
-    sprintfInt(buf, "CC1101 version: 0x%02X\n", ver);
+    sprintf(buf, "CC1101 version: 0x%02X\n", ver);
     printString(buf);
 
     if (ver == 0 || ver == 0xFF) {
