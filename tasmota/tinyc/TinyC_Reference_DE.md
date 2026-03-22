@@ -451,14 +451,14 @@ void EverySecond() {
 void JsonCall() {
     // Fuegt an Tasmota MQTT-Telemetrie-JSON an
     char buf[64];
-    sprintfInt(buf, ",\"TinyC\":{\"Count\":%d}", counter);
+    sprintf(buf, ",\"TinyC\":{\"Count\":%d}", counter);
     responseAppend(buf);
 }
 
 void WebCall() {
     // Fuegt eine Zeile zur Tasmota-Webseite hinzu
     char buf[64];
-    sprintfInt(buf, "{s}TinyC Counter{m}%d{e}", counter);
+    sprintf(buf, "{s}TinyC Counter{m}%d{e}", counter);
     webSend(buf);
 }
 
@@ -490,7 +490,7 @@ void Command(char cmd[]) {
         char arg[16];
         strSub(arg, cmd, 4, 0);  // alles nach "VOL " extrahieren
         volume = atoi(arg);
-        sprintfInt(buf, "Volume: %d", volume);
+        sprintf(buf, "Volume: %d", volume);
         responseCmnd(buf);
     } else {
         responseCmnd("Unknown: Play|Stop|Vol");
@@ -513,14 +513,14 @@ int counter = 0;
 void TaskLoop() {
     counter++;
     char buf[64];
-    sprintfInt(buf, "TaskLoop count=%d", counter);
+    sprintf(buf, "TaskLoop count=%d", counter);
     addLog(buf);       // erscheint im Tasmota-Konsolenlog
     delay(1000);       // echte 1-Sekunden-Verzoegerung, blockiert Tasmota nicht
 }
 
 void JsonCall() {
     char buf[64];
-    sprintfInt(buf, ",\"TinyC\":{\"Count\":%d}", counter);
+    sprintf(buf, ",\"TinyC\":{\"Count\":%d}", counter);
     responseAppend(buf);
 }
 
@@ -664,7 +664,7 @@ void EverySecond() {
 
     // Per Web melden
     char buf[64];
-    sprintfFloat(buf, "{s}Temp{m}%.1f C{e}", tasm_temp);
+    sprintf(buf, "{s}Temp{m}%.1f C{e}", tasm_temp);
     webSend(buf);
 }
 
@@ -1527,7 +1527,7 @@ void web_row(int idx, float val, char unit[]) {
     strcat(buf, lbl);
     strcat(buf, "{m}");
     webSend(buf);
-    sprintfFloat(buf, "%.1f ", val);
+    sprintf(buf, "%.1f ", val);
     strcat(buf, unit);
     strcat(buf, "{e}");
     webSend(buf);
@@ -1907,7 +1907,7 @@ void WebOn() {
         // GET /v1/json?id=xxx
         char id[32];
         int len = webArg("id", id);
-        sprintfFloat(buf, "{\"handler\":1,\"id\":\"%s\",\"value\":42}", id);
+        sprintf(buf, "{\"handler\":1,\"id\":\"%s\",\"value\":42}", id);
         webSend(buf);
     }
 }
@@ -2073,7 +2073,7 @@ void EverySecond() {
         float temp = (float)raw * 0.0625;
 
         char out[64];
-        sprintfFloat(out, "TMP102: %.2f °C\n", temp);
+        sprintf(out, "TMP102: %.2f °C\n", temp);
         printString(out);
     }
 }
@@ -2107,7 +2107,7 @@ void WebCall() {
     int i = 1;
     while (i <= n) {
         float val = smlGet(i);
-        sprintfFloat(buf, "{s}Meter %d{m}%.2f{e}", val);
+        sprintf(buf, "{s}Meter %d{m}%.2f{e}", val);
         webSend(buf);
         i++;
     }
@@ -2243,7 +2243,7 @@ int main() {
     float temp = (float)raw * 0.25;
 
     char out[64];
-    sprintfFloat(out, "Thermocouple: %.2f °C\n", temp);
+    sprintf(out, "Thermocouple: %.2f °C\n", temp);
     printString(out);
     return 0;
 }
@@ -2339,7 +2339,7 @@ void EverySecond() {
     // Zaehler
     dspFont(1);
     dspSize(1);
-    sprintfInt(buf, "Count: %d", counter);
+    sprintf(buf, "Count: %d", counter);
     dspPos(10, 60);
     dspDraw(buf);
 
@@ -2395,13 +2395,13 @@ void TouchButton(int btn, int val) {
     if (btn == 0) {
         // Toggle-Button gedrueckt, val = 0 oder 1
         char buf[16];
-        sprintfInt(buf, "%d", val);
+        sprintf(buf, "%d", val);
         tasmCmd("Power1", buf);
     }
     if (btn == 1) {
         // Slider bewegt, val = 0-100
         char buf[16];
-        sprintfInt(buf, "%d", val);
+        sprintf(buf, "%d", val);
         tasmCmd("Dimmer", buf);
     }
 }
@@ -2498,7 +2498,7 @@ Fuer E-Mails mit Dateianhaengen `mailBody()` und `mailAttach()` vor `mailSend()`
 ```c
 // Text aufbauen
 char body[200];
-sprintfStr(body, "<h1>Tagesbericht</h1><p>Temperatur: %d C</p>", "%.1f");
+sprintf(body, "<h1>Tagesbericht</h1><p>Temperatur: %d C</p>", "%.1f");
 
 // Text und Anhaenge registrieren
 mailBody(body);
@@ -3075,7 +3075,7 @@ int temp = 0;
 void EverySecond() { temp = tasm_analog0; }
 void WebCall() {
     char buf[64];
-    sprintfInt(buf, "{s}Temperatur{m}%d{e}", temp);
+    sprintf(buf, "{s}Temperatur{m}%d{e}", temp);
     webSend(buf);
 }
 int main() { return 0; }
@@ -3087,7 +3087,7 @@ int uptime = 0;
 void EverySecond() { uptime++; }
 void WebCall() {
     char buf[64];
-    sprintfInt(buf, "{s}Betriebszeit{m}%d s{e}", uptime);
+    sprintf(buf, "{s}Betriebszeit{m}%d s{e}", uptime);
     webSend(buf);
 }
 int main() { return 0; }

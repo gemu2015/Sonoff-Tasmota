@@ -87,7 +87,7 @@ void Command(char cmd[]) {
         if (strlen(cmd) > 5) {
             strSub(dy_file, cmd, 5, 0);
             dy_play_file();
-            sprintfStr(buf, "Playing %s", dy_file);
+            sprintf(buf, "Playing %s", dy_file);
             responseCmnd(buf);
         } else {
             dy_play();
@@ -128,7 +128,7 @@ void WebCall() {
         sprintf(buf, "{s}MP3 Volume{m}%d{e}", dy_vol);
         webSend(buf);
         if (dy_file[0]) {
-            sprintfStr(buf, "{s}MP3 File{m}%s{e}", dy_file);
+            sprintf(buf, "{s}MP3 File{m}%s{e}", dy_file);
             webSend(buf);
         }
     } else {

@@ -250,7 +250,7 @@ int main() {
 
     if (ltr_scan()) {
         sprintf(buf, "LTR308 found at 0x%x", ltr_addr);
-        sprintfAppendInt(buf, " on bus %d", ltr_bus);
+        sprintfAppend(buf, " on bus %d", ltr_bus);
         addLog(buf);
         if (ltr_configure()) {
             addLog("LTR308 configured: 3x gain, 18-bit, 100ms");

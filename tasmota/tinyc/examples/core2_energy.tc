@@ -285,7 +285,7 @@ void updateTime() {
 }
 
 // ─── Update sensor values (every 5 seconds) ───
-// Uses dspText for values, sprintfInt to build value strings
+// Uses dspText for values, sprintf to build value strings
 void updateValues() {
     // Temperature (orange, Ci6) + battery level
     sprintf(buf, "[f2s1Ci6x5y60p-8]%.1f C", atmp);
@@ -357,10 +357,10 @@ void WebCall() {
     // Date: weekday day. month year
     strSub(s1, wdays, (tasm_wday - 1) * 3, 2);
     strSub(s2, mons, (tasm_month - 1) * 3, 3);
-    sprintfStr(buf, "%s ", s1);
-    sprintfAppendInt(buf, "%d. ", tasm_day);
-    sprintfAppendStr(buf, "%s ", s2);
-    sprintfAppendInt(buf, "%d", tasm_year);
+    sprintf(buf, "%s ", s1);
+    sprintfAppend(buf, "%d. ", tasm_day);
+    sprintfAppend(buf, "%s ", s2);
+    sprintfAppend(buf, "%d", tasm_year);
     webSend(buf);
     webSend("<br>");
     // Sunrise --- daylight duration --- Sunset
@@ -388,8 +388,8 @@ void WebCall() {
     // ═══════════════════════════════════════════════════════════════
 
     // ─── Wasser ───
-    // NOTE: sprintfFloat has 64-byte internal buffer limit.
-    // Split: webSend("{s}LABEL{m}<span style='color:COLOR'>") then sprintfFloat for value only.
+    // NOTE: sprintf has 64-byte internal buffer limit.
+    // Split: webSend("{s}LABEL{m}<span style='color:COLOR'>") then sprintf for value only.
     webSend("{s}<hr>{m}<hr>{e}{s}<b style='color:magenta'>Wasser</b>{m}{e}");
     webSend("{s}Heute{m}<span style='color:yellow'>");
     sprintf(buf, "%.0f l</span>{e}", (t_ws - was_m) * 1000);

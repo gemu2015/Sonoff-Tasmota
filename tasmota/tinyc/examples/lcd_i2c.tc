@@ -184,7 +184,7 @@ int lcd_init() {
         return -1;
     }
     sprintf(buf, "LCD: found at 0x%x bus ", lcd_addr);
-    sprintfAppendInt(buf, "%d", lcd_bus);
+    sprintfAppend(buf, "%d", lcd_bus);
     addLog(buf);
 
     lcd_bl = LCD_BL;

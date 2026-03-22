@@ -115,7 +115,7 @@ void EverySecond() {
             if (scd_scan()) {
                 char buf[48];
                 sprintf(buf, "SCD30 found at 0x%x", scd_addr);
-                sprintfAppendInt(buf, " on bus %d (retry)", scd_bus);
+                sprintfAppend(buf, " on bus %d (retry)", scd_bus);
                 addLog(buf);
             }
         }
@@ -213,7 +213,7 @@ int main() {
     if (scd_scan()) {
         char buf[48];
         sprintf(buf, "SCD30 found at 0x%x", scd_addr);
-        sprintfAppendInt(buf, " on bus %d", scd_bus);
+        sprintfAppend(buf, " on bus %d", scd_bus);
         addLog(buf);
     } else {
         addLog("SCD30 not found");

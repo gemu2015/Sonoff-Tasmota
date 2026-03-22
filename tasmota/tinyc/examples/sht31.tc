@@ -182,7 +182,7 @@ int main() {
 
     if (sht_scan()) {
         sprintf(buf, "SHT3X found at 0x%x", sht_addr);
-        sprintfAppendInt(buf, " on bus %d", sht_bus);
+        sprintfAppend(buf, " on bus %d", sht_bus);
         addLog(buf);
     } else {
         addLog("SHT3X not found on any bus");

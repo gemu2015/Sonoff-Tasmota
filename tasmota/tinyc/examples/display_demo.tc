@@ -79,9 +79,9 @@ void EverySecond() {
     dspSize(1);
     sprintf(buf, "%02d", tasm_hour);
     strcat(buf, ":");
-    sprintfAppendInt(buf, "%02d", tasm_minute);
+    sprintfAppend(buf, "%02d", tasm_minute);
     strcat(buf, ":");
-    sprintfAppendInt(buf, "%02d", tasm_second);
+    sprintfAppend(buf, "%02d", tasm_second);
     dspPos(20, 40);
     dspDraw(buf);
 
@@ -91,9 +91,9 @@ void EverySecond() {
     dspSize(1);
     sprintf(buf, "%02d", tasm_day);
     strcat(buf, ".");
-    sprintfAppendInt(buf, "%02d", tasm_month);
+    sprintfAppend(buf, "%02d", tasm_month);
     strcat(buf, ".");
-    sprintfAppendInt(buf, "%d", tasm_year);
+    sprintfAppend(buf, "%d", tasm_year);
     dspPos(20, 70);
     dspDraw(buf);
 

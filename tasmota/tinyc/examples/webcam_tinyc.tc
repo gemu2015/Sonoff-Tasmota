@@ -161,17 +161,17 @@ void flash_off() {
 // ═══════════════════════════════════════════════════════════════════
 void build_pic_name() {
     strcpy(fnam, "/PICS/");
-    sprintfAppendInt(fnam, "%d", tasm_day);
+    sprintfAppend(fnam, "%d", tasm_day);
     strcat(fnam, "_");
-    sprintfAppendInt(fnam, "%d", tasm_month);
+    sprintfAppend(fnam, "%d", tasm_month);
     strcat(fnam, "_");
-    sprintfAppendInt(fnam, "%d", tasm_year);
+    sprintfAppend(fnam, "%d", tasm_year);
     strcat(fnam, "-");
-    sprintfAppendInt(fnam, "%d", tasm_hour);
+    sprintfAppend(fnam, "%d", tasm_hour);
     strcat(fnam, "_");
-    sprintfAppendInt(fnam, "%d", tasm_minute);
+    sprintfAppend(fnam, "%d", tasm_minute);
     strcat(fnam, "_");
-    sprintfAppendInt(fnam, "%d", tasm_second);
+    sprintfAppend(fnam, "%d", tasm_second);
     strcat(fnam, ".jpg");
 }
 
@@ -468,8 +468,8 @@ void WebUI() {
 // ═══════════════════════════════════════════════════════════════════
 void JsonCall() {
     sprintf(buf, ",\"TinyCam\":{\"Motion\":%d", mot);
-    sprintfAppendInt(buf, ",\"Detected\":%d", motion_detect);
-    sprintfAppendInt(buf, ",\"Frames\":%d}", frame_count);
+    sprintfAppend(buf, ",\"Detected\":%d", motion_detect);
+    sprintfAppend(buf, ",\"Frames\":%d}", frame_count);
     responseAppend(buf);
 }
 
@@ -542,7 +542,7 @@ int main() {
     // First test capture
     int size = captureToSlot(1);
     sprintf(buf, "TCC: camera ready, first frame: %d bytes, heap: ", size);
-    sprintfAppendInt(buf, "%d", tasm_heap);
+    sprintfAppend(buf, "%d", tasm_heap);
     addLog(buf);
 
     // Start MJPEG stream server on port 81

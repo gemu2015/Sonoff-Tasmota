@@ -63,8 +63,8 @@ void WebPage() {
 
         // Format: [x, value, avg],
         sprintf(buf, "[%d,", i);
-        sprintfAppendInt(buf, "%d,", val);
-        sprintfAppendInt(buf, "%d]", smooth);
+        sprintfAppend(buf, "%d,", val);
+        sprintfAppend(buf, "%d]", smooth);
         if (i < N - 1) {
             strcat(buf, ",");
         }

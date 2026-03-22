@@ -242,7 +242,7 @@ int main() {
 
     if (bmp_scan()) {
         sprintf(buf, "BMP280 found at 0x%x", bmp_addr);
-        sprintfAppendInt(buf, " on bus %d", bmp_bus);
+        sprintfAppend(buf, " on bus %d", bmp_bus);
         addLog(buf);
         if (bmp_read_calib() && bmp_configure()) {
             addLog("BMP280 calibration loaded, sensor active");

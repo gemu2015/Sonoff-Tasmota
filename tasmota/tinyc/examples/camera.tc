@@ -160,7 +160,7 @@ int takePicture() {
     fileClose(fh);
 
     sprintf(buf, "TCC: saved %d bytes to ", written);
-    sprintfAppendStr(buf, "%s", path);
+    sprintfAppend(buf, "%s", path);
     addLog(buf);
 
     return written;
@@ -296,7 +296,7 @@ int main() {
     // Take initial test capture to PSRAM slot 1
     int size = captureToSlot();
     sprintf(buf, "Camera ready, first frame: %d bytes, heap: ", size);
-    sprintfAppendInt(buf, "%d", tasm_heap);
+    sprintfAppend(buf, "%d", tasm_heap);
     addLog(buf);
 
     return 0;

@@ -135,7 +135,7 @@ int main() {
 
     if (veml_scan()) {
         sprintf(buf, "VEML6075 found at 0x%x", veml_addr);
-        sprintfAppendInt(buf, " on bus %d", veml_bus);
+        sprintfAppend(buf, " on bus %d", veml_bus);
         addLog(buf);
     } else {
         addLog("VEML6075 not found");

@@ -32,6 +32,9 @@
 
 #define XDRV_124  124
 
+// Default TinyC bytecode repository (used when /tinyc_repo.cfg is not present)
+#define TINYC_DEFAULT_REPO "https://raw.githubusercontent.com/gemu2015/Sonoff-Tasmota/universal/tasmota/tinyc/bytecode"
+
 // Global pause flag — set by filesystem upload handler (xdrv_50) to pause VM during uploads
 bool tc_global_pause = false;
 
@@ -946,14 +949,16 @@ static void HandleTinyCPage(void) {
       // Download .tcb from remote repository
       String rfile = Webserver->arg(F("rfile"));
       if (rfile.length() > 0) {
-        // Read base URL from /tinyc_repo.cfg
+        // Read base URL from /tinyc_repo.cfg, fall back to default repo
         char repo_url[200] = {};
         File rcfg = ufsp->open("/tinyc_repo.cfg", "r");
         if (rcfg) {
           int rl = rcfg.readBytesUntil('\n', repo_url, sizeof(repo_url) - 1);
           rcfg.close();
-          // trim trailing whitespace
           while (rl > 0 && (repo_url[rl-1] == '\r' || repo_url[rl-1] == ' ')) { repo_url[--rl] = 0; }
+        }
+        if (!repo_url[0]) {
+          strlcpy(repo_url, TINYC_DEFAULT_REPO, sizeof(repo_url));
         }
         if (repo_url[0]) {
           // Build full URL: base_url/filename
@@ -1173,13 +1178,18 @@ static void HandleTinyCPage(void) {
         "</div></form></p></fieldset>"));
 
       // --- Remote repository selector ---
-      // If /tinyc_repo.cfg exists, fetch index.txt and show remote .tcb files
-      File rcfg = ufsp->open("/tinyc_repo.cfg", "r");
-      if (rcfg) {
+      // Read repo URL from /tinyc_repo.cfg, fall back to default repo
+      {
         char repo_url[200] = {};
-        int rl = rcfg.readBytesUntil('\n', repo_url, sizeof(repo_url) - 1);
-        rcfg.close();
-        while (rl > 0 && (repo_url[rl-1] == '\r' || repo_url[rl-1] == ' ')) { repo_url[--rl] = 0; }
+        File rcfg = ufsp->open("/tinyc_repo.cfg", "r");
+        if (rcfg) {
+          int rl = rcfg.readBytesUntil('\n', repo_url, sizeof(repo_url) - 1);
+          rcfg.close();
+          while (rl > 0 && (repo_url[rl-1] == '\r' || repo_url[rl-1] == ' ')) { repo_url[--rl] = 0; }
+        }
+        if (!repo_url[0]) {
+          strlcpy(repo_url, TINYC_DEFAULT_REPO, sizeof(repo_url));
+        }
         if (repo_url[0]) {
           // Fetch index.txt from repo
           String idx_url = String(repo_url);

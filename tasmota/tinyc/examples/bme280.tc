@@ -298,7 +298,7 @@ int main() {
 
     if (bme_scan()) {
         sprintf(buf, "BME280 found at 0x%x", bme_addr);
-        sprintfAppendInt(buf, " on bus %d", bme_bus);
+        sprintfAppend(buf, " on bus %d", bme_bus);
         addLog(buf);
         if (bme_read_calib() && bme_configure()) {
             addLog("BME280 calibration loaded, sensor active");

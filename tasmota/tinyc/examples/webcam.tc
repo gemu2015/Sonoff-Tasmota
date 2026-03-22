@@ -70,17 +70,17 @@ void flash_off() {
 // Result: /PICS/27_2_2026-14_30_05.jpg
 void build_pic_name() {
     strcpy(fnam, "/PICS/");
-    sprintfAppendInt(fnam, "%d", tasm_day);
+    sprintfAppend(fnam, "%d", tasm_day);
     strcat(fnam, "_");
-    sprintfAppendInt(fnam, "%d", tasm_month);
+    sprintfAppend(fnam, "%d", tasm_month);
     strcat(fnam, "_");
-    sprintfAppendInt(fnam, "%d", tasm_year);
+    sprintfAppend(fnam, "%d", tasm_year);
     strcat(fnam, "-");
-    sprintfAppendInt(fnam, "%d", tasm_hour);
+    sprintfAppend(fnam, "%d", tasm_hour);
     strcat(fnam, "_");
-    sprintfAppendInt(fnam, "%d", tasm_minute);
+    sprintfAppend(fnam, "%d", tasm_minute);
     strcat(fnam, "_");
-    sprintfAppendInt(fnam, "%d", tasm_second);
+    sprintfAppend(fnam, "%d", tasm_second);
     strcat(fnam, ".jpg");
 }
 
@@ -297,9 +297,9 @@ void WebCall() {
 // Safari: periodic snapshot refresh (workaround for multipart/x-mixed-replace bug)
 void WebPage() {
     strcpy(buf, "<br><img id=\"cs\" style=\"width:");
-    sprintfAppendInt(buf, "%d", cam_w);
+    sprintfAppend(buf, "%d", cam_w);
     strcat(buf, "px;height:");
-    sprintfAppendInt(buf, "%d", cam_h);
+    sprintfAppend(buf, "%d", cam_h);
     strcat(buf, "px\">");
     webSend(buf);
     webSend("<script>var cs=document.getElementById(\"cs\");");
@@ -326,7 +326,7 @@ void WebUI() {
 // ─── JSON output ───
 void JsonCall() {
     sprintf(buf, ",\"Webcam\":{\"Motion\":%d", mot);
-    sprintfAppendInt(buf, ",\"Brightness\":%d}", bri);
+    sprintfAppend(buf, ",\"Brightness\":%d}", bri);
     responseAppend(buf);
 }
 
