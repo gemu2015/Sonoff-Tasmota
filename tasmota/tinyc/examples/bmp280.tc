@@ -242,17 +242,16 @@ int main() {
 
     if (bmp_scan()) {
         sprintf(buf, "BMP280 found at 0x%x", bmp_addr);
-        print(buf);
-        sprintf(buf, " on bus %d\n", bmp_bus);
-        print(buf);
+        sprintfAppendInt(buf, " on bus %d", bmp_bus);
+        addLog(buf);
         if (bmp_read_calib() && bmp_configure()) {
-            print("BMP280 calibration loaded, sensor active\n");
+            addLog("BMP280 calibration loaded, sensor active");
         } else {
-            print("BMP280 calibration/config failed\n");
+            addLog("BMP280 calibration/config failed");
             bmp_addr = 0;
         }
     } else {
-        print("BMP280 not found on any bus\n");
+        addLog("BMP280 not found on any bus");
     }
     return 0;
 }

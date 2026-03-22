@@ -284,7 +284,7 @@ void ow_scan() {
             int fam = ow_srom[0] & 0xFF;
             char dd[48];
             sprintf(dd, "OW: found fam=0x%02X", fam);
-            print(dd);
+            addLog(dd);
 
             int i = 0;
             if ((fam == FAM_DS18B20 || fam == FAM_DS18S20 || fam == FAM_DS1822) && ow_cnt < OW_MAX_SENS) {
@@ -831,16 +831,16 @@ void ow_reinit() {
     if (ow_mode == 0) {
         owSetPin(ow_pin);
         if (!owReset()) {
-            print("1-Wire: no devices (GPIO mode)");
+            addLog("1-Wire: no devices (GPIO mode)");
             return;
         }
     } else {
         if (!ow_ds_init()) {
-            print("1-Wire: DS2480B serial failed");
+            addLog("1-Wire: DS2480B serial failed");
             return;
         }
         if (!ow_ds_reset()) {
-            print("1-Wire: no devices (DS2480B mode)");
+            addLog("1-Wire: no devices (DS2480B mode)");
             return;
         }
     }
@@ -848,15 +848,14 @@ void ow_reinit() {
     ow_scan();
 
     if (ow_cnt == 0 && ow_sw_cnt == 0) {
-        print("1-Wire: no devices found");
+        addLog("1-Wire: no devices found");
         return;
     }
 
     char dt[48];
     sprintf(dt, "1-Wire: %d temp", ow_cnt);
-    print(dt);
-    sprintf(dt, "1-Wire: %d switch", ow_sw_cnt);
-    print(dt);
+    sprintfAppendInt(dt, ", %d switch", ow_sw_cnt);
+    addLog(dt);
 
     // initial switch state read
     if (ow_sw_cnt > 0) {

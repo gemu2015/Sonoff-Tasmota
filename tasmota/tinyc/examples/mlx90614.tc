@@ -140,11 +140,10 @@ int main() {
 
     if (mlx_scan()) {
         sprintf(buf, "MLX90614 found at 0x%x", mlx_addr);
-        print(buf);
-        sprintf(buf, " on bus %d\n", mlx_bus);
-        print(buf);
+        sprintfAppendInt(buf, " on bus %d", mlx_bus);
+        addLog(buf);
     } else {
-        print("MLX90614 not found\n");
+        addLog("MLX90614 not found");
     }
     return 0;
 }

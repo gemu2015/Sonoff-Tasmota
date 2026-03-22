@@ -300,14 +300,13 @@ int main() {
     if (sps_scan()) {
         char buf[48];
         sprintf(buf, "SPS30 found at 0x%x", sps_addr);
-        print(buf);
-        sprintf(buf, " on bus %d\n", sps_bus);
-        print(buf);
+        sprintfAppendInt(buf, " on bus %d", sps_bus);
+        addLog(buf);
         addCommand("SPS30");
         // Do first measurement immediately
         sps_wake();
     } else {
-        print("SPS30 not found\n");
+        addLog("SPS30 not found");
     }
     return 0;
 }

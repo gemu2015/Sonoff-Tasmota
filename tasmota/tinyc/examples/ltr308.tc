@@ -250,17 +250,16 @@ int main() {
 
     if (ltr_scan()) {
         sprintf(buf, "LTR308 found at 0x%x", ltr_addr);
-        print(buf);
-        sprintf(buf, " on bus %d\n", ltr_bus);
-        print(buf);
+        sprintfAppendInt(buf, " on bus %d", ltr_bus);
+        addLog(buf);
         if (ltr_configure()) {
-            print("LTR308 configured: 3x gain, 18-bit, 100ms\n");
+            addLog("LTR308 configured: 3x gain, 18-bit, 100ms");
         } else {
-            print("LTR308 configuration failed\n");
+            addLog("LTR308 configuration failed");
             ltr_addr = 0;
         }
     } else {
-        print("LTR308 not found on any bus\n");
+        addLog("LTR308 not found on any bus");
     }
     return 0;
 }

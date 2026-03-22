@@ -155,10 +155,10 @@ int main() {
         delay(100);
         dy_volume(dy_vol);
         char buf[48];
-        sprintf(buf, "DY-SV17F ready on GPIO %d\n", dy_txpin);
-        print(buf);
+        sprintf(buf, "DY-SV17F ready on GPIO %d", dy_txpin);
+        addLog(buf);
     } else {
-        print("DY-SV17F: serial init failed\n");
+        addLog("DY-SV17F: serial init failed");
     }
     return 0;
 }

@@ -298,17 +298,16 @@ int main() {
 
     if (bme_scan()) {
         sprintf(buf, "BME280 found at 0x%x", bme_addr);
-        print(buf);
-        sprintf(buf, " on bus %d\n", bme_bus);
-        print(buf);
+        sprintfAppendInt(buf, " on bus %d", bme_bus);
+        addLog(buf);
         if (bme_read_calib() && bme_configure()) {
-            print("BME280 calibration loaded, sensor active\n");
+            addLog("BME280 calibration loaded, sensor active");
         } else {
-            print("BME280 calibration/config failed\n");
+            addLog("BME280 calibration/config failed");
             bme_addr = 0;
         }
     } else {
-        print("BME280 not found on any bus\n");
+        addLog("BME280 not found on any bus");
     }
     return 0;
 }

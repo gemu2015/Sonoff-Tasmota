@@ -74,6 +74,6 @@ int main() {
     tc_ok = 0;
     tc_fault = 0;
     tc_temp = 0.0;
-    printStr("MAX31855 thermocouple driver ready\n");
+    addLog("MAX31855 thermocouple driver ready");
     return 0;
 }

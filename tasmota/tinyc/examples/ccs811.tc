@@ -160,7 +160,7 @@ int main() {
     if (!ccs_init()) {
         char dt[48];
         sprintf(dt, "CCS811 init failed (addr 0x%x)", ccs_addr);
-        print(dt);
+        addLog(dt);
         return 0;
     }
 
