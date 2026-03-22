@@ -23,6 +23,7 @@ editor.tcb
 epaper29.tcb
 fibonacci.tcb
 file_io.tcb
+guiton_display.tcb
 homekit_demo.tcb
 homekit_office.tcb
 lcd_chart.tcb
@@ -35,7 +36,9 @@ max31855.tcb
 mlx90614.tcb
 multipage_demo.tcb
 onewire.tcb
+powerwall.tcb
 scd30.tcb
+sensor_read.tcb
 sgp30.tcb
 sht31.tcb
 slot0_test.tcb
@@ -48,12 +51,7 @@ sps30.tcb
 strings.tcb
 sunton_display.tcb
 tcs34725.tcb
-test_callback.tcb
-test_extract.tcb
-test_globals.tcb
-test_heap.tcb
-test_minimal.tcb
-test_new_funcs.tcb
+text_on_image.tcb
 touch_buttons.tcb
 udp.tcb
 veml6075.tcb

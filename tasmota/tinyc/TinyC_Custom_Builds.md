@@ -19,15 +19,10 @@ necessary defines in `user_config_override.h`. This includes:
 #define USE_TINYC              // TinyC VM (XDRV_124)
 #define USE_TINYC_IDE          // Browser IDE endpoint
 
-// Infrastructure
-#define USE_SCRIPT             // Script engine infrastructure
-#define USE_SCRIPT_I2C         // I2C from scripts
-#define USE_SCRIPT_SPI         // SPI from scripts
-#define USE_SCRIPT_SERIAL      // Serial from scripts
-#define USE_SCRIPT_TIMER       // Timer support
-#define USE_UFILESYS           // Filesystem (required for IDE)
+// Hardware buses
 #define USE_I2C                // I2C bus
 #define USE_SPI                // SPI bus
+#define USE_UFILESYS           // Filesystem (required for IDE)
 
 // Display (ESP32 only)
 #define USE_DISPLAY            // Display driver
@@ -35,26 +30,30 @@ necessary defines in `user_config_override.h`. This includes:
 #define USE_UNIVERSAL_TOUCH    // Touch input
 
 // Networking
-#define USE_WEBCLIENT_HTTPS    // HTTPS client
+#define USE_WEBCLIENT_HTTPS    // HTTPS client (required for repo loading)
 #define USE_WEBSEND_RESPONSE   // Web response forwarding
 #define USE_SENDMAIL           // Email support
 
 // Optional features
 #define USE_SML_M              // Smart meter interface
-#define USE_FEXTRACT           // File extract functions
 #define USE_DEEPSLEEP          // Deep sleep support
 #define USE_COUNTER            // Pulse counter
 #define USE_SUNRISE            // Sunrise/sunset calculation
 ```
+
+**Note:** TinyC has its own I2C, SPI, and serial implementations and does **not** require the
+Tasmota Scripter engine. The `-DTINYC_NO_SCRIPTER` flag (included by default in all recommended
+configurations below) excludes Scripter entirely, saving ~120 KB of flash.
 
 ## Build Flags
 
 | Flag | Effect | Default |
 |---|---|---|
 | `-DTINYC_TESTING` | Enable TinyC with all standard features | Required |
+| `-DTINYC_NO_SCRIPTER` | Exclude Tasmota Scripter engine (~120 KB flash saved) | Recommended |
 | `-DTINYC_HOMEKIT` | Enable Apple HomeKit support | All builds |
 | `-DTINYC_CAMERA` | Enable integrated camera driver (ESP32/S3 only, not RISC-V) | ESP32/S3 builds |
-| `-DTINYC_NO_SCRIPTER` | Exclude Tasmota Scripter engine (~98 KB flash saved). SML smart meter remains available | Optional |
+| `-DTINYC_NO_DISPLAY` | Exclude display support (~80 KB flash saved) | Optional |
 
 ## What's Included in Pre-Built Firmware
 
@@ -63,7 +62,7 @@ All pre-built firmware includes:
 - **Display** — Universal display + touch support
 - **SML** — Smart meter interface
 - **Email** — SMTP with file/picture attachments
-- **I2C / SPI / Serial** — Hardware bus access
+- **I2C / SPI / Serial** — Hardware bus access (native TinyC, no Scripter dependency)
 
 ESP32 and ESP32-S3 builds additionally include:
 - **Camera** — Integrated camera driver via `-DTINYC_CAMERA` (+34 KB). Supports OV2640, OV3660, OV5640 with MJPEG streaming, PSRAM slot management, and motion detection
@@ -80,9 +79,10 @@ configuration. Build with: `pio run -e <environment-name>`
 ```ini
 [env:tinyc_base]
 ; Common TinyC build settings — inherits from tasmota32_base
-; All builds get HomeKit + display support
+; All builds get HomeKit + display, no Scripter
 build_flags             = ${env:tasmota32_base.build_flags}
                           -DTINYC_TESTING
+                          -DTINYC_NO_SCRIPTER
                           -DTINYC_HOMEKIT
 ```
 
@@ -100,8 +100,6 @@ board_build.f_cpu       = 240000000L
 board_build.partitions  = partitions/esp32_partition_app1856k_fs1344k.csv
 build_flags             = ${env:tinyc_base.build_flags}
                           -DTINYC_CAMERA
-                          -DBOARD_HAS_PSRAM -DHAS_PSRAM_FIX
-                          -mfix-esp32-psram-cache-issue -mfix-esp32-psram-cache-strategy=memw
 lib_ignore              = ${env:tasmota32_base.lib_ignore}
                           TTGO TWatch Library
                           Micro-RTSP
@@ -408,7 +406,7 @@ Camera pin definitions are in the TinyC source file (`camera.tc`, `webcam_tinyc.
 | 8MB | `esp32_partition_app3904k_fs3392k.csv` | 3,904 KB | 3,392 KB | 8MB with safeboot |
 | 16MB | `esp32_partition_app3904k_fs11584k.csv` | 3,904 KB | 11,584 KB | 16MB with safeboot (default for S3-16M) |
 
-For 4MB boards: the TinyC firmware is ~1,650 KB, leaving ~200 KB headroom in the 1,856 KB app partition.
+For 4MB boards: the TinyC firmware is ~1,650 KB, leaving ~200 KB headroom in the 1,856 KB app partition. Without Scripter (`-DTINYC_NO_SCRIPTER`), firmware is ~120 KB smaller, giving more headroom.
 
 ## Build Command
 
