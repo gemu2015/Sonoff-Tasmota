@@ -7858,7 +7858,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
 
       i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG((uint32_t)sample_rate),
-        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
           .mclk = I2S_GPIO_UNUSED,
           .bclk = (gpio_num_t)bclk_pin,
@@ -7886,8 +7886,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     }
 
     case SYS_I2S_WRITE: {
-      // i2sWrite(buf, len) -> bytes_written
-      // buf is int[] with 16-bit signed PCM samples in each element
+      // i2sWrite(buf, len) -> samples_written
+      // buf is int[] with 16-bit signed mono PCM samples
+      // Output is stereo: each mono sample is duplicated to L+R channels
       int32_t len     = TC_POP(vm);
       int32_t arr_ref = TC_POP(vm);
 
@@ -7901,22 +7902,23 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (!arr || len <= 0) { TC_PUSH(vm, 0); break; }
       if (len > maxLen) len = maxLen;
 
-      // Convert int32 array to int16 buffer for DMA
-      int16_t *pcm = (int16_t*)malloc(len * sizeof(int16_t));
+      // Convert mono int32 array to stereo int16 buffer (L,R,L,R...)
+      int16_t *pcm = (int16_t*)malloc(len * 2 * sizeof(int16_t));
       if (!pcm) { TC_PUSH(vm, 0); break; }
 
       for (int32_t i = 0; i < len; i++) {
         int32_t s = arr[i];
         if (s > 32767) s = 32767;
         if (s < -32768) s = -32768;
-        pcm[i] = (int16_t)s;
+        pcm[i * 2]     = (int16_t)s;  // left
+        pcm[i * 2 + 1] = (int16_t)s;  // right
       }
 
       size_t bytes_written = 0;
-      i2s_channel_write(Tinyc->i2s_tx_handle, pcm, len * sizeof(int16_t),
+      i2s_channel_write(Tinyc->i2s_tx_handle, pcm, len * 2 * sizeof(int16_t),
                         &bytes_written, portMAX_DELAY);
       free(pcm);
-      TC_PUSH(vm, (int32_t)(bytes_written / sizeof(int16_t)));
+      TC_PUSH(vm, (int32_t)(bytes_written / (2 * sizeof(int16_t))));
       break;
     }
 

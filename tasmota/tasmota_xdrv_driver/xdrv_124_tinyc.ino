@@ -2056,7 +2056,13 @@ static void TinyC_WebSetVar(void) {
         sscanf(ts, "%d:%d", &hh, &mm);
         s->vm.globals[gidx] = hh * 100 + mm;
       } else {
-        s->vm.globals[gidx] = val.toInt();
+        int32_t newval = val.toInt();
+        int32_t oldval = s->vm.globals[gidx];
+        s->vm.globals[gidx] = newval;
+        // Dispatch TouchButton callback when a webButton value changes
+        if (newval != oldval) {
+          tinyc_touch_button((uint8_t)gidx, (int16_t)newval);
+        }
       }
     }
   }

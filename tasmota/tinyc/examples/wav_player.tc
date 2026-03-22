@@ -1,16 +1,23 @@
-// WAV Player — minimal I2S audio output using MAX98357 or similar I2S amplifier
-// Demonstrates: i2sBegin, i2sWrite, i2sStop, file I/O, WAV header parsing
-// WebUI: pin configuration, test tone button, WAV file playback
+// WAV Player with WM8960 codec — I2S audio output
+// Demonstrates: i2sBegin, i2sWrite, i2sStop, I2C codec init, WebUI
 //
-// Hardware: ESP32 + MAX98357A (or any I2S DAC/amp)
+// Hardware: ESP32 + WM8960 codec board (e.g. M5Stack Core2, AI-Thinker audio kit)
+//   WM8960 communicates via I2C (address 0x1A) for configuration
+//   Audio data flows via I2S (BCLK, LRCLK, DOUT pins)
+//
+// Upload 16-bit mono WAV files to device filesystem
 
-// Default I2S pins — changeable via WebUI
-persist int pin_bclk = 26;
-persist int pin_lrclk = 25;
-persist int pin_dout = 22;
+// WM8960 I2C address
+#define WM_ADDR  0x1A
+
+// Default I2S pins — changeable via WebUI (persist across reboot)
+persist int pin_bclk = 10;
+persist int pin_lrclk = 18;
+persist int pin_dout = 17;
 persist int pin_rate = 16000;
+persist int dac_vol = 255;     // 0-255 in 0.5dB steps (255 = 0dB)
 
-// Buffers — global for heap allocation
+// Audio buffers — global for heap allocation
 #define BUF_SAMPLES 512
 int pcm[BUF_SAMPLES];
 char raw[BUF_SAMPLES * 2];
@@ -23,8 +30,118 @@ int wav_data_size;
 
 // State
 int playing = 0;
+int codec_ok = 0;
+int wm_bus = -1;   // detected I2C bus
 
-// Parse 44-byte WAV header, return 0=ok, -1=error
+// ═══════════════════════════════════════════════════════════
+// WM8960 codec driver (I2C control, ported from plugin)
+// ═══════════════════════════════════════════════════════════
+
+// WM8960 uses 7-bit register address + 9-bit data in a 2-byte I2C write
+// Byte 1: [reg_addr(6:0) | data_bit8]  — sent as "register" in i2cWrite8
+// Byte 2: [data(7:0)]                  — sent as "value" in i2cWrite8
+void wmWrite(int reg, int data) {
+    int b1 = (reg << 1) | ((data >> 8) & 1);
+    int b2 = data & 0xFF;
+    i2cWrite8(WM_ADDR, b1, b2, wm_bus);
+}
+
+int wmInit() {
+    // Scan both I2C buses for WM8960
+    if (i2cExists(WM_ADDR, 0)) {
+        wm_bus = 0;
+    } else if (i2cExists(WM_ADDR, 1)) {
+        wm_bus = 1;
+    } else {
+        addLog("WM8960: not found at 0x1A");
+        return -1;
+    }
+
+    // Claim I2C address
+    i2cSetDevice(WM_ADDR, wm_bus);
+    i2cSetActiveFound(WM_ADDR, "WM8960", wm_bus);
+
+    // Reset all registers
+    wmWrite(0x0F, 0x0000);
+    delay(10);
+
+    // Power management 1: enable VREF, VMIDSEL=50k, ADC L+R, AINL+AINR, MICB
+    wmWrite(0x19, (1<<8)|(1<<7)|(1<<6)|(1<<5)|(1<<4)|(1<<3)|(1<<2)|(1<<1));
+
+    // Power management 2: enable DAC L+R, LOUT1, ROUT1, SPK L+R
+    wmWrite(0x1A, (1<<8)|(1<<7)|(1<<6)|(1<<5)|(1<<4)|(1<<3));
+
+    // Power management 3: enable LOMIX, ROMIX, LMIC, RMIC
+    wmWrite(0x2F, (1<<5)|(1<<4)|(1<<3)|(1<<2));
+
+    // Clocking 1: default (MCLK source, no dividers)
+    wmWrite(0x04, 0x0000);
+
+    // ADC/DAC control 1: default (no de-emphasis, no mute)
+    wmWrite(0x05, 0x0000);
+
+    // Audio interface: I2S format, 16-bit word length, slave mode
+    wmWrite(0x07, 0x0022);
+
+    // Headphone output volume L+R: 0dB with volume update
+    wmWrite(0x02, 0x017F);
+    wmWrite(0x03, 0x017F);
+
+    // Speaker output volume L+R
+    wmWrite(0x28, 0x0177);
+    wmWrite(0x29, 0x0177);
+
+    // Class D control: enable right speaker output
+    wmWrite(0x31, 0x0080);
+
+    // DAC volume L+R: max (0dB) with volume update
+    wmWrite(0x0A, 0x01FF);
+    wmWrite(0x0B, 0x01FF);
+
+    // Output mixer: DAC to output
+    wmWrite(0x22, (1<<8)|(1<<7));
+    wmWrite(0x25, (1<<8)|(1<<7));
+
+    // Input volume L+R
+    wmWrite(0x00, 0x0127);
+    wmWrite(0x01, 0x0127);
+
+    // ADC volume L+R
+    wmWrite(0x15, 0x01C3);
+    wmWrite(0x16, 0x01C3);
+
+    // Disable bypass
+    wmWrite(0x2D, 0x0000);
+    wmWrite(0x2E, 0x0000);
+
+    // Input boost: LINPUT1 to PGA, boost gain
+    wmWrite(0x20, 0x0020 | (1<<8) | (1<<3));
+    wmWrite(0x21, 0x0020 | (1<<8) | (1<<3));
+
+    addLog("WM8960: initialized");
+    return 0;
+}
+
+// Set DAC output volume (0-255, 0.5dB steps, 255=0dB)
+void wmSetVolume(int vol) {
+    if (vol > 255) vol = 255;
+    if (vol < 0) vol = 0;
+    wmWrite(0x0A, 0x0100 | vol);  // left DAC + update bit
+    wmWrite(0x0B, 0x0100 | vol);  // right DAC + update bit
+}
+
+// Set headphone volume (0-127, 127=+6dB, 121=0dB)
+void wmSetHPVolume(int vol) {
+    if (vol > 127) vol = 127;
+    if (vol < 0) vol = 0;
+    wmWrite(0x02, 0x0100 | vol);
+    wmWrite(0x03, 0x0100 | vol);
+}
+
+// ═══════════════════════════════════════════════════════════
+// WAV file playback
+// ═══════════════════════════════════════════════════════════
+
 int parseWavHeader(int f) {
     char hdr[44];
     int n = fileRead(f, hdr, 44);
@@ -44,7 +161,6 @@ int parseWavHeader(int f) {
     return 0;
 }
 
-// Play a 16-bit mono WAV file
 int playWav(char path[]) {
     int f = fileOpen(path, "r");
     if (f < 0) {
@@ -70,6 +186,8 @@ int playWav(char path[]) {
         fileClose(f);
         return -4;
     }
+
+    wmSetVolume(dac_vol);
 
     char msg[48];
     sprintf(msg, "WAV: playing %dHz", wav_rate);
@@ -108,11 +226,9 @@ int playWav(char path[]) {
 // Generate a sine test tone
 void playTone(int freq, int duration_ms, int volume) {
     int err = i2sBegin(pin_bclk, pin_lrclk, pin_dout, pin_rate);
-    if (err < 0) {
-        addLog("Tone: i2sBegin failed");
-        return;
-    }
+    if (err < 0) return;
 
+    wmSetVolume(dac_vol);
     playing = 1;
     int total = pin_rate * duration_ms / 1000;
     int phase = 0;
@@ -137,7 +253,9 @@ void playTone(int freq, int duration_ms, int volume) {
     playing = 0;
 }
 
-// --- WebUI ---
+// ═══════════════════════════════════════════════════════════
+// WebUI — pin config, volume, test buttons
+// ═══════════════════════════════════════════════════════════
 int tone_btn;
 int tone2_btn;
 int play_btn;
@@ -148,6 +266,7 @@ void WebUI() {
     webPulldown(pin_lrclk, "LRCLK Pin", "@getfreepins");
     webPulldown(pin_dout, "DOUT Pin", "@getfreepins");
     webNumber(pin_rate, 8000, 48000, "Sample Rate");
+    webSlider(dac_vol, 0, 255, "DAC Volume");
     webButton(tone_btn, "Test 1kHz");
     webButton(tone2_btn, "Test 440Hz");
     webButton(play_btn, "Play /alert.wav");
@@ -171,20 +290,35 @@ void TouchButton(int btn, int val) {
 }
 
 void WebCall() {
-    char buf[48];
+    char buf[64];
     if (playing) {
         webSend("{s}I2S Audio{m}Playing{e}");
-    } else {
-        sprintf(buf, "{s}I2S Audio{m}Ready (BCLK=%d){e}", pin_bclk);
+    } else if (codec_ok) {
+        sprintf(buf, "{s}WM8960{m}Ready (vol %d){e}", dac_vol);
         webSend(buf);
+    } else {
+        webSend("{s}WM8960{m}Not found{e}");
     }
 }
 
 void OnExit() {
     i2sStop();
+    if (wm_bus >= 0) I2cResetActive(WM_ADDR, wm_bus);
 }
 
 int main() {
+    // Apply defaults if persist values are zero (first run)
+    if (pin_bclk == 0) pin_bclk = 10;
+    if (pin_lrclk == 0) pin_lrclk = 18;
+    if (pin_dout == 0) pin_dout = 17;
+    if (pin_rate == 0) pin_rate = 16000;
+    if (dac_vol == 0) dac_vol = 255;
+
+    // Initialize WM8960 codec via I2C
+    if (wmInit() == 0) {
+        codec_ok = 1;
+    }
+
     char msg[48];
     sprintf(msg, "I2S: BCLK=%d", pin_bclk);
     sprintfAppend(msg, " LRCLK=%d", pin_lrclk);
