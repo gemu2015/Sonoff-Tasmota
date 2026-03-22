@@ -202,7 +202,7 @@
         {
           "comment": "File I/O",
           "name": "support.function.file.tinyc",
-          "match": "\\b(fileOpen|fileClose|fileRead|fileWrite|fileExists|fileDelete|fileSize|fileFormat|fileMkdir|fileRmdir|fileReadArray|fileWriteArray|fileLog|fileDownload|fileGetStr|fileExtract|fileExtractFast|fsInfo)\\b"
+          "match": "\\b(fileOpen|fileClose|fileRead|fileWrite|fileExists|fileDelete|fileSize|fileFormat|fileMkdir|fileRmdir|fileReadArray|fileWriteArray|fileLog|fileDownload|fileGetStr|fileExtract|fileExtractFast|fileReadPCM16|fsInfo)\\b"
         },
         {
           "comment": "Time / timestamp",

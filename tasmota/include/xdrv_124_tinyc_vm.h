@@ -364,6 +364,7 @@ enum TcSyscall {
   SYS_I2S_BEGIN         = 271, // (bclk, lrclk, dout, sampleRate) -> int — init I2S TX, returns 0=ok
   SYS_I2S_WRITE         = 272, // (arr_ref, len) -> int — write int16 PCM samples, returns written
   SYS_I2S_STOP          = 273, // () -> void — stop and release I2S
+  SYS_FILE_READ_PCM16   = 274, // (handle, arr_ref, max_samples, channels) -> samples_read
   SYS_LGETSTRING          = 97, // (index, dst_ref) -> int — get localized string
   // UDP multicast (Scripter-compatible, 239.255.255.250:1999)
   SYS_UDP_SEND            = 100, // (const_idx_name, float_val) -> void — binary float
@@ -875,6 +876,7 @@ struct TINYC {
   // Minimal I2S output (standalone, no USE_I2S_AUDIO needed)
   i2s_chan_handle_t i2s_tx_handle;   // I2S TX channel handle (nullptr = not active)
   int32_t  i2s_sample_rate;          // current sample rate
+  int16_t *i2s_pcm_buf;             // stereo PCM buffer (alloc in i2sBegin, free in i2sStop)
 #endif
 } *Tinyc = nullptr;
 
@@ -7841,13 +7843,17 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         i2s_del_channel(Tinyc->i2s_tx_handle);
         Tinyc->i2s_tx_handle = nullptr;
       }
+      if (Tinyc->i2s_pcm_buf) {
+        free(Tinyc->i2s_pcm_buf);
+        Tinyc->i2s_pcm_buf = nullptr;
+      }
 
       if (sample_rate < 8000) sample_rate = 8000;
       if (sample_rate > 48000) sample_rate = 48000;
 
       i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
-      chan_cfg.dma_desc_num = 4;
-      chan_cfg.dma_frame_num = 256;
+      chan_cfg.dma_desc_num = 8;
+      chan_cfg.dma_frame_num = 512;
 
       esp_err_t err = i2s_new_channel(&chan_cfg, &Tinyc->i2s_tx_handle, NULL);
       if (err != ESP_OK) {
@@ -7858,7 +7864,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
 
       i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG((uint32_t)sample_rate),
-        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
           .mclk = I2S_GPIO_UNUSED,
           .bclk = (gpio_num_t)bclk_pin,
@@ -7879,6 +7885,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
 
       i2s_channel_enable(Tinyc->i2s_tx_handle);
       Tinyc->i2s_sample_rate = sample_rate;
+      // Allocate stereo PCM buffer: 512 mono samples → 1024 stereo int16
+      if (Tinyc->i2s_pcm_buf) free(Tinyc->i2s_pcm_buf);
+      Tinyc->i2s_pcm_buf = (int16_t *)malloc(1024 * sizeof(int16_t));
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: I2S TX started bclk=%d lrclk=%d dout=%d rate=%d"),
              bclk_pin, lrclk_pin, dout_pin, sample_rate);
       TC_PUSH(vm, 0);
@@ -7889,10 +7898,11 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       // i2sWrite(buf, len) -> samples_written
       // buf is int[] with 16-bit signed mono PCM samples
       // Output is stereo: each mono sample is duplicated to L+R channels
+      // Uses static buffer to avoid malloc/free per call
       int32_t len     = TC_POP(vm);
       int32_t arr_ref = TC_POP(vm);
 
-      if (!Tinyc->i2s_tx_handle) {
+      if (!Tinyc->i2s_tx_handle || !Tinyc->i2s_pcm_buf) {
         TC_PUSH(vm, -1);
         break;
       }
@@ -7901,23 +7911,21 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t maxLen = tc_ref_maxlen(vm, arr_ref);
       if (!arr || len <= 0) { TC_PUSH(vm, 0); break; }
       if (len > maxLen) len = maxLen;
+      if (len > 512) len = 512;  // cap to buffer size
 
-      // Convert mono int32 array to stereo int16 buffer (L,R,L,R...)
-      int16_t *pcm = (int16_t*)malloc(len * 2 * sizeof(int16_t));
-      if (!pcm) { TC_PUSH(vm, 0); break; }
+      int16_t *i2s_pcm_buf = Tinyc->i2s_pcm_buf;
 
       for (int32_t i = 0; i < len; i++) {
         int32_t s = arr[i];
         if (s > 32767) s = 32767;
         if (s < -32768) s = -32768;
-        pcm[i * 2]     = (int16_t)s;  // left
-        pcm[i * 2 + 1] = (int16_t)s;  // right
+        i2s_pcm_buf[i * 2]     = (int16_t)s;  // left
+        i2s_pcm_buf[i * 2 + 1] = (int16_t)s;  // right
       }
 
       size_t bytes_written = 0;
-      i2s_channel_write(Tinyc->i2s_tx_handle, pcm, len * 2 * sizeof(int16_t),
+      i2s_channel_write(Tinyc->i2s_tx_handle, i2s_pcm_buf, len * 2 * sizeof(int16_t),
                         &bytes_written, portMAX_DELAY);
-      free(pcm);
       TC_PUSH(vm, (int32_t)(bytes_written / (2 * sizeof(int16_t))));
       break;
     }
@@ -7928,8 +7936,12 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         i2s_channel_disable(Tinyc->i2s_tx_handle);
         i2s_del_channel(Tinyc->i2s_tx_handle);
         Tinyc->i2s_tx_handle = nullptr;
-        AddLog(LOG_LEVEL_INFO, PSTR("TCC: I2S TX stopped"));
       }
+      if (Tinyc->i2s_pcm_buf) {
+        free(Tinyc->i2s_pcm_buf);
+        Tinyc->i2s_pcm_buf = nullptr;
+      }
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: I2S TX stopped"));
       break;
     }
 #else
@@ -7938,6 +7950,62 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_I2S_WRITE: { TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break; }
     case SYS_I2S_STOP:  { break; }
 #endif
+
+    // ── fileReadPCM16: read 16-bit LE PCM from file into int[] (native speed) ──
+    case SYS_FILE_READ_PCM16: {
+#ifdef USE_UFILESYS
+      // fileReadPCM16(handle, arr, max_samples, channels) -> samples_read
+      // channels: 1=mono, 2=stereo (downmixed to mono)
+      // Reads raw bytes from file, converts int16 LE to int32 in arr[]
+      int32_t channels    = TC_POP(vm);
+      int32_t max_samples = TC_POP(vm);
+      int32_t ref         = TC_POP(vm);
+      int32_t handle      = TC_POP(vm);
+
+      if (handle < 0 || handle >= TC_MAX_FILE_HANDLES || !Tinyc->file_used[handle]) {
+        TC_PUSH(vm, -1); break;
+      }
+      int32_t *arr = tc_resolve_ref(vm, ref);
+      int32_t arr_len = tc_ref_maxlen(vm, ref);
+      if (!arr || max_samples <= 0) { TC_PUSH(vm, 0); break; }
+      if (max_samples > arr_len) max_samples = arr_len;
+
+      File &f = tc_file_handles[handle];
+      int bytes_per_frame = (channels == 2) ? 4 : 2;
+      int32_t read_bytes = max_samples * bytes_per_frame;
+      // Use a temp buffer on stack (max 2048 bytes = 512 stereo frames or 1024 mono frames)
+      if (read_bytes > 2048) { max_samples = 2048 / bytes_per_frame; read_bytes = max_samples * bytes_per_frame; }
+      uint8_t tmpbuf[2048];
+      int32_t got = f.read(tmpbuf, read_bytes);
+      if (got <= 0) { TC_PUSH(vm, 0); break; }
+      int32_t frames = got / bytes_per_frame;
+
+      if (channels == 2) {
+        // Stereo: average L+R to mono
+        for (int32_t i = 0; i < frames; i++) {
+          int32_t lo = tmpbuf[i * 4];
+          int32_t hi = tmpbuf[i * 4 + 1];
+          int32_t left = (int16_t)((hi << 8) | lo);
+          lo = tmpbuf[i * 4 + 2];
+          hi = tmpbuf[i * 4 + 3];
+          int32_t right = (int16_t)((hi << 8) | lo);
+          arr[i] = (left + right) / 2;
+        }
+      } else {
+        // Mono
+        for (int32_t i = 0; i < frames; i++) {
+          int32_t lo = tmpbuf[i * 2];
+          int32_t hi = tmpbuf[i * 2 + 1];
+          arr[i] = (int16_t)((hi << 8) | lo);
+        }
+      }
+      TC_PUSH(vm, frames);
+#else
+      TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
 
     // ── TCP server (Scripter-compatible ws* functions) ──
     case SYS_TCP_OPEN: {  // wso(port)
@@ -10078,6 +10146,10 @@ static void TinyCStopVM(TcSlot *s) {
     i2s_channel_disable(Tinyc->i2s_tx_handle);
     i2s_del_channel(Tinyc->i2s_tx_handle);
     Tinyc->i2s_tx_handle = nullptr;
+  }
+  if (Tinyc->i2s_pcm_buf) {
+    free(Tinyc->i2s_pcm_buf);
+    Tinyc->i2s_pcm_buf = nullptr;
   }
 #endif
   // Free OneWire bus
