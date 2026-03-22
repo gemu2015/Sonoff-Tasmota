@@ -37,6 +37,7 @@ int vl_bus;
 int vl_stop_var;
 int vl_budget_us;
 int vl_ok;
+int vl_valid;       // 1 = valid reading, 0 = no target
 float vl_range;
 char vl_buf[12];
 int vl_tstart;
@@ -204,7 +205,7 @@ int singleRefCal(int vhv_init) {
   startTO();
   while ((rd(RESULT_INTERRUPT_STATUS) & 7) == 0) {
     if (timedOut()) {
-      print("  cal timeout!");
+      addLog("VL53L0X: cal timeout");
       return 0;
     }
   }
@@ -250,13 +251,9 @@ int getSpadInfo() {
 // ── Full init — follows plugin VL53L0X_init(true) exactly ──
 
 int vlInit() {
-  char dbg[64];
-
   // check model ID
   int id = rd(IDENTIFICATION_MODEL_ID);
-  sprintf(dbg, "VL53L0X ID=0x%x", id);
-  print(dbg);
-  if (id != VL_ID) { print(" — wrong ID!"); return 0; }
+  if (id != VL_ID) { return 0; }
 
   // ── DataInit ──
   // 2V8 mode
@@ -269,8 +266,6 @@ int vlInit() {
   wr(0xFF, 0x01);
   wr(0x00, 0x00);
   vl_stop_var = rd(0x91);
-  sprintf(dbg, "  stop_var=0x%x", vl_stop_var);
-  print(dbg);
   wr(0x00, 0x01);
   wr(0xFF, 0x00);
   wr(0x80, 0x00);
@@ -286,11 +281,7 @@ int vlInit() {
   // ── StaticInit ──
 
   // SPAD configuration
-  if (!getSpadInfo()) { print("  SPAD info failed!"); return 0; }
-  sprintf(dbg, "  SPAD count=%d", spad_count);
-  print(dbg);
-  sprintf(dbg, " aperture=%d", spad_aperture);
-  print(dbg);
+  if (!getSpadInfo()) { return 0; }
 
   // read SPAD map
   char spad[6];
@@ -363,8 +354,6 @@ int vlInit() {
   // ── Timing budget: get, change sequence, re-apply ──
   // THIS IS CRITICAL — without it, calibration fails
   vl_budget_us = getBudget();
-  sprintf(dbg, "  budget=%d us", vl_budget_us);
-  print(dbg);
 
   // disable MSRC and TCC
   wr(SYSTEM_SEQUENCE_CONFIG, 0xE8);
@@ -373,16 +362,12 @@ int vlInit() {
   setBudget(vl_budget_us);
 
   // ── VHV calibration ──
-  print("  VHV cal...");
   wr(SYSTEM_SEQUENCE_CONFIG, 0x01);
   if (!singleRefCal(0x40)) { return 0; }
-  print(" OK");
 
   // ── Phase calibration ──
-  print("  Phase cal...");
   wr(SYSTEM_SEQUENCE_CONFIG, 0x02);
   if (!singleRefCal(0x00)) { return 0; }
-  print(" OK");
 
   // restore sequence config
   wr(SYSTEM_SEQUENCE_CONFIG, 0xE8);
@@ -430,27 +415,33 @@ void EverySecond() {
 
   int dist = readRange();
 
-  char buf[80];
   if (dist < 8190) {
     vl_range = (float)dist;
-    sprintf(buf, "Distance: %d mm", dist);
-    print(buf);
+    vl_valid = 1;
   } else {
-    print("VL53L0X: timeout/no target");
+    vl_valid = 0;
   }
 }
 
 void WebCall() {
   if (!vl_ok) { return; }
   char buf[64];
-  sprintf(buf, "{s}VL53L0X{m}%.0f mm{e}", vl_range);
+  if (vl_valid) {
+    sprintf(buf, "{s}VL53L0X{m}%.0f mm{e}", vl_range);
+  } else {
+    strcpy(buf, "{s}VL53L0X{m}---{e}");
+  }
   webSend(buf);
 }
 
 void JsonCall() {
   if (!vl_ok) { return; }
   char buf[64];
-  sprintf(buf, ",\"VL53L0X\":{\"Distance\":%.0f}", vl_range);
+  if (vl_valid) {
+    sprintf(buf, ",\"VL53L0X\":{\"Distance\":%.0f}", vl_range);
+  } else {
+    strcpy(buf, ",\"VL53L0X\":{\"Distance\":null}");
+  }
   responseAppend(buf);
 }
 
@@ -490,18 +481,18 @@ void Command(char cmd[]) {
   }
   else if (strFind(cmd, "STATUS") == 0) {
     sprintf(buf, "{\"VLStatus\":{\"Budget\":%d", vl_budget_us);
-    sprintf(arg, ",\"Range\":%.0f", vl_range);
+    if (vl_valid) {
+      sprintf(arg, ",\"Range\":%.0f", vl_range);
+    } else {
+      strcpy(arg, ",\"Range\":null");
+    }
     strcat(buf, arg);
-    sprintf(arg, ",\"OK\":%d}}", vl_ok);
+    sprintf(arg, ",\"Bus\":%d}}", vl_bus);
     strcat(buf, arg);
     responseCmnd(buf);
   }
   else {
-    // debug: show what cmd contains
-    strcpy(buf, "{\"VLcmd\":\"");
-    strcat(buf, cmd);
-    strcat(buf, "\"}");
-    responseCmnd(buf);
+    responseCmnd("{\"VL\":\"commands: VLMode 0|1|2, VLBudget <us>, VLStatus\"}");
   }
 }
 
@@ -515,6 +506,7 @@ void OnExit() {
 
 int main() {
   vl_ok = 0;
+  vl_valid = 0;
   vl_bus = 0;
 
   addCommand("VL");
@@ -530,19 +522,15 @@ int main() {
     vl_bus = vl_bus + 1;
   }
   if (vl_bus >= 2) {
-    print("VL53L0X not found");
+    addLog("VL53L0X: not found");
     return 0;
   }
 
-  char buf[64];
-  sprintf(buf, "VL53L0X on bus %d", vl_bus);
-  print(buf);
-
   if (vlInit()) {
-    print("VL53L0X init OK");
     vl_ok = 1;
+    addLog("VL53L0X: init OK");
   } else {
-    print("VL53L0X init FAILED");
+    addLog("VL53L0X: init FAILED");
   }
 
   return 0;
