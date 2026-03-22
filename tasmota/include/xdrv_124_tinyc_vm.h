@@ -353,8 +353,8 @@ enum TcSyscall {
   SYS_WEB_SEND_STR        = 94, // (const_idx) -> void — string literal variant
   SYS_LOG                 = 95, // (char_ref) -> void — AddLog to Tasmota console
   SYS_LOG_STR             = 96, // (const_idx) -> void — AddLog string literal
-  SYS_LOG_LEVEL           = 269, // (level, char_ref) -> void — AddLog with explicit level
-  SYS_LOG_LEVEL_STR       = 270, // (level, const_idx) -> void — AddLog string literal with level
+  SYS_LOG_LVL          = 269, // (level, char_ref) -> void — AddLog with explicit level
+  SYS_LOG_LVL_STR       = 270, // (level, const_idx) -> void — AddLog string literal with level
   SYS_LGETSTRING          = 97, // (index, dst_ref) -> int — get localized string
   // UDP multicast (Scripter-compatible, 239.255.255.250:1999)
   SYS_UDP_SEND            = 100, // (const_idx_name, float_val) -> void — binary float
@@ -4380,7 +4380,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       }
       break;
     }
-    case SYS_LOG_LEVEL: {
+    case SYS_LOG_LVL: {
       a = TC_POP(vm);  // char array ref
       int32_t level = TC_POP(vm);  // log level (1=ERROR, 2=INFO, 3=DEBUG, 4=DEBUG_MORE)
       if (level < 1) level = 1;
@@ -4391,7 +4391,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       }
       break;
     }
-    case SYS_LOG_LEVEL_STR: {
+    case SYS_LOG_LVL_STR: {
       a = TC_POP(vm);  // constant pool index
       int32_t level = TC_POP(vm);  // log level
       if (level < 1) level = 1;
