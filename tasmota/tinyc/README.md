@@ -69,11 +69,12 @@ Callbacks run automatically from Tasmota's main loop:
 **SPI:** `spiInit`, `spiSetCS`, `spiTransfer`
 **Files:** `fileOpen`, `fileClose`, `fileRead`, `fileWrite`, `fileExists`, `fileDelete`, `fileSize`, `fileFormat`, `fileMkdir`, `fileRmdir`, `fileReadArray`, `fileWriteArray`, `fileLog`, `fileDownload`, `fileGetStr`, `fileExtract`, `fileExtractFast`, `fsInfo`
 **Time:** `timeStamp`, `timeConvert`, `timeOffset`, `timeToSecs`, `secsToTime`
-**Tasmota:** `tasmCmd`, `sensorGet`, `responseAppend`, `webSend`, `webFlush`, `addLog`, `addCommand`, `responseCmnd`
+**Tasmota:** `tasmCmd`, `sensorGet`, `responseAppend`, `webSend`, `webFlush`, `addLog`, `addLogLevel`, `addCommand`, `responseCmnd`
 **HTTP:** `httpGet`, `httpPost`, `httpHeader`
 **TCP:** `tcpServer`, `tcpClose`, `tcpAvailable`, `tcpRead`, `tcpWrite`, `tcpReadArray`, `tcpWriteArray`
 **UDP:** `udpRecv`, `udpReady`, `udpSendArray`, `udpRecvArray`, `udp` (general-purpose, modes 0-7) — scalar `global` floats auto-broadcast on assignment
-**Display:** `dspText`, `dspClear`, `dspPos`, `dspFont`, `dspSize`, `dspColor`, `dspDraw`, `dspPad`, `dspPixel`, `dspLine`, `dspRect`, `dspFillRect`, `dspCircle`, `dspFillCircle`, `dspHLine`, `dspVLine`, `dspRoundRect`, `dspFillRoundRect`, `dspTriangle`, `dspFillTriangle`, `dspDim`, `dspOnOff`, `dspUpdate`, `dspPicture`, `dspWidth`, `dspHeight`
+**Display:** `dspText`, `dspClear`, `dspPos`, `dspFont`, `dspSize`, `dspColor`, `dspDraw`, `dspPad`, `dspPixel`, `dspLine`, `dspRect`, `dspFillRect`, `dspCircle`, `dspFillCircle`, `dspHLine`, `dspVLine`, `dspRoundRect`, `dspFillRoundRect`, `dspTriangle`, `dspFillTriangle`, `dspDim`, `dspOnOff`, `dspUpdate`, `dspPicture`, `dspWidth`, `dspHeight`, `dspTextWidth`, `dspTextHeight`
+**Image Store:** `dspLoadImage`, `dspPushImageRect`, `dspImageWidth`, `dspImageHeight`, `dspImgText` — PSRAM image slots for flicker-free compositing
 **Touch Buttons:** `dspButton`, `dspTButton`, `dspPButton`, `dspSlider`, `dspButtonState`, `touchButton`
 **Audio:** `audioVol`, `audioPlay`, `audioSay`
 **Deep Sleep:** `deepSleep`, `deepSleepGpio`, `wakeupCause`
@@ -100,18 +101,17 @@ Callbacks run automatically from Tasmota's main loop:
 
 | Command | Description |
 |---|---|
-| `TinyC` | Show VM status |
-| `TinyCRun [file]` | Run loaded bytecode (or load .tcb file first) |
-| `TinyCStop` | Stop running program |
-| `TinyCReset` | Reset VM state |
-| `TinyCExec <code>` | Compile and run inline code |
-| `chkpt` | List current partition table |
-| `chkpt p` | Auto-resize app partition (firmware + ~200 KB overhead), expand filesystem. **Warning: filesystem is formatted — all files are lost!** |
-| `chkpt p <KB>` | Set app partition to specific size in KB, adjust filesystem |
-| `chkpt a1`..`a4` | Add custom partition (64–256 KB) for plugin drivers |
-| `chkpt r` | Remove custom partition |
+| `TinyC` | Show VM status (all slots) |
+| `TinyCRun [s] [/f]` | Run slot s (default 0), optionally load /f first |
+| `TinyCStop [s]` | Stop slot s (default 0) |
+| `TinyCReset [s]` | Reset slot s (default 0) |
+| `TinyCExec <n>` | Set instructions per tick (default 1000) |
+| `TinyCInfo 0\|1` | Show/hide VM status rows on main page |
+| `TinyCChkpt` | Show partition table (ESP32 only) |
+| `TinyCChkpt p` | Auto-resize app partition to fit firmware, expand filesystem. **Warning: filesystem is formatted!** |
+| `TinyCChkpt p <KB>` | Set app partition to specific size in KB |
 
-REST API: `http://<ip>/tc_api?cmd=run`, `cmd=stop`, `cmd=status`
+REST API: `http://<ip>/tc_api?cmd=run`, `cmd=stop`, `cmd=status` (with `slot=` parameter)
 
 File Download Server (port 82, ESP32): `http://<ip>:82/ufs/<filename>` — supports `@from_to` time-range filter
 
@@ -131,26 +131,54 @@ File Download Server (port 82, ESP32): `http://<ip>:82/ufs/<filename>` — suppo
 
 ## Examples
 
-See [`examples/`](examples/) for complete working programs:
+See [`examples/`](examples/) for 60+ complete working programs. Highlights:
 
-- **blink** — LED blink
-- **callbacks** — Tasmota MQTT + web integration
-- **sht31** — I2C temperature/humidity sensor (dual-bus scan, address claiming)
+**I2C Sensors:**
+- **bme280** / **bmp280** / **bmx280** — Bosch environmental sensors (temperature, humidity, pressure)
+- **sht31** — Temperature/humidity (dual-bus scan, address claiming)
+- **scd30** — CO2 sensor with auto-calibration
+- **sgp30** — VOC/eCO2 air quality
+- **sps30** — Particulate matter sensor
+- **vl53l0x** — Laser time-of-flight distance (VLMode/VLBudget/VLStatus commands)
+- **mlx90614** — Infrared non-contact thermometer
+- **tcs34725** — RGB color sensor
+- **veml6075** — UV index sensor
+- **ltr308** — Ambient light sensor
+- **ads1115** — 16-bit ADC
+- **ccs811** — eCO2/TVOC
+- **lcd_i2c** — HD44780 LCD with console commands
+
+**Display:**
+- **display_demo** — Sensor dashboard for ILI9488
+- **sunton_display** / **guiton_display** — Sunton/Guition board demos
+- **epaper29** — E-paper 2.9" driver
+- **text_on_image** — Flicker-free text compositing on JPEG backgrounds
+- **analog_clock** — Analog clock with date overlay
+- **lcd_chart** / **live_chart** / **chart_types** — Various chart styles
+- **touch_buttons** — GFX touch button/slider demo
+- **multipage_demo** — Multi-page display navigation
+
+**Protocols & Hardware:**
+- **bresser** / **bresser_chart** — CC1101 868 MHz weather station receiver
+- **onewire** — 1-Wire bus: DS18B20 + DS2406/DS2413/DS2408, GPIO and DS2480B modes
 - **max31855** — SPI thermocouple reader
-- **bresser** — CC1101 868 MHz weather station receiver (5/6/7-in-1 + soil moisture)
-- **bresser_chart** — Bresser weather station with Google Charts ring buffer and flash persistence
-- **chart** — Google Charts with 1000-point ring buffer
-- **display_demo** — Sensor dashboard for ILI9488 display
-- **editor** — Code editor example
+- **dysv17f** — DY-SV17F MP3 player (serial TX, console commands)
+- **ld2410** — mmWave presence sensor
+- **camera** / **webcam** / **webcam_tinyc** — ESP32 camera drivers
+- **sml_ebus** — Smart Meter Language / eBUS
+
+**Energy & Automation:**
+- **core2_energy** — M5Stack Core2 energy monitor with Shelly 3EM
+- **ecotracker** — Energy tracking with daily counters
+- **powerwall** — Tesla Powerwall API integration
+
+**Web & Communication:**
+- **web_buttons** / **web_handler** / **webui_demo** / **webcall_demo** — Custom web interfaces
+- **homekit_demo** / **homekit_office** — Apple HomeKit integration
 - **udp** — Multicast data sharing between devices
-- **benchmark** — VM performance measurement
-- **file_io** — File read/write (SD card default, `/ffs/` for flash, `/sdfs/` for SD)
-- **sensor_read** — Analog sensor with serial output
-- **sort** — Bubble sort algorithm
-- **strings** — String operations
-- **fibonacci** — Recursive function demo
-- **dysv17f** — DY-SV17F MP3 player (serial TX, custom console commands)
-- **onewire** — 1-Wire bus driver: DS18B20 temperature + DS2406/DS2413/DS2408 switches, GPIO and DS2480B serial bridge modes, WebUI config, ROM-based aliases, OW console command
+
+**Basics:**
+- **blink**, **callbacks**, **benchmark**, **fibonacci**, **sort**, **strings**, **file_io**, **sensor_read**, **editor**, **watch_demo**
 
 ## VS Code Support
 
