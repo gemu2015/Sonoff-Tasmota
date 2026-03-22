@@ -18,6 +18,11 @@ uint32_t SML_SetOptions(uint32_t in);
 
 #include <OneWire.h>
 
+// Minimal I2S output — standalone, no USE_I2S_AUDIO needed
+#if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
+#include "driver/i2s_std.h"
+#endif
+
 #if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
 #include "esp_camera.h"
 #include "img_converters.h"
@@ -355,6 +360,10 @@ enum TcSyscall {
   SYS_LOG_STR             = 96, // (const_idx) -> void — AddLog string literal
   SYS_LOG_LVL          = 269, // (level, char_ref) -> void — AddLog with explicit level
   SYS_LOG_LVL_STR       = 270, // (level, const_idx) -> void — AddLog string literal with level
+  // Minimal I2S output (no USE_I2S_AUDIO needed)
+  SYS_I2S_BEGIN         = 271, // (bclk, lrclk, dout, sampleRate) -> int — init I2S TX, returns 0=ok
+  SYS_I2S_WRITE         = 272, // (arr_ref, len) -> int — write int16 PCM samples, returns written
+  SYS_I2S_STOP          = 273, // () -> void — stop and release I2S
   SYS_LGETSTRING          = 97, // (index, dst_ref) -> int — get localized string
   // UDP multicast (Scripter-compatible, 239.255.255.250:1999)
   SYS_UDP_SEND            = 100, // (const_idx_name, float_val) -> void — binary float
@@ -862,6 +871,11 @@ struct TINYC {
   bool     email_active;             // true while TinyC-initiated email is being sent
   // Tesla Powerwall state (requires TESLA_POWERWALL)
   char    *pwl_json;                 // last Powerwall JSON response (malloc'd, max 4096)
+#ifdef ESP32
+  // Minimal I2S output (standalone, no USE_I2S_AUDIO needed)
+  i2s_chan_handle_t i2s_tx_handle;   // I2S TX channel handle (nullptr = not active)
+  int32_t  i2s_sample_rate;          // current sample rate
+#endif
 } *Tinyc = nullptr;
 
 // Currently executing slot — set before VM execution, used by output functions
@@ -7812,6 +7826,117 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     }
 #endif
 
+    // ── Minimal I2S output (standalone, no USE_I2S_AUDIO needed) ──
+#ifdef ESP32
+    case SYS_I2S_BEGIN: {
+      // i2sBegin(bclk, lrclk, dout, sampleRate) -> 0=ok, -1=error
+      int32_t sample_rate = TC_POP(vm);
+      int32_t dout_pin    = TC_POP(vm);
+      int32_t lrclk_pin   = TC_POP(vm);
+      int32_t bclk_pin    = TC_POP(vm);
+
+      // Stop any previous I2S session
+      if (Tinyc->i2s_tx_handle) {
+        i2s_channel_disable(Tinyc->i2s_tx_handle);
+        i2s_del_channel(Tinyc->i2s_tx_handle);
+        Tinyc->i2s_tx_handle = nullptr;
+      }
+
+      if (sample_rate < 8000) sample_rate = 8000;
+      if (sample_rate > 48000) sample_rate = 48000;
+
+      i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
+      chan_cfg.dma_desc_num = 4;
+      chan_cfg.dma_frame_num = 256;
+
+      esp_err_t err = i2s_new_channel(&chan_cfg, &Tinyc->i2s_tx_handle, NULL);
+      if (err != ESP_OK) {
+        Tinyc->i2s_tx_handle = nullptr;
+        TC_PUSH(vm, -1);
+        break;
+      }
+
+      i2s_std_config_t std_cfg = {
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG((uint32_t)sample_rate),
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+        .gpio_cfg = {
+          .mclk = I2S_GPIO_UNUSED,
+          .bclk = (gpio_num_t)bclk_pin,
+          .ws   = (gpio_num_t)lrclk_pin,
+          .dout = (gpio_num_t)dout_pin,
+          .din  = I2S_GPIO_UNUSED,
+          .invert_flags = { .mclk_inv = false, .bclk_inv = false, .ws_inv = false },
+        },
+      };
+
+      err = i2s_channel_init_std_mode(Tinyc->i2s_tx_handle, &std_cfg);
+      if (err != ESP_OK) {
+        i2s_del_channel(Tinyc->i2s_tx_handle);
+        Tinyc->i2s_tx_handle = nullptr;
+        TC_PUSH(vm, -1);
+        break;
+      }
+
+      i2s_channel_enable(Tinyc->i2s_tx_handle);
+      Tinyc->i2s_sample_rate = sample_rate;
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: I2S TX started bclk=%d lrclk=%d dout=%d rate=%d"),
+             bclk_pin, lrclk_pin, dout_pin, sample_rate);
+      TC_PUSH(vm, 0);
+      break;
+    }
+
+    case SYS_I2S_WRITE: {
+      // i2sWrite(buf, len) -> bytes_written
+      // buf is int[] with 16-bit signed PCM samples in each element
+      int32_t len     = TC_POP(vm);
+      int32_t arr_ref = TC_POP(vm);
+
+      if (!Tinyc->i2s_tx_handle) {
+        TC_PUSH(vm, -1);
+        break;
+      }
+
+      int32_t *arr = tc_resolve_ref(vm, arr_ref);
+      int32_t maxLen = tc_ref_maxlen(vm, arr_ref);
+      if (!arr || len <= 0) { TC_PUSH(vm, 0); break; }
+      if (len > maxLen) len = maxLen;
+
+      // Convert int32 array to int16 buffer for DMA
+      int16_t *pcm = (int16_t*)malloc(len * sizeof(int16_t));
+      if (!pcm) { TC_PUSH(vm, 0); break; }
+
+      for (int32_t i = 0; i < len; i++) {
+        int32_t s = arr[i];
+        if (s > 32767) s = 32767;
+        if (s < -32768) s = -32768;
+        pcm[i] = (int16_t)s;
+      }
+
+      size_t bytes_written = 0;
+      i2s_channel_write(Tinyc->i2s_tx_handle, pcm, len * sizeof(int16_t),
+                        &bytes_written, portMAX_DELAY);
+      free(pcm);
+      TC_PUSH(vm, (int32_t)(bytes_written / sizeof(int16_t)));
+      break;
+    }
+
+    case SYS_I2S_STOP: {
+      // i2sStop() -> void
+      if (Tinyc->i2s_tx_handle) {
+        i2s_channel_disable(Tinyc->i2s_tx_handle);
+        i2s_del_channel(Tinyc->i2s_tx_handle);
+        Tinyc->i2s_tx_handle = nullptr;
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: I2S TX stopped"));
+      }
+      break;
+    }
+#else
+    // ESP8266: no I2S support
+    case SYS_I2S_BEGIN: { TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break; }
+    case SYS_I2S_WRITE: { TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break; }
+    case SYS_I2S_STOP:  { break; }
+#endif
+
     // ── TCP server (Scripter-compatible ws* functions) ──
     case SYS_TCP_OPEN: {  // wso(port)
       int32_t port = TC_POP(vm);
@@ -9945,6 +10070,14 @@ static void TinyCStopVM(TcSlot *s) {
   tc_spi_cleanup();
   tc_serial_close();
   tc_img_store_free();
+#ifdef ESP32
+  // Stop I2S output if active
+  if (Tinyc->i2s_tx_handle) {
+    i2s_channel_disable(Tinyc->i2s_tx_handle);
+    i2s_del_channel(Tinyc->i2s_tx_handle);
+    Tinyc->i2s_tx_handle = nullptr;
+  }
+#endif
   // Free OneWire bus
   if (s->vm.ow_bus) { delete s->vm.ow_bus; s->vm.ow_bus = nullptr; s->vm.ow_pin = -1; }
   // Free HTTP header arrays

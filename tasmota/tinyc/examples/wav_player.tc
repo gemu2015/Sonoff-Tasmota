@@ -1,0 +1,194 @@
+// WAV Player — minimal I2S audio output using MAX98357 or similar I2S amplifier
+// Demonstrates: i2sBegin, i2sWrite, i2sStop, file I/O, WAV header parsing
+// WebUI: pin configuration, test tone button, WAV file playback
+//
+// Hardware: ESP32 + MAX98357A (or any I2S DAC/amp)
+
+// Default I2S pins — changeable via WebUI
+persist int pin_bclk = 26;
+persist int pin_lrclk = 25;
+persist int pin_dout = 22;
+persist int pin_rate = 16000;
+
+// Buffers — global for heap allocation
+#define BUF_SAMPLES 512
+int pcm[BUF_SAMPLES];
+char raw[BUF_SAMPLES * 2];
+
+// WAV header fields
+int wav_rate;
+int wav_bits;
+int wav_channels;
+int wav_data_size;
+
+// State
+int playing = 0;
+
+// Parse 44-byte WAV header, return 0=ok, -1=error
+int parseWavHeader(int f) {
+    char hdr[44];
+    int n = fileRead(f, hdr, 44);
+    if (n < 44) return -1;
+
+    if (hdr[0] != 'R' || hdr[1] != 'I' || hdr[2] != 'F' || hdr[3] != 'F') return -1;
+    if (hdr[8] != 'W' || hdr[9] != 'A' || hdr[10] != 'V' || hdr[11] != 'E') return -1;
+
+    int fmt = (hdr[21] << 8) | (hdr[20] & 0xFF);
+    if (fmt != 1) return -1;
+
+    wav_channels = (hdr[23] << 8) | (hdr[22] & 0xFF);
+    wav_rate = (hdr[24] & 0xFF) | ((hdr[25] & 0xFF) << 8) | ((hdr[26] & 0xFF) << 16) | ((hdr[27] & 0xFF) << 24);
+    wav_bits = (hdr[35] << 8) | (hdr[34] & 0xFF);
+    wav_data_size = (hdr[40] & 0xFF) | ((hdr[41] & 0xFF) << 8) | ((hdr[42] & 0xFF) << 16) | ((hdr[43] & 0xFF) << 24);
+
+    return 0;
+}
+
+// Play a 16-bit mono WAV file
+int playWav(char path[]) {
+    int f = fileOpen(path, "r");
+    if (f < 0) {
+        addLog("WAV: file not found");
+        return -1;
+    }
+
+    if (parseWavHeader(f) < 0) {
+        addLog("WAV: invalid header");
+        fileClose(f);
+        return -2;
+    }
+
+    if (wav_bits != 16 || wav_channels != 1) {
+        addLog("WAV: need 16-bit mono");
+        fileClose(f);
+        return -3;
+    }
+
+    int err = i2sBegin(pin_bclk, pin_lrclk, pin_dout, wav_rate);
+    if (err < 0) {
+        addLog("WAV: i2sBegin failed");
+        fileClose(f);
+        return -4;
+    }
+
+    char msg[48];
+    sprintf(msg, "WAV: playing %dHz", wav_rate);
+    addLog(msg);
+    playing = 1;
+
+    int remaining = wav_data_size;
+    while (remaining > 0) {
+        int bytes = BUF_SAMPLES * 2;
+        if (bytes > remaining) bytes = remaining;
+
+        int n = fileRead(f, raw, bytes);
+        if (n <= 0) break;
+
+        int samples = n / 2;
+        int i;
+        for (i = 0; i < samples; i++) {
+            int lo = raw[i * 2] & 0xFF;
+            int hi = raw[i * 2 + 1];
+            int val = (hi << 8) | lo;
+            if (val >= 32768) val = val - 65536;
+            pcm[i] = val;
+        }
+
+        i2sWrite(pcm, samples);
+        remaining = remaining - n;
+    }
+
+    fileClose(f);
+    i2sStop();
+    playing = 0;
+    addLog("WAV: done");
+    return 0;
+}
+
+// Generate a sine test tone
+void playTone(int freq, int duration_ms, int volume) {
+    int err = i2sBegin(pin_bclk, pin_lrclk, pin_dout, pin_rate);
+    if (err < 0) {
+        addLog("Tone: i2sBegin failed");
+        return;
+    }
+
+    playing = 1;
+    int total = pin_rate * duration_ms / 1000;
+    int phase = 0;
+    int step = freq * 360 / pin_rate;
+
+    while (total > 0) {
+        int chunk = BUF_SAMPLES;
+        if (chunk > total) chunk = total;
+
+        int i;
+        for (i = 0; i < chunk; i++) {
+            pcm[i] = sin(phase) * volume;
+            phase = phase + step;
+            if (phase >= 360) phase = phase - 360;
+        }
+
+        i2sWrite(pcm, chunk);
+        total = total - chunk;
+    }
+
+    i2sStop();
+    playing = 0;
+}
+
+// --- WebUI ---
+int tone_btn;
+int tone2_btn;
+int play_btn;
+
+void WebUI() {
+    webPageLabel(1, "I2S Audio");
+    webPulldown(pin_bclk, "BCLK Pin", "@getfreepins");
+    webPulldown(pin_lrclk, "LRCLK Pin", "@getfreepins");
+    webPulldown(pin_dout, "DOUT Pin", "@getfreepins");
+    webNumber(pin_rate, 8000, 48000, "Sample Rate");
+    webButton(tone_btn, "Test 1kHz");
+    webButton(tone2_btn, "Test 440Hz");
+    webButton(play_btn, "Play /alert.wav");
+}
+
+void TouchButton(int btn, int val) {
+    if (btn == tone_btn) {
+        playTone(1000, 1000, 16000);
+    }
+    if (btn == tone2_btn) {
+        playTone(440, 1000, 16000);
+    }
+    if (btn == play_btn) {
+        char file[] = "/alert.wav";
+        if (fileExists(file)) {
+            playWav(file);
+        } else {
+            addLog("WAV: /alert.wav not found");
+        }
+    }
+}
+
+void WebCall() {
+    char buf[48];
+    if (playing) {
+        webSend("{s}I2S Audio{m}Playing{e}");
+    } else {
+        sprintf(buf, "{s}I2S Audio{m}Ready (BCLK=%d){e}", pin_bclk);
+        webSend(buf);
+    }
+}
+
+void OnExit() {
+    i2sStop();
+}
+
+int main() {
+    char msg[48];
+    sprintf(msg, "I2S: BCLK=%d", pin_bclk);
+    sprintfAppend(msg, " LRCLK=%d", pin_lrclk);
+    sprintfAppend(msg, " DOUT=%d", pin_dout);
+    addLog(msg);
+    return 0;
+}

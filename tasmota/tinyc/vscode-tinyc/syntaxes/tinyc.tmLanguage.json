@@ -242,7 +242,7 @@
         {
           "comment": "Audio",
           "name": "support.function.audio.tinyc",
-          "match": "\\b(audioVol|audioPlay|audioSay)\\b"
+          "match": "\\b(audioVol|audioPlay|audioSay|i2sBegin|i2sWrite|i2sStop)\\b"
         },
         {
           "comment": "Deep sleep",
