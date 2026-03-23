@@ -3366,24 +3366,28 @@ int main() {
 
 ## Unterschiede zu Standard-C
 
-| Merkmal                  | Standard-C     | TinyC                        |
-|--------------------------|----------------|------------------------------|
-| Zeiger                   | Volle Unterstuetzung | **Nicht unterstuetzt**  |
-| Structs / Unions         | Volle Unterstuetzung | **Nicht unterstuetzt**  |
-| Enums                    | Volle Unterstuetzung | **Nicht unterstuetzt**  |
-| Dynamischer Speicher     | malloc/free    | Auto-Heap fuer Arrays >16 Elemente (kein explizites malloc) |
-| Mehrdimensionale Arrays  | `int a[3][4]`  | **Nicht unterstuetzt**       |
-| Zeichenkettentyp         | `char*`        | Nur `char arr[N]`            |
-| Praeprozessor            | Volles CPP     | `#define`, `#ifdef`, `#if`, `#else`, `#endif` (kein `#include`, keine Makros) |
-| Header-Dateien           | `#include`     | **Nicht unterstuetzt**       |
-| Typedef                  | Volle Unterstuetzung | **Nicht unterstuetzt**  |
-| sizeof                   | Volle Unterstuetzung | **Nicht unterstuetzt**  |
-| Ternaerer Operator       | `a ? b : c`   | **Nicht unterstuetzt**       |
-| do-while                 | `do {} while`  | **Nicht unterstuetzt**       |
-| goto                     | Volle Unterstuetzung | **Nicht unterstuetzt**  |
-| Funktionszeiger          | Volle Unterstuetzung | **Nicht unterstuetzt**  |
-| Variadische Funktionen   | `printf(...)`  | **Nicht unterstuetzt**       |
-| Standardbibliothek       | stdio, stdlib  | Nur eingebaute Funktionen    |
+| Merkmal                       | Standard-C         | TinyC                        |
+|-------------------------------|--------------------|------------------------------|
+| Zeiger                        | Volle Unterstuetzung | **Nicht unterstuetzt**     |
+| Structs                       | Volle Unterstuetzung | Unterstuetzt: skalare Felder, Array-Felder (`char text[32]`), Member-Zugriff, Initialisierungslisten, zusammengesetzte Zuweisung. Keine verschachtelten Structs, keine Unions, keine Bit-Felder |
+| Enums                         | Volle Unterstuetzung | Unterstuetzt: benannte/anonyme Enums, negative Werte, Auto-Inkrement, innerhalb von Funktionen |
+| Dynamischer Speicher          | malloc/free        | Auto-Heap fuer Arrays >16 Elemente (kein explizites malloc) |
+| Mehrdimensionale Arrays       | `int a[3][4]`      | **Nicht unterstuetzt**       |
+| Zeichenkettentyp              | `char*`            | Nur `char arr[N]` — keine Zeigerarithmetik |
+| Praeprozessor                 | Volles CPP         | `#define` (Konstanten + funktionsaehnliche Makros), `#ifdef`/`#ifndef`/`#if`/`#else`/`#endif`/`#undef` (kein `#include`) |
+| Header-Dateien                | `#include`         | **Nicht unterstuetzt**       |
+| typedef                       | Volle Unterstuetzung | Unterstuetzt: primitive Aliase, benannte Struct-Aliase, anonyme Struct-typedefs, verkettete Aliase, lokale typedefs |
+| `const`                       | Typgeprueft        | Akzeptiert (Dokumentationshinweis, zur Laufzeit nicht erzwungen) |
+| `static` lokale Variablen     | Volle Unterstuetzung | Unterstuetzt: nullinitialisiert, bleibt zwischen Aufrufen erhalten. Nicht-null-Initialisierer werden nicht ausgefuehrt |
+| sizeof                        | Volle Unterstuetzung | **Nicht unterstuetzt**       |
+| Ternaerer Operator `?:`       | Volle Unterstuetzung | Unterstuetzt, auch verschachtelt |
+| do-while                      | Volle Unterstuetzung | Unterstuetzt                 |
+| Zusammengesetzte Zuweisungen  | Volle Unterstuetzung | Unterstuetzt: `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` |
+| Hex-Escape `\xNN`             | Volle Unterstuetzung | Unterstuetzt in String- und Char-Literalen |
+| goto                          | Volle Unterstuetzung | **Nicht unterstuetzt**       |
+| Funktionszeiger               | Volle Unterstuetzung | **Nicht unterstuetzt**       |
+| Variadische Benutzerfunktionen | `va_list` etc.    | **Nicht unterstuetzt** (nur `sprintf`/`sprintfAppend` akzeptieren mehrere Argumente per Compiler-Expansion) |
+| Standardbibliothek            | stdio, stdlib      | Nur eingebaute Funktionen (siehe [Eingebaute Funktionen](#eingebaute-funktionen)) |
 
 ---
 
