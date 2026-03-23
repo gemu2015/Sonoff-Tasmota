@@ -299,8 +299,7 @@ int main() {
 
     if (sps_scan()) {
         char buf[48];
-        sprintf(buf, "SPS30 found at 0x%x", sps_addr);
-        sprintfAppend(buf, " on bus %d", sps_bus);
+        sprintf(buf, "SPS30 found at 0x%x on bus %d", sps_addr, sps_bus);
         addLog(buf);
         addCommand("SPS30");
         // Do first measurement immediately

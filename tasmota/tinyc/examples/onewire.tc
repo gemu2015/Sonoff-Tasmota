@@ -853,8 +853,7 @@ void ow_reinit() {
     }
 
     char dt[48];
-    sprintf(dt, "1-Wire: %d temp", ow_cnt);
-    sprintfAppend(dt, ", %d switch", ow_sw_cnt);
+    sprintf(dt, "1-Wire: %d temp, %d switch", ow_cnt, ow_sw_cnt);
     addLog(dt);
 
     // initial switch state read

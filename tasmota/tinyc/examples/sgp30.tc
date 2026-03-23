@@ -131,8 +131,7 @@ int main() {
 
     if (sgp_scan()) {
         char buf[48];
-        sprintf(buf, "SGP30 found at 0x%x", sgp_addr);
-        sprintfAppend(buf, " on bus %d", sgp_bus);
+        sprintf(buf, "SGP30 found at 0x%x on bus %d", sgp_addr, sgp_bus);
         addLog(buf);
     } else {
         addLog("SGP30 not found");

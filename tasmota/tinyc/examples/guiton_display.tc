@@ -47,20 +47,14 @@ char fnam[64];
 int colval(float val, int x, int y) {
     int ci;
     if (val > 0.0) { ci = 2; } else { ci = 3; }
-    sprintf(buf, "[Ci%d", ci);
-    sprintfAppend(buf, "x%d", x);
-    sprintfAppend(buf, "y%dp-7]", y);
-    sprintfAppend(buf, "%.0f W", val);
+    sprintf(buf, "[Ci%dx%dy%dp-7]%.0f W", ci, x, y, val);
     dspText(buf);
     return y + 25;
 }
 
 // Draw value with fixed color index, returns new y
 int wval(float val, int x, int y, int ci) {
-    sprintf(buf, "[Ci%d", ci);
-    sprintfAppend(buf, "x%d", x);
-    sprintfAppend(buf, "y%dp-7]", y);
-    sprintfAppend(buf, "%.0f W", val);
+    sprintf(buf, "[Ci%dx%dy%dp-7]%.0f W", ci, x, y, val);
     dspText(buf);
     return y + 25;
 }
@@ -70,45 +64,35 @@ void drawLabels(int x, int y, int col) {
     dspText("[f1s2Ci6]");
     if (col == 0) {
         // left column: H: N: S: B: HWP:
-        sprintf(buf, "[x%d", x);
-        sprintfAppend(buf, "y%d]H:", y);
+        sprintf(buf, "[x%dy%d]H:", x, y);
         dspText(buf);
         y = y + 25;
-        sprintf(buf, "[x%d", x);
-        sprintfAppend(buf, "y%d]N:", y);
+        sprintf(buf, "[x%dy%d]N:", x, y);
         dspText(buf);
         y = y + 25;
-        sprintf(buf, "[x%d", x);
-        sprintfAppend(buf, "y%d]S:", y);
+        sprintf(buf, "[x%dy%d]S:", x, y);
         dspText(buf);
         y = y + 25;
-        sprintf(buf, "[x%d", x);
-        sprintfAppend(buf, "y%d]B:", y);
+        sprintf(buf, "[x%dy%d]B:", x, y);
         dspText(buf);
         y = y + 25;
-        sprintf(buf, "[x%d", x);
-        sprintfAppend(buf, "y%d]HWP:", y);
+        sprintf(buf, "[x%dy%d]HWP:", x, y);
         dspText(buf);
     } else {
         // right column: DA: GA: GH: GA: SU:
-        sprintf(buf, "[x%d", x);
-        sprintfAppend(buf, "y%d]DA:", y);
+        sprintf(buf, "[x%dy%d]DA:", x, y);
         dspText(buf);
         y = y + 25;
-        sprintf(buf, "[x%d", x);
-        sprintfAppend(buf, "y%d]GA:", y);
+        sprintf(buf, "[x%dy%d]GA:", x, y);
         dspText(buf);
         y = y + 25;
-        sprintf(buf, "[x%d", x);
-        sprintfAppend(buf, "y%d]GH:", y);
+        sprintf(buf, "[x%dy%d]GH:", x, y);
         dspText(buf);
         y = y + 25;
-        sprintf(buf, "[x%d", x);
-        sprintfAppend(buf, "y%d]GA:", y);
+        sprintf(buf, "[x%dy%d]GA:", x, y);
         dspText(buf);
         y = y + 25;
-        sprintf(buf, "[x%d", x);
-        sprintfAppend(buf, "y%d]SU:", y);
+        sprintf(buf, "[x%dy%d]SU:", x, y);
         dspText(buf);
     }
 }

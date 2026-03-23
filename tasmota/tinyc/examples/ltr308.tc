@@ -249,8 +249,7 @@ int main() {
     I2cResetActive(LTR308_ADDR, 1);
 
     if (ltr_scan()) {
-        sprintf(buf, "LTR308 found at 0x%x", ltr_addr);
-        sprintfAppend(buf, " on bus %d", ltr_bus);
+        sprintf(buf, "LTR308 found at 0x%x on bus %d", ltr_addr, ltr_bus);
         addLog(buf);
         if (ltr_configure()) {
             addLog("LTR308 configured: 3x gain, 18-bit, 100ms");

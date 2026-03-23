@@ -467,9 +467,7 @@ void WebUI() {
 // JSON output for integration
 // ═══════════════════════════════════════════════════════════════════
 void JsonCall() {
-    sprintf(buf, ",\"TinyCam\":{\"Motion\":%d", mot);
-    sprintfAppend(buf, ",\"Detected\":%d", motion_detect);
-    sprintfAppend(buf, ",\"Frames\":%d}", frame_count);
+    sprintf(buf, ",\"TinyCam\":{\"Motion\":%d,\"Detected\":%d,\"Frames\":%d}", mot, motion_detect, frame_count);
     responseAppend(buf);
 }
 
@@ -541,8 +539,7 @@ int main() {
 
     // First test capture
     int size = captureToSlot(1);
-    sprintf(buf, "TCC: camera ready, first frame: %d bytes, heap: ", size);
-    sprintfAppend(buf, "%d", tasm_heap);
+    sprintf(buf, "TCC: camera ready, first frame: %d bytes, heap: %d", size, tasm_heap);
     addLog(buf);
 
     // Start MJPEG stream server on port 81

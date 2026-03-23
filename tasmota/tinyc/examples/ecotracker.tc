@@ -42,10 +42,7 @@ void WebOn() {
         float ein  = smlGet(2) * 1000.0;   // kWh -> Wh
         float eout = smlGet(3) * 1000.0;
         // Build JSON: {"power":N,"powerAvg":N,"energyCounterIn":N,"energyCounterOut":N}
-        sprintf(buf, "{\"power\":%.0f", cpwr);
-        sprintfAppend(buf, ",\"powerAvg\":%.0f", cpwr);
-        sprintfAppend(buf, ",\"energyCounterIn\":%.0f", ein);
-        sprintfAppend(buf, ",\"energyCounterOut\":%.0f}", eout);
+        sprintf(buf, "{\"power\":%.0f,\"powerAvg\":%.0f,\"energyCounterIn\":%.0f,\"energyCounterOut\":%.0f}", cpwr, cpwr, ein, eout);
         webSend(buf);
     }
 }
@@ -142,11 +139,7 @@ void WebUI() {
 void JsonCall() {
     float ein = smlGet(2);
     float eout = smlGet(3);
-    sprintf(buf, ",\"EcoTracker\":{\"Power\":%.0f", cpwr);
-    sprintfAppend(buf, ",\"EnergyIn\":%.3f", ein);
-    sprintfAppend(buf, ",\"EnergyOut\":%.3f", eout);
-    sprintfAppend(buf, ",\"DayIn\":%.3f", ein - dval);
-    sprintfAppend(buf, ",\"DayOut\":%.3f}", eout - dval2);
+    sprintf(buf, ",\"EcoTracker\":{\"Power\":%.0f,\"EnergyIn\":%.3f,\"EnergyOut\":%.3f,\"DayIn\":%.3f,\"DayOut\":%.3f}", cpwr, ein, eout, ein - dval, eout - dval2);
     responseAppend(buf);
 }
 

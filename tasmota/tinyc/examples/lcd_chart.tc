@@ -149,8 +149,7 @@ void draw_header() {
     dspPos(cx, 2);
     dspDraw("3-Channel Chart");
     // Counter
-    sprintf(hdr, "[%d/", count);
-    sprintfAppend(hdr, "%d]", NPTS);
+    sprintf(hdr, "[%d/%d]", count, NPTS);
     dspPos(cx + cw - 48, 2);
     dspDraw(hdr);
 }
@@ -295,11 +294,9 @@ int main() {
     dspDraw("Starting in 1 sec...");
 
     char buf[64];
-    sprintf(buf, "Display: %dx", scrW);
-    sprintfAppend(buf, "%d\n", scrH);
+    sprintf(buf, "Display: %dx%d\n", scrW, scrH);
     printString(buf);
-    sprintf(buf, "Chart area: %dx", cw);
-    sprintfAppend(buf, "%d\n", cht);
+    sprintf(buf, "Chart area: %dx%d\n", cw, cht);
     printString(buf);
 
     return 0;

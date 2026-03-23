@@ -62,9 +62,7 @@ void WebPage() {
         int smooth = avg / 10;
 
         // Format: [x, value, avg],
-        sprintf(buf, "[%d,", i);
-        sprintfAppend(buf, "%d,", val);
-        sprintfAppend(buf, "%d]", smooth);
+        sprintf(buf, "[%d,%d,%d]", i, val, smooth);
         if (i < N - 1) {
             strcat(buf, ",");
         }

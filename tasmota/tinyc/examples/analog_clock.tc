@@ -159,9 +159,7 @@ void drawDate() {
 	char buf[30];
 	// font1 for 240, f3 for 200 size
     sprintf(buf, "[C%dB0f1s1D2", BLACK);
-	sprintfAppend(buf, "x%d", date_x);
-	sprintfAppend(buf, "y%d", date_y);
-	sprintfAppend(buf, "p-2]%d", tasm_day);
+	sprintfAppend(buf, "x%dy%dp-2]%d", date_x, date_y, tasm_day);
     dspText(buf);
 	dspText("[D0]");
 }

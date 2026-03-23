@@ -357,10 +357,7 @@ void WebCall() {
     // Date: weekday day. month year
     strSub(s1, wdays, (tasm_wday - 1) * 3, 2);
     strSub(s2, mons, (tasm_month - 1) * 3, 3);
-    sprintf(buf, "%s ", s1);
-    sprintfAppend(buf, "%d. ", tasm_day);
-    sprintfAppend(buf, "%s ", s2);
-    sprintfAppend(buf, "%d", tasm_year);
+    sprintf(buf, "%s %d. %s %d", s1, tasm_day, s2, tasm_year);
     webSend(buf);
     webSend("<br>");
     // Sunrise --- daylight duration --- Sunset

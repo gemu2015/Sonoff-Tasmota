@@ -208,11 +208,9 @@ int main() {
     hist_tick = 0;
 
     if (ads_scan()) {
-        sprintf(buf, "ADS1115 found at 0x%x", ads_addr);
-        sprintfAppend(buf, " on bus %d", ads_bus);
+        sprintf(buf, "ADS1115 found at 0x%x on bus %d", ads_addr, ads_bus);
         addLog(buf);
-        sprintf(buf, "PGA gain: %d", ADS_PGA);
-        sprintfAppend(buf, ", channels: %d", ADS_CHANNELS);
+        sprintf(buf, "PGA gain: %d, channels: %d", ADS_PGA, ADS_CHANNELS);
         addLog(buf);
     } else {
         addLog("ADS1115 not found on any bus");

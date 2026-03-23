@@ -325,8 +325,7 @@ void WebUI() {
 
 // ─── JSON output ───
 void JsonCall() {
-    sprintf(buf, ",\"Webcam\":{\"Motion\":%d", mot);
-    sprintfAppend(buf, ",\"Brightness\":%d}", bri);
+    sprintf(buf, ",\"Webcam\":{\"Motion\":%d,\"Brightness\":%d}", mot, bri);
     responseAppend(buf);
 }
 

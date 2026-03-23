@@ -339,8 +339,7 @@ int main() {
 
     if (bmx_scan()) {
         strcpy(buf, bmx_name);
-        sprintfAppend(buf, " found at 0x%x", bmx_addr);
-        sprintfAppend(buf, " on bus %d", bmx_bus);
+        sprintfAppend(buf, " found at 0x%x on bus %d", bmx_addr, bmx_bus);
         addLog(buf);
         if (bmx_read_calib() && bmx_configure()) {
             addLog("Calibration loaded, sensor active");
