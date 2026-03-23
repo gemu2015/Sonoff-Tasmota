@@ -20,12 +20,19 @@ It runs both in the browser (JavaScript VM) and on ESP32/ESP8266 (as Tasmota dri
 11. [Preprocessor](#preprocessor)
 12. [Comments](#comments)
 13. [Type Casting](#type-casting)
-14. [Built-in Functions](#built-in-functions)
-15. [Multi-VM Slots (ESP32)](#multi-vm-slots-esp32)
-16. [VM Limits](#vm-limits)
-17. [Device File Management (IDE)](#device-file-management-ide)
-18. [Keyboard Shortcuts (IDE)](#keyboard-shortcuts-ide)
-19. [Examples](#examples)
+14. [enum](#enum)
+15. [Structs](#structs)
+16. [typedef](#typedef)
+17. [const Keyword](#const-keyword)
+18. [static Local Variables](#static-local-variables)
+19. [do-while Loop](#do-while-loop)
+20. [Ternary Operator](#ternary-operator)
+21. [Built-in Functions](#built-in-functions)
+22. [Multi-VM Slots (ESP32)](#multi-vm-slots-esp32)
+23. [VM Limits](#vm-limits)
+24. [Device File Management (IDE)](#device-file-management-ide)
+25. [Keyboard Shortcuts (IDE)](#keyboard-shortcuts-ide)
+26. [Examples](#examples)
 
 ---
 
@@ -227,13 +234,19 @@ void process(int value, int data[]) {
 | `>>`| Right shift |
 
 ### Assignment
-| Op  | Description                                       |
-|-----|---------------------------------------------------|
-| `=` | Assign (for `char[]`: string copy)                |
-| `+=`| Add and assign (for `char[]`: string append)      |
-| `-=`| Subtract and assign                               |
-| `*=`| Multiply and assign                               |
-| `/=`| Divide and assign                                 |
+| Op    | Description                                       |
+|-------|---------------------------------------------------|
+| `=`   | Assign (for `char[]`: string copy)                |
+| `+=`  | Add and assign (for `char[]`: string append)      |
+| `-=`  | Subtract and assign                               |
+| `*=`  | Multiply and assign                               |
+| `/=`  | Divide and assign                                 |
+| `%=`  | Modulo and assign (int only)                      |
+| `&=`  | Bitwise AND and assign                            |
+| `\|=` | Bitwise OR and assign                             |
+| `^=`  | Bitwise XOR and assign                            |
+| `<<=` | Left shift and assign                             |
+| `>>=` | Right shift and assign                            |
 
 ### Increment / Decrement
 ```c
@@ -257,7 +270,8 @@ x--     // post-decrement
 10. Bitwise OR: `|`
 11. Logical AND: `&&`
 12. Logical OR: `||`
-13. Assignment: `=` `+=` `-=` `*=` `/=`
+13. Assignment: `=` `+=` `-=` `*=` `/=` `%=` `&=` `|=` `^=` `<<=` `>>=`
+14. Ternary: `? :`
 
 ---
 
@@ -291,6 +305,21 @@ while (condition) {
     if (done) break;
     if (skip) continue;
 }
+```
+
+### do-while Loop
+The body executes **at least once** before the condition is checked:
+```c
+int i = 0;
+do {
+    process(i);
+    i++;
+} while (i < 10);
+
+// Body runs once even if condition is initially false:
+do {
+    init();
+} while (0);
 ```
 
 ### for Loop
@@ -878,6 +907,7 @@ greeting[0] = 'h';         // write: now "hello"
 | `\"`   | Double quote   |
 | `\'`   | Single quote   |
 | `\0`   | Null terminator|
+| `\xNN` | Hex character code (e.g. `\x41` = 'A') |
 
 ---
 
@@ -1030,6 +1060,289 @@ When mixing `int` and `float` in an expression, the `int` operand is automatical
 int a = 5;
 float b = 2.5;
 float c = a + b;    // a promoted to float, result = 7.5
+```
+
+---
+
+## Ternary Operator
+
+The conditional expression `condition ? value_if_true : value_if_false`:
+
+```c
+int abs_val = (x >= 0) ? x : -x;
+float clamped = (t > 100.0) ? 100.0 : t;
+
+// Nested ternary
+int grade = (score >= 90) ? 3 : (score >= 70) ? 2 : 1;
+```
+
+Result type follows normal int/float promotion rules.
+
+---
+
+## enum
+
+Named integer constants expanded at compile time:
+
+```c
+// Global enum
+enum Color { RED = 0, GREEN = 1, BLUE = 2 };
+
+// Negative values supported
+enum Status { OK = 0, WARN = 1, ERR = -1 };
+
+// Auto-increment (starts at 0, or after last explicit value)
+enum Day { MON, TUE, WED, THU, FRI, SAT, SUN };
+// MON=0, TUE=1, WED=2 ...
+
+// Inline enum inside a function
+void process() {
+    enum Mode { IDLE = 0, RUN = 1, STOP = 2 };
+    int mode = RUN;
+}
+```
+
+- Enum values are treated as `int` constants — identical to `#define`
+- The enum tag name is optional: `enum { A, B, C }` is valid
+- No enum type checking — values are plain integers
+
+---
+
+## const Keyword
+
+The `const` qualifier is accepted on variable declarations:
+
+```c
+const int MAX_RETRIES = 5;
+const float PI = 3.14159;
+const int TABLE_SIZE = 64;
+```
+
+- `const` has no runtime effect in TinyC — it is a documentation hint only
+- The variable can technically be written to (no enforcement)
+- Accepted on both global and local variables
+- Accepted in combination with `static`: `static const int N = 10;`
+
+---
+
+## static Local Variables
+
+A local variable declared `static` is stored in the global data segment but is only accessible by name within its declaring function. Its value **persists across function calls** — it is initialised to zero when the program starts and retains its value between calls.
+
+```c
+// Call counter — value survives across calls
+int nextId() {
+    static int id = 0;
+    id++;
+    return id;
+}
+
+void main() {
+    int a = nextId();  // a = 1
+    int b = nextId();  // b = 2
+    int c = nextId();  // c = 3
+}
+```
+
+- Initialiser value (e.g. `static int n = 5`) is **not emitted** — the variable is always zero-initialised at program start. Set a non-zero initial value explicitly on first call if needed.
+- `static` global variables behave the same as regular globals (no difference in TinyC)
+
+---
+
+## do-while Loop
+
+See [Control Flow → do-while Loop](#do-while-loop) above.
+
+---
+
+## Structs
+
+A `struct` groups multiple fields into a single named variable. Each field is a separate VM slot — no padding, no alignment requirements.
+
+### Declaration
+
+```c
+struct Point {
+    float x;
+    float y;
+};
+
+struct Sensor {
+    float temperature;
+    float humidity;
+    int   status;
+};
+```
+
+### Variable declaration and member access
+
+```c
+struct Point p;          // local struct variable
+p.x = 3.14;
+p.y = 2.71;
+float dist = p.x + p.y;
+
+// Positional initializer list
+struct Point origin = {0.0, 0.0};
+struct Point corner = {100.0, 200.0};
+```
+
+### Global structs
+
+```c
+struct Sensor g_sensor;     // global — persists between callbacks
+
+void EverySecond() {
+    g_sensor.temperature = sensorGet("DS18B20#Temperature");
+    g_sensor.status = (g_sensor.temperature > 30.0) ? 1 : 0;
+}
+```
+
+### Compound member assignment
+
+All compound operators work on struct fields:
+
+```c
+struct Counter c;
+c.val = 10;
+c.val += 5;    // c.val = 15
+c.val *= 2;    // c.val = 30
+c.flags |= 0x01;
+```
+
+### Array fields in structs
+
+A struct field can itself be an array — specify the element count in brackets:
+
+```c
+struct Msg {
+    int  id;
+    char text[32];   // 32-element char array field
+};
+
+struct Stats {
+    int  count;
+    int  vals[8];    // int array field
+    float avg;
+};
+```
+
+**Element access** uses the same `obj.field[index]` syntax:
+
+```c
+struct Msg m;
+m.id = 1;
+m.text[0] = 'H';
+m.text[1] = 'i';
+m.text[2] = 0;
+
+// Index from a variable works too
+int i;
+for (i = 0; i < 8; i++) {
+    m.text[i] = 65 + i;  // 'A'…'H'
+}
+```
+
+**Compound assignments** work on array field elements:
+
+```c
+struct Stats s;
+s.vals[0] = 10;
+s.vals[0] += 5;   // 15
+s.vals[0] *= 2;   // 30
+```
+
+**Passing a char array field to string functions** — use `obj.field` (without subscript) as the array reference:
+
+```c
+struct Frame {
+    int  seq;
+    char payload[64];
+};
+
+struct Frame f;
+strcpy(f.payload, "hello");
+sprintf(f.payload, "seq=%d", f.seq);
+addLog(f.payload);
+```
+
+**Layout**: array fields occupy consecutive VM slots immediately after any preceding scalar fields. The total slot count for a struct is the sum of all field sizes (scalar fields = 1 slot each, array fields = arraySize slots).
+
+### Struct inside function parameters
+
+Structs cannot be passed by value to functions. Pass a scalar field, or use a global.
+
+### Notes
+
+- Field access `p.x` compiles to an array slot offset — no new VM opcodes
+- Scalar fields can be `int`, `float`, `char`, `bool`
+- Array fields declared as `type name[N]` within the struct body
+- No nested structs (struct as field type)
+- No pointer types
+
+---
+
+## typedef
+
+`typedef` creates a type alias. Used with both primitive types and structs.
+
+### Primitive alias
+
+```c
+typedef int   pin_t;
+typedef float celsius_t;
+typedef int   millisec_t;
+
+pin_t led = 5;
+celsius_t temp = 23.5;
+millisec_t timeout = 1000;
+```
+
+### Named struct alias
+
+Allows using the type name without the `struct` keyword:
+
+```c
+struct Vec2 { float x; float y; };
+typedef struct Vec2 Vec2;
+
+Vec2 v;          // no 'struct' prefix needed
+v.x = 1.0;
+```
+
+### Anonymous struct typedef
+
+Define and name a struct in one declaration:
+
+```c
+typedef struct {
+    int r;
+    int g;
+    int b;
+} Color;
+
+Color red = {255, 0, 0};
+Color sky;
+sky.b = 235;
+```
+
+### Chained aliases
+
+```c
+typedef int myint;
+typedef myint counter_t;   // alias of an alias
+counter_t n = 0;
+```
+
+### typedef inside functions
+
+`typedef` may appear inside a function body. The alias is visible for the rest of the function.
+
+```c
+void process() {
+    typedef float weight_t;
+    weight_t kg = 72.5;
+}
 ```
 
 ---
@@ -3415,21 +3728,25 @@ int main() {
 | Feature                  | Standard C     | TinyC                        |
 |--------------------------|----------------|------------------------------|
 | Pointers                 | Full support   | **Not supported**            |
-| Structs / Unions         | Full support   | **Not supported**            |
-| Enums                    | Full support   | **Not supported**            |
+| Structs                  | Full support   | Supported: scalar fields, member access, initializer lists, compound assign. No nested structs, no union, no bit-fields |
+| Enums                    | Full support   | Supported: named/anonymous, negative values, auto-increment, inline in functions |
 | Dynamic memory           | malloc/free    | Auto heap for arrays >16 elements (no explicit malloc) |
 | Multi-dimensional arrays | `int a[3][4]`  | **Not supported**            |
-| String type              | `char*`        | `char arr[N]` only           |
-| Preprocessor             | Full CPP       | `#define`, `#ifdef`, `#if`, `#else`, `#endif` (no `#include`, no macros) |
+| String type              | `char*`        | `char arr[N]` only — no pointer arithmetic |
+| Preprocessor             | Full CPP       | `#define` (constants + function-like macros), `#ifdef`/`#ifndef`/`#if`/`#else`/`#endif`/`#undef` (no `#include`) |
 | Header files             | `#include`     | **Not supported**            |
-| Typedef                  | Full support   | **Not supported**            |
+| typedef                  | Full support   | Supported: primitive aliases, named struct aliases, anonymous struct typedef, chained aliases, local typedef |
+| `const`                  | Type enforced  | Accepted (documentation hint, not enforced at runtime) |
+| `static` locals          | Full support   | Supported: zero-initialised, persists across calls. Non-zero initialisers not emitted |
 | sizeof                   | Full support   | **Not supported**            |
-| Ternary operator         | `a ? b : c`   | **Not supported**            |
-| do-while                 | `do {} while`  | **Not supported**            |
+| Ternary operator `?:`    | Full support   | Supported, including nested ternary |
+| do-while                 | Full support   | Supported                    |
+| Compound assignments     | Full support   | Supported: `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` |
+| Hex escape `\xNN`        | Full support   | Supported in string and char literals |
 | goto                     | Full support   | **Not supported**            |
 | Function pointers        | Full support   | **Not supported**            |
-| Variadic functions       | `printf(...)`  | **Not supported**            |
-| Standard library         | stdio, stdlib  | Built-in functions only      |
+| Variadic user functions  | `va_list` etc. | **Not supported** (only `sprintf`/`sprintfAppend` accept multiple args via compile-time expansion) |
+| Standard library         | stdio, stdlib  | Built-in functions only (see [Built-in Functions](#built-in-functions)) |
 
 ---
 
