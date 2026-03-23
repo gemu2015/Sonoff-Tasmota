@@ -2141,13 +2141,13 @@ void SML_Decode(uint8_t index) {
         }
         if (sml_globs.mp[mindex].type == 'o' || sml_globs.mp[mindex].type == 'c') {
           // handle escapes
-          if (*mp == '/' && *(mp + 1) == 'n') {
+          if (*mp == '\\' && *(mp + 1) == 'n') {
             // line feed escape
             mp += 2;
             if ('\n' != *cp++) {
               found = 0;
             }
-          } else if (*mp == '/' && *(mp + 1) == 'r') {
+          } else if (*mp == '\\' && *(mp + 1) == 'r') {
             // carriage return escape
             mp += 2;
             if ('\r' != *cp++) {
