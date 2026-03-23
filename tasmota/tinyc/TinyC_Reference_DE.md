@@ -778,39 +778,42 @@ printString(greeting);                  // Zeichenkette ausgeben
 
 ### Formatierte Zeichenkettenausgabe (sprintf)
 
-Einen einzelnen Wert in ein char-Array formatieren. Der Compiler erkennt den Werttyp automatisch:
+`sprintf` unterstuetzt mehrere Werte in einem einzigen Aufruf. Der Compiler erkennt den Typ jedes Wertes automatisch:
 
 ```c
-char line[64];
-char name[16];
-float pi = 3.14;
+char buf[128];
+int id = 1;
+float temp = 23.5;
+char name[] = "sensor";
 
-sprintf(line, "x = %d", 42);              // "x = 42"
-sprintf(line, "pi = %.2f", pi);           // "pi = 3.14"
-sprintf(line, "name: %s", name);          // "name: World"
+// Mehrere Werte in einem Aufruf:
+sprintf(buf, "id=%d temp=%.1f name=%s", id, temp, name);
+// buf = "id=1 temp=23.5 name=sensor"
+
+// Einzelner Wert wie bisher:
+sprintf(buf, "x = %d", 42);              // "x = 42"
+sprintf(buf, "pi = %.2f", 3.14);         // "pi = 3.14"
 ```
 
 ### Mehrteilige Zeichenketten erstellen (sprintfAppend)
 
-Verwenden Sie `sprintfAppend`, um mehrere Werte in einen Puffer zu verketten. Es fuegt am aktuellen Ende der Zeichenkette an:
+Verwenden Sie `sprintfAppend`, um Werte an eine bestehende Zeichenkette anzuhaengen:
 
 ```c
 char report[128];
 sprintf(report, "Sensor %d", 1);               // "Sensor 1"
-sprintfAppend(report, " name=%s", name);        // "Sensor 1 name=World"
-sprintfAppend(report, " val=%d", 42);           // "Sensor 1 name=World val=42"
-sprintfAppend(report, " temp=%.1f", 3.14);      // "Sensor 1 name=World val=42 temp=3.1"
+sprintfAppend(report, " val=%.1f", 3.14);      // "Sensor 1 val=3.1"
 printString(report);
 ```
 
 | Funktion | Beschreibung |
 |----------|-------------|
-| `sprintf(char dst[], "fmt", val)` | Wert in dst formatieren (ueberschreibt). Typ wird automatisch erkannt. |
-| `sprintfAppend(char dst[], "fmt", val)` | Wert formatieren und an dst anfuegen. Typ wird automatisch erkannt. |
+| `sprintf(char dst[], "fmt", val, ...)` | Wert(e) in dst formatieren (ueberschreibt). Typ wird automatisch erkannt. |
+| `sprintfAppend(char dst[], "fmt", val, ...)` | Wert(e) formatieren und an dst anfuegen. Typ wird automatisch erkannt. |
 
 > **Alte Varianten:** `sprintfInt`, `sprintfFloat`, `sprintfStr`, `sprintfAppendInt`, `sprintfAppendFloat`, `sprintfAppendStr` funktionieren weiterhin.
 
-**Format-Spezifikatoren:** `%d` (int), `%f` `%.2f` `%e` `%g` (float), `%s` (Zeichenkette). Jeder Aufruf verarbeitet genau einen `%`-Spezifikator.
+**Format-Spezifikatoren:** `%d` (int), `%f` `%.2f` `%e` `%g` (float), `%s` (Zeichenkette).
 
 ### Zeichenkettenmanipulation
 
@@ -1184,25 +1187,32 @@ int ret = serialBegin(-1, 4, 9600, 3, 64);
 
 ### sprintf — Formatierte Zeichenketten
 
-Einen einzelnen Wert in ein char-Array formatieren. Der Compiler erkennt den Werttyp automatisch. Jeder Aufruf verarbeitet einen `%`-Spezifikator.
+Einen oder mehrere Werte in einem einzigen Aufruf in ein char-Array formatieren. Der Compiler erkennt den Typ jedes Wertes automatisch und expandiert mehrere Argumente zur Compilezeit.
 
 | Funktion | Beschreibung |
 |----------|-------------|
-| `int sprintf(char dst[], "fmt", val)` | Wert in dst formatieren (ueberschreibt). Typ automatisch erkannt. |
-| `int sprintfAppend(char dst[], "fmt", val)` | Wert formatieren, an Ende von dst anfuegen. Typ automatisch erkannt. |
+| `int sprintf(char dst[], "fmt", val, ...)` | Wert(e) in dst formatieren (ueberschreibt). Typ automatisch erkannt. |
+| `int sprintfAppend(char dst[], "fmt", val, ...)` | Wert(e) formatieren, an Ende von dst anfuegen. Typ automatisch erkannt. |
 
 > **Alte Varianten:** `sprintfInt`, `sprintfFloat`, `sprintfStr`, `sprintfAppendInt`, `sprintfAppendFloat`, `sprintfAppendStr` funktionieren weiterhin.
 
-**Format-Spezifikatoren:** `%d` (int), `%f` `%.Nf` `%e` `%g` (float), `%s` (Zeichenkette).
+**Format-Spezifikatoren:** `%d` `%i` `%x` (int), `%f` `%.Nf` `%e` `%g` (float), `%s` (Zeichenkette).
 Alle Funktionen geben die Gesamtlaenge der Zeichenkette zurueck.
 
 ```c
-// Mehrteilige Zeichenkette durch Verkettung von Append-Aufrufen erstellen:
 char buf[128];
-sprintf(buf, "ID=%d", 1);
-sprintfAppend(buf, " name=%s", name);
-sprintfAppend(buf, " val=%.1f", 3.14);
-// buf = "ID=1 name=World val=3.1"
+char name[] = "sensor";
+int id = 1;
+float temp = 23.5;
+
+// Mehrere Werte in einem Aufruf:
+sprintf(buf, "id=%d temp=%.1f name=%s", id, temp, name);
+// buf = "id=1 temp=23.5 name=sensor"
+
+// sprintfAppend haengt an bestehenden Inhalt an:
+sprintf(buf, "ID=%d", id);
+sprintfAppend(buf, " val=%.1f", temp);
+// buf = "ID=1 val=23.5"
 ```
 
 ### Datei-E/A
@@ -2298,6 +2308,9 @@ Alle Primitiven verwenden die aktuelle Position, die durch `dspPos()` gesetzt wu
 | `dspPushImageRect(slot, sx, sy, dx, dy, w, h)` | Teilrechteck aus geladenem Bild auf Bildschirm zeichnen. Liest aus Bild bei (sx,sy), schreibt auf Bildschirm bei (dx,dy), Groesse w×h. Fuer Hintergrund-Wiederherstellung (z.B. Uhrzeiger ueber Zifferblatt) |
 | `int dspImageWidth(slot)` | Breite des geladenen Bildes im Slot abfragen (0 bei ungueltigem Slot) |
 | `int dspImageHeight(slot)` | Hoehe des geladenen Bildes im Slot abfragen (0 bei ungueltigem Slot) |
+| `int dspTextWidth(len)` | Pixelbreite fuer `len` Zeichen im aktuellen Font und Textgroesse. Fuer transparenten Text auf Bildhintergrund: Text messen, zeichnen, spaeter Hintergrund mit `dspPushImageRect` wiederherstellen |
+| `int dspTextHeight()` | Pixelhoehe fuer aktuellen Font und Textgroesse |
+| `dspImgText(slot, x, y, color, fieldWidth, align, text)` | Text auf ein Bild-Teilrechteck im RAM zusammensetzen und das Ergebnis in einer einzigen SPI-Transaktion uebertragen (flimmerfrei). Der Bildpuffer liefert die Hintergrundpixel; nur Vordergrund-Fontpixel werden ueberschrieben. `slot`: Bild-Slot von `dspLoadImage()`. `x, y`: Pixelposition auf dem Bild (und Bildschirm). `color`: RGB565-Textfarbe. `fieldWidth`: Gesamtfeldbreite in Zeichen — wenn groesser als Textlaenge, zeigt der Rest den Bildhintergrund; 0 fuer automatisch (passt genau zum Text). `align`: 0=links, 1=rechts, 2=zentriert (Ausrichtung innerhalb des Feldes). `text`: der darzustellende String. Funktioniert mit EPD-Fonts 1-4 (gesetzt via `dspText("[f1]")`..`dspText("[f4]")`) bei jeder Textgroesse. Beispiel: `dspText("[f2s1]"); dspImgText(img, 10, 10, 0, 28, 0, buf);` |
 | `dspText(buf)` | Rohen DisplayText-Befehl ausfuehren (z.B. `"[z][x50][y20]Hello"`) |
 
 #### Vordefinierte Farbkonstanten (RGB565)

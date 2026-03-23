@@ -781,39 +781,42 @@ printString(greeting);                  // print string to output
 
 ### Formatted String Output (sprintf)
 
-Format a single value into a char array. The compiler auto-detects the value type:
+`sprintf` supports multiple values in a single call. The compiler auto-detects each value's type from the format specifier:
 
 ```c
-char line[64];
-char name[16];
-float pi = 3.14;
+char buf[128];
+int id = 1;
+float temp = 23.5;
+char name[] = "sensor";
 
-sprintf(line, "x = %d", 42);              // "x = 42"
-sprintf(line, "pi = %.2f", pi);           // "pi = 3.14"
-sprintf(line, "name: %s", name);          // "name: World"
+// Multiple values in one call:
+sprintf(buf, "id=%d temp=%.1f name=%s", id, temp, name);
+// buf = "id=1 temp=23.5 name=sensor"
+
+// Single value also works as before:
+sprintf(buf, "x = %d", 42);              // "x = 42"
+sprintf(buf, "pi = %.2f", 3.14);         // "pi = 3.14"
 ```
 
 ### Building Multi-Value Strings (sprintfAppend)
 
-Use `sprintfAppend` to chain multiple values into one buffer. It appends at the current end of the string:
+Use `sprintfAppend` to append multiple values to an existing string:
 
 ```c
 char report[128];
 sprintf(report, "Sensor %d", 1);               // "Sensor 1"
-sprintfAppend(report, " name=%s", name);        // "Sensor 1 name=World"
-sprintfAppend(report, " val=%d", 42);           // "Sensor 1 name=World val=42"
-sprintfAppend(report, " temp=%.1f", 3.14);      // "Sensor 1 name=World val=42 temp=3.1"
+sprintfAppend(report, " val=%.1f", 3.14);      // "Sensor 1 val=3.1"
 printString(report);
 ```
 
 | Function | Description |
 |----------|-------------|
-| `sprintf(char dst[], "fmt", val)` | Format value into dst (overwrites). Type auto-detected. |
-| `sprintfAppend(char dst[], "fmt", val)` | Format value and append to dst. Type auto-detected. |
+| `sprintf(char dst[], "fmt", val, ...)` | Format one or more values into dst (overwrites). Type auto-detected. |
+| `sprintfAppend(char dst[], "fmt", val, ...)` | Format one or more values and append to dst. Type auto-detected. |
 
 > **Legacy aliases:** The explicit-type variants `sprintfInt`, `sprintfFloat`, `sprintfStr`, `sprintfAppendInt`, `sprintfAppendFloat`, `sprintfAppendStr` are still supported for backward compatibility.
 
-**Format specifiers:** `%d` (int), `%f` `%.2f` `%e` `%g` (float), `%s` (string). Each call handles exactly one `%` specifier.
+**Format specifiers:** `%d` (int), `%f` `%.2f` `%e` `%g` (float), `%s` (string).
 
 ### String Manipulation
 
@@ -1196,25 +1199,32 @@ int ret = serialBegin(-1, 4, 9600, 3, 64);
 
 ### sprintf — Formatted Strings
 
-Format a single value into a char array. The compiler auto-detects the value type from the 3rd argument. Each call handles one `%` specifier.
+Format one or more values into a char array in a single call. The compiler auto-detects each value's type from the format specifier and expands multiple arguments into chained syscalls at compile time.
 
 | Function | Description |
 |----------|-------------|
-| `int sprintf(char dst[], "fmt", val)` | Format value into dst (overwrites). Type auto-detected. |
-| `int sprintfAppend(char dst[], "fmt", val)` | Format value, append to end of dst. Type auto-detected. |
+| `int sprintf(char dst[], "fmt", val, ...)` | Format value(s) into dst (overwrites). Type auto-detected. |
+| `int sprintfAppend(char dst[], "fmt", val, ...)` | Format value(s), append to end of dst. Type auto-detected. |
 
 > **Legacy aliases:** `sprintfInt`, `sprintfFloat`, `sprintfStr`, `sprintfAppendInt`, `sprintfAppendFloat`, `sprintfAppendStr` still work.
 
-**Format specifiers:** `%d` (int), `%f` `%.Nf` `%e` `%g` (float), `%s` (string).
+**Format specifiers:** `%d` `%i` `%x` (int), `%f` `%.Nf` `%e` `%g` (float), `%s` (string).
 All functions return the total string length.
 
 ```c
-// Build a multi-value string by chaining Append calls:
 char buf[128];
-sprintf(buf, "ID=%d", 1);
-sprintfAppend(buf, " name=%s", name);
-sprintfAppend(buf, " val=%.1f", 3.14);
-// buf = "ID=1 name=World val=3.1"
+char name[] = "sensor";
+int id = 1;
+float temp = 23.5;
+
+// Multiple values in one call:
+sprintf(buf, "id=%d temp=%.1f name=%s", id, temp, name);
+// buf = "id=1 temp=23.5 name=sensor"
+
+// sprintfAppend chains onto existing content:
+sprintf(buf, "ID=%d", id);
+sprintfAppend(buf, " val=%.1f", temp);
+// buf = "ID=1 val=23.5"
 ```
 
 ### File I/O
@@ -1565,6 +1575,8 @@ Send data directly to Tasmota's telemetry and web systems from callback function
 | `void webFlush()` | Flush web content buffer to client (`WSContentFlush`) |
 | `void addLog(char buf[])` | Write message to Tasmota log (`AddLog` at INFO level) |
 | `void addLog("literal")` | Write string literal to Tasmota log |
+| `void addLogLevel(int level, char buf[])` | Write to Tasmota log at specific level (1=ERROR, 2=INFO, 3=DEBUG, 4=DEBUG_MORE) |
+| `void addLogLevel(int level, "literal")` | Write string literal to Tasmota log at specific level |
 | `webSendJsonArray(float arr[], int count)` | Emit float array as JSON integer array in web response |
 
 **Notes:**
@@ -2335,6 +2347,9 @@ All primitives use the current position set by `dspPos()` and the current foregr
 | `dspPushImageRect(slot, sx, sy, dx, dy, w, h)` | Push a sub-rectangle from a loaded image to screen. Reads from image at (sx,sy), writes to screen at (dx,dy), size w×h. Use for dirty-rect background restore (e.g., analog clock hands over a watchface) |
 | `int dspImageWidth(slot)` | Get width of loaded image in slot (0 if invalid) |
 | `int dspImageHeight(slot)` | Get height of loaded image in slot (0 if invalid) |
+| `int dspTextWidth(len)` | Get pixel width for `len` characters in current font and text size. For transparent text on image backgrounds: measure text, draw text, later restore background with `dspPushImageRect` using the measured bounds |
+| `int dspTextHeight()` | Get pixel height for current font and text size |
+| `dspImgText(slot, x, y, color, fieldWidth, align, text)` | Composite text onto an image sub-rect in RAM and push the result in a single SPI transaction (flicker-free). The image buffer provides the background pixels; only foreground font pixels are overwritten. `slot`: image slot from `dspLoadImage()`. `x, y`: pixel position on the image (and screen). `color`: RGB565 text color. `fieldWidth`: total field width in characters — if larger than text length, remaining area shows image background; use 0 for auto (fits text exactly). `align`: 0=left, 1=right, 2=center (alignment within the field). `text`: the string to render. Works with EPD fonts 1-4 (set via `dspText("[f1]")`..`dspText("[f4]")`) at any text size. Example: `dspText("[f2s1]"); dspImgText(img, 10, 10, 0, 28, 0, buf);` |
 | `dspText(buf)` | Execute raw DisplayText command string (e.g., `"[z][x50][y20]Hello"`) |
 
 #### Predefined Color Constants (RGB565)
