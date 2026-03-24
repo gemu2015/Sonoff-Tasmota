@@ -410,6 +410,7 @@ Simply define functions with these well-known names — no registration needed.
 |----------|-------------|-------------|----------|
 | `EveryLoop()` | FUNC_LOOP | Every main loop iteration (~1–5 ms) | Ultra-fast polling, bit-banging, time-critical I/O |
 | `Every50ms()` | FUNC_EVERY_50_MSECOND | Every 50 ms (20x/sec) | Fast polling, radio receive, sensor sampling |
+| `Every100ms()` | FUNC_EVERY_100_MSECOND | Every 100 ms (10x/sec) | Medium-rate polling, display updates, debouncing |
 | `EverySecond()` | FUNC_EVERY_SECOND | Every 1 second | Periodic tasks, counters, slow polling |
 | `JsonCall()` | FUNC_JSON_APPEND | Telemetry cycle (~300s) | Add JSON to MQTT telemetry |
 | `WebPage()` | FUNC_WEB_ADD_MAIN_BUTTON | Page load (once) | Charts, custom HTML, scripts |
@@ -571,6 +572,7 @@ int main() {
 - The compiler auto-detects these function names and embeds them in the binary
 - `EveryLoop()` runs every main loop iteration (~1–5 ms) — keep it **very short** to avoid blocking Tasmota
 - `Every50ms()` is ideal for fast, non-blocking I/O polling (SPI radio, GPIO, etc.)
+- `Every100ms()` suits display refreshes, button debouncing, and medium-rate sensor reads
 - Use `WebPage()` for one-time page content (charts, scripts) — called once when page loads
 - Use `WebCall()` for sensor-style rows that refresh periodically
 - Use `UdpCall()` to process incoming UDP multicast variables
@@ -3431,7 +3433,7 @@ Each VM slot uses approximately **3.2 KB RAM** (struct only, without program byt
 
 Each slot receives its own callbacks independently:
 
-- `EverySecond()`, `Every50ms()` — dispatched to all active slots
+- `EverySecond()`, `Every100ms()`, `Every50ms()` — dispatched to all active slots
 - `WebCall()` — each slot can add its own sensor rows to the main page
 - `JsonCall()` — each slot appends its own telemetry data
 - `TaskLoop()` — runs in slot's own FreeRTOS task (ESP32)

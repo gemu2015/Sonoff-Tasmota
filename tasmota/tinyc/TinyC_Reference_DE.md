@@ -380,6 +380,7 @@ Definieren Sie einfach Funktionen mit diesen bekannten Namen — keine Registrie
 |----------|-------------|-----------------|----------------|
 | `EveryLoop()` | FUNC_LOOP | Jede Hauptschleifen-Iteration (~1–5 ms) | Ultraschnelles Polling, Bit-Banging, zeitkritische E/A |
 | `Every50ms()` | FUNC_EVERY_50_MSECOND | Alle 50 ms (20x/Sek.) | Schnelles Polling, Funkempfang, Sensorabtastung |
+| `Every100ms()` | FUNC_EVERY_100_MSECOND | Alle 100 ms (10x/Sek.) | Mittleres Polling, Display-Aktualisierungen, Entprellen |
 | `EverySecond()` | FUNC_EVERY_SECOND | Jede Sekunde | Periodische Aufgaben, Zaehler, langsames Polling |
 | `JsonCall()` | FUNC_JSON_APPEND | Telemetriezyklus (~300s) | JSON zu MQTT-Telemetrie hinzufuegen |
 | `WebPage()` | FUNC_WEB_ADD_MAIN_BUTTON | Seitenladen (einmalig) | Diagramme, benutzerdefiniertes HTML, Skripte |
@@ -541,6 +542,7 @@ int main() {
 - Der Compiler erkennt diese Funktionsnamen automatisch und bettet sie in die Binaerdatei ein
 - `EveryLoop()` laeuft bei jeder Hauptschleifen-Iteration (~1–5 ms) — halten Sie es **sehr kurz**, um Tasmota nicht zu blockieren
 - `Every50ms()` ist ideal fuer schnelles, nicht-blockierendes E/A-Polling (SPI-Funk, GPIO usw.)
+- `Every100ms()` eignet sich fuer Display-Aktualisierungen, Tasten-Entprellen und mittlere Sensorleseraten
 - Verwenden Sie `WebPage()` fuer einmaligen Seiteninhalt (Diagramme, Skripte) — wird einmal beim Laden der Seite aufgerufen
 - Verwenden Sie `WebCall()` fuer Sensor-aehnliche Zeilen, die periodisch aktualisiert werden
 - Verwenden Sie `UdpCall()` zur Verarbeitung eingehender UDP-Multicast-Variablen
@@ -3072,7 +3074,7 @@ Jeder VM-Slot verbraucht ca. **3,2 KB RAM** (nur Struct, ohne Programm-Bytecode)
 
 Jeder Slot erhaelt seine eigenen Callbacks unabhaengig:
 
-- `EverySecond()`, `Every50ms()` — werden an alle aktiven Slots verteilt
+- `EverySecond()`, `Every100ms()`, `Every50ms()` — werden an alle aktiven Slots verteilt
 - `WebCall()` — jeder Slot kann eigene Sensorzeilen zur Hauptseite hinzufuegen
 - `JsonCall()` — jeder Slot fuegt eigene Telemetriedaten hinzu
 - `TaskLoop()` — laeuft im eigenen FreeRTOS-Task des Slots (ESP32)
