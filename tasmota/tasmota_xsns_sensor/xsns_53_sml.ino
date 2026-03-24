@@ -27,6 +27,10 @@
 
 // this driver works with USE_SCRIPT or standalone with USE_UFILESYS (file: /sml_meter.def)
 
+
+// fixes some modbus tcp errors
+#define USE_BAT_CTRL
+
 // provide SCRIPT_EOL if scripter is not compiled
 #ifndef SCRIPT_EOL
 #define SCRIPT_EOL '\n'
@@ -670,6 +674,13 @@ struct SML_GLOBS {
 	uint8_t *script_meter;
 	struct METER_DESC *mp;
   uint8_t to_cnt;
+#ifdef USE_BAT_CTRL
+  uint8_t meter_switch_cooldown;  // cooldown after meter switch (in 100ms ticks)
+  char sml_write_buf[2][96];      // 2-slot write queue for script commands
+  uint8_t sml_write_head;         // next slot to write into (0 or 1)
+  uint8_t sml_write_tail;         // next slot to send from (0 or 1)
+  uint8_t sml_write_meter;        // meter index for queued writes
+#endif // USE_BAT_CTRL
   bool ready;
 #ifdef USE_SML_CANBUS
   uint8_t twai_installed;
@@ -3294,7 +3305,16 @@ void reset_sml_vars(uint16_t maxmeters) {
 #endif
 #endif // USE_SML_DECRYPT
 
-
+#ifdef USE_BAT_CTRL
+#ifdef USE_SML_TCP
+    // close TCP connections cleanly before re-init (prevents crash on script reload)
+    if (mp->client) {
+      mp->client->stop();
+      delete mp->client;
+      mp->client = nullptr;
+    }
+#endif // USE_SML_TCP
+#endif // USE_BAT_CTRL
 
   }
 }
@@ -3398,6 +3418,13 @@ void SML_Init(void) {
 #endif // USE_SML_CANBUS
 
     reset_sml_vars(sml_globs.meters_used);
+#ifdef USE_BAT_CTRL
+    // reset write queue and cooldown on script reload
+    sml_globs.sml_write_head = 0;
+    sml_globs.sml_write_tail = 0;
+    sml_globs.meter_switch_cooldown = 0;
+    memset(sml_globs.sml_write_buf, 0, sizeof(sml_globs.sml_write_buf));
+#endif // USE_BAT_CTRL
   }
 
   if (*lp == '>' && *(lp + 1) == 'M') {
@@ -4116,9 +4143,22 @@ uint32_t SML_Write(int32_t meter, char *hstr) {
       if (!meter_desc[meter].meter_ss) return 0;
     }
   }
+#ifdef USE_BAT_CTRL
   if (flag > 0) {
-    SML_Send_Seq(meter, hstr);
-  } else {
+    // queue write command for SML_Check_Send() instead of sending directly
+    // this prevents Modbus protocol violations (write during pending read response)
+    // 2-slot queue: allows 2 writes per cycle (e.g. OpMod + Power within 10s)
+    uint8_t slot = sml_globs.sml_write_head;
+    strlcpy(sml_globs.sml_write_buf[slot], hstr, sizeof(sml_globs.sml_write_buf[0]));
+    sml_globs.sml_write_meter = meter;
+    sml_globs.sml_write_head = (slot + 1) % 2;
+    // set script_str to first queued slot so SML_Check_Send picks it up
+    if (!meter_desc[meter].script_str) {
+      meter_desc[meter].script_str = sml_globs.sml_write_buf[sml_globs.sml_write_tail];
+    }
+  } else
+#endif // USE_BAT_CTRL
+  if (flag < 0) {
     // 9600:8E1, only hardware serial
     uint32_t baud = strtol(hstr, &hstr, 10);
     hstr++;
@@ -4473,6 +4513,13 @@ char *SML_Get_Sequence(char *cp,uint32_t index) {
 
 void SML_Check_Send(void) {
   sml_globs.sml_100ms_cnt++;
+#ifdef USE_BAT_CTRL
+  // cooldown after meter switch - wait before accessing next meter
+  if (sml_globs.meter_switch_cooldown > 0) {
+    sml_globs.meter_switch_cooldown--;
+    return;
+  }
+#endif // USE_BAT_CTRL
   char *cp;
   for (uint32_t cnt = sml_globs.sml_desc_cnt; cnt < sml_globs.meters_used; cnt++) {
     if (meter_desc[cnt].trxpin >= 0 && (meter_desc[cnt].txmem || meter_desc[cnt].script_str)) {
@@ -4483,6 +4530,14 @@ void SML_Check_Send(void) {
         if (meter_desc[cnt].script_str) {
           cp = meter_desc[cnt].script_str;
           meter_desc[cnt].script_str = 0;
+#ifdef USE_BAT_CTRL
+          // advance write queue tail, check if more writes pending
+          sml_globs.sml_write_tail = (sml_globs.sml_write_tail + 1) % 2;
+          if (sml_globs.sml_write_tail != sml_globs.sml_write_head) {
+            // another write queued - set script_str for next polling slot
+            meter_desc[cnt].script_str = sml_globs.sml_write_buf[sml_globs.sml_write_tail];
+          }
+#endif // USE_BAT_CTRL
         } else {
           //AddLog(LOG_LEVEL_INFO, PSTR("100 ms>> 2"),cp);
           if (meter_desc[cnt].max_index > 1) {
@@ -4504,6 +4559,12 @@ void SML_Check_Send(void) {
         if (sml_globs.sml_desc_cnt >= sml_globs.meters_used) {
           sml_globs.sml_desc_cnt = 0;
         }
+#ifdef USE_BAT_CTRL
+        // set cooldown when switching to a different meter (5 x 100ms = 500ms)
+        if (sml_globs.sml_desc_cnt != cnt && sml_globs.meters_used > 1) {
+          sml_globs.meter_switch_cooldown = 5;
+        }
+#endif // USE_BAT_CTRL
         break;
       }
     } else {
@@ -4558,7 +4619,11 @@ typedef struct {
   uint16_t P_ID;
   uint16_t SIZE;
   uint8_t U_ID;
+#ifdef USE_BAT_CTRL
+  uint8_t payload[48];    // orig: payload[8] — FC16 Write needs up to 26+ bytes
+#else
   uint8_t payload[8];
+#endif // USE_BAT_CTRL
  } MODBUS_TCP_HEADER;
 
 uint16_t sml_swap(uint16_t in) {
@@ -4574,7 +4639,11 @@ MODBUS_TCP_HEADER tcph;
   tcph.T_ID = random(0xffff);
 
   tcph.P_ID = 0;
+#ifdef USE_BAT_CTRL
+  tcph.SIZE = sml_swap(slen - 2);  // orig: sml_swap(6) — dynamic for FC16 Write
+#else
   tcph.SIZE = sml_swap(6);
+#endif // USE_BAT_CTRL
   tcph.U_ID = *sbuff;
 
   sbuff++;
