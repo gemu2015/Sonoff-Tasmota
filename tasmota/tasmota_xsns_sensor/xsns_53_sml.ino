@@ -3307,8 +3307,11 @@ void reset_sml_vars(uint16_t maxmeters) {
 
 #ifdef USE_BAT_CTRL
 #ifdef USE_SML_TCP
-    // close TCP connections cleanly before re-init (prevents crash on script reload)
+    // force TCP RST before re-init (SO_LINGER=0 sends RST instead of FIN)
+    // prevents SMA WR from blocking Modbus after script reload
     if (mp->client) {
+      struct linger sl = { 1, 0 };  // linger on, timeout 0 = send RST
+      mp->client->setSocketOption(SOL_SOCKET, SO_LINGER, &sl, sizeof(sl));
       mp->client->stop();
       delete mp->client;
       mp->client = nullptr;
