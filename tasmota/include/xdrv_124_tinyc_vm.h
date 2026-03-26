@@ -183,50 +183,7 @@ static FS *tc_file_path(char *path) {
 #endif
 
 // Callback support
-#define TC_MAX_CALLBACKS  20           // max well-known callback functions
-
-// Known callback IDs — use these with tc_all_callbacks_id() / tc_slot_callback_id()
-// to avoid strcmp on every invocation. TC_CB_UNKNOWN = not registered in this script.
-typedef enum : int8_t {
-  TC_CB_EVERY_LOOP         =  0,
-  TC_CB_EVERY_50MS         =  1,
-  TC_CB_EVERY_100MS        =  2,
-  TC_CB_EVERY_SECOND       =  3,
-  TC_CB_ON_INIT            =  4,
-  TC_CB_ON_WIFI_CONNECT    =  5,
-  TC_CB_ON_WIFI_DISCONNECT =  6,
-  TC_CB_ON_MQTT_CONNECT    =  7,
-  TC_CB_ON_MQTT_DISCONNECT =  8,
-  TC_CB_ON_TIME_SET        =  9,
-  TC_CB_JSON_CALL          = 10,
-  TC_CB_WEB_CALL           = 11,
-  TC_CB_EVENT              = 12,
-  TC_CB_CLEANUP            = 13,
-  TC_CB_UDP_CALL           = 14,
-  TC_CB_TASK_LOOP          = 15,
-  TC_CB_COUNT              = 16,  // number of known IDs
-  TC_CB_UNKNOWN            = -1   // callback not present in this script
-} TcCallbackId;
-
-// Lookup table: name string → TcCallbackId (for load-time cache population)
-static const struct { const char *name; TcCallbackId id; } TC_CB_NAME_MAP[] = {
-  { "EveryLoop",          TC_CB_EVERY_LOOP         },
-  { "Every50ms",          TC_CB_EVERY_50MS         },
-  { "Every100ms",         TC_CB_EVERY_100MS        },
-  { "EverySecond",        TC_CB_EVERY_SECOND       },
-  { "OnInit",             TC_CB_ON_INIT            },
-  { "OnWifiConnect",      TC_CB_ON_WIFI_CONNECT    },
-  { "OnWifiDisconnect",   TC_CB_ON_WIFI_DISCONNECT },
-  { "OnMqttConnect",      TC_CB_ON_MQTT_CONNECT    },
-  { "OnMqttDisconnect",   TC_CB_ON_MQTT_DISCONNECT },
-  { "OnTimeSet",          TC_CB_ON_TIME_SET        },
-  { "JsonCall",           TC_CB_JSON_CALL          },
-  { "WebCall",            TC_CB_WEB_CALL           },
-  { "Event",              TC_CB_EVENT              },
-  { "CleanUp",            TC_CB_CLEANUP            },
-  { "UdpCall",            TC_CB_UDP_CALL           },
-  { "TaskLoop",           TC_CB_TASK_LOOP          },
-};
+#define TC_MAX_CALLBACKS  10           // max well-known callback functions
 #ifdef ESP8266
   #define TC_CALLBACK_MAX_INSTR 20000  // instruction limit per callback (ESP8266)
 #else
@@ -743,7 +700,6 @@ typedef struct {
   // Callback function table (V3)
   TcCallback    callbacks[TC_MAX_CALLBACKS];
   uint8_t       callback_count;
-  int8_t        cb_cache[TC_CB_COUNT];  // TC_CB_xxx → vm callback index, -1 if not registered
   // Persist table (V4: global entries for auto-save/load)
   struct { uint16_t index; uint16_t count; } persist[TC_MAX_PERSIST];
   uint8_t       persist_count;
@@ -1715,47 +1671,10 @@ static TcUdpVar* tc_udp_find_var(const char *name, bool create) {
   return nullptr;  // table full
 }
 
-// Forward declarations — defined later in this file
-static int  tc_vm_call_callback(TcVM *vm, const char *name);
-static bool tc_frame_alloc(TcFrame *frame);
-static int  tc_vm_step(TcVM *vm);
+// Forward declaration — defined later in this file
+static int tc_vm_call_callback(TcVM *vm, const char *name);
 
-// Fast callback invocation by pre-cached ID — no strcmp, O(1) lookup
-static int tc_vm_call_callback_id(TcVM *vm, TcCallbackId id) {
-  if (id < 0 || id >= TC_CB_COUNT) return TC_OK;
-  int8_t idx = vm->cb_cache[(int8_t)id];
-  if (idx < 0) return TC_OK;  // not registered in this script
-  // Reuse call_callback path via index (duplicate body is intentional for inlining)
-  if (!vm->halted || vm->error != TC_OK) return vm->error;
-  uint8_t saved_frame_count = vm->frame_count;
-  uint16_t saved_pc = vm->pc;
-  uint16_t saved_sp = vm->sp;
-  vm->halted = false;
-  vm->running = true;
-  if (vm->frame_count >= TC_MAX_FRAMES) return TC_ERR_FRAME_OVERFLOW;
-  TcFrame *frame = &vm->frames[vm->frame_count];
-  frame->return_pc = 0;
-  if (!tc_frame_alloc(frame)) {
-    vm->halted = true; vm->running = false; return TC_ERR_STACK_OVERFLOW;
-  }
-  vm->fp = vm->frame_count;
-  vm->frame_count++;
-  vm->pc = vm->code_offset + vm->callbacks[(uint8_t)idx].address;
-  uint32_t count = 0;
-  int err = TC_OK;
-  while (!vm->halted && vm->frame_count > saved_frame_count) {
-    err = tc_vm_step(vm);
-    if (err != TC_OK || ++count > TC_CALLBACK_MAX_INSTR) {
-      if (count > TC_CALLBACK_MAX_INSTR) err = TC_ERR_INSTRUCTION_LIMIT;
-      break;
-    }
-  }
-  if (err != TC_OK) { vm->error = err; vm->halted = true; vm->running = false; }
-  else { vm->halted = true; vm->running = false; vm->pc = saved_pc; vm->sp = saved_sp; vm->frame_count = saved_frame_count; }
-  return err;
-}
-
-
+// Check if a named callback exists in the loaded program
 static bool tc_has_callback(TcVM *vm, const char *name) {
   for (int i = 0; i < vm->callback_count; i++) {
     if (strcmp(vm->callbacks[i].name, name) == 0) return true;
@@ -1868,7 +1787,7 @@ void tc_udp_on_receive(const char *name, char umode, const char *data, int datal
     }
 
     tc_current_slot = s;
-    tc_vm_call_callback_id(&s->vm, TC_CB_UDP_CALL);
+    tc_vm_call_callback(&s->vm, "UdpCall");
     tc_current_slot = nullptr;
 #ifdef ESP32
     if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
@@ -9118,20 +9037,6 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
     }
   }
 
-  // Build cb_cache: map known TcCallbackId → vm->callbacks[] index for zero-strcmp dispatch
-  memset(vm->cb_cache, (uint8_t)TC_CB_UNKNOWN, sizeof(vm->cb_cache));
-  {
-    const uint8_t n_map = (uint8_t)(sizeof(TC_CB_NAME_MAP)/sizeof(TC_CB_NAME_MAP[0]));
-    for (uint8_t ci = 0; ci < vm->callback_count; ci++) {
-      for (uint8_t mi = 0; mi < n_map; mi++) {
-        if (strcmp(vm->callbacks[ci].name, TC_CB_NAME_MAP[mi].name) == 0) {
-          vm->cb_cache[(uint8_t)TC_CB_NAME_MAP[mi].id] = (int8_t)ci;
-          break;
-        }
-      }
-    }
-  }
-
   // Parse persist table (V4)
   vm->persist_count = 0;
   uint16_t persist_table_start = func_table_end;
@@ -9214,7 +9119,6 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
 
 // Forward declaration — tc_vm_step is defined below, called by tc_vm_call_callback
 static int tc_vm_step(TcVM *vm);
-static int tc_vm_call_callback_id(TcVM *vm, TcCallbackId id);  // fast path — no strcmp
 
 /*********************************************************************************************\
  * VM: Callback invocation — call a named function after main() has halted
@@ -10079,7 +9983,10 @@ static void tc_vm_task(void *param) {
       vm->instruction_count, vm->callback_count);
 
     // Phase 2: If TaskLoop callback exists, loop calling it in this task
-    int tl_idx = (int)vm->cb_cache[TC_CB_TASK_LOOP];  // -1 if not registered
+    int tl_idx = -1;
+    for (int i = 0; i < vm->callback_count; i++) {
+      if (strcmp(vm->callbacks[i].name, "TaskLoop") == 0) { tl_idx = i; break; }
+    }
     if (tl_idx >= 0) {
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: TaskLoop running in task"));
       uint16_t tl_addr = vm->callbacks[tl_idx].address;
@@ -10195,7 +10102,7 @@ static void tc_vm_task(void *param) {
 
 // Call a named callback on a single slot, with mutex protection and tc_current_slot set
 static void tc_slot_callback(TcSlot *s, const char *name) {
-  if (!s || !s->loaded || !s->running || !s->vm.halted || s->vm.error != TC_OK) return;
+  if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) return;
   tc_current_slot = s;
 #ifdef ESP32
   if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
@@ -10205,27 +10112,6 @@ static void tc_slot_callback(TcSlot *s, const char *name) {
   if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
 #endif
   tc_current_slot = nullptr;
-}
-
-static void tc_slot_callback_id(TcSlot *s, TcCallbackId id) {
-  if (!s || !s->loaded || !s->running || !s->vm.halted || s->vm.error != TC_OK) return;
-  tc_current_slot = s;
-#ifdef ESP32
-  if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
-#endif
-  tc_vm_call_callback_id(&s->vm, id);
-#ifdef ESP32
-  if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
-#endif
-  tc_current_slot = nullptr;
-}
-
-static void tc_all_callbacks_id(TcCallbackId id) {
-  if (!Tinyc) return;
-  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
-    TcSlot *s = Tinyc->slots[i];
-    if (s) tc_slot_callback_id(s, id);
-  }
 }
 
 // Helper: derive .pvs persist filename from .tcb filename
@@ -10287,6 +10173,7 @@ static void TinyCStopVM(TcSlot *s) {
   s->vm.running = false;
   tc_free_all_frames(&s->vm);
   tc_heap_free_all(&s->vm);
+  s->vm.halted = false;  // Problem 12: prevent callbacks from firing on freed heap
   // Only stop UDP if no other slot still needs it
   {
     bool udp_still_needed = false;
