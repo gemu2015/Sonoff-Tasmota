@@ -29,7 +29,9 @@
 
 
 // fixes some modbus tcp errors
+#ifdef EPS32
 #define USE_BAT_CTRL
+#endif
 
 // provide SCRIPT_EOL if scripter is not compiled
 #ifndef SCRIPT_EOL
