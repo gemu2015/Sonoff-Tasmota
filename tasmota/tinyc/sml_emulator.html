@@ -1,0 +1,1734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SML / OBIS Meter Emulator</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; min-height: 100vh; }
+h1 { font-size: 1.4em; font-weight: 600; color: #7eb8f7; letter-spacing: 0.05em; }
+h2 { font-size: 0.82em; font-weight: 600; color: #9bb8d4; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
+
+.topbar { background: #16213e; border-bottom: 1px solid #0f3460; padding: 10px 20px; display: flex; align-items: center; gap: 16px; }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; background: #444; transition: background 0.3s; flex-shrink: 0; }
+.status-dot.connected { background: #4caf50; box-shadow: 0 0 6px #4caf50; }
+.status-dot.error { background: #f44336; }
+.status-text { font-size: 0.8em; color: #9bb8d4; }
+.topbar .spacer { flex: 1; }
+.main { display: grid; grid-template-columns: 350px 1fr; height: calc(100vh - 49px); }
+.sidebar { background: #16213e; border-right: 1px solid #0f3460; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.panel { background: #0f3460; border: 1px solid #1a4a7a; border-radius: 8px; padding: 12px 14px; }
+.content { display: flex; flex-direction: column; overflow: hidden; }
+.content-top { padding: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; flex-shrink: 0; }
+.log-panel { flex: 1; background: #0a0a1a; border-top: 1px solid #0f3460; overflow: hidden; display: flex; flex-direction: column; }
+.log-header { padding: 7px 14px; background: #16213e; border-bottom: 1px solid #0f3460; display: flex; align-items: center; gap: 10px; }
+.log-body { flex: 1; overflow-y: auto; padding: 8px 14px; font-family: 'Courier New', monospace; font-size: 0.73em; line-height: 1.6; }
+.log-entry { margin-bottom: 3px; word-break: break-all; }
+.log-time { color: #555; margin-right: 6px; }
+.log-tx { color: #4fc3f7; }
+.log-info { color: #9bb8d4; }
+.log-err { color: #f44336; }
+
+label { font-size: 0.77em; color: #9bb8d4; display: block; margin-bottom: 3px; }
+input[type=text], input[type=number], select { width: 100%; background: #0a1628; border: 1px solid #1a4a7a; color: #e0e0e0; padding: 5px 8px; border-radius: 4px; font-size: 0.81em; outline: none; }
+input:focus, select:focus { border-color: #7eb8f7; }
+.f2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 9px; }
+.f3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 7px; }
+.fi { margin-bottom: 9px; }
+.fi label, .f2 label, .f3 label { font-size: 0.73em; }
+
+.btn { padding: 6px 14px; border: none; border-radius: 5px; font-size: 0.81em; cursor: pointer; font-weight: 600; transition: background 0.15s; }
+.btn-primary { background: #1565c0; color: #fff; }
+.btn-primary:hover { background: #1976d2; }
+.btn-primary:disabled { background: #333; color: #666; cursor: default; }
+.btn-go { background: #2e7d32; color: #fff; }
+.btn-go:hover { background: #388e3c; }
+.btn-go:disabled { background: #333; color: #666; cursor: default; }
+.btn-stop { background: #b71c1c; color: #fff; }
+.btn-stop:hover { background: #c62828; }
+.btn-stop:disabled { background: #333; color: #666; cursor: default; }
+.btn-warn { background: #e65100; color: #fff; }
+.btn-warn:hover { background: #f57c00; }
+.btn-sm { padding: 4px 10px; font-size: 0.74em; }
+.btn-ghost { background: #1a2a4a; color: #9bb8d4; }
+.btn-ghost:hover { background: #243560; }
+.btn-row { display: flex; gap: 7px; flex-wrap: wrap; }
+
+.progress-bar { height: 3px; background: #1a4a7a; border-radius: 2px; margin-top: 10px; overflow: hidden; }
+.progress-fill { height: 100%; background: #1976d2; width: 0%; }
+
+.stat-row { display: flex; justify-content: space-between; font-size: 0.77em; padding: 3px 0; border-bottom: 1px solid #1a2a4a; }
+.stat-row:last-child { border-bottom: none; }
+.stat-label { color: #7a9cbf; }
+.stat-value { color: #e0e0e0; font-family: monospace; }
+
+.warn-box { background: #3e1a00; border: 1px solid #b45000; border-radius: 6px; padding: 9px 11px; font-size: 0.78em; color: #ffcc80; display: none; }
+
+.phase-hdr { font-size: 0.7em; color: #7a9cbf; font-weight: 700; margin: 6px 0 3px; text-transform: uppercase; letter-spacing: 0.05em; }
+.dim { opacity: 0.4; pointer-events: none; }
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #0a1628; }
+::-webkit-scrollbar-thumb { background: #1a4a7a; border-radius: 3px; }
+
+/* ── FS modal ────────────────────────────────────────────────────────────── */
+.fs-modal-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,.65);
+  z-index: 9000; align-items: center; justify-content: center;
+}
+.fs-modal-overlay.open { display: flex; }
+.fs-modal {
+  background: #0d1f3a; border: 1px solid #1e4a7a; border-radius: 8px;
+  width: 420px; max-width: 95vw; max-height: 70vh;
+  display: flex; flex-direction: column; box-shadow: 0 8px 32px #000a;
+}
+.fs-modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; border-bottom: 1px solid #1a3a6a; flex-shrink: 0;
+}
+.fs-modal-head span { font-size: 0.85em; color: #9bb8d4; font-weight: 600; }
+.fs-modal-close {
+  background: none; border: none; color: #7a9cbf; cursor: pointer;
+  font-size: 1.1em; padding: 0 4px; line-height: 1;
+}
+.fs-modal-close:hover { color: #e0e0e0; }
+.fs-modal-body { overflow-y: auto; padding: 6px 0; flex: 1; }
+.fs-file-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 5px 14px; cursor: default; font-size: 0.78em; gap: 8px;
+}
+.fs-file-row:hover { background: #122040; }
+.fs-file-name { color: #7eb8f7; font-family: monospace; flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fs-file-size { color: #7a9cbf; flex-shrink: 0; font-family: monospace; }
+.fs-file-dl { background: none; border: 1px solid #1e4a7a; border-radius: 3px;
+  color: #7a9cbf; cursor: pointer; padding: 1px 6px; font-size: 0.85em;
+  flex-shrink: 0; }
+.fs-file-dl:hover { border-color: #7eb8f7; color: #7eb8f7; }
+.fs-modal-status { padding: 10px 14px; font-size: 0.78em; color: #7a9cbf; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>⚡ SML / OBIS Meter Emulator</h1>
+  <div class="status-dot" id="statusDot"></div>
+  <span class="status-text" id="statusText">Not connected</span>
+  <div class="spacer"></div>
+  <button class="btn btn-primary" id="btnConnect">Connect Serial Port</button>
+  <button class="btn btn-stop" id="btnDisconnect" style="display:none">Disconnect</button>
+</div>
+
+<div class="main">
+<div class="sidebar">
+
+  <div class="warn-box" id="warnSerial">
+    ⚠️ Web Serial API not available. Use Chrome 89+ and open this file directly (file://) or via HTTPS/localhost.
+  </div>
+
+  <!-- PROFILE -->
+  <div class="panel">
+    <h2>Meter Profile</h2>
+    <div class="fi">
+      <label>Device</label>
+      <select id="selProfile" onchange="applyProfile()">
+        <option value="ehz363">EHZ363W — Easymeter 1-phase (SML)</option>
+        <option value="emh_ehz">EMH eHZ — 1-phase (SML)</option>
+        <option value="lgz_e220">Landis+Gyr E220 — 1-phase (SML)</option>
+        <option value="ehz363_3ph">3-phase SML (generic)</option>
+        <option value="iskra_mt174">ISKRA MT174 — 3-phase (OBIS)</option>
+        <option value="obis_1ph">Generic OBIS 1-phase</option>
+        <option value="obis_3ph">Generic OBIS 3-phase</option>
+        <option value="sdm630">Eastron SDM630 — 3-phase (Modbus RTU)</option>
+        <option value="sdm630_tcp">Eastron SDM630 — 3-phase (Modbus TCP)</option>
+        <option value="t510">T510 — 3-phase OBIS IEC 62056-21 (300→9600 baud)</option>
+      </select>
+    </div>
+    <div class="f2">
+      <div>
+        <label>Protocol</label>
+        <select id="selProto">
+          <option value="sml">SML Binary</option>
+          <option value="obis">OBIS ASCII</option>
+          <option value="modbus">Modbus RTU (slave)</option>
+        </select>
+      </div>
+      <div>
+        <label>Baud Rate</label>
+        <select id="selBaud">
+          <option value="300">300</option>
+          <option value="2400">2400</option>
+          <option value="9600" selected>9600</option>
+          <option value="19200">19200</option>
+          <option value="57600">57600</option>
+          <option value="115200">115200</option>
+        </select>
+      </div>
+      <div>
+        <label>Serial Config</label>
+        <select id="selSerial">
+          <option value="8N1" selected>8N1</option>
+          <option value="7E1">7E1</option>
+          <option value="7O1">7O1</option>
+          <option value="8E1">8E1</option>
+          <option value="8O1">8O1</option>
+        </select>
+      </div>
+    </div>
+    <div class="f2">
+      <div>
+        <label>RX Pin</label>
+        <input type="number" id="inpRxPin" value="44" min="0" max="48" style="width:100%" oninput="updateScript()">
+      </div>
+      <div>
+        <label>TX Pin</label>
+        <input type="number" id="inpTxPin" value="43" min="0" max="48" style="width:100%" oninput="updateScript()">
+      </div>
+    </div>
+    <div class="fi">
+      <label>Meter Serial Number</label>
+      <input type="text" id="inpSerial" value="12345678" maxlength="18">
+    </div>
+  </div>
+
+  <!-- MODBUS TCP — descriptor fields only (shown for sdm630_tcp profile) -->
+  <div class="panel" id="tcpPanel" style="display:none;">
+    <h2>Modbus TCP Settings</h2>
+    <div style="font-size:0.73em;color:#9bb8d4;margin-bottom:6px;">
+      Tasmota SML driver connects to the meter IP via TCP. Enter the meter's IP and port
+      to generate the correct <code>sml_meter.def</code> descriptor.
+    </div>
+    <div class="f2">
+      <div>
+        <label>Meter IP Address</label>
+        <input type="text" id="inpBridgeIP" value="192.168.3.38" placeholder="192.168.x.x" oninput="updateScript()">
+      </div>
+      <div>
+        <label>Modbus TCP Port</label>
+        <input type="number" id="inpBridgePort" value="502" min="1" max="65535" style="width:100%" oninput="updateScript()">
+      </div>
+    </div>
+  </div>
+
+  <!-- ENERGY -->
+  <div class="panel">
+    <h2>Energy &amp; Power</h2>
+    <div class="f2">
+      <div><label>Import Total (kWh)</label><input type="number" id="vEnergyIn" value="1234.567" step="0.001"></div>
+      <div><label>Export Total (kWh)</label><input type="number" id="vEnergyOut" value="0.000" step="0.001"></div>
+    </div>
+    <div class="f2">
+      <div><label>Active Power In (W)</label><input type="number" id="vPowerIn" value="350" step="1"></div>
+      <div><label>Active Power Out (W)</label><input type="number" id="vPowerOut" value="0" step="1"></div>
+    </div>
+    <div class="f2">
+      <div><label>React. Power (var)</label><input type="number" id="vPowerQ" value="0" step="1"></div>
+      <div><label>Frequency (Hz)</label><input type="number" id="vFreq" value="50.0" step="0.1"></div>
+    </div>
+  </div>
+
+  <!-- PHASES -->
+  <div class="panel">
+    <h2>Phase Values</h2>
+    <div class="phase-hdr">L1</div>
+    <div class="f3">
+      <div><label>Voltage (V)</label><input type="number" id="vVL1" value="230.1" step="0.1"></div>
+      <div><label>Current (A)</label><input type="number" id="vIL1" value="1.52" step="0.01"></div>
+      <div><label>Power (W)</label><input type="number" id="vPL1" value="350" step="1"></div>
+    </div>
+    <div id="grpL23">
+      <div class="phase-hdr">L2</div>
+      <div class="f3">
+        <div><label>Voltage (V)</label><input type="number" id="vVL2" value="229.8" step="0.1"></div>
+        <div><label>Current (A)</label><input type="number" id="vIL2" value="0.00" step="0.01"></div>
+        <div><label>Power (W)</label><input type="number" id="vPL2" value="0" step="1"></div>
+      </div>
+      <div class="phase-hdr">L3</div>
+      <div class="f3">
+        <div><label>Voltage (V)</label><input type="number" id="vVL3" value="230.5" step="0.1"></div>
+        <div><label>Current (A)</label><input type="number" id="vIL3" value="0.00" step="0.01"></div>
+        <div><label>Power (W)</label><input type="number" id="vPL3" value="0" step="1"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SEND -->
+  <div class="panel">
+    <h2>Transmission</h2>
+    <div class="f2" id="txIntervalRow">
+      <div>
+        <label>Interval</label>
+        <select id="selInterval">
+          <option value="500">500 ms</option>
+          <option value="1000" selected>1 s</option>
+          <option value="2000">2 s</option>
+          <option value="5000">5 s</option>
+          <option value="10000">10 s</option>
+        </select>
+      </div>
+      <div>
+        <label>Auto-increment energy</label>
+        <select id="selAutoInc">
+          <option value="0">Off</option>
+          <option value="1">Yes (simulate load)</option>
+        </select>
+      </div>
+      <div>
+        <label>Fluctuation</label>
+        <select id="selFluct">
+          <option value="0">Off</option>
+          <option value="5">±5 %</option>
+          <option value="10" selected>±10 %</option>
+          <option value="20">±20 %</option>
+          <option value="40">±40 %</option>
+        </select>
+      </div>
+    </div>
+    <!-- shown for SML / OBIS -->
+    <div id="txTimerPanel">
+      <div class="progress-bar"><div class="progress-fill" id="progFill"></div></div>
+      <div class="btn-row" style="margin-top:10px;">
+        <button class="btn btn-go"   id="btnStart"    onclick="startSending()" disabled>▶ Start</button>
+        <button class="btn btn-stop" id="btnStop"     onclick="stopSending()"  disabled>■ Stop</button>
+        <button class="btn btn-warn btn-sm" id="btnOnce" onclick="sendOnce()" disabled>Send 1×</button>
+      </div>
+    </div>
+    <!-- shown for Modbus RTU slave -->
+    <div id="txModbusPanel" style="display:none;">
+      <div id="modbusStatus" style="font-size:0.78em;color:#7a9cbf;padding:6px 0;">
+        Connect serial port — slave starts automatically
+      </div>
+    </div>
+  </div>
+
+  <!-- DEPLOY TO DEVICE -->
+  <div class="panel">
+    <h2>Deploy to Tasmota Device</h2>
+    <div class="f2">
+      <div>
+        <label>Device IP</label>
+        <input type="text" id="inpDeviceIP" value="192.168.188.39" placeholder="192.168.x.x">
+      </div>
+      <div style="display:flex;align-items:flex-end;">
+        <button class="btn btn-warn btn-sm" style="width:100%;height:28px;" onclick="pingDevice()">Ping</button>
+      </div>
+    </div>
+    <div id="deviceStatus" style="font-size:0.73em;color:#7a9cbf;margin-bottom:8px;display:none;"></div>
+
+    <div style="font-size:0.73em;color:#9bb8d4;margin-bottom:5px;">
+      ① Deploy sml_meter.def to device:
+    </div>
+    <div class="btn-row" style="margin-bottom:8px;">
+      <button class="btn btn-go btn-sm" onclick="uploadToDevice()">⬆ Upload to Device</button>
+      <button class="btn btn-primary btn-sm" onclick="downloadFile()">⬇ Download</button>
+      <button class="btn btn-primary btn-sm" onclick="openFsModal()">🗂 Open FS</button>
+    </div>
+
+
+    <div style="font-size:0.73em;color:#9bb8d4;margin-bottom:5px;">
+      ② Restart SML driver:
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-warn btn-sm" onclick="sendSensor53r()">↺ sensor53 r</button>
+    </div>
+    <div id="uploadStatus" style="font-size:0.72em;margin-top:8px;min-height:1.4em;"></div>
+  </div>
+
+  <!-- STATS -->
+  <div class="panel">
+    <h2>Statistics</h2>
+    <div class="stat-row"><span class="stat-label">Frames sent</span><span class="stat-value" id="statF">0</span></div>
+    <div class="stat-row"><span class="stat-label">Bytes sent</span><span class="stat-value" id="statB">0</span></div>
+    <div class="stat-row"><span class="stat-label">Errors</span><span class="stat-value" id="statE">0</span></div>
+    <div class="stat-row"><span class="stat-label">Last frame</span><span class="stat-value" id="statL">—</span></div>
+  </div>
+
+</div><!-- /sidebar -->
+
+<div class="content">
+  <div class="content-top">
+
+    <div class="panel" style="overflow:hidden;">
+      <h2>Last Frame Sent</h2>
+      <pre id="framePreview" style="font-family:'Courier New',monospace;font-size:0.7em;line-height:1.65;max-height:210px;overflow-y:auto;color:#81c784;background:#050d1a;padding:8px;border-radius:4px;margin-top:4px;white-space:pre-wrap;word-break:break-all;">— not sent yet —</pre>
+    </div>
+
+    <div class="panel" style="overflow:hidden;">
+      <h2>SML Descriptor <span style="font-size:0.75em;font-weight:400;color:#7a9cbf;">(editable)</span></h2>
+      <textarea id="tasmotaScript" spellcheck="false"
+        style="width:100%;box-sizing:border-box;font-family:'Courier New',monospace;font-size:0.69em;line-height:1.65;height:210px;resize:vertical;color:#ffb74d;background:#050d1a;padding:8px;border:1px solid #1e3a5f;border-radius:4px;margin-top:4px;white-space:pre;overflow:auto;"
+        placeholder="Click Generate to create descriptor…"></textarea>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn btn-primary btn-sm" onclick="generateScript()">↺ Regenerate</button>
+        <button class="btn btn-ghost btn-sm" onclick="copyScript()">Copy</button>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="log-panel">
+    <div class="log-header">
+      <h2 style="margin:0;flex:1;">Log</h2>
+      <label style="display:flex;align-items:center;gap:5px;font-size:0.76em;color:#9bb8d4;margin:0;cursor:pointer;">
+        <input type="checkbox" id="chkHex" checked> Hex
+      </label>
+      <label style="display:flex;align-items:center;gap:5px;font-size:0.76em;color:#9bb8d4;margin:0;cursor:pointer;margin-left:10px;">
+        <input type="checkbox" id="chkAscii"> ASCII
+      </label>
+      <button class="btn btn-ghost btn-sm" style="margin-left:10px;" onclick="clearLog()">Clear</button>
+    </div>
+    <div class="log-body" id="logBody"></div>
+  </div>
+</div>
+
+</div><!-- /main -->
+
+<script>
+'use strict';
+
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let port = null, writer = null, sendTimer = null, progTimer = null;
+let framesSent = 0, bytesSent = 0, errCount = 0, seqNo = 1;
+// High-precision energy accumulators (Wh) — avoids toFixed() truncation per frame
+let energyInWh = null, energyOutWh = null;
+// Modbus RTU slave state
+let modbusRunning = false, modbusReader = null;
+const modbusRxBuf = [];
+// T510 IEC 62056-21 listener state
+let t510Running = false, t510Reader = null;
+
+// Live (fluctuated) values for the current frame — read by both frame builders
+const live = {};
+
+function flt(val, pct) {
+  // Apply ±pct% random fluctuation, keeping value non-negative
+  if (!pct) return val;
+  const noise = val * (pct / 100) * (Math.random() * 2 - 1);
+  return Math.max(0, val + noise);
+}
+
+function computeLiveValues() {
+  const pct  = +document.getElementById('selFluct').value;
+  const pIn  = Math.max(0, +document.getElementById('vPowerIn').value  || 0);
+  const pOut = Math.max(0, +document.getElementById('vPowerOut').value || 0);
+
+  live.pIn  = flt(pIn,  pct);
+  live.pOut = flt(pOut, pct);
+  live.pNet = live.pIn - live.pOut;
+
+  // Phase powers
+  live.pL1  = flt(Math.max(0, +document.getElementById('vPL1').value || 0), pct);
+  live.pL2  = flt(Math.max(0, +document.getElementById('vPL2').value || 0), pct);
+  live.pL3  = flt(Math.max(0, +document.getElementById('vPL3').value || 0), pct);
+
+  // Voltages — tight fluctuation (real grid ≈ ±1%)
+  const vPct = Math.min(pct, 2);
+  live.vL1  = flt(+document.getElementById('vVL1').value || 230, vPct);
+  live.vL2  = flt(+document.getElementById('vVL2').value || 230, vPct);
+  live.vL3  = flt(+document.getElementById('vVL3').value || 230, vPct);
+
+  // Currents — derive from per-phase power / voltage to stay consistent
+  live.iL1  = live.vL1 > 0 ? live.pL1 / live.vL1 : 0;
+  live.iL2  = live.vL2 > 0 ? live.pL2 / live.vL2 : 0;
+  live.iL3  = live.vL3 > 0 ? live.pL3 / live.vL3 : 0;
+
+  // Frequency — very tight (real grid ±0.2 Hz max)
+  const fBase = +document.getElementById('vFreq').value || 50;
+  live.freq = fBase + (Math.random() * 2 - 1) * Math.min(pct * 0.02, 0.2);
+
+  // Energy — current accumulator values (kWh); null means not yet initialised
+  live.energyIn  = energyInWh  !== null ? energyInWh  / 1000
+                                        : (+document.getElementById('vEnergyIn').value  || 0);
+  live.energyOut = energyOutWh !== null ? energyOutWh / 1000
+                                        : (+document.getElementById('vEnergyOut').value || 0);
+}
+
+// ─── SERIAL SETUP ─────────────────────────────────────────────────────────────
+if (!('serial' in navigator)) {
+  document.getElementById('warnSerial').style.display = 'block';
+  document.getElementById('btnConnect').disabled = true;
+}
+
+document.getElementById('selProto').addEventListener('change', applyTxPanel);
+
+// Parse selected serial config string (e.g. "7E1") → Web Serial options object
+function serialConfig(baud) {
+  const cfg = document.getElementById('selSerial').value || '8N1';
+  const dataBits = +cfg[0];                      // 7 or 8
+  const parityChar = cfg[1];                     // N / E / O
+  const parity = parityChar === 'E' ? 'even' : parityChar === 'O' ? 'odd' : 'none';
+  const stopBits = +cfg[2];                      // 1 (or 2 if ever added)
+  return { baudRate: baud, dataBits, parity, stopBits };
+}
+
+document.getElementById('btnConnect').onclick = async () => {
+  try {
+    const baud = +document.getElementById('selBaud').value;
+    port = await navigator.serial.requestPort();
+    await port.open(serialConfig(baud));
+    writer = port.writable.getWriter();
+    setConn(true);
+    const cfg = document.getElementById('selSerial').value;
+    const fmt = `${baud} baud ${cfg}`;
+    log('info', `Opened port at ${fmt}`);
+  } catch(e) {
+    if (e.name !== 'NotFoundError') log('err', 'Connect failed: ' + e.message);
+  }
+};
+
+document.getElementById('btnDisconnect').onclick = async () => {
+  stopSending();
+  try { writer?.releaseLock(); writer = null; } catch(e){}
+  try { await port?.close(); port = null; } catch(e){}
+  setConn(false);
+  log('info', 'Disconnected');
+};
+
+function setConn(ok) {
+  document.getElementById('statusDot').className = 'status-dot' + (ok ? ' connected' : '');
+  document.getElementById('statusText').textContent = ok ? 'Connected' : 'Not connected';
+  document.getElementById('btnConnect').style.display    = ok ? 'none' : '';
+  document.getElementById('btnDisconnect').style.display = ok ? '' : 'none';
+
+  if (isModbusRtu()) {
+    // Slave mode: auto-start on connect, auto-stop on disconnect — no Start/Stop buttons
+    if (ok) {
+      startModbusSlave();
+    } else {
+      stopModbusSlave();
+      document.getElementById('modbusStatus').style.color = '#7a9cbf';
+      document.getElementById('modbusStatus').textContent = 'Connect serial port — slave starts automatically';
+    }
+  } else if (isT510()) {
+    // T510 IEC 62056-21: auto-start handshake on connect
+    if (ok) {
+      startT510Listener();
+    } else {
+      stopT510Listener();
+      document.getElementById('modbusStatus').style.color = '#7a9cbf';
+      document.getElementById('modbusStatus').textContent = 'Connect serial port — IEC 62056-21 mode (300→9600 baud)';
+    }
+  } else {
+    document.getElementById('btnStart').disabled = !ok;
+    document.getElementById('btnOnce').disabled  = !ok;
+  }
+}
+
+// ─── TRANSMISSION CONTROL ────────────────────────────────────────────────────
+function startSending() {
+  if (sendTimer || modbusRunning || t510Running) return;
+  if (isTcpProfile() || isModbusRtu() || isT510()) return;  // handled by setConn / auto-slave
+  const proto = document.getElementById('selProto').value;
+  const iv = +document.getElementById('selInterval').value;
+  sendFrame();
+  sendTimer = setInterval(sendFrame, iv);
+  startProg(iv);
+  document.getElementById('btnStart').disabled = true;
+  document.getElementById('btnStop').disabled  = false;
+}
+
+function stopSending() {
+  if (modbusRunning) { stopModbusSlave(); }
+  if (t510Running)   { stopT510Listener(); }
+  clearInterval(sendTimer); sendTimer = null;
+  clearInterval(progTimer); progTimer = null;
+  const f = document.getElementById('progFill');
+  f.style.transition = 'none'; f.style.width = '0%';
+  document.getElementById('btnStart').disabled = (port === null);
+  document.getElementById('btnStop').disabled  = true;
+  // Reset accumulators so next start re-reads from the input fields
+  energyInWh = null; energyOutWh = null;
+}
+
+function sendOnce() { sendFrame(); }
+
+function startProg(iv) {
+  const f = document.getElementById('progFill');
+  const run = () => {
+    f.style.transition = 'none'; f.style.width = '0%';
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      f.style.transition = `width ${iv}ms linear`; f.style.width = '100%';
+    }));
+  };
+  run();
+  progTimer = setInterval(run, iv);
+}
+
+async function sendFrame() {
+  if (!writer || modbusRunning || t510Running) return;
+
+  // Compute live (fluctuated) values for this frame
+  computeLiveValues();
+
+  // Auto-increment energy based on net power (use base values, not fluctuated)
+  if (document.getElementById('selAutoInc').value === '1') {
+    const iv   = +document.getElementById('selInterval').value / 1000; // seconds
+    const pIn  = Math.max(0, +document.getElementById('vPowerIn').value  || 0);
+    const pOut = Math.max(0, +document.getElementById('vPowerOut').value || 0);
+    const pNet = pIn - pOut; // positive = consuming, negative = feeding in
+
+    // Initialise accumulators from current field values on first frame
+    const elIn  = document.getElementById('vEnergyIn');
+    const elOut = document.getElementById('vEnergyOut');
+    if (energyInWh  === null) energyInWh  = (+elIn.value  || 0) * 1000;
+    if (energyOutWh === null) energyOutWh = (+elOut.value || 0) * 1000;
+
+    // Net positive → Verbrauch (import), net negative → Einspeisung (export)
+    const dWh = Math.abs(pNet) * (iv / 3600);
+    if (pNet >= 0) energyInWh  += dWh;
+    else           energyOutWh += dWh;
+
+    // Write back to fields with 3 decimal places (Wh resolution)
+    elIn.value  = (energyInWh  / 1000).toFixed(3);
+    elOut.value = (energyOutWh / 1000).toFixed(3);
+  }
+
+  const proto = document.getElementById('selProto').value;
+  let data;
+  try {
+    if (proto === 'sml') {
+      const bytes = buildSMLFrame();
+      data = new Uint8Array(bytes);
+    } else {
+      data = new TextEncoder().encode(buildOBISAscii());
+    }
+
+    await writer.write(data);
+
+    framesSent++; bytesSent += data.length; seqNo++;
+    document.getElementById('statF').textContent = framesSent;
+    document.getElementById('statB').textContent = bytesSent;
+    document.getElementById('statL').textContent = data.length + ' B';
+
+    // Preview
+    if (proto === 'sml') {
+      document.getElementById('framePreview').textContent = hexDump(data);
+    } else {
+      document.getElementById('framePreview').textContent = new TextDecoder().decode(data);
+    }
+
+    // Log
+    const showHex   = document.getElementById('chkHex').checked;
+    const showAscii = document.getElementById('chkAscii').checked;
+    let extra = '';
+    if (showHex)   extra += '\n  ' + hexLine(data, 64);
+    if (showAscii && proto === 'obis') extra += '\n  ' + new TextDecoder().decode(data).replace(/\r\n/g,'↵').substring(0, 200);
+    log('tx', `TX ${data.length}B [${proto.toUpperCase()}]` + extra);
+
+  } catch(e) {
+    errCount++;
+    document.getElementById('statE').textContent = errCount;
+    log('err', 'Send failed: ' + e.message);
+    stopSending();
+    try { writer?.releaseLock(); } catch(e2){} writer = null;
+    try { await port?.close(); } catch(e2){} port = null;
+    setConn(false);
+  }
+}
+
+// ─── CRC-16 / X.25 ────────────────────────────────────────────────────────────
+// poly=0x1021, init=0xFFFF, refIn=true, refOut=true, xorOut=0xFFFF
+function crc16x25(bytes) {
+  let crc = 0xFFFF;
+  for (const b of bytes) {
+    crc ^= b & 0xFF;
+    for (let i = 0; i < 8; i++) crc = (crc & 1) ? ((crc >>> 1) ^ 0x8408) : (crc >>> 1);
+  }
+  return (crc ^ 0xFFFF) & 0xFFFF;
+}
+
+// ─── MODBUS RTU SLAVE (SDM630) ────────────────────────────────────────────────
+// CRC-16/Modbus: poly=0xA001 (reflected 0x8005), init=0xFFFF, no XOR out
+function crc16modbus(bytes) {
+  let crc = 0xFFFF;
+  for (const b of bytes) {
+    crc ^= b & 0xFF;
+    for (let i = 0; i < 8; i++) crc = (crc & 1) ? ((crc >>> 1) ^ 0xA001) : (crc >>> 1);
+  }
+  return crc & 0xFFFF;
+}
+
+// Encode a float32 as 4 bytes big-endian (Modbus high-word first)
+function float32BE(val) {
+  const buf = new ArrayBuffer(4);
+  new DataView(buf).setFloat32(0, val, false);
+  return Array.from(new Uint8Array(buf));
+}
+
+// SDM630 Input Register map: even register address → current live value
+// SDM630 register map — Tasmota sends one FC04 request per float (2 registers = 4 bytes each).
+// The +line request list: 01040000,01040002,...  → each is addr+FC+regHi+regLo, count always 00 02.
+function sdm630RegValue(reg) {
+  switch (reg) {
+    case 0x0000: return live.vL1;         // Voltage P1 (V)
+    case 0x0002: return live.vL2;         // Voltage P2 (V)
+    case 0x0004: return live.vL3;         // Voltage P3 (V)
+    case 0x0006: return live.iL1;         // Current P1 (A)
+    case 0x0008: return live.iL2;         // Current P2 (A)
+    case 0x000A: return live.iL3;         // Current P3 (A)
+    case 0x000C: return live.pL1;         // Active Power P1 (W)
+    case 0x000E: return live.pL2;         // Active Power P2 (W)
+    case 0x0010: return live.pL3;         // Active Power P3 (W)
+    case 0x0012: return live.pNet;        // Total Active Power (W)
+    case 0x001E: return live.freq;        // Frequency (Hz)
+    case 0x0046: return Math.sqrt(3) * live.vL1;  // Line Voltage L1-L2
+    case 0x0048: return live.energyIn;    // Total Import kWh  ← SDM630 0x0048
+    case 0x004A: return live.energyOut;   // Total Export kWh  ← SDM630 0x004A
+    default:     return 0;
+  }
+}
+
+// Modbus RTU request: [addr][FC04][regHi][regLo][00][02][crcL][crcH] = 8 bytes
+// Response:          [addr][FC04][04][f0][f1][f2][f3][crcL][crcH]    = 9 bytes
+function handleModbusRequest(buf) {
+  if (buf.length < 8) return null;
+  const addr     = buf[0];
+  const fc       = buf[1];
+  const startReg = (buf[2] << 8) | buf[3];
+  const regCount = (buf[4] << 8) | buf[5];
+  const crcRx    = buf[6] | (buf[7] << 8);
+
+  if (crc16modbus(buf.slice(0, 6)) !== crcRx) return null;
+  if (addr !== 1 || fc !== 0x04) return null;
+  if (regCount !== 2) return null; // SDM630 always queried 2 registers (1 float)
+
+  const floatB = float32BE(sdm630RegValue(startReg));
+  const resp   = [addr, fc, 4, ...floatB];
+  const crc    = crc16modbus(resp);
+  resp.push(crc & 0xFF, crc >> 8);
+  return new Uint8Array(resp); // 9 bytes
+}
+
+function setModbusStatus(color, msg) {
+  const el = document.getElementById('modbusStatus');
+  el.style.color = color; el.textContent = msg;
+}
+
+async function startModbusSlave() {
+  if (!port || modbusRunning) return;
+  modbusRunning = true;
+  modbusRxBuf.length = 0;
+  setModbusStatus('#4caf50', '● Listening — waiting for Modbus requests…');
+  log('info', 'Modbus RTU slave started — device addr 1, FC04');
+
+  const reader = port.readable.getReader();
+  modbusReader = reader;
+
+  try {
+    while (modbusRunning) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+
+      for (const b of value) modbusRxBuf.push(b);
+
+      // Process all complete 8-byte FC04 frames in the buffer
+      while (modbusRxBuf.length >= 8) {
+        // FC04 Read Input Registers request is always exactly 8 bytes
+        const frame = new Uint8Array(modbusRxBuf.slice(0, 8));
+        const resp  = handleModbusRequest(frame);
+
+        if (resp) {
+          modbusRxBuf.splice(0, 8);
+
+          // Compute live (fluctuated) values and update energy
+          computeLiveValues();
+          if (document.getElementById('selAutoInc').value === '1') {
+            const pNet = (+document.getElementById('vPowerIn').value || 0)
+                       - (+document.getElementById('vPowerOut').value || 0);
+            const dWh  = Math.abs(pNet) * (0.1 / 3600); // ~100ms per Modbus cycle
+            if (energyInWh  === null) energyInWh  = live.energyIn  * 1000;
+            if (energyOutWh === null) energyOutWh = live.energyOut * 1000;
+            if (pNet >= 0) energyInWh  += dWh;
+            else           energyOutWh += dWh;
+            document.getElementById('vEnergyIn').value  = (energyInWh  / 1000).toFixed(3);
+            document.getElementById('vEnergyOut').value = (energyOutWh / 1000).toFixed(3);
+          }
+
+          await writer.write(resp);
+
+          framesSent++; bytesSent += resp.length; seqNo++;
+          document.getElementById('statF').textContent = framesSent;
+          document.getElementById('statB').textContent = bytesSent;
+          document.getElementById('statL').textContent = resp.length + ' B';
+
+          const reqHex   = Array.from(frame).map(b => b.toString(16).padStart(2,'0')).join(' ');
+          const rspHex   = Array.from(resp ).map(b => b.toString(16).padStart(2,'0')).join(' ');
+          const startReg = (frame[2] << 8) | frame[3];
+          const regCount = (frame[4] << 8) | frame[5];
+          document.getElementById('framePreview').textContent =
+            `REQ: ${reqHex}\nRSP: ${rspHex}`;
+          setModbusStatus('#4caf50',
+            `● Active — ${framesSent} responses  reg=0x${startReg.toString(16).padStart(4,'0')}`);
+          if (document.getElementById('chkHex').checked) {
+            log('rx', `RX  reg=0x${startReg.toString(16).padStart(4,'0')} cnt=${regCount}`);
+            log('tx', `TX  ${resp.length}B [MODBUS]  ${rspHex}`);
+          }
+        } else {
+          // Invalid frame — discard leading byte and re-scan
+          modbusRxBuf.shift();
+        }
+      }
+    }
+  } catch(e) {
+    if (modbusRunning) {
+      log('err', 'Modbus read error: ' + e.message);
+      setModbusStatus('#f44336', '✗ Read error: ' + e.message);
+    }
+  } finally {
+    try { reader.releaseLock(); } catch(_) {}
+    modbusReader = null;
+    modbusRunning = false;
+  }
+}
+
+function stopModbusSlave() {
+  modbusRunning = false;
+  try { modbusReader?.cancel(); } catch(_) {}
+}
+
+// ─── MODBUS TCP (descriptor only) ────────────────────────────────────────────
+// TCP profile generates the correct [ip]:port descriptor for Tasmota SML driver.
+// No serial emulation — Tasmota's SML driver connects directly to the meter via TCP.
+
+// (TCP profile is descriptor-only — no JS emulation functions needed)
+
+// ─── T510 IEC 62056-21 LISTENER ──────────────────────────────────────────────
+// Emulates the T510 meter protocol:
+//   Phase 1 (300 baud): wait for /?!\r\n (2F3F210D0A) from Tasmota
+//   Phase 2 (300 baud): send /T515<serial>\r\n identification; wait for ACK
+//   Phase 3           : close + reopen at 9600 baud, send OBIS ASCII data
+//   Phase 4           : close + reopen at 300 baud, repeat
+
+// Wait until `sequence` (byte array) appears in the RX stream, or timeout/stop.
+// label: short description shown in "waiting for X…" log line
+async function t510WaitFor(sequence, timeoutMs, label) {
+  if (!port || !t510Running) return false;
+  const seqHex = sequence.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ');
+  log('info', `T510 ← waiting for ${label || seqHex}…`);
+  const buf    = [];
+  let   rxLog  = [];           // accumulate RX bytes for debug line
+  const reader = port.readable.getReader();
+  t510Reader   = reader;
+  const deadline = Date.now() + timeoutMs;
+  let found = false;
+  try {
+    while (t510Running && Date.now() < deadline) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      for (const b of value) {
+        buf.push(b);
+        rxLog.push(b.toString(16).padStart(2,'0').toUpperCase());
+        if (buf.length >= sequence.length) {
+          const tail = buf.slice(-sequence.length);
+          if (tail.every((v, i) => v === sequence[i])) { found = true; break; }
+        }
+      }
+      // Flush partial RX bytes to log so user can see what's arriving
+      if (rxLog.length > 0) {
+        log('rx', `RX  ${rxLog.join(' ')}`);
+        rxLog = [];
+      }
+      if (found) break;
+    }
+    if (rxLog.length > 0) log('rx', `RX  ${rxLog.join(' ')}`);
+  } catch(e) {
+    if (t510Running) log('err', 'T510 read: ' + e.message);
+  } finally {
+    t510Reader = null;
+    try { reader.releaseLock(); } catch(_){}
+  }
+  if (!found && t510Running) log('warn', `T510 timeout waiting for ${label || seqHex}`);
+  return found;
+}
+
+async function startT510Listener() {
+  if (!port || t510Running) return;
+  t510Running = true;
+  log('info', 'T510 IEC 62056-21 listener started — 300 baud, waiting for Tasmota request');
+  setModbusStatus('#4caf50', '● 300 baud — waiting for /?!\\r\\n from Tasmota…');
+
+  while (t510Running) {
+    // ── Phase 1: wait for wake-up /?!\r\n = [2F 3F 21 0D 0A] at 300 baud ──
+    const gotWakeup = await t510WaitFor([0x2F, 0x3F, 0x21, 0x0D, 0x0A], 65000, '/?!\\r\\n wake-up');
+    if (!gotWakeup || !t510Running) break;
+    log('rx', '✓  2F 3F 21 0D 0A  ← /?!\\r\\n  (IEC 62056-21 wake-up received)');
+
+    // ── Phase 2a: send identification — /T515<serial>\r\n ──
+    // 'T51' = manufacturer ID, '5' = baud-rate code for 9600, serial follows
+    const ser   = document.getElementById('inpSerial').value || 'T510001';
+    const ident = `/T515${ser}\r\n`;
+    try { await writer.write(new TextEncoder().encode(ident)); } catch(e) { break; }
+    log('tx', `TX  ${ident.trim()}  (identification)`);
+    setModbusStatus('#7eb8f7', '● 300 baud — identification sent, waiting for ACK…');
+
+    // ── Phase 2b: wait for ACK [06 30 35 30 0D 0A] = \x06 "050" \r\n ──
+    //   \x06 = ACK, '0'=normal mode, '5'=9600 baud, '0'=data readout
+    const gotAck = await t510WaitFor([0x06, 0x30, 0x35, 0x30, 0x0D, 0x0A], 10000, '\\x06050\\r\\n ACK');
+    if (!gotAck || !t510Running) break;
+    log('rx', '✓  06 30 35 30 0D 0A  ← \\x06050\\r\\n  (ACK received — switching to 9600 baud)');
+    setModbusStatus('#7eb8f7', '● Switching to 9600 baud…');
+
+    // ── Phase 3a: release port, reopen at 9600 baud ──
+    try { writer?.releaseLock(); writer = null; } catch(_){}
+    await new Promise(r => setTimeout(r, 100));
+    try { await port?.close(); } catch(_){}
+    await new Promise(r => setTimeout(r, 150));
+    if (!t510Running || !port) break;
+    try { await port.open(serialConfig(9600)); } catch(e) {
+      log('err', 'T510: reopen 9600 failed: ' + e.message); break;
+    }
+    writer = port.writable.getWriter();
+
+    // ── Phase 3b: send T510 OBIS ASCII data at 9600 baud ──
+    computeLiveValues();
+    if (document.getElementById('selAutoInc').value === '1') {
+      const pIn  = Math.max(0, +document.getElementById('vPowerIn').value  || 0);
+      const pOut = Math.max(0, +document.getElementById('vPowerOut').value || 0);
+      const pNet = pIn - pOut;
+      const dWh  = Math.abs(pNet) * (10 / 3600); // ~10s per T510 cycle
+      if (energyInWh  === null) energyInWh  = live.energyIn  * 1000;
+      if (energyOutWh === null) energyOutWh = live.energyOut * 1000;
+      if (pNet >= 0) energyInWh  += dWh;
+      else           energyOutWh += dWh;
+      document.getElementById('vEnergyIn').value  = (energyInWh  / 1000).toFixed(3);
+      document.getElementById('vEnergyOut').value = (energyOutWh / 1000).toFixed(3);
+    }
+    const ascii = buildT510Ascii();
+    const data  = new TextEncoder().encode(ascii);
+    try { await writer.write(data); } catch(e) { break; }
+    framesSent++; bytesSent += data.length; seqNo++;
+    document.getElementById('statF').textContent = framesSent;
+    document.getElementById('statB').textContent = bytesSent;
+    document.getElementById('statL').textContent = data.length + ' B';
+    document.getElementById('framePreview').textContent = ascii;
+    const logHex   = document.getElementById('chkHex').checked;
+    const logAscii = document.getElementById('chkAscii').checked;
+    let extra = '';
+    if (logHex)   extra += '\n  ' + hexLine(data, 64);
+    if (logAscii) extra += '\n' + ascii.replace(/\r\n/g, '↵\n').trimEnd();
+    log('tx', `TX  ${data.length}B [T510 OBIS 9600bd]` + extra);
+    setModbusStatus('#4caf50', `● 9600 baud — ${data.length}B sent (${framesSent} cycles)`);
+
+    // Give Tasmota time to finish reading (~3 s)
+    await new Promise(r => setTimeout(r, 3000));
+    if (!t510Running || !port) break;
+
+    // ── Phase 4: switch back to 300 baud for next request cycle ──
+    try { writer?.releaseLock(); writer = null; } catch(_){}
+    await new Promise(r => setTimeout(r, 100));
+    try { await port?.close(); } catch(_){}
+    await new Promise(r => setTimeout(r, 150));
+    if (!t510Running || !port) break;
+    try { await port.open(serialConfig(300)); } catch(e) {
+      log('err', 'T510: reopen 300 failed: ' + e.message); break;
+    }
+    writer = port.writable.getWriter();
+    log('info', 'Back to 300 baud — ready for next /?! request');
+    setModbusStatus('#7eb8f7', '● 300 baud — waiting for /?!\\r\\n from Tasmota…');
+  }
+
+  t510Running = false;
+}
+
+function stopT510Listener() {
+  t510Running = false;
+  try { t510Reader?.cancel(); } catch(_){}
+}
+
+// ─── SML TLV PRIMITIVES ───────────────────────────────────────────────────────
+// Rules:
+//  - Data types: length nibble = total byte count INCLUDING TL byte
+//    e.g. OctetString(4 bytes) → TL = 0x05 (1 TL + 4 data)
+//    e.g. Uint8              → TL = 0x62 (1 TL + 1 data)
+//  - List type 0x7x: length nibble = number of list entries
+//    e.g. list of 6 items   → TL = 0x76
+//    e.g. list of 2 items   → TL = 0x72
+//  Special: null/optional absent = 0x01 (OctetString, len=1, no data)
+
+const T = {
+  null_:  ()   => [0x01],
+  octet:  (b)  => {
+    if (!b || b.length === 0) return [0x01];
+    const n = b.length, tl = n + 1;
+    if (tl <= 15) return [tl, ...b];
+    // 2-byte TL for n=15..254  (len field = nibble pair)
+    return [0x80 | 0x00 | ((tl >> 4) & 0x0F), (tl & 0x0F) << 4, ...b];
+  },
+  u8:   (v) => [0x62, v & 0xFF],
+  u16:  (v) => [0x63, (v >> 8) & 0xFF, v & 0xFF],
+  u32:  (v) => [0x65, (v >>> 24) & 0xFF, (v >>> 16) & 0xFF, (v >>> 8) & 0xFF, v & 0xFF],
+  i8:   (v) => [0x52, v & 0xFF],
+  i16:  (v) => [0x53, (v >> 8) & 0xFF, v & 0xFF],
+  i32:  (v) => [0x55, (v >> 24) & 0xFF, (v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF],
+  i64:  (v) => {
+    // split into high/low 32-bit parts (handles negative via two's complement for large negatives)
+    const isNeg = v < 0;
+    let abs = isNeg ? -v : v;
+    let lo = abs % 0x100000000;
+    let hi = Math.floor(abs / 0x100000000);
+    if (isNeg) { lo = (~lo + 1) >>> 0; hi = (~hi + (lo === 0 ? 1 : 0)) >>> 0; }
+    return [0x59, (hi>>>24)&0xFF,(hi>>>16)&0xFF,(hi>>>8)&0xFF,hi&0xFF,
+                  (lo>>>24)&0xFF,(lo>>>16)&0xFF,(lo>>>8)&0xFF,lo&0xFF];
+  },
+  // List: length nibble = number of entries
+  list: (...items) => {
+    const n = items.length;
+    const flat = [].concat(...items);
+    if (n <= 15) return [0x70 | n, ...flat];
+    return [0x8F | ((n >> 4) & 0x0F), (n & 0x0F) << 4, ...flat];
+  }
+};
+
+// Encode integer value: pick smallest signed type that fits
+function smlIntVal(v) {
+  v = Math.trunc(v);
+  if (v >= -128 && v <= 127)                return T.i8(v);
+  if (v >= -32768 && v <= 32767)            return T.i16(v);
+  if (v >= -2147483648 && v <= 2147483647)  return T.i32(v);
+  return T.i64(v);
+}
+
+// Build one value list entry
+// obis: [A,B,C,D,E,F]  unit: SML unit code  scaler: int8 power-of-10  val: integer
+function smlEntry(obis, unit, scaler, val) {
+  return T.list(
+    T.octet(obis),         // objName
+    T.null_(),              // status
+    T.null_(),              // valTime
+    unit   != null ? T.u8(unit)    : T.null_(),  // unit
+    scaler != null ? T.i8(scaler)  : T.null_(),  // scaler
+    val    != null ? smlIntVal(val) : T.null_(),  // value
+    T.null_()               // valueSignature
+  );
+}
+
+// Build one SML_Message wrapper (list of 6, then append 0x00 end marker)
+function smlMsg(seqId, msgBodyBytes) {
+  const tid  = T.octet([(seqNo >> 24) & 0xFF, (seqNo >> 16) & 0xFF, (seqNo >> 8) & 0xFF, seqId]);
+  const grp  = T.u8(0);
+  const abrt = T.u8(0);
+  const crc  = T.u16(0);   // per-message CRC – not checked by Tasmota, set to 0
+  // list of 5 data fields, followed by 0x00 end marker
+  return [...T.list(tid, grp, abrt, msgBodyBytes, crc), 0x00];
+}
+
+// SML_MessageBody = list(2) { typeCode, body }
+function msgBody(typeCode, bodyBytes) {
+  return T.list(T.u16(typeCode), bodyBytes);
+}
+
+// ─── SML FRAME BUILDER ────────────────────────────────────────────────────────
+function buildSMLFrame() {
+  const serial    = document.getElementById('inpSerial').value || '12345678';
+  // Use up to 8 ASCII bytes as server ID
+  const serBytes  = asciiBytes(serial.substring(0, 8).padEnd(8, '\0'));
+  // Prepend 0x09 (BSZ identification) + 0x01 (manufacturer) for authentic feel
+  const serverId  = [0x09, 0x01, ...serBytes];  // 10 bytes
+  const is3ph     = get3ph();
+  const secs      = Math.floor(Date.now() / 1000);
+
+  const eIn  = Math.round(+document.getElementById('vEnergyIn').value  * 1000); // Wh
+  const eOut = Math.round(+document.getElementById('vEnergyOut').value * 1000); // Wh
+  const pNet = Math.trunc(live.pNet);   // signed W (fluctuated)
+
+  const vL1  = Math.round(live.vL1 * 10);  // 0.1 V, scaler=-1
+  const vL2  = Math.round(live.vL2 * 10);
+  const vL3  = Math.round(live.vL3 * 10);
+  const iL1  = Math.round(live.iL1 * 1000); // mA, scaler=-3
+  const iL2  = Math.round(live.iL2 * 1000);
+  const iL3  = Math.round(live.iL3 * 1000);
+  const pL1  = Math.trunc(live.pL1);
+  const pL2  = Math.trunc(live.pL2);
+  const pL3  = Math.trunc(live.pL3);
+  const freq = Math.round(live.freq * 10); // 0.1 Hz, scaler=-1
+
+  // SML unit codes
+  const U_Wh = 30, U_W = 27, U_V = 8, U_A = 5, U_Hz = 44;
+
+  // OBIS helper: A-B:C.D.E*F → [A,B,C,D,E,F]
+  const OB = (a,b,c,d,e,f=0xFF) => [a,b,c,d,e,f];
+
+  // Build value list entries
+  const entries = [
+    // Energy counters
+    smlEntry(OB(1,0, 1,8,0), U_Wh, 0, eIn),   // 1-0:1.8.0 import total
+    smlEntry(OB(1,0, 2,8,0), U_Wh, 0, eOut),  // 1-0:2.8.0 export total
+    // Total active power (net, signed)
+    smlEntry(OB(1,0,16,7,0), U_W, 0, pNet),   // 1-0:16.7.0
+  ];
+
+  if (is3ph) {
+    entries.push(smlEntry(OB(1,0,36,7,0), U_W, 0, pL1));  // L1 power
+    entries.push(smlEntry(OB(1,0,56,7,0), U_W, 0, pL2));  // L2 power
+    entries.push(smlEntry(OB(1,0,76,7,0), U_W, 0, pL3));  // L3 power
+    entries.push(smlEntry(OB(1,0,32,7,0), U_V, -1, vL1)); // L1 voltage
+    entries.push(smlEntry(OB(1,0,52,7,0), U_V, -1, vL2)); // L2 voltage
+    entries.push(smlEntry(OB(1,0,72,7,0), U_V, -1, vL3)); // L3 voltage
+    entries.push(smlEntry(OB(1,0,31,7,0), U_A, -3, iL1)); // L1 current
+    entries.push(smlEntry(OB(1,0,51,7,0), U_A, -3, iL2)); // L2 current
+    entries.push(smlEntry(OB(1,0,71,7,0), U_A, -3, iL3)); // L3 current
+  } else {
+    entries.push(smlEntry(OB(1,0,32,7,0), U_V, -1, vL1)); // voltage
+    entries.push(smlEntry(OB(1,0,31,7,0), U_A, -3, iL1)); // current
+  }
+  entries.push(smlEntry(OB(1,0,14,7,0), U_Hz, -1, freq)); // frequency
+
+  // ── Message 1: PublicOpen.Res (0x0101) ──────────────────────────────────────
+  const reqFileId  = T.octet([0x00, 0x00, 0x00, 0x01]);
+  const serverIdTL = T.octet(serverId);
+  const refTime    = T.list(T.u8(1), T.u32(secs));
+  const openBody   = T.list(T.null_(), T.null_(), reqFileId, serverIdTL, refTime, T.u8(1));
+  const msg1 = smlMsg(1, msgBody(0x0101, openBody));
+
+  // ── Message 2: GetList.Res (0x0701) ─────────────────────────────────────────
+  const listName   = T.octet([0x01,0x00,0x01,0x08,0x00,0xFF]);
+  const sensorTime = T.list(T.u8(1), T.u32(secs));
+  const valList    = T.list(...entries);
+  const getListBody = T.list(
+    T.null_(),     // clientId
+    serverIdTL,    // serverId
+    listName,      // listName
+    sensorTime,    // actSensorTime
+    valList,       // valList
+    T.null_(),     // listSignature
+    T.null_()      // actGatewayTime
+  );
+  const msg2 = smlMsg(2, msgBody(0x0701, getListBody));
+
+  // ── Message 3: PublicClose.Res (0x0201) ──────────────────────────────────────
+  const closeBody = T.list(T.null_());
+  const msg3 = smlMsg(3, msgBody(0x0201, closeBody));
+
+  // ── Frame assembly ────────────────────────────────────────────────────────────
+  const escStart = [0x1B, 0x1B, 0x1B, 0x1B, 0x01, 0x01, 0x01, 0x01];
+  const escEnd   = [0x1B, 0x1B, 0x1B, 0x1B];
+  const endMark  = [0x1A, 0x00]; // 0x1A = end, 0x00 = 0 fill bytes
+
+  const body = [...msg1, ...msg2, ...msg3];
+  const forCRC = [...escStart, ...body, ...escEnd, ...endMark];
+  const crc = crc16x25(forCRC);
+  // CRC appended little-endian
+  return [...forCRC, crc & 0xFF, (crc >> 8) & 0xFF];
+}
+
+// ─── OBIS ASCII BUILDER ───────────────────────────────────────────────────────
+// Format: IEC 62056-21 / D0 telegram (processed line-by-line by Tasmota type 'o')
+function buildOBISAscii() {
+  const serial = document.getElementById('inpSerial').value || '12345678';
+  const is3ph  = get3ph();
+
+  const eIn   = +document.getElementById('vEnergyIn').value;
+  const eOut  = +document.getElementById('vEnergyOut').value;
+  const pNet  = Math.trunc(live.pNet);   // signed W (fluctuated)
+  const pL1   = Math.trunc(live.pL1);
+  const pL2   = Math.trunc(live.pL2);
+  const pL3   = Math.trunc(live.pL3);
+  const vL1   = live.vL1;
+  const vL2   = live.vL2;
+  const vL3   = live.vL3;
+  const iL1   = live.iL1;
+  const iL2   = live.iL2;
+  const iL3   = live.iL3;
+  const freq  = live.freq;
+
+  // Prefix from profile
+  const prefixes = { ehz363:'EHZ363W5', emh_ehz:'EMH5eHZ-K', lgz_e220:'LGZ5E220',
+    iskra_mt174:'ISK5MT382-1000', obis_1ph:'MST5Emulator', obis_3ph:'MST5Emulator3',
+    ehz363_3ph:'EHZ5three' };
+  const pfx = prefixes[document.getElementById('selProfile').value] || 'MST5Generic';
+
+  // Format energy: 6 digits before decimal, 4 after
+  const fmtE = v => {
+    const [i,d=''] = v.toFixed(4).split('.');
+    return i.padStart(6,'0') + '.' + d.padEnd(4,'0');
+  };
+  // Format power in W (signed integer string, padded)
+  const fmtW = v => (v >= 0 ? '+' : '-') + String(Math.abs(v)).padStart(5,'0') + '*W';
+  const fmtV = v => v.toFixed(1) + '*V';
+  const fmtA = v => v.toFixed(3) + '*A';
+
+  const ts = nowObis();
+  let out = `/${pfx}\r\n\r\n`;
+  out += `0-0:1.0.0(${ts}W)\r\n`;
+  out += `1-0:0.0.0(${serial})\r\n`;
+  out += `1-0:1.8.0(${fmtE(eIn)}*kWh)\r\n`;
+  out += `1-0:2.8.0(${fmtE(eOut)}*kWh)\r\n`;
+  out += `1-0:16.7.0(${fmtW(pNet)})\r\n`;
+
+  if (is3ph) {
+    out += `1-0:36.7.0(${fmtW(pL1)})\r\n`;
+    out += `1-0:56.7.0(${fmtW(pL2)})\r\n`;
+    out += `1-0:76.7.0(${fmtW(pL3)})\r\n`;
+    out += `1-0:32.7.0(${fmtV(vL1)})\r\n`;
+    out += `1-0:52.7.0(${fmtV(vL2)})\r\n`;
+    out += `1-0:72.7.0(${fmtV(vL3)})\r\n`;
+    out += `1-0:31.7.0(${fmtA(iL1)})\r\n`;
+    out += `1-0:51.7.0(${fmtA(iL2)})\r\n`;
+    out += `1-0:71.7.0(${fmtA(iL3)})\r\n`;
+  } else {
+    out += `1-0:32.7.0(${fmtV(vL1)})\r\n`;
+    out += `1-0:31.7.0(${fmtA(iL1)})\r\n`;
+  }
+  out += `1-0:14.7.0(${freq.toFixed(1)}*Hz)\r\n`;
+  out += `!\r\n`;
+  return out;
+}
+
+// ─── T510 OBIS TELEGRAM BUILDER ───────────────────────────────────────────────
+// T510 uses simplified OBIS codes (no A-B: prefix) and reports power in mW.
+// Descriptor divisor @0.001 converts mW → W on the Tasmota side.
+function buildT510Ascii() {
+  const serial = document.getElementById('inpSerial').value || 'T510001';
+  const ts     = nowObis();
+  const eIn    = +document.getElementById('vEnergyIn').value || 0;
+
+  // Power reported in mW (T510 native unit)
+  const pL1mW = Math.round(live.pL1 * 1000);
+  const pL2mW = Math.round(live.pL2 * 1000);
+  const pL3mW = Math.round(live.pL3 * 1000);
+
+  let out = `/T515${serial}\r\n`;
+  out += `\r\n`;
+  out += `0.0.0(${serial})\r\n`;
+  out += `0.9.1(${ts})\r\n`;
+  out += `1.8.0(${eIn.toFixed(3)})\r\n`;
+  out += `21.7.0(${pL1mW})\r\n`;
+  out += `41.7.0(${pL2mW})\r\n`;
+  out += `61.7.0(${pL3mW})\r\n`;
+  out += `31.7.0(${live.iL1.toFixed(2)})\r\n`;
+  out += `51.7.0(${live.iL2.toFixed(2)})\r\n`;
+  out += `71.7.0(${live.iL3.toFixed(2)})\r\n`;
+  out += `!\r\n`;
+  return out;
+}
+
+function nowObis() {
+  const d = new Date(), p = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()%100}${p(d.getMonth()+1)}${p(d.getDate())}` +
+         `${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+// ─── TASMOTA SCRIPT GENERATOR ─────────────────────────────────────────────────
+
+// Returns the current descriptor content — from the textarea (respects manual edits).
+// Upload and download always use this, never buildMeterDefContent() directly.
+function getDescriptorContent() {
+  return document.getElementById('tasmotaScript').value;
+}
+
+function generateScript() {
+  document.getElementById('tasmotaScript').value = buildMeterDefContent();
+}
+// Alias used by pin/IP input oninput handlers to live-regenerate the descriptor
+const updateScript = generateScript;
+
+function copyScript() {
+  const txt = getDescriptorContent();
+  if (!txt) { log('err', 'Nothing to copy — click Regenerate first'); return; }
+  navigator.clipboard.writeText(txt)
+    .then(() => log('info', 'Descriptor copied to clipboard'))
+    .catch(() => log('err', 'Clipboard copy failed'));
+}
+
+// ─── PROFILE SETUP ────────────────────────────────────────────────────────────
+function applyProfile() {
+  const p = document.getElementById('selProfile').value;
+  const cfgs = {
+    ehz363:     { proto:'sml',    baud:'9600', ser:'8N1', serial:'EHZ00123456' },
+    emh_ehz:    { proto:'sml',    baud:'9600', ser:'8N1', serial:'EMH00654321' },
+    lgz_e220:   { proto:'sml',    baud:'9600', ser:'8N1', serial:'LGZ00112233' },
+    ehz363_3ph: { proto:'sml',    baud:'9600', ser:'8N1', serial:'EHZ3P000001' },
+    iskra_mt174:{ proto:'obis',   baud:'9600', ser:'7E1', serial:'ISK00987654' },
+    obis_1ph:   { proto:'obis',   baud:'9600', ser:'7E1', serial:'12345678'    },
+    obis_3ph:   { proto:'obis',   baud:'9600', ser:'7E1', serial:'12345678'    },
+    sdm630:     { proto:'modbus', baud:'9600', ser:'8N1', serial:'SDM630'      },
+    sdm630_tcp: { proto:'modbus', baud:'9600', ser:'8N1', serial:'SDM630', tcp: true },
+    t510:       { proto:'obis',   baud:'300',  ser:'7E1', serial:'T510001'     },
+  };
+  const c = cfgs[p] || {};
+  if (c.proto)  setSel('selProto',  c.proto);
+  if (c.baud)   setSel('selBaud',   c.baud);
+  if (c.ser)    setSel('selSerial', c.ser);
+  if (c.serial) document.getElementById('inpSerial').value = c.serial;
+  // Show/hide L2/L3 based on 3-phase
+  document.getElementById('grpL23').classList.toggle('dim', !get3ph());
+  applyTxPanel();
+
+  // Show TCP settings panel only for TCP profiles
+  const isTcp = !!c.tcp;
+  document.getElementById('tcpPanel').style.display    = isTcp ? '' : 'none';
+  document.getElementById('btnConnect').style.display  = isTcp ? 'none' : '';
+  document.getElementById('btnDisconnect').style.display = 'none';
+  document.getElementById('warnSerial').style.display  = (isTcp || 'serial' in navigator) ? 'none' : '';
+  if (isTcp) {
+    // TCP mode: descriptor-only, no Start button
+    document.getElementById('btnStart').disabled = true;
+    document.getElementById('btnOnce').disabled  = true;
+  }
+  persistSave();
+
+  // Update auto-mode status message
+  if (p === 't510') {
+    document.getElementById('modbusStatus').style.color = '#7a9cbf';
+    document.getElementById('modbusStatus').textContent = 'Connect serial port — IEC 62056-21 mode (300→9600 baud)';
+  } else if (p === 'sdm630') {
+    document.getElementById('modbusStatus').style.color = '#7a9cbf';
+    document.getElementById('modbusStatus').textContent = 'Connect serial port — slave starts automatically';
+  }
+}
+
+function get3ph() {
+  const p = document.getElementById('selProfile').value;
+  return p.includes('3ph') || p === 'iskra_mt174' || p === 'obis_3ph'
+      || p === 'sdm630' || p === 'sdm630_tcp' || p === 't510';
+}
+
+function isT510() { return document.getElementById('selProfile').value === 't510'; }
+
+function isTcpProfile() {
+  return document.getElementById('selProfile').value.endsWith('_tcp');
+}
+
+function isModbusRtu() {
+  return document.getElementById('selProto').value === 'modbus' && !isTcpProfile();
+}
+
+function applyTxPanel() {
+  const mb = isModbusRtu();
+  const t5 = isT510();
+  document.getElementById('txIntervalRow').style.display  = (mb || t5) ? 'none' : '';
+  document.getElementById('txTimerPanel').style.display   = (mb || t5) ? 'none' : '';
+  document.getElementById('txModbusPanel').style.display  = (mb || t5) ? '' : 'none';
+}
+
+function setSel(id, val) {
+  const el = document.getElementById(id);
+  for (const o of el.options) if (o.value === val) { el.value = val; break; }
+}
+
+// ─── UTILITY ─────────────────────────────────────────────────────────────────
+function asciiBytes(s) {
+  return Array.from(s, c => c.charCodeAt(0) & 0xFF);
+}
+
+function hexDump(data) {
+  let out = '';
+  for (let i = 0; i < data.length; i += 16) {
+    const chunk = data.slice(i, i + 16);
+    const hex   = Array.from(chunk).map(b => b.toString(16).padStart(2,'0')).join(' ');
+    const ascii = Array.from(chunk).map(b => (b >= 32 && b < 127) ? String.fromCharCode(b) : '.').join('');
+    out += `${i.toString(16).padStart(4,'0')}  ${hex.padEnd(47)}  ${ascii}\n`;
+  }
+  return out;
+}
+
+function hexLine(data, maxBytes = 48) {
+  const arr = data.length > maxBytes ? data.slice(0, maxBytes) : data;
+  const hex = Array.from(arr).map(b => b.toString(16).padStart(2,'0')).join(' ');
+  return hex + (data.length > maxBytes ? ` … (+${data.length - maxBytes} more)` : '');
+}
+
+function log(type, msg) {
+  const body = document.getElementById('logBody');
+  const time = new Date().toLocaleTimeString('de-DE', {hour12:false});
+  const div  = document.createElement('div');
+  div.className = 'log-entry';
+  const cls = {tx:'log-tx', err:'log-err', info:'log-info'}[type] || 'log-info';
+  div.innerHTML = `<span class="log-time">${time}</span><span class="${cls}">${esc(msg)}</span>`;
+  body.appendChild(div);
+  while (body.children.length > 300) body.removeChild(body.firstChild);
+  body.scrollTop = body.scrollHeight;
+}
+
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+          .replace(/\n/g,'<br>&nbsp;&nbsp;');
+}
+
+function clearLog() { document.getElementById('logBody').innerHTML = ''; }
+
+// ─── DEPLOY TO DEVICE ─────────────────────────────────────────────────────────
+
+// Build the sml_meter.def content.
+// Format (per Tasmota SML driver):
+//   >M <count>
+//   +<id>,<rx_gpio>,<type>,<sopt>,<baud>,<name>
+//   <id>,<obis_pattern>(@<div>,<label>,<unit>,<mqtt_name>,<decimals>
+//   #
+//
+// Meter def line: +1,<rx>,s|o|m,0,<baud>,<name>[,<tx>,<interval_sec>,<req0>,...]
+//   '+' prefix mandatory, no trailing comma
+//   Modbus: tx after name, then query interval in seconds, then request hex list
+//   Modbus TCP: rx=>[ip], tx=>0, baud=>port
+//
+// OBIS ASCII (type 'o') pattern = substring to match in incoming line.
+//   Include the opening '(' to anchor after the OBIS code:
+//   e.g. "1-0:1.8.0(" matches "1-0:1.8.0(00017.485*kWh)"
+//   Value is parsed as float immediately after the matched pattern.
+//   @1 = divide by 1 (values already in display units in OBIS ASCII)
+//
+// SML binary (type 's') pattern = 12-char hex of 6 OBIS bytes [A,B,C,D,E,F]
+//   e.g. 1-0:1.8.0*255 → [01,00,01,08,00,FF] → "0100010800ff"
+//   Divisors match the integer scalers used in buildSMLFrame():
+//   energy: Wh integers  → @1000 → kWh
+//   power:  W integers   → @1   → W
+//   voltage: v*10        → @10  → V
+//   current: i*1000      → @1000 → A
+//   freq:    f*10        → @10  → Hz
+function buildMeterDefContent() {
+  const proto = document.getElementById('selProto').value;
+  const baud  = document.getElementById('selBaud').value;
+  const is3ph = get3ph();
+  const gpio  = +document.getElementById('inpRxPin').value || 44;
+  const type  = proto === 'sml' ? 's' : proto === 'modbus' ? 'm' : 'o';
+
+  // Meter name: short label for each profile, max 7 chars, no spaces
+  const profileNames = {
+    ehz363:      'EHZ363W',
+    emh_ehz:     'EMHeHZ',
+    lgz_e220:    'LGZE220',
+    ehz363_3ph:  'EHZ3PH',
+    iskra_mt174: 'ISKRA',
+    obis_1ph:    'OBIS1PH',
+    obis_3ph:    'OBIS3PH',
+    sdm630:      'SDM630',
+    sdm630_tcp:  'SDM630',
+    t510:        'T510',
+  };
+  const profileKey  = document.getElementById('selProfile').value;
+  const meterName   = (profileNames[profileKey] || profileKey.toUpperCase()).substring(0, 7);
+
+  // ── T510: meter def + embedded TinyC baud-switching code ────────────────────
+  // TinyC IDE extracts the TinyC functions below and compiles them alongside
+  // the SML driver. Every100ms() replaces scripter >F (100ms tick).
+  if (profileKey === 't510') {
+    const txPin = +document.getElementById('inpTxPin').value || 43;
+    let s = `>M 1\n`;
+    s += `+1,${gpio},o,0,9600,T510,${txPin}\n`;
+    s += `1,0.0.0(@1,Zaehler,,Meter_number,0\n`;
+    s += `1,0.9.1(@#),Zeitstempel,Uhr,Timestamp,0\n`;
+    s += `1,1.8.0(@1,Zaehlerstand,kWh,Total_in,3\n`;
+    s += `1,21.7.0(@0.001,Leistung L1,W,Power_L1,0\n`;
+    s += `1,41.7.0(@0.001,Leistung L2,W,Power_L2,0\n`;
+    s += `1,61.7.0(@0.001,Leistung L3,W,Power_L3,0\n`;
+    s += `1,=m 4+5+6 @1,Leistung,W,Power_total,0\n`;
+    s += `1,31.7.0(@1,Strom L1,A,Current_L1,2\n`;
+    s += `1,51.7.0(@1,Strom L2,A,Current_L2,2\n`;
+    s += `1,71.7.0(@1,Strom L3,A,Current_L3,2\n`;
+    s += `#\n`;
+    // TinyC IDE reads Every100ms() from here and injects its body into the TinyC program.
+    // scnt: static int — persists across calls, zero-initialised on first entry.
+    // wake_hex / ack_hex: plain locals — re-initialised each 100ms call (fine).
+    s += `\n`;
+    s += `void Every100ms() {\n`;
+    s += `    static int scnt = 0;\n`;
+    s += `    char wake_hex[] = "2F3F210D0A";\n`;
+    s += `    char ack_hex[]  = "063035300D0A";\n`;
+    s += `    scnt = scnt + 1;\n`;
+    s += `    if (scnt == 6) {\n`;
+    s += `        smlSetBaud(1, 300);\n`;
+    s += `        smlWrite(1, wake_hex);\n`;
+    s += `    }\n`;
+    s += `    if (scnt == 18) {\n`;
+    s += `        smlWrite(1, ack_hex);\n`;
+    s += `    }\n`;
+    s += `    if (scnt == 20) {\n`;
+    s += `        smlSetBaud(1, 9600);\n`;
+    s += `    }\n`;
+    s += `    if (scnt == 50) {\n`;
+    s += `        scnt = 0;\n`;
+    s += `    }\n`;
+    s += `}\n`;
+    return s;
+  }
+
+  let s = `>M 1\n`;
+
+  if (proto === 'modbus') {
+    // SDM630 Modbus RTU or TCP — single float per request (2 registers = 4 bytes each).
+    // For TCP: gpio field is replaced by [ip:port] — Tasmota connects to that address.
+    // For RTU: gpio field is the RX pin number.
+    // Each request hex: addr(01)+FC(04)+regHi+regLo (count 00 02 and CRC added by Tasmota).
+    // Empty slot (,,) = slot queried but no @iN value line.
+    // @iN matches Nth response; 010404ffffffff = FC04 response with 4 data bytes (1 float32).
+    const isTcp = isTcpProfile();
+    const bridgeIp   = (document.getElementById('inpBridgeIP')?.value.trim()  ) || '192.168.188.1';
+    const bridgePort = (document.getElementById('inpBridgePort')?.value.trim()) || '502';
+    const txPin      = +document.getElementById('inpTxPin').value || 43;
+    const gpioField  = isTcp ? `[${bridgeIp}]` : `${gpio}`;
+    const txField    = isTcp ? '0' : `${txPin}`;
+    const baudField  = isTcp ? bridgePort : baud;
+    // format: +id,rx,m,0,baud,name,tx,interval_sec,req0,req1,...
+    s += `+1,${gpioField},m,0,${baudField},${meterName},${txField},5,`;
+    s += `01040000,01040002,01040004,01040006,01040008,0104000a,`;
+    s += `0104000c,0104000e,01040010,,01040048,0104004a\n`;
+    s += `1,010404ffffffff@i0:1,Spannung P1,V,Voltage_P1,2\n`;
+    s += `1,010404ffffffff@i1:1,Spannung P2,V,Voltage_P2,2\n`;
+    s += `1,010404ffffffff@i2:1,Spannung P3,V,Voltage_P3,2\n`;
+    s += `1,010404ffffffff@i3:1,Strom P1,A,Current_P1,2\n`;
+    s += `1,010404ffffffff@i4:1,Strom P2,A,Current_P2,2\n`;
+    s += `1,010404ffffffff@i5:1,Strom P3,A,Current_P3,2\n`;
+    s += `1,010404ffffffff@i6:1,Leistung P1,W,Power_P1,2\n`;
+    s += `1,010404ffffffff@i7:1,Leistung P2,W,Power_P2,2\n`;
+    s += `1,010404ffffffff@i8:1,Leistung P3,W,Power_P3,2\n`;
+    s += `1,010404ffffffff@i9:1,Verbrauch,KWh,Timp,3\n`;
+    s += `1,010404ffffffff@i10:1,Einspeisung,KWh,Texp,3\n`;
+  } else if (proto === 'obis') {
+    s += `+1,${gpio},o,0,${baud},${meterName}\n`;
+    // Pattern includes '(' to anchor match right after OBIS code.
+    // Telegram emits e.g. "1-0:1.8.0(00017.485*kWh)" so "1-0:1.8.0(" is unambiguous.
+    s += `1,1-0:1.8.0(@1,Verbrauch,kWh,Energy_In,3\n`;
+    s += `1,1-0:2.8.0(@1,Einspeisung,kWh,Energy_Out,3\n`;
+    s += `1,1-0:16.7.0(@1,Wirkleistung,W,Power_Net,0\n`;
+    if (is3ph) {
+      s += `1,1-0:36.7.0(@1,Wirkleistung L1,W,Power_L1,0\n`;
+      s += `1,1-0:56.7.0(@1,Wirkleistung L2,W,Power_L2,0\n`;
+      s += `1,1-0:76.7.0(@1,Wirkleistung L3,W,Power_L3,0\n`;
+      s += `1,1-0:32.7.0(@1,Spannung L1,V,Volt_L1,1\n`;
+      s += `1,1-0:52.7.0(@1,Spannung L2,V,Volt_L2,1\n`;
+      s += `1,1-0:72.7.0(@1,Spannung L3,V,Volt_L3,1\n`;
+      s += `1,1-0:31.7.0(@1,Strom L1,A,Curr_L1,3\n`;
+      s += `1,1-0:51.7.0(@1,Strom L2,A,Curr_L2,3\n`;
+      s += `1,1-0:71.7.0(@1,Strom L3,A,Curr_L3,3\n`;
+    } else {
+      s += `1,1-0:32.7.0(@1,Spannung,V,Voltage,1\n`;
+      s += `1,1-0:31.7.0(@1,Strom,A,Current,3\n`;
+    }
+    s += `1,1-0:14.7.0(@1,Frequenz,Hz,Frequency,1\n`;
+  } else {
+    s += `+1,${gpio},s,0,${baud},${meterName}\n`;
+    // SML binary: 12-char hex OBIS pattern, F-byte ff = tariff 255 (total/unspecified)
+    s += `1,0100010800ff@1000,Verbrauch,kWh,Energy_In,3\n`;       // 1-0:1.8.0*255
+    s += `1,0100020800ff@1000,Einspeisung,kWh,Energy_Out,3\n`;   // 1-0:2.8.0*255
+    s += `1,0100100700ff@1,Wirkleistung,W,Power_Net,0\n`;         // 1-0:16.7.0*255
+    if (is3ph) {
+      s += `1,0100240700ff@1,Wirkleistung L1,W,Power_L1,0\n`;    // 1-0:36.7.0*255
+      s += `1,0100380700ff@1,Wirkleistung L2,W,Power_L2,0\n`;    // 1-0:56.7.0*255
+      s += `1,01004c0700ff@1,Wirkleistung L3,W,Power_L3,0\n`;    // 1-0:76.7.0*255
+      s += `1,0100200700ff@10,Spannung L1,V,Volt_L1,1\n`;        // 1-0:32.7.0*255
+      s += `1,0100340700ff@10,Spannung L2,V,Volt_L2,1\n`;        // 1-0:52.7.0*255
+      s += `1,0100480700ff@10,Spannung L3,V,Volt_L3,1\n`;        // 1-0:72.7.0*255
+      s += `1,01001f0700ff@1000,Strom L1,A,Curr_L1,3\n`;         // 1-0:31.7.0*255
+      s += `1,0100330700ff@1000,Strom L2,A,Curr_L2,3\n`;         // 1-0:51.7.0*255
+      s += `1,0100470700ff@1000,Strom L3,A,Curr_L3,3\n`;         // 1-0:71.7.0*255
+    } else {
+      s += `1,0100200700ff@10,Spannung,V,Voltage,1\n`;            // 1-0:32.7.0*255
+      s += `1,01001f0700ff@1000,Strom,A,Current,3\n`;             // 1-0:31.7.0*255
+    }
+    s += `1,01000e0700ff@10,Frequenz,Hz,Frequency,1\n`;           // 1-0:14.7.0*255
+  }
+  s += `#\n`;
+  return s;
+}
+
+// Check if device is reachable.
+// Must use fetch no-cors: XHR onerror fires for CORS-blocked responses too,
+// making it impossible to tell "reachable but no CORS" from "not reachable".
+// fetch no-cors resolves with an opaque response if the server answers at all,
+// and only rejects on genuine network failure (connection refused / timeout).
+async function pingDevice() {
+  const ip = document.getElementById('inpDeviceIP').value.trim();
+  const el = document.getElementById('deviceStatus');
+  el.style.display = 'block'; el.style.color = '#7a9cbf';
+  el.textContent = `Pinging ${ip} …`;
+  try {
+    await fetch(`http://${ip}/`, { mode: 'no-cors', signal: AbortSignal.timeout(4000) });
+    // reaches here = server responded (opaque response, status unknown but device is up)
+    el.style.color = '#4caf50';
+    el.textContent = `✓ ${ip} reachable`;
+    log('info', `Ping OK: ${ip} is reachable`);
+  } catch(e) {
+    el.style.color = '#f44336';
+    el.textContent = `✗ ${ip} not reachable (${e.message})`;
+    log('err', `Ping failed: ${ip} — ${e.message}`);
+  }
+}
+
+// ── Direct upload via /tc_api?cmd=writefile (CORS-enabled, already in TinyC driver) ──
+async function uploadToDevice() {
+  const ip = document.getElementById('inpDeviceIP').value.trim();
+  if (!ip) { setStatus('#f44336', 'Enter device IP first.'); return; }
+
+  const content = getDescriptorContent();
+  if (!content) { setStatus('#f44336', 'Click Regenerate first to create the descriptor.'); return; }
+  const url     = `http://${ip}/tc_api?cmd=writefile&path=/sml_meter.def`;
+
+  setStatus('#7a9cbf', `Uploading sml_meter.def to ${ip} …`);
+  log('info', `POST ${url} (${content.length} B)`);
+
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      body: content,
+      headers: { 'Content-Type': 'text/plain' },
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => '');
+      setStatus('#f44336', `✗ Upload failed: HTTP ${resp.status} — ${txt}`);
+      log('err', `Upload HTTP ${resp.status}: ${txt}`);
+      return;
+    }
+    const json = await resp.json().catch(() => null);
+    if (json && json.ok) {
+      setStatus('#4caf50', `✓ /sml_meter.def saved (${json.size ?? content.length} B) — now click sensor53 r`);
+      log('info', `Saved /sml_meter.def on device`);
+    } else {
+      setStatus('#f44336', `✗ Upload error: ${json ? json.error : 'unknown'}`);
+      log('err', `Upload response: ${JSON.stringify(json)}`);
+    }
+  } catch(e) {
+    setStatus('#f44336', `✗ Upload failed: ${e.message}`);
+    log('err', `Upload error: ${e.message}`);
+  }
+}
+
+// ── FS modal ─────────────────────────────────────────────────────────────────
+function openFsModal() {
+  const ip = document.getElementById('inpDeviceIP').value.trim();
+  if (!ip) { alert('Enter device IP first.'); return; }
+  document.getElementById('fsModalOverlay').classList.add('open');
+  loadFsFiles(ip);
+}
+function closeFsModal() {
+  document.getElementById('fsModalOverlay').classList.remove('open');
+}
+async function loadFsFiles(ip) {
+  const body = document.getElementById('fsModalBody');
+  const setErr = msg => body.innerHTML = `<div class="fs-modal-status" style="color:#f44336">${msg}</div>`;
+  body.innerHTML = '<div class="fs-modal-status">Connecting…</div>';
+
+  // Reachability pre-check (no-cors, same as other places in this file)
+  try {
+    await fetch(`http://${ip}/`, { mode: 'no-cors', signal: AbortSignal.timeout(4000) });
+  } catch(e) {
+    setErr(`Device not reachable at ${ip}`);
+    return;
+  }
+
+  body.innerHTML = '<div class="fs-modal-status">Loading files…</div>';
+  try {
+    const resp = await fetch(`http://${ip}/tc_api?cmd=listfiles`, {
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!resp.ok) { setErr(`HTTP ${resp.status} — device may not have TinyC firmware`); return; }
+    const json = await resp.json();
+    if (!json.ok || !Array.isArray(json.files)) { setErr(json.error || 'Unexpected response'); return; }
+    if (json.files.length === 0) {
+      body.innerHTML = '<div class="fs-modal-status">No files found.</div>';
+      return;
+    }
+    const rows = json.files.map(f => {
+      const sz = f.size < 1024 ? `${f.size} B` : `${(f.size/1024).toFixed(1)} KB`;
+      const enc = encodeURIComponent(f.name);
+      const safeName = f.name.replace(/'/g, "\'");
+      return `<div class="fs-file-row">
+        <span class="fs-file-name" title="${f.name}">${f.name}</span>
+        <span class="fs-file-size">${sz}</span>
+        <button class="fs-file-dl" onclick="downloadFsFile('${ip}','${enc}','${safeName}')">⬇</button>
+      </div>`;
+    }).join('');
+    body.innerHTML = rows;
+  } catch(e) {
+    setErr(e.name === 'TimeoutError' ? 'Timeout fetching file list' : `Fetch error: ${e.message}`);
+  }
+}
+async function downloadFsFile(ip, encName, name) {
+  try {
+    const resp = await fetch(`http://${ip}/ufsd?download=${encName}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const blob = await resp.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = name; a.click();
+    URL.revokeObjectURL(url);
+  } catch(e) {
+    alert(`Download failed: ${e.message}`);
+  }
+}
+
+// ── ① Download sml_meter.def ──────────────────────────────────────────────────
+function downloadFile() {
+  const content  = getDescriptorContent() || buildMeterDefContent();
+  const fileName = 'sml_meter.def';
+  const blob = new Blob([content], { type: 'text/plain' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = fileName; a.click();
+  URL.revokeObjectURL(url);
+  setStatus('#4caf50', `✓ ${fileName} saved (${content.length} B)`);
+  log('info', `Downloaded ${fileName}`);
+  updateFSLink();
+}
+
+// ── ② sensor53 r via plain fetch no-cors (fire-and-forget, no response needed) ─
+async function sendSensor53r() {
+  const ip = document.getElementById('inpDeviceIP').value.trim();
+  if (!ip) { setStatus('#f44336', 'Enter device IP first.'); return; }
+  const url = `http://${ip}/cm?cmnd=sensor53%20r`;
+  setStatus('#7a9cbf', `Sending sensor53 r …`);
+  log('info', `GET ${url}`);
+  try {
+    await fetch(url, { mode: 'no-cors', signal: AbortSignal.timeout(4000) });
+    setStatus('#4caf50', '✓ sensor53 r sent');
+    log('info', 'sensor53 r sent (response opaque — command executed on device)');
+  } catch(e) {
+    setStatus('#f44336', `sensor53 r failed: ${e.message}`);
+    log('err', `sensor53 r: ${e.message}`);
+  }
+}
+
+function setStatus(color, msg) {
+  const el = document.getElementById('uploadStatus');
+  el.style.color = color; el.textContent = msg;
+}
+
+
+
+// ─── PERSIST ──────────────────────────────────────────────────────────────────
+const PERSIST_FIELDS = ['selProfile', 'inpDeviceIP', 'inpBridgeIP', 'inpBridgePort', 'inpRxPin', 'inpTxPin'];
+
+function persistSave() {
+  PERSIST_FIELDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) localStorage.setItem('sml_' + id, el.value);
+  });
+}
+
+function persistLoad() {
+  PERSIST_FIELDS.forEach(id => {
+    const val = localStorage.getItem('sml_' + id);
+    const el  = document.getElementById(id);
+    if (el && val !== null) el.value = val;
+  });
+}
+
+PERSIST_FIELDS.forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', persistSave);
+});
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+persistLoad();
+applyProfile();
+updateFSLink();
+log('info', 'SML/OBIS Meter Emulator ready. Connect via Web Serial API (Chrome 89+).');
+log('info', 'Connect ESP RX → USB-serial adapter TX. Set same baud rate on ESP SML script.');
+</script>
+
+<!-- ── FS modal ── -->
+<div id="fsModalOverlay" class="fs-modal-overlay" onclick="if(event.target===this)closeFsModal()">
+  <div class="fs-modal">
+    <div class="fs-modal-head">
+      <span>📁 Device Filesystem</span>
+      <button class="fs-modal-close" onclick="closeFsModal()">✕</button>
+    </div>
+    <div class="fs-modal-body" id="fsModalBody">
+      <div class="fs-modal-status" id="fsModalStatus">Loading…</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

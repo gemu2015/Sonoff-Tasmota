@@ -1482,7 +1482,7 @@ static void HandleTinyCUpload(void) {
 // ---- API endpoint for browser IDE (JSON + CORS) ----
 // GET /tc_api?cmd=run|stop|status&slot=N
 static void HandleTinyCApi(void) {
-  TCSendCORS("GET, OPTIONS");
+  TCSendCORS("GET, POST, OPTIONS");
 
   if (!Tinyc) {
     WSSendJSON_P(500, PSTR("{\"ok\":false,\"error\":\"not initialized\"}"));
@@ -1590,13 +1590,11 @@ static void HandleTinyCApi(void) {
     result += F("],\"heap\":");
     result += String(ESP_getFreeHeap());
     result += '}';
-    TCSendCORS("GET, OPTIONS");
     Webserver->send(200, F("application/json"), result);
     return;
   }
   else if (cmd == "freegpio") {
     // Return list of free (usable, not flash, not assigned) GPIO pins
-    TCSendCORS("GET, OPTIONS");
     String result = F("{\"ok\":true,\"gpios\":[");
     bool first = true;
     for (uint32_t i = 0; i < MAX_GPIO_PIN; i++) {
@@ -1645,7 +1643,6 @@ static void HandleTinyCApi(void) {
       root.close();
     }
     result += F("]}");
-    TCSendCORS("GET, OPTIONS");
     Webserver->send(200, F("application/json"), result);
     return;
   }
@@ -1707,7 +1704,6 @@ static void HandleTinyCApi(void) {
       return;
     }
 
-    TCSendCORS("GET, POST, OPTIONS");
 
     if (cmp_from && cmp_to && cmp_to > cmp_from) {
       // -- Time-filtered file serving --
