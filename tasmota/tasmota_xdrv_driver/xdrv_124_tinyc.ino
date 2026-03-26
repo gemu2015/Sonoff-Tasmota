@@ -3068,6 +3068,10 @@ bool Xdrv124(uint32_t function) {
         tc_all_callbacks("OnMqttDisconnect");
       }
       break;
+    case FUNC_EVERY_100_MSECOND:
+      if (tc_paused) { break; }
+      tc_all_callbacks("Every100ms");
+      break;
     case FUNC_EVERY_SECOND:
       if (tc_paused) { break; }
       // Call user's EverySecond() callback on all active slots
