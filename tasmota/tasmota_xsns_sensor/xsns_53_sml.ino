@@ -4157,6 +4157,10 @@ uint32_t SML_Write(int32_t meter, char *hstr) {
       meter_desc[meter].script_str = sml_globs.sml_write_buf[sml_globs.sml_write_tail];
     }
   } else
+#else
+  if (flag > 0) {
+    SML_Send_Seq(meter, hstr);
+  } else
 #endif // USE_BAT_CTRL
   if (flag < 0) {
     // 9600:8E1, only hardware serial
