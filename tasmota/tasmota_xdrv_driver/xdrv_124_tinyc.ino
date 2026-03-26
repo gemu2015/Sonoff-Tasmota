@@ -163,6 +163,28 @@ static void tc_all_callbacks(const char *name) {
   }
 }
 
+// Fast variants using pre-cached TcCallbackId — no strcmp at call time
+static void tc_slot_callback_id(TcSlot *s, TcCallbackId id) {
+  if (!s || !s->loaded || !s->running || !s->vm.halted || s->vm.error != TC_OK) return;
+  tc_current_slot = s;
+#ifdef ESP32
+  if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
+#endif
+  tc_vm_call_callback_id(&s->vm, id);
+#ifdef ESP32
+  if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+#endif
+  tc_current_slot = nullptr;
+}
+
+static void tc_all_callbacks_id(TcCallbackId id) {
+  if (!Tinyc) return;
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    TcSlot *s = Tinyc->slots[i];
+    if (s) tc_slot_callback_id(s, id);
+  }
+}
+
 // Call a named callback with a string argument on all active slots
 static void tc_all_callbacks_str(const char *name, const char *str) {
   if (!Tinyc) return;
@@ -412,7 +434,7 @@ static void TinyCEvery50ms(void) {
   }
 
   // Every50ms callback on all active slots
-  tc_all_callbacks("Every50ms");
+  tc_all_callbacks_id(TC_CB_EVERY_50MS);
 }
 
 /*********************************************************************************************\
@@ -2704,7 +2726,7 @@ static void TinyCShow(bool json) {
       }
       // Call user's JsonCall() on this slot (skip the slot that triggered sensorGet)
       if (s->loaded && s->vm.halted && s->vm.error == TC_OK && s != tc_sensor_get_slot) {
-        tc_slot_callback(s, "JsonCall");
+        tc_slot_callback_id(s, TC_CB_JSON_CALL);
       }
     }
   }
@@ -2730,7 +2752,7 @@ static void TinyCShow(bool json) {
       }
       // Call user's WebCall() on this slot (always active)
       if (s->loaded && s->vm.halted && s->vm.error == TC_OK) {
-        tc_slot_callback(s, "WebCall");
+        tc_slot_callback_id(s, TC_CB_WEB_CALL);
       }
     }
   }
@@ -3054,46 +3076,46 @@ bool Xdrv124(uint32_t function) {
 #endif
 #endif
       // Call user's EveryLoop() callback on all active slots
-      tc_all_callbacks("EveryLoop");
+      tc_all_callbacks_id(TC_CB_EVERY_LOOP);
       break;
     case FUNC_EVERY_50_MSECOND:
       if (tc_paused) { break; }
       TinyCEvery50ms();
       if (TasmotaGlobal.rules_flag.mqtt_disconnected) {
         TasmotaGlobal.rules_flag.mqtt_disconnected = 0;
-        tc_all_callbacks("OnMqttDisconnect");
+        tc_all_callbacks_id(TC_CB_ON_MQTT_DISCONNECT);
       }
       break;
     case FUNC_EVERY_100_MSECOND:
       if (tc_paused) { break; }
-      tc_all_callbacks("Every100ms");
+      tc_all_callbacks_id(TC_CB_EVERY_100MS);
       break;
     case FUNC_EVERY_SECOND:
       if (tc_paused) { break; }
       // Call user's EverySecond() callback on all active slots
-      tc_all_callbacks("EverySecond");
+      tc_all_callbacks_id(TC_CB_EVERY_SECOND);
       break;
     case FUNC_NETWORK_UP:
       if (!tc_init_done) {
         tc_init_done = true;
-        tc_all_callbacks("OnInit");
+        tc_all_callbacks_id(TC_CB_ON_INIT);
       }
       if (!tc_wifi_up) {
         tc_wifi_up = true;
-        tc_all_callbacks("OnWifiConnect");
+        tc_all_callbacks_id(TC_CB_ON_WIFI_CONNECT);
       }
       break;
     case FUNC_NETWORK_DOWN:
       if (tc_wifi_up) {
         tc_wifi_up = false;
-        tc_all_callbacks("OnWifiDisconnect");
+        tc_all_callbacks_id(TC_CB_ON_WIFI_DISCONNECT);
       }
       break;
     case FUNC_MQTT_INIT:
-      tc_all_callbacks("OnMqttConnect");
+      tc_all_callbacks_id(TC_CB_ON_MQTT_CONNECT);
       break;
     case FUNC_TIME_SYNCED:
-      tc_all_callbacks("OnTimeSet");
+      tc_all_callbacks_id(TC_CB_ON_TIME_SET);
       break;
     case FUNC_COMMAND:
       result = DecodeCommand(kTinyCCommands, TinyCCommand);
@@ -3262,7 +3284,7 @@ bool Xdrv124(uint32_t function) {
 #endif
     case FUNC_SAVE_BEFORE_RESTART:
       // Call user's CleanUp() callback on all active slots (like scripter's >R section)
-      tc_all_callbacks("CleanUp");
+      tc_all_callbacks_id(TC_CB_CLEANUP);
       // Save persist variables for all loaded slots
       for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
         TcSlot *s = Tinyc->slots[i];
