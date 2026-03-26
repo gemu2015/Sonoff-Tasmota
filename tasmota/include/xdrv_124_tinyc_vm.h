@@ -209,7 +209,7 @@ typedef enum : int8_t {
 } TcCallbackId;
 
 // Lookup table: name string → TcCallbackId (for load-time cache population)
-static const struct { const char *name; TcCallbackId id; } TC_CB_NAME_MAP[] PROGMEM = {
+static const struct { const char *name; TcCallbackId id; } TC_CB_NAME_MAP[] = {
   { "EveryLoop",          TC_CB_EVERY_LOOP         },
   { "Every50ms",          TC_CB_EVERY_50MS         },
   { "Every100ms",         TC_CB_EVERY_100MS        },
@@ -1715,10 +1715,11 @@ static TcUdpVar* tc_udp_find_var(const char *name, bool create) {
   return nullptr;  // table full
 }
 
-// Forward declaration — defined later in this file
-static int tc_vm_call_callback(TcVM *vm, const char *name);
+// Forward declarations — defined later in this file
+static int  tc_vm_call_callback(TcVM *vm, const char *name);
+static bool tc_frame_alloc(TcFrame *frame);
+static int  tc_vm_step(TcVM *vm);
 
-// Check if a named callback exists in the loaded program
 // Fast callback invocation by pre-cached ID — no strcmp, O(1) lookup
 static int tc_vm_call_callback_id(TcVM *vm, TcCallbackId id) {
   if (id < 0 || id >= TC_CB_COUNT) return TC_OK;
@@ -9118,12 +9119,15 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   }
 
   // Build cb_cache: map known TcCallbackId → vm->callbacks[] index for zero-strcmp dispatch
-  memset(vm->cb_cache, TC_CB_UNKNOWN, sizeof(vm->cb_cache));
-  for (uint8_t ci = 0; ci < vm->callback_count; ci++) {
-    for (uint8_t mi = 0; mi < (uint8_t)(sizeof(TC_CB_NAME_MAP)/sizeof(TC_CB_NAME_MAP[0])); mi++) {
-      if (strcmp_P(vm->callbacks[ci].name, (const char*)pgm_read_ptr(&TC_CB_NAME_MAP[mi].name)) == 0) {
-        vm->cb_cache[(int8_t)pgm_read_byte(&TC_CB_NAME_MAP[mi].id)] = (int8_t)ci;
-        break;
+  memset(vm->cb_cache, (uint8_t)TC_CB_UNKNOWN, sizeof(vm->cb_cache));
+  {
+    const uint8_t n_map = (uint8_t)(sizeof(TC_CB_NAME_MAP)/sizeof(TC_CB_NAME_MAP[0]));
+    for (uint8_t ci = 0; ci < vm->callback_count; ci++) {
+      for (uint8_t mi = 0; mi < n_map; mi++) {
+        if (strcmp(vm->callbacks[ci].name, TC_CB_NAME_MAP[mi].name) == 0) {
+          vm->cb_cache[(uint8_t)TC_CB_NAME_MAP[mi].id] = (int8_t)ci;
+          break;
+        }
       }
     }
   }
@@ -10201,6 +10205,27 @@ static void tc_slot_callback(TcSlot *s, const char *name) {
   if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
 #endif
   tc_current_slot = nullptr;
+}
+
+static void tc_slot_callback_id(TcSlot *s, TcCallbackId id) {
+  if (!s || !s->loaded || !s->running || !s->vm.halted || s->vm.error != TC_OK) return;
+  tc_current_slot = s;
+#ifdef ESP32
+  if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
+#endif
+  tc_vm_call_callback_id(&s->vm, id);
+#ifdef ESP32
+  if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+#endif
+  tc_current_slot = nullptr;
+}
+
+static void tc_all_callbacks_id(TcCallbackId id) {
+  if (!Tinyc) return;
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    TcSlot *s = Tinyc->slots[i];
+    if (s) tc_slot_callback_id(s, id);
+  }
 }
 
 // Helper: derive .pvs persist filename from .tcb filename

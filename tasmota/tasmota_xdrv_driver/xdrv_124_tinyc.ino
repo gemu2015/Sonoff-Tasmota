@@ -163,27 +163,8 @@ static void tc_all_callbacks(const char *name) {
   }
 }
 
-// Fast variants using pre-cached TcCallbackId — no strcmp at call time
-static void tc_slot_callback_id(TcSlot *s, TcCallbackId id) {
-  if (!s || !s->loaded || !s->running || !s->vm.halted || s->vm.error != TC_OK) return;
-  tc_current_slot = s;
-#ifdef ESP32
-  if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
-#endif
-  tc_vm_call_callback_id(&s->vm, id);
-#ifdef ESP32
-  if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
-#endif
-  tc_current_slot = nullptr;
-}
-
-static void tc_all_callbacks_id(TcCallbackId id) {
-  if (!Tinyc) return;
-  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
-    TcSlot *s = Tinyc->slots[i];
-    if (s) tc_slot_callback_id(s, id);
-  }
-}
+// tc_slot_callback_id / tc_all_callbacks_id are defined in vm.h
+// (avoids Arduino auto-prototyper emitting unknown TcCallbackId / TcSlot types)
 
 // Call a named callback with a string argument on all active slots
 static void tc_all_callbacks_str(const char *name, const char *str) {
