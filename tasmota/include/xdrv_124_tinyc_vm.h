@@ -5819,10 +5819,16 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       a = TC_POP(vm);  // url ref
       char url[256];
       tc_ref_to_cstr(vm, a, url, sizeof(url));
+#if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
+      HTTPClientLight http;
+      http.setTimeout(5000);
+      http.begin(url);
+#else
       WiFiClient http_client;
       HTTPClient http;
       http.setTimeout(5000);
       http.begin(http_client, url);
+#endif
       // Add custom headers
       for (int i = 0; i < Tinyc->http_hdr_count; i++) {
         http.addHeader(Tinyc->http_hdr_name[i], Tinyc->http_hdr_value[i]);
@@ -5845,7 +5851,6 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         result = httpCode;  // negative error code
       }
       http.end();
-      http_client.stop();
       TC_PUSH(vm, result);
       break;
     }
@@ -5857,10 +5862,16 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       tc_ref_to_cstr(vm, a, url, sizeof(url));
       char postData[TC_OUTPUT_SIZE];
       tc_ref_to_cstr(vm, dataRef, postData, sizeof(postData));
+#if defined(ESP32) && defined(USE_WEBCLIENT_HTTPS)
+      HTTPClientLight http;
+      http.setTimeout(5000);
+      http.begin(url);
+#else
       WiFiClient http_client;
       HTTPClient http;
       http.setTimeout(5000);
       http.begin(http_client, url);
+#endif
       http.addHeader(F("Content-Type"), F("application/x-www-form-urlencoded"));
       for (int i = 0; i < Tinyc->http_hdr_count; i++) {
         http.addHeader(Tinyc->http_hdr_name[i], Tinyc->http_hdr_value[i]);
@@ -5883,7 +5894,6 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         result = httpCode;
       }
       http.end();
-      http_client.stop();
       TC_PUSH(vm, result);
       break;
     }
@@ -8933,6 +8943,11 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
     }
     vm->const_count++;
   }
+  // Problem #1: warn if constant pool was truncated (more entries in binary than TC_MAX_CONSTANTS)
+  if (offset < const_end) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: constant pool truncated — loaded %d/%d entries (max %d). Recompile with fewer string literals."),
+           vm->const_count, prescan_count, TC_MAX_CONSTANTS);
+  }
 
   // Parse heap declarations and pre-allocate blocks
   uint16_t heap_end = const_end + heap_decl_size;
@@ -8946,8 +8961,18 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
       total_heap += sz;
     }
     if (total_heap > 0) {
+      // Problem #2: log descriptive error before OOM return
+      if (total_heap > TC_MAX_HEAP) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: heap OOM — need %u slots (%u KB), max %u (%u KB). Reduce array sizes."),
+               total_heap, (unsigned)(total_heap * 4 / 1024), (unsigned)TC_MAX_HEAP, (unsigned)(TC_MAX_HEAP * 4 / 1024));
+        return TC_ERR_STACK_OVERFLOW;
+      }
       vm->heap_data = (int32_t *)special_calloc(total_heap, sizeof(int32_t));
-      if (!vm->heap_data) return TC_ERR_STACK_OVERFLOW;  // OOM
+      if (!vm->heap_data) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: heap alloc failed (%u slots, %u KB) — not enough free heap."),
+               total_heap, (unsigned)(total_heap * 4 / 1024));
+        return TC_ERR_STACK_OVERFLOW;
+      }
       vm->heap_capacity = total_heap;
       vm->heap_handles = (TcHeapHandle *)calloc(TC_MAX_HEAP_HANDLES, sizeof(TcHeapHandle));
       if (!vm->heap_handles) { free(vm->heap_data); vm->heap_data = nullptr; return TC_ERR_STACK_OVERFLOW; }
@@ -10053,7 +10078,7 @@ static void tc_vm_task(void *param) {
 
 // Call a named callback on a single slot, with mutex protection and tc_current_slot set
 static void tc_slot_callback(TcSlot *s, const char *name) {
-  if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) return;
+  if (!s || !s->loaded || !s->running || !s->vm.halted || s->vm.error != TC_OK) return;
   tc_current_slot = s;
 #ifdef ESP32
   if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
