@@ -9227,6 +9227,11 @@ static int tc_vm_call_callback_str(TcVM *vm, const char *name, const char *str) 
   int32_t slots = slen + 1;  // include null terminator
   if (slots > 512) slots = 512;  // cap at 512 chars
 
+  // Save heap position so we can reclaim the temp buffer after the callback.
+  // tc_heap_free_handle() only marks alive=false but never rewinds heap_used
+  // (bump allocator), so without this every Command call leaks 'slots' permanently.
+  uint16_t saved_heap_used = vm->heap_used;
+
   // Allocate temporary heap buffer
   int handle = tc_heap_alloc(vm, slots);
   if (handle < 0) {
@@ -9248,8 +9253,9 @@ static int tc_vm_call_callback_str(TcVM *vm, const char *name, const char *str) 
   // Call the callback (it will pop the ref as its parameter)
   int err = tc_vm_call_callback(vm, name);
 
-  // Free temp buffer
+  // Free temp buffer and rewind bump allocator to reclaim the space
   tc_heap_free_handle(vm, handle);
+  vm->heap_used = saved_heap_used;
 
   return err;
 }
