@@ -106,6 +106,14 @@ input:focus, select:focus { border-color: #7eb8f7; }
   flex-shrink: 0; }
 .fs-file-dl:hover { border-color: #7eb8f7; color: #7eb8f7; }
 .fs-modal-status { padding: 10px 14px; font-size: 0.78em; color: #7a9cbf; }
+
+/* ── Writable registers ──────────────────────────────────────────────────── */
+.wreg-row { display: grid; grid-template-columns: 80px 1fr 110px; gap: 6px; align-items: center; margin-bottom: 5px; }
+.wreg-row label { font-size: 0.72em; color: #7a9cbf; margin: 0; }
+.wreg-addr { font-family: monospace; font-size: 0.78em; color: #ffb74d; }
+.wreg-val  { font-family: monospace; font-size: 0.85em; color: #4fc3f7; text-align: right; padding: 3px 6px;
+             background: #050d1a; border: 1px solid #1a4a7a; border-radius: 3px; }
+.wreg-written { border-color: #4caf50 !important; color: #4caf50 !important; transition: border-color 0.5s, color 0.5s; }
 </style>
 </head>
 <body>
@@ -299,6 +307,18 @@ input:focus, select:focus { border-color: #7eb8f7; }
         Connect serial port — slave starts automatically
       </div>
     </div>
+  </div>
+
+  <!-- WRITABLE REGISTERS (shown for Modbus profiles) -->
+  <div class="panel" id="wregPanel" style="display:none;">
+    <h2>Writable Registers <span style="font-size:0.8em;font-weight:400;color:#7a9cbf;">(FC06 / FC16)</span></h2>
+    <div style="font-size:0.72em;color:#7a9cbf;margin-bottom:8px;">Master can write these registers. Values update live.</div>
+    <div style="display:grid;grid-template-columns:80px 1fr 110px;gap:4px;margin-bottom:4px;">
+      <label style="font-size:0.7em;color:#555;">Addr (hex)</label>
+      <label style="font-size:0.7em;color:#555;">Name</label>
+      <label style="font-size:0.7em;color:#555;text-align:right;">Value</label>
+    </div>
+    <div id="wregRows"></div>
   </div>
 
   <!-- DEPLOY TO DEVICE -->
@@ -637,6 +657,64 @@ function crc16x25(bytes) {
   return (crc ^ 0xFFFF) & 0xFFFF;
 }
 
+// ─── WRITABLE REGISTERS ──────────────────────────────────────────────────────
+// 4 user-configurable writable registers (FC06 write single, FC16 write multiple)
+// Each entry: { addr, name, value (float32) }
+const WREG_DEFAULTS = [
+  { addr: 0x1000, name: 'Setpoint W',   value: 0 },
+  { addr: 0x1002, name: 'Limit A',      value: 0 },
+  { addr: 0x1004, name: 'Control mode', value: 0 },
+  { addr: 0x1006, name: 'Reserve',      value: 0 },
+];
+let wregStore = WREG_DEFAULTS.map(r => ({ ...r }));
+
+function buildWregRows() {
+  const container = document.getElementById('wregRows');
+  if (container.dataset.built) return;  // only build once
+  container.dataset.built = '1';
+  container.innerHTML = '';
+  wregStore.forEach((r, i) => {
+    const row = document.createElement('div');
+    row.className = 'wreg-row';
+    row.innerHTML =
+      `<input class="wreg-addr" id="wregAddr${i}" type="text" value="0x${r.addr.toString(16).toUpperCase().padStart(4,'0')}"
+         style="background:#0a1628;border:1px solid #1a4a7a;color:#ffb74d;padding:3px 5px;border-radius:3px;font-family:monospace;font-size:0.78em;width:100%;"
+         oninput="wregAddrChange(${i})" title="Register address (hex)">` +
+      `<input type="text" id="wregName${i}" value="${r.name}"
+         style="background:#0a1628;border:1px solid #1a4a7a;color:#e0e0e0;padding:3px 6px;border-radius:3px;font-size:0.78em;width:100%;"
+         oninput="wregStore[${i}].name=this.value">` +
+      `<div class="wreg-val" id="wregVal${i}">—</div>`;
+    container.appendChild(row);
+  });
+}
+
+function wregAddrChange(i) {
+  const v = parseInt(document.getElementById(`wregAddr${i}`).value, 16);
+  if (!isNaN(v)) wregStore[i].addr = v;
+}
+
+function wregFind(reg) {
+  return wregStore.find(r => r.addr === reg || r.addr === (reg & ~1));
+}
+
+function wregSet(reg, rawHigh, rawLow) {
+  // rawHigh / rawLow are the two uint16 register values (big-endian float32)
+  const buf = new ArrayBuffer(4);
+  new DataView(buf).setUint16(0, rawHigh, false);
+  new DataView(buf).setUint16(2, rawLow,  false);
+  const val = new DataView(buf).getFloat32(0, false);
+  const idx = wregStore.findIndex(r => r.addr === (reg & ~1));
+  if (idx < 0) return;
+  wregStore[idx].value = val;
+  const el = document.getElementById(`wregVal${idx}`);
+  if (el) {
+    el.textContent = isFinite(val) ? val.toFixed(3) : String(val);
+    el.classList.add('wreg-written');
+    setTimeout(() => el.classList.remove('wreg-written'), 800);
+  }
+  log('info', `Modbus WRITE reg=0x${(reg&~1).toString(16).toUpperCase()} "${wregStore[idx].name}" = ${val.toFixed(3)}`);
+}
+
 // ─── MODBUS RTU SLAVE (SDM630) ────────────────────────────────────────────────
 // CRC-16/Modbus: poly=0xA001 (reflected 0x8005), init=0xFFFF, no XOR out
 function crc16modbus(bytes) {
@@ -678,25 +756,88 @@ function sdm630RegValue(reg) {
   }
 }
 
-// Modbus RTU request: [addr][FC04][regHi][regLo][00][02][crcL][crcH] = 8 bytes
-// Response:          [addr][FC04][04][f0][f1][f2][f3][crcL][crcH]    = 9 bytes
+// Modbus RTU request: [addr][FC][...][crcL][crcH]
+// FC03/FC04 Read:  request=8 bytes,  response=9 bytes (1 float32)
+// FC06 Write Single Register:  request=8 bytes, response=echo (8 bytes)
+// FC16 Write Multiple Registers: request=7+byteCount+2 bytes, response=8 bytes
+//
+// Returns { resp: Uint8Array, consumed: int } or null if not a valid/complete frame
 function handleModbusRequest(buf) {
   if (buf.length < 8) return null;
-  const addr     = buf[0];
-  const fc       = buf[1];
-  const startReg = (buf[2] << 8) | buf[3];
-  const regCount = (buf[4] << 8) | buf[5];
-  const crcRx    = buf[6] | (buf[7] << 8);
+  const addr = buf[0];
+  const fc   = buf[1];
+  if (addr !== 1) return null;
 
-  if (crc16modbus(buf.slice(0, 6)) !== crcRx) return null;
-  if (addr !== 1 || fc !== 0x04) return null;
-  if (regCount !== 2) return null; // SDM630 always queried 2 registers (1 float)
+  // ── FC03 / FC04 Read ──────────────────────────────────────────────────────
+  if (fc === 0x03 || fc === 0x04) {
+    if (buf.length < 8) return null;
+    const startReg = (buf[2] << 8) | buf[3];
+    const regCount = (buf[4] << 8) | buf[5];
+    const crcRx    = buf[6] | (buf[7] << 8);
+    if (crc16modbus(buf.slice(0, 6)) !== crcRx) return null;
+    if (regCount !== 2) return null; // SDM630 always 2 registers = 1 float32
 
-  const floatB = float32BE(sdm630RegValue(startReg));
-  const resp   = [addr, fc, 4, ...floatB];
-  const crc    = crc16modbus(resp);
-  resp.push(crc & 0xFF, crc >> 8);
-  return new Uint8Array(resp); // 9 bytes
+    // check writable regs first, then read-only SDM630 map
+    const wreg = wregStore.find(r => r.addr === startReg);
+    const val  = wreg ? wreg.value : sdm630RegValue(startReg);
+    const floatB = float32BE(val);
+    const resp = [addr, fc, 4, ...floatB];
+    const crc  = crc16modbus(resp);
+    resp.push(crc & 0xFF, crc >> 8);
+    return { resp: new Uint8Array(resp), consumed: 8 };
+  }
+
+  // ── FC06 Write Single Register ────────────────────────────────────────────
+  // [addr][06][regHi][regLo][valHi][valLo][crcL][crcH] = 8 bytes
+  if (fc === 0x06) {
+    if (buf.length < 8) return null;
+    const crcRx = buf[6] | (buf[7] << 8);
+    if (crc16modbus(buf.slice(0, 6)) !== crcRx) return null;
+    const reg    = (buf[2] << 8) | buf[3];
+    const rawVal = (buf[4] << 8) | buf[5];
+    // Two FC06 writes build one float32: first write = high word, second = low word
+    // Store raw uint16; when the pair's low-word arrives, assemble the float
+    if (!handleModbusRequest._fc06buf) handleModbusRequest._fc06buf = {};
+    const even = (reg & 1) === 0;
+    if (even) {
+      handleModbusRequest._fc06buf[reg] = rawVal;  // high word
+    } else {
+      const hiReg = reg - 1;
+      const hi    = handleModbusRequest._fc06buf[hiReg] ?? 0;
+      wregSet(hiReg, hi, rawVal);
+      delete handleModbusRequest._fc06buf[hiReg];
+    }
+    // Echo back the request (standard FC06 response)
+    const resp = Array.from(buf.slice(0, 8));
+    return { resp: new Uint8Array(resp), consumed: 8 };
+  }
+
+  // ── FC16 Write Multiple Registers ────────────────────────────────────────
+  // [addr][10][regHi][regLo][cntHi][cntLo][byteCount][data...][crcL][crcH]
+  if (fc === 0x10) {
+    if (buf.length < 9) return null;
+    const byteCount = buf[6];
+    const frameLen  = 7 + byteCount + 2;
+    if (buf.length < frameLen) return null;
+    const crcRx = buf[frameLen - 2] | (buf[frameLen - 1] << 8);
+    if (crc16modbus(buf.slice(0, frameLen - 2)) !== crcRx) return null;
+    const startReg = (buf[2] << 8) | buf[3];
+    const regCount = (buf[4] << 8) | buf[5];
+    // Process pairs of registers as float32 values
+    for (let i = 0; i < regCount; i += 2) {
+      const off  = 7 + i * 2;
+      const hi   = (buf[off] << 8) | buf[off + 1];
+      const lo   = (buf[off + 2] << 8) | buf[off + 3];
+      wregSet(startReg + i, hi, lo);
+    }
+    // Response: [addr][10][startRegHi][startRegLo][cntHi][cntLo][crcL][crcH]
+    const resp = [addr, 0x10, buf[2], buf[3], buf[4], buf[5]];
+    const crc  = crc16modbus(resp);
+    resp.push(crc & 0xFF, crc >> 8);
+    return { resp: new Uint8Array(resp), consumed: frameLen };
+  }
+
+  return null;
 }
 
 function setModbusStatus(color, msg) {
@@ -709,7 +850,7 @@ async function startModbusSlave() {
   modbusRunning = true;
   modbusRxBuf.length = 0;
   setModbusStatus('#4caf50', '● Listening — waiting for Modbus requests…');
-  log('info', 'Modbus RTU slave started — device addr 1, FC04');
+  log('info', 'Modbus RTU slave started — device addr 1, FC03/FC04/FC06/FC16');
 
   const reader = port.readable.getReader();
   modbusReader = reader;
@@ -722,27 +863,29 @@ async function startModbusSlave() {
 
       for (const b of value) modbusRxBuf.push(b);
 
-      // Process all complete 8-byte FC04 frames in the buffer
       while (modbusRxBuf.length >= 8) {
-        // FC04 Read Input Registers request is always exactly 8 bytes
-        const frame = new Uint8Array(modbusRxBuf.slice(0, 8));
-        const resp  = handleModbusRequest(frame);
+        const frame  = modbusRxBuf.slice(0);  // pass full buffer; handler checks length
+        const result = handleModbusRequest(frame);
 
-        if (resp) {
-          modbusRxBuf.splice(0, 8);
+        if (result) {
+          const { resp, consumed } = result;
+          modbusRxBuf.splice(0, consumed);
 
-          // Compute live (fluctuated) values and update energy
-          computeLiveValues();
-          if (document.getElementById('selAutoInc').value === '1') {
-            const pNet = (+document.getElementById('vPowerIn').value || 0)
-                       - (+document.getElementById('vPowerOut').value || 0);
-            const dWh  = Math.abs(pNet) * (0.1 / 3600); // ~100ms per Modbus cycle
-            if (energyInWh  === null) energyInWh  = live.energyIn  * 1000;
-            if (energyOutWh === null) energyOutWh = live.energyOut * 1000;
-            if (pNet >= 0) energyInWh  += dWh;
-            else           energyOutWh += dWh;
-            document.getElementById('vEnergyIn').value  = (energyInWh  / 1000).toFixed(3);
-            document.getElementById('vEnergyOut').value = (energyOutWh / 1000).toFixed(3);
+          // Compute live values only for read requests (FC03/FC04)
+          const fc = frame[1];
+          if (fc === 0x03 || fc === 0x04) {
+            computeLiveValues();
+            if (document.getElementById('selAutoInc').value === '1') {
+              const pNet = (+document.getElementById('vPowerIn').value || 0)
+                         - (+document.getElementById('vPowerOut').value || 0);
+              const dWh  = Math.abs(pNet) * (0.1 / 3600);
+              if (energyInWh  === null) energyInWh  = live.energyIn  * 1000;
+              if (energyOutWh === null) energyOutWh = live.energyOut * 1000;
+              if (pNet >= 0) energyInWh  += dWh;
+              else           energyOutWh += dWh;
+              document.getElementById('vEnergyIn').value  = (energyInWh  / 1000).toFixed(3);
+              document.getElementById('vEnergyOut').value = (energyOutWh / 1000).toFixed(3);
+            }
           }
 
           await writer.write(resp);
@@ -752,20 +895,18 @@ async function startModbusSlave() {
           document.getElementById('statB').textContent = bytesSent;
           document.getElementById('statL').textContent = resp.length + ' B';
 
-          const reqHex   = Array.from(frame).map(b => b.toString(16).padStart(2,'0')).join(' ');
-          const rspHex   = Array.from(resp ).map(b => b.toString(16).padStart(2,'0')).join(' ');
+          const reqHex   = Array.from(frame.slice(0, consumed)).map(b => b.toString(16).padStart(2,'0')).join(' ');
+          const rspHex   = Array.from(resp).map(b => b.toString(16).padStart(2,'0')).join(' ');
           const startReg = (frame[2] << 8) | frame[3];
-          const regCount = (frame[4] << 8) | frame[5];
-          document.getElementById('framePreview').textContent =
-            `REQ: ${reqHex}\nRSP: ${rspHex}`;
+          const fcName   = fc === 0x06 ? 'FC06 WRITE' : fc === 0x10 ? 'FC16 WRITE' : 'FC' + fc.toString(16).toUpperCase();
+          document.getElementById('framePreview').textContent = `REQ: ${reqHex}\nRSP: ${rspHex}`;
           setModbusStatus('#4caf50',
-            `● Active — ${framesSent} responses  reg=0x${startReg.toString(16).padStart(4,'0')}`);
+            `● Active — ${framesSent} frames  reg=0x${startReg.toString(16).padStart(4,'0')} ${fcName}`);
           if (document.getElementById('chkHex').checked) {
-            log('rx', `RX  reg=0x${startReg.toString(16).padStart(4,'0')} cnt=${regCount}`);
-            log('tx', `TX  ${resp.length}B [MODBUS]  ${rspHex}`);
+            log('rx', `RX  ${fcName}  reg=0x${startReg.toString(16).padStart(4,'0')}`);
+            log('tx', `TX  ${resp.length}B  ${rspHex}`);
           }
         } else {
-          // Invalid frame — discard leading byte and re-scan
           modbusRxBuf.shift();
         }
       }
@@ -1298,9 +1439,12 @@ function isModbusRtu() {
 function applyTxPanel() {
   const mb = isModbusRtu();
   const t5 = isT510();
+  const showWreg = mb || isTcpProfile();
   document.getElementById('txIntervalRow').style.display  = (mb || t5) ? 'none' : '';
   document.getElementById('txTimerPanel').style.display   = (mb || t5) ? 'none' : '';
   document.getElementById('txModbusPanel').style.display  = (mb || t5) ? '' : 'none';
+  document.getElementById('wregPanel').style.display      = showWreg ? '' : 'none';
+  if (showWreg) buildWregRows();
 }
 
 function setSel(id, val) {
@@ -1684,6 +1828,10 @@ function setStatus(color, msg) {
   const el = document.getElementById('uploadStatus');
   el.style.color = color; el.textContent = msg;
 }
+
+// Placeholder — called after descriptor download and at init.
+// Reserved for future "open saved file" link functionality.
+function updateFSLink() {}
 
 
 

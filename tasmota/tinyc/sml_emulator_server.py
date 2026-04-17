@@ -30,7 +30,10 @@ browser_opened  = False         # whether browser has been opened at least once
 
 # Register bank: maps Modbus register address → float value
 # Updated by POST /api/regs (pushed from JS computeLiveValues every second)
-reg_bank = {}
+reg_bank   = {}
+# Write bank: registers written by Modbus master (FC06/FC16)
+# Polled by browser via GET /api/writeregs
+write_bank = {}
 
 def log_entry(typ, msg):
     with state_lock:
@@ -74,10 +77,10 @@ def serial_reader():
 def _process_modbus_rtu():
     global rx_buf, serial_port
     while len(rx_buf) >= 8:
-        frame = bytes(rx_buf[:8])
-        resp = _handle_modbus_rtu_frame(frame)
-        if resp:
-            rx_buf = rx_buf[8:]
+        result = _handle_modbus_rtu_frame(bytes(rx_buf))
+        if result:
+            resp, consumed = result
+            rx_buf = rx_buf[consumed:]
             try:
                 with state_lock:
                     if serial_port and serial_port.is_open:
@@ -89,27 +92,83 @@ def _process_modbus_rtu():
             rx_buf = rx_buf[1:]  # discard leading byte, re-scan
 
 def _handle_modbus_rtu_frame(buf: bytes):
+    """Returns (response_bytes, bytes_consumed) or None if frame invalid/incomplete."""
     if len(buf) < 8:
         return None
-    addr      = buf[0]
-    fc        = buf[1]
-    start_reg = (buf[2] << 8) | buf[3]
-    reg_count = (buf[4] << 8) | buf[5]
-    crc_rx    = buf[6] | (buf[7] << 8)
-    if crc16modbus(buf[:6]) != crc_rx:
+    addr = buf[0]
+    fc   = buf[1]
+    if addr != 1:
         return None
-    if addr != 1 or fc not in (0x03, 0x04):
-        return None
-    if reg_count != 2:
-        return None
-    val = _get_reg_value(start_reg)
-    float_bytes = struct.pack('>f', val)
-    resp = bytes([addr, fc, 4]) + float_bytes
-    crc  = crc16modbus(resp)
-    return resp + bytes([crc & 0xFF, crc >> 8])
+
+    # FC03 / FC04 Read
+    if fc in (0x03, 0x04):
+        if len(buf) < 8: return None
+        start_reg = (buf[2] << 8) | buf[3]
+        reg_count = (buf[4] << 8) | buf[5]
+        crc_rx    = buf[6] | (buf[7] << 8)
+        if crc16modbus(buf[:6]) != crc_rx: return None
+        if reg_count != 2: return None
+        val        = _get_reg_value(start_reg)
+        float_bytes = struct.pack('>f', val)
+        resp = bytes([addr, fc, 4]) + float_bytes
+        crc  = crc16modbus(resp)
+        return resp + bytes([crc & 0xFF, crc >> 8]), 8
+
+    # FC06 Write Single Register
+    if fc == 0x06:
+        if len(buf) < 8: return None
+        crc_rx = buf[6] | (buf[7] << 8)
+        if crc16modbus(buf[:6]) != crc_rx: return None
+        reg    = (buf[2] << 8) | buf[3]
+        raw    = (buf[4] << 8) | buf[5]
+        _write_reg_word(reg, raw)
+        return bytes(buf[:8]), 8  # echo
+
+    # FC16 Write Multiple Registers
+    if fc == 0x10:
+        if len(buf) < 9: return None
+        byte_count = buf[6]
+        frame_len  = 7 + byte_count + 2
+        if len(buf) < frame_len: return None
+        crc_rx = buf[frame_len-2] | (buf[frame_len-1] << 8)
+        if crc16modbus(buf[:frame_len-2]) != crc_rx: return None
+        start_reg = (buf[2] << 8) | buf[3]
+        reg_count = (buf[4] << 8) | buf[5]
+        for i in range(0, reg_count, 2):
+            off  = 7 + i * 2
+            hi   = (buf[off] << 8)   | buf[off+1]
+            lo   = (buf[off+2] << 8) | buf[off+3]
+            val  = struct.unpack('>f', struct.pack('>HH', hi, lo))[0]
+            _set_write_reg(start_reg + i, val)
+        resp = bytes([addr, 0x10, buf[2], buf[3], buf[4], buf[5]])
+        crc  = crc16modbus(resp)
+        return resp + bytes([crc & 0xFF, crc >> 8]), frame_len
+
+    return None
+
+# FC06 word buffer for float32 assembly (two consecutive FC06 writes = one float)
+_fc06_word_buf = {}
+
+def _write_reg_word(reg: int, raw: int):
+    """Buffer a single FC06 uint16 write; assemble float32 when both words received."""
+    even = (reg & 1) == 0
+    if even:
+        _fc06_word_buf[reg] = raw
+    else:
+        hi_reg = reg - 1
+        hi = _fc06_word_buf.pop(hi_reg, 0)
+        val = struct.unpack('>f', struct.pack('>HH', hi, raw))[0]
+        _set_write_reg(hi_reg, val)
+
+def _set_write_reg(reg: int, val: float):
+    with state_lock:
+        write_bank[reg] = val
+    log_entry('info', f'WRITE reg=0x{reg:04X} = {val:.3f}')
 
 def _get_reg_value(reg: int) -> float:
     with state_lock:
+        if reg in write_bank:
+            return float(write_bank[reg])
         return float(reg_bank.get(reg, 0))
 
 # ── Modbus TCP slave ───────────────────────────────────────────────────────────
@@ -155,25 +214,49 @@ def modbus_tcp_client(conn, addr):
                 fc        = buf[7]
                 start_reg = (buf[8] << 8) | buf[9]
                 reg_count = (buf[10] << 8) | buf[11]
+                buf_pdu   = buf[7:total_len]   # full PDU (fc + data), before consuming
                 buf = buf[total_len:]
 
-                if fc not in (0x03, 0x04):
+                if fc in (0x03, 0x04):
+                    # Read registers — build float response for each pair
+                    payload = b''
+                    for i in range(0, reg_count, 2):
+                        val = _get_reg_value(start_reg + i)
+                        payload += struct.pack('>f', val)
+                    pdu_resp = bytes([fc, len(payload)]) + payload
+                    mbap = struct.pack('>HHHB', trans_id, 0, len(pdu_resp) + 1, unit_id)
+                    conn.sendall(mbap + pdu_resp)
+                    log_entry('tx', f'Modbus TCP READ  reg=0x{start_reg:04x} cnt={reg_count}  {addr[0]}')
+
+                elif fc == 0x06:
+                    # Write Single Register — PDU layout: [fc][regHi][regLo][valHi][valLo]
+                    raw = (buf_pdu[3] << 8) | buf_pdu[4]  # value at PDU bytes 3-4
+                    _write_reg_word(start_reg, raw)
+                    # echo back
+                    pdu_resp = buf_pdu[:6]
+                    mbap = struct.pack('>HHHB', trans_id, 0, len(pdu_resp) + 1, unit_id)
+                    conn.sendall(mbap + pdu_resp)
+
+                elif fc == 0x10:
+                    # Write Multiple Registers — PDU: [fc][regHi][regLo][cntHi][cntLo][byteCount][data...]
+                    # buf_pdu[5] is byteCount (already in bytes, not register count)
+                    data_bytes = buf_pdu[6:6 + buf_pdu[5]] if len(buf_pdu) > 6 else b''
+                    for i in range(0, reg_count, 2):
+                        off = i * 2
+                        if off + 4 > len(data_bytes): break
+                        hi  = (data_bytes[off] << 8)   | data_bytes[off+1]
+                        lo  = (data_bytes[off+2] << 8) | data_bytes[off+3]
+                        val = struct.unpack('>f', struct.pack('>HH', hi, lo))[0]
+                        _set_write_reg(start_reg + i, val)
+                    pdu_resp = bytes([0x10, buf_pdu[1], buf_pdu[2], buf_pdu[3], buf_pdu[4]])
+                    mbap = struct.pack('>HHHB', trans_id, 0, len(pdu_resp) + 1, unit_id)
+                    conn.sendall(mbap + pdu_resp)
+
+                else:
                     # Exception: illegal function
                     pdu_resp = bytes([fc | 0x80, 0x01])
                     mbap = struct.pack('>HHHB', trans_id, 0, len(pdu_resp) + 1, unit_id)
                     conn.sendall(mbap + pdu_resp)
-                    continue
-
-                # Build float response for each pair of registers
-                payload = b''
-                for i in range(0, reg_count, 2):
-                    val = _get_reg_value(start_reg + i)
-                    payload += struct.pack('>f', val)
-
-                pdu_resp = bytes([fc, len(payload)]) + payload
-                mbap = struct.pack('>HHHB', trans_id, 0, len(pdu_resp) + 1, unit_id)
-                conn.sendall(mbap + pdu_resp)
-                log_entry('tx', f'Modbus TCP  reg=0x{start_reg:04x} cnt={reg_count}  {addr[0]}')
     except Exception as e:
         pass
     finally:
@@ -334,6 +417,29 @@ setInterval(() => {
   if (isTcpProfile()) computeLiveValues();
 }, 1000);
 
+// ── Poll writable registers written by TCP master ────────────────────────────
+async function pollWriteRegs() {
+  try {
+    const r = await fetch(BASE + '/api/writeregs');
+    if (!r.ok) return;
+    const data = await r.json();
+    for (const [hexAddr, val] of Object.entries(data)) {
+      const reg = parseInt(hexAddr, 16);
+      const idx = wregStore.findIndex(r => r.addr === reg || r.addr === (reg & ~1));
+      if (idx < 0) continue;
+      if (wregStore[idx].value === val) continue;
+      wregStore[idx].value = val;
+      const el = document.getElementById(`wregVal${idx}`);
+      if (el) {
+        el.textContent = isFinite(val) ? val.toFixed(3) : String(val);
+        el.classList.add('wreg-written');
+        setTimeout(() => el.classList.remove('wreg-written'), 800);
+      }
+    }
+  } catch(_) {}
+}
+setInterval(pollWriteRegs, 1000);
+
 // ── Poll Python log entries ───────────────────────────────────────────────────
 let lastLogIdx = 0;
 async function pollLog() {
@@ -414,6 +520,10 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_html()
         elif path == '/api/ports':
             self._json(list_ports())
+        elif path == '/api/writeregs':
+            with state_lock:
+                data = {f'0x{k:04X}': v for k, v in write_bank.items()}
+            self._json(data)
         elif path == '/api/status':
             qs    = parse_qs(parsed.query)
             since = int(qs.get('since', ['0'])[0])
