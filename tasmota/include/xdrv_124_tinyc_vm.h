@@ -914,7 +914,8 @@ static TcSlot *tc_sensor_get_slot = nullptr; // re-entry guard: skip this slot's
 static uint16_t tc_chart_width = 0;     // chart div width in px (0 = 100%)
 static uint16_t tc_chart_height = 0;    // chart div height in px (0 = 300px)
 static int32_t  tc_chart_time_base = 0; // time base offset in minutes from "now" (0=now)
-static TasmotaSerial *tc_serial_port = nullptr; // TinyC serial port (shared across VMs)
+#define TC_MAX_SERIAL_PORTS 3
+static TasmotaSerial *tc_serial_ports[TC_MAX_SERIAL_PORTS] = {}; // TinyC serial ports (up to 3, one per handle)
 
 // Image store for dspLoadImage / dspPushImageRect (watchface backgrounds etc.)
 #define TC_IMG_SLOTS 4
@@ -2227,14 +2228,22 @@ static void tc_close_all_files(void) {
   }
 }
 
-static void tc_serial_close(void) {
-  if (tc_serial_port) {
-    tc_serial_port->flush();
+static void tc_serial_close(int h) {
+  if (h >= 0 && h < TC_MAX_SERIAL_PORTS && tc_serial_ports[h]) {
+    tc_serial_ports[h]->flush();
     delay(50);
-    delete tc_serial_port;
-    tc_serial_port = nullptr;
-    AddLog(LOG_LEVEL_INFO, PSTR("TCC: serial port closed"));
+    delete tc_serial_ports[h];
+    tc_serial_ports[h] = nullptr;
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: serial port %d closed"), h);
   }
+}
+
+static void tc_serial_close_all(void) {
+  for (int i = 0; i < TC_MAX_SERIAL_PORTS; i++) tc_serial_close(i);
+}
+
+static inline TasmotaSerial *tc_serial_get(int h) {
+  return (h >= 0 && h < TC_MAX_SERIAL_PORTS) ? tc_serial_ports[h] : nullptr;
 }
 
 // Find a free file handle slot, returns -1 if none available
@@ -2642,14 +2651,21 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
 
     // ── Serial ─────────────────────────────────────────
     case SYS_SERIAL_BEGIN: {
-      // serialBegin(rxpin, txpin, baud, config, bufsize) -> int
+      // serialBegin(rxpin, txpin, baud, config, bufsize) -> int (handle 0..2, or -1 on error)
       int32_t bufsize = TC_POP(vm);
       int32_t config  = TC_POP(vm);
       int32_t baud    = TC_POP(vm);
       int32_t txpin   = TC_POP(vm);
       int32_t rxpin   = TC_POP(vm);
-      if (tc_serial_port) {
-        tc_serial_close();  // close previous instance
+      // find a free slot
+      int slot = -1;
+      for (int i = 0; i < TC_MAX_SERIAL_PORTS; i++) {
+        if (!tc_serial_ports[i]) { slot = i; break; }
+      }
+      if (slot < 0) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: serialBegin — all %d ports in use"), TC_MAX_SERIAL_PORTS);
+        TC_PUSH(vm, -1);
+        break;
       }
       if (bufsize < 64) bufsize = 64;
       if (bufsize > 2048) bufsize = 2048;
@@ -2659,18 +2675,18 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         AddLog(LOG_LEVEL_INFO, PSTR("TCC: serial warning — pins %d/%d may be in use"), rxpin, txpin);
       }
 #endif
-      tc_serial_port = new TasmotaSerial(rxpin, txpin, HARDWARE_FALLBACK, 0, bufsize);
-      if (tc_serial_port) {
-        if (tc_serial_port->begin(baud, ConvertSerialConfig(config))) {
-          if (tc_serial_port->hardwareSerial()) {
+      tc_serial_ports[slot] = new TasmotaSerial(rxpin, txpin, HARDWARE_FALLBACK, 0, bufsize);
+      if (tc_serial_ports[slot]) {
+        if (tc_serial_ports[slot]->begin(baud, ConvertSerialConfig(config))) {
+          if (tc_serial_ports[slot]->hardwareSerial()) {
             ClaimSerial();
           }
-          AddLog(LOG_LEVEL_INFO, PSTR("TCC: serial opened rx=%d tx=%d baud=%d cfg=%d buf=%d hw=%d"),
-                 rxpin, txpin, baud, config, bufsize, tc_serial_port->hardwareSerial());
-          TC_PUSH(vm, 1);
+          AddLog(LOG_LEVEL_INFO, PSTR("TCC: serial[%d] opened rx=%d tx=%d baud=%d cfg=%d buf=%d hw=%d"),
+                 slot, rxpin, txpin, baud, config, bufsize, tc_serial_ports[slot]->hardwareSerial());
+          TC_PUSH(vm, slot);
         } else {
-          delete tc_serial_port;
-          tc_serial_port = nullptr;
+          delete tc_serial_ports[slot];
+          tc_serial_ports[slot] = nullptr;
           AddLog(LOG_LEVEL_ERROR, PSTR("TCC: serial begin failed"));
           TC_PUSH(vm, -1);
         }
@@ -2680,106 +2696,96 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       }
       break;
     }
-    case SYS_SERIAL_CLOSE:
-      tc_serial_close();
+    case SYS_SERIAL_CLOSE: {
+      a = TC_POP(vm);  // handle
+      tc_serial_close(a);
       break;
-    case SYS_SERIAL_PRINT:
-      a = TC_POP(vm);
+    }
+    case SYS_SERIAL_PRINT: {
+      a = TC_POP(vm);  // const_id
+      b = TC_POP(vm);  // handle
       if (a >= 0 && a < vm->const_count && vm->constants[a].type == 1) {
         const char *s = vm->constants[a].str.ptr;
-        if (tc_serial_port) {
-          tc_serial_port->write(s, strlen(s));
-        } else {
-          tc_output_string(s);
-        }
+        TasmotaSerial *p = tc_serial_get(b);
+        if (p) { p->write(s, strlen(s)); } else { tc_output_string(s); }
       }
       break;
+    }
     case SYS_SERIAL_PRINT_INT: {
-      a = TC_POP(vm);
+      a = TC_POP(vm);  // val
+      b = TC_POP(vm);  // handle
       char ibuf[16];
       itoa(a, ibuf, 10);
-      if (tc_serial_port) {
-        tc_serial_port->write(ibuf, strlen(ibuf));
-      } else {
-        tc_output_int(a);
-      }
+      TasmotaSerial *p = tc_serial_get(b);
+      if (p) { p->write(ibuf, strlen(ibuf)); } else { tc_output_int(a); }
       break;
     }
     case SYS_SERIAL_PRINT_FLT: {
-      fa = TC_POPF(vm);
+      fa = TC_POPF(vm);  // val
+      b  = TC_POP(vm);   // handle
       char fbuf[24];
       dtostrf(fa, 1, 2, fbuf);
-      if (tc_serial_port) {
-        tc_serial_port->write(fbuf, strlen(fbuf));
+      TasmotaSerial *p = tc_serial_get(b);
+      if (p) { p->write(fbuf, strlen(fbuf)); } else { tc_output_float(fa); }
+      break;
+    }
+    case SYS_SERIAL_PRINTLN: {
+      a = TC_POP(vm);  // const_id
+      b = TC_POP(vm);  // handle
+      TasmotaSerial *p = tc_serial_get(b);
+      if (a >= 0 && a < vm->const_count && vm->constants[a].type == 1) {
+        const char *s = vm->constants[a].str.ptr;
+        if (p) { p->write(s, strlen(s)); p->write("\r\n", 2); }
+        else   { tc_output_string(s); tc_output_char('\n'); }
       } else {
-        tc_output_float(fa);
+        if (p) { p->write("\r\n", 2); } else { tc_output_char('\n'); }
       }
       break;
     }
-    case SYS_SERIAL_PRINTLN:
-      a = TC_POP(vm);
-      if (a >= 0 && a < vm->const_count && vm->constants[a].type == 1) {
-        const char *s = vm->constants[a].str.ptr;
-        if (tc_serial_port) {
-          tc_serial_port->write(s, strlen(s));
-          tc_serial_port->write("\r\n", 2);
-        } else {
-          tc_output_string(s);
-          tc_output_char('\n');
-        }
-      } else {
-        if (tc_serial_port) {
-          tc_serial_port->write("\r\n", 2);
-        } else {
-          tc_output_char('\n');
-        }
-      }
+    case SYS_SERIAL_READ: {
+      a = TC_POP(vm);  // handle
+      TasmotaSerial *p = tc_serial_get(a);
+      TC_PUSH(vm, (p && p->available()) ? p->read() : -1);
       break;
-    case SYS_SERIAL_READ:
-      if (tc_serial_port && tc_serial_port->available()) {
-        TC_PUSH(vm, tc_serial_port->read());
-      } else {
-        TC_PUSH(vm, -1);
-      }
+    }
+    case SYS_SERIAL_AVAILABLE: {
+      a = TC_POP(vm);  // handle
+      TasmotaSerial *p = tc_serial_get(a);
+      TC_PUSH(vm, p ? p->available() : 0);
       break;
-    case SYS_SERIAL_AVAILABLE:
-      if (tc_serial_port) {
-        TC_PUSH(vm, tc_serial_port->available());
-      } else {
-        TC_PUSH(vm, 0);
-      }
+    }
+    case SYS_SERIAL_WRITE_BYTE: {
+      a = TC_POP(vm);  // byte
+      b = TC_POP(vm);  // handle
+      TasmotaSerial *p = tc_serial_get(b);
+      if (p) p->write((uint8_t)(a & 0xFF));
       break;
-    case SYS_SERIAL_WRITE_BYTE:
-      a = TC_POP(vm);
-      if (tc_serial_port) {
-        tc_serial_port->write((uint8_t)(a & 0xFF));
-      }
-      break;
+    }
     case SYS_SERIAL_WRITE_STR: {
       a = TC_POP(vm);  // buf_ref
-      if (tc_serial_port) {
+      b = TC_POP(vm);  // handle
+      TasmotaSerial *p = tc_serial_get(b);
+      if (p) {
         char tbuf[256];
         int len = tc_ref_to_cstr(vm, a, tbuf, sizeof(tbuf));
-        if (len > 0) {
-          tc_serial_port->write(tbuf, len);
-        }
+        if (len > 0) p->write(tbuf, len);
       }
       break;
     }
     case SYS_SERIAL_WRITE_BUF: {
-      // serialWriteBytes(buf_ref, len) — write exactly len bytes (binary safe)
+      // serialWriteBytes(h, buf_ref, len) — write exactly len bytes (binary safe)
       b = TC_POP(vm);  // len
       a = TC_POP(vm);  // buf_ref
-      if (tc_serial_port && b > 0 && b <= 256) {
+      int hh = TC_POP(vm);  // handle
+      TasmotaSerial *p = tc_serial_get(hh);
+      if (p && b > 0 && b <= 256) {
         int32_t *buf = tc_resolve_ref(vm, a);
         if (buf) {
           int32_t maxLen = tc_ref_maxlen(vm, a);
           if (b > maxLen) b = maxLen;
           uint8_t tbuf[256];
-          for (int i = 0; i < b; i++) {
-            tbuf[i] = (uint8_t)(buf[i] & 0xFF);
-          }
-          tc_serial_port->write(tbuf, b);
+          for (int i = 0; i < b; i++) tbuf[i] = (uint8_t)(buf[i] & 0xFF);
+          p->write(tbuf, b);
         }
       }
       break;
@@ -10194,7 +10200,7 @@ static void TinyCStopVM(TcSlot *s) {
     }
   }
   tc_spi_cleanup();
-  tc_serial_close();
+  tc_serial_close_all();
   tc_img_store_free();
 #ifdef ESP32
   // Stop I2S output if active
