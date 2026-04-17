@@ -1418,19 +1418,21 @@ void EveryLoop() {
 
 ### Serial
 
-| Function                          | Description                        |
-|-----------------------------------|------------------------------------|
-| `int serialBegin(int rx, int tx, int baud, int config, int bufsize)` | Open serial port, returns 1 on success, -1 on failure |
-| `serialPrint("literal")`          | Print string to serial             |
-| `serialPrintInt(int value)`       | Print integer to serial            |
-| `serialPrintFloat(float value)`   | Print float to serial              |
-| `serialPrintln("literal")`        | Print string + newline to serial   |
-| `int serialRead()`                | Read byte (-1 if none available)   |
-| `int serialAvailable()`           | Bytes available to read            |
-| `serialClose()`                   | Close serial port                  |
-| `serialWriteByte(int b)`          | Write single byte to serial        |
-| `serialWriteStr(char str[])`      | Write char array to serial (binary-safe) |
-| `serialWriteBuf(char buf[], int len)` | Write `len` bytes from buffer to serial |
+Up to 3 serial ports can be open simultaneously. `serialBegin()` returns a **handle** (0–2) that must be passed to all other serial functions. Returns -1 on failure.
+
+| Function                                      | Description                                          |
+|-----------------------------------------------|------------------------------------------------------|
+| `int serialBegin(int rx, int tx, int baud, int config, int bufsize)` | Open serial port, returns handle (0–2) or -1 on failure |
+| `serialPrint(int h, "literal")`               | Print string to serial port `h`                      |
+| `serialPrintInt(int h, int value)`            | Print integer to serial port `h`                     |
+| `serialPrintFloat(int h, float value)`        | Print float to serial port `h`                       |
+| `serialPrintln(int h, "literal")`             | Print string + newline to serial port `h`            |
+| `int serialRead(int h)`                       | Read byte from port `h` (-1 if none available)       |
+| `int serialAvailable(int h)`                  | Bytes available to read on port `h`                  |
+| `serialClose(int h)`                          | Close serial port `h`                                |
+| `serialWriteByte(int h, int b)`               | Write single byte to serial port `h`                 |
+| `serialWrite(int h, char str[])`              | Write char array to serial port `h` (binary-safe)    |
+| `serialWriteBytes(int h, char buf[], int len)`| Write `len` bytes from buffer to serial port `h`     |
 
 **`serialBegin` parameters:**
 - `rx` — GPIO pin for receive (-1 to disable RX, e.g. TX-only devices)
@@ -1452,14 +1454,28 @@ void EveryLoop() {
 | 6     | 7N2    | 14    | 7E2    | 22    | 7O2    |
 | 7     | 8N2    | 15    | 8E2    | 23    | 8O2    |
 
-**Example:**
+**Example — single port:**
 ```c
 // Open serial for LD2410 radar sensor: RX=pin 16, TX=pin 17, 256000 baud, 8N1, 256 byte buffer
-int ret = serialBegin(16, 17, 256000, 3, 256);
-if (ret < 0) { addLog("Serial open failed"); }
+int ser = serialBegin(16, 17, 256000, 3, 256);
+if (ser < 0) { addLog("Serial open failed"); }
 
 // TX-only for MP3 module: no RX, TX=pin 4, 9600 baud
-int ret = serialBegin(-1, 4, 9600, 3, 64);
+int mp3 = serialBegin(-1, 4, 9600, 3, 64);
+serialWriteByte(mp3, 0x7E);
+```
+
+**Example — two ports simultaneously:**
+```c
+int radar = serialBegin(16, 17, 256000, 3, 256);  // handle 0
+int gps   = serialBegin(18, 19,   9600, 3, 256);  // handle 1
+
+void EverySecond() {
+  while (serialAvailable(gps) > 0) {
+    int b = serialRead(gps);
+    // process GPS byte...
+  }
+}
 ```
 
 ### 1-Wire

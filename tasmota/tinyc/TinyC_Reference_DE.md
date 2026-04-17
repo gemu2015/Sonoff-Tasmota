@@ -1093,19 +1093,21 @@ void EveryLoop() {
 
 ### Seriell
 
-| Funktion                          | Beschreibung                            |
-|-----------------------------------|-----------------------------------------|
-| `int serialBegin(int rx, int tx, int baud, int config, int bufsize)` | Seriellen Port oeffnen, gibt 1 bei Erfolg zurueck, -1 bei Fehler |
-| `serialPrint("literal")`          | Zeichenkette auf seriell ausgeben       |
-| `serialPrintInt(int value)`       | Ganzzahl auf seriell ausgeben           |
-| `serialPrintFloat(float value)`   | Gleitkommazahl auf seriell ausgeben     |
-| `serialPrintln("literal")`        | Zeichenkette + Zeilenumbruch auf seriell |
-| `int serialRead()`                | Byte lesen (-1 wenn keines verfuegbar)  |
-| `int serialAvailable()`           | Verfuegbare Bytes zum Lesen             |
-| `serialClose()`                   | Seriellen Port schliessen               |
-| `serialWriteByte(int b)`          | Einzelnes Byte an serielle Schnittstelle senden |
-| `serialWriteStr(char str[])`      | Char-Array an serielle Schnittstelle senden |
-| `serialWriteBuf(char buf[], int len)` | `len` Bytes aus Buffer an serielle Schnittstelle senden |
+Es koennen bis zu 3 serielle Ports gleichzeitig geoeffnet sein. `serialBegin()` gibt einen **Handle** (0–2) zurueck, der an alle anderen seriellen Funktionen uebergeben werden muss. Bei Fehler wird -1 zurueckgegeben.
+
+| Funktion                                          | Beschreibung                                              |
+|---------------------------------------------------|-----------------------------------------------------------|
+| `int serialBegin(int rx, int tx, int baud, int config, int bufsize)` | Seriellen Port oeffnen, gibt Handle (0–2) oder -1 bei Fehler |
+| `serialPrint(int h, "literal")`                   | Zeichenkette auf Port `h` ausgeben                        |
+| `serialPrintInt(int h, int value)`                | Ganzzahl auf Port `h` ausgeben                            |
+| `serialPrintFloat(int h, float value)`            | Gleitkommazahl auf Port `h` ausgeben                      |
+| `serialPrintln(int h, "literal")`                 | Zeichenkette + Zeilenumbruch auf Port `h`                 |
+| `int serialRead(int h)`                           | Byte von Port `h` lesen (-1 wenn keines verfuegbar)       |
+| `int serialAvailable(int h)`                      | Verfuegbare Bytes auf Port `h`                            |
+| `serialClose(int h)`                              | Port `h` schliessen                                       |
+| `serialWriteByte(int h, int b)`                   | Einzelnes Byte an Port `h` senden                         |
+| `serialWrite(int h, char str[])`                  | Char-Array an Port `h` senden (binaer-sicher)             |
+| `serialWriteBytes(int h, char buf[], int len)`    | `len` Bytes aus Buffer an Port `h` senden                 |
 
 **`serialBegin` Parameter:**
 - `rx` — GPIO-Pin fuer Empfang (-1 zum Deaktivieren, z.B. nur-TX Geraete)
@@ -1127,14 +1129,28 @@ void EveryLoop() {
 | 6    | 7N2    | 14   | 7E2    | 22   | 7O2    |
 | 7    | 8N2    | 15   | 8E2    | 23   | 8O2    |
 
-**Beispiel:**
+**Beispiel — ein Port:**
 ```c
 // LD2410 Radar: RX=Pin 16, TX=Pin 17, 256000 Baud, 8N1, 256 Byte Puffer
-int ret = serialBegin(16, 17, 256000, 3, 256);
-if (ret < 0) { addLog("Seriell Fehler"); }
+int ser = serialBegin(16, 17, 256000, 3, 256);
+if (ser < 0) { addLog("Seriell Fehler"); }
 
 // Nur-TX fuer MP3-Modul: kein RX, TX=Pin 4, 9600 Baud
-int ret = serialBegin(-1, 4, 9600, 3, 64);
+int mp3 = serialBegin(-1, 4, 9600, 3, 64);
+serialWriteByte(mp3, 0x7E);
+```
+
+**Beispiel — zwei Ports gleichzeitig:**
+```c
+int radar = serialBegin(16, 17, 256000, 3, 256);  // Handle 0
+int gps   = serialBegin(18, 19,   9600, 3, 256);  // Handle 1
+
+void EverySecond() {
+  while (serialAvailable(gps) > 0) {
+    int b = serialRead(gps);
+    // GPS-Byte verarbeiten...
+  }
+}
 ```
 
 ### 1-Wire
