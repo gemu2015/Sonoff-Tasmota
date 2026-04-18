@@ -1,0 +1,97 @@
+// SMA Home Manager 2.0 Speedwire receiver
+// Joins multicast 239.12.255.254:9522 and decodes selected OBIS values.
+//
+// Packet format (big-endian):
+//   0..3   "SMA\0"
+//   ...    (header)
+//   After header: OBIS data records — each record is
+//     [channel:1][index:1][type:1][tariff:1][value:4 or 8]
+//   Power values are 4 bytes in 0.1W, energy values are 8 bytes in Ws.
+//
+// Decoded here (4-byte power values):
+//   1:1.4.0  (channel=0x01, index=0x01) — total import  (W)
+//   1:2.4.0  (channel=0x01, index=0x02) — total export  (W)
+//   1:21.4.0 (channel=0x15, index=0x04) — L1 import    (W)
+//   1:41.4.0 (channel=0x29, index=0x04) — L2 import    (W)
+//   1:61.4.0 (channel=0x3D, index=0x04) — L3 import    (W)
+
+#define SMA_MCAST  "239.12.255.254"
+#define SMA_PORT   9522
+
+char pkt[1024];
+float p_in;
+float p_out;
+float p_l1;
+float p_l2;
+float p_l3;
+int joined;
+
+// Read a big-endian uint32 from pkt at offset o
+int beU32(int o) {
+    int b0 = pkt[o]   & 0xFF;
+    int b1 = pkt[o+1] & 0xFF;
+    int b2 = pkt[o+2] & 0xFF;
+    int b3 = pkt[o+3] & 0xFF;
+    return (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+}
+
+// Find 2-byte OBIS header (channel, index) starting at offset >= start.
+// Returns offset of the 4-byte value (header+4), or -1 if not found.
+// Only scans for 4-byte power records (type byte = 0x04).
+int findObis(int len, int ch, int idx) {
+    int o = 28;  // skip 28-byte envelope (SMA header + susy-id + serial + ticker)
+    while (o + 8 <= len) {
+        int c = pkt[o]   & 0xFF;
+        int i = pkt[o+1] & 0xFF;
+        int t = pkt[o+2] & 0xFF;
+        if (t == 4) {
+            if (c == ch && i == idx) return o + 4;
+            o = o + 8;     // 4-byte record: header(4) + value(4)
+        } else if (t == 8) {
+            o = o + 12;    // 8-byte record: header(4) + value(8)
+        } else {
+            o = o + 4;     // unknown: advance by header only
+        }
+    }
+    return -1;
+}
+
+float getPower(int len, int ch, int idx) {
+    int o = findObis(len, ch, idx);
+    if (o < 0) return 0.0;
+    int raw = beU32(o);
+    return raw * 0.1;  // SMA reports power in 0.1 W
+}
+
+void TaskLoop() {
+    while (!joined) {
+        joined = udp(9, SMA_MCAST, SMA_PORT);
+        if (!joined) delay(5000);
+    }
+    char log_buf[96];
+    while (1) {
+        int len = udp(1, pkt);
+        if (len >= 32 && pkt[0] == 'S' && pkt[1] == 'M' && pkt[2] == 'A') {
+            p_in  = getPower(len, 0x01, 0x01);
+            p_out = getPower(len, 0x01, 0x02);
+            p_l1  = getPower(len, 0x15, 0x04);
+            p_l2  = getPower(len, 0x29, 0x04);
+            p_l3  = getPower(len, 0x3D, 0x04);
+            sprintf(log_buf, "[SMA] in=%.1fW out=%.1fW L1=%.1f L2=%.1f L3=%.1f",
+                p_in, p_out, p_l1, p_l2, p_l3);
+            addLog(log_buf);
+        }
+        delay(100);
+    }
+}
+
+int main() {
+    joined = 0;
+    p_in = 0.0;
+    p_out = 0.0;
+    p_l1 = 0.0;
+    p_l2 = 0.0;
+    p_l3 = 0.0;
+    addLog("[SMA] Speedwire receiver starting");
+    return 0;
+}

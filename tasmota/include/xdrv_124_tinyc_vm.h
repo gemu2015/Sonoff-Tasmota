@@ -1945,6 +1945,7 @@ static void tc_udp_stop(void) {
     Tinyc->udp_port.stop();
     Tinyc->udp_port_open = false;
     Tinyc->udp_port_num = 0;
+    Tinyc->udp_port_mcast = IPAddress(0,0,0,0);
   }
   // Stop TCP server
   if (Tinyc->tcp_server) {
@@ -4643,6 +4644,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           int32_t port = TC_POP(vm);
           if (port > 0 && port < 65536) {
             Tinyc->udp_port.stop();
+            Tinyc->udp_port_mcast = IPAddress(0,0,0,0);  // plain unicast
             if (Tinyc->udp_port.begin(port)) {
               Tinyc->udp_port_num = port;
               Tinyc->udp_port_open = true;
