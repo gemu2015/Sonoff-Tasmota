@@ -10,10 +10,31 @@ Usage:  python3 sml_emulator_server.py
 Deps:   pip install pyserial
 """
 
-import os, sys, json, threading, time, struct, socket, webbrowser
+import os, sys, json, threading, time, struct, socket, webbrowser, subprocess, random
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import io
+
+def open_browser_reliable(url):
+    """Open a URL using the OS-native handler (more reliable than webbrowser.open
+    on macOS, where webbrowser.open sometimes raises Safari without navigating)."""
+    try:
+        if sys.platform == 'darwin':
+            subprocess.Popen(['open', url])
+            return True
+        if sys.platform.startswith('win'):
+            os.startfile(url)  # type: ignore[attr-defined]
+            return True
+        # Linux / BSD
+        subprocess.Popen(['xdg-open', url],
+                         stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+        return True
+    except Exception:
+        try:
+            return webbrowser.open(url)
+        except Exception:
+            return False
 
 HTTP_PORT   = 8099
 MODBUS_PORT = 1502
@@ -23,7 +44,8 @@ HTML_FILE   = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sml_emul
 state_lock      = threading.Lock()
 serial_port     = None          # pyserial Serial object
 serial_baud     = 9600
-serial_log      = []            # list of dicts: {t, type, msg}
+serial_log      = []            # list of dicts: {seq, t, type, msg}
+log_seq         = 0             # monotonic counter (never resets, survives ring-buffer rotation)
 tcp_clients     = 0             # active Modbus TCP connections
 last_http_req   = 0.0           # timestamp of last HTTP request (for browser watchdog)
 browser_opened  = False         # whether browser has been opened at least once
@@ -36,8 +58,11 @@ reg_bank   = {}
 write_bank = {}
 
 def log_entry(typ, msg):
+    global log_seq
     with state_lock:
-        serial_log.append({'t': time.strftime('%H:%M:%S'), 'type': typ, 'msg': msg})
+        log_seq += 1
+        serial_log.append({'seq': log_seq, 't': time.strftime('%H:%M:%S'),
+                           'type': typ, 'msg': msg})
         if len(serial_log) > 500:
             serial_log.pop(0)
 
@@ -74,13 +99,33 @@ def serial_reader():
             log_entry('err', f'Serial read: {e}')
             time.sleep(0.1)
 
+_FC_NAMES = {0x03: 'FC03 read-holding', 0x04: 'FC04 read-input',
+             0x06: 'FC06 write-single',  0x10: 'FC16 write-multi'}
+
+def _describe_rtu_request(req: bytes) -> str:
+    if len(req) < 2: return ''
+    addr, fc = req[0], req[1]
+    name = _FC_NAMES.get(fc, f'FC{fc:02X}')
+    if fc in (0x03, 0x04, 0x06) and len(req) >= 6:
+        reg = (req[2] << 8) | req[3]
+        val = (req[4] << 8) | req[5]
+        tag = 'cnt' if fc in (0x03, 0x04) else 'val'
+        return f'id={addr} {name} reg=0x{reg:04X} {tag}={val}'
+    if fc == 0x10 and len(req) >= 7:
+        reg  = (req[2] << 8) | req[3]
+        cnt  = (req[4] << 8) | req[5]
+        return f'id={addr} {name} reg=0x{reg:04X} cnt={cnt}'
+    return f'id={addr} {name}'
+
 def _process_modbus_rtu():
     global rx_buf, serial_port
     while len(rx_buf) >= 8:
         result = _handle_modbus_rtu_frame(bytes(rx_buf))
         if result:
             resp, consumed = result
+            req_bytes = bytes(rx_buf[:consumed])
             rx_buf = rx_buf[consumed:]
+            log_entry('rx', f'Modbus RTU req  {len(req_bytes)}B  {req_bytes.hex(" ")}  [{_describe_rtu_request(req_bytes)}]')
             try:
                 with state_lock:
                     if serial_port and serial_port.is_open:
@@ -165,11 +210,24 @@ def _set_write_reg(reg: int, val: float):
         write_bank[reg] = val
     log_entry('info', f'WRITE reg=0x{reg:04X} = {val:.3f}')
 
+# Per-read fluctuation: so every Modbus read returns a slightly different value,
+# not just every 1s when the browser re-POSTs. Browser can set pct via /api/regs
+# (key "_fluct_pct"). Registers in _NO_FLUCT_REGS pass through unchanged
+# (e.g. energy counters, tariff codes).
+fluct_pct       = 0.0
+_NO_FLUCT_REGS  = {0x0048, 0x004A}  # energyIn, energyOut
+
 def _get_reg_value(reg: int) -> float:
     with state_lock:
         if reg in write_bank:
             return float(write_bank[reg])
-        return float(reg_bank.get(reg, 0))
+        base = float(reg_bank.get(reg, 0))
+        pct  = fluct_pct
+    if pct <= 0 or base == 0 or reg in _NO_FLUCT_REGS:
+        return base
+    noise = base * (pct / 100.0) * (random.random() * 2 - 1)
+    val   = base + noise
+    return val if val > 0 else 0.0
 
 # ── Modbus TCP slave ───────────────────────────────────────────────────────────
 def modbus_tcp_server():
@@ -202,20 +260,39 @@ def modbus_tcp_client(conn, addr):
             if not data:
                 break
             buf += data
-            while len(buf) >= 12:
-                # MBAP header: trans_id(2) + proto(2) + length(2) + unit_id(1) = 7 bytes
-                # PDU: fc(1) + reg_hi(1) + reg_lo(1) + cnt_hi(1) + cnt_lo(1) = 5 bytes → total 12
-                trans_id  = (buf[0] << 8) | buf[1]
+            while len(buf) >= 8:
+                # MBAP header: trans_id(2) + proto(2) + length(2) + unit_id(1)
                 pdu_len   = (buf[4] << 8) | buf[5]   # length field = unit_id + PDU bytes
-                total_len = 6 + pdu_len               # MBAP header (6) + pdu_len
+                # Sanity-check MBAP length. A valid Modbus PDU is at most 253
+                # bytes, +1 unit_id = 254. Protocol ID (bytes 2-3) must be 0.
+                # Anything else means we're parsing garbage — usually a truncated
+                # frame from a client that miscomputed its MBAP header.
+                proto_id  = (buf[2] << 8) | buf[3]
+                if proto_id != 0 or pdu_len < 2 or pdu_len > 254:
+                    log_entry('err',
+                        f'Modbus TCP desync from {addr[0]}: proto_id=0x{proto_id:04X} '
+                        f'pdu_len={pdu_len} — closing connection')
+                    return
+                total_len = 6 + pdu_len
                 if len(buf) < total_len:
                     break
+                trans_id  = (buf[0] << 8) | buf[1]
                 unit_id   = buf[6]
                 fc        = buf[7]
+                # Need at least [fc][regHi][regLo][cntHi][cntLo] for the ops we support
+                if total_len < 12:
+                    log_entry('err',
+                        f'Modbus TCP short frame from {addr[0]}: '
+                        f'{bytes(buf[:total_len]).hex(" ")} — closing connection')
+                    return
                 start_reg = (buf[8] << 8) | buf[9]
                 reg_count = (buf[10] << 8) | buf[11]
-                buf_pdu   = buf[7:total_len]   # full PDU (fc + data), before consuming
+                req_frame = bytes(buf[:total_len])
+                buf_pdu   = buf[7:total_len]
                 buf = buf[total_len:]
+
+                fc_name = _FC_NAMES.get(fc, f'FC{fc:02X}')
+                log_entry('rx', f'Modbus TCP req  {len(req_frame)}B  {req_frame.hex(" ")}  [id={unit_id} {fc_name} reg=0x{start_reg:04X} cnt={reg_count} from {addr[0]}]')
 
                 if fc in (0x03, 0x04):
                     # Read registers — build float response for each pair
@@ -225,8 +302,9 @@ def modbus_tcp_client(conn, addr):
                         payload += struct.pack('>f', val)
                     pdu_resp = bytes([fc, len(payload)]) + payload
                     mbap = struct.pack('>HHHB', trans_id, 0, len(pdu_resp) + 1, unit_id)
-                    conn.sendall(mbap + pdu_resp)
-                    log_entry('tx', f'Modbus TCP READ  reg=0x{start_reg:04x} cnt={reg_count}  {addr[0]}')
+                    frame = mbap + pdu_resp
+                    conn.sendall(frame)
+                    log_entry('tx', f'Modbus TCP resp {len(frame)}B  {frame.hex(" ")}')
 
                 elif fc == 0x06:
                     # Write Single Register — PDU layout: [fc][regHi][regLo][valHi][valLo]
@@ -235,12 +313,25 @@ def modbus_tcp_client(conn, addr):
                     # echo back
                     pdu_resp = buf_pdu[:6]
                     mbap = struct.pack('>HHHB', trans_id, 0, len(pdu_resp) + 1, unit_id)
-                    conn.sendall(mbap + pdu_resp)
+                    frame = mbap + pdu_resp
+                    conn.sendall(frame)
+                    log_entry('tx', f'Modbus TCP resp {len(frame)}B  {frame.hex(" ")}')
 
                 elif fc == 0x10:
                     # Write Multiple Registers — PDU: [fc][regHi][regLo][cntHi][cntLo][byteCount][data...]
-                    # buf_pdu[5] is byteCount (already in bytes, not register count)
-                    data_bytes = buf_pdu[6:6 + buf_pdu[5]] if len(buf_pdu) > 6 else b''
+                    # Expected PDU length: 6 header + byteCount; MBAP length = 1 (unit) + PDU
+                    if len(buf_pdu) < 6 or len(buf_pdu) < 6 + buf_pdu[5] or buf_pdu[5] != reg_count * 2:
+                        # Truncated / inconsistent — reject with exception 0x03 (illegal data value)
+                        pdu_resp = bytes([fc | 0x80, 0x03])
+                        mbap = struct.pack('>HHHB', trans_id, 0, len(pdu_resp) + 1, unit_id)
+                        frame = mbap + pdu_resp
+                        conn.sendall(frame)
+                        log_entry('err',
+                            f'Modbus TCP FC16 rejected (truncated): '
+                            f'pdu_len={len(buf_pdu)} byte_count={buf_pdu[5] if len(buf_pdu) > 5 else "?"} '
+                            f'expected_bc={reg_count*2}')
+                        continue
+                    data_bytes = buf_pdu[6:6 + buf_pdu[5]]
                     for i in range(0, reg_count, 2):
                         off = i * 2
                         if off + 4 > len(data_bytes): break
@@ -250,13 +341,17 @@ def modbus_tcp_client(conn, addr):
                         _set_write_reg(start_reg + i, val)
                     pdu_resp = bytes([0x10, buf_pdu[1], buf_pdu[2], buf_pdu[3], buf_pdu[4]])
                     mbap = struct.pack('>HHHB', trans_id, 0, len(pdu_resp) + 1, unit_id)
-                    conn.sendall(mbap + pdu_resp)
+                    frame = mbap + pdu_resp
+                    conn.sendall(frame)
+                    log_entry('tx', f'Modbus TCP resp {len(frame)}B  {frame.hex(" ")}')
 
                 else:
                     # Exception: illegal function
                     pdu_resp = bytes([fc | 0x80, 0x01])
                     mbap = struct.pack('>HHHB', trans_id, 0, len(pdu_resp) + 1, unit_id)
-                    conn.sendall(mbap + pdu_resp)
+                    frame = mbap + pdu_resp
+                    conn.sendall(frame)
+                    log_entry('tx', f'Modbus TCP resp {len(frame)}B  {frame.hex(" ")}')
     except Exception as e:
         pass
     finally:
@@ -385,25 +480,39 @@ window.stopModbusSlave = function() {
 };
 
 // ── Auto-push registers every second from computeLiveValues ──────────────────
+// Python applies the ±fluct_pct noise on every Modbus read, so a master polling
+// faster than 1 Hz sees fresh jitter. We post the BASE values (raw input fields,
+// not already-fluctuated live.*) plus the fluctuation percent.
 const _origComputeLiveValues = computeLiveValues;
+const _numVal = id => +document.getElementById(id).value || 0;
 computeLiveValues = function() {
-  _origComputeLiveValues();
-  // Push current live values to Python (best-effort, no await)
+  _origComputeLiveValues();   // still updates live.* for SML frame builders
+  const vL1Base = _numVal('vVL1') || 230;
+  const vL2Base = _numVal('vVL2') || 230;
+  const vL3Base = _numVal('vVL3') || 230;
+  const pL1     = Math.max(0, _numVal('vPL1'));
+  const pL2     = Math.max(0, _numVal('vPL2'));
+  const pL3     = Math.max(0, _numVal('vPL3'));
+  const pIn     = Math.max(0, _numVal('vPowerIn'));
+  const pOut    = Math.max(0, _numVal('vPowerOut'));
+  const fBase   = _numVal('vFreq') || 50;
+  const pct     = +document.getElementById('selFluct').value || 0;
   const regs = {
-    0x0000: live.vL1,
-    0x0002: live.vL2,
-    0x0004: live.vL3,
-    0x0006: live.iL1,
-    0x0008: live.iL2,
-    0x000A: live.iL3,
-    0x000C: live.pL1,
-    0x000E: live.pL2,
-    0x0010: live.pL3,
-    0x0012: live.pNet,
-    0x001E: live.freq,
-    0x0046: Math.sqrt(3) * live.vL1,
-    0x0048: live.energyIn,
-    0x004A: live.energyOut
+    0x0000: vL1Base,
+    0x0002: vL2Base,
+    0x0004: vL3Base,
+    0x0006: vL1Base > 0 ? pL1 / vL1Base : 0,
+    0x0008: vL2Base > 0 ? pL2 / vL2Base : 0,
+    0x000A: vL3Base > 0 ? pL3 / vL3Base : 0,
+    0x000C: pL1,
+    0x000E: pL2,
+    0x0010: pL3,
+    0x0012: pIn - pOut,
+    0x001E: fBase,
+    0x0046: Math.sqrt(3) * vL1Base,
+    0x0048: live.energyIn,   // energy accumulates — passed through, no jitter
+    0x004A: live.energyOut,
+    _fluct_pct: pct
   };
   fetch(BASE + '/api/regs', {
     method: 'POST',
@@ -412,9 +521,12 @@ computeLiveValues = function() {
   }).catch(() => {});
 };
 
-// ── For TCP profiles: push registers every second (no sendFrame loop runs) ────
+// ── For TCP / Modbus-RTU profiles: push registers every second ────────────────
+// (neither of these runs the sendFrame loop that would normally call computeLiveValues)
 setInterval(() => {
-  if (isTcpProfile()) computeLiveValues();
+  if (isTcpProfile() || (typeof isModbusRtu === 'function' && isModbusRtu())) {
+    computeLiveValues();
+  }
 }, 1000);
 
 // ── Poll writable registers written by TCP master ────────────────────────────
@@ -448,8 +560,8 @@ async function pollLog() {
     if (!r.ok) return;
     const j = await r.json();
     for (const e of (j.log || [])) {
-      log(e.type === 'err' ? 'err' : e.type === 'tx' ? 'tx' : 'info',
-          `[py] ${e.msg}`);
+      const t = (e.type === 'err' || e.type === 'tx' || e.type === 'rx') ? e.type : 'info';
+      log(t, `[py] ${e.msg}`);
     }
     lastLogIdx = j.log_idx;
   } catch(_) {}
@@ -458,6 +570,35 @@ setInterval(pollLog, 1000);
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 setupConnectUI();
+
+// ── RX log style (added by bridge; base HTML only has tx/info/err) ───────────
+(function () {
+  const css = document.createElement('style');
+  css.textContent = '.log-rx { color: #b2ff59; }';
+  document.head.appendChild(css);
+})();
+
+// ── Quit button (bottom-right, away from the Connect controls) ───────────────
+(function () {
+  const btn = document.createElement('button');
+  btn.textContent = 'Quit Server';
+  btn.title = 'Stops the Python server and closes this emulator.';
+  btn.style.cssText =
+    'position:fixed;bottom:10px;right:12px;z-index:9999;' +
+    'background:#c0392b;color:#fff;border:0;border-radius:4px;' +
+    'padding:6px 12px;font-size:0.8em;cursor:pointer;opacity:0.85;' +
+    'box-shadow:0 2px 6px rgba(0,0,0,0.25);';
+  btn.onmouseenter = () => { btn.style.background = '#e74c3c'; btn.style.opacity = '1'; };
+  btn.onmouseleave = () => { btn.style.background = '#c0392b'; btn.style.opacity = '0.85'; };
+  btn.onclick = async () => {
+    if (!confirm('Stop the SML Emulator server?')) return;
+    try { await fetch(BASE + '/api/shutdown', { method: 'POST' }); } catch(_) {}
+    document.body.innerHTML =
+      '<div style="font:1.2em sans-serif;padding:40px;text-align:center;">' +
+      'SML Emulator stopped.<br><small>You can close this tab.</small></div>';
+  };
+  document.body.appendChild(btn);
+})();
 
 // For sdm630_tcp profile: Modbus TCP slave always runs in Python, no UI needed
 const tcpStatusEl = document.createElement('div');
@@ -485,13 +626,13 @@ if (tcpPanel) {
 """
 
 def browser_watchdog(url):
-    """Reopen browser automatically if no HTTP activity for 15 s after first use."""
+    """Reopen browser automatically if no HTTP activity for 8 s after first use."""
     global last_http_req, browser_opened
     while True:
-        time.sleep(5)
-        if browser_opened and last_http_req > 0 and (time.time() - last_http_req) > 15:
+        time.sleep(2)
+        if browser_opened and last_http_req > 0 and (time.time() - last_http_req) > 8:
             last_http_req = time.time()   # reset so we don't spam
-            webbrowser.open(url)
+            open_browser_reliable(url)
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
@@ -528,10 +669,19 @@ class Handler(BaseHTTPRequestHandler):
             qs    = parse_qs(parsed.query)
             since = int(qs.get('since', ['0'])[0])
             with state_lock:
-                total = len(serial_log)
-                chunk = serial_log[since:] if since < total else []
+                # If the client is "ahead" of the server (server was restarted
+                # → log_seq reset, but browser tab still holds old lastLogIdx)
+                # start from 0 and return everything available.
+                if since > log_seq:
+                    since = 0
+                # Entries with seq > since are new to the client.
+                # After ring-buffer rotation, serial_log[0].seq > 0, so clients
+                # that fell behind still resync from the oldest retained entry
+                # (they miss at most the overflow).
+                chunk = [e for e in serial_log if e['seq'] > since]
+                current_seq = log_seq
                 port_open = serial_port is not None and serial_port.is_open
-            self._json({'log': chunk, 'log_idx': total,
+            self._json({'log': chunk, 'log_idx': current_seq,
                         'port_open': port_open, 'tcp_clients': tcp_clients})
         else:
             self.send_response(404)
@@ -554,10 +704,19 @@ class Handler(BaseHTTPRequestHandler):
             self._json({'ok': True, 'bytes': len(data)})
         elif path == '/api/regs':
             body = self._read_json()
+            global fluct_pct
             with state_lock:
                 for k, v in body.items():
+                    if k == '_fluct_pct':
+                        fluct_pct = float(v) if v is not None else 0.0
+                        continue
                     reg_bank[int(k)] = float(v) if v is not None else 0.0
             self._json({'ok': True})
+        elif path == '/api/shutdown':
+            self._json({'ok': True})
+            log_entry('info', 'Shutdown requested via HTTP')
+            # Exit after the response has been flushed
+            threading.Timer(0.3, lambda: os._exit(0)).start()
         else:
             self.send_response(404)
             self.end_headers()
@@ -668,7 +827,11 @@ def main():
         probe.connect(('127.0.0.1', HTTP_PORT))
         probe.close()
         print(f'Server already running — reopening browser at {url}')
-        webbrowser.open(url)
+        # Double-open trick for macOS: first call may be ignored if Safari is
+        # already foreground but on a different page.
+        open_browser_reliable(url)
+        time.sleep(0.3)
+        open_browser_reliable(url)
         return
     except (ConnectionRefusedError, OSError):
         pass
@@ -692,7 +855,7 @@ def main():
 
     def _open_browser():
         global browser_opened, last_http_req
-        webbrowser.open(url)
+        open_browser_reliable(url)
         browser_opened = True
         last_http_req  = time.time()
     threading.Timer(0.8, _open_browser).start()

@@ -1479,7 +1479,7 @@ function log(type, msg) {
   const time = new Date().toLocaleTimeString('de-DE', {hour12:false});
   const div  = document.createElement('div');
   div.className = 'log-entry';
-  const cls = {tx:'log-tx', err:'log-err', info:'log-info'}[type] || 'log-info';
+  const cls = {tx:'log-tx', rx:'log-rx', err:'log-err', info:'log-info'}[type] || 'log-info';
   div.innerHTML = `<span class="log-time">${time}</span><span class="${cls}">${esc(msg)}</span>`;
   body.appendChild(div);
   while (body.children.length > 300) body.removeChild(body.firstChild);

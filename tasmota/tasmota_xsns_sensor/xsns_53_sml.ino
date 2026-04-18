@@ -28,8 +28,8 @@
 // this driver works with USE_SCRIPT or standalone with USE_UFILESYS (file: /sml_meter.def)
 
 
-// fixes some modbus tcp errors
-#ifdef EPS32
+// fixes some modbus tcp errors (dynamic MBAP SIZE for write FCs)
+#ifdef ESP32
 #define USE_BAT_CTRL
 #endif
 
