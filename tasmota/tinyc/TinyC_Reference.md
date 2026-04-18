@@ -2377,13 +2377,15 @@ Scripter-compatible `udp()` function for arbitrary UDP communication. Uses a sep
 | `int udp(6, char url[], int port, char str[])` | Send string to arbitrary url:port |
 | `int udp(7, char url[], int port, int arr[], int count)` | Send array as raw bytes to url:port |
 | `int udp(8, int which, int seconds)` | Set socket inactivity timeout (which: 0=multicast, 1=general port; 0=disable) |
+| `int udp(9, char mcast_ip[], int port)` | Join arbitrary UDP multicast group, bind to port. Returns 1 on success |
 
 **Notes:**
-- The first argument (mode) must be a literal integer (0-8)
+- The first argument (mode) must be a literal integer (0-9)
 - Modes 6 and 7 create a temporary socket for each send (no prior `udp(0)` needed)
 - Mode 1 is non-blocking: returns 0 immediately if no packet is available
 - Mode 7 sends the lower byte of each array element
 - Mode 8 configures the socket watchdog: if no packet is received within `seconds`, the socket is automatically reset. Default is 60 seconds. Set to 0 to disable.
+- Mode 9 joins a custom multicast group (e.g. SMA Speedwire `239.12.255.254:9522`). Reuses the `udp(1, buf)` read path. Replaces any unicast `udp(0, ...)` binding on the same socket; call `udp(0, port)` again to switch back to unicast.
 
 ```c
 char buf[128];

@@ -45,6 +45,7 @@ slot0_test.tcb
 slot1_test.tcb
 slot2_test.tcb
 slot3_test.tcb
+sma_speedwire.tcb
 sml_ebus.tcb
 sort.tcb
 sps30.tcb
@@ -57,6 +58,7 @@ udp.tcb
 veml6075.tcb
 vl53l0x.tcb
 watch_demo.tcb
+wav_player.tcb
 web_buttons.tcb
 web_handler.tcb
 webcall_demo.tcb

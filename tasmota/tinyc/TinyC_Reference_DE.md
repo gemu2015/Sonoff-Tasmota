@@ -2049,13 +2049,15 @@ Scripter-kompatible `udp()`-Funktion fuer beliebige UDP-Kommunikation. Verwendet
 | `int udp(6, char url[], int port, char str[])` | String an beliebige url:port senden |
 | `int udp(7, char url[], int port, int arr[], int count)` | Array als Rohbytes an url:port senden |
 | `int udp(8, int welcher, int sekunden)` | Socket-Inaktivitaets-Timeout setzen (welcher: 0=Multicast, 1=Allgemeiner Port; 0=deaktiviert) |
+| `int udp(9, char mcast_ip[], int port)` | Beliebiger UDP-Multicast-Gruppe beitreten und an Port binden. Gibt 1 bei Erfolg zurueck |
 
 **Hinweise:**
-- Das erste Argument (Modus) muss ein ganzzahliges Literal (0-8) sein
+- Das erste Argument (Modus) muss ein ganzzahliges Literal (0-9) sein
 - Modi 6 und 7 erstellen einen temporaeren Socket (kein vorheriges `udp(0)` noetig)
 - Modus 1 ist nicht-blockierend: gibt sofort 0 zurueck wenn kein Paket verfuegbar
 - Modus 7 sendet das untere Byte jedes Array-Elements
 - Modus 8 konfiguriert den Socket-Watchdog: wenn innerhalb von `sekunden` kein Paket empfangen wird, wird der Socket automatisch zurueckgesetzt. Standard ist 60 Sekunden. 0 zum Deaktivieren.
+- Modus 9 tritt einer benutzerdefinierten Multicast-Gruppe bei (z.B. SMA Speedwire `239.12.255.254:9522`). Empfang ueber `udp(1, buf)`. Ersetzt eine bestehende Unicast-Bindung auf demselben Socket; `udp(0, port)` erneut aufrufen, um zurueck zu Unicast zu wechseln.
 
 ### I2C-Bus
 
