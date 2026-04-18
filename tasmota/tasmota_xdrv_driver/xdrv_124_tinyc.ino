@@ -128,10 +128,16 @@ extern "C" {
   void tc_hk_write_callback(uint8_t dev_index, uint8_t var_index, int32_t value) {
     if (!Tinyc) return;
     TcSlot *s = Tinyc->slots[0];
-    if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) return;
+    if (!s || !s->loaded) return;
 #ifdef ESP32
     if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
 #endif
+    if (!s->vm.halted || s->vm.error != TC_OK) {
+#ifdef ESP32
+      if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+#endif
+      return;
+    }
     tc_current_slot = s;
     TcVM *vm = &s->vm;
     if (vm->sp + 3 <= vm->stack_size) {
@@ -168,16 +174,22 @@ static void tc_all_callbacks_str(const char *name, const char *str) {
   if (!Tinyc) return;
   for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
     TcSlot *s = Tinyc->slots[i];
-    if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) continue;
-    tc_current_slot = s;
+    if (!s || !s->loaded) continue;
 #ifdef ESP32
     if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
 #endif
+    if (!s->vm.halted || s->vm.error != TC_OK) {
+#ifdef ESP32
+      if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+#endif
+      continue;
+    }
+    tc_current_slot = s;
     tc_vm_call_callback_str(&s->vm, name, str);
+    tc_current_slot = nullptr;
 #ifdef ESP32
     if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
 #endif
-    tc_current_slot = nullptr;
   }
 }
 
@@ -187,13 +199,18 @@ void tinyc_touch_button(uint8_t btn, int16_t val) {
   if (!Tinyc) return;
   for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
     TcSlot *s = Tinyc->slots[i];
-    if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) continue;
+    if (!s || !s->loaded) continue;
 #ifdef ESP32
     if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
 #endif
+    if (!s->vm.halted || s->vm.error != TC_OK) {
+#ifdef ESP32
+      if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+#endif
+      continue;
+    }
     tc_current_slot = s;
     // Push args left-to-right: btn first, then val (callee pops in reverse)
-    // Note: can't use TC_PUSH macro here (it has 'return int' in overflow check)
     TcVM *vm = &s->vm;
     if (vm->sp + 2 <= vm->stack_size) {
       vm->stack[vm->sp++] = (int32_t)btn;
@@ -3101,7 +3118,7 @@ bool Xdrv124(uint32_t function) {
         // Check each slot for registered command prefix match
         for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
           TcSlot *s = Tinyc->slots[i];
-          if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) continue;
+          if (!s || !s->loaded) continue;
           if (!s->cmd_prefix[0]) continue;
           int plen = strlen(s->cmd_prefix);
           if (strncasecmp(XdrvMailbox.topic, s->cmd_prefix, plen) == 0) {
@@ -3113,15 +3130,21 @@ bool Xdrv124(uint32_t function) {
             } else {
               snprintf(cmd_str, sizeof(cmd_str), "%s", sub);
             }
-            tc_current_slot = s;
 #ifdef ESP32
             if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
 #endif
+            if (!s->vm.halted || s->vm.error != TC_OK) {
+#ifdef ESP32
+              if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+#endif
+              continue;
+            }
+            tc_current_slot = s;
             tc_vm_call_callback_str(&s->vm, "Command", cmd_str);
+            tc_current_slot = nullptr;
 #ifdef ESP32
             if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
 #endif
-            tc_current_slot = nullptr;
             result = true;
             break;
           }

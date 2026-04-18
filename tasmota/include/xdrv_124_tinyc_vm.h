@@ -9159,11 +9159,21 @@ static int tc_vm_call_callback(TcVM *vm, const char *name) {
   uint8_t saved_frame_count = vm->frame_count;
   uint16_t saved_pc = vm->pc;
   uint16_t saved_sp = vm->sp;
+  // Bug #2 fix: reclaim any heap allocations made during the callback
+  // (bump allocator doesn't rewind heap_used even on tc_heap_free_handle).
+  // Snapshot heap position + handle count; restore on exit.
+  uint16_t saved_heap_used = vm->heap_used;
+  uint8_t  saved_heap_handle_count = vm->heap_handle_count;
 
   // Temporarily un-halt and set up callback frame
   vm->halted = false;
   vm->running = true;
-  if (vm->frame_count >= TC_MAX_FRAMES) return TC_ERR_FRAME_OVERFLOW;
+  if (vm->frame_count >= TC_MAX_FRAMES) {
+    // Keep VM in a consistent halted state on frame overflow
+    vm->halted = true;
+    vm->running = false;
+    return TC_ERR_FRAME_OVERFLOW;
+  }
   TcFrame *frame = &vm->frames[vm->frame_count];
   frame->return_pc = 0;  // detect return by frame_count drop
   if (!tc_frame_alloc(frame)) {
@@ -9204,16 +9214,31 @@ static int tc_vm_call_callback(TcVM *vm, const char *name) {
     }
   }
 
-  // Restore halted state (globals & heap persist)
+  // Restore halted state (globals persist)
   vm->halted = true;
   vm->running = false;
   vm->pc = saved_pc;
+  // Bug #1 fix: restore SP. Without this, every callback that left anything on
+  // the stack (args not consumed, RET_VAL's return value, partial push on error)
+  // leaks a slot per call → SP drifts → stack corruption after hours/days.
+  vm->sp = saved_sp;
 
   // Clean up any leftover frames from the callback
   while (vm->frame_count > saved_frame_count) {
     tc_frame_free(&vm->frames[--vm->frame_count]);
   }
   vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0;
+
+  // Bug #2 fix: reclaim heap allocations made during the callback.
+  // Mark handles created during the callback as dead so the handle table
+  // doesn't grow unbounded, then rewind the bump pointer.
+  if (vm->heap_handles && vm->heap_handle_count > saved_heap_handle_count) {
+    for (uint8_t i = saved_heap_handle_count; i < vm->heap_handle_count; i++) {
+      vm->heap_handles[i].alive = false;
+    }
+    vm->heap_handle_count = saved_heap_handle_count;
+  }
+  vm->heap_used = saved_heap_used;
 
   // Flush output to Tasmota
   tc_output_flush();
@@ -10143,17 +10168,26 @@ static void tc_vm_task(void *param) {
 \*********************************************************************************************/
 
 // Call a named callback on a single slot, with mutex protection and tc_current_slot set
+// Bug #1 fix: mutex-first. Checking halted/error without the mutex is a TOCTOU race
+// on dual-core ESP32 — Core 1's TaskLoop can flip halted=false between our check and
+// the mutex take, causing concurrent VM execution (PC=0 crash, frame corruption).
 static void tc_slot_callback(TcSlot *s, const char *name) {
-  if (!s || !s->loaded || !s->vm.halted || s->vm.error != TC_OK) return;
-  tc_current_slot = s;
+  if (!s || !s->loaded) return;
 #ifdef ESP32
   if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
 #endif
+  if (!s->vm.halted || s->vm.error != TC_OK) {
+#ifdef ESP32
+    if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+#endif
+    return;
+  }
+  tc_current_slot = s;
   tc_vm_call_callback(&s->vm, name);
+  tc_current_slot = nullptr;
 #ifdef ESP32
   if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
 #endif
-  tc_current_slot = nullptr;
 }
 
 // Helper: derive .pvs persist filename from .tcb filename
