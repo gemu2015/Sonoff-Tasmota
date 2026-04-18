@@ -2,6 +2,8 @@
 
 **TinyC** is a C-subset compiler and VM that runs on ESP32 and ESP8266 as the Tasmota driver `XDRV_124`. Write C in the browser IDE, compile to portable bytecode, upload and run — no firmware rebuild, no on-device compiler.
 
+![TinyC browser IDE](images/Tinyc_ide.png){ loading=lazy }
+
 ## Why TinyC
 
 - **Portable bytecode** — compile once, run the same binary on ESP32, ESP32-S3, ESP32-C3, or ESP8266.
