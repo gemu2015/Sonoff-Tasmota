@@ -1,0 +1,108 @@
+// Bug #4 diagnostic: is httpGet() TaskLoop crash HTTPClientLight-specific
+// or does the plain WiFiClient+HTTPClient path crash too?
+//
+// Test matrix:
+//   A) main-loop + plain http://   → baseline, must work
+//   B) main-loop + https://        → baseline, must work
+//   C) TaskLoop  + plain http://   → key datapoint
+//   D) TaskLoop  + https://        → known to crash per gemu2015
+//
+// NOTE: Inline variant — string literals passed to user functions with char[]
+// params trigger a compiler bug (LOAD_CONST vs const-pool ref mismatch).
+// Working around it by inlining the http calls.
+
+persist int stage_done;   // bitmask: 1=A 2=B 4=C 8=D
+persist int a_ok;
+persist int b_ok;
+persist int c_ok;
+persist int d_ok;
+persist int a_code;
+persist int b_code;
+persist int c_code;
+persist int d_code;
+persist int summary_printed;
+
+char log_buf[96];
+char resp[512];
+char url_http[64];
+char url_https[64];
+
+void EverySecond() {
+    int code;
+
+    if ((stage_done & 1) == 0) {
+        addLog("[DIAG] A: main-loop + http://");
+        resp[0] = 0;
+        code = httpGet(url_http, resp);
+        a_code = code;
+        a_ok = (code > 0);
+        sprintf(log_buf, "[DIAG] A code=%d len=%d", code, strlen(resp));
+        addLog(log_buf);
+        stage_done = stage_done | 1;
+        return;
+    }
+    if ((stage_done & 2) == 0) {
+        addLog("[DIAG] B: main-loop + https://");
+        resp[0] = 0;
+        code = httpGet(url_https, resp);
+        b_code = code;
+        b_ok = (code > 0);
+        sprintf(log_buf, "[DIAG] B code=%d len=%d", code, strlen(resp));
+        addLog(log_buf);
+        stage_done = stage_done | 2;
+        return;
+    }
+    if (!summary_printed && (stage_done & 15) == 15) {
+        sprintf(log_buf, "[DIAG] SUMMARY A=%d(%d) B=%d(%d) C=%d(%d) D=%d(%d)",
+            a_ok, a_code, b_ok, b_code, c_ok, c_code, d_ok, d_code);
+        addLog(log_buf);
+        summary_printed = 1;
+    }
+}
+
+void TaskLoop() {
+    int code;
+
+    while ((stage_done & 3) != 3) {
+        delay(1000);
+    }
+
+    delay(2000);
+    addLog("[DIAG] C: task-loop + http://  (crash here = WiFi stack itself not task-safe)");
+    resp[0] = 0;
+    code = httpGet(url_http, resp);
+    c_code = code;
+    c_ok = (code > 0);
+    sprintf(log_buf, "[DIAG] C code=%d len=%d", code, strlen(resp));
+    addLog(log_buf);
+    stage_done = stage_done | 4;
+
+    delay(2000);
+    addLog("[DIAG] D: task-loop + https:// (expected crash per gemu2015)");
+    resp[0] = 0;
+    code = httpGet(url_https, resp);
+    d_code = code;
+    d_ok = (code > 0);
+    sprintf(log_buf, "[DIAG] D code=%d len=%d", code, strlen(resp));
+    addLog(log_buf);
+    stage_done = stage_done | 8;
+
+    while (1) delay(60000);
+}
+
+int main() {
+    addLog("[DIAG] Bug #4 httpGet TaskLoop diagnostic start");
+    strcpy(url_http,  "http://example.com/");
+    strcpy(url_https, "https://example.com/");
+    stage_done = 0;
+    summary_printed = 0;
+    a_ok = 0;
+    b_ok = 0;
+    c_ok = 0;
+    d_ok = 0;
+    a_code = 0;
+    b_code = 0;
+    c_code = 0;
+    d_code = 0;
+    return 0;
+}

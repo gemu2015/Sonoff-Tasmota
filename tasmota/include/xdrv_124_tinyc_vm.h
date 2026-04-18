@@ -830,6 +830,7 @@ struct TINYC {
   bool     udp_port_open;         // port is listening
   uint32_t udp_port_last_rx;     // millis() of last received packet on general port
   uint16_t udp_port_timeout;     // inactivity timeout in seconds (0 = disabled)
+  IPAddress udp_port_mcast;       // multicast group IP (0.0.0.0 = unicast)
   // WebUI pages (up to 6, set by wLabel(), buttons on main page)
 #define TC_MAX_WEB_PAGES 6
   char     page_label[TC_MAX_WEB_PAGES][32];
@@ -1068,9 +1069,29 @@ static inline int32_t tc_file_mode(int32_t mode) {
   return mode;  // already 0/1/2 or invalid
 }
 
+// Detect a const-pool ref emitted by emitStringArg: tag=3 (0xC0000000) with
+// the 0x8000 bit of the handle set. Compiler uses this encoding to pass a
+// string literal where a char[] ref is expected (e.g. user function arg).
+static inline bool tc_is_const_ref(int32_t ref) {
+  uint32_t uref = (uint32_t)ref;
+  return ((uref >> 30) == 3) && ((uref & 0x8000) != 0);
+}
+
 // Extract null-terminated C string from VM array ref into char buffer
 // Returns number of chars written (excluding null terminator)
 static int tc_ref_to_cstr(TcVM *vm, int32_t ref, char *out, int maxOut) {
+  if (tc_is_const_ref(ref)) {
+    uint16_t idx = (uint16_t)(((uint32_t)ref) & 0x7FFF);
+    const char *s = nullptr;
+    if (idx < vm->const_count && vm->constants[idx].type == 1) {
+      s = vm->constants[idx].str.ptr;
+    }
+    if (!s) { out[0] = '\0'; return 0; }
+    int i;
+    for (i = 0; i < maxOut - 1 && s[i]; i++) out[i] = s[i];
+    out[i] = '\0';
+    return i;
+  }
   int32_t *buf = tc_resolve_ref(vm, ref);
   if (!buf) { out[0] = '\0'; return 0; }
   int32_t maxLen = tc_ref_maxlen(vm, ref);
@@ -4640,7 +4661,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
           }
           break;
         }
-        case 1: { // udp(1, buf) → read string from UDP
+        case 1: { // udp(1, buf) → read string from UDP (works for unicast + multicast)
           int32_t buf_ref = TC_POP(vm);
           int32_t result = 0;
           if (Tinyc->udp_port_open && !TasmotaGlobal.global_state.network_down) {
@@ -4652,14 +4673,23 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
                        Tinyc->udp_port_num, Tinyc->udp_port_timeout);
                 uint16_t saved_port = Tinyc->udp_port_num;
                 Tinyc->udp_port.stop();
-                Tinyc->udp_port.begin(saved_port);
+                if ((uint32_t)Tinyc->udp_port_mcast != 0) {
+#ifdef ESP8266
+                  Tinyc->udp_port.beginMulticast(WiFi.localIP(), Tinyc->udp_port_mcast, saved_port);
+#else
+                  Tinyc->udp_port.beginMulticast(Tinyc->udp_port_mcast, saved_port);
+#endif
+                } else {
+                  Tinyc->udp_port.begin(saved_port);
+                }
                 Tinyc->udp_port_last_rx = millis();
               }
             }
             int32_t plen = Tinyc->udp_port.parsePacket();
             if (plen > 0) {
               Tinyc->udp_port_last_rx = millis();  // packet received — reset watchdog
-              char packet[512];
+              // 1024 bytes covers SMA Speedwire (~600B) and most binary UDP telegrams.
+              char packet[1024];
               int32_t len = Tinyc->udp_port.read(packet, sizeof(packet) - 1);
               if (len > 0) {
                 packet[len] = 0;
@@ -4800,6 +4830,40 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
             AddLog(LOG_LEVEL_INFO, PSTR("TCC: UDP port timeout set to %ds"), seconds);
           }
           TC_PUSH(vm, 1);
+          break;
+        }
+        case 9: { // udp(9, mcast_ip_ref, port) → join multicast group on udp_port
+          int32_t port = TC_POP(vm);
+          int32_t ip_ref = TC_POP(vm);
+          char ip_str[32];
+          tc_ref_to_cstr(vm, ip_ref, ip_str, sizeof(ip_str));
+          IPAddress mcast;
+          if (!mcast.fromString(ip_str) || port <= 0 || port >= 65536) {
+            TC_PUSH(vm, 0);
+            break;
+          }
+          Tinyc->udp_port.stop();
+#ifdef ESP8266
+          bool ok = Tinyc->udp_port.beginMulticast(WiFi.localIP(), mcast, (uint16_t)port);
+#else
+          bool ok = Tinyc->udp_port.beginMulticast(mcast, (uint16_t)port);
+#endif
+          if (ok) {
+            Tinyc->udp_port_num = (uint16_t)port;
+            Tinyc->udp_port_open = true;
+            Tinyc->udp_port_mcast = mcast;
+            Tinyc->udp_port_last_rx = millis();
+            if (!Tinyc->udp_port_timeout) {
+              Tinyc->udp_port_timeout = TC_UDP_TIMEOUT_SEC;
+            }
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: UDP joined %s:%d"), ip_str, port);
+            TC_PUSH(vm, 1);
+          } else {
+            Tinyc->udp_port_open = false;
+            Tinyc->udp_port_mcast = IPAddress(0,0,0,0);
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: UDP multicast join failed %s:%d"), ip_str, port);
+            TC_PUSH(vm, 0);
+          }
           break;
         }
         default:
@@ -5862,7 +5926,6 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       http.setTimeout(5000);
       http.begin(http_client, url);
 #endif
-      // Add custom headers
       for (int i = 0; i < Tinyc->http_hdr_count; i++) {
         http.addHeader(Tinyc->http_hdr_name[i], Tinyc->http_hdr_value[i]);
       }

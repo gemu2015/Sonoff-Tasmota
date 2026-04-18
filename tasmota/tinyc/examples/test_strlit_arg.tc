@@ -1,0 +1,22 @@
+// Test: pass string literal to user function with char[] param
+// Before fix: url= (empty) → log_buf shows garbage/empty
+// After fix:  url=http://example.com/ correctly
+
+char log_buf[96];
+
+void show(char s[]) {
+    sprintf(log_buf, "[TEST] arg=%s", s);
+    addLog(log_buf);
+}
+
+void EverySecond() {
+    show("hello-literal");
+    show("second-literal");
+    // one-shot
+    return;
+}
+
+int main() {
+    addLog("[TEST] strlit→user-function-char[] start");
+    return 0;
+}
