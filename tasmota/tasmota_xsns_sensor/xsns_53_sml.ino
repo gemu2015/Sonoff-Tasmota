@@ -3014,7 +3014,10 @@ void SML_CounterIsr(void *arg) {
 
 
 #ifndef SML_SRCBSIZE
-#define SML_SRCBSIZE 256
+// 256 is too small when sml_meter.def is loaded from filesystem without Scripter —
+// rows with 30+ registers exceed the line buffer, Parser reads mid-line → misparse.
+// 512 fits typical meter defs with headroom.
+#define SML_SRCBSIZE 512
 #endif
 
 uint32_t SML_getlinelen(char *lp) {
@@ -3739,7 +3742,10 @@ dddef_exit:
           }
 
           while (1) {
-            if (*lp1 == 0) {
+            // Without Scripter, lp1 points into file_md — lines end with SCRIPT_EOL
+            // not \0. Without this check the copy runs past the line end → heap
+            // corruption (observed with sml_meter.def on SD, 35+ data rows).
+            if (*lp1 == 0 || *lp1 == SCRIPT_EOL) {
               *tp++ = '|';
               goto next_line;
             }
