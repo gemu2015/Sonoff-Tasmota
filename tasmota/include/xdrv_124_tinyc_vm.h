@@ -254,6 +254,9 @@ enum TcOp {
   OP_LOAD_HEAP_ARR  = 0xA0,  // u8 handle; pop idx -> push value
   OP_STORE_HEAP_ARR = 0xA1,  // u8 handle; pop val, pop idx -> store
   OP_ADDR_HEAP      = 0xA2,  // u8 handle -> push ref: 0xC0000000 | handle
+  // Runtime array ref (ref params): resolve packed ref stored in local slot
+  OP_LOAD_REF_ARR   = 0xA3,  // u8 local_idx; pop idx -> push *(resolveRef(local[local_idx])+idx)
+  OP_STORE_REF_ARR  = 0xA4,  // u8 local_idx; pop val, pop idx -> *(resolveRef(local[local_idx])+idx)=val
   // Watch variables (change tracking)
   OP_STORE_WATCH    = 0xA5,  // u16 varIdx, u16 shadowIdx, u16 writtenIdx — store with shadow update
   // Constants
@@ -9492,6 +9495,33 @@ static int tc_vm_step(TcVM *vm) {
       uint8_t handle = tc_read_u8(vm);
       // Pack: 0xC0000000 | handle
       TC_PUSH(vm, (int32_t)(0xC0000000U | handle));
+      break;
+    }
+
+    // ── Runtime array ref (ref params) ──
+    case OP_LOAD_REF_ARR: {
+      idx = tc_read_u8(vm);
+      a = TC_POP(vm);  // index
+      if ((uint32_t)idx >= TC_MAX_LOCALS) return TC_ERR_BOUNDS;
+      int32_t ref = vm->frames[vm->fp].locals[idx];
+      int32_t *buf = tc_resolve_ref(vm, ref);
+      if (!buf) return TC_ERR_BOUNDS;
+      int32_t maxLen = tc_ref_maxlen(vm, ref);
+      if (a < 0 || a >= maxLen) return TC_ERR_BOUNDS;
+      TC_PUSH(vm, buf[a]);
+      break;
+    }
+    case OP_STORE_REF_ARR: {
+      idx = tc_read_u8(vm);
+      b = TC_POP(vm);  // value
+      a = TC_POP(vm);  // index
+      if ((uint32_t)idx >= TC_MAX_LOCALS) return TC_ERR_BOUNDS;
+      int32_t ref = vm->frames[vm->fp].locals[idx];
+      int32_t *buf = tc_resolve_ref(vm, ref);
+      if (!buf) return TC_ERR_BOUNDS;
+      int32_t maxLen = tc_ref_maxlen(vm, ref);
+      if (a < 0 || a >= maxLen) return TC_ERR_BOUNDS;
+      buf[a] = b;
       break;
     }
 
