@@ -1,0 +1,51 @@
+name: Deploy TinyC docs
+
+on:
+  push:
+    branches:
+      - universal
+    paths:
+      - 'tinyc_docs/**'
+      - 'tasmota/tinyc/TinyC_Reference*.md'
+      - 'tasmota/tinyc/TinyC_Custom_Builds.md'
+      - 'tasmota/tinyc/examples/**'
+      - 'scripts/build_tinyc_docs.py'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/tinyc_docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tinyc-docs
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-docs.txt
+
+      - name: Populate generated pages
+        run: python scripts/build_tinyc_docs.py
+
+      - name: Build site
+        run: mkdocs build --strict
+
+      - name: Deploy to gh-pages
+        run: mkdocs gh-deploy --force --no-history
