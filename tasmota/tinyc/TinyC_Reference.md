@@ -2473,13 +2473,14 @@ The IDE's SML Descriptor tab manages the meter definition file (`/sml_meter.def`
 | Function | Description |
 |----------|-------------|
 | `float smlGet(int index)` | Get meter value. Index 0 returns count, 1..N returns values |
-| `int smlGetStr(int index, char buf[])` | Get meter ID string into buffer, returns length |
+| `int smlGetStr(int index, char buf[])` | Positive index: meter ID/OBIS string. Negative index: full-precision numeric value as string (4 decimals) — equivalent to Scripter's `smls[-x]` |
 
 **Notes:**
 - Index is 1-based: `smlGet(1)` returns the first meter value
 - `smlGet(0)` returns the total number of meter variables
 - Returns 0 if SML is not compiled in or index is out of range
-- Values are the same as Scripter's `sml[x]` syntax
+- `smlGet()` values match Scripter's `sml[x]` syntax (single-precision float)
+- `smlGetStr(-i, buf)` formats the underlying `double` SML value with 4 decimal places — use when cumulative energy meters exceed `float`'s ~7-digit precision
 
 **Example:**
 ```c

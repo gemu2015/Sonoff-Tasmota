@@ -2121,13 +2121,14 @@ Der SML-Deskriptor-Tab der IDE verwaltet die Zaehlerdefinitionsdatei (`/sml_mete
 | Funktion | Beschreibung |
 |----------|-------------|
 | `float smlGet(int index)` | Zaehlerwert abrufen. Index 0 gibt Anzahl zurueck, 1..N gibt Werte zurueck |
-| `int smlGetStr(int index, char buf[])` | Zaehler-ID-Zeichenkette in Puffer abrufen, gibt Laenge zurueck |
+| `int smlGetStr(int index, char buf[])` | Positiver Index: Zaehler-ID/OBIS-Zeichenkette. Negativer Index: numerischer Wert mit voller Praezision als Zeichenkette (4 Nachkommastellen) — entspricht Scripter's `smls[-x]` |
 
 **Hinweise:**
 - Index ist 1-basiert: `smlGet(1)` gibt den ersten Zaehlerwert zurueck
 - `smlGet(0)` gibt die Gesamtzahl der Zaehlervariablen zurueck
 - Gibt 0 zurueck wenn SML nicht einkompiliert ist oder der Index ausserhalb des Bereichs liegt
-- Die Werte sind dieselben wie Scripter's `sml[x]`-Syntax
+- `smlGet()`-Werte entsprechen Scripter's `sml[x]`-Syntax (einfache Float-Praezision)
+- `smlGetStr(-i, buf)` formatiert den zugrundeliegenden `double`-SML-Wert mit 4 Nachkommastellen — nuetzlich bei kumulativen Energiezaehlern, die `float`'s ~7-stellige Praezision ueberschreiten
 
 **Beispiel:**
 ```c

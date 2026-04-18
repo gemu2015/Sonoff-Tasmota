@@ -5132,11 +5132,18 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     }
     case SYS_SML_GETSTR: {
       int32_t ref = TC_POP(vm);  // buf_ref for output
-      a = TC_POP(vm);            // meter index
+      a = TC_POP(vm);            // meter index (negative = full-precision numeric-as-string)
 #if defined(USE_SML_M) || defined(USE_SML)
-      char *sval = SML_GetSVal((uint32_t)a);
+      char sbuf[FLOATSZ];
+      const char *sval;
+      if (a < 0) {
+        // Scripter smls[-x] equivalent: full-precision numeric value as string
+        dtostrfd(SML_GetVal((uint32_t)(-a)), 4, sbuf);
+        sval = sbuf;
+      } else {
+        sval = SML_GetSVal((uint32_t)a);
+      }
       if (sval && ref) {
-        // Copy string into TinyC char array
         int32_t *buf = tc_resolve_ref(vm, ref);
         int32_t maxLen = tc_ref_maxlen(vm, ref);
         if (buf && maxLen > 0) {
