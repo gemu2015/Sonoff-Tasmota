@@ -10,6 +10,14 @@ _Written for PlatformIO._
 
 <hr></hr>
 
+## 📘 TinyC for Tasmota
+
+This fork adds **TinyC** — a C-subset compiler and VM running as `XDRV_124`. Write C in the browser IDE, compile to portable bytecode, upload and run on ESP32 / ESP8266 — no firmware rebuild required.
+
+➡️ **[TinyC Documentation](https://gemu2015.github.io/Sonoff-Tasmota/)** — getting started, full function reference (EN/DE), examples, gallery, and pre-built firmware downloads.
+
+<hr></hr>
+
 **In light of current events we like to support the people behind _PlatformIO Project_, especially Ivan Kravets, and wish them the strength to help stop the war. See [platformio-is-ukrainian-project-please-help-us-stop-the-war](https://community.platformio.org/t/platformio-is-ukrainian-project-please-help-us-stop-the-war/26330) for what you can do.**
 
 <hr></hr>
