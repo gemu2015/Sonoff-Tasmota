@@ -52,3 +52,12 @@
 ## Latest release
 
 The latest test firmware, IDE bundle, and docs are always on the [testing](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing) release tag.
+
+---
+
+!!! note "Not affiliated with TCC / TinyCC"
+    *TinyC for Tasmota* is an independent project unrelated to Fabrice Bellard's
+    [Tiny C Compiler (TCC / TinyCC)](https://bellard.org/tcc/). The two share a
+    similar name but are different projects with different scope: TCC is a native
+    x86/ARM C compiler, while TinyC for Tasmota is a C-subset compiler that
+    targets a portable bytecode VM running inside Tasmota on ESP32/ESP8266.

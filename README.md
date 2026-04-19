@@ -16,6 +16,10 @@ This fork adds **TinyC** — a C-subset compiler and VM running as `XDRV_124`. W
 
 ➡️ **[TinyC Documentation](https://gemu2015.github.io/Sonoff-Tasmota/)** — getting started, full function reference (EN/DE), examples, gallery, and pre-built firmware downloads.
 
+> *TinyC for Tasmota* is an independent project and is **not affiliated with**
+> Fabrice Bellard's [Tiny C Compiler (TCC / TinyCC)](https://bellard.org/tcc/) —
+> different project, different scope (bytecode VM for Tasmota vs native compiler).
+
 <hr></hr>
 
 **In light of current events we like to support the people behind _PlatformIO Project_, especially Ivan Kravets, and wish them the strength to help stop the war. See [platformio-is-ukrainian-project-please-help-us-stop-the-war](https://community.platformio.org/t/platformio-is-ukrainian-project-please-help-us-stop-the-war/26330) for what you can do.**
