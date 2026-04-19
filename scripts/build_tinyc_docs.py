@@ -2,7 +2,7 @@
 """Pre-build step for the TinyC docs site.
 
 Populates `tinyc_docs/` with:
-- reference.md / reference_de.md  (copied from tasmota/tinyc/TinyC_Reference*.md)
+- reference.md / reference.de.md  (copied from tasmota/tinyc/TinyC_Reference*.md)
 - custom-builds.md                (copied from tasmota/tinyc/TinyC_Custom_Builds.md)
 - examples/index.md + examples/<name>.md  (one page per .tc file)
 - releases.md                     (pointer to GitHub releases)
@@ -26,7 +26,7 @@ def copy_reference() -> None:
     """Copy the long-form reference markdown files into the docs tree."""
     mapping = {
         "TinyC_Reference.md": "reference.md",
-        "TinyC_Reference_DE.md": "reference_de.md",
+        "TinyC_Reference_DE.md": "reference.de.md",
         "TinyC_Custom_Builds.md": "custom-builds.md",
     }
     for src_name, dst_name in mapping.items():

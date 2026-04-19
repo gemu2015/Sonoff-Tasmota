@@ -1,4 +1,5 @@
 mkdocs>=1.5
 mkdocs-material>=9.5
 mkdocs-glightbox>=0.3
+mkdocs-static-i18n>=1.2
 pymdown-extensions>=10.0
