@@ -15,3 +15,29 @@
 *.PDF	 diff=astextplain
 *.rtf	 diff=astextplain
 *.RTF	 diff=astextplain
+
+# ============================================================================
+# Merge-ours: files that are wholly owned by this fork.
+# When merging upstream (arendst/Tasmota), these keep the fork's version.
+# Requires: git config merge.ours.driver true   (see scripts/merge_upstream.sh)
+# ============================================================================
+
+# TinyC — entire subsystem (driver + compiler + VM + IDE + docs + examples)
+tasmota/tinyc/**                                              merge=ours
+tasmota/include/xdrv_124_tinyc_vm.h                           merge=ours
+tasmota/include/xdrv_124_tinyc*.h                             merge=ours
+tasmota/tasmota_xdrv_driver/xdrv_124_tinyc.ino                merge=ours
+
+# MkDocs site
+tinyc_docs/**                                                 merge=ours
+mkdocs.yml                                                    merge=ours
+requirements-docs.txt                                         merge=ours
+scripts/build_tinyc_docs.py                                   merge=ours
+.github/workflows/tinyc_docs.yml                              merge=ours
+
+# Fork-branded libraries — "gemu" in the path is the tell
+lib/lib_display/Display_Renderer-gemu-1.0/**                  merge=ours
+
+# README — contains the TinyC banner and fork-specific content
+README.md                                                     merge=ours
+
