@@ -487,6 +487,9 @@ enum TcSyscall {
   SYS_DSP_TEXT_WIDTH  = 266, // (len) -> int — get pixel width for len chars in current font
   SYS_DSP_TEXT_HEIGHT = 267, // () -> int — get pixel height for current font
   SYS_DSP_IMG_TEXT    = 268, // (slot, x, y, color, fieldw, align, buf_ref) -> void — composite text on image
+  SYS_DSP_LOAD_IMG_CAM  = 277, // (cam_slot) -> int — decode JPEG from cam slot into a new img slot (-1=err)
+  SYS_DSP_IMG_TEXT_BURN = 278, // (slot, x, y, color, fieldw, align, buf_ref) -> void — burn text pixels INTO image buffer (no TFT push)
+  SYS_DSP_IMG_TO_CAM    = 279, // (img_slot, cam_slot, quality) -> int — re-encode img slot back into cam slot as JPEG, returns size (-1=err)
   // Audio
   SYS_AUDIO_VOL       = 200, // (vol) -> void — set volume 0-100
   SYS_AUDIO_PLAY      = 201, // (file_const) -> void — play MP3 file
@@ -7355,6 +7358,132 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       }
       break;
     }
+
+    // ── Bridge: camera JPEG slot  <->  display image slot (RGB565) ──
+#if defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA)
+    case SYS_DSP_LOAD_IMG_CAM: {
+      // dspLoadImageFromCam(cam_slot) -> img_slot (0..TC_IMG_SLOTS-1, -1 on error)
+      // Decodes a JPEG already captured into tc_cam_slot[cam-1] into a free RGB565
+      // image slot, making it editable with dspImgTextBurn / re-encodable with
+      // dspImageToCam. Non-destructive: the source cam slot is untouched.
+      int32_t cam = TC_POP(vm);
+      if (cam < 1 || cam > TC_CAM_MAX_SLOTS) { TC_PUSH(vm, -1); break; }
+      cam--;
+      if (!tc_cam_slot[cam].buf || tc_cam_slot[cam].len < 4) { TC_PUSH(vm, -1); break; }
+      uint8_t *jpg  = tc_cam_slot[cam].buf;
+      uint32_t jlen = tc_cam_slot[cam].len;
+      if (jpg[0] != 0xff || jpg[1] != 0xd8) { TC_PUSH(vm, -1); break; }
+
+      // find free img slot
+      int slot = -1;
+      for (int i = 0; i < TC_IMG_SLOTS; i++) {
+        if (!tc_img_store[i].buf) { slot = i; break; }
+      }
+      if (slot < 0) {
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: img no free slot (cam %d)"), cam + 1);
+        TC_PUSH(vm, -1); break;
+      }
+
+      uint16_t xsize = 0, ysize = 0;
+      get_jpeg_size(jpg, jlen, &xsize, &ysize);
+      if (!xsize || !ysize) { TC_PUSH(vm, -1); break; }
+      uint32_t outsize = (uint32_t)xsize * ysize * 2;
+      uint16_t *out_buf = (uint16_t *)special_malloc(outsize + 4);
+      if (!out_buf) {
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: img %dx%d RGB565 alloc failed (%u KB)"),
+               xsize, ysize, outsize / 1024);
+        TC_PUSH(vm, -1); break;
+      }
+      esp_jpeg_image_cfg_t jpeg_cfg = {
+        .indata = jpg,
+        .indata_size = jlen,
+        .outbuf = (uint8_t*)out_buf,
+        .outbuf_size = outsize,
+        .out_format = JPEG_IMAGE_FORMAT_RGB565,
+        .out_scale = JPEG_IMAGE_SCALE_0,
+        .flags = { .swap_color_bytes = 0 }
+      };
+      esp_jpeg_image_output_t outimg;
+      OsWatchLoop();
+      esp_err_t err = esp_jpeg_decode(&jpeg_cfg, &outimg);
+      OsWatchLoop();
+      if (err != ESP_OK) {
+        free(out_buf);
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: JPEG decode failed (cam %d, err=%d)"), cam + 1, err);
+        TC_PUSH(vm, -1); break;
+      }
+      tc_img_store[slot].buf = out_buf;
+      tc_img_store[slot].w = xsize;
+      tc_img_store[slot].h = ysize;
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: img slot %d from cam %d: %dx%d (%u KB)"),
+             slot, cam + 1, xsize, ysize, outsize / 1024);
+      TC_PUSH(vm, slot);
+      break;
+    }
+
+    case SYS_DSP_IMG_TO_CAM: {
+      // dspImageToCam(img_slot, cam_slot, quality) -> bytes written (-1 on error)
+      // Re-encodes RGB565 image slot back into a cam slot as JPEG using
+      // esp32-camera's fmt2jpg(). Quality is esp_camera's range (1..63,
+      // lower = better). 12 is a good default (~ JPEG Q=85).
+      int32_t q        = TC_POP(vm);
+      int32_t cam      = TC_POP(vm);
+      int32_t img_slot = TC_POP(vm);
+      if (img_slot < 0 || img_slot >= TC_IMG_SLOTS || !tc_img_store[img_slot].buf) {
+        TC_PUSH(vm, -1); break;
+      }
+      if (cam < 1 || cam > TC_CAM_MAX_SLOTS) { TC_PUSH(vm, -1); break; }
+      if (q < 1)  q = 12;
+      if (q > 63) q = 63;
+      cam--;
+
+      uint16_t w = tc_img_store[img_slot].w;
+      uint16_t h = tc_img_store[img_slot].h;
+      uint8_t *out_buf = nullptr;
+      size_t   out_len = 0;
+      OsWatchLoop();
+      bool ok = fmt2jpg((uint8_t*)tc_img_store[img_slot].buf,
+                        (size_t)w * h * 2,
+                        w, h,
+                        PIXFORMAT_RGB565,
+                        (uint8_t)q,
+                        &out_buf, &out_len);
+      OsWatchLoop();
+      if (!ok || !out_buf || !out_len) {
+        if (out_buf) free(out_buf);
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: fmt2jpg failed (%dx%d q=%d)"), w, h, (int)q);
+        TC_PUSH(vm, -1); break;
+      }
+
+      // (Re)allocate PSRAM cam slot buffer
+      if (tc_cam_slot[cam].buf && tc_cam_slot[cam].len < out_len) {
+        free(tc_cam_slot[cam].buf);
+        tc_cam_slot[cam].buf = nullptr;
+      }
+      if (!tc_cam_slot[cam].buf) {
+        tc_cam_slot[cam].buf = (uint8_t*)heap_caps_malloc(out_len,
+                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+      }
+      if (!tc_cam_slot[cam].buf) {
+        free(out_buf);
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: cam slot %d PSRAM alloc failed (%u bytes)"),
+               cam + 1, (uint32_t)out_len);
+        TC_PUSH(vm, -1); break;
+      }
+      tc_cam_slot[cam].writing = 1;
+      memcpy(tc_cam_slot[cam].buf, out_buf, out_len);
+      tc_cam_slot[cam].len    = out_len;
+      tc_cam_slot[cam].width  = w;
+      tc_cam_slot[cam].height = h;
+      tc_cam_slot[cam].writing = 0;
+      free(out_buf);
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: cam slot %d from img %d: %dx%d -> %u bytes (q=%d)"),
+             cam + 1, img_slot, w, h, (uint32_t)out_len, (int)q);
+      TC_PUSH(vm, (int32_t)out_len);
+      break;
+    }
+#endif // USE_WEBCAM || USE_TINYC_CAMERA
+
 #else
     case SYS_DSP_LOAD_IMG: {
       TC_POP(vm); // filename
@@ -7371,7 +7500,28 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       TC_PUSH(vm, 0);
       break;
     }
+    case SYS_DSP_LOAD_IMG_CAM: {
+      TC_POP(vm); // cam_slot
+      TC_PUSH(vm, -1); // not available
+      break;
+    }
+    case SYS_DSP_IMG_TO_CAM: {
+      TC_POP(vm); TC_POP(vm); TC_POP(vm); // img_slot, cam_slot, quality
+      TC_PUSH(vm, -1);
+      break;
+    }
 #endif // USE_DISPLAY && ESP32 && JPEG_PICTS
+
+#if !defined(USE_WEBCAM) && !defined(USE_TINYC_CAMERA) && \
+     defined(USE_DISPLAY) && defined(ESP32) && defined(JPEG_PICTS)
+    // Fallback when display/JPEG is available but no camera support compiled in
+    case SYS_DSP_LOAD_IMG_CAM: {
+      TC_POP(vm); TC_PUSH(vm, -1); break;
+    }
+    case SYS_DSP_IMG_TO_CAM: {
+      TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break;
+    }
+#endif
 
     // ── Display drawing (direct renderer calls) ──────
 #ifdef USE_DISPLAY
@@ -7703,6 +7853,100 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       break;
     }
 
+    case SYS_DSP_IMG_TEXT_BURN: {
+      // dspImgTextBurn(slot, x, y, color, fieldWidth, align, text_buf)
+      // Same args / font logic as SYS_DSP_IMG_TEXT, but burns text pixels INTO
+      // the image buffer. Does NOT push anything to the TFT. Use this when you
+      // need to modify a captured camera frame before re-encoding to JPEG
+      // (dspImageToCam). The image slot is mutated in place.
+      //
+      // NOTE: camera boards usually compile USE_DISPLAY but never initialize
+      // renderer (no physical panel). We therefore DO NOT require renderer —
+      // we read the EPD font table (PROGMEM constant Font12) directly. If a
+      // real display IS attached and a font/size is selected, we honor it.
+      int32_t ref    = TC_POP(vm);
+      int32_t align  = TC_POP(vm);
+      int32_t fieldw = TC_POP(vm);
+      int32_t color  = TC_POP(vm);
+      int32_t y      = TC_POP(vm);
+      int32_t x      = TC_POP(vm);
+      int32_t slot   = TC_POP(vm);
+      if (slot < 0 || slot >= TC_IMG_SLOTS || !tc_img_store[slot].buf) break;
+
+      char text[128];
+      tc_ref_to_cstr(vm, ref, text, sizeof(text));
+      int tlen = strlen(text);
+      if (tlen == 0 && fieldw == 0) break;
+
+      uint16_t *img  = tc_img_store[slot].buf;
+      uint16_t img_w = tc_img_store[slot].w;
+      uint16_t img_h = tc_img_store[slot].h;
+
+#ifdef USE_EPD_FONTS
+      // Default font when no display is wired up / selected: Font12 @ size 1.
+      // Always linked as long as USE_DISPLAY is compiled (ESP32-CAM boards).
+      sFONT *fnt   = &Font12;
+      uint8_t csize = 1;
+      if (renderer) {
+        csize = renderer->getTextSize();
+        if (csize < 1) csize = 1;
+        if (renderer->getFont() > 0 && renderer->getFont() < 5 &&
+            renderer->getSelectedFont()) {
+          fnt = renderer->getSelectedFont();
+        }
+      }
+      int cw   = fnt->Width;
+      int ch_h = fnt->Height;
+
+      int nchars = (fieldw > 0) ? fieldw : tlen;
+      int tw = nchars * cw * csize;
+      int th = ch_h  * csize;
+      if (x < 0) x = 0;
+      if (y < 0) y = 0;
+      if (x + tw > img_w) tw = img_w - x;
+      if (y + th > img_h) th = img_h - y;
+      if (tw <= 0 || th <= 0) break;
+
+      int text_pw = tlen * cw * csize;
+      int x_off = 0;
+      if      (align == 1) x_off = tw - text_pw;
+      else if (align == 2) x_off = (tw - text_pw) / 2;
+      if (x_off < 0) x_off = 0;
+
+      uint16_t fg = (uint16_t)color;
+      for (int ci = 0; ci < tlen; ci++) {
+        int cx = x_off + ci * cw * csize;
+        if (cx >= tw) break;
+        char ascii_char = text[ci];
+        if (ascii_char < ' ') continue;
+        unsigned int char_offset = (ascii_char - ' ') * fnt->Height *
+                                   (fnt->Width / 8 + (fnt->Width % 8 ? 1 : 0));
+        const unsigned char *ptr = &fnt->table[char_offset];
+        for (int fj = 0; fj < fnt->Height; fj++) {
+          for (int fi = 0; fi < fnt->Width; fi++) {
+            if (pgm_read_byte(ptr) & (0x80 >> (fi % 8))) {
+              for (int sy_i = 0; sy_i < csize; sy_i++) {
+                for (int sx_i = 0; sx_i < csize; sx_i++) {
+                  int px = x + cx + fi * csize + sx_i;
+                  int py = y + fj * csize + sy_i;
+                  if (px >= 0 && px < img_w && py >= 0 && py < img_h) {
+                    img[py * img_w + px] = fg;
+                  }
+                }
+              }
+            }
+            if (fi % 8 == 7) ptr++;
+          }
+          if (fnt->Width % 8 != 0) ptr++;
+        }
+      }
+#else
+      (void)renderer; (void)img; (void)img_w; (void)img_h;
+      (void)x; (void)y; (void)color; (void)fieldw; (void)align; (void)text;
+#endif
+      break;
+    }
+
     // ── Touch buttons & sliders ──────────────────────
 #ifdef USE_TOUCH_BUTTONS
     case SYS_DSP_BUTTON:    // power button
@@ -7882,6 +8126,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_DSP_TEXT_HEIGHT:
       TC_PUSH(vm, 0); break;
     case SYS_DSP_IMG_TEXT:
+    case SYS_DSP_IMG_TEXT_BURN:
       // 7 args: slot, x, y, color, fieldw, align, buf_ref
       for (int i = 0; i < 7; i++) TC_POP(vm); break;
 #endif // USE_DISPLAY

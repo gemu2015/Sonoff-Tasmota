@@ -1,0 +1,74 @@
+// snap_with_timestamp.tc
+// Capture a camera frame, burn a timestamp onto it, save the result to the
+// filesystem as a fresh JPEG. Demonstrates the cam-slot <-> img-slot bridge:
+//
+//   camControl(10, cam)                        — capture JPEG to PSRAM
+//   dspLoadImageFromCam(cam) -> img_slot       — decode JPEG to editable RGB565
+//   dspImgTextBurn(img_slot, ...)              — write text pixels into buffer
+//   dspImageToCam(img_slot, cam, quality)      — re-encode RGB565 to JPEG
+//   camControl(11, cam, fh)                    — save cam slot to file
+//
+// Requires: camera + display compiled in (e.g. env "tinyc32s3-cam"). The
+// display does not need to be physically wired — the font tables are enough.
+
+#define CAM_VGA   8           // framesize_t: 640x480
+#define CAM_IN    1           // cam slot that holds the raw capture
+#define CAM_OUT   2           // cam slot that will hold the stamped JPEG
+#define YELLOW    0xFFE0      // RGB565
+
+int interval;                 // seconds between snapshots (0 = one-shot)
+int counter;
+char path[40];
+
+void main() {
+    interval = 0;             // change to e.g. 60 for one snap/minute
+    counter  = 0;
+    camControl(0, CAM_VGA);   // init camera, VGA
+    addLog("snap_with_timestamp: ready");
+    if (interval == 0) {
+        take_snap();
+    }
+}
+
+void take_snap() {
+    int size = camControl(10, CAM_IN);                    // capture JPEG
+    if (size <= 0) { addLog("capture failed"); return; }
+
+    int img = dspLoadImageFromCam(CAM_IN);                // decode -> RGB565
+    if (img < 0) { addLog("decode failed"); return; }
+
+    // Build timestamp line — Tasmota tasm_* system vars
+    char line[48];
+    sprintf(line, "%04d-%02d-%02d  %02d:%02d:%02d",
+            tasm_year, tasm_month, tasm_day,
+            tasm_hour, tasm_min,   tasm_sec);
+
+    // Burn yellow text into the image buffer (top-left)
+    dspImgTextBurn(img, 10, 10, YELLOW, 0, 0, line);
+
+    // Re-encode back into a cam slot (quality 12, ~ JPEG Q=85)
+    int jlen = dspImageToCam(img, CAM_OUT, 12);
+    if (jlen <= 0) { addLog("encode failed"); return; }
+
+    // Save to filesystem — filename rolls
+    counter = counter + 1;
+    sprintf(path, "/snap_%04d.jpg", counter);
+    int fh = fileOpen(path, "w");
+    if (fh >= 0) {
+        camControl(11, CAM_OUT, fh);
+        fileClose(fh);
+        char msg[64];
+        sprintf(msg, "saved %s (%d bytes)", path, jlen);
+        addLog(msg);
+    }
+}
+
+void EverySecond() {
+    if (interval == 0) return;
+    static int tick = 0;
+    tick = tick + 1;
+    if (tick >= interval) {
+        tick = 0;
+        take_snap();
+    }
+}
