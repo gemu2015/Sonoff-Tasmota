@@ -3819,7 +3819,7 @@ int main() {
 | typedef                  | Full support   | Supported: primitive aliases, named struct aliases, anonymous struct typedef, chained aliases, local typedef |
 | `const`                  | Type enforced  | Accepted (documentation hint, not enforced at runtime) |
 | `static` locals          | Full support   | Supported: zero-initialised, persists across calls. Non-zero initialisers not emitted |
-| sizeof                   | Full support   | **Not supported**            |
+| sizeof                   | Full support   | Compile-time only: `sizeof(type)` and `sizeof(name)` supported; `sizeof(expr)` not supported. See [sizeof Operator](#sizeof-operator) |
 | Ternary operator `?:`    | Full support   | Supported, including nested ternary |
 | do-while                 | Full support   | Supported                    |
 | Compound assignments     | Full support   | Supported: `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` |

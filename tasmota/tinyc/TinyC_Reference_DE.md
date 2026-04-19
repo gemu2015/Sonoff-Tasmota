@@ -3460,7 +3460,7 @@ int main() {
 | typedef                       | Volle Unterstuetzung | Unterstuetzt: primitive Aliase, benannte Struct-Aliase, anonyme Struct-typedefs, verkettete Aliase, lokale typedefs |
 | `const`                       | Typgeprueft        | Akzeptiert (Dokumentationshinweis, zur Laufzeit nicht erzwungen) |
 | `static` lokale Variablen     | Volle Unterstuetzung | Unterstuetzt: nullinitialisiert, bleibt zwischen Aufrufen erhalten. Nicht-null-Initialisierer werden nicht ausgefuehrt |
-| sizeof                        | Volle Unterstuetzung | **Nicht unterstuetzt**       |
+| sizeof                        | Volle Unterstuetzung | Nur zur Uebersetzungszeit: `sizeof(typ)` und `sizeof(name)` unterstuetzt; `sizeof(ausdruck)` nicht unterstuetzt. Siehe [sizeof-Operator](#sizeof-operator) |
 | Ternaerer Operator `?:`       | Volle Unterstuetzung | Unterstuetzt, auch verschachtelt |
 | do-while                      | Volle Unterstuetzung | Unterstuetzt                 |
 | Zusammengesetzte Zuweisungen  | Volle Unterstuetzung | Unterstuetzt: `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` |
