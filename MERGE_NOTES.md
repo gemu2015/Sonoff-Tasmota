@@ -7,12 +7,19 @@ to absorb upstream changes without losing fork modifications.
 ## One-time setup
 
 ```bash
+# Only if the remote is not already configured
+# (check with: git remote -v | grep upstream)
 git remote add upstream https://github.com/arendst/Tasmota.git
+
+# Always required, per clone
 git config merge.ours.driver true
 ```
 
 The second command activates the `merge=ours` driver referenced in
 `.gitattributes`. It is built into git but must be enabled per clone.
+
+If you get *"remote upstream already exists"* from the first command — good,
+nothing to do. Just run the second.
 
 ## Routine merge
 
