@@ -1024,6 +1024,66 @@ float c = a + b;    // a wird zu float heraufgestuft, Ergebnis = 7.5
 
 ---
 
+## sizeof-Operator
+
+`sizeof` ist ein **Uebersetzungszeit**-Operator, der zu einer Ganzzahl-Konstante aufgeloest wird. Keine Laufzeitkosten — der Compiler faltet den Wert direkt in den Bytecode.
+
+### Formen
+
+```c
+sizeof(typ)       // int, float, char, bool, struct Tag oder Typedef-Name
+sizeof(name)      // deklarierte Variable, Array oder Struct
+sizeof name       // wie oben, ohne Klammern
+```
+
+### Groessen (Bytes, nach C-Konvention)
+
+| Objekt             | sizeof |
+|--------------------|--------|
+| `int`, `float`     | 4      |
+| `char`, `bool`     | 1      |
+| `char buf[40]`     | 40     |
+| `int arr[10]`      | 40     |
+| `float ff[5]`      | 20     |
+| `struct Foo`       | Summe der Member-Bytes |
+| `struct Foo v[N]`  | N x sizeof(struct Foo) |
+
+**Hinweis:** In TinyCs VM belegt jeder Skalar intern einen 32-Bit-Slot, aber `sizeof` liefert immer Bytes wie in Standard-C. `sizeof(char)` ist **1**, nicht 4.
+
+### Beispiele
+
+```c
+char buf[80];
+int  arr[10];
+
+int a = sizeof(int);               // 4
+int b = sizeof(buf);               // 80
+int n = sizeof(arr) / sizeof(int); // 10 (Elementzahl-Idiom)
+
+struct Frame { int id; char name[8]; float v; };
+int s = sizeof(struct Frame);      // 16 (4 + 8 + 4)
+```
+
+### In konstanten Ausdruecken
+
+`sizeof` kann in Array-Groessen verwendet werden, da es zu einer Konstante faltet:
+
+```c
+char header[8];
+char packet[sizeof(header) + 32];   // packet[40]
+```
+
+### Nicht unterstuetzt
+
+```c
+sizeof(arr[0])     // FEHLER — beliebige Ausdruecke nicht erlaubt
+sizeof(x + y)      // FEHLER
+```
+
+Alternative: fuer die Elementgroesse eines Arrays `sizeof(typ)` direkt nutzen, z.B. `sizeof(arr) / sizeof(int)`.
+
+---
+
 ## Eingebaute Funktionen
 
 ### Ausgabe

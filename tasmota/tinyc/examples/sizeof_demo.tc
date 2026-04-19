@@ -1,0 +1,50 @@
+// sizeof_demo.tc — compile-time sizeof operator
+//
+// sizeof is evaluated at compile time (folded to an integer literal).
+// It costs nothing at runtime — there is no bytecode for the operator
+// itself, only a PUSH_IMM of the computed byte count.
+//
+// Sizes follow C conventions (bytes, not slots):
+//    sizeof(char)  = 1    sizeof(int)    = 4
+//    sizeof(bool)  = 1    sizeof(float)  = 4
+//    sizeof(char buf[40])  = 40
+//    sizeof(int  arr[10])  = 40
+//    sizeof(struct Foo)    = sum of member bytes
+//
+// Supported forms:
+//    sizeof(type)      — int, float, char, bool, struct Tag, typedef name
+//    sizeof(name)      — variable, array, or struct var
+//    sizeof name       — same, without parens
+//
+// NOT supported: sizeof(arbitrary_expression). Use sizeof(type) or a
+// named variable. For "array element count" use sizeof(arr)/sizeof(int).
+
+struct Frame {
+    int    id;       // 4 bytes
+    char   label[8]; // 8 bytes
+    float  value;    // 4 bytes
+};
+
+struct Frame frames[3];
+char  buf[64];
+int   nums[10];
+
+void main() {
+    char line[80];
+
+    sprintfInt(line, "sizeof(int)      = %d", sizeof(int));          dspText(line); addLog(line);
+    sprintfInt(line, "sizeof(float)    = %d", sizeof(float));        dspText(line); addLog(line);
+    sprintfInt(line, "sizeof(char)     = %d", sizeof(char));         dspText(line); addLog(line);
+    sprintfInt(line, "sizeof(bool)     = %d", sizeof(bool));         dspText(line); addLog(line);
+    sprintfInt(line, "sizeof(buf[64])  = %d", sizeof(buf));          addLog(line);   // 64
+    sprintfInt(line, "sizeof(nums[10]) = %d", sizeof(nums));         addLog(line);   // 40
+    sprintfInt(line, "sizeof Frame     = %d", sizeof(struct Frame)); addLog(line);   // 16
+    sprintfInt(line, "sizeof frames[3] = %d", sizeof(frames));       addLog(line);   // 48
+
+    // Element count idiom
+    int n = sizeof(nums) / sizeof(int);
+    sprintfInt(line, "nums has %d elements", n);                     addLog(line);   // 10
+
+    // Works in const expression for array size
+    // char copy[sizeof(buf)];   // ← compiles, allocates a 64-byte buffer
+}

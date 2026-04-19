@@ -1066,6 +1066,66 @@ float c = a + b;    // a promoted to float, result = 7.5
 
 ---
 
+## sizeof Operator
+
+`sizeof` is a **compile-time** operator that resolves to an integer literal. There is no runtime cost — the compiler folds the value directly into the bytecode.
+
+### Forms
+
+```c
+sizeof(type)      // int, float, char, bool, struct Tag, or a typedef name
+sizeof(name)      // a declared variable, array, or struct
+sizeof name       // same as above, without parentheses
+```
+
+### Sizes (bytes, following C conventions)
+
+| Thing              | sizeof |
+|--------------------|--------|
+| `int`, `float`     | 4      |
+| `char`, `bool`     | 1      |
+| `char buf[40]`     | 40     |
+| `int arr[10]`      | 40     |
+| `float ff[5]`      | 20     |
+| `struct Foo`       | sum of member byte sizes |
+| `struct Foo v[N]`  | N × sizeof(struct Foo) |
+
+**Note:** in TinyC's VM every scalar occupies a 32-bit slot internally, but `sizeof` always reports bytes as a C programmer would expect. `sizeof(char)` is **1**, not 4.
+
+### Examples
+
+```c
+char buf[80];
+int  arr[10];
+
+int a = sizeof(int);              // 4
+int b = sizeof(buf);              // 80
+int n = sizeof(arr) / sizeof(int); // 10 (element count idiom)
+
+struct Frame { int id; char name[8]; float v; };
+int s = sizeof(struct Frame);     // 16 (4 + 8 + 4)
+```
+
+### Use in constant expressions
+
+`sizeof` can appear in array-size expressions since it folds to a constant:
+
+```c
+char header[8];
+char packet[sizeof(header) + 32];   // packet[40]
+```
+
+### Not supported
+
+```c
+sizeof(arr[0])     // ERROR — arbitrary expressions not allowed
+sizeof(x + y)      // ERROR
+```
+
+Workaround: for the element-size of an array use `sizeof(type)` directly, e.g. `sizeof(arr) / sizeof(int)`.
+
+---
+
 ## Ternary Operator
 
 The conditional expression `condition ? value_if_true : value_if_false`:
