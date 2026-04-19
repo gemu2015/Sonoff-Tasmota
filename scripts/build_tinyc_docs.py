@@ -91,13 +91,25 @@ def generate_example_pages() -> None:
 
 
 def _first_comment_line(tc_path: Path) -> str:
-    """Use the first `//` comment line as the example summary, if present."""
+    """Use the first meaningful `//` comment line as the example summary.
+
+    Skips decorative banner lines (purely punctuation / box-drawing characters)
+    and skips `// @directive:` metadata lines like `// @defines: -DBOARD_X`.
+    """
+    import re
     for raw in tc_path.read_text(encoding="utf-8", errors="replace").splitlines():
         s = raw.strip()
         if s.startswith("//"):
             text = s.lstrip("/").strip()
-            if text:
-                return text
+            if not text:
+                continue
+            # Skip decorative banners (no letters or digits)
+            if not re.search(r"[A-Za-z0-9]", text):
+                continue
+            # Skip @directive metadata lines
+            if text.startswith("@"):
+                continue
+            return text
         elif s:
             break
     return "_(no description — see source)_"
