@@ -100,6 +100,7 @@ nav:
       - Overview: examples/index.md
   - Gallery:
       - Overview: gallery/index.md
+      - Solar Manager: gallery/solar.md
       - Displays: gallery/displays.md
       - Charts: gallery/charts.md
       - Cameras: gallery/cameras.md

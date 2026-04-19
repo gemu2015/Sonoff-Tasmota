@@ -5,6 +5,12 @@ Screenshots of TinyC programs running on real Tasmota hardware. Drop your own PN
 
 <div class="grid cards" markdown>
 
+- :material-solar-power:{ .lg .middle } __[Solar Manager](solar.md)__
+
+    ---
+    A community-built BYD battery + SMA inverter manager with PV forecast,
+    dynamic pricing, and Shelly orchestration. **Featured project.**
+
 - :material-monitor:{ .lg .middle } __[Displays](displays.md)__
 
     ---
