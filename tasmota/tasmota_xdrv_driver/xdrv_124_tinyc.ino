@@ -43,8 +43,12 @@ static void HandleTinyCWebOn1(void);
 static void HandleTinyCWebOn2(void);
 static void HandleTinyCWebOn3(void);
 static void HandleTinyCWebOn4(void);
+static void HandleTinyCWebOn5(void);
+static void HandleTinyCWebOn6(void);
+static void HandleTinyCWebOn7(void);
 static void (*const TinyCWebOnHandlers[])(void) = {
-  HandleTinyCWebOn1, HandleTinyCWebOn2, HandleTinyCWebOn3, HandleTinyCWebOn4
+  HandleTinyCWebOn1, HandleTinyCWebOn2, HandleTinyCWebOn3, HandleTinyCWebOn4,
+  HandleTinyCWebOn5, HandleTinyCWebOn6, HandleTinyCWebOn7
 };
 
 // mDNS support (for SYS_MDNS syscall)
@@ -339,6 +343,11 @@ static void TinyCInit(void) {
   // WiFiUDP (NetworkUDP) needs proper construction or begin() crashes (NULL deref).
   new (&Tinyc->udp) WiFiUDP();
   new (&Tinyc->udp_port) WiFiUDP();
+  // TCP client slots — placement-new each (calloc zeroes but doesn't construct C++ objects)
+  for (uint8_t s = 0; s < TC_TCP_CLI_SLOTS; s++) {
+    new (&Tinyc->tcp_cli_clients[s]) WiFiClient();
+  }
+  Tinyc->tcp_cli_slot = 0;
   Tinyc->instr_per_tick = TC_INSTR_PER_TICK;
   // Init SPI CS pins to -1 (unused)
   for (int i = 0; i < TC_SPI_MAX_CS; i++) { Tinyc->spi.cs[i] = -1; }
@@ -1996,20 +2005,21 @@ static void HandleTinyCIde(void) {
     return;
   }
 
-  // Try gzipped version first on ffsp (flash), then ufsp (SD)
+  // Try SD (ufsp) first, then Flash (ffsp) — lets users drop a newer
+  // tinyc_ide.html.gz on SD and have it take precedence without a reflash.
   bool gzipped = false;
   File f;
-  if (ffsp) f = ffsp->open("/tinyc_ide.html.gz", "r");
+  if (ufsp) f = ufsp->open("/tinyc_ide.html.gz", "r");
   if (f) {
     gzipped = true;
   } else {
-    if (ffsp) f = ffsp->open("/tinyc_ide.html", "r");
-    if (!f && ufsp && ufsp != ffsp) {
-      f = ufsp->open("/tinyc_ide.html.gz", "r");
+    if (ufsp) f = ufsp->open("/tinyc_ide.html", "r");
+    if (!f && ffsp && ffsp != ufsp) {
+      f = ffsp->open("/tinyc_ide.html.gz", "r");
       if (f) {
         gzipped = true;
       } else {
-        f = ufsp->open("/tinyc_ide.html", "r");
+        f = ffsp->open("/tinyc_ide.html", "r");
       }
     }
   }
@@ -2427,6 +2437,9 @@ static void HandleTinyCWebOn1(void) { HandleTinyCWebOn(1); }
 static void HandleTinyCWebOn2(void) { HandleTinyCWebOn(2); }
 static void HandleTinyCWebOn3(void) { HandleTinyCWebOn(3); }
 static void HandleTinyCWebOn4(void) { HandleTinyCWebOn(4); }
+static void HandleTinyCWebOn5(void) { HandleTinyCWebOn(5); }
+static void HandleTinyCWebOn6(void) { HandleTinyCWebOn(6); }
+static void HandleTinyCWebOn7(void) { HandleTinyCWebOn(7); }
 
 // ---- Camera JPEG endpoint: /tc_cam?slot=N — serve PSRAM slot directly ----
 #if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
@@ -2711,11 +2724,13 @@ static void TinyCShow(bool json) {
       if (!s) continue;
       if (i == 0) {
         // Slot 0 uses backward-compatible key "TinyC"
-        ResponseAppend_P(PSTR(",\"TinyC\":{\"Running\":%d,\"Loaded\":%d,\"Size\":%d,\"Instr\":%u}"),
+        ResponseAppend_P(PSTR(",\"TinyC\":{\"Running\":%d,\"Loaded\":%d,\"Size\":%d,\"Instr\":%u,\"Heap\":\"%u/%u\"}"),
           s->running ? 1 : 0,
           s->loaded ? 1 : 0,
           s->program_size,
-          s->vm.instruction_count);
+          s->vm.instruction_count,
+          s->vm.heap_used,
+          s->vm.heap_capacity);
       } else {
         ResponseAppend_P(PSTR(",\"TinyC%d\":{\"Running\":%d,\"Loaded\":%d,\"Size\":%d,\"Instr\":%u}"),
           i,

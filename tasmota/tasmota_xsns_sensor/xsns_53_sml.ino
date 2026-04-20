@@ -3325,6 +3325,27 @@ void reset_sml_vars(uint16_t maxmeters) {
 }
 
 
+#ifdef USE_SML_TCP
+// Force TCP RST on all active meter connections.
+// Called from FUNC_SAVE_BEFORE_RESTART (OTA, Restart 1, watchdog, exception).
+// Without this, Modbus-TCP meters that only allow one TCP session
+// (e.g. SMA Tripower 10.0SE) keep the old session ESTABLISHED and reject
+// reconnects after we reboot.
+void SML_Clean_Meters(void) {
+  if (!sml_globs.ready) return;
+  for (uint32_t meters = 0; meters < sml_globs.meters_used; meters++) {
+    struct METER_DESC *mp = &sml_globs.mp[meters];
+    if (mp->client) {
+      struct linger sl = { 1, 0 };  // linger on, timeout 0 = send RST
+      mp->client->setSocketOption(SOL_SOCKET, SO_LINGER, &sl, sizeof(sl));
+      mp->client->stop();
+      delete mp->client;
+      mp->client = nullptr;
+    }
+  }
+}
+#endif // USE_SML_TCP
+
 void SML_Init(void) {
 
   sml_globs.ready = false;
@@ -3355,12 +3376,22 @@ void SML_Init(void) {
 #else
     FS *cfp = ufsp;
 #endif
+    if (!cfp) {
+      AddLog(LOG_LEVEL_INFO, PSTR("SML: filesystem not available"));
+      return;
+    }
     File ef = cfp->open(fname, FS_FILE_READ);
     if (ef) {
       uint16_t fsiz = ef.size();
       file_md = (char*)special_malloc(fsiz + 16);
+      if (!file_md) {
+        AddLog(LOG_LEVEL_INFO, PSTR("SML: malloc failed (%d bytes)"), fsiz + 16);
+        ef.close();
+        return;
+      }
       ef.read((uint8_t*)file_md, fsiz);
       ef.close();
+      file_md[fsiz] = 0;
       lp = strstr_P(file_md, PSTR(">M"));
       if (!lp) {
         goto nfd;
@@ -5121,6 +5152,9 @@ bool Xsns53(uint32_t function) {
         }
         break;
       case FUNC_SAVE_BEFORE_RESTART:
+#ifdef USE_SML_TCP
+        SML_Clean_Meters();   // force TCP RST on all meter connections before restart
+#endif
       case FUNC_SAVE_AT_MIDNIGHT:
         if (sml_globs.ready) {
           SML_CounterSaveState();

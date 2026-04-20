@@ -128,7 +128,7 @@ static FS *tc_file_path(char *path) {
   #define TC_INSTR_PER_TICK  500     // instructions per 50ms tick
   #define TC_OUTPUT_SIZE     128     // output buffer for MQTT
 #else  // ESP32
-  #define TC_MAX_PROGRAM     32768   // max bytecode size
+  #define TC_MAX_PROGRAM     65536   // max bytecode size (raised from 32K for battery/BMS scripts)
   #define TC_STACK_SIZE      256     // operand stack (1KB)
   #define TC_MAX_FRAMES      32      // call depth
   #define TC_MAX_LOCALS      256     // locals per frame (1KB) - enough for char arrays
@@ -140,6 +140,7 @@ static FS *tc_file_path(char *path) {
 #endif
 
 #define TC_MAX_FILE_HANDLES  4      // max simultaneously open files
+#define TC_TCP_CLI_SLOTS     4      // outgoing TCP client slots (selected via tcpSelect)
 
 // VM task stack size (bytes)
 #ifndef TC_VM_TASK_STACK
@@ -151,7 +152,7 @@ static FS *tc_file_path(char *path) {
   #define TC_MAX_HEAP           2048   // heap slots (8KB)
   #define TC_MAX_HEAP_HANDLES   8
 #else  // ESP32
-  #define TC_MAX_HEAP           8192   // heap slots (32KB)
+  #define TC_MAX_HEAP           16384  // heap slots (64KB upper bound; grown dynamically)
   #define TC_MAX_HEAP_HANDLES   128    // max concurrent heap arrays (energy script uses 68+)
 #endif
 
@@ -159,7 +160,7 @@ static FS *tc_file_path(char *path) {
 #define TC_VERSION         5           // V5: global (UDP auto-update) variables
 #define TC_RELEASE         "1.1.0"     // unified sprintf/sprintfAppend, VM auto-pause during uploads
 #define TC_FILE_NAME       "/autoexec.tcb"
-#define TC_MAX_PERSIST     32          // max persist variable entries
+#define TC_MAX_PERSIST     64          // max persist variable entries
 #define TC_MAX_UDP_GLOBALS 64          // max global (UDP auto-update) variable entries
 
 // Flash-safe byte read — enables execute-from-flash on ESP32
@@ -507,6 +508,12 @@ enum TcSyscall {
   SYS_TCP_WRITE_STR   = 214, // (str_ref) -> void — write string to client
   SYS_TCP_READ_ARR    = 215, // (arr_ref) -> int — read bytes into int array
   SYS_TCP_WRITE_ARR   = 216, // (arr_ref, count, type) -> void — write array to client
+  // TCP client (outgoing connections) — TC_TCP_CLI_SLOTS parallel slots, selected via tcpSelect()
+  SYS_TCP_CONNECT     = 290, // (ip_const, port) -> int — connect to remote ip:port (0=ok, -1=fail, -2=no net)
+  SYS_TCP_DISCONNECT  = 291, // () -> void — close selected TCP client slot
+  SYS_TCP_CONNECTED   = 292, // () -> int — 1 if selected TCP client connected, 0 otherwise
+  SYS_TCP_SELECT      = 293, // (slot) -> void — select outgoing TCP slot (0..TC_TCP_CLI_SLOTS-1)
+  SYS_TCP_CONNECT_REF = 294, // (ip_ref, port) -> int — connect with IP from runtime char array
   // Deep sleep (ESP32 only)
   SYS_DEEP_SLEEP      = 230, // (seconds) -> void — deep sleep with timer wakeup
   SYS_DEEP_SLEEP_GPIO = 231, // (seconds, pin, level) -> void — + GPIO wakeup
@@ -885,7 +892,7 @@ struct TINYC {
   uint8_t  page_count;            // number of registered pages
   uint8_t  current_page;          // current page being rendered (for wPage())
   // Custom web handlers (webOn)
-#define TC_MAX_WEB_HANDLERS 4
+#define TC_MAX_WEB_HANDLERS 7
   char     web_handler_url[TC_MAX_WEB_HANDLERS][32];
   uint8_t  web_handler_count;
   uint8_t  current_web_handler;   // handler number during WebOn callback
@@ -903,7 +910,12 @@ struct TINYC {
   uint8_t  http_hdr_count;
   // TCP server state (Scripter-compatible ws* functions)
   WiFiServer *tcp_server;              // TCP listening server (heap-allocated)
-  WiFiClient tcp_client;               // current connected client
+  WiFiClient tcp_client;               // current server-accepted client
+  // TCP client state (outgoing connections — independent from server).
+  // TC_TCP_CLI_SLOTS parallel slots so a script can talk to multiple endpoints
+  // (e.g. BYD BMU + SMA HM2.0 + Wallbox) in parallel. Slot 0 is the default.
+  WiFiClient tcp_cli_clients[TC_TCP_CLI_SLOTS];  // outgoing TCP client slots
+  uint8_t    tcp_cli_slot;                       // currently selected slot (0..TC_TCP_CLI_SLOTS-1)
   // Deferred command — executed in main loop (safe for task-spawning commands like I2SPlay)
   char     deferred_cmd[128];
   volatile bool deferred_pending;
@@ -1998,6 +2010,13 @@ static void tc_udp_stop(void) {
     Tinyc->udp_port_num = 0;
     Tinyc->udp_port_mcast = IPAddress(0,0,0,0);
   }
+  // Stop all outgoing TCP client slots
+  for (uint8_t _s = 0; _s < TC_TCP_CLI_SLOTS; _s++) {
+    if (Tinyc->tcp_cli_clients[_s].connected()) {
+      Tinyc->tcp_cli_clients[_s].stop();
+    }
+  }
+  Tinyc->tcp_cli_slot = 0;
   // Stop TCP server
   if (Tinyc->tcp_server) {
     Tinyc->tcp_client.stop();
@@ -8415,6 +8434,15 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       break;
     }
 
+    // ── TCP: server-accepted or outgoing client (selected via tcpSelect) ──
+    // Outgoing client is selected via tcp_cli_slot (0..TC_TCP_CLI_SLOTS-1).
+    // Slot 0 additionally falls back to server-accepted client for backward
+    // compat with the Scripter ws* server-only API.
+    #define TC_TCP_OUT_CLIENT() (&Tinyc->tcp_cli_clients[Tinyc->tcp_cli_slot])
+    #define TC_TCP_ACTIVE_CLIENT() \
+      (TC_TCP_OUT_CLIENT()->connected() ? TC_TCP_OUT_CLIENT() : \
+       (Tinyc->tcp_cli_slot == 0 && Tinyc->tcp_server && Tinyc->tcp_client.connected()) ? &Tinyc->tcp_client : nullptr)
+
     // ── TCP server (Scripter-compatible ws* functions) ──
     case SYS_TCP_OPEN: {  // wso(port)
       int32_t port = TC_POP(vm);
@@ -8450,27 +8478,27 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     }
     case SYS_TCP_AVAILABLE: {  // wsa()
       int32_t avail = 0;
-      if (Tinyc->tcp_server) {
-        if (Tinyc->tcp_server->hasClient()) {
-          Tinyc->tcp_client = Tinyc->tcp_server->available();
-        }
-        if (Tinyc->tcp_client && Tinyc->tcp_client.connected()) {
-          avail = Tinyc->tcp_client.available();
-        }
+      // Server mode: accept new clients into tcp_client
+      if (Tinyc->tcp_server && Tinyc->tcp_server->hasClient()) {
+        Tinyc->tcp_client = Tinyc->tcp_server->available();
       }
+      // Check active client (outgoing has priority over server-accepted)
+      WiFiClient *_tc = TC_TCP_ACTIVE_CLIENT();
+      if (_tc) avail = _tc->available();
       TC_PUSH(vm, avail);
       break;
     }
     case SYS_TCP_READ_STR: {  // wsrs(buf)
       int32_t ref = TC_POP(vm);
       int32_t count = 0;
-      if (Tinyc->tcp_server && Tinyc->tcp_client.connected()) {
+      WiFiClient *_tc = TC_TCP_ACTIVE_CLIENT();
+      if (_tc) {
         int32_t *base = tc_resolve_ref(vm, ref);
         if (base) {
-          uint16_t slen = Tinyc->tcp_client.available();
+          uint16_t slen = _tc->available();
           if (slen > 254) slen = 254;  // cap to reasonable char[] size
           for (uint16_t i = 0; i < slen; i++) {
-            base[i] = Tinyc->tcp_client.read();
+            base[i] = _tc->read();
           }
           base[slen] = 0;  // null terminate
           count = slen;
@@ -8481,22 +8509,24 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     }
     case SYS_TCP_WRITE_STR: {  // wsws(str)
       int32_t ref = TC_POP(vm);
-      if (Tinyc->tcp_server && Tinyc->tcp_client.connected()) {
+      WiFiClient *_tc = TC_TCP_ACTIVE_CLIENT();
+      if (_tc) {
         char buf[256];
         tc_ref_to_cstr(vm, ref, buf, sizeof(buf));
-        Tinyc->tcp_client.write(buf, strlen(buf));
+        _tc->write(buf, strlen(buf));
       }
       break;
     }
     case SYS_TCP_READ_ARR: {  // wsra(arr)
       int32_t ref = TC_POP(vm);
       int32_t count = 0;
-      if (Tinyc->tcp_server && Tinyc->tcp_client.connected()) {
+      WiFiClient *_tc = TC_TCP_ACTIVE_CLIENT();
+      if (_tc) {
         int32_t *base = tc_resolve_ref(vm, ref);
         if (base) {
-          uint16_t slen = Tinyc->tcp_client.available();
+          uint16_t slen = _tc->available();
           for (uint16_t i = 0; i < slen; i++) {
-            base[i] = Tinyc->tcp_client.read();
+            base[i] = _tc->read();
           }
           count = slen;
         }
@@ -8508,7 +8538,8 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t type = TC_POP(vm);
       int32_t num  = TC_POP(vm);
       int32_t ref  = TC_POP(vm);
-      if (Tinyc->tcp_server && Tinyc->tcp_client.connected()) {
+      WiFiClient *_tc = TC_TCP_ACTIVE_CLIENT();
+      if (_tc) {
         int32_t *base = tc_resolve_ref(vm, ref);
         if (base) {
           uint8_t *abf = (uint8_t*)malloc(num * 4);
@@ -8547,11 +8578,83 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
                 }
               }
             }
-            Tinyc->tcp_client.write(abf, dlen);
+            _tc->write(abf, dlen);
             free(abf);
           }
         }
       }
+      break;
+    }
+
+    // ── TCP client (outgoing connections) ──────────────
+    case SYS_TCP_CONNECT: {  // tcpConnect("ip", port) -> int (operates on currently selected slot)
+      int32_t port = TC_POP(vm);
+      int32_t ci   = TC_POP(vm);
+      if (TasmotaGlobal.global_state.network_down) {
+        TC_PUSH(vm, -2);
+      } else {
+        const char *ip = (ci >= 0 && ci < vm->const_count && vm->constants[ci].type == 1)
+                         ? vm->constants[ci].str.ptr : nullptr;
+        if (!ip) {
+          TC_PUSH(vm, -1);
+        } else {
+          WiFiClient *_oc = TC_TCP_OUT_CLIENT();
+          _oc->stop();  // close any previous connection on this slot
+          if (_oc->connect(ip, port)) {
+            _oc->setNoDelay(true);
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: TCP client[%d] connected to %s:%d"), Tinyc->tcp_cli_slot, ip, port);
+            TC_PUSH(vm, 0);
+          } else {
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: TCP client[%d] connect failed %s:%d"), Tinyc->tcp_cli_slot, ip, port);
+            TC_PUSH(vm, -1);
+          }
+        }
+      }
+      break;
+    }
+    case SYS_TCP_CONNECT_REF: {  // tcpConnect(ip_char_array, port) -> int
+      // _REF variant: IP string from runtime char array rather than literal.
+      // Enables dynamic IP configuration from e.g. persist int[4] + sprintf.
+      int32_t port = TC_POP(vm);
+      int32_t ref  = TC_POP(vm);
+      if (TasmotaGlobal.global_state.network_down) {
+        TC_PUSH(vm, -2);
+      } else {
+        char ip_tmp[48];
+        if (tc_ref_to_cstr(vm, ref, ip_tmp, sizeof(ip_tmp)) <= 0) {
+          TC_PUSH(vm, -1);
+        } else {
+          WiFiClient *_oc = TC_TCP_OUT_CLIENT();
+          _oc->stop();
+          if (_oc->connect(ip_tmp, port)) {
+            _oc->setNoDelay(true);
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: TCP client[%d] connected to %s:%d"), Tinyc->tcp_cli_slot, ip_tmp, port);
+            TC_PUSH(vm, 0);
+          } else {
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: TCP client[%d] connect failed %s:%d"), Tinyc->tcp_cli_slot, ip_tmp, port);
+            TC_PUSH(vm, -1);
+          }
+        }
+      }
+      break;
+    }
+    case SYS_TCP_DISCONNECT: {  // tcpDisconnect()
+      WiFiClient *_oc = TC_TCP_OUT_CLIENT();
+      if (_oc->connected()) {
+        _oc->stop();
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: TCP client[%d] disconnected"), Tinyc->tcp_cli_slot);
+      }
+      break;
+    }
+    case SYS_TCP_CONNECTED: {  // tcpConnected() -> int
+      TC_PUSH(vm, TC_TCP_OUT_CLIENT()->connected() ? 1 : 0);
+      break;
+    }
+    case SYS_TCP_SELECT: {  // tcpSelect(slot) — select outgoing TCP client slot
+      int32_t slot = TC_POP(vm);
+      if (slot < 0) slot = 0;
+      if (slot >= TC_TCP_CLI_SLOTS) slot = TC_TCP_CLI_SLOTS - 1;
+      Tinyc->tcp_cli_slot = (uint8_t)slot;
       break;
     }
 
