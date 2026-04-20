@@ -75,7 +75,7 @@ Callbacks run automatically from Tasmota's main loop:
 **MQTT:** `mqttSubscribe`, `mqttUnsubscribe`, `mqttPublish` + `OnMqttData(topic, payload)` callback (10 subs, `#` prefix wildcard)
 **UDP:** `udpRecv`, `udpReady`, `udpSendArray`, `udpRecvArray`, `udp` (general-purpose, modes 0-7) — scalar `global` floats auto-broadcast on assignment
 **Display:** `dspText`, `dspClear`, `dspPos`, `dspFont`, `dspSize`, `dspColor`, `dspDraw`, `dspPad`, `dspPixel`, `dspLine`, `dspRect`, `dspFillRect`, `dspCircle`, `dspFillCircle`, `dspHLine`, `dspVLine`, `dspRoundRect`, `dspFillRoundRect`, `dspTriangle`, `dspFillTriangle`, `dspDim`, `dspOnOff`, `dspUpdate`, `dspPicture`, `dspWidth`, `dspHeight`, `dspTextWidth`, `dspTextHeight`
-**Image Store:** `dspLoadImage`, `dspPushImageRect`, `dspImageWidth`, `dspImageHeight`, `dspImgText` — PSRAM image slots for flicker-free compositing
+**Image Store:** `dspLoadImage`, `dspPushImageRect`, `dspImageWidth`, `dspImageHeight`, `dspImgText`, `dspLoadImageFromCam`, `dspImgTextBurn`, `dspImageToCam` — PSRAM image slots for flicker-free compositing + cam ↔ image bridge for burning timestamps/labels into JPEG captures
 **Touch Buttons:** `dspButton`, `dspTButton`, `dspPButton`, `dspSlider`, `dspButtonState`, `touchButton`
 **Audio:** `audioVol`, `audioPlay`, `audioSay`
 **Deep Sleep:** `deepSleep`, `deepSleepGpio`, `wakeupCause`

@@ -2505,6 +2505,9 @@ Alle Primitiven verwenden die aktuelle Position, die durch `dspPos()` gesetzt wu
 | `int dspTextWidth(len)` | Pixelbreite fuer `len` Zeichen im aktuellen Font und Textgroesse. Fuer transparenten Text auf Bildhintergrund: Text messen, zeichnen, spaeter Hintergrund mit `dspPushImageRect` wiederherstellen |
 | `int dspTextHeight()` | Pixelhoehe fuer aktuellen Font und Textgroesse |
 | `dspImgText(slot, x, y, color, fieldWidth, align, text)` | Text auf ein Bild-Teilrechteck im RAM zusammensetzen und das Ergebnis in einer einzigen SPI-Transaktion uebertragen (flimmerfrei). Der Bildpuffer liefert die Hintergrundpixel; nur Vordergrund-Fontpixel werden ueberschrieben. `slot`: Bild-Slot von `dspLoadImage()`. `x, y`: Pixelposition auf dem Bild (und Bildschirm). `color`: RGB565-Textfarbe. `fieldWidth`: Gesamtfeldbreite in Zeichen — wenn groesser als Textlaenge, zeigt der Rest den Bildhintergrund; 0 fuer automatisch (passt genau zum Text). `align`: 0=links, 1=rechts, 2=zentriert (Ausrichtung innerhalb des Feldes). `text`: der darzustellende String. Funktioniert mit EPD-Fonts 1-4 (gesetzt via `dspText("[f1]")`..`dspText("[f4]")`) bei jeder Textgroesse. Beispiel: `dspText("[f2s1]"); dspImgText(img, 10, 10, 0, 28, 0, buf);` |
+| `int dspLoadImageFromCam(cam_slot)` | JPEG aus einem PSRAM **Cam-Slot** (1-4, gefuellt ueber `camControl(10, ...)`) in einen freien RGB565 **Bild-Slot** (0-3) dekodieren. Gibt den neuen Bild-Slot zurueck, -1 bei Fehler. Der Quell-Cam-Slot bleibt unveraendert. Nur ESP32+JPEG_PICTS+Kamera |
+| `dspImgTextBurn(slot, x, y, color, fieldWidth, align, text)` | Glyphen-Pixel direkt **in** den Bildpuffer schreiben — im Gegensatz zu `dspImgText` wird das Display NICHT angefasst. Fuer kopflose Cam-Boards (kein TFT angeschlossen), um Zeitstempel/Label in ein Frame zu brennen, bevor es neu kodiert wird. Faellt auf Font12 Groesse 1 zurueck, wenn kein Renderer aktiv ist; bei vorhandenem Display werden aktueller Font und Groesse respektiert (`dspText("[f2s1]")` etc.). Parameter identisch zu `dspImgText` |
+| `int dspImageToCam(img_slot, cam_slot, quality)` | RGB565-Bild-Slot zurueck in einen Cam-Slot als JPEG kodieren (ueber esp32-camera `fmt2jpg`). `quality` 1..63 (esp_camera-Konvention, niedriger=besser; 12 ≈ JPEG Q=85). Gibt kodierte Byte-Groesse zurueck, -1 bei Fehler. Das Ergebnis ist sofort einsatzbereit fuer `camControl(11, cam_slot, fh)` (Datei speichern), Mail-Anhang oder jeden anderen Cam-Slot-Konsument |
 | `dspText(buf)` | Rohen DisplayText-Befehl ausfuehren (z.B. `"[z][x50][y20]Hello"`) |
 
 #### Vordefinierte Farbkonstanten (RGB565)
@@ -2943,6 +2946,63 @@ fileClose(fh);
 // MJPEG Stream auf Port 81 starten
 camControl(15, 1, 0);
 ```
+
+#### Zeitstempel- / Text-Overlay auf JPEG-Frames (Cam ↔ Bild Bruecke)
+
+Drei Hilfs-Syscalls verbinden **Cam-Slots** (JPEG im PSRAM, geschrieben von `camControl(10)`) und **Bild-Slots** (RGB565 im PSRAM, vom Display-Subsystem genutzt). Gemeinsam bilden sie eine Pipeline **Aufnahme → Dekodierung → Text-Overlay → Neu-Enkodierung → Speichern/Streamen** auf jedem Cam-Board, mit oder ohne physisch angeschlossenem Display.
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `int dspLoadImageFromCam(cam_slot)` | JPEG aus Cam-Slot in einen freien RGB565-Bild-Slot dekodieren. Gibt Bild-Slot zurueck, -1 bei Fehler. Quell-Cam-Slot bleibt unveraendert |
+| `dspImgTextBurn(slot, x, y, color, fieldw, align, text)` | Glyphen-Pixel direkt in den Bildpuffer schreiben (kein Display-Push). Parameter wie `dspImgText`. Funktioniert kopflos |
+| `int dspImageToCam(img_slot, cam_slot, quality)` | Bild-Slot zurueck in einen Cam-Slot als JPEG kodieren. Gibt Bytes zurueck, -1 bei Fehler. `quality` 1..63 (12 ≈ Q=85) |
+
+**Build-Voraussetzungen:** `USE_WEBCAM` oder `USE_TINYC_CAMERA`, zusaetzlich `USE_DISPLAY` (fuer die Font-Tabellen — das TFT muss nicht verdrahtet sein), auf ESP32 mit `JPEG_PICTS` / PSRAM.
+
+**Beispiel — Zeitstempel in VGA-Aufnahme brennen, auf Dateisystem speichern:**
+```c
+#define CAM_IN   1     // Cam-Slot mit der Rohaufnahme
+#define CAM_OUT  2     // Cam-Slot der das gestempelte JPEG haelt
+int  counter;
+char path[40];
+char line[48];
+
+void main() {
+    camControl(0, 8);  // Kamera init, FRAMESIZE_VGA (8 = VGA)
+}
+
+void TaskLoop() {
+    if (camControl(10, CAM_IN, 0) <= 0) { return; }            // JPEG aufnehmen
+
+    int img = dspLoadImageFromCam(CAM_IN);                      // → RGB565
+    if (img < 0) { return; }
+
+    sprintf(line, "%04d-%02d-%02d %02d:%02d:%02d",
+            tasm_year, tasm_month, tasm_day,
+            tasm_hour, tasm_minute, tasm_second);
+    dspImgTextBurn(img, 10, 10, YELLOW, 0, 0, line);            // Overlay
+
+    int jlen = dspImageToCam(img, CAM_OUT, 12);                 // Neu-Enkodierung
+    if (jlen <= 0) { return; }
+
+    counter = counter + 1;
+    sprintf(path, "/snap_%04d.jpg", counter);
+    int fh = fileOpen(path, 1);
+    if (fh >= 0) {
+        camControl(11, CAM_OUT, fh);                            // auf FS speichern
+        fileClose(fh);
+    }
+
+    delay(60000);   // eine Aufnahme pro Minute
+}
+```
+
+**Hinweise:**
+- Aufnahme + Dekodierung + Neu-Enkodierung muessen in `TaskLoop()` (VM-Task-Thread) laufen. Aufruf aus `EverySecond()` friert das Geraet ein (gleiche Regel wie bei reinem `camControl(10)`).
+- Font-Auswahl folgt dem Display-Stack: `dspText("[f2s1]")` vor `dspImgTextBurn` aufrufen, um einen groesseren Font zu waehlen. Auf kopflosen Boards ohne geladenen Display-Treiber faellt es auf Font12 Groesse 1 zurueck.
+- Das Ergebnis in `CAM_OUT` verhaelt sich genau wie eine frische Aufnahme — es kann via `camControl(11)` in eine Datei geschrieben, via `mailAttachPic()` angehaengt oder ueber den Stream-Server geroutet werden.
+
+Siehe `snap_with_timestamp.tc` fuer die vollstaendige Pipeline oben.
 
 #### Komplettes Kamera-Skript
 
