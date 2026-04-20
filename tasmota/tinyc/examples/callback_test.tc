@@ -1,0 +1,133 @@
+// callback_test.tc — regression test for the callback dispatch cache
+// (commit e737c854a: TinyC callback dispatch — cache well-known names).
+//
+// Hooks every one of the 13 well-known callbacks, counts their fires,
+// and prints a health report every 10 seconds through addLog().
+//
+// Watch the Tasmota console while this runs. Expected fire rates per
+// 10-second window on ESP32:
+//     EveryLoop     >> 1000    (free-running in FUNC_LOOP)
+//     Every50ms     ~200       (20 Hz)
+//     Every100ms    ~100       (10 Hz)
+//     EverySecond   ~10
+//     OnInit         1 (once, at network-up)
+//     OnWifiConnect  >=1
+//     OnMqttConnect  >=1
+//     OnTimeSet      1 (once)
+//     TaskLoop       1 (entered once, loops internally)
+//
+// Callbacks that only fire on specific events (not covered by
+// auto-PASS, but logged when they do fire):
+//     OnWifiDisconnect  — pull the antenna / WifiConfig 0
+//     OnMqttDisconnect  — stop the broker
+//     CleanUp           — issue `Restart 1`
+//     OnExit            — issue `TinyCStop <slot>`
+//
+// Also tests delay() inside a callback (PAUSED handler) at t=5 —
+// a previous optimization attempt broke this path and callbacks
+// stopped firing after the first delay().
+//
+// PASS/FAIL is logged automatically at t=10 and t=20 seconds.
+
+int c_every_loop;
+int c_every_50ms;
+int c_every_100ms;
+int c_every_second;
+int c_on_init;
+int c_on_wifi_connect;
+int c_on_wifi_disconnect;
+int c_on_mqtt_connect;
+int c_on_mqtt_disconnect;
+int c_on_time_set;
+int c_clean_up;
+int c_task_loop;
+int c_on_exit;
+
+int last_report;
+int pause_tested;
+char buf[160];
+
+void EveryLoop()        { c_every_loop++; }
+void Every50ms()        { c_every_50ms++; }
+void Every100ms()       { c_every_100ms++; }
+
+void OnInit()           { c_on_init++;           addLog("[cbtest] OnInit"); }
+void OnWifiConnect()    { c_on_wifi_connect++;   addLog("[cbtest] OnWifiConnect"); }
+void OnWifiDisconnect() { c_on_wifi_disconnect++;addLog("[cbtest] OnWifiDisconnect"); }
+void OnMqttConnect()    { c_on_mqtt_connect++;   addLog("[cbtest] OnMqttConnect"); }
+void OnMqttDisconnect() { c_on_mqtt_disconnect++;addLog("[cbtest] OnMqttDisconnect"); }
+void OnTimeSet()        { c_on_time_set++;       addLog("[cbtest] OnTimeSet"); }
+void CleanUp()          { c_clean_up++;          addLog("[cbtest] CleanUp (restart pending)"); }
+void OnExit()           { c_on_exit++;           addLog("[cbtest] OnExit (TinyCStop)"); }
+
+// TaskLoop runs in its own FreeRTOS task. Keep the delay short so the
+// vm_mutex is released often and main-loop callbacks (EverySecond etc.)
+// still have opportunities to fire. This is the concurrency stress test.
+void TaskLoop() {
+    c_task_loop++;
+    addLog("[cbtest] TaskLoop entered");
+    while (1) {
+        delay(100);
+    }
+}
+
+void EverySecond() {
+    c_every_second++;
+    int t = c_every_second;
+
+    // PAUSED-handler regression test: delay() inside a callback must
+    // return cleanly and subsequent callbacks must keep firing.
+    if (t == 5 && !pause_tested) {
+        pause_tested = 1;
+        addLog("[cbtest] Testing delay(50) inside EverySecond...");
+        delay(50);
+        addLog("[cbtest] delay() returned OK — PAUSED handler works");
+    }
+
+    // Health report every 10s
+    if (t - last_report >= 10) {
+        last_report = t;
+        sprintf(buf,
+            "[cbtest] t=%ds loop=%d 50ms=%d 100ms=%d sec=%d init=%d wcon=%d wdis=%d mcon=%d mdis=%d tset=%d task=%d",
+            t, c_every_loop, c_every_50ms, c_every_100ms, c_every_second,
+            c_on_init, c_on_wifi_connect, c_on_wifi_disconnect,
+            c_on_mqtt_connect, c_on_mqtt_disconnect, c_on_time_set,
+            c_task_loop);
+        addLog(buf);
+
+        // Auto PASS/FAIL at 10 and 20 seconds
+        if (t == 10 || t == 20) {
+            int pass = 1;
+            if (c_every_loop  < 100) pass = 0;
+            if (c_every_50ms  < 100) pass = 0;
+            if (c_every_100ms <  50) pass = 0;
+            if (c_every_second <  5) pass = 0;
+            if (c_task_loop   <   1) pass = 0;
+            if (pass) {
+                addLog("[cbtest] ===== PASS — all hot-path callbacks firing =====");
+            } else {
+                addLog("[cbtest] ===== FAIL — some callbacks NOT firing (see counts) =====");
+            }
+        }
+    }
+}
+
+int main() {
+    c_every_loop        = 0;
+    c_every_50ms        = 0;
+    c_every_100ms       = 0;
+    c_every_second      = 0;
+    c_on_init           = 0;
+    c_on_wifi_connect   = 0;
+    c_on_wifi_disconnect= 0;
+    c_on_mqtt_connect   = 0;
+    c_on_mqtt_disconnect= 0;
+    c_on_time_set       = 0;
+    c_clean_up          = 0;
+    c_task_loop         = 0;
+    c_on_exit           = 0;
+    last_report         = 0;
+    pause_tested        = 0;
+    addLog("[cbtest] callback_test.tc started — watch the log for 10s reports");
+    return 0;
+}

@@ -182,8 +182,11 @@ static FS *tc_file_path(char *path) {
   #define TC_MEMCPY(dst, src, len) memcpy(dst, src, len)
 #endif
 
-// Callback support
-#define TC_MAX_CALLBACKS  10           // max well-known callback functions
+// Callback support — covers all 13 TcCallbackId well-known callbacks plus
+// the string-keyed ones (HomeKitWrite, TouchButton, UdpCall, WebOn, WebUI,
+// JsonCall, WebCall, WebPage, Command, Event). Must be ≥ TC_CB_COUNT (13)
+// or load will silently truncate the hot-path callbacks.
+#define TC_MAX_CALLBACKS  24
 #ifdef ESP8266
   #define TC_CALLBACK_MAX_INSTR 20000  // instruction limit per callback (ESP8266)
 #else
@@ -989,6 +992,9 @@ static TcSlot *tc_slot_alloc(void) {
   TcSlot *s = (TcSlot *)calloc(1, sizeof(TcSlot));
   if (s) {
     s->extract_handle = -1;
+    // cb_index defaults to zeros from calloc, but zero is a valid slot index.
+    // Explicitly mark all well-known callbacks as "not present" until load.
+    for (int k = 0; k < TC_CB_COUNT; k++) s->vm.cb_index[k] = -1;
   }
   return s;
 }
@@ -9231,6 +9237,10 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   // All binary[] reads use TC_READ_BYTE() for flash-safe access
   #define B(i) TC_READ_BYTE(&binary[i])
 
+  // Reset hot-path dispatch cache first thing — ensures no stale indices
+  // from a previous load survive if we early-return on a bad header.
+  for (int k = 0; k < TC_CB_COUNT; k++) vm->cb_index[k] = -1;
+
   if (size < 14) return TC_ERR_BAD_BINARY;  // minimum header size
 
   uint32_t magic = ((uint32_t)B(0) << 24) | ((uint32_t)B(1) << 16) |
@@ -9402,6 +9412,14 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
       pos += 2;
       vm->callback_count++;
       AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: callback '%s' @%d"), vm->callbacks[i].name, vm->callbacks[i].address);
+    }
+    // Warn if the bytecode declares more callbacks than we can hold.
+    // Previously silent truncation caused callbacks past index 10 to never
+    // fire (e.g. EverySecond if it came after 10 other well-known callbacks).
+    if (count > TC_MAX_CALLBACKS) {
+      AddLog(LOG_LEVEL_ERROR,
+        PSTR("TCC: bytecode has %d callbacks but TC_MAX_CALLBACKS=%d — %d dropped"),
+        count, TC_MAX_CALLBACKS, count - TC_MAX_CALLBACKS);
     }
   }
 
@@ -9628,10 +9646,15 @@ static int tc_vm_call_callback(TcVM *vm, const char *name) {
 // Public: ID-based dispatch for hot-path callbacks. Zero strcmp — the cache
 // was populated once at tc_vm_load(). If the callback isn't defined, returns
 // immediately without even checking halted/error state (saves a memory read).
+//
+// The idx < callback_count check is belt-and-suspenders: a freshly-calloc'd
+// slot has cb_index all zeros (valid-looking indices) but callback_count == 0.
+// TinyCStopVM fires OnExit via this path on never-loaded slots, which without
+// this guard would jump to callbacks[0].address == 0 → bounds error at PC=0.
 static int tc_vm_call_callback_id(TcVM *vm, TcCallbackId cid) {
   if ((unsigned)cid >= TC_CB_COUNT) return TC_OK;
   int8_t idx = vm->cb_index[cid];
-  if (idx < 0) return TC_OK;  // not defined — common case
+  if (idx < 0 || (uint8_t)idx >= vm->callback_count) return TC_OK;
   if (!vm->halted || vm->error != TC_OK) return vm->error;
   return tc_vm_call_callback_idx(vm, idx, TC_CB_NAME[cid]);
 }
