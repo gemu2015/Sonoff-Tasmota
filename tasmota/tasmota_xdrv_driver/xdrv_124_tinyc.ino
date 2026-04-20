@@ -3178,6 +3178,366 @@ static bool tc_mqtt_data_handler(void) {
 #endif  // USE_MQTT
 
 /*********************************************************************************************\
+ * Dynamic task spawn — spawnTask / killTask / taskRunning (ESP32 only)
+ *
+ * Runs a named user function on a dedicated FreeRTOS task, sharing the spawning VM's
+ * globals/heap. Mirrors the existing TaskLoop mutex-discipline: hold vm_mutex while
+ * executing VM instructions, release during delay(). Cooperative kill via a flag
+ * polled in the exec loop.
+ *
+ * The pool is global (spans all VM slots) — up to TC_MAX_SPAWN_TASKS live tasks at
+ * a time. Task names are scoped per-VM-slot, so two slots can each have a task
+ * named "Worker" without colliding.
+\*********************************************************************************************/
+
+#ifdef ESP32
+
+#define TC_MAX_SPAWN_TASKS   4
+#define TC_SPAWN_NAME_LEN    24
+// Default native-task stack. tc_vm_step is a giant switch with lots of
+// per-case locals and AddLog() uses vprintf — 3 KB crashes with
+// StoreProhibited on first worker that logs. 5 KB is the minimum that
+// works reliably. Users can still override per-call via the 2-arg form:
+//   spawnTask("Worker", 8)  // KB
+#define TC_SPAWN_STACK_DEF   5     // KB, 5*1024 = 5120
+#define TC_SPAWN_STACK_MAX   16    // KB upper clamp
+#define TC_SPAWN_STACK_MIN   3     // KB lower clamp (works for simple blink-only workers)
+#define TC_SPAWN_WAIT_MAIN   5000  // ms to wait for main() to halt before giving up
+
+struct TcSpawnTask {
+  char          name[TC_SPAWN_NAME_LEN];  // "" = pool entry free
+  TaskHandle_t  handle;
+  TcSlot       *slot;
+  uint8_t       slot_idx;         // 0..TC_MAX_VMS-1
+  volatile uint8_t stop_requested;
+  volatile uint8_t running;       // 1 while FreeRTOS task alive
+};
+
+static TcSpawnTask tc_spawn_pool[TC_MAX_SPAWN_TASKS];
+static SemaphoreHandle_t tc_spawn_pool_mutex = nullptr;
+
+static void tc_spawn_pool_lock(void) {
+  if (!tc_spawn_pool_mutex) tc_spawn_pool_mutex = xSemaphoreCreateMutex();
+  if (tc_spawn_pool_mutex) xSemaphoreTake(tc_spawn_pool_mutex, portMAX_DELAY);
+}
+static void tc_spawn_pool_unlock(void) {
+  if (tc_spawn_pool_mutex) xSemaphoreGive(tc_spawn_pool_mutex);
+}
+
+// FreeRTOS task body — executes the user function to completion or stop-request.
+// Re-resolves callback index by name at start (robust against VM reloads).
+// Wrapped in a do/while(0) so `break` substitutes for goto-to-cleanup (C++
+// forbids goto crossing initializations).
+static void tc_spawn_task_body(void *param) {
+  TcSpawnTask *entry = (TcSpawnTask *)param;
+  TcSlot *slot = entry->slot;
+  TcVM   *vm   = &slot->vm;
+  const char *name = entry->name;
+
+  do {
+    // Wait for main() to halt (if this was spawned from inside main).
+    // Most callers are in callback context where halted==true already.
+    uint32_t waited = 0;
+    while (!entry->stop_requested && slot->loaded && !vm->halted && waited < TC_SPAWN_WAIT_MAIN) {
+      vTaskDelay(pdMS_TO_TICKS(10));
+      waited += 10;
+    }
+    if (entry->stop_requested || !slot->loaded) break;
+    if (!vm->halted) {
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: spawnTask('%s') aborted — main never halted"), name);
+      break;
+    }
+
+    // Re-resolve callback name → index (VM could have been reloaded between spawn + wake)
+    int cb_idx = -1;
+    for (uint8_t i = 0; i < vm->callback_count; i++) {
+      if (strcmp(vm->callbacks[i].name, name) == 0) { cb_idx = i; break; }
+    }
+    if (cb_idx < 0) {
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: spawnTask('%s') — function gone after wait"), name);
+      break;
+    }
+
+    // Execute the user function under vm_mutex. The pattern follows TaskLoop:
+    // release mutex during delay() so Tasmota callbacks can interleave.
+    if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+    tc_current_slot = slot;
+
+    uint8_t  saved_frame_count      = vm->frame_count;
+    uint16_t saved_pc                = vm->pc;
+    uint16_t saved_sp                = vm->sp;
+    uint16_t saved_heap_used         = vm->heap_used;
+    uint8_t  saved_heap_handle_count = vm->heap_handle_count;
+
+    if (vm->frame_count >= TC_MAX_FRAMES) {
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: spawnTask('%s') frame overflow"), name);
+      tc_current_slot = nullptr;
+      if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
+      break;
+    }
+
+    vm->halted = false;
+    vm->running = true;
+    TcFrame *frame = &vm->frames[vm->frame_count];
+    frame->return_pc = 0;
+    if (!tc_frame_alloc(frame)) {
+      vm->halted = true; vm->running = false;
+      tc_current_slot = nullptr;
+      if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: spawnTask('%s') stack alloc fail"), name);
+      break;
+    }
+    vm->fp = vm->frame_count;
+    vm->frame_count++;
+    vm->pc = vm->code_offset + vm->callbacks[cb_idx].address;
+
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: spawnTask('%s') running on slot %d"), name, entry->slot_idx);
+
+    uint32_t count = 0;
+    while (vm->frame_count > saved_frame_count
+           && !vm->halted
+           && vm->error == TC_OK
+           && !entry->stop_requested
+           && slot->loaded) {
+      int err = tc_vm_step(vm);
+      if (err == TC_ERR_PAUSED) {
+        if (vm->delayed) {
+          // Release mutex during the actual sleep so other work can proceed.
+          vm->halted = true;
+          vm->running = false;
+          tc_current_slot = nullptr;
+          if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
+          int32_t remaining = (int32_t)(vm->delay_until - millis());
+          while (remaining > 0 && !entry->stop_requested && slot->loaded) {
+            int32_t chunk = (remaining > 50) ? 50 : remaining;
+            vTaskDelay(pdMS_TO_TICKS(chunk));
+            remaining = (int32_t)(vm->delay_until - millis());
+          }
+          vm->delayed = false;
+          if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+          tc_current_slot = slot;
+          if (entry->stop_requested || !slot->loaded) break;
+          vm->halted = false;
+          vm->running = true;
+        }
+        continue;
+      }
+      if (err != TC_OK) {
+        vm->error = err;
+        AddLog(LOG_LEVEL_ERROR, PSTR("TCC: spawnTask('%s') err %d at PC=%u"), name, err, vm->pc);
+        tc_crash_log(err, vm->pc, vm->instruction_count, name);
+        break;
+      }
+      count++;
+      vm->instruction_count++;
+      // Yield periodically to feed WDT and let other work run.
+      if ((count & 0xFFFF) == 0) {
+        vm->halted = true; vm->running = false;
+        if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
+        vTaskDelay(1);
+        if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+        tc_current_slot = slot;
+        if (entry->stop_requested || !slot->loaded) break;
+        vm->halted = false; vm->running = true;
+      }
+    }
+
+    // Clean up callback frame
+    while (vm->frame_count > saved_frame_count) {
+      tc_frame_free(&vm->frames[--vm->frame_count]);
+    }
+    vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0;
+
+    vm->halted = true;
+    vm->running = false;
+    vm->pc = saved_pc;
+    vm->sp = saved_sp;
+    if (vm->heap_handles && vm->heap_handle_count > saved_heap_handle_count) {
+      for (uint8_t i = saved_heap_handle_count; i < vm->heap_handle_count; i++) {
+        vm->heap_handles[i].alive = false;
+      }
+      vm->heap_handle_count = saved_heap_handle_count;
+    }
+    vm->heap_used = saved_heap_used;
+    tc_output_flush();
+
+    tc_current_slot = nullptr;
+    if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
+  } while (0);
+
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: spawnTask('%s') finished%s"),
+         name, entry->stop_requested ? " (killed)" : "");
+  tc_spawn_pool_lock();
+  entry->handle = nullptr;
+  entry->running = 0;
+  entry->stop_requested = 0;
+  entry->slot = nullptr;
+  entry->slot_idx = 0xFF;
+  entry->name[0] = 0;
+  tc_spawn_pool_unlock();
+  vTaskDelete(NULL);
+}
+
+// Called from SYS_SPAWN_TASK / SYS_SPAWN_TASK_STACK syscalls.
+// stack_kb=0 → use default. Returns pool index (0..N-1) or -1.
+int tc_spawn_task_create(const char *name, uint16_t stack_kb) {
+  if (!name || !name[0]) return -1;
+  if (strlen(name) >= TC_SPAWN_NAME_LEN) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: spawnTask: name '%s' too long (max %d)"),
+           name, TC_SPAWN_NAME_LEN - 1);
+    return -1;
+  }
+  if (!tc_current_slot) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: spawnTask: no active slot"));
+    return -1;
+  }
+
+  // Find slot index of the caller
+  uint8_t sidx = 0xFF;
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    if (Tinyc->slots[i] == tc_current_slot) { sidx = i; break; }
+  }
+  if (sidx == 0xFF) return -1;
+
+  // Verify function is defined — fail early so users catch typos
+  TcVM *vm = &tc_current_slot->vm;
+  int cb_idx = -1;
+  for (uint8_t i = 0; i < vm->callback_count; i++) {
+    if (strcmp(vm->callbacks[i].name, name) == 0) { cb_idx = i; break; }
+  }
+  if (cb_idx < 0) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: spawnTask: function '%s' not defined"), name);
+    return -1;
+  }
+
+  tc_spawn_pool_lock();
+  // Already running on same slot? Refuse — user must killTask first.
+  for (uint8_t i = 0; i < TC_MAX_SPAWN_TASKS; i++) {
+    if (tc_spawn_pool[i].running
+        && tc_spawn_pool[i].slot_idx == sidx
+        && strcmp(tc_spawn_pool[i].name, name) == 0) {
+      tc_spawn_pool_unlock();
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: spawnTask('%s') already running on slot %d"), name, sidx);
+      return -1;
+    }
+  }
+
+  int free_idx = -1;
+  for (uint8_t i = 0; i < TC_MAX_SPAWN_TASKS; i++) {
+    if (!tc_spawn_pool[i].running && !tc_spawn_pool[i].handle) { free_idx = i; break; }
+  }
+  if (free_idx < 0) {
+    tc_spawn_pool_unlock();
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: spawnTask: pool full (max %d)"), TC_MAX_SPAWN_TASKS);
+    return -1;
+  }
+
+  TcSpawnTask *entry = &tc_spawn_pool[free_idx];
+  strlcpy(entry->name, name, TC_SPAWN_NAME_LEN);
+  entry->slot = tc_current_slot;
+  entry->slot_idx = sidx;
+  entry->stop_requested = 0;
+  entry->running = 1;
+  entry->handle = nullptr;
+  tc_spawn_pool_unlock();
+
+  uint16_t stack_bytes = (stack_kb ? stack_kb : TC_SPAWN_STACK_DEF) * 1024;
+  char tname[24];
+  snprintf(tname, sizeof(tname), "tc_spawn_%u", (unsigned)free_idx);
+  BaseType_t rc = xTaskCreatePinnedToCore(
+    tc_spawn_task_body, tname, stack_bytes, entry,
+    tskIDLE_PRIORITY + 1, &entry->handle, 1);
+  if (rc != pdPASS) {
+    tc_spawn_pool_lock();
+    entry->running = 0;
+    entry->handle = nullptr;
+    entry->name[0] = 0;
+    tc_spawn_pool_unlock();
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: spawnTask: xTaskCreate failed"));
+    return -1;
+  }
+  return free_idx;
+}
+
+int tc_spawn_task_kill(const char *name) {
+  if (!name || !name[0]) return -1;
+  if (!tc_current_slot) return -1;
+  uint8_t sidx = 0xFF;
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    if (Tinyc->slots[i] == tc_current_slot) { sidx = i; break; }
+  }
+  if (sidx == 0xFF) return -1;
+
+  int found = -1;
+  tc_spawn_pool_lock();
+  for (uint8_t i = 0; i < TC_MAX_SPAWN_TASKS; i++) {
+    if (tc_spawn_pool[i].running
+        && tc_spawn_pool[i].slot_idx == sidx
+        && strcmp(tc_spawn_pool[i].name, name) == 0) {
+      tc_spawn_pool[i].stop_requested = 1;
+      found = 0;
+      break;
+    }
+  }
+  tc_spawn_pool_unlock();
+  if (found == 0) AddLog(LOG_LEVEL_INFO, PSTR("TCC: killTask('%s') signaled"), name);
+  return found;
+}
+
+int tc_spawn_task_running(const char *name) {
+  if (!name || !name[0]) return 0;
+  if (!tc_current_slot) return 0;
+  uint8_t sidx = 0xFF;
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    if (Tinyc->slots[i] == tc_current_slot) { sidx = i; break; }
+  }
+  if (sidx == 0xFF) return 0;
+
+  int r = 0;
+  tc_spawn_pool_lock();
+  for (uint8_t i = 0; i < TC_MAX_SPAWN_TASKS; i++) {
+    if (tc_spawn_pool[i].running
+        && tc_spawn_pool[i].slot_idx == sidx
+        && strcmp(tc_spawn_pool[i].name, name) == 0) {
+      r = 1;
+      break;
+    }
+  }
+  tc_spawn_pool_unlock();
+  return r;
+}
+
+// Called from TinyCStopVM to kill all spawned tasks owned by a VM slot
+// before the VM is torn down. Each task observes stop_requested and exits
+// cleanly at its next instruction boundary or delay boundary.
+void tc_spawn_task_cleanup_slot(uint8_t slot_idx) {
+  tc_spawn_pool_lock();
+  int kills = 0;
+  for (uint8_t i = 0; i < TC_MAX_SPAWN_TASKS; i++) {
+    if (tc_spawn_pool[i].running && tc_spawn_pool[i].slot_idx == slot_idx) {
+      tc_spawn_pool[i].stop_requested = 1;
+      kills++;
+    }
+  }
+  tc_spawn_pool_unlock();
+  if (!kills) return;
+  // Wait up to ~2 s for tasks to observe the flag and self-delete.
+  for (int wait = 0; wait < 200; wait++) {
+    vTaskDelay(pdMS_TO_TICKS(10));
+    tc_spawn_pool_lock();
+    int still = 0;
+    for (uint8_t i = 0; i < TC_MAX_SPAWN_TASKS; i++) {
+      if (tc_spawn_pool[i].running && tc_spawn_pool[i].slot_idx == slot_idx) still++;
+    }
+    tc_spawn_pool_unlock();
+    if (!still) return;
+  }
+  AddLog(LOG_LEVEL_ERROR, PSTR("TCC: cleanup: %d spawn task(s) still alive on slot %d"), kills, slot_idx);
+}
+
+#endif  // ESP32
+
+/*********************************************************************************************\
  * Tasmota: Driver entry point
 \*********************************************************************************************/
 

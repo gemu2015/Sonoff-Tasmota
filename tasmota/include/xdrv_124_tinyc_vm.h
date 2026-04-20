@@ -23,6 +23,14 @@ int tc_mqtt_subscribe(const char *topic);
 int tc_mqtt_unsubscribe(const char *topic);
 #endif
 
+// Forward declarations for dynamic task spawn — defined in xdrv_124_tinyc.ino
+#ifdef ESP32
+int tc_spawn_task_create(const char *name, uint16_t stack_kb);
+int tc_spawn_task_kill(const char *name);
+int tc_spawn_task_running(const char *name);
+void tc_spawn_task_cleanup_slot(uint8_t slot_idx);
+#endif
+
 #include <OneWire.h>
 
 // Minimal I2S output — standalone, no USE_I2S_AUDIO needed
@@ -525,6 +533,12 @@ enum TcSyscall {
   SYS_MQTT_SUBSCRIBE   = 295, // (topic_const)          -> int slot (0..9, -1=err)
   SYS_MQTT_UNSUBSCRIBE = 296, // (topic_const)          -> int (0=ok, -1=err)
   SYS_MQTT_PUBLISH_TO  = 297, // (topic_const, payload_const) -> int (0=ok, -1=err)
+  // Dynamic task spawn (ESP32 only). Runs a named user function on a new FreeRTOS task
+  // with full delay() support; shares the spawning VM's globals/heap. killTask is cooperative.
+  SYS_SPAWN_TASK       = 298, // (name_const)              -> int pool_idx (0..TC_MAX_SPAWN_TASKS-1), -1=err
+  SYS_SPAWN_TASK_STACK = 299, // (name_const, stack_kb)    -> int pool_idx, -1=err (stack_kb clamped 2..12)
+  SYS_KILL_TASK        = 300, // (name_const)              -> int 0=signaled, -1=not running
+  SYS_TASK_RUNNING     = 301, // (name_const)              -> int 1=running, 0=idle
   // Deep sleep (ESP32 only)
   SYS_DEEP_SLEEP      = 230, // (seconds) -> void — deep sleep with timer wakeup
   SYS_DEEP_SLEEP_GPIO = 231, // (seconds, pin, level) -> void — + GPIO wakeup
@@ -582,6 +596,7 @@ enum TcSyscall {
   SYS_DEBUG_PRINT     = 250, SYS_DEBUG_PRINT_STR = 251,
   SYS_DEBUG_DUMP      = 252,
   // Extended syscalls (256+, requires OP_SYSCALL2)
+  SYS_STRCMP_CONST    = 275, // (arr_ref, const_idx) -> int — strcmp(char[], "literal")
   SYS_SML_COPY        = 256, // (arr_ref, count) -> int — copy SML values to float array
   SYS_ARRAY_FILL      = 257, // (arr_ref, value, count) -> void — fill array with value
   SYS_ARRAY_COPY      = 258, // (dst_ref, src_ref, count) -> void — copy array to array
@@ -3066,6 +3081,23 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         int32_t i = 0;
         while (pa[i] != 0 && pb[i] != 0 && pa[i] == pb[i] && i < max) i++;
         result = pa[i] - pb[i];
+      }
+      TC_PUSH(vm, result);
+      break;
+    }
+    case SYS_STRCMP_CONST: {
+      // strcmp(char[] arr, "literal") — arr_ref pushed first, const_idx second
+      int32_t ci = TC_POP(vm);
+      int32_t a_ref = TC_POP(vm);
+      int32_t *pa = tc_resolve_ref(vm, a_ref);
+      int32_t result = 0;
+      if (pa && ci >= 0 && ci < vm->const_count && vm->constants[ci].type == 1) {
+        const char *pb = vm->constants[ci].str.ptr;
+        int32_t max_a = tc_ref_maxlen(vm, a_ref);
+        int32_t i = 0;
+        while (pa[i] != 0 && pb[i] != 0 && pa[i] == (int32_t)(uint8_t)pb[i] && i < max_a) i++;
+        int32_t bv = (i < max_a) ? (int32_t)(uint8_t)pb[i] : 0;
+        result = pa[i] - bv;
       }
       TC_PUSH(vm, result);
       break;
@@ -8708,6 +8740,50 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       break;
 #endif  // USE_MQTT
 
+    // ── Dynamic task spawn (ESP32 only) ───────────────
+#ifdef ESP32
+    case SYS_SPAWN_TASK: {  // spawnTask("name") -> int
+      int32_t ci = TC_POP(vm);
+      const char *name = tc_get_const_str(vm, ci);
+      TC_PUSH(vm, name ? tc_spawn_task_create(name, 0) : -1);
+      break;
+    }
+    case SYS_SPAWN_TASK_STACK: {  // spawnTask("name", stack_kb) -> int
+      int32_t kb = TC_POP(vm);
+      int32_t ci = TC_POP(vm);
+      const char *name = tc_get_const_str(vm, ci);
+      // 3 KB minimum (even simpler workers using AddLog need this much)
+      // 16 KB upper clamp — plenty for HTTP/TLS clients.
+      if (kb < 3)  kb = 3;
+      if (kb > 16) kb = 16;
+      TC_PUSH(vm, name ? tc_spawn_task_create(name, (uint16_t)kb) : -1);
+      break;
+    }
+    case SYS_KILL_TASK: {  // killTask("name") -> int (0=signaled, -1=not running)
+      int32_t ci = TC_POP(vm);
+      const char *name = tc_get_const_str(vm, ci);
+      TC_PUSH(vm, name ? tc_spawn_task_kill(name) : -1);
+      break;
+    }
+    case SYS_TASK_RUNNING: {  // taskRunning("name") -> int (0/1)
+      int32_t ci = TC_POP(vm);
+      const char *name = tc_get_const_str(vm, ci);
+      TC_PUSH(vm, name ? tc_spawn_task_running(name) : 0);
+      break;
+    }
+#else
+    case SYS_SPAWN_TASK:
+    case SYS_KILL_TASK:
+    case SYS_TASK_RUNNING:
+      TC_POP(vm);
+      TC_PUSH(vm, -1);
+      break;
+    case SYS_SPAWN_TASK_STACK:
+      TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, -1);
+      break;
+#endif  // ESP32
+
     // ── Persist variables ─────────────────────────────
     case SYS_PERSIST_SAVE:
       tc_persist_save(vm);
@@ -10872,6 +10948,19 @@ static void TinyCStopVM(TcSlot *s) {
   if (!Tinyc || !s) return;
 
 #ifdef ESP32
+  // Kill any spawned (shared-VM) tasks FIRST so they stop touching the VM
+  // before the main task is torn down and the heap is freed. Tasks observe
+  // their stop_requested flag at the next instruction boundary or delay.
+  {
+    uint8_t sidx = 0xFF;
+    for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+      if (Tinyc->slots[i] == s) { sidx = i; break; }
+    }
+    if (sidx != 0xFF) {
+      tc_spawn_task_cleanup_slot(sidx);
+    }
+  }
+
   if (s->task_handle) {
     // Signal task to stop via both flags -- vm.error causes tc_vm_step to exit
     s->task_stop = true;

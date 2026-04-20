@@ -1,0 +1,111 @@
+// spawn_tasks.tc — Dynamic FreeRTOS task spawn demo (ESP32 only)
+//
+// Three worker patterns:
+//   1. "Blink"        — one-shot delayed job, fires via console command
+//   2. "Downloader"   — background HTTP GET with shared-global result report
+//   3. "Heartbeat"    — long-running killable worker
+//
+// Commands (type in Tasmota console — prefix "TCT" + subcommand, no space):
+//   TCTBLINK     — spawn Blink if not already running
+//   TCTDOWNLOAD  — spawn Downloader
+//   TCTSTART     — spawn Heartbeat
+//   TCTSTOP      — kill Heartbeat
+//   TCTSTATUS    — log which of the three are currently running
+
+// Shared globals — spawned tasks see and mutate these
+int  hb_ticks      = 0;
+int  dl_state      = 0;  // 0=idle, 1=ok, -1=fail
+char dl_body[1024];
+char dl_url[] = "http://worldtimeapi.org/api/timezone/Europe/Berlin";
+
+// ── Worker 1: short "blink" sequence (logs on/off to console) ─────────
+void Blink() {
+    for (int i = 0; i < 5; i++) {
+        char buf[32];
+        sprintfInt(buf, "blink ON  %d", i);
+        addLog(buf); delay(300);
+        sprintfInt(buf, "blink OFF %d", i);
+        addLog(buf); delay(300);
+    }
+    addLog("Blink done");
+}
+
+// ── Worker 2: background HTTP fetch (needs larger stack) ──────────────
+void Downloader() {
+    addLog("Downloader start");
+    int rc = httpGet(dl_url, dl_body);
+    dl_state = (rc > 0) ? 1 : -1;
+}
+
+// ── Worker 3: endless killable heartbeat ──────────────────────────────
+void Heartbeat() {
+    hb_ticks = 0;
+    while (1) {
+        hb_ticks = hb_ticks + 1;
+        char buf[48];
+        sprintfInt(buf, "hb tick=%d", hb_ticks);
+        addLog(buf);
+        delay(2000);
+    }
+}
+
+// ── Report HTTP result on main thread ─────────────────────────────────
+void EverySecond() {
+    if (dl_state == 1) {
+        char buf[48];
+        sprintfInt(buf, "download ok, %d bytes", strlen(dl_body));
+        addLog(buf);
+        dl_state = 0;
+    } else if (dl_state == -1) {
+        addLog("download failed");
+        dl_state = 0;
+    }
+}
+
+// ── Console command handler ───────────────────────────────────────────
+// Note: spawnTask / killTask / taskRunning still require a string literal
+// for the task-name arg (enforced at compile time).
+// Each branch must call responseCmnd(...) so Tasmota emits a normal
+// {"TCT..":"<msg>"} response instead of {"Command":"Error",...}.
+void Command(char cmd[]) {
+    char resp[96];
+    if (strcmp(cmd, "BLINK") == 0) {
+        if (taskRunning("Blink")) { responseCmnd("Blink busy"); return; }
+        int r = spawnTask("Blink");
+        sprintfInt(resp, "Blink spawned (rc=%d)", r);
+        responseCmnd(resp);
+    }
+    else if (strcmp(cmd, "DOWNLOAD") == 0) {
+        if (taskRunning("Downloader")) { responseCmnd("Downloader busy"); return; }
+        // 6 KB stack — HTTP client needs more than default 3 KB
+        int r = spawnTask("Downloader", 6);
+        sprintfInt(resp, "Downloader spawned (rc=%d)", r);
+        responseCmnd(resp);
+    }
+    else if (strcmp(cmd, "START") == 0) {
+        if (taskRunning("Heartbeat")) { responseCmnd("Heartbeat busy"); return; }
+        int r = spawnTask("Heartbeat");
+        sprintfInt(resp, "Heartbeat spawned (rc=%d)", r);
+        responseCmnd(resp);
+    }
+    else if (strcmp(cmd, "STOP") == 0) {
+        int r = killTask("Heartbeat");
+        if (r < 0) responseCmnd("Heartbeat not running");
+        else       responseCmnd("Heartbeat stop signaled");
+    }
+    else if (strcmp(cmd, "STATUS") == 0) {
+        sprintf(resp, "blink=%d dl=%d hb=%d",
+                taskRunning("Blink"), taskRunning("Downloader"),
+                taskRunning("Heartbeat"));
+        responseCmnd(resp);
+    }
+    else {
+        responseCmnd("unknown TCT subcommand");
+    }
+}
+
+int main() {
+    addCommand("TCT");
+    addLog("spawn_tasks demo ready — try TCTBLINK / TCTDOWNLOAD / TCTSTART / TCTSTOP / TCTSTATUS");
+    return 0;
+}

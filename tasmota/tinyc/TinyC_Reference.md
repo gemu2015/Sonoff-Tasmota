@@ -579,6 +579,114 @@ int main() {
 - Use `UdpCall()` to process incoming UDP multicast variables
 - `TaskLoop()` runs in a dedicated FreeRTOS task (ESP32 only) — can use `delay()` freely, VM access is mutex-serialized with main-thread callbacks
 
+### Dynamic Task Spawn (ESP32)
+
+Beyond the fixed `TaskLoop()`, you can launch **up to 4 additional background tasks** on demand by name. Each spawned task shares the calling VM's state — globals, heap, constants — and runs concurrently with `main()`, callbacks, and `TaskLoop()`. Ideal replacements for one-shot timers, delayed jobs, or long background workers.
+
+| Function | Description |
+|----------|-------------|
+| `spawnTask(char name[])` | Start a FreeRTOS task that calls `name()`. Returns pool slot 0..3, or -1 on error. Default stack **5 KB** |
+| `spawnTask(char name[], int stack_kb)` | Same, but with custom stack size (clamped 3..16 KB) |
+| `killTask(char name[])` | Cooperative stop: sets a flag the task observes at next instruction or `delay()` boundary. Returns 0 if signaled, -1 if not running |
+| `taskRunning(char name[])` | Returns 1 if a task with that name is active on this slot, 0 otherwise |
+
+**Name must be a string literal** — the compiler enforces this and registers the target in the bytecode function table at compile time. Dynamic names (variables/expressions) are not supported. A literal that doesn't resolve to a user-defined function is a compile-time error.
+
+**Stack sizing guide** (default 5 KB works for most workers):
+- **3 KB** — absolute minimum, only safe if the worker uses no `addLog` / `sprintf*` / VM syscalls beyond basic arithmetic and `delay()`
+- **5 KB** (default) — trivial workers with `addLog` + `delay` loops
+- **6–8 KB** — `httpGet` over HTTP (plain), small JSON parsing
+- **10–16 KB** — `httpGet` over HTTPS/TLS, large JSON parsing, complex worker pipelines
+
+**Semantics:**
+
+- **Shared VM**: spawned tasks see and mutate the same globals/heap as `main()`. Use this for worker jobs that update global state.
+- **One name per slot**: a second `spawnTask("foo")` while `foo` is still running returns -1. Use `killTask("foo")` + `taskRunning("foo")` poll first.
+- **Cooperative kill**: `killTask` is non-blocking. The task will self-terminate at its next instruction boundary or after the current `delay()` wakes up. Use `while (taskRunning("foo")) delay(10);` to wait.
+- **Mutex discipline**: spawnTasks honor the same mutex as `TaskLoop()`. `delay()` inside a spawn task releases the mutex so other tasks and callbacks can run.
+- **Auto-cleanup**: when the script stops (TinyCStop) all spawned tasks are signaled and given 2 s to exit.
+- **No arguments**: the spawned function takes no parameters and its return value is ignored.
+
+**Example — one-shot delayed job:**
+
+```c
+void Blinker() {
+    for (int i = 0; i < 5; i++) {
+        gpioWrite(2, 1); delay(200);
+        gpioWrite(2, 0); delay(200);
+    }
+}
+
+void Command(char s[]) {
+    if (strcmp(s, "BLINK") == 0) {
+        if (taskRunning("Blinker")) {
+            addLog("Blinker already active");
+        } else {
+            spawnTask("Blinker");
+        }
+    }
+}
+
+int main() { return 0; }
+```
+
+Typing `TinyCCmd BLINK` in the console spawns the blinker without blocking the console. A second `TinyCCmd BLINK` while blinking is refused.
+
+**Example — parallel background downloader:**
+
+```c
+char url[] = "http://example.com/data.json";
+int download_done = 0;
+char body[2048];
+
+void Downloader() {
+    int rc = httpGet(url, body, sizeof(body));
+    download_done = (rc > 0) ? 1 : -1;
+}
+
+void EverySecond() {
+    if (download_done == 1) {
+        addLog("download ok");
+        download_done = 0;
+    } else if (download_done == -1) {
+        addLog("download failed");
+        download_done = 0;
+    }
+}
+
+int main() {
+    spawnTask("Downloader", 6);  // 6 KB stack for HTTPS
+    return 0;
+}
+```
+
+**Example — killable worker:**
+
+```c
+int worker_ticks = 0;
+
+void Worker() {
+    while (1) {
+        worker_ticks++;
+        delay(500);
+    }
+}
+
+void Command(char s[]) {
+    if (strcmp(s, "START") == 0 && !taskRunning("Worker")) spawnTask("Worker");
+    if (strcmp(s, "STOP")  == 0) killTask("Worker");
+}
+
+int main() { return 0; }
+```
+
+**Limits:**
+
+- Max 4 concurrent spawned tasks **per device** (shared pool across all VM slots)
+- Function name max 23 chars
+- Stack 2..12 KB, default 3 KB — bump to 6+ for HTTPS / JSON / large buffers
+- ESP8266: all four calls return -1 (not supported)
+
 ---
 
 ## Tasmota System Variables

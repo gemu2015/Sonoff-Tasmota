@@ -549,6 +549,114 @@ int main() {
 - Verwenden Sie `UdpCall()` zur Verarbeitung eingehender UDP-Multicast-Variablen
 - `TaskLoop()` laeuft in einem eigenen FreeRTOS-Task (nur ESP32) — kann `delay()` frei verwenden, VM-Zugriff ist Mutex-serialisiert mit Haupt-Thread-Callbacks
 
+### Dynamische Task-Erzeugung (ESP32)
+
+Ueber den festen `TaskLoop()` hinaus koennen **bis zu 4 zusaetzliche Hintergrund-Tasks** dynamisch per Namen gestartet werden. Jeder gespawnte Task teilt sich den VM-Zustand des aufrufenden Slots — Globals, Heap, Konstanten — und laeuft parallel zu `main()`, Callbacks und `TaskLoop()`. Ideal als Ersatz fuer einmalige Timer, verzoegerte Jobs oder lang laufende Hintergrundarbeiter.
+
+| Funktion | Beschreibung |
+|----------|--------------|
+| `spawnTask(char name[])` | Startet einen FreeRTOS-Task, der `name()` aufruft. Gibt Pool-Slot 0..3 zurueck oder -1 bei Fehler. Stack-Default **5 KB** |
+| `spawnTask(char name[], int stack_kb)` | Gleich, aber mit anpassbarer Stack-Groesse (auf 3..16 KB begrenzt) |
+| `killTask(char name[])` | Kooperativer Stopp: setzt ein Flag, das der Task beim naechsten Instruktions- oder `delay()`-Boundary erkennt. Gibt 0 bei Signal, -1 falls nicht laufend |
+| `taskRunning(char name[])` | Gibt 1 zurueck, wenn ein Task mit diesem Namen im aktuellen Slot laeuft, sonst 0 |
+
+**Name muss ein String-Literal sein** — der Compiler erzwingt dies und traegt das Ziel zur Compile-Zeit in die Bytecode-Funktionstabelle ein. Dynamische Namen (Variablen/Ausdruecke) werden nicht unterstuetzt. Ein Literal, das keine im Programm definierte Funktion benennt, ist ein Compile-Fehler.
+
+**Stack-Groesse-Leitfaden** (Default 5 KB reicht fuer die meisten Worker):
+- **3 KB** — absolutes Minimum, nur sicher wenn der Worker kein `addLog` / `sprintf*` / VM-Syscalls ausser Arithmetik und `delay()` nutzt
+- **5 KB** (Default) — triviale Worker mit `addLog` + `delay`-Schleifen
+- **6–8 KB** — `httpGet` ueber HTTP (ohne TLS), kleines JSON-Parsing
+- **10–16 KB** — `httpGet` ueber HTTPS/TLS, grosses JSON-Parsing, komplexe Worker-Pipelines
+
+**Semantik:**
+
+- **Geteilte VM**: Gespawnte Tasks sehen und veraendern die gleichen Globals/Heap wie `main()`. Ideal fuer Worker-Jobs, die globalen Zustand aktualisieren.
+- **Ein Name pro Slot**: Ein zweites `spawnTask("foo")` waehrend `foo` noch laeuft gibt -1 zurueck. Erst `killTask("foo")` + `taskRunning("foo")` pollen.
+- **Kooperatives Toeten**: `killTask` ist nicht-blockierend. Der Task terminiert am naechsten Instruktions-Boundary oder nachdem das laufende `delay()` aufwacht. Verwenden Sie `while (taskRunning("foo")) delay(10);` zum Warten.
+- **Mutex-Disziplin**: SpawnTasks ehren denselben Mutex wie `TaskLoop()`. `delay()` in einem SpawnTask gibt den Mutex frei, sodass andere Tasks und Callbacks laufen koennen.
+- **Auto-Cleanup**: Beim Stoppen des Scripts (TinyCStop) werden alle gespawnten Tasks signalisiert und erhalten 2 s zum Beenden.
+- **Keine Argumente**: Die gespawnte Funktion nimmt keine Parameter; ihr Rueckgabewert wird ignoriert.
+
+**Beispiel — einmaliger verzoegerter Job:**
+
+```c
+void Blinker() {
+    for (int i = 0; i < 5; i++) {
+        gpioWrite(2, 1); delay(200);
+        gpioWrite(2, 0); delay(200);
+    }
+}
+
+void Command(char s[]) {
+    if (strcmp(s, "BLINK") == 0) {
+        if (taskRunning("Blinker")) {
+            addLog("Blinker bereits aktiv");
+        } else {
+            spawnTask("Blinker");
+        }
+    }
+}
+
+int main() { return 0; }
+```
+
+`TinyCCmd BLINK` in der Konsole spawnt den Blinker ohne die Konsole zu blockieren. Ein zweites `TinyCCmd BLINK` waehrend des Blinkens wird abgelehnt.
+
+**Beispiel — paralleler Hintergrund-Downloader:**
+
+```c
+char url[] = "http://example.com/data.json";
+int download_done = 0;
+char body[2048];
+
+void Downloader() {
+    int rc = httpGet(url, body, sizeof(body));
+    download_done = (rc > 0) ? 1 : -1;
+}
+
+void EverySecond() {
+    if (download_done == 1) {
+        addLog("Download ok");
+        download_done = 0;
+    } else if (download_done == -1) {
+        addLog("Download fehlgeschlagen");
+        download_done = 0;
+    }
+}
+
+int main() {
+    spawnTask("Downloader", 6);  // 6 KB Stack fuer HTTPS
+    return 0;
+}
+```
+
+**Beispiel — toetbarer Worker:**
+
+```c
+int worker_ticks = 0;
+
+void Worker() {
+    while (1) {
+        worker_ticks++;
+        delay(500);
+    }
+}
+
+void Command(char s[]) {
+    if (strcmp(s, "START") == 0 && !taskRunning("Worker")) spawnTask("Worker");
+    if (strcmp(s, "STOP")  == 0) killTask("Worker");
+}
+
+int main() { return 0; }
+```
+
+**Grenzen:**
+
+- Max. 4 gleichzeitige gespawnte Tasks **pro Geraet** (gemeinsamer Pool ueber alle VM-Slots)
+- Funktionsname max. 23 Zeichen
+- Stack 2..12 KB, Default 3 KB — fuer HTTPS / JSON / grosse Puffer auf 6+ erhoehen
+- ESP8266: Alle vier Aufrufe geben -1 zurueck (nicht unterstuetzt)
+
 ---
 
 ## Tasmota-Systemvariablen
