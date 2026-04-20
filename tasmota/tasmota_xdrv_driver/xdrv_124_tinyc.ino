@@ -169,6 +169,11 @@ static void tc_all_callbacks(const char *name) {
   }
 }
 
+// ID-based variant for hot-path well-known callbacks (EverySecond, Every50ms, ...).
+// Zero strcmp per call — dispatch is a direct array index. If no slot defines
+// the callback, each slot fast-exits without even taking the mutex.
+// tc_all_callbacks_id() body is in vm.h (Arduino auto-prototype workaround).
+
 // Call a named callback with a string argument on all active slots
 static void tc_all_callbacks_str(const char *name, const char *str) {
   if (!Tinyc) return;
@@ -429,7 +434,7 @@ static void TinyCEvery50ms(void) {
   }
 
   // Every50ms callback on all active slots
-  tc_all_callbacks("Every50ms");
+  tc_all_callbacks_id(TC_CB_EVERY_50_MSECOND);
 }
 
 /*********************************************************************************************\
@@ -3071,46 +3076,46 @@ bool Xdrv124(uint32_t function) {
 #endif
 #endif
       // Call user's EveryLoop() callback on all active slots
-      tc_all_callbacks("EveryLoop");
+      tc_all_callbacks_id(TC_CB_LOOP);
       break;
     case FUNC_EVERY_50_MSECOND:
       if (tc_paused) { break; }
       TinyCEvery50ms();
       if (TasmotaGlobal.rules_flag.mqtt_disconnected) {
         TasmotaGlobal.rules_flag.mqtt_disconnected = 0;
-        tc_all_callbacks("OnMqttDisconnect");
+        tc_all_callbacks_id(TC_CB_ON_MQTT_DISCONNECT);
       }
       break;
     case FUNC_EVERY_100_MSECOND:
       if (tc_paused) { break; }
-      tc_all_callbacks("Every100ms");
+      tc_all_callbacks_id(TC_CB_EVERY_100_MSECOND);
       break;
     case FUNC_EVERY_SECOND:
       if (tc_paused) { break; }
       // Call user's EverySecond() callback on all active slots
-      tc_all_callbacks("EverySecond");
+      tc_all_callbacks_id(TC_CB_EVERY_SECOND);
       break;
     case FUNC_NETWORK_UP:
       if (!tc_init_done) {
         tc_init_done = true;
-        tc_all_callbacks("OnInit");
+        tc_all_callbacks_id(TC_CB_ON_INIT);
       }
       if (!tc_wifi_up) {
         tc_wifi_up = true;
-        tc_all_callbacks("OnWifiConnect");
+        tc_all_callbacks_id(TC_CB_ON_WIFI_CONNECT);
       }
       break;
     case FUNC_NETWORK_DOWN:
       if (tc_wifi_up) {
         tc_wifi_up = false;
-        tc_all_callbacks("OnWifiDisconnect");
+        tc_all_callbacks_id(TC_CB_ON_WIFI_DISCONNECT);
       }
       break;
     case FUNC_MQTT_INIT:
-      tc_all_callbacks("OnMqttConnect");
+      tc_all_callbacks_id(TC_CB_ON_MQTT_CONNECT);
       break;
     case FUNC_TIME_SYNCED:
-      tc_all_callbacks("OnTimeSet");
+      tc_all_callbacks_id(TC_CB_ON_TIME_SET);
       break;
     case FUNC_COMMAND:
       result = DecodeCommand(kTinyCCommands, TinyCCommand);
@@ -3285,7 +3290,7 @@ bool Xdrv124(uint32_t function) {
 #endif
     case FUNC_SAVE_BEFORE_RESTART:
       // Call user's CleanUp() callback on all active slots (like scripter's >R section)
-      tc_all_callbacks("CleanUp");
+      tc_all_callbacks_id(TC_CB_CLEAN_UP);
       // Save persist variables for all loaded slots
       for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
         TcSlot *s = Tinyc->slots[i];

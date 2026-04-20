@@ -658,6 +658,44 @@ typedef struct {
   uint16_t address;                      // code-relative address
 } TcCallback;
 
+// Hot-path callbacks resolved once at load via integer ID, so dispatch
+// avoids strcmp scans on every tick. The ID is just an index into
+// vm->cb_index[] which holds the slot in vm->callbacks[] (or -1 if absent).
+typedef enum {
+  TC_CB_LOOP = 0,             // EveryLoop
+  TC_CB_EVERY_50_MSECOND,     // Every50ms
+  TC_CB_EVERY_100_MSECOND,    // Every100ms
+  TC_CB_EVERY_SECOND,         // EverySecond
+  TC_CB_ON_INIT,              // OnInit
+  TC_CB_ON_WIFI_CONNECT,      // OnWifiConnect
+  TC_CB_ON_WIFI_DISCONNECT,   // OnWifiDisconnect
+  TC_CB_ON_MQTT_CONNECT,      // OnMqttConnect
+  TC_CB_ON_MQTT_DISCONNECT,   // OnMqttDisconnect
+  TC_CB_ON_TIME_SET,          // OnTimeSet
+  TC_CB_CLEAN_UP,             // CleanUp
+  TC_CB_TASK_LOOP,            // TaskLoop
+  TC_CB_ON_EXIT,              // OnExit
+  TC_CB_COUNT
+} TcCallbackId;
+
+// Name table: index by TcCallbackId. Plain RAM (small, hot data).
+// PROGMEM with pointer-in-table is unreliable on ESP32 — see project notes.
+static const char * const TC_CB_NAME[TC_CB_COUNT] = {
+  "EveryLoop",
+  "Every50ms",
+  "Every100ms",
+  "EverySecond",
+  "OnInit",
+  "OnWifiConnect",
+  "OnWifiDisconnect",
+  "OnMqttConnect",
+  "OnMqttDisconnect",
+  "OnTimeSet",
+  "CleanUp",
+  "TaskLoop",
+  "OnExit",
+};
+
 typedef struct {
   // Program
   const uint8_t *code;
@@ -706,6 +744,9 @@ typedef struct {
   // Callback function table (V3)
   TcCallback    callbacks[TC_MAX_CALLBACKS];
   uint8_t       callback_count;
+  // Hot-path dispatch cache: cb_index[TcCallbackId] = slot in callbacks[] (or -1).
+  // Populated once at load — eliminates strcmp scans on every tick.
+  int8_t        cb_index[TC_CB_COUNT];
   // Persist table (V4: global entries for auto-save/load)
   struct { uint16_t index; uint16_t count; } persist[TC_MAX_PERSIST];
   uint8_t       persist_count;
@@ -1699,8 +1740,9 @@ static TcUdpVar* tc_udp_find_var(const char *name, bool create) {
   return nullptr;  // table full
 }
 
-// Forward declaration — defined later in this file
+// Forward declarations — defined later in this file
 static int tc_vm_call_callback(TcVM *vm, const char *name);
+static int tc_vm_call_callback_id(TcVM *vm, TcCallbackId cid);
 
 // Check if a named callback exists in the loaded program
 static bool tc_has_callback(TcVM *vm, const char *name) {
@@ -9363,6 +9405,19 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
     }
   }
 
+  // Build hot-path callback cache (one strcmp pass, replaces per-tick strcmps).
+  // After this, dispatch from FUNC_LOOP / FUNC_EVERY_*_MSECOND / FUNC_EVERY_SECOND
+  // is a direct array index instead of a linear strcmp scan.
+  for (int k = 0; k < TC_CB_COUNT; k++) {
+    vm->cb_index[k] = -1;
+    for (uint8_t i = 0; i < vm->callback_count; i++) {
+      if (strcmp(vm->callbacks[i].name, TC_CB_NAME[k]) == 0) {
+        vm->cb_index[k] = (int8_t)i;
+        break;
+      }
+    }
+  }
+
   // Parse persist table (V4)
   vm->persist_count = 0;
   uint16_t persist_table_start = func_table_end;
@@ -9461,17 +9516,11 @@ static int tc_vm_step(TcVM *vm);
  *   concurrent access to the VM state.
 \*********************************************************************************************/
 
-static int tc_vm_call_callback(TcVM *vm, const char *name) {
-  // Find callback by name
-  int idx = -1;
-  for (int i = 0; i < vm->callback_count; i++) {
-    if (strcmp(vm->callbacks[i].name, name) == 0) { idx = i; break; }
-  }
-  if (idx < 0) return TC_OK;  // callback not defined, silently skip
-
-  // VM must be halted (main returned) with no error
-  if (!vm->halted || vm->error != TC_OK) return vm->error;
-
+// Internal: invoke callback at known index. Caller must have already validated
+// that idx is in range and that vm is halted/error-free. `name` is used only
+// for log/crash messages.
+// The full PAUSED handler MUST stay in this body — see project_tinyc notes.
+static int tc_vm_call_callback_idx(TcVM *vm, int idx, const char *name) {
   // Save state
   uint8_t saved_frame_count = vm->frame_count;
   uint16_t saved_pc = vm->pc;
@@ -9561,6 +9610,30 @@ static int tc_vm_call_callback(TcVM *vm, const char *name) {
   tc_output_flush();
 
   return vm->error;
+}
+
+// Public: name-based dispatch (legacy, still used for non-hot-path callbacks
+// like "JsonCall", "WebUI", "WebCall", "TouchButton", "HomeKitWrite", "WebOn",
+// "UdpCall", "WebPage", "Command", etc.). Does one strcmp scan.
+static int tc_vm_call_callback(TcVM *vm, const char *name) {
+  int idx = -1;
+  for (int i = 0; i < vm->callback_count; i++) {
+    if (strcmp(vm->callbacks[i].name, name) == 0) { idx = i; break; }
+  }
+  if (idx < 0) return TC_OK;  // callback not defined, silently skip
+  if (!vm->halted || vm->error != TC_OK) return vm->error;
+  return tc_vm_call_callback_idx(vm, idx, name);
+}
+
+// Public: ID-based dispatch for hot-path callbacks. Zero strcmp — the cache
+// was populated once at tc_vm_load(). If the callback isn't defined, returns
+// immediately without even checking halted/error state (saves a memory read).
+static int tc_vm_call_callback_id(TcVM *vm, TcCallbackId cid) {
+  if ((unsigned)cid >= TC_CB_COUNT) return TC_OK;
+  int8_t idx = vm->cb_index[cid];
+  if (idx < 0) return TC_OK;  // not defined — common case
+  if (!vm->halted || vm->error != TC_OK) return vm->error;
+  return tc_vm_call_callback_idx(vm, idx, TC_CB_NAME[cid]);
 }
 
 // Call a callback with a C string argument (e.g. Event(char json[]))
@@ -10366,11 +10439,9 @@ static void tc_vm_task(void *param) {
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: Halted after %u instr, %d callbacks"),
       vm->instruction_count, vm->callback_count);
 
-    // Phase 2: If TaskLoop callback exists, loop calling it in this task
-    int tl_idx = -1;
-    for (int i = 0; i < vm->callback_count; i++) {
-      if (strcmp(vm->callbacks[i].name, "TaskLoop") == 0) { tl_idx = i; break; }
-    }
+    // Phase 2: If TaskLoop callback exists, loop calling it in this task.
+    // Use the load-time cache — no strcmp needed.
+    int tl_idx = vm->cb_index[TC_CB_TASK_LOOP];
     if (tl_idx >= 0) {
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: TaskLoop running in task"));
       uint16_t tl_addr = vm->callbacks[tl_idx].address;
@@ -10507,6 +10578,50 @@ static void tc_slot_callback(TcSlot *s, const char *name) {
 #endif
 }
 
+// Forward decl — defined further below after Tinyc state struct is in scope.
+// Kept in vm.h because TcCallbackId argument confuses Arduino auto-prototyper.
+static void tc_all_callbacks_id(TcCallbackId cid);
+
+// ID-based variant for hot-path well-known callbacks (EverySecond, EveryLoop, ...).
+// Fast-exit without taking the mutex if the callback isn't defined — this is the
+// common case (most scripts use 1-2 of the 13 well-known callbacks), so 50-ms-tick
+// sweeps across all slots avoid per-slot mutex churn entirely.
+static void tc_slot_callback_id(TcSlot *s, TcCallbackId cid) {
+  if (!s || !s->loaded) return;
+  if ((unsigned)cid >= TC_CB_COUNT) return;
+  // Fast path: script doesn't define this callback — skip mutex + VM state read.
+  // cb_index is populated once at load and never mutated at runtime, so this
+  // read is race-free (a concurrent tc_vm_load would imply the slot isn't
+  // "loaded" yet, which we already gated above).
+  if (s->vm.cb_index[cid] < 0) return;
+#ifdef ESP32
+  if (s->vm_mutex) xSemaphoreTake(s->vm_mutex, portMAX_DELAY);
+#endif
+  if (!s->vm.halted || s->vm.error != TC_OK) {
+#ifdef ESP32
+    if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+#endif
+    return;
+  }
+  tc_current_slot = s;
+  tc_vm_call_callback_id(&s->vm, cid);
+  tc_current_slot = nullptr;
+#ifdef ESP32
+  if (s->vm_mutex) xSemaphoreGive(s->vm_mutex);
+#endif
+}
+
+// Sweep all slots, calling the ID'd callback on each. Zero strcmps.
+// Defined here (not in .ino) because TcCallbackId param confuses Arduino's
+// auto-prototyper (same reason tc_slot_callback* lives in vm.h).
+static void tc_all_callbacks_id(TcCallbackId cid) {
+  if (!Tinyc) return;
+  for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+    TcSlot *s = Tinyc->slots[i];
+    if (s) tc_slot_callback_id(s, cid);
+  }
+}
+
 // Helper: derive .pvs persist filename from .tcb filename
 // e.g. "/ecotracker.tcb" -> "/ecotracker.pvs", "/autoexec.tcb" -> "/autoexec.pvs"
 static void TinyCSetPersistFile(TcSlot *s, const char *tcb_path) {
@@ -10555,7 +10670,7 @@ static void TinyCStopVM(TcSlot *s) {
   s->vm.running = false;
   s->vm.halted = true;
   tc_current_slot = s;
-  tc_vm_call_callback(&s->vm, "OnExit");
+  tc_vm_call_callback_id(&s->vm, TC_CB_ON_EXIT);
   tc_output_flush();
   tc_current_slot = nullptr;
 
