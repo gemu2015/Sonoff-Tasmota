@@ -397,6 +397,7 @@ Definieren Sie einfach Funktionen mit diesen bekannten Namen — keine Registrie
 | `OnExit()` | Skript-Stopp | Wenn VM gestoppt oder Skript ersetzt wird | Serielle Ports schliessen, Ressourcen freigeben |
 | `OnMqttConnect()` | FUNC_MQTT_INIT | MQTT-Broker verbunden | Topics abonnieren, Status publizieren |
 | `OnMqttDisconnect()` | mqtt_disconnected Flag | MQTT-Broker getrennt | Offline-Status setzen, Publizierung stoppen |
+| `OnMqttData(char topic[], char payload[])` | FUNC_MQTT_DATA | Nachricht auf abonniertem Topic eingetroffen | Fernbefehle verarbeiten, Sensordaten empfangen |
 | `OnInit()` | Erstes FUNC_NETWORK_UP | Einmal nach erster WiFi-Verbindung | Einmalige Init: Dienste starten, MQTT abonnieren |
 | `OnWifiConnect()` | FUNC_NETWORK_UP | WiFi/Netzwerk verbunden (jedes Mal) | Reconnect-Behandlung |
 | `OnWifiDisconnect()` | FUNC_NETWORK_DOWN | WiFi/Netzwerk getrennt | Netzwerkabhaengige Aufgaben pausieren |
@@ -1807,6 +1808,118 @@ void EverySecond() {
         // als uint16 Big-Endian zuruecksenden
         tcpWriteArray(data, count, 1);
     }
+}
+```
+
+### TCP-Client
+
+Ausgehende TCP-Verbindungen zu entfernten Hosts oeffnen. Bis zu **4 parallele Client-Slots** werden unterstuetzt; ein Selektor waehlt den aktiven Slot, alle Lese/Schreib-Aufrufe arbeiten auf diesem Slot. Slot 0 faellt zusaetzlich auf den vom `tcpServer()` angenommenen Client zurueck, sodass dieselben `tcpRead`/`tcpWrite`/`tcpAvailable`-Aufrufe fuer beide Rollen funktionieren.
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `int tcpConnect("host", port)` | TCP-Verbindung vom aktiven Slot zu `host:port` oeffnen. Gibt 0=verbunden, -1=Fehler, -2=kein Netzwerk zurueck |
+| `int tcpConnect(char host[], port)` | Dasselbe mit char-Array als Host (IP oder DNS-Name) statt Literal |
+| `int tcpConnected()` | Gibt 1 zurueck, wenn der aktive Slot eine offene Verbindung hat, sonst 0 |
+| `tcpDisconnect()` | Client-Verbindung des aktiven Slots schliessen |
+| `tcpSelect(int slot)` | Aktiven Client-Slot waehlen (0–3). Alle nachfolgenden Client-Aufrufe zielen auf diesen Slot |
+
+**Hinweise:**
+- `tcpRead(buf)`, `tcpWrite(buf)`, `tcpAvailable()`, `tcpReadArray()`, `tcpWriteArray()` arbeiten alle auf dem **aktiven** Slot. Mit `tcpSelect(n)` umschalten.
+- `tcpWrite()` benoetigt weiterhin ein `char[]` — String-Literale werden nicht akzeptiert (`char msg[] = "hello\n"; tcpWrite(msg);`).
+- Slot 0 ist speziell: Wenn kein ausgehender Client auf Slot 0 offen ist, faellt er transparent auf den Server-Client von `tcpServer()` zurueck. Bestehende Nur-Server-Skripte laufen unveraendert weiter.
+- Verbindungen sind im Wesentlichen nicht-blockierend, haben aber einen kurzen Socket-Timeout — ein fehlgeschlagenes `tcpConnect()` kehrt schnell mit -1 zurueck.
+
+**Beispiel — Periodischer TCP-Client mit Heartbeat:**
+```c
+char rxbuf[128];
+char msg[]  = "ping\n";
+
+void EverySecond() {
+    tcpSelect(0);                          // aktiver Slot = 0
+    if (!tcpConnected()) {
+        int r = tcpConnect("192.168.1.50", 1234);
+        if (r != 0) { return; }            // naechsten Tick erneut versuchen
+    }
+    tcpWrite(msg);
+    delay(150);                            // dem Server Zeit zum Antworten geben
+    if (tcpAvailable() > 0) {
+        int n = tcpRead(rxbuf);
+        print(n);                          // z.B. 24 Bytes echo zurueck
+    }
+}
+
+void OnExit() {
+    tcpDisconnect();                       // beim Skript-Stopp sauber aufraeumen
+}
+```
+
+**Beispiel — Zwei unabhaengige TCP-Clients parallel:**
+```c
+char buf[128];
+char hello[] = "hello\n";
+
+void main() {
+    tcpSelect(0);
+    tcpConnect("10.0.0.10", 9000);         // Slot 0 → Metrik-Server
+
+    tcpSelect(1);
+    tcpConnect("10.0.0.11", 9001);         // Slot 1 → Befehls-Server
+}
+
+void EverySecond() {
+    // Heartbeat auf Slot 0 senden
+    tcpSelect(0);
+    if (tcpConnected()) { tcpWrite(hello); }
+
+    // Antworten auf Slot 1 abfragen
+    tcpSelect(1);
+    if (tcpConnected() && tcpAvailable() > 0) {
+        tcpRead(buf);
+        // Befehl in buf verarbeiten...
+    }
+}
+```
+
+### MQTT Abonnieren / Publizieren
+
+MQTT-Topics abonnieren und auf eingehende Nachrichten reagieren oder beliebige Payloads publizieren. Benoetigt `USE_MQTT` in der Firmware (standardmaessig aktiviert).
+
+| Funktion | Beschreibung |
+|----------|-------------|
+| `int mqttSubscribe("topic")` | `topic` abonnieren. Gibt Abo-Slot (0–9) bei Erfolg zurueck, -1 bei Fehler (kein freier Slot, Broker offline) |
+| `int mqttSubscribe(char topic[])` | Dasselbe mit char-Array als Topic (zur Laufzeit gebaut) |
+| `int mqttUnsubscribe("topic")` | Zuvor abonniertes Topic abbestellen. Gibt 0=ok, -1=nicht gefunden zurueck |
+| `mqttPublish("topic", "payload")` | `payload` auf `topic` publizieren (Literale oder char-Arrays akzeptiert) |
+
+**Hinweise:**
+- Bis zu **10 Abonnements** pro VM, Topic maximal **128 Zeichen**.
+- Wildcard `'#'` wird ausschliesslich als **Praefix-Match am Ende** unterstuetzt (`"sensors/#"` matcht `sensors/temp`, `sensors/humi/1` usw.). MQTTs `+`-Single-Level-Wildcard wird nicht unterstuetzt.
+- Passende Topics loesen den `OnMqttData(char topic[], char payload[])` Callback aus. Beide Strings werden fuer die Dauer des Callbacks in den VM-Heap kopiert.
+- Abonnements bleiben ueber `TinyCRun`-Neuladen desselben Slots erhalten. `mqttUnsubscribe()` in `OnExit()` aufrufen, wenn bei Neustart eine saubere Basis gewuenscht ist.
+- Abonnements werden bei Reconnect automatisch neu an den Broker gesendet (ueber `FUNC_MQTT_INIT`).
+
+**Beispiel — Fernsteuerung via MQTT:**
+```c
+char reply[64];
+
+void main() {
+    mqttSubscribe("cmnd/room1/#");         // Wildcard-Praefix
+    mqttSubscribe("home/heartbeat");       // exakter Match
+}
+
+void OnMqttData(char topic[], char payload[]) {
+    if (strcmp(topic, "home/heartbeat") == 0) {
+        mqttPublish("stat/room1/alive", "ok");
+        return;
+    }
+    // cmnd/room1/light → GPIO umschalten etc.
+    sprintf(reply, "got %s = %s", topic, payload);
+    addLogLevel(2, reply);
+}
+
+void OnExit() {
+    mqttUnsubscribe("cmnd/room1/#");
+    mqttUnsubscribe("home/heartbeat");
 }
 ```
 

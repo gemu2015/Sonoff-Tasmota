@@ -427,6 +427,7 @@ Simply define functions with these well-known names — no registration needed.
 | `OnExit()` | Script stop | When VM is stopped or script replaced | Close serial ports, release resources |
 | `OnMqttConnect()` | FUNC_MQTT_INIT | MQTT broker connected | Subscribe topics, publish status |
 | `OnMqttDisconnect()` | mqtt_disconnected flag | MQTT broker disconnected | Set offline state, stop publishing |
+| `OnMqttData(char topic[], char payload[])` | FUNC_MQTT_DATA | Message arrives on a subscribed topic | Handle remote commands, ingest sensor data |
 | `OnInit()` | First FUNC_NETWORK_UP | Once after first WiFi connect | One-time init: start services, subscribe MQTT |
 | `OnWifiConnect()` | FUNC_NETWORK_UP | WiFi/network connected (every time) | Reconnect handling |
 | `OnWifiDisconnect()` | FUNC_NETWORK_DOWN | WiFi/network lost | Pause network-dependent tasks |
@@ -2134,6 +2135,118 @@ void EverySecond() {
         // send back as uint16 big-endian
         tcpWriteArray(data, count, 1);
     }
+}
+```
+
+### TCP Client
+
+Open outgoing TCP connections to remote hosts. Up to **4 parallel client slots** are supported; a selector picks the active slot, and all read/write calls operate on that slot. Slot 0 additionally falls back to the server-accepted client from `tcpServer()`, so the same `tcpRead`/`tcpWrite`/`tcpAvailable` API works for both roles.
+
+| Function | Description |
+|----------|-------------|
+| `int tcpConnect("host", port)` | Open a TCP connection from the active slot to `host:port`. Returns 0=connected, -1=fail, -2=no network |
+| `int tcpConnect(char host[], port)` | Same, with a char-array host (IP or DNS name) instead of a literal |
+| `int tcpConnected()` | Returns 1 if the active slot has an open connection, 0 otherwise |
+| `tcpDisconnect()` | Close the active slot's client connection |
+| `tcpSelect(int slot)` | Select the active client slot (0–3). All subsequent client calls target this slot |
+
+**Notes:**
+- `tcpRead(buf)`, `tcpWrite(buf)`, `tcpAvailable()`, `tcpReadArray()`, `tcpWriteArray()` all operate on the **active** slot. Call `tcpSelect(n)` to switch.
+- `tcpWrite()` still requires a `char[]` — string literals are not accepted (declare `char msg[] = "hello\n"; tcpWrite(msg);`).
+- Slot 0 is special: if no outgoing client is open on slot 0, it transparently falls back to the server-side client from `tcpServer()`. This lets existing server-only scripts keep working unchanged.
+- Connections are non-blocking-ish but have a short socket-level timeout — a failed `tcpConnect()` returns quickly with -1.
+
+**Example — Periodic TCP client sending a heartbeat:**
+```c
+char rxbuf[128];
+char msg[]  = "ping\n";
+
+void EverySecond() {
+    tcpSelect(0);                          // active slot = 0
+    if (!tcpConnected()) {
+        int r = tcpConnect("192.168.1.50", 1234);
+        if (r != 0) { return; }            // retry next tick
+    }
+    tcpWrite(msg);
+    delay(150);                            // give server a beat to reply
+    if (tcpAvailable() > 0) {
+        int n = tcpRead(rxbuf);
+        print(n);                          // e.g. 24 bytes echoed back
+    }
+}
+
+void OnExit() {
+    tcpDisconnect();                       // clean up on script stop
+}
+```
+
+**Example — Two independent TCP clients in parallel:**
+```c
+char buf[128];
+char hello[] = "hello\n";
+
+void main() {
+    tcpSelect(0);
+    tcpConnect("10.0.0.10", 9000);         // slot 0 → metrics server
+
+    tcpSelect(1);
+    tcpConnect("10.0.0.11", 9001);         // slot 1 → command server
+}
+
+void EverySecond() {
+    // Push heartbeat on slot 0
+    tcpSelect(0);
+    if (tcpConnected()) { tcpWrite(hello); }
+
+    // Poll replies on slot 1
+    tcpSelect(1);
+    if (tcpConnected() && tcpAvailable() > 0) {
+        tcpRead(buf);
+        // dispatch command in buf...
+    }
+}
+```
+
+### MQTT Subscribe / Publish
+
+Subscribe to MQTT topics and react to inbound messages, or publish arbitrary payloads. Requires `USE_MQTT` in the firmware build (enabled by default).
+
+| Function | Description |
+|----------|-------------|
+| `int mqttSubscribe("topic")` | Subscribe to `topic`. Returns the subscription slot (0–9) on success, -1 on failure (no free slot, broker down) |
+| `int mqttSubscribe(char topic[])` | Same, with a char-array topic (runtime-built) |
+| `int mqttUnsubscribe("topic")` | Unsubscribe from a previously subscribed topic. Returns 0=ok, -1=not found |
+| `mqttPublish("topic", "payload")` | Publish `payload` to `topic` (both literals or char arrays accepted) |
+
+**Notes:**
+- Up to **10 subscriptions** per VM, topic max **128 chars**.
+- Wildcard `'#'` is supported as a **trailing prefix match** only (`"sensors/#"` matches `sensors/temp`, `sensors/humi/1`, etc.). MQTT's `+` single-level wildcard is not supported.
+- Matching topics trigger the `OnMqttData(char topic[], char payload[])` callback. The two strings are copied into the VM heap for the duration of the callback.
+- Subscriptions persist across `TinyCRun` reloads of the same slot. Call `mqttUnsubscribe()` in `OnExit()` if you want a clean slate on restart.
+- Subscriptions are automatically re-sent to the broker on reconnect (hooked into `FUNC_MQTT_INIT`).
+
+**Example — Remote control via MQTT:**
+```c
+char reply[64];
+
+void main() {
+    mqttSubscribe("cmnd/room1/#");         // wildcard prefix
+    mqttSubscribe("home/heartbeat");       // exact match
+}
+
+void OnMqttData(char topic[], char payload[]) {
+    if (strcmp(topic, "home/heartbeat") == 0) {
+        mqttPublish("stat/room1/alive", "ok");
+        return;
+    }
+    // cmnd/room1/light → toggle GPIO etc.
+    sprintf(reply, "got %s = %s", topic, payload);
+    addLogLevel(2, reply);
+}
+
+void OnExit() {
+    mqttUnsubscribe("cmnd/room1/#");
+    mqttUnsubscribe("home/heartbeat");
 }
 ```
 

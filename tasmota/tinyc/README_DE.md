@@ -74,7 +74,8 @@ Callbacks werden automatisch aus Tasmotas Hauptschleife aufgerufen:
 **Datei-Modi:** `r` (Lesen), `w` (Schreiben), `a` (Anhaengen) — fuer `fileOpen()`
 
 **1-Wire:** `owSetPin`, `owReset`, `owWrite`, `owRead`, `owWriteBit`, `owReadBit`, `owSearchReset`, `owSearch`
-**TCP:** `tcpServer`, `tcpClose`, `tcpAvailable`, `tcpRead`, `tcpWrite`, `tcpReadArray`, `tcpWriteArray`
+**TCP:** `tcpServer`, `tcpClose`, `tcpAvailable`, `tcpRead`, `tcpWrite`, `tcpReadArray`, `tcpWriteArray`, `tcpConnect`, `tcpDisconnect`, `tcpConnected`, `tcpSelect` (4 parallele Client-Slots)
+**MQTT:** `mqttSubscribe`, `mqttUnsubscribe`, `mqttPublish` + `OnMqttData(topic, payload)` Callback (10 Abos, `#` Praefix-Wildcard)
 **Tiefschlaf:** `deepSleep`, `deepSleepGpio`, `wakeupCause`
 **E-Mail:** `mailBody`, `mailAttach`, `mailSend`
 **Persist:** `persist` Schluesselwort fuer automatisch gespeicherte Variablen, `saveVars` fuer manuelles Speichern
