@@ -3046,6 +3046,137 @@ static void TC_DLServerLoop(void) {
 
 #endif // ESP32
 
+#ifdef USE_MQTT
+/*********************************************************************************************\
+ * MQTT subscribe / publish bridge for TinyC scripts
+ * Scripts subscribe to external topics via mqttSubscribe("foo/#") and receive
+ * data in a user-defined callback: void OnMqttData(char topic[], char payload[]).
+ * '#' wildcard matches any suffix after the prefix (MQTT spec multi-level).
+\*********************************************************************************************/
+
+#define TC_MAX_MQTT_SUBS   10
+#define TC_MQTT_TOPIC_LEN  128
+
+struct TcMqttSub {
+  char topic[TC_MQTT_TOPIC_LEN];
+  bool active;
+  bool wildcard;       // true if topic ends in '#' (multi-level) or contains '+'
+  uint8_t prefix_len;  // bytes that must match verbatim before the wildcard
+};
+
+static TcMqttSub tc_mqtt_subs[TC_MAX_MQTT_SUBS];
+static uint8_t   tc_mqtt_sub_count = 0;
+
+static bool tc_mqtt_topic_match(const char *sub_topic, const char *recv_topic,
+                                bool is_wildcard, uint8_t prefix_len) {
+  if (!is_wildcard) return (strcmp(sub_topic, recv_topic) == 0);
+  return (strncmp(sub_topic, recv_topic, prefix_len) == 0);
+}
+
+int tc_mqtt_subscribe(const char *topic) {
+  if (!topic || !topic[0]) return -1;
+  // Already subscribed? return existing slot
+  for (uint8_t i = 0; i < tc_mqtt_sub_count; i++) {
+    if (tc_mqtt_subs[i].active && strcmp(tc_mqtt_subs[i].topic, topic) == 0) return i;
+  }
+  int slot = -1;
+  for (uint8_t i = 0; i < TC_MAX_MQTT_SUBS; i++) {
+    if (!tc_mqtt_subs[i].active) { slot = i; break; }
+  }
+  if (slot < 0) {
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: MQTT sub failed, max %d"), TC_MAX_MQTT_SUBS);
+    return -1;
+  }
+  strlcpy(tc_mqtt_subs[slot].topic, topic, TC_MQTT_TOPIC_LEN);
+  tc_mqtt_subs[slot].active = true;
+  const char *hash = strchr(topic, '#');
+  if (hash) {
+    tc_mqtt_subs[slot].wildcard = true;
+    tc_mqtt_subs[slot].prefix_len = (uint8_t)(hash - topic);
+  } else {
+    tc_mqtt_subs[slot].wildcard = false;
+    tc_mqtt_subs[slot].prefix_len = strlen(topic);
+  }
+  if ((uint8_t)slot >= tc_mqtt_sub_count) tc_mqtt_sub_count = slot + 1;
+  MqttSubscribe(topic);
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: MQTT sub [%d] '%s'%s"),
+         slot, topic, hash ? " (wildcard)" : "");
+  return slot;
+}
+
+int tc_mqtt_unsubscribe(const char *topic) {
+  if (!topic) return -1;
+  for (uint8_t i = 0; i < tc_mqtt_sub_count; i++) {
+    if (tc_mqtt_subs[i].active && strcmp(tc_mqtt_subs[i].topic, topic) == 0) {
+      MqttUnsubscribe(topic);
+      tc_mqtt_subs[i].active = false;
+      tc_mqtt_subs[i].topic[0] = 0;
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: MQTT unsub [%d] '%s'"), i, topic);
+      return 0;
+    }
+  }
+  return -1;
+}
+
+// Re-send MQTT SUBSCRIBE packets after (re)connect. Hooked on FUNC_MQTT_INIT.
+static void tc_mqtt_resubscribe(void) {
+  for (uint8_t i = 0; i < tc_mqtt_sub_count; i++) {
+    if (tc_mqtt_subs[i].active) {
+      MqttSubscribe(tc_mqtt_subs[i].topic);
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: MQTT resub [%d] '%s'"), i, tc_mqtt_subs[i].topic);
+    }
+  }
+}
+
+// Dispatch incoming MQTT message to matching subs → fires OnMqttData on each slot.
+// Uses the cached well-known callback index (TC_CB_ON_MQTT_DATA) when present.
+static bool tc_mqtt_data_handler(void) {
+  if (tc_mqtt_sub_count == 0) return false;
+  char *topic = XdrvMailbox.topic;
+  char *data  = XdrvMailbox.data;
+  if (!topic || !data) return false;
+
+  bool any = false;
+  for (uint8_t i = 0; i < tc_mqtt_sub_count; i++) {
+    if (!tc_mqtt_subs[i].active) continue;
+    if (!tc_mqtt_topic_match(tc_mqtt_subs[i].topic, topic,
+                             tc_mqtt_subs[i].wildcard,
+                             tc_mqtt_subs[i].prefix_len)) continue;
+
+    // Variable-length local null-terminated copy of the payload
+    uint32_t plen = XdrvMailbox.data_len;
+    if (plen > 1024) plen = 1024;
+    char payload[plen + 1];
+    memcpy(payload, data, plen);
+    payload[plen] = 0;
+
+    for (uint8_t sidx = 0; sidx < TC_MAX_VMS; sidx++) {
+      TcSlot *slot = Tinyc->slots[sidx];
+      if (!slot || !slot->loaded) continue;
+      if (!slot->vm.halted || slot->vm.error != TC_OK) continue;
+      // Skip if script didn't define OnMqttData — fast cache check
+      if (slot->vm.cb_index[TC_CB_ON_MQTT_DATA] < 0) continue;
+      tc_current_slot = slot;
+#ifdef ESP32
+      if (slot->vm_mutex) xSemaphoreTake(slot->vm_mutex, portMAX_DELAY);
+#endif
+      tc_vm_call_callback_str2(&slot->vm, "OnMqttData", topic, payload);
+#ifdef ESP32
+      if (slot->vm_mutex) xSemaphoreGive(slot->vm_mutex);
+#endif
+      tc_current_slot = nullptr;
+    }
+    any = true;
+    break;  // first matching sub wins — don't double-fire per broker message
+  }
+  return any;
+}
+
+// NOTE: no tc_mqtt_clear() — subs persist across script reloads so in-flight
+// messages aren't lost during a TinyCRun. Scripts that want a clean slate
+// should call mqttUnsubscribe() for their topics in OnExit().
+#endif  // USE_MQTT
+
 /*********************************************************************************************\
  * Tasmota: Driver entry point
 \*********************************************************************************************/
@@ -3128,7 +3259,15 @@ bool Xdrv124(uint32_t function) {
       break;
     case FUNC_MQTT_INIT:
       tc_all_callbacks_id(TC_CB_ON_MQTT_CONNECT);
+#ifdef USE_MQTT
+      tc_mqtt_resubscribe();
+#endif
       break;
+#ifdef USE_MQTT
+    case FUNC_MQTT_DATA:
+      result = tc_mqtt_data_handler();
+      break;
+#endif
     case FUNC_TIME_SYNCED:
       tc_all_callbacks_id(TC_CB_ON_TIME_SET);
       break;

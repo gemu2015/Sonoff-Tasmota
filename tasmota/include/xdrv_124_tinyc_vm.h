@@ -16,6 +16,13 @@
 uint32_t SML_SetOptions(uint32_t in);
 #endif
 
+// Forward declarations for MQTT bridge helpers — defined in xdrv_124_tinyc.ino
+// (after this header is included). Needed because tc_syscall() below calls them.
+#ifdef USE_MQTT
+int tc_mqtt_subscribe(const char *topic);
+int tc_mqtt_unsubscribe(const char *topic);
+#endif
+
 #include <OneWire.h>
 
 // Minimal I2S output — standalone, no USE_I2S_AUDIO needed
@@ -183,9 +190,9 @@ static FS *tc_file_path(char *path) {
   #define TC_MEMCPY(dst, src, len) memcpy(dst, src, len)
 #endif
 
-// Callback support — covers all 13 TcCallbackId well-known callbacks plus
+// Callback support — covers all 14 TcCallbackId well-known callbacks plus
 // the string-keyed ones (HomeKitWrite, TouchButton, UdpCall, WebOn, WebUI,
-// JsonCall, WebCall, WebPage, Command, Event). Must be ≥ TC_CB_COUNT (13)
+// JsonCall, WebCall, WebPage, Command, Event). Must be ≥ TC_CB_COUNT (14)
 // or load will silently truncate the hot-path callbacks.
 #define TC_MAX_CALLBACKS  24
 #ifdef ESP8266
@@ -514,6 +521,10 @@ enum TcSyscall {
   SYS_TCP_CONNECTED   = 292, // () -> int — 1 if selected TCP client connected, 0 otherwise
   SYS_TCP_SELECT      = 293, // (slot) -> void — select outgoing TCP slot (0..TC_TCP_CLI_SLOTS-1)
   SYS_TCP_CONNECT_REF = 294, // (ip_ref, port) -> int — connect with IP from runtime char array
+  // MQTT subscribe / publish-to-topic (USE_MQTT). Dispatches OnMqttData(topic,payload) callback.
+  SYS_MQTT_SUBSCRIBE   = 295, // (topic_const)          -> int slot (0..9, -1=err)
+  SYS_MQTT_UNSUBSCRIBE = 296, // (topic_const)          -> int (0=ok, -1=err)
+  SYS_MQTT_PUBLISH_TO  = 297, // (topic_const, payload_const) -> int (0=ok, -1=err)
   // Deep sleep (ESP32 only)
   SYS_DEEP_SLEEP      = 230, // (seconds) -> void — deep sleep with timer wakeup
   SYS_DEEP_SLEEP_GPIO = 231, // (seconds, pin, level) -> void — + GPIO wakeup
@@ -681,6 +692,7 @@ typedef enum {
   TC_CB_ON_WIFI_DISCONNECT,   // OnWifiDisconnect
   TC_CB_ON_MQTT_CONNECT,      // OnMqttConnect
   TC_CB_ON_MQTT_DISCONNECT,   // OnMqttDisconnect
+  TC_CB_ON_MQTT_DATA,         // OnMqttData(topic, payload) — dispatched from FUNC_MQTT_DATA
   TC_CB_ON_TIME_SET,          // OnTimeSet
   TC_CB_CLEAN_UP,             // CleanUp
   TC_CB_TASK_LOOP,            // TaskLoop
@@ -700,6 +712,7 @@ static const char * const TC_CB_NAME[TC_CB_COUNT] = {
   "OnWifiDisconnect",
   "OnMqttConnect",
   "OnMqttDisconnect",
+  "OnMqttData",
   "OnTimeSet",
   "CleanUp",
   "TaskLoop",
@@ -8658,6 +8671,43 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       break;
     }
 
+    // ── MQTT Subscribe/Publish ────────────────────────
+#ifdef USE_MQTT
+    case SYS_MQTT_SUBSCRIBE: {  // mqttSubscribe("topic") -> int slot or -1
+      int32_t ci = TC_POP(vm);
+      const char *topic = tc_get_const_str(vm, ci);
+      TC_PUSH(vm, topic ? tc_mqtt_subscribe(topic) : -1);
+      break;
+    }
+    case SYS_MQTT_UNSUBSCRIBE: {  // mqttUnsubscribe("topic") -> int 0=ok or -1
+      int32_t ci = TC_POP(vm);
+      const char *topic = tc_get_const_str(vm, ci);
+      TC_PUSH(vm, topic ? tc_mqtt_unsubscribe(topic) : -1);
+      break;
+    }
+    case SYS_MQTT_PUBLISH_TO: {  // mqttPublish("topic", "payload") -> int 0=ok or -1
+      int32_t pci = TC_POP(vm);   // payload const index
+      int32_t tci = TC_POP(vm);   // topic const index
+      const char *topic = tc_get_const_str(vm, tci);
+      const char *payload = tc_get_const_str(vm, pci);
+      if (topic && payload) {
+        MqttPublishPayload(topic, payload);
+        TC_PUSH(vm, 0);
+      } else {
+        TC_PUSH(vm, -1);
+      }
+      break;
+    }
+#else
+    case SYS_MQTT_SUBSCRIBE:
+    case SYS_MQTT_UNSUBSCRIBE:
+    case SYS_MQTT_PUBLISH_TO:
+      TC_POP(vm);
+      if (id == SYS_MQTT_PUBLISH_TO) TC_POP(vm);
+      TC_PUSH(vm, -1);
+      break;
+#endif  // USE_MQTT
+
     // ── Persist variables ─────────────────────────────
     case SYS_PERSIST_SAVE:
       tc_persist_save(vm);
@@ -9805,6 +9855,55 @@ static int tc_vm_call_callback_str(TcVM *vm, const char *name, const char *str) 
 
   // Free temp buffer and rewind bump allocator to reclaim the space
   tc_heap_free_handle(vm, handle);
+  vm->heap_used = saved_heap_used;
+
+  return err;
+}
+
+// Call a callback with TWO char-array string args: cb(char a[], char b[]).
+// Used for OnMqttData(topic, payload). Both strings copied into temp heap
+// buffers, refs pushed left-to-right (first param bottom of stack), then
+// temp buffers freed and heap bump rewound.
+static int tc_vm_call_callback_str2(TcVM *vm, const char *name,
+                                     const char *str1, const char *str2) {
+  int idx = -1;
+  for (int i = 0; i < vm->callback_count; i++) {
+    if (strcmp(vm->callbacks[i].name, name) == 0) { idx = i; break; }
+  }
+  if (idx < 0) return TC_OK;
+  if (!vm->halted || vm->error != TC_OK) return vm->error;
+
+  int32_t len1 = str1 ? strlen(str1) : 0;
+  int32_t len2 = str2 ? strlen(str2) : 0;
+  int32_t slots1 = (len1 < 511 ? len1 : 511) + 1;
+  int32_t slots2 = (len2 < 511 ? len2 : 511) + 1;
+
+  uint16_t saved_heap_used = vm->heap_used;
+
+  int h1 = tc_heap_alloc(vm, slots1);
+  int h2 = tc_heap_alloc(vm, slots2);
+  if (h1 < 0 || h2 < 0) {
+    vm->heap_used = saved_heap_used;
+    return TC_OK;
+  }
+
+  int32_t *buf1 = &vm->heap_data[vm->heap_handles[h1].offset];
+  for (int32_t i = 0; i < slots1 - 1; i++) buf1[i] = (int32_t)(uint8_t)str1[i];
+  buf1[slots1 - 1] = 0;
+
+  int32_t *buf2 = &vm->heap_data[vm->heap_handles[h2].offset];
+  for (int32_t i = 0; i < slots2 - 1; i++) buf2[i] = (int32_t)(uint8_t)str2[i];
+  buf2[slots2 - 1] = 0;
+
+  // Push in declaration order: topic first (bottom), payload second (top).
+  // TinyC frame builder reads params left-to-right from the pushed stack.
+  TC_PUSH(vm, (int32_t)(0xC0000000 | h1));  // first  param: topic
+  TC_PUSH(vm, (int32_t)(0xC0000000 | h2));  // second param: payload
+
+  int err = tc_vm_call_callback(vm, name);
+
+  tc_heap_free_handle(vm, h2);
+  tc_heap_free_handle(vm, h1);
   vm->heap_used = saved_heap_used;
 
   return err;
