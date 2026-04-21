@@ -1,0 +1,448 @@
+// voltmeter_multi.tc — three gauges on one screen, driven by struct + array
+//
+// Companion to voltmeter.tc. Where that file uses a flat block of #defines
+// for a single gauge, this one shows how to reuse the same drawing code
+// for N independent gauges by bundling their params into a struct and
+// keeping an array of them.
+//
+// ── WHY INDEX-BASED FUNCTIONS? ─────────────────────────────────────
+// TinyC does NOT support passing a struct by value or by pointer to a
+// function. The idiomatic replacement is a global array of structs and
+// functions that take an INT INDEX:
+//
+//     struct Gauge gauges[3];              (literal, not a #define)
+//     void drawFace(int i)  { ...use gauges[i].cx...  }
+//     void drawNeedle(int i){ ...use gauges[i].cy...  }
+//
+// Benefits over struct-by-value:
+//   - Zero copying — each call touches the live array slot directly.
+//   - face_slot, value, prev_v, on_x/on_y are persistent state that
+//     must not be copied away.
+//   - EverySecond reduces to  for (i = 0; i < N; i++) update(i);
+//
+// ── STRING FIELDS LIVE INSIDE THE STRUCT ───────────────────────────
+// Heap-resident struct arrays support char[] members directly: the
+// ADDR_HEAP_OFF opcode packs the runtime slot offset into the heap
+// reference, so strcpy(gauges[i].label, "VOLTS") resolves to the right
+// 16-byte slice of the heap block.
+//
+// ── LAYOUT ──────────────────────────────────────────────────────────
+// Default: three 160x160 gauges laid out horizontally at y=80, filling
+// a 480x320 panel. Each canvas = 160*160*2 = 50 KB → 150 KB total in
+// PSRAM. Change NUM_GAUGES + the setup() calls in main() to add/remove.
+//
+// ── CONSOLE DISPATCH ────────────────────────────────────────────────
+//   VMSET0 <val>   — set gauge 0 (voltmeter)
+//   VMSET1 <val>   — set gauge 1 (ammeter)
+//   VMSET2 <val>   — set gauge 2 (thermometer)
+//   EverySecond    — all three wander independently
+
+#define NUM_GAUGES     3
+
+// Shared palette (RGB565) — all gauges use the same colours
+#define COL_BG        0x0000
+#define COL_BEZEL     0xBDF7
+#define COL_RIM       0x632C
+#define COL_FACE      0xFFFF
+#define COL_GREEN     0x3605
+#define COL_YELLOW    0xFCC0
+#define COL_RED       0xC1A3
+#define COL_TICK      0x18E3
+#define COL_LABEL     0x18E3
+#define COL_NEEDLE    0xE041
+#define COL_HUB       0x2AB9
+
+// ── THE GAUGE STRUCT ────────────────────────────────────────────────
+struct Gauge {
+    // ── config ────────────────────────────
+    int  face_size;
+    int  panel_x;     int  panel_y;
+    int  val_min;     int  val_max;
+    int  tick_major;  int  tick_minor;
+    int  green_from;  int  green_to;
+    int  yellow_from; int  yellow_to;
+    int  red_from;    int  red_to;
+
+    // ── derived geometry (computeGeometry) ─
+    int  cx;           int  cy;
+    int  r_bezel;      int  r_rim;       int  r_face;
+    int  r_arc_out;    int  r_arc_in;
+    int  tick_maj_len; int  tick_min_len;
+    int  r_label;      int  needle_len;  int  hub_r;  int  needle_w;
+    int  font_id;      int  font_scale;  int  label_off;
+    int  clabel_scale; int  clabel_char_w;
+    int  clabel_x;     int  clabel_y;
+
+    // ── runtime state ─────────────────────
+    int  face_slot;    // canvas slot from imgCreate
+    int  value;        // current reading
+    int  prev_v;       // last drawn value (sentinel)
+    int  on_x;         int  on_y;      // previous needle endpoint
+
+    // ── centre-label text (per-gauge units) ─
+    char label[16];
+};
+
+// NOTE: TinyC's parser requires a literal int for a struct array size —
+// it does not accept a macro name in this specific position. Keep the
+// 3 below in sync with NUM_GAUGES above if you change the count.
+struct Gauge gauges[3];
+
+// Transient return slot for needleXY — kept global to avoid out-params
+int hx_out;  int hy_out;
+
+// ── geometry helpers ────────────────────────────────────────────────
+
+// Map a value in [val_min..val_max] of gauge i to radians in the
+// 270° sweep [-2.356..+2.356] (i.e. -135° left → +135° right).
+float valToRad(int i, int v) {
+    float frac;
+    float span;
+    span = (float)(gauges[i].val_max - gauges[i].val_min);
+    if (span == 0.0) { span = 1.0; }
+    frac = (float)(v - gauges[i].val_min) / span;
+    if (frac < 0.0) { frac = 0.0; }
+    if (frac > 1.0) { frac = 1.0; }
+    return -2.356 + frac * 4.712;
+}
+
+void needleXY(int i, int v, int len) {
+    float rad;
+    rad = valToRad(i, v);
+    hx_out = gauges[i].cx + (int)(sin(rad) * (float)len);
+    hy_out = gauges[i].cy - (int)(cos(rad) * (float)len);
+}
+
+void thickLine(int x0, int y0, int x1, int y1, int color, int width) {
+    int d; int half;
+    half = width / 2;
+    dspColor(color, 0);
+    d = 0 - half;
+    while (d <= half) {
+        dspPos(x0 + d, y0);    dspLine(x1 + d, y1);
+        dspPos(x0, y0 + d);    dspLine(x1, y1 + d);
+        d = d + 1;
+    }
+}
+
+// ── face rendering (once per gauge, into its canvas) ────────────────
+
+void drawArcBand(int i, int r_out, int r_in, float a_from, float a_to, int color) {
+    float a;    float step;
+    int x1; int y1; int x2; int y2;
+    step = 0.02;
+    a = a_from;
+    dspColor(color, 0);
+    while (a <= a_to) {
+        x1 = gauges[i].cx + (int)(sin(a) * (float)r_in);
+        y1 = gauges[i].cy - (int)(cos(a) * (float)r_in);
+        x2 = gauges[i].cx + (int)(sin(a) * (float)r_out);
+        y2 = gauges[i].cy - (int)(cos(a) * (float)r_out);
+        dspPos(x1, y1);
+        dspLine(x2, y2);
+        a = a + step;
+    }
+}
+
+void drawTick(int i, int v, int r_out, int length, int color) {
+    float rad;
+    int x1; int y1; int x2; int y2;
+    rad = valToRad(i, v);
+    x1 = gauges[i].cx + (int)(sin(rad) * (float)r_out);
+    y1 = gauges[i].cy - (int)(cos(rad) * (float)r_out);
+    x2 = gauges[i].cx + (int)(sin(rad) * (float)(r_out - length));
+    y2 = gauges[i].cy - (int)(cos(rad) * (float)(r_out - length));
+    dspColor(color, 0);
+    dspPos(x1, y1);
+    dspLine(x2, y2);
+}
+
+void drawNumericLabel(int i, int v, int r) {
+    float rad;
+    int x; int y; int n; int text_half;
+    char buf[12];
+    rad = valToRad(i, v);
+    sprintfInt(buf, "%d", v);
+    n = strlen(buf);
+    text_half = (n * gauges[i].label_off * 2) / 3;
+    x = gauges[i].cx + (int)(sin(rad) * (float)r) - text_half;
+    y = gauges[i].cy - (int)(cos(rad) * (float)r) - gauges[i].label_off;
+    dspColor(COL_LABEL, COL_FACE);
+    dspPos(x, y);
+    dspDraw(buf);
+}
+
+void drawFace(int i) {
+    int v;
+    char fspec[16];
+    char cspec[16];
+
+    // Bezel rings
+    dspColor(COL_BEZEL, 0);
+    dspPos(gauges[i].cx, gauges[i].cy);   dspFillCircle(gauges[i].r_bezel);
+    dspColor(COL_RIM, 0);
+    dspPos(gauges[i].cx, gauges[i].cy);   dspCircle(gauges[i].r_rim);
+    dspColor(COL_FACE, 0);
+    dspPos(gauges[i].cx, gauges[i].cy);   dspFillCircle(gauges[i].r_face);
+
+    // Coloured zones (skip empty ones)
+    if (gauges[i].green_to > gauges[i].green_from) {
+        drawArcBand(i, gauges[i].r_arc_out, gauges[i].r_arc_in,
+                    valToRad(i, gauges[i].green_from),
+                    valToRad(i, gauges[i].green_to),  COL_GREEN);
+    }
+    if (gauges[i].yellow_to > gauges[i].yellow_from) {
+        drawArcBand(i, gauges[i].r_arc_out, gauges[i].r_arc_in,
+                    valToRad(i, gauges[i].yellow_from),
+                    valToRad(i, gauges[i].yellow_to), COL_YELLOW);
+    }
+    if (gauges[i].red_to > gauges[i].red_from) {
+        drawArcBand(i, gauges[i].r_arc_out, gauges[i].r_arc_in,
+                    valToRad(i, gauges[i].red_from),
+                    valToRad(i, gauges[i].red_to),    COL_RED);
+    }
+
+    // Tick marks
+    v = gauges[i].val_min;
+    while (v <= gauges[i].val_max) {
+        if ((v - gauges[i].val_min) % gauges[i].tick_major == 0) {
+            drawTick(i, v, gauges[i].r_arc_in, gauges[i].tick_maj_len, COL_TICK);
+        } else {
+            drawTick(i, v, gauges[i].r_arc_in, gauges[i].tick_min_len, COL_TICK);
+        }
+        v = v + gauges[i].tick_minor;
+    }
+
+    // Numeric labels at majors — compose font spec in a local buffer
+    sprintf(fspec, "[f%ds%d]", gauges[i].font_id, gauges[i].font_scale);
+    dspText(fspec);
+    v = gauges[i].val_min;
+    while (v <= gauges[i].val_max) {
+        drawNumericLabel(i, v, gauges[i].r_label);
+        v = v + gauges[i].tick_major;
+    }
+
+    // Centre label (units) — read directly from the struct
+    if (strlen(gauges[i].label) > 0) {
+        sprintf(cspec, "[f1s%d]", gauges[i].clabel_scale);
+        dspText(cspec);
+        dspColor(COL_LABEL, COL_FACE);
+        dspPos(gauges[i].clabel_x, gauges[i].clabel_y);
+        dspDraw(gauges[i].label);
+    }
+}
+
+// ── needle (panel-side, dirty-rect erase from canvas) ───────────────
+
+void eraseNeedle(int i, int hx, int hy, int thick) {
+    int x0; int y0; int w; int h; int margin;
+    int cx; int cy; int fs; int px; int py;
+    cx = gauges[i].cx;
+    cy = gauges[i].cy;
+    fs = gauges[i].face_size;
+    px = gauges[i].panel_x;
+    py = gauges[i].panel_y;
+    margin = thick + 2;
+    if (cx < hx) { x0 = cx - margin; } else { x0 = hx - margin; }
+    if (cy < hy) { y0 = cy - margin; } else { y0 = hy - margin; }
+    w = abs(hx - cx) + margin * 2;
+    h = abs(hy - cy) + margin * 2;
+    if (x0 < 0) { w = w + x0; x0 = 0; }
+    if (y0 < 0) { h = h + y0; y0 = 0; }
+    if (x0 + w > fs) { w = fs - x0; }
+    if (y0 + h > fs) { h = fs - y0; }
+    if (w > 0 && h > 0) {
+        dspPushImageRect(gauges[i].face_slot, x0, y0,
+                         px + x0, py + y0, w, h);
+    }
+}
+
+void drawNeedle(int i) {
+    needleXY(i, gauges[i].value, gauges[i].needle_len);
+    thickLine(gauges[i].panel_x + gauges[i].cx,
+              gauges[i].panel_y + gauges[i].cy,
+              gauges[i].panel_x + hx_out,
+              gauges[i].panel_y + hy_out,
+              COL_NEEDLE, gauges[i].needle_w);
+    // Pivot cap
+    dspColor(COL_HUB, 0);
+    dspPos(gauges[i].panel_x + gauges[i].cx,
+           gauges[i].panel_y + gauges[i].cy);
+    dspFillCircle(gauges[i].hub_r);
+    dspColor(COL_FACE, 0);
+    dspPos(gauges[i].panel_x + gauges[i].cx,
+           gauges[i].panel_y + gauges[i].cy);
+    dspCircle(gauges[i].hub_r);
+    gauges[i].on_x = hx_out;
+    gauges[i].on_y = hy_out;
+}
+
+// ── Derive all geometry from face_size ─────────────────────────────
+void computeGeometry(int i) {
+    int fs;
+    int n;
+    fs = gauges[i].face_size;
+    gauges[i].cx            =  fs        / 2;
+    gauges[i].cy            =  fs        / 2;
+    gauges[i].r_bezel       = (fs * 155) / 320;
+    gauges[i].r_rim         = (fs * 150) / 320;
+    gauges[i].r_face        = (fs * 145) / 320;
+    gauges[i].r_arc_out     = (fs * 142) / 320;
+    gauges[i].r_arc_in      = (fs * 128) / 320;
+    gauges[i].tick_maj_len  = (fs *  12) / 320;
+    gauges[i].tick_min_len  = (fs *   6) / 320;
+    gauges[i].r_label       = (fs * 108) / 320;
+    gauges[i].needle_len    = (fs * 110) / 320;
+    gauges[i].hub_r         = (fs *  16) / 320;
+    gauges[i].needle_w      = (fs *   3) / 320;
+    if (gauges[i].needle_w < 2) { gauges[i].needle_w = 2; }
+
+    // Tick-label font
+    if (fs < 240) {
+        gauges[i].font_id    = 3;
+        gauges[i].font_scale = 1;
+        gauges[i].label_off  = 4;
+    } else {
+        gauges[i].font_id    = 1;
+        gauges[i].font_scale = fs / 320;
+        if (gauges[i].font_scale < 1) { gauges[i].font_scale = 1; }
+        gauges[i].label_off  = 6 * gauges[i].font_scale;
+    }
+
+    // Centre-label font (one step bigger than ticks)
+    if (fs < 240) {
+        gauges[i].clabel_scale  = 1;
+        gauges[i].clabel_char_w = 6;
+    } else {
+        gauges[i].clabel_scale  = gauges[i].font_scale + 1;
+        gauges[i].clabel_char_w = 6 * gauges[i].clabel_scale;
+    }
+
+    n = strlen(gauges[i].label);
+    gauges[i].clabel_x = gauges[i].cx - (n * gauges[i].clabel_char_w) / 2;
+    gauges[i].clabel_y = gauges[i].cy
+                       + (gauges[i].r_face * 50) / 100
+                       - gauges[i].clabel_char_w;
+}
+
+// ── Convenience setter — copies the many config fields in one call ─
+void setupGauge(int i, int fsize, int px, int py,
+                int vmin, int vmax, int tmaj, int tmin,
+                int gf, int gt, int yf, int yt, int rf, int rt) {
+    gauges[i].face_size   = fsize;
+    gauges[i].panel_x     = px;
+    gauges[i].panel_y     = py;
+    gauges[i].val_min     = vmin;
+    gauges[i].val_max     = vmax;
+    gauges[i].tick_major  = tmaj;
+    gauges[i].tick_minor  = tmin;
+    gauges[i].green_from  = gf;  gauges[i].green_to  = gt;
+    gauges[i].yellow_from = yf;  gauges[i].yellow_to = yt;
+    gauges[i].red_from    = rf;  gauges[i].red_to    = rt;
+}
+
+// ── Build one gauge's canvas and push initial frame to panel ───────
+void initGauge(int i) {
+    computeGeometry(i);
+    gauges[i].face_slot = imgCreate(gauges[i].face_size, gauges[i].face_size);
+    if (gauges[i].face_slot < 0) {
+        addLog("voltmeter_multi: imgCreate failed (PSRAM?)");
+        return;
+    }
+    imgClear(gauges[i].face_slot, COL_BG);
+    imgBeginDraw(gauges[i].face_slot);
+        drawFace(i);
+    imgEndDraw();
+    dspPushImageRect(gauges[i].face_slot, 0, 0,
+                     gauges[i].panel_x, gauges[i].panel_y,
+                     gauges[i].face_size, gauges[i].face_size);
+    // Start at midpoint
+    gauges[i].value  = (gauges[i].val_min + gauges[i].val_max) / 2;
+    gauges[i].prev_v = -999999;
+    gauges[i].on_x   = gauges[i].cx;
+    gauges[i].on_y   = gauges[i].cy;
+    drawNeedle(i);
+    gauges[i].prev_v = gauges[i].value;
+}
+
+// ── callbacks ──────────────────────────────────────────────────────
+
+void main() {
+    addCommand("VM");
+
+    // Clear the whole panel first
+    dspColor(COL_BG, COL_BG);
+    dspPos(0, 0);
+    dspFillRect(1024, 1024);
+
+    // 3 gauges, 160 px each, side-by-side on a 480x320 panel
+    //          i fsize  px   py   vmin vmax tmaj tmin  gf  gt  yf  yt  rf  rt
+    setupGauge( 0,  160,   0,  80,    0, 300,  50,  10, 200,250,250,270,270,300);
+    setupGauge( 1,  160, 160,  80,    0,  20,   2,   1,   0, 12, 12, 16, 16, 20);
+    setupGauge( 2,  160, 320,  80,  -20,  80,  20,   5,  10, 50, 50, 70, 70, 80);
+    // Labels live in the struct — ADDR_HEAP_OFF packs the runtime offset
+    strcpy(gauges[0].label, "VOLTS");
+    strcpy(gauges[1].label, "AMPS");
+    strcpy(gauges[2].label, "DEG C");
+
+    int i;
+    i = 0;
+    while (i < NUM_GAUGES) {
+        initGauge(i);
+        i = i + 1;
+    }
+}
+
+void EverySecond() {
+    int i; int range; int stepmax; int step;
+    i = 0;
+    while (i < NUM_GAUGES) {
+        if (gauges[i].face_slot >= 0) {
+            // Synthetic walk — each gauge uses a different prime so they
+            // don't move in lockstep.
+            range   = gauges[i].val_max - gauges[i].val_min;
+            stepmax = range / 10;
+            if (stepmax < 1) { stepmax = 1; }
+            step = ((tasm_second * (13 + i * 7)) % (stepmax * 2 + 1)) - stepmax;
+            gauges[i].value = gauges[i].value + step;
+            if (gauges[i].value < gauges[i].val_min) { gauges[i].value = gauges[i].val_min; }
+            if (gauges[i].value > gauges[i].val_max) { gauges[i].value = gauges[i].val_max; }
+
+            if (gauges[i].value != gauges[i].prev_v) {
+                eraseNeedle(i, gauges[i].on_x, gauges[i].on_y, gauges[i].needle_w);
+                drawNeedle(i);
+                gauges[i].prev_v = gauges[i].value;
+            }
+        }
+        i = i + 1;
+    }
+}
+
+void Command(char cmd[]) {
+    char msg[96];
+    char arg[16];
+    int idx;
+    int v;
+    // VMSETn <val>  — n is a single digit in cmd[3]; value starts at cmd[5].
+    // (Tasmota uppercases the subcommand, so VMSET0 arrives as "SET0 …")
+    if (strFind(cmd, "SET") == 0 && strlen(cmd) >= 6) {
+        idx = cmd[3] - 48;   // '0' = 48
+        if (idx >= 0 && idx < NUM_GAUGES && cmd[4] == 32) {  // ' ' = 32
+            strSub(arg, cmd, 5, 0);
+            v = atoi(arg);
+            if (v < gauges[idx].val_min) { v = gauges[idx].val_min; }
+            if (v > gauges[idx].val_max) { v = gauges[idx].val_max; }
+            gauges[idx].value = v;
+            if (gauges[idx].face_slot >= 0) {
+                eraseNeedle(idx, gauges[idx].on_x, gauges[idx].on_y,
+                            gauges[idx].needle_w);
+                drawNeedle(idx);
+                gauges[idx].prev_v = gauges[idx].value;
+            }
+            sprintf(msg, "{\"VM\":{\"idx\":%d,\"value\":%d}}", idx, v);
+            responseCmnd(msg);
+            return;
+        }
+    }
+    responseCmnd("{\"VM\":\"? VMSETn <val>  (n=0..2)\"}");
+}

@@ -1,6 +1,6 @@
 // voltmeter.tc — procedurally-drawn analog voltmeter with dirty-rect needle
 //
-// Demonstrates the new canvas API (TinyC 1.4.2+):
+// Demonstrates the TinyC canvas API (1.4.2+):
 //
 //   1. Allocate a blank RGB565 canvas with imgCreate(w,h) — returns slot 0..3.
 //   2. imgBeginDraw(slot) redirects all dsp* primitives into the canvas.
@@ -11,24 +11,45 @@
 //      as background, then each tick to erase the old needle's bounding box.
 //   6. dspLine draws the new needle on top.
 //
-// This is the analog_clock.tc pattern generalised: instead of loading a JPG
-// of a watch face, we *draw* the face once into a canvas. Swap in any other
-// procedural (or JPG) source and the rest of the code is identical.
+// ── RESIZING ─────────────────────────────────────────────────────────
+// Change ONE knob (FACE_SIZE) to resize the whole gauge. Every radius,
+// tick length, label radius, needle length and pivot cap rescale
+// proportionally. Font is picked automatically:
+//   FACE_SIZE <  240 → font 3 (5x8, compact) at scale 1
+//   FACE_SIZE >= 240 → font 1 (7x12, standard) at scale 1, 2, 3 …
 //
-// Console dispatch: VMSET <0..100> updates the reading; EverySecond wanders.
+//   FACE_SIZE = 160  → small  (fits 240x240 displays)
+//   FACE_SIZE = 240  → medium
+//   FACE_SIZE = 320  → original (fits 480x320)
+//   FACE_SIZE = 400  → large
+//   FACE_SIZE = 480  → huge   (fits 800x480)
+//
+// Also adjust PANEL_X / PANEL_Y to place the gauge on the panel.
+// Canvas memory footprint = FACE_SIZE * FACE_SIZE * 2 bytes (RGB565).
+// At 320 that's ~200 KB — PSRAM required above ~180.
+//
+// ── VALUE RANGE & COLOUR ZONES ───────────────────────────────────────
+// Independent knobs (see #defines below):
+//   VAL_MIN / VAL_MAX      — scale endpoints (e.g. 0..100, 0..250, -50..50)
+//   TICK_MAJOR / TICK_MINOR — label + tick strides
+//   GREEN/YELLOW/RED _FROM/_TO — coloured band ranges, in VALUE units
+//
+// Examples:
+//   0..100 default       : all zones as shown
+//   Temperature -20..+60 : GREEN 0..40, YELLOW 40..50, RED 50..60
+//   Battery   0..100 inv : GREEN 60..100, YELLOW 20..60, RED 0..20
+//
+// Console dispatch: VMSET <n> updates the reading; EverySecond wanders.
 
-#define FACE_SIZE     320         // square canvas, 320x320
-#define PANEL_X       80          // where on the screen to show the gauge
+#define FACE_SIZE     320         // square canvas — CHANGE THIS to resize
+#define PANEL_X        80         // where on the screen to show the gauge
 #define PANEL_Y         0
-#define CX            160         // face centre in canvas coords
-#define CY            160
-#define NEEDLE_LEN    110         // needle pivot→tip, fits inside the tick ring
-#define HUB_R          16         // central pivot cap radius (drawn on top)
 
 // Palette (RGB565)
+#define COL_BG        0x0000      // canvas / panel background around the gauge
 #define COL_BEZEL     0xBDF7      // light grey
 #define COL_RIM       0x632C      // darker grey ring
-#define COL_FACE      0xFFFF      // white
+#define COL_FACE      0xFFFF      // white inner face (labels sit on this)
 #define COL_GREEN     0x3605
 #define COL_YELLOW    0xFCC0
 #define COL_RED       0xC1A3
@@ -37,33 +58,141 @@
 #define COL_NEEDLE    0xE041      // saturated red
 #define COL_HUB       0x2AB9      // soft blue
 
-// Sweep geometry — 0 at 7:30, 50 at 12, 100 at 4:30 (270° sweep clockwise)
-//   value 0   → ang = -135°
-//   value 50  → ang =    0°
-//   value 100 → ang = +135°
-// NOTE: these constants would naturally be #defines (ANG_MIN -135.0,
-// ANG_SPAN 270.0). TinyC 1.4.3 has a codegen bug where negative-float
-// #defines get corrupted inside some function bodies (needle landed on
-// only ~3 distinct angles). Literals inlined below work around it.
+// ── VALUE RANGE & TICKS ────────────────────────────────────────────
+// The scale always sweeps 270° (-135° left → +135° right); VAL_MIN maps
+// to the left end, VAL_MAX to the right end. Works for any range:
+// positive (0..100), asymmetric (0..250), even bipolar (-50..+50).
+#define VAL_MIN          0        // scale start (leftmost tick)
+#define VAL_MAX        100        // scale end   (rightmost tick)
+#define TICK_MAJOR      10        // major tick + numeric label every N units
+#define TICK_MINOR       2        // minor tick every N units
+#define VAL_INIT        80        // initial needle reading
+
+// ── COLOURED ZONES (by VALUE — can overlap or leave gaps) ──────────
+// Set FROM == TO to hide a zone. All three are drawn; order is
+// green → yellow → red so red always wins any overlap.
+#define GREEN_FROM       0
+#define GREEN_TO        50
+#define YELLOW_FROM     50
+#define YELLOW_TO       80
+#define RED_FROM        80
+#define RED_TO         100
+
+// ── CENTRE LABEL (e.g. units) ──────────────────────────────────────
+// A static text drawn into the canvas face, below the pivot. Set to ""
+// to hide it entirely. Position is a percentage of R_FACE below CY,
+// so it scales with the gauge.
+// (GAUGE_LABEL is a char array, not a #define, because TinyC strlen()
+//  needs a char array — not a bare string literal.)
+char GAUGE_LABEL[] = "VOLTS";    // lower-middle label; "" to hide
+#define LABEL_Y_FRAC       50    // label Y = CY + R_FACE * this / 100
+
+// Sweep geometry — VAL_MIN at 7:30, midpoint at 12, VAL_MAX at 4:30
+// (270° sweep clockwise). Angles are kept as inline literals to work
+// around a codegen quirk with negative-float #defines.
 
 int   face;                        // canvas slot
 int   on_x;   int on_y;            // previous needle endpoint
-int   hx_out; int hy_out;          // handXY output
+int   hx_out; int hy_out;          // needleXY output
 
-int   value  = 80;                 // current reading (0..100)
-int   prev_v = -1;                 // last drawn value — skip redraw if unchanged
+int   value  = VAL_INIT;           // current reading (VAL_MIN..VAL_MAX)
+int   prev_v = -99999;             // last drawn value (sentinel)
+
+// ── Derived geometry (computed from FACE_SIZE at startup) ─────────
+// All values are in canvas pixels. Base ratios taken from the original
+// 320px design (CX=160 → R_BEZEL=155, R_RIM=150, …); every other size
+// scales linearly.
+int   CX; int CY;
+int   R_BEZEL;      // outer filled bezel disc
+int   R_RIM;        // rim ring
+int   R_FACE;       // inner white face disc
+int   R_ARC_OUT;    // coloured arc band outer radius
+int   R_ARC_IN;     // coloured arc band inner radius (= tick base)
+int   TICK_MAJ;     // major tick length (every 10)
+int   TICK_MIN;     // minor tick length (every 2)
+int   R_LABEL;      // numeric label centre radius
+int   NEEDLE_LEN;   // needle pivot → tip
+int   HUB_R;        // pivot cap radius
+int   NEEDLE_W;     // thick-line width of the needle
+int   FONT_SCALE;   // dsp font scale factor for tick labels (1 / 2 / 3 …)
+int   LABEL_OFF;    // char-half-width for tick-label centring
+char  FONT_SPEC[16];
+
+// Centre-label font (one step bigger/bolder than the tick labels)
+int   CLABEL_SCALE;
+int   CLABEL_CHAR_W;   // approx char width for centring
+int   CLABEL_X; int CLABEL_Y;
+char  CLABEL_SPEC[16];
+
+// All geometry is expressed as (FACE_SIZE * N) / 320 — i.e. ratios of the
+// reference 320px design. Change FACE_SIZE and everything rescales.
+void computeGeometry() {
+    CX         =  FACE_SIZE        / 2;
+    CY         =  FACE_SIZE        / 2;
+    R_BEZEL    = (FACE_SIZE * 155) / 320;
+    R_RIM      = (FACE_SIZE * 150) / 320;
+    R_FACE     = (FACE_SIZE * 145) / 320;
+    R_ARC_OUT  = (FACE_SIZE * 142) / 320;
+    R_ARC_IN   = (FACE_SIZE * 128) / 320;
+    TICK_MAJ   = (FACE_SIZE *  12) / 320;
+    TICK_MIN   = (FACE_SIZE *   6) / 320;
+    R_LABEL    = (FACE_SIZE * 108) / 320;
+    NEEDLE_LEN = (FACE_SIZE * 110) / 320;
+    HUB_R      = (FACE_SIZE *  16) / 320;
+    NEEDLE_W   = (FACE_SIZE *   3) / 320;
+    if (NEEDLE_W < 2) { NEEDLE_W = 2; }
+    // Font selection — pick the most readable font for the gauge size.
+    //   FACE_SIZE < 240 → font 3 (5x8, compact)  — small gauges
+    //   FACE_SIZE ≥ 240 → font 1 (7x12, standard), scale up on big gauges
+    int font_id;
+    if (FACE_SIZE < 240) {
+        font_id    = 3;                     // 8px tall — compact
+        FONT_SCALE = 1;
+        LABEL_OFF  = 4;                     // char half-width in font 3
+    } else {
+        font_id    = 1;                     // 12px tall — standard
+        FONT_SCALE = FACE_SIZE / 320;
+        if (FONT_SCALE < 1) { FONT_SCALE = 1; }
+        LABEL_OFF  = 6 * FONT_SCALE;        // char half-width × scale
+    }
+    sprintf(FONT_SPEC, "[f%ds%d]", font_id, FONT_SCALE);
+
+    // Centre-label (unit) font — always font 1, one step bigger than the
+    // tick labels for small gauges, same scale for big ones.
+    if (FACE_SIZE < 240) {
+        CLABEL_SCALE  = 1;
+        CLABEL_CHAR_W = 6;                  // font 1 scale 1 ≈ 6px char
+    } else {
+        CLABEL_SCALE  = FONT_SCALE + 1;
+        CLABEL_CHAR_W = 6 * CLABEL_SCALE;
+    }
+    sprintf(CLABEL_SPEC, "[f1s%d]", CLABEL_SCALE);
+
+    // Centre-label position: horizontally centred on CX, vertically below
+    // the pivot by LABEL_Y_FRAC% of R_FACE.
+    int n = strlen(GAUGE_LABEL);
+    CLABEL_X = CX - (n * CLABEL_CHAR_W) / 2;
+    CLABEL_Y = CY + (R_FACE * LABEL_Y_FRAC) / 100 - CLABEL_CHAR_W;
+}
 
 // ── geometry helper ────────────────────────────────────────────────
 
-void needleXY(int v, int len) {
+// Map a value in [VAL_MIN..VAL_MAX] to radians in [-2.356..+2.356]
+// (i.e. -135° → +135°, a 270° clockwise sweep).
+float valToRad(int v) {
     float frac;
-    float ang;
-    float rad;
-    frac = (float)v / 100.0;
+    float span;
+    span = (float)(VAL_MAX - VAL_MIN);
+    if (span == 0.0) { span = 1.0; }
+    frac = (float)(v - VAL_MIN) / span;
     if (frac < 0.0) { frac = 0.0; }
     if (frac > 1.0) { frac = 1.0; }
-    ang  = -135.0 + frac * 270.0;
-    rad  = ang * 3.14159 / 180.0;
+    return -2.356 + frac * 4.712;       // -135° .. +135°
+}
+
+void needleXY(int v, int len) {
+    float rad;
+    rad = valToRad(v);
     hx_out = CX + (int)(sin(rad) * (float)len);
     hy_out = CY - (int)(cos(rad) * (float)len);
 }
@@ -83,8 +212,7 @@ void thickLine(int x0, int y0, int x1, int y1, int color, int width) {
 
 // ── face rendering (drawn ONCE into the canvas) ────────────────────
 
-// Angular-arc band made of ~120 radial segments. Cheaper than drawArc
-// (which the VM doesn't expose) and looks clean at this radius.
+// Angular-arc band made of ~120 radial segments.
 void drawArcBand(int r_out, int r_in, float a_from, float a_to, int color) {
     float a;
     float step;
@@ -103,13 +231,11 @@ void drawArcBand(int r_out, int r_in, float a_from, float a_to, int color) {
     }
 }
 
-// Place a tick mark at value v: radial line from r_out..(r_out-length).
+// Radial tick at value v.
 void drawTick(int v, int r_out, int length, int color) {
-    float frac; float ang; float rad;
+    float rad;
     int x1; int y1; int x2; int y2;
-    frac = (float)v / 100.0;
-    ang  = -135.0 + frac * 270.0;
-    rad  = ang * 3.14159 / 180.0;
+    rad = valToRad(v);
     x1 = CX + (int)(sin(rad) * (float)r_out);
     y1 = CY - (int)(cos(rad) * (float)r_out);
     x2 = CX + (int)(sin(rad) * (float)(r_out - length));
@@ -119,19 +245,18 @@ void drawTick(int v, int r_out, int length, int color) {
     dspLine(x2, y2);
 }
 
-// Numeric label for value v at radius r. Uses font 1 (EPD Font12 – small).
+// Numeric label for value v at radius r. Centred to the text's pixel
+// width — works for "-50", "100", "1000" and everything between.
 void drawLabel(int v, int r) {
-    float frac; float ang; float rad;
-    int x; int y;
-    char buf[8];
-    frac = (float)v / 100.0;
-    ang  = -135.0 + frac * 270.0;
-    rad  = ang * 3.14159 / 180.0;
-    x = CX + (int)(sin(rad) * (float)r) - 6;     // rough centring for 1–3 digits
-    y = CY - (int)(cos(rad) * (float)r) - 6;
-    if (v >= 100) { x = x - 6; }
-    else if (v >= 10) { x = x - 2; }
+    float rad;
+    int x; int y; int n; int text_half;
+    char buf[12];
+    rad = valToRad(v);
     sprintfInt(buf, "%d", v);
+    n = strlen(buf);
+    text_half = (n * LABEL_OFF * 2) / 3;             // ≈ half text width
+    x = CX + (int)(sin(rad) * (float)r) - text_half;
+    y = CY - (int)(cos(rad) * (float)r) - LABEL_OFF;
     dspColor(COL_LABEL, COL_FACE);
     dspPos(x, y);
     dspDraw(buf);
@@ -139,48 +264,61 @@ void drawLabel(int v, int r) {
 
 void drawFace() {
     int v;
-    // Bezel: two filled discs (outer grey, inner white)
+    // Bezel: two filled discs (outer grey, inner white) + dark rim ring
     dspColor(COL_BEZEL, 0);
-    dspPos(CX, CY);   dspFillCircle(155);
+    dspPos(CX, CY);   dspFillCircle(R_BEZEL);
     dspColor(COL_RIM, 0);
-    dspPos(CX, CY);   dspCircle(150);
+    dspPos(CX, CY);   dspCircle(R_RIM);
     dspColor(COL_FACE, 0);
-    dspPos(CX, CY);   dspFillCircle(145);
+    dspPos(CX, CY);   dspFillCircle(R_FACE);
 
-    // Coloured zones — angles in radians, 0 = north, CW+.
-    // value 0  = -135° = -2.356 rad
-    // value 50 =    0° =   0.0
-    // value 70 =  +54° =  0.942
-    // value 80 =  +81° =  1.414
-    // value 100 = +135° = 2.356
-    drawArcBand(142, 128, -2.356, 0.0,   COL_GREEN);    //  0..50
-    drawArcBand(142, 128,  0.0,   0.942, COL_YELLOW);   // 50..70
-    drawArcBand(142, 128,  1.414, 2.356, COL_RED);      // 80..100
+    // Coloured zones — boundaries given as VALUES, not angles. Each zone
+    // is clipped to [VAL_MIN..VAL_MAX] by valToRad; gaps and overlaps OK.
+    if (GREEN_TO  > GREEN_FROM) {
+        drawArcBand(R_ARC_OUT, R_ARC_IN,
+                    valToRad(GREEN_FROM),  valToRad(GREEN_TO),  COL_GREEN);
+    }
+    if (YELLOW_TO > YELLOW_FROM) {
+        drawArcBand(R_ARC_OUT, R_ARC_IN,
+                    valToRad(YELLOW_FROM), valToRad(YELLOW_TO), COL_YELLOW);
+    }
+    if (RED_TO    > RED_FROM) {
+        drawArcBand(R_ARC_OUT, R_ARC_IN,
+                    valToRad(RED_FROM),    valToRad(RED_TO),    COL_RED);
+    }
 
-    // Tick marks: major every 10, minor every 2
-    v = 0;
-    while (v <= 100) {
-        if (v % 10 == 0) {
-            drawTick(v, 128, 12, COL_TICK);              // major
+    // Tick marks: major every TICK_MAJOR units, minor every TICK_MINOR.
+    v = VAL_MIN;
+    while (v <= VAL_MAX) {
+        if ((v - VAL_MIN) % TICK_MAJOR == 0) {
+            drawTick(v, R_ARC_IN, TICK_MAJ, COL_TICK);             // major
         } else {
-            drawTick(v, 128,  6, COL_TICK);              // minor
+            drawTick(v, R_ARC_IN, TICK_MIN, COL_TICK);             // minor
         }
-        v = v + 2;
+        v = v + TICK_MINOR;
     }
 
     // Numeric labels at majors
-    dspText("[f1s1]");                                    // small font
-    v = 0;
-    while (v <= 100) {
-        drawLabel(v, 108);
-        v = v + 10;
+    dspText(FONT_SPEC);
+    v = VAL_MIN;
+    while (v <= VAL_MAX) {
+        drawLabel(v, R_LABEL);
+        v = v + TICK_MAJOR;
+    }
+
+    // Centre label (units / name) — lower half, below the pivot
+    if (strlen(GAUGE_LABEL) > 0) {
+        dspText(CLABEL_SPEC);
+        dspColor(COL_LABEL, COL_FACE);
+        dspPos(CLABEL_X, CLABEL_Y);
+        dspDraw(GAUGE_LABEL);
     }
 }
 
 // ── needle ─────────────────────────────────────────────────────────
 
-// Erase the old needle by blitting the bounding rect of the previous hand
-// FROM the canvas back onto the panel — classic clock trick.
+// Erase the old needle by blitting its bounding rect FROM the canvas back
+// onto the panel.
 void eraseNeedle(int hx, int hy, int thick) {
     int x0; int y0; int w; int h; int margin;
     margin = thick + 2;
@@ -194,19 +332,18 @@ void eraseNeedle(int hx, int hy, int thick) {
     if (x0 + w > FACE_SIZE) { w = FACE_SIZE - x0; }
     if (y0 + h > FACE_SIZE) { h = FACE_SIZE - y0; }
     if (w > 0 && h > 0) {
-        // source: canvas coords (x0,y0); dest: screen coords (PANEL_X+x0, PANEL_Y+y0)
+        // source: canvas (x0,y0); dest: screen (PANEL_X+x0, PANEL_Y+y0)
         dspPushImageRect(face, x0, y0, PANEL_X + x0, PANEL_Y + y0, w, h);
     }
 }
 
 void drawNeedle() {
     needleXY(value, NEEDLE_LEN);
-    // draw on the panel (renderer is pointing at the screen — we're NOT in
-    // begin/end mode here, so dspLine goes straight to the display)
+    // draws straight onto the panel (we're NOT in begin/end mode)
     thickLine(PANEL_X + CX, PANEL_Y + CY,
               PANEL_X + hx_out, PANEL_Y + hy_out,
-              COL_NEEDLE, 3);
-    // pivot cap — drawn each frame, stays fully on top of the needle base
+              COL_NEEDLE, NEEDLE_W);
+    // pivot cap — drawn each frame on top of the needle base
     dspColor(COL_HUB, 0);
     dspPos(PANEL_X + CX, PANEL_Y + CY);
     dspFillCircle(HUB_R);
@@ -221,13 +358,25 @@ void drawNeedle() {
 void main() {
     addCommand("VM");
 
+    // Compute all derived radii/lengths from FACE_SIZE.
+    computeGeometry();
+
+    // Clear the whole panel to the background colour — this wipes whatever
+    // the previous program left on screen, and makes the area AROUND the
+    // gauge (outside PANEL_X..PANEL_X+FACE_SIZE) black.
+    dspColor(COL_BG, COL_BG);
+    dspPos(0, 0);
+    dspFillRect(1024, 1024);                // oversize — panel clips it
+
     // Allocate the canvas and paint the face into it — ONCE at startup.
     face = imgCreate(FACE_SIZE, FACE_SIZE);
     if (face < 0) {
         addLog("voltmeter: imgCreate failed (PSRAM?)");
         return;
     }
-    imgClear(face, COL_FACE);              // white background
+    // Black corners: canvas fills black, then the round bezel is drawn on
+    // top — anything outside R_BEZEL stays black.
+    imgClear(face, COL_BG);
     imgBeginDraw(face);
         drawFace();                         // all dsp* calls target the canvas
     imgEndDraw();
@@ -243,14 +392,16 @@ void main() {
 
 void EverySecond() {
     if (face < 0) { return; }
-    // Synthetic value walk for demo purposes
-    int step = ((tasm_second * 13) % 21) - 10;
+    // Synthetic value walk for demo purposes — step is ±(range/10).
+    int stepmax = (VAL_MAX - VAL_MIN) / 10;
+    if (stepmax < 1) { stepmax = 1; }
+    int step = ((tasm_second * 13) % (stepmax * 2 + 1)) - stepmax;
     value = value + step;
-    if (value < 0)   { value = 0;   }
-    if (value > 100) { value = 100; }
+    if (value < VAL_MIN) { value = VAL_MIN; }
+    if (value > VAL_MAX) { value = VAL_MAX; }
 
     if (value == prev_v) { return; }
-    eraseNeedle(on_x, on_y, 3);
+    eraseNeedle(on_x, on_y, NEEDLE_W);
     drawNeedle();
     prev_v = value;
 }
@@ -267,17 +418,18 @@ void Command(char cmd[]) {
         } else {
             v = 0;
         }
-        if (v < 0)   { v = 0;   }
-        if (v > 100) { v = 100; }
+        if (v < VAL_MIN) { v = VAL_MIN; }
+        if (v > VAL_MAX) { v = VAL_MAX; }
         value = v;
         if (face >= 0) {
-            eraseNeedle(on_x, on_y, 3);
+            eraseNeedle(on_x, on_y, NEEDLE_W);
             drawNeedle();
             prev_v = value;
         }
         sprintf(msg, "{\"VM\":{\"value\":%d}}", value);
         responseCmnd(msg);
     } else {
-        responseCmnd("{\"VM\":\"? VMSET <0..100>\"}");
+        sprintf(msg, "{\"VM\":\"? VMSET <%d..%d>\"}", VAL_MIN, VAL_MAX);
+        responseCmnd(msg);
     }
 }

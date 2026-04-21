@@ -278,6 +278,8 @@ enum TcOp {
   OP_STORE_REF_ARR  = 0xA4,  // u8 local_idx; pop val, pop idx -> *(resolveRef(local[local_idx])+idx)=val
   // Watch variables (change tracking)
   OP_STORE_WATCH    = 0xA5,  // u16 varIdx, u16 shadowIdx, u16 writtenIdx — store with shadow update
+  // Heap ref with slot offset — for strcpy(arr[i].field, ...)
+  OP_ADDR_HEAP_OFF  = 0xA6,  // u8 handle; pop offset -> push ref: 0xC0000000 | (offset<<16) | handle
   // Constants
   OP_LOAD_CONST   = 0x90,
 };
@@ -1140,8 +1142,13 @@ static inline float tc_read_f32(TcVM *vm) { return i2f(tc_read_i32(vm)); }
 
 /*********************************************************************************************\
  * VM: Array ref encoding for string functions
- * Local ref:  (fp << 16) | base_index   (bit 31 = 0)
- * Global ref: 0x80000000 | base_index   (bit 31 = 1)
+ * Local ref:   bits 31-30 = 00/01   (fp << 16) | base_index
+ * Global ref:  bits 31-30 = 10      0x80000000 | base_index
+ * Heap ref:    bits 31-30 = 11      0xC0000000 | (offset << 16) | handle
+ *                                   - bit 15 MUST be 0 (distinguishes from const-pool)
+ *                                   - bits 29-16 = slot offset within the heap block (0..16383)
+ *                                   - bits 7-0   = handle (0..255, TC_MAX_HEAP_HANDLES=128)
+ * Const-pool:  bits 31-30 = 11, bit 15 = 1   0xC0008000 | const_idx (15-bit idx)
 \*********************************************************************************************/
 
 static inline int32_t tc_make_local_ref(uint8_t fp, uint8_t base) {
@@ -1150,15 +1157,22 @@ static inline int32_t tc_make_local_ref(uint8_t fp, uint8_t base) {
 static inline int32_t tc_make_global_ref(uint16_t base) {
   return (int32_t)0x80000000 | base;
 }
+// Pack a heap ref with optional slot offset. offset must be < 16384 (14 bits).
+static inline int32_t tc_make_heap_ref(uint8_t handle, uint16_t offset) {
+  return (int32_t)(0xC0000000U | (((uint32_t)(offset & 0x3FFF)) << 16) | handle);
+}
 
 // Resolve a packed array ref to a pointer into VM memory, returns NULL on error
-// Ref encoding:  bits 31-30 = 00/01 → local, 10 → global, 11 → heap
 static int32_t* tc_resolve_ref(TcVM *vm, int32_t ref) {
   uint32_t uref = (uint32_t)ref;
   uint8_t tag = uref >> 30;
   if (tag == 3) {
-    // Heap ref: 0xC0000000 | handle
-    uint16_t handle = uref & 0xFFFF;
+    // Heap ref with optional slot offset: 0xC0000000 | (offset<<16) | handle
+    // (const-pool refs are detected separately via tc_is_const_ref — callers
+    //  that need string-literal support check that FIRST; this path assumes
+    //  a regular heap ref.)
+    uint8_t handle = (uint8_t)(uref & 0xFF);
+    uint16_t offset = (uint16_t)((uref >> 16) & 0x3FFF);
     if (handle >= TC_MAX_HEAP_HANDLES) {
       AddLog(LOG_LEVEL_ERROR, PSTR("TCC: heap handle %d >= max %d"), handle, TC_MAX_HEAP_HANDLES);
       return nullptr;
@@ -1169,7 +1183,12 @@ static int32_t* tc_resolve_ref(TcVM *vm, int32_t ref) {
              vm->heap_handles ? vm->heap_handles[handle].alive : 0);
       return nullptr;
     }
-    return &vm->heap_data[vm->heap_handles[handle].offset];
+    if (offset >= vm->heap_handles[handle].size) {
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: heap ref offset %d >= size %d (handle %d)"),
+             offset, vm->heap_handles[handle].size, handle);
+      return nullptr;
+    }
+    return &vm->heap_data[vm->heap_handles[handle].offset + offset];
   }
   if (tag == 2) {
     // Global ref: 0x80000000 | base_idx
@@ -1189,10 +1208,13 @@ static int32_t tc_ref_maxlen(TcVM *vm, int32_t ref) {
   uint32_t uref = (uint32_t)ref;
   uint8_t tag = uref >> 30;
   if (tag == 3) {
-    // Heap ref
-    uint16_t handle = uref & 0xFFFF;
+    // Heap ref — subtract offset from total size so a sub-ref sees only
+    // its own tail of the block.
+    uint8_t handle = (uint8_t)(uref & 0xFF);
+    uint16_t offset = (uint16_t)((uref >> 16) & 0x3FFF);
     if (handle < TC_MAX_HEAP_HANDLES && vm->heap_handles && vm->heap_handles[handle].alive) {
-      return vm->heap_handles[handle].size;
+      uint16_t sz = vm->heap_handles[handle].size;
+      return (offset < sz) ? (int32_t)(sz - offset) : 0;
     }
     return 0;
   }
@@ -3261,12 +3283,28 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t src_ref = TC_POP(vm);
       int32_t dst_ref = TC_POP(vm);
       int32_t *dst = tc_resolve_ref(vm, dst_ref);
-      int32_t *src = tc_resolve_ref(vm, src_ref);
-      if (dst && src) {
-        int32_t max = tc_ref_maxlen(vm, dst_ref) - 1;
-        int32_t i = 0;
-        while (src[i] != 0 && i < max) { dst[i] = src[i]; i++; }
-        dst[i] = 0;
+      if (!dst) break;
+      int32_t max = tc_ref_maxlen(vm, dst_ref) - 1;
+      // Source may be a const-pool string ref (e.g. string literal passed
+      // through a function param). Detect and use char* path; otherwise
+      // treat as an int32 VM array.
+      if (tc_is_const_ref(src_ref)) {
+        uint16_t ci = (uint16_t)(((uint32_t)src_ref) & 0x7FFF);
+        if (ci < vm->const_count && vm->constants[ci].type == 1) {
+          const char *s = vm->constants[ci].str.ptr;
+          int32_t i = 0;
+          while (s && s[i] != 0 && i < max) { dst[i] = (int32_t)(uint8_t)s[i]; i++; }
+          dst[i] = 0;
+        } else {
+          dst[0] = 0;
+        }
+      } else {
+        int32_t *src = tc_resolve_ref(vm, src_ref);
+        if (src) {
+          int32_t i = 0;
+          while (src[i] != 0 && i < max) { dst[i] = src[i]; i++; }
+          dst[i] = 0;
+        }
       }
       break;
     }
@@ -10865,8 +10903,16 @@ static int tc_vm_step(TcVM *vm) {
     }
     case OP_ADDR_HEAP: {
       uint8_t handle = tc_read_u8(vm);
-      // Pack: 0xC0000000 | handle
-      TC_PUSH(vm, (int32_t)(0xC0000000U | handle));
+      // Pack: 0xC0000000 | handle (offset = 0)
+      TC_PUSH(vm, tc_make_heap_ref(handle, 0));
+      break;
+    }
+    case OP_ADDR_HEAP_OFF: {
+      uint8_t handle = tc_read_u8(vm);
+      int32_t off = TC_POP(vm);   // slot offset (int32, treated unsigned 14-bit)
+      if (off < 0) off = 0;
+      if (off > 0x3FFF) off = 0x3FFF;
+      TC_PUSH(vm, tc_make_heap_ref(handle, (uint16_t)off));
       break;
     }
 
@@ -11003,6 +11049,8 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
     _dispatch[0xA2] = &&_op_addr_heap;
     // Watch
     _dispatch[0xA5] = &&_op_store_watch;
+    // Heap address with offset
+    _dispatch[0xA6] = &&_op_addr_heap_off;
     _dispatch_init = true;
   }
 
@@ -11279,7 +11327,15 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
   }
   _op_addr_heap: {
     uint8_t handle = _RD_U8();
-    TC_IPUSH((int32_t)(0xC0000000U | handle));
+    TC_IPUSH(tc_make_heap_ref(handle, 0));
+    NEXT();
+  }
+  _op_addr_heap_off: {
+    uint8_t handle = _RD_U8();
+    int32_t off = TC_IPOP();
+    if (off < 0) off = 0;
+    if (off > 0x3FFF) off = 0x3FFF;
+    TC_IPUSH(tc_make_heap_ref(handle, (uint16_t)off));
     NEXT();
   }
 
