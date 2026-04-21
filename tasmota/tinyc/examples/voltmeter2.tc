@@ -1,0 +1,272 @@
+// voltmeter2.tc — same gauge as voltmeter.tc, but uses the new canvas
+// automation API (TinyC 1.4.3+):
+//
+//     imgBlit         — canvas→canvas rect copy (memmove-safe)
+//     imgInvalidate   — manually union a rect into the dirty region
+//     imgFlush        — push the dirty region to the panel (auto-clear)
+//
+// The frame loop is now:
+//
+//     1. imgBlit(work, clean, bb, bb)   — restore old needle area from clean face
+//     2. imgBeginDraw(work)
+//          draw new needle (dspLine / dspFillCircle) — auto-marks dirty
+//        imgEndDraw()
+//     3. imgFlush(work, PANEL_X, PANEL_Y)  — only the dirty rect hits the panel
+//
+// No manual bounding-box math, no dspPushImageRect juggling. Memory cost: a
+// second 320×320 canvas (200 KB) holds the clean face. Same visual result as
+// voltmeter.tc with a cleaner script.
+
+#define FACE_SIZE     320
+#define PANEL_X        80
+#define PANEL_Y         0
+#define CX            160
+#define CY            160
+#define NEEDLE_LEN    110
+#define HUB_R          16
+
+#define COL_BEZEL     0xBDF7
+#define COL_RIM       0x632C
+#define COL_FACE      0xFFFF
+#define COL_GREEN     0x3605
+#define COL_YELLOW    0xFCC0
+#define COL_RED       0xC1A3
+#define COL_TICK      0x18E3
+#define COL_LABEL     0x18E3
+#define COL_NEEDLE    0xE041
+#define COL_HUB       0x2AB9
+
+#define ANG_MIN      -135.0
+#define ANG_SPAN      270.0
+
+int   face_clean;                   // pristine gauge face (never redrawn)
+int   work;                         // live canvas, face + current needle
+int   hx_out; int hy_out;
+
+int   value  = 80;
+int   prev_v = -1;
+
+void needleXY(int v, int len) {
+    float frac; float ang; float rad;
+    frac = (float)v / 100.0;
+    if (frac < 0.0) { frac = 0.0; }
+    if (frac > 1.0) { frac = 1.0; }
+    ang  = ANG_MIN + frac * ANG_SPAN;
+    rad  = ang * 3.14159 / 180.0;
+    hx_out = CX + (int)(sin(rad) * (float)len);
+    hy_out = CY - (int)(cos(rad) * (float)len);
+}
+
+void thickLine(int x0, int y0, int x1, int y1, int color, int width) {
+    int d; int half;
+    half = width / 2;
+    dspColor(color, 0);
+    d = 0 - half;
+    while (d <= half) {
+        dspPos(x0 + d, y0);    dspLine(x1 + d, y1);
+        dspPos(x0, y0 + d);    dspLine(x1, y1 + d);
+        d = d + 1;
+    }
+}
+
+void drawArcBand(int r_out, int r_in, float a_from, float a_to, int color) {
+    float a; float step;
+    int x1; int y1; int x2; int y2;
+    step = 0.02;
+    a = a_from;
+    dspColor(color, 0);
+    while (a <= a_to) {
+        x1 = CX + (int)(sin(a) * (float)r_in);
+        y1 = CY - (int)(cos(a) * (float)r_in);
+        x2 = CX + (int)(sin(a) * (float)r_out);
+        y2 = CY - (int)(cos(a) * (float)r_out);
+        dspPos(x1, y1);
+        dspLine(x2, y2);
+        a = a + step;
+    }
+}
+
+void drawTick(int v, int r_out, int length, int color) {
+    float frac; float ang; float rad;
+    int x1; int y1; int x2; int y2;
+    frac = (float)v / 100.0;
+    ang  = ANG_MIN + frac * ANG_SPAN;
+    rad  = ang * 3.14159 / 180.0;
+    x1 = CX + (int)(sin(rad) * (float)r_out);
+    y1 = CY - (int)(cos(rad) * (float)r_out);
+    x2 = CX + (int)(sin(rad) * (float)(r_out - length));
+    y2 = CY - (int)(cos(rad) * (float)(r_out - length));
+    dspColor(color, 0);
+    dspPos(x1, y1);
+    dspLine(x2, y2);
+}
+
+void drawLabel(int v, int r) {
+    float frac; float ang; float rad;
+    int x; int y;
+    char buf[8];
+    frac = (float)v / 100.0;
+    ang  = ANG_MIN + frac * ANG_SPAN;
+    rad  = ang * 3.14159 / 180.0;
+    x = CX + (int)(sin(rad) * (float)r) - 6;
+    y = CY - (int)(cos(rad) * (float)r) - 6;
+    if (v >= 100) { x = x - 6; }
+    else if (v >= 10) { x = x - 2; }
+    sprintfInt(buf, "%d", v);
+    dspColor(COL_LABEL, COL_FACE);
+    dspPos(x, y);
+    dspDraw(buf);
+}
+
+void drawFace() {
+    int v;
+    dspColor(COL_BEZEL, 0);
+    dspPos(CX, CY);   dspFillCircle(155);
+    dspColor(COL_RIM, 0);
+    dspPos(CX, CY);   dspCircle(150);
+    dspColor(COL_FACE, 0);
+    dspPos(CX, CY);   dspFillCircle(145);
+
+    drawArcBand(142, 128, -2.356, 0.0,   COL_GREEN);
+    drawArcBand(142, 128,  0.0,   0.942, COL_YELLOW);
+    drawArcBand(142, 128,  1.414, 2.356, COL_RED);
+
+    v = 0;
+    while (v <= 100) {
+        if (v % 10 == 0) {
+            drawTick(v, 128, 12, COL_TICK);
+        } else {
+            drawTick(v, 128,  6, COL_TICK);
+        }
+        v = v + 2;
+    }
+
+    dspText("[f1s1]");
+    v = 0;
+    while (v <= 100) {
+        drawLabel(v, 108);
+        v = v + 10;
+    }
+}
+
+// Restore the old needle bounding box from the clean face, then draw the new
+// needle on the work canvas. Everything stays on canvas; imgFlush pushes only
+// the touched region to the panel.
+void updateNeedle() {
+    int margin; int x0; int y0; int w; int h;
+    int hx_old; int hy_old;
+    int hx_new; int hy_new;
+
+    // previous needle tip (where we drew it last frame)
+    needleXY(prev_v, NEEDLE_LEN);
+    hx_old = hx_out; hy_old = hy_out;
+
+    // new needle tip
+    needleXY(value, NEEDLE_LEN);
+    hx_new = hx_out; hy_new = hy_out;
+
+    // union bbox of old+new line segments, padded for thickness + hub cap
+    margin = 6;
+    x0 = CX - HUB_R - margin;
+    y0 = CY - HUB_R - margin;
+    if (hx_old - margin < x0) { x0 = hx_old - margin; }
+    if (hy_old - margin < y0) { y0 = hy_old - margin; }
+    if (hx_new - margin < x0) { x0 = hx_new - margin; }
+    if (hy_new - margin < y0) { y0 = hy_new - margin; }
+    w = (hx_old > hx_new) ? hx_old : hx_new;
+    if (CX + HUB_R > w) { w = CX + HUB_R; }
+    w = w + margin - x0;
+    h = (hy_old > hy_new) ? hy_old : hy_new;
+    if (CY + HUB_R > h) { h = CY + HUB_R; }
+    h = h + margin - y0;
+
+    // 1. restore background in the bbox (auto-marks that region dirty on work)
+    imgBlit(work, face_clean, x0, y0, x0, y0, w, h);
+
+    // 2. draw new needle into work canvas (primitives auto-mark dirty)
+    imgBeginDraw(work);
+        thickLine(CX, CY, hx_new, hy_new, COL_NEEDLE, 3);
+        dspColor(COL_HUB, 0);
+        dspPos(CX, CY);
+        dspFillCircle(HUB_R);
+        dspColor(COL_FACE, 0);
+        dspPos(CX, CY);
+        dspCircle(HUB_R);
+    imgEndDraw();
+
+    // 3. push only the dirty region to the panel
+    imgFlush(work, PANEL_X, PANEL_Y);
+}
+
+void main() {
+    addCommand("VM");
+
+    // Two canvases: a pristine reference + a working copy
+    face_clean = imgCreate(FACE_SIZE, FACE_SIZE);
+    work       = imgCreate(FACE_SIZE, FACE_SIZE);
+    if (face_clean < 0 || work < 0) {
+        addLog("voltmeter2: imgCreate failed (PSRAM?)");
+        return;
+    }
+
+    imgClear(face_clean, COL_FACE);
+    imgBeginDraw(face_clean);
+        drawFace();
+    imgEndDraw();
+
+    // copy the clean face into work as starting state
+    imgBlit(work, face_clean, 0, 0, 0, 0, FACE_SIZE, FACE_SIZE);
+
+    // add initial needle on work
+    imgBeginDraw(work);
+        needleXY(value, NEEDLE_LEN);
+        thickLine(CX, CY, hx_out, hy_out, COL_NEEDLE, 3);
+        dspColor(COL_HUB, 0);
+        dspPos(CX, CY);
+        dspFillCircle(HUB_R);
+        dspColor(COL_FACE, 0);
+        dspPos(CX, CY);
+        dspCircle(HUB_R);
+    imgEndDraw();
+
+    // full-screen flush (dirty rect covers the whole canvas because of imgClear)
+    imgFlush(work, PANEL_X, PANEL_Y);
+    prev_v = value;
+}
+
+void EverySecond() {
+    if (work < 0 || face_clean < 0) { return; }
+    int step = ((tasm_second * 13) % 21) - 10;
+    value = value + step;
+    if (value < 0)   { value = 0;   }
+    if (value > 100) { value = 100; }
+
+    if (value == prev_v) { return; }
+    updateNeedle();
+    prev_v = value;
+}
+
+void Command(char cmd[]) {
+    char msg[64];
+    char arg[16];
+    if (strFind(cmd, "SET") == 0) {
+        int v;
+        if (strlen(cmd) > 4) {
+            strSub(arg, cmd, 4, 0);
+            v = atoi(arg);
+        } else {
+            v = 0;
+        }
+        if (v < 0)   { v = 0;   }
+        if (v > 100) { v = 100; }
+        value = v;
+        if (work >= 0 && face_clean >= 0) {
+            updateNeedle();
+            prev_v = value;
+        }
+        sprintf(msg, "{\"VM\":{\"value\":%d}}", value);
+        responseCmnd(msg);
+    } else {
+        responseCmnd("{\"VM\":\"? VMSET <0..100>\"}");
+    }
+}

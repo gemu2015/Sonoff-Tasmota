@@ -559,6 +559,9 @@ enum TcSyscall {
   SYS_IMG_BEGIN_DRAW   = 329, // (slot)                                -> void   // redirect all dsp* to the slot's canvas
   SYS_IMG_END_DRAW     = 330, // ()                                    -> void   // restore panel renderer
   SYS_IMG_CLEAR        = 331, // (slot, color_rgb565)                  -> void   // fast fill of canvas
+  SYS_IMG_BLIT         = 332, // (dst,src,sx,sy,dx,dy,w,h)             -> void   // canvas->canvas rect copy (clipped)
+  SYS_IMG_INVALIDATE   = 333, // (slot,x,y,w,h)                        -> void   // union rect into slot's dirty region
+  SYS_IMG_FLUSH        = 334, // (slot,panel_x,panel_y)                -> void   // push dirty region to panel + clear
   // Deep sleep (ESP32 only)
   SYS_DEEP_SLEEP      = 230, // (seconds) -> void — deep sleep with timer wakeup
   SYS_DEEP_SLEEP_GPIO = 231, // (seconds, pin, level) -> void — + GPIO wakeup
@@ -7750,6 +7753,121 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         uint16_t *p = tc_img_store[slot].buf;
         for (uint32_t i = 0; i < pixels; i++) p[i] = c16;
       }
+      // fillScreen-equivalent: whole canvas is now dirty
+      if (tc_img_store[slot].canvas) {
+        tc_img_store[slot].canvas->markDirty(0, 0, tc_img_store[slot].w, tc_img_store[slot].h);
+      }
+      break;
+    }
+    case SYS_IMG_BLIT: {
+      // imgBlit(dst, src, sx, sy, dx, dy, w, h) -> void
+      // Row-major memcpy between two canvas slots, with full clipping on
+      // both source and destination rects. Unions the touched dest rect
+      // into the dest canvas's dirty region.
+      int32_t h  = TC_POP(vm);
+      int32_t w  = TC_POP(vm);
+      int32_t dy = TC_POP(vm);
+      int32_t dx = TC_POP(vm);
+      int32_t sy = TC_POP(vm);
+      int32_t sx = TC_POP(vm);
+      int32_t src = TC_POP(vm);
+      int32_t dst = TC_POP(vm);
+      if (dst < 0 || dst >= TC_IMG_SLOTS) break;
+      if (src < 0 || src >= TC_IMG_SLOTS) break;
+      TcImgSlot *ds = &tc_img_store[dst];
+      TcImgSlot *ss = &tc_img_store[src];
+      if (!ds->buf || !ss->buf) break;
+      // clip against source
+      if (sx < 0) { dx -= sx; w += sx; sx = 0; }
+      if (sy < 0) { dy -= sy; h += sy; sy = 0; }
+      if (sx + w > (int32_t)ss->w) w = (int32_t)ss->w - sx;
+      if (sy + h > (int32_t)ss->h) h = (int32_t)ss->h - sy;
+      // clip against destination
+      if (dx < 0) { sx -= dx; w += dx; dx = 0; }
+      if (dy < 0) { sy -= dy; h += dy; dy = 0; }
+      if (dx + w > (int32_t)ds->w) w = (int32_t)ds->w - dx;
+      if (dy + h > (int32_t)ds->h) h = (int32_t)ds->h - dy;
+      if (w <= 0 || h <= 0) break;
+      // same-buffer overlap: iterate bottom-up if dy > sy to avoid trash
+      bool same = (ds->buf == ss->buf);
+      if (same && dy > sy) {
+        for (int32_t y = h - 1; y >= 0; y--) {
+          memmove(ds->buf + (uint32_t)(dy + y) * ds->w + dx,
+                  ss->buf + (uint32_t)(sy + y) * ss->w + sx,
+                  (size_t)w * 2);
+        }
+      } else {
+        for (int32_t y = 0; y < h; y++) {
+          memmove(ds->buf + (uint32_t)(dy + y) * ds->w + dx,
+                  ss->buf + (uint32_t)(sy + y) * ss->w + sx,
+                  (size_t)w * 2);
+        }
+      }
+      if (ds->canvas) ds->canvas->markDirty((int16_t)dx, (int16_t)dy, (int16_t)w, (int16_t)h);
+      break;
+    }
+    case SYS_IMG_INVALIDATE: {
+      // imgInvalidate(slot, x, y, w, h) -> void. Union rect into dirty region.
+      int32_t ih = TC_POP(vm);
+      int32_t iw = TC_POP(vm);
+      int32_t iy = TC_POP(vm);
+      int32_t ix = TC_POP(vm);
+      int32_t slot = TC_POP(vm);
+      if (slot < 0 || slot >= TC_IMG_SLOTS) break;
+      RendererCanvas *cv = tc_img_store[slot].canvas;
+      if (!cv) break;
+      cv->markDirty((int16_t)ix, (int16_t)iy, (int16_t)iw, (int16_t)ih);
+      break;
+    }
+    case SYS_IMG_FLUSH: {
+      // imgFlush(slot, panel_x, panel_y) -> void.
+      // Push the slot's dirty region to (panel_x+dx, panel_y+dy), then clear
+      // the dirty region. Must NOT be inside an imgBeginDraw redirect (panel
+      // renderer needed). No-op if dirty is empty.
+      //
+      // Implementation mirrors SYS_DSP_IMG_RECT: gather the sub-rect into a
+      // contiguous temp buffer and send via ONE setAddrWindow + pushColors
+      // call. Row-by-row pushColors freezes/scrambles SPI displays.
+      int32_t py = TC_POP(vm);
+      int32_t px = TC_POP(vm);
+      int32_t slot = TC_POP(vm);
+      if (slot < 0 || slot >= TC_IMG_SLOTS) break;
+      TcImgSlot *s = &tc_img_store[slot];
+      if (!s->buf || !s->canvas) break;
+      if (!renderer) break;
+      RendererCanvas *cv = s->canvas;
+      if (!cv->hasDirty()) break;
+      int16_t dx = cv->dirtyX(), dy = cv->dirtyY();
+      int16_t dw = cv->dirtyW(), dh = cv->dirtyH();
+      if (dw <= 0 || dh <= 0) { cv->clearDirty(); break; }
+      uint16_t *img = s->buf;
+      uint16_t img_w = s->w;
+      if (dx == 0 && dw == (int16_t)img_w) {
+        // full-width dirty: rows are contiguous, single push directly
+        renderer->setAddrWindow((uint16_t)(px),
+                                (uint16_t)(py + dy),
+                                (uint16_t)(px + dw),
+                                (uint16_t)(py + dy + dh));
+        renderer->pushColors(&img[(uint32_t)dy * img_w], (uint32_t)dw * dh, true);
+      } else {
+        uint32_t total = (uint32_t)dw * dh;
+        uint16_t *tmp = (uint16_t *)special_malloc(total * 2);
+        if (tmp) {
+          for (int16_t row = 0; row < dh; row++) {
+            memcpy(&tmp[(uint32_t)row * dw],
+                   &img[(uint32_t)(dy + row) * img_w + dx],
+                   (size_t)dw * 2);
+          }
+          renderer->setAddrWindow((uint16_t)(px + dx),
+                                  (uint16_t)(py + dy),
+                                  (uint16_t)(px + dx + dw),
+                                  (uint16_t)(py + dy + dh));
+          renderer->pushColors(tmp, total, true);
+          free(tmp);
+        }
+      }
+      renderer->setAddrWindow(0, 0, 0, 0);
+      cv->clearDirty();
       break;
     }
 
@@ -7908,6 +8026,18 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     }
     case SYS_IMG_CLEAR: {
       TC_POP(vm); TC_POP(vm);  // slot, color
+      break;
+    }
+    case SYS_IMG_BLIT: {
+      for (int i = 0; i < 8; i++) TC_POP(vm);  // dst,src,sx,sy,dx,dy,w,h
+      break;
+    }
+    case SYS_IMG_INVALIDATE: {
+      for (int i = 0; i < 5; i++) TC_POP(vm);  // slot,x,y,w,h
+      break;
+    }
+    case SYS_IMG_FLUSH: {
+      TC_POP(vm); TC_POP(vm); TC_POP(vm);  // slot,panel_x,panel_y
       break;
     }
     case SYS_DSP_LOAD_IMG_CAM: {
@@ -8765,6 +8895,9 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_IMG_BEGIN_DRAW:    TC_POP(vm); break;
     case SYS_IMG_END_DRAW:      break;
     case SYS_IMG_CLEAR:         TC_POP(vm); TC_POP(vm); break;
+    case SYS_IMG_BLIT:          for (int i = 0; i < 8; i++) TC_POP(vm); break;
+    case SYS_IMG_INVALIDATE:    for (int i = 0; i < 5; i++) TC_POP(vm); break;
+    case SYS_IMG_FLUSH:         TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
 #endif // USE_DISPLAY
 
     // ── Audio ──────────────────────────────────────────

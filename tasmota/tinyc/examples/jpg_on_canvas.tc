@@ -1,0 +1,48 @@
+// jpg_on_canvas.tc — compose a JPG + procedural overlay into one canvas,
+// then flip the composite to the panel with imgFlush.
+//
+// Demonstrates that TC 1.4.3 imgBlit accepts JPG-loaded image slots as a
+// source (JPG and canvas slots share the same RGB565 storage), so the
+// workflow is: decode once, paint anywhere.
+
+int photo;
+int scene;
+
+void main() {
+    // existing JPG already on the file system (change to whatever you have)
+    photo = dspLoadImage("/gemu.jpg");
+    if (photo < 0) {
+        addLog("jpg_on_canvas: dspLoadImage failed");
+        return;
+    }
+
+    int pw = dspImageWidth(photo);
+    int ph = dspImageHeight(photo);
+
+    scene = imgCreate(pw, ph);
+    if (scene < 0) {
+        addLog("jpg_on_canvas: imgCreate failed");
+        return;
+    }
+
+    // dark background
+    imgClear(scene, 0x0000);
+
+    // paint the JPG into the canvas at (0,0)
+    imgBlit(scene, photo, 0, 0, 0, 0, pw, ph);
+
+    // overlay a bright rectangle + caption ON the canvas
+    imgBeginDraw(scene);
+        dspColor(0xF800, 0);   // red
+        dspPos(8, ph - 30);
+        dspFillRect(pw - 16, 22);
+        dspColor(0xFFFF, 0xF800);
+        dspPos(16, ph - 24);
+        dspText("[f2]");
+        dspDraw(" JPG + overlay via imgBlit ");
+    imgEndDraw();
+
+    // push the whole thing to the panel at (0,0) — whole canvas is dirty
+    imgFlush(scene, 0, 0);
+    addLog("jpg_on_canvas: composited");
+}

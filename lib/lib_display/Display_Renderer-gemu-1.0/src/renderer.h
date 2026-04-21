@@ -142,10 +142,27 @@ public:
   void drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) override;
   void drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) override;
   uint16_t *getBuffer(void) const { return cbuf; }
+
+  // ── Dirty-rect tracking (for imgFlush / imgInvalidate) ─────────
+  // All drawPixel/drawFastH/VLine/fillScreen calls union their extent
+  // into this bbox. dx1 < dx0 means "empty". Cleared by clearDirty() —
+  // typically called by imgFlush after pushing the region to the panel.
+  void markDirty(int16_t x, int16_t y, int16_t w, int16_t h);
+  void clearDirty(void) { ddx1 = -1; ddy1 = -1; ddx0 = 0; ddy0 = 0; }
+  bool hasDirty(void) const { return ddx1 >= ddx0 && ddy1 >= ddy0; }
+  int16_t dirtyX(void) const { return ddx0; }
+  int16_t dirtyY(void) const { return ddy0; }
+  int16_t dirtyW(void) const { return ddx1 - ddx0 + 1; }
+  int16_t dirtyH(void) const { return ddy1 - ddy0 + 1; }
+
 private:
   uint16_t *cbuf;
   uint16_t  cw;
   uint16_t  ch;
+  int16_t   ddx0 = 0;
+  int16_t   ddy0 = 0;
+  int16_t   ddx1 = -1;   // start empty
+  int16_t   ddy1 = -1;
 };
 
 typedef union {

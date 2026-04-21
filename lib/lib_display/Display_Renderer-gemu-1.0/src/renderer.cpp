@@ -794,10 +794,30 @@ RendererCanvas::RendererCanvas(uint16_t *buf, uint16_t w, uint16_t h)
   // and don't consult the parent `framebuffer` pointer.
 }
 
+void RendererCanvas::markDirty(int16_t x, int16_t y, int16_t w, int16_t h) {
+  if (w <= 0 || h <= 0) return;
+  int16_t x1 = x + w - 1;
+  int16_t y1 = y + h - 1;
+  if (x  < 0) x  = 0;
+  if (y  < 0) y  = 0;
+  if (x1 >= (int16_t)cw) x1 = cw - 1;
+  if (y1 >= (int16_t)ch) y1 = ch - 1;
+  if (x > x1 || y > y1) return;
+  if (ddx1 < ddx0 || ddy1 < ddy0) {        // empty → adopt
+    ddx0 = x;  ddy0 = y;  ddx1 = x1;  ddy1 = y1;
+  } else {                                  // union
+    if (x  < ddx0) ddx0 = x;
+    if (y  < ddy0) ddy0 = y;
+    if (x1 > ddx1) ddx1 = x1;
+    if (y1 > ddy1) ddy1 = y1;
+  }
+}
+
 void RendererCanvas::drawPixel(int16_t x, int16_t y, uint16_t color) {
   if (!cbuf) return;
   if (x < 0 || y < 0 || x >= (int16_t)cw || y >= (int16_t)ch) return;
   cbuf[(uint32_t)y * cw + x] = color;
+  markDirty(x, y, 1, 1);
 }
 
 void RendererCanvas::fillScreen(uint16_t color) {
@@ -809,6 +829,7 @@ void RendererCanvas::fillScreen(uint16_t color) {
   } else {
     for (uint32_t i = 0; i < pixels; i++) cbuf[i] = color;
   }
+  markDirty(0, 0, cw, ch);
 }
 
 void RendererCanvas::drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) {
@@ -819,6 +840,7 @@ void RendererCanvas::drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t col
   if (w <= 0) return;
   uint16_t *p = cbuf + (uint32_t)y * cw + x;
   for (int16_t i = 0; i < w; i++) p[i] = color;
+  markDirty(x, y, w, 1);
 }
 
 void RendererCanvas::drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
@@ -829,6 +851,7 @@ void RendererCanvas::drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t col
   if (h <= 0) return;
   uint16_t *p = cbuf + (uint32_t)y * cw + x;
   for (int16_t i = 0; i < h; i++, p += cw) *p = color;
+  markDirty(x, y, 1, h);
 }
 
 
