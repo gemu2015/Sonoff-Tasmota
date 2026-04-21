@@ -1588,7 +1588,9 @@ uint32_t tmod_jpeg_picture(uint32_t mem, uint32_t jpgsize, uint32_t xp, uint32_t
   return 0;
 }
 
-#ifdef USE_SHINE
+// layer3.h only exists in lib/lib_audio/mp3_shine_esp32 (ESP32-only).
+// ESP8266 builds that still define USE_SHINE via user_config_override.h must not pull it in.
+#if defined(USE_SHINE) && defined(ESP32)
 #include <layer3.h>
 #endif
 
@@ -1600,7 +1602,7 @@ float tmod_sqrtf(float a) { return sqrtf(a); }
 
 // shine mpeg3 encoder about 31kB code
 uint32_t tmod_shine(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3) {
-#ifdef USE_SHINE
+#if defined(USE_SHINE) && defined(ESP32)
   switch (sel) {
     case 0:
       return (uint32_t)shine_initialise((shine_config_t*)p1);

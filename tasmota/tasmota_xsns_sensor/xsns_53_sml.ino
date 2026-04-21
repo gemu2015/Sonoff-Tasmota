@@ -3319,8 +3319,13 @@ void reset_sml_vars(uint16_t maxmeters) {
     // force TCP RST before re-init (SO_LINGER=0 sends RST instead of FIN)
     // prevents SMA WR from blocking Modbus after script reload
     if (mp->client) {
-      struct linger sl = { 1, 0 };  // linger on, timeout 0 = send RST
+#ifdef ESP32
+      // SO_LINGER with timeout 0 forces TCP RST instead of FIN, freeing the
+      // meter's single-session slot immediately. ESP8266's WiFiClient has no
+      // setSocketOption(); plain stop() is the best it can do there.
+      struct linger sl = { 1, 0 };
       mp->client->setSocketOption(SOL_SOCKET, SO_LINGER, &sl, sizeof(sl));
+#endif
       mp->client->stop();
       delete mp->client;
       mp->client = nullptr;
@@ -3343,8 +3348,13 @@ void SML_Clean_Meters(void) {
   for (uint32_t meters = 0; meters < sml_globs.meters_used; meters++) {
     struct METER_DESC *mp = &sml_globs.mp[meters];
     if (mp->client) {
-      struct linger sl = { 1, 0 };  // linger on, timeout 0 = send RST
+#ifdef ESP32
+      // SO_LINGER with timeout 0 forces TCP RST instead of FIN, freeing the
+      // meter's single-session slot immediately. ESP8266's WiFiClient has no
+      // setSocketOption(); plain stop() is the best it can do there.
+      struct linger sl = { 1, 0 };
       mp->client->setSocketOption(SOL_SOCKET, SO_LINGER, &sl, sizeof(sl));
+#endif
       mp->client->stop();
       delete mp->client;
       mp->client = nullptr;
