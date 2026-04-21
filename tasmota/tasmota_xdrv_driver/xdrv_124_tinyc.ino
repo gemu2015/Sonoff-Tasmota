@@ -1547,9 +1547,10 @@ static void HandleTinyCApi(void) {
       WSSendJSON_P(400, PSTR("{\"ok\":false,\"error\":\"start failed\"}"));
       return;
     }
-    AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program started (API, slot %d)"), slot_num);
-    snprintf_P(json, sizeof(json), PSTR("{\"ok\":true,\"running\":true,\"size\":%d,\"slot\":%d}"),
-      s->program_size, slot_num);
+    const char *run_name = s->filename[0] ? s->filename : "";
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: Program started %s (API, slot %d)"), run_name, slot_num);
+    snprintf_P(json, sizeof(json), PSTR("{\"ok\":true,\"running\":true,\"size\":%d,\"slot\":%d,\"file\":\"%s\"}"),
+      s->program_size, slot_num, run_name);
     WSSendJSON(200, json);
   }
   else if (cmd == "stop") {
