@@ -38,9 +38,13 @@
 #define COL_HUB       0x2AB9      // soft blue
 
 // Sweep geometry — 0 at 7:30, 50 at 12, 100 at 4:30 (270° sweep clockwise)
-// TinyC uses: angle in deg, 0 = 12 o'clock, positive = clockwise
-#define ANG_MIN      -135.0       // value 0
-#define ANG_SPAN      270.0
+//   value 0   → ang = -135°
+//   value 50  → ang =    0°
+//   value 100 → ang = +135°
+// NOTE: these constants would naturally be #defines (ANG_MIN -135.0,
+// ANG_SPAN 270.0). TinyC 1.4.3 has a codegen bug where negative-float
+// #defines get corrupted inside some function bodies (needle landed on
+// only ~3 distinct angles). Literals inlined below work around it.
 
 int   face;                        // canvas slot
 int   on_x;   int on_y;            // previous needle endpoint
@@ -58,7 +62,7 @@ void needleXY(int v, int len) {
     frac = (float)v / 100.0;
     if (frac < 0.0) { frac = 0.0; }
     if (frac > 1.0) { frac = 1.0; }
-    ang  = ANG_MIN + frac * ANG_SPAN;
+    ang  = -135.0 + frac * 270.0;
     rad  = ang * 3.14159 / 180.0;
     hx_out = CX + (int)(sin(rad) * (float)len);
     hy_out = CY - (int)(cos(rad) * (float)len);
@@ -104,7 +108,7 @@ void drawTick(int v, int r_out, int length, int color) {
     float frac; float ang; float rad;
     int x1; int y1; int x2; int y2;
     frac = (float)v / 100.0;
-    ang  = ANG_MIN + frac * ANG_SPAN;
+    ang  = -135.0 + frac * 270.0;
     rad  = ang * 3.14159 / 180.0;
     x1 = CX + (int)(sin(rad) * (float)r_out);
     y1 = CY - (int)(cos(rad) * (float)r_out);
@@ -121,7 +125,7 @@ void drawLabel(int v, int r) {
     int x; int y;
     char buf[8];
     frac = (float)v / 100.0;
-    ang  = ANG_MIN + frac * ANG_SPAN;
+    ang  = -135.0 + frac * 270.0;
     rad  = ang * 3.14159 / 180.0;
     x = CX + (int)(sin(rad) * (float)r) - 6;     // rough centring for 1–3 digits
     y = CY - (int)(cos(rad) * (float)r) - 6;

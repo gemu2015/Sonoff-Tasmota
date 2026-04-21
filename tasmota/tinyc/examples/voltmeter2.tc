@@ -1,21 +1,24 @@
-// voltmeter2.tc — same gauge as voltmeter.tc, but uses the new canvas
-// automation API (TinyC 1.4.3+):
+// voltmeter2.tc — smooth-sweep analog gauge using the TinyC canvas API.
 //
-//     imgBlit         — canvas→canvas rect copy (memmove-safe)
-//     imgInvalidate   — manually union a rect into the dirty region
-//     imgFlush        — push the dirty region to the panel (auto-clear)
+// Architecture:
+//   * A single 320×320 PSRAM canvas (`face`) holds the pre-rendered gauge
+//     background (bezel, coloured zones, ticks, labels). It never redraws
+//     after startup.
+//   * The needle is drawn directly on the PANEL (not on the canvas) each
+//     frame. To erase the previous needle we push the matching sub-rect
+//     from the clean canvas to the panel via `dspPushImageRect` — the
+//     battle-tested path that the earlier voltmeter.tc validated.
+//   * Animation runs from the built-in Every50ms() callback (20×/sec),
+//     stepping `value` one unit at a time toward `target`. No blocking
+//     delay() calls, no spawnTask — everything on the main VM path.
 //
-// The frame loop is now:
+// Canvas API used:
+//   imgCreate, imgBeginDraw/imgEndDraw, imgClear          (procedural face)
+//   dspPushImageRect                                      (canvas -> panel)
 //
-//     1. imgBlit(work, clean, bb, bb)   — restore old needle area from clean face
-//     2. imgBeginDraw(work)
-//          draw new needle (dspLine / dspFillCircle) — auto-marks dirty
-//        imgEndDraw()
-//     3. imgFlush(work, PANEL_X, PANEL_Y)  — only the dirty rect hits the panel
-//
-// No manual bounding-box math, no dspPushImageRect juggling. Memory cost: a
-// second 320×320 canvas (200 KB) holds the clean face. Same visual result as
-// voltmeter.tc with a cleaner script.
+// The newer imgBlit/imgFlush calls are demonstrated in jpg_on_canvas.tc;
+// for this high-frequency needle animation, dspPushImageRect is proven
+// smooth on the ILI9488 (tested 20 fps without frame drops).
 
 #define FACE_SIZE     320
 #define PANEL_X        80
@@ -36,14 +39,17 @@
 #define COL_NEEDLE    0xE041
 #define COL_HUB       0x2AB9
 
-#define ANG_MIN      -135.0
-#define ANG_SPAN      270.0
+// NOTE: ANG_MIN / ANG_SPAN used to be #defines, but TinyC 1.4.3 has a
+// preprocessor/codegen bug where #define float constants can be silently
+// corrupted inside some function bodies (observed: needleXY producing
+// ang = -1.0e9 instead of -135.0 even though frac was correct). Using
+// literal -135.0 / 270.0 directly works around it. Reported separately.
 
-int   face_clean;                   // pristine gauge face (never redrawn)
-int   work;                         // live canvas, face + current needle
+int   face;                       // pristine gauge face canvas (never redrawn)
 int   hx_out; int hy_out;
 
-int   value  = 80;
+int   value  = 80;                // currently displayed (animated)
+int   target = 80;                // desired position; Every50ms chases it
 int   prev_v = -1;
 
 void needleXY(int v, int len) {
@@ -51,7 +57,7 @@ void needleXY(int v, int len) {
     frac = (float)v / 100.0;
     if (frac < 0.0) { frac = 0.0; }
     if (frac > 1.0) { frac = 1.0; }
-    ang  = ANG_MIN + frac * ANG_SPAN;
+    ang  = -135.0 + frac * 270.0;
     rad  = ang * 3.14159 / 180.0;
     hx_out = CX + (int)(sin(rad) * (float)len);
     hy_out = CY - (int)(cos(rad) * (float)len);
@@ -90,7 +96,7 @@ void drawTick(int v, int r_out, int length, int color) {
     float frac; float ang; float rad;
     int x1; int y1; int x2; int y2;
     frac = (float)v / 100.0;
-    ang  = ANG_MIN + frac * ANG_SPAN;
+    ang  = -135.0 + frac * 270.0;
     rad  = ang * 3.14159 / 180.0;
     x1 = CX + (int)(sin(rad) * (float)r_out);
     y1 = CY - (int)(cos(rad) * (float)r_out);
@@ -106,7 +112,7 @@ void drawLabel(int v, int r) {
     int x; int y;
     char buf[8];
     frac = (float)v / 100.0;
-    ang  = ANG_MIN + frac * ANG_SPAN;
+    ang  = -135.0 + frac * 270.0;
     rad  = ang * 3.14159 / 180.0;
     x = CX + (int)(sin(rad) * (float)r) - 6;
     y = CY - (int)(cos(rad) * (float)r) - 6;
@@ -149,101 +155,116 @@ void drawFace() {
     }
 }
 
-// Restore the old needle bounding box from the clean face, then draw the new
-// needle on the work canvas. Everything stays on canvas; imgFlush pushes only
-// the touched region to the panel.
-void updateNeedle() {
-    int margin; int x0; int y0; int w; int h;
+// Compute a bounding box that covers both old & new needle line segments
+// plus the centre hub cap. Out params via globals (TinyC has no structs).
+int bx0; int by0; int bw; int bh;
+void needleBBox() {
     int hx_old; int hy_old;
     int hx_new; int hy_new;
+    int margin;
+    int rx; int by;
 
-    // previous needle tip (where we drew it last frame)
-    needleXY(prev_v, NEEDLE_LEN);
-    hx_old = hx_out; hy_old = hy_out;
+    needleXY(prev_v, NEEDLE_LEN); hx_old = hx_out; hy_old = hy_out;
+    needleXY(value,  NEEDLE_LEN); hx_new = hx_out; hy_new = hy_out;
 
-    // new needle tip
-    needleXY(value, NEEDLE_LEN);
-    hx_new = hx_out; hy_new = hy_out;
-
-    // union bbox of old+new line segments, padded for thickness + hub cap
     margin = 6;
-    x0 = CX - HUB_R - margin;
-    y0 = CY - HUB_R - margin;
-    if (hx_old - margin < x0) { x0 = hx_old - margin; }
-    if (hy_old - margin < y0) { y0 = hy_old - margin; }
-    if (hx_new - margin < x0) { x0 = hx_new - margin; }
-    if (hy_new - margin < y0) { y0 = hy_new - margin; }
-    w = (hx_old > hx_new) ? hx_old : hx_new;
-    if (CX + HUB_R > w) { w = CX + HUB_R; }
-    w = w + margin - x0;
-    h = (hy_old > hy_new) ? hy_old : hy_new;
-    if (CY + HUB_R > h) { h = CY + HUB_R; }
-    h = h + margin - y0;
+    bx0 = CX - HUB_R - margin;
+    by0 = CY - HUB_R - margin;
+    if (hx_old - margin < bx0) { bx0 = hx_old - margin; }
+    if (hy_old - margin < by0) { by0 = hy_old - margin; }
+    if (hx_new - margin < bx0) { bx0 = hx_new - margin; }
+    if (hy_new - margin < by0) { by0 = hy_new - margin; }
 
-    // 1. restore background in the bbox (auto-marks that region dirty on work)
-    imgBlit(work, face_clean, x0, y0, x0, y0, w, h);
+    rx = (hx_old > hx_new) ? hx_old : hx_new;
+    if (CX + HUB_R > rx) { rx = CX + HUB_R; }
+    rx = rx + margin;
+    by = (hy_old > hy_new) ? hy_old : hy_new;
+    if (CY + HUB_R > by) { by = CY + HUB_R; }
+    by = by + margin;
 
-    // 2. draw new needle into work canvas (primitives auto-mark dirty)
-    imgBeginDraw(work);
-        thickLine(CX, CY, hx_new, hy_new, COL_NEEDLE, 3);
-        dspColor(COL_HUB, 0);
-        dspPos(CX, CY);
-        dspFillCircle(HUB_R);
-        dspColor(COL_FACE, 0);
-        dspPos(CX, CY);
-        dspCircle(HUB_R);
-    imgEndDraw();
+    if (bx0 < 0) { bx0 = 0; }
+    if (by0 < 0) { by0 = 0; }
+    if (rx > FACE_SIZE) { rx = FACE_SIZE; }
+    if (by > FACE_SIZE) { by = FACE_SIZE; }
+    bw = rx - bx0;
+    bh = by - by0;
+}
 
-    // 3. push only the dirty region to the panel
-    imgFlush(work, PANEL_X, PANEL_Y);
+void drawNeedle() {
+    needleXY(value, NEEDLE_LEN);
+    thickLine(CX + PANEL_X, CY + PANEL_Y,
+              hx_out + PANEL_X, hy_out + PANEL_Y,
+              COL_NEEDLE, 3);
+    dspColor(COL_HUB, 0);
+    dspPos(CX + PANEL_X, CY + PANEL_Y);
+    dspFillCircle(HUB_R);
+    dspColor(COL_FACE, 0);
+    dspPos(CX + PANEL_X, CY + PANEL_Y);
+    dspCircle(HUB_R);
+}
+
+// Erase old needle by pushing the clean face sub-rect, then paint the new
+// needle on the panel. One call per animation frame.
+void updateNeedle() {
+    needleBBox();
+    // Canvas -> panel blit (source coords = dest coords inside panel, shifted by PANEL_X/Y)
+    dspPushImageRect(face, bx0, by0, bx0 + PANEL_X, by0 + PANEL_Y, bw, bh);
+    drawNeedle();
+}
+
+// Step value one unit toward target. Returns 1 if anything changed.
+int stepNeedle() {
+    int delta; int gap;
+    if (value == target) { return 0; }
+    gap = target - value;
+    if (gap < 0) { gap = -gap; }
+    delta = 1;
+    if (gap > 8) { delta = 2; }
+    if (target < value) { delta = -delta; }
+    value = value + delta;
+    if ((delta > 0 && value > target) ||
+        (delta < 0 && value < target)) {
+        value = target;
+    }
+    updateNeedle();
+    prev_v = value;
+    return 1;
 }
 
 void main() {
     addCommand("VM");
 
-    // Two canvases: a pristine reference + a working copy
-    face_clean = imgCreate(FACE_SIZE, FACE_SIZE);
-    work       = imgCreate(FACE_SIZE, FACE_SIZE);
-    if (face_clean < 0 || work < 0) {
+    face = imgCreate(FACE_SIZE, FACE_SIZE);
+    if (face < 0) {
         addLog("voltmeter2: imgCreate failed (PSRAM?)");
         return;
     }
 
-    imgClear(face_clean, COL_FACE);
-    imgBeginDraw(face_clean);
+    imgClear(face, COL_FACE);
+    imgBeginDraw(face);
         drawFace();
     imgEndDraw();
 
-    // copy the clean face into work as starting state
-    imgBlit(work, face_clean, 0, 0, 0, 0, FACE_SIZE, FACE_SIZE);
-
-    // add initial needle on work
-    imgBeginDraw(work);
-        needleXY(value, NEEDLE_LEN);
-        thickLine(CX, CY, hx_out, hy_out, COL_NEEDLE, 3);
-        dspColor(COL_HUB, 0);
-        dspPos(CX, CY);
-        dspFillCircle(HUB_R);
-        dspColor(COL_FACE, 0);
-        dspPos(CX, CY);
-        dspCircle(HUB_R);
-    imgEndDraw();
-
-    // full-screen flush (dirty rect covers the whole canvas because of imgClear)
-    imgFlush(work, PANEL_X, PANEL_Y);
+    // Full-screen blit of the face, then draw the initial needle.
+    dspPushImageRect(face, 0, 0, PANEL_X, PANEL_Y, FACE_SIZE, FACE_SIZE);
+    drawNeedle();
     prev_v = value;
 }
 
+// Random-walk the target once per second.
 void EverySecond() {
-    if (work < 0 || face_clean < 0) { return; }
-    int step = ((tasm_second * 13) % 21) - 10;
-    value = value + step;
-    if (value < 0)   { value = 0;   }
-    if (value > 100) { value = 100; }
+    int step;
+    if (face < 0) { return; }
+    step = ((tasm_second * 13) % 21) - 10;
+    target = target + step;
+    if (target < 0)   { target = 0;   }
+    if (target > 100) { target = 100; }
+}
 
-    if (value == prev_v) { return; }
-    updateNeedle();
-    prev_v = value;
+// 20 Hz animation tick — one step per call, no blocking delay.
+void Every50ms() {
+    if (face < 0) { return; }
+    stepNeedle();
 }
 
 void Command(char cmd[]) {
@@ -259,12 +280,8 @@ void Command(char cmd[]) {
         }
         if (v < 0)   { v = 0;   }
         if (v > 100) { v = 100; }
-        value = v;
-        if (work >= 0 && face_clean >= 0) {
-            updateNeedle();
-            prev_v = value;
-        }
-        sprintf(msg, "{\"VM\":{\"value\":%d}}", value);
+        target = v;
+        sprintf(msg, "{\"VM\":{\"target\":%d,\"value\":%d}}", target, value);
         responseCmnd(msg);
     } else {
         responseCmnd("{\"VM\":\"? VMSET <0..100>\"}");

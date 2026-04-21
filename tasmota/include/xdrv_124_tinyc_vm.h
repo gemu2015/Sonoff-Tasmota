@@ -8890,14 +8890,13 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_UI_GAUGE:          for (int i = 0; i < 7; i++) TC_POP(vm); break;
     case SYS_UI_ICON:           for (int i = 0; i < 4; i++) TC_POP(vm); break;
     case SYS_UI_BUTTON:         for (int i = 0; i < 6; i++) TC_POP(vm); break;
-    // Canvas stubs (no-display build)
-    case SYS_IMG_CREATE:        TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break;
-    case SYS_IMG_BEGIN_DRAW:    TC_POP(vm); break;
-    case SYS_IMG_END_DRAW:      break;
-    case SYS_IMG_CLEAR:         TC_POP(vm); TC_POP(vm); break;
-    case SYS_IMG_BLIT:          for (int i = 0; i < 8; i++) TC_POP(vm); break;
-    case SYS_IMG_INVALIDATE:    for (int i = 0; i < 5; i++) TC_POP(vm); break;
-    case SYS_IMG_FLUSH:         TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    // NOTE: Canvas stubs (SYS_IMG_CREATE..SYS_IMG_FLUSH) intentionally NOT
+    // duplicated here. They are provided by the earlier
+    //   #if defined(USE_DISPLAY) && defined(ESP32) && defined(JPEG_PICTS)
+    //   #else
+    // block (~line 8015), which fires whenever *any* of those three macros
+    // is undefined — including the !USE_DISPLAY case this #else covers.
+    // Adding them here would produce duplicate-case-value errors.
 #endif // USE_DISPLAY
 
     // ── Audio ──────────────────────────────────────────

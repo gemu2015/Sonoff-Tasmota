@@ -44,6 +44,13 @@
 
 #include <TasmotaSerial.h>
 
+// SOL_SOCKET / SO_LINGER / struct linger for setSocketOption() in SML_Clean_Meters.
+// ESP32 Arduino core only forward-declares `struct linger` via its Network stack,
+// so we pull in lwIP's definitions here (ESP32-only; ESP8266 path doesn't use TCP meters).
+#ifdef ESP32
+#include <lwip/sockets.h>
+#endif
+
 
 // use special no wait serial driver, should be always on
 #ifndef ESP32
