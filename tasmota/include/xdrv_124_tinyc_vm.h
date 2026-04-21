@@ -548,11 +548,12 @@ enum TcSyscall {
   SYS_UI_CLEAR_SCREEN  = 312, // ()                                   -> void   // fill viewport with theme.bg
   SYS_UI_LABEL         = 320, // (num,x,y,w,h,text_const,align)      -> void   // static text (align: 0=left,1=center,2=right)
   SYS_UI_LABEL_SET     = 321, // (num, text_ref_or_const)            -> void   // change label text, redraw
-  SYS_UI_CHECKBOX      = 322, // (num,x,y,label_const)                -> void   // 24x24 tick box + right-side label
+  SYS_UI_CHECKBOX      = 322, // (num,x,y,w,h,label_const)            -> void   // toggle-button-backed checkbox, caller-sized hit area
   SYS_UI_PROGRESS      = 323, // (num,x,y,w,h,value,max)             -> void   // horizontal fill bar
   SYS_UI_PROGRESS_SET  = 324, // (num, value)                        -> void   // update progress bar value
   SYS_UI_GAUGE         = 325, // (num,x,y,r,value,vmin,vmax)         -> void   // circular gauge with needle
   SYS_UI_ICON          = 326, // (num,x,y,img_slot)                   -> void   // clickable image (uses existing img pool)
+  SYS_UI_BUTTON        = 327, // (num,x,y,w,h,label_const)            -> void   // VButton-backed momentary pushbutton; TouchButton(num,1) on press, (num,0) on release
   // Deep sleep (ESP32 only)
   SYS_DEEP_SLEEP      = 230, // (seconds) -> void — deep sleep with timer wakeup
   SYS_DEEP_SLEEP_GPIO = 231, // (seconds, pin, level) -> void — + GPIO wakeup
@@ -8404,26 +8405,63 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       }
       break;
     }
-    case SYS_UI_CHECKBOX: { // (num,x,y,label_const) -> void   — VButton-backed toggle
+    case SYS_UI_CHECKBOX: { // (num,x,y,w,h,label_const) -> void   — VButton-backed toggle
       int32_t lci = TC_POP(vm);
+      int32_t h   = TC_POP(vm);
+      int32_t w   = TC_POP(vm);
       int32_t y   = TC_POP(vm);
       int32_t x   = TC_POP(vm);
       int32_t num = TC_POP(vm);
       num = ((num % MAX_TOUCH_BUTTONS) + MAX_TOUCH_BUTTONS) % MAX_TOUCH_BUTTONS;
       const char *label = tc_get_const_str(vm, lci);
       if (!label) label = "";
+      // Clamp sizes so a 0 or negative value still produces a usable hit area
+      if (w < 8)  w = 8;
+      if (h < 8)  h = 8;
       if (renderer) {
         if (buttons[num]) { delete buttons[num]; buttons[num] = nullptr; }
         buttons[num] = new VButton();
         if (buttons[num]) {
           char lbl[32];
           strlcpy(lbl, label, sizeof(lbl));
+          // Match dspTButton init order exactly (slider before init, virtual flags after)
+          buttons[num]->vpower.data = 0;           // zero all flags (esp. 'disable')
           buttons[num]->vpower.slider = 0;
-          buttons[num]->vpower.is_virtual   = 1;
-          buttons[num]->vpower.is_pushbutton = 0; // toggle
-          // Compact 24x24 box; label drawn by renderer with theme colours
-          buttons[num]->xinitButtonUL(renderer, (int16_t)x, (int16_t)y, 24, 24,
+          buttons[num]->xinitButtonUL(renderer, (int16_t)x, (int16_t)y,
+            (uint16_t)w, (uint16_t)h,
             tc_ui_theme.border, tc_ui_theme.bg, tc_ui_theme.fg, lbl, 1);
+          buttons[num]->vpower.is_virtual    = 1;
+          buttons[num]->vpower.is_pushbutton = 0;  // toggle
+          buttons[num]->xdrawButton(buttons[num]->vpower.on_off);
+        }
+      }
+      break;
+    }
+    case SYS_UI_BUTTON: { // (num,x,y,w,h,label_const) -> void   — VButton-backed momentary pushbutton
+      int32_t lci = TC_POP(vm);
+      int32_t h   = TC_POP(vm);
+      int32_t w   = TC_POP(vm);
+      int32_t y   = TC_POP(vm);
+      int32_t x   = TC_POP(vm);
+      int32_t num = TC_POP(vm);
+      num = ((num % MAX_TOUCH_BUTTONS) + MAX_TOUCH_BUTTONS) % MAX_TOUCH_BUTTONS;
+      const char *label = tc_get_const_str(vm, lci);
+      if (!label) label = "";
+      if (w < 8)  w = 8;
+      if (h < 8)  h = 8;
+      if (renderer) {
+        if (buttons[num]) { delete buttons[num]; buttons[num] = nullptr; }
+        buttons[num] = new VButton();
+        if (buttons[num]) {
+          char lbl[32];
+          strlcpy(lbl, label, sizeof(lbl));
+          buttons[num]->vpower.data = 0;
+          buttons[num]->vpower.slider = 0;
+          buttons[num]->xinitButtonUL(renderer, (int16_t)x, (int16_t)y,
+            (uint16_t)w, (uint16_t)h,
+            tc_ui_theme.border, tc_ui_theme.bg, tc_ui_theme.fg, lbl, 1);
+          buttons[num]->vpower.is_virtual    = 1;
+          buttons[num]->vpower.is_pushbutton = 1;  // momentary — TouchButton(num,1) press, (num,0) release
           buttons[num]->xdrawButton(buttons[num]->vpower.on_off);
         }
       }
@@ -8518,11 +8556,12 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_UI_CLEAR_SCREEN:   break;
     case SYS_UI_LABEL:          for (int i = 0; i < 7; i++) TC_POP(vm); break;
     case SYS_UI_LABEL_SET:      TC_POP(vm); TC_POP(vm); break;
-    case SYS_UI_CHECKBOX:       for (int i = 0; i < 4; i++) TC_POP(vm); break;
+    case SYS_UI_CHECKBOX:       for (int i = 0; i < 6; i++) TC_POP(vm); break;
     case SYS_UI_PROGRESS:       for (int i = 0; i < 7; i++) TC_POP(vm); break;
     case SYS_UI_PROGRESS_SET:   TC_POP(vm); TC_POP(vm); break;
     case SYS_UI_GAUGE:          for (int i = 0; i < 7; i++) TC_POP(vm); break;
     case SYS_UI_ICON:           for (int i = 0; i < 4; i++) TC_POP(vm); break;
+    case SYS_UI_BUTTON:         for (int i = 0; i < 6; i++) TC_POP(vm); break;
 #endif // USE_TOUCH_BUTTONS
 
 #else  // !USE_DISPLAY — pop args from stack but do nothing
@@ -8591,11 +8630,12 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_UI_CLEAR_SCREEN:   break;
     case SYS_UI_LABEL:          for (int i = 0; i < 7; i++) TC_POP(vm); break;
     case SYS_UI_LABEL_SET:      TC_POP(vm); TC_POP(vm); break;
-    case SYS_UI_CHECKBOX:       for (int i = 0; i < 4; i++) TC_POP(vm); break;
+    case SYS_UI_CHECKBOX:       for (int i = 0; i < 6; i++) TC_POP(vm); break;
     case SYS_UI_PROGRESS:       for (int i = 0; i < 7; i++) TC_POP(vm); break;
     case SYS_UI_PROGRESS_SET:   TC_POP(vm); TC_POP(vm); break;
     case SYS_UI_GAUGE:          for (int i = 0; i < 7; i++) TC_POP(vm); break;
     case SYS_UI_ICON:           for (int i = 0; i < 4; i++) TC_POP(vm); break;
+    case SYS_UI_BUTTON:         for (int i = 0; i < 6; i++) TC_POP(vm); break;
 #endif // USE_DISPLAY
 
     // ── Audio ──────────────────────────────────────────

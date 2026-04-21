@@ -296,7 +296,7 @@ class Adafruit_GFX_Button {
   uint8_t       _textsize_x;
   uint8_t       _textsize_y;
   uint16_t      _outlinecolor, _fillcolor, _textcolor;
-  char          _label[10];
+  char          _label[20];   // 19 chars + NUL (gemu fork — widened from 10)
 
   boolean currstate, laststate;
 };

@@ -3106,10 +3106,11 @@ TinyUI is "really tiny": ~400 LOC of C, zero extra RAM when unused, no extra dep
 | `uiProgress(num, x, y, w, h, value, max)` | Horizontal progress bar. Range `0..max`. |
 | `uiProgressSet(num, value)` | Update bar value + redraw. |
 | `uiGauge(num, x, y, r, value, vmin, vmax)` | 240° arc gauge centred at `x,y`, radius `r`. Calling again with the same `num` re-renders (needle sweeps). |
-| `uiCheckbox(num, x, y, "label")` | Interactive toggle checkbox using VButton slot `num`. Dispatches through `TouchButton(num, state)`. |
+| `uiCheckbox(num, x, y, w, h, "label")` | Interactive latching toggle using VButton slot `num`, with caller-sized hit area (`w` × `h`, minimum 8×8). One `TouchButton(num, state)` per tap, `state` = new latched value (0/1). |
+| `uiButton(num, x, y, w, h, "label")` | Momentary pushbutton in VButton slot `num` (same hit-area rules as `uiCheckbox`). Fires `TouchButton(num, 1)` on press and `TouchButton(num, 0)` on release — useful for trigger actions (pulse, bell, next). |
 | `uiIcon(num, x, y, img_slot)` | *(reserved)* image-backed icon — wiring to the image slot subsystem is pending. |
 
-Passive widgets (Label/Progress/Gauge) use one index space (0..15). Checkboxes/icons use the VButton index space (0..MAX_TOUCH_BUTTONS-1). They do **not** collide.
+Passive widgets (Label/Progress/Gauge) use one index space (0..15). Checkboxes / pushbuttons / icons share the VButton index space (0..MAX_TOUCH_BUTTONS-1). The two spaces do **not** collide with each other.
 
 #### Example
 

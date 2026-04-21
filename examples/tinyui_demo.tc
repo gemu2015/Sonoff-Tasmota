@@ -8,7 +8,7 @@
 //
 // Screen 1: headline label + two live progress bars
 // Screen 2: arc gauge centred on the display showing a value
-// Screen 3: two interactive checkboxes (uses the VButton touch pool)
+// Screen 3: two interactive checkboxes + a momentary pushbutton (VButton touch pool)
 //
 // Navigation (all uppercase, no space between prefix and subcommand):
 //   UINEXT   cycle to the next screen
@@ -26,6 +26,7 @@ int current   = 1;    // which screen is visible
 float power   = 450;  // live value shown on screen 1+2
 int   vent_on = 0;    // checkbox 0 state
 int   heat_on = 0;    // checkbox 1 state
+int   pulses  = 0;    // pushbutton 2 press counter
 
 // ── colours (RGB565) ────────────────────────────────────────────────
 int COL_BG     = 0x0000;   // black
@@ -57,9 +58,10 @@ void build_screen2() {
 
 void build_screen3() {
     uiLabel(0, 0, 10, 320, 30, "Controls", 0);
-    uiCheckbox(0,  40,  70, "Ventilation");
-    uiCheckbox(1,  40, 110, "Heating");
-    uiLabel(6,    80, 170, 200, 20, "Tap a box", 1);
+    uiCheckbox(0,  40,  60, 160, 40, "Ventilation");
+    uiCheckbox(1,  40, 110, 160, 40, "Heating");
+    uiButton  (2,  40, 160, 160, 40, "PULSE");       // momentary
+    uiLabel(6,    80, 210, 200, 20, "Tap a box", 1);
 }
 
 void enter_screen(int id) {
@@ -102,16 +104,22 @@ void EverySecond() {
     }
 }
 
-// Called when any touch button/checkbox is released.
-// `num` is the VButton pool index. For uiCheckbox that's 0..MAX_TOUCH_BUTTONS-1.
+// Called when any touch button/checkbox/pushbutton changes state.
+// `num` is the VButton pool index.
+//   - uiCheckbox: one event per press, state = new latched value (0/1)
+//   - uiButton  : two events per tap, state = 1 on press, 0 on release
 void TouchButton(int num, int state) {
     if (current != 3) return;
     if (num == 0) vent_on = state;
     if (num == 1) heat_on = state;
-    if      (vent_on && heat_on) uiLabelSet(6, "Vent + Heat ON");
-    else if (vent_on)            uiLabelSet(6, "Vent ON");
-    else if (heat_on)            uiLabelSet(6, "Heat ON");
-    else                         uiLabelSet(6, "All OFF");
+    if (num == 2 && state == 1) pulses = pulses + 1;   // count rising edges
+
+    char line[40];
+    if      (vent_on && heat_on) sprintfInt(line, "Vent+Heat ON  pulses=%d", pulses);
+    else if (vent_on)            sprintfInt(line, "Vent ON       pulses=%d", pulses);
+    else if (heat_on)            sprintfInt(line, "Heat ON       pulses=%d", pulses);
+    else                         sprintfInt(line, "All OFF       pulses=%d", pulses);
+    uiLabelSet(6, line);
 }
 
 // Console dispatch. Called with  UINEXT / UIHOME / UIGAUGE / UICTRL

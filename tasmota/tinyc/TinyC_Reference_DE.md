@@ -2754,10 +2754,11 @@ TinyUI ist wirklich klein: ~400 Zeilen C, kein zusaetzlicher RAM im unbenutzten 
 | `uiProgress(num, x, y, w, h, value, max)` | Horizontaler Fortschrittsbalken. Bereich `0..max`. |
 | `uiProgressSet(num, value)` | Balkenwert aktualisieren + neu zeichnen. |
 | `uiGauge(num, x, y, r, value, vmin, vmax)` | 240°-Skala zentriert bei `x,y`, Radius `r`. Erneuter Aufruf mit gleichem `num` bewegt die Nadel. |
-| `uiCheckbox(num, x, y, "label")` | Interaktive Toggle-Checkbox ueber VButton-Slot `num`. Ereignisse ueber `TouchButton(num, state)`. |
+| `uiCheckbox(num, x, y, w, h, "label")` | Interaktive rastende Toggle-Checkbox ueber VButton-Slot `num`, Trefferflaeche vom Aufrufer bestimmt (`w` × `h`, Minimum 8×8). Ein `TouchButton(num, state)` pro Tap, `state` = neuer rastender Wert (0/1). |
+| `uiButton(num, x, y, w, h, "label")` | Tastender Momentantaster im VButton-Slot `num` (gleiche Trefferflaechen-Regel wie `uiCheckbox`). Feuert `TouchButton(num, 1)` beim Druecken und `TouchButton(num, 0)` beim Loslassen — fuer Ausloeseaktionen (Puls, Klingel, Weiter). |
 | `uiIcon(num, x, y, img_slot)` | *(reserviert)* bildbasiertes Icon — Verdrahtung zum Image-Slot-System folgt. |
 
-Passive Widgets (Label/Progress/Gauge) verwenden einen Indexraum (0..15). Checkboxes/Icons verwenden den VButton-Indexraum (0..MAX_TOUCH_BUTTONS-1). Sie kollidieren **nicht**.
+Passive Widgets (Label/Progress/Gauge) verwenden einen Indexraum (0..15). Checkboxes / Pushbuttons / Icons teilen sich den VButton-Indexraum (0..MAX_TOUCH_BUTTONS-1). Die beiden Indexraeume kollidieren **nicht** miteinander.
 
 #### Beispiel
 

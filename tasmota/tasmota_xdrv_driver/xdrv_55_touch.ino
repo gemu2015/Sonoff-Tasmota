@@ -466,10 +466,14 @@ void Touch_Check(void(*rotconvert)(int16_t *x, int16_t *y)) {
 
 
 #ifdef USE_TOUCH_BUTTONS
-// Weak hook — TinyC (xdrv_124) defines the real body; link resolves to a no-op
-// if TinyC is not in the build. Called on every touchscreen state change so the
-// user's TouchButton(num, val) callback fires identically to the webButton path.
-extern "C" __attribute__((weak)) void tinyc_touch_button(uint8_t, int16_t);
+// Bridge into TinyC: xdrv_124_tinyc.ino defines the real body; gated by
+// USE_TINYC so this TU doesn't pull a link error when TinyC is disabled.
+// C++ linkage (no extern "C") to match the definition's mangled name.
+#ifdef USE_TINYC
+extern void tinyc_touch_button(uint8_t, int16_t);
+#else
+static inline void tinyc_touch_button(uint8_t, int16_t) {}
+#endif
 
 void Touch_MQTT(uint8_t index, const char *cp, uint32_t val) {
 #ifdef USE_FT5206
@@ -536,7 +540,9 @@ void CheckTouchButtons(bool touched, int16_t touch_x, int16_t touch_y) {
                     buttons[count]->xdrawButton(buttons[count]->vpower.on_off);
                     EP_Drawbutton(count);
                     Touch_MQTT(count, cp, buttons[count]->vpower.on_off);
-                    if (tinyc_touch_button) tinyc_touch_button(count, (int16_t)buttons[count]->vpower.on_off);
+                    AddLog(LOG_LEVEL_INFO, PSTR("TCHK: toggle cnt=%d v=%d"),
+                      count, buttons[count]->vpower.on_off);
+                    tinyc_touch_button(count, (int16_t)buttons[count]->vpower.on_off);
 
                   }
                 }
@@ -553,7 +559,8 @@ void CheckTouchButtons(bool touched, int16_t touch_x, int16_t touch_y) {
               uint16_t value = buttons[count]->UpdateSlider(touch_x, touch_y);
               EP_Drawbutton(count);
               Touch_MQTT(count, "SLD", value);
-              if (tinyc_touch_button) tinyc_touch_button(count, (int16_t)value);
+              AddLog(LOG_LEVEL_INFO, PSTR("TCHK: slider cnt=%d v=%d"), count, value);
+              tinyc_touch_button(count, (int16_t)value);
             }
           }
         }
@@ -573,7 +580,8 @@ void CheckTouchButtons(bool touched, int16_t touch_x, int16_t touch_y) {
                 Touch_MQTT(count,"PBT", buttons[count]->vpower.on_off);
                 buttons[count]->xdrawButton(buttons[count]->vpower.on_off);
                 EP_Drawbutton(count);
-                if (tinyc_touch_button) tinyc_touch_button(count, 0);
+                AddLog(LOG_LEVEL_INFO, PSTR("TCHK: pbt-rel cnt=%d"), count);
+                tinyc_touch_button(count, 0);
               }
             }
           }

@@ -1590,7 +1590,8 @@ void Adafruit_GFX_Button::initButtonUL(
   _textsize_x   = textsize_x;
   _textsize_y   = textsize_y;
   _gfx          = gfx;
-  strncpy(_label, label, 9);
+  strncpy(_label, label, 19);   // gemu fork — widened from 9 to 19, see Adafruit_GFX.h:_label[20]
+  _label[19] = 0;               // guarantee NUL (strncpy doesn't when src >= dst size)
 }
 
 void draw_picture(char *path, uint32_t xp, uint32_t yp, uint32_t xs, uint32_t ys, uint32_t ocolor, bool inverted);
