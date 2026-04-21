@@ -1,0 +1,279 @@
+// voltmeter.tc — procedurally-drawn analog voltmeter with dirty-rect needle
+//
+// Demonstrates the new canvas API (TinyC 1.4.2+):
+//
+//   1. Allocate a blank RGB565 canvas with imgCreate(w,h) — returns slot 0..3.
+//   2. imgBeginDraw(slot) redirects all dsp* primitives into the canvas.
+//   3. Draw the gauge face (bezel, coloured zones, ticks, labels) with the
+//      normal dsp* calls — nothing appears on the panel yet.
+//   4. imgEndDraw() restores the physical display as the target.
+//   5. dspPushImageRect() blits the finished canvas onto the panel — once
+//      as background, then each tick to erase the old needle's bounding box.
+//   6. dspLine draws the new needle on top.
+//
+// This is the analog_clock.tc pattern generalised: instead of loading a JPG
+// of a watch face, we *draw* the face once into a canvas. Swap in any other
+// procedural (or JPG) source and the rest of the code is identical.
+//
+// Console dispatch: VMSET <0..100> updates the reading; EverySecond wanders.
+
+#define FACE_SIZE     320         // square canvas, 320x320
+#define PANEL_X       80          // where on the screen to show the gauge
+#define PANEL_Y         0
+#define CX            160         // face centre in canvas coords
+#define CY            160
+#define NEEDLE_LEN    110         // needle pivot→tip, fits inside the tick ring
+#define HUB_R          16         // central pivot cap radius (drawn on top)
+
+// Palette (RGB565)
+#define COL_BEZEL     0xBDF7      // light grey
+#define COL_RIM       0x632C      // darker grey ring
+#define COL_FACE      0xFFFF      // white
+#define COL_GREEN     0x3605
+#define COL_YELLOW    0xFCC0
+#define COL_RED       0xC1A3
+#define COL_TICK      0x18E3
+#define COL_LABEL     0x18E3
+#define COL_NEEDLE    0xE041      // saturated red
+#define COL_HUB       0x2AB9      // soft blue
+
+// Sweep geometry — 0 at 7:30, 50 at 12, 100 at 4:30 (270° sweep clockwise)
+// TinyC uses: angle in deg, 0 = 12 o'clock, positive = clockwise
+#define ANG_MIN      -135.0       // value 0
+#define ANG_SPAN      270.0
+
+int   face;                        // canvas slot
+int   on_x;   int on_y;            // previous needle endpoint
+int   hx_out; int hy_out;          // handXY output
+
+int   value  = 80;                 // current reading (0..100)
+int   prev_v = -1;                 // last drawn value — skip redraw if unchanged
+
+// ── geometry helper ────────────────────────────────────────────────
+
+void needleXY(int v, int len) {
+    float frac;
+    float ang;
+    float rad;
+    frac = (float)v / 100.0;
+    if (frac < 0.0) { frac = 0.0; }
+    if (frac > 1.0) { frac = 1.0; }
+    ang  = ANG_MIN + frac * ANG_SPAN;
+    rad  = ang * 3.14159 / 180.0;
+    hx_out = CX + (int)(sin(rad) * (float)len);
+    hy_out = CY - (int)(cos(rad) * (float)len);
+}
+
+// thick line (copied from analog_clock pattern)
+void thickLine(int x0, int y0, int x1, int y1, int color, int width) {
+    int d; int half;
+    half = width / 2;
+    dspColor(color, 0);
+    d = 0 - half;
+    while (d <= half) {
+        dspPos(x0 + d, y0);    dspLine(x1 + d, y1);
+        dspPos(x0, y0 + d);    dspLine(x1, y1 + d);
+        d = d + 1;
+    }
+}
+
+// ── face rendering (drawn ONCE into the canvas) ────────────────────
+
+// Angular-arc band made of ~120 radial segments. Cheaper than drawArc
+// (which the VM doesn't expose) and looks clean at this radius.
+void drawArcBand(int r_out, int r_in, float a_from, float a_to, int color) {
+    float a;
+    float step;
+    int x1; int y1; int x2; int y2;
+    step = 0.02;             // rad step — ~1.1°
+    a = a_from;
+    dspColor(color, 0);
+    while (a <= a_to) {
+        x1 = CX + (int)(sin(a) * (float)r_in);
+        y1 = CY - (int)(cos(a) * (float)r_in);
+        x2 = CX + (int)(sin(a) * (float)r_out);
+        y2 = CY - (int)(cos(a) * (float)r_out);
+        dspPos(x1, y1);
+        dspLine(x2, y2);
+        a = a + step;
+    }
+}
+
+// Place a tick mark at value v: radial line from r_out..(r_out-length).
+void drawTick(int v, int r_out, int length, int color) {
+    float frac; float ang; float rad;
+    int x1; int y1; int x2; int y2;
+    frac = (float)v / 100.0;
+    ang  = ANG_MIN + frac * ANG_SPAN;
+    rad  = ang * 3.14159 / 180.0;
+    x1 = CX + (int)(sin(rad) * (float)r_out);
+    y1 = CY - (int)(cos(rad) * (float)r_out);
+    x2 = CX + (int)(sin(rad) * (float)(r_out - length));
+    y2 = CY - (int)(cos(rad) * (float)(r_out - length));
+    dspColor(color, 0);
+    dspPos(x1, y1);
+    dspLine(x2, y2);
+}
+
+// Numeric label for value v at radius r. Uses font 1 (EPD Font12 – small).
+void drawLabel(int v, int r) {
+    float frac; float ang; float rad;
+    int x; int y;
+    char buf[8];
+    frac = (float)v / 100.0;
+    ang  = ANG_MIN + frac * ANG_SPAN;
+    rad  = ang * 3.14159 / 180.0;
+    x = CX + (int)(sin(rad) * (float)r) - 6;     // rough centring for 1–3 digits
+    y = CY - (int)(cos(rad) * (float)r) - 6;
+    if (v >= 100) { x = x - 6; }
+    else if (v >= 10) { x = x - 2; }
+    sprintfInt(buf, "%d", v);
+    dspColor(COL_LABEL, COL_FACE);
+    dspPos(x, y);
+    dspDraw(buf);
+}
+
+void drawFace() {
+    int v;
+    // Bezel: two filled discs (outer grey, inner white)
+    dspColor(COL_BEZEL, 0);
+    dspPos(CX, CY);   dspFillCircle(155);
+    dspColor(COL_RIM, 0);
+    dspPos(CX, CY);   dspCircle(150);
+    dspColor(COL_FACE, 0);
+    dspPos(CX, CY);   dspFillCircle(145);
+
+    // Coloured zones — angles in radians, 0 = north, CW+.
+    // value 0  = -135° = -2.356 rad
+    // value 50 =    0° =   0.0
+    // value 70 =  +54° =  0.942
+    // value 80 =  +81° =  1.414
+    // value 100 = +135° = 2.356
+    drawArcBand(142, 128, -2.356, 0.0,   COL_GREEN);    //  0..50
+    drawArcBand(142, 128,  0.0,   0.942, COL_YELLOW);   // 50..70
+    drawArcBand(142, 128,  1.414, 2.356, COL_RED);      // 80..100
+
+    // Tick marks: major every 10, minor every 2
+    v = 0;
+    while (v <= 100) {
+        if (v % 10 == 0) {
+            drawTick(v, 128, 12, COL_TICK);              // major
+        } else {
+            drawTick(v, 128,  6, COL_TICK);              // minor
+        }
+        v = v + 2;
+    }
+
+    // Numeric labels at majors
+    dspText("[f1s1]");                                    // small font
+    v = 0;
+    while (v <= 100) {
+        drawLabel(v, 108);
+        v = v + 10;
+    }
+}
+
+// ── needle ─────────────────────────────────────────────────────────
+
+// Erase the old needle by blitting the bounding rect of the previous hand
+// FROM the canvas back onto the panel — classic clock trick.
+void eraseNeedle(int hx, int hy, int thick) {
+    int x0; int y0; int w; int h; int margin;
+    margin = thick + 2;
+    if (CX < hx) { x0 = CX - margin; } else { x0 = hx - margin; }
+    if (CY < hy) { y0 = CY - margin; } else { y0 = hy - margin; }
+    w = abs(hx - CX) + margin * 2;
+    h = abs(hy - CY) + margin * 2;
+    // clamp to canvas bounds
+    if (x0 < 0) { w = w + x0; x0 = 0; }
+    if (y0 < 0) { h = h + y0; y0 = 0; }
+    if (x0 + w > FACE_SIZE) { w = FACE_SIZE - x0; }
+    if (y0 + h > FACE_SIZE) { h = FACE_SIZE - y0; }
+    if (w > 0 && h > 0) {
+        // source: canvas coords (x0,y0); dest: screen coords (PANEL_X+x0, PANEL_Y+y0)
+        dspPushImageRect(face, x0, y0, PANEL_X + x0, PANEL_Y + y0, w, h);
+    }
+}
+
+void drawNeedle() {
+    needleXY(value, NEEDLE_LEN);
+    // draw on the panel (renderer is pointing at the screen — we're NOT in
+    // begin/end mode here, so dspLine goes straight to the display)
+    thickLine(PANEL_X + CX, PANEL_Y + CY,
+              PANEL_X + hx_out, PANEL_Y + hy_out,
+              COL_NEEDLE, 3);
+    // pivot cap — drawn each frame, stays fully on top of the needle base
+    dspColor(COL_HUB, 0);
+    dspPos(PANEL_X + CX, PANEL_Y + CY);
+    dspFillCircle(HUB_R);
+    dspColor(COL_FACE, 0);
+    dspPos(PANEL_X + CX, PANEL_Y + CY);
+    dspCircle(HUB_R);
+    on_x = hx_out; on_y = hy_out;
+}
+
+// ── callbacks ──────────────────────────────────────────────────────
+
+void main() {
+    addCommand("VM");
+
+    // Allocate the canvas and paint the face into it — ONCE at startup.
+    face = imgCreate(FACE_SIZE, FACE_SIZE);
+    if (face < 0) {
+        addLog("voltmeter: imgCreate failed (PSRAM?)");
+        return;
+    }
+    imgClear(face, COL_FACE);              // white background
+    imgBeginDraw(face);
+        drawFace();                         // all dsp* calls target the canvas
+    imgEndDraw();
+
+    // Blit the finished face onto the panel as initial background
+    dspPushImageRect(face, 0, 0, PANEL_X, PANEL_Y, FACE_SIZE, FACE_SIZE);
+
+    // Initial needle
+    on_x = CX; on_y = CY;
+    drawNeedle();
+    prev_v = value;
+}
+
+void EverySecond() {
+    if (face < 0) { return; }
+    // Synthetic value walk for demo purposes
+    int step = ((tasm_second * 13) % 21) - 10;
+    value = value + step;
+    if (value < 0)   { value = 0;   }
+    if (value > 100) { value = 100; }
+
+    if (value == prev_v) { return; }
+    eraseNeedle(on_x, on_y, 3);
+    drawNeedle();
+    prev_v = value;
+}
+
+void Command(char cmd[]) {
+    char msg[64];
+    char arg[16];
+    // Tasmota uppercases the subcommand, so VMSET arrives as "SET n"
+    if (strFind(cmd, "SET") == 0) {
+        int v;
+        if (strlen(cmd) > 4) {
+            strSub(arg, cmd, 4, 0);
+            v = atoi(arg);
+        } else {
+            v = 0;
+        }
+        if (v < 0)   { v = 0;   }
+        if (v > 100) { v = 100; }
+        value = v;
+        if (face >= 0) {
+            eraseNeedle(on_x, on_y, 3);
+            drawNeedle();
+            prev_v = value;
+        }
+        sprintf(msg, "{\"VM\":{\"value\":%d}}", value);
+        responseCmnd(msg);
+    } else {
+        responseCmnd("{\"VM\":\"? VMSET <0..100>\"}");
+    }
+}

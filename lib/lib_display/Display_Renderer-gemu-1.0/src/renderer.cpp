@@ -775,6 +775,61 @@ uint16_t VButton::UpdateSlider(int16_t x, int16_t y) {
 // #endif // USE_DISPLAY_LVGL_ONLY
 
 
+// ─────────────────────────────────────────────────────────────────────────
+// RendererCanvas — RGB565 in-memory drop-in Renderer
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Everything except drawPixel / fillScreen / drawFastH-VLine is inherited
+// from Adafruit_GFX via Renderer.  The parent Renderer defines drawFastH/V
+// with early-out when `framebuffer` is null (that field is for monochrome
+// EPD paints) — so we MUST override both to get real line drawing here.
+//
+// Rotation is deliberately fixed at 0°: the buffer is meant to be blitted
+// out via dspPushImageRect which expects a linear row-major RGB565 layout.
+
+RendererCanvas::RendererCanvas(uint16_t *buf, uint16_t w, uint16_t h)
+  : Renderer(w, h), cbuf(buf), cw(w), ch(h) {
+  disp_bpp = 16;
+  // no explicit framebuffer assignment — drawFastH/V are overridden below
+  // and don't consult the parent `framebuffer` pointer.
+}
+
+void RendererCanvas::drawPixel(int16_t x, int16_t y, uint16_t color) {
+  if (!cbuf) return;
+  if (x < 0 || y < 0 || x >= (int16_t)cw || y >= (int16_t)ch) return;
+  cbuf[(uint32_t)y * cw + x] = color;
+}
+
+void RendererCanvas::fillScreen(uint16_t color) {
+  if (!cbuf) return;
+  uint32_t pixels = (uint32_t)cw * ch;
+  uint8_t hi = color >> 8, lo = color & 0xff;
+  if (hi == lo) {
+    memset(cbuf, lo, pixels * 2);
+  } else {
+    for (uint32_t i = 0; i < pixels; i++) cbuf[i] = color;
+  }
+}
+
+void RendererCanvas::drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) {
+  if (!cbuf) return;
+  if (y < 0 || y >= (int16_t)ch) return;
+  if (x < 0) { w += x; x = 0; }
+  if (x + w > (int16_t)cw) w = cw - x;
+  if (w <= 0) return;
+  uint16_t *p = cbuf + (uint32_t)y * cw + x;
+  for (int16_t i = 0; i < w; i++) p[i] = color;
+}
+
+void RendererCanvas::drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
+  if (!cbuf) return;
+  if (x < 0 || x >= (int16_t)cw) return;
+  if (y < 0) { h += y; y = 0; }
+  if (y + h > (int16_t)ch) h = ch - y;
+  if (h <= 0) return;
+  uint16_t *p = cbuf + (uint32_t)y * cw + x;
+  for (int16_t i = 0; i < h; i++, p += cw) *p = color;
+}
 
 
 /* END OF FILE */

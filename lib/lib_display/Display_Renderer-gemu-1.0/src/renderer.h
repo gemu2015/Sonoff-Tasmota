@@ -120,6 +120,34 @@ private:
   GFXfont *ramfont = 0;
 };
 
+// ── RendererCanvas ────────────────────────────────────────────────────────
+//
+// An in-memory RGB565 drop-in Renderer. Inherits all GFX drawing primitives
+// (drawLine, drawRect, fillCircle, drawChar, print, drawTriangle, …) from
+// Adafruit_GFX via Renderer.
+//
+// The canvas does NOT own its pixel buffer: callers pass in a pre-allocated
+// RGB565 array (typically a tc_img_store slot) so the image slot controls
+// lifetime.  Rotation is fixed at 0° to keep the buffer layout predictable
+// for dspPushImageRect blits.
+//
+// Panel-specific ops (setAddrWindow/pushColors/Updateframe/DisplayOnff) are
+// inherited no-ops from Renderer — harmless if something calls them while
+// rendering is redirected here.
+class RendererCanvas : public Renderer {
+public:
+  RendererCanvas(uint16_t *buf, uint16_t w, uint16_t h);
+  void drawPixel(int16_t x, int16_t y, uint16_t color) override;
+  void fillScreen(uint16_t color);
+  void drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) override;
+  void drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) override;
+  uint16_t *getBuffer(void) const { return cbuf; }
+private:
+  uint16_t *cbuf;
+  uint16_t  cw;
+  uint16_t  ch;
+};
+
 typedef union {
   uint8_t data;
   struct {

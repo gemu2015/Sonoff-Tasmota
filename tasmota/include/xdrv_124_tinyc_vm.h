@@ -554,6 +554,11 @@ enum TcSyscall {
   SYS_UI_GAUGE         = 325, // (num,x,y,r,value,vmin,vmax)         -> void   // circular gauge with needle
   SYS_UI_ICON          = 326, // (num,x,y,img_slot)                   -> void   // clickable image (uses existing img pool)
   SYS_UI_BUTTON        = 327, // (num,x,y,w,h,label_const)            -> void   // VButton-backed momentary pushbutton; TouchButton(num,1) on press, (num,0) on release
+  // In-memory RGB565 canvases — let dsp* primitives draw into an image slot
+  SYS_IMG_CREATE       = 328, // (w, h)                                -> int slot (0..3, -1=err) // alloc blank canvas in PSRAM
+  SYS_IMG_BEGIN_DRAW   = 329, // (slot)                                -> void   // redirect all dsp* to the slot's canvas
+  SYS_IMG_END_DRAW     = 330, // ()                                    -> void   // restore panel renderer
+  SYS_IMG_CLEAR        = 331, // (slot, color_rgb565)                  -> void   // fast fill of canvas
   // Deep sleep (ESP32 only)
   SYS_DEEP_SLEEP      = 230, // (seconds) -> void — deep sleep with timer wakeup
   SYS_DEEP_SLEEP_GPIO = 231, // (seconds, pin, level) -> void — + GPIO wakeup
@@ -1024,15 +1029,46 @@ static int32_t  tc_chart_time_base = 0; // time base offset in minutes from "now
 static TasmotaSerial *tc_serial_ports[TC_MAX_SERIAL_PORTS] = {}; // TinyC serial ports (up to 3, one per handle)
 
 // Image store for dspLoadImage / dspPushImageRect (watchface backgrounds etc.)
+// Slots from imgCreate() additionally carry a RendererCanvas so that all
+// dsp* primitives can be temporarily retargeted to the slot's pixel buffer
+// via imgBeginDraw()/imgEndDraw().
+#ifdef USE_DISPLAY
+  #include <renderer.h>     // for Renderer / RendererCanvas types
+  extern Renderer *renderer;
+#endif
 #define TC_IMG_SLOTS 4
-static struct {
-  uint16_t *buf;   // RGB565 pixel data in PSRAM (NULL = free)
-  uint16_t w, h;   // image dimensions
-} tc_img_store[TC_IMG_SLOTS] = {};
+struct TcImgSlot {
+  uint16_t       *buf;     // RGB565 pixel data in PSRAM (NULL = free)
+  uint16_t        w, h;    // image dimensions
+#ifdef USE_DISPLAY
+  RendererCanvas *canvas;  // non-null if created via imgCreate() (JPG slots set null)
+#endif
+};
+static TcImgSlot tc_img_store[TC_IMG_SLOTS] = {};
 
-// Helper: free all image store slots (called on VM stop)
+#ifdef USE_DISPLAY
+// Saved panel renderer during imgBeginDraw()/imgEndDraw() redirect window.
+// Only one redirect active at a time; nested begin calls are ignored.
+static Renderer *tc_canvas_saved_renderer = nullptr;
+#endif
+
+// Helper: free all image store slots (called on VM stop). If a redirect is
+// still active we restore the panel renderer first so we don't leave the
+// global pointing at a canvas we're about to delete.
 static void tc_img_store_free(void) {
+#ifdef USE_DISPLAY
+  if (tc_canvas_saved_renderer) {
+    renderer = tc_canvas_saved_renderer;
+    tc_canvas_saved_renderer = nullptr;
+  }
+#endif
   for (int i = 0; i < TC_IMG_SLOTS; i++) {
+#ifdef USE_DISPLAY
+    if (tc_img_store[i].canvas) {
+      delete tc_img_store[i].canvas;
+      tc_img_store[i].canvas = nullptr;
+    }
+#endif
     if (tc_img_store[i].buf) {
       free(tc_img_store[i].buf);
       tc_img_store[i].buf = nullptr;
@@ -1410,6 +1446,10 @@ static void tc_send_web(const char *buf, int len) {
         int16_t cx = w->x, cy = w->y;
         int16_t r  = w->w;
         if (r < 4) r = 4;
+        // Erase previous needle: wipe the interior with bg. The scale ring at
+        // radius r is preserved (we only clear up to r-3; needle extends to r-4,
+        // so the old line is fully inside the wiped disc).
+        renderer->fillCircle(cx, cy, r - 3, w->bg);
         const int SEGMENTS = 30;
         const float a_start = -2.0944f; // -120 deg
         const float a_span  =  4.1888f; //  240 deg
@@ -7645,6 +7685,74 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       break;
     }
 
+    // ── Canvas-backed image slots: draw procedurally, blit via dspPushImageRect ──
+    case SYS_IMG_CREATE: {
+      // imgCreate(w, h) -> slot (0..TC_IMG_SLOTS-1, -1 on error)
+      // Allocates a blank RGB565 buffer in PSRAM plus a RendererCanvas around
+      // it. The slot behaves exactly like a JPG-loaded slot except you can
+      // also call imgBeginDraw() to make dsp* primitives target it.
+      int32_t h = TC_POP(vm);
+      int32_t w = TC_POP(vm);
+      if (w <= 0 || h <= 0 || w > 1024 || h > 1024) { TC_PUSH(vm, -1); break; }
+      int slot = -1;
+      for (int i = 0; i < TC_IMG_SLOTS; i++) {
+        if (!tc_img_store[i].buf) { slot = i; break; }
+      }
+      if (slot < 0) { AddLog(LOG_LEVEL_INFO, PSTR("TCC: img no free slot")); TC_PUSH(vm, -1); break; }
+      uint32_t bytes = (uint32_t)w * (uint32_t)h * 2;
+      uint16_t *buf = (uint16_t *)special_malloc(bytes + 4);
+      if (!buf) { AddLog(LOG_LEVEL_INFO, PSTR("TCC: img %dx%d OOM (%u B)"), w, h, bytes); TC_PUSH(vm, -1); break; }
+      memset(buf, 0, bytes);  // start black
+      RendererCanvas *cv = new RendererCanvas(buf, (uint16_t)w, (uint16_t)h);
+      if (!cv) { free(buf); TC_PUSH(vm, -1); break; }
+      tc_img_store[slot].buf    = buf;
+      tc_img_store[slot].w      = (uint16_t)w;
+      tc_img_store[slot].h      = (uint16_t)h;
+      tc_img_store[slot].canvas = cv;
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: img slot %d canvas %dx%d (%u KB)"),
+             slot, w, h, bytes / 1024);
+      TC_PUSH(vm, slot);
+      break;
+    }
+    case SYS_IMG_BEGIN_DRAW: {
+      // imgBeginDraw(slot) -> void
+      // Swap the global `renderer` to the slot's canvas so subsequent dsp*
+      // calls draw into its pixel buffer. Nested calls are ignored (Phase 1:
+      // single redirect at a time). Must be paired with imgEndDraw().
+      int32_t slot = TC_POP(vm);
+      if (slot < 0 || slot >= TC_IMG_SLOTS) break;
+      if (!tc_img_store[slot].canvas) break;         // not a canvas slot (JPG-only)
+      if (tc_canvas_saved_renderer) break;            // already redirected
+      tc_canvas_saved_renderer = renderer;
+      renderer = tc_img_store[slot].canvas;
+      break;
+    }
+    case SYS_IMG_END_DRAW: {
+      // imgEndDraw() -> void. No-op if no redirect is active.
+      if (tc_canvas_saved_renderer) {
+        renderer = tc_canvas_saved_renderer;
+        tc_canvas_saved_renderer = nullptr;
+      }
+      break;
+    }
+    case SYS_IMG_CLEAR: {
+      // imgClear(slot, color) -> void. Fast memset-based fill.
+      int32_t color = TC_POP(vm);
+      int32_t slot  = TC_POP(vm);
+      if (slot < 0 || slot >= TC_IMG_SLOTS) break;
+      if (!tc_img_store[slot].buf)       break;
+      uint32_t pixels = (uint32_t)tc_img_store[slot].w * tc_img_store[slot].h;
+      uint16_t c16 = (uint16_t)color;
+      uint8_t  hi = c16 >> 8, lo = c16 & 0xff;
+      if (hi == lo) {
+        memset(tc_img_store[slot].buf, lo, pixels * 2);
+      } else {
+        uint16_t *p = tc_img_store[slot].buf;
+        for (uint32_t i = 0; i < pixels; i++) p[i] = c16;
+      }
+      break;
+    }
+
     // ── Bridge: camera JPEG slot  <->  display image slot (RGB565) ──
 #if defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA)
     case SYS_DSP_LOAD_IMG_CAM: {
@@ -7784,6 +7892,22 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_DSP_IMG_HEIGHT: {
       TC_POP(vm); // slot
       TC_PUSH(vm, 0);
+      break;
+    }
+    case SYS_IMG_CREATE: {
+      TC_POP(vm); TC_POP(vm);  // w, h
+      TC_PUSH(vm, -1);
+      break;
+    }
+    case SYS_IMG_BEGIN_DRAW: {
+      TC_POP(vm); // slot
+      break;
+    }
+    case SYS_IMG_END_DRAW: {
+      break;
+    }
+    case SYS_IMG_CLEAR: {
+      TC_POP(vm); TC_POP(vm);  // slot, color
       break;
     }
     case SYS_DSP_LOAD_IMG_CAM: {
@@ -8636,6 +8760,11 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_UI_GAUGE:          for (int i = 0; i < 7; i++) TC_POP(vm); break;
     case SYS_UI_ICON:           for (int i = 0; i < 4; i++) TC_POP(vm); break;
     case SYS_UI_BUTTON:         for (int i = 0; i < 6; i++) TC_POP(vm); break;
+    // Canvas stubs (no-display build)
+    case SYS_IMG_CREATE:        TC_POP(vm); TC_POP(vm); TC_PUSH(vm, -1); break;
+    case SYS_IMG_BEGIN_DRAW:    TC_POP(vm); break;
+    case SYS_IMG_END_DRAW:      break;
+    case SYS_IMG_CLEAR:         TC_POP(vm); TC_POP(vm); break;
 #endif // USE_DISPLAY
 
     // ── Audio ──────────────────────────────────────────

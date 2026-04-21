@@ -1,0 +1,308 @@
+// tinyui_dashboard.tc — polished 3-screen dashboard, TinyUI aesthetics showcase
+//
+// A step up from tinyui_demo.tc — shows how a handful of simple ui* calls
+// can look presentable with a coherent palette, a shared header strip, and
+// colour-coded widgets that respond to live data.
+//
+// Target: 480x320 display (landscape), USE_TOUCH_BUTTONS enabled.
+//
+// Screens
+//   1 HOME    — hero power readout, colour-coded power bar, stats grid,
+//                water-tank bar, live clock
+//   2 METER   — large arc gauge, colour-tinted by threshold, peak label
+//   3 CONTROL — two toggle checkboxes + one momentary MODE pushbutton
+//
+// Navigation via console prefix "DB":
+//   DBNEXT   cycle to the next screen
+//   DBHOME   jump to HOME
+//   DBMETER  jump to METER
+//   DBCTRL   jump to CONTROL
+//
+// Tricks shown
+//   • Re-theming progress bars at draw time: uiTheme() changes the "accent"
+//     captured by the next uiProgress/uiGauge call. Each widget caches its
+//     colour at creation — calling uiTheme() back to the default afterwards
+//     does NOT recolour already-drawn widgets.
+//   • An accent underline painted by raw dspFillRect — survives until the
+//     next uiScreen() clear, and is repainted by each build_xxx().
+//   • uiButton fires twice per tap (press=1 / release=0). We latch state on
+//     the rising edge only (state == 1).
+
+// ── palette (RGB565) ───────────────────────────────────────────────
+int COL_BG      = 0x1106;   // deep navy     #102030
+int COL_PANEL   = 0x1947;   // panel tint    #182838
+int COL_BORDER  = 0x320C;   // soft border   #304060
+int COL_MUTED   = 0x8410;   // grey          #808080
+int COL_TEXT    = 0xFFFF;   // white
+int COL_ACCENT  = 0x061F;   // cyan          #00BFFF
+int COL_OK      = 0x068A;   // calm green    #00D050
+int COL_WARN    = 0xFD00;   // amber         #FFA000
+int COL_ALERT   = 0xF986;   // hot red       #FF3030
+
+// ── state ──────────────────────────────────────────────────────────
+int   current  = 1;      // 1=HOME  2=METER  3=CONTROL
+int   uptime   = 0;      // seconds since main()
+float power    = 240.0;  // live watt reading
+float temp     = 22.4;   // °C
+float water    = 640.0;  // tank level 0..1000
+int   target   = 500;
+int   peak     = 0;
+int   vent_on  = 0;
+int   heat_on  = 0;
+int   pulses   = 0;      // MODE pushbutton press counter
+int   mode     = 1;      // 0=Eco 1=Normal 2=Boost
+
+// ── helpers ────────────────────────────────────────────────────────
+
+// Colour-code the power bar / gauge by usage band.
+int usage_color(float w) {
+    if (w > 800) return COL_ALERT;
+    if (w > 600) return COL_WARN;
+    return COL_OK;
+}
+
+void mode_name(char out[], int m) {
+    if      (m == 0) strcpy(out, "Eco");
+    else if (m == 1) strcpy(out, "Normal");
+    else             strcpy(out, "Boost");
+}
+
+void format_clock(char out[], int secs) {
+    int h = secs / 3600;
+    int m = (secs / 60) % 60;
+    int s = secs % 60;
+    sprintf(out, "%d:%02d:%02d", h, m, s);
+}
+
+// Draw the 2-px accent line under the header. Raw primitive — persists on
+// the framebuffer until the next uiScreen() clear.
+void draw_header_underline() {
+    dspColor(COL_ACCENT, COL_BG);    // fg, bg
+    dspPos(0, 38);                   // cursor for fill-rect
+    dspFillRect(480, 2);             // width, height at current pos
+}
+
+// Re-create a progress bar whose "accent" is the given colour. Each progress
+// widget caches its colour at creation, so reusing the same index with a
+// different theme effectively recolours it.
+void tinted_progress(int idx, int x, int y, int w, int h, int val, int vmax, int col) {
+    uiTheme(COL_BG, col, COL_TEXT, COL_BORDER);
+    uiProgress(idx, x, y, w, h, val, vmax);
+}
+
+void reset_theme() {
+    uiTheme(COL_BG, COL_ACCENT, COL_TEXT, COL_BORDER);
+}
+
+// ── screens ────────────────────────────────────────────────────────
+
+void build_home() {
+    // ─ header ─
+    uiLabel(0,  12,   8, 280, 24, "HOME",    1);   // left-aligned title
+    uiLabel(1, 340,   8, 130, 24, "0:00:00", -1);  // right-aligned clock
+    draw_header_underline();
+
+    // ─ hero row ─
+    uiLabel(2,  14,  54, 220, 18, "POWER",  1);
+    uiLabel(3,  14,  76, 280, 28, "240 W",  1);    // updated live
+
+    uiLabel(4, 260,  54, 210, 18, "TARGET", 1);
+    uiLabel(5, 260,  76, 210, 28, "500 W",  1);
+
+    // ─ power bar (color-coded) ─
+    tinted_progress(6, 14, 118, 452, 18, (int)power, 1000, usage_color(power));
+    reset_theme();
+
+    // ─ stats grid ─
+    uiLabel(7,   14, 158, 148, 16, "Temp",   1);
+    uiLabel(8,   14, 176, 148, 22, "22.4 C", 1);
+
+    uiLabel(9,  170, 158, 148, 16, "Mode",   1);
+    uiLabel(10, 170, 176, 148, 22, "Normal", 1);
+
+    uiLabel(11, 322, 158, 148, 16, "Uptime",  1);
+    uiLabel(12, 322, 176, 148, 22, "0:00:00", 1);
+
+    // ─ water bar ─
+    uiLabel(13,  14, 222, 200, 16, "Water",  1);
+    tinted_progress(14, 14, 242, 452, 14, (int)water, 1000, COL_ACCENT);
+    reset_theme();
+
+    // ─ footer hint ─
+    uiLabel(15,  14, 292, 452, 14, "DBNEXT / DBMETER / DBCTRL", 0);
+}
+
+void build_meter() {
+    uiLabel(0,  12,   8, 280, 24, "METER",   1);
+    uiLabel(1, 340,   8, 130, 24, "0:00:00", -1);
+    draw_header_underline();
+
+    // ─ arc gauge centre-stage, recoloured live in update_meter() ─
+    uiTheme(COL_BG, usage_color(power), COL_TEXT, COL_BORDER);
+    uiGauge(5, 240, 178, 100, (int)power, 0, 1000);
+    reset_theme();
+
+    uiLabel(2, 100, 258,  60, 16, "0",     1);
+    uiLabel(3, 320, 258,  60, 16, "1000", -1);
+
+    uiLabel(4,  14, 292, 220, 16, "Target 500 W",  1);
+    uiLabel(6, 240, 292, 226, 16, "Peak 0 W",     -1);
+}
+
+void build_control() {
+    uiLabel(0,  12,   8, 280, 24, "CONTROL", 1);
+    uiLabel(1, 340,   8, 130, 24, "0:00:00", -1);
+    draw_header_underline();
+
+    // ─ interactive widgets (VButton pool — own index space, does not
+    //   collide with the passive widget pool above) ─
+    uiCheckbox(0,  16,  56, 200, 56, "Vent");
+    uiCheckbox(1,  16, 124, 200, 56, "Heat");
+    uiButton  (2,  16, 192, 200, 56, "MODE");
+
+    // ─ live status column on the right ─
+    uiLabel(2, 240,  72, 220, 24, "Vent: OFF",    1);
+    uiLabel(3, 240, 140, 220, 24, "Heat: OFF",    1);
+    uiLabel(4, 240, 208, 220, 24, "Mode: Normal", 1);
+
+    uiLabel(5,  14, 290, 452, 16, "Tap MODE to cycle Eco / Normal / Boost", 0);
+}
+
+void enter_screen(int id) {
+    current = id;
+    uiScreen(id);
+    if      (id == 1) build_home();
+    else if (id == 2) build_meter();
+    else if (id == 3) build_control();
+}
+
+void next_screen() {
+    int n = current + 1;
+    if (n > 3) n = 1;
+    enter_screen(n);
+}
+
+// ── per-screen updates (called each second) ────────────────────────
+
+void update_home() {
+    char buf[32];
+    char mn[12];
+
+    format_clock(buf, uptime);
+    uiLabelSet(1, buf);    // header clock
+    uiLabelSet(12, buf);   // stats grid uptime
+
+    sprintfFloat(buf, "%.0f W", power);
+    uiLabelSet(3, buf);
+
+    tinted_progress(6, 14, 118, 452, 18, (int)power, 1000, usage_color(power));
+    reset_theme();
+
+    sprintfFloat(buf, "%.1f C", temp);
+    uiLabelSet(8, buf);
+
+    mode_name(mn, mode);
+    uiLabelSet(10, mn);
+
+    tinted_progress(14, 14, 242, 452, 14, (int)water, 1000, COL_ACCENT);
+    reset_theme();
+}
+
+void update_meter() {
+    char buf[32];
+
+    format_clock(buf, uptime);
+    uiLabelSet(1, buf);
+
+    // Gauge colour follows the current usage band
+    uiTheme(COL_BG, usage_color(power), COL_TEXT, COL_BORDER);
+    uiGauge(5, 240, 178, 100, (int)power, 0, 1000);
+    reset_theme();
+
+    sprintf(buf, "Peak %d W", peak);
+    uiLabelSet(6, buf);
+}
+
+void update_control() {
+    char buf[32];
+    char mn[12];
+
+    format_clock(buf, uptime);
+    uiLabelSet(1, buf);
+
+    if (vent_on) uiLabelSet(2, "Vent: ON");
+    else         uiLabelSet(2, "Vent: OFF");
+
+    if (heat_on) uiLabelSet(3, "Heat: ON");
+    else         uiLabelSet(3, "Heat: OFF");
+
+    mode_name(mn, mode);
+    sprintf(buf, "Mode: %s", mn);
+    uiLabelSet(4, buf);
+}
+
+// ── callbacks ──────────────────────────────────────────────────────
+
+void main() {
+    addCommand("DB");
+    uiTheme(COL_BG, COL_ACCENT, COL_TEXT, COL_BORDER);
+    enter_screen(1);
+}
+
+void EverySecond() {
+    uptime = uptime + 1;
+
+    // Synthetic power — pseudo-random walk within 80..980 W
+    int step = ((uptime * 37) % 220) - 100;
+    power = power + (float)step;
+    if (power < 80)  power = 80;
+    if (power > 980) power = 980;
+    if ((int)power > peak) peak = (int)power;
+
+    // Temperature drift (21.0 .. 24.9)
+    temp = 21.0 + ((float)(uptime % 40)) * 0.1;
+
+    // Water consumption, refill on empty
+    water = water - 0.8;
+    if (water < 50) water = 1000;
+
+    if      (current == 1) update_home();
+    else if (current == 2) update_meter();
+    else if (current == 3) update_control();
+}
+
+// TouchButton is dispatched for every VButton slot change.
+//   uiCheckbox: one event per tap, state = new latched value (0/1)
+//   uiButton  : state = 1 on press, 0 on release
+void TouchButton(int num, int state) {
+    if (current != 3) return;
+
+    if (num == 0) vent_on = state;
+    if (num == 1) heat_on = state;
+    if (num == 2 && state == 1) {      // rising edge only
+        mode = mode + 1;
+        if (mode > 2) mode = 0;
+        pulses = pulses + 1;
+    }
+
+    // Refresh immediately — don't wait for EverySecond
+    update_control();
+}
+
+void Command(char cmd[]) {
+    char msg[64];
+    if (strcmp(cmd, "NEXT") == 0) {
+        next_screen();
+    } else if (strcmp(cmd, "HOME") == 0) {
+        enter_screen(1);
+    } else if (strcmp(cmd, "METER") == 0) {
+        enter_screen(2);
+    } else if (strcmp(cmd, "CTRL") == 0) {
+        enter_screen(3);
+    } else {
+        responseCmnd("{\"DB\":\"? DBNEXT DBHOME DBMETER DBCTRL\"}");
+        return;
+    }
+    sprintf(msg, "{\"DB\":\"screen %d\"}", current);
+    responseCmnd(msg);
+}
