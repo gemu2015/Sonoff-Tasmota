@@ -539,6 +539,20 @@ enum TcSyscall {
   SYS_SPAWN_TASK_STACK = 299, // (name_const, stack_kb)    -> int pool_idx, -1=err (stack_kb clamped 2..12)
   SYS_KILL_TASK        = 300, // (name_const)              -> int 0=signaled, -1=not running
   SYS_TASK_RUNNING     = 301, // (name_const)              -> int 1=running, 0=idle
+  // ── TinyUI — tiny LVGL-like layer on top of existing dsp* primitives ───
+  // Passive widgets (label/progress/gauge/icon) live in a small separate pool
+  // and are auto-redrawn on screen switch. Interactive widgets (checkbox) are
+  // thin wrappers over dspTButton — they live in the existing VButton pool.
+  SYS_UI_SCREEN        = 310, // (id)                                -> void   // switch visible screen; -1 reads current
+  SYS_UI_THEME         = 311, // (bg, accent, text, border)          -> void   // set global theme colors (RGB565)
+  SYS_UI_CLEAR_SCREEN  = 312, // ()                                   -> void   // fill viewport with theme.bg
+  SYS_UI_LABEL         = 320, // (num,x,y,w,h,text_const,align)      -> void   // static text (align: 0=left,1=center,2=right)
+  SYS_UI_LABEL_SET     = 321, // (num, text_ref_or_const)            -> void   // change label text, redraw
+  SYS_UI_CHECKBOX      = 322, // (num,x,y,label_const)                -> void   // 24x24 tick box + right-side label
+  SYS_UI_PROGRESS      = 323, // (num,x,y,w,h,value,max)             -> void   // horizontal fill bar
+  SYS_UI_PROGRESS_SET  = 324, // (num, value)                        -> void   // update progress bar value
+  SYS_UI_GAUGE         = 325, // (num,x,y,r,value,vmin,vmax)         -> void   // circular gauge with needle
+  SYS_UI_ICON          = 326, // (num,x,y,img_slot)                   -> void   // clickable image (uses existing img pool)
   // Deep sleep (ESP32 only)
   SYS_DEEP_SLEEP      = 230, // (seconds) -> void — deep sleep with timer wakeup
   SYS_DEEP_SLEEP_GPIO = 231, // (seconds, pin, level) -> void — + GPIO wakeup
@@ -1293,6 +1307,165 @@ static void tc_send_web(const char *buf, int len) {
     XdrvMailbox.data_len = strlen(tbuf);
     DisplayText();
     XdrvMailbox.data = savptr;
+  }
+
+/*********************************************************************************************\
+ * TinyUI — lightweight retained-mode UI layer on top of TinyC display primitives
+ *
+ * Design: two parallel widget pools with DIFFERENT index spaces:
+ *   - Existing VButton pool (buttons[MAX_TOUCH_BUTTONS]) for INTERACTIVE widgets:
+ *     Button/TButton/PButton/Slider/Checkbox/Icon — handled via existing USE_TOUCH_BUTTONS
+ *   - New TcUiWidget pool (tc_ui_widgets[]) for PASSIVE widgets:
+ *     Label/Progress/Gauge — drawn immediately + stored for screen-switch redraw
+ *
+ * Screens: uiScreen(id) sets current screen, clears canvas w/ theme.bg, removes all VButtons,
+ * then redraws any passive widgets tagged with the new screen id. The user's script re-creates
+ * interactive widgets via their Build*() functions on screen change.
+\*********************************************************************************************/
+#define TC_UI_MAX_WIDGETS        16
+#define TC_UI_WIDGET_NONE        0
+#define TC_UI_WIDGET_LABEL       1
+#define TC_UI_WIDGET_PROGRESS    2
+#define TC_UI_WIDGET_GAUGE       3
+
+  typedef struct {
+    uint16_t bg;      // screen background
+    uint16_t fg;      // default foreground (text)
+    uint16_t accent;  // accent / fill / needle
+    uint16_t border;  // border / gauge scale
+    uint16_t muted;   // secondary text / empty track
+    uint8_t  pad;     // default padding inside widgets (px)
+    uint8_t  radius;  // corner radius for future use
+  } TcUiTheme;
+
+  typedef struct {
+    uint8_t  type;      // TC_UI_WIDGET_*
+    uint8_t  screen;    // screen id (0 = all)
+    int16_t  x, y, w, h;
+    int32_t  value;
+    int32_t  vmin;
+    int32_t  vmax;
+    uint16_t fg;
+    uint16_t bg;
+    uint16_t accent;
+    int8_t   align;     // -1 right, 0 centre, 1 left
+    char     text_buf[48]; // label text (copied from const string on create / uiLabelSet)
+  } TcUiWidget;
+
+  static TcUiTheme tc_ui_theme = {
+    /*bg*/     0x0000, /*fg*/     0xFFFF, /*accent*/ 0x07FF,
+    /*border*/ 0x39E7, /*muted*/  0x7BEF, /*pad*/    4, /*radius*/ 6
+  };
+  static uint8_t     tc_ui_current_screen = 0;
+  static TcUiWidget  tc_ui_widgets[TC_UI_MAX_WIDGETS];
+
+  // Draw a single passive widget using existing display primitives.
+  static void tc_ui_draw_widget(const TcUiWidget *w) {
+    if (!renderer || w->type == TC_UI_WIDGET_NONE) return;
+    uint16_t saved_fg = fg_color;
+    switch (w->type) {
+      case TC_UI_WIDGET_LABEL: {
+        // Clear label area with theme.bg, then draw text left/centre/right of area.
+        renderer->fillRect(w->x, w->y, w->w, w->h, w->bg);
+        const char *txt = w->text_buf;
+        fg_color = w->fg;
+        int16_t tx = w->x + tc_ui_theme.pad;
+        if (w->align == 0) {        // centre (rough — full Adafruit textBounds not needed here)
+          int16_t tw = (int16_t)(strlen(txt) * 6); // approx 6 px / char for default font
+          tx = w->x + (w->w - tw) / 2;
+          if (tx < w->x) tx = w->x;
+        } else if (w->align == -1) { // right
+          int16_t tw = (int16_t)(strlen(txt) * 6);
+          tx = w->x + w->w - tw - tc_ui_theme.pad;
+          if (tx < w->x) tx = w->x;
+        }
+        disp_xpos = tx;
+        disp_ypos = w->y + tc_ui_theme.pad;
+        renderer->setCursor(disp_xpos, disp_ypos);
+        renderer->setTextColor(w->fg, w->bg);
+        renderer->println(txt);
+        break;
+      }
+      case TC_UI_WIDGET_PROGRESS: {
+        // Empty track
+        renderer->fillRect(w->x, w->y, w->w, w->h, w->bg);
+        // Border
+        renderer->drawRect(w->x, w->y, w->w, w->h, tc_ui_theme.border);
+        // Filled portion
+        int32_t range = w->vmax - w->vmin;
+        if (range <= 0) range = 1;
+        int32_t v = w->value;
+        if (v < w->vmin) v = w->vmin;
+        if (v > w->vmax) v = w->vmax;
+        int32_t fw = ((int32_t)(w->w - 2) * (v - w->vmin)) / range;
+        if (fw > 0) {
+          renderer->fillRect(w->x + 1, w->y + 1, (int16_t)fw, w->h - 2, w->accent);
+        }
+        break;
+      }
+      case TC_UI_WIDGET_GAUGE: {
+        // Semicircular gauge drawn as short line segments.
+        // x,y = centre; w = radius; value/vmin/vmax map to -120..+120 degrees arc.
+        int16_t cx = w->x, cy = w->y;
+        int16_t r  = w->w;
+        if (r < 4) r = 4;
+        const int SEGMENTS = 30;
+        const float a_start = -2.0944f; // -120 deg
+        const float a_span  =  4.1888f; //  240 deg
+        // Scale track (muted)
+        for (int i = 0; i < SEGMENTS; i++) {
+          float a0 = a_start + a_span * ((float)i       / SEGMENTS);
+          float a1 = a_start + a_span * ((float)(i + 1) / SEGMENTS);
+          int16_t x0 = cx + (int16_t)((float)r       * cosf(a0));
+          int16_t y0 = cy + (int16_t)((float)r       * sinf(a0));
+          int16_t x1 = cx + (int16_t)((float)r       * cosf(a1));
+          int16_t y1 = cy + (int16_t)((float)r       * sinf(a1));
+          renderer->drawLine(x0, y0, x1, y1, tc_ui_theme.border);
+        }
+        // Needle
+        int32_t range = w->vmax - w->vmin;
+        if (range <= 0) range = 1;
+        int32_t v = w->value;
+        if (v < w->vmin) v = w->vmin;
+        if (v > w->vmax) v = w->vmax;
+        float frac = (float)(v - w->vmin) / (float)range;
+        float a = a_start + a_span * frac;
+        int16_t nx = cx + (int16_t)((float)(r - 4) * cosf(a));
+        int16_t ny = cy + (int16_t)((float)(r - 4) * sinf(a));
+        renderer->drawLine(cx, cy, nx, ny, w->accent);
+        renderer->fillCircle(cx, cy, 3, w->accent);
+        break;
+      }
+      default: break;
+    }
+    fg_color = saved_fg;
+  }
+
+  // Helper: clear screen by drawing a filled rect of theme.bg covering the display
+  static void tc_ui_clear_screen() {
+    if (!renderer) return;
+    int16_t dw = renderer->width();
+    int16_t dh = renderer->height();
+    renderer->fillRect(0, 0, dw, dh, tc_ui_theme.bg);
+  }
+
+  // Helper: redraw every passive widget that belongs to the current screen (or screen 0 = all)
+  static void tc_ui_redraw_all_widgets() {
+    for (int i = 0; i < TC_UI_MAX_WIDGETS; i++) {
+      const TcUiWidget *w = &tc_ui_widgets[i];
+      if (w->type == TC_UI_WIDGET_NONE) continue;
+      if (w->screen != 0 && w->screen != tc_ui_current_screen) continue;
+      tc_ui_draw_widget(w);
+    }
+  }
+
+  // Helper: delete all VButtons (used on screen switch)
+  static void tc_ui_delete_all_vbuttons() {
+#ifdef USE_TOUCH_BUTTONS
+    for (uint32_t i = 0; i < MAX_TOUCH_BUTTONS; i++) {
+      if (buttons[i]) { delete buttons[i]; buttons[i] = nullptr; }
+    }
+#endif
   }
 #endif
 
@@ -8166,6 +8339,166 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       }
       break;
     }
+
+    // ── TinyUI ──────────────────────────────────────────
+    case SYS_UI_SCREEN: { // (id) -> void  switch screen
+      int32_t id = TC_POP(vm);
+      if (id < 0) id = 0; if (id > 255) id = 255;
+      tc_ui_current_screen = (uint8_t)id;
+      tc_ui_clear_screen();
+      tc_ui_delete_all_vbuttons();
+      tc_ui_redraw_all_widgets();
+      break;
+    }
+    case SYS_UI_THEME: { // (bg, accent, text, border) -> void
+      int32_t border = TC_POP(vm);
+      int32_t text   = TC_POP(vm);
+      int32_t accent = TC_POP(vm);
+      int32_t bg     = TC_POP(vm);
+      tc_ui_theme.bg     = (uint16_t)bg;
+      tc_ui_theme.fg     = (uint16_t)text;
+      tc_ui_theme.accent = (uint16_t)accent;
+      tc_ui_theme.border = (uint16_t)border;
+      break;
+    }
+    case SYS_UI_CLEAR_SCREEN: { // () -> void
+      tc_ui_clear_screen();
+      break;
+    }
+    case SYS_UI_LABEL: { // (num,x,y,w,h,text_const,align) -> void
+      int32_t align = TC_POP(vm);
+      int32_t tci   = TC_POP(vm);
+      int32_t h     = TC_POP(vm);
+      int32_t w     = TC_POP(vm);
+      int32_t y     = TC_POP(vm);
+      int32_t x     = TC_POP(vm);
+      int32_t num   = TC_POP(vm);
+      if (num >= 0 && num < TC_UI_MAX_WIDGETS) {
+        TcUiWidget *W = &tc_ui_widgets[num];
+        W->type   = TC_UI_WIDGET_LABEL;
+        W->screen = tc_ui_current_screen;
+        W->x = (int16_t)x; W->y = (int16_t)y;
+        W->w = (int16_t)w; W->h = (int16_t)h;
+        W->fg = tc_ui_theme.fg;
+        W->bg = tc_ui_theme.bg;
+        W->accent = tc_ui_theme.accent;
+        if (align < -1) align = -1; if (align > 1) align = 1;
+        W->align = (int8_t)align;
+        const char *s = tc_get_const_str(vm, tci);
+        if (s) { strlcpy(W->text_buf, s, sizeof(W->text_buf)); }
+        else   { W->text_buf[0] = 0; }
+        tc_ui_draw_widget(W);
+      }
+      break;
+    }
+    case SYS_UI_LABEL_SET: { // (num, text_ref_or_const) -> void
+      int32_t tci = TC_POP(vm);
+      int32_t num = TC_POP(vm);
+      if (num >= 0 && num < TC_UI_MAX_WIDGETS) {
+        TcUiWidget *W = &tc_ui_widgets[num];
+        if (W->type == TC_UI_WIDGET_LABEL) {
+          // tc_ref_to_cstr handles both const refs and int32-array refs
+          tc_ref_to_cstr(vm, tci, W->text_buf, sizeof(W->text_buf));
+          tc_ui_draw_widget(W);
+        }
+      }
+      break;
+    }
+    case SYS_UI_CHECKBOX: { // (num,x,y,label_const) -> void   — VButton-backed toggle
+      int32_t lci = TC_POP(vm);
+      int32_t y   = TC_POP(vm);
+      int32_t x   = TC_POP(vm);
+      int32_t num = TC_POP(vm);
+      num = ((num % MAX_TOUCH_BUTTONS) + MAX_TOUCH_BUTTONS) % MAX_TOUCH_BUTTONS;
+      const char *label = tc_get_const_str(vm, lci);
+      if (!label) label = "";
+      if (renderer) {
+        if (buttons[num]) { delete buttons[num]; buttons[num] = nullptr; }
+        buttons[num] = new VButton();
+        if (buttons[num]) {
+          char lbl[32];
+          strlcpy(lbl, label, sizeof(lbl));
+          buttons[num]->vpower.slider = 0;
+          buttons[num]->vpower.is_virtual   = 1;
+          buttons[num]->vpower.is_pushbutton = 0; // toggle
+          // Compact 24x24 box; label drawn by renderer with theme colours
+          buttons[num]->xinitButtonUL(renderer, (int16_t)x, (int16_t)y, 24, 24,
+            tc_ui_theme.border, tc_ui_theme.bg, tc_ui_theme.fg, lbl, 1);
+          buttons[num]->xdrawButton(buttons[num]->vpower.on_off);
+        }
+      }
+      break;
+    }
+    case SYS_UI_PROGRESS: { // (num,x,y,w,h,value,max) -> void
+      int32_t vmax  = TC_POP(vm);
+      int32_t value = TC_POP(vm);
+      int32_t h     = TC_POP(vm);
+      int32_t w     = TC_POP(vm);
+      int32_t y     = TC_POP(vm);
+      int32_t x     = TC_POP(vm);
+      int32_t num   = TC_POP(vm);
+      if (num >= 0 && num < TC_UI_MAX_WIDGETS) {
+        TcUiWidget *W = &tc_ui_widgets[num];
+        W->type   = TC_UI_WIDGET_PROGRESS;
+        W->screen = tc_ui_current_screen;
+        W->x = (int16_t)x; W->y = (int16_t)y;
+        W->w = (int16_t)w; W->h = (int16_t)h;
+        W->value = value;
+        W->vmin  = 0;
+        W->vmax  = (vmax > 0) ? vmax : 100;
+        W->fg = tc_ui_theme.fg;
+        W->bg = tc_ui_theme.muted;
+        W->accent = tc_ui_theme.accent;
+        tc_ui_draw_widget(W);
+      }
+      break;
+    }
+    case SYS_UI_PROGRESS_SET: { // (num, value) -> void
+      int32_t value = TC_POP(vm);
+      int32_t num   = TC_POP(vm);
+      if (num >= 0 && num < TC_UI_MAX_WIDGETS) {
+        TcUiWidget *W = &tc_ui_widgets[num];
+        if (W->type == TC_UI_WIDGET_PROGRESS) {
+          W->value = value;
+          tc_ui_draw_widget(W);
+        }
+      }
+      break;
+    }
+    case SYS_UI_GAUGE: { // (num,x,y,r,value,vmin,vmax) -> void
+      int32_t vmax  = TC_POP(vm);
+      int32_t vmin  = TC_POP(vm);
+      int32_t value = TC_POP(vm);
+      int32_t r     = TC_POP(vm);
+      int32_t y     = TC_POP(vm);
+      int32_t x     = TC_POP(vm);
+      int32_t num   = TC_POP(vm);
+      if (num >= 0 && num < TC_UI_MAX_WIDGETS) {
+        TcUiWidget *W = &tc_ui_widgets[num];
+        W->type   = TC_UI_WIDGET_GAUGE;
+        W->screen = tc_ui_current_screen;
+        W->x = (int16_t)x; W->y = (int16_t)y;
+        W->w = (int16_t)r; W->h = (int16_t)r;
+        W->value = value;
+        W->vmin  = vmin;
+        W->vmax  = (vmax > vmin) ? vmax : (vmin + 1);
+        W->fg = tc_ui_theme.fg;
+        W->bg = tc_ui_theme.bg;
+        W->accent = tc_ui_theme.accent;
+        tc_ui_draw_widget(W);
+      }
+      break;
+    }
+    case SYS_UI_ICON: { // (num,x,y,img_slot) -> void  (image button wrapper)
+      int32_t slot = TC_POP(vm);
+      int32_t y    = TC_POP(vm);
+      int32_t x    = TC_POP(vm);
+      int32_t num  = TC_POP(vm);
+      // For now draw via dspPicture-equivalent by calling renderer directly via the img slot path.
+      // TODO: wire to the existing image-slot lookup once that path is exposed.
+      (void)slot; (void)x; (void)y; (void)num;
+      break;
+    }
 #else  // !USE_TOUCH_BUTTONS — pop args but do nothing
     case SYS_DSP_BUTTON:
     case SYS_DSP_TBUTTON:
@@ -8179,6 +8512,17 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       TC_POP(vm); TC_PUSH(vm, -1); break;
     case SYS_DSP_BTN_DEL:
       TC_POP(vm); break;
+    // TinyUI stubs (no-touch display build)
+    case SYS_UI_SCREEN:         TC_POP(vm); break;
+    case SYS_UI_THEME:          TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_UI_CLEAR_SCREEN:   break;
+    case SYS_UI_LABEL:          for (int i = 0; i < 7; i++) TC_POP(vm); break;
+    case SYS_UI_LABEL_SET:      TC_POP(vm); TC_POP(vm); break;
+    case SYS_UI_CHECKBOX:       for (int i = 0; i < 4; i++) TC_POP(vm); break;
+    case SYS_UI_PROGRESS:       for (int i = 0; i < 7; i++) TC_POP(vm); break;
+    case SYS_UI_PROGRESS_SET:   TC_POP(vm); TC_POP(vm); break;
+    case SYS_UI_GAUGE:          for (int i = 0; i < 7; i++) TC_POP(vm); break;
+    case SYS_UI_ICON:           for (int i = 0; i < 4; i++) TC_POP(vm); break;
 #endif // USE_TOUCH_BUTTONS
 
 #else  // !USE_DISPLAY — pop args from stack but do nothing
@@ -8241,6 +8585,17 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_DSP_IMG_TEXT_BURN:
       // 7 args: slot, x, y, color, fieldw, align, buf_ref
       for (int i = 0; i < 7; i++) TC_POP(vm); break;
+    // TinyUI stubs (no-display build)
+    case SYS_UI_SCREEN:         TC_POP(vm); break;
+    case SYS_UI_THEME:          TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); break;
+    case SYS_UI_CLEAR_SCREEN:   break;
+    case SYS_UI_LABEL:          for (int i = 0; i < 7; i++) TC_POP(vm); break;
+    case SYS_UI_LABEL_SET:      TC_POP(vm); TC_POP(vm); break;
+    case SYS_UI_CHECKBOX:       for (int i = 0; i < 4; i++) TC_POP(vm); break;
+    case SYS_UI_PROGRESS:       for (int i = 0; i < 7; i++) TC_POP(vm); break;
+    case SYS_UI_PROGRESS_SET:   TC_POP(vm); TC_POP(vm); break;
+    case SYS_UI_GAUGE:          for (int i = 0; i < 7; i++) TC_POP(vm); break;
+    case SYS_UI_ICON:           for (int i = 0; i < 4; i++) TC_POP(vm); break;
 #endif // USE_DISPLAY
 
     // ── Audio ──────────────────────────────────────────

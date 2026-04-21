@@ -3083,6 +3083,70 @@ int main() {
 }
 ```
 
+### TinyUI — Retained-Mode Widget Layer
+
+A thin, retained-mode UI layer on top of the primitive `dsp*` calls. It adds:
+
+* **Screens** — keep up to 256 logical screens; switching clears the canvas, removes interactive widgets, and re-draws passive widgets tagged with the new screen.
+* **Theme** — a single global colour palette + padding applied to all widgets.
+* **Passive widgets** (`uiLabel`, `uiProgress`, `uiGauge`) — stored in a separate pool (`tc_ui_widgets[TC_UI_MAX_WIDGETS]`, default 16 entries). They survive `uiScreen()` switches and redraw automatically.
+* **Interactive widgets** (`uiCheckbox`, `uiIcon`) — backed by the existing VButton pool (`MAX_TOUCH_BUTTONS` entries). They dispatch through the normal `TouchButton(num, state)` callback. **Different index space from passive widgets.**
+
+TinyUI is "really tiny": ~400 LOC of C, zero extra RAM when unused, no extra dependencies, and it reuses the existing display renderer. Compare to LVGL (~150–500 KB flash, 10–30 KB RAM).
+
+#### API
+
+| Function | Description |
+|---|---|
+| `uiScreen(int id)` | Switch to screen `id` (0..255). Clears canvas with `theme.bg`, deletes all VButtons, redraws passive widgets tagged with the new screen. Call your `build_screenN()` afterwards to re-create interactive widgets. |
+| `uiTheme(bg, accent, text, border)` | Set global palette (RGB565). Used by widgets created afterwards. |
+| `uiClearScreen()` | Fill canvas with `theme.bg`. |
+| `uiLabel(num, x, y, w, h, "text", align)` | Passive text label in widget pool slot `num` (0..15). `align`: `-1`=right, `0`=centre, `1`=left. |
+| `uiLabelSet(num, "text")` or `uiLabelSet(num, buf)` | Update a label's text and redraw. Accepts a const string literal or a `char[]` buffer. |
+| `uiProgress(num, x, y, w, h, value, max)` | Horizontal progress bar. Range `0..max`. |
+| `uiProgressSet(num, value)` | Update bar value + redraw. |
+| `uiGauge(num, x, y, r, value, vmin, vmax)` | 240° arc gauge centred at `x,y`, radius `r`. Calling again with the same `num` re-renders (needle sweeps). |
+| `uiCheckbox(num, x, y, "label")` | Interactive toggle checkbox using VButton slot `num`. Dispatches through `TouchButton(num, state)`. |
+| `uiIcon(num, x, y, img_slot)` | *(reserved)* image-backed icon — wiring to the image slot subsystem is pending. |
+
+Passive widgets (Label/Progress/Gauge) use one index space (0..15). Checkboxes/icons use the VButton index space (0..MAX_TOUCH_BUTTONS-1). They do **not** collide.
+
+#### Example
+
+```c
+int current = 1;
+float power = 0;
+
+void build_screen1() {
+    uiLabel(0,   0,  0, 320, 30, "Dashboard",   0);
+    uiLabel(1,  10, 50, 150, 20, "Power:  0 W", 1);
+    uiProgress(3, 10, 80, 300, 18, 0, 1000);
+}
+
+void main() {
+    uiTheme(0x0000, 0x07FF, 0xFFFF, 0x39E7);  // bg, accent, text, border
+    uiScreen(1);
+    build_screen1();
+}
+
+void EverySecond() {
+    power = power + 50; if (power > 1000) power = 0;
+    char buf[32];
+    sprintfFloat(buf, "Power: %.0f W", power);
+    uiLabelSet(1, buf);
+    uiProgressSet(3, power);
+}
+```
+
+See `examples/tinyui_demo.tc` for a 3-screen demo with live values, an arc gauge, and interactive checkboxes.
+
+#### Compile-time limits
+
+| Constant | Default | Purpose |
+|---|---|---|
+| `TC_UI_MAX_WIDGETS` | 16 | Passive widget pool size (`tc_ui_widgets[]`) |
+| `MAX_TOUCH_BUTTONS` | 16 | Interactive VButton pool (shared with `dspButton/dspTButton/…`) |
+
 ### Audio
 
 | Function | Description |

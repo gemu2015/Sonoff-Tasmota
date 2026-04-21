@@ -466,6 +466,11 @@ void Touch_Check(void(*rotconvert)(int16_t *x, int16_t *y)) {
 
 
 #ifdef USE_TOUCH_BUTTONS
+// Weak hook — TinyC (xdrv_124) defines the real body; link resolves to a no-op
+// if TinyC is not in the build. Called on every touchscreen state change so the
+// user's TouchButton(num, val) callback fires identically to the webButton path.
+extern "C" __attribute__((weak)) void tinyc_touch_button(uint8_t, int16_t);
+
 void Touch_MQTT(uint8_t index, const char *cp, uint32_t val) {
 #ifdef USE_FT5206
   if (FT5206_found) ResponseTime_P(PSTR(",\"FT5206\":{\"%s%d\":\"%d\"}}"), cp, index + 1, val);
@@ -531,6 +536,7 @@ void CheckTouchButtons(bool touched, int16_t touch_x, int16_t touch_y) {
                     buttons[count]->xdrawButton(buttons[count]->vpower.on_off);
                     EP_Drawbutton(count);
                     Touch_MQTT(count, cp, buttons[count]->vpower.on_off);
+                    if (tinyc_touch_button) tinyc_touch_button(count, (int16_t)buttons[count]->vpower.on_off);
 
                   }
                 }
@@ -547,6 +553,7 @@ void CheckTouchButtons(bool touched, int16_t touch_x, int16_t touch_y) {
               uint16_t value = buttons[count]->UpdateSlider(touch_x, touch_y);
               EP_Drawbutton(count);
               Touch_MQTT(count, "SLD", value);
+              if (tinyc_touch_button) tinyc_touch_button(count, (int16_t)value);
             }
           }
         }
@@ -566,6 +573,7 @@ void CheckTouchButtons(bool touched, int16_t touch_x, int16_t touch_y) {
                 Touch_MQTT(count,"PBT", buttons[count]->vpower.on_off);
                 buttons[count]->xdrawButton(buttons[count]->vpower.on_off);
                 EP_Drawbutton(count);
+                if (tinyc_touch_button) tinyc_touch_button(count, 0);
               }
             }
           }

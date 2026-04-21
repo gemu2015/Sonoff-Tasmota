@@ -1,0 +1,134 @@
+// tinyui_demo.tc — demo of the TinyUI retained-mode widget layer
+//
+// Uses the new ui* syscalls (uiScreen / uiTheme / uiLabel / uiProgress / uiGauge /
+// uiCheckbox) to build a 3-screen dashboard on top of the standard TinyC display
+// primitives. No external library, no graphical designer — just a thin wrapper
+// over the existing Renderer with retained state so widgets redraw automatically
+// when the screen changes.
+//
+// Screen 1: headline label + two live progress bars
+// Screen 2: arc gauge centred on the display showing a value
+// Screen 3: two interactive checkboxes (uses the VButton touch pool)
+//
+// Navigation (all uppercase, no space between prefix and subcommand):
+//   UINEXT   cycle to the next screen
+//   UIHOME   jump to screen 1 (dashboard)
+//   UIGAUGE  jump to screen 2 (arc gauge)
+//   UICTRL   jump to screen 3 (checkboxes)
+// Dispatched through the registered command prefix "UI".
+//
+// Labels 0..3 + progress 0..1 + gauge 0  live in the passive widget pool
+// (tc_ui_widgets[]).
+// Checkboxes 0..1 live in the VButton pool (buttons[]).
+// Different index spaces, on purpose — they do not collide.
+
+int current   = 1;    // which screen is visible
+float power   = 450;  // live value shown on screen 1+2
+int   vent_on = 0;    // checkbox 0 state
+int   heat_on = 0;    // checkbox 1 state
+
+// ── colours (RGB565) ────────────────────────────────────────────────
+int COL_BG     = 0x0000;   // black
+int COL_FG     = 0xFFFF;   // white
+int COL_ACCENT = 0x07FF;   // cyan
+int COL_BORDER = 0x39E7;   // dark grey
+int COL_WARN   = 0xFD20;   // orange
+int COL_OK     = 0x07E0;   // green
+
+// ── helpers ─────────────────────────────────────────────────────────
+void build_screen1() {
+    // Headline label — widget #0, centred inside 320x30 area
+    uiLabel(0,   0,  0, 320, 30, "Dashboard",     0);
+    // Two labels for the live values — will be updated via uiLabelSet
+    uiLabel(1,  10, 50, 150, 20, "Power:  0 W",   1);
+    uiLabel(2, 160, 50, 150, 20, "Target: 500 W", 1);
+    // Progress bars — widget #0 and #1 in the progress pool (overwrites labels' slot;
+    // ok because they live in the same passive pool — pick unused indices).
+    uiProgress(3,  10,  80, 300, 18,   0, 1000);
+    uiProgress(4,  10, 110, 300, 18, 500, 1000);
+}
+
+void build_screen2() {
+    uiLabel(0, 0, 10, 320, 30, "Arc Gauge", 0);
+    // Centre of display (160, 140), radius 70
+    uiGauge(5, 160, 140, 70, 0, 0, 1000);
+    uiLabel(1, 60, 220, 200, 20, "Live power (W)", 0);
+}
+
+void build_screen3() {
+    uiLabel(0, 0, 10, 320, 30, "Controls", 0);
+    uiCheckbox(0,  40,  70, "Ventilation");
+    uiCheckbox(1,  40, 110, "Heating");
+    uiLabel(6,    80, 170, 200, 20, "Tap a box", 1);
+}
+
+void enter_screen(int id) {
+    current = id;
+    uiScreen(id);             // clears + removes VButtons + redraws passive widgets
+    if      (id == 1) build_screen1();
+    else if (id == 2) build_screen2();
+    else if (id == 3) build_screen3();
+}
+
+void screen_next() {
+    int n = current + 1;
+    if (n > 3) n = 1;
+    enter_screen(n);
+}
+
+// ── callbacks ───────────────────────────────────────────────────────
+void main() {
+    // Register a console command prefix so Command() receives `UI <sub> <args>`
+    addCommand("UI");
+    // Theme set once — all future widgets inherit these colours
+    uiTheme(COL_BG, COL_ACCENT, COL_FG, COL_BORDER);
+    enter_screen(1);
+}
+
+void EverySecond() {
+    // Pretend we're measuring power — bounce between 100 and 950 W
+    power = power + 37;
+    if (power > 950) power = 100;
+
+    if (current == 1) {
+        char buf[32];
+        sprintfFloat(buf, "Power: %.0f W", power);
+        uiLabelSet(1, buf);
+        uiProgressSet(3, power);
+    }
+    else if (current == 2) {
+        // uiGauge uses widget #5; reusing the same index updates the needle.
+        uiGauge(5, 160, 140, 70, power, 0, 1000);
+    }
+}
+
+// Called when any touch button/checkbox is released.
+// `num` is the VButton pool index. For uiCheckbox that's 0..MAX_TOUCH_BUTTONS-1.
+void TouchButton(int num, int state) {
+    if (current != 3) return;
+    if (num == 0) vent_on = state;
+    if (num == 1) heat_on = state;
+    if      (vent_on && heat_on) uiLabelSet(6, "Vent + Heat ON");
+    else if (vent_on)            uiLabelSet(6, "Vent ON");
+    else if (heat_on)            uiLabelSet(6, "Heat ON");
+    else                         uiLabelSet(6, "All OFF");
+}
+
+// Console dispatch. Called with  UINEXT / UIHOME / UIGAUGE / UICTRL
+void Command(char cmd[]) {
+    char msg[48];
+    if (strcmp(cmd, "NEXT") == 0) {
+        screen_next();
+    } else if (strcmp(cmd, "HOME") == 0) {
+        enter_screen(1);
+    } else if (strcmp(cmd, "GAUGE") == 0) {
+        enter_screen(2);
+    } else if (strcmp(cmd, "CTRL") == 0) {
+        enter_screen(3);
+    } else {
+        responseCmnd("{\"UI\":\"? UINEXT UIHOME UIGAUGE UICTRL\"}");
+        return;
+    }
+    sprintfInt(msg, "{\"UI\":\"screen %d\"}", current);
+    responseCmnd(msg);
+}
