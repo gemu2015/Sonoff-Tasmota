@@ -1357,26 +1357,32 @@ static void HandleTinyCUploadDone(void) {
   bool is_api = Webserver->hasArg(F("api"));
 
   if (is_api) {
-    // JSON response with CORS headers for browser IDE
+    // JSON response with CORS headers for browser IDE.
+    // IMPORTANT: `s->loaded` can be STALE from a previous successful upload —
+    // if THIS upload failed (malloc, bad slot, oversize, load error) the slot
+    // still has the previous program loaded. Trust `Web.upload_error` as the
+    // authoritative signal for this request.
     TCSendCORS("POST, OPTIONS");
-    if (s && s->loaded) {
-      char json[160];
-      snprintf_P(json, sizeof(json), PSTR("{\"ok\":true,\"size\":%d,\"file\":\"%s\",\"slot\":%d}"),
-        s->program_size,
-        s->filename[0] ? s->filename : "",
-        slot_num);
-      WSSendJSON(200, json);
-    } else {
+    if (Web.upload_error || !s || !s->loaded) {
       WSSendJSON_P(400, PSTR("{\"ok\":false,\"error\":\"upload failed\"}"));
+      return;
     }
+    char json[160];
+    snprintf_P(json, sizeof(json), PSTR("{\"ok\":true,\"size\":%d,\"file\":\"%s\",\"slot\":%d}"),
+      s->program_size,
+      s->filename[0] ? s->filename : "",
+      slot_num);
+    WSSendJSON(200, json);
     return;
   }
 
-  // Regular HTML response for form-based upload from /tc page
+  // Regular HTML response for form-based upload from /tc page.
+  // Same rule as the JSON branch: Web.upload_error is authoritative — the
+  // slot's own `loaded` flag may reflect the previously-loaded program.
   WSContentStart_P(PSTR("TinyC Upload"));
   WSContentSendStyle();
 
-  if (s && s->loaded) {
+  if (!Web.upload_error && s && s->loaded) {
     WSContentSend_P(PSTR(
       "<fieldset><legend><b> Upload Result </b></legend>"
       "<p style='text-align:center;color:#0a0'><b>&#x2714; Upload successful!</b></p>"
@@ -1434,19 +1440,41 @@ static void HandleTinyCUpload(void) {
 
     // Stop any running program in this slot
     TinyCStopVM(s);
-    // Allocate upload buffer
+    // Allocate upload buffer — try PSRAM first on ESP32 (avoids fragmented
+    // internal heap on long-running devices with serial scripts etc.)
     if (Tinyc->upload_buf) { free(Tinyc->upload_buf); Tinyc->upload_buf = nullptr; }
+#ifdef ESP32
+    Tinyc->upload_buf = (uint8_t *)heap_caps_malloc(TC_MAX_PROGRAM, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!Tinyc->upload_buf) {
+      Tinyc->upload_buf = (uint8_t *)malloc(TC_MAX_PROGRAM);
+    }
+#else
     Tinyc->upload_buf = (uint8_t *)malloc(TC_MAX_PROGRAM);
+#endif
     if (!Tinyc->upload_buf) {
       Web.upload_error = 1;
-      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Upload malloc failed"));
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Upload malloc(%d) failed — free heap=%u largest block=%u"),
+        TC_MAX_PROGRAM,
+        (unsigned)ESP_getFreeHeap(),
+#ifdef ESP32
+        (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)
+#else
+        (unsigned)ESP.getMaxFreeBlockSize()
+#endif
+      );
       return;
     }
     Tinyc->upload_received = 0;
     Tinyc->upload_active = true;
   }
   else if (upload.status == UPLOAD_FILE_WRITE) {
-    if (Tinyc->upload_buf && Tinyc->upload_received + upload.currentSize <= TC_MAX_PROGRAM) {
+    // If a prior phase (malloc fail, slot fail) already marked this upload
+    // invalid, silently discard further chunks — don't re-log per chunk
+    // with a misleading "too large" message.
+    if (Web.upload_error || !Tinyc->upload_buf) {
+      return;
+    }
+    if (Tinyc->upload_received + upload.currentSize <= TC_MAX_PROGRAM) {
       memcpy(Tinyc->upload_buf + Tinyc->upload_received, upload.buf, upload.currentSize);
       Tinyc->upload_received += upload.currentSize;
     } else {
