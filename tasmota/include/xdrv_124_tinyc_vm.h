@@ -914,7 +914,7 @@ struct TINYC {
   // Upload state (one upload at a time, shared)
   bool     upload_active;           // true during upload — pauses VM callbacks
   uint8_t *upload_buf;
-  uint32_t upload_size;
+  uint32_t upload_alloc_size;       // size of upload_buf allocation (may be < TC_MAX_PROGRAM if client sent ?fsz=N)
   uint32_t upload_received;
   uint8_t  upload_slot;           // target slot for current upload
   char     upload_filename[32];   // filename during upload (copied to slot on completion)

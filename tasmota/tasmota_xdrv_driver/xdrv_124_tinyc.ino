@@ -1440,21 +1440,41 @@ static void HandleTinyCUpload(void) {
 
     // Stop any running program in this slot
     TinyCStopVM(s);
-    // Allocate upload buffer — try PSRAM first on ESP32 (avoids fragmented
-    // internal heap on long-running devices with serial scripts etc.)
+    // Allocate upload buffer.
+    //
+    // Sizing: the HTTP client may send `?fsz=N` (matches the `/ufsu` upload
+    // convention used by push_tcb.sh) — if present we allocate exactly that
+    // (clamped to TC_MAX_PROGRAM). Without the hint we fall back to the full
+    // TC_MAX_PROGRAM. This avoids the failure mode where a 3 KB .tcb upload
+    // fails because the device's heap is too fragmented to provide a single
+    // contiguous 64 KB block.
+    //
+    // Allocation strategy: PSRAM first on ESP32 (avoids fragmented internal
+    // heap on long-running devices with serial scripts etc.), then internal.
     if (Tinyc->upload_buf) { free(Tinyc->upload_buf); Tinyc->upload_buf = nullptr; }
+    size_t alloc_size = TC_MAX_PROGRAM;
+    if (Webserver->hasArg(F("fsz"))) {
+      long fsz = Webserver->arg(F("fsz")).toInt();
+      if (fsz > 0) {
+        // Add a small headroom (16 B) so an off-by-one in the client's fsz
+        // doesn't immediately trip the "too large" branch in UPLOAD_FILE_WRITE.
+        size_t hint = (size_t)fsz + 16;
+        if (hint < alloc_size) alloc_size = hint;
+      }
+    }
+    Tinyc->upload_alloc_size = alloc_size;
 #ifdef ESP32
-    Tinyc->upload_buf = (uint8_t *)heap_caps_malloc(TC_MAX_PROGRAM, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    Tinyc->upload_buf = (uint8_t *)heap_caps_malloc(alloc_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!Tinyc->upload_buf) {
-      Tinyc->upload_buf = (uint8_t *)malloc(TC_MAX_PROGRAM);
+      Tinyc->upload_buf = (uint8_t *)malloc(alloc_size);
     }
 #else
-    Tinyc->upload_buf = (uint8_t *)malloc(TC_MAX_PROGRAM);
+    Tinyc->upload_buf = (uint8_t *)malloc(alloc_size);
 #endif
     if (!Tinyc->upload_buf) {
       Web.upload_error = 1;
-      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Upload malloc(%d) failed — free heap=%u largest block=%u"),
-        TC_MAX_PROGRAM,
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Upload malloc(%u) failed — free heap=%u largest block=%u"),
+        (unsigned)alloc_size,
         (unsigned)ESP_getFreeHeap(),
 #ifdef ESP32
         (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)
@@ -1474,12 +1494,16 @@ static void HandleTinyCUpload(void) {
     if (Web.upload_error || !Tinyc->upload_buf) {
       return;
     }
-    if (Tinyc->upload_received + upload.currentSize <= TC_MAX_PROGRAM) {
+    // Bound against the actual allocation size, which may be smaller than
+    // TC_MAX_PROGRAM when the client sent ?fsz=N.
+    size_t cap = Tinyc->upload_alloc_size ? Tinyc->upload_alloc_size : TC_MAX_PROGRAM;
+    if (Tinyc->upload_received + upload.currentSize <= cap) {
       memcpy(Tinyc->upload_buf + Tinyc->upload_received, upload.buf, upload.currentSize);
       Tinyc->upload_received += upload.currentSize;
     } else {
       Web.upload_error = 1;
-      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Upload too large (max %d)"), TC_MAX_PROGRAM);
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: Upload too large (received %u + chunk %u > cap %u)"),
+        (unsigned)Tinyc->upload_received, (unsigned)upload.currentSize, (unsigned)cap);
     }
   }
   else if (upload.status == UPLOAD_FILE_END) {
