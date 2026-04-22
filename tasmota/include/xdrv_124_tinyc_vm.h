@@ -173,7 +173,7 @@ static FS *tc_file_path(char *path) {
 
 #define TC_MAGIC           0x54434300  // "TCC\0"
 #define TC_VERSION         5           // V5: global (UDP auto-update) variables
-#define TC_RELEASE         "1.1.0"     // unified sprintf/sprintfAppend, VM auto-pause during uploads
+#define TC_RELEASE         "1.1.1"     // upload allocator honors ?fsz=N hint (was: always grabbed 64 KB → fragmented heap rejection); unchanged opcodes/syscalls — variadic addLog is pure compile-time desugar
 #define TC_FILE_NAME       "/autoexec.tcb"
 #define TC_MAX_PERSIST     64          // max persist variable entries
 #define TC_MAX_UDP_GLOBALS 64          // max global (UDP auto-update) variable entries
@@ -588,6 +588,7 @@ enum TcSyscall {
   SYS_I2C_FREE       = 249, // (addr, bus) -> void — release claimed I2C address
   SYS_WEB_CHART_SIZE  = 233, // (width, height) -> void — set chart div size in pixels (0=default)
   SYS_WEB_CHART_TBASE = 261, // (minutes) -> void — set time base offset from "now" for chart x-axis
+  SYS_WEB_REPO_PULLDOWN = 280, // (gref, label_c, json_url_c, index_key_c, dest_path_c) -> void — Scripter smlpd()-style remote JSON directory picker
   // Console command callback
   SYS_ADD_COMMAND     = 45, // (const_idx_prefix) -> void — register command prefix
   SYS_RESPONSE_CMND  = 46, // (buf_ref) -> void — send console response
@@ -6622,6 +6623,81 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       }
       break;
     }
+    case SYS_WEB_REPO_PULLDOWN: {
+      // webRepoPulldown(&sel, "label", "json_url", "index_key", "/dest_path")
+      //   Fetches {json_url} (a Scripter-smlpd-compatible directory JSON of the form
+      //     {"<index_key>":[{"label":"...","filename":"..."}, ...]} ),
+      //   renders a <select> whose options are the entries, pre-selects the current
+      //   global's value, on-change writes the new index back to the global via
+      //   the standard seva(value,idx) path, then (if dest_path non-empty) downloads
+      //   the selected {base}/{filename} and POSTs it to /tc_api?cmd=writefile&path={dest_path}.
+      //   base = json_url with the trailing '/basename' stripped.
+      int32_t dpi  = TC_POP(vm);   // dest_path const idx ("" = no download)
+      int32_t ki   = TC_POP(vm);   // index_key const idx
+      int32_t ji   = TC_POP(vm);   // json_url const idx
+      int32_t li   = TC_POP(vm);   // label const idx
+      int32_t gref = TC_POP(vm);
+      uint16_t idx = ((uint32_t)gref) & 0xFFFF;
+      int32_t *p = tc_resolve_ref(vm, gref);
+      int32_t val = p ? *p : 0;
+      const char *label    = tc_get_const_str(vm, li);
+      const char *json_url = tc_get_const_str(vm, ji);
+      const char *key      = tc_get_const_str(vm, ki);
+      const char *dest     = tc_get_const_str(vm, dpi);
+      if (!label)    label    = "";
+      if (!json_url) json_url = "";
+      if (!key)      key      = "files";
+      if (!dest)     dest     = "";
+      // Render shell
+      if (label[0]) {
+        WSContentSend_P(PSTR("<div><label><b>%s</b> "), label);
+      } else {
+        WSContentSend_P(PSTR("<div>"));
+      }
+      WSContentSend_P(PSTR("<select id='rp%d' onfocusin='pr(0)' onfocusout='pr(1)' onchange='rpCh%d(this.value)'>"
+                           "<option value='-1'>loading...</option></select>"),
+                      idx, idx);
+      if (label[0]) {
+        WSContentSend_P(PSTR("</label></div>"));
+      } else {
+        WSContentSend_P(PSTR("</div>"));
+      }
+      // Inline JS — own handler per idx so we can capture the entry list
+      WSContentSend_P(PSTR(
+        "<script>"
+        "(function(){"
+          "var U='%s',K='%s',D='%s',V=%d,ID='rp%d',IDX=%d;"
+          "var base=U.replace(/\\/[^\\/]+$/,'');"
+          "var sel=document.getElementById(ID);"
+          "window['rpCh'+IDX]=function(v){"
+            "var i=parseInt(v,10);"
+            "if(isNaN(i)||i<0){seva(i,IDX);return;}"
+            "seva(i,IDX);"
+            "if(!D||!window._rp||!window._rp[IDX])return;"
+            "var e=window._rp[IDX][i];if(!e||!e.filename)return;"
+            "fetch(base+'/'+e.filename.split('/').map(encodeURIComponent).join('/'))"
+              ".then(function(r){return r.text();})"
+              ".then(function(t){"
+                "return fetch('/tc_api?cmd=writefile&path='+encodeURIComponent(D),"
+                  "{method:'POST',headers:{'Content-Type':'text/plain'},body:t});"
+              "})"
+              ".then(function(r){return r.json();})"
+              ".then(function(j){console.log('[repoPulldown] saved',D,j);})"
+              ".catch(function(e){console.error('[repoPulldown]',e);});"
+          "};"
+          "fetch(U).then(function(r){return r.json();}).then(function(j){"
+            "var L=j[K]||[];window._rp=window._rp||{};window._rp[IDX]=L;"
+            "var h='';for(var i=0;i<L.length;i++){"
+              "h+='<option value=\"'+i+'\"'+(i===V?' selected':'')+'>'+"
+                 "(L[i].label||L[i].filename||('#'+i))+'</option>';"
+            "}"
+            "sel.innerHTML=h;"
+          "}).catch(function(e){sel.innerHTML='<option value=\"-1\">load error</option>';console.error('[repoPulldown]',e);});"
+        "})();"
+        "</script>"),
+        json_url, key, dest, val, idx, idx);
+      break;
+    }
     case SYS_WEB_RADIO: {
       int32_t ci = TC_POP(vm);   // options const idx ("opt1|opt2|opt3")
       int32_t gref = TC_POP(vm);
@@ -10021,23 +10097,53 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
 
 /*********************************************************************************************\
  * Persist variables: save/load binary file
- * Format: ['P','V'] [count u8] [index u16 LE, slotCount u16 LE, data: slotCount×4 bytes LE]
+ * Format v2: ['P','V','H'] [layout_hash u32 LE] [count u8]
+ *            [index u16 LE, slotCount u16 LE, data: slotCount×4 bytes LE]
+ * Legacy v1: ['P','V'] [count u8] ... — discarded on load because raw indexes
+ *            cannot be safely mapped to a new binary's persist table.
+ * The layout hash fingerprints (persist_count, [(index, slotCount)]). A layout
+ * change (add/remove/reorder/resize persist vars) changes the hash → old file
+ * auto-discarded → no more manual `UfsDelete /tinyc_pvars.bin` after edits.
 \*********************************************************************************************/
+
+// FNV-1a 32-bit hash over the persist table shape. Must produce the same value
+// on save and on load for an unchanged layout.
+static uint32_t tc_persist_layout_hash(TcVM *vm) {
+  uint32_t h = 0x811c9dc5u;
+  #define TC_FNV_BYTE(b) do { h ^= (uint8_t)(b); h *= 0x01000193u; } while(0)
+  TC_FNV_BYTE(vm->persist_count);
+  for (uint8_t i = 0; i < vm->persist_count; i++) {
+    uint16_t idx = vm->persist[i].index;
+    uint16_t cnt = vm->persist[i].count;
+    TC_FNV_BYTE(idx & 0xff);
+    TC_FNV_BYTE((idx >> 8) & 0xff);
+    TC_FNV_BYTE(cnt & 0xff);
+    TC_FNV_BYTE((cnt >> 8) & 0xff);
+  }
+  #undef TC_FNV_BYTE
+  return h;
+}
 
 static void tc_persist_save(TcVM *vm) {
   if (vm->persist_count == 0 || vm->persist_file[0] == '\0') return;
 #ifdef USE_UFILESYS
-  // Calculate total size: 2 (magic) + 1 (count) + entries
-  uint16_t total = 3;
+  // Calculate total size: 3 (magic 'P','V','H') + 4 (layout hash u32) + 1 (count) + entries
+  uint16_t total = 8;
   for (uint8_t i = 0; i < vm->persist_count; i++) {
     total += 4 + vm->persist[i].count * 4;  // index(2) + slotCount(2) + data
   }
   uint8_t *buf = (uint8_t *)malloc(total);
   if (!buf) return;
 
+  uint32_t hash = tc_persist_layout_hash(vm);
   uint16_t pos = 0;
   buf[pos++] = 'P';
   buf[pos++] = 'V';
+  buf[pos++] = 'H';  // v2 magic — layout-fingerprinted
+  buf[pos++] = hash & 0xFF;
+  buf[pos++] = (hash >> 8) & 0xFF;
+  buf[pos++] = (hash >> 16) & 0xFF;
+  buf[pos++] = (hash >> 24) & 0xFF;
   buf[pos++] = vm->persist_count;
 
   for (uint8_t i = 0; i < vm->persist_count; i++) {
@@ -10093,7 +10199,7 @@ static void tc_persist_load(TcVM *vm) {
   if (!f) return;
 
   uint16_t fsize = f.size();
-  if (fsize < 3) { f.close(); return; }
+  if (fsize < 8) { f.close(); return; }  // min = 'P' 'V' 'H' hash[4] count
 
   uint8_t *buf = (uint8_t *)malloc(fsize);
   if (!buf) { f.close(); return; }
@@ -10101,8 +10207,26 @@ static void tc_persist_load(TcVM *vm) {
   f.close();
 
   if (buf[0] != 'P' || buf[1] != 'V') { free(buf); return; }
-  uint8_t count = buf[2];
-  uint16_t pos = 3;
+  if (buf[2] != 'H') {
+    // Legacy format (pre-layout-hash) — raw indexes can't be safely mapped
+    // across layout changes. Discard rather than risk corrupting state.
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: legacy persist file — resetting %s"), vm->persist_file);
+    free(buf);
+    if (ufsp) ufsp->remove(vm->persist_file);
+    return;
+  }
+  uint32_t stored_hash = (uint32_t)buf[3] | ((uint32_t)buf[4] << 8)
+                       | ((uint32_t)buf[5] << 16) | ((uint32_t)buf[6] << 24);
+  uint32_t expected_hash = tc_persist_layout_hash(vm);
+  if (stored_hash != expected_hash) {
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: persist layout changed (%08X->%08X) — resetting %s"),
+           stored_hash, expected_hash, vm->persist_file);
+    free(buf);
+    if (ufsp) ufsp->remove(vm->persist_file);
+    return;
+  }
+  uint8_t count = buf[7];
+  uint16_t pos = 8;
 
   for (uint8_t i = 0; i < count && pos < fsize; i++) {
     if (pos + 4 > fsize) break;
