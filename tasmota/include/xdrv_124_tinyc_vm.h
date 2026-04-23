@@ -596,7 +596,7 @@ enum TcSyscall {
   SYS_WEB_CHART_SIZE  = 233, // (width, height) -> void — set chart div size in pixels (0=default)
   SYS_WEB_CHART_TBASE = 261, // (minutes) -> void — set time base offset from "now" for chart x-axis
   SYS_WEB_REPO_PULLDOWN = 280, // (gref, label_c, json_url_c, index_key_c, dest_path_c) -> void — Scripter smlpd()-style remote JSON directory picker
-  SYS_SML_APPLY_PINS    = 281, // (path_c, rx, tx, smlf) -> int — idempotent SML descriptor pin substitution (%0?rxpin%/%0?txpin%/%0?smlf%, leading 0 optional). Inserts "; <template>" comment line above each active line on first call; rebuilds active line from template on subsequent calls. Pass -1 for any value to leave that placeholder untouched. Returns # subs done, 0 = no change, -1 = err.
+  SYS_SML_APPLY_PINS    = 281, // (path_c, rx, tx, smlf) -> int — idempotent SML descriptor pin substitution (%0?rxpin%/%0?txpin%/%0?smlf%, leading 0 optional). Inserts "; <template>" comment line above each active line on first call; rebuilds active line from template on subsequent calls. Values are substituted verbatim (e.g. tx=-1 becomes the literal "-1" which SML accepts as "no tx pin"); the original placeholder text is preserved only in the template comment. Returns # subs done, 0 = no change, -1 = err.
   SYS_SML_SCRIPTER_LOAD = 282, // (path_c) -> int — extract >F/>S sections from descriptor, compile to bytecode, run on EverySecond/Every100ms ticks. Subset: lnv0..lnv9, +=/-=/*=//=/=, +-*/% < <= > >= == !=, switch/case/ends, if/endif, sml(m,0,baud), sml(m,1,"HEX"). Returns # sections compiled (0..2), -1 = err.
   // Console command callback
   SYS_ADD_COMMAND     = 45, // (const_idx_prefix) -> void — register command prefix
@@ -2848,9 +2848,16 @@ static bool tc_sml_line_has_ph(const char *p, size_t len) {
   return false;
 }
 
-// Copy src→dst substituting placeholders. values[k] = -1 means "leave placeholder
-// text intact" (so calling with rx=-1 keeps %0?rxpin% in the output untouched).
-// Returns bytes written (always <= src_len since substitutions only shrink).
+// Copy src→dst substituting placeholders with the literal numeric value (including
+// negative values — e.g. -1 becomes "-1" in the output, which SML accepts as "no pin"
+// for txpin). The original placeholders stay in the "; <template>" comment line so
+// subsequent calls can still re-substitute with different values. Returns bytes
+// written.
+//
+// Rationale: SML's descriptor parser uses strtol() and requires every field to be a
+// valid integer. Leaving any "%0xxx%" text in the active line makes SML reject the
+// descriptor entirely. The template-comment line preserves the placeholder form for
+// later edits, while the active line is always fully substituted.
 static size_t tc_sml_subst_line(const char *src, size_t src_len,
                                 char *dst, size_t dst_cap,
                                 const int values[3]) {
@@ -2860,18 +2867,12 @@ static size_t tc_sml_subst_line(const char *src, size_t src_len,
   while (p < end && out < dst_cap) {
     int kind;
     int phlen = tc_sml_match_ph(p, end, &kind);
-    if (phlen > 0 && values[kind] >= 0) {
+    if (phlen > 0) {
       char numbuf[12];
       int nlen = snprintf(numbuf, sizeof(numbuf), "%d", values[kind]);
       if (nlen > 0 && (size_t)(out + nlen) <= dst_cap) {
         memcpy(dst + out, numbuf, (size_t)nlen);
         out += (size_t)nlen;
-      }
-      p += phlen;
-    } else if (phlen > 0) {
-      if (out + (size_t)phlen <= dst_cap) {
-        memcpy(dst + out, p, (size_t)phlen);
-        out += (size_t)phlen;
       }
       p += phlen;
     } else {
