@@ -596,6 +596,7 @@ enum TcSyscall {
   SYS_WEB_CHART_SIZE  = 233, // (width, height) -> void — set chart div size in pixels (0=default)
   SYS_WEB_CHART_TBASE = 261, // (minutes) -> void — set time base offset from "now" for chart x-axis
   SYS_WEB_REPO_PULLDOWN = 280, // (gref, label_c, json_url_c, index_key_c, dest_path_c) -> void — Scripter smlpd()-style remote JSON directory picker
+  SYS_SML_APPLY_PINS    = 281, // (path_c, rx, tx, smlf) -> int — idempotent SML descriptor pin substitution (%0?rxpin%/%0?txpin%/%0?smlf%, leading 0 optional). Inserts "; <template>" comment line above each active line on first call; rebuilds active line from template on subsequent calls. Pass -1 for any value to leave that placeholder untouched. Returns # subs done, 0 = no change, -1 = err.
   // Console command callback
   SYS_ADD_COMMAND     = 45, // (const_idx_prefix) -> void — register command prefix
   SYS_RESPONSE_CMND  = 46, // (buf_ref) -> void — send console response
@@ -2815,6 +2816,69 @@ static bool tc_pin_forbidden(int32_t pin) {
     (vm)->halted = true; \
     return TC_ERR_FORBIDDEN_PIN; \
   }
+
+/*********************************************************************************************\
+ * SML descriptor pin substitution helpers — used by SYS_SML_APPLY_PINS
+ *
+ * Recognizes 3 placeholders: %0?rxpin% / %0?txpin% / %0?smlf% (leading 0 optional,
+ * matching the IDE's regex). Substitution is idempotent via "; <template>" comment
+ * lines kept above the active line.
+\*********************************************************************************************/
+
+// Try to match a %placeholder% at p[0..end). Returns chars consumed (>=5) on
+// match and writes 0/1/2 (rx/tx/smlf) to *kind. Returns 0 on no match.
+static int tc_sml_match_ph(const char *p, const char *end, int *kind) {
+  if (p >= end || *p != '%') return 0;
+  const char *q = p + 1;
+  if (q < end && *q == '0') q++;  // optional leading "0"
+  size_t r = end - q;
+  if (r >= 6 && memcmp(q, "rxpin%", 6) == 0) { *kind = 0; return (int)((q + 6) - p); }
+  if (r >= 6 && memcmp(q, "txpin%", 6) == 0) { *kind = 1; return (int)((q + 6) - p); }
+  if (r >= 5 && memcmp(q, "smlf%",  5) == 0) { *kind = 2; return (int)((q + 5) - p); }
+  return 0;
+}
+
+static bool tc_sml_line_has_ph(const char *p, size_t len) {
+  const char *end = p + len;
+  for (const char *q = p; q < end; q++) {
+    int kind;
+    if (tc_sml_match_ph(q, end, &kind)) return true;
+  }
+  return false;
+}
+
+// Copy src→dst substituting placeholders. values[k] = -1 means "leave placeholder
+// text intact" (so calling with rx=-1 keeps %0?rxpin% in the output untouched).
+// Returns bytes written (always <= src_len since substitutions only shrink).
+static size_t tc_sml_subst_line(const char *src, size_t src_len,
+                                char *dst, size_t dst_cap,
+                                const int values[3]) {
+  const char *end = src + src_len;
+  const char *p = src;
+  size_t out = 0;
+  while (p < end && out < dst_cap) {
+    int kind;
+    int phlen = tc_sml_match_ph(p, end, &kind);
+    if (phlen > 0 && values[kind] >= 0) {
+      char numbuf[12];
+      int nlen = snprintf(numbuf, sizeof(numbuf), "%d", values[kind]);
+      if (nlen > 0 && (size_t)(out + nlen) <= dst_cap) {
+        memcpy(dst + out, numbuf, (size_t)nlen);
+        out += (size_t)nlen;
+      }
+      p += phlen;
+    } else if (phlen > 0) {
+      if (out + (size_t)phlen <= dst_cap) {
+        memcpy(dst + out, p, (size_t)phlen);
+        out += (size_t)phlen;
+      }
+      p += phlen;
+    } else {
+      dst[out++] = *p++;
+    }
+  }
+  return out;
+}
 
 /*********************************************************************************************\
  * VM: Syscall dispatch
@@ -6628,6 +6692,142 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       } else {
         WSContentSend_P(PSTR("</select></div>"));
       }
+      break;
+    }
+    case SYS_SML_APPLY_PINS: {
+      // smlApplyPins("/path", rx, tx, smlf) — idempotent template-comment-preserving pin
+      // substitution. Recognized placeholders: %0?rxpin%, %0?txpin%, %0?smlf%.
+      // First call inserts "; <original>" template line above the active line and substitutes
+      // placeholders in the active copy. Subsequent calls rebuild the active line from the
+      // template comment (so re-edits always derive from the original markers, never from
+      // already-substituted values). Pass -1 to leave a placeholder untouched.
+      int32_t smlf = TC_POP(vm);
+      int32_t txp  = TC_POP(vm);
+      int32_t rxp  = TC_POP(vm);
+      int32_t pi   = TC_POP(vm);
+#ifdef USE_UFILESYS
+      const char *cpath = tc_get_const_str(vm, pi);
+      if (!cpath) { TC_PUSH(vm, -1); break; }
+      char path[128];
+      strlcpy(path, cpath, sizeof(path));
+      FS *fsp = tc_file_path(path);
+      if (!fsp) { TC_PUSH(vm, -1); break; }
+      File f = fsp->open(path, "r");
+      if (!f) { TC_PUSH(vm, -1); break; }
+      size_t fsize = (size_t)f.size();
+      if (fsize == 0 || fsize > 8192) {  // hard cap — SML descriptors are tiny
+        f.close();
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: smlApplyPins '%s' size %u out of range"), path, (unsigned)fsize);
+        TC_PUSH(vm, -1);
+        break;
+      }
+      char *in_buf = (char*)malloc(fsize + 1);
+      if (!in_buf) { f.close(); TC_PUSH(vm, -1); break; }
+      size_t got = (size_t)f.read((uint8_t*)in_buf, fsize);
+      in_buf[got] = 0;
+      f.close();
+      // Worst case: every line gets a duplicated template comment → 2x.
+      size_t out_cap = got * 2 + 64;
+      char *out_buf = (char*)malloc(out_cap);
+      if (!out_buf) { free(in_buf); TC_PUSH(vm, -1); break; }
+      size_t out_len = 0;
+      int subs = 0;
+      const int values[3] = { (int)rxp, (int)txp, (int)smlf };
+      const char *p = in_buf;
+      const char *end = in_buf + got;
+      while (p < end) {
+        const char *eol = (const char*)memchr(p, '\n', (size_t)(end - p));
+        size_t line_len = (size_t)((eol ? eol : end) - p);
+        // Strip trailing \r so CRLF files become LF after a write.
+        size_t content_len = line_len;
+        if (content_len > 0 && p[content_len - 1] == '\r') content_len--;
+
+        // Skip leading whitespace to test for ';' template marker.
+        size_t lead = 0;
+        while (lead < content_len && (p[lead] == ' ' || p[lead] == '\t')) lead++;
+        bool is_comment = (lead < content_len && p[lead] == ';');
+        bool has_ph = tc_sml_line_has_ph(p, content_len);
+
+        if (is_comment && has_ph) {
+          // Template line — emit as-is, then emit a freshly-substituted active line.
+          memcpy(out_buf + out_len, p, content_len);
+          out_len += content_len;
+          out_buf[out_len++] = '\n';
+          // Template body = content after the ';' (and any leading spaces after it).
+          const char *body = p + lead + 1;  // skip ;
+          while (body < p + content_len && (*body == ' ' || *body == '\t')) body++;
+          size_t body_len = (size_t)((p + content_len) - body);
+          size_t s = tc_sml_subst_line(body, body_len, out_buf + out_len, out_cap - out_len - 1, values);
+          out_len += s;
+          out_buf[out_len++] = '\n';
+          subs++;
+          // Discard the next existing line (the previous active copy) — convention says
+          // the line directly below a "; ...%placeholder%..." template is the substituted
+          // active version we just regenerated.
+          if (eol && eol + 1 < end) {
+            const char *next = eol + 1;
+            const char *next_eol = (const char*)memchr(next, '\n', (size_t)(end - next));
+            size_t next_len = (size_t)((next_eol ? next_eol : end) - next);
+            size_t next_lead = 0;
+            while (next_lead < next_len && (next[next_lead] == ' ' || next[next_lead] == '\t')) next_lead++;
+            // Skip if it's a non-empty, non-comment line (i.e. an active candidate).
+            if (next_lead < next_len && next[next_lead] != ';') {
+              p = next_eol ? next_eol + 1 : end;
+              continue;
+            }
+          }
+          p = eol ? eol + 1 : end;
+          continue;
+        }
+
+        if (!is_comment && has_ph) {
+          // Active line with placeholders, no template above yet → insert template, then sub.
+          out_buf[out_len++] = ';';
+          out_buf[out_len++] = ' ';
+          memcpy(out_buf + out_len, p, content_len);
+          out_len += content_len;
+          out_buf[out_len++] = '\n';
+          size_t s = tc_sml_subst_line(p, content_len, out_buf + out_len, out_cap - out_len - 1, values);
+          out_len += s;
+          if (eol) out_buf[out_len++] = '\n';
+          subs++;
+          p = eol ? eol + 1 : end;
+          continue;
+        }
+
+        // Plain line — copy as-is (without the \r if present).
+        memcpy(out_buf + out_len, p, content_len);
+        out_len += content_len;
+        if (eol) out_buf[out_len++] = '\n';
+        p = eol ? eol + 1 : end;
+      }
+
+      // Idempotency: skip the write if nothing actually changed.
+      bool changed = (out_len != got) || (memcmp(in_buf, out_buf, got) != 0);
+      int rc = 0;
+      if (changed) {
+        File w = fsp->open(path, "w");
+        if (!w) { rc = -1; }
+        else {
+          size_t wn = w.write((const uint8_t*)out_buf, out_len);
+          w.close();
+          if (wn != out_len) {
+            AddLog(LOG_LEVEL_ERROR, PSTR("TCC: smlApplyPins short write %u/%u"), (unsigned)wn, (unsigned)out_len);
+            rc = -1;
+          } else {
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: smlApplyPins '%s' rx=%d tx=%d smlf=%d → %d sub(s), %u→%u bytes"),
+                   path, (int)rxp, (int)txp, (int)smlf, subs, (unsigned)got, (unsigned)out_len);
+            rc = subs;
+          }
+        }
+      }
+      free(in_buf);
+      free(out_buf);
+      TC_PUSH(vm, rc);
+#else
+      (void)smlf; (void)txp; (void)rxp; (void)pi;
+      TC_PUSH(vm, -1);
+#endif
       break;
     }
     case SYS_WEB_REPO_PULLDOWN: {
