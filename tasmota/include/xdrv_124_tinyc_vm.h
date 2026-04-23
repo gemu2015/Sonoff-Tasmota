@@ -597,6 +597,7 @@ enum TcSyscall {
   SYS_WEB_CHART_TBASE = 261, // (minutes) -> void — set time base offset from "now" for chart x-axis
   SYS_WEB_REPO_PULLDOWN = 280, // (gref, label_c, json_url_c, index_key_c, dest_path_c) -> void — Scripter smlpd()-style remote JSON directory picker
   SYS_SML_APPLY_PINS    = 281, // (path_c, rx, tx, smlf) -> int — idempotent SML descriptor pin substitution (%0?rxpin%/%0?txpin%/%0?smlf%, leading 0 optional). Inserts "; <template>" comment line above each active line on first call; rebuilds active line from template on subsequent calls. Pass -1 for any value to leave that placeholder untouched. Returns # subs done, 0 = no change, -1 = err.
+  SYS_SML_SCRIPTER_LOAD = 282, // (path_c) -> int — extract >F/>S sections from descriptor, compile to bytecode, run on EverySecond/Every100ms ticks. Subset: lnv0..lnv9, +=/-=/*=//=/=, +-*/% < <= > >= == !=, switch/case/ends, if/endif, sml(m,0,baud), sml(m,1,"HEX"). Returns # sections compiled (0..2), -1 = err.
   // Console command callback
   SYS_ADD_COMMAND     = 45, // (const_idx_prefix) -> void — register command prefix
   SYS_RESPONSE_CMND  = 46, // (buf_ref) -> void — send console response
@@ -2878,6 +2879,626 @@ static size_t tc_sml_subst_line(const char *src, size_t src_len,
     }
   }
   return out;
+}
+
+/*********************************************************************************************\
+ * Mini-Scripter — runs a tiny Tasmota Scripter subset extracted from an SML descriptor's
+ *   >F (Every100ms) and >S (EverySecond) sections. Aimed at builds without full Scripter
+ *   (e.g. -DTINYC_NO_SCRIPTER) where the user wants the descriptor's IEC mode-A handshake
+ *   or similar tick-driven logic to keep working.
+ *
+ * Subset (anything outside is a compile-time error → load fails, descriptor unaffected):
+ *   variables   lnv0..lnv9           (10 int32, volatile, zeroed at load)
+ *   operators   = += -= *= /=        + - * / %     < <= > >= == !=
+ *   control     switch <lnv> [case <int> ...]+ ends
+ *               if <expr> ... endif
+ *   syscalls    sml(meter, 0, baud)      → SML_SetBaud
+ *               sml(meter, 1, "HEX..")   → SML_Write (mode hex send)
+ *   sections    >F (Every100ms)   >S (EverySecond)
+ *   misc        ; end-of-line comment   ;-prefixed line comment   blank lines OK
+ *
+ * Compiled to a stack-machine bytecode at smlScripterLoad() time. Runtime cost per tick
+ * is dispatch + a handful of arithmetic/cmp ops; no allocations after load.
+ *
+ * NOTE: If full Tasmota Scripter is also present and parsing the same file, both will run
+ * the >F/>S blocks → double work / double SML sends. Use this only when Scripter is off.
+\*********************************************************************************************/
+
+#define TC_MSCR_BC_MAX     384      // bytecode bytes per section (>F or >S)
+#define TC_MSCR_LNV_COUNT  10
+#define TC_MSCR_STK_MAX    16
+#define TC_MSCR_HEX_MAX    32       // max payload bytes for sml(m,1,"HEX..")
+
+enum TcMsOp {
+  MS_OP_END = 0,
+  MS_OP_PUSH_LNV,    // [op][var]                    — push lnv[var]
+  MS_OP_PUSH_IMM,    // [op][i32 LE]                 — push imm
+  MS_OP_POP_LNV,     // [op][var]                    — pop → lnv[var]
+  MS_OP_ADD, MS_OP_SUB, MS_OP_MUL, MS_OP_DIV, MS_OP_MOD,
+  MS_OP_LT, MS_OP_LE, MS_OP_GT, MS_OP_GE, MS_OP_EQ, MS_OP_NE,
+  MS_OP_JMP,         // [op][u16 LE abs]             — unconditional
+  MS_OP_JZ,          // [op][u16 LE abs]             — pop, if 0 jump
+  MS_OP_SML_BAUD,    // pop baud, pop meter          → SML_SetBaud
+  MS_OP_SML_HEX,     // [op][len][bytes...] pop meter → SML_Write(meter, hexstr)
+};
+
+typedef struct TcMiniScripter {
+  int32_t  lnv[TC_MSCR_LNV_COUNT];
+  uint8_t  bc_f[TC_MSCR_BC_MAX];
+  uint8_t  bc_s[TC_MSCR_BC_MAX];
+  uint16_t bc_f_len;
+  uint16_t bc_s_len;
+  uint8_t  loaded;          // 0/1 — bytecode populated?
+  uint8_t  has_f;
+  uint8_t  has_s;
+} TcMiniScripter;
+
+static TcMiniScripter tc_mscr;
+
+// ── Tokenizer ─────────────────────────────────────────────────────
+enum TcMsTokKind {
+  MTK_END = 0, MTK_NL, MTK_INT, MTK_HEXSTR, MTK_LNV,
+  MTK_KW_SWITCH, MTK_KW_CASE, MTK_KW_ENDS, MTK_KW_IF, MTK_KW_ENDIF, MTK_KW_SML,
+  MTK_PLUS, MTK_MINUS, MTK_MUL, MTK_DIV, MTK_MOD,
+  MTK_LT, MTK_LE, MTK_GT, MTK_GE, MTK_EQ, MTK_NE,
+  MTK_ASSIGN, MTK_PLUSEQ, MTK_MINUSEQ, MTK_MULEQ, MTK_DIVEQ,
+  MTK_LPAREN, MTK_RPAREN,
+  MTK_ERR
+};
+
+typedef struct {
+  uint8_t k;
+  int32_t i;            // int value, lnv idx
+  const char *str;      // hex content
+  uint16_t slen;
+} TcMsTok;
+
+typedef struct {
+  const char *p, *end;
+  uint8_t *bc;
+  uint16_t cap, len;
+  uint16_t line;
+  uint8_t err;          // 0=ok, 1=overflow, 2=syntax
+  TcMsTok cur;
+  uint8_t have_cur;
+} TcMsCompiler;
+
+static void tc_mscr_skip_inline_ws(TcMsCompiler *c) {
+  while (c->p < c->end) {
+    char ch = *c->p;
+    if (ch == ' ' || ch == '\t' || ch == '\r' || ch == ',') { c->p++; continue; }
+    if (ch == ';') {                              // comment to end of line
+      while (c->p < c->end && *c->p != '\n') c->p++;
+      continue;
+    }
+    break;
+  }
+}
+
+static void tc_mscr_lex(TcMsCompiler *c, TcMsTok *t) {
+  tc_mscr_skip_inline_ws(c);
+  t->str = NULL; t->slen = 0; t->i = 0;
+  if (c->p >= c->end) { t->k = MTK_END; return; }
+  char ch = *c->p;
+  if (ch == '\n') { c->p++; c->line++; t->k = MTK_NL; return; }
+  if (ch >= '0' && ch <= '9') {
+    int32_t v = 0;
+    while (c->p < c->end && *c->p >= '0' && *c->p <= '9') { v = v*10 + (*c->p - '0'); c->p++; }
+    t->k = MTK_INT; t->i = v; return;
+  }
+  if (ch == '"') {
+    c->p++;                                       // opening quote
+    t->str = c->p;
+    while (c->p < c->end && *c->p != '"' && *c->p != '\n') c->p++;
+    t->slen = (uint16_t)(c->p - t->str);
+    if (c->p < c->end && *c->p == '"') c->p++;    // closing quote
+    t->k = MTK_HEXSTR; return;
+  }
+  // Multi-char operators
+  if (ch == '<' && c->p+1 < c->end && c->p[1] == '=') { c->p+=2; t->k = MTK_LE; return; }
+  if (ch == '>' && c->p+1 < c->end && c->p[1] == '=') { c->p+=2; t->k = MTK_GE; return; }
+  if (ch == '=' && c->p+1 < c->end && c->p[1] == '=') { c->p+=2; t->k = MTK_EQ; return; }
+  if (ch == '!' && c->p+1 < c->end && c->p[1] == '=') { c->p+=2; t->k = MTK_NE; return; }
+  if (ch == '+' && c->p+1 < c->end && c->p[1] == '=') { c->p+=2; t->k = MTK_PLUSEQ; return; }
+  if (ch == '-' && c->p+1 < c->end && c->p[1] == '=') { c->p+=2; t->k = MTK_MINUSEQ; return; }
+  if (ch == '*' && c->p+1 < c->end && c->p[1] == '=') { c->p+=2; t->k = MTK_MULEQ; return; }
+  if (ch == '/' && c->p+1 < c->end && c->p[1] == '=') { c->p+=2; t->k = MTK_DIVEQ; return; }
+  switch (ch) {
+    case '+': c->p++; t->k = MTK_PLUS;   return;
+    case '-': c->p++; t->k = MTK_MINUS;  return;
+    case '*': c->p++; t->k = MTK_MUL;    return;
+    case '/': c->p++; t->k = MTK_DIV;    return;
+    case '%': c->p++; t->k = MTK_MOD;    return;
+    case '<': c->p++; t->k = MTK_LT;     return;
+    case '>': c->p++; t->k = MTK_GT;     return;
+    case '=': c->p++; t->k = MTK_ASSIGN; return;
+    case '(': c->p++; t->k = MTK_LPAREN; return;
+    case ')': c->p++; t->k = MTK_RPAREN; return;
+  }
+  // Identifier / keyword
+  if ((ch>='a' && ch<='z') || (ch>='A' && ch<='Z') || ch=='_') {
+    const char *s = c->p;
+    while (c->p < c->end && ((*c->p>='a'&&*c->p<='z')||(*c->p>='A'&&*c->p<='Z')||(*c->p>='0'&&*c->p<='9')||*c->p=='_')) c->p++;
+    size_t n = (size_t)(c->p - s);
+    // lnv0..lnv9
+    if (n == 4 && (s[0]=='l'||s[0]=='L') && (s[1]=='n'||s[1]=='N') && (s[2]=='v'||s[2]=='V') && s[3]>='0' && s[3]<='9') {
+      t->k = MTK_LNV; t->i = s[3] - '0'; return;
+    }
+    // keywords
+    #define KWMATCH(kw,lit) (n==sizeof(lit)-1 && memcmp(s,lit,sizeof(lit)-1)==0 ? (t->k=kw, 1) : 0)
+    if (KWMATCH(MTK_KW_SWITCH,"switch")) return;
+    if (KWMATCH(MTK_KW_CASE,  "case"))   return;
+    if (KWMATCH(MTK_KW_ENDS,  "ends"))   return;
+    if (KWMATCH(MTK_KW_IF,    "if"))     return;
+    if (KWMATCH(MTK_KW_ENDIF, "endif"))  return;
+    if (KWMATCH(MTK_KW_SML,   "sml"))    return;
+    #undef KWMATCH
+    t->k = MTK_ERR; return;
+  }
+  c->p++; t->k = MTK_ERR;
+}
+
+static void tc_mscr_peek(TcMsCompiler *c, TcMsTok *out) {
+  if (!c->have_cur) { tc_mscr_lex(c, &c->cur); c->have_cur = 1; }
+  *out = c->cur;
+}
+static void tc_mscr_next(TcMsCompiler *c, TcMsTok *out) {
+  tc_mscr_peek(c, out);
+  c->have_cur = 0;
+}
+static void tc_mscr_skip_nls(TcMsCompiler *c) {
+  TcMsTok t;
+  for (;;) { tc_mscr_peek(c, &t); if (t.k != MTK_NL) break; tc_mscr_next(c, &t); }
+}
+
+// ── Bytecode emit helpers ─────────────────────────────────────────
+static void tc_mscr_emit(TcMsCompiler *c, uint8_t b) {
+  if (c->len < c->cap) c->bc[c->len++] = b;
+  else { c->err = 1; }
+}
+static void tc_mscr_emit_i32(TcMsCompiler *c, int32_t v) {
+  tc_mscr_emit(c, (uint8_t)v); tc_mscr_emit(c, (uint8_t)(v>>8));
+  tc_mscr_emit(c, (uint8_t)(v>>16)); tc_mscr_emit(c, (uint8_t)(v>>24));
+}
+static uint16_t tc_mscr_emit_jmp(TcMsCompiler *c, uint8_t op) {
+  tc_mscr_emit(c, op);
+  uint16_t pos = c->len;
+  tc_mscr_emit(c, 0); tc_mscr_emit(c, 0);
+  return pos;
+}
+static void tc_mscr_patch(TcMsCompiler *c, uint16_t at, uint16_t v) {
+  if ((uint32_t)at + 1 < c->cap) { c->bc[at] = (uint8_t)v; c->bc[at+1] = (uint8_t)(v>>8); }
+}
+static void tc_mscr_syntax(TcMsCompiler *c, const char *what) {
+  if (!c->err) {
+    c->err = 2;
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: mscr syntax @line %u: %s"), (unsigned)c->line, what);
+  }
+}
+
+// ── Expression parser (recursive-descent, four precedence levels) ─
+static void tc_mscr_expr_eq(TcMsCompiler *c);
+
+static void tc_mscr_primary(TcMsCompiler *c) {
+  TcMsTok t; tc_mscr_next(c, &t);
+  if (t.k == MTK_INT)       { tc_mscr_emit(c, MS_OP_PUSH_IMM); tc_mscr_emit_i32(c, t.i); return; }
+  if (t.k == MTK_LNV)       { tc_mscr_emit(c, MS_OP_PUSH_LNV); tc_mscr_emit(c, (uint8_t)t.i); return; }
+  if (t.k == MTK_MINUS) {                                        // unary -
+    tc_mscr_emit(c, MS_OP_PUSH_IMM); tc_mscr_emit_i32(c, 0);
+    tc_mscr_primary(c);
+    tc_mscr_emit(c, MS_OP_SUB);
+    return;
+  }
+  if (t.k == MTK_LPAREN) {
+    tc_mscr_expr_eq(c);
+    tc_mscr_next(c, &t);
+    if (t.k != MTK_RPAREN) tc_mscr_syntax(c, "expected )");
+    return;
+  }
+  tc_mscr_syntax(c, "expected expression");
+}
+static void tc_mscr_expr_mul(TcMsCompiler *c) {
+  tc_mscr_primary(c);
+  for (;;) {
+    TcMsTok t; tc_mscr_peek(c, &t);
+    uint8_t op;
+    if      (t.k == MTK_MUL) op = MS_OP_MUL;
+    else if (t.k == MTK_DIV) op = MS_OP_DIV;
+    else if (t.k == MTK_MOD) op = MS_OP_MOD;
+    else break;
+    tc_mscr_next(c, &t);
+    tc_mscr_primary(c);
+    tc_mscr_emit(c, op);
+  }
+}
+static void tc_mscr_expr_add(TcMsCompiler *c) {
+  tc_mscr_expr_mul(c);
+  for (;;) {
+    TcMsTok t; tc_mscr_peek(c, &t);
+    uint8_t op;
+    if      (t.k == MTK_PLUS)  op = MS_OP_ADD;
+    else if (t.k == MTK_MINUS) op = MS_OP_SUB;
+    else break;
+    tc_mscr_next(c, &t);
+    tc_mscr_expr_mul(c);
+    tc_mscr_emit(c, op);
+  }
+}
+static void tc_mscr_expr_cmp(TcMsCompiler *c) {
+  tc_mscr_expr_add(c);
+  for (;;) {
+    TcMsTok t; tc_mscr_peek(c, &t);
+    uint8_t op;
+    if      (t.k == MTK_LT) op = MS_OP_LT;
+    else if (t.k == MTK_LE) op = MS_OP_LE;
+    else if (t.k == MTK_GT) op = MS_OP_GT;
+    else if (t.k == MTK_GE) op = MS_OP_GE;
+    else break;
+    tc_mscr_next(c, &t);
+    tc_mscr_expr_add(c);
+    tc_mscr_emit(c, op);
+  }
+}
+static void tc_mscr_expr_eq(TcMsCompiler *c) {
+  tc_mscr_expr_cmp(c);
+  for (;;) {
+    TcMsTok t; tc_mscr_peek(c, &t);
+    uint8_t op;
+    if      (t.k == MTK_EQ) op = MS_OP_EQ;
+    else if (t.k == MTK_NE) op = MS_OP_NE;
+    else break;
+    tc_mscr_next(c, &t);
+    tc_mscr_expr_cmp(c);
+    tc_mscr_emit(c, op);
+  }
+}
+
+// ── Statement / block parser ──────────────────────────────────────
+static void tc_mscr_block(TcMsCompiler *c, uint8_t term1, uint8_t term2);
+
+static void tc_mscr_stmt_assign(TcMsCompiler *c, int lnv_idx, uint8_t opkind) {
+  // opkind: MTK_ASSIGN/PLUSEQ/MINUSEQ/MULEQ/DIVEQ
+  if (opkind == MTK_ASSIGN) {
+    tc_mscr_expr_eq(c);
+  } else {
+    uint8_t op = MS_OP_ADD;
+    switch (opkind) {
+      case MTK_PLUSEQ:  op = MS_OP_ADD; break;
+      case MTK_MINUSEQ: op = MS_OP_SUB; break;
+      case MTK_MULEQ:   op = MS_OP_MUL; break;
+      case MTK_DIVEQ:   op = MS_OP_DIV; break;
+    }
+    tc_mscr_emit(c, MS_OP_PUSH_LNV); tc_mscr_emit(c, (uint8_t)lnv_idx);
+    tc_mscr_expr_eq(c);
+    tc_mscr_emit(c, op);
+  }
+  tc_mscr_emit(c, MS_OP_POP_LNV); tc_mscr_emit(c, (uint8_t)lnv_idx);
+}
+
+static void tc_mscr_stmt_sml(TcMsCompiler *c) {
+  // Already consumed "sml" keyword. Expect "(" int sub  rest ")"
+  TcMsTok t; tc_mscr_next(c, &t);
+  if (t.k != MTK_LPAREN) { tc_mscr_syntax(c, "sml expected ("); return; }
+  tc_mscr_expr_eq(c);                              // meter on stack
+  TcMsTok ts; tc_mscr_next(c, &ts);
+  if (ts.k != MTK_INT) { tc_mscr_syntax(c, "sml subop must be literal int"); return; }
+  if (ts.i == 0) {                                 // sml(m, 0, baud) → SetBaud
+    tc_mscr_expr_eq(c);                            // baud on stack
+    tc_mscr_next(c, &t);
+    if (t.k != MTK_RPAREN) { tc_mscr_syntax(c, "sml expected )"); return; }
+    tc_mscr_emit(c, MS_OP_SML_BAUD);
+  } else if (ts.i == 1) {                          // sml(m, 1, "HEX..") → SML_Write hex
+    tc_mscr_next(c, &t);
+    if (t.k != MTK_HEXSTR) { tc_mscr_syntax(c, "sml(.,1,..) needs \"HEX\" literal"); return; }
+    if (t.slen == 0 || t.slen > TC_MSCR_HEX_MAX*2) {
+      tc_mscr_syntax(c, "sml hex empty or too long"); return;
+    }
+    TcMsTok tc2; tc_mscr_next(c, &tc2);
+    if (tc2.k != MTK_RPAREN) { tc_mscr_syntax(c, "sml expected )"); return; }
+    tc_mscr_emit(c, MS_OP_SML_HEX);
+    tc_mscr_emit(c, (uint8_t)t.slen);
+    for (uint16_t k = 0; k < t.slen; k++) tc_mscr_emit(c, (uint8_t)t.str[k]);
+  } else {
+    tc_mscr_syntax(c, "sml subop must be 0 or 1"); return;
+  }
+}
+
+static void tc_mscr_stmt_switch(TcMsCompiler *c) {
+  // "switch" already consumed. Expect: <lnv> NL  [case <int> NL block]+ ends
+  TcMsTok t; tc_mscr_next(c, &t);
+  if (t.k != MTK_LNV) { tc_mscr_syntax(c, "switch needs lnvN"); return; }
+  uint8_t var = (uint8_t)t.i;
+  // Expect newline
+  TcMsTok nl; tc_mscr_next(c, &nl);
+  if (nl.k != MTK_NL && nl.k != MTK_END) { tc_mscr_syntax(c, "switch: expected newline"); return; }
+  tc_mscr_skip_nls(c);
+  uint16_t end_jumps[16]; uint8_t end_jumps_n = 0;
+  for (;;) {
+    TcMsTok kw; tc_mscr_peek(c, &kw);
+    if (kw.k == MTK_KW_ENDS) { tc_mscr_next(c, &kw); break; }
+    if (kw.k == MTK_END)     { tc_mscr_syntax(c, "switch: missing ends"); return; }
+    if (kw.k != MTK_KW_CASE) { tc_mscr_syntax(c, "switch: expected case"); return; }
+    tc_mscr_next(c, &kw);
+    TcMsTok ci; tc_mscr_next(c, &ci);
+    if (ci.k != MTK_INT) { tc_mscr_syntax(c, "case needs int"); return; }
+    TcMsTok cnl; tc_mscr_next(c, &cnl);
+    if (cnl.k != MTK_NL && cnl.k != MTK_END) { tc_mscr_syntax(c, "case: expected newline"); return; }
+    tc_mscr_skip_nls(c);
+    // emit:  PUSH_LNV var; PUSH_IMM ci.i; EQ; JZ next_case
+    tc_mscr_emit(c, MS_OP_PUSH_LNV); tc_mscr_emit(c, var);
+    tc_mscr_emit(c, MS_OP_PUSH_IMM); tc_mscr_emit_i32(c, ci.i);
+    tc_mscr_emit(c, MS_OP_EQ);
+    uint16_t jz_pos = tc_mscr_emit_jmp(c, MS_OP_JZ);
+    // body until next case or ends
+    tc_mscr_block(c, MTK_KW_CASE, MTK_KW_ENDS);
+    // jump to end-of-switch
+    if (end_jumps_n < 16) {
+      end_jumps[end_jumps_n++] = tc_mscr_emit_jmp(c, MS_OP_JMP);
+    } else {
+      tc_mscr_syntax(c, "switch too many cases"); return;
+    }
+    tc_mscr_patch(c, jz_pos, c->len);
+  }
+  // patch all end-of-switch jumps
+  for (uint8_t i = 0; i < end_jumps_n; i++) tc_mscr_patch(c, end_jumps[i], c->len);
+}
+
+static void tc_mscr_stmt_if(TcMsCompiler *c) {
+  // "if" already consumed. Expect: <expr> NL  body  endif
+  tc_mscr_expr_eq(c);
+  TcMsTok nl; tc_mscr_next(c, &nl);
+  if (nl.k != MTK_NL && nl.k != MTK_END) { tc_mscr_syntax(c, "if: expected newline"); return; }
+  tc_mscr_skip_nls(c);
+  uint16_t jz_pos = tc_mscr_emit_jmp(c, MS_OP_JZ);
+  tc_mscr_block(c, MTK_KW_ENDIF, MTK_KW_ENDIF);
+  TcMsTok endif; tc_mscr_next(c, &endif);
+  if (endif.k != MTK_KW_ENDIF) { tc_mscr_syntax(c, "if: missing endif"); return; }
+  tc_mscr_patch(c, jz_pos, c->len);
+}
+
+static void tc_mscr_block(TcMsCompiler *c, uint8_t term1, uint8_t term2) {
+  for (;;) {
+    if (c->err) return;
+    tc_mscr_skip_nls(c);
+    TcMsTok t; tc_mscr_peek(c, &t);
+    if (t.k == MTK_END) return;
+    if (t.k == term1 || t.k == term2) return;
+    if (t.k == MTK_LNV) {
+      tc_mscr_next(c, &t);
+      int v = t.i;
+      TcMsTok op; tc_mscr_next(c, &op);
+      if (op.k != MTK_ASSIGN && op.k != MTK_PLUSEQ && op.k != MTK_MINUSEQ &&
+          op.k != MTK_MULEQ  && op.k != MTK_DIVEQ) {
+        tc_mscr_syntax(c, "expected = += -= *= /="); return;
+      }
+      tc_mscr_stmt_assign(c, v, op.k);
+    } else if (t.k == MTK_KW_SML) {
+      tc_mscr_next(c, &t);
+      tc_mscr_stmt_sml(c);
+    } else if (t.k == MTK_KW_SWITCH) {
+      tc_mscr_next(c, &t);
+      tc_mscr_stmt_switch(c);
+    } else if (t.k == MTK_KW_IF) {
+      tc_mscr_next(c, &t);
+      tc_mscr_stmt_if(c);
+    } else {
+      tc_mscr_syntax(c, "unknown statement"); return;
+    }
+    // consume statement-terminating newline (one or more)
+    tc_mscr_skip_nls(c);
+  }
+}
+
+static int tc_mscr_compile(const char *src, size_t src_len, uint8_t *bc, uint16_t cap, uint16_t *out_len) {
+  TcMsCompiler c;
+  memset(&c, 0, sizeof(c));
+  c.p = src; c.end = src + src_len;
+  c.bc = bc; c.cap = cap;
+  c.line = 1;
+  tc_mscr_block(&c, MTK_END, MTK_END);
+  if (c.err) { *out_len = 0; return -1; }
+  tc_mscr_emit(&c, MS_OP_END);
+  if (c.err) { *out_len = 0; return -1; }
+  *out_len = c.len;
+  return 0;
+}
+
+// ── VM (stack interpreter) ────────────────────────────────────────
+static int tc_mscr_hexnibble(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  return -1;
+}
+
+static void tc_mscr_exec(uint8_t *bc, uint16_t bc_len, int32_t *lnv) {
+  if (!bc || !bc_len) return;
+  int32_t stk[TC_MSCR_STK_MAX];
+  int sp = 0;
+  uint16_t ip = 0;
+  uint32_t guard = 0;
+  while (ip < bc_len && guard++ < 4096) {
+    uint8_t op = bc[ip++];
+    switch (op) {
+      case MS_OP_END: return;
+      case MS_OP_PUSH_LNV: {
+        if (ip >= bc_len) return;
+        uint8_t v = bc[ip++];
+        if (sp >= TC_MSCR_STK_MAX || v >= TC_MSCR_LNV_COUNT) return;
+        stk[sp++] = lnv[v];
+        break;
+      }
+      case MS_OP_PUSH_IMM: {
+        if (ip + 4 > bc_len) return;
+        int32_t v = (int32_t)(bc[ip] | (bc[ip+1]<<8) | (bc[ip+2]<<16) | (bc[ip+3]<<24));
+        ip += 4;
+        if (sp >= TC_MSCR_STK_MAX) return;
+        stk[sp++] = v;
+        break;
+      }
+      case MS_OP_POP_LNV: {
+        if (ip >= bc_len || sp <= 0) return;
+        uint8_t v = bc[ip++];
+        if (v >= TC_MSCR_LNV_COUNT) return;
+        lnv[v] = stk[--sp];
+        break;
+      }
+      case MS_OP_ADD: case MS_OP_SUB: case MS_OP_MUL: case MS_OP_DIV: case MS_OP_MOD:
+      case MS_OP_LT:  case MS_OP_LE:  case MS_OP_GT:  case MS_OP_GE:  case MS_OP_EQ: case MS_OP_NE: {
+        if (sp < 2) return;
+        int32_t b = stk[--sp];
+        int32_t a = stk[--sp];
+        int32_t r = 0;
+        switch (op) {
+          case MS_OP_ADD: r = a + b; break;
+          case MS_OP_SUB: r = a - b; break;
+          case MS_OP_MUL: r = a * b; break;
+          case MS_OP_DIV: r = (b==0) ? 0 : a / b; break;
+          case MS_OP_MOD: r = (b==0) ? 0 : a % b; break;
+          case MS_OP_LT:  r = (a <  b); break;
+          case MS_OP_LE:  r = (a <= b); break;
+          case MS_OP_GT:  r = (a >  b); break;
+          case MS_OP_GE:  r = (a >= b); break;
+          case MS_OP_EQ:  r = (a == b); break;
+          case MS_OP_NE:  r = (a != b); break;
+        }
+        stk[sp++] = r;
+        break;
+      }
+      case MS_OP_JMP: {
+        if (ip + 2 > bc_len) return;
+        uint16_t tgt = (uint16_t)(bc[ip] | (bc[ip+1]<<8));
+        ip = tgt;
+        break;
+      }
+      case MS_OP_JZ: {
+        if (ip + 2 > bc_len || sp <= 0) return;
+        uint16_t tgt = (uint16_t)(bc[ip] | (bc[ip+1]<<8));
+        ip += 2;
+        int32_t v = stk[--sp];
+        if (!v) ip = tgt;
+        break;
+      }
+      case MS_OP_SML_BAUD: {
+        if (sp < 2) return;
+        int32_t baud  = stk[--sp];
+        int32_t meter = stk[--sp];
+        SML_SetBaud((uint32_t)meter, (uint32_t)baud);
+        break;
+      }
+      case MS_OP_SML_HEX: {
+        if (ip >= bc_len || sp < 1) return;
+        uint8_t hlen = bc[ip++];
+        if (ip + hlen > bc_len) return;
+        // Build a NUL-terminated hex string for SML_Write (it parses hex chars itself).
+        char hbuf[TC_MSCR_HEX_MAX*2 + 4];
+        if (hlen >= sizeof(hbuf)) return;
+        memcpy(hbuf, bc + ip, hlen);
+        hbuf[hlen] = 0;
+        ip += hlen;
+        int32_t meter = stk[--sp];
+        SML_Write((int32_t)meter, hbuf);
+        break;
+      }
+      default: return;                              // unknown opcode → bail
+    }
+  }
+}
+
+// ── Tick dispatcher (called from tc_all_callbacks_id) ─────────────
+static inline void tc_mscr_tick_f(void) {
+  if (tc_mscr.loaded && tc_mscr.has_f) tc_mscr_exec(tc_mscr.bc_f, tc_mscr.bc_f_len, tc_mscr.lnv);
+}
+static inline void tc_mscr_tick_s(void) {
+  if (tc_mscr.loaded && tc_mscr.has_s) tc_mscr_exec(tc_mscr.bc_s, tc_mscr.bc_s_len, tc_mscr.lnv);
+}
+
+// ── Section extractor ─────────────────────────────────────────────
+// Find the first line beginning with `marker` (e.g. ">F"). Returns pointer to
+// the line AFTER the marker (i.e. start of body), and writes the body length up
+// to the next ">X" line or end-of-buffer to *out_len. Returns NULL if not found.
+static const char *tc_mscr_find_section(const char *buf, size_t buf_len, const char *marker, size_t *out_len) {
+  size_t mlen = strlen(marker);
+  const char *p = buf;
+  const char *end = buf + buf_len;
+  while (p < end) {
+    // Is this line the marker?
+    size_t rem = (size_t)(end - p);
+    if (rem >= mlen && memcmp(p, marker, mlen) == 0) {
+      // Verify it's followed by NL/space/EOL (so ">F" doesn't match ">FOO")
+      char nx = (p + mlen < end) ? p[mlen] : '\n';
+      if (nx == '\n' || nx == '\r' || nx == ' ' || nx == '\t') {
+        // skip to next line
+        const char *body = (const char*)memchr(p, '\n', rem);
+        body = body ? body + 1 : end;
+        // body extends until next line starting with '>' or EOF
+        const char *q = body;
+        while (q < end) {
+          const char *eol = (const char*)memchr(q, '\n', (size_t)(end - q));
+          const char *next_line_start = eol ? eol + 1 : end;
+          if (next_line_start < end && *next_line_start == '>') {
+            *out_len = (size_t)(next_line_start - body);
+            return body;
+          }
+          q = next_line_start;
+        }
+        *out_len = (size_t)(end - body);
+        return body;
+      }
+    }
+    // advance to next line
+    const char *eol = (const char*)memchr(p, '\n', rem);
+    p = eol ? eol + 1 : end;
+  }
+  *out_len = 0;
+  return NULL;
+}
+
+// Public load entry — read file at `path`, extract >F/>S, compile both. Returns:
+//   number of sections successfully compiled (0..2), -1 = error (open/size).
+static int tc_mscr_load(const char *path) {
+#ifdef USE_UFILESYS
+  memset(&tc_mscr, 0, sizeof(tc_mscr));
+  char fpath[128]; strlcpy(fpath, path, sizeof(fpath));
+  FS *fsp = tc_file_path(fpath);
+  if (!fsp) return -1;
+  File f = fsp->open(fpath, "r");
+  if (!f) return -1;
+  size_t fsize = (size_t)f.size();
+  if (fsize == 0 || fsize > 8192) { f.close(); return -1; }
+  char *buf = (char*)malloc(fsize + 1);
+  if (!buf) { f.close(); return -1; }
+  size_t got = (size_t)f.read((uint8_t*)buf, fsize);
+  buf[got] = 0;
+  f.close();
+  int ok = 0;
+  size_t sec_len = 0;
+  const char *body;
+  body = tc_mscr_find_section(buf, got, ">F", &sec_len);
+  if (body) {
+    if (tc_mscr_compile(body, sec_len, tc_mscr.bc_f, TC_MSCR_BC_MAX, &tc_mscr.bc_f_len) == 0) {
+      tc_mscr.has_f = 1; ok++;
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: mscr compiled >F %u src→%u bc"), (unsigned)sec_len, (unsigned)tc_mscr.bc_f_len);
+    } else {
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: mscr >F compile failed"));
+    }
+  }
+  body = tc_mscr_find_section(buf, got, ">S", &sec_len);
+  if (body) {
+    if (tc_mscr_compile(body, sec_len, tc_mscr.bc_s, TC_MSCR_BC_MAX, &tc_mscr.bc_s_len) == 0) {
+      tc_mscr.has_s = 1; ok++;
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: mscr compiled >S %u src→%u bc"), (unsigned)sec_len, (unsigned)tc_mscr.bc_s_len);
+    } else {
+      AddLog(LOG_LEVEL_ERROR, PSTR("TCC: mscr >S compile failed"));
+    }
+  }
+  free(buf);
+  if (ok > 0) tc_mscr.loaded = 1;
+  return ok;
+#else
+  (void)path;
+  return -1;
+#endif
 }
 
 /*********************************************************************************************\
@@ -6828,6 +7449,21 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       (void)smlf; (void)txp; (void)rxp; (void)pi;
       TC_PUSH(vm, -1);
 #endif
+      break;
+    }
+    case SYS_SML_SCRIPTER_LOAD: {
+      // smlScripterLoad("/path") — read the SML descriptor, extract any >F (Every100ms)
+      // and >S (EverySecond) Scripter sections, compile each to a tiny bytecode that the
+      // tick dispatcher runs without touching the full Scripter engine. Subset support:
+      // lnv0..9, arithmetic+cmp, switch/case/ends, if/endif, sml(m,0,baud), sml(m,1,"HEX").
+      // Returns # sections compiled (0..2), or -1 on file/open error.
+      int32_t pi = TC_POP(vm);
+      const char *cpath = tc_get_const_str(vm, pi);
+      if (!cpath) { TC_PUSH(vm, -1); break; }
+      int rc = tc_mscr_load(cpath);
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: smlScripterLoad('%s') = %d (>F=%d >S=%d)"),
+             cpath, rc, (int)tc_mscr.has_f, (int)tc_mscr.has_s);
+      TC_PUSH(vm, rc);
       break;
     }
     case SYS_WEB_REPO_PULLDOWN: {
@@ -11959,6 +12595,10 @@ static void tc_slot_callback_id(TcSlot *s, TcCallbackId cid) {
 // Defined here (not in .ino) because TcCallbackId param confuses Arduino's
 // auto-prototyper (same reason tc_slot_callback* lives in vm.h).
 static void tc_all_callbacks_id(TcCallbackId cid) {
+  // Mini-Scripter ticks first (cheap, no slot lookup needed). Bytecode is
+  // populated only after a successful smlScripterLoad() — otherwise no-op.
+  if (cid == TC_CB_EVERY_100_MSECOND) tc_mscr_tick_f();
+  else if (cid == TC_CB_EVERY_SECOND) tc_mscr_tick_s();
   if (!Tinyc) return;
   for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
     TcSlot *s = Tinyc->slots[i];
