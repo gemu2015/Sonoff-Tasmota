@@ -78,6 +78,14 @@ def crc16modbus(data: bytes) -> int:
 # ── Serial reader thread ───────────────────────────────────────────────────────
 rx_buf = bytearray()
 
+# T510 mode swaps the reader's semantics: bytes accumulate in rx_buf but we do
+# NOT attempt Modbus-RTU parsing on them. The T510 thread consumes rx_buf via
+# _t510_take_bytes() whenever it is waiting for a handshake pattern.
+t510_running = False     # True while the T510 state machine is active
+t510_serial  = 'T510001'
+t510_thread  = None
+t510_stop    = False
+
 def serial_reader():
     global serial_port
     while True:
@@ -93,8 +101,10 @@ def serial_reader():
                 continue
             with state_lock:
                 rx_buf.extend(data)
-            # Process Modbus RTU frames (FC04, 8 bytes each)
-            _process_modbus_rtu()
+            # In T510 mode the dedicated state machine consumes rx_buf; do not
+            # try to parse it as Modbus RTU.
+            if not t510_running:
+                _process_modbus_rtu()
         except Exception as e:
             log_entry('err', f'Serial read: {e}')
             time.sleep(0.1)
@@ -228,6 +238,162 @@ def _get_reg_value(reg: int) -> float:
     noise = base * (pct / 100.0) * (random.random() * 2 - 1)
     val   = base + noise
     return val if val > 0 else 0.0
+
+# ── T510 IEC 62056-21 state machine ───────────────────────────────────────────
+# Runs entirely server-side under the Python bridge. The browser-side T510
+# listener in sml_emulator.html needs `port.readable.getReader()` which is
+# unavailable under the bridge (the browser doesn't own the port), so when
+# profile == 't510' we drive the full mode-C handshake here instead.
+#
+# On-wire bytes from Tasmota's SML driver are emitted 8N1 with bit 7 = even
+# parity of the low 7 bits (see SML_Send_Seq in xsns_53_sml.ino). The adapter
+# is typically opened 8N1 too, so we mask bit 7 when matching ASCII patterns.
+
+def _t510_take_bytes():
+    """Atomically drain rx_buf and return the bytes."""
+    global rx_buf
+    with state_lock:
+        data = bytes(rx_buf)
+        rx_buf.clear()
+    return data
+
+def _t510_wait_for(pattern_ascii: bytes, timeout_s: float, label: str) -> bool:
+    """Wait up to timeout_s for pattern_ascii (7-bit) in the RX stream.
+    Any accumulated RX bytes are masked to 7 bits before comparison. Returns
+    True if found, False on timeout or stop."""
+    deadline = time.time() + timeout_s
+    buf = bytearray()
+    while time.time() < deadline and not t510_stop:
+        data = _t510_take_bytes()
+        if data:
+            # Log raw bytes for debug, mask for match
+            log_entry('rx', f'T510 RX  {data.hex(" ")}')
+            for b in data:
+                buf.append(b & 0x7F)
+            if len(buf) >= len(pattern_ascii):
+                # Search for pattern anywhere in recent tail
+                idx = buf.rfind(pattern_ascii)
+                if idx >= 0:
+                    return True
+                # Keep only the last (len(pattern)-1) bytes so we can still
+                # match a pattern straddling the next chunk
+                if len(buf) > len(pattern_ascii):
+                    del buf[:-len(pattern_ascii)]
+        else:
+            time.sleep(0.02)
+    if not t510_stop:
+        log_entry('warn', f'T510 timeout waiting for {label}')
+    return False
+
+def _t510_set_baud(baud: int):
+    """Hot-reconfigure the open serial port to a new baud rate. Avoids a
+    close/reopen (which can drop pending bytes on some adapters)."""
+    with state_lock:
+        p = serial_port
+    if p and p.is_open:
+        try:
+            p.baudrate = baud
+            log_entry('info', f'T510 port → {baud} baud')
+        except Exception as e:
+            log_entry('err', f'T510 baud change to {baud}: {e}')
+
+def _t510_serial_write(data: bytes, label: str = ''):
+    with state_lock:
+        p = serial_port
+    if p and p.is_open:
+        try:
+            p.write(data)
+            extra = f' ({label})' if label else ''
+            log_entry('tx', f'T510 TX {len(data)}B{extra}  {data[:48].hex(" ")}')
+        except Exception as e:
+            log_entry('err', f'T510 write: {e}')
+
+def _t510_obis_now() -> str:
+    t = time.localtime()
+    return f'{t.tm_year%100:02d}{t.tm_mon:02d}{t.tm_mday:02d}{t.tm_hour:02d}{t.tm_min:02d}{t.tm_sec:02d}'
+
+def _t510_build_ascii(serial_num: str) -> str:
+    """Build a minimal T510 OBIS ASCII telegram from reg_bank. The browser
+    pushes fresh register values every second via /api/regs, so reg_bank is
+    the single source of truth for live power/energy data."""
+    with state_lock:
+        pL1 = float(reg_bank.get(0x000C, 0))  # W
+        pL2 = float(reg_bank.get(0x000E, 0))
+        pL3 = float(reg_bank.get(0x0010, 0))
+        iL1 = float(reg_bank.get(0x0006, 0))  # A
+        iL2 = float(reg_bank.get(0x0008, 0))
+        iL3 = float(reg_bank.get(0x000A, 0))
+        eIn = float(reg_bank.get(0x0048, 0))  # kWh
+    lines = [
+        f'/T515{serial_num}\r\n',
+        '\r\n',
+        f'0.0.0({serial_num})\r\n',
+        f'0.9.1({_t510_obis_now()})\r\n',
+        f'1.8.0({eIn:.3f})\r\n',
+        f'21.7.0({int(round(pL1 * 1000))})\r\n',  # mW
+        f'41.7.0({int(round(pL2 * 1000))})\r\n',
+        f'61.7.0({int(round(pL3 * 1000))})\r\n',
+        f'31.7.0({iL1:.2f})\r\n',
+        f'51.7.0({iL2:.2f})\r\n',
+        f'71.7.0({iL3:.2f})\r\n',
+        '!\r\n',
+    ]
+    return ''.join(lines)
+
+def _t510_runner(serial_num: str):
+    """Full IEC 62056-21 mode-C loop: wait for /?!\\r\\n at 300 baud, send
+    identification, wait for ACK, send OBIS data at 9600, go back to 300."""
+    log_entry('info', f'T510 state machine started (serial={serial_num})')
+    _t510_take_bytes()  # flush
+    try:
+        while not t510_stop:
+            # Phase 1 — wait for /?!\r\n (mode-C wake-up)
+            if not _t510_wait_for(b'/?!\r\n', 65.0, '/?!\\r\\n wake-up'):
+                continue
+            log_entry('info', 'T510 ✓ wake-up received')
+
+            # Phase 2a — send identification at 300 baud
+            ident = f'/T515{serial_num}\r\n'.encode('ascii')
+            _t510_serial_write(ident, 'identification')
+
+            # Phase 2b — wait for ACK \x06 050 \r\n
+            if not _t510_wait_for(b'\x0605\x30\r\n', 10.0, '\\x06050\\r\\n ACK'):
+                continue
+            log_entry('info', 'T510 ✓ ACK received — switching to 9600 baud')
+
+            # Phase 3 — switch to 9600, send OBIS ASCII telegram
+            _t510_set_baud(9600)
+            time.sleep(0.2)  # let Tasmota's updateBaudRate settle
+            telegram = _t510_build_ascii(serial_num)
+            _t510_serial_write(telegram.encode('ascii'), 'OBIS ASCII 9600bd')
+            time.sleep(3.0)  # give Tasmota time to parse
+
+            # Phase 4 — back to 300 baud for next cycle
+            _t510_set_baud(300)
+            _t510_take_bytes()  # flush any stale bytes from 9600 phase
+    except Exception as e:
+        log_entry('err', f'T510 runner exception: {e}')
+    finally:
+        log_entry('info', 'T510 state machine stopped')
+
+def t510_start(serial_num: str):
+    global t510_running, t510_thread, t510_stop, t510_serial
+    if t510_running:
+        return
+    t510_serial  = serial_num or 'T510001'
+    t510_stop    = False
+    t510_running = True
+    t510_thread  = threading.Thread(target=_t510_runner, args=(t510_serial,),
+                                    daemon=True)
+    t510_thread.start()
+
+def t510_stop_runner():
+    global t510_running, t510_stop
+    if not t510_running:
+        return
+    t510_stop    = True
+    t510_running = False
+    # Thread exits at its next wait/poll boundary; daemon flag cleans up on exit.
 
 # ── Modbus TCP slave ───────────────────────────────────────────────────────────
 def modbus_tcp_server():
@@ -423,10 +589,15 @@ async function setupConnectUI() {
     if (!device) { alert('Select a serial port first'); return; }
     const baud = +document.getElementById('selBaud').value;
     const serCfg = document.getElementById('selSerial').value;
+    // Tell Python about the profile so it can run the T510 IEC 62056-21
+    // state machine server-side (the browser's port.readable is not available
+    // under the bridge, so the HTML t510Listener never fires).
+    const profile = document.getElementById('selProfile')?.value || '';
+    const serialNum = document.getElementById('inpSerial')?.value || '';
     const r = await fetch(BASE + '/api/open', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({device, baud, config: serCfg})
+      body: JSON.stringify({device, baud, config: serCfg, profile, serial: serialNum})
     });
     const j = await r.json();
     if (j.ok) {
@@ -521,10 +692,14 @@ computeLiveValues = function() {
   }).catch(() => {});
 };
 
-// ── For TCP / Modbus-RTU profiles: push registers every second ────────────────
-// (neither of these runs the sendFrame loop that would normally call computeLiveValues)
+// ── For TCP / Modbus-RTU / T510 profiles: push registers every second ─────────
+// None of these runs the browser-side sendFrame loop that would normally call
+// computeLiveValues — for T510 the Python-side state machine reads reg_bank to
+// build OBIS telegrams, so we must keep pushing base values for it to see.
 setInterval(() => {
-  if (isTcpProfile() || (typeof isModbusRtu === 'function' && isModbusRtu())) {
+  if (isTcpProfile()
+      || (typeof isModbusRtu === 'function' && isModbusRtu())
+      || (typeof isT510     === 'function' && isT510())) {
     computeLiveValues();
   }
 }, 1000);
@@ -626,13 +801,22 @@ if (tcpPanel) {
 """
 
 def browser_watchdog(url):
-    """Reopen browser automatically if no HTTP activity for 8 s after first use."""
+    """Re-open the browser ONLY if it was never successfully loaded in the first
+    place (e.g. the initial `open` call failed silently). A previously-loaded
+    page that has gone silent is almost certainly a backgrounded/throttled tab
+    — modern browsers throttle setInterval to ≥1 s when unfocused and ≥60 s
+    after 5 min idle, so the 1 Hz pollLog/pollWriteRegs heartbeats die on their
+    own. Forcibly re-opening the URL would yank the live tab away, reload the
+    page, and kill any open Web Serial port (T510 IEC 62056-21 listener, etc.).
+    So: only retry while we haven't yet seen a single request."""
     global last_http_req, browser_opened
-    while True:
+    deadline = time.time() + 30.0
+    while time.time() < deadline:
         time.sleep(2)
-        if browser_opened and last_http_req > 0 and (time.time() - last_http_req) > 8:
-            last_http_req = time.time()   # reset so we don't spam
-            open_browser_reliable(url)
+        if last_http_req > 0:
+            return                      # page loaded — stop, never reopen
+        if browser_opened:
+            open_browser_reliable(url)  # retry until first request arrives
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
@@ -695,7 +879,13 @@ class Handler(BaseHTTPRequestHandler):
             body = self._read_json()
             self._open_serial(body.get('device',''), body.get('baud', 9600),
                               body.get('config', '8N1'))
+            # If profile == t510, launch the IEC 62056-21 state machine. Must
+            # run in Python because under the bridge the browser never owns
+            # the port (see BRIDGE_SCRIPT btnConnect override).
+            if body.get('profile') == 't510':
+                t510_start(body.get('serial') or 'T510001')
         elif path == '/api/close':
+            t510_stop_runner()
             self._close_serial()
             self._json({'ok': True})
         elif path == '/api/send':

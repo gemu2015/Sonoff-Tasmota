@@ -943,12 +943,20 @@ function stopModbusSlave() {
 
 // Wait until `sequence` (byte array) appears in the RX stream, or timeout/stop.
 // label: short description shown in "waiting for X…" log line
+//
+// Tasmota's SML driver sends OBIS mode-C wake-up bytes as 8N1 with bit 7 set
+// to even-parity of the low 7 bits (see xsns_53_sml.ino SML_Send_Seq: `sbuff[i]
+// |= CalcEvenParity(sbuff[i]) << 7` for type=='o'). The Web Serial API is
+// usually opened at 8N1 too, so bit 7 is delivered verbatim to us. That means
+// '/' 0x2F arrives unchanged but '\r' 0x0D arrives as 0x8D. We compare with
+// bit 7 masked off so both 8N1 and 7E1 host configs work.
 async function t510WaitFor(sequence, timeoutMs, label) {
   if (!port || !t510Running) return false;
+  const masked = sequence.map(b => b & 0x7F);
   const seqHex = sequence.map(b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ');
   log('info', `T510 ← waiting for ${label || seqHex}…`);
-  const buf    = [];
-  let   rxLog  = [];           // accumulate RX bytes for debug line
+  const buf    = [];            // 7-bit-masked RX byte history
+  let   rxLog  = [];            // accumulate raw RX bytes for debug line
   const reader = port.readable.getReader();
   t510Reader   = reader;
   const deadline = Date.now() + timeoutMs;
@@ -959,11 +967,11 @@ async function t510WaitFor(sequence, timeoutMs, label) {
       if (done) break;
       if (!value) continue;
       for (const b of value) {
-        buf.push(b);
+        buf.push(b & 0x7F);
         rxLog.push(b.toString(16).padStart(2,'0').toUpperCase());
-        if (buf.length >= sequence.length) {
-          const tail = buf.slice(-sequence.length);
-          if (tail.every((v, i) => v === sequence[i])) { found = true; break; }
+        if (buf.length >= masked.length) {
+          const tail = buf.slice(-masked.length);
+          if (tail.every((v, i) => v === masked[i])) { found = true; break; }
         }
       }
       // Flush partial RX bytes to log so user can see what's arriving
