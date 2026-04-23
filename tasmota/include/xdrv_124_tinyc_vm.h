@@ -32,6 +32,13 @@ void tc_spawn_task_cleanup_slot(uint8_t slot_idx);
 #endif
 
 #include <OneWire.h>
+// Without Scripter, these aren't pulled in transitively. TinyC needs them
+// directly for serial port objects and deep-sleep wakeup-pin config.
+// Safe to include unconditionally — both have header guards and no side effects.
+#include <TasmotaSerial.h>
+#if defined(ESP32) && SOC_RTCIO_INPUT_OUTPUT_SUPPORTED
+#include "driver/rtc_io.h"
+#endif
 
 // Minimal I2S output — standalone, no USE_I2S_AUDIO needed
 #if defined(ESP32) && ESP_IDF_VERSION_MAJOR >= 5
