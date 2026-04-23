@@ -12704,6 +12704,12 @@ static void TinyCStopVM(TcSlot *s) {
   tc_spi_cleanup();
   tc_serial_close_all();
   tc_img_store_free();
+  // Clear mini-scripter state — otherwise the >F/>S bytecode from the previous
+  // .tcb keeps firing on EverySecond/Every100ms ticks and (e.g.) re-emits the
+  // IEC 62056-21 wake-up handshake even after the script that loaded it is
+  // gone. Next smlScripterLoad() in a new .tcb repopulates; scripts that
+  // don't call it get a silent mscr (loaded=0 → tick no-ops).
+  memset(&tc_mscr, 0, sizeof(tc_mscr));
 #ifdef ESP32
   // Stop I2S output if active
   if (Tinyc->i2s_tx_handle) {
