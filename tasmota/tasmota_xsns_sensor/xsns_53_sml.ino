@@ -4201,16 +4201,25 @@ uint32_t SML_Write(int32_t meter, char *hstr) {
   }
 #ifdef USE_BAT_CTRL
   if (flag > 0) {
-    // queue write command for SML_Check_Send() instead of sending directly
-    // this prevents Modbus protocol violations (write during pending read response)
-    // 2-slot queue: allows 2 writes per cycle (e.g. OpMod + Power within 10s)
-    uint8_t slot = sml_globs.sml_write_head;
-    strlcpy(sml_globs.sml_write_buf[slot], hstr, sizeof(sml_globs.sml_write_buf[0]));
-    sml_globs.sml_write_meter = meter;
-    sml_globs.sml_write_head = (slot + 1) % 2;
-    // set script_str to first queued slot so SML_Check_Send picks it up
-    if (!meter_desc[meter].script_str) {
-      meter_desc[meter].script_str = sml_globs.sml_write_buf[sml_globs.sml_write_tail];
+    // Modbus (m/M/k) and MODBUS-TCP meters go through a 2-slot write queue so
+    // writes can't collide with a pending read response. For other meter
+    // types — OBIS 'o' in particular — IEC 62056-21 mode-A handshake needs
+    // deterministic timing (wake-up at T=600 ms, ACK at T=1800 ms, baud
+    // switch at T=2000 ms), and a 100-ms queue hop between SML_Write and
+    // SML_Check_Send would break it. Send those directly.
+    uint8_t mtype = meter_desc[meter].type;
+    bool use_queue = (mtype == 'm' || mtype == 'M' || mtype == 'k');
+    if (use_queue) {
+      uint8_t slot = sml_globs.sml_write_head;
+      strlcpy(sml_globs.sml_write_buf[slot], hstr, sizeof(sml_globs.sml_write_buf[0]));
+      sml_globs.sml_write_meter = meter;
+      sml_globs.sml_write_head = (slot + 1) % 2;
+      // set script_str to first queued slot so SML_Check_Send picks it up
+      if (!meter_desc[meter].script_str) {
+        meter_desc[meter].script_str = sml_globs.sml_write_buf[sml_globs.sml_write_tail];
+      }
+    } else {
+      SML_Send_Seq(meter, hstr);
     }
   } else
 #else
@@ -4903,12 +4912,25 @@ void SML_Send_Seq(uint32_t meter, char *seq) {
       }
 #endif
 #endif // USE_SML_CANBUS
-    } else { 
+    } else {
       if (mp->trx_en.trxen) {
         digitalWrite(meter_desc[meter].trx_en.trxenpin, meter_desc[meter].trx_en.trxenpol ^ 1);
       }
       mp->meter_ss->flush();
-      mp->meter_ss->write(sbuff, slen);
+      uint32_t sent = mp->meter_ss->write(sbuff, slen);
+      // T510 / OBIS debug: confirm UART actually transmitted the handshake bytes.
+      // Printed only for 'o' type so Modbus spam stays quiet.
+      if (mp->type == 'o') {
+        char hex[3 * 16 + 4];
+        uint32_t n = slen < 16 ? slen : 16;
+        char *hp = hex;
+        for (uint32_t i = 0; i < n; i++) {
+          hp += snprintf(hp, 4, "%02X ", sbuff[i]);
+        }
+        if (slen > 16) { *hp++ = '…'; *hp = 0; }
+        AddLog(LOG_LEVEL_INFO, PSTR("SML: TX meter=%d (type=o) len=%u sent=%u  %s"),
+               (int)meter + 1, (unsigned)slen, (unsigned)sent, hex);
+      }
       if (mp->trx_en.trxen) {
         // must wait for all data sent
         mp->meter_ss->flush();
