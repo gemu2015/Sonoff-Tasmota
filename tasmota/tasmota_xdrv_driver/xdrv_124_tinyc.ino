@@ -145,10 +145,14 @@ extern "C" {
     tc_current_slot = s;
     TcVM *vm = &s->vm;
     if (vm->sp + 3 <= vm->stack_size) {
+      // Pin pre-push SP: tc_vm_call_callback_idx's saved_sp/restore would
+      // otherwise re-materialise the 3 args the callback consumed.
+      uint16_t pre_push_sp = vm->sp;
       vm->stack[vm->sp++] = (int32_t)dev_index;
       vm->stack[vm->sp++] = (int32_t)var_index;
       vm->stack[vm->sp++] = value;
       tc_vm_call_callback(vm, "HomeKitWrite");
+      vm->sp = pre_push_sp;   // balance the 3 pushes
     }
     tc_current_slot = nullptr;
 #ifdef ESP32
@@ -219,12 +223,18 @@ void tinyc_touch_button(uint8_t btn, int16_t val) {
       continue;
     }
     tc_current_slot = s;
-    // Push args left-to-right: btn first, then val (callee pops in reverse)
+    // Push args left-to-right: btn first, then val (callee pops in reverse).
+    // tc_vm_call_callback_idx captures saved_sp AFTER the push and restores
+    // it on exit — which would re-materialise both args that the callback
+    // already consumed via STORE_LOCAL. Pin pre-push SP and reassert it on
+    // return so Every TouchButton invocation is net-zero on the operand stack.
     TcVM *vm = &s->vm;
     if (vm->sp + 2 <= vm->stack_size) {
+      uint16_t pre_push_sp = vm->sp;
       vm->stack[vm->sp++] = (int32_t)btn;
       vm->stack[vm->sp++] = (int32_t)val;
       tc_vm_call_callback(vm, "TouchButton");
+      vm->sp = pre_push_sp;   // balance the 2 pushes
     }
     tc_current_slot = nullptr;
 #ifdef ESP32

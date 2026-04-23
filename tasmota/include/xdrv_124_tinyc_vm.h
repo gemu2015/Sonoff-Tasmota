@@ -180,7 +180,7 @@ static FS *tc_file_path(char *path) {
 
 #define TC_MAGIC           0x54434300  // "TCC\0"
 #define TC_VERSION         5           // V5: global (UDP auto-update) variables
-#define TC_RELEASE         "1.1.1"     // upload allocator honors ?fsz=N hint (was: always grabbed 64 KB → fragmented heap rejection); unchanged opcodes/syscalls — variadic addLog is pure compile-time desugar
+#define TC_RELEASE         "1.3.13"    // SP-leak fix in callback dispatchers (Command/OnMqttData/TouchButton/HomeKitWrite captured saved_sp *after* caller's arg push → per-call SP creep → Stack overflow after ~240 calls); add SYS_VM_STACK_DEPTH (283) diagnostic syscall → vmStackDepth()
 #define TC_FILE_NAME       "/autoexec.tcb"
 #define TC_MAX_PERSIST     64          // max persist variable entries
 #define TC_MAX_UDP_GLOBALS 64          // max global (UDP auto-update) variable entries
@@ -635,6 +635,7 @@ enum TcSyscall {
   SYS_SML_COPY        = 256, // (arr_ref, count) -> int — copy SML values to float array
   SYS_ARRAY_FILL      = 257, // (arr_ref, value, count) -> void — fill array with value
   SYS_ARRAY_COPY      = 258, // (dst_ref, src_ref, count) -> void — copy array to array
+  SYS_VM_STACK_DEPTH  = 283, // () -> int — current operand-stack depth (diagnostic)
 };
 
 /*********************************************************************************************\
@@ -3713,6 +3714,13 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     case SYS_MICROS:
       TC_PUSH(vm, (int32_t)micros());
       break;
+    case SYS_VM_STACK_DEPTH: {
+      // Diagnostic: report current operand-stack depth *before* this syscall's return push.
+      // Useful for detecting SP leaks in user scripts / callback chains.
+      int32_t depth = (int32_t)vm->sp;
+      TC_PUSH(vm, depth);
+      break;
+    }
     case SYS_TIMER_START: {
       a = TC_POP(vm);  // ms
       b = TC_POP(vm);  // id
@@ -11636,12 +11644,21 @@ static int tc_vm_call_callback_str(TcVM *vm, const char *name, const char *str) 
   }
   buf[slots - 1] = 0;
 
-  // Push heap ref onto stack for the callback parameter
+  // Push heap ref onto stack for the callback parameter.
+  // Capture SP *before* the push: tc_vm_call_callback_idx captures its own
+  // saved_sp at entry (= post-push) and restores to it on exit, which would
+  // re-materialise the arg the callback already consumed via STORE_LOCAL.
+  // Pin vm->sp back to pre-push here so the net effect across the call is 0.
+  uint16_t pre_push_sp = vm->sp;
   int32_t ref = 0xC0000000 | handle;
   TC_PUSH(vm, ref);
 
   // Call the callback (it will pop the ref as its parameter)
   int err = tc_vm_call_callback(vm, name);
+
+  // Balance the pre-call push (covers both the success path — idx restored
+  // to post-push — and the early-return path where the arg was never consumed).
+  vm->sp = pre_push_sp;
 
   // Free temp buffer and rewind bump allocator to reclaim the space
   tc_heap_free_handle(vm, handle);
@@ -11687,10 +11704,14 @@ static int tc_vm_call_callback_str2(TcVM *vm, const char *name,
 
   // Push in declaration order: topic first (bottom), payload second (top).
   // TinyC frame builder reads params left-to-right from the pushed stack.
+  // Pin pre-push SP so tc_vm_call_callback_idx's saved_sp restore doesn't
+  // re-materialise the 2 args the callback consumed (see _str variant).
+  uint16_t pre_push_sp = vm->sp;
   TC_PUSH(vm, (int32_t)(0xC0000000 | h1));  // first  param: topic
   TC_PUSH(vm, (int32_t)(0xC0000000 | h2));  // second param: payload
 
   int err = tc_vm_call_callback(vm, name);
+  vm->sp = pre_push_sp;   // balance the 2 pushes
 
   tc_heap_free_handle(vm, h2);
   tc_heap_free_handle(vm, h1);
