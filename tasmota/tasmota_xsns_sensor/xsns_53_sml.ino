@@ -4917,20 +4917,7 @@ void SML_Send_Seq(uint32_t meter, char *seq) {
         digitalWrite(meter_desc[meter].trx_en.trxenpin, meter_desc[meter].trx_en.trxenpol ^ 1);
       }
       mp->meter_ss->flush();
-      uint32_t sent = mp->meter_ss->write(sbuff, slen);
-      // T510 / OBIS debug: confirm UART actually transmitted the handshake bytes.
-      // Printed only for 'o' type so Modbus spam stays quiet.
-      if (mp->type == 'o') {
-        char hex[3 * 16 + 4];
-        uint32_t n = slen < 16 ? slen : 16;
-        char *hp = hex;
-        for (uint32_t i = 0; i < n; i++) {
-          hp += snprintf(hp, 4, "%02X ", sbuff[i]);
-        }
-        if (slen > 16) { *hp++ = '…'; *hp = 0; }
-        AddLog(LOG_LEVEL_INFO, PSTR("SML: TX meter=%d (type=o) len=%u sent=%u  %s"),
-               (int)meter + 1, (unsigned)slen, (unsigned)sent, hex);
-      }
+      mp->meter_ss->write(sbuff, slen);
       if (mp->trx_en.trxen) {
         // must wait for all data sent
         mp->meter_ss->flush();
