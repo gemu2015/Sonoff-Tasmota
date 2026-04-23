@@ -2894,21 +2894,31 @@ static size_t tc_sml_subst_line(const char *src, size_t src_len,
  *   control     switch <lnv> [case <int> ...]+ ends
  *               if <expr> ... endif
  *   syscalls    sml(meter, 0, baud)      → SML_SetBaud
- *               sml(meter, 1, "HEX..")   → SML_Write (mode hex send)
+ *               sml(meter, 1, "HEX..")   → SML_Write (send hex bytes)
+ *               sml(-meter, 1, "BAUD:8X1") → SML_Write (reconfigure serial framing,
+ *                                           handled natively by SML_Write's flag<0 path,
+ *                                           e.g. "2400:8E1" to switch to 8E1 for M-Bus)
+ *               delay(ms)                → yield-style delay (capped at 1000 ms; see note)
  *   sections    >F (Every100ms)   >S (EverySecond)
  *   misc        ; end-of-line comment   ;-prefixed line comment   blank lines OK
  *
  * Compiled to a stack-machine bytecode at smlScripterLoad() time. Runtime cost per tick
  * is dispatch + a handful of arithmetic/cmp ops; no allocations after load.
  *
+ * `delay(ms)` is intended for short M-Bus pre-wake pauses (few hundred ms) — it runs
+ * inside the Tasmota main loop so long delays will stall other drivers. The exec caps
+ * at 1000 ms as a safety net; longer waits should be expressed as `case N` ticks instead.
+ *
  * NOTE: If full Tasmota Scripter is also present and parsing the same file, both will run
  * the >F/>S blocks → double work / double SML sends. Use this only when Scripter is off.
 \*********************************************************************************************/
 
-#define TC_MSCR_BC_MAX     384      // bytecode bytes per section (>F or >S)
+#define TC_MSCR_BC_MAX     512      // bytecode bytes per section (>F or >S)
 #define TC_MSCR_LNV_COUNT  10
 #define TC_MSCR_STK_MAX    16
-#define TC_MSCR_HEX_MAX    32       // max payload bytes for sml(m,1,"HEX..")
+#define TC_MSCR_HEX_MAX    128      // max payload bytes for sml(m,1,"HEX..") — up to
+                                    // 256 hex chars, enough for ~1 s of 0x55 wake at 2400 bd
+#define TC_MSCR_DELAY_CAP  1000     // ms — hard cap for delay() to avoid loop starvation
 
 enum TcMsOp {
   MS_OP_END = 0,
@@ -2920,7 +2930,10 @@ enum TcMsOp {
   MS_OP_JMP,         // [op][u16 LE abs]             — unconditional
   MS_OP_JZ,          // [op][u16 LE abs]             — pop, if 0 jump
   MS_OP_SML_BAUD,    // pop baud, pop meter          → SML_SetBaud
-  MS_OP_SML_HEX,     // [op][len][bytes...] pop meter → SML_Write(meter, hexstr)
+  MS_OP_SML_HEX,     // [op][len_lo][len_hi][chars...] pop meter → SML_Write(meter, hexstr)
+                     // (for negative meter, the payload is "BAUD:8X1" and SML_Write's
+                     //  flag<0 path reconfigures serial framing instead of sending bytes)
+  MS_OP_DELAY,       // pop ms → delay(min(ms, TC_MSCR_DELAY_CAP))
 };
 
 typedef struct TcMiniScripter {
@@ -2940,6 +2953,7 @@ static TcMiniScripter tc_mscr;
 enum TcMsTokKind {
   MTK_END = 0, MTK_NL, MTK_INT, MTK_HEXSTR, MTK_LNV,
   MTK_KW_SWITCH, MTK_KW_CASE, MTK_KW_ENDS, MTK_KW_IF, MTK_KW_ENDIF, MTK_KW_SML,
+  MTK_KW_DELAY,
   MTK_PLUS, MTK_MINUS, MTK_MUL, MTK_DIV, MTK_MOD,
   MTK_LT, MTK_LE, MTK_GT, MTK_GE, MTK_EQ, MTK_NE,
   MTK_ASSIGN, MTK_PLUSEQ, MTK_MINUSEQ, MTK_MULEQ, MTK_DIVEQ,
@@ -3033,6 +3047,7 @@ static void tc_mscr_lex(TcMsCompiler *c, TcMsTok *t) {
     if (KWMATCH(MTK_KW_IF,    "if"))     return;
     if (KWMATCH(MTK_KW_ENDIF, "endif"))  return;
     if (KWMATCH(MTK_KW_SML,   "sml"))    return;
+    if (KWMATCH(MTK_KW_DELAY, "delay"))  return;
     #undef KWMATCH
     t->k = MTK_ERR; return;
   }
@@ -3190,18 +3205,33 @@ static void tc_mscr_stmt_sml(TcMsCompiler *c) {
     tc_mscr_emit(c, MS_OP_SML_BAUD);
   } else if (ts.i == 1) {                          // sml(m, 1, "HEX..") → SML_Write hex
     tc_mscr_next(c, &t);
-    if (t.k != MTK_HEXSTR) { tc_mscr_syntax(c, "sml(.,1,..) needs \"HEX\" literal"); return; }
+    if (t.k != MTK_HEXSTR) { tc_mscr_syntax(c, "sml(.,1,..) needs \"…\" literal"); return; }
     if (t.slen == 0 || t.slen > TC_MSCR_HEX_MAX*2) {
-      tc_mscr_syntax(c, "sml hex empty or too long"); return;
+      tc_mscr_syntax(c, "sml string empty or too long"); return;
     }
     TcMsTok tc2; tc_mscr_next(c, &tc2);
     if (tc2.k != MTK_RPAREN) { tc_mscr_syntax(c, "sml expected )"); return; }
+    // encoding: [op][len_lo][len_hi][chars…]
+    // Note: string contents are not hex-validated at compile time. SML_Write
+    // itself parses the payload: positive meter = hex bytes; negative meter
+    // = "BAUD:8X1" serial reconfigure (M-Bus mid-stream parity switch).
     tc_mscr_emit(c, MS_OP_SML_HEX);
-    tc_mscr_emit(c, (uint8_t)t.slen);
+    tc_mscr_emit(c, (uint8_t)(t.slen & 0xFF));
+    tc_mscr_emit(c, (uint8_t)(t.slen >> 8));
     for (uint16_t k = 0; k < t.slen; k++) tc_mscr_emit(c, (uint8_t)t.str[k]);
   } else {
     tc_mscr_syntax(c, "sml subop must be 0 or 1"); return;
   }
+}
+
+static void tc_mscr_stmt_delay(TcMsCompiler *c) {
+  // "delay" already consumed. Expect: ( <expr> )
+  TcMsTok t; tc_mscr_next(c, &t);
+  if (t.k != MTK_LPAREN) { tc_mscr_syntax(c, "delay expected ("); return; }
+  tc_mscr_expr_eq(c);                              // ms on stack
+  tc_mscr_next(c, &t);
+  if (t.k != MTK_RPAREN) { tc_mscr_syntax(c, "delay expected )"); return; }
+  tc_mscr_emit(c, MS_OP_DELAY);
 }
 
 static void tc_mscr_stmt_switch(TcMsCompiler *c) {
@@ -3276,6 +3306,9 @@ static void tc_mscr_block(TcMsCompiler *c, uint8_t term1, uint8_t term2) {
     } else if (t.k == MTK_KW_SML) {
       tc_mscr_next(c, &t);
       tc_mscr_stmt_sml(c);
+    } else if (t.k == MTK_KW_DELAY) {
+      tc_mscr_next(c, &t);
+      tc_mscr_stmt_delay(c);
     } else if (t.k == MTK_KW_SWITCH) {
       tc_mscr_next(c, &t);
       tc_mscr_stmt_switch(c);
@@ -3388,10 +3421,13 @@ static void tc_mscr_exec(uint8_t *bc, uint16_t bc_len, int32_t *lnv) {
         break;
       }
       case MS_OP_SML_HEX: {
-        if (ip >= bc_len || sp < 1) return;
-        uint8_t hlen = bc[ip++];
+        if (ip + 2 > bc_len || sp < 1) return;
+        uint16_t hlen = (uint16_t)(bc[ip] | (bc[ip+1] << 8));
+        ip += 2;
         if (ip + hlen > bc_len) return;
-        // Build a NUL-terminated hex string for SML_Write (it parses hex chars itself).
+        // Build a NUL-terminated string for SML_Write. Positive meter → hex
+        // bytes; negative meter → "BAUD:8X1" serial-reconfigure (parsed by
+        // SML_Write's flag<0 path).
         char hbuf[TC_MSCR_HEX_MAX*2 + 4];
         if (hlen >= sizeof(hbuf)) return;
         memcpy(hbuf, bc + ip, hlen);
@@ -3399,6 +3435,14 @@ static void tc_mscr_exec(uint8_t *bc, uint16_t bc_len, int32_t *lnv) {
         ip += hlen;
         int32_t meter = stk[--sp];
         SML_Write((int32_t)meter, hbuf);
+        break;
+      }
+      case MS_OP_DELAY: {
+        if (sp < 1) return;
+        int32_t ms = stk[--sp];
+        if (ms < 0) ms = 0;
+        if (ms > TC_MSCR_DELAY_CAP) ms = TC_MSCR_DELAY_CAP;
+        if (ms > 0) delay((uint32_t)ms);
         break;
       }
       default: return;                              // unknown opcode → bail
