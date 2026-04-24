@@ -180,7 +180,7 @@ static FS *tc_file_path(char *path) {
 
 #define TC_MAGIC           0x54434300  // "TCC\0"
 #define TC_VERSION         5           // V5: global (UDP auto-update) variables
-#define TC_RELEASE         "1.3.15"    // mini-scripter: actionable diagnostics — soft-skip `print` (diagnostic-only, compile continues + INFO log), and hard-fail with rewrite hints for `for/next`, `mins/upsecs/tstamp/…`, `sb()`, `=#subroutines`, and named unknown identifiers. Previously all of these produced "unknown statement @line N" with no further context.
+#define TC_RELEASE         "1.3.16"    // mini-scripter: native `for lnvN <start> <end> <step> … next` (bounds/step as signed int literals, direction decided at compile time via LE/GE). Compiles to ~60 B of bytecode for a 53-iteration wake preamble vs ~1100 B when decomposed — critical because TC_MSCR_BC_MAX is 512 B. No new VM opcodes (reuses PUSH_LNV/PUSH_IMM/POP_LNV/LE/GE/ADD/JZ/JMP). The four sml/ example descriptors are updated to the compact form.
 #define TC_FILE_NAME       "/autoexec.tcb"
 #define TC_MAX_PERSIST     64          // max persist variable entries
 #define TC_MAX_UDP_GLOBALS 64          // max global (UDP auto-update) variable entries
@@ -2961,6 +2961,7 @@ enum TcMsTokKind {
   MTK_END = 0, MTK_NL, MTK_INT, MTK_HEXSTR, MTK_LNV,
   MTK_KW_SWITCH, MTK_KW_CASE, MTK_KW_ENDS, MTK_KW_IF, MTK_KW_ENDIF, MTK_KW_SML,
   MTK_KW_DELAY, MTK_KW_SPIN, MTK_KW_SPINM,
+  MTK_KW_FOR, MTK_KW_NEXT,
   MTK_PLUS, MTK_MINUS, MTK_MUL, MTK_DIV, MTK_MOD,
   MTK_LT, MTK_LE, MTK_GT, MTK_GE, MTK_EQ, MTK_NE,
   MTK_ASSIGN, MTK_PLUSEQ, MTK_MINUSEQ, MTK_MULEQ, MTK_DIVEQ,
@@ -3057,6 +3058,8 @@ static void tc_mscr_lex(TcMsCompiler *c, TcMsTok *t) {
     if (KWMATCH(MTK_KW_DELAY, "delay"))  return;
     if (KWMATCH(MTK_KW_SPINM, "spinm"))  return;
     if (KWMATCH(MTK_KW_SPIN,  "spin"))   return;
+    if (KWMATCH(MTK_KW_FOR,   "for"))    return;
+    if (KWMATCH(MTK_KW_NEXT,  "next"))   return;
     #undef KWMATCH
     // Unknown identifier — carry text in str/slen so the block-level
     // dispatcher can emit an actionable diagnostic ("unknown identifier 'X'",
@@ -3348,6 +3351,84 @@ static void tc_mscr_stmt_if(TcMsCompiler *c) {
   tc_mscr_patch(c, jz_pos, c->len);
 }
 
+// Consume an optional unary '-' then an int literal. Returns 1 on success,
+// 0 on parse failure (calls tc_mscr_syntax with `ctx` on failure).
+static int tc_mscr_read_signed_int(TcMsCompiler *c, int32_t *out, const char *ctx) {
+  TcMsTok t; tc_mscr_next(c, &t);
+  int negate = 0;
+  if (t.k == MTK_MINUS) { negate = 1; tc_mscr_next(c, &t); }
+  if (t.k != MTK_INT) { tc_mscr_syntax(c, ctx); return 0; }
+  *out = negate ? -t.i : t.i;
+  return 1;
+}
+
+// for <lnv>  <start>  <end>  <step>
+//   <body>
+// next
+//
+// Scripter-compatible integer range loop. Bounds and step must be signed
+// int literals so the direction test (LE vs GE) is decidable at compile
+// time and we don't need a separate backward-loop opcode.
+//
+// Compiles to (reusing existing opcodes, no new VM additions):
+//     PUSH_IMM start; POP_LNV var          ; init
+//   LOOP:
+//     PUSH_LNV var; PUSH_IMM end; (LE|GE)
+//     JZ DONE                              ; falls through if in range
+//     <body>                               ; recursive block, term=MTK_KW_NEXT
+//     PUSH_LNV var; PUSH_IMM step; ADD; POP_LNV var
+//     JMP LOOP
+//   DONE:
+//
+// Typical cost vs. unrolling: a 53-iteration M-Bus wake preamble
+// (`for lnv1 1 53 1 ; sml(1 1 "55…") ; next`) compiles to ~60 B of bytecode
+// versus ~1100 B when the loop is manually decomposed — the difference
+// between fitting inside TC_MSCR_BC_MAX (512 B) and silently overflowing.
+static void tc_mscr_stmt_for(TcMsCompiler *c) {
+  // "for" already consumed.
+  TcMsTok t; tc_mscr_next(c, &t);
+  if (t.k != MTK_LNV) { tc_mscr_syntax(c, "for needs lnvN"); return; }
+  uint8_t var = (uint8_t)t.i;
+  int32_t start, end, step;
+  if (!tc_mscr_read_signed_int(c, &start, "for: start must be int literal")) return;
+  if (!tc_mscr_read_signed_int(c, &end,   "for: end must be int literal"))   return;
+  if (!tc_mscr_read_signed_int(c, &step,  "for: step must be int literal"))  return;
+  if (step == 0) { tc_mscr_syntax(c, "for: step must not be 0"); return; }
+  TcMsTok nl; tc_mscr_next(c, &nl);
+  if (nl.k != MTK_NL && nl.k != MTK_END) { tc_mscr_syntax(c, "for: expected newline"); return; }
+  tc_mscr_skip_nls(c);
+
+  // init: var = start
+  tc_mscr_emit(c, MS_OP_PUSH_IMM); tc_mscr_emit_i32(c, start);
+  tc_mscr_emit(c, MS_OP_POP_LNV);  tc_mscr_emit(c, var);
+
+  // loop top: PUSH var; PUSH end; (LE|GE); JZ done
+  uint16_t loop_top = c->len;
+  tc_mscr_emit(c, MS_OP_PUSH_LNV); tc_mscr_emit(c, var);
+  tc_mscr_emit(c, MS_OP_PUSH_IMM); tc_mscr_emit_i32(c, end);
+  tc_mscr_emit(c, step > 0 ? MS_OP_LE : MS_OP_GE);
+  uint16_t done_jz = tc_mscr_emit_jmp(c, MS_OP_JZ);
+
+  // body (block reads until `next`)
+  tc_mscr_block(c, MTK_KW_NEXT, MTK_KW_NEXT);
+  TcMsTok nx; tc_mscr_next(c, &nx);
+  if (nx.k != MTK_KW_NEXT) { tc_mscr_syntax(c, "for: missing next"); return; }
+
+  // increment: var = var + step
+  tc_mscr_emit(c, MS_OP_PUSH_LNV); tc_mscr_emit(c, var);
+  tc_mscr_emit(c, MS_OP_PUSH_IMM); tc_mscr_emit_i32(c, step);
+  tc_mscr_emit(c, MS_OP_ADD);
+  tc_mscr_emit(c, MS_OP_POP_LNV);  tc_mscr_emit(c, var);
+
+  // unconditional back-jump to loop_top (MS_OP_JMP is [op][u16 LE abs])
+  tc_mscr_emit(c, MS_OP_JMP);
+  tc_mscr_emit(c, (uint8_t)(loop_top & 0xFF));
+  tc_mscr_emit(c, (uint8_t)(loop_top >> 8));
+
+  // patch exit-jump target to here
+  tc_mscr_patch(c, done_jz, c->len);
+}
+
 static void tc_mscr_block(TcMsCompiler *c, uint8_t term1, uint8_t term2) {
   for (;;) {
     if (c->err) return;
@@ -3382,6 +3463,9 @@ static void tc_mscr_block(TcMsCompiler *c, uint8_t term1, uint8_t term2) {
     } else if (t.k == MTK_KW_IF) {
       tc_mscr_next(c, &t);
       tc_mscr_stmt_if(c);
+    } else if (t.k == MTK_KW_FOR) {
+      tc_mscr_next(c, &t);
+      tc_mscr_stmt_for(c);
     } else if (t.k == MTK_ERR && t.slen > 0) {
       // Unknown identifier — check for known-unsupported Scripter constructs
       // and give actionable hints so users know which rewrite to apply.
@@ -3395,11 +3479,9 @@ static void tc_mscr_block(TcMsCompiler *c, uint8_t term1, uint8_t term2) {
         continue;  // retry at next statement
       }
       // ── Hard failures with rewrite hints (see tinyc/examples/sml/README.md).
-      if (tc_mscr_ident_eq(&t, "for") || tc_mscr_ident_eq(&t, "next")) {
-        tc_mscr_err_with_ident(c,
-          "for/next not supported — decompose into straight-line sml() calls", &t);
-        return;
-      }
+      // NOTE: `for`/`next` are real keywords since v1.3.16 — they lex as
+      // MTK_KW_FOR/MTK_KW_NEXT and never reach this branch. No diagnostic
+      // needed.
       if (tc_mscr_ident_eq(&t, "mins")   || tc_mscr_ident_eq(&t, "secs") ||
           tc_mscr_ident_eq(&t, "hours")  || tc_mscr_ident_eq(&t, "upsecs") ||
           tc_mscr_ident_eq(&t, "upmins") || tc_mscr_ident_eq(&t, "tstamp") ||
