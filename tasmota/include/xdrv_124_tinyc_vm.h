@@ -180,7 +180,7 @@ static FS *tc_file_path(char *path) {
 
 #define TC_MAGIC           0x54434300  // "TCC\0"
 #define TC_VERSION         5           // V5: global (UDP auto-update) variables
-#define TC_RELEASE         "1.3.16"    // mini-scripter: native `for lnvN <start> <end> <step> … next` (bounds/step as signed int literals, direction decided at compile time via LE/GE). Compiles to ~60 B of bytecode for a 53-iteration wake preamble vs ~1100 B when decomposed — critical because TC_MSCR_BC_MAX is 512 B. No new VM opcodes (reuses PUSH_LNV/PUSH_IMM/POP_LNV/LE/GE/ADD/JZ/JMP). The four sml/ example descriptors are updated to the compact form.
+#define TC_RELEASE         "1.3.17"    // Three diagnostics motivated by Andreas's `bat_ctrl.tc` TC_ERR_BOUNDS crash (silent `int g_sl = wr_vl3 / 100.0` narrowing + name collision). (1) Rich TC_ERR_BOUNDS log: the six array-access opcodes (OP_LOAD/STORE × LOCAL_ARR/GLOBAL_ARR/HEAP_ARR) now `AddLog` the offending index + array bound + PC before returning the error, in both switch-based and computed-goto dispatchers. (2) RET-time SP-balance check: TcFrame gains `saved_sp`; captured on OP_CALL, callback dispatch, and TaskLoop frame-setup; verified on OP_RET / OP_RET_VAL — any residue triggers an `AddLog("SP leak at …return: sp=… expected<=… ret_pc=…")` so the next leak is caught at the first frame that leaks, not after 240 calls. (3) Compiler: float → int narrowing warning at the four assignment-emit sites (simple/compound scalar, simple/compound array), surfaced as yellow warnings in the IDE output, deduplicated per (name, line). Explicit `(int)` casts stay silent (they route through compileCast).
 #define TC_FILE_NAME       "/autoexec.tcb"
 #define TC_MAX_PERSIST     64          // max persist variable entries
 #define TC_MAX_UDP_GLOBALS 64          // max global (UDP auto-update) variable entries
@@ -686,6 +686,25 @@ static const char* tc_error_str(int err) {
   return buf;
 }
 
+// Emit an actionable BOUNDS diagnostic just before we return TC_ERR_BOUNDS
+// from one of the array-access opcodes. The generic "Bounds error" in the
+// TaskLoop/crash log tells you nothing about WHICH access; this says
+//   TCC: BOUNDS <kind> idx=<i> size=<n> pc=<p>
+// so you can see whether it was globals[], a local[], or a heap[handle],
+// what index was attempted, what bound was in effect, and the PC.
+//
+// Array names are not available at VM level (the bytecode carries only base
+// addresses / handle IDs), so the caller passes a short literal kind label.
+// For the motivating bug (bat_ctrl.tc, g_sl overwritten to ~230, then
+// pvact[g_sl] with pvact.size == 96), this prints
+//   TCC: BOUNDS global[] idx=230 size=96 pc=43306
+// which points straight at the line.
+static void tc_log_bounds(const char *kind, int32_t idx, uint32_t bound, uint16_t pc) {
+  AddLog(LOG_LEVEL_ERROR,
+         PSTR("TCC: BOUNDS %s idx=%ld size=%u pc=%u"),
+         kind, (long)idx, (unsigned)bound, (unsigned)pc);
+}
+
 // Write crash info to /crash.log (append, keeps last entries)
 static void tc_crash_log(int err, uint16_t pc, uint32_t instr_count, const char *context) {
 #ifdef ESP32
@@ -708,6 +727,10 @@ static void tc_crash_log(int err, uint16_t pc, uint32_t instr_count, const char 
 
 typedef struct {
   uint16_t return_pc;
+  uint16_t saved_sp;    // caller's SP at OP_CALL (including args pushed on top);
+                        // used by RET to flag callees that leaked stack slots.
+                        // sp > saved_sp at RET is a definite leak (pushed more
+                        // than consumed). Not accessed for frame 0 (main/callback).
   int32_t  *locals;     // dynamically allocated — TC_MAX_LOCALS int32_t's per frame
 } TcFrame;
 
@@ -11735,6 +11758,7 @@ static int tc_vm_call_callback_idx(TcVM *vm, int idx, const char *name) {
   }
   TcFrame *frame = &vm->frames[vm->frame_count];
   frame->return_pc = 0;  // detect return by frame_count drop
+  frame->saved_sp = vm->sp;  // host-pushed args live on top; must balance at RET
   if (!tc_frame_alloc(frame)) {
     vm->halted = true;
     vm->running = false;
@@ -12041,6 +12065,7 @@ static int tc_vm_step(TcVM *vm) {
       {
         TcFrame *frame = &vm->frames[vm->frame_count];
         frame->return_pc = vm->pc;
+        frame->saved_sp = vm->sp;       // caller's SP (with args on top)
         if (!tc_frame_alloc(frame)) {
           return TC_ERR_STACK_OVERFLOW;  // OOM
         }
@@ -12053,6 +12078,14 @@ static int tc_vm_step(TcVM *vm) {
     case OP_RET:
       if (vm->frame_count == 0) { tc_frame_free(&vm->frames[0]); vm->halted = true; vm->running = false; break; }
       { TcFrame *f = &vm->frames[--vm->frame_count];
+        // Post-RET SP should be ≤ caller-at-CALL SP (callee consumed its args,
+        // may or may not have left them unused). Higher SP means the callee
+        // pushed something it never popped — an unbounded leak over many calls.
+        if (vm->sp > f->saved_sp) {
+          AddLog(LOG_LEVEL_ERROR,
+                 PSTR("TCC: SP leak at void return: sp=%u expected<=%u ret_pc=%u"),
+                 (unsigned)vm->sp, (unsigned)f->saved_sp, (unsigned)f->return_pc);
+        }
         vm->pc = f->return_pc;
         tc_frame_free(f);  // free returning frame's locals
         vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0; }
@@ -12062,6 +12095,13 @@ static int tc_vm_step(TcVM *vm) {
       a = TC_POP(vm);
       if (vm->frame_count == 0) { tc_frame_free(&vm->frames[0]); TC_PUSH(vm, a); vm->halted = true; vm->running = false; break; }
       { TcFrame *f = &vm->frames[--vm->frame_count];
+        // Same leak check as void RET — return value is already popped into `a`,
+        // so the remaining stack must not have grown past the CALL-time SP.
+        if (vm->sp > f->saved_sp) {
+          AddLog(LOG_LEVEL_ERROR,
+                 PSTR("TCC: SP leak at value return: sp=%u expected<=%u ret_pc=%u"),
+                 (unsigned)vm->sp, (unsigned)f->saved_sp, (unsigned)f->return_pc);
+        }
         vm->pc = f->return_pc;
         tc_frame_free(f);  // free returning frame's locals
         vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0;
@@ -12112,19 +12152,31 @@ static int tc_vm_step(TcVM *vm) {
     // ── Arrays (with bounds checks) ────────
     case OP_LOAD_LOCAL_ARR:
       idx=tc_read_u8(vm); a=TC_POP(vm);
-      if ((uint32_t)(idx+a) >= TC_MAX_LOCALS) return TC_ERR_BOUNDS;
+      if ((uint32_t)(idx+a) >= TC_MAX_LOCALS) {
+        tc_log_bounds("local[]", idx+a, TC_MAX_LOCALS, vm->pc);
+        return TC_ERR_BOUNDS;
+      }
       TC_PUSH(vm, vm->frames[vm->fp].locals[idx+a]); break;
     case OP_STORE_LOCAL_ARR:
       idx=tc_read_u8(vm); b=TC_POP(vm); a=TC_POP(vm);
-      if ((uint32_t)(idx+a) >= TC_MAX_LOCALS) return TC_ERR_BOUNDS;
+      if ((uint32_t)(idx+a) >= TC_MAX_LOCALS) {
+        tc_log_bounds("local[]", idx+a, TC_MAX_LOCALS, vm->pc);
+        return TC_ERR_BOUNDS;
+      }
       vm->frames[vm->fp].locals[idx+a]=b; break;
     case OP_LOAD_GLOBAL_ARR:
       addr=tc_read_u16(vm); a=TC_POP(vm);
-      if ((uint32_t)(addr+a) >= vm->globals_size) return TC_ERR_BOUNDS;
+      if ((uint32_t)(addr+a) >= vm->globals_size) {
+        tc_log_bounds("global[]", addr+a, vm->globals_size, vm->pc);
+        return TC_ERR_BOUNDS;
+      }
       TC_PUSH(vm, vm->globals[addr+a]); break;
     case OP_STORE_GLOBAL_ARR:
       addr=tc_read_u16(vm); b=TC_POP(vm); a=TC_POP(vm);
-      if ((uint32_t)(addr+a) >= vm->globals_size) return TC_ERR_BOUNDS;
+      if ((uint32_t)(addr+a) >= vm->globals_size) {
+        tc_log_bounds("global[]", addr+a, vm->globals_size, vm->pc);
+        return TC_ERR_BOUNDS;
+      }
       vm->globals[addr+a]=b; break;
 
     // ── Type conversion ────────────────────
@@ -12149,6 +12201,10 @@ static int tc_vm_step(TcVM *vm) {
       if (handle >= TC_MAX_HEAP_HANDLES || !vm->heap_data || !vm->heap_handles ||
           !vm->heap_handles[handle].alive ||
           a < 0 || (uint16_t)a >= vm->heap_handles[handle].size) {
+        uint32_t sz = (handle < TC_MAX_HEAP_HANDLES && vm->heap_handles && vm->heap_handles[handle].alive)
+                      ? vm->heap_handles[handle].size : 0;
+        char kind[16]; snprintf(kind, sizeof(kind), "heap[%u]", (unsigned)handle);
+        tc_log_bounds(kind, a, sz, vm->pc);
         return TC_ERR_BOUNDS;
       }
       TC_PUSH(vm, vm->heap_data[vm->heap_handles[handle].offset + a]);
@@ -12161,6 +12217,10 @@ static int tc_vm_step(TcVM *vm) {
       if (handle >= TC_MAX_HEAP_HANDLES || !vm->heap_data || !vm->heap_handles ||
           !vm->heap_handles[handle].alive ||
           a < 0 || (uint16_t)a >= vm->heap_handles[handle].size) {
+        uint32_t sz = (handle < TC_MAX_HEAP_HANDLES && vm->heap_handles && vm->heap_handles[handle].alive)
+                      ? vm->heap_handles[handle].size : 0;
+        char kind[16]; snprintf(kind, sizeof(kind), "heap[%u]", (unsigned)handle);
+        tc_log_bounds(kind, a, sz, vm->pc);
         return TC_ERR_BOUNDS;
       }
       vm->heap_data[vm->heap_handles[handle].offset + a] = b;
@@ -12438,6 +12498,7 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
       vm->sp = _sp; vm->pc = _pc;
       TcFrame *frame = &vm->frames[vm->frame_count];
       frame->return_pc = _pc;
+      frame->saved_sp = _sp;                        // caller SP w/ args on top
       if (!tc_frame_alloc(frame)) { _err = TC_ERR_STACK_OVERFLOW; goto _vm_exit; }
       vm->fp = vm->frame_count;
       vm->frame_count++;
@@ -12452,6 +12513,11 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
     }
     {
       TcFrame *f = &vm->frames[--vm->frame_count];
+      if (_sp > f->saved_sp) {                      // SP-leak detection (see switch)
+        AddLog(LOG_LEVEL_ERROR,
+               PSTR("TCC: SP leak at void return: sp=%u expected<=%u ret_pc=%u"),
+               (unsigned)_sp, (unsigned)f->saved_sp, (unsigned)f->return_pc);
+      }
       _pc = f->return_pc;
       tc_frame_free(f);
       vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0;
@@ -12467,6 +12533,11 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
     }
     {
       TcFrame *f = &vm->frames[--vm->frame_count];
+      if (_sp > f->saved_sp) {                      // SP-leak detection (see switch)
+        AddLog(LOG_LEVEL_ERROR,
+               PSTR("TCC: SP leak at value return: sp=%u expected<=%u ret_pc=%u"),
+               (unsigned)_sp, (unsigned)f->saved_sp, (unsigned)f->return_pc);
+      }
       _pc = f->return_pc;
       tc_frame_free(f);
       vm->fp = vm->frame_count > 0 ? vm->frame_count - 1 : 0;
@@ -12524,22 +12595,34 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
   // Arrays
   _op_load_local_arr:
     _idx = _RD_U8(); _a = TC_IPOP();
-    if ((uint32_t)(_idx+_a) >= TC_MAX_LOCALS) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    if ((uint32_t)(_idx+_a) >= TC_MAX_LOCALS) {
+      tc_log_bounds("local[]", _idx+_a, TC_MAX_LOCALS, _pc);
+      _err = TC_ERR_BOUNDS; goto _vm_exit;
+    }
     TC_IPUSH(vm->frames[vm->fp].locals[_idx+_a]);
     NEXT();
   _op_store_local_arr:
     _idx = _RD_U8(); _b = TC_IPOP(); _a = TC_IPOP();
-    if ((uint32_t)(_idx+_a) >= TC_MAX_LOCALS) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    if ((uint32_t)(_idx+_a) >= TC_MAX_LOCALS) {
+      tc_log_bounds("local[]", _idx+_a, TC_MAX_LOCALS, _pc);
+      _err = TC_ERR_BOUNDS; goto _vm_exit;
+    }
     vm->frames[vm->fp].locals[_idx+_a] = _b;
     NEXT();
   _op_load_global_arr:
     _addr = _RD_U16(); _a = TC_IPOP();
-    if ((uint32_t)(_addr+_a) >= _gsz) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    if ((uint32_t)(_addr+_a) >= _gsz) {
+      tc_log_bounds("global[]", _addr+_a, _gsz, _pc);
+      _err = TC_ERR_BOUNDS; goto _vm_exit;
+    }
     TC_IPUSH(vm->globals[_addr+_a]);
     NEXT();
   _op_store_global_arr:
     _addr = _RD_U16(); _b = TC_IPOP(); _a = TC_IPOP();
-    if ((uint32_t)(_addr+_a) >= _gsz) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
+    if ((uint32_t)(_addr+_a) >= _gsz) {
+      tc_log_bounds("global[]", _addr+_a, _gsz, _pc);
+      _err = TC_ERR_BOUNDS; goto _vm_exit;
+    }
     vm->globals[_addr+_a] = _b;
     NEXT();
 
@@ -12574,6 +12657,10 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
     if (handle >= TC_MAX_HEAP_HANDLES || !vm->heap_data || !vm->heap_handles ||
         !vm->heap_handles[handle].alive ||
         _a < 0 || (uint16_t)_a >= vm->heap_handles[handle].size) {
+      uint32_t sz = (handle < TC_MAX_HEAP_HANDLES && vm->heap_handles && vm->heap_handles[handle].alive)
+                    ? vm->heap_handles[handle].size : 0;
+      char kind[16]; snprintf(kind, sizeof(kind), "heap[%u]", (unsigned)handle);
+      tc_log_bounds(kind, _a, sz, _pc);
       _err = TC_ERR_BOUNDS; goto _vm_exit;
     }
     TC_IPUSH(vm->heap_data[vm->heap_handles[handle].offset + _a]);
@@ -12585,6 +12672,10 @@ static int tc_vm_run_slice(TcVM *vm, uint32_t max_instr) {
     if (handle >= TC_MAX_HEAP_HANDLES || !vm->heap_data || !vm->heap_handles ||
         !vm->heap_handles[handle].alive ||
         _a < 0 || (uint16_t)_a >= vm->heap_handles[handle].size) {
+      uint32_t sz = (handle < TC_MAX_HEAP_HANDLES && vm->heap_handles && vm->heap_handles[handle].alive)
+                    ? vm->heap_handles[handle].size : 0;
+      char kind[16]; snprintf(kind, sizeof(kind), "heap[%u]", (unsigned)handle);
+      tc_log_bounds(kind, _a, sz, _pc);
       _err = TC_ERR_BOUNDS; goto _vm_exit;
     }
     vm->heap_data[vm->heap_handles[handle].offset + _a] = _b;
@@ -12735,6 +12826,7 @@ static void tc_vm_task(void *param) {
         if (vm->frame_count < TC_MAX_FRAMES) {
           TcFrame *frame = &vm->frames[vm->frame_count];
           frame->return_pc = 0;
+          frame->saved_sp = vm->sp;   // see tc_vm_call_callback_idx — needed for RET leak check
           if (tc_frame_alloc(frame)) {
             vm->fp = vm->frame_count;
             vm->frame_count++;
