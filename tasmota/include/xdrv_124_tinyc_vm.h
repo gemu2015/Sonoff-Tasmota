@@ -180,7 +180,7 @@ static FS *tc_file_path(char *path) {
 
 #define TC_MAGIC           0x54434300  // "TCC\0"
 #define TC_VERSION         5           // V5: global (UDP auto-update) variables
-#define TC_RELEASE         "1.3.13"    // SP-leak fix in callback dispatchers (Command/OnMqttData/TouchButton/HomeKitWrite captured saved_sp *after* caller's arg push → per-call SP creep → Stack overflow after ~240 calls); add SYS_VM_STACK_DEPTH (283) diagnostic syscall → vmStackDepth()
+#define TC_RELEASE         "1.3.14"    // mini-scripter: add spin(pin,val) + spinm(pin,mode) opcodes for IR-reading-head descriptors (EasyMeter Q3A etc.). Raises upstream ottelo9/tasmota-sml-script coverage from 99/104 → 103/104 when combined with the four hand-rewritten examples under tasmota/tinyc/examples/sml/ (Allmess, Engelmann, Itron CF Echo II, EasyMeter Q3A — for-loops decomposed, =# subroutines inlined, prints dropped, time vars replaced by local tick counters).
 #define TC_FILE_NAME       "/autoexec.tcb"
 #define TC_MAX_PERSIST     64          // max persist variable entries
 #define TC_MAX_UDP_GLOBALS 64          // max global (UDP auto-update) variable entries
@@ -2900,6 +2900,10 @@ static size_t tc_sml_subst_line(const char *src, size_t src_len,
  *                                           handled natively by SML_Write's flag<0 path,
  *                                           e.g. "2400:8E1" to switch to 8E1 for M-Bus)
  *               delay(ms)                → yield-style delay (capped at 1000 ms; see note)
+ *               spinm(pin, mode)         → pinMode(pin, mode?OUTPUT:INPUT)
+ *               spin(pin, val)           → digitalWrite(pin, val?HIGH:LOW)
+ *                                          (used by IR-reading-head descriptors like
+ *                                           EasyMeter Q3A to drive the optical TX LED)
  *   sections    >F (Every100ms)   >S (EverySecond)
  *   misc        ; end-of-line comment   ;-prefixed line comment   blank lines OK
  *
@@ -2935,6 +2939,8 @@ enum TcMsOp {
                      // (for negative meter, the payload is "BAUD:8X1" and SML_Write's
                      //  flag<0 path reconfigures serial framing instead of sending bytes)
   MS_OP_DELAY,       // pop ms → delay(min(ms, TC_MSCR_DELAY_CAP))
+  MS_OP_SPIN,        // pop val, pop pin             → digitalWrite(pin, val?HIGH:LOW)
+  MS_OP_SPINM,       // pop mode, pop pin            → pinMode(pin, mode?OUTPUT:INPUT)
 };
 
 typedef struct TcMiniScripter {
@@ -2954,7 +2960,7 @@ static TcMiniScripter tc_mscr;
 enum TcMsTokKind {
   MTK_END = 0, MTK_NL, MTK_INT, MTK_HEXSTR, MTK_LNV,
   MTK_KW_SWITCH, MTK_KW_CASE, MTK_KW_ENDS, MTK_KW_IF, MTK_KW_ENDIF, MTK_KW_SML,
-  MTK_KW_DELAY,
+  MTK_KW_DELAY, MTK_KW_SPIN, MTK_KW_SPINM,
   MTK_PLUS, MTK_MINUS, MTK_MUL, MTK_DIV, MTK_MOD,
   MTK_LT, MTK_LE, MTK_GT, MTK_GE, MTK_EQ, MTK_NE,
   MTK_ASSIGN, MTK_PLUSEQ, MTK_MINUSEQ, MTK_MULEQ, MTK_DIVEQ,
@@ -3049,6 +3055,8 @@ static void tc_mscr_lex(TcMsCompiler *c, TcMsTok *t) {
     if (KWMATCH(MTK_KW_ENDIF, "endif"))  return;
     if (KWMATCH(MTK_KW_SML,   "sml"))    return;
     if (KWMATCH(MTK_KW_DELAY, "delay"))  return;
+    if (KWMATCH(MTK_KW_SPINM, "spinm"))  return;
+    if (KWMATCH(MTK_KW_SPIN,  "spin"))   return;
     #undef KWMATCH
     t->k = MTK_ERR; return;
   }
@@ -3235,6 +3243,20 @@ static void tc_mscr_stmt_delay(TcMsCompiler *c) {
   tc_mscr_emit(c, MS_OP_DELAY);
 }
 
+// Shared parser for spin(pin, val) / spinm(pin, mode). Both forms take two
+// int expressions; op selects digitalWrite vs pinMode at runtime.
+static void tc_mscr_stmt_spin_like(TcMsCompiler *c, uint8_t op) {
+  // "spin" or "spinm" already consumed. Expect: ( <expr> , <expr> )
+  // (commas are lexer whitespace → `spin(pin val)` also accepted.)
+  TcMsTok t; tc_mscr_next(c, &t);
+  if (t.k != MTK_LPAREN) { tc_mscr_syntax(c, "spin expected ("); return; }
+  tc_mscr_expr_eq(c);                              // pin on stack
+  tc_mscr_expr_eq(c);                              // val/mode on stack
+  tc_mscr_next(c, &t);
+  if (t.k != MTK_RPAREN) { tc_mscr_syntax(c, "spin expected )"); return; }
+  tc_mscr_emit(c, op);
+}
+
 static void tc_mscr_stmt_switch(TcMsCompiler *c) {
   // "switch" already consumed. Expect: <lnv> NL  [case <int> NL block]+ ends
   TcMsTok t; tc_mscr_next(c, &t);
@@ -3310,6 +3332,12 @@ static void tc_mscr_block(TcMsCompiler *c, uint8_t term1, uint8_t term2) {
     } else if (t.k == MTK_KW_DELAY) {
       tc_mscr_next(c, &t);
       tc_mscr_stmt_delay(c);
+    } else if (t.k == MTK_KW_SPIN) {
+      tc_mscr_next(c, &t);
+      tc_mscr_stmt_spin_like(c, MS_OP_SPIN);
+    } else if (t.k == MTK_KW_SPINM) {
+      tc_mscr_next(c, &t);
+      tc_mscr_stmt_spin_like(c, MS_OP_SPINM);
     } else if (t.k == MTK_KW_SWITCH) {
       tc_mscr_next(c, &t);
       tc_mscr_stmt_switch(c);
@@ -3444,6 +3472,27 @@ static void tc_mscr_exec(uint8_t *bc, uint16_t bc_len, int32_t *lnv) {
         if (ms < 0) ms = 0;
         if (ms > TC_MSCR_DELAY_CAP) ms = TC_MSCR_DELAY_CAP;
         if (ms > 0) delay((uint32_t)ms);
+        break;
+      }
+      case MS_OP_SPIN: {
+        // spin(pin, val) → digitalWrite(pin, val ? HIGH : LOW)
+        if (sp < 2) return;
+        int32_t val = stk[--sp];
+        int32_t pin = stk[--sp];
+        if (pin >= 0 && pin < MAX_GPIO_PIN) {
+          digitalWrite((uint8_t)pin, val ? HIGH : LOW);
+        }
+        break;
+      }
+      case MS_OP_SPINM: {
+        // spinm(pin, mode) → pinMode(pin, mode ? OUTPUT : INPUT)
+        // Tasmota Scripter semantics: 1 = OUTPUT, 0 = INPUT.
+        if (sp < 2) return;
+        int32_t mode = stk[--sp];
+        int32_t pin  = stk[--sp];
+        if (pin >= 0 && pin < MAX_GPIO_PIN) {
+          pinMode((uint8_t)pin, mode ? OUTPUT : INPUT);
+        }
         break;
       }
       default: return;                              // unknown opcode → bail
