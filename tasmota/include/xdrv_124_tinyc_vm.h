@@ -180,7 +180,7 @@ static FS *tc_file_path(char *path) {
 
 #define TC_MAGIC           0x54434300  // "TCC\0"
 #define TC_VERSION         5           // V5: global (UDP auto-update) variables
-#define TC_RELEASE         "1.3.14"    // mini-scripter: add spin(pin,val) + spinm(pin,mode) opcodes for IR-reading-head descriptors (EasyMeter Q3A etc.). Raises upstream ottelo9/tasmota-sml-script coverage from 99/104 → 103/104 when combined with the four hand-rewritten examples under tasmota/tinyc/examples/sml/ (Allmess, Engelmann, Itron CF Echo II, EasyMeter Q3A — for-loops decomposed, =# subroutines inlined, prints dropped, time vars replaced by local tick counters).
+#define TC_RELEASE         "1.3.15"    // mini-scripter: actionable diagnostics — soft-skip `print` (diagnostic-only, compile continues + INFO log), and hard-fail with rewrite hints for `for/next`, `mins/upsecs/tstamp/…`, `sb()`, `=#subroutines`, and named unknown identifiers. Previously all of these produced "unknown statement @line N" with no further context.
 #define TC_FILE_NAME       "/autoexec.tcb"
 #define TC_MAX_PERSIST     64          // max persist variable entries
 #define TC_MAX_UDP_GLOBALS 64          // max global (UDP auto-update) variable entries
@@ -3058,8 +3058,16 @@ static void tc_mscr_lex(TcMsCompiler *c, TcMsTok *t) {
     if (KWMATCH(MTK_KW_SPINM, "spinm"))  return;
     if (KWMATCH(MTK_KW_SPIN,  "spin"))   return;
     #undef KWMATCH
+    // Unknown identifier — carry text in str/slen so the block-level
+    // dispatcher can emit an actionable diagnostic ("unknown identifier 'X'",
+    // soft-skip for 'print', etc.).
+    t->str = s;
+    t->slen = (uint16_t)n;
     t->k = MTK_ERR; return;
   }
+  // Non-identifier garbage (e.g. `#`, `@`, `{`). Stash the byte in `i` so the
+  // dispatcher can say "unexpected '#'" instead of "unknown statement".
+  t->i = (int32_t)(uint8_t)ch;
   c->p++; t->k = MTK_ERR;
 }
 
@@ -3099,6 +3107,36 @@ static void tc_mscr_syntax(TcMsCompiler *c, const char *what) {
     c->err = 2;
     AddLog(LOG_LEVEL_ERROR, PSTR("TCC: mscr syntax @line %u: %s"), (unsigned)c->line, what);
   }
+}
+
+// Actionable error that quotes the offending identifier, e.g.
+//   "TCC: mscr @line 7: 'for'/next loops not supported ('for')"
+// Truncates identifier to 23 chars to keep stack small.
+static void tc_mscr_err_with_ident(TcMsCompiler *c, const char *msg, const TcMsTok *t) {
+  if (c->err) return;
+  c->err = 2;
+  char buf[24];
+  size_t n = (t->slen < sizeof(buf) - 1) ? t->slen : sizeof(buf) - 1;
+  if (t->str && n) memcpy(buf, t->str, n);
+  buf[n] = 0;
+  AddLog(LOG_LEVEL_ERROR, PSTR("TCC: mscr @line %u: %s ('%s')"),
+         (unsigned)c->line, msg, buf);
+}
+
+// Compare the captured identifier in an MTK_ERR token against a C string literal.
+static int tc_mscr_ident_eq(const TcMsTok *t, const char *kw) {
+  size_t n = 0;
+  while (kw[n]) n++;
+  return (t->slen == (uint16_t)n && t->str && memcmp(t->str, kw, n) == 0);
+}
+
+// Advance the source pointer past the current line (to the next '\n' or EOF).
+// Used when soft-skipping an unsupported-but-safe statement like `print`.
+// Does not consume the '\n' — the block loop's skip_nls handles that and
+// increments c->line, so diagnostics keep their line numbers accurate.
+static void tc_mscr_skip_to_eol(TcMsCompiler *c) {
+  while (c->p < c->end && *c->p != '\n') c->p++;
+  c->have_cur = 0;   // drop any peeked token, it's stale now
 }
 
 // ── Expression parser (recursive-descent, four precedence levels) ─
@@ -3344,6 +3382,61 @@ static void tc_mscr_block(TcMsCompiler *c, uint8_t term1, uint8_t term2) {
     } else if (t.k == MTK_KW_IF) {
       tc_mscr_next(c, &t);
       tc_mscr_stmt_if(c);
+    } else if (t.k == MTK_ERR && t.slen > 0) {
+      // Unknown identifier — check for known-unsupported Scripter constructs
+      // and give actionable hints so users know which rewrite to apply.
+      // ── Soft-skip: `print …` is diagnostic output only, always safe to drop.
+      if (tc_mscr_ident_eq(&t, "print")) {
+        tc_mscr_next(c, &t);
+        tc_mscr_skip_to_eol(c);
+        AddLog(LOG_LEVEL_INFO,
+               PSTR("TCC: mscr @line %u: 'print' line dropped (diagnostic only)"),
+               (unsigned)c->line);
+        continue;  // retry at next statement
+      }
+      // ── Hard failures with rewrite hints (see tinyc/examples/sml/README.md).
+      if (tc_mscr_ident_eq(&t, "for") || tc_mscr_ident_eq(&t, "next")) {
+        tc_mscr_err_with_ident(c,
+          "for/next not supported — decompose into straight-line sml() calls", &t);
+        return;
+      }
+      if (tc_mscr_ident_eq(&t, "mins")   || tc_mscr_ident_eq(&t, "secs") ||
+          tc_mscr_ident_eq(&t, "hours")  || tc_mscr_ident_eq(&t, "upsecs") ||
+          tc_mscr_ident_eq(&t, "upmins") || tc_mscr_ident_eq(&t, "tstamp") ||
+          tc_mscr_ident_eq(&t, "time")) {
+        tc_mscr_err_with_ident(c,
+          "builtin time variable not supported — use a local lnv tick counter", &t);
+        return;
+      }
+      if (tc_mscr_ident_eq(&t, "sb") || tc_mscr_ident_eq(&t, "st") ||
+          tc_mscr_ident_eq(&t, "sl")) {
+        tc_mscr_err_with_ident(c,
+          "string slicing not supported in mini-scripter", &t);
+        return;
+      }
+      // Generic: name the identifier so the user knows what to look for.
+      tc_mscr_err_with_ident(c, "unknown identifier", &t);
+      return;
+    } else if (t.k == MTK_ERR && t.slen == 0) {
+      // Bad character (not an identifier). Most common case: `#` at line start
+      // of a `#subname` subroutine definition.
+      if (t.i == '#') {
+        tc_mscr_syntax(c,
+          "'#' found — =# subroutines not supported, inline the body at call site");
+      } else if (t.i >= 32 && t.i < 127) {
+        char msg[40];
+        snprintf(msg, sizeof(msg), "unexpected '%c'", (char)t.i);
+        tc_mscr_syntax(c, msg);
+      } else {
+        tc_mscr_syntax(c, "unexpected byte in source");
+      }
+      return;
+    } else if (t.k == MTK_ASSIGN) {
+      // Bare `=` at statement start (no lnv in front) — almost certainly a
+      // Scripter `=#subname` call site, which we don't support.
+      tc_mscr_syntax(c,
+        "'=' at statement start — =#subroutine calls not supported, inline the body");
+      return;
     } else {
       tc_mscr_syntax(c, "unknown statement"); return;
     }
