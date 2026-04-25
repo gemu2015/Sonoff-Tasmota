@@ -310,6 +310,7 @@ void OnMqttData(char topic[], char payload[]) {
 **Power / energy** — `powerwall.tc` (Tesla), `sma_speedwire.tc`, `core2_energy.tc`
 **SML smart meter** — `sml_ebus.tc`
 **Tasks / concurrency (ESP32)** — `spawn_tasks.tc`, `callbacks.tc`, `callback_test.tc`
+**Cross-VM share (ESP32)** — `share_writer.tc` (slot 0 EverySecond writer) + `share_reader.tc` (slot 1 Command reader)
 **HomeKit (ESP32)** — `homekit_demo.tc`, `homekit_office.tc`
 **Strings / sort** — `strings.tc`, `sort.tc`, `file_io.tc`
 **Benchmarks / diag** — `benchmark.tc`, `crash_test.tc`, `sizeof_demo.tc`

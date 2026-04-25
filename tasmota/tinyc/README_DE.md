@@ -77,6 +77,7 @@ Callbacks werden automatisch aus Tasmotas Hauptschleife aufgerufen:
 **TCP:** `tcpServer`, `tcpClose`, `tcpAvailable`, `tcpRead`, `tcpWrite`, `tcpReadArray`, `tcpWriteArray`, `tcpConnect`, `tcpDisconnect`, `tcpConnected`, `tcpSelect` (4 parallele Client-Slots)
 **MQTT:** `mqttSubscribe`, `mqttUnsubscribe`, `mqttPublish` + `OnMqttData(topic, payload)` Callback (10 Abos, `#` Praefix-Wildcard)
 **Dynamische Tasks (ESP32):** `spawnTask`, `killTask`, `taskRunning` — bis zu 4 parallele benannte FreeRTOS-Tasks, die den VM-Zustand des Aufrufers teilen (einmalige verzoegerte Jobs, parallele Downloader, toetbare Worker)
+**Cross-VM Share (ESP32):** `shareSetInt`/`shareGetInt`, `shareSetFloat`/`shareGetFloat`, `shareSetStr`/`shareGetStr`, `shareHas`, `shareDelete` — 32-Eintraege-Tabelle (treiber-global, Mutex-geschuetzt) zum Austausch von Skalaren/Strings zwischen TinyC-Slots, wenn ein Programm auf zwei Slots aufgeteilt werden muss. Lesezugriff auf fehlende Schluessel liefert `0`/`0.0`/`""` ohne Fehler
 **Tiefschlaf:** `deepSleep`, `deepSleepGpio`, `wakeupCause`
 **E-Mail:** `mailBody`, `mailAttach`, `mailSend`
 **Persist:** `persist` Schluesselwort fuer automatisch gespeicherte Variablen, `saveVars` fuer manuelles Speichern
@@ -108,10 +109,11 @@ REST-API: `http://<ip>/tc_api?cmd=run`, `cmd=stop`, `cmd=status` (mit `slot=` Pa
 | Stack-Tiefe | 64 | 256 |
 | Aufruf-Frames | 8 | 32 |
 | Globale | 64 | dynamisch |
-| Konstanten | 32 | 128 |
-| Konst.-Daten | 512 B | 4 KB |
-| Code-Groesse | 4 KB | 16 KB |
+| Konstanten | 32 | 1024 |
+| Konst.-Daten | 512 B | dynamisch (DRAM, faellt auf PSRAM zurueck) |
+| Code-Groesse | 4 KB | 128 KB (DRAM, faellt auf PSRAM zurueck) |
 | Heap | 8 KB | 32 KB |
+| Heap-Handles | 8 | 32 |
 
 > **ESP8266-Einschraenkung:** Der ESP8266 hat sehr wenig RAM (~40 KB freier Heap). TinyC funktioniert fuer einfache Skripte (Sensoren lesen, MQTT, einfache Automatisierung), aber Programme mit Heap-Arrays, WS2812-LED-Streifen oder IR zusammen mit der Tasmota-Web-Oberflaeche fuehren zu Instabilitaet wegen Speicherknappheit. Fuer alles ueber triviale Skripte hinaus ESP32, ESP32-S3 oder ESP32-C3 verwenden.
 

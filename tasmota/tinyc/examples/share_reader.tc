@@ -1,0 +1,55 @@
+// Slot 1: reads cross-VM share keys written by slot 0 (share_writer.tc).
+//
+//   RDRALL  — dump all three keys + shareHas("counter")
+//   RDRDEL  — delete "counter", expect writer to recreate it next tick
+//   RDRINT  — just the int
+//   RDRFLT  — just the float
+//   RDRSTR  — just the string
+//   RDRMISS — read a key that doesn't exist (sanity for "0/0.0/empty" return)
+
+void Command(char cmd[]) {
+    if (strcmp(cmd, "ALL") == 0) {
+        int   c = shareGetInt("counter");
+        float f = shareGetFloat("kwh");
+        char  n[32];
+        shareGetStr("name", n);
+        int has = shareHas("counter");
+        char r[160];
+        sprintf(r, "counter=%d kwh=%.1f name=%s has=%d", c, f, n, has);
+        responseCmnd(r);
+    } else if (strcmp(cmd, "DEL") == 0) {
+        int d = shareDelete("counter");
+        char r[32];
+        sprintf(r, "deleted=%d", d);
+        responseCmnd(r);
+    } else if (strcmp(cmd, "INT") == 0) {
+        char r[32];
+        sprintf(r, "%d", shareGetInt("counter"));
+        responseCmnd(r);
+    } else if (strcmp(cmd, "FLT") == 0) {
+        char r[32];
+        sprintf(r, "%.2f", shareGetFloat("kwh"));
+        responseCmnd(r);
+    } else if (strcmp(cmd, "STR") == 0) {
+        char r[32];
+        shareGetStr("name", r);
+        responseCmnd(r);
+    } else if (strcmp(cmd, "MISS") == 0) {
+        int   ci = shareGetInt("nope");
+        float cf = shareGetFloat("nope");
+        char  cs[32];
+        shareGetStr("nope", cs);
+        int has = shareHas("nope");
+        char r[96];
+        sprintf(r, "miss: int=%d flt=%.1f str='%s' has=%d", ci, cf, cs, has);
+        responseCmnd(r);
+    } else {
+        responseCmnd("RDR: ALL | DEL | INT | FLT | STR | MISS");
+    }
+}
+
+int main() {
+    addCommand("RDR");
+    addLog("share_reader started — RDRALL / RDRDEL / RDRMISS");
+    return 0;
+}

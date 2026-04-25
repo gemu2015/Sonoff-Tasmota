@@ -3693,6 +3693,59 @@ Query loaded binary plugins (PIC modules) for data.
 |---|---|
 | `int pluginQuery(char dst[], int index, int p1, int p2)` | Call plugin at `index` with parameters `p1`, `p2`. Result string copied to `dst`. Returns string length |
 
+### Cross-VM Share Table (ESP32)
+
+A driver-global named key/value store, mutex-protected, that lets two or more TinyC slots share scalars and short strings. Use it when one program outgrows a single slot (`TC_MAX_PROGRAM = 128 KB`) and is split across slots, or when multiple cooperating programs need to exchange state without going through MQTT or the filesystem.
+
+Capacity (override via `user_config_override.h`): **`TC_SHARE_MAX = 32`** entries · **`TC_SHARE_KEY_LEN = 16`** char key · **`TC_SHARE_STR_LEN = 64`** char value. Worst-case footprint ≈ 2.6 KB DRAM. Mutex is created lazily on first use.
+
+| Function | Description |
+|---|---|
+| `void shareSetInt(char key[], int v)`     | Set integer value for `key` (creates entry if missing, overwrites type) |
+| `void shareSetFloat(char key[], float v)` | Set float value for `key` |
+| `void shareSetStr(char key[], char v[])`  | Set string value for `key` (truncated to `TC_SHARE_STR_LEN`) |
+| `int shareGetInt(char key[])`             | Read integer; **0** if key missing or wrong type |
+| `float shareGetFloat(char key[])`         | Read float; **0.0** if missing |
+| `int shareGetStr(char key[], char dst[])` | Read string into `dst`; returns chars copied, **0** + empty `dst` if missing |
+| `int shareHas(char key[])`                | **1** if key exists, **0** if not |
+| `int shareDelete(char key[])`             | Delete entry; returns **1** if it existed, **0** otherwise |
+
+**Key constraint:** every `key` argument must be a **string literal** (resolved to a constant-pool index at compile time). Variable keys are not supported. Keys are case-sensitive.
+
+**Missing-key semantics:** reads never raise an error. Use `shareHas()` to distinguish "key absent" from "key exists with value 0". Re-`shareSet*` with a different type silently rewrites the entry.
+
+**Example — slot 0 writer + slot 1 reader:**
+```c
+// slot 0 (writer)
+int counter = 0;
+void EverySecond() {
+    counter = counter + 1;
+    shareSetInt("counter", counter);
+    shareSetFloat("kwh", counter * 0.1);
+    char nm[32];
+    sprintf(nm, "tick=%d", counter);
+    shareSetStr("name", nm);
+}
+int main() { return 0; }
+```
+```c
+// slot 1 (reader)
+void Command(char cmd[]) {
+    if (strcmp(cmd, "ALL") == 0) {
+        int   c = shareGetInt("counter");
+        float f = shareGetFloat("kwh");
+        char  n[32];
+        shareGetStr("name", n);
+        char r[160];
+        sprintf(r, "counter=%d kwh=%.1f name=%s", c, f, n);
+        responseCmnd(r);
+    } else {
+        responseCmnd("RDR: ALL");
+    }
+}
+int main() { addCommand("RDR"); return 0; }
+```
+
 ### Debug
 
 | Function      | Description                |
@@ -3911,14 +3964,17 @@ Both display their sensor rows on the Tasmota main page simultaneously.
 | Call frames       | 8        | 32       | 32       | Maximum recursion / call depth     |
 | Locals per frame  | 256      | 256      | 256      | Scalars + small arrays ≤16 inline  |
 | Global variables  | 64       | 256      | 256      | Scalars + small arrays ≤16 inline  |
-| Code size         | 4 KB     | 16 KB    | 64 KB    | Bytecode (16-bit addressing)       |
+| Code size         | 4 KB     | 128 KB   | 64 KB    | Bytecode; ESP32 spills to PSRAM on DRAM OOM |
 | Heap memory       | 8 KB     | 32 KB    | 64 KB    | For arrays >16 elements (auto alloc)   |
-| Heap handles      | 8        | 16       | 32       | Max simultaneous heap allocations  |
-| Constant pool     | 32       | 64       | 65536    | String & float constants           |
+| Heap handles      | 8        | 32       | 32       | Max simultaneous heap allocations  |
+| Constant pool     | 32       | 1024     | 65536    | String & float constants (DRAM, spills to PSRAM on ESP32) |
 | Instruction limit | 1M       | 1M       | 1M       | Safety limit per execution         |
 | GPIO pins         | 40       | 40       | 40       | Pins 0–39 (simulated in browser)   |
 | File handles      | 4        | 4        | 8        | Simultaneously open files          |
 | VM slots          | 1        | 6        | 1        | Simultaneous programs              |
+| Cross-VM share    | n/a      | 32 keys  | n/a      | Driver-global shared scalar/string table (ESP32 only) |
+
+**ESP32 PSRAM fallback (since v1.3.19):** `TC_MAX_PROGRAM` raised 64 KB → 128 KB. The bytecode buffer (`s->program`) and the constant data pool (`vm->const_data`) are allocated from internal DRAM first; on OOM they automatically spill to `heap_caps_malloc(MALLOC_CAP_SPIRAM)`. Small/normal scripts stay in fast static RAM; only edge-case 100+ KB programs spill to PSRAM. An `AddLog` INFO line is emitted when the PSRAM path is taken.
 
 ---
 

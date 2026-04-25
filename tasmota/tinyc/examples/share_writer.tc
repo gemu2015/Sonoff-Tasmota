@@ -1,0 +1,30 @@
+// Slot 0: writes counter / kwh / name to the cross-VM share table every second.
+// Slot 1 (share_reader.tc) reads them back via shareGet*.
+
+int counter = 0;
+
+void EverySecond() {
+    counter = counter + 1;
+    shareSetInt("counter", counter);
+    shareSetFloat("kwh", counter * 0.1);
+
+    char name[32];
+    sprintf(name, "tick=%d", counter);
+    shareSetStr("name", name);
+}
+
+void Command(char cmd[]) {
+    if (strcmp(cmd, "PEEK") == 0) {
+        char r[64];
+        sprintf(r, "writer counter=%d", counter);
+        responseCmnd(r);
+    } else {
+        responseCmnd("WRT: PEEK");
+    }
+}
+
+int main() {
+    addCommand("WRT");
+    addLog("share_writer started — writing counter/kwh/name every second");
+    return 0;
+}

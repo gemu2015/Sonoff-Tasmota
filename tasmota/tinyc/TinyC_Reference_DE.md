@@ -3330,6 +3330,59 @@ f = fileOpen("/log.txt", a);          // statt fileOpen("/log.txt", 2)
 |----------|-------------|
 | `int pluginQuery(char dst[], int index, int p1, int p2)` | Binäres Plugin abfragen. Gibt Ergebnis zurueck und schreibt optionale String-Antwort in `dst` |
 
+### Cross-VM Share-Tabelle (ESP32)
+
+Treiber-globaler benannter Schluessel/Wert-Speicher mit Mutex-Schutz, ueber den zwei oder mehr TinyC-Slots Skalare und kurze Strings austauschen koennen. Sinnvoll, wenn ein Programm einen einzelnen Slot sprengt (`TC_MAX_PROGRAM = 128 KB`) und auf zwei Slots aufgeteilt wird, oder wenn mehrere kooperierende Programme Zustand austauschen sollen — ohne Umweg ueber MQTT oder Dateisystem.
+
+Kapazitaet (per `user_config_override.h` aenderbar): **`TC_SHARE_MAX = 32`** Eintraege · **`TC_SHARE_KEY_LEN = 16`** Zeichen Schluessel · **`TC_SHARE_STR_LEN = 64`** Zeichen Wert. Worst-Case-Speicher ≈ 2,6 KB DRAM. Mutex wird beim ersten Zugriff angelegt.
+
+| Funktion | Beschreibung |
+|---|---|
+| `void shareSetInt(char key[], int v)`     | Integer-Wert fuer `key` setzen (Eintrag wird angelegt, Typ ueberschrieben) |
+| `void shareSetFloat(char key[], float v)` | Float-Wert fuer `key` setzen |
+| `void shareSetStr(char key[], char v[])`  | String-Wert fuer `key` setzen (auf `TC_SHARE_STR_LEN` gekuerzt) |
+| `int shareGetInt(char key[])`             | Integer lesen; **0** wenn Schluessel fehlt oder falscher Typ |
+| `float shareGetFloat(char key[])`         | Float lesen; **0.0** wenn fehlend |
+| `int shareGetStr(char key[], char dst[])` | String nach `dst` lesen; gibt kopierte Zeichen zurueck, **0** + leerer `dst` wenn fehlend |
+| `int shareHas(char key[])`                | **1** wenn Schluessel existiert, sonst **0** |
+| `int shareDelete(char key[])`             | Eintrag loeschen; **1** wenn vorhanden, **0** sonst |
+
+**Schluessel-Beschraenkung:** jedes `key`-Argument muss ein **String-Literal** sein (zu einem Konstantenpool-Index zur Compilezeit aufgeloest). Variable Schluessel werden nicht unterstuetzt. Schluessel sind Gross-/Kleinschreibung-relevant.
+
+**Semantik fehlender Schluessel:** Lesezugriffe loesen niemals einen Fehler aus. `shareHas()` unterscheidet "Schluessel fehlt" von "Schluessel existiert mit Wert 0". Erneutes `shareSet*` mit anderem Typ ueberschreibt den Eintrag stillschweigend.
+
+**Beispiel — Slot 0 Schreiber + Slot 1 Leser:**
+```c
+// Slot 0 (Schreiber)
+int counter = 0;
+void EverySecond() {
+    counter = counter + 1;
+    shareSetInt("counter", counter);
+    shareSetFloat("kwh", counter * 0.1);
+    char nm[32];
+    sprintf(nm, "tick=%d", counter);
+    shareSetStr("name", nm);
+}
+int main() { return 0; }
+```
+```c
+// Slot 1 (Leser)
+void Command(char cmd[]) {
+    if (strcmp(cmd, "ALL") == 0) {
+        int   c = shareGetInt("counter");
+        float f = shareGetFloat("kwh");
+        char  n[32];
+        shareGetStr("name", n);
+        char r[160];
+        sprintf(r, "counter=%d kwh=%.1f name=%s", c, f, n);
+        responseCmnd(r);
+    } else {
+        responseCmnd("RDR: ALL");
+    }
+}
+int main() { addCommand("RDR"); return 0; }
+```
+
 ### Debug
 
 | Funktion      | Beschreibung                    |
@@ -3545,14 +3598,17 @@ Beide zeigen ihre Sensorzeilen gleichzeitig auf der Tasmota-Hauptseite an.
 | Aufrufrahmen       | 8        | 32       | 32       | Maximale Rekursions-/Aufruftiefe   |
 | Lokale pro Rahmen  | 256      | 256      | 256      | Skalare + kleine Arrays ≤16 inline  |
 | Globale Variablen  | 64       | 256      | 256      | Skalare + kleine Arrays ≤16 inline  |
-| Codegroesse        | 4 KB     | 16 KB    | 64 KB    | Bytecode (16-Bit-Adressierung)     |
+| Codegroesse        | 4 KB     | 128 KB   | 64 KB    | Bytecode; ESP32 faellt bei DRAM-Mangel auf PSRAM zurueck |
 | Heap-Speicher      | 8 KB     | 32 KB    | 64 KB    | Fuer Arrays >16 Elemente (autom. Allokation) |
-| Heap-Handles       | 8        | 16       | 32       | Max. gleichzeitige Heap-Allokationen |
-| Konstantenpool     | 32       | 64       | 65536    | Zeichenketten- & Float-Konstanten  |
+| Heap-Handles       | 8        | 32       | 32       | Max. gleichzeitige Heap-Allokationen |
+| Konstantenpool     | 32       | 1024     | 65536    | Zeichenketten- & Float-Konstanten (DRAM, ESP32 faellt auf PSRAM zurueck) |
 | Instruktionslimit  | 1M       | 1M       | 1M       | Sicherheitslimit pro Ausfuehrung   |
 | GPIO-Pins          | 40       | 40       | 40       | Pins 0–39 (im Browser simuliert)   |
 | Datei-Handles      | 4        | 4        | 8        | Gleichzeitig geoeffnete Dateien    |
 | VM-Slots           | 1        | 6        | 1        | Gleichzeitige Programme            |
+| Cross-VM-Share     | n/a      | 32 Keys  | n/a      | Treiber-globale Share-Tabelle (nur ESP32) |
+
+**ESP32 PSRAM-Fallback (seit v1.3.19):** `TC_MAX_PROGRAM` von 64 KB auf 128 KB angehoben. Bytecode-Puffer (`s->program`) und Konstantendaten-Pool (`vm->const_data`) werden zuerst aus dem internen DRAM allokiert; bei OOM faellt die Allokation automatisch auf `heap_caps_malloc(MALLOC_CAP_SPIRAM)` zurueck. Kleine/normale Skripte bleiben im schnellen statischen RAM; nur sehr grosse Programme (100+ KB) landen im PSRAM. Ein `AddLog`-INFO-Eintrag wird ausgegeben, wenn der PSRAM-Pfad genutzt wird.
 
 ---
 

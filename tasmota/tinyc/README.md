@@ -74,6 +74,7 @@ Callbacks run automatically from Tasmota's main loop:
 **TCP:** `tcpServer`, `tcpClose`, `tcpAvailable`, `tcpRead`, `tcpWrite`, `tcpReadArray`, `tcpWriteArray`, `tcpConnect`, `tcpDisconnect`, `tcpConnected`, `tcpSelect` (4 parallel client slots)
 **MQTT:** `mqttSubscribe`, `mqttUnsubscribe`, `mqttPublish` + `OnMqttData(topic, payload)` callback (10 subs, `#` prefix wildcard)
 **Dynamic tasks (ESP32):** `spawnTask`, `killTask`, `taskRunning` — up to 4 concurrent named FreeRTOS tasks sharing the caller's VM state (one-shot delayed jobs, parallel downloaders, killable workers)
+**Cross-VM share (ESP32):** `shareSetInt`/`shareGetInt`, `shareSetFloat`/`shareGetFloat`, `shareSetStr`/`shareGetStr`, `shareHas`, `shareDelete` — 32-key driver-global table for sharing scalars/strings between TinyC slots when one program is split across two slots. Mutex-protected. Missing-key reads return `0`/`0.0`/`""`
 **UDP:** `udpRecv`, `udpReady`, `udpSendArray`, `udpRecvArray`, `udp` (general-purpose, modes 0-7) — scalar `global` floats auto-broadcast on assignment
 **Display:** `dspText`, `dspClear`, `dspPos`, `dspFont`, `dspSize`, `dspColor`, `dspDraw`, `dspPad`, `dspPixel`, `dspLine`, `dspRect`, `dspFillRect`, `dspCircle`, `dspFillCircle`, `dspHLine`, `dspVLine`, `dspRoundRect`, `dspFillRoundRect`, `dspTriangle`, `dspFillTriangle`, `dspDim`, `dspOnOff`, `dspUpdate`, `dspPicture`, `dspWidth`, `dspHeight`, `dspTextWidth`, `dspTextHeight`
 **Image Store:** `dspLoadImage`, `dspPushImageRect`, `dspImageWidth`, `dspImageHeight`, `dspImgText`, `dspLoadImageFromCam`, `dspImgTextBurn`, `dspImageToCam` — PSRAM image slots for flicker-free compositing + cam ↔ image bridge for burning timestamps/labels into JPEG captures
@@ -124,10 +125,11 @@ File Download Server (port 82, ESP32): `http://<ip>:82/ufs/<filename>` — suppo
 | Stack depth | 64 | 256 |
 | Call frames | 8 | 32 |
 | Globals | 64 | dynamic |
-| Constants | 32 | 128 |
-| Const data | 512 B | 4 KB |
-| Code size | 4 KB | 16 KB |
+| Constants | 32 | 1024 |
+| Const data | 512 B | dynamic (DRAM, spills to PSRAM) |
+| Code size | 4 KB | 128 KB (DRAM, spills to PSRAM) |
 | Heap | 8 KB | 32 KB |
+| Heap handles | 8 | 32 |
 
 > **ESP8266 limitation:** The ESP8266 has very limited RAM (~40 KB free heap). TinyC works for simple scripts (sensor reading, MQTT, basic automation), but programs using heap arrays, WS2812 LED strips, or IR together with the Tasmota web UI will cause instability due to memory pressure. For anything beyond trivial scripts, use ESP32, ESP32-S3, or ESP32-C3.
 
