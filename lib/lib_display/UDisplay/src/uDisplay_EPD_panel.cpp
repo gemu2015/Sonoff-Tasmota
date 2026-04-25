@@ -5,6 +5,13 @@
 #include "uDisplay_EPD_panel.h"
 #include <Arduino.h>
 
+// Match UDSP_EPD_TRACE toggle in uDisplay.cpp (kept in sync manually for now).
+#define UDSP_EPD_TRACE 1
+#if UDSP_EPD_TRACE
+extern void AddLog(uint32_t loglevel, const char* formatP, ...);
+#define EPD_LOG_LEVEL 2  /* LOG_LEVEL_INFO */
+#endif
+
 // EPD Command Definitions
 static constexpr uint8_t DRIVER_OUTPUT_CONTROL                = 0x01;
 static constexpr uint8_t BOOSTER_SOFT_START_CONTROL           = 0x0C;
@@ -61,15 +68,39 @@ void EPDPanel::delay_sync(int32_t ms) {
     uint8_t busy_level = cfg.busy_invert ? LOW : HIGH;
     uint32_t time = millis();
     if (cfg.busy_pin >= 0) {
+        // Two-phase wait:
+        //   1) The chip takes tens of microseconds to assert BUSY after the
+        //      last SPI byte. Wait up to 20 ms for the rising edge so we
+        //      don't sample before the refresh has even started.
+        //   2) Then poll until BUSY goes back to idle, bounded by busy_timeout.
+        uint32_t rising_deadline = time + 20;
+        while (digitalRead(cfg.busy_pin) != busy_level) {
+            if (millis() >= rising_deadline) break;
+            delayMicroseconds(100);
+        }
         while (digitalRead(cfg.busy_pin) == busy_level) {
             delay(1);
             if ((millis() - time) > cfg.busy_timeout) {
                 break;
             }
         }
+        // Safety net: BUSY polling on some 3-wire SPI panels (e.g. WS 2.9" v2
+        // SSD1680 with bit-banged SPI) misses the busy edge — read returns to
+        // idle before we sample. Without this, two back-to-back partial
+        // refreshes collide: 2nd 0x22 0xFF fires while 1st is still running.
+        // If polling returned much faster than the caller-specified panel
+        // timing, enforce the spec time as a minimum.
+        uint32_t elapsed = millis() - time;
+        if (ms > 0 && elapsed < (uint32_t)ms) {
+            delay((uint32_t)ms - elapsed);
+        }
     } else {
         delay(ms);
     }
+#if UDSP_EPD_TRACE
+    AddLog(EPD_LOG_LEVEL, "UDSP: delay_sync pin=%d lvl=%d waited=%ums",
+           (int)cfg.busy_pin, (int)busy_level, (unsigned)(millis() - time));
+#endif
 }
 
 void EPDPanel::resetDisplay() {
@@ -91,11 +122,23 @@ void EPDPanel::waitBusy() {
 }
 
 void EPDPanel::setLut(const uint8_t* lut, uint16_t len) {
-    if (!lut || len == 0) return;
-    
+    if (!lut || len == 0) {
+#if UDSP_EPD_TRACE
+        AddLog(EPD_LOG_LEVEL, "UDSP: setLut SKIP lut=%p len=%u", lut, len);
+#endif
+        return;
+    }
+
+    // Matches legacy SetLut(): command byte comes from descriptor (:L / :l line),
+    // not the SSD1681-specific WRITE_LUT_REGISTER opcode.
+    uint8_t cmd = cfg.lut_cmd[0] ? cfg.lut_cmd[0] : WRITE_LUT_REGISTER;
+#if UDSP_EPD_TRACE
+    AddLog(EPD_LOG_LEVEL, "UDSP: setLut cmd=%02x len=%u first=%02x",
+           cmd, len, lut[0]);
+#endif
     spi->beginTransaction();
     spi->csLow();
-    spi->writeCommand(WRITE_LUT_REGISTER);
+    spi->writeCommand(cmd);
     for (uint16_t i = 0; i < len; i++) {
         spi->writeData8(lut[i]);
     }
@@ -111,15 +154,19 @@ void EPDPanel::setMemoryArea(int x_start, int y_start, int x_end, int y_end) {
     int y_end1 = y_end & 0xFF;
     int y_end2 = (y_end >> 8) & 0xFF;
 
+#if UDSP_EPD_TRACE
+    AddLog(EPD_LOG_LEVEL, "UDSP: setMemoryArea xs=%d..%d ys=%d..%d (bytes x:%02x..%02x y:%02x%02x..%02x%02x)",
+           x_start, x_end, y_start, y_end,
+           x_start1, x_end1, y_start2, y_start1, y_end2, y_end1);
+#endif
     spi->beginTransaction();
     spi->csLow();
     spi->writeCommand(SET_RAM_X_ADDRESS_START_END_POSITION);
     spi->writeData8(x_start1);
     spi->writeData8(x_end1);
-    
+
     spi->writeCommand(SET_RAM_Y_ADDRESS_START_END_POSITION);
     if (cfg.ep_mode == 3) {
-        // ep_mode 3: reversed Y order
         spi->writeData8(y_end1);
         spi->writeData8(y_end2);
         spi->writeData8(y_start1);
@@ -136,7 +183,7 @@ void EPDPanel::setMemoryArea(int x_start, int y_start, int x_end, int y_end) {
 
 void EPDPanel::setMemoryPointer(int x, int y) {
     int x1, y1, y2;
-    
+
     if (cfg.ep_mode == 3) {
         x1 = (x >> 3) & 0xFF;
         y--;
@@ -148,6 +195,10 @@ void EPDPanel::setMemoryPointer(int x, int y) {
         y2 = (y >> 8) & 0xFF;
     }
 
+#if UDSP_EPD_TRACE
+    AddLog(EPD_LOG_LEVEL, "UDSP: setMemoryPointer x=%d y=%d (x:%02x y:%02x%02x)",
+           x, y, x1, y2, y1);
+#endif
     spi->beginTransaction();
     spi->csLow();
     spi->writeCommand(SET_RAM_X_ADDRESS_COUNTER);
@@ -372,10 +423,17 @@ bool EPDPanel::setRotation(uint8_t rot) {
 
 bool EPDPanel::updateFrame() {
     if (!fb_buffer) return false;
-    
-    // Handle different EPD modes
+
+#if UDSP_EPD_TRACE
+    AddLog(EPD_LOG_LEVEL, "UDSP: updateFrame ep_mode=%d update_mode=%d part_off=%u part_cnt=%u full_off=%u full_cnt=%u",
+           (int)cfg.ep_mode, (int)update_mode,
+           (unsigned)cfg.epcoffs_part, (unsigned)cfg.epc_part_cnt,
+           (unsigned)cfg.epcoffs_full, (unsigned)cfg.epc_full_cnt);
+#endif
+    // Matches legacy Updateframe_EPD(): PARTIAL/FULL dispatch descriptor-defined
+    // command sequences (which themselves include EP_SEND_FRAME + activation);
+    // only DISPLAY_INIT_MODE falls back to a generic framebuffer-push + refresh.
     if (cfg.ep_mode == 1 || cfg.ep_mode == 3) {
-        // Mode 1 (2-LUT) or Mode 3 (command-based): Use descriptor command sequences
         switch (update_mode) {
             case 1: // DISPLAY_INIT_PARTIAL
                 if (cfg.epc_part_cnt && cfg.send_cmds_callback) {
@@ -388,17 +446,14 @@ bool EPDPanel::updateFrame() {
                 }
                 break;
             default: // DISPLAY_INIT_MODE (0)
-                // Default: write framebuffer and display
                 setFrameMemory(fb_buffer, 0, 0, cfg.width, cfg.height);
                 displayFrame();
+                break;
         }
-        setFrameMemory(fb_buffer);
-        displayFrame();
     } else if (cfg.ep_mode == 2) {
-        // Mode 2 (5-LUT / 4.2" displays): Use internal displayFrame_42
         displayFrame_42();
     }
-    
+
     return true;
 }
 
@@ -556,14 +611,38 @@ void EPDPanel::setFrameMemory(const uint8_t* image_buffer, uint16_t x, uint16_t 
 }
 
 void EPDPanel::sendEPData() {
-    // EP_SEND_DATA (0x66) - used by some display.ini files (e.g. v2)
-    // Must also convert Y-column to X-row format like setFrameMemory()
-    //sendYColumnAsXRow(fb_buffer, cfg.width, cfg.height, cfg.width / 8);
-    setFrameMemory(fb_buffer);
+    // EP_SEND_DATA (0x66) - descriptor already issued SET_MEM_AREA/PTR/WRITE_RAM
+    // via pseudo-ops (64,0 / 65,0 / 24,0), so here we ONLY stream framebuffer
+    // bytes. Matches legacy Send_EP_Data(). Re-issuing WRITE_RAM here would
+    // inject a command into the middle of the expected data stream and break
+    // partial updates (ep_mode 1/3).
+    if (!fb_buffer) {
+#if UDSP_EPD_TRACE
+        AddLog(EPD_LOG_LEVEL, "UDSP: sendEPData SKIP fb_buffer=null");
+#endif
+        return;
+    }
+    const uint32_t n = (uint32_t)(cfg.width / 8) * cfg.height;
+#if UDSP_EPD_TRACE
+    uint32_t nonzero = 0;
+    for (uint32_t i = 0; i < n; i++) if (fb_buffer[i]) nonzero++;
+    AddLog(EPD_LOG_LEVEL, "UDSP: sendEPData bytes=%u nonzero=%u first=%02x",
+           (unsigned)n, (unsigned)nonzero, fb_buffer[0]);
+#endif
+    spi->beginTransaction();
+    spi->csLow();
+    for (uint32_t i = 0; i < n; i++) {
+        spi->writeData8(fb_buffer[i] ^ 0xff);
+    }
+    spi->csHigh();
+    spi->endTransaction();
 }
 
 // ===== Update Mode Control =====
 
 void EPDPanel::setUpdateMode(uint8_t mode) {
     update_mode = mode;
+#if UDSP_EPD_TRACE
+    AddLog(EPD_LOG_LEVEL, "UDSP: setUpdateMode %d", (int)mode);
+#endif
 }

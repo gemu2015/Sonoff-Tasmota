@@ -145,8 +145,10 @@ static FS *tc_file_path(char *path) {
   #define TC_MAX_FRAMES      8       // call depth — frames are small (locals allocated dynamically)
   #define TC_MAX_LOCALS      256     // locals per frame (1KB, dynamically allocated)
   #define TC_MAX_GLOBALS     64      // global slots (256 bytes)
-  #define TC_MAX_CONSTANTS   64      // constant pool entries
-  #define TC_MAX_CONST_DATA  512     // string constant bytes
+  #ifndef TC_MAX_CONSTANTS
+    #define TC_MAX_CONSTANTS 64      // constant pool entries
+  #endif
+  #define TC_MAX_CONST_DATA  512     // string constant bytes (informational only — buffer is dynamically sized)
   #define TC_INSTR_PER_TICK  500     // instructions per 50ms tick
   #define TC_OUTPUT_SIZE     128     // output buffer for MQTT
 #else  // ESP32
@@ -155,8 +157,16 @@ static FS *tc_file_path(char *path) {
   #define TC_MAX_FRAMES      32      // call depth
   #define TC_MAX_LOCALS      256     // locals per frame (1KB) - enough for char arrays
   #define TC_MAX_GLOBALS     512     // global slots (2KB)
-  #define TC_MAX_CONSTANTS   512     // constant pool entries (dynamic alloc, uint16_t)
-  #define TC_MAX_CONST_DATA  8192    // string constant bytes
+  // Constant pool cap. Raised 256→512 in v1.3.12 and 512→1024 in v1.3.18 for
+  // large bat_ctrl.tc-style scripts (BMU + Modbus + REST + Speedwire + EEBus)
+  // that hit ~440 unique string literals. Encoding supports u16 (≤65535), so
+  // the cap is purely a soft RAM-safety bound: each slot is ~12 bytes →
+  // 1024 slots → ~12 KB worst case (calloc'd, not always used). Override in
+  // user_config_override.h to tune per project.
+  #ifndef TC_MAX_CONSTANTS
+    #define TC_MAX_CONSTANTS 1024    // constant pool entries (dynamic alloc, uint16_t)
+  #endif
+  #define TC_MAX_CONST_DATA  8192    // string constant bytes (informational only — buffer is dynamically sized to fit)
   #define TC_INSTR_PER_TICK  1000    // instructions per 50ms tick
   #define TC_OUTPUT_SIZE     128     // output buffer for MQTT (was 512)
 #endif
@@ -180,7 +190,7 @@ static FS *tc_file_path(char *path) {
 
 #define TC_MAGIC           0x54434300  // "TCC\0"
 #define TC_VERSION         5           // V5: global (UDP auto-update) variables
-#define TC_RELEASE         "1.3.17"    // Three diagnostics motivated by Andreas's `bat_ctrl.tc` TC_ERR_BOUNDS crash (silent `int g_sl = wr_vl3 / 100.0` narrowing + name collision). (1) Rich TC_ERR_BOUNDS log: the six array-access opcodes (OP_LOAD/STORE × LOCAL_ARR/GLOBAL_ARR/HEAP_ARR) now `AddLog` the offending index + array bound + PC before returning the error, in both switch-based and computed-goto dispatchers. (2) RET-time SP-balance check: TcFrame gains `saved_sp`; captured on OP_CALL, callback dispatch, and TaskLoop frame-setup; verified on OP_RET / OP_RET_VAL — any residue triggers an `AddLog("SP leak at …return: sp=… expected<=… ret_pc=…")` so the next leak is caught at the first frame that leaks, not after 240 calls. (3) Compiler: float → int narrowing warning at the four assignment-emit sites (simple/compound scalar, simple/compound array), surfaced as yellow warnings in the IDE output, deduplicated per (name, line). Explicit `(int)` casts stay silent (they route through compileCast).
+#define TC_RELEASE         "1.3.18"    // Constant pool cap raised 512→1024 on ESP32 (Andreas BYD/Speedwire/EEBus scripts hit 440/512). Cap is now `#ifndef`-gated so user_config_override.h can tune it. Per-slot cost ~12 B → 1024 slots → ~12 KB max heap, dynamically allocated to actual binary content (most scripts use far fewer). Encoding remained u16 throughout, so this is purely a soft RAM-safety bump. IDE compiler thresholds (`addConstant()` 512 throw / 440 warn) updated in lockstep to 1024 / 950.   Previous: "1.3.17" — Three diagnostics motivated by Andreas's `bat_ctrl.tc` TC_ERR_BOUNDS crash (silent `int g_sl = wr_vl3 / 100.0` narrowing + name collision). (1) Rich TC_ERR_BOUNDS log: the six array-access opcodes (OP_LOAD/STORE × LOCAL_ARR/GLOBAL_ARR/HEAP_ARR) now `AddLog` the offending index + array bound + PC before returning the error, in both switch-based and computed-goto dispatchers. (2) RET-time SP-balance check: TcFrame gains `saved_sp`; captured on OP_CALL, callback dispatch, and TaskLoop frame-setup; verified on OP_RET / OP_RET_VAL — any residue triggers an `AddLog("SP leak at …return: sp=… expected<=… ret_pc=…")` so the next leak is caught at the first frame that leaks, not after 240 calls. (3) Compiler: float → int narrowing warning at the four assignment-emit sites (simple/compound scalar, simple/compound array), surfaced as yellow warnings in the IDE output, deduplicated per (name, line). Explicit `(int)` casts stay silent (they route through compileCast).
 #define TC_FILE_NAME       "/autoexec.tcb"
 #define TC_MAX_PERSIST     64          // max persist variable entries
 #define TC_MAX_UDP_GLOBALS 64          // max global (UDP auto-update) variable entries

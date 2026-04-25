@@ -1,0 +1,268 @@
+// ============================================================
+// SSD1680 3-wire SPI test driver (Waveshare 2.9" v2, 128x296)
+//
+// Purpose: reference bit-bang implementation to iterate on the
+// SSD1680 command sequence independently of uDisplay. If partial
+// refresh works here, the bug is in uDisplay's wire dispatch
+// (most likely single-CS-per-command vs legacy's per-byte CS).
+//
+// IMPORTANT: before running, delete the uDisplay descriptor so
+// the two drivers don't fight for the same pins:
+//   UfsDelete /display.ini
+//   Restart 1
+//
+// Pin wiring (matches device template on IP .39):
+//   RST = GPIO1, BUSY = GPIO2 (SSPI MISO slot)
+//   CS  = GPIO21, MOSI = GPIO41, CLK = GPIO42
+//   No DC pin — 3-wire 9-bit SPI (DC bit is first of each 9-bit frame).
+//
+// Commands (prefix EPDT):
+//   EPDTINIT  — reset + SSD1680 init, load OTP LUT via 0xB1
+//   EPDTCLR   — fill white, full refresh
+//   EPDTA     — full refresh, black square top-left
+//   EPDTB     — partial refresh, add square mid-left
+//   EPDTC     — partial refresh, add square bottom-left
+// ============================================================
+
+#define PIN_RST  1
+#define PIN_BUSY 2
+#define PIN_CS   21
+#define PIN_MOSI 41
+#define PIN_CLK  42
+
+#define INPUT  0x01
+#define OUTPUT 0x03
+
+#define EPD_W   128
+#define EPD_H   296
+#define FB_SIZE 4736
+
+char fb[FB_SIZE];
+int initialized = 0;
+
+// ------------------------------------------------------------
+// 3-wire 9-bit SPI bit-bang, per-byte CS framing (matches
+// legacy uDisplay's spi_command_EPD / spi_data8_EPD pattern).
+// Byte layout: bit0 on wire = DC flag, then 8 data bits MSB first.
+// ------------------------------------------------------------
+void spi_write9(int val, int dc) {
+    digitalWrite(PIN_CLK, 0);
+    digitalWrite(PIN_MOSI, dc);
+    digitalWrite(PIN_CLK, 1);
+    int bit = 128;
+    while (bit > 0) {
+        digitalWrite(PIN_CLK, 0);
+        if (val & bit) digitalWrite(PIN_MOSI, 1);
+        else digitalWrite(PIN_MOSI, 0);
+        digitalWrite(PIN_CLK, 1);
+        bit = bit >> 1;
+    }
+}
+
+void epd_cmd(int c) {
+    digitalWrite(PIN_CS, 0);
+    spi_write9(c, 0);
+    digitalWrite(PIN_CS, 1);
+}
+
+void epd_data(int d) {
+    digitalWrite(PIN_CS, 0);
+    spi_write9(d, 1);
+    digitalWrite(PIN_CS, 1);
+}
+
+// ------------------------------------------------------------
+// BUSY polling: pin goes HIGH while chip is busy, LOW when idle.
+// (busy_invert=0 on this panel — legacy driver polls for 0.)
+// ------------------------------------------------------------
+void epd_wait_busy() {
+    int t0 = millis();
+    while (digitalRead(PIN_BUSY) == 1) {
+        if (millis() - t0 > 8000) {
+            addLog("EPD: BUSY timeout after 8s");
+            return;
+        }
+    }
+}
+
+void epd_reset() {
+    digitalWrite(PIN_RST, 1); delay(10);
+    digitalWrite(PIN_RST, 0); delay(10);
+    digitalWrite(PIN_RST, 1); delay(10);
+    epd_wait_busy();
+}
+
+// ------------------------------------------------------------
+// SSD1680 init — matches the init steps of the uDisplay
+// descriptor's :I section (minus the LUT load, we use OTP).
+// ------------------------------------------------------------
+void epd_init() {
+    epd_reset();
+
+    epd_cmd(0x12);                                  // SW reset
+    epd_wait_busy();
+
+    epd_cmd(0x01);                                  // Driver output control
+    epd_data(0x27); epd_data(0x01); epd_data(0x00); // 295+1 gates, scan sequence
+
+    epd_cmd(0x11); epd_data(0x03);                  // Data entry mode: X inc, Y inc
+
+    epd_cmd(0x44);                                  // RAM X range: 0..15 (128/8 - 1)
+    epd_data(0x00); epd_data(0x0F);
+
+    epd_cmd(0x45);                                  // RAM Y range: 0..295
+    epd_data(0x00); epd_data(0x00);
+    epd_data(0x27); epd_data(0x01);
+
+    epd_cmd(0x3C); epd_data(0x80);                  // Border waveform
+    epd_cmd(0x18); epd_data(0x80);                  // Temperature sensor = internal
+
+    epd_cmd(0x22); epd_data(0xB1);                  // Load temp, load LUT from OTP
+    epd_cmd(0x20);                                  // Master activation
+    epd_wait_busy();
+
+    epd_cmd(0x4E); epd_data(0x00);                  // Set RAM X pointer
+    epd_cmd(0x4F); epd_data(0x00); epd_data(0x00);  // Set RAM Y pointer
+    epd_wait_busy();
+
+    initialized = 1;
+    addLog("EPD: init done");
+}
+
+// ------------------------------------------------------------
+// Write full framebuffer to RAM 0x24 (current image).
+// ------------------------------------------------------------
+void epd_write_ram(char buf[]) {
+    epd_cmd(0x4E); epd_data(0x00);
+    epd_cmd(0x4F); epd_data(0x00); epd_data(0x00);
+    epd_cmd(0x24);
+    int i = 0;
+    while (i < FB_SIZE) {
+        epd_data(buf[i]);
+        i = i + 1;
+    }
+}
+
+void epd_full(char buf[]) {
+    epd_write_ram(buf);
+    epd_cmd(0x22); epd_data(0xF7);                  // OTP LUT + Display Mode 1
+    epd_cmd(0x20);
+    epd_wait_busy();
+}
+
+void epd_partial(char buf[]) {
+    epd_write_ram(buf);
+    epd_cmd(0x22); epd_data(0xFF);                  // OTP LUT + Display Mode 2
+    epd_cmd(0x20);
+    epd_wait_busy();
+}
+
+// ------------------------------------------------------------
+// FB helpers: 0xFF = white, 0x00 = black (native SSD1680).
+// Stride = 16 bytes/row, MSB = leftmost pixel.
+// ------------------------------------------------------------
+void fb_fill(int val) {
+    int i = 0;
+    while (i < FB_SIZE) {
+        fb[i] = val;
+        i = i + 1;
+    }
+}
+
+void fb_rect_black(int x, int y, int w, int h) {
+    int row = y;
+    while (row < y + h) {
+        int col = x;
+        while (col < x + w) {
+            int idx = (col >> 3) + row * 16;
+            int mask = 0x80 >> (col & 7);
+            fb[idx] = fb[idx] & (~mask);
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+// ------------------------------------------------------------
+// Console commands
+//
+// Framebuffer paint + SPI push is ~200k+ VM instructions which
+// exceeds the Command() callback budget, so heavy work runs in
+// a Painter task. Command() sets `action` and spawns the task.
+// ------------------------------------------------------------
+int action = 0;   // 0 idle, 1 CLR, 2 A full, 3 B partial, 4 C partial
+
+void Painter() {
+    if (action == 1) {
+        fb_fill(0xFF);
+        epd_full(fb);
+    } else if (action == 2) {
+        fb_fill(0xFF);
+        fb_rect_black(10, 10, 60, 60);
+        epd_full(fb);
+    } else if (action == 3) {
+        fb_fill(0xFF);
+        fb_rect_black(10, 10, 60, 60);
+        fb_rect_black(10, 110, 60, 60);
+        epd_partial(fb);
+    } else if (action == 4) {
+        fb_fill(0xFF);
+        fb_rect_black(10, 10, 60, 60);
+        fb_rect_black(10, 110, 60, 60);
+        fb_rect_black(10, 220, 60, 60);
+        epd_partial(fb);
+    }
+    addLog("Painter: done");
+    action = 0;
+}
+
+void Command(char cmd[]) {
+    int n = strlen(cmd);
+    // Dispatch via first char + length — strcmp against literals
+    // misbehaves in this VM for the callback's cmd[] param.
+    if (n == 4 && cmd[0] == 'I') {
+        epd_init();
+        responseCmnd("init done");
+        return;
+    }
+    if (initialized == 0) {
+        responseCmnd("run EPDTINIT first");
+        return;
+    }
+    if (taskRunning("Painter") == 1) {
+        responseCmnd("busy — wait for previous refresh");
+        return;
+    }
+    if (n == 3 && cmd[0] == 'C' && cmd[1] == 'L') {
+        action = 1; spawnTask("Painter", 8);
+        responseCmnd("CLR: painting (full white)");
+    } else if (n == 1 && cmd[0] == 'A') {
+        action = 2; spawnTask("Painter", 8);
+        responseCmnd("A: painting full (square TL)");
+    } else if (n == 1 && cmd[0] == 'B') {
+        action = 3; spawnTask("Painter", 8);
+        responseCmnd("B: painting partial (+ML)");
+    } else if (n == 1 && cmd[0] == 'C') {
+        action = 4; spawnTask("Painter", 8);
+        responseCmnd("C: painting partial (+BL)");
+    } else {
+        responseCmnd("cmds: INIT / CLR / A / B / C");
+    }
+}
+
+int main() {
+    pinMode(PIN_RST,  OUTPUT);
+    pinMode(PIN_CS,   OUTPUT);
+    pinMode(PIN_CLK,  OUTPUT);
+    pinMode(PIN_MOSI, OUTPUT);
+    pinMode(PIN_BUSY, INPUT);
+
+    digitalWrite(PIN_CS,   1);
+    digitalWrite(PIN_CLK,  0);
+    digitalWrite(PIN_MOSI, 0);
+    digitalWrite(PIN_RST,  1);
+
+    addCommand("EPDT");
+    addLog("EPD 3-wire test driver loaded — EPDTINIT to start");
+    return 0;
+}

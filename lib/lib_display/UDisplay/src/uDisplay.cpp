@@ -25,6 +25,10 @@
 
 //#define UDSP_DEBUG
 
+// EPD trace: set to 1 to emit compact per-opcode log during send_spi_cmds
+// (safe to leave on for bring-up; one log line per raw/pseudo command).
+#define UDSP_EPD_TRACE 1
+
 #ifndef UDSP_LBSIZE
 #define UDSP_LBSIZE 256
 #endif
@@ -1003,6 +1007,10 @@ uint16_t index = 0;
   AddLog(LOG_LEVEL_DEBUG, "UDisplay: start send cmd table");
   Log2file("start send\n");
 #endif
+#if UDSP_EPD_TRACE
+  AddLog(LOG_LEVEL_INFO, "UDSP: == send_spi_cmds off=%u size=%u ep_mode=%d ==",
+         (unsigned)cmd_offset, (unsigned)cmd_size, (int)ep_mode);
+#endif
   while (1) {
     uint8_t iob;
     spiController->csLow();
@@ -1012,13 +1020,21 @@ uint16_t index = 0;
       // epaper pseudo opcodes
       if (!universal_panel) return;
       EPDPanel* epd = static_cast<EPDPanel*>(universal_panel);
-      
+
       uint8_t args = dsp_cmds[cmd_offset++];
       index++;
 #ifdef UDSP_DEBUG
       AddLog(LOG_LEVEL_DEBUG, "UDisplay: cmd, args %02x, %d", iob, args & 0x1f);
       char str[24]; sprintf(str,"cmd %02x, args %d\n",iob, args & 0x1f);
       Log2file(str);
+#endif
+#if UDSP_EPD_TRACE
+      {
+        uint8_t n = args & 0x1f;
+        uint8_t peek = (n && (cmd_offset < dsp_ncmds)) ? dsp_cmds[cmd_offset] : 0;
+        AddLog(LOG_LEVEL_INFO, "UDSP: EP op=%02x args=%u%s peek=%02x",
+               iob, n, (args & 0x80) ? " +delay" : "", peek);
+      }
 #endif
       switch (iob) {
         case EP_RESET:
@@ -1099,6 +1115,7 @@ uint16_t index = 0;
             break;
         }
       }
+      uint8_t raw_cmd = iob;
       spiController->writeCommand(iob);
       uint8_t args = dsp_cmds[cmd_offset++];
       index++;
@@ -1107,11 +1124,23 @@ uint16_t index = 0;
       char str[24]; sprintf(str,"cmd %02x, args %d\n",iob, args & 0x1f);
       Log2file(str);
 #endif
+#if UDSP_EPD_TRACE
+      char argbuf[64]; argbuf[0] = 0;
+      uint8_t nargs = args & 0x1f;
+#endif
       for (uint32_t cnt = 0; cnt < (args & 0x1f); cnt++) {
         iob = dsp_cmds[cmd_offset++];
         index++;
 #ifdef UDSP_DEBUG
         AddLog(LOG_LEVEL_DEBUG, "%02x ", iob );
+#endif
+#if UDSP_EPD_TRACE
+        if (cnt < 10) {
+          size_t pos = strlen(argbuf);
+          if (pos + 4 < sizeof(argbuf)) {
+            snprintf(argbuf + pos, sizeof(argbuf) - pos, "%02x ", iob);
+          }
+        }
 #endif
         if (!allcmd_mode) {
           spiController->writeData8(iob);
@@ -1120,6 +1149,10 @@ uint16_t index = 0;
         }
       }
       spiController->csHigh();
+#if UDSP_EPD_TRACE
+      AddLog(LOG_LEVEL_INFO, "UDSP: RAW cmd=%02x args=%u [%s]%s",
+             raw_cmd, nargs, argbuf, (args & 0x80) ? " +delay" : "");
+#endif
       if (args & 0x80) {  // delay after the command
         delay_arg(args);
       }
@@ -1224,29 +1257,29 @@ if (interface == _UDSP_SPI) {
 
         // Create EPD panel BEFORE sending init commands (send_spi_cmds needs universal_panel)
         universal_panel = new EPDPanel(panel_config->epd, spiController, frame_buffer);
-                
-        // After descriptor init commands, do initial EPD setup
-        EPDPanel* epd = static_cast<EPDPanel*>(universal_panel);
-        epd->resetDisplay();
 
+        EPDPanel* epd = static_cast<EPDPanel*>(universal_panel);
+
+        // Run the :I descriptor section. For ep_mode 1/3 this also executes the
+        // trailing EP_LUT_PARTIAL / EP_WAITIDLE pseudo-ops that leave the panel
+        // in a sensible state, matching the legacy driver's boot flow.
         send_spi_cmds(0, dsp_ncmds);
 
-        if (epd->cfg.lut_full && epd->cfg.lut_full_len > 0) {
-            epd->setLut(epd->cfg.lut_full, epd->cfg.lut_full_len);
+        // Legacy Init() only did Init_EPD(DISPLAY_INIT_FULL) for ep_mode == 2.
+        // ep_mode 1/3 rely on :I's own trailing 24,0 + 66,0 + MASTER_ACTIVATION
+        // + EP_LUT_PARTIAL to leave the chip ready for partial updates.
+        if (ep_mode == 2) {
+            if (epd->cfg.lutfsize) {
+                epd->setLut(epd->cfg.lut_full_data, epd->cfg.lutfsize);
+            }
+            if (epd->cfg.lut_cnt_data[0]) {
+                epd->setLuts();
+            }
+            epd->clearFrame_42();
+            epd->delay_sync(epd->cfg.lut_full_time * 10);
         }
-        
-        // Send full update command sequence if available
-        if (epd->cfg.epc_full_cnt) {
-            send_spi_cmds(epd->cfg.epcoffs_full, epd->cfg.epc_full_cnt);
-        }
-        
-        // Set update mode to partial for subsequent updates
-        epd->setUpdateMode(DISPLAY_INIT_PARTIAL);
 
-        epd->clearFrameMemory(0xFF);
-        epd->displayFrame();
-
-    } else {   
+    } else {
         AddLog(2,"SPI Panel!");
         // Populate remaining SPI config fields (most already parsed directly into union)
         panel_config->spi.width = gxs;
@@ -1385,8 +1418,17 @@ void uDisplay::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
           AddLog(LOG_LEVEL_DEBUG, "init partial epaper mode");
 #endif
           epd->setLut(epd->cfg.lut_partial_data, epd->cfg.lutpsize);
-          epd->updateFrame();
-          epd->delay_sync(epd->cfg.lut_partial_time * 10);
+          // RAM 0x26 (prev image) is expected to be primed by the
+          // descriptor's :f section (write FB to both 0x24 and 0x26
+          // before full activation). Do NOT pre-dispatch :p here:
+          // a pre-draw activation with 0x24 == 0x26 (zero diff) makes
+          // the partial LUT apply "no-transition" voltages to all
+          // pixels, which subtly bleaches existing dark strokes and
+          // produces weak contrast on the subsequent post-draw diff.
+          // The auto_draw at the end of DisplayText dispatches :p
+          // exactly once with the new FB; the chip computes
+          // transitions from 0x26 (prev, primed by :f) to 0x24
+          // (curr, post-draw FB). Strong, clean contrast.
         }
       }
       return;
@@ -1399,7 +1441,6 @@ void uDisplay::DisplayInit(int8_t p, int8_t size, int8_t rot, int8_t font) {
         epd->setUpdateMode(DISPLAY_INIT_FULL);
         if (epd->cfg.lutfsize) {
           epd->setLut(epd->cfg.lut_full_data, epd->cfg.lutfsize);
-          epd->updateFrame();
         }
         if (ep_mode == 2) {
           epd->clearFrame_42();

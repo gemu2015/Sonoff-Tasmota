@@ -1,0 +1,212 @@
+#!/usr/bin/env node
+// =====================================================================
+// tc_deploy.mjs — TinyC compile + upload + run from the command line.
+//
+// Reuses the compiler embedded in tinyc_ide.html.gz (no duplication),
+// so it always tracks whatever ships with the firmware tree.
+//
+// Usage:
+//   node tc_deploy.mjs <file.tc> [<device-ip> [<remote-name>]] [-DDEFINE …]
+//
+// Defaults:
+//   device-ip    = 192.168.188.39
+//   remote-name  = same basename as input, with .tcb extension
+//
+// Examples:
+//   node tc_deploy.mjs examples/blink.tc
+//   node tc_deploy.mjs examples/epd_compare_test.tc 192.168.188.39
+//   node tc_deploy.mjs examples/camera.tc 192.168.188.190 -DBOARD_GOOUUU
+//
+// What it does:
+//   1. Reads the .tc source (resolving #include files relatively)
+//   2. Compiles to bytecode using the in-IDE compiler
+//   3. POSTs the .tcb to http://<ip>/tc_upload?api=1&fsz=<size>
+//   4. Sends `TinyCStop 0` then `TinyCRun /<remote-name>` via /cm
+// =====================================================================
+
+import fs from 'node:fs';
+import path from 'node:path';
+import zlib from 'node:zlib';
+import vm from 'node:vm';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+
+// --------------------------------------------------------------------
+// CLI parsing
+// --------------------------------------------------------------------
+const args    = process.argv.slice(2);
+const positional = [];
+const defines   = [];
+for (const a of args) {
+    if (a.startsWith('-D')) defines.push(a.slice(2));
+    else positional.push(a);
+}
+if (positional.length < 1) {
+    console.error('Usage: tc_deploy.mjs <file.tc> [<device-ip> [<remote-name>]] [-DDEFINE …]');
+    process.exit(2);
+}
+const srcPath   = path.resolve(positional[0]);
+const deviceIp  = positional[1] || '192.168.188.39';
+const baseName  = path.basename(srcPath).replace(/\.tc$/i, '');
+const remoteName = positional[2] || (baseName + '.tcb');
+
+// --------------------------------------------------------------------
+// Load compiler from tinyc_ide.html.gz
+// --------------------------------------------------------------------
+const idePath = path.join(__dirname, 'tinyc_ide.html.gz');
+if (!fs.existsSync(idePath)) {
+    console.error(`Cannot find ${idePath}`);
+    process.exit(2);
+}
+const html = zlib.gunzipSync(fs.readFileSync(idePath)).toString('utf8');
+
+// Extract the single <script> block, then keep only the lines from
+// "// --- preprocessor.js ---" up to and including compileAndRun(). The
+// rest of the script depends on the DOM and is not needed for compilation.
+const scriptStart = html.indexOf('<script>');
+const scriptEnd   = html.indexOf('</script>', scriptStart);
+if (scriptStart < 0 || scriptEnd < 0) {
+    console.error('Could not locate <script> block in tinyc_ide.html');
+    process.exit(2);
+}
+const fullJs = html.slice(scriptStart + '<script>'.length, scriptEnd);
+
+const preStart = fullJs.indexOf('// --- preprocessor.js ---');
+const compEndMarker = 'function compileAndRun(';
+const compEndIdx = fullJs.indexOf(compEndMarker, preStart);
+// keep up through the closing brace of compileAndRun (next "}\n")
+const compEndCloseIdx = fullJs.indexOf('\n}\n', compEndIdx);
+if (preStart < 0 || compEndIdx < 0 || compEndCloseIdx < 0) {
+    console.error('Could not slice compiler section from IDE script');
+    process.exit(2);
+}
+const compilerJs = fullJs.slice(preStart, compEndCloseIdx + 3);
+
+// --------------------------------------------------------------------
+// Run compiler in a fresh sandbox
+// --------------------------------------------------------------------
+const sandbox = {
+    console,
+    Uint8Array, Uint16Array, Uint32Array, Int8Array, Int16Array, Int32Array,
+    Float32Array, Float64Array, ArrayBuffer, DataView,
+    Math, Number, String, Array, Object, JSON, Set, Map,
+    TextEncoder, TextDecoder,
+    Buffer,
+};
+sandbox.global = sandbox;
+vm.createContext(sandbox);
+vm.runInContext(compilerJs, sandbox, { filename: 'tinyc_compiler.js' });
+
+const compileFn = sandbox.compile;
+if (typeof compileFn !== 'function') {
+    console.error('compile() not found after evaluating compiler script');
+    process.exit(2);
+}
+
+// --------------------------------------------------------------------
+// Read source (with #include resolution relative to the source file)
+// --------------------------------------------------------------------
+const source = fs.readFileSync(srcPath, 'utf8');
+const srcDir = path.dirname(srcPath);
+let resolved = source;
+const resolveIncludes = sandbox.resolveIncludes;
+if (typeof resolveIncludes === 'function') {
+    const getFile = (name) => {
+        const p = path.isAbsolute(name) ? name : path.join(srcDir, name);
+        return fs.readFileSync(p, 'utf8');
+    };
+    try {
+        resolved = resolveIncludes(source, getFile);
+    } catch (e) {
+        console.error('Include resolution failed:', e.message || e);
+        process.exit(1);
+    }
+}
+
+// --------------------------------------------------------------------
+// Compile
+// --------------------------------------------------------------------
+const t0 = Date.now();
+let compiled;
+try {
+    compiled = compileFn(resolved, { defines });
+} catch (e) {
+    if (e && e.phase) {
+        console.error(`Compile error [${e.phase}] line ${e.line || '?'}: ${e.originalError?.message || e.message}`);
+    } else {
+        console.error('Compile error:', e?.message || e);
+    }
+    process.exit(1);
+}
+const elapsed = Date.now() - t0;
+const binary  = Buffer.from(compiled.binary);
+console.log(`Compiled ${path.basename(srcPath)} → ${binary.length} bytes (code ${compiled.codeSize}, header ${compiled.codeOffset}) in ${elapsed} ms`);
+if (compiled.warnings?.length) {
+    for (const w of compiled.warnings) console.warn('  warn:', w);
+}
+
+// also drop a copy next to the source for inspection
+const localTcb = path.join(srcDir, baseName + '.tcb');
+fs.writeFileSync(localTcb, binary);
+console.log(`  wrote ${localTcb}`);
+
+// --------------------------------------------------------------------
+// Upload to device
+// --------------------------------------------------------------------
+async function uploadAndRun() {
+    const url = `http://${deviceIp}/tc_upload?api=1&fsz=${binary.length}`;
+    console.log(`Uploading to ${url} as ${remoteName} …`);
+
+    // multipart/form-data, hand-built to avoid extra deps
+    const boundary = '----TinyCDeploy' + Date.now().toString(16);
+    const head = Buffer.from(
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="file"; filename="${remoteName}"\r\n` +
+        `Content-Type: application/octet-stream\r\n\r\n`,
+        'utf8'
+    );
+    const tail = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8');
+    const body = Buffer.concat([head, binary, tail]);
+
+    const resp = await fetch(url, {
+        method : 'POST',
+        body,
+        headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+    });
+    if (!resp.ok) {
+        console.error(`Upload failed: HTTP ${resp.status} ${resp.statusText}`);
+        process.exit(1);
+    }
+    const j = await resp.json().catch(() => ({}));
+    console.log(`  device stored ${j.size ?? binary.length} bytes`,
+                j.file ? `at ${j.file}` : '');
+
+    // --------------------------------------------------------------------
+    // Stop any running slot, then run the freshly uploaded file
+    // --------------------------------------------------------------------
+    async function cmnd(c) {
+        const u = `http://${deviceIp}/cm?cmnd=${encodeURIComponent(c)}`;
+        const r = await fetch(u);
+        const t = await r.text();
+        return t;
+    }
+
+    console.log('  TinyCStop 0 …');
+    await cmnd('TinyCStop 0').catch(() => {});
+    // small grace
+    await new Promise(r => setTimeout(r, 200));
+
+    const runArg = '/' + remoteName.replace(/^\/+/, '');
+    console.log(`  TinyCRun ${runArg} …`);
+    const out = await cmnd(`TinyCRun ${runArg}`);
+    console.log('  device:', out.trim());
+
+    console.log('Done.');
+}
+
+uploadAndRun().catch((e) => {
+    console.error('Deploy error:', e?.message || e);
+    process.exit(1);
+});

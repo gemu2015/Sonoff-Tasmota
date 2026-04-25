@@ -104,17 +104,22 @@ void SPIController::endTransaction() {
 }
 
 // ===== Low-Level Write Functions =====
+// 9-bit (3-wire) panels like the SSD1680 require CS to cycle once per
+// 9-bit frame. Bracket the write with csLow/csHigh here; the caller's
+// outer csLow/csHigh wraps become idempotent and harmless.
 void SPIController::writeCommand(uint8_t cmd) {
     if (spi_config.dc < 0) {
-        // 9-bit mode
+        // 9-bit mode — per-frame CS framing
+        csLow();
         if (spi_config.bus_nr > 2) {
             if (spi_config.bus_nr == 3) write9(cmd, 0);
             else write9_slow(cmd, 0);
         } else {
             hw_write9(cmd, 0);
         }
+        csHigh();
     } else {
-        // 8-bit mode  
+        // 8-bit mode
         dcLow();
         writeData8(cmd);
         dcHigh();
@@ -123,13 +128,15 @@ void SPIController::writeCommand(uint8_t cmd) {
 
 void SPIController::writeData8(uint8_t data) {
     if (spi_config.dc < 0) {
-        // 9-bit mode
+        // 9-bit mode — per-frame CS framing (see writeCommand)
+        csLow();
         if (spi_config.bus_nr > 2) {
             if (spi_config.bus_nr == 3) write9(data, 1);
             else write9_slow(data, 1);
         } else {
             hw_write9(data, 1);
         }
+        csHigh();
     } else {
         // 8-bit mode
         if (spi_config.bus_nr > 2) {

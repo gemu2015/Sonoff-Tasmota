@@ -1,0 +1,222 @@
+// ============================================================
+// E-Paper A/B Visual Comparison Test  (PORTRAIT 128 x 296)
+//
+// Target panel: Waveshare 2.9" v2 (SSD1680, 128 wide x 296 tall)
+// Goal: make refresh quality, ghosting and contrast easy to
+//       compare visually between the LEGACY driver and the
+//       MODERN uDisplay driver.
+//
+// Layout
+//   y   0..18    title bar
+//   y  22..62    filled black rect | hollow rect    (4,24)/(46,24)
+//   y  62..98    circle (centre 64,80, r=16)
+//   y 100..136   diagonal cross
+//   y 140..158   "STATIC" label
+//   y 200..230   counter / uptime  (DYNAMIC region)
+//   y 232..260   moving 8x8 block on track
+//   y 264..295   footer line
+//
+// Console commands (prefix EPDC):
+//   EPDCFULL       — force one full refresh of the whole screen
+//   EPDCRESET      — reset counter to 0
+//   EPDCSTATUS     — print counter + last refresh kind + rate
+//   EPDCEVERY N    — set update rate to every N seconds (1..120)
+//   EPDCSTEP       — manual single update (no auto-tick)
+//
+// Note on the new uDisplay driver:
+//   `[i]` (partial) currently maps to the same OTP mode-1 full refresh
+//   as `[I]`, so EVERY tick flashes the panel (project_udisplay_epd.md).
+//   Default rate is therefore 10 s, not 1 s — change with EPDCEVERY.
+// ============================================================
+
+#define W   128
+#define H   296
+
+// dynamic region geometry
+#define CNT_X     4
+#define CNT_Y   200
+#define UP_Y    220
+
+#define TRK_Y   240
+#define TRK_X0    4
+#define TRK_X1  124
+#define BLK_W     8
+#define BLK_H     8
+
+int  counter      = 0;
+int  last_blk_x   = -1;
+int  full_every   = 60;     // anti-ghost full refresh interval (s)
+int  every_n      = 10;     // partial-refresh tick interval (s); 0 = manual
+int  tick_count   = 0;      // seconds since last redraw
+char last_mode[8] = "init";
+
+char dt[96];
+
+// ============================================================
+// draw the static layer once. main() calls this inside [zI]…[d]
+// ============================================================
+void draw_static() {
+    // title bar
+    dspText("[f1x4y2]EPD A/B TEST");
+    dspText("[f0x4y14]portrait 128x296");
+
+    // outer border
+    dspText("[x0y0h128]");           // top edge
+    dspText("[x0y295h128]");         // bottom edge
+    dspPos(0, 0);     dspLine(0, 295);
+    dspPos(127, 0);   dspLine(127, 295);
+
+    // separator under title bar
+    dspText("[x0y20h128]");
+    // separator above dynamic band
+    dspText("[x0y196h128]");
+
+    // ---- filled black rectangle (max-contrast reference) ----
+    dspPos(6, 26);
+    dspRect(36, 36);                 // hollow first
+    int yy = 28;
+    while (yy < 60) {                // fill with H-lines
+        dspPos(8, yy);
+        dspLine(40, yy);
+        yy = yy + 1;
+    }
+
+    // ---- hollow rectangle ----
+    dspPos(48, 26);
+    dspRect(36, 36);
+
+    // ---- label row 1 ----
+    dspText("[f0x6y66]FILL");
+    dspText("[f0x52y66]HOLLOW");
+
+    // ---- circle ----
+    dspPos(64, 92);
+    dspCircle(16);
+    dspText("[f0x46y114]CIRCLE");
+
+    // ---- diagonal cross ----
+    dspPos(8, 130);   dspLine(120, 170);
+    dspPos(8, 170);   dspLine(120, 130);
+    dspText("[f0x46y176]CROSS");
+
+    // ---- "STATIC" big label ----
+    dspText("[f1x28y186]STATIC");
+
+    // dynamic-band hint
+    dspText("[f0x4y198]DYNAMIC (partial 1Hz):");
+
+    // footer
+    dspText("[f0x4y280]anti-ghost @60s");
+}
+
+// ============================================================
+// draw the dynamic layer. caller chooses refresh mode.
+// ============================================================
+void draw_dynamic() {
+    // counter (with padding so old digits get overwritten)
+    sprintf(dt, "[f1x%dy%dp-14]CNT %05d", CNT_X, CNT_Y, counter);
+    dspText(dt);
+    sprintf(dt, "[f1x%dy%dp-14]UP  %05d s", CNT_X, UP_Y, tasm_uptime);
+    dspText(dt);
+
+    // moving block
+    int travel = TRK_X1 - TRK_X0 - BLK_W;
+    int phase  = counter % travel;
+    int new_x  = TRK_X0 + phase;
+
+    // erase previous position with white-filled rect
+    if (last_blk_x >= 0) {
+        sprintf(dt, "[Ci0x%dy%dr%d:%d]", last_blk_x, TRK_Y, BLK_W, BLK_H);
+        dspText(dt);
+    }
+    // draw new block
+    sprintf(dt, "[Ci1x%dy%dr%d:%d]", new_x, TRK_Y, BLK_W, BLK_H);
+    dspText(dt);
+
+    last_blk_x = new_x;
+}
+
+// ============================================================
+// EverySecond: advance counter every second, but only redraw
+// every `every_n` seconds (default 10) so the new driver's
+// full-flash partial-refresh path doesn't strobe at 1 Hz.
+// Anti-ghost full refresh every `full_every` seconds.
+// every_n == 0 → fully manual (use EPDCSTEP).
+// ============================================================
+void EverySecond() {
+    counter = counter + 1;
+    if (every_n <= 0) return;
+
+    tick_count = tick_count + 1;
+    if (tick_count < every_n) return;
+    tick_count = 0;
+
+    if (counter > 0 && (counter % full_every) == 0) {
+        dspText("[zI]");
+        draw_static();
+        draw_dynamic();
+        dspText("[d]");
+        strcpy(last_mode, "FULL");
+    } else {
+        dspText("[i]");
+        draw_dynamic();
+        dspText("[d]");
+        strcpy(last_mode, "part");
+    }
+}
+
+// ============================================================
+// console commands
+// ============================================================
+void Command(char cmd[]) {
+    if (strcmp(cmd, "FULL") == 0) {
+        dspText("[zI]");
+        draw_static();
+        draw_dynamic();
+        dspText("[d]");
+        strcpy(last_mode, "FULL");
+        responseCmnd("forced full refresh");
+    } else if (strcmp(cmd, "RESET") == 0) {
+        counter    = 0;
+        last_blk_x = -1;
+        responseCmnd("counter reset");
+    } else if (strcmp(cmd, "STATUS") == 0) {
+        sprintf(dt, "counter=%d last=%s every=%ds up=%ds",
+                counter, last_mode, every_n, tasm_uptime);
+        responseCmnd(dt);
+    } else if (strFind(cmd, "EVERY") == 0) {
+        char arg[16];
+        int  n = 10;
+        if (strlen(cmd) > 5) { strSub(arg, cmd, 5, 0); n = atoi(arg); }
+        if (n < 0)   n = 0;
+        if (n > 120) n = 120;
+        every_n    = n;
+        tick_count = 0;
+        sprintf(dt, "rate=%ds", every_n);
+        responseCmnd(dt);
+    } else if (strcmp(cmd, "STEP") == 0) {
+        dspText("[i]");
+        draw_dynamic();
+        dspText("[d]");
+        strcpy(last_mode, "step");
+        responseCmnd("stepped");
+    } else {
+        responseCmnd("EPDC: FULL | RESET | STATUS | EVERY <N> | STEP");
+    }
+}
+
+// ============================================================
+// main: full refresh draws static + first dynamic frame
+// ============================================================
+int main() {
+    addCommand("EPDC");
+
+    dspText("[zI]");
+    draw_static();
+    draw_dynamic();
+    dspText("[d]");
+    strcpy(last_mode, "FULL");
+
+    print("EPD A/B compare test running\n");
+    return 0;
+}
