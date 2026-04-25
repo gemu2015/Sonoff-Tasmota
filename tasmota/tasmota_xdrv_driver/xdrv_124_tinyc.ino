@@ -908,7 +908,22 @@ static bool TinyCLoadFile(const char *path, uint8_t slot_num) {
   if (fsize == 0 || fsize > TC_MAX_PROGRAM) { file.close(); return false; }
   TinyCStopVM(s);
   if (s->program) { free(s->program); s->program = nullptr; }
+  // Internal DRAM first — small programs (the common case) stay in fast RAM.
+  // Only when the internal heap can't satisfy (very large .tcb, or DRAM
+  // already crowded by canvas/camera/HomeKit) do we spill into PSRAM. The
+  // VM step loop reads code byte-by-byte via TC_READ_BYTE; PSRAM's ~10x
+  // latency is acceptable at TinyC's tick rates (50 ms / 1 s callbacks)
+  // but we prefer to avoid it when possible.
   s->program = (uint8_t *)malloc(fsize);
+#ifdef ESP32
+  if (!s->program) {
+    s->program = (uint8_t *)heap_caps_malloc(fsize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (s->program) {
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: %s (%u B) allocated in PSRAM (DRAM full)"),
+        path, (unsigned)fsize);
+    }
+  }
+#endif
   if (!s->program) { file.close(); return false; }
   file.read(s->program, fsize);
   file.close();

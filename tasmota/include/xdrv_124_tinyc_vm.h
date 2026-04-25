@@ -152,7 +152,13 @@ static FS *tc_file_path(char *path) {
   #define TC_INSTR_PER_TICK  500     // instructions per 50ms tick
   #define TC_OUTPUT_SIZE     128     // output buffer for MQTT
 #else  // ESP32
-  #define TC_MAX_PROGRAM     65536   // max bytecode size (raised from 32K for battery/BMS scripts)
+  // Bytecode buffer is allocated via heap_caps_malloc(MALLOC_CAP_SPIRAM) with
+  // DRAM fallback (see TinyCLoadFile in xdrv_124_tinyc.ino). With PSRAM
+  // available the only practical ceiling is the .tcb on-disk size; without
+  // PSRAM the available DRAM block sets the real limit. 128 KB is enough
+  // headroom for the largest current user scripts (~65 KB) to grow without
+  // forcing another firmware bump.
+  #define TC_MAX_PROGRAM     131072  // max bytecode size (PSRAM-backed)
   #define TC_STACK_SIZE      256     // operand stack (1KB)
   #define TC_MAX_FRAMES      32      // call depth
   #define TC_MAX_LOCALS      256     // locals per frame (1KB) - enough for char arrays
@@ -581,6 +587,15 @@ enum TcSyscall {
   SYS_IMG_BLIT         = 332, // (dst,src,sx,sy,dx,dy,w,h)             -> void   // canvas->canvas rect copy (clipped)
   SYS_IMG_INVALIDATE   = 333, // (slot,x,y,w,h)                        -> void   // union rect into slot's dirty region
   SYS_IMG_FLUSH        = 334, // (slot,panel_x,panel_y)                -> void   // push dirty region to panel + clear
+  // Cross-VM shared key/value store (driver-global, mutex-protected)
+  SYS_SHARE_SET_INT    = 340, // (key_const_idx, val)        -> void
+  SYS_SHARE_GET_INT    = 341, // (key_const_idx)             -> int  (0 if missing)
+  SYS_SHARE_SET_FLT    = 342, // (key_const_idx, val)        -> void
+  SYS_SHARE_GET_FLT    = 343, // (key_const_idx)             -> float (0.0 if missing)
+  SYS_SHARE_SET_STR    = 344, // (key_const_idx, src_ref)    -> void
+  SYS_SHARE_GET_STR    = 345, // (key_const_idx, dst_ref)    -> int  chars copied (0 if missing)
+  SYS_SHARE_HAS        = 346, // (key_const_idx)             -> int  0/1
+  SYS_SHARE_DELETE     = 347, // (key_const_idx)             -> int  1 if removed, 0 if not present
   // Deep sleep (ESP32 only)
   SYS_DEEP_SLEEP      = 230, // (seconds) -> void — deep sleep with timer wakeup
   SYS_DEEP_SLEEP_GPIO = 231, // (seconds, pin, level) -> void — + GPIO wakeup
@@ -3805,6 +3820,90 @@ static int tc_mscr_load(const char *path) {
 }
 
 /*********************************************************************************************\
+ * Cross-VM shared key/value store
+ *
+ * A small driver-global table (mutex-protected on ESP32) that lets multiple
+ * TinyC slots share named scalars/strings — useful when a single program
+ * outgrows TC_MAX_PROGRAM and is split across two or more slots.
+ *
+ *   shareSetInt("key", v);   int   v = shareGetInt("key");
+ *   shareSetFloat("key", f); float f = shareGetFloat("key");
+ *   shareSetStr("key", buf); shareGetStr("key", outBuf);
+ *   shareHas("key");         shareDelete("key");
+ *
+ * Keys are string literals (compile-time constants). A get on a missing key
+ * returns 0 / 0.0 / "" — never errors — so reader code stays simple.
+ * Caps: TC_SHARE_MAX entries × (TC_SHARE_KEY_LEN+1 key + TC_SHARE_STR_LEN+1
+ * value) ≈ 32 × 81 B ≈ 2.6 KB worst case. Storage is not persisted across
+ * reboots; if a script needs persistence it can write its own pvars.
+\*********************************************************************************************/
+
+#ifndef TC_SHARE_MAX
+  #define TC_SHARE_MAX     32     // total named entries across all slots
+#endif
+#ifndef TC_SHARE_KEY_LEN
+  #define TC_SHARE_KEY_LEN 16     // max key length (excluding NUL)
+#endif
+#ifndef TC_SHARE_STR_LEN
+  #define TC_SHARE_STR_LEN 64     // max string-value length (excluding NUL)
+#endif
+
+#define TC_SHARE_TYPE_NONE 0
+#define TC_SHARE_TYPE_INT  1
+#define TC_SHARE_TYPE_FLT  2
+#define TC_SHARE_TYPE_STR  3
+
+typedef struct TcShareEntry {
+  char     key[TC_SHARE_KEY_LEN + 1];
+  uint8_t  type;                                // TC_SHARE_TYPE_*
+  union { int32_t i; float f; } v;
+  char     s[TC_SHARE_STR_LEN + 1];             // populated only when type == STR
+} TcShareEntry;
+
+static TcShareEntry tc_share_table[TC_SHARE_MAX] = { };
+
+#ifdef ESP32
+static SemaphoreHandle_t tc_share_mutex = nullptr;
+static inline void tc_share_lock(void) {
+  if (!tc_share_mutex) tc_share_mutex = xSemaphoreCreateMutex();
+  if (tc_share_mutex)  xSemaphoreTake(tc_share_mutex, portMAX_DELAY);
+}
+static inline void tc_share_unlock(void) {
+  if (tc_share_mutex) xSemaphoreGive(tc_share_mutex);
+}
+#else
+static inline void tc_share_lock(void)   {}
+static inline void tc_share_unlock(void) {}
+#endif
+
+// Returns table index for `key`, or -1 if not present. Caller holds lock.
+static int tc_share_find(const char *key) {
+  if (!key || !*key) return -1;
+  for (int i = 0; i < TC_SHARE_MAX; i++) {
+    if (tc_share_table[i].type != TC_SHARE_TYPE_NONE &&
+        strncmp(tc_share_table[i].key, key, TC_SHARE_KEY_LEN) == 0) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+// Returns existing slot for `key`, or first free slot (claimed by writing the
+// key); -1 if the table is full. Caller holds lock.
+static int tc_share_find_or_alloc(const char *key) {
+  int idx = tc_share_find(key);
+  if (idx >= 0) return idx;
+  for (int i = 0; i < TC_SHARE_MAX; i++) {
+    if (tc_share_table[i].type == TC_SHARE_TYPE_NONE) {
+      strlcpy(tc_share_table[i].key, key, sizeof(tc_share_table[i].key));
+      tc_share_table[i].s[0] = '\0';
+      return i;
+    }
+  }
+  return -1;
+}
+
+/*********************************************************************************************\
  * VM: Syscall dispatch
 \*********************************************************************************************/
 
@@ -4405,6 +4504,15 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
     // ── sprintf variants ──────────────────────────────
     // All use snprintf() on device, then copy result into VM array.
     // Supports: %d %u %x %X %o %c %s %f %e %g and width/precision modifiers.
+    //
+    // Buffer sizing: the variadic-sprintf compile-time splitter can hand
+    // segments with arbitrarily-long literal prefixes to these syscalls
+    // (e.g. webSend-style HTML strings of 60–200 chars). A 64-byte tmp[]
+    // would silently truncate the value at the end. TC_SPRINTF_TMP_SIZE
+    // is the working buffer used by snprintf() for one segment — at 256 B
+    // it covers every realistic single-format emission and still costs
+    // <0.5 KB of stack on ESP32 task workers (4–16 KB total). ESP8266 is
+    // not affected — it does not run the variadic path on long literals.
     case SYS_SPRINTF_INT: {
       int32_t val = TC_POP(vm);          // int argument
       int32_t ci  = TC_POP(vm);          // format string const index
@@ -4413,7 +4521,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       const char *fmt = tc_get_const_str(vm, ci);
       if (!dst || !fmt) { TC_PUSH(vm, -1); break; }
       int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
-      char tmp[64];
+      char tmp[256];
       snprintf(tmp, sizeof(tmp), fmt, val);
       TC_PUSH(vm, tc_sprintf_to_ref(dst, maxSlots, tmp));
       break;
@@ -4426,7 +4534,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       const char *fmt = tc_get_const_str(vm, ci);
       if (!dst || !fmt) { TC_PUSH(vm, -1); break; }
       int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
-      char tmp[64];
+      char tmp[256];
       tc_sprintf_float(tmp, sizeof(tmp), fmt, fval);
       TC_PUSH(vm, tc_sprintf_to_ref(dst, maxSlots, tmp));
       break;
@@ -4442,14 +4550,14 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
       // Extract source string from VM int32 array into temp char buffer
       int32_t srcMax = tc_ref_maxlen(vm, src_ref);
-      char srcbuf[128];
+      char srcbuf[256];
       int32_t si = 0;
       while (src[si] != 0 && si < srcMax && si < (int32_t)sizeof(srcbuf) - 1) {
         srcbuf[si] = (char)(src[si] & 0xFF);
         si++;
       }
       srcbuf[si] = '\0';
-      char tmp[128];
+      char tmp[256];
       snprintf(tmp, sizeof(tmp), fmt, srcbuf);
       TC_PUSH(vm, tc_sprintf_to_ref(dst, maxSlots, tmp));
       break;
@@ -4465,7 +4573,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (!dst || !fmt) { TC_PUSH(vm, -1); break; }
       int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
       int32_t ofs = tc_strlen_ref(dst, maxSlots);
-      char tmp[64];
+      char tmp[256];
       snprintf(tmp, sizeof(tmp), fmt, val);
       tc_sprintf_to_ref(dst + ofs, maxSlots - ofs, tmp);
       TC_PUSH(vm, ofs + (int32_t)strlen(tmp));
@@ -4480,7 +4588,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (!dst || !fmt) { TC_PUSH(vm, -1); break; }
       int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
       int32_t ofs = tc_strlen_ref(dst, maxSlots);
-      char tmp[64];
+      char tmp[256];
       tc_sprintf_float(tmp, sizeof(tmp), fmt, fval);
       tc_sprintf_to_ref(dst + ofs, maxSlots - ofs, tmp);
       TC_PUSH(vm, ofs + (int32_t)strlen(tmp));
@@ -4497,13 +4605,13 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
       int32_t ofs = tc_strlen_ref(dst, maxSlots);
       int32_t srcMax = tc_ref_maxlen(vm, src_ref);
-      char srcbuf[128];
+      char srcbuf[256];
       int32_t si = 0;
       while (src[si] != 0 && si < srcMax && si < (int32_t)sizeof(srcbuf) - 1) {
         srcbuf[si] = (char)(src[si] & 0xFF); si++;
       }
       srcbuf[si] = '\0';
-      char tmp[128];
+      char tmp[256];
       snprintf(tmp, sizeof(tmp), fmt, srcbuf);
       tc_sprintf_to_ref(dst + ofs, maxSlots - ofs, tmp);
       TC_PUSH(vm, ofs + (int32_t)strlen(tmp));
@@ -4520,7 +4628,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       const char *srcStr = tc_get_const_str(vm, src_ci);
       if (!dst || !fmt || !srcStr) { TC_PUSH(vm, -1); break; }
       int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
-      char tmp[128];
+      char tmp[256];
       snprintf(tmp, sizeof(tmp), fmt, srcStr);
       TC_PUSH(vm, tc_sprintf_to_ref(dst, maxSlots, tmp));
       break;
@@ -4535,7 +4643,7 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       if (!dst || !fmt || !srcStr) { TC_PUSH(vm, -1); break; }
       int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
       int32_t ofs = tc_strlen_ref(dst, maxSlots);
-      char tmp[128];
+      char tmp[256];
       snprintf(tmp, sizeof(tmp), fmt, srcStr);
       tc_sprintf_to_ref(dst + ofs, maxSlots - ofs, tmp);
       TC_PUSH(vm, ofs + (int32_t)strlen(tmp));
@@ -11231,6 +11339,141 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       break;
 #endif  // USE_LIGHT && USE_WS2812
 
+    // ── Cross-VM shared key/value store ───────────────
+    // All handlers: pop key as a const-pool index, look up key string, do
+    // mutex-protected table op, push result if any. Missing-key reads return
+    // 0 / 0.0 / "" so polling loops stay simple. See section header above.
+    case SYS_SHARE_SET_INT: {
+      int32_t val = TC_POP(vm);
+      int32_t ki  = TC_POP(vm);
+      const char *key = tc_get_const_str(vm, ki);
+      if (!key) break;
+      tc_share_lock();
+      int idx = tc_share_find_or_alloc(key);
+      if (idx >= 0) { tc_share_table[idx].type = TC_SHARE_TYPE_INT; tc_share_table[idx].v.i = val; }
+      tc_share_unlock();
+      break;
+    }
+    case SYS_SHARE_GET_INT: {
+      int32_t ki = TC_POP(vm);
+      const char *key = tc_get_const_str(vm, ki);
+      int32_t out = 0;
+      if (key) {
+        tc_share_lock();
+        int idx = tc_share_find(key);
+        if (idx >= 0) {
+          if      (tc_share_table[idx].type == TC_SHARE_TYPE_INT) out = tc_share_table[idx].v.i;
+          else if (tc_share_table[idx].type == TC_SHARE_TYPE_FLT) out = (int32_t)tc_share_table[idx].v.f;
+          // STR → leave 0 (caller used wrong getter)
+        }
+        tc_share_unlock();
+      }
+      TC_PUSH(vm, out);
+      break;
+    }
+    case SYS_SHARE_SET_FLT: {
+      float val   = TC_POPF(vm);
+      int32_t ki  = TC_POP(vm);
+      const char *key = tc_get_const_str(vm, ki);
+      if (!key) break;
+      tc_share_lock();
+      int idx = tc_share_find_or_alloc(key);
+      if (idx >= 0) { tc_share_table[idx].type = TC_SHARE_TYPE_FLT; tc_share_table[idx].v.f = val; }
+      tc_share_unlock();
+      break;
+    }
+    case SYS_SHARE_GET_FLT: {
+      int32_t ki = TC_POP(vm);
+      const char *key = tc_get_const_str(vm, ki);
+      float out = 0.0f;
+      if (key) {
+        tc_share_lock();
+        int idx = tc_share_find(key);
+        if (idx >= 0) {
+          if      (tc_share_table[idx].type == TC_SHARE_TYPE_FLT) out = tc_share_table[idx].v.f;
+          else if (tc_share_table[idx].type == TC_SHARE_TYPE_INT) out = (float)tc_share_table[idx].v.i;
+        }
+        tc_share_unlock();
+      }
+      TC_PUSHF(vm, out);
+      break;
+    }
+    case SYS_SHARE_SET_STR: {
+      int32_t src_ref = TC_POP(vm);
+      int32_t ki      = TC_POP(vm);
+      const char *key = tc_get_const_str(vm, ki);
+      int32_t *src = tc_resolve_ref(vm, src_ref);
+      if (!key || !src) break;
+      // Pull source bytes out of the int32 array into a local buffer.
+      int32_t srcMax = tc_ref_maxlen(vm, src_ref);
+      char buf[TC_SHARE_STR_LEN + 1];
+      int32_t si = 0;
+      while (src[si] != 0 && si < srcMax && si < (int32_t)sizeof(buf) - 1) {
+        buf[si] = (char)(src[si] & 0xFF);
+        si++;
+      }
+      buf[si] = '\0';
+      tc_share_lock();
+      int idx = tc_share_find_or_alloc(key);
+      if (idx >= 0) {
+        tc_share_table[idx].type = TC_SHARE_TYPE_STR;
+        strlcpy(tc_share_table[idx].s, buf, sizeof(tc_share_table[idx].s));
+      }
+      tc_share_unlock();
+      break;
+    }
+    case SYS_SHARE_GET_STR: {
+      int32_t dst_ref = TC_POP(vm);
+      int32_t ki      = TC_POP(vm);
+      const char *key = tc_get_const_str(vm, ki);
+      int32_t *dst = tc_resolve_ref(vm, dst_ref);
+      int32_t copied = 0;
+      if (key && dst) {
+        int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
+        char buf[TC_SHARE_STR_LEN + 1];
+        buf[0] = '\0';
+        tc_share_lock();
+        int idx = tc_share_find(key);
+        if (idx >= 0 && tc_share_table[idx].type == TC_SHARE_TYPE_STR) {
+          strlcpy(buf, tc_share_table[idx].s, sizeof(buf));
+        }
+        tc_share_unlock();
+        copied = tc_sprintf_to_ref(dst, maxSlots, buf);
+      }
+      TC_PUSH(vm, copied);
+      break;
+    }
+    case SYS_SHARE_HAS: {
+      int32_t ki = TC_POP(vm);
+      const char *key = tc_get_const_str(vm, ki);
+      int32_t hit = 0;
+      if (key) {
+        tc_share_lock();
+        hit = (tc_share_find(key) >= 0) ? 1 : 0;
+        tc_share_unlock();
+      }
+      TC_PUSH(vm, hit);
+      break;
+    }
+    case SYS_SHARE_DELETE: {
+      int32_t ki = TC_POP(vm);
+      const char *key = tc_get_const_str(vm, ki);
+      int32_t removed = 0;
+      if (key) {
+        tc_share_lock();
+        int idx = tc_share_find(key);
+        if (idx >= 0) {
+          tc_share_table[idx].type = TC_SHARE_TYPE_NONE;
+          tc_share_table[idx].key[0] = '\0';
+          tc_share_table[idx].s[0] = '\0';
+          removed = 1;
+        }
+        tc_share_unlock();
+      }
+      TC_PUSH(vm, removed);
+      break;
+    }
+
     // ── Debug ─────────────────────────────────────────
     case SYS_DEBUG_PRINT:
       a = TC_POP(vm);
@@ -11520,9 +11763,16 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   if (!vm->constants) return TC_ERR_STACK_OVERFLOW;  // OOM
   vm->const_capacity = alloc_consts;
 
-  // Allocate const_data buffer based on pre-scan (minimum 64 bytes)
+  // Allocate const_data buffer based on pre-scan (minimum 64 bytes).
+  // Internal DRAM first; PSRAM only as fallback so small scripts stay fast.
   uint16_t alloc_cdata = prescan_data < 64 ? 64 : prescan_data;
   vm->const_data = (char *)calloc(alloc_cdata, 1);
+#ifdef ESP32
+  if (!vm->const_data) {
+    vm->const_data = (char *)heap_caps_malloc(alloc_cdata, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (vm->const_data) memset(vm->const_data, 0, alloc_cdata);
+  }
+#endif
   if (!vm->const_data) return TC_ERR_STACK_OVERFLOW;  // OOM
   vm->const_data_size = alloc_cdata;
 

@@ -93,9 +93,20 @@ Things that changed recently and invalidate older examples or forum advice:
   active. See `examples/voltmeter.tc`.
 - **`delay()` inside the mini-scripter** `>F`/`>S` sections is supported
   with a 1 s cap — different subsystem, not relevant to most users.
+- **Cross-VM `share*` API** — `shareSetInt/GetInt/SetFloat/GetFloat/SetStr/GetStr/Has/Delete`
+  let multiple TinyC slots share named scalars/strings (driver-global table,
+  mutex-protected). Use this when a single program outgrows
+  `TC_MAX_PROGRAM` (128 KB) and needs to be split across two slots without
+  going through MQTT or the filesystem. Keys are short string literals;
+  missing-key reads return `0` / `0.0` / `""`. Caps: 32 keys, 16 char key,
+  64 char string value (override via `TC_SHARE_*` defines).
+- **PSRAM-backed bytecode** — `.tcb` and the constant string pool are
+  allocated in internal DRAM first; on OOM they automatically spill to
+  PSRAM (ESP32 only). Small programs stay fast; very large ones still load.
+  `TC_MAX_PROGRAM` raised from 64 KB → 128 KB.
 
 Features documented in `TinyC_Reference.md` VM-limits table may understate:
-on ESP32, constant pool is **512**, heap is **32 KB**, code size is **64 KB**
+on ESP32, constant pool is **1024**, heap is **32 KB**, code size is **128 KB**
 (the table section in the reference is behind).
 
 ---
@@ -153,6 +164,7 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
 | Tasks (ESP32) | `spawnTask("Name"[, stackKB])`, `killTask`, `taskRunning` |
 | Persist | `persist` decl, `saveVars()` |
 | Watch | `watch` decl, `changed`, `delta`, `written`, `snapshot` |
+| Cross-VM share | `shareSetInt/GetInt`, `shareSetFloat/GetFloat`, `shareSetStr/GetStr`, `shareHas`, `shareDelete` (string-literal keys) |
 
 ---
 

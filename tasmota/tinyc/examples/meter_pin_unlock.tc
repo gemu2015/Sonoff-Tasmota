@@ -1,0 +1,381 @@
+// ============================================================
+// Smart-Meter Optical PIN Unlocker (eHZ / IEC 62056-21 InF)
+//
+// Many German smart meters (EMH eHZ, Iskra MT175, EasyMeter
+// Q3M, Holley DTZ541, Logarex LK13BE, ...) ship locked: only
+// total energy is shown. Extended values (1.8.0/1.8.1,
+// momentary power, per-phase) and the SML data telegram are
+// only emitted *after* a 4-digit PIN has been entered
+// optically on the front photodiode.
+//
+// The provider mails the PIN; the manual normally says "use
+// a flashlight". But if you already have an ESP with an IR
+// LED + photodiode head clipped on the meter (the standard
+// Hichi / IR-WLAN-Lesekopf setup that reads SML), the same
+// IR LED can send the unlock pulses — no flashlight needed,
+// no re-clipping.
+//
+// USAGE
+//   1. Upload this .tcb to the device, run it.
+//   2. Open  http://<device>/tc_ui  in a browser.
+//   3. Enter the PIN, pick the GPIO of your IR LED, leave
+//      polarity + timings at defaults.
+//   4. Hit "Send PIN" — the LED flashes for ~10..20 s, then
+//      the meter LCD should expose extended values.
+//   5. If nothing happens: try toggling polarity, or tune
+//      pulse-on / pulse-off / digit-gap (see TIMINGS below).
+//
+// All form values are persisted across reboots, so once
+// it works for your meter the settings stick.
+//
+// PULSE ENCODING (vendor convention, EMH/Iskra-style)
+//   - Each digit N → N short light pulses
+//   - Digit 0      → 10 pulses (NOT zero pulses)
+//   - Digits sent most-significant first
+//   - Pulses inside one digit:  pulse_on_ms  on, pulse_off_ms off
+//   - Long dark gap between digits: digit_gap_ms
+//
+// Example PIN 4271:
+//   ····  …  ··  …  ·······  …  ·    (4, 2, 7, 1 pulses)
+//
+// TIMINGS — IMPORTANT
+//   The defaults below (200/200/1500 ms) are a best-guess
+//   from public eHZ documentation. Different meter vendors
+//   (and even firmware revisions of the same meter) accept
+//   different ranges. If the default doesn't unlock yours:
+//     - Try slowing pulses down: 300/300/2000
+//     - Or speeding them up:     150/150/1000
+//     - Try toggling polarity   (active HIGH ↔ active LOW)
+//   The vendor manual usually documents the "InF" /
+//   "Information" interface timing.
+//
+// HARDWARE
+//   - The IR LED GPIO must be FREE in Tasmota's GPIO config
+//     (shown as "None" — not assigned to I2C, SPI, IRsend,
+//     Relay, etc.). Picking a reserved GPIO will halt the
+//     VM with "forbidden pin" — just pick a different one
+//     and reload.
+//   - Do NOT set the GPIO to "IRsend" — that mode would 38 kHz
+//     modulate the pulses, which is wrong for InF; the meter
+//     wants raw on/off at the millisecond scale, just leave
+//     it as plain "None" (or "Output Hi") in the GPIO config.
+//   - Active-LOW polarity is correct if your IR head drives
+//     the LED through an inverting transistor.
+//   - The IR receiver pin used for SML reading is untouched.
+//
+// CONSOLE (alternative to web form)
+//   METRUN          send PIN sequence using current settings
+//   METSTOP         abort a running sequence
+//   METSTAT         dump current config + last status
+// ============================================================
+
+// ── form-bound persisted settings ──────────────────────────
+persist int pin           = 0;     // 4-digit PIN, 0..9999
+persist watch int ir_pin  = -1;    // GPIO of the IR LED, -1 = not selected
+                                   //   filled by webPulldown "@getfreepins"
+                                   //   so only currently-free GPIOs appear
+persist int active_low    = 0;     // 0 = active HIGH, 1 = active LOW
+persist int pulse_on_ms   = 200;   // duration LED is lit per pulse
+persist int pulse_off_ms  = 200;   // dark gap between pulses (same digit)
+persist int digit_gap_ms  = 1500;  // dark gap between two digits
+
+// ── form-bound transient buttons ───────────────────────────
+int send_btn   = 0;                // toggles 0→1 to trigger send
+int abort_btn  = 0;                // toggles 0→1 to abort
+
+// ── runtime state ──────────────────────────────────────────
+int prev_send    = 0;
+int prev_abort   = 0;
+int last_status  = 0;              // 0=idle 1=running 2=done -1=aborted
+int abort_flag   = 0;
+
+// ── progress (worker writes, WebUI polls every ~2 s) ───────
+int progress_total = 0;            // total pulses across all 4 digits
+int progress_done  = 0;            // pulses transmitted so far
+int progress_digit = 0;            // 1..4 = currently sending, 0 = idle
+
+// ------------------------------------------------------------
+// IR LED helpers (polarity-aware). Guarded by ir_pin >= 0 so
+// they're harmless when no GPIO has been selected yet.
+// ------------------------------------------------------------
+void ir_on() {
+    if (ir_pin >= 0) digitalWrite(ir_pin, 1 - active_low);
+}
+void ir_off() {
+    if (ir_pin >= 0) digitalWrite(ir_pin,     active_low);
+}
+
+// ------------------------------------------------------------
+// Claim the IR pin. Called once on the first valid selection
+// and whenever the user changes the dropdown. On unset (-1)
+// the helpers above no-op, so we just don't pinMode anything.
+// ------------------------------------------------------------
+void apply_pin() {
+    if (ir_pin < 0) {
+        addLog("meter_pin_unlock: pick a free GPIO in /tc_ui to enable sending");
+        return;
+    }
+    pinMode(ir_pin, 1);             // 1 = OUTPUT
+    ir_off();                       // park idle
+    addLog("meter_pin_unlock: IR pin → GPIO %d", ir_pin);
+}
+
+// ------------------------------------------------------------
+// Send one digit as N pulses (digit 0 → 10 pulses).
+// ------------------------------------------------------------
+void send_digit(int d) {
+    int n = d;
+    if (n == 0) n = 10;
+    int i = 0;
+    while (i < n) {
+        if (abort_flag) return;
+        ir_on();
+        delay(pulse_on_ms);
+        ir_off();
+        delay(pulse_off_ms);
+        progress_done = progress_done + 1;   // for the WebUI bar
+        i = i + 1;
+    }
+}
+
+// ------------------------------------------------------------
+// Worker task — runs in its own FreeRTOS task so the ~15 s
+// blocking pulse train doesn't stall the Tasmota main loop.
+// ------------------------------------------------------------
+void Unlocker() {
+    last_status = 1;
+    abort_flag  = 0;
+
+    int d1 = (pin / 1000) % 10;     // MSB-first; integer math
+    int d2 = (pin /  100) % 10;     // handles leading zeros
+    int d3 = (pin /   10) % 10;     // (PIN 0042 → 0,0,4,2 → 10,10,4,2 pulses)
+    int d4 =  pin         % 10;
+
+    // Pre-compute total pulse count so the progress bar has a denominator.
+    // Digit 0 means 10 pulses (vendor convention).
+    int n1 = d1; if (n1 == 0) n1 = 10;
+    int n2 = d2; if (n2 == 0) n2 = 10;
+    int n3 = d3; if (n3 == 0) n3 = 10;
+    int n4 = d4; if (n4 == 0) n4 = 10;
+    progress_total = n1 + n2 + n3 + n4;
+    progress_done  = 0;
+    progress_digit = 0;
+
+    char log[96];
+    sprintf(log, "meter_pin_unlock: sending %d%d%d%d on GPIO %d (on/off/gap = %d/%d/%d ms, %d pulses)",
+            d1, d2, d3, d4, ir_pin, pulse_on_ms, pulse_off_ms, digit_gap_ms, progress_total);
+    addLog(log);
+
+    ir_off();
+    delay(500);
+
+    progress_digit = 1;
+    send_digit(d1); if (abort_flag) { last_status = -1; ir_off(); addLog("aborted"); return; }
+    delay(digit_gap_ms);
+    progress_digit = 2;
+    send_digit(d2); if (abort_flag) { last_status = -1; ir_off(); addLog("aborted"); return; }
+    delay(digit_gap_ms);
+    progress_digit = 3;
+    send_digit(d3); if (abort_flag) { last_status = -1; ir_off(); addLog("aborted"); return; }
+    delay(digit_gap_ms);
+    progress_digit = 4;
+    send_digit(d4); ir_off();
+
+    if (abort_flag) {
+        last_status = -1;
+        addLog("meter_pin_unlock: aborted");
+    } else {
+        last_status = 2;
+        addLog("meter_pin_unlock: sequence sent — check meter LCD for extended view");
+    }
+}
+
+// ------------------------------------------------------------
+// Web form. Open http://<device>/tc_ui to see it.
+// "@getfreepins" auto-populates the dropdown with GPIOs
+// currently free in Tasmota's runtime config — no hand-rolled
+// table, no risk of picking a reserved pin.
+//
+// Styled with a self-contained .mpu-panel CSS block (mirrors
+// the marstek_emu.tc layout): scoped class names so this won't
+// collide with other tabs that ship their own panel CSS.
+// Single-line CSS string because TinyC has no adjacent-literal
+// concatenation.
+// ------------------------------------------------------------
+void WebUI() {
+    webSend("<style>.mpu-panel{max-width:340px;margin:12px auto;background:#f0f0f0;color:#000;padding:18px;border:2px solid #ccc;border-radius:6px;text-align:left}.mpu-panel h3{margin:0 0 8px;font-size:15px}.mpu-panel hr{border:0;border-top:1px solid #bbb;margin:14px 0}.mpu-panel b{display:inline-block;margin-bottom:4px;font-size:13px}.mpu-panel div{margin:6px 0}.mpu-panel small{display:block;color:#555;font-size:11px;margin-top:2px}.mpu-panel button{padding:6px 10px;border-radius:4px}.mpu-panel progress{width:100%;height:14px;display:block;margin-top:6px}.mpu-stat{padding:8px;border-radius:4px;margin-bottom:10px}.mpu-run{background:#dde6f5;color:#103060}.mpu-ok{background:#dff0d8;color:#205020}.mpu-err{background:#f5d6d6;color:#702020}</style>");
+    webSend("<div class='mpu-panel'>");
+    webSend("<h3>&#x1F4A1; Smart-Meter PIN Unlocker</h3>");
+
+    // ─ Status / progress block ────────────────────────────
+    // Refreshes automatically because /tc_ui re-polls every ~2 s
+    // (la() in the parent page). The IR LED is invisible to the
+    // human eye, so this is the only feedback the user gets.
+    if (last_status == 1) {
+        char prog[256];
+        int pct = 0;
+        if (progress_total > 0) pct = (progress_done * 100) / progress_total;
+
+        sprintf(prog, "<div class='mpu-stat mpu-run'><b>&#x1F4E1; Sending PIN... digit %d/4 &nbsp; pulse %d/%d &nbsp; %d%%</b><progress value='%d' max='100'></progress></div>",
+                progress_digit, progress_done, progress_total, pct, pct);
+        webSend(prog);
+
+        // Force the parent page's la() to keep polling even if the user
+        // last interacted with a number input (which calls pr(0) and
+        // suspends auto-refresh). Without this the bar appears frozen.
+        webSend("<script>rfsh=1;clearTimeout(lt);lt=setTimeout(la,800);</script>");
+    } else if (last_status == 2) {
+        webSend("<div class='mpu-stat mpu-ok'><b>&#x2705; PIN sequence sent &mdash; check meter LCD for extended view</b></div>");
+    } else if (last_status < 0) {
+        webSend("<div class='mpu-stat mpu-err'><b>&#x274C; Aborted</b></div>");
+    }
+
+    // ─ PIN ─
+    webSend("<b>&#x1F511; PIN</b>");
+    webNumber(pin, 0, 9999, "4-digit PIN (leading zeros OK)");
+    webSend("<hr>");
+
+    // ─ Hardware ─
+    webSend("<b>&#x1F4E1; Hardware</b>");
+    webPulldown(ir_pin, "IR LED GPIO", "@getfreepins");
+    webPulldown(active_low, "LED polarity",
+        "Active HIGH (default)|Active LOW (inverting driver)");
+    webSend("<small>If your IR head drives the LED through an inverting transistor, pick Active LOW.</small>");
+    webSend("<hr>");
+
+    // ─ Timing ─
+    webSend("<b>&#x23F1;&#xFE0F; Timing</b>");
+    webNumber(pulse_on_ms,  50,  500, "Pulse ON  (ms)");
+    webNumber(pulse_off_ms, 50,  500, "Pulse OFF (ms)");
+    webNumber(digit_gap_ms, 200, 5000, "Digit gap (ms)");
+    webSend("<small>Defaults are EMH-style 200/200/1500 ms. If unlock fails, try 300/300/2000 or 150/150/1000.</small>");
+    webSend("<hr>");
+
+    // ─ Action ─
+    webSend("<b>&#x1F680; Aktion</b>");
+    webButton(send_btn,  "Send PIN");
+    webButton(abort_btn, "Abort");
+
+    webSend("</div>");
+}
+
+// ------------------------------------------------------------
+// Edge-detect web buttons + GPIO-change once per second.
+// Buttons auto-reset to 0 after handling so the next click
+// is a fresh rising edge. The watch on ir_pin avoids re-running
+// pinMode every tick — only when the dropdown actually changes.
+// ------------------------------------------------------------
+void EverySecond() {
+    // Apply GPIO selector change.
+    if (changed(ir_pin)) {
+        apply_pin();
+        snapshot(ir_pin);
+        saveVars();
+    }
+
+    // Send-button rising edge.
+    if (send_btn == 1 && prev_send == 0) {
+        if (ir_pin < 0) {
+            addLog("meter_pin_unlock: pick an IR GPIO in /tc_ui first");
+        } else if (pin < 0 || pin > 9999) {
+            addLog("meter_pin_unlock: PIN out of range");
+        } else if (taskRunning("Unlocker")) {
+            addLog("meter_pin_unlock: already running");
+        } else {
+            saveVars();              // persist any field edits before sending
+            spawnTask("Unlocker");
+        }
+        send_btn = 0;
+    }
+    prev_send = send_btn;
+
+    // Abort-button rising edge.
+    if (abort_btn == 1 && prev_abort == 0) {
+        abort_flag = 1;
+        killTask("Unlocker");
+        ir_off();
+        last_status = -1;
+        abort_btn = 0;
+    }
+    prev_abort = abort_btn;
+}
+
+// ------------------------------------------------------------
+// Console fallback — same actions without the web form.
+// ------------------------------------------------------------
+void Command(char cmd[]) {
+    char resp[96];
+    int  n = strlen(cmd);
+
+    // NOTE: we use `strFind(cmd, "X") == 0 && strlen == N` instead of
+    // strcmp(cmd, "X") because the IDE compiler currently has a
+    // truncation bug in the strcmp(arr, literal) fast-path: syscall id
+    // 275 (STRCMP_CONST) is emitted as 0x80 + (275&0xFF) = 19 instead of
+    // 0x81 + u16(275). Result: strcmp dispatches to the wrong syscall
+    // and never returns 0. strFind goes through STR_FIND_CONST=47 which
+    // fits in u8 cleanly.
+
+    if (strFind(cmd, "RUN") == 0 && n == 3) {
+        if (ir_pin < 0) {
+            responseCmnd("IR GPIO not set — open /tc_ui first");
+            return;
+        }
+        if (pin < 0 || pin > 9999) {
+            responseCmnd("PIN not set — open /tc_ui or send no METRUN until set");
+            return;
+        }
+        if (taskRunning("Unlocker")) {
+            responseCmnd("already running");
+            return;
+        }
+        saveVars();
+        spawnTask("Unlocker");
+        responseCmnd("unlock sequence started");
+
+    } else if (strFind(cmd, "STOP") == 0 && n == 4) {
+        abort_flag = 1;
+        killTask("Unlocker");
+        ir_off();
+        last_status = -1;
+        responseCmnd("aborted");
+
+    } else if (strFind(cmd, "STAT") == 0 && n == 4) {
+        char st[12];
+        if      (last_status ==  0) strcpy(st, "idle");
+        else if (last_status ==  1) strcpy(st, "running");
+        else if (last_status ==  2) strcpy(st, "done");
+        else                        strcpy(st, "aborted");
+        char pol[8];
+        if (active_low == 0) strcpy(pol, "high");
+        else                 strcpy(pol, "low");
+        sprintf(resp, "PIN=%04d GPIO=%d pol=%s on=%dms off=%dms gap=%dms %s",
+                pin, ir_pin, pol,
+                pulse_on_ms, pulse_off_ms, digit_gap_ms, st);
+        responseCmnd(resp);
+
+    } else {
+        responseCmnd("MET: RUN | STOP | STAT  (or open /tc_ui)");
+    }
+}
+
+// ------------------------------------------------------------
+// Promote any zero/unset timing slot to its sensible default.
+// `persist int x = N` only seeds N when the .pvs file is fresh
+// — but if a layout-hash reset (or an early-version .pvs that
+// happened to land on 0) leaves the slot at 0, the form would
+// otherwise come up blank. Guarding here means a clean install
+// shows 200 / 200 / 1500 in the number boxes immediately.
+// Values below the form's `min` (50 / 50 / 200) are also
+// snapped up so the input never shows an out-of-range value.
+// ------------------------------------------------------------
+int main() {
+    if (pulse_on_ms  < 50)  pulse_on_ms  = 200;
+    if (pulse_off_ms < 50)  pulse_off_ms = 200;
+    if (digit_gap_ms < 200) digit_gap_ms = 1500;
+    saveVars();
+
+    addCommand("MET");
+    webPageLabel(0, "Smart-Meter PIN Unlocker");
+    addLog("meter_pin_unlock ready — open /tc_ui to configure & send");
+    return 0;
+}
