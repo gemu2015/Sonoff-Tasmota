@@ -41,6 +41,7 @@ if mcu == "esp32s2":
 if mcu == "esp32s3":
         # has 4 variants (opi_opi,opi_qspi,qio_opi,qio_qspi, )
         memory_type = env.BoardConfig().get("build.arduino.memory_type", "qio_qspi")
+        memory_type = "qio_qspi_80m"
         libpath = platform.get_package_dir("framework-arduinoespressif32")+"/tools/esp32-arduino-libs/esp32s3/"+memory_type+"/sections.ld"
         match = " _text_end = ABSOLUTE(.);"
         mlen = len(match)

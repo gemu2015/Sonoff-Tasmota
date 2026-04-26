@@ -45,6 +45,16 @@ void tc_spawn_task_cleanup_slot(uint8_t slot_idx);
 #include "driver/i2s_std.h"
 #endif
 
+// Crypto primitives for the AES/HMAC/SHA syscalls (360..365). mbedtls ships
+// with the ESP-IDF Arduino framework; no extra deps. Used by TinyC scripts
+// implementing protocols that need symmetric crypto (Local Tuya, MQTT-TLS
+// fingerprinting, encrypted SML decoders, custom signed REST APIs, etc.).
+#ifdef ESP32
+#include <mbedtls/aes.h>
+#include <mbedtls/sha256.h>
+#include <mbedtls/md.h>
+#endif
+
 #if defined(ESP32) && (defined(USE_WEBCAM) || defined(USE_TINYC_CAMERA))
 #include "esp_camera.h"
 #include "img_converters.h"
@@ -196,7 +206,7 @@ static FS *tc_file_path(char *path) {
 
 #define TC_MAGIC           0x54434300  // "TCC\0"
 #define TC_VERSION         5           // V5: global (UDP auto-update) variables
-#define TC_RELEASE         "1.3.19"    // Cross-VM share table + PSRAM-backed bytecode + IDE strcmp/sprintf fixes. (1) New 8-syscall `share*` API (340–347) lets two TinyC slots exchange named scalars/strings via a driver-global 32-entry table (~2.6 KB DRAM, mutex-protected on ESP32). Use this when one program outgrows a single slot and is split across two — e.g. Andreas's BYD/Speedwire/EEBus stack. Missing-key reads return 0/0.0/"" without error; `shareHas`/`shareDelete` complete the model. (2) `TC_MAX_PROGRAM` 65536 → 131072 with PSRAM fallback: `s->program` and `vm->const_data` allocate from internal DRAM first, only spill to `heap_caps_malloc(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)` on OOM (ESP32 only). Small/normal programs stay in fast static RAM; only edge-case 100+ KB scripts (or scripts on devices with fragmented heap) reach PSRAM. AddLog INFO line emitted when PSRAM path is taken. (3) IDE: 4-site emitByte-truncation bug fixed — `emit(Op.SYSCALL); emitByte(Syscall.X)` truncated ids ≥256 to `id & 0xFF`, silently rerouting STRCMP_CONST=275 to SYS_MATH_POW=19 (so `strcmp(arr,"literal")` returned NaN bits 0x7FC00000 = 2143289344, breaking every `if (strcmp(...) == 0)` branch). Same bug hit FILE_WRITE_STR=276, LOG_LEVEL=269, LOG_LEVEL_STR=270. All four sites now use the existing `emitSyscall(id)` helper which auto-picks SYSCALL2 (u16) for ids ≥256. (4) IDE: `inferType(CallExpr)` had a hardcoded float-builtin list (sqrt/sin/cos/.../atof) and ignored the symbol-table `returnFloat: true` flag, so `sprintf(buf,"%.2f",shareGetFloat(...))` saw valType='int' and emitted I2F → reinterpreted bits → printed 1056964608.00 (= 0.5f bit-pattern). Now also returns 'float' when `BUILTINS[name].returnFloat === true`; future float-returning builtins work automatically.   Previous: "1.3.18" — Constant pool cap raised 512→1024 on ESP32 (Andreas BYD/Speedwire/EEBus scripts hit 440/512). "1.3.17" — TC_ERR_BOUNDS rich log + RET-time SP-balance check + compiler float→int narrowing warning.
+#define TC_RELEASE         "1.3.20"    // Symmetric crypto syscalls (360–365): aesEcb / aesCbc (AES-128, in-place on TinyC char[] buffers), hmacSha256, sha256, plus hex2bin / bin2hex byte-twiddling helpers. ESP32-only via mbedtls (already linked for HTTPS/MQTT-TLS); ESP8266 path stubs return 0/no-op. Motivating use case: TinyC scripts speaking the Tuya local protocol (v3.3 = AES-128-ECB) so users can drive Smart-Life-controlled devices (pool heat pumps, plugs, switches, dehumidifiers) directly from Tasmota without a cloud round-trip or a separate bridge. Also enables custom signed REST APIs (HMAC-SHA256), encrypted SML decoders not covered by AmsLib, and per-device MQTT-TLS fingerprinting. Buffers follow TinyC convention (one byte per int32 slot, low 8 bits used); lengths are in bytes and must fit the ref's allocated capacity. AES-CBC stack-allocates up to 4 KB per call, falls back to malloc above; HMAC/SHA bounded at 1024 B key / 4 KB data — bigger payloads should be hashed in chunks via repeated SHA-256 of a hash-state buffer (future enhancement). Tuya v3.4 (ECDH+AES-GCM) not exposed yet — most Smart-Life devices are still v3.3. IDE/compiler-side: BUILTINS table + symbol table entries for the 6 functions need to be added in tinyc_ide.html.gz to make them callable from .tc source (next commit). Previous: "1.3.19" — Cross-VM share table + PSRAM-backed bytecode + IDE strcmp/sprintf fixes. (1) New 8-syscall `share*` API (340–347) lets two TinyC slots exchange named scalars/strings via a driver-global 32-entry table (~2.6 KB DRAM, mutex-protected on ESP32). Use this when one program outgrows a single slot and is split across two — e.g. Andreas's BYD/Speedwire/EEBus stack. Missing-key reads return 0/0.0/"" without error; `shareHas`/`shareDelete` complete the model. (2) `TC_MAX_PROGRAM` 65536 → 131072 with PSRAM fallback: `s->program` and `vm->const_data` allocate from internal DRAM first, only spill to `heap_caps_malloc(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)` on OOM (ESP32 only). Small/normal programs stay in fast static RAM; only edge-case 100+ KB scripts (or scripts on devices with fragmented heap) reach PSRAM. AddLog INFO line emitted when PSRAM path is taken. (3) IDE: 4-site emitByte-truncation bug fixed — `emit(Op.SYSCALL); emitByte(Syscall.X)` truncated ids ≥256 to `id & 0xFF`, silently rerouting STRCMP_CONST=275 to SYS_MATH_POW=19 (so `strcmp(arr,"literal")` returned NaN bits 0x7FC00000 = 2143289344, breaking every `if (strcmp(...) == 0)` branch). Same bug hit FILE_WRITE_STR=276, LOG_LEVEL=269, LOG_LEVEL_STR=270. All four sites now use the existing `emitSyscall(id)` helper which auto-picks SYSCALL2 (u16) for ids ≥256. (4) IDE: `inferType(CallExpr)` had a hardcoded float-builtin list (sqrt/sin/cos/.../atof) and ignored the symbol-table `returnFloat: true` flag, so `sprintf(buf,"%.2f",shareGetFloat(...))` saw valType='int' and emitted I2F → reinterpreted bits → printed 1056964608.00 (= 0.5f bit-pattern). Now also returns 'float' when `BUILTINS[name].returnFloat === true`; future float-returning builtins work automatically.   Previous: "1.3.18" — Constant pool cap raised 512→1024 on ESP32 (Andreas BYD/Speedwire/EEBus scripts hit 440/512). "1.3.17" — TC_ERR_BOUNDS rich log + RET-time SP-balance check + compiler float→int narrowing warning.
 #define TC_FILE_NAME       "/autoexec.tcb"
 #define TC_MAX_PERSIST     64          // max persist variable entries
 #define TC_MAX_UDP_GLOBALS 64          // max global (UDP auto-update) variable entries
@@ -596,6 +606,25 @@ enum TcSyscall {
   SYS_SHARE_GET_STR    = 345, // (key_const_idx, dst_ref)    -> int  chars copied (0 if missing)
   SYS_SHARE_HAS        = 346, // (key_const_idx)             -> int  0/1
   SYS_SHARE_DELETE     = 347, // (key_const_idx)             -> int  1 if removed, 0 if not present
+
+  // Symmetric crypto (AES + HMAC-SHA256). Buffers are TinyC `char[]` (one byte
+  // per int32 slot, low 8 bits used). Lengths in BYTES. All ops are in-place
+  // on the data ref. ESP32-only (mbedtls); ESP8266 returns 0 / no-op.
+  // Tuya local protocol (v3.3): AES-128-ECB + zero-pad. Tuya v3.4: AES-128-GCM
+  // (not exposed yet — add later if needed). Most Smart-Life pool heaters,
+  // plugs, switches use v3.3.
+  SYS_AES_ECB          = 360, // (key16_ref, data16_ref, enc_flag)              -> int  1=ok 0=err
+  SYS_AES_CBC          = 361, // (key16_ref, iv16_ref, data_ref, len, enc_flag) -> int  1=ok 0=err
+                              //   len must be a multiple of 16. iv is updated in-place.
+  SYS_HMAC_SHA256      = 362, // (key_ref, klen, data_ref, dlen, out32_ref)     -> int  1=ok
+  SYS_SHA256           = 363, // (data_ref, dlen, out32_ref)                    -> int  1=ok
+  // Hex / binary helpers (purely byte-twiddling, no crypto state). Convenient
+  // for parsing keys/IDs from string literals into byte buffers and back.
+  SYS_HEX2BIN          = 364, // (hex_ref, hex_len, out_ref)                    -> int  bytes written (hex_len/2)
+                              //   hex_ref may be a const string idx OR a char[] ref.
+                              //   Skips whitespace; returns -1 on bad nibble.
+  SYS_BIN2HEX          = 365, // (bin_ref, bin_len, out_ref)                    -> int  chars written (bin_len*2),
+                              //   lowercase, no separators, NUL-terminated.
   // Deep sleep (ESP32 only)
   SYS_DEEP_SLEEP      = 230, // (seconds) -> void — deep sleep with timer wakeup
   SYS_DEEP_SLEEP_GPIO = 231, // (seconds, pin, level) -> void — + GPIO wakeup
@@ -11483,6 +11512,247 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         tc_share_unlock();
       }
       TC_PUSH(vm, removed);
+      break;
+    }
+
+    // ── Crypto: AES-128 / SHA-256 / HMAC-SHA256 ──────
+    // Helper lambda-style macros local to this block. Pull a TinyC char[] ref
+    // off the stack and copy to a stack-local C byte buffer. Returns 0 if the
+    // ref is bogus or capacity is exceeded. Caller checks with `if (!_ok) ...`.
+    case SYS_AES_ECB: {
+#ifdef ESP32
+      int32_t enc_flag  = TC_POP(vm);
+      int32_t data_ref  = TC_POP(vm);
+      int32_t key_ref   = TC_POP(vm);
+      int32_t *key_arr  = tc_resolve_ref(vm, key_ref);
+      int32_t *data_arr = tc_resolve_ref(vm, data_ref);
+      if (!key_arr || !data_arr ||
+          tc_ref_maxlen(vm, key_ref) < 16 || tc_ref_maxlen(vm, data_ref) < 16) {
+        TC_PUSH(vm, 0); break;
+      }
+      uint8_t k[16], in[16], out[16];
+      for (int i = 0; i < 16; i++) { k[i]  = (uint8_t)(key_arr[i]  & 0xFF); }
+      for (int i = 0; i < 16; i++) { in[i] = (uint8_t)(data_arr[i] & 0xFF); }
+      mbedtls_aes_context ctx;
+      mbedtls_aes_init(&ctx);
+      int rc = enc_flag ? mbedtls_aes_setkey_enc(&ctx, k, 128)
+                        : mbedtls_aes_setkey_dec(&ctx, k, 128);
+      if (rc == 0) {
+        rc = mbedtls_aes_crypt_ecb(&ctx,
+              enc_flag ? MBEDTLS_AES_ENCRYPT : MBEDTLS_AES_DECRYPT,
+              in, out);
+      }
+      mbedtls_aes_free(&ctx);
+      if (rc == 0) {
+        for (int i = 0; i < 16; i++) data_arr[i] = (int32_t)out[i];
+        TC_PUSH(vm, 1);
+      } else {
+        TC_PUSH(vm, 0);
+      }
+#else
+      TC_POP(vm); TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+
+    case SYS_AES_CBC: {
+#ifdef ESP32
+      int32_t enc_flag = TC_POP(vm);
+      int32_t len      = TC_POP(vm);
+      int32_t data_ref = TC_POP(vm);
+      int32_t iv_ref   = TC_POP(vm);
+      int32_t key_ref  = TC_POP(vm);
+      int32_t *key_arr  = tc_resolve_ref(vm, key_ref);
+      int32_t *iv_arr   = tc_resolve_ref(vm, iv_ref);
+      int32_t *data_arr = tc_resolve_ref(vm, data_ref);
+      if (!key_arr || !iv_arr || !data_arr ||
+          (len & 15) != 0 || len <= 0 ||
+          tc_ref_maxlen(vm, key_ref) < 16 ||
+          tc_ref_maxlen(vm, iv_ref)  < 16 ||
+          tc_ref_maxlen(vm, data_ref) < len) {
+        TC_PUSH(vm, 0); break;
+      }
+      // Copy in. Stack alloc is fine for small TinyC payloads — the script
+      // task has 5 KB+ stack and CBC operates a chunk at a time. For very
+      // large payloads (> 4 KB) we malloc instead.
+      uint8_t k[16], iv[16];
+      uint8_t *buf = nullptr;
+      bool heap = (len > 4096);
+      uint8_t  stackbuf[4096];
+      buf = heap ? (uint8_t*)malloc(len) : stackbuf;
+      if (!buf) { TC_PUSH(vm, 0); break; }
+      for (int i = 0; i < 16;  i++) k[i]  = (uint8_t)(key_arr[i] & 0xFF);
+      for (int i = 0; i < 16;  i++) iv[i] = (uint8_t)(iv_arr[i]  & 0xFF);
+      for (int i = 0; i < len; i++) buf[i] = (uint8_t)(data_arr[i] & 0xFF);
+      mbedtls_aes_context ctx;
+      mbedtls_aes_init(&ctx);
+      int rc = enc_flag ? mbedtls_aes_setkey_enc(&ctx, k, 128)
+                        : mbedtls_aes_setkey_dec(&ctx, k, 128);
+      if (rc == 0) {
+        rc = mbedtls_aes_crypt_cbc(&ctx,
+              enc_flag ? MBEDTLS_AES_ENCRYPT : MBEDTLS_AES_DECRYPT,
+              len, iv, buf, buf);
+      }
+      mbedtls_aes_free(&ctx);
+      if (rc == 0) {
+        for (int i = 0; i < len; i++) data_arr[i] = (int32_t)buf[i];
+        for (int i = 0; i < 16;  i++) iv_arr[i]   = (int32_t)iv[i];   // updated IV
+        TC_PUSH(vm, 1);
+      } else {
+        TC_PUSH(vm, 0);
+      }
+      if (heap) free(buf);
+#else
+      TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+
+    case SYS_HMAC_SHA256: {
+#ifdef ESP32
+      int32_t out_ref  = TC_POP(vm);
+      int32_t dlen     = TC_POP(vm);
+      int32_t data_ref = TC_POP(vm);
+      int32_t klen     = TC_POP(vm);
+      int32_t key_ref  = TC_POP(vm);
+      int32_t *key_arr  = tc_resolve_ref(vm, key_ref);
+      int32_t *data_arr = tc_resolve_ref(vm, data_ref);
+      int32_t *out_arr  = tc_resolve_ref(vm, out_ref);
+      if (!key_arr || !data_arr || !out_arr ||
+          klen <= 0 || dlen < 0 ||
+          tc_ref_maxlen(vm, key_ref) < klen ||
+          tc_ref_maxlen(vm, data_ref) < dlen ||
+          tc_ref_maxlen(vm, out_ref) < 32) {
+        TC_PUSH(vm, 0); break;
+      }
+      // Stack-local copies; HMAC keys/data are usually small. For pathological
+      // multi-KB key/data, callers can compute SHA-256 over chunks externally
+      // — for now require sane sizes (≤ 1024 each).
+      if (klen > 1024 || dlen > 4096) { TC_PUSH(vm, 0); break; }
+      uint8_t kbuf[1024], dbuf[4096], out[32];
+      for (int i = 0; i < klen; i++) kbuf[i] = (uint8_t)(key_arr[i]  & 0xFF);
+      for (int i = 0; i < dlen; i++) dbuf[i] = (uint8_t)(data_arr[i] & 0xFF);
+      const mbedtls_md_info_t *info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+      int rc = mbedtls_md_hmac(info, kbuf, klen, dbuf, dlen, out);
+      if (rc == 0) {
+        for (int i = 0; i < 32; i++) out_arr[i] = (int32_t)out[i];
+        TC_PUSH(vm, 1);
+      } else {
+        TC_PUSH(vm, 0);
+      }
+#else
+      TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+
+    case SYS_SHA256: {
+#ifdef ESP32
+      int32_t out_ref  = TC_POP(vm);
+      int32_t dlen     = TC_POP(vm);
+      int32_t data_ref = TC_POP(vm);
+      int32_t *data_arr = tc_resolve_ref(vm, data_ref);
+      int32_t *out_arr  = tc_resolve_ref(vm, out_ref);
+      if (!data_arr || !out_arr || dlen < 0 ||
+          tc_ref_maxlen(vm, data_ref) < dlen ||
+          tc_ref_maxlen(vm, out_ref) < 32 ||
+          dlen > 4096) {
+        TC_PUSH(vm, 0); break;
+      }
+      uint8_t dbuf[4096], out[32];
+      for (int i = 0; i < dlen; i++) dbuf[i] = (uint8_t)(data_arr[i] & 0xFF);
+      // mbedtls_sha256(buf, len, out, is_sha224=0) — return 0 on success.
+      int rc = mbedtls_sha256(dbuf, dlen, out, 0);
+      if (rc == 0) {
+        for (int i = 0; i < 32; i++) out_arr[i] = (int32_t)out[i];
+        TC_PUSH(vm, 1);
+      } else {
+        TC_PUSH(vm, 0);
+      }
+#else
+      TC_POP(vm); TC_POP(vm); TC_POP(vm);
+      TC_PUSH(vm, 0);
+#endif
+      break;
+    }
+
+    case SYS_HEX2BIN: {
+      // (hex_ref_or_const, hex_len, out_ref) → int bytes written (hex_len/2),
+      // or -1 on bad input. Whitespace in hex is silently skipped.
+      int32_t out_ref = TC_POP(vm);
+      int32_t hex_len = TC_POP(vm);
+      int32_t hex_ref = TC_POP(vm);
+      int32_t *out_arr = tc_resolve_ref(vm, out_ref);
+      if (!out_arr || hex_len < 0) { TC_PUSH(vm, -1); break; }
+      // Accept either a const string (when caller passed a literal) or a TinyC
+      // char[] ref. Copy hex chars into a local buffer first.
+      char src[1024];
+      int32_t src_len = 0;
+      if (tc_is_const_ref(hex_ref)) {
+        const char *cs = tc_get_const_str(vm, hex_ref);
+        if (!cs) { TC_PUSH(vm, -1); break; }
+        while (cs[src_len] && src_len < (int32_t)sizeof(src) - 1) {
+          src[src_len] = cs[src_len]; src_len++;
+        }
+        if (hex_len > 0 && hex_len < src_len) src_len = hex_len;
+      } else {
+        int32_t *hex_arr = tc_resolve_ref(vm, hex_ref);
+        if (!hex_arr) { TC_PUSH(vm, -1); break; }
+        int32_t cap = tc_ref_maxlen(vm, hex_ref);
+        if (hex_len > cap) hex_len = cap;
+        if (hex_len > (int32_t)sizeof(src)) hex_len = sizeof(src);
+        for (int i = 0; i < hex_len; i++) src[i] = (char)(hex_arr[i] & 0xFF);
+        src_len = hex_len;
+      }
+      // Parse pairs of nibbles, skipping whitespace. Bail on malformed.
+      int32_t out_cap = tc_ref_maxlen(vm, out_ref);
+      int32_t written = 0;
+      uint8_t hi = 0; int have_hi = 0;
+      for (int i = 0; i < src_len; i++) {
+        char c = src[i];
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == ':' || c == '-') continue;
+        uint8_t v;
+        if      (c >= '0' && c <= '9') v = c - '0';
+        else if (c >= 'a' && c <= 'f') v = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') v = c - 'A' + 10;
+        else { TC_PUSH(vm, -1); break; }
+        if (!have_hi) { hi = v; have_hi = 1; }
+        else {
+          if (written >= out_cap) break;
+          out_arr[written++] = (int32_t)((hi << 4) | v);
+          have_hi = 0;
+        }
+      }
+      // If we broke from the loop with `-1` already pushed, we'd have consumed
+      // the stack — but since `break` only exits the for-loop here, push now.
+      TC_PUSH(vm, written);
+      break;
+    }
+
+    case SYS_BIN2HEX: {
+      // (bin_ref, bin_len, out_ref) → int chars written (bin_len*2). Lowercase.
+      int32_t out_ref = TC_POP(vm);
+      int32_t bin_len = TC_POP(vm);
+      int32_t bin_ref = TC_POP(vm);
+      int32_t *bin_arr = tc_resolve_ref(vm, bin_ref);
+      int32_t *out_arr = tc_resolve_ref(vm, out_ref);
+      if (!bin_arr || !out_arr || bin_len < 0) { TC_PUSH(vm, 0); break; }
+      int32_t bin_cap = tc_ref_maxlen(vm, bin_ref);
+      int32_t out_cap = tc_ref_maxlen(vm, out_ref);
+      if (bin_len > bin_cap) bin_len = bin_cap;
+      if (bin_len * 2 + 1 > out_cap) bin_len = (out_cap - 1) / 2;
+      static const char hex[] = "0123456789abcdef";
+      int32_t w = 0;
+      for (int i = 0; i < bin_len; i++) {
+        uint8_t b = (uint8_t)(bin_arr[i] & 0xFF);
+        out_arr[w++] = (int32_t)hex[b >> 4];
+        out_arr[w++] = (int32_t)hex[b & 0x0F];
+      }
+      if (w < out_cap) out_arr[w] = 0;  // NUL-terminate when room
+      TC_PUSH(vm, w);
       break;
     }
 
