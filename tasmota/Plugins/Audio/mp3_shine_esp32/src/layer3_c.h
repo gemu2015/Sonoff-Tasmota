@@ -88,6 +88,7 @@ SETMEMREGS
 
   config = (shine_global_config*)malloc((int32_t)INTC(16));
   if (config == NULL) {
+    AddLog(LOG_LEVEL_INFO, PSTR("SHINE: config malloc(%d) FAILED"), (int32_t)INTC(16));
     return config;
   }
 
@@ -97,16 +98,24 @@ SETMEMREGS
   printf("l3_enc & mdct_freq each: %d\n", sizeof(int32_t)*GRANULE_SIZE*MAX_GRANULES*MAX_CHANNELS);
 #endif
 
+  // Defensive: every malloc here MUST succeed or the encoder dereferences a NULL
+  // pointer later (or worse, the silent failure leaves a stale stack value in
+  // the config field — exactly the LoadProhibited @ 0x97e19a34 we hit).
+  // On any failure: free what we got, log, return NULL so the caller bails.
   for (x = 0; x < MAX_CHANNELS; x++) {
       for (y = 0; y < MAX_GRANULES; y++) {
         // 2 * 2 * 576 each
         config->l3_enc[x][y] = (int32_t*)malloc((int32_t)INTC(13));
         if (!config->l3_enc[x][y]) {
-          // error should never occur because of spiram size
+          AddLog(LOG_LEVEL_INFO, PSTR("SHINE: l3_enc[%d][%d] malloc(%d) FAILED"),
+                 x, y, (int32_t)INTC(13));
+          goto init_fail;
         }
         config->mdct_freq[x][y] = (int32_t*)malloc((int32_t)INTC(13));
         if (!config->mdct_freq[x][y]) {
-          // error
+          AddLog(LOG_LEVEL_INFO, PSTR("SHINE: mdct_freq[%d][%d] malloc(%d) FAILED"),
+                 x, y, (int32_t)INTC(13));
+          goto init_fail;
         }
       }
   }
@@ -115,18 +124,33 @@ SETMEMREGS
   printf("l3loop struct: %d\n", sizeof(l3loop_t));
 #endif
   config->l3loop = (l3loop_t*)malloc((int32_t)INTC(14));
+  if (!config->l3loop) {
+    AddLog(LOG_LEVEL_INFO, PSTR("SHINE: l3loop malloc(%d) FAILED"), (int32_t)INTC(14));
+    goto init_fail;
+  }
 #ifdef  SHINE_DEBUG
   printf("xrsq & xrabs each: %d\n", sizeof(int32_t)*GRANULE_SIZE);
 #endif
   config->l3loop->xrsq = (int32_t*)malloc((int32_t)INTC(13));
   if (!config->l3loop->xrsq) {
-    // error
+    AddLog(LOG_LEVEL_INFO, PSTR("SHINE: l3loop->xrsq malloc(%d) FAILED"), (int32_t)INTC(13));
+    goto init_fail;
   }
 
   config->l3loop->xrabs = (int32_t*)malloc((int32_t)INTC(13));
   if (!config->l3loop->xrabs) {
-    // error
+    AddLog(LOG_LEVEL_INFO, PSTR("SHINE: l3loop->xrabs malloc(%d) FAILED"), (int32_t)INTC(13));
+    goto init_fail;
   }
+
+  // Sanity log: confirm pointers are sane before encode loop touches them.
+  // If any of these prints a wild address (high bit set, not in PSRAM 0x3c.. or
+  // DRAM 0x3fc.. range), the heap got clobbered between malloc and now —
+  // points at stack-overflow-into-heap as the corruption source.
+  AddLog(LOG_LEVEL_INFO, PSTR("SHINE: init OK l3_enc=%p,%p,%p,%p l3loop=%p xrsq=%p xrabs=%p"),
+         config->l3_enc[0][0], config->l3_enc[0][1],
+         config->l3_enc[1][0], config->l3_enc[1][1],
+         config->l3loop, config->l3loop->xrsq, config->l3loop->xrabs);
 
   p_shine_subband_initialise(config);
   p_shine_mdct_initialise(config);
@@ -181,6 +205,23 @@ SETMEMREGS
     config->sideinfo_len = 8 * ((config->wave.channels==1) ? 4 + 9 : 4 + 17);
   }
   return config;
+
+init_fail:
+  // Free whatever was already allocated. Safe to call free(NULL) — fields were
+  // memset to 0 above so any field we never reached is still NULL.
+  for (x = 0; x < MAX_CHANNELS; x++) {
+    for (y = 0; y < MAX_GRANULES; y++) {
+      if (config->l3_enc[x][y])    free(config->l3_enc[x][y]);
+      if (config->mdct_freq[x][y]) free(config->mdct_freq[x][y]);
+    }
+  }
+  if (config->l3loop) {
+    if (config->l3loop->xrsq)  free(config->l3loop->xrsq);
+    if (config->l3loop->xrabs) free(config->l3loop->xrabs);
+    free(config->l3loop);
+  }
+  free(config);
+  return NULL;
 }
 
 

@@ -35,7 +35,7 @@ codec settings access
 #endif
 
 #ifdef ESP32
-//#define USE_PSHINE
+  #define USE_PSHINE
 #endif
 
 #include "module.h"
@@ -388,8 +388,15 @@ const char S_JSON_MEMERR[] PROGMEM = "{\"out of memory\"}";
 const char S_JSON_WMERR[] PROGMEM = "{\"Codec error\"}";
 #endif
 
-#define TASK_STACK 8192
-//#define TASK_STACK 16384
+// Bumped 8 KB → 16 KB to give Shine encode chain enough headroom.
+// p_shine_iteration_loop alone allocates 0x190 (400 B) frame and then nests
+// 4-5 levels deeper into outer_loop → bin_search → calc_runlen / quantize /
+// count_bit / subdivide, plus Xtensa register-window saves (16 B/level).
+// At 8 KB the stack would overflow into adjacent heap and corrupt the malloc
+// blocks for `config->l3_enc[ch][gr]` (a wild pointer like 0x97e19a34 then
+// crashed `calc_runlen` with LoadProhibited on the next encode).
+#define TASK_STACK 16384
+//#define TASK_STACK 8192
 
 #ifdef USE_SAY
 #define RENDER_SIZE sizeof(SAM_RENDER)
@@ -1255,19 +1262,46 @@ SETREGS
   uint8_t *ucp;
   int32_t written;
 
-  uint32_t bytes_read;  
+  uint32_t bytes_read;
   i2sp.dptr = shine_buffer;
   i2sp.dlen = shine_bsize;
 
-  AddLog(LOG_LEVEL_INFO, PSTR("task started"));
+  // DIAG: log entry conditions and what we expect to see
+  AddLog(LOG_LEVEL_INFO, PSTR("MICDIAG: task started, dlen=%d din=%d pdm=%d recording=%d"),
+         shine_bsize, i2sp.din, i2sp.pdm_clk, recording);
+
+  // DIAG: PSRAM cache-coherency check. shine_ptr (`config`) is allocated in PSRAM
+  // by Core 0 (Shine_initialise). This task runs on Core 1. If Core 1 sees
+  // *different* l3_enc values than Core 0 logged at "SHINE: init OK", it's a
+  // stale-cache read — Core 0's writes haven't been flushed to PSRAM yet.
+  // shine_t = shine_global_config* ; offset of l3_enc[2][2] is computed by linker.
+  // We just print the same fields by direct deref.
+  if (shine_ptr) {
+    shine_global_config *cfg = (shine_global_config*)shine_ptr;
+    AddLog(LOG_LEVEL_INFO, PSTR("MICDIAG: cfg=%p l3_enc[]={%p,%p,%p,%p} l3loop=%p"),
+           cfg,
+           cfg->l3_enc[0][0], cfg->l3_enc[0][1],
+           cfg->l3_enc[1][0], cfg->l3_enc[1][1],
+           cfg->l3loop);
+  }
 
   int32_t lval;
   volatile const int32_t *icp = (const int32_t *) ((uint8_t *)i32_const+EXEC_OFFSET);
   pclamp = icp[0];
   mclamp = icp[1];
+
+  // DIAG: counters so we can see if loop runs and what i2s/encoder return
+  uint32_t loop_n = 0;
+  uint32_t bytes_read_total = 0;
+  uint32_t mp3_bytes_total = 0;
+  uint32_t fwrite_calls = 0;
+  uint32_t zero_reads = 0;
+
   while (recording & 2) {
       bytes_read = i2s_read_samples_r(&i2sp);
+      loop_n++;
       if (bytes_read) {
+        bytes_read_total += bytes_read;
         if (adc_gain_fac > 1) {
           // set gain
           for (uint32_t cnt = 0; cnt < bytes_read / 2; cnt++) {
@@ -1281,8 +1315,10 @@ SETREGS
           }
         }
         ucp = (uint8_t*)Shine_encode_buffer_interleaved(shine_ptr, shine_buffer, &written);
+        if (written > 0) mp3_bytes_total += written;
         if (!mp3_stream) {
           fwrite(ucp, 1, written, wf);
+          if (written > 0) fwrite_calls++;
         } else {
           if (client_connected(mp3_client)) {
             client_write(mp3_client, (const char*)ucp, written);
@@ -1290,9 +1326,22 @@ SETREGS
             break;
           }
         }
+      } else {
+        zero_reads++;
+      }
+
+      // DIAG: every ~1s of iterations (assuming ~30Hz), spit out a status line
+      if ((loop_n % 30) == 0) {
+        AddLog(LOG_LEVEL_INFO, PSTR("MICDIAG: loop=%u bytes_read=%u mp3_bytes=%u fwrites=%u zero_reads=%u"),
+               loop_n, bytes_read_total, mp3_bytes_total, fwrite_calls, zero_reads);
       }
   }
   ucp = (uint8_t*)Shine_flush(shine_ptr, &written);
+
+  // DIAG: final tally before flush write
+  AddLog(LOG_LEVEL_INFO, PSTR("MICDIAG: loop exit - loop=%u bytes_read=%u mp3_bytes=%u fwrites=%u zero_reads=%u flush_bytes=%d"),
+         loop_n, bytes_read_total, mp3_bytes_total, fwrite_calls, zero_reads, written);
+
   if (!mp3_stream) {
     fwrite(ucp, 1, written, wf);
     fclose(wf);
@@ -1323,6 +1372,8 @@ SETREGS
   uint8_t channel = MIC_CHANNELS;
 
   if (file || stream) {
+    AddLog(LOG_LEVEL_INFO, PSTR("RECDIAG: enter file=%p stream=%u rate=%u chans=%u din=%d pdm_clk=%d"),
+           file, stream, uicp[6], channel, i2sp.din, i2sp.pdm_clk);
     Shine_set_config_mpeg_defaults(&config.mpeg);
     if (channel == 1) {
       config.mpeg.mode = MONO;
@@ -1333,22 +1384,27 @@ SETREGS
     config.wave.samplerate = uicp[6];
     config.wave.channels = (channels)channel;
     if (Shine_check_config(config.wave.samplerate, config.mpeg.bitr) < 0) {
+      AddLog(LOG_LEVEL_INFO, PSTR("RECDIAG: Shine_check_config FAILED"));
       error = -1;
       goto exit;
     }
- 
+
     shine_ptr = (shine_t)Shine_initialise(&config);
     if (!shine_ptr) {
+      AddLog(LOG_LEVEL_INFO, PSTR("RECDIAG: Shine_initialise FAILED"));
       error = -2;
       goto exit;
     }
+    AddLog(LOG_LEVEL_INFO, PSTR("RECDIAG: Shine init OK, ptr=%p"), shine_ptr);
 
     if (!stream) {
       wf = fopen(file, 'w');
       if (!wf) {
+        AddLog(LOG_LEVEL_INFO, PSTR("RECDIAG: fopen('%s') FAILED"), file);
         error = -3;
         goto exit;
       }
+      AddLog(LOG_LEVEL_INFO, PSTR("RECDIAG: fopen OK, wf=%p"), wf);
     } else {
       client_flush(mp3_client);
       client_setTimeout(mp3_client, 5);
@@ -1361,14 +1417,18 @@ SETREGS
     shine_bsize = samples_per_pass * 2 * channel;
     shine_buffer = (int16_t*)malloc(shine_bsize);
     if (!shine_buffer) {
+      AddLog(LOG_LEVEL_INFO, PSTR("RECDIAG: malloc(%d) FAILED"), shine_bsize);
       error = -4;
       goto exit;
     }
+    AddLog(LOG_LEVEL_INFO, PSTR("RECDIAG: spp=%u bsize=%u buf=%p"),
+           samples_per_pass, shine_bsize, shine_buffer);
 
     i2s_busy = true;
 
     // set to 16 khz Stereo
     I2S_SetRate(uicp[6], channel, 3);
+    AddLog(LOG_LEVEL_INFO, PSTR("RECDIAG: I2S_SetRate(%u,%u,3) done"), uicp[6], channel);
 
     recording = 2;
     TASKPARS tp;
@@ -1379,8 +1439,18 @@ SETREGS
     tp.uxPriority = 3;
     tp.constpvCreatedTask = nullptr;
     tp.xCoreID = 1;
-    xTaskCreatePinnedToCore(&tp);
-    
+    // PSRAM cache-coherency safety: `shine_ptr` (config) was malloc'd in PSRAM
+    // by Core 0 in Shine_initialise. The mic task runs on Core 1 (xCoreID=1)
+    // and reads many fields off `config`. ESP32-S3 PSRAM has per-core L1
+    // caches; without a flush + delay, Core 1 may snoop stale bytes (the
+    // 0x97e1_xxxx garbage we saw is exactly old PSRAM contents, not random).
+    // Memory barrier + small delay gives Core 0's writes time to write back.
+    __sync_synchronize();
+    delay(50);
+    uint32_t tret = xTaskCreatePinnedToCore(&tp);
+    AddLog(LOG_LEVEL_INFO, PSTR("RECDIAG: xTaskCreate returned %u (1=ok, 0=fail), recording=%d"),
+           tret, recording);
+
   } else {
     recording = 1;
     while (recording) {

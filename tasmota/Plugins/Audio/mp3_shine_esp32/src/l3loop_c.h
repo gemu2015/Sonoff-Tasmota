@@ -9,6 +9,24 @@
 #define en_scfsi_band_krit 10
 #define xm_scfsi_band_krit 10
 
+// ESP32-S3 cross-binary workaround.
+// This plugin .bin is compiled for classic ESP32 (Tensilica LX6) and run on
+// both ESP32 and ESP32-S3 (LX7). For most drivers this is fine, but Shine's
+// hot inner-loop ix[i-N] indexing makes GCC pick a specific instruction
+// sequence — `add.n a9, a8, 0x3FFFFFFF` (compute i-1 via 32-bit-overflow add)
+// followed by `addx4 a9, a9, ix` (shift+add to compute the address) — that
+// produces the wrong effective address on LX7 and faults with LoadProhibited
+// (EXCVADDR ≈ 0x97e1_xxxx).
+//
+// SHINE_NOOPT compiles the marked function at -O0, which causes GCC to emit
+// straightforward `addi/sub` + `slli` + `add` instead of the addx4 trick.
+// Performance cost: small (these are short hot leaves; the inner_loop calls
+// are dominated by cache misses, not arithmetic). Apply to every function
+// that does `ix[i±N]` indexing — calc_runlen, count1_bitcount, bigv_tab_select,
+// bigv_bitcount, quantize.
+#define SHINE_NOOPT __attribute__((section(".plugin.mod_part"), aligned(4), \
+                                   optimize("O0", "no-stack-protector"), noinline))
+
 /* This is the scfsi_band table from 2.4.2.7 of the IS */
 const int32_t scfsi_band_long[5] PROGMEM = { 0, 6, 11, 16, 21 };
 
@@ -409,7 +427,7 @@ SETMEMREGS
  * Function: Quantization of the vector xr ( -> ix).
  * Returns maximum value of ix.
  */
-MODULE_PART int32_t quantize(int32_t ix[GRANULE_SIZE], int32_t stepsize, shine_global_config *config )
+SHINE_NOOPT int32_t quantize(int32_t ix[GRANULE_SIZE], int32_t stepsize, shine_global_config *config )
 {
 SETMEMREGS
   int32_t i, max, ln;
@@ -471,7 +489,7 @@ static inline int32_t ix_max( int32_t ix[GRANULE_SIZE], uint32_t begin, uint32_t
  * Function: Calculation of rzero, count1, big_values
  * (Partitions ix into big values, quadruples and zeros).
  */
-MODULE_PART void calc_runlen( int32_t ix[GRANULE_SIZE], gr_info *cod_info ) {
+SHINE_NOOPT void calc_runlen( int32_t ix[GRANULE_SIZE], gr_info *cod_info ) {
 SETMEMREGS
   int32_t i;
   int32_t rzero = 0;
@@ -500,7 +518,7 @@ SETMEMREGS
  * ----------------
  * Determines the number of bits to encode the quadruples.
  */
-MODULE_PART int32_t count1_bitcount(int32_t ix[GRANULE_SIZE], gr_info *cod_info) {
+SHINE_NOOPT int32_t count1_bitcount(int32_t ix[GRANULE_SIZE], gr_info *cod_info) {
 SETMEMREGS
   int32_t p, i, k;
   int32_t v, w, x, y, signbits;
@@ -592,7 +610,7 @@ SETMEMREGS
  * ----------------
  * Function: Select huffman code tables for bigvalues regions
  */
-MODULE_PART void bigv_tab_select( int32_t ix[GRANULE_SIZE], gr_info *cod_info ) {
+SHINE_NOOPT void bigv_tab_select( int32_t ix[GRANULE_SIZE], gr_info *cod_info ) {
   cod_info->table_select[0] = 0;
   cod_info->table_select[1] = 0;
   cod_info->table_select[2] = 0;
@@ -618,7 +636,7 @@ MODULE_PART void bigv_tab_select( int32_t ix[GRANULE_SIZE], gr_info *cod_info ) 
  * of the Huffman tables as defined in the IS (Table B.7), and will not work
  * with any arbitrary tables.
  */
-MODULE_PART int32_t new_choose_table( int32_t ix[GRANULE_SIZE], uint32_t begin, uint32_t end ) {
+SHINE_NOOPT int32_t new_choose_table( int32_t ix[GRANULE_SIZE], uint32_t begin, uint32_t end ) {
 SETMEMREGS
   int32_t i, max;
   int32_t choice[2];
@@ -709,7 +727,7 @@ SETMEMREGS
  * --------------
  * Function: Count the number of bits necessary to code the bigvalues region.
  */
-MODULE_PART int32_t bigv_bitcount(int32_t ix[GRANULE_SIZE], gr_info *gi) {
+SHINE_NOOPT int32_t bigv_bitcount(int32_t ix[GRANULE_SIZE], gr_info *gi) {
   int32_t bits = 0;
   uint32_t table;
 
@@ -727,7 +745,7 @@ MODULE_PART int32_t bigv_bitcount(int32_t ix[GRANULE_SIZE], gr_info *gi) {
  * ----------
  * Function: Count the number of bits necessary to code the subregion.
  */
-MODULE_PART int32_t count_bit(int32_t ix[GRANULE_SIZE],
+SHINE_NOOPT int32_t count_bit(int32_t ix[GRANULE_SIZE],
               uint32_t start,
               uint32_t end,
               uint32_t table ) {

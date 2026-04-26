@@ -3669,7 +3669,14 @@ static void tc_mscr_exec(uint8_t *bc, uint16_t bc_len, int32_t *lnv) {
         if (sp < 2) return;
         int32_t baud  = stk[--sp];
         int32_t meter = stk[--sp];
+#if defined(USE_SML_M) || defined(USE_SML)
         SML_SetBaud((uint32_t)meter, (uint32_t)baud);
+#else
+        // SML driver not compiled in — consume args, no-op. Lets pre-compiled
+        // .tas bytecode load without crashing the VM, but the meter call is
+        // silently dropped.
+        (void)meter; (void)baud;
+#endif
         break;
       }
       case MS_OP_SML_HEX: {
@@ -3686,7 +3693,12 @@ static void tc_mscr_exec(uint8_t *bc, uint16_t bc_len, int32_t *lnv) {
         hbuf[hlen] = 0;
         ip += hlen;
         int32_t meter = stk[--sp];
+#if defined(USE_SML_M) || defined(USE_SML)
         SML_Write((int32_t)meter, hbuf);
+#else
+        // SML driver not compiled in — consume args, no-op (see MS_OP_SML_BAUD).
+        (void)meter; (void)hbuf;
+#endif
         break;
       }
       case MS_OP_DELAY: {
