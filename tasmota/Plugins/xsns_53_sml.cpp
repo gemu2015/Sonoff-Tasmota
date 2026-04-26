@@ -40,12 +40,11 @@ esp32
 #include "module.h"
 #include "module_defines.h"
 
-// SOL_SOCKET / SO_LINGER / struct linger for setSocketOption() in SML_Clean_Meters.
-// ESP32 Arduino core only forward-declares `struct linger` via its Network stack,
-// so we pull in lwIP's definitions here (ESP32-only; ESP8266 path doesn't use TCP meters).
-#ifdef ESP32
-#include <lwip/sockets.h>
-#endif
+// SO_LINGER / struct linger lived here previously for direct
+// setSocketOption() calls in SML_Clean_Meters and friends. Those calls now go
+// through the routed `client_setLinger()` macro (jt[171] op 103), so the lwIP
+// header is no longer needed in the plugin — keeping the binplugin free of any
+// libsocket symbol references that aren't in the jump table.
 
 #define XSNS_53 53
 
@@ -164,23 +163,16 @@ esp32
 #endif
 
 #ifdef USE_SML_CANBUS
-
-#ifdef ESP8266
-// esp8266 uses SPI MPC2515
-#undef SML_CAN_MASKS
-#undef SML_CAN_FILTERS
-#define SML_CAN_MASKS 2
-#define SML_CAN_FILTERS 6
-#include "mcp2515.h"
-#else
-// esp32 uses native twai_
+// CAN bus support is ESP32-only (native TWAI driver via routed jt ptwai_* macros).
+// The legacy ESP8266 SPI MPC2515 path was removed when this driver became a
+// PIC binplugin — the MCP2515 Arduino lib is not jump-table-routable and the
+// ESP8266 target itself is now obsolete here.
 #undef SML_CAN_MASKS
 #undef SML_CAN_FILTERS
 #define SML_CAN_MASKS 1
 #define SML_CAN_FILTERS 1
 #include <can.h>
 #include "driver/twai.h"
-#endif
 #endif // USE_SML_CANBUS
 
 /* special options per meter
@@ -478,11 +470,7 @@ struct METER_DESC {
 #endif // USE_SML_TCP
 
 #ifdef USE_SML_CANBUS
-#ifdef ESP8266
-  MCP2515 *mcp2515;
-#else
-  //twai_handle_t *canp;
-#endif
+  // ESP32-only: native TWAI driver, no per-meter handle needed.
   uint32_t can_masks[SML_CAN_MASKS];
   uint32_t can_filters[SML_CAN_FILTERS];
 #endif // USE_SML_CANBUS
@@ -1008,46 +996,10 @@ SETREGS
 				}
 				break;
 
-#ifdef USE_SML_CANBUS       
+#ifdef USE_SML_CANBUS
       case 'C':
- #ifdef ESP8266     
-        if (mptr->mcp2515 == nullptr) break;
-        { struct can_frame canFrame;
-        while (mptr->mcp2515->checkReceive()) {
-            if (mptr->mcp2515->readMessage(&canFrame) == MCP2515::ERROR_OK) {
-              mptr->sbuff[0] = canFrame.can_id >> 24;
-              mptr->sbuff[1] = canFrame.can_id >> 16;
-              mptr->sbuff[2] = canFrame.can_id >> 8;
-              mptr->sbuff[3] = canFrame.can_id;
-              mptr->sbuff[4] = canFrame.can_dlc;
-              for (int i = 0; i < canFrame.can_dlc; i++) {
-                mptr->sbuff[5 + i] = canFrame.data[i];
-              }
-              sml_dump_start(' ');
-              for (uint8_t index = 0; index < canFrame.can_dlc + 5; index++) {
-                sprintf_P(&sml_globs.log_data[sml_globs.sml_logindex], PSTR("%02x"), mptr->sbuff[index]);
-                sml_globs.sml_logindex += 2;
-                if (index == 3) {
-                  sml_globs.log_data[sml_globs.sml_logindex] = ':';
-                  sml_globs.sml_logindex++;
-                  sml_globs.log_data[sml_globs.sml_logindex] = ' ';
-                  sml_globs.sml_logindex++;
-                }
-              }
-              sml_globs.log_data[sml_globs.sml_logindex] = 0;
-              AddLogData(LOG_LEVEL_INFO, sml_globs.log_data);
-            } else {
-              if (mptr->mcp2515->checkError()) {
-                uint8_t errFlags = mptr->mcp2515->getErrorFlags();
-                mptr->mcp2515->clearRXnOVRFlags();
-                AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Received error %d"), errFlags);
-              }
-            }
-        }
-        }
-        break;
-#else
-        // esp32 native CAN
+        // ESP32 native CAN (TWAI). The legacy ESP8266 SPI MPC2515 dump path
+        // was removed when this driver became a PIC binplugin.
         if (!sml_globs.twai_installed) break;
         {
         uint32_t alerts_triggered = sml_can_check_alerts();
@@ -1081,7 +1033,6 @@ SETREGS
         }
         }
         break;
-#endif
 #endif // USE_SML_CANBUS
     	default:
       	// raw dump
@@ -3385,13 +3336,12 @@ SETREGS
     if (mptr->client) {
 #ifdef ESP32
       // SO_LINGER with timeout 0 forces TCP RST instead of FIN, freeing the
-      // meter's single-session slot immediately. ESP8266's WiFiClient has no
-      // setSocketOption(); plain stop() is the best it can do there.
-      struct linger sl = { 1, 0 };
-      mptr->client->setSocketOption(SOL_SOCKET, SO_LINGER, &sl, sizeof(sl));
+      // meter's single-session slot immediately. Routed through jumptable
+      // (jt[171] op 103) so this stays a PIC-safe call from the binplugin.
+      client_setLinger(mptr->client, 1, 0);
 #endif
-      mptr->client->stop();
-      delete mptr->client;
+      client_stop(mptr->client);
+      client_delete(mptr->client);
       mptr->client = nullptr;
     }
 #endif // USE_SML_TCP
@@ -3453,13 +3403,12 @@ SETREGS
     if (mptr->client) {
 #ifdef ESP32
       // SO_LINGER with timeout 0 forces TCP RST instead of FIN, freeing the
-      // meter's single-session slot immediately. ESP8266's WiFiClient has no
-      // setSocketOption(); plain stop() is the best it can do there.
-      struct linger sl = { 1, 0 };
-      mptr->client->setSocketOption(SOL_SOCKET, SO_LINGER, &sl, sizeof(sl));
+      // meter's single-session slot immediately. Routed through jumptable
+      // (jt[171] op 103) so this stays a PIC-safe call from the binplugin.
+      client_setLinger(mptr->client, 1, 0);
 #endif
-      mptr->client->stop();
-      delete mptr->client;
+      client_stop(mptr->client);
+      client_delete(mptr->client);
       mptr->client = nullptr;
     }
   }
@@ -3926,48 +3875,7 @@ next_line:
         }
     } else if (mptr->type == 'C') {
 #ifdef USE_SML_CANBUS
-
-#ifdef ESP8266
-      mptr->mcp2515 = nullptr;
-      if ( PinUsed(GPIO_SPI_MISO) && PinUsed(GPIO_SPI_MOSI) && PinUsed(GPIO_SPI_CLK) ) {
-        mptr->mcp2515 = new MCP2515(mptr->srcpin);
-        if (MCP2515::ERROR_OK != mptr->mcp2515->reset()) {
-          AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Failed to reset module"));
-          goto dddef_exit;
-        }
-
-        if (MCP2515::ERROR_OK != mptr->mcp2515->setBitrate((CAN_SPEED)(mptr->params%100), (CAN_CLOCK)(mptr->params/100))) {
-          AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Failed to set module bitrate"));
-          goto dddef_exit;
-        }
-
-        //attachInterrupt(mptr->trxpin, sml_canbus_irq, FALLING);
-
-        if (MCP2515::ERROR_OK != mptr->mcp2515->setConfigMode()) {
-          AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Failed to set config mode"));
-        } else {
-          if (mptr->can_filters[0]) mptr->mcp2515->setFilter(MCP2515::RXF0, true, mptr->can_filters[0]);
-          if (mptr->can_filters[1]) mptr->mcp2515->setFilter(MCP2515::RXF1, true, mptr->can_filters[1]);
-          if (mptr->can_filters[2]) mptr->mcp2515->setFilter(MCP2515::RXF2, true, mptr->can_filters[2]);
-          if (mptr->can_filters[3]) mptr->mcp2515->setFilter(MCP2515::RXF3, true, mptr->can_filters[3]);
-          if (mptr->can_filters[4]) mptr->mcp2515->setFilter(MCP2515::RXF4, true, mptr->can_filters[4]);
-          if (mptr->can_filters[5]) mptr->mcp2515->setFilter(MCP2515::RXF5, true, mptr->can_filters[5]);
-
-          if (mptr->can_masks[0]) mptr->mcp2515->setFilterMask(MCP2515::MASK0, true, mptr->can_masks[0]);
-          if (mptr->can_masks[1]) mptr->mcp2515->setFilterMask(MCP2515::MASK1, true, mptr->can_masks[1]);
-
-         }
-
-        if (MCP2515::ERROR_OK != mptr->mcp2515->setNormalMode()) {
-          AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Failed to set normal mode"));
-          goto dddef_exit;
-        }
-
-        AddLog(LOG_LEVEL_INFO, PSTR("SML CAN: Initialized"));
-      } else {
-        AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: SPI not configuered"));
-      }
- #else
+      // ESP32-only: native TWAI driver. Legacy ESP8266 SPI MPC2515 init removed.
       // Initialize configuration structures using macro initializers
       twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT((gpio_num_t)mptr->trxpin, (gpio_num_t)mptr->srcpin, TWAI_MODE_NORMAL);
       uint8_t qlen = mptr->params/100;
@@ -4035,7 +3943,6 @@ next_line:
       } else {
         AddLog(LOG_LEVEL_DEBUG, PSTR("Failed to install can driver"));
       }
- #endif     
 #endif // USE_SML_CANBUS
     } else {
       // serial input, init
@@ -4636,45 +4543,9 @@ SETREGS
 
 void SML_CANBUS_Read() {
 SETREGS
-
-#ifdef ESP8266
-  struct can_frame canFrame;
-
+  // ESP32-only: native TWAI driver. Legacy ESP8266 SPI MPC2515 RX path removed.
   for (uint32_t meter = 0; meter < sml_globs.meters_used; meter++) {
     struct METER_DESC *mptr = &sml_globs.mptr[meter];
-    uint8_t nCounter = 0;
-
-    if (mptr->type != 'C') continue;
-
-    if (mptr->mcp2515 == nullptr) continue;
-sf
-    while (mptr->mcp2515->checkReceive() && nCounter <= SML_CAN_MAX_FRAMES) {
-      if (mptr->mcp2515->readMessage(&canFrame) == MCP2515::ERROR_OK) {
-          mptr->sbuff[0] = canFrame.can_id >> 24;
-          mptr->sbuff[1] = canFrame.can_id >> 16;
-          mptr->sbuff[2] = canFrame.can_id >> 8;
-          mptr->sbuff[3] = canFrame.can_id;
-          mptr->sbuff[4] = canFrame.can_dlc;
-          for (int i = 0; i < canFrame.can_dlc; i++) {
-            mptr->sbuff[5 + i] = canFrame.data[i];
-          }
-          SML_Decode(meter);
-          nCounter++;
-      } else {
-        if (mptr->mcp2515->checkError()) {
-          uint8_t errFlags = mptr->mcp2515->getErrorFlags();
-          mptr->mcp2515->clearRXnOVRFlags();
-          AddLog(LOG_LEVEL_DEBUG, PSTR("SML CAN: Received error %d"), errFlags);
-          break;
-        }
-      }
-    }
-  }
-#else
-
-  for (uint32_t meter = 0; meter < sml_globs.meters_used; meter++) {
-    struct METER_DESC *mptr = &sml_globs.mptr[meter];
-    uint8_t nCounter = 0;
 
     if (mptr->type != 'C') continue;
 
@@ -4697,11 +4568,9 @@ sf
             SML_Decode(meter);
           }
         }
-        
-    }
-  } 
 
-#endif
+    }
+  }
 }
 #endif // USE_SML_CANBUS
 
@@ -5041,18 +4910,10 @@ SETREGS
   } else {
     if (mptr->type == 'C') {
 
-#ifdef USE_SML__CANBUS
-#ifdef ESP8266
-      if (mptr->mcp2515 != nullptr) {
-        struct can_frame canMsg;
-        canMsg.can_id = (uint32_t) (sbuff[0] << 24 | sbuff[1] << 16 | sbuff[2] << 8 | sbuff[3]);
-        canMsg.can_dlc = sbuff[4];
-        for (uint8_t i = 0; i < canMsg.can_dlc; i++) {
-          canMsg.data[i] = sbuff[i + 5];
-        }
-        mptr->mcp2515->sendMessage(&canMsg);
-      }
-#else
+// Note: this block was previously gated by `USE_SML__CANBUS` (double underscore
+// typo) and therefore never compiled. Re-enabled under the correct macro now
+// that the legacy ESP8266 SPI MPC2515 TX path is gone — ESP32 native TWAI only.
+#ifdef USE_SML_CANBUS
       if (sml_globs.twai_installed) {
         twai_message_t message;
         message.identifier = (uint32_t) (sbuff[0] << 24 | sbuff[1] << 16 | sbuff[2] << 8 | sbuff[3]);
@@ -5078,7 +4939,6 @@ SETREGS
           AddLog(LOG_LEVEL_DEBUG, PSTR("Failed to queue can message for transmission"));
         }
       }
-#endif
 #endif // USE_SML_CANBUS
     } else { 
       if (mptr->trx_en.trxen) {

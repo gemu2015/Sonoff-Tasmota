@@ -857,6 +857,12 @@ typedef union {
 #define client_flush(A) jtmod_wifi(100,(uint32_t)A,0,0,0)
 #define client_setTimeout(A,B) jtmod_wifi(101,(uint32_t)A,B,0,0)
 #define client_print(A,B) jtmod_wifi(102,(uint32_t)A,(uint32_t)B,0,0)
+// ESP32-only — set TCP SO_LINGER on a WiFiClient. on=1, time=0 → next stop()/
+// delete sends RST instead of FIN, freeing peers (e.g. SMA Tripower 10.0SE)
+// that allow only one TCP session and would otherwise reject reconnects after
+// a script reload. ESP8266's WiFiClient has no setSocketOption() — this is a
+// no-op there; callers should fall back to plain client_stop().
+#define client_setLinger(A,ON,T) jtmod_wifi(103,(uint32_t)A,ON,T,0)
 
 
 #define ipa_fromstring(A,B) jtmod_wifi(70,(uint32_t)A,(uint32_t)B,0,0)

@@ -37,6 +37,11 @@ to doo:
 #include "./Plugins/modules_def.h"
 #include <TasmotaSerial.h>
 #include "TimeLib.h"
+#ifdef ESP32
+// for `struct linger` / SOL_SOCKET / SO_LINGER used by jt[171] op 103
+// (client_setLinger). ESP8266 path doesn't expose setSocketOption().
+#include <lwip/sockets.h>
+#endif
 
 // minimal plugin rev
 #define MINREV 0x00010004
@@ -1031,6 +1036,19 @@ uint32_t tmod_wifi(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3, uint32_t
 #endif
       }
       break;
+#ifdef ESP32
+    case 103:
+      // setLinger(on, seconds): sends TCP RST instead of FIN when on=1, time=0,
+      // freeing the peer's session slot immediately. Routed through here so PIC
+      // plugins (e.g. xsns_53_sml) don't need to call WiFiClient::setSocketOption
+      // directly — that would be an unrouted external symbol.
+      // p2 = on flag (0|1), p3 = linger time in seconds.
+      {
+        struct linger sl = { (int)p2, (int)p3 };
+        client->setSocketOption(SOL_SOCKET, SO_LINGER, &sl, sizeof(sl));
+      }
+      break;
+#endif
 
 #if defined(ESP32) && defined(USE_TLS)
     case 10:

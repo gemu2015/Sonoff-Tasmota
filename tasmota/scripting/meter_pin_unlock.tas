@@ -1,0 +1,373 @@
+>D
+IP=192.168.188.39
+; ============================================================
+;  Smart-Meter Optical PIN Unlocker  (Scripter port, ESP32)
+;  Original TinyC: tasmota/tinyc/examples/meter_pin_unlock.tc
+; ============================================================
+;
+;  Purpose
+;    Many German smart meters (EMH eHZ, Iskra MT175, EasyMeter
+;    Q3M, Holley DTZ541, Logarex LK13BE, ...) ship locked: only
+;    total energy is shown. Extended values (1.8.0/1.8.1, momentary
+;    power, per-phase) and the SML data telegram are only emitted
+;    *after* a 4-digit PIN has been entered optically on the front
+;    photodiode.
+;
+;    The provider mails the PIN; the manual normally says "use a
+;    flashlight". But if you already have an ESP with an IR LED +
+;    photodiode head clipped on the meter (the standard Hichi /
+;    IR-Lesekopf setup that reads SML), the same IR LED can send
+;    the unlock pulses — no flashlight needed, no re-clipping.
+;
+;  Required defines (user_config_override.h)
+;    #define USE_SCRIPT
+;    #define USE_SCRIPT_WEB_DISPLAY
+;    #define USE_SCRIPT_TASK         ; ESP32 multitasking
+;    #define EEP_SCRIPT_SIZE 4096    ; this script needs ~3 KB
+;
+;  Why a real task instead of a state machine
+;    ESP32 Scripter has built-in multitasking — `ct(num timer core)`
+;    spawns a FreeRTOS task pinned to a chosen core, and from inside
+;    >t1 we may freely call delay(). The pulse train then reads as
+;    plain linear code (just like the TinyC original) instead of a
+;    millis()-driven state machine, while the main loop / MQTT / web
+;    UI / SML reader on the other core stay fully responsive.
+;    Pulse-to-pulse jitter once the sequence is rolling: ~0 ms.
+;
+;  Console / rules trigger
+;    script >=#send       ; start
+;    script >=#abort      ; abort
+;    rule1 on event#metrun  do script >=#send  endon
+;           on event#metstop do script >=#abort endon
+;    rule1 1
+;
+; ============================================================
+
+
+; ── persisted form-bound settings ──────────────────────────
+p:pin=0           ; 4-digit PIN, 0..9999
+p:ir_pin=-1       ; GPIO of the IR LED, -1 = not selected
+p:active_low=0    ; 0 = active HIGH, 1 = active LOW
+p:pulse_on_ms=200 ; LED-on duration per pulse (ms)
+p:pulse_off_ms=200; dark gap inside one digit (ms)
+p:digit_gap_ms=1500; dark gap between two digits (ms)
+
+; ── runtime state shared between >F and >t1 ───────────────
+run_req=0         ; #send sets this → >t1 picks it up
+abort_flag=0      ; #abort sets this → >t1 polls between pulses
+running=0         ; 1 while >t1 is mid-sequence
+last_status=0     ; 0=idle 1=running 2=done -1=aborted (UI)
+prog_total=0
+prog_done=0
+cur_digit=0
+claimed_pin=-1    ; last pin we ran spinm() on
+
+; transient
+pct=0
+i=0
+np=0
+n1=0
+n2=0
+n3=0
+n4=0
+
+
+>B
+; one-shot init at boot
+print meter_pin_unlock ready  -  open  'PIN-Unlocker'  in main menu
+; spawn task 1 on core 1.
+;   ct(num  timer_ms  core  prio  stack_bytes)
+;   timer 500 ms = task wakes 2x/sec when idle (fast enough — clicks → first
+;     pulse latency ≤ 500 ms, plenty for human action). Lower values waste
+;     CPU re-parsing >t1 each tick on a non-trivial script (~9 KB here).
+;   stack 16384 = 16 KB. Default is only 6 KB which can stack-overflow with
+;     our nested subroutine calls (=#senddig → =#irw → spin/delay) → ESP
+;     restart. 16 KB is plenty for any sane Scripter task body.
+ct(1 500 1 1 16384)
+
+
+; ============================================================
+;  Subroutines
+; ============================================================
+
+; -- Drive the IR LED with current polarity. p1=1 ON, p1=0 OFF. --
+#irw(p1)
+if ir_pin>=0 {
+  if active_low==0 {
+    spin(ir_pin p1)
+  } else {
+    spin(ir_pin 1-p1)
+  }
+}
+
+; -- Claim the IR pin once. Re-runs only if user changes the pin. --
+#claim
+if ir_pin>=0
+and ir_pin!=claimed_pin {
+  spinm(ir_pin O)
+  claimed_pin=ir_pin
+  =#irw(0)
+  print meter_pin_unlock: IR pin -> GPIO %0ir_pin%
+}
+
+; -- Send one digit: N short pulses, with pulse_off gap between them.
+;    Stops emitting once abort_flag is set (loop body becomes a no-op
+;    — Scripter has no early-exit, only for/next).
+#senddig(p1)
+np=p1
+for i 1 np 1
+  if abort_flag==0 {
+    =#irw(1)
+    delay(pulse_on_ms)
+    =#irw(0)
+    prog_done=prog_done+1
+    if i<np {
+      delay(pulse_off_ms)
+    }
+  }
+next
+
+; -- Web/console action: kick off a new send cycle. -----------
+#send
+if ir_pin<0 {
+  print meter_pin_unlock: pick an IR GPIO first
+  break
+}
+if pin<0
+or pin>9999 {
+  print meter_pin_unlock: PIN out of range
+  break
+}
+if running>0 {
+  print meter_pin_unlock: already running
+  break
+}
+svars
+run_req=1
+
+; -- Web/console action: abort whatever is in flight. ---------
+#abort
+if running>0 {
+  abort_flag=1
+}
+
+; -- Web/console action: print current settings. --------------
+#dump
+print MET PIN=%4.0pin% GPIO=%0ir_pin% pol=%0active_low% on=%0pulse_on_ms% off=%0pulse_off_ms% gap=%0digit_gap_ms% st=%0last_status%
+
+
+; ============================================================
+;  Task 1 — runs on ESP32 core 1, fires every 100 ms.
+;  When >F flips run_req=1, this task does the entire pulse
+;  sequence with delay() inline (no state machine needed).
+; ============================================================
+
+>t1
+; idle: nothing to do
+if run_req==0 {
+  break
+}
+
+; ---- pickup the request ----------------------------------
+run_req=0
+abort_flag=0
+running=1
+last_status=1
+prog_done=0
+cur_digit=0
+
+; split PIN into 4 digits, MSB-first; vendor convention 0 → 10 pulses
+n1=int(pin/1000)%10
+n2=int(pin/100)%10
+n3=int(pin/10)%10
+n4=pin%10
+if n1==0 {
+  n1=10
+}
+if n2==0 {
+  n2=10
+}
+if n3==0 {
+  n3=10
+}
+if n4==0 {
+  n4=10
+}
+prog_total=n1+n2+n3+n4
+
+=#claim
+=#irw(0)
+print meter_pin_unlock: sending PIN %4.0pin% on GPIO %0ir_pin% (%0pulse_on_ms%/%0pulse_off_ms%/%0digit_gap_ms% ms, %0prog_total% pulses)
+
+; ---- short lead-in then digits 1..4 ----------------------
+delay(500)
+
+cur_digit=1
+=#senddig(n1)
+if abort_flag==0 {
+  delay(digit_gap_ms)
+  cur_digit=2
+  =#senddig(n2)
+}
+if abort_flag==0 {
+  delay(digit_gap_ms)
+  cur_digit=3
+  =#senddig(n3)
+}
+if abort_flag==0 {
+  delay(digit_gap_ms)
+  cur_digit=4
+  =#senddig(n4)
+}
+
+; ---- finish: park LED, set status ------------------------
+=#irw(0)
+running=0
+if abort_flag>0 {
+  last_status=-1
+  print meter_pin_unlock: aborted
+} else {
+  last_status=2
+  print meter_pin_unlock: sequence sent  -  check meter LCD
+}
+
+
+; ============================================================
+;  Slow tick (every second): housekeeping
+; ============================================================
+
+>S
+; reapply pinMode if user switched the IR GPIO via the form
+if chg[ir_pin]>0 {
+  =#claim
+  svars
+}
+; persist any other tweaked settings
+if chg[active_low]>0
+or chg[pulse_on_ms]>0
+or chg[pulse_off_ms]>0
+or chg[digit_gap_ms]>0
+or chg[pin]>0 {
+  svars
+}
+
+
+; ============================================================
+;  Main page — short status block, link to setup subpage
+; ============================================================
+
+>W
+PIN{m}%4.0pin%
+IR-LED GPIO{m}%0ir_pin%
+Polarity{m}%0active_low%  (0=HIGH, 1=LOW)
+Pulses sent{m}%0prog_done% / %0prog_total%
+$<small>Open <i>PIN-Unlocker</i> from the main menu to configure &amp; send.</small>
+
+
+; ============================================================
+;  Setup subpage — fancy card-style form with action buttons
+;  triggering subroutines via seva(1, '_name')
+; ============================================================
+
+>w &#x1F511; PIN-Unlocker
+<button onclick="history.back()">&#x2B05;&#xFE0F; Zurück</button>
+<hr>
+<style>
+.flex-container{display:flex;justify-content:center;flex-wrap:wrap;gap:14px}
+.card{width:280px;background-color:#f4f6fb;text-align:left;padding:18px;border:1px solid #c8d2e2;border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.button-group{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin-top:8px}
+.statbox{padding:10px;border-radius:5px;margin:8px 0;font-weight:bold}
+.stat-run{background:#dde6f5;color:#103060}
+.stat-ok {background:#dff0d8;color:#205020}
+.stat-err{background:#f5d6d6;color:#702020}
+.stat-idle{background:#eee;color:#444}
+</style>
+so(17+4)
+
+; --- live status block (built in #stat) --------------------
+%=#stat
+
+<div class="flex-container">
+
+; --- card 1: PIN -------------------------------------------
+<div class="card">
+<b>&#x1F511; PIN</b><br>
+nm(0 9999 1 pin "4-digit PIN " 80 0)
+<small>Leading zeros are fine — PIN 42 means 0042.</small>
+</div>
+
+; --- card 2: Hardware --------------------------------------
+<div class="card">
+<b>&#x1F4E1; Hardware</b><br>
+nm(-1 39 1 ir_pin "IR LED GPIO " 80 0)
+<small>-1 = unset. Pick a GPIO that is "None" in Tasmota's GPIO config (NOT "IRsend" — the meter wants raw on/off, not 38&nbsp;kHz-modulated).</small><br><br>
+pd(active_low " Polarity " 80 "Active HIGH (default)" "Active LOW (inverting driver)")
+</div>
+
+; --- card 3: Timing ----------------------------------------
+<div class="card">
+<b>&#x23F1;&#xFE0F; Timing</b><br>
+nm(20 500 10 pulse_on_ms "Pulse ON  ms " 80 0)
+nm(20 500 10 pulse_off_ms "Pulse OFF ms " 80 0)
+nm(200 5000 50 digit_gap_ms "Digit gap ms " 80 0)
+<small>Defaults are EMH-style 200/200/1500. If unlock fails, try 300/300/2000 or 150/150/1000. Pulse timing is exact — the sequence runs in a real ESP32 task.</small>
+</div>
+
+; --- card 4: Action ----------------------------------------
+<div class="card">
+<b>&#x1F680; Action</b><br>
+<div class="button-group">
+<button type="button" onclick="if(confirm('Send PIN to meter now?')){seva(1,'_send');setTimeout(function(){location.reload()},800);}">&#x1F4E1; Send PIN</button>
+<button type="button" onclick="seva(1,'_abort');setTimeout(function(){location.reload()},400);">&#x274C; Abort</button>
+<button type="button" onclick="seva(1,'_dump');alert('Settings dumped to console.');">&#x1F4DD; Dump to console</button>
+<button type="button" onclick="location.reload();">&#x1F504; Refresh status</button>
+</div>
+</div>
+
+</div>
+<hr>
+
+; --- system info footer ------------------------------------
+<center><span style="font-size:10px;color:#666">
+Script %0slen%/16384 chars &nbsp; FS %0fsi(1)%/%0fsi(0)% KB &nbsp; ScriptEngine V%vers%<br>
+meter_pin_unlock — port of tinyc/examples/meter_pin_unlock.tc<br>
+ESP32 multitasking (USE_SCRIPT_TASK) — pulse sequence on core 1
+</span></center>
+
+
+; ============================================================
+;  Web sub-fragments
+; ============================================================
+
+; -- Live status box at the top of the setup page ----------
+;    Gate on `wm>0` so we only emit during actual page rendering,
+;    not during the invisible form-submit pass — otherwise the
+;    block gets rendered twice. Same trick the marstek emulator
+;    example uses for its #daysub / #dayprod / #monthsub blocks.
+#stat
+if wm>0 {
+  if last_status==1 {
+    pct=0
+    if prog_total>0 {
+      pct=prog_done*100/prog_total
+    }
+    wcs <div class="statbox stat-run">
+    wcs &#x1F4E1; Sending PIN ... digit %0cur_digit%/4 &nbsp; pulse %0prog_done%/%0prog_total% &nbsp; (%0pct% %%)
+    wcs <progress value="%0pct%" max="100" style="width:100%%;height:14px"></progress>
+    wcs </div>
+    ; Auto-refresh while running. <meta http-equiv="refresh"> mid-body
+    ; is not honoured by modern browsers (must be in <head>) — use JS.
+    wcs <script>setTimeout(function(){location.reload();},1000);</script>
+  } else {
+    if last_status==2 {
+      wcs <div class="statbox stat-ok">&#x2705; PIN sent &mdash; check meter LCD for extended view</div>
+    } else {
+      if last_status<0 {
+        wcs <div class="statbox stat-err">&#x274C; Aborted</div>
+      } else {
+        wcs <div class="statbox stat-idle">&#x1F4A4; Idle &mdash; configure on the right and hit "Send PIN".</div>
+      }
+    }
+  }
+}
+
