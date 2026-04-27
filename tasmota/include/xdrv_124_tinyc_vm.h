@@ -190,9 +190,17 @@ static FS *tc_file_path(char *path) {
 #define TC_MAX_FILE_HANDLES  4      // max simultaneously open files
 #define TC_TCP_CLI_SLOTS     4      // outgoing TCP client slots (selected via tcpSelect)
 
-// VM task stack size (bytes)
+// VM task stack size (bytes). Bumped 8192 → 12288 (2026-04-27) after a
+// stack-overflow crash in tc_persist_save → fs::File::write → fwrite →
+// __smakebuf_r → littlefs → SPI flash → FreeRTOS critical section reached
+// xPortSetInterruptMaskFromISR with a corrupted TCB. Newlib's fwrite path
+// alloca's a ~1 KB stdio buffer in __smakebuf_r, the LittleFS / SPI-flash
+// chain adds another ~2 KB, plus Xtensa register windows. With the v1.3.20
+// build's slightly different code layout (mbedtls headers pulled in for the
+// new crypto syscalls) the meter_pin_unlock.tc autoexec — which calls
+// saveVars() in main() — went over 8 KB. 12 KB gives ~3 KB headroom.
 #ifndef TC_VM_TASK_STACK
-  #define TC_VM_TASK_STACK   8192
+  #define TC_VM_TASK_STACK   12288
 #endif
 
 // Heap memory for large arrays (> 255 elements)

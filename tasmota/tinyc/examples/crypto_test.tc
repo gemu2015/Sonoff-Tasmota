@@ -1,0 +1,148 @@
+// =================================================================
+// crypto_test.tc — sanity-check the AES + SHA syscalls (TinyC ≥ 1.3.20)
+// =================================================================
+// Run this FIRST after flashing firmware with the new crypto syscalls.
+// If all four CRYPT* console commands pass, the syscall wiring is good
+// and you can proceed with tuya_pool_heater.tc (or any other crypto-needing
+// protocol).
+//
+// Console commands:
+//   CRYPTECB    — AES-128-ECB round-trip on a known plaintext
+//   CRYPTHASH   — SHA-256 of "abc" against the published test vector
+//   CRYPTHMAC   — HMAC-SHA-256 with key="key", data="The quick brown fox..."
+//   CRYPTHEX    — hex2bin / bin2hex round-trip
+// =================================================================
+
+void cmd_ecb() {
+    char key[16];
+    char pt[16];
+    char ct[16];
+    char rt[16];
+    char ct_hex[33];
+
+    // 16-byte key + plaintext
+    char k[] = "YELLOW SUBMARINE";
+    char p[] = "0123456789ABCDEF";
+    for (int i = 0; i < 16; i++) key[i] = k[i];
+    for (int i = 0; i < 16; i++) pt[i]  = p[i];
+    for (int i = 0; i < 16; i++) ct[i]  = pt[i];
+
+    int e = aesEcb(key, ct, 1);                    // encrypt in-place
+    if (!e) { responseCmnd("aesEcb encrypt FAIL"); return; }
+
+    bin2hex(ct, 16, ct_hex);                       // for logging
+
+    for (int i = 0; i < 16; i++) rt[i] = ct[i];
+    int d = aesEcb(key, rt, 0);                    // decrypt in-place
+    if (!d) { responseCmnd("aesEcb decrypt FAIL"); return; }
+
+    // Round-trip check: rt should now equal pt
+    int ok = 1;
+    for (int i = 0; i < 16; i++) if (rt[i] != pt[i]) ok = 0;
+
+    char buf[200];
+    if (ok) {
+        sprintf(buf, "OK: ct=%s  (round-trip recovered plaintext)", ct_hex);
+    } else {
+        char rt_hex[33];
+        bin2hex(rt, 16, rt_hex);
+        sprintf(buf, "FAIL: ct=%s rt=%s (round-trip mismatch)", ct_hex, rt_hex);
+    }
+    responseCmnd(buf);
+}
+
+void cmd_hash() {
+    // SHA-256("abc") = ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+    char data[] = "abc";
+    char digest[32];
+    char hex[65];
+
+    int rc = sha256(data, 3, digest);
+    if (!rc) { responseCmnd("sha256 FAIL"); return; }
+    bin2hex(digest, 32, hex);
+
+    char want[] = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+    int ok = (strcmp(hex, want) == 0);
+
+    char buf[200];
+    if (ok) {
+        sprintf(buf, "OK: sha256(\"abc\")=%s", hex);
+    } else {
+        sprintf(buf, "FAIL: got %s want %s", hex, want);
+    }
+    responseCmnd(buf);
+}
+
+void cmd_hmac() {
+    // HMAC-SHA256(key="key", data="The quick brown fox jumps over the lazy dog")
+    //   = f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8
+    char key[]  = "key";
+    char data[] = "The quick brown fox jumps over the lazy dog";
+    char out[32];
+    char hex[65];
+
+    int rc = hmacSha256(key, 3, data, 43, out);
+    if (!rc) { responseCmnd("hmacSha256 FAIL"); return; }
+    bin2hex(out, 32, hex);
+
+    char want[] = "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8";
+    int ok = (strcmp(hex, want) == 0);
+
+    char buf[200];
+    if (ok) {
+        sprintf(buf, "OK: hmac=%s", hex);
+    } else {
+        sprintf(buf, "FAIL: got %s want %s", hex, want);
+    }
+    responseCmnd(buf);
+}
+
+void cmd_hex() {
+    // hex2bin("deadbeef") → 4 bytes 0xDE 0xAD 0xBE 0xEF, then bin2hex back
+    char hex_in[]  = "deadbeef";
+    char raw[4];
+    char hex_out[9];
+
+    int n = hex2bin(hex_in, 8, raw);
+    if (n != 4) {
+        char buf[80];
+        sprintf(buf, "hex2bin FAIL: returned %d bytes (want 4)", n);
+        responseCmnd(buf);
+        return;
+    }
+
+    int m = bin2hex(raw, 4, hex_out);
+    if (m != 8) {
+        char buf[80];
+        sprintf(buf, "bin2hex FAIL: returned %d chars (want 8)", m);
+        responseCmnd(buf);
+        return;
+    }
+
+    int ok = (raw[0] == 0xDE && raw[1] == 0xAD &&
+              raw[2] == 0xBE && raw[3] == 0xEF &&
+              strcmp(hex_out, "deadbeef") == 0);
+
+    char buf[120];
+    if (ok) {
+        sprintf(buf, "OK: hex2bin/bin2hex round-trip clean: %s", hex_out);
+    } else {
+        sprintf(buf, "FAIL: raw=%02x%02x%02x%02x hex_out=%s",
+                raw[0]&0xFF, raw[1]&0xFF, raw[2]&0xFF, raw[3]&0xFF, hex_out);
+    }
+    responseCmnd(buf);
+}
+
+void Command(char cmd[]) {
+    if      (strcmp(cmd, "ECB")  == 0) cmd_ecb();
+    else if (strcmp(cmd, "HASH") == 0) cmd_hash();
+    else if (strcmp(cmd, "HMAC") == 0) cmd_hmac();
+    else if (strcmp(cmd, "HEX")  == 0) cmd_hex();
+    else responseCmnd("?  ECB | HASH | HMAC | HEX");
+}
+
+int main() {
+    addCommand("CRYPT");
+    addLog("crypto_test ready: CRYPTECB / CRYPTHASH / CRYPTHMAC / CRYPTHEX");
+    return 0;
+}
