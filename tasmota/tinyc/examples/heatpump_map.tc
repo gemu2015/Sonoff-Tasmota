@@ -99,6 +99,44 @@ char wlog_src[16];     // 'O' = observed (cloud/external), 'M' = me (this script
 int  wlog_pos = 0;     // next slot to write
 int  wlog_count = 0;
 
+// ── UDP-shared globals from other Tasmota devices ────────────
+// `global float` = auto-syncs via UDP multicast 239.255.255.250:1999.
+// Initial values are sane defaults until first packet arrives. Names must
+// match exactly what the publishing devices send.
+global float aztemp = 20.0;   // Schlafzimmer (sleeping room)
+global float wtemp  = 20.0;   // Wohnzimmer (living room)
+global float ktmp   = 14.0;   // Keller (cellar — typically colder)
+global float rtemp  = 10.0;   // Außentemperatur (Bresser sensor)
+
+// ── Watchdog: cycle the heat pump if it's stuck in winter ────
+// 2-3 times a year the pump locks up and won't restart on its own. If
+// that happens while you're traveling the house cools down. The
+// watchdog correlates 4 independent signals to detect "should be heating
+// but isn't", then automatically does an off/on cycle to recover.
+//
+// All 6 thresholds + enable + grace-min are persist'd so they survive
+// reboots (and your tuning experiments). Adjust via console:
+//   MBUSWD ON|OFF             enable / disable the whole watchdog
+//   MBUSWD STAT               show state + next-action time
+//   MBUSWD TEST               simulate a trigger (skip grace period)
+persist int   wd_enable           = 1;
+persist float wd_room_min         = 17.0;   // °C — heated rooms must drop below
+persist float wd_cellar_min       = 14.0;   // °C — cellar (different baseline)
+persist float wd_outside_max      =  5.0;   // °C — only watch when actually cold
+persist float wd_ausgang_min      = 25.0;   // °C — pump output must be at least this when running
+persist int   wd_grace_min        = 15;     // minutes of sustained alert before action
+persist int   wd_cooldown_min     = 60;     // minutes of silence after a recovery cycle
+persist char  wd_email_to[64];              // recipient — empty means email disabled
+
+// Watchdog state machine (in-RAM, resets on reboot — that's fine)
+int wd_state              = 0;   // 0=monitor 1=alerted 2=just-sent-OFF 3=cooldown
+int wd_alert_started_ms   = 0;
+int wd_off_sent_ms        = 0;
+int wd_cooldown_until_ms  = 0;
+int wd_trigger_count      = 0;   // total times watchdog fired this boot
+int wd_last_trigger_ms    = 0;   // timestamp of previous trigger (escalation gate)
+int wd_test_active        = 0;   // 1 = next cooldown is shortened (test mode)
+
 void wlog_push(int addr, int val, char src) {
     int p = wlog_pos;
     wlog_addr[p] = addr;
@@ -445,6 +483,36 @@ int hp_send_modbus(int fc, int regaddr, int val) {
 }
 
 // ------------------------------------------------------------
+// Watchdog email alert — uses Tasmota's native mailSend (USE_SENDMAIL).
+// Recipient comes from the persist'd `wd_email_to` setting; SMTP server,
+// port, user, password, from-address are taken from Tasmota's device-wide
+// SmtpHost/SmtpUser/SmtpPwd/SmtpFrom config (the "*" placeholders).
+// Set the recipient via console:  MBUSWD MAIL <user@example.com>
+// Empty recipient → no email sent (silent fallback).
+// ------------------------------------------------------------
+void wd_send_alert(char subj_part[]) {
+    if (strlen(wd_email_to) == 0) return;   // not configured
+
+    // Snapshot current readings so the email captures the moment
+    int u; int s;
+    float ausgang_c = 0.0;
+    float puffer_c  = 0.0;
+    if (known[191]) { u = reg[191] & 0xFFFF; s = u; if (s >= 32768) s -= 65536; ausgang_c = s / 10.0; }
+    if (known[188]) { u = reg[188] & 0xFFFF; s = u; if (s >= 32768) s -= 65536; puffer_c  = s / 10.0; }
+
+    char body[400];
+    sprintf(body, "HP watchdog: %s<br>Trip count: %d<br><br>HP-Ausgang: %.1f C<br>HP-Puffer: %.1f C<br>Wohnzimmer: %.1f C<br>Schlafzimmer: %.1f C<br>Keller: %.1f C<br>Aussen (Bresser): %.1f C<br>",
+            subj_part, wd_trigger_count,
+            ausgang_c, puffer_c, wtemp, aztemp, ktmp, rtemp);
+    mailBody(body);
+
+    char params[200];
+    sprintf(params, "[*:*:*:*:*:%s:HP Watchdog %s]", wd_email_to, subj_part);
+    mailSend(params);
+    addLog("HP WATCHDOG: email alert dispatched");
+}
+
+// ------------------------------------------------------------
 // Tasmota main-page sensor rows. Outputs "{s}label{m}value{e}" lines
 // which the main web view renders as a clean sensor table.
 // ------------------------------------------------------------
@@ -508,6 +576,34 @@ void WebCall() {
         sprintf(row, "{s}HP Auslassdruck{m}%.1f bar{e}", (reg[194] & 0xFFFF) / 10.0);
         webSend(row);
     }
+
+    // ── UDP-shared room temperatures (from other Tasmota devices) ──
+    sprintf(row, "{s}Wohnzimmer{m}%.1f &deg;C{e}", wtemp);
+    webSend(row);
+    sprintf(row, "{s}Schlafzimmer{m}%.1f &deg;C{e}", aztemp);
+    webSend(row);
+    sprintf(row, "{s}Keller{m}%.1f &deg;C{e}", ktmp);
+    webSend(row);
+    sprintf(row, "{s}Außen (Bresser){m}%.1f &deg;C{e}", rtemp);
+    webSend(row);
+
+    // ── Watchdog status row ──
+    if (wd_enable) {
+        char wst[40];
+        if      (wd_state == 0) strcpy(wst, "monitor");
+        else if (wd_state == 1) {
+            int mins = (millis() - wd_alert_started_ms) / 60000;
+            sprintf(wst, "ALERT %d min", mins);
+        }
+        else if (wd_state == 2) strcpy(wst, "cycling OFF");
+        else if (wd_state == 3) {
+            int mins_left = (wd_cooldown_until_ms - millis()) / 60000;
+            sprintf(wst, "cooldown %d min", mins_left);
+        }
+        else strcpy(wst, "?");
+        sprintf(row, "{s}HP Watchdog{m}%s (%d trips){e}", wst, wd_trigger_count);
+        webSend(row);
+    }
 }
 
 // ------------------------------------------------------------
@@ -566,6 +662,14 @@ void JsonCall() {
         sprintf(buf, "%s\"DischPress\":%.1f", sep, (reg[194] & 0xFFFF) / 10.0);
         responseAppend(buf); n = 1; strcpy(sep, ",");
     }
+    // UDP-shared room temps — useful in the same JSON for HA / dashboards
+    sprintf(buf, "%s\"Wohnzimmer\":%.1f", sep, wtemp);     responseAppend(buf); strcpy(sep, ",");
+    sprintf(buf, "%s\"Schlafzimmer\":%.1f", sep, aztemp);   responseAppend(buf);
+    sprintf(buf, "%s\"Keller\":%.1f", sep, ktmp);          responseAppend(buf);
+    sprintf(buf, "%s\"Aussen2\":%.1f", sep, rtemp);        responseAppend(buf);
+    // Watchdog status — primary alert channel via teleperiod MQTT
+    sprintf(buf, "%s\"WdState\":%d,\"WdTrips\":%d", sep, wd_state, wd_trigger_count);
+    responseAppend(buf);
     responseAppend("}");
 }
 
@@ -754,6 +858,96 @@ void EverySecond() {
         clear_btn = 0;
     }
     prev_clear = clear_btn;
+
+    // ── Watchdog state machine ──
+    // Runs every second; transitions are millis-driven so a missed tick
+    // is harmless (next tick catches up). All actions are non-blocking;
+    // the OFF→ON gap and the cooldown both use millis() comparisons.
+    if (wd_enable) {
+        int now = millis();
+
+        // State 3: cooldown (silent after a recovery cycle)
+        if (wd_state == 3) {
+            if (now >= wd_cooldown_until_ms) {
+                wd_state = 0;
+                addLog("HP WATCHDOG: cooldown ended, monitoring resumed");
+            }
+        }
+        // State 2: just sent OFF, send ON 30 s later
+        else if (wd_state == 2) {
+            if (now - wd_off_sent_ms >= 30000) {
+                hp_send_modbus(0x05, 40, 0xFF00);
+                addLog("HP WATCHDOG: cycle ON sent (FC05 coil 40 = FF00)");
+                wd_state = 3;
+                if (wd_test_active) {
+                    // Test mode — 30 s cooldown so we're back to monitor
+                    // quickly. No real-life consequences since this was
+                    // an artificial trigger.
+                    wd_cooldown_until_ms = now + 30000;
+                    wd_test_active = 0;
+                    addLog("HP WATCHDOG: TEST cooldown 30s (would normally be wd_cooldown_min)");
+                } else {
+                    wd_cooldown_until_ms = now + (wd_cooldown_min * 60000);
+                }
+            }
+        }
+        // States 0/1: monitor + alert. Need the named registers populated.
+        else if (known[217] && known[191]) {
+            int hp_state = reg[217] & 0xFFFF;
+            int u = reg[191] & 0xFFFF;
+            int s = u; if (s >= 32768) s = s - 65536;
+            float ausgang_c = s / 10.0;
+
+            // All trigger conditions must hold simultaneously
+            int conds = 0;
+            if (hp_state == 1 &&
+                rtemp  < wd_outside_max &&
+                ausgang_c < wd_ausgang_min &&
+                aztemp < wd_room_min &&
+                wtemp  < wd_room_min &&
+                ktmp   < wd_cellar_min) {
+                conds = 1;
+            }
+
+            if (wd_state == 0) {
+                if (conds) {
+                    wd_state = 1;
+                    wd_alert_started_ms = now;
+                    addLog("HP WATCHDOG: alert started — all signals say pump is stuck");
+                }
+            } else if (wd_state == 1) {
+                if (!conds) {
+                    wd_state = 0;
+                    addLog("HP WATCHDOG: alert cleared (conditions normalised)");
+                } else if (now - wd_alert_started_ms >= wd_grace_min * 60000) {
+                    // Grace expired — cycle the pump
+                    hp_send_modbus(0x05, 40, 0x0000);
+                    addLog("HP WATCHDOG: TRIGGERED — cycle OFF sent (FC05 coil 40 = 0000)");
+                    wd_state = 2;
+                    wd_off_sent_ms = now;
+                    wd_trigger_count = wd_trigger_count + 1;
+
+                    // Escalation: if a previous trigger was recent (within
+                    // 3× cooldown_min), the previous recovery cycle clearly
+                    // didn't help — send the URGENT email instead of the
+                    // routine "cycle triggered" one.
+                    int rapid_repeat = 0;
+                    if (wd_last_trigger_ms > 0 &&
+                        (now - wd_last_trigger_ms) < (wd_cooldown_min * 60000 * 3)) {
+                        rapid_repeat = 1;
+                    }
+                    wd_last_trigger_ms = now;
+
+                    if (rapid_repeat) {
+                        addLog("HP WATCHDOG: ESCALATION — previous cycle did not help, pump may need physical reset");
+                        wd_send_alert("URGENT: pump stuck, recovery failed");
+                    } else {
+                        wd_send_alert("auto-recovery cycle triggered");
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ------------------------------------------------------------
@@ -807,9 +1001,97 @@ void Command(char cmd[]) {
             responseCmnd("HPSET FAILED");
         }
 
+    } else if (strFind(cmd, "WD ON") == 0 && strlen(cmd) == 5) {
+        wd_enable = 1; saveVars();
+        responseCmnd("watchdog ENABLED");
+
+    } else if (strFind(cmd, "WD OFF") == 0 && strlen(cmd) == 6) {
+        wd_enable = 0; saveVars();
+        responseCmnd("watchdog DISABLED");
+
+    } else if (strFind(cmd, "WD STAT") == 0 && strlen(cmd) == 7) {
+        char st[24];
+        if      (wd_state == 0) strcpy(st, "monitor");
+        else if (wd_state == 1) strcpy(st, "alerting");
+        else if (wd_state == 2) strcpy(st, "cycling-off");
+        else if (wd_state == 3) strcpy(st, "cooldown");
+        else                    strcpy(st, "?");
+        int now = millis();
+        int aging = 0;
+        if (wd_state == 1) aging = (now - wd_alert_started_ms) / 60000;
+        if (wd_state == 3) aging = (wd_cooldown_until_ms - now) / 60000;
+        sprintf(r, "wd=%d state=%s timer=%dmin triggers=%d  rooms=%.1f/%.1f/%.1f outside=%.1f",
+                wd_enable, st, aging, wd_trigger_count,
+                aztemp, wtemp, ktmp, rtemp);
+        responseCmnd(r);
+
+    } else if (strFind(cmd, "WD TEST URGENT") == 0 && strlen(cmd) == 14) {
+        // End-to-end self-test simulating an ESCALATION (rapid repeat trigger
+        // means the previous recovery cycle didn't help). Sends URGENT email,
+        // cycles the pump off/on, uses short cooldown.
+        addLog("HP WATCHDOG: TEST URGENT — simulating rapid-repeat escalation");
+        wd_last_trigger_ms = millis() - 60000;       // pretend prev trigger was 1 min ago
+        wd_trigger_count   = wd_trigger_count + 1;
+        wd_send_alert("URGENT: pump stuck, recovery failed (TEST)");
+        hp_send_modbus(0x05, 40, 0x0000);
+        addLog("HP WATCHDOG: TEST URGENT — FC05 OFF sent, ON in ~2s via state machine");
+        wd_state = 2;
+        wd_off_sent_ms = millis() - 28000;            // ON fires 2 s after this tick
+        wd_test_active = 1;                            // → 30 s cooldown
+        responseCmnd("TEST URGENT: URGENT email + cycle off, full recovery in ~32s");
+
+    } else if (strFind(cmd, "WD TEST") == 0 && strlen(cmd) == 7) {
+        // End-to-end self-test of the NORMAL recovery path. Walks through
+        // exactly what happens at a real trigger: email → cycle OFF → wait
+        // → cycle ON → cooldown. Cooldown shortened to 30 s for testing.
+        addLog("HP WATCHDOG: TEST — simulating normal cycle trigger");
+        wd_trigger_count = wd_trigger_count + 1;
+        wd_send_alert("auto-recovery cycle triggered (TEST)");
+        hp_send_modbus(0x05, 40, 0x0000);
+        addLog("HP WATCHDOG: TEST — FC05 OFF sent, ON in ~2s via state machine");
+        wd_state = 2;
+        wd_off_sent_ms = millis() - 28000;            // ON fires 2 s after this tick
+        wd_test_active = 1;                            // → 30 s cooldown
+        responseCmnd("TEST: email + cycle off, full recovery in ~32s");
+
+    } else if (strFind(cmd, "WD MAIL ") == 0) {
+        // Set recipient: MBUSWD MAIL <addr>  (or 'CLEAR' to disable)
+        char arg[64];
+        int n = strlen(cmd);
+        int j = 0;
+        for (int i = 8; i < n; i++) {
+            if (j < 63) { arg[j] = cmd[i]; j = j + 1; }
+        }
+        arg[j] = 0;
+        if (strFind(arg, "CLEAR") == 0 && strlen(arg) == 5) {
+            strcpy(wd_email_to, "");
+            saveVars();
+            responseCmnd("watchdog email recipient cleared (alerts disabled)");
+        } else {
+            strcpy(wd_email_to, arg);
+            saveVars();
+            sprintf(r, "watchdog email recipient set: %s", wd_email_to);
+            responseCmnd(r);
+        }
+
+    } else if (strFind(cmd, "WD MAIL") == 0 && strlen(cmd) == 7) {
+        // Show current recipient
+        if (strlen(wd_email_to) == 0) {
+            responseCmnd("watchdog email: not configured (use MBUSWD MAIL <addr>)");
+        } else {
+            sprintf(r, "watchdog email recipient: %s", wd_email_to);
+            responseCmnd(r);
+        }
+
+    } else if (strFind(cmd, "WD MAILTEST") == 0 && strlen(cmd) == 11) {
+        // Send a test email NOW with current state — proves SMTP works
+        wd_send_alert("MAILTEST (manual)");
+        responseCmnd("test email sent (check inbox + log)");
+
     } else if (strFind(cmd, "STAT") == 0 && strlen(cmd) == 4) {
-        sprintf(r, "frames=%d parsed=%d failed=%d known=%d log=%d writes=%d",
-                frames_seen, rsp_parsed, rsp_failed, registers_known, log_on, writes_seen);
+        sprintf(r, "frames=%d parsed=%d failed=%d known=%d log=%d writes=%d wd=%d",
+                frames_seen, rsp_parsed, rsp_failed, registers_known, log_on,
+                writes_seen, wd_state);
         responseCmnd(r);
 
     } else if (strFind(cmd, "SNAP") == 0 && strlen(cmd) == 4) {
@@ -880,7 +1162,7 @@ void Command(char cmd[]) {
         responseCmnd("frame logging OFF");
 
     } else {
-        responseCmnd("MBUS: ON | OFF | SET <degC> | STAT | SNAP | CLEAR | DUMP | WRITES | LOG ON|OFF");
+        responseCmnd("MBUS: ON|OFF | SET <T> | WD ON|OFF|STAT|TEST|TEST URGENT | WD MAIL [<addr>|CLEAR] | WD MAILTEST | STAT | SNAP | CLEAR | DUMP | WRITES | LOG ON|OFF");
     }
 }
 
