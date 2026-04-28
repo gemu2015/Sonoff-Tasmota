@@ -1,0 +1,905 @@
+// =================================================================
+// heatpump_map.tc — Modbus-RTU sniffer + control for chinese heat pumps
+//
+// Hardware: ESP32 with auto-direction RS485 module (e.g. MAX13487, SP3485).
+// RX on GPIO 4, TX on GPIO 5 (no DE/RE pin needed). Tap in parallel with
+// any existing cloud bridge (EW11 etc.) — we read passively and write
+// with listen-before-talk silence detection to avoid bus collisions.
+//
+// Architecture:
+//   - All reads via passive RS485 tap (Every50ms tick drains UART, parser
+//     scans buffer for FC01/02/03/05/06/15/16 patterns including merged
+//     REQ+RSP and embedded writes).
+//   - All writes via direct UART (auto-direction module enables driver
+//     while bytes flow, returns to RX afterward).
+//   - No dependency on the cloud's gateway — sniffer is fully self-contained.
+//
+// Confirmed registers (Fantastic 11 kW heat pump, slave 1, 19200 8N2):
+//   r1   Zieltemp / target water temp        ×10 °C
+//   r188 Puffer / buffer tank temp           ×10 °C
+//   r190 Aussentemp / outside air            ×10 °C  (drives heat curve)
+//   r191 Ausgangstemp / supply water         ×10 °C
+//   r192 Ansauggas / suction gas             ×10 °C
+//   r193 Saugdruck / suction pressure        ×10 bar
+//   r194 Auslassdruck / discharge pressure   ×10 bar
+//   r206 Verdampfer / evaporator coil        ×10 °C
+//   r217 Power state (read-only):  0=boot, 1=running, 6=remote-off
+//   coil 40 (FC05): write 0xFF00 = ON, 0x0000 = OFF (the actual on/off
+//                   control — r217 just reflects the result)
+//
+// Console (MBUS prefix):
+//   MBUS ON        write FC05 coil 40 = 0xFF00
+//   MBUS OFF       write FC05 coil 40 = 0x0000
+//   MBUS SET <T>   write FC06 r1 = T*10  (target water temp in °C)
+//   MBUS STAT      summary of frames/parses/known-registers
+//   MBUS WRITES    dump captured FC05/06/15/16 events (own + observed)
+//   MBUS DUMP      dump all known registers
+//   MBUS SNAP      snapshot baseline for diff highlighting in /tc_ui
+//   MBUS CLEAR     reset captured registers + counters
+//   MBUS LOG ON|OFF  toggle raw frame logging
+//
+// Web UI:  http://<ip>/tc_ui  — register tables with diff-vs-snapshot
+//          highlighting (used during the original mapping work)
+// Main page rows + MQTT JSON publish the named values:
+//   HP State, Zieltemp, Puffer, Ausgang, Ansauggas, Verdampfer, Aussen,
+//   Saugdruck, Auslassdruck
+//
+// To map further registers (e.g. fault code, mode enum, hot-water target):
+//   1. open /tc_ui, click "Snapshot baseline"
+//   2. change ONE setting on the heat-pump panel (or trigger an event)
+//   3. wait ~10 s (one cloud poll cycle), refresh
+//   4. registers highlighted yellow are the ones that changed
+// =================================================================
+
+// ── UART / framing ─────────────────────────────────────────
+int  rx_pin     = 4;
+int  tx_pin     = 5;
+int  baud       = 19200;
+int  cfg        = 7;       // 8N2
+int  silence_ms = 3;       // inter-frame gap
+
+int  ser     = -1;
+int  log_on  = 1;          // raw frame logging — ON by default so cloud
+                           // writes are captured the moment you toggle
+                           // the app. Use MBUSLOG OFF if it's too noisy.
+
+// Frame buffer
+char buf[260];
+int  buf_len = 0;
+int  last_ms = 0;
+
+// ── Register store ─────────────────────────────────────────
+// 500 covers 0..338 + 432..493 with headroom.
+int  reg[500];
+int  known[500];
+int  snap[500];
+int  snapped[500];     // 1 if this slot has a snapshot baseline
+
+// Counters
+int  frames_seen = 0;
+int  bytes_seen  = 0;
+int  rsp_parsed  = 0;
+int  rsp_failed  = 0;
+int  registers_known = 0;
+int  last_block_ms = 0;
+
+// FC06 / FC16 write capture — when cloud (or panel) writes to the heat pump,
+// the register address tells us what control we'd target ourselves.
+int  writes_seen = 0;
+int  last_write_addr = -1;
+int  last_write_val  = 0;
+int  last_write_ms   = 0;
+
+// Circular buffer of last 16 write events (own + observed). Small footprint
+// (16 × 3 ints = ~192 B), enough to catch a complete cloud on/off interaction.
+int  wlog_addr[16];
+int  wlog_val[16];
+int  wlog_ms[16];
+char wlog_src[16];     // 'O' = observed (cloud/external), 'M' = me (this script's send)
+int  wlog_pos = 0;     // next slot to write
+int  wlog_count = 0;
+
+void wlog_push(int addr, int val, char src) {
+    int p = wlog_pos;
+    wlog_addr[p] = addr;
+    wlog_val[p]  = val;
+    wlog_ms[p]   = millis();
+    wlog_src[p]  = src;
+    wlog_pos = (p + 1) % 16;
+    if (wlog_count < 16) wlog_count = wlog_count + 1;
+}
+
+// Track the most recent REQ so we can pair it with a lone RSP that arrives
+// in the next captured frame. Most cloud polls land as REQ+RSP merged in
+// one buffer, but occasionally the silence detector splits them.
+int  last_req_addr = -1;
+int  last_req_qty  = 0;
+
+// ------------------------------------------------------------
+// Store a register reading; track first-seen and changes.
+// ------------------------------------------------------------
+void store_reg(int addr, int val) {
+    if (addr < 0 || addr >= 500) return;
+    if (known[addr] == 0) {
+        known[addr] = 1;
+        registers_known = registers_known + 1;
+    }
+    reg[addr] = val;
+}
+
+// ------------------------------------------------------------
+// Parse one frame into register store. Handles three shapes:
+//   A) Lone 8-byte REQ — record addr/qty for the next RSP
+//   B) Lone RSP (slave fc bc data crc) — paired with last_req
+//   C) Merged REQ+RSP (8 + 5+2N bytes)
+// All other frames are ignored (probably noise / collisions /
+// non-FC03 frames we don't care about for mapping).
+// ------------------------------------------------------------
+void parse_frame() {
+    if (buf_len < 5) return;
+    int sl = buf[0] & 0xFF;
+    int fc = buf[1] & 0xFF;
+    // ── Scan the WHOLE buffer for any embedded WRITE function code ──
+    // FC05 = write single coil    (8 bytes: 01 05 addr_hi addr_lo val_hi val_lo crc crc;
+    //                               val=FF00 means ON, 0000 means OFF)
+    // FC06 = write single register (8 bytes: 01 06 addr_hi addr_lo val_hi val_lo crc crc)
+    // FC15 = write multiple coils  (>=9 bytes: 01 0F addr ... bc data crc)
+    // FC16 = write multiple regs   (>=9 bytes: 01 10 addr ... bc data crc)
+    //
+    // Walking the buffer catches writes embedded within merged frames
+    // (cloud often sends an FC06 write within <4 ms of a prior FC03
+    // poll tail).
+    for (int i = 0; i + 8 <= buf_len; i++) {
+        int s2 = buf[i] & 0xFF;
+        int f2 = buf[i+1] & 0xFF;
+        if (s2 != 1) continue;                  // only slave 1 commands matter
+
+        if (f2 == 0x05) {
+            // FC05: write single coil
+            int waddr = ((buf[i+2] & 0xFF) << 8) | (buf[i+3] & 0xFF);
+            int wval  = ((buf[i+4] & 0xFF) << 8) | (buf[i+5] & 0xFF);
+            // Sanity: coil addr typically < 1000, val must be 0xFF00 or 0x0000
+            if (waddr < 1000 && (wval == 0xFF00 || wval == 0x0000)) {
+                last_write_addr = waddr;
+                last_write_val  = wval;
+                last_write_ms   = millis();
+                writes_seen     = writes_seen + 1;
+                wlog_push(waddr, wval, 'O');
+                char w[160];
+                char st[8];
+                if (wval == 0xFF00) strcpy(st, "ON"); else strcpy(st, "OFF");
+                sprintf(w, "*** WRITE FC05 (coil) *** addr=%d (0x%04x) → %s",
+                        waddr, waddr, st);
+                addLog(w);
+            }
+        } else if (f2 == 0x06) {
+            int waddr = ((buf[i+2] & 0xFF) << 8) | (buf[i+3] & 0xFF);
+            int wval  = ((buf[i+4] & 0xFF) << 8) | (buf[i+5] & 0xFF);
+            if (waddr < 1000) {
+                last_write_addr = waddr;
+                last_write_val  = wval;
+                last_write_ms   = millis();
+                writes_seen     = writes_seen + 1;
+                wlog_push(waddr, wval, 'O');
+                char w[160];
+                sprintf(w, "*** WRITE FC06 (reg) *** addr=%d (0x%04x) val=%d (0x%04x)",
+                        waddr, waddr, wval, wval);
+                addLog(w);
+            }
+        } else if (f2 == 0x0F && i + 9 <= buf_len) {
+            // FC15: write multiple coils
+            int waddr = ((buf[i+2] & 0xFF) << 8) | (buf[i+3] & 0xFF);
+            int wqty  = ((buf[i+4] & 0xFF) << 8) | (buf[i+5] & 0xFF);
+            if (waddr < 1000 && wqty > 0 && wqty < 256) {
+                last_write_addr = waddr;
+                last_write_ms   = millis();
+                writes_seen     = writes_seen + 1;
+                wlog_push(waddr, wqty, 'O');
+                char w[160];
+                sprintf(w, "*** WRITE FC15 (coils) *** addr=%d qty=%d",
+                        waddr, wqty);
+                addLog(w);
+            }
+        } else if (f2 == 0x10 && i + 9 <= buf_len) {
+            int waddr = ((buf[i+2] & 0xFF) << 8) | (buf[i+3] & 0xFF);
+            int wqty  = ((buf[i+4] & 0xFF) << 8) | (buf[i+5] & 0xFF);
+            if (waddr < 1000 && wqty > 0 && wqty < 32) {
+                last_write_addr = waddr;
+                last_write_ms   = millis();
+                writes_seen     = writes_seen + 1;
+                wlog_push(waddr, wqty, 'O');
+                char w[160];
+                sprintf(w, "*** WRITE FC16 (regs) *** addr=%d qty=%d",
+                        waddr, wqty);
+                addLog(w);
+            }
+        }
+    }
+
+    if (sl != 1 || fc != 0x03) return;   // only slave 1 FC03 carries our data
+
+    // Case A: lone REQ
+    if (buf_len == 8) {
+        last_req_addr = ((buf[2] & 0xFF) << 8) | (buf[3] & 0xFF);
+        last_req_qty  = ((buf[4] & 0xFF) << 8) | (buf[5] & 0xFF);
+        return;
+    }
+
+    // Case C: merged REQ + RSP — start with REQ
+    if (buf_len >= 15) {
+        int req_addr = ((buf[2] & 0xFF) << 8) | (buf[3] & 0xFF);
+        int req_qty  = ((buf[4] & 0xFF) << 8) | (buf[5] & 0xFF);
+        int rsp_off  = 8;
+        if ((buf[rsp_off] & 0xFF) == 1 && (buf[rsp_off+1] & 0xFF) == 0x03) {
+            int bc = buf[rsp_off+2] & 0xFF;
+            if (bc == req_qty * 2 && buf_len >= rsp_off + 3 + bc) {
+                // Valid merged frame; extract qty registers
+                for (int r = 0; r < req_qty; r++) {
+                    int hi = buf[rsp_off + 3 + r*2] & 0xFF;
+                    int lo = buf[rsp_off + 4 + r*2] & 0xFF;
+                    store_reg(req_addr + r, (hi << 8) | lo);
+                }
+                rsp_parsed = rsp_parsed + 1;
+                last_block_ms = millis();
+                return;
+            }
+        }
+    }
+
+    // Case B: lone RSP — pair with most recent REQ
+    if (last_req_addr >= 0 && buf_len >= 5) {
+        int bc = buf[2] & 0xFF;
+        if (bc == last_req_qty * 2 && buf_len >= 3 + bc) {
+            for (int r = 0; r < last_req_qty; r++) {
+                int hi = buf[3 + r*2] & 0xFF;
+                int lo = buf[4 + r*2] & 0xFF;
+                store_reg(last_req_addr + r, (hi << 8) | lo);
+            }
+            rsp_parsed = rsp_parsed + 1;
+            last_block_ms = millis();
+            last_req_addr = -1;   // consume
+            return;
+        }
+    }
+
+    rsp_failed = rsp_failed + 1;
+}
+
+// ------------------------------------------------------------
+// Flush completed frame: log raw (if enabled) + parse into store
+// ------------------------------------------------------------
+void flush_frame() {
+    if (buf_len == 0) return;
+    bytes_seen  = bytes_seen + buf_len;
+    frames_seen = frames_seen + 1;
+    parse_frame();
+    if (log_on) {
+        char hex[140];
+        int n = buf_len;
+        if (n > 64) n = 64;
+        bin2hex(buf, n, hex);
+        char line[200];
+        sprintf(line, "MB f#%d %dB hex=%s", frames_seen, buf_len, hex);
+        addLog(line);
+    }
+}
+
+// ------------------------------------------------------------
+// Tick-based UART drain (50 ms cadence).
+//
+// Why a tick rather than TaskLoop / spawnTask:
+//   The cloud's polling cycle is ~8 s between bursts; each burst itself
+//   is a few-millisecond burst followed by silence. So if we get ZERO
+//   new bytes in a 50 ms tick AND have data buffered, we're in
+//   inter-frame silence — flush the frame.
+//
+//   This also means we never hold the VM mutex for long, so WebCall /
+//   JsonCall / Command callbacks always get a window — no flicker on
+//   the main page.
+//
+//   At 19200 8N2, max ~95 bytes can arrive in 50 ms; TasmotaSerial's
+//   1 KB UART RX buffer handles that easily.
+// ------------------------------------------------------------
+void Every50ms() {
+    if (ser < 0) return;
+    int avail = serialAvailable(ser);
+    int got = 0;
+    int b;
+    while (avail > 0) {
+        b = serialRead(ser);
+        if (b < 0) break;
+        if (buf_len < 256) {
+            buf[buf_len] = b;
+            buf_len = buf_len + 1;
+        }
+        avail = avail - 1;
+        got = got + 1;
+        if (buf_len >= 256) break;
+    }
+    if (got == 0 && buf_len > 0) {
+        // No new bytes this tick + we have data → end of frame
+        flush_frame();
+        buf_len = 0;
+    }
+}
+
+// ------------------------------------------------------------
+// Snapshot current registers as baseline (for diff highlighting)
+// ------------------------------------------------------------
+void take_snapshot() {
+    int n = 0;
+    for (int i = 0; i < 500; i++) {
+        if (known[i]) {
+            snap[i] = reg[i];
+            snapped[i] = 1;
+            n = n + 1;
+        }
+    }
+    char m[80];
+    sprintf(m, "snapshot taken: %d registers", n);
+    addLog(m);
+}
+
+// ------------------------------------------------------------
+// Clear snapshot diffs (so highlighted rows return to normal)
+// ------------------------------------------------------------
+void clear_snapshot() {
+    for (int i = 0; i < 500; i++) snapped[i] = 0;
+    addLog("snapshot cleared");
+}
+
+// ------------------------------------------------------------
+// WebUI form button state
+// ------------------------------------------------------------
+int snap_btn  = 0;
+int clear_btn = 0;
+int prev_snap  = 0;
+int prev_clear = 0;
+
+// ------------------------------------------------------------
+// Modbus CRC16 (poly 0xA001) for outgoing FC06 frames.
+// ------------------------------------------------------------
+int modbus_crc16(char b[], int len) {
+    int crc = 0xFFFF;
+    for (int i = 0; i < len; i++) {
+        crc = crc ^ (b[i] & 0xFF);
+        for (int j = 0; j < 8; j++) {
+            if (crc & 1) crc = (crc >> 1) ^ 0xA001;
+            else         crc = (crc >> 1);
+        }
+    }
+    return crc & 0xFFFF;
+}
+
+// ------------------------------------------------------------
+// Send FC06 "write single holding register" via the EW11 Socket B.
+// Returns 1 on send-OK (no response confirmation; the sniffer's parser
+// will see the actual write on the bus + any reply, providing a free
+// out-of-band check).
+// ------------------------------------------------------------
+// Architecture: sniffer ESP is fully self-contained. EW11 stays on the bus
+// for the cloud's polling traffic (we don't touch its config), but we never
+// talk to it ourselves — neither for reads (passive RS485 tap covers that)
+// nor for writes (direct UART via auto-direction RS485 covers that). This
+// keeps a single dependency: just the wire tap. The earlier dual-path
+// attempt (UART vs EW11 Socket B) was abandoned because EW11 doesn't relay
+// pump responses back to its TCP-Server sockets — verification would have
+// required the sniffer anyway.
+
+// fc6=0x06 to write a holding register, fc5=0x05 to write a single coil.
+// Same 8-byte wire format, just different fc byte.
+int hp_send_modbus(int fc, int regaddr, int val) {
+    // Build the 8-byte FC05 / FC06 frame
+    char frame[8];
+    frame[0] = 1;                          // slave id
+    frame[1] = fc & 0xFF;                  // function code
+    frame[2] = (regaddr >> 8) & 0xFF;
+    frame[3] = regaddr & 0xFF;
+    frame[4] = (val >> 8) & 0xFF;
+    frame[5] = val & 0xFF;
+    int crc = modbus_crc16(frame, 6);
+    frame[6] = crc & 0xFF;                 // CRC low byte first (Modbus LE)
+    frame[7] = (crc >> 8) & 0xFF;
+
+    // ── Direct UART send via the auto-direction RS485 module ──
+    if (ser < 0) {
+        addLog("hp_send_modbus: serial not open");
+        return 0;
+    }
+    // Listen-before-talk: wait for ≥4 ms bus silence before TX.
+    // Bus has a 1 Hz cadence (cloud polls one block per second; each
+    // burst is ~50-100 ms followed by ~900 ms of silence). 4 ms is the
+    // Modbus standard 3.5-char inter-frame gap at 19200 baud + margin.
+    // Cap the wait at 1500 ms to be sure we catch a quiet window even
+    // mid-burst.
+    int q_start = millis();
+    int wait_cap = millis() + 1500;
+    while (millis() < wait_cap) {
+        if (serialAvailable(ser) > 0) {
+            // Drain — DON'T parse here, let Every50ms framer do it.
+            // We just need to know the bus had activity to reset the
+            // silence timer.
+            while (serialAvailable(ser) > 0) {
+                int discard = serialRead(ser);
+                if (buf_len < 256) { buf[buf_len] = discard; buf_len = buf_len + 1; }
+            }
+            q_start = millis();
+        }
+        if (millis() - q_start >= 4) break;
+        delay(1);
+    }
+    // Send the 8 bytes. The auto-direction RS485 module enables its
+    // driver while bytes flow on TX and switches back to RX afterward.
+    for (int i = 0; i < 8; i++) {
+        serialWriteByte(ser, frame[i] & 0xFF);
+    }
+    // Wait for TX FIFO to drain + Modbus inter-frame gap so the pump
+    // recognises the frame end (8 B × ~0.6 ms = ~5 ms + 5 ms margin).
+    delay(10);
+    wlog_push(regaddr, val, 'M');
+    char m[120];
+    sprintf(m, "hp_send_modbus: fc=%02x reg=%d val=%d (0x%04x)",
+            fc, regaddr, val, val);
+    addLog(m);
+    return 1;
+}
+
+// ------------------------------------------------------------
+// Tasmota main-page sensor rows. Outputs "{s}label{m}value{e}" lines
+// which the main web view renders as a clean sensor table.
+// ------------------------------------------------------------
+void WebCall() {
+    char row[200];
+
+    // Power state — bold colored on/off
+    if (known[217]) {
+        int v = reg[217] & 0xFFFF;
+        char st[24];
+        if      (v == 0) strcpy(st, "booting");
+        else if (v == 1) strcpy(st, "RUNNING");
+        else if (v == 6) strcpy(st, "OFF");
+        else             sprintf(st, "?(%d)", v);
+        sprintf(row, "{s}HP Power{m}<b>%s</b>{e}", st);
+        webSend(row);
+    }
+
+    // Target temp setpoint (×10 °C, signed)
+    if (known[1]) {
+        int u = reg[1] & 0xFFFF;
+        int s = u; if (s >= 32768) s = s - 65536;
+        sprintf(row, "{s}HP Zieltemp{m}%.1f &deg;C{e}", s / 10.0);
+        webSend(row);
+    }
+
+    // Live temperatures (×10 °C, all sign-extended)
+    if (known[188]) {
+        int u = reg[188] & 0xFFFF; int s = u; if (s >= 32768) s -= 65536;
+        sprintf(row, "{s}HP Puffer{m}%.1f &deg;C{e}", s / 10.0);
+        webSend(row);
+    }
+    if (known[191]) {
+        int u = reg[191] & 0xFFFF; int s = u; if (s >= 32768) s -= 65536;
+        sprintf(row, "{s}HP Ausgang{m}%.1f &deg;C{e}", s / 10.0);
+        webSend(row);
+    }
+    if (known[192]) {
+        int u = reg[192] & 0xFFFF; int s = u; if (s >= 32768) s -= 65536;
+        sprintf(row, "{s}HP Ansauggas{m}%.1f &deg;C{e}", s / 10.0);
+        webSend(row);
+    }
+    if (known[206]) {
+        int u = reg[206] & 0xFFFF; int s = u; if (s >= 32768) s -= 65536;
+        sprintf(row, "{s}HP Verdampfer{m}%.1f &deg;C{e}", s / 10.0);
+        webSend(row);
+    }
+    // Aussentemp — drives the heat curve / target setpoint shifts
+    if (known[190]) {
+        int u = reg[190] & 0xFFFF; int s = u; if (s >= 32768) s -= 65536;
+        sprintf(row, "{s}HP Aussentemp{m}%.1f &deg;C{e}", s / 10.0);
+        webSend(row);
+    }
+
+    // Pressures (×10 bar, unsigned)
+    if (known[193]) {
+        sprintf(row, "{s}HP Saugdruck{m}%.1f bar{e}", (reg[193] & 0xFFFF) / 10.0);
+        webSend(row);
+    }
+    if (known[194]) {
+        sprintf(row, "{s}HP Auslassdruck{m}%.1f bar{e}", (reg[194] & 0xFFFF) / 10.0);
+        webSend(row);
+    }
+}
+
+// ------------------------------------------------------------
+// JSON telemetry — for MQTT teleperiod publishing. Same data,
+// machine-readable shape.
+// ------------------------------------------------------------
+void JsonCall() {
+    if (registers_known < 5) return;   // not warmed up yet
+    char buf[256];
+    char sep[2];
+    int n = 0;
+    int u = 0;
+    int s = 0;
+    strcpy(sep, "");
+
+    responseAppend(",\"HP\":{");
+    if (known[217]) {
+        sprintf(buf, "%s\"State\":%d", sep, reg[217] & 0xFFFF);
+        responseAppend(buf); n = 1; strcpy(sep, ",");
+    }
+    if (known[1]) {
+        u = reg[1] & 0xFFFF; s = u; if (s >= 32768) s -= 65536;
+        sprintf(buf, "%s\"Target\":%.1f", sep, s / 10.0);
+        responseAppend(buf); n = 1; strcpy(sep, ",");
+    }
+    if (known[188]) {
+        u = reg[188] & 0xFFFF; s = u; if (s >= 32768) s -= 65536;
+        sprintf(buf, "%s\"Puffer\":%.1f", sep, s / 10.0);
+        responseAppend(buf); n = 1; strcpy(sep, ",");
+    }
+    if (known[191]) {
+        u = reg[191] & 0xFFFF; s = u; if (s >= 32768) s -= 65536;
+        sprintf(buf, "%s\"Ausgang\":%.1f", sep, s / 10.0);
+        responseAppend(buf); n = 1; strcpy(sep, ",");
+    }
+    if (known[192]) {
+        u = reg[192] & 0xFFFF; s = u; if (s >= 32768) s -= 65536;
+        sprintf(buf, "%s\"Ansauggas\":%.1f", sep, s / 10.0);
+        responseAppend(buf); n = 1; strcpy(sep, ",");
+    }
+    if (known[206]) {
+        u = reg[206] & 0xFFFF; s = u; if (s >= 32768) s -= 65536;
+        sprintf(buf, "%s\"Verdampfer\":%.1f", sep, s / 10.0);
+        responseAppend(buf); n = 1; strcpy(sep, ",");
+    }
+    if (known[190]) {
+        u = reg[190] & 0xFFFF; s = u; if (s >= 32768) s -= 65536;
+        sprintf(buf, "%s\"Aussen\":%.1f", sep, s / 10.0);
+        responseAppend(buf); n = 1; strcpy(sep, ",");
+    }
+    if (known[193]) {
+        sprintf(buf, "%s\"SuctPress\":%.1f", sep, (reg[193] & 0xFFFF) / 10.0);
+        responseAppend(buf); n = 1; strcpy(sep, ",");
+    }
+    if (known[194]) {
+        sprintf(buf, "%s\"DischPress\":%.1f", sep, (reg[194] & 0xFFFF) / 10.0);
+        responseAppend(buf); n = 1; strcpy(sep, ",");
+    }
+    responseAppend("}");
+}
+
+// ------------------------------------------------------------
+// Render the headline "labeled values" panel — what the user actually
+// cares about. Strong-confidence mappings only.
+// ------------------------------------------------------------
+void render_named() {
+    char row[300];
+    char tmp[80];
+
+    // Power state — r217 is enum: 0=booting, 1=running, 6=off
+    char pwr[32];
+    int pst = -1;
+    if (known[217]) {
+        pst = reg[217] & 0xFFFF;
+        if      (pst == 0) strcpy(pwr, "booting");
+        else if (pst == 1) strcpy(pwr, "RUNNING");
+        else if (pst == 6) strcpy(pwr, "OFF");
+        else               sprintf(pwr, "?(%d)", pst);
+    } else {
+        strcpy(pwr, "(unknown)");
+    }
+    char pcls[20];
+    if      (pst == 1) strcpy(pcls, "hpm-pwr-on");
+    else if (pst == 6) strcpy(pcls, "hpm-pwr-off");
+    else               strcpy(pcls, "hpm-pwr-other");
+
+    webSend("<table class='hpm-named'>");
+
+    // Power + setpoint — top row
+    sprintf(row, "<tr><th>Power state</th><td class='%s'><b>%s</b></td><td class='reg'>r217 = %d</td></tr>",
+            pcls, pwr, pst);
+    webSend(row);
+
+    if (known[1]) {
+        float v = (reg[1] & 0xFFFF) / 10.0;
+        sprintf(row, "<tr><th>Zieltemp (target)</th><td><b>%.1f &deg;C</b></td><td class='reg'>r1 = %d</td></tr>",
+                v, reg[1] & 0xFFFF);
+        webSend(row);
+    }
+
+    // Temperatures (×10 °C). Sign-extend the 16-bit raw value so negative
+    // outside temps render correctly (e.g. r194=0xff6a → -15.0 °C).
+    if (known[188]) {
+        int u = reg[188] & 0xFFFF;
+        int s = u; if (s >= 32768) s = s - 65536;
+        float t = s / 10.0;
+        sprintf(row, "<tr><th>Puffer (buffer)</th><td><b>%.1f &deg;C</b></td><td class='reg'>r188 = %d</td></tr>", t, u);
+        webSend(row);
+    }
+    if (known[191]) {
+        int u = reg[191] & 0xFFFF; int s = u; if (s >= 32768) s = s - 65536;
+        float t = s / 10.0;
+        sprintf(row, "<tr><th>Ausgangstemp</th><td><b>%.1f &deg;C</b></td><td class='reg'>r191 = %d</td></tr>", t, u);
+        webSend(row);
+    }
+    if (known[192]) {
+        int u = reg[192] & 0xFFFF; int s = u; if (s >= 32768) s = s - 65536;
+        float t = s / 10.0;
+        sprintf(row, "<tr><th>Ansauggas</th><td><b>%.1f &deg;C</b></td><td class='reg'>r192 = %d</td></tr>", t, u);
+        webSend(row);
+    }
+    if (known[206]) {
+        int u = reg[206] & 0xFFFF; int s = u; if (s >= 32768) s = s - 65536;
+        float t = s / 10.0;
+        sprintf(row, "<tr><th>Verdampfer</th><td><b>%.1f &deg;C</b></td><td class='reg'>r206 = %d</td></tr>", t, u);
+        webSend(row);
+    }
+
+    // Pressures (×10 bar — always positive, no sign extend needed)
+    if (known[193]) {
+        float p = (reg[193] & 0xFFFF) / 10.0;
+        sprintf(row, "<tr><th>Saugdruck (suction)</th><td><b>%.1f bar</b></td><td class='reg'>r193 = %d</td></tr>", p, reg[193] & 0xFFFF);
+        webSend(row);
+    }
+    if (known[194]) {
+        float p = (reg[194] & 0xFFFF) / 10.0;
+        sprintf(row, "<tr><th>Auslassdruck (discharge)</th><td><b>%.1f bar</b></td><td class='reg'>r194 = %d</td></tr>", p, reg[194] & 0xFFFF);
+        webSend(row);
+    }
+
+    webSend("</table>");
+}
+
+// ------------------------------------------------------------
+// Render one block of registers as an HTML table chunk.
+// Highlights rows where value differs from snapshot baseline.
+// ------------------------------------------------------------
+void render_block(char title[], int start, int end) {
+    char hdr[120];
+    sprintf(hdr, "<h4>%s &nbsp;<small>addr %d&ndash;%d</small></h4>",
+            title, start, end);
+    webSend(hdr);
+    webSend("<table class='hpm-tbl'><tr><th>Addr</th><th>Hex</th><th>Dec</th><th>Signed</th><th>&Delta; vs snap</th></tr>");
+
+    char row[256];
+    int sval;
+    int delta;
+    for (int a = start; a <= end; a++) {
+        if (a >= 500) break;
+        if (!known[a]) continue;
+        int v = reg[a] & 0xFFFF;
+        sval = v;
+        if (sval >= 0x8000) sval = sval - 0x10000;
+        // diff column
+        char dcell[64];
+        char rowcls[16];
+        strcpy(rowcls, "");
+        if (snapped[a]) {
+            delta = v - (snap[a] & 0xFFFF);
+            if (delta != 0) {
+                sprintf(dcell, "<b>%d &rarr; %d (%+d)</b>", snap[a] & 0xFFFF, v, delta);
+                strcpy(rowcls, " class='hpm-chg'");
+            } else {
+                strcpy(dcell, "&middot;");
+            }
+        } else {
+            strcpy(dcell, "&ndash;");
+        }
+        sprintf(row, "<tr%s><td>%d</td><td>0x%04x</td><td>%d</td><td>%d</td><td>%s</td></tr>",
+                rowcls, a, v, v, sval, dcell);
+        webSend(row);
+    }
+    webSend("</table>");
+}
+
+// ------------------------------------------------------------
+// Main Web UI
+// ------------------------------------------------------------
+void WebUI() {
+    webSend("<style>.hpm-panel{max-width:780px;margin:8px auto;background:#f0f0f0;color:#000;padding:14px;border:2px solid #ccc;border-radius:6px;text-align:left;font-size:12px}.hpm-panel h3{margin:0 0 6px;font-size:14px}.hpm-panel h4{margin:14px 0 4px;font-size:12px;color:#444}.hpm-tbl{width:100%;border-collapse:collapse;margin-bottom:6px;font-family:monospace}.hpm-tbl th{background:#dfdfdf;padding:2px 4px;border:1px solid #bbb;text-align:right;font-size:11px}.hpm-tbl td{padding:1px 4px;border:1px solid #ddd;text-align:right}.hpm-chg{background:#fff7c4;color:#603}.hpm-stat{padding:6px;background:#dde6f5;color:#103060;border-radius:3px;margin-bottom:8px}.hpm-named{width:100%;border-collapse:collapse;margin-bottom:14px;font-size:14px}.hpm-named th{background:#e8f0d8;padding:6px 8px;border:1px solid #c8d8a8;text-align:left;font-weight:normal;width:35%}.hpm-named td{padding:6px 8px;border:1px solid #d8d8d8;text-align:left}.hpm-named td.reg{font-family:monospace;color:#666;font-size:11px;width:25%}.hpm-pwr-on{background:#dff0d8;color:#205020;font-weight:bold}.hpm-pwr-off{background:#f5d6d6;color:#702020;font-weight:bold}.hpm-pwr-other{background:#fff3d4;color:#664300}</style>");
+    webSend("<div class='hpm-panel'>");
+    webSend("<h3>&#x1F525; Heat-pump Modbus map</h3>");
+
+    // Status line
+    char st[300];
+    int age_ms = 0;
+    if (last_block_ms > 0) age_ms = millis() - last_block_ms;
+    sprintf(st, "<div class='hpm-stat'>frames=%d  parsed=%d  failed=%d  registers=%d  lastblock=%d ms ago</div>",
+            frames_seen, rsp_parsed, rsp_failed, registers_known, age_ms);
+    webSend(st);
+
+    // Write-capture banner — large + colored when a write was seen recently
+    if (writes_seen > 0) {
+        char wb[300];
+        sprintf(wb, "<div class='hpm-stat' style='background:#ffe6c4;color:#603'><b>WRITES: %d total.</b> &nbsp; last: addr <b>%d (0x%04x)</b> val <b>%d</b> &nbsp; %d s ago</div>",
+                writes_seen, last_write_addr, last_write_addr, last_write_val,
+                (millis() - last_write_ms) / 1000);
+        webSend(wb);
+    }
+
+    // Headline labeled values (confirmed register mapping)
+    webSend("<h4>&#x1F525; Live values</h4>");
+    render_named();
+
+    // Action buttons
+    webSend("<b>Actions</b>");
+    webButton(snap_btn,  "Snapshot baseline");
+    webButton(clear_btn, "Clear snapshot");
+    webSend("<small>Take a snapshot, change one thing on the heat-pump panel, wait ~10 s for the next cloud poll, then refresh — changed registers will be highlighted.</small>");
+
+    // Render each block
+    render_block("Block 1",   0,  65);
+    render_block("Block 2",  66, 119);
+    render_block("Block 3", 120, 179);
+    render_block("Block 4", 180, 217);
+    render_block("Block 5", 218, 338);
+    render_block("Block 6", 432, 493);
+
+    webSend("</div>");
+}
+
+// ------------------------------------------------------------
+// Edge-detect form buttons each second
+// ------------------------------------------------------------
+void EverySecond() {
+    if (snap_btn == 1 && prev_snap == 0) {
+        take_snapshot();
+        snap_btn = 0;
+    }
+    prev_snap = snap_btn;
+
+    if (clear_btn == 1 && prev_clear == 0) {
+        clear_snapshot();
+        clear_btn = 0;
+    }
+    prev_clear = clear_btn;
+}
+
+// ------------------------------------------------------------
+// Console commands
+// ------------------------------------------------------------
+void Command(char cmd[]) {
+    char r[120];
+
+    // ── HEAT-PUMP CONTROL ──
+    // Coil 40 (FC05) is the actual on/off switch — discovered by sniffing the
+    // cloud's commands. r217 is just a read-only status reflection.
+    //   coil 40 = 0xFF00  → pump ON
+    //   coil 40 = 0x0000  → pump OFF
+    if (strFind(cmd, "ON") == 0 && strlen(cmd) == 2) {
+        if (hp_send_modbus(0x05, 40, 0xFF00)) {
+            responseCmnd("HP ON sent (FC05 coil 40 = 0xFF00)");
+        } else {
+            responseCmnd("HP ON FAILED");
+        }
+
+    } else if (strFind(cmd, "OFF") == 0 && strlen(cmd) == 3) {
+        if (hp_send_modbus(0x05, 40, 0x0000)) {
+            responseCmnd("HP OFF sent (FC05 coil 40 = 0x0000)");
+        } else {
+            responseCmnd("HP OFF FAILED");
+        }
+
+    } else if (strFind(cmd, "SET ") == 0) {
+        // HPSET <decimal °C> — write target water temp to r1, scaled ×10
+        // e.g. "MBUSSET 32" → write 320 to r1 (=32.0 °C)
+        // TinyC atoi() needs a char[] var (no pointer arithmetic), so copy
+        // the digits after "SET " into a small buffer first.
+        char arg[16];
+        int n = strlen(cmd);
+        int j = 0;
+        for (int i = 4; i < n; i++) {
+            if (j < 15) {
+                arg[j] = cmd[i];
+                j = j + 1;
+            }
+        }
+        arg[j] = 0;
+        int t10 = atoi(arg) * 10;
+        if (t10 < 100 || t10 > 600) {
+            sprintf(r, "HPSET: out of range (10..60 °C), got %d", t10/10);
+            responseCmnd(r);
+        } else if (hp_send_modbus(0x06, 1, t10)) {
+            sprintf(r, "HP target %d.0 °C sent (FC06 r1=%d)", t10/10, t10);
+            responseCmnd(r);
+        } else {
+            responseCmnd("HPSET FAILED");
+        }
+
+    } else if (strFind(cmd, "STAT") == 0 && strlen(cmd) == 4) {
+        sprintf(r, "frames=%d parsed=%d failed=%d known=%d log=%d writes=%d",
+                frames_seen, rsp_parsed, rsp_failed, registers_known, log_on, writes_seen);
+        responseCmnd(r);
+
+    } else if (strFind(cmd, "SNAP") == 0 && strlen(cmd) == 4) {
+        take_snapshot();
+        responseCmnd("snapshot taken");
+
+    } else if (strFind(cmd, "CLEAR") == 0 && strlen(cmd) == 5) {
+        for (int i = 0; i < 500; i++) {
+            known[i] = 0; reg[i] = 0; snap[i] = 0; snapped[i] = 0;
+        }
+        registers_known = 0;
+        frames_seen = 0; bytes_seen = 0; rsp_parsed = 0; rsp_failed = 0;
+        responseCmnd("cleared");
+
+    } else if (strFind(cmd, "WRITES") == 0 && strlen(cmd) == 6) {
+        // Dump the circular buffer of recent FC06/FC16 writes (own + observed)
+        if (wlog_count == 0) {
+            responseCmnd("no writes captured yet");
+        } else {
+            char line[120];
+            int now = millis();
+            sprintf(line, "%d write events:", wlog_count);
+            addLog(line);
+            // Iterate from oldest to newest
+            int start = 0;
+            if (wlog_count == 16) start = wlog_pos;
+            for (int k = 0; k < wlog_count; k++) {
+                int idx = (start + k) % 16;
+                int age_s = (now - wlog_ms[idx]) / 1000;
+                char src_label[12];
+                if (wlog_src[idx] == 'M') strcpy(src_label, "OWN ");
+                else                       strcpy(src_label, "OBS ");
+                sprintf(line, "  %s addr=%d (0x%04x) val=%d (0x%04x)  %ds ago",
+                        src_label, wlog_addr[idx], wlog_addr[idx],
+                        wlog_val[idx], wlog_val[idx], age_s);
+                addLog(line);
+            }
+            sprintf(line, "%d events dumped to log", wlog_count);
+            responseCmnd(line);
+        }
+
+    } else if (strFind(cmd, "DUMP") == 0 && strlen(cmd) == 4) {
+        char line[120];
+        for (int i = 0; i < 500; i = i + 8) {
+            int any = 0;
+            for (int j = 0; j < 8; j++) if (i+j < 500 && known[i+j]) any = 1;
+            if (!any) continue;
+            sprintf(line, "r%03d:", i);
+            char tmp[32];
+            for (int j = 0; j < 8; j++) {
+                if (i+j < 500 && known[i+j]) {
+                    sprintf(tmp, " %04x", reg[i+j] & 0xFFFF);
+                } else {
+                    strcpy(tmp, " ----");
+                }
+                strcat(line, tmp);
+            }
+            addLog(line);
+        }
+        responseCmnd("dumped to log");
+
+    } else if (strFind(cmd, "LOG ON") == 0 && strlen(cmd) == 6) {
+        log_on = 1;
+        responseCmnd("frame logging ON");
+
+    } else if (strFind(cmd, "LOG OFF") == 0 && strlen(cmd) == 7) {
+        log_on = 0;
+        responseCmnd("frame logging OFF");
+
+    } else {
+        responseCmnd("MBUS: ON | OFF | SET <degC> | STAT | SNAP | CLEAR | DUMP | WRITES | LOG ON|OFF");
+    }
+}
+
+// ------------------------------------------------------------
+int main() {
+    ser = serialBegin(rx_pin, tx_pin, baud, cfg, 1024);
+    if (ser < 0) {
+        addLog("heatpump_map: serialBegin FAILED");
+        return 0;
+    }
+    char m[120];
+    sprintf(m, "heatpump_map ready: ser=%d rx=%d tx=%d baud=%d 8N2  open /tc_ui",
+            ser, rx_pin, tx_pin, baud);
+    addLog(m);
+    addCommand("MBUS");
+    webPageLabel(0, "Heat-pump map");
+
+    // Sniffing happens in Every50ms — no task needed. main() exits and
+    // the VM halts; the tick callback gets the bytes from TasmotaSerial's
+    // 1 KB ring buffer at 50 ms cadence (max ~95 B per tick).
+    return 0;
+}
