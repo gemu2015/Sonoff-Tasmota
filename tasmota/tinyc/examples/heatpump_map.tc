@@ -71,6 +71,17 @@ char buf[260];
 int  buf_len = 0;
 int  last_ms = 0;
 
+// ── Shared scratch buffers for hot callbacks ──
+// Hoisted to globals so we don't burn a heap handle per call. The auto-heap
+// threshold is 16 elements; anything bigger uses a handle, and we have a
+// hard cap of 128. WebCall fires every ~2 s, JsonCall every TelePeriod,
+// flush_frame multiple times per second — those allocations add up fast.
+char g_row[260];        // WebCall row builder + flush_frame line/cont
+char g_buf[260];        // JsonCall row builder
+char g_resp[140];       // Command response builder
+char g_hex[140];        // bin2hex output (covers up to 64 input bytes ×2 + NUL)
+char g_tmp[80];         // generic short-lived helper
+
 // ── Register store ─────────────────────────────────────────
 // 500 covers 0..338 + 432..493 with headroom.
 int  reg[500];
@@ -315,13 +326,11 @@ void flush_frame() {
     frames_seen = frames_seen + 1;
     parse_frame();
     if (log_on) {
-        char hex[140];
         int n = buf_len;
         if (n > 64) n = 64;
-        bin2hex(buf, n, hex);
-        char line[200];
-        sprintf(line, "MB f#%d %dB hex=%s", frames_seen, buf_len, hex);
-        addLog(line);
+        bin2hex(buf, n, g_hex);
+        sprintf(g_row, "MB f#%d %dB hex=%s", frames_seen, buf_len, g_hex);
+        addLog(g_row);
     }
 }
 
@@ -402,6 +411,10 @@ int snap_btn  = 0;
 int clear_btn = 0;
 int prev_snap  = 0;
 int prev_clear = 0;
+int hp_on_btn  = 0;
+int hp_off_btn = 0;
+int prev_hp_on  = 0;
+int prev_hp_off = 0;
 
 // ------------------------------------------------------------
 // Modbus CRC16 (poly 0xA001) for outgoing FC06 frames.
@@ -526,75 +539,74 @@ void wd_send_alert(char subj_part[]) {
 // which the main web view renders as a clean sensor table.
 // ------------------------------------------------------------
 void WebCall() {
-    char row[200];
-
-    // Power state — bold colored on/off
+    // Use global g_row instead of `char row[200]` (heap handle leak fix).
+    // Tiny scratch strings (<=16) stay local since they don't use a handle.
+    char st[16];
     if (known[217]) {
         int v = reg[217] & 0xFFFF;
-        char st[24];
         if      (v == 0) strcpy(st, "booting");
         else if (v == 1) strcpy(st, "RUNNING");
         else if (v == 6) strcpy(st, "OFF");
         else             sprintf(st, "?(%d)", v);
-        sprintf(row, "{s}HP Power{m}<b>%s</b>{e}", st);
-        webSend(row);
+        sprintf(g_row, "{s}HP Power{m}<b>%s</b>{e}", st);
+        webSend(g_row);
     }
 
     // Target temp setpoint (×10 °C, signed)
     if (known[1]) {
         int u = reg[1] & 0xFFFF;
         int s = u; if (s >= 32768) s = s - 65536;
-        sprintf(row, "{s}HP Zieltemp{m}%.1f &deg;C{e}", s / 10.0);
-        webSend(row);
+        sprintf(g_row, "{s}HP Zieltemp{m}%.1f &deg;C{e}", s / 10.0);
+        webSend(g_row);
     }
 
     // Live temperatures (×10 °C, all sign-extended)
     if (known[188]) {
         int u = reg[188] & 0xFFFF; int s = u; if (s >= 32768) s -= 65536;
-        sprintf(row, "{s}HP Puffer{m}%.1f &deg;C{e}", s / 10.0);
-        webSend(row);
+        sprintf(g_row, "{s}HP Puffer{m}%.1f &deg;C{e}", s / 10.0);
+        webSend(g_row);
     }
     if (known[191]) {
         int u = reg[191] & 0xFFFF; int s = u; if (s >= 32768) s -= 65536;
-        sprintf(row, "{s}HP Ausgang{m}%.1f &deg;C{e}", s / 10.0);
-        webSend(row);
+        sprintf(g_row, "{s}HP Ausgang{m}%.1f &deg;C{e}", s / 10.0);
+        webSend(g_row);
     }
     if (known[192]) {
         int u = reg[192] & 0xFFFF; int s = u; if (s >= 32768) s -= 65536;
-        sprintf(row, "{s}HP Ansauggas{m}%.1f &deg;C{e}", s / 10.0);
-        webSend(row);
+        sprintf(g_row, "{s}HP Ansauggas{m}%.1f &deg;C{e}", s / 10.0);
+        webSend(g_row);
     }
     if (known[206]) {
         int u = reg[206] & 0xFFFF; int s = u; if (s >= 32768) s -= 65536;
-        sprintf(row, "{s}HP Verdampfer{m}%.1f &deg;C{e}", s / 10.0);
-        webSend(row);
+        sprintf(g_row, "{s}HP Verdampfer{m}%.1f &deg;C{e}", s / 10.0);
+        webSend(g_row);
     }
     // Aussentemp — drives the heat curve / target setpoint shifts
     if (known[190]) {
         int u = reg[190] & 0xFFFF; int s = u; if (s >= 32768) s -= 65536;
-        sprintf(row, "{s}HP Aussentemp{m}%.1f &deg;C{e}", s / 10.0);
-        webSend(row);
+        sprintf(g_row, "{s}HP Aussentemp{m}%.1f &deg;C{e}", s / 10.0);
+        webSend(g_row);
     }
 
     // Pressures (×10 bar, unsigned)
     if (known[193]) {
-        sprintf(row, "{s}HP Saugdruck{m}%.1f bar{e}", (reg[193] & 0xFFFF) / 10.0);
-        webSend(row);
+        sprintf(g_row, "{s}HP Saugdruck{m}%.1f bar{e}", (reg[193] & 0xFFFF) / 10.0);
+        webSend(g_row);
     }
     if (known[194]) {
-        sprintf(row, "{s}HP Auslassdruck{m}%.1f bar{e}", (reg[194] & 0xFFFF) / 10.0);
-        webSend(row);
+        sprintf(g_row, "{s}HP Auslassdruck{m}%.1f bar{e}", (reg[194] & 0xFFFF) / 10.0);
+        webSend(g_row);
     }
 
     // ── UDP-shared room temperatures (from other Tasmota devices) ──
-    sprintf(row, "{s}Wohnzimmer{m}%.1f &deg;C{e}", wtemp);
-    webSend(row);
-    sprintf(row, "{s}Schlafzimmer{m}%.1f &deg;C{e}", aztemp);
-    webSend(row);
-    sprintf(row, "{s}Keller{m}%.1f &deg;C{e}", ktmp);
-    webSend(row);
-    sprintf(row, "{s}Außen (Bresser){m}%.1f &deg;C{e}", rtemp);
-    webSend(row);
+    sprintf(g_row, "{s}Wohnzimmer{m}%.1f &deg;C{e}", wtemp);
+    webSend(g_row);
+    sprintf(g_row, "{s}Schlafzimmer{m}%.1f &deg;C{e}", aztemp);
+    webSend(g_row);
+    sprintf(g_row, "{s}Keller{m}%.1f &deg;C{e}", ktmp);
+    webSend(g_row);
+    sprintf(g_row, "{s}Außen (Bresser){m}%.1f &deg;C{e}", rtemp);
+    webSend(g_row);
 
     // ── Watchdog status row ──
     if (wd_enable) {
@@ -610,8 +622,8 @@ void WebCall() {
             sprintf(wst, "cooldown %d min", mins_left);
         }
         else strcpy(wst, "?");
-        sprintf(row, "{s}HP Watchdog{m}%s (%d trips){e}", wst, wd_trigger_count);
-        webSend(row);
+        sprintf(g_row, "{s}HP Watchdog{m}%s (%d trips){e}", wst, wd_trigger_count);
+        webSend(g_row);
     }
 }
 
@@ -621,7 +633,7 @@ void WebCall() {
 // ------------------------------------------------------------
 void JsonCall() {
     if (registers_known < 5) return;   // not warmed up yet
-    char buf[256];
+    // using global g_buf
     char sep[2];
     int n = 0;
     int u = 0;
@@ -630,55 +642,55 @@ void JsonCall() {
 
     responseAppend(",\"HP\":{");
     if (known[217]) {
-        sprintf(buf, "%s\"State\":%d", sep, reg[217] & 0xFFFF);
-        responseAppend(buf); n = 1; strcpy(sep, ",");
+        sprintf(g_buf, "%s\"State\":%d", sep, reg[217] & 0xFFFF);
+        responseAppend(g_buf); n = 1; strcpy(sep, ",");
     }
     if (known[1]) {
         u = reg[1] & 0xFFFF; s = u; if (s >= 32768) s -= 65536;
-        sprintf(buf, "%s\"Target\":%.1f", sep, s / 10.0);
-        responseAppend(buf); n = 1; strcpy(sep, ",");
+        sprintf(g_buf, "%s\"Target\":%.1f", sep, s / 10.0);
+        responseAppend(g_buf); n = 1; strcpy(sep, ",");
     }
     if (known[188]) {
         u = reg[188] & 0xFFFF; s = u; if (s >= 32768) s -= 65536;
-        sprintf(buf, "%s\"Puffer\":%.1f", sep, s / 10.0);
-        responseAppend(buf); n = 1; strcpy(sep, ",");
+        sprintf(g_buf, "%s\"Puffer\":%.1f", sep, s / 10.0);
+        responseAppend(g_buf); n = 1; strcpy(sep, ",");
     }
     if (known[191]) {
         u = reg[191] & 0xFFFF; s = u; if (s >= 32768) s -= 65536;
-        sprintf(buf, "%s\"Ausgang\":%.1f", sep, s / 10.0);
-        responseAppend(buf); n = 1; strcpy(sep, ",");
+        sprintf(g_buf, "%s\"Ausgang\":%.1f", sep, s / 10.0);
+        responseAppend(g_buf); n = 1; strcpy(sep, ",");
     }
     if (known[192]) {
         u = reg[192] & 0xFFFF; s = u; if (s >= 32768) s -= 65536;
-        sprintf(buf, "%s\"Ansauggas\":%.1f", sep, s / 10.0);
-        responseAppend(buf); n = 1; strcpy(sep, ",");
+        sprintf(g_buf, "%s\"Ansauggas\":%.1f", sep, s / 10.0);
+        responseAppend(g_buf); n = 1; strcpy(sep, ",");
     }
     if (known[206]) {
         u = reg[206] & 0xFFFF; s = u; if (s >= 32768) s -= 65536;
-        sprintf(buf, "%s\"Verdampfer\":%.1f", sep, s / 10.0);
-        responseAppend(buf); n = 1; strcpy(sep, ",");
+        sprintf(g_buf, "%s\"Verdampfer\":%.1f", sep, s / 10.0);
+        responseAppend(g_buf); n = 1; strcpy(sep, ",");
     }
     if (known[190]) {
         u = reg[190] & 0xFFFF; s = u; if (s >= 32768) s -= 65536;
-        sprintf(buf, "%s\"Aussen\":%.1f", sep, s / 10.0);
-        responseAppend(buf); n = 1; strcpy(sep, ",");
+        sprintf(g_buf, "%s\"Aussen\":%.1f", sep, s / 10.0);
+        responseAppend(g_buf); n = 1; strcpy(sep, ",");
     }
     if (known[193]) {
-        sprintf(buf, "%s\"SuctPress\":%.1f", sep, (reg[193] & 0xFFFF) / 10.0);
-        responseAppend(buf); n = 1; strcpy(sep, ",");
+        sprintf(g_buf, "%s\"SuctPress\":%.1f", sep, (reg[193] & 0xFFFF) / 10.0);
+        responseAppend(g_buf); n = 1; strcpy(sep, ",");
     }
     if (known[194]) {
-        sprintf(buf, "%s\"DischPress\":%.1f", sep, (reg[194] & 0xFFFF) / 10.0);
-        responseAppend(buf); n = 1; strcpy(sep, ",");
+        sprintf(g_buf, "%s\"DischPress\":%.1f", sep, (reg[194] & 0xFFFF) / 10.0);
+        responseAppend(g_buf); n = 1; strcpy(sep, ",");
     }
     // UDP-shared room temps — useful in the same JSON for HA / dashboards
-    sprintf(buf, "%s\"Wohnzimmer\":%.1f", sep, wtemp);     responseAppend(buf); strcpy(sep, ",");
-    sprintf(buf, "%s\"Schlafzimmer\":%.1f", sep, aztemp);   responseAppend(buf);
-    sprintf(buf, "%s\"Keller\":%.1f", sep, ktmp);          responseAppend(buf);
-    sprintf(buf, "%s\"Aussen2\":%.1f", sep, rtemp);        responseAppend(buf);
+    sprintf(g_buf, "%s\"Wohnzimmer\":%.1f", sep, wtemp);     responseAppend(g_buf); strcpy(sep, ",");
+    sprintf(g_buf, "%s\"Schlafzimmer\":%.1f", sep, aztemp);   responseAppend(g_buf);
+    sprintf(g_buf, "%s\"Keller\":%.1f", sep, ktmp);          responseAppend(g_buf);
+    sprintf(g_buf, "%s\"Aussen2\":%.1f", sep, rtemp);        responseAppend(g_buf);
     // Watchdog status — primary alert channel via teleperiod MQTT
-    sprintf(buf, "%s\"WdState\":%d,\"WdTrips\":%d", sep, wd_state, wd_trigger_count);
-    responseAppend(buf);
+    sprintf(g_buf, "%s\"WdState\":%d,\"WdTrips\":%d", sep, wd_state, wd_trigger_count);
+    responseAppend(g_buf);
     responseAppend("}");
 }
 
@@ -835,8 +847,14 @@ void WebUI() {
     webSend("<h4>&#x1F525; Live values</h4>");
     render_named();
 
-    // Action buttons
-    webSend("<b>Actions</b>");
+    // Pump control buttons (FC05 coil 40)
+    webSend("<b>Pump control</b>");
+    webButton(hp_on_btn,  "Pump ON");
+    webButton(hp_off_btn, "Pump OFF");
+    webSend("<small>Sends FC05 coil 40 = 0xFF00 (ON) or 0x0000 (OFF) directly via RS485. Listen-before-talk avoids cloud-poll collisions.</small>");
+
+    // Snapshot buttons (for register-mapping workflow)
+    webSend("<hr><b>Register mapping</b>");
     webButton(snap_btn,  "Snapshot baseline");
     webButton(clear_btn, "Clear snapshot");
     webSend("<small>Take a snapshot, change one thing on the heat-pump panel, wait ~10 s for the next cloud poll, then refresh — changed registers will be highlighted.</small>");
@@ -867,6 +885,22 @@ void EverySecond() {
         clear_btn = 0;
     }
     prev_clear = clear_btn;
+
+    // Pump ON button — rising edge
+    if (hp_on_btn == 1 && prev_hp_on == 0) {
+        addLog("HP: web button → Pump ON");
+        hp_send_modbus(0x05, 40, 0xFF00);
+        hp_on_btn = 0;
+    }
+    prev_hp_on = hp_on_btn;
+
+    // Pump OFF button — rising edge
+    if (hp_off_btn == 1 && prev_hp_off == 0) {
+        addLog("HP: web button → Pump OFF");
+        hp_send_modbus(0x05, 40, 0x0000);
+        hp_off_btn = 0;
+    }
+    prev_hp_off = hp_off_btn;
 
     // ── Watchdog state machine ──
     // Runs every second; transitions are millis-driven so a missed tick
@@ -963,7 +997,7 @@ void EverySecond() {
 // Console commands
 // ------------------------------------------------------------
 void Command(char cmd[]) {
-    char r[120];
+    // using global g_resp
 
     // ── HEAT-PUMP CONTROL ──
     // Coil 40 (FC05) is the actual on/off switch — discovered by sniffing the
@@ -1001,18 +1035,25 @@ void Command(char cmd[]) {
         arg[j] = 0;
         int t10 = atoi(arg) * 10;
         if (t10 < 100 || t10 > 600) {
-            sprintf(r, "HPSET: out of range (10..60 °C), got %d", t10/10);
-            responseCmnd(r);
+            sprintf(g_resp, "HPSET: out of range (10..60 °C), got %d", t10/10);
+            responseCmnd(g_resp);
         } else if (hp_send_modbus(0x06, 1, t10)) {
-            sprintf(r, "HP target %d.0 °C sent (FC06 r1=%d)", t10/10, t10);
-            responseCmnd(r);
+            sprintf(g_resp, "HP target %d.0 °C sent (FC06 r1=%d)", t10/10, t10);
+            responseCmnd(g_resp);
         } else {
             responseCmnd("HPSET FAILED");
         }
 
     } else if (strFind(cmd, "WD ON") == 0 && strlen(cmd) == 5) {
-        wd_enable = 1; saveVars();
-        responseCmnd("watchdog ENABLED");
+        wd_enable = 1;
+        // Reset any leftover state machine residue (e.g. stuck state=2 from
+        // an interrupted TEST while watchdog was disabled).
+        wd_state = 0;
+        wd_alert_started_ms = 0;
+        wd_off_sent_ms = 0;
+        wd_cooldown_until_ms = 0;
+        saveVars();
+        responseCmnd("watchdog ENABLED (state reset to monitor)");
 
     } else if (strFind(cmd, "WD OFF") == 0 && strlen(cmd) == 6) {
         wd_enable = 0; saveVars();
@@ -1029,10 +1070,10 @@ void Command(char cmd[]) {
         int aging = 0;
         if (wd_state == 1) aging = (now - wd_alert_started_ms) / 60000;
         if (wd_state == 3) aging = (wd_cooldown_until_ms - now) / 60000;
-        sprintf(r, "wd=%d state=%s timer=%dmin triggers=%d  rooms=%.1f/%.1f/%.1f outside=%.1f",
+        sprintf(g_resp, "wd=%d state=%s timer=%dmin triggers=%d  rooms=%.1f/%.1f/%.1f outside=%.1f",
                 wd_enable, st, aging, wd_trigger_count,
                 aztemp, wtemp, ktmp, rtemp);
-        responseCmnd(r);
+        responseCmnd(g_resp);
 
     } else if (strFind(cmd, "WD TEST URGENT") == 0 && strlen(cmd) == 14) {
         // End-to-end self-test simulating an ESCALATION (rapid repeat trigger
@@ -1079,8 +1120,8 @@ void Command(char cmd[]) {
         } else {
             strcpy(wd_email_to, arg);
             saveVars();
-            sprintf(r, "watchdog email recipient set: %s", wd_email_to);
-            responseCmnd(r);
+            sprintf(g_resp, "watchdog email recipient set: %s", wd_email_to);
+            responseCmnd(g_resp);
         }
 
     } else if (strFind(cmd, "WD MAIL") == 0 && strlen(cmd) == 7) {
@@ -1088,8 +1129,8 @@ void Command(char cmd[]) {
         if (strlen(wd_email_to) == 0) {
             responseCmnd("watchdog email: not configured (use MBUSWD MAIL <addr>)");
         } else {
-            sprintf(r, "watchdog email recipient: %s", wd_email_to);
-            responseCmnd(r);
+            sprintf(g_resp, "watchdog email recipient: %s", wd_email_to);
+            responseCmnd(g_resp);
         }
 
     } else if (strFind(cmd, "WD MAILTEST") == 0 && strlen(cmd) == 11) {
@@ -1098,10 +1139,10 @@ void Command(char cmd[]) {
         responseCmnd("test email sent (check inbox + log)");
 
     } else if (strFind(cmd, "STAT") == 0 && strlen(cmd) == 4) {
-        sprintf(r, "frames=%d parsed=%d failed=%d known=%d log=%d writes=%d wd=%d",
+        sprintf(g_resp, "frames=%d parsed=%d failed=%d known=%d log=%d writes=%d wd=%d",
                 frames_seen, rsp_parsed, rsp_failed, registers_known, log_on,
                 writes_seen, wd_state);
-        responseCmnd(r);
+        responseCmnd(g_resp);
 
     } else if (strFind(cmd, "SNAP") == 0 && strlen(cmd) == 4) {
         take_snapshot();
