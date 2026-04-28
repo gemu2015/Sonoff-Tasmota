@@ -59,9 +59,12 @@ int  cfg        = 7;       // 8N2
 int  silence_ms = 3;       // inter-frame gap
 
 int  ser     = -1;
-int  log_on  = 1;          // raw frame logging — ON by default so cloud
-                           // writes are captured the moment you toggle
-                           // the app. Use MBUSLOG OFF if it's too noisy.
+int  log_on  = 0;          // raw frame logging — OFF by default (every cycle
+                           // would otherwise spam ~10 lines/sec). Use
+                           // MBUSCAPTURE for a brief window, or MBUSLOG ON
+                           // for a permanent toggle.
+int  log_until_ms = 0;     // millis() target at which a temporary capture
+                           // turns log_on back to 0; 0 = no auto-off
 
 // Frame buffer
 char buf[260];
@@ -340,6 +343,12 @@ void flush_frame() {
 // ------------------------------------------------------------
 void Every50ms() {
     if (ser < 0) return;
+    // Auto-disable temporary capture window
+    if (log_until_ms > 0 && millis() >= log_until_ms) {
+        log_on = 0;
+        log_until_ms = 0;
+        addLog("HP: capture window ended, frame logging OFF");
+    }
     int avail = serialAvailable(ser);
     int got = 0;
     int b;
@@ -1155,14 +1164,23 @@ void Command(char cmd[]) {
 
     } else if (strFind(cmd, "LOG ON") == 0 && strlen(cmd) == 6) {
         log_on = 1;
-        responseCmnd("frame logging ON");
+        log_until_ms = 0;   // permanent
+        responseCmnd("frame logging ON (permanent — use MBUSLOG OFF to stop)");
 
     } else if (strFind(cmd, "LOG OFF") == 0 && strlen(cmd) == 7) {
         log_on = 0;
+        log_until_ms = 0;
         responseCmnd("frame logging OFF");
 
+    } else if (strFind(cmd, "CAPTURE") == 0 && strlen(cmd) == 7) {
+        // Brief capture window — turns logging ON for ~10 s (covers a full
+        // cloud-poll cycle of ~8 s plus headroom), then auto-disables.
+        log_on = 1;
+        log_until_ms = millis() + 10000;
+        responseCmnd("capture: frame logging ON for 10s");
+
     } else {
-        responseCmnd("MBUS: ON|OFF | SET <T> | WD ON|OFF|STAT|TEST|TEST URGENT | WD MAIL [<addr>|CLEAR] | WD MAILTEST | STAT | SNAP | CLEAR | DUMP | WRITES | LOG ON|OFF");
+        responseCmnd("MBUS: ON|OFF | SET <T> | WD ON|OFF|STAT|TEST|TEST URGENT | WD MAIL [<addr>|CLEAR] | WD MAILTEST | STAT | SNAP | CLEAR | DUMP | WRITES | CAPTURE | LOG ON|OFF");
     }
 }
 
