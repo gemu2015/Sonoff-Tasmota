@@ -76,11 +76,13 @@ int  last_ms = 0;
 // threshold is 16 elements; anything bigger uses a handle, and we have a
 // hard cap of 128. WebCall fires every ~2 s, JsonCall every TelePeriod,
 // flush_frame multiple times per second — those allocations add up fast.
-char g_row[260];        // WebCall row builder + flush_frame line/cont
+char g_row[320];        // WebCall + render_named + render_block row builder
 char g_buf[260];        // JsonCall row builder
 char g_resp[140];       // Command response builder
 char g_hex[140];        // bin2hex output (covers up to 64 input bytes ×2 + NUL)
 char g_tmp[80];         // generic short-lived helper
+char g_dcell[64];       // diff cell for render_block (was per-iteration leak)
+char g_hdr[120];        // block header for render_block
 
 // ── Register store ─────────────────────────────────────────
 // 500 covers 0..338 + 432..493 with headroom.
@@ -411,10 +413,8 @@ int snap_btn  = 0;
 int clear_btn = 0;
 int prev_snap  = 0;
 int prev_clear = 0;
-int hp_on_btn  = 0;
-int hp_off_btn = 0;
-int prev_hp_on  = 0;
-int prev_hp_off = 0;
+int hp_toggle_btn  = 0;     // single toggle button — label flips with state
+int prev_hp_toggle = 0;
 
 // ------------------------------------------------------------
 // Modbus CRC16 (poly 0xA001) for outgoing FC06 frames.
@@ -522,15 +522,15 @@ void wd_send_alert(char subj_part[]) {
     if (known[191]) { u = reg[191] & 0xFFFF; s = u; if (s >= 32768) s -= 65536; ausgang_c = s / 10.0; }
     if (known[188]) { u = reg[188] & 0xFFFF; s = u; if (s >= 32768) s -= 65536; puffer_c  = s / 10.0; }
 
-    char body[400];
-    sprintf(body, "HP watchdog: %s<br>Trip count: %d<br><br>HP-Ausgang: %.1f C<br>HP-Puffer: %.1f C<br>Wohnzimmer: %.1f C<br>Schlafzimmer: %.1f C<br>Keller: %.1f C<br>Aussen (Bresser): %.1f C<br>",
+    // Reuse g_row (320) for body, g_resp (140) for params — both larger
+    // than what we need, no extra heap handles burned.
+    sprintf(g_row, "HP watchdog: %s<br>Trip count: %d<br><br>HP-Ausgang: %.1f C<br>HP-Puffer: %.1f C<br>Wohnzimmer: %.1f C<br>Schlafzimmer: %.1f C<br>Keller: %.1f C<br>Aussen (Bresser): %.1f C<br>",
             subj_part, wd_trigger_count,
             ausgang_c, puffer_c, wtemp, aztemp, ktmp, rtemp);
-    mailBody(body);
+    mailBody(g_row);
 
-    char params[200];
-    sprintf(params, "[*:*:*:*:*:%s:HP Watchdog %s]", wd_email_to, subj_part);
-    mailSend(params);
+    sprintf(g_resp, "[*:*:*:*:*:%s:HP Watchdog %s]", wd_email_to, subj_part);
+    mailSend(g_resp);
     addLog("HP WATCHDOG: email alert dispatched");
 }
 
@@ -699,11 +699,12 @@ void JsonCall() {
 // cares about. Strong-confidence mappings only.
 // ------------------------------------------------------------
 void render_named() {
-    char row[300];
-    char tmp[80];
+    // Use hoisted globals where possible (g_row, g_tmp). pwr/pcls are
+    // ≤16 chars so they stay on the stack with no heap handle.
+    char pwr[16];
+    char pcls[16];
 
     // Power state — r217 is enum: 0=booting, 1=running, 6=off
-    char pwr[32];
     int pst = -1;
     if (known[217]) {
         pst = reg[217] & 0xFFFF;
@@ -714,7 +715,6 @@ void render_named() {
     } else {
         strcpy(pwr, "(unknown)");
     }
-    char pcls[20];
     if      (pst == 1) strcpy(pcls, "hpm-pwr-on");
     else if (pst == 6) strcpy(pcls, "hpm-pwr-off");
     else               strcpy(pcls, "hpm-pwr-other");
@@ -722,15 +722,15 @@ void render_named() {
     webSend("<table class='hpm-named'>");
 
     // Power + setpoint — top row
-    sprintf(row, "<tr><th>Power state</th><td class='%s'><b>%s</b></td><td class='reg'>r217 = %d</td></tr>",
+    sprintf(g_row, "<tr><th>Power state</th><td class='%s'><b>%s</b></td><td class='reg'>r217 = %d</td></tr>",
             pcls, pwr, pst);
-    webSend(row);
+    webSend(g_row);
 
     if (known[1]) {
         float v = (reg[1] & 0xFFFF) / 10.0;
-        sprintf(row, "<tr><th>Zieltemp (target)</th><td><b>%.1f &deg;C</b></td><td class='reg'>r1 = %d</td></tr>",
+        sprintf(g_row, "<tr><th>Zieltemp (target)</th><td><b>%.1f &deg;C</b></td><td class='reg'>r1 = %d</td></tr>",
                 v, reg[1] & 0xFFFF);
-        webSend(row);
+        webSend(g_row);
     }
 
     // Temperatures (×10 °C). Sign-extend the 16-bit raw value so negative
@@ -739,38 +739,38 @@ void render_named() {
         int u = reg[188] & 0xFFFF;
         int s = u; if (s >= 32768) s = s - 65536;
         float t = s / 10.0;
-        sprintf(row, "<tr><th>Puffer (buffer)</th><td><b>%.1f &deg;C</b></td><td class='reg'>r188 = %d</td></tr>", t, u);
-        webSend(row);
+        sprintf(g_row, "<tr><th>Puffer (buffer)</th><td><b>%.1f &deg;C</b></td><td class='reg'>r188 = %d</td></tr>", t, u);
+        webSend(g_row);
     }
     if (known[191]) {
         int u = reg[191] & 0xFFFF; int s = u; if (s >= 32768) s = s - 65536;
         float t = s / 10.0;
-        sprintf(row, "<tr><th>Ausgangstemp</th><td><b>%.1f &deg;C</b></td><td class='reg'>r191 = %d</td></tr>", t, u);
-        webSend(row);
+        sprintf(g_row, "<tr><th>Ausgangstemp</th><td><b>%.1f &deg;C</b></td><td class='reg'>r191 = %d</td></tr>", t, u);
+        webSend(g_row);
     }
     if (known[192]) {
         int u = reg[192] & 0xFFFF; int s = u; if (s >= 32768) s = s - 65536;
         float t = s / 10.0;
-        sprintf(row, "<tr><th>Ansauggas</th><td><b>%.1f &deg;C</b></td><td class='reg'>r192 = %d</td></tr>", t, u);
-        webSend(row);
+        sprintf(g_row, "<tr><th>Ansauggas</th><td><b>%.1f &deg;C</b></td><td class='reg'>r192 = %d</td></tr>", t, u);
+        webSend(g_row);
     }
     if (known[206]) {
         int u = reg[206] & 0xFFFF; int s = u; if (s >= 32768) s = s - 65536;
         float t = s / 10.0;
-        sprintf(row, "<tr><th>Verdampfer</th><td><b>%.1f &deg;C</b></td><td class='reg'>r206 = %d</td></tr>", t, u);
-        webSend(row);
+        sprintf(g_row, "<tr><th>Verdampfer</th><td><b>%.1f &deg;C</b></td><td class='reg'>r206 = %d</td></tr>", t, u);
+        webSend(g_row);
     }
 
     // Pressures (×10 bar — always positive, no sign extend needed)
     if (known[193]) {
         float p = (reg[193] & 0xFFFF) / 10.0;
-        sprintf(row, "<tr><th>Saugdruck (suction)</th><td><b>%.1f bar</b></td><td class='reg'>r193 = %d</td></tr>", p, reg[193] & 0xFFFF);
-        webSend(row);
+        sprintf(g_row, "<tr><th>Saugdruck (suction)</th><td><b>%.1f bar</b></td><td class='reg'>r193 = %d</td></tr>", p, reg[193] & 0xFFFF);
+        webSend(g_row);
     }
     if (known[194]) {
         float p = (reg[194] & 0xFFFF) / 10.0;
-        sprintf(row, "<tr><th>Auslassdruck (discharge)</th><td><b>%.1f bar</b></td><td class='reg'>r194 = %d</td></tr>", p, reg[194] & 0xFFFF);
-        webSend(row);
+        sprintf(g_row, "<tr><th>Auslassdruck (discharge)</th><td><b>%.1f bar</b></td><td class='reg'>r194 = %d</td></tr>", p, reg[194] & 0xFFFF);
+        webSend(g_row);
     }
 
     webSend("</table>");
@@ -781,15 +781,19 @@ void render_named() {
 // Highlights rows where value differs from snapshot baseline.
 // ------------------------------------------------------------
 void render_block(char title[], int start, int end) {
-    char hdr[120];
-    sprintf(hdr, "<h4>%s &nbsp;<small>addr %d&ndash;%d</small></h4>",
+    // Use hoisted globals (g_hdr, g_row, g_dcell) — declaring these as
+    // function-locals would have allocated 2 heap handles per call (×6
+    // calls per /tc_ui refresh = 12 handles), and the dcell INSIDE the
+    // loop was 1 handle per known register (~200 × 6 = 1200 per render).
+    // Outright over the 128-handle cap.
+    sprintf(g_hdr, "<h4>%s &nbsp;<small>addr %d&ndash;%d</small></h4>",
             title, start, end);
-    webSend(hdr);
+    webSend(g_hdr);
     webSend("<table class='hpm-tbl'><tr><th>Addr</th><th>Hex</th><th>Dec</th><th>Signed</th><th>&Delta; vs snap</th></tr>");
 
-    char row[256];
     int sval;
     int delta;
+    char rowcls[16];   // exactly 16 — no heap handle, stays on stack
     for (int a = start; a <= end; a++) {
         if (a >= 500) break;
         if (!known[a]) continue;
@@ -797,23 +801,21 @@ void render_block(char title[], int start, int end) {
         sval = v;
         if (sval >= 0x8000) sval = sval - 0x10000;
         // diff column
-        char dcell[64];
-        char rowcls[16];
         strcpy(rowcls, "");
         if (snapped[a]) {
             delta = v - (snap[a] & 0xFFFF);
             if (delta != 0) {
-                sprintf(dcell, "<b>%d &rarr; %d (%+d)</b>", snap[a] & 0xFFFF, v, delta);
+                sprintf(g_dcell, "<b>%d &rarr; %d (%+d)</b>", snap[a] & 0xFFFF, v, delta);
                 strcpy(rowcls, " class='hpm-chg'");
             } else {
-                strcpy(dcell, "&middot;");
+                strcpy(g_dcell, "&middot;");
             }
         } else {
-            strcpy(dcell, "&ndash;");
+            strcpy(g_dcell, "&ndash;");
         }
-        sprintf(row, "<tr%s><td>%d</td><td>0x%04x</td><td>%d</td><td>%d</td><td>%s</td></tr>",
-                rowcls, a, v, v, sval, dcell);
-        webSend(row);
+        sprintf(g_row, "<tr%s><td>%d</td><td>0x%04x</td><td>%d</td><td>%d</td><td>%s</td></tr>",
+                rowcls, a, v, v, sval, g_dcell);
+        webSend(g_row);
     }
     webSend("</table>");
 }
@@ -826,46 +828,64 @@ void WebUI() {
     webSend("<div class='hpm-panel'>");
     webSend("<h3>&#x1F525; Heat-pump Modbus map</h3>");
 
-    // Status line
-    char st[300];
+    // Status line — reuse g_row (320) instead of allocating st[300]
     int age_ms = 0;
     if (last_block_ms > 0) age_ms = millis() - last_block_ms;
-    sprintf(st, "<div class='hpm-stat'>frames=%d  parsed=%d  failed=%d  registers=%d  lastblock=%d ms ago</div>",
+    sprintf(g_row, "<div class='hpm-stat'>frames=%d  parsed=%d  failed=%d  registers=%d  lastblock=%d ms ago</div>",
             frames_seen, rsp_parsed, rsp_failed, registers_known, age_ms);
-    webSend(st);
+    webSend(g_row);
 
     // Write-capture banner — large + colored when a write was seen recently
     if (writes_seen > 0) {
-        char wb[300];
-        sprintf(wb, "<div class='hpm-stat' style='background:#ffe6c4;color:#603'><b>WRITES: %d total.</b> &nbsp; last: addr <b>%d (0x%04x)</b> val <b>%d</b> &nbsp; %d s ago</div>",
+        sprintf(g_row, "<div class='hpm-stat' style='background:#ffe6c4;color:#603'><b>WRITES: %d total.</b> &nbsp; last: addr <b>%d (0x%04x)</b> val <b>%d</b> &nbsp; %d s ago</div>",
                 writes_seen, last_write_addr, last_write_addr, last_write_val,
                 (millis() - last_write_ms) / 1000);
-        webSend(wb);
+        webSend(g_row);
     }
 
     // Headline labeled values (confirmed register mapping)
     webSend("<h4>&#x1F525; Live values</h4>");
     render_named();
 
-    // Pump control buttons (FC05 coil 40)
+    // Pump control — single toggle button, label reflects the action that a
+    // click would take (the OPPOSITE of the current state). Since webButton
+    // requires a literal label, we render conditionally — both branches use
+    // the SAME hp_toggle_btn variable so the click handler is identical.
     webSend("<b>Pump control</b>");
-    webButton(hp_on_btn,  "Pump ON");
-    webButton(hp_off_btn, "Pump OFF");
-    webSend("<small>Sends FC05 coil 40 = 0xFF00 (ON) or 0x0000 (OFF) directly via RS485. Listen-before-talk avoids cloud-poll collisions.</small>");
+    int v217 = 0;
+    if (known[217]) v217 = reg[217] & 0xFFFF;
+    if (v217 == 1) {
+        webButton(hp_toggle_btn, "Pump → OFF");
+    } else if (v217 == 6) {
+        webButton(hp_toggle_btn, "Pump → ON");
+    } else {
+        // Booting (0) or unknown — default label "Pump → ON" (idempotent
+        // if already on / starting).
+        webButton(hp_toggle_btn, "Pump → ON");
+    }
+    webSend("<small>Click to toggle. Sends FC05 coil 40 = 0xFF00 (ON) or 0x0000 (OFF) via RS485 with listen-before-talk to avoid cloud-poll collisions.</small>");
 
     // Snapshot buttons (for register-mapping workflow)
     webSend("<hr><b>Register mapping</b>");
     webButton(snap_btn,  "Snapshot baseline");
     webButton(clear_btn, "Clear snapshot");
-    webSend("<small>Take a snapshot, change one thing on the heat-pump panel, wait ~10 s for the next cloud poll, then refresh — changed registers will be highlighted.</small>");
+    webSend("<small>Take a snapshot, change one thing on the heat-pump panel, wait ~10 s, refresh — changed registers will be highlighted in the per-block tables (view by appending <code>?full=1</code> to this URL or using <code>MBUSDUMP</code> in the console).</small>");
 
-    // Render each block
-    render_block("Block 1",   0,  65);
-    render_block("Block 2",  66, 119);
-    render_block("Block 3", 120, 179);
-    render_block("Block 4", 180, 217);
-    render_block("Block 5", 218, 338);
-    render_block("Block 6", 432, 493);
+    // Per-register block tables are heavy (each render_block iterates the
+    // whole block; under steady AJAX-poll cadence the cumulative heap-handle
+    // usage per render approaches the 128 cap). Default render skips them.
+    // Append ?full=1 to /tc_ui when you actually want the full register dump
+    // for the diff-snapshot mapping workflow.
+    char fullarg[8];
+    int has_full = webArg("full", fullarg);
+    if (has_full > 0) {
+        render_block("Block 1",   0,  65);
+        render_block("Block 2",  66, 119);
+        render_block("Block 3", 120, 179);
+        render_block("Block 4", 180, 217);
+        render_block("Block 5", 218, 338);
+        render_block("Block 6", 432, 493);
+    }
 
     webSend("</div>");
 }
@@ -886,21 +906,23 @@ void EverySecond() {
     }
     prev_clear = clear_btn;
 
-    // Pump ON button — rising edge
-    if (hp_on_btn == 1 && prev_hp_on == 0) {
-        addLog("HP: web button → Pump ON");
-        hp_send_modbus(0x05, 40, 0xFF00);
-        hp_on_btn = 0;
+    // Pump toggle — single button. Decide direction based on current state:
+    //   running (1) → click = OFF (0x0000)
+    //   off (6)     → click = ON  (0xFF00)
+    //   booting (0) / unknown → default to ON (idempotent if already on)
+    if (hp_toggle_btn == 1 && prev_hp_toggle == 0) {
+        int cur = 0;
+        if (known[217]) cur = reg[217] & 0xFFFF;
+        if (cur == 1) {
+            addLog("HP: web button → Pump OFF");
+            hp_send_modbus(0x05, 40, 0x0000);
+        } else {
+            addLog("HP: web button → Pump ON");
+            hp_send_modbus(0x05, 40, 0xFF00);
+        }
+        hp_toggle_btn = 0;
     }
-    prev_hp_on = hp_on_btn;
-
-    // Pump OFF button — rising edge
-    if (hp_off_btn == 1 && prev_hp_off == 0) {
-        addLog("HP: web button → Pump OFF");
-        hp_send_modbus(0x05, 40, 0x0000);
-        hp_off_btn = 0;
-    }
-    prev_hp_off = hp_off_btn;
+    prev_hp_toggle = hp_toggle_btn;
 
     // ── Watchdog state machine ──
     // Runs every second; transitions are millis-driven so a missed tick
