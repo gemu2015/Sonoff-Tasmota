@@ -61,6 +61,12 @@ static void (*const TinyCWebOnHandlers[])(void) = {
 // UriGlob for port 82 download server wildcard routes
 #include <uri/UriGlob.h>
 
+// Raw socket API for SO_LINGER setsockopt() in HandleTinyCDisplayRaw —
+// pulls in struct linger, SOL_SOCKET, SO_LINGER on ESP32's lwIP.
+#ifdef ESP32
+  #include <lwip/sockets.h>
+#endif
+
 // VM engine is in a separate .h to avoid Arduino IDE auto-prototype issues
 #include "include/xdrv_124_tinyc_vm.h"
 
