@@ -52,8 +52,8 @@
 // =================================================================
 
 // ── UART / framing ─────────────────────────────────────────
-int  rx_pin     = 4;
-int  tx_pin     = 5;
+int  rx_pin     = 14;
+int  tx_pin     = 15;
 int  baud       = 19200;
 int  cfg        = 7;       // 8N2
 int  silence_ms = 3;       // inter-frame gap
@@ -119,10 +119,11 @@ int  wlog_count = 0;
 // `global float` = auto-syncs via UDP multicast 239.255.255.250:1999.
 // Initial values are sane defaults until first packet arrives. Names must
 // match exactly what the publishing devices send.
-global float aztemp = 20.0;   // Schlafzimmer (sleeping room)
-global float wtemp  = 20.0;   // Wohnzimmer (living room)
-global float ktmp   = 14.0;   // Keller (cellar — typically colder)
-global float rtemp  = 10.0;   // Außentemperatur (Bresser sensor)
+global float aztemp = 20.0;   // Schlafzimmer (sleeping room) °C
+global float wtemp  = 20.0;   // Wohnzimmer (living room) °C
+global float ktmp   = 14.0;   // Keller (cellar — typically colder) °C
+global float rtemp  = 10.0;   // Außentemperatur (Bresser sensor) °C
+global float hwp    =  0.0;   // Heat-pump current power consumption (W)
 
 // ── Watchdog: cycle the heat pump if it's stuck in winter ────
 // 2-3 times a year the pump locks up and won't restart on its own. If
@@ -524,9 +525,9 @@ void wd_send_alert(char subj_part[]) {
 
     // Reuse g_row (320) for body, g_resp (140) for params — both larger
     // than what we need, no extra heap handles burned.
-    sprintf(g_row, "HP watchdog: %s<br>Trip count: %d<br><br>HP-Ausgang: %.1f C<br>HP-Puffer: %.1f C<br>Wohnzimmer: %.1f C<br>Schlafzimmer: %.1f C<br>Keller: %.1f C<br>Aussen (Bresser): %.1f C<br>",
+    sprintf(g_row, "HP watchdog: %s<br>Trip count: %d<br><br>HP-Ausgang: %.1f C<br>HP-Puffer: %.1f C<br>HP-Leistung: %.0f W<br>Wohnzimmer: %.1f C<br>Schlafzimmer: %.1f C<br>Keller: %.1f C<br>Aussen (Bresser): %.1f C<br>",
             subj_part, wd_trigger_count,
-            ausgang_c, puffer_c, wtemp, aztemp, ktmp, rtemp);
+            ausgang_c, puffer_c, hwp, wtemp, aztemp, ktmp, rtemp);
     mailBody(g_row);
 
     sprintf(g_resp, "[*:*:*:*:*:%s:HP Watchdog %s]", wd_email_to, subj_part);
@@ -607,6 +608,9 @@ void WebCall() {
     webSend(g_row);
     sprintf(g_row, "{s}Außen (Bresser){m}%.1f &deg;C{e}", rtemp);
     webSend(g_row);
+    // Heat-pump current power consumption (UDP-shared from energy monitor)
+    sprintf(g_row, "{s}HP Leistung{m}%.0f W{e}", hwp);
+    webSend(g_row);
 
     // ── Watchdog status row ──
     if (wd_enable) {
@@ -683,11 +687,13 @@ void JsonCall() {
         sprintf(g_buf, "%s\"DischPress\":%.1f", sep, (reg[194] & 0xFFFF) / 10.0);
         responseAppend(g_buf); n = 1; strcpy(sep, ",");
     }
-    // UDP-shared room temps — useful in the same JSON for HA / dashboards
+    // UDP-shared room temps + heat-pump power — useful in the same JSON
+    // for HA / Node-RED dashboards
     sprintf(g_buf, "%s\"Wohnzimmer\":%.1f", sep, wtemp);     responseAppend(g_buf); strcpy(sep, ",");
     sprintf(g_buf, "%s\"Schlafzimmer\":%.1f", sep, aztemp);   responseAppend(g_buf);
     sprintf(g_buf, "%s\"Keller\":%.1f", sep, ktmp);          responseAppend(g_buf);
     sprintf(g_buf, "%s\"Aussen2\":%.1f", sep, rtemp);        responseAppend(g_buf);
+    sprintf(g_buf, "%s\"Power\":%.0f", sep, hwp);           responseAppend(g_buf);
     // Watchdog status — primary alert channel via teleperiod MQTT
     sprintf(g_buf, "%s\"WdState\":%d,\"WdTrips\":%d", sep, wd_state, wd_trigger_count);
     responseAppend(g_buf);
