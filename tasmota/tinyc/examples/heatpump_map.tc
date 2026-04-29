@@ -1179,9 +1179,17 @@ void Command(char cmd[]) {
         }
 
     } else if (strFind(cmd, "WD MAILTEST") == 0 && strlen(cmd) == 11) {
-        // Send a test email NOW with current state — proves SMTP works
-        wd_send_alert("MAILTEST (manual)");
-        responseCmnd("test email sent (check inbox + log)");
+        // Send a test email NOW with current state — proves SMTP works.
+        // wd_send_alert silently returns early if recipient is empty, so
+        // we check first and give the user a clear error.
+        if (strlen(wd_email_to) == 0) {
+            responseCmnd("MAILTEST: NO RECIPIENT SET — use MBUSWD MAIL <addr> first");
+        } else {
+            wd_send_alert("MAILTEST (manual)");
+            sprintf(g_resp, "test email dispatched to %s — check inbox + log",
+                    wd_email_to);
+            responseCmnd(g_resp);
+        }
 
     } else if (strFind(cmd, "STAT") == 0 && strlen(cmd) == 4) {
         sprintf(g_resp, "frames=%d parsed=%d failed=%d known=%d log=%d writes=%d wd=%d",
