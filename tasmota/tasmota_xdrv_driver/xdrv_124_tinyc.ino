@@ -2080,7 +2080,15 @@ static void HandleHomeKitQR(void) {
 #endif  // USE_HOMEKIT
 
 // ---- Self-hosted IDE (optional -- #define USE_TINYC_IDE) ----
-// Serves /tinyc_ide.html (or .gz) from filesystem at /ide
+// Port 80 /ide handler: on ESP32 with port-82 download server up, issues a
+// 302 redirect to port 82 /ide so the actual 150 KB streaming happens in a
+// dedicated FreeRTOS task (see tc_ide_serve_task) and doesn't block the main
+// HTTP loop. This eliminates the multi-second device stalls that occur when
+// loading the IDE while a TinyC script is running (file-I/O contention).
+//
+// Falls back to synchronous serving when port 82 isn't up yet (early boot
+// before WiFi connects) or on ESP8266 where the port-82 task pattern isn't
+// available.
 #ifdef USE_TINYC_IDE
 #ifdef USE_UFILESYS
 static void HandleTinyCIde(void) {
@@ -2089,8 +2097,21 @@ static void HandleTinyCIde(void) {
     return;
   }
 
-  // Try SD (ufsp) first, then Flash (ffsp) — lets users drop a newer
-  // tinyc_ide.html.gz on SD and have it take precedence without a reflash.
+#ifdef ESP32
+  // Fast path: redirect to port 82 background-task server. Returns
+  // immediately; main loop is freed for other work.
+  if (Tinyc && Tinyc->dl_server) {
+    char loc[80];
+    snprintf_P(loc, sizeof(loc), PSTR("http://%_I:%d/ide"),
+               (uint32_t)WiFi.localIP(), TC_DLPORT);
+    Webserver->sendHeader(F("Location"), loc);
+    WSSend_P(302, PSTR("text/plain"), PSTR("Redirecting to background IDE server"));
+    return;
+  }
+#endif
+
+  // Fallback: synchronous serve (used before port-82 server starts, or on
+  // ESP8266). Blocks the main loop for the duration of the file read.
   bool gzipped = false;
   File f;
   if (ufsp) f = ufsp->open("/tinyc_ide.html.gz", "r");
@@ -2120,7 +2141,6 @@ static void HandleTinyCIde(void) {
   Webserver->setContentLength(fsize);
   WSSend_P(200, PSTR("text/html"), PSTR(""));
 
-  // Stream file in chunks (smaller buffer on ESP8266 to save stack)
   uint8_t buf[256];
   while (f.available()) {
     int n = f.read(buf, sizeof(buf));
@@ -3109,12 +3129,112 @@ static void TC_DLRoot(void) {
   Tinyc->dl_server->send(200, F("text/plain"), F("TinyC File Server"));
 }
 
+/*-------------------------------------------------------------------------------------------*\
+ * IDE serving via background task (port 82 /ide)
+ *
+ * The IDE file (~150 KB gzipped) was previously streamed synchronously by the
+ * main HTTP loop (port 80 /ide handler), holding the main loop for the whole
+ * 600+ chunk read+write cycle. Under script contention (LittleFS single-threaded
+ * + scripts doing their own file I/O for .pvs persist + sensor logs), this would
+ * block the whole device for 1-3 s per IDE load — even on dual-core ESP32.
+ *
+ * Now: port 80 /ide issues a 302 redirect to port 82 /ide, which spawns a
+ * dedicated FreeRTOS task that streams the file. Main loop unaffected; the
+ * task uses larger 1 KB chunks for fewer yields and sends Connection: close
+ * for clean teardown.
+\*-------------------------------------------------------------------------------------------*/
+static bool tc_ide_busy = false;
+
+static void tc_ide_serve_task(void *param) {
+  WiFiClient *cp = (WiFiClient *)param;
+  WiFiClient client = *cp;
+  delete cp;
+
+  // Locate the file: try ufsp (SD/user) first then ffsp (flash). Prefer .gz.
+  bool gzipped = false;
+  File f;
+  if (ufsp) f = ufsp->open("/tinyc_ide.html.gz", "r");
+  if (f) {
+    gzipped = true;
+  } else {
+    if (ufsp) f = ufsp->open("/tinyc_ide.html", "r");
+    if (!f && ffsp && ffsp != ufsp) {
+      f = ffsp->open("/tinyc_ide.html.gz", "r");
+      if (f) gzipped = true;
+      else   f = ffsp->open("/tinyc_ide.html", "r");
+    }
+  }
+
+  if (!f) {
+    client.print(F("HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n"
+                   "Connection: close\r\n\r\nIDE not found on filesystem."));
+    delay(50);
+    client.stop();
+    tc_ide_busy = false;
+    vTaskDelete(NULL);
+    return;
+  }
+
+  uint32_t fsize = f.size();
+  client.printf_P(PSTR(
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: text/html; charset=utf-8\r\n"
+      "%s"
+      "Content-Length: %u\r\n"
+      "Cache-Control: max-age=600\r\n"
+      "Connection: close\r\n\r\n"),
+      gzipped ? "Content-Encoding: gzip\r\n" : "", fsize);
+
+  // 1 KB chunks — fewer LittleFS reads + fewer client.write() calls than
+  // the old 256-byte loop.
+  uint8_t buf[1024];
+  while (f.available() && client.connected()) {
+    int n = f.read(buf, sizeof(buf));
+    if (n <= 0) break;
+    int written = client.write(buf, n);
+    if (written < n) break;   // client gone
+  }
+  f.close();
+  delay(80);  // let last write drain
+  client.stop();
+
+  tc_ide_busy = false;
+  AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: IDE task done (%u bytes)"), fsize);
+  vTaskDelete(NULL);
+}
+
+static void TC_DLServeIDE(void) {
+  if (tc_ide_busy) {
+    Tinyc->dl_server->send(503, F("text/plain"), F("IDE serve busy"));
+    return;
+  }
+  tc_ide_busy = true;
+  // Heap-allocate the WiFiClient copy so the task owns it after we return
+  WiFiClient *cp = new WiFiClient(Tinyc->dl_server->client());
+  if (!cp) {
+    tc_ide_busy = false;
+    Tinyc->dl_server->send(500, F("text/plain"), F("Out of memory"));
+    return;
+  }
+  BaseType_t rc = xTaskCreatePinnedToCore(
+      tc_ide_serve_task, "TCIDE", 4096, (void *)cp, 3, NULL, 1);
+  if (rc != pdPASS) {
+    delete cp;
+    tc_ide_busy = false;
+    Tinyc->dl_server->send(500, F("text/plain"), F("Task spawn failed"));
+  }
+  // Note: not calling send() — the task writes its own response directly
+  // to the client. ESP8266WebServer keeps the connection open between
+  // send() calls, and a graceful close happens via client.stop() in the task.
+}
+
 // Initialize port 82 download server
 static void TC_DLServerInit(void) {
   if (!Tinyc || Tinyc->dl_server) return;  // already initialized
   Tinyc->dl_server = new ESP8266WebServer(TC_DLPORT);
   if (Tinyc->dl_server) {
     Tinyc->dl_server->on(UriGlob("/ufs/*"), HTTP_GET, TC_DLServeFile);
+    Tinyc->dl_server->on("/ide", HTTP_GET, TC_DLServeIDE);
     Tinyc->dl_server->on("/", HTTP_GET, TC_DLRoot);
     Tinyc->dl_server->begin();
     AddLog(LOG_LEVEL_INFO, PSTR("TCC: Download server started on port %d"), TC_DLPORT);

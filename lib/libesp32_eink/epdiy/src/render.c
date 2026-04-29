@@ -264,8 +264,20 @@ void epd_renderer_init(enum EpdInitOptions options) {
     }
 
     ESP_LOGI("epd", "Space used for waveform LUT: %dK", lut_size / 1024);
-    render_context.conversion_lut
-        = (uint8_t*)heap_caps_malloc(lut_size, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
+    // conversion_lut: CPU-only readonly lookup table during render.
+    // Default I2S mode size is 64 KB — biggest single DRAM consumer in
+    // this driver. Move to PSRAM when available (e-paper render is not
+    // time-critical; PSRAM read latency is acceptable here). Fall back
+    // to INTERNAL if PSRAM not present.
+    render_context.conversion_lut = (uint8_t*)heap_caps_malloc(
+        lut_size, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM
+    );
+    if (render_context.conversion_lut == NULL) {
+        ESP_LOGI("epd", "LUT: PSRAM unavailable, falling back to internal RAM");
+        render_context.conversion_lut = (uint8_t*)heap_caps_malloc(
+            lut_size, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL
+        );
+    }
     if (render_context.conversion_lut == NULL) {
         ESP_LOGE("epd", "could not allocate LUT!");
         abort();
@@ -279,11 +291,16 @@ void epd_renderer_init(enum EpdInitOptions options) {
         render_context.feed_done_smphr[i] = xSemaphoreCreateBinary();
     }
 
-    // When using the LCD peripheral, we may need padding lines to
-    // satisfy the bounce buffer size requirements
+    // line_threads: per-line CPU-side metadata (which thread owns the line);
+    // no DMA. Try PSRAM first, fall back to INTERNAL.
     render_context.line_threads = (uint8_t*)heap_caps_malloc(
-        rounded_display_height(), MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL
+        rounded_display_height(), MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM
     );
+    if (render_context.line_threads == NULL) {
+        render_context.line_threads = (uint8_t*)heap_caps_malloc(
+            rounded_display_height(), MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL
+        );
+    }
 
     int queue_len = 32;
     if (options & EPD_FEED_QUEUE_32) {
