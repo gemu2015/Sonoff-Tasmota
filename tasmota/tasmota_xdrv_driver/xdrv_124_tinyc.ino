@@ -1337,11 +1337,18 @@ static void HandleTinyCPage(void) {
   // --- IDE Section ---
   WSContentSend_P(PSTR("<fieldset><legend><b> TinyC IDE </b></legend>"));
 #if defined(USE_TINYC_IDE) && defined(USE_UFILESYS)
+  // Open the IDE directly on port 82, where the dl_server streams the
+  // 150 KB file from a dedicated FreeRTOS task. Avoids blocking the main
+  // HTTP loop on port 80 (which would freeze the device for 1-3 s under
+  // contention with running TinyC scripts that do file I/O).
+  // The JS builds the URL dynamically from window.location.hostname so it
+  // works regardless of IP / mDNS hostname.
   WSContentSend_P(PSTR(
     "<p style='text-align:center'>"
-    "<button onclick=\"window.open('/ide','tinyc_ide')\" class='button bgrn'>Open IDE</button>"
+    "<button onclick=\"window.open(location.protocol+'//'+location.hostname+':82/ide','tinyc_ide')\" "
+    "class='button bgrn'>Open IDE</button>"
     "</p>"
-    "<p style='text-align:center;font-size:.85em;opacity:.6'>Served from device filesystem</p>"));
+    "<p style='text-align:center;font-size:.85em;opacity:.6'>Served from device filesystem (port 82, background task)</p>"));
 #else
   WSContentSend_P(PSTR(
     "<div class='tc-ide-url'>"
@@ -3146,9 +3153,11 @@ static void TC_DLRoot(void) {
 static bool tc_ide_busy = false;
 
 static void tc_ide_serve_task(void *param) {
-  WiFiClient *cp = (WiFiClient *)param;
-  WiFiClient client = *cp;
-  delete cp;
+  // Match the tc_download_task pattern: take the client from the dl_server
+  // INSIDE the task, not before spawning. This is what the existing /ufs/*
+  // path does and is known to work — the framework keeps the client alive
+  // after the handler returns since no send() was called.
+  WiFiClient client = Tinyc->dl_server->client();
 
   // Locate the file: try ufsp (SD/user) first then ffsp (flash). Prefer .gz.
   bool gzipped = false;
@@ -3171,19 +3180,30 @@ static void tc_ide_serve_task(void *param) {
     delay(50);
     client.stop();
     tc_ide_busy = false;
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: IDE task: file not found"));
     vTaskDelete(NULL);
     return;
   }
 
   uint32_t fsize = f.size();
-  client.printf_P(PSTR(
-      "HTTP/1.1 200 OK\r\n"
-      "Content-Type: text/html; charset=utf-8\r\n"
-      "%s"
-      "Content-Length: %u\r\n"
-      "Cache-Control: max-age=600\r\n"
-      "Connection: close\r\n\r\n"),
-      gzipped ? "Content-Encoding: gzip\r\n" : "", fsize);
+  // Write status + headers in one printf call. Order: status, type,
+  // optional Content-Encoding, length, cache, connection.
+  if (gzipped) {
+    client.printf_P(PSTR(
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/html; charset=utf-8\r\n"
+        "Content-Encoding: gzip\r\n"
+        "Content-Length: %u\r\n"
+        "Cache-Control: max-age=600\r\n"
+        "Connection: close\r\n\r\n"), fsize);
+  } else {
+    client.printf_P(PSTR(
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/html; charset=utf-8\r\n"
+        "Content-Length: %u\r\n"
+        "Cache-Control: max-age=600\r\n"
+        "Connection: close\r\n\r\n"), fsize);
+  }
 
   // 1 KB chunks — fewer LittleFS reads + fewer client.write() calls than
   // the old 256-byte loop.
@@ -3209,23 +3229,15 @@ static void TC_DLServeIDE(void) {
     return;
   }
   tc_ide_busy = true;
-  // Heap-allocate the WiFiClient copy so the task owns it after we return
-  WiFiClient *cp = new WiFiClient(Tinyc->dl_server->client());
-  if (!cp) {
-    tc_ide_busy = false;
-    Tinyc->dl_server->send(500, F("text/plain"), F("Out of memory"));
-    return;
-  }
   BaseType_t rc = xTaskCreatePinnedToCore(
-      tc_ide_serve_task, "TCIDE", 4096, (void *)cp, 3, NULL, 1);
+      tc_ide_serve_task, "TCIDE", 4096, NULL, 3, NULL, 1);
   if (rc != pdPASS) {
-    delete cp;
     tc_ide_busy = false;
     Tinyc->dl_server->send(500, F("text/plain"), F("Task spawn failed"));
+    return;
   }
-  // Note: not calling send() — the task writes its own response directly
-  // to the client. ESP8266WebServer keeps the connection open between
-  // send() calls, and a graceful close happens via client.stop() in the task.
+  // Note: NOT calling send() — the task writes its own response directly
+  // to the client. This matches the existing tc_download_task pattern.
 }
 
 // Initialize port 82 download server
