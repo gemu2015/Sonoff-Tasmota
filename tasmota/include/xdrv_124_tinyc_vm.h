@@ -655,6 +655,13 @@ enum TcSyscall {
   SYS_FILE_RANGE      = 260, // (handle, min_ref, max_ref) -> rows (first/last timestamp)
   SYS_TASM_CMD_REF   = 248, // (cmd_ref, out_buf_ref) -> int — tasmCmd with char array command
   SYS_I2C_FREE       = 249, // (addr, bus) -> void — release claimed I2C address
+  SYS_TASM_DEFER      = 366, // (cmd_ref)       -> void — push command into deferred queue (run on main task)
+  SYS_TASM_DEFER_STR  = 367, // (cmd_const_idx) -> void — defer a string-literal command
+  // tasmDefer is the safe way to invoke long-blocking Tasmota commands (e.g. `sendmail [...]`)
+  // from inside TinyC callbacks. Calling them directly from a callback context blows the
+  // main-loop watchdog (Command/Every* run with vm_mutex held). The deferred queue
+  // executes ExecuteCommand() from TinyCEvery50ms when no callback is active — same path
+  // I2SPlay uses (see tc_defer_command at top of this file).
   SYS_WEB_CHART_SIZE  = 233, // (width, height) -> void — set chart div size in pixels (0=default)
   SYS_WEB_CHART_TBASE = 261, // (minutes) -> void — set time base offset from "now" for chart x-axis
   SYS_WEB_REPO_PULLDOWN = 280, // (gref, label_c, json_url_c, index_key_c, dest_path_c) -> void — Scripter smlpd()-style remote JSON directory picker
@@ -1065,8 +1072,9 @@ struct TINYC {
   // (e.g. BYD BMU + SMA HM2.0 + Wallbox) in parallel. Slot 0 is the default.
   WiFiClient tcp_cli_clients[TC_TCP_CLI_SLOTS];  // outgoing TCP client slots
   uint8_t    tcp_cli_slot;                       // currently selected slot (0..TC_TCP_CLI_SLOTS-1)
-  // Deferred command — executed in main loop (safe for task-spawning commands like I2SPlay)
-  char     deferred_cmd[128];
+  // Deferred command — executed in main loop (safe for task-spawning commands
+  // like I2SPlay, and long-blocking commands like sendmail).
+  char     deferred_cmd[256];
   volatile bool deferred_pending;
 #ifdef ESP32
   // Port 82 download server — background task for large file serving
@@ -4418,6 +4426,35 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       }
       buf[rlen] = 0;
       TC_PUSH(vm, rlen);
+      break;
+    }
+    case SYS_TASM_DEFER: {
+      // tasmDefer(cmd_ref) — push a Tasmota command into the deferred queue.
+      // Executed by tc_deferred_exec() from TinyCEvery50ms when the VM is
+      // halted, so vm_mutex is NOT held by an active callback and SendMail/
+      // other long-blocking commands can run safely on the main task.
+      int32_t cmd_ref = TC_POP(vm);
+      int32_t *cmd_arr = tc_resolve_ref(vm, cmd_ref);
+      if (!cmd_arr) break;
+      int32_t cmdMax = tc_ref_maxlen(vm, cmd_ref);
+      char cmdbuf[256];
+      int32_t ci = 0;
+      while (ci < cmdMax && ci < (int32_t)sizeof(cmdbuf) - 1 && cmd_arr[ci] != 0) {
+        cmdbuf[ci] = (char)(cmd_arr[ci] & 0xFF); ci++;
+      }
+      cmdbuf[ci] = '\0';
+      AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: tasmDefer('%s')"), cmdbuf);
+      tc_defer_command(cmdbuf);
+      break;
+    }
+    case SYS_TASM_DEFER_STR: {
+      // tasmDefer("literal") — defer a literal Tasmota command.
+      int32_t ci = TC_POP(vm);
+      const char *cmd = tc_get_const_str(vm, ci);
+      if (cmd) {
+        AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: tasmDefer('%s')"), cmd);
+        tc_defer_command(cmd);
+      }
       break;
     }
 
@@ -11050,7 +11087,25 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
         Tinyc->email_active = true;
       }
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: mailSend(%s)"), cmd);
+      // SendMail does TLS handshake + SMTP transaction (5–15 s blocking).
+      // The VM holds vm_mutex during syscall execution, so blocking here
+      // would starve other tasks (e.g. Tasmota main loopTask trying to fire
+      // EVERY_50ms ticks on this slot) → loop watchdog reboot.
+      // Release vm_mutex around the call (Scripter has no equivalent mutex,
+      // which is why its `mail` token works without this).
+      TcSlot *_email_slot = tc_current_slot;
+#ifdef ESP32
+      if (_email_slot && _email_slot->vm_mutex) {
+        xSemaphoreGive(_email_slot->vm_mutex);
+      }
+#endif
       uint16_t result = SendMail(cmd);
+#ifdef ESP32
+      if (_email_slot && _email_slot->vm_mutex) {
+        xSemaphoreTake(_email_slot->vm_mutex, portMAX_DELAY);
+        tc_current_slot = _email_slot;  // restore — other tasks may have changed it
+      }
+#endif
       free(cmd);
       // Clean up email state
       if (Tinyc->email_body) { free(Tinyc->email_body); Tinyc->email_body = nullptr; }

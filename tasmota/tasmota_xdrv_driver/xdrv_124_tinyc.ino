@@ -3778,6 +3778,29 @@ bool Xdrv124(uint32_t function) {
                    Tinyc->upload_active ||
                    tc_global_pause;
 
+  // Auto-STOP all slots on OTA start — the tc_paused flag above only
+  // suppresses callbacks, but tc_vm_task keeps running main()/TaskLoop()
+  // which hammers SPI/network/heap and frequently hangs the firmware
+  // upload. Detect the 0→active transition for ota_state_flag and call
+  // TinyCStopVM on every loaded slot once, so the OTA writer has full
+  // exclusive access to flash. (We deliberately don't trigger on
+  // restart_flag — normal restarts go through FUNC_SAVE_BEFORE_RESTART
+  // which handles cleanup properly. We also don't trigger on
+  // upload_active — that's our own .tcb upload path, which manages
+  // slot state internally.)
+  static bool tc_ota_was_active = false;
+  bool tc_ota_now = (TasmotaGlobal.ota_state_flag != 0);
+  if (tc_ota_now && !tc_ota_was_active) {
+    AddLog(LOG_LEVEL_INFO, PSTR("TCC: OTA detected — stopping all VM slots"));
+    for (uint8_t i = 0; i < TC_MAX_VMS; i++) {
+      TcSlot *s = Tinyc->slots[i];
+      if (s && s->loaded) {
+        TinyCStopVM(s);
+      }
+    }
+  }
+  tc_ota_was_active = tc_ota_now;
+
   switch (function) {
     case FUNC_LOOP:
       if (tc_paused) { break; }

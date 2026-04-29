@@ -1,0 +1,81 @@
+// ─────────────────────────────────────────────────────────────────────
+// mail_test.tc — minimal SMTP test for debugging the mailSend crash.
+//
+// Console commands (after  `addCommand("MAIL")`  registers the prefix):
+//   MAILSET <addr>   — set recipient (defaults to gmutz2010@googlemail.com)
+//   MAILGO           — sends a tiny test email immediately
+//   MAILSTAT         — show pending state and configured recipient
+//
+// The actual mailSend runs in TaskLoop (tc_vm_task context, 12 KB stack —
+// same stack class Scripter's `mail` token uses successfully). Command()
+// only sets a flag and returns immediately, so the web request that
+// triggered the test is never blocked by the SMTP transaction.
+//
+// Capture serial output during MAILGO to see which mailSend stage crashes.
+// ─────────────────────────────────────────────────────────────────────
+
+char to_addr[64]   = "gmutz2010@googlemail.com";
+char params[140];          // "[*:*:*:*:*:to:subject]body"
+int  send_pending  = 0;    // 1 → TaskLoop should send
+int  last_rc       = -999; // last mailSend return code (-999 = never run)
+
+void TaskLoop() {
+    if (send_pending) {
+        send_pending = 0;
+        addLog("MAILTEST: TaskLoop picked up flag, calling mailSend");
+        addLog(params);
+        int rc = mailSend(params);
+        last_rc = rc;
+        sprintf(to_addr, "MAILTEST: mailSend returned rc=%d", rc);
+        addLog(to_addr);
+        // refresh to_addr after diag overwrite (kept simple — only
+        // matters if you want to re-send)
+        strcpy(to_addr, "gmutz2010@googlemail.com");
+    }
+    delay(200);   // yield + lighten polling
+}
+
+void Command(char cmd[]) {
+    if (strFind(cmd, "SET ") == 0) {
+        // MAILSET <addr>
+        int n = strlen(cmd);
+        int j = 0;
+        for (int i = 4; i < n; i++) {
+            if (j < 63) { to_addr[j] = cmd[i]; j = j + 1; }
+        }
+        to_addr[j] = 0;
+        sprintf(params, "MAILTEST: recipient set to %s", to_addr);
+        responseCmnd(params);
+
+    } else if (strFind(cmd, "GO") == 0 && strlen(cmd) == 2) {
+        if (send_pending) {
+            responseCmnd("MAILTEST: previous send still pending");
+        } else {
+            // Build "[*:*:*:*:*:<to>:Test]hello from TinyC" inline.
+            // No mailBody() — body inlined in params, exactly mirroring
+            // the working console form
+            //   sendmail [*:*:*:*:*:to:Test]hello from TinyC
+            strcpy(params, "[*:*:*:*:*:");
+            strcat(params, to_addr);
+            strcat(params, ":TinyC mail test]hello from TinyC mail_test.tc");
+            addLog("MAILTEST: queuing for TaskLoop");
+            addLog(params);
+            send_pending = 1;
+            responseCmnd("MAILTEST: queued (watch serial for stages)");
+        }
+
+    } else if (strFind(cmd, "STAT") == 0 && strlen(cmd) == 4) {
+        sprintf(params, "MAILTEST: to=%s pending=%d last_rc=%d",
+                to_addr, send_pending, last_rc);
+        responseCmnd(params);
+
+    } else {
+        responseCmnd("MAILTEST: SET <addr> | GO | STAT");
+    }
+}
+
+int main() {
+    addCommand("MAIL");
+    addLog("MAILTEST: ready — type MAILGO in console to send a test email");
+    return 0;
+}
