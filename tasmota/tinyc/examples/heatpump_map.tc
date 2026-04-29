@@ -203,13 +203,29 @@ void parse_frame() {
     //
     // Walking the buffer catches writes embedded within merged frames
     // (cloud often sends an FC06 write within <4 ms of a prior FC03
-    // poll tail).
+    // poll tail). CRC validation eliminates byte-pattern false positives
+    // that would otherwise appear at random within FC03 response data.
+    char crc_buf[6];
     for (int i = 0; i + 8 <= buf_len; i++) {
         int s2 = buf[i] & 0xFF;
         int f2 = buf[i+1] & 0xFF;
         if (s2 != 1) continue;                  // only slave 1 commands matter
 
+        // CRC validation for FC05/FC06 (fixed 8-byte frames) — eliminates
+        // byte-pattern false positives that otherwise appear randomly
+        // within FC03 response data. FC15/FC16 have variable-length frames
+        // so their CRC isn't at bytes 6-7; we keep their weaker (qty range)
+        // sanity check below.
+        int crc_ok = 0;
+        if (f2 == 0x05 || f2 == 0x06) {
+            for (int k = 0; k < 6; k++) crc_buf[k] = buf[i+k] & 0xFF;
+            int expected = modbus_crc16(crc_buf, 6);
+            int got = ((buf[i+7] & 0xFF) << 8) | (buf[i+6] & 0xFF);
+            if (expected == got) crc_ok = 1;
+        }
+
         if (f2 == 0x05) {
+            if (!crc_ok) continue;
             // FC05: write single coil
             int waddr = ((buf[i+2] & 0xFF) << 8) | (buf[i+3] & 0xFF);
             int wval  = ((buf[i+4] & 0xFF) << 8) | (buf[i+5] & 0xFF);
@@ -228,6 +244,7 @@ void parse_frame() {
                 addLog(w);
             }
         } else if (f2 == 0x06) {
+            if (!crc_ok) continue;
             int waddr = ((buf[i+2] & 0xFF) << 8) | (buf[i+3] & 0xFF);
             int wval  = ((buf[i+4] & 0xFF) << 8) | (buf[i+5] & 0xFF);
             if (waddr < 1000) {
