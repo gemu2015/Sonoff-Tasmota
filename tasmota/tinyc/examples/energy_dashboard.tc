@@ -526,22 +526,14 @@ void WebCall() {
 // in the energy block — it triggers location.reload() so WebPage()
 // runs again.
 void WebPage() {
-    // ── Layout wrapper (pattern lifted from core2_energy.tc).
-    //    A block div with `max-width:960px;margin:0 auto` is itself
-    //    block-formatted (auto width = 100% of parent, capped at
-    //    960 px) and centers within the page-wrapper via auto margins.
-    //    Charts inside use the firmware default 100%/auto-width path
-    //    so they fill exactly this 960 px and align cleanly.
-    webSend("<div style='max-width:960px;margin:0 auto'>");
-
     // 24h heat-pump kWh
-    WebChartSize(0, 280);
+    WebChartSize(640, 280);
     WebChart(0, "Heizungs-WP 24h", "kWh",
              0xe74c3c, dvals_pos, 96, dvals,
              2, 15, 0.0, 4.0);
 
     // 31-day combined: WP kWh + outdoor temp on dual axis
-    WebChartSize(0, 280);   // 0-width → fills 100% of parent (matches sensor table)
+    WebChartSize(640, 280);
     WebChart(0, "Wärmepumpe + Aussen 31 Tage", "kWh",
              0xe74c3c, days_pos, 31, days_w,
              2, 1440, 0.0, 60.0);
@@ -551,7 +543,7 @@ void WebPage() {
              1, 1440, -10.0, 40.0);
 
     // 60-minute heat-pump current power
-    WebChartSize(0, 200);    // full-width like the others
+    WebChartSize(640, 200);
     WebChart(0, "Heizungs-WP letzte 60 min", "W",
              0xe74c3c, fast_pos, 60, fast_h,
              0, 1, 0.0, 0.0);          // auto-scale
@@ -572,8 +564,6 @@ void WebPage() {
              days_pos, 31, days_w, 2, 0, 0.0, 0.0);
     WebChart('t', "",    "D-Temp (°C)", 0x3498db,
              days_pos, 31, days_t, 1, 0, 0.0, 0.0);
-
-    webSend("</div>");   // close max-width wrapper
 }
 
 int main() {
