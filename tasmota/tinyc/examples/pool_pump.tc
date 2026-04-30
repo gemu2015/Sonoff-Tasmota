@@ -982,11 +982,21 @@ void WebCall() {
     // Toggle button — webButton renders "An/Aus: ON" or "An/Aus: OFF"
     // from `pool_btn_state`, which mirrors `pump_on` after each query.
     // Click flips it 0↔1 and EverySecond dispatches the matching command.
+    //
+    // The <tr><td colspan=2> wrapper is REQUIRED — webButton emits a raw
+    // <div><button>...</button></div>, which is invalid inside a <table>
+    // and gets foster-parented out by the HTML5 parser, ending up
+    // visually at the TOP of the live-poll section instead of the bottom
+    // of the pool block. Wrapping in a colspan=2 cell keeps it in
+    // table flow.
+    webSend("<tr><td colspan=2>");
     webButton(pool_btn_state, "An/Aus");
+    webSend("</td></tr>");
 
-    // Target-temperature slider — limited to 20..28 °C (realistic pool
-    // range). Change is detected in EverySecond and dispatched as a SET.
+    // Target-temperature slider — same foster-parenting story; same wrap.
+    webSend("<tr><td colspan=2>");
     webSlider(pool_set_input, 20, 28, "Target °C");
+    webSend("</td></tr>");
 }
 
 int main() {
