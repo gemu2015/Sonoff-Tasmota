@@ -4665,19 +4665,17 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t ci  = TC_POP(vm);          // format string const index
       int32_t dst_ref = TC_POP(vm);      // destination array ref
       int32_t *dst = tc_resolve_ref(vm, dst_ref);
-      int32_t *src = tc_resolve_ref(vm, src_ref);
       const char *fmt = tc_get_const_str(vm, ci);
-      if (!dst || !src || !fmt) { TC_PUSH(vm, -1); break; }
+      if (!dst || !fmt) { TC_PUSH(vm, -1); break; }
       int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
-      // Extract source string from VM int32 array into temp char buffer
-      int32_t srcMax = tc_ref_maxlen(vm, src_ref);
+      // Extract source string into srcbuf. The source can be a regular
+      // array ref (heap/global/local) OR a const-pool ref encoded by the
+      // compiler when a string literal is passed where a char[] is
+      // expected (via user-function `char foo[]` params). The const-ref
+      // path needs to read from the const pool, not via tc_resolve_ref —
+      // tc_ref_to_cstr handles both transparently.
       char srcbuf[256];
-      int32_t si = 0;
-      while (src[si] != 0 && si < srcMax && si < (int32_t)sizeof(srcbuf) - 1) {
-        srcbuf[si] = (char)(src[si] & 0xFF);
-        si++;
-      }
-      srcbuf[si] = '\0';
+      tc_ref_to_cstr(vm, src_ref, srcbuf, sizeof(srcbuf));
       char tmp[256];
       snprintf(tmp, sizeof(tmp), fmt, srcbuf);
       TC_PUSH(vm, tc_sprintf_to_ref(dst, maxSlots, tmp));
@@ -4720,18 +4718,13 @@ static int tc_syscall(TcVM *vm, uint16_t id) {
       int32_t ci  = TC_POP(vm);
       int32_t dst_ref = TC_POP(vm);
       int32_t *dst = tc_resolve_ref(vm, dst_ref);
-      int32_t *src = tc_resolve_ref(vm, src_ref);
       const char *fmt = tc_get_const_str(vm, ci);
-      if (!dst || !src || !fmt) { TC_PUSH(vm, -1); break; }
+      if (!dst || !fmt) { TC_PUSH(vm, -1); break; }
       int32_t maxSlots = tc_ref_maxlen(vm, dst_ref);
       int32_t ofs = tc_strlen_ref(dst, maxSlots);
-      int32_t srcMax = tc_ref_maxlen(vm, src_ref);
+      // Const-ref-aware source extraction (same fix as SPRINTF_STR).
       char srcbuf[256];
-      int32_t si = 0;
-      while (src[si] != 0 && si < srcMax && si < (int32_t)sizeof(srcbuf) - 1) {
-        srcbuf[si] = (char)(src[si] & 0xFF); si++;
-      }
-      srcbuf[si] = '\0';
+      tc_ref_to_cstr(vm, src_ref, srcbuf, sizeof(srcbuf));
       char tmp[256];
       snprintf(tmp, sizeof(tmp), fmt, srcbuf);
       tc_sprintf_to_ref(dst + ofs, maxSlots - ofs, tmp);
