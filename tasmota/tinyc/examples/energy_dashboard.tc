@@ -289,6 +289,13 @@ void UdpReady() {
 // time block, sunrise/sunset emoji line) build the HTML inline with
 // sprintf + webSend.
 void WebCall() {
+    // ── Section header — frames this slot's output as a visually
+    //    distinct block. Pattern lifted from core2_energy.tc:
+    //    `<tr><td colspan=2 style='background:#333...'>` rounded card.
+    //    Sister script pool_pump.tc emits its own header to keep the
+    //    two slots cleanly separated on the shared / page.
+    webSend("{s}<hr>{m}<hr>{e}<tr><td colspan=2 style='text-align:center;background:#1fa3ec;color:#fff;padding:8px;border-radius:8px;font-size:1.4em;font-weight:bold;'>Energie-Dashboard</td></tr>");
+
     // ── Top: time, weekday, date, sunrise/sunset ─────────────────
     // Day-of-week abbreviation (de). tasm_wday is 1=Sun..7=Sat.
     char wd_label[3];
@@ -472,13 +479,10 @@ void WebCall() {
             tasm_heap / 1024);
     webSend(scratch);
 
-    webSend("{s}<hr>{m}<hr>{e}");
-
-    // ── Reload button — forces a full page reload so WebPage() runs
-    // again and the charts redraw with the latest persist data. The
-    // /?m=1 polling refreshes the sensor table above but not the
-    // chart panels (charts live in WebPage, called once per /).
-    webSend("{s}<button onclick='location.reload()' style='width:100%;background:#1fa3ec;color:white;border:0;border-radius:0.3rem;padding:0.5rem;'>Charts neu zeichnen</button>{m}{e}");
+    // Reload control — small in-row link instead of a full-width
+    // button, less visually intrusive. Triggers location.reload() so
+    // WebPage() re-runs and the charts pick up fresh persist data.
+    webSend("{s}{m}<a href='#' onclick='location.reload();return false;' style='color:#1fa3ec;'>↻ Charts aktualisieren</a>{e}");
 }
 
 // ── Charts (rendered once on main page load via WebPage callback) ──
