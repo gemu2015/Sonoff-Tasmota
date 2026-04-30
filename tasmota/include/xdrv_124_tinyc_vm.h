@@ -218,6 +218,7 @@ static FS *tc_file_path(char *path) {
 #define TC_FILE_NAME       "/autoexec.tcb"
 #define TC_MAX_PERSIST     64          // max persist variable entries
 #define TC_MAX_UDP_GLOBALS 64          // max global (UDP auto-update) variable entries
+#define TC_MAX_WATCH       16          // max `watch` global variables (each takes var+shadow+written)
 
 // Flash-safe byte read — enables execute-from-flash on ESP32
 // When USE_TINYC_FLASH_EXEC is defined, bytecode can reside in memory-mapped flash.
@@ -927,6 +928,14 @@ typedef struct {
   };
   struct TcUdpGlobalEntry *udp_globals;  // NULL if no UDP globals declared
   uint8_t       udp_global_count;
+  // Watch-globals index — built by tc_scan_watch_indices() on load.
+  // The compiler emits `watch int x` as 3 consecutive global slots: var, shadow,
+  // written. STORE_WATCH (0xA5) is the only opcode that updates all three.
+  // External writes through `?sv=N_V` URL or other bridges hit only `var`,
+  // leaving the watch system blind. This table lists the var-slot indices,
+  // so URL-side writes can also bump shadow (var+1) and written-flag (var+2).
+  uint16_t      watch_indices[TC_MAX_WATCH];
+  uint8_t       watch_count;
 } TcVM;
 
 /*********************************************************************************************\
@@ -12026,6 +12035,90 @@ static void tc_persist_load(TcVM *vm) {
 }
 
 /*********************************************************************************************\
+ * Scan bytecode for STORE_WATCH ops, populate vm->watch_indices.
+ *
+ * `watch int x` reserves three consecutive globals: var, shadow, written.
+ * Only STORE_WATCH (0xA5) updates all three. Out-of-band writes to the var
+ * slot (URL handler, MQTT setvar, UDP global update) bypass the shadow/written
+ * update, leaving `written(x)` permanently false. This scanner records every
+ * watched var-slot so external bridges can mirror the STORE_WATCH side effects
+ * by hand. Walks the code section byte-by-byte using the same operand-size
+ * mapping as the IDE disassembler — desync-proof.
+\*********************************************************************************************/
+
+static void tc_scan_watch_indices(TcVM *vm) {
+  vm->watch_count = 0;
+  uint16_t pc = vm->code_offset;
+  uint16_t end = vm->code_offset + vm->code_size;
+  while (pc < end) {
+    uint8_t op = TC_READ_BYTE(&vm->code[pc++]);
+    uint8_t skip = 0;
+    if (op == OP_STORE_WATCH) {
+      if (pc + 6 > end) break;  // truncated — bail
+      uint16_t var_idx = ((uint16_t)TC_READ_BYTE(&vm->code[pc]) << 8) |
+                                    TC_READ_BYTE(&vm->code[pc + 1]);
+      // dedup — same watch var assigned in multiple places hits same var_idx
+      bool dup = false;
+      for (uint8_t i = 0; i < vm->watch_count; i++) {
+        if (vm->watch_indices[i] == var_idx) { dup = true; break; }
+      }
+      if (!dup && vm->watch_count < TC_MAX_WATCH) {
+        vm->watch_indices[vm->watch_count++] = var_idx;
+      }
+      skip = 6;
+    } else {
+      switch (op) {
+        // 4-byte operand
+        case OP_PUSH_I32: case OP_PUSH_F32: case OP_STORE_GLOBAL_UDP:
+          skip = 4; break;
+        // 2-byte operand
+        case OP_PUSH_I16:
+        case OP_JMP: case OP_JZ: case OP_JNZ: case OP_CALL:
+        case OP_LOAD_GLOBAL: case OP_STORE_GLOBAL:
+        case OP_LOAD_GLOBAL_ARR: case OP_STORE_GLOBAL_ARR:
+        case OP_ADDR_GLOBAL: case OP_SYSCALL2: case OP_LOAD_CONST:
+          skip = 2; break;
+        // 1-byte operand
+        case OP_PUSH_I8:
+        case OP_LOAD_LOCAL: case OP_STORE_LOCAL:
+        case OP_LOAD_LOCAL_ARR: case OP_STORE_LOCAL_ARR:
+        case OP_ADDR_LOCAL:
+        case OP_LOAD_HEAP_ARR: case OP_STORE_HEAP_ARR:
+        case OP_ADDR_HEAP: case OP_ADDR_HEAP_OFF:
+        case OP_LOAD_REF_ARR: case OP_STORE_REF_ARR:
+        case OP_SYSCALL:
+          skip = 1; break;
+        // 0-byte operand — all the rest (NOP/HALT/POP/DUP/arith/cmp/logic/RET/conv)
+        default:
+          skip = 0; break;
+      }
+    }
+    pc += skip;
+  }
+  if (vm->watch_count > 0) {
+    AddLog(LOG_LEVEL_DEBUG, PSTR("TCC: %d watch global(s) tracked"), vm->watch_count);
+  }
+}
+
+// Bridge for out-of-band writes (URL ?sv=, future MQTT setvar, etc.):
+// if `gidx` is a watched global, mirror what STORE_WATCH would have done —
+// shadow = previous value, written-flag = 1. Caller passes the OLD value.
+static inline void tc_global_write_with_watch(TcVM *vm, uint16_t gidx,
+                                              int32_t newval, int32_t oldval) {
+  vm->globals[gidx] = newval;
+  for (uint8_t i = 0; i < vm->watch_count; i++) {
+    if (vm->watch_indices[i] == gidx) {
+      // shadow = previous value, written = 1
+      if ((uint32_t)gidx + 2 < (uint32_t)vm->globals_size) {
+        vm->globals[gidx + 1] = oldval;
+        vm->globals[gidx + 2] = 1;
+      }
+      return;
+    }
+  }
+}
+
+/*********************************************************************************************\
  * VM: Load binary
 \*********************************************************************************************/
 
@@ -12315,6 +12408,10 @@ static int tc_vm_load(TcVM *vm, const uint8_t *binary, uint16_t size) {
   if (!tc_frame_alloc(&vm->frames[0])) {
     return TC_ERR_STACK_OVERFLOW;  // OOM
   }
+
+  // Build the watch-globals index so out-of-band writes (URL ?sv=) can
+  // bump shadow + written-flag the same way OP_STORE_WATCH does.
+  tc_scan_watch_indices(vm);
 
   return TC_OK;
 }

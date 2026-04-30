@@ -1,0 +1,904 @@
+// ─────────────────────────────────────────────────────────────────────
+// pool_pump.tc — Tuya local-protocol client for a "Swimming Pool Heat Pump"
+// (Tuya category 'qn'). Reads & controls without any cloud dependency
+// once you've extracted the device's local key.
+//
+// Supports BOTH Tuya local protocol versions:
+//   v3.3 — AES-ECB encrypted body + UNENCRYPTED "3.3" prefix on CONTROL
+//          + CRC32 trailer, no session handshake. Most pumps use this.
+//   v3.4 — AES-ECB encrypted body (prefix included in encryption) + HMAC-SHA256
+//          trailer + 3-step session-key handshake. Newer firmware.
+//
+// Auto-detects: tries v3.3 first; falls back to v3.4 with handshake. Cached
+// once detected (POOLVER <0|33|34> to force).
+//
+// Deployment:
+//   ESP32 + Tasmota + TinyC. The device must be on the SAME LAN segment
+//   as the pump (must be able to TCP-connect to pump:6668). On most
+//   home networks any device on the same subnet works; if the pump is
+//   behind a NAT extender, the TinyC device needs to be on that extender's
+//   WiFi too (no main-LAN bridging).
+//
+// Bootstrap (one time after first run):
+//   POOLIP    192.168.x.y
+//   POOLKEY   <16-char-local-key-from-Tuya-cloud>
+//   POOLDEVID <22-char-tuya-device-id>
+//   POOLSAVE     ← writes credentials to /pool_pump.pvs (persist)
+//
+// After that, just POOLSTAT / POOLQUERY / POOLON / POOLOFF / POOLTEMP <n>.
+//
+// To find the localKey + devId: see notes in README on extracting from
+// Tuya IoT Platform (cloud project + tinytuya-iot-py-sdk SMART_HOME login).
+//
+// Console commands:
+//   POOLSTAT       — show last cached state
+//   POOLQUERY      — refresh state from pump (queues background TCP)
+//   POOLON         — switch pump on
+//   POOLOFF        — switch pump off
+//   POOLTEMP <n>   — set target water temp (5..80 °C)
+//   POOLIP    <a>  — runtime IP override
+//   POOLKEY   <k>  — runtime local-key override
+//   POOLDEVID <d>  — runtime device-id override
+//   POOLSAVE       — persist current credentials
+//   POOLVER  <0|33|34> — force protocol version (0 = auto-detect)
+// ─────────────────────────────────────────────────────────────────────
+
+// ── Configuration ───────────────────────────────────────────────────
+// Credentials are stored as `persist` variables — written to /pool_pump.pvs
+// automatically. Configure once via console, survives reboots, never appears
+// in the source. Set them after first install via:
+//
+//   POOLIP    192.168.188.106
+//   POOLKEY   u9eUO{aw1Kxc}uk^                (16-char Tuya AES-128 key)
+//   POOLDEVID bfd963824015c2377a4pbw          (22-char device ID)
+//   POOLSAVE                                  (writes to /pool_pump.pvs)
+//
+// On every subsequent boot the values load automatically.
+//
+// NB: local_key size is 17 (not 16) — TinyC `char arr[N] = "literal"` reserves
+// slot N-1 for NUL and silently truncates the last char of an N-char literal.
+// The full 16-byte AES-128 key must be intact.
+persist char  pump_ip[16];
+int           pump_port = 6668;
+persist char  local_key[17];
+persist char  dev_id[24];
+
+// ── State ──────────────────────────────────────────────────────────
+int   pump_on        = -1;
+int   pump_temp_set  = 0;
+int   pump_temp_cur  = 0;
+char  pump_state[16] = "unknown";
+char  pump_mode[16]  = "unknown";   // DP 4 — "Boost_Heat" / "Auto" / etc.
+int   poll_seq       = 0;
+int   last_query_ms  = 0;
+int   last_ok        = 0;
+int   query_errors   = 0;
+
+// ── Web inputs — change-detected via TinyC `watch` ───────────────
+// `webButton` flips pool_toggle_btn 0→1 on click; `webSlider` writes
+// pool_set_input on release. Both are declared `watch` so we can use the
+// `written()` intrinsic in EverySecond to react to the external write
+// without keeping shadow vars by hand.
+watch int pool_toggle_btn = 0;
+watch int pool_set_input  = 24;
+int   pool_set_synced     = 0;   // 1 once first query has aligned slider with pump
+
+int   protocol_version = 0;        // 0 = auto, 33, 34
+int   v34_session_ok   = 0;        // 1 once session_key established
+char  session_key[16];             // active key for v3.4 (= local_key for v3.3)
+char  local_nonce[16];
+char  remote_nonce[16];
+
+// ── Worker task queue (delay() can't run in Command — spawn instead) ──
+int   work_pending    = 0;     // 1 = PoolWorker should run
+int   work_kind       = 0;     // 0=query 1=on 2=off 3=set_temp
+int   work_arg        = 0;     // for set_temp
+
+// ── Buffers ────────────────────────────────────────────────────────
+char  json_buf[160];
+char  packet_out[400];
+char  packet_in[640];
+char  decrypt_buf[400];
+char  resp_msg[100];
+char  scratch[80];
+char  hmac_buf[32];
+char  tmp_buf[64];
+
+// CRC32 table — populated once in main()
+int   crc32_table[256];
+
+// ── CRC32 (zlib) — used by v3.3 ────────────────────────────────────
+void crc32_init() {
+    // TinyC `int` is signed 32-bit; `>>` does arithmetic (sign-extending) shift.
+    // For CRC we need logical (zero-fill) shift, so mask to 31 bits after each
+    // shift. Without this, table entries with the top bit set get corrupted.
+    for (int i = 0; i < 256; i = i + 1) {
+        int c = i;
+        for (int k = 0; k < 8; k = k + 1) {
+            if (c & 1) { c = ((c >> 1) & 0x7FFFFFFF) ^ 0xEDB88320; }
+            else       { c =  (c >> 1) & 0x7FFFFFFF; }
+        }
+        crc32_table[i] = c & 0xFFFFFFFF;
+    }
+}
+
+int crc32_calc(char buf[], int len) {
+    int crc = 0xFFFFFFFF;
+    for (int i = 0; i < len; i = i + 1) {
+        int b = buf[i] & 0xFF;
+        crc = crc32_table[(crc ^ b) & 0xFF] ^ ((crc >> 8) & 0x00FFFFFF);
+    }
+    return crc ^ 0xFFFFFFFF;
+}
+
+// ── AES-ECB multi-block (in-place; key is which 16-byte char[]) ────
+int aes_ecb_multi(char key[], char data[], int len, int enc_flag) {
+    char block[16];
+    if ((len & 15) != 0) return 0;
+    for (int b = 0; b < len; b = b + 16) {
+        for (int i = 0; i < 16; i = i + 1) block[i] = data[b + i];
+        if (!aesEcb(key, block, enc_flag)) return 0;
+        for (int i = 0; i < 16; i = i + 1) data[b + i] = block[i];
+    }
+    return 1;
+}
+
+int pkcs7_pad(char buf[], int len) {
+    int pad = 16 - (len & 15);
+    for (int i = 0; i < pad; i = i + 1) buf[len + i] = pad;
+    return len + pad;
+}
+
+int pkcs7_strip(char buf[], int len) {
+    if (len <= 0) return 0;
+    int pad = buf[len - 1] & 0xFF;
+    if (pad < 1 || pad > 16) return len;
+    return len - pad;
+}
+
+// ── Set 32-bit big-endian into buffer ─────────────────────────────
+void put_be32(char buf[], int off, int val) {
+    buf[off]     = (val >> 24) & 0xFF;
+    buf[off + 1] = (val >> 16) & 0xFF;
+    buf[off + 2] = (val >> 8)  & 0xFF;
+    buf[off + 3] =  val        & 0xFF;
+}
+
+int get_be32(char buf[], int off) {
+    int b0 = buf[off]     & 0xFF;
+    int b1 = buf[off + 1] & 0xFF;
+    int b2 = buf[off + 2] & 0xFF;
+    int b3 = buf[off + 3] & 0xFF;
+    return (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+}
+
+// ── Build a Tuya packet (returns total length, -1 on error) ─────
+//
+// version: 33 or 34
+// active_key: which 16-byte key to use for AES & HMAC
+// cmd: command code (0x03/04/05 handshake, 0x07 control, 0x0A query, 0x09 hb)
+// json_body: plaintext body (for handshake cmds, body is the raw nonce/hmac;
+//            for app commands, it's JSON; the version header is added
+//            automatically for cmds that need it)
+// json_len: length of body in bytes (binary-safe)
+//
+// For v3.3: trailer is CRC32(4)+suffix(4)
+// For v3.4: trailer is HMAC-SHA256(32)+suffix(4)
+//
+int build_packet(int version, char active_key[], int cmd, char body[], int body_len) {
+    poll_seq = poll_seq + 1;
+
+    // Header
+    put_be32(packet_out, 0,  0x000055AA);
+    put_be32(packet_out, 4,  poll_seq);
+    put_be32(packet_out, 8,  cmd);
+    // length placeholder
+    put_be32(packet_out, 12, 0);
+
+    int pos = 16;
+
+    // Decide if version header prefix is needed.
+    // Cmds that DON'T get the prefix:
+    //   0x03 (SESS_KEY_NEG_START), 0x04, 0x05, 0x09 (HEARTBEAT), 0x0A (DP_QUERY)
+    int need_prefix = 1;
+    if (cmd == 0x03 || cmd == 0x04 || cmd == 0x05 || cmd == 0x09 || cmd == 0x0A) {
+        need_prefix = 0;
+    }
+
+    // KEY DIFFERENCE between v3.3 and v3.4:
+    //   v3.3: prepend UNENCRYPTED "3.3" + 12 zero bytes BEFORE the encrypted JSON.
+    //         (the prefix is sent in cleartext as the first 15 bytes of the
+    //          payload section, and only the JSON bytes are AES-ECB encrypted.)
+    //   v3.4: prepend "3.4" + 12 zero bytes to the JSON, THEN encrypt the whole
+    //         thing as one block sequence.
+    // Get this wrong and the pump replies with "parse data error" (16 chars
+    // decrypted) for v3.3 commands.
+
+    if (need_prefix && version == 33) {
+        packet_out[pos]   = '3';
+        packet_out[pos+1] = '.';
+        packet_out[pos+2] = '3';
+        for (int i = 3; i < 15; i = i + 1) packet_out[pos + i] = 0;
+        pos = pos + 15;
+    }
+
+    // Encrypt-buffer
+    char enc_buf[256];
+    int  enc_len = 0;
+    if (need_prefix && version == 34) {
+        // v3.4: prefix INSIDE encrypted region
+        enc_buf[0] = '3'; enc_buf[1] = '.'; enc_buf[2] = '4';
+        for (int i = 3; i < 15; i = i + 1) enc_buf[i] = 0;
+        enc_len = 15;
+    }
+    for (int i = 0; i < body_len; i = i + 1) enc_buf[enc_len + i] = body[i];
+    enc_len = enc_len + body_len;
+
+    int padded_len = pkcs7_pad(enc_buf, enc_len);
+
+    if (!aes_ecb_multi(active_key, enc_buf, padded_len, 1)) {
+        addLog("POOL: aes encrypt failed");
+        return -1;
+    }
+
+    for (int i = 0; i < padded_len; i = i + 1) packet_out[pos + i] = enc_buf[i];
+    pos = pos + padded_len;
+
+    // Fill in length field
+    int trailer_len;
+    if (version == 33) trailer_len = 4 + 4;       // crc + suffix
+    else               trailer_len = 32 + 4;      // hmac + suffix
+    int plen = (pos - 16) + trailer_len;
+    put_be32(packet_out, 12, plen);
+
+    // Trailer: CRC32 (v3.3) or HMAC-SHA256 (v3.4)
+    if (version == 33) {
+        int crc = crc32_calc(packet_out, pos);
+        put_be32(packet_out, pos, crc);
+        pos = pos + 4;
+    } else {
+        // HMAC-SHA256 over packet_out[0..pos)
+        char hmac_out[32];
+        // hmacSha256(key_ref, klen, data_ref, dlen, out32_ref) -> int
+        if (!hmacSha256(active_key, 16, packet_out, pos, hmac_out)) {
+            addLog("POOL: hmac failed");
+            return -1;
+        }
+        for (int i = 0; i < 32; i = i + 1) packet_out[pos + i] = hmac_out[i];
+        pos = pos + 32;
+    }
+
+    // Suffix
+    put_be32(packet_out, pos, 0x0000AA55);
+    return pos + 4;
+}
+
+// ── Send raw bytes over TCP, read response ─────────────────────────
+// Caller is responsible for tcpConnect / tcpDisconnect.
+// Returns bytes read into packet_in, or 0 on timeout/error.
+// Big buffer for hex dumps (300 chars + label)
+char dbg_buf[400];
+
+int tcp_round_trip(int packet_len) {
+    // Send packet (type 0 = uint8 single-byte-per-element — type 1 silently
+    // doubled the length and corrupted bytes; type 0 is what we want).
+    tcpWriteArray(packet_out, packet_len, 0);
+
+    // Wait up to 3 s for response. delay() inside spawnTask is fine.
+    int waited = 0;
+    int avail  = 0;
+    while (waited < 3000) {
+        avail = tcpAvailable();
+        if (avail >= 24) break;
+        delay(50);
+        waited = waited + 50;
+    }
+    if (avail < 24) {
+        sprintf(dbg_buf, "POOL: timeout after %d ms (avail=%d)", waited, avail);
+        addLog(dbg_buf);
+        return 0;
+    }
+
+    delay(150);   // let trailing bytes arrive
+    return tcpReadArray(packet_in);
+}
+
+// ── Parse response (returns decrypted body length in decrypt_buf, 0 on err)
+//
+// version: 33 or 34
+// active_key: AES + HMAC key
+// got: total bytes received in packet_in
+//
+// Strips header, retcode (if v3.4 response includes it), version prefix
+// (if present), AES-decrypts, PKCS7-strips. decrypt_buf gets the result.
+//
+// For HMAC verification on v3.4, we recompute HMAC over the prefix..before-hmac
+// and compare. (Skipped for now to keep code small — Tuya doesn't refuse the
+// session if we don't verify; verification only matters for tamper detection.)
+//
+// Returns: -1 on packet error, 0 on valid empty-body ACK (SET commands),
+// >0 = decrypted body length (DP_QUERY responses).
+int parse_response(int version, char active_key[], int got) {
+    if (got < 24) return -1;
+
+    // Verify prefix
+    if (get_be32(packet_in, 0) != 0x000055AA) {
+        addLog("POOL: bad prefix");
+        return -1;
+    }
+    int rsp_seq = get_be32(packet_in, 4);
+    int rsp_cmd = get_be32(packet_in, 8);
+    int plen    = get_be32(packet_in, 12);
+
+    // Total length should match
+    int total_expected = 16 + plen;
+    if (total_expected > got) {
+        sprintf(scratch, "POOL: short pkt got=%d want=%d", got, total_expected);
+        addLog(scratch);
+        return -1;
+    }
+
+    // Detect empty-body ACK (typical for SET commands):
+    // plen = 4 (retcode) + 0 (body) + trailer = 4 + trailer_len.
+    // For v3.3: trailer 8 → plen 12. Pump ACK is empty-body → return 0.
+    int trailer_len_check = (version == 33) ? 8 : 36;
+    if (plen <= trailer_len_check + 4) return 0;
+
+    // Trailer length
+    int trailer_len;
+    if (version == 33) trailer_len = 4 + 4;
+    else               trailer_len = 32 + 4;
+
+    // The encrypted body region: starts after the 16-byte header AND optionally
+    // a 4-byte retcode (returned in responses). Heuristic: if first 4 bytes are
+    // small (return code 0 or 1), treat as retcode and skip.
+    int body_start = 16;
+    int retcode = get_be32(packet_in, 16);
+    // If retcode looks plausible (0..255) AND the remaining bytes after it
+    // form a valid-length encrypted block, advance.
+    int body_end = 16 + plen - trailer_len;     // end-exclusive of body
+    int body_len_with_retcode    = body_end - 16;
+    int body_len_without_retcode = body_end - 16;
+
+    // Try with retcode first
+    if (retcode >= 0 && retcode < 256) {
+        int test_len = body_end - (16 + 4);
+        if (test_len > 0 && (test_len & 15) == 0) {
+            body_start = 20;
+            body_len_with_retcode = test_len;
+        }
+    }
+    int body_len = body_end - body_start;
+    if (body_len <= 0 || (body_len & 15) != 0 || body_len > 384) {
+        // Try without skipping retcode
+        body_start = 16;
+        body_len = body_end - 16;
+        if (body_len < 0 || (body_len & 15) != 0 || body_len > 384) {
+            sprintf(scratch, "POOL: bad body_len=%d", body_len);
+            addLog(scratch);
+            return -1;
+        }
+        if (body_len == 0) return 0;     // empty-body ACK
+    }
+
+    // Copy ciphertext into decrypt_buf
+    for (int i = 0; i < body_len; i = i + 1) decrypt_buf[i] = packet_in[body_start + i];
+
+    if (!aes_ecb_multi(active_key, decrypt_buf, body_len, 0)) {
+        addLog("POOL: aes decrypt failed");
+        return -1;
+    }
+
+    // Strip PKCS7 padding
+    int dec_len = pkcs7_strip(decrypt_buf, body_len);
+
+    // Strip optional version header "3.x" + 12 bytes if present
+    if (dec_len >= 15 && decrypt_buf[0] == '3' && decrypt_buf[1] == '.' &&
+        (decrypt_buf[2] == '3' || decrypt_buf[2] == '4')) {
+        for (int i = 0; i < dec_len - 15; i = i + 1) decrypt_buf[i] = decrypt_buf[i + 15];
+        dec_len = dec_len - 15;
+    }
+
+    decrypt_buf[dec_len] = 0;
+    return dec_len;
+}
+
+// ── v3.4 handshake — runs over an already-open TCP connection ─────
+int tuya_v34_handshake() {
+    addLog("POOL: v3.4 handshake start");
+
+    // Reset session
+    v34_session_ok = 0;
+
+    // Use tinytuya's not-so-random fixed nonce — deterministic, simpler debug
+    char nonce_lit[16];
+    strcpy(nonce_lit, "0123456789abcdef");
+    for (int i = 0; i < 16; i = i + 1) local_nonce[i] = nonce_lit[i];
+
+    // ── Step 1: send SESS_KEY_NEG_START (0x03) with local_nonce ──
+    int plen = build_packet(34, local_key, 0x03, local_nonce, 16);
+    if (plen <= 0) return 0;
+
+    int got = tcp_round_trip(plen);
+    if (got <= 0) {
+        addLog("POOL: v3.4 step1 no response");
+        return 0;
+    }
+
+    // ── Step 2: parse SESS_KEY_NEG_RESP (0x04) ──
+    // Response payload (after AES-decrypt) should be:
+    //   [16] remote_nonce
+    //   [32] HMAC-SHA256(local_key, local_nonce)
+    int dec_len = parse_response(34, local_key, got);
+    if (dec_len < 48) {     // need at least 16 nonce + 32 hmac
+        sprintf(scratch, "POOL: v3.4 step2 short payload %d", dec_len);
+        addLog(scratch);
+        return 0;
+    }
+
+    for (int i = 0; i < 16; i = i + 1) remote_nonce[i] = decrypt_buf[i];
+
+    // Verify HMAC: HMAC(local_key, local_nonce) == decrypt_buf[16..48]
+    char check_hmac[32];
+    if (!hmacSha256(local_key, 16, local_nonce, 16, check_hmac)) {
+        addLog("POOL: v3.4 hmac check fn failed");
+        return 0;
+    }
+    int hmac_ok = 1;
+    for (int i = 0; i < 32; i = i + 1) {
+        if (check_hmac[i] != decrypt_buf[16 + i]) { hmac_ok = 0; }
+    }
+    if (!hmac_ok) {
+        addLog("POOL: v3.4 hmac mismatch — wrong localKey?");
+        return 0;
+    }
+
+    // ── Step 3: send SESS_KEY_NEG_FINISH (0x05) with HMAC(local_key, remote_nonce) ──
+    char rkey_hmac[32];
+    if (!hmacSha256(local_key, 16, remote_nonce, 16, rkey_hmac)) {
+        addLog("POOL: v3.4 step3 hmac failed");
+        return 0;
+    }
+    plen = build_packet(34, local_key, 0x05, rkey_hmac, 32);
+    if (plen <= 0) return 0;
+
+    // Step 3 doesn't need a meaningful response — we just send and continue.
+    tcpWriteArray(packet_out, plen, 1);
+    delay(150);
+    // Drain any incoming bytes (we don't care about content)
+    int drained = tcpAvailable();
+    if (drained > 0) tcpReadArray(packet_in);
+
+    // ── Finalize: session_key = AES-ECB-encrypt(local_key, local_nonce XOR remote_nonce) ──
+    char xor_block[16];
+    for (int i = 0; i < 16; i = i + 1) {
+        xor_block[i] = local_nonce[i] ^ remote_nonce[i];
+    }
+    if (!aesEcb(local_key, xor_block, 1)) {
+        addLog("POOL: v3.4 session-key encrypt failed");
+        return 0;
+    }
+    for (int i = 0; i < 16; i = i + 1) session_key[i] = xor_block[i];
+
+    v34_session_ok = 1;
+    addLog("POOL: v3.4 handshake OK");
+    return 1;
+}
+
+// ── JSON DP extraction ─────────────────────────────────────────────
+// pat is global — having a local char[16] in each call hits a TinyC
+// heap-handle edge case ("heap handle N invalid" warnings + parse fail).
+char json_pat[24];
+
+int json_get_int(char json[], char key[], int dflt) {
+    sprintf(json_pat, "\"%s\":", key);
+    int p = strFind(json, json_pat);
+    if (p < 0) return dflt;
+    int i = p + strlen(json_pat);
+    while (json[i] == ' ' || json[i] == '\t') i = i + 1;
+    if (json[i] == 't') return 1;
+    if (json[i] == 'f') return 0;
+    int neg = 0; int val = 0; int seen = 0;
+    if (json[i] == '-') { neg = 1; i = i + 1; }
+    while (json[i] >= '0' && json[i] <= '9') {
+        val = val * 10 + (json[i] - '0');
+        i = i + 1; seen = 1;
+    }
+    if (!seen) return dflt;
+    if (neg) val = -val;
+    return val;
+}
+
+void json_get_str(char json[], char key[], char out[], int outmax) {
+    sprintf(json_pat, "\"%s\":\"", key);
+    int p = strFind(json, json_pat);
+    if (p < 0) { out[0] = 0; return; }
+    int i = p + strlen(json_pat);
+    int j = 0;
+    while (json[i] != '\"' && json[i] != 0 && j < outmax - 1) {
+        out[j] = json[i];
+        i = i + 1; j = j + 1;
+    }
+    out[j] = 0;
+}
+
+// ── Single attempt at a query/control round-trip (one specific version) ──
+// Connects, optionally does handshake (v3.4), sends body, reads response.
+// Returns decrypted-body length (>0 OK, 0 fail). Caller already tcpSelect'd.
+int tuya_round_trip_v(int version, int cmd, char body[], int body_len) {
+    // Pump only allows one concurrent local connection and has a cooldown
+    // after each disconnect. Retry up to 3 times with growing back-off.
+    int rc = -1;
+    for (int attempt = 0; attempt < 3; attempt = attempt + 1) {
+        rc = tcpConnect(pump_ip, pump_port);
+        if (rc == 0) break;
+        sprintf(scratch, "POOL: connect retry %d (rc=%d)", attempt, rc);
+        addLog(scratch);
+        delay(800 + attempt * 400);   // 800ms, 1200ms, 1600ms
+    }
+    if (rc != 0) {
+        sprintf(scratch, "POOL: connect fail rc=%d (%s:%d)", rc, pump_ip, pump_port);
+        addLog(scratch);
+        return 0;
+    }
+    delay(120);
+    if (!tcpConnected()) {
+        addLog("POOL: not connected post-delay");
+        tcpDisconnect();
+        return 0;
+    }
+
+    int active_is_session = 0;
+
+    if (version == 34) {
+        if (!tuya_v34_handshake()) {
+            tcpDisconnect();
+            return 0;
+        }
+        active_is_session = 1;
+    }
+
+    // Build the actual command packet
+    int plen;
+    if (active_is_session) {
+        plen = build_packet(34, session_key, cmd, body, body_len);
+    } else {
+        plen = build_packet(33, local_key, cmd, body, body_len);
+    }
+    if (plen <= 0) { tcpDisconnect(); return -1; }
+
+    int got = tcp_round_trip(plen);
+    tcpDisconnect();
+
+    if (got <= 0) {
+        addLog("POOL: response timeout");
+        return -1;
+    }
+
+    int dec_len;
+    if (active_is_session) dec_len = parse_response(34, session_key, got);
+    else                   dec_len = parse_response(33, local_key, got);
+
+    // -1 = real error, 0 = empty-body ACK (success for SET), >0 = body
+    if (dec_len < 0) return -1;
+    if (dec_len == 0) return 0;
+
+    // Sanity: response should be a JSON object (or empty for ACK-only)
+    if (decrypt_buf[0] != '{' && cmd != 0x07 && cmd != 0x09) {
+        sprintf(scratch, "POOL: response not JSON (first byte=%d)", decrypt_buf[0] & 0xFF);
+        addLog(scratch);
+        return -1;
+    }
+
+    return dec_len;
+}
+
+// ── Top-level: do a query/control with version auto-detect ──────────
+int tuya_round_trip(int cmd, char body[], int body_len) {
+    tcpSelect(0);
+
+    int dec_len = -1;
+
+    if (protocol_version == 0 || protocol_version == 33) {
+        dec_len = tuya_round_trip_v(33, cmd, body, body_len);
+        if (dec_len >= 0) {        // 0 = ACK, >0 = body — both success
+            if (protocol_version == 0) {
+                protocol_version = 33;
+                addLog("POOL: detected v3.3");
+            }
+            return dec_len;
+        }
+        if (protocol_version == 33) return -1;
+    }
+
+    // Try v3.4
+    dec_len = tuya_round_trip_v(34, cmd, body, body_len);
+    if (dec_len >= 0) {
+        if (protocol_version == 0) {
+            protocol_version = 34;
+            addLog("POOL: detected v3.4");
+        }
+        return dec_len;
+    }
+
+    return -1;
+}
+
+// ── Top-level operations ─────────────────────────────────────────
+int tuya_query() {
+    sprintf(json_buf, "{\"gwId\":\"%s\",\"devId\":\"%s\"}", dev_id, dev_id);
+    int dec_len = tuya_round_trip(0x0A, json_buf, strlen(json_buf));
+    if (dec_len <= 0) {     // <0 = error, 0 = empty-body (no DPs to parse)
+        last_ok = 0;
+        query_errors = query_errors + 1;
+        return 0;
+    }
+    last_ok = 1;
+    last_query_ms = millis();
+    addLog(decrypt_buf);
+
+    // DP id mapping reverse-engineered from a live pump query:
+    //   1 = switch (bool)  2 = temp_set (int °C)  3 = temp_current (int °C)
+    //   4 = mode ("Boost_Heat", "Auto", etc.)  11 = work_state ("standby"/"heating")
+    //   13 = temp_unit_convert ("c"/"f")  21 = silent_mode flag
+    //
+    // Keys are named char[] not string literals — TinyC's literal-to-char[]
+    // promotion for function args hits a heap-handle edge case ("heap handle
+    // N invalid" warnings + json_get_* silently returning default).
+    char k_switch[4];     strcpy(k_switch,    "1");
+    char k_temp_set[4];   strcpy(k_temp_set,  "2");
+    char k_temp_cur[4];   strcpy(k_temp_cur,  "3");
+    char k_mode[4];       strcpy(k_mode,      "4");
+    char k_state[4];      strcpy(k_state,     "11");
+    pump_on       = json_get_int(decrypt_buf, k_switch,   pump_on);
+    pump_temp_set = json_get_int(decrypt_buf, k_temp_set, pump_temp_set);
+    pump_temp_cur = json_get_int(decrypt_buf, k_temp_cur, pump_temp_cur);
+    json_get_str(decrypt_buf, k_mode,  pump_mode,  16);
+    json_get_str(decrypt_buf, k_state, pump_state, 16);
+
+    // Sync slider with pump's actual target on first query so the widget
+    // starts at the real value. Clamp to its visible 20..28 range. The
+    // `snapshot()` clears the `written` flag set by our own assignment so
+    // EverySecond doesn't mistake it for a user drag.
+    if (!pool_set_synced) {
+        int v = pump_temp_set;
+        if (v < 20) v = 20;
+        if (v > 28) v = 28;
+        pool_set_input = v;
+        snapshot(pool_set_input);
+        pool_set_synced = 1;
+    }
+    return 1;
+}
+
+// Tuya CONTROL JSON: {"devId":"<id>","uid":"<id>","t":"<unix>","dps":{"<dp>":<val>}}
+// uid must match devId — tinytuya fills it from self.id, NOT empty string. With
+// uid="" the pump silently rejects the command (no error response, just no
+// state change). Use Tasmota's time() syscall for the unix timestamp; pump
+// validates that t is recent.
+
+int tuya_set_int(int dp_id, int value) {
+    int t = 1777530000 + (millis() / 1000);   // 10-digit unix-epoch-ish
+    sprintf(json_buf,
+            "{\"devId\":\"%s\",\"uid\":\"%s\",\"t\":\"%d\",\"dps\":{\"%d\":%d}}",
+            dev_id, dev_id, t, dp_id, value);
+    int dec_len = tuya_round_trip(0x07, json_buf, strlen(json_buf));
+    return dec_len >= 0 ? 1 : 0;
+}
+
+int tuya_set_bool(int dp_id, int value) {
+    // Hardcoded recent unix epoch — pump may validate format requires 10 digits.
+    // TODO: replace with proper time once we figure out the right syscall.
+    int t = 1777530000 + (millis() / 1000);
+    char tf[8];
+    if (value) { strcpy(tf, "true"); } else { strcpy(tf, "false"); }
+    sprintf(json_buf,
+            "{\"devId\":\"%s\",\"uid\":\"%s\",\"t\":\"%d\",\"dps\":{\"%d\":%s}}",
+            dev_id, dev_id, t, dp_id, tf);
+    int dec_len = tuya_round_trip(0x07, json_buf, strlen(json_buf));
+    return dec_len >= 0 ? 1 : 0;
+}
+
+// ── Worker task — runs TCP work in own FreeRTOS task (delay() OK here) ──
+void PoolWorker() {
+    addLog("POOL WORKER: dispatch");
+    if (work_kind == 0) {
+        tuya_query();
+    } else if (work_kind == 1) {
+        tuya_set_bool(1, 1);
+    } else if (work_kind == 2) {
+        tuya_set_bool(1, 0);
+    } else if (work_kind == 3) {
+        if (tuya_set_int(2, work_arg)) pump_temp_set = work_arg;
+    }
+    work_pending = 0;
+    addLog("POOL WORKER: done");
+}
+
+void enqueue_work(int kind, int arg) {
+    if (taskRunning("PoolWorker")) {
+        addLog("POOL: previous worker still running, ignoring");
+        return;
+    }
+    work_kind    = kind;
+    work_arg     = arg;
+    work_pending = 1;
+    spawnTask("PoolWorker", 8);
+}
+
+// ── Tasmota integration ─────────────────────────────────────────────
+void Command(char cmd[]) {
+    if (strFind(cmd, "STAT") == 0 && strlen(cmd) == 4) {
+        if (last_ok) {
+            sprintf(resp_msg, "POOL v%d on=%d set=%d cur=%d state=%s err=%d (cached)",
+                    protocol_version, pump_on, pump_temp_set, pump_temp_cur,
+                    pump_state, query_errors);
+        } else {
+            sprintf(resp_msg, "POOL: no fresh data (errors=%d)", query_errors);
+        }
+        responseCmnd(resp_msg);
+
+    } else if (strFind(cmd, "QUERY") == 0 && strlen(cmd) == 5) {
+        enqueue_work(0, 0);
+        responseCmnd("POOL: query queued (POOLSTAT to read result)");
+
+    } else if (strFind(cmd, "ON") == 0 && strlen(cmd) == 2) {
+        enqueue_work(1, 0);
+        responseCmnd("POOL: ON queued");
+
+    } else if (strFind(cmd, "OFF") == 0 && strlen(cmd) == 3) {
+        enqueue_work(2, 0);
+        responseCmnd("POOL: OFF queued");
+
+    } else if (strFind(cmd, "TEMP ") == 0) {
+        int n = strlen(cmd);
+        int t = 0;
+        for (int i = 5; i < n; i = i + 1) {
+            if (cmd[i] >= '0' && cmd[i] <= '9') t = t * 10 + (cmd[i] - '0');
+        }
+        if (t < 5 || t > 80) {
+            responseCmnd("POOL: TEMP out of range 5..80");
+        } else {
+            enqueue_work(3, t);
+            sprintf(resp_msg, "POOL: target %d C queued", t);
+            responseCmnd(resp_msg);
+        }
+
+    } else if (strFind(cmd, "IP ") == 0) {
+        int n = strlen(cmd);
+        int j = 0;
+        for (int i = 3; i < n && j < 15; i = i + 1) {
+            pump_ip[j] = cmd[i]; j = j + 1;
+        }
+        pump_ip[j] = 0;
+        sprintf(resp_msg, "POOL: IP set to %s", pump_ip);
+        responseCmnd(resp_msg);
+
+    } else if (strFind(cmd, "KEY ") == 0) {
+        int n = strlen(cmd);
+        int j = 0;
+        for (int i = 4; i < n && j < 16; i = i + 1) {
+            local_key[j] = cmd[i]; j = j + 1;
+        }
+        local_key[j] = 0;
+        sprintf(resp_msg, "POOL: key set (%d chars)", strlen(local_key));
+        responseCmnd(resp_msg);
+
+    } else if (strFind(cmd, "DEVID ") == 0) {
+        int n = strlen(cmd);
+        int j = 0;
+        for (int i = 6; i < n && j < 23; i = i + 1) {
+            dev_id[j] = cmd[i]; j = j + 1;
+        }
+        dev_id[j] = 0;
+        sprintf(resp_msg, "POOL: devId set to %s", dev_id);
+        responseCmnd(resp_msg);
+
+    } else if (strFind(cmd, "SAVE") == 0 && strlen(cmd) == 4) {
+        saveVars();
+        sprintf(resp_msg, "POOL: persist saved (ip=%s key=%d devId=%s)",
+                pump_ip, strlen(local_key), dev_id);
+        responseCmnd(resp_msg);
+
+    } else if (strFind(cmd, "VER ") == 0) {
+        int v = 0;
+        if (cmd[4] == '3' && cmd[5] == '3') v = 33;
+        if (cmd[4] == '3' && cmd[5] == '4') v = 34;
+        if (cmd[4] == '0') v = 0;
+        protocol_version = v;
+        v34_session_ok   = 0;
+        sprintf(resp_msg, "POOL: forced version %d (0=auto)", v);
+        responseCmnd(resp_msg);
+
+    } else {
+        responseCmnd("POOL: STAT | QUERY | ON | OFF | TEMP <n> | IP <a> | KEY <k> | DEVID <d> | SAVE | VER <0|33|34>");
+    }
+}
+
+int tick_secs = 0;
+void EverySecond() {
+    // Web "An/Aus" button — webButton flips pool_toggle_btn 0→1 on click.
+    // `written()` becomes true after the URL handler stored the new value;
+    // we react, reset to 0, and `snapshot()` so the next tick sees written=0.
+    if (written(pool_toggle_btn)) {
+        if (pool_toggle_btn == 1) {
+            if (pump_on > 0) {
+                addLog("POOL: web button → OFF");
+                enqueue_work(2, 0);
+            } else {
+                addLog("POOL: web button → ON");
+                enqueue_work(1, 0);
+            }
+            pool_toggle_btn = 0;
+        }
+        snapshot(pool_toggle_btn);
+    }
+
+    // Target slider — webSlider writes pool_set_input on release. `written()`
+    // detects the external write; `pool_set_input != pump_temp_set` filters
+    // out our own optimistic write below; `pool_set_synced` blocks the very
+    // first tick before tuya_query has aligned the slider with the pump.
+    if (written(pool_set_input)) {
+        if (pool_set_synced &&
+            pool_set_input != pump_temp_set &&
+            pool_set_input >= 5 && pool_set_input <= 80) {
+            sprintf(resp_msg, "POOL: web slider → TEMP %d", pool_set_input);
+            addLog(resp_msg);
+            enqueue_work(3, pool_set_input);
+            pump_temp_set = pool_set_input;   // optimistic, prevents re-fire
+        }
+        snapshot(pool_set_input);
+    }
+
+    tick_secs = tick_secs + 1;
+    if (tick_secs >= 30) {
+        tick_secs = 0;
+        if (work_pending) return;
+        if (taskRunning("PoolWorker")) return;
+        enqueue_work(0, 0);
+    }
+}
+
+void JsonCall() {
+    if (last_ok) {
+        sprintf(resp_msg, ",\"POOL\":{\"v\":%d,\"on\":%d,\"set\":%d,\"cur\":%d,\"state\":\"%s\"}",
+                protocol_version, pump_on, pump_temp_set, pump_temp_cur, pump_state);
+        responseAppend(resp_msg);
+    }
+}
+
+void WebCall() {
+    char stale[12];
+    if (last_ok) { stale[0] = 0; } else { strcpy(stale, " (stale)"); }
+
+    // Four sensor rows in standard Tasmota {s}label{m}value{e} format
+    sprintf(resp_msg, "{s}Pool Mode{m}%s%s{e}", pump_mode, stale);
+    webSend(resp_msg);
+    sprintf(resp_msg, "{s}Pool State{m}%s%s{e}", pump_state, stale);
+    webSend(resp_msg);
+    sprintf(resp_msg, "{s}Pool Target{m}%d °C{e}", pump_temp_set);
+    webSend(resp_msg);
+    sprintf(resp_msg, "{s}Pool Water{m}%d °C{e}", pump_temp_cur);
+    webSend(resp_msg);
+
+    // Toggle button — webButton appends the current state to the label
+    // automatically (e.g. "An/Aus: ON"), so no separate status line needed.
+    webButton(pool_toggle_btn, "An/Aus");
+
+    // Target-temperature slider — limited to 20..28 °C (realistic pool
+    // range). Change is detected in EverySecond and dispatched as a SET.
+    webSlider(pool_set_input, 20, 28, "Target °C");
+}
+
+int main() {
+    crc32_init();
+    addCommand("POOL");
+
+    if (strlen(pump_ip) == 0 || strlen(local_key) != 16 || strlen(dev_id) != 22) {
+        addLog("POOL: not configured — set POOLIP / POOLKEY / POOLDEVID then POOLSAVE");
+    } else {
+        sprintf(scratch, "POOL: ready — target %s:%d", pump_ip, pump_port);
+        addLog(scratch);
+    }
+    return 0;
+}

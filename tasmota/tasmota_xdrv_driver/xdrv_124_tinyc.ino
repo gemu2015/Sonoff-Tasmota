@@ -2197,7 +2197,11 @@ static void TinyC_WebSetVar(void) {
       } else {
         int32_t newval = val.toInt();
         int32_t oldval = s->vm.globals[gidx];
-        s->vm.globals[gidx] = newval;
+        // Watch-aware write: if `gidx` is a `watch` global, also bumps
+        // shadow (gidx+1 = oldval) and written-flag (gidx+2 = 1) so that
+        // EverySecond's `written(var)` / `changed(var)` intrinsics see the
+        // external write. Plain (non-watch) globals: same as a raw write.
+        tc_global_write_with_watch(&s->vm, (uint16_t)gidx, newval, oldval);
         // Dispatch TouchButton callback when a webButton value changes
         if (newval != oldval) {
           tinyc_touch_button((uint8_t)gidx, (int16_t)newval);

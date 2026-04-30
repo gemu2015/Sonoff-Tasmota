@@ -12436,6 +12436,12 @@ void Script_Check_HTML_Setvars(void) {
 
   if (!HttpCheckPriviledgedAccess()) { return; }
 
+  // Skip when no Scripter program is loaded — Scripter's variable resolver
+  // null-derefs (Run_script_sub: `*dfvar = ...`) for any unknown variable
+  // name. Without this guard a `?sv=N_V` URL from another driver (e.g.
+  // TinyC's webButton/webSlider) reboots the device with LoadProhibited.
+  if (!bitRead(Settings->rule_enabled, 0) || !glob_script_mem.script_ram) return;
+
   //if (Webserver->hasArg("gv")) {
     // get variable
   //  String stmp = Webserver->arg("gv");
