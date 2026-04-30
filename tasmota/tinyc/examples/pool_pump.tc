@@ -73,6 +73,15 @@ int   pump_port = 6668;
 char  local_key[17];
 char  dev_id[24];
 
+// ── UDP-broadcast: current pool-pump power consumption ────────────
+// `pwp` (Pool-WP, Watts) is broadcast over UDP by whichever Tasmota
+// device meters the pump's power draw (a smart plug or clamp meter
+// upstream). Same name the energy_dashboard slot subscribes to —
+// declaring it here makes slot 1 a second receiver, no extra
+// broadcast traffic. Float because the firmware UDP receiver stores
+// scalars as float bits; cast to int for display.
+global float pwp = 0.0;
+
 // ── State ──────────────────────────────────────────────────────────
 int   pump_on        = -1;
 int   pump_temp_set  = 0;
@@ -945,6 +954,11 @@ void WebCall() {
     sprintf(resp_msg, "{s}Pool Target{m}%d °C{e}", pump_temp_set);
     webSend(resp_msg);
     sprintf(resp_msg, "{s}Pool Water{m}%d °C{e}", pump_temp_cur);
+    webSend(resp_msg);
+
+    // Current power draw — sourced from a UDP-broadcast meter, not
+    // from the Tuya DP set (this pump model doesn't expose power).
+    sprintf(resp_msg, "{s}Pool Power{m}%d W{e}", (int)pwp);
     webSend(resp_msg);
 
     // Seconds since the last successful query. Stays in seconds at all
