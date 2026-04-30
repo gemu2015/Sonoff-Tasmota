@@ -103,6 +103,16 @@ $(for f in "${FILES[@]}"; do echo "- \`$(basename "$f")\`"; done)
 - Upload \`tinyc_ide.html.gz\` via Tasmota file manager (Consoles → Manage File System)
 
 ### Changes since last release:
+- **WebCall / JsonCall no longer skipped during spawnTask busy windows** —
+  TinyCShow had a racy \`s->vm.halted\` pre-check that returned without
+  invoking the callback when a worker was mid-syscall (e.g. tcpConnect
+  blocking for ~500 ms). The script's sensor rows would visibly
+  disappear from the WebUI for 1-3 s during query cycles, and MQTT
+  telemetry would emit SENSOR JSON without the slot's keys. The pre-
+  check is gone — \`tc_slot_callback()\` already handles the locking
+  and halted check correctly, so the response now waits briefly for
+  the worker's next \`delay()\` to release the mutex and renders all
+  rows / keys.
 - **\`watch\` + \`webButton\`/\`webSlider\` work end-to-end** — historically broken
   combo. URL handler (\`?sv=N_V\`) now mirrors STORE_WATCH side effects so
   \`written(var)\` / \`changed(var)\` fire correctly. VM scans bytecode at load
