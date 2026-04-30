@@ -531,9 +531,12 @@ void WebPage() {
     //    so the newest day is the first row. Skips empty slots —
     //    prevents the table from being padded with zeros while the
     //    buffer fills up over the first 31 days after a reset.
-    webSend("<center><h3 style='color:#1fa3ec;'>Wärmepumpen — letzte 31 Tage</h3>");
+    // White-card frame: stands out against Tasmota's dark default page
+    // background; readable on both phone and desktop.
+    webSend("<div style='background:#fff;color:#000;padding:8px;border-radius:8px;margin:8px auto;display:inline-block;'>");
+    webSend("<h3 style='color:#1fa3ec;margin:4px 0 8px;text-align:center;'>Wärmepumpen — letzte 31 Tage</h3>");
     webSend("<table style='margin:0 auto;border-collapse:collapse;'>");
-    webSend("<tr><th style='padding:0 1em;'>Tag</th><th style='padding:0 1em;'>WPV (kWh)</th><th style='padding:0 1em;'>D-Temp (°C)</th></tr>");
+    webSend("<tr><th style='padding:4px 1em;border-bottom:1px solid #999;'>Tag</th><th style='padding:4px 1em;border-bottom:1px solid #999;'>WPV (kWh)</th><th style='padding:4px 1em;border-bottom:1px solid #999;'>D-Temp (°C)</th></tr>");
     // Always render all 31 rows — empty slots show 0.00 / 0.0 rather
     // than being skipped. Walks backwards from the most recently
     // written slot (days_pos - 1, with wrap) so the newest day is
@@ -542,12 +545,12 @@ void WebPage() {
     int idx = days_pos - 1;
     if (idx < 0) idx = 30;
     for (int i = 0; i < 31; i = i + 1) {
-        sprintf(scratch, "<tr><td style='padding:0 1em;text-align:center;'>%d</td><td style='padding:0 1em;text-align:right;'>%.2f</td><td style='padding:0 1em;text-align:right;'>%.1f</td></tr>", i + 1, days_w[idx], days_t[idx]);
+        sprintf(scratch, "<tr><td style='padding:2px 1em;text-align:center;'>%d</td><td style='padding:2px 1em;text-align:right;'>%.2f</td><td style='padding:2px 1em;text-align:right;'>%.1f</td></tr>", i + 1, days_w[idx], days_t[idx]);
         webSend(scratch);
         idx = idx - 1;
         if (idx < 0) idx = 30;
     }
-    webSend("</table></center>");
+    webSend("</table></div>");
 }
 
 int main() {
