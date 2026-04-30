@@ -1275,15 +1275,31 @@ static inline int32_t tc_make_heap_ref(uint8_t handle, uint16_t offset) {
   return (int32_t)(0xC0000000U | (((uint32_t)(offset & 0x3FFF)) << 16) | handle);
 }
 
+// Detect a const-pool ref disguised as a heap-tagged ref. The compiler emits
+// this encoding (tag=3, bit-15 of handle set, low bits = const_idx) when a
+// string literal is passed where a char[] ref is expected (e.g. user-
+// function args). Defined ahead of tc_resolve_ref / tc_ref_maxlen so they
+// can short-circuit instead of treating the ref as a real heap reference.
+static inline bool tc_is_const_ref(int32_t ref) {
+  uint32_t uref = (uint32_t)ref;
+  return ((uref >> 30) == 3) && ((uref & 0x8000) != 0);
+}
+
 // Resolve a packed array ref to a pointer into VM memory, returns NULL on error
 static int32_t* tc_resolve_ref(TcVM *vm, int32_t ref) {
   uint32_t uref = (uint32_t)ref;
   uint8_t tag = uref >> 30;
   if (tag == 3) {
+    // const-pool ref encoding (tag=3, bit-15 set, low bits = const_idx) —
+    // emitted by the compiler when a string literal is passed where a
+    // char[] ref is expected (e.g. user-function args). The string lives
+    // in the const pool, not on the heap; callers that need to read it
+    // go through tc_ref_to_cstr which handles this directly. From the
+    // generic resolver's POV a const ref is a "wrong tool" — return null
+    // silently so we don't spam the log with bogus "heap handle X >= max"
+    // every time a script does sprintf("%s", "literal") via a helper.
+    if (tc_is_const_ref(ref)) return nullptr;
     // Heap ref with optional slot offset: 0xC0000000 | (offset<<16) | handle
-    // (const-pool refs are detected separately via tc_is_const_ref — callers
-    //  that need string-literal support check that FIRST; this path assumes
-    //  a regular heap ref.)
     uint8_t handle = (uint8_t)(uref & 0xFF);
     uint16_t offset = (uint16_t)((uref >> 16) & 0x3FFF);
     if (handle >= TC_MAX_HEAP_HANDLES) {
@@ -1321,6 +1337,18 @@ static int32_t tc_ref_maxlen(TcVM *vm, int32_t ref) {
   uint32_t uref = (uint32_t)ref;
   uint8_t tag = uref >> 30;
   if (tag == 3) {
+    // const-pool ref (string literal passed as char[]): length is the
+    // C-string length of the const entry, +1 for the null terminator.
+    // Without this branch tc_ref_maxlen returned 0 which broke sprintf
+    // bounds checks for "%s" args sourced from literals.
+    if (tc_is_const_ref(ref)) {
+      uint16_t idx = (uint16_t)(uref & 0x7FFF);
+      if (idx < vm->const_count && vm->constants[idx].type == 1 &&
+          vm->constants[idx].str.ptr) {
+        return (int32_t)strlen(vm->constants[idx].str.ptr) + 1;
+      }
+      return 0;
+    }
     // Heap ref — subtract offset from total size so a sub-ref sees only
     // its own tail of the block.
     uint8_t handle = (uint8_t)(uref & 0xFF);
@@ -1351,10 +1379,8 @@ static inline int32_t tc_file_mode(int32_t mode) {
 // Detect a const-pool ref emitted by emitStringArg: tag=3 (0xC0000000) with
 // the 0x8000 bit of the handle set. Compiler uses this encoding to pass a
 // string literal where a char[] ref is expected (e.g. user function arg).
-static inline bool tc_is_const_ref(int32_t ref) {
-  uint32_t uref = (uint32_t)ref;
-  return ((uref >> 30) == 3) && ((uref & 0x8000) != 0);
-}
+// (Definition moved up — see above tc_resolve_ref. The pre-existing prose
+//  comment block is kept here for context.)
 
 // Extract null-terminated C string from VM array ref into char buffer
 // Returns number of chars written (excluding null terminator)
