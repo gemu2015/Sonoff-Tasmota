@@ -2854,8 +2854,14 @@ static void TinyCShow(bool json) {
           s->program_size,
           s->vm.instruction_count);
       }
-      // Call user's JsonCall() on this slot (skip the slot that triggered sensorGet)
-      if (s->loaded && s->vm.halted && s->vm.error == TC_OK && s != tc_sensor_get_slot) {
+      // Call user's JsonCall() on this slot (skip the slot that triggered sensorGet).
+      // No `s->vm.halted` pre-check: when a spawnTask worker is mid-syscall
+      // (e.g. tcpConnect blocking for ~500 ms) `halted=false`, and a racy
+      // pre-check would skip JsonCall entirely → MQTT telemetry loses the
+      // slot's values for that publish cycle. tc_slot_callback() already
+      // takes the mutex (waits for the worker to hit a delay() that
+      // releases it) and re-checks halted internally, so this is safe.
+      if (s != tc_sensor_get_slot) {
         tc_slot_callback(s, "JsonCall");
       }
     }
@@ -2880,10 +2886,15 @@ static void TinyCShow(bool json) {
             i, status, s->program_size);
         }
       }
-      // Call user's WebCall() on this slot (always active)
-      if (s->loaded && s->vm.halted && s->vm.error == TC_OK) {
-        tc_slot_callback(s, "WebCall");
-      }
+      // Call user's WebCall() on this slot. No `s->vm.halted` pre-check:
+      // when a spawnTask worker is mid-syscall (e.g. tcpConnect blocking
+      // for ~500 ms) `halted=false`, and a racy pre-check would skip
+      // WebCall entirely → the script's sensor rows vanish from this
+      // /?m=1 poll's response, browser blanks them. tc_slot_callback()
+      // already takes the mutex (waits for the worker to hit a delay()
+      // that releases it) and re-checks halted internally, so the pre-
+      // check was a pure optimization with a UI-disappear failure mode.
+      tc_slot_callback(s, "WebCall");
     }
   }
 #endif
