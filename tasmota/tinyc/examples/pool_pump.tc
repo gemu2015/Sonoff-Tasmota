@@ -9,8 +9,13 @@
 //   v3.4 — AES-ECB encrypted body (prefix included in encryption) + HMAC-SHA256
 //          trailer + 3-step session-key handshake. Newer firmware.
 //
-// Auto-detects: tries v3.3 first; falls back to v3.4 with handshake. Cached
-// once detected (POOLVER <0|33|34> to force).
+// Default: v3.3-only via `#define POOL_PROTO_V33_ONLY` below — pumps that
+// speak v3.4 are rare in the wild, and the auto-detect adds ~5+ s of dead
+// time per failed query (tries v3.3, times out, retries v3.4 handshake,
+// times out, then waits 30 s for the next periodic poll). Comment out the
+// `#define` to re-enable the v3.4 path. With auto-detect enabled, the
+// detected version is cached after the first success (POOLVER <0|33|34>
+// to override).
 //
 // Deployment:
 //   ESP32 + Tasmota + TinyC. The device must be on the SAME LAN segment
@@ -49,6 +54,13 @@
 //   POOLVER  <0|33|34> — force protocol version (0 = auto-detect)
 // ─────────────────────────────────────────────────────────────────────
 
+// ── Build-time toggles ───────────────────────────────────────────────
+// Comment out to re-enable v3.4 protocol auto-detect + handshake. With
+// V33_ONLY defined, a failed v3.3 query simply waits for the next tick
+// instead of attempting (and timing out on) v3.4 — much faster recovery
+// on flaky links.
+#define POOL_PROTO_V33_ONLY
+
 // ── Configuration (loaded from /pool_pump.cfg in main()) ────────────
 // Plain `char` — never persists. The file is the source of truth. Sizes
 // match Tuya's fixed lengths plus NUL terminator.
@@ -73,11 +85,21 @@ int   last_ok        = 0;
 int   query_errors   = 0;
 
 // ── Web inputs — change-detected via TinyC `watch` ───────────────
-// `webButton` flips pool_toggle_btn 0→1 on click; `webSlider` writes
-// pool_set_input on release. Both are declared `watch` so we can use the
-// `written()` intrinsic in EverySecond to react to the external write
-// without keeping shadow vars by hand.
-watch int pool_toggle_btn = 0;
+// `webButton` flips pool_btn_state 0↔1 on click (renders the value as
+// "An/Aus: ON" / "An/Aus: OFF" — so the bound variable must mirror the
+// pump's actual switch state, not be a click-only trigger). `webSlider`
+// writes pool_set_input on release. Both are `watch` so EverySecond uses
+// `written()` to react to the URL-driven write.
+//
+// State-mirror invariant:
+//   - `tuya_query()` (success path) writes `pool_btn_state = pump_on` and
+//     `pool_set_input = clamped(pump_temp_set)`, then `snapshot()` clears
+//     the written-flag so EverySecond doesn't mistake the script's own
+//     sync for a user click.
+//   - When `written()` fires, EverySecond optimistically updates
+//     `pump_on` / `pump_temp_set` to the new value (so the UI stays in
+//     sync until the immediate post-write tuya_query confirms).
+watch int pool_btn_state  = 0;
 watch int pool_set_input  = 24;
 int   pool_set_synced     = 0;   // 1 once first query has aligned slider with pump
 
@@ -597,6 +619,13 @@ int tuya_round_trip(int cmd, char body[], int body_len) {
 
     int dec_len = -1;
 
+#ifdef POOL_PROTO_V33_ONLY
+    // V33-only build: pin to v3.3 forever, no v3.4 fallback.
+    if (protocol_version == 0) {
+        protocol_version = 33;
+    }
+    return tuya_round_trip_v(33, cmd, body, body_len);
+#else
     if (protocol_version == 0 || protocol_version == 33) {
         dec_len = tuya_round_trip_v(33, cmd, body, body_len);
         if (dec_len >= 0) {        // 0 = ACK, >0 = body — both success
@@ -620,6 +649,7 @@ int tuya_round_trip(int cmd, char body[], int body_len) {
     }
 
     return -1;
+#endif
 }
 
 // ── Top-level operations ─────────────────────────────────────────
@@ -654,10 +684,16 @@ int tuya_query() {
     json_get_str(decrypt_buf, k_mode,  pump_mode,  16);
     json_get_str(decrypt_buf, k_state, pump_state, 16);
 
+    // Sync the toggle button with the pump's actual switch state on every
+    // successful query — keeps the "An/Aus: ON/OFF" label honest even when
+    // someone toggles the pump via the Tuya app on their phone. `snapshot()`
+    // clears the `written` flag set by this script-side write so EverySecond
+    // doesn't mistake it for a user click.
+    pool_btn_state = pump_on;
+    snapshot(pool_btn_state);
+
     // Sync slider with pump's actual target on first query so the widget
-    // starts at the real value. Clamp to its visible 20..28 range. The
-    // `snapshot()` clears the `written` flag set by our own assignment so
-    // EverySecond doesn't mistake it for a user drag.
+    // starts at the real value. Clamp to its visible 20..28 range.
     if (!pool_set_synced) {
         int v = pump_temp_set;
         if (v < 20) v = 20;
@@ -746,16 +782,23 @@ int load_config() {
 }
 
 // ── Worker task — runs TCP work in own FreeRTOS task (delay() OK here) ──
+// SET commands are followed by an immediate query so the UI reflects the
+// pump's confirmed state within ~1-2 s instead of waiting up to 30 s for
+// the next periodic poll. tuya_set_bool/_int returns 1 only when the pump
+// ACKed; on failure we still re-query to read the unchanged real state.
 void PoolWorker() {
     addLog("POOL WORKER: dispatch");
     if (work_kind == 0) {
         tuya_query();
     } else if (work_kind == 1) {
         tuya_set_bool(1, 1);
+        tuya_query();
     } else if (work_kind == 2) {
         tuya_set_bool(1, 0);
+        tuya_query();
     } else if (work_kind == 3) {
-        if (tuya_set_int(2, work_arg)) pump_temp_set = work_arg;
+        tuya_set_int(2, work_arg);
+        tuya_query();
     }
     work_pending = 0;
     addLog("POOL WORKER: done");
@@ -813,7 +856,9 @@ void Command(char cmd[]) {
     } else if (strFind(cmd, "VER ") == 0) {
         int v = 0;
         if (cmd[4] == '3' && cmd[5] == '3') v = 33;
+#ifndef POOL_PROTO_V33_ONLY
         if (cmd[4] == '3' && cmd[5] == '4') v = 34;
+#endif
         if (cmd[4] == '0') v = 0;
         protocol_version = v;
         v34_session_ok   = 0;
@@ -821,27 +866,32 @@ void Command(char cmd[]) {
         responseCmnd(resp_msg);
 
     } else {
+#ifdef POOL_PROTO_V33_ONLY
+        responseCmnd("POOL: STAT | QUERY | ON | OFF | TEMP <n> | VER <0|33>");
+#else
         responseCmnd("POOL: STAT | QUERY | ON | OFF | TEMP <n> | VER <0|33|34>");
+#endif
     }
 }
 
 int tick_secs = 0;
 void EverySecond() {
-    // Web "An/Aus" button — webButton flips pool_toggle_btn 0→1 on click.
-    // `written()` becomes true after the URL handler stored the new value;
-    // we react, reset to 0, and `snapshot()` so the next tick sees written=0.
-    if (written(pool_toggle_btn)) {
-        if (pool_toggle_btn == 1) {
-            if (pump_on > 0) {
-                addLog("POOL: web button → OFF");
-                enqueue_work(2, 0);
-            } else {
-                addLog("POOL: web button → ON");
-                enqueue_work(1, 0);
-            }
-            pool_toggle_btn = 0;
+    // Web "An/Aus" button — webButton renders "<label>: ON/OFF" from the
+    // bound variable's value and flips it 0↔1 on click. The URL handler's
+    // STORE_WATCH bridge sets the written-flag, EverySecond reads the new
+    // value and dispatches the matching command. Optimistic update of
+    // `pump_on` keeps the UI consistent until the post-write tuya_query
+    // (in PoolWorker) confirms within seconds.
+    if (written(pool_btn_state)) {
+        if (pool_btn_state == 1) {
+            addLog("POOL: web button → ON");
+            enqueue_work(1, 0);
+        } else {
+            addLog("POOL: web button → OFF");
+            enqueue_work(2, 0);
         }
-        snapshot(pool_toggle_btn);
+        pump_on = pool_btn_state;
+        snapshot(pool_btn_state);
     }
 
     // Target slider — webSlider writes pool_set_input on release. `written()`
@@ -891,9 +941,28 @@ void WebCall() {
     sprintf(resp_msg, "{s}Pool Water{m}%d °C{e}", pump_temp_cur);
     webSend(resp_msg);
 
-    // Toggle button — webButton appends the current state to the label
-    // automatically (e.g. "An/Aus: ON"), so no separate status line needed.
-    webButton(pool_toggle_btn, "An/Aus");
+    // Seconds since the last successful query. Stays in seconds at all
+    // magnitudes (no minute/hour rollover) so the display visibly
+    // increments on every browser poll — no "stuck on 1m ago" effect
+    // during a failure streak. `last_query_ms` is set in tuya_query()
+    // on success only, so this keeps growing while the pump misses
+    // polls (Tuya local TCP can flake when the cloud client is also
+    // connected) and lets the user judge how stale the values are.
+    char age_str[16];
+    if (last_query_ms == 0) {
+        strcpy(age_str, "—");
+    } else {
+        int sec = (millis() - last_query_ms) / 1000;
+        if (sec < 0) sec = 0;                       // millis() rollover guard
+        sprintf(age_str, "%ds ago", sec);
+    }
+    sprintf(resp_msg, "{s}Pool Update{m}%s{e}", age_str);
+    webSend(resp_msg);
+
+    // Toggle button — webButton renders "An/Aus: ON" or "An/Aus: OFF"
+    // from `pool_btn_state`, which mirrors `pump_on` after each query.
+    // Click flips it 0↔1 and EverySecond dispatches the matching command.
+    webButton(pool_btn_state, "An/Aus");
 
     // Target-temperature slider — limited to 20..28 °C (realistic pool
     // range). Change is detected in EverySecond and dispatched as a SET.
