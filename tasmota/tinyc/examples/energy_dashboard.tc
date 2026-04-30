@@ -479,36 +479,39 @@ void WebCall() {
             tasm_heap / 1024);
     webSend(scratch);
 
-    // ── Charts + 31-day table — emitted INSIDE WebCall so they sit
-    //    between this slot's sensor block and the next slot's content.
-    //    Tasmota's pipeline is (FUNC_WEB_SENSOR → all WebCalls in slot
-    //    order) → (FUNC_WEB_ADD_MAIN_BUTTON → all WebPages). If charts
-    //    lived in WebPage they'd render BELOW the pool block; emitting
-    //    them here puts them BETWEEN energy and pool which is the
-    //    natural reading order.
-    //
-    //    Cost: each /?m=1 poll (~2.3 s) re-emits the chart JS and the
-    //    Google Charts library re-draws. The loader.js itself is
-    //    cached by the browser so the network cost is only the data;
-    //    visual flicker depends on browser behavior. The "↻ Charts
-    //    aktualisieren" link is dropped — every poll IS a refresh.
-    //
-    //    Wrap each chart container in <tr><td colspan=2> to keep it
-    //    in table flow. WebChart emits a raw <div id='tcN'> which,
-    //    inside a tbody context, would be foster-parented OUT of the
-    //    table by the HTML5 parser — same fix pattern as the pool
-    //    button/slider in pool_pump.tc.
+    // Reload control — small in-row link instead of a full-width
+    // button, less visually intrusive. Triggers location.reload() so
+    // WebPage() re-runs and the charts pick up fresh persist data.
+    webSend("{s}{m}<a href='#' onclick='location.reload();return false;' style='color:#1fa3ec;'>↻ Charts aktualisieren</a>{e}");
+}
 
+// ── Charts + 31-day table (rendered once on full page load) ───────
+//
+// Why this lives in WebPage and NOT in WebCall:
+//
+// Tasmota's main `/` page fetches `/?m=1` every ~2.3 s and updates
+// the live area via `el.innerHTML = response`. Setting innerHTML
+// PARSES <script> tags but does NOT execute them — that's a
+// browser-side rule. Google Charts requires its setup script to
+// run, so chart containers placed in WebCall would render as empty
+// boxes. WebPage runs at full page-load (FUNC_WEB_ADD_MAIN_BUTTON)
+// where <script> tags ARE executed normally.
+//
+// Trade-off: WebPage content always lands BELOW everything emitted
+// in any slot's WebCall, so the visual order is
+//   slot 0 WebCall (energy) → slot 1 WebCall (pool) → WebPage charts
+// rather than the more natural energy → charts → pool. To redraw
+// with fresh persist data, click the "↻ Charts aktualisieren" link
+// in the energy block — it triggers location.reload() so WebPage()
+// runs again.
+void WebPage() {
     // 24h heat-pump kWh
-    webSend("<tr><td colspan=2>");
     WebChartSize(640, 280);
     WebChart(0, "Heizungs-WP 24h", "kWh",
              0xe74c3c, dvals_pos, 96, dvals,
              2, 15, 0.0, 4.0);
-    webSend("</td></tr>");
 
     // 31-day combined: WP kWh + outdoor temp on dual axis
-    webSend("<tr><td colspan=2>");
     WebChartSize(640, 280);
     WebChart(0, "Wärmepumpe + Aussen 31 Tage", "kWh",
              0xe74c3c, days_pos, 31, days_w,
@@ -517,20 +520,16 @@ void WebCall() {
     WebChart(0, "", "°C",
              0x3498db, days_pos, 31, days_t,
              1, 1440, -10.0, 40.0);
-    webSend("</td></tr>");
 
     // 60-minute heat-pump current power
-    webSend("<tr><td colspan=2>");
     WebChartSize(640, 200);
     WebChart(0, "Heizungs-WP letzte 60 min", "W",
              0xe74c3c, fast_pos, 60, fast_h,
              0, 1, 0.0, 0.0);          // auto-scale
-    webSend("</td></tr>");
 
-    // ── 31-day table: white-card frame, all 31 rows rendered always
-    //    (empty slots show 0.00 / 0.0 — the table is structurally
-    //    complete from boot, fills in as midnight rollovers happen).
-    webSend("<tr><td colspan=2>");
+    // ── 31-day table: same data as the dual-axis chart, plain HTML
+    //    in a white card. All 31 rows always render (empty slots
+    //    show 0.00 / 0.0).
     webSend("<div style='background:#fff;color:#000;padding:8px;border-radius:8px;margin:8px auto;display:inline-block;'>");
     webSend("<h3 style='color:#1fa3ec;margin:4px 0 8px;text-align:center;'>Wärmepumpen — letzte 31 Tage</h3>");
     webSend("<table style='margin:0 auto;border-collapse:collapse;'>");
@@ -543,7 +542,7 @@ void WebCall() {
         idx = idx - 1;
         if (idx < 0) idx = 30;
     }
-    webSend("</table></div></td></tr>");
+    webSend("</table></div>");
 }
 
 int main() {
