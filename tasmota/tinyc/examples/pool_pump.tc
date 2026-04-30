@@ -19,16 +19,26 @@
 //   behind a NAT extender, the TinyC device needs to be on that extender's
 //   WiFi too (no main-LAN bridging).
 //
-// Bootstrap (one time after first run):
-//   POOLIP    192.168.x.y
-//   POOLKEY   <16-char-local-key-from-Tuya-cloud>
-//   POOLDEVID <22-char-tuya-device-id>
-//   POOLSAVE     ← writes credentials to /pool_pump.pvs (persist)
+// Configuration:
+//   Drop a plain-text `/pool_pump.cfg` file onto the device's filesystem
+//   (Tasmota → Werkzeuge → Datei verwalten → upload). Three lines, exact
+//   order, one value per line, no quoting, no extra whitespace:
 //
-// After that, just POOLSTAT / POOLQUERY / POOLON / POOLOFF / POOLTEMP <n>.
+//     <pump-IP>                                  e.g. 192.168.x.y
+//     <16-char Tuya local AES-128 key>           from your Tuya cloud project
+//     <22-char Tuya device ID>                   from your Tuya cloud project
 //
-// To find the localKey + devId: see notes in README on extracting from
-// Tuya IoT Platform (cloud project + tinytuya-iot-py-sdk SMART_HOME login).
+//   Line 1 = pump IP (≥ 7 chars).
+//   Line 2 = 16-char Tuya local AES-128 key.
+//   Line 3 = 22-char Tuya device ID.
+//
+//   The script reads this file once at boot. There is no command-line path
+//   to edit credentials — that's deliberate so the example is safe to share
+//   publicly. To change credentials: re-upload the .cfg, then restart the
+//   slot (`TinyCStop 0` + `TinyCRun /pool_pump.tcb`).
+//
+//   To extract localKey + devId: see notes in README on the Tuya IoT
+//   Platform (cloud project + tinytuya-iot-py-sdk SMART_HOME login).
 //
 // Console commands:
 //   POOLSTAT       — show last cached state
@@ -36,32 +46,20 @@
 //   POOLON         — switch pump on
 //   POOLOFF        — switch pump off
 //   POOLTEMP <n>   — set target water temp (5..80 °C)
-//   POOLIP    <a>  — runtime IP override
-//   POOLKEY   <k>  — runtime local-key override
-//   POOLDEVID <d>  — runtime device-id override
-//   POOLSAVE       — persist current credentials
 //   POOLVER  <0|33|34> — force protocol version (0 = auto-detect)
 // ─────────────────────────────────────────────────────────────────────
 
-// ── Configuration ───────────────────────────────────────────────────
-// Credentials are stored as `persist` variables — written to /pool_pump.pvs
-// automatically. Configure once via console, survives reboots, never appears
-// in the source. Set them after first install via:
+// ── Configuration (loaded from /pool_pump.cfg in main()) ────────────
+// Plain `char` — never persists. The file is the source of truth. Sizes
+// match Tuya's fixed lengths plus NUL terminator.
 //
-//   POOLIP    192.168.188.106
-//   POOLKEY   u9eUO{aw1Kxc}uk^                (16-char Tuya AES-128 key)
-//   POOLDEVID bfd963824015c2377a4pbw          (22-char device ID)
-//   POOLSAVE                                  (writes to /pool_pump.pvs)
-//
-// On every subsequent boot the values load automatically.
-//
-// NB: local_key size is 17 (not 16) — TinyC `char arr[N] = "literal"` reserves
-// slot N-1 for NUL and silently truncates the last char of an N-char literal.
-// The full 16-byte AES-128 key must be intact.
-persist char  pump_ip[16];
-int           pump_port = 6668;
-persist char  local_key[17];
-persist char  dev_id[24];
+// NB: local_key is dimensioned 17, not 16 — TinyC's `char arr[N]` reserves
+// slot N-1 for the NUL terminator, so a 16-char key needs 17 slots to
+// avoid silent truncation of the last byte (which would corrupt AES).
+char  pump_ip[16];
+int   pump_port = 6668;
+char  local_key[17];
+char  dev_id[24];
 
 // ── State ──────────────────────────────────────────────────────────
 int   pump_on        = -1;
@@ -699,6 +697,54 @@ int tuya_set_bool(int dp_id, int value) {
     return dec_len >= 0 ? 1 : 0;
 }
 
+// ── Load credentials from /pool_pump.cfg ──────────────────────────
+// File format: 3 lines, exact order, no quoting:
+//   line 1 — pump IP (≥ 7 chars, e.g. "192.168.1.50")
+//   line 2 — 16-char Tuya local AES-128 key
+//   line 3 — 22-char Tuya device ID
+// Lines may end with `\n` or `\r\n`. Returns 1 on success, 0 on any
+// error (file missing, malformed, wrong field lengths). Caller logs.
+int load_config() {
+    char raw[96];
+    int  h = fileOpen("/pool_pump.cfg", 0);
+    if (h < 0) return 0;
+    int  n = fileRead(h, raw, 95);
+    fileClose(h);
+    if (n <= 0) return 0;
+    raw[n] = 0;
+
+    int line = 0;
+    int j    = 0;
+    pump_ip[0]   = 0;
+    local_key[0] = 0;
+    dev_id[0]    = 0;
+    for (int i = 0; i < n; i = i + 1) {
+        int c = raw[i] & 0xFF;
+        if (c == 13) continue;                              // skip \r
+        if (c == 10) {                                      // \n → next field
+            if      (line == 0) pump_ip[j]   = 0;
+            else if (line == 1) local_key[j] = 0;
+            else if (line == 2) dev_id[j]    = 0;
+            line = line + 1;
+            j = 0;
+            if (line >= 3) break;
+        } else {
+            if      (line == 0 && j < 15) { pump_ip[j]   = c; j = j + 1; }
+            else if (line == 1 && j < 16) { local_key[j] = c; j = j + 1; }
+            else if (line == 2 && j < 23) { dev_id[j]    = c; j = j + 1; }
+        }
+    }
+    // Files without a trailing newline still terminate the last field.
+    if      (line == 0 && j > 0) { pump_ip[j]   = 0; }
+    else if (line == 1 && j > 0) { local_key[j] = 0; }
+    else if (line == 2 && j > 0) { dev_id[j]    = 0; }
+
+    if (strlen(pump_ip)   < 7)  return 0;
+    if (strlen(local_key) != 16) return 0;
+    if (strlen(dev_id)    != 22) return 0;
+    return 1;
+}
+
 // ── Worker task — runs TCP work in own FreeRTOS task (delay() OK here) ──
 void PoolWorker() {
     addLog("POOL WORKER: dispatch");
@@ -764,42 +810,6 @@ void Command(char cmd[]) {
             responseCmnd(resp_msg);
         }
 
-    } else if (strFind(cmd, "IP ") == 0) {
-        int n = strlen(cmd);
-        int j = 0;
-        for (int i = 3; i < n && j < 15; i = i + 1) {
-            pump_ip[j] = cmd[i]; j = j + 1;
-        }
-        pump_ip[j] = 0;
-        sprintf(resp_msg, "POOL: IP set to %s", pump_ip);
-        responseCmnd(resp_msg);
-
-    } else if (strFind(cmd, "KEY ") == 0) {
-        int n = strlen(cmd);
-        int j = 0;
-        for (int i = 4; i < n && j < 16; i = i + 1) {
-            local_key[j] = cmd[i]; j = j + 1;
-        }
-        local_key[j] = 0;
-        sprintf(resp_msg, "POOL: key set (%d chars)", strlen(local_key));
-        responseCmnd(resp_msg);
-
-    } else if (strFind(cmd, "DEVID ") == 0) {
-        int n = strlen(cmd);
-        int j = 0;
-        for (int i = 6; i < n && j < 23; i = i + 1) {
-            dev_id[j] = cmd[i]; j = j + 1;
-        }
-        dev_id[j] = 0;
-        sprintf(resp_msg, "POOL: devId set to %s", dev_id);
-        responseCmnd(resp_msg);
-
-    } else if (strFind(cmd, "SAVE") == 0 && strlen(cmd) == 4) {
-        saveVars();
-        sprintf(resp_msg, "POOL: persist saved (ip=%s key=%d devId=%s)",
-                pump_ip, strlen(local_key), dev_id);
-        responseCmnd(resp_msg);
-
     } else if (strFind(cmd, "VER ") == 0) {
         int v = 0;
         if (cmd[4] == '3' && cmd[5] == '3') v = 33;
@@ -811,7 +821,7 @@ void Command(char cmd[]) {
         responseCmnd(resp_msg);
 
     } else {
-        responseCmnd("POOL: STAT | QUERY | ON | OFF | TEMP <n> | IP <a> | KEY <k> | DEVID <d> | SAVE | VER <0|33|34>");
+        responseCmnd("POOL: STAT | QUERY | ON | OFF | TEMP <n> | VER <0|33|34>");
     }
 }
 
@@ -894,8 +904,8 @@ int main() {
     crc32_init();
     addCommand("POOL");
 
-    if (strlen(pump_ip) == 0 || strlen(local_key) != 16 || strlen(dev_id) != 22) {
-        addLog("POOL: not configured — set POOLIP / POOLKEY / POOLDEVID then POOLSAVE");
+    if (!load_config()) {
+        addLog("POOL: cannot load /pool_pump.cfg — upload a 3-line config (ip / 16-char key / 22-char devId) and restart");
     } else {
         sprintf(scratch, "POOL: ready — target %s:%d", pump_ip, pump_port);
         addLog(scratch);
