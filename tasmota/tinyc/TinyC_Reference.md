@@ -170,6 +170,23 @@ void EverySecond() {
 }
 ```
 
+**Out-of-band writes are tracked too.** When a watched global is written from outside the script — `webButton` / `webSlider` (`?sv=N_V` URL), the future MQTT setvar bridge, or a UDP-global update — the firmware mirrors what `STORE_WATCH` would have done: bumps the shadow and sets the written-flag. So `written(var)` fires correctly inside `EverySecond` and `changed(var)` reports the right delta. This makes the natural pattern below work end-to-end:
+
+```c
+watch int target;                       // bound to a webSlider
+
+void EverySecond() {
+    if (written(target)) {
+        addLog("user dragged slider — sending setpoint");
+        // ... act on new value ...
+        snapshot(target);
+    }
+}
+void WebCall() { webSlider(target, 20, 28, "Target"); }
+```
+
+(Mechanism: at load time, the VM scans bytecode for `STORE_WATCH` and records each watched var-slot. The URL handler checks that index before raw-writing. `TC_MAX_WATCH = 16` watched globals per slot.)
+
 ### Local Variables
 Declared inside functions or blocks. Block-scoped (new scope per `{ }`).
 ```c
@@ -3744,6 +3761,54 @@ void Command(char cmd[]) {
     }
 }
 int main() { addCommand("RDR"); return 0; }
+```
+
+### Symmetric Crypto (ESP32)
+
+AES-128 (ECB + CBC), HMAC-SHA256, SHA-256, plus hex⇄binary helpers — backed by mbedtls (already linked for HTTPS / MQTT-TLS, so no extra flash cost). All operations work in-place on TinyC `char[]` buffers. ESP8266 stubs return `0` / no-op.
+
+Motivating use case: TinyC scripts speaking the **Tuya local protocol** (v3.3 = AES-128-ECB + CRC32) so users can drive Smart-Life-controlled devices (pool heat pumps, plugs, switches, dehumidifiers) directly from Tasmota without a cloud round-trip — see `examples/pool_pump.tc`. Also useful for signed REST APIs (HMAC-SHA256), encrypted SML decoders, and per-device MQTT-TLS fingerprinting.
+
+| Function | Description |
+|---|---|
+| `int aesEcb(char key[], char data[], int enc_flag)` | AES-128-ECB on **one 16-byte block** in-place. `key` must be exactly 16 bytes. `enc_flag`: 1=encrypt, 0=decrypt. Returns 1=ok, 0=err. For multi-block buffers, call in a `for` loop over 16-byte chunks |
+| `int aesCbc(char key[], char iv[], char data[], int len, int enc_flag)` | AES-128-CBC in-place. `key` and `iv` are 16 bytes each. `len` must be a multiple of 16. Stack-allocates up to 4 KB; falls back to malloc above. Returns 1=ok, 0=err |
+| `int hmacSha256(char key[], int klen, char data[], int dlen, char out[])` | HMAC-SHA256. `key` ≤ 1024 B, `data` ≤ 4 KB, `out` must be ≥ 32 B. Returns 1=ok |
+| `int sha256(char data[], int dlen, char out[])` | SHA-256 of `data[0..dlen-1]` into `out[0..31]`. Returns 1=ok |
+| `int hex2bin(char hex[], int hex_len, char out[])` | Decode hex string → bytes. Returns bytes written (= `hex_len / 2`). Tolerates odd hex_len by truncating the trailing nibble |
+| `int bin2hex(char bin[], int bin_len, char out[])` | Encode bytes → lowercase hex string. Writes `bin_len * 2` chars + NUL terminator. Returns chars written (excluding NUL) |
+
+**Buffer convention:** TinyC `char[]` is one byte per int32 slot — only the low 8 bits are used. Lengths are in bytes and must fit the ref's allocated capacity.
+
+**Limits:** AES-CBC stack-allocates up to 4 KB per call. HMAC/SHA bounded at 1024 B key / 4 KB data per call — bigger payloads need to be hashed in chunks (future enhancement may expose hash-state).
+
+**Not yet exposed:** AES-GCM, ECDH (Tuya v3.4 needs both — most Smart-Life devices are still v3.3 so this is rarely a blocker).
+
+```c
+// Example — encrypt a JSON command for a Tuya v3.3 device
+char key[16];                            // 16-byte AES key
+char body[64];                           // PKCS#7-padded plaintext (JSON command)
+strcpy(key, "u9eUO{aw1Kxc}uk^");
+int n = strlen(body);
+// pad to 16
+int pad = 16 - (n & 15);
+for (int i = 0; i < pad; i = i + 1) body[n + i] = pad;
+n = n + pad;
+// encrypt block-by-block (ECB)
+for (int b = 0; b < n; b = b + 16) {
+    aesEcb(key, body + b, 1);            // 1 = encrypt; in-place
+}
+
+// Example — verify an HMAC-SHA256 signature
+char key[32];
+char data[256];
+char expected_sig[32];                   // signature received over the wire
+char actual_sig[32];
+hmacSha256(key, 32, data, strlen(data), actual_sig);
+int ok = 1;
+for (int i = 0; i < 32; i = i + 1) {
+    if (actual_sig[i] != expected_sig[i]) { ok = 0; break; }
+}
 ```
 
 ### Debug

@@ -104,6 +104,23 @@ Things that changed recently and invalidate older examples or forum advice:
   allocated in internal DRAM first; on OOM they automatically spill to
   PSRAM (ESP32 only). Small programs stay fast; very large ones still load.
   `TC_MAX_PROGRAM` raised from 64 KB → 128 KB.
+- **Symmetric crypto syscalls** — `aesEcb` (AES-128-ECB single block, in-place),
+  `aesCbc` (AES-128-CBC, key+iv 16 B, len multiple of 16), `hmacSha256`,
+  `sha256`, `hex2bin` / `bin2hex`. ESP32-only via mbedtls (no extra flash
+  cost — already linked for HTTPS / MQTT-TLS); ESP8266 stubs return 0. All
+  operate in-place on TinyC `char[]` buffers (1 byte per int32 slot).
+  Motivating use case: Tuya v3.3 local protocol → `examples/pool_pump.tc`.
+  Limits: AES-CBC stack-allocates ≤ 4 KB; HMAC/SHA bounded at 1024 B key /
+  4 KB data per call. AES-GCM / ECDH not exposed yet (Tuya v3.4 needs both).
+- **Watch + webButton/webSlider works end-to-end** — historically broken:
+  `watch int x; webSlider(x, ...);` updated `x` on slider drag but
+  `written(x)` stayed false because the URL handler raw-wrote `globals[idx]`,
+  bypassing `STORE_WATCH`. Fixed: VM scans bytecode at load for
+  `STORE_WATCH` opcodes, builds `watch_indices[]`; `?sv=N_V` (and any
+  future out-of-band bridge) goes through `tc_global_write_with_watch()`
+  which mirrors the shadow + written-flag updates. So the natural pattern
+  `if (written(slider_var)) { dispatch(); snapshot(slider_var); }` now fires
+  correctly. `TC_MAX_WATCH = 16` watched globals per VM slot.
 
 Features documented in `TinyC_Reference.md` VM-limits table may understate:
 on ESP32, constant pool is **1024**, heap is **32 KB**, code size is **128 KB**
@@ -162,6 +179,7 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
 | WS2812 LEDs | `ws2812Begin`, `ws2812SetPixel`, `ws2812Show` |
 | HomeKit | `hkAdd`, `hkSet`, `hkReady`, `HomeKitWrite` callback |
 | Tasks (ESP32) | `spawnTask("Name"[, stackKB])`, `killTask`, `taskRunning` |
+| Crypto (ESP32) | `aesEcb` (AES-128-ECB, 1 block), `aesCbc`, `hmacSha256`, `sha256`, `hex2bin` / `bin2hex` |
 | Persist | `persist` decl, `saveVars()` |
 | Watch | `watch` decl, `changed`, `delta`, `written`, `snapshot` |
 | Cross-VM share | `shareSetInt/GetInt`, `shareSetFloat/GetFloat`, `shareSetStr/GetStr`, `shareHas`, `shareDelete` (string-literal keys) |
