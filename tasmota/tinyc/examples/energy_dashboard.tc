@@ -528,20 +528,16 @@ void WebCall() {
 void WebPage() {
     // ── Force the outer Tasmota page-content wrapper to be at least
     //    as wide as our charts. Tasmota uses `display:inline-block`
-    //    on `<body> > div` so the wrapper shrinks to the widest
-    //    child. Sensor table is `width:100%` (relative) which doesn't
-    //    push the wrapper out — it just fills whatever width is set.
-    //    Without a min-width override, the wrapper sized to the
-    //    sensor table's natural width (~340 px). Charts at 640 px
-    //    with `margin:0 auto` then computed a NEGATIVE left margin,
-    //    overflowed leftward, and `overflow:hidden` on the chart-
-    //    section wrapper clipped the Y-axis labels — making each
-    //    chart appear visually shifted to the right. Setting
-    //    `min-width:680px` on the wrapper gives charts ~20 px of
-    //    breathing room each side and lets margin:0 auto center
-    //    properly; sensor table grows to fill the same width so
-    //    everything stays vertically aligned.
-    webSend("<style>body>div:first-of-type{min-width:680px;}</style>");
+    //    on `<body> > div` with an INLINE `min-width:340px;` style.
+    //    The chart-section wrapper inside has `overflow:hidden` —
+    //    that prevents the inline-block from growing to fit the
+    //    640 px chart child, so the chart gets clipped on the left
+    //    (axis labels disappear) which reads visually as a "shift
+    //    right". Without `!important` our external rule loses to
+    //    the inline `min-width:340px` (inline styles win at equal
+    //    specificity). The `!important` overrides that so charts
+    //    have room and `margin:0 auto` centers them cleanly.
+    webSend("<style>body>div:first-of-type{min-width:680px!important;}</style>");
 
     // 24h heat-pump kWh
     WebChartSize(640, 280);
