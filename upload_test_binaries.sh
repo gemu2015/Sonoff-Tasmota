@@ -66,13 +66,16 @@ done
 
 [[ ${#FILES[@]} -eq 0 ]] && die "No firmware files found to upload"
 
-# --- include TinyC IDE ---
+# --- include TinyC IDE + docs from the repo (single source of truth) ---
+# Previously read from /Volumes/vp_dev/TinyC/ which was a manually-synced
+# staging area — easy to forget to sync before release. Reading directly
+# from the repo guarantees published artifacts match what's committed.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-IDE_FILE="/Volumes/vp_dev/TinyC/tinyc_ide.html.gz"
+TINYC_DIR="$SCRIPT_DIR/tasmota/tinyc"
+
+IDE_FILE="$TINYC_DIR/tinyc_ide.html.gz"
 [[ -f "$IDE_FILE" ]] && FILES+=("$IDE_FILE") || echo "WARNING: TinyC IDE not found at $IDE_FILE"
 
-# --- include documentation ---
-TINYC_DIR="/Volumes/vp_dev/TinyC"
 for doc in README.md TinyC_Reference.md TinyC_Reference_DE.md; do
   [[ -f "$TINYC_DIR/$doc" ]] && FILES+=("$TINYC_DIR/$doc") || echo "WARNING: $doc not found"
 done
@@ -100,6 +103,48 @@ $(for f in "${FILES[@]}"; do echo "- \`$(basename "$f")\`"; done)
 - Upload \`tinyc_ide.html.gz\` via Tasmota file manager (Consoles → Manage File System)
 
 ### Changes since last release:
+- **\`watch\` + \`webButton\`/\`webSlider\` work end-to-end** — historically broken
+  combo. URL handler (\`?sv=N_V\`) now mirrors STORE_WATCH side effects so
+  \`written(var)\` / \`changed(var)\` fire correctly. VM scans bytecode at load
+  for STORE_WATCH ops and records each watched var-slot. The natural pattern
+  \`if (written(slider_var)) { dispatch(); snapshot(slider_var); }\` is now
+  the correct idiom — drop any \`prev_X\` shadow workarounds.
+- **Symmetric crypto syscalls (ESP32)** — \`aesEcb\` (AES-128-ECB single block,
+  in-place), \`aesCbc\` (key+iv 16 B, len multiple of 16), \`hmacSha256\`,
+  \`sha256\`, \`hex2bin\` / \`bin2hex\`. Backed by mbedtls (no extra flash —
+  already linked for HTTPS / MQTT-TLS). ESP8266 stubs return 0. Limits:
+  AES-CBC ≤ 4 KB stack-alloc; HMAC/SHA bounded at 1024 B key / 4 KB data.
+  AES-GCM / ECDH not exposed yet. Motivating use case: Tuya v3.3 local
+  protocol — see new \`examples/pool_pump.tc\`.
+- **\`examples/pool_pump.tc\`** — Tuya local-protocol client for swimming-pool
+  heat pumps. v3.3 (AES-128-ECB + CRC32) + v3.4 (AES-128-ECB + HMAC-SHA256
+  + 3-step session handshake) with auto-detect. Credentials loaded from
+  \`/pool_pump.cfg\` (3 lines: IP / 16-char key / 22-char devId — never in
+  source). Web UI: 4 sensor rows + watch-driven button & slider (target
+  20-28 °C). Background TCP work on a spawned PoolWorker task.
+- **Scripter null-deref guard** — \`?sv=N_V\` URLs from another driver no
+  longer reboot the device when no Scripter program is loaded. Was
+  null-derefing in \`Run_script_sub\` / \`Script_Check_HTML_Setvars\`.
+- **VM task stack** raised 8 KB → 12 KB — fixes \`StoreProhibited\` deep in
+  fwrite/littlefs when scripts call \`saveVars()\` early, after the 1.3.20
+  mbedtls headers shifted code layout.
+- **Cross-VM \`share*\` API (1.3.19)** — \`shareSetInt\`/\`shareGetInt\` /
+  \`shareSetFloat\`/\`shareGetFloat\` / \`shareSetStr\`/\`shareGetStr\` /
+  \`shareHas\` / \`shareDelete\`. Driver-global named key/value table
+  (mutex-protected, 32 entries × 16-char key × 64-char string value, 2.6 KB
+  DRAM) for splitting large programs across multiple VM slots without
+  going through MQTT or the filesystem.
+- **PSRAM-backed bytecode (1.3.19)** — \`TC_MAX_PROGRAM\` 64 KB → 128 KB.
+  Code and constant pool allocate from internal DRAM first, only spill to
+  PSRAM on OOM. Small/normal programs stay fast.
+- **IDE emitByte syscall-id truncation fix (1.3.19)** — \`strcmp(arr,"lit")\`
+  was silently calling \`pow()\` because syscall ids ≥ 256 got \`& 0xFF\`-ed.
+  Same path hit FILE_WRITE_STR, LOG_LEVEL, LOG_LEVEL_STR. All four sites
+  now use \`emitSyscall(id)\` which auto-picks SYSCALL2 (u16) for big ids.
+- **IDE inferType float-builtin fix (1.3.19)** — \`sprintf(buf,"%.2f",
+  shareGetFloat(...))\` printed garbage because \`inferType\` ignored the
+  symbol-table \`returnFloat: true\` flag. Now respects the flag — future
+  float-returning builtins work automatically.
 - **Tesla Powerwall API** — \`pwlRequest\`/\`pwlGet\` with nth-occurrence support
   - \`pwlGet("key[N]")\` extracts Nth occurrence of a repeated JSON key
   - Per-phase grid readings from \`/api/meters/readings\`
