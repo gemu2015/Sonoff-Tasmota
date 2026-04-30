@@ -1,0 +1,487 @@
+// ─────────────────────────────────────────────────────────────────────
+// energy_dashboard.tc — house-wide energy / climate dashboard
+//
+// Port of a long-running Scripter program (>D 70, IP=.71). Receives
+// ~30 named values via UDP broadcast from other Tasmota nodes on the
+// LAN (solar inverters, Powerwall gateway, smart meter, weather and
+// air-quality sensors, water/gas/heat-pump meters), keeps running
+// daily/historical buffers, and renders a big sensor table on the
+// Tasmota main page (`/`) plus the SENSOR JSON for MQTT telemetry.
+//
+// Scope of this port:
+//   - Faithful port of the Scripter program's ACTIVE features only.
+//     Commented-out paths in the original (telegram, MP3 audio,
+//     Daikin HTTP poll) are dropped — this board has no audio.
+//   - Sub-pages (24h chart / 31-day chart / Rolläden links) are NOT
+//     ported here — keeping the .tcb small for a 320 KB filesystem.
+//     They can be added later as a separate slot or via WebUI() pages.
+//
+// Sister script: examples/pool_pump.tc (Tuya local-protocol pool
+// heater). Designed to coexist in a separate VM slot — different
+// concerns, different runtime characteristics, and a crash in one
+// doesn't take out the other.
+// ─────────────────────────────────────────────────────────────────────
+
+// ── UDP-broadcast globals ────────────────────────────────────────────
+// `global` makes a scalar receive UDP-broadcast updates by name. The
+// firmware's UDP receiver stores incoming values as float bits, so all
+// these MUST be `global float` — even values used as integers
+// (Watts, percent, ppm). Cast at display time.
+global float sedt   = 0.0;     // total Einspeisung (kWh)
+global float sedc   = 0.0;     // momentane Einspeisung (W)
+global float atmp   = 0.0;     // Aussentemperatur (°C)
+global float scol   = 0.0;     // Solarkollektor (°C)
+global float ssp    = 0.0;     // Solarspeicher (°C)
+global float wrgh   = 0.0;     // Solar Gartenhaus (W, negative = export)
+global float wrgg   = 0.0;     // Solar Garten (W)
+global float wrga   = 0.0;     // Solar Garage (W)
+global float auto  = 0.0;     // Wallbox (W) — original was `auto`, reserved
+global float t_ga   = 0.0;     // Solar Garage total (kWh)
+global float t_gh   = 0.0;     // Solar Gartenhaus total (kWh)
+global float t_gg   = 0.0;     // Solar Garten total (kWh)
+global float t_wb   = 0.0;     // Wallbox total (kWh)
+global float t_ws   = 0.0;     // Wasser total (m³)
+global float t_gs   = 0.0;     // Gas total (m³)
+global float avgt   = 0.0;     // gleitender Tagesmittel (°C)
+global float zwzi   = 0.0;     // 2-Richtungszähler in (kWh)
+global float zwzo   = 0.0;     // 2-Richtungszähler out (kWh)
+global float zwzc   = 0.0;     // 2-Richtungszähler current (W)
+global float pwl    = 0.0;     // Powerwall battery %
+global float sip    = 0.0;     // PW Netz (W)
+global float sop    = 0.0;     // PW Solar (W)
+global float bip    = 0.0;     // PW Batterie (W)
+global float hip    = 0.0;     // PW Haus (W)
+global float tcap   = 0.0;     // PW total capacity (Wh)
+global float rcap   = 0.0;     // PW remaining capacity (Wh)
+global float rper   = 0.0;     // PW remaining %
+global float wtemp  = 0.0;     // Wohnzimmer Temp (°C)
+global float whumi  = 0.0;     // Wohnzimmer Feuchte (%)
+global float wtvoc  = 0.0;     // Wohnzimmer TVOC (ppb)
+global float wco2   = 0.0;     // Wohnzimmer CO2 (ppm)
+global float aztemp = 0.0;     // SZ G Temp (°C)
+global float azhumi = 0.0;     // SZ G Feuchte (%)
+global float aztvoc = 0.0;     // SZ G TVOC (ppb)
+global float azeco2 = 0.0;     // SZ G eCO2 (ppm)
+global float bpress = 0.0;     // Büro Luftdruck (hPa)
+global float btemp  = 0.0;     // Büro Temperatur (°C)
+global float bhumi  = 0.0;     // Büro Feuchte (%)
+global float klima  = 0.0;     // Klima-Anlage (W, negative = consume)
+global float pwp    = 0.0;     // Pool-WP (W)
+global float t_kpwp = 0.0;     // Klima+Pool total (kWh)
+global float bwwp   = 0.0;     // Brauchwasser-WP total (kWh)
+global float bwtwp  = 0.0;     // Brauchwasser-WP today (kWh)
+global float ktmp   = 0.0;     // Kellertemperatur (°C)
+global float hwp    = 0.0;     // Heizungs-WP current (W)
+global float t_hwp  = 0.0;     // Heizungs-WP total (kWh)
+global float train  = 0.0;     // Regen total (mm)
+global float hrain  = 0.0;     // Regen heute (mm)
+global float shtemp = 0.0;     // Schlafzimmer Temp via UDP
+global float phs1   = 0.0;     // Phase 1 (W)
+global float phs2   = 0.0;     // Phase 2 (W)
+global float phs3   = 0.0;     // Phase 3 (W)
+global float gerr   = 0.0;     // energy manager error flag
+
+// ── Persist (snapshot at midnight, used to compute "today" deltas) ──
+persist float gas_m   = 0.0;
+persist float was_m   = 0.0;
+persist float hwp_m   = 0.0;
+persist float zrz_m   = 0.0;     // not float-y but kept for symmetry
+persist float auto_m  = 0.0;
+
+// 24h heat-pump kWh trace, 15-minute resolution.
+//   index 0     — last-written slot count (1..96)
+//   index 1..96 — kWh consumed in that 15-min window
+persist float dvals[97];
+persist int   dcnt    = 1;
+
+// 31-day historical: parallel arrays of (heat-pump kWh, average temp).
+persist float days_w[32];
+persist float days_t[32];
+
+// Per-minute heat-pump current trace (last 60 minutes).
+persist float fast_h[61];
+persist int   fcnt    = 1;
+
+// Vattenfall meter offset captured 2023-09-01 — fixed reference,
+// never overwritten. Kept in source for a public example; if the
+// real value should be private, move to /energy.cfg.
+int zrz_o = 21399;
+
+// Gas/water price ceilings (EUR/cent). Used only for display rows.
+int   gpe = 12;       // gas cent/kWh
+float spe = 0.30;     // strom EUR/kWh (Vattenfall reference)
+
+// ── Plain scalars (not persisted, not UDP) ─────────────────────────
+int   udp_timer    = 60;        // counts down in EverySecond; reset by UdpReady
+int   boot_logged  = 0;         // first-tick log marker
+int   last_hour    = -1;        // for hour-change detection
+int   last_m15     = -1;        // for 15-minute slot transition
+int   last_minute  = -1;        // for per-minute fast trace
+float oavgt        = 0.0;       // averaged temp snapshot (computed every 10s)
+float dsel         = 0.0;       // last t_hwp seen at slot rollover (for delta calc)
+float c_hwp        = 0.0;       // 15-minute heat-pump kWh delta
+float gas_c        = 0.0;       // gas today (m³)
+float was_c        = 0.0;       // water today (m³)
+char  scratch[160];             // sprintf workspace
+
+// ── Helpers ────────────────────────────────────────────────────────
+//
+// Append a single line to /log.txt with a timestamp. The original
+// Scripter script appends without bound — on a 320 KB filesystem we
+// can't afford that, so we cap at LOG_MAX bytes and truncate on
+// rollover (drop the file, start fresh) instead of partial-trim.
+//
+// Cap is intentionally low — events are rare (boot, UDP errors,
+// midnight rollover) so 4 KB holds many days of history.
+void log_evt(char msg[]) {
+    if (fileSize("/log.txt") > 4096) {
+        fileDelete("/log.txt");
+    }
+    int h = fileOpen("/log.txt", 2);    // append mode
+    if (h < 0) return;
+    char tsbuf[32];
+    timeStamp(tsbuf);                   // local time, "YYYY-MM-DDTHH:MM:SS"
+    // Build the line in a single buffer — fileWrite with a string literal
+    // emits SYS_FILE_WRITE_STR (id 276) which has no VM handler yet
+    // (compiler/runtime mismatch — see MEMORY.md). Going via a char[]
+    // routes through SYS_FILE_WRITE which works.
+    char line[160];
+    sprintf(line, "%s\t%s\n", tsbuf, msg);
+    fileWrite(h, line, strlen(line));
+    fileClose(h);
+}
+
+// One sensor section — two rows: a horizontal rule and a magenta
+// section heading. Mirrors the Scripter `#head(hdr)` subroutine.
+void web_section(char title[]) {
+    sprintf(scratch, "{s}<hr>{m}<hr>{e}{s}<span style='color:magenta;'>%s</span>{m}{e}", title);
+    webSend(scratch);
+}
+
+// Yellow-valued data row helpers, one per output precision. The
+// Scripter source uses `%0X`, `%1X`, `%2X`, `%3X`, `%4X` — keeping a
+// helper per precision keeps the per-row cost to one sprintf+webSend.
+void row_i(char label[], int v, char unit[]) {
+    sprintf(scratch, "{s}%s{m}<span style='color:yellow;'>%d %s</span>{e}", label, v, unit);
+    webSend(scratch);
+}
+void row_f1(char label[], float v, char unit[]) {
+    sprintf(scratch, "{s}%s{m}<span style='color:yellow;'>%.1f %s</span>{e}", label, v, unit);
+    webSend(scratch);
+}
+void row_f2(char label[], float v, char unit[]) {
+    sprintf(scratch, "{s}%s{m}<span style='color:yellow;'>%.2f %s</span>{e}", label, v, unit);
+    webSend(scratch);
+}
+void row_f3(char label[], float v, char unit[]) {
+    sprintf(scratch, "{s}%s{m}<span style='color:yellow;'>%.3f %s</span>{e}", label, v, unit);
+    webSend(scratch);
+}
+void row_f4(char label[], float v, char unit[]) {
+    sprintf(scratch, "{s}%s{m}<span style='color:yellow;'>%.4f %s</span>{e}", label, v, unit);
+    webSend(scratch);
+}
+
+// ── EverySecond — cron-ish bookkeeping ────────────────────────────
+//
+// The original Scripter `>S` block ran every second. This callback
+// is the same. Logic preserved 1:1 modulo the dropped audio paths.
+void EverySecond() {
+    // Skip everything until NTP has set the clock — otherwise the
+    // midnight rollover would fire spuriously at boot.
+    if (tasm_year < 2025) return;
+
+    // First-tick boot log.
+    if (boot_logged == 0) {
+        log_evt("boot");
+        boot_logged = 1;
+    }
+
+    // UDP watchdog — reset to 60 each tick that UdpReady fires
+    // (callback below). If 60 ticks elapse without a packet, the
+    // sender is probably gone; log and (potentially) re-subscribe.
+    if (udp_timer > 0) udp_timer = udp_timer - 1;
+    if (udp_timer == 0) {
+        log_evt("udp timeout");
+        udp_timer = 60;
+    }
+
+    // Every-10-seconds: snapshot avgt → oavgt for midnight use.
+    if (tasm_uptime % 10 == 0) {
+        oavgt = avgt;
+    }
+
+    // Hourly trigger.
+    int hr = tasm_hour;
+    if (hr != last_hour) {
+        if (hr == 0 && last_hour >= 0) {
+            // Midnight rollover — record yesterday's heat-pump kWh
+            // and average outdoor temp into the 31-day rolling buffer.
+            days_w[dcnt] = (bwtwp + t_hwp) - hwp_m;
+            days_t[dcnt] = oavgt;
+            days_w[0] = (float)dcnt;
+            days_t[0] = (float)dcnt;
+            dcnt = dcnt + 1;
+            if (dcnt > 31) dcnt = 1;
+
+            // Snapshot meter values so today-counters reset.
+            gas_m  = t_gs;
+            was_m  = t_ws;
+            hwp_m  = t_hwp;
+            zrz_m  = zwzi;
+            auto_m = t_wb;
+            saveVars();
+            log_evt("midnight rollover");
+        }
+        last_hour = hr;
+    }
+
+    // Today-deltas always recomputed (cheap, used in WebCall).
+    gas_c = t_gs - gas_m;
+    was_c = t_ws - was_m;
+
+    // 15-minute slot index 0..95 → daily heat-pump kWh trace.
+    int m15 = (tasm_hour * 60 + tasm_minute) / 15 + 1;   // 1..96
+    if (m15 != last_m15) {
+        if (last_m15 >= 0) {
+            // The Scripter version did `c_hwp = t_hwp - dsel*4`. dsel
+            // captures the previous boundary's t_hwp, *4 because the
+            // slot is 15 minutes (¼ hour) and we want kWh in that
+            // window. This reads as "kWh in this slot" assuming hwp
+            // power was reasonably constant.
+            c_hwp = t_hwp - dsel * 4.0;
+            dvals[m15] = c_hwp;
+            dsel       = t_hwp;
+            saveVars();   // 15-min cadence is fine for flash wear
+        } else {
+            // First observation since boot — just establish baseline.
+            dsel = t_hwp;
+        }
+        last_m15 = m15;
+    }
+    dvals[0] = (float)m15;     // for the chart x-axis cursor
+
+    // Per-minute fast trace (heat-pump current power).
+    int mn = tasm_minute;
+    if (mn != last_minute) {
+        fast_h[fcnt] = hwp;
+        fast_h[0]    = (float)fcnt;
+        fcnt = fcnt + 1;
+        if (fcnt > 60) fcnt = 1;
+        last_minute = mn;
+    }
+}
+
+// UDP-receive callback — fires when a known UDP global lands.
+// We only need it as a watchdog tickle.
+void UdpReady() {
+    udp_timer = 60;
+}
+
+// ── Main page sensor table — port of >WS + html_sub.txt ───────────
+//
+// Each `web_section` call emits a horizontal-rule + magenta heading.
+// Each `row_*` call emits one yellow-valued row in {s}label{m}val{e}
+// format. Rows that need richer markup (Powerwall colored values,
+// time block, sunrise/sunset emoji line) build the HTML inline with
+// sprintf + webSend.
+void WebCall() {
+    // ── Top: time, weekday, date, sunrise/sunset ─────────────────
+    // Day-of-week abbreviation (de). tasm_wday is 1=Sun..7=Sat.
+    char wd_label[3];
+    wd_label[2] = 0;
+    int wd = tasm_wday;
+    if      (wd == 1) { wd_label[0]='S'; wd_label[1]='o'; }
+    else if (wd == 2) { wd_label[0]='M'; wd_label[1]='o'; }
+    else if (wd == 3) { wd_label[0]='D'; wd_label[1]='i'; }
+    else if (wd == 4) { wd_label[0]='M'; wd_label[1]='i'; }
+    else if (wd == 5) { wd_label[0]='D'; wd_label[1]='o'; }
+    else if (wd == 6) { wd_label[0]='F'; wd_label[1]='r'; }
+    else              { wd_label[0]='S'; wd_label[1]='a'; }
+
+    // Month abbreviation (de) — tasm_month is 1..12.
+    char mo_label[4];
+    mo_label[3] = 0;
+    int mo = tasm_month;
+    if      (mo == 1)  { strcpy(mo_label, "Jan"); }
+    else if (mo == 2)  { strcpy(mo_label, "Feb"); }
+    else if (mo == 3)  { strcpy(mo_label, "Mar"); }
+    else if (mo == 4)  { strcpy(mo_label, "Apr"); }
+    else if (mo == 5)  { strcpy(mo_label, "Mai"); }
+    else if (mo == 6)  { strcpy(mo_label, "Jun"); }
+    else if (mo == 7)  { strcpy(mo_label, "Jul"); }
+    else if (mo == 8)  { strcpy(mo_label, "Aug"); }
+    else if (mo == 9)  { strcpy(mo_label, "Sep"); }
+    else if (mo == 10) { strcpy(mo_label, "Okt"); }
+    else if (mo == 11) { strcpy(mo_label, "Nov"); }
+    else               { strcpy(mo_label, "Dez"); }
+
+    sprintf(scratch,
+            "{s}<center><h1 style='color:green;font-size:40px;'>%02d:%02d:%02d</h1>{m}%s %d. %s <br>%d{e}",
+            tasm_hour, tasm_minute, tasm_second,
+            wd_label, tasm_day, mo_label, tasm_year);
+    webSend(scratch);
+
+    // Sunrise/sunset row with day-length.
+    int sr = tasm_sunrise;     // minutes since midnight
+    int ss = tasm_sunset;
+    int dl = ss - sr;          // day length, minutes
+    sprintf(scratch,
+            "{s}<center>&#127774; %02d:%02d <--- %02d:%02d ---> %02d:%02d &#127769;{e}",
+            sr / 60, sr % 60,
+            dl / 60, dl % 60,
+            ss / 60, ss % 60);
+    webSend(scratch);
+
+    // ── Wasser ───────────────────────────────────────────────────
+    web_section("Wasser");
+    row_i("Heute",      (int)(was_c * 1000.0), "l");
+    row_f4("Zählerstand", t_ws, "m³");
+
+    // ── Solarthermie ─────────────────────────────────────────────
+    web_section("Solarthermie");
+    row_f1("Außentemperatur",        atmp, "°C");
+    row_f2("Durchschnittstemperatur",     avgt, "°C");
+    row_f2("Kellertemperatur",            ktmp, "°C");
+    row_f1("Solarkollektor",              scol, "°C");
+    row_f1("Solarspeicher",               ssp,  "°C");
+
+    // ── Regen ────────────────────────────────────────────────────
+    web_section("Regen");
+    row_f2("Heute", hrain, "mm");
+    row_i ("Total", (int)train, "mm");
+
+    // ── Haupt Hauszähler ────────────────────────────────────────
+    web_section("Haupt Hauszähler");
+    row_f4("Verbrauch",            zwzi,           "kWh");
+    row_f4("Vattenfall Verbrauch", zwzi - (float)zrz_o, "kWh");
+    row_f4("Verbrauch heute",      zwzi - zrz_m,   "kWh");
+    row_f4("Einspeisung",          zwzo,           "kWh");
+    row_i ("aktueller Verbrauch",  (int)zwzc,      "W");
+
+    // ── Wallbox ──────────────────────────────────────────────────
+    web_section("Wallbox");
+    row_i ("aktuell", (int)auto,           "W");
+    row_f3("heute",   t_wb - auto_m,        "kWh");
+    row_f3("Total",   t_wb,                 "kWh");
+
+    // ── Klima-Anlage ────────────────────────────────────────────
+    web_section("Klima-Anlage");
+    row_i ("aktuell",        (int)(0.0 - klima), "W");
+    row_f3("Total (+Pool)",  t_kpwp,              "kWh");
+
+    // ── Pool-WP ──────────────────────────────────────────────────
+    web_section("Pool-WP");
+    row_i("aktuell", (int)(0.0 - pwp), "W");
+
+    // ── Brauchwasser-WP ─────────────────────────────────────────
+    web_section("Brauchwasser-WP");
+    row_f2("Heute", bwtwp,  "kWh");
+    row_i ("Total", (int)bwwp, "kWh");
+
+    // ── Heizungs-WP ─────────────────────────────────────────────
+    web_section("Heizungs-WP");
+    row_f2("Heute",   t_hwp - hwp_m, "kWh");
+    row_i ("aktuell", (int)hwp,      "W");
+    row_f3("Total",   t_hwp,         "kWh");
+
+    // ── Solar Hausdach (5.25 KW) ────────────────────────────────
+    web_section("Solar Hausdach, 5.25 KW");
+    row_i ("aktuell", (int)sedc, "W");
+    row_f3("Total",   sedt,      "kWh");
+
+    // ── Solar Garage (2.42/3.45 KW) ─────────────────────────────
+    web_section("Solar Garage, 2.42/3.45 KW");
+    row_i ("aktuell", (int)wrga, "W");
+    row_f3("Total",   t_ga,      "kWh");
+
+    // ── Solar Gartenhaus (1.96/2.8 KW) ──────────────────────────
+    web_section("Solar Gartenhaus, 1.96/2.8 KW");
+    row_i ("aktuell", (int)wrgh, "W");
+    row_f3("Total",   t_gh,      "kWh");
+
+    // ── Solar Garten (2.87/4.1 KW) ──────────────────────────────
+    web_section("Solar Garten, 2.87/4.1 KW");
+    row_i ("aktuell", (int)wrgg, "W");
+    row_f3("Total",   t_gg,      "kWh");
+
+    // ── Solar Gesamt ────────────────────────────────────────────
+    web_section("Solar Gesamt, 7.25/10.35 KW");
+    row_i ("aktuell", (int)(0.0 - (wrga + wrgh + wrgg)), "W");
+
+    // ── Powerwall — colored per metric ──────────────────────────
+    web_section("Powerwall");
+    sprintf(scratch,
+            "{s}Batterie Füllstand{m}<span style='color:yellow;'>%d%% (%.2f kWh)</span>{e}",
+            (int)pwl, pwl / 100.0 * 13.5);
+    webSend(scratch);
+    sprintf(scratch, "{s}Netz{m}<span style='color:yellow;'>%d W</span>{e}", (int)sip);
+    webSend(scratch);
+    sprintf(scratch, "{s}Solar{m}<span style='color:green;'>%d W</span>{e}", (int)sop);
+    webSend(scratch);
+    sprintf(scratch, "{s}Batterie{m}<span style='color:yellow;'>%d W</span>{e}", (int)bip);
+    webSend(scratch);
+    sprintf(scratch, "{s}Haus{m}<span style='color:red;'>%d W</span>{e}", (int)hip);
+    webSend(scratch);
+    sprintf(scratch, "{s}Gesamt{m}<span style='color:yellow;'>%.3f kWh</span>{e}", tcap / 1000.0);
+    webSend(scratch);
+    sprintf(scratch, "{s}Verbleibend{m}<span style='color:yellow;'>%.3f kWh</span>{e}", rcap / 1000.0);
+    webSend(scratch);
+    sprintf(scratch, "{s}Rcap{m}<span style='color:yellow;'>%d %%</span>{e}", (int)rper);
+    webSend(scratch);
+
+    // ── Büro ─────────────────────────────────────────────────────
+    web_section("Büro");
+    row_f1("Temperatur", btemp,  "°C");
+    row_f1("Feuchte",    bhumi,  "%");
+    row_f1("Luftdruck",  bpress, "hPa");
+
+    // ── Schlafzimmer ────────────────────────────────────────────
+    web_section("Schlafzimmer");
+    row_f1("Temperatur", shtemp, "°C");
+
+    // ── Schlafzimmer G ──────────────────────────────────────────
+    web_section("Schlafzimmer G");
+    row_f1("Temperatur", aztemp, "°C");
+    row_f1("Feuchte",    azhumi, "%");
+    row_i ("TVOC",       (int)aztvoc, "ppb");
+    row_i ("eCO2",       (int)azeco2, "ppm");
+
+    // ── Wohnzimmer ───────────────────────────────────────────────
+    web_section("Wohnzimmer");
+    row_f1("Temperatur", wtemp, "°C");
+    row_f1("Feuchte",    whumi, "%");
+    row_i ("TVOC",       (int)wtvoc, "ppb");
+    row_i ("CO2",        (int)wco2,  "ppm");
+
+    // ── Phasen ───────────────────────────────────────────────────
+    web_section("Phasen");
+    row_i("Phase 1", (int)phs1, "W");
+    row_i("Phase 2", (int)phs2, "W");
+    row_i("Phase 3", (int)phs3, "W");
+
+    // ── System ───────────────────────────────────────────────────
+    web_section("System");
+    sprintf(scratch, "{s}Filesystem frei{m}<span style='color:yellow;'>%.2f kB</span>{e}",
+            (float)fsInfo(1));
+    webSend(scratch);
+    sprintf(scratch, "{s}System Heap{m}<span style='color:yellow;'>%d kB</span>{e}",
+            tasm_heap / 1024);
+    webSend(scratch);
+
+    webSend("{s}<hr>{m}<hr>{e}");
+}
+
+// MQTT telemetry — keep the JSON compact with the most-watched
+// values. Tasmota appends this under the SENSOR topic.
+void JsonCall() {
+    sprintf(scratch,
+            ",\"ENERGY\":{\"feed\":%d,\"hwp\":%d,\"pwl\":%d,\"sop\":%d,\"hip\":%d,\"sip\":%d}",
+            (int)sedc, (int)hwp, (int)pwl, (int)sop, (int)hip, (int)sip);
+    responseAppend(scratch);
+}
+
+int main() {
+    addLog("ENERGY: dashboard starting");
+    return 0;
+}
