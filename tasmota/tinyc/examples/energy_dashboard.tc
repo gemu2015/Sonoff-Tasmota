@@ -548,22 +548,22 @@ void WebPage() {
              0xe74c3c, fast_pos, 60, fast_h,
              0, 1, 0.0, 0.0);          // auto-scale
 
-    // ── 31-day table: same data as the dual-axis chart, plain HTML
-    //    in a white card. All 31 rows always render (empty slots
-    //    show 0.00 / 0.0).
-    webSend("<div style='background:#fff;color:#000;padding:8px;border-radius:8px;margin:8px auto;display:inline-block;'>");
-    webSend("<h3 style='color:#1fa3ec;margin:4px 0 8px;text-align:center;'>Wärmepumpen — letzte 31 Tage</h3>");
-    webSend("<table style='margin:0 auto;border-collapse:collapse;'>");
-    webSend("<tr><th style='padding:4px 1em;border-bottom:1px solid #999;'>Tag</th><th style='padding:4px 1em;border-bottom:1px solid #999;'>WPV (kWh)</th><th style='padding:4px 1em;border-bottom:1px solid #999;'>D-Temp (°C)</th></tr>");
-    int idx = days_pos - 1;
-    if (idx < 0) idx = 30;
-    for (int i = 0; i < 31; i = i + 1) {
-        sprintf(scratch, "<tr><td style='padding:2px 1em;text-align:center;'>%d</td><td style='padding:2px 1em;text-align:right;'>%.2f</td><td style='padding:2px 1em;text-align:right;'>%.1f</td></tr>", i + 1, days_w[idx], days_t[idx]);
-        webSend(scratch);
-        idx = idx - 1;
-        if (idx < 0) idx = 30;
-    }
-    webSend("</table></div>");
+    // ── 31-day table — Google Charts Table renderer (`'t'` = type
+    //    116). Pattern lifted from core2_energy.tc:
+    //      WebChart('t', "ColHeader|Row1|Row2|…", "Series", color, …)
+    //    First call sets the column-1 header ("Tag"); subsequent
+    //    calls with title="" append columns to the same table. Row
+    //    labels in the title are optional — when omitted, rows are
+    //    auto-numbered 1..N by the renderer. Note: data is rendered
+    //    in physical array-index order, NOT chronological order.
+    //    With a ring buffer like ours that means rows 1..days_pos-1
+    //    show the most recent days and rows days_pos..30 show the
+    //    oldest. Re-ordering would need an extra display buffer; for
+    //    now leaving the natural ring-order display.
+    WebChart('t', "Tag", "WPV (kWh)", 0xe74c3c,
+             days_pos, 31, days_w, 2, 0, 0.0, 0.0);
+    WebChart('t', "",    "D-Temp (°C)", 0x3498db,
+             days_pos, 31, days_t, 1, 0, 0.0, 0.0);
 }
 
 int main() {
