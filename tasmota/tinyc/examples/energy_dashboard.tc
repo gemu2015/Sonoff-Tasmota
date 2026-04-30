@@ -81,6 +81,15 @@ global float phs2   = 0.0;     // Phase 2 (W)
 global float phs3   = 0.0;     // Phase 3 (W)
 global float gerr   = 0.0;     // energy manager error flag
 
+// Heat-pump live values — broadcast by examples/heatpump_map.tc on
+// the device that runs the Modbus client. Pulled via UDP global so
+// the dashboard can show pump status without each device talking
+// Modbus to the heat pump itself.
+global float hp_run = 0.0;     // 1.0 = running, 0.0 = off (r217 enum)
+global float hp_in  = 0.0;     // Puffer / return water (°C, r188)
+global float hp_out = 0.0;     // Ausgangstemp / supply water (°C, r191)
+global float hp_at  = 0.0;     // HP's own outside-air sensor (°C, r190)
+
 // ── Persist (snapshot at midnight, used to compute "today" deltas) ──
 persist float gas_m   = 0.0;
 persist float was_m   = 0.0;
@@ -390,7 +399,19 @@ void WebCall() {
     row_i ("Total", (int)bwwp, "kWh");
 
     // ── Heizungs-WP ─────────────────────────────────────────────
+    // Status / water in / water out / outside come via UDP from the
+    // device running examples/heatpump_map.tc (Modbus to the actual
+    // heat-pump controller). hp_run is 1.0 when r217 == 1 (running),
+    // 0.0 otherwise (booting / remote-off).
     web_section("Heizungs-WP");
+    char hp_st_buf[8];
+    if (hp_run > 0.5) { strcpy(hp_st_buf, "AN"); }
+    else              { strcpy(hp_st_buf, "AUS"); }
+    sprintf(scratch, "{s}Status{m}<span style='color:yellow;'>%s</span>{e}", hp_st_buf);
+    webSend(scratch);
+    row_f1("Wasser ein",  hp_in,  "°C");
+    row_f1("Wasser aus",  hp_out, "°C");
+    row_f1("Aussen (HP)", hp_at,  "°C");
     row_f2("Heute",   t_hwp - hwp_m, "kWh");
     row_i ("aktuell", (int)hwp,      "W");
     row_f3("Total",   t_hwp,         "kWh");

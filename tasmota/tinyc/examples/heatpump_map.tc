@@ -133,6 +133,15 @@ global float ktmp   = 14.0;   // Keller (cellar — typically colder) °C
 global float rtemp  = 10.0;   // Außentemperatur (Bresser sensor) °C
 global float hwp    =  0.0;   // Heat-pump current power consumption (W)
 
+// Heat-pump live state — broadcast when store_reg() lands a value on
+// the matching Modbus register. Lets other devices on the LAN
+// (energy_dashboard, sub-displays, etc.) show the heat-pump's
+// own readings without each having to talk Modbus.
+global float hp_run  = 0.0;   // 1.0 = running, 0.0 = off  (from r217 enum)
+global float hp_in   = 0.0;   // Water back from heating circuit / Puffer (°C, r188)
+global float hp_out  = 0.0;   // Supply water / Ausgangstemp (°C, r191)
+global float hp_at   = 0.0;   // Outside-air sensor on the HP itself (°C, r190)
+
 // ── Watchdog: cycle the heat pump if it's stuck in winter ────
 // 2-3 times a year the pump locks up and won't restart on its own. If
 // that happens while you're traveling the house cools down. The
@@ -188,6 +197,22 @@ void store_reg(int addr, int val) {
         registers_known = registers_known + 1;
     }
     reg[addr] = val;
+
+    // ── Mirror the four headline registers onto UDP-broadcast globals
+    //    so neighbour scripts (energy_dashboard, etc.) see fresh values
+    //    without polling Modbus themselves. Sign-extension matches the
+    //    parsing in WebCall / JsonCall: r188 / r190 / r191 are signed
+    //    ×10 °C; r217 is an enum (0=boot, 1=running, 6=remote-off).
+    if (addr == 188 || addr == 190 || addr == 191) {
+        int s = val & 0xFFFF;
+        if (s >= 32768) s = s - 65536;
+        float t = s / 10.0;
+        if      (addr == 188) hp_in  = t;
+        else if (addr == 190) hp_at  = t;
+        else if (addr == 191) hp_out = t;
+    } else if (addr == 217) {
+        hp_run = ((val & 0xFFFF) == 1) ? 1.0 : 0.0;
+    }
 }
 
 // ------------------------------------------------------------
