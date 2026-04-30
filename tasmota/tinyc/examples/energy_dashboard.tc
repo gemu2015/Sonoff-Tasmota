@@ -522,6 +522,32 @@ void WebPage() {
              fast_pos, 60, fast_h,
              0, 1,                 // 0 decimals, 1 minute per point
              0.0, 0.0);            // auto-scale
+
+    // ── 31-day table: same data as the dual-axis chart, rendered as
+    //    a plain HTML table for at-a-glance scanning. Walks backwards
+    //    from the most recently written slot (days_pos - 1, wrapping)
+    //    so the newest day is the first row. Skips empty slots —
+    //    prevents the table from being padded with zeros while the
+    //    buffer fills up over the first 31 days after a reset.
+    webSend("<center><h3 style='color:#1fa3ec;'>Wärmepumpen — letzte 31 Tage</h3>");
+    webSend("<table style='margin:0 auto;border-collapse:collapse;'>");
+    webSend("<tr><th style='padding:0 1em;'>Tag</th><th style='padding:0 1em;'>WPV (kWh)</th><th style='padding:0 1em;'>D-Temp (°C)</th></tr>");
+    int idx = days_pos - 1;
+    if (idx < 0) idx = 30;
+    int rendered = 0;
+    for (int i = 0; i < 31; i = i + 1) {
+        if (days_w[idx] != 0.0 || days_t[idx] != 0.0) {
+            sprintf(scratch, "<tr><td style='padding:0 1em;text-align:center;'>%d</td><td style='padding:0 1em;text-align:right;'>%.2f</td><td style='padding:0 1em;text-align:right;'>%.1f</td></tr>", i + 1, days_w[idx], days_t[idx]);
+            webSend(scratch);
+            rendered = rendered + 1;
+        }
+        idx = idx - 1;
+        if (idx < 0) idx = 30;
+    }
+    if (rendered == 0) {
+        webSend("<tr><td colspan='3' style='padding:1em;text-align:center;color:#999;'>(noch keine Tage erfasst)</td></tr>");
+    }
+    webSend("</table></center>");
 }
 
 int main() {
