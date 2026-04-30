@@ -88,19 +88,22 @@ persist float hwp_m   = 0.0;
 persist float zrz_m   = 0.0;     // not float-y but kept for symmetry
 persist float auto_m  = 0.0;
 
-// 24h heat-pump kWh trace, 15-minute resolution.
-//   index 0     — last-written slot count (1..96)
-//   index 1..96 — kWh consumed in that 15-min window
-persist float dvals[97];
-persist int   dcnt    = 1;
+// 24h heat-pump kWh trace, 15-minute resolution. Plain ring buffer:
+// slot N = kWh consumed during 15-min window N. dvals_pos = current
+// write cursor (0..95). The Scripter version used dvals[0] as the
+// cursor and 1..96 as data; we use a separate scalar instead so the
+// array lays out cleanly for WebChart() consumption.
+persist float dvals[96];
+persist int   dvals_pos = 0;
 
 // 31-day historical: parallel arrays of (heat-pump kWh, average temp).
-persist float days_w[32];
-persist float days_t[32];
+persist float days_w[31];
+persist float days_t[31];
+persist int   days_pos  = 0;
 
 // Per-minute heat-pump current trace (last 60 minutes).
-persist float fast_h[61];
-persist int   fcnt    = 1;
+persist float fast_h[60];
+persist int   fast_pos  = 0;
 
 // Vattenfall meter offset captured 2023-09-01 — fixed reference,
 // never overwritten. Kept in source for a public example; if the
@@ -217,12 +220,10 @@ void EverySecond() {
         if (hr == 0 && last_hour >= 0) {
             // Midnight rollover — record yesterday's heat-pump kWh
             // and average outdoor temp into the 31-day rolling buffer.
-            days_w[dcnt] = (bwtwp + t_hwp) - hwp_m;
-            days_t[dcnt] = oavgt;
-            days_w[0] = (float)dcnt;
-            days_t[0] = (float)dcnt;
-            dcnt = dcnt + 1;
-            if (dcnt > 31) dcnt = 1;
+            days_w[days_pos] = (bwtwp + t_hwp) - hwp_m;
+            days_t[days_pos] = oavgt;
+            days_pos = days_pos + 1;
+            if (days_pos >= 31) days_pos = 0;
 
             // Snapshot meter values so today-counters reset.
             gas_m  = t_gs;
@@ -241,7 +242,7 @@ void EverySecond() {
     was_c = t_ws - was_m;
 
     // 15-minute slot index 0..95 → daily heat-pump kWh trace.
-    int m15 = (tasm_hour * 60 + tasm_minute) / 15 + 1;   // 1..96
+    int m15 = (tasm_hour * 60 + tasm_minute) / 15;   // 0..95
     if (m15 != last_m15) {
         if (last_m15 >= 0) {
             // The Scripter version did `c_hwp = t_hwp - dsel*4`. dsel
@@ -251,23 +252,23 @@ void EverySecond() {
             // power was reasonably constant.
             c_hwp = t_hwp - dsel * 4.0;
             dvals[m15] = c_hwp;
+            dvals_pos  = m15;
             dsel       = t_hwp;
             saveVars();   // 15-min cadence is fine for flash wear
         } else {
             // First observation since boot — just establish baseline.
             dsel = t_hwp;
+            dvals_pos = m15;
         }
         last_m15 = m15;
     }
-    dvals[0] = (float)m15;     // for the chart x-axis cursor
 
     // Per-minute fast trace (heat-pump current power).
     int mn = tasm_minute;
     if (mn != last_minute) {
-        fast_h[fcnt] = hwp;
-        fast_h[0]    = (float)fcnt;
-        fcnt = fcnt + 1;
-        if (fcnt > 60) fcnt = 1;
+        fast_h[fast_pos] = hwp;
+        fast_pos = fast_pos + 1;
+        if (fast_pos >= 60) fast_pos = 0;
         last_minute = mn;
     }
 }
@@ -470,15 +471,57 @@ void WebCall() {
     webSend(scratch);
 
     webSend("{s}<hr>{m}<hr>{e}");
+
+    // ── Reload button — forces a full page reload so WebPage() runs
+    // again and the charts redraw with the latest persist data. The
+    // /?m=1 polling refreshes the sensor table above but not the
+    // chart panels (charts live in WebPage, called once per /).
+    webSend("{s}<button onclick='location.reload()' style='width:100%;background:#1fa3ec;color:white;border:0;border-radius:0.3rem;padding:0.5rem;'>Charts neu zeichnen</button>{m}{e}");
 }
 
-// MQTT telemetry — keep the JSON compact with the most-watched
-// values. Tasmota appends this under the SENSOR topic.
-void JsonCall() {
-    sprintf(scratch,
-            ",\"ENERGY\":{\"feed\":%d,\"hwp\":%d,\"pwl\":%d,\"sop\":%d,\"hip\":%d,\"sip\":%d}",
-            (int)sedc, (int)hwp, (int)pwl, (int)sop, (int)hip, (int)sip);
-    responseAppend(scratch);
+// ── Charts (rendered once on main page load via WebPage callback) ──
+//
+// Three Google-Charts panels mirror the Scripter sub-page that lived
+// behind the secondary menu button. WebChart auto-loads the Charts JS
+// library and emits the chart container + script — one call per data
+// series. Two series with different Y ranges on the same chart auto-
+// promote to dual Y-axis.
+//
+// Layouts:
+//   chart 1 — last 24h, heat-pump kWh per 15-min slot
+//   chart 2 — last 31 days, heat-pump kWh + outdoor avg temp (dual axis)
+//   chart 3 — last 60 minutes, heat-pump current power
+void WebPage() {
+    // 24h heat-pump kWh
+    WebChartSize(640, 280);
+    WebChart(0, "Heizungs-WP 24h", "kWh",
+             0xe74c3c,             // red
+             dvals_pos, 96, dvals,
+             2,                    // 2 decimals
+             15,                   // minutes per data point
+             0.0, 4.0);            // y range
+
+    // 31-day combined: WP kWh + outdoor temp on dual axis
+    WebChartSize(640, 280);
+    WebChart(0, "Wärmepumpe + Aussen 31 Tage", "kWh",
+             0xe74c3c,
+             days_pos, 31, days_w,
+             2, 1440,              // 1440 min = 1 day per point
+             0.0, 60.0);
+    // Second series — empty title means "add to previous chart"
+    WebChart(0, "", "°C",
+             0x3498db,             // blue
+             days_pos, 31, days_t,
+             1, 1440,
+             -10.0, 40.0);
+
+    // 60-minute heat-pump current power
+    WebChartSize(640, 200);
+    WebChart(0, "Heizungs-WP letzte 60 min", "W",
+             0xe74c3c,
+             fast_pos, 60, fast_h,
+             0, 1,                 // 0 decimals, 1 minute per point
+             0.0, 0.0);            // auto-scale
 }
 
 int main() {
