@@ -1,0 +1,16 @@
+# Partition table that gets WRITTEN by the migrator at offset 0x8000.
+# This is the modern Tasmota safeboot layout for 4 MB flash:
+#   safeboot (832 KB) takes the place of the old `app0` slot; the new
+#   single `app` partition takes most of what used to be `app1`; the
+#   filesystem grows from 256 KB → 1280 KB.
+#
+# IMPORTANT: keep the NVS offset (0x9000) and otadata offset (0xE000)
+# IDENTICAL to the old layout so existing Wi-Fi credentials and
+# OTA bookkeeping survive the migration.
+#
+# Name,     Type, SubType,  Offset,   Size,     Flags
+nvs,        data, nvs,      0x9000,   0x5000,
+otadata,    data, ota,      0xE000,   0x2000,
+safeboot,   app,  factory,  0x10000,  0xD0000,
+app0,       app,  ota_0,    0xE0000,  0x1E0000,
+spiffs,     data, spiffs,   0x2C0000, 0x140000,

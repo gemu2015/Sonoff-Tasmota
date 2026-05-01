@@ -1,0 +1,8 @@
+# Generated artifacts — do NOT commit. The safeboot binary is chip-
+# specific (ESP32-D0WD vs S3 vs C3), large, and changes every release.
+# Keep build_blobs.sh in git, but expect each user to regenerate the
+# blobs locally for their target chip.
+safeboot.bin
+partitions_new.bin
+safeboot_blob.h
+partitions_blob.h
