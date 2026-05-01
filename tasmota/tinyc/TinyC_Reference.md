@@ -3853,6 +3853,9 @@ All commands default to slot 0 if no slot number is given (backward-compatible).
 | `TinyCExec <n>`               | Set instructions per tick (default 1000)         |
 | `TinyCInfo 0\|1`              | Show/hide VM debug rows on main web page         |
 | `TinyC ?<query>`              | Query global variables by index (see below)      |
+| `TinyCChkpt`                  | Show partition table (ESP32 only)                |
+| `TinyCChkpt p`                | Pack: shrink `app0` to fit, expand `spiffs`      |
+| `TinyCChkpt p <KB>`           | Pack with explicit `app0` size in KB (1024..3904)|
 
 **Examples:**
 ```
@@ -3862,7 +3865,63 @@ TinyCRun 2 /logger.tcb      → load file into slot 2 and run
 TinyCStop 1                 → stop slot 1
 TinyCReset 3                → reset slot 3
 TinyCInfo 1                 → show debug info on main page
+
+TinyCChkpt                  → list all partitions with offsets, sizes, labels
+TinyCChkpt p                → auto-pack: app0 = current sketch size + 192 KB
+                              headroom (rounded to 64 KB), all remaining
+                              flash up to the start of `custom` (or end of
+                              chip) becomes `spiffs`
+TinyCChkpt p 2880           → set app0 to exactly 2880 KB; spiffs = rest
 ```
+
+**`TinyCChkpt p` — partition repack**
+
+A safe in-firmware way to reclaim flash for the filesystem on devices
+that were initially provisioned with a larger `app0` than the current
+firmware needs. Common use case: a 16 MB device flashed with a generic
+`app0=3008 KB` partition layout, where the actual sketch is only 1.5 MB
+— the rest of the app slot is wasted, while spiffs sits at a small
+default size. Packing returns the unused app space to spiffs.
+
+**Mechanics:**
+
+1. Reads the current partition table from `0x8000`.
+2. Locates `app0`, `spiffs`, and (if present) `custom`. Verifies a
+   `safeboot` partition exists — if not, the pack is **refused**: no
+   safeboot means no recovery if the new app slot turns out to be too
+   small for a future build, so the operation is unsafe.
+3. Computes new sizes:
+   - `app0` → requested KB (or auto: sketch + ~192 KB, 64 KB-aligned).
+   - `spiffs` → start = end of new app0; end = start of `custom`
+     partition (if any) or end of flash chip.
+4. Updates the partition table entries, recomputes the trailer MD5,
+   writes the 4 KB sector at `0x8000` back atomically.
+5. **Formats LittleFS** — the spiffs partition's offset and size both
+   change, so the existing FS layout is no longer valid. Anything you
+   want to keep MUST be backed up first.
+
+**Safety:**
+
+- Refused without a `safeboot` partition (no recovery → no go).
+- Refused if the new app size is smaller than the current sketch
+  (would brick on next OTA).
+- Refused if there's no room for spiffs (custom partition or chip
+  end is closer than new spiffs would need).
+- The `custom` partition (if present) is preserved in place; spiffs
+  expands up to its boundary, not over it.
+
+**Recommended workflow:**
+
+```
+TinyCChkpt                  # see current layout — note app0 size and FS size
+# → in WebUI's File Manager, back up Settings.json and any .tcb / .pvs
+#   you don't want to lose
+TinyCChkpt p                # auto-pack
+# → device reboots, FS is empty; re-upload your scripts and Settings
+```
+
+Don't run `TinyCChkpt p` if you're not prepared to lose the filesystem
+contents.
 
 ### Web Console (`/tc`)
 

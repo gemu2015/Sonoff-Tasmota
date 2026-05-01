@@ -351,6 +351,17 @@ CLI / direct (less common):
 
 Persist files live next to the `.tcb` as `<name>.pvs`.
 
+**Reclaim flash for FS on safeboot devices**: `TinyCChkpt` shows the
+partition table; `TinyCChkpt p` repacks — shrinks `app0` to fit the
+current sketch + 192 KB headroom, gives all freed flash to `spiffs`.
+Common use: 16 MB device flashed with a generic `app0=3008 KB` slot
+where the sketch is actually only 1.5 MB — packing returns the rest
+to the filesystem. Refuses if there's no `safeboot` partition (no
+recovery path) or if the requested app size is smaller than the
+running sketch (would brick on next OTA). **Wipes LittleFS** as a
+side effect — back up `Settings.json` and any user files first.
+`TinyCChkpt p 2880` to set an explicit KB size instead of auto.
+
 ---
 
 ## 11. Known gaps / "don't retry"
